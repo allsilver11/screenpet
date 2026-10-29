@@ -45,6 +45,10 @@ const WAKE_CLICKS: u32 = 3;
 const WAKE_CLICK_WINDOW: f64 = 2.0;
 const SLEEPY_ANNOYED_SECS: f64 = 1.5;
 const WAKE_STRETCH_SECS: f64 = 2.5;
+/// 집으로 가는 길이 이만큼(초) 안에 끝나지 않으면 문 앞으로 한 번에 뛰어든다 (들려 있는 동안은 세지 않는다)
+const HOME_TRIP_LIMIT_SECS: f64 = 12.0;
+/// 안전 점프가 출발·도착 중 높은 쪽보다 더 솟는 높이 (크기 128 기준 px)
+const HOME_LEAP_RISE: f64 = 200.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -171,6 +175,12 @@ pub enum State {
     Slide,
     /// 던져져 창 옆면에 달라붙어 기어오르는 중. rel_y = 발 높이 − 창 윗면
     WallClimb { window: u64, side: Side, rel_y: f64 },
+    /// 하우스로 달려가는 중 (디딤판 위). 문 위치는 Pet의 home_trip
+    GoHome,
+    /// 집으로 가는 길이 너무 오래 걸려 문 앞으로 한 번에 뛰어드는 중 — 충돌 없이 포물선을 따라간다
+    HomeLeap { remaining: f64 },
+    /// 하우스 안 (물리·세계 상호작용 없음). 하우스 안에서 먹을 땐 Eating/LevelUp/Trick을 거쳐 돌아온다
+    Housed,
 }
 
 impl State {
@@ -204,6 +214,14 @@ struct Pacing {
     after_beat: Option<AfterBeat>,
     /// 마지막으로 실제로 시작한 이동 방식 (이동 관성)
     last_move: Option<Move>,
+}
+
+/// 하우스로 가는 길: 문이 있는 바닥과 문 x, 지금까지 걸린 시간
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct HomeTrip {
+    owner: Owner,
+    door_x: f64,
+    elapsed: f64,
 }
 
 /// 서 있는 디딤판과 그 기준점(anchor)으로부터의 x 오프셋.
@@ -263,6 +281,10 @@ pub struct Pet {
     before_press: Option<(State, Option<AfterBeat>)>,
     /// 자는 동안 누른 횟수와 첫 클릭 시각
     sleep_clicks: (u32, f64),
+    /// 하우스로 가는 중이면 Some (들려 있거나 공중이어도 유지된다)
+    home_trip: Option<HomeTrip>,
+    /// 하우스 안에 있음
+    housed: bool,
     rng: fastrand::Rng,
 }
 
@@ -289,6 +311,8 @@ impl Pet {
             pacing: Pacing::default(),
             before_press: None,
             sleep_clicks: (0, 0.0),
+            home_trip: None,
+            housed: false,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -296,7 +320,26 @@ impl Pet {
     pub fn update(&mut self, dt: f64, world: &World) {
         self.clock += dt;
         self.heart_timer = (self.heart_timer - dt).max(0.0);
+        if self.housed {
+            self.update_housed(dt);
+            return;
+        }
+        if !self.is_held() {
+            if let Some(trip) = self.home_trip.as_mut() {
+                trip.elapsed += dt;
+                if trip.elapsed >= HOME_TRIP_LIMIT_SECS && !matches!(self.state, State::HomeLeap { .. }) {
+                    self.start_home_leap(world);
+                }
+            }
+        }
         match self.state {
+            State::Housed => {}
+            State::HomeLeap { remaining } => self.update_home_leap(dt, remaining, world),
+            State::Climb { .. } | State::Slide | State::WallClimb { .. } if self.home_trip.is_some() => self.start_fall(),
+            _ if self.home_trip.is_some() && !self.is_held() && !self.off_surface() => {
+                self.update_chatter(dt);
+                self.update_go_home(dt, world);
+            }
             State::Dragged => {}
             State::Pressed { grounded, .. } => {
                 if grounded {
@@ -335,6 +378,9 @@ impl Pet {
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } => Anim::Climb,
             State::Slide => Anim::Slide,
+            State::GoHome => Anim::Run,
+            State::HomeLeap { .. } => Anim::Hop,
+            State::Housed => Anim::SitFront,
             State::Pressed { grounded: true, .. } => Anim::Idle,
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
         };
@@ -354,21 +400,230 @@ impl Pet {
         }
     }
 
+    /// 하우스 안에 있음 (가는 중은 아님). 하우스에 있는 동안엔 놀러 가지 않는다 (phase 3)
+    pub fn is_housed(&self) -> bool {
+        self.housed
+    }
+
+    /// 하우스로 가는 중 (아직 도착 전)
+    pub fn is_going_home(&self) -> bool {
+        self.home_trip.is_some()
+    }
+
+    /// 바로 하우스 안에 둔다 (앱 시작 시 하우스에 있던 경우, 그리고 도착했을 때)
+    pub fn enter_house(&mut self) {
+        self.housed = true;
+        self.home_trip = None;
+        self.standing = None;
+        self.pacing.after_beat = None;
+        self.before_press = None;
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        self.clear_hover();
+        self.state = State::Housed;
+    }
+
+    /// 하우스로 달려간다. door_x = owner(하우스가 있는 작업 영역 바닥) 위의 문 x.
+    /// 들려 있으면 놓인 뒤에, 공중이면 내려선 뒤에 달려가고, 벽·화면을 타는 중이면 바로 떨어진다.
+    pub fn go_home(&mut self, owner: Owner, door_x: f64) {
+        if self.housed {
+            return;
+        }
+        let elapsed = self.home_trip.map_or(0.0, |t| t.elapsed);
+        self.home_trip = Some(HomeTrip { owner, door_x, elapsed });
+        self.pacing.after_beat = None;
+        self.clear_hover();
+        match self.state {
+            State::Pressed { .. } | State::Dragged | State::Air { .. } | State::HomeLeap { .. } => {}
+            State::Climb { .. } | State::Slide | State::WallClimb { .. } => self.start_fall(),
+            _ if self.standing.is_some() => self.state = State::GoHome,
+            _ => self.start_fall(),
+        }
+    }
+
+    /// 하우스에서 나온다: owner 바닥의 문 x에 서서 왼쪽으로 걸어 나온다.
+    /// 아직 가는 중이었다면 가던 길만 멈춘다 (그 자리에 그대로).
+    pub fn leave_house(&mut self, world: &World, door_x: f64, owner: Owner) {
+        if !self.housed {
+            if self.home_trip.take().is_some() && matches!(self.state, State::GoHome | State::HomeLeap { .. }) {
+                if matches!(self.state, State::HomeLeap { .. }) {
+                    self.state = State::Air { anim: Anim::Fall };
+                } else {
+                    self.state = self.idle_state();
+                }
+            }
+            return;
+        }
+        self.housed = false;
+        self.home_trip = None;
+        self.facing = -1.0;
+        let Some((ax, ay)) = world.anchor(owner) else {
+            self.body.x = door_x;
+            self.start_fall();
+            return;
+        };
+        self.body = Body { x: door_x, y: ay, vx: 0.0, vy: 0.0 };
+        self.standing = Some(Standing { owner, rel_x: door_x - ax });
+        self.state = State::Move { kind: Move::Walk, remaining: behavior::range(&mut self.rng, Move::Walk.secs()) };
+        self.on_started();
+    }
+
+    fn clear_hover(&mut self) {
+        self.hover_hist.clear();
+        self.tickling = false;
+        self.hover_since = None;
+    }
+
+    /// 하우스 안: 말풍선 타이머와 하우스 안에서 먹기·성장 축하·갸웃·하트만 흐른다
+    fn update_housed(&mut self, dt: f64) {
+        self.update_chatter(dt);
+        self.state = match self.state {
+            State::Eating { remaining, favorite, level_up } => {
+                let remaining = remaining - dt;
+                if remaining > 0.0 {
+                    State::Eating { remaining, favorite, level_up }
+                } else if level_up {
+                    self.speech = Some(Speech::LevelUp);
+                    State::LevelUp { remaining: LEVEL_UP_SECS }
+                } else if favorite {
+                    State::Trick { kind: Trick::Heart, remaining: AFTER_FAVORITE_HEART_SECS }
+                } else {
+                    State::Housed
+                }
+            }
+            State::LevelUp { remaining } if remaining > dt => State::LevelUp { remaining: remaining - dt },
+            State::Trick { kind, remaining } if remaining > dt => State::Trick { kind, remaining: remaining - dt },
+            _ => State::Housed,
+        };
+    }
+
+    /// 문에 도착: 문 앞 바닥에 두고 하우스 안으로
+    fn arrive_home(&mut self, world: &World) {
+        let Some(trip) = self.home_trip else { return };
+        self.body.x = trip.door_x;
+        if let Some((_, ay)) = world.anchor(trip.owner) {
+            self.body.y = ay;
+        }
+        self.enter_house();
+    }
+
+    /// 집으로 달린다. 하우스 바닥에선 문까지, 다른 디딤판에선 집 쪽 끝까지 가서 반드시 떠난다
+    /// (창 모서리·가려짐·화면 끝은 뛰어내리고, 모니터 경계는 넘어간다 — 돌아서지 않는다).
+    fn update_go_home(&mut self, dt: f64, world: &World) {
+        let Some(trip) = self.home_trip else { return };
+        if !self.follow_anchor(world) {
+            self.start_fall();
+            return;
+        }
+        let st = self.standing.unwrap();
+        let Some(piece) = world.piece_at(st.owner, self.body.x).copied() else {
+            self.start_fall();
+            return;
+        };
+        let home_here = st.owner == trip.owner && piece.contains_x(trip.door_x);
+        let dx = trip.door_x - self.body.x;
+        if home_here && dx == 0.0 {
+            self.arrive_home(world);
+            return;
+        }
+        // 다른 디딤판에서 문 바로 위·아래에 있으면 방향을 바꾸지 않고 하던 쪽으로 계속 간다 (제자리 맴돌기 방지)
+        let dir = if home_here || dx.abs() >= self.cfg.half_w { dx.signum() } else { self.facing };
+        self.facing = dir;
+        if !home_here && piece.width() < 2.0 * self.cfg.half_w {
+            self.start_hop(dir);
+            return;
+        }
+        let speed = self.cfg.walk_speed * Move::Run.speed_mult();
+        let new_x = self.body.x + dir * speed * dt;
+        let step_to = |p: &mut Pet, x: f64| {
+            p.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (x - p.body.x) });
+            p.body.x = x;
+            p.state = State::GoHome;
+        };
+        if home_here {
+            if (trip.door_x - new_x) * dir <= 0.0 {
+                self.arrive_home(world);
+            } else {
+                step_to(self, new_x);
+            }
+            return;
+        }
+        let (edge_x, end) = if dir > 0.0 { (piece.x_end, piece.end_kind) } else { (piece.x_start, piece.start_kind) };
+        let beyond = |x: f64| (x - edge_x) * dir > 0.0;
+        if !beyond(new_x + dir * self.cfg.half_w) {
+            step_to(self, new_x);
+            return;
+        }
+        match end {
+            EndKind::Seam { to } => {
+                if self.at_seam(world, to, Move::Run, speed, new_x, beyond(new_x)) {
+                    self.state = State::GoHome;
+                } else if matches!(self.state, State::Turn { .. }) {
+                    // 너무 높은 이웃 모니터: 돌아서지 않고 그쪽으로 뛰어 본다 (안 되면 안전 점프가 해결)
+                    self.start_hop(dir);
+                }
+            }
+            _ => {
+                self.start_hop(dir);
+                self.body.vx *= behavior::RUN_LEAP_VX_MULT;
+            }
+        }
+    }
+
+    /// 지금 위치에서 문 앞 바닥까지 한 번에 닿는 포물선 (화면 위로 머리가 나가지 않게)
+    fn start_home_leap(&mut self, world: &World) {
+        let Some(trip) = self.home_trip else { return };
+        let Some((_, gy)) = world.anchor(trip.owner) else {
+            // 하우스가 있던 모니터가 사라짐 — 그냥 하우스 안으로
+            self.enter_house();
+            return;
+        };
+        let (x0, y0) = (self.body.x, self.body.y);
+        let low = y0.min(gy);
+        let apex = (low - self.scaled(HOME_LEAP_RISE)).max(world.bounds.top + self.cfg.size).min(low);
+        let vy = -(2.0 * GRAVITY * (y0 - apex)).sqrt();
+        let t = -vy / GRAVITY + (2.0 * (gy - apex) / GRAVITY).sqrt();
+        if t < 1e-3 {
+            self.arrive_home(world);
+            return;
+        }
+        let vx = (trip.door_x - x0) / t;
+        self.pacing.after_beat = None;
+        self.standing = None;
+        self.body.vx = vx;
+        self.body.vy = vy;
+        if vx.abs() > 1.0 {
+            self.facing = vx.signum();
+        }
+        self.state = State::HomeLeap { remaining: t };
+    }
+
+    fn update_home_leap(&mut self, dt: f64, remaining: f64, world: &World) {
+        let step = dt.min(remaining);
+        self.body.x += self.body.vx * step;
+        self.body.y += self.body.vy * step + 0.5 * GRAVITY * step * step;
+        self.body.vy += GRAVITY * step;
+        let remaining = remaining - dt;
+        if remaining > 0.0 {
+            self.state = State::HomeLeap { remaining };
+        } else {
+            self.arrive_home(world);
+        }
+    }
+
     pub fn is_held(&self) -> bool {
         matches!(self.state, State::Pressed { .. } | State::Dragged)
     }
 
     /// 공중이거나 벽에 붙어 있음 (디딤판 위가 아님)
     fn off_surface(&self) -> bool {
-        matches!(self.state, State::Air { .. } | State::Climb { .. } | State::Slide | State::WallClimb { .. })
+        matches!(self.state, State::Air { .. } | State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::HomeLeap { .. })
     }
 
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
     pub fn hover(&mut self, cx: f64, cy: f64, inside: bool) {
-        if self.is_held() || self.off_surface() {
-            self.hover_hist.clear();
-            self.tickling = false;
-            self.hover_since = None;
+        if self.is_held() || self.off_surface() || self.housed || self.home_trip.is_some() {
+            self.clear_hover();
             return;
         }
         if inside {
@@ -420,7 +675,7 @@ impl Pet {
     }
 
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
-        if self.is_held() {
+        if self.is_held() || self.housed {
             return;
         }
         let grounded = self.standing.is_some() && !self.off_surface();
@@ -480,9 +735,10 @@ impl Pet {
     }
 
     /// 먹이 결과 반영. 공중·드래그 중이면 무시하고 false
+    /// 하우스 안에서도 먹는다 (하우스 창이 문간에서 먹는 모습을 보여 준다). 하우스로 가는 중엔 false
     pub fn feed_result(&mut self, result: FeedResult, food: Food) -> bool {
         let grounded = self.standing.is_some() && !self.off_surface() && !self.is_held();
-        if !grounded {
+        if !(self.housed || grounded && self.home_trip.is_none()) {
             return false;
         }
         self.pacing.after_beat = None;
@@ -504,6 +760,11 @@ impl Pet {
     }
 
     pub fn pointer_up(&mut self, cx: f64, cy: f64) {
+        // 하우스로 가는 중엔 클릭에 반응하지 않고 계속 간다 (드래그해서 던지면 내려선 뒤 다시 간다)
+        if self.home_trip.is_some() && matches!(self.state, State::Pressed { grounded: true, .. }) {
+            self.state = State::GoHome;
+            return;
+        }
         match self.state {
             State::Pressed { grounded: true, was_sleeping: true, .. } => self.click_sleeper(),
             State::Pressed { grounded: true, .. } => {
@@ -810,7 +1071,15 @@ impl Pet {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 { State::Land { remaining } } else { self.rest_beat() };
             }
-            State::Air { .. } | State::Pressed { .. } | State::Dragged | State::Climb { .. } | State::Slide | State::WallClimb { .. } => {}
+            // 가던 길이 취소된 뒤 남은 GoHome / 하우스 밖의 Housed는 쉬기로
+            State::GoHome | State::Housed => self.state = self.idle_state(),
+            State::Air { .. }
+            | State::Pressed { .. }
+            | State::Dragged
+            | State::Climb { .. }
+            | State::Slide
+            | State::WallClimb { .. }
+            | State::HomeLeap { .. } => {}
         }
     }
 
@@ -820,7 +1089,7 @@ impl Pet {
         if self.body.vx.abs() > 1.0 {
             self.facing = self.body.vx.signum();
         }
-        if self.cfg.can_climb && prev_vx.abs() > behavior::WALL_STICK_MIN_VX {
+        if self.cfg.can_climb && self.home_trip.is_none() && prev_vx.abs() > behavior::WALL_STICK_MIN_VX {
             if let Some(hit) = world.side_hit(prev_x, self.body.x, self.body.y, self.cfg.half_w) {
                 let top = world.windows.iter().find(|w| w.id == hit.window).expect("hit window exists").rect.top;
                 self.body = Body { x: self.wall_x(hit.x, hit.side), y: self.body.y, vx: 0.0, vy: 0.0 };
@@ -3136,5 +3405,332 @@ mod seam_tests {
         run(&mut p, &w, 120);
         assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
         assert!(p.body.x > 1920.0);
+    }
+}
+
+#[cfg(test)]
+mod house_tests {
+    use super::tests::{cfg, place, run, w1, world};
+    use super::*;
+    use crate::geom::Rect;
+
+    const DT: f64 = 1.0 / 60.0;
+    /// 집 문 x (기본 화면 바닥 Ground(0) 위)
+    const DOOR: f64 = 1500.0;
+    const HOME: Owner = Owner::Ground(0);
+
+    fn idle() -> State {
+        State::Idle { remaining: 5.0, look: false }
+    }
+
+    /// 집에 들어갈 때까지 돌리며 거친 상태를 모은다
+    fn run_until_housed(p: &mut Pet, w: &World, ticks: usize) -> Vec<State> {
+        let mut seen = Vec::new();
+        for _ in 0..ticks {
+            p.update(DT, w);
+            seen.push(p.state);
+            if p.is_housed() {
+                break;
+            }
+        }
+        seen
+    }
+
+    fn assert_at_door(p: &Pet, y: f64) {
+        assert!(p.is_housed(), "state {:?}", p.state);
+        assert_eq!(p.state, State::Housed);
+        assert_eq!((p.body.x, p.body.y), (DOOR, y));
+    }
+
+    fn housed_pet(w: &World) -> Pet {
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 3);
+        place(&mut p, w, HOME, DOOR, idle());
+        p.enter_house();
+        p
+    }
+
+    #[test]
+    fn housed_pet_does_not_move_for_a_minute() {
+        let w = world(vec![w1()]);
+        let mut p = housed_pet(&w);
+        let body = p.body;
+        for _ in 0..3600 {
+            p.hover(p.body.x, p.body.y - 10.0, true);
+            p.update(DT, &w);
+            assert_eq!(p.state, State::Housed);
+            assert_eq!(p.body, body);
+        }
+        assert!(p.is_housed());
+        assert_eq!(p.render().anim, Anim::SitFront);
+    }
+
+    #[test]
+    fn housed_pet_still_says_it_is_hungry() {
+        let w = world(vec![]);
+        let mut p = housed_pet(&w);
+        p.set_hungry(true);
+        let mut said = Vec::new();
+        for _ in 0..3600 {
+            p.update(DT, &w);
+            said.extend(p.take_speech());
+        }
+        assert!(said.contains(&Speech::Hungry), "{said:?}");
+        assert!(p.is_housed());
+    }
+
+    #[test]
+    fn housed_pet_ignores_pointer_down() {
+        let w = world(vec![]);
+        let mut p = housed_pet(&w);
+        p.pointer_down(DOOR, 1000.0);
+        assert!(!p.is_held());
+        assert_eq!(p.state, State::Housed);
+    }
+
+    #[test]
+    fn feeding_a_housed_pet_eats_in_the_house_then_sits_again() {
+        let w = world(vec![]);
+        let mut p = housed_pet(&w);
+        assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Meal));
+        assert!(p.is_housed() && p.is_eating());
+        assert_eq!(p.render().anim, Anim::Eat);
+        let mut said = Vec::new();
+        let mut anims = Vec::new();
+        for _ in 0..600 {
+            p.update(DT, &w);
+            said.extend(p.take_speech());
+            anims.push(p.render().anim);
+        }
+        assert!(anims.contains(&Anim::LevelUp), "{anims:?}");
+        assert!(said.contains(&Speech::LevelUp));
+        assert_eq!(p.state, State::Housed);
+        assert!(p.is_housed() && !p.is_eating());
+        assert_eq!(p.body.x, DOOR);
+    }
+
+    #[test]
+    fn full_housed_pet_refuses_with_a_tilt_and_stays_home() {
+        let w = world(vec![]);
+        let mut p = housed_pet(&w);
+        assert!(p.feed_result(FeedResult::Refused, Food::Snack));
+        assert_eq!(p.take_speech(), Some(Speech::Full));
+        assert_eq!(p.render().anim, Anim::Tilt);
+        run(&mut p, &w, 300);
+        assert_eq!(p.state, State::Housed);
+    }
+
+    #[test]
+    fn leaving_the_house_walks_left_from_the_door_on_the_ground() {
+        let w = world(vec![]);
+        let mut p = housed_pet(&w);
+        p.leave_house(&w, DOOR, HOME);
+        assert!(!p.is_housed());
+        assert_eq!((p.body.x, p.body.y), (DOOR, 1040.0));
+        assert_eq!(p.standing.map(|s| s.owner), Some(HOME));
+        assert!(matches!(p.state, State::Move { kind: Move::Walk, .. }), "{:?}", p.state);
+        assert_eq!(p.facing, -1.0);
+        assert!(p.render().flip);
+        p.update(DT, &w);
+        assert!(p.body.x < DOOR && p.body.y == 1040.0);
+    }
+
+    #[test]
+    fn runs_home_along_the_same_ground() {
+        let w = world(vec![]);
+        for (start, facing) in [(400.0, 1.0), (1800.0, -1.0)] {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+            place(&mut p, &w, HOME, start, idle());
+            p.go_home(HOME, DOOR);
+            assert_eq!(p.render().anim, Anim::Run);
+            let seen = run_until_housed(&mut p, &w, 900);
+            assert_at_door(&p, 1040.0);
+            assert!(seen[..seen.len() - 1].iter().all(|s| *s == State::GoHome), "{seen:?}");
+            assert_eq!(p.facing, facing);
+            // 달리기 속도로 간다 (60 px/s × 2.5 = 150 px/s)
+            let secs = seen.len() as f64 * DT;
+            let expect = (DOOR - start).abs() / (60.0 * Move::Run.speed_mult());
+            assert!((secs - expect).abs() < 0.1, "{secs} vs {expect}");
+        }
+    }
+
+    #[test]
+    fn hops_off_a_window_top_facing_away_and_arrives() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, Owner::Window(1), 700.0, State::Move { kind: Move::Walk, remaining: 10.0 });
+        p.facing = -1.0;
+        p.go_home(HOME, DOOR);
+        let seen = run_until_housed(&mut p, &w, 720);
+        assert_at_door(&p, 1040.0);
+        assert!(seen.contains(&State::Air { anim: Anim::Hop }), "{seen:?}");
+        assert!(!seen.iter().any(|s| matches!(s, State::Turn { .. } | State::HomeLeap { .. })), "{seen:?}");
+    }
+
+    #[test]
+    fn crosses_a_monitor_seam_to_get_home() {
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1040.0)], 128.0);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, Owner::Ground(1), 2600.0, idle());
+        p.go_home(HOME, DOOR);
+        let seen = run_until_housed(&mut p, &w, 720);
+        assert_at_door(&p, 1040.0);
+        assert!(seen[..seen.len() - 1].iter().all(|s| *s == State::GoHome), "{seen:?}");
+    }
+
+    #[test]
+    fn walled_off_pet_leaps_home_within_twelve_seconds() {
+        // 아래 모니터에 있는 펫: 집(위 모니터 바닥)으로 이어지는 길이 없다
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(0.0, 1080.0, 1920.0, 2120.0)], 128.0);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, Owner::Ground(1), 300.0, idle());
+        p.go_home(HOME, DOOR);
+        let seen = run_until_housed(&mut p, &w, (13.5 / DT) as usize);
+        assert_at_door(&p, 1040.0);
+        assert!(seen.iter().any(|s| matches!(s, State::HomeLeap { .. })));
+        assert!(!seen.iter().any(|s| matches!(s, State::Turn { .. })), "turned");
+        assert_eq!(p.standing.map(|s| s.owner), None);
+    }
+
+    #[test]
+    fn too_high_monitor_is_never_turned_away_from() {
+        // 오른쪽 모니터가 200 px 높다 (뛰어오를 수 없다)
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 200.0, 3840.0, 1240.0)], 128.0);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, Owner::Ground(1), 2200.0, idle());
+        p.go_home(HOME, DOOR);
+        let seen = run_until_housed(&mut p, &w, (13.5 / DT) as usize);
+        assert_at_door(&p, 1040.0);
+        assert!(!seen.iter().any(|s| matches!(s, State::Turn { .. })), "turned");
+    }
+
+    #[test]
+    fn leap_stays_below_the_screen_top() {
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(0.0, 1080.0, 1920.0, 2120.0)], 128.0);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, Owner::Ground(1), 300.0, idle());
+        p.go_home(HOME, DOOR);
+        for _ in 0..(13.5 / DT) as usize {
+            p.update(DT, &w);
+            assert!(p.body.y - p.cfg.size >= w.bounds.top - 1e-6, "{:?}", p.body);
+            if p.is_housed() {
+                break;
+            }
+        }
+        assert!(p.is_housed());
+    }
+
+    #[test]
+    fn airborne_pet_lands_first_then_runs_home() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 300.0, 600.0, 5);
+        p.go_home(HOME, DOOR);
+        assert!(matches!(p.state, State::Air { .. }));
+        let seen = run_until_housed(&mut p, &w, 720);
+        assert_at_door(&p, 1040.0);
+        assert!(seen.contains(&State::GoHome));
+    }
+
+    #[test]
+    fn climbing_pet_drops_off_the_wall_at_once() {
+        let w = world(vec![]);
+        let mut c = cfg();
+        c.can_climb = true;
+        let mut p = Pet::new(c, 0.0, 0.0, 5);
+        place(&mut p, &w, HOME, 300.0, idle());
+        p.standing = None;
+        p.body.y = 700.0;
+        p.state = State::Climb { target_y: 400.0, hang: 0.4 };
+        p.go_home(HOME, DOOR);
+        assert_eq!(p.state, State::Air { anim: Anim::Fall });
+        run_until_housed(&mut p, &w, 720);
+        assert_at_door(&p, 1040.0);
+    }
+
+    #[test]
+    fn clicks_and_tickles_do_not_interrupt_the_trip() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, HOME, 400.0, idle());
+        p.set_hungry(true);
+        p.go_home(HOME, DOOR);
+        run(&mut p, &w, 30);
+        p.pointer_down(p.body.x, p.body.y - 40.0);
+        p.update(DT, &w);
+        p.pointer_up(p.body.x, p.body.y - 40.0);
+        assert_eq!(p.state, State::GoHome);
+        assert!(!p.take_food_request());
+        // 커서로 문질러도 간지럼을 타지 않는다
+        for i in 0..60 {
+            let x = p.body.x + if i % 2 == 0 { -30.0 } else { 30.0 };
+            p.hover(x, p.body.y - 40.0, true);
+            p.update(DT, &w);
+            assert_eq!(p.state, State::GoHome);
+        }
+        run_until_housed(&mut p, &w, 900);
+        assert_at_door(&p, 1040.0);
+    }
+
+    #[test]
+    fn dragging_mid_trip_then_releasing_resumes_the_trip() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, HOME, 400.0, idle());
+        p.go_home(HOME, DOOR);
+        run(&mut p, &w, 30);
+        let (x, y) = (p.body.x, p.body.y - 40.0);
+        p.pointer_down(x, y);
+        p.pointer_move(x - 100.0, y - 300.0);
+        assert_eq!(p.state, State::Dragged);
+        // 오래 들고 있어도 그동안은 안전 점프를 하지 않는다
+        for _ in 0..(13.0 / DT) as usize {
+            p.update(DT, &w);
+            assert_eq!(p.state, State::Dragged);
+        }
+        p.pointer_up(x - 100.0, y - 300.0);
+        let seen = run_until_housed(&mut p, &w, 720);
+        assert_at_door(&p, 1040.0);
+        assert!(seen.contains(&State::GoHome));
+        assert!(!seen.iter().any(|s| matches!(s, State::HomeLeap { .. })));
+    }
+
+    #[test]
+    fn feeding_on_the_way_home_is_refused() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, HOME, 400.0, idle());
+        p.go_home(HOME, DOOR);
+        assert!(!p.feed_result(FeedResult::Ate { leveled_up: false }, Food::Meal));
+        assert_eq!(p.state, State::GoHome);
+    }
+
+    #[test]
+    fn leaving_before_arriving_just_cancels_the_trip() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, HOME, 400.0, idle());
+        p.go_home(HOME, DOOR);
+        run(&mut p, &w, 30);
+        let x = p.body.x;
+        p.leave_house(&w, DOOR, HOME);
+        assert!(!p.is_housed());
+        assert_eq!(p.body.x, x);
+        assert_ne!(p.state, State::GoHome);
+        run(&mut p, &w, 600);
+        assert!(!p.is_housed());
+    }
+
+    #[test]
+    fn going_home_twice_or_when_housed_is_harmless() {
+        let w = world(vec![]);
+        let mut p = housed_pet(&w);
+        p.go_home(HOME, DOOR);
+        assert_eq!(p.state, State::Housed);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, HOME, 400.0, idle());
+        p.go_home(HOME, DOOR);
+        run(&mut p, &w, 60);
+        p.go_home(HOME, DOOR);
+        run_until_housed(&mut p, &w, 900);
+        assert_at_door(&p, 1040.0);
     }
 }

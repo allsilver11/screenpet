@@ -1,4 +1,4 @@
-// 백엔드가 보내는 {anim, flip, heart}를 받아 스프라이트 프레임만 그린다.
+// 백엔드가 보내는 {anim, flip, heart}를 받아 스프라이트 프레임만 그린다. (common.js를 먼저 읽는다)
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
@@ -16,26 +16,10 @@ let animStart = performance.now();
 let stage = { pet: null, stage: "teenager", scale: 1 };
 let loadSeq = 0;
 
-async function decodeSheet(url) {
-  const img = new Image();
-  img.src = url;
-  await img.decode();
-  return img;
-}
-
 // 단계별 시트 sheet_<stage>.png를 먼저 쓰고, 없으면 sheet.png
 async function loadPet() {
   const seq = ++loadSeq;
-  const id = stage.pet;
-  const m = await (await fetch(`pets/${id}/pet.json`)).json();
-  let url = `pets/${id}/sheet_${stage.stage}.png`;
-  let img;
-  try {
-    img = await decodeSheet(url);
-  } catch {
-    url = `pets/${id}/sheet.png`;
-    img = await decodeSheet(url);
-  }
+  const { manifest: m, url, img } = await loadPetSheet(stage.pet, stage.stage);
   if (seq !== loadSeq) return; // 그 사이 다른 동물/단계로 바뀜
   const side = 128 * stage.scale;
   petEl.style.width = side + "px";
@@ -47,11 +31,6 @@ async function loadPet() {
   petEl.style.backgroundImage = `url(${url})`;
   petEl.style.backgroundSize = `${img.width * k}px ${img.height * k}px`;
   animStart = performance.now();
-}
-
-function frameIndex(spec, elapsedMs) {
-  const n = Math.floor((elapsedMs / 1000) * spec.fps);
-  return spec.loop === false ? Math.min(n, spec.frames - 1) : n % spec.frames;
 }
 
 function draw(now) {
@@ -79,7 +58,7 @@ listen("pet-render", (e) => {
     heartEl.classList.add("show");
   }
   // 트레이에서 먹였거나 다른 길로 먹기 시작하면 고르기 버튼은 필요 없다
-  if (e.payload.anim === "eat") hidePicker();
+  if (e.payload.anim === "eat") speech.hidePicker();
   render = e.payload;
 });
 
@@ -89,47 +68,7 @@ listen("pet-stage", (e) => {
   loadPet();
 });
 
-let bubbleTimer = null;
-
-// 백엔드가 고른 상황(chatter/tickle/grumpy/hiss/hungry/full/level_up/ignore)에 맞는 대사를
-// pet.json speech에서 랜덤으로 띄운다. 그 동물에 없는 상황이면 말풍선 없음.
-listen("pet-say", (e) => {
-  const lines = manifest?.speech?.[e.payload] ?? [];
-  if (!lines.length || !pickerEl.hidden) return; // 음식 고르기 버튼이 우선
-  bubbleEl.textContent = lines[Math.floor(Math.random() * lines.length)];
-  bubbleEl.hidden = false;
-  clearTimeout(bubbleTimer);
-  bubbleTimer = setTimeout(() => {
-    bubbleEl.hidden = true;
-  }, 1500);
-});
-
-let pickerTimer = null;
-
-function hidePicker() {
-  pickerEl.hidden = true;
-  clearTimeout(pickerTimer);
-}
-
-// 배고플 때 클릭하면 머리 위에 🍪 🍚 (좋아하는 것) 버튼
-listen("food-picker", (e) => {
-  favBtn.textContent = e.payload.emoji;
-  favBtn.title = e.payload.name;
-  bubbleEl.hidden = true;
-  pickerEl.hidden = false;
-  clearTimeout(pickerTimer);
-  pickerTimer = setTimeout(hidePicker, 6000);
-});
-
-for (const btn of pickerEl.querySelectorAll("button")) {
-  // 버튼을 누르는 게 펫 잡기로 이어지지 않게 한다
-  btn.addEventListener("mousedown", (e) => e.stopPropagation());
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    invoke("feed", { food: btn.dataset.food });
-    hidePicker();
-  });
-}
+const speech = setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest: () => manifest });
 
 petEl.addEventListener("mousedown", (e) => {
   if (e.button === 0) invoke("pointer_down");
@@ -138,9 +77,7 @@ petEl.addEventListener("mousedown", (e) => {
 // 펫을 우클릭하면 트레이와 같은 메뉴
 petEl.addEventListener("contextmenu", () => invoke("show_menu"));
 
-// 펫 창엔 키보드 UI가 없으므로 웹뷰 기본 동작(우클릭 메뉴, F5, Ctrl+R, Alt+F4 등)을 막는다.
-window.addEventListener("contextmenu", (e) => e.preventDefault());
-window.addEventListener("keydown", (e) => e.preventDefault());
+blockWebviewDefaults();
 
 (async () => {
   stage = await invoke("current_stage");

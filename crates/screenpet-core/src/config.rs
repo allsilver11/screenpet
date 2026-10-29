@@ -16,6 +16,9 @@ pub struct Config {
     /// 동물별 돌보기 상태 (없으면 새끼부터)
     #[serde(default)]
     pub care: HashMap<String, Care>,
+    /// 하우스 안에 있음 (동물이 아니라 설치마다 하나) — 다음 실행도 하우스 안에서 시작
+    #[serde(default)]
+    pub housed: bool,
 }
 
 impl Config {
@@ -121,6 +124,17 @@ mod tests {
         assert_eq!(c.pet.as_deref(), Some("cat"));
         assert_eq!(c.care.get("bear"), Some(&adult));
         assert!(!c.care.contains_key("beaver"));
+    }
+
+    #[test]
+    fn housed_roundtrips_and_defaults_to_false() {
+        let d = temp_dir("housed");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("config.json"), r#"{"pet": "cat", "care": {}}"#).unwrap();
+        assert!(!load(&d).housed);
+        let c = Config { pet: Some("cat".into()), housed: true, ..Config::default() };
+        save(&d, &c).unwrap();
+        assert!(load(&d).housed);
     }
 
     #[test]

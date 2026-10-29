@@ -29,5 +29,15 @@ fn main() {
     code.push_str("];\n");
     fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("pets.rs"), code).unwrap();
 
+    // 하우스 그림의 문 위치 (ui/house/house.json). 아직 없으면 None — 앱은 기본 문 위치를 쓴다
+    let house_json = Path::new(&manifest_dir).join("../ui/house/house.json");
+    println!("cargo:rerun-if-changed={}", house_json.display());
+    let house = if house_json.is_file() {
+        format!("pub const HOUSE_JSON: Option<&str> = Some(include_str!({:?}));\n", house_json.display().to_string())
+    } else {
+        "pub const HOUSE_JSON: Option<&str> = None;\n".to_string()
+    };
+    fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("house.rs"), house).unwrap();
+
     tauri_build::build();
 }

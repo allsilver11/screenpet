@@ -106,3 +106,44 @@ body {
 #picker button:hover {
   transform: scale(1.1);
 }
+
+/* 하우스 창 (house.html): 위 36px은 말풍선 자리, 아래 128×128이 집 */
+#house {
+  position: absolute;
+  left: 0;
+  top: 36px;
+  width: 128px;
+  height: 128px;
+  background: url(house/house.png) no-repeat;
+  background-size: 128px 128px;
+  cursor: pointer;
+}
+
+/* 문간 — 위치·크기는 house.js가 house/house.json `door`로 맞춘다. 동물은 문 밖으로 삐져나오지 않는다 */
+#door {
+  position: absolute;
+  overflow: hidden;
+}
+
+#door-pet {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  aspect-ratio: 1;
+  background-repeat: no-repeat;
+}
+
+#door-pet[hidden] {
+  display: none;
+}
+
+/* 문틀 — 동물 위에 겹쳐 그린다 */
+#house-front {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 128px;
+  height: 128px;
+  pointer-events: none;
+}

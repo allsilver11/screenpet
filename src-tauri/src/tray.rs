@@ -2,6 +2,8 @@ use screenpet_core::care::Food;
 use screenpet_core::manifest::FavoriteFood;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
+use std::sync::atomic::Ordering;
+
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::game_loop::Input;
@@ -14,6 +16,17 @@ pub struct TrayMenu {
     pub menu: Menu<Wry>,
     pub favorite: MenuItem<Wry>,
     pub lock: CheckMenuItem<Wry>,
+    /// 하우스 들어가기 / 나오기 (글자가 바뀐다)
+    pub house: MenuItem<Wry>,
+}
+
+/// 하우스 항목 글자: 밖에 있으면 "하우스", 하우스 안(또는 가는 중)이면 "하우스에서 나오기"
+pub fn house_label(housed: bool) -> &'static str {
+    if housed {
+        "하우스에서 나오기"
+    } else {
+        "하우스"
+    }
 }
 
 pub fn favorite_label(f: &FavoriteFood) -> String {
@@ -24,7 +37,7 @@ fn send(app: &AppHandle, input: Input) {
     let _ = app.state::<AppState>().tx.lock().unwrap().send(input);
 }
 
-pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, locked: bool) -> tauri::Result<TrayMenu> {
+pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, locked: bool, housed: bool) -> tauri::Result<TrayMenu> {
     let mut checks: Vec<(CheckMenuItem<Wry>, String)> = Vec::new();
     for p in pets {
         let item = CheckMenuItem::with_id(app, format!("pet:{}", p.id), &p.manifest.name, true, p.id == current, None::<&str>)?;
@@ -37,6 +50,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let lock = CheckMenuItem::with_id(app, "lock", "성장 멈추기", true, locked, None::<&str>)?;
     let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
     let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
+    let house = MenuItem::with_id(app, "house", house_label(housed), true, None::<&str>)?;
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
 
@@ -49,6 +63,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&lock)?;
     menu.append(&reset)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&house)?;
     menu.append(&toggle)?;
     menu.append(&quit)?;
 
@@ -65,7 +80,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                 }
             }
             "toggle" => {
-                if let Some(w) = app.get_webview_window("pet") {
+                // 하우스 안에선 펫 창 대신 하우스 창을 숨기고 보인다
+                let label = if app.state::<AppState>().housed.load(Ordering::Relaxed) { crate::house::LABEL } else { "pet" };
+                if let Some(w) = app.get_webview_window(label) {
                     if w.is_visible().unwrap_or(true) {
                         let _ = w.hide();
                     } else {
@@ -77,6 +94,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "feed:meal" => send(app, Input::Feed(Food::Meal)),
             "feed:favorite" => send(app, Input::Feed(Food::Favorite)),
             "lock" => send(app, Input::ToggleLock),
+            "house" => send(app, Input::ToggleHouse),
             "reset" => send(app, Input::ResetGrowth),
             other => {
                 if let Some(id) = other.strip_prefix("pet:") {
@@ -89,5 +107,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: fav, lock })
+    Ok(TrayMenu { menu, favorite: fav, lock, house })
 }

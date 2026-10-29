@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -12,6 +13,7 @@ use screenpet_core::world::World;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
 
+use crate::house::{self, HouseState};
 use crate::pets::PetEntry;
 use crate::AppState;
 
@@ -33,6 +35,10 @@ pub enum Input {
     Feed(Food),
     ToggleLock,
     ResetGrowth,
+    /// 하우스로 들어가기 / 나오기
+    ToggleHouse,
+    /// 하우스 창을 눌렀다 (배고프면 음식 고르기, 아니면 손 흔들기)
+    HouseClick,
     /// 저장하고 앱 종료
     Quit,
 }
@@ -88,7 +94,7 @@ fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64) -> PetConfig {
     }
 }
 
-/// 설정 저장 — 게임 루프만 설정을 쓴다 (단일 작성자)
+/// 설정 저장 — 게임 루프만 설정을 쓴다 (단일 작성자). 하우스 여부는 config.housed에 직접 적어 둔다
 fn save_config(app: &AppHandle, config: &mut Config, pet_id: &str, care: &Care) {
     config.pet = Some(pet_id.to_string());
     config.care.insert(pet_id.to_string(), care.clone());
@@ -98,11 +104,21 @@ fn save_config(app: &AppHandle, config: &mut Config, pet_id: &str, care: &Care) 
     }
 }
 
-/// 트레이·우클릭 메뉴의 돌보기 항목을 현재 동물에 맞춘다
-fn sync_menu(app: &AppHandle, entry: &PetEntry, care: &Care) {
+/// 트레이·우클릭 메뉴의 돌보기·하우스 항목을 현재 동물과 상태에 맞춘다
+fn sync_menu(app: &AppHandle, entry: &PetEntry, care: &Care, housed: bool) {
     let state = app.state::<AppState>();
     let _ = state.menu.favorite.set_text(crate::tray::favorite_label(&favorite_of(entry)));
     let _ = state.menu.lock.set_checked(care.locked);
+    let _ = state.menu.house.set_text(crate::tray::house_label(housed));
+}
+
+/// 지금 말풍선·음식 고르기를 띄울 창: 하우스 안이면 하우스 창, 아니면 펫 창
+fn speech_target(pet: &Pet) -> &'static str {
+    if pet.is_housed() {
+        house::LABEL
+    } else {
+        "pet"
+    }
 }
 
 /// 단계(또는 동물)가 바뀌었을 때: 창 크기, 펫 크기, 웹뷰 시트. 적용한 몸 배율을 돌려준다.
@@ -122,6 +138,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         eprintln!("pet window not found; game loop not started");
         return;
     };
+    let house_window = app.get_webview_window(house::LABEL);
     let mut config = config;
     let mut entry = entry;
     let mut care = config.care.get(&entry.id).cloned().unwrap_or_default();
@@ -135,8 +152,21 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut pet = Pet::new(cfg, b.left + b.width() / 2.0, b.top + cfg.size, seed);
     // 화면에 적용된 몸 배율 — 성장 직후 먹는 동안에는 care.stage보다 한 단계 늦다
     let mut shown_scale = apply_stage(&app, &window, &mut pet, dpi, &entry, &care);
-    sync_menu(&app, &entry, &care);
     pet.set_hungry(care.is_hungry());
+    if config.housed {
+        // 지난번에 하우스 안에서 끝났다 — 하우스 안에서 시작한다
+        let spot = house::spot(&app, &world, dpi);
+        pet.body.x = spot.door_x;
+        pet.enter_house();
+        if let Some(hw) = &house_window {
+            house::show_at(hw, &spot);
+        }
+    }
+    sync_menu(&app, &entry, &care, config.housed);
+    // 하우스 안에서 시작하면 펫 창은 숨긴 채로 둔다
+    let mut need_show = !pet.is_housed();
+    let mut was_housed = pet.is_housed();
+    let mut last_house: Option<HouseState> = None;
 
     let mut last = Instant::now();
     let mut last_refresh = last;
@@ -163,7 +193,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     pet.set_special(pet.cfg.special);
                     pet.set_can_climb(pet.cfg.can_climb);
                     pet.set_hungry(care.is_hungry());
-                    sync_menu(&app, &entry, &care);
+                    // 하우스 안이면 새 동물도 하우스 안에 있다 (같은 Pet이므로 상태가 그대로 이어진다)
+                    sync_menu(&app, &entry, &care, config.housed);
                     save_config(&app, &mut config, &entry.id, &care);
                 }
                 Input::Feed(food) => {
@@ -184,7 +215,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 Input::ToggleLock => {
                     care.locked = !care.locked;
                     // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춘다
-                    sync_menu(&app, &entry, &care);
+                    sync_menu(&app, &entry, &care, config.housed);
                     save_config(&app, &mut config, &entry.id, &care);
                 }
                 Input::ResetGrowth => {
@@ -193,6 +224,39 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     shown_scale = apply_stage(&app, &window, &mut pet, dpi, &entry, &care);
                     pet.set_hungry(care.is_hungry());
                     save_config(&app, &mut config, &entry.id, &care);
+                }
+                Input::ToggleHouse => {
+                    let spot = house::spot(&app, &world, dpi);
+                    if pet.is_housed() || pet.is_going_home() {
+                        // 문 앞에서 왼쪽으로 걸어 나온다 (가는 중이었다면 그 자리에서 멈춘다)
+                        let was_inside = pet.is_housed();
+                        pet.leave_house(&world, spot.door_x, spot.ground);
+                        if was_inside {
+                            need_show = true;
+                        }
+                        if let Some(hw) = &house_window {
+                            let _ = hw.hide();
+                        }
+                        config.housed = false;
+                    } else {
+                        // 집이 먼저 나타나고, 동물이 집으로 달려간다
+                        if let Some(hw) = &house_window {
+                            house::show_at(hw, &spot);
+                        }
+                        pet.go_home(spot.ground, spot.door_x);
+                        config.housed = true;
+                    }
+                    sync_menu(&app, &entry, &care, config.housed);
+                    save_config(&app, &mut config, &entry.id, &care);
+                }
+                Input::HouseClick => {
+                    if pet.is_housed() {
+                        if care.is_hungry() {
+                            let _ = app.emit_to(house::LABEL, "food-picker", favorite_of(&entry));
+                        } else {
+                            let _ = app.emit_to(house::LABEL, "house-wave", ());
+                        }
+                    }
                 }
                 Input::Quit => {
                     save_config(&app, &mut config, &entry.id, &care);
@@ -238,10 +302,32 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
         pet.update(dt, &world);
         if let Some(speech) = pet.take_speech() {
-            let _ = app.emit("pet-say", speech);
+            let _ = app.emit_to(speech_target(&pet), "pet-say", speech);
         }
         if pet.take_food_request() {
-            let _ = app.emit("food-picker", favorite_of(&entry));
+            let _ = app.emit_to(speech_target(&pet), "food-picker", favorite_of(&entry));
+        }
+        if pet.is_housed() != was_housed {
+            was_housed = pet.is_housed();
+            app.state::<AppState>().housed.store(was_housed, Ordering::Relaxed);
+            if was_housed {
+                // 문에 닿았다 — 펫 창을 숨기고 하우스 창 문간에 보인다
+                let _ = window.hide();
+            }
+        }
+        // 지금 보이는 시트·크기 (성장 직후 먹는 동안엔 care.stage보다 한 단계 늦다)
+        let shown = app.state::<AppState>().stage.lock().unwrap().clone();
+        let house_state = HouseState {
+            pet: shown.pet,
+            stage: shown.stage,
+            scale: shown.scale,
+            hungry: care.is_hungry(),
+            housed: pet.is_housed(),
+        };
+        if last_house.as_ref() != Some(&house_state) {
+            *app.state::<AppState>().house.lock().unwrap() = house_state.clone();
+            let _ = app.emit_to(house::LABEL, "house-state", house_state.clone());
+            last_house = Some(house_state);
         }
 
         let render = pet.render();
@@ -255,13 +341,14 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         let win_w = PET_LOGICAL_SIZE * shown_scale.max(1.0) * dpi;
         let pos = ((pet.body.x - win_w / 2.0).round() as i32, (sy - BUBBLE_SPACE * dpi).round() as i32);
         if last_pos != Some(pos) {
-            let first = last_pos.is_none();
             let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
             last_pos = Some(pos);
-            if first {
-                // 창은 visible:false로 만들어 두고, 첫 위치를 잡은 뒤에야 보여 OS 기본 위치 깜빡임을 막는다.
-                let _ = window.show();
-            }
+        }
+        if need_show && !pet.is_housed() {
+            // 창은 visible:false로 만들어 두고, 위치를 잡은 뒤에야 보여 OS 기본 위치 깜빡임을 막는다
+            // (하우스에서 나올 때도 문 앞으로 옮긴 뒤에 보인다).
+            let _ = window.show();
+            need_show = false;
         }
         if last_render != Some(render) {
             let _ = app.emit("pet-render", render);
