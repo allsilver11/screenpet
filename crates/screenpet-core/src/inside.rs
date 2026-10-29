@@ -223,7 +223,7 @@ mod tests {
             let mut apex = y;
             let open = Rect::new(-1e9, -1e9, 1e9, 1e9);
             while b.vy < 0.0 {
-                crate::physics::step_air(&mut b, dt, &open, 1.0, 1.0);
+                crate::physics::step_air(&mut b, dt, &open, 1.0, 1.0, crate::physics::GRAVITY);
                 apex = apex.min(b.y);
             }
             assert!(apex <= top - clear, "{y} {top} {clear} {dt}: apex {apex}");

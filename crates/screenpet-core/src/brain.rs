@@ -9,7 +9,7 @@ use crate::geom::Rect;
 use crate::sting::{ClickMeter, PathMeter, StingPhase};
 use crate::inside::{self, Mode, Stay};
 use crate::behavior::{self, ClickOutcome, ClickReaction, Family, Move, Personality, Rest, Special, Trick};
-use crate::physics::{clamp_speed, step_air, Body, GRAVITY};
+use crate::physics::{step_air, throw_velocity, Body, GRAVITY, THROW_GRAVITY_LOGICAL, THROW_LIFT};
 use crate::surfaces::{EndKind, Owner, Surface};
 use crate::visit::{self, ExitEdges, Guest};
 use crate::world::{Side, World};
@@ -28,7 +28,9 @@ const SEAM_MAX_HOP_UP: f64 = 150.0;
 const SEAM_HOP_MARGIN: f64 = 24.0;
 const HEART_SECS: f64 = 1.0;
 const CLICK_SLOP: f64 = 5.0;
-const VELOCITY_WINDOW: f64 = 0.1;
+const VELOCITY_WINDOW: f64 = 0.12;
+/// 처음·마지막 구간 속도가 나머지 구간 중앙값의 이 배수를 넘으면 튄 샘플로 보고 뺀다
+const OUTLIER_RATIO: f64 = 3.0;
 const TICKLE_WINDOW: f64 = 0.6;
 const TICKLE_DIST: f64 = 250.0;
 const HOVER_PAUSE_SECS: f64 = 0.25;
@@ -320,6 +322,8 @@ pub struct PetConfig {
     pub stings: bool,
     /// 폴짝폴짝 뛰어다닌다 (pet.json `locomotion: hop` — 개구리, brain_hop.rs)
     pub hops: bool,
+    /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
+    pub dpi: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -410,6 +414,8 @@ pub struct Pet {
     pester: ClickMeter,
     /// 폴짝 동물의 걸음·벽 오르기 박자 (brain_hop.rs)
     hop_beat: crate::hop::Beat,
+    /// 손에서 던져져 날아가는 중 (State::Air) — 논리 px 기준의 부드러운 중력을 쓴다. 공중을 벗어나면 꺼진다
+    thrown: bool,
     rng: fastrand::Rng,
 }
 
@@ -463,12 +469,16 @@ impl Pet {
             shake: PathMeter::default(),
             pester: ClickMeter::default(),
             hop_beat: Default::default(),
+            thrown: false,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
 
     pub fn update(&mut self, dt: f64, world: &World) {
         self.clock += dt;
+        if !matches!(self.state, State::Air { anim: Anim::Fall }) {
+            self.thrown = false;
+        }
         self.heart_timer = (self.heart_timer - dt).max(0.0);
         self.drop_flying_state();
         self.after_meal();
@@ -1181,6 +1191,7 @@ impl Pet {
         self.hover_since = None;
         self.history.clear();
         self.history.push_back((self.clock, cx, cy));
+        self.thrown = false;
         self.shake.clear();
         // 나는 동물: 눌리면 가던 길은 잊는다 (놓인 자리에서 다시 정한다)
         self.flight = None;
@@ -1684,7 +1695,8 @@ impl Pet {
                 }
                 self.record(cx, cy);
                 let (vx, vy) = self.release_velocity();
-                let (vx, vy) = clamp_speed(vx, vy);
+                let lift = if self.cfg.flies { 0.0 } else { THROW_LIFT };
+                let (vx, vy) = throw_velocity(vx, vy, self.cfg.dpi, lift);
                 if vx.abs() > 50.0 {
                     self.facing = vx.signum();
                 }
@@ -1692,6 +1704,7 @@ impl Pet {
                 self.body.vx = vx;
                 self.body.vy = vy;
                 self.state = State::Air { anim: Anim::Fall };
+                self.thrown = true;
                 self.drop_check = true;
             }
             _ => {}
@@ -1722,8 +1735,36 @@ impl Pet {
         }
     }
 
+    /// 최근 커서 샘플의 처음→끝 평균 속도 (물리 px/s). 같은 틱의 샘플은 마지막 것만 쓰고,
+    /// 처음이나 마지막 한 구간만 유난히 빠르면(튄 이벤트) 그 샘플 하나를 뺀다
     fn release_velocity(&self) -> (f64, f64) {
-        let (Some(&(t0, x0, y0)), Some(&(t1, x1, y1))) = (self.history.front(), self.history.back()) else {
+        let mut pts: Vec<(f64, f64, f64)> = Vec::with_capacity(self.history.len());
+        for &s in &self.history {
+            match pts.last_mut() {
+                Some(last) if s.0 - last.0 < 1e-9 => *last = s,
+                _ => pts.push(s),
+            }
+        }
+        let speed = |a: (f64, f64, f64), b: (f64, f64, f64)| (b.1 - a.1).hypot(b.2 - a.2) / (b.0 - a.0);
+        let (mut lo, mut hi) = (0, pts.len().saturating_sub(1));
+        if pts.len() >= 4 {
+            let segs: Vec<f64> = pts.windows(2).map(|w| speed(w[0], w[1])).collect();
+            let n = segs.len();
+            let median_of = |skip: usize| {
+                let mut rest: Vec<f64> = segs.iter().enumerate().filter(|&(i, _)| i != skip).map(|(_, &v)| v).collect();
+                rest.sort_by(f64::total_cmp);
+                rest[rest.len() / 2]
+            };
+            let (first, last) = (segs[0], segs[n - 1]);
+            let first_out = first > OUTLIER_RATIO * median_of(0);
+            let last_out = last > OUTLIER_RATIO * median_of(n - 1);
+            if last_out && (!first_out || last >= first) {
+                hi -= 1;
+            } else if first_out {
+                lo += 1;
+            }
+        }
+        let (Some(&(t0, x0, y0)), Some(&(t1, x1, y1))) = (pts.get(lo), pts.get(hi)) else {
             return (0.0, 0.0);
         };
         let dt = t1 - t0;
@@ -1731,6 +1772,15 @@ impl Pet {
             return (0.0, 0.0);
         }
         ((x1 - x0) / dt, (y1 - y0) / dt)
+    }
+
+    /// 공중 중력: 던진 비행이면 논리 px 기준의 부드러운 중력, 아니면 평소 중력
+    fn air_gravity(&self) -> f64 {
+        if self.thrown {
+            THROW_GRAVITY_LOGICAL * self.cfg.dpi
+        } else {
+            GRAVITY
+        }
     }
 
     /// 서 있는 디딤판 기준점을 따라 위치 갱신. 기준점이 사라졌으면 false.
@@ -2009,11 +2059,12 @@ impl Pet {
             return;
         }
         let (prev_x, prev_y, prev_vx) = (self.body.x, self.body.y, self.body.vx);
-        step_air(&mut self.body, dt, &world.bounds, self.cfg.half_w, self.cfg.size);
+        let g = self.air_gravity();
+        step_air(&mut self.body, dt, &world.bounds, self.cfg.half_w, self.cfg.size, g);
         if self.body.vx.abs() > 1.0 {
             self.facing = self.body.vx.signum();
         }
-        if self.cfg.can_climb && self.home_trip.is_none() && prev_vx.abs() > behavior::WALL_STICK_MIN_VX {
+        if self.cfg.can_climb && self.home_trip.is_none() && prev_vx.abs() > behavior::WALL_STICK_MIN_VX * self.cfg.dpi {
             if let Some(hit) = world.side_hit(prev_x, self.body.x, self.body.y, self.cfg.half_w) {
                 let top = world.windows.iter().find(|w| w.id == hit.window).expect("hit window exists").rect.top;
                 self.body = Body { x: self.wall_x(hit.x, hit.side), y: self.body.y, vx: 0.0, vy: 0.0 };
@@ -2406,7 +2457,8 @@ impl Pet {
         }
         let bounds = inside::air_bounds(&rect, &world.bounds, stay.mode == Mode::In);
         let prev_y = self.body.y;
-        step_air(&mut self.body, dt, &bounds, self.cfg.half_w, self.cfg.size);
+        let g = self.air_gravity();
+        step_air(&mut self.body, dt, &bounds, self.cfg.half_w, self.cfg.size, g);
         if self.body.vx.abs() > 1.0 {
             self.facing = self.body.vx.signum();
         }
@@ -2541,6 +2593,10 @@ mod hop_moves;
 #[path = "brain_hop_tests.rs"]
 mod hop_tests;
 
+#[cfg(test)]
+#[path = "brain_throw_tests.rs"]
+mod throw_tests;
+
 /// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨린다
 fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {
     match side {
@@ -2568,6 +2624,7 @@ mod tests {
             flies: false,
             stings: false,
             hops: false,
+            dpi: 1.0,
         }
     }
 
@@ -3061,6 +3118,7 @@ mod tests {
             flies: false,
             stings: false,
             hops: false,
+            dpi: 1.0,
         }
     }
 
@@ -3377,8 +3435,9 @@ mod input_tests {
         }
         p.pointer_up(920.0, 300.0);
         assert_eq!(p.state, State::Air { anim: Anim::Fall });
-        assert!((p.body.vx - 1200.0).abs() < 1.0, "vx={}", p.body.vx);
-        assert!(p.body.vy.abs() < 1.0);
+        let vx = 1200.0 * crate::physics::THROW_FEEL;
+        assert!((p.body.vx - vx).abs() < 1.0, "vx={}", p.body.vx);
+        assert!((p.body.vy + THROW_LIFT * vx).abs() < 1.0, "vy={}", p.body.vy);
         assert_eq!(p.facing, 1.0);
     }
 
