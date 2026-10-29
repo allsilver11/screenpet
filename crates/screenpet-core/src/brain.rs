@@ -15,6 +15,13 @@ const HAPPY_VY: f64 = -500.0;
 const HEART_SECS: f64 = 1.0;
 const CLICK_SLOP: f64 = 5.0;
 const VELOCITY_WINDOW: f64 = 0.1;
+const TICKLE_WINDOW: f64 = 0.6;
+const TICKLE_DIST: f64 = 250.0;
+const TICKLE_HOLD: f64 = 1.5;
+const TICKLE_WAKE_SECS: f64 = 5.0;
+const CHATTER_SECS: (f64, f64) = (20.0, 40.0);
+const FIRST_CHATTER_SECS: f64 = 25.0;
+const CLICK_SPEECH_CHANCE: f64 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -35,12 +42,22 @@ pub enum Anim {
     Belly,
     Stretch,
     Heart,
+    Tickle,
+    Annoyed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Speech {
+    Chatter,
+    Tickle,
+    Grumpy,
 }
 
 impl Anim {
     /// 앞모습 동작 — 좌우 반전하지 않는다.
     pub fn is_front(self) -> bool {
-        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart)
+        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle)
     }
 }
 
@@ -75,6 +92,10 @@ pub enum State {
     Turn { remaining: f64 },
     Land { remaining: f64 },
     Trick { kind: Trick, remaining: f64 },
+    /// 간질이는 중 (앞모습 꼬물꼬물)
+    Tickled { remaining: f64 },
+    /// 자다가 간질여짐 — tickled_for가 TICKLE_WAKE_SECS를 넘으면 깸
+    Annoyed { remaining: f64, tickled_for: f64 },
     /// Hop / Fall(낙하·던지기) / Happy 점프
     Air { anim: Anim },
     /// 마우스를 눌렀지만 아직 드래그 거리 미만
@@ -119,6 +140,10 @@ pub struct Pet {
     /// (clock, cursor x, cursor y)
     history: VecDeque<(f64, f64, f64)>,
     clock: f64,
+    hover_hist: VecDeque<(f64, f64, f64)>,
+    tickling: bool,
+    chatter_timer: f64,
+    speech: Option<Speech>,
     rng: fastrand::Rng,
 }
 
@@ -135,6 +160,10 @@ impl Pet {
             grab_dy: 0.0,
             history: VecDeque::new(),
             clock: 0.0,
+            hover_hist: VecDeque::new(),
+            tickling: false,
+            chatter_timer: FIRST_CHATTER_SECS,
+            speech: None,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -150,7 +179,11 @@ impl Pet {
                 }
             }
             State::Air { .. } => self.update_air(dt, world),
-            _ => self.update_ground(dt, world),
+            _ => {
+                self.react_to_tickle();
+                self.update_chatter(dt);
+                self.update_ground(dt, world);
+            }
         }
     }
 
@@ -158,6 +191,8 @@ impl Pet {
         let anim = match self.state {
             State::Move { kind, .. } => kind.into(),
             State::Trick { kind, .. } => kind.into(),
+            State::Tickled { .. } => Anim::Tickle,
+            State::Annoyed { .. } => Anim::Annoyed,
             State::Idle { look: true, .. } => Anim::Look,
             State::Idle { .. } | State::Turn { .. } => Anim::Idle,
             State::Sleep { .. } => Anim::Sleep,
@@ -177,12 +212,37 @@ impl Pet {
         matches!(self.state, State::Pressed { .. } | State::Dragged)
     }
 
+    /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
+    pub fn hover(&mut self, cx: f64, cy: f64, inside: bool) {
+        if !inside || self.is_held() {
+            self.hover_hist.clear();
+            self.tickling = false;
+            return;
+        }
+        self.hover_hist.push_back((self.clock, cx, cy));
+        while self.hover_hist.front().is_some_and(|&(t, _, _)| self.clock - t > TICKLE_WINDOW) {
+            self.hover_hist.pop_front();
+        }
+        let path: f64 = self
+            .hover_hist
+            .iter()
+            .zip(self.hover_hist.iter().skip(1))
+            .map(|(a, b)| (b.1 - a.1).hypot(b.2 - a.2))
+            .sum();
+        self.tickling = path >= TICKLE_DIST;
+    }
+
+    /// 이번 틱에 띄울 말풍선 (한 번 꺼내면 None)
+    pub fn take_speech(&mut self) -> Option<Speech> {
+        self.speech.take()
+    }
+
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
         if self.is_held() {
             return;
         }
         let grounded = self.standing.is_some() && !matches!(self.state, State::Air { .. });
-        let was_sleeping = matches!(self.state, State::Sleep { .. });
+        let was_sleeping = matches!(self.state, State::Sleep { .. } | State::Annoyed { .. });
         self.grab_dx = self.body.x - cx;
         self.grab_dy = self.body.y - cy;
         self.history.clear();
@@ -218,18 +278,23 @@ impl Pet {
             State::Pressed { grounded: true, was_sleeping: true, .. } => {
                 self.state = self.idle_state();
             }
-            State::Pressed { grounded: true, .. } => match behavior::pick_click(&mut self.rng) {
-                ClickReaction::Hop => {
-                    self.heart_timer = HEART_SECS;
-                    self.standing = None;
-                    self.body.vx = 0.0;
-                    self.body.vy = HAPPY_VY;
-                    self.state = State::Air { anim: Anim::Hop };
+            State::Pressed { grounded: true, .. } => {
+                match behavior::pick_click(&mut self.rng) {
+                    ClickReaction::Hop => {
+                        self.heart_timer = HEART_SECS;
+                        self.standing = None;
+                        self.body.vx = 0.0;
+                        self.body.vy = HAPPY_VY;
+                        self.state = State::Air { anim: Anim::Hop };
+                    }
+                    ClickReaction::Trick(kind) => {
+                        self.state = State::Trick { kind, remaining: behavior::CLICK_TRICK_SECS };
+                    }
                 }
-                ClickReaction::Trick(kind) => {
-                    self.state = State::Trick { kind, remaining: behavior::CLICK_TRICK_SECS };
+                if self.rng.f64() < CLICK_SPEECH_CHANCE {
+                    self.speech = Some(Speech::Chatter);
                 }
-            },
+            }
             State::Pressed { .. } => self.start_fall(),
             State::Dragged => {
                 self.record(cx, cy);
@@ -277,6 +342,32 @@ impl Pet {
         self.body.x = ax + st.rel_x;
         self.body.y = ay;
         true
+    }
+
+    fn react_to_tickle(&mut self) {
+        if !self.tickling {
+            return;
+        }
+        self.state = match self.state {
+            State::Sleep { .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for: 0.0 },
+            State::Annoyed { tickled_for, .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for },
+            State::Tickled { .. } => State::Tickled { remaining: TICKLE_HOLD },
+            _ => {
+                self.speech = Some(Speech::Tickle);
+                State::Tickled { remaining: TICKLE_HOLD }
+            }
+        };
+    }
+
+    fn update_chatter(&mut self, dt: f64) {
+        if matches!(self.state, State::Sleep { .. } | State::Annoyed { .. }) {
+            return;
+        }
+        self.chatter_timer -= dt;
+        if self.chatter_timer <= 0.0 {
+            self.speech = Some(Speech::Chatter);
+            self.chatter_timer = behavior::range(&mut self.rng, CHATTER_SECS);
+        }
     }
 
     fn update_ground(&mut self, dt: f64, world: &World) {
@@ -346,6 +437,24 @@ impl Pet {
             State::Trick { kind, remaining } => {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 { State::Trick { kind, remaining } } else { self.move_state(true) };
+            }
+            State::Tickled { remaining } => {
+                let remaining = remaining - dt;
+                self.state = if remaining > 0.0 { State::Tickled { remaining } } else { self.move_state(true) };
+            }
+            State::Annoyed { remaining, tickled_for } => {
+                let tickled_for = if self.tickling { tickled_for + dt } else { tickled_for };
+                if tickled_for >= TICKLE_WAKE_SECS {
+                    self.speech = Some(Speech::Grumpy);
+                    self.state = self.idle_state();
+                } else {
+                    let remaining = remaining - dt;
+                    self.state = if remaining > 0.0 {
+                        State::Annoyed { remaining, tickled_for }
+                    } else {
+                        State::Sleep { remaining: behavior::range(&mut self.rng, behavior::SLEEP_SECS) }
+                    };
+                }
             }
             State::Sleep { remaining } => {
                 let remaining = remaining - dt;
@@ -719,11 +828,11 @@ mod tests {
     }
 
     #[test]
-    fn front_animation_set_is_exactly_the_six_tricks() {
-        let front: Vec<Anim> = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall,
-            Anim::Dragged, Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart]
-            .into_iter().filter(|a| a.is_front()).collect();
-        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart]);
+    fn front_animations_are_the_tricks_and_tickle() {
+        let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed];
+        let front: Vec<Anim> = all.into_iter().filter(|a| a.is_front()).collect();
+        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle]);
         assert_eq!(serde_json::to_string(&Anim::SitFront).unwrap(), "\"sit_front\"");
     }
 
@@ -899,5 +1008,149 @@ mod input_tests {
         p.pointer_up(1100.0, 300.0);
         assert!(p.body.vx.abs() < 1.0, "vx={}", p.body.vx);
         assert!(p.body.vy.abs() < 1.0, "vy={}", p.body.vy);
+    }
+}
+
+#[cfg(test)]
+mod tickle_tests {
+    use super::tests::{cfg, place, w1, world};
+    use super::*;
+
+    const DT: f64 = 1.0 / 60.0;
+
+    /// 커서를 40px씩 좌우로 흔들며 n틱 간질인다
+    fn tickle(p: &mut Pet, w: &World, ticks: usize) {
+        for i in 0..ticks {
+            p.hover(800.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, 350.0, true);
+            p.update(DT, w);
+        }
+    }
+
+    fn idle() -> State {
+        State::Idle { remaining: 100.0, look: false }
+    }
+
+    #[test]
+    fn fast_hover_tickles_and_speaks_once() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        tickle(&mut p, &w, 30);
+        assert!(matches!(p.state, State::Tickled { .. }));
+        assert_eq!(p.render().anim, Anim::Tickle);
+        assert_eq!(p.take_speech(), Some(Speech::Tickle));
+        tickle(&mut p, &w, 10);
+        assert_eq!(p.take_speech(), None, "speech only when tickling starts");
+    }
+
+    #[test]
+    fn slow_hover_does_not_tickle() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        for i in 0..60 {
+            p.hover(800.0 + i as f64 * 2.0, 350.0, true);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Idle { .. }));
+    }
+
+    #[test]
+    fn tickle_stops_1_5s_after_cursor_leaves() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        tickle(&mut p, &w, 30);
+        for _ in 0..80 {
+            p.hover(0.0, 0.0, false);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Tickled { .. }), "still giggling before 1.5s");
+        for _ in 0..20 {
+            p.hover(0.0, 0.0, false);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Move { .. }));
+    }
+
+    #[test]
+    fn tickling_a_sleeper_annoys_then_it_sleeps_again() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Sleep { remaining: 30.0 });
+        tickle(&mut p, &w, 120);
+        assert!(matches!(p.state, State::Annoyed { .. }));
+        assert_eq!(p.render().anim, Anim::Annoyed);
+        assert_eq!(p.take_speech(), None);
+        for _ in 0..100 {
+            p.hover(0.0, 0.0, false);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Sleep { .. }));
+    }
+
+    #[test]
+    fn five_seconds_of_tickling_wakes_a_sleeper() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Sleep { remaining: 30.0 });
+        tickle(&mut p, &w, 280);
+        assert!(matches!(p.state, State::Annoyed { .. }), "not yet at ~4.5s");
+        // 깨어난 틱에서 멈춘다 (계속 간질이면 깬 뒤 바로 간질 반응으로 넘어가는 게 정상)
+        let mut woke = false;
+        for i in 0..40 {
+            p.hover(800.0 + if i % 2 == 0 { 40.0 } else { 0.0 }, 350.0, true);
+            p.update(DT, &w);
+            if matches!(p.state, State::Idle { .. }) {
+                woke = true;
+                break;
+            }
+        }
+        assert!(woke);
+        assert_eq!(p.take_speech(), Some(Speech::Grumpy));
+    }
+
+    #[test]
+    fn airborne_pet_ignores_tickling() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 800.0, 100.0, 1);
+        tickle(&mut p, &w, 10);
+        assert!(matches!(p.state, State::Air { .. }));
+    }
+
+    #[test]
+    fn chatters_every_20_to_40_seconds_but_not_while_sleeping() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 1000.0, look: false });
+        let mut said = 0;
+        for _ in 0..(60 * 90) {
+            p.update(DT, &w);
+            if p.take_speech() == Some(Speech::Chatter) {
+                said += 1;
+            }
+        }
+        assert!((2..=5).contains(&said), "said {said} times in 90s");
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Sleep { remaining: 1000.0 });
+        for _ in 0..(60 * 90) {
+            p.update(DT, &w);
+            assert_eq!(p.take_speech(), None);
+        }
+    }
+
+    #[test]
+    fn about_half_of_clicks_speak() {
+        let w = world(vec![w1()]);
+        let mut spoke = 0;
+        for seed in 0..200 {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Window(1), 800.0, idle());
+            p.pointer_down(800.0, 350.0);
+            p.pointer_up(800.0, 350.0);
+            if p.take_speech() == Some(Speech::Chatter) {
+                spoke += 1;
+            }
+        }
+        assert!((70..=130).contains(&spoke), "spoke {spoke}/200");
     }
 }
