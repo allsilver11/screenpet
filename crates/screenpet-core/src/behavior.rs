@@ -4,7 +4,7 @@ pub const IDLE_SECS: (f64, f64) = (1.5, 3.0);
 pub const SLEEP_SECS: (f64, f64) = (6.0, 12.0);
 pub const SLEEP_CHANCE: f64 = 0.08;
 pub const TRICK_SECS: (f64, f64) = (2.0, 4.0);
-pub const TRICK_CHANCE: f64 = 0.3;
+pub const TRICK_CHANCE: f64 = 0.55;
 pub const MOVE_END_TURN_CHANCE: f64 = 0.3;
 pub const WALK_EDGE_HOP_CHANCE: f64 = 0.8;
 pub const RUN_LEAP_VX_MULT: f64 = 1.8;
@@ -72,7 +72,7 @@ impl Move {
 
     pub fn secs(self) -> (f64, f64) {
         match self {
-            Move::Walk => (4.0, 10.0),
+            Move::Walk => (2.0, 5.0),
             Move::Run => (2.0, 5.0),
             Move::Roll => (2.0, 4.0),
         }
@@ -107,9 +107,9 @@ pub enum ClickReaction {
 
 pub fn pick_move(rng: &mut fastrand::Rng) -> Move {
     let r = rng.f64();
-    if r < 0.55 {
+    if r < 0.45 {
         Move::Walk
-    } else if r < 0.85 {
+    } else if r < 0.80 {
         Move::Run
     } else {
         Move::Roll
@@ -151,18 +151,18 @@ mod tests {
     }
 
     #[test]
-    fn move_mix_is_55_30_15() {
-        assert!((0.52..=0.58).contains(&share(20_000, pick_move, Move::Walk)));
-        assert!((0.27..=0.33).contains(&share(20_000, pick_move, Move::Run)));
-        assert!((0.13..=0.17).contains(&share(20_000, pick_move, Move::Roll)));
+    fn move_mix_is_45_35_20() {
+        assert!((0.42..=0.48).contains(&share(20_000, pick_move, Move::Walk)));
+        assert!((0.32..=0.38).contains(&share(20_000, pick_move, Move::Run)));
+        assert!((0.17..=0.23).contains(&share(20_000, pick_move, Move::Roll)));
     }
 
     #[test]
-    fn rest_is_trick_30_percent() {
+    fn rest_is_trick_55_percent() {
         let mut rng = fastrand::Rng::with_seed(3);
         let n = 20_000;
         let tricks = (0..n).filter(|_| matches!(pick_rest(&mut rng), Rest::Trick(_))).count() as f64 / n as f64;
-        assert!((0.27..=0.33).contains(&tricks), "{tricks}");
+        assert!((0.52..=0.58).contains(&tricks), "{tricks}");
     }
 
     #[test]
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn move_speeds_and_durations() {
         assert_eq!((Move::Walk.speed_mult(), Move::Run.speed_mult(), Move::Roll.speed_mult()), (1.0, 2.5, 2.0));
-        assert_eq!((Move::Walk.secs(), Move::Run.secs(), Move::Roll.secs()), ((4.0, 10.0), (2.0, 5.0), (2.0, 4.0)));
+        assert_eq!((Move::Walk.secs(), Move::Run.secs(), Move::Roll.secs()), ((2.0, 5.0), (2.0, 5.0), (2.0, 4.0)));
     }
 
     #[test]
