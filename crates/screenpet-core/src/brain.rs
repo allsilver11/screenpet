@@ -138,6 +138,98 @@ impl Pet {
         (self.body.x - self.cfg.size / 2.0, self.body.y - self.cfg.size)
     }
 
+    pub fn is_held(&self) -> bool {
+        matches!(self.state, State::Pressed { .. } | State::Dragged)
+    }
+
+    pub fn pointer_down(&mut self, cx: f64, cy: f64) {
+        if self.is_held() {
+            return;
+        }
+        let grounded = self.standing.is_some() && !matches!(self.state, State::Air { .. });
+        let was_sleeping = matches!(self.state, State::Sleep { .. });
+        self.grab_dx = self.body.x - cx;
+        self.grab_dy = self.body.y - cy;
+        self.history.clear();
+        self.history.push_back((self.clock, cx, cy));
+        if !grounded {
+            self.standing = None;
+            self.body.vx = 0.0;
+            self.body.vy = 0.0;
+        }
+        self.state = State::Pressed { start_cx: cx, start_cy: cy, grounded, was_sleeping };
+    }
+
+    pub fn pointer_move(&mut self, cx: f64, cy: f64) {
+        match self.state {
+            State::Pressed { start_cx, start_cy, .. } => {
+                self.record(cx, cy);
+                if (cx - start_cx).hypot(cy - start_cy) >= CLICK_SLOP {
+                    self.standing = None;
+                    self.state = State::Dragged;
+                    self.drag_to(cx, cy);
+                }
+            }
+            State::Dragged => {
+                self.record(cx, cy);
+                self.drag_to(cx, cy);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn pointer_up(&mut self, cx: f64, cy: f64) {
+        match self.state {
+            State::Pressed { grounded: true, was_sleeping: true, .. } => {
+                self.state = self.idle_state();
+            }
+            State::Pressed { grounded: true, .. } => {
+                self.heart_timer = HEART_SECS;
+                self.standing = None;
+                self.body.vx = 0.0;
+                self.body.vy = HAPPY_VY;
+                self.state = State::Air { anim: Anim::Hop };
+            }
+            State::Pressed { .. } => self.start_fall(),
+            State::Dragged => {
+                self.record(cx, cy);
+                let (vx, vy) = self.release_velocity();
+                let (vx, vy) = clamp_speed(vx, vy);
+                if vx.abs() > 50.0 {
+                    self.facing = vx.signum();
+                }
+                self.standing = None;
+                self.body.vx = vx;
+                self.body.vy = vy;
+                self.state = State::Air { anim: Anim::Fall };
+            }
+            _ => {}
+        }
+    }
+
+    fn drag_to(&mut self, cx: f64, cy: f64) {
+        self.body.x = cx + self.grab_dx;
+        self.body.y = cy + self.grab_dy;
+    }
+
+    fn record(&mut self, cx: f64, cy: f64) {
+        self.history.push_back((self.clock, cx, cy));
+        while self.history.len() > 2 && self.clock - self.history[0].0 > VELOCITY_WINDOW {
+            self.history.pop_front();
+        }
+    }
+
+    fn release_velocity(&self) -> (f64, f64) {
+        let (Some(&(t0, x0, y0)), Some(&(t1, x1, y1))) = (self.history.front(), self.history.back()) else {
+            return (0.0, 0.0);
+        };
+        let dt = t1 - t0;
+        if dt < 1e-6 {
+            return (0.0, 0.0);
+        }
+        ((x1 - x0) / dt, (y1 - y0) / dt)
+    }
+
     /// 서 있는 디딤판 기준점을 따라 위치 갱신. 기준점이 사라졌으면 false.
     fn follow_anchor(&mut self, world: &World) -> bool {
         let Some(st) = self.standing else { return false };
@@ -466,5 +558,120 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.body = Body { x: 800.0, y: 400.0, vx: 0.0, vy: 0.0 };
         assert_eq!(p.window_pos(), (736.0, 272.0));
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::tests::{cfg, place, run, w1, world};
+    use super::*;
+
+    const DT: f64 = 1.0 / 60.0;
+
+    fn idle() -> State {
+        State::Idle { remaining: 100.0, look: false }
+    }
+
+    #[test]
+    fn click_on_grounded_pet_is_happy_and_lands_back() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.pointer_down(800.0, 350.0);
+        assert!(p.is_held());
+        p.pointer_up(800.0, 350.0);
+        assert!(!p.is_held());
+        assert_eq!(p.state, State::Air { anim: Anim::Hop });
+        assert!(p.render().heart);
+        run(&mut p, &w, 120);
+        assert_eq!(p.standing.unwrap().owner, Owner::Window(1));
+    }
+
+    #[test]
+    fn tiny_move_still_counts_as_click() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.pointer_down(800.0, 350.0);
+        p.pointer_move(803.0, 351.0);
+        p.pointer_up(803.0, 351.0);
+        assert!(p.render().heart);
+    }
+
+    #[test]
+    fn click_on_sleeping_pet_wakes_it() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Sleep { remaining: 30.0 });
+        p.pointer_down(800.0, 350.0);
+        p.pointer_up(800.0, 350.0);
+        assert!(matches!(p.state, State::Idle { .. }));
+        assert!(!p.render().heart);
+    }
+
+    #[test]
+    fn pressed_grounded_pet_keeps_riding_window() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.pointer_down(800.0, 350.0);
+        p.update(DT, &world(vec![super::tests::win(1, 600.0, 400.0, 1200.0, 900.0)]));
+        assert_eq!(p.body.x, 900.0);
+    }
+
+    #[test]
+    fn drag_moves_pet_with_cursor_keeping_grab_offset() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.pointer_down(810.0, 350.0);
+        p.pointer_move(910.0, 250.0);
+        assert_eq!(p.state, State::Dragged);
+        assert!(p.standing.is_none());
+        assert_eq!((p.body.x, p.body.y), (900.0, 300.0));
+        assert_eq!(p.render().anim, Anim::Dragged);
+    }
+
+    #[test]
+    fn release_throws_with_recent_cursor_velocity() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.pointer_down(800.0, 300.0);
+        for i in 1..=6 {
+            p.update(DT, &w);
+            p.pointer_move(800.0 + 20.0 * i as f64, 300.0);
+        }
+        p.pointer_up(920.0, 300.0);
+        assert_eq!(p.state, State::Air { anim: Anim::Fall });
+        assert!((p.body.vx - 1200.0).abs() < 1.0, "vx={}", p.body.vx);
+        assert!(p.body.vy.abs() < 1.0);
+        assert_eq!(p.facing, 1.0);
+    }
+
+    #[test]
+    fn click_while_airborne_drops_with_zero_velocity() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 800.0, 200.0, 1);
+        p.body.vx = 500.0;
+        p.body.vy = 300.0;
+        p.pointer_down(800.0, 150.0);
+        p.update(DT, &w);
+        assert_eq!(p.body.y, 200.0, "held pet must not move");
+        p.pointer_up(800.0, 150.0);
+        assert_eq!(p.state, State::Air { anim: Anim::Fall });
+        assert_eq!((p.body.vx, p.body.vy), (0.0, 0.0));
+        assert!(!p.render().heart);
+    }
+
+    #[test]
+    fn second_pointer_down_while_held_is_ignored() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.pointer_down(800.0, 350.0);
+        p.pointer_move(900.0, 350.0);
+        p.pointer_down(950.0, 350.0);
+        assert_eq!(p.state, State::Dragged);
     }
 }
