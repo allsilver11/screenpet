@@ -7,7 +7,13 @@ from sprite_spec import ANIMS, FRAME, OPTIONAL_ANIMS, ROLL_CENTER, ROLL_RADIUS
 
 STANDING = {"walk", "run", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
             "hungry", "eat", "level_up", "huff"}
-SPECIES_IDS = ("cat", "dog", "rabbit", "bear")
+SPECIES_IDS = ("cat", "dog", "rabbit", "bear", "bee")
+# 꿀벌은 날아다녀서 떠 있는 동작이 많다 — 바닥에 내려앉는 동작만 발이 닿는지 본다
+BEE_GROUNDED = {"sleep", "annoyed", "land", "eat"}
+
+
+def grounded(pid, anim):
+    return anim in (BEE_GROUNDED if pid == "bee" else STANDING)
 # 전체 검사는 대표 단계만 (5단계 모두는 너무 오래 걸린다) — 다른 단계는 test_stage_sheets_and_manifest가 파일 존재를 본다
 CHECK_STAGES = ("baby", "teenager", "adult")
 
@@ -39,7 +45,7 @@ def test_every_species_every_animation(tmp_path):
                     assert bbox is not None, f"{pid} {st} {anim} {col} empty"
                     assert bbox[0] >= 1 and bbox[1] >= 1 and bbox[2] <= FRAME - 1 and bbox[3] <= FRAME - 1, \
                         f"{pid} {st} {anim} {col} clipped {bbox}"
-                    if anim in STANDING:
+                    if grounded(pid, anim):
                         assert bbox[3] >= 118, f"{pid} {st} {anim} {col} floats (bottom {bbox[3]})"
 
 
@@ -51,7 +57,7 @@ def test_only_cat_has_arch_and_huff_and_only_dog_has_wag(tmp_path):
         assert ("arch" in m["animations"]) == (pid == "cat"), pid
         assert ("huff" in m["animations"]) == (pid == "cat"), pid
         assert ("wag" in m["animations"]) == (pid == "dog"), pid
-        assert ("personality" in m) == (pid == "cat"), pid
+        assert m.get("personality") == {"cat": "aloof", "bee": "friendly"}.get(pid), pid
     m = json.loads((tmp_path / "dog" / "pet.json").read_text(encoding="utf-8"))
     assert m["animations"]["wag"]["row"] == len(ANIMS)
     assert m["animations"]["wag"]["front"] is True
@@ -98,6 +104,7 @@ def test_stage_sheets_and_manifest(tmp_path):
     assert all(size["bear"][st] > 1.0 for st in ("child", "teenager", "adult"))
     assert all(v == 0.85 for v in size["rabbit"].values())
     assert all(v == 1.0 for pid in ("cat", "dog") for v in size[pid].values())
+    assert all(v == 0.8 for v in size["bee"].values())
 
 
 def test_baby_head_is_relatively_bigger_than_adult(tmp_path):
@@ -163,3 +170,93 @@ def test_baby_eyes_are_relatively_bigger_than_adult(tmp_path):
 
     for pid in SPECIES_IDS:
         assert eye_ratio(pid, "baby") > 1.5 * eye_ratio(pid, "adult"), pid
+
+
+def test_bee_flies_and_only_bee_has_sting(tmp_path):
+    import json
+    draw_pets.build(tmp_path)
+    for pid in SPECIES_IDS:
+        m = json.loads((tmp_path / pid / "pet.json").read_text(encoding="utf-8"))
+        assert ("sting" in m["animations"]) == (pid == "bee"), pid
+        assert m.get("locomotion") == ("fly" if pid == "bee" else None), pid
+    m = json.loads((tmp_path / "bee" / "pet.json").read_text(encoding="utf-8"))
+    assert m["name"] == "꿀벌" and m["walk_speed"] == 50
+    assert m["animations"]["sting"] == {"row": len(ANIMS), "frames": 3, "fps": 8, "loop": False, "front": True}
+    assert all(a in m["animations"] for a, *_ in ANIMS)
+    assert m["speech"]["chatter"] == ["bzz~", "♪"] and m["speech"]["sting"] == ["콕!"]
+    assert m["favorite_food"] == {"emoji": "🌸", "name": "꽃꿀"}
+    sheet = Image.open(tmp_path / "bee" / "sheet.png")
+    assert sheet.height == FRAME * (len(ANIMS) + 1)
+
+
+def test_bee_hovers_above_the_ground_when_flying(tmp_path):
+    """떠 있는 꿀벌: walk·idle·sit_front는 바닥(y 127)에서 떨어져 있다 (날고 있는 게 보인다)."""
+    draw_pets.build(tmp_path)
+    names = [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES["bee"])]
+    sheet = Image.open(tmp_path / "bee" / "sheet_teenager.png")
+    for anim in ("walk", "idle", "sit_front"):
+        row = names.index(anim)
+        bbox = sheet.crop((0, row * FRAME, FRAME, (row + 1) * FRAME)).getchannel("A").getbbox()
+        assert bbox[3] <= 116, (anim, bbox)
+
+
+def test_bee_wings_are_translucent(tmp_path):
+    """날개는 반투명 층: walk 첫 장에 반투명(알파 60~200) 픽셀이 많다."""
+    draw_pets.build(tmp_path)
+    cell = Image.open(tmp_path / "bee" / "sheet_teenager.png").crop((0, 0, FRAME, FRAME))
+    semi = sum(cell.getchannel("A").histogram()[60:201])
+    assert semi > 150, semi
+
+
+def test_sting_effect_is_a_centered_stinger_with_cracks():
+    img = draw_pets.sting_effect()
+    assert img.size == (FRAME, FRAME) and img.mode == "RGBA"
+    a = img.getchannel("A")
+    for p in ((0, 0), (FRAME - 1, 0), (0, FRAME - 1), (FRAME - 1, FRAME - 1)):
+        assert a.getpixel(p) == 0
+    bbox = a.getbbox()
+    assert bbox[0] >= 1 and bbox[1] >= 1 and bbox[2] <= FRAME - 1 and bbox[3] <= FRAME - 1, bbox
+    # 가운데 근처에 짙은 침 끝
+    px = img.load()
+    dark = [(x, y) for y in range(54, 70) for x in range(50, 68) if px[x, y][3] > 200 and sum(px[x, y][:3]) < 330]
+    assert len(dark) > 15, len(dark)
+    # 가운데에서 먼 곳(반지름 30 밖)까지 뻗은 금
+    far = sum(1 for y in range(FRAME) for x in range(FRAME) if px[x, y][3] > 100 and (x - 64) ** 2 + (y - 64) ** 2 > 30 ** 2)
+    assert far > 60, far
+
+
+def test_back_view_paws_are_drawn_behind_the_head(monkeypatch):
+    """뒷모습 climb·slide: 앞발은 벽 쪽 — 머리·몸보다 먼저(뒤에) 그려서 발끝만 머리 옆·위로 빼꼼 보인다."""
+    from sprite_spec import STAGES
+    tags, orders = {}, []
+    arm, head, compose = draw_pets.back_arm, draw_pets.back_head, draw_pets.compose
+
+    def tagged(kind, fn):
+        def f(*a, **k):
+            r = fn(*a, **k)
+            tags[id(r[0] if kind == "arm" else r)] = kind
+            return r
+        return f
+    monkeypatch.setattr(draw_pets, "back_arm", tagged("arm", arm))
+    monkeypatch.setattr(draw_pets, "back_head", tagged("head", head))
+    def spy(parts, *a, **k):
+        orders.append([tags.get(id(p)) for p in parts])
+        tags.clear()  # id는 다음 프레임에서 다시 쓰일 수 있다
+        return compose(parts, *a, **k)
+    monkeypatch.setattr(draw_pets, "compose", spy)
+    for pid in ("cat", "bear"):
+        sp = draw_pets.SPECIES[pid]
+        for st in (STAGES[0], STAGES[-1]):
+            with draw_pets.stage(st, sp.stage_tweak.get(st)):
+                draw_pets.frames(draw_pets.staged_species(sp), "climb", 1)
+                draw_pets.frames(draw_pets.staged_species(sp), "slide", 1)
+    assert len(orders) == 8
+    for order in orders:
+        assert order.count("arm") == 2 and order.index("head") > max(i for i, t in enumerate(order) if t == "arm"), order
+
+
+def test_bear_is_a_deeper_brown_with_bigger_ears():
+    assert sum(draw_pets.BEAR.base) < sum((190, 132, 90))
+    assert draw_pets.BEAR.outline is not None and sum(draw_pets.BEAR.outline) < sum(draw_pets.BEAR.base)
+    for st in ("baby", "teenager", "adult"):
+        assert draw_pets.BEAR.stage_tweak[st]["ear"] > draw_pets.STAGE_PROPS[st]["ear"] * 1.1

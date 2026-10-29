@@ -47,6 +47,8 @@ OPTIONAL_ANIMS = [
     # 뒷모습 (고양이·곰): front=False지만 앱은 반전하지 않는다 (Rust Task 4b에서 반전 안 함으로 처리)
     ("climb", 4, 6, True, False),
     ("slide", 2, 8, True, False),
+    # 꿀벌: 콕! 침 쏘기 (앞모습, 한 번)
+    ("sting", 3, 8, False, True),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -57,11 +59,15 @@ SPEECH = {
     "dog": {"chatter": ["woof!", "arf!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "rabbit": {"chatter": ["boing!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "bear": {"chatter": ["grr~", "hmm~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    "bee": {"chatter": ["bzz~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "sting": ["콕!"], **_CARE_SPEECH},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
-PERSONALITY = {"cat": "aloof"}
+PERSONALITY = {"cat": "aloof", "bee": "friendly"}
+
+# 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
+LOCOMOTION = {"bee": "fly"}
 
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {
@@ -69,6 +75,7 @@ FAVORITE_FOOD = {
     "dog": {"emoji": "🦴", "name": "뼈다귀"},
     "rabbit": {"emoji": "🥕", "name": "당근"},
     "bear": {"emoji": "🍯", "name": "꿀"},
+    "bee": {"emoji": "🌸", "name": "꽃꿀"},
 }
 
 
