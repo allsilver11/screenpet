@@ -163,7 +163,7 @@ pub const CIRCLE_CHANCE: f64 = 0.25;
 pub const SWAY_CHANCE: f64 = 0.15;
 pub const EIGHT_CHANCE: f64 = 0.1;
 /// 원: 반지름 (몸 크기 배), 두 바퀴 돌 확률, 한 바퀴당 경유점 수, 나선으로 부풀거나 줄어드는 정도
-pub const CIRCLE_RADIUS: (f64, f64) = (1.0, 1.5);
+pub const CIRCLE_RADIUS: (f64, f64) = (0.9, 1.6);
 pub const CIRCLE_TWICE: f64 = 0.35;
 pub const CIRCLE_SAMPLES: usize = 8;
 pub const SPIRAL: f64 = 0.3;
@@ -178,6 +178,11 @@ pub const SWAY_DRIFT: (f64, f64) = (2.5, 4.0);
 pub const EIGHT_AMP: (f64, f64) = (1.0, 1.6);
 pub const EIGHT_FLAT: f64 = 0.45;
 pub const EIGHT_SAMPLES: usize = 12;
+/// 원·8자·살랑은 보통 나는 속도의 이 배로 빠르게 (처음과 끝 BOOST_EASE 비율 동안 부드럽게 빨라지고 느려진다) —
+/// 느릿느릿 흘러가는 게 아니라 "빙글" 도는 것으로 보이게
+pub const CIRCLE_BOOST: (f64, f64) = (1.3, 1.5);
+pub const SWAY_BOOST: f64 = 1.2;
+pub const BOOST_EASE: f64 = 0.2;
 
 /// 날기 한 번의 모양
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,13 +244,37 @@ pub struct Path {
     seg: usize,
     u: f64,
     pos: (f64, f64),
+    /// 이 구간들 [시작, 끝)에서 빠르기 배 (원·8자·살랑)
+    boost: (usize, usize, f64),
 }
 
 impl Path {
     pub fn new(from: (f64, f64)) -> Self {
         let mut pts = [(0.0, 0.0); MAX_POINTS];
         pts[0] = from;
-        Self { pts, n: 1, seg: 0, u: 0.0, pos: from }
+        Self { pts, n: 1, seg: 0, u: 0.0, pos: from, boost: (0, 0, 1.0) }
+    }
+
+    /// 구간 [start, end)를 mult배 빠르게
+    pub fn set_boost(&mut self, start: usize, end: usize, mult: f64) {
+        self.boost = (start, end.min(self.n), mult);
+    }
+
+    /// 지금 빠르기 배: 빠른 구간 안이면 처음·끝에서 부드럽게 오르내리는 mult, 아니면 1
+    pub fn speed_mult(&self) -> f64 {
+        let (start, end, mult) = self.boost;
+        if end <= start || self.seg < start || self.seg >= end {
+            return 1.0;
+        }
+        let p = (self.seg as f64 + self.u - start as f64) / (end - start) as f64;
+        let e = (p.min(1.0 - p) / BOOST_EASE).clamp(0.0, 1.0);
+        1.0 + (mult - 1.0) * e * e * (3.0 - 2.0 * e)
+    }
+
+    /// 원·8자·살랑을 도는 중인지
+    pub fn in_figure(&self) -> bool {
+        let (start, end, _) = self.boost;
+        self.seg >= start && self.seg < end
     }
 
     /// 경유점 하나 더 (가득 찼으면 false)
@@ -395,6 +424,9 @@ pub fn build_path(rng: &mut fastrand::Rng, style: Style, from: (f64, f64), to: (
                     });
                 }
             }
+            if let Some(ring) = &ring {
+                path.set_boost(i, i + ring.len(), behavior::range(rng, CIRCLE_BOOST));
+            }
         }
         Style::Sway => {
             // 뱀처럼: 가로로 amp만큼 갔다가 반지름 r의 반원으로 돌아서 (위나 아래로 2r 옮겨) 반대쪽으로 — 되돌아설 때도 둥글다.
@@ -419,6 +451,7 @@ pub fn build_path(rng: &mut fastrand::Rng, style: Style, from: (f64, f64), to: (
                 }
                 side = -side;
             }
+            path.set_boost(0, path.points().len() - 1, SWAY_BOOST);
         }
         Style::Eight => {
             let a = behavior::range(rng, EIGHT_AMP) * size;
@@ -436,6 +469,7 @@ pub fn build_path(rng: &mut fastrand::Rng, style: Style, from: (f64, f64), to: (
                 path.push((c.0 + sx * a * phi.sin(), c.1 + sy * h * (2.0 * phi).sin()));
             }
             path.push(c);
+            path.set_boost(0, EIGHT_SAMPLES, behavior::range(rng, CIRCLE_BOOST));
             // 8자를 다 그리면 목표로 — 멀면 굽이굽이 (가까운 굽이는 되돌아서며 뾰족해질 수 있어 4몸 넘을 때만)
             let tail = dist(c, to);
             if tail > 4.0 * size {
@@ -769,6 +803,32 @@ mod tests {
         assert_eq!(n, 3, "{:?}", path.points());
         let (pts, _) = walk(path, (1200.0, 600.0), 1.0);
         assert!(pts.iter().any(|p| p.0 < 900.0 - 100.0) && pts.iter().any(|p| p.0 > 900.0 + 100.0));
+    }
+
+    #[test]
+    fn circles_and_eights_speed_up_smoothly_and_wander_does_not() {
+        let b = Rect::new(38.0, 166.4, 1882.0, 1040.0);
+        let mut rng = fastrand::Rng::with_seed(11);
+        let (from, to) = ((900.0, 600.0), (1500.0, 400.0));
+        let mut path = build_path(&mut rng, Style::Eight, from, to, &b, 128.0);
+        let (mut max, mut prev, mut t) = (1.0f64, 1.0f64, 0.0);
+        loop {
+            let m = path.speed_mult();
+            assert!((m - prev).abs() < 0.02, "jerk {prev} -> {m}");
+            max = max.max(m);
+            prev = m;
+            t += 1.0 / 60.0;
+            if path.advance(90.0 * m / 60.0, to).1 {
+                break;
+            }
+        }
+        assert!((CIRCLE_BOOST.0 - 1e-9..=CIRCLE_BOOST.1 + 1e-9).contains(&max), "{max}");
+        assert!(t < 60.0);
+        let mut wander = build_path(&mut rng, Style::Wander, from, to, &b, 128.0);
+        while !wander.advance(3.0, to).1 {
+            assert_eq!(wander.speed_mult(), 1.0);
+            assert!(!wander.in_figure());
+        }
     }
 
     #[test]

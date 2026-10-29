@@ -311,7 +311,10 @@ impl Pet {
         } else {
             f.s += speed * dt;
             let (p, arrived) = match f.path.as_mut() {
-                Some(path) => path.advance(speed * dt, to),
+                Some(path) => {
+                    let boost = path.speed_mult();
+                    path.advance(speed * boost * dt, to)
+                }
                 None => flight::path_point(f.from, to, f.s, f.wave),
             };
             done = arrived;

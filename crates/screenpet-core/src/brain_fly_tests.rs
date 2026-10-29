@@ -772,6 +772,12 @@ struct FlyStats {
     flips: usize,
     min_flip_gap: f64,
     max_step: f64,
+    /// 원·8자·살랑을 도는 동안 방향이 바뀐 양, 그 시간
+    fig_turned: f64,
+    fig_secs: f64,
+    /// 원 모양 날기에서 원을 도는 시간과 바퀴 수 (감은 양 / 2π)
+    ring_secs: f64,
+    ring_turns: f64,
 }
 
 fn real_screen(dpi: f64) -> (World, PetConfig) {
@@ -821,6 +827,14 @@ fn fly_stats(dpi: f64, seeds: u64) -> FlyStats {
                     if let Some(ph) = heading {
                         let dh = (h - ph + PI).rem_euclid(TAU) - PI;
                         st.turned += dh.abs();
+                        if let Some(f) = p.flight.filter(|f| f.path.is_some_and(|q| q.in_figure())) {
+                            st.fig_turned += dh.abs();
+                            st.fig_secs += DT;
+                            if f.style == flight::Style::Circle {
+                                st.ring_secs += DT;
+                                st.ring_turns += dh.abs() / TAU;
+                            }
+                        }
                         wind += dh;
                         wmin = wmin.min(wind);
                         wmax = wmax.max(wind);
@@ -865,6 +879,11 @@ fn bee_flies_curvy_balanced_paths_with_circles_on_real_screens() {
         let per_size = st.turned / st.path;
         let per_sec = st.turned / st.fly_secs;
         eprintln!("dpi {dpi}: lr {lr:.2} ud {ud:.2} turn {per_size:.2} rad/size {per_sec:.2} rad/s straight {:.2} circles {} flips {} gap {:.2} step {:.2}", st.straightness / st.flights as f64, st.circles, st.flips, st.min_flip_gap, st.max_step);
+        // 원·8자·살랑을 도는 동안은 확실히 빙글: 초당 0.6 rad 넘게 (예전 원: 0.3 rad/s 남짓)
+        let fig = st.fig_turned / st.fig_secs;
+        let per_ring = st.ring_secs / st.ring_turns;
+        eprintln!("dpi {dpi}: figures {fig:.2} rad/s, one circle {per_ring:.1} s");
+        assert!(fig > 0.6, "figures {fig:.2} rad/s {msg}");
         assert!(per_size > 0.6 && per_sec > 0.25, "turn {per_size:.2} rad/size {per_sec:.2} rad/s {msg}");
         // 곧은 선이 아니다 (예전: 0.95)
         let straight = st.straightness / st.flights as f64;
