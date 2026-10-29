@@ -218,6 +218,7 @@ fn personality_name(p: Personality) -> &'static str {
     match p {
         Personality::Friendly => "friendly",
         Personality::Aloof => "aloof",
+        Personality::Playful => "playful",
     }
 }
 
