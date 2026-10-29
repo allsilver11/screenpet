@@ -4,7 +4,7 @@
 //! - 짝맞추기 창(`pair`): 양쪽에 이모지 6개를 보이고 두 사람이 모두 확인해야 친구가 된다
 //! - 놀러 가기: 내 동물이 연결된 끝으로 나가면 `Visit`, 손님이 떠나면 `Leave`, 끊기면 바로 귀환
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -36,6 +36,10 @@ const RESULT_SECS: Duration = Duration::from_millis(2500);
 const COME_HOME_FALLBACK: Duration = Duration::from_secs(15);
 /// 동시에 받는 손님 수 (친구마다 한 마리)
 const MAX_GUESTS: usize = 8;
+/// 한 친구에게서 받아들인 방문 사이 최소 간격 (그보다 잦은 Visit은 Leave로 돌려보낸다)
+const VISIT_COOLDOWN: Duration = Duration::from_secs(5);
+/// 거절 로그는 친구마다 이 간격에 한 번만
+const DECLINE_LOG_EVERY: Duration = Duration::from_secs(5);
 /// 표시 이름이 없을 때
 const DEFAULT_NAME: &str = "친구";
 
@@ -94,6 +98,8 @@ struct AwayVisit {
 
 pub struct Network {
     net: Option<Net>,
+    /// 내 설치 id (동시에 서로 신청하면 id가 작은 쪽 신청이 남는다)
+    my_id: String,
     /// 내 표시 이름
     name: String,
     /// 발견된 사람 id → 이름 (친구 포함)
@@ -104,6 +110,14 @@ pub struct Network {
     pairing: Option<Pairing>,
     away: Option<AwayVisit>,
     last_menu: Option<FriendsMenu>,
+    /// 트레이 메뉴를 다시 계산할 일이 있었음 (네트워크 입력·놀러 가기/돌아오기)
+    menu_dirty: bool,
+    /// 마지막으로 들은 이름 (발견·신청·연결) — 설정의 친구 이름을 맞춘다
+    names: HashMap<String, String>,
+    /// 친구별 마지막으로 받아들인 방문 시각
+    last_visit: HashMap<String, Instant>,
+    /// 친구별 마지막 방문 거절 로그 시각
+    last_decline_log: HashMap<String, Instant>,
 }
 
 fn to_net_side(s: Side) -> screenpet_net::Side {
@@ -134,8 +148,9 @@ fn personality_name(p: Personality) -> &'static str {
     }
 }
 
+/// 다른 사람이 정한 글자: 제어 문자(\t, \n …)를 빼고 64자로
 fn clamp(s: &str) -> String {
-    s.chars().take(64).collect()
+    s.chars().filter(|c| !c.is_control()).take(64).collect()
 }
 
 /// Windows 사용자 이름 (spec §1). 없으면 "친구"
@@ -169,6 +184,11 @@ impl Network {
             pairing: None,
             away: None,
             last_menu: None,
+            menu_dirty: true,
+            names: HashMap::new(),
+            last_visit: HashMap::new(),
+            last_decline_log: HashMap::new(),
+            my_id: config.install_id.clone().unwrap_or_default(),
         };
         let state = app.state::<AppState>();
         let key = match screenpet_core::config::load_or_create_identity_key(&state.config_dir, Net::generate_static_key) {
@@ -237,6 +257,7 @@ impl Network {
         );
         eprintln!("own pet went to visit {friend} (visit {visit_id})");
         self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None });
+        self.menu_dirty = true;
     }
 
     /// 손님이 떠났다 (집 쪽 끝으로 걸어 나감 / 손 흔들고 사라짐): 주인에게 Leave
@@ -249,11 +270,19 @@ impl Network {
     fn come_back(&mut self, own: &mut Slot) {
         if let Some(a) = self.away.take() {
             own.pet.enter(&own.world, a.side);
+            self.menu_dirty = true;
         }
     }
 
     /// 네트워크 입력 처리. config가 바뀌었으면 true (저장 필요)
     pub fn handle(&mut self, app: &AppHandle, input: NetInput, config: &mut Config, slots: &mut Vec<Slot>) -> bool {
+        self.menu_dirty = true;
+        let dirty = self.handle_input(app, input, config, slots);
+        // net이 고정한 친구 목록이 설정과 다르면 맞춘다 (짝맞추기 완료, 상대의 연결 끊기 …)
+        self.sync_friends(config) || dirty
+    }
+
+    fn handle_input(&mut self, app: &AppHandle, input: NetInput, config: &mut Config, slots: &mut Vec<Slot>) -> bool {
         match input {
             NetInput::Event(ev) => self.on_event(app, ev, config, slots),
             NetInput::Invite(id) => {
@@ -297,7 +326,9 @@ impl Network {
     fn on_event(&mut self, app: &AppHandle, ev: NetEvent, config: &mut Config, slots: &mut Vec<Slot>) -> bool {
         match ev {
             NetEvent::PeerSeen { id, name } => {
-                self.seen.insert(id, clamp(&name));
+                let name = clamp(&name);
+                self.note_name(&id, &name);
+                self.seen.insert(id, name);
             }
             NetEvent::PeerGone { id } => {
                 self.seen.remove(&id);
@@ -308,13 +339,12 @@ impl Network {
             NetEvent::Connected { id, name } => {
                 self.connected.insert(id.clone());
                 self.forgot.remove(&id);
-                let name = clamp(&name);
+                self.note_name(&id, &clamp(&name));
                 if let Some(p) = self.pairing.as_mut().filter(|p| p.peer == id && matches!(p.view.phase, "confirm" | "waiting")) {
                     p.view.phase = "done";
                     p.deadline = Instant::now() + RESULT_SECS;
                     self.show_pair(app);
                 }
-                return self.sync_friends(config, &id, &name);
             }
             NetEvent::Disconnected { id } => {
                 self.connected.remove(&id);
@@ -328,13 +358,7 @@ impl Network {
                 if self.away.as_ref().is_some_and(|a| a.friend == id) {
                     self.come_back(&mut slots[0]);
                 }
-                // 상대가 친구를 끊었으면(unfriend) net은 조용히 지운다 — 설정에서도 지운다
-                if let Some(net) = &self.net {
-                    if !net.friends().iter().any(|f| f.id == id) {
-                        self.forgot.remove(&id);
-                        return config.remove_friend(&id);
-                    }
-                }
+                // 상대가 친구를 끊었으면(unfriend) net은 조용히 지운다 — 설정에서는 handle 끝의 sync_friends가 지운다
             }
             NetEvent::Received { from, msg } => self.on_visit_message(app, config, slots, &from, msg),
             NetEvent::FriendForgotUs { id } => {
@@ -344,22 +368,57 @@ impl Network {
         false
     }
 
-    /// 짝맞추기가 끝나 net이 친구를 고정했으면 config에도 (공개키·이름) 적는다. 연결될 때마다 이름도 고친다
-    fn sync_friends(&mut self, config: &mut Config, id: &str, name: &str) -> bool {
+    fn note_name(&mut self, id: &str, name: &str) {
+        if !name.is_empty() {
+            self.names.insert(id.to_string(), name.to_string());
+        }
+    }
+
+    /// 설정의 친구 목록을 net이 고정한 친구(id·공개키)에 맞춘다: 없어진 친구는 지우고, 새 친구는 더하고,
+    /// 이름은 마지막으로 들은 것으로. 바뀌었으면 true
+    fn sync_friends(&mut self, config: &mut Config) -> bool {
         let Some(net) = &self.net else { return false };
-        let Some(f) = net.friends().into_iter().find(|f| f.id == id) else { return false };
-        let name = if name.is_empty() { self.seen.get(id).cloned().unwrap_or_else(|| DEFAULT_NAME.to_string()) } else { name.to_string() };
-        config.upsert_friend(id, &name, f.public_key)
+        let pinned = net.friends();
+        let mut dirty = false;
+        let gone: Vec<String> = config.friends.iter().filter(|f| !pinned.iter().any(|p| p.id == f.id)).map(|f| f.id.clone()).collect();
+        for id in gone {
+            self.forgot.remove(&id);
+            dirty |= config.remove_friend(&id);
+        }
+        for p in pinned {
+            let name = self
+                .names
+                .get(&p.id)
+                .cloned()
+                .or_else(|| config.friend(&p.id).map(|f| f.name.clone()))
+                .unwrap_or_else(|| DEFAULT_NAME.to_string());
+            dirty |= config.upsert_friend(&p.id, &name, p.public_key);
+        }
+        dirty
     }
 
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
             Visit::Visit { visit_id, species, stage, scale, owner, enter_side, .. } => {
-                if let Err(e) = self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, from_net_side(enter_side)) {
-                    // 받을 수 없는 손님은 바로 돌려보낸다 (주인 쪽에서 원래 동물이 돌아온다)
-                    eprintln!("declined visit {visit_id} from {from}: {e}");
-                    if let Some(net) = &self.net {
-                        net.send(from, Visit::Leave { visit_id });
+                let now = Instant::now();
+                let result = if self.last_visit.get(from).is_some_and(|t| now.duration_since(*t) < VISIT_COOLDOWN) {
+                    Err("too soon after the last visit".to_string())
+                } else {
+                    self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, from_net_side(enter_side))
+                };
+                match result {
+                    Ok(()) => {
+                        self.last_visit.insert(from.to_string(), now);
+                    }
+                    Err(e) => {
+                        // 받을 수 없는 손님은 바로 돌려보낸다 (주인 쪽에서 원래 동물이 돌아온다)
+                        if !self.last_decline_log.get(from).is_some_and(|t| now.duration_since(*t) < DECLINE_LOG_EVERY) {
+                            eprintln!("declined visit {visit_id} from {from}: {e}");
+                            self.last_decline_log.insert(from.to_string(), now);
+                        }
+                        if let Some(net) = &self.net {
+                            net.send(from, Visit::Leave { visit_id });
+                        }
                     }
                 }
             }
@@ -458,12 +517,22 @@ impl Network {
 
     fn on_invited(&mut self, app: &AppHandle, from: String, name: String, pet: String, sas: String, token: u64) {
         let Some(net) = &self.net else { return };
-        if self.pairing.as_ref().is_some_and(|p| !matches!(p.view.phase, "done" | "failed")) {
-            // 한 번에 하나만 — 나머지는 거절
-            net.answer_invite(token, false);
-            return;
+        if let Some(p) = self.pairing.as_ref().filter(|p| !matches!(p.view.phase, "done" | "failed")) {
+            // 서로 동시에 신청했다: 양쪽 모두 같은 규칙(id가 작은 쪽의 신청이 남는다)으로 하나만 남긴다
+            let mutual = p.peer == from && !p.view.incoming;
+            if mutual && from < self.my_id {
+                // 상대 신청이 이긴다 — 내 신청을 거두고 상대 것을 보인다
+                if let Some(t) = p.token {
+                    net.answer_invite(t, false);
+                }
+            } else {
+                // 한 번에 하나만 (서로 신청했으면 내 신청이 이긴다) — 이 신청은 거절
+                net.answer_invite(token, false);
+                return;
+            }
         }
         let name = clamp(&name);
+        self.note_name(&from, &name);
         let name = if name.is_empty() { DEFAULT_NAME.to_string() } else { name };
         self.pairing = Some(Pairing {
             peer: from,
@@ -567,7 +636,7 @@ impl Network {
         };
         let _ = app.emit_to(PAIR_LABEL, "pair-state", p.view.clone());
         if !window.is_visible().unwrap_or(false) {
-            let _ = window.center();
+            place_on_primary(app, &window);
             let _ = window.show();
             let _ = window.set_focus();
         }
@@ -586,14 +655,18 @@ impl Network {
             eprintln!("no answer to come-home; coming back anyway");
             self.come_back(own);
         }
-        let menu = self.menu_model(config, own);
-        if self.last_menu.as_ref() != Some(&menu) {
-            crate::tray::fill_friends(app, &menu);
-            self.last_menu = Some(menu);
+        // 메뉴는 네트워크 입력이나 놀러 가기/돌아오기가 있었을 때만 다시 계산한다
+        if self.menu_dirty {
+            self.menu_dirty = false;
+            let menu = self.menu_model(config);
+            if self.last_menu.as_ref() != Some(&menu) {
+                crate::tray::fill_friends(app, &menu);
+                self.last_menu = Some(menu);
+            }
         }
     }
 
-    fn menu_model(&self, config: &Config, own: &Slot) -> FriendsMenu {
+    fn menu_model(&self, config: &Config) -> FriendsMenu {
         let strangers = self.seen.iter().filter(|(id, _)| config.friend(id).is_none()).map(|(id, name)| (id.clone(), name.clone())).collect();
         let friends = config
             .friends
@@ -606,8 +679,25 @@ impl Network {
                 forgot: self.forgot.contains(&f.id),
             })
             .collect();
-        FriendsMenu { available: self.net.is_some(), strangers, friends, away: self.away.is_some() && own.pet.is_away() }
+        FriendsMenu { available: self.net.is_some(), strangers, friends, away: self.away.is_some() }
     }
+}
+
+/// 짝맞추기 창을 주 모니터 가운데에 놓는다 (주 모니터를 모르면 지금 모니터 가운데)
+fn place_on_primary(app: &AppHandle, window: &WebviewWindow) {
+    let Some(m) = app.primary_monitor().ok().flatten() else {
+        let _ = window.center();
+        return;
+    };
+    let (pos, size, dpi) = (m.position(), m.size(), m.scale_factor());
+    // 숨긴 창의 바깥 크기(제목 표시줄 포함)를 모르면 안쪽 크기로 어림한다
+    let (w, h) = match window.outer_size() {
+        Ok(s) if s.width > 0 && s.height > 0 => (s.width as f64, s.height as f64),
+        _ => (PAIR_SIZE.0 * dpi, PAIR_SIZE.1 * dpi),
+    };
+    let x = pos.x as f64 + (size.width as f64 - w) / 2.0;
+    let y = pos.y as f64 + (size.height as f64 - h) / 2.0;
+    let _ = window.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
 }
 
 /// 짝맞추기 창: 작고 테두리 있는 창, 항상 위. 닫기(X)는 숨기기 + 취소로 바꾼다 (창은 다시 쓴다)
@@ -620,7 +710,6 @@ fn build_pair_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .minimizable(false)
         .always_on_top(true)
         .skip_taskbar(false)
-        .center()
         .visible(false)
         .build()?;
     let handle = app.clone();

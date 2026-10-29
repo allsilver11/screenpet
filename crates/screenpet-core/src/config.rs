@@ -23,8 +23,8 @@ pub struct Config {
     /// 이 설치의 고유 id (친구 찾기 알림·친구 목록의 이름표). 처음 실행 때 만든다
     #[serde(default)]
     pub install_id: Option<String>,
-    /// 친구 목록 (짝맞추기로 고정한 공개키와 연결된 화면 끝)
-    #[serde(default)]
+    /// 친구 목록 (짝맞추기로 고정한 공개키와 연결된 화면 끝). 잘못된 항목 하나는 건너뛴다
+    #[serde(default, deserialize_with = "lenient_friends")]
     pub friends: Vec<Friend>,
 }
 
@@ -37,6 +37,21 @@ pub struct Friend {
     pub public_key: [u8; 32],
     #[serde(with = "SideDef")]
     pub side: Side,
+}
+
+/// 친구 목록을 읽되 잘못된 항목은 (로그만 남기고) 건너뛴다 — 하나 때문에 설정 전체를 버리지 않는다
+fn lenient_friends<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Friend>, D::Error> {
+    let items = Vec::<serde_json::Value>::deserialize(d)?;
+    Ok(items
+        .into_iter()
+        .filter_map(|v| match serde_json::from_value::<Friend>(v) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                eprintln!("skipping a malformed friend in config: {e}");
+                None
+            }
+        })
+        .collect())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -189,17 +204,22 @@ const KEY_FILE: &str = "identity.key";
 const KEY_TMP_FILE: &str = "identity.key.tmp";
 
 /// 이 설치의 비밀키(친구들이 고정한 신원)를 config 폴더의 `identity.key`(hex 64자)에서 읽는다.
-/// 없거나 깨졌으면 new_key()로 만들어 저장한다 (깨진 파일은 덮어쓴다 — 그러면 친구들과 다시 짝맞추기가 필요하다).
+/// 없거나 내용이 깨졌으면 new_key()로 만들어 저장한다 (깨진 파일은 덮어쓴다 — 그러면 친구들과 다시 짝맞추기가 필요하다).
+/// 그 밖의 읽기 에러(권한 등)는 그대로 Err — 멀쩡할 수 있는 키를 덮어쓰지 않는다 (그 실행에서는 친구 기능을 끈다).
 ///
 /// 권한: Unix에서는 폴더를 0o700, 파일을 0o600으로 만든다. Windows에서는 config 폴더(%APPDATA% 아래)가
 /// 기본으로 그 사용자 전용 ACL을 가지므로 보통 방식으로 만든다.
 pub fn load_or_create_identity_key(dir: &Path, new_key: impl FnOnce() -> [u8; 32]) -> std::io::Result<[u8; 32]> {
     let path = dir.join(KEY_FILE);
-    if let Ok(text) = std::fs::read_to_string(&path) {
-        if let Some(k) = hex32::decode(text.trim()) {
-            return Ok(k);
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            if let Some(k) = std::str::from_utf8(&bytes).ok().and_then(|t| hex32::decode(t.trim())) {
+                return Ok(k);
+            }
+            eprintln!("identity key {} is corrupt; making a new one", path.display());
         }
-        eprintln!("identity key {} is corrupt; making a new one", path.display());
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
     }
     let key = new_key();
     create_private_dir(dir)?;
@@ -390,11 +410,31 @@ mod tests {
     }
 
     #[test]
-    fn bad_public_key_hex_is_a_corrupt_config() {
+    fn a_malformed_friend_is_skipped_not_the_whole_config() {
         let d = temp_dir("badkey");
         std::fs::create_dir_all(&d).unwrap();
-        std::fs::write(d.join("config.json"), r#"{"pet": "cat", "friends": [{"id": "a", "name": "A", "public_key": "zz", "side": "left"}]}"#).unwrap();
+        let good = format!(r#"{{"id": "b", "name": "B", "public_key": "{}", "side": "right"}}"#, "02".repeat(32));
+        let text = format!(
+            r#"{{"pet": "cat", "housed": true, "friends": [{{"id": "a", "name": "A", "public_key": "zz", "side": "left"}}, {good}, {{"id": 5}}, "x"]}}"#
+        );
+        std::fs::write(d.join("config.json"), text).unwrap();
+        let c = load(&d);
+        assert_eq!((c.pet.as_deref(), c.housed), (Some("cat"), true));
+        assert_eq!(c.friends.len(), 1);
+        assert_eq!((c.friends[0].id.as_str(), c.friends[0].public_key), ("b", key(2)));
+        assert!(!d.join("config.json.bak").exists());
+        // friends가 배열이 아니면 그건 깨진 설정이다
+        std::fs::write(d.join("config.json"), r#"{"pet": "cat", "friends": 3}"#).unwrap();
         assert_eq!(load(&d), Config::default());
+    }
+
+    #[test]
+    fn identity_key_io_errors_other_than_missing_do_not_replace_the_key() {
+        let d = temp_dir("idkeyerr");
+        // identity.key가 폴더라 읽을 수 없다 (없는 것도, 깨진 것도 아님) — 새로 만들지 않고 에러
+        std::fs::create_dir_all(d.join("identity.key")).unwrap();
+        assert!(load_or_create_identity_key(&d, || panic!("must not generate")).is_err());
+        assert!(d.join("identity.key").is_dir());
     }
 
     #[test]

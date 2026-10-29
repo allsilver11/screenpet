@@ -59,9 +59,10 @@ pub struct TrayMenu {
     pub friends: Submenu<Wry>,
 }
 
-/// 메뉴 글자의 &는 Windows에서 단축키 표시라 두 번 쓴다 (다른 사람이 정한 이름)
+/// 다른 사람이 정한 이름을 메뉴 글자로: 제어 문자(\t는 Windows에서 단축키 칸, \n 등)를 빼고,
+/// &는 Windows에서 밑줄 단축키 표시라 두 번 쓴다
 fn menu_text(s: &str) -> String {
-    s.replace('&', "&&")
+    s.chars().filter(|c| !c.is_control()).collect::<String>().replace('&', "&&")
 }
 
 /// `친구 화면 ▸`을 다시 채운다: 발견된 사람(누르면 친구 신청), 친구별 하위 메뉴, 집에 와
@@ -138,7 +139,7 @@ pub fn favorite_label(f: &FavoriteFood) -> String {
 /// 손님을 우클릭하면 뜨는 메뉴: "<주인>에게 돌려보내기" 하나뿐 (누르면 손 흔들고 집으로).
 /// 메뉴 이벤트는 앱 전체용 처리기(트레이의 on_menu_event)로 온다
 pub fn guest_menu(app: &AppHandle, label: &str, owner: &str) -> tauri::Result<Menu<Wry>> {
-    let item = MenuItem::with_id(app, format!("{SEND_HOME_PREFIX}{label}"), format!("{owner}에게 돌려보내기"), true, None::<&str>)?;
+    let item = MenuItem::with_id(app, format!("{SEND_HOME_PREFIX}{label}"), format!("{}에게 돌려보내기", menu_text(owner)), true, None::<&str>)?;
     Menu::with_items(app, &[&item])
 }
 
