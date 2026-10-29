@@ -2,12 +2,15 @@
 // 동물이 집 안에 있는 동안(house-state.housed) 문간 애니메이션은 여기서 정한다:
 // 대개 sit_front, 가끔(20–40초마다) 10–20초 sleep, 집을 누르면 2초 wave.
 // 먹기·성장 축하·갸웃·하트는 백엔드(pet-render)가 정한 대로 보인다.
+// 집은 동물의 단계에 맞는 그림(house/house_<stage>.png, 나는 동물은 house/hive_<stage>.png)을
+// 128 × HOUSE_SCALE[stage] 크기로 창 오른쪽 아래에 그린다 (창 크기는 src-tauri/src/house.rs가 같은 배율로 맞춘다).
 const { invoke } = window.__TAURI__.core;
 // 전역 event.listen은 손님 창 앞으로 보낸 pet-render까지 받는다 — 이 창 앞으로 온 것만 듣는다
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 const listen = (event, handler) => here.listen(event, handler);
 
 const houseEl = document.getElementById("house");
+const frontEl = document.getElementById("house-front");
 const doorEl = document.getElementById("door");
 const petEl = document.getElementById("door-pet");
 const bubbleEl = document.getElementById("bubble");
@@ -19,13 +22,20 @@ const BACKEND_ANIMS = new Set(["eat", "level_up", "tilt", "heart"]);
 const SLEEP_EVERY = [20000, 40000];
 const SLEEP_FOR = [10000, 20000];
 const WAVE_MS = 2000;
-// 문간 스프라이트 한 변 = 문 너비 / 이 비율 (프레임 안에서 동물 몸이 차지하는 폭) × 몸 배율
-const BODY_WIDTH_RATIO = 0.7;
+// 단계별 집 크기 배율 (src-tauri/src/house.rs house_scale, tools/draw_house.py HOUSE_SCALE와 같다)
+const HOUSE_SCALE = { baby: 0.55, kinder: 0.68, child: 0.82, teenager: 1.0, adult: 1.12 };
+// 집 그림 한 변 (그림 좌표)
+const ART_SIZE = 128;
+// 문간 스프라이트 한 변 (화면 px) = 이 값 × 몸 배율 — teenager 집 문(52) / 0.7 (프레임 안에서 몸이 차지하는 폭).
+// 단계마다 문 사각형이 이 크기의 펫을 같은 비율로 채우도록 그려져 있다 (tools/draw_house.py DOOR_PET)
+const DOOR_PET = (52 - 2) / 0.7;
 // 프레임 아래쪽 빈 공간 비율 — 발이 문턱 바로 뒤에 오도록 그만큼 내린다
 const FEET_PAD_RATIO = 0.1;
-// 문턱 뒤로 발을 숨기는 깊이 (px, tools/draw_house.py pet_in_door와 같은 6)
+// 문턱 뒤로 발을 숨기는 깊이 (그림 px, tools/draw_house.py SILL_HIDE와 같은 6)
 const SILL_HIDE = 6;
 
+// 지금 그림 이름 (house_<stage> | hive_<stage>)과 그 문 사각형 (그림 좌표)
+let art = null;
 let door = { x: 30, y: 60, w: 52, h: 62 };
 let house = { pet: null, stage: "teenager", scale: 1, hungry: false, housed: false };
 let manifest = null;
@@ -44,20 +54,62 @@ function rand([lo, hi]) {
   return lo + Math.random() * (hi - lo);
 }
 
-function placeDoor() {
-  doorEl.style.left = door.x + "px";
-  doorEl.style.top = door.y + "px";
-  doorEl.style.width = door.w + "px";
-  doorEl.style.height = door.h + "px";
+function houseScale() {
+  return HOUSE_SCALE[house.stage] ?? 1;
+}
+
+// 나는 동물(꿀벌)은 벌통에 산다 — pet.json locomotion, 아직 없으면 id로
+function artName(m) {
+  const hive = m?.locomotion === "fly" || house.pet === "bee";
+  return `${hive ? "hive" : "house"}_${house.stage}`;
+}
+
+// 집 그림·앞 레이어·문간을 지금 단계 크기로 놓는다 (집은 창 오른쪽 아래에 붙는다)
+function placeHouse() {
+  const k = houseScale();
+  const side = ART_SIZE * k;
+  houseEl.style.left = "auto";
+  houseEl.style.right = "0";
+  houseEl.style.width = side + "px";
+  houseEl.style.height = side + "px";
+  houseEl.style.backgroundSize = `${side}px ${side}px`;
+  frontEl.style.width = side + "px";
+  frontEl.style.height = side + "px";
+  doorEl.style.left = door.x * k + "px";
+  doorEl.style.top = door.y * k + "px";
+  doorEl.style.width = door.w * k + "px";
+  doorEl.style.height = door.h * k + "px";
   sizePet();
 }
 
-// 문간 스프라이트 크기: 문 너비와 몸 배율에서 (house.json을 읽기 전에 시트가 먼저 와도 다시 맞춘다)
+// 단계(또는 동물 종류)가 바뀌었으면 그 단계 그림과 문을 읽는다
+// seq: loadPet의 순번 — 읽는 사이 다른 동물/단계로 바뀌었으면 버린다
+async function loadArt(name, seq) {
+  if (name === art) return;
+  let d = null;
+  try {
+    d = (await (await fetch(`house/${name}.json`)).json()).door;
+  } catch {
+    // 그림이 없으면 예전 집 (teenager)
+  }
+  if (seq !== loadSeq) return;
+  if (!d) {
+    name = "house";
+    d = { x: 30, y: 60, w: 52, h: 62 };
+  }
+  art = name;
+  door = d;
+  houseEl.style.backgroundImage = `url(house/${name}.png)`;
+  frontEl.src = `house/${name}_front.png`;
+  placeHouse();
+}
+
+// 문간 스프라이트 크기: 화면 DOOR_PET × 몸 배율 (그림을 읽기 전에 시트가 먼저 와도 다시 맞춘다)
 function sizePet() {
   if (!sheet || !manifest) return;
-  display = Math.round(((door.w - 2) / BODY_WIDTH_RATIO) * house.scale);
+  display = Math.round(DOOR_PET * house.scale);
   petEl.style.width = display + "px";
-  petEl.style.bottom = -(SILL_HIDE + display * FEET_PAD_RATIO) + "px";
+  petEl.style.bottom = -(SILL_HIDE * houseScale() + display * FEET_PAD_RATIO) + "px";
   const k = display / manifest.frame_size;
   petEl.style.backgroundImage = `url(${sheet.url})`;
   petEl.style.backgroundSize = `${sheet.img.width * k}px ${sheet.img.height * k}px`;
@@ -69,10 +121,12 @@ async function loadPet() {
   const seq = ++loadSeq;
   const { manifest: m, url, img } = await loadPetSheet(house.pet, house.stage);
   if (seq !== loadSeq) return; // 그 사이 다른 동물/단계로 바뀜
+  await loadArt(artName(m), seq);
+  if (seq !== loadSeq) return;
   loadedKey = key;
   manifest = m;
   sheet = { url, img };
-  sizePet();
+  placeHouse();
   animStart = performance.now();
 }
 
@@ -141,13 +195,7 @@ houseEl.addEventListener("contextmenu", () => invoke("show_menu"));
 blockWebviewDefaults();
 
 (async () => {
-  try {
-    const j = await (await fetch("house/house.json")).json();
-    if (j.door) door = j.door;
-  } catch {
-    // 기본 문 위치 그대로
-  }
-  placeDoor();
+  placeHouse();
   // 듣기 시작한 뒤에 지금 상태를 묻는다 — 그 사이 바뀐 것은 이벤트로 온다
   await Promise.all([listeningState, listeningRender]);
   house = await invoke("house_state");
