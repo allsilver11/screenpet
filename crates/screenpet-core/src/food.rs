@@ -83,6 +83,7 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "rabbit" => "hand_carrot",
             "bear" => "hand_honey",
             "bee" => "hand_nectar",
+            "frog" => "hand_fly",
             _ => "hand_meal",
         },
         Food::Meal | Food::Water => "hand_meal",
@@ -179,8 +180,8 @@ mod tests {
     fn hand_icons_per_food_and_species() {
         assert_eq!(hand_icon(Food::Meal, "cat"), "hand_meal");
         assert_eq!(hand_icon(Food::Snack, "dog"), "hand_cookie");
-        let favs: Vec<_> = ["cat", "dog", "rabbit", "bear", "bee", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
-        assert_eq!(favs, ["hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_meal"]);
+        let favs: Vec<_> = ["cat", "dog", "rabbit", "bear", "bee", "frog", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
+        assert_eq!(favs, ["hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly", "hand_meal"]);
     }
 
     #[test]

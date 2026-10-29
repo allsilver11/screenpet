@@ -285,9 +285,11 @@ def test_eat_mouth_meets_the_real_bowl(tmp_path):
 
 
 def test_eat_draws_no_bowl_or_flower(tmp_path):
-    """그릇·꽃은 앱이 따로 띄운다 — 먹는 프레임에 초록 줄기·잎이나 그릇 테두리 색이 없다."""
+    """그릇·꽃은 앱이 따로 띄운다 — 먹는 프레임에 초록 줄기·잎이나 그릇 테두리 색이 없다.
+    개구리는 몸이 초록이라 여기서 빼고 test_draw_frog.py(eat에 밥그릇 없음)가 따로 본다."""
     draw_pets.build(tmp_path)
-    for pid in SPECIES_IDS:
+    assert "frog" in draw_pets.SPECIES
+    for pid in (p for p in SPECIES_IDS if p != "frog"):
         for st in CHECK_STAGES:
             for col in range(4):
                 px = _eat_cell(tmp_path, pid, st, col).load()

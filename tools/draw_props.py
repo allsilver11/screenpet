@@ -1,7 +1,7 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
     python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie,flower}.png
-                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar}.png (직접 주기, 48×48)
+                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
 
@@ -125,7 +125,7 @@ def draw_flower(img):
 HAND = 48
 HAND_BOX = ((FRAME - HAND) // 2, (FRAME - HAND) // 2, (FRAME + HAND) // 2, (FRAME + HAND) // 2)
 # crates/screenpet-core/src/food.rs hand_icon과 같은 이름
-HAND_NAMES = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar")
+HAND_NAMES = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly")
 NORI = (70, 96, 82)
 FISH = (150, 186, 214)
 FISH_BELLY = mix(FISH, WHITE, 0.6)
@@ -135,6 +135,9 @@ CARROT_DARK = mix(CARROT, LINE, 0.3)
 POT = (214, 150, 96)
 POT_LIGHT = mix(POT, WHITE, 0.45)
 HONEY_GOLD = (252, 200, 72)
+FLY = (92, 98, 122)
+FLY_EYE = (60, 42, 48)
+WING = (214, 236, 250)
 
 
 def tiny_face(img, cx, cy, s=1.0):
@@ -208,8 +211,29 @@ def hand_nectar(img):
          marks=[([C(77, 78.5, 1.0)], WHITE)])
 
 
+def hand_fly(img):
+    """개구리가 좋아하는 파리 — 무섭지 않게: 동글동글 몸, 반짝이는 큰 눈, 비스듬히 선 투명한 날개 둘, 작은 웃음."""
+    # 날개 (몸 뒤에서 위로 비스듬히) — 연한 하늘색 캡슐에 반짝이
+    for sgn in (-1, 1):
+        blob(img, [L([(64 + 5 * sgn, 63), (64 + 14.5 * sgn, 55)], 8.5)], WING, r=0.4, line=0.6,
+             marks=[([L([(64 + 11.5 * sgn, 55), (64 + 14.5 * sgn, 53.6)], 1.8)], WHITE),
+                    ([L([(64 + 7.5 * sgn, 61.5), (64 + 13.5 * sgn, 57.5)], 0.6)], mix(WING, LINE, 0.3))])
+    # 작은 다리 셋씩
+    paint(img, aa(shapes([L([(58 + 6 * i, 78), (56 + 8 * i, 83)], 1.6) for i in range(3)])), FLY)
+    # 동그란 몸 (배는 살짝 밝게)
+    blob(img, [E(52, 57, 76, 80)], FLY, r=0.6, line=0.75,
+         marks=[([E(54, 71, 74, 82)], mix(FLY, WHITE, 0.2)), ([E(55, 58, 61, 61.5)], mix(FLY, WHITE, 0.4))])
+    # 커다란 눈 둘 (반짝이 두 점)
+    for ex in (58.8, 69.2):
+        blob(img, [C(ex, 65.5, 4.8)], WHITE, r=0, line=0.6,
+             marks=[([C(ex + 0.4, 66.2, 3.3)], FLY_EYE), ([C(ex - 0.7, 64.6, 1.25)], WHITE), ([C(ex + 1.5, 67.8, 0.6)], WHITE)])
+    # 작은 웃음 + 볼터치
+    paint(img, aa(shapes([L(arc(64, 72.2, 2.0, 1.6, 20, 160), 0.9)])), WHITE)
+    paint(img, aa(shapes([E(53, 72, 56.5, 74), E(71.5, 72, 75, 74)])), (250, 180, 180))
+
 HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish, "hand_bone": hand_bone,
-             "hand_carrot": hand_carrot, "hand_honey": hand_honey, "hand_nectar": hand_nectar}
+             "hand_carrot": hand_carrot, "hand_honey": hand_honey, "hand_nectar": hand_nectar,
+             "hand_fly": hand_fly}
 
 
 def draw_hand(name):
