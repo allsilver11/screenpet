@@ -243,22 +243,22 @@ pub fn spot(app: &AppHandle, work_areas: &[Rect], fallback_dpi: f64) -> Spot {
     }
 }
 
-/// 커서(물리 px)가 있는 모니터 — 모니터 사이 틈이면 가장 가까운 모니터
-fn monitor_at(app: &AppHandle, x: f64, y: f64) -> Option<Monitor> {
+/// monitors 중 커서(물리 px)가 있는 모니터 — 모니터 사이 틈이면 가장 가까운 모니터
+fn monitor_at(monitors: &[Monitor], x: f64, y: f64) -> Option<&Monitor> {
     let distance = |m: &Monitor| {
         let (p, s) = (m.position(), m.size());
         let dx = (p.x as f64 - x).max(x - (p.x as f64 + s.width as f64)).max(0.0);
         let dy = (p.y as f64 - y).max(y - (p.y as f64 + s.height as f64)).max(0.0);
         dx * dx + dy * dy
     };
-    app.available_monitors().ok()?.into_iter().min_by(|a, b| distance(a).total_cmp(&distance(b)))
+    monitors.iter().min_by(|a, b| distance(a).total_cmp(&distance(b)))
 }
 
 /// 커서가 있는 모니터의 바닥, 창 왼쪽 left (물리 px, 창 너비 width)를 지금 자리로 적는다 (작업 영역 안으로 당겨서)
-fn set_placed(app: &AppHandle, cursor: (f64, f64), left: f64, width: f64) {
-    let Some(m) = monitor_at(app, cursor.0, cursor.1) else { return };
-    let r = work_rect(&m);
-    let (name, monitor_pos) = monitor_key(&m);
+fn set_placed(monitors: &[Monitor], cursor: (f64, f64), left: f64, width: f64) {
+    let Some(m) = monitor_at(monitors, cursor.0, cursor.1) else { return };
+    let r = work_rect(m);
+    let (name, monitor_pos) = monitor_key(m);
     let offset = clamp_house_left(left, width, r.left, r.right) - r.left;
     restore(Some(HouseSpot { monitor: name.to_string(), monitor_pos, offset }));
 }
@@ -279,19 +279,23 @@ fn drag(app: &AppHandle) {
     let grab = (cx - start.x as f64, cy - start.y as f64);
     let mut cursor = (cx, cy);
     let mut notified = Instant::now();
+    // 모니터 목록은 끌기 시작할 때 한 번 읽는다 (매 틱 메인 스레드에 묻지 않는다)
+    let monitors = app.available_monitors().unwrap_or_default();
     while source.left_button_down() {
         thread::sleep(DRAG_TICK);
         cursor = source.cursor();
         let (x, y) = (cursor.0 - grab.0, cursor.1 - grab.1);
         let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
-        set_placed(app, cursor, x, size.width as f64);
+        set_placed(&monitors, cursor, x, size.width as f64);
         if notified.elapsed() >= DRAG_NOTIFY {
             notified = Instant::now();
             send(app, Input::HouseMoved { save: false });
         }
     }
     // 놓았다: 커서가 있는 모니터의 바닥으로 (크기는 그 모니터 배율로 다시 맞춘다)
-    set_placed(app, cursor, cursor.0 - grab.0, size.width as f64);
+    // 끄는 사이 모니터 구성이 바뀌었을 수 있다 — 놓을 때 한 번 더 읽는다
+    let monitors = app.available_monitors().unwrap_or(monitors);
+    set_placed(&monitors, cursor, cursor.0 - grab.0, size.width as f64);
     let dpi = window.scale_factor().unwrap_or(1.0);
     let spot = spot(app, &source.work_areas(), dpi);
     place(&window, &spot);
