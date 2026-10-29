@@ -31,9 +31,20 @@ struct Client {
 impl Client {
     /// Connect and read the challenge (not yet authenticated).
     fn raw(relay: &Relay) -> Client {
+        Client::raw_as(relay, None)
+    }
+
+    /// As `raw`, appearing (via the trusted loopback proxy header) to come
+    /// from `ip`.
+    fn raw_as(relay: &Relay, ip: Option<&str>) -> Client {
+        use tungstenite::client::IntoClientRequest;
         let addr = relay.local_addr();
         let tcp = TcpStream::connect(addr).unwrap();
-        let (mut ws, _) = tungstenite::client::client(format!("ws://{addr}/ws"), tcp).unwrap();
+        let mut req = format!("ws://{addr}/ws").into_client_request().unwrap();
+        if let Some(ip) = ip {
+            req.headers_mut().insert("X-Real-IP", ip.parse().unwrap());
+        }
+        let (mut ws, _) = tungstenite::client::client(req, tcp).unwrap();
         ws.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
         let mut c = Client { ws, challenge: Value::Null };
         c.challenge = c.next_json(2.0).expect("challenge");
@@ -60,11 +71,19 @@ impl Client {
 
     /// Connect and authenticate; returns the client and its `welcome`.
     fn login(relay: &Relay, priv_key: &[u8; 32], id: &str, friends: &[String]) -> (Client, Value) {
-        let mut c = Client::raw(relay);
+        Client::login_as(relay, None, priv_key, id, friends).expect("welcome")
+    }
+
+    /// Log in from `ip`; `Err(reason)` if refused.
+    fn login_as(relay: &Relay, ip: Option<&str>, priv_key: &[u8; 32], id: &str, friends: &[String]) -> Result<(Client, Value), String> {
+        let mut c = Client::raw_as(relay, ip);
         let auth = c.auth_msg(priv_key, id, friends);
         c.send(&auth);
-        let w = c.expect("welcome", 2.0);
-        (c, w)
+        match c.next_json(2.0) {
+            Some(w) if w["t"] == "welcome" => Ok((c, w)),
+            Some(e) => Err(e["reason"].as_str().unwrap_or("?").to_string()),
+            None => Err("closed".into()),
+        }
     }
 
     fn send(&mut self, v: &Value) {
@@ -474,17 +493,63 @@ fn new_code_on_request() {
 }
 
 #[test]
-fn redeems_per_target_are_capped() {
+fn redeems_per_target_count_distinct_requesters_per_code() {
     let relay = start(Limits { redeems_per_target_per_hour: 2, ..Limits::default() });
-    let kb = key();
-    let (_b, wb) = Client::login(&relay, &kb, "bbbb", &[]);
-    let mut outcomes = Vec::new();
-    for i in 0..4 {
-        let (mut x, _) = Client::login(&relay, &key(), &format!("x{i}"), &[]);
-        x.send(&json!({"t": "redeem", "code": wb["code"]}));
-        outcomes.push(x.wait("redeemed", 1.0).is_some());
+    let (mut b, wb) = Client::login(&relay, &key(), "bbbb", &[]);
+    let code = wb["code"].clone();
+    let redeem = |c: &mut Client, code: &Value| {
+        c.send(&json!({"t": "redeem", "code": code}));
+        c.wait("redeemed", 1.0).is_some()
+    };
+    // One requester trying again (e.g. a retry) counts once.
+    let (mut x, _) = Client::login(&relay, &key(), "x", &[]);
+    assert!(redeem(&mut x, &code) && redeem(&mut x, &code) && redeem(&mut x, &code));
+    let (mut y, _) = Client::login(&relay, &key(), "y", &[]);
+    assert!(redeem(&mut y, &code), "second distinct requester");
+    let (mut z, _) = Client::login(&relay, &key(), "z", &[]);
+    assert!(!redeem(&mut z, &code), "third distinct requester of this code is capped");
+    // A new code starts a fresh budget.
+    b.send(&json!({"t": "new_code"}));
+    let fresh = b.expect("code", 2.0)["code"].clone();
+    assert!(redeem(&mut z, &fresh));
+}
+
+#[test]
+fn new_install_budget_is_per_network_bucket() {
+    let relay = start(Limits { registrations_per_ip_per_hour: 2, ..Limits::default() });
+    assert!(Client::login_as(&relay, Some("203.0.113.1"), &key(), "a", &[]).is_ok());
+    assert!(Client::login_as(&relay, Some("203.0.113.2"), &key(), "b", &[]).is_ok());
+    // Same /24: shares the budget.
+    assert_eq!(Client::login_as(&relay, Some("203.0.113.3"), &key(), "c", &[]).err().as_deref(), Some("busy"));
+    // Another network is not affected.
+    assert!(Client::login_as(&relay, Some("198.51.100.7"), &key(), "d", &[]).is_ok());
+    // IPv6: the /64 is the bucket.
+    assert!(Client::login_as(&relay, Some("2001:db8::1"), &key(), "e", &[]).is_ok());
+    assert!(Client::login_as(&relay, Some("2001:db8::2"), &key(), "f", &[]).is_ok());
+    assert_eq!(Client::login_as(&relay, Some("2001:db8::3"), &key(), "g", &[]).err().as_deref(), Some("busy"));
+}
+
+#[test]
+fn one_source_cannot_starve_the_global_redeem_budget() {
+    let relay = start(Limits { redeems_per_min: 4, ..Limits::default() });
+    let (_b, wb) = Client::login_as(&relay, Some("198.51.100.9"), &key(), "bbbb", &[]).unwrap();
+    let (mut a, _) = Client::login_as(&relay, Some("203.0.113.1"), &key(), "aaaa", &[]).unwrap();
+    // Malformed input costs nothing globally.
+    for _ in 0..5 {
+        a.send(&json!({"t": "redeem", "code": "hello"}));
+        assert_eq!(a.expect("redeem_failed", 2.0)["reason"], "unknown");
     }
-    assert_eq!(outcomes, vec![true, true, false, false]);
+    // Well-formed guesses use the global budget, then this heavy source is cut off…
+    let mut reasons = Vec::new();
+    for _ in 0..5 {
+        a.send(&json!({"t": "redeem", "code": "ZZZZ-ZZZZ"}));
+        reasons.push(a.expect("redeem_failed", 2.0)["reason"].as_str().unwrap().to_string());
+    }
+    assert_eq!(reasons.iter().filter(|r| *r == "rate").count(), 1, "{reasons:?}");
+    // …but a light source still gets through.
+    let (mut c, _) = Client::login_as(&relay, Some("192.0.2.5"), &key(), "cccc", &[]).unwrap();
+    c.send(&json!({"t": "redeem", "code": wb["code"]}));
+    c.expect("redeemed", 2.0);
 }
 
 #[test]
@@ -500,10 +565,16 @@ fn new_installs_are_capped_globally_and_in_total() {
     // Known installs still get in.
     let _ = Client::login(&relay, &k1, "a", &[]);
 
+    // Full of online installs: refused. Once the friendless one is offline
+    // it is evicted to make room.
     let relay = start(Limits { max_installs: 1, ..Limits::default() });
-    let _ = Client::login(&relay, &k1, "a", &[]);
+    let online = Client::login(&relay, &k1, "a", &[]);
     let mut c = Client::raw(&relay);
     let auth = c.auth_msg(&key(), "c", &[]);
     c.send(&auth);
     assert_eq!(c.closed(2.0), Some(Some("full".into())));
+    drop(online);
+    std::thread::sleep(Duration::from_millis(200));
+    let d = Client::login_as(&relay, None, &key(), "d", &[]);
+    assert!(d.is_ok(), "stale friendless install evicted: {:?}", d.err());
 }

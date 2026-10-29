@@ -14,6 +14,10 @@ const DATA_FILE: &str = "relay.json";
 const KEY_FILE: &str = "relay.key";
 /// Installs not seen for this long are forgotten.
 const FORGET_AFTER_SECS: u64 = 180 * 24 * 3600;
+/// Installs that never listed a friend nor took part in a code redeem are
+/// forgotten after this long unseen (so registrations can't fill the store
+/// for good).
+pub const IDLE_FORGET_SECS: u64 = 24 * 3600;
 /// `last_seen` alone makes the store dirty at most this often per install.
 const TOUCH_EVERY_SECS: u64 = 600;
 /// Default hard cap on stored installs.
@@ -33,6 +37,15 @@ pub struct Install {
     pub code_at: u64,
     #[serde(default)]
     pub last_seen: u64,
+    /// Redeemed a code or had its code redeemed (kept like a befriended install).
+    #[serde(default)]
+    pub active: bool,
+}
+
+impl Install {
+    fn befriended(&self) -> bool {
+        self.active || !self.friends.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -162,6 +175,24 @@ impl Store {
     /// if new — `false` if the store is full; updates its id label and
     /// friend list (written only if something changed).
     pub fn register(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64) -> bool {
+        self.register_with(key, id, friends, now, &|_| false)
+    }
+
+    /// As `register`; when full, first evicts the least recently seen
+    /// install that has no friends and is not `online`.
+    pub fn register_with(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64, online: &dyn Fn(&str) -> bool) -> bool {
+        if self.is_full() && !self.data.installs.contains_key(key) {
+            let victim = self
+                .data
+                .installs
+                .iter()
+                .filter(|(k, i)| i.friends.is_empty() && !online(k))
+                .min_by_key(|(_, i)| i.last_seen)
+                .map(|(k, _)| k.clone());
+            if let Some(v) = victim {
+                self.remove(&v);
+            }
+        }
         let full = self.is_full();
         match self.data.installs.get_mut(key) {
             Some(inst) => {
@@ -175,7 +206,7 @@ impl Store {
             }
             None if full => false,
             None => {
-                let inst = Install { id: id.to_string(), friends, code: String::new(), code_at: 0, last_seen: now };
+                let inst = Install { id: id.to_string(), friends, code: String::new(), code_at: 0, last_seen: now, active: false };
                 self.data.installs.insert(key.to_string(), inst);
                 self.dirty = true;
                 self.issue_code(key, now);
@@ -188,6 +219,16 @@ impl Store {
         if let Some(inst) = self.data.installs.get_mut(key) {
             if inst.friends != friends {
                 inst.friends = friends;
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// The install took part in a code redeem: keep it like a befriended one.
+    pub fn mark_active(&mut self, key: &str) {
+        if let Some(inst) = self.data.installs.get_mut(key) {
+            if !inst.active {
+                inst.active = true;
                 self.dirty = true;
             }
         }
@@ -240,12 +281,20 @@ impl Store {
         }
     }
 
-    /// Forget installs not seen for half a year.
+    /// Forget installs not seen for half a year, and installs that never
+    /// befriended anyone after a day.
     pub fn prune(&mut self, now: u64) {
+        self.prune_with(now, &|_| false)
+    }
+
+    /// As `prune`, never forgetting an `online` install.
+    pub fn prune_with(&mut self, now: u64, online: &dyn Fn(&str) -> bool) {
         let before = self.data.installs.len();
         let by_code = &mut self.by_code;
-        self.data.installs.retain(|_, i| {
-            let keep = now.saturating_sub(i.last_seen) < FORGET_AFTER_SECS;
+        self.data.installs.retain(|k, i| {
+            let idle = now.saturating_sub(i.last_seen);
+            let limit = if i.befriended() { FORGET_AFTER_SECS } else { IDLE_FORGET_SECS };
+            let keep = online(k) || idle < limit;
             if !keep {
                 by_code.remove(&i.code);
             }
@@ -447,10 +496,10 @@ mod tests {
     fn installs_are_capped() {
         let mut s = Store::memory();
         s.max_installs = 2;
-        assert!(s.register(&k(1), "a", vec![], 0));
-        assert!(s.register(&k(2), "b", vec![], 0));
-        assert!(!s.register(&k(3), "c", vec![], 0), "full");
-        assert!(s.register(&k(1), "a", vec![], 0), "known installs still log in");
+        assert!(s.register(&k(1), "a", vec![k(9)], 0));
+        assert!(s.register(&k(2), "b", vec![k(9)], 0));
+        assert!(!s.register(&k(3), "c", vec![], 0), "full of befriended installs");
+        assert!(s.register(&k(1), "a", vec![k(9)], 0), "known installs still log in");
     }
 
     #[test]
@@ -464,5 +513,32 @@ mod tests {
         assert!(!s.dirty, "unchanged login is not a write");
         s.touch(&k(1), 1000 + 601);
         assert!(s.dirty);
+    }
+
+    #[test]
+    fn idle_installs_without_friends_expire_after_a_day() {
+        let mut s = Store::memory();
+        s.register(&k(1), "lonely", vec![], 0);
+        s.register(&k(2), "friendly", vec![k(9)], 0);
+        s.register(&k(3), "redeemer", vec![], 0);
+        s.mark_active(&k(3));
+        s.prune(IDLE_FORGET_SECS + 1);
+        assert!(s.get(&k(1)).is_none(), "never befriended, not back within a day");
+        assert!(s.get(&k(2)).is_some());
+        assert!(s.get(&k(3)).is_some());
+    }
+
+    #[test]
+    fn a_full_store_evicts_the_stalest_friendless_install_first() {
+        let mut s = Store::memory();
+        s.max_installs = 3;
+        s.register(&k(1), "old", vec![], 0);
+        s.register(&k(2), "newer", vec![], 1000);
+        s.register(&k(3), "friend", vec![k(9)], 0);
+        assert!(s.register_with(&k(4), "d", vec![], 2000, &|_| false));
+        assert!(s.get(&k(1)).is_none(), "least recently seen friendless install evicted");
+        assert!(s.get(&k(4)).is_some());
+        // Online or befriended installs are never evicted: then it refuses.
+        assert!(!s.register_with(&k(5), "e", vec![], 3000, &|key| key == k(2) || key == k(4)));
     }
 }

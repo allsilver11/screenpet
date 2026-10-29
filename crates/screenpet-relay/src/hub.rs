@@ -89,8 +89,11 @@ struct State {
     total_conns: usize,
     ip_redeems: HashMap<String, VecDeque<Instant>>,
     ip_registrations: HashMap<String, VecDeque<Instant>>,
-    /// Successful redeems per target install (code-guessing cap per victim).
-    target_redeems: HashMap<String, VecDeque<Instant>>,
+    /// Per "target-key code": recent distinct requesters (cap per code, so
+    /// a new code starts fresh and one requester retrying counts once).
+    target_redeems: HashMap<String, VecDeque<(Instant, String)>>,
+    /// Well-formed redeems per source address (fair share of the global budget).
+    ip_wellformed: HashMap<String, VecDeque<Instant>>,
     /// Global windows (keyed by "*"): new installs per hour, redeems per minute.
     global_registrations: HashMap<String, VecDeque<Instant>>,
     global_redeems: HashMap<String, VecDeque<Instant>>,
@@ -123,17 +126,50 @@ impl State {
     }
 }
 
-/// Most keys tracked per rate table between prunes; past that new keys are
-/// refused until the next `maintain` (fail closed for an address flood).
+/// Most keys tracked per rate table. A new key arriving at a full table
+/// evicts stale keys, else the least recently active one — newcomers are
+/// never refused wholesale.
 const MAX_RATE_KEYS: usize = 8192;
+
+/// Things with a time stamp in a rate table.
+trait Stamped {
+    fn at(&self) -> Instant;
+}
+impl Stamped for Instant {
+    fn at(&self) -> Instant {
+        *self
+    }
+}
+impl Stamped for (Instant, String) {
+    fn at(&self) -> Instant {
+        self.0
+    }
+}
+
+/// Make room for `key` in a table holding at most `max` keys.
+fn make_room<V: Stamped>(table: &mut HashMap<String, VecDeque<V>>, key: &str, window: Duration, max: usize) {
+    if table.contains_key(key) || table.len() < max {
+        return;
+    }
+    prune_table(table, window);
+    while table.len() >= max {
+        let oldest = table.iter().min_by_key(|(_, q)| q.back().map(Stamped::at)).map(|(k, _)| k.clone());
+        match oldest {
+            Some(k) => table.remove(&k),
+            None => break,
+        };
+    }
+}
 
 /// Sliding-window counter: `true` (and counted) if fewer than `limit` in
 /// `window`. O(1) amortized; stale keys are dropped by `prune_table`.
 fn allow(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize, window: Duration) -> bool {
+    allow_in(table, key, limit, window, MAX_RATE_KEYS)
+}
+
+fn allow_in(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize, window: Duration, max_keys: usize) -> bool {
     let now = Instant::now();
-    if !table.contains_key(key) && table.len() >= MAX_RATE_KEYS {
-        return false;
-    }
+    make_room(table, key, window, max_keys);
     let q = table.entry(key.to_string()).or_default();
     while q.front().is_some_and(|t| now.duration_since(*t) >= window) {
         q.pop_front();
@@ -145,10 +181,41 @@ fn allow(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize
     true
 }
 
-/// Drop keys whose newest entry is older than `window`.
-fn prune_table(table: &mut HashMap<String, VecDeque<Instant>>, window: Duration) {
+/// `who` may count against `key` if already among its requesters in the
+/// window or fewer than `limit` distinct requesters are; counted once.
+fn allow_distinct(table: &mut HashMap<String, VecDeque<(Instant, String)>>, key: &str, who: &str, limit: usize, window: Duration) -> bool {
     let now = Instant::now();
-    table.retain(|_, q| q.back().is_some_and(|t| now.duration_since(*t) < window));
+    make_room(table, key, window, MAX_RATE_KEYS);
+    let q = table.entry(key.to_string()).or_default();
+    while q.front().is_some_and(|(t, _)| now.duration_since(*t) >= window) {
+        q.pop_front();
+    }
+    if q.iter().any(|(_, w)| w == who) {
+        return true;
+    }
+    if q.len() >= limit {
+        return false;
+    }
+    q.push_back((now, who.to_string()));
+    true
+}
+
+/// Drop keys whose newest entry is older than `window`.
+fn prune_table<V: Stamped>(table: &mut HashMap<String, VecDeque<V>>, window: Duration) {
+    let now = Instant::now();
+    table.retain(|_, q| q.back().is_some_and(|t| now.duration_since(t.at()) < window));
+}
+
+/// Bucket for the new-install budget: IPv4 by /24 (IPv6 addresses already
+/// arrive as their /64).
+fn network_bucket(ip: &str) -> String {
+    match ip.parse::<std::net::Ipv4Addr>() {
+        Ok(v4) => {
+            let o = v4.octets();
+            format!("{}.{}.{}.0/24", o[0], o[1], o[2])
+        }
+        Err(_) => ip.to_string(),
+    }
 }
 
 const HOUR: Duration = Duration::from_secs(3600);
@@ -275,10 +342,11 @@ impl Hub {
         let mut st = self.state();
         let known = st.store_ref().get(key).is_some();
         if !known {
-            if st.store_ref().is_full() {
-                return Err("full");
-            }
-            if !allow(&mut st.ip_registrations, ip, self.limits.registrations_per_ip_per_hour, HOUR)
+            // (A full store is handled by `register_with`, which first evicts
+            // a stale friendless install.)
+            // Each network gets its own budget; the global ceiling is a
+            // looser backstop.
+            if !allow(&mut st.ip_registrations, &network_bucket(ip), self.limits.registrations_per_ip_per_hour, HOUR)
                 || !allow(&mut st.global_registrations, "*", self.limits.registrations_per_hour, HOUR)
             {
                 return Err("busy");
@@ -290,7 +358,12 @@ impl Hub {
                 st.close_channel(ch, Some(key));
             }
         }
-        if !st.store().register(key, id, friends, now) {
+        let registered = {
+            let st = &mut *st;
+            let peers = &st.peers;
+            st.store.as_mut().expect("store present").register_with(key, id, friends, now, &|k| peers.contains_key(k))
+        };
+        if !registered {
             return Err("full");
         }
         let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs()).expect("registered");
@@ -352,14 +425,21 @@ impl Hub {
         if !Self::is_current(&st, key, conn) {
             return None;
         }
-        if !allow(&mut st.ip_redeems, ip, self.limits.redeems_per_ip_per_min, MINUTE)
-            || !allow(&mut st.global_redeems, "*", self.limits.redeems_per_min, MINUTE)
-        {
+        if !allow(&mut st.ip_redeems, ip, self.limits.redeems_per_ip_per_min, MINUTE) {
             return fail("rate");
         }
         // One answer for "no such code", "owner offline" and "your own code":
         // a guess learns nothing about which codes exist.
         let Some(norm) = proto::normalize_code(code) else { return fail("unknown") };
+        // Global budget, charged only for well-formed codes. A source within
+        // its fair share (a tenth of the budget) is never refused by it, so
+        // one heavy source cannot starve everyone else.
+        let share = (self.limits.redeems_per_min / 10).max(1);
+        let light = allow(&mut st.ip_wellformed, ip, share, MINUTE);
+        let global_ok = allow(&mut st.global_redeems, "*", self.limits.redeems_per_min, MINUTE);
+        if !light && !global_ok {
+            return fail("rate");
+        }
         let now = unix_now();
         let Some(target) = st.store_ref().by_code(&norm, now, self.limits.code_ttl.as_secs()).map(str::to_string) else {
             return fail("unknown");
@@ -368,10 +448,13 @@ impl Hub {
             return fail("unknown");
         };
         // A code that keeps being redeemed is being guessed or spread: cap
-        // pairing attempts per target.
-        if !allow(&mut st.target_redeems, &target, self.limits.redeems_per_target_per_hour, HOUR) {
+        // distinct requesters per code (a new code starts fresh; a requester
+        // retrying counts once).
+        if !allow_distinct(&mut st.target_redeems, &format!("{target} {norm}"), key, self.limits.redeems_per_target_per_hour, HOUR) {
             return fail("unknown");
         }
+        st.store().mark_active(key);
+        st.store().mark_active(&target);
         let until = Instant::now() + self.limits.grant_ttl;
         let t = Instant::now();
         st.grants.retain(|g| g.until > t && !(g.from == key && g.to == target));
@@ -494,7 +577,10 @@ impl Hub {
             prune_table(&mut st.ip_registrations, HOUR);
             prune_table(&mut st.global_registrations, HOUR);
             prune_table(&mut st.target_redeems, HOUR);
-            st.store().prune(unix_now());
+            prune_table(&mut st.ip_wellformed, MINUTE);
+            let st = &mut *st;
+            let peers = &st.peers;
+            st.store.as_mut().expect("store present").prune_with(unix_now(), &|k| peers.contains_key(k));
             st.store().snapshot()
         };
         if let Some(snap) = snapshot {
@@ -508,5 +594,22 @@ impl Hub {
     /// Number of installs online (for logs/tests).
     pub fn online_count(&self) -> usize {
         self.state().peers.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_full_rate_table_evicts_instead_of_refusing_newcomers() {
+        let mut t = HashMap::new();
+        for i in 0..4 {
+            assert!(allow_in(&mut t, &format!("k{i}"), 1, HOUR, 4));
+        }
+        // Table full of live keys: a new key still gets its own budget.
+        assert!(allow_in(&mut t, "new", 1, HOUR, 4));
+        assert!(t.len() <= 4);
+        assert!(!allow_in(&mut t, "new", 1, HOUR, 4), "and its limit still applies");
     }
 }

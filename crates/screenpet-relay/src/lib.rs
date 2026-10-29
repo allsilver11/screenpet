@@ -65,11 +65,13 @@ pub struct Limits {
     pub redeems_per_min: usize,
     /// Successful redeems of one install's codes per hour.
     pub redeems_per_target_per_hour: usize,
-    /// New installs per hour (whole relay), and stored installs at most.
+    /// New installs per hour (whole relay, a loose backstop), and stored
+    /// installs at most (friendless offline installs are evicted first).
     pub registrations_per_hour: usize,
     pub max_installs: usize,
     pub max_conns: usize,
     pub max_conns_per_ip: usize,
+    /// New installs per hour per network (IPv4 /24, IPv6 /64).
     pub registrations_per_ip_per_hour: usize,
 }
 
@@ -93,7 +95,7 @@ impl Default for Limits {
             redeems_per_ip_per_min: 30,
             redeems_per_min: 600,
             redeems_per_target_per_hour: 10,
-            registrations_per_hour: 500,
+            registrations_per_hour: 2000,
             max_installs: store::MAX_INSTALLS,
             max_conns: 2048,
             max_conns_per_ip: 16,
