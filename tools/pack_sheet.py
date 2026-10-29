@@ -5,7 +5,7 @@
 
 프레임 폴더에는 `<동작>_<번호>.png` (번호는 0부터) 파일이 있어야 한다.
 동작별 프레임 수는 sprite_spec.ANIMS의 기본값보다 많아도 된다(연속된 번호만큼 읽음).
-모든 프레임은 투명 배경이어야 하며, 공통 배율로 축소돼 64x64 안에 바닥·가운데 정렬된다.
+모든 프레임은 투명 배경이어야 하며, 공통 배율로 축소돼 128x128 안에 바닥·가운데 정렬된다.
 """
 
 import argparse
@@ -20,7 +20,7 @@ from sprite_spec import ANIMS, FRAME, manifest
 
 def _load_frames(frames_dir):
     frames = {}
-    for anim, default_n, _, _ in ANIMS:
+    for anim, default_n, *_ in ANIMS:
         imgs = []
         i = 0
         while (frames_dir / f"{anim}_{i}.png").exists():
@@ -63,7 +63,7 @@ def pack(frames_dir, out_dir, name, walk_speed):
 
     cols = max(len(cs) for cs in cropped.values())
     sheet = Image.new("RGBA", (FRAME * cols, FRAME * len(ANIMS)), (0, 0, 0, 0))
-    for row, (anim, _, _, _) in enumerate(ANIMS):
+    for row, (anim, *_) in enumerate(ANIMS):
         for col, c in enumerate(cropped[anim]):
             w, h = max(1, round(c.width * scale)), max(1, round(c.height * scale))
             small = c.resize((w, h), Image.LANCZOS)

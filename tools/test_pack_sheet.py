@@ -3,11 +3,11 @@ import json
 from PIL import Image
 
 from pack_sheet import pack
-from sprite_spec import ANIMS, FRAME
+from sprite_spec import ANIMS, FRAME, roll_spin
 
 
 def make_frames(d, size=(300, 200)):
-    for anim, n, _, _ in ANIMS:
+    for anim, n, *_ in ANIMS:
         for i in range(n):
             img = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
             img.paste((200, 100, 50, 255), (100, 200, 100 + size[0], 200 + size[1]))
@@ -21,7 +21,7 @@ def test_pack_builds_sheet_and_manifest(tmp_path):
     pack(frames, out, "테스트", 55)
 
     sheet = Image.open(out / "sheet.png")
-    max_frames = max(n for _, n, _, _ in ANIMS)
+    max_frames = max(n for _, n, *_ in ANIMS)
     assert sheet.size == (FRAME * max_frames, FRAME * len(ANIMS))
 
     m = json.loads((out / "pet.json").read_text(encoding="utf-8"))
@@ -29,6 +29,8 @@ def test_pack_builds_sheet_and_manifest(tmp_path):
     assert m["walk_speed"] == 55
     assert m["animations"]["walk"] == {"row": 0, "frames": 4, "fps": 8}
     assert m["animations"]["hop"]["loop"] is False
+    assert m["animations"]["wave"]["front"] is True
+    assert m["animations"]["roll"]["spin"] == roll_spin(55)
 
 
 def test_frames_are_bottom_aligned_and_fit(tmp_path):
@@ -82,7 +84,7 @@ def test_motion_within_animation_is_preserved(tmp_path):
     for col in range(2):
         cell = sheet.crop((col * FRAME, 0, col * FRAME + FRAME, FRAME))
         lefts.append(cell.getchannel("A").getbbox()[0])
-    # 공통 크기: 합집합 박스 350px → 배율 64/350, 이동량 50px × 배율만큼 차이
+    # 공통 크기: 합집합 박스 350px → 배율 FRAME/350, 이동량 50px × 배율만큼 차이
     expected = round(50 * FRAME / 350)
     assert abs((lefts[1] - lefts[0]) - expected) <= 1, lefts
 

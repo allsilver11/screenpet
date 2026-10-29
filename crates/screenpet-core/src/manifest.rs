@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-pub const REQUIRED_ANIMS: [&str; 8] = ["walk", "idle", "look", "sleep", "hop", "fall", "dragged", "land"];
+pub const REQUIRED_ANIMS: [&str; 18] = [
+    "walk", "run", "roll", "idle", "look", "sleep", "hop", "fall", "dragged", "land", "sit_front", "wave", "tilt", "belly", "stretch", "heart",
+    "tickle", "annoyed",
+];
 
 /// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name)
 pub const OPTIONAL_ANIMS: [&str; 2] = ["arch", "wag"];
@@ -14,6 +17,12 @@ pub struct AnimSpec {
     pub fps: f64,
     #[serde(rename = "loop", default = "yes")]
     pub looping: bool,
+    /// 앞모습 동작 — 웹뷰는 좌우 반전하지 않는다
+    #[serde(default)]
+    pub front: bool,
+    /// 초당 회전 각도 (roll 전용, 0이면 회전 없음)
+    #[serde(default)]
+    pub spin: f64,
 }
 
 fn yes() -> bool {
@@ -80,8 +89,19 @@ mod tests {
 
     #[test]
     fn loop_false_is_respected() {
-        let json = full_json().replace(r#""hop": {"row": 4, "frames": 2, "fps": 4}"#, r#""hop": {"row": 4, "frames": 2, "fps": 4, "loop": false}"#);
+        let json = full_json().replace(r#""hop": {"row": 6, "frames": 2, "fps": 4}"#, r#""hop": {"row": 6, "frames": 2, "fps": 4, "loop": false}"#);
         assert!(!parse_manifest(&json).unwrap().animations["hop"].looping);
+    }
+
+    #[test]
+    fn front_and_spin_parse_with_defaults() {
+        let json = full_json().replace(r#""wave": {"row": 11, "frames": 2, "fps": 4}"#, r#""wave": {"row": 11, "frames": 2, "fps": 4, "front": true}"#)
+            .replace(r#""roll": {"row": 2, "frames": 2, "fps": 4}"#, r#""roll": {"row": 2, "frames": 2, "fps": 4, "spin": 271.4}"#);
+        let m = parse_manifest(&json).unwrap();
+        assert!(m.animations["wave"].front);
+        assert!(!m.animations["walk"].front);
+        assert_eq!(m.animations["roll"].spin, 271.4);
+        assert_eq!(m.animations["walk"].spin, 0.0);
     }
 
     #[test]

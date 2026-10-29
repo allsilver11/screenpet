@@ -883,6 +883,16 @@ mod tests {
         assert_eq!(serde_json::to_string(&Anim::SitFront).unwrap(), "\"sit_front\"");
     }
 
+    #[test]
+    fn every_anim_name_is_a_required_manifest_animation() {
+        let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag];
+        let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
+        let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
+        expected.extend(crate::manifest::OPTIONAL_ANIMS);
+        assert_eq!(names, expected);
+    }
+
     /// 10분 시뮬레이션 — "계속 자기만 한다" 회귀 방지 (spec §6)
     #[test]
     fn ten_minutes_are_mostly_moving_and_rarely_sleeping() {
