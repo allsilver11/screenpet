@@ -2,16 +2,11 @@ use std::collections::VecDeque;
 
 use serde::Serialize;
 
+use crate::behavior::{self, ClickReaction, Move, Rest, Trick};
 use crate::physics::{clamp_speed, step_air, Body};
 use crate::surfaces::{EndKind, Owner};
 use crate::world::World;
 
-const WALK_SECS: (f64, f64) = (2.0, 8.0);
-const IDLE_SECS: (f64, f64) = (3.0, 6.0);
-const SLEEP_SECS: (f64, f64) = (15.0, 40.0);
-const SLEEP_CHANCE: f64 = 0.25;
-const WALK_END_TURN_CHANCE: f64 = 0.3;
-const EDGE_HOP_CHANCE: f64 = 0.5;
 const TURN_PAUSE: f64 = 0.3;
 const LAND_SECS: f64 = 0.25;
 const HOP_VX: f64 = 180.0;
@@ -22,9 +17,11 @@ const CLICK_SLOP: f64 = 5.0;
 const VELOCITY_WINDOW: f64 = 0.1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum Anim {
     Walk,
+    Run,
+    Roll,
     Idle,
     Look,
     Sleep,
@@ -32,15 +29,52 @@ pub enum Anim {
     Fall,
     Dragged,
     Land,
+    SitFront,
+    Wave,
+    Tilt,
+    Belly,
+    Stretch,
+    Heart,
+}
+
+impl Anim {
+    /// 앞모습 동작 — 좌우 반전하지 않는다.
+    pub fn is_front(self) -> bool {
+        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart)
+    }
+}
+
+impl From<Move> for Anim {
+    fn from(m: Move) -> Self {
+        match m {
+            Move::Walk => Anim::Walk,
+            Move::Run => Anim::Run,
+            Move::Roll => Anim::Roll,
+        }
+    }
+}
+
+impl From<Trick> for Anim {
+    fn from(t: Trick) -> Self {
+        match t {
+            Trick::SitFront => Anim::SitFront,
+            Trick::Wave => Anim::Wave,
+            Trick::Tilt => Anim::Tilt,
+            Trick::Belly => Anim::Belly,
+            Trick::Stretch => Anim::Stretch,
+            Trick::Heart => Anim::Heart,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum State {
-    Walk { remaining: f64 },
+    Move { kind: Move, remaining: f64 },
     Idle { remaining: f64, look: bool },
     Sleep { remaining: f64 },
     Turn { remaining: f64 },
     Land { remaining: f64 },
+    Trick { kind: Trick, remaining: f64 },
     /// Hop / Fall(낙하·던지기) / Happy 점프
     Air { anim: Anim },
     /// 마우스를 눌렀지만 아직 드래그 거리 미만
@@ -122,7 +156,8 @@ impl Pet {
 
     pub fn render(&self) -> RenderState {
         let anim = match self.state {
-            State::Walk { .. } => Anim::Walk,
+            State::Move { kind, .. } => kind.into(),
+            State::Trick { kind, .. } => kind.into(),
             State::Idle { look: true, .. } => Anim::Look,
             State::Idle { .. } | State::Turn { .. } => Anim::Idle,
             State::Sleep { .. } => Anim::Sleep,
@@ -131,7 +166,7 @@ impl Pet {
             State::Pressed { grounded: true, .. } => Anim::Idle,
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
         };
-        RenderState { anim, flip: self.facing < 0.0, heart: self.heart_timer > 0.0 }
+        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front(), heart: self.heart_timer > 0.0 }
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
@@ -183,13 +218,18 @@ impl Pet {
             State::Pressed { grounded: true, was_sleeping: true, .. } => {
                 self.state = self.idle_state();
             }
-            State::Pressed { grounded: true, .. } => {
-                self.heart_timer = HEART_SECS;
-                self.standing = None;
-                self.body.vx = 0.0;
-                self.body.vy = HAPPY_VY;
-                self.state = State::Air { anim: Anim::Hop };
-            }
+            State::Pressed { grounded: true, .. } => match behavior::pick_click(&mut self.rng) {
+                ClickReaction::Hop => {
+                    self.heart_timer = HEART_SECS;
+                    self.standing = None;
+                    self.body.vx = 0.0;
+                    self.body.vy = HAPPY_VY;
+                    self.state = State::Air { anim: Anim::Hop };
+                }
+                ClickReaction::Trick(kind) => {
+                    self.state = State::Trick { kind, remaining: behavior::CLICK_TRICK_SECS };
+                }
+            },
             State::Pressed { .. } => self.start_fall(),
             State::Dragged => {
                 self.record(cx, cy);
@@ -255,18 +295,30 @@ impl Pet {
         }
 
         match self.state {
-            State::Walk { remaining } => {
-                let new_x = self.body.x + self.facing * self.cfg.walk_speed * dt;
-                let (hit, kind) = if self.facing > 0.0 {
+            State::Move { kind, remaining } => {
+                let speed = self.cfg.walk_speed * kind.speed_mult();
+                let new_x = self.body.x + self.facing * speed * dt;
+                let (hit, end) = if self.facing > 0.0 {
                     (new_x + self.cfg.half_w > piece.x_end, piece.end_kind)
                 } else {
                     (new_x - self.cfg.half_w < piece.x_start, piece.start_kind)
                 };
                 if hit {
-                    if kind == EndKind::Edge && self.rng.f64() < EDGE_HOP_CHANCE {
-                        self.start_hop(self.facing);
-                    } else {
-                        self.state = State::Turn { remaining: TURN_PAUSE };
+                    match (end, kind) {
+                        (EndKind::Edge, Move::Walk) if self.rng.f64() < behavior::WALK_EDGE_HOP_CHANCE => {
+                            self.start_hop(self.facing)
+                        }
+                        (EndKind::Edge, Move::Run) => {
+                            self.start_hop(self.facing);
+                            self.body.vx *= behavior::RUN_LEAP_VX_MULT;
+                        }
+                        (EndKind::Edge, Move::Roll) => {
+                            self.standing = None;
+                            self.body.vx = self.facing * speed;
+                            self.body.vy = 0.0;
+                            self.state = State::Air { anim: Anim::Roll };
+                        }
+                        _ => self.state = State::Turn { remaining: TURN_PAUSE },
                     }
                     return;
                 }
@@ -274,25 +326,26 @@ impl Pet {
                 self.body.x = new_x;
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 {
-                    State::Walk { remaining }
-                } else if self.rng.f64() < WALK_END_TURN_CHANCE {
+                    State::Move { kind, remaining }
+                } else if self.rng.f64() < behavior::MOVE_END_TURN_CHANCE {
                     State::Turn { remaining: TURN_PAUSE }
                 } else {
-                    self.idle_state()
+                    self.rest_state()
                 };
             }
             State::Idle { remaining, look } => {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 {
                     State::Idle { remaining, look }
-                } else if self.rng.f64() < SLEEP_CHANCE {
-                    State::Sleep { remaining: self.range(SLEEP_SECS) }
+                } else if self.rng.f64() < behavior::SLEEP_CHANCE {
+                    State::Sleep { remaining: behavior::range(&mut self.rng, behavior::SLEEP_SECS) }
                 } else {
-                    if self.rng.bool() {
-                        self.facing = -self.facing;
-                    }
-                    State::Walk { remaining: self.range(WALK_SECS) }
+                    self.move_state(true)
                 };
+            }
+            State::Trick { kind, remaining } => {
+                let remaining = remaining - dt;
+                self.state = if remaining > 0.0 { State::Trick { kind, remaining } } else { self.move_state(true) };
             }
             State::Sleep { remaining } => {
                 let remaining = remaining - dt;
@@ -304,12 +357,12 @@ impl Pet {
                     State::Turn { remaining }
                 } else {
                     self.facing = -self.facing;
-                    State::Walk { remaining: self.range(WALK_SECS) }
+                    self.move_state(false)
                 };
             }
             State::Land { remaining } => {
                 let remaining = remaining - dt;
-                self.state = if remaining > 0.0 { State::Land { remaining } } else { self.idle_state() };
+                self.state = if remaining > 0.0 { State::Land { remaining } } else { self.rest_state() };
             }
             State::Air { .. } | State::Pressed { .. } | State::Dragged => {}
         }
@@ -354,17 +407,31 @@ impl Pet {
     }
 
     fn idle_state(&mut self) -> State {
-        State::Idle { remaining: self.range(IDLE_SECS), look: self.rng.bool() }
+        State::Idle { remaining: behavior::range(&mut self.rng, behavior::IDLE_SECS), look: self.rng.bool() }
     }
 
-    fn range(&mut self, (lo, hi): (f64, f64)) -> f64 {
-        lo + self.rng.f64() * (hi - lo)
+    /// 이동 시작. may_flip이면 절반 확률로 방향을 바꾼다 (Turn 직후엔 이미 바꿨으므로 false).
+    fn move_state(&mut self, may_flip: bool) -> State {
+        if may_flip && self.rng.bool() {
+            self.facing = -self.facing;
+        }
+        let kind = behavior::pick_move(&mut self.rng);
+        State::Move { kind, remaining: behavior::range(&mut self.rng, kind.secs()) }
+    }
+
+    /// 이동이 끝난 뒤: 옆모습 쉬기 또는 앞모습 애교
+    fn rest_state(&mut self) -> State {
+        match behavior::pick_rest(&mut self.rng) {
+            Rest::Idle => self.idle_state(),
+            Rest::Trick(kind) => State::Trick { kind, remaining: behavior::range(&mut self.rng, behavior::TRICK_SECS) },
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::behavior::{Move, Trick};
     use crate::geom::{Rect, WindowInfo};
 
     const DT: f64 = 1.0 / 60.0;
@@ -473,7 +540,7 @@ mod tests {
     fn blocked_end_turns_around() {
         let w = world(vec![win(2, 900.0, 300.0, 1300.0, 600.0), w1()]);
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
-        place(&mut p, &w, Owner::Window(1), 840.0, State::Walk { remaining: 100.0 });
+        place(&mut p, &w, Owner::Window(1), 840.0, State::Move { kind: Move::Walk, remaining: 100.0 });
         p.facing = 1.0;
         let mut turned = false;
         for _ in 0..60 {
@@ -487,7 +554,7 @@ mod tests {
         assert!(turned);
         run(&mut p, &w, 20);
         assert_eq!(p.facing, -1.0);
-        assert!(matches!(p.state, State::Walk { .. }));
+        assert!(matches!(p.state, State::Move { .. }));
     }
 
     #[test]
@@ -495,7 +562,7 @@ mod tests {
         let w = world(vec![]);
         for seed in 0..50 {
             let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
-            place(&mut p, &w, Owner::Ground(0), 1920.0 - 38.0 - 0.5, State::Walk { remaining: 100.0 });
+            place(&mut p, &w, Owner::Ground(0), 1920.0 - 38.0 - 0.5, State::Move { kind: Move::Walk, remaining: 100.0 });
             p.facing = 1.0;
             p.update(DT, &w);
             assert!(matches!(p.state, State::Turn { .. }), "seed {seed}");
@@ -503,12 +570,12 @@ mod tests {
     }
 
     #[test]
-    fn window_edge_turns_or_hops_about_half_each() {
+    fn walking_to_a_window_edge_hops_about_80_percent() {
         let w = world(vec![w1()]);
         let (mut hops, mut turns) = (0, 0);
         for seed in 0..400 {
             let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
-            place(&mut p, &w, Owner::Window(1), 1100.0 - 38.0 - 0.5, State::Walk { remaining: 100.0 });
+            place(&mut p, &w, Owner::Window(1), 1100.0 - 38.0 - 0.5, State::Move { kind: Move::Walk, remaining: 100.0 });
             p.facing = 1.0;
             p.update(DT, &w);
             match p.state {
@@ -517,15 +584,15 @@ mod tests {
                 s => panic!("unexpected {s:?}"),
             }
         }
-        assert!((120..=280).contains(&hops), "hops={hops}");
-        assert!((120..=280).contains(&turns), "turns={turns}");
+        assert!((280..=360).contains(&hops), "hops={hops}");
+        assert_eq!(hops + turns, 400);
     }
 
     #[test]
     fn hop_off_edge_leaves_the_window() {
         let w = world(vec![w1()]);
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
-        place(&mut p, &w, Owner::Window(1), 1061.0, State::Walk { remaining: 100.0 });
+        place(&mut p, &w, Owner::Window(1), 1061.0, State::Move { kind: Move::Walk, remaining: 100.0 });
         p.facing = 1.0;
         p.start_hop(1.0);
         run(&mut p, &w, 120);
@@ -545,9 +612,9 @@ mod tests {
     fn expired_walk_becomes_idle_or_turn() {
         let w = world(vec![]);
         let mut p = Pet::new(cfg(), 0.0, 0.0, 3);
-        place(&mut p, &w, Owner::Ground(0), 900.0, State::Walk { remaining: 0.001 });
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Move { kind: Move::Walk, remaining: 0.001 });
         p.update(DT, &w);
-        assert!(matches!(p.state, State::Idle { .. } | State::Turn { .. }));
+        assert!(matches!(p.state, State::Idle { .. } | State::Turn { .. } | State::Trick { .. }));
     }
 
     #[test]
@@ -556,7 +623,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 3);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 0.001, look: true });
         p.update(DT, &w);
-        assert!(matches!(p.state, State::Sleep { .. } | State::Walk { .. }));
+        assert!(matches!(p.state, State::Sleep { .. } | State::Move { .. }));
     }
 
     #[test]
@@ -575,12 +642,119 @@ mod tests {
         p.body = Body { x: 800.0, y: 400.0, vx: 0.0, vy: 0.0 };
         assert_eq!(p.window_pos(), (736.0, 272.0));
     }
+
+    #[test]
+    fn running_moves_two_and_a_half_times_faster() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Move { kind: Move::Run, remaining: 100.0 });
+        p.facing = 1.0;
+        p.update(DT, &w);
+        assert!((p.body.x - (900.0 + 60.0 * 2.5 * DT)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn running_off_a_window_edge_always_leaps_far() {
+        let w = world(vec![w1()]);
+        for seed in 0..50 {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Window(1), 1100.0 - 38.0 - 0.5, State::Move { kind: Move::Run, remaining: 100.0 });
+            p.facing = 1.0;
+            p.update(DT, &w);
+            assert_eq!(p.state, State::Air { anim: Anim::Hop }, "seed {seed}");
+            assert!(p.body.vx > 300.0);
+        }
+    }
+
+    #[test]
+    fn rolling_off_a_window_edge_keeps_rolling_speed() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 1100.0 - 38.0 - 0.5, State::Move { kind: Move::Roll, remaining: 100.0 });
+        p.facing = 1.0;
+        p.update(DT, &w);
+        assert_eq!(p.state, State::Air { anim: Anim::Roll });
+        assert_eq!((p.body.vx, p.body.vy), (120.0, 0.0));
+        assert!(p.standing.is_none());
+    }
+
+    #[test]
+    fn blocked_end_turns_for_every_move_kind() {
+        let w = world(vec![win(2, 900.0, 300.0, 1300.0, 600.0), w1()]);
+        for kind in [Move::Walk, Move::Run, Move::Roll] {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+            place(&mut p, &w, Owner::Window(1), 900.0 - 38.0 - 0.5, State::Move { kind, remaining: 100.0 });
+            p.facing = 1.0;
+            p.update(DT, &w);
+            assert!(matches!(p.state, State::Turn { .. }), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn tricks_face_front_and_end_by_moving() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
+        p.facing = -1.0;
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false });
+        run(&mut p, &w, 40);
+        assert!(matches!(p.state, State::Move { .. }));
+    }
+
+    #[test]
+    fn covered_during_trick_falls() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Trick { kind: Trick::Belly, remaining: 3.0 });
+        p.update(DT, &world(vec![win(2, 700.0, 300.0, 900.0, 600.0), w1()]));
+        assert_eq!(p.state, State::Air { anim: Anim::Fall });
+    }
+
+    #[test]
+    fn side_animations_still_flip() {
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        p.facing = -1.0;
+        p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false });
+    }
+
+    #[test]
+    fn front_animation_set_is_exactly_the_six_tricks() {
+        let front: Vec<Anim> = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall,
+            Anim::Dragged, Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart]
+            .into_iter().filter(|a| a.is_front()).collect();
+        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart]);
+        assert_eq!(serde_json::to_string(&Anim::SitFront).unwrap(), "\"sit_front\"");
+    }
+
+    /// 10분 시뮬레이션 — "계속 자기만 한다" 회귀 방지 (spec §6)
+    #[test]
+    fn ten_minutes_are_mostly_moving_and_rarely_sleeping() {
+        let w = world(vec![]);
+        let (mut moving, mut sleeping, mut total) = (0usize, 0usize, 0usize);
+        for seed in 0..20 {
+            let mut p = Pet::new(PetConfig { size: 128.0, half_w: 38.4, walk_speed: 90.0 }, 960.0, 128.0, seed);
+            for _ in 0..(60 * 600) {
+                p.update(DT, &w);
+                match p.render().anim {
+                    Anim::Walk | Anim::Run | Anim::Roll => moving += 1,
+                    Anim::Sleep => sleeping += 1,
+                    _ => {}
+                }
+                total += 1;
+            }
+        }
+        let (m, s) = (moving as f64 / total as f64, sleeping as f64 / total as f64);
+        assert!((0.65..=0.75).contains(&m), "moving {m:.3}");
+        assert!(s <= 0.10, "sleeping {s:.3}");
+    }
 }
 
 #[cfg(test)]
 mod input_tests {
     use super::tests::{cfg, place, run, w1, world};
     use super::*;
+    use crate::behavior::Trick;
 
     const DT: f64 = 1.0 / 60.0;
 
@@ -589,18 +763,35 @@ mod input_tests {
     }
 
     #[test]
-    fn click_on_grounded_pet_is_happy_and_lands_back() {
+    fn click_on_grounded_pet_reacts_with_hop_or_trick() {
         let w = world(vec![w1()]);
-        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
-        place(&mut p, &w, Owner::Window(1), 800.0, idle());
-        p.pointer_down(800.0, 350.0);
-        assert!(p.is_held());
-        p.pointer_up(800.0, 350.0);
-        assert!(!p.is_held());
-        assert_eq!(p.state, State::Air { anim: Anim::Hop });
-        assert!(p.render().heart);
-        run(&mut p, &w, 120);
-        assert_eq!(p.standing.unwrap().owner, Owner::Window(1));
+        let mut seen = std::collections::HashSet::new();
+        for seed in 0..80 {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Window(1), 800.0, idle());
+            p.pointer_down(800.0, 350.0);
+            p.pointer_up(800.0, 350.0);
+            match p.state {
+                State::Air { anim: Anim::Hop } => {
+                    assert!(p.render().heart);
+                    run(&mut p, &w, 120);
+                    assert_eq!(p.standing.unwrap().owner, Owner::Window(1));
+                    seen.insert("hop");
+                }
+                State::Trick { kind, remaining } => {
+                    assert_eq!(remaining, 2.0);
+                    assert!(p.standing.is_some());
+                    seen.insert(match kind {
+                        Trick::Heart => "heart",
+                        Trick::Wave => "wave",
+                        Trick::Tilt => "tilt",
+                        k => panic!("unexpected {k:?}"),
+                    });
+                }
+                s => panic!("unexpected {s:?}"),
+            }
+        }
+        assert_eq!(seen.len(), 4);
     }
 
     #[test]
@@ -611,7 +802,7 @@ mod input_tests {
         p.pointer_down(800.0, 350.0);
         p.pointer_move(803.0, 351.0);
         p.pointer_up(803.0, 351.0);
-        assert!(p.render().heart);
+        assert!(matches!(p.state, State::Air { anim: Anim::Hop } | State::Trick { .. }));
     }
 
     #[test]
