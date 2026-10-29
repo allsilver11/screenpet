@@ -18,6 +18,8 @@ const OUTBOX: usize = 512;
 const POLL: Duration = Duration::from_millis(15);
 /// Most redeem attempts per connection per minute.
 const REDEEMS_PER_CONN_PER_MIN: usize = 10;
+/// Most "new code" requests per connection.
+const NEW_CODES_PER_CONN: usize = 5;
 
 struct Authed {
     key: String,
@@ -55,6 +57,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) {
     let mut msgs = Bucket::new(lim.conn_msgs_per_sec, lim.conn_msgs_burst);
     let mut bytes = Bucket::new(lim.conn_bytes_per_sec, lim.conn_bytes_burst);
     let mut redeems: std::collections::VecDeque<Instant> = Default::default();
+    let mut new_codes = 0usize;
     'conn: loop {
         if hub.stopping() || kill.load(Ordering::SeqCst) {
             refuse(&mut ws, if kill.load(Ordering::SeqCst) { "slow" } else { "shutdown" });
@@ -117,12 +120,17 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) {
                         break;
                     };
                     match (&authed, cm) {
-                        (None, ClientMsg::Auth { id, key, mac, friends }) => {
+                        (None, ClientMsg::Auth { id, key, mac, friends, cnonce }) => {
                             match authenticate(&hub, &nonce, &id, &key, &mac) {
-                                Some(key) => {
+                                Some((key, client_pub, shared)) => {
                                     let conn = hub.conn_id();
                                     match hub.join(&key, &id, &friends, &ip, conn, tx.clone(), kill.clone()) {
-                                        Ok(welcome) => {
+                                        Ok(mut welcome) => {
+                                            if let (ServerMsg::Welcome { proof, .. }, Some(cn)) =
+                                                (&mut welcome, cnonce.as_deref().and_then(proto::hex32))
+                                            {
+                                                *proof = Some(proto::to_hex(&proto::welcome_proof(&shared, &cn, &nonce, &client_pub)));
+                                            }
                                             if !text(&mut ws, &welcome) {
                                                 hub.leave(&key, conn);
                                                 break;
@@ -164,6 +172,14 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) {
                                 ClientMsg::Close { ch } => {
                                     hub.close(&a.key, a.conn, ch);
                                     None
+                                }
+                                ClientMsg::NewCode => {
+                                    new_codes += 1;
+                                    if new_codes > NEW_CODES_PER_CONN {
+                                        None
+                                    } else {
+                                        hub.new_code(&a.key, a.conn)
+                                    }
                                 }
                                 ClientMsg::Ping => Some(ServerMsg::Pong),
                                 ClientMsg::Auth { .. } => unreachable!("matched above"),
@@ -217,8 +233,8 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) {
 }
 
 /// Check `auth`: the MAC proves the client holds the private key for `key`.
-/// Returns the canonical key.
-fn authenticate(hub: &Hub, nonce: &[u8; 32], id: &str, key: &str, mac: &str) -> Option<String> {
+/// Returns the canonical key, the key bytes and the shared secret.
+fn authenticate(hub: &Hub, nonce: &[u8; 32], id: &str, key: &str, mac: &str) -> Option<(String, [u8; 32], [u8; 32])> {
     if id.is_empty() || id.len() > MAX_ID || id.chars().any(char::is_control) {
         return None;
     }
@@ -226,5 +242,5 @@ fn authenticate(hub: &Hub, nonce: &[u8; 32], id: &str, key: &str, mac: &str) -> 
     let mac = proto::hex32(mac)?;
     let shared = proto::dh(&hub.private_key, &client_pub)?;
     let expected = proto::auth_mac(&shared, nonce, &hub.public_key, &client_pub, id);
-    proto::ct_eq(&mac, &expected).then(|| proto::to_hex(&client_pub))
+    proto::ct_eq(&mac, &expected).then(|| (proto::to_hex(&client_pub), client_pub, shared))
 }

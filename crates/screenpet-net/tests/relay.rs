@@ -35,6 +35,20 @@ fn url(relay: &Relay) -> String {
 /// A Net with discovery on `port` "broadcasting" to `to` (a dead port unless
 /// a test wires it up) and the relay at `relay_url`.
 fn start_net(id: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Friend>, relay_url: &str) -> (Net, Receiver<NetEvent>) {
+    start_net_with(id, key, port, to, friends, relay_url, fast(), None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn start_net_with(
+    id: &str,
+    key: [u8; 32],
+    port: u16,
+    to: u16,
+    friends: Vec<Friend>,
+    relay_url: &str,
+    timing: Timing,
+    relay_key: Option<[u8; 32]>,
+) -> (Net, Receiver<NetEvent>) {
     Net::start(NetConfig {
         id: id.into(),
         name: id.to_uppercase(),
@@ -42,8 +56,9 @@ fn start_net(id: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Friend>, 
         discovery_port: port,
         broadcast_to: SocketAddr::from(([127, 0, 0, 1], to)),
         friends,
-        timing: fast(),
+        timing,
         relay_url: Some(relay_url.into()),
+        relay_key,
     })
     .unwrap()
 }
@@ -162,8 +177,9 @@ fn bad_codes_are_reported() {
     assert_eq!(reason(&arx), "invalid");
     a.redeem_code("ZZZZ-ZZZZ", "cat");
     assert_eq!(reason(&arx), "unknown");
+    // The relay answers "unknown" for its owner's own code too.
     a.redeem_code(&own, "cat");
-    assert_eq!(reason(&arx), "self");
+    assert_eq!(reason(&arx), "unknown");
 }
 
 #[test]
@@ -299,4 +315,58 @@ fn live_relay_smoke() {
     assert!(wait_for(&brx, 10.0, is_connected).is_some());
     a.send(&ib, visit(9));
     assert!(received(&brx, 9));
+}
+
+#[test]
+fn a_lan_link_replaced_by_a_relay_link_within_grace_does_not_flap() {
+    // The relay is down at first, so the friends link on the LAN.
+    let addr = start_relay("127.0.0.1:0".parse().unwrap()).local_addr();
+    let u = format!("ws://{addr}/ws");
+    let (ka, kb) = (Net::generate_static_key(), Net::generate_static_key());
+    let (fa, fb) = friends_of(&ka, &kb);
+    let timing = Timing { conn_timeout: Duration::from_secs(3), ..fast() };
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (a, arx) = start_net_with("aaaa", ka, pa, pb, fa, &u, timing.clone(), None);
+    let (b, brx) = start_net_with("bbbb", kb, pb, pa, fb.clone(), &u, timing.clone(), None);
+    assert!(wait_for(&arx, 8.0, is_connected).is_some(), "linked on the LAN");
+    assert!(wait_for(&brx, 8.0, is_connected).is_some());
+    let _relay = start_relay(addr);
+    assert!(wait_for(&arx, 10.0, |e| matches!(e, NetEvent::RelayStatus { connected: true })).is_some());
+
+    // B restarts somewhere A cannot see on the LAN: it comes back through
+    // the relay well within the grace, so A never reports a disconnect.
+    drop(b);
+    drop(brx);
+    let (b, brx) = start_net_with("bbbb", kb, free_udp_port(), free_udp_port(), fb, &u, timing, None);
+    assert!(wait_for(&brx, 8.0, is_connected).is_some(), "B linked again (through the relay)");
+    let events = collect(&arx, 1.0);
+    assert!(!events.iter().any(|e| matches!(e, NetEvent::Disconnected { .. } | NetEvent::Connected { .. })), "no flap: {events:?}");
+    a.send("bbbb", visit(7));
+    assert!(received(&brx, 7));
+    // A real loss is still reported, after the grace.
+    drop(b);
+    assert!(wait_for(&arx, 8.0, |e| matches!(e, NetEvent::Disconnected { .. })).is_some());
+}
+
+#[test]
+fn the_relay_key_is_pinned() {
+    let relay = start_relay("127.0.0.1:0".parse().unwrap());
+    let u = url(&relay);
+    let (_bad, brx) =
+        start_net_with("bbbb", Net::generate_static_key(), free_udp_port(), free_udp_port(), vec![], &u, fast(), Some([7; 32]));
+    assert!(wait_for(&brx, 2.0, |e| matches!(e, NetEvent::RelayStatus { connected: true })).is_none(), "wrong key refused");
+    let (good, grx) = start_net_with(
+        "aaaa",
+        Net::generate_static_key(),
+        free_udp_port(),
+        free_udp_port(),
+        vec![],
+        &u,
+        fast(),
+        Some(relay.public_key()),
+    );
+    let first = code_of(&grx);
+    assert!(good.new_friend_code());
+    let second = code_of(&grx);
+    assert_ne!(first, second, "a new code on request");
 }

@@ -6,7 +6,7 @@
 use crate::proto::{self, new_code};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,6 +14,10 @@ const DATA_FILE: &str = "relay.json";
 const KEY_FILE: &str = "relay.key";
 /// Installs not seen for this long are forgotten.
 const FORGET_AFTER_SECS: u64 = 180 * 24 * 3600;
+/// `last_seen` alone makes the store dirty at most this often per install.
+const TOUCH_EVERY_SECS: u64 = 600;
+/// Default hard cap on stored installs.
+pub const MAX_INSTALLS: usize = 20_000;
 
 pub fn unix_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
@@ -31,10 +35,16 @@ pub struct Install {
     pub last_seen: u64,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct Data {
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Data {
     #[serde(default)]
     installs: HashMap<String, Install>,
+}
+
+/// A copy of the data to write outside the hub lock (see [`write_snapshot`]).
+pub struct Snapshot {
+    dir: PathBuf,
+    data: Data,
 }
 
 pub struct Store {
@@ -43,22 +53,61 @@ pub struct Store {
     /// code → install key
     by_code: HashMap<String, String>,
     dirty: bool,
+    /// Hard cap on stored installs (new keys are refused when full).
+    pub max_installs: usize,
+}
+
+/// Parse a data file; `None` if missing or torn.
+fn read_data(path: &Path) -> Option<Data> {
+    let bytes = std::fs::read(path).ok()?;
+    match serde_json::from_slice(&bytes) {
+        Ok(d) => Some(d),
+        Err(e) => {
+            eprintln!("screenpet-relay: {} is unreadable ({e})", path.display());
+            None
+        }
+    }
+}
+
+/// Create `dir` (0700 on unix).
+fn private_dir(dir: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 impl Store {
     /// In-memory only (tests).
     pub fn memory() -> Store {
-        Store { dir: None, data: Data::default(), by_code: HashMap::new(), dirty: false }
+        Store { dir: None, data: Data::default(), by_code: HashMap::new(), dirty: false, max_installs: MAX_INSTALLS }
     }
 
+    /// Load `relay.json`, else its backup `relay.json.bak`, else start empty
+    /// (logged) — a torn file never stops the relay from starting.
     pub fn open(dir: &Path) -> io::Result<Store> {
-        std::fs::create_dir_all(dir)?;
-        let data = match std::fs::read(dir.join(DATA_FILE)) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Data::default(),
-            Err(e) => return Err(e),
+        private_dir(dir)?;
+        let main = dir.join(DATA_FILE);
+        let bak = dir.join(format!("{DATA_FILE}.bak"));
+        let data = match read_data(&main) {
+            Some(d) => d,
+            None => match read_data(&bak) {
+                Some(d) => {
+                    eprintln!("screenpet-relay: using {}", bak.display());
+                    d
+                }
+                None => {
+                    if main.exists() || bak.exists() {
+                        eprintln!("screenpet-relay: no readable data file; starting with an empty store");
+                    }
+                    Data::default()
+                }
+            },
         };
-        let mut store = Store { dir: Some(dir.to_path_buf()), data, by_code: HashMap::new(), dirty: false };
+        let mut store = Store { dir: Some(dir.to_path_buf()), data, by_code: HashMap::new(), dirty: false, max_installs: MAX_INSTALLS };
         store.data.installs.retain(|k, _| proto::norm_key(k).as_deref() == Some(k.as_str()));
         let codes: Vec<(String, String)> = store.data.installs.iter().map(|(k, i)| (i.code.clone(), k.clone())).collect();
         for (code, key) in codes {
@@ -82,6 +131,10 @@ impl Store {
         self.data.installs.is_empty()
     }
 
+    pub fn is_full(&self) -> bool {
+        self.data.installs.len() >= self.max_installs
+    }
+
     fn issue_code(&mut self, key: &str, now: u64) {
         let code = loop {
             let c = new_code();
@@ -100,23 +153,34 @@ impl Store {
         }
     }
 
+    /// A fresh code for `key` right now (user asked for a new one).
+    pub fn rotate(&mut self, key: &str, now: u64) {
+        self.issue_code(key, now);
+    }
+
     /// Record a successful authentication. Creates the install (with a code)
-    /// if new; updates its id label and friend list.
-    pub fn register(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64) {
-        let new = !self.data.installs.contains_key(key);
-        let inst = self.data.installs.entry(key.to_string()).or_insert_with(|| Install {
-            id: id.to_string(),
-            friends: Vec::new(),
-            code: String::new(),
-            code_at: 0,
-            last_seen: now,
-        });
-        inst.id = id.to_string();
-        inst.friends = friends;
-        inst.last_seen = now;
-        self.dirty = true;
-        if new {
-            self.issue_code(key, now);
+    /// if new — `false` if the store is full; updates its id label and
+    /// friend list (written only if something changed).
+    pub fn register(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64) -> bool {
+        let full = self.is_full();
+        match self.data.installs.get_mut(key) {
+            Some(inst) => {
+                if inst.id != id || inst.friends != friends {
+                    inst.id = id.to_string();
+                    inst.friends = friends;
+                    self.dirty = true;
+                }
+                self.touch(key, now);
+                true
+            }
+            None if full => false,
+            None => {
+                let inst = Install { id: id.to_string(), friends, code: String::new(), code_at: 0, last_seen: now };
+                self.data.installs.insert(key.to_string(), inst);
+                self.dirty = true;
+                self.issue_code(key, now);
+                true
+            }
         }
     }
 
@@ -129,10 +193,13 @@ impl Store {
         }
     }
 
+    /// Note activity; only dirties the store every `TOUCH_EVERY_SECS`.
     pub fn touch(&mut self, key: &str, now: u64) {
         if let Some(inst) = self.data.installs.get_mut(key) {
-            inst.last_seen = now;
-            self.dirty = true;
+            if now.saturating_sub(inst.last_seen) >= TOUCH_EVERY_SECS {
+                inst.last_seen = now;
+                self.dirty = true;
+            }
         }
     }
 
@@ -161,6 +228,18 @@ impl Store {
         wants(a, b) && wants(b, a)
     }
 
+    /// Forget an install (operator clean-up).
+    pub fn remove(&mut self, key: &str) -> bool {
+        match self.data.installs.remove(key) {
+            Some(i) => {
+                self.by_code.remove(&i.code);
+                self.dirty = true;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Forget installs not seen for half a year.
     pub fn prune(&mut self, now: u64) {
         let before = self.data.installs.len();
@@ -177,31 +256,61 @@ impl Store {
         }
     }
 
-    /// Write the data file (atomically) if anything changed.
-    pub fn flush(&mut self) -> io::Result<()> {
-        let Some(dir) = &self.dir else {
-            self.dirty = false;
-            return Ok(());
-        };
+    /// If anything changed, a copy to write (marks the store clean; call
+    /// [`Store::mark_dirty`] if the write fails).
+    pub fn snapshot(&mut self) -> Option<Snapshot> {
         if !self.dirty {
-            return Ok(());
+            return None;
         }
-        let tmp = dir.join(format!("{DATA_FILE}.tmp"));
-        let bytes = serde_json::to_vec_pretty(&self.data).map_err(io::Error::other)?;
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(&tmp, dir.join(DATA_FILE))?;
         self.dirty = false;
-        Ok(())
+        let dir = self.dir.clone()?;
+        Some(Snapshot { dir, data: self.data.clone() })
     }
+
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Snapshot and write now (tests, shutdown).
+    pub fn flush(&mut self) -> io::Result<()> {
+        match self.snapshot() {
+            Some(snap) => write_snapshot(&snap).inspect_err(|_| self.dirty = true),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Write a snapshot: private temp file, fsync, keep the old file as
+/// `relay.json.bak`, rename into place, fsync the directory (best effort).
+pub fn write_snapshot(snap: &Snapshot) -> io::Result<()> {
+    let main = snap.dir.join(DATA_FILE);
+    let tmp = snap.dir.join(format!("{DATA_FILE}.tmp"));
+    let bytes = serde_json::to_vec_pretty(&snap.data).map_err(io::Error::other)?;
+    write_private(&tmp, &bytes)?;
+    if main.exists() {
+        std::fs::rename(&main, snap.dir.join(format!("{DATA_FILE}.bak")))?;
+    }
+    std::fs::rename(&tmp, &main)?;
+    if let Ok(d) = std::fs::File::open(&snap.dir) {
+        let _ = d.sync_all();
+    }
+    Ok(())
 }
 
 /// The relay's long-term X25519 private key from `relay.key` (hex), created
 /// on first start.
 pub fn load_or_create_key(dir: &Path) -> io::Result<[u8; 32]> {
-    std::fs::create_dir_all(dir)?;
+    private_dir(dir)?;
     let path = dir.join(KEY_FILE);
     match std::fs::read_to_string(&path) {
-        Ok(s) => proto::hex32(s.trim()).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "relay.key is corrupt")),
+        Ok(s) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+            }
+            proto::hex32(s.trim()).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "relay.key is corrupt"))
+        }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             let key = proto::random32();
             let tmp = dir.join(format!("{KEY_FILE}.tmp"));
@@ -213,17 +322,23 @@ pub fn load_or_create_key(dir: &Path) -> io::Result<[u8; 32]> {
     }
 }
 
-#[cfg(unix)]
+/// Write `bytes` to a new 0600 file (unix) and fsync it.
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
-    f.write_all(bytes)
-}
-
-#[cfg(not(unix))]
-fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    std::fs::write(path, bytes)
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))?; // file may have existed
+    }
+    f.write_all(bytes)?;
+    f.sync_all()
 }
 
 #[cfg(test)]
@@ -287,5 +402,67 @@ mod tests {
         s.prune(FORGET_AFTER_SECS + 1);
         assert!(s.get(&k(1)).is_none());
         assert!(s.get(&k(2)).is_some());
+    }
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("screenpet-relay-{tag}-{}", proto::to_hex(&proto::random32()[..8])))
+    }
+
+    #[test]
+    fn torn_data_file_falls_back_to_backup_then_empty() {
+        let dir = tmpdir("torn");
+        {
+            let mut s = Store::open(&dir).unwrap();
+            s.register(&k(1), "a", vec![], unix_now());
+            s.flush().unwrap();
+            s.register(&k(2), "b", vec![], unix_now());
+            s.flush().unwrap(); // the first state is now the backup
+        }
+        std::fs::write(dir.join(DATA_FILE), b"{\"installs\": {").unwrap();
+        let s = Store::open(&dir).unwrap();
+        assert!(s.get(&k(1)).is_some(), "loaded from relay.json.bak");
+        std::fs::write(dir.join(format!("{DATA_FILE}.bak")), b"garbage").unwrap();
+        let s = Store::open(&dir).unwrap();
+        assert!(s.is_empty(), "both torn: start empty instead of refusing");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn data_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tmpdir("perm");
+        let mut s = Store::open(&dir).unwrap();
+        s.register(&k(1), "a", vec![], unix_now());
+        s.flush().unwrap();
+        load_or_create_key(&dir).unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        assert_eq!(mode(&dir.join(DATA_FILE)), 0o600);
+        assert_eq!(mode(&dir.join(KEY_FILE)), 0o600);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn installs_are_capped() {
+        let mut s = Store::memory();
+        s.max_installs = 2;
+        assert!(s.register(&k(1), "a", vec![], 0));
+        assert!(s.register(&k(2), "b", vec![], 0));
+        assert!(!s.register(&k(3), "c", vec![], 0), "full");
+        assert!(s.register(&k(1), "a", vec![], 0), "known installs still log in");
+    }
+
+    #[test]
+    fn touch_dirties_at_most_every_ten_minutes() {
+        let mut s = Store::memory();
+        s.register(&k(1), "a", vec![], 1000);
+        s.dirty = false;
+        s.touch(&k(1), 1100);
+        assert!(!s.dirty);
+        s.register(&k(1), "a", vec![], 1200);
+        assert!(!s.dirty, "unchanged login is not a write");
+        s.touch(&k(1), 1000 + 601);
+        assert!(s.dirty);
     }
 }

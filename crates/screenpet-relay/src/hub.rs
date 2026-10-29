@@ -89,6 +89,11 @@ struct State {
     total_conns: usize,
     ip_redeems: HashMap<String, VecDeque<Instant>>,
     ip_registrations: HashMap<String, VecDeque<Instant>>,
+    /// Successful redeems per target install (code-guessing cap per victim).
+    target_redeems: HashMap<String, VecDeque<Instant>>,
+    /// Global windows (keyed by "*"): new installs per hour, redeems per minute.
+    global_registrations: HashMap<String, VecDeque<Instant>>,
+    global_redeems: HashMap<String, VecDeque<Instant>>,
 }
 
 impl State {
@@ -118,11 +123,16 @@ impl State {
     }
 }
 
-/// Sliding-window counter: `true` (and counted) if fewer than `limit` in `window`.
+/// Most keys tracked per rate table between prunes; past that new keys are
+/// refused until the next `maintain` (fail closed for an address flood).
+const MAX_RATE_KEYS: usize = 8192;
+
+/// Sliding-window counter: `true` (and counted) if fewer than `limit` in
+/// `window`. O(1) amortized; stale keys are dropped by `prune_table`.
 fn allow(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize, window: Duration) -> bool {
     let now = Instant::now();
-    if table.len() > 4096 {
-        table.retain(|_, q| q.back().is_some_and(|t| now.duration_since(*t) < window));
+    if !table.contains_key(key) && table.len() >= MAX_RATE_KEYS {
+        return false;
     }
     let q = table.entry(key.to_string()).or_default();
     while q.front().is_some_and(|t| now.duration_since(*t) >= window) {
@@ -135,8 +145,19 @@ fn allow(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize
     true
 }
 
+/// Drop keys whose newest entry is older than `window`.
+fn prune_table(table: &mut HashMap<String, VecDeque<Instant>>, window: Duration) {
+    let now = Instant::now();
+    table.retain(|_, q| q.back().is_some_and(|t| now.duration_since(*t) < window));
+}
+
+const HOUR: Duration = Duration::from_secs(3600);
+const MINUTE: Duration = Duration::from_secs(60);
+
 pub struct Hub {
     pub limits: Limits,
+    /// Reverse proxies whose X-Real-IP / X-Forwarded-For are believed.
+    pub trusted_proxies: Vec<std::net::IpAddr>,
     pub private_key: [u8; 32],
     pub public_key: [u8; 32],
     state: Mutex<State>,
@@ -146,9 +167,11 @@ pub struct Hub {
 }
 
 impl Hub {
-    pub(crate) fn new(limits: Limits, private_key: [u8; 32], store: Store) -> Hub {
+    pub(crate) fn new(limits: Limits, trusted_proxies: Vec<std::net::IpAddr>, private_key: [u8; 32], mut store: Store) -> Hub {
+        store.max_installs = limits.max_installs;
         Hub {
             limits,
+            trusted_proxies,
             private_key,
             public_key: proto::public_key(&private_key),
             state: Mutex::new(State { store: Some(store), next_ch: 1, ..State::default() }),
@@ -251,10 +274,15 @@ impl Hub {
         let now = unix_now();
         let mut st = self.state();
         let known = st.store_ref().get(key).is_some();
-        if !known
-            && !allow(&mut st.ip_registrations, ip, self.limits.registrations_per_ip_per_hour, Duration::from_secs(3600))
-        {
-            return Err("busy");
+        if !known {
+            if st.store_ref().is_full() {
+                return Err("full");
+            }
+            if !allow(&mut st.ip_registrations, ip, self.limits.registrations_per_ip_per_hour, HOUR)
+                || !allow(&mut st.global_registrations, "*", self.limits.registrations_per_hour, HOUR)
+            {
+                return Err("busy");
+            }
         }
         if let Some(old) = st.peers.remove(key) {
             let _ = old.out.try_send(Out::Kick("replaced".into()));
@@ -262,14 +290,16 @@ impl Hub {
                 st.close_channel(ch, Some(key));
             }
         }
-        st.store().register(key, id, friends, now);
+        if !st.store().register(key, id, friends, now) {
+            return Err("full");
+        }
         let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs()).expect("registered");
         st.peers.insert(key.to_string(), Peer { conn, id: id.to_string(), out, kill, channels: HashSet::new() });
         let online = st.mutual_online(key);
         for f in &online {
             st.peers[f].send(ServerMsg::Presence { key: key.to_string(), online: true });
         }
-        Ok(ServerMsg::Welcome { code, code_ttl, online })
+        Ok(ServerMsg::Welcome { code, code_ttl, online, proof: None })
     }
 
     /// The connection ended.
@@ -322,18 +352,26 @@ impl Hub {
         if !Self::is_current(&st, key, conn) {
             return None;
         }
-        if !allow(&mut st.ip_redeems, ip, self.limits.redeems_per_ip_per_min, Duration::from_secs(60)) {
+        if !allow(&mut st.ip_redeems, ip, self.limits.redeems_per_ip_per_min, MINUTE)
+            || !allow(&mut st.global_redeems, "*", self.limits.redeems_per_min, MINUTE)
+        {
             return fail("rate");
         }
+        // One answer for "no such code", "owner offline" and "your own code":
+        // a guess learns nothing about which codes exist.
         let Some(norm) = proto::normalize_code(code) else { return fail("unknown") };
         let now = unix_now();
         let Some(target) = st.store_ref().by_code(&norm, now, self.limits.code_ttl.as_secs()).map(str::to_string) else {
             return fail("unknown");
         };
-        if target == key {
-            return fail("self");
+        let Some(id) = st.peers.get(&target).map(|p| p.id.clone()).filter(|_| target != key) else {
+            return fail("unknown");
+        };
+        // A code that keeps being redeemed is being guessed or spread: cap
+        // pairing attempts per target.
+        if !allow(&mut st.target_redeems, &target, self.limits.redeems_per_target_per_hour, HOUR) {
+            return fail("unknown");
         }
-        let Some(id) = st.peers.get(&target).map(|p| p.id.clone()) else { return fail("offline") };
         let until = Instant::now() + self.limits.grant_ttl;
         let t = Instant::now();
         st.grants.retain(|g| g.until > t && !(g.from == key && g.to == target));
@@ -421,6 +459,18 @@ impl Hub {
         }
     }
 
+    /// Issue a fresh code now (user asked for a new one).
+    pub(crate) fn new_code(&self, key: &str, conn: u64) -> Option<ServerMsg> {
+        let mut st = self.state();
+        if !Self::is_current(&st, key, conn) {
+            return None;
+        }
+        let now = unix_now();
+        st.store().rotate(key, now);
+        let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs())?;
+        Some(ServerMsg::Code { code, code_ttl })
+    }
+
     /// A rotated friend code for `key`, if its code expired.
     pub(crate) fn rotated_code(&self, key: &str, conn: u64) -> Option<ServerMsg> {
         let mut st = self.state();
@@ -432,13 +482,26 @@ impl Hub {
     }
 
     /// Periodic housekeeping: expire grants, prune and save the store.
+    /// The snapshot is taken under the lock; serializing and writing happen
+    /// outside it so connections are never blocked on the disk.
     pub(crate) fn maintain(&self) {
-        let mut st = self.state();
-        let now = Instant::now();
-        st.grants.retain(|g| g.until > now);
-        st.store().prune(unix_now());
-        if let Err(e) = st.store().flush() {
-            eprintln!("screenpet-relay: cannot save data: {e}");
+        let snapshot = {
+            let mut st = self.state();
+            let now = Instant::now();
+            st.grants.retain(|g| g.until > now);
+            prune_table(&mut st.ip_redeems, MINUTE);
+            prune_table(&mut st.global_redeems, MINUTE);
+            prune_table(&mut st.ip_registrations, HOUR);
+            prune_table(&mut st.global_registrations, HOUR);
+            prune_table(&mut st.target_redeems, HOUR);
+            st.store().prune(unix_now());
+            st.store().snapshot()
+        };
+        if let Some(snap) = snapshot {
+            if let Err(e) = crate::store::write_snapshot(&snap) {
+                eprintln!("screenpet-relay: cannot save data: {e}");
+                self.state().store().mark_dirty();
+            }
         }
     }
 

@@ -24,7 +24,7 @@ pub mod proto;
 pub mod store;
 
 use hub::Hub;
-use std::net::{SocketAddr, TcpListener};
+use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -61,6 +61,13 @@ pub struct Limits {
     /// A redeemed code allows one channel within this time.
     pub grant_ttl: Duration,
     pub redeems_per_ip_per_min: usize,
+    /// All redeems per minute (whole relay).
+    pub redeems_per_min: usize,
+    /// Successful redeems of one install's codes per hour.
+    pub redeems_per_target_per_hour: usize,
+    /// New installs per hour (whole relay), and stored installs at most.
+    pub registrations_per_hour: usize,
+    pub max_installs: usize,
     pub max_conns: usize,
     pub max_conns_per_ip: usize,
     pub registrations_per_ip_per_hour: usize,
@@ -84,6 +91,10 @@ impl Default for Limits {
             code_ttl: Duration::from_secs(24 * 3600),
             grant_ttl: Duration::from_secs(60),
             redeems_per_ip_per_min: 30,
+            redeems_per_min: 600,
+            redeems_per_target_per_hour: 10,
+            registrations_per_hour: 500,
+            max_installs: store::MAX_INSTALLS,
             max_conns: 2048,
             max_conns_per_ip: 16,
             registrations_per_ip_per_hour: 30,
@@ -98,11 +109,18 @@ pub struct RelayConfig {
     /// random relay key (tests).
     pub data_dir: Option<PathBuf>,
     pub limits: Limits,
+    /// Reverse proxies (besides loopback) whose `X-Real-IP` /
+    /// `X-Forwarded-For` headers are believed; every other peer is limited
+    /// by its socket address.
+    pub trusted_proxies: Vec<IpAddr>,
 }
+
+/// The user's Nginx Proxy Manager.
+pub const DEFAULT_TRUSTED_PROXY: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 0, 52));
 
 impl RelayConfig {
     pub fn new(bind: SocketAddr, data_dir: Option<PathBuf>) -> RelayConfig {
-        RelayConfig { bind, data_dir, limits: Limits::default() }
+        RelayConfig { bind, data_dir, limits: Limits::default(), trusted_proxies: vec![DEFAULT_TRUSTED_PROXY] }
     }
 }
 
@@ -122,7 +140,7 @@ impl Relay {
         let listener = TcpListener::bind(cfg.bind)?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
-        let hub = Arc::new(Hub::new(cfg.limits, key, store));
+        let hub = Arc::new(Hub::new(cfg.limits, cfg.trusted_proxies, key, store));
         let h = hub.clone();
         let accept = std::thread::Builder::new().name("relay-accept".into()).spawn(move || accept_loop(h, listener))?;
         Ok(Relay { hub, addr, accept: Some(accept) })

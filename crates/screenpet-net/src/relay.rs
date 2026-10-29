@@ -34,6 +34,15 @@ use tungstenite::{Error as WsError, Message, WebSocket};
 
 /// Default relay (TLS terminates at the user's Nginx Proxy Manager).
 pub const DEFAULT_RELAY_URL: &str = "wss://pet.danni.day/ws";
+/// Static public key of the relay deployed at [`DEFAULT_RELAY_URL`]
+/// (hex). Pinned: a relay answering with another key is refused. Use
+/// [`parse_relay_key`] to get the bytes.
+pub const DEFAULT_RELAY_KEY: &str = "298487e73c11af7c1030ad16689942587707baa158e084aad6c388fedea8de30";
+
+/// 32-byte relay key from 64 hex digits.
+pub fn parse_relay_key(hex: &str) -> Option<[u8; 32]> {
+    noise::hex32(hex.trim())
+}
 /// `peer_addr` prefix of relay links (followed by the hex key the relay named).
 pub(crate) const ADDR_PREFIX: &str = "relay:";
 /// Longest wait between reconnect attempts.
@@ -56,16 +65,18 @@ const OUTBOX: usize = 1024;
 /// Frames queued per channel before it counts as stuck.
 const CHANNEL_QUEUE: usize = 256;
 const AUTH_LABEL: &[u8] = b"screenpet-relay/1 auth";
+const WELCOME_LABEL: &[u8] = b"screenpet-relay/1 welcome";
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 enum ClientMsg<'a> {
-    Auth { id: &'a str, key: String, mac: String, friends: Vec<String> },
+    Auth { id: &'a str, key: String, mac: String, friends: Vec<String>, cnonce: String },
     Friends { keys: Vec<String> },
     Redeem { code: &'a str },
     Open { req: u32, to: String },
     Close { ch: u32 },
+    NewCode,
     Ping,
 }
 
@@ -73,7 +84,13 @@ enum ClientMsg<'a> {
 #[serde(tag = "t", rename_all = "snake_case")]
 enum ServerMsg {
     Challenge { relay: String, nonce: String },
-    Welcome { code: String, #[serde(default)] online: Vec<String> },
+    Welcome {
+        code: String,
+        #[serde(default)]
+        online: Vec<String>,
+        #[serde(default)]
+        proof: Option<String>,
+    },
     Online { keys: Vec<String> },
     Presence { key: String, online: bool },
     Code { code: String },
@@ -113,13 +130,17 @@ pub fn normalize_code(input: &str) -> Option<String> {
     (chars.len() == 8).then(|| format!("{}-{}", &chars[..4], &chars[4..]))
 }
 
-fn auth_mac(shared: &[u8; 32], nonce: &[u8; 32], relay_pub: &[u8; 32], client_pub: &[u8; 32], id: &str) -> [u8; 32] {
+fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
     use blake2::{Blake2s256, Digest};
     let mut h = Blake2s256::new();
-    for p in [AUTH_LABEL, shared, nonce, relay_pub, client_pub, id.as_bytes()] {
+    for p in parts {
         h.update(p);
     }
     h.finalize().into()
+}
+
+fn auth_mac(shared: &[u8; 32], nonce: &[u8; 32], relay_pub: &[u8; 32], client_pub: &[u8; 32], id: &str) -> [u8; 32] {
+    blake2s(&[AUTH_LABEL, shared, nonce, relay_pub, client_pub, id.as_bytes()])
 }
 
 enum Out {
@@ -161,6 +182,8 @@ struct Inner {
 /// Relay connection state shared by the IO thread and the relay links.
 pub(crate) struct RelayClient {
     url: String,
+    /// Expected relay static key (`None` = accept whatever key it proves).
+    pinned: Option<[u8; 32]>,
     /// Connection generation: links from an earlier connection never send
     /// on a later one (channel ids are per connection).
     generation: AtomicU64,
@@ -170,9 +193,10 @@ pub(crate) struct RelayClient {
 }
 
 impl RelayClient {
-    pub fn new(url: String) -> Arc<RelayClient> {
+    pub fn new(url: String, pinned: Option<[u8; 32]>) -> Arc<RelayClient> {
         Arc::new(RelayClient {
             url,
+            pinned,
             generation: AtomicU64::new(0),
             outbox: Mutex::new(None),
             channels: Mutex::new(HashMap::new()),
@@ -326,6 +350,12 @@ pub(crate) fn redeem(shared: &Arc<Shared>, code: &str, pet: &str) {
         client.inner().redeem = None;
         fail("offline");
     }
+}
+
+/// Ask the relay for a fresh friend code (the old one stops working).
+/// The new code arrives as `NetEvent::FriendCode`.
+pub(crate) fn new_code(shared: &Shared) -> bool {
+    shared.relay.as_ref().is_some_and(|c| c.send(None, Out::Text(json(&ClientMsg::NewCode))))
 }
 
 /// Bookkeeping after a relay dial ended.
@@ -590,6 +620,10 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: WebSocket<Stre
     let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
     let Some(ServerMsg::Challenge { relay, nonce }) = read_server(&mut ws, deadline, &shared.stop) else { return false };
     let (Some(relay_pub), Some(nonce)) = (noise::hex32(&relay), noise::hex32(&nonce)) else { return false };
+    if client.pinned.is_some_and(|k| k != relay_pub) {
+        eprintln!("screenpet relay {}: unexpected relay key {relay}; refusing", client.url);
+        return false;
+    }
     let own_pub = noise::public_key(&shared.static_key);
     let shared_secret = curve25519_dalek::MontgomeryPoint(relay_pub).mul_clamped(shared.static_key).to_bytes();
     if shared_secret.iter().all(|b| *b == 0) {
@@ -597,12 +631,27 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: WebSocket<Stre
     }
     let mac = auth_mac(&shared_secret, &nonce, &relay_pub, &own_pub, &shared.id);
     let friends = friend_keys(shared);
-    let auth = ClientMsg::Auth { id: &shared.id, key: noise::to_hex(&own_pub), mac: noise::to_hex(&mac), friends: friends.clone() };
+    let cnonce = noise::random32();
+    let auth = ClientMsg::Auth {
+        id: &shared.id,
+        key: noise::to_hex(&own_pub),
+        mac: noise::to_hex(&mac),
+        friends: friends.clone(),
+        cnonce: noise::to_hex(&cnonce),
+    };
     if ws.send(Message::text(json(&auth))).is_err() {
         return false;
     }
     let (code, online) = match read_server(&mut ws, deadline, &shared.stop) {
-        Some(ServerMsg::Welcome { code, online }) => (code, online),
+        Some(ServerMsg::Welcome { code, online, proof }) => {
+            // Only the holder of the relay key can compute this.
+            let expected = blake2s(&[WELCOME_LABEL, &shared_secret, &cnonce, &nonce, &own_pub]);
+            if proof.as_deref().and_then(noise::hex32) != Some(expected) {
+                eprintln!("screenpet relay {}: relay did not prove its key; refusing", client.url);
+                return false;
+            }
+            (code, online)
+        }
         Some(ServerMsg::Error { reason }) => {
             eprintln!("screenpet relay refused us: {reason}");
             return false;

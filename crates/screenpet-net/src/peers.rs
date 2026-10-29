@@ -222,7 +222,9 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
         if !friend_link && peer_pinned_us {
             return Reg::Reject; // they think we are friends; we are not: free the slot now
         }
-        let mut announced = false;
+        // A link that ended moments ago still owes its Disconnected: this one
+        // takes over its Connected state instead.
+        let mut announced = friend_link && !st.friend_links.contains_key(id) && st.pending_gone.remove(id).is_some();
         let kind = if friend_link {
             if let Some(&old_t) = st.friend_links.get(id) {
                 // One friend link per id. A newer link from the same dialer
@@ -303,7 +305,9 @@ fn pin(shared: &Shared, st: &mut State, token: u64) -> Vec<Arc<SecureLink>> {
     st.add_friend(&id, key);
     st.trust_ip(&id, &addr, Instant::now());
     st.friend_links.insert(id.clone(), token);
-    shared.emit(NetEvent::Connected { id: id.clone(), name });
+    if st.pending_gone.remove(&id).is_none() {
+        shared.emit(NetEvent::Connected { id: id.clone(), name });
+    }
     st.conns.iter().filter(|(t, c)| **t != token && c.peer_id == id).map(|(_, c)| c.link.clone()).collect()
 }
 
@@ -516,7 +520,30 @@ fn cleanup(shared: &Shared, token: Option<u64>, dialed: Option<&str>) {
         }
     }
     if conn.announced {
-        shared.emit(NetEvent::Disconnected { id: conn.peer_id });
+        if st.is_friend(&conn.peer_id) && !st.friend_links.contains_key(&conn.peer_id) {
+            // Hold the Disconnected for a grace; see `State::pending_gone`.
+            let until = Instant::now() + shared.timing.conn_timeout;
+            st.pending_gone.insert(conn.peer_id, until);
+        } else {
+            st.pending_gone.remove(&conn.peer_id);
+            shared.emit(NetEvent::Disconnected { id: conn.peer_id });
+        }
+    }
+}
+
+/// Emit the `Disconnected` events whose grace ran out (called every tick).
+pub(crate) fn flush_gone(shared: &Shared) {
+    let now = Instant::now();
+    let mut st = shared.state();
+    if st.pending_gone.is_empty() {
+        return;
+    }
+    let due: Vec<String> = st.pending_gone.iter().filter(|(_, t)| now >= **t).map(|(id, _)| id.clone()).collect();
+    for id in due {
+        st.pending_gone.remove(&id);
+        if !st.friend_links.contains_key(&id) {
+            shared.emit(NetEvent::Disconnected { id });
+        }
     }
 }
 

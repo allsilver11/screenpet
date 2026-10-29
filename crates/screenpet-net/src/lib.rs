@@ -31,7 +31,7 @@ mod transport;
 
 pub use noise::SAS_EMOJI;
 pub use protocol::{Side, Visit};
-pub use relay::{normalize_code, DEFAULT_RELAY_URL};
+pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};
 use serde::{Deserialize, Serialize};
@@ -136,6 +136,10 @@ pub struct NetConfig {
     /// Relay for friends outside the LAN (`wss://…` or `ws://…`), normally
     /// [`DEFAULT_RELAY_URL`]; `None` = LAN only.
     pub relay_url: Option<String>,
+    /// The relay's static public key, if pinned (normally
+    /// [`DEFAULT_RELAY_KEY`] with [`DEFAULT_RELAY_URL`]). A relay that
+    /// presents another key is refused. `None` = trust on each connect.
+    pub relay_key: Option<[u8; 32]>,
 }
 
 impl NetConfig {
@@ -151,6 +155,7 @@ impl NetConfig {
             friends,
             timing: Timing::default(),
             relay_url: None,
+            relay_key: None,
         }
     }
 }
@@ -302,6 +307,11 @@ pub(crate) struct State {
     pub trusted_rate: HashMap<(String, IpAddr), (Instant, u32)>,
     /// Friend id → last attempt to move its relay link onto the LAN.
     pub lan_upgrade: HashMap<String, Instant>,
+    /// Friend id → when its owed `Disconnected` is emitted. A friend link
+    /// that ends is reported only after a grace (`conn_timeout`); a new link
+    /// registering in time (e.g. relay ↔ LAN switch, quick restart) takes
+    /// over silently — no Disconnected/Connected pair.
+    pub pending_gone: HashMap<String, Instant>,
 }
 
 impl State {
@@ -528,7 +538,7 @@ impl Net {
             static_key: cfg.static_key,
             timing: cfg.timing,
             tcp_port,
-            relay: cfg.relay_url.filter(|u| !u.is_empty()).map(relay::RelayClient::new),
+            relay: cfg.relay_url.filter(|u| !u.is_empty()).map(|u| relay::RelayClient::new(u, cfg.relay_key)),
             stop: AtomicBool::new(false),
             state: Mutex::new(state),
             events: Mutex::new(tx),
@@ -577,6 +587,12 @@ impl Net {
     /// Is the relay connection up?
     pub fn relay_connected(&self) -> bool {
         self.shared.relay.as_ref().is_some_and(|r| r.connected())
+    }
+
+    /// Ask the relay for a new friend code (e.g. after sharing the old one
+    /// too widely). `false` if not connected. Expect `FriendCode`.
+    pub fn new_friend_code(&self) -> bool {
+        relay::new_code(&self.shared)
     }
 
     /// Our current relay friend code, once connected.

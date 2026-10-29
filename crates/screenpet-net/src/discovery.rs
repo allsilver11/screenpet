@@ -59,6 +59,7 @@ pub(crate) fn run(shared: Arc<Shared>, udp: UdpSocket, broadcast_to: SocketAddr)
             Err(_) => std::thread::sleep(TICK),
         }
         expire(&shared);
+        crate::peers::flush_gone(&shared);
     }
 }
 

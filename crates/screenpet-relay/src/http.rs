@@ -68,24 +68,37 @@ fn header_has(req: &Request, name: &str, token: &str) -> bool {
     req.headers.get(name).is_some_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case(token)))
 }
 
-/// Client address for limits. Behind a reverse proxy on a private/loopback
-/// address (Nginx Proxy Manager), trust its `X-Real-IP` / `X-Forwarded-For`.
-fn client_ip(peer: IpAddr, req: &Request) -> String {
-    let proxied = match peer {
-        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private(),
-        IpAddr::V6(v6) => v6.is_loopback(),
-    };
-    if proxied {
-        let forwarded = req
-            .headers
+/// Address key for per-address limits: IPv4 as is, IPv6 by its /64 (one
+/// home or VM usually owns a whole /64).
+pub(crate) fn bucket(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let s = v6.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+            }
+        },
+    }
+}
+
+/// Client address for limits. Forwarded headers are believed only from a
+/// trusted proxy (or loopback): `X-Real-IP`, else the *rightmost*
+/// `X-Forwarded-For` entry (the one the proxy itself appended). Any other
+/// peer is limited by its socket address.
+fn client_ip(peer: IpAddr, headers: &HashMap<String, String>, trusted: &[IpAddr]) -> String {
+    let peer = peer.to_canonical();
+    if peer.is_loopback() || trusted.contains(&peer) {
+        let forwarded = headers
             .get("x-real-ip")
             .map(|s| s.trim().to_string())
-            .or_else(|| req.headers.get("x-forwarded-for").and_then(|s| s.split(',').next()).map(|s| s.trim().to_string()));
+            .or_else(|| headers.get("x-forwarded-for").and_then(|s| s.rsplit(',').next()).map(|s| s.trim().to_string()));
         if let Some(ip) = forwarded.and_then(|s| s.parse::<IpAddr>().ok()) {
-            return ip.to_string();
+            return bucket(ip.to_canonical());
         }
     }
-    peer.to_string()
+    bucket(peer)
 }
 
 pub(crate) fn ws_config() -> WebSocketConfig {
@@ -113,7 +126,7 @@ pub(crate) fn handle(hub: Arc<Hub>, mut stream: TcpStream) {
                 respond(&mut stream, "426 Upgrade Required", "websocket only\n");
                 return;
             };
-            let ip = client_ip(peer.ip(), &req);
+            let ip = client_ip(peer.ip(), &req.headers, &hub.trusted_proxies);
             if !hub.admit_ip(&ip) {
                 respond(&mut stream, "503 Service Unavailable", "busy\n");
                 return;
@@ -131,5 +144,39 @@ pub(crate) fn handle(hub: Arc<Hub>, mut stream: TcpStream) {
             hub.release_ip(&ip);
         }
         _ => respond(&mut stream, "404 Not Found", "not found\n"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn h(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn forwarded_headers_only_from_trusted_proxies() {
+        let npm: IpAddr = "192.168.0.52".parse().unwrap();
+        let trusted = [npm];
+        let fwd = h(&[("x-real-ip", "203.0.113.7"), ("x-forwarded-for", "1.1.1.1, 203.0.113.7")]);
+        assert_eq!(client_ip(npm, &fwd, &trusted), "203.0.113.7");
+        assert_eq!(client_ip("127.0.0.1".parse().unwrap(), &fwd, &trusted), "203.0.113.7");
+        // Another LAN host cannot pick its own address for the limits.
+        assert_eq!(client_ip("192.168.0.99".parse().unwrap(), &fwd, &trusted), "192.168.0.99");
+        assert_eq!(client_ip("198.51.100.1".parse().unwrap(), &fwd, &trusted), "198.51.100.1");
+        // Without X-Real-IP the rightmost X-Forwarded-For entry counts, not
+        // the client-supplied leftmost one.
+        let xff = h(&[("x-forwarded-for", "6.6.6.6, 203.0.113.9")]);
+        assert_eq!(client_ip(npm, &xff, &trusted), "203.0.113.9");
+        assert_eq!(client_ip(npm, &h(&[("x-real-ip", "junk")]), &trusted), "192.168.0.52");
+    }
+
+    #[test]
+    fn ipv6_is_bucketed_by_64() {
+        let a = bucket("2001:db8:1:2:aaaa::1".parse().unwrap());
+        assert_eq!(a, bucket("2001:db8:1:2:ffff:1:2:3".parse().unwrap()));
+        assert_ne!(a, bucket("2001:db8:1:3::1".parse().unwrap()));
+        assert_eq!(bucket("::ffff:10.0.0.1".parse().unwrap()), "10.0.0.1");
     }
 }

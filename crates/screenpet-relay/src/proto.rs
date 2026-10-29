@@ -10,7 +10,11 @@
 //! client -> relay   auth {id, key: hex32 static public key, mac: hex32, friends: [hex32]}
 //!                   mac = BLAKE2s(AUTH_LABEL || X25519(client, relay) || nonce
 //!                                 || relay_pub || client_pub || id)
-//! relay  -> client  welcome {code, code_ttl, online: [hex32]}
+//!                   (+ cnonce: hex32 client nonce, optional)
+//! relay  -> client  welcome {code, code_ttl, online: [hex32], proof}
+//!                   proof = BLAKE2s(WELCOME_LABEL || X25519 || cnonce || nonce
+//!                                   || client_pub): the relay holds its key
+//! client -> relay   new_code                  -> code {code, code_ttl}
 //! client -> relay   friends {keys}            -> online {keys}
 //! relay  -> client  presence {key, online}    (mutual friends only)
 //! relay  -> client  code {code, code_ttl}     (24 h rotation)
@@ -27,6 +31,7 @@ use serde::{Deserialize, Serialize};
 pub const PROTOCOL_VERSION: u32 = 1;
 /// Domain separation for the authentication MAC.
 pub const AUTH_LABEL: &[u8] = b"screenpet-relay/1 auth";
+pub const WELCOME_LABEL: &[u8] = b"screenpet-relay/1 welcome";
 /// Largest opaque frame carried on a channel (same as the LAN transport).
 pub const MAX_FRAME: usize = 65535;
 /// Channel id header in binary messages.
@@ -43,6 +48,8 @@ pub enum ClientMsg {
         mac: String,
         #[serde(default)]
         friends: Vec<String>,
+        #[serde(default)]
+        cnonce: Option<String>,
     },
     Friends {
         keys: Vec<String>,
@@ -57,6 +64,7 @@ pub enum ClientMsg {
     Close {
         ch: u32,
     },
+    NewCode,
     Ping,
 }
 
@@ -64,7 +72,13 @@ pub enum ClientMsg {
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ServerMsg {
     Challenge { relay: String, nonce: String, v: u32 },
-    Welcome { code: String, code_ttl: u64, online: Vec<String> },
+    Welcome {
+        code: String,
+        code_ttl: u64,
+        online: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        proof: Option<String>,
+    },
     Online { keys: Vec<String> },
     Presence { key: String, online: bool },
     Code { code: String, code_ttl: u64 },
@@ -109,6 +123,11 @@ pub fn public_key(private: &[u8; 32]) -> [u8; 32] {
 
 pub fn auth_mac(shared: &[u8; 32], nonce: &[u8; 32], relay_pub: &[u8; 32], client_pub: &[u8; 32], id: &str) -> [u8; 32] {
     blake2s(&[AUTH_LABEL, shared, nonce, relay_pub, client_pub, id.as_bytes()])
+}
+
+/// Proof in `welcome` that the relay holds the private key it announced.
+pub fn welcome_proof(shared: &[u8; 32], cnonce: &[u8; 32], nonce: &[u8; 32], client_pub: &[u8; 32]) -> [u8; 32] {
+    blake2s(&[WELCOME_LABEL, shared, cnonce, nonce, client_pub])
 }
 
 /// Equality without an early exit.

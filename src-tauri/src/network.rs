@@ -20,7 +20,7 @@ use screenpet_core::brain::State;
 use screenpet_core::care::Stage;
 use screenpet_core::config::Config;
 use screenpet_core::visit::{self, Side};
-use screenpet_net::{normalize_code, Net, NetConfig, NetEvent, Visit, DEFAULT_RELAY_URL};
+use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
@@ -53,7 +53,8 @@ pub const CODE_LABEL: &str = "code";
 const CODE_SIZE: (f64, f64) = (300.0, 178.0);
 /// 친구 코드로 신청했을 때 InviteSent까지 기다리는 시간 (중계 서버 왕복이 더 있다)
 const CODE_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-/// config 폴더의 이 파일(한 줄)이 있으면 그 주소의 중계 서버를 쓴다. 비어 있거나 "off"면 중계를 쓰지 않는다
+/// config 폴더의 이 파일이 있으면 첫 줄 주소의 중계 서버를 쓴다 (둘째 줄: 그 서버의 공개키 hex — 있으면 고정).
+/// 비어 있거나 "off"면 중계를 쓰지 않는다
 const RELAY_URL_FILE: &str = "relay_url.txt";
 
 /// 게임 루프로 들어오는 네트워크 관련 입력
@@ -160,18 +161,17 @@ pub struct Network {
     friend_code: Option<String>,
 }
 
-/// 중계 서버 주소: config 폴더의 `relay_url.txt`(한 줄)가 있으면 그것 (비었거나 "off"면 중계 안 씀), 없으면 기본값
-fn relay_url(config_dir: &Path) -> Option<String> {
+/// 중계 서버 주소와 고정할 공개키. 기본값은 배포된 서버 주소 + 그 공개키(다른 키를 내미는 서버는 거절).
+/// config 폴더의 `relay_url.txt`가 있으면 첫 줄 주소(비었거나 "off"면 중계 안 씀), 둘째 줄이 있으면 그 키로 고정
+fn relay_settings(config_dir: &Path) -> (Option<String>, Option<[u8; 32]>) {
     match std::fs::read_to_string(config_dir.join(RELAY_URL_FILE)) {
         Ok(s) => {
-            let s = s.trim();
-            if s.is_empty() || s.eq_ignore_ascii_case("off") {
-                None
-            } else {
-                Some(s.to_string())
-            }
+            let mut lines = s.lines().map(str::trim).filter(|l| !l.is_empty());
+            let url = lines.next().filter(|u| !u.eq_ignore_ascii_case("off")).map(str::to_string);
+            let key = lines.next().and_then(parse_relay_key);
+            (url, key)
         }
-        Err(_) => Some(DEFAULT_RELAY_URL.to_string()),
+        Err(_) => (Some(DEFAULT_RELAY_URL.to_string()), parse_relay_key(DEFAULT_RELAY_KEY)),
     }
 }
 
@@ -270,7 +270,7 @@ impl Network {
         let friends = config.friends.iter().map(|f| screenpet_net::Friend { id: f.id.clone(), public_key: f.public_key }).collect();
         let id = config.install_id.clone().unwrap_or_default();
         let mut net_config = NetConfig::new(id, name, key, friends);
-        net_config.relay_url = relay_url(&state.config_dir);
+        (net_config.relay_url, net_config.relay_key) = relay_settings(&state.config_dir);
         network.relay_enabled = net_config.relay_url.is_some();
         network.update_code_view(app);
         match Net::start(net_config) {

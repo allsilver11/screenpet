@@ -42,12 +42,20 @@ impl Client {
     }
 
     fn auth_msg(&self, priv_key: &[u8; 32], id: &str, friends: &[String]) -> Value {
+        self.auth_msg_with(priv_key, id, friends, None)
+    }
+
+    fn auth_msg_with(&self, priv_key: &[u8; 32], id: &str, friends: &[String], cnonce: Option<&[u8; 32]>) -> Value {
         let relay_pub = proto::hex32(self.challenge["relay"].as_str().unwrap()).unwrap();
         let nonce = proto::hex32(self.challenge["nonce"].as_str().unwrap()).unwrap();
         let shared = proto::dh(priv_key, &relay_pub).unwrap();
         let client_pub = proto::public_key(priv_key);
         let mac = proto::auth_mac(&shared, &nonce, &relay_pub, &client_pub, id);
-        json!({"t": "auth", "id": id, "key": proto::to_hex(&client_pub), "mac": proto::to_hex(&mac), "friends": friends})
+        let mut v = json!({"t": "auth", "id": id, "key": proto::to_hex(&client_pub), "mac": proto::to_hex(&mac), "friends": friends});
+        if let Some(c) = cnonce {
+            v["cnonce"] = json!(proto::to_hex(c));
+        }
+        v
     }
 
     /// Connect and authenticate; returns the client and its `welcome`.
@@ -235,8 +243,15 @@ fn bad_codes_and_strangers_are_refused() {
     assert_eq!(a.expect("redeem_failed", 2.0)["reason"], "unknown");
     a.send(&json!({"t": "redeem", "code": "not a code"}));
     assert_eq!(a.expect("redeem_failed", 2.0)["reason"], "unknown");
+    // Own code and an offline owner's code look exactly like a wrong code.
     a.send(&json!({"t": "redeem", "code": wa["code"]}));
-    assert_eq!(a.expect("redeem_failed", 2.0)["reason"], "self");
+    assert_eq!(a.expect("redeem_failed", 2.0)["reason"], "unknown");
+    let kc = key();
+    let (c, wc) = Client::login(&relay, &kc, "cccc", &[]);
+    drop(c);
+    std::thread::sleep(Duration::from_millis(200));
+    a.send(&json!({"t": "redeem", "code": wc["code"]}));
+    assert_eq!(a.expect("redeem_failed", 2.0)["reason"], "unknown");
     // Not friends, no code: no channel.
     a.send(&json!({"t": "open", "req": 1, "to": pubhex(&kb)}));
     assert_eq!(a.expect("open_failed", 2.0)["reason"], "not_friends");
@@ -424,4 +439,71 @@ fn idle_and_unauthenticated_connections_time_out() {
     let (mut a, _) = Client::login(&relay, &key(), "aaaa", &[]);
     assert_eq!(a.closed(2.0), Some(Some("idle".into())));
     assert_eq!(relay.online_count(), 0);
+}
+
+#[test]
+fn welcome_proves_the_relay_key() {
+    let relay = start(Limits::default());
+    let k = key();
+    let mut c = Client::raw(&relay);
+    let cnonce = proto::random32();
+    let auth = c.auth_msg_with(&k, "aaaa", &[], Some(&cnonce));
+    c.send(&auth);
+    let w = c.expect("welcome", 2.0);
+    let relay_pub = relay.public_key();
+    assert_eq!(c.challenge["relay"], proto::to_hex(&relay_pub).as_str());
+    let nonce = proto::hex32(c.challenge["nonce"].as_str().unwrap()).unwrap();
+    let shared = proto::dh(&k, &relay_pub).unwrap();
+    let expected = proto::welcome_proof(&shared, &cnonce, &nonce, &proto::public_key(&k));
+    assert_eq!(w["proof"], proto::to_hex(&expected).as_str());
+}
+
+#[test]
+fn new_code_on_request() {
+    let relay = start(Limits::default());
+    let (ka, kb) = (key(), key());
+    let (mut a, wa) = Client::login(&relay, &ka, "aaaa", &[]);
+    let (mut b, _) = Client::login(&relay, &kb, "bbbb", &[]);
+    a.send(&json!({"t": "new_code"}));
+    let fresh = a.expect("code", 2.0)["code"].as_str().unwrap().to_string();
+    assert_ne!(fresh, wa["code"].as_str().unwrap());
+    b.send(&json!({"t": "redeem", "code": wa["code"]}));
+    assert_eq!(b.expect("redeem_failed", 2.0)["reason"], "unknown", "old code is dead");
+    b.send(&json!({"t": "redeem", "code": fresh}));
+    b.expect("redeemed", 2.0);
+}
+
+#[test]
+fn redeems_per_target_are_capped() {
+    let relay = start(Limits { redeems_per_target_per_hour: 2, ..Limits::default() });
+    let kb = key();
+    let (_b, wb) = Client::login(&relay, &kb, "bbbb", &[]);
+    let mut outcomes = Vec::new();
+    for i in 0..4 {
+        let (mut x, _) = Client::login(&relay, &key(), &format!("x{i}"), &[]);
+        x.send(&json!({"t": "redeem", "code": wb["code"]}));
+        outcomes.push(x.wait("redeemed", 1.0).is_some());
+    }
+    assert_eq!(outcomes, vec![true, true, false, false]);
+}
+
+#[test]
+fn new_installs_are_capped_globally_and_in_total() {
+    let relay = start(Limits { registrations_per_hour: 2, ..Limits::default() });
+    let k1 = key();
+    let _ = Client::login(&relay, &k1, "a", &[]);
+    let _ = Client::login(&relay, &key(), "b", &[]);
+    let mut c = Client::raw(&relay);
+    let auth = c.auth_msg(&key(), "c", &[]);
+    c.send(&auth);
+    assert_eq!(c.closed(2.0), Some(Some("busy".into())));
+    // Known installs still get in.
+    let _ = Client::login(&relay, &k1, "a", &[]);
+
+    let relay = start(Limits { max_installs: 1, ..Limits::default() });
+    let _ = Client::login(&relay, &k1, "a", &[]);
+    let mut c = Client::raw(&relay);
+    let auth = c.auth_msg(&key(), "c", &[]);
+    c.send(&auth);
+    assert_eq!(c.closed(2.0), Some(Some("full".into())));
 }

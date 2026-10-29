@@ -51,6 +51,7 @@ fn cfg(id: &str, name: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Fri
         friends,
         timing: fast(),
         relay_url: None,
+        relay_key: None,
     }
 }
 

@@ -9,6 +9,10 @@ Wants=network-online.target
 ExecStart=%h/.local/bin/screenpet-relay --bind 0.0.0.0:9411 --data %h/.local/share/screenpet-relay
 Restart=always
 RestartSec=5
+# Data (relay.key, relay.json) stays private to the user.
+UMask=0077
+# Trust forwarded client addresses only from the proxy (and loopback).
+Environment=SCREENPET_RELAY_TRUSTED_PROXIES=192.168.0.52
 NoNewPrivileges=true
 PrivateTmp=true
 
