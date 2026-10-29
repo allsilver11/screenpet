@@ -692,6 +692,18 @@ impl Pet {
                     if !self.at_seam(world, to, kind, speed, new_x, beyond(new_x)) {
                         return;
                     }
+                } else if let (true, EndKind::Edge, Move::Roll) = (hit, end, kind) {
+                    // 발 중심이 창 모서리를 넘을 때까지 굴러가다가 굴러떨어진다
+                    // (vy = 0으로 떠나므로 중심이 아직 창 위면 다음 틱에 바로 다시 내려선다)
+                    self.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (new_x - self.body.x) });
+                    self.body.x = new_x;
+                    if beyond(new_x) {
+                        self.standing = None;
+                        self.body.vx = self.facing * speed;
+                        self.body.vy = 0.0;
+                        self.state = State::Air { anim: Anim::Roll };
+                        return;
+                    }
                 } else if hit {
                     match (end, kind) {
                         (EndKind::Edge, Move::Walk) if self.rng.f64() < behavior::WALK_EDGE_HOP_CHANCE => {
@@ -700,12 +712,6 @@ impl Pet {
                         (EndKind::Edge, Move::Run) => {
                             self.start_hop(self.facing);
                             self.body.vx *= behavior::RUN_LEAP_VX_MULT;
-                        }
-                        (EndKind::Edge, Move::Roll) => {
-                            self.standing = None;
-                            self.body.vx = self.facing * speed;
-                            self.body.vy = 0.0;
-                            self.state = State::Air { anim: Anim::Roll };
                         }
                         _ => self.state = State::Turn { remaining: TURN_PAUSE },
                     }
@@ -1428,12 +1434,38 @@ mod tests {
     fn rolling_off_a_window_edge_keeps_rolling_speed() {
         let w = world(vec![w1()]);
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        // 몸 앞쪽이 모서리에 닿아도 발 중심이 넘을 때까지는 계속 구른다
         place(&mut p, &w, Owner::Window(1), 1100.0 - 38.0 - 0.5, State::Move { kind: Move::Roll, remaining: 100.0 });
         p.facing = 1.0;
+        p.update(DT, &w);
+        assert!(matches!(p.state, State::Move { kind: Move::Roll, .. }), "{:?}", p.state);
+        assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
+        place(&mut p, &w, Owner::Window(1), 1100.0 - 0.5, State::Move { kind: Move::Roll, remaining: 100.0 });
         p.update(DT, &w);
         assert_eq!(p.state, State::Air { anim: Anim::Roll });
         assert_eq!((p.body.vx, p.body.vy), (120.0, 0.0));
         assert!(p.standing.is_none());
+        assert!(p.body.x > 1100.0);
+    }
+
+    #[test]
+    fn rolling_off_a_window_edge_really_leaves_it() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 1100.0 - 38.0 - 0.5, State::Move { kind: Move::Roll, remaining: 100.0 });
+        p.facing = 1.0;
+        let mut rolled_off = false;
+        for _ in 0..240 {
+            p.update(DT, &w);
+            rolled_off |= p.state == State::Air { anim: Anim::Roll };
+            if rolled_off && p.standing.is_some() {
+                break;
+            }
+        }
+        assert!(rolled_off);
+        assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)));
+        assert_eq!(p.body.y, 1040.0);
+        assert!(p.body.x > 1100.0);
     }
 
     #[test]
