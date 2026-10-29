@@ -64,7 +64,7 @@ pub enum Move {
 impl Move {
     pub fn speed_mult(self) -> f64 {
         match self {
-            Move::Walk => 1.0,
+            Move::Walk => 0.7,
             Move::Run => 2.5,
             Move::Roll => 2.0,
         }
@@ -72,7 +72,7 @@ impl Move {
 
     pub fn secs(self) -> (f64, f64) {
         match self {
-            Move::Walk => (2.0, 5.0),
+            Move::Walk => (4.0, 10.0),
             Move::Run => (2.0, 5.0),
             Move::Roll => (2.0, 4.0),
         }
@@ -187,8 +187,8 @@ mod tests {
 
     #[test]
     fn move_speeds_and_durations() {
-        assert_eq!((Move::Walk.speed_mult(), Move::Run.speed_mult(), Move::Roll.speed_mult()), (1.0, 2.5, 2.0));
-        assert_eq!((Move::Walk.secs(), Move::Run.secs(), Move::Roll.secs()), ((2.0, 5.0), (2.0, 5.0), (2.0, 4.0)));
+        assert_eq!((Move::Walk.speed_mult(), Move::Run.speed_mult(), Move::Roll.speed_mult()), (0.7, 2.5, 2.0));
+        assert_eq!((Move::Walk.secs(), Move::Run.secs(), Move::Roll.secs()), ((4.0, 10.0), (2.0, 5.0), (2.0, 4.0)));
     }
 
     #[test]

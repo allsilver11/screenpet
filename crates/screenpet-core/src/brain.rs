@@ -1036,8 +1036,8 @@ mod tests {
             }
         }
         let (m, s, f) = (moving as f64 / total as f64, sleeping as f64 / total as f64, front as f64 / total as f64);
-        assert!((0.56..=0.66).contains(&m), "moving {m:.3} (front {f:.3}, sleeping {s:.3})");
-        assert!(f >= 0.15, "front-facing {f:.3} (moving {m:.3}, sleeping {s:.3})");
+        assert!((0.65..=0.75).contains(&m), "moving {m:.3} (front {f:.3}, sleeping {s:.3})");
+        assert!(f >= 0.11, "front-facing {f:.3} (moving {m:.3}, sleeping {s:.3})");
         assert!(s <= 0.10, "sleeping {s:.3} (moving {m:.3}, front {f:.3})");
     }
 }
