@@ -9,20 +9,21 @@ body {
 }
 
 #pet {
-  width: 128px;
-  height: 128px;
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  aspect-ratio: 1;
   background-repeat: no-repeat;
-  image-rendering: pixelated;
+  image-rendering: auto;
+  /* roll 공 중심 (64,88)/128 — tools/sprite_spec.py ROLL_CENTER */
+  transform-origin: 50% 68.75%;
   cursor: grab;
-}
-
-#pet.flip {
-  transform: scaleX(-1);
 }
 
 #heart {
   position: absolute;
-  top: 0;
+  top: 36px;
   left: 50%;
   transform: translateX(-50%);
   color: #ff5a8a;
@@ -37,11 +38,39 @@ body {
 
 @keyframes float-up {
   from {
-    top: 28px;
+    top: 64px;
     opacity: 1;
   }
   to {
-    top: 0;
+    top: 36px;
     opacity: 0;
   }
+}
+
+#bubble {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 9px;
+  background: #fffaf2;
+  color: #84605c;
+  border: 2px solid #84605c;
+  border-radius: 12px;
+  font: 600 12px/1.2 "Segoe UI", "Malgun Gothic", sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 8px;
+  height: 8px;
+  background: #fffaf2;
+  border-right: 2px solid #84605c;
+  border-bottom: 2px solid #84605c;
+  transform: translateX(-50%) rotate(45deg);
 }

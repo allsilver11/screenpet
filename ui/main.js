@@ -2,18 +2,18 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-const DISPLAY = 128;
 const petEl = document.getElementById("pet");
 const heartEl = document.getElementById("heart");
 
 let manifest = null;
-let scale = 2;
+let display = 128;
 let render = { anim: "fall", flip: false, heart: false };
 let animStart = performance.now();
 
 async function loadPet(id) {
   manifest = await (await fetch(`pets/${id}/pet.json`)).json();
-  scale = DISPLAY / manifest.frame_size;
+  display = petEl.clientWidth || 128;
+  const scale = display / manifest.frame_size;
   const img = new Image();
   img.src = `pets/${id}/sheet.png`;
   await img.decode();
@@ -29,9 +29,16 @@ function frameIndex(spec, elapsedMs) {
 
 function draw(now) {
   if (manifest) {
-    const spec = manifest.animations[render.anim];
-    const f = frameIndex(spec, now - animStart);
-    petEl.style.backgroundPosition = `${-f * DISPLAY}px ${-spec.row * DISPLAY}px`;
+    // 교체된 동물에 없는 종 전용 애니메이션이어도 throw로 rAF가 끊기지 않게 idle로 대체
+    const spec = manifest.animations[render.anim] ?? manifest.animations.idle;
+    const elapsed = now - animStart;
+    const f = frameIndex(spec, elapsed);
+    petEl.style.backgroundPosition = `${-f * display}px ${-spec.row * display}px`;
+    // 좌우 반전 공간 안에서 돌리므로 왼쪽으로 갈 땐 자동으로 반대로 구른다
+    const parts = [];
+    if (render.flip) parts.push("scaleX(-1)");
+    if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin) % 360}deg)`);
+    petEl.style.transform = parts.length ? parts.join(" ") : "none";
   }
   requestAnimationFrame(draw);
 }
@@ -44,10 +51,24 @@ listen("pet-render", (e) => {
     heartEl.classList.add("show");
   }
   render = e.payload;
-  petEl.classList.toggle("flip", render.flip);
 });
 
 listen("pet-change", (e) => loadPet(e.payload));
+
+const bubbleEl = document.getElementById("bubble");
+let bubbleTimer = null;
+
+// 백엔드가 고른 상황(chatter/tickle/grumpy)에 맞는 대사를 pet.json speech에서 랜덤으로 띄운다
+listen("pet-say", (e) => {
+  const lines = manifest?.speech?.[e.payload] ?? [];
+  if (!lines.length) return;
+  bubbleEl.textContent = lines[Math.floor(Math.random() * lines.length)];
+  bubbleEl.hidden = false;
+  clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => {
+    bubbleEl.hidden = true;
+  }, 1500);
+});
 
 petEl.addEventListener("mousedown", (e) => {
   if (e.button === 0) invoke("pointer_down");

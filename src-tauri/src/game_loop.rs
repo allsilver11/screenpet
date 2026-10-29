@@ -15,6 +15,10 @@ const MAX_DT: f64 = 0.05;
 const PET_LOGICAL_SIZE: f64 = 128.0;
 /// 몸 폭 절반 / 스프라이트 크기
 const HALF_WIDTH_RATIO: f64 = 0.3;
+/// 성장 단계 배율 (teenager = 1.0). 2B에서 단계별 값으로 바뀐다.
+const STAGE_SCALE: f64 = 1.0;
+/// 스프라이트 위 말풍선 자리 (논리 px) — tauri.conf.json height = 128 + 36
+const BUBBLE_SPACE: f64 = 36.0;
 
 pub enum Input {
     PointerDown,
@@ -31,7 +35,7 @@ fn refresh(source: &mut dyn WindowSource, size: f64) -> World {
 }
 
 fn pet_config(scale: f64, logical_walk: f64, special: Option<Special>) -> PetConfig {
-    let size = PET_LOGICAL_SIZE * scale;
+    let size = PET_LOGICAL_SIZE * STAGE_SCALE * scale;
     PetConfig { size, half_w: size * HALF_WIDTH_RATIO, walk_speed: logical_walk * scale, special }
 }
 
@@ -40,10 +44,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, special: Option<Spe
         eprintln!("pet window not found; game loop not started");
         return;
     };
+    let logical_side = PET_LOGICAL_SIZE * STAGE_SCALE;
+    let _ = window.set_size(tauri::LogicalSize::new(logical_side, logical_side + BUBBLE_SPACE));
     let mut scale = window.scale_factor().unwrap_or(1.0);
     let mut logical_walk = walk_speed;
     let mut special = special;
-    let mut size = PET_LOGICAL_SIZE * scale;
+    let mut size = pet_config(scale, walk_speed, special).size;
     let mut source = default_source();
     let mut world = refresh(source.as_mut(), size);
 
@@ -68,6 +74,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, special: Option<Spe
                     logical_walk = walk_speed;
                     special = sp;
                     pet.cfg = pet_config(scale, logical_walk, special);
+                    // 이전 동물의 종 전용 동작이 새 동물에 없을 수 있으니 진행 중이면 끝낸다
+                    pet.set_special(special);
                 }
             }
         }
@@ -87,18 +95,26 @@ fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, special: Option<Spe
             last_refresh = now;
         }
 
+        let (cx, cy) = source.cursor();
         if pet.is_held() {
-            let (cx, cy) = source.cursor();
             if source.left_button_down() {
                 pet.pointer_move(cx, cy);
             } else {
                 pet.pointer_up(cx, cy);
             }
+        } else {
+            let (sx, sy) = pet.window_pos();
+            let side = pet.cfg.size;
+            let inside = cx >= sx && cx < sx + side && cy >= sy && cy < sy + side;
+            pet.hover(cx, cy, inside);
         }
         pet.update(dt, &world);
+        if let Some(speech) = pet.take_speech() {
+            let _ = app.emit("pet-say", speech);
+        }
 
         let (wx, wy) = pet.window_pos();
-        let pos = (wx.round() as i32, wy.round() as i32);
+        let pos = (wx.round() as i32, (wy - BUBBLE_SPACE * scale).round() as i32);
         if last_pos != Some(pos) {
             let first = last_pos.is_none();
             let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));

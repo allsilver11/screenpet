@@ -254,6 +254,14 @@ impl Pet {
         self.speech.take()
     }
 
+    /// 동물 교체 시 특별 동작을 바꾼다. 진행 중이던 Special은 (새 동물에 없을 수 있으니) 끝낸다.
+    pub fn set_special(&mut self, special: Option<Special>) {
+        self.cfg.special = special;
+        if matches!(self.state, State::Special { .. }) {
+            self.state = self.idle_state();
+        }
+    }
+
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
         if self.is_held() {
             return;
@@ -1173,6 +1181,18 @@ mod tickle_tests {
         let mut p = Pet::new(cfg(), 800.0, 100.0, 1);
         tickle(&mut p, &w, 10);
         assert!(matches!(p.state, State::Air { .. }));
+    }
+
+    #[test]
+    fn set_special_ends_a_running_special() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 1000.0, look: false });
+        p.start_special(Special::Wag);
+        assert!(matches!(p.state, State::Special { .. }));
+        p.set_special(None);
+        assert_eq!(p.cfg.special, None);
+        assert!(matches!(p.state, State::Idle { .. }));
     }
 
     #[test]
