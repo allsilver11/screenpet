@@ -257,6 +257,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, EASTER_EGG_LABEL, false, None::<&str>)?;
 
     let menu = Menu::new(app)?;
+    // 트레이와 펫 우클릭은 같은 메뉴 — 둘 다 맨 위에 보인다
+    menu.append(&easter_egg)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
     for (item, _) in &checks {
         menu.append(item)?;
     }
@@ -268,9 +271,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&house)?;
     menu.append(&friends)?;
     menu.append(&toggle)?;
-    // 트레이와 펫 우클릭은 같은 메뉴 — 둘 다 종료 바로 위에 보인다
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&easter_egg)?;
     menu.append(&quit)?;
 
     let pet_items = checks.clone();
