@@ -70,6 +70,13 @@ fn main() {
     assert!(!pets.is_empty(), "no valid pets bundled");
 
     tauri::Builder::default()
+        // 가장 먼저 등록: 두 번째 실행은 새 앱을 띄우지 않고 이미 있는 펫 창을 보여 준다
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("pet") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(move |app| {
             let config_dir = app.path().app_config_dir()?;
             let mut cfg = config::load(&config_dir);

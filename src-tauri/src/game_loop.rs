@@ -3,7 +3,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use screenpet_core::behavior::Special;
-use screenpet_core::brain::{Anim, Pet, PetConfig};
+use screenpet_core::brain::{Pet, PetConfig};
 use screenpet_core::care::{Care, FeedResult, Food};
 use screenpet_core::config::{self, Config};
 use screenpet_core::manifest::FavoriteFood;
@@ -80,7 +80,8 @@ fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64) -> PetConfig {
     PetConfig {
         size,
         half_w: size * HALF_WIDTH_RATIO,
-        walk_speed: m.walk_speed * dpi,
+        // 큰 몸은 조금 빠르게, 작은 몸은 조금 느리게 (크기에 정비례하면 너무 차이 난다)
+        walk_speed: m.walk_speed * body_scale.sqrt() * dpi,
         special: Special::from_manifest(|n| m.has_anim(n)),
         personality: m.personality,
         can_climb: m.can_climb(),
@@ -244,7 +245,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
 
         let render = pet.render();
-        if pending_stage && render.anim != Anim::Eat {
+        // 먹다가 눌린 동안(Pressed)도 먹는 중으로 본다 — 손을 떼면 계속 먹으므로 크기를 미리 바꾸지 않는다
+        if pending_stage && !pet.is_eating() {
             pending_stage = false;
             shown_scale = apply_stage(&app, &window, &mut pet, dpi, &entry, &care);
         }

@@ -64,7 +64,8 @@ function draw(now) {
     // 좌우 반전 공간 안에서 돌리므로 왼쪽으로 갈 땐 자동으로 반대로 구른다
     const parts = [];
     if (render.flip) parts.push("scaleX(-1)");
-    if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin) % 360}deg)`);
+    // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
+    if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
     petEl.style.transform = parts.length ? parts.join(" ") : "none";
   }
   requestAnimationFrame(draw);
