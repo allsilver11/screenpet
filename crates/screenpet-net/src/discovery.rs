@@ -27,6 +27,9 @@ const MAX_CANDIDATES_PER_SOURCE: usize = 2;
 const MAX_DATAGRAMS_PER_WINDOW: u32 = 50;
 /// Separate budget for announcements claiming a friend id, per (id, source IP).
 const MAX_FRIEND_CLAIMS_PER_WINDOW: u32 = 4;
+/// Larger finite budget per (id, source IP) once that friend authenticated
+/// from that IP.
+const MAX_TRUSTED_PER_WINDOW: u32 = 200;
 const RATE_WINDOW: Duration = Duration::from_secs(1);
 const DIAL_WINDOW: Duration = Duration::from_secs(60);
 /// Bound on the rate tables and the failure history.
@@ -60,7 +63,8 @@ pub(crate) fn run(shared: Arc<Shared>, udp: UdpSocket, broadcast_to: SocketAddr)
 }
 
 /// Rate limiting for one announcement. Admitted if the source IP is within
-/// its budget, or the source previously authenticated as a friend, or (for
+/// its budget, or the claimed id is the friend that previously authenticated
+/// from this IP (a larger but finite per-(id, IP) budget), or (for
 /// an id that is a friend) the (id, source) pair is within its own small
 /// budget — so a flood sharing the friend's IP budget cannot starve the
 /// friend, while a *claimed* friend id alone buys only a few datagrams.
@@ -68,7 +72,9 @@ pub(crate) fn admit_announcement(st: &mut State, id: &str, ip: IpAddr, now: Inst
     if rate_allow(&mut st.src_rate, ip, now, MAX_DATAGRAMS_PER_WINDOW) {
         return true;
     }
-    if st.trusted_ips.contains_key(&ip.to_string()) {
+    if st.is_trusted(id, &ip.to_string())
+        && rate_allow(&mut st.trusted_rate, (id.to_string(), ip), now, MAX_TRUSTED_PER_WINDOW)
+    {
         return true;
     }
     st.is_friend(id) && rate_allow(&mut st.friend_rate, (id.to_string(), ip), now, MAX_FRIEND_CLAIMS_PER_WINDOW)
@@ -336,11 +342,21 @@ mod tests {
     }
 
     #[test]
-    fn previously_authenticated_sources_are_exempt() {
+    fn trusted_ip_is_keyed_by_friend_id_and_finite() {
         let mut st = with_friend();
+        st.friends.push(Friend { id: "gg".into(), public_key: [8; 32] });
         let now = Instant::now();
-        st.trust_ip(&ip(1).to_string(), now);
-        assert!((0..500).all(|_| admit_announcement(&mut st, "anything", ip(1), now)));
+        st.trust_ip("ff", &ip(1).to_string(), now);
+        while admit_announcement(&mut st, "junk", ip(1), now) {}
+        // Only the friend that authenticated from this IP gets the big budget.
+        let ff = (0..1000).filter(|_| admit_announcement(&mut st, "ff", ip(1), now)).count();
+        assert_eq!(ff, MAX_TRUSTED_PER_WINDOW as usize + MAX_FRIEND_CLAIMS_PER_WINDOW as usize);
+        // Other claimed ids (even other friends) from that IP get no exemption.
+        assert!(!admit_announcement(&mut st, "anything", ip(1), now));
+        let gg = (0..100).filter(|_| admit_announcement(&mut st, "gg", ip(1), now)).count();
+        assert_eq!(gg, MAX_FRIEND_CLAIMS_PER_WINDOW as usize);
+        // The budget refills next window.
+        assert!(admit_announcement(&mut st, "ff", ip(1), now + RATE_WINDOW));
     }
 
     #[test]

@@ -238,7 +238,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
                 replaced = Some(old.link.clone());
             }
             shared.release_unverified(&ctx.unverified);
-            st.trust_ip(&ctx.peer_addr, now);
+            st.trust_ip(id, &ctx.peer_addr, now);
             st.friend_wait.remove(id);
             st.backoff.remove(&Backoff::Id(id.to_string()));
             st.friend_links.insert(id.to_string(), ctx.token);
@@ -254,6 +254,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
                 remote_ok: false,
                 since: now,
                 failure_reported: false,
+                surfaced: false,
             }))
         } else {
             Kind::Stranger(None)
@@ -300,18 +301,20 @@ fn pin(shared: &Shared, st: &mut State, token: u64) -> Vec<Arc<SecureLink>> {
     shared.release_unverified(&conn.unverified);
     let (id, key, name, addr) = (conn.peer_id.clone(), conn.remote_key, conn.name.clone(), conn.peer_addr.clone());
     st.add_friend(&id, key);
-    st.trust_ip(&addr, Instant::now());
+    st.trust_ip(&id, &addr, Instant::now());
     st.friend_links.insert(id.clone(), token);
     shared.emit(NetEvent::Connected { id: id.clone(), name });
     st.conns.iter().filter(|(t, c)| **t != token && c.peer_id == id).map(|(_, c)| c.link.clone()).collect()
 }
 
 /// Mark a pairing failed (terminal); report it once unless already reported.
-fn fail(shared: &Shared, p: &mut Pairing, id: &str) {
+fn fail(shared: &Shared, p: &mut Pairing, id: &str, token: u64) {
     p.stage = PairStage::Failed;
     if !p.failure_reported {
         p.failure_reported = true;
-        shared.emit(NetEvent::InviteAnswered { from: id.to_string(), accepted: false });
+        if p.surfaced {
+            shared.emit(NetEvent::InviteAnswered { from: id.to_string(), accepted: false, pairing: token });
+        }
     }
 }
 
@@ -377,6 +380,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
                 remote_ok: false,
                 since: now,
                 failure_reported: false,
+                surfaced: false,
             }));
             drop(st);
             ctx.link.send(&ctl(Control::PairRandom { random: noise::to_hex(&r_r) }))
@@ -387,6 +391,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             let PairStage::AwaitRandom { nonce_i } = p.stage else { return false };
             let Some(r_r) = noise::hex32(&random) else { return false };
             p.stage = PairStage::Confirm;
+            p.surfaced = true;
             shared.emit(NetEvent::InviteSent {
                 to: id.to_string(),
                 sas: noise::sas(&hs_hash, &nonce_i, &r_r),
@@ -406,6 +411,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             let sas = noise::sas(&hs_hash, &nonce_i, r_r);
             let pet = pet.clone();
             p.stage = PairStage::Confirm;
+            p.surfaced = true;
             st.invited_log.push_back(now);
             shared.emit(NetEvent::Invited { from: id.to_string(), name: name.to_string(), pet, sas, pairing: ctx.token });
             true
@@ -417,14 +423,14 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
                 return true; // terminal: late replies change nothing
             }
             if !accepted {
-                fail(shared, p, id);
+                fail(shared, p, id, ctx.token);
                 return false;
             }
             if !matches!(p.stage, PairStage::Confirm) || p.remote_ok {
                 return false; // confirmation before the SAS exists
             }
             if expired(shared, p, now) {
-                fail(shared, p, id);
+                fail(shared, p, id, ctx.token);
                 drop(st);
                 ctx.link.send(&ctl(Control::InviteReply { accepted: false }));
                 ctx.link.finish();
@@ -432,7 +438,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             }
             p.remote_ok = true;
             let both = p.local_ok;
-            shared.emit(NetEvent::InviteAnswered { from: id.to_string(), accepted: true });
+            shared.emit(NetEvent::InviteAnswered { from: id.to_string(), accepted: true, pairing: ctx.token });
             let to_close = if both { pin(shared, &mut st, ctx.token) } else { Vec::new() };
             drop(st);
             to_close.iter().for_each(|l| l.close());
@@ -477,7 +483,7 @@ fn timers(shared: &Shared, ctx: &Ctx) -> bool {
     let (since, id) = (conn.since, conn.peer_id.clone());
     match &mut conn.kind {
         Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed) && expired(shared, p, now) => {
-            fail(shared, p, &id);
+            fail(shared, p, &id, ctx.token);
             drop(st);
             ctx.link.send(&ctl(Control::InviteReply { accepted: false }));
             ctx.link.finish();
@@ -495,17 +501,18 @@ fn cleanup(shared: &Shared, token: Option<u64>, dialed: Option<&str>) {
     let mut st = shared.state();
     if let Some(d) = dialed {
         st.dialing.remove(d);
-        if st.invites_out.remove(d).is_some() {
-            shared.emit(NetEvent::InviteAnswered { from: d.to_string(), accepted: false });
-        }
+        // An invite that never reached a surfaced pairing has no outcome.
+        st.invites_out.remove(d);
     }
     let Some(conn) = token.and_then(|t| st.conns.remove(&t)) else { return };
     if st.friend_links.get(&conn.peer_id) == token.as_ref() {
         st.friend_links.remove(&conn.peer_id);
     }
     if let Kind::Stranger(Some(p)) = &conn.kind {
-        if !p.failure_reported {
-            shared.emit(NetEvent::InviteAnswered { from: conn.peer_id.clone(), accepted: false });
+        if !p.failure_reported && p.surfaced {
+            if let Some(t) = token {
+                shared.emit(NetEvent::InviteAnswered { from: conn.peer_id.clone(), accepted: false, pairing: t });
+            }
         }
     }
     if conn.announced {
@@ -517,9 +524,7 @@ fn cleanup(shared: &Shared, token: Option<u64>, dialed: Option<&str>) {
 pub(crate) fn dial_failed(shared: &Shared, id: &str) {
     let mut st = shared.state();
     st.dialing.remove(id);
-    if st.invites_out.remove(id).is_some() {
-        shared.emit(NetEvent::InviteAnswered { from: id.to_string(), accepted: false });
-    }
+    st.invites_out.remove(id);
 }
 
 pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
@@ -528,7 +533,6 @@ pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
         return;
     }
     if st.is_friend(peer_id) {
-        shared.emit(NetEvent::InviteAnswered { from: peer_id.to_string(), accepted: true });
         return;
     }
     // Always a fresh outgoing link; inbound links claiming this id (possibly
@@ -536,7 +540,6 @@ pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
     let busy = st.dialing.contains(peer_id) || outbound_pairing(&st, peer_id);
     let target = if busy { None } else { pick_candidate(&st, peer_id) };
     let Some(target) = target else {
-        shared.emit(NetEvent::InviteAnswered { from: peer_id.to_string(), accepted: false });
         return;
     };
     note_dial(&mut st, peer_id, target, Instant::now(), false);
@@ -563,7 +566,7 @@ pub(crate) fn answer_invite(shared: &Shared, pairing: u64, accept: bool) {
         if !accept {
             p.failure_reported = true; // our own refusal needs no event
         }
-        fail(shared, p, peer_id);
+        fail(shared, p, peer_id, token);
         drop(st);
         link.send(&ctl(Control::InviteReply { accepted: false }));
         link.finish();

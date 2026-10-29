@@ -401,7 +401,7 @@ fn pairing_shows_equal_sas_and_needs_both_confirmations() {
     p.b.answer_invite(pairing_of(&invited), true);
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::InviteAnswered { .. })),
-        Some(NetEvent::InviteAnswered { from: "bbbb".into(), accepted: true })
+        Some(NetEvent::InviteAnswered { from: "bbbb".into(), accepted: true, pairing: pairing_of(&sent) })
     );
     assert_eq!(wait_for(&p.arx, 0.5, is_connected), None);
     assert!(p.a.friends().is_empty() && p.b.friends().is_empty());
@@ -420,11 +420,11 @@ fn pairing_shows_equal_sas_and_needs_both_confirmations() {
 #[test]
 fn invitee_refusal_leaves_no_friendship() {
     let p = pair(false);
-    let (_, invited) = start_pairing(&p);
+    let (sent, invited) = start_pairing(&p);
     p.b.answer_invite(pairing_of(&invited), false);
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::InviteAnswered { .. })),
-        Some(NetEvent::InviteAnswered { from: "bbbb".into(), accepted: false })
+        Some(NetEvent::InviteAnswered { from: "bbbb".into(), accepted: false, pairing: pairing_of(&sent) })
     );
     assert!(p.a.friends().is_empty() && p.b.friends().is_empty());
     assert_eq!(wait_for(&p.brx, 0.5, is_connected), None);
@@ -441,7 +441,7 @@ fn inviter_refusal_after_invitee_accept_leaves_no_friendship() {
     p.a.answer_invite(pairing_of(&sent), false); // e.g. the SAS did not match
     assert_eq!(
         wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::InviteAnswered { .. })),
-        Some(NetEvent::InviteAnswered { from: "aaaa".into(), accepted: false })
+        Some(NetEvent::InviteAnswered { from: "aaaa".into(), accepted: false, pairing: pairing_of(&invited) })
     );
     assert!(p.a.friends().is_empty() && p.b.friends().is_empty());
     assert_eq!(wait_for(&p.brx, 0.3, is_connected), None);
@@ -452,10 +452,10 @@ fn inviter_refusal_after_invitee_accept_leaves_no_friendship() {
 #[test]
 fn unconfirmed_pairing_times_out() {
     let p = pair(false);
-    start_pairing(&p);
+    let (sent, _) = start_pairing(&p);
     assert_eq!(
         wait_for(&p.arx, 8.0, |e| matches!(e, NetEvent::InviteAnswered { .. })),
-        Some(NetEvent::InviteAnswered { from: "bbbb".into(), accepted: false })
+        Some(NetEvent::InviteAnswered { from: "bbbb".into(), accepted: false, pairing: pairing_of(&sent) })
     );
     assert!(p.a.friends().is_empty() && p.b.friends().is_empty());
     p.a.shutdown();

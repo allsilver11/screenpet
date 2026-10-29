@@ -155,7 +155,9 @@ pub enum NetEvent {
     InviteSent { to: String, sas: String, pairing: u64 },
     /// The other side confirmed (`true`) or the pairing ended without
     /// friendship (`false`: refused, timed out or link lost).
-    InviteAnswered { from: String, accepted: bool },
+    /// `pairing` is the token of the `Invited`/`InviteSent` it concludes; no
+    /// outcome is emitted for a pairing that was never surfaced.
+    InviteAnswered { from: String, accepted: bool, pairing: u64 },
     Connected { id: String, name: String },
     Disconnected { id: String },
     Received { from: String, msg: Visit },
@@ -200,6 +202,8 @@ pub(crate) struct Pairing {
     pub since: Instant,
     /// A final `InviteAnswered{accepted:false}` was already emitted.
     pub failure_reported: bool,
+    /// `Invited`/`InviteSent` was emitted: only then are outcomes reported.
+    pub surfaced: bool,
 }
 
 pub(crate) enum Kind {
@@ -268,7 +272,10 @@ pub(crate) struct State {
     /// Recent incoming pairing attempts per peer address.
     pub pair_attempts: HashMap<String, VecDeque<Instant>>,
     /// Addresses that authenticated as a friend → when (bounded).
-    pub trusted_ips: HashMap<String, Instant>,
+    /// Keyed by (friend id, address).
+    pub trusted_ips: HashMap<(String, String), Instant>,
+    /// Announcements from a trusted (id, source IP), own finite budget.
+    pub trusted_rate: HashMap<(String, IpAddr), (Instant, u32)>,
 }
 
 impl State {
@@ -285,14 +292,22 @@ impl State {
     pub fn remove_friend(&mut self, id: &str) {
         self.friends.retain(|f| f.id != id);
     }
-    pub fn trust_ip(&mut self, ip: &str, now: Instant) {
-        if self.trusted_ips.len() >= MAX_TRUSTED_IPS && !self.trusted_ips.contains_key(ip) {
+    pub fn is_trusted(&self, id: &str, ip: &str) -> bool {
+        self.trusted_ips.contains_key(&(id.to_string(), ip.to_string()))
+    }
+    /// Has any friend authenticated from this address?
+    pub fn ip_trusted(&self, ip: &str) -> bool {
+        self.trusted_ips.keys().any(|(_, i)| i == ip)
+    }
+    pub fn trust_ip(&mut self, id: &str, ip: &str, now: Instant) {
+        let key = (id.to_string(), ip.to_string());
+        if self.trusted_ips.len() >= MAX_TRUSTED_IPS && !self.trusted_ips.contains_key(&key) {
             let oldest = self.trusted_ips.iter().min_by_key(|(_, t)| **t).map(|(i, _)| i.clone());
             if let Some(o) = oldest {
                 self.trusted_ips.remove(&o);
             }
         }
-        self.trusted_ips.insert(ip.to_string(), now);
+        self.trusted_ips.insert(key, now);
     }
     pub fn friend_conn(&self, id: &str) -> Option<&Conn> {
         self.friend_links.get(id).and_then(|t| self.conns.get(t))
@@ -389,7 +404,7 @@ impl Shared {
     /// separate per-address allowance, so strangers can never crowd them out.
     pub fn admit_inbound(self: &Arc<Self>, frames: Arc<dyn transport::FrameLink>) -> SessionGuard {
         let ip = frames.peer_addr();
-        let trusted = self.state().trusted_ips.contains_key(&ip);
+        let trusted = self.state().ip_trusted(&ip);
         let active = Arc::new(AtomicBool::new(true));
         let mut evicted = Vec::new();
         {
