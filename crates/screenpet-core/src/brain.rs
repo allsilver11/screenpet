@@ -18,6 +18,7 @@ const CLICK_SLOP: f64 = 5.0;
 const VELOCITY_WINDOW: f64 = 0.1;
 const TICKLE_WINDOW: f64 = 0.6;
 const TICKLE_DIST: f64 = 250.0;
+const HOVER_PAUSE_SECS: f64 = 0.25;
 const TICKLE_HOLD: f64 = 1.5;
 const TICKLE_WAKE_SECS: f64 = 5.0;
 const CHATTER_SECS: (f64, f64) = (20.0, 40.0);
@@ -178,6 +179,8 @@ pub struct Pet {
     clock: f64,
     hover_hist: VecDeque<(f64, f64, f64)>,
     tickling: bool,
+    /// 커서가 연속으로 스프라이트 위에 있기 시작한 시각 (clock 기준)
+    hover_since: Option<f64>,
     chatter_timer: f64,
     speech: Option<Speech>,
     hungry: bool,
@@ -200,6 +203,7 @@ impl Pet {
             clock: 0.0,
             hover_hist: VecDeque::new(),
             tickling: false,
+            hover_since: None,
             chatter_timer: FIRST_CHATTER_SECS,
             speech: None,
             hungry: false,
@@ -220,6 +224,7 @@ impl Pet {
             }
             State::Air { .. } => self.update_air(dt, world),
             _ => {
+                self.pause_for_hover();
                 self.react_to_tickle();
                 self.update_chatter(dt);
                 self.update_ground(dt, world);
@@ -258,22 +263,40 @@ impl Pet {
 
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
     pub fn hover(&mut self, cx: f64, cy: f64, inside: bool) {
-        if !inside || self.is_held() || matches!(self.state, State::Air { .. }) {
+        if self.is_held() || matches!(self.state, State::Air { .. }) {
             self.hover_hist.clear();
             self.tickling = false;
+            self.hover_since = None;
             return;
         }
-        self.hover_hist.push_back((self.clock, cx, cy));
+        if inside {
+            self.hover_hist.push_back((self.clock, cx, cy));
+            self.hover_since.get_or_insert(self.clock);
+        } else {
+            self.hover_since = None;
+        }
         while self.hover_hist.front().is_some_and(|&(t, _, _)| self.clock - t > TICKLE_WINDOW) {
             self.hover_hist.pop_front();
         }
+        // 커서가 잠깐 벗어났다 돌아온 틈(샘플 간 간격 > 0.1초)은 경로에 넣지 않는다
         let path: f64 = self
             .hover_hist
             .iter()
             .zip(self.hover_hist.iter().skip(1))
+            .filter(|(a, b)| b.0 - a.0 <= 0.1)
             .map(|(a, b)| (b.1 - a.1).hypot(b.2 - a.2))
             .sum();
-        self.tickling = path >= TICKLE_DIST * self.cfg.size / 128.0;
+        self.tickling = inside && path >= TICKLE_DIST * self.cfg.size / 128.0;
+    }
+
+    /// 걷거나 달리는 중에 커서가 0.25초 넘게 올라와 있으면 멈춰서 쳐다본다
+    fn pause_for_hover(&mut self) {
+        if !matches!(self.state, State::Move { .. }) {
+            return;
+        }
+        if self.hover_since.is_some_and(|t| self.clock - t >= HOVER_PAUSE_SECS) {
+            self.state = State::Idle { remaining: 1.5, look: true };
+        }
     }
 
     /// 이번 틱에 띄울 말풍선 (한 번 꺼내면 None)
@@ -299,6 +322,7 @@ impl Pet {
         self.grab_dy = self.body.y - cy;
         self.hover_hist.clear();
         self.tickling = false;
+        self.hover_since = None;
         self.history.clear();
         self.history.push_back((self.clock, cx, cy));
         if !grounded {
@@ -1187,6 +1211,90 @@ mod tickle_tests {
 
     fn idle() -> State {
         State::Idle { remaining: 100.0, look: false }
+    }
+
+    fn running() -> State {
+        State::Move { kind: Move::Run, remaining: 100.0 }
+    }
+
+    #[test]
+    fn shaking_over_a_running_pet_tickles_it() {
+        let w = world(vec![w1()]);
+        // 빠른 달리기(450px/s): 패딩 포함 사각형 안에 0.5초도 못 머문다
+        let fast = PetConfig { walk_speed: 180.0, ..cfg() };
+        let mut p = Pet::new(fast, 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 530.0, running());
+        p.facing = 1.0;
+        let mut tickled_at = None;
+        for i in 0..60 {
+            // 고정된 지점 근처에서 7.8px/틱으로 40px 폭을 왕복
+            let ph = (i as f64 * 7.8) % 80.0;
+            let (cx, cy) = (640.0 + if ph < 40.0 { ph } else { 80.0 - ph }, 350.0);
+            let (sx, sy) = p.window_pos();
+            let (side, pad) = (p.cfg.size, p.cfg.size * 0.2);
+            let inside = cx >= sx - pad && cx < sx + side + pad && cy >= sy - pad && cy < sy + side + pad;
+            p.hover(cx, cy, inside);
+            p.update(DT, &w);
+            if matches!(p.state, State::Tickled { .. }) {
+                tickled_at = Some(i);
+                break;
+            }
+        }
+        assert!(tickled_at.is_some(), "never tickled; state {:?}", p.state);
+    }
+
+    #[test]
+    fn hovering_a_moving_pet_makes_it_stop_and_look() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 560.0, State::Move { kind: Move::Walk, remaining: 100.0 });
+        for _ in 0..18 {
+            p.hover(600.0, 350.0, true);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Idle { look: true, .. }), "{:?}", p.state);
+    }
+
+    #[test]
+    fn brief_hover_does_not_stop_a_moving_pet() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 560.0, State::Move { kind: Move::Walk, remaining: 100.0 });
+        for _ in 0..8 {
+            p.hover(600.0, 350.0, true);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Move { .. }), "{:?}", p.state);
+    }
+
+    #[test]
+    fn tickling_decays_within_the_window_after_leaving() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        tickle(&mut p, &w, 30);
+        assert!(p.tickling);
+        for _ in 0..40 {
+            p.hover(0.0, 0.0, false);
+            p.update(DT, &w);
+        }
+        assert!(!p.tickling);
+    }
+
+    #[test]
+    fn leaving_and_reentering_does_not_count_the_gap() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.hover(700.0, 350.0, true);
+        p.update(DT, &w);
+        for _ in 0..12 {
+            p.hover(0.0, 0.0, false);
+            p.update(DT, &w);
+        }
+        p.hover(900.0, 350.0, true);
+        p.update(DT, &w);
+        assert!(!p.tickling, "200px jump across a gap must not count");
     }
 
     #[test]

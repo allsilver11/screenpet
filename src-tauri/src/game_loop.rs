@@ -105,7 +105,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, special: Option<Spe
         } else {
             let (sx, sy) = pet.window_pos();
             let side = pet.cfg.size;
-            let inside = cx >= sx && cx < sx + side && cy >= sy && cy < sy + side;
+            // 걷는 펫이 커서 밑에서 빠져나가지 않도록 사방 20% 여유를 둔다
+            let pad = side * 0.2;
+            let inside = cx >= sx - pad && cx < sx + side + pad && cy >= sy - pad && cy < sy + side + pad;
             pet.hover(cx, cy, inside);
         }
         pet.update(dt, &world);
