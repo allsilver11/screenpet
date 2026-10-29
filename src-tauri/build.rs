@@ -1,0 +1,27 @@
+use std::{env, fs, path::Path};
+
+fn main() {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let pets_dir = Path::new(&manifest_dir).join("../ui/pets");
+    println!("cargo:rerun-if-changed={}", pets_dir.display());
+
+    let mut ids: Vec<String> = fs::read_dir(&pets_dir)
+        .expect("ui/pets 폴더가 필요합니다")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().join("pet.json").is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    ids.sort();
+    assert!(!ids.is_empty(), "ui/pets 안에 pet.json이 있는 동물 폴더가 하나 이상 필요합니다");
+
+    let mut code = String::from("pub const BUNDLED_PETS: &[(&str, &str)] = &[\n");
+    for id in &ids {
+        let path = pets_dir.join(id).join("pet.json");
+        println!("cargo:rerun-if-changed={}", path.display());
+        code.push_str(&format!("    ({:?}, include_str!({:?})),\n", id, path.display().to_string()));
+    }
+    code.push_str("];\n");
+    fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("pets.rs"), code).unwrap();
+
+    tauri_build::build();
+}
