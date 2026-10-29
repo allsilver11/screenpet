@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use serde::Serialize;
 
-use crate::behavior::{self, ClickReaction, Move, Rest, Trick};
+use crate::behavior::{self, ClickReaction, Move, Rest, Special, Trick};
 use crate::physics::{clamp_speed, step_air, Body};
 use crate::surfaces::{EndKind, Owner};
 use crate::world::World;
@@ -44,6 +44,8 @@ pub enum Anim {
     Heart,
     Tickle,
     Annoyed,
+    Arch,
+    Wag,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -52,12 +54,13 @@ pub enum Speech {
     Chatter,
     Tickle,
     Grumpy,
+    Hiss,
 }
 
 impl Anim {
     /// 앞모습 동작 — 좌우 반전하지 않는다.
     pub fn is_front(self) -> bool {
-        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle)
+        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Wag)
     }
 }
 
@@ -67,6 +70,15 @@ impl From<Move> for Anim {
             Move::Walk => Anim::Walk,
             Move::Run => Anim::Run,
             Move::Roll => Anim::Roll,
+        }
+    }
+}
+
+impl From<Special> for Anim {
+    fn from(s: Special) -> Self {
+        match s {
+            Special::Arch => Anim::Arch,
+            Special::Wag => Anim::Wag,
         }
     }
 }
@@ -101,6 +113,8 @@ pub enum State {
     /// 마우스를 눌렀지만 아직 드래그 거리 미만
     Pressed { start_cx: f64, start_cy: f64, grounded: bool, was_sleeping: bool },
     Dragged,
+    /// 종별 특별 동작
+    Special { kind: Special, remaining: f64 },
 }
 
 /// 서 있는 디딤판과 그 기준점(anchor)으로부터의 x 오프셋.
@@ -118,6 +132,8 @@ pub struct PetConfig {
     pub half_w: f64,
     /// px/s
     pub walk_speed: f64,
+    /// 이 동물의 특별 동작 (없으면 None)
+    pub special: Option<Special>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -193,6 +209,7 @@ impl Pet {
             State::Trick { kind, .. } => kind.into(),
             State::Tickled { .. } => Anim::Tickle,
             State::Annoyed { .. } => Anim::Annoyed,
+            State::Special { kind, .. } => kind.into(),
             State::Idle { look: true, .. } => Anim::Look,
             State::Idle { .. } | State::Turn { .. } => Anim::Idle,
             State::Sleep { .. } => Anim::Sleep,
@@ -352,11 +369,26 @@ impl Pet {
             State::Sleep { .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for: 0.0 },
             State::Annoyed { tickled_for, .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for },
             State::Tickled { .. } => State::Tickled { remaining: TICKLE_HOLD },
+            State::Special { .. } => return,
             _ => {
+                if let Some(kind) = self.cfg.special {
+                    if self.rng.f64() < kind.tickle_chance() {
+                        self.start_special(kind);
+                        return;
+                    }
+                }
                 self.speech = Some(Speech::Tickle);
                 State::Tickled { remaining: TICKLE_HOLD }
             }
         };
+    }
+
+    pub(crate) fn start_special(&mut self, kind: Special) {
+        self.speech = Some(match kind {
+            Special::Arch => Speech::Hiss,
+            Special::Wag => Speech::Chatter,
+        });
+        self.state = State::Special { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
     }
 
     fn update_chatter(&mut self, dt: f64) {
@@ -456,6 +488,10 @@ impl Pet {
                     };
                 }
             }
+            State::Special { kind, remaining } => {
+                let remaining = remaining - dt;
+                self.state = if remaining > 0.0 { State::Special { kind, remaining } } else { self.move_state(true) };
+            }
             State::Sleep { remaining } => {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 { State::Sleep { remaining } } else { self.idle_state() };
@@ -530,6 +566,12 @@ impl Pet {
 
     /// 이동이 끝난 뒤: 옆모습 쉬기 또는 앞모습 애교
     fn rest_state(&mut self) -> State {
+        if let Some(kind) = self.cfg.special {
+            if self.rng.f64() < kind.rest_chance() {
+                self.start_special(kind);
+                return self.state;
+            }
+        }
         match behavior::pick_rest(&mut self.rng) {
             Rest::Idle => self.idle_state(),
             Rest::Trick(kind) => State::Trick { kind, remaining: behavior::range(&mut self.rng, behavior::TRICK_SECS) },
@@ -546,7 +588,7 @@ mod tests {
     const DT: f64 = 1.0 / 60.0;
 
     pub(super) fn cfg() -> PetConfig {
-        PetConfig { size: 128.0, half_w: 38.0, walk_speed: 60.0 }
+        PetConfig { size: 128.0, half_w: 38.0, walk_speed: 60.0, special: None }
     }
 
     pub(super) fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
@@ -830,9 +872,9 @@ mod tests {
     #[test]
     fn front_animations_are_the_tricks_and_tickle() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag];
         let front: Vec<Anim> = all.into_iter().filter(|a| a.is_front()).collect();
-        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle]);
+        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Wag]);
         assert_eq!(serde_json::to_string(&Anim::SitFront).unwrap(), "\"sit_front\"");
     }
 
@@ -842,7 +884,7 @@ mod tests {
         let w = world(vec![]);
         let (mut moving, mut sleeping, mut total) = (0usize, 0usize, 0usize);
         for seed in 0..20 {
-            let mut p = Pet::new(PetConfig { size: 128.0, half_w: 38.4, walk_speed: 90.0 }, 960.0, 128.0, seed);
+            let mut p = Pet::new(PetConfig { size: 128.0, half_w: 38.4, walk_speed: 90.0, special: None }, 960.0, 128.0, seed);
             for _ in 0..(60 * 600) {
                 p.update(DT, &w);
                 match p.render().anim {
@@ -1152,5 +1194,102 @@ mod tickle_tests {
             }
         }
         assert!((70..=130).contains(&spoke), "spoke {spoke}/200");
+    }
+}
+
+#[cfg(test)]
+mod special_tests {
+    use super::tests::{cfg, place, w1, world};
+    use super::*;
+    use crate::behavior::Special;
+
+    const DT: f64 = 1.0 / 60.0;
+
+    fn with(special: Option<Special>) -> PetConfig {
+        PetConfig { special, ..cfg() }
+    }
+
+    /// 착지 직후 쉬기 진입을 n번 시켜 특별 동작이 나온 비율
+    fn rest_share(special: Option<Special>) -> f64 {
+        let w = world(vec![w1()]);
+        let n = 3000;
+        let hits = (0..n)
+            .filter(|&seed| {
+                let mut p = Pet::new(with(special), 0.0, 0.0, seed);
+                place(&mut p, &w, Owner::Window(1), 800.0, State::Land { remaining: 0.001 });
+                p.update(DT, &w);
+                matches!(p.state, State::Special { .. })
+            })
+            .count();
+        hits as f64 / n as f64
+    }
+
+    /// 깨어 있는 동물을 간질이기 시작했을 때 특별 동작이 나온 비율
+    fn tickle_share(special: Option<Special>) -> f64 {
+        let w = world(vec![w1()]);
+        let n = 1000;
+        let hits = (0..n)
+            .filter(|&seed| {
+                let mut p = Pet::new(with(special), 0.0, 0.0, seed);
+                place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+                for i in 0..10 {
+                    p.hover(800.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, 350.0, true);
+                    p.update(DT, &w);
+                }
+                matches!(p.state, State::Special { .. })
+            })
+            .count();
+        hits as f64 / n as f64
+    }
+
+    #[test]
+    fn rest_specials_follow_species_chances() {
+        let arch = rest_share(Some(Special::Arch));
+        let wag = rest_share(Some(Special::Wag));
+        assert!((0.05..=0.11).contains(&arch), "arch {arch}");
+        assert!((0.09..=0.15).contains(&wag), "wag {wag}");
+        assert_eq!(rest_share(None), 0.0);
+    }
+
+    #[test]
+    fn tickling_sometimes_triggers_the_special() {
+        let arch = tickle_share(Some(Special::Arch));
+        let wag = tickle_share(Some(Special::Wag));
+        assert!((0.19..=0.31).contains(&arch), "arch {arch}");
+        assert!((0.24..=0.36).contains(&wag), "wag {wag}");
+        assert_eq!(tickle_share(None), 0.0);
+    }
+
+    #[test]
+    fn special_speech_facing_and_ending() {
+        let w = world(vec![w1()]);
+        for (kind, speech, anim, front) in [(Special::Arch, Speech::Hiss, Anim::Arch, false), (Special::Wag, Speech::Chatter, Anim::Wag, true)] {
+            let mut p = Pet::new(with(Some(kind)), 0.0, 0.0, 1);
+            place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+            p.start_special(kind);
+            assert_eq!(p.take_speech(), Some(speech));
+            p.facing = -1.0;
+            assert_eq!(p.render().anim, anim);
+            assert_eq!(p.render().flip, !front);
+            for _ in 0..(60 * 5) {
+                p.update(DT, &w);
+            }
+            assert!(!matches!(p.state, State::Special { .. }), "{kind:?} should end within its duration");
+        }
+    }
+
+    #[test]
+    fn tickling_does_not_interrupt_a_special() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(with(Some(Special::Arch)), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+        p.start_special(Special::Arch);
+        let State::Special { remaining: start, .. } = p.state else { panic!() };
+        for i in 0..30 {
+            p.hover(800.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, 350.0, true);
+            p.update(DT, &w);
+        }
+        let State::Special { kind: Special::Arch, remaining } = p.state else { panic!("{:?}", p.state) };
+        assert!((start - remaining - 30.0 * DT).abs() < 1e-6);
     }
 }

@@ -10,6 +10,7 @@ use std::sync::Mutex;
 
 use game_loop::Input;
 use pets::PetEntry;
+use screenpet_core::behavior::Special;
 use screenpet_core::config::{self, Config};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -38,7 +39,10 @@ pub fn select_pet(app: &AppHandle, id: &str) {
     if let Err(e) = config::save(&state.config_dir, &Config { pet: Some(id.to_string()) }) {
         eprintln!("failed to save config: {e}");
     }
-    let _ = state.tx.lock().unwrap().send(Input::SetWalkSpeed(entry.manifest.walk_speed));
+    let _ = state.tx.lock().unwrap().send(Input::SetPet {
+        walk_speed: entry.manifest.walk_speed,
+        special: Special::from_manifest(|n| entry.manifest.has_anim(n)),
+    });
     let _ = app.emit("pet-change", id.to_string());
 }
 
@@ -53,12 +57,14 @@ fn main() {
             let current = saved
                 .filter(|id| pets.iter().any(|p| &p.id == id))
                 .unwrap_or_else(|| pets[0].id.clone());
-            let walk_speed = pets.iter().find(|p| p.id == current).unwrap().manifest.walk_speed;
+            let entry = pets.iter().find(|p| p.id == current).unwrap();
+            let walk_speed = entry.manifest.walk_speed;
+            let special = Special::from_manifest(|n| entry.manifest.has_anim(n));
 
             let (tx, rx) = mpsc::channel();
             tray::build(app.handle(), &pets, &current)?;
             app.manage(AppState { tx: Mutex::new(tx), current: Mutex::new(current), pets: pets.clone(), config_dir });
-            game_loop::spawn(app.handle().clone(), rx, walk_speed);
+            game_loop::spawn(app.handle().clone(), rx, walk_speed, special);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![pointer_down, current_pet])

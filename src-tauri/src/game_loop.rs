@@ -2,6 +2,7 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use screenpet_core::behavior::Special;
 use screenpet_core::brain::{Pet, PetConfig};
 use screenpet_core::platform::{default_source, WindowSource};
 use screenpet_core::world::World;
@@ -17,36 +18,37 @@ const HALF_WIDTH_RATIO: f64 = 0.3;
 
 pub enum Input {
     PointerDown,
-    /// 동물 교체 시 걷기 속도 (논리 px/s)
-    SetWalkSpeed(f64),
+    /// 동물 교체: 걷기 속도(논리 px/s)와 특별 동작
+    SetPet { walk_speed: f64, special: Option<Special> },
 }
 
-pub fn spawn(app: AppHandle, rx: Receiver<Input>, walk_speed: f64) {
-    thread::spawn(move || run(app, rx, walk_speed));
+pub fn spawn(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, special: Option<Special>) {
+    thread::spawn(move || run(app, rx, walk_speed, special));
 }
 
 fn refresh(source: &mut dyn WindowSource, size: f64) -> World {
     World::new(source.windows(), source.work_areas(), size)
 }
 
-fn pet_config(scale: f64, logical_walk: f64) -> PetConfig {
+fn pet_config(scale: f64, logical_walk: f64, special: Option<Special>) -> PetConfig {
     let size = PET_LOGICAL_SIZE * scale;
-    PetConfig { size, half_w: size * HALF_WIDTH_RATIO, walk_speed: logical_walk * scale }
+    PetConfig { size, half_w: size * HALF_WIDTH_RATIO, walk_speed: logical_walk * scale, special }
 }
 
-fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64) {
+fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, special: Option<Special>) {
     let Some(window) = app.get_webview_window("pet") else {
         eprintln!("pet window not found; game loop not started");
         return;
     };
     let mut scale = window.scale_factor().unwrap_or(1.0);
     let mut logical_walk = walk_speed;
+    let mut special = special;
     let mut size = PET_LOGICAL_SIZE * scale;
     let mut source = default_source();
     let mut world = refresh(source.as_mut(), size);
 
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1);
-    let cfg = pet_config(scale, logical_walk);
+    let cfg = pet_config(scale, logical_walk, special);
     let b = world.bounds;
     let mut pet = Pet::new(cfg, b.left + b.width() / 2.0, b.top + size, seed);
 
@@ -62,9 +64,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64) {
                     let (cx, cy) = source.cursor();
                     pet.pointer_down(cx, cy);
                 }
-                Input::SetWalkSpeed(speed) => {
-                    logical_walk = speed;
-                    pet.cfg.walk_speed = logical_walk * scale;
+                Input::SetPet { walk_speed, special: sp } => {
+                    logical_walk = walk_speed;
+                    special = sp;
+                    pet.cfg = pet_config(scale, logical_walk, special);
                 }
             }
         }
@@ -76,7 +79,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64) {
             let new_scale = window.scale_factor().unwrap_or(scale);
             if new_scale != scale {
                 scale = new_scale;
-                let cfg = pet_config(scale, logical_walk);
+                let cfg = pet_config(scale, logical_walk, special);
                 size = cfg.size;
                 pet.cfg = cfg;
             }

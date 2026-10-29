@@ -4,6 +4,9 @@ use serde::Deserialize;
 
 pub const REQUIRED_ANIMS: [&str; 8] = ["walk", "idle", "look", "sleep", "hop", "fall", "dragged", "land"];
 
+/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name)
+pub const OPTIONAL_ANIMS: [&str; 2] = ["arch", "wag"];
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnimSpec {
     pub row: u32,
@@ -39,7 +42,20 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
             return Err(format!("animation {name}: frames and fps must be > 0"));
         }
     }
+    for name in OPTIONAL_ANIMS {
+        if let Some(spec) = m.animations.get(name) {
+            if spec.frames == 0 || spec.fps <= 0.0 {
+                return Err(format!("animation {name}: frames and fps must be > 0"));
+            }
+        }
+    }
     Ok(m)
+}
+
+impl PetManifest {
+    pub fn has_anim(&self, name: &str) -> bool {
+        self.animations.contains_key(name)
+    }
 }
 
 #[cfg(test)]
@@ -78,6 +94,15 @@ mod tests {
     fn rejects_zero_frames_or_bad_speed() {
         assert!(parse_manifest(&full_json().replace(r#""frames": 2"#, r#""frames": 0"#)).is_err());
         assert!(parse_manifest(&full_json().replace(r#""walk_speed": 60"#, r#""walk_speed": 0"#)).is_err());
+    }
+
+    #[test]
+    fn optional_specials_are_validated_when_present() {
+        let with_arch = full_json().replace(r#""animations": {"#, r#""animations": {"arch": {"row": 18, "frames": 3, "fps": 6},"#);
+        assert!(parse_manifest(&with_arch).unwrap().has_anim("arch"));
+        assert!(!parse_manifest(&full_json()).unwrap().has_anim("wag"));
+        let bad = full_json().replace(r#""animations": {"#, r#""animations": {"wag": {"row": 18, "frames": 0, "fps": 8},"#);
+        assert!(parse_manifest(&bad).is_err());
     }
 
     #[test]

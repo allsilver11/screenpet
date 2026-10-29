@@ -10,6 +10,50 @@ pub const WALK_EDGE_HOP_CHANCE: f64 = 0.8;
 pub const RUN_LEAP_VX_MULT: f64 = 1.8;
 pub const CLICK_TRICK_SECS: f64 = 2.0;
 
+/// 특정 동물만 가진 특별 동작 (spec §2.7)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Special {
+    /// 고양이 하악질 — 등 휘고 꼬리 펑
+    Arch,
+    /// 강아지 — 혀 내밀고 꼬리 흔들기
+    Wag,
+}
+
+impl Special {
+    pub fn rest_chance(self) -> f64 {
+        match self {
+            Special::Arch => 0.08,
+            Special::Wag => 0.12,
+        }
+    }
+
+    pub fn tickle_chance(self) -> f64 {
+        match self {
+            Special::Arch => 0.25,
+            Special::Wag => 0.30,
+        }
+    }
+
+    pub fn secs(self) -> (f64, f64) {
+        match self {
+            Special::Arch => (2.0, 3.0),
+            Special::Wag => (2.0, 4.0),
+        }
+    }
+
+    pub fn anim_name(self) -> &'static str {
+        match self {
+            Special::Arch => "arch",
+            Special::Wag => "wag",
+        }
+    }
+
+    /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾는다
+    pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special> {
+        [Special::Arch, Special::Wag].into_iter().find(|s| has_anim(s.anim_name()))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Move {
     Walk,
@@ -145,6 +189,16 @@ mod tests {
     fn move_speeds_and_durations() {
         assert_eq!((Move::Walk.speed_mult(), Move::Run.speed_mult(), Move::Roll.speed_mult()), (1.0, 2.5, 2.0));
         assert_eq!((Move::Walk.secs(), Move::Run.secs(), Move::Roll.secs()), ((4.0, 10.0), (2.0, 5.0), (2.0, 4.0)));
+    }
+
+    #[test]
+    fn special_numbers_and_lookup() {
+        assert_eq!((Special::Arch.rest_chance(), Special::Arch.tickle_chance(), Special::Arch.secs()), (0.08, 0.25, (2.0, 3.0)));
+        assert_eq!((Special::Wag.rest_chance(), Special::Wag.tickle_chance(), Special::Wag.secs()), (0.12, 0.30, (2.0, 4.0)));
+        assert_eq!(Special::from_manifest(|n| n == "arch"), Some(Special::Arch));
+        assert_eq!(Special::from_manifest(|n| n == "wag"), Some(Special::Wag));
+        assert_eq!(Special::from_manifest(|_| false), None);
+        assert_eq!((Special::Arch.anim_name(), Special::Wag.anim_name()), ("arch", "wag"));
     }
 
     #[test]
