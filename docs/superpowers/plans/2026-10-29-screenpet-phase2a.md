@@ -14,7 +14,7 @@
 
 - 수치 (spec §2): 걷기 4~10초, 쉬기 1.5~3초, 잠 확률 8%·6~12초, 이동 선택 걷기 55% / 뛰기 30% / 구르기 15%, 뛰기 ×2.5·2~5초, 구르기 ×2.0·2~4초, 이동 종료 시 30% Turn, 쉬기 중 애교 30%·2~4초, 클릭 애교 2초, 걷기 Edge 80% Hop, 뛰기 Edge 항상 점프(vx ×1.8), 구르기 Edge 속도 유지 낙하, Blocked/Wall은 항상 Turn.
 - 걷기 속도 (`pet.json` `walk_speed`): 고양이 90 / 강아지 105 / 토끼 120 / 비버 60.
-- 선택 동작: 고양이만 `arch` (하악질, 옆모습, 쉬기 진입 시 8%·2~3초, `hiss` 말풍선) — 시트에서 필수 18행 뒤 19번째 행.
+- 선택(특별) 동작: 고양이 `arch` (하악질, 옆모습, 쉬기 8%·간질 25%, 2~3초, `hiss` 말풍선), 강아지 `wag` (혀 내밀고 꼬리 흔들기, 앞모습, 쉬기 12%·간질 30%, 2~4초, `chatter` 말풍선) — 시트에서 필수 18행 뒤 19번째 행.
 - 필수 동작 18개, 이 순서 (Rust `REQUIRED_ANIMS` = Python `ANIMS` = 시트 행 순서): `walk run roll idle look sleep hop fall dragged land sit_front wave tilt belly stretch heart tickle annoyed`.
 - 앞모습 동작: `sit_front wave tilt belly stretch heart tickle`. `annoyed`는 옆모습(엎드림).
 - 간질이기: 최근 0.6초 커서 경로 ≥ 250px, 멈추면 1.5초 유지, 잘 때 5초 계속 간질이면 깸. 말풍선 1.5초, 평소 20~40초마다, 클릭 50%. 펫 창 128×164 (위 36px 말풍선 자리).
@@ -934,126 +934,262 @@ const CLICK_SPEECH_CHANCE: f64 = 0.5;
 
 ---
 
-### Task 3: 종별 특별 동작 — 고양이 하악질 (core + app 연결)
+### Task 3: 종별 특별 동작 — 고양이 하악질·강아지 꼬리 흔들기 (core + app 연결)
 
 **Files:**
-- Modify: `crates/screenpet-core/src/brain.rs`, `crates/screenpet-core/src/manifest.rs`, `src-tauri/src/game_loop.rs`, `src-tauri/src/main.rs`
+- Modify: `crates/screenpet-core/src/behavior.rs`, `crates/screenpet-core/src/brain.rs`, `crates/screenpet-core/src/manifest.rs`, `src-tauri/src/game_loop.rs`, `src-tauri/src/main.rs`
 
 **Interfaces:**
-- Consumes: Task 2의 `Speech`, `State`, `rest_state`.
+- Consumes: Task 2의 `Speech`, `State`, `rest_state`, `react_to_tickle`.
 - Produces:
 ```rust
-pub enum Anim { ..., Tickle, Annoyed, Arch }   // 끝에 추가, 옆모습
+// behavior.rs
+pub enum Special { Arch, Wag }            // Copy, Eq, Debug
+impl Special {
+    pub fn rest_chance(self) -> f64; pub fn tickle_chance(self) -> f64; pub fn secs(self) -> (f64, f64);
+    pub fn anim_name(self) -> &'static str;                       // "arch" | "wag"
+    pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special>;
+}
+// brain.rs
+pub enum Anim { ..., Tickle, Annoyed, Arch, Wag }   // Arch 옆모습, Wag 앞모습
 pub enum Speech { Chatter, Tickle, Grumpy, Hiss }
-pub struct PetConfig { pub size: f64, pub half_w: f64, pub walk_speed: f64, pub has_arch: bool }
+pub struct PetConfig { pub size: f64, pub half_w: f64, pub walk_speed: f64, pub special: Option<Special> }
+pub enum State { ..., Special { kind: Special, remaining: f64 } }
 // manifest.rs
-pub const OPTIONAL_ANIMS: [&str; 1] = ["arch"];
+pub const OPTIONAL_ANIMS: [&str; 2] = ["arch", "wag"];
 impl PetManifest { pub fn has_anim(&self, name: &str) -> bool }
 // game_loop.rs
-pub enum Input { PointerDown, SetPet { walk_speed: f64, has_arch: bool } }
-pub fn spawn(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, has_arch: bool);
+pub enum Input { PointerDown, SetPet { walk_speed: f64, special: Option<Special> } }
+pub fn spawn(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, special: Option<Special>);
 ```
 
-- [ ] **Step 1: 실패 테스트** — brain.rs 끝에 새 모듈
+- [ ] **Step 1: 실패 테스트**
 
+behavior.rs `mod tests`에:
+```rust
+    #[test]
+    fn special_numbers_and_lookup() {
+        assert_eq!((Special::Arch.rest_chance(), Special::Arch.tickle_chance(), Special::Arch.secs()), (0.08, 0.25, (2.0, 3.0)));
+        assert_eq!((Special::Wag.rest_chance(), Special::Wag.tickle_chance(), Special::Wag.secs()), (0.12, 0.30, (2.0, 4.0)));
+        assert_eq!(Special::from_manifest(|n| n == "arch"), Some(Special::Arch));
+        assert_eq!(Special::from_manifest(|n| n == "wag"), Some(Special::Wag));
+        assert_eq!(Special::from_manifest(|_| false), None);
+        assert_eq!((Special::Arch.anim_name(), Special::Wag.anim_name()), ("arch", "wag"));
+    }
+```
+
+brain.rs 끝에 새 모듈:
 ```rust
 #[cfg(test)]
-mod arch_tests {
+mod special_tests {
     use super::tests::{cfg, place, w1, world};
     use super::*;
+    use crate::behavior::Special;
 
     const DT: f64 = 1.0 / 60.0;
 
-    fn rest_kinds(has_arch: bool) -> (usize, usize) {
+    fn with(special: Option<Special>) -> PetConfig {
+        PetConfig { special, ..cfg() }
+    }
+
+    /// 착지 직후 쉬기 진입을 n번 시켜 특별 동작이 나온 비율
+    fn rest_share(special: Option<Special>) -> f64 {
         let w = world(vec![w1()]);
-        let (mut arches, mut total) = (0, 0);
-        for seed in 0..2000 {
-            let mut p = Pet::new(PetConfig { has_arch, ..cfg() }, 0.0, 0.0, seed);
-            place(&mut p, &w, Owner::Window(1), 800.0, State::Land { remaining: 0.001 });
-            p.update(DT, &w);
-            if matches!(p.state, State::Arch { .. }) {
-                arches += 1;
-            }
-            total += 1;
-        }
-        (arches, total)
+        let n = 3000;
+        let hits = (0..n)
+            .filter(|&seed| {
+                let mut p = Pet::new(with(special), 0.0, 0.0, seed);
+                place(&mut p, &w, Owner::Window(1), 800.0, State::Land { remaining: 0.001 });
+                p.update(DT, &w);
+                matches!(p.state, State::Special { .. })
+            })
+            .count();
+        hits as f64 / n as f64
     }
 
-    #[test]
-    fn cat_arches_about_8_percent_of_rests() {
-        let (a, n) = rest_kinds(true);
-        let share = a as f64 / n as f64;
-        assert!((0.05..=0.11).contains(&share), "{share}");
-    }
-
-    #[test]
-    fn pets_without_arch_never_arch() {
-        assert_eq!(rest_kinds(false).0, 0);
-    }
-
-    #[test]
-    fn arch_hisses_faces_sideways_and_ends_by_moving() {
+    /// 깨어 있는 동물을 간질이기 시작했을 때 특별 동작이 나온 비율
+    fn tickle_share(special: Option<Special>) -> f64 {
         let w = world(vec![w1()]);
-        for seed in 0..400 {
-            let mut p = Pet::new(PetConfig { has_arch: true, ..cfg() }, 0.0, 0.0, seed);
-            place(&mut p, &w, Owner::Window(1), 800.0, State::Land { remaining: 0.001 });
-            p.update(DT, &w);
-            if !matches!(p.state, State::Arch { .. }) {
-                continue;
-            }
-            assert_eq!(p.take_speech(), Some(Speech::Hiss));
+        let n = 1000;
+        let hits = (0..n)
+            .filter(|&seed| {
+                let mut p = Pet::new(with(special), 0.0, 0.0, seed);
+                place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+                for i in 0..10 {
+                    p.hover(800.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, 350.0, true);
+                    p.update(DT, &w);
+                }
+                matches!(p.state, State::Special { .. })
+            })
+            .count();
+        hits as f64 / n as f64
+    }
+
+    #[test]
+    fn rest_specials_follow_species_chances() {
+        let arch = rest_share(Some(Special::Arch));
+        let wag = rest_share(Some(Special::Wag));
+        assert!((0.05..=0.11).contains(&arch), "arch {arch}");
+        assert!((0.09..=0.15).contains(&wag), "wag {wag}");
+        assert_eq!(rest_share(None), 0.0);
+    }
+
+    #[test]
+    fn tickling_sometimes_triggers_the_special() {
+        let arch = tickle_share(Some(Special::Arch));
+        let wag = tickle_share(Some(Special::Wag));
+        assert!((0.19..=0.31).contains(&arch), "arch {arch}");
+        assert!((0.24..=0.36).contains(&wag), "wag {wag}");
+        assert_eq!(tickle_share(None), 0.0);
+    }
+
+    #[test]
+    fn special_speech_facing_and_ending() {
+        let w = world(vec![w1()]);
+        for (kind, speech, anim, front) in [(Special::Arch, Speech::Hiss, Anim::Arch, false), (Special::Wag, Speech::Chatter, Anim::Wag, true)] {
+            let mut p = Pet::new(with(Some(kind)), 0.0, 0.0, 1);
+            place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+            p.start_special(kind);
+            assert_eq!(p.take_speech(), Some(speech));
             p.facing = -1.0;
-            assert_eq!(p.render().anim, Anim::Arch);
-            assert!(p.render().flip, "arch is a side pose");
-            for _ in 0..(60 * 4) {
+            assert_eq!(p.render().anim, anim);
+            assert_eq!(p.render().flip, !front);
+            for _ in 0..(60 * 5) {
                 p.update(DT, &w);
             }
-            assert!(!matches!(p.state, State::Arch { .. }));
-            return;
+            assert!(!matches!(p.state, State::Special { .. }), "{kind:?} should end within its duration");
         }
-        panic!("no seed produced an arch");
+    }
+
+    #[test]
+    fn tickling_does_not_interrupt_a_special() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(with(Some(Special::Arch)), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+        p.start_special(Special::Arch);
+        let State::Special { remaining: start, .. } = p.state else { panic!() };
+        for i in 0..30 {
+            p.hover(800.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, 350.0, true);
+            p.update(DT, &w);
+        }
+        let State::Special { kind: Special::Arch, remaining } = p.state else { panic!("{:?}", p.state) };
+        assert!((start - remaining - 30.0 * DT).abs() < 1e-6);
     }
 }
 ```
-`mod tests`의 `cfg()`를 `PetConfig { size: 128.0, half_w: 38.0, walk_speed: 60.0, has_arch: false }`로, 10분 시뮬레이션의 `PetConfig { .. }` 리터럴에 `has_arch: false` 추가. `front_animations_are_the_tricks_and_tickle` 테스트의 `all` 배열 끝에 `Anim::Arch` 추가 (기대 결과는 그대로 — Arch는 옆모습).
+`mod tests`의 `cfg()` → `PetConfig { size: 128.0, half_w: 38.0, walk_speed: 60.0, special: None }`, 10분 시뮬레이션의 `PetConfig` 리터럴에 `special: None` 추가. `front_animations_are_the_tricks_and_tickle`의 `all` 배열 끝에 `Anim::Arch, Anim::Wag` 추가, 기대값 끝에 `Anim::Wag` 추가 (`vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Wag]`).
 
-manifest.rs 테스트 추가:
+manifest.rs 테스트:
 ```rust
     #[test]
-    fn optional_arch_is_validated_when_present() {
+    fn optional_specials_are_validated_when_present() {
         let with_arch = full_json().replace(r#""animations": {"#, r#""animations": {"arch": {"row": 18, "frames": 3, "fps": 6},"#);
         assert!(parse_manifest(&with_arch).unwrap().has_anim("arch"));
-        assert!(!parse_manifest(&full_json()).unwrap().has_anim("arch"));
-        let bad = full_json().replace(r#""animations": {"#, r#""animations": {"arch": {"row": 18, "frames": 0, "fps": 6},"#);
+        assert!(!parse_manifest(&full_json()).unwrap().has_anim("wag"));
+        let bad = full_json().replace(r#""animations": {"#, r#""animations": {"wag": {"row": 18, "frames": 0, "fps": 8},"#);
         assert!(parse_manifest(&bad).is_err());
     }
 ```
 
-- [ ] **Step 2: 실패 확인** — `cargo test -p screenpet-core arch` → FAIL
+- [ ] **Step 2: 실패 확인** — `cargo test -p screenpet-core special` → FAIL
 
 - [ ] **Step 3: 구현**
 
-brain.rs:
-- 상수: `const ARCH_CHANCE: f64 = 0.08;` `const ARCH_SECS: (f64, f64) = (2.0, 3.0);`
-- `PetConfig`에 `/// 특별 동작 arch(고양이 하악질)를 가진 동물인지` `pub has_arch: bool,`
-- `Anim` 끝에 `Arch` (is_front에는 넣지 않음), `Speech`에 `Hiss`.
-- `State`에 `/// 고양이 하악질 (등 휘고 꼬리 부풀림)` `Arch { remaining: f64 },`
-- `rest_state` 맨 앞에:
+behavior.rs:
 ```rust
-        if self.cfg.has_arch && self.rng.f64() < ARCH_CHANCE {
-            self.speech = Some(Speech::Hiss);
-            return State::Arch { remaining: behavior::range(&mut self.rng, ARCH_SECS) };
+/// 특정 동물만 가진 특별 동작 (spec §2.7)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Special {
+    /// 고양이 하악질 — 등 휘고 꼬리 펑
+    Arch,
+    /// 강아지 — 혀 내밀고 꼬리 흔들기
+    Wag,
+}
+
+impl Special {
+    pub fn rest_chance(self) -> f64 {
+        match self {
+            Special::Arch => 0.08,
+            Special::Wag => 0.12,
+        }
+    }
+
+    pub fn tickle_chance(self) -> f64 {
+        match self {
+            Special::Arch => 0.25,
+            Special::Wag => 0.30,
+        }
+    }
+
+    pub fn secs(self) -> (f64, f64) {
+        match self {
+            Special::Arch => (2.0, 3.0),
+            Special::Wag => (2.0, 4.0),
+        }
+    }
+
+    pub fn anim_name(self) -> &'static str {
+        match self {
+            Special::Arch => "arch",
+            Special::Wag => "wag",
+        }
+    }
+
+    /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾는다
+    pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special> {
+        [Special::Arch, Special::Wag].into_iter().find(|s| has_anim(s.anim_name()))
+    }
+}
+```
+
+brain.rs:
+- import에 `Special` 추가 (`use crate::behavior::{self, ClickReaction, Move, Rest, Special, Trick};`).
+- `PetConfig`에 `/// 이 동물의 특별 동작 (없으면 None)` `pub special: Option<Special>,`
+- `Anim` 끝에 `Arch, Wag`; `is_front`에 `| Anim::Wag`. `impl From<Special> for Anim { Special::Arch => Anim::Arch, Special::Wag => Anim::Wag }`.
+- `Speech`에 `Hiss`.
+- `State`에 `/// 종별 특별 동작` `Special { kind: Special, remaining: f64 },`
+- 메서드:
+```rust
+    pub(crate) fn start_special(&mut self, kind: Special) {
+        self.speech = Some(match kind {
+            Special::Arch => Speech::Hiss,
+            Special::Wag => Speech::Chatter,
+        });
+        self.state = State::Special { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
+    }
+```
+- `rest_state` 맨 앞:
+```rust
+        if let Some(kind) = self.cfg.special {
+            if self.rng.f64() < kind.rest_chance() {
+                self.start_special(kind);
+                return self.state;
+            }
         }
 ```
-- `update_ground` 팔: `State::Arch { remaining } => { let remaining = remaining - dt; self.state = if remaining > 0.0 { State::Arch { remaining } } else { self.move_state(true) }; }`
-- `render`: `State::Arch { .. } => Anim::Arch,`
+- `react_to_tickle`: `State::Tickled { .. }` 팔 뒤에 `State::Special { .. } => return,` 를 넣고, 기본 팔을
+```rust
+            _ => {
+                if let Some(kind) = self.cfg.special {
+                    if self.rng.f64() < kind.tickle_chance() {
+                        self.start_special(kind);
+                        return;
+                    }
+                }
+                self.speech = Some(Speech::Tickle);
+                State::Tickled { remaining: TICKLE_HOLD }
+            }
+```
+  (match가 `self.state = match ...` 형태이므로 `return` 팔은 그대로 함수에서 빠져나간다.)
+- `update_ground` 팔: `State::Special { kind, remaining } => { let remaining = remaining - dt; self.state = if remaining > 0.0 { State::Special { kind, remaining } } else { self.move_state(true) }; }`
+- `render`: `State::Special { kind, .. } => kind.into(),`
 
 manifest.rs:
 ```rust
-/// 특정 동물만 가진 동작 — 있으면 검증한다
-pub const OPTIONAL_ANIMS: [&str; 1] = ["arch"];
+/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name)
+pub const OPTIONAL_ANIMS: [&str; 2] = ["arch", "wag"];
 ```
-`parse_manifest`의 필수 검사 루프 뒤:
+`parse_manifest` 필수 검사 뒤:
 ```rust
     for name in OPTIONAL_ANIMS {
         if let Some(spec) = m.animations.get(name) {
@@ -1066,28 +1202,30 @@ pub const OPTIONAL_ANIMS: [&str; 1] = ["arch"];
 `impl PetManifest { pub fn has_anim(&self, name: &str) -> bool { self.animations.contains_key(name) } }`
 
 game_loop.rs:
-- `Input::SetWalkSpeed(f64)` → `SetPet { walk_speed: f64, has_arch: bool }` (doc: 동물 교체 시 걷기 속도(논리 px/s)와 특별 동작 유무).
-- `spawn(app, rx, walk_speed, has_arch)` → `run(app, rx, walk_speed, has_arch)`.
-- `pet_config(scale, logical_walk)` → `pet_config(scale, logical_walk, has_arch)`가 `has_arch`를 채움. `run` 안에 `let mut has_arch = has_arch;`, 모든 `pet_config` 호출에 전달.
-- 입력 처리:
+- `use screenpet_core::behavior::Special;`
+- `Input::SetWalkSpeed(f64)` → `/// 동물 교체: 걷기 속도(논리 px/s)와 특별 동작` `SetPet { walk_speed: f64, special: Option<Special> },`
+- `spawn(app, rx, walk_speed, special)` → `run(app, rx, walk_speed, special)`; `run` 안 `let mut special = special;`
+- `pet_config(scale, logical_walk, special)` 가 `special` 필드를 채움; 모든 호출에 전달.
+- 입력:
 ```rust
-                Input::SetPet { walk_speed, has_arch: arch } => {
+                Input::SetPet { walk_speed, special: sp } => {
                     logical_walk = walk_speed;
-                    has_arch = arch;
-                    pet.cfg = pet_config(scale, logical_walk, has_arch);
+                    special = sp;
+                    pet.cfg = pet_config(scale, logical_walk, special);
                 }
 ```
 main.rs:
-- `select_pet`: `Input::SetWalkSpeed(entry.manifest.walk_speed)` → `Input::SetPet { walk_speed: entry.manifest.walk_speed, has_arch: entry.manifest.has_anim("arch") }`.
-- setup: `let walk_speed = ...` 옆에 `let has_arch = pets.iter().find(|p| p.id == current).unwrap().manifest.has_anim("arch");` (find를 한 번만 하도록 `let entry = ...` 로 정리 가능), `game_loop::spawn(app.handle().clone(), rx, walk_speed, has_arch);`
+- `use screenpet_core::behavior::Special;`
+- `select_pet`: `Input::SetPet { walk_speed: entry.manifest.walk_speed, special: Special::from_manifest(|n| entry.manifest.has_anim(n)) }`
+- setup: 현재 동물 entry를 한 번 찾아 `walk_speed`와 `special`을 같은 방식으로 구하고 `game_loop::spawn(app.handle().clone(), rx, walk_speed, special);`
 
-- [ ] **Step 4: 통과 확인** — `cargo test -p screenpet-core` 전체 통과·경고 없음, windows-gnu check 통과. src-tauri 변경은 컴파일 불가 — 시그니처를 손으로 대조.
+- [ ] **Step 4: 통과 확인** — `cargo test -p screenpet-core` 전체 통과·경고 없음 (10분 시뮬레이션 포함, special: None), windows-gnu check 통과. src-tauri 변경은 컴파일 불가 — `Special`이 `screenpet_core::behavior`에서 pub인지, 호출 시그니처가 맞는지 손으로 대조.
 
-- [ ] **Step 5: 커밋** — `feat: species special moves, cat arch-back hiss`
+- [ ] **Step 5: 커밋** — `feat: species specials — cat arch hiss, dog tail wag`
 
 ---
 
-### Task 4: 카와이 그림 파이프라인 (18동작 × 4종 + 고양이 arch, 128px)
+### Task 4: 카와이 그림 파이프라인 (18동작 × 4종 + 고양이 arch·강아지 wag, 128px)
 
 **Files:**
 - Create: `tools/draw_pets.py`, `tools/test_draw_pets.py`
@@ -1096,7 +1234,7 @@ main.rs:
 - Regenerate (커밋): `ui/pets/{cat,dog,rabbit,beaver}/{sheet.png,pet.json}`
 
 **Interfaces:**
-- Consumes: Task 1·2·3의 `Anim` serde 이름 (필수 18개 + 선택 `arch`), `manifest::OPTIONAL_ANIMS`.
+- Consumes: Task 1·2·3의 `Anim` serde 이름 (필수 18개 + 선택 `arch`, `wag`), `manifest::OPTIONAL_ANIMS`.
 - Produces: 18동작 매니페스트 (+ `speech`) (`front`, `spin` 포함), `sprite_spec.ANIMS` 5-튜플 `(name, frames, fps, loop, front)`, `sprite_spec.FRAME = 128`, `sprite_spec.ROLL_CENTER = (64, 88)`, `sprite_spec.ROLL_RADIUS = 38`, `sprite_spec.roll_spin(walk_speed) -> float`, `sprite_spec.manifest(name, walk_speed, frame_counts) -> dict`.
 
 - [ ] **Step 1: Rust 매니페스트 — 실패 테스트**
@@ -1123,7 +1261,7 @@ main.rs:
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);
@@ -1182,6 +1320,7 @@ ANIMS = [
 # 특정 동물만 가진 동작 (Rust manifest::OPTIONAL_ANIMS) — 필수 동작 행 뒤에 이어 붙인다
 OPTIONAL_ANIMS = [
     ("arch", 3, 6, True, False),
+    ("wag", 4, 8, True, True),
 ]
 
 # 말풍선 대사 (spec §2.6)
@@ -1250,6 +1389,7 @@ def manifest(name, walk_speed, frame_counts, speech=None):
 | stretch | 3 | 앞발 앞으로 쭉·엉덩이 들기 (옆이 아니라 정면 쪽으로 엎드린 앞모습) → 하품(입 벌림) → 복귀 앉기 |
 | heart | 3 | 앞모습 앉기 + 양발 모아 가슴 앞, 작은 하트 2~3개가 머리 위로 떠오름 (프레임마다 위로 6px, 크기 변화) |
 | tickle | 3 | 앞모습, 몸을 좌우로 비비 꼬음(±4px·±6° 기울임), 눈 ^^ 웃음, 입 크게 벌린 웃음, 발 버둥 |
+| wag (강아지만) | 4 | 앞모습 앉기, 입 벌려 분홍 혀 쏙(혀 끝 둥글게, 프레임마다 1px 까딱), 눈 ^^ 또는 반짝, 꼬리가 몸 옆에서 좌우로 살랑(프레임마다 꼬리 각도 -25°/-5°/+15°/-5°), 몸 1px 들썩 |
 | arch (고양이만) | 3 | 옆모습 하악질: 등을 높은 아치(뒤집힌 U)로 휘고 네 다리 꼿꼿, 꼬리는 위로 세워 두껍게 펑 부풀림(삐죽한 털 외곽선), 등줄기 털 삐죽, 귀 뒤로 젖힘, 입 벌려 송곳니 2개, 눈 동그랗게. 프레임: 부풀기 시작 → 최대 → 최대(1px 들썩) |
 | annoyed | 2 | sleep과 같은 엎드린 자세에서 한쪽 눈만 실눈(가는 선), 입 뾰로통(ㅅ 거꾸로), 머리 옆 💢 표시(빨간 십자 모양), 귀 한쪽 젖힘 (프레임 2는 귀 씰룩) |
 
@@ -1300,12 +1440,16 @@ def test_every_species_every_animation(tmp_path):
                     assert bbox[3] >= 118, f"{pid} {anim} {col} floats (bottom {bbox[3]})"
 
 
-def test_only_cat_has_arch(tmp_path):
+def test_only_cat_has_arch_and_only_dog_has_wag(tmp_path):
     import json
     draw_pets.build(tmp_path)
     for pid in ("cat", "dog", "rabbit", "beaver"):
         m = json.loads((tmp_path / pid / "pet.json").read_text(encoding="utf-8"))
         assert ("arch" in m["animations"]) == (pid == "cat"), pid
+        assert ("wag" in m["animations"]) == (pid == "dog"), pid
+    m = json.loads((tmp_path / "dog" / "pet.json").read_text(encoding="utf-8"))
+    assert m["animations"]["wag"]["row"] == len(ANIMS)
+    assert m["animations"]["wag"]["front"] is True
     m = json.loads((tmp_path / "cat" / "pet.json").read_text(encoding="utf-8"))
     assert m["animations"]["arch"]["row"] == len(ANIMS)
     assert m["speech"]["hiss"] == ["hiss!"]
@@ -1511,7 +1655,8 @@ fn pet_config(scale: f64, logical_walk: f64) -> PetConfig {
 - [ ] 그림 가장자리가 매끈함 (계단 없음)
 - [ ] 클릭 없이 동물 위에서 마우스를 빠르게 흔들면 꼬물꼬물 웃음 + "hehe!", 멈추면 잠시 뒤 원래대로
 - [ ] 자는 동물을 간질이면 실눈 뜨고 💢, 멈추면 다시 잠, 5초 넘게 간질이면 "hmph!" 하고 깸
-- [ ] 고양이가 가끔 등을 휘고 꼬리를 펑 부풀리며 "hiss!" (다른 동물은 안 함)
+- [ ] 고양이가 가끔(간질일 때도 가끔) 등을 휘고 꼬리를 펑 부풀리며 "hiss!"
+- [ ] 강아지가 가끔(간질일 때도 가끔) 혀를 내밀고 꼬리를 흔듦
 - [ ] 가끔(20~40초) 머리 위에 작은 말풍선 (고양이 meow!/nya~ 등), 클릭할 때도 가끔
 ```
   README의 "임시" 그림 언급이 있으면 "카와이 스타일 그림"으로 바꾸고, 그림 교체 안내를 `docs/sprites.md`로 연결.
