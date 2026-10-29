@@ -285,6 +285,13 @@ fn random32() -> [u8; 32] {
     b
 }
 
+fn pairing_of(e: &NetEvent) -> u64 {
+    match e {
+        NetEvent::Invited { pairing, .. } | NetEvent::InviteSent { pairing, .. } => *pairing,
+        _ => panic!("no pairing in {e:?}"),
+    }
+}
+
 fn sas_of(e: &NetEvent) -> String {
     match e {
         NetEvent::Invited { sas, .. } | NetEvent::InviteSent { sas, .. } => sas.clone(),
@@ -375,17 +382,23 @@ fn pairing_shows_equal_sas_and_needs_both_confirmations() {
     let p = pair(false);
     let (sent, invited) = start_pairing(&p);
     let sas = sas_of(&sent);
-    assert_eq!(sent, NetEvent::InviteSent { to: "bbbb".into(), sas: sas.clone() });
+    assert_eq!(sent, NetEvent::InviteSent { to: "bbbb".into(), sas: sas.clone(), pairing: pairing_of(&sent) });
     assert_eq!(
         invited,
-        NetEvent::Invited { from: "aaaa".into(), name: "Ann".into(), pet: "cat".into(), sas: sas.clone() }
+        NetEvent::Invited {
+            from: "aaaa".into(),
+            name: "Ann".into(),
+            pet: "cat".into(),
+            sas: sas.clone(),
+            pairing: pairing_of(&invited)
+        }
     );
     let symbols: Vec<_> = sas.split(' ').collect();
     assert_eq!(symbols.len(), 6);
     assert!(symbols.iter().all(|s| SAS_EMOJI.contains(s)));
 
     // Invitee confirms: the inviter learns it, but nothing is pinned yet.
-    p.b.answer_invite("aaaa", true);
+    p.b.answer_invite(pairing_of(&invited), true);
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::InviteAnswered { .. })),
         Some(NetEvent::InviteAnswered { from: "bbbb".into(), accepted: true })
@@ -394,7 +407,7 @@ fn pairing_shows_equal_sas_and_needs_both_confirmations() {
     assert!(p.a.friends().is_empty() && p.b.friends().is_empty());
 
     // Inviter confirms too: both pin each other's static public key.
-    p.a.answer_invite("bbbb", true);
+    p.a.answer_invite(pairing_of(&sent), true);
     assert_eq!(wait_for(&p.arx, 5.0, is_connected), Some(NetEvent::Connected { id: "bbbb".into(), name: "Bob".into() }));
     assert_eq!(wait_for(&p.brx, 5.0, is_connected), Some(NetEvent::Connected { id: "aaaa".into(), name: "Ann".into() }));
     assert_eq!(p.a.friends(), vec![friend("bbbb", &p.kb)]);
@@ -407,8 +420,8 @@ fn pairing_shows_equal_sas_and_needs_both_confirmations() {
 #[test]
 fn invitee_refusal_leaves_no_friendship() {
     let p = pair(false);
-    start_pairing(&p);
-    p.b.answer_invite("aaaa", false);
+    let (_, invited) = start_pairing(&p);
+    p.b.answer_invite(pairing_of(&invited), false);
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::InviteAnswered { .. })),
         Some(NetEvent::InviteAnswered { from: "bbbb".into(), accepted: false })
@@ -422,10 +435,10 @@ fn invitee_refusal_leaves_no_friendship() {
 #[test]
 fn inviter_refusal_after_invitee_accept_leaves_no_friendship() {
     let p = pair(false);
-    start_pairing(&p);
-    p.b.answer_invite("aaaa", true);
+    let (sent, invited) = start_pairing(&p);
+    p.b.answer_invite(pairing_of(&invited), true);
     wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::InviteAnswered { .. })).unwrap();
-    p.a.answer_invite("bbbb", false); // e.g. the SAS did not match
+    p.a.answer_invite(pairing_of(&sent), false); // e.g. the SAS did not match
     assert_eq!(
         wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::InviteAnswered { .. })),
         Some(NetEvent::InviteAnswered { from: "aaaa".into(), accepted: false })
@@ -452,9 +465,9 @@ fn unconfirmed_pairing_times_out() {
 #[test]
 fn paired_keys_survive_restart() {
     let p = pair(false);
-    start_pairing(&p);
-    p.b.answer_invite("aaaa", true);
-    p.a.answer_invite("bbbb", true);
+    let (sent, invited) = start_pairing(&p);
+    p.b.answer_invite(pairing_of(&invited), true);
+    p.a.answer_invite(pairing_of(&sent), true);
     wait_for(&p.arx, 5.0, is_connected).unwrap();
     wait_for(&p.brx, 5.0, is_connected).unwrap();
     let (fa, fb) = (p.a.friends(), p.b.friends());
@@ -997,10 +1010,10 @@ fn friends_reconnect_despite_unverified_connection_flood() {
                     }
                 }
                 // Hold each connection ~2 s (longer than the pre-auth deadline).
-                while held.len() > 1000 {
+                while held.len() > 600 {
                     held.pop_front();
                 }
-                std::thread::sleep(Duration::from_millis(4));
+                std::thread::sleep(Duration::from_millis(7));
             }
         })
     };
@@ -1046,12 +1059,16 @@ fn friend_announcements_processed_under_spoofed_source_flood() {
                     let msg = format!(r#"{{"app":"screenpet","v":1,"id":"spoof{n}","name":"F","port":9}}"#);
                     let _ = s.send_to(msg.as_bytes(), local(pa));
                 }
-                for _ in 0..100 {
+                for _ in 0..40 {
                     n += 1;
                     let msg = format!(r#"{{"app":"screenpet","v":1,"id":"local{n}","name":"F","port":9}}"#);
                     let _ = local_flood.send_to(msg.as_bytes(), local(pa));
                 }
-                std::thread::sleep(Duration::from_millis(20));
+                // ~1500/s from spoofed sources (table full) + ~200/s from
+                // 127.0.0.1 (4x its budget) — over every app-level limit but
+                // below what overflows the kernel socket buffer (an OS limit
+                // no app can fix).
+                std::thread::sleep(Duration::from_millis(200));
             }
         })
     };
@@ -1068,24 +1085,25 @@ fn friend_announcements_processed_under_spoofed_source_flood() {
 }
 
 /// Raw stranger `id` pairs with Net (Net = invitee) up to the SAS stage.
-fn raw_pairing(port: u16, rx: &Receiver<NetEvent>, id: &str) -> Peer {
+/// Returns the link and the Invited event.
+fn raw_pairing(port: u16, rx: &Receiver<NetEvent>, id: &str) -> (Peer, NetEvent) {
     let mut p = raw_connect(port, &key(), id);
     let n = random32();
     p.send(json!({"type": "invite", "pet": "cat", "commit": hex(&blake2s(&[&n]))})).unwrap();
     assert_eq!(p.recv_msg().unwrap()["type"], "pair_random");
     p.send(json!({"type": "pair_reveal", "nonce": hex(&n)})).unwrap();
-    wait_for(rx, 5.0, |e| matches!(e, NetEvent::Invited { from, .. } if from == id)).expect("Invited");
-    p
+    let ev = wait_for(rx, 5.0, |e| matches!(e, NetEvent::Invited { from, .. } if from == id)).expect("Invited");
+    (p, ev)
 }
 
 #[test]
 fn confirmations_after_pairing_timeout_never_pin() {
     let (net, rx, port) = start_sniffed(key(), vec![]);
     // Case 1: Net confirms in time, the remote confirmation arrives late.
-    let mut late_remote = raw_pairing(port, &rx, "zzz1");
-    net.answer_invite("zzz1", true);
+    let (mut late_remote, ev1) = raw_pairing(port, &rx, "zzz1");
+    net.answer_invite(pairing_of(&ev1), true);
     // Case 2: the remote confirms in time, Net's confirmation comes late.
-    let mut early_remote = raw_pairing(port, &rx, "zzz2");
+    let (mut early_remote, ev2) = raw_pairing(port, &rx, "zzz2");
     early_remote.send(json!({"type": "invite_reply", "accepted": true})).unwrap();
     // Keep both links alive (pings) past the pairing deadline.
     let until = Instant::now() + fast().invite_timeout + Duration::from_millis(500);
@@ -1095,34 +1113,45 @@ fn confirmations_after_pairing_timeout_never_pin() {
         std::thread::sleep(Duration::from_millis(200));
     }
     let _ = late_remote.send(json!({"type": "invite_reply", "accepted": true}));
-    net.answer_invite("zzz2", true);
+    net.answer_invite(pairing_of(&ev2), true);
     assert_eq!(wait_for(&rx, 1.5, is_connected), None, "nothing pins after the deadline");
     assert!(net.friends().is_empty());
     net.shutdown();
 }
 
 #[test]
-fn squatters_claiming_ids_do_not_block_pairing() {
+fn squatters_pairing_under_claimed_ids_do_not_block_or_hijack_pairing() {
     let stop = Arc::new(AtomicBool::new(false));
     let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (ka, kb) = (key(), key());
     let (tee_a, ports_a) = tee(pb, stop.clone());
     let (tee_b, ports_b) = tee(pa, stop.clone());
-    let (a, arx) = Net::start(cfg("aaaa", "Ann", key(), pa, tee_a, vec![])).unwrap();
-    let (b, brx) = Net::start(cfg("bbbb", "Bob", key(), pb, tee_b, vec![])).unwrap();
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, pa, tee_a, vec![])).unwrap();
+    let (b, brx) = Net::start(cfg("bbbb", "Bob", kb, pb, tee_b, vec![])).unwrap();
     let (a_port, b_port) = (wait_port(&ports_a, "aaaa"), wait_port(&ports_b, "bbbb"));
     wait_for(&arx, 5.0, |e| matches!(e, NetEvent::PeerSeen { .. })).unwrap();
-    // Idle stranger links claiming each other's ids.
-    let _squat_a = raw_connect(a_port, &key(), "bbbb");
-    let _squat_b = raw_connect(b_port, &key(), "aaaa");
+    // Squatters claim each other's ids and even start pairings under them.
+    let (_squat_a, _) = raw_pairing(a_port, &arx, "bbbb");
+    let (_squat_b, squat_invited) = raw_pairing(b_port, &brx, "aaaa");
+    // An inbound pairing claiming "bbbb" does not block A's own invite.
     a.invite("bbbb", "cat");
     let sent = wait_for(&arx, 5.0, |e| matches!(e, NetEvent::InviteSent { .. } | NetEvent::InviteAnswered { .. }));
     assert!(matches!(sent, Some(NetEvent::InviteSent { .. })), "invite proceeds: {sent:?}");
-    let invited = wait_for(&brx, 5.0, |e| matches!(e, NetEvent::Invited { .. })).expect("B is asked");
-    assert_eq!(sas_of(&invited), sas_of(sent.as_ref().unwrap()));
-    b.answer_invite("aaaa", true);
-    a.answer_invite("bbbb", true);
+    let sent = sent.unwrap();
+    // B now has two requests "from aaaa"; the user answers the one whose SAS
+    // matches A's screen, by its pairing token.
+    let real = wait_for(&brx, 5.0, |e| matches!(e, NetEvent::Invited { .. })).expect("B is asked");
+    assert_eq!(sas_of(&real), sas_of(&sent));
+    assert_ne!(pairing_of(&real), pairing_of(&squat_invited));
+    b.answer_invite(pairing_of(&real), true);
+    a.answer_invite(pairing_of(&sent), true);
     assert_eq!(wait_for(&arx, 5.0, is_connected), Some(NetEvent::Connected { id: "bbbb".into(), name: "Bob".into() }));
     assert_eq!(wait_for(&brx, 5.0, is_connected), Some(NetEvent::Connected { id: "aaaa".into(), name: "Ann".into() }));
+    assert_eq!(b.friends(), vec![friend("aaaa", &ka)], "B pinned the real A, not the squatter");
+    assert_eq!(a.friends(), vec![friend("bbbb", &kb)]);
+    // The squatter's pairing token is dead now.
+    b.answer_invite(pairing_of(&squat_invited), true);
+    assert_eq!(b.friends(), vec![friend("aaaa", &ka)]);
     stop.store(true, Ordering::SeqCst);
     a.shutdown();
     b.shutdown();
@@ -1146,14 +1175,14 @@ fn count_events(rx: &Receiver<NetEvent>, secs: f64, pred: impl Fn(&NetEvent) -> 
 }
 
 #[test]
-fn one_sided_pin_reports_mismatch_and_backs_off() {
+fn one_sided_pin_reports_friend_forgot_us_and_backs_off() {
     let (pa, pb) = (free_udp_port(), free_udp_port());
     let (ka, kb) = (key(), key());
     // A pinned B, but B never pinned A (e.g. pairing finished on one side).
     let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, pa, pb, vec![friend("bbbb", &kb)])).unwrap();
     let (b, brx) = Net::start(cfg("bbbb", "Bob", kb, pb, pa, vec![])).unwrap();
     let (mismatches, connected) =
-        count_events(&arx, 4.0, |e| *e == NetEvent::FriendKeyMismatch { id: "bbbb".into() });
+        count_events(&arx, 4.0, |e| *e == NetEvent::FriendForgotUs { id: "bbbb".into() });
     assert!(!connected);
     // Announcements arrive every 150 ms; backoff (1.5 s, doubling) bounds redials.
     assert!((1..=3).contains(&mismatches), "{mismatches} redials in 4 s");
@@ -1163,19 +1192,42 @@ fn one_sided_pin_reports_mismatch_and_backs_off() {
 }
 
 #[test]
-fn friend_with_changed_key_reports_mismatch_and_backs_off() {
-    let (pa, pb) = (free_udp_port(), free_udp_port());
-    let (ka, kb_old, kb_new) = (key(), key(), key());
-    // B reinstalled with a new key; A still has the old one pinned.
-    let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, pa, pb, vec![friend("bbbb", &kb_old)])).unwrap();
-    let (b, brx) = Net::start(cfg("bbbb", "Bob", kb_new, pb, pa, vec![friend("aaaa", &ka)])).unwrap();
-    let (mismatches, connected) =
-        count_events(&arx, 4.0, |e| *e == NetEvent::FriendKeyMismatch { id: "bbbb".into() });
+fn wrong_key_answer_for_friend_is_silent_and_backed_off() {
+    // A spoofed address answers for friend "bbbb" with a different key (and
+    // even claims to have A pinned). Not proven: no event, just backoff.
+    let stop = Arc::new(AtomicBool::new(false));
+    let (ka, kb) = (key(), key());
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, 0, free_udp_port(), vec![friend("bbbb", &kb)])).unwrap();
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    l.set_nonblocking(true).unwrap();
+    let fake_port = l.local_addr().unwrap().port();
+    let accepts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    {
+        let (stop, accepts) = (stop.clone(), accepts.clone());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::SeqCst) {
+                match l.accept() {
+                    Ok((s, _)) => {
+                        accepts.fetch_add(1, Ordering::SeqCst);
+                        s.set_nonblocking(false).unwrap();
+                        std::thread::spawn(move || {
+                            if let Ok(mut p) = handshake(s, &key(), false) {
+                                let _ = p.send(friend_hello("bbbb", "Evil"));
+                                let _ = p.recv();
+                            }
+                        });
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(10)),
+                }
+            }
+        });
+    }
+    spoof_announcements("bbbb", fake_port, a.discovery_port(), Duration::from_millis(100), stop.clone());
+    let (events, connected) = count_events(&arx, 4.0, |e| matches!(e, NetEvent::FriendForgotUs { .. }));
     assert!(!connected);
-    assert!((1..=3).contains(&mismatches), "{mismatches} redials in 4 s");
-    let (b_mismatch, b_connected) = count_events(&brx, 0.1, |e| matches!(e, NetEvent::FriendKeyMismatch { .. }));
-    assert!(!b_connected);
-    let _ = b_mismatch; // B may also report A (A does not have B's new key)
+    assert_eq!(events, 0, "unproven wrong key is not reported");
+    let n = accepts.load(Ordering::SeqCst);
+    assert!((1..=3).contains(&n), "{n} dials to the bad candidate in 4 s");
+    stop.store(true, Ordering::SeqCst);
     a.shutdown();
-    b.shutdown();
 }

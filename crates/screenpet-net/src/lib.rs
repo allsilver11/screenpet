@@ -61,8 +61,11 @@ pub(crate) const MAX_TRUSTED_IPS: usize = 64;
 pub(crate) const PRE_AUTH_MAX: Duration = Duration::from_secs(3);
 /// Longest redial backoff for a friend whose identity check keeps failing.
 pub(crate) const MAX_BACKOFF: Duration = Duration::from_secs(300);
-/// Most concurrent incoming pairing requests.
+/// Most concurrent incoming pairing requests, and per source address.
 pub(crate) const MAX_INVITES_IN: usize = 4;
+pub(crate) const MAX_INVITES_IN_PER_ADDR: usize = 2;
+/// Dials to not-yet-verified candidates of one id per minute.
+pub(crate) const MAX_UNVERIFIED_DIALS_PER_MIN: usize = 20;
 /// At most this many `Invited` events per `INVITED_WINDOW`.
 pub(crate) const MAX_INVITED_PER_WINDOW: usize = 10;
 pub(crate) const INVITED_WINDOW: Duration = Duration::from_secs(60);
@@ -144,21 +147,24 @@ pub enum NetEvent {
     PeerSeen { id: String, name: String },
     PeerGone { id: String },
     /// A stranger asks to pair. Show `sas` and ask the user to compare it
-    /// with the inviter's screen; answer with [`Net::answer_invite`].
-    Invited { from: String, name: String, pet: String, sas: String },
+    /// with the inviter's screen; answer with [`Net::answer_invite`] passing
+    /// this `pairing` (it identifies exactly this request).
+    Invited { from: String, name: String, pet: String, sas: String, pairing: u64 },
     /// Our invite reached `to`. Show `sas`; once the user confirms it matches
-    /// the other screen, call [`Net::answer_invite`] for `to` as well.
-    InviteSent { to: String, sas: String },
+    /// the other screen, call [`Net::answer_invite`] with this `pairing`.
+    InviteSent { to: String, sas: String, pairing: u64 },
     /// The other side confirmed (`true`) or the pairing ended without
     /// friendship (`false`: refused, timed out or link lost).
     InviteAnswered { from: String, accepted: bool },
     Connected { id: String, name: String },
     Disconnected { id: String },
     Received { from: String, msg: Visit },
-    /// We dialed friend `id` but it answered with a different key, or it does
-    /// not have us as a friend (e.g. a pairing finished on one side only, or
-    /// it reinstalled). Redials back off; suggest re-pairing to the user.
-    FriendKeyMismatch { id: String },
+    /// Friend `id` proved its pinned key but no longer recognizes us as a
+    /// friend (e.g. pairing finished on one side only, or it removed us).
+    /// Redials back off; suggest re-pairing to the user. (An address that
+    /// answers for `id` with a *different* key is just treated as a bad
+    /// candidate, silently.)
+    FriendForgotUs { id: String },
 }
 
 /// A peer id heard via discovery. Announcements are unauthenticated hints.
@@ -167,6 +173,10 @@ pub(crate) struct Seen {
     pub candidates: HashMap<Candidate, (Instant, IpAddr)>,
     /// Candidate that last passed the identity check, and when.
     pub verified: Option<(Candidate, Instant)>,
+    /// When each candidate was last dialed (round-robin order).
+    pub tried: HashMap<Candidate, Instant>,
+    /// Recent dials to non-verified candidates (capped per minute).
+    pub unverified_dials: VecDeque<Instant>,
     pub last: Instant,
 }
 
@@ -243,6 +253,9 @@ pub(crate) struct State {
     pub conns: HashMap<u64, Conn>,
     /// Friend id → token of its authenticated link.
     pub friend_links: HashMap<String, u64>,
+    /// Friend id → since when it has been heard without a link (the larger
+    /// id only dials after a grace period, so both sides rarely dial at once).
+    pub friend_wait: HashMap<String, Instant>,
     pub dialing: HashSet<String>,
     /// Invites waiting for their outgoing link: peer id → pet.
     pub invites_out: HashMap<String, String>,
@@ -250,6 +263,8 @@ pub(crate) struct State {
     pub invited_log: VecDeque<Instant>,
     /// Discovery datagrams per source IP: (window start, count).
     pub src_rate: HashMap<IpAddr, (Instant, u32)>,
+    /// Announcements claiming a friend id, per (id, source IP).
+    pub friend_rate: HashMap<(String, IpAddr), (Instant, u32)>,
     /// Recent incoming pairing attempts per peer address.
     pub pair_attempts: HashMap<String, VecDeque<Instant>>,
     /// Addresses that authenticated as a friend → when (bounded).
@@ -502,11 +517,11 @@ impl Net {
         peers::invite(&self.shared, peer_id, pet);
     }
 
-    /// Confirm (`true`, the SAS matched) or refuse a pairing — the invitee
-    /// answers `Invited`, the inviter confirms after `InviteSent`. Friends are
-    /// pinned (and `Connected` emitted) once both sides confirmed.
-    pub fn answer_invite(&self, peer_id: &str, accept: bool) {
-        peers::answer_invite(&self.shared, peer_id, accept);
+    /// Confirm (`true`, the SAS matched) or refuse the pairing identified by
+    /// `pairing` (from `Invited` / `InviteSent`). Both users must confirm;
+    /// then both sides pin each other's key and `Connected` follows.
+    pub fn answer_invite(&self, pairing: u64, accept: bool) {
+        peers::answer_invite(&self.shared, pairing, accept);
     }
 
     /// Queue a visit message to a connected friend (dropped otherwise).

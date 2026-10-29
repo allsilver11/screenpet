@@ -13,14 +13,14 @@
 //!    confirm with `invite_reply{accepted}` before the deadline → both pin
 //!    each other's key. A refused or timed-out pairing is terminal.
 
-use crate::discovery::pick_candidate;
+use crate::discovery::{note_dial, pick_candidate};
 use crate::noise::{self, Established};
 use crate::protocol::{clamp_name, Control, Message, MAX_FRAME, MAX_ID, PROTOCOL_VERSION};
 use crate::secure::SecureLink;
 use crate::transport::{self, FrameLink, FrameReader, Recv};
 use crate::{
     Backoff, Conn, Kind, NetEvent, PairStage, Pairing, SessionGuard, Shared, State, INVITED_WINDOW,
-    MAX_INVITED_PER_WINDOW, MAX_INVITES_IN, MAX_PAIR_ATTEMPTS_PER_ADDR, PRE_AUTH_MAX,
+    MAX_INVITED_PER_WINDOW, MAX_INVITES_IN, MAX_INVITES_IN_PER_ADDR, MAX_PAIR_ATTEMPTS_PER_ADDR, PRE_AUTH_MAX,
 };
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -52,11 +52,20 @@ fn ctl(c: Control) -> Message {
     Message::Control(c)
 }
 
-/// Is there a pairing in progress (not failed) on any link claiming `id`?
-fn active_pairing(st: &State, id: &str) -> bool {
-    st.conns.values().any(|c| {
-        c.peer_id == id && matches!(&c.kind, Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed))
-    })
+fn pairing_active(c: &Conn) -> bool {
+    matches!(&c.kind, Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed))
+}
+
+/// Is one of *our own* outgoing pairings to `id` in progress? (Inbound links
+/// merely claiming `id` never block an invite we start.)
+fn outbound_pairing(st: &State, id: &str) -> bool {
+    st.conns.values().any(|c| c.outgoing && c.peer_id == id && pairing_active(c))
+}
+
+/// Active inbound pairings from one source address (limited per address,
+/// not per claimed id, so a squatter cannot block someone else's id).
+fn inbound_pairings_from(st: &State, addr: &str) -> usize {
+    st.conns.values().filter(|c| !c.outgoing && c.peer_addr == addr && pairing_active(c)).count()
 }
 
 /// Per-session facts established by the handshake.
@@ -196,10 +205,9 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
         let pinned = st.friend_key(id);
         match pinned {
             Some(k) if k != ctx.remote_key => {
-                if outgoing {
-                    shared.emit(NetEvent::FriendKeyMismatch { id: id.to_string() });
-                }
-                return Reg::WrongKey; // claims a friend's id with another key
+                // Unproven: whoever answered is not our friend. Silent; the
+                // dialed candidate is backed off by the caller.
+                return Reg::WrongKey;
             }
             None if st.friends.iter().any(|f| f.public_key == ctx.remote_key) => return Reg::Reject,
             _ => {}
@@ -208,7 +216,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
         if friend_link && !peer_pinned_us {
             // Authenticated friend that does not have us: back off redials.
             st.back_off(Backoff::Id(id.to_string()), shared.timing.peer_timeout, now);
-            shared.emit(NetEvent::FriendKeyMismatch { id: id.to_string() });
+            shared.emit(NetEvent::FriendForgotUs { id: id.to_string() });
             return Reg::NotMutual;
         }
         if !friend_link && peer_pinned_us {
@@ -231,6 +239,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
             }
             shared.release_unverified(&ctx.unverified);
             st.trust_ip(&ctx.peer_addr, now);
+            st.friend_wait.remove(id);
             st.backoff.remove(&Backoff::Id(id.to_string()));
             st.friend_links.insert(id.to_string(), ctx.token);
             Kind::Friend
@@ -352,8 +361,9 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
                 Kind::Stranger(None) => {}
             }
             let Some(commit) = noise::hex32(&commit) else { return false };
-            // One pairing per claimed id at a time; idle squatters don't count.
-            if active_pairing(&st, id) || !admit_invite(&mut st, &ctx.peer_addr, now) {
+            if inbound_pairings_from(&st, &ctx.peer_addr) >= MAX_INVITES_IN_PER_ADDR
+                || !admit_invite(&mut st, &ctx.peer_addr, now)
+            {
                 drop(st);
                 ctx.link.send(&ctl(Control::InviteReply { accepted: false }));
                 ctx.link.finish();
@@ -377,7 +387,11 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             let PairStage::AwaitRandom { nonce_i } = p.stage else { return false };
             let Some(r_r) = noise::hex32(&random) else { return false };
             p.stage = PairStage::Confirm;
-            shared.emit(NetEvent::InviteSent { to: id.to_string(), sas: noise::sas(&hs_hash, &nonce_i, &r_r) });
+            shared.emit(NetEvent::InviteSent {
+                to: id.to_string(),
+                sas: noise::sas(&hs_hash, &nonce_i, &r_r),
+                pairing: ctx.token,
+            });
             drop(st);
             ctx.link.send(&ctl(Control::PairReveal { nonce: noise::to_hex(&nonce_i) }))
         }
@@ -393,7 +407,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             let pet = pet.clone();
             p.stage = PairStage::Confirm;
             st.invited_log.push_back(now);
-            shared.emit(NetEvent::Invited { from: id.to_string(), name: name.to_string(), pet, sas });
+            shared.emit(NetEvent::Invited { from: id.to_string(), name: name.to_string(), pet, sas, pairing: ctx.token });
             true
         }
         Message::Control(Control::InviteReply { accepted }) => {
@@ -428,11 +442,19 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             if !matches!(conn.kind, Kind::Friend) {
                 return true;
             }
-            if st.friend_links.get(id) == Some(&ctx.token) {
-                st.friend_links.remove(id);
-            }
             st.conns.get_mut(&ctx.token).expect("current conn").kind = Kind::Stranger(None);
             st.remove_friend(id);
+            // Also drop any other friend link for this id (e.g. one that
+            // registered while this message was in flight).
+            let other = st.friend_links.remove(id).filter(|t| *t != ctx.token);
+            let other = other.and_then(|t| st.conns.get_mut(&t)).map(|c| {
+                c.kind = Kind::Stranger(None);
+                c.link.clone()
+            });
+            drop(st);
+            if let Some(l) = other {
+                l.close();
+            }
             false
         }
         Message::Visit(v) => {
@@ -509,32 +531,32 @@ pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
         shared.emit(NetEvent::InviteAnswered { from: peer_id.to_string(), accepted: true });
         return;
     }
-    // Always a fresh outgoing link; idle stranger links claiming this id
-    // (possibly squatters) neither block nor get reused.
-    let busy = st.dialing.contains(peer_id) || active_pairing(&st, peer_id);
+    // Always a fresh outgoing link; inbound links claiming this id (possibly
+    // squatters, even mid-pairing) neither block nor get reused.
+    let busy = st.dialing.contains(peer_id) || outbound_pairing(&st, peer_id);
     let target = if busy { None } else { pick_candidate(&st, peer_id) };
     let Some(target) = target else {
         shared.emit(NetEvent::InviteAnswered { from: peer_id.to_string(), accepted: false });
         return;
     };
+    note_dial(&mut st, peer_id, target, Instant::now(), false);
     st.invites_out.insert(peer_id.to_string(), clamp_name(pet));
     st.dialing.insert(peer_id.to_string());
     drop(st);
     transport::dial(shared, peer_id.to_string(), target);
 }
 
-pub(crate) fn answer_invite(shared: &Shared, peer_id: &str, accept: bool) {
+/// Answer exactly the pairing the user saw (`pairing` from its event).
+pub(crate) fn answer_invite(shared: &Shared, pairing: u64, accept: bool) {
     let now = Instant::now();
     let mut st = shared.state();
-    let token = st.conns.iter().find_map(|(t, c)| {
-        let confirm = matches!(&c.kind, Kind::Stranger(Some(p)) if matches!(p.stage, PairStage::Confirm));
-        (c.peer_id == peer_id && confirm).then_some(*t)
-    });
-    let Some(token) = token else { return };
-    let conn = st.conns.get_mut(&token).expect("found above");
+    let token = pairing;
+    let Some(conn) = st.conns.get_mut(&token) else { return };
     let link = conn.link.clone();
+    let peer_id = conn.peer_id.clone();
+    let peer_id = peer_id.as_str();
     let Kind::Stranger(Some(p)) = &mut conn.kind else { return };
-    if p.local_ok {
+    if !matches!(p.stage, PairStage::Confirm) || p.local_ok {
         return;
     }
     if !accept || expired(shared, p, now) {
