@@ -37,7 +37,11 @@ impl World {
     }
 
     /// x가 속한 작업 영역 (없으면 가장 가까운 것)
-    pub fn work_area_at(&self, x: f64) -> Rect {
+    pub fn work_area_at(&self, x: f64, y: f64) -> Rect {
+        // 위아래로 쌓인 모니터: 발(x, y)이 들어 있는 작업 영역을 먼저 찾는다
+        if let Some(r) = self.work_areas.iter().find(|r| r.left <= x && x < r.right && r.top < y && y <= r.bottom) {
+            return *r;
+        }
         let dist = |r: &Rect| if x < r.left { r.left - x } else if x > r.right { x - r.right } else { 0.0 };
         *self.work_areas.iter().min_by(|a, b| dist(a).total_cmp(&dist(b))).expect("at least one work area")
     }
@@ -212,9 +216,22 @@ mod tests {
     #[test]
     fn work_area_at_picks_the_monitor_under_x() {
         let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 100.0, 3840.0, 1300.0)], 128.0);
-        assert_eq!(w.work_area_at(100.0).bottom, 1040.0);
-        assert_eq!(w.work_area_at(2000.0).bottom, 1300.0);
-        assert_eq!(w.work_area_at(5000.0).bottom, 1300.0);
+        assert_eq!(w.work_area_at(100.0, 1040.0).bottom, 1040.0);
+        assert_eq!(w.work_area_at(2000.0, 1300.0).bottom, 1300.0);
+        assert_eq!(w.work_area_at(5000.0, 1300.0).bottom, 1300.0);
+    }
+
+    #[test]
+    fn work_area_at_picks_the_stacked_monitor_under_the_feet() {
+        let top = Rect::new(0.0, -1080.0, 1920.0, -40.0);
+        let bottom = Rect::new(0.0, 0.0, 1920.0, 1040.0);
+        let w = World::new(vec![], vec![bottom, top], 128.0);
+        assert_eq!(w.work_area_at(800.0, -40.0), top);
+        assert_eq!(w.work_area_at(800.0, -500.0), top);
+        assert_eq!(w.work_area_at(800.0, 1040.0), bottom);
+        assert_eq!(w.work_area_at(800.0, 300.0), bottom);
+        // 어느 영역에도 발이 없으면 x만으로 고른다
+        assert!([top, bottom].contains(&w.work_area_at(800.0, 5000.0)));
     }
 
     #[test]

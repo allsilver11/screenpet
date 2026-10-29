@@ -64,6 +64,9 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
     if m.walk_speed <= 0.0 {
         return Err("walk_speed must be > 0".into());
     }
+    if let Some((stage, v)) = m.stage_size.iter().find(|(_, v)| !(v.is_finite() && **v > 0.0)) {
+        return Err(format!("stage_size {stage}: {v} must be finite and > 0"));
+    }
     for name in REQUIRED_ANIMS {
         let spec = m.animations.get(name).ok_or_else(|| format!("missing animation: {name}"))?;
         if spec.frames == 0 || spec.fps <= 0.0 {
@@ -183,6 +186,14 @@ mod tests {
         assert_eq!(m.personality, Personality::Aloof);
         assert_eq!((m.size_mult(Stage::Baby), m.size_mult(Stage::Adult), m.size_mult(Stage::Child)), (0.85, 1.3, 1.0));
         assert!(parse_manifest(&full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "personality": "grumpy","#)).is_err());
+    }
+
+    #[test]
+    fn rejects_non_positive_or_non_finite_stage_size() {
+        for bad in ["0", "-1.2", "1e999"] {
+            let json = full_json().replace(r#""walk_speed": 60,"#, &format!(r#""walk_speed": 60, "stage_size": {{"adult": {bad}}},"#));
+            assert!(parse_manifest(&json).is_err(), "{bad}");
+        }
     }
 
     #[test]

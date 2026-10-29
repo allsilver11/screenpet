@@ -19,6 +19,8 @@ const VELOCITY_WINDOW: f64 = 0.1;
 const TICKLE_WINDOW: f64 = 0.6;
 const TICKLE_DIST: f64 = 250.0;
 const HOVER_PAUSE_SECS: f64 = 0.25;
+/// 커서가 올라와 있는 동안 쳐다보기를 이어 가는 시간
+const HOVER_LOOK_SECS: f64 = 1.5;
 const TICKLE_HOLD: f64 = 1.5;
 const TICKLE_WAKE_SECS: f64 = 5.0;
 const CHATTER_SECS: (f64, f64) = (20.0, 40.0);
@@ -336,6 +338,15 @@ impl Pet {
         (self.body.x - self.cfg.size / 2.0, self.body.y - self.cfg.size)
     }
 
+    /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹는다)
+    pub fn is_eating(&self) -> bool {
+        match self.state {
+            State::Eating { .. } => true,
+            State::Pressed { .. } => matches!(self.before_press, Some((State::Eating { .. }, _))),
+            _ => false,
+        }
+    }
+
     pub fn is_held(&self) -> bool {
         matches!(self.state, State::Pressed { .. } | State::Dragged)
     }
@@ -373,13 +384,18 @@ impl Pet {
         self.tickling = inside && path >= TICKLE_DIST * self.cfg.size / 128.0;
     }
 
-    /// 걷거나 달리는 중에 커서가 0.25초 넘게 올라와 있으면 멈춰서 쳐다본다
+    /// 걷거나 달리는 중에 커서가 0.25초 넘게 올라와 있으면 멈춰서 쳐다본다.
+    /// 커서가 머무는 동안엔 계속 쳐다본다 (다시 걷다 멈추며 방향이 바뀌지 않게).
     fn pause_for_hover(&mut self) {
-        if !matches!(self.state, State::Move { .. }) {
+        if !self.hover_since.is_some_and(|t| self.clock - t >= HOVER_PAUSE_SECS) {
             return;
         }
-        if self.hover_since.is_some_and(|t| self.clock - t >= HOVER_PAUSE_SECS) {
-            self.state = State::Idle { remaining: 1.5, look: true };
+        match self.state {
+            State::Move { .. } => self.state = State::Idle { remaining: HOVER_LOOK_SECS, look: true },
+            State::Idle { remaining, look: true } => {
+                self.state = State::Idle { remaining: remaining.max(HOVER_LOOK_SECS), look: true }
+            }
+            _ => {}
         }
     }
 
@@ -468,7 +484,14 @@ impl Pet {
                 self.speech = Some(Speech::Full);
                 State::Trick { kind: Trick::Tilt, remaining: REFUSE_TILT_SECS }
             }
-            FeedResult::Ate { leveled_up } => State::Eating { remaining: EAT_SECS, favorite: food == Food::Favorite, level_up: leveled_up },
+            FeedResult::Ate { leveled_up } => {
+                // 먹는 도중 또 먹어도 앞서 정해진 성장 축하·하트는 남긴다
+                let (was_favorite, was_level_up) = match self.state {
+                    State::Eating { favorite, level_up, .. } => (favorite, level_up),
+                    _ => (false, false),
+                };
+                State::Eating { remaining: EAT_SECS, favorite: was_favorite || food == Food::Favorite, level_up: was_level_up || leveled_up }
+            }
         };
         true
     }
@@ -477,6 +500,12 @@ impl Pet {
         match self.state {
             State::Pressed { grounded: true, was_sleeping: true, .. } => self.click_sleeper(),
             State::Pressed { grounded: true, .. } => {
+                // 먹는 중·성장 축하 중엔 클릭해도 하던 걸 계속한다
+                if let Some((state @ (State::Eating { .. } | State::LevelUp { .. }), after_beat)) = self.before_press {
+                    self.state = state;
+                    self.pacing.after_beat = after_beat;
+                    return;
+                }
                 if self.hungry {
                     self.food_request = true;
                     self.state = State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
@@ -822,7 +851,7 @@ impl Pet {
 
     /// 화면 타기 목표 발 높이 — 발밑 모니터 작업 영역 기준. 이미 그보다 높이 서 있으면 None
     fn climb_target(&mut self, world: &World) -> Option<f64> {
-        let wa = world.work_area_at(self.body.x);
+        let wa = world.work_area_at(self.body.x, self.body.y);
         let target_y = behavior::climb_target(&mut self.rng, wa.bottom, wa.top + self.cfg.size);
         (self.body.y > target_y).then_some(target_y)
     }
@@ -1860,6 +1889,27 @@ mod tickle_tests {
     }
 
     #[test]
+    fn staying_hovered_keeps_looking_without_turning() {
+        for seed in 0..20 {
+            let w = world(vec![w1()]);
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Window(1), 560.0, State::Move { kind: Move::Walk, remaining: 100.0 });
+            for _ in 0..18 {
+                p.hover(600.0, 350.0, true);
+                p.update(DT, &w);
+            }
+            assert!(matches!(p.state, State::Idle { look: true, .. }), "{:?}", p.state);
+            let (facing, last_move) = (p.facing, p.pacing.last_move);
+            for i in 0..(60 * 6) {
+                p.hover(600.0, 350.0, true);
+                p.update(DT, &w);
+                assert!(matches!(p.state, State::Idle { look: true, .. }), "seed {seed} tick {i}: {:?}", p.state);
+                assert_eq!((p.facing, p.pacing.last_move), (facing, last_move), "seed {seed} tick {i}");
+            }
+        }
+    }
+
+    #[test]
     fn brief_hover_does_not_stop_a_moving_pet() {
         let w = world(vec![w1()]);
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
@@ -2247,7 +2297,7 @@ mod special_tests {
 
 #[cfg(test)]
 mod care_tests {
-    use super::tests::{cfg, place, w1, world};
+    use super::tests::{cfg, place, run, w1, world};
     use super::*;
     use crate::care::{FeedResult, Food};
 
@@ -2371,6 +2421,65 @@ mod care_tests {
         }
         assert_eq!(serde_json::to_string(&Anim::LevelUp).unwrap(), "\"level_up\"");
         assert_eq!(serde_json::to_string(&Speech::LevelUp).unwrap(), "\"level_up\"");
+    }
+
+    fn aloof_cfg() -> PetConfig {
+        PetConfig { personality: Personality::Aloof, ..cfg() }
+    }
+
+    #[test]
+    fn clicking_mid_meal_keeps_eating_and_its_celebration() {
+        for seed in 0..50 {
+            for c in [cfg(), aloof_cfg()] {
+                let w = world(vec![w1()]);
+                let mut p = Pet::new(c, 0.0, 0.0, seed);
+                place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+                assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Favorite));
+                p.update(DT, &w);
+                assert!(p.is_eating());
+                p.pointer_down(800.0, 350.0);
+                assert!(p.is_eating(), "pressed mid-meal still counts as eating");
+                p.update(DT, &w);
+                p.pointer_up(800.0, 350.0);
+                assert!(matches!(p.state, State::Eating { favorite: true, level_up: true, .. }), "seed {seed}: {:?}", p.state);
+                assert!(p.is_eating());
+            }
+        }
+    }
+
+    #[test]
+    fn clicking_during_level_up_keeps_celebrating() {
+        for seed in 0..50 {
+            for c in [cfg(), aloof_cfg()] {
+                let w = world(vec![w1()]);
+                let mut p = Pet::new(c, 0.0, 0.0, seed);
+                place(&mut p, &w, Owner::Window(1), 800.0, State::LevelUp { remaining: 2.0 });
+                p.pointer_down(800.0, 350.0);
+                assert!(!p.is_eating());
+                p.pointer_up(800.0, 350.0);
+                assert!(matches!(p.state, State::LevelUp { .. }), "seed {seed}: {:?}", p.state);
+                assert_eq!(p.render().anim, Anim::LevelUp);
+            }
+        }
+    }
+
+    #[test]
+    fn pressing_a_resting_pet_is_not_eating() {
+        let (mut p, _w) = grounded(1);
+        assert!(!p.is_eating());
+        p.pointer_down(800.0, 350.0);
+        assert!(!p.is_eating());
+    }
+
+    #[test]
+    fn feeding_again_mid_meal_keeps_level_up_and_favorite() {
+        let (mut p, w) = grounded(1);
+        assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Favorite));
+        run(&mut p, &w, 30);
+        assert!(p.feed_result(FeedResult::Ate { leveled_up: false }, Food::Meal));
+        assert!(matches!(p.state, State::Eating { favorite: true, level_up: true, .. }), "{:?}", p.state);
+        run(&mut p, &w, 60 * 2 + 40);
+        assert!(matches!(p.state, State::LevelUp { .. }), "{:?}", p.state);
     }
 }
 
