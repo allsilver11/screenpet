@@ -315,6 +315,8 @@ pub struct Pet {
     exit_edges: ExitEdges,
     /// 손님으로 와 있으면 Some
     guest: Option<Guest>,
+    /// 들려 있거나 공중일 때 "집에 와"를 받음 — 놓여서 내려서면 손 흔든다
+    farewell_pending: bool,
     /// 화면을 떠난 쪽 (take_exit로 한 번 꺼낸다)
     exited: Option<Side>,
     rng: fastrand::Rng,
@@ -347,6 +349,7 @@ impl Pet {
             housed: false,
             exit_edges: ExitEdges::default(),
             guest: None,
+            farewell_pending: false,
             exited: None,
             rng: fastrand::Rng::with_seed(seed),
         }
@@ -370,6 +373,11 @@ impl Pet {
                 return;
             }
             _ => {}
+        }
+        if self.farewell_pending && !self.is_held() && !matches!(self.state, State::Air { .. }) {
+            self.farewell_pending = false;
+            self.go_home_now();
+            return;
         }
         self.tick_guest(dt);
         if self.track_home_progress(dt) {
@@ -755,9 +763,14 @@ impl Pet {
         self.state = State::Enter { remaining: visit::ENTER_SECS, side };
     }
 
-    /// 손님에게 "집에 와": 제자리에서 손 흔든 뒤 걸어 나가지 않고 사라진다 (take_exit = Some(집 쪽))
+    /// 손님에게 "집에 와" (들려 있거나 공중이면 내려선 뒤): 제자리에서 손 흔든 뒤 걸어 나가지 않고 사라진다 (take_exit = Some(집 쪽))
     pub fn go_home_now(&mut self) {
         if self.guest.is_none() || self.leaving() {
+            return;
+        }
+        // 끌려가는 도중엔 바꾸지 않는다 — 놓여서 내려선 뒤 update가 다시 부른다
+        if self.is_held() || matches!(self.state, State::Air { .. }) {
+            self.farewell_pending = true;
             return;
         }
         self.pacing.after_beat = None;
@@ -4385,6 +4398,37 @@ mod visit_tests {
         assert_eq!(p.body, body);
         run(&mut p, &w, 120);
         assert_eq!(p.take_exit(), None);
+    }
+
+    #[test]
+    fn come_home_now_waits_until_a_held_guest_is_let_go() {
+        let w = world(vec![]);
+        let mut p = guest(1, 1.0, Move::Walk, Side::Left, 1000.0);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        let (x, y) = (p.body.x, p.body.y - 40.0);
+        p.pointer_down(x, y);
+        assert!(p.is_held());
+        p.go_home_now();
+        assert!(p.is_held());
+        p.pointer_move(x + 100.0, y - 200.0);
+        run(&mut p, &w, 30);
+        assert_eq!(p.state, State::Dragged);
+        assert_eq!(p.take_exit(), None);
+        p.pointer_up(x + 100.0, y - 200.0);
+        // 떨어져 내려선 뒤 손 흔들고 집으로
+        let mut waved = false;
+        for _ in 0..600 {
+            p.update(DT, &w);
+            if matches!(p.state, State::Farewell { .. }) {
+                assert!(p.standing.is_some());
+                waved = true;
+            }
+            if p.is_away() {
+                break;
+            }
+        }
+        assert!(waved);
+        assert_eq!(p.take_exit(), Some(Side::Left));
     }
 
     #[test]

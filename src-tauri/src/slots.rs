@@ -24,8 +24,10 @@ const HALF_WIDTH_RATIO: f64 = 0.3;
 /// 스프라이트 위 말풍선·음식 버튼·이름표 자리 (논리 px)
 pub const BUBBLE_SPACE: f64 = 36.0;
 
-pub fn guest_label(visit_id: &str) -> String {
-    format!("{GUEST_PREFIX}{visit_id}")
+/// 손님 창 라벨. visit_id는 Tauri 창 라벨 글자(영숫자와 - / : _)만 — 아니면 None
+pub fn guest_label(visit_id: &str) -> Option<String> {
+    let valid = !visit_id.is_empty() && visit_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '/' | ':' | '_'));
+    valid.then(|| format!("{GUEST_PREFIX}{visit_id}"))
 }
 
 pub fn is_guest_label(label: &str) -> bool {
@@ -66,15 +68,17 @@ pub struct SlotInfo {
     pub role: &'static str,
     /// 손님이면 주인 이름 (이름표 "🏠 <owner>")
     pub owner: Option<String>,
+    /// 마지막으로 보낸 모습 — 첫 `pet-render`가 웹뷰가 듣기 전에 지나갔을 수 있어 첫 로드 때 같이 준다
+    pub render: Option<RenderState>,
 }
 
 impl SlotInfo {
-    pub fn new(shown: &StagePayload, role: &Role) -> Self {
+    pub fn new(shown: &StagePayload, role: &Role, render: Option<RenderState>) -> Self {
         let (role, owner) = match role {
             Role::Own => ("own", None),
             Role::Guest(g) => ("guest", Some(g.owner_name.clone())),
         };
-        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner }
+        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner, render }
     }
 }
 
@@ -125,7 +129,7 @@ impl Slot {
     }
 
     pub fn info(&self) -> SlotInfo {
-        SlotInfo::new(&self.shown, &self.role)
+        SlotInfo::new(&self.shown, &self.role, self.last_render)
     }
 
     /// 단계(또는 동물)가 바뀌었다: 창 크기, 펫 크기, 웹뷰 시트
@@ -177,13 +181,17 @@ impl Slot {
         }
     }
 
-    /// 지난번과 달라졌으면 지금 그릴 모습
-    pub fn take_render(&mut self) -> Option<RenderState> {
+    /// 지난번과 달라졌으면 지금 그릴 모습. 새로 뜬 웹뷰(`slot_info`)를 위해 AppState에도 적어 둔다 — emit보다 먼저
+    pub fn take_render(&mut self, app: &AppHandle) -> Option<RenderState> {
         let render = self.pet.render();
-        (self.last_render != Some(render)).then(|| {
-            self.last_render = Some(render);
-            render
-        })
+        if self.last_render == Some(render) {
+            return None;
+        }
+        self.last_render = Some(render);
+        if let Some(info) = app.state::<AppState>().slots.lock().unwrap().get_mut(&self.label) {
+            info.render = Some(render);
+        }
+        Some(render)
     }
 }
 
@@ -216,18 +224,25 @@ pub fn spawn_guest(
     side: Side,
     base: &World,
     seed: u64,
-) -> tauri::Result<Slot> {
-    let label = guest_label(&guest.visit_id);
+) -> Result<Slot, String> {
+    let label = guest_label(&guest.visit_id).ok_or_else(|| format!("invalid visit id {:?}", guest.visit_id))?;
     let role = Role::Guest(guest);
     let shown = StagePayload { pet: entry.id.clone(), stage: stage.name(), scale };
-    // 웹뷰가 뜨자마자 slot_info를 부르므로 창보다 먼저 적어 둔다
+    // 웹뷰가 뜨자마자 slot_info를 부르므로 창보다 먼저 적어 둔다. 같은 라벨이 이미 있으면 (같은 방문이 두 번) 거절
     let state = app.state::<AppState>();
-    state.slots.lock().unwrap().insert(label.clone(), SlotInfo::new(&shown, &role));
+    {
+        let mut infos = state.slots.lock().unwrap();
+        if infos.contains_key(&label) || app.get_webview_window(&label).is_some() {
+            return Err(format!("{label} already exists"));
+        }
+        infos.insert(label.clone(), SlotInfo::new(&shown, &role, None));
+    }
     let window = match build_guest_window(app, &label, scale) {
         Ok(w) => w,
         Err(e) => {
+            // 위에서 우리가 넣은 것만 지운다 (같은 라벨은 없다고 확인했다)
             state.slots.lock().unwrap().remove(&label);
-            return Err(e);
+            return Err(e.to_string());
         }
     };
     let dpi = window.scale_factor().unwrap_or(1.0);

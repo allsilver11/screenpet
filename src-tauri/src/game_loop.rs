@@ -374,7 +374,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
 
         for s in &mut slots {
             s.place();
-            if let Some(render) = s.take_render() {
+            if let Some(render) = s.take_render(&app) {
                 let _ = app.emit_to(s.label.as_str(), "pet-render", render);
                 if s.is_own() {
                     // 하우스 창 문간도 내 동물의 먹기·축하를 보여 준다

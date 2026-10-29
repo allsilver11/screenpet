@@ -54,7 +54,10 @@ function draw(now) {
   requestAnimationFrame(draw);
 }
 
-listen("pet-render", (e) => {
+// 첫 pet-render는 이 웹뷰가 듣기 전에 지나갔을 수 있다 — 첫 로드 땐 slot_info의 render를 쓴다 (이벤트가 먼저 왔으면 그쪽이 새것)
+let gotRender = false;
+const listeningRender = listen("pet-render", (e) => {
+  gotRender = true;
   if (e.payload.anim !== render.anim) animStart = performance.now();
   if (e.payload.heart && !render.heart) {
     heartEl.classList.remove("show");
@@ -74,7 +77,7 @@ function applyRole(info) {
 }
 
 // 동물 교체·성장·리셋: 창 크기는 백엔드가 바꾸고, 여기선 시트와 스프라이트 크기를 맞춘다
-listen("pet-stage", (e) => {
+const listeningStage = listen("pet-stage", (e) => {
   stage = e.payload;
   applyRole(e.payload);
   loadPet();
@@ -92,8 +95,14 @@ petEl.addEventListener("contextmenu", () => invoke("show_menu"));
 blockWebviewDefaults();
 
 (async () => {
+  // 듣기 시작한 뒤에 지금 상태를 묻는다 — 그 사이 바뀐 것은 이벤트로 온다
+  await Promise.all([listeningRender, listeningStage]);
   stage = await invoke("slot_info");
   applyRole(stage);
+  if (!gotRender && stage.render) {
+    render = stage.render;
+    animStart = performance.now();
+  }
   await loadPet();
   requestAnimationFrame(draw);
 })();

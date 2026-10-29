@@ -47,10 +47,12 @@ fn pointer_down(window: WebviewWindow, state: State<AppState>) {
     let _ = state.tx.lock().unwrap().send(Input::PointerDown { label: window.label().to_string() });
 }
 
-/// 부른 창의 동물·단계·크기·역할 (웹뷰 첫 로드용)
+/// 부른 창(또는 label 창)의 동물·단계·크기·역할·지금 모습 (웹뷰 첫 로드용 — 첫 pet-render는 웹뷰가 듣기 전에 지나갔을 수 있다).
+/// 하우스 창은 label "pet"으로 내 동물의 지금 모습을 묻는다
 #[tauri::command]
-fn slot_info(window: WebviewWindow, state: State<AppState>) -> Result<SlotInfo, String> {
-    state.slots.lock().unwrap().get(window.label()).cloned().ok_or_else(|| format!("no pet for window {}", window.label()))
+fn slot_info(window: WebviewWindow, state: State<AppState>, label: Option<String>) -> Result<SlotInfo, String> {
+    let label = label.unwrap_or_else(|| window.label().to_string());
+    state.slots.lock().unwrap().get(&label).cloned().ok_or_else(|| format!("no pet for window {label}"))
 }
 
 #[tauri::command]
@@ -108,14 +110,11 @@ fn main() {
     tauri::Builder::default()
         // 가장 먼저 등록: 두 번째 실행은 새 앱을 띄우지 않고 이미 있는 펫 창을 보여 준다
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 하우스 안이면 펫 창(숨어 있는 게 맞다) 대신 하우스를 구석에 다시 놓아 보인다.
-            // 친구 화면에 가 있으면 보일 펫 창이 없다
+            // 숨겨 둔 창을 모두 다시 보인다 (하우스 안이면 하우스를 구석에, 친구 화면에 가 있으면 손님만)
+            tray::show_all(app);
             let state = app.state::<AppState>();
-            if state.housed.load(Ordering::Relaxed) {
-                house::show_in_corner(app);
-            } else if !state.away.load(Ordering::Relaxed) {
+            if !state.housed.load(Ordering::Relaxed) && !state.away.load(Ordering::Relaxed) {
                 if let Some(window) = app.get_webview_window(OWN_LABEL) {
-                    let _ = window.show();
                     let _ = window.set_focus();
                 }
             }
@@ -145,7 +144,7 @@ fn main() {
                 tx: Mutex::new(tx),
                 pets: pets.clone(),
                 config_dir,
-                slots: Mutex::new(HashMap::from([(OWN_LABEL.to_string(), SlotInfo::new(&stage, &Role::Own))])),
+                slots: Mutex::new(HashMap::from([(OWN_LABEL.to_string(), SlotInfo::new(&stage, &Role::Own, None))])),
                 menu,
                 house: Mutex::new(house_state),
                 housed: AtomicBool::new(cfg.housed),

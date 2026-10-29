@@ -4,11 +4,11 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use std::sync::atomic::Ordering;
 
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Manager, WebviewWindow, Wry};
 
 use crate::game_loop::Input;
 use crate::pets::PetEntry;
-use crate::slots::OWN_LABEL;
+use crate::slots::{self, OWN_LABEL};
 use crate::AppState;
 
 /// 손님 우클릭 메뉴 항목 id 앞부분 (뒤는 손님 창 라벨)
@@ -42,6 +42,46 @@ pub fn favorite_label(f: &FavoriteFood) -> String {
 pub fn guest_menu(app: &AppHandle, label: &str, owner: &str) -> tauri::Result<Menu<Wry>> {
     let item = MenuItem::with_id(app, format!("{SEND_HOME_PREFIX}{label}"), format!("{owner}에게 돌려보내기"), true, None::<&str>)?;
     Menu::with_items(app, &[&item])
+}
+
+/// 내 동물이 보이는 창: 하우스 안이면 하우스 창, 친구 화면에 가 있으면 없음 (펫 창은 숨어 있어야 한다)
+fn own_window(app: &AppHandle) -> Option<WebviewWindow> {
+    let state = app.state::<AppState>();
+    if state.housed.load(Ordering::Relaxed) {
+        app.get_webview_window(crate::house::LABEL)
+    } else if state.away.load(Ordering::Relaxed) {
+        None
+    } else {
+        app.get_webview_window(OWN_LABEL)
+    }
+}
+
+fn guest_windows(app: &AppHandle) -> Vec<WebviewWindow> {
+    app.webview_windows().into_iter().filter(|(label, _)| slots::is_guest_label(label)).map(|(_, w)| w).collect()
+}
+
+/// 내 동물 창(또는 하우스 창)과 손님 창을 모두 보인다. 하우스는 지금 구석에 다시 놓는다
+pub fn show_all(app: &AppHandle) {
+    if app.state::<AppState>().housed.load(Ordering::Relaxed) {
+        crate::house::show_in_corner(app);
+    } else if let Some(w) = own_window(app) {
+        let _ = w.show();
+    }
+    for w in guest_windows(app) {
+        let _ = w.show();
+    }
+}
+
+/// 숨기기 / 보이기: 하나라도 보이면 모두 숨기고, 다 숨어 있으면 모두 보인다 (손님 창도 같이)
+fn toggle_windows(app: &AppHandle) {
+    let windows: Vec<WebviewWindow> = own_window(app).into_iter().chain(guest_windows(app)).collect();
+    if windows.iter().any(|w| w.is_visible().unwrap_or(true)) {
+        for w in &windows {
+            let _ = w.hide();
+        }
+    } else {
+        show_all(app);
+    }
 }
 
 fn send(app: &AppHandle, input: Input) {
@@ -90,25 +130,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     app.exit(0);
                 }
             }
-            "toggle" => {
-                // 하우스 안에선 펫 창 대신 하우스 창을 숨기고 보인다 (보일 땐 지금 구석에 다시 놓는다).
-                // 친구 화면에 가 있는 동안엔 펫 창이 숨어 있어야 하니 건드리지 않는다
-                let state = app.state::<AppState>();
-                let housed = state.housed.load(Ordering::Relaxed);
-                if !housed && state.away.load(Ordering::Relaxed) {
-                    return;
-                }
-                let label = if housed { crate::house::LABEL } else { OWN_LABEL };
-                if let Some(w) = app.get_webview_window(label) {
-                    if w.is_visible().unwrap_or(true) {
-                        let _ = w.hide();
-                    } else if housed {
-                        crate::house::show_in_corner(app);
-                    } else {
-                        let _ = w.show();
-                    }
-                }
-            }
+            "toggle" => toggle_windows(app),
             "feed:snack" => send(app, Input::Feed(Food::Snack)),
             "feed:meal" => send(app, Input::Feed(Food::Meal)),
             "feed:favorite" => send(app, Input::Feed(Food::Favorite)),

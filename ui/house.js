@@ -105,7 +105,7 @@ function draw(now) {
   requestAnimationFrame(draw);
 }
 
-listen("house-state", (e) => {
+const listeningState = listen("house-state", (e) => {
   const wasHoused = house.housed;
   house = e.payload;
   if (house.housed && !wasHoused) {
@@ -116,7 +116,10 @@ listen("house-state", (e) => {
   loadPet();
 });
 
-listen("pet-render", (e) => {
+// 첫 로드 땐 내 동물의 지금 모습을 slot_info("pet")로 묻는다 (이벤트가 먼저 왔으면 그쪽이 새것)
+let gotRender = false;
+const listeningRender = listen("pet-render", (e) => {
+  gotRender = true;
   const anim = e.payload.anim;
   if (anim !== backendAnim && BACKEND_ANIMS.has(anim)) animStart = performance.now();
   if (anim === "eat") speech.hidePicker();
@@ -145,7 +148,14 @@ blockWebviewDefaults();
     // 기본 문 위치 그대로
   }
   placeDoor();
+  // 듣기 시작한 뒤에 지금 상태를 묻는다 — 그 사이 바뀐 것은 이벤트로 온다
+  await Promise.all([listeningState, listeningRender]);
   house = await invoke("house_state");
+  const own = await invoke("slot_info", { label: "pet" }).catch(() => null);
+  if (!gotRender && own?.render && BACKEND_ANIMS.has(own.render.anim)) {
+    backendAnim = own.render.anim;
+    animStart = performance.now();
+  }
   await loadPet();
   requestAnimationFrame(draw);
 })();
