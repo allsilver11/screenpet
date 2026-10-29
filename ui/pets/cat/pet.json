@@ -1,0 +1,49 @@
+{
+  "name": "고양이",
+  "frame_size": 64,
+  "walk_speed": 60,
+  "animations": {
+    "walk": {
+      "row": 0,
+      "frames": 4,
+      "fps": 8
+    },
+    "idle": {
+      "row": 1,
+      "frames": 2,
+      "fps": 2
+    },
+    "look": {
+      "row": 2,
+      "frames": 4,
+      "fps": 4
+    },
+    "sleep": {
+      "row": 3,
+      "frames": 2,
+      "fps": 1
+    },
+    "hop": {
+      "row": 4,
+      "frames": 3,
+      "fps": 10,
+      "loop": false
+    },
+    "fall": {
+      "row": 5,
+      "frames": 2,
+      "fps": 8
+    },
+    "dragged": {
+      "row": 6,
+      "frames": 2,
+      "fps": 4
+    },
+    "land": {
+      "row": 7,
+      "frames": 2,
+      "fps": 10,
+      "loop": false
+    }
+  }
+}

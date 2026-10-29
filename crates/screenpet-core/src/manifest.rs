@@ -84,4 +84,18 @@ mod tests {
     fn rejects_invalid_json() {
         assert!(parse_manifest("{").is_err());
     }
+
+    #[test]
+    fn bundled_placeholder_manifests_are_valid() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        let mut count = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path().join("pet.json");
+            if path.is_file() {
+                parse_manifest(&std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+                count += 1;
+            }
+        }
+        assert!(count >= 4);
+    }
 }

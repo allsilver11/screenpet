@@ -1,0 +1,70 @@
+"""AI로 만든 동작별 프레임 PNG들을 앱 규격 시트로 합친다.
+
+사용법:
+    python tools/pack_sheet.py <프레임폴더> ui/pets/<id> --name 고양이 --walk-speed 60
+
+프레임 폴더에는 `<동작>_<번호>.png` (번호는 0부터) 파일이 있어야 한다.
+동작별 프레임 수는 sprite_spec.ANIMS의 기본값보다 많아도 된다(연속된 번호만큼 읽음).
+모든 프레임은 투명 배경이어야 하며, 공통 배율로 축소돼 64x64 안에 바닥·가운데 정렬된다.
+"""
+
+import argparse
+import json
+from pathlib import Path
+
+from PIL import Image
+
+from sprite_spec import ANIMS, FRAME, manifest
+
+
+def _load_frames(frames_dir):
+    frames = {}
+    for anim, default_n, _, _ in ANIMS:
+        imgs = []
+        i = 0
+        while (frames_dir / f"{anim}_{i}.png").exists():
+            imgs.append(Image.open(frames_dir / f"{anim}_{i}.png").convert("RGBA"))
+            i += 1
+        if not imgs:
+            raise FileNotFoundError(f"{frames_dir / f'{anim}_0.png'} 가 없습니다 (기본 {default_n}장 권장)")
+        frames[anim] = imgs
+    return frames
+
+
+def pack(frames_dir, out_dir, name, walk_speed):
+    frames_dir, out_dir = Path(frames_dir), Path(out_dir)
+    frames = _load_frames(frames_dir)
+    cropped = {a: [img.crop(img.getchannel("A").getbbox()) for img in imgs] for a, imgs in frames.items()}
+
+    # 모든 프레임에 같은 배율 → 프레임마다 크기가 들쭉날쭉하지 않음
+    biggest = max(max(c.width, c.height) for cs in cropped.values() for c in cs)
+    scale = FRAME / biggest
+
+    cols = max(len(cs) for cs in cropped.values())
+    sheet = Image.new("RGBA", (FRAME * cols, FRAME * len(ANIMS)), (0, 0, 0, 0))
+    for row, (anim, _, _, _) in enumerate(ANIMS):
+        for col, c in enumerate(cropped[anim]):
+            w, h = max(1, round(c.width * scale)), max(1, round(c.height * scale))
+            small = c.resize((w, h), Image.LANCZOS)
+            sheet.paste(small, (col * FRAME + (FRAME - w) // 2, row * FRAME + FRAME - h), small)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sheet.save(out_dir / "sheet.png")
+    counts = {a: len(cs) for a, cs in cropped.items()}
+    (out_dir / "pet.json").write_text(
+        json.dumps(manifest(name, walk_speed, counts), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("frames_dir")
+    ap.add_argument("out_dir")
+    ap.add_argument("--name", required=True)
+    ap.add_argument("--walk-speed", type=float, default=60)
+    args = ap.parse_args()
+    pack(args.frames_dir, args.out_dir, args.name, args.walk_speed)
+
+
+if __name__ == "__main__":
+    main()
