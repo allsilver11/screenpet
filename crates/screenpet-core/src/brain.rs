@@ -674,4 +674,23 @@ mod input_tests {
         p.pointer_down(950.0, 350.0);
         assert_eq!(p.state, State::Dragged);
     }
+
+    #[test]
+    fn release_after_pause_throws_with_zero_velocity() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.pointer_down(800.0, 300.0);
+        for i in 1..=6 {
+            p.update(DT, &w);
+            p.pointer_move(800.0 + 50.0 * i as f64, 300.0);
+        }
+        for _ in 0..12 {
+            p.update(DT, &w);
+            p.pointer_move(1100.0, 300.0);
+        }
+        p.pointer_up(1100.0, 300.0);
+        assert!(p.body.vx.abs() < 1.0, "vx={}", p.body.vx);
+        assert!(p.body.vy.abs() < 1.0, "vy={}", p.body.vy);
+    }
 }
