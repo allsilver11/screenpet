@@ -36,8 +36,8 @@ fn refresh(source: &mut dyn WindowSource, size: f64) -> World {
 
 fn pet_config(scale: f64, logical_walk: f64, special: Option<Special>) -> PetConfig {
     let size = PET_LOGICAL_SIZE * STAGE_SCALE * scale;
-    // personality is wired in Task 6
-    PetConfig { size, half_w: size * HALF_WIDTH_RATIO, walk_speed: logical_walk * scale, special, personality: Personality::Friendly }
+    // personality and can_climb are wired in Task 6
+    PetConfig { size, half_w: size * HALF_WIDTH_RATIO, walk_speed: logical_walk * scale, special, personality: Personality::Friendly, can_climb: false }
 }
 
 fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, special: Option<Special>) {

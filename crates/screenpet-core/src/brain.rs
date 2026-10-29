@@ -6,7 +6,7 @@ use crate::care::{FeedResult, Food};
 use crate::behavior::{self, ClickOutcome, ClickReaction, Family, Move, Personality, Rest, Special, Trick};
 use crate::physics::{clamp_speed, step_air, Body};
 use crate::surfaces::{EndKind, Owner};
-use crate::world::World;
+use crate::world::{Side, World};
 
 const TURN_PAUSE: f64 = 0.3;
 const LAND_SECS: f64 = 0.25;
@@ -65,6 +65,10 @@ pub enum Anim {
     LevelUp,
     /// 새침한 고양이의 흥! (앞모습)
     Huff,
+    /// 벽 타기 — 기어오르기 (뒷모습)
+    Climb,
+    /// 벽 타기 — 미끄러져 내려오기 (뒷모습)
+    Slide,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -82,6 +86,11 @@ pub enum Speech {
 }
 
 impl Anim {
+    /// 뒷모습 동작 — 좌우 반전하지 않는다.
+    pub fn is_back(self) -> bool {
+        matches!(self, Anim::Climb | Anim::Slide)
+    }
+
     /// 앞모습 동작 — 좌우 반전하지 않는다.
     pub fn is_front(self) -> bool {
         matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Wag | Anim::Hungry | Anim::Eat | Anim::LevelUp | Anim::Huff)
@@ -147,6 +156,12 @@ pub enum State {
     LevelUp { remaining: f64 },
     /// 새침하게 흥! (클릭 반응)
     Huff { remaining: f64 },
+    /// 화면을 기어오르는 중 (디딤판 없음). 목표에 닿으면 hang초 매달렸다가 Slide
+    Climb { target_y: f64, hang: f64 },
+    /// 화면을 따라 일정한 속도로 미끄러져 내려오는 중 — 지나치는 창 윗면이나 바닥에 내려선다
+    Slide,
+    /// 던져져 창 옆면에 달라붙어 기어오르는 중. rel_y = 발 높이 − 창 윗면
+    WallClimb { window: u64, side: Side, rel_y: f64 },
 }
 
 impl State {
@@ -158,6 +173,7 @@ impl State {
                 Some(Family::Front)
             }
             State::Special { .. } => Some(Family::Special),
+            State::Climb { .. } => Some(Family::Climb),
             _ => None,
         }
     }
@@ -200,6 +216,8 @@ pub struct PetConfig {
     pub special: Option<Special>,
     /// 성격 (pet.json `personality`)
     pub personality: Personality,
+    /// 벽 타기 (pet.json에 climb·slide가 있는 고양이·곰)
+    pub can_climb: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -277,6 +295,9 @@ impl Pet {
                 }
             }
             State::Air { .. } => self.update_air(dt, world),
+            State::Climb { target_y, hang } => self.update_climb(dt, target_y, hang),
+            State::Slide => self.update_slide(dt, world),
+            State::WallClimb { window, side, rel_y } => self.update_wall_climb(dt, world, window, side, rel_y),
             _ => {
                 self.pause_for_hover();
                 self.react_to_tickle();
@@ -284,10 +305,7 @@ impl Pet {
                 self.update_ground(dt, world);
             }
         }
-        // 이동 관성은 실제로 시작한 이동만 기억한다 (박자 뒤로 미뤄 둔 이동은 아직 아님)
-        if let State::Move { kind, .. } = self.state {
-            self.pacing.last_move = Some(kind);
-        }
+        self.on_started();
     }
 
     pub fn render(&self) -> RenderState {
@@ -306,10 +324,12 @@ impl Pet {
             State::Sleep { .. } => Anim::Sleep,
             State::Land { .. } => Anim::Land,
             State::Air { anim } => anim,
+            State::Climb { .. } | State::WallClimb { .. } => Anim::Climb,
+            State::Slide => Anim::Slide,
             State::Pressed { grounded: true, .. } => Anim::Idle,
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
         };
-        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front(), heart: self.heart_timer > 0.0 }
+        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back(), heart: self.heart_timer > 0.0 }
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
@@ -320,9 +340,14 @@ impl Pet {
         matches!(self.state, State::Pressed { .. } | State::Dragged)
     }
 
+    /// 공중이거나 벽에 붙어 있음 (디딤판 위가 아님)
+    fn off_surface(&self) -> bool {
+        matches!(self.state, State::Air { .. } | State::Climb { .. } | State::Slide | State::WallClimb { .. })
+    }
+
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
     pub fn hover(&mut self, cx: f64, cy: f64, inside: bool) {
-        if self.is_held() || matches!(self.state, State::Air { .. }) {
+        if self.is_held() || self.off_surface() {
             self.hover_hist.clear();
             self.tickling = false;
             self.hover_since = None;
@@ -375,7 +400,7 @@ impl Pet {
         if self.is_held() {
             return;
         }
-        let grounded = self.standing.is_some() && !matches!(self.state, State::Air { .. });
+        let grounded = self.standing.is_some() && !self.off_surface();
         let was_sleeping = matches!(self.state, State::Sleep { .. } | State::Annoyed { .. });
         self.grab_dx = self.body.x - cx;
         self.grab_dy = self.body.y - cy;
@@ -658,21 +683,21 @@ impl Pet {
                     match self.pacing.after_beat.take() {
                         Some(AfterBeat::Go(next)) => next,
                         Some(AfterBeat::Rest) => self.rest_state(),
-                        None => self.sleep_or_move(),
+                        None => self.sleep_or_move(world),
                     }
                 };
             }
             State::Trick { kind, remaining } => {
                 let remaining = remaining - dt;
-                self.state = if remaining > 0.0 { State::Trick { kind, remaining } } else { self.move_state(true) };
+                self.state = if remaining > 0.0 { State::Trick { kind, remaining } } else { self.move_state(true, world) };
             }
             State::Huff { remaining } => {
                 let remaining = remaining - dt;
-                self.state = if remaining > 0.0 { State::Huff { remaining } } else { self.move_state(true) };
+                self.state = if remaining > 0.0 { State::Huff { remaining } } else { self.move_state(true, world) };
             }
             State::Tickled { remaining } => {
                 let remaining = remaining - dt;
-                self.state = if remaining > 0.0 { State::Tickled { remaining } } else { self.move_state(true) };
+                self.state = if remaining > 0.0 { State::Tickled { remaining } } else { self.move_state(true, world) };
             }
             State::Annoyed { remaining, tickled_for } => {
                 let tickled_for = if self.tickling { tickled_for + dt } else { tickled_for };
@@ -690,11 +715,11 @@ impl Pet {
             }
             State::Special { kind, remaining } => {
                 let remaining = remaining - dt;
-                self.state = if remaining > 0.0 { State::Special { kind, remaining } } else { self.move_state(true) };
+                self.state = if remaining > 0.0 { State::Special { kind, remaining } } else { self.move_state(true, world) };
             }
             State::Hungry { remaining } => {
                 let remaining = remaining - dt;
-                self.state = if remaining > 0.0 { State::Hungry { remaining } } else { self.move_state(true) };
+                self.state = if remaining > 0.0 { State::Hungry { remaining } } else { self.move_state(true, world) };
             }
             State::Eating { remaining, favorite, level_up } => {
                 let remaining = remaining - dt;
@@ -706,12 +731,12 @@ impl Pet {
                 } else if favorite {
                     self.next_after_beat(State::Trick { kind: Trick::Heart, remaining: AFTER_FAVORITE_HEART_SECS })
                 } else {
-                    self.move_state(true)
+                    self.move_state(true, world)
                 };
             }
             State::LevelUp { remaining } => {
                 let remaining = remaining - dt;
-                self.state = if remaining > 0.0 { State::LevelUp { remaining } } else { self.move_state(true) };
+                self.state = if remaining > 0.0 { State::LevelUp { remaining } } else { self.move_state(true, world) };
             }
             State::Sleep { remaining } => {
                 let remaining = remaining - dt;
@@ -723,23 +748,36 @@ impl Pet {
                     State::Turn { remaining }
                 } else {
                     self.facing = -self.facing;
-                    self.move_state(false)
+                    self.move_state(false, world)
                 };
             }
             State::Land { remaining } => {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 { State::Land { remaining } } else { self.rest_beat() };
             }
-            State::Air { .. } | State::Pressed { .. } | State::Dragged => {}
+            State::Air { .. } | State::Pressed { .. } | State::Dragged | State::Climb { .. } | State::Slide | State::WallClimb { .. } => {}
         }
     }
 
     fn update_air(&mut self, dt: f64, world: &World) {
-        let prev_y = self.body.y;
+        let (prev_x, prev_y, prev_vx) = (self.body.x, self.body.y, self.body.vx);
         step_air(&mut self.body, dt, &world.bounds, self.cfg.half_w, self.cfg.size);
         if self.body.vx.abs() > 1.0 {
             self.facing = self.body.vx.signum();
         }
+        if self.cfg.can_climb && prev_vx.abs() > behavior::WALL_STICK_MIN_VX {
+            if let Some(hit) = world.side_hit(prev_x, self.body.x, self.body.y, self.cfg.half_w) {
+                let top = world.windows.iter().find(|w| w.id == hit.window).expect("hit window exists").rect.top;
+                self.body = Body { x: self.wall_x(hit.x, hit.side), y: self.body.y, vx: 0.0, vy: 0.0 };
+                self.state = State::WallClimb { window: hit.window, side: hit.side, rel_y: self.body.y - top };
+                return;
+            }
+        }
+        self.land_or_recover(prev_y, world);
+    }
+
+    /// 낙하·미끄러짐 공통: 이번 틱에 지나친 디딤판에 내려서거나, 화면 밖으로 사라졌으면 위에서 다시 떨어뜨린다
+    fn land_or_recover(&mut self, prev_y: f64, world: &World) {
         let landing = world.landing(self.body.x, prev_y, self.body.y).copied().or_else(|| {
             // 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 Ground를 바닥으로 취급
             if self.body.vy >= 0.0 { world.ground_below(self.body.x, self.body.y).copied() } else { None }
@@ -759,6 +797,97 @@ impl Pet {
                 vy: 0.0,
             };
         }
+    }
+
+    /// 크기 128 기준 속도를 지금 크기에 맞춘다
+    fn scaled(&self, speed: f64) -> f64 {
+        speed * self.cfg.size / 128.0
+    }
+
+    /// 창 옆면 바깥에 붙어 있을 때 몸 중심 x
+    fn wall_x(&self, edge_x: f64, side: Side) -> f64 {
+        match side {
+            Side::Left => edge_x - self.cfg.half_w,
+            Side::Right => edge_x + self.cfg.half_w,
+        }
+    }
+
+    /// 화면 타기 목표 발 높이 — 발밑 모니터 작업 영역 기준. 이미 그보다 높이 서 있으면 None
+    fn climb_target(&mut self, world: &World) -> Option<f64> {
+        let wa = world.work_area_at(self.body.x);
+        let target_y = behavior::climb_target(&mut self.rng, wa.bottom, wa.top + self.cfg.size);
+        (self.body.y > target_y).then_some(target_y)
+    }
+
+    /// 지금 서 있는 곳에서 화면 타기를 시작한다 (테스트용). 목표가 발보다 낮으면 false
+    #[cfg(test)]
+    pub(crate) fn start_climb(&mut self, world: &World) -> bool {
+        let Some(target_y) = self.climb_target(world) else { return false };
+        self.pacing.after_beat = None;
+        self.state = State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS };
+        self.on_started();
+        true
+    }
+
+    /// 새 상태가 시작될 때 공통 처리: 실제로 시작한 이동만 관성으로 기억하고, 화면 타기는 디딤판을 떠난다
+    fn on_started(&mut self) {
+        match self.state {
+            State::Move { kind, .. } => self.pacing.last_move = Some(kind),
+            State::Climb { .. } if self.standing.is_some() => {
+                self.standing = None;
+                self.body.vx = 0.0;
+                self.body.vy = 0.0;
+            }
+            _ => {}
+        }
+    }
+
+    fn update_climb(&mut self, dt: f64, target_y: f64, hang: f64) {
+        if self.body.y > target_y {
+            self.body.y = (self.body.y - self.scaled(behavior::CLIMB_SPEED) * dt).max(target_y);
+            return;
+        }
+        let hang = hang - dt;
+        self.state = if hang > 0.0 { State::Climb { target_y, hang } } else { State::Slide };
+    }
+
+    fn update_slide(&mut self, dt: f64, world: &World) {
+        let prev_y = self.body.y;
+        self.body.vx = 0.0;
+        self.body.vy = self.scaled(behavior::SLIDE_SPEED);
+        self.body.y += self.body.vy * dt;
+        self.land_or_recover(prev_y, world);
+    }
+
+    fn update_wall_climb(&mut self, dt: f64, world: &World, window: u64, side: Side, rel_y: f64) {
+        let Some(rect) = world.windows.iter().find(|w| w.id == window).map(|w| w.rect) else {
+            self.start_fall();
+            return;
+        };
+        let edge_x = match side {
+            Side::Left => rect.left,
+            Side::Right => rect.right,
+        };
+        let rel_y = rel_y - self.scaled(behavior::WALL_CLIMB_SPEED) * dt;
+        if rel_y <= 0.0 {
+            // 꼭대기: 옆면 바로 안쪽 윗면에 올라선다
+            let inset = self.cfg.half_w + behavior::WALL_TOP_INSET;
+            let rel_x = match side {
+                Side::Left => inset,
+                Side::Right => rect.width() - inset,
+            };
+            self.standing = Some(Standing { owner: Owner::Window(window), rel_x });
+            self.body = Body { x: rect.left + rel_x, y: rect.top, vx: 0.0, vy: 0.0 };
+            self.state = State::Land { remaining: LAND_SECS };
+            return;
+        }
+        let y = rect.top + rel_y;
+        if world.side_covered(window, edge_x, y) != Some(false) {
+            self.start_fall();
+            return;
+        }
+        self.body = Body { x: self.wall_x(edge_x, side), y, vx: 0.0, vy: 0.0 };
+        self.state = State::WallClimb { window, side, rel_y };
     }
 
     pub(crate) fn start_hop(&mut self, dir: f64) {
@@ -800,7 +929,12 @@ impl Pet {
     }
 
     /// 이동 시작. may_flip이면 절반 확률로 방향을 바꾼다 (Turn 직후엔 이미 바꿨으므로 false).
-    fn move_state(&mut self, may_flip: bool) -> State {
+    fn move_state(&mut self, may_flip: bool, world: &World) -> State {
+        if self.cfg.can_climb && self.standing.is_some() && self.rng.f64() < behavior::CLIMB_CHANCE {
+            if let Some(target_y) = self.climb_target(world) {
+                return self.next_after_beat(State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS });
+            }
+        }
         if may_flip && self.rng.bool() {
             self.facing = -self.facing;
         }
@@ -833,11 +967,11 @@ impl Pet {
         }
     }
 
-    fn sleep_or_move(&mut self) -> State {
+    fn sleep_or_move(&mut self, world: &World) -> State {
         if self.rng.f64() < behavior::SLEEP_CHANCE {
             State::Sleep { remaining: behavior::range(&mut self.rng, behavior::SLEEP_SECS) }
         } else {
-            self.move_state(true)
+            self.move_state(true, world)
         }
     }
 }
@@ -851,7 +985,7 @@ mod tests {
     const DT: f64 = 1.0 / 60.0;
 
     pub(super) fn cfg() -> PetConfig {
-        PetConfig { size: 128.0, half_w: 38.0, walk_speed: 60.0, special: None, personality: Personality::Friendly }
+        PetConfig { size: 128.0, half_w: 38.0, walk_speed: 60.0, special: None, personality: Personality::Friendly, can_climb: false }
     }
 
     pub(super) fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
@@ -1245,7 +1379,7 @@ mod tests {
     #[test]
     fn front_animations_are_the_tricks_and_tickle() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Huff];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Huff, Anim::Climb, Anim::Slide];
         let front: Vec<Anim> = all.into_iter().filter(|a| a.is_front()).collect();
         assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Wag, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Huff]);
         assert_eq!(serde_json::to_string(&Anim::SitFront).unwrap(), "\"sit_front\"");
@@ -1254,7 +1388,7 @@ mod tests {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff, Anim::Climb, Anim::Slide];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);
@@ -1290,7 +1424,7 @@ mod tests {
     }
 
     pub(super) fn sim_cfg() -> PetConfig {
-        PetConfig { size: 128.0, half_w: 38.4, walk_speed: 90.0, special: None, personality: Personality::Friendly }
+        PetConfig { size: 128.0, half_w: 38.4, walk_speed: 90.0, special: None, personality: Personality::Friendly, can_climb: false }
     }
 
     /// 10분 동안 바뀐 동작 순서 (같은 동작 연속은 하나로)
@@ -2229,5 +2363,341 @@ mod care_tests {
         }
         assert_eq!(serde_json::to_string(&Anim::LevelUp).unwrap(), "\"level_up\"");
         assert_eq!(serde_json::to_string(&Speech::LevelUp).unwrap(), "\"level_up\"");
+    }
+}
+
+#[cfg(test)]
+mod climb_tests {
+    use super::tests::{cfg, place, run, sim_cfg, win, world};
+    use super::*;
+    use crate::world::Side;
+
+    const DT: f64 = 1.0 / 60.0;
+
+    fn climber() -> PetConfig {
+        PetConfig { can_climb: true, ..cfg() }
+    }
+
+    /// 상태가 바뀔 때까지(최대 ticks) 돌린다
+    fn run_while(p: &mut Pet, w: &World, ticks: usize, keep: impl Fn(&State) -> bool) -> usize {
+        for i in 0..ticks {
+            if !keep(&p.state) {
+                return i;
+            }
+            p.update(DT, w);
+        }
+        ticks
+    }
+
+    #[test]
+    fn forced_climb_reaches_target_hangs_then_slides_to_the_ground() {
+        let w = world(vec![]);
+        let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
+        assert!(p.start_climb(&w));
+        let State::Climb { target_y, .. } = p.state else { panic!("{:?}", p.state) };
+        assert!(p.standing.is_none());
+        assert_eq!(p.render().anim, Anim::Climb);
+        p.update(DT, &w);
+        assert!((p.body.y - (1040.0 - 70.0 * DT)).abs() < 1e-9, "{}", p.body.y);
+        assert_eq!(p.body.x, 900.0);
+        // 목표에 닿고 잠깐 매달린 뒤 미끄러진다
+        let ticks = run_while(&mut p, &w, 60 * 20, |s| matches!(s, State::Climb { .. }));
+        let expected = ((1040.0 - target_y) / 70.0 + 0.4) * 60.0;
+        assert!((ticks as f64 - expected).abs() < 3.0, "{ticks} vs {expected}");
+        assert!(matches!(p.state, State::Slide), "{:?}", p.state);
+        assert_eq!(p.render().anim, Anim::Slide);
+        let y = p.body.y;
+        p.update(DT, &w);
+        assert!((p.body.y - (y + 250.0 * DT)).abs() < 1e-9);
+        run_while(&mut p, &w, 60 * 10, |s| matches!(s, State::Slide));
+        assert!(matches!(p.state, State::Land { .. }), "{:?}", p.state);
+        assert_eq!(p.standing.unwrap().owner, Owner::Ground(0));
+        assert_eq!((p.body.x, p.body.y), (900.0, 1040.0));
+    }
+
+    #[test]
+    fn climb_hangs_about_0_4_s_at_the_target() {
+        let w = world(vec![]);
+        let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
+        assert!(p.start_climb(&w));
+        let State::Climb { target_y, .. } = p.state else { panic!() };
+        let mut at_top = 0;
+        for _ in 0..(60 * 20) {
+            p.update(DT, &w);
+            match p.state {
+                State::Climb { .. } if p.body.y <= target_y => {
+                    assert_eq!(p.body.y, target_y);
+                    at_top += 1;
+                }
+                State::Climb { .. } => assert_eq!(at_top, 0),
+                _ => break,
+            }
+        }
+        assert!((23..=25).contains(&at_top), "{at_top}");
+        assert!(matches!(p.state, State::Slide));
+    }
+
+    #[test]
+    fn slide_lands_on_a_window_top_it_crosses() {
+        let w = world(vec![win(1, 700.0, 600.0, 1100.0, 900.0)]);
+        let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
+        assert!(p.start_climb(&w));
+        // 창 윗면(600)보다 높이 오르게 한다 — 오르는 동안엔 창 윗면에 걸리지 않는다
+        p.state = State::Climb { target_y: 400.0, hang: behavior::CLIMB_HANG_SECS };
+        run_while(&mut p, &w, 60 * 30, |s| matches!(s, State::Climb { .. } | State::Slide));
+        assert!(matches!(p.state, State::Land { .. }), "{:?}", p.state);
+        assert_eq!(p.standing.unwrap().owner, Owner::Window(1));
+        assert_eq!((p.body.x, p.body.y), (900.0, 600.0));
+    }
+
+    #[test]
+    fn climb_target_stays_between_a_quarter_and_the_top() {
+        let w = world(vec![]);
+        let range = 1040.0 - 128.0;
+        let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+        for seed in 0..500 {
+            let mut p = Pet::new(climber(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
+            assert!(p.start_climb(&w));
+            let State::Climb { target_y, .. } = p.state else { panic!() };
+            assert!((1040.0 - range..=1040.0 - 0.25 * range).contains(&target_y), "seed {seed}: {target_y}");
+            lo = lo.min(target_y);
+            hi = hi.max(target_y);
+        }
+        assert!(lo < 150.0 && hi > 790.0, "{lo} {hi}");
+    }
+
+    #[test]
+    fn standing_above_the_target_skips_climbing() {
+        let w = world(vec![win(1, 700.0, 200.0, 1100.0, 900.0)]);
+        let mut skipped = 0;
+        for seed in 0..200 {
+            let mut p = Pet::new(climber(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Window(1), 900.0, State::Idle { remaining: 10.0, look: false });
+            if p.start_climb(&w) {
+                let State::Climb { target_y, .. } = p.state else { panic!() };
+                assert!(target_y < 200.0);
+            } else {
+                assert_eq!(p.standing.unwrap().owner, Owner::Window(1));
+                skipped += 1;
+            }
+        }
+        assert!(skipped > 150, "{skipped}");
+    }
+
+    /// 쉬기 끝에 새 이동을 시작할 때 화면 타기를 고른 비율
+    fn climb_share(cfg: PetConfig) -> f64 {
+        let w = world(vec![]);
+        let (mut climbs, mut moves) = (0, 0);
+        for seed in 0..5000 {
+            let mut p = Pet::new(cfg, 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 0.001, look: false });
+            p.update(DT, &w);
+            match p.state {
+                State::Climb { .. } => {
+                    assert!(p.standing.is_none());
+                    climbs += 1;
+                }
+                State::Move { .. } => moves += 1,
+                State::Sleep { .. } => {}
+                s => panic!("seed {seed}: {s:?}"),
+            }
+        }
+        climbs as f64 / (climbs + moves) as f64
+    }
+
+    #[test]
+    fn climbers_climb_about_6_percent_of_move_starts() {
+        let share = climb_share(climber());
+        assert!((0.04..=0.08).contains(&share), "{share}");
+        assert_eq!(climb_share(cfg()), 0.0);
+    }
+
+    #[test]
+    fn climb_after_a_front_activity_comes_after_a_beat() {
+        let w = world(vec![]);
+        for seed in 0..2000 {
+            let mut p = Pet::new(climber(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.001 });
+            p.update(DT, &w);
+            assert!(!matches!(p.state, State::Climb { .. }), "seed {seed}");
+            if matches!(p.pacing.after_beat, Some(AfterBeat::Go(State::Climb { .. }))) {
+                assert!(p.standing.is_some());
+                run_while(&mut p, &w, 120, |s| matches!(s, State::Idle { .. }));
+                assert!(matches!(p.state, State::Climb { .. }));
+                assert!(p.standing.is_none());
+                p.update(DT, &w);
+                assert!(p.body.y < 1040.0);
+                return;
+            }
+        }
+        panic!("never climbed after a trick");
+    }
+
+    #[test]
+    fn back_view_animations_never_flip() {
+        let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+        p.facing = -1.0;
+        for (state, anim) in [
+            (State::Climb { target_y: 100.0, hang: 0.4 }, Anim::Climb),
+            (State::Slide, Anim::Slide),
+            (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
+        ] {
+            p.state = state;
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false });
+        }
+        assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
+        assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
+    }
+
+    #[test]
+    fn climbing_pet_can_be_grabbed_and_dragged() {
+        let w = world(vec![]);
+        for state in [State::Climb { target_y: 300.0, hang: 0.4 }, State::Slide] {
+            let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
+            assert!(p.start_climb(&w));
+            run(&mut p, &w, 30);
+            p.state = state;
+            p.pointer_down(900.0, p.body.y - 50.0);
+            assert!(matches!(p.state, State::Pressed { grounded: false, .. }), "{:?}", p.state);
+            p.pointer_move(1000.0, 500.0);
+            assert_eq!(p.state, State::Dragged);
+            p.pointer_up(1000.0, 500.0);
+            assert!(matches!(p.state, State::Air { .. }));
+        }
+    }
+
+    #[test]
+    fn climbing_pet_ignores_tickles_hover_and_chatter() {
+        let w = world(vec![]);
+        let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
+        assert!(p.start_climb(&w));
+        p.chatter_timer = 0.0;
+        for i in 0..90 {
+            let (cx, cy) = (880.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, p.body.y - 60.0);
+            p.hover(cx, cy, true);
+            p.update(DT, &w);
+            assert!(matches!(p.state, State::Climb { .. }), "{:?}", p.state);
+            assert_eq!(p.take_speech(), None);
+        }
+    }
+
+    // --- 창 옆면 타기 ---
+
+    fn side_world() -> World {
+        world(vec![win(1, 800.0, 300.0, 1300.0, 900.0)])
+    }
+
+    fn thrown(cfg: PetConfig, x: f64, y: f64, vx: f64) -> Pet {
+        let mut p = Pet::new(cfg, x, y, 1);
+        p.body.vx = vx;
+        p.state = State::Air { anim: Anim::Fall };
+        p
+    }
+
+    #[test]
+    fn thrown_climber_sticks_to_the_left_side_climbs_and_stands_on_top() {
+        let w = side_world();
+        let mut p = thrown(climber(), 700.0, 600.0, 600.0);
+        run_while(&mut p, &w, 60, |s| matches!(s, State::Air { .. }));
+        let State::WallClimb { window: 1, side: Side::Left, rel_y } = p.state else { panic!("{:?}", p.state) };
+        assert_eq!(p.body.x, 800.0 - 38.0);
+        assert_eq!((p.body.vx, p.body.vy), (0.0, 0.0));
+        assert!(p.standing.is_none());
+        assert_eq!(p.render().anim, Anim::Climb);
+        p.update(DT, &w);
+        assert!((p.body.y - (300.0 + rel_y - 90.0 * DT)).abs() < 1e-9);
+        run_while(&mut p, &w, 60 * 10, |s| matches!(s, State::WallClimb { .. }));
+        assert!(matches!(p.state, State::Land { .. }), "{:?}", p.state);
+        let st = p.standing.unwrap();
+        assert_eq!(st.owner, Owner::Window(1));
+        assert_eq!((p.body.x, p.body.y), (800.0 + 38.0 + 2.0, 300.0));
+    }
+
+    #[test]
+    fn thrown_climber_sticks_to_the_right_side_too() {
+        let w = side_world();
+        let mut p = thrown(climber(), 1400.0, 600.0, -600.0);
+        run_while(&mut p, &w, 60, |s| matches!(s, State::Air { .. }));
+        assert!(matches!(p.state, State::WallClimb { window: 1, side: Side::Right, .. }), "{:?}", p.state);
+        assert_eq!(p.body.x, 1300.0 + 38.0);
+        run_while(&mut p, &w, 60 * 10, |s| matches!(s, State::WallClimb { .. }));
+        assert_eq!((p.body.x, p.body.y), (1300.0 - 38.0 - 2.0, 300.0));
+    }
+
+    #[test]
+    fn wall_climber_follows_a_moving_window() {
+        let w = side_world();
+        let mut p = thrown(climber(), 700.0, 600.0, 600.0);
+        run_while(&mut p, &w, 60, |s| matches!(s, State::Air { .. }));
+        let State::WallClimb { rel_y, .. } = p.state else { panic!() };
+        let moved = world(vec![win(1, 900.0, 350.0, 1400.0, 950.0)]);
+        p.update(DT, &moved);
+        assert_eq!(p.body.x, 900.0 - 38.0);
+        assert!((p.body.y - (350.0 + rel_y - 90.0 * DT)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn wall_climber_falls_when_the_window_goes_or_the_side_gets_covered() {
+        let w = side_world();
+        let mut p = thrown(climber(), 700.0, 600.0, 600.0);
+        run_while(&mut p, &w, 60, |s| matches!(s, State::Air { .. }));
+        assert!(matches!(p.state, State::WallClimb { .. }));
+        p.update(DT, &world(vec![]));
+        assert_eq!(p.state, State::Air { anim: Anim::Fall });
+
+        let mut p = thrown(climber(), 700.0, 600.0, 600.0);
+        run_while(&mut p, &w, 60, |s| matches!(s, State::Air { .. }));
+        assert!(matches!(p.state, State::WallClimb { .. }));
+        p.update(DT, &world(vec![win(2, 700.0, 400.0, 900.0, 800.0), win(1, 800.0, 300.0, 1300.0, 900.0)]));
+        assert_eq!(p.state, State::Air { anim: Anim::Fall });
+    }
+
+    /// 던진 펫이 창 옆면에 한 번이라도 달라붙었는지
+    fn ever_sticks(cfg: PetConfig, w: &World, vx: f64) -> bool {
+        let mut p = thrown(cfg, 700.0, 600.0, vx);
+        for _ in 0..120 {
+            p.update(DT, w);
+            if matches!(p.state, State::WallClimb { .. }) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn covered_side_slow_throws_and_non_climbers_do_not_stick() {
+        let covered = world(vec![win(2, 700.0, 400.0, 900.0, 800.0), win(1, 800.0, 300.0, 1300.0, 900.0)]);
+        assert!(!ever_sticks(climber(), &covered, 600.0));
+        assert!(!ever_sticks(climber(), &side_world(), 45.0));
+        assert!(!ever_sticks(cfg(), &side_world(), 600.0));
+        assert!(ever_sticks(climber(), &side_world(), 600.0));
+    }
+
+    /// 벽 타는 동물 10분 — 패닉 없이, 화면 안에서, 벽 타기 동작이 나온다
+    #[test]
+    fn climber_ten_minutes_smoke() {
+        let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0), win(2, 1300.0, 350.0, 1800.0, 700.0)]);
+        let (mut climb, mut slide) = (0usize, 0usize);
+        for seed in 0..8 {
+            let mut p = Pet::new(PetConfig { can_climb: true, ..sim_cfg() }, 960.0, 128.0, seed);
+            for _ in 0..(60 * 600) {
+                p.update(DT, &w);
+                match p.render().anim {
+                    Anim::Climb => climb += 1,
+                    Anim::Slide => slide += 1,
+                    _ => {}
+                }
+                let b = w.bounds;
+                assert!(p.body.x >= b.left && p.body.x <= b.right, "seed {seed}: x {}", p.body.x);
+                assert!(p.body.y >= b.top + 128.0 - 1e-9 && p.body.y <= b.bottom, "seed {seed}: y {} {:?}", p.body.y, p.state);
+            }
+        }
+        assert!(climb > 0 && slide > 0, "climb {climb} slide {slide}");
     }
 }

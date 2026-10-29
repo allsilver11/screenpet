@@ -53,7 +53,29 @@ pub enum Family {
     Front,
     /// 종별 특별 동작
     Special,
+    /// 화면 벽 타기 (뒷모습)
+    Climb,
 }
+/// 벽 타는 동물이 새 이동 대신 화면을 기어오를 확률 (spec 2B §7)
+pub const CLIMB_CHANCE: f64 = 0.06;
+/// 기어오를 높이 — 작업 영역 바닥에서 꼭대기까지 거리의 이 비율 범위
+pub const CLIMB_HEIGHT: (f64, f64) = (0.25, 1.0);
+/// 크기 128 기준 px/s (cfg.size / 128 배)
+pub const CLIMB_SPEED: f64 = 70.0;
+pub const SLIDE_SPEED: f64 = 250.0;
+pub const WALL_CLIMB_SPEED: f64 = 90.0;
+/// 목표 높이에 닿은 뒤 매달려 있는 시간
+pub const CLIMB_HANG_SECS: f64 = 0.4;
+/// 이 속도(|vx|)보다 빠르게 던져져야 창 옆면에 달라붙는다
+pub const WALL_STICK_MIN_VX: f64 = 50.0;
+/// 창 꼭대기에 올라설 때 옆면에서 안쪽으로 몸 절반 + 이만큼
+pub const WALL_TOP_INSET: f64 = 2.0;
+
+/// 기어오를 목표 발 높이: bottom(작업 영역 바닥) − u × (bottom − top_limit), u ∈ CLIMB_HEIGHT
+pub fn climb_target(rng: &mut fastrand::Rng, bottom: f64, top_limit: f64) -> f64 {
+    bottom - range(rng, CLIMB_HEIGHT) * (bottom - top_limit)
+}
+
 pub const MOVE_END_TURN_CHANCE: f64 = 0.3;
 pub const WALK_EDGE_HOP_CHANCE: f64 = 0.8;
 pub const RUN_LEAP_VX_MULT: f64 = 1.8;
@@ -367,6 +389,18 @@ mod tests {
         assert_eq!(Special::from_manifest(|n| n == "wag"), Some(Special::Wag));
         assert_eq!(Special::from_manifest(|_| false), None);
         assert_eq!((Special::Arch.anim_name(), Special::Wag.anim_name()), ("arch", "wag"));
+    }
+
+    #[test]
+    fn climb_target_spans_a_quarter_to_the_top() {
+        let mut rng = fastrand::Rng::with_seed(4);
+        let (bottom, top_limit) = (1040.0, 128.0);
+        let range_px = bottom - top_limit;
+        let ts: Vec<f64> = (0..5000).map(|_| climb_target(&mut rng, bottom, top_limit)).collect();
+        assert!(ts.iter().all(|&t| t >= bottom - range_px && t <= bottom - 0.25 * range_px));
+        let (lo, hi) = ts.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &t| (lo.min(t), hi.max(t)));
+        assert!(lo < top_limit + 10.0 && hi > bottom - 0.25 * range_px - 10.0, "{lo} {hi}");
+        assert_eq!((CLIMB_CHANCE, CLIMB_SPEED, SLIDE_SPEED, WALL_CLIMB_SPEED, CLIMB_HANG_SECS), (0.06, 70.0, 250.0, 90.0, 0.4));
     }
 
     #[test]

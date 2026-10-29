@@ -10,8 +10,8 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
     "tickle", "annoyed", "hungry", "eat", "level_up",
 ];
 
-/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name)
-pub const OPTIONAL_ANIMS: [&str; 3] = ["arch", "wag", "huff"];
+/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide)
+pub const OPTIONAL_ANIMS: [&str; 5] = ["arch", "wag", "huff", "climb", "slide"];
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnimSpec {
@@ -73,6 +73,11 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
 impl PetManifest {
     pub fn has_anim(&self, name: &str) -> bool {
         self.animations.contains_key(name)
+    }
+
+    /// 벽 타기 (뒷모습 climb + slide 둘 다 있어야 한다)
+    pub fn can_climb(&self) -> bool {
+        self.has_anim("climb") && self.has_anim("slide")
     }
 
     /// 이 동물의 단계별 크기 배율 (care::Stage::scale에 곱한다)
@@ -137,6 +142,17 @@ mod tests {
         assert!(!parse_manifest(&full_json()).unwrap().has_anim("wag"));
         let bad = full_json().replace(r#""animations": {"#, r#""animations": {"wag": {"row": 18, "frames": 0, "fps": 8},"#);
         assert!(parse_manifest(&bad).is_err());
+    }
+
+    #[test]
+    fn climbing_needs_both_climb_and_slide() {
+        let add = |extra: &str| full_json().replace(r#""animations": {"#, &format!(r#""animations": {{{extra}"#));
+        assert!(OPTIONAL_ANIMS.ends_with(&["huff", "climb", "slide"]));
+        assert!(!parse_manifest(&full_json()).unwrap().can_climb());
+        assert!(!parse_manifest(&add(r#""climb": {"row": 21, "frames": 4, "fps": 8},"#)).unwrap().can_climb());
+        let both = add(r#""climb": {"row": 21, "frames": 4, "fps": 8}, "slide": {"row": 22, "frames": 2, "fps": 6},"#);
+        assert!(parse_manifest(&both).unwrap().can_climb());
+        assert!(parse_manifest(&add(r#""slide": {"row": 22, "frames": 0, "fps": 6},"#)).is_err());
     }
 
     #[test]
