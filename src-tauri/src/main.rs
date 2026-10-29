@@ -45,6 +45,8 @@ pub struct AppState {
     pub away: AtomicBool,
     /// 짝맞추기 창에 보이는 상태 — 게임 루프가 갱신 (짝맞추기 웹뷰 첫 로드용)
     pub pair: Mutex<PairView>,
+    /// 직접 주기 중 (음식이 커서에 붙어 있음) — 게임 루프가 갱신. 그동안 내 동물 우클릭은 메뉴 대신 음식 거두기
+    pub hand_feeding: AtomicBool,
 }
 
 /// 창의 동물을 눌렀다 — 부른 창의 라벨로 어느 동물인지 찾는다
@@ -94,6 +96,10 @@ fn feed(window: WebviewWindow, state: State<AppState>, food: String) {
 #[tauri::command]
 async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
     let label = window.label().to_string();
+    // 직접 주기 중의 우클릭은 음식을 거두는 것 (게임 루프가 전역 버튼으로 읽는다) — 메뉴는 띄우지 않는다
+    if !slots::is_guest_label(&label) && state.hand_feeding.load(Ordering::Relaxed) {
+        return Ok(());
+    }
     if !slots::is_guest_label(&label) {
         return window.popup_menu(&state.menu.menu).map_err(|e| e.to_string());
     }
@@ -154,7 +160,7 @@ fn main() {
             let care = cfg.care.get(&current).cloned().unwrap_or_default();
 
             let (tx, rx) = mpsc::channel();
-            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), care.locked, cfg.housed)?;
+            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), care.locked, cfg.housed, cfg.feed_mode)?;
             let stage = game_loop::stage_payload(&entry, &care);
             let house_state = HouseState {
                 pet: stage.pet.clone(),
@@ -173,6 +179,7 @@ fn main() {
                 housed: AtomicBool::new(cfg.housed),
                 away: AtomicBool::new(false),
                 pair: Mutex::new(PairView::default()),
+                hand_feeding: AtomicBool::new(false),
             });
             // 숨긴 채로 만들어 두고, 하우스에 들어갈 때 구석에 놓아 보인다
             house::create(app.handle())?;

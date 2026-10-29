@@ -51,6 +51,7 @@ impl Pet {
             }
             State::Air { .. } => self.update_fly_air(dt, world),
             State::ToFood { .. } => self.fly_to_food(world),
+            State::WantFood { .. } => self.update_fly_want_food(dt, world),
             // 걷는 동물에서 바뀐 경우 등 — 나는 동물은 벽을 타거나 뛰지 않는다
             State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } | State::HomeLeap { .. } => {
                 self.standing = None;
@@ -475,6 +476,31 @@ impl Pet {
             FeedResult::Ate { leveled_up } => self.serve(food, leveled_up),
         }
         true
+    }
+
+    /// 손에 든 음식으로 날아가 얼굴을 음식에 갖다 댄다 (내려앉아 있었으면 떠오른다)
+    fn update_fly_want_food(&mut self, dt: f64, world: &World) {
+        let Some((fx, fy)) = self.hand else {
+            self.state = self.idle_state();
+            return;
+        };
+        if self.standing.is_some() {
+            self.take_off();
+        }
+        self.flight = None;
+        self.hover_at = None;
+        let b = self.fly_limits(world);
+        let (tx, ty) = flight::clamp(&b, fx, fy + sting::FACE_HEIGHT * self.cfg.size);
+        let (dx, dy) = (tx - self.body.x, ty - self.body.y);
+        let dist = dx.hypot(dy);
+        if (fx - self.body.x).abs() > 1.0 {
+            self.facing = (fx - self.body.x).signum();
+        }
+        let step = self.fly_speed(Move::Walk) * dt;
+        let walking = dist > step;
+        let (x, y) = if walking { (self.body.x + dx / dist * step, self.body.y + dy / dist * step) } else { (tx, ty) };
+        self.body = Body { x, y, vx: 0.0, vy: 0.0 };
+        self.state = State::WantFood { walking };
     }
 
     /// 받은 먹이의 자리를 정한다: 내려앉아 있으면 바라보는 쪽 앞, 떠 있으면 가장 가까운 자리.

@@ -4,6 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::care::Care;
+use crate::food::FeedMode;
 use crate::visit::{ExitEdges, Side};
 
 const FILE: &str = "config.json";
@@ -29,6 +30,14 @@ pub struct Config {
     /// 하우스를 끌어다 놓은 자리. 없으면 (또는 그 모니터가 없어졌으면) 주 모니터 오른쪽 아래 구석
     #[serde(default, deserialize_with = "lenient_house_spot")]
     pub house_spot: Option<HouseSpot>,
+    /// 먹이 주는 방법 (직접 주기 / 자동 주기). 모르는 값이면 직접 주기
+    #[serde(default, deserialize_with = "lenient_feed_mode")]
+    pub feed_mode: FeedMode,
+}
+
+fn lenient_feed_mode<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FeedMode, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_default())
 }
 
 /// 친구: id(이름표) + 고정된 정적 공개키(신원) + 표시 이름 + 내 화면의 어느 끝에 연결됐는지
@@ -572,6 +581,19 @@ mod tests {
 
     fn spot(monitor: &str, pos: (i32, i32), offset: f64) -> HouseSpot {
         HouseSpot { monitor: monitor.into(), monitor_pos: pos, offset }
+    }
+
+    #[test]
+    fn feed_mode_defaults_to_hand_and_roundtrips() {
+        use crate::food::FeedMode;
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert_eq!(old.feed_mode, FeedMode::Hand);
+        let bad: Config = serde_json::from_str(r#"{"pet":"cat","feed_mode":"teleport"}"#).unwrap();
+        assert_eq!((bad.pet.as_deref(), bad.feed_mode), (Some("cat"), FeedMode::Hand));
+        let dir = temp_dir("feedmode");
+        let c = Config { pet: Some("dog".into()), feed_mode: FeedMode::Auto, ..Config::default() };
+        save(&dir, &c).unwrap();
+        assert_eq!(load(&dir).feed_mode, FeedMode::Auto);
     }
 
     #[test]

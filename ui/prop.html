@@ -4,7 +4,9 @@
     <meta charset="utf-8" />
     <!-- 밥그릇·물그릇·꽃·쿠키 (phase 3 먹이 바꾸기): 동물이 먹을 때 그 앞 바닥에 놓이는 소품.
          그림 이름은 앱(prop.rs)이 window.PROP_IMAGE로 넣어 준다 (effects/<name>.png). 톡 나타났다가,
-         다 먹으면 앱이 body에 .hide를 붙여 0.6초 동안 흐려지고 창이 닫힌다. 창은 마우스를 통과시킨다. -->
+         다 먹으면 앱이 body에 .hide를 붙여 0.6초 동안 흐려지고 창이 닫힌다. 창은 마우스를 통과시킨다.
+         window.PROP_MODE = "hand" (직접 주기): 커서 끝에 붙은 음식 (effects/hand_*.png, 가운데 정렬, 살짝 흔들흔들).
+         받아먹으면 .bite (냠 냠 두 번 베어 먹히며 사라짐), 거두면 .drop (툭 떨어지며 흐려짐). -->
     <style>
       html,
       body {
@@ -32,6 +34,64 @@
       /* 꽃은 아래에서 피어오른다 */
       #prop.flower {
         animation: bloom 700ms ease-out both;
+      }
+
+      body.hand #prop {
+        object-position: 50% 50%;
+        transform-origin: 50% 50%;
+        animation:
+          pop 200ms ease-out both,
+          dangle 1.6s ease-in-out 200ms infinite;
+      }
+
+      body.hand.bite #prop {
+        animation: bite 800ms ease-in forwards;
+      }
+
+      body.hand.drop #prop {
+        animation: drop 400ms ease-in forwards;
+      }
+
+      @keyframes dangle {
+        0%,
+        100% {
+          transform: rotate(-6deg);
+        }
+        50% {
+          transform: rotate(6deg);
+        }
+      }
+
+      /* 냠 — 냠 — 사라짐: 베어 물 때마다 움찔 줄어든다 */
+      @keyframes bite {
+        0% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        20% {
+          transform: scale(0.82, 0.9) rotate(-8deg);
+        }
+        35% {
+          transform: scale(0.86) rotate(0deg);
+        }
+        55% {
+          transform: scale(0.6, 0.7) rotate(8deg);
+        }
+        70% {
+          transform: scale(0.62);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(0.1);
+          opacity: 0;
+        }
+      }
+
+      @keyframes drop {
+        to {
+          transform: translateY(16px) rotate(20deg);
+          opacity: 0;
+        }
       }
 
       body.hide #prop {
@@ -72,6 +132,7 @@
     <img id="prop" alt="" />
     <script>
       const name = window.PROP_IMAGE || "bowl_food";
+      if (window.PROP_MODE === "hand") document.body.classList.add("hand");
       const el = document.getElementById("prop");
       el.className = name;
       el.src = `effects/${name}.png`;

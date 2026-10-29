@@ -98,3 +98,98 @@ impl Props {
         });
     }
 }
+
+/// 손에 든 음식 창 한 변 (논리 px) — 그림(ui/effects/hand_*.png, 48×48)을 가운데에
+const HAND_SIZE: f64 = 48.0;
+/// 받아먹기(냠 냠) 뒤 닫기까지 — prop.html bite 0.8초
+const BITE: Duration = Duration::from_millis(900);
+/// 거두기(툭 떨어지며 흐려짐) 뒤 닫기까지 — prop.html drop 0.4초
+const DROP: Duration = Duration::from_millis(500);
+
+/// 직접 주기: 커서 끝을 따라다니는 음식 그림 창 하나 (`hand-<n>`, prop.html의 hand 모드). 마우스는 통과한다
+#[derive(Default)]
+pub struct HandWindow {
+    next: u64,
+    live: Option<WebviewWindow>,
+    last_pos: Option<(i32, i32)>,
+    fading: Vec<(WebviewWindow, Instant)>,
+}
+
+impl HandWindow {
+    /// (x, y) = 음식 가운데 (물리 px). 게임 루프 스레드에서만 부른다
+    pub fn show(&mut self, app: &AppHandle, icon: &str, at: (f64, f64), dpi: f64) {
+        if let Some(old) = self.live.take() {
+            let _ = old.destroy();
+        }
+        let label = format!("hand-{}", self.next);
+        self.next += 1;
+        let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
+            .title("ScreenPet Hand Food")
+            .initialization_script(&format!("window.PROP_IMAGE = {icon:?}; window.PROP_MODE = \"hand\";"))
+            .inner_size(HAND_SIZE, HAND_SIZE)
+            .transparent(true)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .focused(false)
+            .visible(false)
+            .build();
+        let window = match built {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("failed to create hand food window: {e}");
+                return;
+            }
+        };
+        let _ = window.set_size(LogicalSize::new(HAND_SIZE, HAND_SIZE));
+        // 클릭은 음식을 지나 그 아래(동물·다른 앱)로 간다 — 누름은 게임 루프가 전역으로 읽는다
+        let _ = window.set_ignore_cursor_events(true);
+        self.last_pos = None;
+        self.live = Some(window);
+        self.move_to(at, dpi);
+        if let Some(w) = &self.live {
+            let _ = w.show();
+        }
+    }
+
+    /// 음식 가운데를 (x, y)로 (매 틱)
+    pub fn move_to(&mut self, at: (f64, f64), dpi: f64) {
+        let Some(w) = &self.live else { return };
+        let half = HAND_SIZE / 2.0 * dpi;
+        let pos = ((at.0 - half).round() as i32, (at.1 - half).round() as i32);
+        if self.last_pos != Some(pos) {
+            let _ = w.set_position(PhysicalPosition::new(pos.0, pos.1));
+            self.last_pos = Some(pos);
+        }
+    }
+
+    /// 받아먹었다 — 냠냠 베어 먹히며 사라진다
+    pub fn bite(&mut self) {
+        self.finish("bite", BITE);
+    }
+
+    /// 거뒀다 — 먹지 않고 툭 사라진다
+    pub fn drop_back(&mut self) {
+        self.finish("drop", DROP);
+    }
+
+    fn finish(&mut self, class: &str, after: Duration) {
+        if let Some(w) = self.live.take() {
+            let _ = w.eval(&format!("document.body.classList.add('{class}')"));
+            self.fading.push((w, Instant::now() + after));
+        }
+    }
+
+    pub fn tick(&mut self, now: Instant) {
+        self.fading.retain(|(w, at)| {
+            if now >= *at {
+                let _ = w.destroy();
+                false
+            } else {
+                true
+            }
+        });
+    }
+}

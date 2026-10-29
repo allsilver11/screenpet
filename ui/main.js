@@ -105,7 +105,14 @@ const listeningStage = listen("pet-stage", (e) => {
   loadPet();
 });
 
-const speech = setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest: () => manifest });
+// pet.json에 없는 상황의 기본 대사 (직접 주기: 배고플 때 손에 든 음식을 봤다)
+const EXTRA_SPEECH = { eager: ["냠!?"] };
+const speech = setupSpeech({
+  bubbleEl,
+  pickerEl,
+  favBtn,
+  getManifest: () => manifest && { ...manifest, speech: { ...EXTRA_SPEECH, ...manifest.speech } },
+});
 
 // 트레이 "내 친구 코드 보기": 머리 위 띠에 "🔑 ABCD-1234", 누르면 복사 (잠시 뒤 사라진다)
 const codetagEl = document.getElementById("codetag");

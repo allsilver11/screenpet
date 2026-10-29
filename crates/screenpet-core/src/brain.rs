@@ -111,6 +111,8 @@ pub enum Speech {
     Ignore,
     /// 꿀벌이 화면을 쏨 ("콕!")
     Sting,
+    /// 배고플 때 손에 든 음식을 봤다 ("냠!?")
+    Eager,
 }
 
 impl Anim {
@@ -210,6 +212,8 @@ pub enum State {
     Sting { phase: StingPhase, remaining: f64 },
     /// 먹이를 받아 그릇(나는 동물은 꽃)으로 가는 중 — remaining초 안에 못 닿으면 그 자리에서 먹는다
     ToFood { remaining: f64 },
+    /// 손에 든 음식(직접 주기)을 보고 기다리는 중 — 같은 바닥 가까이면 걸어가고, 나는 동물은 날아간다
+    WantFood { walking: bool },
 }
 
 impl State {
@@ -383,6 +387,10 @@ pub struct Pet {
     return_home: Option<(Owner, f64)>,
     /// 나중에 먹을 먹이 (음식, 성장함): 공중·들린 채·벽 타는 중에 받은 간식·물, 성장 축하·하트 중에 받은 먹이
     queued_food: Option<(Food, bool)>,
+    /// 손에 든 음식의 자리 (직접 주기 중이면 Some — 앱이 매 틱 offer_hand로 알려 준다)
+    hand: Option<(f64, f64)>,
+    /// 이번에 내민 음식을 이미 알아챘음 (배고프면 한 번 "냠!?")
+    hand_noticed: bool,
     /// 디딤판에 놓인 소품 (소품, 디딤판, 기준점에서의 x, 마지막으로 보낸 자리) — 창이 움직이면 따라간다
     prop_anchor: Option<(Prop, Owner, f64, (f64, f64))>,
     /// 쏜 화면 지점 (take_sting으로 한 번 꺼낸다)
@@ -438,6 +446,8 @@ impl Pet {
             house_door: None,
             return_home: None,
             queued_food: None,
+            hand: None,
+            hand_noticed: false,
             prop_anchor: None,
             sting_at: None,
             sting_ready_at: 0.0,
@@ -454,6 +464,7 @@ impl Pet {
         self.after_meal();
         self.track_prop(world);
         self.serve_queued_food();
+        self.notice_hand();
         if self.housed && self.food.is_some_and(|f| f.from_house) {
             self.come_out_for_food(world);
         }
@@ -536,7 +547,8 @@ impl Pet {
             State::Move { kind, .. } => kind.into(),
             State::Sting { phase: StingPhase::Recoil, .. } => Anim::Annoyed,
             State::Sting { .. } => Anim::Sting,
-            State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } => Anim::Walk,
+            State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } | State::WantFood { walking: true } => Anim::Walk,
+            State::WantFood { walking: false } => Anim::Look,
             State::Farewell { .. } => Trick::Wave.into(),
             State::Away => Anim::Idle,
             State::Trick { kind, .. } => kind.into(),
@@ -1074,7 +1086,8 @@ impl Pet {
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
     pub fn hover(&mut self, cx: f64, cy: f64, inside: bool) {
         self.cursor = (cx, cy);
-        if self.is_held() || self.off_surface() || self.housed || self.home_trip.is_some() || self.in_transit() {
+        // 음식을 들고 있는 동안엔 간질이지 않는다
+        if self.hand.is_some() || self.is_held() || self.off_surface() || self.housed || self.home_trip.is_some() || self.in_transit() {
             self.clear_hover();
             return;
         }
@@ -1351,6 +1364,117 @@ impl Pet {
             self.flight = None;
             self.state = State::ToFood { remaining: food::FOOD_TIMEOUT_SECS };
         }
+    }
+
+    /// 입 (손에 든 음식이 여기 닿으면 받아먹는다)
+    pub fn mouth(&self) -> (f64, f64) {
+        if self.cfg.flies {
+            crate::sting::face_point(self.body.x, self.body.y, self.cfg.size)
+        } else {
+            (self.body.x, self.body.y - food::MOUTH_HEIGHT * self.cfg.size)
+        }
+    }
+
+    /// 직접 주기: 손에 든 음식이 (x, y)에 있다 (매 틱 부른다). 동물이 음식을 보고 기다리다가 입에 닿았으면 true —
+    /// 그때 앱이 돌보기에 먹이고 eat_from_hand를 부른다
+    pub fn offer_hand(&mut self, x: f64, y: f64) -> bool {
+        self.hand = Some((x, y));
+        matches!(self.state, State::WantFood { .. }) && food::in_reach(self.mouth(), (x, y), self.cfg.size)
+    }
+
+    /// 손에 든 음식을 거뒀다 (먹지 않음)
+    pub fn end_hand(&mut self) {
+        self.hand = None;
+        self.hand_noticed = false;
+        if matches!(self.state, State::WantFood { .. }) {
+            self.state = self.idle_state();
+        }
+    }
+
+    /// 손에서 받아먹기 (offer_hand가 true일 때): 그릇 없이 그 자리에서 먹고 하트. 배부르면 갸웃 (음식은 손에 남는다)
+    pub fn eat_from_hand(&mut self, result: FeedResult, _food: Food) -> bool {
+        if self.hand.is_none() || !matches!(self.state, State::WantFood { .. }) {
+            return false;
+        }
+        self.pacing.after_beat = None;
+        match result {
+            FeedResult::Refused => {
+                self.speech = Some(Speech::Full);
+                self.state = State::Trick { kind: Trick::Tilt, remaining: REFUSE_TILT_SECS };
+            }
+            FeedResult::Ate { leveled_up } => {
+                self.hand = None;
+                self.hand_noticed = false;
+                self.state = State::Eating { remaining: EAT_SECS, favorite: true, level_up: leveled_up };
+            }
+        }
+        true
+    }
+
+    /// 손에 든 음식을 알아챈다: 한가할 때(쉬기·이동·잠 등) 하던 걸 멈추고 음식을 본다
+    fn notice_hand(&mut self) {
+        if self.hand.is_none() {
+            if matches!(self.state, State::WantFood { .. }) {
+                self.state = self.idle_state();
+            }
+            return;
+        }
+        let busy = self.housed
+            || self.guest.is_some()
+            || self.home_trip.is_some()
+            || self.food.is_some()
+            || self.meal_pending.is_some()
+            || self.is_held()
+            || self.off_surface()
+            || self.in_transit();
+        let free = matches!(
+            self.state,
+            State::Idle { .. }
+                | State::Move { .. }
+                | State::Turn { .. }
+                | State::Hungry { .. }
+                | State::Sleep { .. }
+                | State::Land { .. }
+                | State::Tickled { .. }
+                | State::Annoyed { .. }
+                | State::Huff { .. }
+                | State::Special { .. }
+        );
+        if busy || !free {
+            return;
+        }
+        if !std::mem::replace(&mut self.hand_noticed, true) && self.hungry {
+            self.speech = Some(Speech::Eager);
+        }
+        self.pacing.after_beat = None;
+        self.flight = None;
+        self.state = State::WantFood { walking: false };
+    }
+
+    /// 손에 든 음식 쪽을 본다. 같은 바닥 가까이(위로 몸 2.5개, 옆으로 4개 안)면 그 아래까지 걸어간다 (바닥 안에서만)
+    fn update_want_food(&mut self, dt: f64, st: Standing, piece: &Surface) {
+        let Some((fx, fy)) = self.hand else {
+            self.state = self.idle_state();
+            return;
+        };
+        let size = self.cfg.size;
+        let dx = fx - self.body.x;
+        if dx.abs() > 1.0 {
+            self.facing = dx.signum();
+        }
+        let rise = self.body.y - fy;
+        let near = rise >= -0.5 * size && rise <= 2.5 * size && dx.abs() <= 4.0 * size;
+        let (lo, hi) = (piece.x_start + self.cfg.half_w, piece.x_end - self.cfg.half_w);
+        let goal = if lo > hi { self.body.x } else { fx.clamp(lo, hi) };
+        let gap = goal - self.body.x;
+        let walking = near && gap.abs() > 2.0;
+        if walking {
+            let step = (self.walk_speed() * dt).min(gap.abs());
+            let new_x = self.body.x + gap.signum() * step;
+            self.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (new_x - self.body.x) });
+            self.body.x = new_x;
+        }
+        self.state = State::WantFood { walking };
     }
 
     /// 소품 변화 (한 번 꺼내면 None) — 앱이 그릇·꽃·쿠키 창을 띄우거나 거둔다
@@ -1682,6 +1806,7 @@ impl Pet {
 
         match self.state {
             State::ToFood { remaining } => self.update_to_food(dt, world, st, &piece, remaining),
+            State::WantFood { .. } => self.update_want_food(dt, st, &piece),
             State::Move { kind, remaining } => {
                 let speed = self.cfg.walk_speed * kind.speed_mult();
                 let new_x = self.body.x + self.facing * speed * dt;
@@ -1844,6 +1969,7 @@ impl Pet {
             | State::InnerClimb { .. }
             | State::Sting { .. }
             | State::ToFood { .. }
+            | State::WantFood { .. }
             | State::Move { .. } => {}
         }
     }
@@ -2370,6 +2496,10 @@ mod fly_tests;
 #[cfg(test)]
 #[path = "brain_food_tests.rs"]
 mod food_tests;
+
+#[cfg(test)]
+#[path = "brain_hand_tests.rs"]
+mod hand_tests;
 
 /// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨린다
 fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {

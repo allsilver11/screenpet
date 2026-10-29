@@ -1,4 +1,5 @@
 use screenpet_core::care::Food;
+use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
@@ -61,6 +62,15 @@ pub struct TrayMenu {
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
     /// `친구 화면 ▸` (네트워크 상태에 따라 다시 채운다)
     pub friends: Submenu<Wry>,
+    /// 밥 주기 방법: 직접 주기 / 자동 주기 (그릇)
+    pub hand_mode: CheckMenuItem<Wry>,
+    pub auto_mode: CheckMenuItem<Wry>,
+}
+
+/// 밥 주기 방법 체크를 지금 설정에 맞춘다 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다)
+pub fn sync_feed_mode(menu: &TrayMenu, mode: FeedMode) {
+    let _ = menu.hand_mode.set_checked(mode == FeedMode::Hand);
+    let _ = menu.auto_mode.set_checked(mode == FeedMode::Auto);
 }
 
 /// 다른 사람이 정한 이름을 메뉴 글자로: 제어 문자(\t는 Windows에서 단축키 칸, \n 등)를 빼고,
@@ -202,7 +212,8 @@ fn send(app: &AppHandle, input: Input) {
     let _ = app.state::<AppState>().tx.lock().unwrap().send(input);
 }
 
-pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, locked: bool, housed: bool) -> tauri::Result<TrayMenu> {
+#[allow(clippy::too_many_arguments)]
+pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, locked: bool, housed: bool, feed_mode: FeedMode) -> tauri::Result<TrayMenu> {
     let mut checks: Vec<(CheckMenuItem<Wry>, String)> = Vec::new();
     for p in pets {
         let item = CheckMenuItem::with_id(app, format!("pet:{}", p.id), &p.manifest.name, true, p.id == current, None::<&str>)?;
@@ -213,7 +224,15 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let fav = MenuItem::with_id(app, "feed:favorite", favorite_label(favorite), true, None::<&str>)?;
     let snack = MenuItem::with_id(app, "feed:snack", "간식 🍪", true, None::<&str>)?;
     let water = MenuItem::with_id(app, "feed:water", "물 💧", true, None::<&str>)?;
-    let feed = Submenu::with_items(app, "밥 주기", true, &[&meal, &fav, &PredefinedMenuItem::separator(app)?, &snack, &water])?;
+    // 직접 주기: 음식이 커서 끝에 붙어 동물 입에 갖다 대면 먹는다. 자동 주기: 그릇(꿀벌은 꽃)이 놓인다. 물은 늘 물그릇
+    let hand_mode = CheckMenuItem::with_id(app, "feedmode:hand", "직접 주기", true, feed_mode == FeedMode::Hand, None::<&str>)?;
+    let auto_mode = CheckMenuItem::with_id(app, "feedmode:auto", "자동 주기 (그릇)", true, feed_mode == FeedMode::Auto, None::<&str>)?;
+    let feed = Submenu::with_items(
+        app,
+        "밥 주기",
+        true,
+        &[&hand_mode, &auto_mode, &PredefinedMenuItem::separator(app)?, &meal, &fav, &PredefinedMenuItem::separator(app)?, &snack, &water],
+    )?;
     let lock = CheckMenuItem::with_id(app, "lock", "성장 멈추기", true, locked, None::<&str>)?;
     let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
     let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
@@ -255,6 +274,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "feed:meal" => send(app, Input::Feed(Food::Meal)),
             "feed:favorite" => send(app, Input::Feed(Food::Favorite)),
             "feed:water" => send(app, Input::Feed(Food::Water)),
+            "feedmode:hand" => send(app, Input::SetFeedMode(FeedMode::Hand)),
+            "feedmode:auto" => send(app, Input::SetFeedMode(FeedMode::Auto)),
             "lock" => send(app, Input::ToggleLock),
             "house" => send(app, Input::ToggleHouse),
             "reset" => send(app, Input::ResetGrowth),
@@ -288,5 +309,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: fav, lock, house, pets: pet_items, friends })
+    Ok(TrayMenu { menu, favorite: fav, lock, house, pets: pet_items, friends, hand_mode, auto_mode })
 }

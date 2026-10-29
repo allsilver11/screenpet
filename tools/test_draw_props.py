@@ -73,3 +73,50 @@ def test_bowls_differ_by_contents(built):
         return sum(1 for x in range(56) for y in range(48) if (p := im.getpixel((x, y)))[3] == 255 and p[2] > p[0] + 30)
     assert blue(water) > 150
     assert blue(food) < 20
+
+
+# ---- 직접 주기: 커서 끝에 붙는 음식 (48×48, 가운데) ----
+HAND = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar")
+
+
+@pytest.fixture(scope="module")
+def hand_built(tmp_path_factory):
+    out = tmp_path_factory.mktemp("hand")
+    return out, draw_props.build_hand(out)
+
+
+def test_hand_icons_match_the_core_mapping():
+    assert draw_props.HAND_NAMES == HAND
+    rs = (ROOT / "crates" / "screenpet-core" / "src" / "food.rs").read_text()
+    for name in HAND:
+        assert f'"{name}"' in rs, name
+
+
+@pytest.mark.parametrize("name", HAND)
+def test_hand_icon_files(hand_built, name):
+    out, _ = hand_built
+    for d in (out, ROOT / "ui" / "effects"):
+        im = Image.open(d / f"{name}.png")
+        assert im.size == (48, 48) and im.mode == "RGBA"
+
+
+@pytest.mark.parametrize("name", HAND)
+def test_hand_icon_is_centered_kawaii_and_fits(hand_built, name):
+    _, arts = hand_built
+    im = arts[name]
+    a = im.getchannel("A")
+    for corner in ((0, 0), (47, 0), (0, 47), (47, 47)):
+        assert a.getpixel(corner) == 0, corner
+    x0, y0, x1, y1 = a.getbbox()
+    assert x0 >= 1 and y0 >= 1 and x1 <= 47 and y1 <= 47  # 1px 투명 여백
+    assert 28 <= max(x1 - x0, y1 - y0) <= 46, (x1 - x0, y1 - y0)
+    assert abs((x0 + x1) / 2 - 24) <= 3 and abs((y0 + y1) / 2 - 24) <= 3
+    solid = [p for x in range(48) for y in range(48) if (p := im.getpixel((x, y)))[3] == 255]
+    assert len(solid) >= 250
+    assert sum(1 for p in solid if p[0] < 170 and p[1] < 140 and p[2] < 140) >= 40  # 외곽선
+
+
+def test_hand_icons_all_differ(hand_built):
+    _, arts = hand_built
+    blobs = {n: arts[n].tobytes() for n in HAND}
+    assert len(set(blobs.values())) == len(HAND)

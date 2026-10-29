@@ -1,6 +1,8 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
     python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie,flower}.png
+                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar}.png (직접 주기, 48×48)
+                                  + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
 
 앱(src-tauri/src/prop.rs)은 동물이 먹을 때 몸 앞 바닥에 WIDTH × HEIGHT(논리 px, 몸 배율 1 기준) 투명 창을 띄우고
@@ -119,6 +121,116 @@ def draw_flower(img):
     blob(img, [C(cx, top, r * 0.36)], CENTER, r=0, line=0.6, marks=[([C(cx - 1.3, top - 1.3, 1.2)], WHITE)])
 
 
+# ---- 직접 주기: 커서 끝에 붙는 음식 (HAND × HAND, 가운데 (64, 64)) ----
+HAND = 48
+HAND_BOX = ((FRAME - HAND) // 2, (FRAME - HAND) // 2, (FRAME + HAND) // 2, (FRAME + HAND) // 2)
+# crates/screenpet-core/src/food.rs hand_icon과 같은 이름
+HAND_NAMES = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar")
+NORI = (70, 96, 82)
+FISH = (150, 186, 214)
+FISH_BELLY = mix(FISH, WHITE, 0.6)
+BONE = (250, 240, 220)
+CARROT = (246, 150, 70)
+CARROT_DARK = mix(CARROT, LINE, 0.3)
+POT = (214, 150, 96)
+POT_LIGHT = mix(POT, WHITE, 0.45)
+HONEY_GOLD = (252, 200, 72)
+
+
+def tiny_face(img, cx, cy, s=1.0):
+    """점 눈 둘 + 볼터치 — 음식도 말랑하게."""
+    paint(img, aa(shapes([C(cx - 4.5 * s, cy, 1.3 * s), C(cx + 4.5 * s, cy, 1.3 * s)])), (84, 58, 56))
+    paint(img, aa(shapes([E(cx - 8 * s, cy + 1.8 * s, cx - 4.5 * s, cy + 4 * s), E(cx + 4.5 * s, cy + 1.8 * s, cx + 8 * s, cy + 4 * s)])),
+          (250, 180, 180))
+
+
+def hand_meal(img):
+    rice = blob(img, [T((64, 45), (85, 81), (43, 81))], RICE, r=4.5, line=1.0)
+    paint(img, aa(shapes([T((55, 69), (73, 69), (73, 86), (55, 86))])), NORI, clip=rice)
+    paint(img, aa(shapes([L([(55, 69.5), (73, 69.5)], 1.0)])), mix(NORI, WHITE, 0.25), clip=rice)
+    tiny_face(img, 64, 60, 0.9)
+
+
+def hand_cookie(img):
+    cx, cy, r = 64, 64, 18
+    blob(img, [C(cx, cy, r)], COOKIE, r=0.6,
+         marks=[([E(cx - r + 3, cy + 4, cx + r - 3, cy + r + 1)], COOKIE_DARK),
+                ([C(cx - 7, cy - 6, 2.6), C(cx + 7, cy - 3, 2.4), C(cx - 1, cy + 6, 2.6), C(cx + 7, cy + 9, 2.0),
+                  C(cx - 10, cy + 4, 2.0), C(cx + 1, cy - 11, 2.0)], CHIP),
+                ([C(cx - 8, cy - 11, 2.2)], mix(COOKIE, WHITE, 0.5))])
+
+
+def hand_fish(img):
+    blob(img, [T((58, 57), (65, 50), (67, 58))], mix(FISH, LINE, 0.2), r=0.6, line=0.8)
+    blob(img, [E(45, 55, 75, 74), T((71, 64.5), (84, 54.5), (84, 74.5))], FISH, r=1.4,
+         marks=[([E(48, 66, 72, 76)], FISH_BELLY),
+                ([L([(77.5, 58), (81, 64.5), (77.5, 71)], 1.0)], mix(FISH, LINE, 0.25)),
+                ([E(58, 56, 65, 60)], mix(FISH, WHITE, 0.35))])
+    paint(img, aa(shapes([C(52.5, 63, 1.9)])), (84, 58, 56))
+    paint(img, aa(shapes([C(52, 62.5, 0.6)])), WHITE)
+    paint(img, aa(shapes([E(47.5, 66.5, 51.5, 69)])), (250, 180, 180))
+
+
+def hand_bone(img):
+    a, b = (54, 69), (74, 59)
+    knobs = [C(a[0] - 4, a[1] - 2, 4.8), C(a[0] + 1, a[1] + 4, 4.8), C(b[0] - 1, b[1] - 4, 4.8), C(b[0] + 4, b[1] + 2, 4.8)]
+    blob(img, [L([a, b], 8)] + knobs, BONE, r=1.0,
+         marks=[([L([(56, 65.5), (71, 58)], 1.4)], WHITE)])
+
+
+def hand_carrot(img):
+    blob(img, [L([(61, 53), (57, 47)], 3.0), L([(64, 52), (65, 45.5)], 3.2), L([(67, 53), (72, 47)], 3.0)], LEAF, r=0.6, line=0.85)
+    blob(img, [T((53, 55), (75, 55), (65, 84)), E(53, 51, 75, 61)], CARROT, r=1.6,
+         marks=[([L([(57, 63), (62, 63)], 1.2), L([(66, 70), (70, 70)], 1.2), L([(59, 76), (63, 76)], 1.2)], CARROT_DARK),
+                ([E(56, 53, 63, 58)], mix(CARROT, WHITE, 0.4))])
+
+
+def hand_honey(img):
+    blob(img, [E(46, 54, 82, 82.5), E(52, 49, 76, 58)], POT, r=1.2,
+         marks=[([E(52, 63, 76, 77)], POT_LIGHT), ([E(49, 58, 56, 66)], mix(POT, WHITE, 0.3))])
+    # 넘치는 꿀
+    blob(img, [E(51, 45, 77, 54), L([(56, 52), (56, 58)], 3.2), L([(71, 52), (71, 61)], 3.2)], HONEY_GOLD, r=0.8, line=0.8,
+         marks=[([E(56, 46, 63, 49)], mix(HONEY_GOLD, WHITE, 0.55))])
+    tiny_face(img, 64, 69, 0.9)
+
+
+def hand_nectar(img):
+    cx, cy, r = 64, 62, 17
+    blob(img, [E(60, 74, 76, 84), E(50, 76, 63, 85)], LEAF, r=0.4, line=0.8)
+    petals = [C(cx + r * 0.6 * math.cos(math.radians(-90 + 72 * i)), cy + r * 0.6 * math.sin(math.radians(-90 + 72 * i)), r * 0.47)
+              for i in range(5)]
+    blob(img, petals, PETAL, r=0.3, line=0.9,
+         marks=[([C(cx + r * 0.6 * math.cos(math.radians(-90 + 72 * i)) - 1.6,
+                    cy + r * 0.6 * math.sin(math.radians(-90 + 72 * i)) - 1.6, 2.4) for i in range(5)], PETAL_LIGHT)])
+    blob(img, [C(cx, cy, r * 0.34)], CENTER, r=0, line=0.7, marks=[([C(cx - 1.8, cy - 1.8, 1.6)], WHITE)])
+    # 꿀 방울
+    blob(img, [C(78, 79, 3.2), T((75.4, 78), (80.6, 78), (78, 72.5))], HONEY_GOLD, r=0.3, line=0.6,
+         marks=[([C(77, 78.5, 1.0)], WHITE)])
+
+
+HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish, "hand_bone": hand_bone,
+             "hand_carrot": hand_carrot, "hand_honey": hand_honey, "hand_nectar": hand_nectar}
+
+
+def draw_hand(name):
+    """손에 든 음식 하나를 HAND × HAND RGBA로."""
+    img = new_canvas()
+    with view(scale=1.0, lift=0):
+        HAND_DRAW[name](img)
+    return finish(img).crop(HAND_BOX)
+
+
+def build_hand(out_dir=OUT_DIR):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    arts = {}
+    for name in HAND_NAMES:
+        art = draw_hand(name)
+        art.save(out_dir / f"{name}.png")
+        arts[name] = art
+    return arts
+
+
 DRAW = {"bowl_food": draw_bowl_food, "bowl_water": draw_bowl_water, "cookie": draw_cookie, "flower": draw_flower}
 
 
@@ -157,9 +269,19 @@ def preview(arts):
     im.resize((im.width * 2, im.height * 2), Image.NEAREST).save(PREVIEW)
 
 
+def preview_hand(arts):
+    """손에 든 음식들 (밝은 바탕, 3배)."""
+    pad = 6
+    im = Image.new("RGBA", (len(arts) * (HAND + pad) + pad, HAND + 2 * pad), (246, 242, 236, 255))
+    for i, art in enumerate(arts.values()):
+        im.alpha_composite(art, (pad + i * (HAND + pad), pad))
+    im.resize((im.width * 3, im.height * 3), Image.NEAREST).save(PREVIEW.with_name("hand_food.png"))
+
+
 def main():
     arts = build()
     preview(arts)
+    preview_hand(build_hand())
     print("ok: props")
 
 

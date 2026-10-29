@@ -6,6 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use screenpet_core::brain::Pet;
 use screenpet_core::care::{Care, FeedResult, Food, Stage};
 use screenpet_core::config::{self, Config};
+use screenpet_core::food::{self, FeedMode, HandFeed, HandInput};
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::platform::default_source;
 use screenpet_core::visit::Side;
@@ -16,7 +17,7 @@ use crate::decal::Decals;
 use crate::house::{self, HouseState};
 use crate::network::{NetInput, Network};
 use crate::pets::PetEntry;
-use crate::prop::Props;
+use crate::prop::{HandWindow, Props};
 use crate::slots::{self, GuestInfo, Role, Slot, StagePayload, OWN_LABEL};
 use crate::AppState;
 
@@ -35,6 +36,8 @@ pub enum Input {
     /// 동물 교체 — 돌보기 상태는 게임 루프가 가진 설정에서 찾는다
     SetPet { entry: PetEntry },
     Feed(Food),
+    /// 밥 주기 방법 (직접 주기 / 자동 주기)
+    SetFeedMode(FeedMode),
     ToggleLock,
     ResetGrowth,
     /// 하우스로 들어가기 / 나오기
@@ -178,13 +181,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut decals = Decals::default();
     // 내 동물이 먹을 때 앞에 놓이는 밥그릇·물그릇·꽃·쿠키 창
     let mut props = Props::default();
+    // 직접 주기: 커서 끝에 붙은 음식과 그 그림 창
+    let mut hand: Option<HandFeed> = None;
+    let mut hand_win = HandWindow::default();
 
     loop {
         while let Ok(input) = rx.try_recv() {
             match input {
                 Input::PointerDown { label } => {
-                    // 한 번에 한 마리만 잡는다
-                    if slots.iter().any(|s| s.pet.is_held()) {
+                    // 한 번에 한 마리만 잡는다. 음식을 들고 있는 동안의 누름은 주기·거두기 (아래 매 틱 처리)
+                    if hand.is_some() || slots.iter().any(|s| s.pet.is_held()) {
                         continue;
                     }
                     if let Some(i) = slots::find(&slots, &label) {
@@ -200,6 +206,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         continue;
                     }
                     save_config(&app, &mut config, &own.entry.id, &care);
+                    // 들고 있던 음식은 거둔다 (좋아하는 음식 그림이 동물마다 다르다)
+                    if hand.take().is_some() {
+                        own.pet.end_hand();
+                        hand_win.drop_back();
+                        app.state::<AppState>().hand_feeding.store(false, Ordering::Relaxed);
+                    }
                     own.entry = next;
                     care = config.care.get(&own.entry.id).cloned().unwrap_or_default();
                     pending_stage = false;
@@ -214,6 +226,19 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::Feed(food) => {
                     let own = &mut slots[OWN];
+                    // 직접 주기: 음식이 커서 끝에 붙는다 (먹이기는 동물 입에 닿을 때). 하우스 안·친구 화면에선 그릇으로
+                    if config.feed_mode.by_hand(food) && own.on_screen() {
+                        let (cx, cy) = source.cursor();
+                        let off = food::HAND_OFFSET * own.dpi;
+                        if hand.is_some() {
+                            own.pet.end_hand();
+                        }
+                        hand = Some(HandFeed::new(food));
+                        hand_win.show(&app, food::hand_icon(food, &own.entry.id), (cx + off, cy + off), own.dpi);
+                        app.state::<AppState>().hand_feeding.store(true, Ordering::Relaxed);
+                        let _ = app.emit_to(OWN_LABEL, "hide-picker", ());
+                        continue;
+                    }
                     if own.pet.is_housed() {
                         // 하우스 안이면 문 앞에 그릇이 놓이고 동물이 나와서 먹는다
                         let spot = house::spot(&app, &own.world.work_areas, own.dpi);
@@ -232,6 +257,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     }
                     // 먹는 도중 클릭이 다시 음식을 조르지 않도록 바로 반영
                     own.pet.set_hungry(care.is_hungry());
+                }
+                Input::SetFeedMode(mode) => {
+                    config.feed_mode = mode;
+                    crate::tray::sync_feed_mode(&app.state::<AppState>().menu, mode);
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
                 Input::ToggleLock => {
                     care.locked = !care.locked;
@@ -339,6 +369,45 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
 
         // 커서·간질이기·드래그는 커서 아래 맨 위 한 마리에게만
         let (cx, cy) = source.cursor();
+        // 직접 주기: 음식이 커서를 따라가고, 내 동물 입에 닿으면 먹는다. 오른쪽 버튼·Esc·빈 곳 클릭·30초면 거둔다
+        if let Some(h) = hand.as_mut() {
+            let own = &mut slots[OWN];
+            let off = food::HAND_OFFSET * own.dpi;
+            let at = (cx + off, cy + off);
+            hand_win.move_to(at, own.dpi);
+            let input = h.tick(dt, source.left_button_down(), source.right_button_down(), source.escape_down());
+            let food = h.food;
+            let ready = input != HandInput::Cancel && own.on_screen() && own.pet.offer_hand(at.0, at.1);
+            let mut done = false;
+            if ready {
+                let before = care.clone();
+                let result = care.feed(food);
+                if own.pet.eat_from_hand(result, food) {
+                    if let FeedResult::Ate { leveled_up } = result {
+                        pending_stage |= leveled_up;
+                        hand_win.bite();
+                        done = true;
+                        save_config(&app, &mut config, &own.entry.id, &care);
+                    }
+                    // 배불러 갸웃 — 음식은 손에 남는다
+                } else {
+                    care = before;
+                }
+                own.pet.set_hungry(care.is_hungry());
+            } else {
+                // 동물 위를 누른 건 거두기가 아니다 (닿을 때까지 더 가까이)
+                let empty_click = input == HandInput::Click && !own.cursor_inside(cx, cy);
+                if input == HandInput::Cancel || empty_click || !own.on_screen() {
+                    own.pet.end_hand();
+                    hand_win.drop_back();
+                    done = true;
+                }
+            }
+            if done {
+                hand = None;
+                app.state::<AppState>().hand_feeding.store(false, Ordering::Relaxed);
+            }
+        }
         let held = slots.iter().position(|s| s.pet.is_held());
         let hovered = if held.is_some() { None } else { slots::hover_target(&slots, cx, cy) };
         for (i, s) in slots.iter_mut().enumerate() {
@@ -401,6 +470,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         network.tick(&app, now, &config, &mut slots[OWN]);
         decals.tick(now);
         props.tick(now);
+        hand_win.tick(now);
         let own = &mut slots[OWN];
         let busy = network.own_busy(own);
         if busy != was_busy {

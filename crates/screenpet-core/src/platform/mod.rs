@@ -13,6 +13,14 @@ pub trait WindowSource: Send {
     /// 전역 커서 위치 (물리 px).
     fn cursor(&mut self) -> (f64, f64);
     fn left_button_down(&mut self) -> bool;
+    /// 오른쪽 버튼 (직접 주기 거두기)
+    fn right_button_down(&mut self) -> bool {
+        false
+    }
+    /// Esc 키 (직접 주기 거두기)
+    fn escape_down(&mut self) -> bool {
+        false
+    }
 }
 
 /// 지원하지 않는 OS용. 바닥(기본 화면)만 있는 세계가 된다.
