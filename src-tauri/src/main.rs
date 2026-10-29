@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod decal;
 mod game_loop;
 mod house;
 mod network;

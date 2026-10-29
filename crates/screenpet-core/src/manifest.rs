@@ -10,8 +10,19 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
     "tickle", "annoyed", "hungry", "eat", "level_up",
 ];
 
-/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide)
-pub const OPTIONAL_ANIMS: [&str; 5] = ["arch", "wag", "huff", "climb", "slide"];
+/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide, 꿀벌 sting)
+pub const OPTIONAL_ANIMS: [&str; 6] = ["arch", "wag", "huff", "climb", "slide", "sting"];
+
+/// 이동 방식 (pet.json `locomotion`, 없으면 walk)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Locomotion {
+    /// 디딤판 위를 걷는다
+    #[default]
+    Walk,
+    /// 날아다닌다 (꿀벌) — 쉴 때 가끔 창 윗면·바닥에 내려앉는다
+    Fly,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnimSpec {
@@ -54,6 +65,9 @@ pub struct PetManifest {
     /// 좋아하는 음식 (없으면 None)
     #[serde(default)]
     pub favorite_food: Option<FavoriteFood>,
+    /// 이동 방식 (없으면 walk)
+    #[serde(default)]
+    pub locomotion: Locomotion,
 }
 
 pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
@@ -91,6 +105,15 @@ impl PetManifest {
     /// 벽 타기 (뒷모습 climb + slide 둘 다 있어야 한다)
     pub fn can_climb(&self) -> bool {
         self.has_anim("climb") && self.has_anim("slide")
+    }
+
+    pub fn flies(&self) -> bool {
+        self.locomotion == Locomotion::Fly
+    }
+
+    /// 괴롭히면 화면을 쏜다 (pet.json에 sting이 있는 꿀벌)
+    pub fn can_sting(&self) -> bool {
+        self.has_anim("sting")
     }
 
     /// 이 동물의 단계별 크기 배율 (care::Stage::scale에 곱한다)
@@ -160,7 +183,7 @@ mod tests {
     #[test]
     fn climbing_needs_both_climb_and_slide() {
         let add = |extra: &str| full_json().replace(r#""animations": {"#, &format!(r#""animations": {{{extra}"#));
-        assert!(OPTIONAL_ANIMS.ends_with(&["huff", "climb", "slide"]));
+        assert_eq!(OPTIONAL_ANIMS[2..5], ["huff", "climb", "slide"]);
         assert!(!parse_manifest(&full_json()).unwrap().can_climb());
         assert!(!parse_manifest(&add(r#""climb": {"row": 21, "frames": 4, "fps": 8},"#)).unwrap().can_climb());
         let both = add(r#""climb": {"row": 21, "frames": 4, "fps": 8}, "slide": {"row": 22, "frames": 2, "fps": 6},"#);
@@ -227,6 +250,36 @@ mod tests {
                 assert!(m.favorite_food.is_some_and(|f| !f.emoji.is_empty() && !f.name.is_empty()), "{path:?}");
             }
         }
+    }
+
+    #[test]
+    fn locomotion_defaults_to_walk_and_parses_fly() {
+        assert_eq!(parse_manifest(&full_json()).unwrap().locomotion, Locomotion::Walk);
+        let json = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "locomotion": "fly","#);
+        assert_eq!(parse_manifest(&json).unwrap().locomotion, Locomotion::Fly);
+        assert!(parse_manifest(&full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "locomotion": "swim","#)).is_err());
+    }
+
+    #[test]
+    fn sting_is_an_optional_front_animation() {
+        assert_eq!(OPTIONAL_ANIMS.last(), Some(&"sting"));
+        assert!(!parse_manifest(&full_json()).unwrap().has_anim("sting"));
+        let with = full_json().replace(r#""animations": {"#, r#""animations": {"sting": {"row": 21, "frames": 3, "fps": 8, "loop": false, "front": true},"#);
+        let m = parse_manifest(&with).unwrap();
+        assert!(m.has_anim("sting") && m.animations["sting"].front);
+        let bad = full_json().replace(r#""animations": {"#, r#""animations": {"sting": {"row": 21, "frames": 0, "fps": 8},"#);
+        assert!(parse_manifest(&bad).is_err());
+    }
+
+    /// 꿀벌 (아트 에이전트가 ui/pets/bee를 만들면 그대로 읽힌다 — 없으면 건너뛴다)
+    #[test]
+    fn bundled_bee_flies_and_stings_if_present() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets/bee/pet.json");
+        let Ok(json) = std::fs::read_to_string(path) else { return };
+        let m = parse_manifest(&json).unwrap();
+        assert_eq!(m.locomotion, Locomotion::Fly);
+        assert!(m.has_anim("sting") && m.animations["sting"].front);
+        assert!(!m.can_climb());
     }
 
     #[test]

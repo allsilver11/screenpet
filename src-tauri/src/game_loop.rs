@@ -12,6 +12,7 @@ use screenpet_core::visit::Side;
 use screenpet_core::world::World;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::decal::Decals;
 use crate::house::{self, HouseState};
 use crate::network::{NetInput, Network};
 use crate::pets::PetEntry;
@@ -169,6 +170,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut last_save = last;
     // 먹고 한 단계 컸지만 아직 먹는 중 — 먹기가 끝나면(축하 시작 또는 중단) 크기를 바꾼다
     let mut pending_stage = false;
+    // 꿀벌이 쏜 침 자국 창들
+    let mut decals = Decals::default();
 
     loop {
         while let Ok(input) = rx.try_recv() {
@@ -338,6 +341,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 let target = if s.is_own() { speech_target(&s.pet) } else { s.label.as_str() };
                 let _ = app.emit_to(target, "pet-say", speech);
             }
+            // 꿀벌이 화면을 쐈다 — 그 자리에 침 자국
+            if let Some((x, y)) = s.pet.take_sting() {
+                decals.spawn(&app, x, y, s.dpi);
+            }
             if let Some(side) = s.pet.take_exit() {
                 if s.is_own() {
                     own_exit = Some(side);
@@ -361,6 +368,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             network.own_exited(&config, &mut slots[OWN], side);
         }
         network.tick(&app, now, &config, &mut slots[OWN]);
+        decals.tick(now);
         let own = &mut slots[OWN];
         let busy = network.own_busy(own);
         if busy != was_busy {

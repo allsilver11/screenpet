@@ -37,6 +37,18 @@ async function loadPet() {
   animStart = performance.now();
 }
 
+// 꿀벌 쏘기: "!" (백엔드 sting::ALERT_SECS = 0.5초) 뒤 0.3초 돌진 동안 스프라이트를 1 → 1.35 → 1로 키웠다 줄여
+// 화면 쪽으로 다가오는 것처럼 보인다
+const STING_DASH_START_MS = 500;
+const STING_DASH_MS = 300;
+const STING_DASH_SCALE = 0.35;
+
+function stingPulse(anim, elapsedMs) {
+  const t = (elapsedMs - STING_DASH_START_MS) / STING_DASH_MS;
+  if (anim !== "sting" || t <= 0 || t >= 1) return 1;
+  return 1 + STING_DASH_SCALE * Math.sin(Math.PI * t);
+}
+
 function draw(now) {
   if (manifest) {
     // 교체된 동물에 없는 종 전용 애니메이션이어도 throw로 rAF가 끊기지 않게 idle로 대체
@@ -49,6 +61,8 @@ function draw(now) {
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
     if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
+    const pulse = stingPulse(render.anim, elapsed);
+    if (pulse !== 1) parts.push(`scale(${pulse})`);
     petEl.style.transform = parts.length ? parts.join(" ") : "none";
   }
   requestAnimationFrame(draw);

@@ -3,7 +3,9 @@ use std::collections::VecDeque;
 use serde::Serialize;
 
 use crate::care::{FeedResult, Food};
+use crate::flight::Flight;
 use crate::geom::Rect;
+use crate::sting::{ClickMeter, PathMeter, StingPhase};
 use crate::inside::{self, Mode, Stay};
 use crate::behavior::{self, ClickOutcome, ClickReaction, Family, Move, Personality, Rest, Special, Trick};
 use crate::physics::{clamp_speed, step_air, Body, GRAVITY};
@@ -90,6 +92,8 @@ pub enum Anim {
     Climb,
     /// 벽 타기 — 미끄러져 내려오기 (뒷모습)
     Slide,
+    /// 꿀벌 쏘기 — "!" 하고 화면 쪽으로 돌진 (앞모습)
+    Sting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -104,6 +108,8 @@ pub enum Speech {
     LevelUp,
     /// 클릭 무시 ("...")
     Ignore,
+    /// 꿀벌이 화면을 쏨 ("콕!")
+    Sting,
 }
 
 impl Anim {
@@ -114,7 +120,7 @@ impl Anim {
 
     /// 앞모습 동작 — 좌우 반전하지 않는다.
     pub fn is_front(self) -> bool {
-        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Wag | Anim::Hungry | Anim::Eat | Anim::LevelUp | Anim::Huff)
+        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Wag | Anim::Hungry | Anim::Eat | Anim::LevelUp | Anim::Huff | Anim::Sting)
     }
 }
 
@@ -199,6 +205,8 @@ pub enum State {
     Away,
     /// 창 안쪽 벽을 기어올라 윗면으로 나가는 중 (spec 2B §9). rel_x = 몸 중심 − 창 왼쪽, rel_y = 발 높이 − 창 윗면
     InnerClimb { window: u64, rel_x: f64, rel_y: f64 },
+    /// 꿀벌이 괴롭힘에 화나 화면을 쏘는 중 (spec 2B §10) — 제자리에서 "!" → 돌진 → 콕! → 흥!
+    Sting { phase: StingPhase, remaining: f64 },
 }
 
 impl State {
@@ -207,7 +215,13 @@ impl State {
         match self {
             State::Move { kind, .. } => Some(kind.family()),
             State::Exit { .. } | State::Enter { .. } => Some(Family::Move),
-            State::Trick { .. } | State::Huff { .. } | State::Tickled { .. } | State::Hungry { .. } | State::Eating { .. } | State::LevelUp { .. } => {
+            State::Trick { .. }
+            | State::Huff { .. }
+            | State::Tickled { .. }
+            | State::Hungry { .. }
+            | State::Eating { .. }
+            | State::LevelUp { .. }
+            | State::Sting { .. } => {
                 Some(Family::Front)
             }
             State::Special { .. } => Some(Family::Special),
@@ -275,6 +289,10 @@ pub struct PetConfig {
     pub personality: Personality,
     /// 벽 타기 (pet.json에 climb·slide가 있는 고양이·곰)
     pub can_climb: bool,
+    /// 날아다닌다 (pet.json `locomotion: fly` — 꿀벌, spec 2B §10)
+    pub flies: bool,
+    /// 괴롭히면 화면을 쏜다 (pet.json에 sting이 있는 꿀벌)
+    pub stings: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -327,6 +345,22 @@ pub struct Pet {
     inside: Option<Stay>,
     /// 방금 드래그해서 놓음 — 다음 update에서 창 안에 놓였는지 본다
     drop_check: bool,
+    /// 나는 동물이 날아가는 길 (spec 2B §10)
+    flight: Option<Flight>,
+    /// 나는 동물이 제자리에 떠 있는 기준점 (위아래로 살랑인다)
+    hover_at: Option<(f64, f64)>,
+    /// 마지막 커서 위치 (떠서 쳐다볼 때 그쪽을 본다)
+    cursor: (f64, f64),
+    /// 떠 있을 때 먹이를 받음 — 내려앉으면 먹는다 (favorite, level_up)
+    meal_pending: Option<(bool, bool)>,
+    /// 쏜 화면 지점 (take_sting으로 한 번 꺼낸다)
+    sting_at: Option<(f64, f64)>,
+    /// 이 시각(clock)부터 다시 쏠 수 있다
+    sting_ready_at: f64,
+    /// 들고 흔든 경로 (쏘기 판정)
+    shake: PathMeter,
+    /// 최근 클릭 (쏘기 판정)
+    pester: ClickMeter,
     rng: fastrand::Rng,
 }
 
@@ -361,6 +395,14 @@ impl Pet {
             exited: None,
             inside: None,
             drop_check: false,
+            flight: None,
+            hover_at: None,
+            cursor: (x, y),
+            meal_pending: None,
+            sting_at: None,
+            sting_ready_at: 0.0,
+            shake: PathMeter::default(),
+            pester: ClickMeter::default(),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -375,7 +417,11 @@ impl Pet {
         match self.state {
             State::Away => return,
             State::Exit { remaining, side } => {
-                self.update_exit(dt, world, remaining, side);
+                if self.cfg.flies {
+                    self.update_fly_exit(dt, world, remaining, side);
+                } else {
+                    self.update_exit(dt, world, remaining, side);
+                }
                 return;
             }
             State::Farewell { remaining } => {
@@ -390,6 +436,16 @@ impl Pet {
             return;
         }
         self.tick_guest(dt);
+        if let State::Sting { phase, remaining } = self.state {
+            self.update_sting(dt, world, phase, remaining);
+            self.on_started();
+            return;
+        }
+        if self.cfg.flies {
+            self.update_flyer(dt, world);
+            self.on_started();
+            return;
+        }
         if self.track_home_progress(dt) {
             self.start_home_leap(world);
         }
@@ -428,7 +484,11 @@ impl Pet {
 
     pub fn render(&self) -> RenderState {
         let anim = match self.state {
+            // 나는 동물의 공중제비(Roll)는 원을 도는 동안만 — 그 앞뒤는 그냥 난다
+            State::Move { kind: Move::Roll, .. } if self.cfg.flies && !self.flight.is_some_and(|f| f.looping.is_some()) => Anim::Walk,
             State::Move { kind, .. } => kind.into(),
+            State::Sting { phase: StingPhase::Recoil, .. } => Anim::Annoyed,
+            State::Sting { .. } => Anim::Sting,
             State::Exit { .. } | State::Enter { .. } => Anim::Walk,
             State::Farewell { .. } => Trick::Wave.into(),
             State::Away => Anim::Idle,
@@ -462,6 +522,10 @@ impl Pet {
 
     /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹는다)
     pub fn is_eating(&self) -> bool {
+        // 나는 동물이 먹이를 받고 내려앉으러 가는 중
+        if self.meal_pending.is_some() {
+            return true;
+        }
         match self.state {
             State::Eating { .. } => true,
             State::Pressed { .. } => matches!(self.before_press, Some((State::Eating { .. }, _))),
@@ -525,7 +589,13 @@ impl Pet {
         self.body.vx = 0.0;
         self.body.vy = 0.0;
         self.clear_hover();
-        self.state = State::Housed;
+        self.flight = None;
+        self.hover_at = None;
+        // 먹이를 받고 내려앉기 전에 집에 들어갔으면 집 안에서 먹는다
+        self.state = match self.meal_pending.take() {
+            Some((favorite, level_up)) => State::Eating { remaining: EAT_SECS, favorite, level_up },
+            None => State::Housed,
+        };
     }
 
     /// 하우스로 달려간다. door_x = owner(하우스가 있는 작업 영역 바닥) 위의 문 x.
@@ -550,8 +620,8 @@ impl Pet {
             // 들어오는 중이면 다 들어온 뒤에 간다
             State::Pressed { .. } | State::Dragged | State::Air { .. } | State::HomeLeap { .. } | State::Enter { .. } => {}
             State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } => self.start_fall(),
-            // 창 안이면 update_inside가 먼저 뛰어나가게 한다
-            _ if self.standing.is_some() => self.state = State::GoHome,
+            // 창 안이면 update_inside가 먼저 뛰어나가게 한다. 나는 동물은 어디서든 날아간다
+            _ if self.standing.is_some() || self.cfg.flies => self.state = State::GoHome,
             _ => self.start_fall(),
         }
     }
@@ -769,6 +839,10 @@ impl Pet {
         self.before_press = None;
         self.clear_hover();
         self.facing = inward;
+        if self.cfg.flies {
+            self.enter_flying(world, side);
+            return;
+        }
         let Some((owner, edge_x, y)) = visit::entry_ground(world, side) else {
             self.body = Body { x: edge_x_fallback(world, side, self.cfg.half_w), y: world.bounds.top + self.cfg.size, vx: 0.0, vy: 0.0 };
             self.start_fall();
@@ -927,6 +1001,7 @@ impl Pet {
 
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
     pub fn hover(&mut self, cx: f64, cy: f64, inside: bool) {
+        self.cursor = (cx, cy);
         if self.is_held() || self.off_surface() || self.housed || self.home_trip.is_some() || self.in_transit() {
             self.clear_hover();
             return;
@@ -962,8 +1037,18 @@ impl Pet {
             State::Idle { remaining, look: true } => {
                 self.state = State::Idle { remaining: remaining.max(HOVER_LOOK_SECS), look: true }
             }
-            _ => {}
+            _ => return,
         }
+        // 나는 동물은 제자리에 떠서 커서 쪽을 본다
+        let dx = self.cursor.0 - self.body.x;
+        if self.cfg.flies && dx.abs() > 1.0 {
+            self.facing = dx.signum();
+        }
+    }
+
+    /// 쏜 화면 지점 (한 번 꺼내면 None) — 앱이 그 자리에 침 자국 창을 띄운다
+    pub fn take_sting(&mut self) -> Option<(f64, f64)> {
+        self.sting_at.take()
     }
 
     /// 이번 틱에 띄울 말풍선 (한 번 꺼내면 None)
@@ -983,7 +1068,8 @@ impl Pet {
         if self.is_held() || self.housed || self.leaving() {
             return;
         }
-        let grounded = self.standing.is_some() && !self.off_surface();
+        // 떠 있는 나는 동물은 디딤판 위처럼 제자리에서 눌린다
+        let grounded = (self.standing.is_some() || self.cfg.flies) && !self.off_surface();
         let was_sleeping = matches!(self.state, State::Sleep { .. } | State::Annoyed { .. });
         self.grab_dx = self.body.x - cx;
         self.grab_dy = self.body.y - cy;
@@ -992,6 +1078,9 @@ impl Pet {
         self.hover_since = None;
         self.history.clear();
         self.history.push_back((self.clock, cx, cy));
+        self.shake.clear();
+        // 나는 동물: 눌리면 가던 길은 잊는다 (놓인 자리에서 다시 정한다)
+        self.flight = None;
         self.before_press = Some((self.state, self.pacing.after_beat.take()));
         if !grounded {
             self.standing = None;
@@ -1011,11 +1100,14 @@ impl Pet {
                     self.inside = None;
                     self.state = State::Dragged;
                     self.drag_to(cx, cy);
+                    self.shake.push(self.clock, start_cx, start_cy);
+                    self.shake_check(cx, cy);
                 }
             }
             State::Dragged => {
                 self.record(cx, cy);
                 self.drag_to(cx, cy);
+                self.shake_check(cx, cy);
             }
             _ => {}
         }
@@ -1048,6 +1140,9 @@ impl Pet {
     /// 먹이 결과 반영. 공중·드래그 중이면 무시하고 false
     /// 하우스 안에서도 먹는다 (하우스 창이 문간에서 먹는 모습을 보여 준다). 하우스로 가는 중엔 false
     pub fn feed_result(&mut self, result: FeedResult, food: Food) -> bool {
+        if self.cfg.flies && !self.housed && self.standing.is_none() {
+            return self.feed_flying(result, food);
+        }
         let grounded = self.standing.is_some() && !self.off_surface() && !self.is_held() && !self.in_transit();
         if !(self.housed || grounded && self.home_trip.is_none()) {
             return false;
@@ -1079,6 +1174,13 @@ impl Pet {
                 _ => State::GoHome,
             };
             return;
+        }
+        // 꿀벌: 깨어 있을 때 2초 안에 세 번 누르면 쏜다
+        if let State::Pressed { was_sleeping: false, .. } = self.state {
+            if self.cfg.stings && self.pester.push(self.clock) && self.can_sting_now() {
+                self.start_sting();
+                return;
+            }
         }
         match self.state {
             State::Pressed { grounded: true, was_sleeping: true, .. } => self.click_sleeper(),
@@ -1113,6 +1215,11 @@ impl Pet {
                     }
                 };
                 match reaction {
+                    // 나는 동물은 뛰어오르는 대신 떠서 하트 (공중에 뜨면 다음 클릭을 못 받는다)
+                    ClickReaction::Hop if self.cfg.flies => {
+                        self.heart_timer = HEART_SECS;
+                        self.state = State::Trick { kind: Trick::Heart, remaining: behavior::CLICK_TRICK_SECS };
+                    }
                     ClickReaction::Hop => {
                         self.heart_timer = HEART_SECS;
                         self.standing = None;
@@ -1204,8 +1311,21 @@ impl Pet {
         self.state = match self.state {
             State::Sleep { .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for: 0.0 },
             State::Annoyed { tickled_for, .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for },
+            // 꿀벌은 간질이면 낄낄대지 않고 화나서 쏜다 (쏜 지 8초가 안 됐으면 투덜대기만)
+            State::Tickled { .. } if self.cfg.stings && self.can_sting_now() => {
+                self.start_sting();
+                return;
+            }
             State::Tickled { .. } => State::Tickled { remaining: TICKLE_HOLD },
-            State::Special { .. } | State::Eating { .. } | State::LevelUp { .. } => return,
+            State::Special { .. } | State::Eating { .. } | State::LevelUp { .. } | State::Sting { .. } => return,
+            _ if self.cfg.stings => {
+                if self.can_sting_now() {
+                    self.start_sting();
+                    return;
+                }
+                self.speech = Some(Speech::Grumpy);
+                State::Tickled { remaining: TICKLE_HOLD }
+            }
             _ => {
                 if let Some(kind) = self.cfg.special {
                     if self.rng.f64() < kind.tickle_chance() {
@@ -1320,6 +1440,14 @@ impl Pet {
                     self.rest_beat()
                 };
             }
+            _ => self.tick_activity(dt, world),
+        }
+    }
+
+    /// 이동이 아닌 활동(쉬기·애교·잠·먹기 등)의 시간을 흘리고 끝나면 다음 활동을 정한다 —
+    /// 디딤판 위의 동물과 떠 있는 나는 동물이 같이 쓴다
+    fn tick_activity(&mut self, dt: f64, world: &World) {
+        match self.state {
             State::Idle { remaining, look } => {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 {
@@ -1413,7 +1541,9 @@ impl Pet {
             | State::Enter { .. }
             | State::Farewell { .. }
             | State::Away
-            | State::InnerClimb { .. } => {}
+            | State::InnerClimb { .. }
+            | State::Sting { .. }
+            | State::Move { .. } => {}
         }
     }
 
@@ -1647,6 +1777,9 @@ impl Pet {
     /// 이동 시작. may_flip이면 절반 확률로 방향을 바꾼다 (Turn 직후엔 이미 바꿨으므로 false).
     /// 집이 그리운 손님은 기어오르지 않고, 마음대로 방향을 고를 땐 늘 집 쪽으로 간다 (Turn 직후엔 돌아선 쪽 그대로).
     fn move_state(&mut self, may_flip: bool, world: &World) -> State {
+        if self.cfg.flies {
+            return self.fly_move_state();
+        }
         let homesick = self.is_homesick();
         if !homesick && self.cfg.can_climb && self.standing.is_some() && self.inside.is_none() && self.rng.f64() < behavior::CLIMB_CHANCE {
             if let Some(target_y) = self.climb_target(world) {
@@ -1673,6 +1806,9 @@ impl Pet {
 
     /// 쉬는 박자가 끝난 뒤: 시무룩 / 특별 동작 / 앞모습 애교 / 잠 / 이동
     fn rest_state(&mut self, world: &World) -> State {
+        if self.cfg.flies && self.standing.is_none() {
+            return self.fly_rest_state(world);
+        }
         if let Some((window, rect)) = self.hop_in_window(world) {
             if self.rng.f64() < inside::HOP_IN_CHANCE {
                 self.start_hop_in(window, &rect);
@@ -1696,7 +1832,13 @@ impl Pet {
     }
 
     fn sleep_or_move(&mut self, world: &World) -> State {
-        if self.rng.f64() < behavior::SLEEP_CHANCE {
+        // 나는 동물은 내려앉아 있을 때만 (더 자주) 잔다
+        let chance = match (self.cfg.flies, self.standing.is_some()) {
+            (false, _) => behavior::SLEEP_CHANCE,
+            (true, true) => crate::flight::PERCH_SLEEP_CHANCE,
+            (true, false) => 0.0,
+        };
+        if self.rng.f64() < chance {
             State::Sleep { remaining: behavior::range(&mut self.rng, behavior::SLEEP_SECS) }
         } else {
             self.move_state(true, world)
@@ -1893,7 +2035,7 @@ impl Pet {
     /// 쉬기를 정할 때 뛰어들 수 있는 창: 들어갈 만한 창의 윗면에 서 있고, 집에 가는 중·집이 그리운 손님이 아니어야 한다
     fn hop_in_window(&self, world: &World) -> Option<(u64, Rect)> {
         let Some(Standing { owner: Owner::Window(id), .. }) = self.standing else { return None };
-        if self.inside.is_some() || self.home_trip.is_some() || self.is_homesick() {
+        if self.cfg.flies || self.inside.is_some() || self.home_trip.is_some() || self.is_homesick() {
             return None;
         }
         let rect = world.window(id)?.rect;
@@ -1916,6 +2058,14 @@ impl Pet {
 #[path = "brain_inside_tests.rs"]
 mod inside_tests;
 
+/// 날아다니는 동물 (spec 2B §10)
+#[path = "brain_fly.rs"]
+mod fly;
+
+#[cfg(test)]
+#[path = "brain_fly_tests.rs"]
+mod fly_tests;
+
 /// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨린다
 fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {
     match side {
@@ -1933,7 +2083,16 @@ mod tests {
     const DT: f64 = 1.0 / 60.0;
 
     pub(super) fn cfg() -> PetConfig {
-        PetConfig { size: 128.0, half_w: 38.0, walk_speed: 60.0, special: None, personality: Personality::Friendly, can_climb: false }
+        PetConfig {
+            size: 128.0,
+            half_w: 38.0,
+            walk_speed: 60.0,
+            special: None,
+            personality: Personality::Friendly,
+            can_climb: false,
+            flies: false,
+            stings: false,
+        }
     }
 
     pub(super) fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
@@ -2380,7 +2539,7 @@ mod tests {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff, Anim::Climb, Anim::Slide];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff, Anim::Climb, Anim::Slide, Anim::Sting];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);
@@ -2416,7 +2575,16 @@ mod tests {
     }
 
     pub(super) fn sim_cfg() -> PetConfig {
-        PetConfig { size: 128.0, half_w: 38.4, walk_speed: 90.0, special: None, personality: Personality::Friendly, can_climb: false }
+        PetConfig {
+            size: 128.0,
+            half_w: 38.4,
+            walk_speed: 90.0,
+            special: None,
+            personality: Personality::Friendly,
+            can_climb: false,
+            flies: false,
+            stings: false,
+        }
     }
 
     /// 10분 동안 바뀐 동작 순서 (같은 동작 연속은 하나로)
