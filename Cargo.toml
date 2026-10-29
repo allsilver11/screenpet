@@ -1,0 +1,4 @@
+[workspace]
+resolver = "2"
+members = ["crates/screenpet-core"]
+default-members = ["crates/screenpet-core"]
