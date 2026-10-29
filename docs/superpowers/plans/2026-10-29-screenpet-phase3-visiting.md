@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 > Note: tasks here are written as precise requirements + test lists rather than full code (networking and multi-window refactors depend on code that is still changing in phase 2B). Implementers design the code; reviewers check against the spec.
 
-**Goal:** 같은 네트워크의 ScreenPet끼리 서로 찾아 한 번 허락하면 계속 연결되고, 동물이 스스로 화면 끝을 넘어 친구 화면으로 놀러 갔다 돌아온다.
+**Goal:** 같은 네트워크(직접) 또는 인터넷(중계 서버)으로 ScreenPet끼리 서로 찾아 한 번 허락하면 계속 연결되고, 동물이 스스로 화면 끝을 넘어 친구 화면으로 놀러 갔다 돌아온다.
 
 **Architecture:** 새 크레이트 `crates/screenpet-net`(std 스레드 + UDP 브로드캐스트 발견 + TCP 줄 단위 JSON)이 친구 연결을 관리하고 채널로 이벤트를 낸다. core `brain`은 화면 끝 나가기(Exit)·들어오기(Enter)·손님 귀가 규칙만 안다. 앱은 게임 루프를 여러 펫(내 동물 + 손님들) × 여러 창으로 바꾸고, 네트워크 이벤트를 펫 생성·제거로 잇는다.
 
@@ -82,4 +82,13 @@ pub fn new_install_id() -> String;               // 32 hex
 - README 체크리스트 (두 PC 필요): 발견, 초대·수락, 재시작 후 자동 재연결, 스스로 넘어가기·돌아오기, 집에 와, PC 끄면 즉시 귀환, 방화벽 허용 창.
 - 커밋 `feat(app): visit friends on the same network`.
 
-### Task 5: 최종 검토 → 빌드 → v0.3.0 릴리스
+### Task 5: 중계 서버 `screenpet-relay` + 앱 중계 전송
+
+**Files:** Create `crates/screenpet-relay/` (bin), `deploy/relay/{README.md,screenpet-relay.service}`; Modify `crates/screenpet-net` (relay transport), app (친구 코드 UI), CI (relay 리눅스 바이너리 빌드 아티팩트).
+- 서버: 동기 WebSocket(`tungstenite`) + std 스레드, 포트 기본 8787, 데이터 파일(JSON)에 id·토큰 해시(SHA-256)·친구 관계. 메시지 라우팅·제한은 spec §1b.
+- 클라이언트 전송: `wss://` (rustls), 끊기면 5초→최대 60초 지수 백오프 재접속, 같은 친구가 LAN으로도 보이면 LAN 우선.
+- 친구 코드: 서버 발급·24시간 회전, 입력 → invite 흐름 재사용.
+- 배포 문서: NPM에서 Proxy Host(도메인 → 중계 서버 IP:8787, **Websockets Support 켜기**, SSL Let's Encrypt), 서버 실행(systemd user 서비스 예시).
+- 테스트: 서버를 테스트 안에서 띄워 두 클라이언트 등록·친구 코드·전달·친구 아닌 전달 거부·토큰 위조 거부·제한.
+
+### Task 6: 최종 검토 → 빌드 → v0.3.0 릴리스
