@@ -1,12 +1,16 @@
 // 백엔드가 보내는 {anim, flip, heart}를 받아 스프라이트 프레임만 그린다. (common.js를 먼저 읽는다)
+// 내 동물 창("pet")과 손님 창("guest-<id>")이 같이 쓴다 — 자기 동물은 창 라벨로 `slot_info`에 묻는다.
 const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+// 전역 event.listen은 다른 창 앞으로 보낸(emit_to) 이벤트까지 받는다 — 이 창 앞으로 온 것만 듣는다
+const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
+const listen = (event, handler) => here.listen(event, handler);
 
 const petEl = document.getElementById("pet");
 const heartEl = document.getElementById("heart");
 const bubbleEl = document.getElementById("bubble");
 const pickerEl = document.getElementById("picker");
 const favBtn = document.getElementById("fav");
+const nametagEl = document.getElementById("nametag");
 
 let manifest = null;
 let display = 128;
@@ -62,9 +66,17 @@ listen("pet-render", (e) => {
   render = e.payload;
 });
 
+// 손님이면 머리 위 띠에 "🏠 <주인>" (말풍선이 뜨는 동안은 가려진다 — style.css)
+function applyRole(info) {
+  const guest = info.role === "guest";
+  nametagEl.hidden = !guest;
+  if (guest) nametagEl.textContent = `🏠 ${info.owner ?? ""}`;
+}
+
 // 동물 교체·성장·리셋: 창 크기는 백엔드가 바꾸고, 여기선 시트와 스프라이트 크기를 맞춘다
 listen("pet-stage", (e) => {
   stage = e.payload;
+  applyRole(e.payload);
   loadPet();
 });
 
@@ -74,13 +86,14 @@ petEl.addEventListener("mousedown", (e) => {
   if (e.button === 0) invoke("pointer_down");
 });
 
-// 펫을 우클릭하면 트레이와 같은 메뉴
+// 펫을 우클릭하면 트레이와 같은 메뉴 (손님은 "<주인>에게 돌려보내기"만)
 petEl.addEventListener("contextmenu", () => invoke("show_menu"));
 
 blockWebviewDefaults();
 
 (async () => {
-  stage = await invoke("current_stage");
+  stage = await invoke("slot_info");
+  applyRole(stage);
   await loadPet();
   requestAnimationFrame(draw);
 })();

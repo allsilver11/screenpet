@@ -3,7 +3,9 @@
 // 대개 sit_front, 가끔(20–40초마다) 10–20초 sleep, 집을 누르면 2초 wave.
 // 먹기·성장 축하·갸웃·하트는 백엔드(pet-render)가 정한 대로 보인다.
 const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+// 전역 event.listen은 손님 창 앞으로 보낸 pet-render까지 받는다 — 이 창 앞으로 온 것만 듣는다
+const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
+const listen = (event, handler) => here.listen(event, handler);
 
 const houseEl = document.getElementById("house");
 const doorEl = document.getElementById("door");

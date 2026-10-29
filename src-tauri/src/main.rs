@@ -3,19 +3,22 @@
 mod game_loop;
 mod house;
 mod pets;
+mod slots;
 mod tray;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Mutex;
 
-use game_loop::{Input, StagePayload};
+use game_loop::Input;
 use house::HouseState;
 use pets::PetEntry;
 use screenpet_core::care::Food;
 use screenpet_core::config;
-use tauri::{AppHandle, Manager, State};
+use slots::{Role, SlotInfo, OWN_LABEL};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 /// 설정이 없을 때 처음 데려오는 동물
 const DEFAULT_PET: &str = "cat";
@@ -26,24 +29,28 @@ pub struct AppState {
     pub tx: Mutex<Sender<Input>>,
     pub pets: Vec<PetEntry>,
     pub config_dir: PathBuf,
-    /// 지금 보이는 동물과 크기 — 게임 루프가 apply_stage 때 갱신 (웹뷰 첫 로드용)
-    pub stage: Mutex<StagePayload>,
+    /// 창 라벨별 동물과 크기 — 게임 루프가 단계 변경·손님 생성/제거 때 갱신 (웹뷰 첫 로드용 `slot_info`)
+    pub slots: Mutex<HashMap<String, SlotInfo>>,
     /// 트레이와 우클릭에 같이 쓰는 메뉴
     pub menu: tray::TrayMenu,
     /// 하우스 창에 보이는 상태 — 게임 루프가 갱신 (하우스 웹뷰 첫 로드용)
     pub house: Mutex<HouseState>,
     /// 동물이 하우스 안에 있음 — 게임 루프가 갱신 (트레이 숨기기/보이기가 어느 창을 다룰지)
     pub housed: AtomicBool,
+    /// 내 동물이 친구 화면에 가 있음 — 게임 루프가 갱신 (그동안 펫 창은 숨긴 채로 둔다)
+    pub away: AtomicBool,
 }
 
+/// 창의 동물을 눌렀다 — 부른 창의 라벨로 어느 동물인지 찾는다
 #[tauri::command]
-fn pointer_down(state: State<AppState>) {
-    let _ = state.tx.lock().unwrap().send(Input::PointerDown);
+fn pointer_down(window: WebviewWindow, state: State<AppState>) {
+    let _ = state.tx.lock().unwrap().send(Input::PointerDown { label: window.label().to_string() });
 }
 
+/// 부른 창의 동물·단계·크기·역할 (웹뷰 첫 로드용)
 #[tauri::command]
-fn current_stage(state: State<AppState>) -> StagePayload {
-    state.stage.lock().unwrap().clone()
+fn slot_info(window: WebviewWindow, state: State<AppState>) -> Result<SlotInfo, String> {
+    state.slots.lock().unwrap().get(window.label()).cloned().ok_or_else(|| format!("no pet for window {}", window.label()))
 }
 
 #[tauri::command]
@@ -57,8 +64,12 @@ fn house_click(state: State<AppState>) {
     let _ = state.tx.lock().unwrap().send(Input::HouseClick);
 }
 
+/// 음식 고르기 버튼 — 내 동물(펫 창·하우스 창)만 먹는다. 손님은 밥을 먹지 않는다
 #[tauri::command]
-fn feed(state: State<AppState>, food: String) {
+fn feed(window: WebviewWindow, state: State<AppState>, food: String) {
+    if slots::is_guest_label(window.label()) {
+        return;
+    }
     let food = match food.as_str() {
         "snack" => Food::Snack,
         "meal" => Food::Meal,
@@ -68,12 +79,19 @@ fn feed(state: State<AppState>, food: String) {
     let _ = state.tx.lock().unwrap().send(Input::Feed(food));
 }
 
-/// 펫을 우클릭하면 트레이와 같은 메뉴를 커서 위치에 띄운다.
+/// 펫을 우클릭하면 트레이와 같은 메뉴를, 손님을 우클릭하면 "<주인>에게 돌려보내기"만 커서 위치에 띄운다.
 /// async라 IPC 콜백 밖(작업 스레드)에서 돌고, popup_menu는 메인 스레드에 맡겨진다 —
 /// 동기 커맨드면 모달 메뉴 루프가 WebView2 IPC 콜백 안에서 돌아 멈출 수 있다.
 #[tauri::command]
 async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
-    window.popup_menu(&state.menu.menu).map_err(|e| e.to_string())
+    let label = window.label().to_string();
+    if !slots::is_guest_label(&label) {
+        return window.popup_menu(&state.menu.menu).map_err(|e| e.to_string());
+    }
+    let owner = state.slots.lock().unwrap().get(&label).and_then(|i| i.owner.clone());
+    let Some(owner) = owner else { return Ok(()) };
+    let menu = tray::guest_menu(window.app_handle(), &label, &owner).map_err(|e| e.to_string())?;
+    window.popup_menu(&menu).map_err(|e| e.to_string())
 }
 
 /// 트레이에서 동물을 바꿨을 때. 저장·크기·웹뷰 시트 교체는 게임 루프가 한다 (설정은 루프만 쓴다).
@@ -90,12 +108,16 @@ fn main() {
     tauri::Builder::default()
         // 가장 먼저 등록: 두 번째 실행은 새 앱을 띄우지 않고 이미 있는 펫 창을 보여 준다
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 하우스 안이면 펫 창(숨어 있는 게 맞다) 대신 하우스를 구석에 다시 놓아 보인다
-            if app.state::<AppState>().housed.load(Ordering::Relaxed) {
+            // 하우스 안이면 펫 창(숨어 있는 게 맞다) 대신 하우스를 구석에 다시 놓아 보인다.
+            // 친구 화면에 가 있으면 보일 펫 창이 없다
+            let state = app.state::<AppState>();
+            if state.housed.load(Ordering::Relaxed) {
                 house::show_in_corner(app);
-            } else if let Some(window) = app.get_webview_window("pet") {
-                let _ = window.show();
-                let _ = window.set_focus();
+            } else if !state.away.load(Ordering::Relaxed) {
+                if let Some(window) = app.get_webview_window(OWN_LABEL) {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
             }
         }))
         .setup(move |app| {
@@ -123,17 +145,18 @@ fn main() {
                 tx: Mutex::new(tx),
                 pets: pets.clone(),
                 config_dir,
-                stage: Mutex::new(stage),
+                slots: Mutex::new(HashMap::from([(OWN_LABEL.to_string(), SlotInfo::new(&stage, &Role::Own))])),
                 menu,
                 house: Mutex::new(house_state),
                 housed: AtomicBool::new(cfg.housed),
+                away: AtomicBool::new(false),
             });
             // 숨긴 채로 만들어 두고, 하우스에 들어갈 때 구석에 놓아 보인다
             house::create(app.handle())?;
             game_loop::spawn(app.handle().clone(), rx, entry, cfg);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![pointer_down, current_stage, feed, show_menu, house_state, house_click])
+        .invoke_handler(tauri::generate_handler![pointer_down, slot_info, feed, show_menu, house_state, house_click])
         .run(tauri::generate_context!())
         .expect("error while running ScreenPet");
 }

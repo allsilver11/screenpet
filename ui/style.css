@@ -76,6 +76,27 @@ body {
   transform: translateX(-50%) rotate(45deg);
 }
 
+/* 손님 이름표 "🏠 <주인>" — 머리 위 띠(36px) 아래쪽. 말풍선이 뜨면 가려진다 */
+#nametag {
+  position: absolute;
+  top: 17px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 7px;
+  background: rgba(255, 250, 242, 0.85);
+  color: #84605c;
+  border: 1px solid #84605c;
+  border-radius: 9px;
+  font: 600 11px/1.2 "Segoe UI", "Malgun Gothic", sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#nametag[hidden],
+#bubble:not([hidden]) ~ #nametag {
+  display: none;
+}
+
 /* 배고플 때 클릭하면 머리 위에 뜨는 음식 고르기 버튼 */
 #picker {
   position: absolute;

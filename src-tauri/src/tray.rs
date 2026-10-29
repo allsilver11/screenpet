@@ -8,7 +8,11 @@ use tauri::{AppHandle, Manager, Wry};
 
 use crate::game_loop::Input;
 use crate::pets::PetEntry;
+use crate::slots::OWN_LABEL;
 use crate::AppState;
+
+/// 손님 우클릭 메뉴 항목 id 앞부분 (뒤는 손님 창 라벨)
+const SEND_HOME_PREFIX: &str = "send-home:";
 
 /// 트레이와 우클릭에 같이 쓰는 메뉴, 그리고 동물에 따라 바뀌는 항목
 #[derive(Clone)]
@@ -31,6 +35,13 @@ pub fn house_label(housed: bool) -> &'static str {
 
 pub fn favorite_label(f: &FavoriteFood) -> String {
     format!("{} {}", f.name, f.emoji)
+}
+
+/// 손님을 우클릭하면 뜨는 메뉴: "<주인>에게 돌려보내기" 하나뿐 (누르면 손 흔들고 집으로).
+/// 메뉴 이벤트는 앱 전체용 처리기(트레이의 on_menu_event)로 온다
+pub fn guest_menu(app: &AppHandle, label: &str, owner: &str) -> tauri::Result<Menu<Wry>> {
+    let item = MenuItem::with_id(app, format!("{SEND_HOME_PREFIX}{label}"), format!("{owner}에게 돌려보내기"), true, None::<&str>)?;
+    Menu::with_items(app, &[&item])
 }
 
 fn send(app: &AppHandle, input: Input) {
@@ -80,9 +91,14 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                 }
             }
             "toggle" => {
-                // 하우스 안에선 펫 창 대신 하우스 창을 숨기고 보인다 (보일 땐 지금 구석에 다시 놓는다)
-                let housed = app.state::<AppState>().housed.load(Ordering::Relaxed);
-                let label = if housed { crate::house::LABEL } else { "pet" };
+                // 하우스 안에선 펫 창 대신 하우스 창을 숨기고 보인다 (보일 땐 지금 구석에 다시 놓는다).
+                // 친구 화면에 가 있는 동안엔 펫 창이 숨어 있어야 하니 건드리지 않는다
+                let state = app.state::<AppState>();
+                let housed = state.housed.load(Ordering::Relaxed);
+                if !housed && state.away.load(Ordering::Relaxed) {
+                    return;
+                }
+                let label = if housed { crate::house::LABEL } else { OWN_LABEL };
                 if let Some(w) = app.get_webview_window(label) {
                     if w.is_visible().unwrap_or(true) {
                         let _ = w.hide();
@@ -100,7 +116,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "house" => send(app, Input::ToggleHouse),
             "reset" => send(app, Input::ResetGrowth),
             other => {
-                if let Some(id) = other.strip_prefix("pet:") {
+                if let Some(label) = other.strip_prefix(SEND_HOME_PREFIX) {
+                    send(app, Input::SendHome { label: label.to_string() });
+                } else if let Some(id) = other.strip_prefix("pet:") {
                     // 체크된 항목을 다시 누르면 체크가 풀리므로 항상 다시 맞춘다
                     for (item, pid) in &checks {
                         let _ = item.set_checked(pid == id);
