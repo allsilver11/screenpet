@@ -1287,7 +1287,7 @@ impl Pet {
                         return;
                     }
                 } else if hit {
-                    if end == EndKind::Wall && self.climb_out_at(world, st.owner, edge_x) {
+                    if end == EndKind::Wall && self.climb_out_at(world, st.owner, edge_x, dt) {
                         return;
                     }
                     match (end, kind) {
@@ -1544,7 +1544,8 @@ impl Pet {
             return;
         }
         let y = rect.top + rel_y;
-        if world.side_covered(window, edge_x, y) != Some(false) {
+        // 머리가 화면 위로 나갈 만큼 높이 올라가면 (꼭대기가 화면 위에 붙은 창) 떨어진다
+        if world.side_covered(window, edge_x, y) != Some(false) || y - self.cfg.size < world.bounds.top {
             self.start_fall();
             return;
         }
@@ -1734,7 +1735,7 @@ impl Pet {
         let room = world.piece_at(Owner::Inside(stay.window), self.body.x).is_some_and(|p| p.width() >= 2.0 * self.cfg.half_w);
         // 집에 가는 중이거나 집이 그리운 손님이면 바로 나간다
         if !room || (self.home_trip.is_some() || self.is_homesick()) && !self.celebrating() {
-            self.hop_out(world, &rect);
+            self.hop_out(world, &rect, dt);
             return;
         }
         if stay.leave_in > 0.0 || !matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. }) {
@@ -1742,30 +1743,36 @@ impl Pet {
         }
         if stay.climb_out {
             if stay.leave_in < -inside::CLIMB_OUT_GIVE_UP_SECS {
-                self.hop_out(world, &rect);
+                self.hop_out(world, &rect, dt);
             }
             return;
         }
         if self.cfg.can_climb && self.rng.f64() < inside::CLIMB_OUT_CHANCE {
-            // 가까운 안쪽 벽으로 걸어간다 — 벽에 닿으면 climb_out_at이 기어오르게 한다
-            self.inside = Some(Stay { climb_out: true, ..stay });
+            // 가까운 안쪽 벽으로 걸어간다 — 벽에 닿으면 climb_out_at이 기어오르게 한다.
+            // 포기 시간은 지금부터 잰다 (오래 자고 일어났어도)
+            self.inside = Some(Stay { climb_out: true, leave_in: 0.0, ..stay });
             self.pacing.after_beat = None;
             self.facing = if self.body.x - rect.left < rect.right - self.body.x { -1.0 } else { 1.0 };
             self.state = State::Move { kind: Move::Walk, remaining: rect.width() / self.walk_speed() + 1.0 };
         } else {
-            self.hop_out(world, &rect);
+            self.hop_out(world, &rect, dt);
         }
     }
 
-    /// 창 윗면 위로 크게 뛰어 나간다 (천장 없음). 그 자리 윗면이 없으면(가려졌거나 화면 꼭대기에 붙은 창) 밖으로 떨어진다
-    fn hop_out(&mut self, world: &World, rect: &Rect) {
+    /// 창 윗면 위로 크게 뛰어 나간다 (천장 없음, 틱 dt의 적분 손실까지 감안). 두 번 뛰고도 못 나갔으면 벽·천장을 무시하는
+    /// 도약(LeapOut)으로 반드시 나간다. 그 자리 윗면이 없으면(가려졌거나 화면 꼭대기에 붙은 창) 밖으로 떨어진다
+    fn hop_out(&mut self, world: &World, rect: &Rect, dt: f64) {
         let Some(stay) = self.inside else { return };
         self.pacing.after_beat = None;
         if world.piece_at(Owner::Window(stay.window), self.body.x).is_some() {
+            // 머리가 화면 위로 나가지 않을 만큼만 솟는다
+            let clear = self.scaled(inside::LEAVE_CLEAR).min(rect.top - (world.bounds.top + self.cfg.size)).max(0.0);
+            let leap = stay.hops >= 2;
             self.standing = None;
             self.body.vx = 0.0;
-            self.body.vy = inside::leave_vy(self.body.y, rect.top, self.scaled(inside::LEAVE_CLEAR));
-            self.inside = Some(Stay { mode: Mode::HopOut, ..stay });
+            self.body.vy = inside::leave_vy(self.body.y, rect.top, clear, if leap { 0.0 } else { dt });
+            let mode = if leap { Mode::LeapOut } else { Mode::HopOut };
+            self.inside = Some(Stay { mode, hops: stay.hops + 1, climb_out: false, ..stay });
             self.state = State::Air { anim: Anim::Hop };
         } else {
             self.inside = None;
@@ -1780,6 +1787,22 @@ impl Pet {
             self.update_air(dt, world);
             return;
         };
+        if stay.mode == Mode::LeapOut {
+            // 정확한 포물선 (꼭대기 = 윗면 위 clear). 꼭대기를 지나면 윗면 높이에서 바깥이 된다 → 다음 틱에 윗면에 선다
+            self.body.y += self.body.vy * dt + 0.5 * GRAVITY * dt * dt;
+            self.body.vy += GRAVITY * dt;
+            if self.body.y <= rect.top || self.body.vy >= 0.0 {
+                self.body.y = self.body.y.min(rect.top);
+                self.inside = None;
+            }
+            return;
+        }
+        let mut stay = stay;
+        if stay.mode == Mode::In && self.body.y - self.cfg.size < rect.top - 0.5 {
+            // 머리가 윗면 위로 나와 있음 (기어 나가다 붙잡힘 등) — 천장에 끌어내리지 않고 천장 없이 떨어지거나 나간다
+            stay.mode = Mode::HopOut;
+            self.inside = Some(stay);
+        }
         let bounds = inside::air_bounds(&rect, &world.bounds, stay.mode == Mode::In);
         let prev_y = self.body.y;
         step_air(&mut self.body, dt, &bounds, self.cfg.half_w, self.cfg.size);
@@ -1815,15 +1838,16 @@ impl Pet {
     }
 
     /// 기어 나가기로 한 동물이 안쪽 벽(edge_x)에 닿음: 벽을 기어오른다 (그 자리 윗면이 없으면 뛰어나간다). 처리했으면 true
-    fn climb_out_at(&mut self, world: &World, owner: Owner, edge_x: f64) -> bool {
+    fn climb_out_at(&mut self, world: &World, owner: Owner, edge_x: f64, dt: f64) -> bool {
         let (Owner::Inside(id), Some(stay)) = (owner, self.inside) else { return false };
         let Some(rect) = world.window(id).map(|w| w.rect) else { return false };
         if !stay.climb_out {
             return false;
         }
         let x = edge_x - self.facing * self.cfg.half_w;
-        if world.piece_at(Owner::Window(id), x).is_none() {
-            self.hop_out(world, &rect);
+        // 그 사이 벽을 못 타는 동물로 바뀌었거나 그 자리 윗면이 없으면 뛰어나간다
+        if !self.cfg.can_climb || world.piece_at(Owner::Window(id), x).is_none() {
+            self.hop_out(world, &rect, dt);
             return true;
         }
         self.inside = Some(Stay { climb_out: false, ..stay });
@@ -1873,7 +1897,10 @@ impl Pet {
             return None;
         }
         let rect = world.window(id)?.rect;
-        (inside::enterable(&rect, self.cfg.half_w, self.cfg.size) && inside::has_floor(world, id)).then_some((id, rect))
+        // 윗면 모서리 바로 위(반 폭 + INSET 안)에선 뛰어들지 않는다 — 안쪽 벽에 끌려 들어가는 것처럼 보인다
+        let margin = self.cfg.half_w + inside::INSET;
+        let clear_of_edges = self.body.x - rect.left >= margin && rect.right - self.body.x >= margin;
+        (clear_of_edges && inside::enterable(&rect, self.cfg.half_w, self.cfg.size) && inside::has_floor(world, id)).then_some((id, rect))
     }
 
     /// 창 윗면에서 안쪽 가운데 쪽으로 살짝 뛰어올라 윗면 선을 지나 떨어진다

@@ -73,16 +73,23 @@ pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], pet_height:
         }
     }
 
-    // 창 안쪽 바닥: 아래 테두리에서 INSET 위, 옆 테두리에서 INSET 안쪽. 양 끝(안쪽 벽)은 Wall
+    // 창 안쪽 바닥: 아래 테두리에서 INSET 위, 옆 테두리에서 INSET 안쪽. 양 끝(안쪽 벽)은 Wall.
+    // 창(가운데)이 있는 작업 영역 안에 있어야 하고, 그 작업 영역을 거의 다 덮는 창(최대화)엔 없다
     for (i, w) in windows.iter().enumerate() {
         if !inside::has_room(&w.rect, pet_height) {
             continue;
         }
+        let (cx, cy) = ((w.rect.left + w.rect.right) / 2.0, (w.rect.top + w.rect.bottom) / 2.0);
+        let wa = work_areas
+            .iter()
+            .find(|wa| cx >= wa.left && cx <= wa.right && cy >= wa.top && cy <= wa.bottom)
+            .or_else(|| work_areas.iter().find(|wa| cx >= wa.left && cx <= wa.right));
+        let Some(wa) = wa else { continue };
         let y = inside::floor_y(&w.rect);
-        if y > bounds.bottom || y - pet_height < bounds.top {
+        if inside::too_big(&w.rect, wa) || y > wa.bottom || y - pet_height < wa.top {
             continue;
         }
-        let (a, b, _, _) = clip(w.rect.left + inside::INSET, w.rect.right - inside::INSET, &bounds);
+        let (a, b, _, _) = clip(w.rect.left + inside::INSET, w.rect.right - inside::INSET, wa);
         let segs = cut_by_front(vec![(a, b, EndKind::Wall, EndKind::Wall)], &windows[..i], y);
         for (a, b, ka, kb) in segs {
             if b > a {

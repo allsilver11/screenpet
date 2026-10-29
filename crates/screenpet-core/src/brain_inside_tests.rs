@@ -23,7 +23,7 @@ fn idle() -> State {
 /// 창 id 안쪽 바닥 x에 세운다 (머무는 시간 leave_in)
 fn place_inside(p: &mut Pet, w: &World, id: u64, x: f64, state: State, leave_in: f64) {
     place(p, w, Owner::Inside(id), x, state);
-    p.inside = Some(Stay { window: id, mode: Mode::In, leave_in, climb_out: false });
+    p.inside = Some(Stay { window: id, mode: Mode::In, leave_in, climb_out: false, hops: 0 });
 }
 
 /// 몸을 잡아 (x, y)로 옮긴 뒤 잠깐 멈췄다 놓는다 (던지는 속도 0)
@@ -440,7 +440,14 @@ fn entering_the_house_or_leaving_the_screen_forgets_the_window() {
     assert_eq!(p.inside_window(), None);
 }
 
-/// 창이 많은 화면 10분 — 패닉 없이, 늘 화면 안에서, 창 안에서도 논다. 창이 가끔 움직이고 닫힌다
+/// 크기 size인 동물 (반 폭·걷기 속도도 크기에 비례)
+fn sized(size: f64, can_climb: bool) -> PetConfig {
+    let k = size / 128.0;
+    PetConfig { size, half_w: 0.3 * size, walk_speed: 90.0 * k, can_climb, ..sim_cfg() }
+}
+
+/// 창이 많은 화면 10분 (아기 0.45배·보통·큰 1.5배) — 패닉 없이, 늘 화면 안에서, 창 안에서도 논다.
+/// 창이 가끔 움직이고 닫히고 순서가 바뀐다
 #[test]
 fn window_rich_ten_minutes_smoke() {
     let screen = vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)];
@@ -449,54 +456,181 @@ fn window_rich_ten_minutes_smoke() {
         win(2, 600.0, 300.0, 1300.0, 900.0),
         win(3, 1200.0, 600.0, 1900.0, 1040.0),
         win(4, 400.0, 700.0, 520.0, 800.0),
+        win(6, 1400.0, 90.0, 1800.0, 1040.0),
         win(5, 0.0, 0.0, 1920.0, 1040.0),
     ];
-    let worlds: Vec<World> = (0..6)
-        .map(|k| {
-            let mut ws: Vec<WindowInfo> = base.clone();
-            match k {
-                1 => ws[1].rect = Rect::new(650.0, 280.0, 1350.0, 880.0),
-                2 => {
-                    ws.remove(0);
+    // 안쪽 벽 타기는 창이 자주 바뀌면 드물어서 모든 크기를 합쳐 센다
+    let mut inner_climb = 0usize;
+    for size in [0.45 * 128.0, 128.0, 1.5 * 128.0] {
+        let worlds: Vec<World> = (0..6)
+            .map(|k| {
+                let mut ws: Vec<WindowInfo> = base.clone();
+                match k {
+                    1 => ws[1].rect = Rect::new(650.0, 280.0, 1350.0, 880.0),
+                    2 => {
+                        ws.remove(0);
+                    }
+                    3 => ws.swap(0, 1),
+                    4 => ws[2].rect = Rect::new(1150.0, 620.0, 1850.0, 1040.0),
+                    _ => {}
                 }
-                3 => ws.swap(0, 1),
-                4 => ws[2].rect = Rect::new(1150.0, 620.0, 1850.0, 1040.0),
-                _ => {}
-            }
-            World::new(ws, screen.clone(), 128.0)
-        })
-        .collect();
-    let (mut inside_ticks, mut inner_climb) = (0usize, 0usize);
-    for seed in 0..8 {
-        let cfg = PetConfig { can_climb: seed % 2 == 0, special: Some(Special::Wag), ..sim_cfg() };
-        let mut p = Pet::new(cfg, 960.0, 128.0, seed);
-        let mut rng = fastrand::Rng::with_seed(seed + 100);
-        for t in 0..(60 * 600) {
-            let w = &worlds[(t / (60 * 45)) % worlds.len()];
-            if t % (60 * 100) == 60 * 50 {
-                // 가끔 아무 데나 집어서 놓는다
-                let (x, y) = (rng.f64() * 1700.0 + 100.0, rng.f64() * 800.0 + 200.0);
-                if !p.off_surface() {
-                    drop_at(&mut p, w, x, y);
+                World::new(ws, screen.clone(), size)
+            })
+            .collect();
+        let mut inside_ticks = 0usize;
+        for seed in 0..8 {
+            let cfg = PetConfig { special: Some(Special::Wag), ..sized(size, seed % 2 == 0) };
+            let mut p = Pet::new(cfg, 960.0, size, seed);
+            let mut rng = fastrand::Rng::with_seed(seed + 100);
+            for t in 0..(60 * 600) {
+                let w = &worlds[(t / (60 * 45)) % worlds.len()];
+                if t % (60 * 100) == 60 * 50 {
+                    // 가끔 아무 데나 집어서 놓는다
+                    let (x, y) = (rng.f64() * 1700.0 + 100.0, rng.f64() * 800.0 + 200.0);
+                    if !p.off_surface() {
+                        drop_at(&mut p, w, x, y);
+                    }
                 }
-            }
-            p.update(DT, w);
-            inside_ticks += p.inside_window().is_some() as usize;
-            inner_climb += matches!(p.state, State::InnerClimb { .. }) as usize;
-            let b = w.bounds;
-            assert!(p.body.x >= b.left && p.body.x <= b.right, "seed {seed} t {t}: x {} {:?}", p.body.x, p.state);
-            assert!(p.body.y >= b.top + 128.0 - 1e-9 && p.body.y <= b.bottom + 1e-9, "seed {seed} t {t}: y {} {:?}", p.body.y, p.state);
-            if let Some(id) = p.inside_window() {
-                if p.standing.is_some() && !p.off_surface() {
-                    assert_eq!(p.standing.unwrap().owner, Owner::Inside(id), "seed {seed} t {t}");
+                p.update(DT, w);
+                inside_ticks += p.inside_window().is_some() as usize;
+                inner_climb += matches!(p.state, State::InnerClimb { .. }) as usize;
+                let b = w.bounds;
+                let at = format!("size {size} seed {seed} t {t}: ({}, {}) {:?}", p.body.x, p.body.y, p.state);
+                assert!(p.body.x >= b.left && p.body.x <= b.right, "{at}");
+                assert!(p.body.y >= b.top + size - 1e-9 && p.body.y <= b.bottom + 1e-9, "{at}");
+                if let Some(id) = p.inside_window() {
+                    if p.standing.is_some() && !p.off_surface() {
+                        assert_eq!(p.standing.unwrap().owner, Owner::Inside(id), "{at}");
+                    }
+                } else if let Some(st) = p.standing {
+                    assert!(!matches!(st.owner, Owner::Inside(_)), "{at}");
                 }
-            } else if let Some(st) = p.standing {
-                assert!(!matches!(st.owner, Owner::Inside(_)), "seed {seed} t {t}");
             }
         }
+        assert!(inside_ticks > 60 * 60, "size {size}: inside {inside_ticks}");
     }
-    assert!(inside_ticks > 60 * 60, "inside {inside_ticks}");
     assert!(inner_climb > 0, "inner climb {inner_climb}");
+}
+
+/// 아기(0.45배)가 꼭대기가 화면 위 가까이 있는 키 큰 창 안에서 나가기 시작 — secs초 안에 윗면에 서는지
+fn baby_leaves_tall_window(can_climb: bool, seed: u64, dt: f64, secs: f64) -> bool {
+    let size = 0.45 * 128.0;
+    let w = World::new(vec![win(1, 500.0, size + 2.0, 1100.0, 1040.0)], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], size);
+    assert!(w.surfaces.iter().any(|s| s.owner == Owner::Window(1)));
+    let mut p = Pet::new(sized(size, can_climb), 0.0, 0.0, seed);
+    place_inside(&mut p, &w, 1, 800.0, idle(), 0.01);
+    for _ in 0..(secs / dt) as usize {
+        p.update(dt, &w);
+        if p.inside.is_none() && p.standing.is_some() && !p.off_surface() {
+            return p.standing.unwrap().owner == Owner::Window(1);
+        }
+    }
+    false
+}
+
+#[test]
+fn baby_in_a_tall_window_hops_clear_of_the_top() {
+    // 연속 공식 그대로면 반암시적 적분이 v·dt/2를 잃어 윗면에 못 닿고 영원히 다시 뛴다
+    assert!(baby_leaves_tall_window(false, 1, DT, 3.0));
+    assert!(baby_leaves_tall_window(false, 2, 1.0 / 30.0, 3.0));
+    // 벽 타는 아기도 (뛰거나 기어올라) 나간다
+    for seed in 0..4 {
+        assert!(baby_leaves_tall_window(true, seed, DT, 60.0), "seed {seed}");
+    }
+}
+
+#[test]
+fn after_two_failed_hops_the_leap_ignores_the_ceiling() {
+    let w = world(vec![w1()]);
+    let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+    place_inside(&mut p, &w, 1, 800.0, idle(), 0.01);
+    p.inside.as_mut().unwrap().hops = 2;
+    // 아주 큰 dt 한 번이어도 반드시 윗면에 선다
+    p.update(DT, &w);
+    assert_eq!(p.inside.unwrap().mode, Mode::LeapOut);
+    let mut steps = 0;
+    while !(p.inside.is_none() && p.standing.is_some() && !p.off_surface()) && steps < 100 {
+        p.update(0.1, &w);
+        steps += 1;
+    }
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
+    assert_eq!(p.body.y, 400.0);
+}
+
+#[test]
+fn maximized_windows_cannot_be_entered() {
+    // 작업 영역의 90% 이상을 덮는 창 (뒤에 깔린 최대화 창) — 빈 바탕에 놓아도 안으로 들어가지 않는다
+    let w = world(vec![win(5, 0.0, 0.0, 1920.0, 1040.0)]);
+    assert!(!w.surfaces.iter().any(|s| s.owner == Owner::Inside(5)));
+    let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+    place(&mut p, &w, Owner::Ground(0), 200.0, idle());
+    drop_at(&mut p, &w, 800.0, 700.0);
+    run_until_standing(&mut p, &w, 300);
+    assert_eq!((p.inside_window(), p.standing.map(|s| s.owner)), (None, Some(Owner::Ground(0))));
+    let near_full = world(vec![win(5, 20.0, 20.0, 1900.0, 1030.0)]);
+    assert!(!near_full.surfaces.iter().any(|s| s.owner == Owner::Inside(5)));
+    let big = world(vec![win(5, 100.0, 100.0, 1800.0, 1000.0)]);
+    assert!(big.surfaces.iter().any(|s| s.owner == Owner::Inside(5)));
+}
+
+#[test]
+fn climb_out_give_up_counts_from_when_it_was_chosen() {
+    let w = world(vec![w1()]);
+    for seed in 0..50 {
+        let mut p = Pet::new(climber(), 0.0, 0.0, seed);
+        // 오래 자고 일어나 이미 한참 지남
+        place_inside(&mut p, &w, 1, 800.0, idle(), -100.0);
+        p.update(DT, &w);
+        if p.inside.is_some_and(|s| s.climb_out) {
+            run(&mut p, &w, 30);
+            assert!(matches!(p.state, State::Move { .. }), "seed {seed}: {:?}", p.state);
+            assert!(p.inside.is_some_and(|s| s.climb_out));
+            return;
+        }
+    }
+    panic!("never chose to climb out");
+}
+
+#[test]
+fn interrupted_inner_climb_does_not_snap_down() {
+    let w = world(vec![w1()]);
+    let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+    place_inside(&mut p, &w, 1, 1058.0, idle(), 1000.0);
+    p.standing = None;
+    // 머리가 윗면 위로 나와 있음 (발은 윗면 아래 40)
+    p.state = State::InnerClimb { window: 1, rel_x: 558.0, rel_y: 40.0 };
+    p.update(DT, &w);
+    let y0 = p.body.y;
+    p.pointer_down(p.body.x, p.body.y - 40.0);
+    p.pointer_up(p.body.x, p.body.y - 40.0);
+    p.update(DT, &w);
+    assert!((p.body.y - y0).abs() < 5.0, "{y0} -> {}", p.body.y);
+    run_until_standing(&mut p, &w, 300);
+    assert!(p.standing.is_some());
+}
+
+#[test]
+fn no_hop_in_from_the_very_edge_of_a_top() {
+    let w = world(vec![w1()]);
+    // 모서리에서 반 폭 + 4 안쪽이면 뛰어들지 않는다
+    assert_eq!(hop_in_share(&w, Owner::Window(1), 510.0, cfg()), 0.0);
+    assert_eq!(hop_in_share(&w, Owner::Window(1), 1090.0, cfg()), 0.0);
+    assert!(hop_in_share(&w, Owner::Window(1), 545.0, cfg()) > 0.0);
+}
+
+#[test]
+fn climb_out_needs_climbing_at_the_moment_it_starts() {
+    let w = world(vec![w1()]);
+    let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+    place_inside(&mut p, &w, 1, 1050.0, State::Move { kind: Move::Walk, remaining: 100.0 }, -1.0);
+    p.inside.as_mut().unwrap().climb_out = true;
+    p.facing = 1.0;
+    p.set_can_climb(false);
+    for _ in 0..120 {
+        p.update(DT, &w);
+        assert!(!matches!(p.state, State::InnerClimb { .. }));
+    }
+    assert!(p.inside.is_none_or(|s| s.mode == Mode::HopOut));
 }
 
 #[test]
@@ -508,4 +642,22 @@ fn homesick_guest_hops_out_to_head_home() {
     p.update(DT, &w);
     assert!(matches!(p.state, State::Air { anim: Anim::Hop }));
     assert_eq!(p.inside.unwrap().mode, Mode::HopOut);
+}
+
+
+/// (바깥) 꼭대기가 화면 위에 붙은 창의 옆면을 기어오르다 머리가 화면 위로 나가기 전에 떨어진다
+#[test]
+fn wall_climb_never_pushes_the_head_off_screen() {
+    let w = world(vec![win(6, 1400.0, 90.0, 1800.0, 1040.0)]);
+    let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+    p.standing = None;
+    p.body = Body { x: 1400.0 - 38.0, y: 700.0, vx: 0.0, vy: 0.0 };
+    p.state = State::WallClimb { window: 6, side: crate::world::Side::Left, rel_y: 610.0 };
+    let mut fell = false;
+    for _ in 0..(60 * 15) {
+        p.update(DT, &w);
+        assert!(p.body.y - 128.0 >= -1e-9, "{} {:?}", p.body.y, p.state);
+        fell |= matches!(p.state, State::Air { .. });
+    }
+    assert!(fell);
 }

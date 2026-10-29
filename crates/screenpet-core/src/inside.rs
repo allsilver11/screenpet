@@ -34,6 +34,8 @@ pub enum Mode {
     HopIn,
     /// 윗면 위로 뛰어나가는 중 — 천장 없음, 발이 윗면 위로 올라가면 바깥
     HopOut,
+    /// 뛰어나가기가 두 번 실패한 뒤의 확실한 도약 — 벽·천장 무시, 꼭대기에서 윗면 위로 나간다
+    LeapOut,
 }
 
 /// 창 안에 있는 동물의 상태
@@ -45,11 +47,13 @@ pub struct Stay {
     pub leave_in: f64,
     /// 안쪽 벽을 기어올라 나가려고 벽으로 가는 중
     pub climb_out: bool,
+    /// 뛰어나가기를 시도한 횟수
+    pub hops: u32,
 }
 
 impl Stay {
     pub fn new(window: u64, mode: Mode, rng: &mut fastrand::Rng) -> Self {
-        Self { window, mode, leave_in: behavior::range(rng, STAY_SECS), climb_out: false }
+        Self { window, mode, leave_in: behavior::range(rng, STAY_SECS), climb_out: false, hops: 0 }
     }
 }
 
@@ -92,9 +96,23 @@ pub fn has_floor(world: &World, window: u64) -> bool {
     world.surfaces.iter().any(|s| s.owner == Owner::Inside(window))
 }
 
-/// 발 y에서 창 윗면 top 위로 clear만큼 솟는 처음 속도 (위로 = 음수)
-pub fn leave_vy(y: f64, top: f64, clear: f64) -> f64 {
-    -(2.0 * crate::physics::GRAVITY * (y - top + clear).max(0.0)).sqrt()
+/// 발 y에서 창 윗면 top 위로 clear만큼 솟는 처음 속도 (위로 = 음수).
+/// step_air(반암시적 오일러, 틱 dt)는 연속 공식보다 꼭대기가 최대 v·dt/2 낮으므로 그만큼 더 세게 뛴다:
+/// v²/2g − v·dt/2 = h  →  v = (g·dt + √(g²dt² + 8gh)) / 2
+pub fn leave_vy(y: f64, top: f64, clear: f64, dt: f64) -> f64 {
+    let g = crate::physics::GRAVITY;
+    let h = (y - top + clear).max(0.0);
+    -(g * dt + (g * g * dt * dt + 8.0 * g * h).sqrt()) / 2.0
+}
+
+/// 작업 영역의 이 비율 이상을 덮는 창(최대화·거의 전체 화면)엔 들어가지 않는다
+pub const MAX_AREA_SHARE: f64 = 0.9;
+
+/// 창이 작업 영역 work_area의 90% 이상을 덮는지
+pub fn too_big(rect: &Rect, work_area: &Rect) -> bool {
+    let w = (rect.right.min(work_area.right) - rect.left.max(work_area.left)).max(0.0);
+    let h = (rect.bottom.min(work_area.bottom) - rect.top.max(work_area.top)).max(0.0);
+    w * h >= MAX_AREA_SHARE * work_area.width() * work_area.height()
 }
 
 #[cfg(test)]
@@ -198,9 +216,44 @@ mod tests {
     }
 
     #[test]
+    fn leave_vy_clears_the_top_with_the_game_integrator() {
+        // step_air와 같은 반암시적 적분으로도 꼭대기가 top − clear 위
+        for (y, top, clear, dt) in [(1036.0, 60.0, 18.0, 1.0 / 60.0), (896.0, 400.0, 40.0, 1.0 / 30.0), (1036.0, 200.0, 0.0, 0.05)] {
+            let mut b = crate::physics::Body { x: 0.0, y, vx: 0.0, vy: leave_vy(y, top, clear, dt) };
+            let mut apex = y;
+            let open = Rect::new(-1e9, -1e9, 1e9, 1e9);
+            while b.vy < 0.0 {
+                crate::physics::step_air(&mut b, dt, &open, 1.0, 1.0);
+                apex = apex.min(b.y);
+            }
+            assert!(apex <= top - clear, "{y} {top} {clear} {dt}: apex {apex}");
+            assert!(apex >= top - clear - 60.0, "too high {apex}");
+        }
+    }
+
+    #[test]
+    fn maximized_test_rect_is_too_big() {
+        let wa = Rect::new(0.0, 0.0, 1920.0, 1040.0);
+        assert!(too_big(&Rect::new(0.0, 0.0, 1920.0, 1040.0), &wa));
+        assert!(too_big(&Rect::new(-8.0, -8.0, 1928.0, 1048.0), &wa));
+        assert!(!too_big(&Rect::new(100.0, 100.0, 1800.0, 1000.0), &wa));
+    }
+
+    #[test]
+    fn inner_floor_stays_inside_its_work_area() {
+        // 오른쪽 모니터(바닥 900)에 있는 창의 안쪽 바닥이 그 모니터 바닥 아래면 없다
+        let areas = vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 900.0)];
+        let w = World::new(vec![win(2, 1700.0, 300.0, 2300.0, 800.0), win(1, 2000.0, 300.0, 2600.0, 1000.0)], areas, 128.0);
+        assert!(inner(&w, 1).is_empty());
+        // 두 모니터에 걸친 창은 가운데가 있는 모니터 안으로 자른다
+        let p = inner(&w, 2);
+        assert_eq!((p[0].x_start, p[0].x_end), (1920.0, 2296.0));
+    }
+
+    #[test]
     fn leave_vy_clears_the_top() {
-        let vy = leave_vy(896.0, 400.0, 40.0);
-        // 꼭대기 높이 = v² / 2g
+        let vy = leave_vy(896.0, 400.0, 40.0, 0.0);
+        // dt → 0이면 꼭대기 높이 = v² / 2g
         assert!((vy * vy / (2.0 * GRAVITY) - 536.0).abs() < 1e-6);
         assert!(vy < 0.0);
     }
