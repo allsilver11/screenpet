@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 동물을 활발하게(걷기·뛰기·구르기, 애교 6종, 랜덤 클릭 반응) 만들고 그림을 128px 말랑 카와이 스타일 16동작으로 전면 교체한다.
+**Goal:** 동물을 활발하게(걷기·뛰기·구르기, 애교 6종, 랜덤 클릭 반응) 만들고 그림을 128px 말랑 카와이 스타일 18동작으로 전면 교체한다.
 
-**Architecture:** 다음 행동을 고르는 확률·시간 수치를 새 `behavior.rs`(순수 함수 + `fastrand::Rng`)로 분리하고, `brain.rs` 상태 머신은 `Move{kind}`/`Trick{kind}` 상태로 확장한다. 그림은 `tools/draw_pets.py`가 도형 합집합을 블러+임계값으로 녹인 실루엣에 굵은 외곽선을 입혀 4종 × 16동작 시트를 생성한다. 웹뷰는 창 크기에 맞춰 그리고, `roll`만 연속 회전시킨다.
+**Architecture:** 다음 행동을 고르는 확률·시간 수치를 새 `behavior.rs`(순수 함수 + `fastrand::Rng`)로 분리하고, `brain.rs` 상태 머신은 `Move{kind}`/`Trick{kind}` 상태로 확장한다. 그림은 `tools/draw_pets.py`가 도형 합집합을 블러+임계값으로 녹인 실루엣에 굵은 외곽선을 입혀 4종 × 18동작 시트를 생성한다. 웹뷰는 창 크기에 맞춰 그리고, `roll`만 연속 회전시킨다.
 
 **Tech Stack:** Rust (screenpet-core, Tauri 2 app), Python 3 + Pillow, 바닐라 JS, GitHub Actions.
 
@@ -14,8 +14,10 @@
 
 - 수치 (spec §2): 걷기 4~10초, 쉬기 1.5~3초, 잠 확률 8%·6~12초, 이동 선택 걷기 55% / 뛰기 30% / 구르기 15%, 뛰기 ×2.5·2~5초, 구르기 ×2.0·2~4초, 이동 종료 시 30% Turn, 쉬기 중 애교 30%·2~4초, 클릭 애교 2초, 걷기 Edge 80% Hop, 뛰기 Edge 항상 점프(vx ×1.8), 구르기 Edge 속도 유지 낙하, Blocked/Wall은 항상 Turn.
 - 걷기 속도 (`pet.json` `walk_speed`): 고양이 90 / 강아지 105 / 토끼 120 / 비버 60.
-- 필수 동작 16개, 이 순서 (Rust `REQUIRED_ANIMS` = Python `ANIMS` = 시트 행 순서): `walk run roll idle look sleep hop fall dragged land sit_front wave tilt belly stretch heart`.
-- 앞모습 동작(`sit_front wave tilt belly stretch heart`)은 좌우 반전하지 않는다.
+- 필수 동작 18개, 이 순서 (Rust `REQUIRED_ANIMS` = Python `ANIMS` = 시트 행 순서): `walk run roll idle look sleep hop fall dragged land sit_front wave tilt belly stretch heart tickle annoyed`.
+- 앞모습 동작: `sit_front wave tilt belly stretch heart tickle`. `annoyed`는 옆모습(엎드림).
+- 간질이기: 최근 0.6초 커서 경로 ≥ 250px, 멈추면 1.5초 유지, 잘 때 5초 계속 간질이면 깸. 말풍선 1.5초, 평소 20~40초마다, 클릭 50%. 펫 창 128×164 (위 36px 말풍선 자리).
+- 앞모습 동작은 좌우 반전하지 않는다.
 - 프레임 128×128, `frame_size: 128`, 표시 128 논리 px (확대 없음).
 - `roll` 공: 중심 (64, 88), 반지름 38(외곽선 포함) 안. `spin = walk_speed × 2.0 / 38 × 180/π` (deg/s). 웹뷰 회전축 `transform-origin: 50% 68.75%`.
 - 스타일: 말랑 카와이 — 녹인 한 덩어리 실루엣, 외곽선 RGB (132,96,92) 약 3px, 큰 머리, 점 눈+하이라이트, 빗금 볼터치. 시안: `design-preview` 브랜치 `design-preview/kawaii-all-light.png`.
@@ -29,19 +31,20 @@
 ```
 crates/screenpet-core/src/
   behavior.rs   (신규) Move, Trick, Rest, ClickReaction, pick_* 함수, 수치 상수
-  brain.rs      State::Move/Trick, Anim 16종, 이동별 Edge 규칙, 애교·클릭 반응, render 앞모습 반전 금지
-  manifest.rs   REQUIRED_ANIMS 16, AnimSpec.front / spin
+  brain.rs      State::Move/Trick/Tickled/Annoyed, Anim 18종, Speech, hover(), 이동별 Edge 규칙, 애교·클릭 반응, render 앞모습 반전 금지
+  manifest.rs   REQUIRED_ANIMS 18, AnimSpec.front / spin
   lib.rs        pub mod behavior;
 tools/
-  sprite_spec.py   ANIMS 16 (name, frames, fps, loop, front), FRAME=128, ROLL_* 상수, roll_spin()
+  sprite_spec.py   ANIMS 18, SPEECH (name, frames, fps, loop, front), FRAME=128, ROLL_* 상수, roll_spin()
   draw_pets.py     (신규) 카와이 엔진 + 종별 설정 + 포즈 → ui/pets/*/sheet.png, pet.json
   test_draw_pets.py (신규)
   pack_sheet.py    128 규격, front/spin 반영
   gen_placeholder.py  삭제
 ui/
-  main.js, style.css   창 크기 기준 표시, roll 회전, flip은 transform으로
+  index.html, main.js, style.css   창 크기 기준 표시, roll 회전, flip은 transform으로, 말풍선
   pets/{cat,dog,rabbit,beaver}/   재생성
-src-tauri/src/game_loop.rs   STAGE_SCALE, 창 크기 설정
+src-tauri/src/game_loop.rs   STAGE_SCALE, 창 크기 128×164, hover 감지, pet-say 이벤트
+src-tauri/tauri.conf.json    height 164
 docs/sprites.md, README.md
 ```
 
@@ -628,7 +631,309 @@ impl From<Trick> for Anim {
 
 ---
 
-### Task 2: 카와이 그림 파이프라인 (16동작 × 4종, 128px)
+### Task 2: 간질이기·귀찮아하기·말풍선 (core)
+
+**Files:**
+- Modify: `crates/screenpet-core/src/brain.rs`
+
+**Interfaces:**
+- Consumes: Task 1의 `Pet`, `State`, `Anim`, `behavior::range`.
+- Produces:
+```rust
+pub enum Anim { ..., Heart, Tickle, Annoyed }            // 끝에 두 개 추가, is_front: Tickle 포함
+pub enum State { ..., Tickled { remaining: f64 }, Annoyed { remaining: f64, tickled_for: f64 } }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)] #[serde(rename_all = "snake_case")]
+pub enum Speech { Chatter, Tickle, Grumpy }
+impl Pet {
+    /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
+    pub fn hover(&mut self, cx: f64, cy: f64, inside: bool);
+    /// 이번 틱에 띄울 말풍선 (한 번 꺼내면 None)
+    pub fn take_speech(&mut self) -> Option<Speech>;
+}
+```
+
+- [ ] **Step 1: 실패 테스트 작성** — brain.rs에 새 테스트 모듈 추가 (파일 끝)
+
+```rust
+#[cfg(test)]
+mod tickle_tests {
+    use super::tests::{cfg, place, run, w1, world};
+    use super::*;
+
+    const DT: f64 = 1.0 / 60.0;
+
+    /// 커서를 40px씩 좌우로 흔들며 n틱 간질인다
+    fn tickle(p: &mut Pet, w: &World, ticks: usize) {
+        for i in 0..ticks {
+            p.hover(800.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, 350.0, true);
+            p.update(DT, w);
+        }
+    }
+
+    fn idle() -> State {
+        State::Idle { remaining: 100.0, look: false }
+    }
+
+    #[test]
+    fn fast_hover_tickles_and_speaks_once() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        tickle(&mut p, &w, 30);
+        assert!(matches!(p.state, State::Tickled { .. }));
+        assert_eq!(p.render().anim, Anim::Tickle);
+        assert_eq!(p.take_speech(), Some(Speech::Tickle));
+        tickle(&mut p, &w, 10);
+        assert_eq!(p.take_speech(), None, "speech only when tickling starts");
+    }
+
+    #[test]
+    fn slow_hover_does_not_tickle() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        for i in 0..60 {
+            p.hover(800.0 + i as f64 * 2.0, 350.0, true);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Idle { .. }));
+    }
+
+    #[test]
+    fn tickle_stops_1_5s_after_cursor_leaves() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        tickle(&mut p, &w, 30);
+        for _ in 0..80 {
+            p.hover(0.0, 0.0, false);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Tickled { .. }), "still giggling before 1.5s");
+        for _ in 0..20 {
+            p.hover(0.0, 0.0, false);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Move { .. }));
+    }
+
+    #[test]
+    fn tickling_a_sleeper_annoys_then_it_sleeps_again() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Sleep { remaining: 30.0 });
+        tickle(&mut p, &w, 120);
+        assert!(matches!(p.state, State::Annoyed { .. }));
+        assert_eq!(p.render().anim, Anim::Annoyed);
+        assert_eq!(p.take_speech(), None);
+        for _ in 0..100 {
+            p.hover(0.0, 0.0, false);
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Sleep { .. }));
+    }
+
+    #[test]
+    fn five_seconds_of_tickling_wakes_a_sleeper() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Sleep { remaining: 30.0 });
+        tickle(&mut p, &w, 280);
+        assert!(matches!(p.state, State::Annoyed { .. }), "not yet at ~4.5s");
+        // 깨어난 틱에서 멈춘다 (계속 간질이면 깬 뒤 바로 간질 반응으로 넘어가는 게 정상)
+        let mut woke = false;
+        for i in 0..40 {
+            p.hover(800.0 + if i % 2 == 0 { 40.0 } else { 0.0 }, 350.0, true);
+            p.update(DT, &w);
+            if matches!(p.state, State::Idle { .. }) {
+                woke = true;
+                break;
+            }
+        }
+        assert!(woke);
+        assert_eq!(p.take_speech(), Some(Speech::Grumpy));
+    }
+
+    #[test]
+    fn airborne_pet_ignores_tickling() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 800.0, 100.0, 1);
+        tickle(&mut p, &w, 10);
+        assert!(matches!(p.state, State::Air { .. }));
+    }
+
+    #[test]
+    fn chatters_every_20_to_40_seconds_but_not_while_sleeping() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 1000.0, look: false });
+        let mut said = 0;
+        for _ in 0..(60 * 90) {
+            p.update(DT, &w);
+            if p.take_speech() == Some(Speech::Chatter) {
+                said += 1;
+            }
+        }
+        assert!((2..=5).contains(&said), "said {said} times in 90s");
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Sleep { remaining: 1000.0 });
+        for _ in 0..(60 * 90) {
+            p.update(DT, &w);
+            assert_eq!(p.take_speech(), None);
+        }
+    }
+
+    #[test]
+    fn about_half_of_clicks_speak() {
+        let w = world(vec![w1()]);
+        let mut spoke = 0;
+        for seed in 0..200 {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Window(1), 800.0, idle());
+            p.pointer_down(800.0, 350.0);
+            p.pointer_up(800.0, 350.0);
+            if p.take_speech() == Some(Speech::Chatter) {
+                spoke += 1;
+            }
+        }
+        assert!((70..=130).contains(&spoke), "spoke {spoke}/200");
+    }
+}
+```
+또 `mod tests`의 `front_animation_set_is_exactly_the_six_tricks` 테스트를 아래로 교체 (이름도 변경):
+```rust
+    #[test]
+    fn front_animations_are_the_tricks_and_tickle() {
+        let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed];
+        let front: Vec<Anim> = all.into_iter().filter(|a| a.is_front()).collect();
+        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle]);
+        assert_eq!(serde_json::to_string(&Anim::SitFront).unwrap(), "\"sit_front\"");
+    }
+```
+
+- [ ] **Step 2: 실패 확인** — `cargo test -p screenpet-core tickle` → FAIL (컴파일 에러)
+
+- [ ] **Step 3: 구현** — brain.rs
+
+1. 상수 (기존 상수 옆):
+```rust
+const TICKLE_WINDOW: f64 = 0.6;
+const TICKLE_DIST: f64 = 250.0;
+const TICKLE_HOLD: f64 = 1.5;
+const TICKLE_WAKE_SECS: f64 = 5.0;
+const CHATTER_SECS: (f64, f64) = (20.0, 40.0);
+const FIRST_CHATTER_SECS: f64 = 25.0;
+const CLICK_SPEECH_CHANCE: f64 = 0.5;
+```
+2. `Anim` 끝에 `Tickle, Annoyed` 추가, `is_front`에 `| Anim::Tickle` 추가.
+3. `Speech` enum 추가 (Interfaces 블록대로, `Anim` 아래).
+4. `State`에 추가 (Trick 다음):
+```rust
+    /// 간질이는 중 (앞모습 꼬물꼬물)
+    Tickled { remaining: f64 },
+    /// 자다가 간질여짐 — tickled_for가 TICKLE_WAKE_SECS를 넘으면 깸
+    Annoyed { remaining: f64, tickled_for: f64 },
+```
+5. `Pet` 필드 추가: `hover_hist: VecDeque<(f64, f64, f64)>`, `tickling: bool`, `chatter_timer: f64`, `speech: Option<Speech>`; `new()`에서 `VecDeque::new()`, `false`, `FIRST_CHATTER_SECS`, `None`.
+6. 공개 메서드 (impl Pet, `is_held` 근처):
+```rust
+    pub fn hover(&mut self, cx: f64, cy: f64, inside: bool) {
+        if !inside || self.is_held() {
+            self.hover_hist.clear();
+            self.tickling = false;
+            return;
+        }
+        self.hover_hist.push_back((self.clock, cx, cy));
+        while self.hover_hist.front().is_some_and(|&(t, _, _)| self.clock - t > TICKLE_WINDOW) {
+            self.hover_hist.pop_front();
+        }
+        let path: f64 = self
+            .hover_hist
+            .iter()
+            .zip(self.hover_hist.iter().skip(1))
+            .map(|(a, b)| (b.1 - a.1).hypot(b.2 - a.2))
+            .sum();
+        self.tickling = path >= TICKLE_DIST;
+    }
+
+    pub fn take_speech(&mut self) -> Option<Speech> {
+        self.speech.take()
+    }
+```
+7. `update`의 마지막 팔 `_ => self.update_ground(dt, world),` 를:
+```rust
+            _ => {
+                self.react_to_tickle();
+                self.update_chatter(dt);
+                self.update_ground(dt, world);
+            }
+```
+8. 비공개 메서드:
+```rust
+    fn react_to_tickle(&mut self) {
+        if !self.tickling {
+            return;
+        }
+        self.state = match self.state {
+            State::Sleep { .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for: 0.0 },
+            State::Annoyed { tickled_for, .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for },
+            State::Tickled { .. } => State::Tickled { remaining: TICKLE_HOLD },
+            _ => {
+                self.speech = Some(Speech::Tickle);
+                State::Tickled { remaining: TICKLE_HOLD }
+            }
+        };
+    }
+
+    fn update_chatter(&mut self, dt: f64) {
+        if matches!(self.state, State::Sleep { .. } | State::Annoyed { .. }) {
+            return;
+        }
+        self.chatter_timer -= dt;
+        if self.chatter_timer <= 0.0 {
+            self.speech = Some(Speech::Chatter);
+            self.chatter_timer = behavior::range(&mut self.rng, CHATTER_SECS);
+        }
+    }
+```
+9. `update_ground`의 `match`에 팔 추가 (`State::Trick` 다음):
+```rust
+            State::Tickled { remaining } => {
+                let remaining = remaining - dt;
+                self.state = if remaining > 0.0 { State::Tickled { remaining } } else { self.move_state(true) };
+            }
+            State::Annoyed { remaining, tickled_for } => {
+                let tickled_for = if self.tickling { tickled_for + dt } else { tickled_for };
+                if tickled_for >= TICKLE_WAKE_SECS {
+                    self.speech = Some(Speech::Grumpy);
+                    self.state = self.idle_state();
+                } else {
+                    let remaining = remaining - dt;
+                    self.state = if remaining > 0.0 {
+                        State::Annoyed { remaining, tickled_for }
+                    } else {
+                        State::Sleep { remaining: behavior::range(&mut self.rng, behavior::SLEEP_SECS) }
+                    };
+                }
+            }
+```
+10. `render`에: `State::Tickled { .. } => Anim::Tickle,` `State::Annoyed { .. } => Anim::Annoyed,`
+11. `pointer_down`: `let was_sleeping = matches!(self.state, State::Sleep { .. } | State::Annoyed { .. });`
+12. `pointer_up`의 `State::Pressed { grounded: true, .. } => match behavior::pick_click(..) {..}` 팔 뒤에 말풍선: 그 팔 전체를 블록으로 감싸고 끝에
+```rust
+                if self.rng.f64() < CLICK_SPEECH_CHANCE {
+                    self.speech = Some(Speech::Chatter);
+                }
+```
+(잠 깨우기 팔과 공중 클릭 팔에는 말풍선 없음.)
+
+- [ ] **Step 4: 통과 확인** — `cargo test -p screenpet-core` 전체 통과·경고 없음 (10분 시뮬레이션 포함 — hover 호출이 없으므로 비율 변화 없어야 함), `cargo check -p screenpet-core --target x86_64-pc-windows-gnu`.
+
+- [ ] **Step 5: 커밋** — `feat(core): tickle on fast hover, annoyed sleeper, speech bubbles`
+
+---
+
+### Task 3: 카와이 그림 파이프라인 (18동작 × 4종, 128px)
 
 **Files:**
 - Create: `tools/draw_pets.py`, `tools/test_draw_pets.py`
@@ -637,13 +942,13 @@ impl From<Trick> for Anim {
 - Regenerate (커밋): `ui/pets/{cat,dog,rabbit,beaver}/{sheet.png,pet.json}`
 
 **Interfaces:**
-- Consumes: Task 1의 `Anim` serde 이름 (snake_case 16개).
-- Produces: 16동작 매니페스트 (`front`, `spin` 포함), `sprite_spec.ANIMS` 5-튜플 `(name, frames, fps, loop, front)`, `sprite_spec.FRAME = 128`, `sprite_spec.ROLL_CENTER = (64, 88)`, `sprite_spec.ROLL_RADIUS = 38`, `sprite_spec.roll_spin(walk_speed) -> float`, `sprite_spec.manifest(name, walk_speed, frame_counts) -> dict`.
+- Consumes: Task 1·2의 `Anim` serde 이름 (snake_case 18개).
+- Produces: 18동작 매니페스트 (+ `speech`) (`front`, `spin` 포함), `sprite_spec.ANIMS` 5-튜플 `(name, frames, fps, loop, front)`, `sprite_spec.FRAME = 128`, `sprite_spec.ROLL_CENTER = (64, 88)`, `sprite_spec.ROLL_RADIUS = 38`, `sprite_spec.roll_spin(walk_speed) -> float`, `sprite_spec.manifest(name, walk_speed, frame_counts) -> dict`.
 
 - [ ] **Step 1: Rust 매니페스트 — 실패 테스트**
 
 `manifest.rs`:
-- `REQUIRED_ANIMS`를 `[&str; 16] = ["walk", "run", "roll", "idle", "look", "sleep", "hop", "fall", "dragged", "land", "sit_front", "wave", "tilt", "belly", "stretch", "heart"]`로.
+- `REQUIRED_ANIMS`를 `[&str; 18] = ["walk", "run", "roll", "idle", "look", "sleep", "hop", "fall", "dragged", "land", "sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "annoyed"]`로.
 - 테스트 추가:
 ```rust
     #[test]
@@ -664,7 +969,7 @@ impl From<Trick> for Anim {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         assert_eq!(names, crate::manifest::REQUIRED_ANIMS);
     }
@@ -713,7 +1018,19 @@ ANIMS = [
     ("belly", 4, 4, True, True),
     ("stretch", 3, 3, False, True),
     ("heart", 3, 4, True, True),
+    ("tickle", 3, 8, True, True),
+    ("annoyed", 2, 2, True, False),
 ]
+
+
+# 말풍선 대사 (spec §2.6)
+SPEECH = {
+    "cat": {"chatter": ["meow!", "nya~"], "tickle": ["hehe!"], "grumpy": ["hmph!"]},
+    "dog": {"chatter": ["woof!", "arf!"], "tickle": ["hehe!"], "grumpy": ["hmph!"]},
+    "rabbit": {"chatter": ["boing!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"]},
+    "beaver": {"chatter": ["chomp!", "hmm~"], "tickle": ["hehe!"], "grumpy": ["hmph!"]},
+}
+DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"]}
 
 
 def roll_spin(walk_speed):
@@ -721,8 +1038,8 @@ def roll_spin(walk_speed):
     return round(walk_speed * ROLL_SPEED_MULT / ROLL_RADIUS * 180 / math.pi, 1)
 
 
-def manifest(name, walk_speed, frame_counts):
-    """frame_counts: {동작: 프레임 수}. 행 번호는 ANIMS 순서."""
+def manifest(name, walk_speed, frame_counts, speech=None):
+    """frame_counts: {동작: 프레임 수}. 행 번호는 ANIMS 순서. speech: 말풍선 대사 (없으면 DEFAULT_SPEECH)."""
     animations = {}
     for row, (anim, _, fps, loop, front) in enumerate(ANIMS):
         spec = {"row": row, "frames": frame_counts[anim], "fps": fps}
@@ -733,7 +1050,8 @@ def manifest(name, walk_speed, frame_counts):
         if anim == "roll":
             spec["spin"] = roll_spin(walk_speed)
         animations[anim] = spec
-    return {"name": name, "frame_size": FRAME, "walk_speed": walk_speed, "animations": animations}
+    return {"name": name, "frame_size": FRAME, "walk_speed": walk_speed, "animations": animations,
+            "speech": speech or DEFAULT_SPEECH}
 ```
 
 - [ ] **Step 4: pack_sheet.py / test_pack_sheet.py 갱신**
@@ -741,7 +1059,7 @@ def manifest(name, walk_speed, frame_counts):
   - `test_pack_sheet.py`: 튜플 언패킹을 `for anim, n, *_ in ANIMS` 형태로, 기대값 갱신 — `m["animations"]["walk"] == {"row": 0, "frames": 4, "fps": 8}`, `m["animations"]["hop"]["loop"] is False`, 추가 단언 `m["animations"]["wave"]["front"] is True`, `m["animations"]["roll"]["spin"] == roll_spin(55)` (`from sprite_spec import roll_spin`). 움직임 보존 테스트의 기대 오프셋 계산이 `FRAME`을 쓰는지 확인하고 하드코딩된 64가 있으면 `FRAME`으로.
   - Run `cd tools && python -m pytest -q test_pack_sheet.py` → 통과.
 
-- [ ] **Step 5: draw_pets.py — 엔진 + 종별 설정 + 16포즈**
+- [ ] **Step 5: draw_pets.py — 엔진 + 종별 설정 + 18포즈**
 
 출발점: 승인된 시안 코드 `/tmp/claude-1000/-home-jde-personal/10c5a648-04e7-4a85-90aa-9a43294dc740/scratchpad/kawaii3.py` (엔진 함수 `melt/grow/aa/paint/stroke/blush/dot_eye/mouth_w`, 종별 앞모습·옆모습). 이것을 복사해 아래 구조로 정리한다. 시안의 모습(`design-preview` 브랜치 `design-preview/kawaii-all-light.png`)이 **기준**이고, 정리 과정에서 모습이 바뀌면 안 된다.
 
@@ -768,8 +1086,10 @@ def manifest(name, walk_speed, frame_counts):
 | belly | 4 | 앞모습으로 누워 배 보이기: 등 대고 누움, 네 발 위로, 발 꼬물(프레임마다 발끝 2px), 꼬리 옆 |
 | stretch | 3 | 앞발 앞으로 쭉·엉덩이 들기 (옆이 아니라 정면 쪽으로 엎드린 앞모습) → 하품(입 벌림) → 복귀 앉기 |
 | heart | 3 | 앞모습 앉기 + 양발 모아 가슴 앞, 작은 하트 2~3개가 머리 위로 떠오름 (프레임마다 위로 6px, 크기 변화) |
+| tickle | 3 | 앞모습, 몸을 좌우로 비비 꼬음(±4px·±6° 기울임), 눈 ^^ 웃음, 입 크게 벌린 웃음, 발 버둥 |
+| annoyed | 2 | sleep과 같은 엎드린 자세에서 한쪽 눈만 실눈(가는 선), 입 뾰로통(ㅅ 거꾸로), 머리 옆 💢 표시(빨간 십자 모양), 귀 한쪽 젖힘 (프레임 2는 귀 씰룩) |
 
-4. **시트 출력** `build(out_root: Path)`: 종마다 `sheet.png` (가로 = 최대 프레임 수 × 128, 세로 = 16 × 128) + `pet.json` (`sprite_spec.manifest`). `main()`은 `ui/pets/`로 출력하고 `tools/preview/`에 4종 × 16동작 전체 미리보기 `all_light.png`(흰 배경), `all_dark.png`(어두운 배경)를 저장 (preview 폴더는 `.gitignore`에 추가).
+4. **시트 출력** `build(out_root: Path)`: 종마다 `sheet.png` (가로 = 최대 프레임 수 × 128, 세로 = 18 × 128) + `pet.json` (`sprite_spec.manifest(name, walk_speed, counts, SPEECH[id])`). `main()`은 `ui/pets/`로 출력하고 `tools/preview/`에 4종 × 18동작 전체 미리보기 `all_light.png`(흰 배경), `all_dark.png`(어두운 배경)를 저장 (preview 폴더는 `.gitignore`에 추가).
 
 규칙:
 - 모든 프레임은 128×128 안에서 **가장자리 1px 투명** (잘림 없음), 서 있는 포즈는 발이 y 120~127 사이에 닿는다 (`roll`·`fall`·`dragged`·`hop` 제외).
@@ -787,7 +1107,7 @@ from PIL import Image
 import draw_pets
 from sprite_spec import ANIMS, FRAME, ROLL_CENTER, ROLL_RADIUS
 
-STANDING = {"walk", "run", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart"}
+STANDING = {"walk", "run", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed"}
 
 
 def test_sleep_is_lying_flat(tmp_path):
@@ -832,31 +1152,37 @@ Run `cd tools && python -m pytest -q` → 전체 통과.
 
 - [ ] **Step 7: 생성·시각 확인**
   - `python tools/draw_pets.py` → `ui/pets/*` 재생성, `tools/preview/all_light.png`, `all_dark.png`.
-  - **Read 도구로 미리보기 두 장을 열어 직접 본다.** 확인 항목: 시안과 같은 스타일·무늬, 16동작이 각 동작답게 읽히는지(특히 run·roll·belly·stretch·heart·tilt), 잘림·구멍·빈 칸 없음, 어두운 배경에서도 외곽선이 보임. 이상하면 고치고 다시 생성 (최대 3회 반복, 남은 아쉬움은 보고서에 적는다).
+  - **Read 도구로 미리보기 두 장을 열어 직접 본다.** 확인 항목: 시안과 같은 스타일·무늬, 18동작이 각 동작답게 읽히는지(특히 run·roll·belly·stretch·heart·tilt), 잘림·구멍·빈 칸 없음, 어두운 배경에서도 외곽선이 보임. 이상하면 고치고 다시 생성 (최대 3회 반복, 남은 아쉬움은 보고서에 적는다).
   - `git rm tools/gen_placeholder.py`.
-  - `cargo test -p screenpet-core` → 전체 통과 (번들 매니페스트 16동작 검증 포함).
+  - `cargo test -p screenpet-core` → 전체 통과 (번들 매니페스트 18동작 검증 포함).
 
-- [ ] **Step 8: docs/sprites.md 갱신** — 규격 128×128, 16동작 표(동작·권장 장수·내용·앞모습 여부), roll 공 원 규칙 (중심 (64,88), 반지름 38), 앞모습 동작은 반전되지 않음, 코드 생성기 `python tools/draw_pets.py`, AI 교체는 `pack_sheet.py` (동작별 PNG → 시트).
+- [ ] **Step 8: docs/sprites.md 갱신** — 규격 128×128, 18동작 표(동작·권장 장수·내용·앞모습 여부), roll 공 원 규칙 (중심 (64,88), 반지름 38), 앞모습 동작은 반전되지 않음, 코드 생성기 `python tools/draw_pets.py`, AI 교체는 `pack_sheet.py` (동작별 PNG → 시트).
 
-- [ ] **Step 9: 커밋** — `feat(art): kawaii 128px sprites, 16 animations for 4 species`
+- [ ] **Step 9: 커밋** — `feat(art): kawaii 128px sprites, 18 animations for 4 species`
 
 ---
 
-### Task 3: 웹뷰 표시 + 크기 배율 + README
+### Task 4: 웹뷰 표시 + 말풍선 + 간질이기 감지 + 크기 배율 + README
+
+펫 창은 128×164 논리 px: 위 36px는 말풍선 자리, 동물은 아래 128×128.
 
 **Files:**
-- Modify: `ui/main.js`, `ui/style.css`, `src-tauri/src/game_loop.rs`, `README.md`
+- Modify: `ui/index.html`, `ui/main.js`, `ui/style.css`, `src-tauri/src/game_loop.rs`, `src-tauri/tauri.conf.json`, `README.md`
 
 **Interfaces:**
-- Consumes: `pet-render` payload `{anim, flip, heart}` (flip은 앞모습이면 이미 false), 매니페스트 `spin`.
+- Consumes: `pet-render` payload `{anim, flip, heart}` (flip은 앞모습이면 이미 false), 매니페스트 `spin`·`speech`, Task 2의 `Pet::hover(cx, cy, inside)`, `Pet::take_speech() -> Option<Speech>` (serde: `"chatter" | "tickle" | "grumpy"`).
+- 새 이벤트: `"pet-say"` payload = Speech 문자열.
 - Produces: 없음 (최종 화면).
 
 - [ ] **Step 1: `ui/style.css`의 `#pet` 규칙 교체, `#pet.flip` 규칙 삭제**
 
 ```css
 #pet {
+  position: absolute;
+  left: 0;
+  bottom: 0;
   width: 100%;
-  height: 100%;
+  aspect-ratio: 1;
   background-repeat: no-repeat;
   image-rendering: auto;
   /* roll 공 중심 (64,88)/128 — tools/sprite_spec.py ROLL_CENTER */
@@ -864,6 +1190,39 @@ Run `cd tools && python -m pytest -q` → 전체 통과.
   cursor: grab;
 }
 ```
+
+   `#heart`의 위치를 말풍선 자리 아래로: `#heart { top: 36px; ... }`, `@keyframes float-up`의 `from { top: 64px; ... } to { top: 36px; ... }`.
+   말풍선 규칙 추가:
+```css
+#bubble {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 9px;
+  background: #fffaf2;
+  color: #84605c;
+  border: 2px solid #84605c;
+  border-radius: 12px;
+  font: 600 12px/1.2 "Segoe UI", "Malgun Gothic", sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 8px;
+  height: 8px;
+  background: #fffaf2;
+  border-right: 2px solid #84605c;
+  border-bottom: 2px solid #84605c;
+  transform: translateX(-50%) rotate(45deg);
+}
+```
+   `ui/index.html` body 첫 줄에 `<div id="bubble" hidden></div>` 추가.
 
 - [ ] **Step 2: `ui/main.js` 수정**
   - `const DISPLAY = 128;`와 `let scale = 2;` 삭제, `let display = 128;` 추가.
@@ -899,6 +1258,23 @@ function draw(now) {
 }
 ```
   - `pet-render` 리스너에서 `petEl.classList.toggle("flip", render.flip);` 줄 삭제.
+  - 말풍선 (리스너들 옆):
+```js
+const bubbleEl = document.getElementById("bubble");
+let bubbleTimer = null;
+
+// 백엔드가 고른 상황(chatter/tickle/grumpy)에 맞는 대사를 pet.json speech에서 랜덤으로 띄운다
+listen("pet-say", (e) => {
+  const lines = manifest?.speech?.[e.payload] ?? [];
+  if (!lines.length) return;
+  bubbleEl.textContent = lines[Math.floor(Math.random() * lines.length)];
+  bubbleEl.hidden = false;
+  clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => {
+    bubbleEl.hidden = true;
+  }, 1500);
+});
+```
   - Run `node --check ui/main.js`.
 
 - [ ] **Step 3: `src-tauri/src/game_loop.rs` 크기 배율**
@@ -906,6 +1282,8 @@ function draw(now) {
 ```rust
 /// 성장 단계 배율 (teenager = 1.0). 2B에서 단계별 값으로 바뀐다.
 const STAGE_SCALE: f64 = 1.0;
+/// 스프라이트 위 말풍선 자리 (논리 px) — tauri.conf.json height = 128 + 36
+const BUBBLE_SPACE: f64 = 36.0;
 ```
   - `pet_config`:
 ```rust
@@ -917,8 +1295,32 @@ fn pet_config(scale: f64, logical_walk: f64) -> PetConfig {
   - `run`에서 `let mut size = PET_LOGICAL_SIZE * scale;` → `let mut size = pet_config(scale, walk_speed).size;`, 그리고 window를 얻은 직후:
 ```rust
     let logical_side = PET_LOGICAL_SIZE * STAGE_SCALE;
-    let _ = window.set_size(tauri::LogicalSize::new(logical_side, logical_side));
+    let _ = window.set_size(tauri::LogicalSize::new(logical_side, logical_side + BUBBLE_SPACE));
 ```
+  - 창 위치: 스프라이트 위에 말풍선 자리가 있으므로 `let pos = (wx.round() as i32, wy.round() as i32);` → `let pos = (wx.round() as i32, (wy - BUBBLE_SPACE * scale).round() as i32);`
+  - 간질이기 감지: `if pet.is_held() { ... }` 블록을 아래로 교체 (커서는 매 틱 읽는다):
+```rust
+        let (cx, cy) = source.cursor();
+        if pet.is_held() {
+            if source.left_button_down() {
+                pet.pointer_move(cx, cy);
+            } else {
+                pet.pointer_up(cx, cy);
+            }
+        } else {
+            let (sx, sy) = pet.window_pos();
+            let side = pet.cfg.size;
+            let inside = cx >= sx && cx < sx + side && cy >= sy && cy < sy + side;
+            pet.hover(cx, cy, inside);
+        }
+```
+  - 말풍선: `pet.update(dt, &world);` 바로 다음에
+```rust
+        if let Some(speech) = pet.take_speech() {
+            let _ = app.emit("pet-say", speech);
+        }
+```
+  - `src-tauri/tauri.conf.json` pet 창 `"height": 128` → `"height": 164`.
   (Tauri 2: `WebviewWindow::set_size<S: Into<Size>>(&self, size: S) -> tauri::Result<()>`, `LogicalSize<f64>`는 `Into<Size>`.)
 
 - [ ] **Step 4: README.md 수동 테스트 체크리스트에 추가** (기존 목록 뒤)
@@ -930,6 +1332,9 @@ fn pet_config(scale: f64, logical_walk: f64) -> PetConfig {
 - [ ] 애교 중에는 왼쪽을 보고 있었어도 얼굴이 정면 (반전 안 됨)
 - [ ] 클릭하면 점프+하트 / 하트 뿌뿌 / 손 흔들기 / 갸웃 중 하나
 - [ ] 그림 가장자리가 매끈함 (계단 없음)
+- [ ] 클릭 없이 동물 위에서 마우스를 빠르게 흔들면 꼬물꼬물 웃음 + "hehe!", 멈추면 잠시 뒤 원래대로
+- [ ] 자는 동물을 간질이면 실눈 뜨고 💢, 멈추면 다시 잠, 5초 넘게 간질이면 "hmph!" 하고 깸
+- [ ] 가끔(20~40초) 머리 위에 작은 말풍선 (고양이 meow!/nya~ 등), 클릭할 때도 가끔
 ```
   README의 "임시" 그림 언급이 있으면 "카와이 스타일 그림"으로 바꾸고, 그림 교체 안내를 `docs/sprites.md`로 연결.
 
