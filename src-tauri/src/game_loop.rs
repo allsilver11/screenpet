@@ -16,6 +16,7 @@ use crate::decal::Decals;
 use crate::house::{self, HouseState};
 use crate::network::{NetInput, Network};
 use crate::pets::PetEntry;
+use crate::prop::Props;
 use crate::slots::{self, GuestInfo, Role, Slot, StagePayload, OWN_LABEL};
 use crate::AppState;
 
@@ -172,6 +173,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut pending_stage = false;
     // 꿀벌이 쏜 침 자국 창들
     let mut decals = Decals::default();
+    // 내 동물이 먹을 때 앞에 놓이는 밥그릇·물그릇·꽃·쿠키 창
+    let mut props = Props::default();
 
     loop {
         while let Ok(input) = rx.try_recv() {
@@ -208,6 +211,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::Feed(food) => {
                     let own = &mut slots[OWN];
+                    if own.pet.is_housed() {
+                        // 하우스 안이면 문 앞에 그릇이 놓이고 동물이 나와서 먹는다
+                        let spot = house::spot(&app, &own.world.work_areas, own.dpi);
+                        own.pet.set_house_door(spot.ground, spot.door_x);
+                    }
                     let before = care.clone();
                     let result = care.feed(food);
                     if own.pet.feed_result(result, food) {
@@ -244,7 +252,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         continue;
                     }
                     let spot = house::spot(&app, &own.world.work_areas, own.dpi);
-                    if own.pet.is_housed() || own.pet.is_going_home() {
+                    // 하우스에서 나와 먹는 중(다 먹으면 들어갈 참)도 "하우스에서 나오기"다
+                    if own.pet.is_housed() || own.pet.is_going_home() || own.pet.returns_home() {
                         // 문 앞에서 왼쪽으로 걸어 나온다 (가는 중이었다면 그 자리에서 멈춘다)
                         let was_inside = own.pet.is_housed();
                         own.pet.leave_house(&own.world, spot.door_x, spot.ground);
@@ -345,6 +354,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             if let Some((x, y)) = s.pet.take_sting() {
                 decals.spawn(&app, x, y, s.dpi);
             }
+            // 밥그릇·꽃 놓기·거두기 (손님은 먹이를 받지 않는다)
+            if let Some(ev) = s.pet.take_prop() {
+                if s.is_own() {
+                    props.apply(&app, ev, s.dpi, s.shown.scale);
+                }
+            }
             if let Some(side) = s.pet.take_exit() {
                 if s.is_own() {
                     own_exit = Some(side);
@@ -369,6 +384,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
         network.tick(&app, now, &config, &mut slots[OWN]);
         decals.tick(now);
+        props.tick(now);
         let own = &mut slots[OWN];
         let busy = network.own_busy(own);
         if busy != was_busy {
@@ -384,6 +400,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             if was_housed {
                 // 문에 닿았다 — 펫 창을 숨기고 하우스 창 문간에 보인다
                 let _ = own.window.hide();
+            } else {
+                // 하우스에서 나왔다 (나오기, 또는 문 앞 그릇으로 먹으러) — 문 앞 자리로 옮긴 뒤 보인다
+                own.need_show = true;
             }
         }
         if own.pet.is_away() != was_away {

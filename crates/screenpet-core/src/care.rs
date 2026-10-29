@@ -62,19 +62,38 @@ impl Stage {
     }
 }
 
+/// 간식·물이 올려 주는 포만감
+const TREAT_FILL: f64 = 0.1;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Food {
+    /// 간식 — 언제든 받는다 (성장 없음)
     Snack,
     Meal,
     /// 동물별 좋아하는 음식
     Favorite,
+    /// 물 — 언제든 받는다 (성장 없음)
+    Water,
 }
 
+/// 배고플 때 누르면 뜨는 음식 고르기 버튼 (ui/index.html·house.html #picker와 같은 순서)
+pub const PICKER_FOODS: [Food; 2] = [Food::Meal, Food::Favorite];
+
 impl Food {
+    /// 체력(성장)을 주는 음식: 밥과 좋아하는 음식뿐
+    pub fn grows(self) -> bool {
+        matches!(self, Food::Meal | Food::Favorite)
+    }
+
+    /// 간식·물: 배불러도 받고, 포만감만 조금 오른다
+    pub fn is_treat(self) -> bool {
+        !self.grows()
+    }
+
     fn stamina(self) -> f64 {
         match self {
-            Food::Snack => 3.0,
+            Food::Snack | Food::Water => 0.0,
             Food::Meal => 10.0,
             Food::Favorite => 15.0,
         }
@@ -82,7 +101,7 @@ impl Food {
 
     fn fill(self, fullness: f64) -> f64 {
         match self {
-            Food::Snack => (fullness + 0.4).min(1.0),
+            Food::Snack | Food::Water => (fullness + TREAT_FILL).min(1.0),
             Food::Meal => 1.0,
             Food::Favorite => (fullness + 0.7).min(1.0),
         }
@@ -123,6 +142,11 @@ impl Care {
     }
 
     pub fn feed(&mut self, food: Food) -> FeedResult {
+        if food.is_treat() {
+            // 간식·물은 언제든: 포만감만 조금, 체력·성장은 없다
+            self.fullness = food.fill(self.fullness);
+            return FeedResult::Ate { leveled_up: false };
+        }
         if self.fullness > FULL_ABOVE {
             return FeedResult::Refused;
         }
@@ -177,13 +201,53 @@ mod tests {
     fn foods_fill_and_strengthen_differently() {
         let mut c = hungry_care();
         assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: false });
-        assert!((c.fullness - 0.5).abs() < 1e-9 && c.stamina == 3.0);
+        assert!((c.fullness - 0.2).abs() < 1e-9 && c.stamina == 0.0);
         let mut c = hungry_care();
         c.feed(Food::Meal);
         assert_eq!((c.fullness, c.stamina), (1.0, 10.0));
         let mut c = hungry_care();
         c.feed(Food::Favorite);
         assert!((c.fullness - 0.8).abs() < 1e-9 && c.stamina == 15.0);
+    }
+
+    #[test]
+    fn snacks_and_water_never_grow_and_are_never_refused() {
+        for food in [Food::Snack, Food::Water] {
+            assert!(food.is_treat() && !food.grows());
+            // 배불러도 받는다 — 포만감만 조금 오르고 체력·성장은 없다
+            let mut c = Care::default();
+            for _ in 0..100 {
+                assert_eq!(c.feed(food), FeedResult::Ate { leveled_up: false }, "{food:?}");
+            }
+            assert_eq!((c.stage, c.stamina, c.fullness), (Stage::Baby, 0.0, 1.0));
+            let mut c = hungry_care();
+            c.feed(food);
+            assert!((c.fullness - 0.2).abs() < 1e-9 && c.stamina == 0.0, "{food:?}");
+        }
+    }
+
+    #[test]
+    fn only_meals_and_favorites_grow() {
+        for food in [Food::Meal, Food::Favorite] {
+            assert!(food.grows() && !food.is_treat());
+            let mut c = hungry_care();
+            c.feed(food);
+            assert!(c.stamina > 0.0, "{food:?}");
+        }
+        let mut c = hungry_care();
+        c.feed(Food::Meal);
+        assert_eq!(c.stamina, 10.0);
+    }
+
+    #[test]
+    fn hungry_picker_offers_only_meal_and_favorite() {
+        assert_eq!(PICKER_FOODS, [Food::Meal, Food::Favorite]);
+    }
+
+    #[test]
+    fn foods_serialize_snake_case() {
+        let names: Vec<String> = [Food::Snack, Food::Meal, Food::Favorite, Food::Water].iter().map(|f| serde_json::to_string(f).unwrap()).collect();
+        assert_eq!(names, ["\"snack\"", "\"meal\"", "\"favorite\"", "\"water\""]);
     }
 
     #[test]

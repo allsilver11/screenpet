@@ -208,10 +208,12 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         let item = CheckMenuItem::with_id(app, format!("pet:{}", p.id), &p.manifest.name, true, p.id == current, None::<&str>)?;
         checks.push((item, p.id.clone()));
     }
-    let snack = MenuItem::with_id(app, "feed:snack", "간식 🍪", true, None::<&str>)?;
+    // 밥·좋아하는 음식만 자라게 한다. 간식·물은 언제든 (배불러도) 받는다
     let meal = MenuItem::with_id(app, "feed:meal", "밥 🍚", true, None::<&str>)?;
     let fav = MenuItem::with_id(app, "feed:favorite", favorite_label(favorite), true, None::<&str>)?;
-    let feed = Submenu::with_items(app, "밥 주기", true, &[&snack, &meal, &fav])?;
+    let snack = MenuItem::with_id(app, "feed:snack", "간식 🍪", true, None::<&str>)?;
+    let water = MenuItem::with_id(app, "feed:water", "물 💧", true, None::<&str>)?;
+    let feed = Submenu::with_items(app, "밥 주기", true, &[&meal, &fav, &PredefinedMenuItem::separator(app)?, &snack, &water])?;
     let lock = CheckMenuItem::with_id(app, "lock", "성장 멈추기", true, locked, None::<&str>)?;
     let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
     let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
@@ -252,6 +254,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "feed:snack" => send(app, Input::Feed(Food::Snack)),
             "feed:meal" => send(app, Input::Feed(Food::Meal)),
             "feed:favorite" => send(app, Input::Feed(Food::Favorite)),
+            "feed:water" => send(app, Input::Feed(Food::Water)),
             "lock" => send(app, Input::ToggleLock),
             "house" => send(app, Input::ToggleHouse),
             "reset" => send(app, Input::ResetGrowth),

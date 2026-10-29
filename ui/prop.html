@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- 밥그릇·물그릇·꽃·쿠키 (phase 3 먹이 바꾸기): 동물이 먹을 때 그 앞 바닥에 놓이는 소품.
+         그림 이름은 앱(prop.rs)이 window.PROP_IMAGE로 넣어 준다 (effects/<name>.png). 톡 나타났다가,
+         다 먹으면 앱이 body에 .hide를 붙여 0.6초 동안 흐려지고 창이 닫힌다. 창은 마우스를 통과시킨다. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+        pointer-events: none;
+      }
+
+      #prop {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        object-position: 50% 100%;
+        transform-origin: 50% 100%;
+        animation: pop 260ms ease-out both;
+      }
+
+      /* 꽃은 아래에서 피어오른다 */
+      #prop.flower {
+        animation: bloom 700ms ease-out both;
+      }
+
+      body.hide #prop {
+        transition: opacity 600ms ease-in;
+        opacity: 0;
+      }
+
+      @keyframes pop {
+        0% {
+          transform: scale(0.5);
+          opacity: 0;
+        }
+        70% {
+          transform: scale(1.08);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+
+      @keyframes bloom {
+        0% {
+          transform: scale(0.1, 0.2);
+          opacity: 0;
+        }
+        60% {
+          transform: scale(0.9, 1.1);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <img id="prop" alt="" />
+    <script>
+      const name = window.PROP_IMAGE || "bowl_food";
+      const el = document.getElementById("prop");
+      el.className = name;
+      el.src = `effects/${name}.png`;
+      window.addEventListener("contextmenu", (e) => e.preventDefault());
+    </script>
+  </body>
+</html>

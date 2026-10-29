@@ -5,6 +5,7 @@ mod game_loop;
 mod house;
 mod network;
 mod pets;
+mod prop;
 mod slots;
 mod tray;
 
@@ -81,6 +82,7 @@ fn feed(window: WebviewWindow, state: State<AppState>, food: String) {
         "snack" => Food::Snack,
         "meal" => Food::Meal,
         "favorite" => Food::Favorite,
+        "water" => Food::Water,
         _ => return,
     };
     let _ = state.tx.lock().unwrap().send(Input::Feed(food));

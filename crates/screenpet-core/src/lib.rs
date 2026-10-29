@@ -3,6 +3,7 @@ pub mod brain;
 pub mod care;
 pub mod config;
 pub mod flight;
+pub mod food;
 pub mod geom;
 pub mod inside;
 pub mod manifest;

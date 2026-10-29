@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::care::{FeedResult, Food};
 use crate::flight::Flight;
+use crate::food::{self, Prop, PropEvent};
 use crate::geom::Rect;
 use crate::sting::{ClickMeter, PathMeter, StingPhase};
 use crate::inside::{self, Mode, Stay};
@@ -207,6 +208,8 @@ pub enum State {
     InnerClimb { window: u64, rel_x: f64, rel_y: f64 },
     /// 꿀벌이 괴롭힘에 화나 화면을 쏘는 중 (spec 2B §10) — 제자리에서 "!" → 돌진 → 콕! → 흥!
     Sting { phase: StingPhase, remaining: f64 },
+    /// 먹이를 받아 그릇(나는 동물은 꽃)으로 가는 중 — remaining초 안에 못 닿으면 그 자리에서 먹는다
+    ToFood { remaining: f64 },
 }
 
 impl State {
@@ -266,6 +269,19 @@ impl HomeTrip {
     fn new(owner: Owner, door_x: f64, x: f64) -> Self {
         Self { owner, door_x, best: (door_x - x).abs(), since_progress: 0.0, stalled: 0.0 }
     }
+}
+
+/// 받은 먹이 — 그릇으로 가서 먹는다 (phase 3)
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FoodTrip {
+    food: Food,
+    /// 다 먹고 하트 (좋아하는 음식·간식·물)
+    heart: bool,
+    level_up: bool,
+    /// 그릇 자리 (디딤판, 기준점에서의 x) — 아직 안 놓였으면 None
+    target: Option<(Owner, f64)>,
+    /// 하우스 안에서 받음 — 다음 update에서 문 앞으로 나온다
+    from_house: bool,
 }
 
 /// 서 있는 디딤판과 그 기준점(anchor)으로부터의 x 오프셋.
@@ -353,6 +369,18 @@ pub struct Pet {
     cursor: (f64, f64),
     /// 떠 있을 때 먹이를 받음 — 내려앉으면 먹는다 (favorite, level_up)
     meal_pending: Option<(bool, bool)>,
+    /// 나는 동물이 먹으러 내려앉을 자리와 그 자리의 소품 (디딤판, 기준점에서의 x, 소품)
+    meal_spot: Option<(Owner, f64, Prop)>,
+    /// 그릇으로 가는 중인 먹이 (걷는 동물, 그리고 꽃 자리를 아직 안 정한 나는 동물)
+    food: Option<FoodTrip>,
+    /// 앱에 보낼 소품 변화 (take_prop으로 한 번 꺼낸다)
+    prop_event: Option<PropEvent>,
+    /// 소품이 놓여 있음
+    prop_shown: bool,
+    /// 하우스 문 (디딤판, 문 x) — 하우스 안에서 먹이를 받으면 문 앞으로 나와 먹는다
+    house_door: Option<(Owner, f64)>,
+    /// 하우스에서 나와 먹는 중 — 다 먹으면 이 문으로 돌아간다
+    return_home: Option<(Owner, f64)>,
     /// 쏜 화면 지점 (take_sting으로 한 번 꺼낸다)
     sting_at: Option<(f64, f64)>,
     /// 이 시각(clock)부터 다시 쏠 수 있다
@@ -399,6 +427,12 @@ impl Pet {
             hover_at: None,
             cursor: (x, y),
             meal_pending: None,
+            meal_spot: None,
+            food: None,
+            prop_event: None,
+            prop_shown: false,
+            house_door: None,
+            return_home: None,
             sting_at: None,
             sting_ready_at: 0.0,
             shake: PathMeter::default(),
@@ -410,6 +444,10 @@ impl Pet {
     pub fn update(&mut self, dt: f64, world: &World) {
         self.clock += dt;
         self.heart_timer = (self.heart_timer - dt).max(0.0);
+        self.after_meal();
+        if self.housed && self.food.is_some_and(|f| f.from_house) {
+            self.come_out_for_food(world);
+        }
         if self.housed {
             self.update_housed(dt);
             return;
@@ -489,7 +527,7 @@ impl Pet {
             State::Move { kind, .. } => kind.into(),
             State::Sting { phase: StingPhase::Recoil, .. } => Anim::Annoyed,
             State::Sting { .. } => Anim::Sting,
-            State::Exit { .. } | State::Enter { .. } => Anim::Walk,
+            State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } => Anim::Walk,
             State::Farewell { .. } => Trick::Wave.into(),
             State::Away => Anim::Idle,
             State::Trick { kind, .. } => kind.into(),
@@ -523,7 +561,7 @@ impl Pet {
     /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹는다)
     pub fn is_eating(&self) -> bool {
         // 나는 동물이 먹이를 받고 내려앉으러 가는 중
-        if self.meal_pending.is_some() {
+        if self.meal_pending.is_some() || self.food.is_some() {
             return true;
         }
         match self.state {
@@ -591,6 +629,7 @@ impl Pet {
         self.clear_hover();
         self.flight = None;
         self.hover_at = None;
+        self.meal_spot = None;
         // 먹이를 받고 내려앉기 전에 집에 들어갔으면 집 안에서 먹는다
         self.state = match self.meal_pending.take() {
             Some((favorite, level_up)) => State::Eating { remaining: EAT_SECS, favorite, level_up },
@@ -610,6 +649,12 @@ impl Pet {
             Some(t) => HomeTrip { owner, door_x, ..t },
             None => HomeTrip::new(owner, door_x, self.body.x),
         });
+        // 그릇으로 가던 길은 그만둔다 (나는 동물의 먹이는 집 안에서 먹는다). 그릇·꽃은 거둔다
+        self.food = None;
+        self.return_home = None;
+        if !matches!(self.state, State::Eating { .. }) {
+            self.hide_prop();
+        }
         self.pacing.after_beat = None;
         self.clear_hover();
         if self.celebrating() {
@@ -630,6 +675,8 @@ impl Pet {
     /// 성장해서 먹는 중·축하 중이었다면 문 앞에서 그걸 마저 한 뒤 평소처럼 움직인다.
     /// 아직 가는 중이었다면 가던 길만 멈춘다 (그 자리에 그대로).
     pub fn leave_house(&mut self, world: &World, door_x: f64, owner: Owner) {
+        // 나와서 먹고 있었다면 다 먹은 뒤에도 밖에 있는다
+        self.return_home = None;
         if !self.housed {
             if self.home_trip.take().is_some() && matches!(self.state, State::GoHome | State::HomeLeap { .. }) {
                 if matches!(self.state, State::HomeLeap { .. }) {
@@ -693,6 +740,7 @@ impl Pet {
         if let Some((_, ay)) = world.anchor(trip.owner) {
             self.body.y = ay;
         }
+        self.house_door = Some((trip.owner, trip.door_x));
         self.enter_house();
     }
 
@@ -1148,21 +1196,146 @@ impl Pet {
             return false;
         }
         self.pacing.after_beat = None;
-        self.state = match result {
+        match result {
             FeedResult::Refused => {
                 self.speech = Some(Speech::Full);
-                State::Trick { kind: Trick::Tilt, remaining: REFUSE_TILT_SECS }
+                self.state = State::Trick { kind: Trick::Tilt, remaining: REFUSE_TILT_SECS };
             }
-            FeedResult::Ate { leveled_up } => {
-                // 먹는 도중 또 먹어도 앞서 정해진 성장 축하·하트는 남긴다
-                let (was_favorite, was_level_up) = match self.state {
-                    State::Eating { favorite, level_up, .. } => (favorite, level_up),
-                    _ => (false, false),
-                };
-                State::Eating { remaining: EAT_SECS, favorite: was_favorite || food == Food::Favorite, level_up: was_level_up || leveled_up }
+            FeedResult::Ate { leveled_up } => self.serve(food, leveled_up),
+        }
+        true
+    }
+
+    /// 먹이를 받았다. 먹는 중·가는 중이면 그대로 이어 가고 (앞서 정해진 성장 축하·하트는 남긴다),
+    /// 간식은 그 자리에서 쿠키를 오물오물, 밥·좋아하는 음식·물은 그릇(나는 동물은 꽃)으로 가서 먹는다.
+    /// 하우스 안이면 문 앞으로 나와 먹는다 (문을 모르거나 간식이면 하우스 안에서)
+    pub(super) fn serve(&mut self, food: Food, level_up: bool) {
+        let heart = food == Food::Favorite || food.is_treat();
+        if let State::Eating { favorite, level_up: was, .. } = self.state {
+            self.state = State::Eating { remaining: EAT_SECS, favorite: favorite || heart, level_up: was || level_up };
+            return;
+        }
+        if let Some(trip) = self.food.as_mut() {
+            trip.heart |= heart;
+            trip.level_up |= level_up;
+            return;
+        }
+        if let Some((favorite, was)) = self.meal_pending {
+            self.meal_pending = Some((favorite || heart, was || level_up));
+            return;
+        }
+        if food == Food::Snack || self.housed && self.house_door.is_none() {
+            if food == Food::Snack && !self.housed {
+                let (x, y) = (self.body.x, self.body.y - self.cfg.size * food::COOKIE_RISE);
+                self.show_prop(Prop::Cookie, x, y);
+            }
+            self.state = State::Eating { remaining: EAT_SECS, favorite: heart, level_up };
+            return;
+        }
+        self.food = Some(FoodTrip { food, heart, level_up, target: None, from_house: self.housed });
+        if !self.housed {
+            self.flight = None;
+            self.state = State::ToFood { remaining: food::FOOD_TIMEOUT_SECS };
+        }
+    }
+
+    /// 소품 변화 (한 번 꺼내면 None) — 앱이 그릇·꽃·쿠키 창을 띄우거나 거둔다
+    pub fn take_prop(&mut self) -> Option<PropEvent> {
+        self.prop_event.take()
+    }
+
+    /// 하우스 문 자리 (앱이 하우스를 놓을 때·먹이를 줄 때 알려 준다)
+    pub fn set_house_door(&mut self, owner: Owner, door_x: f64) {
+        self.house_door = Some((owner, door_x));
+    }
+
+    /// 하우스에서 나와 먹는 중 (다 먹으면 들어간다)
+    pub fn returns_home(&self) -> bool {
+        self.return_home.is_some()
+    }
+
+    fn show_prop(&mut self, prop: Prop, x: f64, y: f64) {
+        self.prop_shown = true;
+        self.prop_event = Some(PropEvent::Show { prop, x, y });
+    }
+
+    fn hide_prop(&mut self) {
+        if std::mem::take(&mut self.prop_shown) {
+            self.prop_event = Some(PropEvent::Hide);
+        }
+    }
+
+    /// 매 틱: 다 먹었으면(또는 먹기가 끊겼으면) 그릇을 거두고, 하우스에서 나와 먹었으면 하트까지 본 뒤 집으로
+    fn after_meal(&mut self) {
+        if self.is_eating() {
+            return;
+        }
+        self.hide_prop();
+        if self.return_home.is_some() && !matches!(self.state, State::Trick { kind: Trick::Heart, .. }) {
+            if let Some((owner, door_x)) = self.return_home.take() {
+                self.go_home(owner, door_x);
+            }
+        }
+    }
+
+    /// 하우스 안에서 먹이를 받았다: 문 앞 바닥으로 나와 그릇으로 간다 (다 먹으면 돌아간다)
+    fn come_out_for_food(&mut self, world: &World) {
+        let (Some((owner, door_x)), Some(mut trip)) = (self.house_door, self.food) else { return };
+        self.leave_house(world, door_x, owner);
+        trip.from_house = false;
+        self.food = Some(trip);
+        self.return_home = Some((owner, door_x));
+        if self.standing.is_some() {
+            self.state = State::ToFood { remaining: food::FOOD_TIMEOUT_SECS };
+        }
+    }
+
+    /// 그릇으로 걷는다 (걷는 동물). 그릇은 처음에 바라보는 쪽 앞에 놓이고, 다른 디딤판으로 옮겨졌으면 거기 다시 놓인다
+    fn update_to_food(&mut self, dt: f64, world: &World, st: Standing, piece: &Surface, remaining: f64) {
+        let Some(mut trip) = self.food else {
+            self.state = self.idle_state();
+            return;
+        };
+        let Some((ax, ay)) = world.anchor(st.owner) else { return };
+        let (lo, hi) = (piece.x_start + self.cfg.half_w, piece.x_end - self.cfg.half_w);
+        let placed = trip.target.filter(|&(owner, rel)| owner == st.owner && (lo > hi || (lo..=hi).contains(&(ax + rel))));
+        let target = match placed {
+            Some((_, rel)) => ax + rel,
+            None => {
+                let x = food::bowl_x(self.body.x, self.facing, self.scaled(food::BOWL_GAP), lo, hi);
+                trip.target = Some((st.owner, x - ax));
+                self.show_prop(Prop::for_food(trip.food, false), x, ay);
+                x
             }
         };
-        true
+        self.food = Some(trip);
+        let dx = target - self.body.x;
+        let step = self.walk_speed() * dt;
+        let remaining = remaining - dt;
+        if dx.abs() > step && remaining <= 0.0 {
+            // 너무 오래 걸렸다 — 그릇을 지금 자리로 옮겨 여기서 먹는다
+            self.show_prop(Prop::for_food(trip.food, false), self.body.x, ay);
+            self.start_eating();
+            return;
+        }
+        let new_x = if dx.abs() <= step { target } else { self.body.x + dx.signum() * step };
+        if dx.abs() > 1e-9 {
+            self.facing = dx.signum();
+        }
+        self.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (new_x - self.body.x) });
+        self.body.x = new_x;
+        if new_x == target {
+            self.start_eating();
+        } else {
+            self.state = State::ToFood { remaining };
+        }
+    }
+
+    /// 그릇 앞에 닿았다 (또는 기다리다 지쳤다): 받은 먹이를 먹기 시작한다
+    fn start_eating(&mut self) {
+        let Some(trip) = self.food.take() else { return };
+        self.pacing.after_beat = None;
+        self.state = State::Eating { remaining: EAT_SECS, favorite: trip.heart, level_up: trip.level_up };
     }
 
     pub fn pointer_up(&mut self, cx: f64, cy: f64) {
@@ -1305,7 +1478,7 @@ impl Pet {
         if !self.tickling {
             return;
         }
-        if !matches!(self.state, State::Special { .. } | State::Eating { .. } | State::LevelUp { .. }) {
+        if !matches!(self.state, State::Special { .. } | State::Eating { .. } | State::LevelUp { .. } | State::ToFood { .. }) {
             self.pacing.after_beat = None;
         }
         self.state = match self.state {
@@ -1317,7 +1490,7 @@ impl Pet {
                 return;
             }
             State::Tickled { .. } => State::Tickled { remaining: TICKLE_HOLD },
-            State::Special { .. } | State::Eating { .. } | State::LevelUp { .. } | State::Sting { .. } => return,
+            State::Special { .. } | State::Eating { .. } | State::LevelUp { .. } | State::Sting { .. } | State::ToFood { .. } => return,
             _ if self.cfg.stings => {
                 if self.can_sting_now() {
                     self.start_sting();
@@ -1380,8 +1553,19 @@ impl Pet {
             self.start_hop(self.facing);
             return;
         }
+        // 그릇이 기다리고 있다 — 내려서거나 쉬던 참이면 그릇으로 간다 (나는 동물은 꽃으로 날아간다)
+        if self.food.is_some()
+            && matches!(self.state, State::Idle { .. } | State::Move { .. } | State::Turn { .. } | State::Land { .. } | State::Hungry { .. } | State::Sleep { .. })
+        {
+            self.pacing.after_beat = None;
+            self.state = State::ToFood { remaining: food::FOOD_TIMEOUT_SECS };
+            if self.cfg.flies {
+                return;
+            }
+        }
 
         match self.state {
+            State::ToFood { remaining } => self.update_to_food(dt, world, st, &piece, remaining),
             State::Move { kind, remaining } => {
                 let speed = self.cfg.walk_speed * kind.speed_mult();
                 let new_x = self.body.x + self.facing * speed * dt;
@@ -1543,6 +1727,7 @@ impl Pet {
             | State::Away
             | State::InnerClimb { .. }
             | State::Sting { .. }
+            | State::ToFood { .. }
             | State::Move { .. } => {}
         }
     }
@@ -2065,6 +2250,10 @@ mod fly;
 #[cfg(test)]
 #[path = "brain_fly_tests.rs"]
 mod fly_tests;
+
+#[cfg(test)]
+#[path = "brain_food_tests.rs"]
+mod food_tests;
 
 /// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨린다
 fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {
@@ -3434,6 +3623,17 @@ mod care_tests {
         (p, w)
     }
 
+    /// 밥은 그릇으로 걸어가서 먹는다 — 먹기 시작할 때까지 돌린다
+    fn walk_to_bowl(p: &mut Pet, w: &World) {
+        for _ in 0..(60 * 5) {
+            if matches!(p.state, State::Eating { .. }) {
+                return;
+            }
+            p.update(DT, w);
+        }
+        panic!("never reached the bowl: {:?}", p.state);
+    }
+
     #[test]
     fn hungry_pets_often_sulk_when_resting() {
         let w = world(vec![w1()]);
@@ -3487,6 +3687,7 @@ mod care_tests {
         for (food, then_heart) in [(Food::Meal, false), (Food::Favorite, true)] {
             let (mut p, w) = grounded(1);
             assert!(p.feed_result(FeedResult::Ate { leveled_up: false }, food));
+            walk_to_bowl(&mut p, &w);
             assert_eq!(p.render().anim, Anim::Eat);
             for _ in 0..(60 * 2 + 40) {
                 p.update(DT, &w);
@@ -3509,6 +3710,7 @@ mod care_tests {
     fn eating_then_level_up_celebrates() {
         let (mut p, w) = grounded(1);
         p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Meal);
+        walk_to_bowl(&mut p, &w);
         for _ in 0..(60 * 2 + 40) {
             p.update(DT, &w);
         }
@@ -3559,12 +3761,14 @@ mod care_tests {
                 let mut p = Pet::new(c, 0.0, 0.0, seed);
                 place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
                 assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Favorite));
+                walk_to_bowl(&mut p, &w);
                 p.update(DT, &w);
                 assert!(p.is_eating());
-                p.pointer_down(800.0, 350.0);
+                let x = p.body.x;
+                p.pointer_down(x, 350.0);
                 assert!(p.is_eating(), "pressed mid-meal still counts as eating");
                 p.update(DT, &w);
-                p.pointer_up(800.0, 350.0);
+                p.pointer_up(x, 350.0);
                 assert!(matches!(p.state, State::Eating { favorite: true, level_up: true, .. }), "seed {seed}: {:?}", p.state);
                 assert!(p.is_eating());
             }
@@ -3599,6 +3803,7 @@ mod care_tests {
     fn feeding_again_mid_meal_keeps_level_up_and_favorite() {
         let (mut p, w) = grounded(1);
         assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Favorite));
+        walk_to_bowl(&mut p, &w);
         run(&mut p, &w, 30);
         assert!(p.feed_result(FeedResult::Ate { leveled_up: false }, Food::Meal));
         assert!(matches!(p.state, State::Eating { favorite: true, level_up: true, .. }), "{:?}", p.state);

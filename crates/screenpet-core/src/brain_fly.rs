@@ -47,6 +47,7 @@ impl Pet {
                 }
             }
             State::Air { .. } => self.update_fly_air(dt, world),
+            State::ToFood { .. } => self.fly_to_food(world),
             // 걷는 동물에서 바뀐 경우 등 — 나는 동물은 벽을 타거나 뛰지 않는다
             State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } | State::HomeLeap { .. } => {
                 self.standing = None;
@@ -193,9 +194,17 @@ impl Pet {
         let (x, y) = (self.body.x, self.body.y);
         let inside = self.inside.map(|s| s.window);
         if self.meal_pending.is_some() {
+            // 꽃이 핀 자리로 (그 자리가 사라졌으면 가까운 자리에 꽃을 다시 피운다)
+            if let Some((owner, rel_x, _)) = self.meal_spot.filter(|&(owner, rel_x, _)| world.anchor(owner).is_some_and(|(ax, _)| world.piece_at(owner, ax + rel_x).is_some())) {
+                self.start_flight(Goal::Perch { owner, rel_x }, Move::Walk);
+                return true;
+            }
             return match flight::nearest_perch(world, inside, x, y, self.cfg.half_w, self.fly_head()) {
                 Some(p) => {
                     let (ax, _) = world.anchor(p.owner).expect("surface owner has anchor");
+                    let prop = self.meal_spot.map_or(Prop::Flower, |s| s.2);
+                    self.meal_spot = Some((p.owner, p.x - ax, prop));
+                    self.show_prop(prop, p.x, p.y);
                     self.start_flight(Goal::Perch { owner: p.owner, rel_x: p.x - ax }, Move::Walk);
                     true
                 }
@@ -448,7 +457,7 @@ impl Pet {
         self.next_after_beat(State::Move { kind, remaining: flight::MAX_FLIGHT_SECS })
     }
 
-    /// 떠 있는 나는 동물의 먹이: 배부르면 떠서 갸웃, 먹으면 가까운 자리에 내려앉아 먹는다
+    /// 떠 있는 나는 동물의 먹이: 배부르면 떠서 갸웃, 간식은 떠서 오물오물, 밥·물은 꽃(그릇)이 피어난 자리에 내려앉아 먹는다
     pub(super) fn feed_flying(&mut self, result: FeedResult, food: Food) -> bool {
         let free = !self.off_surface() && !self.is_held() && !self.in_transit() && self.home_trip.is_none() && !matches!(self.state, State::Sting { .. });
         if !free {
@@ -460,14 +469,44 @@ impl Pet {
                 self.speech = Some(Speech::Full);
                 self.state = State::Trick { kind: Trick::Tilt, remaining: REFUSE_TILT_SECS };
             }
-            FeedResult::Ate { leveled_up } => {
-                let (favorite, level_up) = self.meal_pending.unwrap_or((false, false));
-                self.meal_pending = Some((favorite || food == Food::Favorite, level_up || leveled_up));
-                self.flight = None;
-                self.state = State::Move { kind: Move::Walk, remaining: flight::MAX_FLIGHT_SECS };
-            }
+            FeedResult::Ate { leveled_up } => self.serve(food, leveled_up),
         }
         true
+    }
+
+    /// 받은 먹이의 자리를 정한다: 내려앉아 있으면 바라보는 쪽 앞, 떠 있으면 가장 가까운 자리.
+    /// 그 자리에 꽃(물은 물그릇)이 피고, 거기로 날아가 내려앉아 먹는다. 앉을 곳이 없으면 떠서 먹는다
+    fn fly_to_food(&mut self, world: &World) {
+        let Some(trip) = self.food.take() else {
+            self.state = self.idle_state();
+            return;
+        };
+        let prop = Prop::for_food(trip.food, true);
+        let spot = match self.standing {
+            Some(st) => world.anchor(st.owner).zip(world.piece_at(st.owner, self.body.x).copied()).map(|((ax, ay), piece)| {
+                let (lo, hi) = (piece.x_start + self.cfg.half_w, piece.x_end - self.cfg.half_w);
+                (st.owner, food::bowl_x(self.body.x, self.facing, self.scaled(food::BOWL_GAP), lo, hi) - ax, ay)
+            }),
+            None => {
+                let inside = self.inside.map(|s| s.window);
+                flight::nearest_perch(world, inside, self.body.x, self.body.y, self.cfg.half_w, self.fly_head()).and_then(|p| {
+                    let (ax, _) = world.anchor(p.owner)?;
+                    Some((p.owner, p.x - ax, p.y))
+                })
+            }
+        };
+        let Some((owner, rel_x, y)) = spot else {
+            self.state = State::Eating { remaining: EAT_SECS, favorite: trip.heart, level_up: trip.level_up };
+            return;
+        };
+        let (ax, _) = world.anchor(owner).expect("checked above");
+        self.show_prop(prop, ax + rel_x, y);
+        self.meal_spot = Some((owner, rel_x, prop));
+        self.meal_pending = Some((trip.heart, trip.level_up));
+        if self.standing.is_some() {
+            self.take_off();
+        }
+        self.start_flight(Goal::Perch { owner, rel_x }, Move::Walk);
     }
 
     /// 지금 쏠 수 있는지: 쏘는 동물, 쿨다운 끝, 하우스·집 가는 길·화면 드나들기 아님
