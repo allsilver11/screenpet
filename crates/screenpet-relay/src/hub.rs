@@ -146,7 +146,39 @@ impl Stamped for (Instant, String) {
     }
 }
 
-/// Make room for `key` in a table holding at most `max` keys.
+/// Keys one network may create in a rate table (IPv4 addresses per /24,
+/// IPv6 /64s per /48); past that its newcomers share the network's key.
+const MAX_KEYS_PER_PARENT: usize = 16;
+
+/// The enclosing network of an address key: IPv4 → /24, IPv6 /64 → /48.
+fn parent_of(key: &str) -> Option<String> {
+    if key.parse::<std::net::Ipv4Addr>().is_ok() {
+        return Some(network_bucket(key));
+    }
+    let prefix = key.strip_suffix("::/64")?;
+    let segs: Vec<&str> = prefix.split(':').collect();
+    (segs.len() == 4).then(|| format!("{}:{}:{}::/48", segs[0], segs[1], segs[2]))
+}
+
+/// Bucket for the redeem fair share: IPv4 /24, IPv6 /48.
+fn share_bucket(ip: &str) -> String {
+    parent_of(ip).unwrap_or_else(|| ip.to_string())
+}
+
+/// The key to count `key` under: itself, or its network once that network
+/// already has `MAX_KEYS_PER_PARENT` keys in the table.
+fn capped_key<V>(table: &HashMap<String, VecDeque<V>>, key: &str) -> String {
+    if table.contains_key(key) {
+        return key.to_string();
+    }
+    match parent_of(key) {
+        Some(parent) if table.keys().filter(|k| parent_of(k).as_deref() == Some(parent.as_str())).count() >= MAX_KEYS_PER_PARENT => parent,
+        _ => key.to_string(),
+    }
+}
+
+/// Make room for `key` in a table holding at most `max` keys: stale keys
+/// first, then the least recently active one.
 fn make_room<V: Stamped>(table: &mut HashMap<String, VecDeque<V>>, key: &str, window: Duration, max: usize) {
     if table.contains_key(key) || table.len() < max {
         return;
@@ -169,8 +201,9 @@ fn allow(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize
 
 fn allow_in(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize, window: Duration, max_keys: usize) -> bool {
     let now = Instant::now();
-    make_room(table, key, window, max_keys);
-    let q = table.entry(key.to_string()).or_default();
+    let key = capped_key(table, key);
+    make_room(table, &key, window, max_keys);
+    let q = table.entry(key).or_default();
     while q.front().is_some_and(|t| now.duration_since(*t) >= window) {
         q.pop_front();
     }
@@ -183,9 +216,28 @@ fn allow_in(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: us
 
 /// `who` may count against `key` if already among its requesters in the
 /// window or fewer than `limit` distinct requesters are; counted once.
+///
+/// Security-relevant: live entries are never evicted. When the table is full
+/// of live keys, *new* keys are refused (known keys keep working).
 fn allow_distinct(table: &mut HashMap<String, VecDeque<(Instant, String)>>, key: &str, who: &str, limit: usize, window: Duration) -> bool {
+    allow_distinct_in(table, key, who, limit, window, MAX_RATE_KEYS)
+}
+
+fn allow_distinct_in(
+    table: &mut HashMap<String, VecDeque<(Instant, String)>>,
+    key: &str,
+    who: &str,
+    limit: usize,
+    window: Duration,
+    max_keys: usize,
+) -> bool {
     let now = Instant::now();
-    make_room(table, key, window, MAX_RATE_KEYS);
+    if !table.contains_key(key) && table.len() >= max_keys {
+        prune_table(table, window);
+        if table.len() >= max_keys {
+            return false;
+        }
+    }
     let q = table.entry(key.to_string()).or_default();
     while q.front().is_some_and(|(t, _)| now.duration_since(*t) >= window) {
         q.pop_front();
@@ -431,15 +483,24 @@ impl Hub {
         // One answer for "no such code", "owner offline" and "your own code":
         // a guess learns nothing about which codes exist.
         let Some(norm) = proto::normalize_code(code) else { return fail("unknown") };
-        // Global budget, charged only for well-formed codes. A source within
-        // its fair share (a tenth of the budget) is never refused by it, so
-        // one heavy source cannot starve everyone else.
-        let share = (self.limits.redeems_per_min / 10).max(1);
-        let light = allow(&mut st.ip_wellformed, ip, share, MINUTE);
-        let global_ok = allow(&mut st.global_redeems, "*", self.limits.redeems_per_min, MINUTE);
-        if !light && !global_ok {
+        // Global budget, charged only for well-formed codes. Each network
+        // (IPv4 /24, IPv6 /48) has a fair share (a tenth of the budget, never
+        // more than the per-IP cap) reserved inside it: within its share a
+        // network is not refused by the soft budget, so one heavy source
+        // cannot starve the rest. A hard ceiling of twice the budget applies
+        // to everyone.
+        let per_min = self.limits.redeems_per_min;
+        let share = (per_min / 10).min(self.limits.redeems_per_ip_per_min).max(1);
+        let light = allow(&mut st.ip_wellformed, &share_bucket(ip), share, MINUTE);
+        let global = st.global_redeems.entry("*".to_string()).or_default();
+        let now_i = Instant::now();
+        while global.front().is_some_and(|t| now_i.duration_since(*t) >= MINUTE) {
+            global.pop_front();
+        }
+        if global.len() >= 2 * per_min || (!light && global.len() >= per_min) {
             return fail("rate");
         }
+        global.push_back(now_i);
         let now = unix_now();
         let Some(target) = st.store_ref().by_code(&norm, now, self.limits.code_ttl.as_secs()).map(str::to_string) else {
             return fail("unknown");
@@ -611,5 +672,36 @@ mod tests {
         assert!(allow_in(&mut t, "new", 1, HOUR, 4));
         assert!(t.len() <= 4);
         assert!(!allow_in(&mut t, "new", 1, HOUR, 4), "and its limit still applies");
+    }
+
+    #[test]
+    fn one_network_cannot_fill_a_table_with_its_own_keys() {
+        let mut t = HashMap::new();
+        for i in 0..100u32 {
+            let key = format!("2001:db8:1:{i:x}::/64");
+            allow_in(&mut t, &key, 1000, HOUR, 4096);
+        }
+        assert!(t.len() <= MAX_KEYS_PER_PARENT + 1, "{} keys from one /48", t.len());
+        let mut t = HashMap::new();
+        for i in 0..100u32 {
+            allow_in(&mut t, &format!("203.0.113.{i}"), 1000, HOUR, 4096);
+        }
+        assert!(t.len() <= MAX_KEYS_PER_PARENT + 1, "{} keys from one /24", t.len());
+    }
+
+    #[test]
+    fn the_per_code_table_fails_closed_for_new_targets_only() {
+        let mut t = HashMap::new();
+        assert!(allow_distinct_in(&mut t, "t1 c", "x", 5, HOUR, 2));
+        assert!(allow_distinct_in(&mut t, "t2 c", "x", 5, HOUR, 2));
+        assert!(!allow_distinct_in(&mut t, "t3 c", "x", 5, HOUR, 2), "full: no eviction of live caps");
+        assert!(allow_distinct_in(&mut t, "t1 c", "y", 5, HOUR, 2), "known targets keep working");
+        assert!(t.contains_key("t1 c") && t.contains_key("t2 c"));
+    }
+
+    #[test]
+    fn share_buckets() {
+        assert_eq!(share_bucket("203.0.113.9"), "203.0.113.0/24");
+        assert_eq!(share_bucket("2001:db8:1:2::/64"), "2001:db8:1::/48");
     }
 }

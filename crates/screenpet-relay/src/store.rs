@@ -37,16 +37,13 @@ pub struct Install {
     pub code_at: u64,
     #[serde(default)]
     pub last_seen: u64,
-    /// Redeemed a code or had its code redeemed (kept like a befriended install).
+    /// Redeemed a code or had its code redeemed (kept like an install with a
+    /// mutual friend).
     #[serde(default)]
     pub active: bool,
 }
 
-impl Install {
-    fn befriended(&self) -> bool {
-        self.active || !self.friends.is_empty()
-    }
-}
+
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Data {
@@ -186,7 +183,7 @@ impl Store {
                 .data
                 .installs
                 .iter()
-                .filter(|(k, i)| i.friends.is_empty() && !online(k))
+                .filter(|(k, _)| !online(k) && !self.befriended(k))
                 .min_by_key(|(_, i)| i.last_seen)
                 .map(|(k, _)| k.clone());
             if let Some(v) = victim {
@@ -263,6 +260,12 @@ impl Store {
         (inst.code == code && now < inst.code_at.saturating_add(ttl)).then_some(key.as_str())
     }
 
+    /// Worth keeping: took part in a redeem, or has at least one *mutual*
+    /// friend (a one-sided, self-declared list doesn't count).
+    pub fn befriended(&self, key: &str) -> bool {
+        self.data.installs.get(key).is_some_and(|i| i.active || i.friends.iter().any(|f| self.mutual(key, f)))
+    }
+
     /// Does `a` list `b` and `b` list `a`?
     pub fn mutual(&self, a: &str, b: &str) -> bool {
         let wants = |x: &str, y: &str| self.data.installs.get(x).is_some_and(|i| i.friends.iter().any(|f| f == y));
@@ -290,10 +293,12 @@ impl Store {
     /// As `prune`, never forgetting an `online` install.
     pub fn prune_with(&mut self, now: u64, online: &dyn Fn(&str) -> bool) {
         let before = self.data.installs.len();
+        let befriended: std::collections::HashSet<String> =
+            self.data.installs.keys().filter(|k| self.befriended(k)).cloned().collect();
         let by_code = &mut self.by_code;
         self.data.installs.retain(|k, i| {
             let idle = now.saturating_sub(i.last_seen);
-            let limit = if i.befriended() { FORGET_AFTER_SECS } else { IDLE_FORGET_SECS };
+            let limit = if befriended.contains(k) { FORGET_AFTER_SECS } else { IDLE_FORGET_SECS };
             let keep = online(k) || idle < limit;
             if !keep {
                 by_code.remove(&i.code);
@@ -496,10 +501,10 @@ mod tests {
     fn installs_are_capped() {
         let mut s = Store::memory();
         s.max_installs = 2;
-        assert!(s.register(&k(1), "a", vec![k(9)], 0));
-        assert!(s.register(&k(2), "b", vec![k(9)], 0));
-        assert!(!s.register(&k(3), "c", vec![], 0), "full of befriended installs");
-        assert!(s.register(&k(1), "a", vec![k(9)], 0), "known installs still log in");
+        assert!(s.register(&k(1), "a", vec![k(2)], 0));
+        assert!(s.register(&k(2), "b", vec![k(1)], 0));
+        assert!(!s.register(&k(3), "c", vec![], 0), "full of mutual friends");
+        assert!(s.register(&k(1), "a", vec![k(2)], 0), "known installs still log in");
     }
 
     #[test]
@@ -519,7 +524,8 @@ mod tests {
     fn idle_installs_without_friends_expire_after_a_day() {
         let mut s = Store::memory();
         s.register(&k(1), "lonely", vec![], 0);
-        s.register(&k(2), "friendly", vec![k(9)], 0);
+        s.register(&k(2), "friendly", vec![k(4)], 0);
+        s.register(&k(4), "its friend", vec![k(2)], 0);
         s.register(&k(3), "redeemer", vec![], 0);
         s.mark_active(&k(3));
         s.prune(IDLE_FORGET_SECS + 1);
@@ -534,11 +540,32 @@ mod tests {
         s.max_installs = 3;
         s.register(&k(1), "old", vec![], 0);
         s.register(&k(2), "newer", vec![], 1000);
-        s.register(&k(3), "friend", vec![k(9)], 0);
+        s.register(&k(3), "redeemer", vec![], 0);
+        s.mark_active(&k(3));
         assert!(s.register_with(&k(4), "d", vec![], 2000, &|_| false));
         assert!(s.get(&k(1)).is_none(), "least recently seen friendless install evicted");
         assert!(s.get(&k(4)).is_some());
         // Online or befriended installs are never evicted: then it refuses.
         assert!(!s.register_with(&k(5), "e", vec![], 3000, &|key| key == k(2) || key == k(4)));
+    }
+
+    #[test]
+    fn only_mutual_friendships_protect_an_install() {
+        let mut s = Store::memory();
+        s.max_installs = 3;
+        s.register(&k(2), "b", vec![k(3)], 0);
+        s.register(&k(3), "c", vec![k(2)], 0);
+        // Self-declared friend that does not list it back: no protection.
+        s.register(&k(1), "a", vec![k(9)], 500);
+        assert!(s.register_with(&k(4), "d", vec![], 1000, &|_| false));
+        assert!(s.get(&k(1)).is_none(), "one-sided list evicted before older mutual friends");
+        assert!(s.get(&k(2)).is_some() && s.get(&k(3)).is_some());
+        // Nothing evictable left (k4 online): refuse.
+        assert!(!s.register_with(&k(5), "e", vec![], 2000, &|key| key == k(4)));
+        // A one-sided list doesn't buy the long retention either.
+        let mut s = Store::memory();
+        s.register(&k(1), "a", vec![k(9)], 0);
+        s.prune(IDLE_FORGET_SECS + 1);
+        assert!(s.get(&k(1)).is_none());
     }
 }

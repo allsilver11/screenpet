@@ -578,3 +578,35 @@ fn new_installs_are_capped_globally_and_in_total() {
     let d = Client::login_as(&relay, None, &key(), "d", &[]);
     assert!(d.is_ok(), "stale friendless install evicted: {:?}", d.err());
 }
+
+#[test]
+fn the_fair_share_is_per_network() {
+    let relay = start(Limits { redeems_per_min: 2, ..Limits::default() });
+    let (_t, wt) = Client::login_as(&relay, Some("192.0.2.1"), &key(), "tttt", &[]).unwrap();
+    let (mut a, _) = Client::login_as(&relay, Some("203.0.113.1"), &key(), "aaaa", &[]).unwrap();
+    for _ in 0..2 {
+        a.send(&json!({"t": "redeem", "code": "ZZZZ-ZZZZ"}));
+        assert_eq!(a.expect("redeem_failed", 2.0)["reason"], "unknown");
+    }
+    // A neighbour in the same /24 shares A's fair share: refused.
+    let (mut b, _) = Client::login_as(&relay, Some("203.0.113.2"), &key(), "bbbb", &[]).unwrap();
+    b.send(&json!({"t": "redeem", "code": wt["code"]}));
+    assert_eq!(b.expect("redeem_failed", 2.0)["reason"], "rate");
+    // Another network still gets through.
+    let (mut c, _) = Client::login_as(&relay, Some("198.51.100.3"), &key(), "cccc", &[]).unwrap();
+    c.send(&json!({"t": "redeem", "code": wt["code"]}));
+    c.expect("redeemed", 2.0);
+}
+
+#[test]
+fn light_sources_cannot_exceed_the_hard_global_ceiling() {
+    // Budget 2/min → hard ceiling 4/min, however many networks share it.
+    let relay = start(Limits { redeems_per_min: 2, ..Limits::default() });
+    let mut reasons = Vec::new();
+    for n in 1..=6 {
+        let (mut c, _) = Client::login_as(&relay, Some(&format!("198.51.{n}.1")), &key(), &format!("c{n}"), &[]).unwrap();
+        c.send(&json!({"t": "redeem", "code": "ZZZZ-ZZZZ"}));
+        reasons.push(c.expect("redeem_failed", 2.0)["reason"].as_str().unwrap().to_string());
+    }
+    assert_eq!(reasons, ["unknown", "unknown", "unknown", "unknown", "rate", "rate"]);
+}

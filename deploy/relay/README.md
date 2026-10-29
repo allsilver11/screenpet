@@ -91,13 +91,28 @@ write `off` to disable internet friends. Tray: *친구 화면 ▸ 인터넷 연�
 
 ## Limits (defaults)
 
-64 KB per frame, 20 frames/s per friend link (burst 40), 200 messages/s and
-512 KB/s per connection, 50 friends per install, 64 open links per
-connection, 2 between the same two installs, 90 s idle timeout, 10 s to
-authenticate, friend codes rotate every 24 h, a redeemed code allows one link
-within 60 s, 10 code attempts per connection and 30 per address per minute,
-600 per minute in total, 10 successful redeems of one install's codes per
-hour, 16 connections per address, 30 new installs per address and 500 in
-total per hour, at most 20 000 stored installs. Wrong, own and offline codes
-all answer `unknown`. Clients may ask for a new code (`new_code`, 5 per
-connection).
+- **Traffic**: 64 KB per frame; 20 frames/s per friend link (burst 40); per
+  connection 200 messages/s and 512 KB/s; 64 open links per connection, 2
+  between the same two installs; 90 s idle timeout, 10 s to authenticate;
+  16 connections per address, 2048 in total.
+- **Friends and codes**: 50 friend keys per install. Friend codes rotate
+  every 24 h, or on request (`new_code`, 5 per connection). A redeemed code
+  allows one link within 60 s. Wrong, own and offline codes all answer
+  `unknown`.
+- **Code guessing**: 10 attempts per connection and 30 per address per
+  minute. The global budget is 600 well-formed codes per minute (malformed
+  input isn't counted). Each network (IPv4 /24, IPv6 /48) has a fair share
+  of 60/min (never more than the per-address cap) that the budget never
+  refuses, with a hard ceiling of 1200/min for everyone. Each code accepts
+  at most 10 distinct requesters per hour (a retry counts once, a new code
+  starts fresh). When that table is full of live entries, new codes are
+  refused rather than evicting live caps.
+- **Installs**: 30 new installs per hour per network (IPv4 /24, IPv6 /64),
+  2000 per hour in total, at most 20 000 stored. Installs with no *mutual*
+  friend that never took part in a redeem are forgotten after 24 h unseen,
+  others after 180 days; online installs are never dropped. A full store
+  first evicts the least recently seen offline install without a mutual
+  friend, and refuses (`full`) only if there is none.
+- **Rate tables** keep at most 8192 keys and at most 16 per network (IPv4
+  /24, IPv6 /48; past that a network's newcomers share one key). When full,
+  stale keys go first, then the least recently active one.
