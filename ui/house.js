@@ -205,7 +205,7 @@ window.addEventListener("mousemove", (e) => {
     press.dragging = true;
     document.body.classList.add("dragging");
     speech.hidePicker();
-    window.__TAURI__.event.emit("house-drag-start");
+    invoke("house_drag_start");
   }
 });
 

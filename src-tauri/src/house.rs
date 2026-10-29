@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Listener, LogicalSize, Manager, Monitor, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Listener, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::game_loop::Input;
 use crate::AppState;
@@ -36,9 +36,10 @@ pub fn house_scale(stage: &str) -> f64 {
     }
 }
 
-/// 꿀벌은 벌통에 산다 (ui/house.js는 pet.json locomotion "fly"로도 고른다 — 지금 나는 동물은 꿀벌뿐)
-pub fn is_hive(pet: &str) -> bool {
-    pet == "bee"
+/// 나는 동물(pet.json locomotion "fly" — 꿀벌)은 벌통에 산다 (ui/house.js와 같은 기준). 번들에 없는 id면 꿀벌만
+pub fn is_hive(app: &AppHandle, pet: &str) -> bool {
+    let flies = app.try_state::<AppState>().and_then(|s| s.pets.iter().find(|p| p.id == pet).map(|p| p.manifest.flies()));
+    flies.unwrap_or(pet == "bee")
 }
 
 /// 집 그림 한 변 (논리 px)
@@ -82,8 +83,8 @@ const DOOR_JSON: [(&str, &str, &str); 10] = [
 /// json이 깨졌을 때 쓰는 문 (teenager 집의 문)
 const DEFAULT_DOOR: Door = Door { x: 30.0, w: 52.0 };
 
-pub fn door(pet: &str, stage: &str) -> Door {
-    let kind = if is_hive(pet) { "hive" } else { "house" };
+pub fn door(hive: bool, stage: &str) -> Door {
+    let kind = if hive { "hive" } else { "house" };
     DOOR_JSON
         .iter()
         .find(|(k, s, _)| *k == kind && *s == stage)
@@ -114,6 +115,19 @@ pub struct Spot {
     pub door_x: f64,
     /// 집이 놓인 바닥 (그 작업 영역의 Ground)
     pub ground: Owner,
+    /// 그 모니터의 배율 — 창 크기(논리 px)를 물리 px로 바꿀 때 (창이 아직 옛 모니터 배율을 갖고 있을 수 있다)
+    pub dpi: f64,
+}
+
+/// 하우스 웹뷰가 집을 누른 채 5px 넘게 움직였다 (house_drag_start 커맨드, 하우스 창에서만) — 여기서부터 커서를 따라 창을 옮긴다
+pub fn start_drag(app: &AppHandle) {
+    if !DRAGGING.swap(true, Ordering::SeqCst) {
+        let app = app.clone();
+        thread::spawn(move || {
+            drag(&app);
+            DRAGGING.store(false, Ordering::SeqCst);
+        });
+    }
 }
 
 /// 끌어다 놓은 자리 (없으면 주 모니터 구석). 게임 루프가 시작할 때 설정에서 채우고, 끌기가 바꾼다.
@@ -145,23 +159,12 @@ pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         let now = shown(&handle);
         let changed = {
             let mut last = last.lock().unwrap();
-            let changed = (is_hive(&now.0), now.1) != (is_hive(&last.0), last.1);
+            let changed = (is_hive(&handle, &now.0), now.1) != (is_hive(&handle, &last.0), last.1);
             *last = now;
             changed
         };
         if changed {
             refit(&handle);
-        }
-    });
-    // 하우스 웹뷰가 집을 누른 채 5px 넘게 움직였다 — 여기서부터 커서를 따라 창을 옮긴다
-    let handle = app.clone();
-    app.listen_any("house-drag-start", move |_| {
-        if !DRAGGING.swap(true, Ordering::SeqCst) {
-            let app = handle.clone();
-            thread::spawn(move || {
-                drag(&app);
-                DRAGGING.store(false, Ordering::SeqCst);
-            });
         }
     });
     WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("house.html".into()))
@@ -234,12 +237,13 @@ pub fn spot(app: &AppHandle, work_areas: &[Rect], fallback_dpi: f64) -> Spot {
     let top = wa.bottom - height * dpi;
     // 집 그림은 창 오른쪽에 붙는다
     let house_left = left + (width - house_side(stage)) * dpi;
-    let d = door(&pet, stage);
+    let d = door(is_hive(app, &pet), stage);
     Spot {
         window: (left.round() as i32, top.round() as i32),
         size: (width, height),
         door_x: house_left + (d.x + d.w / 2.0) * k * dpi,
         ground: Owner::Ground(index),
+        dpi,
     }
 }
 
@@ -296,7 +300,8 @@ fn drag(app: &AppHandle) {
     // 끄는 사이 모니터 구성이 바뀌었을 수 있다 — 놓을 때 한 번 더 읽는다
     let monitors = app.available_monitors().unwrap_or(monitors);
     set_placed(&monitors, cursor, cursor.0 - grab.0, size.width as f64);
-    let dpi = window.scale_factor().unwrap_or(1.0);
+    // 놓은 모니터의 배율 (창의 배율은 아직 옛 모니터 것일 수 있다)
+    let dpi = monitor_at(&monitors, cursor.0, cursor.1).map(|m| m.scale_factor()).unwrap_or_else(|| window.scale_factor().unwrap_or(1.0));
     let spot = spot(app, &source.work_areas(), dpi);
     place(&window, &spot);
     send(app, Input::HouseMoved { save: true });
@@ -304,7 +309,9 @@ fn drag(app: &AppHandle) {
 
 /// 단계 크기로 맞춰 놓아 둔 자리에 놓는다
 fn place(window: &WebviewWindow, spot: &Spot) {
-    let _ = window.set_size(LogicalSize::new(spot.size.0, spot.size.1));
+    // 그 자리 모니터의 배율로 물리 크기를 정한다 (LogicalSize는 창의 지금 배율로 바뀌어 모니터를 옮길 때 틀린다)
+    let (w, h) = (spot.size.0 * spot.dpi, spot.size.1 * spot.dpi);
+    let _ = window.set_size(PhysicalSize::new(w.round() as u32, h.round() as u32));
     let _ = window.set_position(PhysicalPosition::new(spot.window.0, spot.window.1));
 }
 

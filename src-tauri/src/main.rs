@@ -47,6 +47,13 @@ pub struct AppState {
     pub pair: Mutex<PairView>,
     /// 직접 주기 중 (음식이 커서에 붙어 있음) — 게임 루프가 갱신. 그동안 내 동물 우클릭은 메뉴 대신 음식 거두기
     pub hand_feeding: AtomicBool,
+    /// 트레이 "숨기기 / 보이기"로 모두 숨겨 둠 — 그동안 새로 뜨거나 다시 나타나는 창(동물·그릇·침 자국)도 숨긴 채로
+    pub hidden: AtomicBool,
+}
+
+/// 사용자가 트레이로 모두 숨겨 둠
+pub fn windows_hidden(app: &AppHandle) -> bool {
+    app.try_state::<AppState>().is_some_and(|s| s.hidden.load(Ordering::Relaxed))
 }
 
 /// 창의 동물을 눌렀다 — 부른 창의 라벨로 어느 동물인지 찾는다
@@ -66,6 +73,14 @@ fn slot_info(window: WebviewWindow, state: State<AppState>, label: Option<String
 #[tauri::command]
 fn house_state(state: State<AppState>) -> HouseState {
     state.house.lock().unwrap().clone()
+}
+
+/// 하우스 창에서 집을 끌기 시작했다 — 하우스 창이 부른 것만 받는다
+#[tauri::command]
+fn house_drag_start(window: WebviewWindow) {
+    if window.label() == house::LABEL {
+        house::start_drag(window.app_handle());
+    }
 }
 
 /// 하우스 창을 눌렀다 — 배고프면 음식 고르기, 아니면 문간에서 손 흔들기
@@ -180,6 +195,7 @@ fn main() {
                 away: AtomicBool::new(false),
                 pair: Mutex::new(PairView::default()),
                 hand_feeding: AtomicBool::new(false),
+                hidden: AtomicBool::new(false),
             });
             // 숨긴 채로 만들어 두고, 하우스에 들어갈 때 구석에 놓아 보인다
             house::create(app.handle())?;
@@ -195,6 +211,7 @@ fn main() {
             house_click,
             pair_state,
             pair_answer,
+            house_drag_start,
             network::code_state,
             network::code_submit,
             network::code_renew,

@@ -242,6 +242,13 @@ mod tests {
     #[test]
     fn hungry_picker_offers_only_meal_and_favorite() {
         assert_eq!(PICKER_FOODS, [Food::Meal, Food::Favorite]);
+        // 펫 창·하우스 창의 고르기 버튼이 같은 음식을 같은 순서로
+        let names: Vec<String> = PICKER_FOODS.iter().map(|f| serde_json::to_value(f).unwrap().as_str().unwrap().to_string()).collect();
+        for html in [include_str!("../../../ui/index.html"), include_str!("../../../ui/house.html")] {
+            let picker = html.lines().find(|l| l.contains("id=\"picker\"")).expect("picker");
+            let foods: Vec<&str> = picker.split("data-food=\"").skip(1).map(|r| r.split('"').next().unwrap()).collect();
+            assert_eq!(foods, names);
+        }
     }
 
     #[test]

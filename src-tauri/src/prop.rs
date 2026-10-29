@@ -82,7 +82,9 @@ impl Props {
         let _ = window.set_position(PhysicalPosition::new((x - w * dpi / 2.0).round() as i32, (y - h * dpi).round() as i32));
         // 클릭·드래그는 그릇을 지나 그 아래(동물·다른 앱)로 간다
         let _ = window.set_ignore_cursor_events(true);
-        let _ = window.show();
+        if !crate::windows_hidden(app) {
+            let _ = window.show();
+        }
         Some(window)
     }
 
@@ -149,7 +151,7 @@ impl HandWindow {
         self.last_pos = None;
         self.live = Some(window);
         self.move_to(at, dpi);
-        if let Some(w) = &self.live {
+        if let (Some(w), false) = (&self.live, crate::windows_hidden(app)) {
             let _ = w.show();
         }
     }

@@ -184,14 +184,21 @@ fn guest_windows(app: &AppHandle) -> Vec<WebviewWindow> {
     app.webview_windows().into_iter().filter(|(label, _)| slots::is_guest_label(label)).map(|(_, w)| w).collect()
 }
 
+/// 밥그릇·꽃·쿠키(prop-), 손에 든 음식(hand-), 침 자국(sting-) 창
+fn effect_windows(app: &AppHandle) -> Vec<WebviewWindow> {
+    const PREFIXES: [&str; 3] = ["prop-", "hand-", "sting-"];
+    app.webview_windows().into_iter().filter(|(label, _)| PREFIXES.iter().any(|p| label.starts_with(p))).map(|(_, w)| w).collect()
+}
+
 /// 내 동물 창(또는 하우스 창)과 손님 창을 모두 보인다. 하우스는 지금 구석에 다시 놓는다
 pub fn show_all(app: &AppHandle) {
+    app.state::<AppState>().hidden.store(false, Ordering::Relaxed);
     if app.state::<AppState>().housed.load(Ordering::Relaxed) {
         crate::house::show_in_corner(app);
     } else if let Some(w) = own_window(app) {
         let _ = w.show();
     }
-    for w in guest_windows(app) {
+    for w in guest_windows(app).into_iter().chain(effect_windows(app)) {
         let _ = w.show();
     }
 }
@@ -200,7 +207,9 @@ pub fn show_all(app: &AppHandle) {
 fn toggle_windows(app: &AppHandle) {
     let windows: Vec<WebviewWindow> = own_window(app).into_iter().chain(guest_windows(app)).collect();
     if windows.iter().any(|w| w.is_visible().unwrap_or(true)) {
-        for w in &windows {
+        // 숨겨 둔 동안 게임 루프가 다시 보이지 않게 먼저 적는다
+        app.state::<AppState>().hidden.store(true, Ordering::Relaxed);
+        for w in windows.iter().chain(effect_windows(app).iter()) {
             let _ = w.hide();
         }
     } else {

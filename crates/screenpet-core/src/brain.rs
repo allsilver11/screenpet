@@ -1482,9 +1482,24 @@ impl Pet {
         self.prop_event.take()
     }
 
-    /// 하우스 문 자리 (앱이 하우스를 놓을 때·먹이를 줄 때 알려 준다)
+    /// 하우스 문 자리 (앱이 하우스를 놓을 때·끌어 옮길 때·먹이를 줄 때 알려 준다).
+    /// 집으로 가는 중이거나 나와서 먹는 중이면 새 문으로 간다 — 하던 일(축하·쏘기·날기)은 그대로
     pub fn set_house_door(&mut self, owner: Owner, door_x: f64) {
         self.house_door = Some((owner, door_x));
+        if let Some(back) = self.return_home.as_mut() {
+            *back = (owner, door_x);
+        }
+        if let Some(trip) = self.home_trip.as_mut() {
+            if trip.owner != owner {
+                // 다른 바닥으로 옮겼다 — 거리 기록은 새로 잰다 (안전 점프 판정)
+                *trip = HomeTrip::new(owner, door_x, self.body.x);
+            } else if trip.door_x != door_x {
+                // 문이 멀어졌을 수 있다 — 진척 기준을 지금 거리로
+                trip.door_x = door_x;
+                trip.best = (door_x - self.body.x).abs();
+                trip.since_progress = 0.0;
+            }
+        }
     }
 
     /// 하우스에서 나와 먹는 중 (다 먹으면 들어간다)

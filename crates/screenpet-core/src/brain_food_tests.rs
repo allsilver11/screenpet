@@ -421,3 +421,49 @@ fn bowl_follows_its_window_when_the_window_moves() {
     assert_eq!(p.body.x, 975.0);
     assert_eq!(p.take_prop(), None, "no repeat while still");
 }
+
+// ---- final polish ----
+
+#[test]
+fn moving_the_house_while_eating_outside_returns_to_the_new_door() {
+    let w = world(vec![]);
+    let mut p = housed_with_door(&w, cfg());
+    p.feed_result(ATE, Food::Meal);
+    run(&mut p, &w, 5);
+    assert!(p.returns_home());
+    // 먹는 사이 집을 끌어 옮겼다
+    p.set_house_door(HOME, 800.0);
+    assert!(run_until(&mut p, &w, 60 * 20, |p| p.is_housed()), "{:?}", p.state);
+    assert_eq!(p.body.x, 800.0);
+}
+
+#[test]
+fn moving_the_house_retargets_the_trip_without_interrupting() {
+    let w = world(vec![]);
+    let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+    place(&mut p, &w, HOME, 400.0, State::LevelUp { remaining: 1.0 });
+    p.go_home(HOME, DOOR);
+    let before = p.state;
+    p.set_house_door(HOME, 1200.0);
+    assert_eq!(p.state, before, "celebration is not cut short");
+    run(&mut p, &w, 30);
+    let st = p.state;
+    p.set_house_door(HOME, 1250.0);
+    assert_eq!(p.state, st, "the run home is not restarted");
+    assert!(run_until(&mut p, &w, 60 * 20, |p| p.is_housed()), "{:?}", p.state);
+    assert_eq!(p.body.x, 1250.0);
+}
+
+#[test]
+fn moving_the_house_while_a_bee_flies_home_keeps_its_flight() {
+    let w = world(vec![]);
+    let mut p = Pet::new(PetConfig { flies: true, stings: true, ..cfg() }, 600.0, 500.0, 2);
+    p.state = idle();
+    p.go_home(HOME, DOOR);
+    run(&mut p, &w, 20);
+    assert_eq!(p.state, State::GoHome);
+    p.set_house_door(HOME, 1300.0);
+    assert_eq!(p.state, State::GoHome);
+    assert!(run_until(&mut p, &w, 60 * 20, |p| p.is_housed()), "{:?}", p.state);
+    assert_eq!(p.body.x, 1300.0);
+}

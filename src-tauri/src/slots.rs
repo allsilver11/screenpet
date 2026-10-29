@@ -168,8 +168,8 @@ impl Slot {
         !self.pet.is_housed() && !self.pet.is_away()
     }
 
-    /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보인다
-    pub fn place(&mut self) {
+    /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보인다. hidden = 사용자가 트레이로 모두 숨겨 둠 (그동안은 보이지 않는다)
+    pub fn place(&mut self, hidden: bool) {
         let (_, sy) = self.pet.window_pos();
         let win_w = PET_LOGICAL_SIZE * self.shown.scale.max(1.0) * self.dpi;
         let pos = ((self.pet.body.x - win_w / 2.0).round() as i32, (sy - BUBBLE_SPACE * self.dpi).round() as i32);
@@ -177,7 +177,7 @@ impl Slot {
             let _ = self.window.set_position(PhysicalPosition::new(pos.0, pos.1));
             self.last_pos = Some(pos);
         }
-        if self.need_show && self.on_screen() {
+        if self.need_show && self.on_screen() && !hidden {
             let _ = self.window.show();
             self.need_show = false;
         }

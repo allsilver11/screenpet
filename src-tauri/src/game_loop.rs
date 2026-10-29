@@ -320,13 +320,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     }
                 }
                 Input::HouseMoved { save } => {
-                    // 문 자리가 집을 따라간다: 집에 가는 중이면 새 문으로, 안에 있으면 그대로 안에 (먹이 그릇은 새 문 앞에)
+                    // 문 자리가 집을 따라간다: 집에 가는 중·나와서 먹는 중이면 새 문으로 (하던 일은 끊지 않는다),
+                    // 안에 있으면 그대로 안에 (먹이 그릇은 새 문 앞에)
                     let own = &mut slots[OWN];
                     let spot = house::spot(&app, &own.world.work_areas, own.dpi);
                     own.pet.set_house_door(spot.ground, spot.door_x);
-                    if own.pet.is_going_home() {
-                        own.pet.go_home(spot.ground, spot.door_x);
-                    }
                     if save {
                         config.house_spot = house::placed();
                         save_config(&app, &mut config, &own.entry.id, &care);
@@ -522,8 +520,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             apply_own_stage(&app, own, &care);
         }
 
+        let hidden = crate::windows_hidden(&app);
         for s in &mut slots {
-            s.place();
+            s.place(hidden);
             if let Some(render) = s.take_render(&app) {
                 let _ = app.emit_to(s.label.as_str(), "pet-render", render);
                 if s.is_own() {

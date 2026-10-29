@@ -54,7 +54,9 @@ impl Decals {
         let _ = window.set_position(PhysicalPosition::new((x - half).round() as i32, (y - half).round() as i32));
         // 클릭·드래그·간질이기는 침 자국을 지나 그 아래(동물·다른 앱)로 간다
         let _ = window.set_ignore_cursor_events(true);
-        let _ = window.show();
+        if !crate::windows_hidden(app) {
+            let _ = window.show();
+        }
         self.live.push_back((window, Instant::now()));
     }
 
