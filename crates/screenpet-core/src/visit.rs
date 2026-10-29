@@ -17,6 +17,12 @@ pub const ENTER_SECS: f64 = 1.0;
 pub const FAREWELL_SECS: f64 = 1.0;
 /// 방문 뒤 이만큼(초) 지나면 집이 그리워진다
 pub const HOMESICK_SECS: (f64, f64) = (180.0, 360.0);
+/// 손님이 (집 쪽이 아닌) 다른 친구가 연결된 끝에 닿았을 때 그 친구에게 더 놀러 갈 확률 (그리우면 0)
+pub const ROAM_CHANCE: f64 = 0.3;
+/// 한 화면에 동시에 받는 손님 수 — 넘치면 오는 손님은 바로 집으로 돌아간다
+pub const MAX_GUESTS: usize = 10;
+/// 그리워진 뒤 이만큼(초) 지나도 집에 못 갔으면 그 자리에서 손 흔들고 집으로
+pub const HOMESICK_HARD_CAP_SECS: f64 = 180.0;
 /// 손님 몸 배율로 받아들이는 범위 (단계 배율 × 동물별 배율이 들어갈 만큼)
 pub const GUEST_SCALE_RANGE: (f64, f64) = (0.3, 2.0);
 /// 바닥 끝이 합친 화면 끝과 같다고 볼 x 오차 (px)
@@ -49,6 +55,11 @@ impl Guest {
     pub fn is_homesick(&self) -> bool {
         self.homesick_in <= 0.0
     }
+
+    /// 그리워진 지 HOMESICK_HARD_CAP_SECS가 지났다 — 더 기다리지 않고 집으로
+    pub fn is_overdue(&self) -> bool {
+        self.homesick_in <= -HOMESICK_HARD_CAP_SECS
+    }
 }
 
 /// 방문 시간 3~6분 중 하나 (그리움까지)
@@ -56,12 +67,37 @@ pub fn pick_homesick_after(rng: &mut fastrand::Rng) -> f64 {
     behavior::range(rng, HOMESICK_SECS)
 }
 
-/// 화면 끝 edge에 닿았을 때 걸어 나갈 확률. 손님은 집 방향 끝으로만 나간다 (다른 끝은 0 → 뒤돈다)
+/// 다른 친구 화면에서 건너온 손님의 남은 그리움 시간 (건너도 다시 세지 않는다).
+/// 보낸 값이 없거나 이상하면 새로 고르고, 범위 밖이면 0..=최대로
+pub fn carried_homesick(sent: Option<f64>, rng: &mut fastrand::Rng) -> f64 {
+    match sent {
+        Some(t) if t.is_finite() => t.clamp(0.0, HOMESICK_SECS.1),
+        _ => pick_homesick_after(rng),
+    }
+}
+
+/// 건너온 손님이 들어올 끝: 이 화면에서 이전 친구(via)가 연결된 끝, 모르면 이전 화면에서 나간 끝의 반대편
+pub fn hop_enter_side(via: Option<Side>, exited: Side) -> Side {
+    via.unwrap_or(opposite(exited))
+}
+
+pub fn opposite(side: Side) -> Side {
+    match side {
+        Side::Left => Side::Right,
+        Side::Right => Side::Left,
+    }
+}
+
+/// 화면 끝 edge에 닿았을 때 걸어 나갈 확률.
+/// 내 동물: 친구가 연결된 끝(exits)에서 30%. 손님: 집 방향 끝에서 50%(그리우면 반드시),
+/// 다른 끝은 거기 다른 친구가 연결돼 있으면(exits — 주인은 뺀다) 30% 더 놀러 감, 아니면(또는 그리우면) 뒤돈다
 pub fn exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>) -> f64 {
     match guest {
-        Some(g) if g.home != edge => 0.0,
-        Some(g) if g.is_homesick() => 1.0,
-        Some(_) => GUEST_EXIT_CHANCE,
+        Some(g) if g.home == edge && g.is_homesick() => 1.0,
+        Some(g) if g.home == edge => GUEST_EXIT_CHANCE,
+        Some(g) if g.is_homesick() => 0.0,
+        Some(_) if exits.has(edge) => ROAM_CHANCE,
+        Some(_) => 0.0,
         None if exits.has(edge) => EXIT_CHANCE,
         None => 0.0,
     }
@@ -176,15 +212,57 @@ mod tests {
     }
 
     #[test]
-    fn guests_only_leave_toward_home() {
+    fn guests_leave_toward_home_or_roam_on_to_another_friend() {
         let none = ExitEdges::default();
+        let both = ExitEdges { left: true, right: true };
         let guest = Guest { home: Side::Right, homesick_in: 100.0 };
         assert_eq!(exit_chance(Side::Right, none, Some(guest)), 0.5);
-        assert_eq!(exit_chance(Side::Left, ExitEdges { left: true, right: true }, Some(guest)), 0.0);
+        // 집 쪽 끝은 다른 친구가 연결돼 있어도 집 규칙
+        assert_eq!(exit_chance(Side::Right, both, Some(guest)), 0.5);
+        // 다른 끝: 그 끝에 (주인 말고) 연결된 친구가 있으면 30% 더 놀러 간다
+        assert_eq!(exit_chance(Side::Left, both, Some(guest)), ROAM_CHANCE);
+        assert_eq!(exit_chance(Side::Left, none, Some(guest)), 0.0);
         let homesick = Guest { homesick_in: 0.0, ..guest };
         assert!(homesick.is_homesick() && !guest.is_homesick());
         assert_eq!(exit_chance(Side::Right, none, Some(homesick)), 1.0);
         assert_eq!(exit_chance(Side::Left, none, Some(homesick)), 0.0);
+        // 그리우면 더 놀러 가지 않는다
+        assert_eq!(exit_chance(Side::Left, both, Some(homesick)), 0.0);
+    }
+
+    #[test]
+    fn caps_and_roaming_numbers() {
+        assert_eq!((ROAM_CHANCE, MAX_GUESTS, HOMESICK_HARD_CAP_SECS), (0.3, 10, 180.0));
+    }
+
+    #[test]
+    fn homesick_guest_is_overdue_three_minutes_after_onset() {
+        let g = Guest { home: Side::Left, homesick_in: 0.0 };
+        assert!(!g.is_overdue());
+        assert!(!Guest { homesick_in: -179.9, ..g }.is_overdue());
+        assert!(Guest { homesick_in: -180.0, ..g }.is_overdue());
+    }
+
+    #[test]
+    fn carried_homesick_time_continues_or_is_picked_fresh() {
+        let mut rng = fastrand::Rng::with_seed(1);
+        assert_eq!(carried_homesick(Some(42.0), &mut rng), 42.0);
+        // 이상한 값은 범위 안으로 (그리움이 이미 시작됐으면 바로 그리운 채로)
+        assert_eq!(carried_homesick(Some(-5.0), &mut rng), 0.0);
+        assert_eq!(carried_homesick(Some(1e9), &mut rng), HOMESICK_SECS.1);
+        for v in [None, Some(f64::NAN), Some(f64::INFINITY)] {
+            let t = carried_homesick(v, &mut rng);
+            assert!((180.0..=360.0).contains(&t), "{v:?} → {t}");
+        }
+    }
+
+    #[test]
+    fn hop_enters_from_the_edge_linked_to_the_previous_host() {
+        assert_eq!(hop_enter_side(Some(Side::Right), Side::Right), Side::Right);
+        // 이전 친구를 모르면 나간 쪽의 반대편에서
+        assert_eq!(hop_enter_side(None, Side::Right), Side::Left);
+        assert_eq!(hop_enter_side(None, Side::Left), Side::Right);
+        assert_eq!((opposite(Side::Left), opposite(Side::Right)), (Side::Right, Side::Left));
     }
 
     #[test]

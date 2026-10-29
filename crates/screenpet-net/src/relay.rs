@@ -18,7 +18,7 @@
 //! the smaller id (see `discovery`).
 
 use crate::peers::{self, dial_failed, run_session, DialOutcome};
-use crate::protocol::{MAX_FRAME, MAX_ID};
+use crate::protocol::{MAX_FRAME, MAX_FRIENDS, MAX_ID};
 use crate::transport::{Candidate, FrameLink, FrameReader, Recv};
 use crate::{noise, Backoff, NetEvent, Shared, TICK};
 use serde::{Deserialize, Serialize};
@@ -333,6 +333,9 @@ pub(crate) fn dial(shared: &Arc<Shared>, peer_id: String, key: [u8; 32]) {
 pub(crate) fn redeem(shared: &Arc<Shared>, code: &str, pet: &str) {
     let fail = |reason: &str| shared.emit(NetEvent::CodeFailed { code: code.to_string(), reason: reason.to_string() });
     let Some(norm) = normalize_code(code) else { return fail("invalid") };
+    if shared.state().friends.len() >= MAX_FRIENDS {
+        return fail("full");
+    }
     let Some(client) = shared.relay.clone() else { return fail("offline") };
     {
         let mut inner = client.inner();

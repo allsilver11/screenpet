@@ -108,6 +108,8 @@ fn visit(id: u64) -> Visit {
         personality: "playful".into(),
         owner: "A".into(),
         enter_side: Side::Left,
+        via: None,
+        homesick_in: None,
     }
 }
 

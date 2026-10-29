@@ -19,8 +19,8 @@ use screenpet_core::behavior::Personality;
 use screenpet_core::brain::State;
 use screenpet_core::care::Stage;
 use screenpet_core::config::Config;
-use screenpet_core::visit::{self, Side};
-use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
+use screenpet_core::visit::{self, Side, MAX_GUESTS};
+use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, MAX_FRIENDS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
@@ -40,8 +40,6 @@ const CONFIRM_TIMEOUT: Duration = Duration::from_secs(20);
 const RESULT_SECS: Duration = Duration::from_millis(2500);
 /// "집에 와"를 보냈는데 Leave가 이만큼 안 오면 그냥 돌아온다
 const COME_HOME_FALLBACK: Duration = Duration::from_secs(15);
-/// 동시에 받는 손님 수 (친구마다 한 마리)
-const MAX_GUESTS: usize = 8;
 /// 한 친구에게서 받아들인 방문 사이 최소 간격 (그보다 잦은 Visit은 Leave로 돌려보낸다)
 const VISIT_COOLDOWN: Duration = Duration::from_secs(5);
 /// 거절 로그는 친구마다 이 간격에 한 번만
@@ -76,6 +74,8 @@ pub enum NetInput {
     EnterCode,
     /// 코드 입력 창에서 확인 (이미 `ABCD-1234` 꼴로 맞춘 코드)
     SubmitCode(String),
+    /// 코드 창 "새 코드": 중계 서버에 새 친구 코드를 받는다 (예전 코드는 못 쓰게 된다)
+    NewCode,
 }
 
 /// 친구 코드 창에 보이는 상태 (`code-state` 이벤트, `code_state` 커맨드)
@@ -121,6 +121,16 @@ struct Pairing {
     view: PairView,
     /// 지금 단계가 끝나는 때 (연결 대기 10초, 확인 20초, 결과 표시 2.5초)
     deadline: Instant,
+}
+
+/// 손님이 도착한 방식 (Visit 메시지에서)
+struct Arrival {
+    /// 주인이 정한 들어올 끝
+    enter_side: Side,
+    /// 바로 전에 있던 친구 화면 (주인의 친구 id)
+    via: Option<String>,
+    /// 남은 그리움 시간 (건너온 손님)
+    homesick_in: Option<f64>,
 }
 
 /// 내 동물이 친구 화면에 가 있음
@@ -183,6 +193,7 @@ fn code_failure(reason: &str) -> &'static str {
         "self" => "selfcode",
         "already_friend" => "already",
         "busy" => "busy",
+        "full" => "full",
         _ => "unreachable",
     }
 }
@@ -201,12 +212,7 @@ fn from_net_side(s: screenpet_net::Side) -> Side {
     }
 }
 
-fn opposite(s: Side) -> Side {
-    match s {
-        Side::Left => Side::Right,
-        Side::Right => Side::Left,
-    }
-}
+use visit::opposite;
 
 fn personality_name(p: Personality) -> &'static str {
     match p {
@@ -300,11 +306,18 @@ impl Network {
         self.away.is_some() || own.pet.is_away() || is_exiting(own)
     }
 
-    /// 매 틱 update 전에: 연결된 친구가 있는 끝으로만 나갈 수 있다. 하우스 안·가는 중·하우스 토글 중엔 나가지 않는다
-    pub fn set_exit_edges(&self, config: &Config, own: &mut Slot) {
+    /// 매 틱 update 전에: 연결된 친구가 있는 끝으로만 나갈 수 있다. 하우스 안·가는 중·하우스 토글 중엔 나가지 않는다.
+    /// 손님(slots[1..])은 주인이 아닌 연결된 친구가 있는 끝으로 더 놀러 갈 수 있다 (그 친구가 주인의 친구인지는 주인이 본다)
+    pub fn set_exit_edges(&self, config: &Config, slots: &mut [Slot]) {
+        let Some((own, guests)) = slots.split_first_mut() else { return };
         let blocked = self.net.is_none() || config.housed || own.pet.is_housed() || own.pet.is_going_home();
         let edges = if blocked { Default::default() } else { config.exit_edges(|id| self.is_connected(id)) };
         own.pet.set_exit_edges(edges.left, edges.right);
+        for s in guests {
+            let Role::Guest(g) = &s.role else { continue };
+            let edges = if self.net.is_none() { Default::default() } else { config.exit_edges(|id| id != g.owner_id && self.is_connected(id)) };
+            s.pet.set_exit_edges(edges.left, edges.right);
+        }
     }
 
     /// 내 동물이 side 끝으로 다 나갔다: 그 끝의 연결된 친구 하나에게 Visit. 아무도 없으면(그새 끊김) 바로 다시 들어온다
@@ -315,9 +328,17 @@ impl Network {
             return;
         };
         let friend = friends[fastrand::usize(..friends.len())].id.clone();
+        let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None);
+        eprintln!("own pet went to visit {friend} (visit {visit_id})");
+        self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None });
+        self.menu_dirty = true;
+    }
+
+    /// 내 동물을 friend 화면으로 보낸다 (enter_side 끝에서 들어온다). via = 바로 전에 있던 친구 화면. 새 visit_id를 돌려준다
+    fn send_visit(&self, net: &Net, own: &Slot, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>) -> u64 {
         let visit_id = fastrand::u64(..);
         net.send(
-            &friend,
+            friend,
             Visit::Visit {
                 visit_id,
                 species: own.entry.id.clone(),
@@ -325,18 +346,53 @@ impl Network {
                 scale: own.shown.scale,
                 personality: personality_name(own.entry.manifest.personality).to_string(),
                 owner: self.name.clone(),
-                enter_side: to_net_side(opposite(side)),
+                enter_side: to_net_side(enter_side),
+                via,
+                homesick_in,
             },
         );
-        eprintln!("own pet went to visit {friend} (visit {visit_id})");
-        self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None });
-        self.menu_dirty = true;
+        visit_id
     }
 
-    /// 손님이 떠났다 (집 쪽 끝으로 걸어 나감 / 손 흔들고 사라짐): 주인에게 Leave
-    pub fn guest_left(&self, guest: &GuestInfo) {
+    /// 손님이 떠났다 (side 끝으로 걸어 나감 / 손 흔들고 사라짐): 주인에게 Leave.
+    /// 집 쪽이 아닌 끝으로 나갔으면 그 끝의 (주인 아닌) 연결된 친구 하나를 next로 — 주인이 그 친구에게 이어 보낸다.
+    /// 그새 아무도 없으면 next 없이 (집으로)
+    pub fn guest_left(&self, config: &Config, guest: &GuestInfo, side: Side, state: Option<visit::Guest>) {
         let (Some(net), Ok(visit_id)) = (&self.net, guest.visit_id.parse::<u64>()) else { return };
-        net.send(&guest.owner_id, Visit::Leave { visit_id });
+        let roaming = state.is_some_and(|g| g.home != side && !g.is_homesick());
+        let next = if roaming {
+            let friends = config.friends_at(side, |id| id != guest.owner_id && self.is_connected(id));
+            (!friends.is_empty()).then(|| friends[fastrand::usize(..friends.len())].id.clone())
+        } else {
+            None
+        };
+        let msg = match next {
+            Some(next) => {
+                eprintln!("guest {visit_id} ({}) walks on to {next}", guest.owner_id);
+                Visit::Leave { visit_id, next: Some(next), side: Some(to_net_side(side)), homesick_in: state.map(|g| g.homesick_in) }
+            }
+            None => Visit::leave(visit_id),
+        };
+        net.send(&guest.owner_id, msg);
+    }
+
+    /// 손님으로 가 있던 내 동물이 friend 화면에서 next 친구 화면으로 걸어 나갔다: next가 내 연결된 친구면 그리로 이어 보낸다.
+    /// 아니면(모르는 사람·끊김·"집에 와" 중) false — 집으로 돌아온다
+    fn forward_visit(&mut self, config: &Config, own: &Slot, next: &str, exited: Option<screenpet_net::Side>, homesick_in: Option<f64>) -> bool {
+        let Some(a) = self.away.as_ref() else { return false };
+        let (Some(net), Some(f)) = (&self.net, config.friend(next)) else { return false };
+        if a.come_home_by.is_some() || a.friend == next || !self.is_connected(next) {
+            return false;
+        }
+        // 그 친구 화면에서 이전 친구(via)가 연결된 끝을 모르면 이전 화면에서 나간 끝의 반대편으로
+        let exited = exited.map(from_net_side).unwrap_or(a.side);
+        let homesick_in = homesick_in.filter(|t| t.is_finite());
+        let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in);
+        eprintln!("own pet walks on from {} to {next} (visit {visit_id})", a.friend);
+        // 돌아올 땐 내 화면에서 그 친구가 연결된 끝에서 들어온다
+        self.away = Some(AwayVisit { friend: next.to_string(), visit_id, side: f.side, come_home_by: None });
+        self.menu_dirty = true;
+        true
     }
 
     /// 내 동물이 돌아온다 (나갔던 끝에서 걸어 들어온다)
@@ -395,6 +451,13 @@ impl Network {
             }
             NetInput::SubmitCode(code) => {
                 self.start_code_invite(app, &code, &slots[0].entry.id);
+                false
+            }
+            NetInput::NewCode => {
+                // 새 코드는 FriendCode 이벤트로 온다
+                if !self.net.as_ref().is_some_and(|n| n.new_friend_code()) {
+                    eprintln!("cannot get a new friend code: not connected to the relay");
+                }
                 false
             }
         }
@@ -507,12 +570,13 @@ impl Network {
 
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, via, homesick_in, .. } => {
                 let now = Instant::now();
                 let result = if self.last_visit.get(from).is_some_and(|t| now.duration_since(*t) < VISIT_COOLDOWN) {
                     Err("too soon after the last visit".to_string())
                 } else {
-                    self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, from_net_side(enter_side))
+                    let arrival = Arrival { enter_side: from_net_side(enter_side), via, homesick_in };
+                    self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival)
                 };
                 match result {
                     Ok(()) => {
@@ -525,13 +589,17 @@ impl Network {
                             self.last_decline_log.insert(from.to_string(), now);
                         }
                         if let Some(net) = &self.net {
-                            net.send(from, Visit::Leave { visit_id });
+                            net.send(from, Visit::leave(visit_id));
                         }
                     }
                 }
             }
-            Visit::Leave { visit_id } => {
-                if self.away.as_ref().is_some_and(|a| a.friend == from && a.visit_id == visit_id) {
+            Visit::Leave { visit_id, next, side, homesick_in } => {
+                if !self.away.as_ref().is_some_and(|a| a.friend == from && a.visit_id == visit_id) {
+                    return;
+                }
+                let forwarded = next.is_some_and(|n| self.forward_visit(config, &slots[0], &n, side, homesick_in));
+                if !forwarded {
                     self.come_back(&mut slots[0]);
                 }
             }
@@ -558,7 +626,7 @@ impl Network {
         stage: &str,
         scale: f64,
         owner: &str,
-        side: Side,
+        arrival: Arrival,
     ) -> Result<(), String> {
         let state = app.state::<AppState>();
         let entry = state.pets.iter().find(|p| p.id == species).cloned().ok_or_else(|| format!("unknown species {species:?}"))?;
@@ -573,9 +641,24 @@ impl Network {
         let scale = visit::guest_scale(scale, stage.scale() * entry.manifest.size_mult(stage));
         let owner_name = config.friend(from).map(|f| f.name.clone()).unwrap_or_else(|| clamp(owner));
         let guest = GuestInfo { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name };
+        // 다른 친구 화면에서 건너왔으면: 그 친구가 연결된 끝에서 들어오고, 집 쪽은 이 화면에서 주인이 연결된 끝,
+        // 그리움 시간은 이어서 센다. 바로 왔으면 들어온 끝이 집 쪽
+        let hop = arrival.via.as_deref().filter(|v| *v != from);
+        let side = match hop {
+            Some(v) => visit::hop_enter_side(config.friend(v).map(|f| f.side), opposite(arrival.enter_side)),
+            None => arrival.enter_side,
+        };
+        let home = match hop {
+            Some(_) => config.friend(from).map_or(side, |f| f.side),
+            None => side,
+        };
         let seed = fastrand::u64(..);
-        let slot = slots::spawn_guest(app, guest, entry, stage, scale, side, &slots[0].world, seed)?;
-        eprintln!("guest {visit_id} from {from} arrived");
+        let mut slot = slots::spawn_guest(app, guest, entry, stage, scale, side, &slots[0].world, seed)?;
+        if hop.is_some() || arrival.homesick_in.is_some() {
+            let mut rng = fastrand::Rng::with_seed(seed);
+            slot.pet.set_guest(home, visit::carried_homesick(arrival.homesick_in, &mut rng));
+        }
+        eprintln!("guest {visit_id} from {from} arrived{}", hop.map(|v| format!(" (via {v})")).unwrap_or_default());
         slots.push(slot);
         Ok(())
     }
@@ -594,15 +677,17 @@ impl Network {
             self.show_pair(app);
             return;
         }
-        net.invite(peer, own_species);
         let name = self.seen.get(peer).cloned().unwrap_or_else(|| DEFAULT_NAME.to_string());
-        self.pairing = Some(Pairing {
-            peer: peer.to_string(),
-            by_code: false,
-            token: None,
-            view: PairView { phase: "connecting", name, ..PairView::default() },
-            deadline: Instant::now() + CONNECT_TIMEOUT,
-        });
+        // 친구가 이미 MAX_FRIENDS명이면 net이 신청하지 않는다 — 바로 알린다
+        let full = net.friends().len() >= MAX_FRIENDS;
+        let view = if full {
+            PairView { phase: "failed", reason: "full", name, ..PairView::default() }
+        } else {
+            net.invite(peer, own_species);
+            PairView { phase: "connecting", name, ..PairView::default() }
+        };
+        let wait = if full { RESULT_SECS } else { CONNECT_TIMEOUT };
+        self.pairing = Some(Pairing { peer: peer.to_string(), by_code: false, token: None, view, deadline: Instant::now() + wait });
         self.show_pair(app);
     }
 
@@ -928,6 +1013,14 @@ pub fn code_submit(window: WebviewWindow, state: tauri::State<AppState>, code: S
     let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::SubmitCode(code)));
     let _ = window.hide();
     Ok(())
+}
+
+/// 코드 창의 "새 코드": 중계 서버에 새 친구 코드를 받는다 (새 코드는 `code-state`로 온다)
+#[tauri::command]
+pub fn code_renew(window: WebviewWindow, state: tauri::State<AppState>) {
+    if window.label() == CODE_LABEL {
+        let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::NewCode));
+    }
 }
 
 /// 코드 창의 "닫기"

@@ -26,6 +26,7 @@ const FAILED = {
   offline: "인터넷 연결이 없거나 상대가 꺼져 있어요",
   selfcode: "내 친구 코드예요",
   already: "이미 친구예요",
+  full: "친구가 너무 많아요 (최대 50명)",
 };
 
 function show(v) {

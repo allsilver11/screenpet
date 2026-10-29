@@ -879,6 +879,11 @@ impl Pet {
         }
     }
 
+    /// 손님이면 집 쪽 끝과 남은 그리움 시간 (다른 친구 화면으로 건널 때 이어 간다)
+    pub fn guest(&self) -> Option<Guest> {
+        self.guest
+    }
+
     /// 손님이 집을 그리워하는 중
     pub fn is_homesick(&self) -> bool {
         self.guest.is_some_and(|g| g.is_homesick())
@@ -966,6 +971,11 @@ impl Pet {
         let was = g.is_homesick();
         g.homesick_in -= dt;
         let (now, home) = (g.is_homesick(), g.home);
+        // 그리워진 지 3분이 지나도 못 갔으면 (붙잡혀 있으면 놓인 뒤) 제자리에서 손 흔들고 집으로
+        if g.is_overdue() {
+            self.go_home_now();
+            return;
+        }
         if !was && now && matches!(self.state, State::Move { .. }) && self.facing != visit::dir(home) {
             self.pacing.after_beat = None;
             self.state = State::Turn { remaining: TURN_PAUSE };
@@ -1127,7 +1137,8 @@ impl Pet {
     }
 
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
-        if self.is_held() || self.housed || self.leaving() {
+        // 걸어 들어오는 중엔 (몸이 아직 화면 밖일 수 있다) 잡지 않는다
+        if self.is_held() || self.housed || self.in_transit() {
             return;
         }
         // 쏘기는 콕! 할 때까지 손으로 막을 수 없다
@@ -5055,14 +5066,120 @@ mod visit_tests {
         let (exits, turns) = outcomes(400, 1.0, Move::Walk, |p| p.set_guest(Side::Right, 1000.0));
         assert!((165..=235).contains(&exits), "exits={exits}");
         assert_eq!(exits + turns, 400);
-        // 반대 끝은 연결돼 있어도 뒤돈다
+        // 반대 끝에 다른 친구가 없으면 뒤돈다
+        assert_eq!(outcomes(100, -1.0, Move::Walk, |p| p.set_guest(Side::Right, 1000.0)), (0, 100));
+    }
+
+    #[test]
+    fn guest_roams_on_through_an_edge_linked_to_another_friend() {
+        let (exits, turns) = outcomes(400, -1.0, Move::Walk, |p| {
+            p.set_exit_edges(true, true);
+            p.set_guest(Side::Right, 1000.0)
+        });
+        assert!((90..=150).contains(&exits), "exits={exits}");
+        assert_eq!(exits + turns, 400);
+        // 그리우면 더 놀러 가지 않는다
         assert_eq!(
             outcomes(100, -1.0, Move::Walk, |p| {
                 p.set_exit_edges(true, true);
-                p.set_guest(Side::Right, 1000.0)
+                p.set_guest(Side::Right, 0.0)
             }),
             (0, 100)
         );
+    }
+
+    #[test]
+    fn guest_reports_its_home_and_homesick_time() {
+        let w = world(vec![]);
+        let mut p = guest(1, 1.0, Move::Walk, Side::Left, 100.0);
+        assert_eq!(p.guest().map(|g| g.home), Some(Side::Left));
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        run(&mut p, &w, 60);
+        let left = p.guest().unwrap().homesick_in;
+        assert!((left - 99.0).abs() < 0.01, "{left}");
+        assert_eq!(at_edge(&w, 1, 1.0, Move::Walk).guest(), None);
+    }
+
+    #[test]
+    fn homesick_guest_gives_up_and_waves_home_three_minutes_after_onset() {
+        let w = world(vec![]);
+        let mut p = guest(1, 1.0, Move::Walk, Side::Left, 0.0);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        // 붙잡혀 집에 못 가는 손님
+        let (x, y) = (p.body.x, p.body.y - 40.0);
+        p.pointer_down(x, y);
+        p.pointer_move(x + 50.0, y - 100.0);
+        run(&mut p, &w, 60 * 179);
+        assert_eq!(p.state, State::Dragged);
+        run(&mut p, &w, 60 * 2);
+        assert_eq!(p.state, State::Dragged);
+        p.pointer_up(x + 50.0, y - 100.0);
+        let mut waved = false;
+        for _ in 0..600 {
+            p.update(DT, &w);
+            waved |= matches!(p.state, State::Farewell { .. });
+            if p.is_away() {
+                break;
+            }
+        }
+        assert!(waved);
+        assert_eq!(p.take_exit(), Some(Side::Left));
+    }
+
+    #[test]
+    fn overdue_homesick_guest_waves_home_where_it_stands() {
+        let w = world(vec![]);
+        let mut p = guest(1, 1.0, Move::Walk, Side::Right, -179.95);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        run(&mut p, &w, 10);
+        assert!(matches!(p.state, State::Farewell { .. }), "{:?}", p.state);
+        run(&mut p, &w, 70);
+        assert_eq!(p.take_exit(), Some(Side::Right));
+    }
+
+    #[test]
+    fn entering_guest_cannot_be_grabbed() {
+        let w = world(vec![]);
+        let mut p = Pet::new_entering(cfg(), &w, Side::Left, 1);
+        p.set_guest(Side::Left, 1000.0);
+        run(&mut p, &w, 20);
+        p.pointer_down(p.body.x, p.body.y - 40.0);
+        assert!(!p.is_held());
+        assert!(matches!(p.state, State::Enter { .. }), "{:?}", p.state);
+    }
+
+    #[test]
+    fn come_home_now_while_entering_waves_then_goes_back() {
+        let w = world(vec![]);
+        let mut p = Pet::new_entering(cfg(), &w, Side::Right, 1);
+        p.set_guest(Side::Right, 1000.0);
+        run(&mut p, &w, 20);
+        p.go_home_now();
+        assert!(matches!(p.state, State::Farewell { .. }), "{:?}", p.state);
+        let body = p.body;
+        run(&mut p, &w, 70);
+        assert_eq!(p.take_exit(), Some(Side::Right));
+        assert!(p.is_away());
+        assert_eq!(p.body, body);
+    }
+
+    #[test]
+    fn away_guest_says_nothing() {
+        let w = world(vec![]);
+        let mut p = guest(1, 1.0, Move::Walk, Side::Left, 1000.0);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        p.go_home_now();
+        run(&mut p, &w, 70);
+        assert!(p.is_away());
+        let _ = p.take_speech();
+        let (x, y) = (p.body.x, p.body.y - 40.0);
+        for _ in 0..600 {
+            p.pointer_down(x, y);
+            p.pointer_up(x, y);
+            p.hover(x, y, true);
+            p.update(DT, &w);
+            assert_eq!(p.take_speech(), None);
+        }
     }
 
     #[test]

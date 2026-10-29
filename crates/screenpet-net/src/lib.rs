@@ -30,7 +30,7 @@ mod tcp;
 mod transport;
 
 pub use noise::SAS_EMOJI;
-pub use protocol::{Side, Visit};
+pub use protocol::{Side, Visit, MAX_FRIENDS};
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};
@@ -194,7 +194,7 @@ pub enum NetEvent {
     CodeRedeemed { code: String, id: String },
     /// A code could not be used. `reason`: `invalid` (not a code), `unknown`
     /// (no such code), `offline` (relay or owner not connected), `self`,
-    /// `already_friend`, `busy`, `rate`, `timeout`.
+    /// `already_friend`, `busy`, `rate`, `timeout`, `full` (we have `MAX_FRIENDS`).
     CodeFailed { code: String, reason: String },
 }
 

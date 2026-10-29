@@ -5,6 +5,7 @@ const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
 const codeEl = document.getElementById("code");
 const copyBtn = document.getElementById("copy");
+const renewBtn = document.getElementById("renew");
 const statusEl = document.getElementById("status");
 const inputEl = document.getElementById("input");
 const noteEl = document.getElementById("note");
@@ -17,6 +18,7 @@ function show(v) {
   state = v;
   codeEl.textContent = v.code ?? "—";
   copyBtn.disabled = !v.code;
+  renewBtn.disabled = !v.connected;
   okBtn.disabled = !v.connected;
   statusEl.textContent = !v.enabled
     ? "인터넷 친구를 쓰지 않도록 설정되어 있어요"
@@ -52,6 +54,25 @@ copyBtn.addEventListener("click", async () => {
   const ok = await copyText(state.code);
   copyBtn.textContent = ok ? "복사했어요" : "복사 실패";
   setTimeout(() => (copyBtn.textContent = "복사"), 1500);
+});
+// 새 친구 코드 (코드를 너무 널리 알렸을 때) — 새 코드는 code-state로 온다
+// 한 번 더 눌러야 바뀐다 (지금 코드는 더 이상 쓸 수 없게 된다)
+let renewArmed = null;
+renewBtn.addEventListener("click", () => {
+  if (!state.connected) return;
+  if (!renewArmed) {
+    renewBtn.textContent = "정말 바꿀까요?";
+    renewArmed = setTimeout(() => {
+      renewArmed = null;
+      renewBtn.textContent = "새 코드";
+    }, 3000);
+    return;
+  }
+  clearTimeout(renewArmed);
+  renewArmed = null;
+  renewBtn.textContent = "새 코드";
+  invoke("code_renew");
+  codeEl.textContent = "…";
 });
 okBtn.addEventListener("click", submit);
 cancelBtn.addEventListener("click", () => invoke("code_close"));

@@ -15,6 +15,8 @@ pub const MAX_MESSAGE: usize = MAX_FRAME - 16;
 pub const MAX_ID: usize = 128;
 /// Display names and pet labels are clamped to this many characters.
 pub const MAX_NAME: usize = 64;
+/// Most friends one install keeps; pairing is refused (both directions) once full.
+pub const MAX_FRIENDS: usize = 50;
 
 /// Which screen edge a visiting pet walks in from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,13 +38,38 @@ pub enum Visit {
         personality: String,
         owner: String,
         enter_side: Side,
+        /// The pet walked over from this friend's screen (owner's friend id);
+        /// the receiver enters it from the edge it links to that friend, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        via: Option<String>,
+        /// Seconds left before the pet gets homesick (continues across hops).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        homesick_in: Option<f64>,
     },
+    /// The guest left the receiver's friend's screen. `next: None` = it went
+    /// home (also what older versions send). `next: Some(id)` = it walked out
+    /// through the edge linked to friend `id` (through `side`) and wants to
+    /// visit them; the owner forwards a `Visit` there only if `id` is its own
+    /// connected friend, otherwise it brings the pet home.
     Leave {
         visit_id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        side: Option<Side>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        homesick_in: Option<f64>,
     },
     ComeHome {
         visit_id: u64,
     },
+}
+
+impl Visit {
+    /// A plain "went home" `Leave` (same wire shape as protocol v1 without roaming).
+    pub fn leave(visit_id: u64) -> Visit {
+        Visit::Leave { visit_id, next: None, side: None, homesick_in: None }
+    }
 }
 
 /// Connection-management messages handled inside the net crate.
@@ -143,6 +170,8 @@ mod tests {
             personality: "playful".into(),
             owner: "Ann".into(),
             enter_side: Side::Left,
+            via: None,
+            homesick_in: None,
         });
         let v: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!(v["type"], "visit");
@@ -160,12 +189,53 @@ mod tests {
             Message::Control(Control::InviteReply { accepted: true }),
             Message::Control(Control::Unfriend),
             Message::Control(Control::Ping),
-            Message::Visit(Visit::Leave { visit_id: 3 }),
+            Message::Visit(Visit::leave(3)),
             Message::Visit(Visit::ComeHome { visit_id: 4 }),
         ] {
             assert_eq!(Message::parse(&m.to_json()), Some(m));
         }
         assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping)));
+    }
+
+    #[test]
+    fn leave_can_name_the_next_friend_and_stays_backward_compatible() {
+        let hop = Message::Visit(Visit::Leave { visit_id: 9, next: Some("xx".into()), side: Some(Side::Left), homesick_in: Some(42.5) });
+        let v: serde_json::Value = serde_json::from_slice(&hop.to_json()).unwrap();
+        assert_eq!((v["next"].as_str(), v["side"].as_str(), v["homesick_in"].as_f64()), (Some("xx"), Some("left"), Some(42.5)));
+        assert_eq!(Message::parse(&hop.to_json()), Some(hop));
+        // 예전 판의 leave (next 없음) = 집으로
+        assert_eq!(
+            Message::parse(br#"{"type":"leave","visit_id":3}"#),
+            Some(Message::Visit(Visit::Leave { visit_id: 3, next: None, side: None, homesick_in: None }))
+        );
+        // 집으로 가는 leave는 예전 판과 같은 모양
+        assert_eq!(Message::Visit(Visit::leave(3)).to_json(), br#"{"type":"leave","visit_id":3}"#.to_vec());
+    }
+
+    #[test]
+    fn visit_can_carry_the_previous_host_and_homesick_time() {
+        let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
+        let Some(Message::Visit(Visit::Visit { via, homesick_in, .. })) = Message::parse(old) else { panic!("old visit must parse") };
+        assert_eq!((via, homesick_in), (None, None));
+        let hop = Message::Visit(Visit::Visit {
+            visit_id: 2,
+            species: "cat".into(),
+            stage: "child".into(),
+            scale: 1.0,
+            personality: "friendly".into(),
+            owner: "A".into(),
+            enter_side: Side::Right,
+            via: Some("bb".into()),
+            homesick_in: Some(10.0),
+        });
+        assert_eq!(Message::parse(&hop.to_json()), Some(hop));
+        // 새 필드를 모르는 받는 쪽도 읽을 수 있다 (모르는 필드는 무시)
+        assert!(Message::parse(br#"{"type":"leave","visit_id":3,"next":"x","future":1}"#).is_some());
+    }
+
+    #[test]
+    fn friend_cap() {
+        assert_eq!(MAX_FRIENDS, 50);
     }
 
     #[test]

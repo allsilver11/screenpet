@@ -354,7 +354,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
 
         // 연결된 친구가 있는 끝으로만 나간다
-        network.set_exit_edges(&config, &mut slots[OWN]);
+        network.set_exit_edges(&config, &mut slots);
         let mut own_exit = None;
         let mut left = Vec::new();
         for (i, s) in slots.iter_mut().enumerate() {
@@ -380,16 +380,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 if s.is_own() {
                     own_exit = Some(side);
                 } else {
-                    // 손님이 집 쪽 끝으로 걸어 나갔거나 손 흔들고 사라졌다
-                    left.push(i);
+                    // 손님이 집 쪽(또는 다른 친구 쪽) 끝으로 걸어 나갔거나 손 흔들고 사라졌다
+                    left.push((i, side));
                 }
             }
         }
-        for i in left.into_iter().rev() {
+        for (i, side) in left.into_iter().rev() {
             let slot = slots.remove(i);
             if let Role::Guest(g) = &slot.role {
-                eprintln!("guest {} ({}) went home", g.visit_id, g.owner_id);
-                network.guest_left(g);
+                eprintln!("guest {} ({}) left", g.visit_id, g.owner_id);
+                network.guest_left(&config, g, side, slot.pet.guest());
             }
             slots::close(&app, slot);
         }

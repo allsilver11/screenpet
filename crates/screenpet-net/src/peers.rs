@@ -15,7 +15,7 @@
 
 use crate::discovery::{note_dial, pick_candidate};
 use crate::noise::{self, Established};
-use crate::protocol::{clamp_name, Control, Message, MAX_FRAME, MAX_ID, PROTOCOL_VERSION};
+use crate::protocol::{clamp_name, Control, Message, MAX_FRAME, MAX_FRIENDS, MAX_ID, PROTOCOL_VERSION};
 use crate::secure::SecureLink;
 use crate::transport::{self, FrameLink, FrameReader, Recv};
 use crate::{
@@ -368,7 +368,9 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
                 Kind::Stranger(None) => {}
             }
             let Some(commit) = noise::hex32(&commit) else { return false };
-            if inbound_pairings_from(&st, &ctx.peer_addr) >= MAX_INVITES_IN_PER_ADDR
+            // A full friend list refuses (before any SAS is shown)
+            if st.friends.len() >= MAX_FRIENDS
+                || inbound_pairings_from(&st, &ctx.peer_addr) >= MAX_INVITES_IN_PER_ADDR
                 || !admit_invite(&mut st, &ctx.peer_addr, now)
             {
                 drop(st);
@@ -559,7 +561,7 @@ pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
     if peer_id == shared.id || st.invites_out.contains_key(peer_id) {
         return;
     }
-    if st.is_friend(peer_id) {
+    if st.is_friend(peer_id) || st.friends.len() >= MAX_FRIENDS {
         return;
     }
     // Always a fresh outgoing link; inbound links claiming this id (possibly
@@ -582,6 +584,7 @@ pub(crate) fn invite_at(shared: &Arc<Shared>, peer_id: &str, pet: &str, target: 
     if peer_id == shared.id
         || st.invites_out.contains_key(peer_id)
         || st.is_friend(peer_id)
+        || st.friends.len() >= MAX_FRIENDS
         || st.dialing.contains(peer_id)
         || outbound_pairing(&st, peer_id)
     {

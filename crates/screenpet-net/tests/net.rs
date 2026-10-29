@@ -3,7 +3,7 @@
 //! Noise clients (via `snow`) for the protocol / attack cases.
 
 use blake2::{Blake2s256, Digest};
-use screenpet_net::{new_install_id, Friend, Net, NetConfig, NetEvent, Side, Timing, Visit, SAS_EMOJI};
+use screenpet_net::{new_install_id, Friend, Net, NetConfig, NetEvent, Side, Timing, Visit, MAX_FRIENDS, SAS_EMOJI};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -112,6 +112,8 @@ fn sample_visit() -> Visit {
         personality: "playful".into(),
         owner: "Ann".into(),
         enter_side: Side::Left,
+        via: None,
+        homesick_in: None,
     }
 }
 
@@ -420,6 +422,29 @@ fn pairing_shows_equal_sas_and_needs_both_confirmations() {
     p.b.shutdown();
 }
 
+fn many_friends(n: usize) -> Vec<Friend> {
+    (0..n).map(|i| friend(&format!("f{i:03}"), &key())).collect()
+}
+
+#[test]
+fn a_full_friend_list_refuses_new_pairings_both_ways() {
+    // b is full: a's invite is refused before any SAS is shown
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", key(), pa, pb, vec![])).unwrap();
+    let (b, brx) = Net::start(cfg("bbbb", "Bob", key(), pb, pa, many_friends(MAX_FRIENDS))).unwrap();
+    wait_for(&arx, 5.0, |e| matches!(e, NetEvent::PeerSeen { .. })).unwrap();
+    a.invite("bbbb", "cat");
+    assert_eq!(wait_for(&brx, 2.0, |e| matches!(e, NetEvent::Invited { .. })), None);
+    assert_eq!(wait_for(&arx, 0.5, |e| matches!(e, NetEvent::InviteSent { .. })), None);
+    assert!(a.friends().is_empty());
+    assert_eq!(b.friends().len(), MAX_FRIENDS);
+    // a full inviter doesn't even dial
+    b.invite("aaaa", "cat");
+    assert_eq!(wait_for(&arx, 2.0, |e| matches!(e, NetEvent::Invited { .. })), None);
+    a.shutdown();
+    b.shutdown();
+}
+
 #[test]
 fn invitee_refusal_leaves_no_friendship() {
     let p = pair(false);
@@ -585,10 +610,17 @@ fn visit_messages_round_trip() {
         wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
         Some(NetEvent::Received { from: "aaaa".into(), msg: sample_visit() })
     );
-    p.b.send("aaaa", Visit::Leave { visit_id: 42 });
+    p.b.send("aaaa", Visit::leave(42));
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
-        Some(NetEvent::Received { from: "bbbb".into(), msg: Visit::Leave { visit_id: 42 } })
+        Some(NetEvent::Received { from: "bbbb".into(), msg: Visit::leave(42) })
+    );
+    // 다른 친구에게 더 놀러 가는 손님
+    let hop = Visit::Leave { visit_id: 42, next: Some("cccc".into()), side: Some(Side::Right), homesick_in: Some(77.0) };
+    p.b.send("aaaa", hop.clone());
+    assert_eq!(
+        wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
+        Some(NetEvent::Received { from: "bbbb".into(), msg: hop })
     );
     p.a.send("bbbb", Visit::ComeHome { visit_id: 42 });
     assert_eq!(
@@ -632,7 +664,7 @@ fn raw_friend_with_pinned_key_connects_and_gets_pings() {
     p.send(json!({"type": "leave", "visit_id": 9})).unwrap();
     assert_eq!(
         wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Received { .. })),
-        Some(NetEvent::Received { from: "zzzz".into(), msg: Visit::Leave { visit_id: 9 } })
+        Some(NetEvent::Received { from: "zzzz".into(), msg: Visit::leave(9) })
     );
     net.shutdown();
 }
@@ -807,7 +839,7 @@ fn relay_attacker_cannot_inject_or_replay() {
     // The proxied link works end to end: it is just transport.
     wait_for(&arx, 6.0, is_connected).expect("A connected via proxy");
     wait_for(&brx, 6.0, is_connected).expect("B connected via proxy");
-    a.send("bbbb", Visit::Leave { visit_id: 1 });
+    a.send("bbbb", Visit::leave(1));
     assert!(wait_for(&brx, 3.0, |e| matches!(e, NetEvent::Received { .. })).is_some());
     // The attacker replays an earlier A->B transport frame (A's hello).
     let mut to_b = to_b_rx.recv().unwrap();

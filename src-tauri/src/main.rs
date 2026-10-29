@@ -190,6 +190,7 @@ fn main() {
             pair_answer,
             network::code_state,
             network::code_submit,
+            network::code_renew,
             network::code_close
         ])
         .run(tauri::generate_context!())
