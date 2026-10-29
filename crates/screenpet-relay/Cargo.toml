@@ -1,0 +1,20 @@
+[package]
+name = "screenpet-relay"
+version = "0.1.0"
+edition = "2021"
+description = "ScreenPet relay: forwards end-to-end encrypted frames between friends over WebSocket"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "screenpet-relay"
+path = "src/main.rs"
+
+[dependencies]
+tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+getrandom = "0.3"
+curve25519-dalek = { version = "4.1", default-features = false }
+blake2 = { version = "0.10", default-features = false }

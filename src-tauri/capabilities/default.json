@@ -1,6 +1,6 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "windows": ["pet", "house", "guest-*", "pair"],
+  "windows": ["pet", "house", "guest-*", "pair", "code"],
   "permissions": ["core:default"]
 }

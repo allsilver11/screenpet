@@ -86,3 +86,25 @@ function blockWebviewDefaults() {
   window.addEventListener("contextmenu", (e) => e.preventDefault());
   window.addEventListener("keydown", (e) => e.preventDefault());
 }
+
+// 글자를 클립보드에 (펫 머리 위 친구 코드 띠, 코드 창). 클릭 처리기 안에서 부른다. 성공하면 true
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // 예전 방식: 숨긴 입력칸을 골라 복사
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {}
+    ta.remove();
+    return ok;
+  }
+}

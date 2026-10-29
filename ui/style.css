@@ -97,6 +97,30 @@ body {
   display: none;
 }
 
+/* 트레이 "내 친구 코드 보기": 머리 위 띠 (누르면 복사). 말풍선·음식 고르기가 뜨면 가려진다 */
+#codetag {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  background: #fffaf2;
+  color: #84605c;
+  border: 2px solid #84605c;
+  border-radius: 10px;
+  font: 600 12px/1.2 "Segoe UI", "Malgun Gothic", sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  z-index: 2;
+}
+
+#codetag[hidden],
+#bubble:not([hidden]) ~ #codetag,
+#picker:not([hidden]) ~ #codetag {
+  display: none;
+}
+
 /* 배고플 때 클릭하면 머리 위에 뜨는 음식 고르기 버튼 */
 #picker {
   position: absolute;

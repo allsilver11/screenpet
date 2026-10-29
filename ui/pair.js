@@ -21,6 +21,11 @@ const FAILED = {
   unreachable: "연결하지 못했어요",
   declined: "친구 맺기가 취소되었어요",
   timeout: "시간이 지나 취소되었어요",
+  busy: "지금은 친구 신청을 할 수 없어요",
+  badcode: "그 친구 코드를 찾지 못했어요",
+  offline: "인터넷 연결이 없거나 상대가 꺼져 있어요",
+  selfcode: "내 친구 코드예요",
+  already: "이미 친구예요",
 };
 
 function show(v) {

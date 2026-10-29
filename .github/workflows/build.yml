@@ -28,6 +28,30 @@ jobs:
           pip install -r tools/requirements.txt
           cd tools && python -m pytest -q
 
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+      - name: Relay tests
+        run: cargo test -p screenpet-relay
+      - name: Relay transport tests (in-process relay)
+        run: cargo test -p screenpet-net --test relay
+      - name: Check the net crate for Windows
+        run: cargo check -p screenpet-net --target x86_64-pc-windows-gnu
+      - name: Build relay (Linux)
+        run: cargo build --release -p screenpet-relay
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenpet-relay-linux
+          path: |
+            target/release/screenpet-relay
+            deploy/relay/screenpet-relay.service
+            deploy/relay/README.md
+
   windows:
     needs: test
     runs-on: windows-latest

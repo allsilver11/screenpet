@@ -1,4 +1,4 @@
 [workspace]
 resolver = "2"
-members = ["crates/screenpet-core", "crates/screenpet-net", "src-tauri"]
-default-members = ["crates/screenpet-core", "crates/screenpet-net"]
+members = ["crates/screenpet-core", "crates/screenpet-net", "crates/screenpet-relay", "src-tauri"]
+default-members = ["crates/screenpet-core", "crates/screenpet-net", "crates/screenpet-relay"]

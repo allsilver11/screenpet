@@ -10,7 +10,7 @@
 //! ciphertext. Peer identity is the pinned Noise static key, so the same
 //! friend list works over every transport.
 
-use crate::{tcp, Shared};
+use crate::{relay, tcp, Shared};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -48,6 +48,8 @@ pub(crate) trait FrameReader: Send {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Candidate {
     Lan(SocketAddr),
+    /// Through the relay, to this static public key.
+    Relay([u8; 32]),
 }
 
 /// Dial `peer_id` at `candidate` on a worker thread. The caller has already
@@ -55,5 +57,6 @@ pub(crate) enum Candidate {
 pub(crate) fn dial(shared: &Arc<Shared>, peer_id: String, candidate: Candidate) {
     match candidate {
         Candidate::Lan(addr) => tcp::dial(shared, peer_id, addr),
+        Candidate::Relay(key) => relay::dial(shared, peer_id, key),
     }
 }

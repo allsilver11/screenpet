@@ -99,6 +99,28 @@ const listeningStage = listen("pet-stage", (e) => {
 
 const speech = setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest: () => manifest });
 
+// 트레이 "내 친구 코드 보기": 머리 위 띠에 "🔑 ABCD-1234", 누르면 복사 (잠시 뒤 사라진다)
+const codetagEl = document.getElementById("codetag");
+let codeTimer = null;
+function hideCodeLater(ms) {
+  clearTimeout(codeTimer);
+  codeTimer = setTimeout(() => (codetagEl.hidden = true), ms);
+}
+listen("show-code", (e) => {
+  codetagEl.dataset.code = e.payload;
+  codetagEl.textContent = `🔑 ${e.payload}`;
+  codetagEl.hidden = false;
+  hideCodeLater(20000);
+});
+// 띠를 누르는 게 펫 잡기로 이어지지 않게 한다
+codetagEl.addEventListener("mousedown", (e) => e.stopPropagation());
+codetagEl.addEventListener("click", async (e) => {
+  e.stopPropagation();
+  const ok = await copyText(codetagEl.dataset.code ?? "");
+  codetagEl.textContent = ok ? "복사했어요!" : `🔑 ${codetagEl.dataset.code}`;
+  hideCodeLater(ok ? 1500 : 20000);
+});
+
 petEl.addEventListener("mousedown", (e) => {
   if (e.button === 0) invoke("pointer_down");
 });

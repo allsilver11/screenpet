@@ -21,6 +21,7 @@ fn fast() -> Timing {
         ping_interval: Duration::from_millis(200),
         conn_timeout: Duration::from_millis(1500),
         invite_timeout: Duration::from_millis(3000),
+        relay_retry: Duration::from_millis(300),
     }
 }
 
@@ -49,6 +50,7 @@ fn cfg(id: &str, name: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Fri
         broadcast_to: local(to),
         friends,
         timing: fast(),
+        relay_url: None,
     }
 }
 

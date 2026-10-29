@@ -3,9 +3,15 @@
 //! - 네트워크 이벤트 → 게임 루프 입력 (`Input::Net`)으로 넘겨, 설정·슬롯은 게임 루프 스레드에서만 고친다
 //! - 짝맞추기 창(`pair`): 양쪽에 이모지 6개를 보이고 두 사람이 모두 확인해야 친구가 된다
 //! - 놀러 가기: 내 동물이 연결된 끝으로 나가면 `Visit`, 손님이 떠나면 `Leave`, 끊기면 바로 귀환
+//! - 인터넷 친구 (spec §1b): 중계 서버(기본 `wss://pet.danni.day/ws`)로 같은 망 밖의 친구와도 연결된다.
+//!   친구 코드: `내 친구 코드 보기`(펫 머리 위 띠, 누르면 복사) / `친구 코드 입력…`(작은 창 `code`) →
+//!   코드 주인과 같은 짝맞추기(이모지 6개 확인)가 시작된다
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -14,12 +20,12 @@ use screenpet_core::brain::State;
 use screenpet_core::care::Stage;
 use screenpet_core::config::Config;
 use screenpet_core::visit::{self, Side};
-use screenpet_net::{Net, NetConfig, NetEvent, Visit};
+use screenpet_net::{normalize_code, Net, NetConfig, NetEvent, Visit, DEFAULT_RELAY_URL};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 use crate::game_loop::Input;
-use crate::slots::{self, GuestInfo, Role, Slot};
+use crate::slots::{self, GuestInfo, Role, Slot, OWN_LABEL};
 use crate::tray::{FriendItem, FriendsMenu};
 use crate::AppState;
 
@@ -42,6 +48,13 @@ const VISIT_COOLDOWN: Duration = Duration::from_secs(5);
 const DECLINE_LOG_EVERY: Duration = Duration::from_secs(5);
 /// 표시 이름이 없을 때
 const DEFAULT_NAME: &str = "친구";
+/// 친구 코드 입력 창 라벨
+pub const CODE_LABEL: &str = "code";
+const CODE_SIZE: (f64, f64) = (300.0, 178.0);
+/// 친구 코드로 신청했을 때 InviteSent까지 기다리는 시간 (중계 서버 왕복이 더 있다)
+const CODE_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// config 폴더의 이 파일(한 줄)이 있으면 그 주소의 중계 서버를 쓴다. 비어 있거나 "off"면 중계를 쓰지 않는다
+const RELAY_URL_FILE: &str = "relay_url.txt";
 
 /// 게임 루프로 들어오는 네트워크 관련 입력
 pub enum NetInput {
@@ -56,7 +69,27 @@ pub enum NetInput {
     Repair(String),
     /// 트레이 "집에 와"
     ComeHome,
+    /// 트레이 "내 친구 코드 보기"
+    ShowCode,
+    /// 트레이 "친구 코드 입력…"
+    EnterCode,
+    /// 코드 입력 창에서 확인 (이미 `ABCD-1234` 꼴로 맞춘 코드)
+    SubmitCode(String),
 }
+
+/// 친구 코드 창에 보이는 상태 (`code-state` 이벤트, `code_state` 커맨드)
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct CodeView {
+    /// 내 친구 코드 (중계 서버에 연결된 뒤에 생긴다)
+    pub code: Option<String>,
+    /// 중계 서버에 연결됨
+    pub connected: bool,
+    /// 중계를 쓰도록 설정됨
+    pub enabled: bool,
+}
+
+/// 코드 창 첫 로드용 (커맨드는 게임 루프 밖에서 불린다)
+static CODE_VIEW: Mutex<CodeView> = Mutex::new(CodeView { code: None, connected: false, enabled: false });
 
 /// 짝맞추기 창에 보이는 상태 (`pair-state` 이벤트, `pair_state` 커맨드)
 #[derive(Debug, Clone, Default, Serialize)]
@@ -73,12 +106,15 @@ pub struct PairView {
     pub sas: Vec<String>,
     /// 상대가 이미 "똑같아요"를 눌렀음
     pub other_ok: bool,
-    /// 실패 이유: "unreachable" | "declined" | "timeout" | "busy"
+    /// 실패 이유: "unreachable" | "declined" | "timeout" | "busy" | 친구 코드: "badcode" | "offline" | "selfcode" | "already"
     pub reason: &'static str,
 }
 
 struct Pairing {
+    /// 상대 id (친구 코드로 신청하면 중계 서버가 알려 줄 때까지 비어 있다)
     peer: String,
+    /// 친구 코드로 시작한 신청
+    by_code: bool,
     /// net의 짝맞추기 토큰 (InviteSent/Invited 뒤에 생긴다)
     token: Option<u64>,
     view: PairView,
@@ -117,6 +153,38 @@ pub struct Network {
     last_visit: HashMap<String, Instant>,
     /// 친구별 마지막 방문 거절 로그 시각
     last_decline_log: HashMap<String, Instant>,
+    /// 중계 서버를 쓰도록 설정됨 / 지금 연결됨
+    relay_enabled: bool,
+    relay_connected: bool,
+    /// 내 친구 코드 (중계 서버가 준 것, 24시간마다 바뀐다)
+    friend_code: Option<String>,
+}
+
+/// 중계 서버 주소: config 폴더의 `relay_url.txt`(한 줄)가 있으면 그것 (비었거나 "off"면 중계 안 씀), 없으면 기본값
+fn relay_url(config_dir: &Path) -> Option<String> {
+    match std::fs::read_to_string(config_dir.join(RELAY_URL_FILE)) {
+        Ok(s) => {
+            let s = s.trim();
+            if s.is_empty() || s.eq_ignore_ascii_case("off") {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        }
+        Err(_) => Some(DEFAULT_RELAY_URL.to_string()),
+    }
+}
+
+/// net의 CodeFailed 이유 → 짝맞추기 창 실패 이유
+fn code_failure(reason: &str) -> &'static str {
+    match reason {
+        "invalid" | "unknown" => "badcode",
+        "offline" => "offline",
+        "self" => "selfcode",
+        "already_friend" => "already",
+        "busy" => "busy",
+        _ => "unreachable",
+    }
 }
 
 fn to_net_side(s: Side) -> screenpet_net::Side {
@@ -187,6 +255,9 @@ impl Network {
             names: HashMap::new(),
             last_visit: HashMap::new(),
             last_decline_log: HashMap::new(),
+            relay_enabled: false,
+            relay_connected: false,
+            friend_code: None,
         };
         let state = app.state::<AppState>();
         let key = match screenpet_core::config::load_or_create_identity_key(&state.config_dir, Net::generate_static_key) {
@@ -198,7 +269,11 @@ impl Network {
         };
         let friends = config.friends.iter().map(|f| screenpet_net::Friend { id: f.id.clone(), public_key: f.public_key }).collect();
         let id = config.install_id.clone().unwrap_or_default();
-        match Net::start(NetConfig::new(id, name, key, friends)) {
+        let mut net_config = NetConfig::new(id, name, key, friends);
+        net_config.relay_url = relay_url(&state.config_dir);
+        network.relay_enabled = net_config.relay_url.is_some();
+        network.update_code_view(app);
+        match Net::start(net_config) {
             Ok((net, rx)) => {
                 // 네트워크 이벤트를 게임 루프 입력으로 옮긴다 (Net이 없어지면 rx가 끝나 스레드도 끝난다)
                 let tx: Sender<Input> = state.tx.lock().unwrap().clone();
@@ -309,6 +384,19 @@ impl Network {
                 }
                 false
             }
+            NetInput::ShowCode => {
+                self.show_code(app);
+                false
+            }
+            NetInput::EnterCode => {
+                self.update_code_view(app);
+                show_code_window(app);
+                false
+            }
+            NetInput::SubmitCode(code) => {
+                self.start_code_invite(app, &code, &slots[0].entry.id);
+                false
+            }
         }
     }
 
@@ -361,6 +449,28 @@ impl Network {
             NetEvent::Received { from, msg } => self.on_visit_message(app, config, slots, &from, msg),
             NetEvent::FriendForgotUs { id } => {
                 self.forgot.insert(id);
+            }
+            NetEvent::RelayStatus { connected } => {
+                self.relay_connected = connected;
+                self.update_code_view(app);
+            }
+            NetEvent::FriendCode { code } => {
+                self.friend_code = Some(code);
+                self.update_code_view(app);
+            }
+            NetEvent::CodeRedeemed { id, .. } => {
+                // 코드 주인을 찾았다 — 이제 그 id로 InviteSent가 온다
+                if let Some(p) = self.pairing.as_mut().filter(|p| p.by_code && p.peer.is_empty() && p.view.phase == "connecting") {
+                    p.peer = id;
+                }
+            }
+            NetEvent::CodeFailed { reason, .. } => {
+                if let Some(p) = self.pairing.as_mut().filter(|p| p.by_code && p.token.is_none() && p.view.phase == "connecting") {
+                    p.view.phase = "failed";
+                    p.view.reason = code_failure(&reason);
+                    p.deadline = Instant::now() + RESULT_SECS;
+                    self.show_pair(app);
+                }
             }
         }
         false
@@ -488,11 +598,56 @@ impl Network {
         let name = self.seen.get(peer).cloned().unwrap_or_else(|| DEFAULT_NAME.to_string());
         self.pairing = Some(Pairing {
             peer: peer.to_string(),
+            by_code: false,
             token: None,
             view: PairView { phase: "connecting", name, ..PairView::default() },
             deadline: Instant::now() + CONNECT_TIMEOUT,
         });
         self.show_pair(app);
+    }
+
+    /// 친구 코드로 신청: 중계 서버가 코드 주인을 찾아 주면(CodeRedeemed) 보통 신청처럼 이어진다
+    fn start_code_invite(&mut self, app: &AppHandle, code: &str, own_species: &str) {
+        let Some(net) = &self.net else { return };
+        if self.pairing.as_ref().is_some_and(|p| !matches!(p.view.phase, "done" | "failed")) {
+            self.show_pair(app);
+            return;
+        }
+        net.redeem_code(code, own_species);
+        self.pairing = Some(Pairing {
+            peer: String::new(),
+            by_code: true,
+            token: None,
+            view: PairView { phase: "connecting", name: code.to_string(), ..PairView::default() },
+            deadline: Instant::now() + CODE_CONNECT_TIMEOUT,
+        });
+        self.show_pair(app);
+    }
+
+    /// 코드 창 상태를 맞추고 (열려 있으면) 창에 알린다
+    fn update_code_view(&self, app: &AppHandle) {
+        let view = CodeView { code: self.friend_code.clone(), connected: self.relay_connected, enabled: self.relay_enabled };
+        *CODE_VIEW.lock().unwrap() = view.clone();
+        if app.get_webview_window(CODE_LABEL).is_some() {
+            let _ = app.emit_to(CODE_LABEL, "code-state", view);
+        }
+    }
+
+    /// "내 친구 코드 보기": 펫이 화면에 보이면 머리 위 띠에 (누르면 복사), 아니면(하우스 안·놀러 감·연결 끊김) 코드 창에
+    fn show_code(&self, app: &AppHandle) {
+        let state = app.state::<AppState>();
+        let pet_shown = !state.housed.load(Ordering::Relaxed)
+            && !state.away.load(Ordering::Relaxed)
+            && app.get_webview_window(OWN_LABEL).is_some_and(|w| w.is_visible().unwrap_or(false));
+        match &self.friend_code {
+            Some(code) if pet_shown => {
+                let _ = app.emit_to(OWN_LABEL, "show-code", code.clone());
+            }
+            _ => {
+                self.update_code_view(app);
+                show_code_window(app);
+            }
+        }
     }
 
     fn on_invite_sent(&mut self, app: &AppHandle, to: &str, sas: &str, token: u64) {
@@ -526,6 +681,7 @@ impl Network {
         let name = if name.is_empty() { DEFAULT_NAME.to_string() } else { name };
         self.pairing = Some(Pairing {
             peer: from,
+            by_code: false,
             token: Some(token),
             view: PairView {
                 phase: "confirm",
@@ -626,7 +782,7 @@ impl Network {
         };
         let _ = app.emit_to(PAIR_LABEL, "pair-state", p.view.clone());
         if !window.is_visible().unwrap_or(false) {
-            place_on_primary(app, &window);
+            place_on_primary(app, &window, PAIR_SIZE);
             let _ = window.show();
             let _ = window.set_focus();
         }
@@ -669,12 +825,13 @@ impl Network {
                 forgot: self.forgot.contains(&f.id),
             })
             .collect();
-        FriendsMenu { available: self.net.is_some(), strangers, friends, away: self.away.is_some() }
+        let relay = self.relay_enabled.then_some(self.relay_connected);
+        FriendsMenu { available: self.net.is_some(), strangers, friends, away: self.away.is_some(), relay }
     }
 }
 
-/// 짝맞추기 창을 주 모니터 가운데에 놓는다 (주 모니터를 모르면 지금 모니터 가운데)
-fn place_on_primary(app: &AppHandle, window: &WebviewWindow) {
+/// 작은 창을 주 모니터 가운데에 놓는다 (주 모니터를 모르면 지금 모니터 가운데)
+fn place_on_primary(app: &AppHandle, window: &WebviewWindow, inner: (f64, f64)) {
     let Some(m) = app.primary_monitor().ok().flatten() else {
         let _ = window.center();
         return;
@@ -683,7 +840,7 @@ fn place_on_primary(app: &AppHandle, window: &WebviewWindow) {
     // 숨긴 창의 바깥 크기(제목 표시줄 포함)를 모르면 안쪽 크기로 어림한다
     let (w, h) = match window.outer_size() {
         Ok(s) if s.width > 0 && s.height > 0 => (s.width as f64, s.height as f64),
-        _ => (PAIR_SIZE.0 * dpi, PAIR_SIZE.1 * dpi),
+        _ => (inner.0 * dpi, inner.1 * dpi),
     };
     let x = pos.x as f64 + (size.width as f64 - w) / 2.0;
     let y = pos.y as f64 + (size.height as f64 - h) / 2.0;
@@ -710,4 +867,73 @@ fn build_pair_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         }
     });
     Ok(window)
+}
+
+/// 친구 코드 창을 보이고 앞으로 가져온다 (처음이면 만든다 — 게임 루프 스레드에서만)
+fn show_code_window(app: &AppHandle) {
+    let window = match app.get_webview_window(CODE_LABEL) {
+        Some(w) => w,
+        None => match build_code_window(app) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("failed to create friend code window: {e}");
+                return;
+            }
+        },
+    };
+    let _ = app.emit_to(CODE_LABEL, "code-state", CODE_VIEW.lock().unwrap().clone());
+    if !window.is_visible().unwrap_or(false) {
+        place_on_primary(app, &window, CODE_SIZE);
+        let _ = window.show();
+    }
+    let _ = window.set_focus();
+}
+
+/// 친구 코드 창: 내 코드(복사) + 상대 코드 입력. 닫기(X)는 숨기기로 바꾼다 (창은 다시 쓴다)
+fn build_code_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let window = WebviewWindowBuilder::new(app, CODE_LABEL, WebviewUrl::App("code.html".into()))
+        .title("ScreenPet 친구 코드")
+        .inner_size(CODE_SIZE.0, CODE_SIZE.1)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .always_on_top(true)
+        .skip_taskbar(false)
+        .visible(false)
+        .build()?;
+    let handle = window.clone();
+    window.on_window_event(move |ev| {
+        if let WindowEvent::CloseRequested { api, .. } = ev {
+            api.prevent_close();
+            let _ = handle.hide();
+        }
+    });
+    Ok(window)
+}
+
+/// 코드 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `code-state` 이벤트)
+#[tauri::command]
+pub fn code_state() -> CodeView {
+    CODE_VIEW.lock().unwrap().clone()
+}
+
+/// 코드 창의 "친구 신청": 코드 꼴이 맞으면 게임 루프로 보내고 창을 숨긴다 (짝맞추기 창이 이어 받는다).
+/// 꼴이 틀리면 Err("invalid") — 창에 안내한다
+#[tauri::command]
+pub fn code_submit(window: WebviewWindow, state: tauri::State<AppState>, code: String) -> Result<(), String> {
+    if window.label() != CODE_LABEL {
+        return Err("wrong window".into());
+    }
+    let Some(code) = normalize_code(&code) else { return Err("invalid".into()) };
+    let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::SubmitCode(code)));
+    let _ = window.hide();
+    Ok(())
+}
+
+/// 코드 창의 "닫기"
+#[tauri::command]
+pub fn code_close(window: WebviewWindow) {
+    if window.label() == CODE_LABEL {
+        let _ = window.hide();
+    }
 }

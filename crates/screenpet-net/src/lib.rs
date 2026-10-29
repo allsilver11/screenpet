@@ -17,17 +17,21 @@
 //! - `peers`: per-link session driver (identity check, pairing, friends,
 //!   ping, timeouts) — transport-independent.
 //! - `discovery`: LAN UDP announcements — only hints (candidate addresses).
+//! - `relay`: the relay transport (`screenpet-relay` over WebSocket) for
+//!   friends outside the LAN, friend codes, LAN-preferred link choice.
 
 mod discovery;
 mod noise;
 mod peers;
 mod protocol;
+mod relay;
 mod secure;
 mod tcp;
 mod transport;
 
 pub use noise::SAS_EMOJI;
 pub use protocol::{Side, Visit};
+pub use relay::{normalize_code, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};
 use serde::{Deserialize, Serialize};
@@ -86,6 +90,9 @@ pub struct Timing {
     pub conn_timeout: Duration,
     /// A pairing not confirmed by both users within this time is declined.
     pub invite_timeout: Duration,
+    /// First wait before reconnecting to the relay (doubles up to 60 s); also
+    /// the first redial delay for a friend whose relay link failed.
+    pub relay_retry: Duration,
 }
 
 impl Default for Timing {
@@ -96,6 +103,7 @@ impl Default for Timing {
             ping_interval: Duration::from_secs(2),
             conn_timeout: Duration::from_secs(6),
             invite_timeout: Duration::from_secs(20),
+            relay_retry: Duration::from_secs(5),
         }
     }
 }
@@ -125,10 +133,14 @@ pub struct NetConfig {
     /// Friends paired earlier, as returned by [`Net::friends`].
     pub friends: Vec<Friend>,
     pub timing: Timing,
+    /// Relay for friends outside the LAN (`wss://…` or `ws://…`), normally
+    /// [`DEFAULT_RELAY_URL`]; `None` = LAN only.
+    pub relay_url: Option<String>,
 }
 
 impl NetConfig {
-    /// Spec defaults: port 47321, broadcast to 255.255.255.255:47321, spec timing.
+    /// Spec defaults: port 47321, broadcast to 255.255.255.255:47321, spec
+    /// timing, no relay (set `relay_url` to use one).
     pub fn new(id: impl Into<String>, name: impl Into<String>, static_key: [u8; 32], friends: Vec<Friend>) -> NetConfig {
         NetConfig {
             id: id.into(),
@@ -138,6 +150,7 @@ impl NetConfig {
             broadcast_to: SocketAddr::from(([255, 255, 255, 255], DEFAULT_DISCOVERY_PORT)),
             friends,
             timing: Timing::default(),
+            relay_url: None,
         }
     }
 }
@@ -167,6 +180,17 @@ pub enum NetEvent {
     /// answers for `id` with a *different* key is just treated as a bad
     /// candidate, silently.)
     FriendForgotUs { id: String },
+    /// The relay connection came up (`true`) or went down (`false`).
+    RelayStatus { connected: bool },
+    /// Our current friend code from the relay (on connect and on rotation).
+    FriendCode { code: String },
+    /// A code given to [`Net::redeem_code`] belongs to `id`; pairing with them
+    /// has started (expect `InviteSent` / `InviteAnswered` as for `invite`).
+    CodeRedeemed { code: String, id: String },
+    /// A code could not be used. `reason`: `invalid` (not a code), `unknown`
+    /// (no such code), `offline` (relay or owner not connected), `self`,
+    /// `already_friend`, `busy`, `rate`, `timeout`.
+    CodeFailed { code: String, reason: String },
 }
 
 /// A peer id heard via discovery. Announcements are unauthenticated hints.
@@ -276,6 +300,8 @@ pub(crate) struct State {
     pub trusted_ips: HashMap<(String, String), Instant>,
     /// Announcements from a trusted (id, source IP), own finite budget.
     pub trusted_rate: HashMap<(String, IpAddr), (Instant, u32)>,
+    /// Friend id → last attempt to move its relay link onto the LAN.
+    pub lan_upgrade: HashMap<String, Instant>,
 }
 
 impl State {
@@ -312,6 +338,10 @@ impl State {
     pub fn friend_conn(&self, id: &str) -> Option<&Conn> {
         self.friend_links.get(id).and_then(|t| self.conns.get(t))
     }
+    /// Is friend `id` linked only through the relay?
+    pub fn relay_linked(&self, id: &str) -> bool {
+        self.friend_conn(id).is_some_and(|c| c.peer_addr.starts_with(relay::ADDR_PREFIX))
+    }
     pub fn backed_off(&self, key: &Backoff, now: Instant) -> bool {
         self.backoff.get(key).is_some_and(|(until, _)| now < *until)
     }
@@ -337,6 +367,8 @@ pub(crate) struct Shared {
     pub static_key: [u8; 32],
     pub timing: Timing,
     pub tcp_port: u16,
+    /// Relay transport, if configured.
+    pub relay: Option<Arc<relay::RelayClient>>,
     pub stop: AtomicBool,
     pub state: Mutex<State>,
     events: Mutex<Sender<NetEvent>>,
@@ -496,6 +528,7 @@ impl Net {
             static_key: cfg.static_key,
             timing: cfg.timing,
             tcp_port,
+            relay: cfg.relay_url.filter(|u| !u.is_empty()).map(relay::RelayClient::new),
             stop: AtomicBool::new(false),
             state: Mutex::new(state),
             events: Mutex::new(tx),
@@ -508,15 +541,17 @@ impl Net {
         let broadcast_to = cfg.broadcast_to;
         let spawn = |name: &str, f: Box<dyn FnOnce() + Send>| std::thread::Builder::new().name(name.into()).spawn(f);
         let mut main_threads = vec![spawn("screenpet-discovery", Box::new(move || discovery::run(s1, udp, broadcast_to)))?];
-        match spawn("screenpet-accept", Box::new(move || tcp::accept_loop(s2, listener))) {
-            Ok(h) => main_threads.push(h),
-            Err(e) => {
-                shared.stop.store(true, Ordering::SeqCst);
-                for t in main_threads {
-                    let _ = t.join();
-                }
-                return Err(e);
+        let mut started = spawn("screenpet-accept", Box::new(move || tcp::accept_loop(s2, listener))).map(|h| main_threads.push(h));
+        if let (Ok(()), Some(client)) = (&started, shared.relay.clone()) {
+            let s3 = shared.clone();
+            started = spawn("screenpet-relay", Box::new(move || relay::run(s3, client))).map(|h| main_threads.push(h));
+        }
+        if let Err(e) = started {
+            shared.stop.store(true, Ordering::SeqCst);
+            for t in main_threads {
+                let _ = t.join();
             }
+            return Err(e);
         }
         Ok((Net { shared, main_threads, discovery_port }, rx))
     }
@@ -530,6 +565,23 @@ impl Net {
     /// confirm with `answer_invite`) and `InviteAnswered` from the other side.
     pub fn invite(&self, peer_id: &str, pet: &str) {
         peers::invite(&self.shared, peer_id, pet);
+    }
+
+    /// Pair with the owner of a relay friend code (e.g. `ABCD-1234`, typed by
+    /// the user). Expect `CodeRedeemed` then the usual `InviteSent` /
+    /// `InviteAnswered`, or `CodeFailed`. Never blocks.
+    pub fn redeem_code(&self, code: &str, pet: &str) {
+        relay::redeem(&self.shared, code, pet);
+    }
+
+    /// Is the relay connection up?
+    pub fn relay_connected(&self) -> bool {
+        self.shared.relay.as_ref().is_some_and(|r| r.connected())
+    }
+
+    /// Our current relay friend code, once connected.
+    pub fn friend_code(&self) -> Option<String> {
+        self.shared.relay.as_ref().and_then(|r| r.code())
     }
 
     /// Confirm (`true`, the SAS matched) or refuse the pairing identified by

@@ -11,6 +11,13 @@ getrandom = "0.3"
 snow = { version = "0.10", default-features = false, features = ["use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
 curve25519-dalek = { version = "4.1", default-features = false }
 blake2 = { version = "0.10", default-features = false }
+# Relay transport: WebSocket over rustls with a pure-Rust crypto provider
+# (no C toolchain needed, builds for windows-gnu from Linux).
+tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+rustls-rustcrypto = "0.0.2-alpha"
+webpki-roots = "1"
 
 [dev-dependencies]
 socket2 = "0.6"
+screenpet-relay = { path = "../screenpet-relay" }

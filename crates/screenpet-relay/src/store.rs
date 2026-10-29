@@ -1,0 +1,291 @@
+//! Persistent relay data (`relay.json` in the data directory): per install
+//! (keyed by its static public key) the self-declared install id, the friend
+//! keys it wants to reach, and its current friend code. No message content is
+//! ever stored. Also the relay's own static key (`relay.key`).
+
+use crate::proto::{self, new_code};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const DATA_FILE: &str = "relay.json";
+const KEY_FILE: &str = "relay.key";
+/// Installs not seen for this long are forgotten.
+const FORGET_AFTER_SECS: u64 = 180 * 24 * 3600;
+
+pub fn unix_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Install {
+    pub id: String,
+    #[serde(default)]
+    pub friends: Vec<String>,
+    pub code: String,
+    /// When `code` was issued (unix seconds).
+    pub code_at: u64,
+    #[serde(default)]
+    pub last_seen: u64,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Data {
+    #[serde(default)]
+    installs: HashMap<String, Install>,
+}
+
+pub struct Store {
+    dir: Option<PathBuf>,
+    data: Data,
+    /// code → install key
+    by_code: HashMap<String, String>,
+    dirty: bool,
+}
+
+impl Store {
+    /// In-memory only (tests).
+    pub fn memory() -> Store {
+        Store { dir: None, data: Data::default(), by_code: HashMap::new(), dirty: false }
+    }
+
+    pub fn open(dir: &Path) -> io::Result<Store> {
+        std::fs::create_dir_all(dir)?;
+        let data = match std::fs::read(dir.join(DATA_FILE)) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Data::default(),
+            Err(e) => return Err(e),
+        };
+        let mut store = Store { dir: Some(dir.to_path_buf()), data, by_code: HashMap::new(), dirty: false };
+        store.data.installs.retain(|k, _| proto::norm_key(k).as_deref() == Some(k.as_str()));
+        let codes: Vec<(String, String)> = store.data.installs.iter().map(|(k, i)| (i.code.clone(), k.clone())).collect();
+        for (code, key) in codes {
+            if store.by_code.insert(code, key.clone()).is_some() {
+                // Duplicate code in a hand-edited file: give this one a new code.
+                store.issue_code(&key, unix_now());
+            }
+        }
+        Ok(store)
+    }
+
+    pub fn get(&self, key: &str) -> Option<&Install> {
+        self.data.installs.get(key)
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.installs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.installs.is_empty()
+    }
+
+    fn issue_code(&mut self, key: &str, now: u64) {
+        let code = loop {
+            let c = new_code();
+            if !self.by_code.contains_key(&c) {
+                break c;
+            }
+        };
+        if let Some(inst) = self.data.installs.get_mut(key) {
+            if self.by_code.get(&inst.code).map(String::as_str) == Some(key) {
+                self.by_code.remove(&inst.code);
+            }
+            inst.code = code.clone();
+            inst.code_at = now;
+            self.by_code.insert(code, key.to_string());
+            self.dirty = true;
+        }
+    }
+
+    /// Record a successful authentication. Creates the install (with a code)
+    /// if new; updates its id label and friend list.
+    pub fn register(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64) {
+        let new = !self.data.installs.contains_key(key);
+        let inst = self.data.installs.entry(key.to_string()).or_insert_with(|| Install {
+            id: id.to_string(),
+            friends: Vec::new(),
+            code: String::new(),
+            code_at: 0,
+            last_seen: now,
+        });
+        inst.id = id.to_string();
+        inst.friends = friends;
+        inst.last_seen = now;
+        self.dirty = true;
+        if new {
+            self.issue_code(key, now);
+        }
+    }
+
+    pub fn set_friends(&mut self, key: &str, friends: Vec<String>) {
+        if let Some(inst) = self.data.installs.get_mut(key) {
+            if inst.friends != friends {
+                inst.friends = friends;
+                self.dirty = true;
+            }
+        }
+    }
+
+    pub fn touch(&mut self, key: &str, now: u64) {
+        if let Some(inst) = self.data.installs.get_mut(key) {
+            inst.last_seen = now;
+            self.dirty = true;
+        }
+    }
+
+    /// The install's current code and its remaining lifetime (seconds),
+    /// rotating it first if it is `ttl` old. `rotated` = a new code was issued.
+    pub fn code(&mut self, key: &str, now: u64, ttl: u64) -> Option<(String, u64, bool)> {
+        let due = self.data.installs.get(key).map(|i| now >= i.code_at.saturating_add(ttl))?;
+        if due {
+            self.issue_code(key, now);
+        }
+        let inst = self.data.installs.get(key)?;
+        let left = inst.code_at.saturating_add(ttl).saturating_sub(now).max(1);
+        Some((inst.code.clone(), left, due))
+    }
+
+    /// Install key for a (normalized) code, if it is current.
+    pub fn by_code(&self, code: &str, now: u64, ttl: u64) -> Option<&str> {
+        let key = self.by_code.get(code)?;
+        let inst = self.data.installs.get(key)?;
+        (inst.code == code && now < inst.code_at.saturating_add(ttl)).then_some(key.as_str())
+    }
+
+    /// Does `a` list `b` and `b` list `a`?
+    pub fn mutual(&self, a: &str, b: &str) -> bool {
+        let wants = |x: &str, y: &str| self.data.installs.get(x).is_some_and(|i| i.friends.iter().any(|f| f == y));
+        wants(a, b) && wants(b, a)
+    }
+
+    /// Forget installs not seen for half a year.
+    pub fn prune(&mut self, now: u64) {
+        let before = self.data.installs.len();
+        let by_code = &mut self.by_code;
+        self.data.installs.retain(|_, i| {
+            let keep = now.saturating_sub(i.last_seen) < FORGET_AFTER_SECS;
+            if !keep {
+                by_code.remove(&i.code);
+            }
+            keep
+        });
+        if self.data.installs.len() != before {
+            self.dirty = true;
+        }
+    }
+
+    /// Write the data file (atomically) if anything changed.
+    pub fn flush(&mut self) -> io::Result<()> {
+        let Some(dir) = &self.dir else {
+            self.dirty = false;
+            return Ok(());
+        };
+        if !self.dirty {
+            return Ok(());
+        }
+        let tmp = dir.join(format!("{DATA_FILE}.tmp"));
+        let bytes = serde_json::to_vec_pretty(&self.data).map_err(io::Error::other)?;
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, dir.join(DATA_FILE))?;
+        self.dirty = false;
+        Ok(())
+    }
+}
+
+/// The relay's long-term X25519 private key from `relay.key` (hex), created
+/// on first start.
+pub fn load_or_create_key(dir: &Path) -> io::Result<[u8; 32]> {
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(KEY_FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(s) => proto::hex32(s.trim()).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "relay.key is corrupt")),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            let key = proto::random32();
+            let tmp = dir.join(format!("{KEY_FILE}.tmp"));
+            write_private(&tmp, proto::to_hex(&key).as_bytes())?;
+            std::fs::rename(&tmp, &path)?;
+            Ok(key)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(unix)]
+fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    f.write_all(bytes)
+}
+
+#[cfg(not(unix))]
+fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    std::fs::write(path, bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn k(n: u8) -> String {
+        proto::to_hex(&[n; 32])
+    }
+
+    #[test]
+    fn codes_rotate_after_ttl_and_old_codes_stop_working() {
+        let mut s = Store::memory();
+        s.register(&k(1), "a", vec![], 1000);
+        let (c1, left, rotated) = s.code(&k(1), 1000, 100).unwrap();
+        assert!(!rotated);
+        assert_eq!(left, 100);
+        assert_eq!(s.by_code(&c1, 1050, 100), Some(k(1).as_str()));
+        let (c2, _, rotated) = s.code(&k(1), 1100, 100).unwrap();
+        assert!(rotated);
+        assert_ne!(c1, c2);
+        assert_eq!(s.by_code(&c1, 1100, 100), None);
+        assert_eq!(s.by_code(&c2, 1100, 100), Some(k(1).as_str()));
+        // Without rotation having run, an expired code is still refused.
+        assert_eq!(s.by_code(&c2, 1200, 100), None);
+    }
+
+    #[test]
+    fn mutual_needs_both_sides() {
+        let mut s = Store::memory();
+        s.register(&k(1), "a", vec![k(2)], 0);
+        s.register(&k(2), "b", vec![], 0);
+        assert!(!s.mutual(&k(1), &k(2)));
+        s.set_friends(&k(2), vec![k(1)]);
+        assert!(s.mutual(&k(1), &k(2)) && s.mutual(&k(2), &k(1)));
+    }
+
+    #[test]
+    fn persists_and_reloads() {
+        let dir = std::env::temp_dir().join(format!("screenpet-relay-store-{}", proto::to_hex(&proto::random32()[..8])));
+        {
+            let mut s = Store::open(&dir).unwrap();
+            s.register(&k(1), "a", vec![k(2)], unix_now());
+            s.flush().unwrap();
+        }
+        let s = Store::open(&dir).unwrap();
+        let i = s.get(&k(1)).unwrap();
+        assert_eq!(i.id, "a");
+        assert_eq!(i.friends, vec![k(2)]);
+        assert_eq!(s.by_code(&i.code.clone(), unix_now(), 3600), Some(k(1).as_str()));
+        let key = load_or_create_key(&dir).unwrap();
+        assert_eq!(load_or_create_key(&dir).unwrap(), key);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prune_forgets_long_unseen_installs() {
+        let mut s = Store::memory();
+        s.register(&k(1), "a", vec![], 0);
+        s.register(&k(2), "b", vec![], FORGET_AFTER_SECS);
+        s.prune(FORGET_AFTER_SECS + 1);
+        assert!(s.get(&k(1)).is_none());
+        assert!(s.get(&k(2)).is_some());
+    }
+}

@@ -543,10 +543,28 @@ pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
         return;
     };
     note_dial(&mut st, peer_id, target, Instant::now(), false);
+    drop(st);
+    invite_at(shared, peer_id, pet, target);
+}
+
+/// Start a pairing with `peer_id` on a fresh outgoing link to `target`
+/// (a LAN candidate, or the relay after a friend code was redeemed).
+/// `false` if not possible now (us, already a friend, or one in progress).
+pub(crate) fn invite_at(shared: &Arc<Shared>, peer_id: &str, pet: &str, target: transport::Candidate) -> bool {
+    let mut st = shared.state();
+    if peer_id == shared.id
+        || st.invites_out.contains_key(peer_id)
+        || st.is_friend(peer_id)
+        || st.dialing.contains(peer_id)
+        || outbound_pairing(&st, peer_id)
+    {
+        return false;
+    }
     st.invites_out.insert(peer_id.to_string(), clamp_name(pet));
     st.dialing.insert(peer_id.to_string());
     drop(st);
     transport::dial(shared, peer_id.to_string(), target);
+    true
 }
 
 /// Answer exactly the pairing the user saw (`pairing` from its event).

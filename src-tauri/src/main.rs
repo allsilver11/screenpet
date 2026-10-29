@@ -177,7 +177,19 @@ fn main() {
             game_loop::spawn(app.handle().clone(), rx, entry, cfg);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![pointer_down, slot_info, feed, show_menu, house_state, house_click, pair_state, pair_answer])
+        .invoke_handler(tauri::generate_handler![
+            pointer_down,
+            slot_info,
+            feed,
+            show_menu,
+            house_state,
+            house_click,
+            pair_state,
+            pair_answer,
+            network::code_state,
+            network::code_submit,
+            network::code_close
+        ])
         .run(tauri::generate_context!())
         .expect("error while running ScreenPet");
 }

@@ -22,6 +22,8 @@ const RIGHT_PREFIX: &str = "net:right:";
 const UNFRIEND_PREFIX: &str = "net:unfriend:";
 const REPAIR_PREFIX: &str = "net:repair:";
 const COME_HOME_ID: &str = "net:come-home";
+const SHOW_CODE_ID: &str = "net:show-code";
+const ENTER_CODE_ID: &str = "net:enter-code";
 
 /// `친구 화면 ▸`에 보일 것 (게임 루프의 네트워크 상태에서 만든다 — 바뀔 때만 다시 그린다)
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +35,8 @@ pub struct FriendsMenu {
     pub friends: Vec<FriendItem>,
     /// 내 동물이 친구 화면에 가 있음 ("집에 와" 활성)
     pub away: bool,
+    /// 인터넷 친구(중계 서버): None = 쓰지 않음, Some(연결됨?)
+    pub relay: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -103,6 +107,17 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     if model.friends.is_empty() && model.strangers.is_empty() {
         submenu.append(&MenuItem::new(app, "같은 네트워크에 ScreenPet이 없어요", false, None::<&str>)?)?;
     }
+    // 인터넷 친구 (중계 서버): 상태 한 줄, 내 코드 보기, 코드 입력
+    submenu.append(&PredefinedMenuItem::separator(app)?)?;
+    let status = match model.relay {
+        Some(true) => "인터넷 연결: 연결됨",
+        Some(false) => "인터넷 연결: 끊김",
+        None => "인터넷 연결: 꺼짐",
+    };
+    submenu.append(&MenuItem::new(app, status, false, None::<&str>)?)?;
+    let relay_on = model.relay.is_some();
+    submenu.append(&MenuItem::with_id(app, SHOW_CODE_ID, "내 친구 코드 보기", relay_on, None::<&str>)?)?;
+    submenu.append(&MenuItem::with_id(app, ENTER_CODE_ID, "친구 코드 입력…", relay_on, None::<&str>)?)?;
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
     submenu.append(&MenuItem::with_id(app, COME_HOME_ID, "집에 와", model.away, None::<&str>)?)?;
     Ok(())
@@ -246,6 +261,10 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     send(app, Input::SendHome { label: label.to_string() });
                 } else if other == COME_HOME_ID {
                     net(NetInput::ComeHome);
+                } else if other == SHOW_CODE_ID {
+                    net(NetInput::ShowCode);
+                } else if other == ENTER_CODE_ID {
+                    net(NetInput::EnterCode);
                 } else if let Some(id) = other.strip_prefix(INVITE_PREFIX) {
                     net(NetInput::Invite(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(LEFT_PREFIX) {

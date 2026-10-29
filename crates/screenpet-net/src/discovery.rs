@@ -160,6 +160,27 @@ fn heard(shared: &Arc<Shared>, a: Announce, src: SocketAddr) {
                 transport::dial(shared, a.id, target);
             }
         }
+    } else if friend && shared.id < a.id && st.relay_linked(&a.id) {
+        // LAN preferred: a friend linked only through the relay is redialed
+        // here by the smaller id; once its identity is proven the LAN link
+        // replaces the relay link (`peers::register`). `dialing` is not
+        // checked: it stays set while the relay link we dialed is alive.
+        // Throttled instead, so a LAN that carries announcements but not TCP
+        // costs little.
+        let every = shared.timing.peer_timeout * 2;
+        if st.lan_upgrade.get(&a.id).is_some_and(|t| now.duration_since(*t) < every) {
+            return;
+        }
+        if let Some(target) = pick_candidate(&st, &a.id) {
+            if note_dial(&mut st, &a.id, target, now, true) {
+                let friends = st.friends.clone();
+                st.lan_upgrade.retain(|id, _| friends.iter().any(|f| &f.id == id));
+                st.lan_upgrade.insert(a.id.clone(), now);
+                st.dialing.insert(a.id.clone());
+                drop(st);
+                transport::dial(shared, a.id, target);
+            }
+        }
     }
 }
 

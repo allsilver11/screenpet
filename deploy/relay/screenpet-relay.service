@@ -1,0 +1,16 @@
+# systemd *user* unit for the ScreenPet relay.
+# Install: see README.md in this folder (copy to ~/.config/systemd/user/).
+[Unit]
+Description=ScreenPet relay (pets visiting friends outside the LAN)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/screenpet-relay --bind 0.0.0.0:9411 --data %h/.local/share/screenpet-relay
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
