@@ -3491,6 +3491,7 @@ name = "screenpet"
 version = "0.3.0"
 dependencies = [
  "fastrand",
+ "objc2-app-kit",
  "screenpet-core",
  "screenpet-net",
  "serde",
@@ -3504,7 +3505,13 @@ dependencies = [
 name = "screenpet-core"
 version = "0.1.0"
 dependencies = [
+ "dispatch2",
  "fastrand",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation",
  "serde",
  "serde_json",
  "windows 0.58.0",

@@ -170,6 +170,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("house.html".into()))
         .title("ScreenPet House")
         .inner_size(HOUSE_SIZE, HOUSE_SIZE + BUBBLE_SPACE)
+        .accept_first_mouse(true)
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
@@ -179,6 +180,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .focused(false)
         .visible(false)
         .build()
+        .inspect(crate::overlay::float_everywhere)
 }
 
 /// 지금 하우스에 보이는 동물과 단계 (게임 루프가 AppState.house에 적는다)

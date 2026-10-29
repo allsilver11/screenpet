@@ -7,10 +7,14 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fastrand = "2"
 screenpet-core = { path = "../crates/screenpet-core" }
 screenpet-net = { path = "../crates/screenpet-net" }
+
+# 떠 있는 창의 NSWindow collectionBehavior (overlay.rs). tao 0.37과 같은 objc2-app-kit 0.3
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSWindow"] }

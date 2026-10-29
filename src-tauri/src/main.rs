@@ -4,6 +4,7 @@ mod decal;
 mod game_loop;
 mod house;
 mod network;
+mod overlay;
 mod pets;
 mod prop;
 mod slots;
@@ -164,6 +165,12 @@ fn main() {
             }
         }))
         .setup(move |app| {
+            // macOS: 메뉴 막대 앱처럼 Dock 아이콘 없이 돈다 (트레이 아이콘이 메뉴 막대에 있다)
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            if let Some(window) = app.get_webview_window(OWN_LABEL) {
+                overlay::float_everywhere(&window);
+            }
             let config_dir = app.path().app_config_dir()?;
             let mut cfg = config::load(&config_dir);
             for (from, to) in RENAMED_PETS {

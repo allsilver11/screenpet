@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 메뉴 막대 앱: 실행할 때 Dock 아이콘이 잠깐 뜨지도 않게 (main.rs의 Accessory 정책과 같다) -->
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ScreenPet finds friends' pets on your local network so they can visit each other.</string>
+</dict>
+</plist>

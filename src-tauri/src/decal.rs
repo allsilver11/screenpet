@@ -42,7 +42,8 @@ impl Decals {
             .shadow(false)
             .focused(false)
             .visible(false)
-            .build();
+            .build()
+            .inspect(crate::overlay::float_everywhere);
         let window = match built {
             Ok(w) => w,
             Err(e) => {

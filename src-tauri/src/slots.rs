@@ -205,6 +205,7 @@ fn build_guest_window(app: &AppHandle, label: &str, body_scale: f64) -> tauri::R
     WebviewWindowBuilder::new(app, label, WebviewUrl::App(format!("index.html?role=guest&slot={label}").into()))
         .title("ScreenPet Guest")
         .inner_size(w, h)
+        .accept_first_mouse(true)
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
@@ -214,6 +215,7 @@ fn build_guest_window(app: &AppHandle, label: &str, body_scale: f64) -> tauri::R
         .focused(false)
         .visible(false)
         .build()
+        .inspect(crate::overlay::float_everywhere)
 }
 
 /// 친구 동물이 화면 끝(side)에서 걸어 들어온다. 집(주인 화면)은 들어온 쪽이다.

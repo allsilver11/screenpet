@@ -5,12 +5,19 @@ mod win32;
 #[cfg(windows)]
 pub use win32::Win32Source;
 
+#[cfg(any(target_os = "macos", test))]
+mod mac_coords;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::MacSource;
+
 pub trait WindowSource: Send {
     /// 다른 프로세스의 보이는 최상위 창, 앞→뒤(Z-order) 순.
     fn windows(&mut self) -> Vec<WindowInfo>;
     /// 모니터별 작업 영역 (작업표시줄 제외).
     fn work_areas(&mut self) -> Vec<Rect>;
-    /// 전역 커서 위치 (물리 px).
+    /// 전역 커서 위치 (물리 px — macOS는 CG 포인트 × 그 화면 배율, tao와 같은 공간).
     fn cursor(&mut self) -> (f64, f64);
     fn left_button_down(&mut self) -> bool;
     /// 오른쪽 버튼 (직접 주기 거두기)
@@ -47,7 +54,9 @@ impl WindowSource for NullSource {
 pub fn default_source() -> Box<dyn WindowSource> {
     #[cfg(windows)]
     return Box::new(Win32Source);
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    return Box::new(MacSource);
+    #[cfg(not(any(windows, target_os = "macos")))]
     return Box::new(NullSource);
 }
 
