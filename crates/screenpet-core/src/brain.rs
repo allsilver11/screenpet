@@ -95,6 +95,9 @@ pub enum Anim {
     Slide,
     /// 꿀벌 쏘기 — "!" 하고 화면 쪽으로 돌진 (앞모습)
     Sting,
+    /// 개구리 큰 점프 — 깊게 웅크렸다가 쭉 뻗어 날아오른다 (옆모습, brain_hop.rs)
+    #[serde(rename = "bigjump")]
+    BigJump,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -214,6 +217,8 @@ pub enum State {
     ToFood { remaining: f64 },
     /// 손에 든 음식(직접 주기)을 보고 기다리는 중 — 같은 바닥 가까이면 걸어가고, 나는 동물은 날아간다
     WantFood { walking: bool },
+    /// 개구리 큰 점프 (brain_hop.rs): crouch초 웅크린 뒤 owner 위 rel_x로 포물선을 따라 remaining초 날아간다
+    Leap { crouch: f64, remaining: f64, owner: Owner, rel_x: f64 },
 }
 
 impl State {
@@ -313,6 +318,8 @@ pub struct PetConfig {
     pub flies: bool,
     /// 괴롭히면 화면을 쏜다 (pet.json에 sting이 있는 꿀벌)
     pub stings: bool,
+    /// 폴짝폴짝 뛰어다닌다 (pet.json `locomotion: hop` — 개구리, brain_hop.rs)
+    pub hops: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -401,6 +408,8 @@ pub struct Pet {
     shake: PathMeter,
     /// 최근 클릭 (쏘기 판정)
     pester: ClickMeter,
+    /// 폴짝 동물의 걸음·벽 오르기 박자 (brain_hop.rs)
+    hop_beat: crate::hop::Beat,
     rng: fastrand::Rng,
 }
 
@@ -453,6 +462,7 @@ impl Pet {
             sting_ready_at: 0.0,
             shake: PathMeter::default(),
             pester: ClickMeter::default(),
+            hop_beat: Default::default(),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -511,6 +521,7 @@ impl Pet {
         match self.state {
             State::Housed => {}
             State::HomeLeap { remaining } => self.update_home_leap(dt, remaining, world),
+            State::Leap { crouch, remaining, owner, rel_x } => self.update_leap(dt, world, crouch, remaining, owner, rel_x),
             State::Enter { remaining, side } => self.update_enter(dt, world, remaining, side),
             State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } if self.home_trip.is_some() => {
                 self.start_fall()
@@ -544,7 +555,9 @@ impl Pet {
         let anim = match self.state {
             // 나는 동물의 공중제비(Roll)는 원을 도는 동안만 — 그 앞뒤는 그냥 난다
             State::Move { kind: Move::Roll, .. } if self.cfg.flies && !self.flight.is_some_and(|f| f.looping.is_some()) => Anim::Walk,
+            State::Move { kind, .. } if self.cfg.hops => self.hop_anim(kind),
             State::Move { kind, .. } => kind.into(),
+            State::Leap { .. } => Anim::BigJump,
             State::Sting { phase: StingPhase::Recoil, .. } => Anim::Annoyed,
             State::Sting { .. } => Anim::Sting,
             State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } | State::WantFood { walking: true } => Anim::Walk,
@@ -576,7 +589,7 @@ impl Pet {
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
-        (self.body.x - self.cfg.size / 2.0, self.body.y - self.cfg.size)
+        (self.body.x - self.cfg.size / 2.0, self.body.y - self.cfg.size - self.hop_lift())
     }
 
     /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹는다)
@@ -1079,7 +1092,7 @@ impl Pet {
     fn off_surface(&self) -> bool {
         matches!(
             self.state,
-            State::Air { .. } | State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } | State::HomeLeap { .. }
+            State::Air { .. } | State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } | State::HomeLeap { .. } | State::Leap { .. }
         )
     }
 
@@ -1823,7 +1836,7 @@ impl Pet {
             State::ToFood { remaining } => self.update_to_food(dt, world, st, &piece, remaining),
             State::WantFood { .. } => self.update_want_food(dt, st, &piece),
             State::Move { kind, remaining } => {
-                let speed = self.cfg.walk_speed * kind.speed_mult();
+                let speed = self.cfg.walk_speed * kind.speed_mult() * self.hop_pace(kind, dt);
                 let new_x = self.body.x + self.facing * speed * dt;
                 let (edge_x, end) = if self.facing > 0.0 { (piece.x_end, piece.end_kind) } else { (piece.x_start, piece.start_kind) };
                 // x가 진행 방향으로 이 조각 끝을 넘었는지
@@ -1985,6 +1998,7 @@ impl Pet {
             | State::Sting { .. }
             | State::ToFood { .. }
             | State::WantFood { .. }
+            | State::Leap { .. }
             | State::Move { .. } => {}
         }
     }
@@ -2078,7 +2092,7 @@ impl Pet {
 
     fn update_climb(&mut self, dt: f64, target_y: f64, hang: f64) {
         if self.body.y > target_y {
-            self.body.y = (self.body.y - self.scaled(behavior::CLIMB_SPEED) * dt).max(target_y);
+            self.body.y = (self.body.y - self.scaled(behavior::CLIMB_SPEED) * self.climb_pace(dt) * dt).max(target_y);
             return;
         }
         let hang = hang - dt;
@@ -2102,7 +2116,7 @@ impl Pet {
             Side::Left => rect.left,
             Side::Right => rect.right,
         };
-        let rel_y = rel_y - self.scaled(behavior::WALL_CLIMB_SPEED) * dt;
+        let rel_y = rel_y - self.scaled(behavior::WALL_CLIMB_SPEED) * self.climb_pace(dt) * dt;
         if rel_y <= 0.0 {
             // 꼭대기: 옆면 바로 안쪽 윗면에 올라선다
             let inset = self.cfg.half_w + behavior::WALL_TOP_INSET;
@@ -2227,6 +2241,9 @@ impl Pet {
             if let Some(target_y) = self.climb_target(world) {
                 return self.next_after_beat(State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS });
             }
+        }
+        if let Some(leap) = self.big_jump_state(world) {
+            return leap;
         }
         if let (true, Some(g)) = (homesick, self.guest) {
             if may_flip {
@@ -2451,7 +2468,7 @@ impl Pet {
             return;
         };
         let x = rect.left + rel_x;
-        let rel_y = rel_y - self.scaled(behavior::WALL_CLIMB_SPEED) * dt;
+        let rel_y = rel_y - self.scaled(behavior::WALL_CLIMB_SPEED) * self.climb_pace(dt) * dt;
         if rel_y <= 0.0 {
             self.inside = None;
             self.body = Body { x, y: rect.top, vx: 0.0, vy: 0.0 };
@@ -2516,6 +2533,14 @@ mod food_tests;
 #[path = "brain_hand_tests.rs"]
 mod hand_tests;
 
+/// 폴짝 뛰는 동물 (개구리)
+#[path = "brain_hop.rs"]
+mod hop_moves;
+
+#[cfg(test)]
+#[path = "brain_hop_tests.rs"]
+mod hop_tests;
+
 /// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨린다
 fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {
     match side {
@@ -2542,6 +2567,7 @@ mod tests {
             can_climb: false,
             flies: false,
             stings: false,
+            hops: false,
         }
     }
 
@@ -2989,7 +3015,7 @@ mod tests {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff, Anim::Climb, Anim::Slide, Anim::Sting];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff, Anim::Climb, Anim::Slide, Anim::Sting, Anim::BigJump];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);
@@ -3034,6 +3060,7 @@ mod tests {
             can_climb: false,
             flies: false,
             stings: false,
+            hops: false,
         }
     }
 

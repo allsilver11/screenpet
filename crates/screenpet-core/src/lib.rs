@@ -5,6 +5,7 @@ pub mod config;
 pub mod flight;
 pub mod food;
 pub mod geom;
+pub mod hop;
 pub mod inside;
 pub mod manifest;
 pub mod physics;

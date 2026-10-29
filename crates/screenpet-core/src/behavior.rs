@@ -19,6 +19,8 @@ pub const ALOOF_HUNGRY_AEGYO_CHANCE: f64 = 0.60;
 /// 새침한 동물이 애교 대신 클릭을 무시할 때 "..." 말풍선을 띄울 확률
 pub const IGNORE_SPEECH_CHANCE: f64 = 0.5;
 pub const HUFF_SECS: f64 = 1.5;
+/// 장난꾸러기(개구리)가 쉴 때 애교 부릴 확률
+pub const PLAYFUL_TRICK_CHANCE: f64 = 0.65;
 
 /// 동물 성격 (pet.json `personality`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -29,6 +31,8 @@ pub enum Personality {
     Friendly,
     /// 새침함 (고양이) — 애교가 드물고 클릭에 흥! 하거나 무시
     Aloof,
+    /// 장난꾸러기 (개구리) — 클릭엔 늘 반응하고 쉴 때 애교가 조금 더 많다
+    Playful,
 }
 
 impl Personality {
@@ -36,6 +40,7 @@ impl Personality {
     pub fn trick_chance(self, hungry: bool) -> f64 {
         match (self, hungry) {
             (Personality::Friendly, _) => TRICK_CHANCE,
+            (Personality::Playful, _) => PLAYFUL_TRICK_CHANCE,
             (Personality::Aloof, false) => ALOOF_AEGYO_CHANCE,
             (Personality::Aloof, true) => ALOOF_HUNGRY_AEGYO_CHANCE,
         }
@@ -194,7 +199,7 @@ pub enum ClickOutcome {
 }
 
 pub fn pick_click_outcome(rng: &mut fastrand::Rng, personality: Personality, hungry: bool) -> ClickOutcome {
-    if personality == Personality::Friendly || rng.f64() < personality.trick_chance(hungry) {
+    if personality != Personality::Aloof || rng.f64() < personality.trick_chance(hungry) {
         ClickOutcome::React(pick_click(rng))
     } else if rng.bool() {
         ClickOutcome::Ignore { speak: rng.f64() < IGNORE_SPEECH_CHANCE }
@@ -310,6 +315,8 @@ mod tests {
         let (react, _, _) = click_shares(Personality::Aloof, true);
         assert!((0.52..=0.68).contains(&react), "hungry {react}");
         assert_eq!(click_shares(Personality::Friendly, false), (1.0, 0.0, 0.0));
+        assert_eq!(click_shares(Personality::Playful, false), (1.0, 0.0, 0.0));
+        assert_eq!(Personality::Playful.trick_chance(true), PLAYFUL_TRICK_CHANCE);
     }
 
     #[test]

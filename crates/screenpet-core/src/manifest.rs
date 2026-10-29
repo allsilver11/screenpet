@@ -10,8 +10,9 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
     "tickle", "annoyed", "hungry", "eat", "level_up",
 ];
 
-/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide, 꿀벌 sting)
-pub const OPTIONAL_ANIMS: [&str; 6] = ["arch", "wag", "huff", "climb", "slide", "sting"];
+/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide, 꿀벌 sting, 개구리 bigjump).
+/// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다
+pub const OPTIONAL_ANIMS: [&str; 7] = ["arch", "wag", "huff", "climb", "slide", "sting", "bigjump"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -22,6 +23,8 @@ pub enum Locomotion {
     Walk,
     /// 날아다닌다 (꿀벌) — 쉴 때 가끔 창 윗면·바닥에 내려앉는다
     Fly,
+    /// 폴짝폴짝 뛰어다닌다 (개구리) — 가끔 크게 뛰어 창 위로, 벽은 폴짝폴짝 오른다 (hop.rs)
+    Hop,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -109,6 +112,10 @@ impl PetManifest {
 
     pub fn flies(&self) -> bool {
         self.locomotion == Locomotion::Fly
+    }
+
+    pub fn hops(&self) -> bool {
+        self.locomotion == Locomotion::Hop
     }
 
     /// 괴롭히면 화면을 쏜다 (pet.json에 sting이 있는 꿀벌)
@@ -261,8 +268,32 @@ mod tests {
     }
 
     #[test]
+    fn parses_hop_locomotion_bigjump_and_playful() {
+        let json = full_json()
+            .replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "locomotion": "hop", "personality": "playful","#)
+            .replace(r#""animations": {"#, r#""animations": {"bigjump": {"row": 21, "frames": 4, "fps": 8, "loop": false},"#);
+        let m = parse_manifest(&json).unwrap();
+        assert_eq!(m.locomotion, Locomotion::Hop);
+        assert!(m.hops() && !m.flies() && m.has_anim("bigjump"));
+        assert_eq!(m.personality, Personality::Playful);
+        assert_eq!(OPTIONAL_ANIMS.last(), Some(&"bigjump"));
+        let bad = full_json().replace(r#""animations": {"#, r#""animations": {"bigjump": {"row": 21, "frames": 0, "fps": 8},"#);
+        assert!(parse_manifest(&bad).is_err());
+    }
+
+    /// 개구리 (아트 에이전트가 ui/pets/frog를 만들면 그대로 읽힌다 — 없으면 건너뛴다)
+    #[test]
+    fn bundled_frog_hops_and_climbs_if_present() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets/frog/pet.json");
+        let Ok(json) = std::fs::read_to_string(path) else { return };
+        let m = parse_manifest(&json).unwrap();
+        assert_eq!(m.locomotion, Locomotion::Hop);
+        assert!(m.has_anim("bigjump") && m.can_climb() && !m.can_sting());
+    }
+
+    #[test]
     fn sting_is_an_optional_front_animation() {
-        assert_eq!(OPTIONAL_ANIMS.last(), Some(&"sting"));
+        assert!(OPTIONAL_ANIMS.contains(&"sting"));
         assert!(!parse_manifest(&full_json()).unwrap().has_anim("sting"));
         let with = full_json().replace(r#""animations": {"#, r#""animations": {"sting": {"row": 21, "frames": 3, "fps": 8, "loop": false, "front": true},"#);
         let m = parse_manifest(&with).unwrap();

@@ -100,6 +100,7 @@ pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64) -> PetConfig {
         can_climb: m.can_climb(),
         flies: m.flies(),
         stings: m.can_sting(),
+        hops: m.hops(),
     }
 }
 
