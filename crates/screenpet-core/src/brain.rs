@@ -231,7 +231,7 @@ impl Pet {
 
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
     pub fn hover(&mut self, cx: f64, cy: f64, inside: bool) {
-        if !inside || self.is_held() {
+        if !inside || self.is_held() || matches!(self.state, State::Air { .. }) {
             self.hover_hist.clear();
             self.tickling = false;
             return;
@@ -392,11 +392,16 @@ impl Pet {
     }
 
     fn update_chatter(&mut self, dt: f64) {
-        if matches!(self.state, State::Sleep { .. } | State::Annoyed { .. }) {
+        if matches!(self.state, State::Sleep { .. } | State::Annoyed { .. } | State::Tickled { .. }) {
             return;
         }
         self.chatter_timer -= dt;
         if self.chatter_timer <= 0.0 {
+            if self.speech.is_some() {
+                // 말풍선 자리가 비면 다음 틱에 다시 시도
+                self.chatter_timer = 0.0;
+                return;
+            }
             self.speech = Some(Speech::Chatter);
             self.chatter_timer = behavior::range(&mut self.rng, CHATTER_SECS);
         }
@@ -1194,6 +1199,54 @@ mod tickle_tests {
             }
         }
         assert!((70..=130).contains(&spoke), "spoke {spoke}/200");
+    }
+
+    #[test]
+    fn chatter_does_not_overwrite_a_pending_speech() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.chatter_timer = 0.001;
+        p.speech = Some(Speech::Tickle);
+        p.update(DT, &w);
+        assert_eq!(p.take_speech(), Some(Speech::Tickle));
+        p.update(DT, &w);
+        assert_eq!(p.take_speech(), Some(Speech::Chatter));
+    }
+
+    #[test]
+    fn chatter_waits_while_tickled() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Tickled { remaining: 1.0 });
+        p.chatter_timer = 0.001;
+        p.update(DT, &w);
+        assert_eq!(p.take_speech(), None);
+    }
+
+    #[test]
+    fn shaking_the_cursor_during_a_hop_does_not_tickle_on_landing() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 800.0, 300.0, 1);
+        p.state = State::Air { anim: Anim::Fall };
+        let mut airborne_ticks = 0;
+        for i in 0..40 {
+            p.hover(800.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, 350.0, true);
+            let was_air = matches!(p.state, State::Air { .. });
+            p.update(DT, &w);
+            if was_air {
+                airborne_ticks += 1;
+            }
+            if matches!(p.state, State::Land { .. }) {
+                assert!(airborne_ticks >= 10, "fall too short to build up a tickle: {airborne_ticks}");
+                p.hover(800.0, 350.0, true);
+                p.update(DT, &w);
+                assert!(!matches!(p.state, State::Tickled { .. }), "tickled right after landing");
+                return;
+            }
+            assert!(!matches!(p.state, State::Tickled { .. }));
+        }
+        panic!("never landed");
     }
 }
 
