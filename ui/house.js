@@ -185,9 +185,41 @@ listen("house-wave", () => setLocal("wave", WAVE_MS, performance.now()));
 
 const speech = setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest: () => manifest });
 
+// 집을 누른 채 DRAG_PX 넘게 움직이면 집을 끈다 (창은 src-tauri/src/house.rs가 커서를 따라 옮기고, 놓으면 바닥에 앉힌다).
+// 움직이지 않고 놓으면 예전처럼 누르기 (배고프면 음식 고르기, 아니면 손 흔들기)
+const DRAG_PX = 5;
+let press = null;
+
 houseEl.addEventListener("mousedown", (e) => {
-  if (e.button === 0) invoke("house_click");
+  if (e.button === 0) press = { x: e.screenX, y: e.screenY, dragging: false };
 });
+
+window.addEventListener("mousemove", (e) => {
+  if (!press) return;
+  if (!(e.buttons & 1)) {
+    // 창 밖에서 놓았다 — 끌기는 백엔드가 버튼 상태로 끝낸다
+    endPress();
+    return;
+  }
+  if (!press.dragging && Math.hypot(e.screenX - press.x, e.screenY - press.y) > DRAG_PX) {
+    press.dragging = true;
+    document.body.classList.add("dragging");
+    speech.hidePicker();
+    window.__TAURI__.event.emit("house-drag-start");
+  }
+});
+
+window.addEventListener("mouseup", (e) => {
+  if (e.button !== 0 || !press) return;
+  const clicked = !press.dragging;
+  endPress();
+  if (clicked) invoke("house_click");
+});
+
+function endPress() {
+  press = null;
+  document.body.classList.remove("dragging");
+}
 
 // 집을 우클릭해도 트레이와 같은 메뉴
 houseEl.addEventListener("contextmenu", () => invoke("show_menu"));

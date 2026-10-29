@@ -1,12 +1,18 @@
-//! 하우스 창 — 주 모니터 작업 영역 오른쪽 아래 구석 (작업표시줄 바로 위)에 놓인 작은 집.
+//! 하우스 창 — 작업 영역 바닥 (작업표시줄 바로 위)에 놓인 작은 집.
+//! 처음엔 주 모니터 오른쪽 아래 구석에 있고, 마우스로 끌어 어느 모니터의 바닥 어디로든 옮길 수 있다 (설정에 남는다).
 
+use screenpet_core::config::{clamp_house_left, HouseSpot};
 use screenpet_core::geom::Rect;
 use screenpet_core::platform::default_source;
 use screenpet_core::surfaces::Owner;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Listener, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use std::thread;
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Listener, LogicalSize, Manager, Monitor, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+use crate::game_loop::Input;
 use crate::AppState;
 
 pub const LABEL: &str = "house";
@@ -110,7 +116,27 @@ pub struct Spot {
     pub ground: Owner,
 }
 
-/// 숨긴 채로 하우스 창을 만든다 (보일 때마다 구석에 다시 놓는다)
+/// 끌어다 놓은 자리 (없으면 주 모니터 구석). 게임 루프가 시작할 때 설정에서 채우고, 끌기가 바꾼다.
+/// 설정 파일에 쓰는 것은 게임 루프다 (Input::HouseMoved { save: true }를 받으면 placed()를 저장한다)
+static PLACED: Mutex<Option<HouseSpot>> = Mutex::new(None);
+/// 지금 집을 끌고 있음 (끌기 스레드는 하나만)
+static DRAGGING: AtomicBool = AtomicBool::new(false);
+/// 끄는 동안 창을 옮기는 간격
+const DRAG_TICK: Duration = Duration::from_millis(16);
+/// 끄는 동안 게임 루프에 문 자리를 알리는 간격 (집으로 가는 동물이 새 문을 따라간다)
+const DRAG_NOTIFY: Duration = Duration::from_millis(100);
+
+/// 설정에 남아 있던 자리로 (게임 루프가 시작할 때, 첫 spot 전에)
+pub fn restore(spot: Option<HouseSpot>) {
+    *PLACED.lock().unwrap() = spot;
+}
+
+/// 지금 자리 (게임 루프가 설정에 적는다)
+pub fn placed() -> Option<HouseSpot> {
+    PLACED.lock().unwrap().clone()
+}
+
+/// 숨긴 채로 하우스 창을 만든다 (보일 때마다 놓아 둔 자리에 다시 놓는다)
 pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     // 게임 루프가 하우스 상태를 바꿀 때마다(house-state) 동물·단계가 바뀌었으면 창 크기를 다시 맞춘다
     let handle = app.clone();
@@ -125,6 +151,17 @@ pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         };
         if changed {
             refit(&handle);
+        }
+    });
+    // 하우스 웹뷰가 집을 누른 채 5px 넘게 움직였다 — 여기서부터 커서를 따라 창을 옮긴다
+    let handle = app.clone();
+    app.listen_any("house-drag-start", move |_| {
+        if !DRAGGING.swap(true, Ordering::SeqCst) {
+            let app = handle.clone();
+            thread::spawn(move || {
+                drag(&app);
+                DRAGGING.store(false, Ordering::SeqCst);
+            });
         }
     });
     WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("house.html".into()))
@@ -149,32 +186,51 @@ fn shown(app: &AppHandle) -> (String, &'static str) {
     })
 }
 
-/// 주 모니터 작업 영역의 오른쪽 아래 구석. work_areas = 게임 세계의 작업 영역 (Ground 번호가 같다).
-/// 주 모니터를 못 찾으면 첫 작업 영역. 집 크기·문 위치는 지금 동물의 단계 (AppState.house)를 따른다.
+/// 모니터의 작업 영역 (물리 px)
+fn work_rect(m: &Monitor) -> Rect {
+    let wa = m.work_area();
+    let (l, t) = (wa.position.x as f64, wa.position.y as f64);
+    Rect::new(l, t, l + wa.size.width as f64, t + wa.size.height as f64)
+}
+
+/// 모니터를 찾는 열쇠 (이름, 왼쪽 위)
+fn monitor_key(m: &Monitor) -> (&str, (i32, i32)) {
+    (m.name().map_or("", |n| n.as_str()), (m.position().x, m.position().y))
+}
+
+/// 집을 놓을 자리. work_areas = 게임 세계의 작업 영역 (Ground 번호가 같다).
+/// 끌어다 놓은 자리가 있고 그 모니터가 아직 있으면 그 모니터 바닥의 그 x (작업 영역 안으로 당긴다),
+/// 아니면 주 모니터 작업 영역의 오른쪽 아래 구석. 모니터를 못 찾으면 첫 작업 영역.
+/// 집 크기·문 위치는 지금 동물의 단계 (AppState.house)를 따른다.
 pub fn spot(app: &AppHandle, work_areas: &[Rect], fallback_dpi: f64) -> Spot {
-    let primary = app.primary_monitor().ok().flatten();
-    let primary_rect = primary.as_ref().map(|m| {
-        let wa = m.work_area();
-        let (l, t) = (wa.position.x as f64, wa.position.y as f64);
-        Rect::new(l, t, l + wa.size.width as f64, t + wa.size.height as f64)
+    let monitors = app.available_monitors().unwrap_or_default();
+    let saved = placed().and_then(|s| {
+        let keys: Vec<_> = monitors.iter().map(monitor_key).collect();
+        s.pick(&keys).map(|i| (s, monitors[i].clone()))
     });
-    let fallback = [primary_rect.unwrap_or(Rect::new(0.0, 0.0, 1920.0, 1080.0))];
+    let (saved, monitor) = match saved {
+        Some((s, m)) => (Some(s), Some(m)),
+        None => (None, app.primary_monitor().ok().flatten()),
+    };
+    let monitor_rect = monitor.as_ref().map(work_rect);
+    let fallback = [monitor_rect.unwrap_or(Rect::new(0.0, 0.0, 1920.0, 1080.0))];
     let work_areas = if work_areas.is_empty() { &fallback[..] } else { work_areas };
-    let (index, dpi) = match &primary {
-        Some(m) => {
-            let wa = m.work_area();
-            let cx = wa.position.x as f64 + wa.size.width as f64 / 2.0;
-            let cy = wa.position.y as f64 + wa.size.height as f64 / 2.0;
-            let i = work_areas.iter().position(|r| r.left <= cx && cx < r.right && r.top <= cy && cy < r.bottom);
+    let (index, dpi) = match (&monitor, monitor_rect) {
+        (Some(m), Some(r)) => {
+            let (cx, cy) = ((r.left + r.right) / 2.0, (r.top + r.bottom) / 2.0);
+            let i = work_areas.iter().position(|w| w.left <= cx && cx < w.right && w.top <= cy && cy < w.bottom);
             (i.unwrap_or(0), m.scale_factor())
         }
-        None => (0, fallback_dpi),
+        _ => (0, fallback_dpi),
     };
     let wa = work_areas[index.min(work_areas.len() - 1)];
     let (pet, stage) = shown(app);
     let (width, height) = window_size(stage);
     let k = house_scale(stage);
-    let left = wa.right - (RIGHT_MARGIN + width) * dpi;
+    let left = match &saved {
+        Some(s) => s.left_in(wa.left, wa.right, width * dpi),
+        None => wa.right - (RIGHT_MARGIN + width) * dpi,
+    };
     let top = wa.bottom - height * dpi;
     // 집 그림은 창 오른쪽에 붙는다
     let house_left = left + (width - house_side(stage)) * dpi;
@@ -187,13 +243,68 @@ pub fn spot(app: &AppHandle, work_areas: &[Rect], fallback_dpi: f64) -> Spot {
     }
 }
 
-/// 단계 크기로 맞춰 구석에 놓는다
+/// 커서(물리 px)가 있는 모니터 — 모니터 사이 틈이면 가장 가까운 모니터
+fn monitor_at(app: &AppHandle, x: f64, y: f64) -> Option<Monitor> {
+    let distance = |m: &Monitor| {
+        let (p, s) = (m.position(), m.size());
+        let dx = (p.x as f64 - x).max(x - (p.x as f64 + s.width as f64)).max(0.0);
+        let dy = (p.y as f64 - y).max(y - (p.y as f64 + s.height as f64)).max(0.0);
+        dx * dx + dy * dy
+    };
+    app.available_monitors().ok()?.into_iter().min_by(|a, b| distance(a).total_cmp(&distance(b)))
+}
+
+/// 커서가 있는 모니터의 바닥, 창 왼쪽 left (물리 px, 창 너비 width)를 지금 자리로 적는다 (작업 영역 안으로 당겨서)
+fn set_placed(app: &AppHandle, cursor: (f64, f64), left: f64, width: f64) {
+    let Some(m) = monitor_at(app, cursor.0, cursor.1) else { return };
+    let r = work_rect(&m);
+    let (name, monitor_pos) = monitor_key(&m);
+    let offset = clamp_house_left(left, width, r.left, r.right) - r.left;
+    restore(Some(HouseSpot { monitor: name.to_string(), monitor_pos, offset }));
+}
+
+fn send(app: &AppHandle, input: Input) {
+    if let Some(state) = app.try_state::<AppState>() {
+        let _ = state.tx.lock().unwrap().send(input);
+    }
+}
+
+/// 왼쪽 버튼을 놓을 때까지 창이 커서를 따라간다 (잡은 자리 그대로). 놓으면 그 모니터의 바닥으로 내려앉고
+/// 게임 루프가 새 자리를 설정에 적는다. 끄는 동안에도 문 자리를 알려 집으로 가는 동물이 따라간다.
+fn drag(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(LABEL) else { return };
+    let (Ok(start), Ok(size)) = (window.outer_position(), window.outer_size()) else { return };
+    let mut source = default_source();
+    let (cx, cy) = source.cursor();
+    let grab = (cx - start.x as f64, cy - start.y as f64);
+    let mut cursor = (cx, cy);
+    let mut notified = Instant::now();
+    while source.left_button_down() {
+        thread::sleep(DRAG_TICK);
+        cursor = source.cursor();
+        let (x, y) = (cursor.0 - grab.0, cursor.1 - grab.1);
+        let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+        set_placed(app, cursor, x, size.width as f64);
+        if notified.elapsed() >= DRAG_NOTIFY {
+            notified = Instant::now();
+            send(app, Input::HouseMoved { save: false });
+        }
+    }
+    // 놓았다: 커서가 있는 모니터의 바닥으로 (크기는 그 모니터 배율로 다시 맞춘다)
+    set_placed(app, cursor, cursor.0 - grab.0, size.width as f64);
+    let dpi = window.scale_factor().unwrap_or(1.0);
+    let spot = spot(app, &source.work_areas(), dpi);
+    place(&window, &spot);
+    send(app, Input::HouseMoved { save: true });
+}
+
+/// 단계 크기로 맞춰 놓아 둔 자리에 놓는다
 fn place(window: &WebviewWindow, spot: &Spot) {
     let _ = window.set_size(LogicalSize::new(spot.size.0, spot.size.1));
     let _ = window.set_position(PhysicalPosition::new(spot.window.0, spot.window.1));
 }
 
-/// 구석에 놓고 보인다
+/// 놓아 둔 자리에 놓고 보인다
 pub fn show_at(window: &WebviewWindow, spot: &Spot) {
     place(window, spot);
     let _ = window.show();
@@ -202,15 +313,15 @@ pub fn show_at(window: &WebviewWindow, spot: &Spot) {
 /// 보이는 하우스 창을 지금 동물·단계 크기로 다시 맞춘다 (성장해서 집이 바뀌었을 때)
 fn refit(app: &AppHandle) {
     let Some(window) = app.get_webview_window(LABEL) else { return };
-    if !window.is_visible().unwrap_or(false) {
-        return; // 보일 때 show_at이 맞춘다
+    if !window.is_visible().unwrap_or(false) || DRAGGING.load(Ordering::SeqCst) {
+        return; // 보일 때 show_at이, 끄는 중이면 놓을 때 drag가 맞춘다
     }
     let dpi = window.scale_factor().unwrap_or(1.0);
     let spot = spot(app, &default_source().work_areas(), dpi);
     place(&window, &spot);
 }
 
-/// 게임 루프 밖(트레이 "보이기", 두 번째 실행)에서 하우스 창을 지금 구석에 다시 놓고 보인다
+/// 게임 루프 밖(트레이 "보이기", 두 번째 실행)에서 하우스 창을 놓아 둔 자리에 다시 놓고 보인다
 pub fn show_in_corner(app: &AppHandle) {
     let Some(window) = app.get_webview_window(LABEL) else { return };
     let dpi = window.scale_factor().unwrap_or(1.0);

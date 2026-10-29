@@ -26,6 +26,9 @@ pub struct Config {
     /// 친구 목록 (짝맞추기로 고정한 공개키와 연결된 화면 끝). 잘못된 항목 하나는 건너뛴다
     #[serde(default, deserialize_with = "lenient_friends")]
     pub friends: Vec<Friend>,
+    /// 하우스를 끌어다 놓은 자리. 없으면 (또는 그 모니터가 없어졌으면) 주 모니터 오른쪽 아래 구석
+    #[serde(default, deserialize_with = "lenient_house_spot")]
+    pub house_spot: Option<HouseSpot>,
 }
 
 /// 친구: id(이름표) + 고정된 정적 공개키(신원) + 표시 이름 + 내 화면의 어느 끝에 연결됐는지
@@ -143,6 +146,54 @@ impl Config {
     pub fn friends_at(&self, side: Side, connected: impl Fn(&str) -> bool) -> Vec<&Friend> {
         self.friends.iter().filter(|f| f.side == side && connected(&f.id)).collect()
     }
+}
+
+// ---- 하우스 자리 (끌어서 옮긴 집) ----
+
+/// 하우스를 놓은 자리: 어느 모니터의 바닥 어디쯤 (y는 늘 그 모니터 작업 영역의 바닥)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HouseSpot {
+    /// OS가 주는 모니터 이름 (없으면 빈 문자열)
+    #[serde(default)]
+    pub monitor: String,
+    /// 그 모니터의 왼쪽 위 (물리 px) — 이름이 바뀌었을 때 찾는다
+    pub monitor_pos: (i32, i32),
+    /// 하우스 창 왼쪽 = 그 작업 영역 왼쪽 + offset (물리 px)
+    pub offset: f64,
+}
+
+impl HouseSpot {
+    /// 저장된 모니터를 monitors (이름, 왼쪽 위) 중에서 찾는다: 이름·자리가 모두 맞는 것, 이름이 맞는 것, 자리가 맞는 것 순
+    pub fn pick(&self, monitors: &[(&str, (i32, i32))]) -> Option<usize> {
+        let named = |name: &str| !self.monitor.is_empty() && name == self.monitor;
+        monitors
+            .iter()
+            .position(|&(n, p)| named(n) && p == self.monitor_pos)
+            .or_else(|| monitors.iter().position(|&(n, _)| named(n)))
+            .or_else(|| monitors.iter().position(|&(_, p)| p == self.monitor_pos))
+    }
+
+    /// 작업 영역 [wa_left, wa_right) 위의 하우스 창 왼쪽 (창 너비 width, 모두 물리 px) — 영역 밖으로 나가지 않는다
+    pub fn left_in(&self, wa_left: f64, wa_right: f64, width: f64) -> f64 {
+        clamp_house_left(wa_left + self.offset, width, wa_left, wa_right)
+    }
+}
+
+/// 하우스 창 왼쪽을 작업 영역 안으로 (창이 영역보다 넓으면 왼쪽에 붙인다)
+pub fn clamp_house_left(left: f64, width: f64, wa_left: f64, wa_right: f64) -> f64 {
+    left.min(wa_right - width).max(wa_left)
+}
+
+/// 하우스 자리가 깨졌으면 (로그만 남기고) 구석으로 — 설정 전체를 버리지 않는다
+fn lenient_house_spot<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<HouseSpot>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.and_then(|v| match serde_json::from_value::<HouseSpot>(v) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            eprintln!("ignoring a malformed house spot in config: {e}");
+            None
+        }
+    }))
 }
 
 /// 32바이트 키를 소문자 hex 64자로
@@ -515,5 +566,70 @@ mod tests {
         assert!(!d.join("config.json.tmp").exists());
         assert_eq!(load(&d), c);
         assert!(!d.join("config.json.bak").exists());
+    }
+
+    // ---- 하우스 자리 (끌어서 옮긴 집) ----
+
+    fn spot(monitor: &str, pos: (i32, i32), offset: f64) -> HouseSpot {
+        HouseSpot { monitor: monitor.into(), monitor_pos: pos, offset }
+    }
+
+    #[test]
+    fn house_spot_defaults_to_none_and_roundtrips() {
+        let d = temp_dir("housespot");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("config.json"), r#"{"pet": "cat", "care": {}, "housed": true}"#).unwrap();
+        assert_eq!(load(&d).house_spot, None);
+        let c = Config { house_spot: Some(spot(r"\\.\DISPLAY2", (-1920, 0), 300.0)), ..Config::default() };
+        save(&d, &c).unwrap();
+        assert_eq!(load(&d), c);
+    }
+
+    #[test]
+    fn a_malformed_house_spot_is_dropped_not_the_whole_config() {
+        let d = temp_dir("badspot");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("config.json"), r#"{"pet": "cat", "housed": true, "house_spot": {"offset": "far"}}"#).unwrap();
+        let c = load(&d);
+        assert_eq!((c.pet.as_deref(), c.housed, c.house_spot), (Some("cat"), true, None));
+    }
+
+    #[test]
+    fn house_left_is_clamped_inside_the_work_area() {
+        // 작업 영역 [0, 1000), 창 너비 100
+        assert_eq!(clamp_house_left(400.0, 100.0, 0.0, 1000.0), 400.0);
+        assert_eq!(clamp_house_left(-50.0, 100.0, 0.0, 1000.0), 0.0);
+        assert_eq!(clamp_house_left(950.0, 100.0, 0.0, 1000.0), 900.0);
+        // 다른 모니터 (왼쪽, 음수 좌표)
+        assert_eq!(clamp_house_left(-100.0, 100.0, -1920.0, 0.0), -100.0);
+        assert_eq!(clamp_house_left(10.0, 100.0, -1920.0, 0.0), -100.0);
+        // 창보다 좁은 작업 영역이면 왼쪽에 붙인다
+        assert_eq!(clamp_house_left(30.0, 100.0, 0.0, 50.0), 0.0);
+    }
+
+    #[test]
+    fn house_spot_left_is_offset_from_the_work_area_and_clamped() {
+        let s = spot("A", (0, 0), 300.0);
+        assert_eq!(s.left_in(1920.0, 3840.0, 128.0), 2220.0);
+        let far = spot("A", (0, 0), 5000.0);
+        assert_eq!(far.left_in(0.0, 1920.0, 128.0), 1792.0);
+    }
+
+    #[test]
+    fn house_spot_finds_its_monitor_by_name_and_position() {
+        let monitors = [("A", (0, 0)), ("B", (1920, 0)), ("C", (-1920, 0))];
+        // 이름과 자리가 모두 맞는 모니터
+        assert_eq!(spot("B", (1920, 0), 0.0).pick(&monitors), Some(1));
+        // 자리가 바뀌었어도 이름이 같으면 그 모니터
+        assert_eq!(spot("C", (-2560, 0), 0.0).pick(&monitors), Some(2));
+        // 이름이 바뀌었으면 자리로
+        assert_eq!(spot("X", (1920, 0), 0.0).pick(&monitors), Some(1));
+        // 이름이 같은 모니터가 둘이면 자리까지 맞는 쪽
+        let twins = [("D", (0, 0)), ("D", (1920, 0))];
+        assert_eq!(spot("D", (1920, 0), 0.0).pick(&twins), Some(1));
+        // 이름 없는 모니터는 이름으로 찾지 않는다
+        assert_eq!(spot("", (5, 5), 0.0).pick(&[("", (0, 0))]), None);
+        // 없어진 모니터
+        assert_eq!(spot("Z", (9999, 0), 0.0).pick(&monitors), None);
     }
 }

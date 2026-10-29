@@ -41,6 +41,8 @@ pub enum Input {
     ToggleHouse,
     /// 하우스 창을 눌렀다 (배고프면 음식 고르기, 아니면 손 흔들기)
     HouseClick,
+    /// 하우스를 끌어 옮겼다 (house.rs). save = 다 놓았음 — 새 자리를 설정에 적는다
+    HouseMoved { save: bool },
     /// 손님(label)을 주인에게 돌려보낸다 (손님 우클릭 메뉴)
     SendHome { label: String },
     /// 친구 네트워크 (네트워크 이벤트, 트레이 `친구 화면`, 짝맞추기 창)
@@ -125,6 +127,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     };
     let house_window = app.get_webview_window(house::LABEL);
     let mut config = config;
+    house::restore(config.house_spot.clone());
     let mut care = config.care.get(&entry.id).cloned().unwrap_or_default();
     let dpi = window.scale_factor().unwrap_or(1.0);
     let mut source = default_source();
@@ -284,6 +287,19 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         } else {
                             let _ = app.emit_to(house::LABEL, "house-wave", ());
                         }
+                    }
+                }
+                Input::HouseMoved { save } => {
+                    // 문 자리가 집을 따라간다: 집에 가는 중이면 새 문으로, 안에 있으면 그대로 안에 (먹이 그릇은 새 문 앞에)
+                    let own = &mut slots[OWN];
+                    let spot = house::spot(&app, &own.world.work_areas, own.dpi);
+                    own.pet.set_house_door(spot.ground, spot.door_x);
+                    if own.pet.is_going_home() {
+                        own.pet.go_home(spot.ground, spot.door_x);
+                    }
+                    if save {
+                        config.house_spot = house::placed();
+                        save_config(&app, &mut config, &own.entry.id, &care);
                     }
                 }
                 Input::SendHome { label } => {

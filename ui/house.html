@@ -3,6 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="style.css" />
+    <style>
+      /* 집은 끌어서 옮긴다 (house.js) */
+      #house {
+        cursor: grab;
+      }
+      body.dragging,
+      body.dragging * {
+        cursor: grabbing !important;
+      }
+    </style>
   </head>
   <body>
     <div id="bubble" hidden></div>
