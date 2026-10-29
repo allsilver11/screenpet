@@ -58,7 +58,12 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         .tooltip("ScreenPet")
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "quit" => app.exit(0),
+            // 게임 루프가 돌보기 상태를 저장한 뒤 종료한다 (루프가 없으면 바로 종료)
+            "quit" => {
+                if app.state::<AppState>().tx.lock().unwrap().send(Input::Quit).is_err() {
+                    app.exit(0);
+                }
+            }
             "toggle" => {
                 if let Some(w) = app.get_webview_window("pet") {
                     if w.is_visible().unwrap_or(true) {

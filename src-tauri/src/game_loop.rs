@@ -33,6 +33,8 @@ pub enum Input {
     Feed(Food),
     ToggleLock,
     ResetGrowth,
+    /// 저장하고 앱 종료
+    Quit,
 }
 
 /// 웹뷰에 보내는 현재 동물과 크기 (`pet-stage` 이벤트, `current_stage` 커맨드)
@@ -156,8 +158,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     care = config.care.get(&entry.id).cloned().unwrap_or_default();
                     pending_stage = false;
                     shown_scale = apply_stage(&app, &window, &mut pet, dpi, &entry, &care);
-                    // 이전 동물의 종 전용 동작이 새 동물에 없을 수 있으니 진행 중이면 끝낸다
+                    // 이전 동물의 종 전용 동작·벽 타기가 새 동물에 없을 수 있으니 진행 중이면 끝낸다
                     pet.set_special(pet.cfg.special);
+                    pet.set_can_climb(pet.cfg.can_climb);
                     pet.set_hungry(care.is_hungry());
                     sync_menu(&app, &entry, &care);
                     save_config(&app, &mut config, &entry.id, &care);
@@ -189,6 +192,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     shown_scale = apply_stage(&app, &window, &mut pet, dpi, &entry, &care);
                     pet.set_hungry(care.is_hungry());
                     save_config(&app, &mut config, &entry.id, &care);
+                }
+                Input::Quit => {
+                    save_config(&app, &mut config, &entry.id, &care);
+                    app.exit(0);
+                    return;
                 }
             }
         }

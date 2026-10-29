@@ -50,12 +50,12 @@ fn feed(state: State<AppState>, food: String) {
     let _ = state.tx.lock().unwrap().send(Input::Feed(food));
 }
 
-/// 펫을 우클릭하면 트레이와 같은 메뉴를 커서 위치에 띄운다
+/// 펫을 우클릭하면 트레이와 같은 메뉴를 커서 위치에 띄운다.
+/// async라 IPC 콜백 밖(작업 스레드)에서 돌고, popup_menu는 메인 스레드에 맡겨진다 —
+/// 동기 커맨드면 모달 메뉴 루프가 WebView2 IPC 콜백 안에서 돌아 멈출 수 있다.
 #[tauri::command]
-fn show_menu(window: tauri::Window, state: State<AppState>) {
-    if let Err(e) = window.popup_menu(&state.menu.menu) {
-        eprintln!("failed to show menu: {e}");
-    }
+async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
+    window.popup_menu(&state.menu.menu).map_err(|e| e.to_string())
 }
 
 /// 트레이에서 동물을 바꿨을 때. 저장·크기·웹뷰 시트 교체는 게임 루프가 한다 (설정은 루프만 쓴다).

@@ -39,7 +39,7 @@
 | slide (고양이·곰) | 2 | 뒷모습으로 주르륵: 두 앞발 쭉 위로 + 발 위 긁힌 자국 3줄, 몸 살짝 찌그러짐, 땀 한 방울, 꼬리 위로 (fps 8, 반복) | 뒷모습 |
 
 ## 성장 단계 시트
-- 단계: `baby`, `kinder`, `child`, `teenager`, `adult` (`sprite_spec.STAGES`, Rust `care::Stage`). 화면 표시 배율은 `STAGE_SCALE` (0.45 / 0.60 / 0.78 / 1.00 / 1.15).
+- 단계: `baby`, `kinder`, `child`, `teenager`, `adult` (`sprite_spec.STAGES`, Rust `care::Stage`). 화면 표시 배율은 Rust `Stage::scale()` (0.45 / 0.60 / 0.78 / 1.00 / 1.15) × 동물별 `stage_size`.
 - 동물마다 `sheet_<stage>.png` 5장을 둔다. 행·열 배치는 모든 단계가 같아서 `pet.json`은 하나다. 단계 시트가 없으면 앱은 `sheet.png`로 대체한다 (기본 그림의 `sheet.png`는 `sheet_teenager.png`와 같은 파일).
 - **단계마다 디자인이 다르다** — 어릴수록 더 귀엽게. teenager가 기준 그림이다. 모든 단계가 같은 캐릭터로 읽혀야 한다 (고양이: 생강색 머리 덮개는 아기부터, 이마 흰 줄·왼쪽 뺨 점은 유아부터).
 

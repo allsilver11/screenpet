@@ -436,6 +436,14 @@ impl Pet {
         }
     }
 
+    /// 동물 교체 시 벽 타기 가능 여부를 바꾼다. 못 타는 동물로 바뀌었는데 벽에 붙어 있으면 떨어진다.
+    pub fn set_can_climb(&mut self, can_climb: bool) {
+        self.cfg.can_climb = can_climb;
+        if !can_climb && matches!(self.state, State::Climb { .. } | State::Slide | State::WallClimb { .. }) {
+            self.start_fall();
+        }
+    }
+
     pub fn set_hungry(&mut self, hungry: bool) {
         self.hungry = hungry;
         if !hungry && matches!(self.state, State::Hungry { .. }) {
@@ -450,7 +458,7 @@ impl Pet {
 
     /// 먹이 결과 반영. 공중·드래그 중이면 무시하고 false
     pub fn feed_result(&mut self, result: FeedResult, food: Food) -> bool {
-        let grounded = self.standing.is_some() && !matches!(self.state, State::Air { .. } | State::Pressed { .. } | State::Dragged);
+        let grounded = self.standing.is_some() && !self.off_surface() && !self.is_held();
         if !grounded {
             return false;
         }
@@ -2387,6 +2395,42 @@ mod climb_tests {
             p.update(DT, w);
         }
         ticks
+    }
+
+    #[test]
+    fn losing_climbing_drops_a_climbing_pet() {
+        let w = world(vec![]);
+        for state in [State::Climb { target_y: 400.0, hang: 0.4 }, State::Slide, State::WallClimb { window: 1, side: Side::Left, rel_y: 50.0 }] {
+            let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
+            p.standing = None;
+            p.state = state;
+            p.set_can_climb(true);
+            assert_eq!(p.state, state, "still a climber");
+            p.set_can_climb(false);
+            assert!(!p.cfg.can_climb);
+            assert_eq!(p.state, State::Air { anim: Anim::Fall }, "{state:?}");
+        }
+        let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
+        p.set_can_climb(false);
+        assert!(matches!(p.state, State::Idle { .. }), "grounded pets keep what they do");
+    }
+
+    #[test]
+    fn cannot_eat_while_climbing() {
+        use crate::care::{FeedResult, Food};
+        let w = world(vec![]);
+        let mut p = Pet::new(climber(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
+        // 화면 타기를 막 고른 첫 틱 — 아직 디딤판 기록이 남아 있다
+        p.state = State::Climb { target_y: 400.0, hang: 0.4 };
+        assert!(p.standing.is_some());
+        assert!(!p.feed_result(FeedResult::Ate { leveled_up: false }, Food::Meal));
+        for state in [State::Slide, State::WallClimb { window: 1, side: Side::Left, rel_y: 50.0 }] {
+            p.state = state;
+            assert!(!p.feed_result(FeedResult::Refused, Food::Snack), "{state:?}");
+        }
     }
 
     #[test]
