@@ -61,9 +61,8 @@ SPEECH = {
     "dog": {"chatter": ["woof!", "arf!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "rabbit": {"chatter": ["boing!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "bear": {"chatter": ["grr~", "hmm~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    "bee": {"chatter": ["bzz~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "sting": ["콕!"], **_CARE_SPEECH},
-    "frog": {"chatter": ["개굴!", "폴짝!", "개굴개굴~"], "tickle": ["개굴굴!"], "grumpy": ["개굴!!"],
-             "hungry": ["배고파 개굴...", "파리?"], "full": ["배불러~"], "level_up": ["폴짝!", "♪♪"]},
+    "bee": {"chatter": ["bzz~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    "frog": {"chatter": ["ribbit!", "hop hop!", "ribbit~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 

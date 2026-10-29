@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <!-- 꿀벌이 쏜 침 자국 (spec 2B §10): 화면에 박힌 침(effects/sting.png) + "콕!" 글자가 톡 튀어나와
+    <!-- 꿀벌이 쏜 침 자국 (spec 2B §10): 화면에 박힌 침(effects/sting.png) (글자 없음)
          10초 머문 뒤 1초 동안 흐려진다. 창은 마우스를 통과시키고, 다 사라지면 앱(decal.rs)이 닫는다. -->
     <style>
       html,
@@ -36,29 +36,6 @@
         display: none;
       }
 
-      #pop {
-        position: absolute;
-        left: 70px;
-        top: 14px;
-        color: #fffaf2;
-        font: 900 24px/1 "Segoe UI", "Malgun Gothic", sans-serif;
-        -webkit-text-stroke: 2px #84605c;
-        paint-order: stroke fill;
-        transform-origin: 30% 70%;
-        animation: pop 200ms ease-out both;
-      }
-
-      @keyframes pop {
-        0% {
-          transform: scale(0.6);
-        }
-        65% {
-          transform: scale(1.1);
-        }
-        100% {
-          transform: scale(1);
-        }
-      }
 
       @keyframes fade {
         to {
@@ -79,7 +56,6 @@
         <circle cx="64" cy="64" r="3" fill="#3a2a22" />
       </svg>
       <img id="mark" src="effects/sting.png" alt="" onerror="this.hidden = true; document.getElementById('fallback').removeAttribute('hidden')" />
-      <div id="pop">콕!</div>
     </div>
     <script>
       window.addEventListener("contextmenu", (e) => e.preventDefault());

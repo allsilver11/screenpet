@@ -183,7 +183,7 @@ def test_bee_flies_and_only_bee_has_sting(tmp_path):
     assert m["name"] == "꿀벌" and m["walk_speed"] == 50
     assert m["animations"]["sting"] == {"row": len(ANIMS), "frames": 3, "fps": 8, "loop": False, "front": True}
     assert all(a in m["animations"] for a, *_ in ANIMS)
-    assert m["speech"]["chatter"] == ["bzz~", "♪"] and m["speech"]["sting"] == ["콕!"]
+    assert m["speech"]["chatter"] == ["bzz~", "♪"] and "sting" not in m["speech"]
     assert m["favorite_food"] == {"emoji": "🌸", "name": "꽃꿀"}
     sheet = Image.open(tmp_path / "bee" / "sheet.png")
     assert sheet.height == FRAME * (len(ANIMS) + 1)

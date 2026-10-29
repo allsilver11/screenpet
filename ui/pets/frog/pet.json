@@ -142,25 +142,25 @@
   },
   "speech": {
     "chatter": [
-      "개굴!",
-      "폴짝!",
-      "개굴개굴~"
+      "ribbit!",
+      "hop hop!",
+      "ribbit~"
     ],
     "tickle": [
-      "개굴굴!"
+      "hehe!"
     ],
     "grumpy": [
-      "개굴!!"
+      "hmph!"
     ],
     "hungry": [
-      "배고파 개굴...",
-      "파리?"
+      "hungry...",
+      "food?"
     ],
     "full": [
-      "배불러~"
+      "full~"
     ],
     "level_up": [
-      "폴짝!",
+      "yay!",
       "♪♪"
     ]
   },

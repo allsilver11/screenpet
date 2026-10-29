@@ -57,7 +57,7 @@ def test_manifest(out):
     m = json.loads((out / "pet.json").read_text(encoding="utf-8"))
     assert m["name"] == "개구리" and m["locomotion"] == "hop" and m["personality"] == "playful"
     assert m["favorite_food"] == {"emoji": "🪰", "name": "파리"}
-    assert "개굴!" in m["speech"]["chatter"] and "폴짝!" in m["speech"]["chatter"] and m["walk_speed"] == 90
+    assert "ribbit!" in m["speech"]["chatter"] and "hop hop!" in m["speech"]["chatter"] and m["walk_speed"] == 90
     assert m["stages"] == STAGES and all(v == 0.85 for v in m["stage_size"].values())
     a = m["animations"]
     assert all(x in a for x, *_ in ANIMS)
