@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::care::{FeedResult, Food};
 use crate::behavior::{self, ClickOutcome, ClickReaction, Family, Move, Personality, Rest, Special, Trick};
-use crate::physics::{clamp_speed, step_air, Body};
+use crate::physics::{clamp_speed, step_air, Body, GRAVITY};
 use crate::surfaces::{EndKind, Owner};
 use crate::world::{Side, World};
 
@@ -13,6 +13,12 @@ const LAND_SECS: f64 = 0.25;
 const HOP_VX: f64 = 180.0;
 const HOP_VY: f64 = -650.0;
 const HAPPY_VY: f64 = -500.0;
+/// 옆 모니터 바닥과 높이가 이만큼(px) 이내면 그대로 걸어 넘어간다
+const SEAM_LEVEL_TOLERANCE: f64 = 2.0;
+/// 옆 모니터 바닥이 이만큼(크기 128 기준 px) 높을 때까지는 뛰어오른다
+const SEAM_MAX_HOP_UP: f64 = 150.0;
+/// 뛰어오를 때 높이 차 위로 더 솟는 여유 (크기 128 기준 px)
+const SEAM_HOP_MARGIN: f64 = 24.0;
 const HEART_SECS: f64 = 1.0;
 const CLICK_SLOP: f64 = 5.0;
 const VELOCITY_WINDOW: f64 = 0.1;
@@ -677,12 +683,16 @@ impl Pet {
             State::Move { kind, remaining } => {
                 let speed = self.cfg.walk_speed * kind.speed_mult();
                 let new_x = self.body.x + self.facing * speed * dt;
-                let (hit, end) = if self.facing > 0.0 {
-                    (new_x + self.cfg.half_w > piece.x_end, piece.end_kind)
-                } else {
-                    (new_x - self.cfg.half_w < piece.x_start, piece.start_kind)
-                };
-                if hit {
+                let (edge_x, end) = if self.facing > 0.0 { (piece.x_end, piece.end_kind) } else { (piece.x_start, piece.start_kind) };
+                // x가 진행 방향으로 이 조각 끝을 넘었는지
+                let facing = self.facing;
+                let beyond = |x: f64| (x - edge_x) * facing > 0.0;
+                let hit = beyond(new_x + self.facing * self.cfg.half_w);
+                if let (true, EndKind::Seam { to }) = (hit, end) {
+                    if !self.at_seam(world, to, kind, speed, new_x, beyond(new_x)) {
+                        return;
+                    }
+                } else if hit {
                     match (end, kind) {
                         (EndKind::Edge, Move::Walk) if self.rng.f64() < behavior::WALK_EDGE_HOP_CHANCE => {
                             self.start_hop(self.facing)
@@ -700,9 +710,10 @@ impl Pet {
                         _ => self.state = State::Turn { remaining: TURN_PAUSE },
                     }
                     return;
+                } else {
+                    self.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (new_x - self.body.x) });
+                    self.body.x = new_x;
                 }
-                self.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (new_x - self.body.x) });
-                self.body.x = new_x;
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 {
                     State::Move { kind, remaining }
@@ -925,6 +936,58 @@ impl Pet {
         }
         self.body = Body { x: self.wall_x(edge_x, side), y, vx: 0.0, vy: 0.0 };
         self.state = State::WallClimb { window, side, rel_y };
+    }
+
+    /// 몸 앞쪽이 옆 모니터 경계(Seam)를 넘는 중. 이웃 바닥 높이에 따라 그대로 걸어 넘어가거나(true — 서 있을 곳과
+    /// x를 이미 옮겼다), 뛰어내리거나 뛰어오르거나 굴러떨어지거나 돌아선다(false).
+    /// center_past = 발 중심이 이 바닥 끝을 넘었는지
+    fn at_seam(&mut self, world: &World, to: usize, kind: Move, speed: f64, new_x: f64, center_past: bool) -> bool {
+        let (Some(st), Some(wa)) = (self.standing, world.work_areas.get(to).copied()) else {
+            self.state = State::Turn { remaining: TURN_PAUSE };
+            return false;
+        };
+        // + = 이웃 바닥이 더 높다
+        let rise = self.body.y - wa.bottom;
+        if rise.abs() <= SEAM_LEVEL_TOLERANCE || rise < 0.0 {
+            if !center_past {
+                // 발 중심이 넘어갈 때까지 지금 바닥에서 계속 걷는다
+                self.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (new_x - self.body.x) });
+                self.body.x = new_x;
+                return true;
+            }
+            if rise.abs() <= SEAM_LEVEL_TOLERANCE {
+                // 같은 높이: 이웃 바닥으로 갈아타고 그대로 걷는다
+                let x = new_x.clamp(wa.left, wa.right);
+                self.standing = Some(Standing { owner: Owner::Ground(to), rel_x: x - wa.left });
+                self.body.x = x;
+                self.body.y = wa.bottom;
+                return true;
+            }
+            // 이웃이 더 낮다: 경계 너머에서 뛰어내리거나 굴러떨어진다 (지금 바닥에 다시 내려서지 않도록)
+            self.body.x = new_x;
+            if kind == Move::Roll {
+                self.standing = None;
+                self.body.vx = self.facing * speed;
+                self.body.vy = 0.0;
+                self.state = State::Air { anim: Anim::Roll };
+            } else {
+                self.start_hop(self.facing);
+            }
+            return false;
+        }
+        if kind == Move::Roll || rise > self.scaled(SEAM_MAX_HOP_UP) {
+            self.state = State::Turn { remaining: TURN_PAUSE };
+            return false;
+        }
+        // 이웃이 조금 높다: 높이 차 + 여유만큼 솟구치고, 내려오며 이웃 바닥에 몸 전체가 들어가도록 vx를 맞춘다
+        let margin = self.scaled(SEAM_HOP_MARGIN);
+        let vy = -(2.0 * GRAVITY * (rise + margin)).sqrt();
+        let t = -vy / GRAVITY + (2.0 * margin / GRAVITY).sqrt();
+        let target_x = if self.facing > 0.0 { wa.left + self.cfg.half_w } else { wa.right - self.cfg.half_w };
+        self.start_hop(self.facing);
+        self.body.vx = self.facing * HOP_VX.max((target_x - self.body.x).abs() / t);
+        self.body.vy = vy;
+        false
     }
 
     pub(crate) fn start_hop(&mut self, dir: f64) {
@@ -2852,5 +2915,174 @@ mod climb_tests {
             }
         }
         assert!(climb > 0 && slide > 0, "climb {climb} slide {slide}");
+    }
+}
+
+#[cfg(test)]
+mod seam_tests {
+    use super::tests::{cfg, place, run, win};
+    use super::*;
+    use crate::behavior::Move;
+    use crate::geom::Rect;
+
+    const DT: f64 = 1.0 / 60.0;
+    const KINDS: [Move; 3] = [Move::Walk, Move::Run, Move::Roll];
+
+    /// 왼쪽 모니터 바닥 1040, 오른쪽 모니터 바닥 right_bottom (옆으로 맞닿음)
+    fn duo(right_bottom: f64) -> World {
+        World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, right_bottom - 1040.0, 3840.0, right_bottom)], 128.0)
+    }
+
+    /// 왼쪽 바닥 오른쪽 끝(몸 앞쪽이 막 닿기 직전)에서 오른쪽으로 kind 이동 시작
+    fn at_seam(w: &World, kind: Move) -> Pet {
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 7);
+        place(&mut p, w, Owner::Ground(0), 1920.0 - 38.0 - 0.5, State::Move { kind, remaining: 100.0 });
+        p.facing = 1.0;
+        p
+    }
+
+    /// 새 바닥에 내려설 때까지 돌리며 거친 상태를 모은다
+    fn run_until_on(p: &mut Pet, w: &World, owner: Owner, ticks: usize) -> Vec<State> {
+        let mut seen = Vec::new();
+        for _ in 0..ticks {
+            p.update(DT, w);
+            seen.push(p.state);
+            if p.standing.map(|s| s.owner) == Some(owner) {
+                break;
+            }
+        }
+        seen
+    }
+
+    #[test]
+    fn walks_across_to_a_same_height_monitor_without_turning() {
+        let w = duo(1040.0);
+        for kind in KINDS {
+            let mut p = at_seam(&w, kind);
+            let seen = run_until_on(&mut p, &w, Owner::Ground(1), 600);
+            assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(1)), "{kind:?}");
+            assert!(seen.iter().all(|s| matches!(s, State::Move { .. })), "{kind:?}: {seen:?}");
+            assert_eq!((p.body.y, p.facing), (1040.0, 1.0), "{kind:?}");
+            // 이어서 매끄럽게 계속 걷는다
+            let x = p.body.x;
+            assert!(x >= 1920.0 && x < 1925.0, "{kind:?} x={x}");
+            p.update(DT, &w);
+            assert!(p.body.x > x && p.body.y == 1040.0, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn walks_across_leftward_too() {
+        let w = duo(1041.5);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 7);
+        place(&mut p, &w, Owner::Ground(1), 1920.0 + 38.0 + 0.5, State::Move { kind: Move::Walk, remaining: 100.0 });
+        p.facing = -1.0;
+        let seen = run_until_on(&mut p, &w, Owner::Ground(0), 600);
+        assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)));
+        assert!(seen.iter().all(|s| matches!(s, State::Move { .. })), "{seen:?}");
+        assert!(p.body.x <= 1920.0 && p.body.y == 1040.0);
+    }
+
+    #[test]
+    fn hops_or_rolls_down_to_a_lower_monitor() {
+        let w = duo(1240.0);
+        for kind in KINDS {
+            let mut p = at_seam(&w, kind);
+            let seen = run_until_on(&mut p, &w, Owner::Ground(1), 600);
+            let air = if kind == Move::Roll { Anim::Roll } else { Anim::Hop };
+            assert!(seen.contains(&State::Air { anim: air }), "{kind:?}: {seen:?}");
+            assert!(!seen.iter().any(|s| matches!(s, State::Turn { .. })), "{kind:?}");
+            assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(1)), "{kind:?}");
+            assert_eq!(p.body.y, 1240.0);
+        }
+    }
+
+    #[test]
+    fn hops_up_to_a_monitor_100px_higher() {
+        let w = duo(940.0);
+        for kind in [Move::Walk, Move::Run] {
+            let mut p = at_seam(&w, kind);
+            p.update(DT, &w);
+            assert_eq!(p.state, State::Air { anim: Anim::Hop }, "{kind:?}");
+            let seen = run_until_on(&mut p, &w, Owner::Ground(1), 600);
+            assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(1)), "{kind:?}: {seen:?}");
+            assert_eq!(p.body.y, 940.0);
+        }
+    }
+
+    #[test]
+    fn hop_up_height_limit_scales_with_size() {
+        // 140 px 위: 크기 128이면 뛰어오르고, 크기 64(한계 75 px)면 돌아선다
+        let w = duo(900.0);
+        let mut p = at_seam(&w, Move::Walk);
+        p.update(DT, &w);
+        assert_eq!(p.state, State::Air { anim: Anim::Hop });
+        run_until_on(&mut p, &w, Owner::Ground(1), 600);
+        assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(1)));
+
+        let small = PetConfig { size: 64.0, half_w: 19.0, ..cfg() };
+        let mut p = Pet::new(small, 0.0, 0.0, 7);
+        place(&mut p, &w, Owner::Ground(0), 1920.0 - 19.0 - 0.5, State::Move { kind: Move::Walk, remaining: 100.0 });
+        p.facing = 1.0;
+        p.update(DT, &w);
+        assert!(matches!(p.state, State::Turn { .. }), "{:?}", p.state);
+    }
+
+    #[test]
+    fn turns_at_a_monitor_too_high_to_reach_and_when_rolling_up() {
+        let w = duo(640.0);
+        for kind in KINDS {
+            let mut p = at_seam(&w, kind);
+            p.update(DT, &w);
+            assert!(matches!(p.state, State::Turn { .. }), "{kind:?}: {:?}", p.state);
+        }
+        let w = duo(940.0);
+        let mut p = at_seam(&w, Move::Roll);
+        p.update(DT, &w);
+        assert!(matches!(p.state, State::Turn { .. }), "{:?}", p.state);
+    }
+
+    #[test]
+    fn outermost_edges_are_still_walls() {
+        let w = duo(1040.0);
+        for kind in KINDS {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, 7);
+            place(&mut p, &w, Owner::Ground(1), 3840.0 - 38.0 - 0.5, State::Move { kind, remaining: 100.0 });
+            p.facing = 1.0;
+            p.update(DT, &w);
+            assert!(matches!(p.state, State::Turn { .. }), "right {kind:?}");
+            place(&mut p, &w, Owner::Ground(0), 38.0 + 0.5, State::Move { kind, remaining: 100.0 });
+            p.facing = -1.0;
+            p.update(DT, &w);
+            assert!(matches!(p.state, State::Turn { .. }), "left {kind:?}");
+        }
+    }
+
+    #[test]
+    fn stacked_monitors_keep_walls() {
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(0.0, -1080.0, 1920.0, -40.0)], 128.0);
+        for (owner, y) in [(Owner::Ground(0), 1040.0), (Owner::Ground(1), -40.0)] {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, 7);
+            place(&mut p, &w, owner, 1920.0 - 38.0 - 0.5, State::Move { kind: Move::Walk, remaining: 100.0 });
+            p.facing = 1.0;
+            p.update(DT, &w);
+            assert!(matches!(p.state, State::Turn { .. }), "{owner:?}");
+            assert_eq!(p.body.y, y);
+        }
+    }
+
+    #[test]
+    fn window_spanning_the_seam_is_one_piece() {
+        let w = World::new(
+            vec![win(1, 1700.0, 600.0, 2200.0, 900.0)],
+            vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1040.0)],
+            128.0,
+        );
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 7);
+        place(&mut p, &w, Owner::Window(1), 1900.0, State::Move { kind: Move::Walk, remaining: 100.0 });
+        p.facing = 1.0;
+        run(&mut p, &w, 120);
+        assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
+        assert!(p.body.x > 1920.0);
     }
 }

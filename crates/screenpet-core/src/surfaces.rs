@@ -16,6 +16,8 @@ pub enum EndKind {
     Blocked,
     /// 화면 끝
     Wall,
+    /// 옆 모니터로 이어지는 바닥 경계. to = 이웃 작업 영역 인덱스
+    Seam { to: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -37,6 +39,9 @@ impl Surface {
         x >= self.x_start && x <= self.x_end
     }
 }
+
+/// 옆 모니터와 맞닿았다고 볼 x 오차 (px)
+const SEAM_TOLERANCE: f64 = 2.0;
 
 pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], pet_height: f64) -> Vec<Surface> {
     let mut out = Vec::new();
@@ -93,11 +98,22 @@ pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], pet_height:
             y: wa.bottom,
             x_start: wa.left,
             x_end: wa.right,
-            start_kind: EndKind::Wall,
-            end_kind: EndKind::Wall,
+            start_kind: seam_at(work_areas, i, wa.left, |o| o.right),
+            end_kind: seam_at(work_areas, i, wa.right, |o| o.left),
         });
     }
     out
+}
+
+/// 바닥 끝 x에 옆으로 맞닿고(±SEAM_TOLERANCE) 세로로 겹치는 다른 작업 영역이 있으면 Seam, 없으면 Wall.
+/// facing_edge = 이웃의 맞닿는 쪽 x
+fn seam_at(work_areas: &[Rect], i: usize, x: f64, facing_edge: impl Fn(&Rect) -> f64) -> EndKind {
+    let wa = work_areas[i];
+    work_areas
+        .iter()
+        .enumerate()
+        .find(|&(j, o)| j != i && (facing_edge(o) - x).abs() <= SEAM_TOLERANCE && o.top < wa.bottom && wa.top < o.bottom)
+        .map_or(EndKind::Wall, |(to, _)| EndKind::Seam { to })
 }
 
 fn clip(left: f64, right: f64, bounds: &Rect) -> (f64, f64, EndKind, EndKind) {
@@ -130,6 +146,30 @@ mod tests {
         assert_eq!(g.owner, Owner::Ground(0));
         assert_eq!((g.y, g.x_start, g.x_end), (1040.0, 0.0, 1920.0));
         assert_eq!((g.start_kind, g.end_kind), (EndKind::Wall, EndKind::Wall));
+    }
+
+    #[test]
+    fn side_by_side_grounds_meet_at_a_seam() {
+        let areas = vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1921.5, 200.0, 3840.0, 1300.0)];
+        let s = compute_surfaces(&[], &areas, 0.0);
+        let a = pieces_of(&s, Owner::Ground(0))[0];
+        let b = pieces_of(&s, Owner::Ground(1))[0];
+        assert_eq!((a.start_kind, a.end_kind), (EndKind::Wall, EndKind::Seam { to: 1 }));
+        assert_eq!((b.start_kind, b.end_kind), (EndKind::Seam { to: 0 }, EndKind::Wall));
+    }
+
+    #[test]
+    fn grounds_without_horizontal_contact_stay_walls() {
+        // 위아래로 쌓인 모니터
+        let stacked = vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(0.0, -1080.0, 1920.0, -40.0)];
+        // 3 px 넘게 떨어짐 / 옆이지만 세로로 안 겹침
+        let gap = vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1923.0, 0.0, 3840.0, 1040.0)];
+        let diagonal = vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 1080.0, 3840.0, 2120.0)];
+        for areas in [stacked, gap, diagonal] {
+            for g in compute_surfaces(&[], &areas, 0.0) {
+                assert_eq!((g.start_kind, g.end_kind), (EndKind::Wall, EndKind::Wall), "{areas:?}");
+            }
+        }
     }
 
     #[test]
