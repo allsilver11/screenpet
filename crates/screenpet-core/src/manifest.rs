@@ -8,7 +8,7 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 ];
 
 /// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name)
-pub const OPTIONAL_ANIMS: [&str; 2] = ["arch", "wag"];
+pub const OPTIONAL_ANIMS: [&str; 3] = ["arch", "wag", "huff"];
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnimSpec {
@@ -131,7 +131,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "re-enabled in phase 2B Task 3 (new hungry/eat/level_up rows)"]
     fn bundled_placeholder_manifests_are_valid() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let mut count = 0;

@@ -1,18 +1,21 @@
-"""카와이 스프라이트 생성기 — 4종 × 18동작 (+ 고양이 arch, 강아지 wag), 128px.
+"""카와이 스프라이트 생성기 — 4종 × 21동작 (+ 고양이 arch, 강아지 wag) × 성장 5단계, 128px.
 
-    python tools/draw_pets.py        → ui/pets/<id>/{sheet.png, pet.json} + tools/preview/all_{light,dark}.png
+    python tools/draw_pets.py  → ui/pets/<id>/{sheet_<stage>.png ×5, sheet.png (= teenager), pet.json}
+                                 + tools/preview/{all_light,all_dark,stages_<id>}.png
 
 구성:
   1. 엔진      — 4배 슈퍼샘플 마스크, 변환 스택(xf), 도형(E/T/L), 녹이기(melt)로 한 덩어리 실루엣 + 굵은 외곽선
   2. 얼굴·효과 — 눈/입/볼터치, 하트·물음표·z·💢
   3. 종별 설정 — 색과 무늬(데이터). 앞모습/옆모습 머리·몸·꼬리·귀를 표준 좌표계로 적는다
   4. 부품      — 종별 설정을 현재 변환 아래에서 Part로 만든다
-  5. 포즈      — 동작별 공통 뼈대. 부품을 옮기고 돌려 배치할 뿐 종별 분기는 없다
+  5. 포즈      — 동작별 공통 뼈대. 부품을 옮기고 돌려 배치할 뿐 종별 분기는 없다.
+                 성장 단계(STAGE_PROPS)는 머리·몸·다리 배율로 모든 포즈에 똑같이 적용된다 (_side/_front/머리 부품)
   6. 출력      — 시트·매니페스트·미리보기
 """
 
 import json
 import math
+import shutil
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -22,7 +25,8 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sprite_spec import ANIMS, FRAME, OPTIONAL_ANIMS, ROLL_CENTER, ROLL_RADIUS, SPEECH, manifest  # noqa: E402
+from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SPEECH, STAGE_SCALE,  # noqa: E402
+                         STAGES, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -30,6 +34,8 @@ from sprite_spec import ANIMS, FRAME, OPTIONAL_ANIMS, ROLL_CENTER, ROLL_RADIUS, 
 K = 4  # 슈퍼샘플 배율
 S = FRAME * K
 LIFT = 2  # 발끝 외곽선이 프레임 맨 아래 1px 투명 여백 안에 들어오게 전체를 올린다
+OUTLINE = 2.3  # 실루엣 외곽선 굵기 (128 프레임, teenager) — 슈퍼샘플에서 정수로 내림되어 약 2.25px
+PART_OUTLINE = 1.0  # 몸 앞에 겹친 조각(앞발·머리)의 자기 외곽선
 
 LINE = (132, 96, 92)
 PINK = (250, 180, 180)
@@ -55,19 +61,57 @@ def _mul(m, n):
     return (a * A + b * D, a * B + b * E_, a * C + b * F + c, d * A + e * D, d * B + e * E_, d * C + e * F + f)
 
 
-@contextmanager
-def xf(dx=0.0, dy=0.0, rot=0.0, sx=1.0, sy=1.0, pivot=(64, 126)):
-    """국소 변환: pivot 기준으로 (sx, sy) 배율 → rot도(시계 방향) 회전 → (dx, dy) 이동."""
+def _xf_matrix(dx=0.0, dy=0.0, rot=0.0, sx=1.0, sy=1.0, pivot=(64, 126)):
     px, py = pivot
     r = math.radians(rot)
     co, si = math.cos(r), math.sin(r)
     a, b, d, e = co * sx, -si * sy, si * sx, co * sy
-    m = (a, b, px - a * px - b * py + dx, d, e, py - d * px - e * py + dy)
-    _XF.append(_mul(_XF[-1], m))
+    return (a, b, px - a * px - b * py + dx, d, e, py - d * px - e * py + dy)
+
+
+def _apply(m, p):
+    a, b, c, d, e, f = m
+    return (a * p[0] + b * p[1] + c, d * p[0] + e * p[1] + f)
+
+
+def _inv(m):
+    a, b, c, d, e, f = m
+    det = a * e - b * d
+    ia, ib, id_, ie = e / det, -b / det, -d / det, a / det
+    return (ia, ib, -(ia * c + ib * f), id_, ie, -(id_ * c + ie * f))
+
+
+@contextmanager
+def xf(dx=0.0, dy=0.0, rot=0.0, sx=1.0, sy=1.0, pivot=(64, 126)):
+    """국소 변환: pivot 기준으로 (sx, sy) 배율 → rot도(시계 방향) 회전 → (dx, dy) 이동."""
+    _XF.append(_mul(_XF[-1], _xf_matrix(dx, dy, rot, sx, sy, pivot)))
     try:
         yield
     finally:
         _XF.pop()
+
+
+# ---- 성장 단계별 비율 ----
+# head: 머리 배율 · body: 몸 배율 · leg: 다리 길이 · line: 외곽선 굵기 배율 (표시 배율 0.45인 아기도 화면에서 ≥ 1.5px)
+# fit: 큰 머리·긴 다리가 프레임 안에 들어오게 전체를 줄이는 배율 (종 배율에 곱함)
+STAGE_PROPS = {
+    "baby": dict(head=1.25, body=0.80, leg=0.60, line=1.5, fit=0.84),
+    "kinder": dict(head=1.15, body=0.88, leg=0.75, line=1.12, fit=0.91),
+    "child": dict(head=1.07, body=0.94, leg=0.88, line=1.0, fit=0.96),
+    "teenager": dict(head=1.0, body=1.0, leg=1.0, line=1.0, fit=1.0),
+    "adult": dict(head=0.93, body=1.06, leg=1.10, line=1.0, fit=0.97),
+}
+_ST = dict(STAGE_PROPS["teenager"])
+
+
+@contextmanager
+def stage(name):
+    old = dict(_ST)
+    _ST.update(STAGE_PROPS[name])
+    try:
+        yield
+    finally:
+        _ST.update(old)
 
 
 @contextmanager
@@ -200,12 +244,12 @@ def compose(parts, ops=(), fx=(), clip=None):
     if clip is not None:
         sil = ImageChops.multiply(sil, clip)
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    paint(img, aa(grow(sil, 3.2)), LINE)
+    paint(img, aa(grow(sil, OUTLINE * _ST["line"])), LINE)
     paint(img, aa(sil), parts[0].base)
     for p, m in zip(parts, raw):
         if p.outline:
             m = melt(m, 1.0)
-            paint(img, aa(grow(m, 1.3)), LINE, clip=sil)
+            paint(img, aa(grow(m, PART_OUTLINE * _ST["line"])), LINE, clip=sil)
             region = ImageChops.multiply(m, sil)
             if p.base:
                 paint(img, aa(m), p.base, clip=sil)
@@ -246,7 +290,38 @@ def eye(kind, cx, cy, flip=False):
     if kind == "tight":  # > <
         s = -1 if flip else 1
         return [([L([(cx - 4 * s, cy - 3.4), (cx + 3 * s, cy), (cx - 4 * s, cy + 3.4)], 1.9)], EYE)]
+    if kind == "flat":  # 반쯤 감은 시큰둥한 눈 (평평한 눈꺼풀 + 아래 반달 눈동자)
+        return [([T(*arc(cx, cy - 0.6, 4.6, 4.4, 0, 180, 12))], EYE), ([L([(cx - 5.6, cy - 0.8), (cx + 5.6, cy - 0.8)], 2.0)], EYE)]
+    if kind == "big":  # 큰 눈동자 + 반짝이 두 개
+        return [([E(cx - 5, cy - 6, cx + 5, cy + 6)], EYE), ([E(cx - 3, cy - 4.4, cx - 0.2, cy - 1.2)], WHITE),
+                ([C(cx + 2, cy + 2.6, 1.0)], WHITE)]
     raise ValueError(kind)
+
+
+def brows(kind, cx, cy, flip=False):
+    """눈 위 짧은 사선 눈썹. sad: 안쪽(코 쪽) 끝이 올라감 · angry: 안쪽 끝이 내려감. flip: 화면 오른쪽 눈."""
+    s = -1 if flip else 1  # 안쪽 방향 (왼쪽 눈은 +x가 안쪽)
+    up = {"sad": -2.6, "angry": 2.4}[kind]
+    return [([L([(cx - 4.6 * s, cy - 10), (cx + 4.4 * s, cy - 10 + up)], 1.8)], EYE)]
+
+
+def sparkle_fx(cx, cy, r):
+    """노란 4각 별 (주황 테두리)."""
+    def star(R):
+        return T(*[(cx + (R if k % 2 == 0 else R * 0.36) * math.cos(math.radians(k * 45 - 90)),
+                    cy + (R if k % 2 == 0 else R * 0.36) * math.sin(math.radians(k * 45 - 90))) for k in range(8)])
+    return [([star(r + 1.8)], (236, 158, 64), 1.0), ([star(r)], (255, 222, 92), 0)]
+
+
+def thought_fx(cx, cy, r=12.5):
+    """생각 풍선 (작은 원 2개 + 큰 원) 안에 🍙: 흰 삼각 밥 + 검은 김 띠."""
+    fx = []
+    for x, y, rr in [(cx - r - 7, cy + r + 8, 2.0), (cx - r - 1, cy + r + 1, 3.2), (cx, cy, r)]:
+        fx += [([C(x, y, rr + 1.5)], LINE, 1.0), ([C(x, y, rr)], WHITE, 0)]
+    tri = [(cx, cy - 7.5), (cx - 8, cy + 6.5), (cx + 8, cy + 6.5)]
+    fx += [([L(tri + [tri[0]], 4.4)], LINE, 0), ([T(*tri), L(tri + [tri[0]], 1.8)], WHITE, 0),
+           ([T((cx - 3.6, cy + 1.2), (cx + 3.6, cy + 1.2), (cx + 3.6, cy + 7.6), (cx - 3.6, cy + 7.6))], (52, 62, 58), 0)]
+    return fx
 
 
 def blush(cx, cy):
@@ -311,7 +386,7 @@ class Species:
     back: tuple  # 등 색 (배 보이기·구르기에서 쓰임)
     belly: tuple  # 배 색
     nose: tuple
-    mouth: str  # "w" | "dog" | "beaver"
+    mouth: str  # "w" (고양이·토끼 ω) | "dog" (큰 코 + 갈라진 입: 강아지·곰)
     front_ears: list  # 머리 도형에 합쳐지는 귀
     front_head_marks: list  # [(descs, color)]
     front_body_marks: list
@@ -329,6 +404,7 @@ class Species:
     wag_tail: list = field(default_factory=list)  # 앞모습 살랑 꼬리 (뿌리 기준)
     lie_ears: tuple = (-34, -30)  # 엎드렸을 때 귀를 뒤로 눕히는 각도
     specials: list = field(default_factory=list)
+    stage_size: dict = field(default_factory=lambda: dict.fromkeys(STAGES, 1.0))  # pet.json stage_size: 공통 단계 배율에 곱하는 종 배율
 
 
 def _stripe(pts, w=2.8):
@@ -368,7 +444,7 @@ CAT = Species(
     ],
     side_tail=[("L", _cat_tail_line, 10)], tail_root=(26, 78), tail_color=CAT_G,
     tail_marks=[([_stripe([(9, 58), (17, 58)]), _stripe([(10, 47), (18, 48)])], CAT_ST)],
-    specials=["arch"],
+    specials=["arch", "huff"],
 )
 
 DOG_W, DOG_G, DOG_EAR = (255, 247, 236), (222, 168, 112), (196, 140, 92)
@@ -406,24 +482,25 @@ RABBIT = Species(
     side_torso_marks=[],
     side_tail=[("E", 10, 64, 30, 84)], tail_root=(20, 74), tail_color=RAB_W,
     lie_ears=(-48, -42),
+    stage_size=dict.fromkeys(STAGES, 0.85),
 )
 
-BEA_B, BEA_L, BEA_D, BEA_IN = (196, 140, 98), (240, 214, 180), (112, 76, 56), (160, 108, 74)
-BEAVER = Species(
-    id="beaver", name="비버", walk_speed=60, scale=0.94, base=BEA_B, back=BEA_B, belly=BEA_L, nose=DARK_NOSE, mouth="beaver",
-    front_ears=[("E", 18, 18, 36, 36), ("E", 92, 18, 110, 36)],
-    front_head_marks=[([("E", 22, 22, 32, 32), ("E", 96, 22, 106, 32)], BEA_IN), ([("E", 40, 54, 88, 82)], BEA_L)],
-    front_body_marks=[([("E", 42, 76, 86, 122)], BEA_L)],
-    front_tail=[("E", 86, 96, 118, 124)], front_tail_root=(96, 112), front_tail_color=BEA_D,
-    side_ears=[Ear([("E", 72, 4, 90, 22)], (81, 18), BEA_B, [([("E", 76, 8, 86, 18)], BEA_IN)])],
+BEAR_B, BEAR_L, BEAR_IN, BEAR_NOSE = (190, 132, 90), (242, 214, 176), (136, 90, 62), (92, 60, 48)
+BEAR = Species(
+    id="bear", name="곰", walk_speed=60, scale=0.94, base=BEAR_B, back=BEAR_B, belly=BEAR_L, nose=BEAR_NOSE, mouth="dog",
+    front_ears=[("E", 14, 10, 42, 38), ("E", 86, 10, 114, 38)],
+    front_head_marks=[([("E", 20, 16, 36, 32), ("E", 92, 16, 108, 32)], BEAR_IN), ([("E", 44, 52, 84, 78)], BEAR_L)],
+    front_body_marks=[([("E", 44, 80, 84, 120)], BEAR_L)],
+    front_tail=[("E", 92, 104, 110, 120)], front_tail_root=(98, 112), front_tail_color=BEAR_B,
+    side_ears=[Ear([("E", 69, 5, 91, 27)], (80, 20), BEAR_B, [([("E", 74, 10, 86, 22)], BEAR_IN)])],
     ears_over=False,
-    side_head_marks=[([("E", 96, 40, 128, 74)], BEA_L)],
-    side_torso_marks=[([("E", 30, 82, 92, 112)], BEA_L)],
-    side_tail=[("E", 4, 84, 36, 118)], tail_root=(26, 96), tail_color=BEA_D,
-    tail_marks=[([("L", [(12 + i * 8, 90), (15 + i * 8, 112)], 1.0) for i in range(3)], (90, 60, 44))],
+    side_head_marks=[([("E", 100, 40, 132, 70)], BEAR_L)],
+    side_torso_marks=[([("E", 28, 90, 94, 120)], BEAR_L)],
+    side_tail=[("E", 6, 62, 26, 82)], tail_root=(18, 74), tail_color=BEAR_B, lie_ears=(-56, -50),
+    stage_size={"baby": 1.0, "kinder": 1.0, "child": 1.1, "teenager": 1.2, "adult": 1.3},
 )
 
-SPECIES = {s.id: s for s in (CAT, DOG, RABBIT, BEAVER)}
+SPECIES = {s.id: s for s in (CAT, DOG, RABBIT, BEAR)}
 
 
 # =====================================================================
@@ -434,11 +511,20 @@ def _marks(spec_marks):
 
 
 # ---- 앞모습 ----
-def front_head(sp, eyes="dot", mouth=None, tongue_dy=0, outline=False):
-    """앞모습 머리(귀 포함) Part와 얼굴 ops. 머리 좌표: 중심 (64, 50)."""
-    part = Part([shape(("E", 16, 16, 112, 84))] + [shape(d) for d in sp.front_ears], sp.base, _marks(sp.front_head_marks),
-                grow=1, outline=outline)
-    ops = eye(eyes, 44, 54) + eye(eyes, 84, 54, flip=True) + blush(33, 66) + blush(95, 66) + front_mouth(sp, mouth, tongue_dy)
+def front_head(sp, eyes="dot", mouth=None, tongue_dy=0, outline=False, cheeks=False, brow=None, face=(0, 0)):
+    """앞모습 머리(귀 포함) Part와 얼굴 ops. 머리 좌표: 중심 (64, 50). 단계 머리 배율은 턱 (64, 84) 기준.
+    cheeks: 볼 빵빵 (True 양쪽 · "left"/"right" 한쪽) · brow: 눈썹 ("sad" | "angry") · face: 얼굴만 옮김 (고개 돌림 흉내)."""
+    with xf(sx=_ST["head"], sy=_ST["head"], pivot=(64, 84)):
+        lc, rc = cheeks in (True, "left"), cheeks in (True, "right")
+        puff = ([shape(("E", 10, 50, 40, 82))] if lc else []) + ([shape(("E", 88, 50, 118, 82))] if rc else [])
+        part = Part([shape(("E", 16, 16, 112, 84))] + puff + [shape(d) for d in sp.front_ears], sp.base,
+                    _marks(sp.front_head_marks), grow=1, outline=outline)
+        lb, rb = 5 if lc else 0, 5 if rc else 0
+        with xf(dx=face[0], dy=face[1]):
+            ops = (eye(eyes, 44, 54) + eye(eyes, 84, 54, flip=True) + blush(33 - lb, 66 + lb * 0.4) + blush(95 + rb, 66 + rb * 0.4)
+                   + front_mouth(sp, mouth, tongue_dy))
+            if brow:
+                ops += brows(brow, 44, 54) + brows(brow, 84, 54, flip=True)
     return part, ops
 
 
@@ -447,27 +533,23 @@ def front_mouth(sp, kind=None, tongue_dy=0):
     if sp.mouth == "dog":
         ops.append(([E(59, 56, 69, 63)], sp.nose))
         top = 66
-    elif sp.mouth == "beaver":
-        ops.append(([E(59, 57, 69, 63)], (110, 72, 62)))
-        top = 65
     else:
         ops.append(([E(61.6, 59.4, 66.4, 62.6)], sp.nose))
         top = 64
     if kind is None:
         if sp.mouth == "dog":
             ops += [([L([(64, 63), (64, 66)], 1.3)], LINE), ([L([(59, 66), (62, 68.5), (64, 66), (66, 68.5), (69, 66)], 1.3)], LINE)]
-        elif sp.mouth == "beaver":
-            ops += [([L([(60, 64), (64, 66), (68, 64)], 1.3)], LINE),
-                    ([T((60.5, 66), (67.5, 66), (67.5, 72), (60.5, 72))], WHITE),
-                    ([L([(64, 66), (64, 72)], 0.9), L([(60.5, 72), (67.5, 72)], 0.9)], LINE)]
         else:
             ops.append(([L([(59.8, 64), (61.9, 65.8), (64, 64), (66.1, 65.8), (68.2, 64)], 1.3)], LINE))
         return ops
-    rx, ry = {"open": (5.2, 6.2), "yawn": (6.4, 9.5), "tongue": (5.6, 5.0)}[kind]
+    if kind == "frown":  # 작게 뒤집힌 ‿
+        return ops + [([L(arc(64, top + 3.4, 3.4, 2.4, 200, 340, 8), 1.4)], LINE)]
+    if kind == "pout":  # 뾰로통 작은 입 (한쪽으로 삐죽)
+        return ops + [([L(arc(65.5, top + 3.6, 2.8, 2.0, 200, 340, 8), 1.4)], LINE)]
+    if kind == "chew":  # 다문 입 오물오물 (작은 ω)
+        return ops + [([L([(60.6, top + 0.6), (62.3, top + 2.2), (64, top + 0.8), (65.7, top + 2.2), (67.4, top + 0.6)], 1.3)], LINE)]
+    rx, ry = {"open": (5.2, 6.2), "yawn": (6.4, 9.5), "tongue": (5.6, 5.0), "big": (7.0, 8.0)}[kind]
     ops += open_mouth(64, top, rx, ry, tongue=kind != "tongue")
-    if sp.mouth == "beaver":
-        ops += [([T((60.6, top - 0.5), (67.4, top - 0.5), (67.4, top + 4.5), (60.6, top + 4.5))], WHITE),
-                ([L([(64, top - 0.5), (64, top + 4.5)], 0.9)], LINE)]
     if kind == "tongue":
         t0 = top + 2 + tongue_dy
         ops += [([E(57.6, t0 - 1.3, 70.4, t0 + 13.3)], LINE), ([E(59, t0, 69, t0 + 12)], TONGUE),
@@ -478,7 +560,8 @@ def front_mouth(sp, kind=None, tongue_dy=0):
 def front_body(sp, leg_dy=(0, 0)):
     """앞모습 앉은 몸 + 앞발 두 개. 꼬리는 따로."""
     ld, rd = leg_dy
-    fns = [shape(("E", 32, 58, 96, 122)), shape(("E", 36, 106 + ld, 60, 125 + ld)), shape(("E", 68, 106 + rd, 92, 125 + rd))]
+    ft = 125 - 19 * _ST["leg"] ** 0.7  # 발 높이: 단계 다리 길이
+    fns = [shape(("E", 32, 58, 96, 122)), shape(("E", 36, ft + ld, 60, 125 + ld)), shape(("E", 68, ft + rd, 92, 125 + rd))]
     marks = _marks(sp.front_body_marks) + [([L([(64, 110), (64, 121)], 1.5)], LINE)]
     return Part(fns, sp.base, marks, grow=6)
 
@@ -500,35 +583,54 @@ def front_arm(sp, side=1, rot=0.0, beans=True, outline=False):
     return part, ops
 
 
-def front_paw(sp, cx, cy, w=15, h=13):
-    """몸 앞에 겹친 작은 앞발 (자기 외곽선)."""
-    return Part([E(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)], sp.base, outline=True)
+def raised_arm(sp, side=1, rot=0.0):
+    """만세 팔: 어깨에서 머리 옆으로 번쩍 (자기 외곽선, 젤리 발바닥이 앞을 본다). rot: 바깥쪽으로 벌림."""
+    mx = (lambda x: x) if side == 1 else (lambda x: 128 - x)
+    with xf(rot=rot * side, pivot=(mx(94), 88)):
+        part = Part([E(min(mx(97), mx(117)), 44, max(mx(97), mx(117)), 94)], sp.base, outline=True)
+        ops = [([E(mx(cx) - r, cy - r * 0.9, mx(cx) + r, cy + r * 0.9)], PINK)
+               for cx, cy, r in [(107, 57, 3.6), (102, 51, 1.6), (107, 49.5, 1.6), (112, 51, 1.6)]]
+    return part, ops
+
+
+def front_paw(sp, cx, cy, w=15, h=13, toes=False):
+    """몸 앞에 겹친 작은 앞발 (자기 외곽선). toes: 발가락 줄 두 개."""
+    marks = [([L([(cx + dx, cy + h / 2 - 3.6), (cx + dx, cy + h / 2)], 1.2) for dx in (-2.4, 2.4)], LINE)] if toes else []
+    return Part([E(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)], sp.base, marks, outline=True)
 
 
 # ---- 옆모습 (오른쪽을 본다) ----
-def side_head(sp, eyes="dot", mouth=None, ear_rot=(0, 0), ear_dy=0, outline=False):
+SIDE_NECK = (80, 74)  # 옆모습 머리가 몸에 붙는 점 (머리 좌표) — 단계 머리 배율의 기준
+
+
+def side_head(sp, eyes="dot", mouth=None, ear_rot=(0, 0), ear_dy=0, outline=False, brow=None):
     """옆모습 머리 Parts(귀 포함, 그릴 순서)와 얼굴 ops. 머리 좌표: 중심 (88, 45)."""
-    ears = []
-    for i, ear in enumerate(sp.side_ears):
-        with xf(dy=ear_dy, rot=ear_rot[min(i, len(ear_rot) - 1)], pivot=ear.pivot):
-            ears.append(Part([shape(d) for d in ear.shapes], ear.color, _marks(ear.marks), grow=1, outline=outline and sp.ears_over))
-    head = Part([shape(("E", 52, 12, 124, 78))], sp.base, _marks(sp.side_head_marks), grow=1, outline=outline)
-    parts = [head] + ears if sp.ears_over else ears + [head]
-    return parts, eye(eyes, 104, 46) + blush(99, 59) + side_mouth(sp, mouth)
+    with xf(sx=_ST["head"], sy=_ST["head"], pivot=SIDE_NECK):
+        ears = []
+        for i, ear in enumerate(sp.side_ears):
+            with xf(dy=ear_dy, rot=ear_rot[min(i, len(ear_rot) - 1)], pivot=ear.pivot):
+                ears.append(Part([shape(d) for d in ear.shapes], ear.color, _marks(ear.marks), grow=1, outline=outline and sp.ears_over))
+        head = Part([shape(("E", 52, 12, 124, 78))], sp.base, _marks(sp.side_head_marks), grow=1, outline=outline)
+        parts = [head] + ears if sp.ears_over else ears + [head]
+        ops = eye(eyes, 104, 46) + blush(99, 59) + side_mouth(sp, mouth)
+        if brow:
+            ops += brows(brow, 104, 46)
+    return parts, ops
 
 
 def side_mouth(sp, kind=None):
     nose = [([E(118, 51, 125, 56)], sp.nose)]
     if kind is None:
-        ops = nose + [([L([(121, 57), (119, 60), (115, 59)], 1.3)], LINE)]
-        if sp.mouth == "beaver":
-            ops.append(([T((114, 60), (119, 60), (119, 66), (114, 66))], WHITE))
-        return ops
+        return nose + [([L([(121, 57), (119, 60), (115, 59)], 1.3)], LINE)]
     if kind == "pout":
         return nose + [([L(arc(116.5, 63.5, 3.4, 2.6, 200, 340, 8), 1.5)], LINE)]
     if kind == "open":
         return nose + [([E(110.5, 57.5, 121, 68)], LINE), ([E(111.8, 58.8, 119.7, 66.7)], MOUTH_IN),
                        ([E(113, 63, 118.5, 66.4)], TONGUE)]
+    if kind == "fang":  # 작게 벌린 입 + 아기 송곳니 두 개
+        return nose + [([E(108.6, 57, 121.4, 69)], LINE), ([E(110, 58.4, 120, 67.6)], MOUTH_IN),
+                       ([E(111.5, 63.4, 118.5, 67.4)], TONGUE),
+                       ([T((110.8, 58.4), (114.0, 58.4), (112.4, 62.6))], WHITE), ([T((116.0, 58.4), (119.2, 58.4), (117.6, 62.6))], WHITE)]
     if kind == "hiss":
         return [([E(104, 54, 123, 73)], LINE), ([E(105.6, 55.6, 121.4, 71.4)], MOUTH_IN), ([E(108, 64, 119, 71)], TONGUE),
                 ([T((107.5, 56.5), (111.5, 56.5), (109.5, 62.5))], WHITE), ([T((114.5, 56.5), (118.5, 56.5), (116.5, 62.5))], WHITE),
@@ -549,13 +651,24 @@ def side_tail(sp, rot=0.0, at=None, sx=1.0, sy=1.0, width=None):
         return Part([shape(d) for d in descs], sp.tail_color, _marks(sp.tail_marks))
 
 
-def legs(sp, specs, outline=False):
-    """다리: (x, top, bottom, angle[, w]) — angle>0이면 발끝이 앞(오른쪽)으로."""
+def legs(sp, specs, outline=False, move=None):
+    """다리: (x, top, bottom, angle[, w]) — angle>0이면 발끝이 앞(오른쪽)으로.
+    move: 다리 뿌리(어깨·엉덩이)를 단계 비율로 옮기는 함수 — 발끝은 그 자리에 두고 다리를 다시 잇는다."""
     fns = []
     for x, top, bottom, angle, *w in specs:
         w = w[0] if w else 16.5
-        with xf(rot=-angle, pivot=(x, top + 4)):
-            fns.append(E(x - w / 2, top, x + w / 2, bottom))
+        piv = (x, top + 4)
+        if move is None:
+            with xf(rot=-angle, pivot=piv):
+                fns.append(E(x - w / 2, top, x + w / 2, bottom))
+            continue
+        foot = _apply(_xf_matrix(rot=-angle, pivot=piv), (x, bottom))
+        p2 = move(piv)
+        ln = math.hypot(foot[0] - p2[0], foot[1] - p2[1])
+        th = math.degrees(math.atan2(foot[0] - p2[0], foot[1] - p2[1]))
+        w *= 0.5 + 0.5 * _ST["body"]
+        with xf(rot=-th, pivot=p2):
+            fns.append(E(p2[0] - w / 2, p2[1] - 4, p2[0] + w / 2, p2[1] + ln))
     return Part(fns, sp.base, outline=outline)
 
 
@@ -565,17 +678,54 @@ def legs(sp, specs, outline=False):
 WALK_LEGS = lambda sw: [(37 - sw, 96, 124, 0, 18), (54 + sw, 98, 125, 0, 16), (78 - sw, 98, 125, 0, 16), (92 + sw, 96, 124, 0, 16)]
 
 
-def _side(sp, *, head=None, torso=None, tail=None, leg_specs=(), head_kw=None, whole=None, before=(), after=(), fx=(), ops=()):
-    """옆모습 공통 조립: 다리 → 몸통 → 꼬리 → 머리 → 덧붙임. 인자는 각 부품의 xf 인자."""
+SIDE_BODY_PIVOT = (58, 110)  # 몸통 배 아래 가운데 (몸통 좌표) — 단계 몸 배율의 기준
+LEG_SHOW = 16  # 몸통 아래로 보이는 다리 길이 (teenager) — 짧은 다리만큼 몸이 내려앉는다
+
+
+def _side(sp, *, head=None, torso=None, tail=None, leg_specs=(), head_kw=None, whole=None, before=(), after=(), fx=(), ops=(),
+          body_fn=None, tail_fn=None, tail_root=None, support=True):
+    """옆모습 공통 조립: 다리 → 몸통 → 꼬리 → 머리 → 덧붙임. 인자는 각 부품의 xf 인자.
+    단계 비율: 몸통을 SIDE_BODY_PIVOT 기준 body배로 줄이고 짧은 다리만큼 내려앉힌 뒤, 몸통에 붙은 점(목·꼬리 뿌리·다리 뿌리)을
+    같은 변환으로 옮긴다. body_fn/tail_fn: 몸통·꼬리 Part(들)를 직접 만드는 함수 (몸통 좌표 / tail_root 기준)."""
+    b, drop = _ST["body"], (1 - _ST["leg"]) * LEG_SHOW if support else 0.0  # support: 다리로 서 있음 (엎드림은 아님)
+    staged = b != 1 or drop != 0
+    mt = _xf_matrix(**(torso or {}))
+    mti = _inv(mt)
+    stage_m = _xf_matrix(dy=drop, sx=b, sy=b, pivot=SIDE_BODY_PIVOT)
+
+    def move(p):  # 몸통에 붙은 점(전체 좌표) → 단계 비율 위치
+        return _apply(mt, _apply(stage_m, _apply(mti, p))) if staged else p
+
+    def delta(p):
+        q = move(p)
+        return q[0] - p[0], q[1] - p[1]
+
     with xf(**(whole or {})):
         parts = list(before)
         if leg_specs:
-            parts.append(legs(sp, leg_specs))
+            parts.append(legs(sp, leg_specs, move=move if staged else None))
         with xf(**(torso or {})):
-            parts.append(side_torso(sp))
-        parts.append(side_tail(sp, **(tail or {})))
-        with xf(**(head or {})):
-            hp, face = side_head(sp, **(head_kw or {}))
+            with xf(dy=drop, sx=b, sy=b, pivot=SIDE_BODY_PIVOT):
+                body = body_fn() if body_fn else side_torso(sp)
+                parts += body if isinstance(body, list) else [body]
+        if tail_fn:
+            tdx, tdy = delta(tail_root)
+            with xf(dx=tdx, dy=tdy, sx=b, sy=b, pivot=tail_root):
+                parts.append(tail_fn())
+        else:
+            tk = dict(tail or {})
+            if staged:
+                at0 = tk.get("at") or sp.tail_root
+                at1 = move(at0)
+                tk["at"] = (at1[0], min(at1[1], max(at0[1], 108)))  # 바닥에 놓인 꼬리는 바닥 아래로 내려가지 않게
+                tk["sx"], tk["sy"] = tk.get("sx", 1.0) * b, tk.get("sy", 1.0) * b
+            parts.append(side_tail(sp, **tk))
+        hdx, hdy = delta(_apply(_xf_matrix(**(head or {})), SIDE_NECK))
+        if not support:
+            hdy = min(hdy, 0.0)  # 엎드린 머리는 앞발 위에 그대로 (바닥을 뚫지 않게)
+        with xf(dx=hdx, dy=hdy):
+            with xf(**(head or {})):
+                hp, face = side_head(sp, **(head_kw or {}))
         parts += hp
         parts += list(after)
     return compose(parts, face + list(ops), fx)
@@ -619,7 +769,7 @@ def idle(sp, i):
 
 def look(sp, i):
     rot, dy = [(-12, -1), (0, 0), (12, 2), (0, 0)][i]
-    return _sit_side(sp, head=dict(dy=-1 + dy, rot=rot), head_kw=dict(eyes="closed" if i == 3 else "dot"))
+    return _sit_side(sp, head=dict(dy=-1 + dy, rot=_swing(rot)), head_kw=dict(eyes="closed" if i == 3 else "dot"))
 
 
 def _lying(sp, i, eyes, mouth, ear_rot, fx):
@@ -627,19 +777,21 @@ def _lying(sp, i, eyes, mouth, ear_rot, fx):
     paws = [Part([E(86, 112, 112, 125.5)], sp.base, outline=True), Part([E(98, 112.5, 125, 125.5)], sp.base, outline=True)]
     return _side(sp, torso=dict(sx=1.04, sy=0.66 + 0.012 * i, pivot=(58, 110), dy=14.5, dx=-6),
                  tail=dict(at=(26, 113), rot=100, sy=0.8),
-                 head=dict(sx=0.98, sy=0.76, pivot=(88, 78), dy=46 - 0.3 * i, dx=-2),
+                 head=dict(sx=0.98, sy=0.76 / _ST["head"] ** 0.8, pivot=(88, 78), dy=46 - 0.3 * i, dx=-2),  # 큰 머리도 납작하게 엎드림
                  head_kw=dict(eyes=eyes, mouth=mouth, ear_rot=ear_rot, ear_dy=4),
-                 leg_specs=[(32, 108, 125, 30, 22)], after=paws, fx=fx)
+                 leg_specs=[(32, 108, 125, 30, 22)], after=paws, fx=fx, support=False)
 
 
 def sleep(sp, i):
-    zs = [z_fx(106, 66, 3.4), z_fx(117, 55, 2.6)] if i == 0 else [z_fx(108, 63, 3.6), z_fx(120, 51, 2.8)]
+    u = (_ST["head"] - 1) * 48  # 큰 머리(아기)일수록 z를 위로
+    zs = [z_fx(106, 66 - u, 3.4), z_fx(117, 55 - u, 2.6)] if i == 0 else [z_fx(108, 63 - u, 3.6), z_fx(120, 51 - u, 2.8)]
     return _lying(sp, i, "closed", None, sp.lie_ears, zs)
 
 
 def annoyed(sp, i):
     a, b = sp.lie_ears
-    return _lying(sp, i, "squint", "pout", (a, b - 26) if i == 0 else (a, b - 12), [anger_fx(116, 74 - i, 7.5)])
+    u = (_ST["head"] - 1) * 40
+    return _lying(sp, i, "squint", "pout", (a, b - 26) if i == 0 else (a, b - 12), [anger_fx(116, 74 - i - u, 7.5)])
 
 
 def hop(sp, i):
@@ -681,63 +833,82 @@ def land(sp, i):
 
 
 def arch(sp, i):
-    """하악질: 뒤집힌 U자로 높이 휜 등(아래로 빈 틈), 꼿꼿한 다리, 펑 부푼 꼬리, 등털 삐죽, 귀 젖힘, 송곳니, 동그란 눈."""
+    """하악질 (무서운 척하는 아기 고양이): 둥글게 솟은 등(완만한 혹), 곧지만 짧은 다리를 살짝 벌림, 위로 선 복슬 꼬리,
+    등에 작은 털 몇 가닥, 귀는 살짝 뒤로, 큰 눈 + 화난 눈썹, 작게 벌린 입에 송곳니 두 개."""
     puff = [0.55, 1.0, 1.0][i]
-    cx, cy, rx, ry = 46, 98, 28, 46 + 12 * puff
+    cx, cy, rx, ry = 56, 104, 31, 22 + 6 * puff
     band = lambda w, dy=0: L(arc(cx, cy + dy, rx, ry, 180, 360, 24), w)
-    with xf(dy=-1 if i == 2 else 0):
-        stripes = [L([(cx + rx * math.cos(math.radians(a)) * 1.0, cy + ry * math.sin(math.radians(a)) - 10),
-                      (cx + rx * math.cos(math.radians(a)) * 1.0, cy + ry * math.sin(math.radians(a)) - 2)], 2.8) for a in (235, 260, 285)]
-        body = Part([band(26)], sp.base, [([band(20, -6)], sp.back), (stripes, CAT_ST)], grow=4)
-        spikes = []
-        for t in range(6):
-            a = math.radians(208 + t * 22)
-            ox, oy = (rx + 12) * math.cos(a), (ry + 12) * math.sin(a)
-            bx, by = cx + ox, cy + oy
-            nx, ny = math.cos(a) / (rx + 12), math.sin(a) / (ry + 12)
-            nn = math.hypot(nx, ny)
-            nx, ny = nx / nn, ny / nn
-            ln = 2.5 + 4.5 * puff
-            spikes.append(T((bx - ny * 3.6, by + nx * 3.6), (bx + nx * ln, by + ny * ln), (bx + ny * 3.6, by - nx * 3.6)))
-        spike_part = Part(spikes, sp.back, sharp=True, grow=1)
-        # 펑 부푼 꼬리: 줄기 둘레에 동그라미를 엇갈려 붙여 울퉁불퉁한 털 뭉치로
-        r = 5 + 3.5 * puff
-        stem = [(25, 66), (15, 50), (12, 34), (15, 20 + 4 * (1 - puff))]
-        puffs = [C(x + 3 + (2 if k % 2 else -2), y, r) for k, (x, y) in enumerate([
-            (22, 64), (16, 55), (11, 46), (9, 37), (10, 28), (12, 21 + 4 * (1 - puff))])]
-        tail = Part(puffs + [L(stem, 1.6 * r)], sp.tail_color, [([L([(5, 46), (23, 44)], 3), L([(3, 32), (21, 31)], 3)], CAT_ST)], outline=True)
-        leg_part = legs(sp, [(cx - rx - 2, 92, 124, -4, 16), (cx - rx + 10, 94, 125, 4, 15), (cx + rx - 6, 94, 125, -4, 15), (cx + rx + 4, 92, 124, 4, 16)])
-        with xf(dx=0, dy=20, pivot=(82, 72)):
-            hp, face = side_head(sp, eyes="round", mouth="hiss", ear_rot=(-34, -28), ear_dy=2)
-    return compose([leg_part, spike_part, body, tail] + hp, face)
+    top = lambda a, out=0.0: (cx + rx * math.cos(math.radians(a)), cy + ry * math.sin(math.radians(a)) - out)
+
+    def body():
+        stripes = [L([(x, y - 7), (x + 1, y + 2)], 2.8) for x, y in (top(a) for a in (236, 258, 280))]
+        torso = Part([band(28)], sp.base, [([band(20, -6)], sp.back), (stripes, CAT_ST)], grow=4)
+        tufts = []
+        for a in (246, 266, 286):
+            bx, by = top(a, 12)
+            ln = 4 + 3 * puff
+            tufts.append(T((bx - 3.4, by + 1), (bx + 1.5, by - ln), (bx + 3.4, by + 1)))
+        return [torso, Part(tufts, sp.back, sharp=True, grow=1)]
+
+    root = (28, 94)
+
+    def tail():  # 위로 선 복슬 꼬리: 줄기 양옆에 동그라미를 엇갈려 붙여 둥근 지그재그 털 가장자리
+        r = 3.6 + 2.2 * puff
+        stem = [(28, 94), (18, 84), (13, 70), (12, 56), (16, 44 + 4 * (1 - puff))]
+        pts = [stem[0]]
+        for (x0, y0), (x1, y1) in zip(stem, stem[1:]):
+            pts += [(x0 + (x1 - x0) * t / 3, y0 + (y1 - y0) * t / 3) for t in (1, 2, 3)]
+        fluff = []
+        for k, (x, y) in enumerate(pts[2:]):
+            side = 1 if k % 2 else -1
+            fluff.append(C(x + side * r * 0.75, y, r))
+        fluff.append(C(pts[-1][0], pts[-1][1] - r * 0.5, r * 1.05))
+        return Part(fluff + [L(pts, 1.5 * r)], sp.tail_color, [([L([(0, 74), (24, 72)], 3), L([(0, 60), (22, 59)], 3)], CAT_ST)],
+                    outline=True)
+
+    leg_specs = [(cx - rx - 2, 96, 125, -7, 16), (cx - rx + 10, 98, 125, -2, 15), (cx + rx - 10, 98, 125, 2, 15), (cx + rx + 2, 96, 125, 7, 16)]
+    return _side(sp, whole=dict(dy=-1 if i == 2 else 0), body_fn=body, tail_fn=tail, tail_root=root, leg_specs=leg_specs,
+                 head=dict(dx=2, dy=5, pivot=(82, 72)),
+                 head_kw=dict(eyes="big", mouth="fang", brow="angry", ear_rot=(-16, -12)))
 
 
 # ---- 앞모습 포즈 ----
+FRONT_BODY_PIVOT = (64, 124)  # 앞모습 몸 바닥 가운데 — 단계 몸 배율의 기준
+
+
 def _front(sp, *, head=None, body=None, whole=None, tail_rot=0.0, eyes="dot", mouth=None, tongue_dy=0, leg_dy=(0, 0),
-           arms=(), paws=(), held=None, tail_desc=None, fx=()):
-    """앞모습 공통 조립: 몸 → 꼬리 → 머리 → 팔·앞발."""
+           arms=(), paws=(), held=None, tail_desc=None, fx=(), head_kw=None, front_props=(), arm_fn=front_arm, toes=False):
+    """앞모습 공통 조립: 몸 → 꼬리 → 머리 → 팔·앞발 → 소품.
+    단계 비율: 몸·팔·앞발은 FRONT_BODY_PIVOT 기준 body배, 머리는 줄어든 몸 위(턱 기준)로 내려앉는다.
+    front_props: 맨 앞에 놓는 소품 Part를 만드는 함수 (프레임 좌표, 단계 배율 없음)."""
+    b = _ST["body"]
+    stage_body = dict(sx=b, sy=b, pivot=FRONT_BODY_PIVOT)
     with xf(**(whole or {})):
         with xf(**(body or {})):
-            parts = [front_body(sp, leg_dy)]
-            if tail_desc is not None:
-                rx, ry = sp.front_tail_root
-                with xf(dx=rx, dy=ry, rot=tail_rot, pivot=(0, 0)):
-                    parts.append(Part([shape(d) for d in tail_desc], sp.front_tail_color))
-            else:
-                parts.append(front_tail(sp, tail_rot))
-        with xf(**(head or {})):
-            hp, face = front_head(sp, eyes, mouth, tongue_dy)
+            with xf(**stage_body):
+                parts = [front_body(sp, leg_dy)]
+                if tail_desc is not None:
+                    rx, ry = sp.front_tail_root
+                    with xf(dx=rx, dy=ry, rot=tail_rot, pivot=(0, 0)):
+                        parts.append(Part([shape(d) for d in tail_desc], sp.front_tail_color))
+                else:
+                    parts.append(front_tail(sp, tail_rot))
+        with xf(dy=(1 - b) * (FRONT_BODY_PIVOT[1] - 84)):
+            with xf(**(head or {})):
+                hp, face = front_head(sp, eyes, mouth, tongue_dy, **(head_kw or {}))
         parts.append(hp)
         ops = list(face)
         with xf(**(body or {})):
-            if held:
-                parts.append(held())
-            for side, rot in arms:
-                ap, aops = front_arm(sp, side, rot)
-                parts.append(ap)
-                ops += aops
-            for cx, cy in paws:
-                parts.append(front_paw(sp, cx, cy))
+            with xf(**stage_body):
+                if held:
+                    parts.append(held())
+                for side, rot in arms:
+                    ap, aops = arm_fn(sp, side, rot)
+                    parts.append(ap)
+                    ops += aops
+                for cx, cy in paws:
+                    parts.append(front_paw(sp, cx, cy, toes=toes))
+        parts += [f() for f in front_props]
     return compose(parts, ops, fx)
 
 
@@ -749,8 +920,13 @@ def wave(sp, i):
     return _front(sp, arms=[(1, [0, 26, 0, 26][i])], head=dict(rot=[-3, -1, -3, -1][i], pivot=(64, 84)))
 
 
+def _swing(v):
+    """머리를 돌리는 각도·흔드는 폭: 큰 머리(아기)는 덜 돌려 프레임 안에 둔다."""
+    return v / max(1.0, _ST["head"]) ** 4
+
+
 def tilt(sp, i):
-    deg = [8, 12, 12][i]
+    deg = _swing([8, 12, 12][i])
     return _front(sp, head=dict(rot=deg, pivot=(64, 84), dy=2), fx=[question_fx(18, 26 + [2, 0, -2][i])])
 
 
@@ -796,7 +972,7 @@ def heart(sp, i):
 
 def tickle(sp, i):
     dx, rot = [(-2, -4), (2, 4), (0, 0)][i]
-    return _front(sp, whole=dict(dx=dx, dy=-1, rot=rot, pivot=(64, 124)), eyes="happy", mouth="open",
+    return _front(sp, whole=dict(dx=_swing(dx), dy=-1, rot=_swing(rot), pivot=(64, 124)), eyes="happy", mouth="open",
                   arms=[(1, [-6, 18, 6][i]), (-1, [18, -6, 6][i])], leg_dy=[(-3, 0), (0, -3), (-2, -2)][i])
 
 
@@ -807,30 +983,87 @@ def wag(sp, i):
 
 
 def roll(sp, i):
-    """공처럼 만 몸: 회전 중심 (64, 88), 반지름 ROLL_RADIUS 원 안. 꼬리가 아래를 감싸고 얼굴은 ^^."""
+    """몸을 동글게 만 털뭉치: 옆으로 조금 납작한 달걀꼴 (가로:세로 ≈ 1.15:1) 위로 머리·귀가 볼록, 아래로 앞발,
+    옆으로 꼬리가 삐죽 나온다. 회전 중심 (64, 88) — 모든 픽셀이 반지름 ROLL_RADIUS 원 안 (안 보이는 원으로 잘라 둔다)."""
     cx, cy = ROLL_CENTER
-    r = (ROLL_RADIUS - 4.4) * (0.86 if sp.scale < 0.9 else 1.0)
+    k = 0.9 if sp.scale < 0.9 else 1.0  # 귀가 긴 토끼는 조금 작게
+    rx, ry = 33 * k, 23 * k
     with view(scale=1.0, lift=0):
-        ball = Part([C(cx, cy, r)], sp.back, [([C(cx + r * 0.1, cy + r * 0.25, r * 0.8)], sp.belly)], grow=0)
-        tail = Part([L(arc(cx, cy, r * 0.9, r * 0.9, 120, 215, 12), 13)], sp.tail_color, outline=True)
-        paws = [Part([E(cx - 15, cy + 15, cx - 3, cy + 25)], sp.base, outline=True), Part([E(cx + 3, cy + 15, cx + 15, cy + 25)], sp.base, outline=True)]
-        s = r / 34 * 0.6
-        with xf(dx=cx - 64, dy=cy - 6 - 50, sx=s, sy=s, pivot=(64, 50)):
-            hp, face = front_head(sp, "happy", None, outline=True)
-        if i == 1:  # 두 번째 프레임은 볼이 더 발그레
-            with xf(dx=cx - 64, dy=cy - 6 - 50, sx=s, sy=s, pivot=(64, 50)):
-                face = face + [([E(22, 60, 44, 72), E(84, 60, 106, 72)], BLUSH)] + blush(33, 66)[1:] + blush(95, 66)[1:]
-        clip = shapes([C(cx, cy, r)])
+        ball = Part([E(cx - rx, cy - ry + 2, cx + rx, cy + ry + 2)], sp.back,
+                    [([E(cx - rx * 0.7, cy - ry * 0.1, cx + rx * 0.8, cy + ry + 1)], sp.belly)], grow=0)
+        tail = Part([L(arc(cx - 1, cy + 3, rx + 1, ry + 1, 112, 196, 12), 10.5 * k)], sp.tail_color, outline=True)
+        paws = [Part([E(cx - 15, cy + ry - 6, cx - 2, cy + ry + 5)], sp.base, outline=True),
+                Part([E(cx + 3, cy + ry - 7, cx + 16, cy + ry + 4)], sp.base, outline=True)]
+        s = 0.55 * k / _ST["head"]  # 공 안의 머리는 단계 머리 배율 없이 (귀가 회전 원 밖으로 나가지 않게)
+        head_at = dict(dx=cx + 4 - 64, dy=cy - 5 - 50, sx=s, sy=s, pivot=(64, 50))
+        with xf(rot=[-6, 6][i], pivot=(cx, cy - 6)):
+            with xf(**head_at):
+                hp, face = front_head(sp, "happy", None, outline=True)
+                if i == 1:  # 두 번째 프레임은 볼이 더 발그레
+                    face = face + [([E(22, 60, 44, 72), E(84, 60, 106, 72)], BLUSH)] + blush(33, 66)[1:] + blush(95, 66)[1:]
+        clip = shapes([C(cx, cy, ROLL_RADIUS - 1.25 * OUTLINE * _ST["line"] - 1.2)])
     return compose([ball, tail, hp] + paws, face, clip=clip)
+
+
+def hungry(sp, i):
+    """배고파 시무룩: 처진 눈썹 + ︶ 눈, 작게 뒤집힌 입, 한 앞발로 배를 문지르고 머리 위에 🍙 생각 풍선."""
+    dx, dy = [(-2, 0), (0, 2), (2, 0)][i]
+    return _front(sp, eyes="closed", mouth="frown", head=dict(dy=2, rot=-4, pivot=(64, 84)), head_kw=dict(brow="sad"),
+                  tail_rot=6, paws=[(56 + dx, 100 + dy)], toes=True, fx=thought_fx(108, 17))
+
+
+BOWL, BOWL_LIGHT, RICE, RICE_GRAIN = (246, 196, 150), (252, 226, 196), (255, 255, 252), (230, 222, 206)
+
+
+def bowl_parts():
+    """앞에 놓인 밥그릇 (낮은 반원, 갈색 외곽선) + 소복한 밥."""
+    rice = Part([E(41, 92, 87, 112)], RICE, [([E(52 + 9 * k - 1.6, 97 + (k % 2) * 5 - 1, 52 + 9 * k + 1.6, 97 + (k % 2) * 5 + 1) for k in range(4)], RICE_GRAIN)],
+                outline=True)
+    bowl = Part([T(*arc(64, 103, 27, 21, 0, 180, 20))], BOWL, [([L([(40, 110), (88, 110)], 2.6)], BOWL_LIGHT)], outline=True)
+    return [rice, bowl]
+
+
+def eat(sp, i):
+    """밥그릇 위로 고개 숙여 냠냠: 머리 3px 위아래, 입 벌림(앙)/다묾(볼 빵빵), 그릇에서 밥알 부스러기."""
+    bite = i % 2 == 0
+    crumbs = [[(36, 92), (93, 88)], [(31, 84), (97, 80), (89, 92)], [(38, 90), (92, 86)], [(33, 81), (96, 78), (40, 92)]][i]
+    fx = []
+    for x, y in crumbs:
+        fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], RICE, 0)]
+    paws = [(36, 101), (92, 101)]
+    return _front(sp, eyes="happy" if bite else "closed", mouth="open" if bite else "chew", head_kw=dict(cheeks=not bite),
+                  head=dict(dy=8 if bite else 5), fx=fx,
+                  front_props=[lambda: bowl_parts()[0], lambda: bowl_parts()[1]] + [lambda p=p: front_paw(sp, *p) for p in paws])
+
+
+def level_up(sp, i):
+    """레벨 업 만세: 양팔 번쩍, 눈 ^^, 활짝 웃음, 노란 반짝이 (프레임마다 자리·크기 변화), 프레임 2는 1px 점프."""
+    lift = [12, 17, 20][i]
+    stars = [[(18, 40, 5.5), (110, 34, 4.0), (22, 86, 3.6), (106, 84, 5.0)],
+             [(20, 30, 4.2), (106, 26, 6.0), (18, 74, 5.0), (110, 74, 3.6)],
+             [(18, 50, 6.0), (110, 44, 4.6), (24, 22, 3.8), (104, 16, 4.4)]][i]
+    fx = [f for x, y, r in stars for f in sparkle_fx(x, y, r)]
+    return _front(sp, whole=dict(dy=-1 if i == 2 else 0), eyes="happy", mouth="big", arms=[(1, lift), (-1, lift)],
+                  arm_fn=raised_arm, fx=fx)
+
+
+def huff(sp, i):
+    """흥! (고양이 전용): 시큰둥 반눈, 한쪽 볼 빵빵, 뾰로통 입, 💢, 0 정면 → 1·2 고개를 돌려 턱을 들고 코는 하늘로, 꼬리 탁탁."""
+    head = [dict(), dict(rot=-9, dy=-1, pivot=(64, 84)), dict(rot=-12, dy=-2, pivot=(64, 84))][i]
+    face = [(0, 0), (6, -2), (7, -3)][i]
+    u = (_ST["head"] - 1) * 40
+    return _front(sp, eyes="flat", mouth="pout", head=head, head_kw=dict(cheeks="right", face=face), tail_rot=[0, -16, 12][i],
+                  fx=[anger_fx(24, 24 - u + [0, -1, -2][i], 6.0)])
 
 
 POSES = {"walk": walk, "run": run, "roll": roll, "idle": idle, "look": look, "sleep": sleep, "hop": hop, "fall": fall,
          "dragged": dragged, "land": land, "sit_front": sit_front, "wave": wave, "tilt": tilt, "belly": belly,
-         "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "arch": arch, "wag": wag}
+         "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "arch": arch, "wag": wag,
+         "hungry": hungry, "eat": eat, "level_up": level_up, "huff": huff}
 
 
 def frames(sp, anim, n):
-    with view(scale=sp.scale):
+    with view(scale=sp.scale * _ST["fit"], lift=LIFT + 1.7 * OUTLINE * (_ST["line"] - 1)):  # 굵은 외곽선만큼 더 올린다
         return [POSES[anim](sp, i) for i in range(n)]
 
 
@@ -841,30 +1074,73 @@ def rows_for(sp):
     return list(ANIMS) + [o for o in OPTIONAL_ANIMS if o[0] in sp.specials]
 
 
-def render_species(sp):
-    return {anim: frames(sp, anim, n) for anim, n, *_ in rows_for(sp)}
+_RENDERED = {}  # (종, 단계) → {동작: [프레임]} — 한 프로세스에서 여러 번 build해도 한 번만 그린다
 
 
-def write_species(sp, out_dir, rendered=None):
-    rendered = rendered or render_species(sp)
+def render_species(sp, stage_name="teenager"):
+    key = (sp.id, stage_name)
+    if key not in _RENDERED:
+        with stage(stage_name):
+            _RENDERED[key] = {anim: frames(sp, anim, n) for anim, n, *_ in rows_for(sp)}
+    return _RENDERED[key]
+
+
+def write_sheet(sp, rendered, path):
     rows = rows_for(sp)
     cols = max(n for _, n, *_ in rows)
     sheet = Image.new("RGBA", (cols * FRAME, len(rows) * FRAME), (0, 0, 0, 0))
     for r, (anim, *_) in enumerate(rows):
         for c, im in enumerate(rendered[anim]):
             sheet.paste(im, (c * FRAME, r * FRAME))
+    sheet.save(path)
+
+
+def write_species(sp, out_dir):
+    """sheet_<stage>.png 5장 + sheet.png(= sheet_teenager.png 바이트 그대로) + pet.json. {stage: {anim: [frames]}} 반환."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    sheet.save(out_dir / "sheet.png")
-    counts = {anim: len(rendered[anim]) for anim, *_ in rows}
-    m = manifest(sp.name, sp.walk_speed, counts, SPEECH[sp.id])
+    by_stage = {}
+    for st in STAGES:
+        by_stage[st] = render_species(sp, st)
+        write_sheet(sp, by_stage[st], out_dir / f"sheet_{st}.png")
+    shutil.copyfile(out_dir / "sheet_teenager.png", out_dir / "sheet.png")
+    counts = {anim: len(by_stage["teenager"][anim]) for anim, *_ in rows_for(sp)}
+    m = manifest(sp.name, sp.walk_speed, counts, SPEECH[sp.id], FAVORITE_FOOD[sp.id], STAGES, sp.stage_size)
+    if sp.id in PERSONALITY:
+        m["personality"] = PERSONALITY[sp.id]
     (out_dir / "pet.json").write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return rendered
+    return by_stage
 
 
 def build(out_root):
-    """모든 종의 sheet.png + pet.json을 out_root/<id>/에 쓴다. {id: {anim: [frames]}} 반환."""
+    """모든 종의 시트·pet.json을 out_root/<id>/에 쓴다. {id: {stage: {anim: [frames]}}} 반환."""
     out_root = Path(out_root)
     return {pid: write_species(sp, out_root / pid) for pid, sp in SPECIES.items()}
+
+
+STAGE_PREVIEW_ANIMS = ["walk", "roll", "sit_front", "hungry", "eat", "level_up"]
+
+
+def preview_stages(by_stage, sp, path, bg=(255, 255, 255)):
+    """한 동물의 5단계 × 대표 동작 (첫 프레임) + 오른쪽에 화면 표시 크기(STAGE_SCALE)로 줄인 sit_front."""
+    from PIL import ImageFont
+    names = STAGE_PREVIEW_ANIMS + [o[0] for o in OPTIONAL_ANIMS if o[0] in sp.specials]
+    cell, label = FRAME + 4, 70
+    W = label + len(names) * cell + 24 + cell
+    H = 24 + len(STAGES) * cell
+    img = Image.new("RGBA", (W, H), bg + (255,))
+    d = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    for c, anim in enumerate(names + ["(display)"]):
+        d.text((label + c * cell + (24 if c == len(names) else 0), 6), anim, fill=(60, 60, 60), font=font)
+    for r, st in enumerate(STAGES):
+        y = 24 + r * cell
+        d.text((4, y + FRAME // 2), st, fill=(60, 60, 60), font=font)
+        for c, anim in enumerate(names):
+            img.alpha_composite(by_stage[st][anim][0], (label + c * cell, y))
+        k = STAGE_SCALE[st] / STAGE_SCALE["adult"]
+        small = by_stage[st]["sit_front"][0].resize((round(FRAME * k), round(FRAME * k)), Image.LANCZOS)
+        img.alpha_composite(small, (label + len(names) * cell + 24 + (FRAME - small.width) // 2, y + FRAME - small.height))
+    img.save(path)
 
 
 def preview(all_frames, path, bg):
@@ -883,7 +1159,7 @@ def preview(all_frames, path, bg):
     for r, anim in enumerate(names):
         d.text((4, 30 + r * cell + FRAME // 2), anim, fill=fg, font=font)
         for si, pid in enumerate(SPECIES):
-            for c, im in enumerate(all_frames[pid].get(anim, [])):
+            for c, im in enumerate(all_frames[pid]["teenager"].get(anim, [])):
                 img.alpha_composite(im, (label + si * (block + gap) + c * cell, 30 + r * cell))
     img.save(path)
 
@@ -895,6 +1171,8 @@ def main():
     pv.mkdir(exist_ok=True)
     preview(all_frames, pv / "all_light.png", (255, 255, 255))
     preview(all_frames, pv / "all_dark.png", (40, 44, 52))
+    for pid, sp in SPECIES.items():
+        preview_stages(all_frames[pid], sp, pv / f"stages_{pid}.png")
     print("ok:", ", ".join(SPECIES))
 
 

@@ -1,5 +1,5 @@
 {
-  "name": "비버",
+  "name": "곰",
   "frame_size": 128,
   "walk_speed": 60,
   "animations": {
@@ -103,11 +103,30 @@
       "row": 17,
       "frames": 2,
       "fps": 2
+    },
+    "hungry": {
+      "row": 18,
+      "frames": 3,
+      "fps": 3,
+      "front": true
+    },
+    "eat": {
+      "row": 19,
+      "frames": 4,
+      "fps": 6,
+      "front": true
+    },
+    "level_up": {
+      "row": 20,
+      "frames": 3,
+      "fps": 6,
+      "loop": false,
+      "front": true
     }
   },
   "speech": {
     "chatter": [
-      "chomp!",
+      "grr~",
       "hmm~"
     ],
     "tickle": [
@@ -115,6 +134,35 @@
     ],
     "grumpy": [
       "hmph!"
+    ],
+    "hungry": [
+      "hungry...",
+      "food?"
+    ],
+    "full": [
+      "full~"
+    ],
+    "level_up": [
+      "yay!",
+      "♪♪"
     ]
+  },
+  "favorite_food": {
+    "emoji": "🍯",
+    "name": "꿀"
+  },
+  "stages": [
+    "baby",
+    "kinder",
+    "child",
+    "teenager",
+    "adult"
+  ],
+  "stage_size": {
+    "baby": 1.0,
+    "kinder": 1.0,
+    "child": 1.1,
+    "teenager": 1.2,
+    "adult": 1.3
   }
 }

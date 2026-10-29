@@ -103,6 +103,25 @@
       "row": 17,
       "frames": 2,
       "fps": 2
+    },
+    "hungry": {
+      "row": 18,
+      "frames": 3,
+      "fps": 3,
+      "front": true
+    },
+    "eat": {
+      "row": 19,
+      "frames": 4,
+      "fps": 6,
+      "front": true
+    },
+    "level_up": {
+      "row": 20,
+      "frames": 3,
+      "fps": 6,
+      "loop": false,
+      "front": true
     }
   },
   "speech": {
@@ -115,6 +134,35 @@
     ],
     "grumpy": [
       "hmph!"
+    ],
+    "hungry": [
+      "hungry...",
+      "food?"
+    ],
+    "full": [
+      "full~"
+    ],
+    "level_up": [
+      "yay!",
+      "♪♪"
     ]
+  },
+  "favorite_food": {
+    "emoji": "🥕",
+    "name": "당근"
+  },
+  "stages": [
+    "baby",
+    "kinder",
+    "child",
+    "teenager",
+    "adult"
+  ],
+  "stage_size": {
+    "baby": 0.85,
+    "kinder": 0.85,
+    "child": 0.85,
+    "teenager": 0.85,
+    "adult": 0.85
   }
 }
