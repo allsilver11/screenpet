@@ -133,6 +133,16 @@
       "frames": 3,
       "fps": 4,
       "front": true
+    },
+    "climb": {
+      "row": 23,
+      "frames": 4,
+      "fps": 6
+    },
+    "slide": {
+      "row": 24,
+      "frames": 2,
+      "fps": 8
     }
   },
   "speech": {

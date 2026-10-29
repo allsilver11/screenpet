@@ -122,6 +122,16 @@
       "fps": 6,
       "loop": false,
       "front": true
+    },
+    "climb": {
+      "row": 21,
+      "frames": 4,
+      "fps": 6
+    },
+    "slide": {
+      "row": 22,
+      "frames": 2,
+      "fps": 8
     }
   },
   "speech": {

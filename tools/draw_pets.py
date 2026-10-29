@@ -1,7 +1,7 @@
-"""카와이 스프라이트 생성기 — 4종 × 21동작 (+ 고양이 arch, 강아지 wag) × 성장 5단계, 128px.
+"""카와이 스프라이트 생성기 — 4종 × 21동작 (+ 고양이 arch·huff, 강아지 wag, 고양이·곰 뒷모습 climb·slide) × 성장 5단계, 128px.
 
     python tools/draw_pets.py  → ui/pets/<id>/{sheet_<stage>.png ×5, sheet.png (= teenager), pet.json}
-                                 + tools/preview/{all_light,all_dark,stages_<id>}.png
+                                 + tools/preview/{all_light,all_dark,stages_<id>,climb_<id>}.png
 
 구성:
   1. 엔진      — 4배 슈퍼샘플 마스크, 변환 스택(xf), 도형(E/T/L), 녹이기(melt)로 한 덩어리 실루엣 + 굵은 외곽선
@@ -9,7 +9,7 @@
   3. 종별 설정 — 색과 무늬(데이터). 앞모습/옆모습 머리·몸·꼬리·귀를 표준 좌표계로 적는다
   4. 부품      — 종별 설정을 현재 변환 아래에서 Part로 만든다
   5. 포즈      — 동작별 공통 뼈대. 부품을 옮기고 돌려 배치할 뿐 종별 분기는 없다.
-                 성장 단계(STAGE_PROPS)는 머리·몸·다리 배율로 모든 포즈에 똑같이 적용된다 (_side/_front/머리 부품)
+                 성장 단계(STAGE_PROPS)는 비율·눈·귀·꼬리·색·무늬 단계로 모든 포즈에 똑같이 적용된다 (_side/_front/_back/부품)
   6. 출력      — 시트·매니페스트·미리보기
 """
 
@@ -18,7 +18,7 @@ import math
 import shutil
 import sys
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 
 import numpy as np
@@ -91,27 +91,55 @@ def xf(dx=0.0, dy=0.0, rot=0.0, sx=1.0, sy=1.0, pivot=(64, 126)):
         _XF.pop()
 
 
-# ---- 성장 단계별 비율 ----
-# head: 머리 배율 · body: 몸 배율 · leg: 다리 길이 · line: 외곽선 굵기 배율 (표시 배율 0.45인 아기도 화면에서 ≥ 1.5px)
-# fit: 큰 머리·긴 다리가 프레임 안에 들어오게 전체를 줄이는 배율 (종 배율에 곱함)
+# ---- 성장 단계별 디자인 ----
+# 비율 — head: 머리 배율 · body: 몸 배율 · leg: 다리 길이 · fit: 프레임에 들어오게 전체를 줄이는 배율 (종 배율에 곱함)
+#        torso: 옆모습 몸통 (가로, 세로) 모양 · fbody: 앞모습 몸 (가로, 세로) 모양 (아기 = 동글 찹쌀떡, 어른 = 길쭉)
+# 선   — line: 외곽선 굵기 배율 (모든 단계 거의 같게) · soft: 외곽선 색을 몸 색 쪽으로 섞는 비율 (어릴수록 부드럽게)
+# 색   — pale: 몸 색을 크림색 쪽으로 섞는 비율 (어릴수록 파스텔)
+# 무늬 — lvl: 무늬 단계 (0 아기 … 4 어른). 종별 무늬는 (도형, 색, 최소 lvl | (최소, 최대))로 단계마다 늘어난다
+# 얼굴 — eye: 눈 크기 · eye_dy: 눈 높이 · sparkle: 반짝이 두 개 큰 눈 · calm: 반쯤 감은 느긋한 눈 · smile: 작게 벌린 웃는 입
+#        blush: 볼터치 (가로, 세로) 배율 · ear: 귀 크기 · tuft: 정수리 삐죽 털
+# 몸   — tail: 꼬리 길이 · tail_w: 꼬리 굵기 · cheek_fluff: 볼 지그재그 털
+# 종 특징 (Species.stage_tweak로 켠다) — whiskers: 수염 · snout: 주둥이 길이 · chest_fluff: 가슴 털
 STAGE_PROPS = {
-    "baby": dict(head=1.25, body=0.80, leg=0.60, line=1.5, fit=0.84),
-    "kinder": dict(head=1.15, body=0.88, leg=0.75, line=1.12, fit=0.91),
-    "child": dict(head=1.07, body=0.94, leg=0.88, line=1.0, fit=0.96),
-    "teenager": dict(head=1.0, body=1.0, leg=1.0, line=1.0, fit=1.0),
-    "adult": dict(head=0.93, body=1.06, leg=1.10, line=1.0, fit=0.97),
+    "baby": dict(head=1.25, body=0.80, leg=0.45, line=1.1, soft=0.22, fit=0.84, torso=(0.9, 1.14), fbody=(1.12, 1.0),
+                 pale=0.35, lvl=0, eye=1.5, eye_dy=2.5, sparkle=True, calm=False, smile=False, blush=(1.25, 1.45), ear=0.66,
+                 tuft=True, tail=0.5, tail_w=1.15, cheek_fluff=False),
+    "kinder": dict(head=1.15, body=0.88, leg=0.66, line=1.05, soft=0.14, fit=0.91, torso=(0.94, 1.08), fbody=(1.07, 1.0),
+                   pale=0.20, lvl=1, eye=1.3, eye_dy=1.5, sparkle=True, calm=False, smile=False, blush=(1.15, 1.3), ear=0.8,
+                   tuft=False, tail=0.72, tail_w=1.05, cheek_fluff=False),
+    "child": dict(head=1.07, body=0.94, leg=0.86, line=1.0, soft=0.0, fit=0.96, torso=(0.98, 1.02), fbody=(1.0, 1.0),
+                  pale=0.08, lvl=2, eye=1.12, eye_dy=0.5, sparkle=False, calm=False, smile=True, blush=(1.05, 1.1), ear=0.92,
+                  tuft=False, tail=0.88, tail_w=1.0, cheek_fluff=False),
+    "teenager": dict(head=1.0, body=1.0, leg=1.0, line=1.0, soft=0.0, fit=1.0, torso=(1.0, 1.0), fbody=(1.0, 1.0),
+                     pale=0.0, lvl=3, eye=1.0, eye_dy=0.0, sparkle=False, calm=False, smile=False, blush=(1.0, 1.0), ear=1.0,
+                     tuft=False, tail=1.0, tail_w=1.0, cheek_fluff=False),
+    "adult": dict(head=0.93, body=1.06, leg=1.12, line=1.0, soft=0.0, fit=0.93, torso=(1.06, 0.97), fbody=(1.0, 1.0),
+                  pale=0.0, lvl=4, eye=0.92, eye_dy=0.5, sparkle=False, calm=True, smile=False, blush=(0.95, 0.9), ear=1.0,
+                  tuft=False, tail=1.0, tail_w=1.22, cheek_fluff=True),
 }
-_ST = dict(STAGE_PROPS["teenager"])
+STAGE_FLAGS = dict(whiskers=False, snout=0.0, chest_fluff=False)  # 종 특징 기본값 (Species.stage_tweak로 덮어씀)
+_ST = dict(STAGE_PROPS["teenager"], **STAGE_FLAGS)
 
 
 @contextmanager
-def stage(name):
+def stage(name, tweak=None):
     old = dict(_ST)
+    _ST.update(STAGE_FLAGS)
     _ST.update(STAGE_PROPS[name])
+    _ST.update(tweak or {})
     try:
         yield
     finally:
+        _ST.clear()
         _ST.update(old)
+
+
+CREAM = (255, 250, 242)
+
+
+def mix(c, d, t):
+    return tuple(round(a + (b - a) * t) for a, b in zip(c, d))
 
 
 @contextmanager
@@ -229,31 +257,40 @@ class Part:
     grow: float = 2.0  # 녹인 틈(목·겨드랑이)까지 칠하려고 도형보다 넓게 칠하는 폭
     outline: bool = False  # 몸 앞에 겹친 조각(앞발·머리) — 자기 외곽선을 따로 그린다
     sharp: bool = False  # 녹이지 않음 (삐죽 털)
+    spikes: list = field(default_factory=list)  # 녹이지 않는 삐죽 조각 (정수리 털·볼 털) — 부품 영역에 포함
 
 
 def compose(parts, ops=(), fx=(), clip=None):
     """parts(뒤→앞 순서)를 한 실루엣으로 녹여 외곽선을 두르고 칠한다. ops: 얼굴 등 위에 얹는 (fns, color)."""
     raw = [shapes(p.shapes) for p in parts]
+    spk = [shapes(p.spikes) if p.spikes else None for p in parts]
     soft, sharp = blank(), blank()
-    for p, m in zip(parts, raw):
+    for p, m, k in zip(parts, raw, spk):
         if p.sharp:
             sharp = ImageChops.lighter(sharp, m)
         else:
             soft = ImageChops.lighter(soft, m)
+        if k is not None:
+            sharp = ImageChops.lighter(sharp, k)
     sil = ImageChops.lighter(melt(soft), sharp)
     if clip is not None:
         sil = ImageChops.multiply(sil, clip)
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    paint(img, aa(grow(sil, OUTLINE * _ST["line"])), LINE)
+    line = mix(LINE, parts[0].base, _ST["soft"])  # 어린 단계는 외곽선을 몸 색 쪽으로 부드럽게
+    paint(img, aa(grow(sil, OUTLINE * _ST["line"])), line)
     paint(img, aa(sil), parts[0].base)
-    for p, m in zip(parts, raw):
+    for p, m, k in zip(parts, raw, spk):
         if p.outline:
             m = melt(m, 1.0)
-            paint(img, aa(grow(m, PART_OUTLINE * _ST["line"])), LINE, clip=sil)
+            if k is not None:
+                m = ImageChops.lighter(m, k)
+            paint(img, aa(grow(m, PART_OUTLINE * _ST["line"])), mix(LINE, p.base or parts[0].base, _ST["soft"]), clip=sil)
             region = ImageChops.multiply(m, sil)
             if p.base:
                 paint(img, aa(m), p.base, clip=sil)
         else:
+            if k is not None:
+                m = ImageChops.lighter(m, k)
             region = ImageChops.multiply(grow(m, p.grow) if p.grow else m, sil)
             if p.base:
                 paint(img, region, p.base)
@@ -298,6 +335,49 @@ def eye(kind, cx, cy, flip=False):
     raise ValueError(kind)
 
 
+EYE_LIGHT = (138, 96, 92)  # 반짝 눈의 아래쪽 밝은 홍채
+
+
+def stage_eye(kind, cx, cy, flip=False):
+    """단계 디자인을 입힌 눈: 기본 눈("dot")은 아기·유아 = 반짝이 두 개 큰 눈, 어른 = 반쯤 감은 느긋한 눈.
+    다른 표정 눈(^^, ‿ …)은 단계 눈 크기에 맞춰 조금 키우거나 줄인다."""
+    es = _ST["eye"]
+    cy += _ST["eye_dy"]
+    if kind == "dot" and _ST["sparkle"]:
+        rx, ry = 4 * es, 5 * es
+        return [([E(cx - rx, cy - ry, cx + rx, cy + ry)], EYE),
+                ([E(cx - rx * 0.74, cy + ry * 0.08, cx + rx * 0.74, cy + ry * 0.88)], EYE_LIGHT),
+                ([E(cx - rx * 0.8, cy - ry * 0.8, cx - rx * 0.02, cy - ry * 0.12)], WHITE),
+                ([C(cx + rx * 0.4, cy + ry * 0.42, rx * 0.22)], WHITE)]
+    if kind == "dot" and _ST["calm"]:
+        rx, ry = 4 * es, 5 * es
+        return [([T(*arc(cx, cy, rx, ry, -12, 192, 16))], EYE), ([C(cx - rx * 0.36, cy + ry * 0.2, rx * 0.3)], WHITE),
+                ([L(arc(cx, cy + 0.6, rx + 1.3, 2.4, 180, 360, 10), 1.9)], EYE)]
+    k = es if kind == "dot" else es ** 0.6
+    with xf(sx=k, sy=k, pivot=(cx, cy)):
+        return eye(kind, cx, cy, flip)
+
+
+def strand(pts, w0, w1):
+    """끝이 가늘어지는 털 한 가닥 (다각형)."""
+    left, right = [], []
+    n = len(pts)
+    for k, (x, y) in enumerate(pts):
+        a, b = pts[max(k - 1, 0)], pts[min(k + 1, n - 1)]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        ln = math.hypot(dx, dy) or 1.0
+        w = (w0 + (w1 - w0) * k / (n - 1)) / 2
+        left.append((x - dy / ln * w, y + dx / ln * w))
+        right.append((x + dy / ln * w, y - dx / ln * w))
+    return T(*(left + right[::-1]))
+
+
+def tuft(cx, top):
+    """정수리에 삐죽 솟은 아기 털 두 가닥 (오른쪽은 동그랗게 말림). top: 머리 윗선."""
+    return [strand([(cx - 1, top + 4)] + arc(cx + 6, top - 6, 6, 7, 180, 300, 8), 4.6, 1.2),
+            strand([(cx - 3, top + 4), (cx - 5.5, top - 3), (cx - 9, top - 6.5)], 3.8, 1.0)]
+
+
 def brows(kind, cx, cy, flip=False):
     """눈 위 짧은 사선 눈썹. sad: 안쪽(코 쪽) 끝이 올라감 · angry: 안쪽 끝이 내려감. flip: 화면 오른쪽 눈."""
     s = -1 if flip else 1  # 안쪽 방향 (왼쪽 눈은 +x가 안쪽)
@@ -325,7 +405,8 @@ def thought_fx(cx, cy, r=12.5):
 
 
 def blush(cx, cy):
-    ops = [([E(cx - 7.5, cy - 5, cx + 7.5, cy + 5)], BLUSH)]
+    bx, by = _ST["blush"]
+    ops = [([E(cx - 7.5 * bx, cy - 5 * by, cx + 7.5 * bx, cy + 5 * by)], BLUSH)]
     for dx in (-3, 2):
         ops.append(([L([(cx + dx, cy + 2), (cx + dx + 2.4, cy - 2)], 1.2)], BLUSH_LINE))
     return ops
@@ -378,17 +459,20 @@ class Ear:
 
 @dataclass
 class Species:
+    """무늬 목록 항목: (도형들, 색) 또는 (도형들, 색, 단계) — 단계는 최소 lvl(int) 또는 (최소, 최대)."""
     id: str
     name: str
     walk_speed: float
     scale: float
     base: tuple  # 몸 바탕
-    back: tuple  # 등 색 (배 보이기·구르기에서 쓰임)
+    back: tuple  # 등 색 (배 보이기·구르기·뒷모습에서 쓰임)
     belly: tuple  # 배 색
     nose: tuple
     mouth: str  # "w" (고양이·토끼 ω) | "dog" (큰 코 + 갈라진 입: 강아지·곰)
-    front_ears: list  # 머리 도형에 합쳐지는 귀
-    front_head_marks: list  # [(descs, color)]
+    front_ears: list  # 머리 도형에 합쳐지는 귀 (왼쪽, 오른쪽)
+    front_ear_pivots: tuple  # 귀 크기를 바꿀 때 기준점 (귀 뿌리) — 왼쪽, 오른쪽
+    front_ear_marks: list  # 귀 안쪽 무늬 (귀와 함께 크기가 바뀐다; x < 64면 왼쪽 귀)
+    front_head_marks: list  # [(descs, color[, 단계])]
     front_body_marks: list
     front_tail: list
     front_tail_root: tuple
@@ -405,29 +489,44 @@ class Species:
     lie_ears: tuple = (-34, -30)  # 엎드렸을 때 귀를 뒤로 눕히는 각도
     specials: list = field(default_factory=list)
     stage_size: dict = field(default_factory=lambda: dict.fromkeys(STAGES, 1.0))  # pet.json stage_size: 공통 단계 배율에 곱하는 종 배율
+    stage_tweak: dict = field(default_factory=dict)  # {단계: STAGE_PROPS 덮어쓰기} — 종별 단계 특징 (수염·긴 주둥이 …)
+    stripe: tuple = None  # 줄무늬 색 (arch 꼬리 등)
+    back_head_marks: list = field(default_factory=list)  # 뒷모습 (climb·slide) 머리·몸 무늬 — 바탕은 back 색
+    back_body_marks: list = field(default_factory=list)
 
 
 def _stripe(pts, w=2.8):
     return ("L", pts, w)
 
 
+def _mirror(pts):
+    return [(128 - x, y) for x, y in pts]
+
+
 CAT_G, CAT_ST, CAT_W = (248, 190, 128), (234, 158, 96), (255, 250, 242)
 _cat_tail_line = [(26, 78), (12, 64), (10, 46), (16, 36)]
+_cat_lobe_stripes = [[(19, 35), (27, 37.5)], [(18, 43), (25, 44.5)]]
 CAT = Species(
     id="cat", name="고양이", walk_speed=90, scale=0.94, base=CAT_W, back=CAT_G, belly=CAT_W, nose=NOSE, mouth="w",
     front_ears=[("T", (20, 40), (24, 6), (52, 22)), ("T", (76, 22), (104, 6), (108, 40))],
+    front_ear_pivots=((38, 32), (90, 32)),
+    front_ear_marks=[([("T", (28, 30), (29, 14), (44, 23)), ("T", (84, 23), (99, 14), (100, 30))], PINK)],
     front_head_marks=[
         ([("E", -6, -20, 134, 44), ("E", 14, 20, 50, 52), ("E", 78, 20, 114, 52)], CAT_G),
-        ([("T", (60, 50), (62, 16), (66, 16), (68, 50))], CAT_W),  # 이마 흰 줄
-        ([("E", 79, 63, 91, 73)], CAT_G),  # 왼쪽 뺨 점
+        ([("T", (60, 50), (62, 16), (66, 16), (68, 50))], CAT_W, 1),  # 이마 흰 줄 (유아부터)
+        ([("E", 79, 63, 91, 73)], CAT_G, 1),  # 왼쪽 뺨 점 (유아부터)
         ([("E", 30, 44, 58, 66), ("E", 70, 44, 98, 66)], CAT_W),
-        ([("T", (28, 30), (29, 14), (44, 23)), ("T", (84, 23), (99, 14), (100, 30))], PINK),
-        ([_stripe([(x, 19), (x + (x - 64) * 0.08, 28)]) for x in (50, 57, 71, 78)], CAT_ST),
+        ([_stripe([(64, 18), (64, 28)])], CAT_ST, (0, 0)),  # 아기: 가운데 줄 하나
+        ([_stripe([(x, 19), (x + (x - 64) * 0.08, 28)]) for x in (56, 72)], CAT_ST, (1, 1)),
+        ([_stripe([(x, 19), (x + (x - 64) * 0.08, 28)]) for x in (50, 57, 71, 78)], CAT_ST, 2),
+        ([_stripe(p, 2.4) for p in _cat_lobe_stripes] + [_stripe(_mirror(p), 2.4) for p in _cat_lobe_stripes], CAT_ST, 4),
     ],
     front_body_marks=[
-        ([("E", 16, 68, 42, 112), ("E", 86, 68, 112, 112)], CAT_G),
-        ([("E", 86, 98, 112, 122)], CAT_G),
-        ([_stripe([(31, y), (37, y + 2)], 2.4) for y in (84, 95)] + [_stripe([(97, y), (91, y + 2)], 2.4) for y in (84, 95)], CAT_ST),
+        ([("E", 16, 68, 42, 112), ("E", 86, 68, 112, 112)], CAT_G, 1),
+        ([("E", 86, 98, 112, 122)], CAT_G, 1),
+        ([_stripe([(31, 84), (37, 86)], 2.4), _stripe([(97, 84), (91, 86)], 2.4)], CAT_ST, 2),
+        ([_stripe([(31, 95), (37, 97)], 2.4), _stripe([(97, 95), (91, 97)], 2.4)], CAT_ST, 3),
+        ([_stripe([(32, 74), (37, 76)], 2.2), _stripe([(96, 74), (91, 76)], 2.2)], CAT_ST, 4),
     ],
     front_tail=[("E", 90, 100, 108, 118)], front_tail_root=(94, 112), front_tail_color=CAT_G,
     side_ears=[Ear([("T", (58, 34), (64, 4), (84, 20))], (70, 26), CAT_G, [([("T", (65, 29), (66, 14), (77, 22))], PINK)]),
@@ -435,44 +534,67 @@ CAT = Species(
     ears_over=False,
     side_head_marks=[
         ([("E", 40, -10, 120, 42), ("E", 44, 20, 76, 60)], CAT_G),
-        ([("T", (110, 42), (115, 16), (128, 16), (128, 42))], CAT_W),
-        ([_stripe([(x, 18), (x + 2, 27)]) for x in (62, 72, 82)], CAT_ST),
+        ([("T", (110, 42), (115, 16), (128, 16), (128, 42))], CAT_W, 1),
+        ([_stripe([(72, 18), (74, 27)])], CAT_ST, (0, 0)),
+        ([_stripe([(x, 18), (x + 2, 27)]) for x in (66, 78)], CAT_ST, (1, 1)),
+        ([_stripe([(x, 18), (x + 2, 27)]) for x in (62, 72, 82)], CAT_ST, 2),
     ],
     side_torso_marks=[
-        ([("E", 8, 46, 92, 80), ("E", 12, 70, 44, 104)], CAT_G),
-        ([_stripe([(x, 58), (x + 2, 67)]) for x in (40, 52, 64)], CAT_ST),
+        ([("E", 8, 46, 92, 80), ("E", 12, 70, 44, 104)], CAT_G, 1),
+        ([_stripe([(x, 58), (x + 2, 67)]) for x in (46, 58)], CAT_ST, (2, 2)),
+        ([_stripe([(x, 58), (x + 2, 67)]) for x in (40, 52, 64)], CAT_ST, 3),
+        ([_stripe([(76, 58), (78, 66)])], CAT_ST, 4),
     ],
     side_tail=[("L", _cat_tail_line, 10)], tail_root=(26, 78), tail_color=CAT_G,
-    tail_marks=[([_stripe([(9, 58), (17, 58)]), _stripe([(10, 47), (18, 48)])], CAT_ST)],
-    specials=["arch", "huff"],
+    tail_marks=[([_stripe([(9, 58), (17, 58)]), _stripe([(10, 47), (18, 48)])], CAT_ST, 2)],
+    specials=["arch", "huff", "climb", "slide"],
+    stage_tweak={"adult": dict(whiskers=True)},
+    stripe=CAT_ST,
+    back_head_marks=[
+        ([_stripe([(64, 17), (64, 30)], 3.0)], CAT_ST, (0, 0)),
+        ([_stripe([(x, 17), (x + (x - 64) * 0.1, 30)], 3.0) for x in (57, 71)], CAT_ST, (1, 1)),
+        ([_stripe([(x, 17), (x + (x - 64) * 0.1, 30)], 3.0) for x in (52, 64, 76)], CAT_ST, 2),
+        ([("E", 34, 64, 94, 92)], CAT_W, 1),  # 뒷목 아래 흰 털
+    ],
+    back_body_marks=[
+        ([("E", 22, 40, 106, 108)], CAT_G, 1),  # 등 (아기는 하얀 몸)
+        ([_stripe(arc(64, 84 + dy, 22 - abs(dy) * 0.3, 6, 205, 335, 8), 3.0) for dy in (-10, 2)], CAT_ST, (2, 2)),
+        ([_stripe(arc(64, 80 + dy, 22, 6, 205, 335, 8), 3.0) for dy in (-10, 0, 10)], CAT_ST, 3),
+    ],
 )
 
 DOG_W, DOG_G, DOG_EAR = (255, 247, 236), (222, 168, 112), (196, 140, 92)
 DOG = Species(
     id="dog", name="강아지", walk_speed=105, scale=0.94, base=DOG_W, back=DOG_G, belly=DOG_W, nose=DARK_NOSE, mouth="dog",
     front_ears=[("E", 8, 30, 32, 76), ("E", 96, 30, 120, 76)],
-    front_head_marks=[
+    front_ear_pivots=((22, 32), (106, 32)),
+    front_ear_marks=[
         ([("E", 8, 30, 32, 76), ("E", 96, 30, 120, 76)], DOG_EAR),
-        ([("E", 8, -6, 120, 44)], DOG_G),
-        ([("E", 30, 46, 52, 60)], DOG_G),  # 눈가 점
-        ([("L", [(31, 34), (28, 52), (31, 72)], 1.6), ("L", [(97, 34), (100, 52), (97, 72)], 1.6)], LINE),
+        ([("L", [(31, 34), (28, 52), (31, 72)], 1.6), ("L", [(97, 34), (100, 52), (97, 72)], 1.6)], LINE, 2),
     ],
-    front_body_marks=[([("E", 16, 72, 40, 110), ("E", 88, 72, 112, 110)], DOG_G), ([("E", 90, 90, 112, 114)], DOG_G)],
+    front_head_marks=[
+        ([("E", 8, -6, 120, 44)], DOG_G),
+        ([("E", 30, 46, 52, 60)], DOG_G, 2),  # 눈가 점 (어린이부터)
+    ],
+    front_body_marks=[([("E", 16, 72, 40, 110), ("E", 88, 72, 112, 110)], DOG_G, 1), ([("E", 90, 90, 112, 114)], DOG_G, 1)],
     front_tail=[("E", 92, 92, 110, 112)], front_tail_root=(96, 108), front_tail_color=DOG_G,
     side_ears=[Ear([("E", 64, 22, 84, 58)], (74, 26), DOG_EAR)],
     ears_over=True,
     side_head_marks=[([("E", 40, -6, 120, 40)], DOG_G)],
-    side_torso_marks=[([("E", 8, 48, 92, 80)], DOG_G)],
+    side_torso_marks=[([("E", 8, 48, 92, 80)], DOG_G, 1), ([("E", 60, 50, 74, 60)], DOG_EAR, 4)],
     side_tail=[("L", [(24, 70), (14, 56), (20, 44)], 11)], tail_root=(24, 70), tail_color=DOG_G,
     wag_tail=[("L", [(0, 0), (12, -10), (16, -24)], 10)],
     specials=["wag"],
+    stage_tweak={"adult": dict(snout=3.0)},
 )
 
 RAB_W = (255, 252, 250)
 RABBIT = Species(
     id="rabbit", name="토끼", walk_speed=120, scale=0.8, base=RAB_W, back=RAB_W, belly=RAB_W, nose=NOSE, mouth="w",
     front_ears=[("E", 30, -22, 50, 34), ("E", 78, -22, 98, 34)],
-    front_head_marks=[([("E", 35, -14, 45, 28), ("E", 83, -14, 93, 28)], PINK)],
+    front_ear_pivots=((40, 28), (88, 28)),
+    front_ear_marks=[([("E", 35, -14, 45, 28), ("E", 83, -14, 93, 28)], PINK)],
+    front_head_marks=[],
     front_body_marks=[],
     front_tail=[("E", 92, 100, 110, 118)], front_tail_root=(98, 110), front_tail_color=RAB_W,
     side_ears=[Ear([("E", 84, -18, 100, 30)], (92, 24), RAB_W),
@@ -483,21 +605,29 @@ RABBIT = Species(
     side_tail=[("E", 10, 64, 30, 84)], tail_root=(20, 74), tail_color=RAB_W,
     lie_ears=(-48, -42),
     stage_size=dict.fromkeys(STAGES, 0.85),
+    stage_tweak={"baby": dict(ear=0.8), "kinder": dict(ear=0.88), "adult": dict(ear=1.12, chest_fluff=True)},
 )
 
 BEAR_B, BEAR_L, BEAR_IN, BEAR_NOSE = (190, 132, 90), (242, 214, 176), (136, 90, 62), (92, 60, 48)
+BEAR_SOFT = mix(BEAR_L, BEAR_B, 0.3)  # 아기: 주둥이·배 대비를 줄인 색
 BEAR = Species(
     id="bear", name="곰", walk_speed=60, scale=0.94, base=BEAR_B, back=BEAR_B, belly=BEAR_L, nose=BEAR_NOSE, mouth="dog",
     front_ears=[("E", 14, 10, 42, 38), ("E", 86, 10, 114, 38)],
-    front_head_marks=[([("E", 20, 16, 36, 32), ("E", 92, 16, 108, 32)], BEAR_IN), ([("E", 44, 52, 84, 78)], BEAR_L)],
-    front_body_marks=[([("E", 44, 80, 84, 120)], BEAR_L)],
+    front_ear_pivots=((34, 32), (94, 32)),
+    front_ear_marks=[([("E", 20, 16, 36, 32), ("E", 92, 16, 108, 32)], BEAR_IN)],
+    front_head_marks=[([("E", 44, 52, 84, 78)], BEAR_SOFT, (0, 0)), ([("E", 44, 52, 84, 78)], BEAR_L, (1, 3)),
+                      ([("E", 40, 50, 88, 81)], BEAR_L, 4)],
+    front_body_marks=[([("E", 44, 80, 84, 120)], BEAR_SOFT, (0, 0)), ([("E", 44, 80, 84, 120)], BEAR_L, 1)],
     front_tail=[("E", 92, 104, 110, 120)], front_tail_root=(98, 112), front_tail_color=BEAR_B,
     side_ears=[Ear([("E", 69, 5, 91, 27)], (80, 20), BEAR_B, [([("E", 74, 10, 86, 22)], BEAR_IN)])],
     ears_over=False,
-    side_head_marks=[([("E", 100, 40, 132, 70)], BEAR_L)],
-    side_torso_marks=[([("E", 28, 90, 94, 120)], BEAR_L)],
+    side_head_marks=[([("E", 100, 40, 132, 70)], BEAR_SOFT, (0, 0)), ([("E", 100, 40, 132, 70)], BEAR_L, (1, 3)),
+                     ([("E", 97, 38, 134, 73)], BEAR_L, 4)],
+    side_torso_marks=[([("E", 28, 90, 94, 120)], BEAR_SOFT, (0, 0)), ([("E", 28, 90, 94, 120)], BEAR_L, 1)],
     side_tail=[("E", 6, 62, 26, 82)], tail_root=(18, 74), tail_color=BEAR_B, lie_ears=(-56, -50),
+    specials=["climb", "slide"],
     stage_size={"baby": 1.0, "kinder": 1.0, "child": 1.1, "teenager": 1.2, "adult": 1.3},
+    stage_tweak={"adult": dict(fbody=(1.06, 1.0), torso=(1.06, 1.0), fit=0.91)},
 )
 
 SPECIES = {s.id: s for s in (CAT, DOG, RABBIT, BEAR)}
@@ -506,8 +636,39 @@ SPECIES = {s.id: s for s in (CAT, DOG, RABBIT, BEAR)}
 # =====================================================================
 # 4. 부품 — 종별 설정을 현재 변환 아래에서 Part로
 # =====================================================================
+def _shown(lvl):
+    lo, hi = (lvl, 9) if isinstance(lvl, int) else lvl
+    return lo <= _ST["lvl"] <= hi
+
+
 def _marks(spec_marks):
-    return [([shape(d) for d in descs], color) for descs, color in spec_marks]
+    """종별 무늬 → [(fns, color)]. 세 번째 값(단계)이 있으면 현재 단계 lvl에서 보이는 것만."""
+    return [([shape(d) for d in m[0]], m[1]) for m in spec_marks if len(m) < 3 or _shown(m[2])]
+
+
+def _desc_x(desc):
+    v = desc[1]
+    while isinstance(v, (tuple, list)):
+        v = v[0]
+    return v
+
+
+def _front_ears(sp):
+    """단계 귀 크기로 바꾼 앞모습 귀 도형과 귀 무늬 (귀 뿌리 기준)."""
+    k = _ST["ear"]
+    shp, marks = [], []
+    for side, pv in enumerate(sp.front_ear_pivots):
+        mine = (lambda d: _desc_x(d) < 64) if side == 0 else (lambda d: _desc_x(d) >= 64)
+        with xf(sx=k, sy=k, pivot=pv):
+            shp += [shape(d) for d in sp.front_ears if mine(d)]
+            for m in sp.front_ear_marks:
+                if len(m) < 3 or _shown(m[2]):
+                    marks.append(([shape(d) for d in m[0] if mine(d)], m[1]))
+    return shp, marks
+
+
+CHEEK_FLUFF = [((21, 55), (11.5, 60), (20, 63)), ((23, 62), (14, 68.5), (25, 70))]
+WHISKERS = [[(27, 61), (9, 58)], [(27, 64.5), (8, 65.5)], [(28, 68), (10, 72.5)]]
 
 
 # ---- 앞모습 ----
@@ -517,14 +678,24 @@ def front_head(sp, eyes="dot", mouth=None, tongue_dy=0, outline=False, cheeks=Fa
     with xf(sx=_ST["head"], sy=_ST["head"], pivot=(64, 84)):
         lc, rc = cheeks in (True, "left"), cheeks in (True, "right")
         puff = ([shape(("E", 10, 50, 40, 82))] if lc else []) + ([shape(("E", 88, 50, 118, 82))] if rc else [])
-        part = Part([shape(("E", 16, 16, 112, 84))] + puff + [shape(d) for d in sp.front_ears], sp.base,
-                    _marks(sp.front_head_marks), grow=1, outline=outline)
+        snout = [shape(("E", 44, 56, 84, 84 + 2 * _ST["snout"]))] if _ST["snout"] else []
+        ear_fns, ear_marks = _front_ears(sp)
+        spikes = tuft(64, 16) if _ST["tuft"] else []
+        if _ST["cheek_fluff"]:
+            spikes += [T(*t) for t in CHEEK_FLUFF if not lc] + [T(*_mirror(t)) for t in CHEEK_FLUFF if not rc]
+        part = Part([shape(("E", 16, 16, 112, 84))] + puff + snout + ear_fns, sp.base,
+                    ear_marks + _marks(sp.front_head_marks), grow=1, outline=outline, spikes=spikes)
         lb, rb = 5 if lc else 0, 5 if rc else 0
+        bd = 2 if _ST["sparkle"] else 0  # 큰 눈 아래로 볼터치를 조금 내림
         with xf(dx=face[0], dy=face[1]):
-            ops = (eye(eyes, 44, 54) + eye(eyes, 84, 54, flip=True) + blush(33 - lb, 66 + lb * 0.4) + blush(95 + rb, 66 + rb * 0.4)
-                   + front_mouth(sp, mouth, tongue_dy))
+            ops = blush(33 - lb - bd * 0.5, 66 + bd + lb * 0.4) + blush(95 + rb + bd * 0.5, 66 + bd + rb * 0.4)
+            if _ST["whiskers"]:
+                ops += [([L(w, 0.9) for w in WHISKERS] + [L(_mirror(w), 0.9) for w in WHISKERS], LINE)]
+            ops += stage_eye(eyes, 44, 54) + stage_eye(eyes, 84, 54, flip=True)
+            with xf(dy=_ST["snout"]):
+                ops += front_mouth(sp, mouth, tongue_dy)
             if brow:
-                ops += brows(brow, 44, 54) + brows(brow, 84, 54, flip=True)
+                ops += brows(brow, 44, 54 + _ST["eye_dy"]) + brows(brow, 84, 54 + _ST["eye_dy"], flip=True)
     return part, ops
 
 
@@ -536,6 +707,8 @@ def front_mouth(sp, kind=None, tongue_dy=0):
     else:
         ops.append(([E(61.6, 59.4, 66.4, 62.6)], sp.nose))
         top = 64
+    if kind is None and _ST["smile"]:  # 어린이: 작게 벌린 웃는 입
+        return ops + open_mouth(64, top + 0.4, 3.2, 3.4)
     if kind is None:
         if sp.mouth == "dog":
             ops += [([L([(64, 63), (64, 66)], 1.3)], LINE), ([L([(59, 66), (62, 68.5), (64, 66), (66, 68.5), (69, 66)], 1.3)], LINE)]
@@ -563,11 +736,14 @@ def front_body(sp, leg_dy=(0, 0)):
     ft = 125 - 19 * _ST["leg"] ** 0.7  # 발 높이: 단계 다리 길이
     fns = [shape(("E", 32, 58, 96, 122)), shape(("E", 36, ft + ld, 60, 125 + ld)), shape(("E", 68, ft + rd, 92, 125 + rd))]
     marks = _marks(sp.front_body_marks) + [([L([(64, 110), (64, 121)], 1.5)], LINE)]
+    if _ST["chest_fluff"]:  # 어른 토끼: 턱 아래 복슬 가슴 털 (부드러운 지그재그)
+        marks.append(([L([(52 + 4 * k, 89 + (k % 2) * 3.5) for k in range(7)], 1.2)], mix(LINE, sp.base, 0.6)))
     return Part(fns, sp.base, marks, grow=6)
 
 
 def front_tail(sp, rot=0.0):
-    with xf(rot=rot, pivot=sp.front_tail_root):
+    k = _ST["tail"] ** 0.5 * _ST["tail_w"] ** 0.5
+    with xf(rot=rot, sx=k, sy=k, pivot=sp.front_tail_root):
         return Part([shape(d) for d in sp.front_tail], sp.front_tail_color)
 
 
@@ -607,14 +783,21 @@ def side_head(sp, eyes="dot", mouth=None, ear_rot=(0, 0), ear_dy=0, outline=Fals
     """옆모습 머리 Parts(귀 포함, 그릴 순서)와 얼굴 ops. 머리 좌표: 중심 (88, 45)."""
     with xf(sx=_ST["head"], sy=_ST["head"], pivot=SIDE_NECK):
         ears = []
+        k = _ST["ear"]
         for i, ear in enumerate(sp.side_ears):
-            with xf(dy=ear_dy, rot=ear_rot[min(i, len(ear_rot) - 1)], pivot=ear.pivot):
+            with xf(dy=ear_dy, rot=ear_rot[min(i, len(ear_rot) - 1)], sx=k, sy=k, pivot=ear.pivot):
                 ears.append(Part([shape(d) for d in ear.shapes], ear.color, _marks(ear.marks), grow=1, outline=outline and sp.ears_over))
-        head = Part([shape(("E", 52, 12, 124, 78))], sp.base, _marks(sp.side_head_marks), grow=1, outline=outline)
+        sn = _ST["snout"]
+        snout = [shape(("E", 96, 38, 124 + 2 * sn, 68))] if sn else []
+        head = Part([shape(("E", 52, 12, 124, 78))] + snout, sp.base, _marks(sp.side_head_marks), grow=1, outline=outline,
+                    spikes=tuft(90, 12) if _ST["tuft"] else [])
         parts = [head] + ears if sp.ears_over else ears + [head]
-        ops = eye(eyes, 104, 46) + blush(99, 59) + side_mouth(sp, mouth)
+        bd = 2 if _ST["sparkle"] else 0
+        ops = blush(99 - bd, 59 + bd) + stage_eye(eyes, 104, 46)
+        with xf(dx=sn * 1.6):
+            ops += side_mouth(sp, mouth)
         if brow:
-            ops += brows(brow, 104, 46)
+            ops += brows(brow, 104, 46 + _ST["eye_dy"])
     return parts, ops
 
 
@@ -639,16 +822,27 @@ def side_mouth(sp, kind=None):
 
 
 def side_torso(sp):
-    return Part([shape(("E", 18, 56, 98, 110))], sp.base, _marks(sp.side_torso_marks), grow=6)
+    torso = Part([shape(("E", 18, 56, 98, 110))], sp.base, _marks(sp.side_torso_marks), grow=6)
+    if not _ST["chest_fluff"]:
+        return torso
+    fluff = [T((92, 66), (101, 70), (94, 74)), T((95, 73), (103, 78), (96, 82)), T((95, 81), (102, 87), (93, 89))]
+    return [torso, Part(fluff, sp.base, sharp=True, grow=1)]
 
 
 def side_tail(sp, rot=0.0, at=None, sx=1.0, sy=1.0, width=None):
     """꼬리를 뿌리 기준으로 돌리고 at(뿌리 위치, 프레임 좌표)으로 옮긴다."""
     rx, ry = sp.tail_root
     dx, dy = (at[0] - rx, at[1] - ry) if at else (0, 0)
+    tl, tw = _ST["tail"], _ST["tail_w"]
     with xf(dx=dx, dy=dy, rot=rot, sx=sx, sy=sy, pivot=sp.tail_root):
         descs = sp.side_tail if width is None else [(k, pts, width) if k == "L" else (k, pts, *rest) for k, pts, *rest in sp.side_tail]
-        return Part([shape(d) for d in descs], sp.tail_color, _marks(sp.tail_marks))
+        if any(k == "L" for k, *_ in descs):  # 줄 꼬리: 길이 tl, 굵기 tw (짧아져도 굵기는 그대로)
+            k = tl
+            descs = [(kd, pts, w * tw / tl) if kd == "L" else (kd, pts, w, *rest) for kd, pts, w, *rest in descs]
+        else:  # 동그란 꼬리
+            k = (tl * tw) ** 0.5
+        with xf(sx=k, sy=k, pivot=sp.tail_root):
+            return Part([shape(d) for d in descs], sp.tail_color, _marks(sp.tail_marks))
 
 
 def legs(sp, specs, outline=False, move=None):
@@ -688,10 +882,11 @@ def _side(sp, *, head=None, torso=None, tail=None, leg_specs=(), head_kw=None, w
     단계 비율: 몸통을 SIDE_BODY_PIVOT 기준 body배로 줄이고 짧은 다리만큼 내려앉힌 뒤, 몸통에 붙은 점(목·꼬리 뿌리·다리 뿌리)을
     같은 변환으로 옮긴다. body_fn/tail_fn: 몸통·꼬리 Part(들)를 직접 만드는 함수 (몸통 좌표 / tail_root 기준)."""
     b, drop = _ST["body"], (1 - _ST["leg"]) * LEG_SHOW if support else 0.0  # support: 다리로 서 있음 (엎드림은 아님)
-    staged = b != 1 or drop != 0
+    ax, ay = _ST["torso"] if support else (1.0, 1.0)  # 몸통 모양 (아기 동글 · 어른 길쭉)
+    staged = b != 1 or drop != 0 or (ax, ay) != (1.0, 1.0)
     mt = _xf_matrix(**(torso or {}))
     mti = _inv(mt)
-    stage_m = _xf_matrix(dy=drop, sx=b, sy=b, pivot=SIDE_BODY_PIVOT)
+    stage_m = _xf_matrix(dy=drop, sx=b * ax, sy=b * ay, pivot=SIDE_BODY_PIVOT)
 
     def move(p):  # 몸통에 붙은 점(전체 좌표) → 단계 비율 위치
         return _apply(mt, _apply(stage_m, _apply(mti, p))) if staged else p
@@ -705,7 +900,7 @@ def _side(sp, *, head=None, torso=None, tail=None, leg_specs=(), head_kw=None, w
         if leg_specs:
             parts.append(legs(sp, leg_specs, move=move if staged else None))
         with xf(**(torso or {})):
-            with xf(dy=drop, sx=b, sy=b, pivot=SIDE_BODY_PIVOT):
+            with xf(dy=drop, sx=b * ax, sy=b * ay, pivot=SIDE_BODY_PIVOT):
                 body = body_fn() if body_fn else side_torso(sp)
                 parts += body if isinstance(body, list) else [body]
         if tail_fn:
@@ -842,7 +1037,7 @@ def arch(sp, i):
 
     def body():
         stripes = [L([(x, y - 7), (x + 1, y + 2)], 2.8) for x, y in (top(a) for a in (236, 258, 280))]
-        torso = Part([band(28)], sp.base, [([band(20, -6)], sp.back), (stripes, CAT_ST)], grow=4)
+        torso = Part([band(28)], sp.base, [([band(20, -6)], sp.back), (stripes, sp.stripe)], grow=4)
         tufts = []
         for a in (246, 266, 286):
             bx, by = top(a, 12)
@@ -863,7 +1058,7 @@ def arch(sp, i):
             side = 1 if k % 2 else -1
             fluff.append(C(x + side * r * 0.75, y, r))
         fluff.append(C(pts[-1][0], pts[-1][1] - r * 0.5, r * 1.05))
-        return Part(fluff + [L(pts, 1.5 * r)], sp.tail_color, [([L([(0, 74), (24, 72)], 3), L([(0, 60), (22, 59)], 3)], CAT_ST)],
+        return Part(fluff + [L(pts, 1.5 * r)], sp.tail_color, [([L([(0, 74), (24, 72)], 3), L([(0, 60), (22, 59)], 3)], sp.stripe)] if _shown(2) else [],
                     outline=True)
 
     leg_specs = [(cx - rx - 2, 96, 125, -7, 16), (cx - rx + 10, 98, 125, -2, 15), (cx + rx - 10, 98, 125, 2, 15), (cx + rx + 2, 96, 125, 7, 16)]
@@ -882,7 +1077,8 @@ def _front(sp, *, head=None, body=None, whole=None, tail_rot=0.0, eyes="dot", mo
     단계 비율: 몸·팔·앞발은 FRONT_BODY_PIVOT 기준 body배, 머리는 줄어든 몸 위(턱 기준)로 내려앉는다.
     front_props: 맨 앞에 놓는 소품 Part를 만드는 함수 (프레임 좌표, 단계 배율 없음)."""
     b = _ST["body"]
-    stage_body = dict(sx=b, sy=b, pivot=FRONT_BODY_PIVOT)
+    fx_, fy_ = _ST["fbody"]
+    stage_body = dict(sx=b * fx_, sy=b * fy_, pivot=FRONT_BODY_PIVOT)
     with xf(**(whole or {})):
         with xf(**(body or {})):
             with xf(**stage_body):
@@ -1056,10 +1252,101 @@ def huff(sp, i):
                   fx=[anger_fx(24, 24 - u + [0, -1, -2][i], 6.0)])
 
 
+# ---- 뒷모습 포즈 (고양이·곰): 화면에 매달려 기어오르기 / 미끄러지기. 얼굴은 안 보인다 ----
+SWEAT, SWEAT_LINE = (176, 220, 248), (104, 156, 204)
+BACK_HEAD = 0.8  # 뒷모습 머리는 조금 작게 (몸과 위로 뻗은 앞발이 보이게)
+
+
+def back_head(sp):
+    """뒤통수 (귀 포함, 귀 안쪽은 안 보임). 바탕은 등 색, 고양이는 줄무늬와 뒷목 흰 털."""
+    k = _ST["head"] * BACK_HEAD
+    with xf(dy=-4, sx=k, sy=k, pivot=(64, 84)):
+        ear_fns, _ = _front_ears(sp)
+        return Part([shape(("E", 16, 16, 112, 84))] + ear_fns, sp.back, _marks(sp.back_head_marks), grow=1, outline=True,
+                    spikes=tuft(64, 16) if _ST["tuft"] else [])
+
+
+def back_arm(sp, side, reach, scratch=None):
+    """화면을 짚은 앞발 (자기 외곽선). reach: 0 낮게 옆으로 짚음 … 1 머리 옆 위로 쭉. scratch: 발 위 긁힌 자국 위상."""
+    mx = (lambda x: x) if side == 1 else (lambda x: 128 - x)
+    ln = 34 + 24 * reach
+    sh = (mx(84), 84)
+    ops = []
+    with xf(rot=(24 + 38 * (1 - reach)) * side, pivot=sh):
+        part = Part([E(sh[0] - 7.5, sh[1] - ln, sh[0] + 7.5, sh[1] + 6)], sp.back,
+                    [([E(sh[0] - 8, sh[1] - ln - 1, sh[0] + 8, sh[1] - ln + 11)], sp.base)], outline=True)
+        if scratch is not None:
+            for k, dx in enumerate((-4.2, 0, 4.2)):
+                y0 = sh[1] - ln - 3.5 - (k % 2) * 1.5 - scratch * 2
+                ops.append(([L([(sh[0] + dx, y0), (sh[0] + dx, y0 - 7)], 1.3)], LINE))
+    return part, ops
+
+
+def back_leg(sp, side, lift):
+    """뒷다리 (발바닥 젤리가 보인다). lift: 들어 올린 높이."""
+    cx = 64 + 17 * side
+    top, bot = 104 - lift, 125 - lift
+    part = Part([E(cx - 11, top, cx + 11, bot)], sp.base, outline=True)
+    beans = [([E(cx - 4.4, bot - 9, cx + 4.4, bot - 3)], PINK)]
+    beans += [([C(cx + dx, bot - 12.5, 1.7)], PINK) for dx in (-4.4, 0, 4.4)]
+    return part, beans
+
+
+def back_tail(sp, rot):
+    """뒷모습 꼬리: 줄 꼬리(고양이)는 엉덩이에서 위로 세워 살랑, 동그란 꼬리(곰)는 엉덩이에 동글."""
+    root = (64, 112)
+    tl, tw = _ST["tail"], _ST["tail_w"]
+    if sp.side_tail[0][0] == "L":
+        with xf(rot=rot, sx=tl, sy=tl, pivot=root):
+            marks = [([L([(54, 96), (80, 96)], 3), L([(52, 84), (80, 84)], 3)], sp.stripe)] if sp.stripe and _shown(2) else []
+            return Part([L([root, (69, 102), (72, 90), (69, 78)], 10 * tw / tl)], sp.tail_color, marks, outline=True)
+    k = (tl * tw) ** 0.5
+    with xf(dx=rot * 0.15, sx=k, sy=k, pivot=root):
+        return Part([C(64, 106, 8)], sp.tail_color, outline=True)
+
+
+def _back(sp, reach, lift, tail_rot, body_sy=1.0, dy=0.0, scratch=None, sweat=None):
+    b = _ST["body"]
+    fx_, fy_ = _ST["fbody"]
+    stage_body = dict(sx=b * fx_, sy=b * fy_, pivot=FRONT_BODY_PIVOT)
+    ops = []
+    with xf(dy=dy):
+        with xf(sy=body_sy, pivot=FRONT_BODY_PIVOT):
+            with xf(**stage_body):
+                body = Part([E(33, 50, 95, 122)], sp.base, _marks(sp.back_body_marks), grow=6)
+            with xf(dy=(1 - b) * (FRONT_BODY_PIVOT[1] - 84)):
+                head = back_head(sp)
+                if sweat is not None:  # 💦 뒤통수 옆 땀 한 방울
+                    with xf(dy=-4, sx=_ST["head"] * BACK_HEAD, sy=_ST["head"] * BACK_HEAD, pivot=(64, 84)):
+                        x, y = 94, 30 + sweat
+                        drop = lambda g: [C(x, y, 3.4 + g), T((x - 3.1 - g, y - 1), (x, y - 8.5 - 1.6 * g), (x + 3.1 + g, y - 1))]
+                        ops += [(drop(1.3), SWEAT_LINE), (drop(0), SWEAT), ([C(x - 1.1, y - 0.6, 1.0)], WHITE)]
+            with xf(**stage_body):
+                tail = back_tail(sp, tail_rot)
+                legs_ = [back_leg(sp, s, l) for s, l in zip((-1, 1), lift)]
+                arms = [back_arm(sp, s, r, scratch) for s, r in zip((-1, 1), reach)]
+        parts = [body, head, tail] + [p for p, _ in legs_] + [p for p, _ in arms]
+        ops = [o for _, os_ in legs_ for o in os_] + [o for _, os_ in arms for o in os_] + ops
+    return compose(parts, ops)
+
+
+def climb(sp, i):
+    """뒷모습으로 화면을 기어오름: 앞발 번갈아 위로 (왼↑오↓ → 오↑왼↓), 몸 살짝 늘어남, 꼬리 좌우 살랑."""
+    reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
+    lift = [(0, 7), (3, 3), (7, 0), (3, 3)][i]
+    return _back(sp, reach, lift, tail_rot=[-16, 0, 16, 0][i], body_sy=[1.05, 1.0, 1.05, 1.0][i], dy=[-1, 0, -1, 0][i])
+
+
+def slide(sp, i):
+    """주르륵 미끄러짐: 두 앞발 쭉 위로 + 발 위 긁힌 자국, 몸 살짝 찌그러짐, 땀 한 방울, 꼬리는 위로."""
+    return _back(sp, (1.0, 1.0), (0, 0), tail_rot=[-3, 3][i], body_sy=0.93, dy=[0, 1][i], scratch=i, sweat=i)
+
+
 POSES = {"walk": walk, "run": run, "roll": roll, "idle": idle, "look": look, "sleep": sleep, "hop": hop, "fall": fall,
          "dragged": dragged, "land": land, "sit_front": sit_front, "wave": wave, "tilt": tilt, "belly": belly,
          "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "arch": arch, "wag": wag,
-         "hungry": hungry, "eat": eat, "level_up": level_up, "huff": huff}
+         "hungry": hungry, "eat": eat, "level_up": level_up, "huff": huff,
+         "climb": climb, "slide": slide}
 
 
 def frames(sp, anim, n):
@@ -1077,11 +1364,34 @@ def rows_for(sp):
 _RENDERED = {}  # (종, 단계) → {동작: [프레임]} — 한 프로세스에서 여러 번 build해도 한 번만 그린다
 
 
+_KEEP = {LINE, EYE, DARK_NOSE, BEAR_NOSE}  # 파스텔로 바꾸지 않는 색 (외곽선·눈·코)
+
+
+def _pale(v, t):
+    """종별 설정 안의 모든 색(정수 3개 튜플)을 크림색 쪽으로 t만큼 섞는다."""
+    if isinstance(v, tuple) and len(v) == 3 and all(isinstance(c, int) for c in v):
+        return v if v in _KEEP else mix(v, CREAM, t)
+    if isinstance(v, (list, tuple)):
+        return type(v)(_pale(x, t) for x in v)
+    if isinstance(v, Ear):
+        return Ear(v.shapes, v.pivot, _pale(v.color, t), _pale(v.marks, t))
+    return v
+
+
+def staged_species(sp):
+    """현재 단계의 파스텔 색을 입힌 종 설정."""
+    t = _ST["pale"]
+    if not t:
+        return sp
+    return replace(sp, **{f.name: _pale(getattr(sp, f.name), t) for f in fields(sp) if f.name not in ("stage_size", "stage_tweak")})
+
+
 def render_species(sp, stage_name="teenager"):
     key = (sp.id, stage_name)
     if key not in _RENDERED:
-        with stage(stage_name):
-            _RENDERED[key] = {anim: frames(sp, anim, n) for anim, n, *_ in rows_for(sp)}
+        with stage(stage_name, sp.stage_tweak.get(stage_name)):
+            ssp = staged_species(sp)
+            _RENDERED[key] = {anim: frames(ssp, anim, n) for anim, n, *_ in rows_for(sp)}
     return _RENDERED[key]
 
 
@@ -1117,13 +1427,13 @@ def build(out_root):
     return {pid: write_species(sp, out_root / pid) for pid, sp in SPECIES.items()}
 
 
-STAGE_PREVIEW_ANIMS = ["walk", "roll", "sit_front", "hungry", "eat", "level_up"]
+STAGE_PREVIEW_ANIMS = ["walk", "sit_front", "wave", "eat", "sleep"]
 
 
 def preview_stages(by_stage, sp, path, bg=(255, 255, 255)):
     """한 동물의 5단계 × 대표 동작 (첫 프레임) + 오른쪽에 화면 표시 크기(STAGE_SCALE)로 줄인 sit_front."""
     from PIL import ImageFont
-    names = STAGE_PREVIEW_ANIMS + [o[0] for o in OPTIONAL_ANIMS if o[0] in sp.specials]
+    names = STAGE_PREVIEW_ANIMS + (["climb"] if "climb" in sp.specials else [])
     cell, label = FRAME + 4, 70
     W = label + len(names) * cell + 24 + cell
     H = 24 + len(STAGES) * cell
@@ -1140,6 +1450,23 @@ def preview_stages(by_stage, sp, path, bg=(255, 255, 255)):
         k = STAGE_SCALE[st] / STAGE_SCALE["adult"]
         small = by_stage[st]["sit_front"][0].resize((round(FRAME * k), round(FRAME * k)), Image.LANCZOS)
         img.alpha_composite(small, (label + len(names) * cell + 24 + (FRAME - small.width) // 2, y + FRAME - small.height))
+    img.save(path)
+
+
+def preview_back(by_stage, path, bg=(255, 255, 255)):
+    """뒷모습 climb·slide 모든 프레임 × 5단계."""
+    from PIL import ImageFont
+    cols = [("climb", c) for c in range(4)] + [("slide", c) for c in range(2)]
+    cell, label = FRAME + 4, 70
+    img = Image.new("RGBA", (label + len(cols) * cell, 24 + len(STAGES) * cell), bg + (255,))
+    d = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    for c, (anim, k) in enumerate(cols):
+        d.text((label + c * cell, 6), f"{anim} {k}", fill=(60, 60, 60), font=font)
+    for r, st in enumerate(STAGES):
+        d.text((4, 24 + r * cell + FRAME // 2), st, fill=(60, 60, 60), font=font)
+        for c, (anim, k) in enumerate(cols):
+            img.alpha_composite(by_stage[st][anim][k], (label + c * cell, 24 + r * cell))
     img.save(path)
 
 
@@ -1173,6 +1500,8 @@ def main():
     preview(all_frames, pv / "all_dark.png", (40, 44, 52))
     for pid, sp in SPECIES.items():
         preview_stages(all_frames[pid], sp, pv / f"stages_{pid}.png")
+        if "climb" in sp.specials:
+            preview_back(all_frames[pid], pv / f"climb_{pid}.png")
     print("ok:", ", ".join(SPECIES))
 
 

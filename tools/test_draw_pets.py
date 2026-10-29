@@ -29,7 +29,7 @@ def test_every_species_every_animation(tmp_path):
     for pid in SPECIES_IDS:
         for st in CHECK_STAGES:
             sheet = Image.open(tmp_path / pid / f"sheet_{st}.png")
-            # 필수 21행 + 그 종의 선택 동작 행 (고양이 arch·huff, 강아지 wag)
+            # 필수 21행 + 그 종의 선택 동작 행 (고양이 arch·huff·climb·slide, 강아지 wag, 곰 climb·slide)
             rows = list(ANIMS) + [o for o in OPTIONAL_ANIMS if o[0] in draw_pets.SPECIES[pid].specials]
             assert sheet.height == FRAME * len(rows)
             for row, (anim, n, *_) in enumerate(rows):
@@ -62,7 +62,7 @@ def test_only_cat_has_arch_and_huff_and_only_dog_has_wag(tmp_path):
     assert m["speech"]["ignore"] == ["..."]
     assert m["personality"] == "aloof"
     sheet = Image.open(tmp_path / "cat" / "sheet.png")
-    assert sheet.height == FRAME * (len(ANIMS) + 2)
+    assert sheet.height == FRAME * (len(ANIMS) + 4)  # arch, huff, climb, slide
 
 
 def test_roll_ball_fits_rotation_circle(tmp_path):
@@ -115,3 +115,51 @@ def test_baby_head_is_relatively_bigger_than_adult(tmp_path):
         low = bottom - (bottom - top) * 3 // 10
         return max(widths[top:mid]) / max(1, max(widths[low:bottom + 1]))
     assert head_ratio("baby") > head_ratio("teenager") > head_ratio("adult")
+
+
+def test_only_cat_and_bear_have_climb_and_slide(tmp_path):
+    import json
+    draw_pets.build(tmp_path)
+    for pid in SPECIES_IDS:
+        m = json.loads((tmp_path / pid / "pet.json").read_text(encoding="utf-8"))
+        for anim in ("climb", "slide"):
+            assert (anim in m["animations"]) == (pid in ("cat", "bear")), (pid, anim)
+    cat = json.loads((tmp_path / "cat" / "pet.json").read_text(encoding="utf-8"))["animations"]
+    bear = json.loads((tmp_path / "bear" / "pet.json").read_text(encoding="utf-8"))["animations"]
+    assert cat["climb"] == {"row": len(ANIMS) + 2, "frames": 4, "fps": 6}  # 뒷모습: front 아님 (앱은 반전하지 않음 — Task 4b)
+    assert cat["slide"] == {"row": len(ANIMS) + 3, "frames": 2, "fps": 8}
+    assert bear["climb"]["row"] == len(ANIMS) and bear["slide"]["row"] == len(ANIMS) + 1
+
+
+def test_climb_and_slide_fit_cell_in_every_stage(tmp_path):
+    from sprite_spec import STAGES
+    draw_pets.build(tmp_path)
+    for pid in ("cat", "bear"):
+        names = [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES[pid])]
+        for st in STAGES:
+            sheet = Image.open(tmp_path / pid / f"sheet_{st}.png")
+            for anim, n in (("climb", 4), ("slide", 2)):
+                row = names.index(anim)
+                for col in range(n):
+                    bbox = sheet.crop((col * FRAME, row * FRAME, (col + 1) * FRAME, (row + 1) * FRAME)).getchannel("A").getbbox()
+                    assert bbox is not None, (pid, st, anim, col)
+                    assert bbox[0] >= 1 and bbox[1] >= 1 and bbox[2] <= FRAME - 1 and bbox[3] <= FRAME - 1, (pid, st, anim, col, bbox)
+
+
+def test_baby_eyes_are_relatively_bigger_than_adult(tmp_path):
+    """귀여운 아기: sit_front 첫 장의 눈동자 픽셀 수 / 머리 폭² 이 아기 > 어른 (모든 종)."""
+    draw_pets.build(tmp_path)
+    row = [a for a, *_ in ANIMS].index("sit_front")
+
+    def eye_ratio(pid, st):
+        cell = Image.open(tmp_path / pid / f"sheet_{st}.png").crop((0, row * FRAME, FRAME, (row + 1) * FRAME)).convert("RGBA")
+        px = cell.load()
+        er, eg, eb = draw_pets.EYE
+        dark = sum(1 for y in range(FRAME) for x in range(FRAME)
+                   if px[x, y][3] > 200 and abs(px[x, y][0] - er) + abs(px[x, y][1] - eg) + abs(px[x, y][2] - eb) < 30)
+        a = cell.getchannel("A").point(lambda v: 255 if v > 128 else 0)
+        head_w = max(sum(1 for x in range(FRAME) if a.getpixel((x, y))) for y in range(FRAME // 2))
+        return dark / head_w ** 2
+
+    for pid in SPECIES_IDS:
+        assert eye_ratio(pid, "baby") > 1.5 * eye_ratio(pid, "adult"), pid

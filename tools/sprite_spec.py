@@ -44,6 +44,9 @@ OPTIONAL_ANIMS = [
     ("arch", 3, 6, True, False),
     ("wag", 4, 8, True, True),
     ("huff", 3, 4, True, True),
+    # 뒷모습 (고양이·곰): front=False지만 앱은 반전하지 않는다 (Rust Task 4b에서 반전 안 함으로 처리)
+    ("climb", 4, 6, True, False),
+    ("slide", 2, 8, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
