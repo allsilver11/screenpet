@@ -1,4 +1,5 @@
 use crate::geom::{Rect, WindowInfo};
+use crate::inside;
 use crate::surfaces::{compute_surfaces, Owner, Surface};
 
 pub struct World {
@@ -81,7 +82,17 @@ impl World {
         match owner {
             Owner::Window(id) => self.windows.iter().find(|w| w.id == id).map(|w| (w.rect.left, w.rect.top)),
             Owner::Ground(i) => self.work_areas.get(i).map(|r| (r.left, r.bottom)),
+            Owner::Inside(id) => self.window(id).map(|w| (w.rect.left, inside::floor_y(&w.rect))),
         }
+    }
+
+    pub fn window(&self, id: u64) -> Option<&WindowInfo> {
+        self.windows.iter().find(|w| w.id == id)
+    }
+
+    /// 점 (x, y)를 덮는 가장 앞쪽 창
+    pub fn front_window_at(&self, x: f64, y: f64) -> Option<&WindowInfo> {
+        self.windows.iter().find(|w| w.rect.left <= x && x < w.rect.right && w.rect.top <= y && y < w.rect.bottom)
     }
 
     pub fn piece_at(&self, owner: Owner, x: f64) -> Option<&Surface> {
@@ -96,13 +107,14 @@ impl World {
             .max_by(|a, b| a.y.total_cmp(&b.y))
     }
 
+    /// 바깥에서 떨어지는 동물이 이번 틱에 처음 지나친 디딤판 (창 안쪽 바닥은 디디지 않는다)
     pub fn landing(&self, x: f64, prev_y: f64, new_y: f64) -> Option<&Surface> {
         if new_y <= prev_y {
             return None;
         }
         self.surfaces
             .iter()
-            .filter(|s| s.contains_x(x) && prev_y <= s.y && new_y >= s.y)
+            .filter(|s| !matches!(s.owner, Owner::Inside(_)) && s.contains_x(x) && prev_y <= s.y && new_y >= s.y)
             .min_by(|a, b| a.y.total_cmp(&b.y))
     }
 }
@@ -150,6 +162,25 @@ mod tests {
         let w = world();
         assert!(w.landing(800.0, 500.0, 300.0).is_none());
         assert!(w.landing(800.0, 300.0, 390.0).is_none());
+    }
+
+    #[test]
+    fn outside_landing_skips_inner_floors() {
+        let w = world();
+        // 창 1의 안쪽 바닥(896)을 지나도 바깥 동물은 창 2 윗면(700)… 이미 지났으면 바닥(1040)에 선다
+        let s = w.landing(1050.0, 880.0, 1100.0).unwrap();
+        assert_eq!(s.owner, Owner::Ground(0));
+        assert!(w.surfaces.iter().any(|s| s.owner == Owner::Inside(1)));
+    }
+
+    #[test]
+    fn front_window_at_picks_the_first_covering_window() {
+        let w = world();
+        assert_eq!(w.front_window_at(800.0, 800.0).map(|w| w.id), Some(1));
+        assert_eq!(w.front_window_at(800.0, 950.0).map(|w| w.id), Some(2));
+        assert_eq!(w.front_window_at(100.0, 800.0), None);
+        assert_eq!(w.window(2).map(|w| w.rect.top), Some(700.0));
+        assert!(w.window(7).is_none());
     }
 
     #[test]

@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 use serde::Serialize;
 
 use crate::care::{FeedResult, Food};
+use crate::geom::Rect;
+use crate::inside::{self, Mode, Stay};
 use crate::behavior::{self, ClickOutcome, ClickReaction, Family, Move, Personality, Rest, Special, Trick};
 use crate::physics::{clamp_speed, step_air, Body, GRAVITY};
 use crate::surfaces::{EndKind, Owner, Surface};
@@ -195,6 +197,8 @@ pub enum State {
     Farewell { remaining: f64 },
     /// 화면을 떠남 (친구 화면에 가 있음). 아무것도 하지 않는다
     Away,
+    /// 창 안쪽 벽을 기어올라 윗면으로 나가는 중 (spec 2B §9). rel_x = 몸 중심 − 창 왼쪽, rel_y = 발 높이 − 창 윗면
+    InnerClimb { window: u64, rel_x: f64, rel_y: f64 },
 }
 
 impl State {
@@ -319,6 +323,10 @@ pub struct Pet {
     farewell_pending: bool,
     /// 화면을 떠난 쪽 (take_exit로 한 번 꺼낸다)
     exited: Option<Side>,
+    /// 창 안에서 노는 중이면 Some (spec 2B §9)
+    inside: Option<Stay>,
+    /// 방금 드래그해서 놓음 — 다음 update에서 창 안에 놓였는지 본다
+    drop_check: bool,
     rng: fastrand::Rng,
 }
 
@@ -351,6 +359,8 @@ impl Pet {
             guest: None,
             farewell_pending: false,
             exited: None,
+            inside: None,
+            drop_check: false,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -383,11 +393,14 @@ impl Pet {
         if self.track_home_progress(dt) {
             self.start_home_leap(world);
         }
+        self.update_inside(dt, world);
         match self.state {
             State::Housed => {}
             State::HomeLeap { remaining } => self.update_home_leap(dt, remaining, world),
             State::Enter { remaining, side } => self.update_enter(dt, world, remaining, side),
-            State::Climb { .. } | State::Slide | State::WallClimb { .. } if self.home_trip.is_some() => self.start_fall(),
+            State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } if self.home_trip.is_some() => {
+                self.start_fall()
+            }
             _ if self.home_trip.is_some() && !self.is_held() && !self.off_surface() && !self.celebrating() => {
                 self.update_chatter(dt);
                 self.update_go_home(dt, world);
@@ -402,6 +415,7 @@ impl Pet {
             State::Climb { target_y, hang } => self.update_climb(dt, target_y, hang),
             State::Slide => self.update_slide(dt, world),
             State::WallClimb { window, side, rel_y } => self.update_wall_climb(dt, world, window, side, rel_y),
+            State::InnerClimb { window, rel_x, rel_y } => self.update_inner_climb(dt, world, window, rel_x, rel_y),
             _ => {
                 self.pause_for_hover();
                 self.react_to_tickle();
@@ -431,7 +445,7 @@ impl Pet {
             State::Sleep { .. } => Anim::Sleep,
             State::Land { .. } => Anim::Land,
             State::Air { anim } => anim,
-            State::Climb { .. } | State::WallClimb { .. } => Anim::Climb,
+            State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
             State::Slide => Anim::Slide,
             State::GoHome => Anim::Run,
             State::HomeLeap { .. } => Anim::Hop,
@@ -504,6 +518,7 @@ impl Pet {
     pub fn enter_house(&mut self) {
         self.housed = true;
         self.home_trip = None;
+        self.inside = None;
         self.standing = None;
         self.pacing.after_beat = None;
         self.before_press = None;
@@ -534,7 +549,8 @@ impl Pet {
         match self.state {
             // 들어오는 중이면 다 들어온 뒤에 간다
             State::Pressed { .. } | State::Dragged | State::Air { .. } | State::HomeLeap { .. } | State::Enter { .. } => {}
-            State::Climb { .. } | State::Slide | State::WallClimb { .. } => self.start_fall(),
+            State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } => self.start_fall(),
+            // 창 안이면 update_inside가 먼저 뛰어나가게 한다
             _ if self.standing.is_some() => self.state = State::GoHome,
             _ => self.start_fall(),
         }
@@ -692,6 +708,7 @@ impl Pet {
         }
         let vx = (trip.door_x - x0) / t;
         self.pacing.after_beat = None;
+        self.inside = None;
         self.standing = None;
         self.body.vx = vx;
         self.body.vy = vy;
@@ -747,6 +764,7 @@ impl Pet {
         let inward = -visit::dir(side);
         self.exited = None;
         self.home_trip = None;
+        self.inside = None;
         self.pacing.after_beat = None;
         self.before_press = None;
         self.clear_hover();
@@ -887,6 +905,7 @@ impl Pet {
     fn vanish(&mut self, side: Side) {
         self.exited = Some(side);
         self.standing = None;
+        self.inside = None;
         self.body.vx = 0.0;
         self.body.vy = 0.0;
         self.pacing.after_beat = None;
@@ -900,7 +919,10 @@ impl Pet {
 
     /// 공중이거나 벽에 붙어 있음 (디딤판 위가 아님)
     fn off_surface(&self) -> bool {
-        matches!(self.state, State::Air { .. } | State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::HomeLeap { .. })
+        matches!(
+            self.state,
+            State::Air { .. } | State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } | State::HomeLeap { .. }
+        )
     }
 
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
@@ -985,6 +1007,8 @@ impl Pet {
                 self.record(cx, cy);
                 if (cx - start_cx).hypot(cy - start_cy) >= CLICK_SLOP {
                     self.standing = None;
+                    // 집어 들면 창 밖 — 놓은 자리에서 다시 정한다
+                    self.inside = None;
                     self.state = State::Dragged;
                     self.drag_to(cx, cy);
                 }
@@ -1000,7 +1024,7 @@ impl Pet {
     /// 동물 교체 시 벽 타기 가능 여부를 바꾼다. 못 타는 동물로 바뀌었는데 벽에 붙어 있으면 떨어진다.
     pub fn set_can_climb(&mut self, can_climb: bool) {
         self.cfg.can_climb = can_climb;
-        if !can_climb && matches!(self.state, State::Climb { .. } | State::Slide | State::WallClimb { .. }) {
+        if !can_climb && matches!(self.state, State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. }) {
             self.start_fall();
         }
     }
@@ -1120,6 +1144,7 @@ impl Pet {
                 self.body.vx = vx;
                 self.body.vy = vy;
                 self.state = State::Air { anim: Anim::Fall };
+                self.drop_check = true;
             }
             _ => {}
         }
@@ -1262,6 +1287,9 @@ impl Pet {
                         return;
                     }
                 } else if hit {
+                    if end == EndKind::Wall && self.climb_out_at(world, st.owner, edge_x) {
+                        return;
+                    }
                     match (end, kind) {
                         // 집이 그리운 손님은 돌아서지 않고 뛰어내린다
                         (EndKind::Edge, Move::Walk) if self.is_homesick() || self.rng.f64() < behavior::WALK_EDGE_HOP_CHANCE => {
@@ -1299,7 +1327,7 @@ impl Pet {
                 } else {
                     match self.pacing.after_beat.take() {
                         Some(AfterBeat::Go(next)) => next,
-                        Some(AfterBeat::Rest) => self.rest_state(),
+                        Some(AfterBeat::Rest) => self.rest_state(world),
                         None => self.sleep_or_move(world),
                     }
                 };
@@ -1384,11 +1412,16 @@ impl Pet {
             | State::Exit { .. }
             | State::Enter { .. }
             | State::Farewell { .. }
-            | State::Away => {}
+            | State::Away
+            | State::InnerClimb { .. } => {}
         }
     }
 
     fn update_air(&mut self, dt: f64, world: &World) {
+        if let Some(stay) = self.inside {
+            self.update_air_inside(dt, world, stay);
+            return;
+        }
         let (prev_x, prev_y, prev_vx) = (self.body.x, self.body.y, self.body.vx);
         step_air(&mut self.body, dt, &world.bounds, self.cfg.half_w, self.cfg.size);
         if self.body.vx.abs() > 1.0 {
@@ -1614,7 +1647,7 @@ impl Pet {
     /// 집이 그리운 손님은 기어오르지 않고, 마음대로 방향을 고를 땐 늘 집 쪽으로 간다 (Turn 직후엔 돌아선 쪽 그대로).
     fn move_state(&mut self, may_flip: bool, world: &World) -> State {
         let homesick = self.is_homesick();
-        if !homesick && self.cfg.can_climb && self.standing.is_some() && self.rng.f64() < behavior::CLIMB_CHANCE {
+        if !homesick && self.cfg.can_climb && self.standing.is_some() && self.inside.is_none() && self.rng.f64() < behavior::CLIMB_CHANCE {
             if let Some(target_y) = self.climb_target(world) {
                 return self.next_after_beat(State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS });
             }
@@ -1638,7 +1671,13 @@ impl Pet {
     }
 
     /// 쉬는 박자가 끝난 뒤: 시무룩 / 특별 동작 / 앞모습 애교 / 잠 / 이동
-    fn rest_state(&mut self) -> State {
+    fn rest_state(&mut self, world: &World) -> State {
+        if let Some((window, rect)) = self.hop_in_window(world) {
+            if self.rng.f64() < inside::HOP_IN_CHANCE {
+                self.start_hop_in(window, &rect);
+                return self.state;
+            }
+        }
         if self.hungry && self.rng.f64() < HUNGRY_REST_CHANCE {
             return State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
         }
@@ -1663,6 +1702,192 @@ impl Pet {
         }
     }
 }
+
+/// 창 안에서 놀기 (spec 2B §9)
+impl Pet {
+    /// 창 안에서 노는 중이면 그 창 id (기어 나가는 중·뛰어나가는 중도 포함)
+    pub fn inside_window(&self) -> Option<u64> {
+        self.inside.map(|s| s.window)
+    }
+
+    /// 매 틱 (주 동작 전): 놓인 자리 판정, 창이 사라지면 밖으로, 선 자리가 가려졌거나 집에 가야 하면 뛰어나가기,
+    /// 머문 시간이 다 되면 나가기 (벽 타는 동물은 절반은 안쪽 벽으로 걸어가 기어오른다)
+    fn update_inside(&mut self, dt: f64, world: &World) {
+        if std::mem::take(&mut self.drop_check) && matches!(self.state, State::Air { .. }) && self.home_trip.is_none() {
+            let target = inside::drop_target(world, self.body.x, self.body.y, self.cfg.half_w, self.cfg.size);
+            self.inside = target.map(|id| Stay::new(id, Mode::In, &mut self.rng));
+        }
+        let Some(mut stay) = self.inside else { return };
+        stay.leave_in -= dt;
+        self.inside = Some(stay);
+        let Some(rect) = world.window(stay.window).map(|w| w.rect) else {
+            // 창이 닫히거나 최소화됨 → 밖에서 평소처럼 떨어진다
+            self.inside = None;
+            if !self.is_held() && !matches!(self.state, State::Air { .. }) {
+                self.start_fall();
+            }
+            return;
+        };
+        if self.is_held() || self.off_surface() || !self.follow_anchor(world) {
+            return;
+        }
+        let room = world.piece_at(Owner::Inside(stay.window), self.body.x).is_some_and(|p| p.width() >= 2.0 * self.cfg.half_w);
+        // 집에 가는 중이거나 집이 그리운 손님이면 바로 나간다
+        if !room || (self.home_trip.is_some() || self.is_homesick()) && !self.celebrating() {
+            self.hop_out(world, &rect);
+            return;
+        }
+        if stay.leave_in > 0.0 || !matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. }) {
+            return;
+        }
+        if stay.climb_out {
+            if stay.leave_in < -inside::CLIMB_OUT_GIVE_UP_SECS {
+                self.hop_out(world, &rect);
+            }
+            return;
+        }
+        if self.cfg.can_climb && self.rng.f64() < inside::CLIMB_OUT_CHANCE {
+            // 가까운 안쪽 벽으로 걸어간다 — 벽에 닿으면 climb_out_at이 기어오르게 한다
+            self.inside = Some(Stay { climb_out: true, ..stay });
+            self.pacing.after_beat = None;
+            self.facing = if self.body.x - rect.left < rect.right - self.body.x { -1.0 } else { 1.0 };
+            self.state = State::Move { kind: Move::Walk, remaining: rect.width() / self.walk_speed() + 1.0 };
+        } else {
+            self.hop_out(world, &rect);
+        }
+    }
+
+    /// 창 윗면 위로 크게 뛰어 나간다 (천장 없음). 그 자리 윗면이 없으면(가려졌거나 화면 꼭대기에 붙은 창) 밖으로 떨어진다
+    fn hop_out(&mut self, world: &World, rect: &Rect) {
+        let Some(stay) = self.inside else { return };
+        self.pacing.after_beat = None;
+        if world.piece_at(Owner::Window(stay.window), self.body.x).is_some() {
+            self.standing = None;
+            self.body.vx = 0.0;
+            self.body.vy = inside::leave_vy(self.body.y, rect.top, self.scaled(inside::LEAVE_CLEAR));
+            self.inside = Some(Stay { mode: Mode::HopOut, ..stay });
+            self.state = State::Air { anim: Anim::Hop };
+        } else {
+            self.inside = None;
+            self.start_fall();
+        }
+    }
+
+    /// 창 안 공중: 창 사각형이 경계(옆 = 안쪽 벽, 위 = 천장 — 뛰어들고 뛰어나갈 땐 없음), 안쪽 바닥에만 내려선다
+    fn update_air_inside(&mut self, dt: f64, world: &World, stay: Stay) {
+        let Some(rect) = world.window(stay.window).map(|w| w.rect) else {
+            self.inside = None;
+            self.update_air(dt, world);
+            return;
+        };
+        let bounds = inside::air_bounds(&rect, &world.bounds, stay.mode == Mode::In);
+        let prev_y = self.body.y;
+        step_air(&mut self.body, dt, &bounds, self.cfg.half_w, self.cfg.size);
+        if self.body.vx.abs() > 1.0 {
+            self.facing = self.body.vx.signum();
+        }
+        match stay.mode {
+            // 발이 윗면 위로 올라감 → 이제 바깥 (내려오며 윗면에 선다)
+            Mode::HopOut if self.body.y <= rect.top => {
+                self.inside = None;
+                return;
+            }
+            Mode::HopIn if self.body.y - self.cfg.size >= rect.top => self.inside = Some(Stay { mode: Mode::In, ..stay }),
+            _ => {}
+        }
+        if self.body.vy < 0.0 || self.body.y < inside::floor_y(&rect) {
+            return;
+        }
+        let piece = world.piece_at(Owner::Inside(stay.window), self.body.x).copied().filter(|p| p.width() >= 2.0 * self.cfg.half_w);
+        match piece {
+            Some(s) => {
+                self.body = Body { x: self.body.x, y: s.y, vx: 0.0, vy: 0.0 };
+                self.standing = Some(Standing { owner: s.owner, rel_x: self.body.x - rect.left });
+                self.inside = Some(Stay { mode: Mode::In, ..stay });
+                self.state = State::Land { remaining: LAND_SECS };
+            }
+            // 내려설 자리가 앞쪽 창에 가려짐 → 밖으로 계속 떨어진다 (이번 틱에 지나친 바깥 디딤판이 있으면 선다)
+            None => {
+                self.inside = None;
+                self.land_or_recover(prev_y, world);
+            }
+        }
+    }
+
+    /// 기어 나가기로 한 동물이 안쪽 벽(edge_x)에 닿음: 벽을 기어오른다 (그 자리 윗면이 없으면 뛰어나간다). 처리했으면 true
+    fn climb_out_at(&mut self, world: &World, owner: Owner, edge_x: f64) -> bool {
+        let (Owner::Inside(id), Some(stay)) = (owner, self.inside) else { return false };
+        let Some(rect) = world.window(id).map(|w| w.rect) else { return false };
+        if !stay.climb_out {
+            return false;
+        }
+        let x = edge_x - self.facing * self.cfg.half_w;
+        if world.piece_at(Owner::Window(id), x).is_none() {
+            self.hop_out(world, &rect);
+            return true;
+        }
+        self.inside = Some(Stay { climb_out: false, ..stay });
+        self.pacing.after_beat = None;
+        self.standing = None;
+        self.body = Body { x, y: self.body.y, vx: 0.0, vy: 0.0 };
+        self.state = State::InnerClimb { window: id, rel_x: x - rect.left, rel_y: self.body.y - rect.top };
+        true
+    }
+
+    /// 안쪽 벽 타기: 창을 따라 움직이며 기어올라, 발이 윗면에 닿으면 그 자리 윗면에 올라선다 (바깥).
+    /// 창이 사라지거나 붙은 자리가 앞쪽 창에 가려지면 밖으로 떨어진다
+    fn update_inner_climb(&mut self, dt: f64, world: &World, window: u64, rel_x: f64, rel_y: f64) {
+        let Some(rect) = world.window(window).map(|w| w.rect) else {
+            self.inside = None;
+            self.start_fall();
+            return;
+        };
+        let x = rect.left + rel_x;
+        let rel_y = rel_y - self.scaled(behavior::WALL_CLIMB_SPEED) * dt;
+        if rel_y <= 0.0 {
+            self.inside = None;
+            self.body = Body { x, y: rect.top, vx: 0.0, vy: 0.0 };
+            if world.piece_at(Owner::Window(window), x).is_some() {
+                self.standing = Some(Standing { owner: Owner::Window(window), rel_x });
+                self.state = State::Land { remaining: LAND_SECS };
+            } else {
+                self.start_fall();
+            }
+            return;
+        }
+        let y = rect.top + rel_y;
+        if world.side_covered(window, x, y) != Some(false) {
+            self.inside = None;
+            self.body.x = x;
+            self.start_fall();
+            return;
+        }
+        self.body = Body { x, y, vx: 0.0, vy: 0.0 };
+        self.state = State::InnerClimb { window, rel_x, rel_y };
+    }
+
+    /// 쉬기를 정할 때 뛰어들 수 있는 창: 들어갈 만한 창의 윗면에 서 있고, 집에 가는 중·집이 그리운 손님이 아니어야 한다
+    fn hop_in_window(&self, world: &World) -> Option<(u64, Rect)> {
+        let Some(Standing { owner: Owner::Window(id), .. }) = self.standing else { return None };
+        if self.inside.is_some() || self.home_trip.is_some() || self.is_homesick() {
+            return None;
+        }
+        let rect = world.window(id)?.rect;
+        (inside::enterable(&rect, self.cfg.half_w, self.cfg.size) && inside::has_floor(world, id)).then_some((id, rect))
+    }
+
+    /// 창 윗면에서 안쪽 가운데 쪽으로 살짝 뛰어올라 윗면 선을 지나 떨어진다
+    fn start_hop_in(&mut self, window: u64, rect: &Rect) {
+        let dir = if (rect.left + rect.right) / 2.0 >= self.body.x { 1.0 } else { -1.0 };
+        self.start_hop(dir);
+        self.body.vx *= 0.5;
+        self.inside = Some(Stay::new(window, Mode::HopIn, &mut self.rng));
+    }
+}
+
+#[cfg(test)]
+#[path = "brain_inside_tests.rs"]
+mod inside_tests;
 
 /// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨린다
 fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {
@@ -2255,7 +2480,8 @@ mod input_tests {
             match p.state {
                 State::Air { anim: Anim::Hop } => {
                     assert!(p.render().heart);
-                    run(&mut p, &w, 120);
+                    // 내려선 뒤 쉬는 박자 안 (박자가 끝나면 5%는 창 안으로 뛰어든다, spec 2B §9)
+                    run(&mut p, &w, 60);
                     assert_eq!(p.standing.unwrap().owner, Owner::Window(1));
                     seen.insert("hop");
                 }

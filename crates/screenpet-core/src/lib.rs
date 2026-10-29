@@ -3,6 +3,7 @@ pub mod brain;
 pub mod care;
 pub mod config;
 pub mod geom;
+pub mod inside;
 pub mod manifest;
 pub mod physics;
 pub mod platform;

@@ -1,10 +1,14 @@
 use crate::geom::{Rect, WindowInfo};
+use crate::inside;
 
 /// 디딤판이 누구 것인지. Ground의 값은 work_areas 인덱스.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Owner {
+    /// 창 윗면 (밖)
     Window(u64),
     Ground(usize),
+    /// 창 안쪽 바닥 (아래 테두리 바로 위, spec 2B §9) — 그 창 안에 있는 동물만 디딘다
+    Inside(u64),
 }
 
 /// 디딤판 조각 끝이 왜 끝났는지.
@@ -61,33 +65,28 @@ pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], pet_height:
             _ => continue,
         }
         // (x_start, x_end, start_kind, end_kind)
-        let mut segs = vec![clip(w.rect.left, w.rect.right, &bounds)];
-        for front in &windows[..i] {
-            let r = front.rect;
-            if !(r.top <= y && r.bottom > y) {
-                continue;
-            }
-            segs = segs
-                .into_iter()
-                .flat_map(|(a, b, ka, kb)| {
-                    let mut kept = Vec::new();
-                    if r.right <= a || r.left >= b {
-                        kept.push((a, b, ka, kb));
-                    } else {
-                        if r.left > a {
-                            kept.push((a, r.left, ka, EndKind::Blocked));
-                        }
-                        if r.right < b {
-                            kept.push((r.right, b, EndKind::Blocked, kb));
-                        }
-                    }
-                    kept
-                })
-                .collect();
-        }
+        let segs = cut_by_front(vec![clip(w.rect.left, w.rect.right, &bounds)], &windows[..i], y);
         for (a, b, ka, kb) in segs {
             if b > a {
                 out.push(Surface { owner: Owner::Window(w.id), y, x_start: a, x_end: b, start_kind: ka, end_kind: kb });
+            }
+        }
+    }
+
+    // 창 안쪽 바닥: 아래 테두리에서 INSET 위, 옆 테두리에서 INSET 안쪽. 양 끝(안쪽 벽)은 Wall
+    for (i, w) in windows.iter().enumerate() {
+        if !inside::has_room(&w.rect, pet_height) {
+            continue;
+        }
+        let y = inside::floor_y(&w.rect);
+        if y > bounds.bottom || y - pet_height < bounds.top {
+            continue;
+        }
+        let (a, b, _, _) = clip(w.rect.left + inside::INSET, w.rect.right - inside::INSET, &bounds);
+        let segs = cut_by_front(vec![(a, b, EndKind::Wall, EndKind::Wall)], &windows[..i], y);
+        for (a, b, ka, kb) in segs {
+            if b > a {
+                out.push(Surface { owner: Owner::Inside(w.id), y, x_start: a, x_end: b, start_kind: ka, end_kind: kb });
             }
         }
     }
@@ -114,6 +113,34 @@ fn seam_at(work_areas: &[Rect], i: usize, x: f64, facing_edge: impl Fn(&Rect) ->
         .enumerate()
         .find(|&(j, o)| j != i && (facing_edge(o) - x).abs() <= SEAM_TOLERANCE && o.top < wa.bottom && wa.top < o.bottom)
         .map_or(EndKind::Wall, |(to, _)| EndKind::Seam { to })
+}
+
+/// (x_start, x_end, start_kind, end_kind) 조각들에서 높이 y의 선을 가리는 앞쪽 창 부분을 잘라 낸다 (잘린 끝은 Blocked)
+fn cut_by_front(mut segs: Vec<(f64, f64, EndKind, EndKind)>, fronts: &[WindowInfo], y: f64) -> Vec<(f64, f64, EndKind, EndKind)> {
+    for front in fronts {
+        let r = front.rect;
+        if !(r.top <= y && r.bottom > y) {
+            continue;
+        }
+        segs = segs
+            .into_iter()
+            .flat_map(|(a, b, ka, kb)| {
+                let mut kept = Vec::new();
+                if r.right <= a || r.left >= b {
+                    kept.push((a, b, ka, kb));
+                } else {
+                    if r.left > a {
+                        kept.push((a, r.left, ka, EndKind::Blocked));
+                    }
+                    if r.right < b {
+                        kept.push((r.right, b, EndKind::Blocked, kb));
+                    }
+                }
+                kept
+            })
+            .collect();
+    }
+    segs
 }
 
 fn clip(left: f64, right: f64, bounds: &Rect) -> (f64, f64, EndKind, EndKind) {
