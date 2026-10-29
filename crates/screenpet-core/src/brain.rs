@@ -172,6 +172,15 @@ enum AfterBeat {
     Go(State),
 }
 
+/// 활동 전환 속도 조절 — 사이 박자 뒤 할 일과 이동 관성
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+struct Pacing {
+    /// 지금 Idle이 활동 사이 박자라면 끝난 뒤 할 일
+    after_beat: Option<AfterBeat>,
+    /// 마지막으로 실제로 시작한 이동 방식 (이동 관성)
+    last_move: Option<Move>,
+}
+
 /// 서 있는 디딤판과 그 기준점(anchor)으로부터의 x 오프셋.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Standing {
@@ -221,10 +230,8 @@ pub struct Pet {
     speech: Option<Speech>,
     hungry: bool,
     food_request: bool,
-    /// 지금 Idle이 활동 사이 박자라면 끝난 뒤 할 일
-    after_beat: Option<AfterBeat>,
-    /// 마지막으로 고른 이동 방식 (이동 관성)
-    last_move: Option<Move>,
+    /// 활동 사이 박자와 이동 관성
+    pacing: Pacing,
     /// 누르기 직전 상태 — 새침하게 무시하면 되돌린다
     before_press: Option<(State, Option<AfterBeat>)>,
     /// 자는 동안 누른 횟수와 첫 클릭 시각
@@ -252,8 +259,7 @@ impl Pet {
             speech: None,
             hungry: false,
             food_request: false,
-            after_beat: None,
-            last_move: None,
+            pacing: Pacing::default(),
             before_press: None,
             sleep_clicks: (0, 0.0),
             rng: fastrand::Rng::with_seed(seed),
@@ -277,6 +283,10 @@ impl Pet {
                 self.update_chatter(dt);
                 self.update_ground(dt, world);
             }
+        }
+        // 이동 관성은 실제로 시작한 이동만 기억한다 (박자 뒤로 미뤄 둔 이동은 아직 아님)
+        if let State::Move { kind, .. } = self.state {
+            self.pacing.last_move = Some(kind);
         }
     }
 
@@ -374,7 +384,7 @@ impl Pet {
         self.hover_since = None;
         self.history.clear();
         self.history.push_back((self.clock, cx, cy));
-        self.before_press = Some((self.state, self.after_beat.take()));
+        self.before_press = Some((self.state, self.pacing.after_beat.take()));
         if !grounded {
             self.standing = None;
             self.body.vx = 0.0;
@@ -419,7 +429,7 @@ impl Pet {
         if !grounded {
             return false;
         }
-        self.after_beat = None;
+        self.pacing.after_beat = None;
         self.state = match result {
             FeedResult::Refused => {
                 self.speech = Some(Speech::Full);
@@ -444,7 +454,7 @@ impl Pet {
                     ClickOutcome::Ignore { speak } => {
                         if let Some((state, after_beat)) = self.before_press {
                             self.state = state;
-                            self.after_beat = after_beat;
+                            self.pacing.after_beat = after_beat;
                         }
                         if speak {
                             self.speech = Some(Speech::Ignore);
@@ -539,7 +549,7 @@ impl Pet {
             return;
         }
         if !matches!(self.state, State::Special { .. } | State::Eating { .. } | State::LevelUp { .. }) {
-            self.after_beat = None;
+            self.pacing.after_beat = None;
         }
         self.state = match self.state {
             State::Sleep { .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for: 0.0 },
@@ -645,7 +655,7 @@ impl Pet {
                 self.state = if remaining > 0.0 {
                     State::Idle { remaining, look }
                 } else {
-                    match self.after_beat.take() {
+                    match self.pacing.after_beat.take() {
                         Some(AfterBeat::Go(next)) => next,
                         Some(AfterBeat::Rest) => self.rest_state(),
                         None => self.sleep_or_move(),
@@ -752,7 +762,7 @@ impl Pet {
     }
 
     pub(crate) fn start_hop(&mut self, dir: f64) {
-        self.after_beat = None;
+        self.pacing.after_beat = None;
         self.standing = None;
         self.body.vx = dir * HOP_VX;
         self.body.vy = HOP_VY;
@@ -760,7 +770,7 @@ impl Pet {
     }
 
     fn start_fall(&mut self) {
-        self.after_beat = None;
+        self.pacing.after_beat = None;
         self.standing = None;
         self.body.vx = 0.0;
         self.body.vy = 0.0;
@@ -773,14 +783,14 @@ impl Pet {
 
     /// 활동 사이의 짧은 옆모습 앉기
     fn beat(&mut self, then: AfterBeat) -> State {
-        self.after_beat = Some(then);
+        self.pacing.after_beat = Some(then);
         State::Idle { remaining: behavior::range(&mut self.rng, behavior::BEAT_SECS), look: false }
     }
 
     /// 지금 활동과 묶음이 다르면 먼저 잠깐 앉았다가 next로 간다 (Turn은 직전 이동 방식 기준)
     fn next_after_beat(&mut self, next: State) -> State {
         let current = match self.state {
-            State::Turn { .. } => self.last_move.map(Move::family),
+            State::Turn { .. } => self.pacing.last_move.map(Move::family),
             s => s.family(),
         };
         match (current, next.family()) {
@@ -795,11 +805,9 @@ impl Pet {
             self.facing = -self.facing;
         }
         let after_front = self.state.family() == Some(Family::Front);
-        let kind = behavior::pick_next_move(&mut self.rng, self.last_move, after_front);
+        let kind = behavior::pick_next_move(&mut self.rng, self.pacing.last_move, after_front);
         let next = State::Move { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
-        let next = self.next_after_beat(next);
-        self.last_move = Some(kind);
-        next
+        self.next_after_beat(next)
     }
 
     /// 이동·착지 뒤엔 항상 잠깐 앉고, 그 뒤에 무엇을 할지 정한다
@@ -819,7 +827,8 @@ impl Pet {
             }
         }
         match behavior::pick_rest(&mut self.rng, self.cfg.personality.trick_chance(self.hungry)) {
-            Rest::Idle => self.sleep_or_move(),
+            // 박자에 이어 조금 더 앉아 있다가 잠/이동을 정한다
+            Rest::Idle => self.idle_state(),
             Rest::Trick(kind) => State::Trick { kind, remaining: behavior::range(&mut self.rng, behavior::TRICK_SECS) },
         }
     }
@@ -1045,6 +1054,63 @@ mod tests {
         assert!(beats > 500 && turns > 150, "beats {beats} turns {turns}");
     }
 
+    /// 쉬기 결정이 그냥 앉기면 박자 뒤에 IDLE_SECS 동안 더 앉아 있다가 잠/이동을 정한다
+    #[test]
+    fn plain_rest_sits_for_idle_secs_after_the_beat() {
+        let w = world(vec![]);
+        let mut sits = 0;
+        for seed in 0..300 {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 0.001, look: false });
+            p.pacing.after_beat = Some(AfterBeat::Rest);
+            p.update(DT, &w);
+            match p.state {
+                State::Idle { remaining, .. } => {
+                    assert!((1.5..=3.0).contains(&remaining), "seed {seed}: {remaining}");
+                    assert_eq!(p.pacing.after_beat, None);
+                    sits += 1;
+                    for _ in 0..(60 * 3 + 1) {
+                        p.update(DT, &w);
+                        if !matches!(p.state, State::Idle { .. }) {
+                            break;
+                        }
+                    }
+                    assert!(matches!(p.state, State::Sleep { .. } | State::Move { .. }), "seed {seed}: {:?}", p.state);
+                }
+                State::Trick { .. } => {}
+                s => panic!("seed {seed}: {s:?}"),
+            }
+        }
+        // 애교 55% 아니면 앉기
+        assert!((100..=170).contains(&sits), "{sits}");
+    }
+
+    #[test]
+    fn momentum_remembers_only_moves_that_really_started() {
+        let w = world(vec![]);
+        let mut checked = 0;
+        for seed in 0..200 {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.001 });
+            p.pacing.last_move = Some(Move::Run);
+            p.update(DT, &w);
+            let Some(AfterBeat::Go(State::Move { kind, .. })) = p.pacing.after_beat else { panic!("seed {seed}: {:?}", p.pacing.after_beat) };
+            assert_eq!(p.pacing.last_move, Some(Move::Run), "pending move not yet started");
+            if kind == Move::Run {
+                continue;
+            }
+            for _ in 0..120 {
+                p.update(DT, &w);
+                if matches!(p.state, State::Move { .. }) {
+                    break;
+                }
+            }
+            assert_eq!(p.pacing.last_move, Some(kind), "seed {seed}");
+            checked += 1;
+        }
+        assert!(checked > 50, "{checked}");
+    }
+
     #[test]
     fn trick_ends_with_a_beat_then_moves() {
         let w = world(vec![]);
@@ -1069,7 +1135,7 @@ mod tests {
         for seed in 0..200 {
             let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
             place(&mut p, &w, Owner::Ground(0), 900.0, State::Turn { remaining: 0.001 });
-            p.last_move = Some(Move::Walk);
+            p.pacing.last_move = Some(Move::Walk);
             p.update(DT, &w);
             assert!(!matches!(p.state, State::Move { kind: Move::Roll, .. }), "seed {seed}");
         }
@@ -1217,9 +1283,9 @@ mod tests {
             }
         }
         let (m, s, f) = (moving as f64 / total as f64, sleeping as f64 / total as f64, front as f64 / total as f64);
-        // 2B §6 재측정: moving 0.622, front 0.147, sleeping 0.082
-        assert!((0.57..=0.67).contains(&m), "moving {m:.3} (front {f:.3}, sleeping {s:.3})");
-        assert!(f >= 0.117, "front-facing {f:.3} (moving {m:.3}, sleeping {s:.3})");
+        // 2B §6 재측정 (쉬는 앉기 IDLE_SECS 반영): moving 0.584, front 0.139, sleeping 0.068
+        assert!((0.53..=0.63).contains(&m), "moving {m:.3} (front {f:.3}, sleeping {s:.3})");
+        assert!(f >= 0.109, "front-facing {f:.3} (moving {m:.3}, sleeping {s:.3})");
         assert!(s <= 0.12, "sleeping {s:.3} (moving {m:.3}, front {f:.3})");
     }
 
@@ -1432,9 +1498,12 @@ mod input_tests {
             place(&mut p, &w, Owner::Window(1), 800.0, State::Trick { kind: Trick::Wave, remaining: 0.001 });
             p.update(DT, &w);
             let beat = p.state;
+            let pending = p.pacing.after_beat;
+            assert!(matches!(pending, Some(AfterBeat::Go(State::Move { .. }))), "seed {seed}: {pending:?}");
             p.pointer_down(800.0, 350.0);
             p.pointer_up(800.0, 350.0);
             if p.state == beat {
+                assert_eq!(p.pacing.after_beat, pending, "seed {seed}: the pending move is restored exactly");
                 run(&mut p, &w, 100);
                 assert!(matches!(p.state, State::Move { .. }), "seed {seed}: {:?}", p.state);
                 return;
