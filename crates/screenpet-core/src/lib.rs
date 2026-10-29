@@ -7,4 +7,5 @@ pub mod manifest;
 pub mod physics;
 pub mod platform;
 pub mod surfaces;
+pub mod visit;
 pub mod world;

@@ -5,7 +5,8 @@ use serde::Serialize;
 use crate::care::{FeedResult, Food};
 use crate::behavior::{self, ClickOutcome, ClickReaction, Family, Move, Personality, Rest, Special, Trick};
 use crate::physics::{clamp_speed, step_air, Body, GRAVITY};
-use crate::surfaces::{EndKind, Owner};
+use crate::surfaces::{EndKind, Owner, Surface};
+use crate::visit::{self, ExitEdges, Guest};
 use crate::world::{Side, World};
 
 const TURN_PAUSE: f64 = 0.3;
@@ -186,6 +187,14 @@ pub enum State {
     HomeLeap { remaining: f64 },
     /// 하우스 안 (물리·세계 상호작용 없음). 하우스 안에서 먹을 땐 Eating/LevelUp/Trick을 거쳐 돌아온다
     Housed,
+    /// 화면 끝(side) 밖으로 걸어 나가는 중 — 최소 remaining초, 몸이 다 빠져나갈 때까지. 끝나면 take_exit가 Some(side)
+    Exit { remaining: f64, side: Side },
+    /// 화면 끝(side) 바깥 바닥에서 안쪽으로 걸어 들어오는 중 — 최소 remaining초, 몸이 다 들어올 때까지
+    Enter { remaining: f64, side: Side },
+    /// 손님이 "집에 와"로 손 흔드는 중 (제자리) — 끝나면 걸어 나가지 않고 사라진다
+    Farewell { remaining: f64 },
+    /// 화면을 떠남 (친구 화면에 가 있음). 아무것도 하지 않는다
+    Away,
 }
 
 impl State {
@@ -193,6 +202,7 @@ impl State {
     fn family(self) -> Option<Family> {
         match self {
             State::Move { kind, .. } => Some(kind.family()),
+            State::Exit { .. } | State::Enter { .. } => Some(Family::Move),
             State::Trick { .. } | State::Huff { .. } | State::Tickled { .. } | State::Hungry { .. } | State::Eating { .. } | State::LevelUp { .. } => {
                 Some(Family::Front)
             }
@@ -301,6 +311,12 @@ pub struct Pet {
     home_trip: Option<HomeTrip>,
     /// 하우스 안에 있음
     housed: bool,
+    /// 친구가 연결된 화면 끝 (phase 3)
+    exit_edges: ExitEdges,
+    /// 손님으로 와 있으면 Some
+    guest: Option<Guest>,
+    /// 화면을 떠난 쪽 (take_exit로 한 번 꺼낸다)
+    exited: Option<Side>,
     rng: fastrand::Rng,
 }
 
@@ -329,6 +345,9 @@ impl Pet {
             sleep_clicks: (0, 0.0),
             home_trip: None,
             housed: false,
+            exit_edges: ExitEdges::default(),
+            guest: None,
+            exited: None,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -340,12 +359,26 @@ impl Pet {
             self.update_housed(dt);
             return;
         }
+        match self.state {
+            State::Away => return,
+            State::Exit { remaining, side } => {
+                self.update_exit(dt, world, remaining, side);
+                return;
+            }
+            State::Farewell { remaining } => {
+                self.update_farewell(dt, remaining);
+                return;
+            }
+            _ => {}
+        }
+        self.tick_guest(dt);
         if self.track_home_progress(dt) {
             self.start_home_leap(world);
         }
         match self.state {
             State::Housed => {}
             State::HomeLeap { remaining } => self.update_home_leap(dt, remaining, world),
+            State::Enter { remaining, side } => self.update_enter(dt, world, remaining, side),
             State::Climb { .. } | State::Slide | State::WallClimb { .. } if self.home_trip.is_some() => self.start_fall(),
             _ if self.home_trip.is_some() && !self.is_held() && !self.off_surface() && !self.celebrating() => {
                 self.update_chatter(dt);
@@ -374,6 +407,9 @@ impl Pet {
     pub fn render(&self) -> RenderState {
         let anim = match self.state {
             State::Move { kind, .. } => kind.into(),
+            State::Exit { .. } | State::Enter { .. } => Anim::Walk,
+            State::Farewell { .. } => Trick::Wave.into(),
+            State::Away => Anim::Idle,
             State::Trick { kind, .. } => kind.into(),
             State::Tickled { .. } => Anim::Tickle,
             State::Annoyed { .. } => Anim::Annoyed,
@@ -472,7 +508,8 @@ impl Pet {
     /// 하우스로 달려간다. door_x = owner(하우스가 있는 작업 영역 바닥) 위의 문 x.
     /// 들려 있으면 놓인 뒤에, 공중이면 내려선 뒤에 달려가고, 벽·화면을 타는 중이면 바로 떨어진다.
     pub fn go_home(&mut self, owner: Owner, door_x: f64) {
-        if self.housed {
+        // 손님은 하우스가 없고, 화면을 떠나는 중·떠난 뒤엔 가지 않는다
+        if self.housed || self.guest.is_some() || self.leaving() {
             return;
         }
         self.home_trip = Some(match self.home_trip {
@@ -487,7 +524,8 @@ impl Pet {
             return;
         }
         match self.state {
-            State::Pressed { .. } | State::Dragged | State::Air { .. } | State::HomeLeap { .. } => {}
+            // 들어오는 중이면 다 들어온 뒤에 간다
+            State::Pressed { .. } | State::Dragged | State::Air { .. } | State::HomeLeap { .. } | State::Enter { .. } => {}
             State::Climb { .. } | State::Slide | State::WallClimb { .. } => self.start_fall(),
             _ if self.standing.is_some() => self.state = State::GoHome,
             _ => self.start_fall(),
@@ -668,6 +706,181 @@ impl Pet {
         }
     }
 
+    /// 친구가 연결된 화면 끝을 정한다 — 바닥을 걷다 그 끝에 닿으면 가끔 걸어 나간다
+    pub fn set_exit_edges(&mut self, left: bool, right: bool) {
+        self.exit_edges = ExitEdges { left, right };
+    }
+
+    /// 손님 모드: home = 집으로 가는 화면 끝, homesick_after초 뒤 집이 그리워진다 (visit::pick_homesick_after).
+    /// 손님은 배고파하지 않고 하우스로 가지 않는다
+    pub fn set_guest(&mut self, home: Side, homesick_after: f64) {
+        self.guest = Some(Guest { home, homesick_in: homesick_after });
+        self.hungry = false;
+        self.food_request = false;
+        if matches!(self.state, State::Hungry { .. }) {
+            self.state = self.idle_state();
+        }
+    }
+
+    /// 손님이 집을 그리워하는 중
+    pub fn is_homesick(&self) -> bool {
+        self.guest.is_some_and(|g| g.is_homesick())
+    }
+
+    /// 화면 끝(side) 바깥 바닥에서 걸어 들어오는 새 동물 (친구 동물이 놀러 옴)
+    pub fn new_entering(cfg: PetConfig, world: &World, side: Side, seed: u64) -> Self {
+        let mut p = Self::new(cfg, 0.0, 0.0, seed);
+        p.enter(world, side);
+        p
+    }
+
+    /// 화면 끝(side) 바깥 바닥에 두고 안쪽으로 걸어 들어오게 한다 (놀러 갔다 돌아올 때도)
+    pub fn enter(&mut self, world: &World, side: Side) {
+        let inward = -visit::dir(side);
+        self.exited = None;
+        self.home_trip = None;
+        self.pacing.after_beat = None;
+        self.before_press = None;
+        self.clear_hover();
+        self.facing = inward;
+        let Some((owner, edge_x, y)) = visit::entry_ground(world, side) else {
+            self.body = Body { x: edge_x_fallback(world, side, self.cfg.half_w), y: world.bounds.top + self.cfg.size, vx: 0.0, vy: 0.0 };
+            self.start_fall();
+            return;
+        };
+        let x = edge_x - inward * self.cfg.half_w;
+        let (ax, _) = world.anchor(owner).expect("surface owner has anchor");
+        self.body = Body { x, y, vx: 0.0, vy: 0.0 };
+        self.standing = Some(Standing { owner, rel_x: x - ax });
+        self.state = State::Enter { remaining: visit::ENTER_SECS, side };
+    }
+
+    /// 손님에게 "집에 와": 제자리에서 손 흔든 뒤 걸어 나가지 않고 사라진다 (take_exit = Some(집 쪽))
+    pub fn go_home_now(&mut self) {
+        if self.guest.is_none() || self.leaving() {
+            return;
+        }
+        self.pacing.after_beat = None;
+        self.before_press = None;
+        self.clear_hover();
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        self.state = State::Farewell { remaining: visit::FAREWELL_SECS };
+    }
+
+    /// 화면을 떠났으면 그 쪽을 한 번 돌려준다
+    pub fn take_exit(&mut self) -> Option<Side> {
+        self.exited.take()
+    }
+
+    /// 화면을 떠나 있음 (친구 화면에 가 있거나 손님이 집으로 돌아감)
+    pub fn is_away(&self) -> bool {
+        self.state == State::Away
+    }
+
+    /// 떠나는 중이거나 떠났음 — 잡기·먹이·집 가기를 받지 않는다
+    fn leaving(&self) -> bool {
+        matches!(self.state, State::Exit { .. } | State::Farewell { .. } | State::Away)
+    }
+
+    /// 떠나거나 들어오는 중
+    fn in_transit(&self) -> bool {
+        self.leaving() || matches!(self.state, State::Enter { .. })
+    }
+
+    /// 걷기 속도 (px/s)
+    fn walk_speed(&self) -> f64 {
+        self.cfg.walk_speed * Move::Walk.speed_mult()
+    }
+
+    /// 손님 그리움 타이머. 그리워지는 순간 집 반대쪽으로 걷고 있었다면 돌아선다
+    fn tick_guest(&mut self, dt: f64) {
+        let Some(g) = self.guest.as_mut() else { return };
+        let was = g.is_homesick();
+        g.homesick_in -= dt;
+        let (now, home) = (g.is_homesick(), g.home);
+        if !was && now && matches!(self.state, State::Move { .. }) && self.facing != visit::dir(home) {
+            self.pacing.after_beat = None;
+            self.state = State::Turn { remaining: TURN_PAUSE };
+        }
+    }
+
+    /// 걷다가 화면 가장 바깥 끝(piece의 진행 방향 끝)에 닿음: 걸어 나갈 거면 그 쪽
+    fn wants_exit(&mut self, world: &World, piece: &Surface) -> Option<Side> {
+        let side = visit::screen_edge(world, piece, self.facing)?;
+        let chance = visit::exit_chance(side, self.exit_edges, self.guest);
+        (chance >= 1.0 || chance > 0.0 && self.rng.f64() < chance).then_some(side)
+    }
+
+    fn start_exit(&mut self, side: Side) {
+        self.pacing.after_beat = None;
+        self.clear_hover();
+        self.state = State::Exit { remaining: visit::EXIT_SECS, side };
+    }
+
+    /// 바닥 높이를 따라 dx만큼 걷는다 (경계 밖이어도). 바닥이 사라졌으면 x만 옮긴다
+    fn walk_by(&mut self, dx: f64, world: &World) {
+        match self.standing {
+            Some(st) => {
+                self.standing = Some(Standing { rel_x: st.rel_x + dx, ..st });
+                if !self.follow_anchor(world) {
+                    self.standing = None;
+                    self.body.x += dx;
+                }
+            }
+            None => self.body.x += dx,
+        }
+    }
+
+    fn update_exit(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
+        self.facing = visit::dir(side);
+        self.walk_by(self.facing * self.walk_speed() * dt, world);
+        let remaining = remaining - dt;
+        if remaining <= 0.0 && visit::fully_outside(&world.bounds, side, self.body.x, self.cfg.half_w) {
+            self.vanish(side);
+        } else {
+            self.state = State::Exit { remaining, side };
+        }
+    }
+
+    fn update_enter(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
+        self.facing = -visit::dir(side);
+        if self.standing.is_none() {
+            self.start_fall();
+            return;
+        }
+        self.walk_by(self.facing * self.walk_speed() * dt, world);
+        if self.standing.is_none() {
+            self.start_fall();
+            return;
+        }
+        let remaining = remaining - dt;
+        self.state = if remaining <= 0.0 && visit::fully_inside(&world.bounds, side, self.body.x, self.cfg.half_w) {
+            State::Move { kind: Move::Walk, remaining: behavior::range(&mut self.rng, Move::Walk.secs()) }
+        } else {
+            State::Enter { remaining, side }
+        };
+    }
+
+    fn update_farewell(&mut self, dt: f64, remaining: f64) {
+        let remaining = remaining - dt;
+        match self.guest {
+            Some(g) if remaining <= 0.0 => self.vanish(g.home),
+            _ => self.state = State::Farewell { remaining },
+        }
+    }
+
+    /// 화면에서 사라진다 (side 쪽으로)
+    fn vanish(&mut self, side: Side) {
+        self.exited = Some(side);
+        self.standing = None;
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        self.pacing.after_beat = None;
+        self.clear_hover();
+        self.state = State::Away;
+    }
+
     pub fn is_held(&self) -> bool {
         matches!(self.state, State::Pressed { .. } | State::Dragged)
     }
@@ -679,7 +892,7 @@ impl Pet {
 
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
     pub fn hover(&mut self, cx: f64, cy: f64, inside: bool) {
-        if self.is_held() || self.off_surface() || self.housed || self.home_trip.is_some() {
+        if self.is_held() || self.off_surface() || self.housed || self.home_trip.is_some() || self.in_transit() {
             self.clear_hover();
             return;
         }
@@ -732,7 +945,7 @@ impl Pet {
     }
 
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
-        if self.is_held() || self.housed {
+        if self.is_held() || self.housed || self.leaving() {
             return;
         }
         let grounded = self.standing.is_some() && !self.off_surface();
@@ -780,6 +993,10 @@ impl Pet {
     }
 
     pub fn set_hungry(&mut self, hungry: bool) {
+        // 손님은 배고파하지 않는다 (배고픔은 주인 쪽에만)
+        if self.guest.is_some() {
+            return;
+        }
         self.hungry = hungry;
         if !hungry && matches!(self.state, State::Hungry { .. }) {
             self.state = self.idle_state();
@@ -794,7 +1011,7 @@ impl Pet {
     /// 먹이 결과 반영. 공중·드래그 중이면 무시하고 false
     /// 하우스 안에서도 먹는다 (하우스 창이 문간에서 먹는 모습을 보여 준다). 하우스로 가는 중엔 false
     pub fn feed_result(&mut self, result: FeedResult, food: Food) -> bool {
-        let grounded = self.standing.is_some() && !self.off_surface() && !self.is_held();
+        let grounded = self.standing.is_some() && !self.off_surface() && !self.is_held() && !self.in_transit();
         if !(self.housed || grounded && self.home_trip.is_none()) {
             return false;
         }
@@ -1033,13 +1250,19 @@ impl Pet {
                     }
                 } else if hit {
                     match (end, kind) {
-                        (EndKind::Edge, Move::Walk) if self.rng.f64() < behavior::WALK_EDGE_HOP_CHANCE => {
+                        // 집이 그리운 손님은 돌아서지 않고 뛰어내린다
+                        (EndKind::Edge, Move::Walk) if self.is_homesick() || self.rng.f64() < behavior::WALK_EDGE_HOP_CHANCE => {
                             self.start_hop(self.facing)
                         }
                         (EndKind::Edge, Move::Run) => {
                             self.start_hop(self.facing);
                             self.body.vx *= behavior::RUN_LEAP_VX_MULT;
                         }
+                        // 화면 가장 바깥 끝: 친구 화면으로 걸어 나가거나 뒤돈다
+                        (EndKind::Wall, Move::Walk | Move::Run) => match self.wants_exit(world, &piece) {
+                            Some(side) => self.start_exit(side),
+                            None => self.state = State::Turn { remaining: TURN_PAUSE },
+                        },
                         _ => self.state = State::Turn { remaining: TURN_PAUSE },
                     }
                     return;
@@ -1050,7 +1273,7 @@ impl Pet {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 {
                     State::Move { kind, remaining }
-                } else if self.rng.f64() < behavior::MOVE_END_TURN_CHANCE {
+                } else if !self.is_homesick() && self.rng.f64() < behavior::MOVE_END_TURN_CHANCE {
                     State::Turn { remaining: TURN_PAUSE }
                 } else {
                     self.rest_beat()
@@ -1144,7 +1367,11 @@ impl Pet {
             | State::Climb { .. }
             | State::Slide
             | State::WallClimb { .. }
-            | State::HomeLeap { .. } => {}
+            | State::HomeLeap { .. }
+            | State::Exit { .. }
+            | State::Enter { .. }
+            | State::Farewell { .. }
+            | State::Away => {}
         }
     }
 
@@ -1371,13 +1598,19 @@ impl Pet {
     }
 
     /// 이동 시작. may_flip이면 절반 확률로 방향을 바꾼다 (Turn 직후엔 이미 바꿨으므로 false).
+    /// 집이 그리운 손님은 기어오르지 않고, 마음대로 방향을 고를 땐 늘 집 쪽으로 간다 (Turn 직후엔 돌아선 쪽 그대로).
     fn move_state(&mut self, may_flip: bool, world: &World) -> State {
-        if self.cfg.can_climb && self.standing.is_some() && self.rng.f64() < behavior::CLIMB_CHANCE {
+        let homesick = self.is_homesick();
+        if !homesick && self.cfg.can_climb && self.standing.is_some() && self.rng.f64() < behavior::CLIMB_CHANCE {
             if let Some(target_y) = self.climb_target(world) {
                 return self.next_after_beat(State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS });
             }
         }
-        if may_flip && self.rng.bool() {
+        if let (true, Some(g)) = (homesick, self.guest) {
+            if may_flip {
+                self.facing = visit::dir(g.home);
+            }
+        } else if may_flip && self.rng.bool() {
             self.facing = -self.facing;
         }
         let after_front = self.state.family() == Some(Family::Front);
@@ -1415,6 +1648,14 @@ impl Pet {
         } else {
             self.move_state(true, world)
         }
+    }
+}
+
+/// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨린다
+fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {
+    match side {
+        Side::Left => world.bounds.left + half_w,
+        Side::Right => world.bounds.right - half_w,
     }
 }
 
@@ -3866,5 +4107,348 @@ mod house_tests {
         assert!(anims.contains(&Anim::LevelUp));
         assert!(said.contains(&Speech::LevelUp));
         assert!(!p.is_housed());
+    }
+}
+
+#[cfg(test)]
+mod visit_tests {
+    use super::tests::{cfg, place, run, world};
+    use super::*;
+    use crate::behavior::Move;
+    use crate::geom::Rect;
+
+    const DT: f64 = 1.0 / 60.0;
+    const RIGHT_EDGE: f64 = 1920.0 - 38.0 - 0.5;
+    const LEFT_EDGE: f64 = 38.0 + 0.5;
+
+    /// 화면 오른쪽(dir=1) 또는 왼쪽(dir=-1) 끝 바로 앞에서 kind 이동 중인 펫
+    fn at_edge(w: &World, seed: u64, dir: f64, kind: Move) -> Pet {
+        let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+        place(&mut p, w, Owner::Ground(0), if dir > 0.0 { RIGHT_EDGE } else { LEFT_EDGE }, State::Move { kind, remaining: 100.0 });
+        p.facing = dir;
+        p
+    }
+
+    /// 끝에 닿은 한 틱 뒤 (Exit 수, Turn 수)
+    fn outcomes(n: u64, dir: f64, kind: Move, setup: impl Fn(&mut Pet)) -> (usize, usize) {
+        let w = world(vec![]);
+        let (mut exits, mut turns) = (0, 0);
+        for seed in 0..n {
+            let mut p = at_edge(&w, seed, dir, kind);
+            setup(&mut p);
+            p.update(DT, &w);
+            match p.state {
+                State::Exit { side, .. } => {
+                    assert_eq!(side, visit::side_of(dir));
+                    exits += 1
+                }
+                State::Turn { .. } => turns += 1,
+                s => panic!("seed {seed}: {s:?}"),
+            }
+        }
+        (exits, turns)
+    }
+
+    /// 나가기를 시작한 펫 (시드를 돌며 찾는다)
+    fn exiting(w: &World) -> Pet {
+        for seed in 0..100 {
+            let mut p = at_edge(w, seed, 1.0, Move::Walk);
+            p.set_exit_edges(false, true);
+            p.update(DT, w);
+            if matches!(p.state, State::Exit { .. }) {
+                return p;
+            }
+        }
+        panic!("no exit in 100 seeds");
+    }
+
+    #[test]
+    fn connected_edge_exits_about_30_percent() {
+        for kind in [Move::Walk, Move::Run] {
+            let (exits, turns) = outcomes(400, 1.0, kind, |p| p.set_exit_edges(false, true));
+            assert!((90..=150).contains(&exits), "{kind:?} exits={exits}");
+            assert_eq!(exits + turns, 400);
+            let (exits, _) = outcomes(400, -1.0, kind, |p| p.set_exit_edges(true, false));
+            assert!((90..=150).contains(&exits), "{kind:?} left exits={exits}");
+        }
+    }
+
+    #[test]
+    fn unconnected_edge_and_rolling_always_turn() {
+        assert_eq!(outcomes(100, 1.0, Move::Walk, |p| p.set_exit_edges(true, false)), (0, 100));
+        assert_eq!(outcomes(100, -1.0, Move::Run, |p| p.set_exit_edges(false, true)), (0, 100));
+        assert_eq!(outcomes(100, 1.0, Move::Walk, |_| {}), (0, 100));
+        assert_eq!(outcomes(100, 1.0, Move::Roll, |p| p.set_exit_edges(true, true)), (0, 100));
+    }
+
+    #[test]
+    fn monitor_seam_is_not_an_exit() {
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1040.0)], 128.0);
+        for seed in 0..50 {
+            let mut p = at_edge(&w, seed, 1.0, Move::Walk);
+            p.set_exit_edges(true, true);
+            run(&mut p, &w, 90);
+            assert!(matches!(p.state, State::Move { .. }), "seed {seed}: {:?}", p.state);
+            assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(1)));
+        }
+    }
+
+    #[test]
+    fn exit_walks_off_the_screen_then_reports_once() {
+        let w = world(vec![]);
+        let mut p = exiting(&w);
+        assert_eq!(p.render().anim, Anim::Walk);
+        assert_eq!(p.take_exit(), None);
+        let mut last_x = p.body.x;
+        let mut ticks = 0;
+        while p.take_exit().is_none() {
+            p.update(DT, &w);
+            ticks += 1;
+            assert!(ticks < 600, "never left: {:?} x={}", p.state, p.body.x);
+            if matches!(p.state, State::Exit { .. }) {
+                assert!(p.body.x > last_x, "keeps walking out");
+                assert_eq!(p.body.y, 1040.0);
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false });
+            }
+            last_x = p.body.x;
+        }
+        // 최소 1초, 몸이 다 빠져나갈 때까지
+        assert!(ticks >= 59, "{ticks}");
+        assert!(p.body.x - 38.0 >= 1920.0, "{}", p.body.x);
+        assert!(p.is_away());
+        assert_eq!(p.take_exit(), None);
+        let body = p.body;
+        run(&mut p, &w, 600);
+        assert_eq!(p.take_exit(), None);
+        assert_eq!(p.body, body);
+        assert!(p.is_away());
+    }
+
+    #[test]
+    fn exit_reports_the_side() {
+        let w = world(vec![]);
+        let mut p = exiting(&w);
+        run(&mut p, &w, 600);
+        assert_eq!(p.take_exit(), Some(Side::Right));
+    }
+
+    #[test]
+    fn exiting_pet_cannot_be_grabbed_or_fed_or_sent_home() {
+        let w = world(vec![]);
+        let mut p = exiting(&w);
+        p.pointer_down(p.body.x, p.body.y - 40.0);
+        assert!(!p.is_held());
+        assert!(!p.feed_result(FeedResult::Ate { leveled_up: false }, Food::Meal));
+        p.go_home(Owner::Ground(0), 100.0);
+        assert!(!p.is_going_home());
+        assert!(matches!(p.state, State::Exit { .. }));
+        run(&mut p, &w, 600);
+        assert_eq!(p.take_exit(), Some(Side::Right));
+    }
+
+    #[test]
+    fn entering_walks_in_from_outside_then_behaves_normally() {
+        let w = world(vec![]);
+        let mut p = Pet::new_entering(cfg(), &w, Side::Left, 1);
+        assert!(matches!(p.state, State::Enter { .. }));
+        assert_eq!((p.body.x, p.body.y, p.facing), (-38.0, 1040.0, 1.0));
+        assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)));
+        assert_eq!(p.render().anim, Anim::Walk);
+        let mut ticks = 0;
+        while matches!(p.state, State::Enter { .. }) {
+            let x = p.body.x;
+            p.update(DT, &w);
+            assert!(p.body.x > x);
+            ticks += 1;
+            assert!(ticks < 600);
+        }
+        assert!(ticks >= 59, "{ticks}");
+        assert!(p.body.x >= 38.0, "{}", p.body.x);
+        assert!(matches!(p.state, State::Move { kind: Move::Walk, .. }), "{:?}", p.state);
+        assert_eq!(p.facing, 1.0);
+        // 그 뒤로는 평소처럼 (화면 안 바닥에서)
+        let mut anims = Vec::new();
+        for _ in 0..(60 * 60) {
+            p.update(DT, &w);
+            anims.push(p.render().anim);
+            assert!(p.body.x >= 0.0 && p.body.x <= 1920.0);
+        }
+        assert!(anims.contains(&Anim::Idle));
+        assert_eq!(p.take_exit(), None);
+    }
+
+    #[test]
+    fn entering_from_the_right_faces_left() {
+        let w = world(vec![]);
+        let mut p = Pet::new_entering(cfg(), &w, Side::Right, 2);
+        assert_eq!((p.body.x, p.facing), (1920.0 + 38.0, -1.0));
+        run(&mut p, &w, 300);
+        assert!(p.body.x <= 1920.0 - 38.0);
+    }
+
+    #[test]
+    fn away_pet_can_come_back_in() {
+        let w = world(vec![]);
+        let mut p = exiting(&w);
+        run(&mut p, &w, 600);
+        assert_eq!(p.take_exit(), Some(Side::Right));
+        p.enter(&w, Side::Right);
+        assert!(!p.is_away());
+        assert!(matches!(p.state, State::Enter { .. }));
+        run(&mut p, &w, 300);
+        assert!(p.body.x <= 1920.0 - 38.0);
+    }
+
+    fn guest(seed: u64, dir: f64, kind: Move, home: Side, homesick_after: f64) -> Pet {
+        let w = world(vec![]);
+        let mut p = at_edge(&w, seed, dir, kind);
+        p.set_guest(home, homesick_after);
+        p
+    }
+
+    #[test]
+    fn guest_leaves_toward_home_half_the_time() {
+        let (exits, turns) = outcomes(400, 1.0, Move::Walk, |p| p.set_guest(Side::Right, 1000.0));
+        assert!((165..=235).contains(&exits), "exits={exits}");
+        assert_eq!(exits + turns, 400);
+        // 반대 끝은 연결돼 있어도 뒤돈다
+        assert_eq!(
+            outcomes(100, -1.0, Move::Walk, |p| {
+                p.set_exit_edges(true, true);
+                p.set_guest(Side::Right, 1000.0)
+            }),
+            (0, 100)
+        );
+    }
+
+    #[test]
+    fn homesick_guest_always_leaves_toward_home() {
+        let (exits, _) = outcomes(100, 1.0, Move::Walk, |p| p.set_guest(Side::Right, 0.0));
+        assert_eq!(exits, 100);
+        let (exits, _) = outcomes(100, -1.0, Move::Walk, |p| p.set_guest(Side::Right, 0.0));
+        assert_eq!(exits, 0);
+    }
+
+    #[test]
+    fn guest_becomes_homesick_after_the_given_time() {
+        let w = world(vec![]);
+        let mut p = guest(1, 1.0, Move::Walk, Side::Right, 2.0);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        assert!(!p.is_homesick());
+        run(&mut p, &w, 110);
+        assert!(!p.is_homesick());
+        run(&mut p, &w, 20);
+        assert!(p.is_homesick());
+    }
+
+    #[test]
+    fn homesick_guest_heads_home_and_leaves() {
+        let w = world(vec![]);
+        for seed in 0..10 {
+            let mut p = guest(seed, -1.0, Move::Walk, Side::Right, 0.01);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Move { kind: Move::Walk, remaining: 100.0 });
+            // 집 반대쪽으로 걷던 중이면 곧 돌아선다
+            run(&mut p, &w, 60);
+            assert_eq!(p.facing, 1.0, "seed {seed}");
+            let mut left = None;
+            for _ in 0..(60 * 240) {
+                p.update(DT, &w);
+                if let State::Move { .. } = p.state {
+                    assert_eq!(p.facing, 1.0, "seed {seed}: only walks toward home");
+                }
+                left = left.or(p.take_exit());
+                if left.is_some() {
+                    break;
+                }
+            }
+            assert_eq!(left, Some(Side::Right), "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn come_home_now_waves_then_vanishes_without_walking() {
+        let w = world(vec![]);
+        let mut p = guest(1, 1.0, Move::Walk, Side::Left, 1000.0);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Move { kind: Move::Run, remaining: 100.0 });
+        p.go_home_now();
+        assert_eq!(p.render().anim, Anim::Wave);
+        let body = p.body;
+        p.pointer_down(p.body.x, p.body.y - 40.0);
+        assert!(!p.is_held());
+        run(&mut p, &w, 50);
+        assert_eq!(p.body, body);
+        assert_eq!(p.render().anim, Anim::Wave);
+        assert_eq!(p.take_exit(), None);
+        run(&mut p, &w, 15);
+        assert_eq!(p.take_exit(), Some(Side::Left));
+        assert!(p.is_away());
+        assert_eq!(p.body, body);
+        run(&mut p, &w, 120);
+        assert_eq!(p.take_exit(), None);
+    }
+
+    #[test]
+    fn come_home_now_is_only_for_guests() {
+        let w = world(vec![]);
+        let mut p = at_edge(&w, 1, 1.0, Move::Walk);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        p.go_home_now();
+        assert_eq!(p.state, State::Idle { remaining: 100.0, look: false });
+        run(&mut p, &w, 120);
+        assert_eq!(p.take_exit(), None);
+    }
+
+    #[test]
+    fn guests_never_get_hungry_or_go_into_the_house() {
+        let w = world(vec![]);
+        let mut p = guest(1, 1.0, Move::Walk, Side::Right, 1000.0);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        p.set_hungry(true);
+        let mut said = Vec::new();
+        for _ in 0..(60 * 120) {
+            p.update(DT, &w);
+            said.extend(p.take_speech());
+            assert!(!matches!(p.state, State::Hungry { .. }));
+        }
+        assert!(!said.contains(&Speech::Hungry), "{said:?}");
+        // 클릭하면 밥 달라 하지 않고 평소처럼 반응
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        p.pointer_down(900.0, 1000.0);
+        p.pointer_up(900.0, 1000.0);
+        assert!(!p.take_food_request());
+        assert!(!matches!(p.state, State::Hungry { .. }));
+        p.go_home(Owner::Ground(0), 100.0);
+        assert!(!p.is_going_home());
+        run(&mut p, &w, 600);
+        assert!(!p.is_housed());
+    }
+
+    #[test]
+    fn hungry_pet_stops_being_hungry_when_it_becomes_a_guest() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, State::Hungry { remaining: 3.0 });
+        p.set_hungry(true);
+        p.set_guest(Side::Left, 1000.0);
+        assert!(!matches!(p.state, State::Hungry { .. }));
+        p.pointer_down(900.0, 1000.0);
+        p.pointer_up(900.0, 1000.0);
+        assert!(!p.take_food_request());
+    }
+
+    #[test]
+    fn housed_or_homeward_pets_do_not_exit() {
+        let w = world(vec![]);
+        // 하우스로 가는 길에 화면 끝 쪽으로 달려도 나가지 않는다 (문이 오른쪽 끝 가까이)
+        for seed in 0..30 {
+            let mut p = at_edge(&w, seed, 1.0, Move::Walk);
+            p.set_exit_edges(true, true);
+            p.go_home(Owner::Ground(0), 1900.0);
+            run(&mut p, &w, 120);
+            assert!(p.is_housed(), "seed {seed}: {:?}", p.state);
+            assert_eq!(p.take_exit(), None);
+            run(&mut p, &w, 600);
+            assert_eq!(p.take_exit(), None);
+        }
     }
 }
