@@ -97,8 +97,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64) {
         let (wx, wy) = pet.window_pos();
         let pos = (wx.round() as i32, wy.round() as i32);
         if last_pos != Some(pos) {
+            let first = last_pos.is_none();
             let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
             last_pos = Some(pos);
+            if first {
+                // 창은 visible:false로 만들어 두고, 첫 위치를 잡은 뒤에야 보여 OS 기본 위치 깜빡임을 막는다.
+                let _ = window.show();
+            }
         }
         let render = pet.render();
         if last_render != Some(render) {

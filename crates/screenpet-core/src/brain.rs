@@ -318,7 +318,11 @@ impl Pet {
     fn update_air(&mut self, dt: f64, world: &World) {
         let prev_y = self.body.y;
         step_air(&mut self.body, dt, &world.bounds, self.cfg.half_w, self.cfg.size);
-        if let Some(s) = world.landing(self.body.x, prev_y, self.body.y).copied() {
+        let landing = world.landing(self.body.x, prev_y, self.body.y).copied().or_else(|| {
+            // 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 Ground를 바닥으로 취급
+            if self.body.vy >= 0.0 { world.ground_below(self.body.x, self.body.y).copied() } else { None }
+        });
+        if let Some(s) = landing {
             let (ax, _) = world.anchor(s.owner).expect("surface owner has anchor");
             self.body = Body { x: self.body.x, y: s.y, vx: 0.0, vy: 0.0 };
             self.standing = Some(Standing { owner: s.owner, rel_x: self.body.x - ax });
@@ -411,6 +415,18 @@ mod tests {
         run(&mut p, &w, 120);
         assert_eq!(p.standing.unwrap().owner, Owner::Ground(0));
         assert_eq!(p.body.y, 1040.0);
+    }
+
+    #[test]
+    fn released_below_ground_line_lands_on_ground() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 800.0, 1090.0, 1);
+        p.body.vy = 0.0;
+        p.state = State::Air { anim: Anim::Fall };
+        p.update(DT, &w);
+        assert_eq!(p.standing.unwrap().owner, Owner::Ground(0));
+        assert_eq!(p.body.y, 1040.0);
+        assert!(matches!(p.state, State::Land { .. }));
     }
 
     #[test]

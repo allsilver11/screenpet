@@ -38,7 +38,7 @@ impl Surface {
     }
 }
 
-pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], min_y: f64) -> Vec<Surface> {
+pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], pet_height: f64) -> Vec<Surface> {
     let mut out = Vec::new();
     let Some(bounds) = work_areas.iter().copied().reduce(|a, b| a.union(&b)) else {
         return out;
@@ -46,8 +46,14 @@ pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], min_y: f64)
 
     for (i, w) in windows.iter().enumerate() {
         let y = w.rect.top;
-        if y < min_y || y >= bounds.bottom {
+        if y >= bounds.bottom {
             continue;
+        }
+        // 창 윗면 중앙이 속한 작업 영역 기준으로, 펫이 머리를 둘 공간이 없으면 건너뜀
+        let cx = (w.rect.left + w.rect.right) / 2.0;
+        match work_areas.iter().find(|wa| cx >= wa.left && cx <= wa.right) {
+            Some(wa) if y >= wa.top + pet_height => {}
+            _ => continue,
         }
         // (x_start, x_end, start_kind, end_kind)
         let mut segs = vec![clip(w.rect.left, w.rect.right, &bounds)];
@@ -178,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn tops_above_min_y_or_below_screen_are_ignored() {
+    fn tops_too_high_or_below_screen_are_ignored() {
         let ws = [win(1, 500.0, 50.0, 1100.0, 900.0), win(2, 500.0, 1040.0, 1100.0, 1200.0)];
         let s = compute_surfaces(&ws, &screen(), 128.0);
         assert!(pieces_of(&s, Owner::Window(1)).is_empty());
@@ -191,5 +197,16 @@ mod tests {
         let p = pieces_of(&compute_surfaces(&ws, &screen(), 0.0), Owner::Window(1));
         assert_eq!((p[0].x_start, p[0].x_end), (0.0, 600.0));
         assert_eq!((p[0].start_kind, p[0].end_kind), (EndKind::Wall, EndKind::Edge));
+    }
+
+    #[test]
+    fn min_y_is_per_work_area_of_the_window() {
+        let areas = vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 300.0, 3840.0, 1340.0)];
+        let maxed_b = win(1, 1920.0, 300.0, 3840.0, 1340.0);
+        let s = compute_surfaces(&[maxed_b], &areas, 128.0);
+        assert!(pieces_of(&s, Owner::Window(1)).is_empty());
+        let lower_b = win(2, 2200.0, 438.0, 3000.0, 1200.0);
+        let s = compute_surfaces(&[lower_b], &areas, 128.0);
+        assert_eq!(pieces_of(&s, Owner::Window(2)).len(), 1);
     }
 }

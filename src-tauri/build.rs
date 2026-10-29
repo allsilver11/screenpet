@@ -12,6 +12,12 @@ fn main() {
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     ids.sort();
+    for id in &ids {
+        assert!(
+            pets_dir.join(id).join("sheet.png").is_file(),
+            "ui/pets/{id} 폴더에 pet.json은 있지만 sheet.png가 없습니다"
+        );
+    }
     assert!(!ids.is_empty(), "ui/pets 안에 pet.json이 있는 동물 폴더가 하나 이상 필요합니다");
 
     let mut code = String::from("pub const BUNDLED_PETS: &[(&str, &str)] = &[\n");

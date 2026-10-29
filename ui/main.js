@@ -53,6 +53,10 @@ petEl.addEventListener("mousedown", (e) => {
   if (e.button === 0) invoke("pointer_down");
 });
 
+// 펫 창엔 키보드/메뉴 UI가 없으므로 웹뷰 기본 동작(우클릭 메뉴, F5, Ctrl+R, Alt+F4 등)을 막는다.
+window.addEventListener("contextmenu", (e) => e.preventDefault());
+window.addEventListener("keydown", (e) => e.preventDefault());
+
 (async () => {
   await loadPet(await invoke("current_pet"));
   requestAnimationFrame(draw);

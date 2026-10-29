@@ -14,7 +14,7 @@ impl World {
             work_areas.push(Rect::new(0.0, 0.0, 1920.0, 1080.0));
         }
         let bounds = work_areas.iter().copied().reduce(|a, b| a.union(&b)).unwrap();
-        let surfaces = compute_surfaces(&windows, &work_areas, bounds.top + pet_height);
+        let surfaces = compute_surfaces(&windows, &work_areas, pet_height);
         Self { windows, work_areas, bounds, surfaces }
     }
 
@@ -27,6 +27,14 @@ impl World {
 
     pub fn piece_at(&self, owner: Owner, x: f64) -> Option<&Surface> {
         self.surfaces.iter().find(|s| s.owner == owner && s.contains_x(x))
+    }
+
+    /// x 아래에 있는 Ground 디딤판 중 y가 주어진 y 이하인 것 (작업 영역 바닥보다 아래로 내려간 경우용)
+    pub fn ground_below(&self, x: f64, y: f64) -> Option<&Surface> {
+        self.surfaces
+            .iter()
+            .filter(|s| matches!(s.owner, Owner::Ground(_)) && s.contains_x(x) && s.y <= y)
+            .max_by(|a, b| a.y.total_cmp(&b.y))
     }
 
     pub fn landing(&self, x: f64, prev_y: f64, new_y: f64) -> Option<&Surface> {
@@ -90,5 +98,14 @@ mod tests {
         let w = world();
         let s = w.landing(200.0, 300.0, 1100.0).unwrap();
         assert_eq!(s.owner, Owner::Ground(0));
+    }
+
+    #[test]
+    fn ground_below_finds_ground_under_x_at_or_below_y() {
+        let w = world();
+        let g = w.ground_below(800.0, 1090.0).unwrap();
+        assert_eq!(g.owner, Owner::Ground(0));
+        assert!(w.ground_below(800.0, 1000.0).is_none());
+        assert!(w.ground_below(5000.0, 1090.0).is_none());
     }
 }
