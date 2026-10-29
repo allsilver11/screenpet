@@ -11,8 +11,11 @@
 //!   relay (WebSocket) transport can implement the same traits later.
 //! - `peers`: the per-peer session driver (handshake, invites, friends, ping,
 //!   timeouts) — works on any `Link`, never sees bytes or sockets.
-//! - `discovery`: LAN UDP announcements that tell `tcp` where to dial.
+//! - `discovery`: LAN UDP announcements — only *hints* (candidate addresses)
+//!   about where to dial; a link counts only after `auth` proves identity.
+//! - `auth`: per-friendship secrets and the hello challenge-response.
 
+mod auth;
 mod discovery;
 mod peers;
 mod protocol;
@@ -22,6 +25,7 @@ mod transport;
 pub use protocol::{Side, Visit};
 
 use protocol::{Control, Message};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::net::{SocketAddr, TcpListener, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -73,14 +77,15 @@ pub struct NetConfig {
     pub discovery_port: u16,
     /// Where announcements are sent (normally `255.255.255.255:discovery_port`).
     pub broadcast_to: SocketAddr,
-    /// Ids already accepted as friends (auto-connect, no prompt).
-    pub friends: Vec<String>,
+    /// Friends accepted earlier (auto-connect, no prompt), as returned by
+    /// [`Net::friends`]. Entries with a malformed secret are ignored.
+    pub friends: Vec<Friend>,
     pub timing: Timing,
 }
 
 impl NetConfig {
     /// Spec defaults: port 47321, broadcast to 255.255.255.255:47321, spec timing.
-    pub fn new(id: impl Into<String>, name: impl Into<String>, friends: Vec<String>) -> NetConfig {
+    pub fn new(id: impl Into<String>, name: impl Into<String>, friends: Vec<Friend>) -> NetConfig {
         NetConfig {
             id: id.into(),
             name: name.into(),
@@ -90,6 +95,14 @@ impl NetConfig {
             timing: Timing::default(),
         }
     }
+}
+
+/// A friendship: the peer's install id and the shared secret (64 hex chars)
+/// that authenticates it. The app persists these (e.g. in its config).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Friend {
+    pub id: String,
+    pub secret: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -103,11 +116,14 @@ pub enum NetEvent {
     Received { from: String, msg: Visit },
 }
 
-/// A peer heard via discovery.
+/// A peer id heard via discovery. Announcements are unauthenticated hints, so
+/// every address announced for the id is kept as a candidate.
 pub(crate) struct Seen {
-    pub name: String,
-    pub addr: SocketAddr,
-    pub last: Instant,
+    /// Candidate address → when it was last announced.
+    pub candidates: HashMap<SocketAddr, Instant>,
+    /// Candidates whose last dial failed (no connect / wrong id / failed auth)
+    /// → when. Avoided while any other candidate is untried or good.
+    pub bad: HashMap<SocketAddr, Instant>,
 }
 
 /// The live connection to one peer (at most one per id).
@@ -131,7 +147,7 @@ pub(crate) struct OutInvite {
 
 #[derive(Default)]
 pub(crate) struct State {
-    pub friends: Vec<String>,
+    pub friends: Vec<Friend>,
     pub seen: HashMap<String, Seen>,
     pub conns: HashMap<String, Conn>,
     pub dialing: HashSet<String>,
@@ -141,12 +157,19 @@ pub(crate) struct State {
 
 impl State {
     pub fn is_friend(&self, id: &str) -> bool {
-        self.friends.iter().any(|f| f == id)
+        self.friends.iter().any(|f| f.id == id)
     }
-    pub fn add_friend(&mut self, id: &str) {
-        if !self.is_friend(id) {
-            self.friends.push(id.to_string());
+    pub fn secret(&self, id: &str) -> Option<String> {
+        self.friends.iter().find(|f| f.id == id).map(|f| f.secret.clone())
+    }
+    pub fn add_friend(&mut self, id: &str, secret: &str) {
+        match self.friends.iter_mut().find(|f| f.id == id) {
+            Some(f) => f.secret = secret.to_string(),
+            None => self.friends.push(Friend { id: id.to_string(), secret: secret.to_string() }),
         }
+    }
+    pub fn remove_friend(&mut self, id: &str) {
+        self.friends.retain(|f| f.id != id);
     }
 }
 
@@ -203,8 +226,8 @@ impl Net {
         let (tx, rx) = channel();
         let mut state = State::default();
         for f in &cfg.friends {
-            if *f != cfg.id {
-                state.add_friend(f);
+            if f.id != cfg.id && !f.id.is_empty() && auth::valid_random(&f.secret) {
+                state.add_friend(&f.id, &f.secret);
             }
         }
         let shared = Arc::new(Shared {
@@ -256,7 +279,7 @@ impl Net {
     pub fn unfriend(&self, peer_id: &str) {
         let link = {
             let mut st = self.shared.state();
-            st.friends.retain(|f| f != peer_id);
+            st.remove_friend(peer_id);
             st.invites_in.remove(peer_id);
             st.invites_out.remove(peer_id);
             st.conns.get(peer_id).map(|c| c.link.clone())
@@ -267,8 +290,9 @@ impl Net {
         }
     }
 
-    /// Current friend ids, including ones added by accepted invites.
-    pub fn friends(&self) -> Vec<String> {
+    /// Current friends (with secrets), including ones added by accepted
+    /// invites — the app persists these and passes them back in `NetConfig`.
+    pub fn friends(&self) -> Vec<Friend> {
         self.shared.state().friends.clone()
     }
 

@@ -43,9 +43,17 @@ pub enum Visit {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Control {
-    Hello { id: String, name: String, v: u32 },
+    /// First message on every link; `nonce` is this side's fresh challenge.
+    Hello { id: String, name: String, v: u32, nonce: String },
+    /// Answer to the peer's hello nonce (friends only, see `auth`).
+    Auth { mac: String },
     Invite { pet: String },
-    InviteReply { accepted: bool },
+    /// `secret` (hex, 32 bytes) is present iff accepted: the new friendship key.
+    InviteReply {
+        accepted: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        secret: Option<String>,
+    },
     Unfriend,
     Ping,
 }
@@ -128,9 +136,10 @@ mod tests {
     #[test]
     fn control_messages_round_trip() {
         for m in [
-            Message::Control(Control::Hello { id: "a".into(), name: "A".into(), v: 1 }),
+            Message::Control(Control::Hello { id: "a".into(), name: "A".into(), v: 1, nonce: "00".into() }),
+            Message::Control(Control::Auth { mac: "ab".into() }),
             Message::Control(Control::Invite { pet: "cat".into() }),
-            Message::Control(Control::InviteReply { accepted: true }),
+            Message::Control(Control::InviteReply { accepted: true, secret: Some("cd".into()) }),
             Message::Control(Control::Unfriend),
             Message::Control(Control::Ping),
             Message::Visit(Visit::Leave { visit_id: 3 }),
@@ -141,7 +150,7 @@ mod tests {
         }
         assert_eq!(
             Message::parse(br#"{"type":"invite_reply","accepted":false}"#),
-            Some(Message::Control(Control::InviteReply { accepted: false }))
+            Some(Message::Control(Control::InviteReply { accepted: false, secret: None }))
         );
         assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping)));
     }
@@ -151,6 +160,8 @@ mod tests {
         assert_eq!(Message::parse(br#"{"type":"bogus"}"#), None);
         assert_eq!(Message::parse(br#"{"no_type":1}"#), None);
         assert_eq!(Message::parse(br#"{"type":"leave"}"#), None);
+        // hello without a nonce is malformed
+        assert_eq!(Message::parse(br#"{"type":"hello","id":"a","name":"A","v":1}"#), None);
         assert_eq!(Message::parse(b"not json"), None);
     }
 

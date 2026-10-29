@@ -1,5 +1,6 @@
 //! LAN transport: TCP with line-delimited JSON (max line `MAX_LINE`).
 
+use crate::discovery::mark_candidate;
 use crate::peers::{dial_failed, run_session};
 use crate::protocol::{Message, MAX_LINE};
 use crate::transport::{Link, LinkReader, Recv};
@@ -99,7 +100,9 @@ pub(crate) fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
             Ok((stream, _)) => {
                 if let Ok((link, reader)) = wrap(stream) {
                     let s = shared.clone();
-                    shared.spawn(move || run_session(s, link, reader, None));
+                    shared.spawn(move || {
+                        run_session(s, link, reader, None);
+                    });
                 }
             }
             Err(_) => std::thread::sleep(TICK),
@@ -107,15 +110,20 @@ pub(crate) fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
     }
 }
 
-/// Connect to a peer's announced address on a worker thread. The caller has
-/// already put `peer_id` into `State::dialing`.
+/// Connect to a candidate address for `peer_id` on a worker thread. The
+/// caller has already put `peer_id` into `State::dialing`. The candidate is
+/// marked bad unless the session verified the peer's identity.
 pub(crate) fn dial(shared: &Arc<Shared>, peer_id: String, addr: SocketAddr) {
     let s = shared.clone();
     shared.spawn(move || {
         let timeout = s.timing.conn_timeout.min(Duration::from_secs(2));
-        match TcpStream::connect_timeout(&addr, timeout).and_then(wrap) {
-            Ok((link, reader)) => run_session(s, link, reader, Some(peer_id)),
-            Err(_) => dial_failed(&s, &peer_id),
-        }
+        let verified = match TcpStream::connect_timeout(&addr, timeout).and_then(wrap) {
+            Ok((link, reader)) => run_session(s.clone(), link, reader, Some(peer_id.clone())),
+            Err(_) => {
+                dial_failed(&s, &peer_id);
+                false
+            }
+        };
+        mark_candidate(&s, &peer_id, addr, verified);
     });
 }
