@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub use crate::behavior::Personality;
 use crate::care::Stage;
@@ -32,6 +32,13 @@ fn yes() -> bool {
     true
 }
 
+/// 동물별 좋아하는 음식 (음식 고르기 버튼·트레이 메뉴에 쓴다)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FavoriteFood {
+    pub emoji: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct PetManifest {
     pub name: String,
@@ -44,6 +51,9 @@ pub struct PetManifest {
     /// 단계별 몸 크기 배율 (단계 이름 → 배율, 없으면 1.0)
     #[serde(default)]
     pub stage_size: HashMap<String, f64>,
+    /// 좋아하는 음식 (없으면 None)
+    #[serde(default)]
+    pub favorite_food: Option<FavoriteFood>,
 }
 
 pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
@@ -186,6 +196,26 @@ mod tests {
         assert_eq!(bear.size_mult(Stage::Teenager), 1.2);
         assert_eq!(rabbit.size_mult(Stage::Baby), 0.85);
         assert_eq!(cat.size_mult(Stage::Adult), 1.0);
+    }
+
+    #[test]
+    fn favorite_food_parses_and_defaults_to_none() {
+        assert_eq!(parse_manifest(&full_json()).unwrap().favorite_food, None);
+        let json = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "favorite_food": {"emoji": "🐟", "name": "생선"},"#);
+        let fav = parse_manifest(&json).unwrap().favorite_food.unwrap();
+        assert_eq!(fav, FavoriteFood { emoji: "🐟".into(), name: "생선".into() });
+    }
+
+    #[test]
+    fn bundled_manifests_all_have_a_favorite_food() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path().join("pet.json");
+            if path.is_file() {
+                let m = parse_manifest(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                assert!(m.favorite_food.is_some_and(|f| !f.emoji.is_empty() && !f.name.is_empty()), "{path:?}");
+            }
+        }
     }
 
     #[test]

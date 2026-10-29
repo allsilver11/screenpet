@@ -16,6 +16,18 @@ pub struct Config {
     pub care: HashMap<String, Care>,
 }
 
+impl Config {
+    /// 없어진 동물을 다른 동물로 옮긴다 (선택과 돌보기 상태). 대상에 이미 기록이 있으면 그쪽을 남긴다.
+    pub fn rename_pet(&mut self, from: &str, to: &str) {
+        if self.pet.as_deref() == Some(from) {
+            self.pet = Some(to.to_string());
+        }
+        if let Some(care) = self.care.remove(from) {
+            self.care.entry(to.to_string()).or_insert(care);
+        }
+    }
+}
+
 pub fn load(dir: &Path) -> Config {
     std::fs::read_to_string(dir.join(FILE))
         .ok()
@@ -69,6 +81,31 @@ mod tests {
         c.care.insert("dog".into(), Care { stage: Stage::Child, stamina: 12.0, fullness: 0.3, locked: true });
         save(&d, &c).unwrap();
         assert_eq!(load(&d), c);
+    }
+
+    #[test]
+    fn rename_pet_moves_selection_and_care() {
+        use crate::care::{Care, Stage};
+        let child = Care { stage: Stage::Child, ..Care::default() };
+        let mut c = Config { pet: Some("beaver".into()), ..Config::default() };
+        c.care.insert("beaver".into(), child.clone());
+        c.rename_pet("beaver", "bear");
+        assert_eq!(c.pet.as_deref(), Some("bear"));
+        assert_eq!(c.care.get("bear"), Some(&child));
+        assert!(!c.care.contains_key("beaver"));
+    }
+
+    #[test]
+    fn rename_pet_keeps_existing_target_care_and_other_selection() {
+        use crate::care::{Care, Stage};
+        let adult = Care { stage: Stage::Adult, ..Care::default() };
+        let mut c = Config { pet: Some("cat".into()), ..Config::default() };
+        c.care.insert("beaver".into(), Care::default());
+        c.care.insert("bear".into(), adult.clone());
+        c.rename_pet("beaver", "bear");
+        assert_eq!(c.pet.as_deref(), Some("cat"));
+        assert_eq!(c.care.get("bear"), Some(&adult));
+        assert!(!c.care.contains_key("beaver"));
     }
 
     #[test]
