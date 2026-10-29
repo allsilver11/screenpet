@@ -10,6 +10,7 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from PIL import Image
@@ -23,10 +24,25 @@ def _load_frames(frames_dir):
         imgs = []
         i = 0
         while (frames_dir / f"{anim}_{i}.png").exists():
-            imgs.append(Image.open(frames_dir / f"{anim}_{i}.png").convert("RGBA"))
+            path = frames_dir / f"{anim}_{i}.png"
+            img = Image.open(path).convert("RGBA")
+            if img.getchannel("A").getbbox() is None:
+                raise ValueError(f"{path} 가 완전히 투명합니다 (빈 프레임)")
+            imgs.append(img)
             i += 1
+        # 첫 빠진 번호 뒤에 남은 번호가 있으면 조용히 버리지 않고 오류
+        pattern = re.compile(rf"^{re.escape(anim)}_(\d+)\.png$")
+        present = [int(m.group(1)) for p in frames_dir.iterdir() if (m := pattern.match(p.name))]
+        gaps = sorted(n for n in present if n > i)
+        if gaps:
+            raise ValueError(
+                f"{frames_dir / f'{anim}_{i}.png'} 가 없습니다: {anim}_{gaps[0]}.png 가 있어 번호가 빠졌습니다 (0부터 빠짐없이)"
+            )
         if not imgs:
             raise FileNotFoundError(f"{frames_dir / f'{anim}_0.png'} 가 없습니다 (기본 {default_n}장 권장)")
+        sizes = {img.size for img in imgs}
+        if len(sizes) > 1:
+            raise ValueError(f"{anim} 동작의 프레임 캔버스 크기가 서로 다릅니다: {sorted(sizes)}")
         frames[anim] = imgs
     return frames
 
@@ -34,7 +50,12 @@ def _load_frames(frames_dir):
 def pack(frames_dir, out_dir, name, walk_speed):
     frames_dir, out_dir = Path(frames_dir), Path(out_dir)
     frames = _load_frames(frames_dir)
-    cropped = {a: [img.crop(img.getchannel("A").getbbox()) for img in imgs] for a, imgs in frames.items()}
+    # 동작 안에서는 모든 프레임에 같은 자르기 박스(합집합)를 써서 움직임을 보존한다
+    cropped = {}
+    for a, imgs in frames.items():
+        boxes = [img.getchannel("A").getbbox() for img in imgs]
+        union = (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
+        cropped[a] = [img.crop(union) for img in imgs]
 
     # 모든 프레임에 같은 배율 → 프레임마다 크기가 들쭉날쭉하지 않음
     biggest = max(max(c.width, c.height) for cs in cropped.values() for c in cs)
