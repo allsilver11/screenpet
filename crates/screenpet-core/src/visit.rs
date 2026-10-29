@@ -17,6 +17,8 @@ pub const ENTER_SECS: f64 = 1.0;
 pub const FAREWELL_SECS: f64 = 1.0;
 /// 방문 뒤 이만큼(초) 지나면 집이 그리워진다
 pub const HOMESICK_SECS: (f64, f64) = (180.0, 360.0);
+/// 손님 몸 배율로 받아들이는 범위 (단계 배율 × 동물별 배율이 들어갈 만큼)
+pub const GUEST_SCALE_RANGE: (f64, f64) = (0.3, 2.0);
 /// 바닥 끝이 합친 화면 끝과 같다고 볼 x 오차 (px)
 const EDGE_TOLERANCE: f64 = 2.0;
 
@@ -62,6 +64,18 @@ pub fn exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>) -> f64 {
         Some(_) => GUEST_EXIT_CHANCE,
         None if exits.has(edge) => EXIT_CHANCE,
         None => 0.0,
+    }
+}
+
+/// 손님 몸 배율: 주인이 보낸 값(sent)이 범위 안이면 그대로, 아니면(NaN 포함) 이쪽에서 계산한 값(local)을 범위 안으로
+pub fn guest_scale(sent: f64, local: f64) -> f64 {
+    let (lo, hi) = GUEST_SCALE_RANGE;
+    if (lo..=hi).contains(&sent) {
+        sent
+    } else if local.is_finite() {
+        local.clamp(lo, hi)
+    } else {
+        1.0
     }
 }
 
@@ -131,6 +145,17 @@ mod tests {
 
     fn ground(w: &World, i: usize) -> Surface {
         *w.surfaces.iter().find(|s| s.owner == Owner::Ground(i)).unwrap()
+    }
+
+    #[test]
+    fn guest_scale_uses_a_sane_sent_value_or_the_local_one() {
+        assert_eq!(guest_scale(1.15, 1.0), 1.15);
+        assert_eq!(guest_scale(f64::NAN, 0.78), 0.78);
+        assert_eq!(guest_scale(f64::INFINITY, 0.78), 0.78);
+        assert_eq!(guest_scale(50.0, 1.0), 1.0);
+        assert_eq!(guest_scale(0.01, 0.45), 0.45);
+        // 이쪽 값도 범위 안으로
+        assert_eq!(guest_scale(0.0, 9.0), GUEST_SCALE_RANGE.1);
     }
 
     #[test]

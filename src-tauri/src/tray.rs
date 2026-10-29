@@ -7,12 +7,43 @@ use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Manager, WebviewWindow, Wry};
 
 use crate::game_loop::Input;
+use crate::network::NetInput;
 use crate::pets::PetEntry;
+use screenpet_core::visit::Side;
 use crate::slots::{self, OWN_LABEL};
 use crate::AppState;
 
 /// 손님 우클릭 메뉴 항목 id 앞부분 (뒤는 손님 창 라벨)
 const SEND_HOME_PREFIX: &str = "send-home:";
+/// `친구 화면` 항목 id 앞부분 (뒤는 상대 id)
+const INVITE_PREFIX: &str = "net:invite:";
+const LEFT_PREFIX: &str = "net:left:";
+const RIGHT_PREFIX: &str = "net:right:";
+const UNFRIEND_PREFIX: &str = "net:unfriend:";
+const REPAIR_PREFIX: &str = "net:repair:";
+const COME_HOME_ID: &str = "net:come-home";
+
+/// `친구 화면 ▸`에 보일 것 (게임 루프의 네트워크 상태에서 만든다 — 바뀔 때만 다시 그린다)
+#[derive(Debug, Clone, PartialEq)]
+pub struct FriendsMenu {
+    /// 네트워크가 시작됨
+    pub available: bool,
+    /// 발견된 사람 중 친구가 아닌 사람 (id, 이름)
+    pub strangers: Vec<(String, String)>,
+    pub friends: Vec<FriendItem>,
+    /// 내 동물이 친구 화면에 가 있음 ("집에 와" 활성)
+    pub away: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FriendItem {
+    pub id: String,
+    pub name: String,
+    pub side: Side,
+    pub connected: bool,
+    /// 상대가 나를 더 이상 친구로 알아보지 못함
+    pub forgot: bool,
+}
 
 /// 트레이와 우클릭에 같이 쓰는 메뉴, 그리고 동물에 따라 바뀌는 항목
 #[derive(Clone)]
@@ -22,6 +53,73 @@ pub struct TrayMenu {
     pub lock: CheckMenuItem<Wry>,
     /// 하우스 들어가기 / 나오기 (글자가 바뀐다)
     pub house: MenuItem<Wry>,
+    /// 동물 고르기 항목 (항목, 동물 id)
+    pub pets: Vec<(CheckMenuItem<Wry>, String)>,
+    /// `친구 화면 ▸` (네트워크 상태에 따라 다시 채운다)
+    pub friends: Submenu<Wry>,
+}
+
+/// 메뉴 글자의 &는 Windows에서 단축키 표시라 두 번 쓴다 (다른 사람이 정한 이름)
+fn menu_text(s: &str) -> String {
+    s.replace('&', "&&")
+}
+
+/// `친구 화면 ▸`을 다시 채운다: 발견된 사람(누르면 친구 신청), 친구별 하위 메뉴, 집에 와
+pub fn fill_friends(app: &AppHandle, model: &FriendsMenu) {
+    let submenu = &app.state::<AppState>().menu.friends;
+    if let Err(e) = try_fill_friends(app, submenu, model) {
+        eprintln!("failed to update friends menu: {e}");
+    }
+}
+
+fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu) -> tauri::Result<()> {
+    while submenu.remove_at(0)?.is_some() {}
+    if !model.available {
+        submenu.append(&MenuItem::new(app, "친구 찾기를 쓸 수 없어요", false, None::<&str>)?)?;
+        return Ok(());
+    }
+    for f in &model.friends {
+        let dot = if f.connected { "●" } else { "○" };
+        let mut title = format!("{dot} {}", menu_text(&f.name));
+        if f.forgot {
+            title.push_str(" (다시 친구 맺기 필요)");
+        }
+        let left = CheckMenuItem::with_id(app, format!("{LEFT_PREFIX}{}", f.id), "왼쪽에", true, f.side == Side::Left, None::<&str>)?;
+        let right = CheckMenuItem::with_id(app, format!("{RIGHT_PREFIX}{}", f.id), "오른쪽에", true, f.side == Side::Right, None::<&str>)?;
+        let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
+        let sub = Submenu::with_items(app, title, true, &[&left, &right, &PredefinedMenuItem::separator(app)?, &unfriend])?;
+        if f.forgot {
+            sub.append(&MenuItem::with_id(app, format!("{REPAIR_PREFIX}{}", f.id), "다시 친구 맺기", true, None::<&str>)?)?;
+        }
+        submenu.append(&sub)?;
+    }
+    if !model.friends.is_empty() && !model.strangers.is_empty() {
+        submenu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    for (id, name) in &model.strangers {
+        submenu.append(&MenuItem::with_id(app, format!("{INVITE_PREFIX}{id}"), format!("{} — 친구 신청", menu_text(name)), true, None::<&str>)?)?;
+    }
+    if model.friends.is_empty() && model.strangers.is_empty() {
+        submenu.append(&MenuItem::new(app, "같은 네트워크에 ScreenPet이 없어요", false, None::<&str>)?)?;
+    }
+    submenu.append(&PredefinedMenuItem::separator(app)?)?;
+    submenu.append(&MenuItem::with_id(app, COME_HOME_ID, "집에 와", model.away, None::<&str>)?)?;
+    Ok(())
+}
+
+/// 내 동물이 친구 화면에 가 있거나 가는 중이면 하우스·동물 바꾸기를 막는다
+pub fn set_own_busy(menu: &TrayMenu, busy: bool) {
+    let _ = menu.house.set_enabled(!busy);
+    for (item, _) in &menu.pets {
+        let _ = item.set_enabled(!busy);
+    }
+}
+
+/// 동물 고르기 체크를 지금 동물에 맞춘다 (막힌 동안 눌렀을 때 되돌리기)
+pub fn sync_pet_checks(menu: &TrayMenu, current: &str) {
+    for (item, id) in &menu.pets {
+        let _ = item.set_checked(id == current);
+    }
 }
 
 /// 하우스 항목 글자: 밖에 있으면 "하우스", 하우스 안(또는 가는 중)이면 "하우스에서 나오기"
@@ -102,6 +200,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
     let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
     let house = MenuItem::with_id(app, "house", house_label(housed), true, None::<&str>)?;
+    // 게임 루프가 네트워크를 시작한 뒤 채운다
+    let friends = Submenu::with_items(app, "친구 화면", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
 
@@ -115,9 +215,11 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&reset)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&house)?;
+    menu.append(&friends)?;
     menu.append(&toggle)?;
     menu.append(&quit)?;
 
+    let pet_items = checks.clone();
     // 트레이의 메뉴 이벤트 처리기는 앱 전체용이라 우클릭(popup_menu)으로 띄운 같은 메뉴도 여기로 온다
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundle icon"))
@@ -138,8 +240,21 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "house" => send(app, Input::ToggleHouse),
             "reset" => send(app, Input::ResetGrowth),
             other => {
+                let net = |input| send(app, Input::Net(input));
                 if let Some(label) = other.strip_prefix(SEND_HOME_PREFIX) {
                     send(app, Input::SendHome { label: label.to_string() });
+                } else if other == COME_HOME_ID {
+                    net(NetInput::ComeHome);
+                } else if let Some(id) = other.strip_prefix(INVITE_PREFIX) {
+                    net(NetInput::Invite(id.to_string()));
+                } else if let Some(id) = other.strip_prefix(LEFT_PREFIX) {
+                    net(NetInput::SetSide { id: id.to_string(), side: Side::Left });
+                } else if let Some(id) = other.strip_prefix(RIGHT_PREFIX) {
+                    net(NetInput::SetSide { id: id.to_string(), side: Side::Right });
+                } else if let Some(id) = other.strip_prefix(UNFRIEND_PREFIX) {
+                    net(NetInput::Unfriend(id.to_string()));
+                } else if let Some(id) = other.strip_prefix(REPAIR_PREFIX) {
+                    net(NetInput::Repair(id.to_string()));
                 } else if let Some(id) = other.strip_prefix("pet:") {
                     // 체크된 항목을 다시 누르면 체크가 풀리므로 항상 다시 맞춘다
                     for (item, pid) in &checks {
@@ -150,5 +265,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: fav, lock, house })
+    Ok(TrayMenu { menu, favorite: fav, lock, house, pets: pet_items, friends })
 }

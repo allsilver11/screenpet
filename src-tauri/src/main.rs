@@ -2,6 +2,7 @@
 
 mod game_loop;
 mod house;
+mod network;
 mod pets;
 mod slots;
 mod tray;
@@ -14,6 +15,7 @@ use std::sync::Mutex;
 
 use game_loop::Input;
 use house::HouseState;
+use network::{NetInput, PairView};
 use pets::PetEntry;
 use screenpet_core::care::Food;
 use screenpet_core::config;
@@ -39,6 +41,8 @@ pub struct AppState {
     pub housed: AtomicBool,
     /// 내 동물이 친구 화면에 가 있음 — 게임 루프가 갱신 (그동안 펫 창은 숨긴 채로 둔다)
     pub away: AtomicBool,
+    /// 짝맞추기 창에 보이는 상태 — 게임 루프가 갱신 (짝맞추기 웹뷰 첫 로드용)
+    pub pair: Mutex<PairView>,
 }
 
 /// 창의 동물을 눌렀다 — 부른 창의 라벨로 어느 동물인지 찾는다
@@ -96,6 +100,22 @@ async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<
     window.popup_menu(&menu).map_err(|e| e.to_string())
 }
 
+/// 짝맞추기 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `pair-state` 이벤트)
+#[tauri::command]
+fn pair_state(state: State<AppState>) -> PairView {
+    state.pair.lock().unwrap().clone()
+}
+
+/// 짝맞추기 창 버튼: true = 똑같아요, 친구 맺기 / false = 달라요·취소.
+/// 어느 짝맞추기에 답하는지는 게임 루프가 안다 (창은 지금 보이는 것에만 답한다)
+#[tauri::command]
+fn pair_answer(window: WebviewWindow, state: State<AppState>, accept: bool) {
+    if window.label() != network::PAIR_LABEL {
+        return;
+    }
+    let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::PairAnswer(accept)));
+}
+
 /// 트레이에서 동물을 바꿨을 때. 저장·크기·웹뷰 시트 교체는 게임 루프가 한다 (설정은 루프만 쓴다).
 pub fn select_pet(app: &AppHandle, id: &str) {
     let state = app.state::<AppState>();
@@ -149,13 +169,14 @@ fn main() {
                 house: Mutex::new(house_state),
                 housed: AtomicBool::new(cfg.housed),
                 away: AtomicBool::new(false),
+                pair: Mutex::new(PairView::default()),
             });
             // 숨긴 채로 만들어 두고, 하우스에 들어갈 때 구석에 놓아 보인다
             house::create(app.handle())?;
             game_loop::spawn(app.handle().clone(), rx, entry, cfg);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![pointer_down, slot_info, feed, show_menu, house_state, house_click])
+        .invoke_handler(tauri::generate_handler![pointer_down, slot_info, feed, show_menu, house_state, house_click, pair_state, pair_answer])
         .run(tauri::generate_context!())
         .expect("error while running ScreenPet");
 }

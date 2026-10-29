@@ -2959,6 +2959,7 @@ version = "0.2.0"
 dependencies = [
  "fastrand",
  "screenpet-core",
+ "screenpet-net",
  "serde",
  "serde_json",
  "tauri",

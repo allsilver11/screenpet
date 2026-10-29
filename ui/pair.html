@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+        background: #fffaf2;
+        color: #3b3024;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 12px;
+        box-sizing: border-box;
+        user-select: none;
+        text-align: center;
+      }
+      #title { font-size: 14px; font-weight: 600; }
+      #sas { font-size: 30px; letter-spacing: 4px; line-height: 1.1; }
+      #note { font-size: 12px; color: #6b5a47; min-height: 1em; }
+      #buttons { display: flex; gap: 8px; }
+      button {
+        font: inherit;
+        font-size: 13px;
+        padding: 5px 12px;
+        border-radius: 8px;
+        border: 1px solid #c9b79f;
+        background: #fff;
+        cursor: pointer;
+      }
+      button.primary { background: #ffcf8a; border-color: #e0a54f; font-weight: 600; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="title"></div>
+    <div id="sas" hidden></div>
+    <div id="note"></div>
+    <div id="buttons">
+      <button id="yes" class="primary">똑같아요, 친구 맺기</button>
+      <button id="no">달라요 / 취소</button>
+    </div>
+    <script src="pair.js"></script>
+  </body>
+</html>

@@ -4,6 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::care::Care;
+use crate::visit::{ExitEdges, Side};
 
 const FILE: &str = "config.json";
 const TMP_FILE: &str = "config.json.tmp";
@@ -19,6 +20,30 @@ pub struct Config {
     /// 하우스 안에 있음 (동물이 아니라 설치마다 하나) — 다음 실행도 하우스 안에서 시작
     #[serde(default)]
     pub housed: bool,
+    /// 이 설치의 고유 id (친구 찾기 알림·친구 목록의 이름표). 처음 실행 때 만든다
+    #[serde(default)]
+    pub install_id: Option<String>,
+    /// 친구 목록 (짝맞추기로 고정한 공개키와 연결된 화면 끝)
+    #[serde(default)]
+    pub friends: Vec<Friend>,
+}
+
+/// 친구: id(이름표) + 고정된 정적 공개키(신원) + 표시 이름 + 내 화면의 어느 끝에 연결됐는지
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Friend {
+    pub id: String,
+    pub name: String,
+    #[serde(with = "hex32")]
+    pub public_key: [u8; 32],
+    #[serde(with = "SideDef")]
+    pub side: Side,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "Side", rename_all = "snake_case")]
+enum SideDef {
+    Left,
+    Right,
 }
 
 impl Config {
@@ -30,6 +55,107 @@ impl Config {
         if let Some(care) = self.care.remove(from) {
             self.care.entry(to.to_string()).or_insert(care);
         }
+    }
+
+    /// 설치 id가 없으면 만든다. 바뀌었으면 true (저장해야 한다)
+    pub fn ensure_install_id(&mut self, new_id: impl FnOnce() -> String) -> bool {
+        if self.install_id.as_deref().is_some_and(|id| !id.is_empty()) {
+            return false;
+        }
+        self.install_id = Some(new_id());
+        true
+    }
+
+    pub fn friend(&self, id: &str) -> Option<&Friend> {
+        self.friends.iter().find(|f| f.id == id)
+    }
+
+    /// 새 친구가 붙을 끝: 친구가 적은 쪽, 같으면 오른쪽 (첫 친구 오른쪽, 두 번째 왼쪽, 그 뒤 번갈아)
+    fn next_side(&self) -> Side {
+        let left = self.friends.iter().filter(|f| f.side == Side::Left).count();
+        if left < self.friends.len() - left {
+            Side::Left
+        } else {
+            Side::Right
+        }
+    }
+
+    /// 친구를 더하거나 이름·키를 고친다 (끝은 그대로). 같은 키를 가진 다른 id는 지운다. 바뀌었으면 true
+    pub fn upsert_friend(&mut self, id: &str, name: &str, public_key: [u8; 32]) -> bool {
+        let before = self.friends.len();
+        self.friends.retain(|f| f.id == id || f.public_key != public_key);
+        let mut changed = self.friends.len() != before;
+        match self.friends.iter_mut().find(|f| f.id == id) {
+            Some(f) => {
+                if f.name != name || f.public_key != public_key {
+                    f.name = name.to_string();
+                    f.public_key = public_key;
+                    changed = true;
+                }
+            }
+            None => {
+                let side = self.next_side();
+                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side });
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    pub fn remove_friend(&mut self, id: &str) -> bool {
+        let before = self.friends.len();
+        self.friends.retain(|f| f.id != id);
+        self.friends.len() != before
+    }
+
+    pub fn set_friend_side(&mut self, id: &str, side: Side) -> bool {
+        match self.friends.iter_mut().find(|f| f.id == id) {
+            Some(f) if f.side != side => {
+                f.side = side;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 지금 연결된(connected) 친구가 있는 화면 끝
+    pub fn exit_edges(&self, connected: impl Fn(&str) -> bool) -> ExitEdges {
+        let on = |side| self.friends.iter().any(|f| f.side == side && connected(&f.id));
+        ExitEdges { left: on(Side::Left), right: on(Side::Right) }
+    }
+
+    /// side 끝에 있는 연결된 친구들
+    pub fn friends_at(&self, side: Side, connected: impl Fn(&str) -> bool) -> Vec<&Friend> {
+        self.friends.iter().filter(|f| f.side == side && connected(&f.id)).collect()
+    }
+}
+
+/// 32바이트 키를 소문자 hex 64자로
+mod hex32 {
+    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+
+    pub fn encode(k: &[u8; 32]) -> String {
+        k.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    pub fn decode(s: &str) -> Option<[u8; 32]> {
+        if s.len() != 64 || !s.is_ascii() {
+            return None;
+        }
+        let mut k = [0u8; 32];
+        for (i, b) in k.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()?;
+        }
+        Some(k)
+    }
+
+    pub fn serialize<S: Serializer>(k: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&encode(k))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
+        let s = String::deserialize(d)?;
+        decode(&s).ok_or_else(|| D::Error::custom("expected 64 hex digits"))
     }
 }
 
@@ -56,6 +182,62 @@ pub fn save(dir: &Path, c: &Config) -> std::io::Result<()> {
     let tmp = dir.join(TMP_FILE);
     std::fs::write(&tmp, serde_json::to_string_pretty(c)?)?;
     std::fs::rename(&tmp, dir.join(FILE))
+}
+
+/// 장기 X25519 비밀키 파일 (config.json과 따로 — 설정 파일은 비밀이 아닌 것만 갖는다)
+const KEY_FILE: &str = "identity.key";
+const KEY_TMP_FILE: &str = "identity.key.tmp";
+
+/// 이 설치의 비밀키(친구들이 고정한 신원)를 config 폴더의 `identity.key`(hex 64자)에서 읽는다.
+/// 없거나 깨졌으면 new_key()로 만들어 저장한다 (깨진 파일은 덮어쓴다 — 그러면 친구들과 다시 짝맞추기가 필요하다).
+///
+/// 권한: Unix에서는 폴더를 0o700, 파일을 0o600으로 만든다. Windows에서는 config 폴더(%APPDATA% 아래)가
+/// 기본으로 그 사용자 전용 ACL을 가지므로 보통 방식으로 만든다.
+pub fn load_or_create_identity_key(dir: &Path, new_key: impl FnOnce() -> [u8; 32]) -> std::io::Result<[u8; 32]> {
+    let path = dir.join(KEY_FILE);
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        if let Some(k) = hex32::decode(text.trim()) {
+            return Ok(k);
+        }
+        eprintln!("identity key {} is corrupt; making a new one", path.display());
+    }
+    let key = new_key();
+    create_private_dir(dir)?;
+    let tmp = dir.join(KEY_TMP_FILE);
+    let _ = std::fs::remove_file(&tmp);
+    {
+        use std::io::Write;
+        let mut f = private_file(&tmp)?;
+        f.write_all(hex32::encode(&key).as_bytes())?;
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, &path)?;
+    Ok(key)
+}
+
+#[cfg(unix)]
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    // Windows: %APPDATA% 아래 폴더는 기본으로 그 사용자 전용 ACL을 물려받는다
+    std::fs::create_dir_all(dir)
+}
+
+#[cfg(unix)]
+fn private_file(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)
+}
+
+#[cfg(not(unix))]
+fn private_file(path: &Path) -> std::io::Result<std::fs::File> {
+    // Windows: 사용자 전용 ACL을 가진 config 폴더 안에 보통 방식으로 만든다
+    std::fs::OpenOptions::new().write(true).create_new(true).open(path)
 }
 
 #[cfg(test)]
@@ -135,6 +317,133 @@ mod tests {
         let c = Config { pet: Some("cat".into()), housed: true, ..Config::default() };
         save(&d, &c).unwrap();
         assert!(load(&d).housed);
+    }
+
+    fn key(b: u8) -> [u8; 32] {
+        [b; 32]
+    }
+
+    #[test]
+    fn install_id_is_created_once_and_kept() {
+        let mut c = Config::default();
+        assert!(c.ensure_install_id(|| "abc".into()));
+        assert_eq!(c.install_id.as_deref(), Some("abc"));
+        // 이미 있으면 새로 만들지 않는다
+        assert!(!c.ensure_install_id(|| panic!("no new id")));
+        // 빈 id는 없는 것으로 본다
+        c.install_id = Some(String::new());
+        assert!(c.ensure_install_id(|| "def".into()));
+        assert_eq!(c.install_id.as_deref(), Some("def"));
+    }
+
+    #[test]
+    fn friends_roundtrip_with_hex_public_keys() {
+        let d = temp_dir("friends");
+        let mut c = Config { install_id: Some("me".into()), ..Config::default() };
+        c.upsert_friend("f1", "민지", key(1));
+        save(&d, &c).unwrap();
+        let text = std::fs::read_to_string(d.join("config.json")).unwrap();
+        assert!(text.contains(&"01".repeat(32)) && text.contains(r#""side": "right""#), "{text}");
+        assert_eq!(load(&d), c);
+    }
+
+    #[test]
+    fn identity_key_is_created_once_in_its_own_file() {
+        let d = temp_dir("idkey");
+        let k = load_or_create_identity_key(&d, || key(0xab)).unwrap();
+        assert_eq!(k, key(0xab));
+        assert_eq!(std::fs::read_to_string(d.join("identity.key")).unwrap(), "ab".repeat(32));
+        assert_eq!(load_or_create_identity_key(&d, || panic!("no new key")).unwrap(), k);
+        assert!(!d.join("identity.key.tmp").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode(&d.join("identity.key")), 0o600);
+            assert_eq!(mode(&d), 0o700);
+        }
+        // 깨진 파일은 새 키로 바꾼다
+        std::fs::write(d.join("identity.key"), "zz").unwrap();
+        assert_eq!(load_or_create_identity_key(&d, || key(3)).unwrap(), key(3));
+        assert_eq!(load_or_create_identity_key(&d, || panic!("no new key")).unwrap(), key(3));
+    }
+
+    #[test]
+    fn config_json_never_contains_the_private_key() {
+        let d = temp_dir("nosecret");
+        let secret = load_or_create_identity_key(&d, || key(0x5c)).unwrap();
+        let mut c = Config { install_id: Some("me".into()), pet: Some("cat".into()), ..Config::default() };
+        c.upsert_friend("f1", "민지", key(1));
+        save(&d, &c).unwrap();
+        let text = std::fs::read_to_string(d.join("config.json")).unwrap();
+        assert!(!text.contains(&super::hex32::encode(&secret)), "{text}");
+        assert!(!text.contains("static_key") && !text.contains(&"5c".repeat(4)), "{text}");
+    }
+
+    #[test]
+    fn old_config_without_network_fields_loads() {
+        let d = temp_dir("oldnet");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("config.json"), r#"{"pet": "cat", "care": {}, "housed": false}"#).unwrap();
+        let c = load(&d);
+        assert_eq!((c.install_id, c.friends.len()), (None, 0));
+    }
+
+    #[test]
+    fn bad_public_key_hex_is_a_corrupt_config() {
+        let d = temp_dir("badkey");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("config.json"), r#"{"pet": "cat", "friends": [{"id": "a", "name": "A", "public_key": "zz", "side": "left"}]}"#).unwrap();
+        assert_eq!(load(&d), Config::default());
+    }
+
+    #[test]
+    fn friend_sides_start_right_then_left_then_alternate() {
+        let mut c = Config::default();
+        for (i, id) in ["a", "b", "c", "d"].iter().enumerate() {
+            c.upsert_friend(id, id, key(i as u8));
+        }
+        let sides: Vec<Side> = c.friends.iter().map(|f| f.side).collect();
+        assert_eq!(sides, [Side::Right, Side::Left, Side::Right, Side::Left]);
+        // 빠진 쪽을 먼저 채운다
+        c.remove_friend("b");
+        c.upsert_friend("e", "e", key(9));
+        assert_eq!(c.friend("e").unwrap().side, Side::Left);
+    }
+
+    #[test]
+    fn upsert_updates_name_and_key_but_keeps_side() {
+        let mut c = Config::default();
+        assert!(c.upsert_friend("a", "A", key(1)));
+        c.upsert_friend("b", "B", key(2));
+        assert!(c.set_friend_side("a", Side::Left));
+        assert!(!c.set_friend_side("a", Side::Left));
+        assert!(!c.set_friend_side("zz", Side::Left));
+        assert!(c.upsert_friend("a", "A2", key(3)));
+        assert!(!c.upsert_friend("a", "A2", key(3)));
+        let a = c.friend("a").unwrap();
+        assert_eq!((a.name.as_str(), a.public_key, a.side), ("A2", key(3), Side::Left));
+        // 같은 키를 다른 id가 가져가면 예전 id는 지운다 (net과 같은 규칙)
+        c.upsert_friend("c", "C", key(2));
+        assert!(c.friend("b").is_none());
+        assert_eq!(c.friends.len(), 2);
+        assert!(c.remove_friend("a") && !c.remove_friend("a"));
+    }
+
+    #[test]
+    fn exit_edges_need_a_connected_friend_on_that_side() {
+        let mut c = Config::default();
+        c.upsert_friend("r", "R", key(1));
+        c.upsert_friend("l", "L", key(2));
+        let none = |_: &str| false;
+        assert_eq!(c.exit_edges(none), ExitEdges::default());
+        assert_eq!(c.exit_edges(|id| id == "r"), ExitEdges { left: false, right: true });
+        assert_eq!(c.exit_edges(|_| true), ExitEdges { left: true, right: true });
+        c.set_friend_side("l", Side::Right);
+        assert_eq!(c.exit_edges(|_| true), ExitEdges { left: false, right: true });
+        let ids: Vec<&str> = c.friends_at(Side::Right, |id| id == "l").iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["l"]);
+        assert!(c.friends_at(Side::Left, |_| true).is_empty());
     }
 
     #[test]

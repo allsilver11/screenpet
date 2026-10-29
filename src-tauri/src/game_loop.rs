@@ -13,6 +13,7 @@ use screenpet_core::world::World;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::house::{self, HouseState};
+use crate::network::{NetInput, Network};
 use crate::pets::PetEntry;
 use crate::slots::{self, GuestInfo, Role, Slot, StagePayload, OWN_LABEL};
 use crate::AppState;
@@ -40,6 +41,8 @@ pub enum Input {
     HouseClick,
     /// 손님(label)을 주인에게 돌려보낸다 (손님 우클릭 메뉴)
     SendHome { label: String },
+    /// 친구 네트워크 (네트워크 이벤트, 트레이 `친구 화면`, 짝맞추기 창)
+    Net(NetInput),
     /// 저장하고 앱 종료
     Quit,
 }
@@ -154,6 +157,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     if std::env::var_os(DEBUG_GUEST_ENV).is_some() {
         spawn_debug_guest(&app, &mut slots);
     }
+    let (mut network, new_id) = Network::start(&app, &mut config);
+    if new_id {
+        save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+    }
+    // 내 동물이 친구 화면에 가 있거나 가는 중 (하우스·동물 바꾸기 메뉴를 막는다)
+    let mut was_busy = false;
 
     let mut last = Instant::now();
     let mut last_refresh = last;
@@ -176,6 +185,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::SetPet { entry: next } => {
                     let own = &mut slots[OWN];
+                    // 친구 화면에 가 있거나 가는 중엔 바꾸지 않는다 (트레이 체크만 되돌린다)
+                    if network.own_busy(own) {
+                        crate::tray::sync_pet_checks(&app.state::<AppState>().menu, &own.entry.id);
+                        continue;
+                    }
                     save_config(&app, &mut config, &own.entry.id, &care);
                     own.entry = next;
                     care = config.care.get(&own.entry.id).cloned().unwrap_or_default();
@@ -221,8 +235,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::ToggleHouse => {
                     let own = &mut slots[OWN];
-                    // 친구 화면에 가 있는 동안엔 하우스를 다루지 않는다
-                    if own.pet.is_away() {
+                    // 친구 화면에 가 있거나 가는 중엔 하우스를 다루지 않는다
+                    if network.own_busy(own) {
                         sync_menu(&app, &own.entry, &care, config.housed);
                         continue;
                     }
@@ -263,6 +277,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 Input::SendHome { label } => {
                     if let Some(i) = slots::find(&slots, &label).filter(|&i| !slots[i].is_own()) {
                         slots[i].pet.go_home_now();
+                    }
+                }
+                Input::Net(input) => {
+                    if network.handle(&app, input, &mut config, &mut slots) {
+                        save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     }
                 }
                 Input::Quit => {
@@ -306,6 +325,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             }
         }
 
+        // 연결된 친구가 있는 끝으로만 나간다
+        network.set_exit_edges(&config, &mut slots[OWN]);
+        let mut own_exit = None;
         let mut left = Vec::new();
         for (i, s) in slots.iter_mut().enumerate() {
             // 친구 화면에 가 있는 동안엔 물리·행동이 멈춘다
@@ -316,20 +338,35 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 let target = if s.is_own() { speech_target(&s.pet) } else { s.label.as_str() };
                 let _ = app.emit_to(target, "pet-say", speech);
             }
-            if s.pet.take_exit().is_some() && !s.is_own() {
-                // 손님이 집 쪽 끝으로 걸어 나갔거나 손 흔들고 사라졌다
-                left.push(i);
+            if let Some(side) = s.pet.take_exit() {
+                if s.is_own() {
+                    own_exit = Some(side);
+                } else {
+                    // 손님이 집 쪽 끝으로 걸어 나갔거나 손 흔들고 사라졌다
+                    left.push(i);
+                }
             }
         }
         for i in left.into_iter().rev() {
             let slot = slots.remove(i);
             if let Role::Guest(g) = &slot.role {
                 eprintln!("guest {} ({}) went home", g.visit_id, g.owner_id);
+                network.guest_left(g);
             }
             slots::close(&app, slot);
         }
 
+        if let Some(side) = own_exit {
+            // 내 동물이 화면 끝으로 다 나갔다 — 그 끝의 친구에게 놀러 간다
+            network.own_exited(&config, &mut slots[OWN], side);
+        }
+        network.tick(&app, now, &config, &mut slots[OWN]);
         let own = &mut slots[OWN];
+        let busy = network.own_busy(own);
+        if busy != was_busy {
+            was_busy = busy;
+            crate::tray::set_own_busy(&app.state::<AppState>().menu, busy);
+        }
         if own.pet.take_food_request() {
             let _ = app.emit_to(speech_target(&own.pet), "food-picker", favorite_of(&own.entry));
         }
