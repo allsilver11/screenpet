@@ -14,6 +14,10 @@ use screenpet_core::visit::Side;
 use crate::slots::{self, OWN_LABEL};
 use crate::AppState;
 
+/// 이스터에그 항목 (트레이·펫 우클릭 메뉴 맨 아래, 지금은 누를 수 없음). 나중에 링크를 열게 될 수 있어 id를 따로 둔다
+const EASTER_EGG_LABEL: &str = "danni❤️";
+const EASTER_EGG_ID: &str = "easter-egg";
+
 /// 손님 우클릭 메뉴 항목 id 앞부분 (뒤는 손님 창 라벨)
 const SEND_HOME_PREFIX: &str = "send-home:";
 /// `친구 화면` 항목 id 앞부분 (뒤는 상대 id)
@@ -250,6 +254,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let friends = Submenu::with_items(app, "친구 화면", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
+    let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, EASTER_EGG_LABEL, false, None::<&str>)?;
 
     let menu = Menu::new(app)?;
     for (item, _) in &checks {
@@ -263,6 +268,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&house)?;
     menu.append(&friends)?;
     menu.append(&toggle)?;
+    // 트레이와 펫 우클릭은 같은 메뉴 — 둘 다 종료 바로 위에 보인다
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&easter_egg)?;
     menu.append(&quit)?;
 
     let pet_items = checks.clone();
