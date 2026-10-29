@@ -65,6 +65,9 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest }) {
     pickerTimer = setTimeout(hidePicker, 6000);
   });
 
+  // 하우스로 가기 시작하면 펫 창의 음식 고르기는 닫는다
+  listen("hide-picker", hidePicker);
+
   for (const btn of pickerEl.querySelectorAll("button")) {
     // 버튼을 누르는 게 펫 잡기(하우스 클릭)로 이어지지 않게 한다
     btn.addEventListener("mousedown", (e) => e.stopPropagation());

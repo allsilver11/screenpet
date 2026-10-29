@@ -45,8 +45,13 @@ const WAKE_CLICKS: u32 = 3;
 const WAKE_CLICK_WINDOW: f64 = 2.0;
 const SLEEPY_ANNOYED_SECS: f64 = 1.5;
 const WAKE_STRETCH_SECS: f64 = 2.5;
-/// 집으로 가는 길이 이만큼(초) 안에 끝나지 않으면 문 앞으로 한 번에 뛰어든다 (들려 있는 동안은 세지 않는다)
-const HOME_TRIP_LIMIT_SECS: f64 = 12.0;
+/// 집으로 가는 길에 진척 없는 시간이 이만큼(초) 쌓이면 문 앞으로 한 번에 뛰어든다
+/// (들려 있는 동안, 하우스 바닥에서 문으로 달리는 동안은 세지 않는다)
+const HOME_STALL_LIMIT_SECS: f64 = 12.0;
+/// 문까지 x 거리가 지금까지의 최고 기록보다 이만큼(px) 줄어야 진척으로 본다
+const HOME_PROGRESS_PX: f64 = 20.0;
+/// 마지막 진척 뒤 이 시간(초)이 지나야 진척 없는 시간을 세기 시작한다
+const HOME_PROGRESS_WINDOW_SECS: f64 = 4.0;
 /// 안전 점프가 출발·도착 중 높은 쪽보다 더 솟는 높이 (크기 128 기준 px)
 const HOME_LEAP_RISE: f64 = 200.0;
 
@@ -221,7 +226,18 @@ struct Pacing {
 struct HomeTrip {
     owner: Owner,
     door_x: f64,
-    elapsed: f64,
+    /// 문까지 x 거리의 최고 기록
+    best: f64,
+    /// 마지막 진척 뒤 흐른 시간
+    since_progress: f64,
+    /// 진척 없는 시간 (누적)
+    stalled: f64,
+}
+
+impl HomeTrip {
+    fn new(owner: Owner, door_x: f64, x: f64) -> Self {
+        Self { owner, door_x, best: (door_x - x).abs(), since_progress: 0.0, stalled: 0.0 }
+    }
 }
 
 /// 서 있는 디딤판과 그 기준점(anchor)으로부터의 x 오프셋.
@@ -324,19 +340,14 @@ impl Pet {
             self.update_housed(dt);
             return;
         }
-        if !self.is_held() {
-            if let Some(trip) = self.home_trip.as_mut() {
-                trip.elapsed += dt;
-                if trip.elapsed >= HOME_TRIP_LIMIT_SECS && !matches!(self.state, State::HomeLeap { .. }) {
-                    self.start_home_leap(world);
-                }
-            }
+        if self.track_home_progress(dt) {
+            self.start_home_leap(world);
         }
         match self.state {
             State::Housed => {}
             State::HomeLeap { remaining } => self.update_home_leap(dt, remaining, world),
             State::Climb { .. } | State::Slide | State::WallClimb { .. } if self.home_trip.is_some() => self.start_fall(),
-            _ if self.home_trip.is_some() && !self.is_held() && !self.off_surface() => {
+            _ if self.home_trip.is_some() && !self.is_held() && !self.off_surface() && !self.celebrating() => {
                 self.update_chatter(dt);
                 self.update_go_home(dt, world);
             }
@@ -410,6 +421,41 @@ impl Pet {
         self.home_trip.is_some()
     }
 
+    /// 성장해서 먹는 중이거나 성장 축하 중 — 하우스로 가거나 나올 때도 끝까지 한다
+    fn celebrating(&self) -> bool {
+        matches!(self.state, State::Eating { level_up: true, .. } | State::LevelUp { .. })
+    }
+
+    /// 집으로 가는 길의 진척을 잰다. 안전 점프를 할 때가 되면 true
+    fn track_home_progress(&mut self, dt: f64) -> bool {
+        let held = self.is_held();
+        let celebrating = self.celebrating();
+        let x = self.body.x;
+        let on_home_run = self.state == State::GoHome;
+        let state = self.state;
+        let standing = self.standing;
+        let Some(trip) = self.home_trip.as_mut() else { return false };
+        if held || celebrating || matches!(state, State::HomeLeap { .. }) {
+            return false;
+        }
+        // 하우스 바닥에서 문으로 달리는 중엔 언젠가 반드시 도착하므로 세지 않는다
+        if on_home_run && standing.map(|s| s.owner) == Some(trip.owner) {
+            trip.since_progress = 0.0;
+            return false;
+        }
+        let d = (trip.door_x - x).abs();
+        if d <= trip.best - HOME_PROGRESS_PX {
+            trip.best = d;
+            trip.since_progress = 0.0;
+            return false;
+        }
+        trip.since_progress += dt;
+        if trip.since_progress > HOME_PROGRESS_WINDOW_SECS {
+            trip.stalled += dt;
+        }
+        trip.stalled >= HOME_STALL_LIMIT_SECS
+    }
+
     /// 바로 하우스 안에 둔다 (앱 시작 시 하우스에 있던 경우, 그리고 도착했을 때)
     pub fn enter_house(&mut self) {
         self.housed = true;
@@ -429,10 +475,17 @@ impl Pet {
         if self.housed {
             return;
         }
-        let elapsed = self.home_trip.map_or(0.0, |t| t.elapsed);
-        self.home_trip = Some(HomeTrip { owner, door_x, elapsed });
+        self.home_trip = Some(match self.home_trip {
+            // 이미 가는 중이면 지금까지의 기록을 이어 간다
+            Some(t) => HomeTrip { owner, door_x, ..t },
+            None => HomeTrip::new(owner, door_x, self.body.x),
+        });
         self.pacing.after_beat = None;
         self.clear_hover();
+        if self.celebrating() {
+            // 성장 축하를 마친 뒤에 간다
+            return;
+        }
         match self.state {
             State::Pressed { .. } | State::Dragged | State::Air { .. } | State::HomeLeap { .. } => {}
             State::Climb { .. } | State::Slide | State::WallClimb { .. } => self.start_fall(),
@@ -442,6 +495,7 @@ impl Pet {
     }
 
     /// 하우스에서 나온다: owner 바닥의 문 x에 서서 왼쪽으로 걸어 나온다.
+    /// 성장해서 먹는 중·축하 중이었다면 문 앞에서 그걸 마저 한 뒤 평소처럼 움직인다.
     /// 아직 가는 중이었다면 가던 길만 멈춘다 (그 자리에 그대로).
     pub fn leave_house(&mut self, world: &World, door_x: f64, owner: Owner) {
         if !self.housed {
@@ -464,6 +518,9 @@ impl Pet {
         };
         self.body = Body { x: door_x, y: ay, vx: 0.0, vy: 0.0 };
         self.standing = Some(Standing { owner, rel_x: door_x - ax });
+        if self.celebrating() {
+            return;
+        }
         self.state = State::Move { kind: Move::Walk, remaining: behavior::range(&mut self.rng, Move::Walk.secs()) };
         self.on_started();
     }
@@ -762,7 +819,11 @@ impl Pet {
     pub fn pointer_up(&mut self, cx: f64, cy: f64) {
         // 하우스로 가는 중엔 클릭에 반응하지 않고 계속 간다 (드래그해서 던지면 내려선 뒤 다시 간다)
         if self.home_trip.is_some() && matches!(self.state, State::Pressed { grounded: true, .. }) {
-            self.state = State::GoHome;
+            self.state = match self.before_press {
+                // 성장 축하는 마저 한다
+                Some((state @ (State::Eating { level_up: true, .. } | State::LevelUp { .. }), _)) => state,
+                _ => State::GoHome,
+            };
             return;
         }
         match self.state {
@@ -815,6 +876,10 @@ impl Pet {
             }
             State::Pressed { .. } => self.start_fall(),
             State::Dragged => {
+                if let Some(trip) = self.home_trip.as_mut() {
+                    // 옮겨 놓은 자리부터 진척을 다시 잰다
+                    *trip = HomeTrip { stalled: trip.stalled, ..HomeTrip::new(trip.owner, trip.door_x, cx + self.grab_dx) };
+                }
                 self.record(cx, cy);
                 let (vx, vy) = self.release_velocity();
                 let (vx, vy) = clamp_speed(vx, vy);
@@ -3578,15 +3643,16 @@ mod house_tests {
     }
 
     #[test]
-    fn walled_off_pet_leaps_home_within_twelve_seconds() {
+    fn stuck_pet_leaps_home_after_twelve_seconds_without_progress() {
         // 아래 모니터에 있는 펫: 집(위 모니터 바닥)으로 이어지는 길이 없다
         let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(0.0, 1080.0, 1920.0, 2120.0)], 128.0);
         let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
-        place(&mut p, &w, Owner::Ground(1), 300.0, idle());
+        place(&mut p, &w, Owner::Ground(1), DOOR, idle());
         p.go_home(HOME, DOOR);
-        let seen = run_until_housed(&mut p, &w, (13.5 / DT) as usize);
+        let seen = run_until_housed(&mut p, &w, (20.0 / DT) as usize);
         assert_at_door(&p, 1040.0);
-        assert!(seen.iter().any(|s| matches!(s, State::HomeLeap { .. })));
+        let leap = seen.iter().position(|s| matches!(s, State::HomeLeap { .. })).expect("leaped") as f64 * DT;
+        assert!((12.0..=16.5).contains(&leap), "leap at {leap}s");
         assert!(!seen.iter().any(|s| matches!(s, State::Turn { .. })), "turned");
         assert_eq!(p.standing.map(|s| s.owner), None);
     }
@@ -3598,7 +3664,7 @@ mod house_tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
         place(&mut p, &w, Owner::Ground(1), 2200.0, idle());
         p.go_home(HOME, DOOR);
-        let seen = run_until_housed(&mut p, &w, (13.5 / DT) as usize);
+        let seen = run_until_housed(&mut p, &w, (22.0 / DT) as usize);
         assert_at_door(&p, 1040.0);
         assert!(!seen.iter().any(|s| matches!(s, State::Turn { .. })), "turned");
     }
@@ -3609,7 +3675,7 @@ mod house_tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
         place(&mut p, &w, Owner::Ground(1), 300.0, idle());
         p.go_home(HOME, DOOR);
-        for _ in 0..(13.5 / DT) as usize {
+        for _ in 0..(40.0 / DT) as usize {
             p.update(DT, &w);
             assert!(p.body.y - p.cfg.size >= w.bounds.top - 1e-6, "{:?}", p.body);
             if p.is_housed() {
@@ -3732,5 +3798,73 @@ mod house_tests {
         p.go_home(HOME, DOOR);
         run_until_housed(&mut p, &w, 900);
         assert_at_door(&p, 1040.0);
+    }
+
+    /// 아기 곰처럼 느린 동물 (달리기 100 px/s)
+    fn slow() -> PetConfig {
+        PetConfig { size: 64.0, half_w: 19.0, walk_speed: 40.0, ..cfg() }
+    }
+
+    #[test]
+    fn slow_pet_runs_all_the_way_across_the_screen() {
+        let w = world(vec![]);
+        let mut p = Pet::new(slow(), 0.0, 0.0, 5);
+        place(&mut p, &w, HOME, 40.0, idle());
+        p.go_home(HOME, 1880.0);
+        let seen = run_until_housed(&mut p, &w, (25.0 / DT) as usize);
+        assert!(p.is_housed() && p.body.x == 1880.0);
+        assert!(seen.len() as f64 * DT > 17.0);
+        assert!(!seen.iter().any(|s| matches!(s, State::HomeLeap { .. })));
+    }
+
+    #[test]
+    fn slow_pet_runs_all_the_way_from_another_monitor() {
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1040.0)], 64.0);
+        let mut p = Pet::new(slow(), 0.0, 0.0, 5);
+        place(&mut p, &w, Owner::Ground(1), 3800.0, idle());
+        p.go_home(HOME, DOOR);
+        let seen = run_until_housed(&mut p, &w, (30.0 / DT) as usize);
+        assert_at_door(&p, 1040.0);
+        assert!(!seen.iter().any(|s| matches!(s, State::HomeLeap { .. })));
+    }
+
+    #[test]
+    fn going_home_mid_meal_still_celebrates_the_level_up() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+        place(&mut p, &w, HOME, 400.0, State::Eating { remaining: 1.0, favorite: false, level_up: true });
+        p.go_home(HOME, DOOR);
+        assert!(p.is_eating());
+        // 축하 중 클릭해도 축하는 그대로
+        run(&mut p, &w, 70);
+        assert!(matches!(p.state, State::LevelUp { .. }), "{:?}", p.state);
+        assert_eq!(p.take_speech(), Some(Speech::LevelUp));
+        p.pointer_down(p.body.x, p.body.y - 40.0);
+        p.pointer_up(p.body.x, p.body.y - 40.0);
+        assert!(matches!(p.state, State::LevelUp { .. }), "{:?}", p.state);
+        let seen = run_until_housed(&mut p, &w, 900);
+        assert_at_door(&p, 1040.0);
+        assert!(seen.contains(&State::GoHome));
+    }
+
+    #[test]
+    fn leaving_the_house_mid_meal_celebrates_before_walking_out() {
+        let w = world(vec![]);
+        let mut p = housed_pet(&w);
+        assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Meal));
+        p.leave_house(&w, DOOR, HOME);
+        assert!(!p.is_housed() && p.is_eating());
+        assert_eq!((p.body.x, p.body.y), (DOOR, 1040.0));
+        assert_eq!(p.standing.map(|s| s.owner), Some(HOME));
+        let mut said = Vec::new();
+        let mut anims = Vec::new();
+        for _ in 0..600 {
+            p.update(DT, &w);
+            said.extend(p.take_speech());
+            anims.push(p.render().anim);
+        }
+        assert!(anims.contains(&Anim::LevelUp));
+        assert!(said.contains(&Speech::LevelUp));
+        assert!(!p.is_housed());
     }
 }

@@ -1,9 +1,10 @@
 //! 하우스 창 — 주 모니터 작업 영역 오른쪽 아래 구석 (작업표시줄 바로 위)에 놓인 작은 집.
 
+use screenpet_core::geom::Rect;
+use screenpet_core::platform::default_source;
 use screenpet_core::surfaces::Owner;
-use screenpet_core::world::World;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 include!(concat!(env!("OUT_DIR"), "/house.rs"));
 
@@ -73,20 +74,28 @@ pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .build()
 }
 
-/// 주 모니터 작업 영역의 오른쪽 아래 구석. 주 모니터를 못 찾으면 첫 작업 영역.
-pub fn spot(app: &AppHandle, world: &World, fallback_dpi: f64) -> Spot {
+/// 주 모니터 작업 영역의 오른쪽 아래 구석. work_areas = 게임 세계의 작업 영역 (Ground 번호가 같다).
+/// 주 모니터를 못 찾으면 첫 작업 영역.
+pub fn spot(app: &AppHandle, work_areas: &[Rect], fallback_dpi: f64) -> Spot {
     let primary = app.primary_monitor().ok().flatten();
+    let primary_rect = primary.as_ref().map(|m| {
+        let wa = m.work_area();
+        let (l, t) = (wa.position.x as f64, wa.position.y as f64);
+        Rect::new(l, t, l + wa.size.width as f64, t + wa.size.height as f64)
+    });
+    let fallback = [primary_rect.unwrap_or(Rect::new(0.0, 0.0, 1920.0, 1080.0))];
+    let work_areas = if work_areas.is_empty() { &fallback[..] } else { work_areas };
     let (index, dpi) = match &primary {
         Some(m) => {
             let wa = m.work_area();
             let cx = wa.position.x as f64 + wa.size.width as f64 / 2.0;
             let cy = wa.position.y as f64 + wa.size.height as f64 / 2.0;
-            let i = world.work_areas.iter().position(|r| r.left <= cx && cx < r.right && r.top <= cy && cy < r.bottom);
+            let i = work_areas.iter().position(|r| r.left <= cx && cx < r.right && r.top <= cy && cy < r.bottom);
             (i.unwrap_or(0), m.scale_factor())
         }
         None => (0, fallback_dpi),
     };
-    let wa = world.work_areas[index.min(world.work_areas.len() - 1)];
+    let wa = work_areas[index.min(work_areas.len() - 1)];
     let left = wa.right - (RIGHT_MARGIN + HOUSE_SIZE) * dpi;
     let top = wa.bottom - (HOUSE_SIZE + BUBBLE_SPACE) * dpi;
     let d = door();
@@ -101,4 +110,12 @@ pub fn spot(app: &AppHandle, world: &World, fallback_dpi: f64) -> Spot {
 pub fn show_at(window: &WebviewWindow, spot: &Spot) {
     let _ = window.set_position(PhysicalPosition::new(spot.window.0, spot.window.1));
     let _ = window.show();
+}
+
+/// 게임 루프 밖(트레이 "보이기", 두 번째 실행)에서 하우스 창을 지금 구석에 다시 놓고 보인다
+pub fn show_in_corner(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(LABEL) else { return };
+    let dpi = window.scale_factor().unwrap_or(1.0);
+    let spot = spot(app, &default_source().work_areas(), dpi);
+    show_at(&window, &spot);
 }

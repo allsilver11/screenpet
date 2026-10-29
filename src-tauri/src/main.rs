@@ -6,7 +6,7 @@ mod pets;
 mod tray;
 
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Mutex;
 
@@ -90,7 +90,10 @@ fn main() {
     tauri::Builder::default()
         // 가장 먼저 등록: 두 번째 실행은 새 앱을 띄우지 않고 이미 있는 펫 창을 보여 준다
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("pet") {
+            // 하우스 안이면 펫 창(숨어 있는 게 맞다) 대신 하우스를 구석에 다시 놓아 보인다
+            if app.state::<AppState>().housed.load(Ordering::Relaxed) {
+                house::show_in_corner(app);
+            } else if let Some(window) = app.get_webview_window("pet") {
                 let _ = window.show();
                 let _ = window.set_focus();
             }

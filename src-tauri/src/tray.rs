@@ -80,11 +80,14 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                 }
             }
             "toggle" => {
-                // 하우스 안에선 펫 창 대신 하우스 창을 숨기고 보인다
-                let label = if app.state::<AppState>().housed.load(Ordering::Relaxed) { crate::house::LABEL } else { "pet" };
+                // 하우스 안에선 펫 창 대신 하우스 창을 숨기고 보인다 (보일 땐 지금 구석에 다시 놓는다)
+                let housed = app.state::<AppState>().housed.load(Ordering::Relaxed);
+                let label = if housed { crate::house::LABEL } else { "pet" };
                 if let Some(w) = app.get_webview_window(label) {
                     if w.is_visible().unwrap_or(true) {
                         let _ = w.hide();
+                    } else if housed {
+                        crate::house::show_in_corner(app);
                     } else {
                         let _ = w.show();
                     }

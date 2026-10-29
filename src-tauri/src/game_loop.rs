@@ -155,8 +155,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     pet.set_hungry(care.is_hungry());
     if config.housed {
         // 지난번에 하우스 안에서 끝났다 — 하우스 안에서 시작한다
-        let spot = house::spot(&app, &world, dpi);
+        let spot = house::spot(&app, &world.work_areas, dpi);
+        // 몸은 문 앞 바닥에 둔다 (화면 위에서 떨어지던 자리가 아니라)
         pet.body.x = spot.door_x;
+        if let Some((_, ay)) = world.anchor(spot.ground) {
+            pet.body.y = ay;
+        }
         pet.enter_house();
         if let Some(hw) = &house_window {
             house::show_at(hw, &spot);
@@ -226,7 +230,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     save_config(&app, &mut config, &entry.id, &care);
                 }
                 Input::ToggleHouse => {
-                    let spot = house::spot(&app, &world, dpi);
+                    let spot = house::spot(&app, &world.work_areas, dpi);
                     if pet.is_housed() || pet.is_going_home() {
                         // 문 앞에서 왼쪽으로 걸어 나온다 (가는 중이었다면 그 자리에서 멈춘다)
                         let was_inside = pet.is_housed();
@@ -244,6 +248,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                             house::show_at(hw, &spot);
                         }
                         pet.go_home(spot.ground, spot.door_x);
+                        // 펫 창에 떠 있던 음식 고르기는 닫는다
+                        let _ = app.emit_to("pet", "hide-picker", ());
                         config.housed = true;
                     }
                     sync_menu(&app, &entry, &care, config.housed);

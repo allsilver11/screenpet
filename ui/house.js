@@ -35,6 +35,8 @@ let nextSleep = performance.now() + rand(SLEEP_EVERY);
 let animStart = performance.now();
 let loadSeq = 0;
 let loadedKey = null;
+// 지금 시트 { url, img } — 문 크기가 바뀌면 다시 크기를 맞춘다
+let sheet = null;
 
 function rand([lo, hi]) {
   return lo + Math.random() * (hi - lo);
@@ -45,6 +47,18 @@ function placeDoor() {
   doorEl.style.top = door.y + "px";
   doorEl.style.width = door.w + "px";
   doorEl.style.height = door.h + "px";
+  sizePet();
+}
+
+// 문간 스프라이트 크기: 문 너비와 몸 배율에서 (house.json을 읽기 전에 시트가 먼저 와도 다시 맞춘다)
+function sizePet() {
+  if (!sheet || !manifest) return;
+  display = Math.round(((door.w - 2) / BODY_WIDTH_RATIO) * house.scale);
+  petEl.style.width = display + "px";
+  petEl.style.bottom = -(SILL_HIDE + display * FEET_PAD_RATIO) + "px";
+  const k = display / manifest.frame_size;
+  petEl.style.backgroundImage = `url(${sheet.url})`;
+  petEl.style.backgroundSize = `${sheet.img.width * k}px ${sheet.img.height * k}px`;
 }
 
 async function loadPet() {
@@ -55,12 +69,8 @@ async function loadPet() {
   if (seq !== loadSeq) return; // 그 사이 다른 동물/단계로 바뀜
   loadedKey = key;
   manifest = m;
-  display = Math.round(((door.w - 2) / BODY_WIDTH_RATIO) * house.scale);
-  petEl.style.width = display + "px";
-  petEl.style.bottom = -(SILL_HIDE + display * FEET_PAD_RATIO) + "px";
-  const k = display / manifest.frame_size;
-  petEl.style.backgroundImage = `url(${url})`;
-  petEl.style.backgroundSize = `${img.width * k}px ${img.height * k}px`;
+  sheet = { url, img };
+  sizePet();
   animStart = performance.now();
 }
 
