@@ -85,10 +85,10 @@ pub fn new_install_id() -> String;               // 32 hex
 ### Task 5: 중계 서버 `screenpet-relay` + 앱 중계 전송
 
 **Files:** Create `crates/screenpet-relay/` (bin), `deploy/relay/{README.md,screenpet-relay.service}`; Modify `crates/screenpet-net` (relay transport), app (친구 코드 UI), CI (relay 리눅스 바이너리 빌드 아티팩트).
-- 서버: 동기 WebSocket(`tungstenite`) + std 스레드, 포트 기본 8787, 데이터 파일(JSON)에 id·토큰 해시(SHA-256)·친구 관계. 메시지 라우팅·제한은 spec §1b.
+- 서버: 동기 WebSocket(`tungstenite`) + std 스레드, 포트 기본 9411, 데이터 파일(JSON)에 id·토큰 해시(SHA-256)·친구 관계. 메시지 라우팅·제한은 spec §1b.
 - 클라이언트 전송: `wss://` (rustls), 끊기면 5초→최대 60초 지수 백오프 재접속, 같은 친구가 LAN으로도 보이면 LAN 우선.
 - 친구 코드: 서버 발급·24시간 회전, 입력 → invite 흐름 재사용.
-- 배포 문서: NPM에서 Proxy Host(도메인 → 중계 서버 IP:8787, **Websockets Support 켜기**, SSL Let's Encrypt), 서버 실행(systemd user 서비스 예시).
+- 배포 문서: NPM에서 Proxy Host(도메인 → 중계 서버 IP:9411, **Websockets Support 켜기**, SSL Let's Encrypt), 서버 실행(systemd user 서비스 예시).
 - 테스트: 서버를 테스트 안에서 띄워 두 클라이언트 등록·친구 코드·전달·친구 아닌 전달 거부·토큰 위조 거부·제한.
 
 ### Task 6: 최종 검토 → 빌드 → v0.3.0 릴리스
