@@ -2,6 +2,9 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
+pub use crate::behavior::Personality;
+use crate::care::Stage;
+
 pub const REQUIRED_ANIMS: [&str; 21] = [
     "walk", "run", "roll", "idle", "look", "sleep", "hop", "fall", "dragged", "land", "sit_front", "wave", "tilt", "belly", "stretch", "heart",
     "tickle", "annoyed", "hungry", "eat", "level_up",
@@ -35,6 +38,12 @@ pub struct PetManifest {
     pub frame_size: u32,
     pub walk_speed: f64,
     pub animations: HashMap<String, AnimSpec>,
+    /// 성격 (없으면 friendly)
+    #[serde(default)]
+    pub personality: Personality,
+    /// 단계별 몸 크기 배율 (단계 이름 → 배율, 없으면 1.0)
+    #[serde(default)]
+    pub stage_size: HashMap<String, f64>,
 }
 
 pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
@@ -64,6 +73,11 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
 impl PetManifest {
     pub fn has_anim(&self, name: &str) -> bool {
         self.animations.contains_key(name)
+    }
+
+    /// 이 동물의 단계별 크기 배율 (care::Stage::scale에 곱한다)
+    pub fn size_mult(&self, stage: Stage) -> f64 {
+        self.stage_size.get(stage.name()).copied().unwrap_or(1.0)
     }
 }
 
@@ -123,6 +137,39 @@ mod tests {
         assert!(!parse_manifest(&full_json()).unwrap().has_anim("wag"));
         let bad = full_json().replace(r#""animations": {"#, r#""animations": {"wag": {"row": 18, "frames": 0, "fps": 8},"#);
         assert!(parse_manifest(&bad).is_err());
+    }
+
+    #[test]
+    fn personality_and_stage_size_default_when_missing() {
+        let m = parse_manifest(&full_json()).unwrap();
+        assert_eq!(m.personality, Personality::Friendly);
+        assert!(m.stage_size.is_empty());
+        assert_eq!(m.size_mult(Stage::Baby), 1.0);
+    }
+
+    #[test]
+    fn personality_and_stage_size_parse() {
+        let json = full_json().replace(
+            r#""walk_speed": 60,"#,
+            r#""walk_speed": 60, "personality": "aloof", "stage_size": {"baby": 0.85, "adult": 1.3},"#,
+        );
+        let m = parse_manifest(&json).unwrap();
+        assert_eq!(m.personality, Personality::Aloof);
+        assert_eq!((m.size_mult(Stage::Baby), m.size_mult(Stage::Adult), m.size_mult(Stage::Child)), (0.85, 1.3, 1.0));
+        assert!(parse_manifest(&full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "personality": "grumpy","#)).is_err());
+    }
+
+    #[test]
+    fn bundled_manifests_carry_personality_and_sizes() {
+        let load = |id: &str| {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../ui/pets/{id}/pet.json"));
+            parse_manifest(&std::fs::read_to_string(path).unwrap()).unwrap()
+        };
+        let (cat, dog, bear, rabbit) = (load("cat"), load("dog"), load("bear"), load("rabbit"));
+        assert_eq!((cat.personality, dog.personality), (Personality::Aloof, Personality::Friendly));
+        assert_eq!(bear.size_mult(Stage::Teenager), 1.2);
+        assert_eq!(rabbit.size_mult(Stage::Baby), 0.85);
+        assert_eq!(cat.size_mult(Stage::Adult), 1.0);
     }
 
     #[test]

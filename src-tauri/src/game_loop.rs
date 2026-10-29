@@ -2,7 +2,7 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use screenpet_core::behavior::Special;
+use screenpet_core::behavior::{Personality, Special};
 use screenpet_core::brain::{Pet, PetConfig};
 use screenpet_core::platform::{default_source, WindowSource};
 use screenpet_core::world::World;
@@ -36,7 +36,8 @@ fn refresh(source: &mut dyn WindowSource, size: f64) -> World {
 
 fn pet_config(scale: f64, logical_walk: f64, special: Option<Special>) -> PetConfig {
     let size = PET_LOGICAL_SIZE * STAGE_SCALE * scale;
-    PetConfig { size, half_w: size * HALF_WIDTH_RATIO, walk_speed: logical_walk * scale, special }
+    // personality is wired in Task 6
+    PetConfig { size, half_w: size * HALF_WIDTH_RATIO, walk_speed: logical_walk * scale, special, personality: Personality::Friendly }
 }
 
 fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64, special: Option<Special>) {

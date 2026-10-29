@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use serde::Serialize;
 
 use crate::care::{FeedResult, Food};
-use crate::behavior::{self, ClickReaction, Move, Rest, Special, Trick};
+use crate::behavior::{self, ClickOutcome, ClickReaction, Family, Move, Personality, Rest, Special, Trick};
 use crate::physics::{clamp_speed, step_air, Body};
 use crate::surfaces::{EndKind, Owner};
 use crate::world::World;
@@ -31,6 +31,11 @@ const EAT_SECS: f64 = 2.5;
 const AFTER_FAVORITE_HEART_SECS: f64 = 2.0;
 const LEVEL_UP_SECS: f64 = 2.0;
 const REFUSE_TILT_SECS: f64 = 2.0;
+/// 자는 동물을 이 시간 안에 3번 누르면 깬다
+const WAKE_CLICKS: u32 = 3;
+const WAKE_CLICK_WINDOW: f64 = 2.0;
+const SLEEPY_ANNOYED_SECS: f64 = 1.5;
+const WAKE_STRETCH_SECS: f64 = 2.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -58,6 +63,8 @@ pub enum Anim {
     Hungry,
     Eat,
     LevelUp,
+    /// 새침한 고양이의 흥! (앞모습)
+    Huff,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -70,12 +77,14 @@ pub enum Speech {
     Hungry,
     Full,
     LevelUp,
+    /// 클릭 무시 ("...")
+    Ignore,
 }
 
 impl Anim {
     /// 앞모습 동작 — 좌우 반전하지 않는다.
     pub fn is_front(self) -> bool {
-        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Wag | Anim::Hungry | Anim::Eat | Anim::LevelUp)
+        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Wag | Anim::Hungry | Anim::Eat | Anim::LevelUp | Anim::Huff)
     }
 }
 
@@ -136,6 +145,31 @@ pub enum State {
     Eating { remaining: f64, favorite: bool, level_up: bool },
     /// 성장 축하
     LevelUp { remaining: f64 },
+    /// 새침하게 흥! (클릭 반응)
+    Huff { remaining: f64 },
+}
+
+impl State {
+    /// 활동 묶음 (쉬기·자기·공중 등은 None)
+    fn family(self) -> Option<Family> {
+        match self {
+            State::Move { kind, .. } => Some(kind.family()),
+            State::Trick { .. } | State::Huff { .. } | State::Tickled { .. } | State::Hungry { .. } | State::Eating { .. } | State::LevelUp { .. } => {
+                Some(Family::Front)
+            }
+            State::Special { .. } => Some(Family::Special),
+            _ => None,
+        }
+    }
+}
+
+/// 쉬는 박자(Idle)가 끝나면 할 일
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AfterBeat {
+    /// 이동이 끝난 뒤의 쉬기 결정 (애교/특별/잠/이동)
+    Rest,
+    /// 미리 정해 둔 다음 활동
+    Go(State),
 }
 
 /// 서 있는 디딤판과 그 기준점(anchor)으로부터의 x 오프셋.
@@ -155,6 +189,8 @@ pub struct PetConfig {
     pub walk_speed: f64,
     /// 이 동물의 특별 동작 (없으면 None)
     pub special: Option<Special>,
+    /// 성격 (pet.json `personality`)
+    pub personality: Personality,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -185,6 +221,14 @@ pub struct Pet {
     speech: Option<Speech>,
     hungry: bool,
     food_request: bool,
+    /// 지금 Idle이 활동 사이 박자라면 끝난 뒤 할 일
+    after_beat: Option<AfterBeat>,
+    /// 마지막으로 고른 이동 방식 (이동 관성)
+    last_move: Option<Move>,
+    /// 누르기 직전 상태 — 새침하게 무시하면 되돌린다
+    before_press: Option<(State, Option<AfterBeat>)>,
+    /// 자는 동안 누른 횟수와 첫 클릭 시각
+    sleep_clicks: (u32, f64),
     rng: fastrand::Rng,
 }
 
@@ -208,6 +252,10 @@ impl Pet {
             speech: None,
             hungry: false,
             food_request: false,
+            after_beat: None,
+            last_move: None,
+            before_press: None,
+            sleep_clicks: (0, 0.0),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -242,6 +290,7 @@ impl Pet {
             State::Hungry { .. } => Anim::Hungry,
             State::Eating { .. } => Anim::Eat,
             State::LevelUp { .. } => Anim::LevelUp,
+            State::Huff { .. } => Anim::Huff,
             State::Idle { look: true, .. } => Anim::Look,
             State::Idle { .. } | State::Turn { .. } => Anim::Idle,
             State::Sleep { .. } => Anim::Sleep,
@@ -325,6 +374,7 @@ impl Pet {
         self.hover_since = None;
         self.history.clear();
         self.history.push_back((self.clock, cx, cy));
+        self.before_press = Some((self.state, self.after_beat.take()));
         if !grounded {
             self.standing = None;
             self.body.vx = 0.0;
@@ -369,6 +419,7 @@ impl Pet {
         if !grounded {
             return false;
         }
+        self.after_beat = None;
         self.state = match result {
             FeedResult::Refused => {
                 self.speech = Some(Speech::Full);
@@ -381,16 +432,32 @@ impl Pet {
 
     pub fn pointer_up(&mut self, cx: f64, cy: f64) {
         match self.state {
-            State::Pressed { grounded: true, was_sleeping: true, .. } => {
-                self.state = self.idle_state();
-            }
+            State::Pressed { grounded: true, was_sleeping: true, .. } => self.click_sleeper(),
             State::Pressed { grounded: true, .. } => {
                 if self.hungry {
                     self.food_request = true;
                     self.state = State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
                     return;
                 }
-                match behavior::pick_click(&mut self.rng) {
+                let reaction = match behavior::pick_click_outcome(&mut self.rng, self.cfg.personality, self.hungry) {
+                    ClickOutcome::React(r) => r,
+                    ClickOutcome::Ignore { speak } => {
+                        if let Some((state, after_beat)) = self.before_press {
+                            self.state = state;
+                            self.after_beat = after_beat;
+                        }
+                        if speak {
+                            self.speech = Some(Speech::Ignore);
+                        }
+                        return;
+                    }
+                    ClickOutcome::Huff => {
+                        self.speech = Some(Speech::Grumpy);
+                        self.state = State::Huff { remaining: behavior::HUFF_SECS };
+                        return;
+                    }
+                };
+                match reaction {
                     ClickReaction::Hop => {
                         self.heart_timer = HEART_SECS;
                         self.standing = None;
@@ -421,6 +488,18 @@ impl Pet {
             }
             _ => {}
         }
+    }
+
+    /// 자는 동물 클릭: 한 번은 뒤척이고(다시 잠), 2초 안에 세 번이면 기지개 켜며 깬다
+    fn click_sleeper(&mut self) {
+        let (count, first) = self.sleep_clicks;
+        self.sleep_clicks = if count == 0 || self.clock - first > WAKE_CLICK_WINDOW { (1, self.clock) } else { (count + 1, first) };
+        self.state = if self.sleep_clicks.0 >= WAKE_CLICKS {
+            self.sleep_clicks = (0, 0.0);
+            State::Trick { kind: Trick::Stretch, remaining: WAKE_STRETCH_SECS }
+        } else {
+            State::Annoyed { remaining: SLEEPY_ANNOYED_SECS, tickled_for: 0.0 }
+        };
     }
 
     fn drag_to(&mut self, cx: f64, cy: f64) {
@@ -459,6 +538,9 @@ impl Pet {
         if !self.tickling {
             return;
         }
+        if !matches!(self.state, State::Special { .. } | State::Eating { .. } | State::LevelUp { .. }) {
+            self.after_beat = None;
+        }
         self.state = match self.state {
             State::Sleep { .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for: 0.0 },
             State::Annoyed { tickled_for, .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for },
@@ -486,7 +568,10 @@ impl Pet {
     }
 
     fn update_chatter(&mut self, dt: f64) {
-        if matches!(self.state, State::Sleep { .. } | State::Annoyed { .. } | State::Tickled { .. } | State::Special { .. } | State::Eating { .. } | State::LevelUp { .. }) {
+        if matches!(
+            self.state,
+            State::Sleep { .. } | State::Annoyed { .. } | State::Tickled { .. } | State::Special { .. } | State::Eating { .. } | State::LevelUp { .. } | State::Huff { .. }
+        ) {
             return;
         }
         self.chatter_timer -= dt;
@@ -552,22 +637,28 @@ impl Pet {
                 } else if self.rng.f64() < behavior::MOVE_END_TURN_CHANCE {
                     State::Turn { remaining: TURN_PAUSE }
                 } else {
-                    self.rest_state()
+                    self.rest_beat()
                 };
             }
             State::Idle { remaining, look } => {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 {
                     State::Idle { remaining, look }
-                } else if self.rng.f64() < behavior::SLEEP_CHANCE {
-                    State::Sleep { remaining: behavior::range(&mut self.rng, behavior::SLEEP_SECS) }
                 } else {
-                    self.move_state(true)
+                    match self.after_beat.take() {
+                        Some(AfterBeat::Go(next)) => next,
+                        Some(AfterBeat::Rest) => self.rest_state(),
+                        None => self.sleep_or_move(),
+                    }
                 };
             }
             State::Trick { kind, remaining } => {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 { State::Trick { kind, remaining } } else { self.move_state(true) };
+            }
+            State::Huff { remaining } => {
+                let remaining = remaining - dt;
+                self.state = if remaining > 0.0 { State::Huff { remaining } } else { self.move_state(true) };
             }
             State::Tickled { remaining } => {
                 let remaining = remaining - dt;
@@ -603,7 +694,7 @@ impl Pet {
                     self.speech = Some(Speech::LevelUp);
                     State::LevelUp { remaining: LEVEL_UP_SECS }
                 } else if favorite {
-                    State::Trick { kind: Trick::Heart, remaining: AFTER_FAVORITE_HEART_SECS }
+                    self.next_after_beat(State::Trick { kind: Trick::Heart, remaining: AFTER_FAVORITE_HEART_SECS })
                 } else {
                     self.move_state(true)
                 };
@@ -627,7 +718,7 @@ impl Pet {
             }
             State::Land { remaining } => {
                 let remaining = remaining - dt;
-                self.state = if remaining > 0.0 { State::Land { remaining } } else { self.rest_state() };
+                self.state = if remaining > 0.0 { State::Land { remaining } } else { self.rest_beat() };
             }
             State::Air { .. } | State::Pressed { .. } | State::Dragged => {}
         }
@@ -661,6 +752,7 @@ impl Pet {
     }
 
     pub(crate) fn start_hop(&mut self, dir: f64) {
+        self.after_beat = None;
         self.standing = None;
         self.body.vx = dir * HOP_VX;
         self.body.vy = HOP_VY;
@@ -668,6 +760,7 @@ impl Pet {
     }
 
     fn start_fall(&mut self) {
+        self.after_beat = None;
         self.standing = None;
         self.body.vx = 0.0;
         self.body.vy = 0.0;
@@ -678,16 +771,43 @@ impl Pet {
         State::Idle { remaining: behavior::range(&mut self.rng, behavior::IDLE_SECS), look: self.rng.bool() }
     }
 
+    /// 활동 사이의 짧은 옆모습 앉기
+    fn beat(&mut self, then: AfterBeat) -> State {
+        self.after_beat = Some(then);
+        State::Idle { remaining: behavior::range(&mut self.rng, behavior::BEAT_SECS), look: false }
+    }
+
+    /// 지금 활동과 묶음이 다르면 먼저 잠깐 앉았다가 next로 간다 (Turn은 직전 이동 방식 기준)
+    fn next_after_beat(&mut self, next: State) -> State {
+        let current = match self.state {
+            State::Turn { .. } => self.last_move.map(Move::family),
+            s => s.family(),
+        };
+        match (current, next.family()) {
+            (Some(a), Some(b)) if a != b => self.beat(AfterBeat::Go(next)),
+            _ => next,
+        }
+    }
+
     /// 이동 시작. may_flip이면 절반 확률로 방향을 바꾼다 (Turn 직후엔 이미 바꿨으므로 false).
     fn move_state(&mut self, may_flip: bool) -> State {
         if may_flip && self.rng.bool() {
             self.facing = -self.facing;
         }
-        let kind = behavior::pick_move(&mut self.rng);
-        State::Move { kind, remaining: behavior::range(&mut self.rng, kind.secs()) }
+        let after_front = self.state.family() == Some(Family::Front);
+        let kind = behavior::pick_next_move(&mut self.rng, self.last_move, after_front);
+        let next = State::Move { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
+        let next = self.next_after_beat(next);
+        self.last_move = Some(kind);
+        next
     }
 
-    /// 이동이 끝난 뒤: 옆모습 쉬기 또는 앞모습 애교
+    /// 이동·착지 뒤엔 항상 잠깐 앉고, 그 뒤에 무엇을 할지 정한다
+    fn rest_beat(&mut self) -> State {
+        self.beat(AfterBeat::Rest)
+    }
+
+    /// 쉬는 박자가 끝난 뒤: 시무룩 / 특별 동작 / 앞모습 애교 / 잠 / 이동
     fn rest_state(&mut self) -> State {
         if self.hungry && self.rng.f64() < HUNGRY_REST_CHANCE {
             return State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
@@ -698,9 +818,17 @@ impl Pet {
                 return self.state;
             }
         }
-        match behavior::pick_rest(&mut self.rng) {
-            Rest::Idle => self.idle_state(),
+        match behavior::pick_rest(&mut self.rng, self.cfg.personality.trick_chance(self.hungry)) {
+            Rest::Idle => self.sleep_or_move(),
             Rest::Trick(kind) => State::Trick { kind, remaining: behavior::range(&mut self.rng, behavior::TRICK_SECS) },
+        }
+    }
+
+    fn sleep_or_move(&mut self) -> State {
+        if self.rng.f64() < behavior::SLEEP_CHANCE {
+            State::Sleep { remaining: behavior::range(&mut self.rng, behavior::SLEEP_SECS) }
+        } else {
+            self.move_state(true)
         }
     }
 }
@@ -714,7 +842,7 @@ mod tests {
     const DT: f64 = 1.0 / 60.0;
 
     pub(super) fn cfg() -> PetConfig {
-        PetConfig { size: 128.0, half_w: 38.0, walk_speed: 60.0, special: None }
+        PetConfig { size: 128.0, half_w: 38.0, walk_speed: 60.0, special: None, personality: Personality::Friendly }
     }
 
     pub(super) fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
@@ -740,6 +868,16 @@ mod tests {
     pub(super) fn run(p: &mut Pet, w: &World, ticks: usize) {
         for _ in 0..ticks {
             p.update(DT, w);
+        }
+    }
+
+    /// 착지·쉬는 박자가 끝나 다음 활동이 정해질 때까지 돌린다
+    pub(super) fn run_past_beat(p: &mut Pet, w: &World) {
+        for _ in 0..200 {
+            p.update(DT, w);
+            if !matches!(p.state, State::Land { .. } | State::Idle { .. }) {
+                return;
+            }
         }
     }
 
@@ -886,12 +1024,55 @@ mod tests {
     }
 
     #[test]
-    fn expired_walk_becomes_idle_or_turn() {
+    fn expired_move_becomes_a_calm_beat_or_turn() {
         let w = world(vec![]);
-        let mut p = Pet::new(cfg(), 0.0, 0.0, 3);
-        place(&mut p, &w, Owner::Ground(0), 900.0, State::Move { kind: Move::Walk, remaining: 0.001 });
-        p.update(DT, &w);
-        assert!(matches!(p.state, State::Idle { .. } | State::Turn { .. } | State::Trick { .. }));
+        let (mut beats, mut turns) = (0, 0);
+        for seed in 0..300 {
+            for kind in [Move::Walk, Move::Run, Move::Roll] {
+                let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+                place(&mut p, &w, Owner::Ground(0), 900.0, State::Move { kind, remaining: 0.001 });
+                p.update(DT, &w);
+                match p.state {
+                    State::Idle { remaining, look: false } => {
+                        assert!((0.6..=1.5).contains(&remaining), "{remaining}");
+                        beats += 1;
+                    }
+                    State::Turn { .. } => turns += 1,
+                    s => panic!("seed {seed} {kind:?}: {s:?}"),
+                }
+            }
+        }
+        assert!(beats > 500 && turns > 150, "beats {beats} turns {turns}");
+    }
+
+    #[test]
+    fn trick_ends_with_a_beat_then_moves() {
+        let w = world(vec![]);
+        for seed in 0..50 {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.001 });
+            p.update(DT, &w);
+            assert!(matches!(p.state, State::Idle { look: false, .. }), "seed {seed}: {:?}", p.state);
+            for _ in 0..(60 * 2) {
+                p.update(DT, &w);
+                if !matches!(p.state, State::Idle { .. }) {
+                    break;
+                }
+            }
+            assert!(matches!(p.state, State::Move { .. }), "seed {seed}: {:?}", p.state);
+        }
+    }
+
+    #[test]
+    fn walk_and_roll_switch_through_a_beat_after_a_turn() {
+        let w = world(vec![]);
+        for seed in 0..200 {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Ground(0), 900.0, State::Turn { remaining: 0.001 });
+            p.last_move = Some(Move::Walk);
+            p.update(DT, &w);
+            assert!(!matches!(p.state, State::Move { kind: Move::Roll, .. }), "seed {seed}");
+        }
     }
 
     #[test]
@@ -974,7 +1155,7 @@ mod tests {
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
         assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false });
-        run(&mut p, &w, 40);
+        run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
 
@@ -998,16 +1179,16 @@ mod tests {
     #[test]
     fn front_animations_are_the_tricks_and_tickle() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag, Anim::Hungry, Anim::Eat, Anim::LevelUp];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Huff];
         let front: Vec<Anim> = all.into_iter().filter(|a| a.is_front()).collect();
-        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Wag, Anim::Hungry, Anim::Eat, Anim::LevelUp]);
+        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Wag, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Huff]);
         assert_eq!(serde_json::to_string(&Anim::SitFront).unwrap(), "\"sit_front\"");
     }
 
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);
@@ -1020,7 +1201,7 @@ mod tests {
         let w = world(vec![]);
         let (mut moving, mut sleeping, mut front, mut total) = (0usize, 0usize, 0usize, 0usize);
         for seed in 0..20 {
-            let mut p = Pet::new(PetConfig { size: 128.0, half_w: 38.4, walk_speed: 90.0, special: None }, 960.0, 128.0, seed);
+            let mut p = Pet::new(sim_cfg(), 960.0, 128.0, seed);
             for _ in 0..(60 * 600) {
                 p.update(DT, &w);
                 let a = p.render().anim;
@@ -1036,9 +1217,77 @@ mod tests {
             }
         }
         let (m, s, f) = (moving as f64 / total as f64, sleeping as f64 / total as f64, front as f64 / total as f64);
-        assert!((0.65..=0.75).contains(&m), "moving {m:.3} (front {f:.3}, sleeping {s:.3})");
-        assert!(f >= 0.11, "front-facing {f:.3} (moving {m:.3}, sleeping {s:.3})");
-        assert!(s <= 0.10, "sleeping {s:.3} (moving {m:.3}, front {f:.3})");
+        // 2B §6 재측정: moving 0.622, front 0.147, sleeping 0.082
+        assert!((0.57..=0.67).contains(&m), "moving {m:.3} (front {f:.3}, sleeping {s:.3})");
+        assert!(f >= 0.117, "front-facing {f:.3} (moving {m:.3}, sleeping {s:.3})");
+        assert!(s <= 0.12, "sleeping {s:.3} (moving {m:.3}, front {f:.3})");
+    }
+
+    pub(super) fn sim_cfg() -> PetConfig {
+        PetConfig { size: 128.0, half_w: 38.4, walk_speed: 90.0, special: None, personality: Personality::Friendly }
+    }
+
+    /// 10분 동안 바뀐 동작 순서 (같은 동작 연속은 하나로)
+    fn anim_sequence(cfg: PetConfig, seed: u64) -> Vec<Anim> {
+        let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0)]);
+        let mut p = Pet::new(cfg, 960.0, 128.0, seed);
+        let mut seq: Vec<Anim> = Vec::new();
+        for _ in 0..(60 * 600) {
+            p.update(DT, &w);
+            let a = p.render().anim;
+            if seq.last() != Some(&a) {
+                seq.push(a);
+            }
+        }
+        seq
+    }
+
+    fn family(a: Anim) -> Option<behavior::Family> {
+        match a {
+            Anim::Walk | Anim::Run => Some(behavior::Family::Move),
+            Anim::Roll => Some(behavior::Family::Roll),
+            Anim::Arch | Anim::Wag => Some(behavior::Family::Special),
+            a if a.is_front() => Some(behavior::Family::Front),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn activities_only_change_family_after_sitting_a_moment() {
+        for special in [None, Some(Special::Arch), Some(Special::Wag)] {
+            for personality in [Personality::Friendly, Personality::Aloof] {
+                for seed in 0..6 {
+                    let seq = anim_sequence(PetConfig { special, personality, ..sim_cfg() }, seed);
+                    // 공중·착지 동작은 건너뛰고, Idle/Look/Sleep을 만나면 초기화
+                    let mut last: Option<behavior::Family> = None;
+                    for (i, &a) in seq.iter().enumerate() {
+                        match a {
+                            Anim::Idle | Anim::Look | Anim::Sleep | Anim::Annoyed => last = None,
+                            Anim::Hop | Anim::Fall | Anim::Land | Anim::Dragged => {}
+                            _ => {
+                                let f = family(a);
+                                assert!(last.is_none() || last == f, "{special:?} {personality:?} seed {seed}: {:?}", &seq[i.saturating_sub(4)..=i]);
+                                last = f;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn consecutive_moves_usually_keep_their_kind() {
+        let (mut same, mut pairs) = (0usize, 0usize);
+        for seed in 0..20 {
+            let moves: Vec<Anim> = anim_sequence(sim_cfg(), seed).into_iter().filter(|a| matches!(a, Anim::Walk | Anim::Run | Anim::Roll)).collect();
+            for pair in moves.windows(2) {
+                pairs += 1;
+                same += (pair[0] == pair[1]) as usize;
+            }
+        }
+        let share = same as f64 / pairs as f64;
+        assert!(share >= 0.45, "repeat {share:.3} of {pairs}");
     }
 }
 
@@ -1098,14 +1347,158 @@ mod input_tests {
     }
 
     #[test]
-    fn click_on_sleeping_pet_wakes_it() {
+    fn one_click_annoys_a_sleeper_three_clicks_wake_it() {
         let w = world(vec![w1()]);
+        let click = |p: &mut Pet| {
+            p.pointer_down(800.0, 350.0);
+            p.pointer_up(800.0, 350.0);
+        };
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Window(1), 800.0, State::Sleep { remaining: 30.0 });
-        p.pointer_down(800.0, 350.0);
-        p.pointer_up(800.0, 350.0);
-        assert!(matches!(p.state, State::Idle { .. }));
+        click(&mut p);
+        assert_eq!(p.state, State::Annoyed { remaining: 1.5, tickled_for: 0.0 });
+        assert_eq!(p.render().anim, Anim::Annoyed);
         assert!(!p.render().heart);
+        run(&mut p, &w, 96);
+        assert!(matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
+
+        // 세 번 빠르게 → 기지개 켜며 깸
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Sleep { remaining: 30.0 });
+        click(&mut p);
+        run(&mut p, &w, 30);
+        click(&mut p);
+        run(&mut p, &w, 30);
+        click(&mut p);
+        assert_eq!(p.state, State::Trick { kind: Trick::Stretch, remaining: 2.5 });
+
+        // 2초가 넘게 띄엄띄엄 누르면 다시 처음부터 센다
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Sleep { remaining: 30.0 });
+        for _ in 0..3 {
+            click(&mut p);
+            assert!(matches!(p.state, State::Annoyed { .. }), "{:?}", p.state);
+            run(&mut p, &w, 75);
+        }
+    }
+
+    fn aloof() -> PetConfig {
+        PetConfig { personality: Personality::Aloof, ..cfg() }
+    }
+
+    #[test]
+    fn aloof_cat_mostly_huffs_or_ignores_clicks() {
+        let w = world(vec![w1()]);
+        let n = 2000;
+        let (mut aegyo, mut huff, mut ignore, mut ignore_said) = (0, 0, 0, 0);
+        for seed in 0..n {
+            let mut p = Pet::new(aloof(), 0.0, 0.0, seed);
+            let before = State::Move { kind: Move::Walk, remaining: 7.0 };
+            place(&mut p, &w, Owner::Window(1), 800.0, before);
+            p.pointer_down(800.0, 350.0);
+            p.pointer_up(800.0, 350.0);
+            match p.state {
+                State::Huff { remaining } => {
+                    assert_eq!(remaining, 1.5);
+                    assert_eq!(p.render().anim, Anim::Huff);
+                    assert_eq!(p.take_speech(), Some(Speech::Grumpy));
+                    huff += 1;
+                }
+                s if s == before => {
+                    ignore += 1;
+                    match p.take_speech() {
+                        Some(Speech::Ignore) => ignore_said += 1,
+                        None => {}
+                        sp => panic!("ignore said {sp:?}"),
+                    }
+                }
+                State::Air { anim: Anim::Hop } | State::Trick { .. } => aegyo += 1,
+                s => panic!("seed {seed}: {s:?}"),
+            }
+        }
+        let share = |k: i32| k as f64 / n as f64;
+        assert!((0.05..=0.15).contains(&share(aegyo)), "aegyo {}", share(aegyo));
+        assert!((0.38..=0.52).contains(&share(huff)), "huff {}", share(huff));
+        assert!((0.38..=0.52).contains(&share(ignore)), "ignore {}", share(ignore));
+        let said = ignore_said as f64 / ignore as f64;
+        assert!((0.40..=0.60).contains(&said), "ignore said {said}");
+    }
+
+    #[test]
+    fn ignored_click_keeps_a_calm_beat_going() {
+        let w = world(vec![w1()]);
+        for seed in 0..200 {
+            let mut p = Pet::new(aloof(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Window(1), 800.0, State::Trick { kind: Trick::Wave, remaining: 0.001 });
+            p.update(DT, &w);
+            let beat = p.state;
+            p.pointer_down(800.0, 350.0);
+            p.pointer_up(800.0, 350.0);
+            if p.state == beat {
+                run(&mut p, &w, 100);
+                assert!(matches!(p.state, State::Move { .. }), "seed {seed}: {:?}", p.state);
+                return;
+            }
+        }
+        panic!("never ignored");
+    }
+
+    #[test]
+    fn huff_ends_with_a_beat_then_moves() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(aloof(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Huff { remaining: 0.001 });
+        p.facing = -1.0;
+        assert!(!p.render().flip, "huff faces front");
+        p.update(DT, &w);
+        assert!(matches!(p.state, State::Idle { look: false, .. }), "{:?}", p.state);
+        run(&mut p, &w, 91);
+        assert!(matches!(p.state, State::Move { .. }), "{:?}", p.state);
+    }
+
+    #[test]
+    fn hungry_aloof_cat_still_asks_for_food() {
+        let w = world(vec![w1()]);
+        for seed in 0..50 {
+            let mut p = Pet::new(aloof(), 0.0, 0.0, seed);
+            p.set_hungry(true);
+            place(&mut p, &w, Owner::Window(1), 800.0, idle());
+            p.pointer_down(800.0, 350.0);
+            p.pointer_up(800.0, 350.0);
+            assert!(p.take_food_request(), "seed {seed}");
+        }
+    }
+
+    /// 착지 뒤 쉬기 결정(박자가 끝난 뒤)이 애교였던 비율
+    fn rest_trick_share(cfg: PetConfig, hungry: bool) -> f64 {
+        let w = world(vec![w1()]);
+        let n = 3000;
+        let hits = (0..n)
+            .filter(|&seed| {
+                let mut p = Pet::new(cfg, 0.0, 0.0, seed);
+                p.set_hungry(hungry);
+                place(&mut p, &w, Owner::Window(1), 800.0, State::Land { remaining: 0.001 });
+                for _ in 0..200 {
+                    p.update(DT, &w);
+                    if !matches!(p.state, State::Land { .. } | State::Idle { .. }) {
+                        break;
+                    }
+                }
+                matches!(p.state, State::Trick { .. })
+            })
+            .count();
+        hits as f64 / n as f64
+    }
+
+    #[test]
+    fn aloof_cat_rarely_does_tricks_when_resting() {
+        let aloof_share = rest_trick_share(aloof(), false);
+        assert!((0.07..=0.13).contains(&aloof_share), "aloof {aloof_share}");
+        let friendly = rest_trick_share(cfg(), false);
+        assert!((0.51..=0.59).contains(&friendly), "friendly {friendly}");
+        // 배고프면 절반은 시무룩, 나머지 중 60%가 애교
+        let hungry = rest_trick_share(aloof(), true);
+        assert!((0.26..=0.34).contains(&hungry), "hungry {hungry}");
     }
 
     #[test]
@@ -1337,6 +1730,11 @@ mod tickle_tests {
             p.hover(0.0, 0.0, false);
             p.update(DT, &w);
         }
+        assert!(matches!(p.state, State::Idle { look: false, .. }), "calm beat before moving: {:?}", p.state);
+        for _ in 0..90 {
+            p.hover(0.0, 0.0, false);
+            p.update(DT, &w);
+        }
         assert!(matches!(p.state, State::Move { .. }));
     }
 
@@ -1559,7 +1957,7 @@ mod special_tests {
             .filter(|&seed| {
                 let mut p = Pet::new(with(special), 0.0, 0.0, seed);
                 place(&mut p, &w, Owner::Window(1), 800.0, State::Land { remaining: 0.001 });
-                p.update(DT, &w);
+                super::tests::run_past_beat(&mut p, &w);
                 matches!(p.state, State::Special { .. })
             })
             .count();
@@ -1660,7 +2058,7 @@ mod care_tests {
                 let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
                 p.set_hungry(true);
                 place(&mut p, &w, Owner::Window(1), 800.0, State::Land { remaining: 0.001 });
-                p.update(DT, &w);
+                super::tests::run_past_beat(&mut p, &w);
                 matches!(p.state, State::Hungry { .. })
             })
             .count() as f64
@@ -1707,6 +2105,12 @@ mod care_tests {
             assert_eq!(p.render().anim, Anim::Eat);
             for _ in 0..(60 * 2 + 40) {
                 p.update(DT, &w);
+            }
+            if !then_heart {
+                assert!(matches!(p.state, State::Idle { look: false, .. }), "calm beat after eating: {:?}", p.state);
+                for _ in 0..90 {
+                    p.update(DT, &w);
+                }
             }
             if then_heart {
                 assert!(matches!(p.state, State::Trick { kind: Trick::Heart, .. }), "{:?}", p.state);

@@ -1,10 +1,59 @@
 //! 다음 행동 고르기 — 이동 방식, 쉬기/애교, 클릭 반응. 확률·시간 수치는 모두 여기에 둔다.
 
+use serde::Deserialize;
+
 pub const IDLE_SECS: (f64, f64) = (1.5, 3.0);
-pub const SLEEP_SECS: (f64, f64) = (6.0, 12.0);
-pub const SLEEP_CHANCE: f64 = 0.08;
-pub const TRICK_SECS: (f64, f64) = (2.0, 4.0);
+pub const SLEEP_SECS: (f64, f64) = (10.0, 20.0);
+pub const SLEEP_CHANCE: f64 = 0.12;
+pub const TRICK_SECS: (f64, f64) = (3.0, 5.0);
 pub const TRICK_CHANCE: f64 = 0.55;
+/// 활동 종류가 바뀔 때 사이에 끼우는 옆모습 앉기 (spec 2B §6)
+pub const BEAT_SECS: (f64, f64) = (0.6, 1.5);
+/// 다음 이동이 직전 이동 방식을 그대로 이어갈 확률
+pub const MOVE_KEEP_CHANCE: f64 = 0.5;
+/// 애교 뒤 다음 이동이 걷기일 확률
+pub const WALK_AFTER_FRONT_CHANCE: f64 = 0.7;
+/// 새침한 동물의 애교 확률 (평소 / 배고플 때)
+pub const ALOOF_AEGYO_CHANCE: f64 = 0.10;
+pub const ALOOF_HUNGRY_AEGYO_CHANCE: f64 = 0.60;
+/// 새침한 동물이 애교 대신 클릭을 무시할 때 "..." 말풍선을 띄울 확률
+pub const IGNORE_SPEECH_CHANCE: f64 = 0.5;
+pub const HUFF_SECS: f64 = 1.5;
+
+/// 동물 성격 (pet.json `personality`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Personality {
+    /// 애교 많음 — 2A 동작 그대로
+    #[default]
+    Friendly,
+    /// 새침함 (고양이) — 애교가 드물고 클릭에 흥! 하거나 무시
+    Aloof,
+}
+
+impl Personality {
+    /// 쉬기에 들어갈 때(그리고 새침한 동물이 클릭받을 때) 애교를 부릴 확률
+    pub fn trick_chance(self, hungry: bool) -> f64 {
+        match (self, hungry) {
+            (Personality::Friendly, _) => TRICK_CHANCE,
+            (Personality::Aloof, false) => ALOOF_AEGYO_CHANCE,
+            (Personality::Aloof, true) => ALOOF_HUNGRY_AEGYO_CHANCE,
+        }
+    }
+}
+
+/// 활동 묶음 — 묶음이 바뀌면 그 사이에 잠깐 앉는다
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    /// 걷기·달리기
+    Move,
+    /// 구르기
+    Roll,
+    /// 앞모습 애교·흥·간질 반응 등
+    Front,
+    /// 종별 특별 동작
+    Special,
+}
 pub const MOVE_END_TURN_CHANCE: f64 = 0.3;
 pub const WALK_EDGE_HOP_CHANCE: f64 = 0.8;
 pub const RUN_LEAP_VX_MULT: f64 = 1.8;
@@ -62,6 +111,13 @@ pub enum Move {
 }
 
 impl Move {
+    pub fn family(self) -> Family {
+        match self {
+            Move::Walk | Move::Run => Family::Move,
+            Move::Roll => Family::Roll,
+        }
+    }
+
     pub fn speed_mult(self) -> f64 {
         match self {
             Move::Walk => 0.7,
@@ -105,6 +161,40 @@ pub enum ClickReaction {
     Trick(Trick),
 }
 
+/// 짧은 클릭(깨어 있고 배고프지 않을 때)에 대한 반응
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClickOutcome {
+    React(ClickReaction),
+    /// 새침: 하던 일을 계속한다 (speak면 "..." 말풍선)
+    Ignore { speak: bool },
+    /// 새침: 흥! 하고 고개 돌리기
+    Huff,
+}
+
+pub fn pick_click_outcome(rng: &mut fastrand::Rng, personality: Personality, hungry: bool) -> ClickOutcome {
+    if personality == Personality::Friendly || rng.f64() < personality.trick_chance(hungry) {
+        ClickOutcome::React(pick_click(rng))
+    } else if rng.bool() {
+        ClickOutcome::Ignore { speak: rng.f64() < IGNORE_SPEECH_CHANCE }
+    } else {
+        ClickOutcome::Huff
+    }
+}
+
+/// 다음 이동 방식: 애교 뒤엔 대개 걷기, 아니면 절반은 직전 방식을 이어간다
+pub fn pick_next_move(rng: &mut fastrand::Rng, last: Option<Move>, after_front: bool) -> Move {
+    if after_front {
+        if rng.f64() < WALK_AFTER_FRONT_CHANCE {
+            return Move::Walk;
+        }
+    } else if let Some(last) = last {
+        if rng.f64() < MOVE_KEEP_CHANCE {
+            return last;
+        }
+    }
+    pick_move(rng)
+}
+
 pub fn pick_move(rng: &mut fastrand::Rng) -> Move {
     let r = rng.f64();
     if r < 0.45 {
@@ -116,8 +206,8 @@ pub fn pick_move(rng: &mut fastrand::Rng) -> Move {
     }
 }
 
-pub fn pick_rest(rng: &mut fastrand::Rng) -> Rest {
-    if rng.f64() < TRICK_CHANCE {
+pub fn pick_rest(rng: &mut fastrand::Rng, trick_chance: f64) -> Rest {
+    if rng.f64() < trick_chance {
         Rest::Trick(pick_trick(rng))
     } else {
         Rest::Idle
@@ -161,8 +251,80 @@ mod tests {
     fn rest_is_trick_55_percent() {
         let mut rng = fastrand::Rng::with_seed(3);
         let n = 20_000;
-        let tricks = (0..n).filter(|_| matches!(pick_rest(&mut rng), Rest::Trick(_))).count() as f64 / n as f64;
+        let p = Personality::Friendly.trick_chance(false);
+        let tricks = (0..n).filter(|_| matches!(pick_rest(&mut rng, p), Rest::Trick(_))).count() as f64 / n as f64;
         assert!((0.52..=0.58).contains(&tricks), "{tricks}");
+    }
+
+    #[test]
+    fn aloof_trick_chance_is_10_percent_or_60_when_hungry() {
+        assert_eq!(Personality::Friendly.trick_chance(true), TRICK_CHANCE);
+        assert_eq!(Personality::Aloof.trick_chance(false), 0.10);
+        assert_eq!(Personality::Aloof.trick_chance(true), 0.60);
+        assert_eq!(Personality::default(), Personality::Friendly);
+    }
+
+    /// (애교, 하악, 무시) 비율
+    fn click_shares(personality: Personality, hungry: bool) -> (f64, f64, f64) {
+        let mut rng = fastrand::Rng::with_seed(11);
+        let n = 20_000;
+        let (mut react, mut huff, mut ignore) = (0, 0, 0);
+        for _ in 0..n {
+            match pick_click_outcome(&mut rng, personality, hungry) {
+                ClickOutcome::React(_) => react += 1,
+                ClickOutcome::Huff => huff += 1,
+                ClickOutcome::Ignore { .. } => ignore += 1,
+            }
+        }
+        (react as f64 / n as f64, huff as f64 / n as f64, ignore as f64 / n as f64)
+    }
+
+    #[test]
+    fn aloof_clicks_are_mostly_huffs_and_ignores() {
+        let (react, huff, ignore) = click_shares(Personality::Aloof, false);
+        assert!((0.05..=0.15).contains(&react), "{react}");
+        assert!((0.38..=0.52).contains(&huff), "{huff}");
+        assert!((0.38..=0.52).contains(&ignore), "{ignore}");
+        let (react, _, _) = click_shares(Personality::Aloof, true);
+        assert!((0.52..=0.68).contains(&react), "hungry {react}");
+        assert_eq!(click_shares(Personality::Friendly, false), (1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn half_of_ignores_say_so() {
+        let mut rng = fastrand::Rng::with_seed(2);
+        let (mut said, mut ignores) = (0, 0);
+        for _ in 0..20_000 {
+            if let ClickOutcome::Ignore { speak } = pick_click_outcome(&mut rng, Personality::Aloof, false) {
+                ignores += 1;
+                said += speak as usize;
+            }
+        }
+        let share = said as f64 / ignores as f64;
+        assert!((0.45..=0.55).contains(&share), "{share}");
+    }
+
+    #[test]
+    fn move_families() {
+        assert_eq!((Move::Walk.family(), Move::Run.family(), Move::Roll.family()), (Family::Move, Family::Move, Family::Roll));
+    }
+
+    fn next_share(after_front: bool, last: Option<Move>, want: Move) -> f64 {
+        let mut rng = fastrand::Rng::with_seed(9);
+        let n = 20_000;
+        (0..n).filter(|_| pick_next_move(&mut rng, last, after_front) == want).count() as f64 / n as f64
+    }
+
+    #[test]
+    fn next_move_keeps_momentum_and_walks_after_tricks() {
+        // 50% 그대로 + 50% × pick_move
+        let roll_again = next_share(false, Some(Move::Roll), Move::Roll);
+        assert!((0.57..=0.63).contains(&roll_again), "{roll_again}");
+        let walk_first = next_share(false, None, Move::Walk);
+        assert!((0.42..=0.48).contains(&walk_first), "{walk_first}");
+        // 애교 뒤: 70% 걷기 + 30% × 45%
+        let walk_after_trick = next_share(true, Some(Move::Roll), Move::Walk);
+        assert!((0.80..=0.86).contains(&walk_after_trick), "{walk_after_trick}");
     }
 
     #[test]
@@ -189,6 +351,12 @@ mod tests {
     fn move_speeds_and_durations() {
         assert_eq!((Move::Walk.speed_mult(), Move::Run.speed_mult(), Move::Roll.speed_mult()), (0.7, 2.5, 2.0));
         assert_eq!((Move::Walk.secs(), Move::Run.secs(), Move::Roll.secs()), ((4.0, 10.0), (2.0, 5.0), (2.0, 4.0)));
+    }
+
+    #[test]
+    fn sleep_and_trick_timing() {
+        assert_eq!((SLEEP_CHANCE, SLEEP_SECS, TRICK_SECS), (0.12, (10.0, 20.0), (3.0, 5.0)));
+        assert_eq!(BEAT_SECS, (0.6, 1.5));
     }
 
     #[test]
