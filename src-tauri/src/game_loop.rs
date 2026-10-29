@@ -29,15 +29,24 @@ fn refresh(source: &mut dyn WindowSource, size: f64) -> World {
     World::new(source.windows(), source.work_areas(), size)
 }
 
-fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64) {
-    let Some(window) = app.get_webview_window("pet") else { return };
-    let scale = window.scale_factor().unwrap_or(1.0);
+fn pet_config(scale: f64, logical_walk: f64) -> PetConfig {
     let size = PET_LOGICAL_SIZE * scale;
+    PetConfig { size, half_w: size * HALF_WIDTH_RATIO, walk_speed: logical_walk * scale }
+}
+
+fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64) {
+    let Some(window) = app.get_webview_window("pet") else {
+        eprintln!("pet window not found; game loop not started");
+        return;
+    };
+    let mut scale = window.scale_factor().unwrap_or(1.0);
+    let mut logical_walk = walk_speed;
+    let mut size = PET_LOGICAL_SIZE * scale;
     let mut source = default_source();
     let mut world = refresh(source.as_mut(), size);
 
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1);
-    let cfg = PetConfig { size, half_w: size * HALF_WIDTH_RATIO, walk_speed: walk_speed * scale };
+    let cfg = pet_config(scale, logical_walk);
     let b = world.bounds;
     let mut pet = Pet::new(cfg, b.left + b.width() / 2.0, b.top + size, seed);
 
@@ -53,7 +62,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64) {
                     let (cx, cy) = source.cursor();
                     pet.pointer_down(cx, cy);
                 }
-                Input::SetWalkSpeed(speed) => pet.cfg.walk_speed = speed * scale,
+                Input::SetWalkSpeed(speed) => {
+                    logical_walk = speed;
+                    pet.cfg.walk_speed = logical_walk * scale;
+                }
             }
         }
 
@@ -61,6 +73,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, walk_speed: f64) {
         let dt = (now - last).as_secs_f64().min(MAX_DT);
         last = now;
         if now - last_refresh >= WORLD_REFRESH {
+            let new_scale = window.scale_factor().unwrap_or(scale);
+            if new_scale != scale {
+                scale = new_scale;
+                let cfg = pet_config(scale, logical_walk);
+                size = cfg.size;
+                pet.cfg = cfg;
+            }
             world = refresh(source.as_mut(), size);
             last_refresh = now;
         }

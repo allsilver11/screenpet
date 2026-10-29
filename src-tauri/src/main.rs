@@ -35,7 +35,9 @@ pub fn select_pet(app: &AppHandle, id: &str) {
     let state = app.state::<AppState>();
     let Some(entry) = state.pets.iter().find(|p| p.id == id) else { return };
     *state.current.lock().unwrap() = id.to_string();
-    let _ = config::save(&state.config_dir, &Config { pet: Some(id.to_string()) });
+    if let Err(e) = config::save(&state.config_dir, &Config { pet: Some(id.to_string()) }) {
+        eprintln!("failed to save config: {e}");
+    }
     let _ = state.tx.lock().unwrap().send(Input::SetWalkSpeed(entry.manifest.walk_speed));
     let _ = app.emit("pet-change", id.to_string());
 }
