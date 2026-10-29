@@ -10,6 +10,7 @@ use crate::world::{Side, World};
 
 const TURN_PAUSE: f64 = 0.3;
 const LAND_SECS: f64 = 0.25;
+/// 크기 128 기준 (scaled로 크기에 맞춘다)
 const HOP_VX: f64 = 180.0;
 const HOP_VY: f64 = -650.0;
 const HAPPY_VY: f64 = -500.0;
@@ -991,7 +992,7 @@ impl Pet {
         let t = -vy / GRAVITY + (2.0 * margin / GRAVITY).sqrt();
         let target_x = if self.facing > 0.0 { wa.left + self.cfg.half_w } else { wa.right - self.cfg.half_w };
         self.start_hop(self.facing);
-        self.body.vx = self.facing * HOP_VX.max((target_x - self.body.x).abs() / t);
+        self.body.vx = self.facing * self.scaled(HOP_VX).max((target_x - self.body.x).abs() / t);
         self.body.vy = vy;
         false
     }
@@ -999,7 +1000,8 @@ impl Pet {
     pub(crate) fn start_hop(&mut self, dir: f64) {
         self.pacing.after_beat = None;
         self.standing = None;
-        self.body.vx = dir * HOP_VX;
+        // 크기에 비례: 다시 같은 높이로 내려올 때(0.52초) 발 중심이 몸 반 폭(0.3×크기)보다 멀리 가 있도록
+        self.body.vx = dir * self.scaled(HOP_VX);
         self.body.vy = HOP_VY;
         self.state = State::Air { anim: Anim::Hop };
     }
@@ -1261,6 +1263,24 @@ mod tests {
         p.start_hop(1.0);
         run(&mut p, &w, 120);
         assert_eq!(p.standing.unwrap().owner, Owner::Ground(0));
+    }
+
+    #[test]
+    fn edge_hops_clear_the_window_at_every_size() {
+        // 큰 창: 384 px 펫도 올라설 수 있게 (윗면 600, 머리 공간 충분)
+        let w = World::new(vec![win(1, 500.0, 600.0, 1500.0, 900.0)], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 384.0);
+        for size in [128.0, 256.0, 384.0] {
+            let half_w = size * 0.3;
+            let c = PetConfig { size, half_w, walk_speed: 60.0 * size / 128.0, ..cfg() };
+            // 걷다가 모서리에서 뛰기 (몸 앞쪽이 막 닿음)
+            let mut p = Pet::new(c, 0.0, 0.0, 1);
+            place(&mut p, &w, Owner::Window(1), 1500.0 - half_w - 0.5, State::Move { kind: Move::Walk, remaining: 100.0 });
+            p.facing = 1.0;
+            p.start_hop(1.0);
+            run(&mut p, &w, 240);
+            assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)), "size {size}");
+            assert!(p.body.x > 1500.0, "size {size}");
+        }
     }
 
     #[test]
