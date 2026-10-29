@@ -98,8 +98,6 @@ struct AwayVisit {
 
 pub struct Network {
     net: Option<Net>,
-    /// 내 설치 id (동시에 서로 신청하면 id가 작은 쪽 신청이 남는다)
-    my_id: String,
     /// 내 표시 이름
     name: String,
     /// 발견된 사람 id → 이름 (친구 포함)
@@ -112,7 +110,8 @@ pub struct Network {
     last_menu: Option<FriendsMenu>,
     /// 트레이 메뉴를 다시 계산할 일이 있었음 (네트워크 입력·놀러 가기/돌아오기)
     menu_dirty: bool,
-    /// 마지막으로 들은 이름 (발견·신청·연결) — 설정의 친구 이름을 맞춘다
+    /// 인증된 연결(Connected — 고정된 키를 증명한 링크의 hello)에서 들은 이름만 — 설정의 친구 이름을 맞춘다.
+    /// 발견 알림·신청의 이름(인증 안 됨)은 여기 넣지 않는다
     names: HashMap<String, String>,
     /// 친구별 마지막으로 받아들인 방문 시각
     last_visit: HashMap<String, Instant>,
@@ -188,7 +187,6 @@ impl Network {
             names: HashMap::new(),
             last_visit: HashMap::new(),
             last_decline_log: HashMap::new(),
-            my_id: config.install_id.clone().unwrap_or_default(),
         };
         let state = app.state::<AppState>();
         let key = match screenpet_core::config::load_or_create_identity_key(&state.config_dir, Net::generate_static_key) {
@@ -326,9 +324,8 @@ impl Network {
     fn on_event(&mut self, app: &AppHandle, ev: NetEvent, config: &mut Config, slots: &mut Vec<Slot>) -> bool {
         match ev {
             NetEvent::PeerSeen { id, name } => {
-                let name = clamp(&name);
-                self.note_name(&id, &name);
-                self.seen.insert(id, name);
+                // 발견 알림의 이름은 인증되지 않았다 — 친구 아닌 사람 메뉴에만 쓰고 설정에는 적지 않는다
+                self.seen.insert(id, clamp(&name));
             }
             NetEvent::PeerGone { id } => {
                 self.seen.remove(&id);
@@ -339,6 +336,7 @@ impl Network {
             NetEvent::Connected { id, name } => {
                 self.connected.insert(id.clone());
                 self.forgot.remove(&id);
+                // 고정된 키를 증명한 링크의 이름 (방금 끝난 짝맞추기도 그 링크에서 Connected가 온다)
                 self.note_name(&id, &clamp(&name));
                 if let Some(p) = self.pairing.as_mut().filter(|p| p.peer == id && matches!(p.view.phase, "confirm" | "waiting")) {
                     p.view.phase = "done";
@@ -375,7 +373,7 @@ impl Network {
     }
 
     /// 설정의 친구 목록을 net이 고정한 친구(id·공개키)에 맞춘다: 없어진 친구는 지우고, 새 친구는 더하고,
-    /// 이름은 마지막으로 들은 것으로. 바뀌었으면 true
+    /// 이름은 인증된 연결에서 들은 것, 없으면 저장된 이름 (새 친구는 Connected 전까지 "친구"). 바뀌었으면 true
     fn sync_friends(&mut self, config: &mut Config) -> bool {
         let Some(net) = &self.net else { return false };
         let pinned = net.friends();
@@ -517,22 +515,14 @@ impl Network {
 
     fn on_invited(&mut self, app: &AppHandle, from: String, name: String, pet: String, sas: String, token: u64) {
         let Some(net) = &self.net else { return };
-        if let Some(p) = self.pairing.as_ref().filter(|p| !matches!(p.view.phase, "done" | "failed")) {
-            // 서로 동시에 신청했다: 양쪽 모두 같은 규칙(id가 작은 쪽의 신청이 남는다)으로 하나만 남긴다
-            let mutual = p.peer == from && !p.view.incoming;
-            if mutual && from < self.my_id {
-                // 상대 신청이 이긴다 — 내 신청을 거두고 상대 것을 보인다
-                if let Some(t) = p.token {
-                    net.answer_invite(t, false);
-                }
-            } else {
-                // 한 번에 하나만 (서로 신청했으면 내 신청이 이긴다) — 이 신청은 거절
-                net.answer_invite(token, false);
-                return;
-            }
+        if self.pairing.as_ref().is_some_and(|p| !matches!(p.view.phase, "done" | "failed")) {
+            // 한 번에 하나만 — 나머지는 거절. 서로 동시에 신청했어도 내 신청은 지킨다:
+            // 들어온 신청의 id는 인증되지 않았으므로 그걸 근거로 내 짝맞추기를 거두지 않는다 (필요하면 다시 신청)
+            net.answer_invite(token, false);
+            return;
         }
+        // 신청에 실린 이름은 인증되지 않았다 — 이 창에만 보이고 설정에는 연결(Connected) 때 이름을 적는다
         let name = clamp(&name);
-        self.note_name(&from, &name);
         let name = if name.is_empty() { DEFAULT_NAME.to_string() } else { name };
         self.pairing = Some(Pairing {
             peer: from,
