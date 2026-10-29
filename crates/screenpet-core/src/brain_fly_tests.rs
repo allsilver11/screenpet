@@ -879,16 +879,18 @@ fn bee_flies_curvy_balanced_paths_with_circles_on_real_screens() {
         let per_size = st.turned / st.path;
         let per_sec = st.turned / st.fly_secs;
         eprintln!("dpi {dpi}: lr {lr:.2} ud {ud:.2} turn {per_size:.2} rad/size {per_sec:.2} rad/s straight {:.2} circles {} flips {} gap {:.2} step {:.2}", st.straightness / st.flights as f64, st.circles, st.flips, st.min_flip_gap, st.max_step);
-        // 원·8자·살랑을 도는 동안은 확실히 빙글: 초당 0.6 rad 넘게 (예전 원: 0.3 rad/s 남짓)
+        // 원·8자·살랑을 도는 동안은 확실히 빙글: 초당 0.75 rad 넘게 (예전 원: 0.3 rad/s 남짓)
         let fig = st.fig_turned / st.fig_secs;
         let per_ring = st.ring_secs / st.ring_turns;
         eprintln!("dpi {dpi}: figures {fig:.2} rad/s, one circle {per_ring:.1} s");
-        assert!(fig > 0.6, "figures {fig:.2} rad/s {msg}");
+        assert!(fig > 0.75, "figures {fig:.2} rad/s {msg}");
+        // 원 한 바퀴는 걷는 빠르기에서도 몇 초 (예전: 10~16초)
+        assert!((4.0..=8.0).contains(&per_ring), "one circle {per_ring:.1} s {msg}");
         assert!(per_size > 0.6 && per_sec > 0.25, "turn {per_size:.2} rad/size {per_sec:.2} rad/s {msg}");
         // 곧은 선이 아니다 (예전: 0.95)
         let straight = st.straightness / st.flights as f64;
         assert!(straight < 0.75, "straightness {straight:.2} {msg}");
-        assert!(st.circles >= 6, "circles {} {msg}", st.circles);
+        assert!(st.circles >= 10, "circles {} {msg}", st.circles);
         // 순간이동 없음, 좌우 뒤집기는 천천히
         assert!(st.max_step < 6.0 * dpi, "step {} {msg}", st.max_step);
         assert!(st.flips > 20 && st.min_flip_gap >= flight::FLIP_HOLD - 1e-6, "{msg}");

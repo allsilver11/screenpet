@@ -163,7 +163,7 @@ pub const CIRCLE_CHANCE: f64 = 0.25;
 pub const SWAY_CHANCE: f64 = 0.15;
 pub const EIGHT_CHANCE: f64 = 0.1;
 /// 원: 반지름 (몸 크기 배), 두 바퀴 돌 확률, 한 바퀴당 경유점 수, 나선으로 부풀거나 줄어드는 정도
-pub const CIRCLE_RADIUS: (f64, f64) = (0.9, 1.6);
+pub const CIRCLE_RADIUS: (f64, f64) = (0.7, 1.1);
 pub const CIRCLE_TWICE: f64 = 0.35;
 pub const CIRCLE_SAMPLES: usize = 8;
 pub const SPIRAL: f64 = 0.3;
@@ -175,12 +175,12 @@ pub const SWAY_REACH: f64 = 0.6;
 pub const SWAY_TURN: f64 = 0.3;
 pub const SWAY_DRIFT: (f64, f64) = (2.5, 4.0);
 /// 8자: 가로 반폭 (몸 크기 배), 세로 반높이 = 가로의 이 비율, 경유점 수
-pub const EIGHT_AMP: (f64, f64) = (1.0, 1.6);
+pub const EIGHT_AMP: (f64, f64) = (0.7, 1.1);
 pub const EIGHT_FLAT: f64 = 0.45;
 pub const EIGHT_SAMPLES: usize = 12;
 /// 원·8자·살랑은 보통 나는 속도의 이 배로 빠르게 (처음과 끝 BOOST_EASE 비율 동안 부드럽게 빨라지고 느려진다) —
 /// 느릿느릿 흘러가는 게 아니라 "빙글" 도는 것으로 보이게
-pub const CIRCLE_BOOST: (f64, f64) = (1.3, 1.5);
+pub const CIRCLE_BOOST: (f64, f64) = (1.8, 2.0);
 pub const SWAY_BOOST: f64 = 1.2;
 pub const BOOST_EASE: f64 = 0.2;
 
@@ -764,6 +764,10 @@ mod tests {
             let style = [Style::Gentle, Style::Wander, Style::Circle, Style::Sway, Style::Eight][i % 5];
             let from = pick_target(&mut rng, &b);
             let to = pick_target(&mut rng, &b);
+            // 실제 날기는 늘 MIN_FLIGHT(몸 하나) 넘게 간다
+            if dist(from, to) < MIN_FLIGHT * 128.0 {
+                continue;
+            }
             let path = build_path(&mut rng, style, from, to, &b, 128.0);
             assert!(path.points().iter().all(|&(x, y)| x >= b.left && x <= b.right && y >= b.top && y <= b.bottom), "{style:?} {:?}", path.points());
             let (pts, _) = walk(path, to, 1.5);
@@ -814,7 +818,7 @@ mod tests {
         let (mut max, mut prev, mut t) = (1.0f64, 1.0f64, 0.0);
         loop {
             let m = path.speed_mult();
-            assert!((m - prev).abs() < 0.02, "jerk {prev} -> {m}");
+            assert!((m - prev).abs() < 0.03, "jerk {prev} -> {m}");
             max = max.max(m);
             prev = m;
             t += 1.0 / 60.0;
