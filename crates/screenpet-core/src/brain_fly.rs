@@ -8,6 +8,9 @@ use super::*;
 use crate::flight::{self, Goal, Loop, Wave};
 use crate::sting;
 
+/// 쏘기 시작 때 나는 범위 밖이면 이 속도(1/초)로 범위 안으로 미끄러져 들어온다 ("!" 0.5초 안에 거의 다)
+const STING_EASE: f64 = 12.0;
+
 impl Pet {
     /// 머리 위 여유 (발에서): 바깥은 말풍선 띠까지, 창 안은 몸만
     fn fly_head(&self) -> f64 {
@@ -204,7 +207,7 @@ impl Pet {
                     let (ax, _) = world.anchor(p.owner).expect("surface owner has anchor");
                     let prop = self.meal_spot.map_or(Prop::Flower, |s| s.2);
                     self.meal_spot = Some((p.owner, p.x - ax, prop));
-                    self.show_prop(prop, p.x, p.y);
+                    self.show_prop_on(prop, p.owner, p.x - ax, world);
                     self.start_flight(Goal::Perch { owner: p.owner, rel_x: p.x - ax }, Move::Walk);
                     true
                 }
@@ -495,12 +498,11 @@ impl Pet {
                 })
             }
         };
-        let Some((owner, rel_x, y)) = spot else {
+        let Some((owner, rel_x, _)) = spot else {
             self.state = State::Eating { remaining: EAT_SECS, favorite: trip.heart, level_up: trip.level_up };
             return;
         };
-        let (ax, _) = world.anchor(owner).expect("checked above");
-        self.show_prop(prop, ax + rel_x, y);
+        self.show_prop_on(prop, owner, rel_x, world);
         self.meal_spot = Some((owner, rel_x, prop));
         self.meal_pending = Some((trip.heart, trip.level_up));
         if self.standing.is_some() {
@@ -541,10 +543,12 @@ impl Pet {
             self.standing = None;
         }
         if self.standing.is_none() {
-            // 떠 있으면 살랑이지 않고 그 자리에 멈춰 노려본다
+            // 떠 있으면 살랑이지 않고 그 자리에 멈춰 노려본다. 나는 범위 밖(흔들다 놓친 자리)이면 부드럽게 들어온다
             let b = self.fly_limits(world);
-            let (x, y) = flight::clamp(&b, self.body.x, self.body.y);
-            self.body = Body { x, y, vx: 0.0, vy: 0.0 };
+            let (tx, ty) = flight::clamp(&b, self.body.x, self.body.y);
+            let k = 1.0 - (-STING_EASE * dt).exp();
+            let ease = |from: f64, to: f64| if (to - from).abs() < 0.5 { to } else { from + (to - from) * k };
+            self.body = Body { x: ease(self.body.x, tx), y: ease(self.body.y, ty), vx: 0.0, vy: 0.0 };
         }
         let remaining = remaining - dt;
         if remaining > 0.0 {

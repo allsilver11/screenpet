@@ -180,7 +180,7 @@ fn going_home_on_the_way_to_the_bowl_takes_the_bowl_away() {
     let seen = run_props(&mut p, &w, 2);
     assert_eq!(seen, vec![PropEvent::Hide]);
     assert_eq!(p.state, State::GoHome);
-    assert!(!p.is_eating());
+    assert!(p.is_eating(), "eats at home instead (fix round 1)");
 }
 
 fn housed_with_door(w: &World, c: PetConfig) -> Pet {
@@ -303,4 +303,121 @@ fn housed_bee_comes_out_to_a_flower_by_the_hive() {
     assert!(run_until(&mut p, &w, 60 * 20, eating), "{:?}", p.state);
     assert_eq!(p.body.x, DOOR - 75.0);
     assert!(run_until(&mut p, &w, 60 * 30, |p| p.is_housed()), "{:?}", p.state);
+}
+
+// ---- fix round 1 ----
+
+#[test]
+fn sent_home_on_the_way_to_the_bowl_eats_at_home() {
+    let w = world(vec![]);
+    let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+    place(&mut p, &w, HOME, 1300.0, idle());
+    p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Meal);
+    p.update(DT, &w);
+    p.take_prop();
+    p.go_home(HOME, DOOR);
+    assert!(p.is_eating(), "the meal is not lost");
+    assert!(run_until(&mut p, &w, 60 * 10, |p| p.is_housed()));
+    assert!(eating(&p), "eats in the house: {:?}", p.state);
+    let mut anims = Vec::new();
+    for _ in 0..(60 * 6) {
+        p.update(DT, &w);
+        anims.push(p.render().anim);
+    }
+    assert!(anims.contains(&Anim::LevelUp));
+    assert!(p.is_housed() && !p.is_eating());
+}
+
+#[test]
+fn cancelling_the_trip_home_goes_back_to_a_new_bowl() {
+    let w = world(vec![]);
+    let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+    place(&mut p, &w, HOME, 800.0, idle());
+    p.feed_result(ATE, Food::Water);
+    p.update(DT, &w);
+    p.take_prop();
+    p.go_home(HOME, DOOR);
+    run(&mut p, &w, 20);
+    assert_eq!(p.take_prop(), Some(PropEvent::Hide));
+    p.leave_house(&w, DOOR, HOME);
+    let seen = run_props(&mut p, &w, 60 * 3);
+    assert!(matches!(seen.first(), Some(PropEvent::Show { prop: Prop::WaterBowl, .. })), "{seen:?}");
+    assert!(run_until(&mut p, &w, 60 * 10, |p| !p.is_eating()));
+}
+
+#[test]
+fn treats_given_mid_air_are_served_after_landing() {
+    let w = world(vec![w1()]);
+    let mut p = Pet::new(cfg(), 800.0, 100.0, 1);
+    p.update(DT, &w);
+    assert!(matches!(p.state, State::Air { .. }));
+    // 밥은 여전히 못 받지만, 간식은 기억해 뒀다가 내려서면 먹는다
+    assert!(!p.feed_result(ATE, Food::Meal));
+    assert!(p.feed_result(ATE, Food::Snack));
+    assert!(matches!(p.state, State::Air { .. }));
+    let mut seen = Vec::new();
+    for _ in 0..(60 * 3) {
+        p.update(DT, &w);
+        seen.extend(p.take_prop());
+        if eating(&p) {
+            break;
+        }
+    }
+    assert!(eating(&p) && p.standing.is_some(), "{:?}", p.state);
+    assert!(matches!(seen.last(), Some(PropEvent::Show { prop: Prop::Cookie, .. })), "{seen:?}");
+}
+
+#[test]
+fn water_given_while_dragged_is_served_after_the_drop() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    p.pointer_down(800.0, 350.0);
+    p.pointer_move(700.0, 300.0);
+    assert!(p.is_held());
+    assert!(p.feed_result(ATE, Food::Water));
+    p.pointer_up(700.0, 300.0);
+    let seen = run_props(&mut p, &w, 60 * 8);
+    assert!(seen.iter().any(|e| matches!(e, PropEvent::Show { prop: Prop::WaterBowl, .. })), "{seen:?}");
+    assert_eq!(seen.last(), Some(&PropEvent::Hide));
+}
+
+#[test]
+fn food_given_during_a_celebration_waits_until_it_ends() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    p.state = State::LevelUp { remaining: 1.0 };
+    assert!(p.feed_result(ATE, Food::Snack));
+    assert!(matches!(p.state, State::LevelUp { .. }), "{:?}", p.state);
+    let mut anims = Vec::new();
+    for _ in 0..(60 * 2) {
+        p.update(DT, &w);
+        anims.push(p.render().anim);
+        if eating(&p) {
+            break;
+        }
+    }
+    assert!(eating(&p), "{:?}", p.state);
+    let first_eat = anims.iter().position(|a| *a == Anim::Eat).unwrap();
+    assert!(anims[..first_eat].iter().filter(|a| **a == Anim::LevelUp).count() >= 55, "celebration kept");
+    // 하트 중 밥도 하트가 끝난 뒤
+    let (mut p, w) = standing_at(800.0, 1.0);
+    p.state = State::Trick { kind: Trick::Heart, remaining: 0.5 };
+    assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Meal));
+    assert!(matches!(p.state, State::Trick { kind: Trick::Heart, .. }));
+    assert!(run_until(&mut p, &w, 60 * 2, |p| matches!(p.state, State::ToFood { .. })), "{:?}", p.state);
+    assert!(run_until(&mut p, &w, 60 * 8, |p| matches!(p.state, State::LevelUp { .. })), "{:?}", p.state);
+}
+
+#[test]
+fn bowl_follows_its_window_when_the_window_moves() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    p.feed_result(ATE, Food::Meal);
+    p.update(DT, &w);
+    assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::FoodBowl, x: 875.0, y: 400.0 }));
+    run(&mut p, &w, 10);
+    // 창이 오른쪽으로 100, 위로 50 옮겨졌다
+    let moved = world(vec![super::tests::win(1, 600.0, 350.0, 1200.0, 850.0)]);
+    p.update(DT, &moved);
+    assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::FoodBowl, x: 975.0, y: 350.0 }));
+    assert!(run_until(&mut p, &moved, 60 * 5, eating));
+    assert_eq!(p.body.x, 975.0);
+    assert_eq!(p.take_prop(), None, "no repeat while still");
 }

@@ -673,3 +673,78 @@ fn bee_switching_to_a_walker_falls_and_a_walker_switching_to_a_bee_takes_off() {
     p.update(DT, &w);
     assert!(p.standing.is_none());
 }
+
+// ---- fix round 1 ----
+
+#[test]
+fn clicks_during_the_sting_wind_up_cannot_cancel_it() {
+    let w = world(vec![w1()]);
+    let mut p = hovering(800.0, 250.0, idle(), 1);
+    p.start_sting();
+    let mut hits = 0;
+    // 0.5초 동안 다섯 번 빠르게 누른다 (누른 채 끌기도 한 번)
+    for i in 0..5 {
+        let (x, y) = (p.body.x, p.body.y - 60.0);
+        p.pointer_down(x, y);
+        assert!(!p.is_held(), "click {i}: {:?}", p.state);
+        if i == 2 {
+            p.pointer_move(x + 50.0, y + 50.0);
+        }
+        for _ in 0..6 {
+            p.update(DT, &w);
+            hits += p.take_sting().iter().count();
+        }
+        p.pointer_up(x, y);
+    }
+    for _ in 0..(60 * 3) {
+        p.update(DT, &w);
+        hits += p.take_sting().iter().count();
+    }
+    assert_eq!(hits, 1);
+}
+
+#[test]
+fn hungry_bee_clicked_for_food_does_not_sting() {
+    let w = world(vec![w1()]);
+    let mut p = hovering(800.0, 250.0, idle(), 1);
+    p.set_hungry(true);
+    for _ in 0..4 {
+        click(&mut p, &w);
+        assert!(!matches!(p.state, State::Sting { .. }), "{:?}", p.state);
+        for _ in 0..6 {
+            p.update(DT, &w);
+        }
+    }
+    assert!(p.take_food_request());
+    assert!(p.take_sting().is_none());
+}
+
+#[test]
+fn sting_started_above_the_flying_area_eases_back_instead_of_jumping() {
+    let w = world(vec![w1()]);
+    let mut p = hovering(800.0, 250.0, idle(), 1);
+    let top = limits(&p, &w).top;
+    p.body.y = top - 200.0;
+    p.start_sting();
+    p.update(DT, &w);
+    let jump = p.body.y - (top - 200.0);
+    assert!(jump > 0.0 && jump < 60.0, "jump {jump}");
+    run(&mut p, &w, 30);
+    assert!((p.body.y - top).abs() < 1.0, "{} vs {top}", p.body.y);
+}
+
+#[test]
+fn switching_a_fed_bee_to_a_walker_keeps_the_meal_but_drops_flight_state() {
+    let w = world(vec![w1()]);
+    let mut p = hovering(800.0, 250.0, idle(), 1);
+    assert!(p.feed_result(FeedResult::Ate { leveled_up: false }, Food::Meal));
+    run(&mut p, &w, 5);
+    assert!(p.meal_pending.is_some() && p.flight.is_some());
+    // 동물 바꾸기: 걷는 동물이 된다
+    p.cfg = cfg();
+    p.update(DT, &w);
+    assert!(p.meal_pending.is_none() && p.flight.is_none() && p.hover_at.is_none());
+    assert!(p.is_eating(), "the meal still waits");
+    assert!(run_until(&mut p, &w, 60 * 15, |p| matches!(p.state, State::Eating { .. })), "{:?}", p.state);
+    assert!(run_until(&mut p, &w, 60 * 10, |p| !p.is_eating()), "{:?}", p.state);
+}

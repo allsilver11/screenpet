@@ -37,15 +37,23 @@ async function loadPet() {
   animStart = performance.now();
 }
 
-// 꿀벌 쏘기: "!" (백엔드 sting::ALERT_SECS = 0.5초) 뒤 0.3초 돌진 동안 스프라이트를 1 → 1.35 → 1로 키웠다 줄여
-// 화면 쪽으로 다가오는 것처럼 보인다
-const STING_DASH_START_MS = 500;
+// 꿀벌 쏘기: 스프라이트를 1 → 1.2 → 1로 키웠다 줄여 화면 쪽으로 다가오는 것처럼 보인다.
+// 부풀기는 돌진 그림(sting의 마지막 프레임, pet.json frames/fps)이 보이는 동안, 백엔드 돌진 국면
+// (sting::ALERT_SECS 0.5초 뒤 DASH_SECS 0.3초, 끝나는 순간 콕!)과 겹치는 때 한다. 1.2배면 128px 창 안에 남는다.
+const STING_ALERT_MS = 500;
 const STING_DASH_MS = 300;
-const STING_DASH_SCALE = 0.35;
+const STING_DASH_SCALE = 0.2;
 
-function stingPulse(anim, elapsedMs) {
-  const t = (elapsedMs - STING_DASH_START_MS) / STING_DASH_MS;
-  if (anim !== "sting" || t <= 0 || t >= 1) return 1;
+function stingPulse(anim, spec, elapsedMs) {
+  if (anim !== "sting" || !spec?.fps) return 1;
+  // 돌진 그림이 처음 보이는 때 — 백엔드 돌진보다 늦으면 그때부터, 콕!(돌진 끝)까지
+  const lungeMs = ((spec.frames - 1) / spec.fps) * 1000;
+  const start = Math.max(lungeMs, STING_ALERT_MS);
+  // 그림이 백엔드보다 한참 늦게 바뀌는 시트여도 짧게나마 부푼다
+  const end = Math.max(STING_ALERT_MS + STING_DASH_MS, start + STING_DASH_MS / 2);
+  const dur = end - start;
+  const t = (elapsedMs - start) / dur;
+  if (t <= 0 || t >= 1) return 1;
   return 1 + STING_DASH_SCALE * Math.sin(Math.PI * t);
 }
 
@@ -61,7 +69,7 @@ function draw(now) {
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
     if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
-    const pulse = stingPulse(render.anim, elapsed);
+    const pulse = stingPulse(render.anim, spec, elapsed);
     if (pulse !== 1) parts.push(`scale(${pulse})`);
     petEl.style.transform = parts.length ? parts.join(" ") : "none";
   }

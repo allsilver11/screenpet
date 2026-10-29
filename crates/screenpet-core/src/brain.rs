@@ -381,6 +381,10 @@ pub struct Pet {
     house_door: Option<(Owner, f64)>,
     /// 하우스에서 나와 먹는 중 — 다 먹으면 이 문으로 돌아간다
     return_home: Option<(Owner, f64)>,
+    /// 나중에 먹을 먹이 (음식, 성장함): 공중·들린 채·벽 타는 중에 받은 간식·물, 성장 축하·하트 중에 받은 먹이
+    queued_food: Option<(Food, bool)>,
+    /// 디딤판에 놓인 소품 (소품, 디딤판, 기준점에서의 x, 마지막으로 보낸 자리) — 창이 움직이면 따라간다
+    prop_anchor: Option<(Prop, Owner, f64, (f64, f64))>,
     /// 쏜 화면 지점 (take_sting으로 한 번 꺼낸다)
     sting_at: Option<(f64, f64)>,
     /// 이 시각(clock)부터 다시 쏠 수 있다
@@ -433,6 +437,8 @@ impl Pet {
             prop_shown: false,
             house_door: None,
             return_home: None,
+            queued_food: None,
+            prop_anchor: None,
             sting_at: None,
             sting_ready_at: 0.0,
             shake: PathMeter::default(),
@@ -444,7 +450,10 @@ impl Pet {
     pub fn update(&mut self, dt: f64, world: &World) {
         self.clock += dt;
         self.heart_timer = (self.heart_timer - dt).max(0.0);
+        self.drop_flying_state();
         self.after_meal();
+        self.track_prop(world);
+        self.serve_queued_food();
         if self.housed && self.food.is_some_and(|f| f.from_house) {
             self.come_out_for_food(world);
         }
@@ -631,7 +640,9 @@ impl Pet {
         self.hover_at = None;
         self.meal_spot = None;
         // 먹이를 받고 내려앉기 전에 집에 들어갔으면 집 안에서 먹는다
-        self.state = match self.meal_pending.take() {
+        // 그릇으로 가다가 집에 불려 왔어도 집 안에서 먹는다
+        let trip = self.food.take().map(|t| (t.heart, t.level_up));
+        self.state = match self.meal_pending.take().or(trip) {
             Some((favorite, level_up)) => State::Eating { remaining: EAT_SECS, favorite, level_up },
             None => State::Housed,
         };
@@ -649,8 +660,11 @@ impl Pet {
             Some(t) => HomeTrip { owner, door_x, ..t },
             None => HomeTrip::new(owner, door_x, self.body.x),
         });
-        // 그릇으로 가던 길은 그만둔다 (나는 동물의 먹이는 집 안에서 먹는다). 그릇·꽃은 거둔다
-        self.food = None;
+        // 그릇으로 가던 길은 접고 집 안에서 먹는다 (가다가 멈추면 새 자리에 그릇을 다시 놓는다). 그릇·꽃은 거둔다
+        if let Some(trip) = self.food.as_mut() {
+            trip.target = None;
+            trip.from_house = false;
+        }
         self.return_home = None;
         if !matches!(self.state, State::Eating { .. }) {
             self.hide_prop();
@@ -1116,6 +1130,10 @@ impl Pet {
         if self.is_held() || self.housed || self.leaving() {
             return;
         }
+        // 쏘기는 콕! 할 때까지 손으로 막을 수 없다
+        if matches!(self.state, State::Sting { phase: StingPhase::Alert | StingPhase::Dash, .. }) {
+            return;
+        }
         // 떠 있는 나는 동물은 디딤판 위처럼 제자리에서 눌린다
         let grounded = (self.standing.is_some() || self.cfg.flies) && !self.off_surface();
         let was_sleeping = matches!(self.state, State::Sleep { .. } | State::Annoyed { .. });
@@ -1188,12 +1206,25 @@ impl Pet {
     /// 먹이 결과 반영. 공중·드래그 중이면 무시하고 false
     /// 하우스 안에서도 먹는다 (하우스 창이 문간에서 먹는 모습을 보여 준다). 하우스로 가는 중엔 false
     pub fn feed_result(&mut self, result: FeedResult, food: Food) -> bool {
+        let ate = match result {
+            FeedResult::Ate { leveled_up } => Some(leveled_up),
+            FeedResult::Refused => None,
+        };
+        if !self.feedable() {
+            // 간식·물은 기억해 뒀다가 내려서면 먹는다 (떠나는 중·손님은 아니다)
+            if let (true, Some(l)) = (food.is_treat() && !self.leaving() && self.guest.is_none(), ate) {
+                self.queue_food(food, l);
+                return true;
+            }
+            return false;
+        }
+        // 성장 축하·하트를 끊지 않는다 — 끝난 뒤에 먹는다
+        if let (true, Some(l)) = (self.celebrating_now(), ate) {
+            self.queue_food(food, l);
+            return true;
+        }
         if self.cfg.flies && !self.housed && self.standing.is_none() {
             return self.feed_flying(result, food);
-        }
-        let grounded = self.standing.is_some() && !self.off_surface() && !self.is_held() && !self.in_transit();
-        if !(self.housed || grounded && self.home_trip.is_none()) {
-            return false;
         }
         self.pacing.after_beat = None;
         match result {
@@ -1204,6 +1235,78 @@ impl Pet {
             FeedResult::Ate { leveled_up } => self.serve(food, leveled_up),
         }
         true
+    }
+
+    /// 지금 먹이를 받을 수 있음: 하우스 안, 또는 디딤판 위(나는 동물은 떠서)에서 놓여 있고 하우스로 가는 중이 아님
+    fn feedable(&self) -> bool {
+        if self.housed {
+            return true;
+        }
+        let settled = (self.standing.is_some() || self.cfg.flies) && !self.off_surface() && !self.is_held() && !self.in_transit();
+        settled && self.home_trip.is_none() && !matches!(self.state, State::Sting { .. })
+    }
+
+    /// 성장 축하 중이거나 하트 중
+    fn celebrating_now(&self) -> bool {
+        matches!(self.state, State::LevelUp { .. } | State::Trick { kind: Trick::Heart, .. })
+    }
+
+    /// 나중에 먹을 먹이를 기억한다 (여럿이면 자라는 음식이 우선, 성장은 남긴다)
+    fn queue_food(&mut self, food: Food, level_up: bool) {
+        self.queued_food = Some(match self.queued_food {
+            Some((old, l)) if old.grows() && !food.grows() => (old, l || level_up),
+            Some((_, l)) => (food, l || level_up),
+            None => (food, level_up),
+        });
+    }
+
+    /// 기억해 둔 먹이를 받을 수 있게 되면(내려서거나 축하가 끝나면) 준다
+    fn serve_queued_food(&mut self) {
+        if self.queued_food.is_none() || !self.feedable() || self.celebrating_now() || matches!(self.state, State::Land { .. }) && self.cfg.flies {
+            return;
+        }
+        if let Some((food, level_up)) = self.queued_food.take() {
+            self.pacing.after_beat = None;
+            self.serve(food, level_up);
+        }
+    }
+
+    /// 디딤판에 놓인 소품이 창과 함께 움직였으면 새 자리를 다시 보낸다
+    fn track_prop(&mut self, world: &World) {
+        if !self.prop_shown {
+            self.prop_anchor = None;
+            return;
+        }
+        let Some((prop, owner, rel_x, last)) = self.prop_anchor else { return };
+        let Some((ax, ay)) = world.anchor(owner) else { return };
+        let now = (ax + rel_x, ay);
+        if (now.0 - last.0).hypot(now.1 - last.1) > 1.0 {
+            self.prop_event = Some(PropEvent::Show { prop, x: now.0, y: now.1 });
+            self.prop_anchor = Some((prop, owner, rel_x, now));
+        }
+    }
+
+    /// 디딤판(owner) 위 기준점에서 rel_x 자리에 소품을 놓는다 (창이 움직이면 따라간다)
+    pub(super) fn show_prop_on(&mut self, prop: Prop, owner: Owner, rel_x: f64, world: &World) {
+        let Some((ax, ay)) = world.anchor(owner) else { return };
+        self.show_prop(prop, ax + rel_x, ay);
+        self.prop_anchor = Some((prop, owner, rel_x, (ax + rel_x, ay)));
+    }
+
+    /// 나는 동물이 아니게 됐다 (동물 바꾸기): 날기 상태를 버리고, 내려앉아 먹으려던 먹이는 그릇으로 가서 먹는다
+    fn drop_flying_state(&mut self) {
+        if self.cfg.flies {
+            return;
+        }
+        self.flight = None;
+        self.hover_at = None;
+        if let Some((heart, level_up)) = self.meal_pending.take() {
+            let food = match self.meal_spot.take() {
+                Some((_, _, Prop::WaterBowl)) => Food::Water,
+                _ => Food::Meal,
+            };
+            self.food = Some(FoodTrip { food, heart, level_up, target: None, from_house: false });
+        }
     }
 
     /// 먹이를 받았다. 먹는 중·가는 중이면 그대로 이어 가고 (앞서 정해진 성장 축하·하트는 남긴다),
@@ -1255,6 +1358,7 @@ impl Pet {
     }
 
     fn show_prop(&mut self, prop: Prop, x: f64, y: f64) {
+        self.prop_anchor = None;
         self.prop_shown = true;
         self.prop_event = Some(PropEvent::Show { prop, x, y });
     }
@@ -1296,7 +1400,7 @@ impl Pet {
             self.state = self.idle_state();
             return;
         };
-        let Some((ax, ay)) = world.anchor(st.owner) else { return };
+        let Some((ax, _)) = world.anchor(st.owner) else { return };
         let (lo, hi) = (piece.x_start + self.cfg.half_w, piece.x_end - self.cfg.half_w);
         let placed = trip.target.filter(|&(owner, rel)| owner == st.owner && (lo > hi || (lo..=hi).contains(&(ax + rel))));
         let target = match placed {
@@ -1304,7 +1408,7 @@ impl Pet {
             None => {
                 let x = food::bowl_x(self.body.x, self.facing, self.scaled(food::BOWL_GAP), lo, hi);
                 trip.target = Some((st.owner, x - ax));
-                self.show_prop(Prop::for_food(trip.food, false), x, ay);
+                self.show_prop_on(Prop::for_food(trip.food, false), st.owner, x - ax, world);
                 x
             }
         };
@@ -1314,7 +1418,7 @@ impl Pet {
         let remaining = remaining - dt;
         if dx.abs() > step && remaining <= 0.0 {
             // 너무 오래 걸렸다 — 그릇을 지금 자리로 옮겨 여기서 먹는다
-            self.show_prop(Prop::for_food(trip.food, false), self.body.x, ay);
+            self.show_prop_on(Prop::for_food(trip.food, false), st.owner, self.body.x - ax, world);
             self.start_eating();
             return;
         }
@@ -1350,7 +1454,8 @@ impl Pet {
         }
         // 꿀벌: 깨어 있을 때 2초 안에 세 번 누르면 쏜다
         if let State::Pressed { was_sleeping: false, .. } = self.state {
-            if self.cfg.stings && self.pester.push(self.clock) && self.can_sting_now() {
+            // 배고파서 음식을 고르려고 누르는 건 괴롭힘이 아니다
+            if self.cfg.stings && !self.hungry && self.pester.push(self.clock) && self.can_sting_now() {
                 self.start_sting();
                 return;
             }
