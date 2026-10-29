@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use game_loop::Input;
 use pets::PetEntry;
 use screenpet_core::behavior::Special;
-use screenpet_core::config::{self, Config};
+use screenpet_core::config;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 pub struct AppState {
@@ -36,7 +36,10 @@ pub fn select_pet(app: &AppHandle, id: &str) {
     let state = app.state::<AppState>();
     let Some(entry) = state.pets.iter().find(|p| p.id == id) else { return };
     *state.current.lock().unwrap() = id.to_string();
-    if let Err(e) = config::save(&state.config_dir, &Config { pet: Some(id.to_string()) }) {
+    // 기존 설정(동물별 돌보기 상태 포함)을 읽고 pet만 바꿔서 저장한다
+    let mut cfg = config::load(&state.config_dir);
+    cfg.pet = Some(id.to_string());
+    if let Err(e) = config::save(&state.config_dir, &cfg) {
         eprintln!("failed to save config: {e}");
     }
     let _ = state.tx.lock().unwrap().send(Input::SetPet {

@@ -1,5 +1,6 @@
 pub mod behavior;
 pub mod brain;
+pub mod care;
 pub mod config;
 pub mod geom;
 pub mod manifest;

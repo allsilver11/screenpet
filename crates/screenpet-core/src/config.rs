@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+
+use crate::care::Care;
 
 const FILE: &str = "config.json";
 
@@ -8,6 +11,9 @@ const FILE: &str = "config.json";
 pub struct Config {
     /// 마지막으로 고른 동물 폴더 이름
     pub pet: Option<String>,
+    /// 동물별 돌보기 상태 (없으면 새끼부터)
+    #[serde(default)]
+    pub care: HashMap<String, Care>,
 }
 
 pub fn load(dir: &Path) -> Config {
@@ -40,7 +46,27 @@ mod tests {
     #[test]
     fn save_then_load_roundtrip() {
         let d = temp_dir("roundtrip");
-        let c = Config { pet: Some("rabbit".into()) };
+        let c = Config { pet: Some("rabbit".into()), ..Config::default() };
+        save(&d, &c).unwrap();
+        assert_eq!(load(&d), c);
+    }
+
+    #[test]
+    fn old_config_without_care_still_loads() {
+        let d = temp_dir("oldcfg");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("config.json"), r#"{"pet": "cat"}"#).unwrap();
+        let c = load(&d);
+        assert_eq!(c.pet.as_deref(), Some("cat"));
+        assert!(c.care.is_empty());
+    }
+
+    #[test]
+    fn care_per_pet_roundtrips() {
+        use crate::care::{Care, Stage};
+        let d = temp_dir("care");
+        let mut c = Config { pet: Some("dog".into()), ..Config::default() };
+        c.care.insert("dog".into(), Care { stage: Stage::Child, stamina: 12.0, fullness: 0.3, locked: true });
         save(&d, &c).unwrap();
         assert_eq!(load(&d), c);
     }
