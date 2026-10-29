@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use serde::Serialize;
 
+use crate::care::{FeedResult, Food};
 use crate::behavior::{self, ClickReaction, Move, Rest, Special, Trick};
 use crate::physics::{clamp_speed, step_air, Body};
 use crate::surfaces::{EndKind, Owner};
@@ -22,6 +23,13 @@ const TICKLE_WAKE_SECS: f64 = 5.0;
 const CHATTER_SECS: (f64, f64) = (20.0, 40.0);
 const FIRST_CHATTER_SECS: f64 = 25.0;
 const CLICK_SPEECH_CHANCE: f64 = 0.5;
+const HUNGRY_REST_CHANCE: f64 = 0.5;
+const HUNGRY_SECS: (f64, f64) = (3.0, 5.0);
+const HUNGRY_TALK_SECS: (f64, f64) = (15.0, 25.0);
+const EAT_SECS: f64 = 2.5;
+const AFTER_FAVORITE_HEART_SECS: f64 = 2.0;
+const LEVEL_UP_SECS: f64 = 2.0;
+const REFUSE_TILT_SECS: f64 = 2.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,6 +54,9 @@ pub enum Anim {
     Annoyed,
     Arch,
     Wag,
+    Hungry,
+    Eat,
+    LevelUp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -55,12 +66,15 @@ pub enum Speech {
     Tickle,
     Grumpy,
     Hiss,
+    Hungry,
+    Full,
+    LevelUp,
 }
 
 impl Anim {
     /// 앞모습 동작 — 좌우 반전하지 않는다.
     pub fn is_front(self) -> bool {
-        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Wag)
+        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Wag | Anim::Hungry | Anim::Eat | Anim::LevelUp)
     }
 }
 
@@ -115,6 +129,12 @@ pub enum State {
     Dragged,
     /// 종별 특별 동작
     Special { kind: Special, remaining: f64 },
+    /// 배고파서 시무룩
+    Hungry { remaining: f64 },
+    /// 냠냠 — 끝나면 favorite면 하트, level_up이면 성장 연출
+    Eating { remaining: f64, favorite: bool, level_up: bool },
+    /// 성장 축하
+    LevelUp { remaining: f64 },
 }
 
 /// 서 있는 디딤판과 그 기준점(anchor)으로부터의 x 오프셋.
@@ -160,6 +180,8 @@ pub struct Pet {
     tickling: bool,
     chatter_timer: f64,
     speech: Option<Speech>,
+    hungry: bool,
+    food_request: bool,
     rng: fastrand::Rng,
 }
 
@@ -180,6 +202,8 @@ impl Pet {
             tickling: false,
             chatter_timer: FIRST_CHATTER_SECS,
             speech: None,
+            hungry: false,
+            food_request: false,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -210,6 +234,9 @@ impl Pet {
             State::Tickled { .. } => Anim::Tickle,
             State::Annoyed { .. } => Anim::Annoyed,
             State::Special { kind, .. } => kind.into(),
+            State::Hungry { .. } => Anim::Hungry,
+            State::Eating { .. } => Anim::Eat,
+            State::LevelUp { .. } => Anim::LevelUp,
             State::Idle { look: true, .. } => Anim::Look,
             State::Idle { .. } | State::Turn { .. } => Anim::Idle,
             State::Sleep { .. } => Anim::Sleep,
@@ -300,12 +327,45 @@ impl Pet {
         }
     }
 
+    pub fn set_hungry(&mut self, hungry: bool) {
+        self.hungry = hungry;
+        if !hungry && matches!(self.state, State::Hungry { .. }) {
+            self.state = self.idle_state();
+        }
+    }
+
+    /// 짧은 클릭으로 음식 고르기를 원하면 true를 한 번 돌려준다
+    pub fn take_food_request(&mut self) -> bool {
+        std::mem::take(&mut self.food_request)
+    }
+
+    /// 먹이 결과 반영. 공중·드래그 중이면 무시하고 false
+    pub fn feed_result(&mut self, result: FeedResult, food: Food) -> bool {
+        let grounded = self.standing.is_some() && !matches!(self.state, State::Air { .. } | State::Pressed { .. } | State::Dragged);
+        if !grounded {
+            return false;
+        }
+        self.state = match result {
+            FeedResult::Refused => {
+                self.speech = Some(Speech::Full);
+                State::Trick { kind: Trick::Tilt, remaining: REFUSE_TILT_SECS }
+            }
+            FeedResult::Ate { leveled_up } => State::Eating { remaining: EAT_SECS, favorite: food == Food::Favorite, level_up: leveled_up },
+        };
+        true
+    }
+
     pub fn pointer_up(&mut self, cx: f64, cy: f64) {
         match self.state {
             State::Pressed { grounded: true, was_sleeping: true, .. } => {
                 self.state = self.idle_state();
             }
             State::Pressed { grounded: true, .. } => {
+                if self.hungry {
+                    self.food_request = true;
+                    self.state = State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
+                    return;
+                }
                 match behavior::pick_click(&mut self.rng) {
                     ClickReaction::Hop => {
                         self.heart_timer = HEART_SECS;
@@ -379,7 +439,7 @@ impl Pet {
             State::Sleep { .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for: 0.0 },
             State::Annoyed { tickled_for, .. } => State::Annoyed { remaining: TICKLE_HOLD, tickled_for },
             State::Tickled { .. } => State::Tickled { remaining: TICKLE_HOLD },
-            State::Special { .. } => return,
+            State::Special { .. } | State::Eating { .. } | State::LevelUp { .. } => return,
             _ => {
                 if let Some(kind) = self.cfg.special {
                     if self.rng.f64() < kind.tickle_chance() {
@@ -402,7 +462,7 @@ impl Pet {
     }
 
     fn update_chatter(&mut self, dt: f64) {
-        if matches!(self.state, State::Sleep { .. } | State::Annoyed { .. } | State::Tickled { .. } | State::Special { .. }) {
+        if matches!(self.state, State::Sleep { .. } | State::Annoyed { .. } | State::Tickled { .. } | State::Special { .. } | State::Eating { .. } | State::LevelUp { .. }) {
             return;
         }
         self.chatter_timer -= dt;
@@ -412,8 +472,8 @@ impl Pet {
                 self.chatter_timer = 0.0;
                 return;
             }
-            self.speech = Some(Speech::Chatter);
-            self.chatter_timer = behavior::range(&mut self.rng, CHATTER_SECS);
+            self.speech = Some(if self.hungry { Speech::Hungry } else { Speech::Chatter });
+            self.chatter_timer = behavior::range(&mut self.rng, if self.hungry { HUNGRY_TALK_SECS } else { CHATTER_SECS });
         }
     }
 
@@ -507,6 +567,27 @@ impl Pet {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 { State::Special { kind, remaining } } else { self.move_state(true) };
             }
+            State::Hungry { remaining } => {
+                let remaining = remaining - dt;
+                self.state = if remaining > 0.0 { State::Hungry { remaining } } else { self.move_state(true) };
+            }
+            State::Eating { remaining, favorite, level_up } => {
+                let remaining = remaining - dt;
+                self.state = if remaining > 0.0 {
+                    State::Eating { remaining, favorite, level_up }
+                } else if level_up {
+                    self.speech = Some(Speech::LevelUp);
+                    State::LevelUp { remaining: LEVEL_UP_SECS }
+                } else if favorite {
+                    State::Trick { kind: Trick::Heart, remaining: AFTER_FAVORITE_HEART_SECS }
+                } else {
+                    self.move_state(true)
+                };
+            }
+            State::LevelUp { remaining } => {
+                let remaining = remaining - dt;
+                self.state = if remaining > 0.0 { State::LevelUp { remaining } } else { self.move_state(true) };
+            }
             State::Sleep { remaining } => {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 { State::Sleep { remaining } } else { self.idle_state() };
@@ -584,6 +665,9 @@ impl Pet {
 
     /// 이동이 끝난 뒤: 옆모습 쉬기 또는 앞모습 애교
     fn rest_state(&mut self) -> State {
+        if self.hungry && self.rng.f64() < HUNGRY_REST_CHANCE {
+            return State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
+        }
         if let Some(kind) = self.cfg.special {
             if self.rng.f64() < kind.rest_chance() {
                 self.start_special(kind);
@@ -890,16 +974,16 @@ mod tests {
     #[test]
     fn front_animations_are_the_tricks_and_tickle() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag, Anim::Hungry, Anim::Eat, Anim::LevelUp];
         let front: Vec<Anim> = all.into_iter().filter(|a| a.is_front()).collect();
-        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Wag]);
+        assert_eq!(front, vec![Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Wag, Anim::Hungry, Anim::Eat, Anim::LevelUp]);
         assert_eq!(serde_json::to_string(&Anim::SitFront).unwrap(), "\"sit_front\"");
     }
 
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Arch, Anim::Wag];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);
@@ -1436,5 +1520,128 @@ mod special_tests {
         }
         let State::Special { kind: Special::Arch, remaining } = p.state else { panic!("{:?}", p.state) };
         assert!((start - remaining - 30.0 * DT).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod care_tests {
+    use super::tests::{cfg, place, w1, world};
+    use super::*;
+    use crate::care::{FeedResult, Food};
+
+    const DT: f64 = 1.0 / 60.0;
+
+    fn grounded(seed: u64) -> (Pet, World) {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+        place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+        (p, w)
+    }
+
+    #[test]
+    fn hungry_pets_often_sulk_when_resting() {
+        let w = world(vec![w1()]);
+        let n = 2000;
+        let sulks = (0..n)
+            .filter(|&seed| {
+                let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+                p.set_hungry(true);
+                place(&mut p, &w, Owner::Window(1), 800.0, State::Land { remaining: 0.001 });
+                p.update(DT, &w);
+                matches!(p.state, State::Hungry { .. })
+            })
+            .count() as f64
+            / n as f64;
+        assert!((0.45..=0.55).contains(&sulks), "{sulks}");
+        assert_eq!(Pet::new(cfg(), 0.0, 0.0, 1).render().flip, false);
+    }
+
+    #[test]
+    fn hungry_speech_replaces_chatter() {
+        let (mut p, w) = grounded(1);
+        p.set_hungry(true);
+        let mut said = Vec::new();
+        for _ in 0..(60 * 60) {
+            p.update(DT, &w);
+            if let Some(s) = p.take_speech() {
+                said.push(s);
+            }
+        }
+        assert!(said.len() >= 2);
+        assert!(said.iter().all(|s| *s == Speech::Hungry), "{said:?}");
+    }
+
+    #[test]
+    fn clicking_a_hungry_pet_asks_for_food_instead_of_a_trick() {
+        let (mut p, _w) = grounded(1);
+        p.set_hungry(true);
+        p.pointer_down(800.0, 350.0);
+        p.pointer_up(800.0, 350.0);
+        assert!(p.take_food_request());
+        assert!(!p.take_food_request(), "only once");
+        assert!(matches!(p.state, State::Hungry { .. }));
+        let (mut p, _w) = grounded(1);
+        p.pointer_down(800.0, 350.0);
+        p.pointer_up(800.0, 350.0);
+        assert!(!p.take_food_request(), "not hungry → normal click reaction");
+    }
+
+    #[test]
+    fn eating_then_moving_or_hearting() {
+        for (food, then_heart) in [(Food::Meal, false), (Food::Favorite, true)] {
+            let (mut p, w) = grounded(1);
+            assert!(p.feed_result(FeedResult::Ate { leveled_up: false }, food));
+            assert_eq!(p.render().anim, Anim::Eat);
+            for _ in 0..(60 * 2 + 40) {
+                p.update(DT, &w);
+            }
+            if then_heart {
+                assert!(matches!(p.state, State::Trick { kind: Trick::Heart, .. }), "{:?}", p.state);
+            } else {
+                assert!(matches!(p.state, State::Move { .. }), "{:?}", p.state);
+            }
+        }
+    }
+
+    #[test]
+    fn eating_then_level_up_celebrates() {
+        let (mut p, w) = grounded(1);
+        p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Meal);
+        for _ in 0..(60 * 2 + 40) {
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::LevelUp { .. }), "{:?}", p.state);
+        assert_eq!(p.render().anim, Anim::LevelUp);
+        assert_eq!(p.take_speech(), Some(Speech::LevelUp));
+        for _ in 0..(60 * 3) {
+            p.update(DT, &w);
+        }
+        assert!(!matches!(p.state, State::LevelUp { .. }));
+    }
+
+    #[test]
+    fn refusing_says_full_and_tilts() {
+        let (mut p, _w) = grounded(1);
+        assert!(p.feed_result(FeedResult::Refused, Food::Meal));
+        assert_eq!(p.take_speech(), Some(Speech::Full));
+        assert!(matches!(p.state, State::Trick { kind: Trick::Tilt, .. }));
+    }
+
+    #[test]
+    fn airborne_pets_ignore_food() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 800.0, 100.0, 1);
+        p.update(DT, &w);
+        assert!(!p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Meal));
+        assert!(matches!(p.state, State::Air { .. }));
+    }
+
+    #[test]
+    fn new_front_animations() {
+        for a in [Anim::Hungry, Anim::Eat, Anim::LevelUp] {
+            assert!(a.is_front(), "{a:?}");
+        }
+        assert_eq!(serde_json::to_string(&Anim::LevelUp).unwrap(), "\"level_up\"");
+        assert_eq!(serde_json::to_string(&Speech::LevelUp).unwrap(), "\"level_up\"");
     }
 }
