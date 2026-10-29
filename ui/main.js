@@ -4,21 +4,48 @@ const { listen } = window.__TAURI__.event;
 
 const petEl = document.getElementById("pet");
 const heartEl = document.getElementById("heart");
+const bubbleEl = document.getElementById("bubble");
+const pickerEl = document.getElementById("picker");
+const favBtn = document.getElementById("fav");
 
 let manifest = null;
 let display = 128;
 let render = { anim: "fall", flip: false, heart: false };
 let animStart = performance.now();
+// 지금 동물과 몸 크기 배율 (단계 배율 × 동물별 배율) — 백엔드 `pet-stage`
+let stage = { pet: null, stage: "teenager", scale: 1 };
+let loadSeq = 0;
 
-async function loadPet(id) {
-  manifest = await (await fetch(`pets/${id}/pet.json`)).json();
-  display = petEl.clientWidth || 128;
-  const scale = display / manifest.frame_size;
+async function decodeSheet(url) {
   const img = new Image();
-  img.src = `pets/${id}/sheet.png`;
+  img.src = url;
   await img.decode();
-  petEl.style.backgroundImage = `url(pets/${id}/sheet.png)`;
-  petEl.style.backgroundSize = `${img.width * scale}px ${img.height * scale}px`;
+  return img;
+}
+
+// 단계별 시트 sheet_<stage>.png를 먼저 쓰고, 없으면 sheet.png
+async function loadPet() {
+  const seq = ++loadSeq;
+  const id = stage.pet;
+  const m = await (await fetch(`pets/${id}/pet.json`)).json();
+  let url = `pets/${id}/sheet_${stage.stage}.png`;
+  let img;
+  try {
+    img = await decodeSheet(url);
+  } catch {
+    url = `pets/${id}/sheet.png`;
+    img = await decodeSheet(url);
+  }
+  if (seq !== loadSeq) return; // 그 사이 다른 동물/단계로 바뀜
+  const side = 128 * stage.scale;
+  petEl.style.width = side + "px";
+  // 창 너비 = 128 × max(1, 배율) (백엔드 window_logical_size) — 리사이즈 도착 전에도 가운데
+  petEl.style.left = (128 * Math.max(1, stage.scale) - side) / 2 + "px";
+  display = side;
+  manifest = m;
+  const k = display / manifest.frame_size;
+  petEl.style.backgroundImage = `url(${url})`;
+  petEl.style.backgroundSize = `${img.width * k}px ${img.height * k}px`;
   animStart = performance.now();
 }
 
@@ -50,18 +77,24 @@ listen("pet-render", (e) => {
     void heartEl.offsetWidth; // 애니메이션 재시작
     heartEl.classList.add("show");
   }
+  // 트레이에서 먹였거나 다른 길로 먹기 시작하면 고르기 버튼은 필요 없다
+  if (e.payload.anim === "eat") hidePicker();
   render = e.payload;
 });
 
-listen("pet-change", (e) => loadPet(e.payload));
+// 동물 교체·성장·리셋: 창 크기는 백엔드가 바꾸고, 여기선 시트와 스프라이트 크기를 맞춘다
+listen("pet-stage", (e) => {
+  stage = e.payload;
+  loadPet();
+});
 
-const bubbleEl = document.getElementById("bubble");
 let bubbleTimer = null;
 
-// 백엔드가 고른 상황(chatter/tickle/grumpy)에 맞는 대사를 pet.json speech에서 랜덤으로 띄운다
+// 백엔드가 고른 상황(chatter/tickle/grumpy/hiss/hungry/full/level_up/ignore)에 맞는 대사를
+// pet.json speech에서 랜덤으로 띄운다. 그 동물에 없는 상황이면 말풍선 없음.
 listen("pet-say", (e) => {
   const lines = manifest?.speech?.[e.payload] ?? [];
-  if (!lines.length) return;
+  if (!lines.length || !pickerEl.hidden) return; // 음식 고르기 버튼이 우선
   bubbleEl.textContent = lines[Math.floor(Math.random() * lines.length)];
   bubbleEl.hidden = false;
   clearTimeout(bubbleTimer);
@@ -70,15 +103,46 @@ listen("pet-say", (e) => {
   }, 1500);
 });
 
+let pickerTimer = null;
+
+function hidePicker() {
+  pickerEl.hidden = true;
+  clearTimeout(pickerTimer);
+}
+
+// 배고플 때 클릭하면 머리 위에 🍪 🍚 (좋아하는 것) 버튼
+listen("food-picker", (e) => {
+  favBtn.textContent = e.payload.emoji;
+  favBtn.title = e.payload.name;
+  bubbleEl.hidden = true;
+  pickerEl.hidden = false;
+  clearTimeout(pickerTimer);
+  pickerTimer = setTimeout(hidePicker, 6000);
+});
+
+for (const btn of pickerEl.querySelectorAll("button")) {
+  // 버튼을 누르는 게 펫 잡기로 이어지지 않게 한다
+  btn.addEventListener("mousedown", (e) => e.stopPropagation());
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    invoke("feed", { food: btn.dataset.food });
+    hidePicker();
+  });
+}
+
 petEl.addEventListener("mousedown", (e) => {
   if (e.button === 0) invoke("pointer_down");
 });
 
-// 펫 창엔 키보드/메뉴 UI가 없으므로 웹뷰 기본 동작(우클릭 메뉴, F5, Ctrl+R, Alt+F4 등)을 막는다.
+// 펫을 우클릭하면 트레이와 같은 메뉴
+petEl.addEventListener("contextmenu", () => invoke("show_menu"));
+
+// 펫 창엔 키보드 UI가 없으므로 웹뷰 기본 동작(우클릭 메뉴, F5, Ctrl+R, Alt+F4 등)을 막는다.
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 window.addEventListener("keydown", (e) => e.preventDefault());
 
 (async () => {
-  await loadPet(await invoke("current_pet"));
+  stage = await invoke("current_stage");
+  await loadPet();
   requestAnimationFrame(draw);
 })();

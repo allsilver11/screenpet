@@ -12,7 +12,8 @@ body {
   position: absolute;
   left: 0;
   bottom: 0;
-  width: 100%;
+  /* 너비·left는 main.js가 단계 배율에 맞춰 지정한다 */
+  width: 128px;
   aspect-ratio: 1;
   background-repeat: no-repeat;
   image-rendering: auto;
@@ -73,4 +74,35 @@ body {
   border-right: 2px solid #84605c;
   border-bottom: 2px solid #84605c;
   transform: translateX(-50%) rotate(45deg);
+}
+
+/* 배고플 때 클릭하면 머리 위에 뜨는 음식 고르기 버튼 */
+#picker {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+}
+
+#picker[hidden] {
+  display: none;
+}
+
+#picker button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid #84605c;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+#picker button:hover {
+  transform: scale(1.1);
 }
