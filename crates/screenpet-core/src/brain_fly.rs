@@ -5,7 +5,7 @@
 //! 내려앉았을 때(`standing` = Some)만 디딤판 위 동작(update_ground)을 쓴다. 중력은 받지 않는다.
 
 use super::*;
-use crate::flight::{self, Goal, Loop, Wave};
+use crate::flight::{self, Goal, Loop, Style, Wave};
 use crate::sting;
 
 /// 쏘기 시작 때 나는 범위 밖이면 이 속도(1/초)로 범위 안으로 미끄러져 들어온다 ("!" 0.5초 안에 거의 다)
@@ -102,7 +102,7 @@ impl Pet {
             if self.home_trip.is_none() {
                 let b = self.fly_limits(world);
                 let to = flight::clamp(&b, self.body.x, rect.top - flight::TOP_SPACE * self.cfg.size);
-                self.start_flight(Goal::Point(to.0, to.1), Move::Walk);
+                self.start_flight_styled(Goal::Point(to.0, to.1), Move::Walk, Style::Gentle);
             }
         }
     }
@@ -173,11 +173,17 @@ impl Pet {
         self.body = Body { x, y, vx: 0.0, vy: 0.0 };
     }
 
-    /// 날아갈 길을 정해 날기 시작한다 (facing = 가는 쪽)
+    /// 날아갈 길을 정해 날기 시작한다 (facing = 가는 쪽). 지점으로는 굽이굽이, 내려앉으러는 완만하게
     pub(super) fn start_flight(&mut self, goal: Goal, kind: Move) {
+        let style = if matches!(goal, Goal::Point(..)) { Style::Wander } else { Style::Gentle };
+        self.start_flight_styled(goal, kind, style);
+    }
+
+    /// 길 모양(style)을 정해 날기 시작한다 — 곡선 자체는 첫 틱에 범위를 보고 만든다 (fly_step)
+    fn start_flight_styled(&mut self, goal: Goal, kind: Move, style: Style) {
         let from = (self.body.x, self.body.y);
-        let amp = flight::WAVE_AMP * self.cfg.size * if self.rng.bool() { 1.0 } else { -1.0 };
-        let mut f = Flight::new(goal, from, Wave::Sine { amp, len: flight::WAVE_LEN * self.cfg.size });
+        let mut f = Flight::new(goal, from, Wave::Arc { height: 0.0 });
+        f.style = style;
         if kind == Move::Roll {
             if let Goal::Point(x, y) = goal {
                 f.loop_at = Some(flight::LOOP_AT * (x - from.0).hypot(y - from.1));
@@ -227,15 +233,26 @@ impl Pet {
             None if self.rng.f64() < flight::SAME_AREA_CHANCE => world.work_area_at(x, y),
             None => world.work_areas[self.rng.usize(..world.work_areas.len())],
         };
+        // 공중제비는 굽이굽이 가는 길에서만 — 원·살랑·8자는 그 밖의 날기에서
+        let style = if kind == Move::Roll { Style::Wander } else { flight::pick_style(&mut self.rng) };
+        let area = if style == Style::Sway && self.inside.is_none() { world.work_area_at(x, y) } else { area };
         let b = flight::fly_bounds(&area, self.cfg.half_w, self.fly_head());
         let mut to = flight::pick_target(&mut self.rng, &b);
+        if style == Style::Sway {
+            // 좌우로 오가며 가로로는 조금만, 위나 아래로 천천히 옮겨 간다 (넉넉한 쪽으로)
+            let reach = flight::SWAY_REACH * self.cfg.size;
+            to.0 = (x + (self.rng.f64() * 2.0 - 1.0) * reach).clamp(b.left, b.right);
+            let drift = behavior::range(&mut self.rng, flight::SWAY_DRIFT) * self.cfg.size;
+            let down = if y - drift < b.top { true } else if y + drift > b.bottom { false } else { self.rng.bool() };
+            to.1 = (if down { y + drift } else { y - drift }).clamp(b.top, b.bottom);
+        }
         for _ in 0..4 {
             if (to.0 - x).hypot(to.1 - y) >= flight::MIN_FLIGHT * self.cfg.size {
                 break;
             }
             to = flight::pick_target(&mut self.rng, &b);
         }
-        self.start_flight(Goal::Point(to.0, to.1), kind);
+        self.start_flight_styled(Goal::Point(to.0, to.1), kind, style);
         true
     }
 
@@ -265,6 +282,15 @@ impl Pet {
         };
         let limits = self.fly_limits(world);
         let speed = self.fly_speed(kind);
+        if f.path.is_none() {
+            // 처음 날 때 곡선을 만들고, 첫 굽이 쪽을 바라본다
+            let path = flight::build_path(&mut self.rng, f.style, f.from, to, &limits, self.cfg.size);
+            let next = path.points().iter().copied().find(|p| (p.0 - f.from.0).abs() > 1.0).unwrap_or(to);
+            if (next.0 - f.from.0).abs() > 1.0 {
+                self.facing = (next.0 - f.from.0).signum();
+            }
+            f.path = Some(path);
+        }
         let r = flight::LOOP_RADIUS * self.cfg.size;
         f.elapsed += dt;
         let mut done = false;
@@ -284,10 +310,16 @@ impl Pet {
             start
         } else {
             f.s += speed * dt;
-            let (p, arrived) = flight::path_point(f.from, to, f.s, f.wave);
+            let (p, arrived) = match f.path.as_mut() {
+                Some(path) => path.advance(speed * dt, to),
+                None => flight::path_point(f.from, to, f.s, f.wave),
+            };
             done = arrived;
-            if (to.0 - f.from.0).abs() > 1.0 {
-                self.facing = (to.0 - f.from.0).signum();
+            // 가로로 가는 쪽을 바라본다 — 충분히 그쪽으로 가고, 지난번 뒤집은 지 조금 지났을 때만 (깜빡깜빡 뒤집지 않게)
+            let vx = (p.0 - self.body.x) / dt.max(1e-9);
+            if vx * self.facing < 0.0 && vx.abs() > flight::FLIP_SPEED * speed && f.elapsed - f.flipped_at >= flight::FLIP_HOLD {
+                self.facing = vx.signum();
+                f.flipped_at = f.elapsed;
             }
             p
         };
@@ -447,7 +479,8 @@ impl Pet {
             let head = self.fly_head();
             if let Some(p) = flight::pick_perch(&mut self.rng, world, inside, self.cfg.half_w, head) {
                 let (ax, _) = world.anchor(p.owner).expect("surface owner has anchor");
-                self.start_flight(Goal::Perch { owner: p.owner, rel_x: p.x - ax }, Move::Walk);
+                // 쉬러 갈 땐 굽이굽이 (먹으러 갈 땐 완만하게 곧장)
+                self.start_flight_styled(Goal::Perch { owner: p.owner, rel_x: p.x - ax }, Move::Walk, Style::Wander);
                 return self.state;
             }
         }

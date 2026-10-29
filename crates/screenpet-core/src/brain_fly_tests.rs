@@ -748,3 +748,130 @@ fn switching_a_fed_bee_to_a_walker_keeps_the_meal_but_drops_flight_state() {
     assert!(run_until(&mut p, &w, 60 * 15, |p| matches!(p.state, State::Eating { .. })), "{:?}", p.state);
     assert!(run_until(&mut p, &w, 60 * 10, |p| !p.is_eating()), "{:?}", p.state);
 }
+
+// ---- 꼬불꼬불 비행 (v0.3.3) ----
+
+/// 10분 비행 통계 (실제 화면 크기·배율, 창 여러 개 — 하나는 최대화)
+#[derive(Debug, Default)]
+struct FlyStats {
+    left: f64,
+    right: f64,
+    up: f64,
+    down: f64,
+    /// 날면서 방향이 바뀐 양 (rad)
+    turned: f64,
+    /// 날아간 거리 (몸 크기 단위)
+    path: f64,
+    fly_secs: f64,
+    flights: usize,
+    /// 날기마다 (곧은 거리 / 실제 거리)의 합
+    straightness: f64,
+    /// 한 바퀴(2π) 넘게 감은 날기
+    circles: usize,
+    /// 같은 날기 안에서 좌우가 바뀐 횟수, 그 사이 가장 짧은 시간
+    flips: usize,
+    min_flip_gap: f64,
+    max_step: f64,
+}
+
+fn real_screen(dpi: f64) -> (World, PetConfig) {
+    let (sw, sh) = if dpi == 1.0 { (1920.0, 1040.0) } else { (2560.0, 1400.0) };
+    let wins = vec![
+        win(1, 0.0, 0.0, sw, sh),
+        win(2, 0.12 * sw, 0.08 * sh, 0.75 * sw, 0.85 * sh),
+        win(3, 0.55 * sw, 0.3 * sh, 0.95 * sw, 0.95 * sh),
+    ];
+    let w = World::new(wins, vec![Rect::new(0.0, 0.0, sw, sh)], 128.0 * dpi);
+    let cfg = PetConfig { size: 128.0 * dpi, half_w: 38.0 * dpi, walk_speed: 50.0 * dpi, dpi, ..bee() };
+    (w, cfg)
+}
+
+fn fly_stats(dpi: f64, seeds: u64) -> FlyStats {
+    use std::f64::consts::{PI, TAU};
+    let (w, cfg) = real_screen(dpi);
+    let mut st = FlyStats { min_flip_gap: f64::MAX, ..FlyStats::default() };
+    for seed in 0..seeds {
+        // 하우스(오른쪽 아래)에서 나온 것처럼 바닥에서 시작
+        let mut p = Pet::new(cfg, 0.0, 0.0, seed);
+        place(&mut p, &w, Owner::Ground(0), w.bounds.right - 200.0 * dpi, idle());
+        let b = limits(&p, &w);
+        let mut prev = (p.body.x, p.body.y);
+        let (mut heading, mut wind, mut wmin, mut wmax): (Option<f64>, f64, f64, f64) = (None, 0.0, 0.0, 0.0);
+        let (mut start, mut walked) = (None::<(f64, f64)>, 0.0);
+        let (mut facing, mut last_flip) = (p.facing, 0.0);
+        for tick in 0..(60 * 600) {
+            let was_flying = p.flight.is_some() && matches!(p.state, State::Move { .. });
+            p.update(DT, &w);
+            let pos = (p.body.x, p.body.y);
+            let (dx, dy) = (pos.0 - prev.0, pos.1 - prev.1);
+            st.max_step = st.max_step.max(dx.hypot(dy));
+            assert!(pos.0 >= b.left - 1e-9 && pos.0 <= b.right + 1e-9 && pos.1 >= b.top - 1e-9 && pos.1 <= b.bottom + 1e-9, "seed {seed}: {pos:?}");
+            let flying = p.flight.is_some() && matches!(p.state, State::Move { .. });
+            if flying && was_flying {
+                if dx < 0.0 { st.left -= dx } else { st.right += dx }
+                if dy < 0.0 { st.up -= dy } else { st.down += dy }
+                st.fly_secs += DT;
+                walked += dx.hypot(dy);
+                // 공중제비(세로 원)는 따로 — 여기선 새 비행 길만 잰다
+                let looping = p.flight.is_some_and(|f| f.looping.is_some());
+                if looping {
+                    heading = None;
+                } else if dx.hypot(dy) > 1e-9 {
+                    let h = dy.atan2(dx);
+                    if let Some(ph) = heading {
+                        let dh = (h - ph + PI).rem_euclid(TAU) - PI;
+                        st.turned += dh.abs();
+                        wind += dh;
+                        wmin = wmin.min(wind);
+                        wmax = wmax.max(wind);
+                    }
+                    heading = Some(h);
+                }
+                if p.facing != facing {
+                    st.flips += 1;
+                    st.min_flip_gap = st.min_flip_gap.min(tick as f64 * DT - last_flip);
+                    last_flip = tick as f64 * DT;
+                }
+                start.get_or_insert(prev);
+            } else if let Some(s) = start.take() {
+                st.flights += 1;
+                if walked > 1e-6 {
+                    st.straightness += (prev.0 - s.0).hypot(prev.1 - s.1) / walked;
+                }
+                st.path += walked / cfg.size;
+                st.circles += (wmax - wmin >= TAU - 0.3) as usize;
+                (heading, wind, wmin, wmax, walked) = (None, 0.0, 0.0, 0.0, 0.0);
+            }
+            if p.facing != facing && !(flying && was_flying) {
+                last_flip = tick as f64 * DT;
+            }
+            facing = p.facing;
+            prev = pos;
+        }
+    }
+    st
+}
+
+/// 실제 화면(1920×1080, 2560×1440@1.5)에서: 곧게 위로만 오르지 않고 꼬불꼬불, 좌우·위아래 고르게, 가끔 원을 그린다
+#[test]
+fn bee_flies_curvy_balanced_paths_with_circles_on_real_screens() {
+    for dpi in [1.0, 1.5] {
+        let st = fly_stats(dpi, 6);
+        let msg = format!("dpi {dpi}: {st:?}");
+        let (lr, ud) = (st.left / st.right, st.up / st.down);
+        assert!((0.75..=1.33).contains(&lr), "left/right {lr:.2} {msg}");
+        assert!((0.75..=1.33).contains(&ud), "up/down {ud:.2} {msg}");
+        // 방향이 계속 바뀐다: 몸 하나 날 때마다 평균 0.6 rad 넘게, 초당 0.25 rad 넘게 (예전: 0.40 rad/몸, 0.18 rad/s)
+        let per_size = st.turned / st.path;
+        let per_sec = st.turned / st.fly_secs;
+        eprintln!("dpi {dpi}: lr {lr:.2} ud {ud:.2} turn {per_size:.2} rad/size {per_sec:.2} rad/s straight {:.2} circles {} flips {} gap {:.2} step {:.2}", st.straightness / st.flights as f64, st.circles, st.flips, st.min_flip_gap, st.max_step);
+        assert!(per_size > 0.6 && per_sec > 0.25, "turn {per_size:.2} rad/size {per_sec:.2} rad/s {msg}");
+        // 곧은 선이 아니다 (예전: 0.95)
+        let straight = st.straightness / st.flights as f64;
+        assert!(straight < 0.75, "straightness {straight:.2} {msg}");
+        assert!(st.circles >= 6, "circles {} {msg}", st.circles);
+        // 순간이동 없음, 좌우 뒤집기는 천천히
+        assert!(st.max_step < 6.0 * dpi, "step {} {msg}", st.max_step);
+        assert!(st.flips > 20 && st.min_flip_gap >= flight::FLIP_HOLD - 1e-6, "{msg}");
+    }
+}
