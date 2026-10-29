@@ -1,14 +1,17 @@
 //! Per-link session driver, transport-independent (frames in, frames out).
 //!
 //! 1. Noise XX handshake (dialer = initiator) → peer's static public key.
-//! 2. Encrypted `hello{id, name}`. The link is a *friend* link iff a friend
-//!    with that id is pinned to exactly that key (an id with a different key,
-//!    or a pinned key under a different id, is rejected). On an outgoing link
-//!    the id must equal the id we dialed.
-//! 3. Otherwise it is a *stranger* link, which may only pair, and only on the
-//!    link the inviter dialed: `invite{commit}` → `pair_random` →
+//! 2. Encrypted `hello{id, name, friend}`. The link is a *friend* link iff a
+//!    friend with that id is pinned to exactly that key and the peer also has
+//!    our key pinned (`friend: true`). An id with a different key, or a
+//!    pinned key under a different id, is rejected. On an outgoing link the
+//!    id must equal the id we dialed. Handshake + hello share one deadline.
+//! 3. Otherwise it is a *stranger* link (several may claim the same id; they
+//!    never block each other or a friend), which may only pair, and only on
+//!    the link the inviter dialed: `invite{commit}` → `pair_random` →
 //!    `pair_reveal` → both sides show the same 6-emoji SAS → both users
-//!    confirm with `invite_reply{accepted}` → both pin each other's key.
+//!    confirm with `invite_reply{accepted}` before the deadline → both pin
+//!    each other's key. A refused or timed-out pairing is terminal.
 
 use crate::discovery::pick_candidate;
 use crate::noise::{self, Established};
@@ -16,20 +19,44 @@ use crate::protocol::{clamp_name, Control, Message, MAX_FRAME, MAX_ID, PROTOCOL_
 use crate::secure::SecureLink;
 use crate::transport::{self, FrameLink, FrameReader, Recv};
 use crate::{
-    Conn, Kind, NetEvent, PairStage, Pairing, SessionGuard, Shared, State, INVITED_WINDOW, MAX_INVITED_PER_WINDOW,
-    MAX_INVITES_IN, MAX_PAIR_ATTEMPTS_PER_ADDR,
+    Backoff, Conn, Kind, NetEvent, PairStage, Pairing, SessionGuard, Shared, State, INVITED_WINDOW,
+    MAX_INVITED_PER_WINDOW, MAX_INVITES_IN, MAX_PAIR_ATTEMPTS_PER_ADDR, PRE_AUTH_MAX,
 };
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+/// How a dial ended, for candidate bookkeeping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DialOutcome {
+    /// The dialed identity answered (link kept, or a duplicate of one).
+    Proven,
+    /// The dialed friend id answered with a different static key.
+    WrongKey,
+    /// Anything else (no connection, handshake failure, rejected).
+    Failed,
+}
+
+/// Result of classifying a link after hello.
+enum Reg {
+    Ok,
+    /// A friend link that loses the duplicate tie-break.
+    Duplicate,
+    WrongKey,
+    /// Our pinned friend (right key) does not have us pinned.
+    NotMutual,
+    Reject,
+}
+
 fn ctl(c: Control) -> Message {
     Message::Control(c)
 }
 
-/// Is `token` the session currently registered for `id`?
-fn current(st: &State, id: &str, token: u64) -> bool {
-    st.conns.get(id).is_some_and(|c| c.token == token)
+/// Is there a pairing in progress (not failed) on any link claiming `id`?
+fn active_pairing(st: &State, id: &str) -> bool {
+    st.conns.values().any(|c| {
+        c.peer_id == id && matches!(&c.kind, Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed))
+    })
 }
 
 /// Per-session facts established by the handshake.
@@ -45,28 +72,27 @@ struct Ctx {
 
 /// Drive one link until it closes, times out, misbehaves or we shut down.
 /// `dialed` is the peer id we connected to (outgoing), `None` if accepted.
-/// Returns whether the link was registered (for an outgoing link: the dialed
-/// identity was proven, or the stranger answered with the dialed id).
 pub(crate) fn run_session(
     shared: Arc<Shared>,
     frames: Arc<dyn FrameLink>,
     mut reader: Box<dyn FrameReader>,
     dialed: Option<String>,
     guard: SessionGuard,
-) -> bool {
+) -> DialOutcome {
     let t = shared.timing.clone();
-    let deadline = Instant::now() + t.conn_timeout;
-    let est = noise::handshake(&shared.static_key, dialed.is_some(), &*frames, &mut *reader, deadline, &shared.stop);
+    // One deadline for the whole pre-auth phase (handshake + hello).
+    let pre_auth = Instant::now() + t.conn_timeout.min(PRE_AUTH_MAX);
+    let est = noise::handshake(&shared.static_key, dialed.is_some(), &*frames, &mut *reader, pre_auth, &shared.stop);
     let Some(Established { transport, remote_static, hash }) = est else {
         frames.close();
-        cleanup(&shared, 0, None, dialed.as_deref());
-        return false;
+        cleanup(&shared, None, dialed.as_deref());
+        return DialOutcome::Failed;
     };
     let transport = Arc::new(Mutex::new(transport));
     let Some(link) = SecureLink::start(&shared, frames.clone(), transport.clone()) else {
         frames.close();
-        cleanup(&shared, 0, None, dialed.as_deref());
-        return false;
+        cleanup(&shared, None, dialed.as_deref());
+        return DialOutcome::Failed;
     };
     let ctx = Ctx {
         token: shared.token(),
@@ -77,11 +103,17 @@ pub(crate) fn run_session(
         peer_addr: frames.peer_addr(),
         unverified: guard.unverified.clone(),
     };
-    link.send(&ctl(Control::Hello { id: shared.id.clone(), name: shared.name.clone(), v: PROTOCOL_VERSION }));
+    let we_pinned_them = shared.state().friends.iter().any(|f| f.public_key == remote_static);
+    link.send(&ctl(Control::Hello {
+        id: shared.id.clone(),
+        name: shared.name.clone(),
+        v: PROTOCOL_VERSION,
+        friend: we_pinned_them,
+    }));
 
+    let mut outcome = DialOutcome::Failed;
     let mut registered: Option<(String, String)> = None;
     let mut buf = vec![0u8; MAX_FRAME];
-    let hello_deadline = Instant::now() + t.conn_timeout;
     let mut last_recv = Instant::now();
     let mut last_ping = Instant::now();
     let mut closing_since: Option<Instant> = None;
@@ -96,12 +128,23 @@ pub(crate) fn run_session(
                 let Some(msg) = Message::parse(&buf[..n]) else { break };
                 match &registered {
                     None => {
-                        let Message::Control(Control::Hello { id, name, .. }) = msg else { break };
+                        let Message::Control(Control::Hello { id, name, friend, .. }) = msg else { break };
                         let name = clamp_name(&name);
-                        if !register(&shared, &ctx, &id, &name) {
-                            break;
+                        match register(&shared, &ctx, &id, &name, friend) {
+                            Reg::Ok => {
+                                outcome = DialOutcome::Proven;
+                                registered = Some((id, name));
+                            }
+                            Reg::Duplicate | Reg::NotMutual => {
+                                outcome = DialOutcome::Proven;
+                                break;
+                            }
+                            Reg::WrongKey => {
+                                outcome = DialOutcome::WrongKey;
+                                break;
+                            }
+                            Reg::Reject => break,
                         }
-                        registered = Some((id, name));
                     }
                     Some((id, name)) => {
                         if !handle(&shared, &ctx, id, name, msg) {
@@ -112,7 +155,7 @@ pub(crate) fn run_session(
             }
         }
         let now = Instant::now();
-        if now.duration_since(last_recv) > t.conn_timeout || (registered.is_none() && now > hello_deadline) {
+        if now.duration_since(last_recv) > t.conn_timeout || (registered.is_none() && now > pre_auth) {
             break;
         }
         if link.closing() {
@@ -125,27 +168,23 @@ pub(crate) fn run_session(
             }
             last_ping = now;
         }
-        if let Some((id, _)) = &registered {
-            if !timers(&shared, &ctx, id) {
-                break;
-            }
+        if registered.is_some() && !timers(&shared, &ctx) {
+            break;
         }
     }
     link.close();
-    let reg_id = registered.map(|r| r.0);
-    let ok = reg_id.is_some();
-    cleanup(&shared, ctx.token, reg_id, dialed.as_deref());
+    cleanup(&shared, Some(ctx.token), dialed.as_deref());
     drop(guard);
-    ok
+    outcome
 }
 
-/// Classify the link after the peer's hello and record it. `false` = reject.
-fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str) -> bool {
+/// Classify the link after the peer's hello and record it.
+fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bool) -> Reg {
     if id.is_empty() || id.len() > MAX_ID || id == shared.id {
-        return false;
+        return Reg::Reject;
     }
     if ctx.dialed.as_deref().is_some_and(|d| d != id) {
-        return false; // answered by someone other than who we dialed
+        return Reg::Reject; // answered by someone other than who we dialed
     }
     let outgoing = ctx.dialed.is_some();
     let dialer = if outgoing { shared.id.clone() } else { id.to_string() };
@@ -154,31 +193,50 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str) -> bool {
     let mut first_msg = None;
     {
         let mut st = shared.state();
-        let friend_link = match st.friend_key(id) {
-            Some(k) if k == ctx.remote_key => true,
-            Some(_) => return false, // claims a friend's id with another key
-            None if st.friends.iter().any(|f| f.public_key == ctx.remote_key) => return false,
-            None => false,
-        };
-        let mut announced = false;
-        if let Some(old) = st.conns.get(id) {
-            // Only an authenticated friend link may displace an existing one.
-            // A newer link from the same dialer replaces a stale one; links
-            // dialed by different sides resolve to the one dialed by the
-            // smaller id, identically on both peers.
-            let min = if shared.id.as_str() < id { shared.id.as_str() } else { id };
-            if !friend_link || (old.dialer != dialer && dialer != min) {
-                return false;
+        let pinned = st.friend_key(id);
+        match pinned {
+            Some(k) if k != ctx.remote_key => {
+                if outgoing {
+                    shared.emit(NetEvent::FriendKeyMismatch { id: id.to_string() });
+                }
+                return Reg::WrongKey; // claims a friend's id with another key
             }
-            announced = old.announced;
-            replaced = Some(old.link.clone());
+            None if st.friends.iter().any(|f| f.public_key == ctx.remote_key) => return Reg::Reject,
+            _ => {}
         }
+        let friend_link = pinned.is_some();
+        if friend_link && !peer_pinned_us {
+            // Authenticated friend that does not have us: back off redials.
+            st.back_off(Backoff::Id(id.to_string()), shared.timing.peer_timeout, now);
+            shared.emit(NetEvent::FriendKeyMismatch { id: id.to_string() });
+            return Reg::NotMutual;
+        }
+        if !friend_link && peer_pinned_us {
+            return Reg::Reject; // they think we are friends; we are not: free the slot now
+        }
+        let mut announced = false;
         let kind = if friend_link {
+            if let Some(&old_t) = st.friend_links.get(id) {
+                // One friend link per id. A newer link from the same dialer
+                // replaces a stale one; links dialed by different sides
+                // resolve to the one dialed by the smaller id on both peers.
+                let min = if shared.id.as_str() < id { shared.id.as_str() } else { id };
+                let old = st.conns.get_mut(&old_t).expect("friend link indexed");
+                if old.dialer != dialer && dialer != min {
+                    return Reg::Duplicate;
+                }
+                announced = old.announced;
+                old.announced = false; // the new link inherits the Connected state
+                replaced = Some(old.link.clone());
+            }
             shared.release_unverified(&ctx.unverified);
+            st.trust_ip(&ctx.peer_addr, now);
+            st.backoff.remove(&Backoff::Id(id.to_string()));
+            st.friend_links.insert(id.to_string(), ctx.token);
             Kind::Friend
         } else if outgoing {
             // We only dial strangers to deliver an invite.
-            let Some(pet) = st.invites_out.remove(id) else { return false };
+            let Some(pet) = st.invites_out.remove(id) else { return Reg::Reject };
             let nonce_i = noise::random32();
             first_msg = Some(Control::Invite { pet, commit: noise::to_hex(&noise::commit(&nonce_i)) });
             Kind::Stranger(Some(Pairing {
@@ -193,9 +251,9 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str) -> bool {
         };
         let connected = friend_link && !announced;
         st.conns.insert(
-            id.to_string(),
+            ctx.token,
             Conn {
-                token: ctx.token,
+                peer_id: id.to_string(),
                 link: ctx.link.clone(),
                 name: name.to_string(),
                 kind,
@@ -203,14 +261,12 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str) -> bool {
                 outgoing,
                 dialer,
                 remote_key: ctx.remote_key,
+                peer_addr: ctx.peer_addr.clone(),
                 hs_hash: ctx.hs_hash,
                 since: now,
                 unverified: ctx.unverified.clone(),
             },
         );
-        if outgoing {
-            st.dialing.remove(id);
-        }
         if connected {
             shared.emit(NetEvent::Connected { id: id.to_string(), name: name.to_string() });
         }
@@ -218,21 +274,40 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str) -> bool {
     if let Some(old) = replaced {
         old.close();
     }
-    match first_msg {
-        Some(m) => ctx.link.send(&ctl(m)),
-        None => true,
+    if let Some(m) = first_msg {
+        if !ctx.link.send(&ctl(m)) {
+            return Reg::Reject;
+        }
     }
+    Reg::Ok
 }
 
-/// Pin the pairing peer `id` as a friend (both users confirmed).
-fn pin(shared: &Shared, st: &mut State, id: &str) {
-    let Some(conn) = st.conns.get_mut(id) else { return };
+/// Pin the peer of pairing link `token` (both users confirmed in time).
+/// Returns other stranger links claiming the same id, to be closed.
+fn pin(shared: &Shared, st: &mut State, token: u64) -> Vec<Arc<SecureLink>> {
+    let Some(conn) = st.conns.get_mut(&token) else { return Vec::new() };
     conn.kind = Kind::Friend;
     conn.announced = true;
     shared.release_unverified(&conn.unverified);
-    let (key, name) = (conn.remote_key, conn.name.clone());
-    st.add_friend(id, key);
-    shared.emit(NetEvent::Connected { id: id.to_string(), name });
+    let (id, key, name, addr) = (conn.peer_id.clone(), conn.remote_key, conn.name.clone(), conn.peer_addr.clone());
+    st.add_friend(&id, key);
+    st.trust_ip(&addr, Instant::now());
+    st.friend_links.insert(id.clone(), token);
+    shared.emit(NetEvent::Connected { id: id.clone(), name });
+    st.conns.iter().filter(|(t, c)| **t != token && c.peer_id == id).map(|(_, c)| c.link.clone()).collect()
+}
+
+/// Mark a pairing failed (terminal); report it once unless already reported.
+fn fail(shared: &Shared, p: &mut Pairing, id: &str) {
+    p.stage = PairStage::Failed;
+    if !p.failure_reported {
+        p.failure_reported = true;
+        shared.emit(NetEvent::InviteAnswered { from: id.to_string(), accepted: false });
+    }
+}
+
+fn expired(shared: &Shared, p: &Pairing, now: Instant) -> bool {
+    now.duration_since(p.since) > shared.timing.invite_timeout
 }
 
 /// Record an incoming pairing attempt; `true` if it is within all limits.
@@ -240,6 +315,12 @@ fn admit_invite(st: &mut State, addr: &str, now: Instant) -> bool {
     st.invited_log.retain(|t| now.duration_since(*t) < INVITED_WINDOW);
     if st.pair_attempts.len() >= 256 && !st.pair_attempts.contains_key(addr) {
         st.pair_attempts.retain(|_, q| q.back().is_some_and(|t| now.duration_since(*t) < INVITED_WINDOW));
+        if st.pair_attempts.len() >= 256 {
+            let oldest = st.pair_attempts.iter().min_by_key(|(_, q)| q.back().copied()).map(|(a, _)| a.clone());
+            if let Some(o) = oldest {
+                st.pair_attempts.remove(&o);
+            }
+        }
     }
     let attempts = st.pair_attempts.entry(addr.to_string()).or_default();
     attempts.retain(|t| now.duration_since(*t) < INVITED_WINDOW);
@@ -250,7 +331,7 @@ fn admit_invite(st: &mut State, addr: &str, now: Instant) -> bool {
     let pairing = st
         .conns
         .values()
-        .filter(|c| !c.outgoing && matches!(c.kind, Kind::Stranger(Some(_))))
+        .filter(|c| !c.outgoing && matches!(&c.kind, Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed)))
         .count();
     addr_ok && pairing < MAX_INVITES_IN && st.invited_log.len() < MAX_INVITED_PER_WINDOW
 }
@@ -259,28 +340,27 @@ fn admit_invite(st: &mut State, addr: &str, now: Instant) -> bool {
 fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> bool {
     let now = Instant::now();
     let mut st = shared.state();
-    if !current(&st, id, ctx.token) {
-        return false; // replaced by a newer link
-    }
+    let Some(conn) = st.conns.get(&ctx.token) else { return false };
+    let (outgoing, hs_hash) = (conn.outgoing, conn.hs_hash);
     match msg {
         Message::Control(Control::Hello { .. } | Control::Ping) => true,
         Message::Control(Control::Invite { pet, commit }) => {
-            let conn = &st.conns[id];
             match conn.kind {
                 Kind::Friend => return true,
                 Kind::Stranger(Some(_)) => return false, // one pairing per link
-                Kind::Stranger(None) if conn.outgoing => return false, // invites only on links the inviter dialed
+                Kind::Stranger(None) if outgoing => return false, // invites only on links the inviter dialed
                 Kind::Stranger(None) => {}
             }
             let Some(commit) = noise::hex32(&commit) else { return false };
-            if !admit_invite(&mut st, &ctx.peer_addr, now) {
+            // One pairing per claimed id at a time; idle squatters don't count.
+            if active_pairing(&st, id) || !admit_invite(&mut st, &ctx.peer_addr, now) {
                 drop(st);
                 ctx.link.send(&ctl(Control::InviteReply { accepted: false }));
                 ctx.link.finish();
                 return true;
             }
             let r_r = noise::random32();
-            let conn = st.conns.get_mut(id).expect("current conn");
+            let conn = st.conns.get_mut(&ctx.token).expect("current conn");
             conn.kind = Kind::Stranger(Some(Pairing {
                 stage: PairStage::AwaitReveal { commit, r_r, pet: clamp_name(&pet) },
                 local_ok: false,
@@ -292,8 +372,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             ctx.link.send(&ctl(Control::PairRandom { random: noise::to_hex(&r_r) }))
         }
         Message::Control(Control::PairRandom { random }) => {
-            let conn = st.conns.get_mut(id).expect("current conn");
-            let hs_hash = conn.hs_hash;
+            let conn = st.conns.get_mut(&ctx.token).expect("current conn");
             let Kind::Stranger(Some(p)) = &mut conn.kind else { return false };
             let PairStage::AwaitRandom { nonce_i } = p.stage else { return false };
             let Some(r_r) = noise::hex32(&random) else { return false };
@@ -303,8 +382,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             ctx.link.send(&ctl(Control::PairReveal { nonce: noise::to_hex(&nonce_i) }))
         }
         Message::Control(Control::PairReveal { nonce }) => {
-            let conn = st.conns.get_mut(id).expect("current conn");
-            let hs_hash = conn.hs_hash;
+            let conn = st.conns.get_mut(&ctx.token).expect("current conn");
             let Kind::Stranger(Some(p)) = &mut conn.kind else { return false };
             let PairStage::AwaitReveal { commit, r_r, pet } = &p.stage else { return false };
             let Some(nonce_i) = noise::hex32(&nonce) else { return false };
@@ -319,37 +397,46 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             true
         }
         Message::Control(Control::InviteReply { accepted }) => {
-            let conn = st.conns.get_mut(id).expect("current conn");
+            let conn = st.conns.get_mut(&ctx.token).expect("current conn");
             let Kind::Stranger(Some(p)) = &mut conn.kind else { return true };
+            if matches!(p.stage, PairStage::Failed) {
+                return true; // terminal: late replies change nothing
+            }
             if !accepted {
-                if !p.failure_reported {
-                    p.failure_reported = true;
-                    shared.emit(NetEvent::InviteAnswered { from: id.to_string(), accepted: false });
-                }
+                fail(shared, p, id);
                 return false;
             }
             if !matches!(p.stage, PairStage::Confirm) || p.remote_ok {
                 return false; // confirmation before the SAS exists
             }
+            if expired(shared, p, now) {
+                fail(shared, p, id);
+                drop(st);
+                ctx.link.send(&ctl(Control::InviteReply { accepted: false }));
+                ctx.link.finish();
+                return true;
+            }
             p.remote_ok = true;
             let both = p.local_ok;
             shared.emit(NetEvent::InviteAnswered { from: id.to_string(), accepted: true });
-            if both {
-                pin(shared, &mut st, id);
-            }
+            let to_close = if both { pin(shared, &mut st, ctx.token) } else { Vec::new() };
+            drop(st);
+            to_close.iter().for_each(|l| l.close());
             true
         }
         Message::Control(Control::Unfriend) => {
-            let conn = st.conns.get_mut(id).expect("current conn");
             if !matches!(conn.kind, Kind::Friend) {
                 return true;
             }
-            conn.kind = Kind::Stranger(None);
+            if st.friend_links.get(id) == Some(&ctx.token) {
+                st.friend_links.remove(id);
+            }
+            st.conns.get_mut(&ctx.token).expect("current conn").kind = Kind::Stranger(None);
             st.remove_friend(id);
             false
         }
         Message::Visit(v) => {
-            if matches!(st.conns[id].kind, Kind::Friend) && st.is_friend(id) {
+            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) {
                 shared.emit(NetEvent::Received { from: id.to_string(), msg: v });
             }
             true
@@ -358,57 +445,49 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
 }
 
 /// Pairing deadline and idle-stranger check. `false` = drop the link.
-fn timers(shared: &Shared, ctx: &Ctx, id: &str) -> bool {
-    let t = &shared.timing;
+fn timers(shared: &Shared, ctx: &Ctx) -> bool {
     let now = Instant::now();
     let mut st = shared.state();
-    if !current(&st, id, ctx.token) {
-        return false;
-    }
-    let conn = st.conns.get_mut(id).expect("current conn");
+    let Some(conn) = st.conns.get_mut(&ctx.token) else { return false };
     if conn.link.closing() {
         return true; // graceful close in progress; the session bounds it
     }
-    let since = conn.since;
+    let (since, id) = (conn.since, conn.peer_id.clone());
     match &mut conn.kind {
-        Kind::Stranger(Some(p)) if now.duration_since(p.since) > t.invite_timeout => {
-            if !p.failure_reported {
-                p.failure_reported = true;
-                shared.emit(NetEvent::InviteAnswered { from: id.to_string(), accepted: false });
-            }
+        Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed) && expired(shared, p, now) => {
+            fail(shared, p, &id);
             drop(st);
             ctx.link.send(&ctl(Control::InviteReply { accepted: false }));
             ctx.link.finish();
             true
         }
         // A stranger link with no invite has no business staying open.
-        Kind::Stranger(None) => now.duration_since(since) <= t.conn_timeout,
+        Kind::Stranger(None) => now.duration_since(since) <= shared.timing.conn_timeout,
         _ => true,
     }
 }
 
 /// Session teardown. Dial bookkeeping always uses the dialed id, never the
 /// id the peer claimed.
-fn cleanup(shared: &Shared, token: u64, registered: Option<String>, dialed: Option<&str>) {
+fn cleanup(shared: &Shared, token: Option<u64>, dialed: Option<&str>) {
     let mut st = shared.state();
     if let Some(d) = dialed {
         st.dialing.remove(d);
-        if registered.as_deref() != Some(d) && st.invites_out.remove(d).is_some() {
+        if st.invites_out.remove(d).is_some() {
             shared.emit(NetEvent::InviteAnswered { from: d.to_string(), accepted: false });
         }
     }
-    let Some(id) = registered else { return };
-    if !current(&st, &id, token) {
-        return; // a newer link owns this peer now
+    let Some(conn) = token.and_then(|t| st.conns.remove(&t)) else { return };
+    if st.friend_links.get(&conn.peer_id) == token.as_ref() {
+        st.friend_links.remove(&conn.peer_id);
     }
-    let conn = st.conns.remove(&id).expect("current conn");
     if let Kind::Stranger(Some(p)) = &conn.kind {
         if !p.failure_reported {
-            shared.emit(NetEvent::InviteAnswered { from: id.clone(), accepted: false });
+            shared.emit(NetEvent::InviteAnswered { from: conn.peer_id.clone(), accepted: false });
         }
     }
     if conn.announced {
-        shared.emit(NetEvent::Disconnected { id });
+        shared.emit(NetEvent::Disconnected { id: conn.peer_id });
     }
 }
 
@@ -430,8 +509,9 @@ pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
         shared.emit(NetEvent::InviteAnswered { from: peer_id.to_string(), accepted: true });
         return;
     }
-    // Always a fresh outgoing link: never reuse an inbound/unauthenticated one.
-    let busy = st.conns.contains_key(peer_id) || st.dialing.contains(peer_id);
+    // Always a fresh outgoing link; idle stranger links claiming this id
+    // (possibly squatters) neither block nor get reused.
+    let busy = st.dialing.contains(peer_id) || active_pairing(&st, peer_id);
     let target = if busy { None } else { pick_candidate(&st, peer_id) };
     let Some(target) = target else {
         shared.emit(NetEvent::InviteAnswered { from: peer_id.to_string(), accepted: false });
@@ -444,24 +524,32 @@ pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
 }
 
 pub(crate) fn answer_invite(shared: &Shared, peer_id: &str, accept: bool) {
+    let now = Instant::now();
     let mut st = shared.state();
-    let Some(conn) = st.conns.get_mut(peer_id) else { return };
+    let token = st.conns.iter().find_map(|(t, c)| {
+        let confirm = matches!(&c.kind, Kind::Stranger(Some(p)) if matches!(p.stage, PairStage::Confirm));
+        (c.peer_id == peer_id && confirm).then_some(*t)
+    });
+    let Some(token) = token else { return };
+    let conn = st.conns.get_mut(&token).expect("found above");
     let link = conn.link.clone();
     let Kind::Stranger(Some(p)) = &mut conn.kind else { return };
-    if !matches!(p.stage, PairStage::Confirm) || p.local_ok {
+    if p.local_ok {
         return;
     }
-    if !accept {
-        p.failure_reported = true;
+    if !accept || expired(shared, p, now) {
+        if !accept {
+            p.failure_reported = true; // our own refusal needs no event
+        }
+        fail(shared, p, peer_id);
         drop(st);
         link.send(&ctl(Control::InviteReply { accepted: false }));
         link.finish();
         return;
     }
     p.local_ok = true;
-    if p.remote_ok {
-        pin(shared, &mut st, peer_id);
-    }
+    let to_close = if p.remote_ok { pin(shared, &mut st, token) } else { Vec::new() };
     drop(st);
+    to_close.iter().for_each(|l| l.close());
     link.send(&ctl(Control::InviteReply { accepted: true }));
 }

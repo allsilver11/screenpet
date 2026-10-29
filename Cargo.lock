@@ -2986,6 +2986,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snow",
+ "socket2",
 ]
 
 [[package]]

@@ -1,7 +1,7 @@
 //! LAN transport: TCP carrying frames as `u16` big-endian length + payload.
 
 use crate::discovery::mark_candidate;
-use crate::peers::{dial_failed, run_session};
+use crate::peers::{dial_failed, run_session, DialOutcome};
 use crate::protocol::MAX_FRAME;
 use crate::transport::{Candidate, FrameLink, FrameReader, Recv};
 use crate::{Shared, TICK};
@@ -94,17 +94,15 @@ fn wrap(stream: TcpStream) -> std::io::Result<(Arc<dyn FrameLink>, Box<dyn Frame
     Ok((Arc::new(TcpLink(Mutex::new(writer), ip)), Box::new(TcpReader { stream, buf: Vec::new() })))
 }
 
-/// Accept incoming LAN connections until shutdown. Connections beyond the
-/// session caps are closed immediately; nothing here can panic the loop.
+/// Accept incoming LAN connections until shutdown. Each joins the bounded
+/// unverified pool (evicting the oldest unverified link if needed); nothing
+/// here can panic the loop.
 pub(crate) fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
     while !shared.stopping() {
         match listener.accept() {
             Ok((stream, _)) => {
-                let Some(guard) = shared.try_inbound() else {
-                    let _ = stream.shutdown(Shutdown::Both);
-                    continue;
-                };
                 if let Ok((link, reader)) = wrap(stream) {
+                    let guard = shared.admit_inbound(link.clone());
                     let s = shared.clone();
                     // On spawn failure the closure (link + guard) is dropped.
                     shared.spawn(move || {
@@ -120,22 +118,19 @@ pub(crate) fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
 /// Connect to `addr` for `peer_id` on a worker thread; the candidate is
 /// marked verified only if the handshake proved the dialed identity.
 pub(crate) fn dial(shared: &Arc<Shared>, peer_id: String, addr: SocketAddr) {
-    let Some(guard) = shared.try_outbound() else {
-        dial_failed(shared, &peer_id);
-        return;
-    };
+    let guard = shared.outbound_guard();
     let s = shared.clone();
     let id = peer_id.clone();
     let spawned = shared.spawn(move || {
         let timeout = s.timing.conn_timeout.min(Duration::from_secs(2));
-        let verified = match TcpStream::connect_timeout(&addr, timeout).and_then(wrap) {
+        let outcome = match TcpStream::connect_timeout(&addr, timeout).and_then(wrap) {
             Ok((link, reader)) => run_session(s.clone(), link, reader, Some(id.clone()), guard),
             Err(_) => {
                 dial_failed(&s, &id);
-                false
+                DialOutcome::Failed
             }
         };
-        mark_candidate(&s, &id, Candidate::Lan(addr), verified);
+        mark_candidate(&s, &id, Candidate::Lan(addr), outcome);
     });
     if !spawned {
         dial_failed(shared, &peer_id);

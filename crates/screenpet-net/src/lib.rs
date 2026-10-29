@@ -33,7 +33,7 @@ use protocol::{Control, Message};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr, TcpListener, UdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -45,10 +45,22 @@ pub const DEFAULT_DISCOVERY_PORT: u16 = 47321;
 
 /// How often worker threads wake up to check timers and the stop flag.
 pub(crate) const TICK: Duration = Duration::from_millis(50);
-/// Most concurrent sessions (links) of any kind.
-pub(crate) const MAX_SESSIONS: usize = 32;
-/// Most concurrent inbound links not (yet) authenticated as a friend.
-pub(crate) const MAX_UNVERIFIED_INBOUND: usize = 4;
+/// Most concurrent inbound links not (yet) authenticated as a friend
+/// (pre-auth and stranger links). When full, the oldest is evicted.
+/// Authenticated friend links are never capped by this.
+pub(crate) const MAX_UNVERIFIED_INBOUND: usize = 6;
+/// Of those, at most this many from one source address (oldest evicted).
+pub(crate) const MAX_UNVERIFIED_PER_IP: usize = 2;
+/// Pre-auth links from an address that previously authenticated as a friend
+/// are kept out of the stranger pool (reserved capacity), at most this many
+/// per address.
+pub(crate) const MAX_TRUSTED_PER_IP: usize = 4;
+/// Addresses remembered as having authenticated as a friend.
+pub(crate) const MAX_TRUSTED_IPS: usize = 64;
+/// Handshake + hello must complete within this (or `conn_timeout` if shorter).
+pub(crate) const PRE_AUTH_MAX: Duration = Duration::from_secs(3);
+/// Longest redial backoff for a friend whose identity check keeps failing.
+pub(crate) const MAX_BACKOFF: Duration = Duration::from_secs(300);
 /// Most concurrent incoming pairing requests.
 pub(crate) const MAX_INVITES_IN: usize = 4;
 /// At most this many `Invited` events per `INVITED_WINDOW`.
@@ -143,6 +155,10 @@ pub enum NetEvent {
     Connected { id: String, name: String },
     Disconnected { id: String },
     Received { from: String, msg: Visit },
+    /// We dialed friend `id` but it answered with a different key, or it does
+    /// not have us as a friend (e.g. a pairing finished on one side only, or
+    /// it reinstalled). Redials back off; suggest re-pairing to the user.
+    FriendKeyMismatch { id: String },
 }
 
 /// A peer id heard via discovery. Announcements are unauthenticated hints.
@@ -162,6 +178,8 @@ pub(crate) enum PairStage {
     AwaitReveal { commit: [u8; 32], r_r: [u8; 32], pet: String },
     /// SAS shown on both sides; waiting for both users' confirmation.
     Confirm,
+    /// Refused or timed out. Terminal: nothing on this link can pin.
+    Failed,
 }
 
 /// An in-progress pairing, bound to the link that carried the invite.
@@ -181,9 +199,10 @@ pub(crate) enum Kind {
     Stranger(Option<Pairing>),
 }
 
-/// The live link to one peer (at most one per id).
+/// One live link (after hello). Several stranger links may claim the same id;
+/// at most one friend link per id (see `State::friend_links`).
 pub(crate) struct Conn {
-    pub token: u64,
+    pub peer_id: String,
     pub link: Arc<secure::SecureLink>,
     pub name: String,
     pub kind: Kind,
@@ -194,11 +213,22 @@ pub(crate) struct Conn {
     /// Id of the side that opened the link.
     pub dialer: String,
     pub remote_key: [u8; 32],
+    /// Transport address of the peer (for trust / rate limiting).
+    pub peer_addr: String,
     /// Noise handshake hash of this link (input to the pairing SAS).
     pub hs_hash: [u8; 32],
     pub since: Instant,
     /// Counts against `MAX_UNVERIFIED_INBOUND` while set.
     pub unverified: Arc<AtomicBool>,
+}
+
+/// What a redial backoff applies to.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum Backoff {
+    /// The friend (authenticated) said it does not have us as a friend.
+    Id(String),
+    /// This address answered for a friend id with the wrong key.
+    Cand(Candidate),
 }
 
 #[derive(Default)]
@@ -207,7 +237,12 @@ pub(crate) struct State {
     pub seen: HashMap<String, Seen>,
     /// Failure history per candidate (separate from `seen`, expires).
     pub failed: HashMap<Candidate, Instant>,
-    pub conns: HashMap<String, Conn>,
+    /// Redial backoff: key → (no dial before, current delay).
+    pub backoff: HashMap<Backoff, (Instant, Duration)>,
+    /// All links, by session token.
+    pub conns: HashMap<u64, Conn>,
+    /// Friend id → token of its authenticated link.
+    pub friend_links: HashMap<String, u64>,
     pub dialing: HashSet<String>,
     /// Invites waiting for their outgoing link: peer id → pet.
     pub invites_out: HashMap<String, String>,
@@ -217,6 +252,8 @@ pub(crate) struct State {
     pub src_rate: HashMap<IpAddr, (Instant, u32)>,
     /// Recent incoming pairing attempts per peer address.
     pub pair_attempts: HashMap<String, VecDeque<Instant>>,
+    /// Addresses that authenticated as a friend → when (bounded).
+    pub trusted_ips: HashMap<String, Instant>,
 }
 
 impl State {
@@ -233,6 +270,35 @@ impl State {
     pub fn remove_friend(&mut self, id: &str) {
         self.friends.retain(|f| f.id != id);
     }
+    pub fn trust_ip(&mut self, ip: &str, now: Instant) {
+        if self.trusted_ips.len() >= MAX_TRUSTED_IPS && !self.trusted_ips.contains_key(ip) {
+            let oldest = self.trusted_ips.iter().min_by_key(|(_, t)| **t).map(|(i, _)| i.clone());
+            if let Some(o) = oldest {
+                self.trusted_ips.remove(&o);
+            }
+        }
+        self.trusted_ips.insert(ip.to_string(), now);
+    }
+    pub fn friend_conn(&self, id: &str) -> Option<&Conn> {
+        self.friend_links.get(id).and_then(|t| self.conns.get(t))
+    }
+    pub fn backed_off(&self, key: &Backoff, now: Instant) -> bool {
+        self.backoff.get(key).is_some_and(|(until, _)| now < *until)
+    }
+    /// Start or double the backoff for `key` (base `base`, up to `MAX_BACKOFF`).
+    pub fn back_off(&mut self, key: Backoff, base: Duration, now: Instant) {
+        let delay = match self.backoff.get(&key) {
+            Some((_, d)) => (*d * 2).min(MAX_BACKOFF),
+            None => base.min(MAX_BACKOFF),
+        };
+        if self.backoff.len() >= 256 && !self.backoff.contains_key(&key) {
+            let oldest = self.backoff.iter().min_by_key(|(_, (u, _))| *u).map(|(k, _)| k.clone());
+            if let Some(o) = oldest {
+                self.backoff.remove(&o);
+            }
+        }
+        self.backoff.insert(key, (now + delay, delay));
+    }
 }
 
 pub(crate) struct Shared {
@@ -246,11 +312,21 @@ pub(crate) struct Shared {
     events: Mutex<Sender<NetEvent>>,
     threads: Mutex<Vec<JoinHandle<()>>>,
     next_token: AtomicU64,
-    sessions: AtomicUsize,
-    unverified_inbound: AtomicUsize,
+    unverified: Mutex<Vec<Unverified>>,
 }
 
-/// Holds one session slot (and an unverified-inbound slot until released).
+/// An inbound link not (yet) authenticated as a friend.
+struct Unverified {
+    ip: String,
+    /// From an address that previously authenticated as a friend.
+    trusted: bool,
+    since: Instant,
+    frames: Arc<dyn transport::FrameLink>,
+    /// Cleared when the link authenticates as a friend or ends.
+    active: Arc<AtomicBool>,
+}
+
+/// Holds an unverified-inbound slot (if any) until released or dropped.
 pub(crate) struct SessionGuard {
     shared: Arc<Shared>,
     pub unverified: Arc<AtomicBool>,
@@ -259,7 +335,6 @@ pub(crate) struct SessionGuard {
 impl Drop for SessionGuard {
     fn drop(&mut self) {
         self.shared.release_unverified(&self.unverified);
-        self.shared.sessions.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -290,34 +365,60 @@ impl Shared {
             Err(_) => false,
         }
     }
-    fn take_slot(counter: &AtomicUsize, max: usize) -> bool {
-        let mut n = counter.load(Ordering::SeqCst);
-        while n < max {
-            match counter.compare_exchange(n, n + 1, Ordering::SeqCst, Ordering::SeqCst) {
-                Ok(_) => return true,
-                Err(actual) => n = actual,
+    /// Admit an inbound link into the unverified pool, evicting the oldest
+    /// unverified link from the same address (if it has `MAX_UNVERIFIED_PER_IP`)
+    /// or overall (if the pool is full). New links are never refused, so a
+    /// flood cannot lock friends out; it can only churn other unverified links.
+    ///
+    /// Links from an address that previously authenticated as a friend use a
+    /// separate per-address allowance, so strangers can never crowd them out.
+    pub fn admit_inbound(self: &Arc<Self>, frames: Arc<dyn transport::FrameLink>) -> SessionGuard {
+        let ip = frames.peer_addr();
+        let trusted = self.state().trusted_ips.contains_key(&ip);
+        let active = Arc::new(AtomicBool::new(true));
+        let mut evicted = Vec::new();
+        {
+            let mut pool = self.unverified.lock().unwrap_or_else(|e| e.into_inner());
+            pool.retain(|u| u.active.load(Ordering::SeqCst));
+            let mut evict_oldest = |pool: &mut Vec<Unverified>, same_ip: bool| {
+                let victim = pool
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, u)| u.trusted == trusted && (!same_ip || u.ip == ip))
+                    .min_by_key(|(_, u)| u.since)
+                    .map(|(i, _)| i);
+                if let Some(i) = victim {
+                    let u = pool.swap_remove(i);
+                    u.active.store(false, Ordering::SeqCst);
+                    evicted.push(u.frames);
+                }
+            };
+            let same_ip = pool.iter().filter(|u| u.trusted == trusted && u.ip == ip).count();
+            if trusted {
+                if same_ip >= MAX_TRUSTED_PER_IP {
+                    evict_oldest(&mut pool, true);
+                }
+            } else if same_ip >= MAX_UNVERIFIED_PER_IP {
+                evict_oldest(&mut pool, true);
+            } else if pool.iter().filter(|u| !u.trusted).count() >= MAX_UNVERIFIED_INBOUND {
+                evict_oldest(&mut pool, false);
             }
+            pool.push(Unverified { ip, trusted, since: Instant::now(), frames, active: active.clone() });
         }
-        false
-    }
-    pub fn try_inbound(self: &Arc<Self>) -> Option<SessionGuard> {
-        if !Self::take_slot(&self.sessions, MAX_SESSIONS) {
-            return None;
+        for f in evicted {
+            f.close();
         }
-        if !Self::take_slot(&self.unverified_inbound, MAX_UNVERIFIED_INBOUND) {
-            self.sessions.fetch_sub(1, Ordering::SeqCst);
-            return None;
-        }
-        Some(SessionGuard { shared: self.clone(), unverified: Arc::new(AtomicBool::new(true)) })
+        SessionGuard { shared: self.clone(), unverified: active }
     }
-    pub fn try_outbound(self: &Arc<Self>) -> Option<SessionGuard> {
-        Self::take_slot(&self.sessions, MAX_SESSIONS)
-            .then(|| SessionGuard { shared: self.clone(), unverified: Arc::new(AtomicBool::new(false)) })
+    /// Outgoing links hold no unverified slot.
+    pub fn outbound_guard(self: &Arc<Self>) -> SessionGuard {
+        SessionGuard { shared: self.clone(), unverified: Arc::new(AtomicBool::new(false)) }
     }
-    /// The link proved to be a friend: free its unverified-inbound slot.
+    /// The link proved to be a friend (or ended): free its unverified slot.
     pub fn release_unverified(&self, flag: &AtomicBool) {
         if flag.swap(false, Ordering::SeqCst) {
-            self.unverified_inbound.fetch_sub(1, Ordering::SeqCst);
+            let mut pool = self.unverified.lock().unwrap_or_else(|e| e.into_inner());
+            pool.retain(|u| u.active.load(Ordering::SeqCst));
         }
     }
 }
@@ -370,8 +471,7 @@ impl Net {
             events: Mutex::new(tx),
             threads: Mutex::new(Vec::new()),
             next_token: AtomicU64::new(1),
-            sessions: AtomicUsize::new(0),
-            unverified_inbound: AtomicUsize::new(0),
+            unverified: Mutex::new(Vec::new()),
         });
         let s1 = shared.clone();
         let s2 = shared.clone();
@@ -414,7 +514,7 @@ impl Net {
     pub fn send(&self, peer_id: &str, msg: Visit) {
         let link = {
             let st = self.shared.state();
-            match st.conns.get(peer_id) {
+            match st.friend_conn(peer_id) {
                 Some(c) if matches!(c.kind, Kind::Friend) => c.link.clone(),
                 _ => return,
             }
@@ -428,10 +528,9 @@ impl Net {
             let mut st = self.shared.state();
             st.remove_friend(peer_id);
             st.invites_out.remove(peer_id);
-            st.conns.get_mut(peer_id).map(|c| {
-                if matches!(c.kind, Kind::Friend) {
-                    c.kind = Kind::Stranger(None);
-                }
+            let token = st.friend_links.remove(peer_id);
+            token.and_then(|t| st.conns.get_mut(&t)).map(|c| {
+                c.kind = Kind::Stranger(None); // `announced` stays: Disconnected follows
                 c.link.clone()
             })
         };

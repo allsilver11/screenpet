@@ -49,8 +49,15 @@ pub enum Visit {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Control {
-    /// First message after the Noise handshake, both directions.
-    Hello { id: String, name: String, v: u32 },
+    /// First message after the Noise handshake, both directions. `friend` =
+    /// the sender has the receiver's static key pinned as a friend.
+    Hello {
+        id: String,
+        name: String,
+        v: u32,
+        #[serde(default)]
+        friend: bool,
+    },
     /// Pairing request (only on a link the inviter dialed). `commit` =
     /// hex BLAKE2s(nonce_i) for the inviter's secret 32-byte random nonce_i.
     Invite { pet: String, commit: String },
@@ -146,7 +153,7 @@ mod tests {
     #[test]
     fn control_messages_round_trip() {
         for m in [
-            Message::Control(Control::Hello { id: "a".into(), name: "A".into(), v: 1 }),
+            Message::Control(Control::Hello { id: "a".into(), name: "A".into(), v: 1, friend: true }),
             Message::Control(Control::Invite { pet: "cat".into(), commit: "ab".into() }),
             Message::Control(Control::PairRandom { random: "cd".into() }),
             Message::Control(Control::PairReveal { nonce: "ef".into() }),

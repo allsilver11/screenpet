@@ -11,3 +11,6 @@ getrandom = "0.3"
 snow = { version = "0.10", default-features = false, features = ["use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
 curve25519-dalek = { version = "4.1", default-features = false }
 blake2 = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+socket2 = "0.6"

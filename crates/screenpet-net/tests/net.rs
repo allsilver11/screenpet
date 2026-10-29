@@ -222,10 +222,24 @@ fn hello(id: &str, name: &str) -> Value {
     json!({"type": "hello", "id": id, "name": name, "v": 1})
 }
 
+/// Hello from a peer that has the receiver pinned as a friend.
+fn friend_hello(id: &str, name: &str) -> Value {
+    json!({"type": "hello", "id": id, "name": name, "v": 1, "friend": true})
+}
+
 /// Connect to `port`, handshake with `key`, exchange hellos claiming `id`.
 fn raw_connect(port: u16, key: &[u8; 32], id: &str) -> Peer {
+    raw_connect_as(port, key, hello(id, "Raw"))
+}
+
+/// Like `raw_connect`, as a friend that has the server pinned.
+fn raw_friend_connect(port: u16, key: &[u8; 32], id: &str) -> Peer {
+    raw_connect_as(port, key, friend_hello(id, "Raw"))
+}
+
+fn raw_connect_as(port: u16, key: &[u8; 32], hello_msg: Value) -> Peer {
     let mut p = handshake(TcpStream::connect(local(port)).unwrap(), key, true).unwrap();
-    p.send(hello(id, "Raw")).unwrap();
+    p.send(hello_msg).unwrap();
     let h = p.recv_msg().unwrap();
     assert_eq!(h["type"], "hello");
     p
@@ -596,7 +610,7 @@ fn unfriend_disconnects_and_forgets_on_both_sides() {
 fn raw_friend_with_pinned_key_connects_and_gets_pings() {
     let kz = key();
     let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
-    let mut p = raw_connect(port, &kz, "zzzz");
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
     assert_eq!(wait_for(&rx, 5.0, is_connected), Some(NetEvent::Connected { id: "zzzz".into(), name: "Raw".into() }));
     assert_eq!(p.recv().unwrap(), json!({"type": "ping"}));
     p.send(json!({"type": "leave", "visit_id": 9})).unwrap();
@@ -633,7 +647,7 @@ fn friends_key_under_another_id_is_rejected() {
 fn unknown_type_drops_connection() {
     let kz = key();
     let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
-    let mut p = raw_connect(port, &kz, "zzzz");
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
     wait_for(&rx, 5.0, is_connected).unwrap();
     p.send(json!({"type": "bogus"})).unwrap();
     assert!(wait_for(&rx, 2.0, is_disconnected).is_some());
@@ -657,7 +671,7 @@ fn garbage_and_zero_length_frames_drop_connection() {
 fn forged_transport_frame_drops_connection() {
     let kz = key();
     let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
-    let mut p = raw_connect(port, &kz, "zzzz");
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
     wait_for(&rx, 5.0, is_connected).unwrap();
     write_frame(&mut p.s, &random32()).unwrap();
     assert!(wait_for(&rx, 2.0, is_disconnected).is_some());
@@ -679,7 +693,7 @@ fn visit_from_stranger_is_ignored() {
 fn silent_friend_times_out() {
     let kz = key();
     let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
-    let _p = raw_connect(port, &kz, "zzzz"); // never sends again
+    let _p = raw_friend_connect(port, &kz, "zzzz"); // never sends again
     wait_for(&rx, 5.0, is_connected).unwrap();
     let t = Instant::now();
     assert_eq!(wait_for(&rx, 6.0, is_disconnected), Some(NetEvent::Disconnected { id: "zzzz".into() }));
@@ -851,7 +865,8 @@ fn connection_flood_does_not_kill_accept_loop() {
     let kz = key();
     let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
     let mut flood: Vec<TcpStream> = (0..60).filter_map(|_| TcpStream::connect(local(port)).ok()).collect();
-    // Closed right away = refused; a read timeout = admitted (awaiting handshake).
+    // Closed = evicted from the bounded unverified pool by newer connections;
+    // a read timeout = still held (awaiting handshake).
     let refused = flood
         .iter_mut()
         .map(|s| {
@@ -865,10 +880,10 @@ fn connection_flood_does_not_kill_accept_loop() {
         })
         .filter(|refused| *refused)
         .count();
-    assert!(refused >= 40, "only {refused} of 60 extra connections were refused");
+    assert!(refused >= 50, "only {refused} of 60 flood connections were evicted");
     drop(flood);
     std::thread::sleep(Duration::from_millis(300));
-    let _p = raw_connect(port, &kz, "zzzz");
+    let _p = raw_friend_connect(port, &kz, "zzzz");
     assert!(wait_for(&rx, 5.0, is_connected).is_some(), "accept loop still serves friends");
     net.shutdown();
 }
@@ -903,6 +918,264 @@ fn announcement_flood_does_not_block_reconnect() {
     assert_eq!(got, Some(NetEvent::Connected { id: "bbbb".into(), name: "Bob".into() }));
     assert!(seen <= 64, "seen-ids map is capped (got {seen})");
     stop.store(true, Ordering::SeqCst);
+    a.shutdown();
+    b.shutdown();
+}
+
+// ---- round 3: availability, terminal pairing, squatters, backoff ------------------
+
+/// UDP tee: records each announcement's (id → tcp port) and forwards it to
+/// `to`, so tests learn TCP ports while peers still hear each other.
+fn tee(to: u16, stop: Arc<AtomicBool>) -> (u16, Arc<Mutex<std::collections::HashMap<String, u16>>>) {
+    let u = UdpSocket::bind("127.0.0.1:0").unwrap();
+    u.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
+    let port = u.local_addr().unwrap().port();
+    let ports: Arc<Mutex<std::collections::HashMap<String, u16>>> = Arc::default();
+    let p = ports.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 2048];
+        while !stop.load(Ordering::SeqCst) {
+            if let Ok((n, _)) = u.recv_from(&mut buf) {
+                if let Ok(v) = serde_json::from_slice::<Value>(&buf[..n]) {
+                    if let (Some(id), Some(port)) = (v["id"].as_str(), v["port"].as_u64()) {
+                        p.lock().unwrap().insert(id.to_string(), port as u16);
+                    }
+                }
+                let _ = u.send_to(&buf[..n], local(to));
+            }
+        }
+    });
+    (port, ports)
+}
+
+/// TCP connect to 127.0.0.1:`port` from a chosen loopback source address.
+fn connect_from(src: [u8; 4], port: u16) -> Option<TcpStream> {
+    use socket2::{Domain, Socket, Type};
+    let s = Socket::new(Domain::IPV4, Type::STREAM, None).ok()?;
+    s.bind(&SocketAddr::from((src, 0)).into()).ok()?;
+    s.connect(&local(port).into()).ok()?;
+    Some(s.into())
+}
+
+fn wait_port(ports: &Mutex<std::collections::HashMap<String, u16>>, id: &str) -> u16 {
+    let t = Instant::now();
+    loop {
+        if let Some(p) = ports.lock().unwrap().get(id) {
+            return *p;
+        }
+        assert!(t.elapsed() < Duration::from_secs(5), "no announcement from {id}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn friends_reconnect_despite_unverified_connection_flood() {
+    let stop = Arc::new(AtomicBool::new(false));
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (ka, kb) = (key(), key());
+    let (tee_a, ports) = tee(pb, stop.clone());
+    let (tee_b, ports_b) = tee(pa, stop.clone());
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, pa, tee_a, vec![friend("bbbb", &kb)])).unwrap();
+    let (b, brx) = Net::start(cfg("bbbb", "Bob", kb, pb, tee_b, vec![friend("aaaa", &ka)])).unwrap();
+    wait_for(&arx, 5.0, is_connected).expect("initial connect");
+    wait_for(&brx, 5.0, is_connected).expect("initial connect");
+    // Attacker keeps renewing idle inbound connections to both peers, holding
+    // far more than the unverified caps at all times.
+    let attacker = {
+        let (stop, ports, ports_b) = (stop.clone(), ports.clone(), ports_b.clone());
+        std::thread::spawn(move || {
+            let mut held = std::collections::VecDeque::new();
+            let mut n = 0u32;
+            while !stop.load(Ordering::SeqCst) {
+                let targets: Vec<u16> =
+                    ports.lock().unwrap().values().chain(ports_b.lock().unwrap().values()).copied().collect();
+                for p in targets {
+                    // Several attacker source addresses (not the friends' 127.0.0.1).
+                    n += 1;
+                    if let Some(s) = connect_from([127, 0, 0, 2 + (n % 8) as u8], p) {
+                        held.push_back(s);
+                    }
+                }
+                // Hold each connection ~2 s (longer than the pre-auth deadline).
+                while held.len() > 1000 {
+                    held.pop_front();
+                }
+                std::thread::sleep(Duration::from_millis(4));
+            }
+        })
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    // Restart A: B's listener has been under flood all along, and A2's
+    // links must still get through.
+    a.shutdown();
+    wait_for(&brx, 6.0, is_disconnected).expect("A gone");
+    let (a2, arx2) = Net::start(cfg("aaaa", "Ann", ka, pa, tee_a, vec![friend("bbbb", &kb)])).unwrap();
+    assert_eq!(
+        wait_for(&arx2, 3.0, is_connected),
+        Some(NetEvent::Connected { id: "bbbb".into(), name: "Bob".into() }),
+        "friends reconnect within a few seconds while the flood continues"
+    );
+    assert!(wait_for(&brx, 5.0, is_connected).is_some());
+    stop.store(true, Ordering::SeqCst);
+    attacker.join().unwrap();
+    a2.shutdown();
+    b.shutdown();
+}
+
+#[test]
+fn friend_announcements_processed_under_spoofed_source_flood() {
+    let stop = Arc::new(AtomicBool::new(false));
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (ka, kb) = (key(), key());
+    // B never hears A (A announces to a dead port), so only A can dial: A
+    // must process B's announcement despite the flood.
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, pa, free_udp_port(), vec![friend("bbbb", &kb)])).unwrap();
+    let flood = {
+        let stop = stop.clone();
+        // Many distinct loopback source addresses fill the rate table; one
+        // more floods from 127.0.0.1 (B's address) past its per-IP limit.
+        let sources: Vec<UdpSocket> = (0..300u32)
+            .filter_map(|i| UdpSocket::bind(SocketAddr::from(([127, 0, 1 + (i / 250) as u8, 1 + (i % 250) as u8], 0))).ok())
+            .collect();
+        let local_flood = UdpSocket::bind("127.0.0.1:0").unwrap();
+        std::thread::spawn(move || {
+            let mut n = 0u32;
+            while !stop.load(Ordering::SeqCst) {
+                for s in &sources {
+                    n += 1;
+                    let msg = format!(r#"{{"app":"screenpet","v":1,"id":"spoof{n}","name":"F","port":9}}"#);
+                    let _ = s.send_to(msg.as_bytes(), local(pa));
+                }
+                for _ in 0..100 {
+                    n += 1;
+                    let msg = format!(r#"{{"app":"screenpet","v":1,"id":"local{n}","name":"F","port":9}}"#);
+                    let _ = local_flood.send_to(msg.as_bytes(), local(pa));
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        })
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let (b, _brx) = Net::start(cfg("bbbb", "Bob", kb, pb, pa, vec![friend("aaaa", &ka)])).unwrap();
+    assert_eq!(
+        wait_for(&arx, 8.0, is_connected),
+        Some(NetEvent::Connected { id: "bbbb".into(), name: "Bob".into() })
+    );
+    stop.store(true, Ordering::SeqCst);
+    flood.join().unwrap();
+    a.shutdown();
+    b.shutdown();
+}
+
+/// Raw stranger `id` pairs with Net (Net = invitee) up to the SAS stage.
+fn raw_pairing(port: u16, rx: &Receiver<NetEvent>, id: &str) -> Peer {
+    let mut p = raw_connect(port, &key(), id);
+    let n = random32();
+    p.send(json!({"type": "invite", "pet": "cat", "commit": hex(&blake2s(&[&n]))})).unwrap();
+    assert_eq!(p.recv_msg().unwrap()["type"], "pair_random");
+    p.send(json!({"type": "pair_reveal", "nonce": hex(&n)})).unwrap();
+    wait_for(rx, 5.0, |e| matches!(e, NetEvent::Invited { from, .. } if from == id)).expect("Invited");
+    p
+}
+
+#[test]
+fn confirmations_after_pairing_timeout_never_pin() {
+    let (net, rx, port) = start_sniffed(key(), vec![]);
+    // Case 1: Net confirms in time, the remote confirmation arrives late.
+    let mut late_remote = raw_pairing(port, &rx, "zzz1");
+    net.answer_invite("zzz1", true);
+    // Case 2: the remote confirms in time, Net's confirmation comes late.
+    let mut early_remote = raw_pairing(port, &rx, "zzz2");
+    early_remote.send(json!({"type": "invite_reply", "accepted": true})).unwrap();
+    // Keep both links alive (pings) past the pairing deadline.
+    let until = Instant::now() + fast().invite_timeout + Duration::from_millis(500);
+    while Instant::now() < until {
+        let _ = late_remote.send(json!({"type": "ping"}));
+        let _ = early_remote.send(json!({"type": "ping"}));
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let _ = late_remote.send(json!({"type": "invite_reply", "accepted": true}));
+    net.answer_invite("zzz2", true);
+    assert_eq!(wait_for(&rx, 1.5, is_connected), None, "nothing pins after the deadline");
+    assert!(net.friends().is_empty());
+    net.shutdown();
+}
+
+#[test]
+fn squatters_claiming_ids_do_not_block_pairing() {
+    let stop = Arc::new(AtomicBool::new(false));
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (tee_a, ports_a) = tee(pb, stop.clone());
+    let (tee_b, ports_b) = tee(pa, stop.clone());
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", key(), pa, tee_a, vec![])).unwrap();
+    let (b, brx) = Net::start(cfg("bbbb", "Bob", key(), pb, tee_b, vec![])).unwrap();
+    let (a_port, b_port) = (wait_port(&ports_a, "aaaa"), wait_port(&ports_b, "bbbb"));
+    wait_for(&arx, 5.0, |e| matches!(e, NetEvent::PeerSeen { .. })).unwrap();
+    // Idle stranger links claiming each other's ids.
+    let _squat_a = raw_connect(a_port, &key(), "bbbb");
+    let _squat_b = raw_connect(b_port, &key(), "aaaa");
+    a.invite("bbbb", "cat");
+    let sent = wait_for(&arx, 5.0, |e| matches!(e, NetEvent::InviteSent { .. } | NetEvent::InviteAnswered { .. }));
+    assert!(matches!(sent, Some(NetEvent::InviteSent { .. })), "invite proceeds: {sent:?}");
+    let invited = wait_for(&brx, 5.0, |e| matches!(e, NetEvent::Invited { .. })).expect("B is asked");
+    assert_eq!(sas_of(&invited), sas_of(sent.as_ref().unwrap()));
+    b.answer_invite("aaaa", true);
+    a.answer_invite("bbbb", true);
+    assert_eq!(wait_for(&arx, 5.0, is_connected), Some(NetEvent::Connected { id: "bbbb".into(), name: "Bob".into() }));
+    assert_eq!(wait_for(&brx, 5.0, is_connected), Some(NetEvent::Connected { id: "aaaa".into(), name: "Ann".into() }));
+    stop.store(true, Ordering::SeqCst);
+    a.shutdown();
+    b.shutdown();
+}
+
+fn count_events(rx: &Receiver<NetEvent>, secs: f64, pred: impl Fn(&NetEvent) -> bool) -> (usize, bool) {
+    let deadline = Instant::now() + Duration::from_secs_f64(secs);
+    let (mut n, mut connected) = (0, false);
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(e) => {
+                connected |= is_connected(&e);
+                if pred(&e) {
+                    n += 1;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    (n, connected)
+}
+
+#[test]
+fn one_sided_pin_reports_mismatch_and_backs_off() {
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (ka, kb) = (key(), key());
+    // A pinned B, but B never pinned A (e.g. pairing finished on one side).
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, pa, pb, vec![friend("bbbb", &kb)])).unwrap();
+    let (b, brx) = Net::start(cfg("bbbb", "Bob", kb, pb, pa, vec![])).unwrap();
+    let (mismatches, connected) =
+        count_events(&arx, 4.0, |e| *e == NetEvent::FriendKeyMismatch { id: "bbbb".into() });
+    assert!(!connected);
+    // Announcements arrive every 150 ms; backoff (1.5 s, doubling) bounds redials.
+    assert!((1..=3).contains(&mismatches), "{mismatches} redials in 4 s");
+    assert_eq!(wait_for(&brx, 0.1, is_connected), None);
+    a.shutdown();
+    b.shutdown();
+}
+
+#[test]
+fn friend_with_changed_key_reports_mismatch_and_backs_off() {
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (ka, kb_old, kb_new) = (key(), key(), key());
+    // B reinstalled with a new key; A still has the old one pinned.
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, pa, pb, vec![friend("bbbb", &kb_old)])).unwrap();
+    let (b, brx) = Net::start(cfg("bbbb", "Bob", kb_new, pb, pa, vec![friend("aaaa", &ka)])).unwrap();
+    let (mismatches, connected) =
+        count_events(&arx, 4.0, |e| *e == NetEvent::FriendKeyMismatch { id: "bbbb".into() });
+    assert!(!connected);
+    assert!((1..=3).contains(&mismatches), "{mismatches} redials in 4 s");
+    let (b_mismatch, b_connected) = count_events(&brx, 0.1, |e| matches!(e, NetEvent::FriendKeyMismatch { .. }));
+    assert!(!b_connected);
+    let _ = b_mismatch; // B may also report A (A does not have B's new key)
     a.shutdown();
     b.shutdown();
 }
