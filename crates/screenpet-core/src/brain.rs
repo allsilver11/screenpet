@@ -246,7 +246,7 @@ impl Pet {
             .zip(self.hover_hist.iter().skip(1))
             .map(|(a, b)| (b.1 - a.1).hypot(b.2 - a.2))
             .sum();
-        self.tickling = path >= TICKLE_DIST;
+        self.tickling = path >= TICKLE_DIST * self.cfg.size / 128.0;
     }
 
     /// 이번 틱에 띄울 말풍선 (한 번 꺼내면 None)
@@ -270,6 +270,8 @@ impl Pet {
         let was_sleeping = matches!(self.state, State::Sleep { .. } | State::Annoyed { .. });
         self.grab_dx = self.body.x - cx;
         self.grab_dy = self.body.y - cy;
+        self.hover_hist.clear();
+        self.tickling = false;
         self.history.clear();
         self.history.push_back((self.clock, cx, cy));
         if !grounded {
@@ -400,7 +402,7 @@ impl Pet {
     }
 
     fn update_chatter(&mut self, dt: f64) {
-        if matches!(self.state, State::Sleep { .. } | State::Annoyed { .. } | State::Tickled { .. }) {
+        if matches!(self.state, State::Sleep { .. } | State::Annoyed { .. } | State::Tickled { .. } | State::Special { .. }) {
             return;
         }
         self.chatter_timer -= dt;
@@ -529,6 +531,9 @@ impl Pet {
     fn update_air(&mut self, dt: f64, world: &World) {
         let prev_y = self.body.y;
         step_air(&mut self.body, dt, &world.bounds, self.cfg.half_w, self.cfg.size);
+        if self.body.vx.abs() > 1.0 {
+            self.facing = self.body.vx.signum();
+        }
         let landing = world.landing(self.body.x, prev_y, self.body.y).copied().or_else(|| {
             // 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 Ground를 바닥으로 취급
             if self.body.vy >= 0.0 { world.ground_below(self.body.x, self.body.y).copied() } else { None }
@@ -1277,6 +1282,63 @@ mod tickle_tests {
             assert!(!matches!(p.state, State::Tickled { .. }));
         }
         panic!("never landed");
+    }
+
+    #[test]
+    fn click_right_after_tickling_keeps_its_reaction() {
+        let w = world(vec![w1()]);
+        for seed in 0..20 {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            place(&mut p, &w, Owner::Window(1), 800.0, idle());
+            tickle(&mut p, &w, 30);
+            assert!(p.tickling);
+            p.pointer_down(800.0, 350.0);
+            p.pointer_up(800.0, 350.0);
+            p.update(DT, &w);
+            assert!(
+                matches!(p.state, State::Air { anim: Anim::Hop } | State::Trick { .. }),
+                "seed {seed}: {:?}",
+                p.state
+            );
+        }
+    }
+
+    #[test]
+    fn tickle_distance_scales_with_display_size() {
+        let w = world(vec![w1()]);
+        let shake = |size: f64| {
+            let mut p = Pet::new(PetConfig { size, ..cfg() }, 0.0, 0.0, 1);
+            place(&mut p, &w, Owner::Window(1), 800.0, idle());
+            tickle(&mut p, &w, 10);
+            matches!(p.state, State::Tickled { .. })
+        };
+        assert!(shake(128.0));
+        assert!(!shake(256.0));
+    }
+
+    #[test]
+    fn no_chatter_during_a_special() {
+        let w = world(vec![w1()]);
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
+        p.start_special(Special::Wag);
+        p.take_speech();
+        p.chatter_timer = 0.001;
+        p.update(DT, &w);
+        assert!(matches!(p.state, State::Special { .. }));
+        assert_eq!(p.take_speech(), None);
+    }
+
+    #[test]
+    fn roll_spin_follows_the_bounce() {
+        let w = world(vec![]);
+        let mut p = Pet::new(cfg(), 39.0, 500.0, 1);
+        p.state = State::Air { anim: Anim::Roll };
+        p.body.vx = -300.0;
+        p.facing = -1.0;
+        p.update(DT, &w);
+        assert!(p.body.vx > 0.0);
+        assert_eq!(p.facing, 1.0);
     }
 }
 
