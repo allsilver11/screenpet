@@ -2,7 +2,7 @@
 꿀벌은 나는 동물이라 자기 포즈(BEE_POSES)를 쓴다 (5b).
 
     python tools/draw_pets.py  → ui/pets/<id>/{sheet_<stage>.png ×5, sheet.png (= teenager), pet.json} + ui/effects/sting.png
-                                 + tools/preview/{all_light,all_dark,stages_<id>,climb_<id>,sting_effect}.png
+                                 + tools/preview/{all_light,all_dark,stages_<id>,climb_<id>,sting_effect,eat_with_props}.png
 
 구성:
   1. 엔진      — 4배 슈퍼샘플 마스크, 변환 스택(xf), 도형(E/T/L), 녹이기(melt)로 한 덩어리 실루엣 + 굵은 외곽선
@@ -1221,28 +1221,39 @@ def hungry(sp, i):
                   tail_rot=6, paws=[(56 + dx, 100 + dy)], toes=True, fx=thought_fx(108, 17))
 
 
-BOWL, BOWL_LIGHT, RICE, RICE_GRAIN = (246, 196, 150), (252, 226, 196), (255, 255, 252), (230, 222, 206)
+# ---- 먹기: 그릇·꽃은 앱의 진짜 소품 창 (ui/effects/bowl_food·bowl_water·cookie·flower.png, tools/draw_props.py) ----
+# 소품 창(56×48 × 몸 배율)은 몸 중심 아래(발 높이)에 아래 가운데를 맞춰 동물 창 앞에 뜬다 (Rust food::PropEvent, src-tauri prop.rs).
+# 동물 프레임(128 × 몸 배율)과 같은 배율이라 프레임 좌표로: 그릇 x 36–92 · y 80–128 (밥 더미 위 ≈ 82), 꽃 꽃잎 ≈ y 87–112 (꽃술 (64, 100)).
+# 먹는 동작은 그릇을 그리지 않고 그 자리를 내려다보며 먹는다 (앞모습, 그릇은 몸 가운데 앞).
+PROP_BOX = (56, 48)
+EAT_MOUTH_Y = 77  # 먹을 때 입 윗선 (프레임 좌표) — 밥 더미 바로 위
+FLOWER_HEART = (64, 100)  # 꽃 소품의 꽃술 (프레임 좌표)
+CRUMB = (255, 250, 236)
 
 
-def bowl_parts():
-    """앞에 놓인 밥그릇 (낮은 반원, 갈색 외곽선) + 소복한 밥."""
-    rice = Part([E(41, 92, 87, 112)], RICE, [([E(52 + 9 * k - 1.6, 97 + (k % 2) * 5 - 1, 52 + 9 * k + 1.6, 97 + (k % 2) * 5 + 1) for k in range(4)], RICE_GRAIN)],
-                outline=True)
-    bowl = Part([T(*arc(64, 103, 27, 21, 0, 180, 20))], BOWL, [([L([(40, 110), (88, 110)], 2.6)], BOWL_LIGHT)], outline=True)
-    return [rice, bowl]
+def _frame_to_pre(x, y):
+    """프레임(화면) 좌표 → 현재 종·단계 배율(view) 이전 좌표 — 소품 위치에 몸을 맞출 때."""
+    s, lift = _VIEW["scale"], _VIEW["lift"]
+    return 64 + (x - 64) / s, 126 + (y + lift - 126) / s
 
 
 def eat(sp, i):
-    """밥그릇 위로 고개 숙여 냠냠: 머리 3px 위아래, 입 벌림(앙)/다묾(볼 빵빵), 그릇에서 밥알 부스러기."""
+    """앞에 놓인 밥그릇(앱 소품)에 고개를 푹 숙여 냠냠: 입이 밥 더미 바로 위 (EAT_MOUTH_Y)에 오도록 머리를 내리고,
+    앙(입 벌림·^^) ↔ 오물오물(볼 빵빵·‿)을 번갈아, 머리 살짝 좌우, 앞발은 그릇 양옆을 잡고, 부스러기가 튄다. 그릇은 그리지 않는다."""
     bite = i % 2 == 0
-    crumbs = [[(36, 92), (93, 88)], [(31, 84), (97, 80), (89, 92)], [(38, 90), (92, 86)], [(33, 81), (96, 78), (40, 92)]][i]
-    fx = []
-    for x, y in crumbs:
-        fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], RICE, 0)]
-    paws = [(36, 101), (92, 101)]
+    b, h = _ST["body"], _ST["head"]
+    top = 66 if sp.mouth == "dog" else 64
+    mouth_pre = _frame_to_pre(64, EAT_MOUTH_Y + (0 if bite else -1.5))[1]
+    dy = mouth_pre - ((1 - b) * (FRONT_BODY_PIVOT[1] - 84) + 84 + (top - 84) * h + _ST["snout"] * h)
+    with view(scale=1.0, lift=0):  # 부스러기는 프레임 좌표 (그릇 위 양옆으로 튐)
+        crumbs = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]][i]
+        fx = []
+        for x, y in crumbs:
+            fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], CRUMB, 0)]
+    paws = [_frame_to_pre(34, 103), _frame_to_pre(94, 103)]  # 그릇 양옆 (그릇 창 뒤로 반쯤 가려짐)
     return _front(sp, eyes="happy" if bite else "closed", mouth="open" if bite else "chew", head_kw=dict(cheeks=not bite),
-                  head=dict(dy=8 if bite else 5), fx=fx,
-                  front_props=[lambda: bowl_parts()[0], lambda: bowl_parts()[1]] + [lambda p=p: front_paw(sp, *p) for p in paws])
+                  head=dict(dy=dy, rot=[0, -2, 0, 2][i], pivot=(64, 84)), body=dict(sy=0.97, pivot=FRONT_BODY_PIVOT), fx=fx,
+                  front_props=[lambda p=p: front_paw(sp, *p) for p in paws])
 
 
 def level_up(sp, i):
@@ -1397,7 +1408,8 @@ def frames(sp, anim, n):
 # =====================================================================
 BEE_Y, BEE_ST, BEE_CREAM = (255, 212, 96), (122, 84, 62), (255, 238, 186)
 WING, WING_LINE, WING_HL = (232, 244, 255), (146, 178, 212), (255, 255, 255)
-PETAL, PETAL_IN, STEM = (250, 168, 190), (255, 200, 92), (138, 198, 120)
+PETAL, PETAL_IN = (250, 168, 190), (255, 200, 92)
+STRAW_HONEY = (238, 148, 58)  # 꿀 빠는 빨대 입 (몸 노랑보다 진한 꿀색)
 SPEED = mix(LINE, WHITE, 0.35)  # 속도선·붕붕 선
 # 단계(lvl)별 — 옆 몸 (rx, ry) · 앞 몸 (rx, ry) · 날개 배율 · 줄무늬 수 · 줄 굵기 · 더듬이 길이
 BEE_STAGE = {
@@ -1697,17 +1709,6 @@ def flower_bubble_fx(cx, cy, r=12.5):
     return fx
 
 
-def flower_parts(cx, fy, r=8.5):
-    """땅에 핀 작은 꽃: 줄기 + 잎 + 분홍 꽃잎 다섯 + 노란 꽃술."""
-    stem = Part([L([(cx, 122.6), (cx + 1, fy + 6)], 3.4)], STEM, sharp=True, outline=True)  # 둥근 끝 + 외곽선까지 바닥 1px 안
-    with xf(rot=-32, pivot=(cx + 1, 117)):
-        leaf = Part([E(cx + 1, 112, cx + 17, 120)], STEM, outline=True)
-    pet = [(cx + r * math.cos(math.radians(a)), fy + r * math.sin(math.radians(a))) for a in range(-90, 270, 72)]
-    petals = Part([C(x, y, r * 0.74) for x, y in pet], PETAL, outline=True)
-    center = Part([C(cx, fy, r * 0.6)], PETAL_IN, [([C(cx - r * 0.2, fy - r * 0.2, r * 0.18)], WHITE)], outline=True)
-    return [stem, leaf, petals, center]
-
-
 # ---- 꿀벌 옆모습 ----
 def bee_walk(sp, i):
     """둥실 날기: 날갯짓 4단계, 몸 2px 오르내림, 다리 대롱."""
@@ -1867,22 +1868,26 @@ def bee_hungry(sp, i):
 
 
 def bee_eat(sp, i):
-    """꽃꿀 쪼옥: 땅에 핀 작은 꽃을 두 팔로 안고 빨대 같은 입으로 꿀을 마심. 꿀방울이 반짝."""
+    """꽃꿀 쪼옥: 앞에 피어난 꽃(앱 소품, 꽃술 FLOWER_HEART)에 낮게 내려앉아 두 팔로 꽃잎을 잡고, 굵은 빨대 입(주둥이)을
+    아래로 꽂아 쪼옥 — 꽃은 그리지 않는다. 입은 꽃잎 바로 위, 빨대는 아기 크기에서도 보이게 굵게 (짙은 테 + 꿀색 속)."""
     sip = i % 2 == 0
     rx, ry = _bee()["front"]
-    cy = 64 + [0, 1, 0, 1][i]
-    fx0, fy = 102, 104
-    drops = [[(112, 80)], [(114, 72), (114, 88)], [(116, 64), (112, 80)], [(118, 56), (114, 72)]][i]  # 꽃에서 꿀방울이 반짝 올라옴
-    fx = []
-    for x, y in drops:
-        fx += [([C(x, y, 3.0), T((x - 2.6, y - 1), (x, y - 6.4), (x + 2.6, y - 1))], (232, 160, 56), 1.0),
-               ([C(x, y, 1.9)], (255, 214, 96), 0)]
-    bx = 56
     fs = _ST["head"] ** 0.6
-    mouth = (bx + 1.5, cy - ry * 0.14 + 9 * fs + 1)
-    straw = [([L([mouth, (mouth[0] + 1, mouth[1] + 12), (mouth[0] + 8, mouth[1] + 22), (fx0 - 3, fy - 1)], 2.0)], (176, 112, 70))]
-    return _bee_front(sp, c=(bx, cy), eyes="closed" if sip else "happy", mouth="sip", phase=i,
-                      arms=((-1, 40), (1, (fx0 - 9, fy - 6))), props=[lambda p=p: p for p in flower_parts(fx0, fy)],
+    mx, my = _frame_to_pre(64, 80 + [0, 1, 0, 1][i])
+    cy = my - 9 * fs + ry * 0.14  # 앞모습 얼굴: 입 = 몸 중심 - ry·0.14 + 9·fs
+    w = 1.3 if _ST["lvl"] <= 1 else 1.0  # 아기·유아는 빨대를 더 굵게
+    hx, hy = FLOWER_HEART
+    with view(scale=1.0, lift=0):
+        mouth = (64, 80 + [0, 1, 0, 1][i])
+        path = [mouth, (66.5, mouth[1] + 7), (hx, hy - 2)]
+        straw = [([L(path, 4.4 * w)], LINE), ([L(path, 2.2 * w)], STRAW_HONEY if sip else mix(STRAW_HONEY, LINE, 0.15))]
+        drops = [[(104, 88)], [(106, 80), (24, 90)], [(108, 72), (22, 82)], [(110, 64), (20, 74)]][i]  # 꽃에서 꿀방울이 반짝
+        fx = []
+        for x, y in drops:
+            fx += [([C(x, y, 3.0), T((x - 2.6, y - 1), (x, y - 6.4), (x + 2.6, y - 1))], (232, 160, 56), 1.0),
+                   ([C(x, y, 1.9)], (255, 214, 96), 0)]
+    arms = ((-1, _frame_to_pre(51, 94)), (1, _frame_to_pre(77, 94)))  # 꽃잎을 양손으로 (꽃 창 뒤로 반쯤 가려짐)
+    return _bee_front(sp, c=(64, cy), eyes="closed" if sip else "happy", mouth="sip", phase=i, arms=arms,
                       ops=straw, fx=fx)
 
 
@@ -2128,7 +2133,33 @@ def main():
     sting = sting_effect()
     sting.save(fx_dir / "sting.png")
     preview_sting(sting, all_frames["bee"], pv / "sting_effect.png")
+    preview_eat_with_props(all_frames, fx_dir, pv / "eat_with_props.png")
     print("ok:", ", ".join(SPECIES), "+ effects/sting.png")
+
+
+COOKIE_RISE = 0.3  # Rust food::COOKIE_RISE — 쿠키 소품 아래끝은 발에서 몸 크기의 30% 위
+
+
+def preview_eat_with_props(all_frames, fx_dir, path):
+    """먹기 프레임 + 앱이 띄우는 진짜 소품 (같은 몸 배율이라 프레임 좌표로 겹친다: 소품 아래 가운데 = (64, 128),
+    쿠키는 128 - 128·COOKIE_RISE). 열: eat 0 + 밥그릇(꿀벌은 꽃) · eat 1 + 밥그릇 · eat 2 + 물그릇 · eat 3 + 쿠키. 줄: 종 × 단계."""
+    from PIL import ImageFont
+    props = {k: Image.open(fx_dir / f"{k}.png").convert("RGBA") for k in ("bowl_food", "bowl_water", "cookie", "flower")}
+    stages = ("baby", "teenager", "adult")
+    cell, label = FRAME + 4, 90
+    img = Image.new("RGBA", (label + 4 * cell, len(all_frames) * len(stages) * cell), (255, 255, 255, 255))
+    d = ImageDraw.Draw(img)
+    for r, (pid, st) in enumerate((pid, st) for pid in all_frames for st in stages):
+        d.text((4, r * cell + FRAME // 2), f"{pid} {st}", fill=(60, 60, 60), font=ImageFont.load_default())
+        meal = "flower" if pid == "bee" else "bowl_food"
+        for c, (prop, bottom) in enumerate([(meal, FRAME), (meal, FRAME), ("bowl_water", FRAME),
+                                            ("cookie", FRAME - round(FRAME * COOKIE_RISE))]):
+            tile = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+            tile.alpha_composite(all_frames[pid][st]["eat"][c])
+            p = props[prop]
+            tile.alpha_composite(p, (FRAME // 2 - p.width // 2, bottom - p.height))
+            img.alpha_composite(tile, (label + c * cell, r * cell))
+    img.save(path)
 
 
 def preview_sting(effect, bee_by_stage, path):

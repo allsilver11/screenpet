@@ -9,7 +9,7 @@ STANDING = {"walk", "run", "idle", "look", "sleep", "land", "sit_front", "wave",
             "hungry", "eat", "level_up", "huff"}
 SPECIES_IDS = ("cat", "dog", "rabbit", "bear", "bee")
 # 꿀벌은 날아다녀서 떠 있는 동작이 많다 — 바닥에 내려앉는 동작만 발이 닿는지 본다
-BEE_GROUNDED = {"sleep", "annoyed", "land", "eat"}
+BEE_GROUNDED = {"sleep", "annoyed", "land"}  # eat: 꽃(앱 소품) 위에 낮게 떠서 마신다
 
 
 def grounded(pid, anim):
@@ -260,3 +260,49 @@ def test_bear_is_a_deeper_brown_with_bigger_ears():
     assert draw_pets.BEAR.outline is not None and sum(draw_pets.BEAR.outline) < sum(draw_pets.BEAR.base)
     for st in ("baby", "teenager", "adult"):
         assert draw_pets.BEAR.stage_tweak[st]["ear"] > draw_pets.STAGE_PROPS[st]["ear"] * 1.1
+
+
+def _eat_cell(tmp_path, pid, st, col):
+    names = [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES[pid])]
+    row = names.index("eat")
+    return Image.open(tmp_path / pid / f"sheet_{st}.png").convert("RGBA").crop((col * FRAME, row * FRAME, (col + 1) * FRAME, (row + 1) * FRAME))
+
+
+def test_eat_mouth_meets_the_real_bowl(tmp_path):
+    """그릇은 앱의 소품 창 (프레임 x 36–92, 밥 더미 위 y ≈ 82): 먹는 입(벌린 입 속 색)이 그 바로 위 가운데에 온다 — 모든 단계."""
+    from sprite_spec import STAGES
+    draw_pets.build(tmp_path)
+    for pid in ("cat", "dog", "rabbit", "bear"):
+        for st in STAGES:
+            px = _eat_cell(tmp_path, pid, st, 0).load()
+            mr, mg, mb = draw_pets.MOUTH_IN
+            mouth = [(x, y) for y in range(FRAME) for x in range(FRAME)
+                     if px[x, y][3] > 200 and abs(px[x, y][0] - mr) + abs(px[x, y][1] - mg) + abs(px[x, y][2] - mb) < 30]
+            assert mouth, (pid, st)
+            ys, xs = [y for _, y in mouth], [x for x, _ in mouth]
+            assert 72 <= min(ys) and max(ys) <= 90, (pid, st, min(ys), max(ys))
+            assert 54 <= min(xs) and max(xs) <= 74, (pid, st, min(xs), max(xs))
+
+
+def test_eat_draws_no_bowl_or_flower(tmp_path):
+    """그릇·꽃은 앱이 따로 띄운다 — 먹는 프레임에 초록 줄기·잎이나 그릇 테두리 색이 없다."""
+    draw_pets.build(tmp_path)
+    for pid in SPECIES_IDS:
+        for st in CHECK_STAGES:
+            for col in range(4):
+                px = _eat_cell(tmp_path, pid, st, col).load()
+                green = sum(1 for y in range(FRAME) for x in range(FRAME)
+                            if px[x, y][3] > 200 and px[x, y][1] > px[x, y][0] + 30 and px[x, y][1] > px[x, y][2] + 30)
+                assert green == 0, (pid, st, col, green)
+
+
+def test_bee_sips_with_a_thick_straw_into_the_flower(tmp_path):
+    """꿀벌 eat: 입에서 꽃술(64, 100) 쪽으로 내려가는 꿀색 빨대가 아기 크기에서도 굵게 보인다."""
+    draw_pets.build(tmp_path)
+    for st in ("baby", "teenager"):
+        px = _eat_cell(tmp_path, "bee", st, 0).load()
+        straw = [(x, y) for y in range(84, 99) for x in range(58, 72)
+                 if px[x, y][3] > 200 and px[x, y][0] > 200 and 120 <= px[x, y][1] <= 165 and px[x, y][2] < 90]
+        assert len(straw) >= 18, (st, len(straw))
+        rows = {y for _, y in straw}
+        assert max(rows) - min(rows) >= 8, (st, sorted(rows))

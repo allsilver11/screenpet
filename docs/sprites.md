@@ -30,7 +30,7 @@
 | tickle | 3 | 몸을 비비 꼬며 깔깔 | ✓ |
 | annoyed | 2 | 엎드린 채 실눈·뾰로통·💢 | |
 | hungry | 3 | 시무룩하게 앉아 배 문지르기, 처진 눈썹, 🍙 생각 풍선 | ✓ |
-| eat | 4 | 앞에 놓인 밥그릇에 고개 숙여 냠냠 (입 벌림 ↔ 볼 빵빵), 밥알 부스러기 | ✓ |
+| eat | 4 | 그릇 없이: 앞 아래 가운데에 앱이 띄우는 진짜 그릇(소품 창)으로 고개를 푹 숙여 냠냠 — 입이 밥 더미 바로 위 (프레임 y ≈ 77), 입 벌림 ↔ 볼 빵빵, 앞발은 그릇 양옆, 부스러기. 꿀벌은 꽃(소품) 위에 낮게 떠서 굵은 꿀색 빨대 입으로 쪼옥 | ✓ |
 | level_up | 3 | 만세 (양팔 번쩍, ^^, 활짝 웃음) + 노란 반짝이, 한 번 | ✓ |
 | arch (고양이) | 3 | 무서운 척하는 아기 고양이: 둥근 등, 복슬 꼬리, 송곳니 | |
 | wag (강아지) | 4 | 혀 내밀고 꼬리 살랑 | ✓ |
@@ -43,8 +43,12 @@
 - `pet.json`에 `"locomotion": "fly"` — 걷지 않고 날아다닌다 (Rust는 모르는 필드를 무시; 코어가 `locomotion`을 읽는다). `stage_size`는 모든 단계 0.8 (작은 동물).
 - 디자인: 동그란 보송보송 노란 몸 (윗가장자리 몽글 털), 짙은 갈색 줄무늬, 공 달린 더듬이 둘, 볼터치, 옆모습 꽁무니에 작은 침. 날개는 연한 푸른 외곽선의 **반투명** 흰 막 — 몸과 따로 그려 `alpha_composite`로 몸 뒤(먼 날개)·앞(가까운 날개)에 겹친다.
 - 단계: 아기 = 거의 동그란 털공, 흐린 줄 하나, 아주 작은 날개, 정수리 털, 반짝 큰 눈 · 유아~청소년 = 줄 둘 · 어른 = 줄 셋, 조금 긴 몸, 느긋한 눈.
-- 동작 대응: walk 둥실 날기 (날갯짓 4단계, 몸 2px 오르내림) · run 쌩 (앞으로 기울고 날개 잔상, 속도선) · roll 공처럼 말아 공중제비 (원 안) · idle 제자리 호버링 · look 떠서 두리번 · sleep 내려앉아 날개 접고 쿨쿨 · hop 휙 솟구치기 · fall 어질어질 (소용돌이 눈) · dragged 잡혀서 날개 붕붕 · land 사뿐 착지 · annoyed 내려앉아 뾰로통 · 앞모습 동작은 정면으로 떠서 (eat = 땅에 핀 작은 꽃을 안고 빨대 입으로 꽃꿀 쪼옥, hungry = 꽃 생각 풍선, belly = 발라당 누워 다리 꼬물).
-- 바닥 규칙: 떠 있는 동작은 바닥에서 떨어져 있다. 발(몸)이 바닥에 닿는 동작은 sleep·annoyed·land·eat(꽃 줄기)뿐.
+- 동작 대응 (eat은 위 '먹이 소품과 eat' 참고): walk 둥실 날기 (날갯짓 4단계, 몸 2px 오르내림) · run 쌩 (앞으로 기울고 날개 잔상, 속도선) · roll 공처럼 말아 공중제비 (원 안) · idle 제자리 호버링 · look 떠서 두리번 · sleep 내려앉아 날개 접고 쿨쿨 · hop 휙 솟구치기 · fall 어질어질 (소용돌이 눈) · dragged 잡혀서 날개 붕붕 · land 사뿐 착지 · annoyed 내려앉아 뾰로통 · 앞모습 동작은 정면으로 떠서 (eat = 앞에 피어난 꽃 소품을 양손으로 잡고 굵은 꿀색 빨대 입으로 꽃꿀 쪼옥, hungry = 꽃 생각 풍선, belly = 발라당 누워 다리 꼬물).
+- 바닥 규칙: 떠 있는 동작은 바닥에서 떨어져 있다. 발(몸)이 바닥에 닿는 동작은 sleep·annoyed·land뿐.
+
+## 먹이 소품과 eat
+- 밥그릇·물그릇·쿠키·꽃은 앱이 따로 띄우는 작은 소품 창이다 (`ui/effects/{bowl_food,bowl_water,cookie,flower}.png`, `tools/draw_props.py`). 창은 56×48 × 몸 배율로, 아래 가운데가 동물 몸 중심·발 높이에 온다 (쿠키는 몸 크기의 30% 위). 동물 프레임(128 × 몸 배율)과 배율이 같아서 프레임 좌표로 그릇은 x 36–92 · y 80–128.
+- 그래서 `eat`은 그릇·꽃을 그리지 않고, 그 자리를 내려다보며 먹는 앞모습이다 (`draw_pets.EAT_MOUTH_Y`, `FLOWER_HEART`). `tools/preview/eat_with_props.png`가 각 종·단계의 eat 프레임에 진짜 소품을 실제 위치로 겹쳐 보여 준다.
 
 ## 화면 효과
 - `ui/effects/sting.png` (128×128, 투명): 화면 유리에 콕 박힌 침 — 가운데 짙은 침 끝, 바깥으로 뻗은 가는 흰/회색 금 6줄(곁가지 3), 글자 없는 작은 터짐 별. "콕!" 글자는 앱이 붙인다. `draw_pets.sting_effect()`가 만든다.
@@ -80,7 +84,7 @@
 python tools/draw_pets.py
 ```
 `ui/pets/<id>/{sheet_<stage>.png ×5, sheet.png, pet.json}`을 다시 만들고, 미리보기를 `tools/preview/`에 저장한다(커밋하지 않음):
-`all_light.png`·`all_dark.png` (teenager 전체 동작), `stages_<id>.png` (5단계 × walk·sit_front·wave·eat·sleep (+고양이·곰 climb, 꿀벌 sting), 오른쪽 열은 화면 표시 크기), `climb_<id>.png` (고양이·곰: 5단계 × climb·slide 모든 프레임), `sting_effect.png` (콕! 효과 밝은·어두운 바탕 + 꿀벌 sting). `ui/effects/sting.png`도 다시 만든다.
+`all_light.png`·`all_dark.png` (teenager 전체 동작), `stages_<id>.png` (5단계 × walk·sit_front·wave·eat·sleep (+고양이·곰 climb, 꿀벌 sting), 오른쪽 열은 화면 표시 크기), `climb_<id>.png` (고양이·곰: 5단계 × climb·slide 모든 프레임), `sting_effect.png` (콕! 효과 밝은·어두운 바탕 + 꿀벌 sting), `eat_with_props.png` (eat 프레임 + 진짜 소품). `ui/effects/sting.png`도 다시 만든다.
 뼈대가 다른 동물(꿀벌)은 `Species.poses`에 자기 포즈 함수를 넣는다 — 없는 동작은 공통 포즈를 쓴다. `Species.outline`으로 외곽선 색을 바꿀 수 있다 (짙은 갈색 곰은 몸보다 짙은 외곽선).
 구조: 엔진(슈퍼샘플 마스크·변환 스택) → 종별 설정(색·무늬 데이터) → 포즈(종 공통 뼈대) → 출력. 새 동물은 `Species` 설정 하나를 추가하면 모든 포즈가 그 무늬로 칠해진다. 성장 단계 비율은 공통 조립(`_side`/`_front`)과 머리 부품이 적용하므로 포즈마다 따로 손대지 않는다.
 
