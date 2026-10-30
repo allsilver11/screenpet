@@ -30,7 +30,7 @@ mod tcp;
 mod transport;
 
 pub use noise::SAS_EMOJI;
-pub use protocol::{Side, Visit, MAX_FRIENDS};
+pub use protocol::{Fling, Side, Visit, MAX_FRIENDS};
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};

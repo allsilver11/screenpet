@@ -114,6 +114,7 @@ fn sample_visit() -> Visit {
         enter_side: Side::Left,
         via: None,
         homesick_in: None,
+        fling: None,
     }
 }
 
@@ -616,7 +617,7 @@ fn visit_messages_round_trip() {
         Some(NetEvent::Received { from: "bbbb".into(), msg: Visit::leave(42) })
     );
     // 다른 친구에게 더 놀러 가는 손님
-    let hop = Visit::Leave { visit_id: 42, next: Some("cccc".into()), side: Some(Side::Right), homesick_in: Some(77.0) };
+    let hop = Visit::Leave { visit_id: 42, next: Some("cccc".into()), side: Some(Side::Right), homesick_in: Some(77.0), fling: None };
     p.b.send("aaaa", hop.clone());
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),

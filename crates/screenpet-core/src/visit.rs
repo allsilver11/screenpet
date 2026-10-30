@@ -103,6 +103,29 @@ pub fn exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>) -> f64 {
     }
 }
 
+/// 던진 동물이 친구 화면으로 넘어갈 때 이어 가는 움직임 (듀얼 모니터처럼).
+/// height = 넘어간 순간 발 높이 (그 작업 영역 위 0 … 아래 1), vx·vy = 논리 px/s (화면 배율과 무관)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fling {
+    pub height: f64,
+    pub vx: f64,
+    pub vy: f64,
+}
+
+/// 넘어가는 속도 상한 (논리 px/s) — 던진 속도 상한과 같다
+pub const MAX_FLING_SPEED: f64 = crate::physics::MAX_THROW_SPEED_LOGICAL;
+
+impl Fling {
+    /// 받은 값을 다듬는다: 숫자가 아니면 None, 높이는 0..=1, 속도는 MAX_FLING_SPEED까지
+    pub fn sanitized(self) -> Option<Fling> {
+        if !(self.height.is_finite() && self.vx.is_finite() && self.vy.is_finite()) {
+            return None;
+        }
+        let (vx, vy) = crate::physics::clamp_speed(self.vx, self.vy, MAX_FLING_SPEED);
+        Some(Fling { height: self.height.clamp(0.0, 1.0), vx, vy })
+    }
+}
+
 /// 손님 몸 배율: 주인이 보낸 값(sent)이 범위 안이면 그대로, 아니면(NaN 포함) 이쪽에서 계산한 값(local)을 범위 안으로
 pub fn guest_scale(sent: f64, local: f64) -> f64 {
     let (lo, hi) = GUEST_SCALE_RANGE;
@@ -192,6 +215,19 @@ mod tests {
         assert_eq!(guest_scale(0.01, 0.45), 0.45);
         // 이쪽 값도 범위 안으로
         assert_eq!(guest_scale(0.0, 9.0), GUEST_SCALE_RANGE.1);
+    }
+
+    #[test]
+    fn fling_is_sanitized() {
+        let f = Fling { height: 0.4, vx: 300.0, vy: -200.0 };
+        assert_eq!(f.sanitized(), Some(f));
+        assert_eq!(Fling { height: f64::NAN, ..f }.sanitized(), None);
+        assert_eq!(Fling { vx: f64::INFINITY, ..f }.sanitized(), None);
+        assert_eq!(Fling { height: -3.0, ..f }.sanitized().unwrap().height, 0.0);
+        assert_eq!(Fling { height: 7.0, ..f }.sanitized().unwrap().height, 1.0);
+        let fast = Fling { height: 0.5, vx: 30000.0, vy: 40000.0 }.sanitized().unwrap();
+        assert!((fast.vx.hypot(fast.vy) - MAX_FLING_SPEED).abs() < 1e-6);
+        assert!((fast.vx / fast.vy - 0.75).abs() < 1e-9, "direction kept");
     }
 
     #[test]

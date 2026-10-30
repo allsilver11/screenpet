@@ -480,10 +480,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             }
         }
         for (i, side) in left.into_iter().rev() {
-            let slot = slots.remove(i);
+            let mut slot = slots.remove(i);
+            // 던져서 넘어갔으면 그 움직임 (주인 화면이나 다음 친구 화면으로 날아간다)
+            let fling = slot.pet.take_fling();
             if let Role::Guest(g) = &slot.role {
                 eprintln!("guest {} ({}) left", g.visit_id, g.owner_id);
-                network.guest_left(&config, g, side, slot.pet.guest());
+                network.guest_left(&config, g, side, slot.pet.guest(), fling);
             }
             slots::close(&app, slot);
         }

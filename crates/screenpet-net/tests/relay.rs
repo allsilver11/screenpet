@@ -110,6 +110,7 @@ fn visit(id: u64) -> Visit {
         enter_side: Side::Left,
         via: None,
         homesick_in: None,
+        fling: None,
     }
 }
 

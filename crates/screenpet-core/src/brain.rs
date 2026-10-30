@@ -384,6 +384,8 @@ pub struct Pet {
     guest: Option<Guest>,
     /// 트레이 "놀러 보내기"로 친구가 연결된 끝으로 가는 중 (brain_send.rs)
     send: Option<send_moves::SendTrip>,
+    /// 던져서 친구 화면으로 넘어간 움직임 (take_fling으로 한 번 꺼낸다, brain_fling.rs)
+    fling: Option<visit::Fling>,
     /// 들려 있거나 공중일 때 "집에 와"를 받음 — 놓여서 내려서면 손 흔든다
     farewell_pending: bool,
     /// 화면을 떠난 쪽 (take_exit로 한 번 꺼낸다)
@@ -467,6 +469,7 @@ impl Pet {
             exit_edges: ExitEdges::default(),
             guest: None,
             send: None,
+            fling: None,
             farewell_pending: false,
             exited: None,
             inside: None,
@@ -2105,6 +2108,11 @@ impl Pet {
             self.update_air_inside(dt, world, stay);
             return;
         }
+        // 던져서 친구가 연결된 화면 끝에 닿으면 튕기지 않고 넘어간다 (brain_fling.rs)
+        let (half_w, b) = (self.cfg.half_w, world.bounds);
+        if self.fling_out(world, self.body.x + self.body.vx * dt, b.left + half_w, b.right - half_w) {
+            return;
+        }
         let (prev_x, prev_y, prev_vx) = (self.body.x, self.body.y, self.body.vx);
         let g = self.air_gravity();
         step_air(&mut self.body, dt, &world.bounds, self.cfg.half_w, self.cfg.size, g);
@@ -2643,6 +2651,14 @@ pub(crate) mod send_moves;
 #[cfg(test)]
 #[path = "brain_send_tests.rs"]
 mod send_tests;
+
+/// 던져서 친구 화면으로 넘어가기 (듀얼 모니터처럼)
+#[path = "brain_fling.rs"]
+mod fling_moves;
+
+#[cfg(test)]
+#[path = "brain_fling_tests.rs"]
+mod fling_tests;
 
 #[cfg(test)]
 #[path = "brain_hop_tests.rs"]
