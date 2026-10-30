@@ -2,7 +2,7 @@
 // 동물이 집 안에 있는 동안(house-state.housed) 문간 애니메이션은 여기서 정한다:
 // 대개 sit_front, 가끔(20–40초마다) 10–20초 sleep, 집을 누르면 2초 wave.
 // 먹기·성장 축하·갸웃·하트는 백엔드(pet-render)가 정한 대로 보인다.
-// 집은 동물의 단계에 맞는 그림(house/house_<stage>.png, 나는 동물은 house/hive_<stage>.png)을
+// 집은 동물의 단계에 맞는 그림(house/<kind>_<stage>.png — pet.json house: 보통 house, 꿀벌 hive, 호박·유령 haunted)을
 // 128 × HOUSE_SCALE[stage] 크기로 창 오른쪽 아래에 그린다 (창 크기는 src-tauri/src/house.rs가 같은 배율로 맞춘다).
 const { invoke } = window.__TAURI__.core;
 // 전역 event.listen은 손님 창 앞으로 보낸 pet-render까지 받는다 — 이 창 앞으로 온 것만 듣는다
@@ -34,7 +34,7 @@ const FEET_PAD_RATIO = 0.1;
 // 문턱 뒤로 발을 숨기는 깊이 (그림 px, tools/draw_house.py SILL_HIDE와 같은 6)
 const SILL_HIDE = 6;
 
-// 지금 그림 이름 (house_<stage> | hive_<stage>)과 그 문 사각형 (그림 좌표)
+// 지금 그림 이름 (house_<stage> | hive_<stage> | haunted_<stage>)과 그 문 사각형 (그림 좌표)
 let art = null;
 let door = { x: 30, y: 60, w: 52, h: 62 };
 let house = { pet: null, stage: "teenager", scale: 1, hungry: false, housed: false };
@@ -58,10 +58,20 @@ function houseScale() {
   return HOUSE_SCALE[house.stage] ?? 1;
 }
 
-// 꿀벌(pet.json에 sting이 있는 동물)은 벌통에 산다 — 유령처럼 날기만 하는 동물은 보통 집. pet.json이 아직 없으면 id로
+// 집 종류를 고르는 기준 (src-tauri/src/house.rs house_kind, core manifest house_kind와 같다)
+const HOUSE_KINDS = new Set(["house", "hive", "haunted"]);
+const FALLBACK_KIND = { bee: "hive", pumpkin: "haunted", ghost: "haunted" };
+
+// pet.json house가 있으면 그 집, 없으면 sting이 있는 동물(꿀벌)은 벌통 (예전 pet.json), 나머지는 보통 집.
+// pet.json이 아직 없으면 id로
+function houseKind(m) {
+  if (!m) return FALLBACK_KIND[house.pet] ?? "house";
+  if (HOUSE_KINDS.has(m.house)) return m.house;
+  return m.animations?.sting ? "hive" : "house";
+}
+
 function artName(m) {
-  const hive = m ? !!m.animations?.sting : house.pet === "bee";
-  return `${hive ? "hive" : "house"}_${house.stage}`;
+  return `${houseKind(m)}_${house.stage}`;
 }
 
 // 집 그림·앞 레이어·문간을 지금 단계 크기로 놓는다 (집은 창 오른쪽 아래에 붙는다)

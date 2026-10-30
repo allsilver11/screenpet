@@ -27,6 +27,29 @@ pub enum Locomotion {
     Hop,
 }
 
+/// 사는 집 그림 (pet.json `house`, 없으면 sting이 있는 꿀벌은 벌통·나머지는 보통 집)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HouseKind {
+    /// 보통 집 (ui/house/house_<stage>)
+    House,
+    /// 꿀벌 벌통 (ui/house/hive_<stage>)
+    Hive,
+    /// 호박·유령의 귀신의 집 (ui/house/haunted_<stage>)
+    Haunted,
+}
+
+impl HouseKind {
+    /// 그림 이름 앞부분 (ui/house/<art>_<stage>.png)
+    pub fn art(self) -> &'static str {
+        match self {
+            HouseKind::House => "house",
+            HouseKind::Hive => "hive",
+            HouseKind::Haunted => "haunted",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnimSpec {
     pub row: u32,
@@ -74,6 +97,9 @@ pub struct PetManifest {
     /// 걷는 동물이 걷기·달리기 토막 중 깡총거리는 몫 0~1 (토끼 0.5, 없으면 0 — 개구리는 locomotion hop이라 늘 폴짝)
     #[serde(default)]
     pub hop_share: f64,
+    /// 사는 집 (없으면 house_kind()가 sting으로 정한다)
+    #[serde(default)]
+    pub house: Option<HouseKind>,
 }
 
 pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
@@ -132,6 +158,11 @@ impl PetManifest {
     /// 괴롭히면 화면을 쏜다 (pet.json에 sting이 있는 꿀벌)
     pub fn can_sting(&self) -> bool {
         self.has_anim("sting")
+    }
+
+    /// 사는 집 그림: pet.json `house`, 없으면 sting이 있는 동물(꿀벌)은 벌통 (예전 pet.json 호환), 나머지는 보통 집
+    pub fn house_kind(&self) -> HouseKind {
+        self.house.unwrap_or(if self.can_sting() { HouseKind::Hive } else { HouseKind::House })
     }
 
     /// 이 동물의 단계별 크기 배율 (care::Stage::scale에 곱한다)
@@ -384,6 +415,34 @@ mod tests {
             let m = parse_manifest(&json).unwrap();
             check_ghost(&m);
             assert!(m.favorite_food.is_some());
+        }
+    }
+
+    #[test]
+    fn house_kind_defaults_to_normal_or_hive_for_stingers_and_parses_field() {
+        assert_eq!(parse_manifest(&full_json()).unwrap().house_kind(), HouseKind::House);
+        let with = |v: &str| full_json().replace(r#""walk_speed": 60,"#, &format!(r#""walk_speed": 60, "house": "{v}","#));
+        assert_eq!(parse_manifest(&with("hive")).unwrap().house_kind(), HouseKind::Hive);
+        assert_eq!(parse_manifest(&with("haunted")).unwrap().house_kind(), HouseKind::Haunted);
+        assert_eq!(parse_manifest(&with("house")).unwrap().house_kind(), HouseKind::House);
+        assert!(parse_manifest(&with("castle")).is_err());
+        // 예전 pet.json (house 없음): sting이 있으면 벌통
+        let stinger = full_json().replace(r#""animations": {"#, r#""animations": {"sting": {"row": 21, "frames": 3, "fps": 8},"#);
+        assert_eq!(parse_manifest(&stinger).unwrap().house_kind(), HouseKind::Hive);
+        // 적힌 값이 sting보다 먼저
+        let haunted_stinger = stinger.replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "house": "haunted","#);
+        assert_eq!(parse_manifest(&haunted_stinger).unwrap().house_kind(), HouseKind::Haunted);
+        assert_eq!((HouseKind::House.art(), HouseKind::Hive.art(), HouseKind::Haunted.art()), ("house", "hive", "haunted"));
+    }
+
+    /// 번들 pet.json: 꿀벌은 벌통, 호박·유령은 귀신의 집, 나머지는 보통 집
+    #[test]
+    fn bundled_pets_pick_their_house() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        for (id, kind) in [("bee", HouseKind::Hive), ("pumpkin", HouseKind::Haunted), ("ghost", HouseKind::Haunted), ("cat", HouseKind::House)] {
+            if let Ok(json) = std::fs::read_to_string(dir.join(id).join("pet.json")) {
+                assert_eq!(parse_manifest(&json).unwrap().house_kind(), kind, "{id}");
+            }
         }
     }
 

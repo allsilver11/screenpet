@@ -74,6 +74,9 @@ PERSONALITY = {"cat": "aloof", "bee": "friendly", "frog": "playful", "pumpkin": 
 # 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
 LOCOMOTION = {"bee": "fly", "frog": "hop", "ghost": "fly"}
 
+# 사는 집 그림 (pet.json house) — 보통 집은 적지 않는다. 앱 ui/house/<house>_<stage>.png
+HOUSE = {"bee": "hive", "pumpkin": "haunted", "ghost": "haunted"}
+
 # 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (개구리는 locomotion hop이라 늘 폴짝)
 HOP_SHARE = {"rabbit": 0.5, "pumpkin": 1.0}
 

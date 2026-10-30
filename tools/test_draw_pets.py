@@ -118,6 +118,17 @@ def test_rabbit_manifest_keeps_hop_share():
     assert bundled["hop_share"] == 0.5 and "locomotion" not in bundled
 
 
+def test_manifest_house_kind():
+    """꿀벌은 벌통, 호박·유령은 귀신의 집 (pet.json house) — 다시 그려도 칸이 남고, 들어 있는 pet.json과 같다. 보통 집은 적지 않는다."""
+    import json
+    want = {"bee": "hive", "pumpkin": "haunted", "ghost": "haunted"}
+    pets = Path(__file__).resolve().parent.parent / "ui" / "pets"
+    for d in sorted(p for p in pets.iterdir() if (p / "pet.json").is_file()):
+        assert draw_pets.species_fields(d.name, {}).get("house") == want.get(d.name), d.name
+        bundled = json.loads((d / "pet.json").read_text(encoding="utf-8"))
+        assert bundled.get("house") == want.get(d.name), d.name
+
+
 def test_baby_head_is_relatively_bigger_than_adult(tmp_path):
     draw_pets.build(tmp_path)
     row = [a for a, *_ in ANIMS].index("sit_front")

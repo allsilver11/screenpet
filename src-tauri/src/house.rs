@@ -3,6 +3,7 @@
 
 use screenpet_core::config::{clamp_house_left, HouseSpot};
 use screenpet_core::geom::Rect;
+use screenpet_core::manifest::HouseKind;
 use screenpet_core::platform::default_source;
 use screenpet_core::surfaces::Owner;
 use serde::{Deserialize, Serialize};
@@ -36,11 +37,20 @@ pub fn house_scale(stage: &str) -> f64 {
     }
 }
 
-/// 꿀벌(pet.json에 sting이 있는 동물)은 벌통에 산다 (ui/house.js와 같은 기준). 유령처럼 날기만 하는 동물은 보통 집.
-/// 번들에 없는 id면 꿀벌만
-pub fn is_hive(app: &AppHandle, pet: &str) -> bool {
-    let bee = app.try_state::<AppState>().and_then(|s| s.pets.iter().find(|p| p.id == pet).map(|p| p.manifest.can_sting()));
-    bee.unwrap_or(pet == "bee")
+/// 이 동물이 사는 집 그림 — pet.json `house` (없으면 sting이 있는 꿀벌은 벌통, 나머지는 보통 집; ui/house.js와 같은 기준).
+/// 번들에 없는 id면 id로: 꿀벌은 벌통, 호박·유령은 귀신의 집
+pub fn house_kind(app: &AppHandle, pet: &str) -> HouseKind {
+    let kind = app.try_state::<AppState>().and_then(|s| s.pets.iter().find(|p| p.id == pet).map(|p| p.manifest.house_kind()));
+    kind.unwrap_or_else(|| fallback_kind(pet))
+}
+
+/// pet.json을 못 읽었을 때 id로 고른 집
+fn fallback_kind(pet: &str) -> HouseKind {
+    match pet {
+        "bee" => HouseKind::Hive,
+        "pumpkin" | "ghost" => HouseKind::Haunted,
+        _ => HouseKind::House,
+    }
 }
 
 /// 집 그림 한 변 (논리 px)
@@ -54,7 +64,7 @@ pub fn window_size(stage: &str) -> (f64, f64) {
     (side.max(MIN_WIDTH), side + BUBBLE_SPACE)
 }
 
-/// 집 그림(128×128) 안의 문 사각형 (그림 좌표) — ui/house/<house|hive>_<stage>.json `door` {x, y, w, h}.
+/// 집 그림(128×128) 안의 문 사각형 (그림 좌표) — ui/house/<house|hive|haunted>_<stage>.json `door` {x, y, w, h}.
 /// 앱은 문 가운데 x만 쓴다 (문간 그리기는 house.js가 json을 직접 읽는다).
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Door {
@@ -67,8 +77,8 @@ struct HouseJson {
     door: Door,
 }
 
-/// 단계별 집·벌통 그림의 문 (tools/draw_house.py가 만든다)
-const DOOR_JSON: [(&str, &str, &str); 10] = [
+/// 단계별 집·벌통·귀신의 집 그림의 문 (tools/draw_house.py가 만든다)
+const DOOR_JSON: [(&str, &str, &str); 15] = [
     ("house", "baby", include_str!("../../ui/house/house_baby.json")),
     ("house", "kinder", include_str!("../../ui/house/house_kinder.json")),
     ("house", "child", include_str!("../../ui/house/house_child.json")),
@@ -79,13 +89,18 @@ const DOOR_JSON: [(&str, &str, &str); 10] = [
     ("hive", "child", include_str!("../../ui/house/hive_child.json")),
     ("hive", "teenager", include_str!("../../ui/house/hive_teenager.json")),
     ("hive", "adult", include_str!("../../ui/house/hive_adult.json")),
+    ("haunted", "baby", include_str!("../../ui/house/haunted_baby.json")),
+    ("haunted", "kinder", include_str!("../../ui/house/haunted_kinder.json")),
+    ("haunted", "child", include_str!("../../ui/house/haunted_child.json")),
+    ("haunted", "teenager", include_str!("../../ui/house/haunted_teenager.json")),
+    ("haunted", "adult", include_str!("../../ui/house/haunted_adult.json")),
 ];
 
 /// json이 깨졌을 때 쓰는 문 (teenager 집의 문)
 const DEFAULT_DOOR: Door = Door { x: 30.0, w: 52.0 };
 
-pub fn door(hive: bool, stage: &str) -> Door {
-    let kind = if hive { "hive" } else { "house" };
+pub fn door(kind: HouseKind, stage: &str) -> Door {
+    let kind = kind.art();
     DOOR_JSON
         .iter()
         .find(|(k, s, _)| *k == kind && *s == stage)
@@ -160,7 +175,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         let now = shown(&handle);
         let changed = {
             let mut last = last.lock().unwrap();
-            let changed = (is_hive(&handle, &now.0), now.1) != (is_hive(&handle, &last.0), last.1);
+            let changed = (house_kind(&handle, &now.0), now.1) != (house_kind(&handle, &last.0), last.1);
             *last = now;
             changed
         };
@@ -240,7 +255,7 @@ pub fn spot(app: &AppHandle, work_areas: &[Rect], fallback_dpi: f64) -> Spot {
     let top = wa.bottom - height * dpi;
     // 집 그림은 창 오른쪽에 붙는다
     let house_left = left + (width - house_side(stage)) * dpi;
-    let d = door(is_hive(app, &pet), stage);
+    let d = door(house_kind(app, &pet), stage);
     Spot {
         window: (left.round() as i32, top.round() as i32),
         size: (width, height),

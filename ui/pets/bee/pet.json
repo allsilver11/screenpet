@@ -173,5 +173,6 @@
     "adult": 0.8
   },
   "personality": "friendly",
-  "locomotion": "fly"
+  "locomotion": "fly",
+  "house": "hive"
 }

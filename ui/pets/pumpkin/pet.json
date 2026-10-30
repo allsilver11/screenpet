@@ -167,5 +167,6 @@
     "adult": 0.9
   },
   "personality": "playful",
-  "hop_share": 1.0
+  "hop_share": 1.0,
+  "house": "haunted"
 }

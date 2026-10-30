@@ -69,8 +69,8 @@ def test_front_layer_transparent_inside_door(tmp_path):
     assert front.getpixel((door["x"] + door["w"] - 2, door["y"] + 1)) > 200
 
 
-# ---- 단계별 집 + 벌통 ----
-ARTS = [(kind, stage) for kind in ("house", "hive") for stage in STAGES]
+# ---- 단계별 집 + 벌통 + 귀신의 집 ----
+ARTS = [(kind, stage) for kind in ("house", "hive", "haunted") for stage in STAGES]
 
 
 @pytest.fixture(scope="module")
@@ -131,8 +131,9 @@ def test_pet_fills_door_like_teenager(built, kind, stage):
     teen = _door(built, "house", "teenager")
     teen_fill = draw_house.door_pet_size("teenager") / teen["w"]
     door = _door(built, kind, stage)
-    # 벌통 입구는 꿀벌 몸 폭(프레임 안 몸 폭 × 몸 배율 0.8, 고양이 대비)에 맞춘 작은 구멍
-    body = draw_house.HIVE_FILL[stage] if kind == "hive" else 1.0
+    # 벌통 입구는 꿀벌 몸 폭(프레임 안 몸 폭 × 몸 배율 0.8, 고양이 대비)에 맞춘 작은 구멍,
+    # 귀신의 집 문은 호박·유령 몸 폭(평균)에 맞춘다
+    body = {"hive": draw_house.HIVE_FILL, "haunted": draw_house.HAUNTED_FILL}.get(kind, {}).get(stage, 1.0)
     fill = draw_house.door_pet_size(stage) * body / door["w"]
     assert abs(fill / teen_fill - 1) < 0.04, (kind, stage, fill, teen_fill)
     assert abs(door["h"] / door["w"] - teen["h"] / teen["w"]) < 0.06
@@ -152,3 +153,47 @@ def test_baby_pet_in_door_is_clearly_visible(built):
     layer = draw_house.pet_in_door(pet, door, draw_house.door_pet_size("baby"))
     x0, y0, x1, y1 = layer.getchannel("A").getbbox()
     assert (x1 - x0) >= 0.9 * door["w"] and (y1 - y0) >= 0.6 * door["h"]
+
+
+def _body_width(pet_id, stage):
+    """sit_front 첫 프레임의 몸 폭 (프레임 px) × 몸 배율."""
+    frame = draw_house.sit_frame(pet_id, stage)
+    x0, _, x1, _ = frame.getchannel("A").getbbox()
+    return (x1 - x0) * draw_house.body_scale(pet_id, stage)
+
+
+def test_kinds_include_haunted():
+    assert draw_house.KINDS == ("house", "hive", "haunted")
+    assert set(draw_house.DOORS) == set(draw_house.KINDS)
+
+
+@pytest.mark.parametrize("pet", ["pumpkin", "ghost"])
+@pytest.mark.parametrize("stage", STAGES)
+def test_haunted_door_fits_pumpkin_and_ghost(built, pet, stage):
+    """실제 시트로 잰 호박·유령 몸 폭이 귀신의 집 문을 teenager 집의 고양이처럼 (±12 %) 채운다."""
+    if draw_house.sit_frame(pet, stage) is None:
+        pytest.skip(f"no {pet} sheet")
+    teen = _door(built, "house", "teenager")
+    teen_fill = draw_house.door_pet_size("teenager") * _body_width("cat", "teenager") / teen["w"]
+    door = _door(built, "haunted", stage)
+    fill = draw_house.door_pet_size(stage) * _body_width(pet, stage) / door["w"]
+    # 고양이 몸 폭은 단계마다 조금 달라 고양이 자신도 기준 단계와 비교한다
+    cat_fill = draw_house.door_pet_size(stage) * _body_width("cat", stage) / _door(built, "house", stage)["w"]
+    assert abs(fill / cat_fill - 1) < 0.12, (pet, stage, fill, cat_fill, teen_fill)
+
+
+def test_haunted_house_is_purple_with_warm_glow(built):
+    """귀신의 집: 보라·회청 벽이 많고, 따뜻한 주황 불빛(다락 창·잭오랜턴)이 있다 — 무섭지 않게 파스텔."""
+    for stage in STAGES:
+        art = Image.open(built / f"haunted_{stage}.png").convert("RGBA")
+        px = [tuple(art.getpixel((x, y))) for y in range(FRAME) for x in range(FRAME) if art.getpixel((x, y))[3] == 255]
+        purple = sum(1 for r, g, b, _ in px if b > g + 15 and b >= r - 10 and r + g + b > 300)
+        warm = sum(1 for r, g, b, _ in px if r > 230 and 120 < g < 225 and b < 140)
+        assert purple > 0.25 * len(px), (stage, purple, len(px))
+        assert warm > 40, (stage, warm)
+
+
+def test_haunted_art_grows_with_stage(built):
+    """아기 오두막은 작고 어른 집은 더 크다 (그림 안 불투명 넓이)."""
+    areas = [sum(1 for a in Image.open(built / f"haunted_{s}.png").getchannel("A").tobytes() if a > 128) for s in STAGES]
+    assert areas[0] < areas[2] < areas[4], areas

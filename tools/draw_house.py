@@ -1,8 +1,10 @@
-"""카와이 펫 집 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 128px 집, 단계마다 하나씩 + 꿀벌 벌통.
+"""카와이 펫 집 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 128px 집, 단계마다 하나씩
++ 꿀벌 벌통 + 호박·유령의 귀신의 집 (pet.json "house").
 
-    python tools/draw_house.py  → ui/house/{house,hive}_<stage>{.png,_front.png,.json}
+    python tools/draw_house.py  → ui/house/{house,hive,haunted}_<stage>{.png,_front.png,.json}
                                   + ui/house/{house.png, house_front.png, house.json} (teenager 집 별칭)
                                   + tools/preview/house.png (teenager 집), tools/preview/houses.png (모든 단계 × 집·벌통)
+                                  + tools/preview/haunted.png (모든 단계 × 귀신의 집 + 호박·유령)
 
 앱의 겹치기 순서: <art>.png → 문 사각형(<art>.json "door")으로 잘라낸 펫 → <art>_front.png
 <art>_front.png는 펫 앞에 와야 하는 부분(문틀·아치 위 벽 모서리·문턱)만 담고, 문 안쪽은 투명하다.
@@ -28,6 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "ui" / "house"
 PREVIEW = ROOT / "tools" / "preview" / "house.png"
 PREVIEW_ALL = ROOT / "tools" / "preview" / "houses.png"
+PREVIEW_HAUNTED = ROOT / "tools" / "preview" / "haunted.png"
 
 # 단계별 하우스 창 배율 (src-tauri/src/house.rs house_scale, ui/house.js HOUSE_SCALE와 같다)
 HOUSE_SCALE = {"baby": 0.55, "kinder": 0.68, "child": 0.82, "teenager": 1.0, "adult": 1.12}
@@ -36,7 +39,7 @@ DOOR_PET = (52 - 2) / 0.7
 # 문간 펫 발 숨김: 문 바닥 아래로 SILL_HIDE + 스프라이트 × FEET_PAD (ui/house.js와 같다)
 SILL_HIDE = 6
 FEET_PAD = 0.1
-KINDS = ("house", "hive")
+KINDS = ("house", "hive", "haunted")
 
 # ---- 색 ----
 WALL = (255, 238, 212)
@@ -74,6 +77,24 @@ HONEY = (247, 178, 52)
 HONEY_DARK = mix(HONEY, LINE, 0.3)
 HONEY_LIGHT = mix(HONEY, WHITE, 0.45)
 HIVE_INSIDE = (102, 68, 46)
+# 귀신의 집 — 무섭지 않은 파스텔 보라·회청 + 따뜻한 주황 불빛
+H_WALL = (184, 168, 222)
+H_TURRET = (156, 172, 214)
+H_ROOF = (118, 98, 166)
+H_WOOD = (176, 128, 104)
+H_WOOD_LIGHT = mix(H_WOOD, WHITE, 0.3)
+H_INSIDE = (66, 52, 84)
+H_INSIDE_FLOOR = (92, 72, 102)
+H_BRICK = (164, 134, 160)
+GLOW = (255, 186, 84)
+GLOW_CORE = (255, 234, 150)
+NIGHT_GLASS = (104, 112, 160)
+WEB = (244, 242, 252)
+PUMPKIN = (250, 150, 56)
+PUMPKIN_DARK = mix(PUMPKIN, LINE, 0.3)
+LEAF = (126, 172, 96)
+BAT = (96, 80, 118)
+H_GRASS = (146, 190, 136)
 
 FLOOR = 122  # 모든 문의 바닥 (= 집 바닥)
 
@@ -95,6 +116,12 @@ DOORS = {
               "adult": _door(46, *DOOR_SIZE["adult"])},
     "hive": {s: _door(64, *HIVE_DOOR_SIZE[s]) for s in STAGES},
 }
+# 호박(몸 배율 0.9)·유령(0.85)도 고양이보다 좁아서, 같은 방법으로 잰 두 몸 폭의 평균 — 단계별
+# 호박 0.60 / 0.68 / 0.75 / 0.84 / 0.82, 유령 0.58 / 0.63 / 0.66 / 0.71 / 0.71
+HAUNTED_FILL = {"baby": 0.59, "kinder": 0.65, "child": 0.71, "teenager": 0.78, "adult": 0.76}
+HAUNTED_DOOR_SIZE = {s: (round(w * HAUNTED_FILL[s]), round(w * HAUNTED_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
+HAUNTED_DOOR_X = {"baby": 56, "kinder": 46, "child": 46, "teenager": 44, "adult": 44}
+DOORS["haunted"] = {s: _door(HAUNTED_DOOR_X[s], *HAUNTED_DOOR_SIZE[s]) for s in STAGES}
 DOOR = DOORS["house"]["teenager"]
 
 
@@ -483,12 +510,267 @@ def draw_hive(stage):
     return img, opening, sill
 
 
+# =====================================================================
+# 귀신의 집 — 호박·유령의 집 (pet.json "house": "haunted"). 무섭지 않게: 삐뚤빼뚤 파스텔 보라 벽, 살짝 휜 지붕,
+# 주황 불빛 다락 창, 금 간 창 속 작은 유령, 잭오랜턴, 거미줄 몇 가닥, 아치 나무 문
+# =====================================================================
+def faded(mask, k):
+    """마스크를 k배로 옅게 (은은한 불빛 번짐)."""
+    return mask.point(lambda v: int(v * k))
+
+
+def crooked_wall(img, x0, x1, top, lean=2.5, color=H_WALL):
+    """살짝 기운 판자 벽 (오른쪽이 조금 높고 바깥으로 기운다) + 기운 판자 줄 + 덧댄 헝겊 조각. 벽 마스크를 돌려준다."""
+    planks = [L([(x0 - 2, y + 1.2), (x1 + 4, y - 1.2)], 1.0) for y in range(int(top) + 12, 124, 11)]
+    px, py = x0 + (x1 - x0) * 0.2, top + (124 - top) * 0.55
+    patch = rrect(px - 4, py - 3.5, px + 4, py + 3.5, 1.5)
+    stitches = [L([(px - 4.5, py - 1.5), (px - 2.5, py - 1.5)], 0.8), L([(px + 2.5, py + 1.5), (px + 4.5, py + 1.5)], 0.8)]
+    m = blob(img, [T((x0, 124), (x0 + lean * 0.4, top + 1.5), (x1 + lean, top - 1.5), (x1, 124))], color, r=1.8,
+             marks=[(planks, mix(color, LINE, 0.16)), (patch, mix(color, WHITE, 0.3)), (stitches, mix(color, LINE, 0.4))])
+    return m
+
+
+def bent_roof(img, x0, x1, eave, top, lean, color=H_ROOF):
+    """살짝 휜 뾰족 지붕 (마녀 모자처럼 끝이 기울어 동그랗게 말린다) + 비늘 기와. 지붕 마스크를 돌려준다."""
+    cx = (x0 + x1) / 2
+    w = x1 - x0
+    tip = (cx + lean, top)
+    roof = [T((x0 - 3, eave + 5), (x0 - 3, eave - 1), (cx - w * 0.16, top + w * 0.16), tip,
+              (cx + w * 0.2, top + w * 0.2), (x1 + 3, eave - 3), (x1 + 3, eave + 3)),
+            L([tip, (tip[0] + 4, top - 0.5), (tip[0] + 7, top + 2.5), (tip[0] + 7.5, top + 6)], 3.6)]
+    tiles = []
+    for row, y in enumerate(range(int(eave) - 4, int(top) + 12, -10)):
+        off = 6 if row % 2 else 0
+        tiles += [E(x - 6 + off, y - 5, x + 6 + off, y + 5) for x in range(int(x0) + 4, int(x1), 12)]
+    rm = melt(shapes(roof), 2.6)
+    m = blob(img, roof, color, r=2.6,
+             marks=[([L([(x0, eave + 1.5), (x1, eave - 1.5)], 3.0)], mix(color, LINE, 0.35)),
+                    (tiles, mix(color, LINE, 0.22)),
+                    ([L([(cx - w * 0.12, top + w * 0.2), (cx - w * 0.02, top + w * 0.08)], 2.0)], mix(color, WHITE, 0.3))])
+    with view(scale=1.0, lift=1.2):
+        paint(img, aa(shapes(tiles)), color, clip=rm)
+    blob(img, [C(tip[0] + 7.5, top + 7.5, 2.2)], GLOW_CORE, r=0, line=0.7)  # 말린 끝에 달린 작은 방울
+    return m
+
+
+def crooked_chimney(img, x0, x1, top, bottom):
+    """기울어진 벽돌 굴뚝 + 보랏빛 연기 한 모금."""
+    blob(img, [T((x0, bottom), (x1, bottom), (x1 + 2, top + 5), (x0 + 2, top + 5))], H_BRICK, r=1.0,
+         marks=[([L([(x0, top + 12), (x1 + 2, top + 12)], 1.0), L([((x0 + x1) / 2 + 1.5, top + 5), ((x0 + x1) / 2 + 1.5, top + 12)], 1.0)],
+                 mix(H_BRICK, LINE, 0.3))])
+    blob(img, rrect(x0 - 1, top, x1 + 5, top + 6, 2.4), mix(H_BRICK, LINE, 0.15), r=0.8)
+    cx = (x0 + x1) / 2 + 2
+    blob(img, [C(cx, top - 4.5, 3.0), C(cx + 6, top - 7, 2.3), C(cx - 4.5, top - 3.5, 1.9)], (236, 230, 250), r=0.8,
+         line=0.75, line_color=mix(LINE, WHITE, 0.4))
+
+
+def glow_window(img, cx, cy, r, clip):
+    """주황 불빛 동그란 다락 창: 은은한 번짐 → 나무 테 → 따뜻한 유리 + 십자 창살."""
+    paint(img, faded(aa(shapes([C(cx, cy, r + 5)])), 0.35), GLOW, clip=clip)
+    blob(img, [C(cx, cy, r)], H_WOOD, r=0, line=0.9)
+    g = r * 0.72
+    blob(img, [C(cx, cy, g)], GLOW, r=0, line=0.6,
+         marks=[([C(cx - g * 0.2, cy - g * 0.15, g * 0.62)], GLOW_CORE),
+                ([L([(cx, cy - g), (cx, cy + g)], 1.3), L([(cx - g, cy), (cx + g, cy)], 1.3)], H_WOOD)])
+
+
+def mini_ghost(cx, cy, s):
+    """작은 유령 실루엣 (둥근 머리 + 물결 자락)."""
+    return [E(cx - 5 * s, cy - 6 * s, cx + 5 * s, cy + 4 * s), T((cx - 5 * s, cy - 1 * s), (cx + 5 * s, cy - 1 * s),
+            (cx + 5 * s, cy + 5 * s), (cx - 5 * s, cy + 5 * s)),
+            C(cx - 3.3 * s, cy + 5 * s, 1.75 * s), C(cx, cy + 5.4 * s, 1.75 * s), C(cx + 3.3 * s, cy + 5 * s, 1.75 * s)]
+
+
+def cracked_window(img, x0, y0, x1, y1, ghost=True, board=False):
+    """금 간 네모 창 (밤 유리) — 안에 손 흔드는 듯한 작은 유령 (+ 비스듬히 박은 판자 하나)."""
+    blob(img, rrect(x0 - 3.5, y0 - 3.5, x1 + 3.5, y1 + 3, 3), H_WOOD, r=0, line=0.9)
+    glass = blob(img, rrect(x0, y0, x1, y1, 2), NIGHT_GLASS, r=0, line=0.6,
+                 marks=[([E(x0 + 2, y0 + 2, x1 - 2, y1 + 6)], mix(NIGHT_GLASS, GLOW, 0.18))])
+    if ghost:
+        gx, gy, s = x0 + (x1 - x0) * 0.38, y0 + (y1 - y0) * 0.5, (x1 - x0) / 26
+        paint(img, aa(shapes(mini_ghost(gx, gy, s))), (246, 246, 255), clip=glass)
+        paint(img, aa(shapes([C(gx - 1.8 * s, gy - 1.6 * s, 0.9 * s), C(gx + 1.8 * s, gy - 1.6 * s, 0.9 * s)])), EYE, clip=glass)
+        paint(img, aa(shapes([E(gx - 3.6 * s, gy + 0.2 * s, gx - 2 * s, gy + 1.2 * s),
+                              E(gx + 2 * s, gy + 0.2 * s, gx + 3.6 * s, gy + 1.2 * s)])), PINK, clip=glass)
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    paint(img, aa(shapes([L([(mx, y0), (mx, y1)], 1.4), L([(x0, my), (x1, my)], 1.4)])), H_WOOD, clip=glass)
+    # 금: 오른쪽 위 구석에서 지그재그
+    crack = [(x1, y0 + 2), (x1 - 4, y0 + 5), (x1 - 3, y0 + 8), (x1 - 7, y0 + 11)]
+    paint(img, aa(shapes([L(crack, 0.9), L([(x1 - 4, y0 + 5), (x1 - 8, y0 + 4)], 0.8)])), WEB, clip=glass)
+    if board:
+        blob(img, [L([(x0 - 4, y1 - 2), (x0 + (x1 - x0) * 0.55, y1 + 4)], 3.6)], H_WOOD_LIGHT, r=0, line=0.8,
+             marks=[([C(x0 - 1.5, y1 - 0.6, 0.7), C(x0 + (x1 - x0) * 0.5, y1 + 2.8, 0.7)], LINE)])
+
+
+def jack_o_lantern(img, cx, base, r):
+    """웃는 잭오랜턴: 골이 진 통통한 호박 + 초록 꼭지·덩굴 + 노랗게 빛나는 세모 눈·지그재그 웃음."""
+    h = r * 1.55
+    top = base - h
+    blob(img, [L([(cx, top + 2), (cx + 1.2, top - 2.5)], 2.4)], (120, 120, 72), r=0, line=0.6)
+    blob(img, [E(cx + 1, top - 3, cx + 7, top + 1)], LEAF, r=0, line=0.6)
+    body = [E(cx - r, top, cx + r * 0.25, base), E(cx - r * 0.25, top, cx + r, base), E(cx - r * 0.6, top - 0.5, cx + r * 0.6, base + 0.3)]
+    blob(img, body, PUMPKIN, r=0.8, line=0.9,
+         marks=[([L([(cx - r * 0.35, top + 2), (cx - r * 0.45, base - 2)], 0.9),
+                  L([(cx + r * 0.35, top + 2), (cx + r * 0.45, base - 2)], 0.9)], PUMPKIN_DARK),
+                ([L([(cx - r * 0.7, top + h * 0.3), (cx - r * 0.55, top + h * 0.18)], 1.2)], mix(PUMPKIN, WHITE, 0.4))])
+    ey = top + h * 0.42
+    s = r / 9
+    eyes = [T((cx - 5.2 * s, ey + 2 * s), (cx - 1.6 * s, ey + 2 * s), (cx - 3.4 * s, ey - 1.8 * s)),
+            T((cx + 1.6 * s, ey + 2 * s), (cx + 5.2 * s, ey + 2 * s), (cx + 3.4 * s, ey - 1.8 * s))]
+    my = top + h * 0.68
+    mouth = [T((cx - 5.5 * s, my - 1.5 * s), (cx + 5.5 * s, my - 1.5 * s), (cx + 3.5 * s, my + 2.4 * s), (cx - 3.5 * s, my + 2.4 * s))]
+    paint(img, aa(grow(shapes(eyes + mouth), 0.6)), mix(PUMPKIN_DARK, LINE, 0.4))
+    paint(img, aa(shapes(eyes + mouth)), (255, 222, 110))
+    paint(img, aa(shapes([T((cx - 1.2 * s, my - 1.6 * s), (cx + 1.2 * s, my - 1.6 * s), (cx, my + 0.4 * s))])), PUMPKIN)  # 이빨
+
+
+def bat(img, cx, cy, s=1.0):
+    """파닥이는 아기 박쥐 (동그란 몸 + 물결 날개 + 하얀 눈)."""
+    wings = []
+    for d in (-1, 1):
+        wings.append(T((cx, cy - 1 * s), (cx + d * 5 * s, cy - 5 * s), (cx + d * 12 * s, cy - 7 * s),
+                       (cx + d * 11 * s, cy - 1 * s), (cx + d * 8.5 * s, cy + 0.5 * s), (cx + d * 7 * s, cy - 1 * s),
+                       (cx + d * 5 * s, cy + 2.5 * s), (cx, cy + 1.5 * s)))
+    body = [C(cx, cy, 3.4 * s), T((cx - 3 * s, cy - 1.5 * s), (cx - 2.4 * s, cy - 5.6 * s), (cx - 0.6 * s, cy - 2.6 * s)),
+            T((cx + 3 * s, cy - 1.5 * s), (cx + 2.4 * s, cy - 5.6 * s), (cx + 0.6 * s, cy - 2.6 * s))]
+    blob(img, wings + body, BAT, r=0, line=0.7)
+    paint(img, aa(shapes([C(cx - 1.3 * s, cy - 0.4 * s, 0.85 * s), C(cx + 1.3 * s, cy - 0.4 * s, 0.85 * s)])), WHITE)
+
+
+def cobweb(img, x, y, size, d, clip):
+    """구석 거미줄 (d=1: 왼쪽 위 구석에서 오른쪽 아래로, d=-1: 오른쪽 위 구석에서 왼쪽 아래로)."""
+    angles = [0, 30, 60, 90]
+    spokes = [[(x + d * size * k * math.cos(math.radians(a)), y + size * k * math.sin(math.radians(a))) for a in angles]
+              for k in (0.38, 0.68, 1.0)]
+    lines = [L([(x, y), p], 0.8) for p in spokes[-1]] + [L(ring, 0.7) for ring in spokes]
+    paint(img, aa(shapes(lines)), WEB, clip=clip)
+
+
+def haunted_grass(img, tufts):
+    blob(img, [f for t in tufts for f in t], H_GRASS, r=0.6, line=0.85)
+
+
+def haunted_door(img, d):
+    """아치 나무 문 (열린 문짝 + 나무 문틀) → 어두운 보랏빛 안쪽. 문 안쪽 마스크를 돌려준다."""
+    door_leaf(img, d, color=H_WOOD)
+    return doorway(img, d, frame=H_WOOD, frame_light=H_WOOD_LIGHT, inside=H_INSIDE, floor=H_INSIDE_FLOOR)
+
+
+def draw_haunted_baby():
+    """아기 귀신 오두막: 작은 기운 오두막 + 휜 지붕 + 불빛 다락 창 + 꼬마 잭오랜턴 + 박쥐 한 마리."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = DOORS["haunted"]["baby"]
+    with view(scale=1.0, lift=0):
+        wall = crooked_wall(img, 26, 100, 70)
+        roof = bent_roof(img, 20, 106, 74, 26, 8)
+        glow_window(img, 62, 56, 7, roof)
+        cobweb(img, 28, 78, 11, 1, wall)
+        opening = haunted_door(img, d)
+        sill = door_sill(img, d, color=H_WOOD_LIGHT)
+        jack_o_lantern(img, 86, 121, 7)
+        bat(img, 106, 26, 1.0)
+        haunted_grass(img, [tuft(14, 125, 7, -1), tuft(21, 126, 5.5), tuft(112, 125, 7, 1)])
+    return img, opening, sill
+
+
+def draw_haunted_kinder():
+    """꼬마 귀신의 집: 기운 굴뚝 + 다락 창 + 금 간 창 (박쥐가 날아다닌다)."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = DOORS["haunted"]["kinder"]
+    with view(scale=1.0, lift=0):
+        crooked_chimney(img, 88, 98, 28, 52)
+        wall = crooked_wall(img, 18, 108, 62)
+        roof = bent_roof(img, 10, 116, 66, 18, 9)
+        glow_window(img, 62, 48, 8, roof)
+        cracked_window(img, 80, 78, 102, 98, ghost=False)
+        cobweb(img, 20, 70, 13, 1, wall)
+        opening = haunted_door(img, d)
+        sill = door_sill(img, d, color=H_WOOD_LIGHT)
+        jack_o_lantern(img, 91, 121, 7.5)
+        bat(img, 22, 26, 1.15)
+        haunted_grass(img, [tuft(9, 125, 8, -1), tuft(116, 125, 8, 1), tuft(108, 126, 6)])
+    return img, opening, sill
+
+
+def draw_haunted_child():
+    """어린이 귀신의 집: 금 간 창 속 작은 유령 + 거미줄 두 구석."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = DOORS["haunted"]["child"]
+    with view(scale=1.0, lift=0):
+        crooked_chimney(img, 94, 104, 22, 48)
+        wall = crooked_wall(img, 14, 112, 56)
+        roof = bent_roof(img, 7, 119, 60, 14, 10)
+        glow_window(img, 62, 42, 9, roof)
+        cracked_window(img, 80, 70, 106, 94)
+        cobweb(img, 16, 64, 14, 1, wall)
+        cobweb(img, 114, 62, 11, -1, wall)
+        opening = haunted_door(img, d)
+        sill = door_sill(img, d, color=H_WOOD_LIGHT)
+        jack_o_lantern(img, 93, 121, 8)
+        bat(img, 20, 22, 1.2)
+        haunted_grass(img, [tuft(11, 125, 8, -1), tuft(117, 125, 8, 1), tuft(109, 126, 6.5)])
+    return img, opening, sill
+
+
+def draw_haunted_teenager():
+    """귀신의 집: 휜 지붕 + 굴뚝 + 불빛 다락 창 + 판자 박은 금 간 창 속 유령 + 잭오랜턴 + 박쥐 둘."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = DOORS["haunted"]["teenager"]
+    with view(scale=1.0, lift=0):
+        crooked_chimney(img, 94, 105, 18, 44)
+        wall = crooked_wall(img, 12, 114, 50)
+        roof = bent_roof(img, 7, 120, 56, 9, 11)
+        glow_window(img, 62, 37, 10, roof)
+        cracked_window(img, 80, 64, 108, 92, board=True)
+        cobweb(img, 14, 58, 16, 1, wall)
+        cobweb(img, 116, 56, 12, -1, wall)
+        opening = haunted_door(img, d)
+        sill = door_sill(img, d, color=H_WOOD_LIGHT)
+        jack_o_lantern(img, 94, 121, 9)
+        bat(img, 20, 18, 1.3)
+        bat(img, 108, 13, 0.9)
+        haunted_grass(img, [tuft(11, 125, 8, -1), tuft(117, 125, 8, 1), tuft(109, 126, 6.5)])
+    return img, opening, sill
+
+
+def draw_haunted_adult():
+    """어른 귀신의 집: 더 넓은 집 + 회청색 뾰족탑(금 간 창 속 유령) + 잭오랜턴 둘 + 박쥐 둘."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = DOORS["haunted"]["adult"]
+    with view(scale=1.0, lift=0):
+        crooked_chimney(img, 16, 26, 26, 50)
+        wall = crooked_wall(img, 8, 94, 54, lean=1.5)
+        roof = bent_roof(img, 8, 96, 60, 16, 8)
+        glow_window(img, 52, 41, 9, roof)
+        cobweb(img, 10, 62, 15, 1, wall)
+        # 뾰족탑 (오른쪽, 집 지붕 앞)
+        tower = crooked_wall(img, 88, 120, 38, lean=1.0, color=H_TURRET)
+        tower_roof = bent_roof(img, 84, 119, 42, 6, 6)
+        glow_window(img, 104, 28, 5.5, tower_roof)
+        cracked_window(img, 94, 56, 114, 78)
+        glow_window(img, 104, 96, 5.5, tower)
+        opening = haunted_door(img, d)
+        sill = door_sill(img, d, color=H_WOOD_LIGHT)
+        jack_o_lantern(img, 79, 121, 8.5)
+        jack_o_lantern(img, 112, 122, 6)
+        bat(img, 72, 12, 1.15)
+        bat(img, 15, 14, 1.0)
+        haunted_grass(img, [tuft(11, 125, 8, -1), tuft(118, 125, 7, 1), tuft(96, 126, 6)])
+    return img, opening, sill
+
+
+HAUNTED_DRAW = {"baby": draw_haunted_baby, "kinder": draw_haunted_kinder, "child": draw_haunted_child,
+                "teenager": draw_haunted_teenager, "adult": draw_haunted_adult}
+
+
 HOUSE_DRAW = {"baby": draw_house_baby, "kinder": draw_house_kinder, "child": draw_house_child,
               "teenager": draw_house_teenager, "adult": draw_house_adult}
 
 
 def draw(kind="house", stage="teenager"):
     """(슈퍼샘플 캔버스, 문 안쪽 마스크, 문턱 마스크)."""
+    if kind == "haunted":
+        return HAUNTED_DRAW[stage]()
     return HOUSE_DRAW[stage]() if kind == "house" else draw_hive(stage)
 
 
@@ -526,7 +808,7 @@ def pet_in_door(pet, door=DOOR, size=DOOR_PET):
 
 
 def build(out_dir=OUT_DIR):
-    """모든 단계의 집·벌통을 그려 저장한다. {(kind, stage): (그림, 앞 레이어)}를 돌려준다."""
+    """모든 단계의 집·벌통·귀신의 집을 그려 저장한다. {(kind, stage): (그림, 앞 레이어)}를 돌려준다."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     arts = {}
@@ -616,7 +898,7 @@ def preview_all(arts, path=PREVIEW_ALL):
         side = round(FRAME * HOUSE_SCALE[stage] * big)
         pets = {"house": (sit_frame("cat", stage), body_scale("cat", stage)),
                 "hive": (bee[stage], body_scale("bee", stage)) if bee[stage] else (bee_placeholder(), 0.8)}
-        for k, kind in enumerate(KINDS):
+        for k, kind in enumerate(("house", "hive")):
             art, front = arts[kind, stage]
             comp = art.copy()
             pet, body = pets[kind]
@@ -633,11 +915,39 @@ def preview_all(arts, path=PREVIEW_ALL):
     out.convert("RGB").save(path)
 
 
+def preview_haunted(arts, path=PREVIEW_HAUNTED):
+    """단계마다 앱 크기(128 × HOUSE_SCALE, 2배 확대)로 귀신의 집 + 호박 / + 유령. 아래 두 줄은 어두운 배경."""
+    big = 2
+    cell = round(FRAME * max(HOUSE_SCALE.values()) * big) + 12
+    pets = ("pumpkin", "ghost")
+    out = Image.new("RGBA", (16 + len(STAGES) * cell, 16 + 2 * len(pets) * cell), (200, 200, 200, 255))
+    for c, stage in enumerate(STAGES):
+        side = round(FRAME * HOUSE_SCALE[stage] * big)
+        art, front = arts["haunted", stage]
+        for k, pet_id in enumerate(pets):
+            comp = art.copy()
+            pet = sit_frame(pet_id, stage)
+            if pet is not None:
+                size = door_pet_size(stage, body_scale(pet_id, stage))
+                comp.alpha_composite(pet_in_door(pet, DOORS["haunted"][stage], size))
+            comp.alpha_composite(front)
+            comp = comp.resize((side, side), Image.LANCZOS)
+            for b, bg in enumerate([(255, 255, 255), (40, 44, 52)]):
+                tile = Image.new("RGBA", (side, side), bg + (255,))
+                tile.alpha_composite(comp)
+                x = 16 + c * cell + (cell - 12 - side) // 2
+                y = 16 + (b * len(pets) + k) * cell + (cell - 12 - side)
+                out.paste(tile, (x, y))
+    path.parent.mkdir(exist_ok=True)
+    out.convert("RGB").save(path)
+
+
 def main():
     arts = build()
     preview(arts)
     preview_all(arts)
-    print("ok: houses + hives")
+    preview_haunted(arts)
+    print("ok: houses + hives + haunted houses")
 
 
 if __name__ == "__main__":

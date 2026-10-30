@@ -26,7 +26,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, LOCOMOTION, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SPEECH, STAGE_SCALE,  # noqa: E402
+from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SPEECH, STAGE_SCALE,  # noqa: E402
                          STAGES, manifest)
 
 # =====================================================================
@@ -2030,13 +2030,15 @@ def write_sheet(sp, rendered, path):
 
 
 def species_fields(pid, m):
-    """종마다 다른 pet.json 칸(성격·움직임·깡총 몫)을 m에 더해 돌려준다."""
+    """종마다 다른 pet.json 칸(성격·움직임·깡총 몫·집)을 m에 더해 돌려준다."""
     if pid in PERSONALITY:
         m["personality"] = PERSONALITY[pid]
     if pid in LOCOMOTION:
         m["locomotion"] = LOCOMOTION[pid]
     if pid in HOP_SHARE:
         m["hop_share"] = HOP_SHARE[pid]
+    if pid in HOUSE:
+        m["house"] = HOUSE[pid]
     return m
 
 

@@ -166,5 +166,6 @@
     "adult": 0.85
   },
   "personality": "friendly",
-  "locomotion": "fly"
+  "locomotion": "fly",
+  "house": "haunted"
 }
