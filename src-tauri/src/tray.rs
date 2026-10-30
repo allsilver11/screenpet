@@ -37,6 +37,13 @@ const LETTER_PREFIX: &str = "net:letter:";
 /// "놀러 보내기 ▸" 목록 항목 (친구 하위 메뉴의 항목과 id가 겹치면 안 된다)
 const SEND_LIST_PREFIX: &str = "net:send-list:";
 const COME_HOME_ID: &str = "net:come-home";
+/// 🎮 조작 모드 체크 항목
+const CONTROL_ID: &str = "control";
+const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift, Esc로 끝)";
+/// 조작 모드를 켤 때 내 동물 머리 위에 잠깐 (키가 다른 창에도 들어간다는 것도)
+pub const CONTROL_HINT: &str = "🎮 ←→ 걷기 · Shift 달리기 · Space 점프 · ↓ 앉기 (방향키가 다른 창에도 입력돼요)";
+/// macOS: 키가 늘 안 눌림으로 읽힐 때 한 번
+pub const KEY_PERMISSION_HINT: &str = "키 입력 권한이 필요해요 (시스템 설정 → 개인정보 보호 → 입력 모니터링)";
 const SHOW_CODE_ID: &str = "net:show-code";
 const ENTER_CODE_ID: &str = "net:enter-code";
 
@@ -81,6 +88,8 @@ pub struct TrayMenu {
     pub lock: CheckMenuItem<Wry>,
     /// 하우스 들어가기 / 나오기 (글자가 바뀐다)
     pub house: MenuItem<Wry>,
+    /// 🎮 조작 모드 (게임 루프가 실제 상태로 다시 맞춘다 — Esc·3분 무입력으로 끝나면 체크가 풀린다)
+    pub control: CheckMenuItem<Wry>,
     /// 동물 고르기 항목 (항목, 동물 id)
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
     /// `친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
@@ -298,6 +307,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
     let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
     let house = MenuItem::with_id(app, "house", house_label(housed), true, None::<&str>)?;
+    // 방향키로 내 동물 움직이기 (친구 화면에 가 있어도). 키는 읽기만 해서 앞에 있는 창에도 그대로 입력된다 — 켤 때 말풍선으로 알린다
+    let control = CheckMenuItem::with_id(app, CONTROL_ID, CONTROL_LABEL, true, false, None::<&str>)?;
     let come_home = MenuItem::with_id(app, COME_HOME_ID, "집에 와", false, None::<&str>)?;
     // 게임 루프가 네트워크를 시작한 뒤 채운다
     let friends = Submenu::with_items(app, "친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
@@ -320,6 +331,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&house)?;
     menu.append(&come_home)?;
+    menu.append(&control)?;
     menu.append(&friends)?;
     menu.append(&toggle)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -347,6 +359,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "feedmode:auto" => send(app, Input::SetFeedMode(FeedMode::Auto)),
             "lock" => send(app, Input::ToggleLock),
             "house" => send(app, Input::ToggleHouse),
+            CONTROL_ID => send(app, Input::ToggleControl),
             "reset" => send(app, Input::ResetGrowth),
             other => {
                 let net = |input| send(app, Input::Net(input));
@@ -390,5 +403,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: fav, growth, lock, house, pets: pet_items, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: fav, growth, lock, house, control, pets: pet_items, friends, come_home, hand_mode, auto_mode })
 }

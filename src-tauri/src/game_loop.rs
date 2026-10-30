@@ -3,6 +3,7 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use screenpet_core::brain::control_moves::ControlInput;
 use screenpet_core::brain::Pet;
 use screenpet_core::care::{Care, FeedResult, Food, Stage};
 use screenpet_core::config::{self, Config};
@@ -31,6 +32,8 @@ const SAVE_EVERY: Duration = Duration::from_secs(60);
 const MAX_DT: f64 = 0.05;
 /// slots[OWN] = 내 동물 (항상 맨 앞), 그 뒤는 손님
 const OWN: usize = 0;
+/// macOS: 조작 모드를 켠 뒤 이만큼 동안 키가 한 번도 눌린 것으로 읽히지 않으면 입력 모니터링 권한 안내 (실행마다 한 번)
+const KEY_PERMISSION_HINT_AFTER: Duration = Duration::from_secs(12);
 /// 이 환경 변수가 있으면 시작할 때 번들 동물 하나를 손님으로 들인다 (네트워크 없이 여러 창 확인용)
 const DEBUG_GUEST_ENV: &str = "SCREENPET_DEBUG_GUEST";
 
@@ -46,6 +49,8 @@ pub enum Input {
     ResetGrowth,
     /// 하우스로 들어가기 / 나오기
     ToggleHouse,
+    /// 🎮 조작 모드 켜기 / 끄기 (트레이·우클릭 체크 항목)
+    ToggleControl,
     /// 하우스 창을 눌렀다 (배고프면 음식 고르기, 아니면 손 흔들기)
     HouseClick,
     /// 하우스를 끌어 옮겼다 (house.rs). save = 다 놓았음 — 새 자리를 설정에 적는다
@@ -216,6 +221,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut hand_win = HandWindow::default();
     // 한 화면의 동물끼리(내 동물 + 손님) 인사·술래 놀이
     let mut social = Social::new(seed_now());
+    // 🎮 조작 모드: 켜진 동안만 키를 읽는다 (읽기만 — 앞에 있는 창에도 그대로 간다)
+    let mut control_on = false;
+    // macOS 권한 안내: 켠 시각, 키를 한 번이라도 읽었는지, 이미 안내했는지
+    let mut control_since = Instant::now();
+    let mut saw_key = false;
+    let mut key_hint_shown = false;
 
     loop {
         while let Ok(input) = rx.try_recv() {
@@ -342,6 +353,20 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     sync_menu(&app, &own.entry, &care, config.housed);
                     save_config(&app, &mut config, &own.entry.id, &care);
                 }
+                Input::ToggleControl => {
+                    control_on = !control_on;
+                    let own = &mut slots[OWN];
+                    own.pet.set_control(control_on);
+                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춘다
+                    let _ = app.state::<AppState>().menu.control.set_checked(control_on);
+                    if control_on {
+                        control_since = Instant::now();
+                        saw_key = false;
+                        if own.on_screen() {
+                            let _ = app.emit_to(speech_target(&own.pet), "pet-say-text", crate::tray::CONTROL_HINT);
+                        }
+                    }
+                }
                 Input::HouseClick => {
                     if slots[OWN].pet.is_housed() {
                         if care.is_hungry() {
@@ -438,6 +463,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
 
         // 커서·간질이기·드래그는 커서 아래 맨 위 한 마리에게만
         let (cx, cy) = source.cursor();
+        // 이번 틱의 Esc가 직접 주기 거두기라면 조작 모드는 끝내지 않는다
+        let hand_active = hand.is_some();
         // 직접 주기: 음식이 커서를 따라가고, 내 동물 입에 닿으면 먹는다. 오른쪽 버튼·Esc·빈 곳 클릭·30초면 거둔다
         if let Some(h) = hand.as_mut() {
             let own = &mut slots[OWN];
@@ -477,6 +504,31 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 app.state::<AppState>().hand_feeding.store(false, Ordering::Relaxed);
             }
         }
+        // 🎮 조작 모드: 키를 내 동물에게 (친구 화면에 가 있으면 친구 링크로도). Esc(직접 주기 중이 아닐 때)·키 없이 3분이면 끝
+        let mut keys = ControlInput::default();
+        if control_on {
+            keys = source.control_keys();
+            saw_key |= keys.any();
+            let own = &mut slots[OWN];
+            if !hand_active && source.escape_down() {
+                own.pet.set_control(false);
+            } else {
+                own.pet.control_keys(keys, dt);
+            }
+            if !own.pet.is_controlled() {
+                control_on = false;
+                own.pet.take_control_ended();
+                keys = ControlInput::default();
+                let _ = app.state::<AppState>().menu.control.set_checked(false);
+            } else if cfg!(target_os = "macos") && !saw_key && !key_hint_shown && now - control_since >= KEY_PERMISSION_HINT_AFTER {
+                // 입력 모니터링 권한이 없으면 다른 앱이 앞에 있을 때 키가 늘 안 눌림으로 읽힌다
+                key_hint_shown = true;
+                if own.on_screen() {
+                    let _ = app.emit_to(speech_target(&own.pet), "pet-say-text", crate::tray::KEY_PERMISSION_HINT);
+                }
+            }
+        }
+        network.steer(now, control_on, keys);
         let held = slots.iter().position(|s| s.pet.is_held());
         let hovered = if held.is_some() { None } else { slots::hover_target(&slots, cx, cy) };
         for (i, s) in slots.iter_mut().enumerate() {

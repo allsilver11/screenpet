@@ -13,6 +13,7 @@ const favBtn = document.getElementById("fav");
 const nametagEl = document.getElementById("nametag");
 const stageEl = document.getElementById("stage");
 const envelopeEl = document.getElementById("envelope");
+const ctltagEl = document.getElementById("ctltag");
 
 let manifest = null;
 let display = 128;
@@ -131,6 +132,8 @@ const listeningRender = listen("pet-render", (e) => {
   // poof가 아닌 모습이 오면(취소돼 남음·돌아옴) 바로 다시 보인다. 사라진 뒤(Away)엔 백엔드가 poof를 켜 둔다
   else if (!e.payload.poof) petEl.classList.remove("poof");
   render = e.payload;
+  // 조작 모드 중이면 머리 위에 🎮
+  ctltagEl.hidden = !render.ctl;
 });
 
 // 손님이면 머리 위 띠에 "🏠 <주인>" — 처음 왔을 때 10초, 그 뒤엔 누를 때마다 5초 (말풍선이 뜨는 동안은 가려진다 — style.css)

@@ -16,11 +16,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use screenpet_core::behavior::Personality;
+use screenpet_core::brain::control_moves::ControlInput;
 use screenpet_core::brain::State;
 use screenpet_core::care::Stage;
 use screenpet_core::config::{Config, MAX_NAME_CHARS};
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
-use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, MAX_FRIENDS};
+use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Steer, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, MAX_FRIENDS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
@@ -48,6 +49,8 @@ const QUICK_DECLINE: Duration = Duration::from_secs(3);
 const FULL_FOR: Duration = Duration::from_secs(60);
 /// 거절 로그는 친구마다 이 간격에 한 번만
 const DECLINE_LOG_EVERY: Duration = Duration::from_secs(5);
+/// 조작 모드: 친구 화면에 가 있는 내 동물에게 키를 누르고 있는 동안 이 간격으로 다시 보낸다 (받는 쪽은 1초 소식이 없으면 키를 놓는다)
+const STEER_KEEPALIVE: Duration = Duration::from_millis(200);
 /// 표시 이름이 없을 때
 const DEFAULT_NAME: &str = "친구";
 /// 친구 코드 입력 창 라벨
@@ -278,6 +281,8 @@ pub struct Network {
     relay_connected: bool,
     /// 내 친구 코드 (중계 서버가 준 것, 24시간마다 바뀐다)
     friend_code: Option<String>,
+    /// 조작 모드: 마지막으로 친구 화면의 내 동물에게 보낸 키 (visit_id, 켜짐, 키 비트, 보낸 시각)
+    last_steer: Option<(u64, bool, u8, Instant)>,
 }
 
 /// 중계 서버 주소와 고정할 공개키. 기본값은 배포된 서버 주소 + 그 공개키(다른 키를 내미는 서버는 거절).
@@ -397,6 +402,7 @@ impl Network {
             relay_enabled: false,
             relay_connected: false,
             friend_code: None,
+            last_steer: None,
         };
         let state = app.state::<AppState>();
         let key = match screenpet_core::config::load_or_create_identity_key(&state.config_dir, Net::generate_static_key) {
@@ -776,6 +782,15 @@ impl Network {
                 }
             }
             NetEvent::Asked { from, ask } => self.on_ask(app, config, slots, &from, &ask),
+            NetEvent::Steered { from, steer } => {
+                // 그 친구(인증된 링크 from) 자신의 손님에게만 — 다른 사람의 손님 visit_id를 대도 무시한다
+                let id = steer.visit_id.to_string();
+                for s in slots.iter_mut() {
+                    if matches!(&s.role, Role::Guest(g) if g.owner_id == from && g.visit_id == id) {
+                        s.pet.remote_keys(steer.on, ControlInput::from_bits(steer.keys));
+                    }
+                }
+            }
             NetEvent::Disconnected { id } => {
                 self.connected.remove(&id);
                 // 그 친구에게 보내던 손님은 그만 가고, 그 친구의 손님에게 걸어 둔 보내기는 지운다
@@ -1208,6 +1223,27 @@ impl Network {
     fn hide_pair(app: &AppHandle) {
         if let Some(w) = app.get_webview_window(PAIR_LABEL) {
             let _ = w.hide();
+        }
+    }
+
+    /// 매 틱 (게임 루프): 조작 모드 키를 친구 화면에 가 있는 내 동물에게 — 바뀔 때, 그리고 누르고 있는 동안 STEER_KEEPALIVE마다.
+    /// 끄면 한 번 on = false. 내 동물이 집에 있으면 아무것도 보내지 않는다
+    pub fn steer(&mut self, now: Instant, on: bool, keys: ControlInput) {
+        let (Some(net), Some(a)) = (&self.net, &self.away) else {
+            self.last_steer = None;
+            return;
+        };
+        let bits = if on { keys.bits() } else { 0 };
+        let send = match self.last_steer {
+            Some((visit_id, was_on, was_bits, at)) if visit_id == a.visit_id => {
+                (was_on, was_bits) != (on, bits) || (on && bits != 0 && now.duration_since(at) >= STEER_KEEPALIVE)
+            }
+            // 이번 방문에 아직 보낸 적 없음: 켜져 있을 때만 알린다
+            _ => on,
+        };
+        if send {
+            net.steer(&a.friend, Steer { visit_id: a.visit_id, on, keys: bits });
+            self.last_steer = Some((a.visit_id, on, bits, now));
         }
     }
 
