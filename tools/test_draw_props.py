@@ -76,7 +76,8 @@ def test_bowls_differ_by_contents(built):
 
 
 # ---- 직접 주기: 커서 끝에 붙는 음식 (48×48, 가운데) ----
-HAND = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly")
+HAND = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly",
+        "hand_candy", "hand_lollipop")
 
 
 @pytest.fixture(scope="module")

@@ -2183,9 +2183,10 @@ def preview_sting(effect, bee_by_stage, path):
     img.save(path)
 
 
-# 개구리는 자기 파일(tools/draw_frog.py)에서 그리고 SPECIES에 등록한다 (스크립트로 실행해도 같은 모듈을 쓰게)
+# 개구리·할로윈(호박·유령)은 자기 파일(tools/draw_frog.py, draw_halloween.py)에서 그리고 SPECIES에 등록한다 (스크립트로 실행해도 같은 모듈을 쓰게)
 sys.modules.setdefault("draw_pets", sys.modules[__name__])
 import draw_frog  # noqa: E402,F401
+import draw_halloween  # noqa: E402,F401
 
 if __name__ == "__main__":
     main()

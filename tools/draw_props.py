@@ -1,7 +1,7 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
     python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie,flower}.png
-                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly}.png (직접 주기, 48×48)
+                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
 
@@ -125,7 +125,8 @@ def draw_flower(img):
 HAND = 48
 HAND_BOX = ((FRAME - HAND) // 2, (FRAME - HAND) // 2, (FRAME + HAND) // 2, (FRAME + HAND) // 2)
 # crates/screenpet-core/src/food.rs hand_icon과 같은 이름
-HAND_NAMES = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly")
+HAND_NAMES = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly",
+              "hand_candy", "hand_lollipop")
 NORI = (70, 96, 82)
 FISH = (150, 186, 214)
 FISH_BELLY = mix(FISH, WHITE, 0.6)
@@ -138,6 +139,10 @@ HONEY_GOLD = (252, 200, 72)
 FLY = (92, 98, 122)
 FLY_EYE = (60, 42, 48)
 WING = (214, 236, 250)
+CANDY = (255, 160, 70)
+CANDY_WRAP = (190, 154, 234)
+LOLLY = (250, 130, 168)
+STICK = (255, 250, 242)
 
 
 def tiny_face(img, cx, cy, s=1.0):
@@ -231,9 +236,31 @@ def hand_fly(img):
     paint(img, aa(shapes([L(arc(64, 72.2, 2.0, 1.6, 20, 160), 0.9)])), WHITE)
     paint(img, aa(shapes([E(53, 72, 56.5, 74), E(71.5, 72, 75, 74)])), (250, 180, 180))
 
+def hand_candy(img):
+    """호박이 좋아하는 포장 사탕 — 동글 주황 사탕 + 양옆 보라 포장 리본 (주름 줄), 흰 줄무늬, 작은 얼굴."""
+    for sgn in (-1, 1):
+        x0 = 64 + 9 * sgn
+        blob(img, [T((x0, 64), (64 + 20 * sgn, 54.5), (64 + 17 * sgn, 64), (64 + 20 * sgn, 73.5))], CANDY_WRAP, r=0.8, line=0.8,
+             marks=[([L([(64 + 13 * sgn, 63), (64 + 18 * sgn, 58)], 1.0), L([(64 + 13 * sgn, 65), (64 + 18 * sgn, 70)], 1.0)],
+                     mix(CANDY_WRAP, LINE, 0.3))])
+    blob(img, [C(64, 64, 12)], CANDY, r=0, line=0.9,
+         marks=[([L([(56, 70), (70, 56)], 2.6), L([(61, 75), (75, 61)], 2.2)], mix(CANDY, WHITE, 0.6)),
+                ([E(56, 55, 62, 59)], mix(CANDY, WHITE, 0.75))])
+    tiny_face(img, 64, 65, 0.85)
+
+
+def hand_lollipop(img):
+    """유령이 좋아하는 막대사탕 — 분홍·흰 소용돌이 동그라미 + 하얀 막대 + 작은 리본."""
+    blob(img, [L([(64, 66), (64, 81.5)], 3.6)], STICK, r=0, line=0.8)
+    spiral = [(64 + 0.62 * t * math.cos(t), 58 + 0.62 * t * math.sin(t)) for t in (k * 0.3 for k in range(3, 59))]
+    blob(img, [C(64, 58, 12)], LOLLY, r=0, line=0.9,
+         marks=[([L(spiral, 2.0)], mix(LOLLY, WHITE, 0.8)), ([E(55, 50, 60, 53.5)], WHITE)])
+    blob(img, [T((64, 72), (57, 68.5), (57, 75.5)), T((64, 72), (71, 68.5), (71, 75.5)), C(64, 72, 2.2)], CANDY_WRAP, r=0, line=0.7)
+
+
 HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish, "hand_bone": hand_bone,
              "hand_carrot": hand_carrot, "hand_honey": hand_honey, "hand_nectar": hand_nectar,
-             "hand_fly": hand_fly}
+             "hand_fly": hand_fly, "hand_candy": hand_candy, "hand_lollipop": hand_lollipop}
 
 
 def draw_hand(name):

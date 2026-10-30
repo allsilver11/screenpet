@@ -63,17 +63,19 @@ SPEECH = {
     "bear": {"chatter": ["grr~", "hmm~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "bee": {"chatter": ["bzz~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "frog": {"chatter": ["ribbit!", "hop hop!", "ribbit~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    "pumpkin": {"chatter": ["trick or treat!", "boo~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    "ghost": {"chatter": ["boo!", "ooo~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
-PERSONALITY = {"cat": "aloof", "bee": "friendly", "frog": "playful"}
+PERSONALITY = {"cat": "aloof", "bee": "friendly", "frog": "playful", "pumpkin": "playful", "ghost": "friendly"}
 
 # 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
-LOCOMOTION = {"bee": "fly", "frog": "hop"}
+LOCOMOTION = {"bee": "fly", "frog": "hop", "ghost": "fly"}
 
-# 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼만 (개구리는 locomotion hop이라 늘 폴짝)
-HOP_SHARE = {"rabbit": 0.5}
+# 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (개구리는 locomotion hop이라 늘 폴짝)
+HOP_SHARE = {"rabbit": 0.5, "pumpkin": 1.0}
 
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {
@@ -83,6 +85,8 @@ FAVORITE_FOOD = {
     "bear": {"emoji": "🍯", "name": "꿀"},
     "bee": {"emoji": "🌸", "name": "꽃꿀"},
     "frog": {"emoji": "🪰", "name": "파리"},
+    "pumpkin": {"emoji": "🍬", "name": "사탕"},
+    "ghost": {"emoji": "🍭", "name": "막대사탕"},
 }
 
 
