@@ -91,6 +91,16 @@ pub enum NetInput {
     SubmitName(String),
     /// 트레이 "놀러 보내기": 내 동물을 그 친구 화면으로 지금 보낸다 (게임 루프가 하우스에서 꺼낸 뒤 Network::send_to)
     SendTo(String),
+    /// 손님 우클릭 "<친구>에게 보내기": 손님(창 label)을 내 친구(friend) 화면으로 더 보낸다 (주인이 그 친구를 알면 이어 간다)
+    SendOn { label: String, friend: String },
+}
+
+/// 손님 우클릭 메뉴용: 지금 연결된 내 친구 (id, 보일 이름) — 게임 루프가 메뉴를 다시 계산할 때 맞춘다
+static ONLINE_FRIENDS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+/// 손님(주인 owner_id)을 더 보낼 수 있는 친구: 연결된 내 친구 중 그 주인을 뺀 친구들 (Config::send_on_targets와 같은 규칙)
+pub fn send_on_targets(owner_id: &str) -> Vec<(String, String)> {
+    ONLINE_FRIENDS.lock().unwrap().iter().filter(|(id, _)| id != owner_id).cloned().collect()
 }
 
 /// 이름 바꾸기 창이 다루는 이름
@@ -218,6 +228,8 @@ pub struct Network {
     last_decline_log: HashMap<String, Instant>,
     /// 꽉 찬 것 같은 친구 화면 → 이때까지는 보내지 않는다 (걸어 나가기·던져 넘기기)
     full_until: HashMap<String, Instant>,
+    /// "<친구>에게 보내기"로 보낸 손님: visit_id → (그 친구, 그 친구가 연결된 끝)
+    guest_sends: HashMap<String, (String, Side)>,
     /// 중계 서버를 쓰도록 설정됨 / 지금 연결됨
     relay_enabled: bool,
     relay_connected: bool,
@@ -331,6 +343,7 @@ impl Network {
             last_visit: HashMap::new(),
             last_decline_log: HashMap::new(),
             full_until: HashMap::new(),
+            guest_sends: HashMap::new(),
             relay_enabled: false,
             relay_connected: false,
             friend_code: None,
@@ -417,6 +430,19 @@ impl Network {
         self.menu_dirty = true;
     }
 
+    /// 손님(label)을 내 친구(friend) 화면으로 더 보낸다: 그 친구가 연결된 끝으로 곧장 가서 나간다 ("bye~!").
+    /// 그 끝으로 나가면 guest_left가 Leave{next: friend}를 주인에게 보낸다 — 이어 갈지는 주인이 정한다
+    fn send_on(&mut self, config: &Config, slots: &mut [Slot], label: &str, friend: &str) {
+        let Some(slot) = slots.iter_mut().find(|s| s.label == label) else { return };
+        let Role::Guest(g) = &slot.role else { return };
+        let Some(f) = config.friend(friend) else { return };
+        if g.owner_id == friend || !self.is_open(friend) || !slot.pet.send_to(f.side) {
+            return;
+        }
+        eprintln!("sending guest {} ({}) on to {friend}", g.visit_id, g.owner_id);
+        self.guest_sends.insert(g.visit_id.clone(), (friend.to_string(), f.side));
+    }
+
     /// 내 동물이 side 끝으로 다 나갔다: 그 끝의 연결된 친구 하나에게 Visit ("놀러 보내기"였으면 그 친구에게).
     /// 아무도 없으면(그새 끊김) 바로 다시 들어온다
     pub fn own_exited(&mut self, config: &Config, own: &mut Slot, side: Side) {
@@ -460,15 +486,13 @@ impl Network {
     /// 손님이 떠났다 (side 끝으로 걸어 나감 / 손 흔들고 사라짐): 주인에게 Leave.
     /// 집 쪽이 아닌 끝으로 나갔으면 그 끝의 (주인 아닌) 연결된 친구 하나를 next로 — 주인이 그 친구에게 이어 보낸다.
     /// 그새 아무도 없으면 next 없이 (집으로)
-    pub fn guest_left(&self, config: &Config, guest: &GuestInfo, side: Side, state: Option<visit::Guest>, fling: Option<visit::Fling>) {
+    pub fn guest_left(&mut self, config: &Config, guest: &GuestInfo, side: Side, state: Option<visit::Guest>, fling: Option<visit::Fling>) {
+        let sent = self.guest_sends.remove(&guest.visit_id);
         let (Some(net), Ok(visit_id)) = (&self.net, guest.visit_id.parse::<u64>()) else { return };
-        let roaming = state.is_some_and(|g| g.home != side && !g.is_homesick());
-        let next = if roaming {
-            let friends = config.friends_at(side, |id| id != guest.owner_id && self.is_open(id));
-            (!friends.is_empty()).then(|| friends[fastrand::usize(..friends.len())].id.clone())
-        } else {
-            None
-        };
+        // "<친구>에게 보내기"로 보냈으면 그 친구, 아니면 돌아다니기 규칙 (주인이 자기 친구일 때만 이어 보낸다)
+        let open: Vec<&str> = config.friends_at(side, |id| id != guest.owner_id && self.is_open(id)).into_iter().map(|f| f.id.as_str()).collect();
+        let sent = sent.as_ref().map(|(id, s)| (id.as_str(), *s));
+        let next = visit::next_host(sent, side, state, &open, |n| fastrand::usize(..n)).map(str::to_string);
         let msg = match next {
             Some(next) => {
                 eprintln!("guest {visit_id} ({}) walks on to {next}", guest.owner_id);
@@ -602,6 +626,10 @@ impl Network {
             },
             // 게임 루프가 하우스에서 꺼낸 뒤 send_to를 직접 부른다 (여기 오지 않는다)
             NetInput::SendTo(_) => false,
+            NetInput::SendOn { label, friend } => {
+                self.send_on(config, slots, &label, &friend);
+                false
+            }
         }
     }
 
@@ -1080,6 +1108,9 @@ impl Network {
                 forgot: self.forgot.contains(&f.id),
             })
             .collect();
+        // 손님 우클릭 "<친구>에게 보내기" 목록
+        *ONLINE_FRIENDS.lock().unwrap() =
+            config.friends.iter().filter(|f| self.is_open(&f.id)).map(|f| (f.id.clone(), f.shown_name().to_string())).collect();
         let relay = self.relay_enabled.then_some(self.relay_connected);
         FriendsMenu { available: self.net.is_some(), my_name: self.name.clone(), strangers, friends, away: self.away.is_some(), relay }
     }

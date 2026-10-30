@@ -20,6 +20,8 @@ const EASTER_EGG_ID: &str = "easter-egg";
 
 /// 손님 우클릭 메뉴 항목 id 앞부분 (뒤는 손님 창 라벨)
 const SEND_HOME_PREFIX: &str = "send-home:";
+/// 손님 우클릭 "<친구>에게 보내기" (뒤는 "<손님 창 라벨>|<친구 id>" — 라벨에는 |가 없다)
+const SEND_ON_PREFIX: &str = "send-on:";
 /// `친구랑 놀기` 항목 id 앞부분 (뒤는 상대 id)
 const INVITE_PREFIX: &str = "net:invite:";
 const LEFT_PREFIX: &str = "net:left:";
@@ -191,11 +193,18 @@ pub fn favorite_label(f: &FavoriteFood) -> String {
     format!("{} {}", f.name, f.emoji)
 }
 
-/// 손님을 우클릭하면 뜨는 메뉴: "<주인>에게 돌려보내기" 하나뿐 (누르면 손 흔들고 집으로).
-/// 메뉴 이벤트는 앱 전체용 처리기(트레이의 on_menu_event)로 온다
-pub fn guest_menu(app: &AppHandle, label: &str, owner: &str) -> tauri::Result<Menu<Wry>> {
+/// 손님을 우클릭하면 뜨는 메뉴: "<주인>에게 돌려보내기" (누르면 손 흔들고 집으로), 그리고 연결된 내 친구마다
+/// "<친구>에게 보내기" (targets = 주인을 뺀 (id, 이름)). 메뉴 이벤트는 앱 전체용 처리기(트레이의 on_menu_event)로 온다
+pub fn guest_menu(app: &AppHandle, label: &str, owner: &str, targets: &[(String, String)]) -> tauri::Result<Menu<Wry>> {
     let item = MenuItem::with_id(app, format!("{SEND_HOME_PREFIX}{label}"), format!("{}에게 돌려보내기", menu_text(owner)), true, None::<&str>)?;
-    Menu::with_items(app, &[&item])
+    let menu = Menu::with_items(app, &[&item])?;
+    if !targets.is_empty() {
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    for (id, name) in targets {
+        menu.append(&MenuItem::with_id(app, format!("{SEND_ON_PREFIX}{label}|{id}"), format!("{}에게 보내기", menu_text(name)), true, None::<&str>)?)?;
+    }
+    Ok(menu)
 }
 
 /// 내 동물이 보이는 창: 하우스 안이면 하우스 창, 친구 화면에 가 있으면 없음 (펫 창은 숨어 있어야 한다)
@@ -327,6 +336,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                 let net = |input| send(app, Input::Net(input));
                 if let Some(label) = other.strip_prefix(SEND_HOME_PREFIX) {
                     send(app, Input::SendHome { label: label.to_string() });
+                } else if let Some((label, friend)) = other.strip_prefix(SEND_ON_PREFIX).and_then(|r| r.split_once('|')) {
+                    net(NetInput::SendOn { label: label.to_string(), friend: friend.to_string() });
                 } else if other == COME_HOME_ID {
                     net(NetInput::ComeHome);
                 } else if other == SHOW_CODE_ID {

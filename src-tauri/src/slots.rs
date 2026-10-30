@@ -68,17 +68,20 @@ pub struct SlotInfo {
     pub role: &'static str,
     /// 손님이면 주인 이름 (이름표 "🏠 <owner>")
     pub owner: Option<String>,
+    /// 손님이면 주인 id (우클릭 "<친구>에게 보내기"에서 주인을 뺀다 — 웹뷰에는 보내지 않는다)
+    #[serde(skip)]
+    pub owner_id: Option<String>,
     /// 마지막으로 보낸 모습 — 첫 `pet-render`가 웹뷰가 듣기 전에 지나갔을 수 있어 첫 로드 때 같이 준다
     pub render: Option<RenderState>,
 }
 
 impl SlotInfo {
     pub fn new(shown: &StagePayload, role: &Role, render: Option<RenderState>) -> Self {
-        let (role, owner) = match role {
-            Role::Own => ("own", None),
-            Role::Guest(g) => ("guest", Some(g.owner_name.clone())),
+        let (role, owner, owner_id) = match role {
+            Role::Own => ("own", None, None),
+            Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone())),
         };
-        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner, render }
+        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner, owner_id, render }
     }
 }
 

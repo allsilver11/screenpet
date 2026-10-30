@@ -126,6 +126,19 @@ impl Fling {
     }
 }
 
+/// 손님이 exited 끝으로 떠났을 때 이어 갈 친구 (Leave의 next — 주인이 자기 친구일 때만 이어 보낸다).
+/// sent = 이 화면 주인이 "<친구>에게 보내기"로 보낸 친구와 그 끝: 그 끝으로 나갔고 그 친구가 아직 open이면 그 친구.
+/// 아니면 돌아다니기: 집 쪽이 아닌 끝이고 그립지 않으면 그 끝의 open 친구 중 하나(pick), 아니면 None (집으로)
+pub fn next_host<'a>(sent: Option<(&'a str, Side)>, exited: Side, guest: Option<Guest>, open: &[&'a str], pick: impl FnOnce(usize) -> usize) -> Option<&'a str> {
+    if let Some((id, side)) = sent {
+        if side == exited && open.contains(&id) {
+            return Some(id);
+        }
+    }
+    let roaming = guest.is_some_and(|g| g.home != exited && !g.is_homesick());
+    (roaming && !open.is_empty()).then(|| open[pick(open.len()).min(open.len() - 1)])
+}
+
 /// 손님 몸 배율: 주인이 보낸 값(sent)이 범위 안이면 그대로, 아니면(NaN 포함) 이쪽에서 계산한 값(local)을 범위 안으로
 pub fn guest_scale(sent: f64, local: f64) -> f64 {
     let (lo, hi) = GUEST_SCALE_RANGE;
@@ -228,6 +241,24 @@ mod tests {
         let fast = Fling { height: 0.5, vx: 30000.0, vy: 40000.0 }.sanitized().unwrap();
         assert!((fast.vx.hypot(fast.vy) - MAX_FLING_SPEED).abs() < 1e-6);
         assert!((fast.vx / fast.vy - 0.75).abs() < 1e-9, "direction kept");
+    }
+
+    #[test]
+    fn next_host_prefers_the_friend_the_host_sent_it_to() {
+        let guest = Guest { home: Side::Left, homesick_in: 100.0 };
+        let homesick = Guest { home: Side::Left, homesick_in: 0.0 };
+        let open = ["b", "c"];
+        // 보낸 친구가 그 끝에 연결돼 있으면 그 친구 (그리워도)
+        assert_eq!(next_host(Some(("c", Side::Right)), Side::Right, Some(homesick), &open, |_| 0), Some("c"));
+        // 보낸 친구가 그새 끊겼으면 보통 돌아다니기 규칙
+        assert_eq!(next_host(Some(("z", Side::Right)), Side::Right, Some(guest), &open, |_| 0), Some("b"));
+        // 다른 끝으로 나갔으면 보낸 친구는 상관없다
+        assert_eq!(next_host(Some(("c", Side::Right)), Side::Left, Some(guest), &open, |_| 1), None, "home side = home");
+        // 보내지 않음: 집 아닌 끝이면 그 끝의 친구 중 하나, 그리우면 집으로
+        assert_eq!(next_host(None, Side::Right, Some(guest), &open, |n| n - 1), Some("c"));
+        assert_eq!(next_host(None, Side::Right, Some(homesick), &open, |_| 0), None);
+        assert_eq!(next_host(None, Side::Right, Some(guest), &[], |_| 0), None);
+        assert_eq!(next_host(None, Side::Left, Some(guest), &open, |_| 0), None);
     }
 
     #[test]

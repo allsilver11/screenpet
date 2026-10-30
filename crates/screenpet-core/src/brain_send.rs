@@ -1,4 +1,5 @@
 //! 트레이 "놀러 보내기" (phase 3): 내 동물이 그 친구가 연결된 화면 끝(side)으로 곧장 가서 걸어 나간다.
+//! 손님도 이 화면 주인이 "<친구>에게 보내기"로 보내면 같은 길로 그 끝으로 간다 ("bye~!").
 //! 가는 길은 집이 그리운 손님과 같다 (`is_homesick` — 기어오르기·창 안 놀기·큰 점프 없이 그쪽으로, 창 모서리에선 뛰어내림).
 //! SEND_GIVE_UP_SECS 안에 못 나가면 그 자리에서 그쪽으로 걸어 나간다. brain.rs의 자식 모듈.
 
@@ -17,12 +18,16 @@ pub(crate) struct SendTrip {
 }
 
 impl Pet {
-    /// 내 동물을 side 끝(친구가 연결된 끝)으로 보낸다. 손님·하우스 안·들림·떠나는 중이면 false
+    /// side 끝(친구가 연결된 끝)으로 보낸다 — 내 동물, 또는 다음 친구에게 보내는 손님 ("bye~!").
+    /// 하우스 안·들림·떠나는 중이면 false
     pub fn send_to(&mut self, side: Side) -> bool {
-        if self.guest.is_some() || self.housed || self.home_trip.is_some() || self.is_held() || self.in_transit() {
+        if self.housed || self.home_trip.is_some() || self.is_held() || self.in_transit() {
             return false;
         }
         self.send = Some(SendTrip { side, remaining: SEND_GIVE_UP_SECS });
+        if self.guest.is_some() {
+            self.speech = Some(Speech::Bye);
+        }
         // 창 안에 있었으면 곧 나온다 (update_inside가 is_homesick을 본다)
         true
     }
@@ -37,7 +42,7 @@ impl Pet {
         self.send.map(|s| s.side)
     }
 
-    /// 곧장 가는 끝: 보낸 내 동물이면 그 끝, 집이 그리운 손님이면 집 쪽
+    /// 곧장 가는 끝: 보냈으면 그 끝, 집이 그리운 손님이면 집 쪽
     pub(super) fn heading(&self) -> Option<Side> {
         match (self.send, self.guest) {
             (Some(s), _) => Some(s.side),
@@ -46,7 +51,7 @@ impl Pet {
         }
     }
 
-    /// 화면 끝 edge에 닿았을 때 걸어 나갈 확률: 보낸 내 동물은 그 끝에서만 (반드시), 아니면 visit 규칙
+    /// 화면 끝 edge에 닿았을 때 걸어 나갈 확률: 보냈으면 그 끝에서만 (반드시), 아니면 visit 규칙
     pub(super) fn exit_odds(&mut self, edge: Side) -> f64 {
         match self.send {
             Some(s) if s.side == edge => 1.0,
@@ -58,8 +63,8 @@ impl Pet {
     /// 매 틱 (주 동작 전): 끝났으면 지우고, 쉬는 중이면 그쪽으로 움직이게 하고, 시간이 다 되면 그 자리에서 걸어 나간다
     pub(super) fn tick_send(&mut self, dt: f64, world: &World) {
         let Some(mut trip) = self.send else { return };
-        // 나갔거나(떠나는 중) 하우스로 가게 됐거나 손님이 되었으면 끝
-        if self.leaving() || self.housed || self.home_trip.is_some() || self.guest.is_some() {
+        // 나갔거나(떠나는 중) 하우스로 가게 됐으면 끝
+        if self.leaving() || self.housed || self.home_trip.is_some() {
             self.send = None;
             return;
         }

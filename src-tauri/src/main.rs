@@ -119,9 +119,10 @@ async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<
     if !slots::is_guest_label(&label) {
         return window.popup_menu(&state.menu.menu).map_err(|e| e.to_string());
     }
-    let owner = state.slots.lock().unwrap().get(&label).and_then(|i| i.owner.clone());
-    let Some(owner) = owner else { return Ok(()) };
-    let menu = tray::guest_menu(window.app_handle(), &label, &owner).map_err(|e| e.to_string())?;
+    let info = state.slots.lock().unwrap().get(&label).cloned();
+    let Some((owner, owner_id)) = info.and_then(|i| i.owner.zip(i.owner_id)) else { return Ok(()) };
+    let targets = network::send_on_targets(&owner_id);
+    let menu = tray::guest_menu(window.app_handle(), &label, &owner, &targets).map_err(|e| e.to_string())?;
     window.popup_menu(&menu).map_err(|e| e.to_string())
 }
 

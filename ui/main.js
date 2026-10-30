@@ -113,6 +113,8 @@ const EXTRA_SPEECH = {
   play: ["play!", "tag!"],
   flee: ["catch me!", "hehe!"],
   ignore: ["..."],
+  // 이 화면 주인이 다음 친구 화면으로 보냄
+  bye: ["bye~!"],
 };
 const speech = setupSpeech({
   bubbleEl,

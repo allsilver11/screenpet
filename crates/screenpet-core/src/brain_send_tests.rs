@@ -125,14 +125,8 @@ fn give_up_waits_while_held_or_in_the_air() {
 }
 
 #[test]
-fn only_my_free_pet_can_be_sent() {
+fn only_a_free_pet_can_be_sent() {
     let w = world(vec![]);
-    // 손님
-    let mut g = Pet::new(cfg(), 0.0, 0.0, 1);
-    place(&mut g, &w, Owner::Ground(0), 900.0, idle());
-    g.set_guest(Side::Left, 100.0);
-    assert!(!g.send_to(Side::Right));
-    assert_eq!(g.sending(), None);
     // 들려 있음
     let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
     place(&mut p, &w, Owner::Ground(0), 900.0, idle());
@@ -182,4 +176,19 @@ fn pet_in_the_house_comes_out_then_goes() {
     p.leave_house(&w, 1600.0, Owner::Ground(0));
     assert!(p.send_to(Side::Left));
     assert_eq!(run_until_exit(&mut p, &w, 40.0).map(|r| r.0), Some(Side::Left));
+}
+
+#[test]
+fn host_can_send_a_guest_on_and_it_says_bye() {
+    let w = world(vec![]);
+    for seed in 1..=8 {
+        let mut g = Pet::new(sim_cfg(), 0.0, 0.0, seed);
+        place(&mut g, &w, Owner::Ground(0), 900.0, idle());
+        g.set_guest(Side::Left, 100.0);
+        assert!(g.send_to(Side::Right), "seed {seed}");
+        assert_eq!(g.take_speech(), Some(Speech::Bye));
+        // 집 쪽(왼쪽)이 아니라 보낸 쪽으로 나간다
+        assert_eq!(run_until_exit(&mut g, &w, 40.0).map(|r| r.0), Some(Side::Right), "seed {seed}");
+    }
+    assert_eq!(serde_json::to_string(&Speech::Bye).unwrap(), "\"bye\"");
 }

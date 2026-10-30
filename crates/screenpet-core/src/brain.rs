@@ -124,6 +124,8 @@ pub enum Speech {
     Play,
     /// 쫓기며 도망 ("catch me!")
     Flee,
+    /// 손님이 다음 친구 화면으로 보내져 떠난다 ("bye~!", brain_send.rs)
+    Bye,
 }
 
 impl Anim {

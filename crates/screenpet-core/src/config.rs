@@ -200,6 +200,11 @@ impl Config {
         ExitEdges { left: on(Side::Left), right: on(Side::Right) }
     }
 
+    /// 놀러 온 손님(주인 owner)을 더 보낼 수 있는 친구: 연결된 내 친구 중 그 주인을 뺀 친구들 (손님 우클릭 "<친구>에게 보내기")
+    pub fn send_on_targets(&self, owner: &str, connected: impl Fn(&str) -> bool) -> Vec<&Friend> {
+        self.friends.iter().filter(|f| f.id != owner && connected(&f.id)).collect()
+    }
+
     /// side 끝에 있는 연결된 친구들
     pub fn friends_at(&self, side: Side, connected: impl Fn(&str) -> bool) -> Vec<&Friend> {
         self.friends.iter().filter(|f| f.side == side && connected(&f.id)).collect()
@@ -702,6 +707,18 @@ mod tests {
         assert_eq!(spot("", (5, 5), 0.0).pick(&[("", (0, 0))]), None);
         // 없어진 모니터
         assert_eq!(spot("Z", (9999, 0), 0.0).pick(&monitors), None);
+    }
+
+    #[test]
+    fn a_guest_can_be_sent_on_to_my_connected_friends_except_its_owner() {
+        let mut c = Config::default();
+        c.upsert_friend("owner", "O", key(1));
+        c.upsert_friend("b", "B", key(2));
+        c.upsert_friend("off", "Off", key(3));
+        c.upsert_friend("d", "D", key(4));
+        let ids: Vec<&str> = c.send_on_targets("owner", |id| id != "off").iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["b", "d"]);
+        assert!(c.send_on_targets("owner", |_| false).is_empty());
     }
 
     // ---- 내 이름·친구 별명 ----
