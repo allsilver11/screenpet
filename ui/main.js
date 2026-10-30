@@ -91,11 +91,28 @@ const listeningRender = listen("pet-render", (e) => {
   render = e.payload;
 });
 
-// 손님이면 머리 위 띠에 "🏠 <주인>" (말풍선이 뜨는 동안은 가려진다 — style.css)
+// 손님이면 머리 위 띠에 "🏠 <주인>" — 처음 왔을 때 10초, 그 뒤엔 누를 때마다 5초 (말풍선이 뜨는 동안은 가려진다 — style.css)
+const NAMETAG_ARRIVE_MS = 10000;
+const NAMETAG_CLICK_MS = 5000;
+let isGuest = false;
+let nametagTimer = null;
+function showNametag(ms) {
+  if (!isGuest) return;
+  nametagEl.hidden = false;
+  clearTimeout(nametagTimer);
+  nametagTimer = setTimeout(() => (nametagEl.hidden = true), ms);
+}
 function applyRole(info) {
   const guest = info.role === "guest";
-  nametagEl.hidden = !guest;
   if (guest) nametagEl.textContent = `🏠 ${info.owner ?? ""}`;
+  if (guest && !isGuest) {
+    isGuest = true;
+    showNametag(NAMETAG_ARRIVE_MS);
+  } else if (!guest) {
+    isGuest = false;
+    clearTimeout(nametagTimer);
+    nametagEl.hidden = true;
+  }
 }
 
 // 동물 교체·성장·리셋: 창 크기는 백엔드가 바꾸고, 여기선 시트와 스프라이트 크기를 맞춘다
@@ -146,6 +163,7 @@ codetagEl.addEventListener("click", async (e) => {
 });
 
 petEl.addEventListener("mousedown", (e) => {
+  if (e.button === 0) showNametag(NAMETAG_CLICK_MS);
   if (e.button === 0) invoke("pointer_down");
 });
 
