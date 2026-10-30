@@ -52,7 +52,7 @@ const DECLINE_LOG_EVERY: Duration = Duration::from_secs(5);
 const DEFAULT_NAME: &str = "친구";
 /// 친구 코드 입력 창 라벨
 pub const CODE_LABEL: &str = "code";
-const CODE_SIZE: (f64, f64) = (300.0, 178.0);
+const CODE_SIZE: (f64, f64) = (320.0, 178.0);
 /// 친구 코드로 신청했을 때 InviteSent까지 기다리는 시간 (중계 서버 왕복이 더 있다)
 const CODE_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// 이름 바꾸기 창 라벨 (내 이름 / 친구 별명)
