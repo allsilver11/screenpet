@@ -10,9 +10,10 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
     "tickle", "annoyed", "hungry", "eat", "level_up",
 ];
 
-/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide, 꿀벌 sting, 개구리 bigjump).
+/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide, 꿀벌 sting, 개구리 bigjump,
+/// 기린 neckstretch — 있으면 구르는 대신 목을 늘인다).
 /// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다
-pub const OPTIONAL_ANIMS: [&str; 7] = ["arch", "wag", "huff", "climb", "slide", "sting", "bigjump"];
+pub const OPTIONAL_ANIMS: [&str; 8] = ["arch", "wag", "huff", "climb", "slide", "sting", "bigjump", "neckstretch"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -318,8 +319,19 @@ mod tests {
         assert_eq!(m.locomotion, Locomotion::Hop);
         assert!(m.hops() && !m.flies() && m.has_anim("bigjump"));
         assert_eq!(m.personality, Personality::Playful);
-        assert_eq!(OPTIONAL_ANIMS.last(), Some(&"bigjump"));
+        assert_eq!(OPTIONAL_ANIMS[6], "bigjump");
         let bad = full_json().replace(r#""animations": {"#, r#""animations": {"bigjump": {"row": 21, "frames": 0, "fps": 8},"#);
+        assert!(parse_manifest(&bad).is_err());
+    }
+
+    #[test]
+    fn parses_giraffe_neckstretch() {
+        let json = full_json().replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 3, "fps": 2},"#);
+        let m = parse_manifest(&json).unwrap();
+        assert!(m.has_anim("neckstretch"));
+        assert_eq!(crate::behavior::Special::from_manifest(|n| m.has_anim(n)), Some(crate::behavior::Special::NeckStretch));
+        assert_eq!(OPTIONAL_ANIMS.last(), Some(&"neckstretch"));
+        let bad = full_json().replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 0, "fps": 2},"#);
         assert!(parse_manifest(&bad).is_err());
     }
 

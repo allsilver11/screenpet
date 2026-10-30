@@ -100,6 +100,9 @@ pub enum Anim {
     /// 개구리 큰 점프 — 깊게 웅크렸다가 쭉 뻗어 날아오른다 (옆모습, brain_hop.rs)
     #[serde(rename = "bigjump")]
     BigJump,
+    /// 기린 목 늘이기 — 구르는 대신 멈춰 서서 목을 쭉 (옆모습). 늘어나는 목은 앱이 층으로 그린다 (ui/main.js)
+    #[serde(rename = "neckstretch")]
+    NeckStretch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -157,6 +160,7 @@ impl From<Special> for Anim {
         match s {
             Special::Arch => Anim::Arch,
             Special::Wag => Anim::Wag,
+            Special::NeckStretch => Anim::NeckStretch,
         }
     }
 }
@@ -1912,10 +1916,12 @@ impl Pet {
     }
 
     pub(crate) fn start_special(&mut self, kind: Special) {
-        self.speech = Some(match kind {
-            Special::Arch => Speech::Hiss,
-            Special::Wag => Speech::Chatter,
-        });
+        self.speech = match kind {
+            Special::Arch => Some(Speech::Hiss),
+            Special::Wag => Some(Speech::Chatter),
+            // 목이 말풍선 자리까지 솟는다 — 말없이
+            Special::NeckStretch => None,
+        };
         self.state = State::Special { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
     }
 
@@ -2395,7 +2401,16 @@ impl Pet {
             self.facing = -self.facing;
         }
         let after_front = self.state.family() == Some(Family::Front);
-        let kind = behavior::pick_next_move(&mut self.rng, self.pacing.last_move, after_front);
+        let mut kind = behavior::pick_next_move(&mut self.rng, self.pacing.last_move, after_front);
+        if kind == Move::Roll && self.cfg.special.is_some_and(Special::replaces_roll) {
+            // 기린은 구르지 않는다: 멈춰 서서 목을 쭉 — 방금 늘였거나 집에 가는 길이면 그냥 걷는다
+            let just_stretched = matches!(self.state, State::Special { kind: Special::NeckStretch, .. });
+            if just_stretched || self.heading().is_some() {
+                kind = Move::Walk;
+            } else {
+                return self.next_after_beat(State::Special { kind: Special::NeckStretch, remaining: behavior::NECK_STRETCH_SECS });
+            }
+        }
         let next = State::Move { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
         self.next_after_beat(next)
     }
@@ -2715,6 +2730,10 @@ mod halloween_tests;
 #[cfg(test)]
 #[path = "brain_throw_tests.rs"]
 mod throw_tests;
+
+#[cfg(test)]
+#[path = "brain_giraffe_tests.rs"]
+mod giraffe_tests;
 
 /// 기대고 있는 창 (게임 루프가 매 틱 그 창 경계만 다시 읽는다)
 #[path = "brain_ride.rs"]
@@ -3224,7 +3243,7 @@ mod tests {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff, Anim::Climb, Anim::Slide, Anim::Sting, Anim::BigJump];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff, Anim::Climb, Anim::Slide, Anim::Sting, Anim::BigJump, Anim::NeckStretch];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

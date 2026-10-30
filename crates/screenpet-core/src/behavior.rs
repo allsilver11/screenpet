@@ -93,13 +93,19 @@ pub enum Special {
     Arch,
     /// 강아지 — 혀 내밀고 꼬리 흔들기
     Wag,
+    /// 기린 — 구르는 대신 멈춰 서서 목을 평소의 두 배로 쭉 늘였다 줄인다 (쉬거나 간질일 땐 하지 않는다)
+    NeckStretch,
 }
+
+/// 기린 목 늘이기 길이 (초) — 앱(ui/main.js NECK_*_MS)이 이 시간 안에 늘이고·머물고·줄인다
+pub const NECK_STRETCH_SECS: f64 = 3.4;
 
 impl Special {
     pub fn rest_chance(self) -> f64 {
         match self {
             Special::Arch => 0.08,
             Special::Wag => 0.12,
+            Special::NeckStretch => 0.0,
         }
     }
 
@@ -107,6 +113,7 @@ impl Special {
         match self {
             Special::Arch => 0.25,
             Special::Wag => 0.30,
+            Special::NeckStretch => 0.0,
         }
     }
 
@@ -114,6 +121,7 @@ impl Special {
         match self {
             Special::Arch => (2.0, 3.0),
             Special::Wag => (2.0, 4.0),
+            Special::NeckStretch => (NECK_STRETCH_SECS, NECK_STRETCH_SECS),
         }
     }
 
@@ -121,12 +129,18 @@ impl Special {
         match self {
             Special::Arch => "arch",
             Special::Wag => "wag",
+            Special::NeckStretch => "neckstretch",
         }
+    }
+
+    /// 구르기 대신 하는 특별 동작 (기린 목 늘이기)
+    pub fn replaces_roll(self) -> bool {
+        self == Special::NeckStretch
     }
 
     /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾는다
     pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special> {
-        [Special::Arch, Special::Wag].into_iter().find(|s| has_anim(s.anim_name()))
+        [Special::Arch, Special::Wag, Special::NeckStretch].into_iter().find(|s| has_anim(s.anim_name()))
     }
 }
 
@@ -396,6 +410,9 @@ mod tests {
         assert_eq!(Special::from_manifest(|n| n == "wag"), Some(Special::Wag));
         assert_eq!(Special::from_manifest(|_| false), None);
         assert_eq!((Special::Arch.anim_name(), Special::Wag.anim_name()), ("arch", "wag"));
+        assert_eq!(Special::from_manifest(|n| n == "neckstretch"), Some(Special::NeckStretch));
+        assert_eq!((Special::NeckStretch.anim_name(), Special::NeckStretch.secs()), ("neckstretch", (NECK_STRETCH_SECS, NECK_STRETCH_SECS)));
+        assert!(Special::NeckStretch.replaces_roll() && !Special::Arch.replaces_roll() && !Special::Wag.replaces_roll());
     }
 
     #[test]
