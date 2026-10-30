@@ -1932,7 +1932,7 @@ BEE_POSES = {"walk": bee_walk, "run": bee_run, "roll": bee_roll, "idle": bee_idl
              "sting": bee_sting}
 
 BEE = Species(
-    id="bee", name="꿀벌", walk_speed=50, scale=0.94, base=BEE_Y, back=BEE_Y, belly=BEE_CREAM, nose=NOSE, mouth="w",
+    id="bee", name="꿀벌", walk_speed=62, scale=0.94, base=BEE_Y, back=BEE_Y, belly=BEE_CREAM, nose=NOSE, mouth="w",
     front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[],
     front_tail=[], front_tail_root=(64, 112), front_tail_color=BEE_ST, side_ears=[], ears_over=False,
     side_head_marks=[], side_torso_marks=[], side_tail=[], tail_root=(20, 84), tail_color=BEE_ST,
