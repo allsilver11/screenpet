@@ -338,6 +338,8 @@ pub struct PetConfig {
     pub stings: bool,
     /// 폴짝폴짝 뛰어다닌다 (pet.json `locomotion: hop` — 개구리, brain_hop.rs)
     pub hops: bool,
+    /// 걷기·달리기 토막 중 깡총거리는 몫 (pet.json `hop_share` — 토끼 0.5, brain_hop.rs). 개구리(hops)는 늘 폴짝
+    pub hop_share: f64,
     /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
     pub dpi: f64,
 }
@@ -434,6 +436,8 @@ pub struct Pet {
     pester: ClickMeter,
     /// 폴짝 동물의 걸음·벽 오르기 박자 (brain_hop.rs)
     hop_beat: crate::hop::Beat,
+    /// 가끔 깡총거리는 동물의 이번 이동 토막 걸음 (brain_hop.rs)
+    bunny: crate::hop::Stretch,
     /// 손에서 던져져 날아가는 중 (State::Air) — 논리 px 기준의 부드러운 중력을 쓴다. 공중을 벗어나면 꺼진다
     thrown: bool,
     /// 다른 동물과 놀 때 구별하는 번호 (프로세스 안에서 유일, social.rs)
@@ -495,6 +499,7 @@ impl Pet {
             shake: PathMeter::default(),
             pester: ClickMeter::default(),
             hop_beat: Default::default(),
+            bunny: Default::default(),
             thrown: false,
             social_key: social_moves::next_key(),
             play_target: None,
@@ -598,7 +603,7 @@ impl Pet {
         let anim = match self.state {
             // 나는 동물의 공중제비(Roll)는 원을 도는 동안만 — 그 앞뒤는 그냥 난다
             State::Move { kind: Move::Roll, .. } if self.cfg.flies && !self.flight.is_some_and(|f| f.looping.is_some()) => Anim::Walk,
-            State::Move { kind, .. } if self.cfg.hops => self.hop_anim(kind),
+            State::Move { kind, .. } if self.cfg.hops || self.bunny_hopping() => self.hop_anim(kind),
             State::Move { kind, .. } => kind.into(),
             State::Leap { .. } => Anim::BigJump,
             State::Greet { look, .. } if look > 0.0 => Anim::Look,
@@ -2731,6 +2736,7 @@ mod tests {
             flies: false,
             stings: false,
             hops: false,
+            hop_share: 0.0,
             dpi: 1.0,
         }
     }
@@ -3225,6 +3231,7 @@ mod tests {
             flies: false,
             stings: false,
             hops: false,
+            hop_share: 0.0,
             dpi: 1.0,
         }
     }

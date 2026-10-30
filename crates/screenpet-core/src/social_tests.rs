@@ -22,6 +22,7 @@ fn cfg(personality: Personality) -> PetConfig {
         flies: false,
         stings: false,
         hops: false,
+        hop_share: 0.0,
         dpi: 1.0,
     }
 }
@@ -491,6 +492,26 @@ fn a_frog_hops_while_playing() {
         assert_eq!(pets[0].body.y, GROUND, "feet stay on the ground");
     }
     assert!(hopped);
+    assert!(pets[0].body.x > 900.0);
+}
+
+/// 깡총거리는 토끼(hop_share)도 술래 놀이는 그냥 달린다 — 쫓아가 놀이가 끝난다
+#[test]
+fn a_rabbit_runs_while_playing_chase() {
+    let w = world(vec![]);
+    let rabbit = PetConfig { walk_speed: 120.0, hop_share: 0.5, ..friendly() };
+    let mut pets = vec![ground(&w, rabbit, 800.0, 1), ground(&w, friendly(), 1200.0, 2)];
+    let mut s = Social::new(1);
+    s.start_play(&mut pets, 0, 1, true);
+    for _ in 0..(1.5 / DT) as usize {
+        step(&mut s, &mut pets, &w);
+        if pets[0].social_role().is_none() {
+            break;
+        }
+        assert_eq!(pets[0].render().anim, Anim::Run);
+        assert_eq!(pets[0].window_pos().1, GROUND - 128.0, "no hop lift while chasing");
+        assert_eq!(pets[0].body.y, GROUND);
+    }
     assert!(pets[0].body.x > 900.0);
 }
 

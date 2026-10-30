@@ -99,12 +99,23 @@ def test_stage_sheets_and_manifest(tmp_path):
         for key in ("hungry", "full", "level_up"):
             assert m["speech"][key], (pid, key)
         assert list(m["stage_size"]) == STAGES, pid
+        assert m.get("hop_share") == (0.5 if pid == "rabbit" else None), pid
     size = {pid: json.loads((tmp_path / pid / "pet.json").read_text(encoding="utf-8"))["stage_size"] for pid in SPECIES_IDS}
     assert size["bear"]["baby"] == size["bear"]["kinder"] == 1.0
     assert all(size["bear"][st] > 1.0 for st in ("child", "teenager", "adult"))
     assert all(v == 0.85 for v in size["rabbit"].values())
     assert all(v == 1.0 for pid in ("cat", "dog") for v in size[pid].values())
     assert all(v == 0.8 for v in size["bee"].values())
+
+
+def test_rabbit_manifest_keeps_hop_share():
+    """토끼만 걷는 시간의 절반쯤 깡총거린다 (pet.json hop_share) — 다시 그려도 칸이 남고, 들어 있는 pet.json과 같다."""
+    import json
+    for pid in SPECIES_IDS + ("frog",):
+        m = draw_pets.species_fields(pid, {})
+        assert m.get("hop_share") == (0.5 if pid == "rabbit" else None), pid
+    bundled = json.loads((Path(__file__).resolve().parent.parent / "ui/pets/rabbit/pet.json").read_text(encoding="utf-8"))
+    assert bundled["hop_share"] == 0.5 and "locomotion" not in bundled
 
 
 def test_baby_head_is_relatively_bigger_than_adult(tmp_path):

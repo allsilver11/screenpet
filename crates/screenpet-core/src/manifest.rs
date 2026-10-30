@@ -71,6 +71,9 @@ pub struct PetManifest {
     /// 이동 방식 (없으면 walk)
     #[serde(default)]
     pub locomotion: Locomotion,
+    /// 걷는 동물이 걷기·달리기 토막 중 깡총거리는 몫 0~1 (토끼 0.5, 없으면 0 — 개구리는 locomotion hop이라 늘 폴짝)
+    #[serde(default)]
+    pub hop_share: f64,
 }
 
 pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
@@ -83,6 +86,9 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
     }
     if let Some((stage, v)) = m.stage_size.iter().find(|(_, v)| !(v.is_finite() && **v > 0.0)) {
         return Err(format!("stage_size {stage}: {v} must be finite and > 0"));
+    }
+    if !(0.0..=1.0).contains(&m.hop_share) {
+        return Err(format!("hop_share {} must be within 0..=1", m.hop_share));
     }
     for name in REQUIRED_ANIMS {
         let spec = m.animations.get(name).ok_or_else(|| format!("missing animation: {name}"))?;
@@ -116,6 +122,11 @@ impl PetManifest {
 
     pub fn hops(&self) -> bool {
         self.locomotion == Locomotion::Hop
+    }
+
+    /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 개구리는 늘 폴짝, 꿀벌은 난다)
+    pub fn hop_share(&self) -> f64 {
+        if self.locomotion == Locomotion::Walk { self.hop_share } else { 0.0 }
     }
 
     /// 괴롭히면 화면을 쏜다 (pet.json에 sting이 있는 꿀벌)
@@ -289,6 +300,27 @@ mod tests {
         let m = parse_manifest(&json).unwrap();
         assert_eq!(m.locomotion, Locomotion::Hop);
         assert!(m.has_anim("bigjump") && m.can_climb() && !m.can_sting());
+    }
+
+    #[test]
+    fn hop_share_defaults_to_zero_and_is_bounded() {
+        assert_eq!(parse_manifest(&full_json()).unwrap().hop_share(), 0.0);
+        let with = |v: &str| full_json().replace(r#""walk_speed": 60,"#, &format!(r#""walk_speed": 60, "hop_share": {v},"#));
+        assert_eq!(parse_manifest(&with("0.5")).unwrap().hop_share(), 0.5);
+        assert!(parse_manifest(&with("1.5")).is_err() && parse_manifest(&with("-0.1")).is_err());
+        // 폴짝 동물은 늘 폴짝이라 몫을 쓰지 않는다
+        let frog = with("0.5").replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "locomotion": "hop","#);
+        assert_eq!(parse_manifest(&frog).unwrap().hop_share(), 0.0);
+    }
+
+    /// 토끼는 걷는 시간의 절반쯤 깡총거린다
+    #[test]
+    fn bundled_rabbit_hops_half_the_time() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets/rabbit/pet.json");
+        let m = parse_manifest(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(m.locomotion, Locomotion::Walk);
+        assert_eq!(m.hop_share(), 0.5);
+        assert!(!m.hops() && !m.has_anim("bigjump"));
     }
 
     #[test]

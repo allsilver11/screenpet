@@ -26,7 +26,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, LOCOMOTION, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SPEECH, STAGE_SCALE,  # noqa: E402
+from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, LOCOMOTION, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SPEECH, STAGE_SCALE,  # noqa: E402
                          STAGES, manifest)
 
 # =====================================================================
@@ -2029,6 +2029,17 @@ def write_sheet(sp, rendered, path):
     sheet.save(path)
 
 
+def species_fields(pid, m):
+    """종마다 다른 pet.json 칸(성격·움직임·깡총 몫)을 m에 더해 돌려준다."""
+    if pid in PERSONALITY:
+        m["personality"] = PERSONALITY[pid]
+    if pid in LOCOMOTION:
+        m["locomotion"] = LOCOMOTION[pid]
+    if pid in HOP_SHARE:
+        m["hop_share"] = HOP_SHARE[pid]
+    return m
+
+
 def write_species(sp, out_dir):
     """sheet_<stage>.png 5장 + sheet.png(= sheet_teenager.png 바이트 그대로) + pet.json. {stage: {anim: [frames]}} 반환."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2038,11 +2049,7 @@ def write_species(sp, out_dir):
         write_sheet(sp, by_stage[st], out_dir / f"sheet_{st}.png")
     shutil.copyfile(out_dir / "sheet_teenager.png", out_dir / "sheet.png")
     counts = {anim: len(by_stage["teenager"][anim]) for anim, *_ in rows_for(sp)}
-    m = manifest(sp.name, sp.walk_speed, counts, SPEECH[sp.id], FAVORITE_FOOD[sp.id], STAGES, sp.stage_size)
-    if sp.id in PERSONALITY:
-        m["personality"] = PERSONALITY[sp.id]
-    if sp.id in LOCOMOTION:
-        m["locomotion"] = LOCOMOTION[sp.id]
+    m = species_fields(sp.id, manifest(sp.name, sp.walk_speed, counts, SPEECH[sp.id], FAVORITE_FOOD[sp.id], STAGES, sp.stage_size))
     (out_dir / "pet.json").write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return by_stage
 

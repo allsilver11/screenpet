@@ -17,6 +17,10 @@ pub const RUN_HOP_LEN: f64 = 0.8;
 /// 폴짝 높이 (× 크기): 걷기 / 달리기 — 너무 높지 않게
 pub const WALK_HOP_HEIGHT: f64 = 0.28;
 pub const RUN_HOP_HEIGHT: f64 = 0.33;
+/// 깡총 뛰는 토끼(pet.json `hop_share`)의 폴짝 — 개구리보다 조금 낮고 조금 짧게 떠 있다 (hop 그림 3프레임 10fps는 다 보인다)
+pub const BUNNY_AIR_SECS: f64 = 0.28;
+pub const BUNNY_WALK_HOP_HEIGHT: f64 = 0.24;
+pub const BUNNY_RUN_HOP_HEIGHT: f64 = 0.27;
 /// 내려선 직후 이 시간(초) 동안은 착지(land) 그림, 그 뒤 웅크림이 남으면 앉기(idle) 그림
 pub const LAND_SHOW_SECS: f64 = 0.2;
 
@@ -50,10 +54,21 @@ impl Gait {
     /// 크기 size, 평균 속도 speed(px/s)로 걷기(run=false)·달리기 폴짝 박자.
     /// 한 번 거리가 WALK/RUN_HOP_LEN × 크기가 되도록 박자를 늘린다 (너무 빠르면 최소 웅크림을 지킨다)
     pub fn new(size: f64, speed: f64, run: bool) -> Self {
-        let (len, height) = if run { (RUN_HOP_LEN, RUN_HOP_HEIGHT) } else { (WALK_HOP_LEN, WALK_HOP_HEIGHT) };
+        let height = if run { RUN_HOP_HEIGHT } else { WALK_HOP_HEIGHT };
+        Self::with(size, speed, run, AIR_SECS, height)
+    }
+
+    /// 토끼의 깡총 걸음 — 박자 거리는 개구리와 같고, 조금 낮게·짧게 떠 있다
+    pub fn bunny(size: f64, speed: f64, run: bool) -> Self {
+        let height = if run { BUNNY_RUN_HOP_HEIGHT } else { BUNNY_WALK_HOP_HEIGHT };
+        Self::with(size, speed, run, BUNNY_AIR_SECS, height)
+    }
+
+    fn with(size: f64, speed: f64, run: bool, air_secs: f64, height: f64) -> Self {
+        let len = if run { RUN_HOP_LEN } else { WALK_HOP_LEN };
         let cycle = if speed > 0.0 { (len * size / speed).max(MIN_CYCLE_SECS) } else { MIN_CYCLE_SECS };
         // 빨리 달릴 땐 박자가 짧아지므로 떠 있는 시간도 줄인다 (웅크림은 최소 MIN_SQUAT_SECS)
-        let air = AIR_SECS.min(cycle - MIN_SQUAT_SECS);
+        let air = air_secs.min(cycle - MIN_SQUAT_SECS);
         Self { air, squat: cycle - air, height: height * size }
     }
 
@@ -109,6 +124,34 @@ impl Beat {
     /// 이번 틱(clock)에 흘렸다면 그 박자 안 위치
     pub fn at(&self, clock: f64) -> Option<f64> {
         (self.last == Some(clock)).then_some(self.t)
+    }
+}
+
+/// 걷다가 가끔 깡총거리는 동물(토끼)의 걸음 고르기 — 걷기·달리기 한 토막마다 한 번 정한다
+/// (토막 안에서는 그대로라 자연스럽게 한동안 걷고 한동안 깡총거린다)
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Stretch {
+    /// 이번 토막은 깡총
+    pub on: bool,
+    /// 마지막으로 본 틱 (clock, 이동 종류 번호, 남은 시간)
+    last: Option<(f64, u8, f64)>,
+}
+
+impl Stretch {
+    /// clock 틱의 이동 토막(종류 kind, 남은 시간 remaining)에서 깡총인지. 앞 틱에 이어지지 않거나(쉬었다)
+    /// 종류가 바뀌거나 남은 시간이 늘었으면 새 토막 — 그때만 pick()으로 새로 고른다
+    pub fn tick(&mut self, clock: f64, dt: f64, kind: u8, remaining: f64, pick: impl FnOnce() -> bool) -> bool {
+        let same = self.last.is_some_and(|(c, k, r)| c < clock && clock - c <= dt * 1.5 && k == kind && remaining <= r);
+        if !same {
+            self.on = pick();
+        }
+        self.last = Some((clock, kind, remaining));
+        self.on
+    }
+
+    /// 이번 틱(clock)에 고른 토막이 깡총인지
+    pub fn at(&self, clock: f64) -> bool {
+        self.on && self.last.is_some_and(|(c, ..)| c == clock)
     }
 }
 
@@ -216,6 +259,45 @@ mod tests {
             let len = Gait::new(SIZE, speed, run).hop_length(speed);
             assert!((0.5 * SIZE..=0.8 * SIZE + 1e-9).contains(&len), "{len}");
         }
+    }
+
+    #[test]
+    fn bunny_hops_are_lower_and_quicker_than_the_frogs_at_the_same_pace() {
+        for speed in [60.0, 120.0, 300.0] {
+            for run in [false, true] {
+                let (b, f) = (Gait::bunny(SIZE, speed, run), Gait::new(SIZE, speed, run));
+                assert!(b.height < f.height && b.air <= f.air && (speed > 200.0 || b.air < f.air), "speed {speed} run {run}");
+                assert!((0.22 * SIZE..=0.28 * SIZE).contains(&b.height), "{}", b.height);
+                assert!((b.cycle() - f.cycle()).abs() < 1e-12, "same hop length");
+                assert!(b.squat >= MIN_SQUAT_SECS - 1e-12);
+                let n = 10_000;
+                let avg = (0..n).map(|i| b.pace(b.cycle() * i as f64 / n as f64)).sum::<f64>() / n as f64;
+                assert!((avg - 1.0).abs() < 1e-3, "{avg}");
+                let max = sample(&b, 1000).map(|t| b.lift(t)).fold(0.0, f64::max);
+                assert!(max <= b.height + 1e-9);
+            }
+        }
+    }
+
+    #[test]
+    fn stretch_picks_once_per_segment() {
+        let dt = 0.1;
+        let mut s = Stretch::default();
+        let mut picks = 0;
+        let mut tick = |s: &mut Stretch, clock: f64, kind: u8, rem: f64, v: bool| {
+            s.tick(clock, dt, kind, rem, || {
+                picks += 1;
+                v
+            })
+        };
+        assert!(tick(&mut s, 1.0, 0, 5.0, true));
+        assert!(tick(&mut s, 1.1, 0, 4.9, false), "same segment keeps its choice");
+        assert!(s.at(1.1) && !s.at(1.2));
+        assert!(!tick(&mut s, 1.2, 0, 6.0, false), "remaining grew: new segment");
+        assert!(tick(&mut s, 1.3, 1, 5.9, true), "kind changed: new segment");
+        assert!(!tick(&mut s, 1.6, 1, 5.5, false), "a gap: new segment");
+        drop(tick);
+        assert_eq!(picks, 4);
     }
 
     #[test]

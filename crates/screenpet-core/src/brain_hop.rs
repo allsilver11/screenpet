@@ -1,22 +1,48 @@
-//! 폴짝 뛰는 동물(개구리, pet.json `locomotion: hop`)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 폴짝 뛰는 동물(개구리, pet.json `locomotion: hop`)과 가끔 깡총거리는 동물(토끼, pet.json `hop_share`)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //! 박자·포물선·목표 계산은 hop.rs.
 //!
 //! - 걷기·달리기(State::Move)는 디딤판 위 걷기 그대로지만, 떠 있을 때만 앞으로 가고(hop_pace) 그림만 살짝 띄운다
 //!   (hop_lift — 발 위치·디딤판은 그대로라 창 끝·모니터 경계·먹이·집 가기 규칙이 다른 동물과 같다).
 //! - 벽 타기(Climb·WallClimb·InnerClimb)는 같은 기계를 쓰되 폴짝 오르고 매달리기를 되풀이한다 (climb_pace).
+//! - 토끼는 걷기·달리기 토막마다 hop_share 확률로 같은 걸음을 낮은 깡총 박자(Gait::bunny)로 간다 — 벽·큰 점프는 없다.
 //! - 가끔 닿는 창 윗면으로 크게 뛴다 (State::Leap: 웅크림 → 포물선 → 그 창 윗면에 내려섬).
 
 use super::*;
 use crate::hop::{self, Gait};
 
 impl Pet {
-    /// 이동 방식의 폴짝 박자 (폴짝 동물의 걷기·달리기만 — 구르기는 그대로 구른다)
+    /// 이동 방식의 폴짝 박자 (폴짝 동물의 걷기·달리기만 — 구르기는 그대로 구른다).
+    /// 가끔 깡총거리는 동물(토끼)은 이번 틱의 이동 토막이 깡총일 때만 낮은 깡총 박자
     fn gait(&self, kind: Move) -> Option<Gait> {
-        (self.cfg.hops && kind != Move::Roll).then(|| Gait::new(self.cfg.size, self.cfg.walk_speed * kind.speed_mult(), kind == Move::Run))
+        if kind == Move::Roll {
+            return None;
+        }
+        let (speed, run) = (self.cfg.walk_speed * kind.speed_mult(), kind == Move::Run);
+        if self.cfg.hops {
+            Some(Gait::new(self.cfg.size, speed, run))
+        } else if self.bunny_hopping() {
+            Some(Gait::bunny(self.cfg.size, speed, run))
+        } else {
+            None
+        }
+    }
+
+    /// 깡총 걸음 중 (토끼의 이번 틱 State::Move 토막이 깡총) — 개구리의 큰 점프·벽 폴짝 오르기는 없다
+    pub(super) fn bunny_hopping(&self) -> bool {
+        !self.cfg.hops && matches!(self.state, State::Move { .. }) && self.bunny.at(self.clock)
     }
 
     /// update_ground 이동의 이번 틱 속도 배율 — 떠 있을 때만 앞으로 간다 (평균은 그대로). 폴짝 동물이 아니면 1
     pub(super) fn hop_pace(&mut self, kind: Move, dt: f64) -> f64 {
+        if !self.cfg.hops && self.cfg.hop_share > 0.0 && kind != Move::Roll {
+            // 걷기·달리기 한 토막마다 hop_share 확률로 깡총 (토막 안에서는 그대로)
+            let remaining = match self.state {
+                State::Move { remaining, .. } => remaining,
+                _ => 0.0,
+            };
+            let (share, rng) = (self.cfg.hop_share, &mut self.rng);
+            self.bunny.tick(self.clock, dt, kind as u8, remaining, || rng.f64() < share);
+        }
         let Some(g) = self.gait(kind) else { return 1.0 };
         let t = self.hop_beat.tick(self.clock, dt, g.cycle());
         g.pace(t)
@@ -26,8 +52,8 @@ impl Pet {
     pub(super) fn hop_lift(&self) -> f64 {
         let kind = match self.state {
             State::Move { kind, .. } => kind,
-            // 술래 놀이도 폴짝 달리기
-            State::Chase { .. } | State::Flee { .. } => Move::Run,
+            // 술래 놀이도 폴짝 달리기 (개구리만 — 토끼는 그냥 달린다)
+            State::Chase { .. } | State::Flee { .. } if self.cfg.hops => Move::Run,
             _ => return 0.0,
         };
         match (self.gait(kind), self.hop_beat.at(self.clock)) {

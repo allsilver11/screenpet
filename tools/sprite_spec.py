@@ -72,6 +72,9 @@ PERSONALITY = {"cat": "aloof", "bee": "friendly", "frog": "playful"}
 # 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
 LOCOMOTION = {"bee": "fly", "frog": "hop"}
 
+# 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼만 (개구리는 locomotion hop이라 늘 폴짝)
+HOP_SHARE = {"rabbit": 0.5}
+
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {
     "cat": {"emoji": "🐟", "name": "생선"},

@@ -258,3 +258,142 @@ fn frog_ten_minutes() {
     let m = moving as f64 / total as f64;
     assert!(m > 0.3, "moving share {m:.3}");
 }
+
+// ---- 토끼: 걷는 시간의 절반쯤 깡총 (pet.json hop_share 0.5) ----
+
+fn rabbit() -> PetConfig {
+    PetConfig { size: SIZE, half_w: 0.3 * SIZE, walk_speed: 120.0, hop_share: 0.5, ..sim_cfg() }
+}
+
+/// 깡총 토막: 발은 바닥에, 그림만 낮게(≤ 0.24 × 크기) 깡총, 평균 속도는 걷기 그대로, 그림은 hop → land
+#[test]
+fn rabbit_hop_segment_is_a_low_quick_hop_at_walking_speed() {
+    let w = world(vec![]);
+    let seed = (0..100)
+        .find(|&s| {
+            let mut p = Pet::new(rabbit(), 0.0, 0.0, s);
+            place(&mut p, &w, Owner::Ground(0), 300.0, walking(Move::Walk));
+            p.update(DT, &w);
+            p.bunny_hopping()
+        })
+        .expect("some seed starts with a hop segment");
+    let mut p = Pet::new(rabbit(), 0.0, 0.0, seed);
+    place(&mut p, &w, Owner::Ground(0), 300.0, walking(Move::Walk));
+    p.facing = 1.0;
+    let (mut max_lift, mut hops, mut was) = (0.0f64, 0, Anim::Idle);
+    let ticks = 180;
+    for _ in 0..ticks {
+        p.update(DT, &w);
+        assert!(p.bunny_hopping(), "one segment keeps its gait");
+        assert_eq!(p.body.y, 1040.0);
+        let lift = 1040.0 - SIZE - p.window_pos().1;
+        max_lift = max_lift.max(lift);
+        let a = p.render().anim;
+        assert!(matches!(a, Anim::Hop | Anim::Land | Anim::Idle), "{a:?}");
+        if a == Anim::Hop && was != Anim::Hop {
+            hops += 1;
+        }
+        was = a;
+    }
+    assert!(max_lift > 0.2 * SIZE && max_lift <= hop::BUNNY_WALK_HOP_HEIGHT * SIZE + 1e-9, "lift {max_lift}");
+    assert!(hops >= 4, "hops {hops}");
+    let avg = (p.body.x - 300.0) / (ticks as f64 * DT);
+    let speed = 120.0 * Move::Walk.speed_mult();
+    assert!((avg - speed).abs() < 0.2 * speed, "avg {avg} vs {speed}");
+    assert!(!matches!(p.state, State::Leap { .. }));
+}
+
+/// 토끼 10분 × 10: 걷기·달리기 시간의 절반쯤(±10%) 깡총, 깡총은 낮고 늘 디딤판 위,
+/// 큰 점프·벽 폴짝 오르기는 없고, 깡총 아닌 토막은 예전처럼 평평하게 걷는다
+#[test]
+fn rabbit_hops_about_half_of_its_walking_time() {
+    let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0), win(2, 1200.0, 500.0, 1700.0, 800.0)]);
+    let (mut walking_ticks, mut hopping_ticks, mut switches) = (0usize, 0usize, 0usize);
+    for seed in 0..10 {
+        let mut p = Pet::new(rabbit(), 960.0, 128.0, seed);
+        let mut prev: Option<(f64, bool, bool)> = None;
+        for _ in 0..(60 * 600) {
+            p.update(DT, &w);
+            assert!(!matches!(p.state, State::Leap { .. }), "seed {seed}: no big jumps");
+            let lift = p.body.y - SIZE - p.window_pos().1;
+            assert!((0.0..=hop::BUNNY_RUN_HOP_HEIGHT * SIZE + 1e-9).contains(&lift), "seed {seed}: lift {lift}");
+            match p.state {
+                State::Move { kind: kind @ (Move::Walk | Move::Run), remaining } => {
+                    let st = p.standing.expect("moving rabbit stands on something");
+                    assert_eq!(w.anchor(st.owner).unwrap().1, p.body.y, "seed {seed}: feet on the surface");
+                    walking_ticks += 1;
+                    let on = p.bunny_hopping();
+                    if on {
+                        hopping_ticks += 1;
+                    } else {
+                        assert_eq!(lift, 0.0);
+                        assert_eq!(p.render().anim, Anim::from(kind));
+                    }
+                    // 토막 첫 틱은 이동이 다른 상태에서 막 정해진 틱일 수 있어 걸음을 아직 안 골랐다 — 둘째 틱부터 비교
+                    if let Some((r, was, first)) = prev {
+                        if !first && remaining < r && was != on {
+                            switches += 1;
+                        }
+                    }
+                    let first = prev.is_none_or(|(r, ..)| remaining > r);
+                    prev = Some((remaining, on, first));
+                }
+                _ => {
+                    assert!(!p.bunny_hopping() || matches!(p.state, State::Move { .. }));
+                    prev = None;
+                }
+            }
+        }
+    }
+    let share = hopping_ticks as f64 / walking_ticks as f64;
+    assert!(walking_ticks > 60 * 600, "walked {walking_ticks}");
+    assert!((0.4..=0.6).contains(&share), "hop share {share:.3}");
+    assert_eq!(switches, 0, "the gait changes only between segments");
+}
+
+/// 다른 걷는 동물(hop_share 0)은 절대 깡총 걸음을 하지 않는다
+#[test]
+fn other_walkers_never_hop_walk() {
+    let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0)]);
+    for seed in 0..4 {
+        let mut p = Pet::new(PetConfig { hop_share: 0.0, ..rabbit() }, 960.0, 128.0, seed);
+        for _ in 0..(60 * 300) {
+            p.update(DT, &w);
+            assert!(!p.bunny_hopping());
+            if let State::Move { kind, .. } = p.state {
+                assert_eq!(p.window_pos().1, p.body.y - SIZE);
+                assert_eq!(p.render().anim, Anim::from(kind));
+            }
+        }
+    }
+}
+
+/// 토끼도 보내기·잡아 봐!는 그대로 된다 (깡총이든 아니든 그 쪽 화면 끝으로 나간다)
+#[test]
+fn rabbit_is_sent_off_and_plays_catch_me() {
+    let w = world(vec![]);
+    for seed in 1..=8 {
+        let mut p = Pet::new(rabbit(), 0.0, 0.0, seed);
+        place(&mut p, &w, Owner::Ground(0), 1200.0, State::Idle { remaining: 100.0, look: false });
+        assert!(p.send_to(Side::Left));
+        let mut out = None;
+        for _ in 0..(60 * 40) {
+            p.update(DT, &w);
+            if let Some(side) = p.take_exit() {
+                out = Some(side);
+                break;
+            }
+        }
+        assert_eq!(out, Some(Side::Left), "seed {seed}");
+    }
+    let mut p = Pet::new(rabbit(), 0.0, 0.0, 1);
+    place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+    p.set_guest(Side::Left, 1000.0);
+    p.start_catch_me();
+    assert!(p.is_catch_me());
+    for _ in 0..60 {
+        p.update(DT, &w);
+        assert_eq!(p.body.y, 1040.0);
+        assert_eq!(p.window_pos().1, 1040.0 - SIZE, "the rabbit runs (no frog hop) while playing");
+    }
+}
