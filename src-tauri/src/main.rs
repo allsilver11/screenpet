@@ -2,6 +2,7 @@
 
 mod decal;
 mod game_loop;
+mod help;
 mod house;
 mod network;
 mod overlay;

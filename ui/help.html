@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>ScreenPet 도움말</title>
+    <style>
+      html, body { margin: 0; }
+      body {
+        font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+        background: #fffaf2;
+        color: #3b3024;
+        font-size: 12.5px;
+        line-height: 1.55;
+        padding: 14px 16px 18px;
+        box-sizing: border-box;
+      }
+      h1 { font-size: 16px; margin: 0 0 4px; }
+      .sub { color: #8a7660; font-size: 11.5px; margin-bottom: 10px; }
+      section {
+        background: #fff;
+        border: 1px solid #ecdcc4;
+        border-radius: 10px;
+        padding: 8px 12px;
+        margin-bottom: 9px;
+      }
+      h2 { font-size: 13px; margin: 0 0 4px; }
+      ul { margin: 0; padding-left: 17px; }
+      li { margin: 1px 0; }
+      b { color: #b4613a; font-weight: 600; }
+      .key {
+        display: inline-block;
+        border: 1px solid #c9b79f;
+        border-bottom-width: 2px;
+        border-radius: 4px;
+        padding: 0 4px;
+        font-size: 11px;
+        background: #fffdf8;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🐾 ScreenPet 도움말</h1>
+    <div class="sub">펫은 트레이 아이콘이나 펫을 <b>우클릭</b>하면 나오는 메뉴로 다뤄요.</div>
+
+    <section>
+      <h2>🐱 동물마다 달라요</h2>
+      <ul>
+        <li>동물마다 성격과 특기가 달라요. 꿀벌은 침을 쏘고, 개구리는 폴짝, 기린은 목을 쭉, 공룡은 불을 뿜어요.</li>
+        <li><b>캐릭터 ▸</b>에서 동물을 바꿀 수 있어요.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🍚 밥 주고 키우기</h2>
+      <ul>
+        <li>배고파하면 <b>밥 주기</b>로 밥을 주세요. 밥과 좋아하는 음식을 먹으면 자라요. 간식·물은 언제든 줄 수 있어요.</li>
+        <li><b>직접 주기</b>면 마우스에 음식이 붙어요. 펫 입에 갖다 대면 받아먹어요.</li>
+        <li>아기 → 유치원 → 어린이 → 청소년 → 어른. 지금 단계는 메뉴의 🌱 줄에서 볼 수 있어요.</li>
+        <li>성장은 <b>동물마다 따로</b>예요. 캐릭터를 바꿨다 돌아오면 그 동물이 자라던 단계부터 이어서 키워요.</li>
+        <li><b>성장 멈추기</b>로 지금 모습 그대로 둘 수 있어요.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🖱️ 같이 놀기</h2>
+      <ul>
+        <li>마우스를 펫 위에 올려 <b>간질여</b> 보세요. 클릭도 해 보세요.</li>
+        <li>펫을 잡아서 끌고, 던질 수 있어요. 화면 바닥뿐 아니라 <b>창 위나 창 안</b>에도 내려놔 보세요.</li>
+        <li><b>🎮 조작 모드</b>: <span class="key">←</span><span class="key">→</span> 걷기 (<span class="key">Shift</span> 달리기), <span class="key">Space</span> 점프, <span class="key">↓</span> 앉기, <span class="key">Esc</span> 끝내기. 방향키는 다른 창에도 같이 들어가요.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>💞 친구랑 놀기</h2>
+      <ul>
+        <li>같은 와이파이면 <b>친구랑 놀기</b>에 친구가 보여요. 멀리 있으면 <b>친구 코드</b>를 주고받아요. 양쪽에 같은 이모지 6개가 뜨면 확인!</li>
+        <li>친구마다 <b>왼쪽에 / 오른쪽에</b>를 정하면 펫이 그쪽 화면 끝으로 걸어 넘어가요.</li>
+        <li>그쪽 벽으로 펫을 <b>던지면</b> 친구 화면으로 날아가요.</li>
+        <li><b>놀러 보내기</b>, <b>편지 들려 보내기 💌</b>, 친구 펫 <b>데리고 오기</b>도 돼요.</li>
+        <li>놀러 간 내 펫은 <b>집에 와</b>로 언제든 불러올 수 있어요.</li>
+        <li>놀러 온 친구 펫을 클릭해 보세요. 애교를 부리거나 도망가요. 우클릭하면 돌려보내거나 다른 친구에게 보낼 수 있어요.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🏠 잠깐 조용히</h2>
+      <ul>
+        <li>성가실 땐 <b>하우스</b>로 펫을 집에 들여보내요. 집은 마우스로 끌어서 옮길 수 있어요.</li>
+        <li><b>숨기기 / 보이기</b>로 화면에서 잠깐 감출 수도 있어요.</li>
+      </ul>
+    </section>
+
+    <script>
+      window.addEventListener("contextmenu", (e) => e.preventDefault());
+    </script>
+  </body>
+</html>
