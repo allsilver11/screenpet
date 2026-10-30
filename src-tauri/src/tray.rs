@@ -82,7 +82,8 @@ pub struct FriendItem {
 #[derive(Clone)]
 pub struct TrayMenu {
     pub menu: Menu<Wry>,
-    pub favorite: MenuItem<Wry>,
+    /// 좋아하는 음식 항목 (손으로 주기 ▸ / 그릇에 주기 ▸ 두 군데 — 동물이 바뀌면 둘 다 글자를 바꾼다)
+    pub favorite: [MenuItem<Wry>; 2],
     /// 성장 단계 한 줄 (누를 수 없음, 단계·성장 멈춤이 바뀌면 글자만 바꾼다)
     pub growth: MenuItem<Wry>,
     pub lock: CheckMenuItem<Wry>,
@@ -97,15 +98,34 @@ pub struct TrayMenu {
     pub friends: Submenu<Wry>,
     /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 누를 수 있다 — 하우스 옆 바깥 메뉴)
     pub come_home: MenuItem<Wry>,
-    /// 밥 주기 방법: 직접 주기 / 자동 주기 (그릇)
-    pub hand_mode: CheckMenuItem<Wry>,
-    pub auto_mode: CheckMenuItem<Wry>,
+    /// 밥 주기 방법별 하위 메뉴: 손으로 주기 ▸ / 그릇에 주기 ▸ (마지막에 쓴 쪽에 ✓ — 배고플 때 고르기도 그 방법을 따른다)
+    pub hand_mode: Submenu<Wry>,
+    pub auto_mode: Submenu<Wry>,
 }
 
 /// 밥 주기 방법 체크를 지금 설정에 맞춘다 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다)
 pub fn sync_feed_mode(menu: &TrayMenu, mode: FeedMode) {
-    let _ = menu.hand_mode.set_checked(mode == FeedMode::Hand);
-    let _ = menu.auto_mode.set_checked(mode == FeedMode::Auto);
+    let _ = menu.hand_mode.set_text(feed_mode_label(FeedMode::Hand, mode));
+    let _ = menu.auto_mode.set_text(feed_mode_label(FeedMode::Auto, mode));
+}
+
+fn feed_mode_label(which: FeedMode, current: FeedMode) -> String {
+    let name = match which {
+        FeedMode::Hand => "✋ 손으로 주기",
+        FeedMode::Auto => "🥣 그릇에 주기",
+    };
+    if which == current {
+        format!("{name} ✓")
+    } else {
+        name.to_string()
+    }
+}
+
+/// 좋아하는 음식 두 항목의 글자를 바꾼다 (동물 교체)
+pub fn set_favorite_label(menu: &TrayMenu, f: &FavoriteFood) {
+    for item in &menu.favorite {
+        let _ = item.set_text(favorite_label(f));
+    }
 }
 
 /// 다른 사람이 정한 이름을 메뉴 글자로: 제어 문자(\t는 Windows에서 단축키 칸, \n 등)를 빼고,
@@ -306,19 +326,23 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         checks.push((item, p.id.clone()));
     }
     // 밥·좋아하는 음식만 자라게 한다. 간식·물은 언제든 (배불러도) 받는다
-    let meal = MenuItem::with_id(app, "feed:meal", "밥 🍚", true, None::<&str>)?;
-    let fav = MenuItem::with_id(app, "feed:favorite", favorite_label(favorite), true, None::<&str>)?;
-    let snack = MenuItem::with_id(app, "feed:snack", "간식 🍪", true, None::<&str>)?;
+    // 방법을 고르고 음식을 고르는 걸 한 번에 (메뉴는 누르면 닫히므로): 손으로 주기 ▸ 음식 / 그릇에 주기 ▸ 음식.
+    // 손으로: 음식이 커서 끝에 붙어 동물 입에 갖다 대면 먹는다. 그릇에: 그릇(꿀벌은 꽃)이 놓인다. 물은 늘 물그릇
+    let mut favs = Vec::new();
+    let mut by_mode = Vec::new();
+    for (mode, tag) in [(FeedMode::Hand, "hand"), (FeedMode::Auto, "auto")] {
+        let meal = MenuItem::with_id(app, format!("feed:{tag}:meal"), "밥 🍚", true, None::<&str>)?;
+        let fav = MenuItem::with_id(app, format!("feed:{tag}:favorite"), favorite_label(favorite), true, None::<&str>)?;
+        let snack = MenuItem::with_id(app, format!("feed:{tag}:snack"), "간식 🍪", true, None::<&str>)?;
+        by_mode.push(Submenu::with_items(app, feed_mode_label(mode, feed_mode), true, &[&meal, &fav, &snack])?);
+        favs.push(fav);
+    }
     let water = MenuItem::with_id(app, "feed:water", "물 💧", true, None::<&str>)?;
-    // 직접 주기: 음식이 커서 끝에 붙어 동물 입에 갖다 대면 먹는다. 자동 주기: 그릇(꿀벌은 꽃)이 놓인다. 물은 늘 물그릇
-    let hand_mode = CheckMenuItem::with_id(app, "feedmode:hand", "직접 주기", true, feed_mode == FeedMode::Hand, None::<&str>)?;
-    let auto_mode = CheckMenuItem::with_id(app, "feedmode:auto", "자동 주기 (그릇)", true, feed_mode == FeedMode::Auto, None::<&str>)?;
-    let feed = Submenu::with_items(
-        app,
-        "밥 주기",
-        true,
-        &[&hand_mode, &auto_mode, &PredefinedMenuItem::separator(app)?, &meal, &fav, &PredefinedMenuItem::separator(app)?, &snack, &water],
-    )?;
+    let auto_mode = by_mode.pop().expect("auto submenu");
+    let hand_mode = by_mode.pop().expect("hand submenu");
+    let fav_auto = favs.pop().expect("auto favorite");
+    let fav_hand = favs.pop().expect("hand favorite");
+    let feed = Submenu::with_items(app, "밥 주기", true, &[&hand_mode, &auto_mode, &PredefinedMenuItem::separator(app)?, &water])?;
     let growth = MenuItem::new(app, growth_label(care.stage, care.locked), false, None::<&str>)?;
     let lock = CheckMenuItem::with_id(app, "lock", "성장 멈추기", true, care.locked, None::<&str>)?;
     let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
@@ -370,12 +394,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
             "toggle" => toggle_windows(app),
             "help" => crate::help::show(app),
-            "feed:snack" => send(app, Input::Feed(Food::Snack)),
-            "feed:meal" => send(app, Input::Feed(Food::Meal)),
-            "feed:favorite" => send(app, Input::Feed(Food::Favorite)),
             "feed:water" => send(app, Input::Feed(Food::Water)),
-            "feedmode:hand" => send(app, Input::SetFeedMode(FeedMode::Hand)),
-            "feedmode:auto" => send(app, Input::SetFeedMode(FeedMode::Auto)),
             "lock" => send(app, Input::ToggleLock),
             "house" => send(app, Input::ToggleHouse),
             CONTROL_ID => send(app, Input::ToggleControl),
@@ -412,6 +431,16 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::Unfriend(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(REPAIR_PREFIX) {
                     net(NetInput::Repair(id.to_string()));
+                } else if let Some((mode, food)) = other.strip_prefix("feed:").and_then(|rest| rest.split_once(':')) {
+                    // 방법을 기억하고 (배고플 때 고르기도 따른다) 바로 먹인다
+                    let mode = if mode == "hand" { FeedMode::Hand } else { FeedMode::Auto };
+                    let food = match food {
+                        "meal" => Food::Meal,
+                        "favorite" => Food::Favorite,
+                        _ => Food::Snack,
+                    };
+                    send(app, Input::SetFeedMode(mode));
+                    send(app, Input::Feed(food));
                 } else if let Some(id) = other.strip_prefix("pet:") {
                     // 체크된 항목을 다시 누르면 체크가 풀리므로 항상 다시 맞춘다
                     for (item, pid) in &checks {
@@ -423,5 +452,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: fav, growth, lock, house, control, pets: pet_items, pets_menu, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, pets: pet_items, pets_menu, friends, come_home, hand_mode, auto_mode })
 }

@@ -37,6 +37,23 @@ const HOVER_PAUSE_SECS: f64 = 0.25;
 /// 커서가 올라와 있는 동안 쳐다보기를 이어 가는 시간
 const HOVER_LOOK_SECS: f64 = 1.5;
 const TICKLE_HOLD: f64 = 1.5;
+/// 올려다보기 (pet.json lookup이 있는 동물만 — 없으면 아래 모두 그냥 쳐다보기/평소대로):
+/// 쉬는 박자 중 이 몫은 문득 위를 올려다본다
+const LOOK_UP_CHANCE: f64 = 0.08;
+/// 걷다가 멈춰 올려다보는 빈도 (초당 확률 — 드물게)
+const LOOK_UP_WALK_RATE: f64 = 0.02;
+/// 걷다가 멈춰 올려다보는 시간
+const LOOK_UP_SECS: (f64, f64) = (1.0, 2.0);
+/// 커서가 머리 위에 이만큼(초) 머물면 궁금해서 올려다본다
+const LOOK_UP_HOVER_SECS: f64 = 1.0;
+/// 머리 꼭대기 높이 (발에서 몸 크기의 이 비율 위)
+const HEAD_TOP: f64 = 0.8;
+/// 머리 꼭대기보다 몸 크기의 이 비율 넘게 위에 있으면 "머리 위"
+const LOOK_UP_RISE: f64 = 0.3;
+/// 머리 위로 치는 옆 거리 (몸 크기 배) — 손에 든 음식
+const LOOK_UP_REACH: f64 = 3.0;
+/// 머리 위로 치는 옆 거리 (몸 크기 배) — 그냥 머무는 커서
+const LOOK_UP_HOVER_REACH: f64 = 1.0;
 const TICKLE_WAKE_SECS: f64 = 5.0;
 const CHATTER_SECS: (f64, f64) = (20.0, 40.0);
 const FIRST_CHATTER_SECS: f64 = 25.0;
@@ -103,6 +120,9 @@ pub enum Anim {
     /// 기린 목 늘이기 — 구르는 대신 멈춰 서서 목을 쭉 (옆모습). 늘어나는 목은 앱이 층으로 그린다 (ui/main.js)
     #[serde(rename = "neckstretch")]
     NeckStretch,
+    /// 올려다보기 — 머리 위에 든 음식·머무는 커서, 가끔 쉬다가·걷다가 문득 (옆모습, pet.json에 lookup이 있는 동물만)
+    #[serde(rename = "lookup")]
+    LookUp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -346,6 +366,8 @@ pub struct PetConfig {
     pub hops: bool,
     /// 걷기·달리기 토막 중 깡총거리는 몫 (pet.json `hop_share` — 토끼 0.5, brain_hop.rs). 개구리(hops)는 늘 폴짝
     pub hop_share: f64,
+    /// 위를 올려다본다 (pet.json에 lookup이 있으면 — 없으면 그냥 쳐다본다)
+    pub looks_up: bool,
     /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
     pub dpi: f64,
 }
@@ -434,6 +456,10 @@ pub struct Pet {
     hand: Option<(f64, f64)>,
     /// 이번에 내민 음식을 이미 알아챘음 (배고프면 한 번 "냠!?")
     hand_noticed: bool,
+    /// 쳐다보는 중(Idle look · 손에 든 음식 보기)에 위를 올려다본다 — cfg.looks_up일 때만 LookUp으로 그린다
+    gaze_up: bool,
+    /// 커서가 머리 위에 머물기 시작한 시각 (clock 기준)
+    above_since: Option<f64>,
     /// 디딤판에 놓인 소품 (소품, 디딤판, 기준점에서의 x, 마지막으로 보낸 자리) — 창이 움직이면 따라간다
     prop_anchor: Option<(Prop, Owner, f64, (f64, f64))>,
     /// 쏜 화면 지점 (take_sting으로 한 번 꺼낸다)
@@ -507,6 +533,8 @@ impl Pet {
             queued_food: None,
             hand: None,
             hand_noticed: false,
+            gaze_up: false,
+            above_since: None,
             prop_anchor: None,
             sting_at: None,
             sting_ready_at: 0.0,
@@ -525,6 +553,9 @@ impl Pet {
 
     pub fn update(&mut self, dt: f64, world: &World) {
         self.clock += dt;
+        if !matches!(self.state, State::Idle { look: true, .. } | State::WantFood { walking: false }) {
+            self.gaze_up = false;
+        }
         if !matches!(self.state, State::Air { anim: Anim::Fall }) {
             self.thrown = false;
         }
@@ -636,6 +667,7 @@ impl Pet {
             State::Sting { phase: StingPhase::Recoil, .. } => Anim::Annoyed,
             State::Sting { .. } => Anim::Sting,
             State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } | State::WantFood { walking: true } => Anim::Walk,
+            State::WantFood { walking: false } if self.looking_up() => Anim::LookUp,
             State::WantFood { walking: false } => Anim::Look,
             State::Farewell { .. } => Trick::Wave.into(),
             State::Away => Anim::Idle,
@@ -647,6 +679,7 @@ impl Pet {
             State::Eating { .. } => Anim::Eat,
             State::LevelUp { .. } => Anim::LevelUp,
             State::Huff { .. } => Anim::Huff,
+            State::Idle { look: true, .. } if self.looking_up() => Anim::LookUp,
             State::Idle { look: true, .. } => Anim::Look,
             State::Idle { .. } | State::Turn { .. } => Anim::Idle,
             State::Sleep { .. } => Anim::Sleep,
@@ -822,6 +855,43 @@ impl Pet {
         self.hover_hist.clear();
         self.tickling = false;
         self.hover_since = None;
+        self.above_since = None;
+    }
+
+    /// 지금 위를 올려다보며 그린다 (lookup이 없는 동물은 그냥 쳐다본다)
+    fn looking_up(&self) -> bool {
+        self.gaze_up && self.cfg.looks_up
+    }
+
+    /// (x, y)가 머리 위인가 — 머리 꼭대기보다 몸 LOOK_UP_RISE배 넘게 위, 옆으로 몸 reach배 안
+    fn above_head(&self, x: f64, y: f64, reach: f64) -> bool {
+        let size = self.cfg.size;
+        self.body.y - HEAD_TOP * size - y > LOOK_UP_RISE * size && (x - self.body.x).abs() <= reach * size
+    }
+
+    /// 커서가 머리 위에 LOOK_UP_HOVER_SECS 넘게 머물면 멈춰서 (쉬던 중이면 그 자리에서) 궁금한 듯 올려다본다.
+    /// 커서가 머무는 동안엔 계속 올려다본다. 올려다봤으면 true
+    fn look_up_at_cursor(&mut self) -> bool {
+        if !self.cfg.looks_up || !self.above_since.is_some_and(|t| self.clock - t >= LOOK_UP_HOVER_SECS) {
+            return false;
+        }
+        match self.state {
+            State::Move { .. } => self.state = State::Idle { remaining: HOVER_LOOK_SECS, look: true },
+            // 커서가 떠나면 곧 (HOVER_LOOK_SECS 뒤) 하던 대로 — 쉬던 박자의 다음 할 일(after_beat)은 그대로
+            State::Idle { .. } => self.state = State::Idle { remaining: HOVER_LOOK_SECS, look: true },
+            _ => return false,
+        }
+        self.gaze_up = true;
+        let dx = self.cursor.0 - self.body.x;
+        if dx.abs() > 0.25 * self.cfg.size {
+            self.facing = dx.signum();
+        }
+        true
+    }
+
+    /// 쉬는 박자를 올려다보기로 바꿀지 (lookup이 있는 동물만 주사위를 굴린다 — 없는 동물의 난수 순서는 그대로)
+    fn roll_look_up(&mut self) -> bool {
+        self.cfg.looks_up && self.rng.f64() < LOOK_UP_CHANCE
     }
 
     /// 하우스 안: 말풍선 타이머와 하우스 안에서 먹기·성장 축하·갸웃·하트만 흐른다
@@ -1197,6 +1267,11 @@ impl Pet {
         } else {
             self.hover_since = None;
         }
+        if !inside && self.above_head(cx, cy, LOOK_UP_HOVER_REACH) {
+            self.above_since.get_or_insert(self.clock);
+        } else {
+            self.above_since = None;
+        }
         while self.hover_hist.front().is_some_and(|&(t, _, _)| self.clock - t > TICKLE_WINDOW) {
             self.hover_hist.pop_front();
         }
@@ -1214,12 +1289,19 @@ impl Pet {
     /// 걷거나 달리는 중에 커서가 0.25초 넘게 올라와 있으면 멈춰서 쳐다본다.
     /// 커서가 머무는 동안엔 계속 쳐다본다 (다시 걷다 멈추며 방향이 바뀌지 않게).
     fn pause_for_hover(&mut self) {
+        if self.look_up_at_cursor() {
+            return;
+        }
         if !self.hover_since.is_some_and(|t| self.clock - t >= HOVER_PAUSE_SECS) {
             return;
         }
         match self.state {
-            State::Move { .. } => self.state = State::Idle { remaining: HOVER_LOOK_SECS, look: true },
+            State::Move { .. } => {
+                self.gaze_up = false;
+                self.state = State::Idle { remaining: HOVER_LOOK_SECS, look: true }
+            }
             State::Idle { remaining, look: true } => {
+                self.gaze_up = false;
                 self.state = State::Idle { remaining: remaining.max(HOVER_LOOK_SECS), look: true }
             }
             _ => return,
@@ -1555,7 +1637,20 @@ impl Pet {
         self.state = State::WantFood { walking: false };
     }
 
-    /// 손에 든 음식 쪽을 본다. 같은 바닥 가까이(위로 몸 2.5개, 옆으로 4개 안)면 그 아래까지 걸어간다 (바닥 안에서만)
+    /// 걷는 중에 드물게 멈춰 올려다볼지 (lookup이 있고, 그냥 걷는 중 — 깡총·폴짝, 집·친구 화면 가는 길, 조작 모드는 아님)
+    fn stops_to_look_up(&mut self, kind: Move, dt: f64) -> bool {
+        self.cfg.looks_up
+            && kind == Move::Walk
+            && !self.cfg.hops
+            && !self.bunny_hopping()
+            && self.control.is_none()
+            && self.heading().is_none()
+            && !self.is_heading_out()
+            && self.rng.f64() < LOOK_UP_WALK_RATE * dt
+    }
+
+    /// 손에 든 음식 쪽을 본다. 같은 바닥 가까이(위로 몸 2.5개, 옆으로 4개 안)면 그 아래까지 걸어간다 (바닥 안에서만).
+    /// 음식이 머리 위(옆으로 몸 3개 안)면 걸어가지 않고 멈춰서 올려다본다 (lookup이 있는 동물만)
     fn update_want_food(&mut self, dt: f64, st: Standing, piece: &Surface) {
         let Some((fx, fy)) = self.hand else {
             self.state = self.idle_state();
@@ -1571,7 +1666,8 @@ impl Pet {
         let (lo, hi) = (piece.x_start + self.cfg.half_w, piece.x_end - self.cfg.half_w);
         let goal = if lo > hi { self.body.x } else { fx.clamp(lo, hi) };
         let gap = goal - self.body.x;
-        let walking = near && gap.abs() > 2.0;
+        self.gaze_up = self.cfg.looks_up && self.above_head(fx, fy, LOOK_UP_REACH);
+        let walking = near && gap.abs() > 2.0 && !self.gaze_up;
         if walking {
             let step = (self.walk_speed() * dt).min(gap.abs());
             let new_x = self.body.x + gap.signum() * step;
@@ -2022,6 +2118,13 @@ impl Pet {
                     self.body.x = new_x;
                 }
                 let remaining = remaining - dt;
+                if remaining > 0.0 && self.stops_to_look_up(kind, dt) {
+                    // 걷다가 문득 멈춰 올려다보고, 남은 걸음을 마저 간다
+                    self.pacing.after_beat = Some(AfterBeat::Go(State::Move { kind, remaining }));
+                    self.gaze_up = true;
+                    self.state = State::Idle { remaining: behavior::range(&mut self.rng, LOOK_UP_SECS), look: true };
+                    return;
+                }
                 self.state = if remaining > 0.0 {
                     State::Move { kind, remaining }
                 } else if !self.is_heading_out() && self.rng.f64() < behavior::MOVE_END_TURN_CHANCE {
@@ -2356,13 +2459,18 @@ impl Pet {
     }
 
     fn idle_state(&mut self) -> State {
-        State::Idle { remaining: behavior::range(&mut self.rng, behavior::IDLE_SECS), look: self.rng.bool() }
+        let remaining = behavior::range(&mut self.rng, behavior::IDLE_SECS);
+        let look = self.rng.bool();
+        self.gaze_up = self.roll_look_up();
+        State::Idle { remaining, look: look || self.gaze_up }
     }
 
-    /// 활동 사이의 짧은 옆모습 앉기
+    /// 활동 사이의 짧은 옆모습 앉기 (lookup이 있는 동물은 가끔 문득 올려다본다)
     fn beat(&mut self, then: AfterBeat) -> State {
         self.pacing.after_beat = Some(then);
-        State::Idle { remaining: behavior::range(&mut self.rng, behavior::BEAT_SECS), look: false }
+        let remaining = behavior::range(&mut self.rng, behavior::BEAT_SECS);
+        self.gaze_up = self.roll_look_up();
+        State::Idle { remaining, look: self.gaze_up }
     }
 
     /// 지금 활동과 묶음이 다르면 먼저 잠깐 앉았다가 next로 간다 (Turn은 직전 이동 방식 기준)
@@ -2735,6 +2843,10 @@ mod throw_tests;
 #[path = "brain_giraffe_tests.rs"]
 mod giraffe_tests;
 
+#[cfg(test)]
+#[path = "brain_lookup_tests.rs"]
+mod lookup_tests;
+
 /// 기대고 있는 창 (게임 루프가 매 틱 그 창 경계만 다시 읽는다)
 #[path = "brain_ride.rs"]
 mod ride;
@@ -2795,6 +2907,7 @@ mod tests {
             stings: false,
             hops: false,
             hop_share: 0.0,
+            looks_up: false,
             dpi: 1.0,
         }
     }
@@ -3243,7 +3356,7 @@ mod tests {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff, Anim::Climb, Anim::Slide, Anim::Sting, Anim::BigJump, Anim::NeckStretch];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Wag, Anim::Huff, Anim::Climb, Anim::Slide, Anim::Sting, Anim::BigJump, Anim::NeckStretch, Anim::LookUp];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);
@@ -3290,6 +3403,7 @@ mod tests {
             stings: false,
             hops: false,
             hop_share: 0.0,
+            looks_up: false,
             dpi: 1.0,
         }
     }

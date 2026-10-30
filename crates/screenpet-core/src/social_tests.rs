@@ -23,6 +23,7 @@ fn cfg(personality: Personality) -> PetConfig {
         stings: false,
         hops: false,
         hop_share: 0.0,
+        looks_up: false,
         dpi: 1.0,
     }
 }

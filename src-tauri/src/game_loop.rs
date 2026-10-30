@@ -96,7 +96,7 @@ fn save_config(app: &AppHandle, config: &mut Config, pet_id: &str, care: &Care) 
 /// 트레이·우클릭 메뉴의 돌보기·하우스 항목을 현재 동물과 상태에 맞춘다
 fn sync_menu(app: &AppHandle, entry: &PetEntry, care: &Care, housed: bool) {
     let state = app.state::<AppState>();
-    let _ = state.menu.favorite.set_text(crate::tray::favorite_label(&favorite_of(entry)));
+    crate::tray::set_favorite_label(&state.menu, &favorite_of(entry));
     let _ = state.menu.lock.set_checked(care.locked);
     sync_growth(app, care);
     let _ = state.menu.house.set_text(crate::tray::house_label(housed));

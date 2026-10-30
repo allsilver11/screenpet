@@ -11,9 +11,9 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 ];
 
 /// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide, 꿀벌 sting, 개구리 bigjump,
-/// 기린 neckstretch — 있으면 구르는 대신 목을 늘인다).
-/// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다
-pub const OPTIONAL_ANIMS: [&str; 8] = ["arch", "wag", "huff", "climb", "slide", "sting", "bigjump", "neckstretch"];
+/// 기린 neckstretch — 있으면 구르는 대신 목을 늘인다, 올려다보기 lookup — 없으면 그냥 쳐다본다(look)).
+/// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같다
+pub const OPTIONAL_ANIMS: [&str; 9] = ["arch", "wag", "huff", "climb", "slide", "sting", "bigjump", "neckstretch", "lookup"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -157,6 +157,11 @@ impl PetManifest {
     /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 개구리는 늘 폴짝, 꿀벌은 난다)
     pub fn hop_share(&self) -> f64 {
         if self.locomotion == Locomotion::Walk { self.hop_share } else { 0.0 }
+    }
+
+    /// 위를 올려다본다 (pet.json에 lookup이 있으면 — 없으면 그냥 쳐다본다)
+    pub fn can_look_up(&self) -> bool {
+        self.has_anim("lookup")
     }
 
     /// 괴롭히면 화면을 쏜다 (pet.json에 sting이 있는 꿀벌)
@@ -333,9 +338,30 @@ mod tests {
         let m = parse_manifest(&json).unwrap();
         assert!(m.has_anim("neckstretch"));
         assert_eq!(crate::behavior::Special::from_manifest(|n| m.has_anim(n)), Some(crate::behavior::Special::NeckStretch));
-        assert_eq!(OPTIONAL_ANIMS.last(), Some(&"neckstretch"));
+        assert_eq!(OPTIONAL_ANIMS[7], "neckstretch");
         let bad = full_json().replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 0, "fps": 2},"#);
         assert!(parse_manifest(&bad).is_err());
+    }
+
+    /// 올려다보기: 선택 동작의 맨 끝 — 있으면 can_look_up, 없으면 그냥 쳐다본다
+    #[test]
+    fn parses_lookup_as_the_last_optional_anim() {
+        assert_eq!(OPTIONAL_ANIMS[8], "lookup");
+        assert!(!parse_manifest(&full_json()).unwrap().can_look_up());
+        let json = full_json().replace(r#""animations": {"#, r#""animations": {"lookup": {"row": 21, "frames": 3, "fps": 3},"#);
+        assert!(parse_manifest(&json).unwrap().can_look_up());
+        let bad = full_json().replace(r#""animations": {"#, r#""animations": {"lookup": {"row": 21, "frames": 0, "fps": 3},"#);
+        assert!(parse_manifest(&bad).is_err());
+    }
+
+    /// 번들 pet.json: 모든 동물이 올려다본다
+    #[test]
+    fn bundled_pets_look_up() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        for id in ["cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa"] {
+            let json = std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap();
+            assert!(parse_manifest(&json).unwrap().can_look_up(), "{id}");
+        }
     }
 
     /// 개구리 (아트 에이전트가 ui/pets/frog를 만들면 그대로 읽힌다 — 없으면 건너뛴다)
