@@ -1,7 +1,7 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
     python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie,flower}.png
-                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop,apple,milk}.png (직접 주기, 48×48)
+                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop,apple,milk,bread,leaf,watermelon,broccoli,grapes}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
 
@@ -18,7 +18,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from draw_house import blob, finish, paw, tuft  # noqa: E402
-from draw_pets import LINE, S, WHITE, C, E, L, T, aa, arc, mix, paint, shapes, view  # noqa: E402
+from draw_pets import LINE, S, WHITE, C, E, L, T, aa, arc, mix, paint, shapes, view, xf  # noqa: E402
 from sprite_spec import FRAME  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -339,6 +339,47 @@ def hand_leaf(img):
 
 HAND_NAMES += ("hand_bread", "hand_leaf")  # 농장: 오리 🍞 · 기린 🍃
 HAND_DRAW.update(hand_bread=hand_bread, hand_leaf=hand_leaf)
+
+MELON, MELON_PALE, MELON_RIND, MELON_RIND_DARK, SEED = (250, 104, 118), (240, 252, 214), (112, 192, 94), (78, 150, 74), (70, 50, 52)
+BROC, BROC_DARK, BROC_STEM = (118, 190, 96), (84, 152, 74), (190, 224, 152)
+GRAPE, GRAPE_DARK, GRAPE_LIGHT = (164, 112, 204), (126, 82, 168), (214, 186, 238)
+
+
+def hand_watermelon(img):
+    """노란 공룡이 좋아하는 수박 한 조각 — 부채꼴 빨간 속(뾰족한 쪽이 위), 연두 속껍질, 초록 줄무늬 껍질, 까만 씨, 작은 얼굴."""
+    cx, cy = 64, 50
+    fan = lambda r: [(cx, cy)] + arc(cx, cy, r, r, 47, 133, 16)
+    blob(img, [T(*fan(27))], MELON_RIND, r=1.2, line=0.9,
+         marks=[([T(*fan(24))], MELON_PALE), ([T(*fan(22))], MELON),
+                ([L(arc(cx, cy, 25.8, 25.8, a, a + 11, 4), 1.4) for a in (52, 72, 97, 117)], MELON_RIND_DARK),
+                ([E(57, 70, 59, 73.5), E(69, 70, 71, 73.5), E(63, 67, 65, 70.5)], SEED)])
+    tiny_face(img, 64, 62, 0.75)
+
+
+def hand_broccoli(img):
+    """초록 공룡이 좋아하는 브로콜리 — 동글 송이 셋 + 연두 줄기, 작은 얼굴."""
+    with xf(sx=0.84, sy=0.84, pivot=(64, 64)):
+        blob(img, [T((59, 66), (69, 66), (68, 85), (60, 85))], BROC_STEM, r=1.0, line=0.9,
+             marks=[([L([(64, 70), (64, 82)], 1.0)], mix(BROC_STEM, LINE, 0.25))])
+        blob(img, [C(53.5, 61, 9), C(74.5, 61, 9), C(64, 53, 10.5), E(52, 56, 76, 70)], BROC, r=1.4, line=0.9,
+             marks=[([C(51, 64, 2.2), C(77, 64, 2.2), C(58, 48, 2.0), C(71, 49, 2.3), C(64, 66, 2.0)], BROC_DARK),
+                    ([E(57, 46, 63, 51)], mix(BROC, WHITE, 0.45))])
+        tiny_face(img, 64, 59, 0.85)
+
+
+def hand_grapes(img):
+    """보라 공룡이 좋아하는 포도 한 송이 — 동글 알 여러 개 + 꼭지와 잎, 큰 알에 작은 얼굴."""
+    with xf(sx=0.78, sy=0.78, pivot=(64, 63)):
+        blob(img, [L([(64, 50), (66, 43)], 2.4)], (150, 112, 82), r=0, line=0.8)
+        blob(img, [E(66, 41, 79, 48)], (128, 196, 104), r=0.3, line=0.8)
+        for x, y in ((55, 56), (73, 56), (50, 66), (78, 66), (57, 76), (71, 76), (64, 85)):
+            blob(img, [C(x, y, 6.2)], GRAPE, r=0, line=0.8, marks=[([C(x - 2, y - 2, 1.5)], GRAPE_LIGHT)])
+        blob(img, [C(64, 64, 9)], GRAPE, r=0, line=0.85, marks=[([C(64, 68, 7)], mix(GRAPE, GRAPE_DARK, 0.4)), ([C(60, 59.5, 2.0)], GRAPE_LIGHT)])
+        tiny_face(img, 64, 65, 0.8)
+
+
+HAND_NAMES += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡: 노랑 🍉 · 초록 🥦 · 보라 🍇
+HAND_DRAW.update(hand_watermelon=hand_watermelon, hand_broccoli=hand_broccoli, hand_grapes=hand_grapes)
 
 
 DRAW = {"bowl_food": draw_bowl_food, "bowl_water": draw_bowl_water, "cookie": draw_cookie, "flower": draw_flower}

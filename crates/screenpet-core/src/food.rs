@@ -91,6 +91,9 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "santa" => "hand_milk",
             "duck" => "hand_bread",
             "giraffe" => "hand_leaf",
+            "dino_yellow" => "hand_watermelon",
+            "dino_green" => "hand_broccoli",
+            "dino_purple" => "hand_grapes",
             _ => "hand_meal",
         },
         Food::Meal | Food::Water => "hand_meal",
@@ -197,6 +200,11 @@ mod tests {
         assert_eq!(hand_icon(Food::Snack, "santa"), "hand_cookie");
         assert_eq!((hand_icon(Food::Favorite, "duck"), hand_icon(Food::Favorite, "giraffe")), ("hand_bread", "hand_leaf"));
         assert_eq!(hand_icon(Food::Meal, "giraffe"), "hand_meal");
+        assert_eq!(
+            ["dino_yellow", "dino_green", "dino_purple"].map(|id| hand_icon(Food::Favorite, id)),
+            ["hand_watermelon", "hand_broccoli", "hand_grapes"]
+        );
+        assert_eq!(hand_icon(Food::Snack, "dino_green"), "hand_cookie");
     }
 
     #[test]

@@ -95,6 +95,29 @@ pub enum Special {
     Wag,
     /// 기린 — 구르는 대신 멈춰 서서 목을 평소의 두 배로 쭉 늘였다 줄인다 (쉬거나 간질일 땐 하지 않는다)
     NeckStretch,
+    /// 공룡 — 입에서 작은 불꽃을 퐁 (아무것도 태우지 않는다)
+    Fire,
+    /// 공룡 — 고개 들고 크앙!
+    Roar,
+    /// 공룡 — 제자리 쿵쾅쿵쾅 (같은 바닥의 친구들이 흔들리거나 데굴 넘어진다, social.rs)
+    Stomp,
+}
+
+/// 공룡의 세 동작 중 하나를 고르는 몫 (불 · 크앙 · 쿵쾅) — 쉴 때 / 간질일 때 (간질이면 쿵쾅보다 불·크앙)
+pub const DINO_REST_SHARE: [f64; 3] = [0.35, 0.35, 0.30];
+pub const DINO_TICKLE_SHARE: [f64; 3] = [0.45, 0.40, 0.15];
+
+/// 공룡: 불·크앙·쿵쾅 중 하나 (tickled면 간질 반응 몫)
+pub fn pick_dino(rng: &mut fastrand::Rng, tickled: bool) -> Special {
+    let share = if tickled { DINO_TICKLE_SHARE } else { DINO_REST_SHARE };
+    let u = rng.f64();
+    if u < share[0] {
+        Special::Fire
+    } else if u < share[0] + share[1] {
+        Special::Roar
+    } else {
+        Special::Stomp
+    }
 }
 
 /// 기린 목 늘이기 길이 (초) — 앱(ui/main.js NECK_*_MS)이 이 시간 안에 늘이고·머물고·줄인다
@@ -106,6 +129,8 @@ impl Special {
             Special::Arch => 0.08,
             Special::Wag => 0.12,
             Special::NeckStretch => 0.0,
+            // 공룡: 쉬는 박자의 18%는 셋 중 하나 (pick_dino)
+            Special::Fire | Special::Roar | Special::Stomp => 0.18,
         }
     }
 
@@ -114,6 +139,7 @@ impl Special {
             Special::Arch => 0.25,
             Special::Wag => 0.30,
             Special::NeckStretch => 0.0,
+            Special::Fire | Special::Roar | Special::Stomp => 0.30,
         }
     }
 
@@ -122,6 +148,11 @@ impl Special {
             Special::Arch => (2.0, 3.0),
             Special::Wag => (2.0, 4.0),
             Special::NeckStretch => (NECK_STRETCH_SECS, NECK_STRETCH_SECS),
+            // 불 뿜기 그림은 한 번 (1초) 뒤 흐뭇한 얼굴로 머문다
+            Special::Fire => (1.8, 2.4),
+            Special::Roar => (1.5, 2.2),
+            // 쿵쾅 한 번 = 0.67초 (stomp 4장 6fps) — 두세 번
+            Special::Stomp => (1.4, 2.0),
         }
     }
 
@@ -130,6 +161,9 @@ impl Special {
             Special::Arch => "arch",
             Special::Wag => "wag",
             Special::NeckStretch => "neckstretch",
+            Special::Fire => "fire",
+            Special::Roar => "roar",
+            Special::Stomp => "stomp",
         }
     }
 
@@ -138,9 +172,16 @@ impl Special {
         self == Special::NeckStretch
     }
 
+    /// 공룡 동작 — 시작할 때 셋 중 하나를 다시 고른다 (pick_dino)
+    pub fn is_dino(self) -> bool {
+        matches!(self, Special::Fire | Special::Roar | Special::Stomp)
+    }
+
     /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾는다
     pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special> {
-        [Special::Arch, Special::Wag, Special::NeckStretch].into_iter().find(|s| has_anim(s.anim_name()))
+        [Special::Arch, Special::Wag, Special::NeckStretch, Special::Fire, Special::Roar, Special::Stomp]
+            .into_iter()
+            .find(|s| has_anim(s.anim_name()))
     }
 }
 
@@ -413,6 +454,31 @@ mod tests {
         assert_eq!(Special::from_manifest(|n| n == "neckstretch"), Some(Special::NeckStretch));
         assert_eq!((Special::NeckStretch.anim_name(), Special::NeckStretch.secs()), ("neckstretch", (NECK_STRETCH_SECS, NECK_STRETCH_SECS)));
         assert!(Special::NeckStretch.replaces_roll() && !Special::Arch.replaces_roll() && !Special::Wag.replaces_roll());
+    }
+
+    #[test]
+    fn dino_specials() {
+        // 공룡 pet.json (fire·roar·stomp)이면 공룡 동작 — 시작할 때마다 셋 중 하나를 다시 고른다
+        let dino = |n: &str| matches!(n, "fire" | "roar" | "stomp");
+        let s = Special::from_manifest(dino).unwrap();
+        assert!(s.is_dino() && !Special::Arch.is_dino() && !Special::NeckStretch.is_dino() && !s.replaces_roll());
+        assert_eq!([Special::Fire, Special::Roar, Special::Stomp].map(Special::anim_name), ["fire", "roar", "stomp"]);
+        for k in [Special::Fire, Special::Roar, Special::Stomp] {
+            assert_eq!((k.rest_chance(), k.tickle_chance()), (0.18, 0.30));
+            let (lo, hi) = k.secs();
+            assert!(1.0 <= lo && lo < hi && hi <= 2.5, "{k:?}");
+        }
+        assert!((DINO_REST_SHARE.iter().sum::<f64>() - 1.0).abs() < 1e-9 && (DINO_TICKLE_SHARE.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn dino_pick_shares() {
+        for (tickled, want) in [(false, DINO_REST_SHARE), (true, DINO_TICKLE_SHARE)] {
+            for (k, kind) in [Special::Fire, Special::Roar, Special::Stomp].into_iter().enumerate() {
+                let got = share(20_000, |r| pick_dino(r, tickled), kind);
+                assert!((got - want[k]).abs() < 0.02, "{tickled} {kind:?} {got}");
+            }
+        }
     }
 
     #[test]

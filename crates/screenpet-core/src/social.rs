@@ -43,6 +43,10 @@ pub const GREET_COOLDOWN: (f64, f64) = (60.0, 90.0);
 pub const PLAY_COOLDOWN: (f64, f64) = (120.0, 180.0);
 /// 인사 뒤 놀이 확률 상한
 const MAX_PLAY_CHANCE: f64 = 0.9;
+/// 공룡 쿵쾅이 닿는 거리 (같은 바닥 — 나는 동물은 직선 거리)
+pub const STOMP_BODIES: f64 = 5.0;
+/// 쿵쾅에 흔들린 걷는 친구가 데굴 넘어질 확률 (나머지는 흔들리기만)
+pub const TUMBLE_CHANCE: f64 = 0.35;
 
 /// 놀고 싶은 정도 — 술래가 될 가능성과 놀이 확률의 배율
 pub fn eagerness(p: Personality) -> f64 {
@@ -172,8 +176,33 @@ impl Social {
         self.clock += dt;
         self.snap.clear();
         self.snap.extend(pets.iter().map(|p| Snap::of(p.as_ref())));
+        self.stomps(pets);
         self.step_links(dt, pets);
         self.find_new(dt, pets);
+    }
+
+    /// 공룡이 쿵쾅을 시작했으면 같은 바닥 STOMP_BODIES 안의 친구들이 흔들린다 (걷는 친구는 TUMBLE_CHANCE로 데굴).
+    /// 흔들린 친구는 이번 틱에 새 놀이를 시작하지 않는다
+    fn stomps<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T]) {
+        for i in 0..self.snap.len() {
+            if !pets[i].as_mut().take_stomp() {
+                continue;
+            }
+            let dino = self.snap[i];
+            if dino.owner.is_none() {
+                continue;
+            }
+            for j in 0..self.snap.len() {
+                let other = self.snap[j];
+                if j == i || !near(&dino, &other, STOMP_BODIES) {
+                    continue;
+                }
+                let tumble = !other.flying && self.rng.f64() < TUMBLE_CHANCE;
+                if pets[j].as_mut().feel_stomp(dino.x, tumble) {
+                    self.snap[j] = Snap { engaged: true, ..Snap::of(pets[j].as_ref()) };
+                }
+            }
+        }
     }
 
     fn index(&self, key: u64) -> Option<usize> {

@@ -2223,6 +2223,7 @@ import draw_frog  # noqa: E402,F401
 import draw_halloween  # noqa: E402,F401
 import draw_farm  # noqa: E402,F401  (오리·기린)
 import draw_christmas  # noqa: E402,F401
+import draw_dino  # noqa: E402,F401  (공룡 셋)
 
 if __name__ == "__main__":
     main()

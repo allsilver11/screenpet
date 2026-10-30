@@ -13,7 +13,9 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide, 꿀벌 sting, 개구리 bigjump,
 /// 기린 neckstretch — 있으면 구르는 대신 목을 늘인다, 올려다보기 lookup — 없으면 그냥 쳐다본다(look)).
 /// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같다
-pub const OPTIONAL_ANIMS: [&str; 9] = ["arch", "wag", "huff", "climb", "slide", "sting", "bigjump", "neckstretch", "lookup"];
+/// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔든다).
+pub const OPTIONAL_ANIMS: [&str; 12] =
+    ["arch", "wag", "huff", "climb", "slide", "sting", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -361,6 +363,35 @@ mod tests {
         for id in ["cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa"] {
             let json = std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap();
             assert!(parse_manifest(&json).unwrap().can_look_up(), "{id}");
+        }
+    }
+
+    /// 공룡: 선택 동작 맨 끝의 fire·roar·stomp → 공룡 특별 동작 (셋 중 하나를 고른다)
+    #[test]
+    fn parses_dino_anims_as_the_dino_special() {
+        assert_eq!(OPTIONAL_ANIMS[OPTIONAL_ANIMS.len() - 3..], ["fire", "roar", "stomp"]);
+        let json = full_json().replace(
+            r#""animations": {"#,
+            r#""animations": {"fire": {"row": 21, "frames": 4, "fps": 4, "loop": false}, "roar": {"row": 22, "frames": 3, "fps": 4}, "stomp": {"row": 23, "frames": 4, "fps": 6},"#,
+        );
+        let m = parse_manifest(&json).unwrap();
+        let special = crate::behavior::Special::from_manifest(|n| m.has_anim(n)).unwrap();
+        assert!(special.is_dino());
+        let bad = full_json().replace(r#""animations": {"#, r#""animations": {"roar": {"row": 21, "frames": 0, "fps": 4},"#);
+        assert!(parse_manifest(&bad).is_err());
+    }
+
+    /// 번들 공룡 셋: 걷고, 공룡 동작을 모두 갖고, 좋아하는 음식이 저마다 다르다
+    #[test]
+    fn bundled_dinos() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        for (id, food) in [("dino_yellow", "🍉"), ("dino_green", "🥦"), ("dino_purple", "🍇")] {
+            let json = std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap();
+            let m = parse_manifest(&json).unwrap();
+            assert!(["fire", "roar", "stomp"].iter().all(|a| m.has_anim(a)), "{id}");
+            assert!(crate::behavior::Special::from_manifest(|n| m.has_anim(n)).is_some_and(|s| s.is_dino()), "{id}");
+            assert!(!m.has_anim("climb") && m.locomotion == Locomotion::Walk, "{id}");
+            assert!(json.contains(food), "{id}");
         }
     }
 

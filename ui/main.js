@@ -134,6 +134,15 @@ function stingPulse(anim, spec, elapsedMs) {
   return 1 + STING_DASH_SCALE * Math.sin(Math.PI * t);
 }
 
+// 공룡 쿵쾅 (v0.3.6): 쿵! 하는 그림(stomp 1·3장)마다 몸이 덜덜, 쿵쾅에 흔들린 친구(백엔드 render.wobble, 0.4초)도 덜덜 —
+// 스프라이트만 살짝 옮긴다 (창은 그대로)
+function jitter(f, now) {
+  const stomping = render.anim === "stomp" && f % 2 === 1;
+  if (!stomping && !render.wobble) return null;
+  const amp = (stomping ? 1.5 : 2.5) * Math.sqrt(stage.scale);
+  return `translate(${(Math.sin(now / 17) * amp).toFixed(2)}px, ${(Math.cos(now / 23) * amp * 0.5).toFixed(2)}px)`;
+}
+
 function draw(now) {
   if (manifest) {
     // 교체된 동물에 없는 종 전용 애니메이션이어도 throw로 rAF가 끊기지 않게 idle로 대체
@@ -144,6 +153,8 @@ function draw(now) {
     petEl.style.backgroundPosition = `${-f * display}px ${-spec.row * display}px`;
     // 좌우 반전 공간 안에서 돌리므로 왼쪽으로 갈 땐 자동으로 반대로 구른다
     const parts = [];
+    const shake = jitter(f, now);
+    if (shake) parts.push(shake);
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
     if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
@@ -323,6 +334,12 @@ const EXTRA_SPEECH = {
   bye: ["bye~!"],
   // 편지를 들고 떠남
   letter: ["💌!"],
+  // 공룡이 쿵쾅해서 흔들림
+  whoa: ["whoa!", "eek!"],
+  // 공룡 동작 (pet.json에 없으면 이 말)
+  roar: ["RAWR!"],
+  fire: ["fwoosh~"],
+  stomp: ["stomp!"],
 };
 const speech = setupSpeech({
   bubbleEl,

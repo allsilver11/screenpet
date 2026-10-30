@@ -80,6 +80,7 @@ HAND = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "ha
         "hand_candy", "hand_lollipop")
 HAND += ("hand_apple", "hand_milk")  # 크리스마스
 HAND += ("hand_bread", "hand_leaf")  # 농장
+HAND += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡
 
 
 @pytest.fixture(scope="module")

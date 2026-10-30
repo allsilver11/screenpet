@@ -55,10 +55,17 @@ OPTIONAL_ANIMS = [
     ("neckstretch", 3, 2, True, False),
     # 모든 동물: 위를 올려다보기 (옆모습, 고개 들기 · 쭉 · ✧) — 머리 위에 든 음식, 가끔 쉬다가·걷다가, 커서가 머리 위에 머물 때
     ("lookup", 3, 3, True, False),
+    # 공룡: 불 뿜기 (옆모습, 흡 · 퐁 · 화르륵 · 흐뭇 — 한 번) · 크앙 (옆모습, 고개 들고 소리 물결) · 제자리 쿵쾅쿵쾅 (옆모습, 먼지 퐁퐁)
+    ("fire", 4, 4, False, False),
+    ("roar", 3, 4, True, False),
+    ("stomp", 4, 6, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
 _CARE_SPEECH = {"hungry": ["hungry...", "food?"], "full": ["full~"], "level_up": ["yay!", "♪♪"]}
+# 공룡 셋 (불 뿜기·크앙·쿵쾅 말풍선 roar/fire/stomp)
+_DINO_SPEECH = {"chatter": ["rawr!", "♪"], "tickle": ["hehe!"], "grumpy": ["grrr~"], "roar": ["RAWR!", "grrr~"], "fire": ["fwoosh~"],
+                "stomp": ["stomp!"], **_CARE_SPEECH}
 SPEECH = {
     "cat": {"chatter": ["meow!", "nya~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "hiss": ["hiss!"], "ignore": ["..."],
             **_CARE_SPEECH},
@@ -73,13 +80,15 @@ SPEECH = {
     "giraffe": {"chatter": ["hmm~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "rudolph": {"chatter": ["jingle~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "santa": {"chatter": ["ho ho ho!", "merry~"], "tickle": ["ho ho!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "bee": "friendly", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
                "duck": "playful", "giraffe": "friendly",
-               "rudolph": "friendly", "santa": "friendly"}
+               "rudolph": "friendly", "santa": "friendly",
+               "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
 
 # 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
 LOCOMOTION = {"bee": "fly", "frog": "hop", "ghost": "fly"}
@@ -107,6 +116,9 @@ FAVORITE_FOOD = {
     "giraffe": {"emoji": "🍃", "name": "나뭇잎"},
     "rudolph": {"emoji": "🍎", "name": "사과"},
     "santa": {"emoji": "🥛", "name": "우유"},
+    "dino_yellow": {"emoji": "🍉", "name": "수박"},
+    "dino_green": {"emoji": "🥦", "name": "브로콜리"},
+    "dino_purple": {"emoji": "🍇", "name": "포도"},
 }
 
 
