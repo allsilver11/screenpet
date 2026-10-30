@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+        background: #fffaf2;
+        color: #3b3024;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 8px 12px;
+        box-sizing: border-box;
+        user-select: none;
+        text-align: center;
+      }
+      #title { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+      #input {
+        font: inherit;
+        font-size: 13px;
+        text-align: center;
+        width: 270px;
+        box-sizing: border-box;
+        padding: 4px 8px;
+        border: 1px solid #c9b79f;
+        border-radius: 8px;
+        background: #fff;
+      }
+      #note { font-size: 11px; color: #6b5a47; min-height: 1em; }
+      #buttons { display: flex; gap: 8px; }
+      button {
+        font: inherit;
+        font-size: 11px;
+        padding: 4px 12px;
+        border-radius: 8px;
+        border: 1px solid #c9b79f;
+        background: #fff;
+        cursor: pointer;
+      }
+      button.primary { background: #ffcf8a; border-color: #e0a54f; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div id="title">친구에게 펫과 함께 보낼 편지</div>
+    <input id="input" maxlength="80" autocomplete="off" spellcheck="false" placeholder="한 줄 편지 (최대 80자)" />
+    <div id="note"></div>
+    <div id="buttons">
+      <button id="ok" class="primary">보내기</button>
+      <button id="cancel">닫기</button>
+    </div>
+    <script src="letter.js"></script>
+  </body>
+</html>

@@ -63,6 +63,15 @@ fn pointer_down(window: WebviewWindow, state: State<AppState>) {
     let _ = state.tx.lock().unwrap().send(Input::PointerDown { label: window.label().to_string() });
 }
 
+/// 손님 창이 편지 쪽지를 펼친다(open) / 접는다 — 게임 루프가 창을 위로 키우거나 줄인다
+#[tauri::command]
+fn note_space(window: WebviewWindow, state: State<AppState>, open: bool) {
+    let label = window.label().to_string();
+    if slots::is_guest_label(&label) {
+        let _ = state.tx.lock().unwrap().send(Input::NoteSpace { label, open });
+    }
+}
+
 /// 부른 창(또는 label 창)의 동물·단계·크기·역할·지금 모습 (웹뷰 첫 로드용 — 첫 pet-render는 웹뷰가 듣기 전에 지나갔을 수 있다).
 /// 하우스 창은 label "pet"으로 내 동물의 지금 모습을 묻는다
 #[tauri::command]
@@ -226,7 +235,11 @@ fn main() {
             network::code_close,
             network::name_state,
             network::name_submit,
-            network::name_close
+            network::name_close,
+            network::letter_state,
+            network::letter_submit,
+            network::letter_close,
+            note_space
         ])
         .run(tauri::generate_context!())
         .expect("error while running ScreenPet");

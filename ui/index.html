@@ -5,12 +5,18 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div id="bubble" hidden></div>
-    <div id="nametag" hidden></div>
-    <div id="picker" hidden><button data-food="meal" title="밥">🍚</button><button data-food="favorite" id="fav">🐟</button></div>
-    <div id="codetag" hidden title="눌러서 복사"></div>
-    <div id="pet"></div>
-    <div id="heart">♥</div>
+    <!-- 손님 편지 쪽지: 펼친 동안 창이 위로 커지고(백엔드 note_space) 그 위 자리에 뜬다 -->
+    <div id="note" hidden></div>
+    <!-- 펫과 머리 위 띠 (창 아래쪽에 붙어 있어 창이 위로 커져도 그대로) -->
+    <div id="stage">
+      <div id="bubble" hidden></div>
+      <div id="nametag" hidden></div>
+      <div id="picker" hidden><button data-food="meal" title="밥">🍚</button><button data-food="favorite" id="fav">🐟</button></div>
+      <div id="codetag" hidden title="눌러서 복사"></div>
+      <div id="pet"></div>
+      <div id="envelope" hidden title="편지">💌</div>
+      <div id="heart">♥</div>
+    </div>
     <script src="common.js"></script>
     <script src="main.js"></script>
   </body>

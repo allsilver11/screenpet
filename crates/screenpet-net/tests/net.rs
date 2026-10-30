@@ -115,6 +115,7 @@ fn sample_visit() -> Visit {
         via: None,
         homesick_in: None,
         fling: None,
+        note: None,
     }
 }
 
@@ -623,6 +624,16 @@ fn visit_messages_round_trip() {
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
         Some(NetEvent::Received { from: "bbbb".into(), msg: hop })
     );
+    // 편지를 들려 보낸 방문, 그리고 주인이 다음 친구에게 이어 보낼 때도 같은 편지를 다시 싣는다 (via)
+    for via in [None, Some("cccc".to_string())] {
+        let Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, homesick_in, fling, .. } = sample_visit() else { unreachable!() };
+        let letter = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, via, homesick_in, fling, note: Some("놀러 왔어 💌".into()) };
+        p.a.send("bbbb", letter.clone());
+        assert_eq!(
+            wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
+            Some(NetEvent::Received { from: "aaaa".into(), msg: letter })
+        );
+    }
     p.a.send("bbbb", Visit::ComeHome { visit_id: 42 });
     assert_eq!(
         wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Received { .. })),

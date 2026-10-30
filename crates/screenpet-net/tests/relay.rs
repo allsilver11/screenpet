@@ -111,6 +111,7 @@ fn visit(id: u64) -> Visit {
         via: None,
         homesick_in: None,
         fling: None,
+        note: None,
     }
 }
 

@@ -11,6 +11,9 @@ const bubbleEl = document.getElementById("bubble");
 const pickerEl = document.getElementById("picker");
 const favBtn = document.getElementById("fav");
 const nametagEl = document.getElementById("nametag");
+const stageEl = document.getElementById("stage");
+const envelopeEl = document.getElementById("envelope");
+const noteEl = document.getElementById("note");
 
 let manifest = null;
 let display = 128;
@@ -27,8 +30,9 @@ async function loadPet() {
   if (seq !== loadSeq) return; // 그 사이 다른 동물/단계로 바뀜
   const side = 128 * stage.scale;
   petEl.style.width = side + "px";
-  // 창 너비 = 128 × max(1, 배율) (백엔드 window_logical_size) — 리사이즈 도착 전에도 가운데
-  petEl.style.left = (128 * Math.max(1, stage.scale) - side) / 2 + "px";
+  // 창 가운데 (창 너비는 128 × max(1, 배율), 편지 쪽지를 펼친 동안은 더 넓다 — 백엔드가 몸을 창 가운데에 둔다)
+  petEl.style.left = `calc(50% - ${side / 2}px)`;
+  stageEl.style.setProperty("--pet-h", side + "px");
   display = side;
   manifest = m;
   const k = display / manifest.frame_size;
@@ -115,9 +119,55 @@ function showNametag(ms) {
   clearTimeout(nametagTimer);
   nametagTimer = setTimeout(() => (nametagEl.hidden = true), ms);
 }
+// 손님이 들고 온 편지 💌 (주인이 실어 보낸 것 — 백엔드가 다듬어 slot_info/pet-stage의 note로 준다).
+// 안 읽음: 머리 위에서 통통 튄다. 봉투나 몸을 누르면 쪽지 "💌 <주인>: <편지>"를 15초 (이 누름엔 도망·애교 없음).
+// 읽은 뒤: 봉투는 작고 흐리게 머리 옆에 남는다 — 봉투를 누르면 다시 15초, 몸을 누르면 평소 손님 놀이.
+// 쪽지가 펼쳐진 동안은 수다 말풍선이 덮지 않는다. 글자는 textContent로만 (HTML 아님)
+const NOTE_MS = 15000;
+let note = null;
+let ownerName = "";
+let noteRead = false;
+let noteOpen = false;
+let noteTimer = null;
+function openNote() {
+  if (!note) return;
+  noteRead = true;
+  envelopeEl.classList.add("read");
+  speech.hideBubble();
+  noteEl.textContent = `💌 ${ownerName}: ${note}`;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(closeNote, NOTE_MS);
+  if (!noteOpen) {
+    noteOpen = true;
+    // 창을 위로 키운 뒤(백엔드) 쪽지를 보인다
+    invoke("note_space", { open: true }).finally(() => {
+      if (noteOpen) noteEl.hidden = false;
+    });
+  }
+}
+function closeNote() {
+  clearTimeout(noteTimer);
+  if (!noteOpen) return;
+  noteOpen = false;
+  noteEl.hidden = true;
+  invoke("note_space", { open: false });
+}
+// 봉투 누르기는 펫 잡기·손님 놀이로 이어지지 않는다
+envelopeEl.addEventListener("mousedown", (e) => {
+  e.stopPropagation();
+  e.preventDefault();
+  if (e.button === 0) openNote();
+});
+
 function applyRole(info) {
   const guest = info.role === "guest";
   if (guest) nametagEl.textContent = `🏠 ${info.owner ?? ""}`;
+  if (guest) ownerName = info.owner ?? "";
+  // 편지는 처음 받은 것 그대로 (손님이 떠날 때까지)
+  if (guest && note === null && typeof info.note === "string" && info.note) {
+    note = info.note;
+    envelopeEl.hidden = false;
+  }
   if (guest && !isGuest) {
     isGuest = true;
     showNametag(NAMETAG_ARRIVE_MS);
@@ -125,6 +175,9 @@ function applyRole(info) {
     isGuest = false;
     clearTimeout(nametagTimer);
     nametagEl.hidden = true;
+    note = null;
+    envelopeEl.hidden = true;
+    closeNote();
   }
 }
 
@@ -151,6 +204,7 @@ const speech = setupSpeech({
   pickerEl,
   favBtn,
   getManifest: () => manifest && { ...manifest, speech: { ...EXTRA_SPEECH, ...manifest.speech } },
+  isQuiet: () => noteOpen,
 });
 
 // 트레이 "내 친구 코드 보기": 머리 위 띠에 "🔑 ABCD-1234", 누르면 복사 (잠시 뒤 사라진다)
@@ -176,6 +230,11 @@ codetagEl.addEventListener("click", async (e) => {
 });
 
 petEl.addEventListener("mousedown", (e) => {
+  // 안 읽은 편지가 있으면 첫 누름은 쪽지만 연다 (잡기·도망 없음)
+  if (e.button === 0 && note && !noteRead) {
+    openNote();
+    return;
+  }
   if (e.button === 0) showNametag(NAMETAG_CLICK_MS);
   if (e.button === 0) invoke("pointer_down");
   if (e.button === 0) petFx("click");

@@ -172,6 +172,16 @@ pub fn invite_bubble(name: &str) -> String {
     }
 }
 
+/// 동물에 들려 보내는 편지 최대 글자 수 (net의 MAX_NOTE와 같다)
+pub const MAX_NOTE_CHARS: usize = 80;
+
+/// 편지 글자 (내가 쓴 것 / 친구가 보낸 것): 보이지 않는 글자(제어·방향·폭 없는 글자)를 빼고 앞뒤 공백을 지운 뒤
+/// 80자(바이트 아님)까지. 비면 None (편지 없음 — 봉투도 없다)
+pub fn sanitize_note(raw: &str) -> Option<String> {
+    let note = crate::config::clean_text(raw, MAX_NOTE_CHARS);
+    (!note.is_empty()).then_some(note)
+}
+
 /// 손님 몸 배율: 주인이 보낸 값(sent)이 범위 안이면 그대로, 아니면(NaN 포함) 이쪽에서 계산한 값(local)을 범위 안으로
 pub fn guest_scale(sent: f64, local: f64) -> f64 {
     let (lo, hi) = GUEST_SCALE_RANGE;
@@ -250,6 +260,22 @@ mod tests {
 
     fn ground(w: &World, i: usize) -> Surface {
         *w.surfaces.iter().find(|s| s.owner == Owner::Ground(i)).unwrap()
+    }
+
+    #[test]
+    fn notes_are_stripped_of_hidden_chars_and_capped_at_80_chars() {
+        assert_eq!(sanitize_note("  안녕 🐱 놀러 왔어!  ").as_deref(), Some("안녕 🐱 놀러 왔어!"));
+        // 제어 문자·방향 바꾸기·폭 없는 글자는 뺀다
+        assert_eq!(sanitize_note("hi\n\tthere\u{7}").as_deref(), Some("hithere"));
+        assert_eq!(sanitize_note("a\u{202E}b\u{2066}c\u{200B}d\u{FEFF}e\u{2060}").as_deref(), Some("abcde"));
+        // 글자 수(바이트 아님)로 80자까지
+        assert_eq!(sanitize_note(&"가".repeat(200)).unwrap().chars().count(), MAX_NOTE_CHARS);
+        assert_eq!(sanitize_note(&"🐱".repeat(81)).unwrap().chars().count(), 80);
+        assert_eq!(sanitize_note(&"a".repeat(80)).unwrap().len(), 80);
+        // 공백·보이지 않는 글자뿐이면 편지 없음
+        for blank in ["", "   ", "\n\t ", "\u{200B}\u{202E}", " \u{3000} "] {
+            assert_eq!(sanitize_note(blank), None, "{blank:?}");
+        }
     }
 
     #[test]

@@ -58,6 +58,9 @@ const CODE_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// 이름 바꾸기 창 라벨 (내 이름 / 친구 별명)
 pub const NAME_LABEL: &str = "name";
 const NAME_SIZE: (f64, f64) = (300.0, 150.0);
+/// 편지 쓰기 창 라벨 ("편지 들려 보내기…")
+pub const LETTER_LABEL: &str = "letter";
+const LETTER_SIZE: (f64, f64) = (320.0, 170.0);
 /// config 폴더의 이 파일이 있으면 첫 줄 주소의 중계 서버를 쓴다 (둘째 줄: 그 서버의 공개키 hex — 있으면 고정).
 /// 비어 있거나 "off"면 중계를 쓰지 않는다
 const RELAY_URL_FILE: &str = "relay_url.txt";
@@ -91,6 +94,10 @@ pub enum NetInput {
     SubmitName(String),
     /// 트레이 "놀러 보내기": 내 동물을 그 친구 화면으로 지금 보낸다 (게임 루프가 하우스에서 꺼낸 뒤 Network::send_to)
     SendTo(String),
+    /// 친구 하위 메뉴 "편지 들려 보내기…": 그 친구에게 보낼 편지 쓰기 창
+    EditLetter(String),
+    /// 편지 창 "보내기": "놀러 보내기"처럼 보내고 Visit에 편지를 싣는다. 누구에게인지는 창을 연 쪽(Network::lettering)이 안다
+    SubmitLetter(String),
     /// 손님 우클릭 "<친구>에게 보내기": 손님(창 label)을 내 친구(friend) 화면으로 더 보낸다 (주인이 그 친구를 알면 이어 간다)
     SendOn { label: String, friend: String },
     /// 트레이 "<친구> 펫 데리고 오기": 그 친구에게 동물을 보내 달라고 부탁한다
@@ -132,6 +139,18 @@ pub struct NameView {
     /// 최대 글자 수
     pub max: usize,
 }
+
+/// 편지 쓰기 창에 보이는 것 (`letter-state` 이벤트, `letter_state` 커맨드)
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LetterView {
+    /// 받는 친구 (보일 이름)
+    pub name: String,
+    /// 최대 글자 수
+    pub max: usize,
+}
+
+/// 편지 창 첫 로드용
+static LETTER_VIEW: Mutex<LetterView> = Mutex::new(LetterView { name: String::new(), max: 0 });
 
 /// 이름 창 첫 로드용 (커맨드는 게임 루프 밖에서 불린다)
 static NAME_VIEW: Mutex<NameView> = Mutex::new(NameView { target: "me", current: String::new(), fallback: String::new(), max: 0 });
@@ -191,6 +210,8 @@ struct Arrival {
     homesick_in: Option<f64>,
     /// 던져서 넘어옴 — 그 움직임 그대로 날아 들어온다 (없으면 걸어 들어온다)
     fling: Option<visit::Fling>,
+    /// 주인이 들려 보낸 편지 (다듬은 것)
+    note: Option<String>,
 }
 
 /// 내 동물이 친구 화면에 가 있음
@@ -203,6 +224,8 @@ struct AwayVisit {
     come_home_by: Option<Instant>,
     /// 보낸 시각 (바로 돌아오면 그 친구 화면이 꽉 찬 것)
     since: Instant,
+    /// 들려 보낸 편지 — 다른 친구 화면으로 이어 보낼 때도 그대로 다시 싣는다 (중간 친구는 바꿀 수 없다)
+    note: Option<String>,
 }
 
 pub struct Network {
@@ -222,6 +245,10 @@ pub struct Network {
     away: Option<AwayVisit>,
     /// "놀러 보내기"로 그 친구(id)가 연결된 끝(side)으로 가는 중 — 그 끝으로 나가면 이 친구에게 간다
     sending: Option<(String, Side)>,
+    /// "편지 들려 보내기"로 보내는 중이면 그 편지 (sending과 같이 지운다)
+    send_note: Option<String>,
+    /// 편지 쓰기 창이 지금 다루는 친구 id
+    lettering: Option<String>,
     /// 지금 내 동물을 보낼 수 있음 (메뉴 "놀러 보내기" 활성 — 바뀌면 메뉴를 다시 그린다)
     can_send: bool,
     last_menu: Option<FriendsMenu>,
@@ -353,6 +380,8 @@ impl Network {
             pairing: None,
             away: None,
             sending: None,
+            send_note: None,
+            lettering: None,
             can_send: false,
             last_menu: None,
             menu_dirty: true,
@@ -446,16 +475,24 @@ impl Network {
         self.own_free(own) && !own.pet.is_held() && self.is_connected(id)
     }
 
-    /// "놀러 보내기": 내 동물이 그 친구가 연결된 끝으로 곧장 가서 나간다 (게임 루프가 하우스에서 먼저 꺼낸다). 가기 시작했으면 true
-    pub fn send_to(&mut self, config: &Config, own: &mut Slot, id: &str) -> bool {
+    /// "놀러 보내기": 내 동물이 그 친구가 연결된 끝으로 곧장 가서 나간다 (게임 루프가 하우스에서 먼저 꺼낸다). 가기 시작했으면 true.
+    /// note = "편지 들려 보내기"의 편지 (다듬은 것) — 그 친구에게 가는 Visit에 실린다
+    pub fn send_to(&mut self, config: &Config, own: &mut Slot, id: &str, note: Option<String>) -> bool {
         let Some(f) = config.friend(id) else { return false };
         if !self.can_send(own, id) || !own.pet.send_to(f.side) {
             return false;
         }
-        eprintln!("sending own pet to {id} through the {:?} edge", f.side);
+        eprintln!("sending own pet to {id} through the {:?} edge{}", f.side, if note.is_some() { " with a note" } else { "" });
         self.sending = Some((id.to_string(), f.side));
+        self.send_note = note;
         self.menu_dirty = true;
         true
+    }
+
+    /// 편지 창 "보내기": 창을 연 친구 id와 다듬은 편지 (비었으면 편지 없이 그냥 놀러 보내기). 창이 다루던 친구가 없으면 None
+    pub fn take_letter(&mut self, text: &str) -> Option<(String, Option<String>)> {
+        let id = self.lettering.take()?;
+        Some((id, visit::sanitize_note(text)))
     }
 
     /// 손님을 주인에게 돌려보낸다 (손님 우클릭 "<주인>에게 돌려보내기"): 걸어 둔 "<친구>에게 보내기"는 지운다
@@ -494,6 +531,8 @@ impl Network {
     /// 아무도 없으면(그새 끊김) 바로 다시 들어온다
     pub fn own_exited(&mut self, config: &Config, own: &mut Slot, side: Side) {
         let chosen = self.sending.take().filter(|(id, s)| *s == side && self.is_connected(id)).map(|(id, _)| id);
+        // 편지는 그 친구에게 가는 길에만 싣는다
+        let note = self.send_note.take().filter(|_| chosen.is_some());
         // 던져서 넘어갔으면 그 움직임을 실어 보낸다
         let fling = own.pet.take_fling();
         let friends = config.friends_at(side, |id| self.is_open(id));
@@ -502,15 +541,15 @@ impl Network {
             return;
         };
         let friend = chosen.unwrap_or_else(|| friends[fastrand::usize(..friends.len())].id.clone());
-        let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None, fling);
+        let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None, fling, note.clone());
         eprintln!("own pet went to visit {friend} (visit {visit_id})");
-        self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None, since: Instant::now() });
+        self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None, since: Instant::now(), note });
         self.menu_dirty = true;
     }
 
     /// 내 동물을 friend 화면으로 보낸다 (enter_side 끝에서 들어온다). via = 바로 전에 있던 친구 화면. 새 visit_id를 돌려준다
     #[allow(clippy::too_many_arguments)]
-    fn send_visit(&self, net: &Net, own: &Slot, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>) -> u64 {
+    fn send_visit(&self, net: &Net, own: &Slot, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>, note: Option<String>) -> u64 {
         let visit_id = fastrand::u64(..);
         net.send(
             friend,
@@ -525,6 +564,7 @@ impl Network {
                 via,
                 homesick_in,
                 fling: fling.map(to_net_fling),
+                note,
             },
         );
         visit_id
@@ -562,10 +602,12 @@ impl Network {
         // 그 친구 화면에서 이전 친구(via)가 연결된 끝을 모르면 이전 화면에서 나간 끝의 반대편으로
         let exited = exited.map(from_net_side).unwrap_or(a.side);
         let homesick_in = homesick_in.filter(|t| t.is_finite());
-        let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling);
+        // 들려 보낸 편지는 다음 친구에게도 그대로 (주인인 내가 다시 싣는다 — 중간 친구가 고친 것이 아니다)
+        let note = a.note.clone();
+        let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone());
         eprintln!("own pet walks on from {} to {next} (visit {visit_id})", a.friend);
         // 돌아올 땐 내 화면에서 그 친구가 연결된 끝에서 들어온다
-        self.away = Some(AwayVisit { friend: next.to_string(), visit_id, side: f.side, come_home_by: None, since: Instant::now() });
+        self.away = Some(AwayVisit { friend: next.to_string(), visit_id, side: f.side, come_home_by: None, since: Instant::now(), note });
         self.menu_dirty = true;
         true
     }
@@ -672,7 +714,14 @@ impl Network {
                 None => false,
             },
             // 게임 루프가 하우스에서 꺼낸 뒤 send_to를 직접 부른다 (여기 오지 않는다)
-            NetInput::SendTo(_) => false,
+            NetInput::SendTo(_) | NetInput::SubmitLetter(_) => false,
+            NetInput::EditLetter(id) => {
+                let Some(f) = config.friend(&id) else { return false };
+                let view = LetterView { name: f.shown_name().to_string(), max: visit::MAX_NOTE_CHARS };
+                self.lettering = Some(id);
+                show_letter_window(app, view);
+                false
+            }
             NetInput::SendOn { label, friend } => {
                 self.send_on(config, slots, &label, &friend);
                 false
@@ -784,7 +833,7 @@ impl Network {
                 let since_any = self.invite_accepted_any.map(|t| t.elapsed().as_secs_f64());
                 let name = f.shown_name().to_string();
                 let go = visit::answer_invite(available, since_friend, since_any) == visit::InviteAnswer::Go
-                    && self.send_to(config, &mut slots[0], from);
+                    && self.send_to(config, &mut slots[0], from, None);
                 if go {
                     // 실제로 가기 시작한 뒤에만 기록하고 말풍선을 띄운다
                     let now = Instant::now();
@@ -839,12 +888,13 @@ impl Network {
 
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, via, homesick_in, fling, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, via, homesick_in, fling, note, .. } => {
                 let now = Instant::now();
+                let note = note.as_deref().and_then(visit::sanitize_note);
                 let result = if self.last_visit.get(from).is_some_and(|t| now.duration_since(*t) < VISIT_COOLDOWN) {
                     Err("too soon after the last visit".to_string())
                 } else {
-                    let arrival = Arrival { enter_side: from_net_side(enter_side), via, homesick_in, fling: fling.map(from_net_fling) };
+                    let arrival = Arrival { enter_side: from_net_side(enter_side), via, homesick_in, fling: fling.map(from_net_fling), note };
                     self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival)
                 };
                 match result {
@@ -914,7 +964,8 @@ impl Network {
         }
         let scale = visit::guest_scale(scale, stage.scale() * entry.manifest.size_mult(stage));
         let owner_name = config.friend(from).map(|f| f.shown_name().to_string()).unwrap_or_else(|| clamp(owner));
-        let guest = GuestInfo { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name };
+        // 편지는 그 동물의 주인(인증된 친구 링크 from)이 실은 것만 — Visit은 주인만 보낸다
+        let guest = GuestInfo { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name, note: arrival.note.clone() };
         // 다른 친구 화면에서 건너왔으면: 그 친구가 연결된 끝에서 들어오고, 집 쪽은 이 화면에서 주인이 연결된 끝,
         // 그리움 시간은 이어서 센다. 바로 왔으면 들어온 끝이 집 쪽
         let hop = arrival.via.as_deref().filter(|v| *v != from);
@@ -936,7 +987,7 @@ impl Network {
         if let Some(f) = arrival.fling {
             slot.pet.enter_flung(&slot.world, side, f);
         }
-        eprintln!("guest {visit_id} from {from} arrived{}", hop.map(|v| format!(" (via {v})")).unwrap_or_default());
+        eprintln!("guest {visit_id} from {from} arrived{}{}", if arrival.note.is_some() { " with a note" } else { "" }, hop.map(|v| format!(" (via {v})")).unwrap_or_default());
         slots.push(slot);
         Ok(())
     }
@@ -1165,8 +1216,10 @@ impl Network {
             if !self.is_connected(id) || config.friend(id).is_none() {
                 own.pet.cancel_send();
                 self.sending = None;
+                self.send_note = None;
             } else if own.pet.sending().is_none() && !is_exiting(own) && !own.pet.is_away() {
                 self.sending = None;
+                self.send_note = None;
             }
         }
         let can_send = self.own_free(own);
@@ -1406,6 +1459,75 @@ pub fn name_submit(window: WebviewWindow, state: tauri::State<AppState>, name: S
 #[tauri::command]
 pub fn name_close(window: WebviewWindow) {
     if window.label() == NAME_LABEL {
+        let _ = window.hide();
+    }
+}
+
+/// 편지 쓰기 창을 보이고 앞으로 가져온다 (처음이면 만든다 — 게임 루프 스레드에서만)
+fn show_letter_window(app: &AppHandle, view: LetterView) {
+    *LETTER_VIEW.lock().unwrap() = view.clone();
+    let window = match app.get_webview_window(LETTER_LABEL) {
+        Some(w) => w,
+        None => match build_letter_window(app) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("failed to create letter window: {e}");
+                return;
+            }
+        },
+    };
+    let _ = app.emit_to(LETTER_LABEL, "letter-state", view);
+    if !window.is_visible().unwrap_or(false) {
+        place_on_primary(app, &window, LETTER_SIZE);
+        let _ = window.show();
+    }
+    let _ = window.set_focus();
+}
+
+/// 편지 쓰기 창: 한 줄 글자 칸 + 보내기/닫기. 닫기(X)는 숨기기로 바꾼다 (창은 다시 쓴다)
+fn build_letter_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let window = WebviewWindowBuilder::new(app, LETTER_LABEL, WebviewUrl::App("letter.html".into()))
+        .title("ScreenPet 편지")
+        .inner_size(LETTER_SIZE.0, LETTER_SIZE.1)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .always_on_top(true)
+        .skip_taskbar(false)
+        .visible(false)
+        .build()?;
+    let handle = window.clone();
+    window.on_window_event(move |ev| {
+        if let WindowEvent::CloseRequested { api, .. } = ev {
+            api.prevent_close();
+            let _ = handle.hide();
+        }
+    });
+    Ok(window)
+}
+
+/// 편지 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `letter-state` 이벤트)
+#[tauri::command]
+pub fn letter_state() -> LetterView {
+    LETTER_VIEW.lock().unwrap().clone()
+}
+
+/// 편지 창의 "보내기": 게임 루프로 보내고 창을 숨긴다 (다듬기·80자 제한은 게임 루프가 한다)
+#[tauri::command]
+pub fn letter_submit(window: WebviewWindow, state: tauri::State<AppState>, text: String) {
+    if window.label() != LETTER_LABEL {
+        return;
+    }
+    // 아주 긴 글자는 보내기 전에 자른다 (sanitize_note가 다시 80자로 자른다)
+    let text: String = text.chars().take(256).collect();
+    let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::SubmitLetter(text)));
+    let _ = window.hide();
+}
+
+/// 편지 창의 "닫기"
+#[tauri::command]
+pub fn letter_close(window: WebviewWindow) {
+    if window.label() == LETTER_LABEL {
         let _ = window.hide();
     }
 }

@@ -23,6 +23,9 @@ pub const PET_LOGICAL_SIZE: f64 = 128.0;
 const HALF_WIDTH_RATIO: f64 = 0.3;
 /// 스프라이트 위 말풍선·음식 버튼·이름표 자리 (논리 px)
 pub const BUBBLE_SPACE: f64 = 36.0;
+/// 손님 편지(💌)를 펼친 동안 창 위에 더하는 자리와 최소 창 너비 (논리 px) — 편지 쪽지가 4줄까지 들어간다
+pub const NOTE_SPACE: f64 = 60.0;
+pub const NOTE_WIDTH: f64 = 232.0;
 
 /// 손님 창 라벨. visit_id는 Tauri 창 라벨 글자(영숫자와 - / : _)만 — 아니면 None
 pub fn guest_label(visit_id: &str) -> Option<String> {
@@ -50,6 +53,8 @@ pub struct GuestInfo {
     pub visit_id: String,
     pub owner_id: String,
     pub owner_name: String,
+    /// 주인이 들려 보낸 편지 (다듬은 글자 — 없으면 봉투도 없다)
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,23 +76,31 @@ pub struct SlotInfo {
     /// 손님이면 주인 id (우클릭 "<친구>에게 보내기"에서 주인을 뺀다 — 웹뷰에는 보내지 않는다)
     #[serde(skip)]
     pub owner_id: Option<String>,
+    /// 손님이 들고 온 편지 (머리 위 💌, 누르면 "💌 <owner>: <note>" — 웹뷰는 textContent로만 쓴다)
+    pub note: Option<String>,
     /// 마지막으로 보낸 모습 — 첫 `pet-render`가 웹뷰가 듣기 전에 지나갔을 수 있어 첫 로드 때 같이 준다
     pub render: Option<RenderState>,
 }
 
 impl SlotInfo {
     pub fn new(shown: &StagePayload, role: &Role, render: Option<RenderState>) -> Self {
-        let (role, owner, owner_id) = match role {
-            Role::Own => ("own", None, None),
-            Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone())),
+        let (role, owner, owner_id, note) = match role {
+            Role::Own => ("own", None, None, None),
+            Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone()), g.note.clone()),
         };
-        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner, owner_id, render }
+        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner, owner_id, note, render }
     }
 }
 
 /// 펫 창 크기 (논리 px): 너비 128 × max(1, s), 높이 36 + 128 × s
 pub fn window_logical_size(body_scale: f64) -> (f64, f64) {
     (PET_LOGICAL_SIZE * body_scale.max(1.0), BUBBLE_SPACE + PET_LOGICAL_SIZE * body_scale)
+}
+
+/// 편지를 펼친 동안의 창 크기: 위로 NOTE_SPACE만큼 높고, 너비는 NOTE_WIDTH 이상 (몸은 창 아래 가운데 그대로)
+pub fn note_window_logical_size(body_scale: f64) -> (f64, f64) {
+    let (w, h) = window_logical_size(body_scale);
+    (w.max(NOTE_WIDTH), h + NOTE_SPACE)
 }
 
 pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64) -> PetConfig {
@@ -124,6 +137,8 @@ pub struct Slot {
     pub need_show: bool,
     last_pos: Option<(i32, i32)>,
     last_render: Option<RenderState>,
+    /// 손님 편지 쪽지를 펼쳐 창이 커져 있음 (웹뷰 `note_space`)
+    note_open: bool,
     /// Windows: 창 핸들 (만들 때 한 번 읽어 둔다 — hwnd()는 메인 스레드에 물어본다). 매 틱 SetWindowPos로 바로 옮긴다
     #[cfg(windows)]
     hwnd: Option<isize>,
@@ -146,6 +161,7 @@ impl Slot {
             need_show: true,
             last_pos: None,
             last_render: None,
+            note_open: false,
             #[cfg(windows)]
             hwnd,
         }
@@ -172,13 +188,43 @@ impl Slot {
 
     /// 단계(또는 동물)가 바뀌었다: 창 크기, 펫 크기, 웹뷰 시트
     pub fn set_stage(&mut self, app: &AppHandle, shown: StagePayload) {
-        let (w, h) = window_logical_size(shown.scale);
+        let (w, h) = self.logical_size(shown.scale);
         let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
         self.pet.cfg = pet_config(self.dpi, &self.entry, shown.scale);
         self.shown = shown;
         let info = self.info();
         app.state::<AppState>().slots.lock().unwrap().insert(self.label.clone(), info.clone());
         let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
+    }
+
+    /// 지금 창 크기 (논리 px) — 편지를 펼친 동안은 위로 높고 넓다
+    fn logical_size(&self, body_scale: f64) -> (f64, f64) {
+        if self.note_open {
+            note_window_logical_size(body_scale)
+        } else {
+            window_logical_size(body_scale)
+        }
+    }
+
+    /// 손님 편지 쪽지를 펼친다 / 접는다: 창을 키우거나 줄이고, 몸이 그 자리에 있도록 바로 다시 놓는다
+    pub fn set_note_open(&mut self, open: bool) {
+        if self.note_open == open || !matches!(&self.role, Role::Guest(g) if g.note.is_some()) {
+            return;
+        }
+        self.note_open = open;
+        let (w, h) = self.logical_size(self.shown.scale);
+        let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
+        let pos = self.window_target();
+        self.move_window(pos.0, pos.1);
+        self.last_pos = Some(pos);
+    }
+
+    /// 창 왼쪽 위 (물리 px): 몸이 창 아래 가운데에 오도록
+    fn window_target(&self) -> (i32, i32) {
+        let (_, sy) = self.pet.window_pos();
+        let (w, h) = self.logical_size(self.shown.scale);
+        let top = h - PET_LOGICAL_SIZE * self.shown.scale;
+        ((self.pet.body.x - w * self.dpi / 2.0).round() as i32, (sy - top * self.dpi).round() as i32)
     }
 
     /// 손님 이름표의 주인 이름을 바꾼다 (친구가 이름을 바꿨거나 내가 별명을 붙임). 달라졌을 때만 웹뷰에 알린다
@@ -221,9 +267,7 @@ impl Slot {
 
     /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보인다. hidden = 사용자가 트레이로 모두 숨겨 둠 (그동안은 보이지 않는다)
     pub fn place(&mut self, hidden: bool) {
-        let (_, sy) = self.pet.window_pos();
-        let win_w = PET_LOGICAL_SIZE * self.shown.scale.max(1.0) * self.dpi;
-        let pos = ((self.pet.body.x - win_w / 2.0).round() as i32, (sy - BUBBLE_SPACE * self.dpi).round() as i32);
+        let pos = self.window_target();
         if self.last_pos != Some(pos) {
             self.move_window(pos.0, pos.1);
             self.last_pos = Some(pos);

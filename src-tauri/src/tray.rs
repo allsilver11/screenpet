@@ -32,6 +32,8 @@ const NICKNAME_PREFIX: &str = "net:nickname:";
 const MY_NAME_ID: &str = "net:my-name";
 const SEND_PREFIX: &str = "net:send:";
 const BRING_PREFIX: &str = "net:bring:";
+/// 친구 하위 메뉴 "편지 들려 보내기…" (뒤는 친구 id)
+const LETTER_PREFIX: &str = "net:letter:";
 /// "놀러 보내기 ▸" 목록 항목 (친구 하위 메뉴의 항목과 id가 겹치면 안 된다)
 const SEND_LIST_PREFIX: &str = "net:send-list:";
 const COME_HOME_ID: &str = "net:come-home";
@@ -133,13 +135,15 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         let left = CheckMenuItem::with_id(app, format!("{LEFT_PREFIX}{}", f.id), "왼쪽에", true, f.side == Side::Left, None::<&str>)?;
         let right = CheckMenuItem::with_id(app, format!("{RIGHT_PREFIX}{}", f.id), "오른쪽에", true, f.side == Side::Right, None::<&str>)?;
         let send = MenuItem::with_id(app, format!("{SEND_PREFIX}{}", f.id), "놀러 보내기", f.can_send, None::<&str>)?;
+        // 편지를 실어 보내기: "놀러 보내기"와 같은 때만 누를 수 있다
+        let letter = MenuItem::with_id(app, format!("{LETTER_PREFIX}{}", f.id), "편지 들려 보내기…", f.can_send, None::<&str>)?;
         let bring_label = format!("{} 펫 데리고 오기", menu_text(&f.name));
         let bring = MenuItem::with_id(app, format!("{BRING_PREFIX}{}", f.id), bring_label, f.connected && model.room, None::<&str>)?;
         let nickname = MenuItem::with_id(app, format!("{NICKNAME_PREFIX}{}", f.id), "이름 바꾸기…", true, None::<&str>)?;
         let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
         let sep = PredefinedMenuItem::separator(app)?;
         let sep2 = PredefinedMenuItem::separator(app)?;
-        let sub = Submenu::with_items(app, title, true, &[&send, &bring, &sep, &left, &right, &sep2, &nickname, &unfriend])?;
+        let sub = Submenu::with_items(app, title, true, &[&send, &letter, &bring, &sep, &left, &right, &sep2, &nickname, &unfriend])?;
         if f.forgot {
             sub.append(&MenuItem::with_id(app, format!("{REPAIR_PREFIX}{}", f.id), "다시 친구 맺기", true, None::<&str>)?)?;
         }
@@ -353,6 +357,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::EditMyName);
                 } else if let Some(id) = other.strip_prefix(SEND_PREFIX).or_else(|| other.strip_prefix(SEND_LIST_PREFIX)) {
                     net(NetInput::SendTo(id.to_string()));
+                } else if let Some(id) = other.strip_prefix(LETTER_PREFIX) {
+                    net(NetInput::EditLetter(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(BRING_PREFIX) {
                     net(NetInput::BringPet(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(NICKNAME_PREFIX) {

@@ -52,6 +52,8 @@ pub enum Input {
     HouseMoved { save: bool },
     /// 손님(label)을 주인에게 돌려보낸다 (손님 우클릭 메뉴)
     SendHome { label: String },
+    /// 손님 창(label)이 편지 쪽지를 펼친다 / 접는다 — 그동안 창이 위로 크다
+    NoteSpace { label: String, open: bool },
     /// 친구 네트워크 (네트워크 이벤트, 트레이 `친구랑 놀기`, 짝맞추기 창)
     Net(NetInput),
     /// 저장하고 앱 종료
@@ -135,7 +137,7 @@ fn spawn_debug_guest(app: &AppHandle, slots: &mut Vec<Slot>) {
     let Some(entry) = state.pets.iter().find(|p| &p.id != own_id).or(state.pets.first()).cloned() else { return };
     let stage = Stage::Teenager;
     let scale = stage.scale() * entry.manifest.size_mult(stage);
-    let guest = GuestInfo { visit_id: "debug".into(), owner_id: "debug".into(), owner_name: "디버그 친구".into() };
+    let guest = GuestInfo { visit_id: "debug".into(), owner_id: "debug".into(), owner_name: "디버그 친구".into(), note: None };
     match slots::spawn_guest(app, guest, entry, stage, scale, Side::Right, &slots[OWN].world, seed_now()) {
         Ok(slot) => slots.push(slot),
         Err(e) => eprintln!("failed to create debug guest window: {e}"),
@@ -358,8 +360,22 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         network.send_guest_home(&mut slots[i]);
                     }
                 }
-                Input::Net(NetInput::SendTo(id)) => {
-                    // 놀러 보내기: 하우스 안이면 먼저 문 앞으로 나온 뒤 그 친구 쪽 끝으로 간다
+                Input::NoteSpace { label, open } => {
+                    if let Some(i) = slots::find(&slots, &label).filter(|&i| !slots[i].is_own()) {
+                        slots[i].set_note_open(open);
+                    }
+                }
+                input @ (Input::Net(NetInput::SendTo(_)) | Input::Net(NetInput::SubmitLetter(_))) => {
+                    // 놀러 보내기 (편지 들려 보내기도 같은 길 — Visit에 편지를 싣는다):
+                    // 하우스 안이면 먼저 문 앞으로 나온 뒤 그 친구 쪽 끝으로 간다
+                    let (id, note) = match input {
+                        Input::Net(NetInput::SubmitLetter(text)) => match network.take_letter(&text) {
+                            Some(x) => x,
+                            None => continue,
+                        },
+                        Input::Net(NetInput::SendTo(id)) => (id, None),
+                        _ => continue,
+                    };
                     let own = &mut slots[OWN];
                     if !network.can_send(own, &id) {
                         continue;
@@ -378,7 +394,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         sync_menu(&app, &own.entry, &care, config.housed);
                         save_config(&app, &mut config, &own.entry.id, &care);
                     }
-                    network.send_to(&config, own, &id);
+                    let lettered = note.is_some();
+                    // 편지를 들고 떠나면 "💌!"
+                    if network.send_to(&config, own, &id, note) && lettered {
+                        let _ = app.emit_to(OWN_LABEL, "pet-say-text", "💌!");
+                    }
                 }
                 Input::Net(input) => {
                     if network.handle(&app, input, &mut config, &mut slots) {

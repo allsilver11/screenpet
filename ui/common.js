@@ -29,7 +29,8 @@ function frameIndex(spec, elapsedMs) {
 
 // 말풍선(`pet-say`)과 음식 고르기(`food-picker`). 백엔드는 지금 동물이 있는 창에만(emit_to) 보낸다.
 // getManifest() = 지금 동물의 pet.json (대사 목록). 돌려주는 hidePicker는 먹기 시작하면 부른다.
-function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest }) {
+// isQuiet() = 참이면 말풍선을 띄우지 않는다 (손님 편지 쪽지가 펼쳐진 동안 — 수다가 덮지 않게). hideBubble은 쪽지를 펼칠 때 부른다
+function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => false }) {
   const { invoke } = window.__TAURI__.core;
   // 전역 event.listen은 다른 창 앞으로 보낸(emit_to) 이벤트까지 받는다 — 이 창 앞으로 온 것만 듣는다
   const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
@@ -46,7 +47,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest }) {
   // pet.json speech에서 랜덤으로 띄운다. 그 동물에 없는 상황이면 말풍선 없음.
   listen("pet-say", (e) => {
     const lines = getManifest()?.speech?.[e.payload] ?? [];
-    if (!lines.length || !pickerEl.hidden) return; // 음식 고르기 버튼이 우선
+    if (!lines.length || !pickerEl.hidden || isQuiet()) return; // 음식 고르기 버튼·편지 쪽지가 우선
     bubbleEl.textContent = lines[Math.floor(Math.random() * lines.length)];
     bubbleEl.hidden = false;
     clearTimeout(bubbleTimer);
@@ -57,7 +58,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest }) {
 
   // 백엔드가 정한 글자 그대로 (친구가 데려갈 때 "off to <name>'s~ brb!", 부탁 거절 "<name>: busy~")
   listen("pet-say-text", (e) => {
-    if (typeof e.payload !== "string" || !e.payload || !pickerEl.hidden) return;
+    if (typeof e.payload !== "string" || !e.payload || !pickerEl.hidden || isQuiet()) return;
     bubbleEl.textContent = e.payload;
     bubbleEl.hidden = false;
     clearTimeout(bubbleTimer);
@@ -89,7 +90,12 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest }) {
     });
   }
 
-  return { hidePicker };
+  function hideBubble() {
+    bubbleEl.hidden = true;
+    clearTimeout(bubbleTimer);
+  }
+
+  return { hidePicker, hideBubble };
 }
 
 // 키보드 UI가 없는 창: 웹뷰 기본 동작(우클릭 메뉴, F5, Ctrl+R, Alt+F4 등)을 막는다.

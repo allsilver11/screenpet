@@ -43,6 +43,19 @@ fn lenient_fling<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Fling>
     Ok(v.and_then(|v| serde_json::from_value(v).ok()))
 }
 
+/// Longest note (characters) a visiting pet carries; the receiver sanitizes
+/// and clamps again.
+pub const MAX_NOTE: usize = 80;
+
+/// An optional `note`; anything but a string is dropped instead of the whole message.
+fn lenient_note<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(match v {
+        Some(serde_json::Value::String(s)) => Some(s),
+        _ => None,
+    })
+}
+
 /// Messages about visiting pets, delivered to the app via `NetEvent::Received`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -65,6 +78,11 @@ pub enum Visit {
         /// The pet was thrown across: it flies in keeping this motion.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_fling")]
         fling: Option<Fling>,
+        /// A short message the owner attached to the pet (shown as a 💌 on the
+        /// receiver's screen). Re-sent unchanged by the owner when the pet roams
+        /// on; older versions ignore it.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+        note: Option<String>,
     },
     /// The guest left the receiver's friend's screen. `next: None` = it went
     /// home (also what older versions send). `next: Some(id)` = it walked out
@@ -202,6 +220,7 @@ mod tests {
             via: None,
             homesick_in: None,
             fling: None,
+            note: None,
         });
         let v: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!(v["type"], "visit");
@@ -258,6 +277,7 @@ mod tests {
             via: Some("bb".into()),
             homesick_in: Some(10.0),
             fling: None,
+            note: None,
         });
         assert_eq!(Message::parse(&hop.to_json()), Some(hop));
         // 새 필드를 모르는 받는 쪽도 읽을 수 있다 (모르는 필드는 무시)
@@ -278,6 +298,7 @@ mod tests {
             via: None,
             homesick_in: None,
             fling: Some(f),
+            note: None,
         });
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!((j["fling"]["height"].as_f64(), j["fling"]["vx"].as_f64(), j["fling"]["vy"].as_f64()), (Some(0.25), Some(-640.0), Some(-120.5)));
@@ -293,6 +314,48 @@ mod tests {
         // 깨진 fling 하나 때문에 방문 전체를 버리지 않는다
         let bad = br#"{"type":"leave","visit_id":3,"fling":{"height":"x"}}"#;
         assert_eq!(Message::parse(bad), Some(Message::Visit(Visit::leave(3))));
+    }
+
+    fn visit_with_note(note: Option<&str>) -> Message {
+        Message::Visit(Visit::Visit {
+            visit_id: 8,
+            species: "cat".into(),
+            stage: "child".into(),
+            scale: 1.0,
+            personality: "friendly".into(),
+            owner: "A".into(),
+            enter_side: Side::Left,
+            via: None,
+            homesick_in: None,
+            fling: None,
+            note: note.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn visit_can_carry_a_note_and_old_peers_still_parse() {
+        let m = visit_with_note(Some("안녕 🐱 놀러 왔어!"));
+        let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
+        assert_eq!(j["note"].as_str(), Some("안녕 🐱 놀러 왔어!"));
+        assert_eq!(Message::parse(&m.to_json()), Some(m));
+        // 편지 없는 방문은 예전 판과 같은 모양 (note 필드 없음)
+        assert!(!String::from_utf8(visit_with_note(None).to_json()).unwrap().contains("note"));
+        // 편지를 모르는 예전 판이 보낸 방문: note 없음
+        let old = br#"{"type":"visit","visit_id":8,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
+        assert_eq!(Message::parse(old), Some(visit_with_note(None)));
+        // 예전 판(note를 모르는 Visit)도 편지가 실린 방문을 그냥 방문으로 읽는다
+        #[derive(Debug, Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
+        enum OldVisit {
+            Visit { visit_id: u64, owner: String },
+        }
+        let OldVisit::Visit { visit_id, owner } = serde_json::from_slice::<OldVisit>(&visit_with_note(Some("hi")).to_json()).unwrap();
+        assert_eq!((visit_id, owner.as_str()), (8, "A"));
+        // 글자가 아닌 note 하나 때문에 방문 전체를 버리지 않는다
+        let bad = br#"{"type":"visit","visit_id":8,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","note":{"x":1}}"#;
+        assert_eq!(Message::parse(bad), Some(visit_with_note(None)));
+        let num = br#"{"type":"visit","visit_id":8,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","note":5}"#;
+        assert_eq!(Message::parse(num), Some(visit_with_note(None)));
     }
 
     #[test]
