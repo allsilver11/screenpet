@@ -36,10 +36,11 @@ pub fn house_scale(stage: &str) -> f64 {
     }
 }
 
-/// 나는 동물(pet.json locomotion "fly" — 꿀벌)은 벌통에 산다 (ui/house.js와 같은 기준). 번들에 없는 id면 꿀벌만
+/// 꿀벌(pet.json에 sting이 있는 동물)은 벌통에 산다 (ui/house.js와 같은 기준). 유령처럼 날기만 하는 동물은 보통 집.
+/// 번들에 없는 id면 꿀벌만
 pub fn is_hive(app: &AppHandle, pet: &str) -> bool {
-    let flies = app.try_state::<AppState>().and_then(|s| s.pets.iter().find(|p| p.id == pet).map(|p| p.manifest.flies()));
-    flies.unwrap_or(pet == "bee")
+    let bee = app.try_state::<AppState>().and_then(|s| s.pets.iter().find(|p| p.id == pet).map(|p| p.manifest.can_sting()));
+    bee.unwrap_or(pet == "bee")
 }
 
 /// 집 그림 한 변 (논리 px)

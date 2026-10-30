@@ -345,6 +345,48 @@ mod tests {
         assert!(!m.can_climb());
     }
 
+    /// 할로윈 호박: 걷는 동물인데 걷기·달리기는 늘 통통 (hop_share 1.0), 벽 타기·큰 점프·쏘기 없음
+    fn check_pumpkin(m: &PetManifest) {
+        assert_eq!(m.locomotion, Locomotion::Walk);
+        assert_eq!(m.hop_share(), 1.0);
+        assert!(!m.flies() && !m.hops() && !m.can_climb() && !m.can_sting() && !m.has_anim("bigjump"));
+    }
+
+    /// 할로윈 유령: 날지만(locomotion fly) 쏘지 않는다 — 꽃·벌통은 꿀벌만 (can_sting)
+    fn check_ghost(m: &PetManifest) {
+        assert_eq!(m.locomotion, Locomotion::Fly);
+        assert!(m.flies() && !m.can_sting() && !m.can_climb());
+        assert!(m.walk_speed < 60.0, "ghost floats slower than the bee: {}", m.walk_speed);
+    }
+
+    #[test]
+    fn halloween_manifest_fields_parse() {
+        let pumpkin = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "hop_share": 1.0, "personality": "playful", "stage_size": {"adult": 0.9},"#);
+        let m = parse_manifest(&pumpkin).unwrap();
+        check_pumpkin(&m);
+        assert_eq!((m.personality, m.size_mult(Stage::Adult)), (Personality::Playful, 0.9));
+        let ghost = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 40, "locomotion": "fly", "stage_size": {"adult": 0.85},"#);
+        let m = parse_manifest(&ghost).unwrap();
+        check_ghost(&m);
+        assert_eq!(m.size_mult(Stage::Adult), 0.85);
+    }
+
+    /// 호박·유령 (아트 에이전트가 ui/pets/{pumpkin,ghost}를 만들면 그대로 읽힌다 — 없으면 건너뛴다)
+    #[test]
+    fn bundled_halloween_pets_if_present() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        if let Ok(json) = std::fs::read_to_string(dir.join("pumpkin/pet.json")) {
+            let m = parse_manifest(&json).unwrap();
+            check_pumpkin(&m);
+            assert!(m.favorite_food.is_some());
+        }
+        if let Ok(json) = std::fs::read_to_string(dir.join("ghost/pet.json")) {
+            let m = parse_manifest(&json).unwrap();
+            check_ghost(&m);
+            assert!(m.favorite_food.is_some());
+        }
+    }
+
     #[test]
     fn rejects_invalid_json() {
         assert!(parse_manifest("{").is_err());

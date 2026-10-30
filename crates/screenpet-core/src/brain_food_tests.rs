@@ -305,6 +305,38 @@ fn housed_bee_comes_out_to_a_flower_by_the_hive() {
     assert!(run_until(&mut p, &w, 60 * 30, |p| p.is_housed()), "{:?}", p.state);
 }
 
+// ---- 유령: 날지만 쏘지 않는다 — 꽃은 꿀벌만, 유령은 보통 밥그릇 ----
+
+fn ghost() -> PetConfig {
+    PetConfig { flies: true, stings: false, walk_speed: 40.0, ..cfg() }
+}
+
+#[test]
+fn hovering_ghost_gets_a_food_bowl_not_a_flower() {
+    let w = world(vec![w1()]);
+    for (food, prop) in [(Food::Meal, Prop::FoodBowl), (Food::Favorite, Prop::FoodBowl), (Food::Water, Prop::WaterBowl)] {
+        let mut p = Pet::new(ghost(), 800.0, 250.0, 1);
+        p.state = idle();
+        assert!(p.feed_result(ATE, food));
+        p.update(DT, &w);
+        assert_eq!(p.take_prop(), Some(PropEvent::Show { prop, x: 800.0, y: 400.0 }), "{food:?}");
+        assert!(run_until(&mut p, &w, 60 * 30, eating), "{food:?} {:?}", p.state);
+        assert_eq!((p.body.x, p.body.y), (800.0, 400.0));
+    }
+}
+
+#[test]
+fn housed_ghost_comes_out_to_a_food_bowl_by_its_house() {
+    let w = world(vec![]);
+    let mut p = housed_with_door(&w, ghost());
+    assert!(p.feed_result(ATE, Food::Favorite));
+    p.update(DT, &w);
+    assert!(!p.is_housed());
+    assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::FoodBowl, x: DOOR - 75.0, y: 1040.0 }));
+    assert!(run_until(&mut p, &w, 60 * 30, eating), "{:?}", p.state);
+    assert!(run_until(&mut p, &w, 60 * 40, |p| p.is_housed()), "{:?}", p.state);
+}
+
 // ---- fix round 1 ----
 
 #[test]

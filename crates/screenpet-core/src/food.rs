@@ -26,12 +26,13 @@ pub enum Prop {
 }
 
 impl Prop {
-    /// 이 음식을 먹을 때 놓이는 소품 (나는 동물은 밥 대신 꽃)
-    pub fn for_food(food: Food, flies: bool) -> Prop {
+    /// 이 음식을 먹을 때 놓이는 소품 (꿀벌은 밥 대신 꽃 — `flower`는 꿀벌만: PetConfig::stings.
+    /// 유령처럼 날기만 하는 동물은 보통 밥그릇)
+    pub fn for_food(food: Food, flower: bool) -> Prop {
         match food {
             Food::Snack => Prop::Cookie,
             Food::Water => Prop::WaterBowl,
-            Food::Meal | Food::Favorite if flies => Prop::Flower,
+            Food::Meal | Food::Favorite if flower => Prop::Flower,
             Food::Meal | Food::Favorite => Prop::FoodBowl,
         }
     }
@@ -84,6 +85,8 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "bear" => "hand_honey",
             "bee" => "hand_nectar",
             "frog" => "hand_fly",
+            "pumpkin" => "hand_candy",
+            "ghost" => "hand_lollipop",
             _ => "hand_meal",
         },
         Food::Meal | Food::Water => "hand_meal",
@@ -180,8 +183,11 @@ mod tests {
     fn hand_icons_per_food_and_species() {
         assert_eq!(hand_icon(Food::Meal, "cat"), "hand_meal");
         assert_eq!(hand_icon(Food::Snack, "dog"), "hand_cookie");
-        let favs: Vec<_> = ["cat", "dog", "rabbit", "bear", "bee", "frog", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
-        assert_eq!(favs, ["hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly", "hand_meal"]);
+        let favs: Vec<_> = ["cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
+        assert_eq!(favs, ["hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly", "hand_candy", "hand_lollipop", "hand_meal"]);
+        // 할로윈 동물도 밥·간식은 다른 동물과 같다
+        assert_eq!(hand_icon(Food::Meal, "ghost"), "hand_meal");
+        assert_eq!(hand_icon(Food::Snack, "pumpkin"), "hand_cookie");
     }
 
     #[test]

@@ -2674,6 +2674,10 @@ mod fling_tests;
 mod hop_tests;
 
 #[cfg(test)]
+#[path = "brain_halloween_tests.rs"]
+mod halloween_tests;
+
+#[cfg(test)]
 #[path = "brain_throw_tests.rs"]
 mod throw_tests;
 

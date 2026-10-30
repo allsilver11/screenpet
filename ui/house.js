@@ -58,9 +58,9 @@ function houseScale() {
   return HOUSE_SCALE[house.stage] ?? 1;
 }
 
-// 나는 동물(꿀벌)은 벌통에 산다 — pet.json locomotion, 아직 없으면 id로
+// 꿀벌(pet.json에 sting이 있는 동물)은 벌통에 산다 — 유령처럼 날기만 하는 동물은 보통 집. pet.json이 아직 없으면 id로
 function artName(m) {
-  const hive = m?.locomotion === "fly" || house.pet === "bee";
+  const hive = m ? !!m.animations?.sting : house.pet === "bee";
   return `${hive ? "hive" : "house"}_${house.stage}`;
 }
 

@@ -212,7 +212,7 @@ impl Pet {
             return match flight::nearest_perch(world, inside, x, y, self.cfg.half_w, self.fly_head()) {
                 Some(p) => {
                     let (ax, _) = world.anchor(p.owner).expect("surface owner has anchor");
-                    let prop = self.meal_spot.map_or(Prop::Flower, |s| s.2);
+                    let prop = self.meal_spot.map_or(Prop::for_food(Food::Meal, self.cfg.stings), |s| s.2);
                     self.meal_spot = Some((p.owner, p.x - ax, prop));
                     self.show_prop_on(prop, p.owner, p.x - ax, world);
                     self.start_flight(Goal::Perch { owner: p.owner, rel_x: p.x - ax }, Move::Walk);
@@ -544,13 +544,14 @@ impl Pet {
     }
 
     /// 받은 먹이의 자리를 정한다: 내려앉아 있으면 바라보는 쪽 앞, 떠 있으면 가장 가까운 자리.
-    /// 그 자리에 꽃(물은 물그릇)이 피고, 거기로 날아가 내려앉아 먹는다. 앉을 곳이 없으면 떠서 먹는다
+    /// 그 자리에 꽃(꿀벌만 — 다른 나는 동물은 밥그릇, 물은 물그릇)이 피고, 거기로 날아가 내려앉아 먹는다. 앉을 곳이 없으면 떠서 먹는다
     fn fly_to_food(&mut self, world: &World) {
         let Some(trip) = self.food.take() else {
             self.state = self.idle_state();
             return;
         };
-        let prop = Prop::for_food(trip.food, true);
+        // 꽃은 꿀벌(쏘는 동물)만 — 유령은 보통 밥그릇
+        let prop = Prop::for_food(trip.food, self.cfg.stings);
         let spot = match self.standing {
             Some(st) => world.anchor(st.owner).zip(world.piece_at(st.owner, self.body.x).copied()).map(|((ax, ay), piece)| {
                 let (lo, hi) = (piece.x_start + self.cfg.half_w, piece.x_end - self.cfg.half_w);

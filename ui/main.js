@@ -76,6 +76,18 @@ function draw(now) {
   requestAnimationFrame(draw);
 }
 
+// 할로윈 동물의 짧은 효과 (CSS 애니메이션 한 번, style.css .boo/.flare — 끝나면 클래스를 뗀다):
+// 유령은 간질이면 "부~" 하고 40%까지 흐려졌다 돌아오고, 호박은 누르면 눈·입 빛이 확 번진다
+const PET_FX = { ghost: { on: "tickle", cls: "boo" }, pumpkin: { on: "click", cls: "flare" } };
+function petFx(trigger) {
+  const fx = PET_FX[stage.pet];
+  if (!fx || fx.on !== trigger) return;
+  petEl.classList.remove(fx.cls);
+  void petEl.offsetWidth; // 애니메이션 재시작
+  petEl.classList.add(fx.cls);
+}
+petEl.addEventListener("animationend", () => petEl.classList.remove("boo", "flare"));
+
 // 첫 pet-render는 이 웹뷰가 듣기 전에 지나갔을 수 있다 — 첫 로드 땐 slot_info의 render를 쓴다 (이벤트가 먼저 왔으면 그쪽이 새것)
 let gotRender = false;
 const listeningRender = listen("pet-render", (e) => {
@@ -88,6 +100,7 @@ const listeningRender = listen("pet-render", (e) => {
   }
   // 트레이에서 먹였거나 다른 길로 먹기 시작하면 고르기 버튼은 필요 없다
   if (e.payload.anim === "eat") speech.hidePicker();
+  if (e.payload.anim === "tickle" && render.anim !== "tickle") petFx("tickle");
   render = e.payload;
 });
 
@@ -165,6 +178,7 @@ codetagEl.addEventListener("click", async (e) => {
 petEl.addEventListener("mousedown", (e) => {
   if (e.button === 0) showNametag(NAMETAG_CLICK_MS);
   if (e.button === 0) invoke("pointer_down");
+  if (e.button === 0) petFx("click");
 });
 
 // 펫을 우클릭하면 트레이와 같은 메뉴 (손님은 "<주인>에게 돌려보내기"만)
