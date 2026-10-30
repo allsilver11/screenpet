@@ -88,6 +88,29 @@ fn the_last_moment_of_the_wave_is_a_poof() {
 }
 
 #[test]
+fn a_cancelled_poof_shows_the_pet_again_and_a_vanished_one_stays_poofed() {
+    let w = world(vec![]);
+    let mut p = Pet::new(sim_cfg(), 0.0, 0.0, 1);
+    place(&mut p, &w, Owner::Ground(0), 700.0, idle());
+    p.send_to(Side::Left, false);
+    while !p.render().poof {
+        p.update(DT, &w);
+    }
+    // 뿅 하는 중에 그 친구가 끊겼다 — 바로 다시 보인다 (poof 아님)
+    p.cancel_send();
+    assert!(!p.render().poof, "{:?}", p.state);
+    // 다 사라진 뒤(창이 숨기 전)엔 poof 그대로 — 사라진 몸이 번쩍 다시 보이지 않는다
+    let mut q = Pet::new(sim_cfg(), 0.0, 0.0, 1);
+    place(&mut q, &w, Owner::Ground(0), 700.0, idle());
+    q.send_to(Side::Left, false);
+    assert_eq!(run_until_gone(&mut q, &w, 5.0).map(|r| r.0), Some(Side::Left));
+    assert!(q.render().poof);
+    // 돌아오면 poof 아님
+    q.enter(&w, Side::Left);
+    assert!(!q.render().poof);
+}
+
+#[test]
 fn a_pet_carrying_a_note_says_so_when_leaving() {
     let w = world(vec![]);
     let mut p = Pet::new(sim_cfg(), 0.0, 0.0, 1);

@@ -93,7 +93,7 @@ function petFx(trigger) {
 petEl.addEventListener("animationend", () => petEl.classList.remove("boo", "flare"));
 
 // 놀러 보내져 손 흔든 뒤 "뿅" (백엔드 render.poof, 0.4초): 몸이 작아지며 흐려지고 반짝이 몇 개가 퍼진다.
-// 다 사라지면 백엔드가 창을 숨긴다 — 돌아와 다시 움직이면 클래스를 뗀다
+// 다 사라지면 백엔드가 창을 숨긴다 — poof가 아닌 render가 오면(취소·돌아옴) 바로 클래스를 뗀다
 const POOF_SPARKS = 6;
 function poof() {
   petEl.classList.remove("poof");
@@ -127,9 +127,10 @@ const listeningRender = listen("pet-render", (e) => {
   // 트레이에서 먹였거나 다른 길로 먹기 시작하면 고르기 버튼은 필요 없다
   if (e.payload.anim === "eat") speech.hidePicker();
   if (e.payload.anim === "tickle" && render.anim !== "tickle") petFx("tickle");
-  if (e.payload.poof && !render.poof) poof();
-  // 사라진 뒤(Away = idle 그림)엔 창이 숨을 때까지 그대로 두고, 다시 움직이기 시작하면(돌아옴) 뗀다
-  else if (!e.payload.poof && e.payload.anim !== "idle") petEl.classList.remove("poof");
+  // 뿅은 손 흔들기 끝에서만 시작한다 (걸어 나가 사라진 Away도 poof지만 그건 그림 없이)
+  if (e.payload.poof && !render.poof && e.payload.anim !== "idle") poof();
+  // poof가 아닌 모습이 오면(취소돼 남음·돌아옴) 바로 다시 보인다. 사라진 뒤(Away)엔 백엔드가 poof를 켜 둔다
+  else if (!e.payload.poof) petEl.classList.remove("poof");
   render = e.payload;
 });
 

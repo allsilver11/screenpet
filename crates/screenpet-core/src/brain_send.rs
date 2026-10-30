@@ -68,9 +68,14 @@ impl Pet {
         self.send.is_some() && matches!(self.state, State::Farewell { .. })
     }
 
-    /// 손 흔들기 마지막 SEND_POOF_SECS: 웹뷰가 "뿅" 하고 사라지는 모습을 그린다
+    /// 손 흔들기 마지막 SEND_POOF_SECS: 웹뷰가 "뿅" 하고 사라지는 모습을 그린다.
+    /// 화면을 떠난 뒤(Away)에도 참 — 창이 숨기 전에 사라진 몸이 번쩍 다시 보이지 않게. 그 밖의 모든 상태(취소돼 남음, 돌아옴)는 거짓 → 웹뷰가 바로 다시 보인다
     pub(super) fn poofing(&self) -> bool {
-        matches!(self.state, State::Farewell { remaining } if self.send.is_some() && remaining <= SEND_POOF_SECS)
+        match self.state {
+            State::Farewell { remaining } => self.send.is_some() && remaining <= SEND_POOF_SECS,
+            State::Away => true,
+            _ => false,
+        }
     }
 
     /// 곧장 가는 끝: 보냈으면 그 끝, 집이 그리운 손님이면 집 쪽 (보낸 동물이 손 흔들기를 기다리는 동안 — 창에서 나오기 등)
