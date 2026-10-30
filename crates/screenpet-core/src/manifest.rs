@@ -38,6 +38,8 @@ pub enum HouseKind {
     Hive,
     /// 호박·유령의 귀신의 집 (ui/house/haunted_<stage>)
     Haunted,
+    /// 루돌프·산타의 눈 덮인 크리스마스 벽돌집 (ui/house/xmas_<stage>, 굴뚝 연기는 ui/house.js가 피운다)
+    Xmas,
 }
 
 impl HouseKind {
@@ -47,6 +49,7 @@ impl HouseKind {
             HouseKind::House => "house",
             HouseKind::Hive => "hive",
             HouseKind::Haunted => "haunted",
+            HouseKind::Xmas => "xmas",
         }
     }
 }
@@ -445,13 +448,17 @@ mod tests {
         let haunted_stinger = stinger.replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "house": "haunted","#);
         assert_eq!(parse_manifest(&haunted_stinger).unwrap().house_kind(), HouseKind::Haunted);
         assert_eq!((HouseKind::House.art(), HouseKind::Hive.art(), HouseKind::Haunted.art()), ("house", "hive", "haunted"));
+        // 루돌프·산타의 크리스마스 벽돌집
+        assert_eq!(parse_manifest(&with("xmas")).unwrap().house_kind(), HouseKind::Xmas);
+        assert_eq!(HouseKind::Xmas.art(), "xmas");
     }
 
-    /// 번들 pet.json: 꿀벌은 벌통, 호박·유령은 귀신의 집, 나머지는 보통 집
+    /// 번들 pet.json: 꿀벌은 벌통, 호박·유령은 귀신의 집, 루돌프·산타는 크리스마스 벽돌집, 나머지는 보통 집
     #[test]
     fn bundled_pets_pick_their_house() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
-        for (id, kind) in [("bee", HouseKind::Hive), ("pumpkin", HouseKind::Haunted), ("ghost", HouseKind::Haunted), ("cat", HouseKind::House)] {
+        for (id, kind) in [("bee", HouseKind::Hive), ("pumpkin", HouseKind::Haunted), ("ghost", HouseKind::Haunted), ("cat", HouseKind::House),
+                           ("rudolph", HouseKind::Xmas), ("santa", HouseKind::Xmas)] {
             if let Ok(json) = std::fs::read_to_string(dir.join(id).join("pet.json")) {
                 assert_eq!(parse_manifest(&json).unwrap().house_kind(), kind, "{id}");
             }

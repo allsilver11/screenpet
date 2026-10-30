@@ -154,12 +154,14 @@ function draw(now) {
   requestAnimationFrame(draw);
 }
 
-// 할로윈 동물의 짧은 효과 (CSS 애니메이션 한 번, style.css .boo/.flare-* — 끝나면 클래스를 뗀다):
+// 할로윈·크리스마스 동물의 짧은 효과 (CSS 애니메이션 한 번, style.css .boo/.flare-*/.nose-* — 끝나면 클래스를 뗀다):
 // 유령은 간질이면 "부~" 하고 40%까지 흐려졌다 돌아오고, 호박은 누르면(잡을 때도) 빛이 2초쯤 번진다 —
 // 누를 때마다 지난번과 다른 무늬 (cls가 배열이면 그중 하나를 고르되 직전 것은 빼고)
 const PET_FX = {
   ghost: { on: "tickle", cls: "boo" },
   pumpkin: { on: "click", cls: ["flare-pulse", "flare-flicker", "flare-bloom", "flare-sparkle", "flare-beat"] },
+  // 루돌프: 누르면 빨간 코가 환하게 — 따뜻한 빨간 빛이 번지거나, 반짝이와 함께 깜빡깜빡
+  rudolph: { on: "click", cls: ["nose-glow", "nose-twinkle"] },
 };
 const FX_CLASSES = Object.values(PET_FX).flatMap((fx) => [].concat(fx.cls));
 let lastFx = null;

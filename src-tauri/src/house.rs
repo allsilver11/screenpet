@@ -38,7 +38,7 @@ pub fn house_scale(stage: &str) -> f64 {
 }
 
 /// 이 동물이 사는 집 그림 — pet.json `house` (없으면 sting이 있는 꿀벌은 벌통, 나머지는 보통 집; ui/house.js와 같은 기준).
-/// 번들에 없는 id면 id로: 꿀벌은 벌통, 호박·유령은 귀신의 집
+/// 번들에 없는 id면 id로: 꿀벌은 벌통, 호박·유령은 귀신의 집, 루돌프·산타는 크리스마스 벽돌집
 pub fn house_kind(app: &AppHandle, pet: &str) -> HouseKind {
     let kind = app.try_state::<AppState>().and_then(|s| s.pets.iter().find(|p| p.id == pet).map(|p| p.manifest.house_kind()));
     kind.unwrap_or_else(|| fallback_kind(pet))
@@ -49,6 +49,7 @@ fn fallback_kind(pet: &str) -> HouseKind {
     match pet {
         "bee" => HouseKind::Hive,
         "pumpkin" | "ghost" => HouseKind::Haunted,
+        "rudolph" | "santa" => HouseKind::Xmas,
         _ => HouseKind::House,
     }
 }
@@ -64,7 +65,7 @@ pub fn window_size(stage: &str) -> (f64, f64) {
     (side.max(MIN_WIDTH), side + BUBBLE_SPACE)
 }
 
-/// 집 그림(128×128) 안의 문 사각형 (그림 좌표) — ui/house/<house|hive|haunted>_<stage>.json `door` {x, y, w, h}.
+/// 집 그림(128×128) 안의 문 사각형 (그림 좌표) — ui/house/<house|hive|haunted|xmas>_<stage>.json `door` {x, y, w, h}.
 /// 앱은 문 가운데 x만 쓴다 (문간 그리기는 house.js가 json을 직접 읽는다).
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Door {
@@ -77,8 +78,8 @@ struct HouseJson {
     door: Door,
 }
 
-/// 단계별 집·벌통·귀신의 집 그림의 문 (tools/draw_house.py가 만든다)
-const DOOR_JSON: [(&str, &str, &str); 15] = [
+/// 단계별 집·벌통·귀신의 집·크리스마스 벽돌집 그림의 문 (tools/draw_house.py가 만든다)
+const DOOR_JSON: [(&str, &str, &str); 20] = [
     ("house", "baby", include_str!("../../ui/house/house_baby.json")),
     ("house", "kinder", include_str!("../../ui/house/house_kinder.json")),
     ("house", "child", include_str!("../../ui/house/house_child.json")),
@@ -94,6 +95,11 @@ const DOOR_JSON: [(&str, &str, &str); 15] = [
     ("haunted", "child", include_str!("../../ui/house/haunted_child.json")),
     ("haunted", "teenager", include_str!("../../ui/house/haunted_teenager.json")),
     ("haunted", "adult", include_str!("../../ui/house/haunted_adult.json")),
+    ("xmas", "baby", include_str!("../../ui/house/xmas_baby.json")),
+    ("xmas", "kinder", include_str!("../../ui/house/xmas_kinder.json")),
+    ("xmas", "child", include_str!("../../ui/house/xmas_child.json")),
+    ("xmas", "teenager", include_str!("../../ui/house/xmas_teenager.json")),
+    ("xmas", "adult", include_str!("../../ui/house/xmas_adult.json")),
 ];
 
 /// json이 깨졌을 때 쓰는 문 (teenager 집의 문)

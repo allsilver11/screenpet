@@ -1,10 +1,12 @@
 """카와이 펫 집 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 128px 집, 단계마다 하나씩
-+ 꿀벌 벌통 + 호박·유령의 귀신의 집 (pet.json "house").
++ 꿀벌 벌통 + 호박·유령의 귀신의 집 + 루돌프·산타의 크리스마스 벽돌집 (pet.json "house").
 
-    python tools/draw_house.py  → ui/house/{house,hive,haunted}_<stage>{.png,_front.png,.json}
+    python tools/draw_house.py  → ui/house/{house,hive,haunted,xmas}_<stage>{.png,_front.png,.json} + ui/house/xmas_smoke.png
                                   + ui/house/{house.png, house_front.png, house.json} (teenager 집 별칭)
                                   + tools/preview/house.png (teenager 집), tools/preview/houses.png (모든 단계 × 집·벌통)
                                   + tools/preview/haunted.png (모든 단계 × 귀신의 집 + 호박·유령)
+                                  + tools/preview/xmas_house.png (모든 단계 × 크리스마스 벽돌집 + 루돌프·산타)
+    python tools/draw_house.py xmas → 크리스마스 벽돌집만
 
 앱의 겹치기 순서: <art>.png → 문 사각형(<art>.json "door")으로 잘라낸 펫 → <art>_front.png
 <art>_front.png는 펫 앞에 와야 하는 부분(문틀·아치 위 벽 모서리·문턱)만 담고, 문 안쪽은 투명하다.
@@ -31,6 +33,7 @@ OUT_DIR = ROOT / "ui" / "house"
 PREVIEW = ROOT / "tools" / "preview" / "house.png"
 PREVIEW_ALL = ROOT / "tools" / "preview" / "houses.png"
 PREVIEW_HAUNTED = ROOT / "tools" / "preview" / "haunted.png"
+PREVIEW_XMAS = ROOT / "tools" / "preview" / "xmas_house.png"
 
 # 단계별 하우스 창 배율 (src-tauri/src/house.rs house_scale, ui/house.js HOUSE_SCALE와 같다)
 HOUSE_SCALE = {"baby": 0.55, "kinder": 0.68, "child": 0.82, "teenager": 1.0, "adult": 1.12}
@@ -39,7 +42,7 @@ DOOR_PET = (52 - 2) / 0.7
 # 문간 펫 발 숨김: 문 바닥 아래로 SILL_HIDE + 스프라이트 × FEET_PAD (ui/house.js와 같다)
 SILL_HIDE = 6
 FEET_PAD = 0.1
-KINDS = ("house", "hive", "haunted")
+KINDS = ("house", "hive", "haunted", "xmas")
 
 # ---- 색 ----
 WALL = (255, 238, 212)
@@ -122,6 +125,12 @@ HAUNTED_FILL = {"baby": 0.59, "kinder": 0.65, "child": 0.71, "teenager": 0.78, "
 HAUNTED_DOOR_SIZE = {s: (round(w * HAUNTED_FILL[s]), round(w * HAUNTED_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
 HAUNTED_DOOR_X = {"baby": 56, "kinder": 46, "child": 46, "teenager": 44, "adult": 44}
 DOORS["haunted"] = {s: _door(HAUNTED_DOOR_X[s], *HAUNTED_DOOR_SIZE[s]) for s in STAGES}
+# 크리스마스 벽돌집 (루돌프 몸 배율 0.9 · 산타 1.1): 루돌프는 귀가 넓어 고양이보다 넓고 산타는 좁다 — 같은 방법으로 잰 두 몸 폭의 평균,
+# 단계별 루돌프 1.11 / 1.13 / 1.14 / 1.13 / 1.00, 산타 0.67 / 0.69 / 0.71 / 0.75 / 0.88
+XMAS_FILL = {"baby": 0.89, "kinder": 0.91, "child": 0.92, "teenager": 0.93, "adult": 0.94}
+XMAS_DOOR_SIZE = {s: (round(w * XMAS_FILL[s]), round(w * XMAS_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
+XMAS_DOOR_X = {"baby": 60, "kinder": 52, "child": 50, "teenager": 48, "adult": 46}
+DOORS["xmas"] = {s: _door(XMAS_DOOR_X[s], *XMAS_DOOR_SIZE[s]) for s in STAGES}
 DOOR = DOORS["house"]["teenager"]
 
 
@@ -763,6 +772,214 @@ HAUNTED_DRAW = {"baby": draw_haunted_baby, "kinder": draw_haunted_kinder, "child
                 "teenager": draw_haunted_teenager, "adult": draw_haunted_adult}
 
 
+# =====================================================================
+# 크리스마스 벽돌집 — 루돌프·산타의 집 (pet.json "house": "xmas"). 빨간 벽돌 오두막 + 지붕에 소복이 쌓인 눈(처마 끝으로
+# 동글동글 흘러내림) + 눈 모자 쓴 벽돌 굴뚝 + 따뜻하게 불 켜진 창 + 열린 초록 문짝의 리스 + (큰 단계) 꼬마 눈사람·꼬마전구.
+# 굴뚝 연기는 그림에 넣지 않고 앱이 따로 피운다: ui/house/xmas_smoke.png 한 모금을 ui/house.js가 굴뚝 위(<art>.json "smoke")에서
+# 계속 피워 올린다 (CSS 반복 애니메이션).
+# =====================================================================
+X_BRICK = (214, 96, 86)
+X_BRICK_LIGHT = mix(X_BRICK, WHITE, 0.22)
+X_MORTAR = (246, 196, 180)
+X_ROOF = (150, 86, 78)
+X_SNOW = (255, 255, 255)
+X_SNOW_SHADE = (220, 232, 248)
+X_SNOW_LINE = (150, 170, 200)
+X_WOOD = (176, 120, 90)
+X_WOOD_LIGHT = mix(X_WOOD, WHITE, 0.3)
+X_DOOR = (96, 160, 110)
+X_INSIDE = (104, 62, 56)
+X_INSIDE_FLOOR = (140, 86, 70)
+X_WARM = (255, 206, 110)
+X_WARM_CORE = (255, 240, 186)
+X_WREATH = (92, 164, 104)
+X_BERRY = (232, 64, 72)
+X_GOLD = (252, 204, 84)
+X_SMOKE = (92, 92, 104)
+X_SMOKE_LIGHT = (140, 140, 152)
+X_BULBS = [(240, 82, 86), (252, 204, 84), (110, 190, 130), (120, 170, 236)]
+X_CARROT = (246, 150, 70)
+X_SCARF = (232, 72, 72)
+
+
+def snow_blob(img, fns, r=1.2, line=0.8, shade=None):
+    """흰 눈 덩어리 (연한 파란 외곽선 + 아래쪽 그늘)."""
+    return blob(img, fns, X_SNOW, r=r, line=line, line_color=X_SNOW_LINE, marks=[shade] if shade else ())
+
+
+def brick_wall(img, x0, x1, top):
+    """빨간 벽돌 벽 (가로 줄눈 + 엇갈린 세로 줄눈). 벽 마스크를 돌려준다."""
+    rows = [L([(x0 - 2, y), (x1 + 2, y)], 0.9) for y in range(int(top) + 8, 124, 8)]
+    verts = []
+    for k, y in enumerate(range(int(top) + 8, 124, 8)):
+        off = 6 if k % 2 else 0
+        verts += [L([(x, y - 8), (x, y)], 0.9) for x in range(int(x0) + 4 + off, int(x1) - 2, 12)]
+    hl = [L([(x + 2, y - 5.5), (x + 6, y - 5.5)], 1.1) for k, y in enumerate(range(int(top) + 16, 124, 16))
+          for x in range(int(x0) + 8 + (k % 2) * 12, int(x1) - 8, 24)]
+    return blob(img, rrect(x0, top, x1, 124, 5), X_BRICK, r=1.5, marks=[(rows + verts, X_MORTAR), (hl, X_BRICK_LIGHT)])
+
+
+def snowy_roof(img, x0, x1, eave, top):
+    """비늘 기와 박공 지붕 위에 소복한 눈 (기와 한 줄만 보이고, 처마 끝으로 동글동글 흘러내림). 지붕 마스크를 돌려준다."""
+    cx, half = (x0 + x1) / 2, (x1 - x0) / 2
+    m = gable_roof(img, x0, x1, eave, top, X_ROOF)
+    se = eave - 9
+    snow = [T((x0 + 2, se - 6), (cx - half * 0.33, top - 3), (cx + half * 0.33, top - 3), (x1 - 2, se - 6), (x1 - 2, se), (x0 + 2, se)),
+            E(cx - half * 0.52, top - 9, cx + half * 0.52, top + 20)]
+    drips = []
+    for k, x in enumerate(range(int(x0) + 7, int(x1) - 4, 9)):
+        drips.append(C(x, se + 0.5, 4.0 if k % 2 else 3.4))
+        if k % 3 == 1:
+            drips.append(L([(x, se), (x, se + 7 + (k % 2) * 2)], 4.4))
+    shade = ([E(x0 - 4, se - 3, x1 + 4, se + 14)], X_SNOW_SHADE)
+    snow_blob(img, snow + drips, r=2.2, line=0.85, shade=shade)
+    paint(img, aa(shapes([L([(cx - half * 0.36, top + 2), (cx - half * 0.12, top - 4)], 2.0)])), WHITE)
+    return m
+
+
+def brick_chimney(img, x0, x1, top, bottom):
+    """눈 모자 쓴 벽돌 굴뚝 (지붕 눈 위에 서고 뿌리는 눈 더미에 묻힌다). 연기가 피어오르는 점 (굴뚝 입구 가운데)을 돌려준다."""
+    rows = [L([(x0 - 1, y), (x1 + 1, y)], 0.9) for y in range(int(top) + 10, int(bottom), 6)]
+    verts = [L([((x0 + x1) / 2 + (3 if k % 2 else -2), y - 6), ((x0 + x1) / 2 + (3 if k % 2 else -2), y)], 0.9)
+             for k, y in enumerate(range(int(top) + 10, int(bottom), 6))]
+    blob(img, [T((x0, top + 4), (x1, top + 4), (x1, bottom), (x0, bottom))], X_BRICK, r=1.0, marks=[(rows + verts, X_MORTAR)])
+    blob(img, rrect(x0 - 2.5, top, x1 + 2.5, top + 6, 2.4), mix(X_BRICK, LINE, 0.15), r=0.8)
+    snow_blob(img, [E(x0 - 3.5, top - 3.5, x1 + 3.5, top + 3), C(x0 - 1, top + 2.5, 2.4), C(x1 + 1.5, top + 3.4, 2.0)], r=0.8,
+              line=0.75, shade=([E(x0 - 4, top, x1 + 4, top + 6)], X_SNOW_SHADE))
+    snow_blob(img, [E(x0 - 6, bottom - 5, x1 + 6, bottom + 2)], r=0.8, line=0.75)
+    return ((x0 + x1) / 2, top - 3)
+
+
+def warm_window(img, x0, y0, x1, y1):
+    """따뜻하게 불 켜진 네모 창: 나무 테 → 노란 불빛 유리 + 십자 창살 + 창틀 위·창턱의 눈."""
+    blob(img, rrect(x0 - 3.5, y0 - 3.5, x1 + 3.5, y1 + 3, 3), X_WOOD, r=0, line=0.9)
+    glass = blob(img, rrect(x0, y0, x1, y1, 2), X_WARM, r=0, line=0.6,
+                 marks=[([E(x0 + 1, y0 + 1, x1 - 4, y1 - 3)], X_WARM_CORE)])
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    paint(img, aa(shapes([L([(mx, y0), (mx, y1)], 1.5), L([(x0, my), (x1, my)], 1.5)])), X_WOOD, clip=glass)
+    paint(img, aa(shapes([T((x0, y0), (x0 + 6, y0), (x0 + 3, y1 * 0.4 + y0 * 0.6), (x0, y1)),
+                          T((x1, y0), (x1 - 6, y0), (x1 - 3, y1 * 0.4 + y0 * 0.6), (x1, y1))])), (246, 140, 150), clip=glass)
+    snow_blob(img, [E(x0 - 5, y1 + 1, x1 + 5, y1 + 6.5), C(x0 - 2, y1 + 5, 2.2), C(x1 - 4, y1 + 6, 2.0)], r=0.6, line=0.7,
+              shade=([E(x0 - 6, y1 + 4, x1 + 6, y1 + 9)], X_SNOW_SHADE))
+    snow_blob(img, [E(x0 - 4.5, y0 - 6.5, x1 + 4.5, y0 - 1.5)], r=0.6, line=0.7)
+
+
+def wreath(img, cx, cy, r):
+    """초록 리스 + 빨간 열매 + 빨간 리본."""
+    leaves = [C(cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a)), r * 0.42) for a in range(0, 360, 40)]
+    ring = blob(img, leaves, X_WREATH, r=0.3, line=0.7)
+    paint(img, aa(shapes([C(cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a)), r * 0.16)
+                          for a in (200, 280, 330, 60)])), X_BERRY, clip=ring)
+    bx, by = cx, cy + r * 0.9
+    blob(img, [T((bx, by), (bx - r * 0.8, by - r * 0.45), (bx - r * 0.8, by + r * 0.45)), T((bx, by), (bx + r * 0.8, by - r * 0.45),
+               (bx + r * 0.8, by + r * 0.45)), C(bx, by, r * 0.24)], X_BERRY, r=0, line=0.6)
+
+
+def snowman(img, cx, base, s):
+    """꼬마 눈사람: 몸 + 머리 (석탄 눈, 당근 코, 볼터치) + 빨간 목도리 + 나뭇가지 팔."""
+    rb, rh = 9 * s, 6.4 * s
+    by, hy = base - rb, base - 2 * rb - rh + 2.5 * s
+    blob(img, [L([(cx - rb * 0.8, by - rb * 0.3), (cx - rb * 1.4, by - rb * 0.9)], 1.4),
+               L([(cx + rb * 0.8, by - rb * 0.3), (cx + rb * 1.3, by - rb * 1.0)], 1.4)], X_WOOD, r=0, line=0.5)
+    snow_blob(img, [C(cx, by, rb), C(cx, hy, rh)], r=0.6, line=0.85,
+              shade=([E(cx - rb * 1.2, by + rb * 0.2, cx + rb * 1.2, by + rb * 1.5)], X_SNOW_SHADE))
+    paint(img, aa(shapes([C(cx - 2.2 * s, hy - 1 * s, 0.95 * s), C(cx + 2.2 * s, hy - 1 * s, 0.95 * s),
+                          C(cx, by - 2.5 * s, 0.9 * s), C(cx, by + 1.5 * s, 0.9 * s)])), EYE)
+    paint(img, aa(shapes([T((cx, hy + 0.4 * s), (cx + 5 * s, hy + 1.4 * s), (cx, hy + 2.2 * s))])), X_CARROT)
+    paint(img, aa(shapes([E(cx - 4.6 * s, hy + 1.6 * s, cx - 2.4 * s, hy + 2.8 * s), E(cx + 2.6 * s, hy + 1.6 * s, cx + 4.8 * s, hy + 2.8 * s)])), PINK)
+    blob(img, [L([(cx - rh * 0.95, hy + rh * 0.78), (cx + rh * 0.95, hy + rh * 0.78)], 2.8 * s),
+               L([(cx + rh * 0.4, hy + rh * 0.8), (cx + rh * 0.7, hy + rh * 1.8)], 2.4 * s)], X_SCARF, r=0, line=0.6)
+
+
+def snow_ground(img, x0, x1, gaps=()):
+    """바닥에 쌓인 눈 더미 (문 앞은 비운다)."""
+    mounds = []
+    x = x0
+    k = 0
+    while x <= x1:
+        if not any(a <= x <= b for a, b in gaps) and 12 <= x <= 116:  # 1px 투명 여백 안
+            h = 5.5 + (k % 3) * 1.6
+            mounds.append(E(x - 9, 124 - h, x + 9, 127))
+        x += 10
+        k += 1
+    if mounds:
+        snow_blob(img, mounds, r=1.0, line=0.8, shade=([E(x0 - 12, 123.5, x1 + 12, 132)], X_SNOW_SHADE))
+
+
+def fairy_lights(img, x0, x1, y, sag=3.0):
+    """처마 아래 꼬마전구 줄 (늘어진 전선 + 알록달록 전구)."""
+    n = max(2, int((x1 - x0) // 12))
+    bulbs, wire = [], []
+    for i in range(n):
+        a, b = (x0 + (x1 - x0) * i / n, y), (x0 + (x1 - x0) * (i + 1) / n, y)
+        mid = ((a[0] + b[0]) / 2, y + sag)
+        wire.append(L([a, mid, b], 0.9))
+        bulbs.append((mid[0], mid[1] + 2.4, X_BULBS[i % len(X_BULBS)]))
+    paint(img, aa(shapes(wire)), mix(LINE, X_WREATH, 0.4))
+    for bx, by, col in bulbs:
+        blob(img, [E(bx - 1.9, by - 2.4, bx + 1.9, by + 2.6)], col, r=0, line=0.55)
+        paint(img, aa(shapes([C(bx - 0.6, by - 0.9, 0.7)])), WHITE)
+
+
+def xmas_door(img, d):
+    """열린 초록 문짝 (리스 달림) + 나무 문틀 → 따뜻한 집 안. 문 안쪽 마스크를 돌려준다."""
+    door_leaf(img, d, color=X_DOOR)
+    top = d["y"] + d["w"] * 0.12
+    wreath(img, d["x"] - 9.5, top + (FLOOR - top) * 0.32, 4.0)
+    return doorway(img, d, frame=X_WOOD, frame_light=X_WOOD_LIGHT, inside=X_INSIDE, floor=X_INSIDE_FLOOR)
+
+
+# 단계별 벽돌집 — wall: (x0, x1, 위) · roof: (x0, x1, 처마, 꼭대기) · chimney: (x0, x1, 위, 아래) · windows · snowman: (x, 크기) · lights
+XMAS_PLAN = {
+    "baby": dict(wall=(28, 100, 72), roof=(20, 108, 78, 40), chimney=(82, 90, 38, 60), windows=[(86, 88, 96, 98)],
+                 snowman=None, lights=False),
+    "kinder": dict(wall=(20, 108, 64), roof=(12, 116, 70, 30), chimney=(88, 97, 26, 53), windows=[(85, 80, 101, 96)],
+                   snowman=None, lights=False),
+    "child": dict(wall=(14, 114, 58), roof=(6, 122, 64, 24), chimney=(92, 102, 19, 47), windows=[(83, 72, 105, 92)],
+                  snowman=(111, 0.62), lights=True),
+    "teenager": dict(wall=(10, 118, 52), roof=(3, 125, 58, 19), chimney=(94, 105, 13, 43), windows=[(83, 66, 107, 88)],
+                     snowman=(110, 0.72), lights=True),
+    "adult": dict(wall=(6, 122, 48), roof=(4, 124, 54, 15), chimney=(96, 108, 9, 39), windows=[(80, 62, 97, 80), (104, 62, 119, 80)],
+                  snowman=(108, 0.8), lights=True),
+}
+
+
+def draw_xmas(stage):
+    """크리스마스 벽돌집 한 단계 → (캔버스, 문 안쪽, 문턱). 연기 점은 XMAS_SMOKE[stage]에 둔다."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = DOORS["xmas"][stage]
+    p = XMAS_PLAN[stage]
+    with view(scale=1.0, lift=0):
+        brick_wall(img, *p["wall"])
+        snowy_roof(img, *p["roof"])
+        XMAS_SMOKE[stage] = brick_chimney(img, *p["chimney"])
+        if p["lights"]:
+            fairy_lights(img, p["wall"][0] + 4, p["wall"][1] - 4, p["roof"][2] + 2.5)
+        for w in p["windows"]:
+            warm_window(img, *w)
+        opening = xmas_door(img, d)
+        sill = door_sill(img, d, color=X_WOOD_LIGHT)
+        if p["snowman"]:
+            snowman(img, p["snowman"][0], 124, p["snowman"][1] * 1.4)
+        gap = (d["x"] - 18, d["x"] + d["w"] + 9)
+        sm = (p["snowman"][0] - 12, 128) if p["snowman"] else (999, 999)
+        snow_ground(img, p["wall"][0] - 4, p["wall"][1] + 4, gaps=(gap, sm))
+    return img, opening, sill
+
+
+XMAS_SMOKE = {}  # 단계 → 굴뚝 입구 (그림 좌표) — draw_xmas가 채운다
+
+
+def smoke_puff():
+    """굴뚝 연기 한 모금 (32×32): 짙은 회색 몽글 구름 + 밝은 볼록면. 앱이 여러 장을 띄워 올리며 키우고 흐리게 한다."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    with view(scale=1.0, lift=0):
+        blob(img, [C(64, 70, 30), C(40, 76, 22), C(88, 74, 24), C(60, 48, 24), C(80, 54, 18)], X_SMOKE, r=2.0, line=1.6,
+             line_color=mix(X_SMOKE, LINE, 0.5),
+             marks=[([C(54, 46, 12), C(36, 70, 9), C(78, 50, 8)], X_SMOKE_LIGHT)])
+    return finish(img).resize((32, 32), Image.LANCZOS)
+
+
 HOUSE_DRAW = {"baby": draw_house_baby, "kinder": draw_house_kinder, "child": draw_house_child,
               "teenager": draw_house_teenager, "adult": draw_house_adult}
 
@@ -771,6 +988,8 @@ def draw(kind="house", stage="teenager"):
     """(슈퍼샘플 캔버스, 문 안쪽 마스크, 문턱 마스크)."""
     if kind == "haunted":
         return HAUNTED_DRAW[stage]()
+    if kind == "xmas":
+        return draw_xmas(stage)
     return HOUSE_DRAW[stage]() if kind == "house" else draw_hive(stage)
 
 
@@ -807,12 +1026,13 @@ def pet_in_door(pet, door=DOOR, size=DOOR_PET):
     return layer
 
 
-def build(out_dir=OUT_DIR):
-    """모든 단계의 집·벌통·귀신의 집을 그려 저장한다. {(kind, stage): (그림, 앞 레이어)}를 돌려준다."""
+def build(out_dir=OUT_DIR, kinds=KINDS):
+    """모든 단계의 집·벌통·귀신의 집·크리스마스 벽돌집을 그려 저장한다. {(kind, stage): (그림, 앞 레이어)}를 돌려준다.
+    kinds: 이 종류만 다시 그린다 (예: python tools/draw_house.py xmas)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     arts = {}
-    for kind in KINDS:
+    for kind in kinds:
         for stage in STAGES:
             door = DOORS[kind][stage]
             img, opening, sill = draw(kind, stage)
@@ -821,8 +1041,15 @@ def build(out_dir=OUT_DIR):
             name = f"{kind}_{stage}"
             art.save(out_dir / f"{name}.png")
             front.save(out_dir / f"{name}_front.png")
-            (out_dir / f"{name}.json").write_text(json.dumps({"door": door}, indent=2) + "\n")
+            meta = {"door": door}
+            if kind == "xmas":  # 굴뚝 연기 자리 (ui/house.js가 xmas_smoke.png를 피워 올린다)
+                meta["smoke"] = {"x": round(XMAS_SMOKE[stage][0], 1), "y": round(XMAS_SMOKE[stage][1], 1)}
+            (out_dir / f"{name}.json").write_text(json.dumps(meta, indent=2) + "\n")
             arts[kind, stage] = (art, front)
+    if "xmas" in kinds:
+        smoke_puff().save(out_dir / "xmas_smoke.png")
+    if "house" not in kinds:
+        return arts
     # 예전 이름 (teenager 집) — 호환용 별칭
     art, front = arts["house", "teenager"]
     art.save(out_dir / "house.png")
@@ -942,12 +1169,52 @@ def preview_haunted(arts, path=PREVIEW_HAUNTED):
     out.convert("RGB").save(path)
 
 
+def preview_xmas(arts, path=PREVIEW_XMAS):
+    """단계마다 앱 크기(128 × HOUSE_SCALE, 2배 확대)로 크리스마스 벽돌집 + 루돌프 / + 산타 (굴뚝 위 연기 세 모금을 앱처럼 겹쳐 본다).
+    아래 두 줄은 어두운 배경."""
+    big = 2
+    cell = round(FRAME * max(HOUSE_SCALE.values()) * big) + 12
+    pets = ("rudolph", "santa")
+    puff = smoke_puff()
+    out = Image.new("RGBA", (16 + len(STAGES) * cell, 16 + 2 * len(pets) * cell), (200, 200, 200, 255))
+    for c, stage in enumerate(STAGES):
+        side = round(FRAME * HOUSE_SCALE[stage] * big)
+        art, front = arts["xmas", stage]
+        sx, sy = XMAS_SMOKE[stage]
+        for k, pet_id in enumerate(pets):
+            comp = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+            comp.alpha_composite(art)
+            for j, (rise, size) in enumerate(((0, 10), (8, 13), (16, 16))):  # house.js: 오르며 커진다
+                p = puff.resize((size, size), Image.LANCZOS)
+                p.putalpha(p.getchannel("A").point(lambda v, a=(1.0, 0.75, 0.45)[j]: int(v * a)))
+                comp.alpha_composite(p, (max(0, round(sx - size / 2 + 1.5 * j)), max(0, round(sy - size / 2 - rise))))
+            pet = sit_frame(pet_id, stage)
+            if pet is not None:
+                size = door_pet_size(stage, body_scale(pet_id, stage))
+                comp.alpha_composite(pet_in_door(pet, DOORS["xmas"][stage], size))
+            comp.alpha_composite(front)
+            comp = comp.resize((side, side), Image.LANCZOS)
+            for b, bg in enumerate([(255, 255, 255), (40, 44, 52)]):
+                tile = Image.new("RGBA", (side, side), bg + (255,))
+                tile.alpha_composite(comp)
+                x = 16 + c * cell + (cell - 12 - side) // 2
+                y = 16 + (b * len(pets) + k) * cell + (cell - 12 - side)
+                out.paste(tile, (x, y))
+    path.parent.mkdir(exist_ok=True)
+    out.convert("RGB").save(path)
+
+
 def main():
+    if sys.argv[1:] == ["xmas"]:  # 크리스마스 벽돌집만 다시 그린다
+        preview_xmas(build(kinds=("xmas",)))
+        print("ok: xmas houses")
+        return
     arts = build()
     preview(arts)
     preview_all(arts)
     preview_haunted(arts)
-    print("ok: houses + hives + haunted houses")
+    preview_xmas(arts)
+    print("ok: houses + hives + haunted houses + xmas houses")
 
 
 if __name__ == "__main__":

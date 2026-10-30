@@ -26,7 +26,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SPEECH, STAGE_SCALE,  # noqa: E402
+from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SPEECH, STAGE_SCALE,  # noqa: E402
                          STAGES, manifest)
 
 # =====================================================================
@@ -2039,6 +2039,8 @@ def species_fields(pid, m):
         m["hop_share"] = HOP_SHARE[pid]
     if pid in HOUSE:
         m["house"] = HOUSE[pid]
+    if pid in NO_SPIN and "roll" in m.get("animations", {}):
+        m["animations"]["roll"].pop("spin", None)
     return m
 
 
@@ -2185,11 +2187,12 @@ def preview_sting(effect, bee_by_stage, path):
     img.save(path)
 
 
-# 개구리·할로윈(호박·유령)은 자기 파일(tools/draw_frog.py, draw_halloween.py)에서 그리고 SPECIES에 등록한다 (스크립트로 실행해도 같은 모듈을 쓰게)
+# 개구리·할로윈(호박·유령)·크리스마스(루돌프·산타)는 자기 파일(tools/draw_frog.py, draw_halloween.py, draw_christmas.py)에서 그리고 SPECIES에 등록한다 (스크립트로 실행해도 같은 모듈을 쓰게)
 sys.modules.setdefault("draw_pets", sys.modules[__name__])
 import draw_frog  # noqa: E402,F401
 import draw_halloween  # noqa: E402,F401
 import draw_farm  # noqa: E402,F401  (오리·기린)
+import draw_christmas  # noqa: E402,F401
 
 if __name__ == "__main__":
     main()

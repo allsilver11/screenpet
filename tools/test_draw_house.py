@@ -70,7 +70,7 @@ def test_front_layer_transparent_inside_door(tmp_path):
 
 
 # ---- 단계별 집 + 벌통 + 귀신의 집 ----
-ARTS = [(kind, stage) for kind in ("house", "hive", "haunted") for stage in STAGES]
+ARTS = [(kind, stage) for kind in ("house", "hive", "haunted", "xmas") for stage in STAGES]
 
 
 @pytest.fixture(scope="module")
@@ -133,7 +133,7 @@ def test_pet_fills_door_like_teenager(built, kind, stage):
     door = _door(built, kind, stage)
     # 벌통 입구는 꿀벌 몸 폭(프레임 안 몸 폭 × 몸 배율 0.8, 고양이 대비)에 맞춘 작은 구멍,
     # 귀신의 집 문은 호박·유령 몸 폭(평균)에 맞춘다
-    body = {"hive": draw_house.HIVE_FILL, "haunted": draw_house.HAUNTED_FILL}.get(kind, {}).get(stage, 1.0)
+    body = {"hive": draw_house.HIVE_FILL, "haunted": draw_house.HAUNTED_FILL, "xmas": draw_house.XMAS_FILL}.get(kind, {}).get(stage, 1.0)
     fill = draw_house.door_pet_size(stage) * body / door["w"]
     assert abs(fill / teen_fill - 1) < 0.04, (kind, stage, fill, teen_fill)
     assert abs(door["h"] / door["w"] - teen["h"] / teen["w"]) < 0.06
@@ -163,7 +163,7 @@ def _body_width(pet_id, stage):
 
 
 def test_kinds_include_haunted():
-    assert draw_house.KINDS == ("house", "hive", "haunted")
+    assert draw_house.KINDS == ("house", "hive", "haunted", "xmas")
     assert set(draw_house.DOORS) == set(draw_house.KINDS)
 
 
@@ -197,3 +197,47 @@ def test_haunted_art_grows_with_stage(built):
     """아기 오두막은 작고 어른 집은 더 크다 (그림 안 불투명 넓이)."""
     areas = [sum(1 for a in Image.open(built / f"haunted_{s}.png").getchannel("A").tobytes() if a > 128) for s in STAGES]
     assert areas[0] < areas[2] < areas[4], areas
+
+
+# ---- 크리스마스 벽돌집 (루돌프·산타) ----
+def _rgba(im):
+    b = im.convert("RGBA").tobytes()
+    return [tuple(b[k:k + 4]) for k in range(0, len(b), 4)]
+
+
+@pytest.mark.parametrize("stage", STAGES)
+def test_xmas_door_fits_rudolph_and_santa(built, stage):
+    """루돌프(넓은 귀)는 고양이보다 넓고 산타는 좁다: 두 몸 폭의 평균이 문을 고양이처럼 (±12 %) 채우고, 각자도 ±30 % 안."""
+    if draw_house.sit_frame("rudolph", stage) is None or draw_house.sit_frame("santa", stage) is None:
+        pytest.skip("no christmas sheets")
+    door = _door(built, "xmas", stage)
+    cat_fill = draw_house.door_pet_size(stage) * _body_width("cat", stage) / _door(built, "house", stage)["w"]
+    fills = [draw_house.door_pet_size(stage) * _body_width(p, stage) / door["w"] for p in ("rudolph", "santa")]
+    assert abs(sum(fills) / 2 / cat_fill - 1) < 0.12, (stage, fills, cat_fill)
+    assert all(abs(f / cat_fill - 1) < 0.3 for f in fills), (stage, fills, cat_fill)
+
+
+def test_xmas_house_is_red_brick_with_snow_and_warm_windows(built):
+    for stage in STAGES:
+        art = Image.open(built / f"xmas_{stage}.png").convert("RGBA")
+        px = [p for p in _rgba(art) if p[3] == 255]
+        brick = sum(1 for r, g, b, _ in px if r > 180 and 70 < g < 130 and 60 < b < 120)
+        snow = sum(1 for r, g, b, _ in px if r > 240 and g > 240 and b > 240)
+        warm = sum(1 for r, g, b, _ in px if r > 245 and 190 < g < 245 and b < 200)
+        assert brick > 100 and snow > 0.2 * len(px) and warm > 8, (stage, brick, snow, warm, len(px))
+
+
+def test_xmas_smoke_point_sits_on_the_chimney(built):
+    """<art>.json "smoke": 굴뚝 입구 (불투명 굴뚝 바로 위) — 앱이 xmas_smoke.png를 여기서 피워 올린다."""
+    puff = Image.open(built / "xmas_smoke.png")
+    assert puff.size == (32, 32) and puff.mode == "RGBA"
+    dark = [p for p in _rgba(puff) if p[3] > 200 and max(p[:3]) < 170]
+    assert len(dark) > 150  # 짙은 회색 연기
+    for stage in STAGES:
+        meta = json.loads((built / f"xmas_{stage}.json").read_text())
+        sx, sy = meta["smoke"]["x"], meta["smoke"]["y"]
+        art = Image.open(built / f"xmas_{stage}.png").getchannel("A")
+        assert 4 <= sy <= 60 and 60 <= sx <= 120, (stage, sx, sy)
+        assert art.getpixel((round(sx), round(sy) + 6)) == 255  # 바로 아래가 굴뚝
+    for kind in ("house", "hive", "haunted"):
+        assert "smoke" not in json.loads((built / f"{kind}_teenager.json").read_text())

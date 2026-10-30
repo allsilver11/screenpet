@@ -2,7 +2,8 @@
 // 동물이 집 안에 있는 동안(house-state.housed) 문간 애니메이션은 여기서 정한다:
 // 대개 sit_front, 가끔(20–40초마다) 10–20초 sleep, 집을 누르면 2초 wave.
 // 먹기·성장 축하·갸웃·하트는 백엔드(pet-render)가 정한 대로 보인다.
-// 집은 동물의 단계에 맞는 그림(house/<kind>_<stage>.png — pet.json house: 보통 house, 꿀벌 hive, 호박·유령 haunted)을
+// 집은 동물의 단계에 맞는 그림(house/<kind>_<stage>.png — pet.json house: 보통 house, 꿀벌 hive, 호박·유령 haunted,
+// 루돌프·산타 xmas — 굴뚝에서 연기가 피어오른다)을
 // 128 × HOUSE_SCALE[stage] 크기로 창 오른쪽 아래에 그린다 (창 크기는 src-tauri/src/house.rs가 같은 배율로 맞춘다).
 const { invoke } = window.__TAURI__.core;
 // 전역 event.listen은 손님 창 앞으로 보낸 pet-render까지 받는다 — 이 창 앞으로 온 것만 듣는다
@@ -34,7 +35,7 @@ const FEET_PAD_RATIO = 0.1;
 // 문턱 뒤로 발을 숨기는 깊이 (그림 px, tools/draw_house.py SILL_HIDE와 같은 6)
 const SILL_HIDE = 6;
 
-// 지금 그림 이름 (house_<stage> | hive_<stage> | haunted_<stage>)과 그 문 사각형 (그림 좌표)
+// 지금 그림 이름 (house_<stage> | hive_<stage> | haunted_<stage> | xmas_<stage>)과 그 문 사각형 (그림 좌표)
 let art = null;
 let door = { x: 30, y: 60, w: 52, h: 62 };
 let house = { pet: null, stage: "teenager", scale: 1, hungry: false, housed: false };
@@ -59,8 +60,8 @@ function houseScale() {
 }
 
 // 집 종류를 고르는 기준 (src-tauri/src/house.rs house_kind, core manifest house_kind와 같다)
-const HOUSE_KINDS = new Set(["house", "hive", "haunted"]);
-const FALLBACK_KIND = { bee: "hive", pumpkin: "haunted", ghost: "haunted" };
+const HOUSE_KINDS = new Set(["house", "hive", "haunted", "xmas"]);
+const FALLBACK_KIND = { bee: "hive", pumpkin: "haunted", ghost: "haunted", rudolph: "xmas", santa: "xmas" };
 
 // pet.json house가 있으면 그 집, 없으면 sting이 있는 동물(꿀벌)은 벌통 (예전 pet.json), 나머지는 보통 집.
 // pet.json이 아직 없으면 id로
@@ -89,7 +90,40 @@ function placeHouse() {
   doorEl.style.top = door.y * k + "px";
   doorEl.style.width = door.w * k + "px";
   doorEl.style.height = door.h * k + "px";
+  placeSmoke(k);
   sizePet();
+}
+
+// 굴뚝 연기 (크리스마스 벽돌집 — <art>.json "smoke" {x, y}): 짙은 회색 한 모금(house/xmas_smoke.png) 셋이
+// 굴뚝 입구에서 번갈아 피어올라 커지며 흐려진다 (CSS .smoke-puff 반복 애니메이션, 크기·높이는 집 배율 --k)
+const SMOKE_PUFFS = 3;
+const SMOKE_SECS = 3.6;
+let smoke = null;
+let smokeEl = null;
+
+function placeSmoke(k) {
+  if (!smoke) {
+    smokeEl?.remove();
+    smokeEl = null;
+    return;
+  }
+  if (!smokeEl) {
+    smokeEl = document.createElement("div");
+    smokeEl.id = "smoke";
+    for (let i = 0; i < SMOKE_PUFFS; i++) {
+      const p = document.createElement("img");
+      p.className = "smoke-puff";
+      p.src = "house/xmas_smoke.png";
+      p.alt = "";
+      p.style.animationDuration = `${SMOKE_SECS}s`;
+      p.style.animationDelay = `${(-i * SMOKE_SECS) / SMOKE_PUFFS}s`;
+      smokeEl.appendChild(p);
+    }
+    houseEl.insertBefore(smokeEl, houseEl.firstChild);
+  }
+  smokeEl.style.left = smoke.x * k + "px";
+  smokeEl.style.top = smoke.y * k + "px";
+  smokeEl.style.setProperty("--k", k);
 }
 
 // 단계(또는 동물 종류)가 바뀌었으면 그 단계 그림과 문을 읽는다
@@ -97,8 +131,11 @@ function placeHouse() {
 async function loadArt(name, seq) {
   if (name === art) return;
   let d = null;
+  let puff = null;
   try {
-    d = (await (await fetch(`house/${name}.json`)).json()).door;
+    const meta = await (await fetch(`house/${name}.json`)).json();
+    d = meta.door;
+    puff = meta.smoke ?? null;
   } catch {
     // 그림이 없으면 예전 집 (teenager)
   }
@@ -109,6 +146,7 @@ async function loadArt(name, seq) {
   }
   art = name;
   door = d;
+  smoke = puff;
   houseEl.style.backgroundImage = `url(house/${name}.png)`;
   frontEl.src = `house/${name}_front.png`;
   placeHouse();

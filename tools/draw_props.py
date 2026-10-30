@@ -1,7 +1,7 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
     python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie,flower}.png
-                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop}.png (직접 주기, 48×48)
+                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop,apple,milk}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
 
@@ -258,9 +258,35 @@ def hand_lollipop(img):
     blob(img, [T((64, 72), (57, 68.5), (57, 75.5)), T((64, 72), (71, 68.5), (71, 75.5)), C(64, 72, 2.2)], CANDY_WRAP, r=0, line=0.7)
 
 
+APPLE, APPLE_STEM, APPLE_LEAF = (240, 78, 82), (128, 90, 62), (128, 196, 104)
+GLASS, MILK = (214, 234, 248), (255, 255, 252)
+
+
+def hand_apple(img):
+    """루돌프가 좋아하는 빨간 사과 — 동글 하트꼴 사과 + 짧은 꼭지 + 잎 하나, 반짝이, 작은 얼굴."""
+    blob(img, [L([(64, 53), (65.5, 46)], 2.6)], APPLE_STEM, r=0, line=0.8)
+    blob(img, [E(66, 44, 79, 51)], APPLE_LEAF, r=0.3, line=0.8, marks=[([L([(68, 47.8), (76.5, 47)], 0.8)], mix(APPLE_LEAF, LINE, 0.3))])
+    blob(img, [C(57.5, 66, 12), C(70.5, 66, 12), E(51, 64, 77, 83)], APPLE, r=1.2, line=0.9,
+         marks=[([E(48, 72, 80, 87)], mix(APPLE, LINE, 0.18)), ([E(52, 57, 57.5, 63)], mix(APPLE, WHITE, 0.7))])
+    tiny_face(img, 64, 69, 0.9)
+
+
+def hand_milk(img):
+    """산타가 좋아하는 우유 한 잔 + 기대 놓은 초코칩 쿠키."""
+    glass = [T((47, 44), (69, 44), (67, 84), (49, 84))]
+    blob(img, glass, GLASS, r=0.3, line=0.9,
+         marks=[([T((47.6, 52), (68.4, 52), (67, 84), (49, 84))], MILK), ([E(48, 50, 68, 54.5)], mix(MILK, GLASS, 0.5)),
+                ([L([(51.5, 57), (52.5, 79)], 1.8)], WHITE)])
+    tiny_face(img, 58, 67, 0.8)
+    blob(img, [C(74, 76, 8.5)], COOKIE, r=0.3, line=0.9,
+         marks=[([C(71, 73, 1.7), C(77, 75, 1.5), C(73.5, 80, 1.6)], CHIP), ([C(70, 71.5, 1.3)], mix(COOKIE, WHITE, 0.5))])
+
+
 HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish, "hand_bone": hand_bone,
              "hand_carrot": hand_carrot, "hand_honey": hand_honey, "hand_nectar": hand_nectar,
              "hand_fly": hand_fly, "hand_candy": hand_candy, "hand_lollipop": hand_lollipop}
+HAND_NAMES += ("hand_apple", "hand_milk")  # 크리스마스: 루돌프 🍎 · 산타 🥛
+HAND_DRAW.update(hand_apple=hand_apple, hand_milk=hand_milk)
 
 
 def draw_hand(name):
