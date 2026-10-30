@@ -85,6 +85,8 @@ pub struct TrayMenu {
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
     /// `친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
     pub friends: Submenu<Wry>,
+    /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 누를 수 있다 — 하우스 옆 바깥 메뉴)
+    pub come_home: MenuItem<Wry>,
     /// 밥 주기 방법: 직접 주기 / 자동 주기 (그릇)
     pub hand_mode: CheckMenuItem<Wry>,
     pub auto_mode: CheckMenuItem<Wry>,
@@ -102,7 +104,7 @@ fn menu_text(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).collect::<String>().replace('&', "&&")
 }
 
-/// `친구랑 놀기 ▸`을 다시 채운다: 내 이름, 친구별 하위 메뉴, 발견된 사람(누르면 친구 신청), 인터넷 친구, 집에 와
+/// `친구랑 놀기 ▸`을 다시 채운다: 내 이름, 친구별 하위 메뉴, 발견된 사람(누르면 친구 신청), 인터넷 친구 (+ 바깥 "집에 와" 켜고 끄기)
 pub fn fill_friends(app: &AppHandle, model: &FriendsMenu) {
     let submenu = &app.state::<AppState>().menu.friends;
     if let Err(e) = try_fill_friends(app, submenu, model) {
@@ -171,8 +173,7 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     let relay_on = model.relay.is_some();
     submenu.append(&MenuItem::with_id(app, SHOW_CODE_ID, "내 친구 코드 보기", relay_on, None::<&str>)?)?;
     submenu.append(&MenuItem::with_id(app, ENTER_CODE_ID, "친구 코드 입력…", relay_on, None::<&str>)?)?;
-    submenu.append(&PredefinedMenuItem::separator(app)?)?;
-    submenu.append(&MenuItem::with_id(app, COME_HOME_ID, "집에 와", model.away, None::<&str>)?)?;
+    app.state::<AppState>().menu.come_home.set_enabled(model.away)?;
     Ok(())
 }
 
@@ -297,6 +298,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
     let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
     let house = MenuItem::with_id(app, "house", house_label(housed), true, None::<&str>)?;
+    let come_home = MenuItem::with_id(app, COME_HOME_ID, "집에 와", false, None::<&str>)?;
     // 게임 루프가 네트워크를 시작한 뒤 채운다
     let friends = Submenu::with_items(app, "친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
@@ -317,6 +319,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&reset)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&house)?;
+    menu.append(&come_home)?;
     menu.append(&friends)?;
     menu.append(&toggle)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -387,5 +390,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: fav, growth, lock, house, pets: pet_items, friends, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: fav, growth, lock, house, pets: pet_items, friends, come_home, hand_mode, auto_mode })
 }
