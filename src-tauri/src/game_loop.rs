@@ -394,11 +394,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         sync_menu(&app, &own.entry, &care, config.housed);
                         save_config(&app, &mut config, &own.entry.id, &care);
                     }
-                    let lettered = note.is_some();
-                    // 편지를 들고 떠나면 "💌!"
-                    if network.send_to(&config, own, &id, note) && lettered {
-                        let _ = app.emit_to(OWN_LABEL, "pet-say-text", "💌!");
-                    }
+                    // 그 자리에서 손 흔들고("bye~!", 편지를 들었으면 "💌!") 뿅 사라진다 — 사라지면 own_exited가 Visit을 보낸다
+                    network.send_to(&config, own, &id, note);
                 }
                 Input::Net(input) => {
                     if network.handle(&app, input, &mut config, &mut slots) {

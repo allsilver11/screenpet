@@ -92,6 +92,28 @@ function petFx(trigger) {
 }
 petEl.addEventListener("animationend", () => petEl.classList.remove("boo", "flare"));
 
+// 놀러 보내져 손 흔든 뒤 "뿅" (백엔드 render.poof, 0.4초): 몸이 작아지며 흐려지고 반짝이 몇 개가 퍼진다.
+// 다 사라지면 백엔드가 창을 숨긴다 — 돌아와 다시 움직이면 클래스를 뗀다
+const POOF_SPARKS = 6;
+function poof() {
+  petEl.classList.remove("poof");
+  void petEl.offsetWidth; // 애니메이션 재시작
+  petEl.classList.add("poof");
+  const cy = display * 0.45;
+  for (let i = 0; i < POOF_SPARKS; i++) {
+    const a = (i / POOF_SPARKS) * Math.PI * 2 + Math.random() * 0.5;
+    const r = display * (0.28 + Math.random() * 0.12);
+    const s = document.createElement("span");
+    s.className = "spark";
+    s.textContent = i % 2 ? "✦" : "✧";
+    s.style.bottom = cy + "px";
+    s.style.setProperty("--dx", `${Math.cos(a) * r}px`);
+    s.style.setProperty("--dy", `${-Math.sin(a) * r}px`);
+    stageEl.appendChild(s);
+    s.addEventListener("animationend", () => s.remove());
+  }
+}
+
 // 첫 pet-render는 이 웹뷰가 듣기 전에 지나갔을 수 있다 — 첫 로드 땐 slot_info의 render를 쓴다 (이벤트가 먼저 왔으면 그쪽이 새것)
 let gotRender = false;
 const listeningRender = listen("pet-render", (e) => {
@@ -105,6 +127,9 @@ const listeningRender = listen("pet-render", (e) => {
   // 트레이에서 먹였거나 다른 길로 먹기 시작하면 고르기 버튼은 필요 없다
   if (e.payload.anim === "eat") speech.hidePicker();
   if (e.payload.anim === "tickle" && render.anim !== "tickle") petFx("tickle");
+  if (e.payload.poof && !render.poof) poof();
+  // 사라진 뒤(Away = idle 그림)엔 창이 숨을 때까지 그대로 두고, 다시 움직이기 시작하면(돌아옴) 뗀다
+  else if (!e.payload.poof && e.payload.anim !== "idle") petEl.classList.remove("poof");
   render = e.payload;
 });
 
@@ -196,8 +221,10 @@ const EXTRA_SPEECH = {
   play: ["play!", "tag!"],
   flee: ["catch me!", "hehe!"],
   ignore: ["..."],
-  // 이 화면 주인이 다음 친구 화면으로 보냄
+  // 놀러 보내져 손 흔들고 떠남 (내 동물 / 이 화면 주인이 다음 친구 화면으로 보낸 손님)
   bye: ["bye~!"],
+  // 편지를 들고 떠남
+  letter: ["💌!"],
 };
 const speech = setupSpeech({
   bubbleEl,

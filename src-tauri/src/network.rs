@@ -357,9 +357,9 @@ fn display_name() -> String {
     }
 }
 
-/// 내 동물이 화면 끝으로 걸어 나가는 중
+/// 내 동물이 화면 끝으로 걸어 나가거나, 보내져 손 흔들고 사라지는 중
 fn is_exiting(own: &Slot) -> bool {
-    matches!(own.pet.state, State::Exit { .. })
+    matches!(own.pet.state, State::Exit { .. } | State::Farewell { .. })
 }
 
 impl Network {
@@ -475,11 +475,12 @@ impl Network {
         self.own_free(own) && !own.pet.is_held() && self.is_connected(id)
     }
 
-    /// "놀러 보내기": 내 동물이 그 친구가 연결된 끝으로 곧장 가서 나간다 (게임 루프가 하우스에서 먼저 꺼낸다). 가기 시작했으면 true.
+    /// "놀러 보내기": 내 동물이 그 자리에서 손 흔들고 뿅 사라진다 — 그 친구가 연결된 끝으로 나간 것으로 친다
+    /// (게임 루프가 하우스에서 먼저 꺼낸다). 가기 시작했으면 true.
     /// note = "편지 들려 보내기"의 편지 (다듬은 것) — 그 친구에게 가는 Visit에 실린다
     pub fn send_to(&mut self, config: &Config, own: &mut Slot, id: &str, note: Option<String>) -> bool {
         let Some(f) = config.friend(id) else { return false };
-        if !self.can_send(own, id) || !own.pet.send_to(f.side) {
+        if !self.can_send(own, id) || !own.pet.send_to(f.side, note.is_some()) {
             return false;
         }
         eprintln!("sending own pet to {id} through the {:?} edge{}", f.side, if note.is_some() { " with a note" } else { "" });
@@ -514,13 +515,13 @@ impl Network {
         }
     }
 
-    /// 손님(label)을 내 친구(friend) 화면으로 더 보낸다: 그 친구가 연결된 끝으로 곧장 가서 나간다 ("bye~!").
+    /// 손님(label)을 내 친구(friend) 화면으로 더 보낸다: 그 자리에서 손 흔들고("bye~!") 뿅 사라진다 (그 친구가 연결된 끝으로 나간 것).
     /// 그 끝으로 나가면 guest_left가 Leave{next: friend}를 주인에게 보낸다 — 이어 갈지는 주인이 정한다
     fn send_on(&mut self, config: &Config, slots: &mut [Slot], label: &str, friend: &str) {
         let Some(slot) = slots.iter_mut().find(|s| s.label == label) else { return };
         let Role::Guest(g) = &slot.role else { return };
         let Some(f) = config.friend(friend) else { return };
-        if g.owner_id == friend || !self.is_open(friend) || !slot.pet.send_to(f.side) {
+        if g.owner_id == friend || !self.is_open(friend) || !slot.pet.send_to(f.side, false) {
             return;
         }
         eprintln!("sending guest {} ({}) on to {friend}", g.visit_id, g.owner_id);
@@ -825,7 +826,7 @@ impl Network {
     fn on_ask(&mut self, app: &AppHandle, config: &Config, slots: &mut [Slot], from: &str, ask: &str) {
         let Some(f) = config.friend(from) else { return };
         match ask {
-            // "펫 데리고 오기": 보낼 수 있고 너무 잦지 않으면 말풍선을 띄우고 "놀러 보내기"처럼 그 친구에게 간다
+            // "펫 데리고 오기": 보낼 수 있고 너무 잦지 않으면 말풍선을 띄우고 "놀러 보내기"처럼 손 흔들고 뿅 그 친구에게 간다
             ASK_INVITE => {
                 // 하우스 안·집에 가는 중·먹는 중·성장 축하·들림·이미 가는 중이면 가지 않는다 (하우스에서 끌어내지 않는다)
                 let available = slots[0].pet.is_free_to_go() && self.can_send(&slots[0], from);
@@ -839,6 +840,8 @@ impl Network {
                     let now = Instant::now();
                     self.invite_accepted.insert(from.to_string(), now);
                     self.invite_accepted_any = Some(now);
+                    // 손 흔들 때 "bye~!" 대신 이 말풍선이 보인다
+                    slots[0].pet.hush_send();
                     let _ = app.emit_to(OWN_LABEL, "pet-say-text", visit::invite_bubble(&name));
                     eprintln!("{from} invited our pet over; going");
                 } else if let Some(net) = &self.net {

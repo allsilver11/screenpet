@@ -480,7 +480,7 @@ fn tickled_bee_gets_angry_and_stings_the_screen() {
     let mut p = hovering(800.0, 500.0, idle(), 1);
     assert!(tickle_until_sting(&mut p, &w, 60));
     assert_eq!(p.state, State::Sting { phase: StingPhase::Alert, remaining: StingPhase::Alert.secs() });
-    assert_eq!(p.render(), RenderState { anim: Anim::Sting, flip: false, heart: false });
+    assert_eq!(p.render(), RenderState { anim: Anim::Sting, flip: false, heart: false, poof: false });
     let (x, y) = (p.body.x, p.body.y);
     let (hit, at, said) = run_sting(&mut p, &w);
     // "!" 0.5초 + 돌진 0.3초 뒤 콕!

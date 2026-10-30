@@ -368,14 +368,14 @@ fn other_walkers_never_hop_walk() {
     }
 }
 
-/// 토끼도 보내기·잡아 봐!는 그대로 된다 (깡총이든 아니든 그 쪽 화면 끝으로 나간다)
+/// 토끼도 보내기·잡아 봐!는 그대로 된다 (보내면 손 흔들고 그 쪽으로 사라진다)
 #[test]
 fn rabbit_is_sent_off_and_plays_catch_me() {
     let w = world(vec![]);
     for seed in 1..=8 {
         let mut p = Pet::new(rabbit(), 0.0, 0.0, seed);
         place(&mut p, &w, Owner::Ground(0), 1200.0, State::Idle { remaining: 100.0, look: false });
-        assert!(p.send_to(Side::Left));
+        assert!(p.send_to(Side::Left, false));
         let mut out = None;
         for _ in 0..(60 * 40) {
             p.update(DT, &w);

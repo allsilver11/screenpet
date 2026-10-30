@@ -218,6 +218,32 @@ body {
   pointer-events: none;
 }
 
+/* 놀러 보내져 "뿅" (main.js poof — 백엔드 render.poof 0.4초): 작아지며 흐려진다 */
+#pet.poof {
+  animation: poof 0.4s ease-in forwards;
+}
+@keyframes poof {
+  0% { scale: 1; opacity: 1; }
+  30% { scale: 1.12; opacity: 1; }
+  100% { scale: 0.1; opacity: 0; }
+}
+/* 뿅 반짝이: 몸 가운데에서 바깥으로 퍼지며 사라진다 */
+.spark {
+  position: absolute;
+  left: 50%;
+  color: #ffd84a;
+  font-size: 14px;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.9);
+  transform: translate(-50%, 50%);
+  animation: spark 0.5s ease-out forwards;
+}
+@keyframes spark {
+  from { transform: translate(-50%, 50%) scale(0.4); opacity: 1; }
+  to { transform: translate(calc(-50% + var(--dx)), calc(50% + var(--dy))) scale(1); opacity: 0; }
+}
+
 /* 손님이 들고 온 편지 💌 — 안 읽음: 머리 위에서 통통 튀며 반짝. 누르면(봉투 또는 몸) 쪽지가 15초 */
 #envelope {
   position: absolute;

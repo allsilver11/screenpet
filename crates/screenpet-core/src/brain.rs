@@ -124,8 +124,10 @@ pub enum Speech {
     Play,
     /// 쫓기며 도망 ("catch me!")
     Flee,
-    /// 손님이 다음 친구 화면으로 보내져 떠난다 ("bye~!", brain_send.rs)
+    /// 보내져 손 흔들고 떠난다 — 내 동물("놀러 보내기")이나 다음 친구 화면으로 보낸 손님 ("bye~!", brain_send.rs)
     Bye,
+    /// 편지를 들고 떠난다 ("💌!", brain_send.rs)
+    Letter,
 }
 
 impl Anim {
@@ -349,6 +351,8 @@ pub struct RenderState {
     pub anim: Anim,
     pub flip: bool,
     pub heart: bool,
+    /// 보내져 손 흔든 뒤 "뿅" 사라지는 중 (웹뷰가 작아지며 흐려지고 반짝이 — brain_send.rs)
+    pub poof: bool,
 }
 
 pub struct Pet {
@@ -640,7 +644,7 @@ impl Pet {
             State::Pressed { grounded: true, .. } => Anim::Idle,
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
         };
-        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back(), heart: self.heart_timer > 0.0 }
+        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back(), heart: self.heart_timer > 0.0, poof: self.poofing() }
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
@@ -1004,6 +1008,11 @@ impl Pet {
 
     /// 손님에게 "집에 와" (들려 있거나 공중이면 내려선 뒤): 제자리에서 손 흔든 뒤 걸어 나가지 않고 사라진다 (take_exit = Some(집 쪽))
     pub fn go_home_now(&mut self) {
+        // 다음 친구에게 보내져 손 흔드는 중이면 그대로 흔들고 집 쪽으로 사라진다
+        if self.guest.is_some() && self.waving_goodbye() {
+            self.send = None;
+            return;
+        }
         if self.guest.is_none() || self.leaving() {
             return;
         }
@@ -1123,8 +1132,13 @@ impl Pet {
 
     fn update_farewell(&mut self, dt: f64, remaining: f64) {
         let remaining = remaining - dt;
-        match self.guest {
-            Some(g) if remaining <= 0.0 => self.vanish(g.home),
+        // 보내져 손 흔들었으면 그 친구 쪽으로, 손님의 "집에 와"면 집 쪽으로 사라진다
+        let to = self.send.map(|s| s.side).or(self.guest.map(|g| g.home));
+        match to {
+            Some(side) if remaining <= 0.0 => {
+                self.send = None;
+                self.vanish(side);
+            }
             _ => self.state = State::Farewell { remaining },
         }
     }
@@ -3064,7 +3078,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -3155,7 +3169,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -3174,7 +3188,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false });
     }
 
     #[test]
@@ -4494,7 +4508,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -5312,7 +5326,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false });
             }
             last_x = p.body.x;
         }
