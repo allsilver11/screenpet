@@ -355,7 +355,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::SendHome { label } => {
                     if let Some(i) = slots::find(&slots, &label).filter(|&i| !slots[i].is_own()) {
-                        slots[i].pet.go_home_now();
+                        network.send_guest_home(&mut slots[i]);
                     }
                 }
                 Input::Net(NetInput::SendTo(id)) => {

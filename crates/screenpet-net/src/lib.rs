@@ -251,10 +251,42 @@ pub(crate) enum Kind {
 
 /// One live link (after hello). Several stranger links may claim the same id;
 /// at most one friend link per id (see `State::friend_links`).
+/// Per-link budget for friend renames and asks: ASK_BURST at once, then one
+/// per ASK_EVERY (a flooding friend can't spam the app with events).
+pub(crate) struct AskBucket {
+    tokens: f64,
+    at: Instant,
+}
+
+const ASK_BURST: f64 = 2.0;
+const ASK_EVERY: Duration = Duration::from_secs(2);
+
+impl AskBucket {
+    pub fn new(now: Instant) -> AskBucket {
+        AskBucket { tokens: ASK_BURST, at: now }
+    }
+
+    /// Spend one token if there is one.
+    pub fn take(&mut self, now: Instant) -> bool {
+        let refill = now.saturating_duration_since(self.at).as_secs_f64() / ASK_EVERY.as_secs_f64();
+        self.tokens = (self.tokens + refill).min(ASK_BURST);
+        self.at = now;
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 pub(crate) struct Conn {
     pub peer_id: String,
     pub link: Arc<secure::SecureLink>,
+    /// Last display name heard on this link (hello, then renames).
     pub name: String,
+    /// Rate limit for renames and asks on this link.
+    pub asks: AskBucket,
     pub kind: Kind,
     /// `Connected` has been emitted for this peer (so `Disconnected` is owed).
     pub announced: bool,

@@ -240,6 +240,8 @@ pub struct Network {
     guest_sends: HashMap<String, (String, Side)>,
     /// 친구별 마지막으로 받아들인 "펫 데리고 오기" 부탁 시각 (60초에 한 번)
     invite_accepted: HashMap<String, Instant>,
+    /// 누구든 마지막으로 받아들인 "펫 데리고 오기" 시각 (2분에 한 번)
+    invite_accepted_any: Option<Instant>,
     /// 친구별 내가 "펫 데리고 오기"를 부탁한 시각
     invite_asked: HashMap<String, Instant>,
     /// 지금 와 있는 손님 수 (꽉 차면 "펫 데리고 오기"를 막는다)
@@ -311,9 +313,10 @@ fn personality_name(p: Personality) -> &'static str {
     }
 }
 
-/// 다른 사람이 정한 글자: 제어 문자(\t, \n …)를 빼고 64자로
+/// 다른 사람이 정한 글자: 보이지 않는 글자(제어·방향·폭 없는 글자)를 빼고 64자로
 fn clamp(s: &str) -> String {
-    s.chars().filter(|c| !c.is_control()).take(64).collect()
+    // 제어 문자·방향 바꾸기·폭 없는 글자를 빼고, 앞뒤 공백을 지운다 (공백뿐이면 빈 글자 → 기본 이름)
+    screenpet_core::config::clean_text(s, 64)
 }
 
 /// Windows 사용자 이름 (spec §1). 없으면 "친구"
@@ -359,6 +362,7 @@ impl Network {
             full_until: HashMap::new(),
             guest_sends: HashMap::new(),
             invite_accepted: HashMap::new(),
+            invite_accepted_any: None,
             invite_asked: HashMap::new(),
             guests: 0,
             relay_enabled: false,
@@ -442,15 +446,35 @@ impl Network {
         self.own_free(own) && !own.pet.is_held() && self.is_connected(id)
     }
 
-    /// "놀러 보내기": 내 동물이 그 친구가 연결된 끝으로 곧장 가서 나간다 (게임 루프가 하우스에서 먼저 꺼낸다)
-    pub fn send_to(&mut self, config: &Config, own: &mut Slot, id: &str) {
-        let Some(f) = config.friend(id) else { return };
+    /// "놀러 보내기": 내 동물이 그 친구가 연결된 끝으로 곧장 가서 나간다 (게임 루프가 하우스에서 먼저 꺼낸다). 가기 시작했으면 true
+    pub fn send_to(&mut self, config: &Config, own: &mut Slot, id: &str) -> bool {
+        let Some(f) = config.friend(id) else { return false };
         if !self.can_send(own, id) || !own.pet.send_to(f.side) {
-            return;
+            return false;
         }
         eprintln!("sending own pet to {id} through the {:?} edge", f.side);
         self.sending = Some((id.to_string(), f.side));
         self.menu_dirty = true;
+        true
+    }
+
+    /// 손님을 주인에게 돌려보낸다 (손님 우클릭 "<주인>에게 돌려보내기"): 걸어 둔 "<친구>에게 보내기"는 지운다
+    pub fn send_guest_home(&mut self, slot: &mut Slot) {
+        if let Role::Guest(g) = &slot.role {
+            self.guest_sends.remove(&g.visit_id);
+        }
+        slot.pet.go_home_now();
+    }
+
+    /// 걸어 둔 "<친구>에게 보내기" 중 drop(주인 id, 보낼 친구 id)이 참인 것을 지우고 그 손님은 그만 간다
+    fn drop_guest_sends(&mut self, slots: &mut [Slot], drop: impl Fn(&str, &str) -> bool) {
+        for s in slots.iter_mut() {
+            let Role::Guest(g) = &s.role else { continue };
+            if self.guest_sends.get(&g.visit_id).is_some_and(|(to, _)| drop(&g.owner_id, to)) {
+                self.guest_sends.remove(&g.visit_id);
+                s.pet.cancel_send();
+            }
+        }
     }
 
     /// 손님(label)을 내 친구(friend) 화면으로 더 보낸다: 그 친구가 연결된 끝으로 곧장 가서 나간다 ("bye~!").
@@ -704,6 +728,8 @@ impl Network {
             NetEvent::Asked { from, ask } => self.on_ask(app, config, slots, &from, &ask),
             NetEvent::Disconnected { id } => {
                 self.connected.remove(&id);
+                // 그 친구에게 보내던 손님은 그만 가고, 그 친구의 손님에게 걸어 둔 보내기는 지운다
+                self.drop_guest_sends(slots, |owner, to| owner == id || to == id);
                 // 그 친구의 손님은 손 흔들고 사라진다
                 for s in slots.iter_mut() {
                     if matches!(&s.role, Role::Guest(g) if g.owner_id == id) {
@@ -752,28 +778,29 @@ impl Network {
         match ask {
             // "펫 데리고 오기": 보낼 수 있고 너무 잦지 않으면 말풍선을 띄우고 "놀러 보내기"처럼 그 친구에게 간다
             ASK_INVITE => {
-                let available = self.can_send(&slots[0], from);
-                let since = self.invite_accepted.get(from).map(|t| t.elapsed().as_secs_f64());
-                match visit::answer_invite(available, since) {
-                    visit::InviteAnswer::Go => {
-                        self.invite_accepted.insert(from.to_string(), Instant::now());
-                        let target = if slots[0].pet.is_housed() { crate::house::LABEL } else { OWN_LABEL };
-                        let _ = app.emit_to(target, "pet-say-text", visit::invite_bubble(f.shown_name()));
-                        eprintln!("{from} invited our pet over; going");
-                        // 하우스에서 꺼내는 일은 게임 루프가 한다 (트레이 "놀러 보내기"와 같은 길)
-                        let _ = app.state::<AppState>().tx.lock().unwrap().send(Input::Net(NetInput::SendTo(from.to_string())));
-                    }
-                    visit::InviteAnswer::Busy => {
-                        if let Some(net) = &self.net {
-                            net.ask(from, ASK_BUSY);
-                        }
-                    }
+                // 하우스 안·집에 가는 중·먹는 중·성장 축하·들림·이미 가는 중이면 가지 않는다 (하우스에서 끌어내지 않는다)
+                let available = slots[0].pet.is_free_to_go() && self.can_send(&slots[0], from);
+                let since_friend = self.invite_accepted.get(from).map(|t| t.elapsed().as_secs_f64());
+                let since_any = self.invite_accepted_any.map(|t| t.elapsed().as_secs_f64());
+                let name = f.shown_name().to_string();
+                let go = visit::answer_invite(available, since_friend, since_any) == visit::InviteAnswer::Go
+                    && self.send_to(config, &mut slots[0], from);
+                if go {
+                    // 실제로 가기 시작한 뒤에만 기록하고 말풍선을 띄운다
+                    let now = Instant::now();
+                    self.invite_accepted.insert(from.to_string(), now);
+                    self.invite_accepted_any = Some(now);
+                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", visit::invite_bubble(&name));
+                    eprintln!("{from} invited our pet over; going");
+                } else if let Some(net) = &self.net {
+                    net.ask(from, ASK_BUSY);
                 }
             }
             // 내가 부탁했는데 지금은 못 온대요 — 내 동물 머리 위에 작게
             ASK_BUSY => {
                 if self.invite_asked.remove(from).is_some_and(|t| t.elapsed() < ASK_ANSWER_WINDOW) {
-                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", format!("{}: busy~", f.shown_name()));
+                    let name = screenpet_core::config::sanitize_name(f.shown_name()).unwrap_or_else(|| DEFAULT_NAME.to_string());
+                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", format!("{name}: busy~"));
                 }
             }
             // 모르는 부탁 (새 판) — 무시
@@ -850,6 +877,8 @@ impl Network {
             }
             Visit::ComeHome { visit_id } => {
                 let id = visit_id.to_string();
+                // 주인이 불렀다 — 다음 친구에게 보내던 길은 그만
+                self.guest_sends.remove(&id);
                 for s in slots.iter_mut() {
                     if matches!(&s.role, Role::Guest(g) if g.owner_id == from && g.visit_id == id) {
                         s.pet.go_home_now();

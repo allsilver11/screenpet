@@ -960,7 +960,7 @@ impl Pet {
     }
 
     /// 한쪽 화면 끝으로 곧장 가는 중: 집을 그리워하는 손님, 또는 "놀러 보내기"로 보낸 내 동물 (brain_send.rs의 heading)
-    pub fn is_homesick(&self) -> bool {
+    pub fn is_heading_out(&self) -> bool {
         self.heading().is_some()
     }
 
@@ -1002,6 +1002,8 @@ impl Pet {
         if self.guest.is_none() || self.leaving() {
             return;
         }
+        // 집이 먼저 — 이 화면 주인이 다음 친구에게 보내던 길은 그만둔다
+        self.send = None;
         // 끌려가는 도중엔 바꾸지 않는다 — 놓여서 내려선 뒤 update가 다시 부른다
         if self.is_held() || matches!(self.state, State::Air { .. }) {
             self.farewell_pending = true;
@@ -1963,7 +1965,7 @@ impl Pet {
                     }
                     match (end, kind) {
                         // 집이 그리운 손님은 돌아서지 않고 뛰어내린다
-                        (EndKind::Edge, Move::Walk) if self.is_homesick() || self.rng.f64() < behavior::WALK_EDGE_HOP_CHANCE => {
+                        (EndKind::Edge, Move::Walk) if self.is_heading_out() || self.rng.f64() < behavior::WALK_EDGE_HOP_CHANCE => {
                             self.start_hop(self.facing)
                         }
                         (EndKind::Edge, Move::Run) => {
@@ -1985,7 +1987,7 @@ impl Pet {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 {
                     State::Move { kind, remaining }
-                } else if !self.is_homesick() && self.rng.f64() < behavior::MOVE_END_TURN_CHANCE {
+                } else if !self.is_heading_out() && self.rng.f64() < behavior::MOVE_END_TURN_CHANCE {
                     State::Turn { remaining: TURN_PAUSE }
                 } else {
                     self.rest_beat()
@@ -2344,7 +2346,7 @@ impl Pet {
         if self.cfg.flies {
             return self.fly_move_state();
         }
-        let homesick = self.is_homesick();
+        let homesick = self.is_heading_out();
         if !homesick && self.cfg.can_climb && self.standing.is_some() && self.inside.is_none() && self.rng.f64() < behavior::CLIMB_CHANCE {
             if let Some(target_y) = self.climb_target(world) {
                 return self.next_after_beat(State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS });
@@ -2443,7 +2445,7 @@ impl Pet {
         }
         let room = world.piece_at(Owner::Inside(stay.window), self.body.x).is_some_and(|p| p.width() >= 2.0 * self.cfg.half_w);
         // 집에 가는 중이거나 집이 그리운 손님이면 바로 나간다
-        if !room || (self.home_trip.is_some() || self.is_homesick()) && !self.celebrating() {
+        if !room || (self.home_trip.is_some() || self.is_heading_out()) && !self.celebrating() {
             self.hop_out(world, &rect, dt);
             return;
         }
@@ -2603,7 +2605,7 @@ impl Pet {
     /// 쉬기를 정할 때 뛰어들 수 있는 창: 들어갈 만한 창의 윗면에 서 있고, 집에 가는 중·집이 그리운 손님이 아니어야 한다
     fn hop_in_window(&self, world: &World) -> Option<(u64, Rect)> {
         let Some(Standing { owner: Owner::Window(id), .. }) = self.standing else { return None };
-        if self.cfg.flies || self.inside.is_some() || self.home_trip.is_some() || self.is_homesick() {
+        if self.cfg.flies || self.inside.is_some() || self.home_trip.is_some() || self.is_heading_out() {
             return None;
         }
         let rect = world.window(id)?.rect;
@@ -5531,11 +5533,11 @@ mod visit_tests {
         let w = world(vec![]);
         let mut p = guest(1, 1.0, Move::Walk, Side::Right, 2.0);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
-        assert!(!p.is_homesick());
+        assert!(!p.is_heading_out());
         run(&mut p, &w, 110);
-        assert!(!p.is_homesick());
+        assert!(!p.is_heading_out());
         run(&mut p, &w, 20);
-        assert!(p.is_homesick());
+        assert!(p.is_heading_out());
     }
 
     #[test]

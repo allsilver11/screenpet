@@ -1,6 +1,6 @@
 //! 트레이 "놀러 보내기" (phase 3): 내 동물이 그 친구가 연결된 화면 끝(side)으로 곧장 가서 걸어 나간다.
 //! 손님도 이 화면 주인이 "<친구>에게 보내기"로 보내면 같은 길로 그 끝으로 간다 ("bye~!").
-//! 가는 길은 집이 그리운 손님과 같다 (`is_homesick` — 기어오르기·창 안 놀기·큰 점프 없이 그쪽으로, 창 모서리에선 뛰어내림).
+//! 가는 길은 집이 그리운 손님과 같다 (`is_heading_out` — 기어오르기·창 안 놀기·큰 점프 없이 그쪽으로, 창 모서리에선 뛰어내림).
 //! SEND_GIVE_UP_SECS 안에 못 나가면 그 자리에서 그쪽으로 걸어 나간다. brain.rs의 자식 모듈.
 
 use super::*;
@@ -28,8 +28,22 @@ impl Pet {
         if self.guest.is_some() {
             self.speech = Some(Speech::Bye);
         }
-        // 창 안에 있었으면 곧 나온다 (update_inside가 is_homesick을 본다)
+        // 창 안에 있었으면 곧 나온다 (update_inside가 is_heading_out을 본다)
         true
+    }
+
+    /// 친구가 데려가고 싶어 할 때 갈 수 있음: 내 동물이고, 하우스 안·집에 가는 중·먹는 중(먹으러 나옴 포함)·성장 축하 중·
+    /// 들림·떠나는 중이 아니고, 이미 보내는 중도 아님
+    pub fn is_free_to_go(&self) -> bool {
+        self.guest.is_none()
+            && !self.housed
+            && self.home_trip.is_none()
+            && self.return_home.is_none()
+            && !self.is_eating()
+            && !self.celebrating()
+            && !self.is_held()
+            && !self.in_transit()
+            && self.send.is_none()
     }
 
     /// 보내기를 그만둔다 (그 친구가 끊겼을 때 등)

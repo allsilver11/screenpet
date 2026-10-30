@@ -141,6 +141,8 @@ pub fn next_host<'a>(sent: Option<(&'a str, Side)>, exited: Side, guest: Option<
 
 /// "<친구> 펫 데리고 오기"를 받아들인 뒤 같은 친구의 다음 부탁까지 (초) — 그 사이 부탁은 바쁘다고 답한다
 pub const INVITE_COOLDOWN_SECS: f64 = 60.0;
+/// 누구의 부탁이든 하나를 받아들인 뒤 다음 부탁까지 (초)
+pub const GLOBAL_INVITE_COOLDOWN_SECS: f64 = 120.0;
 
 /// 친구가 내 동물을 데려오고 싶어 할 때의 답
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,9 +153,11 @@ pub enum InviteAnswer {
     Busy,
 }
 
-/// available = 내 동물을 지금 보낼 수 있음 ("놀러 보내기"와 같은 규칙), since_accepted = 그 친구의 부탁을 마지막으로 받아들인 뒤 지난 초
-pub fn answer_invite(available: bool, since_accepted: Option<f64>) -> InviteAnswer {
-    if available && since_accepted.is_none_or(|t| t >= INVITE_COOLDOWN_SECS) {
+/// available = 내 동물이 지금 갈 수 있음 (Pet::is_free_to_go + 연결됨), since_friend = 그 친구의 부탁을,
+/// since_any = 누구든 부탁을 마지막으로 받아들인 뒤 지난 초
+pub fn answer_invite(available: bool, since_friend: Option<f64>, since_any: Option<f64>) -> InviteAnswer {
+    let rested = since_friend.is_none_or(|t| t >= INVITE_COOLDOWN_SECS) && since_any.is_none_or(|t| t >= GLOBAL_INVITE_COOLDOWN_SECS);
+    if available && rested {
         InviteAnswer::Go
     } else {
         InviteAnswer::Busy
@@ -292,12 +296,16 @@ mod tests {
 
     #[test]
     fn invite_goes_only_when_free_and_not_too_soon() {
-        assert_eq!(answer_invite(true, None), InviteAnswer::Go);
-        assert_eq!(answer_invite(false, None), InviteAnswer::Busy);
-        assert_eq!(answer_invite(true, Some(10.0)), InviteAnswer::Busy, "accepted one 10 s ago");
-        assert_eq!(answer_invite(true, Some(INVITE_COOLDOWN_SECS - 0.1)), InviteAnswer::Busy);
-        assert_eq!(answer_invite(true, Some(INVITE_COOLDOWN_SECS)), InviteAnswer::Go);
-        assert_eq!(INVITE_COOLDOWN_SECS, 60.0);
+        assert_eq!(answer_invite(true, None, None), InviteAnswer::Go);
+        assert_eq!(answer_invite(false, None, None), InviteAnswer::Busy);
+        assert_eq!(answer_invite(true, Some(10.0), Some(10.0)), InviteAnswer::Busy, "accepted one 10 s ago");
+        let g = GLOBAL_INVITE_COOLDOWN_SECS;
+        assert_eq!(answer_invite(true, Some(INVITE_COOLDOWN_SECS - 0.1), Some(g)), InviteAnswer::Busy);
+        assert_eq!(answer_invite(true, Some(INVITE_COOLDOWN_SECS), Some(g)), InviteAnswer::Go);
+        // 다른 친구의 부탁을 2분 안에 받아들였으면 이 친구도 기다린다
+        assert_eq!(answer_invite(true, None, Some(g - 0.1)), InviteAnswer::Busy);
+        assert_eq!(answer_invite(true, None, Some(g)), InviteAnswer::Go);
+        assert_eq!((INVITE_COOLDOWN_SECS, GLOBAL_INVITE_COOLDOWN_SECS), (60.0, 120.0));
     }
 
     #[test]

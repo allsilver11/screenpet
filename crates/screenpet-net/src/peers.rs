@@ -19,7 +19,7 @@ use crate::protocol::{clamp_name, Control, Message, MAX_FRAME, MAX_FRIENDS, MAX_
 use crate::secure::SecureLink;
 use crate::transport::{self, FrameLink, FrameReader, Recv};
 use crate::{
-    Backoff, Conn, Kind, NetEvent, PairStage, Pairing, SessionGuard, Shared, State, INVITED_WINDOW,
+    AskBucket, Backoff, Conn, Kind, NetEvent, PairStage, Pairing, SessionGuard, Shared, State, INVITED_WINDOW,
     MAX_INVITED_PER_WINDOW, MAX_INVITES_IN, MAX_INVITES_IN_PER_ADDR, MAX_PAIR_ATTEMPTS_PER_ADDR, PRE_AUTH_MAX,
 };
 use std::sync::atomic::AtomicBool;
@@ -268,6 +268,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
                 peer_id: id.to_string(),
                 link: ctx.link.clone(),
                 name: name.to_string(),
+                asks: AskBucket::new(now),
                 kind,
                 announced: announced || connected,
                 outgoing,
@@ -359,17 +360,24 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
     let Some(conn) = st.conns.get(&ctx.token) else { return false };
     let (outgoing, hs_hash) = (conn.outgoing, conn.hs_hash);
     match msg {
-        // A repeated hello on an authenticated friend link (same id) = the friend renamed itself
+        // A repeated hello on an authenticated friend link (same id) = the friend renamed itself.
+        // Unchanged names are ignored; renames and asks share a per-link budget
         Message::Control(Control::Hello { id: hid, name: new_name, .. }) => {
-            if hid == id && matches!(conn.kind, Kind::Friend) && st.is_friend(id) {
-                shared.emit(NetEvent::Renamed { id: id.to_string(), name: clamp_name(&new_name) });
+            let new_name = clamp_name(&new_name);
+            let friend = hid == id && matches!(conn.kind, Kind::Friend) && st.is_friend(id);
+            let Some(c) = st.conns.get_mut(&ctx.token) else { return false };
+            if friend && c.name != new_name && c.asks.take(now) {
+                c.name = new_name.clone();
+                shared.emit(NetEvent::Renamed { id: id.to_string(), name: new_name });
             }
             true
         }
         Message::Control(Control::Ping { ask: None }) => true,
         // A friend's app request (authenticated friend links only, like visits)
         Message::Control(Control::Ping { ask: Some(ask) }) => {
-            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) {
+            let friend = matches!(conn.kind, Kind::Friend) && st.is_friend(id);
+            let Some(c) = st.conns.get_mut(&ctx.token) else { return false };
+            if friend && c.asks.take(now) {
                 shared.emit(NetEvent::Asked { from: id.to_string(), ask: clamp_name(&ask) });
             }
             true

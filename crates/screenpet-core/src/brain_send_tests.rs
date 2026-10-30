@@ -144,6 +144,50 @@ fn only_a_free_pet_can_be_sent() {
 }
 
 #[test]
+fn only_a_pet_with_nothing_else_going_on_can_be_invited_over() {
+    let w = world(vec![]);
+    let fresh = || {
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), 900.0, idle());
+        p
+    };
+    assert!(fresh().is_free_to_go());
+    let mut housed = fresh();
+    housed.enter_house();
+    assert!(!housed.is_free_to_go(), "stays in the house");
+    let mut going = fresh();
+    going.go_home(Owner::Ground(0), 1700.0);
+    assert!(!going.is_free_to_go(), "on the way home");
+    let mut eating = fresh();
+    eating.state = State::Eating { remaining: 1.0, favorite: false, level_up: false };
+    assert!(!eating.is_free_to_go());
+    let mut leveling = fresh();
+    leveling.state = State::LevelUp { remaining: 1.0 };
+    assert!(!leveling.is_free_to_go());
+    let mut held = fresh();
+    held.pointer_down(900.0, 1000.0);
+    assert!(!held.is_free_to_go());
+    let mut guest = fresh();
+    guest.set_guest(Side::Left, 100.0);
+    assert!(!guest.is_free_to_go());
+    let mut away = fresh();
+    away.state = State::Exit { remaining: 1.0, side: Side::Left };
+    assert!(!away.is_free_to_go());
+}
+
+#[test]
+fn come_home_now_drops_a_hosts_send_on() {
+    let w = world(vec![]);
+    let mut g = Pet::new(cfg(), 0.0, 0.0, 1);
+    place(&mut g, &w, Owner::Ground(0), 900.0, idle());
+    g.set_guest(Side::Left, 100.0);
+    g.send_to(Side::Right);
+    g.go_home_now();
+    assert_eq!(g.sending(), None);
+    assert_eq!(run_until_exit(&mut g, &w, 10.0).map(|r| r.0), Some(Side::Left), "waves and goes home");
+}
+
+#[test]
 fn cancel_send_stops_heading_there() {
     let w = world(vec![]);
     let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
@@ -151,7 +195,7 @@ fn cancel_send_stops_heading_there() {
     p.send_to(Side::Right);
     p.cancel_send();
     assert_eq!(p.sending(), None);
-    assert!(!p.is_homesick());
+    assert!(!p.is_heading_out());
 }
 
 #[test]

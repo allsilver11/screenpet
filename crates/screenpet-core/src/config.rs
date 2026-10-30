@@ -41,12 +41,25 @@ pub struct Config {
 /// 내가 정하는 이름(내 이름·친구 별명)의 최대 글자 수
 pub const MAX_NAME_CHARS: usize = 20;
 
-/// 내가 정하는 이름: 제어 문자를 빼고 앞뒤 공백을 지운 뒤 20자까지. 비면 None (= 기본 이름으로)
+/// 글자에 보이지 않게 끼어드는 것: 제어 문자, 방향 바꾸기(U+202A–202E, U+2066–2069, U+061C), 폭 없는 글자(U+200B–200F,
+/// U+2060–2064, U+180E), BOM(U+FEFF), 소프트 하이픈
+fn is_hidden_char(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}' | '\u{061C}' | '\u{180E}' | '\u{00AD}')
+}
+
+/// 다른 사람이 정했거나 내가 친 이름을 화면용으로: 보이지 않는 글자를 빼고, 앞뒤 공백을 지우고, max자까지.
+/// 공백뿐이면 빈 글자 (부르는 쪽이 기본 이름으로)
+pub fn clean_text(raw: &str, max: usize) -> String {
+    let clean: String = raw.chars().filter(|&c| !is_hidden_char(c)).collect();
+    let name: String = clean.trim().chars().take(max).collect();
+    name.trim_end().to_string()
+}
+
+/// 내가 정하는 이름: 보이지 않는 글자를 빼고 앞뒤 공백을 지운 뒤 20자까지. 비면 None (= 기본 이름으로)
 pub fn sanitize_name(raw: &str) -> Option<String> {
-    let clean: String = raw.chars().filter(|c| !c.is_control()).collect();
-    let name: String = clean.trim().chars().take(MAX_NAME_CHARS).collect();
-    let name = name.trim_end();
-    (!name.is_empty()).then(|| name.to_string())
+    let name = clean_text(raw, MAX_NAME_CHARS);
+    (!name.is_empty()).then_some(name)
 }
 
 fn lenient_feed_mode<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FeedMode, D::Error> {
@@ -722,6 +735,18 @@ mod tests {
     }
 
     // ---- 내 이름·친구 별명 ----
+
+    #[test]
+    fn hidden_format_chars_are_stripped_and_blank_names_rejected() {
+        // 방향 바꾸기(RLO 등)·폭 없는 글자·BOM은 뺀다
+        assert_eq!(sanitize_name("da\u{202E}nn\u{200B}i\u{FEFF}"), Some("danni".into()));
+        assert_eq!(sanitize_name("\u{2066}x\u{2069}\u{200F}"), Some("x".into()));
+        // 보이지 않는 글자·공백뿐이면 없는 이름
+        assert_eq!(sanitize_name("\u{200B}\u{3000} \u{200D}"), None);
+        assert_eq!(clean_text(" \u{202A}Ann\u{202C} ", 64), "Ann");
+        assert_eq!(clean_text(&"b".repeat(100), 64).chars().count(), 64);
+        assert_eq!(clean_text("\u{200B} \t", 64), "");
+    }
 
     #[test]
     fn names_are_trimmed_stripped_of_control_chars_and_capped_at_20() {

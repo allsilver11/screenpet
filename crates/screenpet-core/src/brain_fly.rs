@@ -93,7 +93,7 @@ impl Pet {
             return;
         }
         let free = matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. });
-        if self.home_trip.is_some() || self.is_homesick() || stay.leave_in <= 0.0 && free {
+        if self.home_trip.is_some() || self.is_heading_out() || stay.leave_in <= 0.0 && free {
             // 창 윗면 위로 날아 나간다
             self.inside = None;
             if self.standing.is_some() {
@@ -481,7 +481,7 @@ impl Pet {
         if self.hungry && self.rng.f64() < HUNGRY_REST_CHANCE {
             return State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
         }
-        if !self.is_homesick() && self.rng.f64() < flight::PERCH_CHANCE {
+        if !self.is_heading_out() && self.rng.f64() < flight::PERCH_CHANCE {
             let inside = self.inside.map(|s| s.window);
             let head = self.fly_head();
             if let Some(p) = flight::pick_perch(&mut self.rng, world, inside, self.cfg.half_w, head) {

@@ -705,6 +705,33 @@ fn stranger_ask_is_ignored_and_long_asks_are_clamped() {
 }
 
 #[test]
+fn unchanged_or_flooded_renames_and_asks_are_limited() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    // 같은 이름으로 다시 hello — 이벤트 없음
+    p.send(friend_hello("zzzz", "Raw")).unwrap();
+    assert_eq!(wait_for(&rx, 0.5, |e| matches!(e, NetEvent::Renamed { .. })), None);
+    // 이름 바꾸기·부탁을 마구 보내도 2초에 하나 꼴로만 (처음 둘까지는 바로)
+    for i in 0..20 {
+        p.send(friend_hello("zzzz", &format!("N{i}"))).unwrap();
+        p.send(json!({"type": "ping", "ask": "invite"})).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    let mut events = 0;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(NetEvent::Renamed { .. } | NetEvent::Asked { .. }) => events += 1,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    assert!((1..=3).contains(&events), "rate limited: {events}");
+    net.shutdown();
+}
+
+#[test]
 fn stranger_rehello_does_not_rename() {
     let (net, rx, port) = start_sniffed(key(), vec![]);
     let mut p = raw_connect(port, &key(), "zzzz");

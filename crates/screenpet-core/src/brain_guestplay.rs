@@ -134,7 +134,7 @@ impl Pet {
             || self.hand.is_some()
             || self.farewell_pending
             || self.inside.is_some()
-            || self.is_homesick()
+            || self.is_heading_out()
     }
 
     /// update에서: 잡아 봐! 중이면 이번 틱을 처리하고 true. 끊을 일이 생겼으면 끝내고 false (평소 처리로)
