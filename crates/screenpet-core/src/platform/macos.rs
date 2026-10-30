@@ -19,6 +19,7 @@ use objc2_core_graphics::{
 
 use super::mac_coords::{self, Screen};
 use super::WindowSource;
+use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
 
 /// 이보다 작은 창 (물리 px)은 디딤판이 아니다 — Windows와 같은 값
@@ -74,6 +75,20 @@ impl WindowSource for MacSource {
     fn escape_down(&mut self) -> bool {
         CGEventSource::key_state(CGEventSourceStateID::CombinedSessionState, KVK_ESCAPE)
     }
+
+    /// 조작 모드 키 — 읽기만 한다. "입력 모니터링" 권한이 없으면 다른 앱이 앞에 있을 때 늘 안 눌림으로 읽힐 수 있다
+    /// (게임 루프가 한 번 권한 안내 말풍선을 띄운다)
+    fn control_keys(&mut self) -> ControlInput {
+        let down = |key: u16| CGEventSource::key_state(CGEventSourceStateID::CombinedSessionState, key);
+        ControlInput {
+            left: down(KVK_LEFT_ARROW),
+            right: down(KVK_RIGHT_ARROW),
+            up: down(KVK_UP_ARROW),
+            down: down(KVK_DOWN_ARROW),
+            jump: down(KVK_SPACE),
+            run: down(KVK_SHIFT) || down(KVK_RIGHT_SHIFT),
+        }
+    }
 }
 
 /// 창 정보 사전 하나 → 디딤판 후보 창 (보통 앱 창 레이어, 다른 프로세스, 보이는 것, 충분히 큰 것만)
@@ -102,6 +117,14 @@ fn window_info(info: &CFDictionary<CFString, CFType>, screens: &[Screen], own_pi
 
 /// Carbon kVK_Escape
 const KVK_ESCAPE: u16 = 0x35;
+/// Carbon kVK_* — 조작 모드 키
+const KVK_LEFT_ARROW: u16 = 0x7B;
+const KVK_RIGHT_ARROW: u16 = 0x7C;
+const KVK_DOWN_ARROW: u16 = 0x7D;
+const KVK_UP_ARROW: u16 = 0x7E;
+const KVK_SPACE: u16 = 0x31;
+const KVK_SHIFT: u16 = 0x38;
+const KVK_RIGHT_SHIFT: u16 = 0x3C;
 
 fn number(info: &CFDictionary<CFString, CFType>, key: &CFString) -> Option<CFRetained<CFNumber>> {
     info.get(key)?.downcast::<CFNumber>().ok()

@@ -80,6 +80,7 @@ impl Pet {
             || self.farewell_pending
             || self.inside.is_some()
             || self.is_heading_out()
+            || self.control.is_some()
     }
 
     /// 새 인사·놀이를 시작할 수 있음: 깨어 있고 디딤판 위(나는 동물은 떠서도) 걷거나 쉬는 중, 바쁜 일 없음

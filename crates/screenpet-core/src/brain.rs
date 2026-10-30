@@ -353,6 +353,8 @@ pub struct RenderState {
     pub heart: bool,
     /// 보내져 손 흔든 뒤 "뿅" 사라지는 중 (웹뷰가 작아지며 흐려지고 반짝이 — brain_send.rs)
     pub poof: bool,
+    /// 조작 모드 중 — 머리 위에 🎮 (brain_control.rs)
+    pub ctl: bool,
 }
 
 pub struct Pet {
@@ -448,6 +450,10 @@ pub struct Pet {
     social_key: u64,
     /// 인사·술래 놀이 중인 친구의 자리 (발 위치) — social.rs가 매 틱 알려 준다
     play_target: Option<(f64, f64)>,
+    /// 조작 모드 중이면 Some — 키보드(친구 화면에선 친구 링크로 온 키)로 움직인다 (brain_control.rs)
+    control: Option<control_moves::Control>,
+    /// 키 없이 3분이 지나 조작 모드가 저절로 끝났음 (take_control_ended로 한 번 꺼낸다 — 앱이 메뉴 체크를 푼다)
+    control_ended: bool,
     rng: fastrand::Rng,
 }
 
@@ -507,6 +513,8 @@ impl Pet {
             thrown: false,
             social_key: social_moves::next_key(),
             play_target: None,
+            control: None,
+            control_ended: false,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -554,6 +562,10 @@ impl Pet {
         self.tick_guest(dt);
         if let State::Sting { phase, remaining } = self.state {
             self.update_sting(dt, world, phase, remaining);
+            self.on_started();
+            return;
+        }
+        if self.update_control(dt, world) {
             self.on_started();
             return;
         }
@@ -644,7 +656,7 @@ impl Pet {
             State::Pressed { grounded: true, .. } => Anim::Idle,
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
         };
-        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back(), heart: self.heart_timer > 0.0, poof: self.poofing() }
+        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back(), heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled() }
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
@@ -2366,7 +2378,8 @@ impl Pet {
             return self.fly_move_state();
         }
         let homesick = self.is_heading_out();
-        if !homesick && self.cfg.can_climb && self.standing.is_some() && self.inside.is_none() && self.rng.f64() < behavior::CLIMB_CHANCE {
+        // 조작 모드 중엔 저절로 기어오르지 않는다 (먹고 난 뒤 등 잠깐 제 마음대로일 때도)
+        if !homesick && self.control.is_none() && self.cfg.can_climb && self.standing.is_some() && self.inside.is_none() && self.rng.f64() < behavior::CLIMB_CHANCE {
             if let Some(target_y) = self.climb_target(world) {
                 return self.next_after_beat(State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS });
             }
@@ -2674,6 +2687,14 @@ pub(crate) mod send_moves;
 #[cfg(test)]
 #[path = "brain_send_tests.rs"]
 mod send_tests;
+
+/// 조작 모드 — 방향키로 움직이기 (친구 화면에 가 있으면 친구 링크로 키가 간다)
+#[path = "brain_control.rs"]
+pub mod control_moves;
+
+#[cfg(test)]
+#[path = "brain_control_tests.rs"]
+mod control_tests;
 
 /// 던져서 친구 화면으로 넘어가기 (듀얼 모니터처럼)
 #[path = "brain_fling.rs"]
@@ -3078,7 +3099,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -3169,7 +3190,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -3188,7 +3209,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false });
     }
 
     #[test]
@@ -4508,7 +4529,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -5326,7 +5347,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false });
             }
             last_x = p.body.x;
         }

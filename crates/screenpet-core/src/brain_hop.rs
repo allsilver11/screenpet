@@ -85,7 +85,7 @@ impl Pet {
 
     /// move_state: 닿는 창 윗면이 있으면 가끔(BIG_JUMP_CHANCE) 그쪽으로 큰 점프 (창 안·집이 그리운 손님은 안 한다)
     pub(super) fn big_jump_state(&mut self, world: &World) -> Option<State> {
-        if !self.cfg.hops || self.inside.is_some() || self.is_heading_out() {
+        if !self.cfg.hops || self.inside.is_some() || self.is_heading_out() || self.control.is_some() {
             return None;
         }
         let st = self.standing?;

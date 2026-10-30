@@ -1,3 +1,4 @@
+use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
 
 #[cfg(windows)]
@@ -32,6 +33,11 @@ pub trait WindowSource: Send {
     /// Esc 키 (직접 주기 거두기)
     fn escape_down(&mut self) -> bool {
         false
+    }
+    /// 조작 모드 키 (방향키·Space·Shift). 읽기만 한다 — 키는 앞에 있는 다른 앱에도 그대로 간다.
+    /// 게임 루프는 조작 모드 동안만 부른다. 기본: 아무것도 안 눌림
+    fn control_keys(&mut self) -> ControlInput {
+        ControlInput::default()
     }
 }
 
@@ -76,5 +82,6 @@ mod tests {
         assert!(s.work_areas().is_empty());
         assert!(!s.left_button_down());
         assert_eq!(s.rect_of(1), None);
+        assert!(!s.control_keys().any());
     }
 }

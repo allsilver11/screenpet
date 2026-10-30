@@ -4,7 +4,9 @@ use std::mem::size_of;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT, TRUE};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_DOWN, VK_ESCAPE, VK_LBUTTON, VK_LEFT, VK_RBUTTON, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_UP,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
     IsIconic, IsWindow, IsWindowVisible, SetWindowPos, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOSIZE,
@@ -12,6 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::WindowSource;
+use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
 
 /// 디딤판이 되면 안 되는 셸 창 클래스
@@ -75,6 +78,18 @@ impl WindowSource for Win32Source {
 
     fn escape_down(&mut self) -> bool {
         key_down(VK_ESCAPE.0)
+    }
+
+    /// GetAsyncKeyState는 상태를 읽기만 한다 (키는 앞에 있는 앱에도 그대로 간다). 권한이 필요 없다
+    fn control_keys(&mut self) -> ControlInput {
+        ControlInput {
+            left: key_down(VK_LEFT.0),
+            right: key_down(VK_RIGHT.0),
+            up: key_down(VK_UP.0),
+            down: key_down(VK_DOWN.0),
+            jump: key_down(VK_SPACE.0),
+            run: key_down(VK_SHIFT.0),
+        }
     }
 }
 
