@@ -121,6 +121,7 @@ pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64) -> PetConfig {
         stings: m.can_sting(),
         hops: m.hops(),
         hop_share: m.hop_share(),
+        looks_up: m.can_look_up(),
         dpi,
     }
 }
