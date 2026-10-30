@@ -10,6 +10,7 @@ pub mod inside;
 pub mod manifest;
 pub mod physics;
 pub mod platform;
+pub mod social;
 pub mod sting;
 pub mod surfaces;
 pub mod visit;

@@ -9,6 +9,7 @@ use screenpet_core::config::{self, Config};
 use screenpet_core::food::{self, FeedMode, HandFeed, HandInput};
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::platform::default_source;
+use screenpet_core::social::Social;
 use screenpet_core::visit::Side;
 use screenpet_core::world::World;
 use tauri::{AppHandle, Emitter, Manager};
@@ -184,6 +185,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     // 직접 주기: 커서 끝에 붙은 음식과 그 그림 창
     let mut hand: Option<HandFeed> = None;
     let mut hand_win = HandWindow::default();
+    // 한 화면의 동물끼리(내 동물 + 손님) 인사·술래 놀이
+    let mut social = Social::new(seed_now());
 
     loop {
         while let Ok(input) = rx.try_recv() {
@@ -420,6 +423,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             }
         }
 
+        // 가까이 마주친 동물끼리 인사·술래 놀이 (손길·먹이·집 생각은 각 동물 update가 먼저 챙긴다)
+        social.tick(dt, &mut slots);
         // 연결된 친구가 있는 끝으로만 나간다
         network.set_exit_edges(&config, &mut slots);
         let mut own_exit = None;

@@ -199,6 +199,19 @@ impl Slot {
     }
 }
 
+// 어울림 코디네이터(social.rs)가 슬롯 목록을 그대로 받는다
+impl AsRef<Pet> for Slot {
+    fn as_ref(&self) -> &Pet {
+        &self.pet
+    }
+}
+
+impl AsMut<Pet> for Slot {
+    fn as_mut(&mut self) -> &mut Pet {
+        &mut self.pet
+    }
+}
+
 /// 손님 창: "pet" 창과 같은 설정 (투명·테두리 없음·항상 위·작업표시줄 숨김·포커스 안 받음·숨긴 채 시작)
 fn build_guest_window(app: &AppHandle, label: &str, body_scale: f64) -> tauri::Result<WebviewWindow> {
     let (w, h) = window_logical_size(body_scale);

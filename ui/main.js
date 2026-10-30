@@ -106,7 +106,14 @@ const listeningStage = listen("pet-stage", (e) => {
 });
 
 // pet.json에 없는 상황의 기본 대사 (직접 주기: 배고플 때 손에 든 음식을 봤다)
-const EXTRA_SPEECH = { eager: ["yum!?"] };
+const EXTRA_SPEECH = {
+  eager: ["yum!?"],
+  // 다른 동물과 마주침 (pet.json에 없으면 이 말)
+  greet: ["hi!", "♪", "hello!"],
+  play: ["play!", "tag!"],
+  flee: ["catch me!", "hehe!"],
+  ignore: ["..."],
+};
 const speech = setupSpeech({
   bubbleEl,
   pickerEl,

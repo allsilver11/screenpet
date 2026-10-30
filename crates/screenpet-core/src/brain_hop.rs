@@ -24,7 +24,12 @@ impl Pet {
 
     /// 지금 폴짝 높이 (px) — 창 위치(그림)만 띄운다
     pub(super) fn hop_lift(&self) -> f64 {
-        let State::Move { kind, .. } = self.state else { return 0.0 };
+        let kind = match self.state {
+            State::Move { kind, .. } => kind,
+            // 술래 놀이도 폴짝 달리기
+            State::Chase { .. } | State::Flee { .. } => Move::Run,
+            _ => return 0.0,
+        };
         match (self.gait(kind), self.hop_beat.at(self.clock)) {
             (Some(g), Some(t)) => g.lift(t),
             _ => 0.0,

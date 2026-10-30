@@ -118,6 +118,12 @@ pub enum Speech {
     Sting,
     /// 배고플 때 손에 든 음식을 봤다 ("냠!?")
     Eager,
+    /// 다른 동물에게 인사 ("hi!", brain_social.rs)
+    Greet,
+    /// 술래가 놀자고 쫓아간다 ("play!")
+    Play,
+    /// 쫓기며 도망 ("catch me!")
+    Flee,
 }
 
 impl Anim {
@@ -221,6 +227,12 @@ pub enum State {
     WantFood { walking: bool },
     /// 개구리 큰 점프 (brain_hop.rs): crouch초 웅크린 뒤 owner 위 rel_x로 포물선을 따라 remaining초 날아간다
     Leap { crouch: f64, remaining: f64, owner: Owner, rel_x: f64 },
+    /// 다른 동물과 마주쳐 인사 (잡힌 뒤 하트도) — look초 친구 쪽을 쳐다본 뒤 anim. 끝은 social.rs가 정하고, remaining은 안전 시한 (brain_social.rs)
+    Greet { look: f64, anim: Anim, remaining: f64 },
+    /// 술래 놀이의 술래 — 친구(play_target)를 쫓아 달린다 (brain_social.rs)
+    Chase { remaining: f64 },
+    /// 술래 놀이에서 도망 — dir 쪽으로 달리다 디딤판 끝에서 돌아선다 (brain_social.rs)
+    Flee { remaining: f64, dir: f64 },
 }
 
 impl State {
@@ -416,6 +428,10 @@ pub struct Pet {
     hop_beat: crate::hop::Beat,
     /// 손에서 던져져 날아가는 중 (State::Air) — 논리 px 기준의 부드러운 중력을 쓴다. 공중을 벗어나면 꺼진다
     thrown: bool,
+    /// 다른 동물과 놀 때 구별하는 번호 (프로세스 안에서 유일, social.rs)
+    social_key: u64,
+    /// 인사·술래 놀이 중인 친구의 자리 (발 위치) — social.rs가 매 틱 알려 준다
+    play_target: Option<(f64, f64)>,
     rng: fastrand::Rng,
 }
 
@@ -470,6 +486,8 @@ impl Pet {
             pester: ClickMeter::default(),
             hop_beat: Default::default(),
             thrown: false,
+            social_key: social_moves::next_key(),
+            play_target: None,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -516,6 +534,10 @@ impl Pet {
         self.tick_guest(dt);
         if let State::Sting { phase, remaining } = self.state {
             self.update_sting(dt, world, phase, remaining);
+            self.on_started();
+            return;
+        }
+        if self.update_social(dt, world) {
             self.on_started();
             return;
         }
@@ -568,6 +590,10 @@ impl Pet {
             State::Move { kind, .. } if self.cfg.hops => self.hop_anim(kind),
             State::Move { kind, .. } => kind.into(),
             State::Leap { .. } => Anim::BigJump,
+            State::Greet { look, .. } if look > 0.0 => Anim::Look,
+            State::Greet { anim, .. } => anim,
+            State::Chase { .. } | State::Flee { .. } if self.cfg.hops => self.hop_anim(Move::Run),
+            State::Chase { .. } | State::Flee { .. } => Anim::Run,
             State::Sting { phase: StingPhase::Recoil, .. } => Anim::Annoyed,
             State::Sting { .. } => Anim::Sting,
             State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } | State::WantFood { walking: true } => Anim::Walk,
@@ -1195,7 +1221,10 @@ impl Pet {
         self.shake.clear();
         // 나는 동물: 눌리면 가던 길은 잊는다 (놓인 자리에서 다시 정한다)
         self.flight = None;
-        self.before_press = Some((self.state, self.pacing.after_beat.take()));
+        // 놀던 중이면 놀이는 끝난다 — 무시해도 놀이로 돌아가지 않고 잠깐 앉는다
+        let before = if self.social_role().is_some() { State::Idle { remaining: TURN_PAUSE, look: false } } else { self.state };
+        self.play_target = None;
+        self.before_press = Some((before, self.pacing.after_beat.take()));
         if !grounded {
             self.standing = None;
             self.body.vx = 0.0;
@@ -2049,6 +2078,9 @@ impl Pet {
             | State::ToFood { .. }
             | State::WantFood { .. }
             | State::Leap { .. }
+            | State::Greet { .. }
+            | State::Chase { .. }
+            | State::Flee { .. }
             | State::Move { .. } => {}
         }
     }
@@ -2596,6 +2628,22 @@ mod hop_tests;
 #[cfg(test)]
 #[path = "brain_throw_tests.rs"]
 mod throw_tests;
+
+/// 다른 동물과 인사·술래 놀이 (짝짓기·쿨다운은 social.rs)
+#[path = "brain_social.rs"]
+pub mod social_moves;
+
+impl AsRef<Pet> for Pet {
+    fn as_ref(&self) -> &Pet {
+        self
+    }
+}
+
+impl AsMut<Pet> for Pet {
+    fn as_mut(&mut self) -> &mut Pet {
+        self
+    }
+}
 
 /// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨린다
 fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {

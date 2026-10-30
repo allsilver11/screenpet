@@ -22,7 +22,7 @@ impl Pet {
     }
 
     /// 지금 몸이 있을 수 있는 범위: 창 안이면 그 창 안, 아니면 합친 화면
-    fn fly_limits(&self, world: &World) -> Rect {
+    pub(super) fn fly_limits(&self, world: &World) -> Rect {
         let area = match self.inside.and_then(|s| world.window(s.window)) {
             Some(w) => inside::air_bounds(&w.rect, &world.bounds, true),
             None => world.bounds,
@@ -30,7 +30,7 @@ impl Pet {
         flight::fly_bounds(&area, self.cfg.half_w, self.fly_head())
     }
 
-    fn fly_speed(&self, kind: Move) -> f64 {
+    pub(super) fn fly_speed(&self, kind: Move) -> f64 {
         self.cfg.walk_speed * flight::speed_mult(kind)
     }
 
@@ -108,7 +108,7 @@ impl Pet {
     }
 
     /// 디딤판을 떠나 제자리에 뜬다 (잠·착지는 떠서 쉬기로)
-    fn take_off(&mut self) {
+    pub(super) fn take_off(&mut self) {
         self.standing = None;
         self.hover_at = None;
         self.body.vx = 0.0;
@@ -164,7 +164,7 @@ impl Pet {
     }
 
     /// 제자리에 떠서 위아래로 살랑
-    fn hover_in_place(&mut self, world: &World) {
+    pub(super) fn hover_in_place(&mut self, world: &World) {
         let b = self.fly_limits(world);
         let (hx, hy) = self.hover_at.unwrap_or((self.body.x, self.body.y));
         let (hx, hy) = flight::clamp(&b, hx, hy);
