@@ -233,6 +233,8 @@ pub enum State {
     Chase { remaining: f64 },
     /// 술래 놀이에서 도망 — dir 쪽으로 달리다 디딤판 끝에서 돌아선다 (brain_social.rs)
     Flee { remaining: f64, dir: f64 },
+    /// 손님을 클릭하면 "잡아 봐!" — 커서를 피해 달아난다. commit: 끝에서 돌아선 뒤 그쪽으로 버티는 시간, dodge > 0: 폴짝 피하는 중 (brain_guestplay.rs)
+    CatchMe { remaining: f64, dir: f64, commit: f64, dodge: f64 },
 }
 
 impl State {
@@ -541,7 +543,7 @@ impl Pet {
             self.on_started();
             return;
         }
-        if self.update_social(dt, world) {
+        if self.update_social(dt, world) || self.update_catch_me(dt, world) {
             self.on_started();
             return;
         }
@@ -598,6 +600,9 @@ impl Pet {
             State::Greet { anim, .. } => anim,
             State::Chase { .. } | State::Flee { .. } if self.cfg.hops => self.hop_anim(Move::Run),
             State::Chase { .. } | State::Flee { .. } => Anim::Run,
+            State::CatchMe { dodge, .. } if dodge > 0.0 => Anim::Hop,
+            State::CatchMe { .. } if self.cfg.hops => self.hop_anim(Move::Run),
+            State::CatchMe { .. } => Anim::Run,
             State::Sting { phase: StingPhase::Recoil, .. } => Anim::Annoyed,
             State::Sting { .. } => Anim::Sting,
             State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } | State::WantFood { walking: true } => Anim::Walk,
@@ -1681,6 +1686,11 @@ impl Pet {
                     self.state = State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
                     return;
                 }
+                // 친구 동물: 반반 애교 / 잡아 봐! (brain_guestplay.rs)
+                if self.guest.is_some() {
+                    self.guest_click();
+                    return;
+                }
                 let reaction = match behavior::pick_click_outcome(&mut self.rng, self.cfg.personality, self.hungry) {
                     ClickOutcome::React(r) => r,
                     ClickOutcome::Ignore { speak } => {
@@ -2085,6 +2095,7 @@ impl Pet {
             | State::Greet { .. }
             | State::Chase { .. }
             | State::Flee { .. }
+            | State::CatchMe { .. }
             | State::Move { .. } => {}
         }
     }
@@ -2644,6 +2655,14 @@ mod throw_tests;
 /// 다른 동물과 인사·술래 놀이 (짝짓기·쿨다운은 social.rs)
 #[path = "brain_social.rs"]
 pub mod social_moves;
+
+/// 친구 동물과 놀아 주기 — 클릭하면 애교 또는 "잡아 봐!"
+#[path = "brain_guestplay.rs"]
+pub mod guest_play;
+
+#[cfg(test)]
+#[path = "brain_guestplay_tests.rs"]
+mod guest_play_tests;
 
 impl AsRef<Pet> for Pet {
     fn as_ref(&self) -> &Pet {
