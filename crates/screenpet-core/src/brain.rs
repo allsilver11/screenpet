@@ -157,6 +157,8 @@ pub enum Speech {
     Bye,
     /// 편지를 들고 떠난다 ("💌!", brain_send.rs)
     Letter,
+    /// 손님이 이 화면 주인의 답장을 들고 집으로 ("bye~! 💌", brain_send.rs)
+    Reply,
     /// 공룡 크앙 ("RAWR!")
     Roar,
     /// 공룡 불 뿜기 ("fwoosh~")

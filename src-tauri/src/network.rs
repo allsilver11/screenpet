@@ -99,8 +99,11 @@ pub enum NetInput {
     SendTo(String),
     /// 친구 하위 메뉴 "편지 들려 보내기…": 그 친구에게 보낼 편지 쓰기 창
     EditLetter(String),
-    /// 편지 창 "보내기": "놀러 보내기"처럼 보내고 Visit에 편지를 싣는다. 누구에게인지는 창을 연 쪽(Network::lettering)이 안다
+    /// 편지 창 "보내기": "놀러 보내기"처럼 보내고 Visit에 편지를 싣는다. 누구에게인지는 창을 연 쪽(Network::lettering)이 안다.
+    /// 답장 창이었으면(Network::replying) 그 손님이 답장을 들고 집으로 간다
     SubmitLetter(String),
+    /// 손님 우클릭 "편지 써서 돌려보내기…": 그 손님(창 label) 주인에게 보낼 답장 쓰기 창 (같은 편지 창)
+    EditReply(String),
     /// 손님 우클릭 "<친구>에게 보내기": 손님(창 label)을 내 친구(friend) 화면으로 더 보낸다 (주인이 그 친구를 알면 이어 간다)
     SendOn { label: String, friend: String },
     /// 트레이 "<친구> 펫 데리고 오기": 그 친구에게 동물을 보내 달라고 부탁한다
@@ -150,10 +153,21 @@ pub struct LetterView {
     pub name: String,
     /// 최대 글자 수
     pub max: usize,
+    /// 와 있는 손님 주인에게 쓰는 답장 (손님이 들고 집으로 간다)
+    pub reply: bool,
+}
+
+/// 돌아온 내 동물이 들고 온 답장 (`pet-mail` 이벤트 — 내 펫 창)
+#[derive(Debug, Clone, Serialize)]
+pub struct PetMail {
+    /// 답장을 쓴 친구 (별명 또는 친구가 정한 이름)
+    pub from: String,
+    /// 다듬은 답장
+    pub note: String,
 }
 
 /// 편지 창 첫 로드용
-static LETTER_VIEW: Mutex<LetterView> = Mutex::new(LetterView { name: String::new(), max: 0 });
+static LETTER_VIEW: Mutex<LetterView> = Mutex::new(LetterView { name: String::new(), max: 0, reply: false });
 
 /// 이름 창 첫 로드용 (커맨드는 게임 루프 밖에서 불린다)
 static NAME_VIEW: Mutex<NameView> = Mutex::new(NameView { target: "me", current: String::new(), fallback: String::new(), max: 0 });
@@ -252,6 +266,10 @@ pub struct Network {
     send_note: Option<String>,
     /// 편지 쓰기 창이 지금 다루는 친구 id
     lettering: Option<String>,
+    /// 편지 창이 답장 창으로 열려 있으면 그 손님 (창 label, visit_id) — lettering과 둘 중 하나만
+    replying: Option<(String, String)>,
+    /// 손님 주인에게 실어 보낼 답장 (방문 하나에 한 통 — 손님이 집으로 떠날 때 Leave에 싣는다)
+    replies: visit::Replies,
     /// 지금 내 동물을 보낼 수 있음 (메뉴 "놀러 보내기" 활성 — 바뀌면 메뉴를 다시 그린다)
     can_send: bool,
     last_menu: Option<FriendsMenu>,
@@ -387,6 +405,8 @@ impl Network {
             sending: None,
             send_note: None,
             lettering: None,
+            replying: None,
+            replies: visit::Replies::default(),
             can_send: false,
             last_menu: None,
             menu_dirty: true,
@@ -502,6 +522,24 @@ impl Network {
         Some((id, visit::sanitize_note(text)))
     }
 
+    /// 편지 창이 답장 창으로 열려 있음 ("보내기"가 submit_reply로 간다)
+    pub fn is_replying(&self) -> bool {
+        self.replying.is_some()
+    }
+
+    /// 답장 창 "보내기": 그 손님이 아직 그 방문으로 와 있으면 답장(방문 하나에 한 통, 비면 없이)을 맡기고
+    /// 그 자리에서 손 흔들고("bye~! 💌") 뿅 집으로 — 떠날 때 guest_left가 Leave에 싣는다
+    pub fn submit_reply(&mut self, text: &str, slots: &mut [Slot]) {
+        let Some((label, visit_id)) = self.replying.take() else { return };
+        let Some(slot) = slots.iter_mut().find(|s| s.label == label && matches!(&s.role, Role::Guest(g) if g.visit_id == visit_id)) else { return };
+        let wrote = self.replies.write(&visit_id, text);
+        eprintln!("sending guest {visit_id} home{}", if wrote { " with a reply" } else { "" });
+        self.guest_sends.remove(&visit_id);
+        if !(wrote && slot.pet.send_home_with_reply()) {
+            slot.pet.go_home_now();
+        }
+    }
+
     /// 손님을 주인에게 돌려보낸다 (손님 우클릭 "<주인>에게 돌려보내기"): 걸어 둔 "<친구>에게 보내기"는 지운다
     pub fn send_guest_home(&mut self, slot: &mut Slot) {
         if let Role::Guest(g) = &slot.role {
@@ -582,6 +620,8 @@ impl Network {
     /// 그새 아무도 없으면 next 없이 (집으로)
     pub fn guest_left(&mut self, config: &Config, guest: &GuestInfo, side: Side, state: Option<visit::Guest>, fling: Option<visit::Fling>) {
         let sent = self.guest_sends.remove(&guest.visit_id);
+        // 이 화면 주인이 쓴 답장은 집으로 갈 때만 싣는다 (다음 친구에게 가면 버린다)
+        let reply = self.replies.take(&guest.visit_id);
         let (Some(net), Ok(visit_id)) = (&self.net, guest.visit_id.parse::<u64>()) else { return };
         // "<친구>에게 보내기"로 보냈으면 그 친구, 아니면 돌아다니기 규칙 (주인이 자기 친구일 때만 이어 보낸다)
         let open: Vec<&str> = config.friends_at(side, |id| id != guest.owner_id && self.is_open(id)).into_iter().map(|f| f.id.as_str()).collect();
@@ -590,10 +630,10 @@ impl Network {
         let msg = match next {
             Some(next) => {
                 eprintln!("guest {visit_id} ({}) walks on to {next}", guest.owner_id);
-                Visit::Leave { visit_id, next: Some(next), side: Some(to_net_side(side)), homesick_in: state.map(|g| g.homesick_in), fling: fling.map(to_net_fling) }
+                Visit::Leave { visit_id, next: Some(next), side: Some(to_net_side(side)), homesick_in: state.map(|g| g.homesick_in), fling: fling.map(to_net_fling), note: None }
             }
             // 집으로 (던져졌으면 그 움직임 그대로 주인 화면으로 날아간다)
-            None => Visit::Leave { visit_id, next: None, side: None, homesick_in: None, fling: fling.map(to_net_fling) },
+            None => Visit::Leave { visit_id, next: None, side: None, homesick_in: None, fling: fling.map(to_net_fling), note: reply },
         };
         net.send(&guest.owner_id, msg);
     }
@@ -724,8 +764,26 @@ impl Network {
             NetInput::SendTo(_) | NetInput::SubmitLetter(_) => false,
             NetInput::EditLetter(id) => {
                 let Some(f) = config.friend(&id) else { return false };
-                let view = LetterView { name: f.shown_name().to_string(), max: visit::MAX_NOTE_CHARS };
+                let view = LetterView { name: f.shown_name().to_string(), max: visit::MAX_NOTE_CHARS, reply: false };
                 self.lettering = Some(id);
+                self.replying = None;
+                show_letter_window(app, view);
+                false
+            }
+            NetInput::EditReply(label) => {
+                // 이미 답장을 맡겼거나 떠나는 중인 손님에겐 열지 않는다
+                let Some((g, leaving)) = slots.iter().find(|s| s.label == label).and_then(|s| match &s.role {
+                    Role::Guest(g) => Some((g.clone(), (is_exiting(s) && s.pet.sending().is_none()) || s.pet.is_away())),
+                    Role::Own => None,
+                }) else {
+                    return false;
+                };
+                if leaving || self.replies.has(&g.visit_id) {
+                    return false;
+                }
+                let view = LetterView { name: g.owner_name.clone(), max: visit::MAX_NOTE_CHARS, reply: true };
+                self.replying = Some((label, g.visit_id));
+                self.lettering = None;
                 show_letter_window(app, view);
                 false
             }
@@ -931,7 +989,9 @@ impl Network {
                     }
                 }
             }
-            Visit::Leave { visit_id, next, side, homesick_in, fling } => {
+            Visit::Leave { visit_id, next, side, homesick_in, fling, note } => {
+                // 답장은 내 동물이 가 있던 그 친구(인증된 링크)가 그 방문을 집으로 돌려보낼 때만
+                let reply = visit::accept_reply(self.away.as_ref().map(|a| (a.friend.as_str(), a.visit_id)), from, visit_id, next.is_none(), note.as_deref());
                 let Some(a) = self.away.as_ref().filter(|a| a.friend == from && a.visit_id == visit_id) else { return };
                 let fling = fling.map(from_net_fling);
                 // 보내자마자 그냥 돌아왔다 — 그 친구 화면이 꽉 찼다고 보고 잠깐 보내지 않는다
@@ -941,6 +1001,12 @@ impl Network {
                 let forwarded = next.is_some_and(|n| self.forward_visit(config, &slots[0], &n, side, homesick_in, fling));
                 if !forwarded {
                     self.come_back(&mut slots[0], fling);
+                    if let Some(note) = reply {
+                        // 돌아온 내 동물 머리 옆에 💌 — 누르면 "💌 <친구>: <답장>" (웹뷰는 textContent로만)
+                        let from_name = config.friend(from).map(|f| f.shown_name().to_string()).unwrap_or_else(|| DEFAULT_NAME.to_string());
+                        eprintln!("own pet came home from {from} with a reply");
+                        let _ = app.emit_to(OWN_LABEL, "pet-mail", PetMail { from: from_name, note });
+                    }
                 }
             }
             Visit::ComeHome { visit_id } => {

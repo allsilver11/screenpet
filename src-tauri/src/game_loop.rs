@@ -393,9 +393,14 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     }
                 }
                 Input::NoteSpace { label, open } => {
-                    if let Some(i) = slots::find(&slots, &label).filter(|&i| !slots[i].is_own()) {
+                    // 손님이 들고 온 편지, 또는 돌아온 내 동물이 들고 온 답장
+                    if let Some(i) = slots::find(&slots, &label) {
                         slots[i].set_note_open(open);
                     }
+                }
+                // 답장 창 "보내기": 그 손님이 답장을 들고 손 흔들고 집으로 (편지 창이 답장 창으로 열려 있을 때)
+                Input::Net(NetInput::SubmitLetter(text)) if network.is_replying() => {
+                    network.submit_reply(&text, &mut slots);
                 }
                 input @ (Input::Net(NetInput::SendTo(_)) | Input::Net(NetInput::SubmitLetter(_))) => {
                     // 놀러 보내기 (편지 들려 보내기도 같은 길 — Visit에 편지를 싣는다):

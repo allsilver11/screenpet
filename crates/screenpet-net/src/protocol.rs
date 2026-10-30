@@ -121,6 +121,12 @@ pub enum Visit {
         /// The guest was thrown out through that edge (home, or on to `next`).
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_fling")]
         fling: Option<Fling>,
+        /// A reply the host wrote to the owner when sending the pet home (only
+        /// on a homecoming `Leave`, at most once per visit; the owner accepts
+        /// it only for its own away pet on that host's link). Older owners
+        /// ignore it and the pet just comes home.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+        note: Option<String>,
     },
     ComeHome {
         visit_id: u64,
@@ -130,7 +136,7 @@ pub enum Visit {
 impl Visit {
     /// A plain "went home" `Leave` (same wire shape as protocol v1 without roaming).
     pub fn leave(visit_id: u64) -> Visit {
-        Visit::Leave { visit_id, next: None, side: None, homesick_in: None, fling: None }
+        Visit::Leave { visit_id, next: None, side: None, homesick_in: None, fling: None, note: None }
     }
 }
 
@@ -272,14 +278,14 @@ mod tests {
 
     #[test]
     fn leave_can_name_the_next_friend_and_stays_backward_compatible() {
-        let hop = Message::Visit(Visit::Leave { visit_id: 9, next: Some("xx".into()), side: Some(Side::Left), homesick_in: Some(42.5), fling: None });
+        let hop = Message::Visit(Visit::Leave { visit_id: 9, next: Some("xx".into()), side: Some(Side::Left), homesick_in: Some(42.5), fling: None, note: None });
         let v: serde_json::Value = serde_json::from_slice(&hop.to_json()).unwrap();
         assert_eq!((v["next"].as_str(), v["side"].as_str(), v["homesick_in"].as_f64()), (Some("xx"), Some("left"), Some(42.5)));
         assert_eq!(Message::parse(&hop.to_json()), Some(hop));
         // 예전 판의 leave (next 없음) = 집으로
         assert_eq!(
             Message::parse(br#"{"type":"leave","visit_id":3}"#),
-            Some(Message::Visit(Visit::Leave { visit_id: 3, next: None, side: None, homesick_in: None, fling: None }))
+            Some(Message::Visit(Visit::Leave { visit_id: 3, next: None, side: None, homesick_in: None, fling: None, note: None }))
         );
         // 집으로 가는 leave는 예전 판과 같은 모양
         assert_eq!(Message::Visit(Visit::leave(3)).to_json(), br#"{"type":"leave","visit_id":3}"#.to_vec());
@@ -327,7 +333,7 @@ mod tests {
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!((j["fling"]["height"].as_f64(), j["fling"]["vx"].as_f64(), j["fling"]["vy"].as_f64()), (Some(0.25), Some(-640.0), Some(-120.5)));
         assert_eq!(Message::parse(&v.to_json()), Some(v));
-        let back = Message::Visit(Visit::Leave { visit_id: 5, next: None, side: Some(Side::Left), homesick_in: None, fling: Some(f) });
+        let back = Message::Visit(Visit::Leave { visit_id: 5, next: None, side: Some(Side::Left), homesick_in: None, fling: Some(f), note: None });
         assert_eq!(Message::parse(&back.to_json()), Some(back));
         // 던지기를 모르는 예전 판: 필드가 없으면 None (평소처럼 걸어 들어온다)
         let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
@@ -380,6 +386,28 @@ mod tests {
         assert_eq!(Message::parse(bad), Some(visit_with_note(None)));
         let num = br#"{"type":"visit","visit_id":8,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","note":5}"#;
         assert_eq!(Message::parse(num), Some(visit_with_note(None)));
+    }
+
+    #[test]
+    fn leave_can_carry_a_reply_and_old_owners_still_parse() {
+        let reply = |note: Option<&str>| Message::Visit(Visit::Leave { visit_id: 4, next: None, side: None, homesick_in: None, fling: None, note: note.map(str::to_string) });
+        let m = reply(Some("잘 놀다 가 🐶"));
+        let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
+        assert_eq!(j["note"].as_str(), Some("잘 놀다 가 🐶"));
+        assert_eq!(Message::parse(&m.to_json()), Some(m.clone()));
+        // 답장 없는 귀환은 예전 판과 같은 모양
+        assert_eq!(reply(None).to_json(), br#"{"type":"leave","visit_id":4}"#.to_vec());
+        // 답장을 모르는 예전 주인도 그냥 귀환으로 읽는다
+        #[derive(Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
+        enum OldVisit {
+            Leave { visit_id: u64, next: Option<String> },
+        }
+        let OldVisit::Leave { visit_id, next } = serde_json::from_slice::<OldVisit>(&m.to_json()).unwrap();
+        assert_eq!((visit_id, next), (4, None));
+        // 글자가 아닌 note 하나 때문에 귀환을 버리지 않는다
+        assert_eq!(Message::parse(br#"{"type":"leave","visit_id":4,"note":[1,2]}"#), Some(reply(None)));
+        assert_eq!(Message::parse(br#"{"type":"leave","visit_id":4,"note":null}"#), Some(reply(None)));
     }
 
     #[test]

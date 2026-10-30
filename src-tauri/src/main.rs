@@ -64,11 +64,12 @@ fn pointer_down(window: WebviewWindow, state: State<AppState>) {
     let _ = state.tx.lock().unwrap().send(Input::PointerDown { label: window.label().to_string() });
 }
 
-/// 손님 창이 편지 쪽지를 펼친다(open) / 접는다 — 게임 루프가 창을 위로 키우거나 줄인다
+/// 펫 창이 편지 말풍선을 펼친다(open) / 접는다 — 게임 루프가 창을 위로 키우거나 줄인다
+/// (손님이 들고 온 편지 / 돌아온 내 동물이 들고 온 답장)
 #[tauri::command]
 fn note_space(window: WebviewWindow, state: State<AppState>, open: bool) {
     let label = window.label().to_string();
-    if slots::is_guest_label(&label) {
+    if slots::is_guest_label(&label) || label == OWN_LABEL {
         let _ = state.tx.lock().unwrap().send(Input::NoteSpace { label, open });
     }
 }

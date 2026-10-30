@@ -20,6 +20,8 @@ const EASTER_EGG_ID: &str = "easter-egg";
 
 /// 손님 우클릭 메뉴 항목 id 앞부분 (뒤는 손님 창 라벨)
 const SEND_HOME_PREFIX: &str = "send-home:";
+/// 손님 우클릭 "편지 써서 돌려보내기…" (+ 손님 창 label)
+const REPLY_PREFIX: &str = "reply:";
 /// 손님 우클릭 "<친구>에게 보내기" (뒤는 "<손님 창 라벨>|<친구 id>" — 라벨에는 |가 없다)
 const SEND_ON_PREFIX: &str = "send-on:";
 /// `친구랑 놀기` 항목 id 앞부분 (뒤는 상대 id)
@@ -249,11 +251,12 @@ pub fn favorite_label(f: &FavoriteFood) -> String {
     format!("{} {}", f.name, f.emoji)
 }
 
-/// 손님을 우클릭하면 뜨는 메뉴: "<주인>에게 돌려보내기" (누르면 손 흔들고 집으로), 그리고 연결된 내 친구마다
+/// 손님을 우클릭하면 뜨는 메뉴: "<주인>에게 돌려보내기" (누르면 손 흔들고 집으로), "편지 써서 돌려보내기…" (답장 창), 그리고 연결된 내 친구마다
 /// "<친구>에게 보내기" (targets = 주인을 뺀 (id, 이름)). 메뉴 이벤트는 앱 전체용 처리기(트레이의 on_menu_event)로 온다
 pub fn guest_menu(app: &AppHandle, label: &str, owner: &str, targets: &[(String, String)]) -> tauri::Result<Menu<Wry>> {
     let item = MenuItem::with_id(app, format!("{SEND_HOME_PREFIX}{label}"), format!("{}에게 돌려보내기", menu_text(owner)), true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&item])?;
+    let reply = MenuItem::with_id(app, format!("{REPLY_PREFIX}{label}"), "편지 써서 돌려보내기…", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&item, &reply])?;
     if !targets.is_empty() {
         menu.append(&PredefinedMenuItem::separator(app)?)?;
     }
@@ -403,6 +406,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                 let net = |input| send(app, Input::Net(input));
                 if let Some(label) = other.strip_prefix(SEND_HOME_PREFIX) {
                     send(app, Input::SendHome { label: label.to_string() });
+                } else if let Some(label) = other.strip_prefix(REPLY_PREFIX) {
+                    net(NetInput::EditReply(label.to_string()));
                 } else if let Some((label, friend)) = other.strip_prefix(SEND_ON_PREFIX).and_then(|r| r.split_once('|')) {
                     net(NetInput::SendOn { label: label.to_string(), friend: friend.to_string() });
                 } else if other == COME_HOME_ID {

@@ -252,6 +252,7 @@ function showNametag(ms) {
 // (이 누름엔 도망·애교 없음) — 한 번 읽으면 봉투는 사라지고, 그 뒤 몸 누르기는 평소 손님 놀이.
 // 편지 말풍선이 떠 있는 동안 다른 말풍선(수다·간질·인사·손님 놀이 등)과 음식 고르기는 버린다.
 // 말풍선은 여러 줄로 커지므로 그동안 창을 위로 키운다(백엔드 note_space). 글자는 textContent로만 (HTML 아님)
+// 내 동물도 친구가 답장을 써서 돌려보내면 같은 봉투를 들고 돌아온다 (`pet-mail` {from, note} — "💌 <친구>: <답장>")
 const NOTE_MS = 10000;
 let note = null;
 let ownerName = "";
@@ -305,15 +306,29 @@ function applyRole(info) {
     isGuest = true;
     showNametag(NAMETAG_ARRIVE_MS);
   } else if (!guest) {
-    isGuest = false;
     clearTimeout(nametagTimer);
     nametagEl.hidden = true;
-    note = null;
-    noteRead = false;
-    envelopeEl.hidden = true;
-    closeNote();
+    // 손님이던 창만 손님 편지를 지운다 (내 동물의 성장·교체(pet-stage)는 받은 답장을 지우지 않는다)
+    if (isGuest) {
+      note = null;
+      noteRead = false;
+      envelopeEl.hidden = true;
+      closeNote();
+    }
+    isGuest = false;
   }
 }
+
+// 친구 화면에서 답장을 들고 돌아온 내 동물: 머리 옆에 💌 — 봉투나 몸을 누르면 "💌 <친구>: <답장>"을 10초 (한 번 읽으면 봉투는 사라진다)
+listen("pet-mail", (e) => {
+  const mail = e.payload ?? {};
+  if (isGuest || typeof mail.note !== "string" || !mail.note) return;
+  closeNote();
+  note = mail.note;
+  ownerName = typeof mail.from === "string" ? mail.from : "";
+  noteRead = false;
+  envelopeEl.hidden = false;
+});
 
 // 동물 교체·성장·리셋: 창 크기는 백엔드가 바꾸고, 여기선 시트와 스프라이트 크기를 맞춘다
 const listeningStage = listen("pet-stage", (e) => {
@@ -334,6 +349,8 @@ const EXTRA_SPEECH = {
   bye: ["bye~!"],
   // 편지를 들고 떠남
   letter: ["💌!"],
+  // 손님이 이 화면 주인의 답장을 들고 집으로
+  reply: ["bye~! 💌"],
   // 공룡이 쿵쾅해서 흔들림
   whoa: ["whoa!", "eek!"],
   // 공룡 동작 (pet.json에 없으면 이 말)

@@ -374,3 +374,61 @@ fn wandering_exits_still_walk_off_the_edge() {
     }
     assert!(walked);
 }
+
+#[test]
+fn a_guest_sent_home_with_a_reply_waves_bye_with_a_letter_and_poofs_home() {
+    let w = world(vec![]);
+    let mut g = Pet::new(sim_cfg(), 0.0, 0.0, 2);
+    place(&mut g, &w, Owner::Ground(0), 900.0, idle());
+    g.set_guest(Side::Left, 100.0);
+    assert!(g.send_home_with_reply());
+    g.update(DT, &w);
+    assert!(matches!(g.state, State::Farewell { .. }), "{:?}", g.state);
+    assert_eq!(g.render().anim, Anim::Wave);
+    assert_eq!(g.take_speech(), Some(Speech::Reply));
+    assert_eq!(serde_json::to_string(&Speech::Reply).unwrap(), "\"reply\"");
+    let x = g.body.x;
+    let (side, t) = run_until_gone(&mut g, &w, 10.0).expect("goes home");
+    assert_eq!(side, Side::Left, "through the home side");
+    assert!((t - GONE_SECS).abs() < 0.1, "wave + poof ({t})");
+    assert_eq!(g.body.x, x);
+    // 이미 떠났으면 다시 보낼 수 없다, 내 동물(손님 아님)은 답장으로 보내지 않는다
+    assert!(!g.send_home_with_reply());
+    let mut own = Pet::new(sim_cfg(), 0.0, 0.0, 2);
+    place(&mut own, &w, Owner::Ground(0), 900.0, idle());
+    assert!(!own.send_home_with_reply());
+    assert_eq!(own.sending(), None);
+}
+
+#[test]
+fn a_reply_replaces_a_hosts_send_on_even_mid_wave() {
+    let w = world(vec![]);
+    // 다음 친구에게 보내려던 손님: 답장이 먼저 — 집으로
+    let mut g = Pet::new(cfg(), 0.0, 0.0, 1);
+    place(&mut g, &w, Owner::Ground(0), 900.0, idle());
+    g.set_guest(Side::Left, 100.0);
+    g.send_to(Side::Right, false);
+    assert!(g.send_home_with_reply());
+    g.update(DT, &w);
+    assert_eq!(g.take_speech(), Some(Speech::Reply));
+    assert_eq!(run_until_gone(&mut g, &w, 10.0).map(|r| r.0), Some(Side::Left));
+    // 이미 다음 친구에게 손 흔드는 중: 그대로 흔들고 집 쪽으로
+    let mut h = Pet::new(cfg(), 0.0, 0.0, 1);
+    place(&mut h, &w, Owner::Ground(0), 900.0, idle());
+    h.set_guest(Side::Left, 100.0);
+    h.send_to(Side::Right, false);
+    h.update(DT, &w);
+    assert!(matches!(h.state, State::Farewell { .. }));
+    assert!(h.send_home_with_reply());
+    assert_eq!(run_until_gone(&mut h, &w, 10.0).map(|r| r.0), Some(Side::Left));
+    // 들려 있으면 놓인 뒤에 손 흔든다
+    let mut held = Pet::new(cfg(), 0.0, 0.0, 1);
+    place(&mut held, &w, Owner::Ground(0), 900.0, idle());
+    held.set_guest(Side::Left, 100.0);
+    held.pointer_down(900.0, 1000.0);
+    assert!(held.send_home_with_reply());
+    held.update(DT, &w);
+    assert!(!matches!(held.state, State::Farewell { .. }), "not while held");
+    held.pointer_up(900.0, 1000.0);
+    assert_eq!(run_until_gone(&mut held, &w, 10.0).map(|r| r.0), Some(Side::Left));
+}

@@ -618,7 +618,7 @@ fn visit_messages_round_trip() {
         Some(NetEvent::Received { from: "bbbb".into(), msg: Visit::leave(42) })
     );
     // 다른 친구에게 더 놀러 가는 손님
-    let hop = Visit::Leave { visit_id: 42, next: Some("cccc".into()), side: Some(Side::Right), homesick_in: Some(77.0), fling: None };
+    let hop = Visit::Leave { visit_id: 42, next: Some("cccc".into()), side: Some(Side::Right), homesick_in: Some(77.0), fling: None, note: None };
     p.b.send("aaaa", hop.clone());
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
@@ -634,6 +634,13 @@ fn visit_messages_round_trip() {
             Some(NetEvent::Received { from: "aaaa".into(), msg: letter })
         );
     }
+    // 친구가 답장을 써서 돌려보낸 귀환
+    let reply = Visit::Leave { visit_id: 42, next: None, side: None, homesick_in: None, fling: None, note: Some("또 와 💌".into()) };
+    p.b.send("aaaa", reply.clone());
+    assert_eq!(
+        wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
+        Some(NetEvent::Received { from: "bbbb".into(), msg: reply })
+    );
     p.a.send("bbbb", Visit::ComeHome { visit_id: 42 });
     assert_eq!(
         wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Received { .. })),

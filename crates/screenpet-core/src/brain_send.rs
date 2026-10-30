@@ -15,6 +15,8 @@ pub const SEND_POOF_SECS: f64 = 0.4;
 pub(crate) struct SendTrip {
     pub side: Side,
     pub letter: bool,
+    /// 손님이 이 화면 주인의 답장을 들고 집으로 ("bye~! 💌")
+    pub reply: bool,
     /// 손 흔들 때 말풍선 없이 (앱이 이미 다른 말풍선을 띄웠다 — "펫 데리고 오기"의 "off to <친구>'s~ brb!")
     pub quiet: bool,
 }
@@ -26,7 +28,27 @@ impl Pet {
         if self.housed || self.home_trip.is_some() || self.is_held() || self.in_transit() {
             return false;
         }
-        self.send = Some(SendTrip { side, letter, quiet: false });
+        self.send = Some(SendTrip { side, letter, reply: false, quiet: false });
+        true
+    }
+
+    /// 손님 우클릭 "편지 써서 돌려보내기": 그 자리에서 손 흔들고("bye~! 💌") 뿅 — 집 쪽으로 사라진다 ("<친구>에게 보내기"보다 먼저).
+    /// 들려 있거나 공중이면 그 뒤에. 이미 다음 친구에게 손 흔드는 중이면 그대로 흔들고 집 쪽으로.
+    /// 손님이 아니거나 하우스 안·이미 떠나는 중(집에 와 손 흔들기·걸어 나가기)이면 false
+    pub fn send_home_with_reply(&mut self) -> bool {
+        let Some(g) = self.guest else { return false };
+        if self.waving_goodbye() {
+            if let Some(trip) = self.send.as_mut() {
+                trip.side = g.home;
+                trip.reply = true;
+            }
+            return true;
+        }
+        if self.housed || self.leaving() {
+            return false;
+        }
+        self.farewell_pending = false;
+        self.send = Some(SendTrip { side: g.home, letter: false, reply: true, quiet: false });
         true
     }
 
@@ -123,7 +145,13 @@ impl Pet {
         self.body.vx = 0.0;
         self.body.vy = 0.0;
         if !trip.quiet {
-            self.speech = Some(if trip.letter { Speech::Letter } else { Speech::Bye });
+            self.speech = Some(if trip.reply {
+                Speech::Reply
+            } else if trip.letter {
+                Speech::Letter
+            } else {
+                Speech::Bye
+            });
         }
         self.state = State::Farewell { remaining: SEND_WAVE_SECS + SEND_POOF_SECS };
     }

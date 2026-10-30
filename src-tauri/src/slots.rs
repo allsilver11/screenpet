@@ -141,7 +141,7 @@ pub struct Slot {
     pub need_show: bool,
     last_pos: Option<(i32, i32)>,
     last_render: Option<RenderState>,
-    /// 손님 편지 말풍선을 띄워 창이 커져 있음 (웹뷰 `note_space`)
+    /// 편지 말풍선을 띄워 창이 커져 있음 (웹뷰 `note_space` — 손님이 들고 온 편지 / 돌아온 내 동물의 답장)
     note_open: bool,
     /// 기린이 목을 늘이는 중이라 창이 위로 커져 있음 (늘이는 동안만 — 끝나면 바로 줄인다)
     stretch_open: bool,
@@ -226,9 +226,14 @@ impl Slot {
         self.last_pos = None;
     }
 
-    /// 손님 편지 말풍선을 띄운다 / 접는다: 창을 키우거나 줄이고, 몸이 그 자리에 있도록 바로 다시 놓는다
+    /// 편지 말풍선을 띄운다 / 접는다: 창을 키우거나 줄이고, 몸이 그 자리에 있도록 바로 다시 놓는다.
+    /// 손님은 편지를 들고 왔을 때만, 내 동물은 답장을 들고 돌아왔을 때 (`pet-mail` — 언제 왔는지는 웹뷰가 안다)
     pub fn set_note_open(&mut self, open: bool) {
-        if self.note_open == open || !matches!(&self.role, Role::Guest(g) if g.note.is_some()) {
+        let has_note = match &self.role {
+            Role::Guest(g) => g.note.is_some(),
+            Role::Own => true,
+        };
+        if self.note_open == open || (open && !has_note) {
             return;
         }
         self.note_open = open;

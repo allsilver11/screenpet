@@ -182,6 +182,42 @@ pub fn sanitize_note(raw: &str) -> Option<String> {
     (!note.is_empty()).then_some(note)
 }
 
+/// 친구 화면에 가 있던 내 동물이 돌아오며 들고 온 답장 (Leave의 note): away = 내 동물이 가 있는 (친구 id, visit_id).
+/// 그 친구의 인증된 링크(from)에서, 그 방문의 집으로 오는 Leave(homecoming — 다음 친구로 이어 가지 않음)일 때만 다듬어서.
+/// 아니면 None (동물은 그래도 규칙대로 돌아온다)
+pub fn accept_reply(away: Option<(&str, u64)>, from: &str, visit_id: u64, homecoming: bool, note: Option<&str>) -> Option<String> {
+    let (friend, id) = away?;
+    if friend != from || id != visit_id || !homecoming {
+        return None;
+    }
+    note.and_then(sanitize_note)
+}
+
+/// 손님 주인에게 실어 보낼 답장 ("편지 써서 돌려보내기"): 손님 visit_id → 다듬은 편지. 방문 하나에 한 통만
+#[derive(Debug, Default)]
+pub struct Replies(std::collections::HashMap<String, String>);
+
+impl Replies {
+    /// 이 방문의 첫 답장만 받는다 (다듬어서 비면 없음). 받았으면 true
+    pub fn write(&mut self, visit_id: &str, raw: &str) -> bool {
+        if self.has(visit_id) {
+            return false;
+        }
+        let Some(note) = sanitize_note(raw) else { return false };
+        self.0.insert(visit_id.to_string(), note);
+        true
+    }
+
+    pub fn has(&self, visit_id: &str) -> bool {
+        self.0.contains_key(visit_id)
+    }
+
+    /// 손님이 떠날 때 한 번 꺼낸다
+    pub fn take(&mut self, visit_id: &str) -> Option<String> {
+        self.0.remove(visit_id)
+    }
+}
+
 /// 손님 몸 배율: 주인이 보낸 값(sent)이 범위 안이면 그대로, 아니면(NaN 포함) 이쪽에서 계산한 값(local)을 범위 안으로
 pub fn guest_scale(sent: f64, local: f64) -> f64 {
     let (lo, hi) = GUEST_SCALE_RANGE;
@@ -276,6 +312,39 @@ mod tests {
         for blank in ["", "   ", "\n\t ", "\u{200B}\u{202E}", " \u{3000} "] {
             assert_eq!(sanitize_note(blank), None, "{blank:?}");
         }
+    }
+
+    #[test]
+    fn a_reply_is_taken_only_from_the_host_my_pet_was_visiting_on_its_way_home() {
+        let away = Some(("bob", 7));
+        assert_eq!(accept_reply(away, "bob", 7, true, Some("  또 와!\u{200B} ")).as_deref(), Some("또 와!"));
+        // 다른 친구 링크, 다른 방문, 다음 친구로 이어 가는 Leave, 가 있지 않음 → 답장은 버린다
+        assert_eq!(accept_reply(away, "carol", 7, true, Some("hi")), None);
+        assert_eq!(accept_reply(away, "bob", 8, true, Some("hi")), None);
+        assert_eq!(accept_reply(away, "bob", 7, false, Some("hi")), None);
+        assert_eq!(accept_reply(None, "bob", 7, true, Some("hi")), None);
+        // 없거나 비면 없음, 길면 80자
+        assert_eq!(accept_reply(away, "bob", 7, true, None), None);
+        assert_eq!(accept_reply(away, "bob", 7, true, Some(" \n ")), None);
+        assert_eq!(accept_reply(away, "bob", 7, true, Some(&"가".repeat(300))).unwrap().chars().count(), MAX_NOTE_CHARS);
+    }
+
+    #[test]
+    fn a_host_writes_at_most_one_reply_per_visit() {
+        let mut r = Replies::default();
+        assert!(!r.has("1"));
+        assert!(r.write("1", " 잘 가\u{202E} "));
+        assert!(r.has("1"));
+        // 같은 방문의 두 번째 답장은 받지 않는다 (처음 것 그대로)
+        assert!(!r.write("1", "또 쓴 편지"));
+        // 비면 답장 없음 (다른 방문은 따로)
+        assert!(!r.write("2", "  "));
+        assert!(!r.has("2"));
+        assert!(r.write("2", "x".repeat(200).as_str()));
+        assert_eq!(r.take("1").as_deref(), Some("잘 가"));
+        assert_eq!(r.take("1"), None);
+        assert_eq!(r.take("2").map(|n| n.chars().count()), Some(MAX_NOTE_CHARS));
+        assert_eq!(r.take("3"), None);
     }
 
     #[test]
