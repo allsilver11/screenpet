@@ -90,8 +90,9 @@ pub struct TrayMenu {
     pub house: MenuItem<Wry>,
     /// 🎮 조작 모드 (게임 루프가 실제 상태로 다시 맞춘다 — Esc·3분 무입력으로 끝나면 체크가 풀린다)
     pub control: CheckMenuItem<Wry>,
-    /// 동물 고르기 항목 (항목, 동물 id)
+    /// 동물 고르기 항목 (항목, 동물 id) — `캐릭터: <지금 동물> ▸` 하위 메뉴 안
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
+    pub pets_menu: Submenu<Wry>,
     /// `친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
     pub friends: Submenu<Wry>,
     /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 누를 수 있다 — 하우스 옆 바깥 메뉴)
@@ -199,6 +200,20 @@ pub fn sync_pet_checks(menu: &TrayMenu, current: &str) {
     for (item, id) in &menu.pets {
         let _ = item.set_checked(id == current);
     }
+    set_pets_label(&menu.pets_menu, &menu.pets, current);
+}
+
+/// `캐릭터 ▸` 하위 메뉴 글자: 지금 동물 이름을 붙인다
+fn pets_label(name: Option<&str>) -> String {
+    match name {
+        Some(n) => format!("캐릭터: {}", menu_text(n)),
+        None => "캐릭터".to_string(),
+    }
+}
+
+fn set_pets_label(sub: &Submenu<Wry>, pets: &[(CheckMenuItem<Wry>, String)], current: &str) {
+    let name = pets.iter().find(|(_, id)| id == current).and_then(|(item, _)| item.text().ok());
+    let _ = sub.set_text(pets_label(name.as_deref()));
 }
 
 /// 하우스 항목 글자: 밖에 있으면 "하우스", 하우스 안(또는 가는 중)이면 "하우스에서 나오기"
@@ -284,8 +299,10 @@ fn send(app: &AppHandle, input: Input) {
 #[allow(clippy::too_many_arguments)]
 pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode) -> tauri::Result<TrayMenu> {
     let mut checks: Vec<(CheckMenuItem<Wry>, String)> = Vec::new();
+    let pets_menu = Submenu::new(app, pets_label(pets.iter().find(|p| p.id == current).map(|p| p.manifest.name.as_str())), true)?;
     for p in pets {
         let item = CheckMenuItem::with_id(app, format!("pet:{}", p.id), &p.manifest.name, true, p.id == current, None::<&str>)?;
+        pets_menu.append(&item)?;
         checks.push((item, p.id.clone()));
     }
     // 밥·좋아하는 음식만 자라게 한다. 간식·물은 언제든 (배불러도) 받는다
@@ -320,9 +337,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     // 트레이와 펫 우클릭은 같은 메뉴 — 둘 다 맨 위에 보인다
     menu.append(&easter_egg)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    for (item, _) in &checks {
-        menu.append(item)?;
-    }
+    menu.append(&pets_menu)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&growth)?;
     menu.append(&feed)?;
@@ -338,6 +353,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&quit)?;
 
     let pet_items = checks.clone();
+    let pets_menu_handle = pets_menu.clone();
     // 트레이의 메뉴 이벤트 처리기는 앱 전체용이라 우클릭(popup_menu)으로 띄운 같은 메뉴도 여기로 온다
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundle icon"))
@@ -398,10 +414,11 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     for (item, pid) in &checks {
                         let _ = item.set_checked(pid == id);
                     }
+                    set_pets_label(&pets_menu_handle, &checks, id);
                     crate::select_pet(app, id);
                 }
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: fav, growth, lock, house, control, pets: pet_items, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: fav, growth, lock, house, control, pets: pet_items, pets_menu, friends, come_home, hand_mode, auto_mode })
 }
