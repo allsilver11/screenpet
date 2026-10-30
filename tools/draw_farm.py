@@ -373,7 +373,7 @@ def gf_head(sp, hx, hy, *, side, eyes, mouth, brow, rot=0.0, munch=False):
                 if brow:
                     face += brows(brow, ex, ey + _ST["eye_dy"], flip=True)
                 face.append(([E(hx + 19, hy + 1.5, hx + 21.5, hy + 4)], mix(GIR_CREAM, GIR_LINE, 0.55)))
-                face += blush(hx + 4, hy + 8)
+                face += gf_blush(hx + 4, hy + 8)
                 face += gf_mouth(mouth, hx + 17, hy + 10, munch)
             else:
                 skull = [E(hx - 18, hy - 16, hx + 18, hy + 12), E(hx - 13, hy - 2, hx + 13, hy + 17)]
@@ -390,7 +390,7 @@ def gf_head(sp, hx, hy, *, side, eyes, mouth, brow, rot=0.0, munch=False):
                         face += brows(brow, ex, hy - 4 + _ST["eye_dy"], flip=flip)
                 nost = mix(GIR_CREAM, GIR_LINE, 0.55)
                 face.append(([E(hx - 5.5, hy + 5, hx - 3, hy + 7.4), E(hx + 3, hy + 5, hx + 5.5, hy + 7.4)], nost))
-                face += blush(hx - 14, hy + 6) + blush(hx + 14, hy + 6)
+                face += gf_blush(hx - 13, hy + 6) + gf_blush(hx + 13, hy + 6)
                 face += gf_mouth(mouth, hx, hy + 12, munch)
             if st["ossi"] == 0:  # 아기: 뿔 끝 털 뭉치
                 parts.append(Part([], GIR, grow=0, sharp=True,
@@ -415,10 +415,26 @@ def gf_mouth(kind, mx, my, munch=False):
     return open_mouth(mx, my - 1, rx, ry, tongue=kind != "yawn")
 
 
-def gf_leg(x0, y0, x1, y1, w, col=GIR):
-    """다리 하나 (엉덩이 → 발굽) + 발굽."""
-    return Part([L([(x0, y0), (x1, y1 - 2.5)], w), E(x1 - w * 0.55, y1 - 4.5, x1 + w * 0.55, y1)], col,
-                [([E(x1 - w * 0.6, y1 - 4.2, x1 + w * 0.6, y1 + 1)], HOOF)], grow=0, outline=True)
+def gf_leg(x0, y0, x1, y1, w, col=GIR, spot=False):
+    """다리 하나 (엉덩이 → 발굽) + 발굽. 몸에 녹아 붙는다 (자기 외곽선 없음 — 고양이·루돌프 네 발 뼈대처럼):
+    윗부분은 넓게 몸 안쪽(엉덩이·어깨)에서 시작해 발굽 쪽으로 가늘어지고, 그 위를 몸이 다시 덮는다 (giraffe body_cover)."""
+    dx, dy = x1 - x0, y1 - y0
+    ln = math.hypot(dx, dy) or 1.0
+    top = (x0 - dx / ln * 7, y0 - dy / ln * 7)  # 몸 속으로 7px 더
+    mid = (x0 + dx * 0.45, y0 + dy * 0.45)
+    shank = strand([top, (x0, y0), mid, (x1, y1 - 2.5)], w * 1.75, w * 0.92)
+    marks = [([E(x1 - w * 0.62, y1 - 4.4, x1 + w * 0.62, y1 + 1)], HOOF)]
+    if spot:  # 엉덩이 무늬가 다리로 이어진다
+        marks.insert(0, ([_spot(x0 + dx * 0.12, y0 + dy * 0.12, w * 0.5, 4)], GIR_SPOT))
+    return Part([shank, E(x1 - w * 0.55, y1 - 4.5, x1 + w * 0.55, y1)], col, marks, grow=1)
+
+
+def gf_blush(cx, cy):
+    """기린 볼터치 — 작은 머리에 맞게 고양이·오리 볼터치 크기쯤으로 작고 연하게 (빗금 하나)."""
+    bx, by = _ST["blush"]
+    soft = mix(BLUSH, GIR, 0.35)
+    return [([E(cx - 4.4 * bx, cy - 2.8 * by, cx + 4.4 * bx, cy + 2.8 * by)], soft),
+            ([L([(cx - 0.6, cy + 1.2), (cx + 0.9, cy - 1.2)], 0.9)], mix(dp.BLUSH_LINE, soft, 0.4))]
 
 
 def giraffe(sp, *, side=True, cx=64.0, bottom=None, rot=0.0, sq=(1.0, 1.0), eyes="dot", mouth=None, brow=None, neck_ang=18.0,
@@ -446,20 +462,23 @@ def giraffe(sp, *, side=True, cx=64.0, bottom=None, rot=0.0, sq=(1.0, 1.0), eyes
                 if not lie:
                     for j, (hdx, fdx, fdy) in enumerate(legs):
                         far = j in (0, 2)
-                        parts.append(gf_leg(bx + hdx, hipy, bx + fdx, FLOOR + fdy, 7.0 * lk, mix(GIR, GIR_LINE, 0.12) if far else GIR))
+                        parts.append(gf_leg(bx + hdx, hipy, bx + fdx, FLOOR + fdy, 7.0 * lk, mix(GIR, GIR_LINE, 0.16) if far else GIR,
+                                            spot=not far and st["spots"] >= 2))
                 else:
                     for x in (bx - 16, bx + 14):
-                        parts.append(Part([E(x - 9, FLOOR - 6, x + 9, FLOOR)], GIR, [([E(x + 4, FLOOR - 5, x + 10, FLOOR)], HOOF)],
-                                          grow=0, outline=True))
+                        parts.append(Part([E(x - 9, FLOOR - 6, x + 9, FLOOR), E(x - 7, FLOOR - 12, x + 7, FLOOR - 2)], GIR,
+                                          [([E(x + 4, FLOOR - 5, x + 10, FLOOR)], HOOF)], grow=1))
                 # 꼬리
                 with xf(rot=tail, pivot=(bx - rx + 3, bcy - 4)):
                     tpts = [(bx - rx + 4, bcy - 5), (bx - rx - 4, bcy + 1), (bx - rx - 7, bcy + 10)]
-                    parts.append(Part([L(tpts, 4.2), E(tpts[-1][0] - 3.4, tpts[-1][1] - 1, tpts[-1][0] + 3.4, tpts[-1][1] + 8)], GIR,
-                                      [([E(tpts[-1][0] - 3.4, tpts[-1][1] - 1, tpts[-1][0] + 3.4, tpts[-1][1] + 8)], MANE)], grow=0, outline=True))
+                    parts.append(Part([strand(tpts, 5.6, 3.6), E(tpts[-1][0] - 3.4, tpts[-1][1] - 1, tpts[-1][0] + 3.4, tpts[-1][1] + 8)], GIR,
+                                      [([E(tpts[-1][0] - 3.4, tpts[-1][1] - 1, tpts[-1][0] + 3.4, tpts[-1][1] + 8)], MANE)], grow=1))
                 spots = [([_spot(bx + dx, bcy + dy, r * bk, j) for j, (dx, dy, r, lv) in enumerate(BODY_SPOTS) if lv <= st["spots"]], GIR_SPOT)]
                 belly_m = [([E(bx - rx * 0.7, bcy + ry * 0.45, bx + rx * 0.8, bcy + ry * 1.4)], GIR_CREAM)]
-                body = Part([E(bx - rx, bcy - ry, bx + rx, bcy + ry)], GIR, belly_m + spots, grow=1)
-                parts.insert(0, body)
+                body_shape = [E(bx - rx, bcy - ry, bx + rx, bcy + ry)]
+                parts.insert(0, Part(body_shape, GIR, grow=1))
+                # 다리·꼬리 뿌리를 몸이 다시 덮는다 — 이음매에 선이 없고 무늬·배 색이 이어진다
+                parts.append(Part(body_shape, GIR, belly_m + spots, grow=1))
                 a = (bx + rx * 0.62, bcy - ry * 0.35)
                 ang = math.radians(neck_ang)
                 b = (a[0] + math.sin(ang) * nl, a[1] - math.cos(ang) * nl)
@@ -476,10 +495,11 @@ def giraffe(sp, *, side=True, cx=64.0, bottom=None, rot=0.0, sq=(1.0, 1.0), eyes
                 bw = rx * 0.82
                 if belly:
                     bcy = FLOOR - 12
-                parts.append(Part([E(cx - bw, bcy - ry * 1.15, cx + bw, bcy + ry * 1.05)], GIR,
-                                  [([E(cx - bw * 0.55, bcy - ry * 0.4, cx + bw * 0.55, bcy + ry * 1.3)], GIR_CREAM),
-                                   ([_spot(cx + dx * 0.8, bcy + dy * 0.7, r * bk * 0.9, j) for j, (dx, dy, r, lv) in enumerate(BODY_SPOTS)
-                                     if lv <= st["spots"] and abs(dx) > 10], GIR_SPOT)], grow=1))
+                body_shape = [E(cx - bw, bcy - ry * 1.15, cx + bw, bcy + ry * 1.05)]
+                body_marks = [([E(cx - bw * 0.55, bcy - ry * 0.4, cx + bw * 0.55, bcy + ry * 1.3)], GIR_CREAM),
+                              ([_spot(cx + dx * 0.8, bcy + dy * 0.7, r * bk * 0.9, j) for j, (dx, dy, r, lv) in enumerate(BODY_SPOTS)
+                                if lv <= st["spots"] and abs(dx) > 10], GIR_SPOT)]
+                parts.append(Part(body_shape, GIR, grow=1))
                 fl = front_legs or [(0, 0), (0, 0)]
                 for j, (fdx, fdy) in enumerate(fl):
                     s = -1 if j == 0 else 1
@@ -490,7 +510,9 @@ def giraffe(sp, *, side=True, cx=64.0, bottom=None, rot=0.0, sq=(1.0, 1.0), eyes
                         parts.append(gf_leg(x, bcy, x + fdx, FLOOR + fdy, 8.0 * lk))
                 if belly:  # 뒷다리도 위로
                     for s in (-1, 1):
-                        parts.insert(0, gf_leg(cx + s * bw * 0.7, bcy + 2, cx + s * (bw + 6), bcy - 14, 7.0 * lk, mix(GIR, GIR_LINE, 0.12)))
+                        parts.insert(1, gf_leg(cx + s * bw * 0.7, bcy + 2, cx + s * (bw + 6), bcy - 14, 7.0 * lk, mix(GIR, GIR_LINE, 0.16)))
+                # 다리 뿌리를 몸이 다시 덮는다 (이음매에 선 없이)
+                parts.append(Part(body_shape, GIR, body_marks, grow=1))
                 a = (cx, bcy - ry * 0.6)
                 ang = math.radians(neck_ang)
                 b = (a[0] + math.sin(ang) * nl * 0.62, a[1] - math.cos(ang) * nl * 0.62)
