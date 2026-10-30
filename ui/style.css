@@ -32,12 +32,13 @@ body {
   cursor: grab;
 }
 
-/* 할로윈 효과 (main.js petFx) — 유령 "부~": 40%까지 흐려졌다 돌아온다 */
+/* 할로윈 효과 (main.js petFx) — 유령 "부~": 스르륵 30%까지 흐려져 3초쯤 머물다 돌아온다 */
 #pet.boo {
-  animation: boo 0.9s ease-in-out;
+  animation: boo 3.6s ease-in-out;
 }
 @keyframes boo {
-  50% { opacity: 0.4; }
+  15% { opacity: 0.3; }
+  85% { opacity: 0.3; }
 }
 /* 호박 빛 번짐: 따뜻한 노란 빛이 잠깐 퍼졌다 잦아든다 */
 #pet.flare {
