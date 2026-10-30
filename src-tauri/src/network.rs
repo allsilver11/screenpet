@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use screenpet_core::behavior::Personality;
 use screenpet_core::brain::State;
 use screenpet_core::care::Stage;
-use screenpet_core::config::Config;
+use screenpet_core::config::{Config, MAX_NAME_CHARS};
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
 use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, MAX_FRIENDS};
 use serde::Serialize;
@@ -51,6 +51,9 @@ pub const CODE_LABEL: &str = "code";
 const CODE_SIZE: (f64, f64) = (300.0, 178.0);
 /// 친구 코드로 신청했을 때 InviteSent까지 기다리는 시간 (중계 서버 왕복이 더 있다)
 const CODE_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// 이름 바꾸기 창 라벨 (내 이름 / 친구 별명)
+pub const NAME_LABEL: &str = "name";
+const NAME_SIZE: (f64, f64) = (300.0, 150.0);
 /// config 폴더의 이 파일이 있으면 첫 줄 주소의 중계 서버를 쓴다 (둘째 줄: 그 서버의 공개키 hex — 있으면 고정).
 /// 비어 있거나 "off"면 중계를 쓰지 않는다
 const RELAY_URL_FILE: &str = "relay_url.txt";
@@ -76,7 +79,38 @@ pub enum NetInput {
     SubmitCode(String),
     /// 코드 창 "새 코드": 중계 서버에 새 친구 코드를 받는다 (예전 코드는 못 쓰게 된다)
     NewCode,
+    /// 트레이 "내 이름: … ✏️": 친구들에게 보일 내 이름 바꾸기 창
+    EditMyName,
+    /// 트레이 친구 하위 메뉴 "이름 바꾸기…": 그 친구에게 별명 붙이기 창
+    EditNickname(String),
+    /// 이름 바꾸기 창에서 확인 (빈 글자 = 기본 이름으로). 누구 이름인지는 창을 연 쪽(Network::naming)이 안다
+    SubmitName(String),
 }
+
+/// 이름 바꾸기 창이 다루는 이름
+#[derive(Debug, Clone, PartialEq)]
+enum Naming {
+    /// 친구들에게 보일 내 이름
+    Me,
+    /// 친구(id)에게 붙인 별명
+    Friend(String),
+}
+
+/// 이름 바꾸기 창에 보이는 것 (`name-state` 이벤트, `name_state` 커맨드)
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct NameView {
+    /// "me" | "friend"
+    pub target: &'static str,
+    /// 지금 정해 둔 이름·별명 (없으면 빈 글자)
+    pub current: String,
+    /// 비워 두면 쓰일 이름 (컴퓨터 사용자 이름 / 친구가 정한 이름)
+    pub fallback: String,
+    /// 최대 글자 수
+    pub max: usize,
+}
+
+/// 이름 창 첫 로드용 (커맨드는 게임 루프 밖에서 불린다)
+static NAME_VIEW: Mutex<NameView> = Mutex::new(NameView { target: "me", current: String::new(), fallback: String::new(), max: 0 });
 
 /// 친구 코드 창에 보이는 상태 (`code-state` 이벤트, `code_state` 커맨드)
 #[derive(Debug, Clone, Default, Serialize)]
@@ -145,8 +179,12 @@ struct AwayVisit {
 
 pub struct Network {
     net: Option<Net>,
-    /// 내 표시 이름
+    /// 내 표시 이름 (친구들에게 보이는 이름 — 설정의 owner_name, 없으면 컴퓨터 사용자 이름)
     name: String,
+    /// 컴퓨터 사용자 이름 (내 이름을 비우면 이것으로)
+    system_name: String,
+    /// 이름 바꾸기 창이 지금 다루는 이름
+    naming: Option<Naming>,
     /// 발견된 사람 id → 이름 (친구 포함)
     seen: BTreeMap<String, String>,
     connected: HashSet<String>,
@@ -248,10 +286,13 @@ impl Network {
     /// 비밀키는 config.json이 아니라 config 폴더의 `identity.key`에 있다.
     pub fn start(app: &AppHandle, config: &mut Config) -> (Network, bool) {
         let dirty = config.ensure_install_id(screenpet_net::new_install_id);
-        let name = display_name();
+        let system_name = display_name();
+        let name = config.my_name(&system_name);
         let mut network = Network {
             net: None,
             name: name.clone(),
+            system_name,
+            naming: None,
             seen: BTreeMap::new(),
             connected: HashSet::new(),
             forgot: HashSet::new(),
@@ -409,7 +450,10 @@ impl Network {
         self.menu_dirty = true;
         let dirty = self.handle_input(app, input, config, slots);
         // net이 고정한 친구 목록이 설정과 다르면 맞춘다 (짝맞추기 완료, 상대의 연결 끊기 …)
-        self.sync_friends(config) || dirty
+        let dirty = self.sync_friends(config) || dirty;
+        // 친구가 이름을 바꿨거나 내가 별명을 붙였으면 와 있는 손님 이름표도 바로 바꾼다
+        refresh_guest_tags(app, config, slots);
+        dirty
     }
 
     fn handle_input(&mut self, app: &AppHandle, input: NetInput, config: &mut Config, slots: &mut Vec<Slot>) -> bool {
@@ -461,6 +505,35 @@ impl Network {
                 }
                 false
             }
+            NetInput::EditMyName => {
+                let view = NameView { target: "me", current: config.owner_name.clone().unwrap_or_default(), fallback: self.system_name.clone(), max: MAX_NAME_CHARS };
+                self.naming = Some(Naming::Me);
+                show_name_window(app, view);
+                false
+            }
+            NetInput::EditNickname(id) => {
+                let Some(f) = config.friend(&id) else { return false };
+                let view = NameView { target: "friend", current: f.nickname.clone().unwrap_or_default(), fallback: f.name.clone(), max: MAX_NAME_CHARS };
+                self.naming = Some(Naming::Friend(id));
+                show_name_window(app, view);
+                false
+            }
+            NetInput::SubmitName(name) => match self.naming.take() {
+                Some(Naming::Me) => {
+                    let dirty = config.set_owner_name(&name);
+                    let shown = config.my_name(&self.system_name);
+                    if shown != self.name {
+                        self.name = shown;
+                        // 연결된 친구들에게 바로 알린다 (다음 연결·발견 알림도 새 이름)
+                        if let Some(net) = &self.net {
+                            net.set_name(&self.name);
+                        }
+                    }
+                    dirty
+                }
+                Some(Naming::Friend(id)) => config.set_friend_nickname(&id, &name),
+                None => false,
+            },
         }
     }
 
@@ -494,6 +567,12 @@ impl Network {
                     p.view.phase = "done";
                     p.deadline = Instant::now() + RESULT_SECS;
                     self.show_pair(app);
+                }
+            }
+            NetEvent::Renamed { id, name } => {
+                // 인증된 친구 링크에서 온 이름만 (net이 확인한다) — 설정은 handle 끝의 sync_friends가 맞춘다
+                if config.friend(&id).is_some() {
+                    self.note_name(&id, &clamp(&name));
                 }
             }
             NetEvent::Disconnected { id } => {
@@ -640,7 +719,7 @@ impl Network {
             return Err("already visiting".into());
         }
         let scale = visit::guest_scale(scale, stage.scale() * entry.manifest.size_mult(stage));
-        let owner_name = config.friend(from).map(|f| f.name.clone()).unwrap_or_else(|| clamp(owner));
+        let owner_name = config.friend(from).map(|f| f.shown_name().to_string()).unwrap_or_else(|| clamp(owner));
         let guest = GuestInfo { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name };
         // 다른 친구 화면에서 건너왔으면: 그 친구가 연결된 끝에서 들어오고, 집 쪽은 이 화면에서 주인이 연결된 끝,
         // 그리움 시간은 이어서 센다. 바로 왔으면 들어온 끝이 집 쪽
@@ -880,7 +959,7 @@ impl Network {
         }
     }
 
-    /// 매 틱: 짝맞추기 시간, "집에 와" 대비, 트레이 `친구 화면` 메뉴
+    /// 매 틱: 짝맞추기 시간, "집에 와" 대비, 트레이 `친구랑 놀기` 메뉴
     pub fn tick(&mut self, app: &AppHandle, now: Instant, config: &Config, own: &mut Slot) {
         self.tick_pairing(app, now);
         if self.away.as_ref().and_then(|a| a.come_home_by).is_some_and(|t| now >= t) {
@@ -905,14 +984,25 @@ impl Network {
             .iter()
             .map(|f| FriendItem {
                 id: f.id.clone(),
-                name: f.name.clone(),
+                name: f.shown_name().to_string(),
                 side: f.side,
                 connected: self.is_connected(&f.id),
                 forgot: self.forgot.contains(&f.id),
             })
             .collect();
         let relay = self.relay_enabled.then_some(self.relay_connected);
-        FriendsMenu { available: self.net.is_some(), strangers, friends, away: self.away.is_some(), relay }
+        FriendsMenu { available: self.net.is_some(), my_name: self.name.clone(), strangers, friends, away: self.away.is_some(), relay }
+    }
+}
+
+/// 손님 이름표를 설정에 맞춘다 (친구가 이름을 바꿨거나 내가 별명을 붙였을 때)
+fn refresh_guest_tags(app: &AppHandle, config: &Config, slots: &mut [Slot]) {
+    for s in slots.iter_mut() {
+        let Role::Guest(g) = &s.role else { continue };
+        if let Some(f) = config.friend(&g.owner_id) {
+            let name = f.shown_name().to_string();
+            s.set_owner_name(app, name);
+        }
     }
 }
 
@@ -1028,6 +1118,77 @@ pub fn code_renew(window: WebviewWindow, state: tauri::State<AppState>) {
 #[tauri::command]
 pub fn code_close(window: WebviewWindow) {
     if window.label() == CODE_LABEL {
+        let _ = window.hide();
+    }
+}
+
+/// 이름 바꾸기 창을 보이고 앞으로 가져온다 (처음이면 만든다 — 게임 루프 스레드에서만)
+fn show_name_window(app: &AppHandle, view: NameView) {
+    *NAME_VIEW.lock().unwrap() = view.clone();
+    let window = match app.get_webview_window(NAME_LABEL) {
+        Some(w) => w,
+        None => match build_name_window(app) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("failed to create name window: {e}");
+                return;
+            }
+        },
+    };
+    let title = if view.target == "me" { "ScreenPet 내 이름" } else { "ScreenPet 친구 이름" };
+    let _ = window.set_title(title);
+    let _ = app.emit_to(NAME_LABEL, "name-state", view);
+    if !window.is_visible().unwrap_or(false) {
+        place_on_primary(app, &window, NAME_SIZE);
+        let _ = window.show();
+    }
+    let _ = window.set_focus();
+}
+
+/// 이름 바꾸기 창: 글자 칸 하나 + 저장/닫기. 닫기(X)는 숨기기로 바꾼다 (창은 다시 쓴다)
+fn build_name_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let window = WebviewWindowBuilder::new(app, NAME_LABEL, WebviewUrl::App("name.html".into()))
+        .title("ScreenPet 내 이름")
+        .inner_size(NAME_SIZE.0, NAME_SIZE.1)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .always_on_top(true)
+        .skip_taskbar(false)
+        .visible(false)
+        .build()?;
+    let handle = window.clone();
+    window.on_window_event(move |ev| {
+        if let WindowEvent::CloseRequested { api, .. } = ev {
+            api.prevent_close();
+            let _ = handle.hide();
+        }
+    });
+    Ok(window)
+}
+
+/// 이름 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `name-state` 이벤트)
+#[tauri::command]
+pub fn name_state() -> NameView {
+    NAME_VIEW.lock().unwrap().clone()
+}
+
+/// 이름 창의 "저장": 게임 루프로 보내고 창을 숨긴다 (다듬기·길이 제한은 설정이 한다 — 빈 글자 = 기본 이름)
+#[tauri::command]
+pub fn name_submit(window: WebviewWindow, state: tauri::State<AppState>, name: String) {
+    if window.label() != NAME_LABEL {
+        return;
+    }
+    // 아주 긴 글자는 보내기 전에 자른다 (설정이 다시 20자로 자른다)
+    let name: String = name.chars().take(256).collect();
+    let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::SubmitName(name)));
+    let _ = window.hide();
+}
+
+/// 이름 창의 "닫기"
+#[tauri::command]
+pub fn name_close(window: WebviewWindow) {
+    if window.label() == NAME_LABEL {
         let _ = window.hide();
     }
 }

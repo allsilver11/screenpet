@@ -115,7 +115,7 @@ pub(crate) fn run_session(
     let we_pinned_them = shared.state().friends.iter().any(|f| f.public_key == remote_static);
     link.send(&ctl(Control::Hello {
         id: shared.id.clone(),
-        name: shared.name.clone(),
+        name: shared.name(),
         v: PROTOCOL_VERSION,
         friend: we_pinned_them,
     }));
@@ -359,7 +359,14 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
     let Some(conn) = st.conns.get(&ctx.token) else { return false };
     let (outgoing, hs_hash) = (conn.outgoing, conn.hs_hash);
     match msg {
-        Message::Control(Control::Hello { .. } | Control::Ping) => true,
+        // A repeated hello on an authenticated friend link (same id) = the friend renamed itself
+        Message::Control(Control::Hello { id: hid, name: new_name, .. }) => {
+            if hid == id && matches!(conn.kind, Kind::Friend) && st.is_friend(id) {
+                shared.emit(NetEvent::Renamed { id: id.to_string(), name: clamp_name(&new_name) });
+            }
+            true
+        }
+        Message::Control(Control::Ping) => true,
         Message::Control(Control::Invite { pet, commit }) => {
             match conn.kind {
                 Kind::Friend => return true,

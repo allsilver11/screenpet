@@ -33,6 +33,20 @@ pub struct Config {
     /// 먹이 주는 방법 (직접 주기 / 자동 주기). 모르는 값이면 직접 주기
     #[serde(default, deserialize_with = "lenient_feed_mode")]
     pub feed_mode: FeedMode,
+    /// 친구들에게 보이는 내 이름 (친구 화면의 내 동물 이름표). 없으면 컴퓨터 사용자 이름
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_name: Option<String>,
+}
+
+/// 내가 정하는 이름(내 이름·친구 별명)의 최대 글자 수
+pub const MAX_NAME_CHARS: usize = 20;
+
+/// 내가 정하는 이름: 제어 문자를 빼고 앞뒤 공백을 지운 뒤 20자까지. 비면 None (= 기본 이름으로)
+pub fn sanitize_name(raw: &str) -> Option<String> {
+    let clean: String = raw.chars().filter(|c| !c.is_control()).collect();
+    let name: String = clean.trim().chars().take(MAX_NAME_CHARS).collect();
+    let name = name.trim_end();
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 fn lenient_feed_mode<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FeedMode, D::Error> {
@@ -49,6 +63,16 @@ pub struct Friend {
     pub public_key: [u8; 32],
     #[serde(with = "SideDef")]
     pub side: Side,
+    /// 내가 붙인 별명 (그 친구 동물의 이름표·메뉴에 이름 대신). 없으면 친구가 정한 이름
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nickname: Option<String>,
+}
+
+impl Friend {
+    /// 화면·메뉴에 보일 이름: 내가 붙인 별명, 없으면 친구가 정한 이름
+    pub fn shown_name(&self) -> &str {
+        self.nickname.as_deref().filter(|n| !n.is_empty()).unwrap_or(&self.name)
+    }
 }
 
 /// 친구 목록을 읽되 잘못된 항목은 (로그만 남기고) 건너뛴다 — 하나 때문에 설정 전체를 버리지 않는다
@@ -122,11 +146,36 @@ impl Config {
             }
             None => {
                 let side = self.next_side();
-                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side });
+                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side, nickname: None });
                 changed = true;
             }
         }
         changed
+    }
+
+    /// 친구에게 별명을 붙인다 (비면 지운다 — 친구가 정한 이름으로). 바뀌었으면 true
+    pub fn set_friend_nickname(&mut self, id: &str, raw: &str) -> bool {
+        let nickname = sanitize_name(raw);
+        match self.friends.iter_mut().find(|f| f.id == id) {
+            Some(f) if f.nickname != nickname => {
+                f.nickname = nickname;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 친구들에게 보일 내 이름을 정한다 (비면 지운다 — 컴퓨터 사용자 이름으로). 바뀌었으면 true
+    pub fn set_owner_name(&mut self, raw: &str) -> bool {
+        let name = sanitize_name(raw);
+        let changed = self.owner_name != name;
+        self.owner_name = name;
+        changed
+    }
+
+    /// 친구들에게 보일 내 이름: 정한 이름, 없으면 system (컴퓨터 사용자 이름)
+    pub fn my_name(&self, system: &str) -> String {
+        self.owner_name.as_deref().and_then(sanitize_name).unwrap_or_else(|| system.to_string())
     }
 
     pub fn remove_friend(&mut self, id: &str) -> bool {
@@ -653,5 +702,71 @@ mod tests {
         assert_eq!(spot("", (5, 5), 0.0).pick(&[("", (0, 0))]), None);
         // 없어진 모니터
         assert_eq!(spot("Z", (9999, 0), 0.0).pick(&monitors), None);
+    }
+
+    // ---- 내 이름·친구 별명 ----
+
+    #[test]
+    fn names_are_trimmed_stripped_of_control_chars_and_capped_at_20() {
+        assert_eq!(sanitize_name("  danni \n"), Some("danni".into()));
+        assert_eq!(sanitize_name("da\tn\u{7}ni"), Some("danni".into()));
+        assert_eq!(sanitize_name(&"가".repeat(30)), Some("가".repeat(MAX_NAME_CHARS)));
+        assert_eq!(sanitize_name(&"🐱".repeat(25)).map(|n| n.chars().count()), Some(20));
+        // 잘라낸 뒤 끝 공백도 뺀다
+        assert_eq!(sanitize_name(&format!("{} x", "a".repeat(19))), Some("a".repeat(19)));
+        assert_eq!(sanitize_name(""), None);
+        assert_eq!(sanitize_name(" \n\t "), None);
+    }
+
+    #[test]
+    fn owner_name_overrides_the_system_name_and_empty_resets() {
+        let mut c = Config::default();
+        assert_eq!(c.my_name("winuser"), "winuser");
+        assert!(c.set_owner_name("  danni  "));
+        assert_eq!(c.owner_name.as_deref(), Some("danni"));
+        assert_eq!(c.my_name("winuser"), "danni");
+        assert!(!c.set_owner_name("danni"), "unchanged");
+        assert!(c.set_owner_name("   "));
+        assert_eq!(c.owner_name, None);
+        assert_eq!(c.my_name("winuser"), "winuser");
+        // 손으로 고친 설정 파일의 긴 이름도 화면엔 20자까지만
+        c.owner_name = Some("b".repeat(50));
+        assert_eq!(c.my_name("winuser"), "b".repeat(20));
+    }
+
+    #[test]
+    fn friend_nickname_takes_precedence_and_clearing_falls_back() {
+        let mut c = Config::default();
+        c.upsert_friend("a", "Ann", key(1));
+        assert_eq!(c.friend("a").unwrap().shown_name(), "Ann");
+        assert!(c.set_friend_nickname("a", " 앤 언니 "));
+        assert_eq!(c.friend("a").unwrap().shown_name(), "앤 언니");
+        // 친구가 이름을 바꿔도 내 별명이 그대로 보인다
+        assert!(c.upsert_friend("a", "Annie", key(1)));
+        assert_eq!(c.friend("a").unwrap().name, "Annie");
+        assert_eq!(c.friend("a").unwrap().shown_name(), "앤 언니");
+        assert!(c.set_friend_nickname("a", ""));
+        assert_eq!(c.friend("a").unwrap().nickname, None);
+        assert_eq!(c.friend("a").unwrap().shown_name(), "Annie");
+        assert!(!c.set_friend_nickname("a", ""), "unchanged");
+        assert!(!c.set_friend_nickname("nobody", "x"));
+    }
+
+    #[test]
+    fn owner_name_and_nicknames_roundtrip_and_old_configs_load() {
+        let d = temp_dir("names");
+        std::fs::create_dir_all(&d).unwrap();
+        let k = "01".repeat(32);
+        std::fs::write(d.join("config.json"), format!(r#"{{"friends":[{{"id":"a","name":"Ann","public_key":"{k}","side":"left"}}]}}"#)).unwrap();
+        let mut c = load(&d);
+        assert_eq!((c.owner_name.as_deref(), c.friends[0].nickname.as_deref()), (None, None));
+        c.set_owner_name("danni");
+        c.set_friend_nickname("a", "앤");
+        save(&d, &c).unwrap();
+        assert_eq!(load(&d), c);
+        // 별명이 없으면 파일에 적지 않는다 (예전 판과 같은 모양)
+        c.set_friend_nickname("a", "");
+        save(&d, &c).unwrap();
+        assert!(!std::fs::read_to_string(d.join("config.json")).unwrap().contains("nickname"));
     }
 }

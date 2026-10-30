@@ -20,21 +20,25 @@ const EASTER_EGG_ID: &str = "easter-egg";
 
 /// 손님 우클릭 메뉴 항목 id 앞부분 (뒤는 손님 창 라벨)
 const SEND_HOME_PREFIX: &str = "send-home:";
-/// `친구 화면` 항목 id 앞부분 (뒤는 상대 id)
+/// `친구랑 놀기` 항목 id 앞부분 (뒤는 상대 id)
 const INVITE_PREFIX: &str = "net:invite:";
 const LEFT_PREFIX: &str = "net:left:";
 const RIGHT_PREFIX: &str = "net:right:";
 const UNFRIEND_PREFIX: &str = "net:unfriend:";
 const REPAIR_PREFIX: &str = "net:repair:";
+const NICKNAME_PREFIX: &str = "net:nickname:";
+const MY_NAME_ID: &str = "net:my-name";
 const COME_HOME_ID: &str = "net:come-home";
 const SHOW_CODE_ID: &str = "net:show-code";
 const ENTER_CODE_ID: &str = "net:enter-code";
 
-/// `친구 화면 ▸`에 보일 것 (게임 루프의 네트워크 상태에서 만든다 — 바뀔 때만 다시 그린다)
+/// `친구랑 놀기 ▸`에 보일 것 (게임 루프의 네트워크 상태에서 만든다 — 바뀔 때만 다시 그린다)
 #[derive(Debug, Clone, PartialEq)]
 pub struct FriendsMenu {
     /// 네트워크가 시작됨
     pub available: bool,
+    /// 친구들에게 보이는 내 이름 ("내 이름: … ✏️")
+    pub my_name: String,
     /// 발견된 사람 중 친구가 아닌 사람 (id, 이름)
     pub strangers: Vec<(String, String)>,
     pub friends: Vec<FriendItem>,
@@ -47,6 +51,7 @@ pub struct FriendsMenu {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FriendItem {
     pub id: String,
+    /// 보일 이름 (내가 붙인 별명, 없으면 친구가 정한 이름)
     pub name: String,
     pub side: Side,
     pub connected: bool,
@@ -64,7 +69,7 @@ pub struct TrayMenu {
     pub house: MenuItem<Wry>,
     /// 동물 고르기 항목 (항목, 동물 id)
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
-    /// `친구 화면 ▸` (네트워크 상태에 따라 다시 채운다)
+    /// `친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
     pub friends: Submenu<Wry>,
     /// 밥 주기 방법: 직접 주기 / 자동 주기 (그릇)
     pub hand_mode: CheckMenuItem<Wry>,
@@ -83,7 +88,7 @@ fn menu_text(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).collect::<String>().replace('&', "&&")
 }
 
-/// `친구 화면 ▸`을 다시 채운다: 발견된 사람(누르면 친구 신청), 친구별 하위 메뉴, 집에 와
+/// `친구랑 놀기 ▸`을 다시 채운다: 내 이름, 친구별 하위 메뉴, 발견된 사람(누르면 친구 신청), 인터넷 친구, 집에 와
 pub fn fill_friends(app: &AppHandle, model: &FriendsMenu) {
     let submenu = &app.state::<AppState>().menu.friends;
     if let Err(e) = try_fill_friends(app, submenu, model) {
@@ -97,6 +102,9 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         submenu.append(&MenuItem::new(app, "친구 찾기를 쓸 수 없어요", false, None::<&str>)?)?;
         return Ok(());
     }
+    // 친구들에게 보이는 내 이름 (누르면 바꾸기 창)
+    submenu.append(&MenuItem::with_id(app, MY_NAME_ID, format!("내 이름: {} ✏️", menu_text(&model.my_name)), true, None::<&str>)?)?;
+    submenu.append(&PredefinedMenuItem::separator(app)?)?;
     for f in &model.friends {
         let dot = if f.connected { "●" } else { "○" };
         let mut title = format!("{dot} {}", menu_text(&f.name));
@@ -105,8 +113,9 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         }
         let left = CheckMenuItem::with_id(app, format!("{LEFT_PREFIX}{}", f.id), "왼쪽에", true, f.side == Side::Left, None::<&str>)?;
         let right = CheckMenuItem::with_id(app, format!("{RIGHT_PREFIX}{}", f.id), "오른쪽에", true, f.side == Side::Right, None::<&str>)?;
+        let nickname = MenuItem::with_id(app, format!("{NICKNAME_PREFIX}{}", f.id), "이름 바꾸기…", true, None::<&str>)?;
         let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
-        let sub = Submenu::with_items(app, title, true, &[&left, &right, &PredefinedMenuItem::separator(app)?, &unfriend])?;
+        let sub = Submenu::with_items(app, title, true, &[&left, &right, &PredefinedMenuItem::separator(app)?, &nickname, &unfriend])?;
         if f.forgot {
             sub.append(&MenuItem::with_id(app, format!("{REPAIR_PREFIX}{}", f.id), "다시 친구 맺기", true, None::<&str>)?)?;
         }
@@ -251,7 +260,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
     let house = MenuItem::with_id(app, "house", house_label(housed), true, None::<&str>)?;
     // 게임 루프가 네트워크를 시작한 뒤 채운다
-    let friends = Submenu::with_items(app, "친구 화면", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
+    let friends = Submenu::with_items(app, "친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, EASTER_EGG_LABEL, false, None::<&str>)?;
@@ -307,6 +316,10 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::ShowCode);
                 } else if other == ENTER_CODE_ID {
                     net(NetInput::EnterCode);
+                } else if other == MY_NAME_ID {
+                    net(NetInput::EditMyName);
+                } else if let Some(id) = other.strip_prefix(NICKNAME_PREFIX) {
+                    net(NetInput::EditNickname(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(INVITE_PREFIX) {
                     net(NetInput::Invite(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(LEFT_PREFIX) {

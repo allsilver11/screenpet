@@ -222,7 +222,10 @@ fn main() {
             network::code_state,
             network::code_submit,
             network::code_renew,
-            network::code_close
+            network::code_close,
+            network::name_state,
+            network::name_submit,
+            network::name_close
         ])
         .run(tauri::generate_context!())
         .expect("error while running ScreenPet");

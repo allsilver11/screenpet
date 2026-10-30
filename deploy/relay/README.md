@@ -86,7 +86,7 @@ The app uses `wss://pet.danni.day/ws` with the pinned relay key by default.
 To use another relay, put its URL on the first line of `relay_url.txt` in
 the app's config folder (`%APPDATA%\com.allsilver11.screenpet\` on Windows)
 and, optionally, its public key (64 hex digits) on the second line to pin it;
-write `off` to disable internet friends. Tray: *친구 화면 ▸ 인터넷 연결: 연결됨/끊김*, *내 친구 코드
+write `off` to disable internet friends. Tray: *친구랑 놀기 ▸ 인터넷 연결: 연결됨/끊김*, *내 친구 코드
 보기* (shows the code above the pet; click to copy), *친구 코드 입력…*.
 
 ## Limits (defaults)

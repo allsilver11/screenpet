@@ -177,6 +177,10 @@ pub enum NetEvent {
     /// outcome is emitted for a pairing that was never surfaced.
     InviteAnswered { from: String, accepted: bool, pairing: u64 },
     Connected { id: String, name: String },
+    /// Friend `id` changed its display name (a repeated `hello` on its
+    /// authenticated friend link; clamped to 64 characters). Older versions
+    /// ignore a repeated `hello`, so this stays backward compatible.
+    Renamed { id: String, name: String },
     Disconnected { id: String },
     Received { from: String, msg: Visit },
     /// Friend `id` proved its pinned key but no longer recognizes us as a
@@ -373,7 +377,8 @@ impl State {
 
 pub(crate) struct Shared {
     pub id: String,
-    pub name: String,
+    /// Display name (changes with [`Net::set_name`]).
+    name: Mutex<String>,
     pub static_key: [u8; 32],
     pub timing: Timing,
     pub tcp_port: u16,
@@ -411,6 +416,10 @@ impl Drop for SessionGuard {
 }
 
 impl Shared {
+    /// Current display name (sent in `hello` and announcements).
+    pub fn name(&self) -> String {
+        self.name.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
     pub fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -534,7 +543,7 @@ impl Net {
         }
         let shared = Arc::new(Shared {
             id: cfg.id,
-            name: protocol::clamp_name(&cfg.name),
+            name: Mutex::new(protocol::clamp_name(&cfg.name)),
             static_key: cfg.static_key,
             timing: cfg.timing,
             tcp_port,
@@ -635,6 +644,23 @@ impl Net {
         if let Some(l) = link {
             l.send(&Message::Control(Control::Unfriend));
             l.finish();
+        }
+    }
+
+    /// Change our display name: later `hello`s and announcements use it, and
+    /// every connected friend is told now (a repeated `hello` on the friend
+    /// link — friends emit [`NetEvent::Renamed`]; older versions ignore it).
+    /// Never blocks.
+    pub fn set_name(&self, name: &str) {
+        let name = protocol::clamp_name(name);
+        *self.shared.name.lock().unwrap_or_else(|e| e.into_inner()) = name.clone();
+        let links: Vec<_> = {
+            let st = self.shared.state();
+            st.friend_links.values().filter_map(|t| st.conns.get(t)).filter(|c| matches!(c.kind, Kind::Friend)).map(|c| c.link.clone()).collect()
+        };
+        let hello = Message::Control(Control::Hello { id: self.shared.id.clone(), name, v: protocol::PROTOCOL_VERSION, friend: true });
+        for l in links {
+            l.send(&hello);
         }
     }
 

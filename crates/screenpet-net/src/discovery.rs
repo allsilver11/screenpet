@@ -36,12 +36,12 @@ const DIAL_WINDOW: Duration = Duration::from_secs(60);
 const MAX_TRACKED: usize = 256;
 
 pub(crate) fn run(shared: Arc<Shared>, udp: UdpSocket, broadcast_to: SocketAddr) {
-    let announce = serde_json::to_vec(&Announce::new(&shared.id, &shared.name, shared.tcp_port))
-        .expect("announce serializes");
     let mut next_announce = Instant::now();
     let mut buf = [0u8; 2048];
     while !shared.stopping() {
         if Instant::now() >= next_announce {
+            // 이름은 바뀔 수 있다 (Net::set_name) — 알릴 때마다 만든다
+            let announce = serde_json::to_vec(&Announce::new(&shared.id, &shared.name(), shared.tcp_port)).expect("announce serializes");
             let _ = udp.send_to(&announce, broadcast_to);
             next_announce = Instant::now() + shared.timing.announce_interval;
         }

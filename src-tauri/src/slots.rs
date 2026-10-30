@@ -147,6 +147,21 @@ impl Slot {
         let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
     }
 
+    /// 손님 이름표의 주인 이름을 바꾼다 (친구가 이름을 바꿨거나 내가 별명을 붙임). 달라졌을 때만 웹뷰에 알린다
+    pub fn set_owner_name(&mut self, app: &AppHandle, name: String) {
+        let Role::Guest(g) = &mut self.role else { return };
+        if g.owner_name == name {
+            return;
+        }
+        g.owner_name = name;
+        let info = self.info();
+        if let Some(stored) = app.state::<AppState>().slots.lock().unwrap().get_mut(&self.label) {
+            stored.owner = info.owner.clone();
+        }
+        // pet-stage는 이름표(applyRole)도 다시 그린다
+        let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
+    }
+
     /// 화면 배율과 세계를 다시 읽는다 (WORLD_REFRESH마다)
     pub fn refresh(&mut self, windows: &[WindowInfo], work_areas: &[Rect]) {
         let dpi = self.window.scale_factor().unwrap_or(self.dpi);

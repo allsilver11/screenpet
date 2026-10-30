@@ -632,6 +632,54 @@ fn visit_messages_round_trip() {
 }
 
 #[test]
+fn rename_reaches_connected_friend_and_later_hellos() {
+    let p = connected_pair();
+    p.a.set_name("Annie");
+    assert_eq!(
+        wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Renamed { .. })),
+        Some(NetEvent::Renamed { id: "aaaa".into(), name: "Annie".into() })
+    );
+    p.a.shutdown();
+    p.b.shutdown();
+}
+
+#[test]
+fn friend_rehello_with_same_id_renames_and_is_clamped() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    // 다른 id를 대는 hello는 무시 (이름을 바꾸지 않는다)
+    p.send(friend_hello("yyyy", "Mallory")).unwrap();
+    p.send(friend_hello("zzzz", &"z".repeat(100))).unwrap();
+    let ev = wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Renamed { .. })).expect("renamed");
+    assert_eq!(ev, NetEvent::Renamed { id: "zzzz".into(), name: "z".repeat(64) });
+    net.shutdown();
+}
+
+#[test]
+fn new_links_hello_with_the_new_name() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    net.set_name("Neo");
+    let mut p = handshake(TcpStream::connect(local(port)).unwrap(), &kz, true).unwrap();
+    p.send(friend_hello("zzzz", "Raw")).unwrap();
+    let h = p.recv_msg().unwrap();
+    assert_eq!((h["type"].as_str(), h["name"].as_str()), (Some("hello"), Some("Neo")));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    net.shutdown();
+}
+
+#[test]
+fn stranger_rehello_does_not_rename() {
+    let (net, rx, port) = start_sniffed(key(), vec![]);
+    let mut p = raw_connect(port, &key(), "zzzz");
+    p.send(hello("zzzz", "Eve")).unwrap();
+    assert_eq!(wait_for(&rx, 0.8, |e| matches!(e, NetEvent::Renamed { .. })), None);
+    net.shutdown();
+}
+
+#[test]
 fn peer_shutdown_is_noticed_within_six_seconds() {
     let p = connected_pair();
     p.b.shutdown();
