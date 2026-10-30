@@ -181,6 +181,9 @@ pub enum NetEvent {
     /// authenticated friend link; clamped to 64 characters). Older versions
     /// ignore a repeated `hello`, so this stays backward compatible.
     Renamed { id: String, name: String },
+    /// Friend `from` sent an app request with [`Net::ask`] (clamped to 64
+    /// characters; only from authenticated friend links).
+    Asked { from: String, ask: String },
     Disconnected { id: String },
     Received { from: String, msg: Visit },
     /// Friend `id` proved its pinned key but no longer recognizes us as a
@@ -627,6 +630,20 @@ impl Net {
             }
         };
         link.send(&Message::Visit(msg));
+    }
+
+    /// Send an app request (e.g. "invite", "busy") to a connected friend
+    /// (dropped otherwise). Carried in a ping, which older versions ignore.
+    /// Never blocks.
+    pub fn ask(&self, peer_id: &str, ask: &str) {
+        let link = {
+            let st = self.shared.state();
+            match st.friend_conn(peer_id) {
+                Some(c) if matches!(c.kind, Kind::Friend) => c.link.clone(),
+                _ => return,
+            }
+        };
+        link.send(&Message::Control(Control::Ping { ask: Some(protocol::clamp_name(ask)) }));
     }
 
     /// Forget a friend, tell them, and disconnect (gracefully). Never blocks.

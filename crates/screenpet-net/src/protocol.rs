@@ -119,7 +119,13 @@ pub enum Control {
     /// Each side's SAS confirmation (or refusal) for the pairing on this link.
     InviteReply { accepted: bool },
     Unfriend,
-    Ping,
+    /// Keep-alive. `ask` = an app request to a friend (e.g. "invite": bring
+    /// your pet over, "busy": not now) — older versions parse a ping with an
+    /// extra field as a plain ping and ignore it.
+    Ping {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ask: Option<String>,
+    },
 }
 
 /// Any message. Untagged at this level: each inner enum carries its own
@@ -212,13 +218,13 @@ mod tests {
             Message::Control(Control::PairReveal { nonce: "ef".into() }),
             Message::Control(Control::InviteReply { accepted: true }),
             Message::Control(Control::Unfriend),
-            Message::Control(Control::Ping),
+            Message::Control(Control::Ping { ask: None }),
             Message::Visit(Visit::leave(3)),
             Message::Visit(Visit::ComeHome { visit_id: 4 }),
         ] {
             assert_eq!(Message::parse(&m.to_json()), Some(m));
         }
-        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping)));
+        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None })));
     }
 
     #[test]
@@ -287,6 +293,24 @@ mod tests {
         // 깨진 fling 하나 때문에 방문 전체를 버리지 않는다
         let bad = br#"{"type":"leave","visit_id":3,"fling":{"height":"x"}}"#;
         assert_eq!(Message::parse(bad), Some(Message::Visit(Visit::leave(3))));
+    }
+
+    #[test]
+    fn ping_can_carry_an_ask_that_old_peers_ignore() {
+        let ask = Message::Control(Control::Ping { ask: Some("invite".into()) });
+        assert_eq!(ask.to_json(), br#"{"type":"ping","ask":"invite"}"#.to_vec());
+        assert_eq!(Message::parse(&ask.to_json()), Some(ask));
+        // 평소 ping은 예전 판과 같은 모양
+        assert_eq!(Message::Control(Control::Ping { ask: None }).to_json(), br#"{"type":"ping"}"#.to_vec());
+        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None })));
+        // 예전 판의 Control(Ping은 필드 없는 변형)도 ask가 붙은 ping을 그냥 ping으로 읽는다 (연결을 끊지 않는다)
+        #[derive(Debug, PartialEq, Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
+        enum OldControl {
+            Unfriend,
+            Ping,
+        }
+        assert_eq!(serde_json::from_slice::<OldControl>(br#"{"type":"ping","ask":"invite"}"#).unwrap(), OldControl::Ping);
     }
 
     #[test]

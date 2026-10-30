@@ -139,6 +139,35 @@ pub fn next_host<'a>(sent: Option<(&'a str, Side)>, exited: Side, guest: Option<
     (roaming && !open.is_empty()).then(|| open[pick(open.len()).min(open.len() - 1)])
 }
 
+/// "<친구> 펫 데리고 오기"를 받아들인 뒤 같은 친구의 다음 부탁까지 (초) — 그 사이 부탁은 바쁘다고 답한다
+pub const INVITE_COOLDOWN_SECS: f64 = 60.0;
+
+/// 친구가 내 동물을 데려오고 싶어 할 때의 답
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InviteAnswer {
+    /// 말풍선을 띄우고 그 친구 쪽 끝으로 간다 ("놀러 보내기"와 같은 길)
+    Go,
+    /// 지금은 못 간다 (부드럽게 거절)
+    Busy,
+}
+
+/// available = 내 동물을 지금 보낼 수 있음 ("놀러 보내기"와 같은 규칙), since_accepted = 그 친구의 부탁을 마지막으로 받아들인 뒤 지난 초
+pub fn answer_invite(available: bool, since_accepted: Option<f64>) -> InviteAnswer {
+    if available && since_accepted.is_none_or(|t| t >= INVITE_COOLDOWN_SECS) {
+        InviteAnswer::Go
+    } else {
+        InviteAnswer::Busy
+    }
+}
+
+/// 친구(name)가 데려갈 때 내 동물 말풍선 (이름은 다듬어 20자까지)
+pub fn invite_bubble(name: &str) -> String {
+    match crate::config::sanitize_name(name) {
+        Some(n) => format!("off to {n}'s~ brb!"),
+        None => "off to play~ brb!".to_string(),
+    }
+}
+
 /// 손님 몸 배율: 주인이 보낸 값(sent)이 범위 안이면 그대로, 아니면(NaN 포함) 이쪽에서 계산한 값(local)을 범위 안으로
 pub fn guest_scale(sent: f64, local: f64) -> f64 {
     let (lo, hi) = GUEST_SCALE_RANGE;
@@ -259,6 +288,25 @@ mod tests {
         assert_eq!(next_host(None, Side::Right, Some(homesick), &open, |_| 0), None);
         assert_eq!(next_host(None, Side::Right, Some(guest), &[], |_| 0), None);
         assert_eq!(next_host(None, Side::Left, Some(guest), &open, |_| 0), None);
+    }
+
+    #[test]
+    fn invite_goes_only_when_free_and_not_too_soon() {
+        assert_eq!(answer_invite(true, None), InviteAnswer::Go);
+        assert_eq!(answer_invite(false, None), InviteAnswer::Busy);
+        assert_eq!(answer_invite(true, Some(10.0)), InviteAnswer::Busy, "accepted one 10 s ago");
+        assert_eq!(answer_invite(true, Some(INVITE_COOLDOWN_SECS - 0.1)), InviteAnswer::Busy);
+        assert_eq!(answer_invite(true, Some(INVITE_COOLDOWN_SECS)), InviteAnswer::Go);
+        assert_eq!(INVITE_COOLDOWN_SECS, 60.0);
+    }
+
+    #[test]
+    fn invite_bubble_names_the_friend_briefly() {
+        assert_eq!(invite_bubble("danni"), "off to danni's~ brb!");
+        let long = invite_bubble(&"가".repeat(50));
+        assert_eq!(long, format!("off to {}'s~ brb!", "가".repeat(20)));
+        assert_eq!(invite_bubble(" a\nb "), "off to ab's~ brb!");
+        assert_eq!(invite_bubble(""), "off to play~ brb!");
     }
 
     #[test]

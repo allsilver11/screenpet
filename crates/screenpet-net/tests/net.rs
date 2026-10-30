@@ -672,6 +672,39 @@ fn new_links_hello_with_the_new_name() {
 }
 
 #[test]
+fn asks_reach_connected_friends_only() {
+    let p = connected_pair();
+    p.a.ask("bbbb", "invite");
+    assert_eq!(
+        wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Asked { .. })),
+        Some(NetEvent::Asked { from: "aaaa".into(), ask: "invite".into() })
+    );
+    p.b.ask("aaaa", "busy");
+    assert_eq!(wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Asked { .. })), Some(NetEvent::Asked { from: "bbbb".into(), ask: "busy".into() }));
+    // 모르는 상대에게는 보내지 않는다
+    p.a.ask("zzzz", "invite");
+    p.a.shutdown();
+    p.b.shutdown();
+}
+
+#[test]
+fn stranger_ask_is_ignored_and_long_asks_are_clamped() {
+    let (net, rx, port) = start_sniffed(key(), vec![]);
+    let mut p = raw_connect(port, &key(), "zzzz");
+    p.send(json!({"type": "ping", "ask": "invite"})).unwrap();
+    assert_eq!(wait_for(&rx, 0.8, |e| matches!(e, NetEvent::Asked { .. })), None);
+    net.shutdown();
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    p.send(json!({"type": "ping", "ask": "x".repeat(500)})).unwrap();
+    let Some(NetEvent::Asked { ask, .. }) = wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Asked { .. })) else { panic!("asked") };
+    assert_eq!(ask.chars().count(), 64);
+    net.shutdown();
+}
+
+#[test]
 fn stranger_rehello_does_not_rename() {
     let (net, rx, port) = start_sniffed(key(), vec![]);
     let mut p = raw_connect(port, &key(), "zzzz");

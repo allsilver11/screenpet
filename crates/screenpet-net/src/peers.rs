@@ -172,7 +172,7 @@ pub(crate) fn run_session(
                 break;
             }
         } else if now.duration_since(last_ping) >= t.ping_interval {
-            if !link.send(&ctl(Control::Ping)) {
+            if !link.send(&ctl(Control::Ping { ask: None })) {
                 break;
             }
             last_ping = now;
@@ -366,7 +366,14 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             }
             true
         }
-        Message::Control(Control::Ping) => true,
+        Message::Control(Control::Ping { ask: None }) => true,
+        // A friend's app request (authenticated friend links only, like visits)
+        Message::Control(Control::Ping { ask: Some(ask) }) => {
+            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) {
+                shared.emit(NetEvent::Asked { from: id.to_string(), ask: clamp_name(&ask) });
+            }
+            true
+        }
         Message::Control(Control::Invite { pet, commit }) => {
             match conn.kind {
                 Kind::Friend => return true,

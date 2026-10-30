@@ -55,6 +55,17 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest }) {
     }, 1500);
   });
 
+  // 백엔드가 정한 글자 그대로 (친구가 데려갈 때 "off to <name>'s~ brb!", 부탁 거절 "<name>: busy~")
+  listen("pet-say-text", (e) => {
+    if (typeof e.payload !== "string" || !e.payload || !pickerEl.hidden) return;
+    bubbleEl.textContent = e.payload;
+    bubbleEl.hidden = false;
+    clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(() => {
+      bubbleEl.hidden = true;
+    }, 2500);
+  });
+
   // 배고플 때 클릭하면 머리 위에 🍚 (좋아하는 것) 버튼 — 간식·물은 트레이·우클릭 메뉴에서 언제든
   listen("food-picker", (e) => {
     favBtn.textContent = e.payload.emoji;

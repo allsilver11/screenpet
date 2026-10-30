@@ -93,7 +93,15 @@ pub enum NetInput {
     SendTo(String),
     /// 손님 우클릭 "<친구>에게 보내기": 손님(창 label)을 내 친구(friend) 화면으로 더 보낸다 (주인이 그 친구를 알면 이어 간다)
     SendOn { label: String, friend: String },
+    /// 트레이 "<친구> 펫 데리고 오기": 그 친구에게 동물을 보내 달라고 부탁한다
+    BringPet(String),
 }
+
+/// 친구에게 하는 부탁 (net의 ask): 펫 데리고 오기 / 지금은 못 가요
+const ASK_INVITE: &str = "invite";
+const ASK_BUSY: &str = "busy";
+/// 부탁한 뒤 이만큼 안에 온 "busy"만 내 동물 머리 위에 보인다
+const ASK_ANSWER_WINDOW: Duration = Duration::from_secs(30);
 
 /// 손님 우클릭 메뉴용: 지금 연결된 내 친구 (id, 보일 이름) — 게임 루프가 메뉴를 다시 계산할 때 맞춘다
 static ONLINE_FRIENDS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
@@ -230,6 +238,12 @@ pub struct Network {
     full_until: HashMap<String, Instant>,
     /// "<친구>에게 보내기"로 보낸 손님: visit_id → (그 친구, 그 친구가 연결된 끝)
     guest_sends: HashMap<String, (String, Side)>,
+    /// 친구별 마지막으로 받아들인 "펫 데리고 오기" 부탁 시각 (60초에 한 번)
+    invite_accepted: HashMap<String, Instant>,
+    /// 친구별 내가 "펫 데리고 오기"를 부탁한 시각
+    invite_asked: HashMap<String, Instant>,
+    /// 지금 와 있는 손님 수 (꽉 차면 "펫 데리고 오기"를 막는다)
+    guests: usize,
     /// 중계 서버를 쓰도록 설정됨 / 지금 연결됨
     relay_enabled: bool,
     relay_connected: bool,
@@ -344,6 +358,9 @@ impl Network {
             last_decline_log: HashMap::new(),
             full_until: HashMap::new(),
             guest_sends: HashMap::new(),
+            invite_accepted: HashMap::new(),
+            invite_asked: HashMap::new(),
+            guests: 0,
             relay_enabled: false,
             relay_connected: false,
             friend_code: None,
@@ -396,7 +413,13 @@ impl Network {
 
     /// 매 틱 update 전에: 연결된 친구가 있는 끝으로만 나갈 수 있다. 하우스 안·가는 중·하우스 토글 중엔 나가지 않는다.
     /// 손님(slots[1..])은 주인이 아닌 연결된 친구가 있는 끝으로 더 놀러 갈 수 있다 (그 친구가 주인의 친구인지는 주인이 본다)
-    pub fn set_exit_edges(&self, config: &Config, slots: &mut [Slot]) {
+    pub fn set_exit_edges(&mut self, config: &Config, slots: &mut [Slot]) {
+        // 손님 수가 바뀌면 "펫 데리고 오기" 활성을 다시 그린다
+        let count = slots.len().saturating_sub(1);
+        if count != self.guests {
+            self.guests = count;
+            self.menu_dirty = true;
+        }
         let Some((own, guests)) = slots.split_first_mut() else { return };
         let blocked = self.net.is_none() || config.housed || own.pet.is_housed() || own.pet.is_going_home();
         let edges = if blocked { Default::default() } else { config.exit_edges(|id| self.is_open(id)) };
@@ -630,6 +653,13 @@ impl Network {
                 self.send_on(config, slots, &label, &friend);
                 false
             }
+            NetInput::BringPet(id) => {
+                if let (Some(net), true) = (&self.net, self.is_connected(&id) && self.guests < MAX_GUESTS) {
+                    net.ask(&id, ASK_INVITE);
+                    self.invite_asked.insert(id, Instant::now());
+                }
+                false
+            }
         }
     }
 
@@ -671,6 +701,7 @@ impl Network {
                     self.note_name(&id, &clamp(&name));
                 }
             }
+            NetEvent::Asked { from, ask } => self.on_ask(app, config, slots, &from, &ask),
             NetEvent::Disconnected { id } => {
                 self.connected.remove(&id);
                 // 그 친구의 손님은 손 흔들고 사라진다
@@ -713,6 +744,41 @@ impl Network {
             }
         }
         false
+    }
+
+    /// 친구의 부탁 (인증된 친구 링크에서만 온다 — net이 확인한다)
+    fn on_ask(&mut self, app: &AppHandle, config: &Config, slots: &mut [Slot], from: &str, ask: &str) {
+        let Some(f) = config.friend(from) else { return };
+        match ask {
+            // "펫 데리고 오기": 보낼 수 있고 너무 잦지 않으면 말풍선을 띄우고 "놀러 보내기"처럼 그 친구에게 간다
+            ASK_INVITE => {
+                let available = self.can_send(&slots[0], from);
+                let since = self.invite_accepted.get(from).map(|t| t.elapsed().as_secs_f64());
+                match visit::answer_invite(available, since) {
+                    visit::InviteAnswer::Go => {
+                        self.invite_accepted.insert(from.to_string(), Instant::now());
+                        let target = if slots[0].pet.is_housed() { crate::house::LABEL } else { OWN_LABEL };
+                        let _ = app.emit_to(target, "pet-say-text", visit::invite_bubble(f.shown_name()));
+                        eprintln!("{from} invited our pet over; going");
+                        // 하우스에서 꺼내는 일은 게임 루프가 한다 (트레이 "놀러 보내기"와 같은 길)
+                        let _ = app.state::<AppState>().tx.lock().unwrap().send(Input::Net(NetInput::SendTo(from.to_string())));
+                    }
+                    visit::InviteAnswer::Busy => {
+                        if let Some(net) = &self.net {
+                            net.ask(from, ASK_BUSY);
+                        }
+                    }
+                }
+            }
+            // 내가 부탁했는데 지금은 못 온대요 — 내 동물 머리 위에 작게
+            ASK_BUSY => {
+                if self.invite_asked.remove(from).is_some_and(|t| t.elapsed() < ASK_ANSWER_WINDOW) {
+                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", format!("{}: busy~", f.shown_name()));
+                }
+            }
+            // 모르는 부탁 (새 판) — 무시
+            _ => {}
+        }
     }
 
     fn note_name(&mut self, id: &str, name: &str) {
@@ -1112,7 +1178,8 @@ impl Network {
         *ONLINE_FRIENDS.lock().unwrap() =
             config.friends.iter().filter(|f| self.is_open(&f.id)).map(|f| (f.id.clone(), f.shown_name().to_string())).collect();
         let relay = self.relay_enabled.then_some(self.relay_connected);
-        FriendsMenu { available: self.net.is_some(), my_name: self.name.clone(), strangers, friends, away: self.away.is_some(), relay }
+        let room = self.guests < MAX_GUESTS;
+        FriendsMenu { available: self.net.is_some(), my_name: self.name.clone(), strangers, friends, away: self.away.is_some(), relay, room }
     }
 }
 
