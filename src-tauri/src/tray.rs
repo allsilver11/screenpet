@@ -10,7 +10,7 @@ use tauri::{AppHandle, Manager, WebviewWindow, Wry};
 use crate::game_loop::Input;
 use crate::network::NetInput;
 use crate::pets::PetEntry;
-use screenpet_core::visit::Side;
+use screenpet_core::visit::{self, Side};
 use crate::slots::{self, OWN_LABEL};
 use crate::AppState;
 
@@ -26,8 +26,8 @@ const REPLY_PREFIX: &str = "reply:";
 const SEND_ON_PREFIX: &str = "send-on:";
 /// `친구랑 놀기` 항목 id 앞부분 (뒤는 상대 id)
 const INVITE_PREFIX: &str = "net:invite:";
-const LEFT_PREFIX: &str = "net:left:";
-const RIGHT_PREFIX: &str = "net:right:";
+/// 친구 자리 고르기 (뒤는 "<visit::SIDE_CHOICES 열쇠>:<친구 id>" — 왼쪽에/오른쪽에/위에/아래에)
+const SIDE_PREFIX: &str = "net:side:";
 const UNFRIEND_PREFIX: &str = "net:unfriend:";
 const REPAIR_PREFIX: &str = "net:repair:";
 const NICKNAME_PREFIX: &str = "net:nickname:";
@@ -168,8 +168,8 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         if f.forgot {
             title.push_str(" (다시 친구 맺기 필요)");
         }
-        let left = CheckMenuItem::with_id(app, format!("{LEFT_PREFIX}{}", f.id), "왼쪽에", true, f.side == Side::Left, None::<&str>)?;
-        let right = CheckMenuItem::with_id(app, format!("{RIGHT_PREFIX}{}", f.id), "오른쪽에", true, f.side == Side::Right, None::<&str>)?;
+        let [left, right, up, down] = visit::SIDE_CHOICES.map(|(side, key, label)| CheckMenuItem::with_id(app, format!("{SIDE_PREFIX}{key}:{}", f.id), label, true, f.side == side, None::<&str>));
+        let (left, right, up, down) = (left?, right?, up?, down?);
         let send = MenuItem::with_id(app, format!("{SEND_PREFIX}{}", f.id), "놀러 보내기", f.can_send, None::<&str>)?;
         // 편지를 실어 보내기: "놀러 보내기"와 같은 때만 누를 수 있다
         let letter = MenuItem::with_id(app, format!("{LETTER_PREFIX}{}", f.id), "편지 들려 보내기…", f.can_send, None::<&str>)?;
@@ -179,7 +179,7 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
         let sep = PredefinedMenuItem::separator(app)?;
         let sep2 = PredefinedMenuItem::separator(app)?;
-        let sub = Submenu::with_items(app, title, true, &[&send, &letter, &bring, &sep, &left, &right, &sep2, &nickname, &unfriend])?;
+        let sub = Submenu::with_items(app, title, true, &[&send, &letter, &bring, &sep, &left, &right, &up, &down, &sep2, &nickname, &unfriend])?;
         if f.forgot {
             sub.append(&MenuItem::with_id(app, format!("{REPAIR_PREFIX}{}", f.id), "다시 친구 맺기", true, None::<&str>)?)?;
         }
@@ -428,10 +428,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::EditNickname(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(INVITE_PREFIX) {
                     net(NetInput::Invite(id.to_string()));
-                } else if let Some(id) = other.strip_prefix(LEFT_PREFIX) {
-                    net(NetInput::SetSide { id: id.to_string(), side: Side::Left });
-                } else if let Some(id) = other.strip_prefix(RIGHT_PREFIX) {
-                    net(NetInput::SetSide { id: id.to_string(), side: Side::Right });
+                } else if let Some((side, id)) = other.strip_prefix(SIDE_PREFIX).and_then(|r| r.split_once(':')).and_then(|(k, id)| Some((visit::side_choice(k)?, id))) {
+                    net(NetInput::SetSide { id: id.to_string(), side });
                 } else if let Some(id) = other.strip_prefix(UNFRIEND_PREFIX) {
                     net(NetInput::Unfriend(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(REPAIR_PREFIX) {

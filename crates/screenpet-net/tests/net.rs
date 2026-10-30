@@ -112,6 +112,7 @@ fn sample_visit() -> Visit {
         personality: "playful".into(),
         owner: "Ann".into(),
         enter_side: Side::Left,
+        vside: None,
         via: None,
         homesick_in: None,
         fling: None,
@@ -618,7 +619,7 @@ fn visit_messages_round_trip() {
         Some(NetEvent::Received { from: "bbbb".into(), msg: Visit::leave(42) })
     );
     // 다른 친구에게 더 놀러 가는 손님
-    let hop = Visit::Leave { visit_id: 42, next: Some("cccc".into()), side: Some(Side::Right), homesick_in: Some(77.0), fling: None, note: None };
+    let hop = Visit::Leave { visit_id: 42, next: Some("cccc".into()), side: Some(Side::Right), vside: None, homesick_in: Some(77.0), fling: None, note: None };
     p.b.send("aaaa", hop.clone());
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
@@ -627,7 +628,7 @@ fn visit_messages_round_trip() {
     // 편지를 들려 보낸 방문, 그리고 주인이 다음 친구에게 이어 보낼 때도 같은 편지를 다시 싣는다 (via)
     for via in [None, Some("cccc".to_string())] {
         let Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, homesick_in, fling, .. } = sample_visit() else { unreachable!() };
-        let letter = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, via, homesick_in, fling, note: Some("놀러 왔어 💌".into()) };
+        let letter = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via, homesick_in, fling, note: Some("놀러 왔어 💌".into()) };
         p.a.send("bbbb", letter.clone());
         assert_eq!(
             wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
@@ -635,7 +636,7 @@ fn visit_messages_round_trip() {
         );
     }
     // 친구가 답장을 써서 돌려보낸 귀환
-    let reply = Visit::Leave { visit_id: 42, next: None, side: None, homesick_in: None, fling: None, note: Some("또 와 💌".into()) };
+    let reply = Visit::Leave { visit_id: 42, next: None, side: None, vside: None, homesick_in: None, fling: None, note: Some("또 와 💌".into()) };
     p.b.send("aaaa", reply.clone());
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),

@@ -385,6 +385,14 @@ pub fn vertical_entry_x(world: &World, side: Side, frac: Option<f64>, half_w: f6
     }
 }
 
+/// 트레이 친구 메뉴의 자리 고르기 (이 순서로): (끝, 메뉴 id 열쇠, 이름)
+pub const SIDE_CHOICES: [(Side, &str, &str); 4] = [(Side::Left, "left", "왼쪽에"), (Side::Right, "right", "오른쪽에"), (Side::Up, "up", "위에"), (Side::Down, "down", "아래에")];
+
+/// 메뉴 id 열쇠 → 끝 (모르면 None)
+pub fn side_choice(key: &str) -> Option<Side> {
+    SIDE_CHOICES.iter().find(|(_, k, _)| *k == key).map(|(s, _, _)| *s)
+}
+
 /// 몸(발 y, 키 height)이 위/아래 끝 바깥으로 다 빠져나갔는지
 pub fn fully_outside_v(bounds: &Rect, side: Side, y: f64, height: f64) -> bool {
     match side {
@@ -703,6 +711,16 @@ mod tests {
         }
         assert_eq!(edge_fraction(&w.bounds, 1500.0), 0.5);
         assert_eq!((edge_fraction(&w.bounds, -50.0), edge_fraction(&w.bounds, 1e9)), (0.0, 1.0));
+    }
+
+    #[test]
+    fn the_friend_menu_offers_four_places() {
+        let labels: Vec<&str> = SIDE_CHOICES.iter().map(|c| c.2).collect();
+        assert_eq!(labels, ["왼쪽에", "오른쪽에", "위에", "아래에"]);
+        for (side, key, _) in SIDE_CHOICES {
+            assert_eq!(side_choice(key), Some(side));
+        }
+        assert_eq!((side_choice("send"), side_choice("")), (None, None));
     }
 
     #[test]
