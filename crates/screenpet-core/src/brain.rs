@@ -380,6 +380,8 @@ pub struct Pet {
     exit_edges: ExitEdges,
     /// 손님으로 와 있으면 Some
     guest: Option<Guest>,
+    /// 트레이 "놀러 보내기"로 친구가 연결된 끝으로 가는 중 (brain_send.rs)
+    send: Option<send_moves::SendTrip>,
     /// 들려 있거나 공중일 때 "집에 와"를 받음 — 놓여서 내려서면 손 흔든다
     farewell_pending: bool,
     /// 화면을 떠난 쪽 (take_exit로 한 번 꺼낸다)
@@ -462,6 +464,7 @@ impl Pet {
             housed: false,
             exit_edges: ExitEdges::default(),
             guest: None,
+            send: None,
             farewell_pending: false,
             exited: None,
             inside: None,
@@ -503,6 +506,7 @@ impl Pet {
         self.track_prop(world);
         self.serve_queued_food();
         self.notice_hand();
+        self.tick_send(dt, world);
         if self.housed && self.food.is_some_and(|f| f.from_house) {
             self.come_out_for_food(world);
         }
@@ -945,9 +949,9 @@ impl Pet {
         self.guest
     }
 
-    /// 손님이 집을 그리워하는 중
+    /// 한쪽 화면 끝으로 곧장 가는 중: 집을 그리워하는 손님, 또는 "놀러 보내기"로 보낸 내 동물 (brain_send.rs의 heading)
     pub fn is_homesick(&self) -> bool {
-        self.guest.is_some_and(|g| g.is_homesick())
+        self.heading().is_some()
     }
 
     /// 화면 끝(side) 바깥 바닥에서 걸어 들어오는 새 동물 (친구 동물이 놀러 옴)
@@ -1046,7 +1050,7 @@ impl Pet {
     /// 걷다가 화면 가장 바깥 끝(piece의 진행 방향 끝)에 닿음: 걸어 나갈 거면 그 쪽
     fn wants_exit(&mut self, world: &World, piece: &Surface) -> Option<Side> {
         let side = visit::screen_edge(world, piece, self.facing)?;
-        let chance = visit::exit_chance(side, self.exit_edges, self.guest);
+        let chance = self.exit_odds(side);
         (chance >= 1.0 || chance > 0.0 && self.rng.f64() < chance).then_some(side)
     }
 
@@ -2328,9 +2332,9 @@ impl Pet {
         if let Some(leap) = self.big_jump_state(world) {
             return leap;
         }
-        if let (true, Some(g)) = (homesick, self.guest) {
+        if let Some(side) = self.heading() {
             if may_flip {
-                self.facing = visit::dir(g.home);
+                self.facing = visit::dir(side);
             }
         } else if may_flip && self.rng.bool() {
             self.facing = -self.facing;
@@ -2620,6 +2624,14 @@ mod hand_tests;
 /// 폴짝 뛰는 동물 (개구리)
 #[path = "brain_hop.rs"]
 mod hop_moves;
+
+/// 트레이 "놀러 보내기" — 친구가 연결된 끝으로 곧장 가서 나간다
+#[path = "brain_send.rs"]
+pub(crate) mod send_moves;
+
+#[cfg(test)]
+#[path = "brain_send_tests.rs"]
+mod send_tests;
 
 #[cfg(test)]
 #[path = "brain_hop_tests.rs"]

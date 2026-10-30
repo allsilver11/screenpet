@@ -28,6 +28,9 @@ const UNFRIEND_PREFIX: &str = "net:unfriend:";
 const REPAIR_PREFIX: &str = "net:repair:";
 const NICKNAME_PREFIX: &str = "net:nickname:";
 const MY_NAME_ID: &str = "net:my-name";
+const SEND_PREFIX: &str = "net:send:";
+/// "놀러 보내기 ▸" 목록 항목 (친구 하위 메뉴의 항목과 id가 겹치면 안 된다)
+const SEND_LIST_PREFIX: &str = "net:send-list:";
 const COME_HOME_ID: &str = "net:come-home";
 const SHOW_CODE_ID: &str = "net:show-code";
 const ENTER_CODE_ID: &str = "net:enter-code";
@@ -55,6 +58,8 @@ pub struct FriendItem {
     pub name: String,
     pub side: Side,
     pub connected: bool,
+    /// 지금 내 동물을 이 친구에게 보낼 수 있음 (연결됨 + 내 동물이 놀러 가 있지 않음)
+    pub can_send: bool,
     /// 상대가 나를 더 이상 친구로 알아보지 못함
     pub forgot: bool,
 }
@@ -104,6 +109,15 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     }
     // 친구들에게 보이는 내 이름 (누르면 바꾸기 창)
     submenu.append(&MenuItem::with_id(app, MY_NAME_ID, format!("내 이름: {} ✏️", menu_text(&model.my_name)), true, None::<&str>)?)?;
+    // 놀러 보내기 ▸ 연결된 친구 (펫 우클릭에서도 같은 메뉴)
+    let online: Vec<&FriendItem> = model.friends.iter().filter(|f| f.connected).collect();
+    if !online.is_empty() {
+        let send = Submenu::new(app, "놀러 보내기", online.iter().any(|f| f.can_send))?;
+        for f in online {
+            send.append(&MenuItem::with_id(app, format!("{SEND_LIST_PREFIX}{}", f.id), menu_text(&f.name), f.can_send, None::<&str>)?)?;
+        }
+        submenu.append(&send)?;
+    }
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
     for f in &model.friends {
         let dot = if f.connected { "●" } else { "○" };
@@ -113,9 +127,12 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         }
         let left = CheckMenuItem::with_id(app, format!("{LEFT_PREFIX}{}", f.id), "왼쪽에", true, f.side == Side::Left, None::<&str>)?;
         let right = CheckMenuItem::with_id(app, format!("{RIGHT_PREFIX}{}", f.id), "오른쪽에", true, f.side == Side::Right, None::<&str>)?;
+        let send = MenuItem::with_id(app, format!("{SEND_PREFIX}{}", f.id), "놀러 보내기", f.can_send, None::<&str>)?;
         let nickname = MenuItem::with_id(app, format!("{NICKNAME_PREFIX}{}", f.id), "이름 바꾸기…", true, None::<&str>)?;
         let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
-        let sub = Submenu::with_items(app, title, true, &[&left, &right, &PredefinedMenuItem::separator(app)?, &nickname, &unfriend])?;
+        let sep = PredefinedMenuItem::separator(app)?;
+        let sep2 = PredefinedMenuItem::separator(app)?;
+        let sub = Submenu::with_items(app, title, true, &[&send, &sep, &left, &right, &sep2, &nickname, &unfriend])?;
         if f.forgot {
             sub.append(&MenuItem::with_id(app, format!("{REPAIR_PREFIX}{}", f.id), "다시 친구 맺기", true, None::<&str>)?)?;
         }
@@ -318,6 +335,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::EnterCode);
                 } else if other == MY_NAME_ID {
                     net(NetInput::EditMyName);
+                } else if let Some(id) = other.strip_prefix(SEND_PREFIX).or_else(|| other.strip_prefix(SEND_LIST_PREFIX)) {
+                    net(NetInput::SendTo(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(NICKNAME_PREFIX) {
                     net(NetInput::EditNickname(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(INVITE_PREFIX) {

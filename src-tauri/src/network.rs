@@ -85,6 +85,8 @@ pub enum NetInput {
     EditNickname(String),
     /// 이름 바꾸기 창에서 확인 (빈 글자 = 기본 이름으로). 누구 이름인지는 창을 연 쪽(Network::naming)이 안다
     SubmitName(String),
+    /// 트레이 "놀러 보내기": 내 동물을 그 친구 화면으로 지금 보낸다 (게임 루프가 하우스에서 꺼낸 뒤 Network::send_to)
+    SendTo(String),
 }
 
 /// 이름 바꾸기 창이 다루는 이름
@@ -192,6 +194,10 @@ pub struct Network {
     forgot: HashSet<String>,
     pairing: Option<Pairing>,
     away: Option<AwayVisit>,
+    /// "놀러 보내기"로 그 친구(id)가 연결된 끝(side)으로 가는 중 — 그 끝으로 나가면 이 친구에게 간다
+    sending: Option<(String, Side)>,
+    /// 지금 내 동물을 보낼 수 있음 (메뉴 "놀러 보내기" 활성 — 바뀌면 메뉴를 다시 그린다)
+    can_send: bool,
     last_menu: Option<FriendsMenu>,
     /// 트레이 메뉴를 다시 계산할 일이 있었음 (네트워크 입력·놀러 가기/돌아오기)
     menu_dirty: bool,
@@ -298,6 +304,8 @@ impl Network {
             forgot: HashSet::new(),
             pairing: None,
             away: None,
+            sending: None,
+            can_send: false,
             last_menu: None,
             menu_dirty: true,
             names: HashMap::new(),
@@ -362,14 +370,38 @@ impl Network {
         }
     }
 
-    /// 내 동물이 side 끝으로 다 나갔다: 그 끝의 연결된 친구 하나에게 Visit. 아무도 없으면(그새 끊김) 바로 다시 들어온다
+    /// 메뉴 "놀러 보내기" 활성: 네트워크가 있고 내 동물이 놀러 가 있거나 가는 중이 아님 (하우스 안이면 나와서 간다).
+    /// 들려 있는지는 누를 때 본다 (잡을 때마다 메뉴를 다시 그리지 않는다 — 들고 있는 동안엔 메뉴를 열 수 없다)
+    fn own_free(&self, own: &Slot) -> bool {
+        self.net.is_some() && !self.own_busy(own)
+    }
+
+    /// "놀러 보내기": 그 친구가 연결돼 있고 내 동물이 보낼 수 있는 상태 (들려 있지 않음)
+    pub fn can_send(&self, own: &Slot, id: &str) -> bool {
+        self.own_free(own) && !own.pet.is_held() && self.is_connected(id)
+    }
+
+    /// "놀러 보내기": 내 동물이 그 친구가 연결된 끝으로 곧장 가서 나간다 (게임 루프가 하우스에서 먼저 꺼낸다)
+    pub fn send_to(&mut self, config: &Config, own: &mut Slot, id: &str) {
+        let Some(f) = config.friend(id) else { return };
+        if !self.can_send(own, id) || !own.pet.send_to(f.side) {
+            return;
+        }
+        eprintln!("sending own pet to {id} through the {:?} edge", f.side);
+        self.sending = Some((id.to_string(), f.side));
+        self.menu_dirty = true;
+    }
+
+    /// 내 동물이 side 끝으로 다 나갔다: 그 끝의 연결된 친구 하나에게 Visit ("놀러 보내기"였으면 그 친구에게).
+    /// 아무도 없으면(그새 끊김) 바로 다시 들어온다
     pub fn own_exited(&mut self, config: &Config, own: &mut Slot, side: Side) {
+        let chosen = self.sending.take().filter(|(id, s)| *s == side && self.is_connected(id)).map(|(id, _)| id);
         let friends = config.friends_at(side, |id| self.is_connected(id));
         let (Some(net), false) = (&self.net, friends.is_empty()) else {
             own.pet.enter(&own.world, side);
             return;
         };
-        let friend = friends[fastrand::usize(..friends.len())].id.clone();
+        let friend = chosen.unwrap_or_else(|| friends[fastrand::usize(..friends.len())].id.clone());
         let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None);
         eprintln!("own pet went to visit {friend} (visit {visit_id})");
         self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None });
@@ -534,6 +566,8 @@ impl Network {
                 Some(Naming::Friend(id)) => config.set_friend_nickname(&id, &name),
                 None => false,
             },
+            // 게임 루프가 하우스에서 꺼낸 뒤 send_to를 직접 부른다 (여기 오지 않는다)
+            NetInput::SendTo(_) => false,
         }
     }
 
@@ -962,6 +996,20 @@ impl Network {
     /// 매 틱: 짝맞추기 시간, "집에 와" 대비, 트레이 `친구랑 놀기` 메뉴
     pub fn tick(&mut self, app: &AppHandle, now: Instant, config: &Config, own: &mut Slot) {
         self.tick_pairing(app, now);
+        // 놀러 보내는 중: 그 친구가 끊겼으면 그만두고, 동물 쪽에서 끝났으면(하우스로 감 등) 잊는다
+        if let Some((id, _)) = &self.sending {
+            if !self.is_connected(id) || config.friend(id).is_none() {
+                own.pet.cancel_send();
+                self.sending = None;
+            } else if own.pet.sending().is_none() && !is_exiting(own) && !own.pet.is_away() {
+                self.sending = None;
+            }
+        }
+        let can_send = self.own_free(own);
+        if can_send != self.can_send {
+            self.can_send = can_send;
+            self.menu_dirty = true;
+        }
         if self.away.as_ref().and_then(|a| a.come_home_by).is_some_and(|t| now >= t) {
             eprintln!("no answer to come-home; coming back anyway");
             self.come_back(own);
@@ -987,6 +1035,7 @@ impl Network {
                 name: f.shown_name().to_string(),
                 side: f.side,
                 connected: self.is_connected(&f.id),
+                can_send: self.can_send && self.is_connected(&f.id),
                 forgot: self.forgot.contains(&f.id),
             })
             .collect();

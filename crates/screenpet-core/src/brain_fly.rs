@@ -221,9 +221,9 @@ impl Pet {
                 None => false,
             };
         }
-        if let (Some(g), None) = (self.guest.filter(|g| g.is_homesick()), inside) {
+        if let (Some(side), None) = (self.heading(), inside) {
             let head = self.fly_head();
-            if let Some((tx, ty)) = flight::edge_target(&mut self.rng, world, g.home, self.cfg.half_w, head, self.cfg.size) {
+            if let Some((tx, ty)) = flight::edge_target(&mut self.rng, world, side, self.cfg.half_w, head, self.cfg.size) {
                 self.start_flight(Goal::Point(tx, ty), kind);
                 return true;
             }
@@ -357,14 +357,14 @@ impl Pet {
         if f.edge_checked || self.inside.is_some() || self.meal_pending.is_some() || !matches!(f.goal, Goal::Point(..)) {
             return false;
         }
-        let dir = match self.guest {
-            Some(g) if g.is_homesick() => visit::dir(g.home),
-            _ => self.facing,
+        let dir = match self.heading() {
+            Some(side) => visit::dir(side),
+            None => self.facing,
         };
         let Some(side) = flight::edge_ahead(world, self.body.x, self.body.y, self.cfg.half_w, self.cfg.size, dir) else { return false };
         f.edge_checked = true;
         self.flight = Some(*f);
-        let chance = visit::exit_chance(side, self.exit_edges, self.guest);
+        let chance = self.exit_odds(side);
         if chance >= 1.0 || chance > 0.0 && self.rng.f64() < chance {
             self.flight = None;
             self.start_exit(side);

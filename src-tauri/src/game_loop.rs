@@ -49,7 +49,7 @@ pub enum Input {
     HouseMoved { save: bool },
     /// 손님(label)을 주인에게 돌려보낸다 (손님 우클릭 메뉴)
     SendHome { label: String },
-    /// 친구 네트워크 (네트워크 이벤트, 트레이 `친구 화면`, 짝맞추기 창)
+    /// 친구 네트워크 (네트워크 이벤트, 트레이 `친구랑 놀기`, 짝맞추기 창)
     Net(NetInput),
     /// 저장하고 앱 종료
     Quit,
@@ -337,6 +337,28 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     if let Some(i) = slots::find(&slots, &label).filter(|&i| !slots[i].is_own()) {
                         slots[i].pet.go_home_now();
                     }
+                }
+                Input::Net(NetInput::SendTo(id)) => {
+                    // 놀러 보내기: 하우스 안이면 먼저 문 앞으로 나온 뒤 그 친구 쪽 끝으로 간다
+                    let own = &mut slots[OWN];
+                    if !network.can_send(own, &id) {
+                        continue;
+                    }
+                    if own.pet.is_housed() || own.pet.is_going_home() || own.pet.returns_home() {
+                        let spot = house::spot(&app, &own.world.work_areas, own.dpi);
+                        let was_inside = own.pet.is_housed();
+                        own.pet.leave_house(&own.world, spot.door_x, spot.ground);
+                        if was_inside {
+                            own.need_show = true;
+                        }
+                        if let Some(hw) = &house_window {
+                            let _ = hw.hide();
+                        }
+                        config.housed = false;
+                        sync_menu(&app, &own.entry, &care, config.housed);
+                        save_config(&app, &mut config, &own.entry.id, &care);
+                    }
+                    network.send_to(&config, own, &id);
                 }
                 Input::Net(input) => {
                     if network.handle(&app, input, &mut config, &mut slots) {
