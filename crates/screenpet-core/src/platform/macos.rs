@@ -37,34 +37,22 @@ impl WindowSource for MacSource {
         // SAFETY: CGWindowListCopyWindowInfo는 CFDictionary(CFString → 값)들의 배열을 돌려준다.
         let list: CFRetained<CFArray<CFDictionary<CFString, CFType>>> = unsafe { CFRetained::cast_unchecked(list) };
         // 앞→뒤 순서로 온다
-        list.iter()
-            .filter_map(|info| {
-                // 레이어 0 = 보통 앱 창 (메뉴 막대·Dock·떠 있는 패널·화면 보호기 등은 다른 레이어)
-                if number(&info, unsafe { kCGWindowLayer })?.as_i64()? != 0 {
-                    return None;
-                }
-                if number(&info, unsafe { kCGWindowOwnerPID })?.as_i64()? == own_pid {
-                    return None;
-                }
-                let alpha = number(&info, unsafe { kCGWindowAlpha }).and_then(|n| n.as_f64()).unwrap_or(1.0);
-                if alpha <= 0.0 {
-                    return None;
-                }
-                let id = number(&info, unsafe { kCGWindowNumber })?.as_i64()? as u64;
-                let bounds = info.get(unsafe { kCGWindowBounds })?.downcast::<CFDictionary>().ok()?;
-                let mut r = CGRect::default();
-                if !unsafe { CGRectMakeWithDictionaryRepresentation(Some(&bounds), &mut r) } {
-                    return None;
-                }
-                let pts = Rect::new(r.origin.x, r.origin.y, r.origin.x + r.size.width, r.origin.y + r.size.height);
-                let rect = mac_coords::rect_to_physical(&screens, pts);
-                (rect.width() >= MIN_SIZE && rect.height() >= MIN_SIZE).then_some(WindowInfo { id, rect })
-            })
-            .collect()
+        list.iter().filter_map(|info| window_info(&info, &screens, own_pid)).collect()
     }
 
     fn work_areas(&mut self) -> Vec<Rect> {
         mac_coords::work_areas_physical(&screens())
+    }
+
+    /// 창 하나만 묻는다 (kCGWindowListOptionIncludingWindow) — 전체 목록보다 훨씬 싸다
+    fn rect_of(&mut self, id: u64) -> Option<Rect> {
+        let id = u32::try_from(id).ok()?;
+        let list = CGWindowListCopyWindowInfo(CGWindowListOption::OptionIncludingWindow, id)?;
+        // SAFETY: windows()와 같다 — CFDictionary(CFString → 값)들의 배열
+        let list: CFRetained<CFArray<CFDictionary<CFString, CFType>>> = unsafe { CFRetained::cast_unchecked(list) };
+        let screens = screens();
+        let own_pid = std::process::id() as i64;
+        list.iter().filter_map(|info| window_info(&info, &screens, own_pid)).find(|w| w.id == id as u64).map(|w| w.rect)
     }
 
     fn cursor(&mut self) -> (f64, f64) {
@@ -86,6 +74,30 @@ impl WindowSource for MacSource {
     fn escape_down(&mut self) -> bool {
         CGEventSource::key_state(CGEventSourceStateID::CombinedSessionState, KVK_ESCAPE)
     }
+}
+
+/// 창 정보 사전 하나 → 디딤판 후보 창 (보통 앱 창 레이어, 다른 프로세스, 보이는 것, 충분히 큰 것만)
+fn window_info(info: &CFDictionary<CFString, CFType>, screens: &[Screen], own_pid: i64) -> Option<WindowInfo> {
+    // 레이어 0 = 보통 앱 창 (메뉴 막대·Dock·떠 있는 패널·화면 보호기 등은 다른 레이어)
+    if number(info, unsafe { kCGWindowLayer })?.as_i64()? != 0 {
+        return None;
+    }
+    if number(info, unsafe { kCGWindowOwnerPID })?.as_i64()? == own_pid {
+        return None;
+    }
+    let alpha = number(info, unsafe { kCGWindowAlpha }).and_then(|n| n.as_f64()).unwrap_or(1.0);
+    if alpha <= 0.0 {
+        return None;
+    }
+    let id = number(info, unsafe { kCGWindowNumber })?.as_i64()? as u64;
+    let bounds = info.get(unsafe { kCGWindowBounds })?.downcast::<CFDictionary>().ok()?;
+    let mut r = CGRect::default();
+    if !unsafe { CGRectMakeWithDictionaryRepresentation(Some(&bounds), &mut r) } {
+        return None;
+    }
+    let pts = Rect::new(r.origin.x, r.origin.y, r.origin.x + r.size.width, r.origin.y + r.size.height);
+    let rect = mac_coords::rect_to_physical(screens, pts);
+    (rect.width() >= MIN_SIZE && rect.height() >= MIN_SIZE).then_some(WindowInfo { id, rect })
 }
 
 /// Carbon kVK_Escape

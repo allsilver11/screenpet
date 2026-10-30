@@ -3,7 +3,7 @@ use crate::geom::{Rect, WindowInfo};
 #[cfg(windows)]
 mod win32;
 #[cfg(windows)]
-pub use win32::Win32Source;
+pub use win32::{move_window, Win32Source};
 
 #[cfg(any(target_os = "macos", test))]
 mod mac_coords;
@@ -17,6 +17,11 @@ pub trait WindowSource: Send {
     fn windows(&mut self) -> Vec<WindowInfo>;
     /// 모니터별 작업 영역 (작업표시줄 제외).
     fn work_areas(&mut self) -> Vec<Rect>;
+    /// 창 하나의 지금 경계 (사라졌거나 숨었거나 최소화됐으면 None). 매 틱 동물이 기대고 있는 창에만 부르므로
+    /// 싸야 한다 — 기본 구현은 전체 목록에서 찾는다
+    fn rect_of(&mut self, id: u64) -> Option<Rect> {
+        self.windows().into_iter().find(|w| w.id == id).map(|w| w.rect)
+    }
     /// 전역 커서 위치 (물리 px — macOS는 CG 포인트 × 그 화면 배율, tao와 같은 공간).
     fn cursor(&mut self) -> (f64, f64);
     fn left_button_down(&mut self) -> bool;
@@ -70,5 +75,6 @@ mod tests {
         assert!(s.windows().is_empty());
         assert!(s.work_areas().is_empty());
         assert!(!s.left_button_down());
+        assert_eq!(s.rect_of(1), None);
     }
 }

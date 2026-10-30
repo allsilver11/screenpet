@@ -7,8 +7,10 @@ use screenpet_core::brain::Pet;
 use screenpet_core::care::{Care, FeedResult, Food, Stage};
 use screenpet_core::config::{self, Config};
 use screenpet_core::food::{self, FeedMode, HandFeed, HandInput};
+use screenpet_core::geom::Rect;
 use screenpet_core::manifest::FavoriteFood;
-use screenpet_core::platform::default_source;
+use screenpet_core::pacing::Pacer;
+use screenpet_core::platform::{default_source, WindowSource};
 use screenpet_core::social::Social;
 use screenpet_core::visit::Side;
 use screenpet_core::world::World;
@@ -23,6 +25,7 @@ use crate::slots::{self, GuestInfo, Role, Slot, StagePayload, OWN_LABEL};
 use crate::AppState;
 
 const TICK: Duration = Duration::from_millis(16);
+/// 전체 창 목록 다시 읽기 (EnumWindows). 사이 틱엔 동물이 기대고 있는 창만 읽는다 (follow_ridden_windows)
 const WORLD_REFRESH: Duration = Duration::from_millis(100);
 const SAVE_EVERY: Duration = Duration::from_secs(60);
 const MAX_DT: f64 = 0.05;
@@ -106,6 +109,21 @@ fn apply_own_stage(app: &AppHandle, own: &mut Slot, care: &Care) {
     own.set_stage(app, payload);
 }
 
+/// 사이 틱: 동물(내 동물·손님)이 서 있거나 매달린 창의 경계만 새로 읽어 세계에 고쳐 넣는다 —
+/// 창을 끌어 옮기면 100 ms 계단이 아니라 매 틱 따라간다. 기대고 있는 창이 없으면 아무것도 읽지 않는다
+fn follow_ridden_windows(source: &mut dyn WindowSource, slots: &mut [Slot]) {
+    let mut ids: Vec<u64> = slots.iter().filter_map(|s| s.pet.ridden_window()).collect();
+    if ids.is_empty() {
+        return;
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    let rects: Vec<(u64, Rect)> = ids.into_iter().filter_map(|id| source.rect_of(id).map(|r| (id, r))).collect();
+    for s in slots {
+        s.world.patch_windows(&rects);
+    }
+}
+
 fn seed_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1)
 }
@@ -175,6 +193,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
 
     let mut last = Instant::now();
     let mut last_refresh = last;
+    // 틱은 정해진 시각마다 (일한 시간만큼 늦어지지 않게)
+    let mut pacer = Pacer::new(TICK, last);
     let mut last_save = last;
     // 먹고 한 단계 컸지만 아직 먹는 중 — 먹기가 끝나면(축하 시작 또는 중단) 크기를 바꾼다
     let mut pending_stage = false;
@@ -384,6 +404,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             }
             slots[OWN].pet.set_hungry(care.is_hungry());
             last_refresh = now;
+        } else {
+            follow_ridden_windows(source.as_mut(), &mut slots);
         }
         if now - last_save >= SAVE_EVERY {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
@@ -561,6 +583,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             }
         }
 
-        thread::sleep(TICK);
+        let wait = pacer.wait(Instant::now());
+        if !wait.is_zero() {
+            thread::sleep(wait);
+        }
     }
 }

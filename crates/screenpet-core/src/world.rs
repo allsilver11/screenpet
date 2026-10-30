@@ -86,6 +86,22 @@ impl World {
         }
     }
 
+    /// 몇몇 창의 경계만 새로 적는다 (전체 창 목록을 다시 읽는 사이 틱에, 동물이 기대고 있는 창만).
+    /// 목록에 없는 id는 무시한다 (새 창은 전체 새로 읽기에서). 하나라도 바뀌었으면 디딤판을 다시 계산하고 true
+    pub fn patch_windows(&mut self, rects: &[(u64, Rect)]) -> bool {
+        let mut changed = false;
+        for &(id, rect) in rects {
+            if let Some(w) = self.windows.iter_mut().find(|w| w.id == id && w.rect != rect) {
+                w.rect = rect;
+                changed = true;
+            }
+        }
+        if changed {
+            self.surfaces = compute_surfaces(&self.windows, &self.work_areas, self.pet_height);
+        }
+        changed
+    }
+
     pub fn window(&self, id: u64) -> Option<&WindowInfo> {
         self.windows.iter().find(|w| w.id == id)
     }
@@ -141,6 +157,25 @@ mod tests {
         assert_eq!(w.anchor(Owner::Window(1)), Some((500.0, 400.0)));
         assert_eq!(w.anchor(Owner::Ground(0)), Some((0.0, 1040.0)));
         assert_eq!(w.anchor(Owner::Window(99)), None);
+    }
+
+    #[test]
+    fn patch_windows_moves_only_the_given_windows_and_their_surfaces() {
+        let mut w = world();
+        let moved = Rect::new(510.0, 390.0, 1110.0, 890.0);
+        assert!(w.patch_windows(&[(1, moved), (99, Rect::new(0.0, 0.0, 100.0, 100.0))]));
+        assert_eq!(w.window(1).map(|w| w.rect), Some(moved));
+        assert_eq!(w.window(2).map(|w| w.rect), Some(Rect::new(600.0, 700.0, 1000.0, 1000.0)));
+        assert_eq!(w.windows.len(), 2, "unknown ids are not added");
+        assert_eq!(w.anchor(Owner::Window(1)), Some((510.0, 390.0)));
+        assert_eq!(w.anchor(Owner::Inside(1)), Some((510.0, inside::floor_y(&moved))));
+        // 디딤판도 새 자리로
+        assert!(w.piece_at(Owner::Window(1), 1105.0).is_some());
+        assert_eq!(w.piece_at(Owner::Window(1), 800.0).map(|s| s.y), Some(390.0));
+        assert_eq!(w.surfaces, compute_surfaces(&w.windows, &w.work_areas, w.pet_height));
+        // 그대로면 아무것도 하지 않는다
+        assert!(!w.patch_windows(&[(1, moved)]));
+        assert!(!w.patch_windows(&[]));
     }
 
     #[test]

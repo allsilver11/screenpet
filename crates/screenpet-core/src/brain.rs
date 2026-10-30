@@ -2670,6 +2670,14 @@ mod hop_tests;
 #[path = "brain_throw_tests.rs"]
 mod throw_tests;
 
+/// 기대고 있는 창 (게임 루프가 매 틱 그 창 경계만 다시 읽는다)
+#[path = "brain_ride.rs"]
+mod ride;
+
+#[cfg(test)]
+#[path = "brain_ride_tests.rs"]
+mod ride_tests;
+
 /// 다른 동물과 인사·술래 놀이 (짝짓기·쿨다운은 social.rs)
 #[path = "brain_social.rs"]
 pub mod social_moves;

@@ -8,6 +8,7 @@ pub mod geom;
 pub mod hop;
 pub mod inside;
 pub mod manifest;
+pub mod pacing;
 pub mod physics;
 pub mod platform;
 pub mod social;

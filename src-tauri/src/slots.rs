@@ -123,12 +123,42 @@ pub struct Slot {
     pub need_show: bool,
     last_pos: Option<(i32, i32)>,
     last_render: Option<RenderState>,
+    /// Windows: 창 핸들 (만들 때 한 번 읽어 둔다 — hwnd()는 메인 스레드에 물어본다). 매 틱 SetWindowPos로 바로 옮긴다
+    #[cfg(windows)]
+    hwnd: Option<isize>,
 }
 
 impl Slot {
     #[allow(clippy::too_many_arguments)]
     pub fn new(label: String, role: Role, entry: PetEntry, pet: Pet, window: WebviewWindow, world: World, dpi: f64, shown: StagePayload) -> Self {
-        Self { label, role, entry, pet, window, world, dpi, shown, need_show: true, last_pos: None, last_render: None }
+        #[cfg(windows)]
+        let hwnd = window.hwnd().ok().map(|h| h.0 as isize);
+        Self {
+            label,
+            role,
+            entry,
+            pet,
+            window,
+            world,
+            dpi,
+            shown,
+            need_show: true,
+            last_pos: None,
+            last_render: None,
+            #[cfg(windows)]
+            hwnd,
+        }
+    }
+
+    /// 창을 물리 px (x, y)로. Windows는 이벤트 루프를 거치지 않고 바로 (창을 따라갈 때 덜 끊긴다), 실패하거나 다른 OS면 Tauri로
+    fn move_window(&self, x: i32, y: i32) {
+        #[cfg(windows)]
+        {
+            if self.hwnd.is_some_and(|h| screenpet_core::platform::move_window(h, x, y)) {
+                return;
+            }
+        }
+        let _ = self.window.set_position(PhysicalPosition::new(x, y));
     }
 
     pub fn is_own(&self) -> bool {
@@ -194,7 +224,7 @@ impl Slot {
         let win_w = PET_LOGICAL_SIZE * self.shown.scale.max(1.0) * self.dpi;
         let pos = ((self.pet.body.x - win_w / 2.0).round() as i32, (sy - BUBBLE_SPACE * self.dpi).round() as i32);
         if self.last_pos != Some(pos) {
-            let _ = self.window.set_position(PhysicalPosition::new(pos.0, pos.1));
+            self.move_window(pos.0, pos.1);
             self.last_pos = Some(pos);
         }
         if self.need_show && self.on_screen() && !hidden {

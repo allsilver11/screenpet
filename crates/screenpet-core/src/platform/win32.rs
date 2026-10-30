@@ -7,7 +7,8 @@ use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, H
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
-    IsIconic, IsWindowVisible, GWL_EXSTYLE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    IsIconic, IsWindow, IsWindowVisible, SetWindowPos, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOSIZE,
+    SWP_NOZORDER, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
 use super::WindowSource;
@@ -43,6 +44,17 @@ impl WindowSource for Win32Source {
             let _ = EnumDisplayMonitors(HDC::default(), None, Some(collect_monitor), LPARAM(&mut list as *mut Vec<Rect> as isize));
         }
         list
+    }
+
+    /// 창 하나만: 핸들 확인 + DWM 테두리 한 번 (EnumWindows·창마다 검사 없이)
+    fn rect_of(&mut self, id: u64) -> Option<Rect> {
+        let h = HWND(id as usize as *mut c_void);
+        unsafe {
+            if !IsWindow(h).as_bool() || !IsWindowVisible(h).as_bool() || IsIconic(h).as_bool() {
+                return None;
+            }
+        }
+        frame_rect(h)
     }
 
     fn cursor(&mut self) -> (f64, f64) {
@@ -127,4 +139,11 @@ fn frame_rect(hwnd: HWND) -> Option<Rect> {
         DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut RECT as *mut c_void, size_of::<RECT>() as u32).ok()?;
     }
     Some(to_rect(r))
+}
+
+/// 우리 창(hwnd)을 물리 px (x, y)로 바로 옮긴다 — Tauri set_position은 이벤트 루프를 한 번 거쳐 늦고 들쭉날쭉하다.
+/// 크기·Z 순서·포커스는 그대로, 창 스레드를 기다리지 않는다 (SWP_ASYNCWINDOWPOS). 실패하면 false
+pub fn move_window(hwnd: isize, x: i32, y: i32) -> bool {
+    let h = HWND(hwnd as *mut c_void);
+    unsafe { SetWindowPos(h, HWND::default(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS).is_ok() }
 }
