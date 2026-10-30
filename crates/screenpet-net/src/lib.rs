@@ -30,7 +30,7 @@ mod tcp;
 mod transport;
 
 pub use noise::SAS_EMOJI;
-pub use protocol::{Fling, Side, Visit, MAX_FRIENDS, MAX_NOTE};
+pub use protocol::{Fling, Side, Steer, Visit, MAX_FRIENDS, MAX_NOTE};
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};
@@ -184,6 +184,10 @@ pub enum NetEvent {
     /// Friend `from` sent an app request with [`Net::ask`] (clamped to 64
     /// characters; only from authenticated friend links).
     Asked { from: String, ask: String },
+    /// Friend `from` steers its pet visiting us (control mode, sent with
+    /// [`Net::steer`]; authenticated friend links only, rate limited). The
+    /// app must check that `steer.visit_id` is `from`'s own guest.
+    Steered { from: String, steer: Steer },
     Disconnected { id: String },
     Received { from: String, msg: Visit },
     /// Friend `id` proved its pinned key but no longer recognizes us as a
@@ -256,20 +260,30 @@ pub(crate) enum Kind {
 pub(crate) struct AskBucket {
     tokens: f64,
     at: Instant,
+    burst: f64,
+    every: Duration,
 }
 
 const ASK_BURST: f64 = 2.0;
 const ASK_EVERY: Duration = Duration::from_secs(2);
+/// Steering (control mode): up to 30 messages at once, then 30 per second.
+const STEER_BURST: f64 = 30.0;
+const STEER_EVERY: Duration = Duration::from_micros(33_334);
 
 impl AskBucket {
     pub fn new(now: Instant) -> AskBucket {
-        AskBucket { tokens: ASK_BURST, at: now }
+        AskBucket { tokens: ASK_BURST, at: now, burst: ASK_BURST, every: ASK_EVERY }
+    }
+
+    /// Budget for steering messages on one link.
+    pub fn steering(now: Instant) -> AskBucket {
+        AskBucket { tokens: STEER_BURST, at: now, burst: STEER_BURST, every: STEER_EVERY }
     }
 
     /// Spend one token if there is one.
     pub fn take(&mut self, now: Instant) -> bool {
-        let refill = now.saturating_duration_since(self.at).as_secs_f64() / ASK_EVERY.as_secs_f64();
-        self.tokens = (self.tokens + refill).min(ASK_BURST);
+        let refill = now.saturating_duration_since(self.at).as_secs_f64() / self.every.as_secs_f64();
+        self.tokens = (self.tokens + refill).min(self.burst);
         self.at = now;
         if self.tokens >= 1.0 {
             self.tokens -= 1.0;
@@ -287,6 +301,8 @@ pub(crate) struct Conn {
     pub name: String,
     /// Rate limit for renames and asks on this link.
     pub asks: AskBucket,
+    /// Rate limit for steering (control mode) on this link.
+    pub steers: AskBucket,
     pub kind: Kind,
     /// `Connected` has been emitted for this peer (so `Disconnected` is owed).
     pub announced: bool,
@@ -675,7 +691,20 @@ impl Net {
                 _ => return,
             }
         };
-        link.send(&Message::Control(Control::Ping { ask: Some(protocol::clamp_name(ask)) }));
+        link.send(&Message::Control(Control::Ping { ask: Some(protocol::clamp_name(ask)), steer: None }));
+    }
+
+    /// Steer our pet visiting a connected friend (control mode; dropped
+    /// otherwise). Carried in a ping, which older versions ignore. Never blocks.
+    pub fn steer(&self, peer_id: &str, steer: Steer) {
+        let link = {
+            let st = self.shared.state();
+            match st.friend_conn(peer_id) {
+                Some(c) if matches!(c.kind, Kind::Friend) => c.link.clone(),
+                _ => return,
+            }
+        };
+        link.send(&Message::Control(Control::Ping { ask: None, steer: Some(steer) }));
     }
 
     /// Forget a friend, tell them, and disconnect (gracefully). Never blocks.

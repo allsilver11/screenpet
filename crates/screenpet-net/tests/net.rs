@@ -3,7 +3,7 @@
 //! Noise clients (via `snow`) for the protocol / attack cases.
 
 use blake2::{Blake2s256, Digest};
-use screenpet_net::{new_install_id, Friend, Net, NetConfig, NetEvent, Side, Timing, Visit, MAX_FRIENDS, SAS_EMOJI};
+use screenpet_net::{new_install_id, Friend, Net, NetConfig, NetEvent, Side, Steer, Timing, Visit, MAX_FRIENDS, SAS_EMOJI};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -739,6 +739,65 @@ fn unchanged_or_flooded_renames_and_asks_are_limited() {
         }
     }
     assert!((1..=3).contains(&events), "rate limited: {events}");
+    net.shutdown();
+}
+
+#[test]
+fn steers_reach_connected_friends_only() {
+    let p = connected_pair();
+    let st = Steer { visit_id: 7, on: true, keys: 3 };
+    p.a.steer("bbbb", st);
+    assert_eq!(wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Steered { .. })), Some(NetEvent::Steered { from: "aaaa".into(), steer: st }));
+    // 모르는 상대에게는 보내지 않는다
+    p.a.steer("zzzz", st);
+    p.a.shutdown();
+    p.b.shutdown();
+}
+
+#[test]
+fn stranger_steer_is_ignored() {
+    let (net, rx, port) = start_sniffed(key(), vec![]);
+    let mut p = raw_connect(port, &key(), "zzzz");
+    p.send(json!({"type": "ping", "steer": {"visit_id": 1, "on": true, "keys": 2}})).unwrap();
+    assert_eq!(wait_for(&rx, 0.8, |e| matches!(e, NetEvent::Steered { .. })), None);
+    net.shutdown();
+}
+
+#[test]
+fn a_ping_can_carry_an_ask_and_a_steer() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    p.send(json!({"type": "ping", "ask": "invite", "steer": {"visit_id": 9, "on": true, "keys": 1}})).unwrap();
+    assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Asked { .. })).is_some());
+    assert_eq!(
+        wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Steered { .. })),
+        Some(NetEvent::Steered { from: "zzzz".into(), steer: Steer { visit_id: 9, on: true, keys: 1 } })
+    );
+    net.shutdown();
+}
+
+#[test]
+fn flooded_steers_are_rate_limited() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    for i in 0..300u64 {
+        p.send(json!({"type": "ping", "steer": {"visit_id": 1, "on": true, "keys": i % 4}})).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_millis(600);
+    let mut events = 0;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(NetEvent::Steered { .. }) => events += 1,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    // 처음 30개까지는 바로, 그 뒤엔 초당 30개 꼴 — 300개를 다 넘기지 않는다
+    assert!((30..=60).contains(&events), "rate limited: {events}");
     net.shutdown();
 }
 

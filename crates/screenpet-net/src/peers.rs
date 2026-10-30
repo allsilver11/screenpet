@@ -172,7 +172,7 @@ pub(crate) fn run_session(
                 break;
             }
         } else if now.duration_since(last_ping) >= t.ping_interval {
-            if !link.send(&ctl(Control::Ping { ask: None })) {
+            if !link.send(&ctl(Control::Ping { ask: None, steer: None })) {
                 break;
             }
             last_ping = now;
@@ -269,6 +269,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
                 link: ctx.link.clone(),
                 name: name.to_string(),
                 asks: AskBucket::new(now),
+                steers: AskBucket::steering(now),
                 kind,
                 announced: announced || connected,
                 outgoing,
@@ -372,13 +373,24 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             }
             true
         }
-        Message::Control(Control::Ping { ask: None }) => true,
-        // A friend's app request (authenticated friend links only, like visits)
-        Message::Control(Control::Ping { ask: Some(ask) }) => {
+        Message::Control(Control::Ping { ask: None, steer: None }) => true,
+        // A friend's app request and/or steering of its visiting pet (authenticated
+        // friend links only, like visits; each with its own per-link budget)
+        Message::Control(Control::Ping { ask, steer }) => {
             let friend = matches!(conn.kind, Kind::Friend) && st.is_friend(id);
             let Some(c) = st.conns.get_mut(&ctx.token) else { return false };
-            if friend && c.asks.take(now) {
-                shared.emit(NetEvent::Asked { from: id.to_string(), ask: clamp_name(&ask) });
+            if !friend {
+                return true;
+            }
+            if let Some(ask) = ask {
+                if c.asks.take(now) {
+                    shared.emit(NetEvent::Asked { from: id.to_string(), ask: clamp_name(&ask) });
+                }
+            }
+            if let Some(steer) = steer {
+                if c.steers.take(now) {
+                    shared.emit(NetEvent::Steered { from: id.to_string(), steer });
+                }
             }
             true
         }

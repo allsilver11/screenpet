@@ -56,6 +56,27 @@ fn lenient_note<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>
     })
 }
 
+/// The owner of a pet visiting the receiver steers it (control mode): `on` =
+/// control mode is on, `keys` = held keys as bits (left 1, right 2, up 4,
+/// down 8, jump 16, run 32; unknown bits ignored). Carried in a ping so older
+/// versions ignore it. Sent on change plus a 5 Hz keepalive while keys are
+/// held; the receiver applies it only to that friend's own guest with
+/// `visit_id` and releases the keys when updates stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Steer {
+    pub visit_id: u64,
+    #[serde(default)]
+    pub on: bool,
+    #[serde(default)]
+    pub keys: u8,
+}
+
+/// An optional `steer`; a malformed one is dropped instead of the whole ping.
+fn lenient_steer<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Steer>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.and_then(|v| serde_json::from_value(v).ok()))
+}
+
 /// Messages about visiting pets, delivered to the app via `NetEvent::Received`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -139,10 +160,13 @@ pub enum Control {
     Unfriend,
     /// Keep-alive. `ask` = an app request to a friend (e.g. "invite": bring
     /// your pet over, "busy": not now) — older versions parse a ping with an
-    /// extra field as a plain ping and ignore it.
+    /// extra field as a plain ping and ignore it (also used for `steer`).
     Ping {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ask: Option<String>,
+        /// Steering for our pet visiting the receiver (control mode).
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_steer")]
+        steer: Option<Steer>,
     },
 }
 
@@ -237,13 +261,13 @@ mod tests {
             Message::Control(Control::PairReveal { nonce: "ef".into() }),
             Message::Control(Control::InviteReply { accepted: true }),
             Message::Control(Control::Unfriend),
-            Message::Control(Control::Ping { ask: None }),
+            Message::Control(Control::Ping { ask: None, steer: None }),
             Message::Visit(Visit::leave(3)),
             Message::Visit(Visit::ComeHome { visit_id: 4 }),
         ] {
             assert_eq!(Message::parse(&m.to_json()), Some(m));
         }
-        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None })));
+        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None, steer: None })));
     }
 
     #[test]
@@ -360,12 +384,12 @@ mod tests {
 
     #[test]
     fn ping_can_carry_an_ask_that_old_peers_ignore() {
-        let ask = Message::Control(Control::Ping { ask: Some("invite".into()) });
+        let ask = Message::Control(Control::Ping { ask: Some("invite".into()), steer: None });
         assert_eq!(ask.to_json(), br#"{"type":"ping","ask":"invite"}"#.to_vec());
         assert_eq!(Message::parse(&ask.to_json()), Some(ask));
         // 평소 ping은 예전 판과 같은 모양
-        assert_eq!(Message::Control(Control::Ping { ask: None }).to_json(), br#"{"type":"ping"}"#.to_vec());
-        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None })));
+        assert_eq!(Message::Control(Control::Ping { ask: None, steer: None }).to_json(), br#"{"type":"ping"}"#.to_vec());
+        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None, steer: None })));
         // 예전 판의 Control(Ping은 필드 없는 변형)도 ask가 붙은 ping을 그냥 ping으로 읽는다 (연결을 끊지 않는다)
         #[derive(Debug, PartialEq, Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
@@ -374,6 +398,43 @@ mod tests {
             Ping,
         }
         assert_eq!(serde_json::from_slice::<OldControl>(br#"{"type":"ping","ask":"invite"}"#).unwrap(), OldControl::Ping);
+    }
+
+    #[test]
+    fn ping_can_carry_a_steer_that_old_peers_ignore() {
+        let st = Steer { visit_id: 42, on: true, keys: 0b10_0010 };
+        let m = Message::Control(Control::Ping { ask: None, steer: Some(st) });
+        let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
+        assert_eq!((j["type"].as_str(), j["steer"]["visit_id"].as_u64(), j["steer"]["on"].as_bool(), j["steer"]["keys"].as_u64()), (Some("ping"), Some(42), Some(true), Some(34)));
+        assert_eq!(Message::parse(&m.to_json()), Some(m.clone()));
+        // ask와 함께 실려도 된다
+        let both = Message::Control(Control::Ping { ask: Some("invite".into()), steer: Some(st) });
+        assert_eq!(Message::parse(&both.to_json()), Some(both));
+        // 조작 없는 ping은 예전 판과 같은 모양
+        assert!(!String::from_utf8(Message::Control(Control::Ping { ask: None, steer: None }).to_json()).unwrap().contains("steer"));
+        // 예전 판의 Control도 steer가 붙은 ping을 그냥 ping으로 읽는다 (연결을 끊지 않는다)
+        #[derive(Debug, PartialEq, Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
+        enum OldControl {
+            Ping {
+                #[serde(default)]
+                ask: Option<String>,
+            },
+        }
+        assert_eq!(serde_json::from_slice::<OldControl>(&m.to_json()).unwrap(), OldControl::Ping { ask: None });
+        // 깨진 steer 하나 때문에 ping을 버리지 않는다 (steer만 버린다)
+        for bad in [
+            &br#"{"type":"ping","steer":{"visit_id":"x"}}"#[..],
+            br#"{"type":"ping","steer":{"visit_id":1,"keys":300}}"#,
+            br#"{"type":"ping","steer":5}"#,
+        ] {
+            assert_eq!(Message::parse(bad), Some(Message::Control(Control::Ping { ask: None, steer: None })), "{}", String::from_utf8_lossy(bad));
+        }
+        // on·keys가 없으면 꺼짐·안 눌림
+        assert_eq!(
+            Message::parse(br#"{"type":"ping","steer":{"visit_id":3}}"#),
+            Some(Message::Control(Control::Ping { ask: None, steer: Some(Steer { visit_id: 3, on: false, keys: 0 }) }))
+        );
     }
 
     #[test]
