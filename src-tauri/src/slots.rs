@@ -3,7 +3,7 @@
 //! 웹뷰는 자기 창 라벨로 `slot_info`를 불러 자기 동물을 알고, 이벤트는 창별로(emit_to) 받는다.
 
 use screenpet_core::behavior::Special;
-use screenpet_core::brain::{Pet, PetConfig, RenderState};
+use screenpet_core::brain::{Anim, Pet, PetConfig, RenderState};
 use screenpet_core::care::Stage;
 use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::visit::{self, Side};
@@ -26,6 +26,9 @@ pub const BUBBLE_SPACE: f64 = 36.0;
 /// 손님 편지(💌)를 펼친 동안 창 위에 더하는 자리와 최소 창 너비 (논리 px) — 편지 말풍선(평소 말풍선, 여러 줄)이 5줄까지 들어간다
 pub const NOTE_SPACE: f64 = 60.0;
 pub const NOTE_WIDTH: f64 = 232.0;
+/// 기린이 목을 늘이는 동안(Anim::NeckStretch, 코어 behavior::NECK_STRETCH_SECS) 창 위에 더하는 자리 (몸 배율 1 기준 논리 px).
+/// 머리가 그림 칸 위로 pet.json neck_stretch.ext(≤ 48 그림 px)만큼 솟는다 — 말풍선 자리(BUBBLE_SPACE)와 합쳐 넉넉히 들어간다
+pub const STRETCH_SPACE: f64 = 52.0;
 
 /// 손님 창 라벨. visit_id는 Tauri 창 라벨 글자(영숫자와 - / : _)만 — 아니면 None
 pub fn guest_label(visit_id: &str) -> Option<String> {
@@ -139,6 +142,8 @@ pub struct Slot {
     last_render: Option<RenderState>,
     /// 손님 편지 말풍선을 띄워 창이 커져 있음 (웹뷰 `note_space`)
     note_open: bool,
+    /// 기린이 목을 늘이는 중이라 창이 위로 커져 있음 (늘이는 동안만 — 끝나면 바로 줄인다)
+    stretch_open: bool,
     /// Windows: 창 핸들 (만들 때 한 번 읽어 둔다 — hwnd()는 메인 스레드에 물어본다). 매 틱 SetWindowPos로 바로 옮긴다
     #[cfg(windows)]
     hwnd: Option<isize>,
@@ -162,6 +167,7 @@ impl Slot {
             last_pos: None,
             last_render: None,
             note_open: false,
+            stretch_open: false,
             #[cfg(windows)]
             hwnd,
         }
@@ -199,11 +205,24 @@ impl Slot {
 
     /// 지금 창 크기 (논리 px) — 편지를 펼친 동안은 위로 높고 넓다
     fn logical_size(&self, body_scale: f64) -> (f64, f64) {
-        if self.note_open {
-            note_window_logical_size(body_scale)
+        let (w, h) = if self.note_open { note_window_logical_size(body_scale) } else { window_logical_size(body_scale) };
+        if self.stretch_open {
+            (w, h + STRETCH_SPACE * body_scale)
         } else {
-            window_logical_size(body_scale)
+            (w, h)
         }
+    }
+
+    /// 기린 목 늘이기가 시작·끝나면 창을 위로 키우거나 줄인다 (몸은 창 아래 가운데 그대로 — 바로 다음 place가 옮긴다)
+    fn sync_stretch(&mut self) {
+        let stretch = self.pet.render().anim == Anim::NeckStretch;
+        if stretch == self.stretch_open {
+            return;
+        }
+        self.stretch_open = stretch;
+        let (w, h) = self.logical_size(self.shown.scale);
+        let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
+        self.last_pos = None;
     }
 
     /// 손님 편지 말풍선을 띄운다 / 접는다: 창을 키우거나 줄이고, 몸이 그 자리에 있도록 바로 다시 놓는다
@@ -267,6 +286,7 @@ impl Slot {
 
     /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보인다. hidden = 사용자가 트레이로 모두 숨겨 둠 (그동안은 보이지 않는다)
     pub fn place(&mut self, hidden: bool) {
+        self.sync_stretch();
         let pos = self.window_target();
         if self.last_pos != Some(pos) {
             self.move_window(pos.0, pos.1);

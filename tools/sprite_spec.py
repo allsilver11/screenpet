@@ -51,6 +51,8 @@ OPTIONAL_ANIMS = [
     ("sting", 3, 8, False, True),
     # 개구리: 크게 뛰기 (옆모습, 한 번) — 작은 폴짝은 필수 동작 hop
     ("bigjump", 4, 8, False, False),
+    # 기린: 구르는 대신 목 늘이기 (옆모습, 어? · 깜빡 · ✧) — 늘어나는 목은 앱이 층(neck_<stage>.png)으로 그린다
+    ("neckstretch", 3, 2, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -65,11 +67,14 @@ SPEECH = {
     "frog": {"chatter": ["ribbit!", "hop hop!", "ribbit~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "pumpkin": {"chatter": ["trick or treat!", "boo~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "ghost": {"chatter": ["boo!", "ooo~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    "duck": {"chatter": ["quack!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    "giraffe": {"chatter": ["hmm~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
-PERSONALITY = {"cat": "aloof", "bee": "friendly", "frog": "playful", "pumpkin": "playful", "ghost": "friendly"}
+PERSONALITY = {"cat": "aloof", "bee": "friendly", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
+               "duck": "playful", "giraffe": "friendly"}
 
 # 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
 LOCOMOTION = {"bee": "fly", "frog": "hop", "ghost": "fly"}
@@ -90,6 +95,8 @@ FAVORITE_FOOD = {
     "frog": {"emoji": "🪰", "name": "파리"},
     "pumpkin": {"emoji": "🍬", "name": "사탕"},
     "ghost": {"emoji": "🍭", "name": "막대사탕"},
+    "duck": {"emoji": "🍞", "name": "빵"},
+    "giraffe": {"emoji": "🍃", "name": "나뭇잎"},
 }
 
 

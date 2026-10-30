@@ -38,7 +38,80 @@ async function loadPet() {
   const k = display / manifest.frame_size;
   petEl.style.backgroundImage = `url(${url})`;
   petEl.style.backgroundSize = `${img.width * k}px ${img.height * k}px`;
+  setupNeck(m, side, k);
   animStart = performance.now();
+}
+
+// 기린 목 늘이기 (백엔드 anim "neckstretch" — 코어 behavior::NECK_STRETCH_SECS 3.4초 동안 제자리):
+// 목이 평소의 두 배로 쭉 늘었다가 돌아온다. 시트 한 칸(128)으로는 담을 수 없어 층으로 그린다 —
+// pets/giraffe/neck_<stage>.png (가로 4칸: 몸 · 머리 "어?" · 머리 깜빡 · 머리 ✧ 흐뭇, 모두 시트와 같은 좌표)와
+// neck_tile_<stage>.png (곧은 목 한 토막, 무늬 주기 = 높이). pet.json neck_stretch[stage] = {cut, tile, ext}:
+// cut 줄 아래는 몸 층, 위는 머리 층. 머리 층을 ext만큼 올리고 그 사이를 목 토막으로 채운다 (토막은 머리에 붙어 함께 올라간다).
+// 그동안 창은 백엔드(slots STRETCH_SPACE)가 위로 키우고, 몸(#pet)은 투명하게 두어 잡기·누르기는 그대로 받는다
+const NECK_UP_MS = 700;
+const NECK_HOLD_MS = 2000;
+const NECK_DOWN_MS = 700;
+const neckEl = document.createElement("div");
+neckEl.id = "neck";
+neckEl.hidden = true;
+neckEl.innerHTML = '<div class="nk-body"></div><div class="nk-tile"></div><div class="nk-head"></div>';
+petEl.after(neckEl);
+const [nkBody, nkTile, nkHead] = neckEl.children;
+let neck = null;
+
+function setupNeck(m, side, k) {
+  const meta = m.neck_stretch?.[stage.stage];
+  neck = null;
+  neckEl.hidden = true;
+  petEl.style.opacity = "";
+  if (!meta) return;
+  const base = `pets/${stage.pet}/`;
+  neck = { meta, k, side };
+  neckEl.style.width = side + "px";
+  neckEl.style.height = side + "px";
+  neckEl.style.left = petEl.style.left;
+  for (const el of [nkBody, nkHead]) {
+    el.style.backgroundImage = `url(${base}neck_${stage.stage}.png)`;
+    el.style.backgroundSize = `${4 * side}px ${side}px`;
+  }
+  nkTile.style.backgroundImage = `url(${base}neck_tile_${stage.stage}.png)`;
+  nkTile.style.backgroundSize = `${side}px ${meta.tile * k}px`;
+}
+
+const easeOut = (t) => 1 - (1 - t) ** 3;
+const easeInOut = (t) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
+
+// 늘이는 정도 0..1과 머리 그림 (0 어? · 1 깜빡 · 2 ✧) — 다 늘인 동안 어? → 깜빡 → ✧ 흐뭇
+function neckPhase(ms) {
+  if (ms < NECK_UP_MS) return { p: easeOut(ms / NECK_UP_MS), head: 0 };
+  const h = ms - NECK_UP_MS;
+  if (h < NECK_HOLD_MS) return { p: 1, head: h < 600 ? 0 : h < 850 ? 1 : 2 };
+  const d = Math.min(1, (h - NECK_HOLD_MS) / NECK_DOWN_MS);
+  return { p: 1 - easeInOut(d), head: d < 0.5 ? 2 : 0 };
+}
+
+// 그리면 true (그동안 #pet은 투명)
+function drawNeck(elapsed) {
+  if (!neck || render.anim !== "neckstretch") {
+    if (!neckEl.hidden) {
+      neckEl.hidden = true;
+      petEl.style.opacity = "";
+    }
+    return false;
+  }
+  const { meta, k, side } = neck;
+  const { p, head } = neckPhase(elapsed);
+  const ext = meta.ext * k * p;
+  nkTile.style.top = `${meta.cut * k - ext}px`;
+  nkTile.style.height = `${ext}px`;
+  nkHead.style.backgroundPosition = `${-(head + 1) * side}px 0`;
+  nkHead.style.transform = `translateY(${-ext}px)`;
+  neckEl.style.transform = render.flip ? "scaleX(-1)" : "none";
+  if (neckEl.hidden) {
+    neckEl.hidden = false;
+    petEl.style.opacity = "0";
+  }
+  return true;
 }
 
 // 꿀벌 쏘기: 스프라이트를 1 → 1.2 → 1로 키웠다 줄여 화면 쪽으로 다가오는 것처럼 보인다.
@@ -66,6 +139,7 @@ function draw(now) {
     // 교체된 동물에 없는 종 전용 애니메이션이어도 throw로 rAF가 끊기지 않게 idle로 대체
     const spec = manifest.animations[render.anim] ?? manifest.animations.idle;
     const elapsed = now - animStart;
+    drawNeck(elapsed);
     const f = frameIndex(spec, elapsed);
     petEl.style.backgroundPosition = `${-f * display}px ${-spec.row * display}px`;
     // 좌우 반전 공간 안에서 돌리므로 왼쪽으로 갈 땐 자동으로 반대로 구른다

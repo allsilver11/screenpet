@@ -122,6 +122,32 @@ body {
   100% { filter: none; scale: 1; }
 }
 
+/* 기린 목 늘이기 층 (main.js drawNeck) — #pet과 같은 자리·크기, 머리는 칸 위로 솟는다 (창은 백엔드가 위로 키운다) */
+#neck {
+  position: absolute;
+  bottom: 0;
+  pointer-events: none;
+}
+#neck[hidden] {
+  display: none;
+}
+#neck > div {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  background-repeat: no-repeat;
+}
+#neck .nk-body,
+#neck .nk-head {
+  top: 0;
+  height: 100%;
+  background-position: 0 0;
+}
+#neck .nk-tile {
+  background-repeat: repeat-y;
+  background-position: 0 0;
+}
+
 #heart {
   position: absolute;
   top: 36px;

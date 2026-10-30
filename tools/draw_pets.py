@@ -2189,6 +2189,7 @@ def preview_sting(effect, bee_by_stage, path):
 sys.modules.setdefault("draw_pets", sys.modules[__name__])
 import draw_frog  # noqa: E402,F401
 import draw_halloween  # noqa: E402,F401
+import draw_farm  # noqa: E402,F401  (오리·기린)
 
 if __name__ == "__main__":
     main()

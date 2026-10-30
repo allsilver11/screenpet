@@ -1,0 +1,200 @@
+{
+  "name": "기린",
+  "frame_size": 128,
+  "walk_speed": 75,
+  "animations": {
+    "walk": {
+      "row": 0,
+      "frames": 4,
+      "fps": 8
+    },
+    "run": {
+      "row": 1,
+      "frames": 4,
+      "fps": 12
+    },
+    "roll": {
+      "row": 2,
+      "frames": 2,
+      "fps": 4
+    },
+    "idle": {
+      "row": 3,
+      "frames": 2,
+      "fps": 2
+    },
+    "look": {
+      "row": 4,
+      "frames": 4,
+      "fps": 3
+    },
+    "sleep": {
+      "row": 5,
+      "frames": 2,
+      "fps": 1
+    },
+    "hop": {
+      "row": 6,
+      "frames": 3,
+      "fps": 10,
+      "loop": false
+    },
+    "fall": {
+      "row": 7,
+      "frames": 2,
+      "fps": 8
+    },
+    "dragged": {
+      "row": 8,
+      "frames": 2,
+      "fps": 4
+    },
+    "land": {
+      "row": 9,
+      "frames": 2,
+      "fps": 10,
+      "loop": false
+    },
+    "sit_front": {
+      "row": 10,
+      "frames": 4,
+      "fps": 4,
+      "front": true
+    },
+    "wave": {
+      "row": 11,
+      "frames": 4,
+      "fps": 6,
+      "front": true
+    },
+    "tilt": {
+      "row": 12,
+      "frames": 3,
+      "fps": 3,
+      "front": true
+    },
+    "belly": {
+      "row": 13,
+      "frames": 4,
+      "fps": 4,
+      "front": true
+    },
+    "stretch": {
+      "row": 14,
+      "frames": 3,
+      "fps": 3,
+      "loop": false,
+      "front": true
+    },
+    "heart": {
+      "row": 15,
+      "frames": 3,
+      "fps": 4,
+      "front": true
+    },
+    "tickle": {
+      "row": 16,
+      "frames": 3,
+      "fps": 8,
+      "front": true
+    },
+    "annoyed": {
+      "row": 17,
+      "frames": 2,
+      "fps": 2
+    },
+    "hungry": {
+      "row": 18,
+      "frames": 3,
+      "fps": 3,
+      "front": true
+    },
+    "eat": {
+      "row": 19,
+      "frames": 4,
+      "fps": 6,
+      "front": true
+    },
+    "level_up": {
+      "row": 20,
+      "frames": 3,
+      "fps": 6,
+      "loop": false,
+      "front": true
+    },
+    "neckstretch": {
+      "row": 21,
+      "frames": 3,
+      "fps": 2
+    }
+  },
+  "speech": {
+    "chatter": [
+      "hmm~",
+      "♪"
+    ],
+    "tickle": [
+      "hehe!"
+    ],
+    "grumpy": [
+      "hmph!"
+    ],
+    "hungry": [
+      "hungry...",
+      "food?"
+    ],
+    "full": [
+      "full~"
+    ],
+    "level_up": [
+      "yay!",
+      "♪♪"
+    ]
+  },
+  "favorite_food": {
+    "emoji": "🍃",
+    "name": "나뭇잎"
+  },
+  "stages": [
+    "baby",
+    "kinder",
+    "child",
+    "teenager",
+    "adult"
+  ],
+  "stage_size": {
+    "baby": 1.0,
+    "kinder": 1.0,
+    "child": 1.1,
+    "teenager": 1.1,
+    "adult": 1.1
+  },
+  "personality": "friendly",
+  "neck_stretch": {
+    "baby": {
+      "cut": 85,
+      "tile": 16,
+      "ext": 32
+    },
+    "kinder": {
+      "cut": 81,
+      "tile": 16,
+      "ext": 32
+    },
+    "child": {
+      "cut": 77,
+      "tile": 16,
+      "ext": 32
+    },
+    "teenager": {
+      "cut": 73,
+      "tile": 16,
+      "ext": 48
+    },
+    "adult": {
+      "cut": 75,
+      "tile": 16,
+      "ext": 48
+    }
+  }
+}

@@ -282,6 +282,39 @@ def build_hand(out_dir=OUT_DIR):
     return arts
 
 
+BREAD, BREAD_CRUST, BREAD_IN = (250, 214, 150), (214, 150, 84), (255, 244, 214)
+LEAF_DARK = mix(LEAF, LINE, 0.25)
+TWIG = (176, 128, 92)
+
+
+def hand_bread(img):
+    """오리가 좋아하는 식빵 한 조각 — 동글 머리 식빵, 노릇한 테두리, 폭신한 속, 작은 얼굴."""
+    top = arc(64, 58, 16, 10, 180, 360, 16)
+    slab = top + [(78, 83), (50, 83)]
+    blob(img, [T(*slab), C(50.5, 60, 5), C(77.5, 60, 5)], BREAD_CRUST, r=1.6, line=0.9,
+         marks=[([T(*[(64 + (x - 64) * 0.8, 69 + (y - 69) * 0.8) for x, y in slab])], BREAD_IN),
+                ([E(54, 53, 61, 57)], mix(BREAD_CRUST, WHITE, 0.45))])
+    tiny_face(img, 64, 70, 0.95)
+
+
+def hand_leaf(img):
+    """기린이 좋아하는 나뭇잎 — 작은 가지에 동글 잎 셋 (가운데 잎에 얼굴)."""
+    blob(img, [L([(59, 81), (63, 72), (64, 60)], 2.8)], TWIG, r=0, line=0.8)
+    for cx, cy, rot in ((54, 70, -40), (74, 68, 40)):
+        pts = [(cx + 8 * math.cos(math.radians(a + rot)),
+                cy + 8 * math.sin(math.radians(a + rot)) * 0.62) for a in range(0, 360, 20)]
+        blob(img, [T(*pts)], LEAF, r=0.6, line=0.85,
+             marks=[([L([(cx - 6 * math.cos(math.radians(rot)), cy - 6 * math.sin(math.radians(rot)) * 0.62),
+                         (cx + 6 * math.cos(math.radians(rot)), cy + 6 * math.sin(math.radians(rot)) * 0.62)], 1.0)], LEAF_DARK)])
+    blob(img, [E(53, 47, 75, 68), T((60, 49), (64, 43), (68, 49))], LEAF, r=1.0, line=0.9,
+         marks=[([L([(64, 47), (64, 66)], 1.1)], LEAF_DARK), ([E(56.5, 50.5, 61, 55)], mix(LEAF, WHITE, 0.5))])
+    tiny_face(img, 64, 58, 0.85)
+
+
+HAND_NAMES += ("hand_bread", "hand_leaf")  # 농장: 오리 🍞 · 기린 🍃
+HAND_DRAW.update(hand_bread=hand_bread, hand_leaf=hand_leaf)
+
+
 DRAW = {"bowl_food": draw_bowl_food, "bowl_water": draw_bowl_water, "cookie": draw_cookie, "flower": draw_flower}
 
 

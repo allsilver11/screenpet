@@ -87,6 +87,8 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "frog" => "hand_fly",
             "pumpkin" => "hand_candy",
             "ghost" => "hand_lollipop",
+            "duck" => "hand_bread",
+            "giraffe" => "hand_leaf",
             _ => "hand_meal",
         },
         Food::Meal | Food::Water => "hand_meal",
@@ -188,6 +190,8 @@ mod tests {
         // 할로윈 동물도 밥·간식은 다른 동물과 같다
         assert_eq!(hand_icon(Food::Meal, "ghost"), "hand_meal");
         assert_eq!(hand_icon(Food::Snack, "pumpkin"), "hand_cookie");
+        assert_eq!((hand_icon(Food::Favorite, "duck"), hand_icon(Food::Favorite, "giraffe")), ("hand_bread", "hand_leaf"));
+        assert_eq!(hand_icon(Food::Meal, "giraffe"), "hand_meal");
     }
 
     #[test]
