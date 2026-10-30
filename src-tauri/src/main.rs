@@ -192,7 +192,7 @@ fn main() {
             let care = cfg.care.get(&current).cloned().unwrap_or_default();
 
             let (tx, rx) = mpsc::channel();
-            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), care.locked, cfg.housed, cfg.feed_mode)?;
+            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode)?;
             let stage = game_loop::stage_payload(&entry, &care);
             let house_state = HouseState {
                 pet: stage.pet.clone(),

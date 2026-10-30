@@ -60,6 +60,38 @@ impl Stage {
             Stage::Adult => "adult",
         }
     }
+
+    /// 메뉴에 보이는 한국어 이름
+    pub fn korean(self) -> &'static str {
+        match self {
+            Stage::Baby => "아기",
+            Stage::Kinder => "유치원",
+            Stage::Child => "어린이",
+            Stage::Teenager => "청소년",
+            Stage::Adult => "어른",
+        }
+    }
+
+    /// 몇 번째 단계인지 (1..=STAGES)
+    pub fn step(self) -> u8 {
+        match self {
+            Stage::Baby => 1,
+            Stage::Kinder => 2,
+            Stage::Child => 3,
+            Stage::Teenager => 4,
+            Stage::Adult => 5,
+        }
+    }
+}
+
+/// 성장 단계 수
+pub const STAGES: u8 = 5;
+
+/// 메뉴의 성장 단계 한 줄 ("🌱 성장: 어린이 (3/5단계)", 성장 멈춤이면 " 🔒").
+/// 다음 단계까지 남은 체력은 일부러 숨긴다
+pub fn growth_label(stage: Stage, locked: bool) -> String {
+    let lock = if locked { " 🔒" } else { "" };
+    format!("🌱 성장: {} ({}/{STAGES}단계){lock}", stage.korean(), stage.step())
 }
 
 /// 간식·물이 올려 주는 포만감
@@ -313,5 +345,15 @@ mod tests {
         assert_eq!(s.map(Stage::scale), [0.45, 0.60, 0.78, 1.00, 1.15]);
         assert_eq!(s.map(Stage::need), [Some(60.0), Some(100.0), Some(150.0), Some(220.0), None]);
         assert_eq!(s.map(Stage::name), ["baby", "kinder", "child", "teenager", "adult"]);
+    }
+
+    #[test]
+    fn growth_label_shows_korean_stage_and_step_but_no_progress() {
+        let s = [Stage::Baby, Stage::Kinder, Stage::Child, Stage::Teenager, Stage::Adult];
+        assert_eq!(s.map(Stage::korean), ["아기", "유치원", "어린이", "청소년", "어른"]);
+        assert_eq!(s.map(Stage::step), [1, 2, 3, 4, 5]);
+        assert_eq!(growth_label(Stage::Child, false), "🌱 성장: 어린이 (3/5단계)");
+        assert_eq!(growth_label(Stage::Baby, true), "🌱 성장: 아기 (1/5단계) 🔒");
+        assert_eq!(growth_label(Stage::Adult, false), "🌱 성장: 어른 (5/5단계)");
     }
 }

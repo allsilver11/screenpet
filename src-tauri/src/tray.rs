@@ -1,4 +1,4 @@
-use screenpet_core::care::Food;
+use screenpet_core::care::{growth_label, Care, Food};
 use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -76,6 +76,8 @@ pub struct FriendItem {
 pub struct TrayMenu {
     pub menu: Menu<Wry>,
     pub favorite: MenuItem<Wry>,
+    /// 성장 단계 한 줄 (누를 수 없음, 단계·성장 멈춤이 바뀌면 글자만 바꾼다)
+    pub growth: MenuItem<Wry>,
     pub lock: CheckMenuItem<Wry>,
     /// 하우스 들어가기 / 나오기 (글자가 바뀐다)
     pub house: MenuItem<Wry>,
@@ -270,7 +272,7 @@ fn send(app: &AppHandle, input: Input) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, locked: bool, housed: bool, feed_mode: FeedMode) -> tauri::Result<TrayMenu> {
+pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode) -> tauri::Result<TrayMenu> {
     let mut checks: Vec<(CheckMenuItem<Wry>, String)> = Vec::new();
     for p in pets {
         let item = CheckMenuItem::with_id(app, format!("pet:{}", p.id), &p.manifest.name, true, p.id == current, None::<&str>)?;
@@ -290,7 +292,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         true,
         &[&hand_mode, &auto_mode, &PredefinedMenuItem::separator(app)?, &meal, &fav, &PredefinedMenuItem::separator(app)?, &snack, &water],
     )?;
-    let lock = CheckMenuItem::with_id(app, "lock", "성장 멈추기", true, locked, None::<&str>)?;
+    let growth = MenuItem::new(app, growth_label(care.stage, care.locked), false, None::<&str>)?;
+    let lock = CheckMenuItem::with_id(app, "lock", "성장 멈추기", true, care.locked, None::<&str>)?;
     let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
     let reset = Submenu::with_items(app, "처음부터 다시 키우기", true, &[&reset_item])?;
     let house = MenuItem::with_id(app, "house", house_label(housed), true, None::<&str>)?;
@@ -308,6 +311,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         menu.append(item)?;
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&growth)?;
     menu.append(&feed)?;
     menu.append(&lock)?;
     menu.append(&reset)?;
@@ -383,5 +387,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: fav, lock, house, pets: pet_items, friends, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: fav, growth, lock, house, pets: pet_items, friends, hand_mode, auto_mode })
 }

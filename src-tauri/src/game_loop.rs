@@ -93,7 +93,13 @@ fn sync_menu(app: &AppHandle, entry: &PetEntry, care: &Care, housed: bool) {
     let state = app.state::<AppState>();
     let _ = state.menu.favorite.set_text(crate::tray::favorite_label(&favorite_of(entry)));
     let _ = state.menu.lock.set_checked(care.locked);
+    sync_growth(app, care);
     let _ = state.menu.house.set_text(crate::tray::house_label(housed));
+}
+
+/// 메뉴의 성장 단계 한 줄을 지금 돌보기 상태에 맞춘다 (동물마다 단계가 따로다)
+fn sync_growth(app: &AppHandle, care: &Care) {
+    let _ = app.state::<AppState>().menu.growth.set_text(screenpet_core::care::growth_label(care.stage, care.locked));
 }
 
 /// 지금 내 동물의 말풍선·음식 고르기를 띄울 창: 하우스 안이면 하우스 창, 아니면 펫 창
@@ -109,6 +115,7 @@ fn speech_target(pet: &Pet) -> &'static str {
 fn apply_own_stage(app: &AppHandle, own: &mut Slot, care: &Care) {
     let payload = stage_payload(&own.entry, care);
     own.set_stage(app, payload);
+    sync_growth(app, care);
 }
 
 /// 사이 틱: 동물(내 동물·손님)이 서 있거나 매달린 창의 경계만 새로 읽어 세계에 고쳐 넣는다 —
