@@ -5402,7 +5402,7 @@ mod visit_tests {
             p.set_exit_edges(true, true);
             p.set_guest(Side::Right, 1000.0)
         });
-        assert!((90..=150).contains(&exits), "exits={exits}");
+        assert!((250..=310).contains(&exits), "exits={exits}");
         assert_eq!(exits + turns, 400);
         // 그리우면 더 놀러 가지 않는다
         assert_eq!(

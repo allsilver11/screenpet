@@ -18,7 +18,7 @@ pub const FAREWELL_SECS: f64 = 1.0;
 /// 방문 뒤 이만큼(초) 지나면 집이 그리워진다
 pub const HOMESICK_SECS: (f64, f64) = (180.0, 360.0);
 /// 손님이 (집 쪽이 아닌) 다른 친구가 연결된 끝에 닿았을 때 그 친구에게 더 놀러 갈 확률 (그리우면 0)
-pub const ROAM_CHANCE: f64 = 0.3;
+pub const ROAM_CHANCE: f64 = 0.7;
 /// 한 화면에 동시에 받는 손님 수 — 넘치면 오는 손님은 바로 집으로 돌아간다
 pub const MAX_GUESTS: usize = 10;
 /// 그리워진 뒤 이만큼(초) 지나도 집에 못 갔으면 그 자리에서 손 흔들고 집으로
@@ -90,7 +90,7 @@ pub fn opposite(side: Side) -> Side {
 
 /// 화면 끝 edge에 닿았을 때 걸어 나갈 확률.
 /// 내 동물: 친구가 연결된 끝(exits)에서 30%. 손님: 집 방향 끝에서 50%(그리우면 반드시),
-/// 다른 끝은 거기 다른 친구가 연결돼 있으면(exits — 주인은 뺀다) 30% 더 놀러 감, 아니면(또는 그리우면) 뒤돈다
+/// 다른 끝은 거기 다른 친구가 연결돼 있으면(exits — 주인은 뺀다) 70% 더 놀러 감, 아니면(또는 그리우면) 뒤돈다
 pub fn exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>) -> f64 {
     match guest {
         Some(g) if g.home == edge && g.is_homesick() => 1.0,
@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn caps_and_roaming_numbers() {
-        assert_eq!((ROAM_CHANCE, MAX_GUESTS, HOMESICK_HARD_CAP_SECS), (0.3, 10, 180.0));
+        assert_eq!((ROAM_CHANCE, MAX_GUESTS, HOMESICK_HARD_CAP_SECS), (0.7, 10, 180.0));
     }
 
     #[test]
