@@ -37,7 +37,8 @@ NOSE_KEY = (226, 30, 52)  # 그린 뒤 코를 찾는 색 (다른 곳에 쓰지 �
 NOSE_RED, NOSE_DEEP, NOSE_SHINE = (236, 40, 56), (196, 26, 46), (255, 214, 214)
 GLOW = (255, 72, 72)
 RIBBON, RIBBON_DARK, BELL, BELL_LIGHT = (84, 168, 104), (60, 128, 80), (250, 200, 72), (255, 236, 160)
-TWINKLE = [1.0, 0.78, 0.94, 0.84]  # 코 후광 세기 (프레임마다)
+TWINKLE = [1.0, 0.78, 0.94, 0.84]
+NOSE_GROW = 1.65  # 그린 코(엔진의 작은 코)보다 이만큼 크게 — 코가 루돌프의 포인트  # 코 후광 세기 (프레임마다)
 
 
 def _antler(lvl):
@@ -47,8 +48,8 @@ def _antler(lvl):
         1: [("L", [(45, 22), (42, 7)], 6.5), ("L", [(43, 13), (35, 9)], 5.0)],
         2: [("L", [(45, 22), (42, 6), (37, -2)], 6.2), ("L", [(43, 11), (33, 7)], 5.0)],
         3: [("L", [(45, 22), (42, 5), (36, -6)], 6.2), ("L", [(43, 12), (32, 7)], 5.0), ("L", [(41, 1), (46, -7)], 4.6)],
-        4: [("L", [(46, 22), (42, 5), (33, -8)], 7.0), ("L", [(43, 13), (30, 9)], 5.6), ("L", [(41, 2), (48, -8)], 5.4),
-            ("L", [(37, -3), (27, -5)], 5.0)],
+        4: [("L", [(46, 22), (42, 5), (33, -8)], 7.4), ("L", [(43, 13), (30, 9)], 6.0), ("L", [(41, 2), (48, -8)], 5.8),
+            ("L", [(37, -3), (27, -5)], 5.4)],
     }[lvl]
 
 
@@ -97,9 +98,9 @@ def _nose_glow(im, i, lit=1.0):
     if core.sum() < 3:
         return im
     ys, xs = np.nonzero(core)
-    if xs.max() > FRAME - 12:  # 옆모습 코가 칸 끝에 붙어 있으면 후광이 잘리지 않게 몸 전체를 왼쪽으로 조금 민다
+    if xs.max() > FRAME - 18:  # 옆모습 코가 칸 끝에 붙어 있으면 후광이 잘리지 않게 몸 전체를 왼쪽으로 조금 민다
         x0 = im.getchannel("A").getbbox()[0]
-        dx = min(7, xs.max() - (FRAME - 12), x0 - 1)
+        dx = min(11, xs.max() - (FRAME - 18), x0 - 1)
         if dx > 0:
             sh = Image.new("RGBA", im.size, (0, 0, 0, 0))
             sh.paste(im, (-dx, 0))
@@ -110,11 +111,12 @@ def _nose_glow(im, i, lit=1.0):
     m = Image.fromarray((core * 255).astype(np.uint8))
     # 동글 코: 찾은 코 둘레를 1.5px씩 넓힌 타원 (작은 옆모습 코도 동그랗게)
     ys, xs = np.nonzero(core)
-    bx0, bx1, by0, by1 = xs.min() - 1.5, xs.max() + 2.5, ys.min() - 1.5, ys.max() + 2.5
-    if bx1 - bx0 < 9:
-        bx0, bx1 = (bx0 + bx1) / 2 - 4.5, (bx0 + bx1) / 2 + 4.5
-    if by1 - by0 < 8:
-        by0, by1 = (by0 + by1) / 2 - 4, (by0 + by1) / 2 + 4
+    # 루돌프의 자랑: 찾은 코보다 1.65배 큰 동글 코 (입을 덜 가리게 조금 위로)
+    w = max(xs.max() - xs.min() + 4.0, 9.0) * NOSE_GROW
+    h = max(ys.max() - ys.min() + 4.0, 8.0, 0.8 * w / NOSE_GROW) * NOSE_GROW
+    h = max(h, 0.84 * w)
+    ncx, ncy = (xs.min() + xs.max() + 1) / 2, (ys.min() + ys.max() + 1) / 2 - 0.18 * h
+    bx0, bx1, by0, by1 = ncx - w / 2, ncx + w / 2, ncy - h / 2, ncy + h / 2
     from PIL import ImageDraw
     hi = Image.new("L", (FRAME * 4, FRAME * 4), 0)
     ImageDraw.Draw(hi).ellipse((bx0 * 4, by0 * 4, bx1 * 4, by1 * 4), fill=255)
@@ -122,7 +124,7 @@ def _nose_glow(im, i, lit=1.0):
     out = im.copy()
     tw = TWINKLE[i % 4] * lit
     # 후광 (몸 위·밖으로 번진다, 칸 1px 여백 안으로 자른다)
-    halo = big.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.GaussianBlur(3.2))
+    halo = big.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.GaussianBlur(4.2))
     ha = np.asarray(halo).astype(np.float32) * min(1.0, 1.25 * tw)
     ha[:1, :] = ha[-1:, :] = 0
     ha[:, :1] = ha[:, -1:] = 0
@@ -157,7 +159,11 @@ def _nose_glow(im, i, lit=1.0):
         sd.polygon([(cx, cy - r * 1.6), (cx + r * 0.45, cy - r * 0.45), (cx + r * 1.6, cy), (cx + r * 0.45, cy + r * 0.45),
                     (cx, cy + r * 1.6), (cx - r * 0.45, cy + r * 0.45), (cx - r * 1.6, cy), (cx - r * 0.45, cy - r * 0.45)], fill=230)
         out.alpha_composite(Image.composite(Image.new("RGBA", im.size, (255, 250, 230, 255)), Image.new("RGBA", im.size, (0, 0, 0, 0)), st))
-    return out
+    # 큰 코의 후광이 칸 끝까지 번지면 1px 투명 여백을 지킨다 (몸 전체를 밀지 않게)
+    a = np.asarray(out).copy()
+    a[:, -1, 3] = 0
+    a[0, :, 3] = 0
+    return Image.fromarray(a)
 
 
 def _apple_bubble(cx, cy, r=12.5):
@@ -253,11 +259,11 @@ SA_FLOOR = 125.0
 
 # 단계(lvl)별 — hr: 머리 반지름 · brx, bry: 몸 반지름 · beard: 수염 크기 · stache: 콧수염 · belt · buckle · mitt: 초록 장갑 · sack: 선물 자루
 SA_STAGE = {
-    0: dict(hr=27, brx=17, bry=14, beard=0.5, stache=False, belt=False, buckle=False, mitt=False, sack=False),
-    1: dict(hr=27, brx=19, bry=16, beard=0.68, stache=False, belt=False, buckle=False, mitt=True, sack=False),
-    2: dict(hr=26.5, brx=21, bry=18, beard=0.84, stache=False, belt=True, buckle=False, mitt=True, sack=False),
-    3: dict(hr=26, brx=23, bry=19.5, beard=1.0, stache=True, belt=True, buckle=True, mitt=True, sack=False),
-    4: dict(hr=26, brx=26, bry=21.5, beard=1.08, stache=True, belt=True, buckle=True, mitt=True, sack=True),
+    0: dict(hr=29, brx=19, bry=16, beard=0.5, stache=False, belt=False, buckle=False, mitt=False, sack=False),
+    1: dict(hr=29, brx=21, bry=17.5, beard=0.7, stache=False, belt=False, buckle=False, mitt=True, sack=False),
+    2: dict(hr=28.5, brx=23, bry=19, beard=0.84, stache=False, belt=True, buckle=False, mitt=True, sack=False),
+    3: dict(hr=28, brx=25, bry=20.5, beard=0.96, stache=True, belt=True, buckle=True, mitt=True, sack=False),
+    4: dict(hr=28, brx=27.5, bry=22.5, beard=1.04, stache=True, belt=True, buckle=True, mitt=True, sack=True),
 }
 
 
@@ -265,34 +271,47 @@ def _sa():
     return SA_STAGE[_ST["lvl"]]
 
 
-def _beard_fns(fx_, fy, k, side):
-    """복슬 수염: 볼 아래로 둥글게 늘어진 구름 (작은 원 여러 개 + 가운데 타원)."""
-    rx, ry = 19 * k, 15 * k
-    cx = fx_ + (1.5 if side else 0)
-    top = fy + 4
-    fns = [E(cx - rx, top - 2, cx + rx, top + ry * 1.25)]
-    for a in range(20, 161, 20):
+def _layout(st, bottom, size=1.0, head_dy=0.0):
+    """(몸 중심 y, 머리 중심 y) — 짧고 동글한 얼굴이 동글 배 위에 폭 얹힌다 (수염이 가슴을 덮는다)."""
+    hr, bry = st["hr"] * size, st["bry"] * size
+    cy_b = bottom - 8 * size - bry
+    return cy_b, cy_b - bry * 0.7 - hr * 0.42 + head_dy
+
+
+def mouth_dy(st, size=1.0):
+    """머리 중심에서 입까지 (콧수염이 있으면 그 아래)."""
+    return st["hr"] * size * (0.5 if st["stache"] else 0.42)
+
+
+def _beard_fns(fx_, hy, hr, k):
+    """복슬 흰 수염: 볼·턱을 감싸는 구름 고리 (양옆은 모자 테 바로 아래까지) + 가운데 채움. 아기(k < 0.65)는 턱 아래 작은 뭉치."""
+    if k < 0.65:
+        return [C(fx_ + u * hr, hy + 0.52 * hr, 0.24 * hr) for u in (-0.42, -0.14, 0.14, 0.42)] + \
+            [E(fx_ - 0.5 * hr, hy + 0.4 * hr, fx_ + 0.5 * hr, hy + 0.84 * hr)]
+    rx, ry = 0.9 * hr, 0.72 * hr * k
+    fns = [E(fx_ - 0.84 * hr, hy + 0.22 * hr, fx_ + 0.84 * hr, hy + 0.2 * hr + 0.86 * hr * k)]
+    for a in range(-20, 201, 20):
         r = math.radians(a)
-        fns.append(C(cx + rx * math.cos(r), top + ry * 0.55 + ry * 0.75 * math.sin(r), 5.6 * k + 1.2))
+        fns.append(C(fx_ + rx * math.cos(r), hy + 0.22 * hr + ry * math.sin(r), hr * (0.22 + 0.1 * k)))
     return fns
 
 
 def _hat_parts(hx, hy, hr, side, pom, lvl):
-    """빨간 모자 (끝이 한쪽으로 늘어짐) + 흰 털 테 + 흰 방울. pom: 늘어진 끝 흔들림 (도)."""
+    """크고 말랑한 빨간 모자 (끝이 한쪽으로 축 늘어짐) + 눈썹까지 푹 눌러쓴 복슬 흰 털 테 + 흰 방울. pom: 늘어진 끝 흔들림 (도)."""
     out = []
     flop = -1 if side else 1  # 옆모습은 뒤(왼쪽)로 늘어진다
-    dome = E(hx - hr * 0.92, hy - hr * 1.42, hx + hr * 0.92, hy - hr * 0.35)
-    root = (hx + flop * hr * 0.25, hy - hr * 1.25)
+    dome = E(hx - hr * 1.0, hy - hr * 1.3, hx + hr * 1.0, hy - hr * 0.22)
+    root = (hx + flop * hr * 0.3, hy - hr * 1.12)
     with xf(rot=pom * flop, pivot=root):
-        tip = (hx + flop * hr * 1.12, hy - hr * 0.86)
-        tail = strand(dh._bez(root, (hx + flop * hr * 0.85, hy - hr * 1.45), tip, 10), hr * 0.62, 5.0)
-        out.append(dp.Part([dome, tail], SUIT, [([E(hx - hr * 0.6, hy - hr * 1.3, hx - hr * 0.2, hy - hr * 1.05)], mix(SUIT, WHITE, 0.3))],
+        tip = (hx + flop * hr * 1.16, hy - hr * 0.5)
+        tail = strand(dh._bez(root, (hx + flop * hr * 0.95, hy - hr * 1.32), tip, 10), hr * 0.66, 6.0)
+        out.append(dp.Part([dome, tail], SUIT, [([E(hx - hr * 0.62, hy - hr * 1.18, hx - hr * 0.22, hy - hr * 0.92)], mix(SUIT, WHITE, 0.3))],
                            outline=True, grow=0))
-        out.append(dp.Part([C(tip[0] + flop * 1.5, tip[1] + 2, 6.4 if lvl else 7.2)], FUR, [([C(tip[0] + flop * 3, tip[1] + 4, 3)], FUR_SHADE)],
-                           outline=True, grow=0))
-    brim = [E(hx - hr * 1.0, hy - hr * 0.86, hx + hr * 1.0, hy - hr * 0.42)]
-    brim += [C(hx + hr * u, hy - hr * 0.62 + (1.2 if k % 2 else -0.8), hr * 0.2) for k, u in enumerate((-0.82, -0.42, 0.0, 0.42, 0.82))]
-    out.append(dp.Part(brim, FUR, [([E(hx - hr * 0.9, hy - hr * 0.56, hx + hr * 0.9, hy - hr * 0.4)], FUR_SHADE)], outline=True, grow=0))
+        out.append(dp.Part([C(tip[0] + flop * 1.5, tip[1] + 2.5, hr * (0.27 if lvl else 0.3))], FUR,
+                           [([C(tip[0] + flop * 3.5, tip[1] + 5, hr * 0.12)], FUR_SHADE)], outline=True, grow=0))
+    brim = [E(hx - hr * 1.08, hy - hr * 0.6, hx + hr * 1.08, hy - hr * 0.18)]
+    brim += [C(hx + hr * u, hy - hr * 0.39 + (1.0 if k % 2 else -0.8), hr * 0.23) for k, u in enumerate((-0.86, -0.43, 0.0, 0.43, 0.86))]
+    out.append(dp.Part(brim, FUR, [([E(hx - hr * 1.0, hy - hr * 0.3, hx + hr * 1.0, hy - hr * 0.14)], FUR_SHADE)], outline=True, grow=0))
     return out
 
 
@@ -350,11 +369,9 @@ def santa(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes=
     lvl = _ST["lvl"]
     hr, brx, bry = st["hr"] * size, st["brx"] * size, st["bry"] * size
     bottom = SA_FLOOR - 1 if bottom is None else bottom
-    cy_b = bottom - 8 * size - bry
-    hy = cy_b - bry - hr * 0.5 + head_dy
+    cy_b, hy = _layout(st, bottom, size, head_dy)
     hx = cx + (3 if side else 0)
     fx_ = hx + (0.3 * hr if side else 0.0)
-    fy = hy + 2
     parts, glow, face = _flat(back), [], []
     with xf(rot=rot, pivot=(cx, cy_b)):
         with xf(sx=sq[0], sy=sq[1], pivot=(cx, bottom)):
@@ -392,33 +409,35 @@ def santa(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes=
                     sh = (cx + 0.45 * brx, cy_b - 0.35 * bry) if side else (cx + s_ * 0.82 * brx, cy_b - 0.42 * bry)
                     arm_parts += _mitt_arm(sh, s_, a, 9.5 * size, 8.5 * size, lvl)
             parts += [h() for h in held]
-            # 머리
-            with xf(rot=head_rot, pivot=(hx, hy + hr * 0.8)):
-                parts.append(dp.Part([C(hx, hy, hr)], SKIN, [([E(hx - hr * 0.7, hy - hr * 0.62, hx - hr * 0.2, hy - hr * 0.3)], mix(SKIN, WHITE, 0.45))],
-                                     outline=True, grow=0))
+            # 머리: 가로로 넓은 짧은 얼굴 — 모자 테와 수염 사이로 빼꼼
+            with xf(rot=head_rot, pivot=(hx, hy + hr * 0.6)):
+                parts.append(dp.Part([E(hx - hr, hy - hr * 0.7, hx + hr, hy + hr * 0.62)], SKIN, outline=True, grow=0))
                 k = st["beard"] * size
-                bfns = _beard_fns(fx_, fy, k, side)
-                parts.append(dp.Part(bfns, FUR, [([E(fx_ - 14 * k, fy + 13 * k, fx_ + 14 * k, fy + 22 * k)], FUR_SHADE)], outline=True, grow=0))
+                parts.append(dp.Part(_beard_fns(fx_, hy, hr, k), FUR,
+                                     [([E(fx_ - 0.7 * hr, hy + 0.55 * hr * k + 0.3 * hr, fx_ + 0.7 * hr, hy + 0.95 * hr * k + 0.3 * hr)], FUR_SHADE)],
+                                     outline=True, grow=0))
                 if st["stache"]:
-                    parts.append(dp.Part([E(fx_ - 11, fy + 4.5, fx_ - 0.5, fy + 10.5), E(fx_ + 0.5, fy + 4.5, fx_ + 11, fy + 10.5)], FUR,
-                                         outline=True, grow=0))
+                    parts.append(dp.Part([E(fx_ - 0.38 * hr, hy + 0.2 * hr, fx_ - 0.01 * hr, hy + 0.42 * hr),
+                                          E(fx_ + 0.01 * hr, hy + 0.2 * hr, fx_ + 0.38 * hr, hy + 0.42 * hr)], FUR, outline=True, grow=0))
                 parts += _hat_parts(hx, hy, hr, side, pom, lvl)
-                # 얼굴 층: 볼 · 눈 · 코 · 입
-                sp_x = 10.5 if not side else 9.5
-                bx_, by_ = _ST["blush"]
+                # 얼굴 층: 동글 볼 · 작은 점 눈 · 작은 코 · 작은 입
+                ey = hy + 0.03 * hr
+                sp_x = 0.34 * hr if not side else 0.3 * hr
                 for j, ex in enumerate((fx_ - sp_x, fx_ + sp_x)):
                     kx = 0.86 if side and j == 0 else 1.0
-                    with xf(sx=kx, pivot=(ex, fy - 4)):
-                        face += dh._ops(stage_eye(eyes, ex, fy - 4))
+                    with xf(sx=kx, pivot=(ex, ey)):
+                        face += dh._ops(stage_eye(eyes, ex, ey))
                     if brow:
-                        face += dh._ops(brows(brow, ex, fy - 5 + _ST["eye_dy"], flip=j == 1))
-                for cxx in (fx_ - 17 + (4 if side else 0), fx_ + 17):
-                    glow.append(([E(cxx - 6 * bx_, fy + 3 - 4 * by_, cxx + 6 * bx_, fy + 3 + 4 * by_)], CHEEK_RED, 0.6, 0, 0.8))
-                my = fy + (13 if st["stache"] else 10)
-                face += dh._ops(bee_mouth(mouth, fx_ + (1 if side else 0), my))
-                face.append(([C(fx_ + (1.5 if side else 0), fy + 4, 3.4)], (126, 84, 80), 1.0, 0, 0))
-                face.append(([C(fx_ + (1.5 if side else 0), fy + 4, 2.6)], (250, 166, 156), 1.0, 0, 0))
-                face.append(([C(fx_ + (0.5 if side else -0.9), fy + 3.1, 0.9)], WHITE, 1.0, 0, 0))
+                        face += dh._ops(brows(brow, ex, ey - 1 + _ST["eye_dy"], flip=j == 1))
+                bx_, by_ = _ST["blush"]
+                for cxx in (fx_ - 0.6 * hr + (0.12 * hr if side else 0), fx_ + 0.6 * hr):
+                    glow.append(([E(cxx - 0.17 * hr * bx_, hy + 0.2 * hr - 0.12 * hr * by_, cxx + 0.17 * hr * bx_, hy + 0.2 * hr + 0.12 * hr * by_)],
+                                 CHEEK_RED, 0.75, 0, 0.6))
+                face += dh._ops(bee_mouth(mouth, fx_ + (1 if side else 0), hy + mouth_dy(st, size)))
+                nx, ny = fx_ + (1.5 if side else 0), hy + 0.2 * hr
+                face.append(([C(nx, ny, 0.11 * hr + 0.8)], (150, 96, 90), 1.0, 0, 0))
+                face.append(([C(nx, ny, 0.11 * hr)], (250, 166, 156), 1.0, 0, 0))
+                face.append(([C(nx - 0.04 * hr, ny - 0.04 * hr, 0.035 * hr)], WHITE, 1.0, 0, 0))
             parts += arm_parts
     parts += _flat(props)
     return _finish(parts, glow, face + list(top), fx)
@@ -478,8 +497,10 @@ def sa_roll(sp, i):
                                      ([L([(s0 + 8, seat + 3), (s1 - 10, seat + 3)], 1.4)], mix(SLED, BELT, 0.25))], outline=True, grow=0)
         return [runner, body]
 
+    bottom = seat + 6 + 4 * st["bry"] / 20
+
     def scarf():
-        hy = seat - st["bry"] * 0.9 - st["hr"] * 0.5 - 4
+        _, hy = _layout(st, bottom)
         wave = [0, 3][i]
         pts = [(54, hy + st["hr"] * 0.82), (42, hy + st["hr"] * 0.7 - wave), (32, hy + st["hr"] * 0.85 + wave), (24, hy + st["hr"] * 0.7)]
         return dp.Part([strand(pts, 8, 6)], SCARF, [([L([(p[0], p[1] - 3), (p[0], p[1] + 3)], 1.6) for p in pts[1:3]], SCARF_STRIPE)],
@@ -487,7 +508,7 @@ def sa_roll(sp, i):
 
     puffs = snow_puffs([[(14, base - 4, 4.2), (6, base - 10, 3.0), (20, base - 12, 2.4)],
                         [(10, base - 6, 3.6), (18, base - 3, 2.8), (5, base - 14, 2.6)]][i])
-    return santa(sp, side=True, bottom=seat + 6 + 4 * st["bry"] / 20, cx=60, feet=None, sack=False, eyes="happy", mouth="open",
+    return santa(sp, side=True, bottom=bottom, cx=60, feet=None, sack=False, eyes="happy", mouth="open",
                  pom=[-26, -18][i], rot=[-2, 0][i], arms=[(1, 70)], back=[scarf], props=[sled],
                  fx=puffs + speed_fx(2, (base - 30, base - 22), 10, [0, -3][i]))
 
@@ -571,7 +592,8 @@ def sa_heart(sp, i):
     if i:
         hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
     st = _sa()
-    hy = SA_FLOOR - 6 - st["bry"] * 1.15
+    cy_b, _ = _layout(st, SA_FLOOR - 1)
+    hy = cy_b - st["bry"] * 0.25
     return santa(sp, eyes="happy", top=_heart_items(64, hy, 0.9), arms=[(-1, (55, hy + 6)), (1, (73, hy + 6))], fx=hs)
 
 
@@ -593,11 +615,8 @@ def sa_eat(sp, i):
     bite = i % 2 == 0
     st = _sa()
     _, my = dp._frame_to_pre(64, 84 + [0, 1, 0, 1][i])
-    bottom = SA_FLOOR - 1
-    cy_b = bottom - 8 - st["bry"]
-    hy0 = cy_b - st["bry"] - st["hr"] * 0.5
-    mouth_off = 2 + (13 if st["stache"] else 10)
-    head_dy = max(-6.0, min(18.0, my - (hy0 + mouth_off)))
+    _, hy0 = _layout(st, SA_FLOOR - 1)
+    head_dy = max(-6.0, min(18.0, my - (hy0 + mouth_dy(st))))
     with view(scale=1.0, lift=0):
         crumbs = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]][i]
         fx = []
@@ -626,9 +645,10 @@ SANTA_POSES = {k: dh._fit(v) for k, v in SANTA_POSES.items()}
 SANTA = Species(
     id="santa", name="산타", walk_speed=70, scale=0.94, base=SUIT, back=SUIT, belly=FUR, nose=SKIN, mouth="w",
     front_tail_color=SUIT, tail_color=SUIT, stage_size=dict.fromkeys(STAGES, 1.1), stripe=SUIT_SHADE, outline=SUIT_LINE,
-    stage_tweak={"baby": dict(pale=0.0, eye=1.3, fit=0.9), "kinder": dict(pale=0.0, eye=1.22, fit=0.93),
-                 "child": dict(sparkle=True, smile=False, eye=1.14, fit=0.95), "teenager": dict(sparkle=True, eye=1.08, fit=0.97),
-                 "adult": dict(sparkle=True, calm=False, eye=1.04, fit=0.93)},
+    # 작은 점 눈 (반짝이 큰 눈·반쯤 감은 눈 없이) — 아기만 조금 크게
+    stage_tweak={"baby": dict(pale=0.0, sparkle=False, eye=1.0, fit=0.9), "kinder": dict(pale=0.0, sparkle=False, eye=0.95, fit=0.93),
+                 "child": dict(smile=False, eye=0.92, fit=0.95), "teenager": dict(eye=0.9, fit=0.97),
+                 "adult": dict(calm=False, eye=0.88, fit=0.93)},
     **{k: v for k, v in dh._COMMON.items() if k != "poses"}, poses=SANTA_POSES,
 )
 

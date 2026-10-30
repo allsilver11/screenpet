@@ -120,7 +120,7 @@ def test_eat_has_no_bowl(out, pid):
             im = frame(out, pid, "eat", c, st)
             bowlish = count(im, lambda r, g, b, a: (a > 200) & np.logical_or.reduce(
                 [np.abs(r - col[0]) + np.abs(g - col[1]) + np.abs(b - col[2]) <= 12 for col in BOWL_COLORS]))
-            assert bowlish < 20, (st, c, bowlish)
+            assert bowlish < 60, (st, c, bowlish)  # 그릇이면 수백 px — 루돌프 코 후광·산타 볼터치가 몇 px 섞인다
 
 
 def test_santa_mouth_sits_over_the_food(out):
@@ -136,7 +136,7 @@ def test_rudolph_nose_glows_red_and_twinkles(out):
         for anim, n in (("walk", 4), ("sit_front", 4), ("idle", 2), ("eat", 4)):
             for c in range(n):
                 im = frame(out, "rudolph", anim, c, st)
-                assert red_nose(im) >= 20, (st, anim, c)
+                assert red_nose(im) >= 60, (st, anim, c)  # 코가 루돌프의 포인트 — 크게
         side = frame(out, "rudolph", "walk", 0, st)
         assert halo(side) >= 20, st  # 옆모습 코끝 밖으로 빨간 빛
     # 프레임마다 반짝반짝: 같은 그림이라도 프레임 번호마다 코 빛 세기가 다르다
@@ -159,5 +159,5 @@ def test_rudolph_apple_bubble_is_not_mistaken_for_the_nose(out):
     for st in STAGES:
         for c in range(3):
             im = frame(out, "rudolph", "hungry", c, st)
-            assert red_nose(im) < 120, (st, c, red_nose(im))
+            assert red_nose(im) < 400, (st, c, red_nose(im))  # 큰 코 하나만큼
             assert red_nose(im.crop((0, 0, FRAME, 40))) < 30, (st, c)  # 머리 위 풍선 쪽엔 빨간 코가 없다
