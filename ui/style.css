@@ -32,13 +32,13 @@ body {
   cursor: grab;
 }
 
-/* 할로윈 효과 (main.js petFx) — 유령 "부~": 스르륵 30%까지 흐려져 3초쯤 머물다 돌아온다 */
+/* 할로윈 효과 (main.js petFx) — 유령 "부~": 스르륵 40%까지 흐려져 3초쯤 머물다 돌아온다 */
 #pet.boo {
   animation: boo 3.6s ease-in-out;
 }
 @keyframes boo {
-  15% { opacity: 0.3; }
-  85% { opacity: 0.3; }
+  15% { opacity: 0.4; }
+  85% { opacity: 0.4; }
 }
 /* 호박 빛 번짐: 따뜻한 노란 빛이 잠깐 퍼졌다 잦아든다 */
 #pet.flare {
@@ -263,6 +263,20 @@ body {
   50% { transform: translateY(-3px) rotate(6deg); filter: drop-shadow(0 0 4px rgba(255, 210, 90, 0.95)); }
 }
 #envelope[hidden] {
+  display: none;
+}
+
+/* 조작 모드 🎮: 머리 왼쪽 위에 작게 (편지 봉투는 오른쪽). 누르기는 펫으로 간다 */
+#ctltag {
+  position: absolute;
+  top: 16px;
+  left: calc(50% - 34px);
+  font-size: 14px;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 3;
+}
+#ctltag[hidden] {
   display: none;
 }
 
