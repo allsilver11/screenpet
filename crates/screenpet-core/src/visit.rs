@@ -33,6 +33,10 @@ const EDGE_TOLERANCE: f64 = 2.0;
 pub struct ExitEdges {
     pub left: bool,
     pub right: bool,
+    /// 위 (친구 화면이 내 화면 위에 있음 — 높이 뛰어 나가거나 위로 던지면 넘어간다)
+    pub up: bool,
+    /// 아래 (바닥 밑으로 쏙 빠져나가거나 아래로 던지면 넘어간다)
+    pub down: bool,
 }
 
 impl ExitEdges {
@@ -40,6 +44,8 @@ impl ExitEdges {
         match side {
             Side::Left => self.left,
             Side::Right => self.right,
+            Side::Up => self.up,
+            Side::Down => self.down,
         }
     }
 }
@@ -85,7 +91,14 @@ pub fn opposite(side: Side) -> Side {
     match side {
         Side::Left => Side::Right,
         Side::Right => Side::Left,
+        Side::Up => Side::Down,
+        Side::Down => Side::Up,
     }
+}
+
+/// 위/아래 끝 (친구 화면이 위나 아래에 있음)
+pub fn is_vertical(side: Side) -> bool {
+    matches!(side, Side::Up | Side::Down)
 }
 
 /// 화면 끝 edge에 닿았을 때 걸어 나갈 확률.
@@ -230,14 +243,16 @@ pub fn guest_scale(sent: f64, local: f64) -> f64 {
     }
 }
 
-/// +1 오른쪽, -1 왼쪽
+/// +1 오른쪽, -1 왼쪽 (위/아래는 0 — 옆으로 가지 않는다)
 pub fn dir(side: Side) -> f64 {
     match side {
         Side::Left => -1.0,
         Side::Right => 1.0,
+        Side::Up | Side::Down => 0.0,
     }
 }
 
+/// -1이면 왼쪽, 아니면 오른쪽
 pub fn side_of(dir: f64) -> Side {
     if dir < 0.0 {
         Side::Left
@@ -255,13 +270,16 @@ pub fn screen_edge(world: &World, piece: &Surface, facing: f64) -> Option<Side> 
     let side = side_of(facing);
     let (x, kind, bound) = match side {
         Side::Left => (piece.x_start, piece.start_kind, world.bounds.left),
-        Side::Right => (piece.x_end, piece.end_kind, world.bounds.right),
+        Side::Right | Side::Up | Side::Down => (piece.x_end, piece.end_kind, world.bounds.right),
     };
     (kind == EndKind::Wall && (x - bound).abs() <= EDGE_TOLERANCE).then_some(side)
 }
 
-/// side 끝에서 들어올 바닥: (주인, 끝 x, 바닥 y). 그 끝에 닿은 바닥이 여럿이면 가장 아래쪽
+/// side 끝에서 들어올 바닥: (주인, 끝 x, 바닥 y). 그 끝에 닿은 바닥이 여럿이면 가장 아래쪽 (위/아래 끝은 None)
 pub fn entry_ground(world: &World, side: Side) -> Option<(Owner, f64, f64)> {
+    if is_vertical(side) {
+        return None;
+    }
     let facing = dir(side);
     world
         .surfaces
@@ -271,19 +289,117 @@ pub fn entry_ground(world: &World, side: Side) -> Option<(Owner, f64, f64)> {
         .map(|s| (s.owner, if side == Side::Left { s.x_start } else { s.x_end }, s.y))
 }
 
-/// 몸(중심 x, 반폭 half_w)이 side 끝 바깥으로 다 빠져나갔는지
+/// 몸(중심 x, 반폭 half_w)이 side 끝 바깥으로 다 빠져나갔는지 (왼쪽/오른쪽 — 위/아래는 fully_outside_v)
 pub fn fully_outside(bounds: &Rect, side: Side, x: f64, half_w: f64) -> bool {
     match side {
         Side::Left => x + half_w <= bounds.left,
         Side::Right => x - half_w >= bounds.right,
+        Side::Up | Side::Down => false,
     }
 }
 
-/// 몸이 side 끝 안쪽으로 다 들어왔는지
+/// 몸이 side 끝 안쪽으로 다 들어왔는지 (왼쪽/오른쪽 — 위/아래는 fully_inside_v)
 pub fn fully_inside(bounds: &Rect, side: Side, x: f64, half_w: f64) -> bool {
     match side {
         Side::Left => x - half_w >= bounds.left,
         Side::Right => x + half_w <= bounds.right,
+        Side::Up | Side::Down => true,
+    }
+}
+
+// ---- 위/아래 친구 화면 (v0.3.6) ----
+
+/// 위/아래로 나가기: 이동을 정할 때마다 (걸어 나가기 확률 × 이만큼)으로 높이 뛰어 위로 / 바닥 밑으로 쏙 나간다.
+/// 바닥 끝까지 걸어가 닿는 일이 이동 열 번에 한 번쯤이라 옆으로 걸어 나가는 것과 비슷한 빈도
+pub const VERTICAL_DECISION_SCALE: f64 = 0.1;
+/// 개구리는 위로 뛰어 나가기를 이만큼 더 자주
+pub const FROG_SKY_JUMP_MULT: f64 = 2.0;
+/// 높이 뛰기 전에 웅크리는 시간 (초)
+pub const VERTICAL_CROUCH_SECS: f64 = 0.35;
+/// 위/아래로 나가거나 들어오는 길의 안전 시한 (초) — 넘으면 그냥 다 나간(들어온) 것으로 친다
+pub const VERTICAL_MAX_SECS: f64 = 4.0;
+/// 바닥 밑으로 쏙 빠지기 전 폴짝 (몸 높이의 이 배만큼 뛰어오른다)
+pub const DIVE_HOP_SIZES: f64 = 0.6;
+/// 아래에서 튀어 올라올 때 바닥 위로 이 배(몸 높이)만큼 솟는다
+pub const POP_UP_SIZES: f64 = 2.0;
+/// 위로 뛰어 나갈 때 머리 위에 창이 없어야 하는 높이 (몸 높이의 배)
+pub const SKY_HEADROOM_SIZES: f64 = 2.0;
+/// 아래 끝으로 던져 넘기려면 바닥에 닿을 때 이 속도(논리 px/s) 이상으로 내리꽂혀야 한다 — 그냥 떨어뜨리거나 살살 던지면 바닥에 내려선다
+/// (던진 비행의 중력으로 화면 절반쯤 떨어지면 1300쯤)
+pub const FLING_DOWN_MIN_SPEED: f64 = 1400.0;
+/// 나는 동물은 공기 저항으로 금방 느려지므로 이 속도면 아래 끝으로 넘어간다
+pub const FLY_FLING_DOWN_MIN_SPEED: f64 = 400.0;
+
+/// 위/아래로 나갈 확률 (이동을 정할 때마다): visit 규칙(exit_chance) × VERTICAL_DECISION_SCALE, 개구리가 위로면 × 2.
+/// 반드시 나가야 하면(그리운 손님의 집 쪽) 1
+pub fn vertical_exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>, frog: bool) -> f64 {
+    if !is_vertical(edge) {
+        return 0.0;
+    }
+    let chance = exit_chance(edge, exits, guest);
+    if chance >= 1.0 {
+        return 1.0;
+    }
+    let mult = if frog && edge == Side::Up { FROG_SKY_JUMP_MULT } else { 1.0 };
+    (chance * VERTICAL_DECISION_SCALE * mult).min(1.0)
+}
+
+/// x 줄에서 합친 화면의 가장 바깥 위(Up)/아래(Down) 끝에 닿는 작업 영역이 있는지 (그 줄로 위/아래 친구 화면에 넘어갈 수 있다)
+pub fn outer_edge_at(world: &World, side: Side, x: f64) -> bool {
+    let b = world.bounds;
+    world.work_areas.iter().any(|r| {
+        r.left <= x
+            && x < r.right
+            && match side {
+                Side::Up => (r.top - b.top).abs() <= EDGE_TOLERANCE,
+                Side::Down => (r.bottom - b.bottom).abs() <= EDGE_TOLERANCE,
+                Side::Left | Side::Right => false,
+            }
+    })
+}
+
+/// 위/아래 끝 어디쯤인지 (합친 화면 폭의 0 왼쪽 … 1 오른쪽) — 던져 넘길 때 Fling.height에 싣는다
+pub fn edge_fraction(bounds: &Rect, x: f64) -> f64 {
+    if bounds.width() > 0.0 {
+        ((x - bounds.left) / bounds.width()).clamp(0.0, 1.0)
+    } else {
+        0.5
+    }
+}
+
+/// 위/아래 끝(side)으로 들어올 x: 폭 비율 frac(없으면 rng로 아무 데나) 자리에서 가장 가까운, 그 끝에 닿은 작업 영역 안 (몸 반폭만큼 안쪽)
+pub fn vertical_entry_x(world: &World, side: Side, frac: Option<f64>, half_w: f64, rng: &mut fastrand::Rng) -> f64 {
+    let b = world.bounds;
+    let frac = frac.filter(|f| f.is_finite()).unwrap_or_else(|| rng.f64()).clamp(0.0, 1.0);
+    let x = b.left + frac * b.width();
+    let touching = world.work_areas.iter().filter(|r| match side {
+        Side::Up => (r.top - b.top).abs() <= EDGE_TOLERANCE,
+        Side::Down => (r.bottom - b.bottom).abs() <= EDGE_TOLERANCE,
+        Side::Left | Side::Right => false,
+    });
+    let dist = |r: &Rect| if x < r.left { r.left - x } else if x > r.right { x - r.right } else { 0.0 };
+    match touching.min_by(|a, c| dist(a).total_cmp(&dist(c))) {
+        Some(r) if r.width() > 2.0 * half_w => x.clamp(r.left + half_w, r.right - half_w),
+        Some(r) => (r.left + r.right) / 2.0,
+        None => x.clamp(b.left + half_w, (b.right - half_w).max(b.left + half_w)),
+    }
+}
+
+/// 몸(발 y, 키 height)이 위/아래 끝 바깥으로 다 빠져나갔는지
+pub fn fully_outside_v(bounds: &Rect, side: Side, y: f64, height: f64) -> bool {
+    match side {
+        Side::Up => y <= bounds.top,
+        Side::Down => y - height >= bounds.bottom,
+        Side::Left | Side::Right => false,
+    }
+}
+
+/// 몸이 위/아래 끝 안쪽으로 다 들어왔는지
+pub fn fully_inside_v(bounds: &Rect, side: Side, y: f64, height: f64) -> bool {
+    match side {
+        Side::Up => y - height >= bounds.top,
+        Side::Down => y <= bounds.bottom,
+        Side::Left | Side::Right => true,
     }
 }
 
@@ -420,8 +536,8 @@ mod tests {
 
     #[test]
     fn exit_chance_for_owner_needs_a_connected_edge() {
-        let both = ExitEdges { left: true, right: true };
-        let right = ExitEdges { left: false, right: true };
+        let both = ExitEdges { left: true, right: true, ..Default::default() };
+        let right = ExitEdges { left: false, right: true, ..Default::default() };
         assert_eq!(exit_chance(Side::Right, both, None), 0.3);
         assert_eq!(exit_chance(Side::Left, both, None), 0.3);
         assert_eq!(exit_chance(Side::Right, right, None), 0.3);
@@ -432,7 +548,7 @@ mod tests {
     #[test]
     fn guests_leave_toward_home_or_roam_on_to_another_friend() {
         let none = ExitEdges::default();
-        let both = ExitEdges { left: true, right: true };
+        let both = ExitEdges { left: true, right: true, ..Default::default() };
         let guest = Guest { home: Side::Right, homesick_in: 100.0 };
         assert_eq!(exit_chance(Side::Right, none, Some(guest)), 0.5);
         // 집 쪽 끝은 다른 친구가 연결돼 있어도 집 규칙
@@ -533,6 +649,71 @@ mod tests {
         // 같은 끝에 바닥이 둘이면 더 아래쪽
         let stacked = World::new(vec![], vec![Rect::new(0.0, -1080.0, 1920.0, -40.0), Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
         assert_eq!(entry_ground(&stacked, Side::Left), Some((Owner::Ground(1), 0.0, 1040.0)));
+    }
+
+    #[test]
+    fn up_and_down_are_vertical_opposites_without_a_sideways_direction() {
+        assert_eq!((opposite(Side::Up), opposite(Side::Down)), (Side::Down, Side::Up));
+        assert_eq!((dir(Side::Up), dir(Side::Down)), (0.0, 0.0));
+        assert!(is_vertical(Side::Up) && is_vertical(Side::Down) && !is_vertical(Side::Left) && !is_vertical(Side::Right));
+        assert_eq!(hop_enter_side(None, Side::Up), Side::Down);
+        assert_eq!(hop_enter_side(Some(Side::Up), Side::Left), Side::Up);
+    }
+
+    #[test]
+    fn vertical_exit_odds_need_a_linked_edge_and_scale_like_walking_out() {
+        let up = ExitEdges { up: true, ..Default::default() };
+        let both = ExitEdges { up: true, down: true, ..Default::default() };
+        assert_eq!(vertical_exit_chance(Side::Up, ExitEdges::default(), None, false), 0.0);
+        assert_eq!(vertical_exit_chance(Side::Down, up, None, false), 0.0);
+        assert!((vertical_exit_chance(Side::Up, up, None, false) - EXIT_CHANCE * VERTICAL_DECISION_SCALE).abs() < 1e-12);
+        // 개구리는 위로만 두 배
+        assert!((vertical_exit_chance(Side::Up, up, None, true) - 2.0 * EXIT_CHANCE * VERTICAL_DECISION_SCALE).abs() < 1e-12);
+        assert!((vertical_exit_chance(Side::Down, both, None, true) - EXIT_CHANCE * VERTICAL_DECISION_SCALE).abs() < 1e-12);
+        // 왼쪽/오른쪽은 이 규칙이 아니다
+        let all = ExitEdges { left: true, right: true, up: true, down: true };
+        assert_eq!(vertical_exit_chance(Side::Left, all, None, false), 0.0);
+        // 손님: 집이 위면 50% × 배율, 그리우면 반드시. 다른 끝은 거기 친구가 있으면 돌아다니기, 그리우면 안 간다
+        let guest = Guest { home: Side::Up, homesick_in: 100.0 };
+        let homesick = Guest { homesick_in: 0.0, ..guest };
+        assert!((vertical_exit_chance(Side::Up, ExitEdges::default(), Some(guest), false) - GUEST_EXIT_CHANCE * VERTICAL_DECISION_SCALE).abs() < 1e-12);
+        assert_eq!(vertical_exit_chance(Side::Up, ExitEdges::default(), Some(homesick), false), 1.0);
+        assert!((vertical_exit_chance(Side::Down, both, Some(guest), false) - ROAM_CHANCE * VERTICAL_DECISION_SCALE).abs() < 1e-12);
+        assert_eq!(vertical_exit_chance(Side::Down, both, Some(homesick), false), 0.0);
+    }
+
+    #[test]
+    fn outer_top_and_bottom_columns() {
+        // 큰 모니터 옆에 위가 낮고 아래가 같은 모니터
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 300.0, 3000.0, 1040.0)], 128.0);
+        assert!(outer_edge_at(&w, Side::Up, 100.0) && outer_edge_at(&w, Side::Down, 100.0));
+        assert!(!outer_edge_at(&w, Side::Up, 2500.0) && outer_edge_at(&w, Side::Down, 2500.0));
+        assert!(!outer_edge_at(&w, Side::Left, 100.0));
+        assert!(!outer_edge_at(&w, Side::Up, 5000.0));
+        // 위에서 들어올 자리는 위 끝에 닿은 모니터 안으로
+        let mut rng = fastrand::Rng::with_seed(1);
+        assert_eq!(vertical_entry_x(&w, Side::Up, Some(0.9), 38.0, &mut rng), 1920.0 - 38.0);
+        assert_eq!(vertical_entry_x(&w, Side::Down, Some(0.9), 38.0, &mut rng), 0.9 * 3000.0);
+        // 이상한 비율은 아무 데나
+        let x = vertical_entry_x(&w, Side::Down, Some(f64::NAN), 38.0, &mut rng);
+        assert!((38.0..=3000.0 - 38.0).contains(&x), "{x}");
+        for _ in 0..200 {
+            let x = vertical_entry_x(&w, Side::Down, None, 38.0, &mut rng);
+            assert!((38.0..=3000.0 - 38.0).contains(&x), "{x}");
+        }
+        assert_eq!(edge_fraction(&w.bounds, 1500.0), 0.5);
+        assert_eq!((edge_fraction(&w.bounds, -50.0), edge_fraction(&w.bounds, 1e9)), (0.0, 1.0));
+    }
+
+    #[test]
+    fn fully_past_the_top_or_bottom() {
+        let b = Rect::new(0.0, 0.0, 1920.0, 1040.0);
+        assert!(fully_outside_v(&b, Side::Up, 0.0, 128.0) && !fully_outside_v(&b, Side::Up, 1.0, 128.0));
+        assert!(fully_outside_v(&b, Side::Down, 1168.0, 128.0) && !fully_outside_v(&b, Side::Down, 1167.0, 128.0));
+        assert!(fully_inside_v(&b, Side::Up, 128.0, 128.0) && !fully_inside_v(&b, Side::Up, 127.0, 128.0));
+        assert!(fully_inside_v(&b, Side::Down, 1040.0, 128.0) && !fully_inside_v(&b, Side::Down, 1041.0, 128.0));
+        // 옆 끝 판정은 위/아래에 쓰지 않는다
+        assert!(!fully_outside(&b, Side::Up, -500.0, 38.0) && fully_inside(&b, Side::Down, -500.0, 38.0));
     }
 
     #[test]

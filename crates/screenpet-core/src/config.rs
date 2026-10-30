@@ -108,6 +108,8 @@ fn lenient_friends<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Friend>
 enum SideDef {
     Left,
     Right,
+    Up,
+    Down,
 }
 
 impl Config {
@@ -210,7 +212,7 @@ impl Config {
     /// 지금 연결된(connected) 친구가 있는 화면 끝
     pub fn exit_edges(&self, connected: impl Fn(&str) -> bool) -> ExitEdges {
         let on = |side| self.friends.iter().any(|f| f.side == side && connected(&f.id));
-        ExitEdges { left: on(Side::Left), right: on(Side::Right) }
+        ExitEdges { left: on(Side::Left), right: on(Side::Right), up: on(Side::Up), down: on(Side::Down) }
     }
 
     /// 놀러 온 손님(주인 owner)을 더 보낼 수 있는 친구: 연결된 내 친구 중 그 주인을 뺀 친구들 (손님 우클릭 "<친구>에게 보내기")
@@ -604,13 +606,32 @@ mod tests {
         c.upsert_friend("l", "L", key(2));
         let none = |_: &str| false;
         assert_eq!(c.exit_edges(none), ExitEdges::default());
-        assert_eq!(c.exit_edges(|id| id == "r"), ExitEdges { left: false, right: true });
-        assert_eq!(c.exit_edges(|_| true), ExitEdges { left: true, right: true });
+        assert_eq!(c.exit_edges(|id| id == "r"), ExitEdges { left: false, right: true, ..Default::default() });
+        assert_eq!(c.exit_edges(|_| true), ExitEdges { left: true, right: true, ..Default::default() });
         c.set_friend_side("l", Side::Right);
-        assert_eq!(c.exit_edges(|_| true), ExitEdges { left: false, right: true });
+        assert_eq!(c.exit_edges(|_| true), ExitEdges { left: false, right: true, ..Default::default() });
         let ids: Vec<&str> = c.friends_at(Side::Right, |id| id == "l").iter().map(|f| f.id.as_str()).collect();
         assert_eq!(ids, ["l"]);
         assert!(c.friends_at(Side::Left, |_| true).is_empty());
+    }
+
+    #[test]
+    fn friends_can_sit_above_or_below_and_old_configs_still_load() {
+        let mut c = Config::default();
+        c.upsert_friend("u", "U", key(1));
+        c.upsert_friend("d", "D", key(2));
+        assert!(c.set_friend_side("u", Side::Up) && c.set_friend_side("d", Side::Down));
+        assert_eq!(c.exit_edges(|_| true), ExitEdges { up: true, down: true, ..Default::default() });
+        assert_eq!(c.exit_edges(|id| id == "d"), ExitEdges { down: true, ..Default::default() });
+        assert_eq!(c.friends_at(Side::Up, |_| true).len(), 1);
+        let text = serde_json::to_string(&c).unwrap();
+        assert!(text.contains(r#""side":"up""#) && text.contains(r#""side":"down""#), "{text}");
+        let back: Config = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.friend("u").unwrap().side, Side::Up);
+        assert_eq!(back.friend("d").unwrap().side, Side::Down);
+        // 새 친구는 예전처럼 왼쪽/오른쪽에 붙는다
+        c.upsert_friend("n", "N", key(3));
+        assert!(matches!(c.friend("n").unwrap().side, Side::Left | Side::Right));
     }
 
     #[test]

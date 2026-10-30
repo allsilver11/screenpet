@@ -40,6 +40,10 @@ impl Pet {
     /// 다른 화면에서 던져져 side 끝으로 날아 들어온다 (높이·속도를 이어 받고, 평소 물리로 떨어져 내려선다 — 나는 동물은 떠서 멈춘다).
     /// fling이 이상하면 평소처럼 걸어 들어온다
     pub fn enter_flung(&mut self, world: &World, side: Side, fling: Fling) {
+        if visit::is_vertical(side) {
+            self.enter_flung_vertical(world, side, fling);
+            return;
+        }
         self.enter(world, side);
         let Some(f) = fling.sanitized() else { return };
         let inward = -visit::dir(side);
@@ -47,12 +51,12 @@ impl Pet {
         // 그 끝에 닿은 작업 영역 (없으면 가장 가까운 것)
         let edge_x = match side {
             Side::Left => b.left,
-            Side::Right => b.right - 1.0,
+            Side::Right | Side::Up | Side::Down => b.right - 1.0,
         };
         let wa = world.work_area_at(edge_x, b.bottom);
         let x = match side {
             Side::Left => b.left + self.cfg.half_w,
-            Side::Right => b.right - self.cfg.half_w,
+            Side::Right | Side::Up | Side::Down => b.right - self.cfg.half_w,
         };
         let y = (wa.top + f.height * wa.height()).clamp(wa.top + self.cfg.size, wa.bottom.max(wa.top + self.cfg.size));
         let dpi = self.cfg.dpi;

@@ -11,11 +11,15 @@ pub struct World {
     pub pet_height: f64,
 }
 
-/// 창의 어느 옆면인지
+/// 창의 어느 옆면인지 (Left/Right만), 또는 친구 화면이 붙은 내 화면의 어느 끝인지 (visit — 위/아래도)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
     Left,
     Right,
+    /// 화면 위쪽 끝 (친구 화면이 위에 있음 — 창 옆면에는 쓰지 않는다)
+    Up,
+    /// 화면 아래쪽 끝 (친구 화면이 아래에 있음 — 창 옆면에는 쓰지 않는다)
+    Down,
 }
 
 /// 던져진 펫이 창 옆면에 부딪힘

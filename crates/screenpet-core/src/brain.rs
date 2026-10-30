@@ -167,6 +167,10 @@ pub enum Speech {
     Stomp,
     /// 공룡 쿵쾅에 흔들림 ("whoa!", brain_stomp.rs)
     Whoa,
+    /// 위 친구 화면으로 높이 뛰어 나감 / 아래 화면에서 튀어 올라옴 ("boing!", brain_vert.rs)
+    Boing,
+    /// 아래 친구 화면으로 바닥을 뚫고 쏙 ("whee!", brain_vert.rs)
+    Whee,
 }
 
 impl Anim {
@@ -608,6 +612,11 @@ impl Pet {
         }
         match self.state {
             State::Away => return,
+            // 위/아래 친구 화면으로 나가거나 그쪽에서 들어오는 중 (brain_vert.rs)
+            State::Exit { side, .. } | State::Enter { side, .. } if visit::is_vertical(side) => {
+                self.update_vertical(dt, world);
+                return;
+            }
             State::Exit { remaining, side } => {
                 if self.cfg.flies {
                     self.update_fly_exit(dt, world, remaining, side);
@@ -700,6 +709,7 @@ impl Pet {
             State::CatchMe { .. } => Anim::Run,
             State::Sting { phase: StingPhase::Recoil, .. } => Anim::Annoyed,
             State::Sting { .. } => Anim::Sting,
+            State::Exit { side, .. } | State::Enter { side, .. } if visit::is_vertical(side) => self.vertical_anim(),
             State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } | State::WantFood { walking: true } => Anim::Walk,
             State::WantFood { walking: false } if self.looking_up() => Anim::LookUp,
             State::WantFood { walking: false } => Anim::Look,
@@ -1071,7 +1081,7 @@ impl Pet {
 
     /// 친구가 연결된 화면 끝을 정한다 — 바닥을 걷다 그 끝에 닿으면 가끔 걸어 나간다
     pub fn set_exit_edges(&mut self, left: bool, right: bool) {
-        self.exit_edges = ExitEdges { left, right };
+        self.exit_edges = ExitEdges { left, right, ..self.exit_edges };
     }
 
     /// 손님 모드: home = 집으로 가는 화면 끝, homesick_after초 뒤 집이 그리워진다 (visit::pick_homesick_after).
@@ -1111,6 +1121,10 @@ impl Pet {
         self.pacing.after_beat = None;
         self.before_press = None;
         self.clear_hover();
+        if visit::is_vertical(side) {
+            self.enter_vertical(world, side, None);
+            return;
+        }
         self.facing = inward;
         if self.cfg.flies {
             self.enter_flying(world, side);
@@ -1189,7 +1203,7 @@ impl Pet {
             self.go_home_now();
             return;
         }
-        if !was && now && matches!(self.state, State::Move { .. }) && self.facing != visit::dir(home) {
+        if !was && now && !visit::is_vertical(home) && matches!(self.state, State::Move { .. }) && self.facing != visit::dir(home) {
             self.pacing.after_beat = None;
             self.state = State::Turn { remaining: TURN_PAUSE };
         }
@@ -2297,7 +2311,9 @@ impl Pet {
         }
         // 던져서 친구가 연결된 화면 끝에 닿으면 튕기지 않고 넘어간다 (brain_fling.rs)
         let (half_w, b) = (self.cfg.half_w, world.bounds);
-        if self.fling_out(world, self.body.x + self.body.vx * dt, b.left + half_w, b.right - half_w) {
+        if self.fling_out(world, self.body.x + self.body.vx * dt, b.left + half_w, b.right - half_w)
+            || self.fling_out_vertical(world, self.body.y + self.body.vy * dt, b.top + self.cfg.size, b.bottom)
+        {
             return;
         }
         let (prev_x, prev_y, prev_vx) = (self.body.x, self.body.y, self.body.vx);
@@ -2349,7 +2365,7 @@ impl Pet {
     fn wall_x(&self, edge_x: f64, side: Side) -> f64 {
         match side {
             Side::Left => edge_x - self.cfg.half_w,
-            Side::Right => edge_x + self.cfg.half_w,
+            Side::Right | Side::Up | Side::Down => edge_x + self.cfg.half_w,
         }
     }
 
@@ -2407,7 +2423,7 @@ impl Pet {
         };
         let edge_x = match side {
             Side::Left => rect.left,
-            Side::Right => rect.right,
+            Side::Right | Side::Up | Side::Down => rect.right,
         };
         let rel_y = rel_y - self.scaled(behavior::WALL_CLIMB_SPEED) * self.climb_pace(dt) * dt;
         if rel_y <= 0.0 {
@@ -2415,7 +2431,7 @@ impl Pet {
             let inset = self.cfg.half_w + behavior::WALL_TOP_INSET;
             let rel_x = match side {
                 Side::Left => inset,
-                Side::Right => rect.width() - inset,
+                Side::Right | Side::Up | Side::Down => rect.width() - inset,
             };
             self.standing = Some(Standing { owner: Owner::Window(window), rel_x });
             self.body = Body { x: rect.left + rel_x, y: rect.top, vx: 0.0, vy: 0.0 };
@@ -2531,6 +2547,10 @@ impl Pet {
     /// 이동 시작. may_flip이면 절반 확률로 방향을 바꾼다 (Turn 직후엔 이미 바꿨으므로 false).
     /// 집이 그리운 손님은 기어오르지 않고, 마음대로 방향을 고를 땐 늘 집 쪽으로 간다 (Turn 직후엔 돌아선 쪽 그대로).
     fn move_state(&mut self, may_flip: bool, world: &World) -> State {
+        // 위/아래 친구 화면으로 가끔 높이 뛰어 / 바닥 밑으로 나간다 (brain_vert.rs)
+        if let Some(out) = self.vertical_exit_state(world) {
+            return out;
+        }
         if self.cfg.flies {
             return self.fly_move_state();
         }
@@ -2544,7 +2564,7 @@ impl Pet {
         if let Some(leap) = self.big_jump_state(world) {
             return leap;
         }
-        if let Some(side) = self.heading() {
+        if let Some(side) = self.heading().filter(|s| !visit::is_vertical(*s)) {
             if may_flip {
                 self.facing = visit::dir(side);
             }
@@ -2918,6 +2938,14 @@ pub mod guest_play;
 #[path = "brain_guestplay_tests.rs"]
 mod guest_play_tests;
 
+/// 위/아래 친구 화면 — 높이 뛰어 나가기, 바닥 밑으로 쏙, 위/아래로 던지기, 위/아래에서 들어오기
+#[path = "brain_vert.rs"]
+mod vert_moves;
+
+#[cfg(test)]
+#[path = "brain_vert_tests.rs"]
+mod vert_tests;
+
 impl AsRef<Pet> for Pet {
     fn as_ref(&self) -> &Pet {
         self
@@ -2934,7 +2962,7 @@ impl AsMut<Pet> for Pet {
 fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {
     match side {
         Side::Left => world.bounds.left + half_w,
-        Side::Right => world.bounds.right - half_w,
+        Side::Right | Side::Up | Side::Down => world.bounds.right - half_w,
     }
 }
 

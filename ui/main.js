@@ -353,6 +353,9 @@ const EXTRA_SPEECH = {
   reply: ["bye~! 💌"],
   // 공룡이 쿵쾅해서 흔들림
   whoa: ["whoa!", "eek!"],
+  // 위/아래 친구 화면으로 높이 뛰어 나감·아래에서 튀어 올라옴 / 바닥 밑으로 쏙
+  boing: ["boing!"],
+  whee: ["whee!"],
   // 공룡 동작 (pet.json에 없으면 이 말)
   roar: ["RAWR!"],
   fire: ["fwoosh~"],

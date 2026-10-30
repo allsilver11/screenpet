@@ -538,6 +538,8 @@ fn area_at_edge(world: &World, side: Side, y: Option<f64>) -> Option<Rect> {
     let mut areas = world.work_areas.iter().filter(|r| match side {
         Side::Left => (r.left - b.left).abs() <= 2.0,
         Side::Right => (r.right - b.right).abs() <= 2.0,
+        // 위/아래 끝은 옆으로 날아 나가는 끝이 아니다 (brain_vert.rs)
+        Side::Up | Side::Down => false,
     });
     match y {
         Some(y) => areas.find(|r| r.top < y && y <= r.bottom).copied(),
@@ -553,7 +555,7 @@ pub fn edge_ahead(world: &World, x: f64, y: f64, half_w: f64, size: f64, facing:
     let side = visit::side_of(facing);
     let gap = match side {
         Side::Left => x - half_w - b.left,
-        Side::Right => b.right - (x + half_w),
+        Side::Right | Side::Up | Side::Down => b.right - (x + half_w),
     };
     (gap <= EDGE_ZONE * size && area_at_edge(world, side, Some(y)).is_some()).then_some(side)
 }
@@ -566,7 +568,7 @@ pub fn edge_target(rng: &mut fastrand::Rng, world: &World, side: Side, half_w: f
     let inset = rng.f64() * 0.5 * size;
     let x = match side {
         Side::Left => (fb.left + inset).min(fb.right),
-        Side::Right => (fb.right - inset).max(fb.left),
+        Side::Right | Side::Up | Side::Down => (fb.right - inset).max(fb.left),
     };
     Some((x, y))
 }
@@ -579,7 +581,7 @@ pub fn entry_point(world: &World, side: Side, half_w: f64, head: f64) -> (f64, f
     let y = fb.top + 0.4 * fb.height();
     let x = match side {
         Side::Left => b.left - half_w,
-        Side::Right => b.right + half_w,
+        Side::Right | Side::Up | Side::Down => b.right + half_w,
     };
     (x, y)
 }
