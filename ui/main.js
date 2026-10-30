@@ -13,7 +13,6 @@ const favBtn = document.getElementById("fav");
 const nametagEl = document.getElementById("nametag");
 const stageEl = document.getElementById("stage");
 const envelopeEl = document.getElementById("envelope");
-const noteEl = document.getElementById("note");
 
 let manifest = null;
 let display = 128;
@@ -146,36 +145,41 @@ function showNametag(ms) {
   nametagTimer = setTimeout(() => (nametagEl.hidden = true), ms);
 }
 // 손님이 들고 온 편지 💌 (주인이 실어 보낸 것 — 백엔드가 다듬어 slot_info/pet-stage의 note로 준다).
-// 안 읽음: 머리 위에서 통통 튄다. 봉투나 몸을 누르면 쪽지 "💌 <주인>: <편지>"를 15초 (이 누름엔 도망·애교 없음).
-// 읽은 뒤: 봉투는 작고 흐리게 머리 옆에 남는다 — 봉투를 누르면 다시 15초, 몸을 누르면 평소 손님 놀이.
-// 쪽지가 펼쳐진 동안은 수다 말풍선이 덮지 않는다. 글자는 textContent로만 (HTML 아님)
-const NOTE_MS = 15000;
+// 도착하면 봉투가 머리 옆에서 통통 튄다. 봉투나 몸을 누르면 평소 말풍선에 "💌 <주인>: <편지>"를 10초
+// (이 누름엔 도망·애교 없음) — 한 번 읽으면 봉투는 사라지고, 그 뒤 몸 누르기는 평소 손님 놀이.
+// 편지 말풍선이 떠 있는 동안 다른 말풍선(수다·간질·인사·손님 놀이 등)과 음식 고르기는 버린다.
+// 말풍선은 여러 줄로 커지므로 그동안 창을 위로 키운다(백엔드 note_space). 글자는 textContent로만 (HTML 아님)
+const NOTE_MS = 10000;
 let note = null;
 let ownerName = "";
 let noteRead = false;
 let noteOpen = false;
 let noteTimer = null;
 function openNote() {
-  if (!note) return;
+  if (!note || noteRead) return;
   noteRead = true;
-  envelopeEl.classList.add("read");
+  envelopeEl.hidden = true;
+  noteOpen = true;
   speech.hideBubble();
-  noteEl.textContent = `💌 ${ownerName}: ${note}`;
-  clearTimeout(noteTimer);
+  speech.hidePicker();
+  const text = `💌 ${ownerName}: ${note}`;
   noteTimer = setTimeout(closeNote, NOTE_MS);
-  if (!noteOpen) {
-    noteOpen = true;
-    // 창을 위로 키운 뒤(백엔드) 쪽지를 보인다
-    invoke("note_space", { open: true }).finally(() => {
-      if (noteOpen) noteEl.hidden = false;
-    });
-  }
+  // 창을 위로 키운 뒤(백엔드) 말풍선을 보인다
+  invoke("note_space", { open: true }).finally(() => {
+    if (!noteOpen) return;
+    const span = document.createElement("span");
+    span.textContent = text;
+    bubbleEl.replaceChildren(span);
+    bubbleEl.classList.add("note");
+    bubbleEl.hidden = false;
+  });
 }
 function closeNote() {
   clearTimeout(noteTimer);
   if (!noteOpen) return;
   noteOpen = false;
-  noteEl.hidden = true;
+  bubbleEl.hidden = true;
+  bubbleEl.classList.remove("note");
   invoke("note_space", { open: false });
 }
 // 봉투 누르기는 펫 잡기·손님 놀이로 이어지지 않는다
@@ -202,6 +206,7 @@ function applyRole(info) {
     clearTimeout(nametagTimer);
     nametagEl.hidden = true;
     note = null;
+    noteRead = false;
     envelopeEl.hidden = true;
     closeNote();
   }
@@ -258,7 +263,7 @@ codetagEl.addEventListener("click", async (e) => {
 });
 
 petEl.addEventListener("mousedown", (e) => {
-  // 안 읽은 편지가 있으면 첫 누름은 쪽지만 연다 (잡기·도망 없음)
+  // 안 읽은 편지가 있으면 첫 누름은 편지만 연다 (잡기·도망 없음)
   if (e.button === 0 && note && !noteRead) {
     openNote();
     return;

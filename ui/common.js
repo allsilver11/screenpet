@@ -29,7 +29,8 @@ function frameIndex(spec, elapsedMs) {
 
 // 말풍선(`pet-say`)과 음식 고르기(`food-picker`). 백엔드는 지금 동물이 있는 창에만(emit_to) 보낸다.
 // getManifest() = 지금 동물의 pet.json (대사 목록). 돌려주는 hidePicker는 먹기 시작하면 부른다.
-// isQuiet() = 참이면 말풍선을 띄우지 않는다 (손님 편지 쪽지가 펼쳐진 동안 — 수다가 덮지 않게). hideBubble은 쪽지를 펼칠 때 부른다
+// isQuiet() = 참이면 다른 말풍선·음식 고르기를 띄우지 않는다 (손님 편지를 말풍선에 보이는 동안 — 무엇도 덮지 않게, 그냥 버린다).
+// hideBubble은 편지를 띄우기 전에 부른다 (남은 숨김 타이머도 끈다)
 function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => false }) {
   const { invoke } = window.__TAURI__.core;
   // 전역 event.listen은 다른 창 앞으로 보낸(emit_to) 이벤트까지 받는다 — 이 창 앞으로 온 것만 듣는다
@@ -69,6 +70,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
 
   // 배고플 때 클릭하면 머리 위에 🍚 (좋아하는 것) 버튼 — 간식·물은 트레이·우클릭 메뉴에서 언제든
   listen("food-picker", (e) => {
+    if (isQuiet()) return; // 편지 말풍선이 우선
     favBtn.textContent = e.payload.emoji;
     favBtn.title = e.payload.name;
     bubbleEl.hidden = true;

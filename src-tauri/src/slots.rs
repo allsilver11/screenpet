@@ -23,7 +23,7 @@ pub const PET_LOGICAL_SIZE: f64 = 128.0;
 const HALF_WIDTH_RATIO: f64 = 0.3;
 /// 스프라이트 위 말풍선·음식 버튼·이름표 자리 (논리 px)
 pub const BUBBLE_SPACE: f64 = 36.0;
-/// 손님 편지(💌)를 펼친 동안 창 위에 더하는 자리와 최소 창 너비 (논리 px) — 편지 쪽지가 4줄까지 들어간다
+/// 손님 편지(💌)를 펼친 동안 창 위에 더하는 자리와 최소 창 너비 (논리 px) — 편지 말풍선(평소 말풍선, 여러 줄)이 5줄까지 들어간다
 pub const NOTE_SPACE: f64 = 60.0;
 pub const NOTE_WIDTH: f64 = 232.0;
 
@@ -137,7 +137,7 @@ pub struct Slot {
     pub need_show: bool,
     last_pos: Option<(i32, i32)>,
     last_render: Option<RenderState>,
-    /// 손님 편지 쪽지를 펼쳐 창이 커져 있음 (웹뷰 `note_space`)
+    /// 손님 편지 말풍선을 띄워 창이 커져 있음 (웹뷰 `note_space`)
     note_open: bool,
     /// Windows: 창 핸들 (만들 때 한 번 읽어 둔다 — hwnd()는 메인 스레드에 물어본다). 매 틱 SetWindowPos로 바로 옮긴다
     #[cfg(windows)]
@@ -206,7 +206,7 @@ impl Slot {
         }
     }
 
-    /// 손님 편지 쪽지를 펼친다 / 접는다: 창을 키우거나 줄이고, 몸이 그 자리에 있도록 바로 다시 놓는다
+    /// 손님 편지 말풍선을 띄운다 / 접는다: 창을 키우거나 줄이고, 몸이 그 자리에 있도록 바로 다시 놓는다
     pub fn set_note_open(&mut self, open: bool) {
         if self.note_open == open || !matches!(&self.role, Role::Guest(g) if g.note.is_some()) {
             return;
