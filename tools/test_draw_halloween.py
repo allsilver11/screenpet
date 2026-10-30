@@ -162,3 +162,12 @@ def test_roll_ball_fits_rotation_circle(out):
                     for x in range(FRAME):
                         if a[x, y][3] > 0:
                             assert math.hypot(x + 0.5 - cx, y + 0.5 - cy) <= ROLL_RADIUS + 0.5, (pid, st, c, x, y)
+
+
+def test_floating_ghost_sheet_hangs_longer_but_head_keeps_its_size():
+    """떠 있을 때 흰 천 하단이 몸 높이의 12–18%만큼 더 길다 (머리 반지름은 그대로)."""
+    for lvl, st in draw_halloween.GH_STAGE.items():
+        height = 2.3 * st["r"] + st["L"]
+        extra = draw_halloween._skirt(st) - st["L"]
+        assert 0.12 * height <= extra <= 0.18 * height, (lvl, extra, height)
+    assert [st["r"] for st in draw_halloween.GH_STAGE.values()] == [30, 30, 29.5, 29, 29]

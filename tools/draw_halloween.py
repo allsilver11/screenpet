@@ -10,6 +10,7 @@
       단계: 아기 = 잎 달린 미니 호박 → 유아 잎 + 짧은 꼭지 → 어린이 꼭지 덩굴손 → 청소년 골 깊게 + 큰 덩굴 + 잎 → 어른 작은 마녀 모자.
 유령: 반투명 우유빛 몸(알파 ≈ 0.88), 배 속의 따뜻한 주황 빛, 반짝이 두 개 큰 눈 + 볼터치 + 작은 입, 짤막한 팔, 물결치는 치맛단.
       둥실 난다 (locomotion fly, 꿀벌보다 느리게). 내려앉는 동작: sleep · annoyed · land.
+      떠 있을 때는 치마(흰 천 하단)가 몸 높이의 15%만큼 더 길게 늘어진다 (쉬는 동작은 짧게).
       단계: 아기 = 짧은 이불 덩어리 → 치마가 길어짐 → 어린이 머리 꼭지 → 청소년 → 어른 리본.
 eat에는 밥그릇이 없다 (앱의 소품 창이 그릇을 띄운다): 입이 그릇 밥 더미 바로 위 (프레임 y ≈ 84).
 """
@@ -61,6 +62,12 @@ GH_STAGE = {
     4: dict(r=29, L=47, n=5, arm=1.05, curl=False, bow=True),
 }
 GH_EYE = 1.5  # 유령 눈은 크게 (반짝이 두 개 큰 눈)
+SKIRT_LONG = 0.15  # 떠 있을 때 치마를 몸 높이(2.3r + L)의 15%만큼 더 길게 늘어뜨린다 (머리·얼굴 크기는 그대로)
+
+
+def _skirt(st):
+    """떠 있는 유령의 치마 길이 (머리 중심 → 단)."""
+    return st["L"] + SKIRT_LONG * (2.3 * st["r"] + st["L"])
 
 
 def _pk():
@@ -367,11 +374,13 @@ def gh_face(fcx, fcy, eyes, mouth, brow, side):
 
 def ghost(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="dot", mouth=None, brow=None,
           arms=None, phase=0, rest=False, trail=1.0, lit=1.0, fx=(), held=(), props=(), trim=False, size=1.0, circle=None,
-          face_dy=0.0, top=()):
+          face_dy=0.0, top=(), short=False):
     """유령 한 장. bottom: 치맛단 아래끝 y (기본: 떠 있음 112 · rest = 바닥에 내려앉음) · phase: 단 물결 ·
     trail: 옆모습 치마 뒤로 날림 · arms: [(side, 각도 | 손끝)]."""
     st = _gh()
-    r, Ln = st["r"] * size, st["L"] * size * (0.82 if rest else 1.0)
+    r = st["r"] * size
+    # 쉬는 동작·공 모양은 짧게 · short: 원래 길이 (eat — 입이 그릇 위에 고정이라 긴 치마는 칸 밖으로 나간다, 단은 그릇이 가림)
+    Ln = size * (st["L"] * 0.82 if rest else st["L"] if (trim or short) else _skirt(st))
     br = r * 0.3
     if bottom is None:
         bottom = FLOOR - 0.5 if rest else 112.0
@@ -558,8 +567,8 @@ def hop(sp, i):
             return ghost(sp, side=True, bottom=116, sq=(1.08, 0.88), eyes="tight", phase=0)
         if i == 1:
             lines = [([L([(x, 110), (x, 122)], 1.8)], SPEED, 0) for x in (46, 60, 74)]
-            return ghost(sp, side=True, bottom=100, sq=(0.92, 1.08), eyes="happy", mouth="open", arms=[(1, 120)], phase=1, fx=lines)
-        return ghost(sp, side=True, bottom=98, eyes="happy", mouth="open", arms=[(1, 90)], phase=2)
+            return ghost(sp, side=True, bottom=114, sq=(0.97, 1.02), eyes="happy", mouth="open", arms=[(1, 120)], phase=1, fx=lines)
+        return ghost(sp, side=True, bottom=109, eyes="happy", mouth="open", arms=[(1, 90)], phase=2)
     if i == 0:
         return pumpkin(sp, side=True, sq=(1.1, 0.86), eyes="tight", stem=10, feet=((-2, 0), (2, 0)), arms=[(1, 15)])
     if i == 1:
@@ -582,7 +591,7 @@ def dragged(sp, i):
     """잡혀서 대롱대롱: 호박은 꼭지를 잡혀서 · 유령은 머리 꼭대기를 잡혀서 — 발·치마가 아래로 축, 땀."""
     s = [-1, 1][i]
     if _is_ghost(sp):
-        return ghost(sp, side=True, bottom=118, sq=(0.92, 1.1), rot=4 * s, eyes="tight", mouth="open", arms=[(1, 160)], phase=i,
+        return ghost(sp, side=True, bottom=122, sq=(0.94, 1.05), rot=4 * s, eyes="tight", mouth="open", arms=[(1, 160)], phase=i,
                      trail=0.4, fx=sweat_fx(100, 34))
     return pumpkin(sp, side=True, bottom=FLOOR - 14, rot=5 * s, eyes="tight", mouth="open", stem=-4 * s,
                    feet=((-3 + 2 * s, 4), (3 + 2 * s, 5)), arms=[(1, 150)], fx=sweat_fx(104, 40))
@@ -648,7 +657,7 @@ def belly(sp, i):
 
 def stretch(sp, i):
     if i == 0:
-        return _front(sp, **_kw(sp, i, sq=(0.94, 1.08), eyes="tight", arms=[(-1, 170), (1, 170)], stem=-6))
+        return _front(sp, **_kw(sp, i, **_bob(sp, -3), sq=(0.96, 1.03) if _is_ghost(sp) else (0.94, 1.08), eyes="tight", arms=[(-1, 170), (1, 170)], stem=-6))
     if i == 1:
         return _front(sp, **_kw(sp, i, eyes="tight", mouth="yawn", arms=[(-1, 70), (1, 70)], rot=-3, stem=4))
     return _front(sp, **_kw(sp, i))
@@ -660,7 +669,7 @@ def heart(sp, i):
         hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
     if _is_ghost(sp):
         st = _gh()
-        hy = 112 - st["r"] * 0.3 - st["L"] + min(st["r"] * 0.95, st["L"] - 9)  # 아기는 치마가 짧아 조금 위로
+        hy = 112 - st["r"] * 0.3 - _skirt(st) + min(st["r"] * 0.95, st["L"] - 9)  # 아기는 치마가 짧아 조금 위로
         return ghost(sp, eyes="happy", phase=i, top=_heart_items(64, hy, 0.9),
                      arms=[(-1, (56, hy + 6)), (1, (72, hy + 6))], fx=hs)
     st = _pk()
@@ -678,9 +687,9 @@ def hungry(sp, i):
     dx, dy = [(-2, 0), (0, 2), (2, 0)][i]
     if _is_ghost(sp):
         st = _gh()
-        cy = 112 - st["r"] * 0.3 - st["L"]
+        cy = 114 - st["r"] * 0.3 - _skirt(st)
         return ghost(sp, bottom=114, rot=-4, eyes="closed", mouth="frown", brow="sad", phase=i,
-                     arms=[(-1, 25), (1, (62 + dx, cy + st["L"] * 0.55 + dy))], fx=lolly_bubble_fx(106, 18))
+                     arms=[(-1, 25), (1, (62 + dx, cy + _skirt(st) * 0.5 + dy))], fx=lolly_bubble_fx(106, 18))
     st = _pk()
     cy = FLOOR - 6 - st["ry"]
     return pumpkin(sp, rot=-4, eyes="closed", mouth="frown", brow="sad", lit=0.75, stem=-10,
@@ -703,7 +712,7 @@ def eat(sp, i):
         st = _gh()
         cy = my - 10 * fs - 2  # 입 = 얼굴 중심 + 10·fs
         bottom = cy + st["L"] + st["r"] * 0.3
-        return ghost(sp, bottom=bottom, eyes=eyes, mouth=mouth, phase=i, rot=[0, -2, 0, 2][i],
+        return ghost(sp, bottom=bottom, short=True, eyes=eyes, mouth=mouth, phase=i, rot=[0, -2, 0, 2][i],
                      arms=[(-1, paws[0]), (1, paws[1])], fx=fx)
     st = _pk()
     fy = my - 9 * fs
