@@ -80,17 +80,30 @@ function draw(now) {
   requestAnimationFrame(draw);
 }
 
-// 할로윈 동물의 짧은 효과 (CSS 애니메이션 한 번, style.css .boo/.flare — 끝나면 클래스를 뗀다):
-// 유령은 간질이면 "부~" 하고 40%까지 흐려졌다 돌아오고, 호박은 누르면 눈·입 빛이 확 번진다
-const PET_FX = { ghost: { on: "tickle", cls: "boo" }, pumpkin: { on: "click", cls: "flare" } };
+// 할로윈 동물의 짧은 효과 (CSS 애니메이션 한 번, style.css .boo/.flare-* — 끝나면 클래스를 뗀다):
+// 유령은 간질이면 "부~" 하고 40%까지 흐려졌다 돌아오고, 호박은 누르면(잡을 때도) 빛이 2초쯤 번진다 —
+// 누를 때마다 지난번과 다른 무늬 (cls가 배열이면 그중 하나를 고르되 직전 것은 빼고)
+const PET_FX = {
+  ghost: { on: "tickle", cls: "boo" },
+  pumpkin: { on: "click", cls: ["flare-pulse", "flare-flicker", "flare-bloom", "flare-sparkle", "flare-beat"] },
+};
+const FX_CLASSES = Object.values(PET_FX).flatMap((fx) => [].concat(fx.cls));
+let lastFx = null;
 function petFx(trigger) {
   const fx = PET_FX[stage.pet];
   if (!fx || fx.on !== trigger) return;
-  petEl.classList.remove(fx.cls);
+  const pool = [].concat(fx.cls);
+  const pick = pool.length > 1 ? pool.filter((c) => c !== lastFx) : pool;
+  const cls = pick[Math.floor(Math.random() * pick.length)];
+  lastFx = cls;
+  petEl.classList.remove(...FX_CLASSES);
   void petEl.offsetWidth; // 애니메이션 재시작
-  petEl.classList.add(fx.cls);
+  petEl.classList.add(cls);
 }
-petEl.addEventListener("animationend", () => petEl.classList.remove("boo", "flare"));
+// 반짝이(::before/::after)의 animationend도 올라온다 — 몸 자체 애니메이션이 끝날 때만 뗀다
+petEl.addEventListener("animationend", (e) => {
+  if (e.target === petEl && !e.pseudoElement) petEl.classList.remove(...FX_CLASSES);
+});
 
 // 놀러 보내져 손 흔든 뒤 "뿅" (백엔드 render.poof, 0.4초): 몸이 작아지며 흐려지고 반짝이 몇 개가 퍼진다.
 // 다 사라지면 백엔드가 창을 숨긴다 — poof가 아닌 render가 오면(취소·돌아옴) 바로 클래스를 뗀다
