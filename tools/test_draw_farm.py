@@ -30,8 +30,8 @@ def names(sp):
 
 def test_registered_with_their_own_poses():
     assert draw_pets.SPECIES["duck"] is draw_farm.DUCK and draw_pets.SPECIES["giraffe"] is draw_farm.GIRAFFE
-    assert names(draw_farm.DUCK) == [a for a, *_ in ANIMS]
-    assert names(draw_farm.GIRAFFE) == [a for a, *_ in ANIMS] + ["neckstretch"]
+    assert names(draw_farm.DUCK) == [a for a, *_ in ANIMS] + ["lookup"]
+    assert names(draw_farm.GIRAFFE) == [a for a, *_ in ANIMS] + ["neckstretch", "lookup"]
     for sp in (draw_farm.DUCK, draw_farm.GIRAFFE):
         assert all(a in sp.poses for a in names(sp))
 

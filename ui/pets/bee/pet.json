@@ -129,6 +129,11 @@
       "fps": 8,
       "loop": false,
       "front": true
+    },
+    "lookup": {
+      "row": 22,
+      "frames": 3,
+      "fps": 3
     }
   },
   "speech": {

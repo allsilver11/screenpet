@@ -58,7 +58,7 @@ def test_both_are_registered_with_every_required_anim():
     for pid, poses in (("rudolph", draw_christmas.RUDOLPH_POSES), ("santa", draw_christmas.SANTA_POSES)):
         sp = draw_pets.SPECIES[pid]
         assert sp.poses is poses
-        assert names(pid) == [a for a, *_ in ANIMS]
+        assert names(pid) == [a for a, *_ in ANIMS] + ["lookup"]
         assert all(a in poses for a in names(pid))
 
 
@@ -92,7 +92,7 @@ def test_manifests(out):
     assert sa["speech"]["chatter"] == ["ho ho ho!", "merry~"] and sa["speech"]["tickle"] == ["ho ho!"]
     for m in (ru, sa):
         assert m["speech"]["hungry"] and m["speech"]["full"] and m["speech"]["level_up"]
-        assert set(m["animations"]) == {a for a, *_ in ANIMS} and m["stages"] == STAGES
+        assert set(m["animations"]) == {a for a, *_ in ANIMS} | {"lookup"} and m["stages"] == STAGES
         assert m["animations"]["eat"] == {"row": 19, "frames": 4, "fps": 6, "front": True}
 
 

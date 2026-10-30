@@ -235,6 +235,11 @@ def frog_look(sp, i):
     return frog_side(sp, body=dict(rot=rot, pivot=(70, 110)), eyes="closed" if i == 3 else "dot")
 
 
+def frog_lookup(sp, i):
+    """앉은 채 몸(머리)째 뒤로 젖혀 위를 본다."""
+    return frog_side(sp, body=dict(rot=dp.lookup_tilt(i, 0.6), pivot=(70, 110)), eyes="up", fx=dp.lookup_fx(i, 114, 16))
+
+
 def _lying(sp, i, eyes, mouth, fx):
     hind = [(40, 112), (66, 110), (40, 123), (72, 124)]
     return frog_side(sp, body=dict(sx=1.08, sy=0.72 + 0.012 * i, pivot=(60, 125)), hind=hind,
@@ -631,7 +636,7 @@ FROG_POSES = {"walk": frog_walk, "run": frog_run, "roll": frog_roll, "idle": fro
               "hop": frog_hop, "fall": frog_fall, "dragged": frog_dragged, "land": frog_land, "sit_front": frog_sit_front,
               "wave": frog_wave, "tilt": frog_tilt, "belly": frog_belly, "stretch": frog_stretch, "heart": frog_heart,
               "tickle": frog_tickle, "annoyed": frog_annoyed, "hungry": frog_hungry, "eat": frog_eat, "level_up": frog_level_up,
-              "climb": frog_climb, "slide": frog_slide, "bigjump": frog_bigjump}
+              "climb": frog_climb, "slide": frog_slide, "bigjump": frog_bigjump, "lookup": frog_lookup}
 FROG_POSES = {k: (v if k == "roll" else _fit(v)) for k, v in FROG_POSES.items()}  # roll은 회전 원 안 그대로
 
 FROG = Species(
@@ -639,7 +644,7 @@ FROG = Species(
     front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[],
     front_tail=[], front_tail_root=(64, 112), front_tail_color=FROG_G, side_ears=[], ears_over=False,
     side_head_marks=[], side_torso_marks=[], side_tail=[], tail_root=(28, 108), tail_color=FROG_G,
-    specials=["climb", "slide", "bigjump"], stage_size=dict.fromkeys(STAGES, 0.85), stripe=FROG_SPOT, poses=FROG_POSES,
+    specials=["climb", "slide", "bigjump", "lookup"], stage_size=dict.fromkeys(STAGES, 0.85), stripe=FROG_SPOT, poses=FROG_POSES,
     outline=FROG_LINE,
     # 동글 찹쌀떡 몸 (가로가 더 넓다) · 모든 단계 반짝이 두 개 큰 눈 (어른도 — 귀여움 우선, 크기만 작게) · 아기는 눈이 더 크다
     stage_tweak={"baby": dict(torso=(1.14, 0.94), fbody=(1.14, 0.94), eye=1.6),

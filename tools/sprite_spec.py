@@ -53,6 +53,8 @@ OPTIONAL_ANIMS = [
     ("bigjump", 4, 8, False, False),
     # 기린: 구르는 대신 목 늘이기 (옆모습, 어? · 깜빡 · ✧) — 늘어나는 목은 앱이 층(neck_<stage>.png)으로 그린다
     ("neckstretch", 3, 2, True, False),
+    # 모든 동물: 위를 올려다보기 (옆모습, 고개 들기 · 쭉 · ✧) — 머리 위에 든 음식, 가끔 쉬다가·걷다가, 커서가 머리 위에 머물 때
+    ("lookup", 3, 3, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다

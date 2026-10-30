@@ -162,7 +162,9 @@ def _heart_items(hx, hy, k=1.0):
 # 호박 🎃
 # =====================================================================
 def pk_eye_fns(kind, cx, cy, flip=False):
-    """조각한 눈 모양 (fns, 반짝이 fns). dot = 둥근 세모."""
+    """조각한 눈 모양 (fns, 반짝이 fns). dot = 둥근 세모 · up = 위로 올려다보는 세모 (lookup)."""
+    if kind == "up":
+        return pk_eye_fns("dot", cx, cy - 1.8, flip)
     if kind in ("dot", "big"):
         s = 1.22 if kind == "big" else 1.0
         tri = [(cx, cy - 6.4 * s), (cx - 6.6 * s, cy + 4.4 * s), (cx + 6.6 * s, cy + 4.4 * s)]
@@ -241,7 +243,7 @@ def pk_face(fx_, fy, eyes, mouth, brow, lit, side):
         sp_x = 12.5 if not side else 11.0
         for j, (ex, flip) in enumerate(((fx_ - sp_x, False), (fx_ + sp_x, True))):
             ey = fy - 5 + _ST["eye_dy"] * 0.5
-            k = es if eyes in ("dot", "big", "round") else es ** 0.6
+            k = es if eyes in ("dot", "big", "round", "up") else es ** 0.6
             kx = k * (0.84 if side and j == 0 else 1.0)
             with xf(sx=kx, sy=k, pivot=(ex, ey)):
                 ek = eyes if not (lit < 0.5 and eyes == "dot") else "closed"
@@ -543,6 +545,13 @@ def look(sp, i):
     return pumpkin(sp, side=True, rot=[-8, 0, 8, 0][i], stem=[-6, 0, 6, 0][i], eyes="closed" if i == 3 else "dot", lit=FLICK[i])
 
 
+def lookup(sp, i):
+    """올려다보기: 몸째 살짝 젖히고 눈은 위로 (유령은 떠서)."""
+    if _is_ghost(sp):
+        return ghost(sp, side=True, rot=dp.lookup_tilt(i, 0.55), phase=i, eyes="up", fx=dp.lookup_fx(i, 112, 14))
+    return pumpkin(sp, side=True, rot=dp.lookup_tilt(i, 0.5), stem=-4, eyes="up", lit=FLICK[i], fx=dp.lookup_fx(i, 112, 16))
+
+
 def sleep(sp, i):
     if _is_ghost(sp):
         zs = [z_fx(104, 66, 3.4), z_fx(115, 55, 2.6)] if i == 0 else [z_fx(106, 63, 3.6), z_fx(118, 51, 2.8)]
@@ -752,12 +761,12 @@ def _fit(fn):
 POSES = {"walk": walk, "run": run, "roll": roll, "idle": idle, "look": look, "sleep": sleep, "hop": hop, "fall": fall,
          "dragged": dragged, "land": land, "sit_front": sit_front, "wave": wave, "tilt": tilt, "belly": belly,
          "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "hungry": hungry, "eat": eat,
-         "level_up": level_up}
+         "level_up": level_up, "lookup": lookup}
 POSES = {k: (v if k == "roll" else _fit(v)) for k, v in POSES.items()}  # roll은 회전 원 안 그대로
 
 _COMMON = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[], front_tail=[],
                front_tail_root=(64, 112), side_ears=[], ears_over=False, side_head_marks=[], side_torso_marks=[], side_tail=[],
-               tail_root=(28, 108), specials=[], poses=POSES)
+               tail_root=(28, 108), specials=["lookup"], poses=POSES)
 
 PUMPKIN = Species(
     id="pumpkin", name="호박", walk_speed=70, scale=0.94, base=PUMP, back=PUMP, belly=PUMP, nose=PUMP_RIDGE, mouth="w",

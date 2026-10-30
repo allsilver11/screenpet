@@ -138,6 +138,11 @@
       "frames": 4,
       "fps": 8,
       "loop": false
+    },
+    "lookup": {
+      "row": 24,
+      "frames": 3,
+      "fps": 3
     }
   },
   "speech": {

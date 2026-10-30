@@ -6,7 +6,7 @@ import draw_pets
 from sprite_spec import ANIMS, FRAME, OPTIONAL_ANIMS, ROLL_CENTER, ROLL_RADIUS
 
 STANDING = {"walk", "run", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
-            "hungry", "eat", "level_up", "huff"}
+            "hungry", "eat", "level_up", "huff", "lookup"}
 SPECIES_IDS = ("cat", "dog", "rabbit", "bear", "bee")
 # 꿀벌은 날아다녀서 떠 있는 동작이 많다 — 바닥에 내려앉는 동작만 발이 닿는지 본다
 BEE_GROUNDED = {"sleep", "annoyed", "land"}  # eat: 꽃(앱 소품) 위에 낮게 떠서 마신다
@@ -68,7 +68,7 @@ def test_only_cat_has_arch_and_huff_and_only_dog_has_wag(tmp_path):
     assert m["speech"]["ignore"] == ["..."]
     assert m["personality"] == "aloof"
     sheet = Image.open(tmp_path / "cat" / "sheet.png")
-    assert sheet.height == FRAME * (len(ANIMS) + 4)  # arch, huff, climb, slide
+    assert sheet.height == FRAME * (len(ANIMS) + 5)  # arch, huff, climb, slide, lookup
 
 
 def test_roll_ball_fits_rotation_circle(tmp_path):
@@ -208,7 +208,7 @@ def test_bee_flies_and_only_bee_has_sting(tmp_path):
     assert m["speech"]["chatter"] == ["bzz~", "♪"] and "sting" not in m["speech"]
     assert m["favorite_food"] == {"emoji": "🌸", "name": "꽃꿀"}
     sheet = Image.open(tmp_path / "bee" / "sheet.png")
-    assert sheet.height == FRAME * (len(ANIMS) + 1)
+    assert sheet.height == FRAME * (len(ANIMS) + 2)  # sting, lookup
 
 
 def test_bee_hovers_above_the_ground_when_flying(tmp_path):
@@ -330,3 +330,33 @@ def test_bee_sips_with_a_thick_straw_into_the_flower(tmp_path):
         assert len(straw) >= 18, (st, len(straw))
         rows = {y for _, y in straw}
         assert max(rows) - min(rows) >= 8, (st, sorted(rows))
+
+
+def test_every_species_looks_up():
+    """올려다보기(lookup): 모든 동물 (새 동물도 specials에 "lookup"과 자기 lookup 포즈를 더한다), 옆모습 3장, 눈을 위로 — 앉기(idle)·쳐다보기(look)와 다른 그림.
+    마지막 장에만 ✧ (프레임 위쪽 오른편에 노란 별)."""
+    from sprite_spec import manifest
+    names = [o[0] for o in OPTIONAL_ANIMS]
+    assert names[:9] == ["arch", "wag", "huff", "climb", "slide", "sting", "bigjump", "neckstretch", "lookup"]  # = Rust manifest::OPTIONAL_ANIMS
+    assert OPTIONAL_ANIMS[8][1:] == (3, 3, True, False)
+    for pid, sp in draw_pets.SPECIES.items():
+        assert "lookup" in sp.specials, pid
+        rows = draw_pets.rows_for(sp)
+        assert [a for a, *_ in rows if a in names[:9]][-1] == "lookup", pid  # 지금까지의 선택 동작 중 맨 뒤 (뒤에 더한 동작은 그 뒤)
+        fr = draw_pets.render_species(sp, "teenager")
+        assert len(fr["lookup"]) == 3, pid
+        for im in fr["lookup"]:
+            assert im.tobytes() != fr["idle"][0].tobytes() and im.tobytes() != fr["look"][0].tobytes(), pid
+        m = manifest(sp.name, sp.walk_speed, {a: len(fr[a]) for a, *_ in rows})
+        assert m["animations"]["lookup"] == {"row": [a for a, *_ in rows].index("lookup"), "frames": 3, "fps": 3}, pid
+        assert fr["lookup"][2].tobytes() != fr["lookup"][1].tobytes(), pid  # ✧
+
+
+def test_up_eye_sits_higher_than_dot_eye():
+    for st in ("baby", "teenager", "adult"):
+        with draw_pets.stage(st):
+            tops = []
+            for kind in ("dot", "up"):
+                fns = [f for fs, *_ in draw_pets.stage_eye(kind, 64, 64) for f in fs]
+                tops.append(draw_pets.shapes(fns).getbbox()[1])
+        assert tops[1] < tops[0], (st, tops)

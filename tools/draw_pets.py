@@ -334,6 +334,8 @@ def eye(kind, cx, cy, flip=False):
     if kind == "spiral":  # 어질어질 소용돌이 눈
         pts = [(cx + 0.55 * t * math.cos(t), cy + 0.55 * t * math.sin(t)) for t in (k * 0.35 for k in range(1, 30))]
         return [([L(pts, 1.6)], EYE)]
+    if kind == "up":  # 올려다보는 눈: 눈동자가 위로 쏠리고 반짝이도 위에 (lookup)
+        return [([E(cx - 4, cy - 7, cx + 4, cy + 3)], EYE), ([E(cx - 2.4, cy - 6.2, cx + 0.2, cy - 3.2)], WHITE)]
     if kind == "big":  # 큰 눈동자 + 반짝이 두 개
         return [([E(cx - 5, cy - 6, cx + 5, cy + 6)], EYE), ([E(cx - 3, cy - 4.4, cx - 0.2, cy - 1.2)], WHITE),
                 ([C(cx + 2, cy + 2.6, 1.0)], WHITE)]
@@ -348,6 +350,8 @@ def stage_eye(kind, cx, cy, flip=False):
     다른 표정 눈(^^, ‿ …)은 단계 눈 크기에 맞춰 조금 키우거나 줄인다."""
     es = _ST["eye"]
     cy += _ST["eye_dy"]
+    if kind == "up" and _ST["sparkle"]:  # 반짝이 큰 눈 그대로, 눈동자만 위로 (어른의 느긋한 눈은 동그랗게 뜬다)
+        kind, cy = "dot", cy - 1.6 * es
     if kind == "dot" and _ST["sparkle"]:
         rx, ry = 4 * es, 5 * es
         return [([E(cx - rx, cy - ry, cx + rx, cy + ry)], EYE),
@@ -554,7 +558,7 @@ CAT = Species(
     ],
     side_tail=[("L", _cat_tail_line, 10)], tail_root=(26, 78), tail_color=CAT_G,
     tail_marks=[([_stripe([(9, 58), (17, 58)]), _stripe([(10, 47), (18, 48)])], CAT_ST, 2)],
-    specials=["arch", "huff", "climb", "slide"],
+    specials=["arch", "huff", "climb", "slide", "lookup"],
     stage_tweak={"adult": dict(whiskers=True)},
     stripe=CAT_ST,
     back_head_marks=[
@@ -591,7 +595,7 @@ DOG = Species(
     side_torso_marks=[([("E", 8, 48, 92, 80)], DOG_G, 1), ([("E", 60, 50, 74, 60)], DOG_EAR, 4)],
     side_tail=[("L", [(24, 70), (14, 56), (20, 44)], 11)], tail_root=(24, 70), tail_color=DOG_G,
     wag_tail=[("L", [(0, 0), (12, -10), (16, -24)], 10)],
-    specials=["wag"],
+    specials=["wag", "lookup"],
     stage_tweak={"adult": dict(snout=3.0)},
 )
 
@@ -611,6 +615,7 @@ RABBIT = Species(
     side_torso_marks=[],
     side_tail=[("E", 10, 64, 30, 84)], tail_root=(20, 74), tail_color=RAB_W,
     lie_ears=(-48, -42),
+    specials=["lookup"],
     stage_size=dict.fromkeys(STAGES, 0.85),
     stage_tweak={"baby": dict(ear=0.8), "kinder": dict(ear=0.88), "adult": dict(ear=1.12, chest_fluff=True)},
 )
@@ -634,7 +639,7 @@ BEAR = Species(
                      ([("E", 97, 38, 134, 73)], BEAR_L, 4)],
     side_torso_marks=[([("E", 28, 90, 94, 120)], BEAR_SOFT, (0, 0)), ([("E", 28, 90, 94, 120)], BEAR_L, 1)],
     side_tail=[("E", 6, 62, 26, 82)], tail_root=(18, 74), tail_color=BEAR_B, lie_ears=(-56, -50),
-    specials=["climb", "slide"],
+    specials=["climb", "slide", "lookup"],
     stage_size={"baby": 1.0, "kinder": 1.0, "child": 1.1, "teenager": 1.2, "adult": 1.3},
     # 귀 18% 크게 · 아기·유아도 또렷한 갈색 (파스텔 섞임을 줄임) · 어른은 넓은 어깨
     stage_tweak={st: dict(ear=STAGE_PROPS[st]["ear"] * BEAR_EAR, **{"baby": dict(pale=0.2), "kinder": dict(pale=0.1),
@@ -963,12 +968,12 @@ SIT_TORSO = dict(rot=-38, pivot=(58, 83), dx=-2, dy=7)
 SIT_LEGS = [(44, 90, 122, 0, 34), (70, 80, 123, 2, 16), (84, 80, 123, -2, 16)]
 
 
-def _sit_side(sp, head=None, breathe=0, head_kw=None):
+def _sit_side(sp, head=None, breathe=0, head_kw=None, fx=()):
     """옆모습 앉기: 엉덩이 내리고 앞발 세움, 꼬리는 바닥에서 앞으로 감음."""
     hd = dict(dx=-6, dy=-1 + breathe, pivot=(82, 72))
     hd.update(head or {})
     return _side(sp, head=hd, torso=dict(SIT_TORSO, sy=1 + 0.02 * breathe), tail=dict(at=(34, 112), rot=96, sy=0.8),
-                 leg_specs=SIT_LEGS, head_kw=head_kw)
+                 leg_specs=SIT_LEGS, head_kw=head_kw, fx=fx)
 
 
 def idle(sp, i):
@@ -978,6 +983,26 @@ def idle(sp, i):
 def look(sp, i):
     rot, dy = [(-12, -1), (0, 0), (12, 2), (0, 0)][i]
     return _sit_side(sp, head=dict(dy=-1 + dy, rot=_swing(rot)), head_kw=dict(eyes="closed" if i == 3 else "dot"))
+
+
+# ---- 올려다보기 (lookup, 모든 동물) — 종마다 자기 옆모습 뼈대에 같은 값을 넣는다: 머리(또는 몸)를 위로 젖히는 각도,
+#      위로 쏠린 눈("up"), 마지막 프레임에 작은 반짝 ✧. 몸은 바닥에 그대로 (나는 동물은 떠서)
+LOOKUP_TILT = [-14, -20, -20]  # 프레임별 젖히는 각도 (음수 = 턱을 든다, 오른쪽을 보는 옆모습)
+
+
+def lookup_tilt(i, k=1.0):
+    """i번째 lookup 프레임의 젖히는 각도 (k배). 큰 머리(아기)는 덜 젖혀 프레임 안에 둔다."""
+    return _swing(LOOKUP_TILT[i] * k)
+
+
+def lookup_fx(i, cx, cy):
+    """마지막 프레임에만 (cx, cy)에 작은 반짝 ✧ — 무언가를 발견한 듯."""
+    return sparkle_fx(cx, cy, 4.6) if i == 2 else []
+
+
+def lookup(sp, i):
+    """올려다보기: 앉은 채 턱을 들고 위를 본다 (0 고개 들기 · 1 쭉 · 2 ✧)."""
+    return _sit_side(sp, head=dict(dy=0.5 - 0.5 * min(i, 1), rot=lookup_tilt(i)), head_kw=dict(eyes="up"), fx=lookup_fx(i, 117, 14))
 
 
 def _lying(sp, i, eyes, mouth, ear_rot, fx):
@@ -1388,7 +1413,7 @@ POSES = {"walk": walk, "run": run, "roll": roll, "idle": idle, "look": look, "sl
          "dragged": dragged, "land": land, "sit_front": sit_front, "wave": wave, "tilt": tilt, "belly": belly,
          "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "arch": arch, "wag": wag,
          "hungry": hungry, "eat": eat, "level_up": level_up, "huff": huff,
-         "climb": climb, "slide": slide}
+         "climb": climb, "slide": slide, "lookup": lookup}
 
 
 def frames(sp, anim, n):
@@ -1729,6 +1754,11 @@ def bee_look(sp, i):
     return _bee_side(sp, rot=[-9, 0, 9, 0][i], phase=i, eyes="closed" if i == 3 else "dot", sway=[-2, 0, 2, 0][i])
 
 
+def bee_lookup(sp, i):
+    """떠 있는 채 몸째 살짝 젖혀 위를 본다 (더듬이는 뒤로 살랑)."""
+    return _bee_side(sp, rot=lookup_tilt(i, 0.6), phase=i, eyes="up", sway=-2, fx=lookup_fx(i, 112, 18))
+
+
 def bee_sleep(sp, i):
     """내려앉아 쿨쿨: 납작 엎드려 날개 접고 더듬이 축, z."""
     zs = [z_fx(102, 70, 3.4), z_fx(113, 59, 2.6)] if i == 0 else [z_fx(104, 67, 3.6), z_fx(116, 55, 2.8)]
@@ -1929,14 +1959,14 @@ BEE_POSES = {"walk": bee_walk, "run": bee_run, "roll": bee_roll, "idle": bee_idl
              "hop": bee_hop, "fall": bee_fall, "dragged": bee_dragged, "land": bee_land, "sit_front": bee_sit_front,
              "wave": bee_wave, "tilt": bee_tilt, "belly": bee_belly, "stretch": bee_stretch, "heart": bee_heart,
              "tickle": bee_tickle, "annoyed": bee_annoyed, "hungry": bee_hungry, "eat": bee_eat, "level_up": bee_level_up,
-             "sting": bee_sting}
+             "sting": bee_sting, "lookup": bee_lookup}
 
 BEE = Species(
     id="bee", name="꿀벌", walk_speed=62, scale=0.94, base=BEE_Y, back=BEE_Y, belly=BEE_CREAM, nose=NOSE, mouth="w",
     front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[],
     front_tail=[], front_tail_root=(64, 112), front_tail_color=BEE_ST, side_ears=[], ears_over=False,
     side_head_marks=[], side_torso_marks=[], side_tail=[], tail_root=(20, 84), tail_color=BEE_ST,
-    specials=["sting"], stage_size=dict.fromkeys(STAGES, 0.8), stripe=BEE_ST, poses=BEE_POSES,
+    specials=["sting", "lookup"], stage_size=dict.fromkeys(STAGES, 0.8), stripe=BEE_ST, poses=BEE_POSES,
 )
 SPECIES[BEE.id] = BEE
 

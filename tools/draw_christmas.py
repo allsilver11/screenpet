@@ -203,7 +203,7 @@ def _rudolph_pose(anim):
 
 def _rudolph_poses():
     from sprite_spec import ANIMS
-    return {a: _rudolph_pose(a) for a, *_ in ANIMS}
+    return {a: _rudolph_pose(a) for a in [a for a, *_ in ANIMS] + ["lookup"]}
 
 
 RUDOLPH_POSES = _rudolph_poses()
@@ -227,7 +227,7 @@ RUDOLPH = Species(
                       ([("L", [(84, 56), (88, 68), (93, 82)], 6.5)], RIBBON, 2),
                       ([("E", 88, 80, 98, 90)], BELL, 2), ([("E", 89.5, 81.5, 93, 84.5)], BELL_LIGHT, 2)],
     side_tail=[("E", 8, 58, 28, 76)], tail_root=(20, 70), tail_color=DEER_CREAM,
-    lie_ears=(-20, -16), outline=DEER_LINE, stripe=DEER, poses=RUDOLPH_POSES,
+    lie_ears=(-20, -16), outline=DEER_LINE, stripe=DEER, poses=RUDOLPH_POSES, specials=["lookup"],
     stage_size=dict.fromkeys(STAGES, 0.9),
     # 귀·뿔 크기는 _deer_parts가 단계마다 직접 정한다 (공통 ear 배율 1.0) · 모든 단계 반짝이 두 개 큰 눈, 어른도
     stage_tweak={"baby": dict(ear=1.0, pale=0.22, tuft=False), "kinder": dict(ear=1.0, pale=0.12),
@@ -636,15 +636,20 @@ def sa_level_up(sp, i):
                  feet=((0, 0), (0, 0)) if i < 2 else ((-1, 1), (1, 1)), fx=stars)
 
 
+def sa_lookup(sp, i):
+    """고개를 젖혀 위를 본다 (모자 끝은 뒤로 늘어짐)."""
+    return santa(sp, side=True, head_rot=dp.lookup_tilt(i), pom=-6, eyes="up", fx=dp.lookup_fx(i, 112, 14))
+
+
 SANTA_POSES = {"walk": sa_walk, "run": sa_run, "roll": sa_roll, "idle": sa_idle, "look": sa_look, "sleep": sa_sleep, "hop": sa_hop,
                "fall": sa_fall, "dragged": sa_dragged, "land": sa_land, "sit_front": sa_sit_front, "wave": sa_wave, "tilt": sa_tilt,
                "belly": sa_belly, "stretch": sa_stretch, "heart": sa_heart, "tickle": sa_tickle, "annoyed": sa_annoyed,
-               "hungry": sa_hungry, "eat": sa_eat, "level_up": sa_level_up}
+               "hungry": sa_hungry, "eat": sa_eat, "level_up": sa_level_up, "lookup": sa_lookup}
 SANTA_POSES = {k: dh._fit(v) for k, v in SANTA_POSES.items()}
 
 SANTA = Species(
     id="santa", name="산타", walk_speed=70, scale=0.94, base=SUIT, back=SUIT, belly=FUR, nose=SKIN, mouth="w",
-    front_tail_color=SUIT, tail_color=SUIT, stage_size=dict.fromkeys(STAGES, 1.1), stripe=SUIT_SHADE, outline=SUIT_LINE,
+    front_tail_color=SUIT, tail_color=SUIT, stage_size=dict.fromkeys(STAGES, 1.65), stripe=SUIT_SHADE, outline=SUIT_LINE,
     # 작은 점 눈 (반짝이 큰 눈·반쯤 감은 눈 없이) — 아기만 조금 크게
     stage_tweak={"baby": dict(pale=0.0, sparkle=False, eye=1.0, fit=0.9), "kinder": dict(pale=0.0, sparkle=False, eye=0.95, fit=0.93),
                  "child": dict(smile=False, eye=0.92, fit=0.95), "teenager": dict(eye=0.9, fit=0.97),

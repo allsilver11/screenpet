@@ -32,7 +32,7 @@ def cell(sheet, row, col):
 def test_frog_is_registered_with_its_own_poses():
     assert draw_pets.SPECIES["frog"] is draw_frog.FROG
     names = [a for a, *_ in rows()]
-    assert names == [a for a, *_ in ANIMS] + ["climb", "slide", "bigjump"]
+    assert names == [a for a, *_ in ANIMS] + ["climb", "slide", "bigjump", "lookup"]
     assert all(a in draw_frog.FROG_POSES for a in names)
 
 

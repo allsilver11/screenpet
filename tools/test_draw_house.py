@@ -207,14 +207,15 @@ def _rgba(im):
 
 @pytest.mark.parametrize("stage", STAGES)
 def test_xmas_door_fits_rudolph_and_santa(built, stage):
-    """루돌프(넓은 귀)는 고양이보다 넓고 산타는 좁다: 두 몸 폭의 평균이 문을 고양이처럼 (±12 %) 채우고, 각자도 ±30 % 안."""
+    """루돌프(넓은 귀)는 문을 고양이처럼 (±30 %) 채운다. 산타는 몸 배율 1.65로 커져서 (사용자 요청 "1.5배만") 문을 꽉 채운다 —
+    고양이보다 넓지만 1.6배는 넘지 않는다 (문 그림은 그대로라 산타에겐 아늑하게 꼭 맞는 문)."""
     if draw_house.sit_frame("rudolph", stage) is None or draw_house.sit_frame("santa", stage) is None:
         pytest.skip("no christmas sheets")
     door = _door(built, "xmas", stage)
     cat_fill = draw_house.door_pet_size(stage) * _body_width("cat", stage) / _door(built, "house", stage)["w"]
-    fills = [draw_house.door_pet_size(stage) * _body_width(p, stage) / door["w"] for p in ("rudolph", "santa")]
-    assert abs(sum(fills) / 2 / cat_fill - 1) < 0.12, (stage, fills, cat_fill)
-    assert all(abs(f / cat_fill - 1) < 0.3 for f in fills), (stage, fills, cat_fill)
+    rudolph, santa = (draw_house.door_pet_size(stage) * _body_width(p, stage) / door["w"] for p in ("rudolph", "santa"))
+    assert abs(rudolph / cat_fill - 1) < 0.3, (stage, rudolph, cat_fill)
+    assert 1.0 <= santa / cat_fill < 1.6, (stage, santa, cat_fill)
 
 
 def test_xmas_house_is_red_brick_with_snow_and_warm_windows(built):

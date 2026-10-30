@@ -121,6 +121,11 @@
       "fps": 6,
       "loop": false,
       "front": true
+    },
+    "lookup": {
+      "row": 21,
+      "frames": 3,
+      "fps": 3
     }
   },
   "speech": {
@@ -158,11 +163,11 @@
     "adult"
   ],
   "stage_size": {
-    "baby": 1.1,
-    "kinder": 1.1,
-    "child": 1.1,
-    "teenager": 1.1,
-    "adult": 1.1
+    "baby": 1.65,
+    "kinder": 1.65,
+    "child": 1.65,
+    "teenager": 1.65,
+    "adult": 1.65
   },
   "personality": "friendly",
   "house": "xmas"

@@ -572,6 +572,11 @@ def dk_look(sp, i):
     return duck(sp, head_rot=[-10, 0, 12, 0][i], eyes="closed" if i == 3 else "dot")
 
 
+def dk_lookup(sp, i):
+    """고개를 젖혀 부리를 들고 위를 본다."""
+    return duck(sp, head=(-1, -1), head_rot=dp.lookup_tilt(i), eyes="up", fx=dp.lookup_fx(i, 112, 14))
+
+
 def dk_sleep(sp, i):
     zs = [z_fx(104, 58, 3.4), z_fx(115, 47, 2.6)] if i == 0 else [z_fx(106, 55, 3.6), z_fx(118, 43, 2.8)]
     return duck(sp, bottom=FLOOR - 0.5, sq=(1.08, 0.9 + 0.012 * i), eyes="closed", head=(-4, 12), head_rot=14, feet=None, fx=zs)
@@ -685,7 +690,7 @@ def dk_level_up(sp, i):
 DUCK_POSES = {"walk": dk_walk, "run": dk_run, "roll": dk_roll, "idle": dk_idle, "look": dk_look, "sleep": dk_sleep, "hop": dk_hop,
               "fall": dk_fall, "dragged": dk_dragged, "land": dk_land, "sit_front": dk_sit_front, "wave": dk_wave, "tilt": dk_tilt,
               "belly": dk_belly, "stretch": dk_stretch, "heart": dk_heart, "tickle": dk_tickle, "annoyed": dk_annoyed,
-              "hungry": dk_hungry, "eat": dk_eat, "level_up": dk_level_up}
+              "hungry": dk_hungry, "eat": dk_eat, "level_up": dk_level_up, "lookup": dk_lookup}
 DUCK_POSES = {k: (v if k == "roll" else _fit(v)) for k, v in DUCK_POSES.items()}
 
 
@@ -725,6 +730,11 @@ def gf_idle(sp, i):
 
 def gf_look(sp, i):
     return giraffe(sp, head_rot=[-12, 0, 12, 0][i], neck_ang=[14, 18, 22, 18][i], eyes="closed" if i == 3 else "dot")
+
+
+def gf_lookup(sp, i):
+    """목을 곧게 세우고 고개를 젖혀 위를 본다."""
+    return giraffe(sp, neck_ang=[12, 8, 8][i], head_rot=dp.lookup_tilt(i), eyes="up", fx=dp.lookup_fx(i, 114, 10))
 
 
 def gf_sleep(sp, i):
@@ -940,7 +950,7 @@ GIRAFFE_POSES = {"walk": gf_walk, "run": gf_run, "roll": gf_roll, "idle": gf_idl
                  "fall": gf_fall, "dragged": gf_dragged, "land": gf_land, "sit_front": gf_sit_front, "wave": gf_wave,
                  "tilt": gf_tilt, "belly": gf_belly, "stretch": gf_stretch, "heart": gf_heart, "tickle": gf_tickle,
                  "annoyed": gf_annoyed, "hungry": gf_hungry, "eat": gf_eat, "level_up": gf_level_up,
-                 "neckstretch": gf_neckstretch}
+                 "neckstretch": gf_neckstretch, "lookup": gf_lookup}
 # 목 늘이기 행은 층과 같은 좌표여야 해서 밀지 않는다
 GIRAFFE_POSES = {k: (v if k == "neckstretch" else _fit(v)) for k, v in GIRAFFE_POSES.items()}
 
@@ -953,7 +963,7 @@ DUCK = Species(
     front_tail_color=DUCK_W, tail_color=DUCK_W, stage_size=dict.fromkeys(STAGES, 0.9), stripe=BILL, outline=DUCK_LINE,
     stage_tweak={"baby": dict(pale=0.0, eye=1.2, fit=0.9), "kinder": dict(pale=0.0, eye=1.12, fit=0.93),
                  "child": dict(pale=0.0, eye=1.05), "adult": dict(fit=0.94)},
-    specials=[], poses=DUCK_POSES, **_COMMON,
+    specials=["lookup"], poses=DUCK_POSES, **_COMMON,
 )
 
 GIRAFFE = Species(
@@ -962,7 +972,7 @@ GIRAFFE = Species(
     stripe=GIR_SPOT, outline=GIR_LINE,
     stage_tweak={"baby": dict(pale=0.0, eye=1.2, fit=0.9), "kinder": dict(pale=0.0, eye=1.1, fit=0.93),
                  "child": dict(pale=0.0), "adult": dict(fit=0.94)},
-    specials=["neckstretch"], poses=GIRAFFE_POSES, **_COMMON,
+    specials=["neckstretch", "lookup"], poses=GIRAFFE_POSES, **_COMMON,
 )
 
 

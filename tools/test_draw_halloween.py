@@ -52,7 +52,7 @@ def test_both_are_registered_with_every_required_anim():
     for pid in ("pumpkin", "ghost"):
         sp = draw_pets.SPECIES[pid]
         assert sp.poses is draw_halloween.POSES
-        assert names(pid) == [a for a, *_ in ANIMS]  # 선택 동작 없음 (침·기어오르기 없음)
+        assert names(pid) == [a for a, *_ in ANIMS] + ["lookup"]  # 선택 동작은 올려다보기뿐 (침·기어오르기 없음)
         assert all(a in draw_halloween.POSES for a in names(pid))
 
 
@@ -90,7 +90,7 @@ def test_manifests(out):
     assert gh["speech"]["chatter"] == ["boo!", "ooo~"] and gh["speech"]["tickle"] == ["hehe!"]
     assert all(v == 0.85 for v in gh["stage_size"].values())
     for m in (pk, gh):
-        assert set(m["animations"]) == {a for a, *_ in ANIMS}  # sting·climb 없음
+        assert set(m["animations"]) == {a for a, *_ in ANIMS} | {"lookup"}  # sting·climb 없음
         assert m["animations"]["eat"] == {"row": 19, "frames": 4, "fps": 6, "front": True}
 
 

@@ -132,6 +132,11 @@
       "row": 22,
       "frames": 2,
       "fps": 8
+    },
+    "lookup": {
+      "row": 23,
+      "frames": 3,
+      "fps": 3
     }
   },
   "speech": {
