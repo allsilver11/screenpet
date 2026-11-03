@@ -155,6 +155,13 @@ function draw(now) {
     const parts = [];
     const shake = jitter(f, now);
     if (shake) parts.push(shake);
+    // 커서에 매달림 (백엔드 render.hang: +1 커서 오른쪽, -1 왼쪽): 창은 커서 옆에 있으니 스프라이트를 커서 쪽 창 끝으로 붙이고,
+    // 커서 쪽 위 모서리를 축으로 살랑살랑 (백엔드가 매달릴 때 flip을 끈다)
+    petEl.style.transformOrigin = render.hang ? (render.hang > 0 ? "14% 6%" : "86% 6%") : "";
+    if (render.hang) {
+      parts.push(`translateX(${-render.hang * Math.max(0, (window.innerWidth - display) / 2)}px)`);
+      parts.push(`rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
+    }
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
     if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
@@ -358,16 +365,38 @@ const EXTRA_SPEECH = {
   whee: ["whee!"],
   // 눈사람을 다 만들었다
   snowman: ["snowman!", "⛄!"],
+  // 커서 끝을 붙잡음 / 서 있던 창이 사라짐 / 내려서서 째려봄 (cursor_play는 아래 CURSOR_LINES)
+  gotcha: ["gotcha!", "got you!"],
+  eek: ["eek!"],
+  hmph: ["hmph!"],
   // 공룡 동작 (pet.json에 없으면 이 말)
   roar: ["RAWR!"],
   fire: ["fwoosh~"],
   stomp: ["stomp!"],
 };
+// 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
+const CURSOR_LINES = {
+  cat: ["mrrow...", "*wiggle wiggle*"],
+  dog: ["woof woof!", "ooh! ooh!"],
+  rabbit: ["hop hop!"],
+  bear: ["grr-paw!"],
+  bee: ["bzzz!"],
+  frog: ["ribbit!"],
+  pumpkin: ["bounce!"],
+  ghost: ["boo~"],
+  duck: ["quack!", "quack quack!"],
+  giraffe: ["ooh, up there?"],
+  rudolph: ["jingle!"],
+  santa: ["ho ho ho!"],
+  dino_yellow: ["RAWR!"],
+  dino_green: ["rawr!"],
+  dino_purple: ["rawr~"],
+};
 const speech = setupSpeech({
   bubbleEl,
   pickerEl,
   favBtn,
-  getManifest: () => manifest && { ...manifest, speech: { ...EXTRA_SPEECH, ...manifest.speech } },
+  getManifest: () => manifest && { ...manifest, speech: { cursor_play: CURSOR_LINES[stage.pet] ?? ["!"], ...EXTRA_SPEECH, ...manifest.speech } },
   isQuiet: () => noteOpen,
 });
 

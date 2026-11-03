@@ -145,6 +145,8 @@ pub struct Slot {
     note_open: bool,
     /// 기린이 목을 늘이는 중이라 창이 위로 커져 있음 (늘이는 동안만 — 끝나면 바로 줄인다)
     stretch_open: bool,
+    /// 커서에 매달리느라 창이 마우스를 통과시키고 있음 (그동안 클릭은 사용자 것)
+    click_through: bool,
     /// Windows: 창 핸들 (만들 때 한 번 읽어 둔다 — hwnd()는 메인 스레드에 물어본다). 매 틱 SetWindowPos로 바로 옮긴다
     #[cfg(windows)]
     hwnd: Option<isize>,
@@ -152,7 +154,8 @@ pub struct Slot {
 
 impl Slot {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(label: String, role: Role, entry: PetEntry, pet: Pet, window: WebviewWindow, world: World, dpi: f64, shown: StagePayload) -> Self {
+    pub fn new(label: String, role: Role, entry: PetEntry, mut pet: Pet, window: WebviewWindow, world: World, dpi: f64, shown: StagePayload) -> Self {
+        pet.set_cursor_species(&entry.id);
         #[cfg(windows)]
         let hwnd = window.hwnd().ok().map(|h| h.0 as isize);
         Self {
@@ -169,6 +172,7 @@ impl Slot {
             last_render: None,
             note_open: false,
             stretch_open: false,
+            click_through: false,
             #[cfg(windows)]
             hwnd,
         }
@@ -198,6 +202,7 @@ impl Slot {
         let (w, h) = self.logical_size(shown.scale);
         let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
         self.pet.cfg = pet_config(self.dpi, &self.entry, shown.scale);
+        self.pet.set_cursor_species(&self.entry.id);
         self.shown = shown;
         let info = self.info();
         app.state::<AppState>().slots.lock().unwrap().insert(self.label.clone(), info.clone());
@@ -224,6 +229,21 @@ impl Slot {
         let (w, h) = self.logical_size(self.shown.scale);
         let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
         self.last_pos = None;
+    }
+
+    /// 커서 끝으로 뛰어오르고 매달린 동안 창이 마우스를 통과시킨다 — 창이 커서 끝을 덮지 않게 놓지만(코어 hang_spot),
+    /// 커서가 빨리 움직이는 틱 사이에도 클릭을 뺏지 않게. 바뀔 때만 OS에 알린다
+    fn sync_click_through(&mut self) {
+        let through = self.pet.cursor_through();
+        if through != self.click_through {
+            self.click_through = through;
+            let _ = self.window.set_ignore_cursor_events(through);
+        }
+    }
+
+    /// 편지 말풍선이 펼쳐져 있음 (창이 넓어져 커서 장난은 쉰다)
+    pub fn note_is_open(&self) -> bool {
+        self.note_open
     }
 
     /// 편지 말풍선을 띄운다 / 접는다: 창을 키우거나 줄이고, 몸이 그 자리에 있도록 바로 다시 놓는다.
@@ -293,6 +313,7 @@ impl Slot {
     /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보인다. hidden = 사용자가 트레이로 모두 숨겨 둠 (그동안은 보이지 않는다)
     pub fn place(&mut self, hidden: bool) {
         self.sync_stretch();
+        self.sync_click_through();
         let pos = self.window_target();
         if self.last_pos != Some(pos) {
             self.move_window(pos.0, pos.1);

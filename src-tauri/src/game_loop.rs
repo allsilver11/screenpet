@@ -51,6 +51,8 @@ pub enum Input {
     ToggleHouse,
     /// 🎮 조작 모드 켜기 / 끄기 (트레이·우클릭 체크 항목)
     ToggleControl,
+    /// 🐾 커서 장난 켜기 / 끄기 (설정에 남는다)
+    ToggleCursorPlay,
     /// 하우스 창을 눌렀다 (배고프면 음식 고르기, 아니면 손 흔들기)
     HouseClick,
     /// 하우스를 끌어 옮겼다 (house.rs). save = 다 놓았음 — 새 자리를 설정에 적는다
@@ -192,6 +194,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
     }
     sync_menu(&app, &slots[OWN].entry, &care, config.housed);
+    let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
     let mut was_housed = slots[OWN].pet.is_housed();
     let mut was_away = false;
     let mut last_house: Option<HouseState> = None;
@@ -367,6 +370,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         }
                     }
                 }
+                Input::ToggleCursorPlay => {
+                    config.cursor_play_off = !config.cursor_play_off;
+                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춘다
+                    let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                }
                 Input::HouseClick => {
                     if slots[OWN].pet.is_housed() {
                         if care.is_hungry() {
@@ -536,7 +545,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         network.steer(now, control_on, keys);
         let held = slots.iter().position(|s| s.pet.is_held());
         let hovered = if held.is_some() { None } else { slots::hover_target(&slots, cx, cy) };
+        // 🐾 커서 장난: 무언가 끌고 있거나 음식을 들고 있거나 모두 숨겨 둔 동안엔 새로 시작하지 않는다 (조작 모드 등은 코어가 본다)
+        let left_down = source.left_button_down();
+        let play_busy = held.is_some() || hand.is_some() || crate::windows_hidden(&app);
         for (i, s) in slots.iter_mut().enumerate() {
+            s.pet.cursor_input(left_down, play_busy || s.note_is_open(), !config.cursor_play_off);
             if Some(i) == held {
                 if source.left_button_down() {
                     s.pet.pointer_move(cx, cy);
@@ -592,6 +605,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             }
             slots::close(&app, slot);
         }
+        network.forget_gone_replies(&slots);
 
         if let Some(side) = own_exit {
             // 내 동물이 화면 끝으로 다 나갔다 — 그 끝의 친구에게 놀러 간다

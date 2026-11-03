@@ -16,7 +16,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use screenpet_core::behavior::Personality;
-use screenpet_core::brain::control_moves::ControlInput;
+use screenpet_core::brain::control_moves::{ControlInput, SteerPacer};
 use screenpet_core::brain::State;
 use screenpet_core::care::Stage;
 use screenpet_core::config::{Config, MAX_NAME_CHARS};
@@ -300,7 +300,7 @@ pub struct Network {
     /// 내 친구 코드 (중계 서버가 준 것, 24시간마다 바뀐다)
     friend_code: Option<String>,
     /// 조작 모드: 마지막으로 친구 화면의 내 동물에게 보낸 키 (visit_id, 켜짐, 키 비트, 보낸 시각)
-    last_steer: Option<(u64, bool, u8, Instant)>,
+    steer_pacer: SteerPacer,
 }
 
 /// 중계 서버 주소와 고정할 공개키. 기본값은 배포된 서버 주소 + 그 공개키(다른 키를 내미는 서버는 거절).
@@ -428,7 +428,7 @@ impl Network {
             relay_enabled: false,
             relay_connected: false,
             friend_code: None,
-            last_steer: None,
+            steer_pacer: SteerPacer::default(),
         };
         let state = app.state::<AppState>();
         let key = match screenpet_core::config::load_or_create_identity_key(&state.config_dir, Net::generate_static_key) {
@@ -546,6 +546,11 @@ impl Network {
         if !(wrote && slot.pet.send_home_with_reply()) {
             slot.pet.go_home_now();
         }
+    }
+
+    /// 매 틱: Leave 없이 사라진 손님의 답장은 버린다 (평소엔 guest_left가 꺼낸다 — 비어 있으면 아무 일도 없다)
+    pub fn forget_gone_replies(&mut self, slots: &[Slot]) {
+        self.replies.retain(|id| slots.iter().any(|s| matches!(&s.role, Role::Guest(g) if g.visit_id == id)));
     }
 
     /// 손님을 주인에게 돌려보낸다 (손님 우클릭 "<주인>에게 돌려보내기"): 걸어 둔 "<친구>에게 보내기"는 지운다
@@ -1304,23 +1309,15 @@ impl Network {
     }
 
     /// 매 틱 (게임 루프): 조작 모드 키를 친구 화면에 가 있는 내 동물에게 — 바뀔 때, 그리고 누르고 있는 동안 STEER_KEEPALIVE마다.
-    /// 끄면 한 번 on = false. 내 동물이 집에 있으면 아무것도 보내지 않는다
+    /// 끄면 on = false를 두 번 (STEER_KEEPALIVE 뒤 한 번 더 — 첫 번째를 흘려도 손님이 조작 모드에 남지 않게). 내 동물이 집에 있으면 아무것도 보내지 않는다
     pub fn steer(&mut self, now: Instant, on: bool, keys: ControlInput) {
         let (Some(net), Some(a)) = (&self.net, &self.away) else {
-            self.last_steer = None;
+            self.steer_pacer.reset();
             return;
         };
         let bits = if on { keys.bits() } else { 0 };
-        let send = match self.last_steer {
-            Some((visit_id, was_on, was_bits, at)) if visit_id == a.visit_id => {
-                (was_on, was_bits) != (on, bits) || (on && bits != 0 && now.duration_since(at) >= STEER_KEEPALIVE)
-            }
-            // 이번 방문에 아직 보낸 적 없음: 켜져 있을 때만 알린다
-            _ => on,
-        };
-        if send {
+        if self.steer_pacer.should_send(a.visit_id, on, bits, now, STEER_KEEPALIVE) {
             net.steer(&a.friend, Steer { visit_id: a.visit_id, on, keys: bits });
-            self.last_steer = Some((a.visit_id, on, bits, now));
         }
     }
 
