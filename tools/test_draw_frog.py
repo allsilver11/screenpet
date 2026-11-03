@@ -115,3 +115,82 @@ def test_back_view_hands_are_behind_the_head(monkeypatch):
     parts = orders[0]
     head = next(i for i, p in enumerate(parts) if p.outline and len(p.shapes) == 3)  # 머리 + 눈 언덕 둘
     assert head >= 3  # 앞발 둘 + 몸 다음
+
+
+def test_back_view_feet_are_behind_the_body(monkeypatch):
+    """뒷모습: 뒷발·몸·머리 순서 — 발은 몸 뒤에 숨어 엉덩이를 가리지 않는다."""
+    tags, orders = {}, []
+    compose = draw_pets.compose
+
+    def tagged(kind, fn):
+        def f(*a, **k):
+            r = fn(*a, **k)
+            tags[id(r)] = kind
+            return r
+        return f
+    monkeypatch.setattr(draw_frog, "frog_back_foot", tagged("leg", draw_frog.frog_back_foot))
+    monkeypatch.setattr(draw_frog, "frog_back_body", tagged("body", draw_frog.frog_back_body))
+
+    def spy(parts, *a, **k):
+        orders.append([tags.get(id(p)) for p in parts])
+        tags.clear()
+        return compose(parts, *a, **k)
+    monkeypatch.setattr(draw_pets, "compose", spy)
+    for st in STAGES:
+        with draw_pets.stage(st, draw_frog.FROG.stage_tweak.get(st)):
+            draw_pets.frames(draw_frog.FROG, "climb", 4)
+            draw_pets.frames(draw_frog.FROG, "slide", 2)
+    assert len(orders) == 6 * len(STAGES)
+    for order in orders:
+        assert order.count("leg") == 2 and max(i for i, t in enumerate(order) if t == "leg") < order.index("body"), order
+
+
+def test_back_view_shows_no_suction_pads_on_the_rump():
+    """시각 의도: 발바닥 빨판은 벽을 향한다 — 아래쪽 절반에 빨판 색 픽셀이 거의 없다."""
+    pad = draw_frog._pad(draw_frog.FROG)
+    for st in STAGES:
+        with draw_pets.stage(st, draw_frog.FROG.stage_tweak.get(st)):
+            got = draw_pets.frames(draw_frog.FROG, "climb", 4) + draw_pets.frames(draw_frog.FROG, "slide", 2)
+        for n, im in enumerate(got):
+            count = 0
+            for y in range(80, FRAME):
+                for x in range(FRAME):
+                    p = im.getpixel((x, y))
+                    count += p[3] > 128 and abs(p[0] - pad[0]) + abs(p[1] - pad[1]) + abs(p[2] - pad[2]) < 24
+            assert count <= 8, (st, n, count)  # 아기 꼬리 끝 몇 점은 허용
+
+
+def test_climb_feet_only_peek_and_take_turns(monkeypatch):
+    for st in STAGES:
+        with draw_pets.stage(st, draw_frog.FROG.stage_tweak.get(st)):
+            full = draw_pets.frames(draw_frog.FROG, "climb", 4)
+            with monkeypatch.context() as m:
+                m.setattr(draw_frog, "frog_back_foot", lambda sp, *a, **k: draw_pets.Part([], sp.base))
+                bare = draw_pets.frames(draw_frog.FROG, "climb", 4)
+        seen = []
+        for f, b in zip(full, bare):
+            left = right = 0
+            for y in range(FRAME):
+                for x in range(FRAME):
+                    if sum(abs(p - q) for p, q in zip(f.getpixel((x, y)), b.getpixel((x, y)))) > 60:
+                        if x < FRAME // 2:
+                            left += 1
+                        else:
+                            right += 1
+            seen.append((left, right))
+        areas = [sum(f.getchannel("A").histogram()[129:]) for f in full]
+        for n, ((l, r), area) in enumerate(zip(seen, areas)):
+            assert 0 < l + r < 0.09 * area, (st, n, l, r, area)
+        assert seen[0][1] > seen[0][0] and seen[2][0] > seen[2][1], (st, seen)
+
+
+def test_back_view_is_not_cut_by_the_cell_or_nudged_between_frames():
+    """뒷모습 원본이 칸 끝에 닿으면 손끝·꼬리가 잘리고 _fit이 그 프레임만 밀어 튄다."""
+    sp = draw_frog.FROG
+    for st in STAGES:
+        with draw_pets.stage(st, sp.stage_tweak.get(st)):
+            with draw_pets.view(scale=sp.scale * draw_pets._ST["fit"], lift=draw_pets.LIFT + 1.7 * draw_pets.OUTLINE * (draw_pets._ST["line"] - 1)):
+                raw = [draw_frog.frog_climb(sp, i) for i in range(4)] + [draw_frog.frog_slide(sp, i) for i in range(2)]
+        for n, im in enumerate(raw):
+            x0, y0, x1, y1 = im.getchannel("A").getbbox()
+            assert x0 >= 1 and y0 >= 1 and x1 <= FRAME - 1 and y1 <= FRAME - 1, (st, n, (x0, y0, x1, y1))

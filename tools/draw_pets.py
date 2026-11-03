@@ -1348,14 +1348,26 @@ def back_arm(sp, side, reach, scratch=None):
     return part, ops
 
 
-def back_leg(sp, side, lift):
-    """뒷다리 (발바닥 젤리가 보인다). lift: 들어 올린 높이."""
-    cx = 64 + 17 * side
-    top, bot = 104 - lift, 125 - lift
-    part = Part([E(cx - 11, top, cx + 11, bot)], sp.base, outline=True)
-    beans = [([E(cx - 4.4, bot - 9, cx + 4.4, bot - 3)], PINK)]
-    beans += [([C(cx + dx, bot - 12.5, 1.7)], PINK) for dx in (-4.4, 0, 4.4)]
-    return part, beans
+# 뒷다리 발끝 자리 (몸 좌표: 가운데에서 떨어진 x, y) — 몸 뒤에 그려서 몸 밖으로 나온 만큼만 보인다
+BACK_FOOT_AT = {"side": (29, 104), "low": (15, 117), "tuck": (12, 96)}  # 옆으로 디딤 · 엉덩이 아래로 빼꼼 · 완전히 숨음
+
+
+def back_leg(sp, side, at):
+    """뒷다리 — 벽을 보고 있어 발바닥은 벽 쪽. 몸보다 먼저 그려서 발끝만 빼꼼 (젤리는 안 보인다). at: BACK_FOOT_AT 키."""
+    ox, cy = BACK_FOOT_AT[at]
+    cx = 64 + ox * side
+    shank = L([(64 + 12 * side, 92), (cx, cy)], 13)
+    foot = E(cx - 10, cy - 8, cx + 10, cy + 8)
+    if at == "side":  # 발가락 선 — 몸 밖으로 나오는 쪽 (옆 또는 아래)
+        toes = [L([(cx + 4.5 * side, cy + d), (cx + 8.5 * side, cy + d)], 1.5) for d in (-2.6, 2.6)]
+    else:
+        toes = [L([(cx + d, cy + 3), (cx + d, cy + 7)], 1.5) for d in (-3.2, 3.2)]
+    return Part([shank, foot], sp.base, [(toes, mix(sp.outline or LINE, sp.base, 0.35))], grow=0, outline=True)
+
+
+def back_body(sp):
+    """등과 엉덩이 — 자기 외곽선이 있어 뒤에 숨은 다리·발과 경계가 보인다."""
+    return Part([E(33, 50, 95, 122)], sp.base, _marks(sp.back_body_marks), outline=True)
 
 
 def back_tail(sp, rot):
@@ -1371,7 +1383,7 @@ def back_tail(sp, rot):
         return Part([C(64, 106, 8)], sp.tail_color, outline=True)
 
 
-def _back(sp, reach, lift, tail_rot, body_sy=1.0, dy=0.0, scratch=None, sweat=None):
+def _back(sp, reach, feet, tail_rot, body_sy=1.0, dy=0.0, scratch=None, sweat=None):
     b = _ST["body"]
     fx_, fy_ = _ST["fbody"]
     stage_body = dict(sx=b * fx_, sy=b * fy_, pivot=FRONT_BODY_PIVOT)
@@ -1379,7 +1391,7 @@ def _back(sp, reach, lift, tail_rot, body_sy=1.0, dy=0.0, scratch=None, sweat=No
     with xf(dy=dy):
         with xf(sy=body_sy, pivot=FRONT_BODY_PIVOT):
             with xf(**stage_body):
-                body = Part([E(33, 50, 95, 122)], sp.base, _marks(sp.back_body_marks), grow=6)
+                body = back_body(sp)
             with xf(dy=(1 - b) * (FRONT_BODY_PIVOT[1] - 84)):
                 head = back_head(sp)
                 if sweat is not None:  # 💦 뒤통수 옆 땀 한 방울
@@ -1390,23 +1402,24 @@ def _back(sp, reach, lift, tail_rot, body_sy=1.0, dy=0.0, scratch=None, sweat=No
                 arms = [back_arm(sp, s, r, scratch) for s, r in zip((-1, 1), reach)]  # 머리 좌표 — 머리와 함께 내려앉는다
             with xf(**stage_body):
                 tail = back_tail(sp, tail_rot)
-                legs_ = [back_leg(sp, s, l) for s, l in zip((-1, 1), lift)]
-        # 앞발은 벽 쪽(몸·머리 뒤)에 있다: 먼저 그려서 발끝만 머리 옆·위로 빼꼼
-        parts = [p for p, _ in arms] + [body, head, tail] + [p for p, _ in legs_]
-        ops = [o for _, os_ in legs_ for o in os_] + [o for _, os_ in arms for o in os_] + ops
+                legs_ = [back_leg(sp, s, at) for s, at in zip((-1, 1), feet)]
+        # 앞발·뒷발은 벽 쪽(몸·머리 뒤)에 있다: 먼저 그려서 발끝만 빼꼼 — 보는 쪽에는 등·엉덩이·꼬리
+        parts = legs_ + [p for p, _ in arms] + [body, head, tail]
+        ops = [o for _, os_ in arms for o in os_] + ops
     return compose(parts, ops)
 
 
 def climb(sp, i):
-    """뒷모습으로 화면을 기어오름: 앞발 번갈아 위로 (왼↑오↓ → 오↑왼↓), 몸 살짝 늘어남, 꼬리 좌우 살랑."""
+    """뒷모습으로 화면을 기어오름: 앞발 번갈아 위로 (왼↑오↓ → 오↑왼↓), 뒷발은 앞발과 엇갈려
+    아래로 빼꼼 → 옆으로 디딤 → 몸 뒤로 숨음, 몸 살짝 늘어남, 꼬리 좌우 살랑."""
     reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
-    lift = [(0, 7), (3, 3), (7, 0), (3, 3)][i]
-    return _back(sp, reach, lift, tail_rot=[-16, 0, 16, 0][i], body_sy=[1.05, 1.0, 1.05, 1.0][i], dy=[-1, 0, -1, 0][i])
+    feet = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")][i]
+    return _back(sp, reach, feet, tail_rot=[-16, 0, 16, 0][i], body_sy=[1.05, 1.0, 1.05, 1.0][i], dy=[-1, 0, -1, 0][i])
 
 
 def slide(sp, i):
     """주르륵 미끄러짐: 두 앞발 쭉 위로 + 발 위 긁힌 자국, 몸 살짝 찌그러짐, 땀 한 방울, 꼬리는 위로."""
-    return _back(sp, (1.0, 1.0), (0, 0), tail_rot=[-3, 3][i], body_sy=0.93, dy=[0, 1][i], scratch=i, sweat=i)
+    return _back(sp, (1.0, 1.0), ("low", "low"), tail_rot=[-3, 3][i], body_sy=0.93, dy=[0, 1][i], scratch=i, sweat=i)
 
 
 POSES = {"walk": walk, "run": run, "roll": roll, "idle": idle, "look": look, "sleep": sleep, "hop": hop, "fall": fall,

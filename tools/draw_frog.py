@@ -537,19 +537,36 @@ def frog_roll(sp, i):
 
 # =====================================================================
 # 뒷모습 (climb·slide) — 벽에 붙어 폴짝폴짝 기어오르기. 얼굴은 안 보인다. 앞발은 몸·머리 뒤 (빨판만 빼꼼),
-# 뒷다리는 양옆으로 쩍 벌리고 발바닥 빨판이 보인다. 좌우 대칭 (앱은 반전하지 않음)
+# 뒷다리도 몸 뒤 (발바닥은 벽 쪽) — 등·엉덩이가 보이고 발가락만 번갈아 언뜻언뜻. 앱은 반전하지 않음
 # =====================================================================
 BACK_SPOTS = [(64, 70, 5.0, 1), (48, 90, 4.2, 2), (80, 92, 4.2, 2), (64, 104, 3.6, 3), (44, 64, 3.2, 3), (84, 64, 3.2, 3),
               (56, 50, 2.8, 4), (72, 50, 2.8, 4)]
 
 
-def frog_back(sp, *, hands, knees, feet, sy=1.0, dy=0.0, scratch=None, sweat=None, fx=()):
-    """hands: 왼쪽 앞발 끝 (x, y) · knees/feet: 왼쪽 무릎·발 끝 — 오른쪽은 좌우 대칭."""
+def frog_back_body(sp):
+    """등과 엉덩이 — 자기 외곽선이 있어 뒤에 숨은 다리·발과 경계가 보인다."""
+    return Part([E(30, 58, 98, 124)], sp.base, _spots(sp, BACK_SPOTS), outline=True)
+
+
+# 뒷발 자리 (몸 좌표: 가운데에서 떨어진 x, y) — 옆으로 디딤 · 엉덩이 아래로 빼꼼 · 완전히 숨음
+BACK_FOOT_AT = {"side": (32, 102), "low": (27, 116), "tuck": (12, 96)}
+
+
+def frog_back_foot(sp, side, at):
+    """뒷발 — 몸보다 먼저 그려서 발가락만 빼꼼. 빨판은 벽에 붙어 안 보인다 (몸 색 발가락). at: BACK_FOOT_AT 키."""
+    ox, y = BACK_FOOT_AT[at]
+    foot = (64 + ox * side, y)
+    hip = (64 + 12 * side, 92)
+    toes = [C(x, y_, 3.6) for x, y_ in _pads_at(foot, hip, 3, 44, 5.0)]
+    return Part([L([hip, foot], 11)] + toes, sp.base, grow=0, outline=True)
+
+
+def frog_back(sp, *, hands, feet, sy=1.0, dy=0.0, scratch=None, sweat=None, fx=()):
+    """hands: 왼쪽 앞발 끝 (x, y), 오른쪽은 좌우 대칭 · feet: (왼발, 오른발) BACK_FOOT_AT 키."""
     b = _ST["body"]
     fx_, fy_ = _ST["fbody"]
     hs = _ST["head"]
     fs = _fs()
-    lw = fs["lw"]
     k = fs["leg"]
     ops = []
     with xf(dy=dy):
@@ -562,14 +579,15 @@ def frog_back(sp, *, hands, knees, feet, sy=1.0, dy=0.0, scratch=None, sweat=Non
                 hx, hy_ = hands
                 tip = (64 + (hx - 64) * -s, hy_ + hy)
                 tip = (sh[0] + (tip[0] - sh[0]) * (0.6 + 0.25 * k) * hs, sh[1] + (tip[1] - sh[1]) * (0.7 + 0.2 * k) * hs ** 0.5)
-                arms.append(_limb([sh, tip], [11 * lw], _pads_at(tip, sh, 3, 34, 4.0), sp, pad_r=3.4))
+                arms.append(_limb([sh, tip], [11 * fs["lw"]], _pads_at(tip, sh, 3, 34, 4.0), sp, pad_r=3.4))
                 if scratch is not None:
                     for j, ddx in enumerate((-4.5, 0, 4.5)):
                         y0 = tip[1] - 10 - (j % 2) * 1.5 - scratch * 2
                         ops.append(([L([(tip[0] + ddx * 1.1, y0), (tip[0] + ddx * 1.3, y0 - 8)], 1.6)], LINE))
             with xf(**st):
-                body = Part([E(30, 58, 98, 124)], sp.base, _spots(sp, BACK_SPOTS), grow=4)
-                parts_tail = _tail_nub(sp, (64, 116), (0, 1)) if fs["tail"] else []
+                body = frog_back_body(sp)
+                legs = [frog_back_foot(sp, s, at) for s, at in zip((-1, 1), feet)]
+                parts_tail = _tail_nub(sp, (64, 110), (0, 1)) if fs["tail"] else []  # 끝이 칸 아래로 잘리지 않게
             with xf(dy=hy):
                 with xf(sx=hs * BACK_HEAD, sy=hs * BACK_HEAD, pivot=(64, 92)):
                     bump = fs["bump"]
@@ -578,30 +596,21 @@ def frog_back(sp, *, hands, knees, feet, sy=1.0, dy=0.0, scratch=None, sweat=Non
                         shine = [([E(33, 25, 41, 31), E(81, 25, 89, 31)], mix(sp.base, WHITE, 0.45))]
                     head = Part([E(16, 30, 112, 96)] + bumps, sp.base, _spots(sp, [(64, 44, 3.6, 2)]) + shine, grow=1, outline=True)
                     hat = _hat(64, 31)
-            legs = []
-            for s in (-1, 1):
-                hip = dp._apply(dp._xf_matrix(**st), (64 + 16 * s, 112))
-                kn = (64 + (knees[0] - 64) * -s, knees[1])
-                ft = (64 + (feet[0] - 64) * -s, feet[1])
-                ch = [hip, (hip[0] + (kn[0] - hip[0]) * k, hip[1] + (kn[1] - hip[1]) * k),
-                      (hip[0] + (ft[0] - hip[0]) * k, hip[1] + (ft[1] - hip[1]) * k)]
-                pads = _pads_at(ch[-1], ch[-2], 3, 36, 4.0)
-                p = _limb(ch, [14 * lw, 10 * lw], pads, sp, pad_r=3.4, floor=FLOOR)
-                legs.append(p)
             if sweat is not None:
                 with xf(dy=hy):
                     ops += [(f[0], f[1]) for f in sweat_fx(94, 44 + sweat)]
-    parts = arms + [body, head] + hat + parts_tail + legs
+    parts = legs + arms + [body, head] + hat + parts_tail
     return dp.compose(parts, ops, fx)
 
 
 # 폴짝 기어오르기 한 주기: 0 웅크려 붙음 → 1 다리로 밀기 → 2 위로 솟음 (손 쭉) → 3 쩍 벌려 붙기
+# 뒷발은 번갈아: 아래로 빼꼼 → 옆으로 디딤 → 몸 뒤로 숨음 (한 프레임에 발끝 하나)
 BACK_HEAD = 0.8  # 뒷모습 머리는 조금 작게 (등 무늬와 빼꼼 나온 앞발이 보이게)
 CLIMB_KEYS = [
-    dict(hands=(16, 50), knees=(16, 94), feet=(30, 108), sy=0.94, dy=2),
-    dict(hands=(18, 30), knees=(26, 108), feet=(34, 124), sy=1.04, dy=-1),
-    dict(hands=(28, 8), knees=(40, 116), feet=(46, 126), sy=1.08, dy=-3),
-    dict(hands=(8, 36), knees=(8, 102), feet=(18, 122), sy=0.97, dy=0),
+    dict(hands=(16, 50), feet=("tuck", "side"), sy=0.94, dy=1),
+    dict(hands=(18, 30), feet=("low", "tuck"), sy=1.04, dy=-1),
+    dict(hands=(28, 13), feet=("side", "tuck"), sy=1.08, dy=-3),  # 손끝이 칸 위로 잘리지 않게
+    dict(hands=(8, 36), feet=("tuck", "low"), sy=0.97, dy=0),
 ]
 
 
@@ -610,7 +619,7 @@ def frog_climb(sp, i):
 
 
 def frog_slide(sp, i):
-    return frog_back(sp, hands=(22, 10), knees=(14, 106), feet=(24, 124), sy=0.94, dy=[0, 1][i], scratch=i, sweat=i)
+    return frog_back(sp, hands=(22, 10), feet=("low", "low"), sy=0.94, dy=[0, 1][i], scratch=i, sweat=i)
 
 
 def _fit(fn):

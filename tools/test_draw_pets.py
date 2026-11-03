@@ -277,6 +277,86 @@ def test_back_view_paws_are_drawn_behind_the_head(monkeypatch):
         assert order.count("arm") == 2 and order.index("head") > max(i for i, t in enumerate(order) if t == "arm"), order
 
 
+def test_back_view_feet_are_drawn_behind_the_body(monkeypatch):
+    """뒷모습은 벽을 보고 있다: 다리·발은 몸보다 먼저(뒤에) 그려서 엉덩이를 가리지 않는다. 꼬리는 몸 위."""
+    from sprite_spec import STAGES
+    tags, orders = {}, []
+    compose = draw_pets.compose
+
+    def tagged(kind, fn):
+        def f(*a, **k):
+            r = fn(*a, **k)
+            tags[id(r)] = kind
+            return r
+        return f
+    for kind, name in (("leg", "back_leg"), ("body", "back_body"), ("tail", "back_tail")):
+        monkeypatch.setattr(draw_pets, name, tagged(kind, getattr(draw_pets, name)))
+
+    def spy(parts, *a, **k):
+        orders.append([tags.get(id(p)) for p in parts])
+        tags.clear()
+        return compose(parts, *a, **k)
+    monkeypatch.setattr(draw_pets, "compose", spy)
+    for pid in ("cat", "bear"):
+        sp = draw_pets.SPECIES[pid]
+        for st in STAGES:
+            with draw_pets.stage(st, sp.stage_tweak.get(st)):
+                draw_pets.frames(draw_pets.staged_species(sp), "climb", 4)
+                draw_pets.frames(draw_pets.staged_species(sp), "slide", 2)
+    assert len(orders) == 2 * len(STAGES) * 6
+    for order in orders:
+        assert order.count("leg") == 2 and max(i for i, t in enumerate(order) if t == "leg") < order.index("body") < order.index("tail"), order
+
+
+def _near(px, c, tol=40):
+    return abs(px[0] - c[0]) + abs(px[1] - c[1]) + abs(px[2] - c[2]) < tol and px[3] > 128
+
+
+def test_back_view_shows_no_soles_on_the_rump():
+    """시각 의도: 엉덩이 위에 발바닥 젤리가 없다 (아래쪽 절반에 분홍 픽셀이 거의 없다)."""
+    from sprite_spec import STAGES
+    for pid in ("cat", "bear"):
+        sp = draw_pets.SPECIES[pid]
+        for st in STAGES:
+            with draw_pets.stage(st, sp.stage_tweak.get(st)):
+                got = draw_pets.frames(draw_pets.staged_species(sp), "climb", 4) + draw_pets.frames(draw_pets.staged_species(sp), "slide", 2)
+            for n, im in enumerate(got):
+                pink = sum(_near(im.getpixel((x, y)), draw_pets.PINK) for y in range(80, FRAME) for x in range(FRAME))
+                assert pink <= 8, (pid, st, n, pink)  # 무늬 경계의 안티에일리어싱 몇 점은 허용
+
+
+def _diff_side_counts(a, b):
+    """두 프레임이 달라진 픽셀 수 (왼쪽 절반, 오른쪽 절반)."""
+    left = right = 0
+    for y in range(FRAME):
+        for x in range(FRAME):
+            if sum(abs(p - q) for p, q in zip(a.getpixel((x, y)), b.getpixel((x, y)))) > 60:
+                if x < FRAME // 2:
+                    left += 1
+                else:
+                    right += 1
+    return left, right
+
+
+def test_climb_feet_only_peek_and_take_turns(monkeypatch):
+    """발은 언뜻언뜻: 다리를 뺀 그림과 비교하면 조금만 보이고, 오르는 동안 왼발·오른발이 번갈아 옆으로 나온다."""
+    from sprite_spec import STAGES
+    for pid in ("cat", "bear"):
+        sp = draw_pets.SPECIES[pid]
+        for st in STAGES:
+            with draw_pets.stage(st, sp.stage_tweak.get(st)):
+                ssp = draw_pets.staged_species(sp)
+                full = draw_pets.frames(ssp, "climb", 4)
+                with monkeypatch.context() as m:
+                    m.setattr(draw_pets, "back_leg", lambda s, *a, **k: draw_pets.Part([], s.base))
+                    bare = draw_pets.frames(ssp, "climb", 4)
+            seen = [_diff_side_counts(f, b) for f, b in zip(full, bare)]
+            sil = [sum(f.getchannel("A").histogram()[129:]) for f in full]
+            for n, ((l, r), area) in enumerate(zip(seen, sil)):
+                assert 0 < l + r < 0.09 * area, (pid, st, n, l, r, area)  # 보이긴 하지만 조금만
+            assert seen[0][1] > seen[0][0] and seen[2][0] > seen[2][1], (pid, st, seen)  # 앞발과 엇갈려 번갈아
+
+
 def test_bear_is_a_deeper_brown_with_bigger_ears():
     assert sum(draw_pets.BEAR.base) < sum((190, 132, 90))
     assert draw_pets.BEAR.outline is not None and sum(draw_pets.BEAR.outline) < sum(draw_pets.BEAR.base)
