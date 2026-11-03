@@ -396,8 +396,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     }
                 }
                 Input::ToggleWeather => {
-                    config.weather_off = !config.weather_off;
-                    weather.sync_menu(&app, config.weather_off);
+                    config.weather_on = !config.weather_on;
+                    weather.sync_menu(&app, !config.weather_on);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
                 Input::ToggleFocus => presence.toggle(&app, config.focus_length, &mut slots[OWN].pet),
@@ -666,7 +666,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         decals.tick(now);
         props.tick(now);
         hand_win.tick(now);
-        weather.tick(&app, now, config.weather_off, presence.is_away(), &mut slots);
+        weather.tick(&app, now, !config.weather_on, presence.is_away(), &mut slots);
         for g in network.take_guest_gifts() {
             gifts.guest_arrived(g, now);
         }
