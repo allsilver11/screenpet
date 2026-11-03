@@ -1,4 +1,4 @@
-//! 계절 날씨 (v0.3.7) — 달력으로 날씨를 정하고, 창 윗면과 바닥에 쌓이는 눈·꽃잎 더미를 센다. 그림은 앱이 그린다 (ui/weather.js).
+//! 계절 날씨 (v0.3.9, 일 년 내내) — 달력으로 날씨를 정하고, 창 윗면과 바닥에 쌓이는 눈·꽃잎·낙엽 더미를 센다. 그림은 앱이 그린다 (ui/weather.js).
 //!
 //! CPU를 아끼려고 알갱이 하나하나를 세지 않는다: 떨어지는 알갱이는 웹뷰의 그림일 뿐이고, 더미는 여기서 1초에 한 번
 //! 작은 눈덩이를 무작위 칸에 얹어 키운다 (쌓이는 속도와 녹는 속도만 맞춘다). 앱은 장면이 바뀌었을 때만 웹뷰에 보낸다.
@@ -20,8 +20,12 @@ pub enum Weather {
     LightSnow,
     Snow,
     Rain,
-    /// 3월의 벚꽃잎
+    /// 5~8월의 소나기 (잠깐씩만, showers)
+    Shower,
+    /// 3·4월의 벚꽃잎
     Petals,
+    /// 9~11월의 낙엽
+    Leaves,
 }
 
 impl Weather {
@@ -29,13 +33,19 @@ impl Weather {
         matches!(self, Weather::LightSnow | Weather::Snow)
     }
 
+    /// 펫이 자꾸 올려다보는 날씨
+    pub fn looks_up(self) -> bool {
+        matches!(self, Weather::Petals | Weather::Leaves)
+    }
+
     fn rates(self) -> Rates {
         match self {
             Weather::LightSnow => Rates { grow: 0.012, melt: 0.003, cap: 5.0 },
             Weather::Snow => Rates { grow: 0.02, melt: 0.004, cap: 9.0 },
-            // 비는 쌓이지 않고, 남아 있던 눈을 빨리 녹인다
-            Weather::Rain => Rates { grow: 0.0, melt: 0.05, cap: 0.0 },
+            // 비는 쌓이지 않고, 남아 있던 더미를 빨리 녹인다
+            Weather::Rain | Weather::Shower => Rates { grow: 0.0, melt: 0.05, cap: 0.0 },
             Weather::Petals => Rates { grow: 0.008, melt: 0.004, cap: 3.5 },
+            Weather::Leaves => Rates { grow: 0.008, melt: 0.004, cap: 4.0 },
         }
     }
 }
@@ -47,24 +57,65 @@ struct Rates {
     cap: f32,
 }
 
-/// 지역 날짜의 날씨: 11월은 날마다 번갈아 가벼운 눈·비, 12~2월은 눈, 3월은 벚꽃잎, 나머지 달은 없음
-pub fn season(month: u32, day: u32) -> Option<Weather> {
+/// 지역 날짜의 날씨 (여름의 Shower는 하루 중 잠깐씩만이다, weather_at): 3·4월 벚꽃잎, 5~8월 소나기, 9·10월 낙엽,
+/// 11월은 날마다 낙엽·가벼운 눈·비 차례로, 12~2월은 눈 이틀에 비 하루
+pub fn season(month: u32, day: u32) -> Weather {
+    let cycle = day.saturating_sub(1) % 3;
     match month {
-        11 if day % 2 == 1 => Some(Weather::LightSnow),
-        11 => Some(Weather::Rain),
-        12 | 1 | 2 => Some(Weather::Snow),
-        3 => Some(Weather::Petals),
-        _ => None,
+        3 | 4 => Weather::Petals,
+        5..=8 => Weather::Shower,
+        9 | 10 => Weather::Leaves,
+        11 => match cycle {
+            0 => Weather::Leaves,
+            1 => Weather::LightSnow,
+            _ => Weather::Rain,
+        },
+        _ if cycle == 2 => Weather::Rain,
+        _ => Weather::Snow,
     }
 }
 
-/// 개발용 미리 보기 값 (환경 변수 SCREENPET_WEATHER): snow·light_snow·rain·petals·off. 그 밖의 값은 미리 보기 아님 (None)
+/// 소나기가 오는 시간대 (자정부터 초): 깨어 있는 시간에 몰아, 켜 둔 동안 볼 수 있게
+const SHOWER_HOURS: (u32, u32) = (8 * 3600, 23 * 3600);
+/// 하루 소나기 수
+const SHOWERS_PER_DAY: (u32, u32) = (3, 5);
+/// 소나기 한 번의 길이 (초): 3~8분
+const SHOWER_SECS: (u32, u32) = (180, 480);
+
+/// 그날의 소나기들: [시작, 끝) 초. 날짜로만 정해져서 앱을 다시 켜도 같다. 시간대를 똑같이 나눈 칸마다 하나씩이라 겹치지 않는다
+pub fn showers(year: i32, month: u32, day: u32) -> Vec<(u32, u32)> {
+    let mut rng = fastrand::Rng::with_seed((year as i64 * 10_000 + month as i64 * 100 + day as i64) as u64);
+    let count = rng.u32(SHOWERS_PER_DAY.0..=SHOWERS_PER_DAY.1);
+    let slot = (SHOWER_HOURS.1 - SHOWER_HOURS.0) / count;
+    (0..count)
+        .map(|i| {
+            let len = rng.u32(SHOWER_SECS.0..=SHOWER_SECS.1);
+            let start = SHOWER_HOURS.0 + i * slot + rng.u32(0..=slot - len);
+            (start, start + len)
+        })
+        .collect()
+}
+
+/// 지금 달력이 말하는 날씨 (secs: 자정부터 초). None이면 소나기 사이의 맑은 때 — 앱은 창을 닫아 둔다
+pub fn weather_at(year: i32, month: u32, day: u32, secs: u32) -> Option<Weather> {
+    let weather = season(month, day);
+    if weather != Weather::Shower || showers(year, month, day).iter().any(|&(start, end)| start <= secs && secs < end) {
+        Some(weather)
+    } else {
+        None
+    }
+}
+
+/// 개발용 미리 보기 값 (환경 변수 SCREENPET_WEATHER): snow·light_snow·rain·shower·petals·leaves·off. 그 밖의 값은 미리 보기 아님 (None).
+/// shower는 달력과 달리 쉬지 않고 내린다
 pub fn parse_preview(raw: &str) -> Option<Option<Weather>> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "snow" => Some(Some(Weather::Snow)),
         "light_snow" => Some(Some(Weather::LightSnow)),
         "rain" => Some(Some(Weather::Rain)),
+        "shower" => Some(Some(Weather::Shower)),
         "petals" => Some(Some(Weather::Petals)),
+        "leaves" => Some(Some(Weather::Leaves)),
         "off" => Some(None),
         _ => None,
     }
@@ -85,9 +136,9 @@ pub fn wanted(season: Option<Weather>, preview: Option<Option<Weather>>, menu_of
 /// 눈사람이 서 있는 시간 (초)
 pub const SNOWMAN_SECS: f64 = 3600.0;
 
-/// 눈사람이 계속 서 있는가: 눈 오는 날, 한 시간 안
-pub fn snowman_stays(weather: Option<Weather>, age_secs: f64) -> bool {
-    weather.is_some_and(Weather::is_snow) && age_secs < SNOWMAN_SECS
+/// 눈사람이 계속 서 있는가: 눈 오는 날, 바닥에 눈이 남아 있고, 한 시간 안
+pub fn snowman_stays(weather: Option<Weather>, age_secs: f64, snow_on_ground: bool) -> bool {
+    weather.is_some_and(Weather::is_snow) && snow_on_ground && age_secs < SNOWMAN_SECS
 }
 
 /// 작업 영역 밖으로 이만큼(물리 px) 넘어야 전체 화면으로 본다 — 최대화한 창은 작업 영역에 딱 맞고, 작업표시줄은 이보다 높다
@@ -145,6 +196,8 @@ const GRAIN_TOTAL: f32 = GRAIN * 2.0;
 const MAX_PILES: usize = 16;
 /// 바닥 평균 높이가 이만큼(논리 px)이면 눈이 쌓인 것이다 — 눈 오는 날 약 4분, 가벼운 눈 약 6분
 const SETTLED_DEPTH: f32 = 3.0;
+/// 바닥 평균 높이가 이만큼(논리 px)은 있어야 아직 눈이 남은 것이다
+const SNOW_LEFT_DEPTH: f32 = 0.5;
 
 /// 창 하나(또는 바닥 하나)의 더미
 struct Pile {
@@ -255,7 +308,7 @@ impl PileField {
         let rates = weather.rates();
         let piles_up = rates.grow > 0.0;
         if piles_up && self.pile_kind.is_some_and(|k| k.is_snow() != weather.is_snow()) {
-            // 눈이 벚꽃잎으로: 다른 더미를 새로 시작한다
+            // 눈이 꽃잎·낙엽으로, 낙엽이 눈으로: 다른 더미를 새로 시작한다
             self.piles.iter_mut().for_each(|p| p.cells.fill(0.0));
         }
         if piles_up {
@@ -292,7 +345,16 @@ impl PileField {
 
     /// 눈이 바닥에 한동안 내려 쌓였다 (눈사람을 만들 만큼)
     pub fn snow_settled(&self) -> bool {
-        self.pile_kind.is_some_and(Weather::is_snow) && self.piles.iter().any(|p| matches!(p.owner, Owner::Ground(_)) && p.average() >= SETTLED_DEPTH)
+        self.ground_snow_at_least(SETTLED_DEPTH)
+    }
+
+    /// 바닥에 눈이 아직 남아 있다 (눈사람이 서 있을 만큼)
+    pub fn snow_on_ground(&self) -> bool {
+        self.ground_snow_at_least(SNOW_LEFT_DEPTH)
+    }
+
+    fn ground_snow_at_least(&self, depth: f32) -> bool {
+        self.pile_kind.is_some_and(Weather::is_snow) && self.piles.iter().any(|p| matches!(p.owner, Owner::Ground(_)) && p.average() >= depth)
     }
 
     /// 모니터(작업 영역 wa, 배율 scale) 하나의 장면. 그 모니터에 걸친 것만

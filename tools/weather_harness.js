@@ -12,6 +12,8 @@ const LINE_Y = 500;
 function run(kind) {
   const counts = {};
   let draws = [];
+  // 지금 그리는 그림 캔버스 (fillStyle을 그 그림의 색으로 적어 둔다)
+  let drawing = null;
   const ctx = new Proxy(
     {},
     {
@@ -21,10 +23,14 @@ function run(kind) {
           if (name === "drawImage") draws.push({ x: args[1], y: args[2], box: args[0].width });
         };
       },
-      set: () => true,
+      set(_, name, value) {
+        if (name === "fillStyle" && drawing) drawing.fill = value;
+        return true;
+      },
     },
   );
   const canvas = () => ({ width: 0, height: 0, getContext: () => ctx });
+  const sprite = () => (drawing = canvas());
   const timers = new Map();
   let nextId = 1;
   const delays = [];
@@ -32,7 +38,7 @@ function run(kind) {
   let now = 0;
   let listener = null;
   const sandbox = {
-    document: { getElementById: canvas, createElement: canvas, documentElement: { style: {} }, body: {} },
+    document: { getElementById: canvas, createElement: sprite, documentElement: { style: {} }, body: {} },
     window: { innerWidth: W, innerHeight: H, addEventListener() {}, __TAURI__: { webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (_, f) => (listener = f) }) } } },
     performance: { now: () => now },
     setTimeout(f, ms) {
@@ -63,15 +69,24 @@ function run(kind) {
     r.forEach((f) => f(now));
   };
   const pile = { x: 100, y: LINE_Y, cell: 20, h: [10, 30, 50, 30, 10], clips: [[100, 200]] };
+  const wet = kind === "rain" || kind === "shower";
   const scene = {
     paused: false,
     kind,
-    pile_kind: kind === "rain" ? null : kind,
+    pile_kind: wet ? null : kind,
     tops: [[0, W, LINE_Y], [0, W, H]],
-    piles: kind === "rain" ? [] : [pile],
+    piles: wet ? [] : [pile],
   };
   listener({ payload: scene });
   const pileFills = (counts.fill || 0) + (counts.drawImage || 0);
+  const pileImages = counts.drawImage || 0;
+
+  // 한 알갱이가 떨어지는 동안의 그림들 (흔들림 위상을 돌려 본다)
+  const tumble = vm.runInContext("Array.from({ length: 40 }, (_, k) => { phase[0] = k * 0.5; rest[0] = 0; return spriteFor(0); })", sandbox);
+  const tumbleSprites = new Set(tumble).size;
+  const tumbleColours = new Set(tumble.map((s) => s.fill)).size;
+  const colours = [...new Set(vm.runInContext("sprites", sandbox).map((s) => s.fill))];
+  const hasSplash = vm.runInContext("splash !== null", sandbox);
 
   let deepest = -Infinity;
   let maxDraws = 0;
@@ -90,9 +105,9 @@ function run(kind) {
   const particles = draws.map((d) => [d.x, d.y]);
 
   // 같은 장면을 다시 받아도 더미는 다시 그리지 않는다
-  const fillsBefore = counts.fill || 0;
+  const paintsBefore = (counts.fill || 0) + (counts.drawImage || 0);
   listener({ payload: scene });
-  const repaintedPiles = (counts.fill || 0) - fillsBefore;
+  const repaintedPiles = (counts.fill || 0) + (counts.drawImage || 0) - paintsBefore;
 
   // 멈추면 타이머도 그림도 없다
   listener({ payload: { ...scene, paused: true } });
@@ -109,6 +124,11 @@ function run(kind) {
   for (let i = 0; i < 10; i++) step();
   const drawsAfterResume = draws.length;
 
+  // 쌓였던 더미가 비 오는 날 녹는 동안에도 제 그림 그대로
+  const meltBefore = counts.drawImage || 0;
+  listener({ payload: { ...scene, kind: "rain", piles: wet ? [] : [{ ...pile, h: [5, 15, 25, 15, 5] }] } });
+  const meltingPileImages = (counts.drawImage || 0) - meltBefore;
+
   return {
     kind,
     maxDraws,
@@ -116,7 +136,13 @@ function run(kind) {
     deepest,
     lineY: LINE_Y,
     pileFills,
+    pileImages,
+    tumbleSprites,
+    tumbleColours,
+    colours,
+    hasSplash,
     repaintedPiles,
+    meltingPileImages,
     pendingAfterPause,
     timersAfterRaf,
     drawsWhilePaused,

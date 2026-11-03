@@ -1,6 +1,6 @@
 // 계절 날씨 그리기. 앱(src-tauri/src/weather.rs)이 `weather-scene`으로 내려앉을 곳(tops)과 더미(piles)를 보낸다 (논리 px, 이 창 왼쪽 위가 0,0).
 // CPU를 아끼는 규칙: 24 fps 이하, 알갱이 80개 이하, 미리 그린 그림을 정수 자리에 찍기, 알갱이 자리만 지우기, 더미는 바뀔 때만.
-// 멈춰 있으면(paused) 타이머도 돌지 않는다. 브라우저에서 weather.html?preview=snow (light_snow·rain·petals)로 앱 없이 볼 수 있다.
+// 멈춰 있으면(paused) 타이머도 돌지 않는다. 브라우저에서 weather.html?preview=snow (light_snow·rain·shower·petals·leaves)로 앱 없이 볼 수 있다.
 
 const FPS = 24;
 const FRAME_MS = 1000 / FPS;
@@ -9,13 +9,21 @@ const MIN_PARTICLES = 30;
 // 한 프레임에 다시 재 보는 알갱이 수 (옆으로 흘러도 내려앉을 곳이 맞도록)
 const RELAND_PER_FRAME = 6;
 
-// count: 폭 1920 논리 px에서의 개수, fall·wind·sway: px/s, rest: 내려앉아 머무는 초, box: 그림 칸
+// count: 폭 1920 논리 px에서의 개수, fall·wind·sway: px/s, rest: 내려앉아 머무는 초, box: 그림 칸, frames: 떨어지며 도는 그림 수
 const KINDS = {
-  light_snow: { count: 30, fall: [24, 46], wind: [-5, 5], sway: 12, rest: 0.6, box: 9 },
-  snow: { count: 55, fall: [28, 62], wind: [-7, 7], sway: 14, rest: 0.6, box: 9 },
-  rain: { count: 70, fall: [520, 700], wind: [-46, -34], sway: 0, rest: 0.12, box: 18 },
-  petals: { count: 35, fall: [30, 56], wind: [12, 30], sway: 20, rest: 1.0, box: 13 },
+  light_snow: { count: 30, fall: [24, 46], wind: [-5, 5], sway: 12, rest: 0.6, box: 9, frames: 1 },
+  snow: { count: 55, fall: [28, 62], wind: [-7, 7], sway: 14, rest: 0.6, box: 9, frames: 1 },
+  rain: { count: 70, fall: [520, 700], wind: [-46, -34], sway: 0, rest: 0.12, box: 18, frames: 1 },
+  shower: { count: 70, fall: [620, 820], wind: [-70, -50], sway: 0, rest: 0.12, box: 18, frames: 1 },
+  petals: { count: 35, fall: [30, 56], wind: [12, 30], sway: 20, rest: 1.0, box: 13, frames: 8 },
+  leaves: { count: 30, fall: [36, 68], wind: [-14, 14], sway: 34, rest: 1.4, box: 15, frames: 8 },
 };
+// 낙엽 색: 속, 테두리
+const LEAF_TONES = [
+  ["#d6452b", "rgba(120,36,18,0.85)"],
+  ["#ee8a24", "rgba(140,76,14,0.85)"],
+  ["#f2c230", "rgba(150,110,16,0.85)"],
+];
 
 const pilesCanvas = document.getElementById("piles");
 const fallCanvas = document.getElementById("fall");
@@ -78,9 +86,44 @@ function petal(angle) {
   };
 }
 
+// 도는 낙엽: 납작해졌다 펴지며 뒤집히는 것처럼 보인다 (a/8 바퀴)
+function leaf([fill, line], a) {
+  const angle = (a * Math.PI) / 4;
+  return (g, s) => {
+    g.translate(s / 2, s / 2);
+    g.rotate(angle);
+    g.scale(1, 0.45 + 0.55 * Math.abs(Math.cos(angle)));
+    g.beginPath();
+    g.moveTo(-6, 0);
+    g.bezierCurveTo(-3, -4.6, 2, -4.4, 6, 0);
+    g.bezierCurveTo(2, 4.4, -3, 4.6, -6, 0);
+    g.fillStyle = fill;
+    g.fill();
+    g.lineWidth = 0.8;
+    g.strokeStyle = line;
+    g.stroke();
+    g.beginPath();
+    g.moveTo(-6.6, 0);
+    g.lineTo(4, 0);
+    g.lineWidth = 0.6;
+    g.stroke();
+  };
+}
+
+// 떨어질 때도 더미에서도 같은 그림 (한 번만 만든다). 낙엽은 색마다 frames장: [색0 각도0..7, 색1 각도0..7, ...]
+const tumblers = {
+  petals: () => [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map((k) => makeSprite(KINDS.petals.box, petal(k * 0.8))),
+  leaves: () => LEAF_TONES.flatMap((tone) => Array.from({ length: KINDS.leaves.frames }, (_, a) => makeSprite(KINDS.leaves.box, leaf(tone, a)))),
+};
+const tumblerCache = {};
+function tumblerSprites(k) {
+  if (!tumblerCache[k]) tumblerCache[k] = tumblers[k]();
+  return tumblerCache[k];
+}
+
 function buildSprites() {
   splash = null;
-  if (kind === "rain") {
+  if (kind === "rain" || kind === "shower") {
     sprites = [
       makeSprite(spec.box, (g, s) => {
         g.beginPath();
@@ -108,8 +151,8 @@ function buildSprites() {
         g.stroke();
       }
     });
-  } else if (kind === "petals") {
-    sprites = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map((k) => makeSprite(spec.box, petal(k * 0.8)));
+  } else if (tumblers[kind]) {
+    sprites = tumblerSprites(kind);
   } else {
     sprites = [1.6, 2.2, 2.9].map((r) => makeSprite(spec.box, flake(r)));
   }
@@ -167,6 +210,15 @@ function startKind(next) {
   }
 }
 
+// 이 알갱이의 지금 그림: 내려앉은 빗방울은 튀는 그림, 꽃잎·낙엽은 제 색 그대로 각도만 돈다
+function spriteFor(i) {
+  if (splash && rest[i] > 0) return splash;
+  const frames = spec.frames;
+  if (frames === 1) return sprites[look[i]];
+  const angle = look[i] % frames;
+  return sprites[look[i] - angle + (angle + Math.floor(phase[i] * 1.2)) % frames];
+}
+
 function frame(now) {
   if (!running) return;
   const dt = Math.min((now - lastT) / 1000, 0.1);
@@ -179,7 +231,6 @@ function frame(now) {
     cursor = (cursor + 1) % n;
     if (rest[cursor] === 0) land[cursor] = landAt(px[cursor], py[cursor]);
   }
-  const spin = kind === "petals";
   for (let i = 0; i < n; i++) {
     if (rest[i] > 0) {
       rest[i] -= dt;
@@ -200,7 +251,7 @@ function frame(now) {
       oldY[i] = -box * 2;
       continue;
     }
-    const sprite = splash && rest[i] > 0 ? splash : sprites[spin ? (look[i] + Math.floor(phase[i] * 1.2)) % sprites.length : look[i]];
+    const sprite = spriteFor(i);
     // 그림 아래쪽이 내려앉는 높이에 닿는다
     const x = (px[i] - half) | 0;
     const y = (py[i] - box + 2) | 0;
@@ -259,23 +310,18 @@ function drawSnowPile(p) {
   g.stroke();
 }
 
-function drawPetalPile(p) {
+function drawSpritePile(p) {
   const g = pilesCtx;
-  const look = pileSprites();
+  const look = tumblerSprites(pileKind);
+  const half = KINDS[pileKind].box >> 1;
   for (let i = 0; i < p.h.length; i++) {
     const count = Math.round((p.h[i] / 10) * 1.1);
     for (let k = 0; k < count; k++) {
       const x = p.x + (i + hash(i, k)) * p.cell;
       const y = p.y - 3 - hash(k, i + 7) * (p.h[i] / 10);
-      g.drawImage(look[Math.floor(hash(i + 3, k) * look.length)], (x - 6) | 0, (y - 6) | 0);
+      g.drawImage(look[Math.floor(hash(i + 3, k) * look.length)], (x - half) | 0, (y - half) | 0);
     }
   }
-}
-
-let petalLook = null;
-function pileSprites() {
-  if (!petalLook) petalLook = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map((k) => makeSprite(13, petal(k * 0.8)));
-  return petalLook;
 }
 
 // 장면이 바뀔 때만 (많아야 1초에 몇 번)
@@ -287,7 +333,7 @@ function drawPiles() {
     g.beginPath();
     for (const c of p.clips) g.rect(c[0], p.y - 32, c[1] - c[0], 33);
     g.clip();
-    if (pileKind === "petals") drawPetalPile(p);
+    if (tumblers[pileKind]) drawSpritePile(p);
     else drawSnowPile(p);
     g.restore();
   }
@@ -342,6 +388,7 @@ if (window.__TAURI__) {
 // 앱 없이 브라우저에서 보기 (개발용): 창 두 개 + 자란 더미
 function devPreview() {
   const wanted = new URLSearchParams(location.search).get("preview") || "snow";
+  const wet = wanted === "rain" || wanted === "shower";
   document.documentElement.style.background = "#3a4258";
   const windows = [
     [Math.round(width * 0.08), Math.round(height * 0.3), Math.round(width * 0.5), Math.round(height * 0.86)],
@@ -363,12 +410,9 @@ function devPreview() {
   const mound = (x0, x1, i) => Math.round(30 + 34 * (0.5 + 0.5 * Math.sin((i * cell) / 90 + x0)) + 12 * Math.sin(i * 1.7));
   const pile = (x0, x1, y, clips) => {
     const h = [];
-    for (let i = 0; i < Math.ceil((x1 - x0) / cell); i++) h.push(wanted === "rain" ? 0 : wanted === "petals" ? Math.round(mound(x0, x1, i) * 0.5) : mound(x0, x1, i));
+    for (let i = 0; i < Math.ceil((x1 - x0) / cell); i++) h.push(tumblers[wanted] ? Math.round(mound(x0, x1, i) * 0.5) : mound(x0, x1, i));
     return { x: x0, y, cell, h, clips };
   };
-  const piles =
-    wanted === "rain"
-      ? []
-      : [pile(front[0], front[2], front[1], [[front[0], front[2]]]), pile(back[0], back[2], back[1], [[back[0], front[0]]]), pile(0, width, height, [[0, width]])];
-  applyScene({ paused: false, kind: wanted, pile_kind: wanted === "rain" ? null : wanted, tops, piles });
+  const piles = wet ? [] : [pile(front[0], front[2], front[1], [[front[0], front[2]]]), pile(back[0], back[2], back[1], [[back[0], front[0]]]), pile(0, width, height, [[0, width]])];
+  applyScene({ paused: false, kind: wanted, pile_kind: wet ? null : wanted, tops, piles });
 }

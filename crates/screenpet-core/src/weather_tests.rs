@@ -32,21 +32,165 @@ fn depth(f: &PileField, owner: Owner) -> f32 {
 
 #[test]
 fn seasons_follow_the_brief() {
-    // 11월: 날마다 번갈아 눈·비
-    assert_eq!(season(11, 1), Some(Weather::LightSnow));
-    assert_eq!(season(11, 2), Some(Weather::Rain));
-    assert_eq!(season(11, 3), Some(Weather::LightSnow));
-    assert_eq!(season(11, 30), Some(Weather::Rain));
-    for m in [12, 1, 2] {
-        assert_eq!(season(m, 15), Some(Weather::Snow), "{m}");
-    }
-    assert_eq!(season(3, 1), Some(Weather::Petals));
-    assert_eq!(season(3, 31), Some(Weather::Petals));
-    for m in 4..=10 {
-        for d in [1, 2, 15, 30] {
-            assert_eq!(season(m, d), None, "{m}/{d}");
+    // 달마다, 날마다 전부
+    const DAYS: [u32; 12] = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    for (i, &days) in DAYS.iter().enumerate() {
+        let m = i as u32 + 1;
+        for d in 1..=days {
+            let cycle = (d - 1) % 3;
+            let want = match m {
+                3 | 4 => Weather::Petals,
+                5..=8 => Weather::Shower,
+                9 | 10 => Weather::Leaves,
+                11 => [Weather::Leaves, Weather::LightSnow, Weather::Rain][cycle as usize],
+                _ => [Weather::Snow, Weather::Snow, Weather::Rain][cycle as usize],
+            };
+            assert_eq!(season(m, d), want, "{m}/{d}");
         }
     }
+    // 사용자의 말 그대로 몇 개
+    assert_eq!(season(11, 1), Weather::Leaves);
+    assert_eq!(season(11, 2), Weather::LightSnow);
+    assert_eq!(season(11, 3), Weather::Rain);
+    assert_eq!(season(11, 30), Weather::Rain);
+    assert_eq!(season(12, 3), Weather::Rain);
+    assert_eq!(season(1, 1), Weather::Snow);
+    assert_eq!(season(4, 30), Weather::Petals);
+    assert_eq!(season(5, 1), Weather::Shower);
+    assert_eq!(season(10, 31), Weather::Leaves);
+}
+
+#[test]
+fn outside_summer_the_clock_does_not_matter() {
+    for (m, d) in [(3, 1), (4, 30), (9, 1), (10, 31), (11, 1), (11, 2), (11, 3), (12, 25), (1, 3), (2, 28)] {
+        for secs in [0, 3 * 3600, 12 * 3600, 86_399] {
+            assert_eq!(weather_at(2027, m, d, secs), Some(season(m, d)), "{m}/{d} {secs}");
+        }
+    }
+}
+
+/// 여름날 전부 (윤년 포함)
+fn summer_days() -> Vec<(i32, u32, u32)> {
+    let mut days = Vec::new();
+    for y in [2027, 2028] {
+        for (m, n) in [(5, 31), (6, 30), (7, 31), (8, 31)] {
+            days.extend((1..=n).map(|d| (y, m, d)));
+        }
+    }
+    days
+}
+
+#[test]
+fn a_summer_day_has_a_few_short_showers_and_is_mostly_clear() {
+    for (y, m, d) in summer_days() {
+        let list = showers(y, m, d);
+        assert!((3..=5).contains(&list.len()), "{y}-{m}-{d}: {list:?}");
+        let mut last_end = 0;
+        for &(start, end) in &list {
+            let len = end - start;
+            assert!((180..=480).contains(&len), "3 to 8 minutes: {list:?}");
+            assert!(start >= last_end, "in order, no overlap: {list:?}");
+            assert!(end <= 86_400, "stays inside the day: {list:?}");
+            last_end = end;
+        }
+        let wet: u32 = list.iter().map(|&(s, e)| e - s).sum();
+        assert!(wet <= 40 * 60, "mostly clear: {wet}s");
+    }
+}
+
+#[test]
+fn showers_are_the_same_after_a_restart_and_differ_between_days() {
+    let days = summer_days();
+    for &(y, m, d) in &days {
+        assert_eq!(showers(y, m, d), showers(y, m, d));
+    }
+    let differ = days.windows(2).filter(|p| showers(p[0].0, p[0].1, p[0].2) != showers(p[1].0, p[1].1, p[1].2)).count();
+    assert_eq!(differ, days.len() - 1);
+}
+
+#[test]
+fn it_only_rains_inside_the_shower_windows() {
+    for (y, m, d) in summer_days() {
+        let list = showers(y, m, d);
+        for &(start, end) in &list {
+            assert_eq!(weather_at(y, m, d, start), Some(Weather::Shower));
+            assert_eq!(weather_at(y, m, d, end - 1), Some(Weather::Shower));
+            assert_eq!(weather_at(y, m, d, end), None);
+            assert_eq!(weather_at(y, m, d, start - 1), None);
+        }
+        // 분마다 세어 봐도 대부분 맑다
+        let wet = (0..1440).filter(|min| weather_at(y, m, d, min * 60).is_some()).count();
+        assert!(wet > 0 && wet <= 45, "{y}-{m}-{d}: {wet} minutes");
+    }
+}
+
+#[test]
+fn leaves_pile_up_like_petals_and_rain_clears_them() {
+    let (mut f, _) = field(vec![win(1, 100.0, 300.0, 500.0, 800.0)]);
+    run(&mut f, Weather::Leaves, 400);
+    assert!(depth(&f, Owner::Window(1)) > 1.0);
+    assert!(depth(&f, Owner::Ground(0)) > 1.0);
+    let v = serde_json::to_value(f.scene(Weather::Leaves, &WA, 1.0)).unwrap();
+    assert_eq!(v["kind"], "leaves");
+    assert_eq!(v["pile_kind"], "leaves");
+    assert!(!f.snow_settled(), "leaves are not snow");
+    assert!(!f.snow_on_ground());
+    run(&mut f, Weather::Leaves, 3000);
+    assert!(f.piles.iter().flat_map(|p| &p.cells).all(|&c| c <= 4.0), "low cap");
+    run(&mut f, Weather::Rain, 300);
+    assert!(f.scene(Weather::Rain, &WA, 1.0).piles.is_empty());
+}
+
+#[test]
+fn a_new_kind_of_pile_starts_over_on_the_cycle_days() {
+    let (mut f, _) = field(vec![]);
+    run(&mut f, Weather::Leaves, 400);
+    let leaves = depth(&f, Owner::Ground(0));
+    assert!(leaves > 1.0);
+    f.tick(1.0, Weather::LightSnow);
+    assert!(depth(&f, Owner::Ground(0)) < leaves / 2.0, "snow does not sit on an old leaf pile");
+    run(&mut f, Weather::Snow, 300);
+    f.tick(1.0, Weather::Leaves);
+    assert_eq!(f.scene(Weather::Leaves, &WA, 1.0).pile_kind, Some(Weather::Leaves));
+}
+
+#[test]
+fn a_shower_never_piles_up_and_clears_what_is_left() {
+    let (mut f, _) = field(vec![]);
+    run(&mut f, Weather::Shower, 300);
+    assert_eq!(depth(&f, Owner::Ground(0)), 0.0);
+    assert_eq!(f.scene(Weather::Shower, &WA, 1.0).pile_kind, None);
+    let v = serde_json::to_value(f.scene(Weather::Shower, &WA, 1.0)).unwrap();
+    assert_eq!(v["kind"], "shower");
+    run(&mut f, Weather::Petals, 400);
+    run(&mut f, Weather::Shower, 300);
+    assert!(f.scene(Weather::Shower, &WA, 1.0).piles.is_empty());
+}
+
+#[test]
+fn pets_look_up_at_petals_and_leaves_only() {
+    assert!(Weather::Petals.looks_up() && Weather::Leaves.looks_up());
+    for w in [Weather::Snow, Weather::LightSnow, Weather::Rain, Weather::Shower] {
+        assert!(!w.looks_up(), "{w:?}");
+    }
+}
+
+#[test]
+fn a_snowman_needs_real_snow_on_the_ground() {
+    let (mut f, w) = field(vec![]);
+    assert!(!f.snow_on_ground());
+    run(&mut f, Weather::Snow, 300);
+    assert!(f.snow_on_ground());
+    // 비가 다 녹이면 끝
+    run(&mut f, Weather::Rain, 300);
+    assert!(!f.snow_on_ground());
+    run(&mut f, Weather::Snow, 300);
+    assert!(f.snow_on_ground());
+    // 바닥이 달라져 더미가 사라져도 끝
+    f.sync(&World::new(vec![], vec![Rect::new(0.0, 0.0, 1600.0, 900.0)], 128.0));
+    assert!(!f.snow_on_ground());
+    f.sync(&w);
+    assert!(!f.snow_on_ground());
 }
 
 #[test]
@@ -55,18 +199,20 @@ fn preview_values_are_parsed_and_anything_else_means_no_preview() {
     assert_eq!(parse_preview(" Light_Snow "), Some(Some(Weather::LightSnow)));
     assert_eq!(parse_preview("rain"), Some(Some(Weather::Rain)));
     assert_eq!(parse_preview("petals"), Some(Some(Weather::Petals)));
+    assert_eq!(parse_preview("leaves"), Some(Some(Weather::Leaves)));
+    assert_eq!(parse_preview("shower"), Some(Some(Weather::Shower)));
     assert_eq!(parse_preview("off"), Some(None));
     assert_eq!(parse_preview(""), None);
     assert_eq!(parse_preview("hail"), None);
 }
 
 #[test]
-fn wanted_is_nothing_when_off_hidden_or_out_of_season() {
+fn wanted_is_nothing_when_off_hidden_or_between_showers() {
     let snow = Some(Weather::Snow);
     assert_eq!(wanted(snow, None, false, false), snow);
     assert_eq!(wanted(snow, None, true, false), None, "menu toggle off");
     assert_eq!(wanted(snow, None, false, true), None, "windows hidden");
-    assert_eq!(wanted(None, None, false, false), None, "out of season");
+    assert_eq!(wanted(None, None, false, false), None, "clear between showers");
     // 미리 보기는 달력과 메뉴를 넘어선다 — 숨겨 둔 동안은 그래도 꺼진다
     let rain = Some(Some(Weather::Rain));
     assert_eq!(wanted(None, rain, true, false), Some(Weather::Rain));
@@ -76,12 +222,15 @@ fn wanted_is_nothing_when_off_hidden_or_out_of_season() {
 
 #[test]
 fn a_snowman_stays_for_an_hour_of_snowy_mood() {
-    assert!(snowman_stays(Some(Weather::Snow), 0.0));
-    assert!(snowman_stays(Some(Weather::LightSnow), SNOWMAN_SECS - 1.0));
-    assert!(!snowman_stays(Some(Weather::Snow), SNOWMAN_SECS));
-    assert!(!snowman_stays(Some(Weather::Rain), 10.0), "rain day");
-    assert!(!snowman_stays(Some(Weather::Petals), 10.0));
-    assert!(!snowman_stays(None, 10.0));
+    assert!(snowman_stays(Some(Weather::Snow), 0.0, true));
+    assert!(snowman_stays(Some(Weather::LightSnow), SNOWMAN_SECS - 1.0, true));
+    assert!(!snowman_stays(Some(Weather::Snow), SNOWMAN_SECS, true));
+    assert!(!snowman_stays(Some(Weather::Snow), 10.0, false), "no snow left on the ground");
+    assert!(!snowman_stays(Some(Weather::Rain), 10.0, true), "rain day");
+    assert!(!snowman_stays(Some(Weather::Shower), 10.0, true));
+    assert!(!snowman_stays(Some(Weather::Petals), 10.0, true));
+    assert!(!snowman_stays(Some(Weather::Leaves), 10.0, true));
+    assert!(!snowman_stays(None, 10.0, true));
 }
 
 #[test]

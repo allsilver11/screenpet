@@ -22,7 +22,9 @@ def test_frame_rate_and_particle_budget():
     assert const("MAX_PARTICLES") <= 80
     assert const("MIN_PARTICLES") >= 30
     counts = [int(c) for c in re.findall(r"count: (\d+)", JS)]
-    assert len(counts) == 4 and all(30 <= c <= 80 for c in counts)
+    assert len(counts) == 6 and all(30 <= c <= 80 for c in counts)
+    # 날씨마다 지난번과 같은 예산 (비 70개가 가장 많다)
+    assert max(counts) <= 70
 
 
 def test_the_overlay_never_takes_a_click():
@@ -50,8 +52,34 @@ def test_preview_is_not_in_the_menu():
     assert "SCREENPET_WEATHER" not in tray and "preview" not in tray
 
 
+def test_the_menu_is_open_all_year():
+    tray = (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
+    assert '"🌨️ 날씨 효과", true,' in tray
+    assert "item.set_enabled(true)" in RS
+    assert "on_offer" not in RS
+
+
+def test_the_app_follows_the_clock_and_shuts_the_overlay_between_showers():
+    # 달력은 1분에 한 번 weather_at으로 — 맑을 때 None이면 tick이 창을 모두 닫는다 (tear_down)
+    assert "weather::weather_at(" in RS and "num_seconds_from_midnight()" in RS
+    assert "const SEASON_EVERY: Duration = Duration::from_secs(60);" in RS
+    tick = RS[RS.index("pub fn tick("):RS.index("/// 날씨가 켜진 동안 5 Hz")]
+    assert "self.tear_down(slots)" in tick and "self.next_scene = now + IDLE_EVERY" in tick
+
+
+def test_pets_look_up_at_whatever_the_core_says():
+    assert "kind.looks_up()" in RS
+
+
+def test_help_tells_the_whole_year():
+    help_text = (ROOT / "ui" / "help.html").read_text(encoding="utf-8")
+    line = next(l for l in help_text.splitlines() if "날씨 효과" in l)
+    for word in ["벚꽃잎", "소나기", "낙엽", "눈", "비"]:
+        assert word in line
+
+
 # ---- ui/weather.js를 가짜 캔버스로 돌려 보기 (tools/weather_harness.js) — 호출 수만, 실제 렌더링 비용은 아니다 ----
-@pytest.fixture(scope="module", params=["light_snow", "snow", "rain", "petals"])
+@pytest.fixture(scope="module", params=["light_snow", "snow", "rain", "shower", "petals", "leaves"])
 def run(request):
     if not shutil.which("node"):
         pytest.skip("node not installed")
@@ -79,3 +107,40 @@ def test_pausing_stops_all_work_and_resuming_restarts(run):
     assert run["pendingAfterPause"] == 0 and run["timersAfterRaf"] == 0
     assert run["drawsWhilePaused"] == 0
     assert run["drawsAfterResume"] > 0
+
+
+def test_a_flake_or_drop_stays_the_same_and_petals_and_leaves_tumble(run):
+    if run["kind"] in ("petals", "leaves"):
+        assert run["tumbleSprites"] >= 4, "turns as it falls"
+        assert run["tumbleColours"] == 1, "a leaf keeps its colour while it tumbles"
+    else:
+        assert run["tumbleSprites"] == 1
+
+
+def test_leaves_are_warm_red_orange_and_yellow(run):
+    if run["kind"] != "leaves":
+        pytest.skip("leaves only")
+    assert len(run["colours"]) == 3
+    for colour in run["colours"]:
+        r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+        assert r > g > b, colour
+    greens = sorted(int(c[3:5], 16) for c in run["colours"])
+    assert greens[2] - greens[0] > 80, "from red through to yellow"
+
+
+def test_petal_and_leaf_piles_are_made_of_their_own_sprites(run):
+    if run["kind"] in ("petals", "leaves"):
+        assert run["pileImages"] > 0
+    else:
+        assert run["pileImages"] == 0
+
+
+def test_a_petal_or_leaf_pile_keeps_its_look_while_rain_melts_it(run):
+    if run["kind"] in ("petals", "leaves"):
+        assert run["meltingPileImages"] > 0
+    else:
+        assert run["meltingPileImages"] == 0
+
+
+def test_only_rain_and_showers_splash(run):
+    assert run["hasSplash"] == (run["kind"] in ("rain", "shower"))

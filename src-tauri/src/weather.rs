@@ -1,12 +1,12 @@
 //! 계절 날씨 (v0.3.7) — 모니터마다 마우스가 통과하는 투명 창 하나 (`weather-<n>`, weather.html)와, 눈덩이·눈사람 작은 창.
-//! 게임 루프가 매 틱 tick을 부르지만, 날씨가 없으면 (철이 아니거나·메뉴로 껐거나·모두 숨겼으면) 창이 하나도 없고
-//! 1초에 한 번 플래그만 본다 (달력은 1분에 한 번). 켜져 있어도 창 목록을 따로 읽지 않는다 — 내 동물 세계의 디딤판을
+//! 게임 루프가 매 틱 tick을 부르지만, 날씨가 없으면 (여름 소나기 사이·메뉴로 껐거나·모두 숨겼으면) 창이 하나도 없고
+//! 1초에 한 번 플래그만 본다 (달력과 시계는 1분에 한 번). 켜져 있어도 창 목록을 따로 읽지 않는다 — 내 동물 세계의 디딤판을
 //! 5 Hz로 맞춰 보고, 장면이 바뀐 모니터에만 보낸다. 더미는 1초에 한 번 (screenpet_core::weather).
 //! 그 모니터의 앞 창이 전체 화면이거나 사용자가 자리를 비웠으면 창을 숨기고 웹뷰도 그림을 멈춘다 (돌아오면 다시 그린다).
 
 use std::time::{Duration, Instant};
 
-use chrono::Datelike;
+use chrono::{Datelike, Timelike};
 use screenpet_core::geom::Rect;
 use screenpet_core::weather::{self, OverlayRetry, PileField, Scene, Weather};
 use serde::Serialize;
@@ -16,7 +16,7 @@ use crate::slots::Slot;
 use crate::AppState;
 
 const PREFIX: &str = "weather-";
-/// 개발용 숨은 미리 보기: snow·light_snow·rain·petals·off (screenpet_core::weather::parse_preview). 메뉴에는 없다
+/// 개발용 숨은 미리 보기: snow·light_snow·rain·shower·petals·leaves·off (screenpet_core::weather::parse_preview). 메뉴에는 없다
 const PREVIEW_ENV: &str = "SCREENPET_WEATHER";
 /// 미리 보기에선 더미가 이 배로 빨리 쌓인다
 const PREVIEW_GROW: f32 = 10.0;
@@ -103,12 +103,11 @@ impl WeatherFx {
         }
     }
 
-    /// 메뉴 체크를 지금 상태에 맞춘다. 철이 아니면 (미리 보기도 아니면) 누를 수 없다
+    /// 메뉴 체크를 지금 상태에 맞춘다. 일 년 내내 누를 수 있다 (소나기 사이에도)
     pub fn sync_menu(&mut self, app: &AppHandle, menu_off: bool) {
         let item = &app.state::<AppState>().menu.weather;
-        let on_offer = self.season.is_some() || self.preview.is_some();
-        let _ = item.set_enabled(on_offer);
-        let _ = item.set_checked(on_offer && !menu_off);
+        let _ = item.set_enabled(true);
+        let _ = item.set_checked(!menu_off);
         // 다음 틱에 바로 반영한다
         self.next_scene = Instant::now().min(self.next_scene);
     }
@@ -126,9 +125,8 @@ impl WeatherFx {
         if now >= self.next_season {
             self.next_season = now + SEASON_EVERY;
             let today = chrono::Local::now();
-            let season = weather::season(today.month(), today.day());
-            if season != self.season || !self.menu_synced {
-                self.season = season;
+            self.season = weather::weather_at(today.year(), today.month(), today.day(), today.num_seconds_from_midnight());
+            if !self.menu_synced {
                 self.menu_synced = true;
                 self.sync_menu(app, menu_off);
             }
@@ -178,11 +176,12 @@ impl WeatherFx {
                 o.resent = now;
             }
         }
-        let petals = kind == Weather::Petals;
+        let looks_up = kind.looks_up();
         for s in slots.iter_mut() {
-            s.pet.set_petals(petals);
+            s.pet.set_petals(looks_up);
         }
-        if self.snowman.as_ref().is_some_and(|s| !weather::snowman_stays(Some(kind), now.duration_since(s.born).as_secs_f64())) {
+        let snow_left = self.field.snow_on_ground();
+        if self.snowman.as_ref().is_some_and(|s| !weather::snowman_stays(Some(kind), now.duration_since(s.born).as_secs_f64(), snow_left)) {
             if let Some(s) = self.snowman.take() {
                 let _ = s.window.destroy();
             }
