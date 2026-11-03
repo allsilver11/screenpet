@@ -66,7 +66,7 @@ impl Pet {
             && !self.housed
             && self.home_trip.is_none()
             && self.return_home.is_none()
-            && !self.is_eating()
+            && !self.stage_change_waits()
             && !self.celebrating()
             && !self.is_held()
             && !self.in_transit()

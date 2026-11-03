@@ -100,7 +100,7 @@ const TREAT_FILL: f64 = 0.1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Food {
-    /// 간식 — 언제든 받는다 (성장 없음)
+    /// 간식 — 언제든 받는다. 체력을 조금 주므로 틈틈이 주면 간식으로도 자란다
     Snack,
     Meal,
     /// 동물별 좋아하는 음식
@@ -115,8 +115,8 @@ pub enum Food {
 pub const PICKER_FOODS: [Food; 3] = [Food::Meal, Food::Favorite, Food::Special];
 
 impl Food {
-    /// 체력(성장)을 주는 음식: 밥, 좋아하는 음식, 특식
-    pub fn grows(self) -> bool {
+    /// 끼니: 밥, 좋아하는 음식, 특식 — 배부르면 안 먹고, 고르기 버튼에 뜨고, 그릇으로 가서 먹는다
+    pub fn is_meal(self) -> bool {
         matches!(self, Food::Meal | Food::Favorite | Food::Special)
     }
 
@@ -132,14 +132,15 @@ impl Food {
         }
     }
 
-    /// 간식·물: 배불러도 받고, 포만감만 조금 오른다
+    /// 간식·물: 배불러도 받고, 포만감은 조금만 오른다 (체력은 음식마다 — 간식은 조금, 물은 없음)
     pub fn is_treat(self) -> bool {
-        !self.grows()
+        !self.is_meal()
     }
 
     fn stamina(self) -> f64 {
         match self {
-            Food::Snack | Food::Water => 0.0,
+            Food::Water => 0.0,
+            Food::Snack => 2.0,
             Food::Meal => 10.0,
             Food::Favorite => 15.0,
             Food::Special => 20.0,
@@ -194,16 +195,13 @@ impl Care {
     }
 
     pub fn feed(&mut self, food: Food) -> FeedResult {
-        if food.is_treat() {
-            // 간식·물은 언제든: 포만감만 조금, 체력·성장은 없다
-            self.fullness = food.fill(self.fullness);
-            return FeedResult::Ate { leveled_up: false };
-        }
-        if self.fullness > FULL_ABOVE {
+        // 끼니만 배부르면 안 먹는다. 간식·물은 언제든
+        if food.is_meal() && self.fullness > FULL_ABOVE {
             return FeedResult::Refused;
         }
         self.fullness = food.fill(self.fullness);
-        if self.locked {
+        // 물은 체력이 없으니 성장 판정도 없다 (예전 저장의 넘치는 체력으로 자라지 않게)
+        if self.locked || food.stamina() == 0.0 {
             return FeedResult::Ate { leveled_up: false };
         }
         self.stamina += food.stamina();
@@ -253,7 +251,7 @@ mod tests {
     fn foods_fill_and_strengthen_differently() {
         let mut c = hungry_care();
         assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: false });
-        assert!((c.fullness - 0.2).abs() < 1e-9 && c.stamina == 0.0);
+        assert!((c.fullness - 0.2).abs() < 1e-9 && c.stamina == 2.0);
         let mut c = hungry_care();
         c.feed(Food::Meal);
         assert_eq!((c.fullness, c.stamina), (1.0, 10.0));
@@ -263,28 +261,78 @@ mod tests {
     }
 
     #[test]
-    fn snacks_and_water_never_grow_and_are_never_refused() {
-        for food in [Food::Snack, Food::Water] {
-            assert!(food.is_treat() && !food.grows());
-            // 배불러도 받는다 — 포만감만 조금 오르고 체력·성장은 없다
-            let mut c = Care::default();
-            for _ in 0..100 {
-                assert_eq!(c.feed(food), FeedResult::Ate { leveled_up: false }, "{food:?}");
-            }
-            assert_eq!((c.stage, c.stamina, c.fullness), (Stage::Baby, 0.0, 1.0));
-            let mut c = hungry_care();
-            c.feed(food);
-            assert!((c.fullness - 0.2).abs() < 1e-9 && c.stamina == 0.0, "{food:?}");
+    fn water_adds_no_stamina_and_is_never_refused() {
+        // 배불러도 받는다 — 포만감만 조금 오르고 체력·성장은 없다
+        let mut c = Care::default();
+        for _ in 0..100 {
+            assert_eq!(c.feed(Food::Water), FeedResult::Ate { leveled_up: false });
         }
+        assert_eq!((c.stage, c.stamina, c.fullness), (Stage::Baby, 0.0, 1.0));
+        let mut c = hungry_care();
+        c.feed(Food::Water);
+        assert!((c.fullness - 0.2).abs() < 1e-9 && c.stamina == 0.0);
+        // 레벨업 직전이어도 물로는 자라지 않는다
+        let mut c = Care { stamina: 29.9, ..Care::default() };
+        assert_eq!(c.feed(Food::Water), FeedResult::Ate { leveled_up: false });
+        assert_eq!((c.stage, c.stamina), (Stage::Baby, 29.9));
     }
 
     #[test]
-    fn only_meals_favorites_and_special_meals_grow() {
+    fn a_snack_adds_two_stamina_and_only_a_little_fullness() {
+        let mut c = hungry_care();
+        assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: false });
+        assert_eq!(c.stamina, 2.0);
+        assert!((c.fullness - 0.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_snack_grows_even_when_full() {
+        let mut c = Care::default();
+        assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: false });
+        assert_eq!((c.stamina, c.fullness), (2.0, 1.0));
+    }
+
+    #[test]
+    fn a_locked_pet_gets_no_stamina_from_a_snack() {
+        let mut c = Care { locked: true, stamina: 29.0, ..Care::default() };
+        assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: false });
+        assert_eq!((c.stage, c.stamina), (Stage::Baby, 29.0));
+    }
+
+    #[test]
+    fn a_snack_can_level_up() {
+        // 아기는 배불러도 간식 15개면 자란다 (필요 30, 간식 하나에 2)
+        let mut c = Care::default();
+        for i in 1..=15 {
+            assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: i == 15 }, "snack {i}");
+        }
+        assert_eq!((c.stage, c.stamina, c.fullness), (Stage::Kinder, 0.0, 1.0));
+    }
+
+    #[test]
+    fn a_snack_is_much_slower_than_meals_all_the_way_to_adult() {
+        let mut c = Care::default();
+        let mut snacks = 0;
+        while c.stage != Stage::Adult {
+            c.feed(Food::Snack);
+            snacks += 1;
+        }
+        assert_eq!(snacks, 15 + 25 + 38 + 55);
+        // 어른은 더 자라지 않는다
+        assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: false });
+        assert_eq!(c.stage, Stage::Adult);
+    }
+
+    #[test]
+    fn meals_favorites_and_special_meals_are_real_meals() {
         for food in [Food::Meal, Food::Favorite, Food::Special] {
-            assert!(food.grows() && !food.is_treat());
+            assert!(food.is_meal() && !food.is_treat());
             let mut c = hungry_care();
             c.feed(food);
-            assert!(c.stamina > 0.0, "{food:?}");
+            assert!(c.stamina > 2.0, "{food:?}");
+        }
+        for food in [Food::Snack, Food::Water] {
+            assert!(food.is_treat() && !food.is_meal());
         }
         let mut c = hungry_care();
         c.feed(Food::Meal);
@@ -294,6 +342,8 @@ mod tests {
     #[test]
     fn hungry_picker_offers_meal_favorite_and_special() {
         assert_eq!(PICKER_FOODS, [Food::Meal, Food::Favorite, Food::Special]);
+        // 자라게 해도 간식은 끼니가 아니다 — 고르기 버튼에 없다
+        assert!(PICKER_FOODS.iter().all(|f| f.is_meal()) && !PICKER_FOODS.contains(&Food::Snack));
         // 펫 창·하우스 창의 고르기 버튼이 같은 음식을 같은 순서로
         let names: Vec<String> = PICKER_FOODS.iter().map(|f| serde_json::to_value(f).unwrap().as_str().unwrap().to_string()).collect();
         for html in [include_str!("../../../ui/index.html"), include_str!("../../../ui/house.html")] {
@@ -341,7 +391,7 @@ mod tests {
 
     #[test]
     fn a_special_meal_is_twice_a_meal_and_fills_like_one() {
-        assert!(Food::Special.grows() && !Food::Special.is_treat());
+        assert!(Food::Special.is_meal() && !Food::Special.is_treat());
         let mut c = hungry_care();
         assert_eq!(c.feed(Food::Special), FeedResult::Ate { leveled_up: false });
         assert_eq!((c.fullness, c.stamina), (1.0, 20.0));
@@ -402,11 +452,15 @@ mod tests {
     fn an_old_save_above_the_new_need_grows_one_stage_on_the_next_growth_meal() {
         // 예전 필요량(60/100/150/220)으로 쌓아 둔 체력
         let old = Care { stage: Stage::Baby, stamina: 59.0, fullness: 0.0, locked: false };
-        // 먹이기 전엔, 또 간식으로는 자라지 않는다
+        // 먹이기 전엔, 또 물로는 자라지 않는다
         let mut c = old.clone();
         c.tick(10.0);
-        assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: false });
+        assert_eq!(c.feed(Food::Water), FeedResult::Ate { leveled_up: false });
         assert_eq!((c.stage, c.stamina), (Stage::Baby, 59.0));
+        // 간식도 이제 체력을 주므로 다음 간식에 한 단계
+        let mut c = old.clone();
+        assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: true });
+        assert_eq!((c.stage, c.stamina), (Stage::Kinder, 0.0));
         // 다음 밥에 한 단계만, 남은 체력은 넘어가지 않는다
         let mut c = old.clone();
         assert_eq!(c.feed(Food::Meal), FeedResult::Ate { leveled_up: true });

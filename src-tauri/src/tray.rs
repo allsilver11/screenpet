@@ -365,7 +365,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         pets_menu.append(&item)?;
         checks.push((item, p.id.clone()));
     }
-    // 밥·좋아하는 음식·특식만 자라게 한다. 간식·물은 언제든 (배불러도) 받는다
+    // 밥·좋아하는 음식·특식은 많이, 간식은 조금 자라게 한다. 간식·물은 언제든 (배불러도) 받는다
     // 방법을 고르고 음식을 고르는 걸 한 번에 (메뉴는 누르면 닫히므로): 손으로 주기 ▸ 음식 / 그릇에 주기 ▸ 음식.
     // 손으로: 음식이 커서 끝에 붙어 동물 입에 갖다 대면 먹는다. 그릇에: 그릇(꿀벌은 꽃)이 놓인다. 물은 늘 물그릇
     let mut favs = Vec::new();

@@ -394,6 +394,20 @@ fn homesick_guest_bee_flies_home() {
 }
 
 #[test]
+fn a_hovering_bee_munches_a_growing_snack_in_the_air_then_celebrates() {
+    let w = world(vec![w1()]);
+    let mut p = hovering(800.0, 250.0, idle(), 1);
+    assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Snack));
+    assert!(matches!(p.state, State::Eating { level_up: true, .. }), "{:?}", p.state);
+    assert!(p.stage_change_waits() && p.standing.is_none() && p.meal_pending.is_none());
+    assert!(run_until(&mut p, &w, 60 * 5, |p| matches!(p.state, State::LevelUp { .. })), "{:?}", p.state);
+    assert!(p.standing.is_none());
+    assert_eq!(p.render().anim, Anim::LevelUp);
+    assert!(!p.stage_change_waits());
+    assert!(run_until(&mut p, &w, 60 * 10, |p| !matches!(p.state, State::LevelUp { .. })), "{:?}", p.state);
+}
+
+#[test]
 fn fed_hovering_bee_flies_down_and_eats_perched() {
     let w = world(vec![w1()]);
     let mut p = hovering(800.0, 250.0, idle(), 1);

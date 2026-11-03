@@ -833,6 +833,12 @@ impl Pet {
         }
     }
 
+    /// 새 성장 단계(크기·시트·메뉴 줄)를 아직 적용하면 안 됨: 먹는 중이거나, 기억해 둔 먹이
+    /// (공중·들린 채·축하 중에 받은 간식이나 밥)가 성장을 안고 있다. 다 먹고 축하가 시작될 때 적용한다
+    pub fn stage_change_waits(&self) -> bool {
+        self.is_eating() || self.queued_food.is_some_and(|(_, level_up)| level_up)
+    }
+
     /// 하우스 안에 있음 (가는 중은 아님). 하우스에 있는 동안엔 놀러 가지 않는다 (phase 3)
     pub fn is_housed(&self) -> bool {
         self.housed
@@ -1594,10 +1600,10 @@ impl Pet {
         matches!(self.state, State::LevelUp { .. } | State::Trick { kind: Trick::Heart, .. })
     }
 
-    /// 나중에 먹을 먹이를 기억한다 (여럿이면 자라는 음식이 우선, 성장은 남긴다)
+    /// 나중에 먹을 먹이를 기억한다 (여럿이면 끼니가 우선, 어느 쪽이 안겨 준 성장이든 남긴다)
     fn queue_food(&mut self, food: Food, level_up: bool) {
         self.queued_food = Some(match self.queued_food {
-            Some((old, l)) if old.grows() && !food.grows() => (old, l || level_up),
+            Some((old, l)) if old.is_meal() && !food.is_meal() => (old, l || level_up),
             Some((_, l)) => (food, l || level_up),
             None => (food, level_up),
         });

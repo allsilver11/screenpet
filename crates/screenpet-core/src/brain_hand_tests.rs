@@ -88,15 +88,36 @@ fn pet_walks_a_little_toward_food_on_its_surface_and_eats_from_the_hand() {
 }
 
 #[test]
-fn snacks_from_the_hand_never_grow_even_when_full() {
+fn snacks_from_the_hand_grow_a_little_even_when_full() {
     let (mut p, w) = standing_at(800.0);
     let mut care = Care::default();
     assert!(offer_until(&mut p, &w, 120, at_mouth));
     let result = care.feed(Food::Snack);
     assert_eq!(result, FeedResult::Ate { leveled_up: false });
     assert!(p.eat_from_hand(result, Food::Snack));
-    assert_eq!(care.stamina, 0.0);
+    assert_eq!(care.stamina, 2.0);
     assert!(matches!(p.state, State::Eating { .. }));
+}
+
+#[test]
+fn a_snack_from_the_hand_can_level_up_and_celebrate() {
+    let (mut p, w) = standing_at(800.0);
+    let mut care = Care { stamina: 28.0, ..Care::default() };
+    assert!(offer_until(&mut p, &w, 120, at_mouth));
+    let result = care.feed(Food::Snack);
+    assert_eq!(result, FeedResult::Ate { leveled_up: true });
+    assert!(p.eat_from_hand(result, Food::Snack));
+    assert!(matches!(p.state, State::Eating { level_up: true, .. }), "{:?}", p.state);
+    assert!(p.stage_change_waits());
+    for _ in 0..(60 * 5) {
+        p.update(DT, &w);
+        if matches!(p.state, State::LevelUp { .. }) {
+            break;
+        }
+    }
+    assert!(matches!(p.state, State::LevelUp { .. }), "{:?}", p.state);
+    assert_eq!(p.render().anim, Anim::LevelUp);
+    assert!(!p.stage_change_waits());
 }
 
 #[test]

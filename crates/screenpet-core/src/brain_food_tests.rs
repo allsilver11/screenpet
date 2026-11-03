@@ -438,6 +438,143 @@ fn food_given_during_a_celebration_waits_until_it_ends() {
     assert!(run_until(&mut p, &w, 60 * 8, |p| matches!(p.state, State::LevelUp { .. })), "{:?}", p.state);
 }
 
+const LEVELED: FeedResult = FeedResult::Ate { leveled_up: true };
+
+/// 성장 축하가 시작될 때까지 돌린다
+fn run_to_level_up(p: &mut Pet, w: &World, ticks: usize) -> bool {
+    run_until(p, w, ticks, |p| matches!(p.state, State::LevelUp { .. }))
+}
+
+#[test]
+fn a_snack_that_levels_up_munches_the_cookie_then_celebrates() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    assert!(p.feed_result(LEVELED, Food::Snack));
+    assert!(matches!(p.state, State::Eating { level_up: true, .. }), "{:?}", p.state);
+    assert!(matches!(p.take_prop(), Some(PropEvent::Show { prop: Prop::Cookie, .. })));
+    assert_eq!(p.render().anim, Anim::Eat);
+    // 다 먹을 때까지 크기는 그대로
+    assert!(p.stage_change_waits());
+    assert!(run_to_level_up(&mut p, &w, 60 * 5), "{:?}", p.state);
+    assert!(!p.stage_change_waits());
+    assert_eq!(p.render().anim, Anim::LevelUp);
+    assert_eq!(p.take_speech(), Some(Speech::LevelUp));
+    // 쿠키는 치우고, 축하 뒤에 다시 돌아다닌다
+    p.update(DT, &w);
+    assert_eq!(p.take_prop(), Some(PropEvent::Hide));
+    assert!(run_until(&mut p, &w, 60 * 10, |p| !matches!(p.state, State::LevelUp { .. })));
+}
+
+#[test]
+fn a_snack_given_mid_air_holds_the_growth_until_it_is_eaten() {
+    let w = world(vec![w1()]);
+    let mut p = Pet::new(cfg(), 800.0, 100.0, 1);
+    p.update(DT, &w);
+    assert!(matches!(p.state, State::Air { .. }));
+    assert!(p.feed_result(LEVELED, Food::Snack));
+    // 공중에선 아직 먹는 중이 아니지만 크기는 먹고 축하할 때 바뀐다
+    assert!(!p.is_eating() && p.stage_change_waits() && !p.is_free_to_go());
+    assert!(run_until(&mut p, &w, 60 * 3, eating), "{:?}", p.state);
+    assert!(matches!(p.state, State::Eating { level_up: true, .. }) && p.standing.is_some());
+    assert!(p.stage_change_waits());
+    assert!(run_to_level_up(&mut p, &w, 60 * 5), "{:?}", p.state);
+    assert!(!p.stage_change_waits());
+}
+
+#[test]
+fn a_plain_queued_treat_does_not_hold_back_a_stage_change() {
+    let w = world(vec![w1()]);
+    let mut p = Pet::new(cfg(), 800.0, 100.0, 1);
+    p.update(DT, &w);
+    assert!(p.feed_result(ATE, Food::Snack));
+    assert!(!p.stage_change_waits());
+}
+
+#[test]
+fn a_snack_given_while_dragged_levels_up_after_the_drop() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    p.pointer_down(800.0, 350.0);
+    p.pointer_move(700.0, 300.0);
+    assert!(p.is_held());
+    assert!(p.feed_result(LEVELED, Food::Snack));
+    assert!(p.stage_change_waits());
+    p.pointer_up(700.0, 300.0);
+    assert!(run_to_level_up(&mut p, &w, 60 * 10), "{:?}", p.state);
+}
+
+#[test]
+fn a_snack_given_during_a_celebration_grows_after_it_ends() {
+    for state in [State::LevelUp { remaining: 1.0 }, State::Trick { kind: Trick::Heart, remaining: 0.5 }] {
+        let (mut p, w) = standing_at(800.0, 1.0);
+        p.state = state;
+        assert!(p.feed_result(LEVELED, Food::Snack));
+        assert_eq!(p.state, state);
+        assert!(!p.is_eating() && p.stage_change_waits(), "{state:?}");
+        assert!(run_until(&mut p, &w, 60 * 3, eating), "{:?}", p.state);
+        assert!(matches!(p.state, State::Eating { level_up: true, .. }), "{:?}", p.state);
+        assert!(run_to_level_up(&mut p, &w, 60 * 5), "{:?}", p.state);
+        assert!(!p.stage_change_waits());
+    }
+}
+
+#[test]
+fn queued_meals_outrank_treats_and_the_growth_is_kept() {
+    // 밥을 기억해 둔 뒤 간식(성장): 밥그릇으로 가고 성장 축하도 남는다
+    let (mut p, w) = standing_at(800.0, 1.0);
+    p.state = State::Trick { kind: Trick::Heart, remaining: 0.5 };
+    assert!(p.feed_result(ATE, Food::Meal));
+    assert!(p.feed_result(LEVELED, Food::Snack));
+    assert_eq!(p.queued_food, Some((Food::Meal, true)));
+    assert!(run_until(&mut p, &w, 60 * 2, |p| matches!(p.state, State::ToFood { .. })), "{:?}", p.state);
+    assert!(run_to_level_up(&mut p, &w, 60 * 8), "{:?}", p.state);
+    // 간식을 기억해 둔 뒤 밥: 역시 밥이 우선
+    let (mut p, _) = standing_at(800.0, 1.0);
+    p.state = State::Trick { kind: Trick::Heart, remaining: 0.5 };
+    assert!(p.feed_result(LEVELED, Food::Snack));
+    assert!(p.feed_result(ATE, Food::Meal));
+    assert_eq!(p.queued_food, Some((Food::Meal, true)));
+}
+
+#[test]
+fn a_housed_snack_that_levels_up_celebrates_in_the_house() {
+    let w = world(vec![]);
+    let mut p = housed_with_door(&w, cfg());
+    assert!(p.feed_result(LEVELED, Food::Snack));
+    assert!(matches!(p.state, State::Eating { level_up: true, .. }), "{:?}", p.state);
+    assert!(p.stage_change_waits());
+    let mut celebrated = false;
+    for _ in 0..(60 * 10) {
+        p.update(DT, &w);
+        assert!(p.is_housed());
+        assert_eq!(p.take_prop(), None);
+        if matches!(p.state, State::LevelUp { .. }) {
+            celebrated = true;
+            assert!(!p.stage_change_waits());
+            assert_eq!(p.render().anim, Anim::LevelUp);
+        }
+    }
+    assert!(celebrated);
+    assert_eq!(p.state, State::Housed);
+}
+
+#[test]
+fn a_snack_given_on_the_way_home_levels_up_inside_the_house() {
+    let w = world(vec![]);
+    let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+    place(&mut p, &w, HOME, 1400.0, idle());
+    p.go_home(HOME, DOOR);
+    assert!(p.feed_result(LEVELED, Food::Snack));
+    assert!(p.stage_change_waits());
+    assert!(run_to_level_up(&mut p, &w, 60 * 20), "{:?}", p.state);
+    assert!(p.is_housed());
+    assert!(run_until(&mut p, &w, 60 * 10, |p| p.state == State::Housed), "{:?}", p.state);
+}
+
+#[test]
+fn the_game_loop_holds_the_new_stage_while_a_level_up_is_queued() {
+    let game_loop = include_str!("../../../src-tauri/src/game_loop.rs");
+    assert!(game_loop.contains("if pending_stage && !own.pet.stage_change_waits() {"));
+}
+
 #[test]
 fn bowl_follows_its_window_when_the_window_moves() {
     let (mut p, w) = standing_at(800.0, 1.0);
