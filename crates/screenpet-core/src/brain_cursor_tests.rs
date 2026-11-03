@@ -703,3 +703,82 @@ fn being_picked_up_while_falling_cancels_the_glare() {
         assert!(!matches!(p.state, State::Glare { .. }));
     }
 }
+
+// ── 조작 모드 ──
+
+#[test]
+fn a_shaken_window_does_not_take_a_controlled_pet_off_its_keys() {
+    for c in [cfg(), PetConfig { flies: true, ..cfg() }] {
+        for seed in 0..12 {
+            let (mut p, mut w) = on_window(c, seed);
+            p.set_control(true);
+            shake_window(&mut p, &mut w, 30, 60.0, 3);
+            assert!(p.take_speech() != Some(Speech::Whoa), "seed {seed}");
+            assert!(!matches!(p.state, State::EdgeCling { .. } | State::Air { .. }), "seed {seed}: {:?}", p.state);
+        }
+    }
+}
+
+#[test]
+fn a_controlled_walker_only_falls_when_its_window_closes() {
+    let (mut p, _) = on_window(cfg(), 50);
+    p.set_control(true);
+    let gone = world(vec![]);
+    p.update(DT, &gone);
+    assert_eq!(p.take_speech(), Some(Speech::Eek));
+    assert!(matches!(p.state, State::Air { .. }), "{:?}", p.state);
+    for _ in 0..(60 * 5) {
+        p.update(DT, &gone);
+        assert!(!matches!(p.state, State::Glare { .. }), "{:?}", p.state);
+    }
+    assert_eq!(p.body.y, 1040.0, "landed");
+    // 내려선 뒤 바로 키를 따른다
+    let x = p.body.x;
+    let right = control_moves::ControlInput { right: true, ..Default::default() };
+    for _ in 0..30 {
+        p.control_keys(right, DT);
+        p.update(DT, &gone);
+    }
+    assert!(p.body.x > x, "{} -> {}", x, p.body.x);
+}
+
+#[test]
+fn a_controlled_flyer_does_not_glare_when_its_window_closes() {
+    let (mut p, _) = on_window(PetConfig { flies: true, ..cfg() }, 53);
+    p.set_control(true);
+    let gone = world(vec![]);
+    p.update(DT, &gone);
+    assert_eq!(p.standing, None, "floats up");
+    assert!(!matches!(p.state, State::Glare { .. }), "{:?}", p.state);
+}
+
+#[test]
+fn turning_control_on_ends_a_glare_or_a_cling_that_was_running() {
+    let (mut p, w) = on_window(cfg(), 7);
+    p.state = State::Glare { remaining: GLARE_SECS };
+    p.set_control(true);
+    p.update(DT, &w);
+    assert!(!matches!(p.state, State::Glare { .. }), "{:?}", p.state);
+    assert!(p.standing.is_some(), "stays on its window");
+
+    let (mut p, w) = on_window(cfg(), 7);
+    p.standing = None;
+    p.body.y = w1().rect.top + 0.7 * p.cfg.size; // 매달린 자리: 윗면 아래
+    p.state = State::EdgeCling { window: 1, rel_x: 100.0, remaining: QUAKE_CLING_SECS };
+    p.set_control(true);
+    p.update(DT, &w);
+    assert!(matches!(p.state, State::Air { .. }), "lets go and falls: {:?}", p.state);
+}
+
+#[test]
+fn control_turned_on_during_the_fall_cancels_the_glare_waiting_for_the_landing() {
+    let (mut p, _) = on_window(cfg(), 50);
+    let gone = world(vec![]);
+    p.update(DT, &gone);
+    assert!(matches!(p.state, State::Air { .. }), "{:?}", p.state);
+    p.set_control(true);
+    for _ in 0..(60 * 5) {
+        p.update(DT, &gone);
+        assert!(!matches!(p.state, State::Glare { .. }), "{:?}", p.state);
+    }
+}

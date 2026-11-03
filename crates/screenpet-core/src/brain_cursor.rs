@@ -368,6 +368,9 @@ impl Pet {
         self.track_cursor(dt);
         self.sense_window_closed(world);
         self.sense_quake(world);
+        if self.control.is_some() {
+            self.end_mood_for_control();
+        }
         if self.cursor_mood.glare_pending && matches!(self.state, State::Land { .. }) {
             self.start_glare();
         }
@@ -703,9 +706,20 @@ impl Pet {
         self.feel_quake(window.expect("quake needs a window"));
     }
 
-    /// 흔들림을 느낄 수 있는 상태: 창 위에서 쉬거나 놀고 있음 — 들려 있거나 먹거나 집에 가는 중은 그대로
+    /// 조작 모드 중엔 째려보거나 매달리지 않는다 — 키를 빼앗지 않게 (창이 사라져 떨어지는 것만 그대로). 하던 중이었어도 바로 끝낸다
+    fn end_mood_for_control(&mut self) {
+        self.cursor_mood.glare_pending = false;
+        match self.state {
+            State::Glare { .. } => self.state = self.idle_state(),
+            State::EdgeCling { .. } => self.start_fall(),
+            _ => {}
+        }
+    }
+
+    /// 흔들림을 느낄 수 있는 상태: 창 위에서 쉬거나 놀고 있음 — 들려 있거나 먹거나 집에 가거나 조작 중이면 그대로
     fn quake_feels(&self) -> bool {
         !self.is_held()
+            && self.control.is_none()
             && self.food.is_none()
             && self.meal_pending.is_none()
             && self.home_trip.is_none()
@@ -801,7 +815,7 @@ impl Pet {
             // 자던 동물은 놀라 떠오르기만, 깨어 있던 동물은 그 자리에서 째려본다
             let awake = matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. });
             self.take_off();
-            if awake {
+            if awake && self.control.is_none() {
                 self.start_glare();
                 self.speech = Some(Speech::Eek);
             }
