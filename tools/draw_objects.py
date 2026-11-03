@@ -24,7 +24,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from draw_house import blob, finish  # noqa: E402
 from draw_pets import LINE, WHITE, C, E, L, T, aa, mix, paint, shapes, view  # noqa: E402
-from draw_props import new_canvas, tiny_face  # noqa: E402
+from draw_props import new_canvas  # noqa: E402
 from sprite_spec import FRAME  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -66,7 +66,7 @@ STONE_CRACK = (66, 58, 52)
 FRAME_BROWN = (146, 100, 76)
 LENS = (214, 236, 250)
 PLASTIC = (222, 214, 196)
-SCREEN = (70, 78, 96)
+SCREEN = (34, 36, 42)
 SPARK = (255, 214, 102)
 MILK_BLUE = (138, 186, 232)
 SOCK = (246, 160, 170)
@@ -88,7 +88,6 @@ def draw_can(img):
                 ([E(47, 70, 53, 115)], mix(CAN_RED, WHITE, 0.35))])
     blob(img, [E(43, 60, 85, 72)], METAL, r=0, line=0.9,
          marks=[([E(49, 63, 79, 70)], mix(METAL, LINE, 0.25)), ([E(60, 64, 70, 68)], LINE)])
-    tiny_face(img, 62, 106, 0.85)
 
 
 def draw_paper(img):
@@ -137,15 +136,12 @@ def draw_glasses(img):
 
 
 def draw_computer(img):
-    """고장난 컴퓨터: 네모 모니터, 금 간 화면, ×× 눈, 튀는 불꽃."""
+    """고장난 컴퓨터: 네모 모니터, 금 간 까만 화면, 튀는 불꽃."""
     blob(img, [T((48, 108), (80, 108), (84, BOTTOM - 7), (44, BOTTOM - 7)), E(36, BOTTOM - 10, 92, BOTTOM)], mix(PLASTIC, LINE, 0.15), r=0.8, line=0.9)
-    blob(img, [T((18, 44), (110, 44), (110, 110), (18, 110))], PLASTIC, r=3.0,
-         marks=[([E(92, 100, 102, 106)], (232, 120, 110))])
+    blob(img, [T((18, 44), (110, 44), (110, 110), (18, 110))], PLASTIC, r=3.0)
     blob(img, [T((27, 52), (101, 52), (101, 98), (27, 98))], SCREEN, r=2.0, line=0.7)
-    x_eyes = [L([(46 + dx, 66), (54 + dx, 74)], 2.0) for dx in (0, 28)] + [L([(54 + dx, 66), (46 + dx, 74)], 2.0) for dx in (0, 28)]
-    paint(img, aa(shapes(x_eyes)), WHITE)
-    paint(img, aa(shapes([L([(56, 88), (64, 83), (72, 88)], 1.8)])), WHITE)
-    paint(img, aa(shapes([L([(30, 56), (42, 62), (38, 74), (48, 84)], 1.2), L([(42, 62), (56, 56)], 1.0)])), mix(SCREEN, WHITE, 0.6))
+    paint(img, aa(shapes([L([(40, 52), (52, 66), (46, 76), (60, 88), (56, 98)], 1.3), L([(52, 66), (72, 58), (84, 52)], 1.1),
+                          L([(46, 76), (32, 82)], 1.0), L([(60, 88), (78, 82), (94, 90)], 1.1), L([(72, 58), (78, 70)], 0.9)])), mix(SCREEN, WHITE, 0.6))
     blob(img, [T((106, 28), (114, 38), (108, 38), (116, 50), (100, 36), (106, 36))], SPARK, r=0.2, line=0.7)
 
 
@@ -187,7 +183,6 @@ def draw_milk(img):
                 ([L([(74, 84), (80, 100), (76, 112)], 1.2)], mix(WHITE, LINE, 0.3))])
     blob(img, [T((42, 80), (86, 80), (78, 62), (50, 62))], mix(WHITE, MILK_BLUE, 0.25), r=0.8, line=0.9)
     blob(img, [T((48, 54), (80, 54), (80, 63), (48, 63))], WHITE, r=0.6, line=0.9)
-    tiny_face(img, 60, 94, 0.85)
 
 
 def draw_sock(img):
@@ -220,7 +215,6 @@ def draw_umbrella(img):
     blob(img, [L([(64, 42), (64, 34)], 3.0)], HANDLE, r=0, line=0.7)
     # 천을 뚫고 나온 살
     paint(img, aa(shapes([L([(92, 56), (108, 44), (114, 46)], 1.8)])), mix(METAL, LINE, 0.3))
-    tiny_face(img, 64, 58, 0.75)
 
 
 DRAW = {

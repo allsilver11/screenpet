@@ -154,3 +154,25 @@ def test_stone_is_a_grey_brown_rock_not_white(built):
     lit = lambda rows: arr[rows][arr[rows][:, :, 3] > 200][:, :3].mean()
     assert lit(slice(66, 84)) > lit(slice(108, 122)) + 20
 
+
+def test_objects_are_just_objects_no_faces():
+    """던지기용 물건이다 — 눈·입·볼터치를 그리지 않는다. tiny_face·×× 눈이 돌아오면 여기서 걸린다."""
+    src = (ROOT / "tools" / "draw_objects.py").read_text(encoding="utf-8")
+    for face in ("tiny_face", "x_eyes", "eye", "mouth", "cheek"):
+        assert face not in src, face
+
+
+@pytest.mark.parametrize("name", d.NAMES)
+def test_no_face_colours_in_the_art(built, name):
+    """tiny_face의 눈(84,58,56)·볼터치(250,180,180) 색이 그림에 없다."""
+    _, arts = built
+    px = _opaque(arts[name])
+    for colour in ((84, 58, 56), (250, 180, 180)):
+        assert (np.abs(px - colour).sum(axis=1) < 6).sum() == 0, colour
+
+
+def test_broken_computer_screen_is_black_glass_with_no_white_marks(built):
+    _, arts = built
+    screen = np.asarray(arts["computer"])[56:95, 31:97, :3].astype(int)
+    assert screen.mean() < 70
+    assert (screen.min(axis=2) > 200).sum() == 0, "x eyes or a mouth"
