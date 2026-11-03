@@ -365,7 +365,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         pets_menu.append(&item)?;
         checks.push((item, p.id.clone()));
     }
-    // 밥·좋아하는 음식만 자라게 한다. 간식·물은 언제든 (배불러도) 받는다
+    // 밥·좋아하는 음식·특식만 자라게 한다. 간식·물은 언제든 (배불러도) 받는다
     // 방법을 고르고 음식을 고르는 걸 한 번에 (메뉴는 누르면 닫히므로): 손으로 주기 ▸ 음식 / 그릇에 주기 ▸ 음식.
     // 손으로: 음식이 커서 끝에 붙어 동물 입에 갖다 대면 먹는다. 그릇에: 그릇(꿀벌은 꽃)이 놓인다. 물은 늘 물그릇
     let mut favs = Vec::new();
@@ -373,8 +373,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     for (mode, tag) in [(FeedMode::Hand, "hand"), (FeedMode::Auto, "auto")] {
         let meal = MenuItem::with_id(app, format!("feed:{tag}:meal"), "밥 🍚", true, None::<&str>)?;
         let fav = MenuItem::with_id(app, format!("feed:{tag}:favorite"), favorite_label(favorite), true, None::<&str>)?;
+        let special = MenuItem::with_id(app, format!("feed:{tag}:special"), "특식 🍱", true, None::<&str>)?;
         let snack = MenuItem::with_id(app, format!("feed:{tag}:snack"), "간식 🍪", true, None::<&str>)?;
-        by_mode.push(Submenu::with_items(app, feed_mode_label(mode, feed_mode), true, &[&meal, &fav, &snack])?);
+        by_mode.push(Submenu::with_items(app, feed_mode_label(mode, feed_mode), true, &[&meal, &fav, &special, &snack])?);
         favs.push(fav);
     }
     let water = MenuItem::with_id(app, "feed:water", "물 💧", true, None::<&str>)?;
@@ -493,11 +494,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                 } else if let Some((mode, food)) = other.strip_prefix("feed:").and_then(|rest| rest.split_once(':')) {
                     // 방법을 기억하고 (배고플 때 고르기도 따른다) 바로 먹인다
                     let mode = if mode == "hand" { FeedMode::Hand } else { FeedMode::Auto };
-                    let food = match food {
-                        "meal" => Food::Meal,
-                        "favorite" => Food::Favorite,
-                        _ => Food::Snack,
-                    };
+                    let food = Food::from_name(food).unwrap_or(Food::Snack);
                     send(app, Input::SetFeedMode(mode));
                     send(app, Input::Feed(food));
                 } else if let Some(id) = other.strip_prefix("pet:") {

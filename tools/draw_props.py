@@ -1,7 +1,7 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
     python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie,flower}.png
-                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop,apple,milk,bread,leaf,watermelon,broccoli,grapes}.png (직접 주기, 48×48)
+                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop,apple,milk,bread,leaf,watermelon,broccoli,grapes,shaved_ice,special}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
                                   + ui/effects/{snowball,snowman}.png (계절 날씨) + tools/preview/snowman.png
@@ -398,6 +398,29 @@ def hand_shaved_ice(img):
 
 HAND_NAMES += ("hand_shaved_ice",)  # 눈사람 🍧
 HAND_DRAW.update(hand_shaved_ice=hand_shaved_ice)
+
+BENTO, BENTO_RIM, BENTO_IN = (222, 92, 86), (176, 62, 66), (255, 244, 224)
+UME, EGG, GREEN, SAUSAGE = (232, 80, 96), (255, 214, 96), (122, 190, 104), (246, 138, 138)
+
+
+def hand_special(img):
+    """🍱 특식 — 빨간 도시락: 왼쪽 주먹밥 칸(매실 하나), 오른쪽 달걀말이·브로콜리·문어 소시지."""
+    with xf(sx=0.92, sy=0.92, pivot=(64, 65)):
+        blob(img, [T((43, 47), (85, 47), (85, 83), (43, 83))], BENTO, r=3.5, line=1.0,
+             marks=[([E(36, 78, 92, 92)], BENTO_RIM), ([L([(46, 50), (82, 50)], 1.6)], mix(BENTO, WHITE, 0.45))])
+        # 칸: 밥 / 반찬
+        blob(img, [T((47, 53), (65, 53), (65, 79), (47, 79))], RICE, r=1.2, line=0.8)
+        paint(img, aa(shapes([C(56, 60, 3.2)])), UME)
+        paint(img, aa(shapes([C(55, 59, 0.9)])), WHITE)
+        tiny_face(img, 56, 70, 0.62)
+        blob(img, [T((68, 53), (81, 53), (81, 79), (68, 79))], BENTO_IN, r=1.2, line=0.8)
+        blob(img, [T((70, 55), (79, 55), (79, 62), (70, 62))], EGG, r=0.8, line=0.6, marks=[([L([(70, 58.5), (79, 58.5)], 0.8)], mix(EGG, CARROT, 0.5))])
+        blob(img, [C(72, 67, 2.6), C(76.5, 66, 2.6), C(75, 69, 2.6)], GREEN, r=0.4, line=0.6)
+        blob(img, [T((70, 72), (79, 72), (79, 77), (70, 77))], SAUSAGE, r=1.0, line=0.6, marks=[([L([(73, 72), (73, 77)], 0.7), L([(76, 72), (76, 77)], 0.7)], mix(SAUSAGE, LINE, 0.3))])
+
+
+HAND_NAMES += ("hand_special",)  # 특식 🍱
+HAND_DRAW.update(hand_special=hand_special)
 
 
 # ---- 계절 날씨: 눈덩이(굴리는 중) · 눈사람 (바닥 가운데 아래에 앉는다, src-tauri/src/weather.rs) ----

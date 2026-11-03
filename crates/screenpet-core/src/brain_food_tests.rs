@@ -314,7 +314,7 @@ fn ghost() -> PetConfig {
 #[test]
 fn hovering_ghost_gets_a_food_bowl_not_a_flower() {
     let w = world(vec![w1()]);
-    for (food, prop) in [(Food::Meal, Prop::FoodBowl), (Food::Favorite, Prop::FoodBowl), (Food::Water, Prop::WaterBowl)] {
+    for (food, prop) in [(Food::Meal, Prop::FoodBowl), (Food::Favorite, Prop::FoodBowl), (Food::Special, Prop::FoodBowl), (Food::Water, Prop::WaterBowl)] {
         let mut p = Pet::new(ghost(), 800.0, 250.0, 1);
         p.state = idle();
         assert!(p.feed_result(ATE, food));

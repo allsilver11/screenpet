@@ -111,13 +111,7 @@ fn feed(window: WebviewWindow, state: State<AppState>, food: String) {
     if slots::is_guest_label(window.label()) {
         return;
     }
-    let food = match food.as_str() {
-        "snack" => Food::Snack,
-        "meal" => Food::Meal,
-        "favorite" => Food::Favorite,
-        "water" => Food::Water,
-        _ => return,
-    };
+    let Some(food) = Food::from_name(&food) else { return };
     let _ = state.tx.lock().unwrap().send(Input::Feed(food));
 }
 

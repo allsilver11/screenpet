@@ -32,8 +32,8 @@ impl Prop {
         match food {
             Food::Snack => Prop::Cookie,
             Food::Water => Prop::WaterBowl,
-            Food::Meal | Food::Favorite if flower => Prop::Flower,
-            Food::Meal | Food::Favorite => Prop::FoodBowl,
+            Food::Meal | Food::Favorite | Food::Special if flower => Prop::Flower,
+            Food::Meal | Food::Favorite | Food::Special => Prop::FoodBowl,
         }
     }
 }
@@ -78,6 +78,7 @@ pub const HAND_OFFSET: f64 = 14.0;
 pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
     match food {
         Food::Snack => "hand_cookie",
+        Food::Special => "hand_special",
         Food::Favorite => match pet_id {
             "cat" => "hand_fish",
             "dog" => "hand_bone",
@@ -171,6 +172,8 @@ mod tests {
         assert_eq!(Prop::for_food(Food::Favorite, false), Prop::FoodBowl);
         assert_eq!(Prop::for_food(Food::Meal, true), Prop::Flower);
         assert_eq!(Prop::for_food(Food::Favorite, true), Prop::Flower);
+        assert_eq!(Prop::for_food(Food::Special, false), Prop::FoodBowl);
+        assert_eq!(Prop::for_food(Food::Special, true), Prop::Flower);
         assert_eq!(Prop::for_food(Food::Water, false), Prop::WaterBowl);
         assert_eq!(Prop::for_food(Food::Water, true), Prop::WaterBowl);
         assert_eq!(Prop::for_food(Food::Snack, true), Prop::Cookie);
@@ -208,6 +211,10 @@ mod tests {
         assert_eq!(hand_icon(Food::Snack, "dino_green"), "hand_cookie");
         assert_eq!(hand_icon(Food::Favorite, "snowman"), "hand_shaved_ice");
         assert_eq!(hand_icon(Food::Meal, "snowman"), "hand_meal");
+        for id in ["cat", "bee", "snowman", "unknown"] {
+            assert_eq!(hand_icon(Food::Special, id), "hand_special");
+            assert!(FeedMode::Hand.by_hand(Food::Special) && !FeedMode::Auto.by_hand(Food::Special));
+        }
     }
 
     #[test]

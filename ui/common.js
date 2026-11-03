@@ -88,7 +88,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
     }, 2500);
   });
 
-  // 배고플 때 클릭하면 머리 위에 🍚 (좋아하는 것) 버튼 — 간식·물은 트레이·우클릭 메뉴에서 언제든
+  // 배고플 때 클릭하면 머리 위에 🍚 (좋아하는 것) 🍱 버튼 — 간식·물은 트레이·우클릭 메뉴에서 언제든
   listen("food-picker", (e) => {
     if (isQuiet()) return; // 편지 말풍선이 우선
     favBtn.textContent = e.payload.emoji;

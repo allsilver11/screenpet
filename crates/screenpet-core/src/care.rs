@@ -29,13 +29,13 @@ impl Stage {
         }
     }
 
-    /// 다음 단계까지 필요한 체력 (adult는 없음)
+    /// 다음 단계까지 필요한 체력 (adult는 없음). 합 265: 배고플 때마다(22.5분) 밥만 먹이면 27끼 ≈ 10시간, 특식만 먹이면 15끼 ≈ 5.6시간
     pub fn need(self) -> Option<f64> {
         match self {
-            Stage::Baby => Some(60.0),
-            Stage::Kinder => Some(100.0),
-            Stage::Child => Some(150.0),
-            Stage::Teenager => Some(220.0),
+            Stage::Baby => Some(30.0),
+            Stage::Kinder => Some(50.0),
+            Stage::Child => Some(75.0),
+            Stage::Teenager => Some(110.0),
             Stage::Adult => None,
         }
     }
@@ -107,15 +107,29 @@ pub enum Food {
     Favorite,
     /// 물 — 언제든 받는다 (성장 없음)
     Water,
+    /// 🍱 특식 — 밥처럼 채우고 체력은 두 배. 개수 제한 없음
+    Special,
 }
 
 /// 배고플 때 누르면 뜨는 음식 고르기 버튼 (ui/index.html·house.html #picker와 같은 순서)
-pub const PICKER_FOODS: [Food; 2] = [Food::Meal, Food::Favorite];
+pub const PICKER_FOODS: [Food; 3] = [Food::Meal, Food::Favorite, Food::Special];
 
 impl Food {
-    /// 체력(성장)을 주는 음식: 밥과 좋아하는 음식뿐
+    /// 체력(성장)을 주는 음식: 밥, 좋아하는 음식, 특식
     pub fn grows(self) -> bool {
-        matches!(self, Food::Meal | Food::Favorite)
+        matches!(self, Food::Meal | Food::Favorite | Food::Special)
+    }
+
+    /// 메뉴·음식 고르기 버튼의 이름 (직렬화 이름과 같다)
+    pub fn from_name(name: &str) -> Option<Food> {
+        match name {
+            "snack" => Some(Food::Snack),
+            "meal" => Some(Food::Meal),
+            "favorite" => Some(Food::Favorite),
+            "water" => Some(Food::Water),
+            "special" => Some(Food::Special),
+            _ => None,
+        }
     }
 
     /// 간식·물: 배불러도 받고, 포만감만 조금 오른다
@@ -128,13 +142,14 @@ impl Food {
             Food::Snack | Food::Water => 0.0,
             Food::Meal => 10.0,
             Food::Favorite => 15.0,
+            Food::Special => 20.0,
         }
     }
 
     fn fill(self, fullness: f64) -> f64 {
         match self {
             Food::Snack | Food::Water => (fullness + TREAT_FILL).min(1.0),
-            Food::Meal => 1.0,
+            Food::Meal | Food::Special => 1.0,
             Food::Favorite => (fullness + 0.7).min(1.0),
         }
     }
@@ -264,8 +279,8 @@ mod tests {
     }
 
     #[test]
-    fn only_meals_and_favorites_grow() {
-        for food in [Food::Meal, Food::Favorite] {
+    fn only_meals_favorites_and_special_meals_grow() {
+        for food in [Food::Meal, Food::Favorite, Food::Special] {
             assert!(food.grows() && !food.is_treat());
             let mut c = hungry_care();
             c.feed(food);
@@ -277,8 +292,8 @@ mod tests {
     }
 
     #[test]
-    fn hungry_picker_offers_only_meal_and_favorite() {
-        assert_eq!(PICKER_FOODS, [Food::Meal, Food::Favorite]);
+    fn hungry_picker_offers_meal_favorite_and_special() {
+        assert_eq!(PICKER_FOODS, [Food::Meal, Food::Favorite, Food::Special]);
         // 펫 창·하우스 창의 고르기 버튼이 같은 음식을 같은 순서로
         let names: Vec<String> = PICKER_FOODS.iter().map(|f| serde_json::to_value(f).unwrap().as_str().unwrap().to_string()).collect();
         for html in [include_str!("../../../ui/index.html"), include_str!("../../../ui/house.html")] {
@@ -289,9 +304,122 @@ mod tests {
     }
 
     #[test]
+    fn picker_buttons_fit_the_narrowest_windows() {
+        // 버튼 28px, 간격 4px (ui/style.css #picker) — 아기 때도 펫 창은 128px, 하우스 창은 100px 이상이다
+        let css = include_str!("../../../ui/style.css");
+        assert!(css.contains("#picker {") && css.contains("gap: 4px;") && css.contains("width: 28px;"));
+        let width = PICKER_FOODS.len() * 28 + (PICKER_FOODS.len() - 1) * 4;
+        assert!(include_str!("../../../src-tauri/src/slots.rs").contains("(PET_LOGICAL_SIZE * body_scale.max(1.0),"));
+        assert!(include_str!("../../../src-tauri/src/house.rs").contains("pub const MIN_WIDTH: f64 = 100.0;"));
+        assert!(width <= 100, "{width}");
+    }
+
+    #[test]
     fn foods_serialize_snake_case() {
-        let names: Vec<String> = [Food::Snack, Food::Meal, Food::Favorite, Food::Water].iter().map(|f| serde_json::to_string(f).unwrap()).collect();
-        assert_eq!(names, ["\"snack\"", "\"meal\"", "\"favorite\"", "\"water\""]);
+        let names: Vec<String> = [Food::Snack, Food::Meal, Food::Favorite, Food::Water, Food::Special].iter().map(|f| serde_json::to_string(f).unwrap()).collect();
+        assert_eq!(names, ["\"snack\"", "\"meal\"", "\"favorite\"", "\"water\"", "\"special\""]);
+    }
+
+    #[test]
+    fn food_names_match_the_serialized_names() {
+        for food in [Food::Snack, Food::Meal, Food::Favorite, Food::Water, Food::Special] {
+            let name = serde_json::to_value(food).unwrap();
+            assert_eq!(Food::from_name(name.as_str().unwrap()), Some(food));
+        }
+        assert_eq!(Food::from_name("banana"), None);
+    }
+
+    #[test]
+    fn the_tray_offers_the_special_meal_by_hand_and_in_the_bowl() {
+        // feed:<hand|auto>:<food> — 트레이가 메뉴 이름을 Food::from_name으로 읽는다
+        let tray = include_str!("../../../src-tauri/src/tray.rs");
+        assert!(tray.contains(r#"format!("feed:{tag}:special"), "특식 🍱""#));
+        assert!(tray.contains("&[&meal, &fav, &special, &snack]"));
+        assert!(tray.contains("Food::from_name(food)"));
+        assert!(include_str!("../../../src-tauri/src/main.rs").contains("Food::from_name(&food)"));
+    }
+
+    #[test]
+    fn a_special_meal_is_twice_a_meal_and_fills_like_one() {
+        assert!(Food::Special.grows() && !Food::Special.is_treat());
+        let mut c = hungry_care();
+        assert_eq!(c.feed(Food::Special), FeedResult::Ate { leveled_up: false });
+        assert_eq!((c.fullness, c.stamina), (1.0, 20.0));
+    }
+
+    #[test]
+    fn a_special_meal_is_refused_above_nine_tenths_full() {
+        let mut c = Care { fullness: 0.91, ..Care::default() };
+        assert_eq!(c.feed(Food::Special), FeedResult::Refused);
+        assert_eq!((c.fullness, c.stamina), (0.91, 0.0));
+        c.fullness = 0.9;
+        assert_eq!(c.feed(Food::Special), FeedResult::Ate { leveled_up: false });
+    }
+
+    #[test]
+    fn a_locked_pet_gets_no_stamina_from_a_special_meal() {
+        let mut c = Care { locked: true, ..hungry_care() };
+        assert_eq!(c.feed(Food::Special), FeedResult::Ate { leveled_up: false });
+        assert_eq!((c.stage, c.stamina, c.fullness), (Stage::Baby, 0.0, 1.0));
+    }
+
+    #[test]
+    fn a_baby_needs_two_special_meals() {
+        let mut c = Care::default();
+        for i in 1..=2 {
+            c.fullness = 0.0;
+            assert_eq!(c.feed(Food::Special), FeedResult::Ate { leveled_up: i == 2 }, "meal {i}");
+        }
+        assert_eq!((c.stage, c.stamina), (Stage::Kinder, 0.0));
+    }
+
+    /// 배고플 때마다 이 음식만 먹여 어른이 될 때까지의 끼니 수
+    fn meals_to_adult(food: Food) -> u32 {
+        let mut c = Care::default();
+        let mut meals = 0;
+        while c.stage != Stage::Adult {
+            c.fullness = 0.0;
+            c.feed(food);
+            meals += 1;
+        }
+        meals
+    }
+
+    #[test]
+    fn growing_up_takes_ten_hours_on_meals_and_about_half_on_special_meals() {
+        let total: f64 = [Stage::Baby, Stage::Kinder, Stage::Child, Stage::Teenager].iter().filter_map(|s| s.need()).sum();
+        assert_eq!(total, 265.0);
+        // 가득 찬 뒤 배고파지기까지 22.5분
+        let minutes_a_meal = (1.0 - HUNGRY_BELOW) * EMPTY_SECS / 60.0;
+        assert_eq!(minutes_a_meal, 22.5);
+        assert_eq!(meals_to_adult(Food::Meal), 27);
+        assert_eq!(meals_to_adult(Food::Special), 15);
+        assert!((f64::from(meals_to_adult(Food::Meal)) * minutes_a_meal / 60.0 - 10.0).abs() < 0.2);
+        assert!(f64::from(meals_to_adult(Food::Special)) * minutes_a_meal / 60.0 < 6.0);
+    }
+
+    #[test]
+    fn an_old_save_above_the_new_need_grows_one_stage_on_the_next_growth_meal() {
+        // 예전 필요량(60/100/150/220)으로 쌓아 둔 체력
+        let old = Care { stage: Stage::Baby, stamina: 59.0, fullness: 0.0, locked: false };
+        // 먹이기 전엔, 또 간식으로는 자라지 않는다
+        let mut c = old.clone();
+        c.tick(10.0);
+        assert_eq!(c.feed(Food::Snack), FeedResult::Ate { leveled_up: false });
+        assert_eq!((c.stage, c.stamina), (Stage::Baby, 59.0));
+        // 다음 밥에 한 단계만, 남은 체력은 넘어가지 않는다
+        let mut c = old.clone();
+        assert_eq!(c.feed(Food::Meal), FeedResult::Ate { leveled_up: true });
+        assert_eq!((c.stage, c.stamina), (Stage::Kinder, 0.0));
+        c.fullness = 0.0;
+        assert_eq!(c.feed(Food::Meal), FeedResult::Ate { leveled_up: false });
+        assert_eq!((c.stage, c.stamina), (Stage::Kinder, 10.0));
+        // 저장 파일을 읽어도 그대로, 어른 직전도 한 단계
+        let json = serde_json::to_string(&Care { stage: Stage::Teenager, stamina: 219.0, fullness: 0.0, locked: false }).unwrap();
+        let mut c: Care = serde_json::from_str(&json).unwrap();
+        assert_eq!(c.stamina, 219.0);
+        assert_eq!(c.feed(Food::Special), FeedResult::Ate { leveled_up: true });
+        assert_eq!((c.stage, c.stamina), (Stage::Adult, 0.0));
     }
 
     #[test]
@@ -317,12 +445,12 @@ mod tests {
     }
 
     #[test]
-    fn baby_needs_six_meals() {
+    fn baby_needs_three_meals() {
         let mut c = Care::default();
-        for i in 1..=6 {
+        for i in 1..=3 {
             c.fullness = 0.0;
             let r = c.feed(Food::Meal);
-            assert_eq!(r, FeedResult::Ate { leveled_up: i == 6 }, "meal {i}");
+            assert_eq!(r, FeedResult::Ate { leveled_up: i == 3 }, "meal {i}");
         }
         assert_eq!(c.stage, Stage::Kinder);
     }
@@ -348,7 +476,7 @@ mod tests {
     fn stage_table() {
         let s = [Stage::Baby, Stage::Kinder, Stage::Child, Stage::Teenager, Stage::Adult];
         assert_eq!(s.map(Stage::scale), [0.45, 0.60, 0.78, 1.00, 1.15]);
-        assert_eq!(s.map(Stage::need), [Some(60.0), Some(100.0), Some(150.0), Some(220.0), None]);
+        assert_eq!(s.map(Stage::need), [Some(30.0), Some(50.0), Some(75.0), Some(110.0), None]);
         assert_eq!(s.map(Stage::name), ["baby", "kinder", "child", "teenager", "adult"]);
     }
 

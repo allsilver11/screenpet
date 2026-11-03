@@ -1653,10 +1653,10 @@ impl Pet {
     }
 
     /// 먹이를 받았다. 먹는 중·가는 중이면 그대로 이어 가고 (앞서 정해진 성장 축하·하트는 남긴다),
-    /// 간식은 그 자리에서 쿠키를 오물오물, 밥·좋아하는 음식·물은 그릇(나는 동물은 꽃)으로 가서 먹는다.
+    /// 간식은 그 자리에서 쿠키를 오물오물, 밥·좋아하는 음식·특식·물은 그릇(나는 동물은 꽃)으로 가서 먹는다.
     /// 하우스 안이면 문 앞으로 나와 먹는다 (문을 모르거나 간식이면 하우스 안에서)
     pub(super) fn serve(&mut self, food: Food, level_up: bool) {
-        let heart = food == Food::Favorite || food.is_treat();
+        let heart = matches!(food, Food::Favorite | Food::Special) || food.is_treat();
         if let State::Eating { favorite, level_up: was, .. } = self.state {
             self.state = State::Eating { remaining: EAT_SECS, favorite: favorite || heart, level_up: was || level_up };
             return;
@@ -4534,7 +4534,7 @@ mod care_tests {
 
     #[test]
     fn eating_then_moving_or_hearting() {
-        for (food, then_heart) in [(Food::Meal, false), (Food::Favorite, true)] {
+        for (food, then_heart) in [(Food::Meal, false), (Food::Favorite, true), (Food::Special, true)] {
             let (mut p, w) = grounded(1);
             assert!(p.feed_result(FeedResult::Ate { leveled_up: false }, food));
             walk_to_bowl(&mut p, &w);
