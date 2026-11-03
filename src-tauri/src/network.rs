@@ -865,6 +865,8 @@ impl Network {
                     }
                 }
             }
+            // 던져 넘어온 물건은 게임 루프가 objects.rs로 바로 보낸다 (여기 오지 않는다)
+            NetEvent::Tossed { .. } => {}
             NetEvent::Disconnected { id } => {
                 self.connected.remove(&id);
                 // 그 친구에게 보내던 손님은 그만 가고, 그 친구의 손님에게 걸어 둔 보내기는 지운다
