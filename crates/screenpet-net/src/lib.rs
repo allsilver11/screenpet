@@ -315,8 +315,6 @@ pub(crate) struct Conn {
     pub asks: AskBucket,
     /// Rate limit for steering (control mode) on this link.
     pub steers: AskBucket,
-    /// Rate limit for thrown objects on this link.
-    pub tosses: AskBucket,
     pub kind: Kind,
     /// `Connected` has been emitted for this peer (so `Disconnected` is owed).
     pub announced: bool,
@@ -381,9 +379,18 @@ pub(crate) struct State {
     /// registering in time (e.g. relay ↔ LAN switch, quick restart) takes
     /// over silently — no Disconnected/Connected pair.
     pub pending_gone: HashMap<String, Instant>,
+    /// Friend id → budget for its thrown objects. Kept per friend, not per
+    /// link: a reconnect continues with the tokens that were left. Only ever
+    /// holds authenticated friends, and leaves with the friend.
+    pub toss_budget: HashMap<String, AskBucket>,
 }
 
 impl State {
+    /// Spend one of friend `id`'s thrown-object tokens, if it has one.
+    pub fn take_toss(&mut self, id: &str, now: Instant) -> bool {
+        self.toss_budget.entry(id.to_string()).or_insert_with(|| AskBucket::tossing(now)).take(now)
+    }
+
     pub fn is_friend(&self, id: &str) -> bool {
         self.friends.iter().any(|f| f.id == id)
     }
@@ -396,6 +403,7 @@ impl State {
     }
     pub fn remove_friend(&mut self, id: &str) {
         self.friends.retain(|f| f.id != id);
+        self.toss_budget.remove(id);
     }
     pub fn is_trusted(&self, id: &str, ip: &str) -> bool {
         self.trusted_ips.contains_key(&(id.to_string(), ip.to_string()))
@@ -807,4 +815,26 @@ impl Drop for Net {
 /// Random 128-bit install id as 32 lowercase hex digits.
 pub fn new_install_id() -> String {
     format!("{:032x}", fastrand::u128(..))
+}
+
+#[cfg(test)]
+mod toss_budget_tests {
+    use super::*;
+
+    #[test]
+    fn the_budget_is_per_friend_and_leaves_with_the_friend() {
+        let now = Instant::now();
+        let mut st = State::default();
+        for _ in 0..10 {
+            assert!(st.take_toss("a", now));
+        }
+        assert!(!st.take_toss("a", now));
+        // 다른 친구의 몫은 따로
+        assert!(st.take_toss("b", now));
+        // 시간이 지나면 다시 찬다
+        assert!(st.take_toss("a", now + TOSS_EVERY));
+        st.remove_friend("a");
+        assert!(!st.toss_budget.contains_key("a"));
+        assert!(st.toss_budget.contains_key("b"));
+    }
 }

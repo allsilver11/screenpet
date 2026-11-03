@@ -857,6 +857,42 @@ fn flooded_tosses_are_rate_limited_per_link_without_dropping_it() {
     net.shutdown();
 }
 
+/// 한 링크로 물건을 count개 보내고 window 동안 받은 Tossed 수를 센다
+fn count_tosses(p: &mut Peer, rx: &Receiver<NetEvent>, count: usize, window: Duration) -> usize {
+    for _ in 0..count {
+        p.send(json!({"type": "ping", "toss": {"kind": "can", "side": "left"}})).unwrap();
+    }
+    let deadline = Instant::now() + window;
+    let mut events = 0;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(NetEvent::Tossed { .. }) => events += 1,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    events
+}
+
+#[test]
+fn reconnecting_does_not_refill_the_toss_budget() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut first = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert_eq!(count_tosses(&mut first, &rx, 30, Duration::from_millis(500)), 10);
+    drop(first);
+    std::thread::sleep(Duration::from_millis(200));
+    // 같은 친구의 새 링크: 남은 토큰을 이어받는다 (6초에 하나만 다시 찬다)
+    let mut second = raw_friend_connect(port, &kz, "zzzz");
+    std::thread::sleep(Duration::from_millis(200));
+    second.send(json!({"type": "ping", "ask": "invite"})).unwrap();
+    assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Asked { .. })).is_some(), "the new link works");
+    let again = count_tosses(&mut second, &rx, 30, Duration::from_millis(500));
+    assert!(again <= 1, "budget carried over the reconnect: {again}");
+    net.shutdown();
+}
+
 #[test]
 fn stranger_rehello_does_not_rename() {
     let (net, rx, port) = start_sniffed(key(), vec![]);

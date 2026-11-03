@@ -270,7 +270,6 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
                 name: name.to_string(),
                 asks: AskBucket::new(now),
                 steers: AskBucket::steering(now),
-                tosses: AskBucket::tossing(now),
                 kind,
                 announced: announced || connected,
                 outgoing,
@@ -393,8 +392,9 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
                     shared.emit(NetEvent::Steered { from: id.to_string(), steer });
                 }
             }
+            // Budgeted per friend (not per link): reconnecting doesn't refill it
             if let Some(toss) = toss {
-                if c.tosses.take(now) {
+                if st.take_toss(id, now) {
                     shared.emit(NetEvent::Tossed { from: id.to_string(), toss });
                 }
             }
