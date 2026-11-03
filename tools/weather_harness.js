@@ -33,7 +33,7 @@ function run(kind) {
   let listener = null;
   const sandbox = {
     document: { getElementById: canvas, createElement: canvas, documentElement: { style: {} }, body: {} },
-    window: { innerWidth: W, innerHeight: H, addEventListener() {}, __TAURI__: { event: { listen: (_, f) => (listener = f) } } },
+    window: { innerWidth: W, innerHeight: H, addEventListener() {}, __TAURI__: { webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (_, f) => (listener = f) }) } } },
     performance: { now: () => now },
     setTimeout(f, ms) {
       delays.push(ms);
