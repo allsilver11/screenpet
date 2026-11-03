@@ -62,7 +62,7 @@ OPTIONAL_ANIMS = [
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
-_CARE_SPEECH = {"hungry": ["hungry...", "food?"], "full": ["full~"], "level_up": ["yay!", "♪♪"]}
+_CARE_SPEECH = {"hungry": ["hungry...", "food?"], "full": ["full~"], "level_up": ["I grew up!!"]}
 # 공룡 셋 (불 뿜기·크앙·쿵쾅 말풍선 roar/fire/stomp)
 _DINO_SPEECH = {"chatter": ["rawr!", "♪"], "tickle": ["hehe!"], "grumpy": ["grrr~"], "roar": ["RAWR!", "grrr~"], "fire": ["fwoosh~"],
                 "stomp": ["stomp!"], **_CARE_SPEECH}

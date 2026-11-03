@@ -2017,7 +2017,7 @@ BEE = Species(
     front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[],
     front_tail=[], front_tail_root=(64, 112), front_tail_color=BEE_ST, side_ears=[], ears_over=False,
     side_head_marks=[], side_torso_marks=[], side_tail=[], tail_root=(20, 84), tail_color=BEE_ST,
-    specials=["sting", "lookup"], stage_size=dict.fromkeys(STAGES, 0.8), stripe=BEE_ST, poses=BEE_POSES,
+    specials=["sting", "lookup"], stage_size=dict.fromkeys(STAGES, 1.1), stripe=BEE_ST, poses=BEE_POSES,
 )
 SPECIES[BEE.id] = BEE
 

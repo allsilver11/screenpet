@@ -848,7 +848,7 @@ _COMMON = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_hea
 
 PUMPKIN = Species(
     id="pumpkin", name="호박", walk_speed=70, scale=0.94, base=PUMP, back=PUMP, belly=PUMP, nose=PUMP_RIDGE, mouth="w",
-    front_tail_color=PUMP, tail_color=PUMP, stage_size=dict.fromkeys(STAGES, 0.9), stripe=PUMP_RIDGE, outline=PUMP_LINE,
+    front_tail_color=PUMP, tail_color=PUMP, stage_size=dict.fromkeys(STAGES, 1.15), stripe=PUMP_RIDGE, outline=PUMP_LINE,
     # 모든 단계 동글 · 아기는 눈이 더 크고 색이 살짝 연함
     stage_tweak={"baby": dict(pale=0.16, eye=1.14, fit=0.9), "kinder": dict(pale=0.08, eye=1.08, fit=0.94),
                  "child": dict(eye=1.04, fit=0.96), "teenager": dict(eye=1.0), "adult": dict(eye=0.98, calm=False, fit=0.95)},
@@ -857,7 +857,7 @@ PUMPKIN = Species(
 
 GHOST_SP = Species(
     id="ghost", name="유령", walk_speed=40, scale=0.94, base=GHOST, back=GHOST, belly=GHOST, nose=BLUSH, mouth="w",
-    front_tail_color=GHOST, tail_color=GHOST, stage_size=dict.fromkeys(STAGES, 0.85), stripe=GHOST_SHADE, outline=GHOST_LINE,
+    front_tail_color=GHOST, tail_color=GHOST, stage_size=dict.fromkeys(STAGES, 1.0), stripe=GHOST_SHADE, outline=GHOST_LINE,
     # 모든 단계 반짝이 두 개 큰 눈 (어른도) — 아기는 더 크게
     stage_tweak={"baby": dict(pale=0.0, eye=1.32, fit=0.92), "kinder": dict(pale=0.0, eye=1.22, fit=0.95),
                  "child": dict(sparkle=True, smile=False, eye=1.16), "teenager": dict(sparkle=True, eye=1.12),

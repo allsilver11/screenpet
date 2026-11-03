@@ -105,7 +105,7 @@ def test_stage_sheets_and_manifest(tmp_path):
     assert all(size["bear"][st] > 1.0 for st in ("child", "teenager", "adult"))
     assert all(v == 0.85 for v in size["rabbit"].values())
     assert all(v == 1.0 for pid in ("cat", "dog") for v in size[pid].values())
-    assert all(v == 0.8 for v in size["bee"].values())
+    assert all(v == 1.1 for v in size["bee"].values())  # v0.3.10: 토끼만큼 키웠다
 
 
 def test_rabbit_manifest_keeps_hop_share():

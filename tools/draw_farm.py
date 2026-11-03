@@ -963,7 +963,7 @@ _COMMON = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_hea
 
 DUCK = Species(
     id="duck", name="오리", walk_speed=80, scale=0.94, base=DUCK_W, back=DUCK_W, belly=DUCK_W, nose=BILL, mouth="w",
-    front_tail_color=DUCK_W, tail_color=DUCK_W, stage_size=dict.fromkeys(STAGES, 0.9), stripe=BILL, outline=DUCK_LINE,
+    front_tail_color=DUCK_W, tail_color=DUCK_W, stage_size=dict.fromkeys(STAGES, 1.3), stripe=BILL, outline=DUCK_LINE,
     stage_tweak={"baby": dict(pale=0.0, eye=1.2, fit=0.9), "kinder": dict(pale=0.0, eye=1.12, fit=0.93),
                  "child": dict(pale=0.0, eye=1.05), "adult": dict(fit=0.94)},
     specials=["lookup"], poses=DUCK_POSES, **_COMMON,

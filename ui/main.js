@@ -418,6 +418,56 @@ function poof() {
   }
 }
 
+// 성장 축하 (백엔드 anim "level_up"이 시작될 때 한 번): 하트와 별이 몸 가운데에서 펑 터져 퍼지며 사라진다.
+// CSS 애니메이션 한 번 (.burst-bit — 프레임마다 JS 없음), 끝나면 지운다. 조각은 #stage의 자식이라 몸의 변환·모자와 상관없다.
+// 성장 순간 백엔드가 창을 새 크기로 바꾸므로 지금 창을 재지 않고 새 몸 크기로 계산한다 (창 = 128 × max(1, 배율) × 36 + 몸)
+// BURST-LAYOUT-START (tools/test_levelup_ui.py가 node로 이 부분을 그대로 돌린다)
+const BURST_COUNT = 12;
+function burstLayout(side) {
+  const halfW = Math.max(128, side) / 2;
+  const cy = side / 2;
+  const up = 36 + side - cy;
+  const reach = Math.max(side * 0.62, 50);
+  const bits = [];
+  for (let i = 0; i < BURST_COUNT; i++) {
+    const a = (i / BURST_COUNT) * Math.PI * 2 + Math.random() * 0.35;
+    const r = reach * (0.72 + Math.random() * 0.38);
+    const size = 14 + Math.random() * 5;
+    // 커지는 순간(CSS 1.2배)까지 창 안에 남도록 끝자리를 창 안으로 당긴다. 시작점과 끝점이 창 안이면 곧게 가는 길도 창 안이다
+    const pad = size * 0.75;
+    const dx = Math.max(-(halfW - pad), Math.min(halfW - pad, Math.cos(a) * r));
+    const dy = Math.max(-(cy - pad), Math.min(up - pad, Math.sin(a) * r));
+    bits.push({ heart: i % 2 === 0, size, dx, dy, delay: Math.random() * 80 });
+  }
+  return { cy, bits };
+}
+// 축하 중에 눌러 잡혔다 놓여도 (level_up → dragged → level_up) 한 번의 성장엔 한 번만 (코어 LEVEL_UP_SECS 2초보다 길게)
+const BURST_ONCE_MS = 2500;
+// BURST-LAYOUT-END
+const BURST_MS = 1000;
+let lastBurst = -Infinity;
+function levelUpBurst() {
+  const now = performance.now();
+  if (now - lastBurst < BURST_ONCE_MS || document.visibilityState === "hidden") return;
+  lastBurst = now;
+  const { cy, bits } = burstLayout(128 * stage.scale);
+  for (const b of bits) {
+    const s = document.createElement("span");
+    s.className = "burst-bit";
+    s.textContent = b.heart ? "♥" : "★";
+    s.style.color = b.heart ? "#ff5a8a" : "#ffd84a";
+    s.style.fontSize = b.size.toFixed(1) + "px";
+    s.style.bottom = cy + "px";
+    s.style.animationDelay = b.delay.toFixed(0) + "ms";
+    s.style.setProperty("--dx", `${b.dx.toFixed(1)}px`);
+    s.style.setProperty("--dy", `${(-b.dy).toFixed(1)}px`);
+    stageEl.appendChild(s);
+    s.addEventListener("animationend", () => s.remove());
+    // 그사이 창이 숨겨져 애니메이션이 멈춰도 남지 않게
+    setTimeout(() => s.remove(), BURST_MS + 500);
+  }
+}
+
 // 첫 pet-render는 이 웹뷰가 듣기 전에 지나갔을 수 있다 — 첫 로드 땐 slot_info의 render를 쓴다 (이벤트가 먼저 왔으면 그쪽이 새것)
 let gotRender = false;
 const listeningRender = listen("pet-render", (e) => {
@@ -431,6 +481,8 @@ const listeningRender = listen("pet-render", (e) => {
   // 트레이에서 먹였거나 다른 길로 먹기 시작하면 고르기 버튼은 필요 없다
   if (e.payload.anim === "eat") speech.hidePicker();
   if (e.payload.anim === "tickle" && render.anim !== "tickle") petFx("tickle");
+  // 하우스 안이면 하우스 창이 대신 축하한다 (ui/house.js 집 폴짝)
+  if (e.payload.anim === "level_up" && render.anim !== "level_up" && !e.payload.housed) levelUpBurst();
   // 뿅은 손 흔들기 끝에서만 시작한다 (걸어 나가 사라진 Away도 poof지만 그건 그림 없이)
   if (e.payload.poof && !render.poof && e.payload.anim !== "idle") poof();
   // poof가 아닌 모습이 오면(취소돼 남음·돌아옴) 바로 다시 보인다. 사라진 뒤(Away)엔 백엔드가 poof를 켜 둔다

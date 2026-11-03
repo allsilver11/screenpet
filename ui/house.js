@@ -1,7 +1,8 @@
 // 하우스 창: 집 그림 + 문간에 앉은 동물 + 말풍선·음식 고르기 (common.js를 먼저 읽는다).
 // 동물이 집 안에 있는 동안(house-state.housed) 문간 애니메이션은 여기서 정한다:
 // 대개 sit_front, 가끔(20–40초마다) 10–20초 sleep, 집을 누르면 2초 wave.
-// 먹기·성장 축하·갸웃·하트는 백엔드(pet-render)가 정한 대로 보인다.
+// 먹기·성장 축하·갸웃·하트는 백엔드(pet-render)가 정한 대로 보인다. 집 안에서 자라면 집이 작게 폴짝 뛴다 (말풍선 "I grew up!!"은 백엔드 pet-say,
+// 집 크기는 백엔드가 곧이어 house-state로 바꾼다 — 새 그림을 미리 받아 두었다가 한 번에 바꿔 깜빡이지 않는다).
 // 집은 동물의 단계에 맞는 그림(house/<kind>_<stage>.png — pet.json house: 보통 house, 꿀벌 hive, 호박·유령 haunted,
 // 루돌프·산타 xmas — 굴뚝에서 연기가 피어오른다)을
 // 128 × HOUSE_SCALE[stage] 크기로 창 오른쪽 아래에 그린다 (창 크기는 src-tauri/src/house.rs가 같은 배율로 맞춘다).
@@ -126,6 +127,13 @@ function placeSmoke(k) {
   smokeEl.style.setProperty("--k", k);
 }
 
+// 그림을 먼저 받아 풀어 둔다 — 없는 그림을 바로 끼우면 집이 잠깐 비어 보인다
+async function preloadArt(url) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+}
+
 // 단계(또는 동물 종류)가 바뀌었으면 그 단계 그림과 문을 읽는다
 // seq: loadPet의 순번 — 읽는 사이 다른 동물/단계로 바뀌었으면 버린다
 async function loadArt(name, seq) {
@@ -136,6 +144,7 @@ async function loadArt(name, seq) {
     const meta = await (await fetch(`house/${name}.json`)).json();
     d = meta.door;
     puff = meta.smoke ?? null;
+    await Promise.all([preloadArt(`house/${name}.png`), preloadArt(`house/${name}_front.png`)]);
   } catch {
     // 그림이 없으면 예전 집 (teenager)
   }
@@ -224,8 +233,19 @@ const listeningRender = listen("pet-render", (e) => {
   gotRender = true;
   const anim = e.payload.anim;
   if (anim !== backendAnim && BACKEND_ANIMS.has(anim)) animStart = performance.now();
+  if (anim === "level_up" && backendAnim !== "level_up" && e.payload.housed) houseHop();
   if (anim === "eat") speech.hidePicker();
   backendAnim = anim;
+});
+
+// 집 안에서 성장: 집이 작게 폴짝 (CSS 한 번)
+function houseHop() {
+  houseEl.classList.remove("house-hop");
+  void houseEl.offsetWidth; // 애니메이션 재시작
+  houseEl.classList.add("house-hop");
+}
+houseEl.addEventListener("animationend", (e) => {
+  if (e.target === houseEl) houseEl.classList.remove("house-hop");
 });
 
 // 집을 눌렀는데 배고프지 않으면 손 흔들기

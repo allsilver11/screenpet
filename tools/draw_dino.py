@@ -711,7 +711,7 @@ def _dino_species(pid, name):
     pal = PALETTES[pid]
     return Species(id=pid, name=name, walk_speed=72, scale=0.94, base=pal["body"], back=pal["body"], belly=pal["belly"],
                    nose=pal["line"], mouth="w", front_tail_color=pal["body"], tail_color=pal["body"],
-                   stage_size=dict.fromkeys(STAGES, 1.0), stripe=pal["spike"], outline=pal["line"], stage_tweak=_TWEAK,
+                   stage_size=dict.fromkeys(STAGES, 1.2), stripe=pal["spike"], outline=pal["line"], stage_tweak=_TWEAK,
                    specials=_specials(), poses=DINO_POSES, **_COMMON)
 
 

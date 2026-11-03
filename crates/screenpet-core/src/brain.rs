@@ -454,6 +454,8 @@ pub struct RenderState {
     pub hang: i8,
     /// 머리 위에 작은 눈구름이 떠 있다 — 웹뷰가 머리 위에 띄운다 (brain_cloud.rs)
     pub cloud: bool,
+    /// 하우스 안 — 성장 축하를 펫 창(하트·별 터짐) 대신 하우스 창(집 폴짝)이 보여 준다
+    pub housed: bool,
 }
 
 pub struct Pet {
@@ -815,7 +817,7 @@ impl Pet {
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
         };
         let hang = self.hang_side();
-        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang, cloud: self.snow_cloud_on() }
+        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang, cloud: self.snow_cloud_on(), housed: self.housed }
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
@@ -3456,7 +3458,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -3547,7 +3549,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -3566,7 +3568,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
     }
 
     #[test]
@@ -4889,7 +4891,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -5707,7 +5709,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
             }
             last_x = p.body.x;
         }

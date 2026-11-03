@@ -320,16 +320,26 @@ body {
   transform: scale(1.1);
 }
 
-/* 하우스 창 (house.html): 위 36px은 말풍선 자리, 아래 128×128이 집 */
+/* 하우스 창 (house.html): 위 36px은 말풍선 자리, 아래 128×128이 집. 창 아래에 붙인다 — 성장으로 창이 먼저 커져도 새 그림이 올 때까지 옛 집이 뜨지 않고 바닥에 있다 */
 #house {
   position: absolute;
   left: 0;
-  top: 36px;
+  bottom: 0;
   width: 128px;
   height: 128px;
   background: url(house/house.png) no-repeat;
   background-size: 128px 128px;
   cursor: pointer;
+}
+
+/* 집 안에서 성장: 집이 작게 폴짝 (house.js — 말풍선 자리 안에서) */
+#house.house-hop {
+  animation: house-hop 0.4s ease-out;
+}
+@keyframes house-hop {
+  0%, 100% { transform: translateY(0); }
+  45% { transform: translateY(-9px); }
+  75% { transform: translateY(0) scaleY(0.97); }
 }
 
 /* 문간 — 위치·크기는 house.js가 house/house.json `door`로 맞춘다. 동물은 문 밖으로 삐져나오지 않는다 */
@@ -422,6 +432,24 @@ body {
 @keyframes spark {
   from { transform: translate(-50%, 50%) scale(0.4); opacity: 1; }
   to { transform: translate(calc(-50% + var(--dx)), calc(50% + var(--dy))) scale(1); opacity: 0; }
+}
+
+/* 성장 축하 (main.js levelUpBurst): 하트·별이 펑 — 작게 시작해 커지며 퍼지고 사라진다 (대기 포함 1초 안, 끝나면 지운다) */
+.burst-bit {
+  position: absolute;
+  left: 50%;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 0 2px #fff, 0 0 3px #fff;
+  transform: translate(-50%, 50%) scale(0.3);
+  opacity: 0;
+  z-index: 2;
+  animation: burst-pop 0.9s ease-out both;
+}
+@keyframes burst-pop {
+  0% { transform: translate(-50%, 50%) scale(0.3); opacity: 1; }
+  30% { transform: translate(calc(-50% + var(--dx) * 0.7), calc(50% + var(--dy) * 0.7)) scale(1.2); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx)), calc(50% + var(--dy))) scale(0.8); opacity: 0; }
 }
 
 /* 손님이 들고 온 편지 💌 — 도착하면 머리 옆(얼굴 오른쪽, 창 안)에서 통통 튀며 반짝.

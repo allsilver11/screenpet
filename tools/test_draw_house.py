@@ -131,7 +131,7 @@ def test_pet_fills_door_like_teenager(built, kind, stage):
     teen = _door(built, "house", "teenager")
     teen_fill = draw_house.door_pet_size("teenager") / teen["w"]
     door = _door(built, kind, stage)
-    # 벌통 입구는 꿀벌 몸 폭(프레임 안 몸 폭 × 몸 배율 0.8, 고양이 대비)에 맞춘 작은 구멍,
+    # 벌통 입구는 꿀벌 몸 폭(프레임 안 몸 폭 × 몸 배율 1.1, 고양이 대비)에 맞춘 둥근 구멍,
     # 귀신의 집 문은 호박·유령 몸 폭(평균)에 맞춘다
     body = {"hive": draw_house.HIVE_FILL, "haunted": draw_house.HAUNTED_FILL, "xmas": draw_house.XMAS_FILL}.get(kind, {}).get(stage, 1.0)
     fill = draw_house.door_pet_size(stage) * body / door["w"]
@@ -170,7 +170,8 @@ def test_kinds_include_haunted():
 @pytest.mark.parametrize("pet", ["pumpkin", "ghost"])
 @pytest.mark.parametrize("stage", STAGES)
 def test_haunted_door_fits_pumpkin_and_ghost(built, pet, stage):
-    """실제 시트로 잰 호박·유령 몸 폭이 귀신의 집 문을 teenager 집의 고양이처럼 (±12 %) 채운다."""
+    """실제 시트로 잰 호박·유령 몸 폭이 귀신의 집 문을 teenager 집의 고양이처럼 (±15 %) 채운다.
+    (v0.3.10: 호박 1.15 · 유령 1.0으로 키워 둘의 폭 차이가 18 % → 26 %로 벌어졌다 — 문 하나로 나눠 쓰니 ±12 %로는 안 들어간다)"""
     if draw_house.sit_frame(pet, stage) is None:
         pytest.skip(f"no {pet} sheet")
     teen = _door(built, "house", "teenager")
@@ -179,7 +180,26 @@ def test_haunted_door_fits_pumpkin_and_ghost(built, pet, stage):
     fill = draw_house.door_pet_size(stage) * _body_width(pet, stage) / door["w"]
     # 고양이 몸 폭은 단계마다 조금 달라 고양이 자신도 기준 단계와 비교한다
     cat_fill = draw_house.door_pet_size(stage) * _body_width("cat", stage) / _door(built, "house", stage)["w"]
-    assert abs(fill / cat_fill - 1) < 0.12, (pet, stage, fill, cat_fill, teen_fill)
+    assert abs(fill / cat_fill - 1) < 0.15, (pet, stage, fill, cat_fill, teen_fill)
+
+
+@pytest.mark.parametrize("stage", STAGES)
+def test_hive_door_fits_the_bee(built, stage):
+    """v0.3.10: 꿀벌이 커져도 (몸 배율 1.1) 벌통 입구를 고양이가 문 채우듯 (±12 %) 채운다 — 입구에 잘리지 않는다."""
+    door = _door(built, "hive", stage)
+    fill = draw_house.door_pet_size(stage) * _body_width("bee", stage) / door["w"]
+    cat_fill = draw_house.door_pet_size(stage) * _body_width("cat", stage) / _door(built, "house", stage)["w"]
+    assert abs(fill / cat_fill - 1) < 0.12, (stage, fill, cat_fill)
+
+
+@pytest.mark.parametrize("pet", ["dino_green", "duck", "frog"])
+@pytest.mark.parametrize("stage", STAGES)
+def test_grown_pets_still_fit_the_plain_house_door(built, pet, stage):
+    """v0.3.10에 커진 보통 집 동물: 문은 그대로 — 강아지(가장 넓은 기존 몸)보다 넓지 않다."""
+    door = _door(built, "house", stage)
+    fill = draw_house.door_pet_size(stage) * _body_width(pet, stage) / door["w"]
+    dog = draw_house.door_pet_size(stage) * _body_width("dog", stage) / door["w"]
+    assert fill <= dog * 1.1, (pet, stage, fill, dog)
 
 
 def test_haunted_house_is_purple_with_warm_glow(built):

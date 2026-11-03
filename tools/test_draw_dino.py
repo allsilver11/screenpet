@@ -70,10 +70,10 @@ def test_manifests(out):
         assert sp["chatter"] == ["rawr!", "♪"] and sp["tickle"] == ["hehe!"] and sp["grumpy"] == ["grrr~"]
         assert sp["roar"] == ["RAWR!", "grrr~"] and sp["fire"] == ["fwoosh~"] and sp["stomp"] == ["stomp!"]
         assert sp["hungry"] == SPEECH["cat"]["hungry"]
-        # 보통 집 · 걷는다 · 벽을 탄다 (climb·slide 둘 다 있어야 앱이 켠다) · 크기 1.0
+        # 보통 집 · 걷는다 · 벽을 탄다 (climb·slide 둘 다 있어야 앱이 켠다) · 크기 1.2
         assert not {"house", "locomotion", "hop_share"} & set(m)
         assert not {"arch", "wag"} & set(m["animations"])
-        assert set(m["stage_size"].values()) == {1.0}
+        assert set(m["stage_size"].values()) == {1.2}  # v0.3.10: 토끼만큼 키웠다
         a = m["animations"]
         base = len(ANIMS) + 2 + (1 if "lookup" in a else 0)
         assert a["climb"] == {"row": len(ANIMS), "frames": 4, "fps": 6} and a["slide"] == {"row": len(ANIMS) + 1, "frames": 2, "fps": 8}

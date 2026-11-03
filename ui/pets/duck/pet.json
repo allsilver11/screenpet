@@ -148,8 +148,7 @@
       "full~"
     ],
     "level_up": [
-      "yay!",
-      "♪♪"
+      "I grew up!!"
     ]
   },
   "favorite_food": {
@@ -164,11 +163,11 @@
     "adult"
   ],
   "stage_size": {
-    "baby": 0.9,
-    "kinder": 0.9,
-    "child": 0.9,
-    "teenager": 0.9,
-    "adult": 0.9
+    "baby": 1.3,
+    "kinder": 1.3,
+    "child": 1.3,
+    "teenager": 1.3,
+    "adult": 1.3
   },
   "personality": "playful",
   "head": {

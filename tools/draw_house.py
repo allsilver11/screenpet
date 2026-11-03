@@ -33,6 +33,7 @@ OUT_DIR = ROOT / "ui" / "house"
 PREVIEW = ROOT / "tools" / "preview" / "house.png"
 PREVIEW_ALL = ROOT / "tools" / "preview" / "houses.png"
 PREVIEW_HAUNTED = ROOT / "tools" / "preview" / "haunted.png"
+PREVIEW_HIVE = ROOT / "tools" / "preview" / "hive.png"
 PREVIEW_XMAS = ROOT / "tools" / "preview" / "xmas_house.png"
 
 # 단계별 하우스 창 배율 (src-tauri/src/house.rs house_scale, ui/house.js HOUSE_SCALE와 같다)
@@ -109,9 +110,9 @@ def _door(cx, w, h):
 # 문 사각형 (128 프레임 좌표). 위는 반원 아치, 아래는 집 바닥.
 # 너비·높이 = teenager(52×62) × STAGE_SCALE / HOUSE_SCALE (펫이 문을 같은 비율로 채운다)
 DOOR_SIZE = {"baby": (42, 51), "kinder": (46, 55), "child": (50, 59), "teenager": (52, 62), "adult": (54, 64)}
-# 꿀벌은 프레임 안에서 몸이 고양이보다 좁고(sit_front 몸 폭 66–80 vs 94–102) 몸 배율도 0.8이라, 같은 비율로 채우려면
-# 벌통 입구가 집 문의 (꿀벌 몸 폭 × 0.8 / 고양이 몸 폭)배 — 단계별 0.52 / 0.58 / 0.62 / 0.67 / 0.65 — 작은 둥근 구멍이 된다
-HIVE_FILL = {"baby": 0.52, "kinder": 0.58, "child": 0.62, "teenager": 0.67, "adult": 0.65}
+# 꿀벌은 프레임 안에서 몸이 고양이보다 좁아(sit_front 몸 폭 66–80 vs 94–102), 몸 배율 1.1 (v0.3.10)로 같은 비율로 채우려면
+# 벌통 입구가 집 문의 (꿀벌 몸 폭 × 1.1 / 고양이 몸 폭)배 — 단계별 0.72 / 0.80 / 0.85 / 0.92 / 0.89 — 둥근 구멍이 된다
+HIVE_FILL = {"baby": 0.72, "kinder": 0.80, "child": 0.85, "teenager": 0.92, "adult": 0.89}
 HIVE_DOOR_SIZE = {s: (round(w * HIVE_FILL[s]), round(w * HIVE_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
 DOORS = {
     "house": {"baby": _door(64, *DOOR_SIZE["baby"]), "kinder": _door(49, *DOOR_SIZE["kinder"]),
@@ -119,11 +120,11 @@ DOORS = {
               "adult": _door(46, *DOOR_SIZE["adult"])},
     "hive": {s: _door(64, *HIVE_DOOR_SIZE[s]) for s in STAGES},
 }
-# 호박(몸 배율 0.9)·유령(0.85)도 고양이보다 좁아서, 같은 방법으로 잰 두 몸 폭의 평균 — 단계별
-# 호박 0.60 / 0.68 / 0.75 / 0.84 / 0.82, 유령 0.58 / 0.63 / 0.66 / 0.71 / 0.71
-HAUNTED_FILL = {"baby": 0.59, "kinder": 0.65, "child": 0.71, "teenager": 0.78, "adult": 0.76}
+# 호박(몸 배율 1.15)·유령(1.0) (v0.3.10): 같은 방법으로 잰 두 몸 폭의 평균 — 단계별
+# 호박 0.77 / 0.87 / 0.96 / 1.07 / 1.05, 유령 0.68 / 0.74 / 0.78 / 0.84 / 0.84
+HAUNTED_FILL = {"baby": 0.72, "kinder": 0.80, "child": 0.87, "teenager": 0.95, "adult": 0.94}
 HAUNTED_DOOR_SIZE = {s: (round(w * HAUNTED_FILL[s]), round(w * HAUNTED_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
-HAUNTED_DOOR_X = {"baby": 56, "kinder": 46, "child": 46, "teenager": 44, "adult": 44}
+HAUNTED_DOOR_X = {"baby": 56, "kinder": 46, "child": 46, "teenager": 44, "adult": 45}
 DOORS["haunted"] = {s: _door(HAUNTED_DOOR_X[s], *HAUNTED_DOOR_SIZE[s]) for s in STAGES}
 # 크리스마스 벽돌집 (루돌프 몸 배율 0.9 · 산타 1.1): 루돌프는 귀가 넓어 고양이보다 넓고 산타는 좁다 — 같은 방법으로 잰 두 몸 폭의 평균,
 # 단계별 루돌프 1.11 / 1.13 / 1.14 / 1.13 / 1.00, 산타 0.67 / 0.69 / 0.71 / 0.75 / 0.88
@@ -760,7 +761,7 @@ def draw_haunted_adult():
         glow_window(img, 104, 96, 5.5, tower)
         opening = haunted_door(img, d)
         sill = door_sill(img, d, color=H_WOOD_LIGHT)
-        jack_o_lantern(img, 79, 121, 8.5)
+        jack_o_lantern(img, 82, 121, 8.5)
         jack_o_lantern(img, 112, 122, 6)
         bat(img, 72, 12, 1.15)
         bat(img, 15, 14, 1.0)
@@ -1124,7 +1125,7 @@ def preview_all(arts, path=PREVIEW_ALL):
     for c, stage in enumerate(STAGES):
         side = round(FRAME * HOUSE_SCALE[stage] * big)
         pets = {"house": (sit_frame("cat", stage), body_scale("cat", stage)),
-                "hive": (bee[stage], body_scale("bee", stage)) if bee[stage] else (bee_placeholder(), 0.8)}
+                "hive": (bee[stage], body_scale("bee", stage)) if bee[stage] else (bee_placeholder(), 1.1)}
         for k, kind in enumerate(("house", "hive")):
             art, front = arts[kind, stage]
             comp = art.copy()
@@ -1169,6 +1170,26 @@ def preview_haunted(arts, path=PREVIEW_HAUNTED):
     out.convert("RGB").save(path)
 
 
+def preview_hive(arts, path=PREVIEW_HIVE):
+    """단계마다 앱 크기(128 × HOUSE_SCALE, 2배 확대)로 벌통 + 꿀벌. 아랫줄은 어두운 배경."""
+    big = 2
+    cell = round(FRAME * max(HOUSE_SCALE.values()) * big) + 12
+    out = Image.new("RGBA", (16 + len(STAGES) * cell, 16 + 2 * cell), (200, 200, 200, 255))
+    for c, stage in enumerate(STAGES):
+        side = round(FRAME * HOUSE_SCALE[stage] * big)
+        art, front = arts["hive", stage]
+        comp = art.copy()
+        comp.alpha_composite(pet_in_door(sit_frame("bee", stage), DOORS["hive"][stage], door_pet_size(stage, body_scale("bee", stage))))
+        comp.alpha_composite(front)
+        comp = comp.resize((side, side), Image.LANCZOS)
+        for b, bg in enumerate([(255, 255, 255), (40, 44, 52)]):
+            tile = Image.new("RGBA", (side, side), bg + (255,))
+            tile.alpha_composite(comp)
+            out.paste(tile, (16 + c * cell + (cell - 12 - side) // 2, 16 + b * cell + (cell - 12 - side)))
+    path.parent.mkdir(exist_ok=True)
+    out.convert("RGB").save(path)
+
+
 def preview_xmas(arts, path=PREVIEW_XMAS):
     """단계마다 앱 크기(128 × HOUSE_SCALE, 2배 확대)로 크리스마스 벽돌집 + 루돌프 / + 산타 (굴뚝 위 연기 세 모금을 앱처럼 겹쳐 본다).
     아래 두 줄은 어두운 배경."""
@@ -1208,6 +1229,12 @@ def main():
     if sys.argv[1:] == ["xmas"]:  # 크리스마스 벽돌집만 다시 그린다
         preview_xmas(build(kinds=("xmas",)))
         print("ok: xmas houses")
+        return
+    if sys.argv[1:] == ["hive", "haunted"]:  # 벌통·귀신의 집만 다시 그린다 (몸 배율이 바뀌어 문을 넓혔을 때)
+        arts = build(kinds=("hive", "haunted"))
+        preview_haunted(arts)
+        preview_hive(arts)
+        print("ok: hives + haunted houses")
         return
     arts = build()
     preview(arts)
