@@ -384,7 +384,16 @@ mod tests {
         assert!(parse_manifest(&bad).is_err());
     }
 
-    /// 번들 공룡 셋: 걷고, 공룡 동작을 모두 갖고, 좋아하는 음식이 저마다 다르다
+    /// 번들 호박은 벽을 타고, 같은 할로윈 유령은 난다 (벽 없음)
+    #[test]
+    fn bundled_pumpkin_climbs_and_the_ghost_does_not() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
+        assert!(load("pumpkin").can_climb());
+        assert!(!load("ghost").can_climb());
+    }
+
+    /// 번들 공룡 셋: 걷고, 벽을 타고, 공룡 동작을 모두 갖고, 좋아하는 음식이 저마다 다르다
     #[test]
     fn bundled_dinos() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
@@ -393,7 +402,7 @@ mod tests {
             let m = parse_manifest(&json).unwrap();
             assert!(["fire", "roar", "stomp"].iter().all(|a| m.has_anim(a)), "{id}");
             assert!(crate::behavior::Special::from_manifest(|n| m.has_anim(n)).is_some_and(|s| s.is_dino()), "{id}");
-            assert!(!m.has_anim("climb") && m.locomotion == Locomotion::Walk, "{id}");
+            assert!(m.can_climb() && m.locomotion == Locomotion::Walk, "{id}");
             assert!(json.contains(food), "{id}");
         }
     }
@@ -464,11 +473,11 @@ mod tests {
         assert!(!m.can_climb());
     }
 
-    /// 할로윈 호박: 걷는 동물인데 걷기·달리기는 늘 통통 (hop_share 1.0), 벽 타기·큰 점프·쏘기 없음
+    /// 할로윈 호박: 걷는 동물인데 걷기·달리기는 늘 통통 (hop_share 1.0), 쏘기·bigjump 그림 없음 (벽 타기는 번들 pet.json의 climb·slide로 — bundled_pumpkin_climbs_and_the_ghost_does_not)
     fn check_pumpkin(m: &PetManifest) {
         assert_eq!(m.locomotion, Locomotion::Walk);
         assert_eq!(m.hop_share(), 1.0);
-        assert!(!m.flies() && !m.hops() && !m.can_climb() && !m.can_sting() && !m.has_anim("bigjump"));
+        assert!(!m.flies() && !m.hops() && !m.can_sting() && !m.has_anim("bigjump"));
     }
 
     /// 할로윈 유령: 날지만(locomotion fly) 쏘지 않는다 — 꽃·벌통은 꿀벌만 (can_sting)

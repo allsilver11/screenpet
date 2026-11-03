@@ -2,12 +2,13 @@
 그대로 쓰고, 빛(glow)은 따로 겹치는 층으로 그린다: 몸 안쪽으로 잘린 부드러운 후광 층 → 얼굴 층(조각한 눈·입, 반짝이).
 
     python tools/draw_halloween.py  → ui/pets/{pumpkin,ghost}/{sheet_<stage>.png ×5, sheet.png, pet.json}
-                                      + tools/preview/stages_{pumpkin,ghost}.png
+                                      + tools/preview/stages_{pumpkin,ghost}.png, climb_pumpkin.png
     (python tools/draw_pets.py도 둘을 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 
 호박: 반질반질 주황 몸(골 세 줄), 꼬불 꼭지, 짤막한 발·팔. 조각한 세모 눈과 들쭉날쭉 웃는 입이 안에서 노랗게 빛난다
       (프레임마다 살짝 일렁임, 잘 때는 잉걸불처럼 어둑). 걸음 = 통통 튀는 공 (pet.json hop_share 1.0 — 걷기는 늘 깡총).
       단계: 아기 = 잎 달린 미니 호박 → 유아 잎 + 짧은 꼭지 → 어린이 꼭지 덩굴손 → 청소년 골 깊게 + 큰 덩굴 + 잎 → 어른 작은 마녀 모자.
+      고양이처럼 벽을 탄다: 뒷모습 climb·slide (빛·얼굴 없이 골과 꼭지, 손끝과 발은 몸 뒤에서 번갈아 빼꼼).
 유령: 반투명 우유빛 몸(알파 ≈ 0.88), 배 속의 따뜻한 주황 빛, 반짝이 두 개 큰 눈 + 볼터치 + 작은 입, 짤막한 팔, 물결치는 치맛단.
       둥실 난다 (locomotion fly, 꿀벌보다 느리게). 내려앉는 동작: sleep · annoyed · land.
       떠 있을 때는 치마(흰 천 하단)가 몸 높이의 15%만큼 더 길게 늘어진다 (쉬는 동작은 짧게).
@@ -742,6 +743,71 @@ def level_up(sp, i):
                    feet=((0, 0), (0, 0)) if i < 2 else ((-1, 1), (1, 1)), **kw)
 
 
+# ---- 호박 뒷모습 (벽 타기) — 조각한 얼굴은 앞쪽이라 불빛이 없다: 골과 꼭지만, 팔·발은 몸 뒤에서 끝만 빼꼼 ----
+PK_BACK_FOOT = {"side": (1.0, 0.56), "low": (0.42, 1.04), "tuck": (0.3, 0.3)}  # 몸 (rx, ry) 기준 발 자리: 옆으로 디딤 · 아래로 빼꼼 · 완전히 숨음
+
+
+def pk_back_foot(side, at, cx, cy, rx, ry):
+    """뒷발 — 몸보다 먼저 그려서 몸 밖으로 나온 만큼만 보인다."""
+    ox, oy = PK_BACK_FOOT[at]
+    x, y = cx + side * rx * ox, cy + ry * oy
+    return Part([E(x - 8, y - 5.5, x + 8, y + 5.5)], PUMP_FOOT, outline=True, grow=0)
+
+
+def pk_back_arm(sp, side, r, cx, cy, rx, ry, scratch=None):
+    """팔 — 몸보다 먼저 그려서 손끝만 어깨 옆·위로 빼꼼. r: 0 옆으로 낮게 … 1 어깨 위로 쭉. → (부품, 긁힌 자국 층)."""
+    tx, ty = cx + side * rx * (1.04 - 0.42 * r), cy + ry * (0.1 - 1.08 * r)
+    ops = []
+    if scratch is not None:
+        for j, d in enumerate((-4, 0, 4)):
+            y0 = ty - 8 - (j % 2) * 1.5 - scratch * 2
+            ops.append(([L([(tx + d * 1.1, y0), (tx + d * 1.3, y0 - 6.5)], 1.5)], PUMP_LINE, 1.0, 0, 0))
+    return Part([L([(cx + side * rx * 0.55, cy), (tx, ty)], 8.0), C(tx, ty, 5.2)], sp.base, outline=True, grow=0), ops
+
+
+def pumpkin_back(sp, reach, feet, *, sq=(1.0, 1.0), dy=0.0, stem=0.0, scratch=None, sweat=None):
+    """뒷모습 한 장. reach: (왼, 오) 팔 높이 0…1 · feet: (왼, 오) PK_BACK_FOOT 키. 뒤 → 앞: 발 · 팔 · 몸(골) · 꼭지 (불빛·얼굴 없음)."""
+    st = _pk()
+    rx, ry = st["rx"], st["ry"]
+    cx = 64.0
+    bottom = FLOOR - 6 + dy
+    cy = bottom - ry
+    parts, ops = [], []
+    with xf(sx=sq[0], sy=sq[1], pivot=(cx, bottom)):
+        parts += [pk_back_foot(s, at, cx, cy, rx, ry) for s, at in zip((-1, 1), feet)]
+        for s, r in zip((-1, 1), reach):
+            part, o = pk_back_arm(sp, s, r, cx, cy, rx, ry, scratch)
+            parts.append(part)
+            ops += o
+        lobes = [E(cx - 0.56 * rx, cy - ry, cx + 0.56 * rx, cy + ry),
+                 E(cx - rx, cy - 0.9 * ry, cx + 0.12 * rx, cy + 0.94 * ry), E(cx - 0.12 * rx, cy - 0.9 * ry, cx + rx, cy + 0.94 * ry)]
+        # 앞에서 얼굴이 차지하던 자리까지 골이 이어진다: 단계와 상관없이 또렷하게, 가운데 골 하나 더
+        rc = mix(sp.base, PUMP_RIDGE, max(0.75, st["ridge"]))
+        ridges = []
+        for k in (0.0, -0.46, 0.46) + ((-0.82, 0.82) if _ST["lvl"] >= 3 else ()):
+            top_x = cx + k * 0.5 * rx
+            ridges.append(L(_bez((top_x, cy - 0.9 * ry), (cx + k * rx, cy), (top_x, cy + 0.92 * ry)), 2.0 if abs(k) < 0.6 else 1.5))
+        marks = [([E(cx - 1.15 * rx, cy + 0.5 * ry, cx + 1.15 * rx, cy + 1.9 * ry)], mix(sp.base, PUMP_RIDGE, 0.35)),
+                 (ridges, rc),
+                 ([E(cx + 0.36 * rx, cy - 0.7 * ry, cx + 0.66 * rx, cy - 0.44 * ry)], mix(sp.base, WHITE, 0.55))]
+        parts.append(Part(lobes, sp.base, marks, outline=True, grow=0))
+        parts += pk_stem_parts(sp, (cx, cy - ry + 3), stem)
+    fx = sweat_fx(cx + rx * 0.9 + 7, cy - ry * 0.72 + sweat) if sweat is not None else []
+    return _finish(parts, (), ops, fx)
+
+
+def pk_climb(sp, i):
+    """화면을 기어오름: 손끝 번갈아 위로, 발은 손과 엇갈려 빼꼼 → 옆으로 디딤 → 숨음, 몸 살짝 늘어남, 꼭지 살랑."""
+    reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
+    feet = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")][i]
+    return pumpkin_back(sp, reach, feet, sq=(1.0, [1.04, 1.0, 1.04, 1.0][i]), dy=[-1, 0, -1, 0][i], stem=[-7, 0, 7, 0][i])
+
+
+def pk_slide(sp, i):
+    """주르륵: 두 손 쭉 위로 + 긁힌 자국, 살짝 찌그러짐, 땀 한 방울, 발은 아래로 빼꼼, 꼭지는 위로 뻗친다."""
+    return pumpkin_back(sp, (1.0, 1.0), ("low", "low"), sq=(1.03, 0.94), dy=[0, 1][i], stem=[-3, 3][i], scratch=i, sweat=i)
+
+
 def _fit(fn):
     """다 그린 프레임이 1px 투명 여백을 넘으면 그만큼 안쪽으로 민다."""
     def f(sp, i):
@@ -761,7 +827,7 @@ def _fit(fn):
 POSES = {"walk": walk, "run": run, "roll": roll, "idle": idle, "look": look, "sleep": sleep, "hop": hop, "fall": fall,
          "dragged": dragged, "land": land, "sit_front": sit_front, "wave": wave, "tilt": tilt, "belly": belly,
          "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "hungry": hungry, "eat": eat,
-         "level_up": level_up, "lookup": lookup}
+         "level_up": level_up, "lookup": lookup, "climb": pk_climb, "slide": pk_slide}  # climb·slide는 호박만 (유령은 specials에 없다)
 POSES = {k: (v if k == "roll" else _fit(v)) for k, v in POSES.items()}  # roll은 회전 원 안 그대로
 
 _COMMON = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[], front_tail=[],
@@ -774,7 +840,7 @@ PUMPKIN = Species(
     # 모든 단계 동글 · 아기는 눈이 더 크고 색이 살짝 연함
     stage_tweak={"baby": dict(pale=0.16, eye=1.14, fit=0.9), "kinder": dict(pale=0.08, eye=1.08, fit=0.94),
                  "child": dict(eye=1.04, fit=0.96), "teenager": dict(eye=1.0), "adult": dict(eye=0.98, calm=False, fit=0.95)},
-    **_COMMON,
+    **{**_COMMON, "specials": ["climb", "slide", "lookup"]},
 )
 
 GHOST_SP = Species(
@@ -839,6 +905,8 @@ def main():
     for sp in (PUMPKIN, GHOST_SP):
         by_stage = dp.write_species(sp, root / "ui" / "pets" / sp.id)
         preview_species(by_stage, pv / f"stages_{sp.id}.png")
+        if "climb" in sp.specials:
+            dp.preview_back(by_stage, pv / f"climb_{sp.id}.png")
     print("ok: pumpkin, ghost")
 
 

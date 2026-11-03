@@ -37,7 +37,7 @@ def test_registered_with_dino_anims_after_every_other_optional_anim():
         sp = draw_pets.SPECIES[pid]
         assert sp in draw_dino.DINOS
         extra = ["lookup"] if "lookup" in optional else []
-        assert names(sp) == [a for a, *_ in ANIMS] + extra + ["fire", "roar", "stomp"]
+        assert names(sp) == [a for a, *_ in ANIMS] + ["climb", "slide"] + extra + ["fire", "roar", "stomp"]
         assert all(a in sp.poses for a in names(sp))
 
 
@@ -70,12 +70,13 @@ def test_manifests(out):
         assert sp["chatter"] == ["rawr!", "♪"] and sp["tickle"] == ["hehe!"] and sp["grumpy"] == ["grrr~"]
         assert sp["roar"] == ["RAWR!", "grrr~"] and sp["fire"] == ["fwoosh~"] and sp["stomp"] == ["stomp!"]
         assert sp["hungry"] == SPEECH["cat"]["hungry"]
-        # 보통 집 · 걷는다 · 기어오르지 않는다 · 크기 1.0
+        # 보통 집 · 걷는다 · 벽을 탄다 (climb·slide 둘 다 있어야 앱이 켠다) · 크기 1.0
         assert not {"house", "locomotion", "hop_share"} & set(m)
-        assert not {"climb", "slide", "arch", "wag"} & set(m["animations"])
+        assert not {"arch", "wag"} & set(m["animations"])
         assert set(m["stage_size"].values()) == {1.0}
         a = m["animations"]
-        base = len(ANIMS) + (1 if "lookup" in a else 0)
+        base = len(ANIMS) + 2 + (1 if "lookup" in a else 0)
+        assert a["climb"] == {"row": len(ANIMS), "frames": 4, "fps": 6} and a["slide"] == {"row": len(ANIMS) + 1, "frames": 2, "fps": 8}
         assert a["fire"] == {"row": base, "frames": 4, "fps": 4, "loop": False}
         assert a["roar"] == {"row": base + 1, "frames": 3, "fps": 4}
         assert a["stomp"] == {"row": base + 2, "frames": 4, "fps": 6}
@@ -136,3 +137,92 @@ def test_fire_puffs_a_flame_inside_the_cell(out):
         a = np.asarray(cell(sheet, row, 2).convert("RGBA")).astype(int)
         xs = np.nonzero((np.abs(a[..., :3] - draw_dino.FLAME).sum(axis=2) < 30) & (a[..., 3] > 200))[1]
         assert xs.min() > 64, st
+
+
+# ---- 뒷모습 (벽 타기) ----
+def back_frames(out, pid, st):
+    sheet = Image.open(out / pid / f"sheet_{st}.png").convert("RGBA")
+    ns = names(draw_pets.SPECIES[pid])
+    return [cell(sheet, ns.index("climb"), c) for c in range(4)] + [cell(sheet, ns.index("slide"), c) for c in range(2)]
+
+
+def _patches(im, col, tol):
+    """그 색의 2×2 덩어리 수 — 경계의 안티에일리어싱 낱개 픽셀은 세지 않는다."""
+    a = np.asarray(im.convert("RGBA")).astype(int)
+    h = (a[..., 3] > 200) & (np.abs(a[..., :3] - np.array(col)).sum(axis=2) < tol)
+    return int((h[:-1, :-1] & h[1:, :-1] & h[:-1, 1:] & h[1:, 1:]).sum())
+
+
+@pytest.mark.parametrize("pid", IDS)
+def test_back_view_has_no_face_or_belly_and_spikes_run_down_the_back(out, pid):
+    pal = draw_dino.PALETTES[pid]
+    for st in STAGES:
+        for n, im in enumerate(back_frames(out, pid, st)):
+            assert _patches(im, pal["belly"], 12) == 0, (st, n)  # 배 없음
+            assert _patches(im, draw_pets.EYE, 12) == 0, (st, n)  # 눈 없음
+            assert _patches(im, draw_pets.BLUSH, 24) == 0, (st, n)  # 볼터치 없음
+            a = np.asarray(im).astype(int)
+            hit = (np.abs(a[..., :3] - pal["spike"]).sum(axis=2) < 24) & (a[..., 3] > 200)
+            ys, xs = np.nonzero(hit)
+            # 가시는 위아래로 길게 한 줄 (등 가운데, 좌우로 넓게 퍼지지 않는다)
+            assert ys.max() - ys.min() >= 28, (st, n, ys.min(), ys.max())
+            assert np.abs(xs - np.median(xs)).max() <= 16, (st, n)
+            assert _count(im, pal["spike"]) >= 40, (st, n)
+
+
+def _drawn_order(monkeypatch, sp, st, anim, n):
+    tags, orders = {}, []
+    compose = draw_pets.compose
+
+    def tagged(kind, fn):
+        def f(*a, **k):
+            r = fn(*a, **k)
+            for p in r if isinstance(r, list) else [r[0] if isinstance(r, tuple) else r]:
+                tags[id(p)] = kind
+            return r
+        return f
+    with monkeypatch.context() as m:
+        for kind, name in (("foot", "back_foot"), ("arm", "back_arm"), ("tail", "back_tail")):
+            m.setattr(draw_dino, name, tagged(kind, getattr(draw_dino, name)))
+
+        def spy(parts, *a, **k):
+            orders.append([tags.get(id(p), "body" if p.shapes else "spike") for p in parts])
+            tags.clear()  # 다음 프레임이 같은 id를 다시 쓸 수 있다
+            return compose(parts, *a, **k)
+        m.setattr(draw_pets, "compose", spy)
+        with draw_pets.stage(st, sp.stage_tweak.get(st)):
+            draw_pets.frames(draw_pets.staged_species(sp), anim, n)
+    return orders
+
+
+def test_feet_and_arms_are_behind_the_body_and_the_tail_on_top(monkeypatch):
+    sp = draw_dino.DINO_GREEN
+    for st in STAGES:
+        for anim, n in (("climb", 4), ("slide", 2)):
+            orders = _drawn_order(monkeypatch, sp, st, anim, n)
+            assert len(orders) == n
+            for o in orders:
+                assert o.count("foot") == 2 and o.count("arm") == 2 and o.count("tail") >= 1, o
+                body = o.index("body")
+                assert max(i for i, t in enumerate(o) if t in ("foot", "arm")) < body < o.index("tail"), o
+
+
+def test_feet_only_peek_and_take_turns(monkeypatch):
+    """발은 언뜻언뜻: 발을 뺀 그림과 비교하면 조금만 보이고, 오르는 동안 왼발·오른발이 번갈아 옆으로 나온다."""
+    sp = draw_dino.DINO_GREEN
+
+    def diff(a, b):
+        d = np.abs(np.asarray(a).astype(int) - np.asarray(b).astype(int)).sum(axis=2) > 60
+        return int(d[:, :FRAME // 2].sum()), int(d[:, FRAME // 2:].sum())
+    for st in STAGES:
+        with draw_pets.stage(st, sp.stage_tweak.get(st)):
+            ssp = draw_pets.staged_species(sp)
+            full = draw_pets.frames(ssp, "climb", 4)
+            with monkeypatch.context() as m:
+                m.setattr(draw_dino, "back_foot", lambda s, *a, **k: draw_pets.Part([], draw_dino.PALETTES[s.id]["body"]))
+                bare = draw_pets.frames(ssp, "climb", 4)
+        seen = [diff(f, b) for f, b in zip(full, bare)]
+        sil = [int((np.asarray(f.getchannel("A")) > 128).sum()) for f in full]
+        for n, ((l, r), area) in enumerate(zip(seen, sil)):
+            assert 0 < l + r < 0.16 * area, (st, n, l, r, area)
+        assert seen[0][1] > seen[0][0] and seen[2][0] > seen[2][1], (st, seen)

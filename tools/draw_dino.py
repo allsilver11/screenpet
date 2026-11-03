@@ -1,7 +1,7 @@
 """공룡 친구들 🦖 — 노란 공룡(dino_yellow) · 초록 공룡(dino_green) · 보라 공룡(dino_purple). draw_pets 엔진을 그대로 쓴다.
 
     python tools/draw_dino.py → ui/pets/dino_{yellow,green,purple}/{sheet_<stage>.png ×5, sheet.png, pet.json}
-                                + tools/preview/stages_dino.png (세 색 × 다섯 단계, 2배 확대)
+                                + tools/preview/stages_dino.png (세 색 × 다섯 단계, 2배 확대), climb_dino.png (뒷모습)
     (python tools/draw_pets.py도 셋을 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 
 말랑한 봉제 인형 티라노 (참고: 하늘색 몸 + 노란 등 가시 인형): 몸의 절반쯤 되는 큰 동글 머리와 불룩한 동글 주둥이,
@@ -12,6 +12,7 @@
 공룡만의 동작 (선택 동작, 옆모습): fire (흡 → 작은 불꽃 퐁 → 화르륵 + 연기 → 흐뭇) · roar (고개 들고 크앙 + 소리 물결) ·
 stomp (제자리 쿵쾅쿵쾅 + 먼지 퐁퐁). 불꽃은 칸 안에 그린다 (몸을 조금 뒤로 물려 입 앞에 자리를 낸다).
 걷기 = 쿵쿵 뒤뚱 (꼬리 살랑), 달리기 = 크게 통통 튀는 쿵쾅 달리기 (발밑 먼지). eat에는 밥그릇이 없다.
+고양이처럼 벽을 탄다: 뒷모습 climb·slide (얼굴·배 없음, 등 가운데로 가시, 꼬리는 맨 위, 앞발 끝과 발은 몸 뒤에서 번갈아 빼꼼).
 """
 
 import math
@@ -69,12 +70,12 @@ def _shade(col):
 # =====================================================================
 # 부품
 # =====================================================================
-def spike(px, py, nx, ny, h, w):
-    """동글 세모 가시: 밑변 가운데 (px, py) (몸 안으로 조금 묻힘), 바깥쪽 (nx, ny) 방향으로 h, 밑변 폭 w."""
+def spike(px, py, nx, ny, h, w, round_=0.28):
+    """동글 세모 가시: 밑변 가운데 (px, py) (몸 안으로 조금 묻힘), 바깥쪽 (nx, ny) 방향으로 h, 밑변 폭 w. round_: 끝 둥글기 (× w)."""
     tx, ty = -ny, nx
     bx, by = px - nx * 2.5, py - ny * 2.5
     tip = (px + nx * h, py + ny * h)
-    rr = w * 0.28
+    rr = w * round_
     cx, cy = tip[0] - nx * rr, tip[1] - ny * rr
     a0 = math.degrees(math.atan2(ty, tx))
     cap = arc(cx, cy, rr, rr, a0 - 180, a0, 6)
@@ -577,12 +578,107 @@ def dn_stomp(sp, i):
     return dino(sp, sq=(1.1, 0.88), eyes="happy", mouth="big", arm=30, tail_rot=[0, 6, 0, -6][i], fx=fx)
 
 
-DINO_ANIMS = ("lookup", "fire", "roar", "stomp")  # 공룡의 선택 동작 (OPTIONAL_ANIMS에 있는 것만 시트에 넣는다)
+# ---- 뒷모습 (벽 타기) — 벽을 보고 있어 얼굴·배는 안 보인다: 등 가운데로 가시, 꼬리는 맨 위, 팔·다리는 몸 뒤에서 끝만 빼꼼 ----
+BACK_FOOT = {"side": (1.02, 0.5), "low": (0.5, 1.06), "tuck": (0.3, 0.3)}  # 몸 (rx, ry) 기준 발 자리: 옆으로 디딤 · 아래로 빼꼼 · 완전히 숨음
+
+
+def back_foot(sp, side, at, cx, bcy, rx, ry):
+    """뒷발 — 몸보다 먼저 그려서 몸 밖으로 나온 만큼만 보인다 (발바닥은 벽 쪽)."""
+    col = _pal(sp)["body"]
+    ox, oy = BACK_FOOT[at]
+    x, y = cx + side * rx * ox, min(bcy + ry * oy, FLOOR - 7.5)  # 칸 아래로 잘리지 않게
+    toes = [L([(x + d, y + 3), (x + d, y + 6)], 1.2) for d in (-3.2, 3.2)]
+    return Part([E(x - 10.5, y - 8, x + 10.5, y + 8)], _shade(col), [(toes, _shade(_shade(col)))], outline=True, grow=0)
+
+
+def back_arm(sp, side, r, hx, hy, hr, scratch=None):
+    """짧은 앞발 — 머리보다 먼저 그려서 끝만 머리 옆·위로 빼꼼. r: 0 머리 옆 낮게 … 1 머리 위로 쭉. → (부품, 긁힌 자국 ops)."""
+    col = _pal(sp)["body"]
+    tx, ty = hx + side * hr * (1.34 - 0.62 * r), hy + hr * (0.45 - 1.32 * r)
+    ops = []
+    if scratch is not None:
+        for j, d in enumerate((-4, 0, 4)):
+            y0 = ty - 8 - (j % 2) * 1.5 - scratch * 2
+            ops.append(([L([(tx + d * 1.1, y0), (tx + d * 1.3, y0 - 6.5)], 1.5)], _pal(sp)["line"]))
+    return Part([L([(hx + side * hr * 0.6, hy + hr * 0.5), (tx, ty)], 7.4), C(tx, ty, 4.4)], col, outline=True, grow=0), ops
+
+
+def back_spikes(sp, xs_ys, h, w):
+    """등줄기 가시 한 줄 — (x, y)마다 위로 뾰족, 아래쪽 가시가 위쪽 가시 밑동을 살짝 덮는다."""
+    spk = _pal(sp)["spike"]
+    return [Part([], spk, grow=0, outline=True, spikes=[spike(x, y, 0.0, -1.0, h * k, w * k, 0.13)]) for x, y, k in xs_ys]
+
+
+def back_tail(sp, cx, bcy, ry, rxf, bottom, rot):
+    """꼬리 — 등 위 맨 앞. 보는 쪽으로 늘어져 살랑, 가운데로 작은 가시."""
+    col, st = _pal(sp)["body"], _dn()
+    root_y = bcy + ry * 0.14
+    tl = min((bottom - bcy) * 0.72 + 12 * (0.55 + 0.45 * _ST["tail"]), FLOOR - 1.5 - root_y)  # 칸 아래로 잘리지 않게
+    w = rxf * 0.46
+    sh = st["h"] * (0.85 + 0.15 * _ST["head"])
+    with xf(rot=rot, pivot=(cx, root_y)):
+        tip = (cx, root_y + tl)
+        shp = [T((cx - w, root_y + 2), (cx + w, root_y + 2), (tip[0] + 2.6, tip[1] - 1), (tip[0] - 2.6, tip[1] - 1)), C(cx, root_y + 2, w), C(tip[0], tip[1] - 1.6, 3)]
+        tail = Part(shp, col, [([E(cx - w * 0.72, root_y - w * 0.68, cx - w * 0.05, root_y + w * 0.1)], mix(col, WHITE, 0.25))], outline=True, grow=0)
+        return [tail] + back_spikes(sp, [(cx, root_y + tl * 0.34, 0.5)], sh * 1.1, sh * 1.2)
+
+
+def dino_back(sp, reach, feet, *, sq=(1.0, 1.0), dy=0.0, tail_rot=0.0, scratch=None, sweat=None):
+    """뒷모습 한 장. reach: (왼, 오) 앞발 높이 0…1 · feet: (왼, 오) BACK_FOOT 키. 그리는 순서 (뒤 → 앞): 발 · 앞발 · 몸 · 머리 · 등줄기 가시 · 꼬리."""
+    pal = _pal(sp)
+    col = pal["body"]
+    st = _dn()
+    hk, bk = _ST["head"], _ST["body"]
+    cx = 64.0
+    bottom = FLOOR - 7.0 * _ST["leg"] + dy
+    rx, ry = 25 * bk * _ST["torso"][0], 23 * bk * _ST["torso"][1]
+    rxf = rx * _ST["fbody"][0]
+    bcy = bottom - ry
+    hr = 21.0 * hk
+    hy = bcy - ry * 0.72 - hr * 0.5
+    sh = st["h"] * (0.85 + 0.15 * hk)
+    parts, ops = [], []
+    with xf(sx=sq[0], sy=sq[1], pivot=(cx, bottom)):
+        parts += [back_foot(sp, s, at, cx, bcy, rxf, ry) for s, at in zip((-1, 1), feet)]
+        for s, r in zip((-1, 1), reach):
+            part, o = back_arm(sp, s, r, cx, hy, hr, scratch)
+            parts.append(part)
+            ops += o
+        parts.append(Part([E(cx - rxf, bcy - ry, cx + rxf, bcy + ry)], col,
+                          [([E(cx - rxf * 0.8, bcy - ry * 0.75, cx - rxf * 0.15, bcy - ry * 0.15)], mix(col, WHITE, 0.2))], outline=True, grow=0))
+        parts.append(Part([E(cx - hr * 1.15, hy - hr * 0.9, cx + hr * 1.15, hy + hr * 0.84)], col,
+                          [([E(cx - hr * 0.8, hy - hr * 0.8, cx - hr * 0.08, hy - hr * 0.3)], mix(col, WHITE, 0.28))], outline=True, grow=0))
+        # 등줄기: 머리 꼭대기 → 뒤통수 → 등 → 꼬리 쪽으로 작아진다 (머리 위로 하나 삐져나온다, 아기는 대신 알껍데기)
+        top, end = hy - hr * (0.72 if not st["shell"] else 0.2), bcy + ry * 0.02
+        # 간격은 가시 높이보다 넉넉히 — 촘촘하면 지퍼·사다리처럼 보인다 (단계가 오를수록 개수보다 크기가 는다)
+        n = max(2, min(st["spikes"] + st["head_spikes"] + (0 if st["shell"] else 1), 1 + int((end - top) / (sh * 1.2))))
+        ridge = [(cx, top + (end - top) * k / max(1, n - 1), 1.0 - 0.3 * k / max(1, n - 1)) for k in range(n)]
+        parts += back_spikes(sp, ridge, sh * 1.0, sh * 1.3)
+        parts += back_tail(sp, cx, bcy, ry, rxf, bottom, tail_rot)
+        if st["shell"]:
+            parts.append(egg_shell(cx + hr * 0.1, hy - hr * 1.38, hr * 1.25))
+    fx = sweat_fx(cx + hr * 1.15 + 8, hy - 4 + sweat) if sweat is not None else []
+    return dp.compose(parts, ops, fx)
+
+
+def dn_climb(sp, i):
+    """화면을 기어오름: 앞발 끝 번갈아 위로, 발은 앞발과 엇갈려 빼꼼 → 옆으로 디딤 → 숨음, 몸 살짝 늘어남, 꼬리 살랑."""
+    reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
+    feet = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")][i]
+    return dino_back(sp, reach, feet, sq=(1.0, [1.04, 1.0, 1.04, 1.0][i]), dy=[-1, 0, -1, 0][i], tail_rot=[-14, 0, 14, 0][i])
+
+
+def dn_slide(sp, i):
+    """주르륵: 두 앞발 쭉 위로 + 긁힌 자국, 살짝 찌그러짐, 땀 한 방울, 발은 아래로 빼꼼."""
+    return dino_back(sp, (1.0, 1.0), ("low", "low"), sq=(1.03, 0.94), dy=[0, 1][i], tail_rot=[-5, 5][i], scratch=i, sweat=i)
+
+
+DINO_ANIMS = ("climb", "slide", "lookup", "fire", "roar", "stomp")  # 공룡의 선택 동작 (OPTIONAL_ANIMS에 있는 것만 시트에 넣는다)
 DINO_POSES = {"walk": dn_walk, "run": dn_run, "roll": dn_roll, "idle": dn_idle, "look": dn_look, "sleep": dn_sleep, "hop": dn_hop,
               "fall": dn_fall, "dragged": dn_dragged, "land": dn_land, "sit_front": dn_sit_front, "wave": dn_wave, "tilt": dn_tilt,
               "belly": dn_belly, "stretch": dn_stretch, "heart": dn_heart, "tickle": dn_tickle, "annoyed": dn_annoyed,
               "hungry": dn_hungry, "eat": dn_eat, "level_up": dn_level_up, "lookup": dn_lookup, "fire": dn_fire,
-              "roar": dn_roar, "stomp": dn_stomp}
+              "roar": dn_roar, "stomp": dn_stomp, "climb": dn_climb, "slide": dn_slide}
 DINO_POSES = {k: (v if k == "roll" else _fit(v)) for k, v in DINO_POSES.items()}
 
 _COMMON = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[], front_tail=[],
@@ -657,6 +753,23 @@ def preview_dinos(by_id, path, bg=(255, 255, 255)):
     img.save(path)
 
 
+def preview_climb(by_id, path, bg=(255, 255, 255)):
+    """세 색의 뒷모습 climb·slide 모든 프레임 × 5단계 (preview_back을 세로로 잇는다)."""
+    tmp = path.with_suffix(".part.png")
+    strips = []
+    for by_stage in by_id.values():
+        dp.preview_back(by_stage, tmp, bg)
+        with Image.open(tmp) as im:
+            strips.append(im.convert("RGBA"))
+    tmp.unlink()
+    img = Image.new("RGBA", (strips[0].width, sum(s.height for s in strips)), bg + (255,))
+    y = 0
+    for s in strips:
+        img.alpha_composite(s, (0, y))
+        y += s.height
+    img.save(path)
+
+
 def main():
     root = Path(__file__).resolve().parent.parent
     pv = root / "tools" / "preview"
@@ -665,6 +778,7 @@ def main():
     for sp in DINOS:
         by_id[sp.id] = dp.write_species(sp, root / "ui" / "pets" / sp.id)
     preview_dinos(by_id, pv / "stages_dino.png")
+    preview_climb(by_id, pv / "climb_dino.png")
     print("ok:", ", ".join(sp.id for sp in DINOS))
 
 

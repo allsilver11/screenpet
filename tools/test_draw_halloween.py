@@ -49,10 +49,10 @@ def glow_pixels(im):
 
 
 def test_both_are_registered_with_every_required_anim():
-    for pid in ("pumpkin", "ghost"):
+    for pid, extra in (("pumpkin", ["climb", "slide", "lookup"]), ("ghost", ["lookup"])):  # 호박은 벽을 탄다, 유령은 올려다보기뿐 (침·기어오르기 없음)
         sp = draw_pets.SPECIES[pid]
         assert sp.poses is draw_halloween.POSES
-        assert names(pid) == [a for a, *_ in ANIMS] + ["lookup"]  # 선택 동작은 올려다보기뿐 (침·기어오르기 없음)
+        assert names(pid) == [a for a, *_ in ANIMS] + extra
         assert all(a in draw_halloween.POSES for a in names(pid))
 
 
@@ -89,8 +89,10 @@ def test_manifests(out):
     assert gh["favorite_food"] == {"emoji": "🍭", "name": "막대사탕"} and gh["walk_speed"] == 40
     assert gh["speech"]["chatter"] == ["boo!", "ooo~"] and gh["speech"]["tickle"] == ["hehe!"]
     assert all(v == 0.85 for v in gh["stage_size"].values())
+    assert set(gh["animations"]) == {a for a, *_ in ANIMS} | {"lookup"}  # sting·climb 없음
+    assert set(pk["animations"]) == {a for a, *_ in ANIMS} | {"climb", "slide", "lookup"}  # 호박은 벽을 탄다
+    assert pk["animations"]["climb"] == {"row": len(ANIMS), "frames": 4, "fps": 6} and pk["animations"]["slide"] == {"row": len(ANIMS) + 1, "frames": 2, "fps": 8}
     for m in (pk, gh):
-        assert set(m["animations"]) == {a for a, *_ in ANIMS} | {"lookup"}  # sting·climb 없음
         assert m["animations"]["eat"] == {"row": 19, "frames": 4, "fps": 6, "front": True}
 
 
@@ -171,3 +173,79 @@ def test_floating_ghost_sheet_hangs_longer_but_head_keeps_its_size():
         extra = draw_halloween._skirt(st) - st["L"]
         assert 0.12 * height <= extra <= 0.18 * height, (lvl, extra, height)
     assert [st["r"] for st in draw_halloween.GH_STAGE.values()] == [30, 30, 29.5, 29, 29]
+
+
+# ---- 호박 뒷모습 (벽 타기) ----
+def _near(im, col, tol):
+    return sum(1 for p in pixels(im) if p[3] > 200 and sum(abs(p[k] - col[k]) for k in range(3)) < tol)
+
+
+def _back(out, st):
+    return [frame(out, "pumpkin", "climb", c, st) for c in range(4)] + [frame(out, "pumpkin", "slide", c, st) for c in range(2)]
+
+
+def test_pumpkin_back_has_ribs_and_stem_but_no_glowing_face(out):
+    for st in STAGES:
+        for n, im in enumerate(_back(out, st)):
+            assert glow_pixels(im) == 0, (st, n)  # 불빛 없음 (앞모습은 ≥ 25)
+            assert _near(im, draw_halloween.GLOW_CORE, 30) == 0 and _near(im, draw_halloween.CARVE, 12) == 0, (st, n)  # 조각한 구멍 없음
+            assert _near(im, draw_halloween.PUMP_RIDGE, 60) >= 60, (st, n)  # 골이 보인다
+            if st == "adult":  # 어른은 꼭지 자리에 마녀 모자
+                assert _near(im, draw_halloween.HAT, 24) >= 40, (st, n)
+            else:
+                assert _near(im, draw_halloween.STEM, 30) >= 12, (st, n)
+
+
+def test_pumpkin_back_limbs_are_behind_the_body(monkeypatch):
+    tags, orders = {}, []
+    compose = draw_pets.compose
+
+    def tagged(kind, fn):
+        def f(*a, **k):
+            r = fn(*a, **k)
+            tags[id(r[0] if isinstance(r, tuple) else r)] = kind
+            return r
+        return f
+    monkeypatch.setattr(draw_halloween, "pk_back_foot", tagged("foot", draw_halloween.pk_back_foot))
+    monkeypatch.setattr(draw_halloween, "pk_back_arm", tagged("arm", draw_halloween.pk_back_arm))
+
+    def spy(parts, *a, **k):
+        orders.append([tags.get(id(p)) for p in parts])
+        tags.clear()  # 다음 프레임이 같은 id를 다시 쓸 수 있다
+        return compose(parts, *a, **k)
+    monkeypatch.setattr(draw_pets, "compose", spy)
+    sp = draw_halloween.PUMPKIN
+    for st in STAGES:
+        with draw_pets.stage(st, sp.stage_tweak.get(st)):
+            draw_pets.frames(draw_pets.staged_species(sp), "climb", 4)
+            draw_pets.frames(draw_pets.staged_species(sp), "slide", 2)
+    assert len(orders) == 6 * len(STAGES)
+    for o in orders:
+        assert o[:4].count("foot") == 2 and o[:4].count("arm") == 2 and "foot" not in o[4:] and "arm" not in o[4:], o  # 몸·꼭지는 그 뒤
+
+
+def test_pumpkin_feet_only_peek_and_take_turns(monkeypatch):
+    sp = draw_halloween.PUMPKIN
+
+    def diff(a, b):
+        l = r = 0
+        pa, pb = pixels(a), pixels(b)
+        for k, (p, q) in enumerate(zip(pa, pb)):
+            if sum(abs(u - v) for u, v in zip(p, q)) > 60:
+                if k % FRAME < FRAME // 2:
+                    l += 1
+                else:
+                    r += 1
+        return l, r
+    for st in STAGES:
+        with draw_pets.stage(st, sp.stage_tweak.get(st)):
+            ssp = draw_pets.staged_species(sp)
+            full = draw_pets.frames(ssp, "climb", 4)
+            with monkeypatch.context() as m:
+                m.setattr(draw_halloween, "pk_back_foot", lambda *a, **k: draw_pets.Part([], draw_halloween.PUMP_FOOT))
+                bare = draw_pets.frames(ssp, "climb", 4)
+        seen = [diff(f, b) for f, b in zip(full, bare)]
+        for n, ((l, r), f) in enumerate(zip(seen, full)):
+            area = sum(1 for p in pixels(f) if p[3] > 128)
+            assert 0 < l + r < 0.09 * area, (st, n, l, r, area)
+        assert seen[0][1] > seen[0][0] and seen[2][0] > seen[2][1], (st, seen)
