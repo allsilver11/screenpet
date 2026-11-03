@@ -333,7 +333,8 @@ window.addEventListener("contextmenu", (e) => e.preventDefault());
 fitCanvas();
 
 if (window.__TAURI__) {
-  window.__TAURI__.event.listen("weather-scene", (e) => applyScene(e.payload));
+  // 이 창으로 온 장면만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받는다)
+  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("weather-scene", (e) => applyScene(e.payload));
 } else {
   devPreview();
 }

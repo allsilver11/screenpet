@@ -779,6 +779,50 @@ impl Roster {
     }
 }
 
+/// 받았지만 아직 창을 만들지 않은 물건 — 앱이 틱마다 하나씩 꺼낸다 (창 만들기는 메인 스레드를 기다려서, 한꺼번에 오면 모든 동물이 멈춘다).
+/// 기다리는 것까지 합쳐 받은 물건 20개다: 넘치면 가장 오래된 것이 먼저 — 이미 화면에 있는 물건, 없으면 가장 오래 기다린 것
+#[derive(Debug)]
+pub struct TossInbox<T> {
+    queue: VecDeque<T>,
+}
+
+impl<T> Default for TossInbox<T> {
+    fn default() -> Self {
+        Self { queue: VecDeque::new() }
+    }
+}
+
+impl<T> TossInbox<T> {
+    /// 줄에 세운다. 화면의 물건을 치워야 하면 그 id를 돌려준다 (로스터에서는 이미 뺐다)
+    pub fn push(&mut self, item: T, roster: &mut Roster) -> Option<u64> {
+        let mut evicted = None;
+        if roster.foreign_count() + self.queue.len() >= MAX_FOREIGN_OBJECTS {
+            evicted = roster.foreign.pop_front();
+            if evicted.is_none() {
+                self.queue.pop_front();
+            }
+        }
+        self.queue.push_back(item);
+        evicted
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        self.queue.pop_front()
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.queue.clear();
+    }
+}
+
 /// 친구 한 명에게 던져 보내는 예산: 10개까지 한 번에, 그 뒤엔 6초에 하나 (받는 쪽 net의 제한과 같다 — 넘치면 받는 쪽이 버리므로 미리 튕긴다)
 #[derive(Debug, Clone, Copy)]
 pub struct TossBudget {

@@ -500,3 +500,42 @@ fn toss_budget_allows_ten_a_minute_per_link() {
     assert!(!b.can_spend(6.0));
     assert!(b.can_spend(66.0));
 }
+
+#[test]
+fn thrown_objects_wait_in_an_inbox_under_the_same_cap() {
+    let mut r = Roster::default();
+    let mut q: TossInbox<u32> = TossInbox::default();
+    // 비어 있으면 아무것도 치우지 않고 20개까지 기다린다
+    for i in 0..MAX_FOREIGN_OBJECTS as u32 {
+        assert_eq!(q.push(i, &mut r), None);
+    }
+    assert_eq!(q.len(), MAX_FOREIGN_OBJECTS);
+    // 넘치면 가장 오래 기다린 것이 빠진다
+    assert_eq!(q.push(100, &mut r), None);
+    assert_eq!(q.len(), MAX_FOREIGN_OBJECTS);
+    assert_eq!(q.pop(), Some(1));
+    q.clear();
+    assert_eq!(q.pop(), None);
+}
+
+#[test]
+fn queued_and_live_foreign_objects_share_the_twenty_and_the_live_ones_go_first() {
+    let mut r = Roster::default();
+    let mut q: TossInbox<u32> = TossInbox::default();
+    for id in 0..18u64 {
+        assert_eq!(r.add(id, Origin::Foreign), None);
+    }
+    r.add(500, Origin::Own);
+    assert_eq!(q.push(0, &mut r), None);
+    assert_eq!(q.push(1, &mut r), None);
+    // 18 + 2 = 20 — 다음부터 가장 오래된 받은 물건이 비켜 준다 (내 물건은 그대로)
+    assert_eq!(q.push(2, &mut r), Some(0));
+    assert_eq!(r.foreign_count(), 17);
+    assert_eq!(q.len(), 3);
+    assert_eq!(r.own_count(), 1);
+    // 줄이 다 창이 되어도 넘치지 않는다
+    while q.pop().is_some() {
+        assert_eq!(r.add(1000 + q.len() as u64, Origin::Foreign), None);
+    }
+    assert_eq!(r.foreign_count(), 20);
+}

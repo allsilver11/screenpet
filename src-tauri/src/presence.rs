@@ -33,6 +33,11 @@ impl Presence {
         Self { rhythm: Rhythm::default(), start: now, next: now, last: None, last_sent: now }
     }
 
+    /// 사용자가 자리를 비웠다 (1초에 한 번 tick이 유휴 시간을 본 결과)
+    pub fn is_away(&self) -> bool {
+        self.rhythm.is_away()
+    }
+
     fn secs(&self) -> f64 {
         self.start.elapsed().as_secs_f64()
     }

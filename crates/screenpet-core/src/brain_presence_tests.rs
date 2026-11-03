@@ -623,7 +623,7 @@ fn focus_keeps_morning_and_lunch_and_the_idle_welcome_waiting() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
     let mut sim = Sim::new();
     sim.marks = DailyMarks::default();
-    sim.time = (12, 0);
+    sim.time = (11, 45);
     start_focus(&mut sim, &mut p, FocusLength::Short);
     p.take_speech();
     keep_busy(&mut sim, &mut p, &w, 5);
@@ -652,4 +652,52 @@ fn nothing_changes_for_guests() {
     assert!(!p.welcome_back(&w));
     assert!(!p.good_morning());
     assert!(!p.lunch_time());
+}
+
+// ---- 좁은 화면 ----
+
+#[test]
+fn welcome_back_on_a_work_area_narrower_than_the_pet_does_not_panic() {
+    let c = sim_cfg();
+    let narrow = Rect::new(0.0, 0.0, c.half_w, 1040.0);
+    let w = World::new(vec![], vec![narrow], c.size);
+    let mut p = Pet::new(c, 0.0, 1040.0, 7);
+    p.state = resting();
+    p.hover(c.half_w / 2.0, 500.0, false);
+    let _ = p.welcome_back(&w);
+}
+
+// ---- 자리 비움 알려 주기 ----
+
+#[test]
+fn the_rhythm_tells_whether_the_user_is_away() {
+    let (mut p, w) = on_ground(sim_cfg(), 800.0);
+    let mut sim = Sim::new();
+    assert!(!sim.rhythm.is_away());
+    sim_away(&mut sim, &mut p, &w);
+    assert!(sim.rhythm.is_away());
+    sim.idle = Some(0.0);
+    sim.second(&mut p, &w);
+    assert!(!sim.rhythm.is_away());
+}
+
+// ---- 아침은 정오까지 ----
+
+#[test]
+fn past_noon_the_morning_greeting_is_skipped_for_the_day() {
+    let (mut p, w) = on_ground(sim_cfg(), 800.0);
+    let mut sim = Sim::new();
+    sim.marks = DailyMarks { morning: None, lunch: Some(1) };
+    sim.time = (12, 0);
+    sim.run(&mut p, &w, 3);
+    assert_eq!(sim.count(Speech::GoodMorning), 0);
+    sim.time = (23, 0);
+    sim.run(&mut p, &w, 3);
+    assert_eq!(sim.count(Speech::GoodMorning), 0, "does not greet at 23:00");
+    assert_eq!(sim.marks.morning, None);
+    sim.day = 2;
+    sim.marks.lunch = Some(2);
+    sim.time = (11, 59);
+    sim.run(&mut p, &w, 8);
+    assert_eq!(sim.count(Speech::GoodMorning), 1, "the next morning");
 }

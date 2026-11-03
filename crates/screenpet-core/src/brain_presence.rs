@@ -246,7 +246,8 @@ impl Pet {
             }
             return true;
         }
-        let x = (cx + side * reach).clamp(wa.left + self.cfg.half_w, wa.right - self.cfg.half_w);
+        let lo = wa.left + self.cfg.half_w;
+        let x = (cx + side * reach).clamp(lo, (wa.right - self.cfg.half_w).max(lo));
         if (x - self.body.x).hypot(wa.bottom - self.body.y) < near {
             self.happy_bounce();
         } else {

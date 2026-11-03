@@ -246,3 +246,39 @@ fn an_unchanged_world_makes_an_equal_scene() {
     f.sync(&w);
     assert_eq!(a, f.scene(Weather::Snow, &WA, 1.0));
 }
+
+#[test]
+fn overlays_pause_while_the_user_is_away_or_under_a_fullscreen_app() {
+    let fullscreen = [win(1, -20.0, -20.0, 1940.0, 1100.0)];
+    assert!(!overlay_paused(false, &[], &WA));
+    assert!(overlay_paused(true, &[], &WA), "away");
+    assert!(overlay_paused(false, &fullscreen, &WA), "fullscreen");
+    assert!(overlay_paused(true, &fullscreen, &WA));
+}
+
+#[test]
+fn a_failed_overlay_is_retried_later_and_later() {
+    let t0 = std::time::Instant::now();
+    let after = |s: u64| t0 + std::time::Duration::from_secs(s);
+    let mut r = OverlayRetry::default();
+    assert!(r.ready(t0), "first try right away");
+    r.failed(t0);
+    assert!(!r.ready(t0));
+    assert!(!r.ready(t0 + std::time::Duration::from_millis(200)), "not at the scene rate");
+    assert!(!r.ready(after(4)));
+    assert!(r.ready(after(5)));
+    r.failed(after(5));
+    assert!(!r.ready(after(14)));
+    assert!(r.ready(after(15)), "twice as long");
+    // 상한: 1분
+    for _ in 0..20 {
+        r.failed(t0);
+    }
+    assert!(!r.ready(after(59)));
+    assert!(r.ready(after(60)));
+    // 성공했거나 모니터가 바뀌면 처음부터
+    r.reset();
+    assert!(r.ready(t0));
+    r.failed(t0);
+    assert!(r.ready(after(5)));
+}

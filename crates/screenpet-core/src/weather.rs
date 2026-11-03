@@ -5,6 +5,8 @@
 //!
 //! 좌표: 세계는 물리 px. 장면(Scene)은 모니터별 논리 px, 그 모니터의 작업 영역 왼쪽 위가 (0, 0). 더미 높이는 논리 px.
 
+use std::time::{Duration, Instant};
+
 use serde::Serialize;
 
 use crate::geom::{Rect, WindowInfo};
@@ -100,6 +102,38 @@ pub fn fullscreen_over(windows: &[WindowInfo], wa: &Rect) -> bool {
     let covers = r.left <= wa.left + 1.0 && r.top <= wa.top + 1.0 && r.right >= wa.right - 1.0 && r.bottom >= wa.bottom - 1.0;
     let overhang = (wa.left - r.left).max(wa.top - r.top).max(r.right - wa.right).max(r.bottom - wa.bottom);
     covers && overhang >= FULLSCREEN_OVERHANG
+}
+
+/// 이 모니터의 날씨를 멈춰 둘 때: 사용자가 자리를 비웠거나 전체 화면 앱이 덮고 있다 (창을 숨기고 웹뷰 타이머도 멈춘다)
+pub fn overlay_paused(away: bool, windows: &[WindowInfo], wa: &Rect) -> bool {
+    away || fullscreen_over(windows, wa)
+}
+
+/// 날씨 창을 다시 만들어 보는 첫 간격과 상한
+const RETRY_FIRST: Duration = Duration::from_secs(5);
+const RETRY_MAX: Duration = Duration::from_secs(60);
+
+/// 날씨 창 만들기가 실패하면 다음 시도까지 기다린다 (5초, 10초, … 1분). 장면 주기(5 Hz)로 되풀이하지 않게
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OverlayRetry {
+    wait: Option<Duration>,
+    next: Option<Instant>,
+}
+
+impl OverlayRetry {
+    pub fn ready(&self, now: Instant) -> bool {
+        self.next.is_none_or(|at| now >= at)
+    }
+
+    pub fn failed(&mut self, now: Instant) {
+        let wait = self.wait.map_or(RETRY_FIRST, |w| (w * 2).min(RETRY_MAX));
+        self.wait = Some(wait);
+        self.next = Some(now + wait);
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
 }
 
 /// 더미 한 칸의 폭 (물리 px)

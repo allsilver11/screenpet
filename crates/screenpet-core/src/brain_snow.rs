@@ -63,6 +63,13 @@ impl Pet {
         }
     }
 
+    /// 동물을 바꿨다: 만들던 눈사람은 그만둔다 (눈덩이 창은 snowball_at이 None이 되면 앱이 치운다). 만드는 중이 아니면 그대로
+    pub fn end_snowman(&mut self) {
+        if matches!(self.state, State::Snowman { .. }) {
+            self.state = self.idle_state();
+        }
+    }
+
     pub(super) fn look_up_mult(&self) -> f64 {
         if self.snow.petals {
             PETAL_LOOK_UP_MULT

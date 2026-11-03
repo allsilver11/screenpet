@@ -35,6 +35,10 @@ impl Pet {
     }
 
     pub(super) fn update_flyer(&mut self, dt: f64, world: &World) {
+        // 걷는 동물이 만들던 눈사람 (동물을 바꿨다) — 나는 동물은 만들지 않으니 여기서 끝낸다. 디딘 자리는 그대로 (내려앉은 것과 같다)
+        if matches!(self.state, State::Snowman { .. }) {
+            self.state = self.idle_state();
+        }
         self.update_fly_inside(dt, world);
         match self.state {
             State::Housed => {}

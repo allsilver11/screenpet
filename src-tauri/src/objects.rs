@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 
 use screenpet_core::config::Config;
 use screenpet_core::geom::{Rect, WindowInfo};
-use screenpet_core::object::{accept_toss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, MAX_OWN_OBJECTS, OBJECT_LOGICAL_SIZE};
+use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, OBJECT_LOGICAL_SIZE};
 use screenpet_core::platform::WindowSource;
-use screenpet_core::visit::{self, MAX_NOTE_CHARS};
+use screenpet_core::visit::{self, Side, MAX_NOTE_CHARS};
 use screenpet_core::world::World;
 use screenpet_net::Toss;
 use serde::Serialize;
@@ -156,6 +156,8 @@ pub struct Objects {
     next: u64,
     live: Vec<Live>,
     roster: Roster,
+    /// 받았지만 아직 창을 만들지 않은 물건 (틱마다 하나씩)
+    inbox: TossInbox<(AcceptedToss, Side)>,
     fading: Vec<(WebviewWindow, Instant)>,
     /// 물건이 있을 때만 맞춘다 (물건 키에 맞춘 세계)
     world: Option<World>,
@@ -176,6 +178,7 @@ impl Objects {
             next: 0,
             live: Vec::new(),
             roster: Roster::default(),
+            inbox: TossInbox::default(),
             fading: Vec::new(),
             world: None,
             budgets: HashMap::new(),
@@ -202,6 +205,7 @@ impl Objects {
             ObjectInput::Spawn(kind) => self.spawn_own(app, kind, base, cursor),
             ObjectInput::ClearAll => {
                 self.roster.clear();
+                self.inbox.clear();
                 for l in std::mem::take(&mut self.live) {
                     self.poof(l);
                 }
@@ -255,8 +259,9 @@ impl Objects {
         self.admit(id, window, object, Origin::Own);
     }
 
-    /// 친구가 던진 물건 (인증된 친구 링크 — net이 확인 — 에서 온 내 친구의 것만). 받은 물건은 20개까지, 넘치면 가장 오래된 것부터 치운다
-    pub fn receive(&mut self, app: &AppHandle, config: &Config, base: &World, from: &str, toss: Toss) {
+    /// 친구가 던진 물건 (인증된 친구 링크 — net이 확인 — 에서 온 내 친구의 것만). 받은 물건은 기다리는 것까지 20개, 넘치면 가장 오래된 것부터 치운다.
+    /// 여기서는 줄만 세운다 — 창은 tick이 하나씩 만든다 (한꺼번에 오면 게임 루프가 멈추지 않게)
+    pub fn receive(&mut self, config: &Config, from: &str, toss: Toss) {
         if config.friend(from).is_none() {
             return;
         }
@@ -266,6 +271,17 @@ impl Objects {
             return;
         };
         let side = from_net_side(toss.side, toss.vside);
+        if let Some(old) = self.inbox.push((accepted, side), &mut self.roster) {
+            if let Some(i) = self.live.iter().position(|l| l.id == old) {
+                let l = self.live.remove(i);
+                self.poof(l);
+            }
+        }
+    }
+
+    /// 줄의 맨 앞 물건 하나의 창을 만든다 (틱마다)
+    fn admit_next_toss(&mut self, app: &AppHandle, base: &World) {
+        let Some((accepted, side)) = self.inbox.pop() else { return };
         let id = self.next_id();
         let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some()) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
@@ -273,7 +289,6 @@ impl Objects {
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
         object.receive_note(accepted.note);
         self.admit(id, window, object, Origin::Foreign);
-        self.sync_menu();
     }
 
     fn next_id(&mut self) -> u64 {
@@ -380,7 +395,7 @@ impl Objects {
 
     /// 매 틱 (게임 루프)
     #[allow(clippy::too_many_arguments)]
-    pub fn tick(&mut self, app: &AppHandle, dt: f64, now: Instant, cursor: (f64, f64), left_down: bool, source: &mut dyn WindowSource, network: &Network, config: &Config) {
+    pub fn tick(&mut self, app: &AppHandle, base: &World, dt: f64, now: Instant, cursor: (f64, f64), left_down: bool, source: &mut dyn WindowSource, network: &Network, config: &Config) {
         self.fading.retain(|(w, at)| {
             if now >= *at {
                 let _ = w.destroy();
@@ -389,6 +404,7 @@ impl Objects {
                 true
             }
         });
+        self.admit_next_toss(app, base);
         if self.live.is_empty() {
             return;
         }

@@ -288,6 +288,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     // 이전 동물의 종 전용 동작·벽 타기가 새 동물에 없을 수 있으니 진행 중이면 끝낸다
                     own.pet.set_special(own.pet.cfg.special);
                     own.pet.set_can_climb(own.pet.cfg.can_climb);
+                    // 만들던 눈사람도 — 눈덩이 창은 다음 틱에 weather가 치운다 (새 동물이 날면 다시는 끝내지 못한다)
+                    own.pet.end_snowman();
                     own.pet.set_hungry(care.is_hungry());
                     // 하우스 안이면 새 동물도 하우스 안에 있다 (같은 Pet이므로 상태가 그대로 이어진다)
                     sync_menu(&app, &own.entry, &care, config.housed);
@@ -486,9 +488,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     let busy = hand.is_some() || slots.iter().any(|s| s.pet.is_held());
                     objects.handle(&app, input, &slots[OWN].world, source.cursor(), busy);
                 }
-                // 친구가 던진 물건 (net이 인증된 친구 링크·친구별 한도를 확인했고, 받은 물건 20개 상한과 다듬기는 objects가 지킨다)
+                // 친구가 던진 물건 (net이 인증된 친구 링크·친구별 한도를 확인했고, 받은 물건 20개 상한과 다듬기는 objects가 지키고, 창은 틱마다 하나씩 만든다)
                 Input::Net(NetInput::Event(screenpet_net::NetEvent::Tossed { from, toss })) => {
-                    objects.receive(&app, &config, &slots[OWN].world, &from, toss);
+                    objects.receive(&config, &from, toss);
                 }
                 Input::Net(input) => {
                     if network.handle(&app, input, &mut config, &mut slots) {
@@ -660,11 +662,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             network.own_exited(&config, &mut slots[OWN], side);
         }
         network.tick(&app, now, &config, &mut slots[OWN]);
-        objects.tick(&app, dt, now, (cx, cy), left_down, source.as_mut(), &network, &config);
+        objects.tick(&app, &slots[OWN].world, dt, now, (cx, cy), left_down, source.as_mut(), &network, &config);
         decals.tick(now);
         props.tick(now);
         hand_win.tick(now);
-        weather.tick(&app, now, config.weather_off, &mut slots);
+        weather.tick(&app, now, config.weather_off, presence.is_away(), &mut slots);
         for g in network.take_guest_gifts() {
             gifts.guest_arrived(g, now);
         }

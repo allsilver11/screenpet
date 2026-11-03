@@ -2,13 +2,13 @@
 //! 게임 루프가 매 틱 tick을 부르지만, 날씨가 없으면 (철이 아니거나·메뉴로 껐거나·모두 숨겼으면) 창이 하나도 없고
 //! 1초에 한 번 플래그만 본다 (달력은 1분에 한 번). 켜져 있어도 창 목록을 따로 읽지 않는다 — 내 동물 세계의 디딤판을
 //! 5 Hz로 맞춰 보고, 장면이 바뀐 모니터에만 보낸다. 더미는 1초에 한 번 (screenpet_core::weather).
-//! 그 모니터의 앞 창이 전체 화면이면 창을 숨기고 웹뷰도 그림을 멈춘다.
+//! 그 모니터의 앞 창이 전체 화면이거나 사용자가 자리를 비웠으면 창을 숨기고 웹뷰도 그림을 멈춘다 (돌아오면 다시 그린다).
 
 use std::time::{Duration, Instant};
 
 use chrono::Datelike;
 use screenpet_core::geom::Rect;
-use screenpet_core::weather::{self, PileField, Scene, Weather};
+use screenpet_core::weather::{self, OverlayRetry, PileField, Scene, Weather};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
@@ -68,6 +68,10 @@ pub struct WeatherFx {
     next_piles: Instant,
     last_piles: Instant,
     overlays: Vec<Overlay>,
+    /// fit_overlays가 마지막으로 맞춘 작업 영역
+    fitted: Vec<Rect>,
+    /// 날씨 창 만들기가 실패한 뒤 다음 시도까지 기다린다
+    retry: OverlayRetry,
     field: PileField,
     seed: u64,
     next_label: u64,
@@ -89,6 +93,8 @@ impl WeatherFx {
             next_piles: now,
             last_piles: now,
             overlays: Vec::new(),
+            fitted: Vec::new(),
+            retry: OverlayRetry::default(),
             field: new_field(seed, preview),
             seed,
             next_label: 0,
@@ -108,7 +114,7 @@ impl WeatherFx {
     }
 
     /// 게임 루프 스레드에서 매 틱 (창 만들기가 메인 스레드를 기다린다)
-    pub fn tick(&mut self, app: &AppHandle, now: Instant, menu_off: bool, slots: &mut [Slot]) {
+    pub fn tick(&mut self, app: &AppHandle, now: Instant, menu_off: bool, away: bool, slots: &mut [Slot]) {
         if self.active.is_some() {
             if let Some(own) = slots.first_mut() {
                 self.track_own(app, now, own);
@@ -138,22 +144,25 @@ impl WeatherFx {
         self.active = want;
         self.next_scene = now + SCENE_EVERY;
         let Some(kind) = want else { return };
-        self.step(app, now, kind, slots);
+        self.step(app, now, kind, away, slots);
     }
 
     /// 날씨가 켜진 동안 5 Hz
-    fn step(&mut self, app: &AppHandle, now: Instant, kind: Weather, slots: &mut [Slot]) {
+    fn step(&mut self, app: &AppHandle, now: Instant, kind: Weather, away: bool, slots: &mut [Slot]) {
         let Some(own) = slots.first() else { return };
         self.field.sync(&own.world);
         if now >= self.next_piles {
             self.next_piles = now + PILES_EVERY;
             let dt = now.duration_since(self.last_piles).as_secs_f64().min(5.0);
             self.last_piles = now;
-            self.field.tick(dt, kind);
+            // 자리를 비운 동안엔 더미도 자라지 않는다 (돌아왔을 때 한꺼번에 쌓여 있지 않게)
+            if !away {
+                self.field.tick(dt, kind);
+            }
         }
         self.fit_overlays(app, now, &own.world.work_areas);
         for o in &mut self.overlays {
-            let paused = weather::fullscreen_over(&own.world.windows, &o.wa);
+            let paused = weather::overlay_paused(away, &own.world.windows, &o.wa);
             if paused != o.paused {
                 o.paused = paused;
                 let _ = if paused { o.window.hide() } else { o.window.show() };
@@ -178,7 +187,7 @@ impl WeatherFx {
                 let _ = s.window.destroy();
             }
         }
-        let ready = kind.is_snow() && self.snowman.is_none() && self.field.snow_settled();
+        let ready = !away && kind.is_snow() && self.snowman.is_none() && self.field.snow_settled();
         if let Some(own) = slots.first_mut() {
             own.pet.set_snow_ready(ready);
         }
@@ -250,21 +259,39 @@ impl WeatherFx {
         Some(window)
     }
 
-    /// 모니터마다 창 하나 — 작업 영역이 바뀌면 다시 만든다 (모니터 연결·해상도·작업표시줄)
+    /// 모니터마다 창 하나 — 작업 영역이 바뀌면 그 창만 다시 만든다 (모니터 연결·해상도·작업표시줄).
+    /// 만들기가 실패하면 있는 창은 그대로 두고 빠진 창만 시간을 두고 다시 해 본다 (OverlayRetry)
     fn fit_overlays(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect]) {
-        let same = self.overlays.len() == work_areas.len() && self.overlays.iter().zip(work_areas).all(|(o, wa)| o.wa == *wa);
-        if same {
+        if self.fitted != work_areas {
+            self.fitted = work_areas.to_vec();
+            self.retry.reset();
+            self.overlays.retain(|o| {
+                let keep = work_areas.contains(&o.wa);
+                if !keep {
+                    let _ = o.window.destroy();
+                }
+                keep
+            });
+        }
+        if self.overlays.len() >= work_areas.len() || !self.retry.ready(now) {
             return;
         }
-        for o in self.overlays.drain(..) {
-            let _ = o.window.destroy();
-        }
+        let mut failed = false;
         for wa in work_areas {
+            if self.overlays.iter().any(|o| o.wa == *wa) {
+                continue;
+            }
             let label = format!("{PREFIX}{}", self.next_label);
             self.next_label += 1;
-            if let Some((window, scale)) = spawn_overlay(app, &label, wa) {
-                self.overlays.push(Overlay { window, label, wa: *wa, scale, paused: false, born: now, resent: now, last: None });
+            match spawn_overlay(app, &label, wa) {
+                Some((window, scale)) => self.overlays.push(Overlay { window, label, wa: *wa, scale, paused: false, born: now, resent: now, last: None }),
+                None => failed = true,
             }
+        }
+        if failed {
+            self.retry.failed(now);
+        } else {
+            self.retry.reset();
         }
     }
 
@@ -273,6 +300,8 @@ impl WeatherFx {
         for o in self.overlays.drain(..) {
             let _ = o.window.destroy();
         }
+        self.fitted.clear();
+        self.retry.reset();
         if let Some((window, _)) = self.ball.take() {
             let _ = window.destroy();
         }

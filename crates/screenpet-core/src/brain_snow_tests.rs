@@ -197,3 +197,32 @@ fn petals_make_a_pet_look_up_more_often() {
     p.set_petals(true);
     assert!(!(0..1000).any(|_| p.roll_look_up()));
 }
+
+#[test]
+fn switching_species_ends_the_build_and_the_ball_on_the_spot() {
+    let (mut p, w) = on_ground(sim_cfg(), 800.0);
+    p.set_snow_ready(true);
+    p.start_snowman(1.0);
+    p.update(DT, &w);
+    assert!(p.snowball_at().is_some());
+    p.end_snowman();
+    assert!(matches!(p.state, State::Idle { .. }), "{:?}", p.state);
+    assert_eq!(p.snowball_at(), None, "the app removes the ball window");
+    assert!(p.standing.is_some(), "still on the ground");
+    // 만들고 있지 않으면 아무 일도 없다
+    p.state = State::Sleep { remaining: 10.0 };
+    p.end_snowman();
+    assert!(matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
+}
+
+#[test]
+fn a_flyer_left_in_the_snowman_state_recovers_by_itself() {
+    // 눌러 둔 동안 종이 바뀌어 눌림이 끝나면 되돌아오는 길도 같다 — 나는 동물은 update_snowman을 돌지 않는다
+    for phase in [SnowPhase::Roll, SnowPhase::Stack, SnowPhase::Admire] {
+        let (mut p, w) = on_ground(PetConfig { flies: true, ..sim_cfg() }, 800.0);
+        p.state = State::Snowman { phase, remaining: 100.0, dir: 1.0 };
+        p.update(DT, &w);
+        assert!(!matches!(p.state, State::Snowman { .. }), "{phase:?}: {:?}", p.state);
+        assert_eq!(p.snowball_at(), None);
+    }
+}

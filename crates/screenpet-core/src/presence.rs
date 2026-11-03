@@ -15,8 +15,8 @@ pub const AWAY_AFTER_SECS: f64 = 600.0;
 pub const BACK_BELOW_SECS: f64 = 3.0;
 /// 00:00부터 이 분까지 졸린 시간
 const SLEEPY_UNTIL: u32 = 6 * 60;
-/// 이 분부터 그날의 첫 "good morning!"
-const MORNING_FROM: u32 = 9 * 60;
+/// 그날의 첫 "good morning!" [시작, 끝) 분 — 정오가 지나면 그날 인사는 건너뛴다
+const MORNING: (u32, u32) = (9 * 60, 12 * 60);
 /// 점심시간 [시작, 끝) 분
 const LUNCH: (u32, u32) = (11 * 60 + 30, 13 * 60);
 
@@ -53,7 +53,7 @@ impl DailyMarks {
     }
 
     pub fn morning_due(&self, m: LocalMoment) -> bool {
-        m.minute >= MORNING_FROM && self.morning != Some(m.day)
+        (MORNING.0..MORNING.1).contains(&m.minute) && self.morning != Some(m.day)
     }
 
     pub fn lunch_due(&self, m: LocalMoment) -> bool {
@@ -206,6 +206,11 @@ pub struct Rhythm {
 }
 
 impl Rhythm {
+    /// 사용자가 자리를 비웠다
+    pub fn is_away(&self) -> bool {
+        self.idle.is_away()
+    }
+
     pub fn focus(&self) -> Option<&Pomodoro> {
         self.focus.as_ref()
     }
@@ -306,11 +311,13 @@ mod tests {
     }
 
     #[test]
-    fn morning_is_due_from_nine_once_a_day() {
+    fn morning_is_due_from_nine_until_noon_once_a_day() {
         let mut marks = DailyMarks::default();
         assert!(!marks.morning_due(LocalMoment::new(10, 8, 59)));
         assert!(marks.morning_due(LocalMoment::new(10, 9, 0)));
-        assert!(marks.morning_due(LocalMoment::new(10, 15, 0)), "the first time seen that day");
+        assert!(marks.morning_due(LocalMoment::new(10, 11, 59)), "the first time seen that morning");
+        assert!(!marks.morning_due(LocalMoment::new(10, 12, 0)), "past noon the greeting is skipped");
+        assert!(!marks.morning_due(LocalMoment::new(10, 23, 0)));
         marks.morning = Some(10);
         assert!(!marks.morning_due(LocalMoment::new(10, 9, 1)));
         assert!(!marks.morning_due(LocalMoment::new(11, 8, 59)));
