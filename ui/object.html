@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <!-- 물건 하나 = 작은 투명 창 하나 (src-tauri/src/objects.rs). 그림 한 장을 CSS로 돌리거나 뒤집는다.
+    <!-- 물건 하나 = 작은 투명 창 하나 (src-tauri/src/objects.rs). 그림 한 장을 CSS로 돌린다.
          애니메이션 프레임을 돌리지 않는다 — 잠든 물건의 웹뷰는 아무 일도 하지 않는다. -->
     <style>
       html,
@@ -15,14 +15,11 @@
         user-select: none;
       }
 
-      /* 아래 16px은 도는 동안 모서리가 잘리지 않게 남긴 여백 (objects.rs BOTTOM_PAD) */
+      /* 자리와 도는 축은 object.js가 정한다 (종류마다 무게중심이 다르다) */
       #thing {
         position: absolute;
-        left: calc(50% - 48px);
-        bottom: 16px;
         width: 96px;
         height: 96px;
-        transform-origin: 50% 72%;
         cursor: grab;
       }
 
@@ -58,7 +55,6 @@
         position: absolute;
         left: 8px;
         right: 8px;
-        bottom: 116px;
         min-height: 40px;
         padding: 8px 10px;
         box-sizing: border-box;

@@ -1,3 +1,4 @@
+import math
 import re
 from pathlib import Path
 
@@ -67,3 +68,60 @@ def test_note_text_reaches_the_page_only_as_text():
     assert "note.textContent = text" in js
     for risky in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval("):
         assert risky not in js
+
+
+def np_alpha(im):
+    import numpy as np
+
+    return np.asarray(im.getchannel("A"))
+
+
+def core_shapes():
+    rs = (ROOT / "crates" / "screenpet-core" / "src" / "tumble.rs").read_text(encoding="utf-8")
+    table = {}
+    for kind, px, py, reach, hull in re.findall(
+        r"ObjectKind::(\w+) => Shape \{ pivot: \(([\d.]+), ([\d.]+)\), reach: ([\d.]+), hull: &\[(.*?)\] \}", rs
+    ):
+        pts = [(float(x), float(y)) for x, y in re.findall(r"\(([\d.]+), ([\d.]+)\)", hull)]
+        table[kind.lower()] = {"pivot": (float(px), float(py)), "reach": float(reach), "hull": pts}
+    return table
+
+
+def test_core_shape_table_is_the_one_printed_from_the_art():
+    rs = (ROOT / "crates" / "screenpet-core" / "src" / "tumble.rs").read_text(encoding="utf-8")
+    assert d.shape_table() in rs, "그림이 바뀌었다: python tools/draw_objects.py --shapes 로 다시 찍을 것"
+
+
+@pytest.mark.parametrize("name", d.NAMES)
+@pytest.mark.parametrize("deg", range(0, 360, 30))
+def test_turning_sprite_touches_where_the_core_thinks_and_is_not_clipped(built, name, deg):
+    """코어의 볼록 껍질이 말하는 가장 낮은 점 = 실제로 돌린 그림의 가장 낮은 점. 그림은 reach 반지름 안에 있다."""
+    _, arts = built
+    s = core_shapes()[name]
+    (px, py), reach = s["pivot"], s["reach"]
+    rad = math.radians(deg)
+    lowest = max((x - px) * math.sin(rad) + (y - py) * math.cos(rad) for x, y in s["hull"])
+    a = np_alpha(arts[name])
+    ys, xs = a.nonzero()
+    xs, ys = xs + 0.5 - px, ys + 0.5 - py
+    assert (xs ** 2 + ys ** 2).max() <= reach ** 2
+    solid_y, solid_x = (a >= 128).nonzero()
+    drawn = ((solid_x + 0.5 - px) * math.sin(rad) + (solid_y + 0.5 - py) * math.cos(rad)).max()
+    assert abs(drawn - lowest) <= 3.0, (drawn, lowest)
+
+
+@pytest.mark.parametrize("name", d.NAMES)
+def test_postit_stays_inside_the_turning_room(name):
+    s = core_shapes()[name]
+    x, y = d.POSTIT_AT[name]
+    assert math.hypot(x - s["pivot"][0], y - s["pivot"][1]) + d.POSTIT_REACH <= s["reach"]
+
+
+def test_banana_reads_as_a_peel_yellow_with_brown_tips_and_cream_inside(built):
+    _, arts = built
+    raw = arts["banana"].tobytes()
+    px = [raw[i:i + 4] for i in range(0, len(raw), 4)]
+    count = lambda r, g, b, tol=24: sum(1 for p in px if p[3] > 200 and abs(p[0] - r) + abs(p[1] - g) + abs(p[2] - b) < tol)
+    assert count(*d.BANANA) > 1200
+    assert count(*d.BANANA_IN) > 300
+    assert count(*d.BANANA_TIP) > 80

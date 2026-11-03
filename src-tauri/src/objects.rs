@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use screenpet_core::config::Config;
 use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, OBJECT_LOGICAL_SIZE};
+use screenpet_core::tumble::shape_of;
 use screenpet_core::platform::WindowSource;
 use screenpet_core::visit::{self, Side, MAX_NOTE_CHARS};
 use screenpet_core::world::World;
@@ -26,8 +27,6 @@ const PREFIX: &str = "object-";
 /// 포스트잇 쓰기 창 라벨
 pub const POSTIT_LABEL: &str = "postit";
 const POSTIT_SIZE: (f64, f64) = (300.0, 176.0);
-/// 그림 아래 여백 (논리 px) — 도는 동안 모서리가 창 아래에서 잘리지 않게 (object.html과 같다)
-const BOTTOM_PAD: f64 = 16.0;
 /// 포스트잇을 읽는 동안의 창: 너비, 위로 더하는 자리 (논리 px)
 const NOTE_WIDTH: f64 = 232.0;
 const NOTE_SPACE: f64 = 84.0;
@@ -83,8 +82,6 @@ pub enum ObjectInput {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 struct PosePayload {
     angle: f64,
-    flip: f64,
-    lift: f64,
     /// 포스트잇을 읽느라 넓어진 창이 화면 끝에서 밀렸을 때 그림을 옮기는 거리 (논리 px)
     dx: f64,
 }
@@ -101,12 +98,14 @@ struct Live {
 }
 
 impl Live {
+    /// 창은 도는 축을 가운데에 두는 정사각형 (어떤 각도로 돌아도 그림이 잘리지 않는다, 종류마다 크기가 다르다).
+    /// 쪽지를 읽는 동안엔 넓어지고 위로 자리가 더 생긴다 — 축은 아래쪽 정사각형의 가운데 그대로
     fn logical_size(&self) -> (f64, f64) {
-        let h = OBJECT_LOGICAL_SIZE + BOTTOM_PAD;
+        let side = shape_of(self.object.kind).window_side();
         if self.note_open {
-            (NOTE_WIDTH, h + NOTE_SPACE)
+            (NOTE_WIDTH, side + NOTE_SPACE)
         } else {
-            (OBJECT_LOGICAL_SIZE, h)
+            (side, side)
         }
     }
 
@@ -114,14 +113,15 @@ impl Live {
     fn place(&mut self, world: &World, hidden: bool) {
         let dpi = self.object.dpi();
         let (w, h) = self.logical_size();
-        let body = self.object.body;
-        let mut x = body.x - w * dpi / 2.0;
+        let (cx, cy) = self.object.pivot();
+        let mut x = cx - w * dpi / 2.0;
         if self.note_open {
             // 읽는 동안: 쪽지가 화면 밖으로 잘리지 않게 창만 안쪽으로 민다
-            let wa = world.work_area_at(body.x, body.y);
+            let wa = world.work_area_at(cx, self.object.body.y);
             x = x.clamp(wa.left, (wa.right - w * dpi).max(wa.left));
         }
-        let pos = (x.round() as i32, (body.y + (BOTTOM_PAD - h) * dpi).round() as i32);
+        let side = shape_of(self.object.kind).window_side();
+        let pos = (x.round() as i32, (cy + (side / 2.0 - h) * dpi).round() as i32);
         if self.last_pos != Some(pos) {
             let _ = self.window.set_position(PhysicalPosition::new(pos.0, pos.1));
             self.last_pos = Some(pos);
@@ -133,12 +133,11 @@ impl Live {
     }
 
     fn pose(&self) -> PosePayload {
-        let p = self.object.pose();
         let dpi = self.object.dpi();
         let (w, _) = self.logical_size();
-        let dx = self.last_pos.map_or(0.0, |(x, _)| (self.object.body.x - (x as f64 + w * dpi / 2.0)) / dpi);
+        let dx = self.last_pos.map_or(0.0, |(x, _)| (self.object.pivot().0 - (x as f64 + w * dpi / 2.0)) / dpi);
         let dx = if self.note_open { dx } else { 0.0 };
-        PosePayload { angle: p.angle, flip: p.flip, lift: p.lift, dx }
+        PosePayload { angle: self.object.angle(), dx }
     }
 
     fn set_note_open(&mut self, open: bool) {
@@ -317,7 +316,7 @@ impl Objects {
             object,
             window,
             last_pos: None,
-            last_pose: PosePayload { angle: 0.0, flip: 1.0, lift: 0.0, dx: 0.0 },
+            last_pose: PosePayload { angle: 0.0, dx: 0.0 },
             note_open: false,
             need_show: true,
         });
@@ -492,11 +491,13 @@ impl Objects {
 
 fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool) -> Option<WebviewWindow> {
     let label = format!("{PREFIX}{id}");
-    let (w, h) = (OBJECT_LOGICAL_SIZE, OBJECT_LOGICAL_SIZE + BOTTOM_PAD);
-    // kind.id()는 코어 목록의 글자뿐이다 (친구가 보낸 글자가 아니다)
+    let shape = shape_of(kind);
+    let (w, h) = (shape.window_side(), shape.window_side());
+    let (px, py) = shape.pivot_logical();
+    // kind.id()와 숫자는 코어 목록의 값뿐이다 (친구가 보낸 글자가 아니다)
     let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("object.html".into()))
         .title("ScreenPet Object")
-        .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker} }};", kind.id()))
+        .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}] }};", kind.id()))
         .inner_size(w, h)
         .accept_first_mouse(true)
         .transparent(true)

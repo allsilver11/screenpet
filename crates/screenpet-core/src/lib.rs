@@ -17,6 +17,7 @@ pub mod presence;
 pub mod social;
 pub mod sting;
 pub mod surfaces;
+pub mod tumble;
 pub mod visit;
 pub mod weather;
 pub mod world;

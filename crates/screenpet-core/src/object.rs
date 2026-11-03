@@ -1,13 +1,13 @@
 //! 물건 (쓰레기 장난감, phase 3): 뇌도 성장도 없는 물리 덩어리.
 //! 스스로 움직이지 않고 — 가끔 부는 바람에만 조금 구른다 — 잡아 끌고 던질 수 있고, 친구가 연결된 화면 끝으로 세게 던지면 그 화면으로 날아간다.
+//! 던지면 제 모양 그대로 빙글빙글 돌며 날아가고, 떨어진 뒤에도 굴러가다 마찰로 멈춰 가까운 면으로 눕는다 (모양과 무게는 tumble.rs).
 //! 던지기 전에 포스트잇을 붙일 수 있다: 받는 사람이 누르면 10초 보이고 영영 사라진다.
 //! 대부분의 시간엔 잠들어 있다 (`is_asleep`): 앱은 창도 웹뷰도 건드리지 않는다.
 
 use std::collections::VecDeque;
 
-use serde::Serialize;
-
 use crate::physics::{clamp_speed, step_air, throw_velocity, Body, THROW_GRAVITY_LOGICAL, THROW_LIFT};
+use crate::tumble::{self, heft_of, shape_of, throw_spin, wobble_spin};
 use crate::visit::{self, ExitEdges, Fling, Side};
 use crate::surfaces::Owner;
 use crate::world::World;
@@ -25,39 +25,14 @@ pub const GUST_EVERY_SECS: (f64, f64) = (30.0, 90.0);
 
 /// 몸 폭 절반 / 창 크기
 const HALF_WIDTH_RATIO: f64 = 0.3;
-/// 바람에 밀려 가다 멈추는 마찰 (논리 px/s²) — 천천히 굴러간다
-const GUST_FRICTION: f64 = 160.0;
-/// 던져져 내려앉은 뒤 미끄러지다 멈추는 마찰 (논리 px/s²)
-const LAND_FRICTION: f64 = 900.0;
-/// 구르는 물건의 반지름 (논리 px) — 그림의 회전이 이동 거리와 맞는다
-const ROLL_RADIUS: f64 = 14.0;
-/// 납작한 물건이 뒤집힐 때 뜨는 높이 (논리 px)
-const FLIP_LIFT: f64 = 10.0;
 /// 이보다 세게 떨어지면 살짝 튀어 오른다 (논리 px/s)
 const BOUNCE_MIN_VY: f64 = 350.0;
-const BOUNCE_KEEP_VY: f64 = 0.35;
-const BOUNCE_KEEP_VX: f64 = 0.75;
-/// 날아가는 동안 도는 빠르기 (가로 논리 px/s당 도/s)
-const AIR_SPIN: f64 = 0.5;
-/// 그림이 제자리로 돌아오는 빠르기 (1/s)
-const SETTLE_RATE: f64 = 10.0;
 /// 놓을 때 커서 속도를 재는 구간 (초, 동물과 같다)
 const VELOCITY_WINDOW: f64 = 0.12;
 const OUTLIER_RATIO: f64 = 3.0;
 /// 이만큼 안에서 이만큼 안 움직이고 놓으면 클릭 (논리 px, 초)
 const CLICK_SLOP: f64 = 6.0;
 const CLICK_SECS: f64 = 0.5;
-
-/// 바람에 움직이는 모양
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GustStyle {
-    /// 둥근 것: 데굴데굴 구른다
-    Roll,
-    /// 납작한 것: 미끄러지다 한 번 뒤집힌다
-    Flip,
-    /// 각진 것: 들썩들썩 흔들리며 조금 간다
-    Rock,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ObjectKind {
@@ -116,14 +91,6 @@ impl ObjectKind {
         ObjectKind::ALL.into_iter().find(|k| k.id() == id)
     }
 
-    pub fn gust_style(self) -> GustStyle {
-        match self {
-            ObjectKind::Can | ObjectKind::Paper => GustStyle::Roll,
-            ObjectKind::Banana | ObjectKind::Sock | ObjectKind::Glasses => GustStyle::Flip,
-            ObjectKind::Computer | ObjectKind::Milk | ObjectKind::Umbrella => GustStyle::Rock,
-        }
-    }
-
     /// 한 번의 바람에 가는 거리 (논리 px, 최소·최대) — 무거운 것은 거의 안 간다
     fn gust_reach(self) -> (f64, f64) {
         match self {
@@ -136,20 +103,6 @@ impl ObjectKind {
             ObjectKind::Umbrella => (30.0, 80.0),
             ObjectKind::Computer => (6.0, 18.0),
         }
-    }
-}
-
-/// 웹뷰가 그릴 모습: 회전(도), 위아래 뒤집기(1 = 그대로, -1 = 뒤집힘), 살짝 뜬 높이(논리 px)
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-pub struct Pose {
-    pub angle: f64,
-    pub flip: f64,
-    pub lift: f64,
-}
-
-impl Default for Pose {
-    fn default() -> Self {
-        Pose { angle: 0.0, flip: 1.0, lift: 0.0 }
     }
 }
 
@@ -181,18 +134,11 @@ pub struct Exit {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Gust {
-    /// 갈 거리 (물리 px)와 간 거리
-    total: f64,
-    done: f64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
 enum Phase {
     Held,
     Air,
-    /// 디딤판 위에서 미끄러지거나 구르거나 그림이 제자리로 돌아오는 중
-    Ground { friction: f64, gust: Option<Gust> },
+    /// 디딤판 위: settle이 없으면 구르는 중, 있으면 그 각도로 눕는 중 (마찰은 논리 px/s² × dpi)
+    Ground { friction: f64, settle: Option<f64> },
     /// 잠듦 — 다음 바람이나 세계 변화까지 할 일 없음
     Rest,
 }
@@ -206,7 +152,9 @@ pub struct Object {
     phase: Phase,
     /// 디딘 곳과 기준점에서 떨어진 거리
     standing: Option<(Owner, f64)>,
-    pose: Pose,
+    /// 그림 각도 (도, 시계 방향이 +)와 회전 (도/s). 잠들 때 각도를 한 바퀴 안으로 접는다
+    angle: f64,
+    spin: f64,
     /// 던진 비행 — 이때만 화면 끝을 넘어간다 (바람·낙하는 넘어가지 않는다)
     thrown: bool,
     gust_in: f64,
@@ -235,7 +183,8 @@ impl Object {
             dpi: dpi.max(0.01),
             phase: Phase::Air,
             standing: None,
-            pose: Pose::default(),
+            angle: 0.0,
+            spin: 0.0,
             thrown: false,
             gust_in,
             rng,
@@ -277,7 +226,15 @@ impl Object {
             Body { x, y, vx: inward * fling.vx.abs() * dpi, vy: fling.vy * dpi }
         };
         o.thrown = true;
+        // 회전은 통신으로 오지 않는다: 들어오는 속도로 새로 돈다
+        o.spin = o.spin_of_throw();
         o
+    }
+
+    /// 지금 속도로 던져졌을 때의 회전
+    fn spin_of_throw(&mut self) -> f64 {
+        let dir = if self.rng.bool() { 1.0 } else { -1.0 };
+        throw_spin(self.kind, self.body.vx / self.dpi, self.body.vy / self.dpi, dir)
     }
 
     fn size(&self) -> f64 {
@@ -296,12 +253,29 @@ impl Object {
         self.dpi
     }
 
-    pub fn pose(&self) -> Pose {
-        self.pose
+    /// 그림 각도 (도, 시계 방향이 +)
+    pub fn angle(&self) -> f64 {
+        self.angle
+    }
+
+    /// 회전 (도/s)
+    pub fn spin(&self) -> f64 {
+        self.spin
     }
 
     pub fn is_held(&self) -> bool {
         self.phase == Phase::Held
+    }
+
+    /// 땅에서 구르는 중 (눕기 전)
+    pub fn is_rolling(&self) -> bool {
+        matches!(self.phase, Phase::Ground { settle: None, .. })
+    }
+
+    /// 그림이 도는 축의 화면 자리 (물리 px): 창은 이곳을 가운데로 놓는다. 가장 낮은 점이 언제나 body.y에 온다
+    pub fn pivot(&self) -> (f64, f64) {
+        let shape = shape_of(self.kind);
+        (self.body.x + shape.pivot_offset_x() * self.dpi, self.body.y - shape.drop_at(self.angle) * self.dpi)
     }
 
     /// 다음 바람이나 세계 변화까지 할 일이 없다 (창도 웹뷰도 건드리지 않는다)
@@ -330,6 +304,7 @@ impl Object {
         self.thrown = false;
         self.body.vx = 0.0;
         self.body.vy = 0.0;
+        self.spin = 0.0;
         self.grab = (self.body.x - cx, self.body.y - cy);
         self.grabbed_at = self.clock;
         self.grabbed_from = (cx, cy);
@@ -364,6 +339,7 @@ impl Object {
         self.body.vx = vx;
         self.body.vy = vy;
         self.thrown = true;
+        self.spin = self.spin_of_throw();
         Release::Throw
     }
 
@@ -376,8 +352,8 @@ impl Object {
         match self.phase {
             Phase::Held => None,
             Phase::Air => self.tick_air(dt, world, edges),
-            Phase::Ground { friction, gust } => {
-                self.tick_ground(dt, world, friction, gust);
+            Phase::Ground { friction, settle } => {
+                self.tick_ground(dt, world, friction, settle);
                 None
             }
             Phase::Rest => {
@@ -394,22 +370,18 @@ impl Object {
         }
     }
 
-    /// 바람이 분다 (dir = ±1). 잠들어 있을 때만
+    /// 바람이 분다 (dir = ±1). 잠들어 있을 때만. 던졌을 때와 같은 구르기를 살살
     pub fn start_gust(&mut self, dir: f64) {
         if self.phase != Phase::Rest {
             return;
         }
+        let heft = heft_of(self.kind);
         let (lo, hi) = self.kind.gust_reach();
-        let mut reach = lo + self.rng.f64() * (hi - lo);
-        if self.kind.gust_style() == GustStyle::Roll {
-            // 딱 몇 바퀴: 멈출 때 그림이 똑바로 선다
-            let round = std::f64::consts::TAU * ROLL_RADIUS;
-            reach = (reach / round).round().max(1.0) * round;
-        }
-        let total = reach * self.dpi;
-        let friction = GUST_FRICTION * self.dpi;
-        self.body.vx = dir * (2.0 * friction * total).sqrt();
-        self.phase = Phase::Ground { friction, gust: Some(Gust { total, done: 0.0 }) };
+        let reach = lo + self.rng.f64() * (hi - lo);
+        let friction = heft.friction * tumble::GUST_EASE * self.dpi;
+        self.body.vx = dir * (2.0 * friction * reach * self.dpi).sqrt();
+        self.spin = heft.rolling_spin(self.body.vx / self.dpi);
+        self.phase = Phase::Ground { friction, settle: None };
     }
 
     fn start_fall(&mut self) {
@@ -419,7 +391,7 @@ impl Object {
         self.phase = Phase::Air;
     }
 
-    fn tick_ground(&mut self, dt: f64, world: &World, friction: f64, mut gust: Option<Gust>) {
+    fn tick_ground(&mut self, dt: f64, world: &World, friction: f64, mut settle: Option<f64>) {
         let anchor = self.standing.and_then(|(owner, rel_x)| world.anchor(owner).map(|(ax, _)| (owner, rel_x, ax)));
         let Some((owner, rel_x, ax)) = anchor else {
             self.start_fall();
@@ -431,8 +403,7 @@ impl Object {
             v = 0.0;
         }
         let (lo, hi) = (world.bounds.left + self.half_w(), world.bounds.right - self.half_w());
-        let start = ax + rel_x;
-        let mut x = start + v * dt;
+        let mut x = ax + rel_x + v * dt;
         if x < lo || x > hi {
             x = x.clamp(lo, hi.max(lo));
             v = 0.0;
@@ -440,54 +411,62 @@ impl Object {
         self.body.x = x;
         self.body.vx = v;
         let Some(piece) = world.piece_at(owner, x).copied() else {
-            // 디딤판 끝을 지나 떨어진다 (바람 때문이어도 — 화면 끝은 위에서 막았다)
+            // 디딤판 끝을 지나 돌면서 떨어진다 (바람 때문이어도 — 화면 끝은 위에서 막았다)
             self.start_fall();
             return;
         };
         self.body.y = piece.y;
         self.standing = Some((owner, x - ax));
-        if let Some(g) = gust.as_mut() {
-            g.done += (x - start).abs();
-            self.gust_pose(*g, x - start);
-            if v == 0.0 {
-                gust = None;
+        let lying = match settle {
+            None => {
+                self.roll(dt);
+                if v == 0.0 && self.spin.abs() < tumble::SETTLE_SPIN {
+                    settle = Some(shape_of(self.kind).rest_angle(self.angle));
+                }
+                false
             }
-        } else {
-            self.settle_pose(dt);
-        }
-        if v == 0.0 && gust.is_none() && self.pose == Pose::default() {
+            Some(target) => self.flop_toward(dt, target),
+        };
+        if v == 0.0 && lying {
+            self.angle = (self.angle + 180.0).rem_euclid(360.0) - 180.0;
+            self.spin = 0.0;
             self.phase = Phase::Rest;
         } else {
-            self.phase = Phase::Ground { friction, gust };
+            self.phase = Phase::Ground { friction, settle };
         }
     }
 
-    fn gust_pose(&mut self, g: Gust, dx: f64) {
-        let p = (g.done / g.total.max(1.0)).clamp(0.0, 1.0);
-        let tau = std::f64::consts::TAU;
-        match self.kind.gust_style() {
-            GustStyle::Roll => self.pose.angle += (dx / (ROLL_RADIUS * self.dpi)).to_degrees(),
-            GustStyle::Flip => {
-                self.pose.flip = (tau * p).cos();
-                self.pose.lift = (tau / 2.0 * p).sin() * FLIP_LIFT;
-            }
-            GustStyle::Rock => {
-                // 멀리 가는 것일수록 크게 흔들린다
-                let amp = (self.kind.gust_reach().1 / 4.0).clamp(4.0, 25.0);
-                self.pose.angle = (2.0 * tau * p).sin() * amp * (1.0 - p);
-                self.pose.lift = (tau * p).sin().abs() * amp / 3.0;
-            }
-        }
+    /// 굴러가는 한 틱: 땅이 회전을 구르는 빠르기로 맞추고, 모서리를 넘을 땐 느려졌다 넘어가며 빨라진다
+    fn roll(&mut self, dt: f64) {
+        let heft = heft_of(self.kind);
+        let rolling = heft.rolling_spin(self.body.vx / self.dpi);
+        self.spin += (rolling - self.spin) * (1.0 - (-heft.grip * dt).exp());
+        self.spin -= tumble::CLUNK * shape_of(self.kind).slope_at(self.angle) * dt;
+        self.angle += self.spin * dt;
     }
 
-    /// 그림을 제자리로 (가까운 쪽으로 돌아간다)
-    fn settle_pose(&mut self, dt: f64) {
-        let keep = (-SETTLE_RATE * dt).exp();
-        let a = (self.pose.angle + 180.0).rem_euclid(360.0) - 180.0;
-        self.pose.angle = if (a * keep).abs() < 0.5 { 0.0 } else { a * keep };
-        self.pose.lift = if self.pose.lift * keep < 0.2 { 0.0 } else { self.pose.lift * keep };
-        let flip = 1.0 - (1.0 - self.pose.flip) * keep;
-        self.pose.flip = if flip > 0.98 { 1.0 } else { flip };
+    /// 눕는 한 틱: 면 쪽으로 넘어가 바닥에 부딪히고, 살짝 되튀다 멈춘다 (바닥을 뚫고 지나가지 않는다). 다 누웠으면 true
+    fn flop_toward(&mut self, dt: f64, target: f64) -> bool {
+        let off = self.angle - target;
+        if off.abs() < 0.2 && self.spin.abs() < tumble::TINY_SPIN {
+            self.angle = target;
+            self.spin = 0.0;
+            return true;
+        }
+        let side = if off != 0.0 { off.signum() } else { self.spin.signum() };
+        self.spin -= side * tumble::FLOP * dt;
+        let next = self.angle + self.spin * dt;
+        if self.spin * side < 0.0 && (next - target) * side <= 0.0 {
+            self.angle = target;
+            self.spin = -self.spin * tumble::REBOUND;
+            if self.spin.abs() < tumble::STOP_SPIN {
+                self.spin = 0.0;
+                return true;
+            }
+            return false;
+        }
+        self.angle = next;
+        false
     }
 
     fn tick_air(&mut self, dt: f64, world: &World, edges: ExitEdges) -> Option<Exit> {
@@ -497,8 +476,13 @@ impl Object {
         let prev_y = self.body.y;
         let g = THROW_GRAVITY_LOGICAL * self.dpi;
         let (size, hw) = (self.size(), self.half_w());
+        let vx_before = self.body.vx;
         step_air(&mut self.body, dt, &world.bounds, hw, size, g);
-        self.pose.angle += self.body.vx / self.dpi * AIR_SPIN * dt;
+        if self.body.vx * vx_before < 0.0 {
+            // 벽에 부딪혔다: 반대로 돈다
+            self.spin *= -tumble::WALL_SPIN_KEEP;
+        }
+        self.angle += self.spin * dt;
         let landing = world.landing(self.body.x, prev_y, self.body.y).copied().or_else(|| {
             // 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 Ground를 바닥으로 취급
             if self.body.vy >= 0.0 {
@@ -511,20 +495,45 @@ impl Object {
             self.body.y = s.y;
             self.thrown = false;
             if self.body.vy > BOUNCE_MIN_VY * self.dpi {
-                self.body.vy *= -BOUNCE_KEEP_VY;
-                self.body.vx *= BOUNCE_KEEP_VX;
+                self.bounce();
                 return None;
             }
+            let landed_at = self.body.vy;
             self.body.vy = 0.0;
             let ax = world.anchor(s.owner).map_or(0.0, |(ax, _)| ax);
             self.standing = Some((s.owner, self.body.x - ax));
-            self.phase = Phase::Ground { friction: LAND_FRICTION * self.dpi, gust: None };
+            let friction = heft_of(self.kind).friction * self.dpi;
+            self.phase = if self.spin == 0.0 {
+                // 살며시 내려앉았다: 그 자세로 살짝 까딱하고 만다. 공중에서 붙잡아 기운 채 놓았으면 가까운 면으로 눕는다 (처음 모습 0도는 그대로 둔다)
+                let dir = if self.rng.bool() { 1.0 } else { -1.0 };
+                self.spin = dir * wobble_spin(landed_at / self.dpi);
+                let settle = if self.angle == 0.0 { 0.0 } else { shape_of(self.kind).rest_angle(self.angle) };
+                Phase::Ground { friction, settle: Some(settle) }
+            } else {
+                Phase::Ground { friction, settle: None }
+            };
         } else if self.body.y > world.bounds.bottom + size * 4.0 {
             // 화면 밖으로 사라짐 → 위에서 다시 떨어진다
             let b = world.bounds;
             self.body = Body { x: self.body.x.clamp(b.left + hw, (b.right - hw).max(b.left + hw)), y: b.top + size, vx: 0.0, vy: 0.0 };
         }
         None
+    }
+
+    /// 바닥을 치고 튀어 오른다: 도는 물건이면 회전이 구르는 쪽으로 쏠리고, 가벼운 것은 제멋대로 튄다
+    fn bounce(&mut self) {
+        let heft = heft_of(self.kind);
+        self.body.vy *= -heft.bounce;
+        self.body.vx *= heft.bounce_vx;
+        if self.spin != 0.0 {
+            let rolling = heft.rolling_spin(self.body.vx / self.dpi);
+            let kick = (self.rng.f64() * 2.0 - 1.0) * heft.jitter;
+            self.spin = (self.spin * heft.bounce_spin + rolling * (1.0 - heft.bounce_spin) + kick).clamp(-heft.max_spin, heft.max_spin);
+            if self.spin == 0.0 {
+                // 회전이 딱 0이면 살며시 내려앉은 것으로 치므로, 구르던 물건은 0이 되지 않게 한다
+                self.spin = f64::MIN_POSITIVE;
+            }
+        }
     }
 
     /// 던진 비행이 친구가 연결된 화면 끝을 넘으면 그대로 넘어간다 (동물과 같은 규칙, brain_fling.rs)

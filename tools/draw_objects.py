@@ -5,13 +5,19 @@
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
 앱은 그림을 96 논리 px로 줄여 보인다 (crates/screenpet-core/src/object.rs OBJECT_LOGICAL_SIZE). 움직임은 그림을 더 그리지 않고
-CSS로 돌리거나(구르기·흔들기) 뒤집는다 (ui/object.js) — 그래서 그림 한 장이면 된다.
+CSS로 돌린다 (ui/object.js) — 그래서 그림 한 장이면 된다.
 바닥은 칸 아래 끝 BOTTOM에 앉는다. POSTIT_AT은 포스트잇을 붙일 자리 (ui/object.js POSTIT_AT과 같다).
+
+    python tools/draw_objects.py --shapes  → 구르기에 쓰는 모양 표를 찍는다 (crates/screenpet-core/src/tumble.rs shape_of에 붙여 넣는다):
+                                             무게중심(도는 중심), 볼록 껍질(어느 각도에서든 바닥에 닿는 점), 창에 필요한 반지름.
+                                             그림을 고치면 다시 찍어야 한다 (tools/test_draw_objects.py가 어긋나면 알려 준다)
 """
 
 import sys
+from math import ceil, hypot
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -26,6 +32,10 @@ PREVIEW = ROOT / "tools" / "preview" / "objects.png"
 
 BOTTOM = 126.5
 POSTIT = 40
+# 앱에서 포스트잇은 28/128 칸 폭 — 가운데에서 모서리까지
+POSTIT_REACH = 20
+# 구르기 모양 표의 볼록 껍질 꼭짓점 수
+HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
 NAMES = ("can", "paper", "glasses", "computer", "banana", "milk", "sock", "umbrella")
@@ -35,7 +45,7 @@ POSTIT_AT = {
     "paper": (78, 84),
     "glasses": (40, 100),
     "computer": (92, 72),
-    "banana": (64, 100),
+    "banana": (88, 94),
     "milk": (74, 92),
     "sock": (58, 76),
     "umbrella": (44, 66),
@@ -51,8 +61,10 @@ PLASTIC = (222, 214, 196)
 SCREEN = (70, 78, 96)
 SPARK = (255, 214, 102)
 BANANA = (252, 216, 92)
-BANANA_DARK = (196, 150, 66)
-BANANA_IN = (255, 244, 196)
+BANANA_LIGHT = (255, 234, 140)
+BANANA_SEAM = (222, 176, 66)
+BANANA_TIP = (122, 84, 56)
+BANANA_IN = (255, 246, 204)
 MILK_BLUE = (138, 186, 232)
 SOCK = (246, 160, 170)
 SOCK_STRIPE = (255, 240, 226)
@@ -112,17 +124,60 @@ def draw_computer(img):
     blob(img, [T((106, 28), (114, 38), (108, 38), (116, 50), (100, 36), (106, 36))], SPARK, r=0.2, line=0.7)
 
 
+def smooth(points, widths, n=6):
+    """꺾은선을 부드러운 곡선으로 (Catmull-Rom), 굵기도 함께."""
+    out_p, out_w = [], []
+    last = len(points) - 1
+    for i in range(last):
+        p0, p1, p2, p3 = points[max(i - 1, 0)], points[i], points[i + 1], points[min(i + 2, last)]
+        for k in range(n):
+            t = k / n
+            out_p.append(tuple(
+                0.5 * (2 * p1[a] + (p2[a] - p0[a]) * t + (2 * p0[a] - 5 * p1[a] + 4 * p2[a] - p3[a]) * t ** 2
+                       + (3 * p1[a] - p0[a] - 3 * p2[a] + p3[a]) * t ** 3)
+                for a in (0, 1)))
+            out_w.append(widths[i] + (widths[i + 1] - widths[i]) * t)
+    return out_p + [points[-1]], out_w + [widths[-1]]
+
+
+def strip(points, widths):
+    """가운데 선을 따라 굵기가 변하는 껍질 조각 (끝이 가늘어지는 다각형)."""
+    left, right = [], []
+    n = len(points)
+    for i, (x, y) in enumerate(points):
+        px, py = points[max(i - 1, 0)]
+        qx, qy = points[min(i + 1, n - 1)]
+        dx, dy = qx - px, qy - py
+        d = hypot(dx, dy) or 1.0
+        w = widths[i] / 2
+        left.append((x - dy / d * w, y + dx / d * w))
+        right.append((x + dy / d * w, y - dx / d * w))
+    return T(*left, *reversed(right))
+
+
+def peel_strip(img, points, widths, color, seam):
+    """껍질 한 조각: 몸 + 결 + 둥근 갈색 끝."""
+    pts, ws = smooth(points, widths)
+    body = strip(pts, ws)
+    seam_line = pts[len(pts) // 6:-len(pts) // 5]
+    blob(img, [body, C(*pts[-1], ws[-1] / 2)], color, r=0.7,
+         marks=[([L(seam_line, 1.1)], seam), ([C(*pts[-1], ws[-1] * 1.7)], BANANA_TIP)])
+
+
 def draw_banana(img):
-    """바나나 껍질: 꼭지에서 세 갈래로 축 늘어진 껍질."""
+    """바나나 껍질: 꼭지 아래 굽은 몸통에서 네 갈래가 축 늘어져 바닥에 벌어졌다. 안쪽은 크림색, 끝은 갈색."""
     y = BOTTOM
-    blob(img, [L([(64, y - 34), (40, y - 26), (24, y - 12), (20, y - 3)], 12.0)], BANANA, r=1.0,
-         marks=[([L([(62, y - 30), (42, y - 22), (28, y - 9)], 4.0)], BANANA_IN)])
-    blob(img, [L([(64, y - 34), (88, y - 26), (104, y - 12), (108, y - 3)], 12.0)], BANANA, r=1.0,
-         marks=[([L([(66, y - 30), (86, y - 22), (100, y - 9)], 4.0)], BANANA_IN)])
-    blob(img, [L([(64, y - 40), (65, y - 22), (64, y - 6)], 15.0)], BANANA, r=1.2,
-         marks=[([E(52, y - 7, 76, y + 1)], BANANA_DARK), ([E(58, y - 26, 62, y - 12)], BANANA_IN)])
-    blob(img, [L([(64, y - 40), (65, y - 50)], 7.0)], BANANA_DARK, r=0, line=0.8)
-    tiny_face(img, 64, y - 25, 0.75)
+    # 뒤쪽 두 갈래: 안쪽 크림색이 보인다
+    peel_strip(img, [(60, y - 62), (42, y - 68), (24, y - 58), (15, y - 38), (9, y - 28)], [14, 15, 13, 9, 5.5], BANANA_IN, BANANA_SEAM)
+    peel_strip(img, [(68, y - 62), (86, y - 66), (104, y - 54), (112, y - 36), (120, y - 30)], [14, 15, 13, 9, 5.5], BANANA_IN, BANANA_SEAM)
+    # 굽은 몸통과 작은 꼭지
+    blob(img, [strip(*smooth([(71, y - 92), (66, y - 76), (63, y - 58), (64, y - 30)], [9, 20, 25, 24]))], BANANA, r=1.0,
+         marks=[([L([(62, y - 78), (56, y - 60), (55, y - 36)], 2.6)], BANANA_LIGHT)])
+    blob(img, [L([(71, y - 92), (73, y - 100)], 6.0)], BANANA_TIP, r=0, line=0.9)
+    # 앞쪽 두 갈래: 바깥 노란 껍질이 앞으로 늘어져 끝이 살짝 말린다
+    peel_strip(img, [(60, y - 52), (44, y - 44), (29, y - 26), (20, y - 9), (9, y - 7)], [20, 19, 16, 11, 6], BANANA, BANANA_SEAM)
+    peel_strip(img, [(68, y - 52), (82, y - 42), (95, y - 24), (105, y - 9), (118, y - 8)], [20, 19, 16, 11, 6], BANANA, BANANA_SEAM)
+    tiny_face(img, 65, y - 67, 0.72)
 
 
 def draw_milk(img):
@@ -229,7 +284,66 @@ def preview(arts, path=PREVIEW):
     im.save(path)
 
 
+def convex_hull(points):
+    """볼록 껍질 (앤드류), 화면 좌표에서 시계 방향."""
+    pts = sorted(set(points))
+
+    def half(seq):
+        out = []
+        for p in seq:
+            while len(out) >= 2 and (out[-1][0] - out[-2][0]) * (p[1] - out[-2][1]) - (out[-1][1] - out[-2][1]) * (p[0] - out[-2][0]) <= 0:
+                out.pop()
+            out.append(p)
+        return out[:-1]
+
+    return half(pts) + half(reversed(pts))
+
+
+def simplify_hull(hull, keep=HULL_POINTS):
+    """꼭짓점을 줄인다: 지워도 모양이 가장 덜 변하는 것부터 (삼각형 넓이가 작은 것)."""
+    hull = list(hull)
+
+    def area(i):
+        a, b, c = hull[i - 1], hull[i], hull[(i + 1) % len(hull)]
+        return abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+
+    while len(hull) > keep:
+        del hull[min(range(len(hull)), key=area)]
+    return hull
+
+
+def shape_of(name, art):
+    """구르기에 쓰는 모양: 무게중심 pivot, 볼록 껍질 hull, 포스트잇까지 담는 반지름 reach (모두 128 칸 좌표)."""
+    a = np.asarray(art.getchannel("A"))
+    solid = a >= 128
+    ys, xs = np.nonzero(solid)
+    pivot = (int(round(xs.mean() + 0.5)), int(round(ys.mean() + 0.5)))
+    corners = []
+    for y in np.unique(ys):
+        row = xs[ys == y]
+        corners += [(int(row.min()), int(y)), (int(row.max()) + 1, int(y)), (int(row.min()), int(y) + 1), (int(row.max()) + 1, int(y) + 1)]
+    hull = simplify_hull(convex_hull(corners))
+    ys, xs = np.nonzero(a > 0)
+    far = float(np.hypot(xs + 0.5 - pivot[0], ys + 0.5 - pivot[1]).max()) + 1.0
+    nx, ny = POSTIT_AT[name]
+    note = hypot(nx - pivot[0], ny - pivot[1]) + POSTIT_REACH
+    return {"pivot": pivot, "hull": hull, "reach": ceil(max(far, note))}
+
+
+def shape_table():
+    """tumble.rs shape_of의 몸 (이 글자 그대로 붙여 넣는다)"""
+    lines = []
+    for name in NAMES:
+        s = shape_of(name, draw_object(name))
+        hull = ", ".join(f"({x}.0, {y}.0)" for x, y in s["hull"])
+        lines.append(f"        ObjectKind::{name.capitalize()} => Shape {{ pivot: ({s['pivot'][0]}.0, {s['pivot'][1]}.0), reach: {s['reach']}.0, hull: &[{hull}] }},")
+    return "\n".join(lines)
+
+
 def main():
+    if "--shapes" in sys.argv:
+        print(shape_table())
+        return
     arts = build()
     preview(arts)
     print(f"wrote {len(arts)} images to {OUT_DIR} and {PREVIEW}")

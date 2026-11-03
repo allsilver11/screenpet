@@ -66,7 +66,7 @@ fn a_dropped_object_falls_lands_and_sleeps() {
     assert!(run(&mut o, &w, 3.0).is_none());
     assert!(resting_on(&o, Owner::Ground(0)));
     assert_eq!((o.body.y, o.body.vx, o.body.vy), (1040.0, 0.0, 0.0));
-    assert_eq!(o.pose(), Pose::default());
+    assert_eq!(o.angle(), 0.0);
 }
 
 #[test]
@@ -109,34 +109,34 @@ fn gusts_come_every_30_to_90_seconds_and_only_a_short_way() {
         }
         let moved = (o.body.x - start).abs();
         assert!(moved > 10.0 && moved <= 200.0, "moved {moved}");
-        assert_eq!(o.pose(), Pose::default());
     }
 }
 
 #[test]
-fn round_things_roll_flat_things_flip_and_heavy_things_barely_rock() {
+fn a_gust_is_the_same_roll_light_things_turn_over_heavy_things_barely_budge() {
     let gust_of = |kind| {
         let w = floor();
         let mut o = Object::new(kind, 960.0, 1040.0, 1.0, 3);
         run(&mut o, &w, 0.5);
         o.start_gust(1.0);
         let start = o.body.x;
-        let (mut max_angle, mut min_flip, mut max_lift) = (0.0f64, 1.0f64, 0.0f64);
+        let mut turned = 0.0f64;
         for _ in 0..600 {
+            let before = o.angle();
             o.tick(DT, &w, NONE, false);
-            let p = o.pose();
-            max_angle = max_angle.max(p.angle.abs());
-            min_flip = min_flip.min(p.flip);
-            max_lift = max_lift.max(p.lift);
+            if !o.is_asleep() {
+                turned += (o.angle() - before).abs();
+            }
         }
-        (max_angle, min_flip, max_lift, (o.body.x - start).abs())
+        assert!(o.is_asleep(), "{kind:?}");
+        (turned, (o.body.x - start).abs())
     };
-    let (a, f, _, d) = gust_of(ObjectKind::Can);
-    assert!(a > 90.0 && f == 1.0 && d > 40.0, "can {a} {f} {d}");
-    let (a, f, _, _) = gust_of(ObjectKind::Banana);
-    assert!(a < 30.0 && f < 0.0, "banana flips {a} {f}");
-    let (a, f, l, d) = gust_of(ObjectKind::Computer);
-    assert!(a > 0.5 && a < 30.0 && f == 1.0 && l > 0.0 && d <= 30.0, "computer rocks {a} {f} {l} {d}");
+    let (can_turned, can_went) = gust_of(ObjectKind::Can);
+    assert!(can_turned > 90.0 && can_went > 40.0, "can {can_turned} {can_went}");
+    let (computer_turned, computer_went) = gust_of(ObjectKind::Computer);
+    assert!(computer_turned < 60.0 && computer_went <= 30.0, "computer {computer_turned} {computer_went}");
+    let (banana_turned, _) = gust_of(ObjectKind::Banana);
+    assert!(banana_turned < can_turned, "banana {banana_turned} can {can_turned}");
 }
 
 #[test]
@@ -538,4 +538,320 @@ fn queued_and_live_foreign_objects_share_the_twenty_and_the_live_ones_go_first()
         assert_eq!(r.add(1000 + q.len() as u64, Origin::Foreign), None);
     }
     assert_eq!(r.foreign_count(), 20);
+}
+
+// ---- 구르기 ----
+
+/// 던져서 멈출 때까지 지켜본다: (간 거리, 돈 각도 합, 멈춘 때까지 초)
+fn tumble(o: &mut Object, w: &World) -> (f64, f64, f64) {
+    let start = o.body.x;
+    let (mut turned, mut t) = (0.0f64, 0.0f64);
+    while !o.is_asleep() {
+        let before = o.angle();
+        o.tick(DT, w, NONE, false);
+        // 잠들 때 각도를 한 바퀴 안으로 접으므로 그때는 세지 않는다
+        if !o.is_asleep() {
+            turned += (o.angle() - before).abs();
+        }
+        t += DT;
+        assert!(t < 12.0, "{:?} never settled", o.kind);
+    }
+    ((o.body.x - start).abs(), turned, t)
+}
+
+fn thrown(kind: ObjectKind, w: &World, x: f64, v: (f64, f64), seed: u64) -> Object {
+    let mut o = Object::new(kind, x, 800.0, 1.0, seed);
+    fling(&mut o, w, (x, 760.0), v);
+    o
+}
+
+fn wide() -> World {
+    World::new(vec![], vec![Rect::new(0.0, 0.0, 12000.0, 1040.0)], 96.0)
+}
+
+#[test]
+fn a_throw_spins_in_the_direction_it_goes_while_flying() {
+    let w = wide();
+    let mut right = thrown(ObjectKind::Can, &w, 3000.0, (1500.0, -300.0), 1);
+    let mut left = thrown(ObjectKind::Can, &w, 3000.0, (-1500.0, -300.0), 1);
+    assert!(right.spin() > 0.0 && left.spin() < 0.0, "{} {}", right.spin(), left.spin());
+    let (a0, b0) = (right.angle(), left.angle());
+    for _ in 0..10 {
+        right.tick(DT, &w, NONE, false);
+        left.tick(DT, &w, NONE, false);
+    }
+    assert!(right.angle() - a0 > 30.0, "{}", right.angle());
+    assert!(left.angle() - b0 < -30.0, "{}", left.angle());
+}
+
+#[test]
+fn harder_throws_spin_faster_and_turn_more() {
+    let w = wide();
+    let mut soft = thrown(ObjectKind::Can, &w, 3000.0, (500.0, -100.0), 1);
+    let mut hard = thrown(ObjectKind::Can, &w, 3000.0, (1400.0, -100.0), 1);
+    assert!(hard.spin() > soft.spin() && soft.spin() > 0.0, "{} {}", hard.spin(), soft.spin());
+    let (_, soft_turned, _) = tumble(&mut soft, &w);
+    let (_, hard_turned, _) = tumble(&mut hard, &w);
+    assert!(hard_turned > soft_turned, "{hard_turned} {soft_turned}");
+}
+
+#[test]
+fn after_landing_it_keeps_rolling_forward_then_friction_stops_it() {
+    let w = wide();
+    let mut o = thrown(ObjectKind::Can, &w, 3000.0, (1400.0, 0.0), 1);
+    // 바닥에 처음 닿아 구르기 시작할 때까지 날아간다
+    let mut t = 0.0;
+    while !o.is_rolling() {
+        o.tick(DT, &w, NONE, false);
+        t += DT;
+        assert!(t < 6.0, "never touched down");
+    }
+    let (x0, a0) = (o.body.x, o.angle());
+    assert!(o.body.vx > 0.0 && o.spin() > 0.0, "vx {} spin {}", o.body.vx, o.spin());
+    let mut last_v = o.body.vx;
+    let mut t = 0.0;
+    while o.body.vx > 0.0 {
+        o.tick(DT, &w, NONE, false);
+        assert!(o.body.vx <= last_v, "friction only slows it");
+        last_v = o.body.vx;
+        t += DT;
+        assert!(t < 10.0, "friction never stopped it");
+    }
+    assert!(o.body.x - x0 > 150.0, "rolled {}", o.body.x - x0);
+    assert!(o.angle() - a0 > 180.0, "turned {}", o.angle() - a0);
+    tumble(&mut o, &w);
+    assert_eq!(o.spin(), 0.0);
+    assert_eq!(o.body.vx, 0.0);
+}
+
+#[test]
+fn every_kind_settles_at_a_natural_angle_and_goes_back_to_sleep() {
+    let w = wide();
+    let mut seen_tipped = false;
+    for kind in ObjectKind::ALL {
+        for seed in 0..8 {
+            for v in [(1500.0, -500.0), (-900.0, -100.0), (300.0, -900.0)] {
+                let mut o = thrown(kind, &w, 6000.0, v, seed);
+                tumble(&mut o, &w);
+                assert!(o.is_asleep());
+                assert_eq!((o.spin(), o.body.vx, o.body.vy), (0.0, 0.0, 0.0), "{kind:?}");
+                assert_eq!(o.body.y, 1040.0, "{kind:?}");
+                let a = o.angle();
+                assert!((-180.0..180.0).contains(&a), "{kind:?} {a}");
+                seen_tipped |= a.abs() > 5.0;
+                // 잠든 뒤엔 아무것도 변하지 않는다 (창도 웹뷰도 안 건드린다)
+                let p = o.pivot();
+                for _ in 0..200 {
+                    assert!(o.tick(DT, &w, NONE, false).is_none());
+                    assert!(o.is_asleep());
+                }
+                assert_eq!((o.angle(), o.pivot()), (a, p));
+            }
+        }
+    }
+    assert!(seen_tipped, "something should end up lying down");
+}
+
+#[test]
+fn a_gentle_drop_only_wobbles_a_little_and_comes_back() {
+    let w = floor();
+    for kind in ObjectKind::ALL {
+        // 살며시: 거의 안 움직이고 놓거나, 천천히 끌다 놓거나, 그냥 떨어뜨리거나
+        let mut clicked = Object::new(kind, 800.0, 700.0, 1.0, 1);
+        clicked.pointer_down(800.0, 660.0);
+        clicked.tick(DT, &w, NONE, false);
+        clicked.pointer_up();
+        let mut slow = Object::new(kind, 800.0, 700.0, 1.0, 1);
+        fling(&mut slow, &w, (800.0, 660.0), (120.0, 40.0));
+        let mut fell = Object::new(kind, 800.0, 100.0, 1.0, 1);
+        for o in [&mut clicked, &mut slow, &mut fell] {
+            assert_eq!(o.spin(), 0.0, "{kind:?}");
+            let mut most = 0.0f64;
+            let mut t = 0.0;
+            while !o.is_asleep() {
+                o.tick(DT, &w, NONE, false);
+                most = most.max(o.angle().abs());
+                t += DT;
+                assert!(t < 5.0);
+            }
+            assert!(most <= 4.0, "{kind:?} wobbled {most}");
+            assert_eq!(o.angle(), 0.0, "{kind:?}");
+        }
+    }
+}
+
+#[test]
+fn a_landing_wobbles_at_least_visibly() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Milk, 800.0, 900.0, 1.0, 1);
+    let mut most = 0.0f64;
+    while !o.is_asleep() {
+        o.tick(DT, &w, NONE, false);
+        most = most.max(o.angle().abs());
+    }
+    assert!(most > 0.1, "{most}");
+}
+
+#[test]
+fn each_kind_rolls_its_own_way() {
+    let w = wide();
+    // 같은 몸짓으로 던져 보면
+    let go = |kind, seed| tumble(&mut thrown(kind, &w, 2000.0, (1400.0, -200.0), seed), &w);
+    let (can_far, can_turn, _) = go(ObjectKind::Can, 1);
+    let (paper_far, paper_turn, _) = go(ObjectKind::Paper, 1);
+    let (computer_far, computer_turn, _) = go(ObjectKind::Computer, 1);
+    let (sock_far, sock_turn, _) = go(ObjectKind::Sock, 1);
+    let (banana_far, banana_turn, _) = go(ObjectKind::Banana, 1);
+    // 캔이 가장 멀리 구른다
+    for (name, far) in [("paper", paper_far), ("computer", computer_far), ("sock", sock_far), ("banana", banana_far)] {
+        assert!(can_far > far, "can {can_far} vs {name} {far}");
+    }
+    // 컴퓨터는 거의 안 구른다
+    assert!(computer_turn < 120.0, "computer turned {computer_turn}");
+    assert!(computer_turn * 4.0 < can_turn, "{computer_turn} vs {can_turn}");
+    // 양말·바나나는 철퍼덕 — 캔보다 훨씬 덜 돈다
+    assert!(sock_turn * 2.0 < can_turn && banana_turn * 2.0 < can_turn, "sock {sock_turn} banana {banana_turn} can {can_turn}");
+    assert!(paper_turn > sock_turn, "paper {paper_turn} sock {sock_turn}");
+}
+
+#[test]
+fn crumpled_paper_is_irregular_a_can_is_not() {
+    let w = wide();
+    let run_of = |kind, seed| {
+        let mut o = thrown(kind, &w, 3000.0, (1400.0, -200.0), seed);
+        tumble(&mut o, &w);
+        (o.body.x, o.angle())
+    };
+    let papers: Vec<_> = (0..6).map(|s| run_of(ObjectKind::Paper, s)).collect();
+    assert!(papers.iter().any(|p| (p.0 - papers[0].0).abs() > 1.0 || (p.1 - papers[0].1).abs() > 1.0), "{papers:?}");
+    let cans: Vec<_> = (0..3).map(|s| run_of(ObjectKind::Can, s)).collect();
+    assert!(cans.iter().all(|c| *c == cans[0]), "{cans:?}");
+}
+
+#[test]
+fn the_sprite_keeps_touching_the_surface_at_every_angle() {
+    let w = wide();
+    for kind in ObjectKind::ALL {
+        let s = crate::tumble::shape_of(kind);
+        let mut o = thrown(kind, &w, 3000.0, (1400.0, -200.0), 2);
+        for _ in 0..600 {
+            o.tick(DT, &w, NONE, false);
+            let (px, py) = o.pivot();
+            // 축 아래로 가장 낮은 점 = 몸 바닥 — 땅에선 표면에 닿고, 표면 아래로 내려가지 않는다
+            assert!((py + s.drop_at(o.angle()) - o.body.y).abs() < 1e-9, "{kind:?}");
+            assert!(o.body.y <= 1040.0, "{kind:?}");
+            assert!((px - s.pivot_offset_x() - o.body.x).abs() < 1e-9, "{kind:?}");
+        }
+    }
+}
+
+#[test]
+fn it_is_the_same_tumble_on_any_screen_scale() {
+    let turned = |dpi: f64| {
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 12000.0 * dpi, 1040.0 * dpi)], 96.0 * dpi);
+        let mut o = Object::new(ObjectKind::Can, 2000.0 * dpi, 800.0 * dpi, dpi, 1);
+        fling(&mut o, &w, (2000.0 * dpi, 760.0 * dpi), (1200.0 * dpi, -300.0 * dpi));
+        tumble(&mut o, &w).1
+    };
+    let (a, b) = (turned(1.0), turned(2.0));
+    assert!(a > 100.0 && (a - b).abs() / a < 0.12, "{a} vs {b}");
+}
+
+#[test]
+fn rolling_off_a_window_keeps_turning_and_falls_naturally() {
+    let w = world();
+    let mut o = Object::new(ObjectKind::Can, 800.0, 400.0, 1.0, 5);
+    run(&mut o, &w, 0.5);
+    assert!(resting_on(&o, Owner::Window(1)));
+    // 창 위로 오른쪽으로 던진다
+    o.pointer_down(800.0, 390.0);
+    for i in 1..=8 {
+        o.tick(DT, &w, NONE, false);
+        o.pointer_move(800.0 + 800.0 * i as f64 * DT, 390.0);
+    }
+    o.pointer_up();
+    let mut fell_spinning = false;
+    let mut t = 0.0;
+    while !o.is_asleep() {
+        let was_on_window = o.owner() == Some(Owner::Window(1));
+        o.tick(DT, &w, NONE, false);
+        fell_spinning |= was_on_window && o.owner().is_none() && o.spin() != 0.0;
+        t += DT;
+        assert!(t < 12.0);
+    }
+    assert!(fell_spinning);
+    assert!(resting_on(&o, Owner::Ground(0)), "{:?}", o.owner());
+}
+
+#[test]
+fn it_stops_at_the_screen_edge_and_a_wall_turns_the_spin_around() {
+    let w = floor();
+    // 땅에서 구르다 화면 끝: 넘어가지 않고 멈춘다
+    let mut o = Object::new(ObjectKind::Can, 1880.0, 1040.0, 1.0, 1);
+    run(&mut o, &w, 0.5);
+    o.start_gust(1.0);
+    tumble(&mut o, &w);
+    assert!(o.body.x <= 1920.0 - o.half_w());
+    // 날다가 벽: 튕겨 나오며 회전도 반대로
+    let mut o = thrown(ObjectKind::Can, &w, 1800.0, (1500.0, -600.0), 1);
+    assert!(o.spin() > 0.0);
+    let mut t = 0.0;
+    while o.body.vx > 0.0 && t < 2.0 {
+        o.tick(DT, &w, NONE, false);
+        t += DT;
+    }
+    assert!(o.body.vx < 0.0 && o.spin() < 0.0, "vx {} spin {}", o.body.vx, o.spin());
+}
+
+#[test]
+fn grabbing_stops_the_spin_and_keeps_the_angle_it_is_at() {
+    let w = wide();
+    let mut o = thrown(ObjectKind::Can, &w, 3000.0, (1400.0, -300.0), 1);
+    for _ in 0..15 {
+        o.tick(DT, &w, NONE, false);
+    }
+    let a = o.angle();
+    assert!(a != 0.0);
+    o.pointer_down(o.body.x, o.body.y - 40.0);
+    assert_eq!(o.spin(), 0.0);
+    for _ in 0..10 {
+        o.tick(DT, &w, NONE, false);
+    }
+    assert_eq!(o.angle(), a);
+}
+
+#[test]
+fn caught_mid_spin_and_let_go_gently_it_lies_down_instead_of_balancing_on_a_corner() {
+    let w = wide();
+    for kind in ObjectKind::ALL {
+        let s = crate::tumble::shape_of(kind);
+        let mut o = thrown(kind, &w, 3000.0, (1400.0, -600.0), 1);
+        for _ in 0..7 {
+            o.tick(DT, &w, NONE, false);
+        }
+        let (x, y) = (o.body.x, o.body.y);
+        o.pointer_down(x, y);
+        o.tick(0.6, &w, NONE, false);
+        assert_eq!(o.pointer_up(), Release::Throw);
+        assert_eq!(o.spin(), 0.0, "{kind:?}");
+        tumble(&mut o, &w);
+        let a = o.angle();
+        assert!(s.drop_at(a + 0.2) >= s.drop_at(a) && s.drop_at(a - 0.2) >= s.drop_at(a), "{kind:?} balancing at {a}");
+    }
+}
+
+#[test]
+fn an_object_from_a_friend_arrives_tumbling_from_its_speed() {
+    let w = floor();
+    let fast = Fling { height: 0.3, vx: 1200.0, vy: -100.0 };
+    let o = Object::flown_in(ObjectKind::Can, &w, Side::Left, fast, 1.0, 1);
+    assert!(o.spin() > 0.0, "{}", o.spin());
+    let o = Object::flown_in(ObjectKind::Can, &w, Side::Right, fast, 1.0, 1);
+    assert!(o.spin() < 0.0, "{}", o.spin());
+    let slow = Fling { height: 0.3, vx: 60.0, vy: 30.0 };
+    assert_eq!(Object::flown_in(ObjectKind::Can, &w, Side::Left, slow, 1.0, 1).spin(), 0.0);
+    let up = Fling { height: 0.5, vx: 0.0, vy: 1000.0 };
+    let mut o = Object::flown_in(ObjectKind::Paper, &w, Side::Up, up, 1.0, 1);
+    assert!(o.spin() != 0.0);
+    tumble(&mut o, &w);
 }
