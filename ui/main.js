@@ -42,6 +42,8 @@ async function loadPet() {
   petEl.style.backgroundImage = `url(${url})`;
   petEl.style.backgroundSize = `${img.width * k}px ${img.height * k}px`;
   setupNeck(m, side, k);
+  // 동물이 바뀌면 모자 ↔ 목도리 (pet-presence는 그대로라 다시 오지 않는다)
+  if (lastPresence) setCap(!!lastPresence.nightcap);
   animStart = performance.now();
 }
 
@@ -152,6 +154,8 @@ function jitter(f, now) {
 const nightcapEl = document.getElementById("nightcap");
 const focusringEl = document.getElementById("focusring");
 const focusringFill = document.getElementById("focusring-fill");
+// 밤 목도리: pet.json에 neck 표가 있는 동물(산타 — 모자를 이미 썼다)은 수면 모자 대신 두른다. 자리·몸과 한 덩어리인 것은 모자와 같다
+const scarfEl = document.getElementById("scarf");
 let headgearAt = null;
 
 // HEADGEAR-LAYOUT-START (tools/test_nightcap.py가 node로 이 부분을 그대로 돌린다)
@@ -175,6 +179,23 @@ function headgearLayout(entry, k, capOn, flip) {
   const ring = `translate(${(rx - RING_R).toFixed(2)}px, ${(ry - RING_R).toFixed(2)}px)${flip ? " scaleX(-1)" : ""}`;
   return { cap, ring };
 }
+// 앞모습 동작 (코어 Anim::is_front) — 머리가 가운데다. 옆모습은 시트에서 오른쪽을 본다
+const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "wag", "hungry", "eat", "level_up", "huff", "sting"]);
+// 목도리 SVG(ui/index.html #scarf)의 기준점과 너비 (viewBox 좌표)
+const SCARF_ANCHOR_X = 26;
+const SCARF_ANCHOR_Y = 8;
+const SCARF_W = 52;
+function scarfLayout(entry, k) {
+  const [x, y, w, r] = entry;
+  const s = (w * k) / SCARF_W;
+  return `translate(${(x * k).toFixed(2)}px, ${(y * k).toFixed(2)}px) rotate(${r.toFixed(1)}deg) scale(${s.toFixed(3)}) translate(${-SCARF_ANCHOR_X}px, ${-SCARF_ANCHOR_Y}px)`;
+}
+// 지금 칸에 보일 모양 (썰매는 초록 목도리의 펄럭임과 칸마다 같은 모양으로 덮는다)
+function scarfView(anim, f) {
+  if (anim === "roll") return `sled${f % 2}`;
+  if (anim === "climb" || anim === "slide") return "back";
+  return FRONT_ANIMS.has(anim) ? "front" : "side";
+}
 // 매달린 몸이 흔들리는 축 = 커서 끝이 닿는 머리 꼭대기 (코어 PetManifest::hang_grip과 같은 계산: dragged 칸들의 평균, 모자 입구보다 조금 위)
 const HEAD_TOP_ABOVE_BRIM = 0.15;
 function hangOrigin(cells, frameSize) {
@@ -188,9 +209,6 @@ function hangOrigin(cells, frameSize) {
 // 아래는 눈사람 눈구름(placeCloud)이 쓰는 머리 찾기 — 시트의 지금 칸을 재서 맨 위를 찾는다 (칸마다 한 번 재서 기억)
 const headCache = new Map();
 let sheetImg = null;
-
-// 앞모습 동작 (코어 Anim::is_front) — 머리가 가운데다. 옆모습은 시트에서 오른쪽을 본다
-const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "wag", "hungry", "eat", "level_up", "huff", "sting"]);
 
 // 불투명한 덩어리 중 가장 큰 것 (zzz·반짝이처럼 떨어진 조각은 머리가 아니다) → 칸 안 칸번호 목록
 function largestBlob(data, size) {
@@ -250,15 +268,21 @@ function headTop(row, f, front) {
 
 // host: 지금 머리가 있는 층 — 평소 #pet, 기린 목 늘이기 동안은 머리 층 (#pet이 투명해지고 머리가 위로 올라간다)
 function placeHeadgear(anim, f, host) {
-  if (nightcapEl.parentNode !== host) host.append(nightcapEl, focusringEl);
-  const capOn = !!lastPresence.nightcap;
-  const key = `${stage.stage}:${anim}:${f}:${render.flip}:${display}:${capOn}`;
+  if (nightcapEl.parentNode !== host) host.append(nightcapEl, focusringEl, scarfEl);
+  const wearing = !!lastPresence.nightcap;
+  const scarf = manifest.neck?.[stage.stage]?.[anim]?.[f];
+  const capOn = wearing && !manifest.neck;
+  const key = `${stage.stage}:${anim}:${f}:${render.flip}:${display}:${capOn}:${wearing}`;
   if (key === headgearAt) return;
   headgearAt = key;
   const entry = manifest.head?.[stage.stage]?.[anim]?.[f];
   const { cap, ring } = headgearLayout(entry, display / manifest.frame_size, capOn, render.flip);
   nightcapEl.style.transform = cap;
   focusringEl.style.transform = ring;
+  if (wearing && scarf) {
+    scarfEl.style.transform = scarfLayout(scarf, display / manifest.frame_size);
+    scarfEl.dataset.view = scarfView(anim, f);
+  }
 }
 
 // 눈사람의 작은 눈구름 (백엔드 render.cloud): 떠 있는 동안만 프레임이 바뀔 때 머리 위로 옮긴다 — 눈송이는 CSS.
@@ -295,13 +319,19 @@ function syncCloud(on) {
 const CAP_POOF_MS = 450;
 const CAP_POOF_SPARKS = 5;
 let capPoofTimer = null;
+// 밤에 쓰는 것: 대개 수면 모자, neck 표가 있는 동물은 목도리
+const nightWear = () => (manifest?.neck ? scarfEl : nightcapEl);
 function setCap(on) {
   clearTimeout(capPoofTimer);
   nightcapEl.classList.remove("cap-poof");
-  nightcapEl.toggleAttribute("hidden", !on);
+  scarfEl.classList.remove("cap-poof");
+  const wear = nightWear();
+  nightcapEl.toggleAttribute("hidden", !on || wear !== nightcapEl);
+  scarfEl.toggleAttribute("hidden", !on || wear !== scarfEl);
 }
 function capPoof() {
-  const box = nightcapEl.getBoundingClientRect();
+  const wear = nightWear();
+  const box = wear.getBoundingClientRect();
   const home = stageEl.getBoundingClientRect();
   const cx = box.left + box.width / 2 - home.left - home.width / 2;
   const up = home.bottom - (box.top + box.height / 2);
@@ -318,7 +348,7 @@ function capPoof() {
     stageEl.appendChild(s);
     s.addEventListener("animationend", () => s.remove());
   }
-  nightcapEl.classList.add("cap-poof");
+  wear.classList.add("cap-poof");
   capPoofTimer = setTimeout(() => setCap(false), CAP_POOF_MS);
 }
 
@@ -329,7 +359,7 @@ listen("pet-presence", (e) => {
   // 막 벗는 순간에만 뿅 (앱을 8시 30분 뒤에 켰거나 숨어 있으면 효과 없이 안 보인다) — 시계가 끄므로 인사가 미뤄져도 모자만 남지 않는다
   const capOff = lastPresence?.nightcap && !p.nightcap;
   lastPresence = p;
-  if (capOff && !nightcapEl.hidden && document.visibilityState !== "hidden") capPoof();
+  if (capOff && !nightWear().hidden && document.visibilityState !== "hidden") capPoof();
   else setCap(!!p.nightcap);
   const ring = typeof p.ring === "number";
   focusringEl.toggleAttribute("hidden", !ring);

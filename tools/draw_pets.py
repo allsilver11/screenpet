@@ -168,6 +168,7 @@ def _pt(x, y):
 # 수면 모자 자리 (pet.json head): 그리는 코드가 머리 위치를 아니까 프레임마다 여기에 적어 둔다. 그림(픽셀)에는 아무 영향이 없다.
 _HEAD = {}  # 지금 칸의 표시
 _HEAD_LOG = {}  # 지금 단계의 {동작: [칸별 표시]}
+_NECK_LOG = {}  # 지금 단계의 {동작: [칸별 목 표시]} — 밤 목도리를 두르는 동물만 (산타)
 
 
 def mark_head(x, y, w, tilt=0.0):
@@ -181,11 +182,22 @@ def mark_head(x, y, w, tilt=0.0):
                    round(math.degrees(math.atan2(ux - px, py - uy)) + tilt, 1)]
 
 
+def mark_neck(x, y, w, tilt=0.0):
+    """밤 목도리가 감기는 자리 (mark_head와 같은 식): 목도리 윗변 가운데 (x, y) · 목도리 너비 w · 기울기 tilt."""
+    px, py = _pt(x, y)
+    lx, ly = _pt(x - w / 2, y)
+    rx, ry = _pt(x + w / 2, y)
+    ux, uy = _pt(x, y - 10)
+    _HEAD["neck"] = [round(px / K, 1), round(py / K, 1), round(math.hypot(rx - lx, ry - ly) / K, 1),
+                     round(math.degrees(math.atan2(ux - px, py - uy)) + tilt, 1)]
+
+
 def shift_head(dx, dy):
     """다 그린 프레임을 통째로 민 경우 (_fit, 루돌프 코 후광) 표시도 같이 민다."""
-    if "at" in _HEAD:
-        _HEAD["at"][0] = round(_HEAD["at"][0] + dx, 1)
-        _HEAD["at"][1] = round(_HEAD["at"][1] + dy, 1)
+    for key in ("at", "neck"):
+        if key in _HEAD:
+            _HEAD[key][0] = round(_HEAD[key][0] + dx, 1)
+            _HEAD[key][1] = round(_HEAD[key][1] + dy, 1)
 
 
 def _wscale():
@@ -1461,14 +1473,18 @@ def frames(sp, anim, n):
     _INK["line"] = sp.outline or LINE
     try:
         with view(scale=sp.scale * _ST["fit"], lift=LIFT + 1.7 * OUTLINE * (_ST["line"] - 1)):  # 굵은 외곽선만큼 더 올린다
-            out, heads = [], []
+            out, heads, necks = [], [], []
             for i in range(n):
                 _HEAD.clear()
                 out.append(((sp.poses or {}).get(anim) or POSES[anim])(sp, i))
                 if "at" not in _HEAD:
                     raise ValueError(f"{sp.id} {anim} {i}: 머리 표시(mark_head)가 없습니다")
                 heads.append(_HEAD["at"])
+                if "neck" in _HEAD:
+                    necks.append(_HEAD["neck"])
             _HEAD_LOG[anim] = heads
+            if necks:
+                _NECK_LOG[anim] = necks
             return out
     finally:
         _INK["line"] = old_ink
@@ -2067,6 +2083,7 @@ def rows_for(sp):
 
 
 _RENDERED = {}
+_NECKS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json neck (산타만)
 _HEADS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json head  # (종, 단계) → {동작: [프레임]} — 한 프로세스에서 여러 번 build해도 한 번만 그린다
 
 
@@ -2098,8 +2115,10 @@ def render_species(sp, stage_name="teenager"):
         with stage(stage_name, sp.stage_tweak.get(stage_name)):
             ssp = staged_species(sp)
             _HEAD_LOG.clear()
+            _NECK_LOG.clear()
             _RENDERED[key] = {anim: frames(ssp, anim, n) for anim, n, *_ in rows_for(sp)}
             _HEADS[key] = dict(_HEAD_LOG)
+            _NECKS[key] = dict(_NECK_LOG)
     return _RENDERED[key]
 
 
@@ -2148,6 +2167,8 @@ def write_species(sp, out_dir):
     counts = {anim: len(by_stage["teenager"][anim]) for anim, *_ in rows_for(sp)}
     m = species_fields(sp.id, manifest(sp.name, sp.walk_speed, counts, SPEECH[sp.id], FAVORITE_FOOD[sp.id], STAGES, sp.stage_size))
     m["head"] = {st: _HEADS[(sp.id, st)] for st in STAGES}
+    if _NECKS[(sp.id, STAGES[0])]:  # 밤에 수면 모자 대신 목도리 (산타, ui/main.js)
+        m["neck"] = {st: _NECKS[(sp.id, st)] for st in STAGES}
     (out_dir / "pet.json").write_text(_manifest_text(m), encoding="utf-8")
     return by_stage
 

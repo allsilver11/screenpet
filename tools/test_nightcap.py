@@ -12,6 +12,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 import preview_nightcap as pn
+import preview_scarf as ps
 
 ROOT = Path(__file__).resolve().parent.parent
 PETS = ROOT / "ui" / "pets"
@@ -208,7 +209,7 @@ def harness(pid, st="teenager"):
 
 
 @needs_node
-@pytest.mark.parametrize("pid", ["dino_green", "cat", "bee", "santa"])
+@pytest.mark.parametrize("pid", ["dino_green", "cat", "bee", "snowman"])
 def test_cap_moves_as_one_with_the_body(pid):
     r = harness(pid)
     base = r["base"]
@@ -258,3 +259,124 @@ def test_click_through_turns_on_before_the_window_moves_over_the_cursor():
     slots = (ROOT / "src-tauri" / "src" / "slots.rs").read_text(encoding="utf-8")
     place = slots[slots.index("pub fn place(&mut self"):]
     assert place.index("self.sync_click_through()") < place.index("self.move_window(")
+
+
+# ---- 산타의 밤 목도리: 모자를 이미 썼으니 수면 모자 대신 파란 목도리 (#pet 자식 오버레이, pet.json neck) ----
+
+
+def scarf_mask(view, entry):
+    d_size = FRAME * 2
+    return np.asarray(ps.draw_scarf(view, ps.scarf_matrix(entry), 2, d_size).getchannel("A").resize((FRAME, FRAME), Image.BILINEAR)) > 100
+
+
+def santa_cells():
+    man = pn.manifest("santa")
+    for st in pn.STAGES:
+        for anim, spec in man["animations"].items():
+            for f in range(spec["frames"]):
+                yield man, st, anim, spec, f
+
+
+def test_only_santa_has_neck_data_and_every_santa_cell_has_it():
+    for pid in pn.SPECIES:
+        assert ("neck" in pn.manifest(pid)) == (pid == "santa"), pid
+    for man, st, anim, spec, f in santa_cells():
+        assert len(man["neck"][st][anim][f]) == 4, (st, anim, f)
+
+
+def test_no_extra_santa_sheets():
+    assert not list((PETS / "santa").glob("*night*"))
+
+
+def test_scarf_sits_on_the_body_and_leaves_the_face_alone():
+    bad = []
+    for man, st, anim, spec, f in santa_cells():
+        entry = man["neck"][st][anim][f]
+        mask = scarf_mask(ps.scarf_view(anim, f), entry)
+        cell = cell_of("santa", st, spec["row"], f)
+        alpha = cell[..., 3] > 128
+        # 목도리 기준점 둘레가 몸 위다
+        x, y = int(round(entry[0])), int(round(entry[1]))
+        if not alpha[max(0, y - 2):y + 5, max(0, x - 8):x + 9].any():
+            bad.append(("floating", st, anim, f))
+        # 칸(창)을 벗어나지 않는다
+        ys, xs = np.nonzero(mask)
+        if xs.min() < 1 or xs.max() > FRAME - 2 or ys.max() > FRAME - 2:
+            bad.append(("outside", st, anim, f, int(xs.min()), int(xs.max()), int(ys.max())))
+        # 얼굴을 덮지 않는다: 눈 줄 (모자 입구 표시 아래 0.65 × 머리 반지름, 입구 너비 = 머리 반지름 × 1.9) 둘레. 뒷모습은 얼굴이 없다
+        hx, hy, hw, _ = man["head"][st][anim][f]
+        hr = hw / 1.9
+        if ps.scarf_view(anim, f) != "back":
+            ey = int(hy + 0.65 * hr)
+            # 앞모습 얼굴은 가운데, 옆모습 얼굴은 앞쪽(오른쪽) — 뒤로 올라간 목도리 끝이 볼 뒤에 닿는 건 괜찮다
+            x0, x1 = (int(hx - 0.6 * hr), int(hx + 0.6 * hr)) if ps.scarf_view(anim, f) == "front" else (int(hx), int(hx + 0.7 * hr))
+            if mask[ey - 4:ey + 5, x0:x1].any():
+                bad.append(("face", st, anim, f))
+    assert not bad, f"{len(bad)}: {bad[:30]}"
+
+
+def test_scarf_hides_the_green_sled_scarf():
+    """썰매: 원래 그려진 초록 목도리가 파란 목도리 밖으로 삐져나오지 않는다 (장갑도 같은 색이라 몸 뒤쪽만 본다)."""
+    for man, st, anim, spec, f in santa_cells():
+        if anim != "roll":
+            continue
+        cell = cell_of("santa", st, spec["row"], f)
+        green = (np.abs(cell[..., :3].astype(np.int16) - np.array((92, 168, 112))).sum(axis=2) < 40) & (cell[..., 3] > 128)
+        green[:, 50:] = False
+        mask = scarf_mask(ps.scarf_view(anim, f), man["neck"][st][anim][f])
+        assert green.sum() > 20, (st, f)
+        assert (green & ~mask).sum() <= 0.03 * green.sum(), (st, f, int((green & ~mask).sum()), int(green.sum()))
+
+
+def test_scarf_is_the_same_blue_as_the_nightcap_with_white_fringe():
+    cap = re.search(r'<svg id="nightcap".*?</svg>', HTML, re.S).group(0)
+    scarf = re.search(r'<svg id="scarf".*?</svg>', HTML, re.S).group(0)
+    for color in ("#6f86c9", "#3f4f86", "#fff7e8"):
+        assert color in cap and color in scarf
+    pet = HTML[HTML.index('<div id="pet">'):HTML.index('<div id="envelope"')]
+    assert '<svg id="scarf"' in pet
+    assert set(ps.GROUPS) == {"front", "side", "back", "sled0", "sled1"}
+
+
+@needs_node
+def test_python_scarf_preview_matches_main_js():
+    a, b = MAIN.index("// HEADGEAR-LAYOUT-START"), MAIN.index("// HEADGEAR-LAYOUT-END")
+    entry = [80.5, 96.2, 52.1, -7.5]
+    js = f"{MAIN[a:b]}\nconsole.log(JSON.stringify({{ css: scarfLayout({json.dumps(entry)}, 1), views: [['roll', 3], ['climb', 0], ['slide', 1], ['sit_front', 0], ['sleep', 0]].map(([n, f]) => scarfView(n, f)) }}));"
+    out = json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
+    tx, ty, rot, s, ax, ay = (float(v) for v in re.match(r"translate\((.+)px, (.+)px\) rotate\((.+)deg\) scale\((.+)\) translate\((.+)px, (.+)px\)", out["css"]).groups())
+    c, sn = math.cos(math.radians(rot)), math.sin(math.radians(rot))
+    m = ps.scarf_matrix(entry)
+    for p in [(0, 0), (26, 8), (51, 2)]:
+        qx, qy = (p[0] + ax) * s, (p[1] + ay) * s
+        assert (c * qx - sn * qy + tx, sn * qx + c * qy + ty) == pytest.approx(m(*p), abs=0.05)
+    assert out["views"] == ["sled1", "back", "back", "front", "side"]
+    assert [ps.scarf_view(n, f) for n, f in [("roll", 3), ("climb", 0), ("slide", 1), ("sit_front", 0), ("sleep", 0)]] == out["views"]
+
+
+@needs_node
+def test_santa_wears_the_scarf_not_a_second_hat():
+    r = harness("santa")
+    assert r["startOff"]["scarfHidden"] and r["startOff"]["sparks"] == 0
+    base = r["base"]
+    assert base["capHidden"], "수면 모자는 산타에게 안 나온다"
+    assert not base["scarfHidden"] and base["scarfParent"] == "pet"
+    # 집중 고리는 그대로
+    assert base["ringParent"] == "pet" and base["ring"].startswith("translate(")
+    # 몸과 한 덩어리: 몸만 변환을 받고, 칸 안 자리는 그대로
+    for name in ("hangRight", "hangLeft", "wobble", "bubbleWindow", "noteWindow", "flip"):
+        assert r[name]["scarf"] == base["scarf"] and r[name]["scarfParent"] == "pet", name
+    assert "scaleX(-1)" in r["flip"]["pet"] and "scaleX(-1)" not in r["flip"]["scarf"]
+    assert r["sleep"]["scarfView"] == "side" and r["sitFront"]["scarfView"] == "front"
+    assert r["climb"]["scarfView"] == "back" and r["sled"]["scarfView"] == "sled0"
+    # 아침 8시 30분: 목도리가 뿅
+    assert "cap-poof" in r["morning"]["scarfClasses"] and not r["morning"]["scarfHidden"] and not r["morning"]["capClasses"]
+    assert r["morning"]["sparks"] - r["afterNeck"]["sparks"] == 5
+    assert r["morningDone"]["scarfHidden"] and not r["morningDone"]["scarfClasses"] and r["morningDone"]["capHidden"]
+    assert r["hiddenWindow"]["scarfHidden"], "창이 숨어 있으면 효과 없이"
+
+
+@needs_node
+def test_other_pets_keep_the_nightcap_and_no_scarf():
+    r = harness("cat")
+    assert not r["base"]["capHidden"] and r["base"]["scarfHidden"]

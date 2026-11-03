@@ -490,17 +490,34 @@ body {
 /* 수면 모자·집중 고리 — #pet의 자식 (기린 목 늘이기 동안만 머리 층 .nk-head의 자식): 몸의 변환을 그대로 받아 한 덩어리로 움직인다.
    칸 안 자리는 main.js placeHeadgear가 pet.json head 표에서 정한다 */
 #nightcap,
+#scarf,
 #focusring {
   position: absolute;
   left: 0;
   top: 0;
   pointer-events: none;
 }
-#nightcap {
+#nightcap,
+#scarf {
   transform-origin: 0 0;
 }
+/* 산타의 밤 목도리: 칸의 모습(앞·옆·뒤·썰매)에 맞는 모양만 (main.js scarfView) */
+#scarf {
+  overflow: visible;
+}
+#scarf g[data-v] {
+  display: none;
+}
+#scarf[data-view="front"] g[data-v="front"],
+#scarf[data-view="side"] g[data-v="side"],
+#scarf[data-view="back"] g[data-v="back"],
+#scarf[data-view="sled0"] g[data-v="sled0"],
+#scarf[data-view="sled1"] g[data-v="sled1"] {
+  display: inline;
+}
 /* 아침 8시 30분에 모자가 "뿅": 살짝 부풀었다 작아지며 흐려진다 (자리 변환은 #nightcap 몫이라 안쪽 g만 움직인다, main.js capPoof) */
-#nightcap.cap-poof #nightcap-art {
+#nightcap.cap-poof #nightcap-art,
+#scarf.cap-poof #scarf-art {
   transform-box: fill-box;
   transform-origin: 50% 80%;
   animation: cap-poof 0.45s ease-in forwards;
@@ -511,6 +528,7 @@ body {
   100% { transform: scale(0.1); opacity: 0; }
 }
 #nightcap[hidden],
+#scarf[hidden],
 #focusring[hidden] {
   display: none;
 }

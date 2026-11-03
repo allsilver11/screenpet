@@ -71,7 +71,7 @@ const byId = (id) => {
 };
 // index.html과 같은 부모 — 테스트가 html도 따로 확인한다
 const html = fs.readFileSync(path.join(UI, "index.html"), "utf8");
-for (const id of ["nightcap", "focusring"]) {
+for (const id of ["nightcap", "focusring", "scarf"]) {
   const inPet = new RegExp(`<div id="pet">(?:(?!</div>)[\\s\\S])*<svg id="${id}"`).test(html);
   byId(inPet ? "pet" : "stage").append(byId(id));
 }
@@ -150,6 +150,11 @@ const look = () => ({
   ring: byId("focusring").style.transform,
   capHidden: byId("nightcap").hidden,
   capClasses: [...byId("nightcap").classes],
+  scarf: byId("scarf").style.transform,
+  scarfParent: byId("scarf").parentNode.id,
+  scarfHidden: byId("scarf").hidden,
+  scarfClasses: [...byId("scarf").classes],
+  scarfView: byId("scarf").dataset.view,
   pet: byId("pet").style.transform,
   petOrigin: byId("pet").style.transformOrigin,
   sparks: created.filter((e) => e.className === "spark").length,
@@ -180,6 +185,11 @@ const flushTimers = () => {
   out.startOff = look();
   emit("pet-presence", { nightcap: true, ring: 40 });
   show("base", {});
+  // 모습마다 (목도리 모양)
+  show("sleep", { anim: "sleep" });
+  show("sitFront", { anim: "sit_front" });
+  show("climb", { anim: "climb" });
+  show("sled", { anim: "roll" });
   show("hangRight", { hang: 1 }, { width: 400 });
   show("hangLeft", { hang: -1 }, { width: 400 });
   show("wobble", { wobble: true });

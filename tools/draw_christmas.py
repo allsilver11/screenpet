@@ -423,6 +423,8 @@ def santa(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes=
                                           E(fx_ + 0.01 * hr, hy + 0.2 * hr, fx_ + 0.38 * hr, hy + 0.42 * hr)], FUR, outline=True, grow=0))
                 parts += _hat_parts(hx, hy, hr, side, pom, lvl)
                 dp.mark_head(hx, hy - hr * 0.62, hr * 1.9)
+                # 밤 목도리: 수염 바로 아래 (아기 수염은 턱 아래 작은 뭉치)
+                dp.mark_neck(fx_, hy + (0.84 * hr if k < 0.65 else 0.2 * hr + 0.86 * hr * k), 2 * brx * 1.02 / sq[0])  # 찌그러져도 목도리 크기는 그대로
                 # 얼굴 층: 동글 볼 · 작은 점 눈 · 작은 코 · 작은 입
                 ey = hy + 0.03 * hr
                 sp_x = 0.34 * hr if not side else 0.3 * hr
@@ -511,9 +513,13 @@ def sa_roll(sp, i):
 
     puffs = snow_puffs([[(14, base - 4, 4.2), (6, base - 10, 3.0), (20, base - 12, 2.4)],
                         [(10, base - 6, 3.6), (18, base - 3, 2.8), (5, base - 14, 2.6)]][i])
-    return santa(sp, side=True, bottom=bottom, cx=60, feet=None, sack=False, eyes="happy", mouth="open",
-                 pom=[-26, -18][i], rot=[-2, 0][i], arms=[(1, 70)], back=[scarf], props=[sled],
-                 fx=puffs + speed_fx(2, (base - 30, base - 22), 10, [0, -3][i]))
+    out = santa(sp, side=True, bottom=bottom, cx=60, feet=None, sack=False, eyes="happy", mouth="open",
+                pom=[-26, -18][i], rot=[-2, 0][i], arms=[(1, 70)], back=[scarf], props=[sled],
+                fx=puffs + speed_fx(2, (base - 30, base - 22), 10, [0, -3][i]))
+    # 밤 목도리: 초록 목도리 뿌리에 맞춰 덮는다 (ui/index.html data-v="sled0|sled1"이 펄럭임까지 같은 모양)
+    _, hy = _layout(st, bottom)
+    dp.mark_neck(54, hy + st["hr"] * 0.82, st["hr"] * 1.9)
+    return out
 
 
 def sa_idle(sp, i):
@@ -687,6 +693,7 @@ def santa_back(reach, feet, *, sq=(1.0, 1.0), dy=0.0, pom=0.0, scratch=None, swe
         parts.append(dp.Part([E(cx - brx, cy_b - bry, cx + brx, cy_b + bry), E(cx - hr * 0.82, nape_top, cx + hr * 0.82, nape_bot)], SUIT, marks, outline=True, grow=0))
         parts += _hat_parts(cx, hy, hr, False, pom, lvl)
         dp.mark_head(cx, hy - hr * 0.62, hr * 1.9)
+        dp.mark_neck(cx, hy + hr * 0.14, hr * 1.85)  # 밤 목도리 뒤쪽: 머리칼 아래 목덜미
         if st["sack"]:  # 어른: 등에 멘 선물 자루 — 등 한가운데, 입구로 선물 상자가 빼꼼
             sx0, sy0, sx1, sy1 = cx - 18, cy_b - bry * 0.82, cx + 18, cy_b + bry * 0.98
             gift = dp.Part([T((cx - 7, sy0 - 3), (cx + 7, sy0 - 5), (cx + 8, sy0 + 7), (cx - 6, sy0 + 8))], GIFT,
