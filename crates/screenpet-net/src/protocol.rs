@@ -169,6 +169,12 @@ pub enum Visit {
         /// on; older versions ignore it.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
         note: Option<String>,
+        /// A small gift (catalog id) the pet will leave on the receiver's
+        /// screen. Unknown or foreign ids are dropped by the receiver, which
+        /// also limits how often a friend's gift is accepted; never re-sent
+        /// when the pet roams on; older versions ignore it.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+        gift: Option<String>,
     },
     /// The guest left the receiver's friend's screen. `next: None` = it went
     /// home (also what older versions send). `next: Some(id)` = it walked out
@@ -324,6 +330,7 @@ mod tests {
             homesick_in: None,
             fling: None,
             note: None,
+            gift: None,
         });
         let v: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!(v["type"], "visit");
@@ -346,6 +353,7 @@ mod tests {
             homesick_in: None,
             fling: None,
             note: None,
+            gift: None,
         });
         let v: serde_json::Value = serde_json::from_slice(&up.to_json()).unwrap();
         assert_eq!((v["enter_side"].as_str(), v["vside"].as_str()), (Some("left"), Some("down")));
@@ -439,6 +447,7 @@ mod tests {
             homesick_in: Some(10.0),
             fling: None,
             note: None,
+            gift: None,
         });
         assert_eq!(Message::parse(&hop.to_json()), Some(hop));
         // 새 필드를 모르는 받는 쪽도 읽을 수 있다 (모르는 필드는 무시)
@@ -461,6 +470,7 @@ mod tests {
             homesick_in: None,
             fling: Some(f),
             note: None,
+            gift: None,
         });
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!((j["fling"]["height"].as_f64(), j["fling"]["vx"].as_f64(), j["fling"]["vy"].as_f64()), (Some(0.25), Some(-640.0), Some(-120.5)));
@@ -478,6 +488,32 @@ mod tests {
         assert_eq!(Message::parse(bad), Some(Message::Visit(Visit::leave(3))));
     }
 
+    #[test]
+    fn a_visit_can_carry_a_gift_and_old_peers_ignore_it() {
+        let Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, .. }) = visit_with_note(None) else { panic!() };
+        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift: Some("cat_yarn_shiny".into()) });
+        let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
+        assert_eq!(j["gift"], "cat_yarn_shiny");
+        assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
+        // 예전 판은 모르는 필드를 건너뛰고 방문으로 받는다
+        #[derive(serde::Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
+        enum OldVisit {
+            Visit { visit_id: u64, owner: String },
+        }
+        let OldVisit::Visit { visit_id, owner } = serde_json::from_slice::<OldVisit>(&v.to_json()).unwrap();
+        assert_eq!((visit_id, owner.as_str()), (8, "A"));
+        // 선물 없는 방문은 예전과 같은 모양, 예전 판의 방문은 선물 없음
+        assert!(!String::from_utf8(visit_with_note(None).to_json()).unwrap().contains("gift"));
+        let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
+        let Some(Message::Visit(Visit::Visit { gift, .. })) = Message::parse(old) else { panic!() };
+        assert_eq!(gift, None);
+        // 글자가 아닌 선물 하나 때문에 방문 전체를 버리지 않는다
+        let bad = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","gift":{"x":1}}"#;
+        let Some(Message::Visit(Visit::Visit { gift, .. })) = Message::parse(bad) else { panic!("bad gift must not drop the visit") };
+        assert_eq!(gift, None);
+    }
+
     fn visit_with_note(note: Option<&str>) -> Message {
         Message::Visit(Visit::Visit {
             visit_id: 8,
@@ -492,6 +528,7 @@ mod tests {
             homesick_in: None,
             fling: None,
             note: note.map(str::to_string),
+            gift: None,
         })
     }
 

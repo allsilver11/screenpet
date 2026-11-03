@@ -113,6 +113,7 @@ fn visit(id: u64) -> Visit {
         homesick_in: None,
         fling: None,
         note: None,
+        gift: None,
     }
 }
 

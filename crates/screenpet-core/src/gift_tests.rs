@@ -416,4 +416,83 @@ fn speech_is_english_and_short() {
     assert!(SHINY_SPEECH.chars().count() <= 24 && COLLECT_SPEECH.is_ascii());
     assert_eq!(collect_speech(Some("Dan")), "from Dan!");
     assert_eq!(collect_speech(None), COLLECT_SPEECH);
+    assert_eq!(collect_speech(Some(" D\u{202E}an ")), "from Dan!", "another person's name is cleaned");
+    assert_eq!(collect_speech(Some(" \u{200B} ")), COLLECT_SPEECH);
+}
+
+// ---- 어디에 떨어뜨리나 (진짜 동물로) ----
+
+fn pet_cfg(flies: bool) -> crate::brain::PetConfig {
+    crate::brain::PetConfig {
+        size: 128.0,
+        half_w: 38.0,
+        walk_speed: 60.0,
+        special: None,
+        personality: crate::behavior::Personality::Friendly,
+        can_climb: false,
+        flies,
+        stings: false,
+        hops: false,
+        hop_share: 0.0,
+        looks_up: false,
+        dpi: 1.0,
+    }
+}
+
+/// 선물을 떨어뜨려도 되는 때가 올 때까지 돌린다
+fn run_until_calm(p: &mut crate::brain::Pet, w: &World) {
+    for _ in 0..3600 {
+        p.update(1.0 / 60.0, w);
+        if drop_spot(p, w).is_some() {
+            return;
+        }
+    }
+    panic!("never calm: {:?}", p.render().anim);
+}
+
+#[test]
+fn a_standing_pet_drops_in_front_of_itself_onto_its_surface() {
+    let w = world_with(vec![]);
+    let mut p = crate::brain::Pet::new(pet_cfg(false), 800.0, 900.0, 5);
+    assert!(drop_spot(&p, &w).is_none(), "still in the air");
+    run_until_calm(&mut p, &w);
+    let (x, y) = drop_spot(&p, &w).unwrap();
+    assert_eq!(y, 1039.0);
+    assert!((x - (p.body.x + p.facing * 0.4 * 128.0)).abs() < 1e-6, "{x} vs {}", p.body.x);
+    // 그 자리에서 바닥으로 내려앉는다
+    let mut f = GiftField::default();
+    let t = f.add(gift("cat_yarn"), None, x, y).unwrap();
+    f.tick(0.05, &w);
+    assert_eq!(f.get(t).unwrap().y, 1040.0);
+}
+
+#[test]
+fn no_gift_while_held_housed_or_focusing() {
+    let w = world_with(vec![]);
+    let mut p = crate::brain::Pet::new(pet_cfg(false), 800.0, 900.0, 5);
+    run_until_calm(&mut p, &w);
+    p.set_focus(true);
+    assert!(drop_spot(&p, &w).is_none(), "focus buddy stays quiet");
+    p.set_focus(false);
+    assert!(drop_spot(&p, &w).is_some());
+    let (x, y) = (p.body.x, p.body.y - 40.0);
+    p.pointer_down(x, y);
+    p.pointer_move(x + 100.0, y - 200.0);
+    assert!(p.is_held());
+    assert!(drop_spot(&p, &w).is_none(), "held");
+    let mut housed = crate::brain::Pet::new(pet_cfg(false), 800.0, 900.0, 5);
+    run_until_calm(&mut housed, &w);
+    housed.enter_house();
+    assert!(drop_spot(&housed, &w).is_none(), "in the house");
+}
+
+#[test]
+fn a_flying_pet_drops_from_where_it_flies() {
+    let w = world_with(vec![]);
+    let mut p = crate::brain::Pet::new(pet_cfg(true), 800.0, 500.0, 9);
+    run_until_calm(&mut p, &w);
+    let (x, _) = drop_spot(&p, &w).unwrap();
+    if p.standing.is_none() {
+        assert_eq!(x, p.body.x);
+    }
 }

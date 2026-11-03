@@ -642,7 +642,7 @@ pub fn book_view(book: &GiftBook) -> BookView {
 
 /// 주웠을 때 내 동물의 말: 친구가 두고 간 것이면 누가 줬는지 (웹뷰는 textContent로만 쓴다)
 pub fn collect_speech(from: Option<&str>) -> String {
-    match from {
+    match from.map(|f| clean_text(f, MAX_NAME_CHARS)).filter(|f| !f.is_empty()) {
         Some(name) => format!("from {name}!"),
         None => COLLECT_SPEECH.to_string(),
     }

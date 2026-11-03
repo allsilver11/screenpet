@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>🎁 선물 도감</title>
+    <!-- 메뉴 "🎁 선물 도감" (src-tauri/src/gifts.rs): 동물별 칸에 모은 선물은 색으로, 못 모은 선물은 실루엣으로. 내용은 book.js가 채운다 -->
+    <style>
+      html, body { margin: 0; }
+      body {
+        font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+        background: #fffaf2;
+        color: #3b3024;
+        font-size: 12px;
+        line-height: 1.4;
+        padding: 14px 14px 18px;
+        box-sizing: border-box;
+        user-select: none;
+      }
+      h1 { font-size: 17px; margin: 0 0 2px; }
+      .sub { color: #8a7660; font-size: 12px; }
+      .meter {
+        height: 8px;
+        background: #f0e4d0;
+        border-radius: 4px;
+        overflow: hidden;
+        margin: 7px 0 11px;
+      }
+      .meter > i { display: block; height: 100%; width: 0; background: #f0a860; border-radius: 4px; }
+      section {
+        background: #fff;
+        border: 1px solid #ecdcc4;
+        border-radius: 10px;
+        padding: 7px 8px 8px;
+        margin-bottom: 9px;
+      }
+      h2 { font-size: 13px; margin: 0 0 5px; display: flex; justify-content: space-between; align-items: baseline; }
+      h2 small { font-weight: 400; color: #a08c74; font-size: 11px; }
+      section.full h2 small { color: #c8822e; font-weight: 600; }
+      .grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+      .cell {
+        position: relative;
+        text-align: center;
+        padding: 5px 1px 3px;
+        border-radius: 8px;
+        background: #fffaf2;
+        min-width: 0;
+      }
+      .cell.shiny { background: linear-gradient(160deg, #fff6d0, #fffaf2); box-shadow: inset 0 0 0 1px #f2d890; }
+      .cell img { display: block; width: 40px; height: 40px; margin: 0 auto 2px; -webkit-user-drag: none; }
+      .cell.missing img { filter: brightness(0); opacity: 0.16; }
+      .cell.missing .name { color: #c2b39e; }
+      .name { font-size: 10.5px; line-height: 1.2; min-height: 2.4em; overflow-wrap: anywhere; }
+      .count { font-size: 10.5px; color: #8a7660; min-height: 1.3em; }
+      .count b { color: #c8822e; font-weight: 600; }
+      .from {
+        font-size: 9.5px;
+        line-height: 1.2;
+        color: #b4613a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .hint { color: #a08c74; font-size: 11px; text-align: center; margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>🎁 선물 도감</h1>
+    <div class="sub" id="sum"></div>
+    <div class="meter"><i id="bar"></i></div>
+    <div id="sections"></div>
+    <div class="hint">펫이 가끔 선물을 떨어뜨려요. 눌러서 주우세요 (30분이 지나면 사라져요). 친구 펫이 두고 가기도 해요 💌</div>
+    <script src="book.js"></script>
+  </body>
+</html>

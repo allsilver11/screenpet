@@ -2,6 +2,7 @@
 
 mod decal;
 mod game_loop;
+mod gifts;
 mod help;
 mod house;
 mod network;
@@ -243,6 +244,8 @@ fn main() {
             network::letter_state,
             network::letter_submit,
             network::letter_close,
+            gifts::gift_collect,
+            gifts::book_state,
             note_space
         ])
         .run(tauri::generate_context!())

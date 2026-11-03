@@ -40,6 +40,8 @@ const LETTER_PREFIX: &str = "net:letter:";
 /// "놀러 보내기 ▸" 목록 항목 (친구 하위 메뉴의 항목과 id가 겹치면 안 된다)
 const SEND_LIST_PREFIX: &str = "net:send-list:";
 const COME_HOME_ID: &str = "net:come-home";
+/// 🎁 선물 도감 창 열기
+const GIFT_BOOK_ID: &str = "gift-book";
 /// 🎮 조작 모드 체크 항목
 const CONTROL_ID: &str = "control";
 /// 🌨️ 날씨 효과 체크 항목 (게임 루프가 달력과 설정으로 맞춘다 — 철이 아니면 누를 수 없다)
@@ -394,6 +396,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let focus_short = CheckMenuItem::with_id(app, FOCUS_SHORT_ID, "25분 집중 · 5분 쉬기", true, true, None::<&str>)?;
     let focus_long = CheckMenuItem::with_id(app, FOCUS_LONG_ID, "50분 집중 · 10분 쉬기", true, false, None::<&str>)?;
     let focus = Submenu::with_items(app, focus_label(false), true, &[&focus_toggle, &PredefinedMenuItem::separator(app)?, &focus_short, &focus_long])?;
+    let gift_book = MenuItem::with_id(app, GIFT_BOOK_ID, "🎁 선물 도감", true, None::<&str>)?;
     let come_home = MenuItem::with_id(app, COME_HOME_ID, "집에 와", false, None::<&str>)?;
     // 게임 루프가 네트워크를 시작한 뒤 채운다
     let friends = Submenu::with_items(app, "친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
@@ -419,6 +422,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&cursor_play)?;
     menu.append(&weather)?;
     menu.append(&focus)?;
+    menu.append(&gift_book)?;
     menu.append(&friends)?;
     menu.append(&toggle)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -441,6 +445,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
             "toggle" => toggle_windows(app),
             "help" => crate::help::show(app),
+            GIFT_BOOK_ID => crate::gifts::show_book(app),
             "feed:water" => send(app, Input::Feed(Food::Water)),
             "lock" => send(app, Input::ToggleLock),
             "house" => send(app, Input::ToggleHouse),

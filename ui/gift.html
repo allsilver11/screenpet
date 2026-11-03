@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- 바닥에 떨어진 선물 하나 (src-tauri/src/gifts.rs). 창이 그림 크기라 이 칸만 누를 수 있다. 그림 이름은 앱이 window.GIFT_IMAGE로
+         넣어 준다 (gifts/<id>.png, 목록에 있는 값뿐이다). 누르면 앱에 알리고, 앱이 .collect를 붙인다 (반짝이며 위로 사라짐).
+         30분이 지나면 .hide (흐려짐). 떨어지는 동안의 위치는 앱이 옮긴다. 가만히 있을 때 도는 애니메이션은 두지 않는다. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+      }
+
+      #gift {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+        transform-origin: 50% 100%;
+        animation: drop 420ms ease-out both;
+        -webkit-user-drag: none;
+      }
+
+      #gift:hover {
+        animation: wiggle 500ms ease-in-out;
+      }
+
+      @keyframes drop {
+        0% {
+          transform: scale(0.4);
+          opacity: 0;
+        }
+        55% {
+          transform: scale(1.12, 0.88);
+          opacity: 1;
+        }
+        80% {
+          transform: scale(0.95, 1.06);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+
+      @keyframes wiggle {
+        25% {
+          transform: rotate(-8deg);
+        }
+        75% {
+          transform: rotate(8deg);
+        }
+      }
+
+      body.hide #gift {
+        transition: opacity 600ms ease-in;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      body.collect {
+        pointer-events: none;
+      }
+
+      body.collect #gift {
+        animation: rise 550ms ease-in forwards;
+      }
+
+      @keyframes rise {
+        0% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        35% {
+          transform: scale(1.2) translateY(-3px);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(0.55) translateY(-30px);
+          opacity: 0;
+        }
+      }
+
+      .star {
+        position: absolute;
+        left: calc(50% - 6px);
+        top: calc(50% - 6px);
+        width: 12px;
+        height: 12px;
+        opacity: 0;
+        background: #ffe680;
+        clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+      }
+
+      body.collect .star {
+        animation: burst 550ms ease-out forwards;
+      }
+
+      .star:nth-of-type(1) { --dx: -15px; --dy: -14px; }
+      .star:nth-of-type(2) { --dx: 15px; --dy: -14px; animation-delay: 40ms !important; }
+      .star:nth-of-type(3) { --dx: -16px; --dy: 8px; animation-delay: 80ms !important; }
+      .star:nth-of-type(4) { --dx: 16px; --dy: 8px; animation-delay: 20ms !important; }
+      .star:nth-of-type(5) { --dx: 0; --dy: -17px; animation-delay: 60ms !important; }
+
+      @keyframes burst {
+        0% {
+          transform: translate(0, 0) scale(0.2);
+          opacity: 1;
+        }
+        70% {
+          opacity: 1;
+        }
+        100% {
+          transform: translate(var(--dx), var(--dy)) scale(1) rotate(45deg);
+          opacity: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <img id="gift" alt="" draggable="false" />
+    <i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i>
+    <script>
+      document.getElementById("gift").src = `gifts/${window.GIFT_IMAGE || "cat_yarn"}.png`;
+      const { invoke } = window.__TAURI__.core;
+      let sent = false;
+      window.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 || sent) return;
+        sent = true;
+        invoke("gift_collect");
+      });
+      window.addEventListener("contextmenu", (e) => e.preventDefault());
+    </script>
+  </body>
+</html>

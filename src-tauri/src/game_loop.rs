@@ -19,6 +19,7 @@ use screenpet_core::world::World;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::decal::Decals;
+use crate::gifts::Gifts;
 use crate::house::{self, HouseState};
 use crate::network::{NetInput, Network};
 use crate::pets::PetEntry;
@@ -62,6 +63,8 @@ pub enum Input {
     ToggleFocus,
     /// ⏱️ 집중 친구 길이 (설정에 남는다, 켜져 있으면 새 길이로 다시 시작)
     SetFocusLength(FocusLength),
+    /// 선물 창(label)을 눌렀다 — 도감에 적는다 (설정은 게임 루프만 쓴다)
+    CollectGift { label: String },
     /// 하우스 창을 눌렀다 (배고프면 음식 고르기, 아니면 손 흔들기)
     HouseClick,
     /// 하우스를 끌어 옮겼다 (house.rs). save = 다 놓았음 — 새 자리를 설정에 적는다
@@ -135,9 +138,9 @@ fn apply_own_stage(app: &AppHandle, own: &mut Slot, care: &Care) {
 }
 
 /// 사이 틱: 동물(내 동물·손님)이 서 있거나 매달린 창의 경계만 새로 읽어 세계에 고쳐 넣는다 —
-/// 창을 끌어 옮기면 100 ms 계단이 아니라 매 틱 따라간다. 기대고 있는 창이 없으면 아무것도 읽지 않는다
-fn follow_ridden_windows(source: &mut dyn WindowSource, slots: &mut [Slot]) {
-    let mut ids: Vec<u64> = slots.iter().filter_map(|s| s.pet.ridden_window()).collect();
+/// 창을 끌어 옮기면 100 ms 계단이 아니라 매 틱 따라간다 (선물이 앉은 창도). 기대고 있는 창이 없으면 아무것도 읽지 않는다
+fn follow_ridden_windows(source: &mut dyn WindowSource, slots: &mut [Slot], gifts: impl Iterator<Item = u64>) {
+    let mut ids: Vec<u64> = slots.iter().filter_map(|s| s.pet.ridden_window()).chain(gifts).collect();
     if ids.is_empty() {
         return;
     }
@@ -233,6 +236,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut hand_win = HandWindow::default();
     // 계절 날씨 (철이 아니거나 꺼 두면 창도 일도 없다)
     let mut weather = WeatherFx::new(seed_now());
+    // 🎁 선물 (없으면 1초에 한 번 시계만 본다)
+    let mut gifts = Gifts::new(&config.gifts, seed_now());
     // 자리 비움·돌아옴, 하루 일과, ⏱️ 집중 친구 (1초에 한 번)
     let mut presence = Presence::new(&app, config.focus_length);
     // 한 화면의 동물끼리(내 동물 + 손님) 인사·술래 놀이
@@ -400,6 +405,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
+                Input::CollectGift { label } => {
+                    if gifts.collect(&app, &label, &mut config.gifts, &slots[OWN]) {
+                        save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                    }
+                }
                 Input::HouseClick => {
                     if slots[OWN].pet.is_housed() {
                         if care.is_hungry() {
@@ -492,7 +502,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             slots[OWN].pet.set_hungry(care.is_hungry());
             last_refresh = now;
         } else {
-            follow_ridden_windows(source.as_mut(), &mut slots);
+            follow_ridden_windows(source.as_mut(), &mut slots, gifts.ridden_windows());
         }
         if now - last_save >= SAVE_EVERY {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
@@ -640,6 +650,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         props.tick(now);
         hand_win.tick(now);
         weather.tick(&app, now, config.weather_off, &mut slots);
+        for g in network.take_guest_gifts() {
+            gifts.guest_arrived(g, now);
+        }
+        gifts.tick(&app, now, dt, &slots, &care);
         if presence.tick(&app, now, source.as_mut(), &mut slots[OWN], &mut care, &mut config.daily) {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
         }
