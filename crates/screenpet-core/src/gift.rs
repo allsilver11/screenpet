@@ -2,7 +2,7 @@
 //!
 //! 내 동물은 깨어 있는 시간 20~60분마다(배부르면 더 자주) 자기 종의 선물 하나를 서 있는 곳에 떨어뜨린다. 놀러 간 동물은
 //! 주인이 방문에 실어 보낸 선물(Visit의 `gift`)을 친구 화면에 두고 온다. 받은 id는 목록에 있는 그대로일 때만 받고
-//! (`Gift::parse`, 파일 이름·창 스크립트에 그대로 쓰이는 값이다), 링크마다 횟수(`LinkLimit`)와 화면 위 개수(`GiftField`)를 제한한다.
+//! (`Gift::parse`, 파일 이름·창 스크립트에 그대로 쓰이는 값이다), 친구마다 횟수(`FriendLimit`)와 화면 위 개수(`GiftField`)를 제한한다.
 //! 주운 선물만 설정에 남는다 (`GiftBook`) — 화면 위 선물은 30분 뒤 사라지고 앱을 끄면 없어진다.
 
 use std::collections::{BTreeMap, HashMap};
@@ -325,11 +325,11 @@ pub fn accept_visit_gift(raw: Option<&str>, species: &str) -> Option<Gift> {
 
 /// 친구 하나당 받는 횟수 제한. 거절한 시도는 기다리는 시간을 늘리지 않는다 (친구 수만큼만 자란다 — 인증된 친구만 부른다)
 #[derive(Debug, Default)]
-pub struct LinkLimit {
+pub struct FriendLimit {
     last: HashMap<String, Instant>,
 }
 
-impl LinkLimit {
+impl FriendLimit {
     pub fn allow(&mut self, friend: &str, now: Instant) -> bool {
         if self.last.get(friend).is_some_and(|t| now.duration_since(*t) < FRIEND_GIFT_EVERY) {
             return false;

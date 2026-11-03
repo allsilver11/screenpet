@@ -20,7 +20,7 @@ use screenpet_core::brain::control_moves::{ControlInput, SteerPacer};
 use screenpet_core::brain::State;
 use screenpet_core::care::Stage;
 use screenpet_core::config::{Config, MAX_NAME_CHARS};
-use screenpet_core::gift::{self, LinkLimit};
+use screenpet_core::gift::{self, FriendLimit};
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
 use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Steer, VSide, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, MAX_FRIENDS};
 use serde::Serialize;
@@ -303,8 +303,8 @@ pub struct Network {
     friend_code: Option<String>,
     /// 조작 모드: 마지막으로 친구 화면의 내 동물에게 보낸 키 (visit_id, 켜짐, 키 비트, 보낸 시각)
     steer_pacer: SteerPacer,
-    /// 친구 링크마다 선물을 받는 횟수 제한
-    gift_limit: LinkLimit,
+    /// 친구마다(친구 id별) 선물을 받는 횟수 제한 — 다시 연결해도 채워지지 않는다
+    gift_limit: FriendLimit,
     /// 마지막으로 내 동물에게 선물을 들려 보낸 시각
     gift_sent: Option<Instant>,
     /// 방금 들어온 손님이 들고 온 선물 (게임 루프가 꺼내 간다)
@@ -437,7 +437,7 @@ impl Network {
             relay_connected: false,
             friend_code: None,
             steer_pacer: SteerPacer::default(),
-            gift_limit: LinkLimit::default(),
+            gift_limit: FriendLimit::default(),
             gift_sent: None,
             guest_gifts: Vec::new(),
         };
@@ -1025,7 +1025,7 @@ impl Network {
                 match result {
                     Ok(()) => {
                         self.last_visit.insert(from.to_string(), now);
-                        // 인증된 친구 링크의 Visit에 실린, 목록에 있는 그 동물 종의 선물만 (링크마다 횟수 제한)
+                        // 인증된 친구 링크의 Visit에 실린, 목록에 있는 그 동물 종의 선물만 (친구마다 횟수 제한)
                         if let Some(friend) = config.friend(from) {
                             if let Some(gift) = gift::accept_visit_gift(gift.as_deref(), &species).filter(|_| self.gift_limit.allow(from, now)) {
                                 self.guest_gifts.push(GuestGift { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name: friend.shown_name().to_string(), gift });

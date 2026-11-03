@@ -362,7 +362,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
     let (outgoing, hs_hash) = (conn.outgoing, conn.hs_hash);
     match msg {
         // A repeated hello on an authenticated friend link (same id) = the friend renamed itself.
-        // Unchanged names are ignored; renames and asks share a per-link budget
+        // Unchanged names are ignored; renames and asks share one budget per connection
         Message::Control(Control::Hello { id: hid, name: new_name, .. }) => {
             let new_name = clamp_name(&new_name);
             let friend = hid == id && matches!(conn.kind, Kind::Friend) && st.is_friend(id);
@@ -375,7 +375,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
         }
         Message::Control(Control::Ping { ask: None, steer: None, toss: None }) => true,
         // A friend's app request, steering of its visiting pet and/or a thrown object (authenticated
-        // friend links only, like visits; each with its own per-link budget)
+        // friend links only, like visits). Asks and steers are budgeted per connection, tosses per friend
         Message::Control(Control::Ping { ask, steer, toss }) => {
             let friend = matches!(conn.kind, Kind::Friend) && st.is_friend(id);
             let Some(c) = st.conns.get_mut(&ctx.token) else { return false };

@@ -176,9 +176,9 @@ fn fast_preview_timer_is_seconds() {
 // ---- 친구 선물 횟수 제한 ----
 
 #[test]
-fn link_limit_is_per_friend_and_recovers() {
+fn friend_limit_is_per_friend_and_recovers() {
     let t0 = Instant::now();
-    let mut l = LinkLimit::default();
+    let mut l = FriendLimit::default();
     assert!(l.allow("a", t0));
     assert!(!l.allow("a", t0 + Duration::from_secs(1)));
     assert!(!l.allow("a", t0 + FRIEND_GIFT_EVERY - Duration::from_secs(1)));
@@ -189,7 +189,7 @@ fn link_limit_is_per_friend_and_recovers() {
 #[test]
 fn refused_attempts_do_not_push_the_limit_back() {
     let t0 = Instant::now();
-    let mut l = LinkLimit::default();
+    let mut l = FriendLimit::default();
     assert!(l.allow("a", t0));
     for s in 1..100 {
         assert!(!l.allow("a", t0 + Duration::from_secs(s)));
