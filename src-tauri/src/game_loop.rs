@@ -390,9 +390,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     if control_on {
                         control_since = Instant::now();
                         saw_key = false;
-                        if own.on_screen() {
-                            let _ = app.emit_to(speech_target(&own.pet), "pet-say-text", crate::tray::CONTROL_HINT);
-                        }
                     }
                 }
                 Input::ToggleWeather => {

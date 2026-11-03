@@ -54,10 +54,8 @@ const FOCUS_TOGGLE_ID: &str = "focus:toggle";
 const FOCUS_SHORT_ID: &str = "focus:short";
 const FOCUS_LONG_ID: &str = "focus:long";
 const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift, Esc로 끝)";
-/// 조작 모드를 켤 때 내 동물 머리 위에 잠깐 (키가 다른 창에도 들어간다는 것도)
-pub const CONTROL_HINT: &str = "🎮 ←→ 걷기 · Shift 달리기 · Space 점프 · ↓ 앉기 (방향키가 다른 창에도 입력돼요)";
-/// macOS: 키가 늘 안 눌림으로 읽힐 때 한 번
-pub const KEY_PERMISSION_HINT: &str = "키 입력 권한이 필요해요 (시스템 설정 → 개인정보 보호 → 입력 모니터링)";
+/// macOS: 키가 늘 안 눌림으로 읽힐 때 한 번 — 말풍선은 줄바꿈 없이 창(128px)에 잘리니 한 줄로 짧게 (어디서 켜는지는 ui/help.html)
+pub const KEY_PERMISSION_HINT: &str = "키 권한 필요해요";
 const SHOW_CODE_ID: &str = "net:show-code";
 const ENTER_CODE_ID: &str = "net:enter-code";
 
