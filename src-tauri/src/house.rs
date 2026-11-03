@@ -120,7 +120,10 @@ pub fn door(kind: HouseKind, stage: &str) -> Door {
 pub struct HouseState {
     pub pet: String,
     pub stage: &'static str,
+    /// 몸 크기 배율 (동글 기준 — 픽셀 문간은 house.js가 칸 정수배로 맞춘다)
     pub scale: f64,
+    /// 문간 동물의 그림
+    pub style: screenpet_core::style::PetStyle,
     pub hungry: bool,
     /// 동물이 집 안에 있음 (달려오는 중엔 false — 문간이 비어 있다)
     pub housed: bool,

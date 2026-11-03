@@ -192,12 +192,14 @@ fn main() {
             let care = cfg.care.get(&current).cloned().unwrap_or_default();
 
             let (tx, rx) = mpsc::channel();
-            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode)?;
-            let stage = game_loop::stage_payload(&entry, &care);
+            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.style)?;
+            // 화면 배율은 게임 루프가 창에서 읽어 다시 맞춘다
+            let stage = slots::stage_payload(&entry, care.stage, cfg.style, 1.0);
             let house_state = HouseState {
                 pet: stage.pet.clone(),
                 stage: stage.stage,
-                scale: stage.scale,
+                scale: stage.base,
+                style: stage.style,
                 hungry: care.is_hungry(),
                 housed: cfg.housed,
             };

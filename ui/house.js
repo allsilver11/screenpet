@@ -39,7 +39,7 @@ const SILL_HIDE = 6;
 // 지금 그림 이름 (house_<stage> | hive_<stage> | haunted_<stage> | xmas_<stage>)과 그 문 사각형 (그림 좌표)
 let art = null;
 let door = { x: 30, y: 60, w: 52, h: 62 };
-let house = { pet: null, stage: "teenager", scale: 1, hungry: false, housed: false };
+let house = { pet: null, stage: "teenager", scale: 1, style: "round", hungry: false, housed: false };
 let manifest = null;
 let display = 64;
 let backendAnim = "sit_front";
@@ -49,7 +49,7 @@ let nextSleep = performance.now() + rand(SLEEP_EVERY);
 let animStart = performance.now();
 let loadSeq = 0;
 let loadedKey = null;
-// 지금 시트 { url, img } — 문 크기가 바뀌면 다시 크기를 맞춘다
+// 지금 시트 { url, img, style } — 문 크기가 바뀌면 다시 크기를 맞춘다
 let sheet = null;
 
 function rand([lo, hi]) {
@@ -164,25 +164,33 @@ async function loadArt(name, seq) {
 // 문간 스프라이트 크기: 화면 DOOR_PET × 몸 배율 (그림을 읽기 전에 시트가 먼저 와도 다시 맞춘다)
 function sizePet() {
   if (!sheet || !manifest) return;
-  display = Math.round(DOOR_PET * house.scale);
+  const pixel = sheet.style === "pixel";
+  // 픽셀: 칸이 물리 px의 정수배가 되게 — 문 밖으로 넘치면 잘리니 내림
+  display = pixel ? snapPixelSide(DOOR_PET * house.scale, manifest.frame_size, "floor") : Math.round(DOOR_PET * house.scale);
   petEl.style.width = display + "px";
-  petEl.style.bottom = -(SILL_HIDE * houseScale() + display * FEET_PAD_RATIO) + "px";
+  const sunk = -(SILL_HIDE * houseScale() + display * FEET_PAD_RATIO);
+  // 픽셀: 가운데 맞추기(translateX -50%)·아래 자리가 물리 px에서 어긋나지 않게
+  const dpr = window.devicePixelRatio || 1;
+  petEl.style.bottom = (pixel ? Math.round(sunk * dpr) / dpr : sunk) + "px";
+  petEl.style.left = pixel ? `${Math.round(((door.w * houseScale() - display) / 2) * dpr) / dpr}px` : "";
+  petEl.style.transform = pixel ? "none" : "";
   const k = display / manifest.frame_size;
   petEl.style.backgroundImage = `url(${sheet.url})`;
   petEl.style.backgroundSize = `${sheet.img.width * k}px ${sheet.img.height * k}px`;
 }
 
 async function loadPet() {
-  const key = `${house.pet}/${house.stage}/${house.scale}`;
+  const key = `${house.pet}/${house.stage}/${house.scale}/${house.style}`;
   if (!house.pet || key === loadedKey) return;
   const seq = ++loadSeq;
-  const { manifest: m, url, img } = await loadPetSheet(house.pet, house.stage);
+  const { manifest: m, url, img, style } = await loadPetSheet(house.pet, house.stage, house.style);
   if (seq !== loadSeq) return; // 그 사이 다른 동물/단계로 바뀜
   await loadArt(artName(m), seq);
   if (seq !== loadSeq) return;
   loadedKey = key;
   manifest = m;
-  sheet = { url, img };
+  sheet = { url, img, style };
+  setPixelBody(style === "pixel");
   placeHouse();
   animStart = performance.now();
 }

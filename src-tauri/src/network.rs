@@ -21,6 +21,7 @@ use screenpet_core::brain::State;
 use screenpet_core::care::Stage;
 use screenpet_core::config::{Config, MAX_NAME_CHARS};
 use screenpet_core::gift::{self, FriendLimit};
+use screenpet_core::style::PetStyle;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
 use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Steer, VSide, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, MAX_FRIENDS};
 use serde::Serialize;
@@ -231,6 +232,8 @@ struct Arrival {
     fling: Option<visit::Fling>,
     /// 주인이 들려 보낸 편지 (다듬은 것)
     note: Option<String>,
+    /// 주인이 보여 주는 스타일 (이쪽에 그 그림이 없으면 동글)
+    style: PetStyle,
 }
 
 /// 내 동물이 친구 화면에 가 있음
@@ -646,7 +649,8 @@ impl Network {
                 visit_id,
                 species: own.entry.id.clone(),
                 stage: own.shown.stage.to_string(),
-                scale: own.shown.scale,
+                // 동글일 때의 크기: 예전 버전은 동글로 그리고, 새 버전은 픽셀이면 이쪽 화면에 맞춰 다시 잰다
+                scale: own.shown.base,
                 personality: personality_name(own.entry.manifest.personality).to_string(),
                 owner: self.name.clone(),
                 enter_side,
@@ -656,6 +660,7 @@ impl Network {
                 fling: fling.map(to_net_fling),
                 note,
                 gift,
+                style: own.shown.style.to_wire(),
             },
         );
         visit_id
@@ -1013,13 +1018,13 @@ impl Network {
 
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, .. } => {
                 let now = Instant::now();
                 let note = note.as_deref().and_then(visit::sanitize_note);
                 let result = if self.last_visit.get(from).is_some_and(|t| now.duration_since(*t) < VISIT_COOLDOWN) {
                     Err("too soon after the last visit".to_string())
                 } else {
-                    let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note };
+                    let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()) };
                     self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival)
                 };
                 match result {
@@ -1117,7 +1122,7 @@ impl Network {
             None => side,
         };
         let seed = fastrand::u64(..);
-        let mut slot = slots::spawn_guest(app, guest, entry, stage, scale, side, &slots[0].world, seed)?;
+        let mut slot = slots::spawn_guest(app, guest, entry, stage, scale, arrival.style, slots[0].dpi, side, &slots[0].world, seed)?;
         if hop.is_some() || arrival.homesick_in.is_some() {
             let mut rng = fastrand::Rng::with_seed(seed);
             slot.pet.set_guest(home, visit::carried_homesick(arrival.homesick_in, &mut rng));

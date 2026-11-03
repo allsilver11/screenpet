@@ -10,6 +10,7 @@ use screenpet_core::config::{self, Config};
 use screenpet_core::food::{self, FeedMode, HandFeed, HandInput};
 use screenpet_core::geom::Rect;
 use screenpet_core::manifest::FavoriteFood;
+use screenpet_core::style::PetStyle;
 use screenpet_core::pacing::Pacer;
 use screenpet_core::platform::{default_source, WindowSource};
 use screenpet_core::presence::FocusLength;
@@ -26,7 +27,7 @@ use crate::objects::{ObjectInput, Objects};
 use crate::pets::PetEntry;
 use crate::presence::Presence;
 use crate::prop::{HandWindow, Props};
-use crate::slots::{self, GuestInfo, Role, Slot, StagePayload, OWN_LABEL};
+use crate::slots::{self, GuestInfo, Role, Slot, OWN_LABEL};
 use crate::weather::WeatherFx;
 use crate::AppState;
 
@@ -42,11 +43,16 @@ const KEY_PERMISSION_HINT_AFTER: Duration = Duration::from_secs(12);
 /// 이 환경 변수가 있으면 시작할 때 번들 동물 하나를 손님으로 들인다 (네트워크 없이 여러 창 확인용)
 const DEBUG_GUEST_ENV: &str = "SCREENPET_DEBUG_GUEST";
 
+/// 말풍선은 줄바꿈 없이 128px 창에 잘리니 한 줄로 짧게
+const NO_PIXEL_ART_HINT: &str = "픽셀 그림 준비 중!";
+
 pub enum Input {
     /// 창(label)의 동물을 눌렀다
     PointerDown { label: String },
     /// 동물 교체 — 돌보기 상태는 게임 루프가 가진 설정에서 찾는다
     SetPet { entry: PetEntry },
+    /// 캐릭터 스타일 (동글동글 / 픽셀, 설정에 남는다) — 바로 그림이 바뀐다
+    SetStyle(PetStyle),
     Feed(Food),
     /// 밥 주기 방법 (직접 주기 / 자동 주기)
     SetFeedMode(FeedMode),
@@ -80,15 +86,6 @@ pub enum Input {
     Object(ObjectInput),
     /// 저장하고 앱 종료
     Quit,
-}
-
-/// 몸 크기 배율 = 단계 배율 × 동물별 배율 (곰은 크고 토끼는 작다)
-pub fn body_scale(entry: &PetEntry, care: &Care) -> f64 {
-    care.stage.scale() * entry.manifest.size_mult(care.stage)
-}
-
-pub fn stage_payload(entry: &PetEntry, care: &Care) -> StagePayload {
-    StagePayload { pet: entry.id.clone(), stage: care.stage.name(), scale: body_scale(entry, care) }
 }
 
 /// 좋아하는 음식 (매니페스트에 없으면 별)
@@ -135,9 +132,16 @@ fn speech_target(pet: &Pet) -> &'static str {
 
 /// 내 동물의 단계(또는 동물)가 바뀌었을 때: 창 크기, 펫 크기, 웹뷰 시트
 fn apply_own_stage(app: &AppHandle, own: &mut Slot, care: &Care) {
-    let payload = stage_payload(&own.entry, care);
+    let payload = slots::stage_payload(&own.entry, care.stage, own.shown.wanted, own.dpi);
     own.set_stage(app, payload);
     sync_growth(app, care);
+}
+
+/// 픽셀을 골랐는데 지금 동물은 아직 그림이 없어 동글로 보인다 — 한 줄 알린다
+fn hint_no_pixel_art(app: &AppHandle, own: &Slot) {
+    if own.shown.wanted == PetStyle::Pixel && own.shown.style == PetStyle::Round {
+        let _ = app.emit_to(speech_target(&own.pet), "pet-say-text", NO_PIXEL_ART_HINT);
+    }
 }
 
 /// 사이 틱: 동물(내 동물·손님)이 서 있거나 매달린 창의 경계만 새로 읽어 세계에 고쳐 넣는다 —
@@ -167,7 +171,7 @@ fn spawn_debug_guest(app: &AppHandle, slots: &mut Vec<Slot>) {
     let stage = Stage::Teenager;
     let scale = stage.scale() * entry.manifest.size_mult(stage);
     let guest = GuestInfo { visit_id: "debug".into(), owner_id: "debug".into(), owner_name: "디버그 친구".into(), note: None };
-    match slots::spawn_guest(app, guest, entry, stage, scale, Side::Right, &slots[OWN].world, seed_now()) {
+    match slots::spawn_guest(app, guest, entry, stage, scale, slots[OWN].shown.wanted, slots[OWN].dpi, Side::Right, &slots[OWN].world, seed_now()) {
         Ok(slot) => slots.push(slot),
         Err(e) => eprintln!("failed to create debug guest window: {e}"),
     }
@@ -185,8 +189,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let dpi = window.scale_factor().unwrap_or(1.0);
     let mut source = default_source();
 
-    let shown = stage_payload(&entry, &care);
-    let cfg = slots::pet_config(dpi, &entry, shown.scale, shown.stage);
+    let shown = slots::stage_payload(&entry, care.stage, config.style, dpi);
+    let cfg = slots::pet_config(dpi, &entry, shown.scale, shown.stage, shown.style);
     let world = World::new(source.windows(), source.work_areas(), cfg.size);
     let b = world.bounds;
     let pet = Pet::new(cfg, b.left + b.width() / 2.0, b.top + cfg.size, seed_now());
@@ -293,6 +297,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     own.pet.set_hungry(care.is_hungry());
                     // 하우스 안이면 새 동물도 하우스 안에 있다 (같은 Pet이므로 상태가 그대로 이어진다)
                     sync_menu(&app, &own.entry, &care, config.housed);
+                    save_config(&app, &mut config, &own.entry.id, &care);
+                    hint_no_pixel_art(&app, own);
+                }
+                Input::SetStyle(style) => {
+                    config.style = style;
+                    let own = &mut slots[OWN];
+                    own.restyle(&app, style);
+                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 다시 맞춘다
+                    crate::tray::sync_style(&app.state::<AppState>().menu, style);
+                    hint_no_pixel_art(&app, own);
                     save_config(&app, &mut config, &own.entry.id, &care);
                 }
                 Input::Feed(food) => {
@@ -710,7 +724,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         let house_state = HouseState {
             pet: own.shown.pet.clone(),
             stage: own.shown.stage,
-            scale: own.shown.scale,
+            scale: own.shown.base,
+            style: own.shown.style,
             hungry: care.is_hungry(),
             housed: own.pet.is_housed(),
         };

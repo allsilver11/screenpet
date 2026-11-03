@@ -20,32 +20,50 @@ let display = 128;
 let render = { anim: "fall", flip: false, heart: false };
 let animStart = performance.now();
 // 지금 동물과 몸 크기 배율 (단계 배율 × 동물별 배율) — 백엔드 `pet-stage`
-let stage = { pet: null, stage: "teenager", scale: 1 };
+let stage = { pet: null, stage: "teenager", scale: 1, style: "round" };
 let loadSeq = 0;
+// 픽셀 그림을 그리는 중 — dot = 칸 한 변 (CSS px, 물리 px의 정수배). 칸이 흐려지는 변환(회전·확대·분수 이동)은 쓰지 않는다
+let pixelMode = false;
+let dot = 1;
 
 // 단계별 시트 sheet_<stage>.png를 먼저 쓰고, 없으면 sheet.png
 async function loadPet() {
   const seq = ++loadSeq;
-  const { manifest: m, url, img } = await loadPetSheet(stage.pet, stage.stage);
+  const { manifest: m, url, img, style, dir } = await loadPetSheet(stage.pet, stage.stage, stage.style);
   if (seq !== loadSeq) return; // 그 사이 다른 동물/단계로 바뀜
   sheetImg = img;
   headCache.clear();
   headgearAt = null;
-  const side = 128 * stage.scale;
+  pixelMode = style === "pixel";
+  setPixelBody(pixelMode);
+  const side = pixelMode ? snapPixelSide(128 * stage.scale, m.frame_size) : 128 * stage.scale;
+  dot = side / m.frame_size;
   petEl.style.width = side + "px";
   // 창 가운데 (창 너비는 128 × max(1, 배율), 편지 쪽지를 펼친 동안은 더 넓다 — 백엔드가 몸을 창 가운데에 둔다)
-  petEl.style.left = `calc(50% - ${side / 2}px)`;
+  petEl.style.left = centerLeft(side);
   stageEl.style.setProperty("--pet-h", side + "px");
   display = side;
   manifest = m;
   const k = display / manifest.frame_size;
   petEl.style.backgroundImage = `url(${url})`;
   petEl.style.backgroundSize = `${img.width * k}px ${img.height * k}px`;
-  setupNeck(m, side, k);
+  setupNeck(m, side, k, dir);
   // 동물이 바뀌면 모자 ↔ 목도리 (pet-presence는 그대로라 다시 오지 않는다)
   if (lastPresence) setCap(!!lastPresence.nightcap);
   animStart = performance.now();
 }
+
+// 몸의 left: 동글은 창 가운데 그대로, 픽셀은 물리 px에 맞춰서 (반 칸 어긋나면 칸이 고르지 않다 — 창 너비가 바뀌면 다시 잰다)
+function centerLeft(side) {
+  if (!pixelMode) return `calc(50% - ${side / 2}px)`;
+  const dpr = window.devicePixelRatio || 1;
+  return `${Math.round(((window.innerWidth - side) / 2) * dpr) / dpr}px`;
+}
+window.addEventListener("resize", () => {
+  if (!pixelMode) return;
+  petEl.style.left = centerLeft(display);
+  neckEl.style.left = petEl.style.left;
+});
 
 // 기린 목 늘이기 (백엔드 anim "neckstretch" — 코어 behavior::NECK_STRETCH_SECS 3.4초 동안 제자리):
 // 목이 평소의 두 배로 쭉 늘었다가 돌아온다. 시트 한 칸(128)으로는 담을 수 없어 층으로 그린다 —
@@ -64,22 +82,21 @@ petEl.after(neckEl);
 const [nkBody, nkTile, nkHead] = neckEl.children;
 let neck = null;
 
-function setupNeck(m, side, k) {
+function setupNeck(m, side, k, dir) {
   const meta = m.neck_stretch?.[stage.stage];
   neck = null;
   neckEl.hidden = true;
   petEl.style.opacity = "";
   if (!meta) return;
-  const base = `pets/${stage.pet}/`;
   neck = { meta, k, side };
   neckEl.style.width = side + "px";
   neckEl.style.height = side + "px";
   neckEl.style.left = petEl.style.left;
   for (const el of [nkBody, nkHead]) {
-    el.style.backgroundImage = `url(${base}neck_${stage.stage}.png)`;
+    el.style.backgroundImage = `url(${dir}neck_${stage.stage}.png)`;
     el.style.backgroundSize = `${4 * side}px ${side}px`;
   }
-  nkTile.style.backgroundImage = `url(${base}neck_tile_${stage.stage}.png)`;
+  nkTile.style.backgroundImage = `url(${dir}neck_tile_${stage.stage}.png)`;
   nkTile.style.backgroundSize = `${side}px ${meta.tile * k}px`;
 }
 
@@ -106,7 +123,8 @@ function drawNeck(elapsed) {
   }
   const { meta, k, side } = neck;
   const { p, head } = neckPhase(elapsed);
-  const ext = meta.ext * k * p;
+  // 픽셀: 한 칸씩 늘어난다
+  const ext = pixelMode ? Math.round(meta.ext * p) * k : meta.ext * k * p;
   nkTile.style.top = `${meta.cut * k - ext}px`;
   nkTile.style.height = `${ext}px`;
   nkHead.style.backgroundPosition = `${-(head + 1) * side}px 0`;
@@ -144,6 +162,8 @@ function stingPulse(anim, spec, elapsedMs) {
 function jitter(f, now) {
   const stomping = render.anim === "stomp" && f % 2 === 1;
   if (!stomping && !render.wobble) return null;
+  // 픽셀: 한 칸씩 좌우로 (분수 이동은 칸을 흐린다)
+  if (pixelMode) return `translateX(${Math.round(Math.sin(now / 17)) * dot}px)`;
   const amp = (stomping ? 1.5 : 2.5) * Math.sqrt(stage.scale);
   return `translate(${(Math.sin(now / 17) * amp).toFixed(2)}px, ${(Math.cos(now / 23) * amp * 0.5).toFixed(2)}px)`;
 }
@@ -275,7 +295,8 @@ function placeHeadgear(anim, f, host) {
   const key = `${stage.stage}:${anim}:${f}:${render.flip}:${display}:${capOn}:${wearing}`;
   if (key === headgearAt) return;
   headgearAt = key;
-  const entry = manifest.head?.[stage.stage]?.[anim]?.[f];
+  // 표가 없는 칸: 칸 위쪽 가운데 (HEAD_FALLBACK은 128칸 기준이라 픽셀 시트 칸 수로 줄인다)
+  const entry = manifest.head?.[stage.stage]?.[anim]?.[f] ?? (pixelMode ? HEAD_FALLBACK.map((v, i) => (i < 3 ? (v * manifest.frame_size) / 128 : v)) : undefined);
   const { cap, ring } = headgearLayout(entry, display / manifest.frame_size, capOn, render.flip);
   nightcapEl.style.transform = cap;
   focusringEl.style.transform = ring;
@@ -388,12 +409,14 @@ function draw(now) {
     if (shake) parts.push(shake);
     // 커서에 매달림 (백엔드 render.hang): 창은 머리 꼭대기가 커서 끝에 닿는 자리에 있다 (코어 hang_spot) — 커서 끝을 축으로 살랑살랑
     petEl.style.transformOrigin = render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : "";
-    if (render.hang) parts.push(`rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
+    // 픽셀은 돌리지 않고 한 칸씩 좌우로 (6도 회전은 칸을 무너뜨린다)
+    if (render.hang) parts.push(pixelMode ? `translateX(${Math.round(Math.sin(now / 430) * 1.4) * dot}px)` : `rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
-    if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
+    if (spec.spin && !pixelMode) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
     const pulse = stingPulse(render.anim, spec, elapsed);
-    if (pulse !== 1) parts.push(`scale(${pulse})`);
+    // 픽셀은 부풀지 않는다 (돌진 그림만)
+    if (pulse !== 1 && !pixelMode) parts.push(`scale(${pulse})`);
     petEl.style.transform = parts.length ? parts.join(" ") : "none";
   }
   requestAnimationFrame(draw);

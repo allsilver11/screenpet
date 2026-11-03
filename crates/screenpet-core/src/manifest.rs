@@ -734,6 +734,40 @@ mod tests {
         assert_eq!(with.special(), Some(Special::NeckStretch));
     }
 
+    /// PNG 머리에서 (너비, 높이)
+    fn png_size(path: &std::path::Path) -> (u32, u32) {
+        let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+        (u32::from_be_bytes([b[16], b[17], b[18], b[19]]), u32::from_be_bytes([b[20], b[21], b[22], b[23]]))
+    }
+
+    /// 번들 픽셀 그림 (ui/pets_pixel — 있는 동물만): 동글 동물 위에 올라가고, 구르기가 없고, 다섯 단계 시트가 칸 표에 맞는다
+    #[test]
+    fn bundled_pixel_pets_fit_their_sheets() {
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let Ok(dir) = std::fs::read_dir(ui.join("pets_pixel")) else { return };
+        for entry in dir {
+            let path = entry.unwrap().path();
+            let Ok(json) = std::fs::read_to_string(path.join("pet.json")) else { continue };
+            let id = path.file_name().unwrap().to_string_lossy().into_owned();
+            let base = parse_manifest(&std::fs::read_to_string(ui.join("pets").join(&id).join("pet.json")).unwrap()).unwrap_or_else(|e| panic!("{id}: {e}"));
+            let m = parse_pixel_manifest(&json, &base).unwrap_or_else(|e| panic!("{id}: {e}"));
+            assert!(m.no_roll(), "{id} must not carry a roll");
+            for stage in Stage::ALL {
+                let (name, sheet) = (stage.name(), path.join(format!("sheet_{}.png", stage.name())));
+                if !sheet.is_file() {
+                    continue; // 아직 그리는 중 — 앱은 다섯 장이 다 있어야 픽셀로 쓴다 (build.rs)
+                }
+                let size = m.frame_size_at(name);
+                let (w, h) = png_size(&sheet);
+                assert!(w % size == 0 && h % size == 0, "{id} {name}: {w}x{h} is not whole frames of {size}");
+                for (anim, spec) in &m.animations {
+                    assert!((spec.row + 1) * size <= h && spec.frames * size <= w, "{id} {name} {anim} falls off the sheet");
+                }
+                assert_eq!(m.head.get(name).is_some(), base.head.contains_key(name), "{id} {name}: head table");
+            }
+        }
+    }
+
     #[test]
     fn rejects_invalid_json() {
         assert!(parse_manifest("{").is_err());

@@ -8,9 +8,48 @@ async function decodeSheet(url) {
   return img;
 }
 
-// 동물 id의 pet.json과 단계별 시트 sheet_<stage>.png (없으면 sheet.png) → { manifest, url, img }
-async function loadPetSheet(id, stageName) {
+// 픽셀 시트의 단계별 칸 수 (코어 style::pixel_grid, tools/draw_pixel.py STAGE_GRID와 같다 — pet.json에 없을 때)
+const PIXEL_DOTS = { baby: 24, kinder: 28, child: 32, teenager: 32, adult: 36 };
+
+// 칸 크기: frame_sizes[단계] → frame_size(표 또는 숫자) → PIXEL_DOTS (코어 manifest::parse_pixel_manifest와 같은 순서)
+function pixelFrameSize(px, stageName) {
+  const field = px.frame_size;
+  return px.frame_sizes?.[stageName] ?? field?.[stageName] ?? (typeof field === "number" ? field : PIXEL_DOTS[stageName] ?? 32);
+}
+
+// 픽셀 몸 한 변 (CSS px): 칸 한 변이 물리 px의 정수배가 되도록 맞춘다 (코어 style::pixel_body_scale로 이미 맞춰 온 값을 지금 창의 배율로 한 번 더).
+// fit = "floor"면 내림 (문간처럼 넘치면 잘리는 자리)
+function snapPixelSide(side, dots, fit = "round") {
+  const dpr = window.devicePixelRatio || 1;
+  const dot = fit === "floor" ? Math.floor((side / dots) * dpr) : Math.round((side / dots) * dpr);
+  return (dots * Math.max(1, dot)) / dpr;
+}
+
+// 지금 그림이 픽셀이면 <body class="pixel"> (style.css: image-rendering pixelated, 흐려지는 효과 대신 계단)
+function setPixelBody(on) {
+  document.body.classList[on ? "add" : "remove"]("pixel");
+}
+
+// 픽셀 그림 (pets_pixel/<id>/pet.json + sheet_<stage>.png)을 동글 pet.json 위에 얹는다: 시트 칸·동작 표·머리·목 표만 그림 것, 대사·이름·집은 그대로
+async function loadPixelSheet(id, stageName, round) {
+  const px = await (await fetch(`pets_pixel/${id}/pet.json`)).json();
+  const url = `pets_pixel/${id}/sheet_${stageName}.png`;
+  const img = await decodeSheet(url);
+  const manifest = { ...round, frame_size: pixelFrameSize(px, stageName), animations: px.animations, head: px.head, neck: px.neck, neck_stretch: px.neck_stretch };
+  return { manifest, url, img, style: "pixel", dir: `pets_pixel/${id}/` };
+}
+
+// 동물 id의 pet.json과 단계별 시트 sheet_<stage>.png (없으면 sheet.png) → { manifest, url, img, style, dir }.
+// style "pixel"인데 그림을 못 읽으면 동글로. 돌려주는 manifest.frame_size는 이 단계 시트의 칸 크기다
+async function loadPetSheet(id, stageName, style = "round") {
   const manifest = await (await fetch(`pets/${id}/pet.json`)).json();
+  if (style === "pixel") {
+    try {
+      return await loadPixelSheet(id, stageName, manifest);
+    } catch {
+      // 아래 동글로
+    }
+  }
   let url = `pets/${id}/sheet_${stageName}.png`;
   let img;
   try {
@@ -19,7 +58,7 @@ async function loadPetSheet(id, stageName) {
     url = `pets/${id}/sheet.png`;
     img = await decodeSheet(url);
   }
-  return { manifest, url, img };
+  return { manifest, url, img, style: "round", dir: `pets/${id}/` };
 }
 
 function frameIndex(spec, elapsedMs) {

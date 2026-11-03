@@ -2,6 +2,7 @@ use screenpet_core::care::{growth_label, Care, Food};
 use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::presence::FocusLength;
+use screenpet_core::style::PetStyle;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use std::sync::atomic::Ordering;
@@ -44,6 +45,9 @@ const COME_HOME_ID: &str = "net:come-home";
 const GIFT_BOOK_ID: &str = "gift-book";
 /// 🎮 조작 모드 체크 항목
 const CONTROL_ID: &str = "control";
+/// 캐릭터 ▸ 스타일 체크 항목 (설정에 남는다, 그림만 바뀐다)
+const STYLE_ROUND_ID: &str = "style:round";
+const STYLE_PIXEL_ID: &str = "style:pixel";
 /// 🌨️ 날씨 효과 체크 항목 (게임 루프가 달력과 설정으로 맞춘다 — 철이 아니면 누를 수 없다)
 const WEATHER_ID: &str = "weather";
 /// 🐾 커서 장난 체크 항목 (설정에 남는다)
@@ -115,6 +119,9 @@ pub struct TrayMenu {
     /// 동물 고르기 항목 (항목, 동물 id) — `키우기: <지금 동물> ▸` 하위 메뉴 안
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
     pub pets_menu: Submenu<Wry>,
+    /// 캐릭터 ▸ 스타일: 동글동글 / 픽셀
+    pub style_round: CheckMenuItem<Wry>,
+    pub style_pixel: CheckMenuItem<Wry>,
     /// `친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
     pub friends: Submenu<Wry>,
     /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 누를 수 있다 — 하우스 옆 바깥 메뉴)
@@ -122,6 +129,12 @@ pub struct TrayMenu {
     /// 밥 주기 방법별 하위 메뉴: 손으로 주기 ▸ / 그릇에 주기 ▸ (마지막에 쓴 쪽에 ✓ — 배고플 때 고르기도 그 방법을 따른다)
     pub hand_mode: Submenu<Wry>,
     pub auto_mode: Submenu<Wry>,
+}
+
+/// 스타일 체크를 지금 설정에 맞춘다 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다)
+pub fn sync_style(menu: &TrayMenu, style: PetStyle) {
+    let _ = menu.style_round.set_checked(style == PetStyle::Round);
+    let _ = menu.style_pixel.set_checked(style == PetStyle::Pixel);
 }
 
 /// 밥 주기 방법 체크를 지금 설정에 맞춘다 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다)
@@ -355,7 +368,7 @@ fn send(app: &AppHandle, input: Input) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode) -> tauri::Result<TrayMenu> {
+pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode, style: PetStyle) -> tauri::Result<TrayMenu> {
     let mut checks: Vec<(CheckMenuItem<Wry>, String)> = Vec::new();
     let pets_menu = Submenu::new(app, pets_label(pets.iter().find(|p| p.id == current).map(|p| p.manifest.name.as_str())), true)?;
     for p in pets {
@@ -408,8 +421,13 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     // 트레이와 펫 우클릭은 같은 메뉴 — 둘 다 맨 위에 보인다
     menu.append(&easter_egg)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&pets_menu)?;
-    menu.append(&crate::objects::build_menu(app)?)?;
+    // 캐릭터 ▸ 스타일을 먼저 고르고 그 아래에서 동물·물건을 고른다
+    let style_title = MenuItem::new(app, "스타일", false, None::<&str>)?;
+    let style_round = CheckMenuItem::with_id(app, STYLE_ROUND_ID, "동글동글", true, style == PetStyle::Round, None::<&str>)?;
+    let style_pixel = CheckMenuItem::with_id(app, STYLE_PIXEL_ID, "픽셀", true, style == PetStyle::Pixel, None::<&str>)?;
+    let objects_menu = crate::objects::build_menu(app)?;
+    let character = Submenu::with_items(app, "캐릭터", true, &[&style_title, &style_round, &style_pixel, &PredefinedMenuItem::separator(app)?, &pets_menu, &objects_menu])?;
+    menu.append(&character)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&growth)?;
     menu.append(&feed)?;
@@ -448,6 +466,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             GIFT_BOOK_ID => crate::gifts::show_book(app),
             "feed:water" => send(app, Input::Feed(Food::Water)),
             "lock" => send(app, Input::ToggleLock),
+            STYLE_ROUND_ID => send(app, Input::SetStyle(PetStyle::Round)),
+            STYLE_PIXEL_ID => send(app, Input::SetStyle(PetStyle::Pixel)),
             "house" => send(app, Input::ToggleHouse),
             CONTROL_ID => send(app, Input::ToggleControl),
             CURSOR_PLAY_ID => send(app, Input::ToggleCursorPlay),
@@ -506,5 +526,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, weather, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, weather, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, friends, come_home, hand_mode, auto_mode })
 }

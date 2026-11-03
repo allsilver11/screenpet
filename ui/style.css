@@ -602,3 +602,38 @@ body {
   -webkit-line-clamp: 5;
   overflow: hidden;
 }
+
+/* 픽셀 스타일 (<body class="pixel"> — main.js·house.js): 칸을 그대로 키우고, 칸을 흐리는 확대·회전 효과는 계단으로 바꾼다 */
+body.pixel #pet,
+body.pixel #neck div,
+body.pixel #door-pet {
+  image-rendering: pixelated;
+}
+/* 뿅: 작아지는 대신 네 번에 나눠 사라진다 */
+body.pixel #pet.poof {
+  animation: poof-pixel 0.4s steps(4, end) forwards;
+}
+@keyframes poof-pixel {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* 호박 두근: 빛만 (몸은 커지지 않는다) */
+body.pixel #pet.flare-beat {
+  animation-name: flare-beat-pixel;
+}
+@keyframes flare-beat-pixel {
+  0% { filter: none; }
+  10% { filter: drop-shadow(0 0 8px #ffb3c8) drop-shadow(0 0 14px rgba(255, 190, 80, 0.8)) brightness(1.14); }
+  20% { filter: drop-shadow(0 0 4px #ffb3c8) brightness(1.05); }
+  30% { filter: drop-shadow(0 0 9px #ffb3c8) drop-shadow(0 0 16px rgba(255, 190, 80, 0.85)) brightness(1.15); }
+  45% { filter: drop-shadow(0 0 6px #ffb3c8) drop-shadow(0 0 12px rgba(255, 190, 80, 0.6)) brightness(1.08); }
+  100% { filter: none; }
+}
+/* 집이 폴짝 (안에서 자랄 때): 찌그러지지 않고 계단으로 */
+body.pixel #house.house-hop {
+  animation: house-hop-pixel 0.4s steps(3, end);
+}
+@keyframes house-hop-pixel {
+  0%, 100% { transform: translateY(0); }
+  45% { transform: translateY(-9px); }
+}
