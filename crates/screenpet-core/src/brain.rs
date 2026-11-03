@@ -169,8 +169,16 @@ pub enum Speech {
     Whoa,
     /// 위 친구 화면으로 높이 뛰어 나감 / 아래 화면에서 튀어 올라옴 ("boing!", brain_vert.rs)
     Boing,
-    /// 아래 친구 화면으로 바닥을 뚫고 쏙 ("whee!", brain_vert.rs)
+    /// 아래 친구 화면으로 바닥을 뚫고 쏙 ("whee!", brain_vert.rs) / 커서에서 놓고 떨어짐 (brain_cursor.rs)
     Whee,
+    /// 커서를 보고 장난기가 돈다 (종마다 다른 말, brain_cursor.rs)
+    CursorPlay,
+    /// 커서 끝을 붙잡았다 ("gotcha!", brain_cursor.rs)
+    Gotcha,
+    /// 서 있던 창이 사라졌다 ("eek!", brain_cursor.rs)
+    Eek,
+    /// 내려선 뒤 째려본다 ("hmph!", brain_cursor.rs)
+    Hmph,
     /// 눈사람을 다 만들었다 ("snowman!", brain_snow.rs)
     Snowman,
 }
@@ -292,6 +300,16 @@ pub enum State {
     Tumble { remaining: f64, dir: f64 },
     /// 눈사람 만들기 — 눈덩이 굴리기 → 쌓기 → 뿌듯 (brain_snow.rs)
     Snowman { phase: snow_moves::SnowPhase, remaining: f64, dir: f64 },
+    /// 커서 장난 — 시작 자세·다가가기·닿을 자리에서 한 번 더 (brain_cursor.rs)
+    CursorPlay { phase: cursor_moves::PlayPhase, remaining: f64 },
+    /// 커서 끝으로 뛰어오르는 중 — 충돌 없이 (brain_cursor.rs)
+    CursorLeap { from: (f64, f64), elapsed: f64 },
+    /// 커서 끝에 매달려 있음 — 몸이 커서를 따라간다 (brain_cursor.rs)
+    CursorHang { remaining: f64 },
+    /// 창이 흔들려 그 창 모서리에 매달려 있음. rel_x = 몸 중심 − 창 왼쪽 (brain_cursor.rs)
+    EdgeCling { window: u64, rel_x: f64, remaining: f64 },
+    /// 창이 닫혀 떨어진 뒤 째려본다 (brain_cursor.rs)
+    Glare { remaining: f64 },
 }
 
 impl State {
@@ -412,6 +430,8 @@ pub struct RenderState {
     pub ctl: bool,
     /// 공룡 쿵쾅에 흔들리는 중 — 웹뷰가 스프라이트를 잠깐 덜덜 떤다 (brain_stomp.rs)
     pub wobble: bool,
+    /// 커서에 매달린 쪽 (+1 커서 오른쪽, -1 왼쪽, 0 = 안 매달림) — 웹뷰가 스프라이트를 커서 쪽으로 붙여 흔든다 (brain_cursor.rs)
+    pub hang: i8,
 }
 
 pub struct Pet {
@@ -521,6 +541,8 @@ pub struct Pet {
     wobble_timer: f64,
     /// 이 시각(clock)까지는 쿵쾅에 다시 흔들리지 않는다
     stomp_calm_until: f64,
+    /// 커서 장난·창 흔들림의 기억 (brain_cursor.rs)
+    cursor_mood: cursor_moves::CursorMood,
     /// 눈이 쌓임·벚꽃잎 날림·방금 만든 눈사람 (brain_snow.rs)
     snow: snow_moves::SnowMood,
     rng: fastrand::Rng,
@@ -589,6 +611,7 @@ impl Pet {
             stomp_out: false,
             wobble_timer: 0.0,
             stomp_calm_until: 0.0,
+            cursor_mood: cursor_moves::CursorMood::new(),
             snow: Default::default(),
             rng: fastrand::Rng::with_seed(seed),
         }
@@ -644,6 +667,10 @@ impl Pet {
             return;
         }
         self.tick_guest(dt);
+        if self.update_cursor(dt, world) {
+            self.on_started();
+            return;
+        }
         if let State::Sting { phase, remaining } = self.state {
             self.update_sting(dt, world, phase, remaining);
             self.on_started();
@@ -737,6 +764,7 @@ impl Pet {
             State::Sleep { .. } => Anim::Sleep,
             // 데굴 넘어짐 — 구르기 그림 (앱이 돌린다)
             State::Tumble { .. } => Anim::Roll,
+            State::CursorPlay { .. } | State::CursorLeap { .. } | State::CursorHang { .. } | State::EdgeCling { .. } | State::Glare { .. } => self.cursor_anim(),
             State::Snowman { phase, .. } => self.snowman_anim(phase),
             State::Land { .. } => Anim::Land,
             State::Air { anim } => anim,
@@ -748,7 +776,8 @@ impl Pet {
             State::Pressed { grounded: true, .. } => Anim::Idle,
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
         };
-        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back(), heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0 }
+        let hang = self.hang_side();
+        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang }
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
@@ -1308,7 +1337,16 @@ impl Pet {
     fn off_surface(&self) -> bool {
         matches!(
             self.state,
-            State::Air { .. } | State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } | State::HomeLeap { .. } | State::Leap { .. }
+            State::Air { .. }
+                | State::Climb { .. }
+                | State::Slide
+                | State::WallClimb { .. }
+                | State::InnerClimb { .. }
+                | State::HomeLeap { .. }
+                | State::Leap { .. }
+                | State::CursorLeap { .. }
+                | State::CursorHang { .. }
+                | State::EdgeCling { .. }
         )
     }
 
@@ -2310,6 +2348,11 @@ impl Pet {
             | State::CatchMe { .. }
             | State::Tumble { .. }
             | State::Snowman { .. }
+            | State::CursorPlay { .. }
+            | State::CursorLeap { .. }
+            | State::CursorHang { .. }
+            | State::EdgeCling { .. }
+            | State::Glare { .. }
             | State::Move { .. } => {}
         }
     }
@@ -2967,6 +3010,14 @@ mod vert_moves;
 #[path = "brain_vert_tests.rs"]
 mod vert_tests;
 
+/// 커서 장난(쫓아가 매달리기)·창 흔들림·창 닫힘
+#[path = "brain_cursor.rs"]
+pub mod cursor_moves;
+
+#[cfg(test)]
+#[path = "brain_cursor_tests.rs"]
+mod cursor_tests;
+
 impl AsRef<Pet> for Pet {
     fn as_ref(&self) -> &Pet {
         self
@@ -3331,7 +3382,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -3422,7 +3473,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -3441,7 +3492,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
     }
 
     #[test]
@@ -4762,7 +4813,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -5580,7 +5631,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
             }
             last_x = p.body.x;
         }

@@ -507,3 +507,36 @@ fn controlled_pets_do_not_start_greetings_or_tag() {
     p.state = State::Idle { remaining: 5.0, look: false };
     assert!(p.social_free());
 }
+
+#[test]
+fn steering_off_is_sent_twice_and_then_stays_quiet() {
+    use super::control_moves::SteerPacer;
+    use std::time::{Duration, Instant};
+    let ka = Duration::from_millis(200);
+    let t0 = Instant::now();
+    let at = |ms: u64| t0 + Duration::from_millis(ms);
+    let mut p = SteerPacer::default();
+    // 이번 방문에 아직 보낸 적 없고 꺼져 있으면 아무것도 보내지 않는다
+    assert!(!p.should_send(7, false, 0, at(0), ka));
+    // 켜면 알리고, 키가 바뀌면 바로, 누르는 동안 keepalive마다
+    assert!(p.should_send(7, true, 0, at(10), ka));
+    assert!(!p.should_send(7, true, 0, at(1000), ka), "no keys: nothing to keep alive");
+    assert!(p.should_send(7, true, 1, at(1010), ka));
+    assert!(!p.should_send(7, true, 1, at(1100), ka));
+    assert!(p.should_send(7, true, 1, at(1210), ka));
+    // 끄면 바로 한 번, keepalive 뒤에 한 번 더, 그 뒤로는 조용히
+    assert!(p.should_send(7, false, 0, at(1300), ka));
+    assert!(!p.should_send(7, false, 0, at(1400), ka));
+    assert!(p.should_send(7, false, 0, at(1500), ka));
+    assert!(!p.should_send(7, false, 0, at(1700), ka));
+    assert!(!p.should_send(7, false, 0, at(9000), ka));
+    // 다시 켜면 다시 처음부터, 끈 직후 다시 켜면 두 번째 끄기는 없다
+    assert!(p.should_send(7, true, 0, at(9100), ka));
+    assert!(p.should_send(7, false, 0, at(9200), ka));
+    assert!(p.should_send(7, true, 0, at(9250), ka));
+    assert!(!p.should_send(7, true, 0, at(9500), ka));
+    // 새 방문은 켜져 있을 때만
+    assert!(!p.should_send(8, false, 0, at(9600), ka));
+    p.reset();
+    assert!(p.should_send(9, true, 0, at(9700), ka));
+}

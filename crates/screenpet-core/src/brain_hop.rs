@@ -54,6 +54,8 @@ impl Pet {
             State::Move { kind, .. } => kind,
             // 술래 놀이도 폴짝 달리기 (개구리만 — 토끼는 그냥 달린다)
             State::Chase { .. } | State::Flee { .. } if self.cfg.hops => Move::Run,
+            // 커서로 다가가며 통통 (brain_cursor.rs)
+            State::CursorPlay { .. } => return self.cursor_lift(),
             _ => return 0.0,
         };
         match (self.gait(kind), self.hop_beat.at(self.clock)) {

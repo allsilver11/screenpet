@@ -12,7 +12,7 @@ impl Pet {
             return None;
         }
         match self.state {
-            State::WallClimb { window, .. } | State::InnerClimb { window, .. } => return Some(window),
+            State::WallClimb { window, .. } | State::InnerClimb { window, .. } | State::EdgeCling { window, .. } => return Some(window),
             State::Leap { owner: Owner::Window(id) | Owner::Inside(id), .. } => return Some(id),
             _ => {}
         }

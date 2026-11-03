@@ -229,6 +229,11 @@ impl Replies {
     pub fn take(&mut self, visit_id: &str) -> Option<String> {
         self.0.remove(visit_id)
     }
+
+    /// Leave 없이 사라진 손님의 답장을 버린다 (keep(방문 id) = 그 손님이 아직 있음)
+    pub fn retain(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        self.0.retain(|id, _| keep(id));
+    }
 }
 
 /// 손님 몸 배율: 주인이 보낸 값(sent)이 범위 안이면 그대로, 아니면(NaN 포함) 이쪽에서 계산한 값(local)을 범위 안으로
@@ -469,6 +474,16 @@ mod tests {
         assert_eq!(r.take("1"), None);
         assert_eq!(r.take("2").map(|n| n.chars().count()), Some(MAX_NOTE_CHARS));
         assert_eq!(r.take("3"), None);
+    }
+
+    #[test]
+    fn replies_of_guests_gone_without_a_leave_are_dropped() {
+        let mut r = Replies::default();
+        assert!(r.write("1", "잘 가"));
+        assert!(r.write("2", "또 와"));
+        r.retain(|id| id == "2");
+        assert!(!r.has("1"));
+        assert_eq!(r.take("2").as_deref(), Some("또 와"));
     }
 
     #[test]

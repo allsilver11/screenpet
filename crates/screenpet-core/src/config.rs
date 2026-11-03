@@ -39,6 +39,9 @@ pub struct Config {
     /// 🌨️ 날씨 효과를 메뉴에서 껐다 (기본은 켜짐 — 철이 아니면 어차피 없다)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub weather_off: bool,
+    /// 🐾 커서 장난을 메뉴에서 껐다 (기본은 켜짐)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cursor_play_off: bool,
 }
 
 /// 내가 정하는 이름(내 이름·친구 별명)의 최대 글자 수
@@ -826,6 +829,17 @@ mod tests {
         assert_eq!(c.friend("a").unwrap().shown_name(), "Annie");
         assert!(!c.set_friend_nickname("a", ""), "unchanged");
         assert!(!c.set_friend_nickname("nobody", "x"));
+    }
+
+    #[test]
+    fn cursor_play_is_on_unless_turned_off() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert!(!old.cursor_play_off);
+        let on = serde_json::to_string(&Config::default()).unwrap();
+        assert!(!on.contains("cursor_play_off"));
+        let off = Config { cursor_play_off: true, ..Config::default() };
+        let back: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
+        assert!(back.cursor_play_off);
     }
 
     #[test]

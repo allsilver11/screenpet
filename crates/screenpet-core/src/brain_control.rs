@@ -11,6 +11,8 @@
 //! 앱이 키를 친구 링크로 보내고, 그 화면에서는 remote_keys로 받는다 (1초 소식이 없으면 키를 다 놓은 것으로 본다).
 //! 키 없이 CONTROL_IDLE_SECS가 지나면 저절로 끝난다. brain.rs의 자식 모듈.
 
+use std::time::{Duration, Instant};
+
 use super::*;
 
 /// 키 없이 이만큼 지나면 조작 모드가 끝난다 (초)
@@ -95,6 +97,47 @@ pub(crate) struct Control {
     idle: f64,
     /// 마지막으로 ↓를 막 누른 시각 (clock)
     last_down: f64,
+}
+
+/// 친구 화면에 간 내 동물에게 키를 언제 보낼지: 바뀔 때, 누르고 있는 동안 keepalive마다.
+/// 끝내기(on = false)는 keepalive 뒤에 한 번 더 — 링크가 잠깐 막혀 첫 번째를 흘려도 손님이 조작 모드에 남지 않게
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SteerPacer {
+    /// (방문, 켜짐, 키, 보낸 시각)
+    last: Option<(u64, bool, u8, Instant)>,
+    /// 끝내기를 한 번 더 보내야 한다
+    repeat_off: bool,
+}
+
+impl SteerPacer {
+    /// 내 동물이 집에 있다 — 다음 방문은 처음부터
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// 지금 보내야 하면 true (보낸 것으로 적어 둔다). 이번 방문에 아직 보낸 적 없으면 켜져 있을 때만 알린다
+    pub fn should_send(&mut self, visit_id: u64, on: bool, bits: u8, now: Instant, keepalive: Duration) -> bool {
+        let (send, repeat) = match self.last {
+            Some((id, was_on, was_bits, at)) if id == visit_id => {
+                let due = now.duration_since(at) >= keepalive;
+                if (was_on, was_bits) != (on, bits) {
+                    (true, !on)
+                } else if on && bits != 0 && due {
+                    (true, false)
+                } else if self.repeat_off && due {
+                    (true, false)
+                } else {
+                    (false, self.repeat_off)
+                }
+            }
+            _ => (on, false),
+        };
+        self.repeat_off = repeat;
+        if send {
+            self.last = Some((visit_id, on, bits, now));
+        }
+        send
+    }
 }
 
 impl Control {
