@@ -35,6 +35,7 @@ impl Pet {
     /// 쿵쾅을 느낄 수 있는 상태: 화면 위에 나와 있고, 들리거나 먹거나 공중·벽에 있지 않고, 막 흔들리지 않았음
     fn stomp_feels(&self) -> bool {
         if self.clock < self.stomp_calm_until
+            || self.sleeps_for_user()
             || self.housed
             || self.is_held()
             || self.food.is_some()

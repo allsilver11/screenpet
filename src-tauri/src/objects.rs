@@ -394,7 +394,7 @@ impl Objects {
 
     /// 매 틱 (게임 루프)
     #[allow(clippy::too_many_arguments)]
-    pub fn tick(&mut self, app: &AppHandle, base: &World, dt: f64, now: Instant, cursor: (f64, f64), left_down: bool, source: &mut dyn WindowSource, network: &Network, config: &Config) {
+    pub fn tick(&mut self, app: &AppHandle, base: &World, dt: f64, now: Instant, cursor: (f64, f64), left_down: bool, away: bool, source: &mut dyn WindowSource, network: &Network, config: &Config) {
         self.fading.retain(|(w, at)| {
             if now >= *at {
                 let _ = w.destroy();
@@ -438,7 +438,7 @@ impl Objects {
         let mut exits: Vec<(usize, Exit)> = Vec::new();
         for (i, l) in self.live.iter_mut().enumerate() {
             let was_asleep = l.object.is_asleep();
-            if let Some(exit) = l.object.tick(dt, world, edges, !hidden) {
+            if let Some(exit) = l.object.tick(dt, world, edges, screenpet_core::object::gusts_ok(hidden, away)) {
                 exits.push((i, exit));
                 continue;
             }

@@ -88,6 +88,24 @@ fn an_object_never_moves_by_itself_between_gusts() {
 }
 
 #[test]
+fn no_wind_while_the_user_is_away() {
+    assert!(gusts_ok(false, false));
+    assert!(!gusts_ok(true, false), "hidden");
+    assert!(!gusts_ok(false, true), "away");
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Can, 960.0, 1040.0, 1.0, 3);
+    run(&mut o, &w, 0.5);
+    let start = (o.body.x, o.body.y);
+    let mut t = 0.0;
+    while t < 3600.0 {
+        o.tick(DT, &w, NONE, gusts_ok(false, true));
+        t += DT;
+        assert!(o.is_asleep());
+    }
+    assert_eq!((o.body.x, o.body.y), start);
+}
+
+#[test]
 fn gusts_come_every_30_to_90_seconds_and_only_a_short_way() {
     for seed in 0..12 {
         let w = floor();

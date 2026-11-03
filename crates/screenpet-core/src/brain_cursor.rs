@@ -828,6 +828,11 @@ impl Pet {
         self.start_fall();
     }
 
+    /// 내려서면 째려보려던 것을 잊는다 (자리 비움으로 잠들었다)
+    pub(super) fn forget_glare(&mut self) {
+        self.cursor_mood.glare_pending = false;
+    }
+
     fn start_glare(&mut self) {
         self.cursor_mood.glare_pending = false;
         self.speech = Some(Speech::Hmph);

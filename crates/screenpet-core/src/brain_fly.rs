@@ -123,7 +123,7 @@ impl Pet {
     }
 
     /// 내려앉아 있음: 앉은 자리가 사라지면 떠오르고, 이동할 때가 되면 날아오른다. 그 밖엔 디딤판 위 동작 그대로
-    fn update_perched(&mut self, dt: f64, world: &World) {
+    pub(super) fn update_perched(&mut self, dt: f64, world: &World) {
         let ok = self.follow_anchor(world)
             && self.standing.is_some_and(|st| world.piece_at(st.owner, self.body.x).is_some_and(|p| p.width() >= 2.0 * self.cfg.half_w));
         if !ok {
@@ -149,7 +149,7 @@ impl Pet {
     }
 
     /// 떠 있음: 날기(Move)는 길을 따라가고, 나머지 활동은 제자리에 떠서 시간만 흘린다
-    fn update_flying(&mut self, dt: f64, world: &World) {
+    pub(super) fn update_flying(&mut self, dt: f64, world: &World) {
         // 먹이를 받았으면 가까운 자리로 내려앉으러 간다
         let to_perch = self.flight.is_some_and(|f| matches!(f.goal, Goal::Perch { .. }));
         if self.meal_pending.is_some() && !to_perch && matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. }) {

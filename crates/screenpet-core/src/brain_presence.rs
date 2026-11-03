@@ -1,14 +1,17 @@
 //! 곁에 있기와 하루 리듬의 동작 (v0.3.7) — brain.rs의 자식 모듈 (비공개 필드에 접근). 언제 할지는 presence.rs가 정한다.
 //!
-//! - 자리 비움: 쉬거나 걷던 내 동물이 잠들고, 돌아올 때까지 잔다. 돌아오면 커서가 있는 모니터로 달려가 (바닥이 다르면 폴짝, 나는 동물은 날아서)
-//!   통통 뛰며 "you're back!!" + 하트.
+//! - 자리 비움: 내 동물도 이 화면의 손님도 하던 일을 그만두고 돌아올 때까지 잠만 잔다 (update_user_away). 말도 놀이도 쿵쾅도 없고, 나는 동물은
+//!   앉은 자리나 떠 있던 자리에서 존다. 떨어지기·창 따라가기 같은 물리만 그대로고, 내려서면 바로 다시 잠든다.
+//!   이기는 것: 사용자 볼일(먹이·하우스·조작 등)과 ⏱️ 집중 — 친구의 "펫 데리고 오기"(손 흔들고 뿅 건너간다, 돌아오면 다시 잠)와
+//!   손님의 그리움 상한·"집에 와", 그리고 주인이 키로 조종 중인 손님 (주인은 자리에 있으니 키를 따르고, 키가 끊기면 다시 잠든다).
+//!   돌아오면 바로 깨어 커서가 있는 모니터로 달려가 (바닥이 다르면 폴짝, 나는 동물은 날아서) 통통 뛰며 "you're back!!" + 하트.
 //! - 졸린 시간: 하품이 잦고, 더 자주 더 오래 자고, 가끔 "go to bed~". 수면 모자는 웹뷰가 그린다.
 //! - 집중: 지금 모니터의 오른쪽 아래 구석에 앉아 조용히 있는다 (돌아다니기·수다·간질이기·커서 장난·친구 놀이 없음).
 //!   사용자 손길(잡기·먹이·조작·집 가기·보내기)이 먼저고, 끝나면 구석으로 돌아온다.
 
 use super::*;
 
-/// 자리 비움: 잠이 끝나지 않게 남은 시간을 이만큼으로 유지한다 (돌아왔는데 맞으러 못 가도 그 안에 깬다)
+/// 자리 비움: 잠이 끝나지 않게 남은 시간을 매 틱 이만큼으로 채운다 (돌아오면 set_user_away가 바로 깨운다)
 const NAP_HOLD_SECS: f64 = 60.0;
 /// 돌아온 사용자를 맞는 통통 횟수
 const WELCOME_BOUNCES: u8 = 2;
@@ -109,9 +112,31 @@ impl Pet {
         self.presence.sleepy = sleepy;
     }
 
-    /// 사용자가 자리를 비웠다 / 돌아왔다 (돌아왔을 땐 welcome_back도 부른다)
+    /// 사용자가 자리를 비웠다 / 돌아왔다 — 돌아오면 바로 깬다 (내 동물은 welcome_back도 부른다, 손님은 깨기만)
     pub fn set_user_away(&mut self, away: bool) {
+        let back = self.presence.user_away && !away;
         self.presence.user_away = away;
+        if back {
+            self.wake_for_user();
+        }
+    }
+
+    fn wake_for_user(&mut self) {
+        if matches!(self.state, State::Sleep { .. }) {
+            self.pacing.after_beat = None;
+            self.state = self.idle_state();
+        }
+        // 돌아온 사용자의 첫 입력이 동물을 누른 것이었다: 놓으면 깨어 있던 것처럼
+        if let State::Pressed { start_cx, start_cy, grounded, was_sleeping: true } = self.state {
+            self.state = State::Pressed { start_cx, start_cy, grounded, was_sleeping: false };
+            let awake = self.idle_state();
+            self.before_press = Some((awake, None));
+        }
+    }
+
+    /// 사용자가 자리를 비웠다 — 잠만 잔다
+    pub fn is_user_away(&self) -> bool {
+        self.presence.user_away
     }
 
     /// ⏱️ 집중 중 — 구석에 앉아 조용히
@@ -139,8 +164,12 @@ impl Pet {
 
     /// 사용자·손님 볼일이 먼저다
     fn presence_blocked(&self) -> bool {
-        self.guest.is_some()
-            || self.control.is_some()
+        self.guest.is_some() || self.has_errand()
+    }
+
+    /// 사용자가 시킨 일, 주인의 조종, 떠나는 길
+    fn has_errand(&self) -> bool {
+        self.control.is_some()
             || self.home_trip.is_some()
             || self.return_home.is_some()
             || self.food.is_some()
@@ -149,6 +178,72 @@ impl Pet {
             || self.hand.is_some()
             || self.send.is_some()
             || self.farewell_pending
+    }
+
+    /// 지금 잠만 자야 한다 (손님도)
+    pub(super) fn sleeps_for_user(&self) -> bool {
+        self.presence.user_away && !self.presence.focus && !self.has_errand()
+    }
+
+    /// update에서 (커서 장난 전): 자리 비움이면 잠만 잔다. 이번 틱을 다 처리했으면 true.
+    /// 공중·들림·떠나고 들어오는 길·먹기는 평소 길로 끝나고 (내려서면 다음 틱에 여기로 온다), 나머지는 곧바로 그만둔다
+    pub(super) fn update_user_away(&mut self, dt: f64, world: &World) -> bool {
+        if !self.sleeps_for_user() {
+            return false;
+        }
+        match self.state {
+            State::Air { .. }
+            | State::Pressed { .. }
+            | State::Dragged
+            | State::Enter { .. }
+            | State::Exit { .. }
+            | State::Farewell { .. }
+            | State::Away
+            | State::Eating { .. }
+            | State::LevelUp { .. } => return false,
+            // 벽·커서·창 모서리에 매달려 있었거나 뛰던 중: 떨어져 내린 뒤에 잔다 (나는 동물은 떠서)
+            State::Climb { .. }
+            | State::Slide
+            | State::WallClimb { .. }
+            | State::InnerClimb { .. }
+            | State::Leap { .. }
+            | State::HomeLeap { .. }
+            | State::CursorLeap { .. }
+            | State::CursorHang { .. }
+            | State::EdgeCling { .. }
+            | State::PresenceTrip => {
+                self.settle_for_sleep();
+                if !self.cfg.flies {
+                    self.start_fall();
+                    return true;
+                }
+                self.standing = None;
+            }
+            State::Sleep { .. } => {}
+            _ => self.settle_for_sleep(),
+        }
+        self.state = State::Sleep { remaining: NAP_HOLD_SECS };
+        // 디딤판을 따라가고, 사라졌으면 떨어지거나 떠오른다 — 평소의 잠과 같은 길
+        match (self.cfg.flies, self.standing.is_some()) {
+            (false, _) => self.update_ground(dt, world),
+            (true, true) => self.update_perched(dt, world),
+            (true, false) => self.update_flying(dt, world),
+        }
+        true
+    }
+
+    /// 잠들기 전에 하던 길과 놀이를 잊는다
+    fn settle_for_sleep(&mut self) {
+        self.pacing.after_beat = None;
+        self.flight = None;
+        self.hover_at = None;
+        self.gaze_up = false;
+        self.play_target = None;
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        self.presence.bounces = 0;
+        self.presence.trip = None;
+        self.forget_glare();
     }
 
     /// update에서 (커서 장난 다음): 이번 틱을 다 처리했으면 true
@@ -180,27 +275,13 @@ impl Pet {
             return self.focus_tick(world);
         }
         if self.presence.user_away {
-            self.keep_napping();
             return false;
         }
         self.nag_bedtime(dt);
         false
     }
 
-    // ---- 자리 비움 ----
-
-    fn keep_napping(&mut self) {
-        match self.state {
-            State::Sleep { remaining } => self.state = State::Sleep { remaining: remaining.max(NAP_HOLD_SECS) },
-            State::Idle { .. } | State::Move { .. } | State::Turn { .. } => {
-                self.pacing.after_beat = None;
-                self.flight = None;
-                self.state = State::Sleep { remaining: NAP_HOLD_SECS };
-            }
-            // 하던 동작·공중은 끝나면 쉬기로 온다
-            _ => {}
-        }
-    }
+    // ---- 돌아옴 ----
 
     /// 돌아왔다: 깨어 커서 쪽으로 가서 통통. 맞이할 수 없는 때(사용자 볼일·집중·친구 화면)면 false.
     /// 하우스 안이나 공중이면 그 자리에서 말과 하트만

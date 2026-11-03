@@ -531,9 +531,9 @@ pub fn calm_anim(anim: Anim) -> bool {
 const DROP_REACH: f64 = 0.4;
 
 /// 이 동물이 지금 선물을 떨어뜨릴 자리 (아래 가운데, 물리 px). 서 있으면 몸 앞 그 바닥, 나는 동물은 몸 아래 (떨어진다).
-/// 들려 있거나·하우스·친구 화면·조작 모드·집중 중·창 안쪽이거나 하던 일이 있으면 None
+/// 들려 있거나·하우스·친구 화면·조작 모드·집중 중·자리 비움·창 안쪽이거나 하던 일이 있으면 None
 pub fn drop_spot(pet: &Pet, world: &World) -> Option<(f64, f64)> {
-    if pet.is_held() || pet.is_housed() || pet.is_away() || pet.is_controlled() || pet.is_focusing() || !calm_anim(pet.render().anim) {
+    if pet.is_held() || pet.is_housed() || pet.is_away() || pet.is_controlled() || pet.is_focusing() || pet.is_user_away() || !calm_anim(pet.render().anim) {
         return None;
     }
     let (x, y) = (pet.body.x, pet.body.y);

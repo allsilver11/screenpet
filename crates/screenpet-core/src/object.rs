@@ -345,7 +345,7 @@ impl Object {
 
     // ---- 매 틱 ----
 
-    /// gusts_ok = 바람이 불어도 된다 (모두 숨겨 둔 동안엔 아니다). 던져서 화면 끝을 넘어가면 Exit
+    /// gusts_ok = 바람이 불어도 된다 (object::gusts_ok). 던져서 화면 끝을 넘어가면 Exit
     pub fn tick(&mut self, dt: f64, world: &World, edges: ExitEdges, gusts_ok: bool) -> Option<Exit> {
         self.clock += dt;
         self.tick_note(dt);
@@ -669,6 +669,11 @@ impl Object {
     pub fn take_note_ended(&mut self) -> bool {
         std::mem::take(&mut self.note_ended)
     }
+}
+
+/// 바람이 불어도 되는 때: 모두 숨겨 두지 않았고 사용자가 자리에 있다
+pub fn gusts_ok(hidden: bool, away: bool) -> bool {
+    !hidden && !away
 }
 
 fn next_gust(rng: &mut fastrand::Rng) -> f64 {

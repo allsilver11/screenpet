@@ -25,7 +25,7 @@ pub(super) struct SnowCloud {
 impl Pet {
     /// 구름을 띄우면 안 되는 때
     fn cloud_hidden(&self) -> bool {
-        self.housed || self.is_held() || self.in_transit() || self.poofing() || self.cursor_through() || matches!(self.state, State::HomeLeap { .. })
+        self.is_user_away() || self.housed || self.is_held() || self.in_transit() || self.poofing() || self.cursor_through() || matches!(self.state, State::HomeLeap { .. })
     }
 
     /// 지금 머리 위에 구름이 떠 있다 (웹뷰 render.cloud)

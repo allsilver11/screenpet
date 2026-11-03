@@ -662,7 +662,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             network.own_exited(&config, &mut slots[OWN], side);
         }
         network.tick(&app, now, &config, &mut slots[OWN]);
-        objects.tick(&app, &slots[OWN].world, dt, now, (cx, cy), left_down, source.as_mut(), &network, &config);
+        objects.tick(&app, &slots[OWN].world, dt, now, (cx, cy), left_down, presence.is_away(), source.as_mut(), &network, &config);
         decals.tick(now);
         props.tick(now);
         hand_win.tick(now);
@@ -673,6 +673,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         gifts.tick(&app, now, dt, &slots, &care);
         if presence.tick(&app, now, source.as_mut(), &mut slots[OWN], &mut care, &mut config.daily) {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+        }
+        // 손님도 이 화면 주인이 자리를 비운 동안엔 잠만 잔다
+        for s in &mut slots[OWN + 1..] {
+            s.pet.set_user_away(presence.is_away());
         }
         let own = &mut slots[OWN];
         let busy = network.own_busy(own);

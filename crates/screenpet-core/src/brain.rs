@@ -694,6 +694,10 @@ impl Pet {
             return;
         }
         self.tick_guest(dt);
+        if self.update_user_away(dt, world) {
+            self.on_started();
+            return;
+        }
         if self.update_cursor(dt, world) {
             self.on_started();
             return;
@@ -2157,6 +2161,9 @@ impl Pet {
     }
 
     fn update_chatter(&mut self, dt: f64) {
+        if self.is_user_away() {
+            return;
+        }
         if matches!(
             self.state,
             State::Sleep { .. } | State::Annoyed { .. } | State::Tickled { .. } | State::Special { .. } | State::Eating { .. } | State::LevelUp { .. } | State::Huff { .. }
@@ -2633,6 +2640,10 @@ impl Pet {
     /// 이동 시작. may_flip이면 절반 확률로 방향을 바꾼다 (Turn 직후엔 이미 바꿨으므로 false).
     /// 집이 그리운 손님은 기어오르지 않고, 마음대로 방향을 고를 땐 늘 집 쪽으로 간다 (Turn 직후엔 돌아선 쪽 그대로).
     fn move_state(&mut self, may_flip: bool, world: &World) -> State {
+        // 자리 비움 중에 먹기 등이 끝났다 — 더 움직이지 않는다
+        if self.sleeps_for_user() {
+            return State::Sleep { remaining: self.sleep_secs() };
+        }
         // 위/아래 친구 화면으로 가끔 높이 뛰어 / 바닥 밑으로 나간다 (brain_vert.rs)
         if let Some(out) = self.vertical_exit_state(world) {
             return out;
@@ -3066,6 +3077,10 @@ mod presence_moves;
 #[cfg(test)]
 #[path = "brain_presence_tests.rs"]
 mod presence_tests;
+
+#[cfg(test)]
+#[path = "brain_away_tests.rs"]
+mod away_tests;
 
 impl AsRef<Pet> for Pet {
     fn as_ref(&self) -> &Pet {
