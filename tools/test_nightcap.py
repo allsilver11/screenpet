@@ -377,6 +377,14 @@ def test_santa_wears_the_scarf_not_a_second_hat():
 
 
 @needs_node
+def test_round_body_ignores_a_scale_change():
+    r = harness("cat")
+    for name in ("resizeStart", "resizeWider", "resizeDpr", "resizeDprAgain"):
+        assert r[name]["width"] == "128px" and r[name]["left"] == "calc(50% - 64px)", name
+        assert r[name]["loads"] == 0, name
+
+
+@needs_node
 def test_other_pets_keep_the_nightcap_and_no_scarf():
     r = harness("cat")
     assert not r["base"]["capHidden"] and r["base"]["scarfHidden"]

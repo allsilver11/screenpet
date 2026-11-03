@@ -146,6 +146,13 @@ function placeSmoke(k) {
   smokeEl.style.setProperty("--k", k);
 }
 
+// 첫 그림이 정해지면 보인다 (house.html은 art-pending으로 시작한다). 끝내 못 읽어도 ART_WAIT_MS 뒤엔 기본 집이라도 보인다
+const ART_WAIT_MS = 3000;
+function showHouse() {
+  document.body.classList.remove("art-pending");
+}
+setTimeout(showHouse, ART_WAIT_MS);
+
 // 그림을 먼저 받아 풀어 둔다 — 없는 그림을 바로 끼우면 집이 잠깐 비어 보인다
 async function preloadArt(url) {
   const img = new Image();
@@ -193,6 +200,7 @@ async function loadArt(name, seq, pixel) {
   houseEl.style.backgroundImage = `url(${dir}/${name}.png)`;
   frontEl.src = `${dir}/${name}_front.png`;
   placeHouse();
+  showHouse();
 }
 
 // 문간 스프라이트 크기: 화면 DOOR_PET × 몸 배율 (그림을 읽기 전에 시트가 먼저 와도 다시 맞춘다)

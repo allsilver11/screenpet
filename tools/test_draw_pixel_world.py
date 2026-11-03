@@ -272,6 +272,87 @@ def test_house_window_loads_pixel_art_and_seats_the_pet_at_full_size():
     assert r["dot"] == "4px" and r["pixelHouse"] is True
 
 
+def dropOf_flat():
+    """20×8 네모, 축 (10, 4), 0도: 축에서 가장 낮은 칸 가운데까지 (칸)."""
+    return 3.5
+
+
+def test_house_stays_hidden_until_its_art_is_set():
+    """픽셀로 시작해도 동글 집이 먼저 비치지 않는다 (house.html 기본 그림은 house/)."""
+    html = (UI / "house.html").read_text(encoding="utf-8")
+    assert '<body class="art-pending">' in html
+    assert re.search(r"body\.art-pending #house \{\s*visibility: hidden;", (UI / "style.css").read_text(encoding="utf-8"))
+    for mode in ("house", "house-pixel"):
+        out = subprocess.run(["node", str(ROOT / "tools" / "levelup_harness.js"), mode], capture_output=True, text=True, check=True)
+        r = json.loads(out.stdout)
+        assert r["pendingWhileDecoding"] and not r["artWhilePending"], mode
+        assert not r["pendingAfterArt"], mode
+    # 그림을 끝내 못 읽어도 집은 나타난다
+    assert re.search(r"setTimeout\(showHouse, ART_WAIT_MS\)", (UI / "house.js").read_text(encoding="utf-8"))
+
+
+def test_pixel_body_is_measured_again_on_a_new_monitor_scale():
+    """pet-stage가 웹뷰 배율보다 먼저 와도 resize 때 칸을 다시 잰다."""
+    if not (UI / "pets_pixel" / "cat" / "pet.json").is_file():
+        pytest.skip("시트를 그리는 중")
+    r = main_in_pixel_mode("cat")
+    assert r["resizeStart"]["width"] == "128px" and r["resizeStart"]["loads"] == 0
+    # 배율이 그대로면 left만 다시 맞춘다
+    assert r["resizeWider"]["width"] == "128px" and r["resizeWider"]["left"] == "36px" and r["resizeWider"]["loads"] == 0
+    # 110%: 칸 4.4 물리 px → 4 물리 px (32칸)
+    changed = r["resizeDpr"]
+    assert changed["loads"] > 0
+    side = 32 * 4 / 1.1
+    assert float(changed["width"].removesuffix("px")) == pytest.approx(side)
+    assert float(changed["bg"].split("px")[0]) == pytest.approx(512 * side / 32)
+    assert r["resizeDprAgain"]["loads"] == 0, "한 번만"
+
+
+def test_style_switch_recreates_props_and_skips_the_checked_style():
+    """src-tauri는 여기서 컴파일하지 않으니 순서만 읽는다."""
+    src = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    arm = src[src.index("Input::SetStyle(style) =>"):src.index("Input::Feed(food) =>")]
+    assert arm.index("sync_style") < arm.index("if style == config.style") < arm.index("continue;") < arm.index("own.restyle")
+    # 칸 크기는 새 스타일이 정해진 뒤에 읽는다
+    assert arm.index("own.restyle") < arm.index("props.restyle")
+    assert "own.pixel_dot()" in arm and "weather.restyle" in arm and "show_hand" in arm
+    assert arm.index("art::set") < arm.index("show_hand") and arm.index("art::set") < arm.index("weather.restyle")
+
+
+def test_pixel_bits_stay_hidden_during_their_delay():
+    css = (UI / "style.css").read_text(encoding="utf-8")
+    bit = re.search(r"\.px-bit \{.*?\n\}", css, re.S).group(0)
+    assert "opacity: 0;" in bit, "delay 동안은 기본값(숨김)"
+    assert " both" not in bit and bit.count("forwards") == 2
+    assert css.count("@keyframes house-hop-pixel") == 1
+
+
+def test_object_layout_scales_the_pivot_with_the_dots():
+    r = node_run("object.js", "// OBJECT-POSE-START", "// OBJECT-POSE-END", """
+      const cells = [];
+      for (let x = 0; x < 20; x++) for (let y = 0; y < 8; y++) cells.push([x + 0.5, y + 0.5]);
+      console.log(JSON.stringify({
+        at: [1, 1.1, 1.2, 1.5, 2].map((dpr) => ({ dpr, ...pixelMetrics(dpr, [48, 72]) })),
+        same: pixelPose(cells, [10, 4], 40),
+        scaled: pixelPose(cells, [10, 4], 40, 1.1),
+        flat: pixelPose(cells, [10, 4], 0, 1.1),
+        tall: dropOf(cells, [10, 4], 40),
+      }));
+    """)
+    for m in r["at"]:
+        dpr = m["dpr"]
+        assert m["side"] == pytest.approx(24 * m["dot"])
+        assert (m["dot"] * dpr) == pytest.approx(round(m["dot"] * dpr)), "칸이 물리 px의 정수배"
+        # 축은 그림 안 같은 자리에 (물리 px로 맞추느라 반 물리 px까지 어긋난다)
+        assert abs(m["pivotX"] - 48 * m["side"] / 96) * dpr <= 0.5 + 1e-9, dpr
+        assert abs(m["pivotY"] - 72 * m["side"] / 96) * dpr <= 0.5 + 1e-9, dpr
+    assert [r["at"][i]["pivotX"] for i in (0, 3, 4)] == [48, 48, 48], "100/150/200%는 그대로"
+    # 물리는 칸 4 논리 px로 바닥을 잡는다 — 그림 칸이 더 작으면 그만큼 내려 닿게 한다
+    assert r["scaled"]["drop"] == pytest.approx(r["tall"] * 1.1 - dropOf_flat(), abs=1e-6)
+    assert r["same"]["drop"] == pytest.approx(r["tall"] - dropOf_flat(), abs=1e-6)
+    assert r["flat"]["drop"] == pytest.approx(dropOf_flat() * 0.1, abs=1e-6)
+
+
 # ---- 픽셀 표에 대한 빠른 맞춤 검사 (test_nightcap.py는 동글 전부를 돌려 무겁다): 실제 시트 위에서 모자·목도리 자리를 잰다
 def _pixel_ids():
     return sorted(p.parent.name for p in (UI / "pets_pixel").glob("*/pet.json"))

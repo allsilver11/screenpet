@@ -137,6 +137,12 @@ fn apply_own_stage(app: &AppHandle, own: &mut Slot, care: &Care) {
     sync_growth(app, care);
 }
 
+/// 직접 주기: 커서 끝에 음식 창을 띄운다 (있던 것은 닫힌다)
+fn show_hand(app: &AppHandle, hand_win: &mut HandWindow, food: Food, (cx, cy): (f64, f64), own: &Slot) {
+    let off = food::HAND_OFFSET * own.dpi;
+    hand_win.show(app, food::hand_icon(food, &own.entry.id), (cx + off, cy + off), own.dpi);
+}
+
 /// 픽셀을 골랐는데 지금 동물은 아직 그림이 없어 동글로 보인다 — 한 줄 알린다
 fn hint_no_pixel_art(app: &AppHandle, own: &Slot) {
     if own.shown.wanted == PetStyle::Pixel && own.shown.style == PetStyle::Round {
@@ -301,14 +307,24 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     hint_no_pixel_art(&app, own);
                 }
                 Input::SetStyle(style) => {
+                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 다시 맞춘다
+                    crate::tray::sync_style(&app.state::<AppState>().menu, style);
+                    // 이미 고른 스타일이면 체크만 — 다시 그리면 하던 특별 동작이 끊긴다
+                    if style == config.style {
+                        continue;
+                    }
                     config.style = style;
                     crate::art::set(style);
                     gifts.restyle();
                     let _ = app.emit("art-style", if style == PetStyle::Pixel { "pixel" } else { "round" });
                     let own = &mut slots[OWN];
                     own.restyle(&app, style);
-                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 다시 맞춘다
-                    crate::tray::sync_style(&app.state::<AppState>().menu, style);
+                    // 소품·손 음식·눈덩이·눈사람 창은 그림을 만들 때 정한다 — 새 스타일로 다시 만든다
+                    props.restyle(&app, own.dpi, own.shown.scale, own.pixel_dot());
+                    if let Some(h) = &hand {
+                        show_hand(&app, &mut hand_win, h.food, source.cursor(), own);
+                    }
+                    weather.restyle(&app, own.dpi);
                     hint_no_pixel_art(&app, own);
                     save_config(&app, &mut config, &own.entry.id, &care);
                 }
@@ -316,13 +332,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     let own = &mut slots[OWN];
                     // 직접 주기: 음식이 커서 끝에 붙는다 (먹이기는 동물 입에 닿을 때). 하우스 안·친구 화면에선 그릇으로
                     if config.feed_mode.by_hand(food) && own.on_screen() {
-                        let (cx, cy) = source.cursor();
-                        let off = food::HAND_OFFSET * own.dpi;
                         if hand.is_some() {
                             own.pet.end_hand();
                         }
                         hand = Some(HandFeed::new(food));
-                        hand_win.show(&app, food::hand_icon(food, &own.entry.id), (cx + off, cy + off), own.dpi);
+                        show_hand(&app, &mut hand_win, food, source.cursor(), own);
                         app.state::<AppState>().hand_feeding.store(true, Ordering::Relaxed);
                         let _ = app.emit_to(OWN_LABEL, "hide-picker", ());
                         continue;

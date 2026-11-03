@@ -83,10 +83,15 @@ let raf = null;
 const timers = new Map();
 let nextTimer = 1;
 const visibility = { state: "visible" };
+const resizeHandlers = [];
+let fetches = 0;
 const windowObj = {
   innerWidth: 128,
   innerHeight: 164,
-  addEventListener() {},
+  devicePixelRatio: 1,
+  addEventListener(ev, f) {
+    if (ev === "resize") resizeHandlers.push(f);
+  },
   __TAURI__: {
     core: { invoke: async (cmd) => (cmd === "slot_info" ? { pet, stage: stageName, scale: 1, label: "pet", style: artStyle ?? "round" } : null) },
     webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async (ev, f) => (listeners[ev] = f), label: "pet" }) },
@@ -123,7 +128,10 @@ const sandbox = {
     }
     async decode() {}
   },
-  fetch: async (url) => ({ json: async () => JSON.parse(fs.readFileSync(path.join(UI, url), "utf8")) }),
+  fetch: async (url) => {
+    fetches++;
+    return { json: async () => JSON.parse(fs.readFileSync(path.join(UI, url), "utf8")) };
+  },
   navigator: {},
   console,
   Math,
@@ -235,6 +243,20 @@ const flushTimers = () => {
   emit("pet-presence", { nightcap: false, ring: null });
   step();
   out.hiddenWindow = look();
+  // 창 크기·화면 배율이 바뀌었다 (resize): 몸 크기를 다시 재는지
+  const resized = async (dpr, width = windowObj.innerWidth) => {
+    windowObj.devicePixelRatio = dpr;
+    windowObj.innerWidth = width;
+    const before = fetches;
+    for (const f of resizeHandlers) f();
+    for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r));
+    const s = byId("pet").style;
+    return { width: s.width, left: s.left, bg: s.backgroundSize, loads: fetches - before };
+  };
+  out.resizeStart = await resized(1);
+  out.resizeWider = await resized(1, 200);
+  out.resizeDpr = await resized(1.1, 200);
+  out.resizeDprAgain = await resized(1.1, 200);
   console.log(JSON.stringify(out));
 })().catch((e) => {
   console.error(e);

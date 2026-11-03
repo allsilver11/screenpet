@@ -35,7 +35,6 @@ let pixelArt = false;
 let dotPx = 4;
 let solid = []; // 불투명 칸 가운데 (칸 좌표) — 계단 각도에서도 바닥에 닿게
 let lastPose = { angle: 0, dx: 0 };
-const OBJECT_DOTS = 24;
 const POSTIT_DOTS = 6;
 
 // OBJECT-POSE-START (tools/test_draw_pixel_world.py가 node로 이 부분을 그대로 돌린다)
@@ -47,31 +46,39 @@ function dropOf(cells, pivot, angle) {
   for (const [x, y] of cells) low = Math.max(low, (x - pivot[0]) * sin + (y - pivot[1]) * cos);
   return low === -Infinity ? 0 : low;
 }
-// 픽셀 포즈: 가까운 90도 + 진짜 각도에서처럼 바닥에 닿도록 내린 칸 수 (물리가 그 각도의 바닥을 기준으로 축을 놓으니까)
-function pixelPose(cells, pivot, angle) {
+// 픽셀 포즈: 가까운 90도 + 진짜 각도에서처럼 바닥에 닿도록 내린 칸 수 (물리가 그 각도의 바닥을 기준으로 축을 놓으니까).
+// physics = 물리의 칸(4 논리 px) / 그림 칸 — 110%처럼 그림 칸이 4 CSS px가 아닐 때 그만큼 더 내려야 바닥에 닿는다
+function pixelPose(cells, pivot, angle, physics = 1) {
   const quarter = Math.round(angle / 90) * 90;
-  return { quarter, drop: dropOf(cells, pivot, angle) - dropOf(cells, pivot, quarter) };
+  return { quarter, drop: dropOf(cells, pivot, angle) * physics - dropOf(cells, pivot, quarter) };
+}
+// 칸 한 변·그림 한 변·축 (CSS px): 칸이 물리 px의 정수배. 축(96 논리 px 기준 좌표)도 그림과 같은 비율로, 물리 px에 맞춰서
+function pixelMetrics(dpr, [rawX, rawY]) {
+  const dot = Math.max(1, Math.round(4 * dpr)) / dpr;
+  const k = dot / 4;
+  const snap = (v) => Math.round(v * k * dpr) / dpr;
+  return { dot, side: 24 * dot, pivotX: snap(rawX), pivotY: snap(rawY) };
 }
 // OBJECT-POSE-END
 
 function layout() {
-  const dpr = window.devicePixelRatio || 1;
-  dotPx = pixelArt ? Math.max(1, Math.round(4 * dpr)) / dpr : 4;
-  const snap = (v) => (pixelArt ? Math.round(v * dpr) / dpr : v);
-  pivotX = snap(rawPivotX);
-  pivotY = snap(pivotY0);
-  thing.style.width = pixelArt ? `${OBJECT_DOTS * dotPx}px` : "";
-  thing.style.height = pixelArt ? `${OBJECT_DOTS * dotPx}px` : "";
+  const m = pixelArt ? pixelMetrics(window.devicePixelRatio || 1, [rawPivotX, pivotY0]) : { dot: 4, side: 96, pivotX: rawPivotX, pivotY: pivotY0 };
+  dotPx = m.dot;
+  pivotX = m.pivotX;
+  pivotY = m.pivotY;
+  thing.style.width = pixelArt ? `${m.side}px` : "";
+  thing.style.height = pixelArt ? `${m.side}px` : "";
   const postit = pixelArt ? POSTIT_DOTS * dotPx : 21;
-  const px = pixelArt ? Math.round((spot[0] * SCALE) / dotPx) * dotPx : spot[0] * SCALE;
-  const py = pixelArt ? Math.round((spot[1] * SCALE) / dotPx) * dotPx : spot[1] * SCALE;
+  // 포스트잇 자리: 96 논리 px 좌표 → 칸 (칸 4 논리 px)
+  const px = pixelArt ? Math.round((spot[0] * SCALE) / 4) * dotPx : spot[0] * SCALE;
+  const py = pixelArt ? Math.round((spot[1] * SCALE) / 4) * dotPx : spot[1] * SCALE;
   sticker.style.width = `${postit}px`;
   sticker.style.height = `${postit}px`;
   sticker.style.left = `${px - postit / 2}px`;
   sticker.style.top = `${py - postit / 2}px`;
   thing.style.transformOrigin = `${pivotX}px ${pivotY}px`;
   thing.style.left = `calc(50% - ${pivotX}px)`;
-  thing.style.bottom = `${side / 2 - (96 - pivotY)}px`;
+  thing.style.bottom = `${side / 2 - (m.side - pivotY)}px`;
   note.style.bottom = `${side + 4}px`;
 }
 
@@ -83,7 +90,7 @@ function applyPose(p) {
     return;
   }
   const dpr = window.devicePixelRatio || 1;
-  const { quarter, drop } = pixelPose(solid, [pivotX / dotPx, pivotY / dotPx], p.angle);
+  const { quarter, drop } = pixelPose(solid, [pivotX / dotPx, pivotY / dotPx], p.angle, 4 / dotPx);
   // 창 가운데(홀수 폭이면 반 px)·분수 이동이 칸을 어긋나게 하지 않도록 물리 px에 맞춘다
   const left = Math.round((window.innerWidth / 2 - pivotX + p.dx) * dpr) / dpr;
   thing.style.left = `${left}px`;

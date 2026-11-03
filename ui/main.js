@@ -25,6 +25,8 @@ let loadSeq = 0;
 // 픽셀 그림을 그리는 중 — dot = 칸 한 변 (CSS px, 물리 px의 정수배). 칸이 흐려지는 변환(회전·확대·분수 이동)은 쓰지 않는다
 let pixelMode = false;
 let dot = 1;
+// dot을 잰 화면 배율 — 웹뷰 배율이 pet-stage보다 늦게 바뀌면 resize에서 다시 잰다
+let measuredDpr = 1;
 
 // 단계별 시트 sheet_<stage>.png를 먼저 쓰고, 없으면 sheet.png
 async function loadPet() {
@@ -36,6 +38,7 @@ async function loadPet() {
   headgearAt = null;
   pixelMode = style === "pixel";
   setPixelBody(pixelMode);
+  measuredDpr = window.devicePixelRatio || 1;
   const side = pixelMode ? snapPixelSide(128 * stage.scale, m.frame_size) : 128 * stage.scale;
   dot = side / m.frame_size;
   if (pixelMode) document.body.style.setProperty("--dot", dot + "px");
@@ -65,6 +68,10 @@ function centerLeft(side) {
 }
 window.addEventListener("resize", () => {
   if (!pixelMode) return;
+  if ((window.devicePixelRatio || 1) !== measuredDpr) {
+    loadPet();
+    return;
+  }
   petEl.style.left = centerLeft(display);
   neckEl.style.left = petEl.style.left;
 });

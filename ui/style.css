@@ -332,6 +332,11 @@ body {
   cursor: pointer;
 }
 
+/* 그림을 고르기 전엔 숨긴다 — 픽셀로 시작해도 위의 동글 기본 그림이 비치지 않게 (house.js showHouse) */
+body.art-pending #house {
+  visibility: hidden;
+}
+
 /* 집 안에서 성장: 집이 작게 폴짝 (house.js — 말풍선 자리 안에서) */
 #house.house-hop {
   animation: house-hop 0.4s ease-out;
@@ -629,15 +634,6 @@ body.pixel #pet.flare-beat {
   45% { filter: drop-shadow(0 0 6px #ffb3c8) drop-shadow(0 0 12px rgba(255, 190, 80, 0.6)) brightness(1.08); }
   100% { filter: none; }
 }
-/* 집이 폴짝 (안에서 자랄 때): 찌그러지지 않고 계단으로 */
-body.pixel #house.house-hop {
-  animation: house-hop-pixel 0.4s steps(3, end);
-}
-@keyframes house-hop-pixel {
-  0%, 100% { transform: translateY(0); }
-  45% { transform: translateY(-9px); }
-}
-
 /* ---- 픽셀 세계 (phase C): 칸 그림, 흐림 없는 계단. --dot = 칸 한 변 (main.js·house.js) ---- */
 body.pixel #house,
 body.pixel-house #house,
@@ -645,6 +641,7 @@ body.pixel-house #house-front,
 body.pixel #house-front {
   image-rendering: pixelated;
 }
+/* 집이 폴짝 (안에서 자랄 때): 찌그러지지 않고 계단으로 */
 body.pixel #house.house-hop,
 body.pixel-house #house.house-hop {
   animation: house-hop-pixel 0.4s step-end;
@@ -736,9 +733,11 @@ body.pixel #snowcloud i:nth-child(5) { left: calc(var(--dot, 4px) * 11); }
   image-rendering: pixelated;
   pointer-events: none;
   z-index: 2;
+  /* 늦게 시작하는 조각은 시작할 때까지 숨어 있다 (backwards로 채우면 출발 자리에 미리 보인다) */
+  opacity: 0;
   animation:
-    px-bit-move var(--ms, 900ms) steps(5, end) both,
-    px-bit-off var(--ms, 900ms) step-end both;
+    px-bit-move var(--ms, 900ms) steps(5, end) forwards,
+    px-bit-off var(--ms, 900ms) step-end forwards;
 }
 @keyframes px-bit-move {
   from { transform: translate(0, 0); }

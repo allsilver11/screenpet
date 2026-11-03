@@ -85,7 +85,8 @@ const timers = new Map();
 let nextTimer = 1;
 const visibility = { state: "visible" };
 const decoding = [];
-let holdDecode = false;
+// 첫 집 그림을 읽는 동안을 보려고 잡아 둔다 (runHouse가 푼다)
+let holdDecode = houseWindow;
 const houseStateOf = (stage, housed = true) => ({ pet: "cat", stage, scale: stage === "adult" ? 1.15 : 1, hungry: false, housed, style: mode === "house-pixel" ? "pixel" : "round" });
 const slotInfo = { pet: "cat", stage: "teenager", scale: 1, role: mode === "main-guest" ? "guest" : "own", owner: "친구", render: null };
 const sandbox = {
@@ -136,6 +137,7 @@ const sandbox = {
   Set,
   Uint8Array,
 };
+if (houseWindow) sandbox.document.body.classes.add("art-pending"); // house.html과 같다
 vm.createContext(sandbox);
 for (const f of ["common.js", page]) vm.runInContext(fs.readFileSync(path.join(UI, f), "utf8"), sandbox, { filename: f });
 
@@ -195,6 +197,13 @@ async function runHouse() {
   const out = {};
   await tick();
   const house = byId("house");
+  const body = sandbox.document.body;
+  out.pendingWhileDecoding = body.classes.has("art-pending");
+  out.artWhilePending = house.style.backgroundImage ?? "";
+  holdDecode = false;
+  while (decoding.length) decoding.shift()();
+  await tick();
+  out.pendingAfterArt = body.classes.has("art-pending");
   byId("picker").hidden = true;
   out.artBefore = house.style.backgroundImage;
   render("level_up", false);

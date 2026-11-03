@@ -26,11 +26,18 @@ fn image(prop: Prop) -> &'static str {
     }
 }
 
+/// 지금 놓인 소품 — 스타일이 바뀌면 같은 자리에 다시 만든다
+struct Placed {
+    window: WebviewWindow,
+    prop: Prop,
+    x: f64,
+    y: f64,
+}
+
 #[derive(Default)]
 pub struct Props {
     next: u64,
-    /// 지금 놓인 소품 창
-    live: Option<WebviewWindow>,
+    live: Option<Placed>,
     /// 흐려지는 중인 창과 닫을 시각
     fading: Vec<(WebviewWindow, Instant)>,
 }
@@ -42,16 +49,23 @@ impl Props {
         match ev {
             PropEvent::Show { prop, x, y } => {
                 if let Some(old) = self.live.take() {
-                    let _ = old.destroy();
+                    let _ = old.window.destroy();
                 }
-                self.live = self.spawn(app, prop, x, y, dpi, scale, pixel_dot);
+                self.live = self.spawn(app, prop, x, y, dpi, scale, pixel_dot).map(|window| Placed { window, prop, x, y });
             }
             PropEvent::Hide => {
-                if let Some(w) = self.live.take() {
-                    let _ = w.eval("document.body.classList.add('hide')");
-                    self.fading.push((w, Instant::now() + FADE));
+                if let Some(p) = self.live.take() {
+                    let _ = p.window.eval("document.body.classList.add('hide')");
+                    self.fading.push((p.window, Instant::now() + FADE));
                 }
             }
+        }
+    }
+
+    /// 스타일이 바뀌었다: 놓인 소품을 같은 자리에 새 그림·크기로 (창 그림은 만들 때 정해진다). 흐려지는 중인 것은 곧 닫히니 그대로 둔다
+    pub fn restyle(&mut self, app: &AppHandle, dpi: f64, scale: f64, pixel_dot: Option<u32>) {
+        if let Some(Placed { prop, x, y, .. }) = self.live {
+            self.apply(app, PropEvent::Show { prop, x, y }, dpi, scale, pixel_dot);
         }
     }
 

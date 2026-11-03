@@ -56,6 +56,7 @@ struct Snowman {
     window: WebviewWindow,
     born: Instant,
     x: f64,
+    y: f64,
 }
 
 pub struct WeatherFx {
@@ -220,8 +221,24 @@ impl WeatherFx {
                 let _ = old.window.destroy();
             }
             self.next_label += 1;
-            self.snowman = self.sprite(app, "snowman", crate::art::fit(SNOWMAN_SIZE, own.dpi), x, y, own.dpi).map(|window| Snowman { window, born: now, x });
+            self.snowman = self.sprite(app, "snowman", crate::art::fit(SNOWMAN_SIZE, own.dpi), x, y, own.dpi).map(|window| Snowman { window, born: now, x, y });
             own.pet.set_snow_ready(false);
+        }
+    }
+
+    /// 스타일이 바뀌었다: 눈덩이·눈사람 창을 새 그림·크기로 (창 그림은 만들 때 정해진다).
+    /// 눈덩이는 닫아 두면 다음 track_own이 만든다. 눈사람은 같은 자리에, 사는 시간은 그대로
+    pub fn restyle(&mut self, app: &AppHandle, dpi: f64) {
+        if let Some((window, _)) = self.ball.take() {
+            let _ = window.destroy();
+        }
+        let Some(old) = self.snowman.take() else { return };
+        let _ = old.window.destroy();
+        self.next_label += 1;
+        self.snowman = self.sprite(app, "snowman", crate::art::fit(SNOWMAN_SIZE, dpi), old.x, old.y, dpi).map(|window| Snowman { window, ..old });
+        // 그 모니터 날씨가 쉬는 동안(전체 화면 등) 눈사람도 숨어 있다
+        if let Some(s) = self.snowman.as_ref().filter(|s| self.overlays.iter().any(|o| o.paused && on_area(&o.wa, s.x))) {
+            let _ = s.window.hide();
         }
     }
 
