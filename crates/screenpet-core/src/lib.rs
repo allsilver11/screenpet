@@ -9,6 +9,7 @@ pub mod gift;
 pub mod hop;
 pub mod inside;
 pub mod manifest;
+pub mod object;
 pub mod pacing;
 pub mod physics;
 pub mod platform;
