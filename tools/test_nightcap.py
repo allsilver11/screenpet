@@ -1,0 +1,250 @@
+"""수면 모자·집중 고리: 모든 동물 × 단계 × 동작 × 칸에서 머리에 딱 맞고, 몸과 한 덩어리로 움직이는지 (진짜 시트 + 실제 main.js 계산)."""
+
+import json
+import math
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import numpy as np
+import pytest
+from PIL import Image, ImageDraw
+
+import preview_nightcap as pn
+
+ROOT = Path(__file__).resolve().parent.parent
+PETS = ROOT / "ui" / "pets"
+MAIN = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
+HTML = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+HARNESS = ROOT / "tools" / "nightcap_harness.js"
+FRAME = 128
+needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+
+# 그림에 쓰는 눈 색 (draw_pets EYE·EYE_LIGHT, 눈사람 COAL 계열)
+EYE_COLORS = [(84, 58, 56)]
+# 슬픈 눈썹도 눈과 같은 색이라 눈 색으로는 가려졌는지 가릴 수 없다 — 모자가 눈썹만 살짝 덮는 동작 (머리 자리는 앉은 동작과 같은 식이다)
+BROW_ANIMS = {"hungry"}
+BRIM_X = [8, 11, 14, 16.5, 19, 22, 25]
+
+
+def cells():
+    for pid in pn.SPECIES:
+        man = pn.manifest(pid)
+        for st in pn.STAGES:
+            for anim, spec in man["animations"].items():
+                for f in range(spec["frames"]):
+                    yield pid, man, st, anim, spec, f
+
+
+def check_fit(cell, mat, eyes=True):
+    """문제 목록. cell: 칸 RGBA 배열 · mat: 모자 svg 점 → 칸 좌표 · eyes: 눈도 본다."""
+    problems = []
+    alpha = cell[..., 3]
+    # 1. 뜨지 않았다: 모자 입구 띠 아래 가장자리가 몸 위에 얹힌다
+    hits = 0
+    for x in BRIM_X:
+        # 입구 아래 곡선 (viewBox): y = 25 → 가운데 22.5 → 25
+        t = (x - 3) / 27
+        lip = (1 - t) ** 2 * 25 + 2 * (1 - t) * t * 20 + t ** 2 * 25
+        px, py = mat(x, lip)
+        ix, iy = int(round(px)), int(round(py))
+        if 0 <= ix < FRAME and 0 <= iy < FRAME and alpha[iy, ix] > 128:
+            hits += 1
+    if hits < 5:
+        problems.append(f"floating:{hits}/{len(BRIM_X)}")
+    if not eyes:
+        return problems
+    # 2. 눈을 덮지 않는다
+    mask = Image.new("L", (FRAME, FRAME), 0)
+    d = ImageDraw.Draw(mask)
+    for _, pts, *_ in pn.CAP:
+        d.polygon([mat(*p) for p in pts], fill=255)
+    cover = np.asarray(mask) > 0
+    rgb = cell[..., :3].astype(np.int16)
+    eye = np.zeros(cover.shape, bool)
+    for c in EYE_COLORS:
+        eye |= (np.abs(rgb - np.array(c)).sum(axis=2) < 14) & (alpha > 200)
+    if eye.sum() >= 3:
+        hidden = (eye & cover).sum() / eye.sum()
+        if hidden > 0.1:
+            problems.append(f"eyes:{hidden:.2f}")
+    return problems
+
+
+_SHEETS = {}
+
+
+def cell_of(pid, st, row, f):
+    key = (pid, st)
+    if key not in _SHEETS:
+        _SHEETS.clear()
+        _SHEETS[key] = np.asarray(Image.open(PETS / pid / f"sheet_{st}.png").convert("RGBA"))
+    return _SHEETS[key][row * FRAME:(row + 1) * FRAME, f * FRAME:(f + 1) * FRAME]
+
+
+# ---- 표 ----
+
+
+def test_every_cell_has_head_data():
+    for pid, man, st, anim, spec, f in cells():
+        entry = man["head"][st][anim][f]
+        assert len(entry) == 4 and entry[2] > 4, (pid, st, anim, f, entry)
+
+
+def test_cap_sits_on_the_head_in_every_cell():
+    bad = []
+    for pid, man, st, anim, spec, f in cells():
+        mat = pn.new_cap_matrix_cell(man["head"][st][anim][f])
+        bad += [(pid, st, anim, f, p) for p in check_fit(cell_of(pid, st, spec["row"], f), mat, anim not in BROW_ANIMS)]
+    assert not bad, f"{len(bad)}: {bad[:40]}"
+
+
+def test_cap_does_not_jump_between_frames():
+    """칸 사이 움직임은 머리의 실제 움직임 안에서만."""
+    for pid in pn.SPECIES:
+        man = pn.manifest(pid)
+        for st in pn.STAGES:
+            for anim, rows in man["head"][st].items():
+                for a, b in zip(rows, rows[1:]):
+                    assert math.hypot(a[0] - b[0], a[1] - b[1]) <= 46, (pid, st, anim, a, b)
+                    assert max(a[2], b[2]) / min(a[2], b[2]) <= 1.35, (pid, st, anim, a, b)
+
+
+def test_cap_and_ring_stay_inside_the_window():
+    """창 = 칸 + 위 36px 말풍선 자리 (기린 목 늘이기는 STRETCH_SPACE 52 × 배율을 더 받는다)."""
+    for pid in pn.SPECIES:
+        man = pn.manifest(pid)
+        for st in pn.STAGES:
+            side = 128 * pn.STAGE_SCALE[st] * man["stage_size"].get(st, 1.0)
+            k = side / 128
+            win = 128 * max(1, side / 128)
+            for anim, rows in man["head"][st].items():
+                neck = anim == "neckstretch"
+                rise = man["neck_stretch"][st]["ext"] * k if neck else 0
+                room = 36 + (52 * k if neck else 0)
+                for e in rows:
+                    m = pn.new_cap_matrix_cell(e)
+                    pts = [m(*p) for shape in pn.CAP for p in shape[1]]
+                    assert min(p[1] for p in pts) * k - rise + room >= 0, (pid, st, anim, e)
+                    left = (win - side) / 2
+                    assert left + min(p[0] for p in pts) * k >= 0 and left + max(p[0] for p in pts) * k <= win, (pid, st, anim, e)
+                    assert (e[1] - 0.6 * e[2]) * k - 22 - rise + room >= 0, ("고리", pid, st, anim, e)
+
+
+def test_head_data_matches_the_generator():
+    """표는 그림 코드에서 나온다 — 고치고 다시 만들지 않으면 여기서 걸린다 (한 종 한 단계만, 느리므로)."""
+    import draw_pets as dp
+
+    with dp.stage("adult", dp.SPECIES["dino_green"].stage_tweak.get("adult")):
+        sp = dp.staged_species(dp.SPECIES["dino_green"])
+        dp.frames(sp, "sleep", 2)
+    assert dp._HEAD_LOG["sleep"] == pn.manifest("dino_green")["head"]["adult"]["sleep"]
+
+
+# ---- 실제 main.js 계산 ----
+
+
+def run_layout(entries, k, cap_on, flip):
+    a = MAIN.index("// HEADGEAR-LAYOUT-START")
+    b = MAIN.index("// HEADGEAR-LAYOUT-END")
+    js = f"{MAIN[a:b]}\nconsole.log(JSON.stringify({json.dumps(entries)}.map((e) => headgearLayout(e, {k}, {json.dumps(cap_on)}, {json.dumps(flip)}))));"
+    return json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
+
+
+def parse_cap(css):
+    tx, ty, rot, sx, sy, bx, by = (float(v) for v in re.match(
+        r"translate\((.+)px, (.+)px\) rotate\((.+)deg\) scale\((.+), (.+)\) translate\((.+)px, (.+)px\)", css).groups())
+    c, s = math.cos(math.radians(rot)), math.sin(math.radians(rot))
+
+    def m(px, py):
+        qx, qy = (px + bx) * sx, (py + by) * sy
+        return (c * qx - s * qy + tx, s * qx + c * qy + ty)
+
+    return m
+
+
+@needs_node
+def test_python_preview_matches_main_js():
+    entries = [[64, 20, 50, 0], [80.5, 31.2, 42.1, -17.3], [30, 60, 25.5, 90]]
+    for entry, out in zip(entries, run_layout(entries, 1, True, False)):
+        js_m, py_m = parse_cap(out["cap"]), pn.new_cap_matrix_cell(entry)
+        for p in [(3, 21), (30, 25), (29, 15), (16.5, 20.5)]:
+            assert js_m(*p) == pytest.approx(py_m(*p), abs=0.02)
+
+
+@needs_node
+def test_real_js_layout_fits_a_real_dino():
+    man = pn.manifest("dino_green")
+    for st in pn.STAGES:
+        entries = man["head"][st]["sleep"]
+        for f, out in enumerate(run_layout(entries, 1, True, False)):
+            assert not check_fit(cell_of("dino_green", st, man["animations"]["sleep"]["row"], f), parse_cap(out["cap"])), (st, f)
+
+
+@needs_node
+def test_ring_floats_above_the_head_and_above_the_cap():
+    entry = [64, 30, 50, 0]
+    off, on = run_layout([entry], 1, False, False)[0], run_layout([entry], 1, True, False)[0]
+    y = lambda css: float(re.match(r"translate\(.+px, (.+)px\)", css).group(1))  # noqa: E731
+    assert y(off["ring"]) + 20 <= 30
+    assert y(on["ring"]) < y(off["ring"])
+    assert "scaleX(-1)" in run_layout([entry], 1, True, True)[0]["ring"], "반전된 몸 안에서 진행 방향 유지"
+
+
+def test_cap_and_ring_are_children_of_the_body():
+    """위치를 따로 계산하지 않는다 — #pet의 자식이라 몸의 변환을 그대로 받는다."""
+    pet = HTML[HTML.index('<div id="pet">'):HTML.index('<div id="envelope"')]
+    assert '<svg id="nightcap"' in pet and '<svg id="focusring"' in pet
+    fn = MAIN[MAIN.index("function placeHeadgear"):MAIN.index("// 눈사람의 작은 눈구름")]
+    assert "clientWidth" not in fn and "innerWidth" not in fn
+
+
+# ---- 움직임 시나리오: common.js + main.js를 가짜 DOM에서 그대로 ----
+
+
+def harness(pid, st="teenager"):
+    return json.loads(subprocess.run(["node", str(HARNESS), pid, st], capture_output=True, text=True, check=True).stdout)
+
+
+@needs_node
+@pytest.mark.parametrize("pid", ["dino_green", "cat", "bee", "santa"])
+def test_cap_moves_as_one_with_the_body(pid):
+    r = harness(pid)
+    base = r["base"]
+    assert base["capParent"] == "pet" and base["ringParent"] == "pet"
+    assert not base["capHidden"]
+    # 매달림·덜덜·말풍선·편지로 창이 바뀌어도: 몸만 변환을 받고 모자는 칸 안 같은 자리 → 몸과 같이 움직인다
+    for name in ("hangRight", "hangLeft", "wobble", "bubbleWindow", "noteWindow", "base2"):
+        assert r[name]["cap"] == base["cap"], name
+        assert r[name]["ring"] == base["ring"], name
+        assert r[name]["capParent"] == "pet", name
+    assert "translateX" in r["hangRight"]["pet"] and "rotate" in r["hangRight"]["pet"]
+    assert "translateX" in r["hangLeft"]["pet"]
+    # 반전은 몸이 받는다 — 모자 자리는 그대로, 고리만 진행 방향을 되돌린다
+    assert r["flip"]["cap"] == base["cap"]
+    assert "scaleX(-1)" in r["flip"]["pet"]
+    assert "scaleX(-1)" in r["flip"]["ring"]
+    # 구르기: 회전은 몸이 받고 모자는 칸 안에서 머리 자리에 있다 (숨지 않는다)
+    assert not r["roll"]["capHidden"] and r["roll"]["capParent"] == "pet"
+    # 없는 동작은 idle로 그리므로 idle 자리
+    assert r["unknownAnim"]["cap"].startswith("translate(")
+
+
+@needs_node
+def test_giraffe_cap_rides_the_head_layer_while_the_neck_stretches():
+    r = harness("giraffe")
+    assert r["base"]["capParent"] == "pet"
+    assert r["neck"]["capParent"] == "nk-head" and r["neck"]["ringParent"] == "nk-head"
+    assert r["neckMid"]["capParent"] == "nk-head"
+    assert r["afterNeck"]["capParent"] == "pet", "돌아온다"
+
+
+@needs_node
+def test_cap_poofs_away_once_in_the_morning():
+    r = harness("cat")
+    assert r["startOff"]["capHidden"] and r["startOff"]["sparks"] == 0, "처음부터 꺼져 있으면 효과 없이"
+    assert "cap-poof" in r["morning"]["capClasses"] and not r["morning"]["capHidden"]
+    assert r["morning"]["sparks"] - r["afterNeck"]["sparks"] == 5
+    assert r["morningDone"]["capHidden"] and not r["morningDone"]["capClasses"]
+    assert r["hiddenWindow"]["capHidden"] and not r["hiddenWindow"]["capClasses"], "창이 숨어 있으면 바로"

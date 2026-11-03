@@ -459,15 +459,28 @@ body {
   display: none;
 }
 
-/* 수면 모자·집중 고리 — 머리 꼭대기 자리는 main.js placeHeadgear */
+/* 수면 모자·집중 고리 — #pet의 자식 (기린 목 늘이기 동안만 머리 층 .nk-head의 자식): 몸의 변환을 그대로 받아 한 덩어리로 움직인다.
+   칸 안 자리는 main.js placeHeadgear가 pet.json head 표에서 정한다 */
 #nightcap,
 #focusring {
   position: absolute;
   left: 0;
-  bottom: 0;
+  top: 0;
   pointer-events: none;
-  z-index: 2;
-  transform-origin: 50% 100%;
+}
+#nightcap {
+  transform-origin: 0 0;
+}
+/* 아침 8시 30분에 모자가 "뿅": 살짝 부풀었다 작아지며 흐려진다 (자리 변환은 #nightcap 몫이라 안쪽 g만 움직인다, main.js capPoof) */
+#nightcap.cap-poof #nightcap-art {
+  transform-box: fill-box;
+  transform-origin: 50% 80%;
+  animation: cap-poof 0.45s ease-in forwards;
+}
+@keyframes cap-poof {
+  0% { transform: scale(1); opacity: 1; }
+  30% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(0.1); opacity: 0; }
 }
 #nightcap[hidden],
 #focusring[hidden] {

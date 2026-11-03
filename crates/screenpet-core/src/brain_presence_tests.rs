@@ -337,11 +337,29 @@ fn after_midnight_the_pet_yawns_and_nags_only_at_night() {
 }
 
 #[test]
-fn the_nightcap_is_on_only_in_the_sleepy_hours() {
+fn the_nightcap_comes_off_at_half_past_eight_with_the_sleepy_hours() {
     let mut sim = Sim::new();
-    sim.time = (5, 59);
-    assert!(sim.rhythm.overlay(&sim.input()).nightcap);
-    sim.time = (6, 0);
+    let cap_at = |sim: &mut Sim, time| {
+        sim.time = time;
+        sim.rhythm.overlay(&sim.input()).nightcap
+    };
+    assert!(cap_at(&mut sim, (0, 0)));
+    assert!(cap_at(&mut sim, (8, 29)));
+    assert!(!cap_at(&mut sim, (8, 30)));
+    assert!(!cap_at(&mut sim, (23, 59)));
+}
+
+#[test]
+fn a_delayed_greeting_never_keeps_the_nightcap_on() {
+    // 인사가 집중 시간 때문에 미뤄져도 (오늘 인사 표시가 비어 있어도) 모자는 시계만 보고 벗는다
+    let (mut p, w) = on_ground(sim_cfg(), 800.0);
+    let mut sim = Sim::new();
+    sim.marks = DailyMarks::default();
+    sim.time = (8, 30);
+    sim.rhythm.start_focus(FocusLength::Short, sim.secs, &mut p);
+    sim.run(&mut p, &w, 3);
+    assert!(!sim.has_said(Speech::GoodMorning), "focus keeps the greeting waiting");
+    assert_eq!(sim.marks.morning, None);
     assert!(!sim.rhythm.overlay(&sim.input()).nightcap);
 }
 
@@ -352,10 +370,10 @@ fn good_morning_is_a_big_stretch_once_a_day() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
     let mut sim = Sim::new();
     sim.marks = DailyMarks::default();
-    sim.time = (8, 59);
+    sim.time = (8, 29);
     sim.second(&mut p, &w);
     assert!(!sim.has_said(Speech::GoodMorning));
-    sim.time = (9, 0);
+    sim.time = (8, 30);
     let input = sim.input();
     let out = sim.rhythm.tick(&input, &mut p, &w, &mut sim.care, &mut sim.marks);
     assert!(out.marks_changed, "saved");

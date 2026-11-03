@@ -90,6 +90,14 @@ def _twig(sh, side, a, ln, wiggle=0.0):
     return Part([L([sh, tip], 3.0), L([(fx0, fy0), f1], 2.4), L([(fx0, fy0), f2], 2.4)], TWIG, outline=True, grow=0, sharp=True)
 
 
+def _mark_snowman(st, hx, hy, hrx, hry, side):
+    """눈사람의 수면 모자 자리: 양동이가 있으면 양동이째 덮어 쓴다 (_pail과 같은 자리·기울기), 없으면 머리 위에."""
+    if st["hat"]:
+        dp.mark_head(hx + (hrx * 0.1 if side else hrx * 0.14), hy - hry * 0.84, hrx * 1.55, tilt=-8)
+    else:
+        dp.mark_head(hx, hy - hry * 0.84, hrx * 1.2)
+
+
 def _pail(hx, hy, hrx, hry, rot=0.0, side=False, holly=False):
     """작은 양동이 모자 (머리 위에 살짝 기울여) — 어른은 호랑가시 잎 + 빨간 열매."""
     w = hrx * 0.6
@@ -208,6 +216,7 @@ def snowman(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, sta
             # 머리
             with xf(rot=head_rot, pivot=(hx, hy + hry * 0.8)):
                 parts.append(_ball(hx, hy, hrx, hry))
+                _mark_snowman(st, hx, hy, hrx, hry, side)
                 if st["hat"]:
                     parts += _pail(hx, hy, hrx, hry, side=side, holly=st["hat"] >= 2)
                 ey = hy - 0.1 * hry
@@ -460,6 +469,7 @@ def snowman_back(reach, feet, *, sq=(1.0, 1.0), dy=0.0, scratch=None, sweat=None
         for _, cy, rx, ry in balls:
             parts.append(_ball(cx, cy, rx, ry))
         parts.append(_ball(cx, hy, hrx, hry))
+        _mark_snowman(st, cx, hy, hrx, hry, False)
         if st["scarf"]:
             parts += _scarf(cx, hy + hry * 0.9, hrx * 0.86, st, False, wave, back_view=True)
         if st["hat"]:

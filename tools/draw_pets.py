@@ -16,6 +16,7 @@
 
 import json
 import math
+import re
 import shutil
 import sys
 from contextlib import contextmanager
@@ -162,6 +163,29 @@ def _pt(x, y):
     ux, uy = a * x + b * y + c, d * x + e * y + f
     s = _VIEW["scale"]
     return ((64 + (ux - 64) * s) * K, (126 + (uy - 126) * s - _VIEW["lift"]) * K)
+
+
+# 수면 모자 자리 (pet.json head): 그리는 코드가 머리 위치를 아니까 프레임마다 여기에 적어 둔다. 그림(픽셀)에는 아무 영향이 없다.
+_HEAD = {}  # 지금 칸의 표시
+_HEAD_LOG = {}  # 지금 단계의 {동작: [칸별 표시]}
+
+
+def mark_head(x, y, w, tilt=0.0):
+    """모자 입구 가운데 (x, y) · 입구 너비 w · 더 기울이는 각도 tilt (도, 시계 방향) — 현재 변환 안의 좌표로 적으면 프레임 좌표로 옮겨 적는다.
+    머리가 돌아가거나 찌그러지면 표시도 그대로 따라간다."""
+    px, py = _pt(x, y)
+    lx, ly = _pt(x - w / 2, y)
+    rx, ry = _pt(x + w / 2, y)
+    ux, uy = _pt(x, y - 10)
+    _HEAD["at"] = [round(px / K, 1), round(py / K, 1), round(math.hypot(rx - lx, ry - ly) / K, 1),
+                   round(math.degrees(math.atan2(ux - px, py - uy)) + tilt, 1)]
+
+
+def shift_head(dx, dy):
+    """다 그린 프레임을 통째로 민 경우 (_fit, 루돌프 코 후광) 표시도 같이 민다."""
+    if "at" in _HEAD:
+        _HEAD["at"][0] = round(_HEAD["at"][0] + dx, 1)
+        _HEAD["at"][1] = round(_HEAD["at"][1] + dy, 1)
 
 
 def _wscale():
@@ -698,6 +722,7 @@ def front_head(sp, eyes="dot", mouth=None, tongue_dy=0, outline=False, cheeks=Fa
         puff = ([shape(("E", 10, 50, 40, 82))] if lc else []) + ([shape(("E", 88, 50, 118, 82))] if rc else [])
         snout = [shape(("E", 44, 56, 84, 84 + 2 * _ST["snout"]))] if _ST["snout"] else []
         ear_fns, ear_marks = _front_ears(sp)
+        mark_head(64, 23, 62)
         spikes = tuft(64, 16) if _ST["tuft"] else []
         if _ST["cheek_fluff"]:
             spikes += [T(*t) for t in CHEEK_FLUFF if not lc] + [T(*_mirror(t)) for t in CHEEK_FLUFF if not rc]
@@ -800,6 +825,7 @@ SIDE_NECK = (80, 74)  # 옆모습 머리가 몸에 붙는 점 (머리 좌표) �
 def side_head(sp, eyes="dot", mouth=None, ear_rot=(0, 0), ear_dy=0, outline=False, brow=None):
     """옆모습 머리 Parts(귀 포함, 그릴 순서)와 얼굴 ops. 머리 좌표: 중심 (88, 45)."""
     with xf(sx=_ST["head"], sy=_ST["head"], pivot=SIDE_NECK):
+        mark_head(82, 18, 50)
         ears = []
         k = _ST["ear"]
         for i, ear in enumerate(sp.side_ears):
@@ -1310,6 +1336,7 @@ def back_head(sp):
     """뒤통수 (귀 포함, 귀 안쪽은 안 보임). 바탕은 등 색, 고양이는 줄무늬와 뒷목 흰 털."""
     k = _ST["head"] * BACK_HEAD
     with xf(dy=-4, sx=k, sy=k, pivot=(64, 84)):
+        mark_head(64, 23, 62)
         ear_fns, _ = _front_ears(sp)
         return Part([shape(("E", 16, 16, 112, 84))] + ear_fns, sp.back, _marks(sp.back_head_marks), grow=1, outline=True,
                     spikes=tuft(64, 16) if _ST["tuft"] else [])
@@ -1434,7 +1461,15 @@ def frames(sp, anim, n):
     _INK["line"] = sp.outline or LINE
     try:
         with view(scale=sp.scale * _ST["fit"], lift=LIFT + 1.7 * OUTLINE * (_ST["line"] - 1)):  # 굵은 외곽선만큼 더 올린다
-            return [((sp.poses or {}).get(anim) or POSES[anim])(sp, i) for i in range(n)]
+            out, heads = [], []
+            for i in range(n):
+                _HEAD.clear()
+                out.append(((sp.poses or {}).get(anim) or POSES[anim])(sp, i))
+                if "at" not in _HEAD:
+                    raise ValueError(f"{sp.id} {anim} {i}: 머리 표시(mark_head)가 없습니다")
+                heads.append(_HEAD["at"])
+            _HEAD_LOG[anim] = heads
+            return out
     finally:
         _INK["line"] = old_ink
 
@@ -1620,6 +1655,7 @@ def _fuzz(cx, cy, rx, ry, a0, a1, n):
 def bee_side_parts(sp, cx, cy, rx, ry, face, legs="dangle", leg_sw=0.0, stinger=True):
     """옆모습 몸 Part들: 몸(줄무늬·얼굴 무늬, 털) → 다리 → 침. legs: dangle (떠서 대롱) | stand | None."""
     b = _bee()
+    mark_head(cx + rx * 0.2, cy - ry * 0.84, rx * 1.1, tilt=8)
     xs = {1: [-0.4], 2: [-0.52, -0.16], 3: [-0.62, -0.34, -0.06]}[b["n"]]
     stripes = [L(arc(cx + k * rx + 10, cy, 10, ry + 6, 90, 270, 16), b["w"]) for k in xs]
     spikes = _fuzz(cx, cy, rx, ry, 200, 300, 6) + (tuft(cx + rx * 0.2, cy - ry) if _ST["tuft"] else [])
@@ -1641,6 +1677,7 @@ def bee_side_parts(sp, cx, cy, rx, ry, face, legs="dangle", leg_sw=0.0, stinger=
 
 def bee_front_parts(sp, cx, cy, rx, ry, face, legs=True, belly=False):
     b = _bee()
+    mark_head(cx, cy - ry * 0.84, rx * 1.15)
     ys = {1: [0.52], 2: [0.46, 0.76], 3: [0.4, 0.63, 0.86]}[b["n"]]
     stripes = [L(arc(cx, cy + k * ry - 8, rx + 6, 8, 15, 165, 16), b["w"]) for k in ys]
     spikes = _fuzz(cx, cy, rx, ry, 205, 335, 7) + (tuft(cx, cy - ry) if _ST["tuft"] else [])
@@ -1860,6 +1897,7 @@ def bee_belly(sp, i):
     stripes = [L(arc(cx + k * rx + 8, cy, 8, ry + 6, 90, 270, 16), b["w"]) for k in xs]
     fcx, fcy = cx + rx * 0.5, cy - 2
     fs = _ST["head"] ** 0.6
+    mark_head(fcx, cy - ry * 0.82, rx * 0.75, tilt=10)
     with xf(sx=fs, sy=fs, pivot=(fcx, fcy)):
         bd = 2 if _ST["sparkle"] else 0
         face = (blush(fcx - 13, fcy + 8 + bd) + blush(fcx + 14, fcy + 8 + bd) + stage_eye("happy", fcx - 8, fcy - 2)
@@ -2028,7 +2066,8 @@ def rows_for(sp):
     return list(ANIMS) + [o for o in OPTIONAL_ANIMS if o[0] in sp.specials]
 
 
-_RENDERED = {}  # (종, 단계) → {동작: [프레임]} — 한 프로세스에서 여러 번 build해도 한 번만 그린다
+_RENDERED = {}
+_HEADS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json head  # (종, 단계) → {동작: [프레임]} — 한 프로세스에서 여러 번 build해도 한 번만 그린다
 
 
 _KEEP = {LINE, EYE, DARK_NOSE, BEAR_NOSE, BEAR_LINE}  # 파스텔로 바꾸지 않는 색 (외곽선·눈·코)
@@ -2058,8 +2097,17 @@ def render_species(sp, stage_name="teenager"):
     if key not in _RENDERED:
         with stage(stage_name, sp.stage_tweak.get(stage_name)):
             ssp = staged_species(sp)
+            _HEAD_LOG.clear()
             _RENDERED[key] = {anim: frames(ssp, anim, n) for anim, n, *_ in rows_for(sp)}
+            _HEADS[key] = dict(_HEAD_LOG)
     return _RENDERED[key]
+
+
+def _manifest_text(m):
+    """pet.json 글자: head 표는 칸마다 한 줄이면 만 줄이 넘으니 동작마다 한 줄로 접는다."""
+    text = json.dumps(m, ensure_ascii=False, indent=2)
+    text = re.sub(r"\[\s+(-?[\d.]+),\s+(-?[\d.]+),\s+(-?[\d.]+),\s+(-?[\d.]+)\s+\]", r"[\1, \2, \3, \4]", text)
+    return re.sub(r"\[\s+(\[[-\d., ]+\](?:,\s+\[[-\d., ]+\])*)\s+\]", lambda g: "[" + re.sub(r",\s+\[", ", [", g.group(1)) + "]", text) + "\n"
 
 
 def write_sheet(sp, rendered, path):
@@ -2099,7 +2147,8 @@ def write_species(sp, out_dir):
     shutil.copyfile(out_dir / "sheet_teenager.png", out_dir / "sheet.png")
     counts = {anim: len(by_stage["teenager"][anim]) for anim, *_ in rows_for(sp)}
     m = species_fields(sp.id, manifest(sp.name, sp.walk_speed, counts, SPEECH[sp.id], FAVORITE_FOOD[sp.id], STAGES, sp.stage_size))
-    (out_dir / "pet.json").write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    m["head"] = {st: _HEADS[(sp.id, st)] for st in STAGES}
+    (out_dir / "pet.json").write_text(_manifest_text(m), encoding="utf-8")
     return by_stage
 
 

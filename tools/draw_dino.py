@@ -91,6 +91,14 @@ def ell_point(cx, cy, rx, ry, a):
     return x, y, nx / n, ny / n
 
 
+def _mark_dino(st, x, hy, hr, shell_tilt):
+    """공룡의 수면 모자 자리: 머리 위 가시 앞쪽에 눌러쓴다. 아기는 알껍데기째 덮어 쓴다."""
+    if st["shell"]:
+        dp.mark_head(x, hy - hr * 0.86, hr * 1.5, tilt=shell_tilt)
+    else:
+        dp.mark_head(x, hy - hr * 0.76, hr * 1.22)
+
+
 def egg_shell(cx, top, w, side=True):
     """아기 머리 위 알껍데기 모자: 동글 윗부분 + 지그재그 깨진 아래 가장자리, 점 두어 개."""
     dome = arc(cx, top + w * 0.42, w * 0.5, w * 0.55, 180, 360, 14)
@@ -208,6 +216,8 @@ def dino(sp, *, side=True, cx=64.0, bottom=None, sq=(1.0, 1.0), rot=0.0, eyes="d
                           ([E(hx - hr * 0.2, hy + hr * 0.42, hx + hr * 1.2, hy + hr * 0.95)], mix(col, bel, 0.45))]
                 hpart = Part(head_sh, col, hmarks, grow=1)
             parts.append(hpart)
+            with xf(rot=head_rot, pivot=hpiv):
+                _mark_dino(st, hx - hr * (0.1 if st["shell"] else 0.25), hy, hr, -12)
             if arm is not None and not ball:
                 shx, shy = bx + rx * 0.62, bcy - ry * 0.32
                 with xf(rot=-arm, pivot=(shx, shy)):
@@ -266,6 +276,7 @@ def dino(sp, *, side=True, cx=64.0, bottom=None, sq=(1.0, 1.0), rot=0.0, eyes="d
                 hmarks = [([E(hx - hr * 0.62, hy + hr * 0.08, hx + hr * 0.62, hy + hr * 0.84)], mix(col, bel, 0.45)),
                           ([E(hx - hr * 0.7, hy - hr * 0.86, hx + hr * 0.1, hy - hr * 0.42)], mix(col, WHITE, 0.28))]
                 parts.append(Part(head_sh, col, hmarks, grow=1))
+                _mark_dino(st, hx + (hr * 0.15 if st["shell"] else 0.0), hy, hr, 0)
                 if st["shell"]:
                     parts.append(egg_shell(hx + hr * 0.15, hy - hr * 1.38, hr * 1.25))
                 face = []
@@ -394,6 +405,7 @@ def dn_roll(sp, i):
                                                      ([E(cx - 20, cy - 24, cx - 2, cy - 12)], mix(pal["body"], WHITE, 0.28))], grow=0),
                  Part([E(cx + 10, cy + 18, cx + 26, cy + 30)], pal["body"], grow=0, outline=True),
                  Part([E(cx - 4, cy + 20, cx + 12, cy + 32)], pal["body"], grow=0, outline=True)]
+        dp.mark_head(cx + 13, cy - r * 0.84, 32, tilt=24)
         ops = stage_eye("happy", cx + 6, cy - 6) + stage_eye("happy", cx + 20, cy - 4, True)
         ops += blush(cx + 2, cy + 3) + blush(cx + 24, cy + 5)
         ops += front_mouth("open" if i else None, cx + 13, cy + 5)
@@ -655,6 +667,7 @@ def dino_back(sp, reach, feet, *, sq=(1.0, 1.0), dy=0.0, tail_rot=0.0, scratch=N
         ridge = [(cx, top + (end - top) * k / max(1, n - 1), 1.0 - 0.3 * k / max(1, n - 1)) for k in range(n)]
         parts += back_spikes(sp, ridge, sh * 1.0, sh * 1.3)
         parts += back_tail(sp, cx, bcy, ry, rxf, bottom, tail_rot)
+        _mark_dino(st, cx + (hr * 0.1 if st["shell"] else 0.0), hy, hr, 0)
         if st["shell"]:
             parts.append(egg_shell(cx + hr * 0.1, hy - hr * 1.38, hr * 1.25))
     fx = sweat_fx(cx + hr * 1.15 + 8, hy - 4 + sweat) if sweat is not None else []

@@ -146,14 +146,40 @@ function jitter(f, now) {
   return `translate(${(Math.sin(now / 17) * amp).toFixed(2)}px, ${(Math.cos(now / 23) * amp * 0.5).toFixed(2)}px)`;
 }
 
-// 수면 모자·집중 고리 (백엔드 pet-presence {nightcap, ring}): 시트의 지금 칸에서 머리 꼭대기를 찾아 그 위에 얹는다 —
-// 동물·자세마다 머리 자리가 달라도 맞는다. 칸마다 한 번 재서 기억하고, 그릴 때도 칸이 바뀔 때만 옮긴다 (둘 다 꺼져 있으면 아무 일도 안 한다)
+// 수면 모자·집중 고리 (백엔드 pet-presence {nightcap, ring}): 둘 다 #pet의 자식이라 몸의 변환(반전·구르기·매달림·덜덜·쏘기·뿅)과
+// 창 크기 변화를 따로 계산하지 않아도 한 덩어리로 움직인다. 여기서는 칸 안의 자리만 정한다 — pet.json head[단계][동작][칸] = [x, y, w, r]:
+// 그림을 그린 코드(tools/draw_pets.py mark_head)가 적어 둔 모자 입구 가운데 · 입구 너비 (칸 px) · 머리 기울기 (도). 칸이 바뀔 때만 옮긴다
 const nightcapEl = document.getElementById("nightcap");
 const focusringEl = document.getElementById("focusring");
 const focusringFill = document.getElementById("focusring-fill");
+let headgearAt = null;
+
+// HEADGEAR-LAYOUT-START (tools/test_nightcap.py가 node로 이 부분을 그대로 돌린다)
+// 모자 SVG(ui/index.html)의 입구 가운데와 너비 (viewBox 좌표)
+const CAP_BRIM_X = 16.5;
+const CAP_BRIM_Y = 20.5;
+const CAP_BRIM_W = 27;
+const CAP_TILT = -8; // 끝이 머리 뒤로 처지게 (칸은 오른쪽을 보고, 그림의 방울은 오른쪽이라 뒤집어 쓴다)
+const RING_R = 10; // 고리 SVG 반지름 (px)
+const HEAD_FALLBACK = [64, 24, 44, 0]; // head 표가 없는 동물: 칸 위쪽 가운데
+
+// k = 표시 px / 칸 px. 고리는 머리 위 (모자를 쓰면 모자 위)에 뜬다. 반전된 몸 안에서도 진행 방향은 그대로 (scaleX로 되돌림)
+function headgearLayout(entry, k, capOn, flip) {
+  const [x, y, w, r] = entry ?? HEAD_FALLBACK;
+  const s = (w * k) / CAP_BRIM_W;
+  const cap = `translate(${(x * k).toFixed(2)}px, ${(y * k).toFixed(2)}px) rotate(${(r + CAP_TILT).toFixed(1)}deg) scale(${(-s).toFixed(3)}, ${s.toFixed(3)}) translate(${-CAP_BRIM_X}px, ${-CAP_BRIM_Y}px)`;
+  const rad = (r * Math.PI) / 180;
+  const lift = (capOn ? 0.6 : 0.3) * w * k + RING_R + 2;
+  const rx = x * k + Math.sin(rad) * lift;
+  const ry = y * k - Math.cos(rad) * lift;
+  const ring = `translate(${(rx - RING_R).toFixed(2)}px, ${(ry - RING_R).toFixed(2)}px)${flip ? " scaleX(-1)" : ""}`;
+  return { cap, ring };
+}
+// HEADGEAR-LAYOUT-END
+
+// 아래는 눈사람 눈구름(placeCloud)이 쓰는 머리 찾기 — 시트의 지금 칸을 재서 맨 위를 찾는다 (칸마다 한 번 재서 기억)
 const headCache = new Map();
 let sheetImg = null;
-let headgearAt = null;
 
 // 앞모습 동작 (코어 Anim::is_front) — 머리가 가운데다. 옆모습은 시트에서 오른쪽을 본다
 const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "wag", "hungry", "eat", "level_up", "huff", "sting"]);
@@ -214,19 +240,17 @@ function headTop(row, f, front) {
   return top;
 }
 
-function placeHeadgear(row, f) {
-  const key = `${row}:${f}:${render.flip}:${display}`;
+// host: 지금 머리가 있는 층 — 평소 #pet, 기린 목 늘이기 동안은 머리 층 (#pet이 투명해지고 머리가 위로 올라간다)
+function placeHeadgear(anim, f, host) {
+  if (nightcapEl.parentNode !== host) host.append(nightcapEl, focusringEl);
+  const capOn = !!lastPresence.nightcap;
+  const key = `${stage.stage}:${anim}:${f}:${render.flip}:${display}:${capOn}`;
   if (key === headgearAt) return;
   headgearAt = key;
-  const k = display / manifest.frame_size;
-  const head = headTop(row, f, FRONT_ANIMS.has(render.anim));
-  const x = (render.flip ? manifest.frame_size - head.x : head.x) * k + (stageEl.clientWidth - display) / 2;
-  const y = display - head.y * k;
-  // 모자 끝은 머리 뒤로 처진다 (그림의 방울은 오른쪽)
-  const tilt = render.flip ? 12 : -12;
-  const size = Math.sqrt(stage.scale);
-  nightcapEl.style.transform = `translate(${(x - 15).toFixed(1)}px, ${(-y + 8 * size).toFixed(1)}px) scale(${size.toFixed(2)}) rotate(${tilt}deg)${render.flip ? "" : " scaleX(-1)"}`;
-  focusringEl.style.transform = `translate(${(x - 10).toFixed(1)}px, ${(-y - 2).toFixed(1)}px)`;
+  const entry = manifest.head?.[stage.stage]?.[anim]?.[f];
+  const { cap, ring } = headgearLayout(entry, display / manifest.frame_size, capOn, render.flip);
+  nightcapEl.style.transform = cap;
+  focusringEl.style.transform = ring;
 }
 
 // 눈사람의 작은 눈구름 (백엔드 render.cloud): 떠 있는 동안만 프레임이 바뀔 때 머리 위로 옮긴다 — 눈송이는 CSS.
@@ -259,12 +283,46 @@ function syncCloud(on) {
   cloudAt = null;
 }
 
+// CSS 효과가 끝나지 않아도(창이 숨겨짐 등) 모자는 반드시 사라진다
+const CAP_POOF_MS = 450;
+const CAP_POOF_SPARKS = 5;
+let capPoofTimer = null;
+function setCap(on) {
+  clearTimeout(capPoofTimer);
+  nightcapEl.classList.remove("cap-poof");
+  nightcapEl.toggleAttribute("hidden", !on);
+}
+function capPoof() {
+  const box = nightcapEl.getBoundingClientRect();
+  const home = stageEl.getBoundingClientRect();
+  const cx = box.left + box.width / 2 - home.left - home.width / 2;
+  const up = home.bottom - (box.top + box.height / 2);
+  for (let i = 0; i < CAP_POOF_SPARKS; i++) {
+    const a = (i / CAP_POOF_SPARKS) * Math.PI * 2 + Math.random() * 0.5;
+    const r = 14 + Math.random() * 10;
+    const s = document.createElement("span");
+    s.className = "spark";
+    s.textContent = i % 2 ? "✦" : "✧";
+    s.style.bottom = up + "px";
+    s.style.marginLeft = cx + "px";
+    s.style.setProperty("--dx", `${Math.cos(a) * r}px`);
+    s.style.setProperty("--dy", `${-Math.sin(a) * r}px`);
+    stageEl.appendChild(s);
+    s.addEventListener("animationend", () => s.remove());
+  }
+  nightcapEl.classList.add("cap-poof");
+  capPoofTimer = setTimeout(() => setCap(false), CAP_POOF_MS);
+}
+
 let lastPresence = null;
 listen("pet-presence", (e) => {
   const p = e.payload ?? {};
   if (lastPresence?.nightcap === p.nightcap && lastPresence?.ring === p.ring) return;
+  // 막 벗는 순간에만 뿅 (앱을 8시 30분 뒤에 켰거나 숨어 있으면 효과 없이 안 보인다) — 시계가 끄므로 인사가 미뤄져도 모자만 남지 않는다
+  const capOff = lastPresence?.nightcap && !p.nightcap;
   lastPresence = p;
-  nightcapEl.toggleAttribute("hidden", !p.nightcap);
+  if (capOff && !nightcapEl.hidden && document.visibilityState !== "hidden") capPoof();
+  else setCap(!!p.nightcap);
   const ring = typeof p.ring === "number";
   focusringEl.toggleAttribute("hidden", !ring);
   if (ring) focusringFill.setAttribute("stroke-dashoffset", String(100 - p.ring));
@@ -278,10 +336,13 @@ function draw(now) {
     const hopLeap = render.anim === "bigjump" && !manifest.animations.bigjump;
     const spec = hopLeap ? manifest.animations.hop : (manifest.animations[render.anim] ?? manifest.animations.idle);
     const elapsed = now - animStart;
-    drawNeck(elapsed);
+    const neckOn = drawNeck(elapsed);
     const f = hopLeap ? hopLeapFrame(spec, elapsed) : frameIndex(spec, elapsed);
     petEl.style.backgroundPosition = `${-f * display}px ${-spec.row * display}px`;
-    if (sheetImg && lastPresence && (lastPresence.nightcap || typeof lastPresence.ring === "number")) placeHeadgear(spec.row, f);
+    if (lastPresence && (lastPresence.nightcap || typeof lastPresence.ring === "number")) {
+      const shown = hopLeap ? "hop" : manifest.animations[render.anim] ? render.anim : "idle";
+      placeHeadgear(shown, f, neckOn ? nkHead : petEl);
+    }
     if (sheetImg && render.cloud) placeCloud(spec.row, f);
     // 좌우 반전 공간 안에서 돌리므로 왼쪽으로 갈 땐 자동으로 반대로 구른다
     const parts = [];

@@ -299,6 +299,14 @@ def pk_stem_parts(sp, base, rot=0.0, trim=False):
     return out
 
 
+def _mark_pumpkin(st, x, cy, rx, ry, trim):
+    """호박의 수면 모자 자리: 꼭지 위에 푹 눌러쓴다. 어른은 작은 마녀 모자를 덮을 만큼 크게 (아래로 챙만 빼꼼)."""
+    if st["hat"] and not trim:
+        dp.mark_head(x, cy - ry + 1, 46, tilt=-6)
+    else:
+        dp.mark_head(x, cy - ry * 0.84, rx * 1.1)
+
+
 def pumpkin(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="dot", mouth=None, brow=None,
             arms=None, feet=((0, 0), (0, 0)), stem=0.0, lit=1.0, fx=(), held=(), props=(), trim=False, size=1.0, circle=None, top=()):
     """호박 한 장. bottom: 몸 아래끝 y (발은 그 아래 6px까지) · sq: 아래끝 기준 찌그러짐 · rot: 몸 중심 기준 기울기 ·
@@ -328,6 +336,7 @@ def pumpkin(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eye
                      ([E(cx - 0.66 * rx, cy - 0.7 * ry, cx - 0.36 * rx, cy - 0.44 * ry)], mix(sp.base, WHITE, 0.55)),
                      ([C(cx - 0.3 * rx, cy - 0.66 * ry, 1.6)], mix(sp.base, WHITE, 0.7))]
             parts.append(Part(lobes, sp.base, marks, grow=1))
+            _mark_pumpkin(st, cx + (0.1 * rx if side else 0.0), cy, rx, ry, trim)
             # 안에서 비치는 따뜻한 빛 (얼굴 둘레)
             glow.append(([E(fx_ - 0.7 * rx, fy - 0.55 * ry, fx_ + 0.7 * rx, fy + 0.75 * ry)], INNER, 0.32 * lit, 0, 7))
             g, f = pk_face(fx_, fy, eyes, mouth, brow, lit, side)
@@ -415,6 +424,7 @@ def ghost(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes=
                     y = hem - br * 0.25 + amp * math.sin(phase * math.pi / 2 + j * 2.1)
                     bumps.append(C(x, y, br))
             head = C(cx + (3 if side else 0), cy, r)
+            dp.mark_head(cx + (3 if side else 0), cy - r * 0.84, r * 1.25)
             shade = [([E(cx - r * 1.4, hem - br * 0.2, cx + r * 1.4, hem + br * 2.4)], GHOST_SHADE)]
             spikes = []
             if st["curl"] and not trim:
@@ -791,6 +801,7 @@ def pumpkin_back(sp, reach, feet, *, sq=(1.0, 1.0), dy=0.0, stem=0.0, scratch=No
                  (ridges, rc),
                  ([E(cx + 0.36 * rx, cy - 0.7 * ry, cx + 0.66 * rx, cy - 0.44 * ry)], mix(sp.base, WHITE, 0.55))]
         parts.append(Part(lobes, sp.base, marks, outline=True, grow=0))
+        _mark_pumpkin(st, cx, cy, rx, ry, False)
         parts += pk_stem_parts(sp, (cx, cy - ry + 3), stem)
     fx = sweat_fx(cx + rx * 0.9 + 7, cy - ry * 0.72 + sweat) if sweat is not None else []
     return _finish(parts, (), ops, fx)
@@ -819,6 +830,7 @@ def _fit(fn):
             return im
         out = Image.new("RGBA", im.size, (0, 0, 0, 0))
         out.paste(im, (dx, dy))
+        dp.shift_head(dx, dy)
         return out
     f.__name__ = fn.__name__
     return f

@@ -186,6 +186,7 @@ def frog_side(sp, *, whole=None, body=None, hind=SIT_HIND, arm=SIT_ARM, far_arm=
                         parts.append(Part([C(*near_c, 15)], sp.base, grow=0, outline=True))
                         face = _eye(eyes, 94, 56) + (brows(brow, 94, 54 + _ST["eye_dy"]) if brow else [])
                     parts += _hat(66, 50, -6)
+                    dp.mark_head(67, 52, 33, tilt=-8)
                     face = blush(92, 78) + face
                     face += frog_mouth(mouth, 109, 88, 9)
                     if tongue:
@@ -365,6 +366,7 @@ def frog_front(sp, *, whole=None, head=None, body=None, arms=(F_ARM, F_ARM), hin
                             marks.append(([L(arc(64, 88, 14, 4, 20, 160, 10), 1.2)], mix(LINE, sp.belly, 0.55)))
                         parts.append(Part([E(14, 32, 114, 98)] + bumps + puff, sp.base, marks, grow=1))
                         parts += _hat(64, 33)
+                        dp.mark_head(64, 36, 34)
                         with xf(dx=face[0], dy=face[1]):
                             with xf(sx=bump, sy=bump, pivot=(64, 60)):
                                 f_ops = _eye(eyes, 38, 36) + _eye(eyes, 90, 36, flip=True)
@@ -421,6 +423,7 @@ def frog_belly(sp, i):
         hs = _ST["head"]
         with xf(sx=hs, sy=hs, pivot=(64, 96)):
             head = Part([E(14, 32, 114, 98), C(38, 36, 16), C(90, 36, 16)], sp.base, [([E(34, 72, 94, 112)], sp.belly)], grow=1, outline=True)
+            dp.mark_head(64, 34, 28)
             face = blush(30, 66) + blush(98, 66) + _eye("happy", 38, 36) + _eye("happy", 90, 36, flip=True) + frog_mouth("open", 64, 72)
     return dp.compose([body] + limbs + [head], face)
 
@@ -526,6 +529,7 @@ def frog_roll(sp, i):
                         grow=0)
             feet = [_limb([(cx + s * 12, cy + 22), (cx + s * 18, cy + 26)], [8], _pads_at((cx + s * 18, cy + 26), (cx + s * 12, cy + 22), 3, 40, 3.0),
                           sp, pad_r=2.6) for s in (-1, 1)]
+            dp.mark_head(cx, cy - 24, 19)
             k = 0.62
             face = blush(cx - 20, cy + 2) + blush(cx + 20, cy + 2)
             with xf(sx=k, sy=k, pivot=(cx, cy - 20)):
@@ -596,6 +600,7 @@ def frog_back(sp, *, hands, feet, sy=1.0, dy=0.0, scratch=None, sweat=None, fx=(
                         shine = [([E(33, 25, 41, 31), E(81, 25, 89, 31)], mix(sp.base, WHITE, 0.45))]
                     head = Part([E(16, 30, 112, 96)] + bumps, sp.base, _spots(sp, [(64, 44, 3.6, 2)]) + shine, grow=1, outline=True)
                     hat = _hat(64, 31)
+                    dp.mark_head(64, 35, 40)
             if sweat is not None:
                 with xf(dy=hy):
                     ops += [(f[0], f[1]) for f in sweat_fx(94, 44 + sweat)]
@@ -635,6 +640,7 @@ def _fit(fn):
             return im
         out = Image.new("RGBA", im.size, (0, 0, 0, 0))
         out.paste(im, (dx, dy))
+        dp.shift_head(dx, dy)
         return out
     f.__name__ = fn.__name__
     f.__doc__ = fn.__doc__

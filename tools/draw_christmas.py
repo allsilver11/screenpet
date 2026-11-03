@@ -105,6 +105,7 @@ def _nose_glow(im, i, lit=1.0):
         if dx > 0:
             sh = Image.new("RGBA", im.size, (0, 0, 0, 0))
             sh.paste(im, (-dx, 0))
+            dp.shift_head(-dx, 0)
             im = sh
             a = np.asarray(im).astype(np.int16)
             d = np.abs(a[..., :3] - np.array(NOSE_KEY)).sum(axis=2)
@@ -421,6 +422,7 @@ def santa(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes=
                     parts.append(dp.Part([E(fx_ - 0.38 * hr, hy + 0.2 * hr, fx_ - 0.01 * hr, hy + 0.42 * hr),
                                           E(fx_ + 0.01 * hr, hy + 0.2 * hr, fx_ + 0.38 * hr, hy + 0.42 * hr)], FUR, outline=True, grow=0))
                 parts += _hat_parts(hx, hy, hr, side, pom, lvl)
+                dp.mark_head(hx, hy - hr * 0.62, hr * 1.9)
                 # 얼굴 층: 동글 볼 · 작은 점 눈 · 작은 코 · 작은 입
                 ey = hy + 0.03 * hr
                 sp_x = 0.34 * hr if not side else 0.3 * hr
@@ -684,6 +686,7 @@ def santa_back(reach, feet, *, sq=(1.0, 1.0), dy=0.0, pom=0.0, scratch=None, swe
                              (cx + brx * 1.1, cy_b + bry * 0.36), (cx - brx * 1.1, cy_b + bry * 0.36))], BELT))
         parts.append(dp.Part([E(cx - brx, cy_b - bry, cx + brx, cy_b + bry), E(cx - hr * 0.82, nape_top, cx + hr * 0.82, nape_bot)], SUIT, marks, outline=True, grow=0))
         parts += _hat_parts(cx, hy, hr, False, pom, lvl)
+        dp.mark_head(cx, hy - hr * 0.62, hr * 1.9)
         if st["sack"]:  # 어른: 등에 멘 선물 자루 — 등 한가운데, 입구로 선물 상자가 빼꼼
             sx0, sy0, sx1, sy1 = cx - 18, cy_b - bry * 0.82, cx + 18, cy_b + bry * 0.98
             gift = dp.Part([T((cx - 7, sy0 - 3), (cx + 7, sy0 - 5), (cx + 8, sy0 + 7), (cx - 6, sy0 + 8))], GIFT,

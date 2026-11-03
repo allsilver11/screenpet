@@ -176,6 +176,7 @@ def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="d
                     if st["curl"] == "head":
                         hspk.append(strand([(hx - 3, hy - hr + 4), (hx - 2, hy - hr - 3)] + arc(hx + 2, hy - hr - 5, 4, 4, 180, 330, 8), 4.2, 1.6))
                     hpart = Part([C(hx, hy, hr), neck], col, grow=1, spikes=hspk)
+                    dp.mark_head(hx - 2, hy - hr * 0.84, hr * 1.25)
                     parts.insert(0, body) if not parts else parts.insert(0, body)
                     parts.append(hpart)
                     bp, bo = duck_bill(hx + hr * 0.78, hy + hr * 0.18, "quack" if mouth == "quack" else mouth, True, k=hk ** 0.5)
@@ -218,6 +219,7 @@ def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="d
                     if st["curl"] == "head":
                         hspk.append(strand([(hx - 1, hy - hr + 4), (hx, hy - hr - 3)] + arc(hx + 4, hy - hr - 5, 4, 4, 180, 330, 8), 4.2, 1.6))
                     parts.append(Part([C(hx, hy, hr)], col, grow=1, spikes=hspk))
+                    dp.mark_head(hx, hy - hr * 0.84, hr * 1.25)
                     if st["scarf"]:
                         ky = hy + hr * 0.9
                         parts.append(Part([L(arc(hx, ky - 6, 15, 6, 25, 155, 12), 5.0),
@@ -361,6 +363,7 @@ def gf_head(sp, hx, hy, *, side, eyes, mouth, brow, rot=0.0, munch=False):
                         parts.append(Part(ear, GIR, [([E(hx + s * 21 - 5, hy - 8.3, hx + s * 21 + 5, hy - 4.6)], mix(GIR, BLUSH, 0.6))],
                                           grow=0, outline=True))
             # 머리 + 주둥이
+            dp.mark_head(hx - 1, hy - 11, 26) if side else dp.mark_head(hx, hy - 13.5, 28)
             if side:
                 skull = [E(hx - 16, hy - 15, hx + 14, hy + 13), E(hx + 2, hy - 4, hx + 25, hy + 14)]
                 muzzle = [([E(hx + 6, hy - 1, hx + 27, hy + 15)], GIR_CREAM)]
@@ -1018,7 +1021,7 @@ def write_farm(sp, out_dir):
         m = json.loads(pj.read_text(encoding="utf-8"))
         m["animations"]["roll"].pop("spin", None)
         m["neck_stretch"] = meta
-        pj.write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        pj.write_text(dp._manifest_text(m), encoding="utf-8")
     return by_stage
 
 

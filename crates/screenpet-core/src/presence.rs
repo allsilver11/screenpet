@@ -13,10 +13,10 @@ use crate::world::World;
 pub const AWAY_AFTER_SECS: f64 = 600.0;
 /// 자리를 비운 뒤 유휴 시간이 이보다 짧아지면 돌아온 것이다 (1초에 한 번 보므로 넉넉히)
 pub const BACK_BELOW_SECS: f64 = 3.0;
-/// 00:00부터 이 분까지 졸린 시간
-const SLEEPY_UNTIL: u32 = 6 * 60;
+/// 00:00부터 이 분까지 졸린 시간 (많이 자고 수면 모자를 쓴다)
+const SLEEPY_UNTIL: u32 = 8 * 60 + 30;
 /// 그날의 첫 "good morning!" [시작, 끝) 분 — 정오가 지나면 그날 인사는 건너뛴다
-const MORNING: (u32, u32) = (9 * 60, 12 * 60);
+const MORNING: (u32, u32) = (SLEEPY_UNTIL, 12 * 60);
 /// 점심시간 [시작, 끝) 분
 const LUNCH: (u32, u32) = (11 * 60 + 30, 13 * 60);
 
@@ -32,7 +32,7 @@ impl LocalMoment {
         Self { day, minute: hour * 60 + minute }
     }
 
-    /// 00:00–06:00
+    /// 00:00–08:30
     pub fn is_sleepy(self) -> bool {
         self.minute < SLEEPY_UNTIL
     }
@@ -308,25 +308,25 @@ mod tests {
     }
 
     #[test]
-    fn sleepy_hours_are_midnight_to_six() {
+    fn sleepy_hours_are_midnight_to_half_past_eight() {
         assert!(LocalMoment::new(1, 0, 0).is_sleepy());
-        assert!(LocalMoment::new(1, 5, 59).is_sleepy());
-        assert!(!LocalMoment::new(1, 6, 0).is_sleepy());
+        assert!(LocalMoment::new(1, 8, 29).is_sleepy());
+        assert!(!LocalMoment::new(1, 8, 30).is_sleepy());
         assert!(!LocalMoment::new(1, 23, 59).is_sleepy());
     }
 
     #[test]
-    fn morning_is_due_from_nine_until_noon_once_a_day() {
+    fn morning_is_due_from_half_past_eight_until_noon_once_a_day() {
         let mut marks = DailyMarks::default();
-        assert!(!marks.morning_due(LocalMoment::new(10, 8, 59)));
-        assert!(marks.morning_due(LocalMoment::new(10, 9, 0)));
+        assert!(!marks.morning_due(LocalMoment::new(10, 8, 29)));
+        assert!(marks.morning_due(LocalMoment::new(10, 8, 30)));
         assert!(marks.morning_due(LocalMoment::new(10, 11, 59)), "the first time seen that morning");
         assert!(!marks.morning_due(LocalMoment::new(10, 12, 0)), "past noon the greeting is skipped");
         assert!(!marks.morning_due(LocalMoment::new(10, 23, 0)));
         marks.morning = Some(10);
         assert!(!marks.morning_due(LocalMoment::new(10, 9, 1)));
-        assert!(!marks.morning_due(LocalMoment::new(11, 8, 59)));
-        assert!(marks.morning_due(LocalMoment::new(11, 9, 0)));
+        assert!(!marks.morning_due(LocalMoment::new(11, 8, 29)));
+        assert!(marks.morning_due(LocalMoment::new(11, 8, 30)));
     }
 
     #[test]
