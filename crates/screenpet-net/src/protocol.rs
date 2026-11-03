@@ -106,6 +106,36 @@ fn lenient_steer<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Steer>
     Ok(v.and_then(|v| serde_json::from_value(v).ok()))
 }
 
+/// A thrown object (trash toy) flying over to the receiver's screen. Objects
+/// have no owner and never go home: the sender forgets it, the receiver keeps
+/// it as one of its objects. Carried in a ping so older versions ignore it
+/// (the object is simply lost there; the link stays). `kind`, `fling` and
+/// `note` are checked by the receiver's app. `side` = the receiver's edge it
+/// flies in through (`vside` wins when present, like `Visit::enter_side`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Toss {
+    pub kind: String,
+    #[serde(default = "left_side", deserialize_with = "lenient_side")]
+    pub side: Side,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_vside")]
+    pub vside: Option<VSide>,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_fling")]
+    pub fling: Option<Fling>,
+    /// The post-it stuck on the object.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+    pub note: Option<String>,
+}
+
+fn left_side() -> Side {
+    Side::Left
+}
+
+/// An optional `toss`; a malformed one is dropped instead of the whole ping.
+fn lenient_toss<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Toss>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.and_then(|v| serde_json::from_value(v).ok()))
+}
+
 /// Messages about visiting pets, delivered to the app via `NetEvent::Received`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -205,13 +235,16 @@ pub enum Control {
     Unfriend,
     /// Keep-alive. `ask` = an app request to a friend (e.g. "invite": bring
     /// your pet over, "busy": not now) — older versions parse a ping with an
-    /// extra field as a plain ping and ignore it (also used for `steer`).
+    /// extra field as a plain ping and ignore it (also used for `steer` and `toss`).
     Ping {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ask: Option<String>,
         /// Steering for our pet visiting the receiver (control mode).
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_steer")]
         steer: Option<Steer>,
+        /// An object thrown over to the receiver's screen.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_toss")]
+        toss: Option<Toss>,
     },
 }
 
@@ -364,13 +397,13 @@ mod tests {
             Message::Control(Control::PairReveal { nonce: "ef".into() }),
             Message::Control(Control::InviteReply { accepted: true }),
             Message::Control(Control::Unfriend),
-            Message::Control(Control::Ping { ask: None, steer: None }),
+            Message::Control(Control::Ping { ask: None, steer: None, toss: None }),
             Message::Visit(Visit::leave(3)),
             Message::Visit(Visit::ComeHome { visit_id: 4 }),
         ] {
             assert_eq!(Message::parse(&m.to_json()), Some(m));
         }
-        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None, steer: None })));
+        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None, steer: None, toss: None })));
     }
 
     #[test]
@@ -512,12 +545,12 @@ mod tests {
 
     #[test]
     fn ping_can_carry_an_ask_that_old_peers_ignore() {
-        let ask = Message::Control(Control::Ping { ask: Some("invite".into()), steer: None });
+        let ask = Message::Control(Control::Ping { ask: Some("invite".into()), steer: None, toss: None });
         assert_eq!(ask.to_json(), br#"{"type":"ping","ask":"invite"}"#.to_vec());
         assert_eq!(Message::parse(&ask.to_json()), Some(ask));
         // 평소 ping은 예전 판과 같은 모양
-        assert_eq!(Message::Control(Control::Ping { ask: None, steer: None }).to_json(), br#"{"type":"ping"}"#.to_vec());
-        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None, steer: None })));
+        assert_eq!(Message::Control(Control::Ping { ask: None, steer: None, toss: None }).to_json(), br#"{"type":"ping"}"#.to_vec());
+        assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None, steer: None, toss: None })));
         // 예전 판의 Control(Ping은 필드 없는 변형)도 ask가 붙은 ping을 그냥 ping으로 읽는다 (연결을 끊지 않는다)
         #[derive(Debug, PartialEq, Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
@@ -531,15 +564,15 @@ mod tests {
     #[test]
     fn ping_can_carry_a_steer_that_old_peers_ignore() {
         let st = Steer { visit_id: 42, on: true, keys: 0b10_0010 };
-        let m = Message::Control(Control::Ping { ask: None, steer: Some(st) });
+        let m = Message::Control(Control::Ping { ask: None, steer: Some(st), toss: None });
         let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!((j["type"].as_str(), j["steer"]["visit_id"].as_u64(), j["steer"]["on"].as_bool(), j["steer"]["keys"].as_u64()), (Some("ping"), Some(42), Some(true), Some(34)));
         assert_eq!(Message::parse(&m.to_json()), Some(m.clone()));
         // ask와 함께 실려도 된다
-        let both = Message::Control(Control::Ping { ask: Some("invite".into()), steer: Some(st) });
+        let both = Message::Control(Control::Ping { ask: Some("invite".into()), steer: Some(st), toss: None });
         assert_eq!(Message::parse(&both.to_json()), Some(both));
         // 조작 없는 ping은 예전 판과 같은 모양
-        assert!(!String::from_utf8(Message::Control(Control::Ping { ask: None, steer: None }).to_json()).unwrap().contains("steer"));
+        assert!(!String::from_utf8(Message::Control(Control::Ping { ask: None, steer: None, toss: None }).to_json()).unwrap().contains("steer"));
         // 예전 판의 Control도 steer가 붙은 ping을 그냥 ping으로 읽는다 (연결을 끊지 않는다)
         #[derive(Debug, PartialEq, Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
@@ -556,13 +589,46 @@ mod tests {
             br#"{"type":"ping","steer":{"visit_id":1,"keys":300}}"#,
             br#"{"type":"ping","steer":5}"#,
         ] {
-            assert_eq!(Message::parse(bad), Some(Message::Control(Control::Ping { ask: None, steer: None })), "{}", String::from_utf8_lossy(bad));
+            assert_eq!(Message::parse(bad), Some(Message::Control(Control::Ping { ask: None, steer: None, toss: None })), "{}", String::from_utf8_lossy(bad));
         }
         // on·keys가 없으면 꺼짐·안 눌림
         assert_eq!(
             Message::parse(br#"{"type":"ping","steer":{"visit_id":3}}"#),
-            Some(Message::Control(Control::Ping { ask: None, steer: Some(Steer { visit_id: 3, on: false, keys: 0 }) }))
+            Some(Message::Control(Control::Ping { ask: None, steer: Some(Steer { visit_id: 3, on: false, keys: 0 }), toss: None }))
         );
+    }
+
+    #[test]
+    fn ping_can_carry_a_toss_that_old_peers_ignore() {
+        let t = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Down), fling: Some(Fling { height: 0.5, vx: 300.0, vy: -20.0 }), note: Some("붙였어!".into()) };
+        let m = Message::Control(Control::Ping { ask: None, steer: None, toss: Some(t) });
+        let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
+        assert_eq!((j["type"].as_str(), j["toss"]["kind"].as_str(), j["toss"]["side"].as_str(), j["toss"]["vside"].as_str(), j["toss"]["note"].as_str()), (Some("ping"), Some("can"), Some("right"), Some("down"), Some("붙였어!")));
+        assert_eq!(Message::parse(&m.to_json()), Some(m.clone()));
+        // 던지는 것 없는 ping은 예전 판과 같은 모양
+        assert_eq!(Message::Control(Control::Ping { ask: None, steer: None, toss: None }).to_json(), br#"{"type":"ping"}"#.to_vec());
+        // 예전 판의 Control도 toss가 붙은 ping을 그냥 ping으로 읽는다 (연결을 끊지 않는다)
+        #[derive(Debug, PartialEq, Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
+        enum OldControl {
+            Ping {
+                #[serde(default)]
+                ask: Option<String>,
+            },
+        }
+        assert_eq!(serde_json::from_slice::<OldControl>(&m.to_json()).unwrap(), OldControl::Ping { ask: None });
+        // 깨진 toss 하나 때문에 ping을 버리지 않는다
+        for bad in [&br#"{"type":"ping","toss":5}"#[..], br#"{"type":"ping","toss":{"side":"left"}}"#, br#"{"type":"ping","toss":{"kind":7}}"#] {
+            assert_eq!(Message::parse(bad), Some(Message::Control(Control::Ping { ask: None, steer: None, toss: None })), "{}", String::from_utf8_lossy(bad));
+        }
+        // 안쪽 필드가 이상해도 물건은 살린다: 모르는 끝은 왼쪽, 깨진 fling·note는 없음
+        let odd = br#"{"type":"ping","toss":{"kind":"can","side":"north","vside":3,"fling":{"height":"x"},"note":[1]}}"#;
+        assert_eq!(
+            Message::parse(odd),
+            Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None }) }))
+        );
+        // side가 없어도 왼쪽
+        assert!(matches!(Message::parse(br#"{"type":"ping","toss":{"kind":"can"}}"#), Some(Message::Control(Control::Ping { toss: Some(Toss { side: Side::Left, .. }), .. }))));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! Noise clients (via `snow`) for the protocol / attack cases.
 
 use blake2::{Blake2s256, Digest};
-use screenpet_net::{new_install_id, Friend, Net, NetConfig, NetEvent, Side, Steer, Timing, Visit, MAX_FRIENDS, SAS_EMOJI};
+use screenpet_net::{new_install_id, Fling, Friend, Net, NetConfig, NetEvent, Side, Steer, Timing, Toss, VSide, Visit, MAX_FRIENDS, SAS_EMOJI};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -806,6 +806,54 @@ fn flooded_steers_are_rate_limited() {
     }
     // 처음 30개까지는 바로, 그 뒤엔 초당 30개 꼴 — 300개를 다 넘기지 않는다
     assert!((30..=60).contains(&events), "rate limited: {events}");
+    net.shutdown();
+}
+
+#[test]
+fn tosses_reach_connected_friends_with_kind_fling_and_note() {
+    let p = connected_pair();
+    let toss = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Up), fling: Some(Fling { height: 0.5, vx: -300.0, vy: 20.0 }), note: Some("hi".into()) };
+    p.a.toss("bbbb", toss.clone());
+    assert_eq!(wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Tossed { .. })), Some(NetEvent::Tossed { from: "aaaa".into(), toss }));
+    // 모르는 상대에게는 보내지 않는다
+    p.a.toss("zzzz", Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None });
+    p.a.shutdown();
+    p.b.shutdown();
+}
+
+#[test]
+fn stranger_toss_is_ignored_and_the_link_stays() {
+    let (net, rx, port) = start_sniffed(key(), vec![]);
+    let mut p = raw_connect(port, &key(), "zzzz");
+    p.send(json!({"type": "ping", "toss": {"kind": "can", "side": "left", "note": "psst"}})).unwrap();
+    assert_eq!(wait_for(&rx, 0.8, |e| matches!(e, NetEvent::Tossed { .. })), None);
+    assert!(p.send(json!({"type": "ping"})).is_ok());
+    net.shutdown();
+}
+
+#[test]
+fn flooded_tosses_are_rate_limited_per_link_without_dropping_it() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    for _ in 0..100 {
+        p.send(json!({"type": "ping", "toss": {"kind": "can", "side": "left"}})).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_millis(600);
+    let mut events = 0;
+    let mut disconnected = false;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(NetEvent::Tossed { .. }) => events += 1,
+            Ok(NetEvent::Disconnected { .. }) => disconnected = true,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    // 처음 10개까지만 바로 (그 뒤엔 6초에 하나) — 연결은 끊지 않는다
+    assert_eq!(events, 10, "rate limited");
+    assert!(!disconnected);
     net.shutdown();
 }
 

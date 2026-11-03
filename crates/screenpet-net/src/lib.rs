@@ -30,7 +30,7 @@ mod tcp;
 mod transport;
 
 pub use noise::SAS_EMOJI;
-pub use protocol::{Fling, Side, Steer, VSide, Visit, MAX_FRIENDS, MAX_NOTE};
+pub use protocol::{Fling, Side, Steer, Toss, VSide, Visit, MAX_FRIENDS, MAX_NOTE};
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};
@@ -188,6 +188,10 @@ pub enum NetEvent {
     /// [`Net::steer`]; authenticated friend links only, rate limited). The
     /// app must check that `steer.visit_id` is `from`'s own guest.
     Steered { from: String, steer: Steer },
+    /// Friend `from` threw an object onto our screen (sent with [`Net::toss`];
+    /// authenticated friend links only, at most 10 at once then one per 6 s per
+    /// link). The app must validate `kind`, `fling` and `note`.
+    Tossed { from: String, toss: Toss },
     Disconnected { id: String },
     Received { from: String, msg: Visit },
     /// Friend `id` proved its pinned key but no longer recognizes us as a
@@ -269,6 +273,9 @@ const ASK_EVERY: Duration = Duration::from_secs(2);
 /// Steering (control mode): up to 30 messages at once, then 30 per second.
 const STEER_BURST: f64 = 30.0;
 const STEER_EVERY: Duration = Duration::from_micros(33_334);
+/// Thrown objects: up to 10 at once, then 10 per minute.
+const TOSS_BURST: f64 = 10.0;
+const TOSS_EVERY: Duration = Duration::from_secs(6);
 
 impl AskBucket {
     pub fn new(now: Instant) -> AskBucket {
@@ -278,6 +285,11 @@ impl AskBucket {
     /// Budget for steering messages on one link.
     pub fn steering(now: Instant) -> AskBucket {
         AskBucket { tokens: STEER_BURST, at: now, burst: STEER_BURST, every: STEER_EVERY }
+    }
+
+    /// Budget for thrown objects on one link.
+    pub fn tossing(now: Instant) -> AskBucket {
+        AskBucket { tokens: TOSS_BURST, at: now, burst: TOSS_BURST, every: TOSS_EVERY }
     }
 
     /// Spend one token if there is one.
@@ -303,6 +315,8 @@ pub(crate) struct Conn {
     pub asks: AskBucket,
     /// Rate limit for steering (control mode) on this link.
     pub steers: AskBucket,
+    /// Rate limit for thrown objects on this link.
+    pub tosses: AskBucket,
     pub kind: Kind,
     /// `Connected` has been emitted for this peer (so `Disconnected` is owed).
     pub announced: bool,
@@ -691,7 +705,7 @@ impl Net {
                 _ => return,
             }
         };
-        link.send(&Message::Control(Control::Ping { ask: Some(protocol::clamp_name(ask)), steer: None }));
+        link.send(&Message::Control(Control::Ping { ask: Some(protocol::clamp_name(ask)), steer: None, toss: None }));
     }
 
     /// Steer our pet visiting a connected friend (control mode; dropped
@@ -704,7 +718,20 @@ impl Net {
                 _ => return,
             }
         };
-        link.send(&Message::Control(Control::Ping { ask: None, steer: Some(steer) }));
+        link.send(&Message::Control(Control::Ping { ask: None, steer: Some(steer), toss: None }));
+    }
+
+    /// Throw an object onto a connected friend's screen (dropped otherwise).
+    /// Carried in a ping, which older versions ignore. Never blocks.
+    pub fn toss(&self, peer_id: &str, toss: Toss) {
+        let link = {
+            let st = self.shared.state();
+            match st.friend_conn(peer_id) {
+                Some(c) if matches!(c.kind, Kind::Friend) => c.link.clone(),
+                _ => return,
+            }
+        };
+        link.send(&Message::Control(Control::Ping { ask: None, steer: None, toss: Some(toss) }));
     }
 
     /// Forget a friend, tell them, and disconnect (gracefully). Never blocks.

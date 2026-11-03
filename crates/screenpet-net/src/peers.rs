@@ -172,7 +172,7 @@ pub(crate) fn run_session(
                 break;
             }
         } else if now.duration_since(last_ping) >= t.ping_interval {
-            if !link.send(&ctl(Control::Ping { ask: None, steer: None })) {
+            if !link.send(&ctl(Control::Ping { ask: None, steer: None, toss: None })) {
                 break;
             }
             last_ping = now;
@@ -270,6 +270,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
                 name: name.to_string(),
                 asks: AskBucket::new(now),
                 steers: AskBucket::steering(now),
+                tosses: AskBucket::tossing(now),
                 kind,
                 announced: announced || connected,
                 outgoing,
@@ -373,10 +374,10 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             }
             true
         }
-        Message::Control(Control::Ping { ask: None, steer: None }) => true,
-        // A friend's app request and/or steering of its visiting pet (authenticated
+        Message::Control(Control::Ping { ask: None, steer: None, toss: None }) => true,
+        // A friend's app request, steering of its visiting pet and/or a thrown object (authenticated
         // friend links only, like visits; each with its own per-link budget)
-        Message::Control(Control::Ping { ask, steer }) => {
+        Message::Control(Control::Ping { ask, steer, toss }) => {
             let friend = matches!(conn.kind, Kind::Friend) && st.is_friend(id);
             let Some(c) = st.conns.get_mut(&ctx.token) else { return false };
             if !friend {
@@ -390,6 +391,11 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             if let Some(steer) = steer {
                 if c.steers.take(now) {
                     shared.emit(NetEvent::Steered { from: id.to_string(), steer });
+                }
+            }
+            if let Some(toss) = toss {
+                if c.tosses.take(now) {
+                    shared.emit(NetEvent::Tossed { from: id.to_string(), toss });
                 }
             }
             true
