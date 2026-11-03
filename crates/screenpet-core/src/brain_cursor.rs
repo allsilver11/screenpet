@@ -431,6 +431,7 @@ impl Pet {
             || self.is_heading_out()
             || self.send.is_some()
             || self.control.is_some()
+            || self.presence_quiet()
     }
 
     fn maybe_start_play(&mut self, dt: f64) {

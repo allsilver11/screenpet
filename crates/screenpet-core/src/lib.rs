@@ -11,6 +11,7 @@ pub mod manifest;
 pub mod pacing;
 pub mod physics;
 pub mod platform;
+pub mod presence;
 pub mod social;
 pub mod sting;
 pub mod surfaces;

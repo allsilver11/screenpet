@@ -39,6 +39,10 @@ pub trait WindowSource: Send {
     fn control_keys(&mut self) -> ControlInput {
         ControlInput::default()
     }
+    /// 마지막 사용자 입력(키보드·마우스) 뒤 지난 초. 알 수 없으면 None — 자리를 비웠다고 보지 않는다 (presence.rs)
+    fn idle_seconds(&mut self) -> Option<f64> {
+        None
+    }
 }
 
 /// 지원하지 않는 OS용. 바닥(기본 화면)만 있는 세계가 된다.
@@ -83,5 +87,6 @@ mod tests {
         assert!(!s.left_button_down());
         assert_eq!(s.rect_of(1), None);
         assert!(!s.control_keys().any());
+        assert_eq!(s.idle_seconds(), None);
     }
 }

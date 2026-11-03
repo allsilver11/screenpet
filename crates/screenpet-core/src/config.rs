@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::care::Care;
 use crate::food::FeedMode;
+use crate::presence::{DailyMarks, FocusLength};
 use crate::visit::{ExitEdges, Side};
 
 const FILE: &str = "config.json";
@@ -42,6 +43,12 @@ pub struct Config {
     /// 🐾 커서 장난을 메뉴에서 껐다 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cursor_play_off: bool,
+    /// ⏱️ 집중 친구 길이 (켜져 있는지는 남기지 않는다). 모르는 값이면 25/5
+    #[serde(default, skip_serializing_if = "FocusLength::is_short", deserialize_with = "lenient_focus_length")]
+    pub focus_length: FocusLength,
+    /// 오늘의 아침·점심 인사를 했는지 (앱을 다시 켜도 하루 한 번)
+    #[serde(default, skip_serializing_if = "DailyMarks::is_empty")]
+    pub daily: DailyMarks,
 }
 
 /// 내가 정하는 이름(내 이름·친구 별명)의 최대 글자 수
@@ -66,6 +73,10 @@ pub fn clean_text(raw: &str, max: usize) -> String {
 pub fn sanitize_name(raw: &str) -> Option<String> {
     let name = clean_text(raw, MAX_NAME_CHARS);
     (!name.is_empty()).then_some(name)
+}
+
+fn lenient_focus_length<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FocusLength, D::Error> {
+    Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
 }
 
 fn lenient_feed_mode<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FeedMode, D::Error> {
@@ -829,6 +840,20 @@ mod tests {
         assert_eq!(c.friend("a").unwrap().shown_name(), "Annie");
         assert!(!c.set_friend_nickname("a", ""), "unchanged");
         assert!(!c.set_friend_nickname("nobody", "x"));
+    }
+
+    #[test]
+    fn focus_length_and_daily_marks_roundtrip_and_old_files_still_load() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert_eq!(old.focus_length, FocusLength::Short);
+        assert_eq!(old.daily, DailyMarks::default());
+        let plain = serde_json::to_string(&Config::default()).unwrap();
+        assert!(!plain.contains("focus_length") && !plain.contains("daily"), "not written while default: {plain}");
+        let c = Config { focus_length: FocusLength::Long, daily: DailyMarks { morning: Some(5), lunch: None }, ..Config::default() };
+        let back: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back, c);
+        let bad: Config = serde_json::from_str(r#"{"pet":"cat","focus_length":"forever"}"#).unwrap();
+        assert_eq!((bad.pet.as_deref(), bad.focus_length), (Some("cat"), FocusLength::Short));
     }
 
     #[test]

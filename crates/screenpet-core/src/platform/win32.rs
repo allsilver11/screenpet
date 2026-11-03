@@ -4,8 +4,9 @@ use std::mem::size_of;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT, TRUE};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO};
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_DOWN, VK_ESCAPE, VK_LBUTTON, VK_LEFT, VK_RBUTTON, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_UP,
+    GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_DOWN, VK_ESCAPE, VK_LBUTTON, VK_LEFT, VK_RBUTTON, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
@@ -89,6 +90,17 @@ impl WindowSource for Win32Source {
             down: key_down(VK_DOWN.0),
             jump: key_down(VK_SPACE.0),
             run: key_down(VK_SHIFT.0),
+        }
+    }
+
+    /// 틱 수는 49.7일마다 한 바퀴 돈다 — wrapping_sub면 그때도 맞다
+    fn idle_seconds(&mut self) -> Option<f64> {
+        let mut info = LASTINPUTINFO { cbSize: size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+        unsafe {
+            if !GetLastInputInfo(&mut info).as_bool() {
+                return None;
+            }
+            Some(GetTickCount().wrapping_sub(info.dwTime) as f64 / 1000.0)
         }
     }
 }

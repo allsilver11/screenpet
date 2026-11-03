@@ -181,6 +181,20 @@ pub enum Speech {
     Hmph,
     /// 눈사람을 다 만들었다 ("snowman!", brain_snow.rs)
     Snowman,
+    /// 자리를 비웠던 사용자가 돌아왔다 ("you're back!!", brain_presence.rs)
+    WelcomeBack,
+    /// 그날 처음 보는 아침 ("good morning!")
+    GoodMorning,
+    /// 점심시간 ("lunch time?")
+    LunchTime,
+    /// 졸린 시간의 잔소리 ("go to bed~")
+    GoToBed,
+    /// 졸린 시간의 하품
+    Yawn,
+    /// 집중 시간이 끝났다 ("break time!")
+    BreakTime,
+    /// 집중 시작 ("focus!")
+    Focus,
 }
 
 impl Anim {
@@ -310,6 +324,8 @@ pub enum State {
     EdgeCling { window: u64, rel_x: f64, remaining: f64 },
     /// 창이 닫혀 떨어진 뒤 째려본다 (brain_cursor.rs)
     Glare { remaining: f64 },
+    /// 돌아온 사용자를 맞으러, 또는 집중하러 구석으로 가는 중 — 길은 presence.trip (brain_presence.rs)
+    PresenceTrip,
 }
 
 impl State {
@@ -545,6 +561,8 @@ pub struct Pet {
     cursor_mood: cursor_moves::CursorMood,
     /// 눈이 쌓임·벚꽃잎 날림·방금 만든 눈사람 (brain_snow.rs)
     snow: snow_moves::SnowMood,
+    /// 자리 비움·졸린 시간·집중 (brain_presence.rs)
+    presence: presence_moves::PresenceMood,
     rng: fastrand::Rng,
 }
 
@@ -613,6 +631,7 @@ impl Pet {
             stomp_calm_until: 0.0,
             cursor_mood: cursor_moves::CursorMood::new(),
             snow: Default::default(),
+            presence: Default::default(),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -668,6 +687,10 @@ impl Pet {
         }
         self.tick_guest(dt);
         if self.update_cursor(dt, world) {
+            self.on_started();
+            return;
+        }
+        if self.update_presence(dt, world) {
             self.on_started();
             return;
         }
@@ -766,6 +789,7 @@ impl Pet {
             State::Tumble { .. } => Anim::Roll,
             State::CursorPlay { .. } | State::CursorLeap { .. } | State::CursorHang { .. } | State::EdgeCling { .. } | State::Glare { .. } => self.cursor_anim(),
             State::Snowman { phase, .. } => self.snowman_anim(phase),
+            State::PresenceTrip => self.trip_anim(),
             State::Land { .. } => Anim::Land,
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
@@ -2353,6 +2377,7 @@ impl Pet {
             | State::CursorHang { .. }
             | State::EdgeCling { .. }
             | State::Glare { .. }
+            | State::PresenceTrip
             | State::Move { .. } => {}
         }
     }
@@ -2646,6 +2671,9 @@ impl Pet {
 
     /// 쉬는 박자가 끝난 뒤: 시무룩 / 특별 동작 / 앞모습 애교 / 잠 / 이동
     fn rest_state(&mut self, world: &World) -> State {
+        if let Some(yawn) = self.sleepy_rest() {
+            return yawn;
+        }
         if self.cfg.flies && self.standing.is_none() {
             return self.fly_rest_state(world);
         }
@@ -2681,8 +2709,8 @@ impl Pet {
             (true, true) => crate::flight::PERCH_SLEEP_CHANCE,
             (true, false) => 0.0,
         };
-        if self.rng.f64() < chance {
-            State::Sleep { remaining: behavior::range(&mut self.rng, behavior::SLEEP_SECS) }
+        if self.rng.f64() < self.sleep_chance(chance) {
+            State::Sleep { remaining: self.sleep_secs() }
         } else {
             self.move_state(true, world)
         }
@@ -3017,6 +3045,14 @@ pub mod cursor_moves;
 #[cfg(test)]
 #[path = "brain_cursor_tests.rs"]
 mod cursor_tests;
+
+/// 곁에 있기와 하루 리듬 — 자리 비움·돌아옴, 졸린 시간, 집중 (언제 할지는 presence.rs)
+#[path = "brain_presence.rs"]
+mod presence_moves;
+
+#[cfg(test)]
+#[path = "brain_presence_tests.rs"]
+mod presence_tests;
 
 impl AsRef<Pet> for Pet {
     fn as_ref(&self) -> &Pet {

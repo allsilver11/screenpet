@@ -81,6 +81,7 @@ impl Pet {
             || self.inside.is_some()
             || self.is_heading_out()
             || self.control.is_some()
+            || self.focusing()
     }
 
     /// 새 인사·놀이를 시작할 수 있음: 깨어 있고 디딤판 위(나는 동물은 떠서도) 걷거나 쉬는 중, 바쁜 일 없음
@@ -90,6 +91,7 @@ impl Pet {
             && self.hover_since.is_none()
             && !self.thrown
             && !self.social_interrupted()
+            && !self.presence_quiet()
     }
 
     /// 디딤판 위에서 자는 중 (친구가 살짝 쳐다보기만 한다)

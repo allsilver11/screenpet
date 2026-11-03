@@ -13,7 +13,7 @@ use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFRetained, CFStrin
 use objc2_core_graphics::{
     kCGNullWindowID, kCGWindowAlpha, kCGWindowBounds, kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerPID,
     CGDirectDisplayID, CGDisplayBounds, CGDisplayCopyDisplayMode, CGDisplayMode, CGError, CGEvent, CGEventSource,
-    CGEventSourceStateID, CGGetActiveDisplayList, CGMouseButton, CGRectMakeWithDictionaryRepresentation,
+    CGEventSourceStateID, CGEventType, CGGetActiveDisplayList, CGMouseButton, CGRectMakeWithDictionaryRepresentation,
     CGWindowListCopyWindowInfo, CGWindowListOption,
 };
 
@@ -89,6 +89,12 @@ impl WindowSource for MacSource {
             run: down(KVK_SHIFT) || down(KVK_RIGHT_SHIFT),
         }
     }
+
+    /// 권한 없이 읽힌다
+    fn idle_seconds(&mut self) -> Option<f64> {
+        let secs = CGEventSource::seconds_since_last_event_type(CGEventSourceStateID::CombinedSessionState, ANY_INPUT_EVENT);
+        secs.is_finite().then_some(secs.max(0.0))
+    }
 }
 
 /// 창 정보 사전 하나 → 디딤판 후보 창 (보통 앱 창 레이어, 다른 프로세스, 보이는 것, 충분히 큰 것만)
@@ -115,6 +121,8 @@ fn window_info(info: &CFDictionary<CFString, CFType>, screens: &[Screen], own_pi
     (rect.width() >= MIN_SIZE && rect.height() >= MIN_SIZE).then_some(WindowInfo { id, rect })
 }
 
+/// kCGAnyInputEventType (~0) — 바인딩에 이름이 없다
+const ANY_INPUT_EVENT: CGEventType = CGEventType(u32::MAX);
 /// Carbon kVK_Escape
 const KVK_ESCAPE: u16 = 0x35;
 /// Carbon kVK_* — 조작 모드 키

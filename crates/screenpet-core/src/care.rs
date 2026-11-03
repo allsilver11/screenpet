@@ -173,6 +173,11 @@ impl Care {
         self.fullness < HUNGRY_BELOW
     }
 
+    /// 점심시간: 배고프지 않았으면 이제 배고프다 (하루 한 번, presence.rs)
+    pub fn lunch_hunger(&mut self) {
+        self.fullness = self.fullness.min(HUNGRY_BELOW - 0.01);
+    }
+
     pub fn feed(&mut self, food: Food) -> FeedResult {
         if food.is_treat() {
             // 간식·물은 언제든: 포만감만 조금, 체력·성장은 없다
