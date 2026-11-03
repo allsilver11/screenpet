@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::care::Care;
 use crate::food::FeedMode;
+use crate::gift::GiftBook;
 use crate::presence::{DailyMarks, FocusLength};
 use crate::visit::{ExitEdges, Side};
 
@@ -40,6 +41,9 @@ pub struct Config {
     /// 🌨️ 날씨 효과를 메뉴에서 껐다 (기본은 켜짐 — 철이 아니면 어차피 없다)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub weather_off: bool,
+    /// 🎁 주운 선물 (도감). 잘못된 줄은 건너뛴다
+    #[serde(default, skip_serializing_if = "GiftBook::is_empty")]
+    pub gifts: GiftBook,
     /// 🐾 커서 장난을 메뉴에서 껐다 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cursor_play_off: bool,

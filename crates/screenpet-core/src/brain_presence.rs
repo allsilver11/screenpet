@@ -128,6 +128,11 @@ impl Pet {
         self.presence.user_away || self.presence.focus
     }
 
+    /// ⏱️ 집중 중인가 (그동안 선물을 떨어뜨리지 않는다, gift.rs)
+    pub fn is_focusing(&self) -> bool {
+        self.presence.focus
+    }
+
     pub(super) fn focusing(&self) -> bool {
         self.presence.focus
     }
