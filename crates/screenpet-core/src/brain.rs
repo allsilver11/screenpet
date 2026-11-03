@@ -435,6 +435,8 @@ pub struct PetConfig {
     pub snow_cloud: bool,
     /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
     pub dpi: f64,
+    /// 커서에 매달릴 때 커서 끝이 닿는 머리 꼭대기 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율. pet.json head의 dragged)
+    pub hang_grip: (f64, f64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -3118,6 +3120,7 @@ mod tests {
 
     pub(super) fn cfg() -> PetConfig {
         PetConfig {
+            hang_grip: (0.0, 0.06),
             size: 128.0,
             half_w: 38.0,
             walk_speed: 60.0,
@@ -3615,6 +3618,7 @@ mod tests {
 
     pub(super) fn sim_cfg() -> PetConfig {
         PetConfig {
+            hang_grip: (0.0, 0.06),
             size: 128.0,
             half_w: 38.4,
             walk_speed: 90.0,

@@ -175,6 +175,14 @@ function headgearLayout(entry, k, capOn, flip) {
   const ring = `translate(${(rx - RING_R).toFixed(2)}px, ${(ry - RING_R).toFixed(2)}px)${flip ? " scaleX(-1)" : ""}`;
   return { cap, ring };
 }
+// 매달린 몸이 흔들리는 축 = 커서 끝이 닿는 머리 꼭대기 (코어 PetManifest::hang_grip과 같은 계산: dragged 칸들의 평균, 모자 입구보다 조금 위)
+const HEAD_TOP_ABOVE_BRIM = 0.15;
+function hangOrigin(cells, frameSize) {
+  if (!cells?.length) return "50% 6%";
+  const mean = (i) => cells.reduce((a, c) => a + c[i], 0) / cells.length;
+  const y = Math.max(0, mean(1) - HEAD_TOP_ABOVE_BRIM * mean(2));
+  return `${((mean(0) / frameSize) * 100).toFixed(2)}% ${((y / frameSize) * 100).toFixed(2)}%`;
+}
 // HEADGEAR-LAYOUT-END
 
 // 아래는 눈사람 눈구름(placeCloud)이 쓰는 머리 찾기 — 시트의 지금 칸을 재서 맨 위를 찾는다 (칸마다 한 번 재서 기억)
@@ -348,13 +356,9 @@ function draw(now) {
     const parts = [];
     const shake = jitter(f, now);
     if (shake) parts.push(shake);
-    // 커서에 매달림 (백엔드 render.hang: +1 커서 오른쪽, -1 왼쪽): 창은 커서 옆에 있으니 스프라이트를 커서 쪽 창 끝으로 붙이고,
-    // 커서 쪽 위 모서리를 축으로 살랑살랑 (백엔드가 매달릴 때 flip을 끈다)
-    petEl.style.transformOrigin = render.hang ? (render.hang > 0 ? "14% 6%" : "86% 6%") : "";
-    if (render.hang) {
-      parts.push(`translateX(${-render.hang * Math.max(0, (window.innerWidth - display) / 2)}px)`);
-      parts.push(`rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
-    }
+    // 커서에 매달림 (백엔드 render.hang): 창은 머리 꼭대기가 커서 끝에 닿는 자리에 있다 (코어 hang_spot) — 커서 끝을 축으로 살랑살랑
+    petEl.style.transformOrigin = render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : "";
+    if (render.hang) parts.push(`rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
     if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);

@@ -5,8 +5,9 @@
 //! 동물별 쿨다운 2~4분. 앱이 매 틱 cursor_input으로 버튼·바쁨·설정을 알려 주어야 시작한다
 //! (누군가 끌고 있을 때·조작 모드·먹이·하우스·떠나는 중엔 하지 않는다).
 //!
-//! 매달린 동안 클릭은 언제나 사용자 것이다: 창이 커서 끝을 덮지 않게 옆에 두고(hang_spot), 뛰는 동안부터
-//! cursor_through가 참이라 앱이 창을 마우스가 통과하게 한다 (slots.rs). 버튼을 눌러도 매달린 채로 둔다.
+//! 매달린 동안 클릭은 언제나 사용자 것이다: 몸은 커서 끝 바로 아래에서 머리로 커서를 문다(hang_spot — 창이 커서를 덮는다).
+//! 그래서 뛰는 동안부터 떨어져 커서에서 벗어나거나 내려설 때까지 cursor_through가 참이고, 앱이 창을 옮기기 전에
+//! 먼저 마우스가 통과하게 한다 (slots.rs place). 버튼을 눌러도 매달린 채로 둔다.
 //!
 //! 창 흔들림: 서 있는 창이 0.8초 안에 세 번 넘게 왔다 갔다 하면 "whoa!" — 60% 떨어지고, 40% 모서리에 1.5초 매달렸다가 올라오거나 떨어진다.
 //! 창 닫힘: 서 있는 창이 사라지면 "eek!" 떨어지고, 내려선 뒤 "hmph!" 째려본다. 다른 창에 가려진 건 닫힘이 아니다.
@@ -41,12 +42,12 @@ const GIVE_UP_LOOK_SECS: f64 = 1.2;
 const MISS_BODIES: f64 = 2.0;
 /// 뛰어오르는 호의 높이 (몸 배)
 const LEAP_ARC: f64 = 0.35;
-/// 커서 끝과 창 사이 틈 (논리 px)
-const HANG_GAP: f64 = 6.0;
 /// 펫 창의 최소 너비 (논리 px — slots::PET_LOGICAL_SIZE, 창 너비 = 128 × max(1, 몸 배율))
 const WINDOW_MIN_WIDTH: f64 = 128.0;
-/// 스프라이트 윗변이 커서보다 이만큼(몸 배) 위 — 앞발이 커서 끝쯤에 온다
-const HANG_HEAD_ABOVE: f64 = 0.05;
+/// 놓은 뒤 이만큼(초)까지만 마우스를 통과시킨다 — 나는 동물은 커서 아래에 떠서 멈추기도 하니까
+const LET_GO_THROUGH_SECS: f64 = 1.0;
+/// 창 위쪽 말풍선 자리 (논리 px — slots::BUBBLE_SPACE)
+const WINDOW_HEADROOM: f64 = 36.0;
 /// 떨어질 때 커서 속도를 이어 받는 몫
 const LET_GO_VELOCITY: f64 = 0.25;
 const LET_GO_MAX_SPEED: f64 = 500.0;
@@ -276,8 +277,8 @@ pub struct CursorMood {
     deadline: f64,
     /// 뛰기 시작했을 때 커서 자리
     leap_aim: (f64, f64),
-    /// 매달린 쪽 (+1 커서 오른쪽, -1 왼쪽)
-    hang_side: i8,
+    /// 놓은 뒤 아직 마우스를 통과시키는 남은 시간
+    through_after: f64,
     chatty_in: f64,
     shake: ShakeMeter,
     quake: ShakeMeter,
@@ -300,7 +301,7 @@ impl CursorMood {
             ready_at: FIRST_READY_SECS,
             deadline: 0.0,
             leap_aim: (0.0, 0.0),
-            hang_side: 1,
+            through_after: 0.0,
             chatty_in: 0.0,
             shake: ShakeMeter::new(SHAKE_SWING, SHAKE_WINDOW),
             quake: ShakeMeter::new(QUAKE_SWING, QUAKE_WINDOW),
@@ -327,16 +328,31 @@ impl Pet {
 
     /// 창이 마우스를 통과시켜야 한다 — 뛰어오르는 중과 매달린 동안 (클릭은 사용자 것)
     pub fn cursor_through(&self) -> bool {
-        matches!(self.state, State::CursorLeap { .. } | State::CursorHang { .. })
+        // 나는 동물은 다가오는 동안 이미 커서 쪽으로 곧장 날아 창이 커서를 덮는다
+        let gliding = self.cfg.flies && matches!(self.state, State::CursorPlay { phase: PlayPhase::Approach, .. });
+        gliding || self.cursor_mood.through_after > 0.0 || matches!(self.state, State::CursorLeap { .. } | State::CursorHang { .. })
     }
 
-    /// 매달린 쪽 (+1 커서 오른쪽, -1 왼쪽, 0 = 안 매달림) — 웹뷰가 스프라이트를 커서 쪽으로 붙이고 흔든다
+    /// 1 = 커서에 매달림, 0 = 아님 — 웹뷰가 커서 끝(머리 꼭대기)을 축으로 흔든다
     pub(super) fn hang_side(&self) -> i8 {
-        if matches!(self.state, State::CursorHang { .. }) {
-            self.cursor_mood.hang_side
-        } else {
-            0
+        i8::from(matches!(self.state, State::CursorHang { .. }))
+    }
+
+    /// 창이 커서 끝을 덮고 있다
+    fn window_covers_cursor(&self) -> bool {
+        let (cx, cy) = self.cursor;
+        let dpi = self.cfg.dpi;
+        let half = self.cfg.size.max(WINDOW_MIN_WIDTH * dpi) / 2.0;
+        (self.body.x - half..self.body.x + half).contains(&cx) && (self.body.y - self.cfg.size - WINDOW_HEADROOM * dpi..self.body.y).contains(&cy)
+    }
+
+    /// 놓은 뒤: 떨어져 커서에서 벗어나거나 다른 상태(내려섬·잡힘)가 되면 다시 클릭을 받는다
+    fn settle_let_go_through(&mut self, dt: f64) {
+        if self.cursor_mood.through_after <= 0.0 {
+            return;
         }
+        let falling = matches!(self.state, State::Air { .. }) && self.window_covers_cursor();
+        self.cursor_mood.through_after = if falling { (self.cursor_mood.through_after - dt).max(0.0) } else { 0.0 };
     }
 
     fn cursor_style(&self) -> CursorStyle {
@@ -368,6 +384,7 @@ impl Pet {
     /// 한 틱 (update에서, 평소 동작 전에). 이번 틱을 여기서 처리했으면 true
     pub(super) fn update_cursor(&mut self, dt: f64, world: &World) -> bool {
         self.track_cursor(dt);
+        self.settle_let_go_through(dt);
         self.sense_window_closed(world);
         self.sense_quake(world);
         if self.control.is_some() {
@@ -574,7 +591,7 @@ impl Pet {
 
     /// 나는 동물: 매달릴 자리로 곧장 (살랑살랑)
     fn fly_to_cursor(&mut self, dt: f64, world: &World, style: &CursorStyle, speed: f64) {
-        let (ax, ay, _) = self.hang_spot(world);
+        let (ax, ay) = self.hang_spot(world);
         let (dx, dy) = (ax - self.body.x, ay - self.body.y);
         let dist = dx.hypot(dy);
         let step = speed * dt;
@@ -600,7 +617,7 @@ impl Pet {
     fn update_leap_to_cursor(&mut self, dt: f64, world: &World, from: (f64, f64), elapsed: f64) {
         let elapsed = elapsed + dt;
         let t = (elapsed / self.cursor_style().leap_secs).min(1.0);
-        let (ax, ay, _) = self.hang_spot(world);
+        let (ax, ay) = self.hang_spot(world);
         // 뜨면서 빠르게, 닿을 때 천천히 + 위로 볼록
         let ease = 1.0 - (1.0 - t) * (1.0 - t);
         let arc = LEAP_ARC * self.cfg.size * (std::f64::consts::PI * t).sin();
@@ -620,25 +637,22 @@ impl Pet {
         }
     }
 
-    /// 매달릴 자리 (발 x, 발 y, 쪽): 창 전체가 커서 끝 옆에 오도록 — 커서 끝은 절대 창 위가 아니다.
-    /// 오른쪽에 자리가 없으면 왼쪽. 스프라이트는 커서 높이에서 내려오되 화면 아래로 빠지지 않는다
-    fn hang_spot(&self, world: &World) -> (f64, f64, i8) {
+    /// 매달릴 자리 (몸 가운데 x, 발 y): 머리 꼭대기(hang_grip)가 커서 끝에 닿게 커서 바로 아래 —
+    /// 화면 끝에서는 잘리지 않게 안쪽으로 민다
+    fn hang_spot(&self, world: &World) -> (f64, f64) {
         let (cx, cy) = self.cursor;
-        let dpi = self.cfg.dpi;
-        let width = self.cfg.size.max(WINDOW_MIN_WIDTH * dpi);
-        let gap = HANG_GAP * dpi;
+        let half = self.cfg.size.max(WINDOW_MIN_WIDTH * self.cfg.dpi) / 2.0;
+        let (grip_x, grip_y) = self.cfg.hang_grip;
         let b = world.bounds;
-        let (left, side) = if cx + gap + width <= b.right || cx - gap - width < b.left { (cx + gap, 1) } else { (cx - gap - width, -1) };
-        let y = (cy + self.cfg.size * (1.0 - HANG_HEAD_ABOVE)).min(b.bottom).max(b.top + self.cfg.size * (1.0 - HANG_HEAD_ABOVE));
-        // 작은 화면 끝이면 창이 조금 나가도 커서 끝을 덮지 않는 쪽이 먼저다
-        (left + width / 2.0, y, side)
+        let x = cx - self.cfg.size * grip_x;
+        let x = if b.right - b.left >= half * 2.0 { x.clamp(b.left + half, b.right - half) } else { x };
+        (x, (cy + self.cfg.size * (1.0 - grip_y)).min(b.bottom))
     }
 
     fn start_hang(&mut self, world: &World) {
-        let (x, y, side) = self.hang_spot(world);
+        let (x, y) = self.hang_spot(world);
         self.body = Body { x, y, vx: 0.0, vy: 0.0 };
         self.standing = None;
-        self.cursor_mood.hang_side = side;
         self.cursor_mood.shake.clear();
         self.speech = Some(Speech::Gotcha);
         self.state = State::CursorHang { remaining: behavior::range(&mut self.rng, HANG_SECS) };
@@ -649,10 +663,9 @@ impl Pet {
             self.let_go(None);
             return;
         }
-        let (x, y, side) = self.hang_spot(world);
+        let (x, y) = self.hang_spot(world);
         self.body.x = x;
         self.body.y = y;
-        self.cursor_mood.hang_side = side;
         let (cx, cy) = self.cursor;
         let dpi = self.cfg.dpi.max(0.01);
         let clock = self.clock;
@@ -683,6 +696,7 @@ impl Pet {
         self.standing = None;
         self.thrown = false;
         self.state = State::Air { anim: Anim::Fall };
+        self.cursor_mood.through_after = LET_GO_THROUGH_SECS;
     }
 
     // ── 창 흔들림 ──

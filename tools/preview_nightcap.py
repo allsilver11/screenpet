@@ -173,6 +173,13 @@ def new_cap_matrix_cell(entry):
     return m
 
 
+def hang_grip_cell(cells):
+    """커서 끝이 닿는 칸 좌표 — 코어 PetManifest::hang_grip · main.js hangOrigin과 같은 계산."""
+    n = len(cells)
+    mean = [sum(c[i] for c in cells) / n for i in (0, 1, 2)]
+    return mean[0], max(0.0, mean[1] - 0.15 * mean[2])
+
+
 def head_entry(man, stage, anim, f):
     return man["head"][stage][anim][f]
 
@@ -322,6 +329,32 @@ def _neck_tile(pid, stage, f, ext_part, zoom):
     return out
 
 
+CURSOR = [(0, 0), (0, 16), (4, 12), (7, 18), (9, 17), (6, 11), (11, 11)]
+
+
+def hang_page(path, zoom=1):
+    """커서 끝에 매달린 모습 (모든 동물 × 5단계, 몸은 커서 끝을 축으로 ±6도, 모자는 자식이라 함께): 빨간 십자 칸 = 커서 끝."""
+    cell_w, cell_h = 230, 210
+    img = Image.new("RGBA", (70 + len(SPECIES) * cell_w, 16 + 5 * cell_h), (236, 240, 246, 255))
+    d = ImageDraw.Draw(img)
+    for c, pid in enumerate(SPECIES):
+        man = manifest(pid)
+        d.text((70 + c * cell_w + 2, 2), pid, fill=(60, 60, 60), font=label_font())
+        for r, st in enumerate(STAGES):
+            if c == 0:
+                d.text((2, 16 + r * cell_h + 90), st, fill=(60, 60, 60), font=label_font())
+            k = STAGE_SCALE[st] * man["stage_size"].get(st, 1.0)
+            tile, pad = _pet_tile(pid, st, "dragged", (r + c) % man["animations"]["dragged"]["frames"], 1)
+            gx, gy = hang_grip_cell(man["head"][st]["dragged"])
+            swung = _css(tile, pad, 1, (gx, gy), [("rotate", -6 if (r + c) % 2 else 6)])
+            small = swung.resize((round(swung.width * k), round(swung.height * k)), Image.LANCZOS)
+            # 커서 끝 = 칸 안 (gx, gy)
+            tip_x, tip_y = 70 + c * cell_w + 100, 16 + r * cell_h + 12
+            img.alpha_composite(small, (round(tip_x - (gx + pad) * k), round(tip_y - (gy + pad) * k)))
+            d.polygon([(tip_x + x, tip_y + y) for x, y in CURSOR], fill=(20, 20, 20), outline=(255, 255, 255))
+    img.convert("RGB").save(path, optimize=True)
+
+
 def scenarios(path, zoom=1):
     """몸과 한 덩어리로 움직이는지: 매달림 · 구르기 회전 · 덜덜 · 반전 · 쏘기 · 뿅 · 목 늘이기 (모자 자식에 몸 변환을 그대로 건 그림)."""
     pets = [("cat", "teenager"), ("dino_green", "adult"), ("santa", "child"), ("bee", "teenager"), ("frog", "teenager"), ("giraffe", "teenager")]
@@ -338,8 +371,8 @@ def scenarios(path, zoom=1):
         roll, _ = _pet_tile(pid, st, "roll", 0, zoom)
         spin = "spin" in man["animations"]["roll"]
         sheets = {
-            "hang >": _css(base, pad, zoom, (18, 8), [("translate", -30, 0), ("rotate", 6)]),
-            "hang <": _css(base, pad, zoom, (110, 8), [("translate", 30, 0), ("rotate", -6)]),
+            "hang >": _css(base, pad, zoom, hang_grip_cell(man["head"][st]["dragged"]), [("rotate", 6)]),
+            "hang <": _css(base, pad, zoom, hang_grip_cell(man["head"][st]["dragged"]), [("rotate", -6)]),
             "wobble": _css(base, pad, zoom, ROLL_ORIGIN, [("translate", 2.5, 1.2)]),
             "flip": _css(base, pad, zoom, (64, 64), [("flip",)]),
             "poof": _css(base, pad, zoom, (64, 64), [("scale", 0.55)]),
@@ -381,6 +414,7 @@ def main():
     pages = contact(a.mode, out)
     if a.mode == "after":
         scenarios(out.with_name("nightcap_moves.png"))
+        hang_page(out.with_name("nightcap_hang.png"))
     if a.pages:
         d = Path(a.pages)
         d.mkdir(parents=True, exist_ok=True)

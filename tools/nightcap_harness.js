@@ -151,6 +151,7 @@ const look = () => ({
   capHidden: byId("nightcap").hidden,
   capClasses: [...byId("nightcap").classes],
   pet: byId("pet").style.transform,
+  petOrigin: byId("pet").style.transformOrigin,
   sparks: created.filter((e) => e.className === "spark").length,
 });
 const flushTimers = () => {

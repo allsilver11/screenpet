@@ -219,8 +219,12 @@ def test_cap_moves_as_one_with_the_body(pid):
         assert r[name]["cap"] == base["cap"], name
         assert r[name]["ring"] == base["ring"], name
         assert r[name]["capParent"] == "pet", name
-    assert "translateX" in r["hangRight"]["pet"] and "rotate" in r["hangRight"]["pet"]
-    assert "translateX" in r["hangLeft"]["pet"]
+    # 매달리면 몸은 커서 끝(머리 꼭대기)을 축으로 흔들린다 — 옆으로 옮기지 않는다
+    cells = pn.manifest(pid)["head"]["teenager"]["dragged"]
+    gx, gy = pn.hang_grip_cell(cells)
+    for name in ("hangRight", "hangLeft"):
+        assert "rotate" in r[name]["pet"] and "translateX" not in r[name]["pet"], name
+        assert r[name]["petOrigin"] == f"{gx / 128 * 100:.2f}% {gy / 128 * 100:.2f}%", name
     # 반전은 몸이 받는다 — 모자 자리는 그대로, 고리만 진행 방향을 되돌린다
     assert r["flip"]["cap"] == base["cap"]
     assert "scaleX(-1)" in r["flip"]["pet"]
@@ -248,3 +252,9 @@ def test_cap_poofs_away_once_in_the_morning():
     assert r["morning"]["sparks"] - r["afterNeck"]["sparks"] == 5
     assert r["morningDone"]["capHidden"] and not r["morningDone"]["capClasses"]
     assert r["hiddenWindow"]["capHidden"] and not r["hiddenWindow"]["capClasses"], "창이 숨어 있으면 바로"
+
+
+def test_click_through_turns_on_before_the_window_moves_over_the_cursor():
+    slots = (ROOT / "src-tauri" / "src" / "slots.rs").read_text(encoding="utf-8")
+    place = slots[slots.index("pub fn place(&mut self"):]
+    assert place.index("self.sync_click_through()") < place.index("self.move_window(")

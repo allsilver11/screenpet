@@ -106,7 +106,7 @@ pub fn note_window_logical_size(body_scale: f64) -> (f64, f64) {
     (w.max(NOTE_WIDTH), h + NOTE_SPACE)
 }
 
-pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64) -> PetConfig {
+pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64, stage: &str) -> PetConfig {
     let m = &entry.manifest;
     let size = PET_LOGICAL_SIZE * body_scale * dpi;
     PetConfig {
@@ -124,6 +124,7 @@ pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64) -> PetConfig {
         looks_up: m.can_look_up(),
         snow_cloud: m.snow_cloud,
         dpi,
+        hang_grip: m.hang_grip(stage),
     }
 }
 
@@ -202,7 +203,7 @@ impl Slot {
     pub fn set_stage(&mut self, app: &AppHandle, shown: StagePayload) {
         let (w, h) = self.logical_size(shown.scale);
         let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
-        self.pet.cfg = pet_config(self.dpi, &self.entry, shown.scale);
+        self.pet.cfg = pet_config(self.dpi, &self.entry, shown.scale, shown.stage);
         self.pet.set_cursor_species(&self.entry.id);
         self.shown = shown;
         let info = self.info();
@@ -232,8 +233,8 @@ impl Slot {
         self.last_pos = None;
     }
 
-    /// 커서 끝으로 뛰어오르고 매달린 동안 창이 마우스를 통과시킨다 — 창이 커서 끝을 덮지 않게 놓지만(코어 hang_spot),
-    /// 커서가 빨리 움직이는 틱 사이에도 클릭을 뺏지 않게. 바뀔 때만 OS에 알린다
+    /// 커서로 뛰어오르고 매달리고 떨어지는 동안 창이 마우스를 통과시킨다 — 몸이 커서 끝 바로 아래라 창이 커서를 덮는다 (코어 hang_spot).
+    /// place에서 창을 옮기기 전에 불러 첫 틱부터 클릭을 뺏지 않는다. 바뀔 때만 OS에 알린다
     fn sync_click_through(&mut self) {
         let through = self.pet.cursor_through();
         if through != self.click_through {
@@ -293,7 +294,7 @@ impl Slot {
         let dpi = self.window.scale_factor().unwrap_or(self.dpi);
         if dpi != self.dpi {
             self.dpi = dpi;
-            self.pet.cfg = pet_config(dpi, &self.entry, self.shown.scale);
+            self.pet.cfg = pet_config(dpi, &self.entry, self.shown.scale, self.shown.stage);
         }
         self.world = World::new(windows.to_vec(), work_areas.to_vec(), self.pet.cfg.size);
     }
@@ -406,7 +407,7 @@ pub fn spawn_guest(
         }
     };
     let dpi = window.scale_factor().unwrap_or(1.0);
-    let cfg = pet_config(dpi, &entry, scale);
+    let cfg = pet_config(dpi, &entry, scale, shown.stage);
     let world = World::new(base.windows.clone(), base.work_areas.clone(), cfg.size);
     let mut pet = Pet::new_entering(cfg, &world, side, seed);
     let mut rng = fastrand::Rng::with_seed(seed ^ 0x9e37_79b9_7f4a_7c15);

@@ -13,6 +13,7 @@ const GROUND: f64 = 1040.0;
 
 fn cfg(personality: Personality) -> PetConfig {
     PetConfig {
+        hang_grip: (0.0, 0.06),
         size: 128.0,
         half_w: 38.4,
         walk_speed: 60.0,

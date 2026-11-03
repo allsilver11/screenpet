@@ -109,6 +109,28 @@ pub struct PetManifest {
     /// 가끔 머리 위에 작은 눈구름을 부른다 (눈사람)
     #[serde(default)]
     pub snow_cloud: bool,
+    /// 칸마다 머리 꼭대기 (단계 → 동작 → 칸별 [x, y, 너비, 기울기] 칸 px — 그림 생성기가 적는다)
+    #[serde(default)]
+    pub head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
+}
+
+/// head 표가 없는 동물의 매달리는 자리: 그림 가운데, 윗변에서 조금 아래
+const DEFAULT_HANG_GRIP: (f64, f64) = (0.0, 0.06);
+/// 머리 꼭대기는 모자 입구보다 입구 너비의 이만큼 위
+const HEAD_TOP_ABOVE_BRIM: f64 = 0.15;
+
+impl PetManifest {
+    /// 커서에 매달린 그림(dragged 칸들의 평균)에서 커서 끝이 닿을 머리 꼭대기: (그림 가운데에서 오른쪽, 그림 윗변에서 아래) — 한 변에 대한 비율.
+    /// 표의 y는 모자 입구라 머리 위쪽으로 조금 올린다. ui/main.js hangOrigin과 같은 계산
+    pub fn hang_grip(&self, stage: &str) -> (f64, f64) {
+        let size = f64::from(self.frame_size);
+        let Some(cells) = self.head.get(stage).and_then(|anims| anims.get("dragged")).filter(|c| !c.is_empty()) else {
+            return DEFAULT_HANG_GRIP;
+        };
+        let n = cells.len() as f64;
+        let mean = |i: usize| cells.iter().map(|c| c[i]).sum::<f64>() / n;
+        (mean(0) / size - 0.5, (mean(1) - HEAD_TOP_ABOVE_BRIM * mean(2)).max(0.0) / size)
+    }
 }
 
 pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
@@ -187,6 +209,17 @@ impl PetManifest {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hang_grip_is_the_mean_head_top_of_the_dragged_cells() {
+        let json = r#"{"name":"t","frame_size":128,"walk_speed":60,"animations":{},
+            "head":{"baby":{"dragged":[[70,30,40,-4],[74,32,40,4]]}}}"#;
+        let m: super::PetManifest = serde_json::from_str(json).unwrap();
+        let (x, y) = m.hang_grip("baby");
+        assert!((x - 8.0 / 128.0).abs() < 1e-9, "{x}");
+        assert!((y - 25.0 / 128.0).abs() < 1e-9, "{y}");
+        assert_eq!(m.hang_grip("adult"), super::DEFAULT_HANG_GRIP, "no table for this stage");
+    }
+
     use super::*;
 
     fn full_json() -> String {

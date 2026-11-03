@@ -424,6 +424,7 @@ fn speech_is_english_and_short() {
 
 fn pet_cfg(flies: bool) -> crate::brain::PetConfig {
     crate::brain::PetConfig {
+        hang_grip: (0.0, 0.06),
         size: 128.0,
         half_w: 38.0,
         walk_speed: 60.0,

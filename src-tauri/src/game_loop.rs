@@ -186,7 +186,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut source = default_source();
 
     let shown = stage_payload(&entry, &care);
-    let cfg = slots::pet_config(dpi, &entry, shown.scale);
+    let cfg = slots::pet_config(dpi, &entry, shown.scale, shown.stage);
     let world = World::new(source.windows(), source.work_areas(), cfg.size);
     let b = world.bounds;
     let pet = Pet::new(cfg, b.left + b.width() / 2.0, b.top + cfg.size, seed_now());

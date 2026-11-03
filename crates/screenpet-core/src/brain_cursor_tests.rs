@@ -286,26 +286,83 @@ fn hanging_pet(c: PetConfig, seed: u64, cursor: (f64, f64)) -> (Pet, World) {
 }
 
 #[test]
-fn the_hanging_window_never_covers_the_hot_spot_and_ignores_the_mouse() {
+fn the_pet_hangs_right_under_the_cursor_and_the_mouse_always_passes_through() {
     for (size, dpi) in [(128.0, 1.0), (58.0, 1.0), (211.0, 1.0), (256.0, 2.0), (96.0, 1.5)] {
-        let c = PetConfig { size, half_w: size * 0.3, dpi, ..cfg() };
+        let c = PetConfig { size, half_w: size * 0.3, dpi, hang_grip: (0.08, 0.06), ..cfg() };
         let start = (800.0 + size * 0.5, 1040.0 - size * 1.5);
         let (mut p, w) = hanging_pet(c, 20, start);
         assert!(p.cursor_through());
         assert_ne!(p.render().hang, 0);
+        // 화면 한가운데: 커서 끝 = 머리 꼭대기 (창이 커서를 덮어도 클릭은 통과한다)
+        let cursor = (960.0, 300.0);
+        p.state = State::CursorHang { remaining: 4.0 };
+        p.hover(cursor.0, cursor.1, false);
+        p.cursor_input(false, false, true);
+        p.update(DT, &w);
+        assert!((p.body.x + size * 0.08 - cursor.0).abs() < 1e-6, "size {size}: x {}", p.body.x);
+        assert!((p.body.y - size * 0.94 - cursor.1).abs() < 1e-6, "size {size}: y {}", p.body.y);
+        let (left, right) = window_span(&p);
+        assert!(cursor.0 >= left && cursor.0 < right);
+        assert!(p.cursor_through());
+        // 화면 끝에서는 안쪽으로 밀려 잘리지 않는다
         for cursor in [start, (5.0, 5.0), (1915.0, 500.0), (1919.0, 1039.0), (960.0, 1039.0), (0.0, 1039.0), (1900.0, 2.0)] {
-            // 커서가 옮겨 간 뒤 몇 틱 (느리게 — 흔들기 아님)
             p.state = State::CursorHang { remaining: 4.0 };
             p.hover(cursor.0, cursor.1, false);
             p.cursor_input(false, false, true);
             p.update(DT, &w);
             let (left, right) = window_span(&p);
-            assert!(cursor.0 < left || cursor.0 >= right, "size {size}: cursor {cursor:?} inside {left}..{right}");
-            // 몸 대부분은 화면 안
             assert!(p.body.y <= 1040.0, "off the bottom: {}", p.body.y);
             assert!(left >= -0.01 && right <= 1920.01, "off the side: {left}..{right}");
+            assert!(p.cursor_through());
         }
     }
+}
+
+#[test]
+fn the_mouse_keeps_passing_through_until_the_falling_pet_has_cleared_the_cursor_or_landed() {
+    let cursor = (1000.0, 800.0);
+    let (mut p, w) = hanging_pet(cfg(), 40, cursor);
+    p.state = State::CursorHang { remaining: 0.001 };
+    let mut fell = false;
+    let mut landed = false;
+    for _ in 0..(60 * 8) {
+        tick(&mut p, &w, cursor);
+        if matches!(p.state, State::CursorHang { .. }) {
+            assert!(p.cursor_through());
+            continue;
+        }
+        if !fell {
+            fell = true;
+            assert!(matches!(p.state, State::Air { .. }));
+            assert!(p.cursor_through(), "still under the cursor on the first falling tick");
+        }
+        if !matches!(p.state, State::Air { .. }) {
+            landed = true;
+            assert!(!p.cursor_through(), "off again after landing: {:?}", p.state);
+        }
+    }
+    assert!(fell && landed);
+    assert!(!p.cursor_through());
+}
+
+#[test]
+fn a_flyer_gliding_onto_the_cursor_already_lets_the_mouse_through() {
+    let cursor = (1000.0, 800.0);
+    let (mut p, w) = ready_pet(PetConfig { flies: true, ..cfg() }, 41);
+    assert!(wait_for_play(&mut p, &w, cursor));
+    let mut saw_glide = false;
+    for _ in 0..(60 * 20) {
+        tick(&mut p, &w, cursor);
+        match p.state {
+            State::CursorPlay { phase: PlayPhase::Approach, .. } => {
+                saw_glide = true;
+                assert!(p.cursor_through());
+            }
+            State::CursorHang { .. } => break,
+            _ => {}
+        }
+    }
+    assert!(saw_glide);
 }
 
 #[test]
