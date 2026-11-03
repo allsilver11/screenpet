@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- 물건 하나 = 작은 투명 창 하나 (src-tauri/src/objects.rs). 그림 한 장을 CSS로 돌리거나 뒤집는다.
+         애니메이션 프레임을 돌리지 않는다 — 잠든 물건의 웹뷰는 아무 일도 하지 않는다. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+      }
+
+      /* 아래 16px은 도는 동안 모서리가 잘리지 않게 남긴 여백 (objects.rs BOTTOM_PAD) */
+      #thing {
+        position: absolute;
+        left: calc(50% - 48px);
+        bottom: 16px;
+        width: 96px;
+        height: 96px;
+        transform-origin: 50% 72%;
+        cursor: grab;
+      }
+
+      #art {
+        width: 100%;
+        height: 100%;
+        display: block;
+        pointer-events: none;
+      }
+
+      /* 물건에 붙은 노란 포스트잇: 자리는 object.js POSTIT_AT */
+      #sticker {
+        position: absolute;
+        width: 21px;
+        height: 21px;
+        pointer-events: none;
+        animation: stick 220ms ease-out both;
+      }
+
+      @keyframes stick {
+        from {
+          transform: scale(1.5) rotate(-12deg);
+          opacity: 0;
+        }
+        to {
+          transform: none;
+          opacity: 1;
+        }
+      }
+
+      /* 읽는 쪽지: 글자는 textContent로만 들어간다 */
+      #note {
+        position: absolute;
+        left: 8px;
+        right: 8px;
+        bottom: 116px;
+        min-height: 40px;
+        padding: 8px 10px;
+        box-sizing: border-box;
+        background: #ffe86e;
+        border-bottom-right-radius: 14px 8px;
+        box-shadow: 1px 2px 5px rgba(90, 70, 20, 0.35);
+        color: #4b3d17;
+        font: 13px/1.35 "Segoe UI", "Malgun Gothic", sans-serif;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        text-align: center;
+        animation: note 10s linear both;
+      }
+
+      /* 10초 동안 보이고 끝에서 스르륵 (실제로 지우는 건 앱이다) */
+      @keyframes note {
+        0% {
+          opacity: 0;
+          transform: translateY(6px) rotate(-1.5deg);
+        }
+        3%,
+        92% {
+          opacity: 1;
+          transform: rotate(-1.5deg);
+        }
+        100% {
+          opacity: 0;
+          transform: translateY(-4px) rotate(-1.5deg);
+        }
+      }
+
+      body.poof #thing {
+        animation: poof 300ms ease-in forwards;
+      }
+
+      @keyframes poof {
+        60% {
+          opacity: 0.8;
+          scale: 1.15;
+        }
+        100% {
+          opacity: 0;
+          scale: 0.2;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="note" hidden></div>
+    <div id="thing">
+      <img id="art" alt="" draggable="false" />
+      <img id="sticker" alt="" draggable="false" src="objects/postit.png" hidden />
+    </div>
+    <script src="object.js"></script>
+  </body>
+</html>

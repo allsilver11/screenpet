@@ -190,7 +190,7 @@ pub enum NetEvent {
     Steered { from: String, steer: Steer },
     /// Friend `from` threw an object onto our screen (sent with [`Net::toss`];
     /// authenticated friend links only, at most 10 at once then one per 6 s per
-    /// link). The app must validate `kind`, `fling` and `note`.
+    /// friend, across reconnects). The app must validate `kind`, `fling` and `note`.
     Tossed { from: String, toss: Toss },
     Disconnected { id: String },
     Received { from: String, msg: Visit },

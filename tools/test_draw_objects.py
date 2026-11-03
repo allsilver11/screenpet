@@ -57,7 +57,13 @@ def test_postit_is_yellow_not_an_envelope_or_heart(built):
     assert a == 255 and r > 230 and g > 200 and b < 150
 
 
-def test_shipped_files_and_preview_exist():
+def test_shipped_files_exist():
     for name in d.NAMES + ("postit",):
         assert (ROOT / "ui" / "objects" / f"{name}.png").exists()
-    assert (ROOT / "tools" / "preview" / "objects.png").exists()
+
+
+def test_note_text_reaches_the_page_only_as_text():
+    js = (ROOT / "ui" / "object.js").read_text(encoding="utf-8")
+    assert "note.textContent = text" in js
+    for risky in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval("):
+        assert risky not in js

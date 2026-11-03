@@ -114,7 +114,7 @@ pub struct TrayMenu {
     pub focus_toggle: CheckMenuItem<Wry>,
     pub focus_short: CheckMenuItem<Wry>,
     pub focus_long: CheckMenuItem<Wry>,
-    /// 동물 고르기 항목 (항목, 동물 id) — `캐릭터: <지금 동물> ▸` 하위 메뉴 안
+    /// 동물 고르기 항목 (항목, 동물 id) — `키우기: <지금 동물> ▸` 하위 메뉴 안
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
     pub pets_menu: Submenu<Wry>,
     /// `친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
@@ -262,11 +262,11 @@ pub fn sync_pet_checks(menu: &TrayMenu, current: &str) {
     set_pets_label(&menu.pets_menu, &menu.pets, current);
 }
 
-/// `캐릭터 ▸` 하위 메뉴 글자: 지금 동물 이름을 붙인다
+/// `키우기 ▸` 하위 메뉴 글자: 지금 동물 이름을 붙인다
 fn pets_label(name: Option<&str>) -> String {
     match name {
-        Some(n) => format!("캐릭터: {}", menu_text(n)),
-        None => "캐릭터".to_string(),
+        Some(n) => format!("키우기: {}", menu_text(n)),
+        None => "키우기".to_string(),
     }
 }
 
@@ -321,7 +321,7 @@ fn guest_windows(app: &AppHandle) -> Vec<WebviewWindow> {
 
 /// 밥그릇·꽃·쿠키(prop-), 손에 든 음식(hand-), 침 자국(sting-) 창
 fn effect_windows(app: &AppHandle) -> Vec<WebviewWindow> {
-    const PREFIXES: [&str; 3] = ["prop-", "hand-", "sting-"];
+    const PREFIXES: [&str; 4] = ["prop-", "hand-", "sting-", "object-"];
     app.webview_windows().into_iter().filter(|(label, _)| PREFIXES.iter().any(|p| label.starts_with(p))).map(|(_, w)| w).collect()
 }
 
@@ -410,6 +410,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&easter_egg)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&pets_menu)?;
+    menu.append(&crate::objects::build_menu(app)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&growth)?;
     menu.append(&feed)?;
@@ -456,6 +457,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             FOCUS_SHORT_ID => send(app, Input::SetFocusLength(FocusLength::Short)),
             FOCUS_LONG_ID => send(app, Input::SetFocusLength(FocusLength::Long)),
             "reset" => send(app, Input::ResetGrowth),
+            other if crate::objects::handle_menu(app, other) => {}
             other => {
                 let net = |input| send(app, Input::Net(input));
                 if let Some(label) = other.strip_prefix(SEND_HOME_PREFIX) {

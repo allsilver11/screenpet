@@ -339,7 +339,7 @@ fn code_failure(reason: &str) -> &'static str {
 }
 
 /// 보낼 끝: (예전 판도 아는 왼쪽/오른쪽, 위/아래면 vside). 위/아래는 예전 판에겐 왼쪽으로 보인다 (그 판은 왼쪽에서 걸어 들어온다)
-fn to_net_side(s: Side) -> (screenpet_net::Side, Option<VSide>) {
+pub(crate) fn to_net_side(s: Side) -> (screenpet_net::Side, Option<VSide>) {
     match s {
         Side::Left => (screenpet_net::Side::Left, None),
         Side::Right => (screenpet_net::Side::Right, None),
@@ -349,7 +349,7 @@ fn to_net_side(s: Side) -> (screenpet_net::Side, Option<VSide>) {
 }
 
 /// 받은 끝: vside가 있으면 위/아래, 없으면 왼쪽/오른쪽
-fn from_net_side(s: screenpet_net::Side, v: Option<VSide>) -> Side {
+pub(crate) fn from_net_side(s: screenpet_net::Side, v: Option<VSide>) -> Side {
     match (v, s) {
         (Some(VSide::Up), _) => Side::Up,
         (Some(VSide::Down), _) => Side::Down,
@@ -360,12 +360,12 @@ fn from_net_side(s: screenpet_net::Side, v: Option<VSide>) -> Side {
 
 use visit::opposite;
 
-fn to_net_fling(f: visit::Fling) -> screenpet_net::Fling {
+pub(crate) fn to_net_fling(f: visit::Fling) -> screenpet_net::Fling {
     screenpet_net::Fling { height: f.height, vx: f.vx, vy: f.vy }
 }
 
 /// 받은 던지기 (다듬기는 enter_flung이 한다)
-fn from_net_fling(f: screenpet_net::Fling) -> visit::Fling {
+pub(crate) fn from_net_fling(f: screenpet_net::Fling) -> visit::Fling {
     visit::Fling { height: f.height, vx: f.vx, vy: f.vy }
 }
 
@@ -475,6 +475,18 @@ impl Network {
 
     fn is_connected(&self, id: &str) -> bool {
         self.connected.contains(id)
+    }
+
+    /// 물건을 던져 보낼 수 있는 친구: 연결됨 (손님 자리와 상관없다)
+    pub fn is_linked(&self, id: &str) -> bool {
+        self.is_connected(id)
+    }
+
+    /// 물건을 친구 화면으로 던진다 (objects.rs). 연결이 없으면 버려진다
+    pub fn toss_to(&self, friend: &str, toss: screenpet_net::Toss) {
+        if let Some(net) = &self.net {
+            net.toss(friend, toss);
+        }
     }
 
     /// 놀러 갈 수 있는 친구: 연결됐고, 방금 꽉 찼다고 돌려보내지 않음

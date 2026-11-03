@@ -6,6 +6,7 @@ mod gifts;
 mod help;
 mod house;
 mod network;
+mod objects;
 mod overlay;
 mod pets;
 mod presence;
@@ -246,6 +247,11 @@ fn main() {
             network::letter_close,
             gifts::gift_collect,
             gifts::book_state,
+            objects::object_down,
+            objects::object_menu,
+            objects::postit_max,
+            objects::postit_submit,
+            objects::postit_close,
             note_space
         ])
         .run(tauri::generate_context!())

@@ -22,6 +22,7 @@ use crate::decal::Decals;
 use crate::gifts::Gifts;
 use crate::house::{self, HouseState};
 use crate::network::{NetInput, Network};
+use crate::objects::{ObjectInput, Objects};
 use crate::pets::PetEntry;
 use crate::presence::Presence;
 use crate::prop::{HandWindow, Props};
@@ -75,6 +76,8 @@ pub enum Input {
     NoteSpace { label: String, open: bool },
     /// 친구 네트워크 (네트워크 이벤트, 트레이 `친구랑 놀기`, 짝맞추기 창)
     Net(NetInput),
+    /// 물건 (메뉴·누르기·포스트잇)
+    Object(ObjectInput),
     /// 저장하고 앱 종료
     Quit,
 }
@@ -240,6 +243,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut gifts = Gifts::new(&config.gifts, seed_now());
     // 자리 비움·돌아옴, 하루 일과, ⏱️ 집중 친구 (1초에 한 번)
     let mut presence = Presence::new(&app, config.focus_length);
+    // 물건 (쓰레기 장난감 — 없거나 잠들어 있으면 일이 없다)
+    let mut objects = Objects::new();
     // 한 화면의 동물끼리(내 동물 + 손님) 인사·술래 놀이
     let mut social = Social::new(seed_now());
     // 🎮 조작 모드: 켜진 동안만 키를 읽는다 (읽기만 — 앞에 있는 창에도 그대로 간다)
@@ -254,7 +259,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             match input {
                 Input::PointerDown { label } => {
                     // 한 번에 한 마리만 잡는다. 음식을 들고 있는 동안의 누름은 주기·거두기 (아래 매 틱 처리)
-                    if hand.is_some() || slots.iter().any(|s| s.pet.is_held()) {
+                    if hand.is_some() || objects.is_held() || slots.iter().any(|s| s.pet.is_held()) {
                         continue;
                     }
                     if let Some(i) = slots::find(&slots, &label) {
@@ -477,6 +482,14 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     // 그 자리에서 손 흔들고("bye~!", 편지를 들었으면 "💌!") 뿅 사라진다 — 사라지면 own_exited가 Visit을 보낸다
                     network.send_to(&config, own, &id, note);
                 }
+                Input::Object(input) => {
+                    let busy = hand.is_some() || slots.iter().any(|s| s.pet.is_held());
+                    objects.handle(&app, input, &slots[OWN].world, source.cursor(), busy);
+                }
+                // 친구가 던진 물건 (net이 인증된 친구 링크·친구별 한도를 확인했고, 받은 물건 20개 상한과 다듬기는 objects가 지킨다)
+                Input::Net(NetInput::Event(screenpet_net::NetEvent::Tossed { from, toss })) => {
+                    objects.receive(&app, &config, &slots[OWN].world, &from, toss);
+                }
                 Input::Net(input) => {
                     if network.handle(&app, input, &mut config, &mut slots) {
                         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
@@ -499,6 +512,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             for s in &mut slots {
                 s.refresh(&windows, &work_areas);
             }
+            objects.refresh(&windows, &work_areas, now);
             slots[OWN].pet.set_hungry(care.is_hungry());
             last_refresh = now;
         } else {
@@ -578,10 +592,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
         network.steer(now, control_on, keys);
         let held = slots.iter().position(|s| s.pet.is_held());
-        let hovered = if held.is_some() { None } else { slots::hover_target(&slots, cx, cy) };
+        let hovered = if held.is_some() || objects.is_held() { None } else { slots::hover_target(&slots, cx, cy) };
         // 🐾 커서 장난: 무언가 끌고 있거나 음식을 들고 있거나 모두 숨겨 둔 동안엔 새로 시작하지 않는다 (조작 모드 등은 코어가 본다)
         let left_down = source.left_button_down();
-        let play_busy = held.is_some() || hand.is_some() || crate::windows_hidden(&app);
+        let play_busy = held.is_some() || hand.is_some() || objects.is_held() || crate::windows_hidden(&app);
         for (i, s) in slots.iter_mut().enumerate() {
             s.pet.cursor_input(left_down, play_busy || s.note_is_open(), !config.cursor_play_off);
             if Some(i) == held {
@@ -646,6 +660,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             network.own_exited(&config, &mut slots[OWN], side);
         }
         network.tick(&app, now, &config, &mut slots[OWN]);
+        objects.tick(&app, dt, now, (cx, cy), left_down, source.as_mut(), &network, &config);
         decals.tick(now);
         props.tick(now);
         hand_win.tick(now);

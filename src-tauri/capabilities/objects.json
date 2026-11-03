@@ -1,0 +1,6 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "objects",
+  "windows": ["object-*", "postit"],
+  "permissions": ["core:default"]
+}
