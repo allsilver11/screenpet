@@ -1,6 +1,6 @@
 """물건 (쓰레기 장난감) — draw_pets.py 엔진으로 그린 128 칸 그림과 노란 포스트잇.
 
-    python tools/draw_objects.py  → ui/objects/{can,paper,glasses,computer,banana,milk,sock,umbrella}.png (128×128)
+    python tools/draw_objects.py  → ui/objects/{can,paper,glasses,computer,milk,sock,umbrella}.png (128×128)
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
@@ -38,14 +38,13 @@ POSTIT_REACH = 20
 HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
-NAMES = ("can", "paper", "glasses", "computer", "banana", "milk", "sock", "umbrella")
+NAMES = ("can", "paper", "glasses", "computer", "milk", "sock", "umbrella")
 # 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다
 POSTIT_AT = {
     "can": (76, 80),
     "paper": (78, 84),
     "glasses": (40, 100),
     "computer": (92, 72),
-    "banana": (88, 94),
     "milk": (74, 92),
     "sock": (58, 76),
     "umbrella": (44, 66),
@@ -60,11 +59,6 @@ LENS = (214, 236, 250)
 PLASTIC = (222, 214, 196)
 SCREEN = (70, 78, 96)
 SPARK = (255, 214, 102)
-BANANA = (252, 216, 92)
-BANANA_LIGHT = (255, 234, 140)
-BANANA_SEAM = (222, 176, 66)
-BANANA_TIP = (122, 84, 56)
-BANANA_IN = (255, 246, 204)
 MILK_BLUE = (138, 186, 232)
 SOCK = (246, 160, 170)
 SOCK_STRIPE = (255, 240, 226)
@@ -141,7 +135,7 @@ def smooth(points, widths, n=6):
 
 
 def strip(points, widths):
-    """가운데 선을 따라 굵기가 변하는 껍질 조각 (끝이 가늘어지는 다각형)."""
+    """가운데 선을 따라 굵기가 변하는 조각 (끝이 가늘어지는 다각형)."""
     left, right = [], []
     n = len(points)
     for i, (x, y) in enumerate(points):
@@ -153,31 +147,6 @@ def strip(points, widths):
         left.append((x - dy / d * w, y + dx / d * w))
         right.append((x + dy / d * w, y - dx / d * w))
     return T(*left, *reversed(right))
-
-
-def peel_strip(img, points, widths, color, seam):
-    """껍질 한 조각: 몸 + 결 + 둥근 갈색 끝."""
-    pts, ws = smooth(points, widths)
-    body = strip(pts, ws)
-    seam_line = pts[len(pts) // 6:-len(pts) // 5]
-    blob(img, [body, C(*pts[-1], ws[-1] / 2)], color, r=0.7,
-         marks=[([L(seam_line, 1.1)], seam), ([C(*pts[-1], ws[-1] * 1.7)], BANANA_TIP)])
-
-
-def draw_banana(img):
-    """바나나 껍질: 꼭지 아래 굽은 몸통에서 네 갈래가 축 늘어져 바닥에 벌어졌다. 안쪽은 크림색, 끝은 갈색."""
-    y = BOTTOM
-    # 뒤쪽 두 갈래: 안쪽 크림색이 보인다
-    peel_strip(img, [(60, y - 62), (42, y - 68), (24, y - 58), (15, y - 38), (9, y - 28)], [14, 15, 13, 9, 5.5], BANANA_IN, BANANA_SEAM)
-    peel_strip(img, [(68, y - 62), (86, y - 66), (104, y - 54), (112, y - 36), (120, y - 30)], [14, 15, 13, 9, 5.5], BANANA_IN, BANANA_SEAM)
-    # 굽은 몸통과 작은 꼭지
-    blob(img, [strip(*smooth([(71, y - 92), (66, y - 76), (63, y - 58), (64, y - 30)], [9, 20, 25, 24]))], BANANA, r=1.0,
-         marks=[([L([(62, y - 78), (56, y - 60), (55, y - 36)], 2.6)], BANANA_LIGHT)])
-    blob(img, [L([(71, y - 92), (73, y - 100)], 6.0)], BANANA_TIP, r=0, line=0.9)
-    # 앞쪽 두 갈래: 바깥 노란 껍질이 앞으로 늘어져 끝이 살짝 말린다
-    peel_strip(img, [(60, y - 52), (44, y - 44), (29, y - 26), (20, y - 9), (9, y - 7)], [20, 19, 16, 11, 6], BANANA, BANANA_SEAM)
-    peel_strip(img, [(68, y - 52), (82, y - 42), (95, y - 24), (105, y - 9), (118, y - 8)], [20, 19, 16, 11, 6], BANANA, BANANA_SEAM)
-    tiny_face(img, 65, y - 67, 0.72)
 
 
 def draw_milk(img):
@@ -217,7 +186,6 @@ DRAW = {
     "paper": draw_paper,
     "glasses": draw_glasses,
     "computer": draw_computer,
-    "banana": draw_banana,
     "milk": draw_milk,
     "sock": draw_sock,
     "umbrella": draw_umbrella,

@@ -40,19 +40,17 @@ pub enum ObjectKind {
     Paper,
     Glasses,
     Computer,
-    Banana,
     Milk,
     Sock,
     Umbrella,
 }
 
 impl ObjectKind {
-    pub const ALL: [ObjectKind; 8] = [
+    pub const ALL: [ObjectKind; 7] = [
         ObjectKind::Can,
         ObjectKind::Paper,
         ObjectKind::Glasses,
         ObjectKind::Computer,
-        ObjectKind::Banana,
         ObjectKind::Milk,
         ObjectKind::Sock,
         ObjectKind::Umbrella,
@@ -65,7 +63,6 @@ impl ObjectKind {
             ObjectKind::Paper => "paper",
             ObjectKind::Glasses => "glasses",
             ObjectKind::Computer => "computer",
-            ObjectKind::Banana => "banana",
             ObjectKind::Milk => "milk",
             ObjectKind::Sock => "sock",
             ObjectKind::Umbrella => "umbrella",
@@ -79,7 +76,6 @@ impl ObjectKind {
             ObjectKind::Paper => "📄 구긴 종이",
             ObjectKind::Glasses => "👓 금 간 안경",
             ObjectKind::Computer => "💻 고장난 컴퓨터",
-            ObjectKind::Banana => "🍌 바나나 껍질",
             ObjectKind::Milk => "🥛 빈 우유팩",
             ObjectKind::Sock => "🧦 찢어진 양말",
             ObjectKind::Umbrella => "☂️ 부러진 우산",
@@ -97,7 +93,6 @@ impl ObjectKind {
             ObjectKind::Can => (80.0, 180.0),
             ObjectKind::Paper => (60.0, 170.0),
             ObjectKind::Sock => (40.0, 120.0),
-            ObjectKind::Banana => (30.0, 90.0),
             ObjectKind::Glasses => (20.0, 60.0),
             ObjectKind::Milk => (30.0, 90.0),
             ObjectKind::Umbrella => (30.0, 80.0),

@@ -10,7 +10,6 @@ const POSTIT_AT = {
   paper: [78, 84],
   glasses: [40, 100],
   computer: [92, 72],
-  banana: [88, 94],
   milk: [74, 92],
   sock: [58, 76],
   umbrella: [44, 66],

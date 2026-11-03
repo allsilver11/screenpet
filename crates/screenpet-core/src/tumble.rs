@@ -99,7 +99,6 @@ pub fn shape_of(kind: ObjectKind) -> Shape {
         ObjectKind::Paper => Shape { pivot: (64.0, 94.0), reach: 38.0, hull: &[(36.0, 82.0), (45.0, 65.0), (58.0, 60.0), (68.0, 60.0), (81.0, 64.0), (93.0, 78.0), (95.0, 102.0), (87.0, 120.0), (73.0, 128.0), (59.0, 128.0), (45.0, 124.0), (34.0, 109.0)] },
         ObjectKind::Glasses => Shape { pivot: (64.0, 105.0), reach: 68.0, hull: &[(5.0, 74.0), (10.0, 73.0), (92.0, 85.0), (111.0, 89.0), (122.0, 97.0), (125.0, 106.0), (124.0, 114.0), (97.0, 127.0), (93.0, 128.0), (35.0, 128.0), (22.0, 120.0), (7.0, 87.0)] },
         ObjectKind::Computer => Shape { pivot: (65.0, 80.0), reach: 70.0, hull: &[(15.0, 48.0), (22.0, 41.0), (105.0, 26.0), (116.0, 36.0), (118.0, 51.0), (113.0, 108.0), (92.0, 126.0), (84.0, 128.0), (44.0, 128.0), (36.0, 126.0), (18.0, 112.0), (15.0, 107.0)] },
-        ObjectKind::Banana => Shape { pivot: (63.0, 81.0), reach: 75.0, hull: &[(4.0, 94.0), (12.0, 70.0), (16.0, 62.0), (22.0, 56.0), (69.0, 22.0), (78.0, 23.0), (112.0, 66.0), (125.0, 93.0), (123.0, 123.0), (114.0, 126.0), (9.0, 126.0), (4.0, 124.0)] },
         ObjectKind::Milk => Shape { pivot: (64.0, 92.0), reach: 46.0, hull: &[(38.0, 92.0), (39.0, 80.0), (46.0, 52.0), (82.0, 52.0), (88.0, 76.0), (91.0, 111.0), (91.0, 115.0), (89.0, 127.0), (88.0, 128.0), (41.0, 128.0), (39.0, 126.0), (38.0, 115.0)] },
         ObjectKind::Sock => Shape { pivot: (65.0, 95.0), reach: 57.0, hull: &[(38.0, 52.0), (42.0, 46.0), (46.0, 44.0), (59.0, 44.0), (65.0, 49.0), (111.0, 107.0), (113.0, 113.0), (113.0, 120.0), (108.0, 128.0), (56.0, 128.0), (40.0, 114.0), (38.0, 110.0)] },
         ObjectKind::Umbrella => Shape { pivot: (67.0, 69.0), reach: 57.0, hull: &[(23.0, 67.0), (37.0, 50.0), (62.0, 31.0), (67.0, 31.0), (109.0, 43.0), (115.0, 45.0), (112.0, 75.0), (64.0, 123.0), (59.0, 124.0), (50.0, 122.0), (48.0, 120.0), (23.0, 75.0)] },
@@ -139,9 +138,8 @@ pub fn heft_of(kind: ObjectKind) -> Heft {
         ObjectKind::Glasses => h(0.45, 720.0, 850.0, 30.0, 8.0, 0.3, 0.7, 0.6, 60.0),
         // 컴퓨터: 무거워서 거의 안 구른다
         ObjectKind::Computer => h(0.05, 70.0, 2000.0, 70.0, 14.0, 0.12, 0.45, 0.4, 0.0),
-        // 바나나 껍질·양말: 철퍼덕, 조금만 구른다
-        ObjectKind::Banana => h(0.35, 540.0, 1300.0, 48.0, 14.0, 0.12, 0.5, 0.4, 40.0),
         ObjectKind::Milk => h(0.5, 720.0, 520.0, 24.0, 8.0, 0.35, 0.75, 0.7, 30.0),
+        // 양말: 철퍼덕, 조금만 구른다
         ObjectKind::Sock => h(0.35, 540.0, 1400.0, 52.0, 14.0, 0.1, 0.5, 0.35, 40.0),
         ObjectKind::Umbrella => h(0.4, 600.0, 950.0, 34.0, 10.0, 0.2, 0.65, 0.55, 40.0),
     }
@@ -198,16 +196,15 @@ mod tests {
 
     #[test]
     fn each_kind_has_its_own_heft() {
-        let (can, paper, computer, banana, sock) = (heft_of(ObjectKind::Can), heft_of(ObjectKind::Paper), heft_of(ObjectKind::Computer), heft_of(ObjectKind::Banana), heft_of(ObjectKind::Sock));
+        let (can, paper, computer, sock) = (heft_of(ObjectKind::Can), heft_of(ObjectKind::Paper), heft_of(ObjectKind::Computer), heft_of(ObjectKind::Sock));
         for kind in ObjectKind::ALL {
             let h = heft_of(kind);
             assert!(can.friction <= h.friction, "the can rolls farthest: {kind:?}");
             assert!(computer.max_spin <= h.max_spin && computer.friction >= h.friction, "the computer is heaviest: {kind:?}");
             assert!(paper.bounce >= h.bounce && paper.jitter >= h.jitter, "paper bounces most: {kind:?}");
         }
-        for floppy in [banana, sock] {
-            assert!(floppy.roll_radius > can.roll_radius * 2.0 && floppy.bounce < can.bounce / 2.0);
-        }
+        // 양말은 철퍼덕
+        assert!(sock.roll_radius > can.roll_radius * 2.0 && sock.bounce < can.bounce / 2.0);
     }
 
     #[test]

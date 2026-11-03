@@ -823,6 +823,22 @@ fn tosses_reach_connected_friends_with_kind_fling_and_note() {
 }
 
 #[test]
+fn a_retired_object_kind_from_an_older_friend_keeps_the_link() {
+    // 종류 확인은 앱 몫 (object::accept_toss가 버린다) — net은 그대로 넘기고 연결을 끊지 않는다
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    p.send(json!({"type": "ping", "toss": {"kind": "banana", "side": "left"}})).unwrap();
+    let got = wait_for(&rx, 5.0, |e| matches!(e, NetEvent::Tossed { .. } | NetEvent::Disconnected { .. }));
+    assert!(matches!(&got, Some(NetEvent::Tossed { toss, .. }) if toss.kind == "banana"), "{got:?}");
+    p.send(json!({"type": "ping", "toss": {"kind": "can", "side": "left"}})).unwrap();
+    let got = wait_for(&rx, 5.0, |e| matches!(e, NetEvent::Tossed { .. } | NetEvent::Disconnected { .. }));
+    assert!(matches!(&got, Some(NetEvent::Tossed { toss, .. }) if toss.kind == "can"), "{got:?}");
+    net.shutdown();
+}
+
+#[test]
 fn stranger_toss_is_ignored_and_the_link_stays() {
     let (net, rx, port) = start_sniffed(key(), vec![]);
     let mut p = raw_connect(port, &key(), "zzzz");

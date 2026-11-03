@@ -744,7 +744,7 @@ ITEMS = [  # (제목, 경로, 화면 크기 w, h)
     ("gift_acorn", "ui/gifts/bear_acorn.png", 40, 40), ("gift_comb", "ui/gifts/bee_honeycomb.png", 40, 40),
     ("gift_tulip", "ui/gifts/bee_tulip.png", 40, 40), ("gift_salmon", "ui/gifts/bear_salmon.png", 40, 40),
     ("acorn_shiny", "ui/gifts/bear_acorn_shiny.png", 40, 40),
-    ("banana", "ui/objects/banana.png", 96, 96), ("can", "ui/objects/can.png", 96, 96),
+    ("can", "ui/objects/can.png", 96, 96),
     ("computer", "ui/objects/computer.png", 96, 96), ("sock", "ui/objects/sock.png", 96, 96),
     ("umbrella", "ui/objects/umbrella.png", 96, 96),
 ]

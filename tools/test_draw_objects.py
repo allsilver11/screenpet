@@ -115,13 +115,3 @@ def test_postit_stays_inside_the_turning_room(name):
     s = core_shapes()[name]
     x, y = d.POSTIT_AT[name]
     assert math.hypot(x - s["pivot"][0], y - s["pivot"][1]) + d.POSTIT_REACH <= s["reach"]
-
-
-def test_banana_reads_as_a_peel_yellow_with_brown_tips_and_cream_inside(built):
-    _, arts = built
-    raw = arts["banana"].tobytes()
-    px = [raw[i:i + 4] for i in range(0, len(raw), 4)]
-    count = lambda r, g, b, tol=24: sum(1 for p in px if p[3] > 200 and abs(p[0] - r) + abs(p[1] - g) + abs(p[2] - b) < tol)
-    assert count(*d.BANANA) > 1200
-    assert count(*d.BANANA_IN) > 300
-    assert count(*d.BANANA_TIP) > 80
