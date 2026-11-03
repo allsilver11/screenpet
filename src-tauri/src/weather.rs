@@ -1,0 +1,341 @@
+//! 계절 날씨 (v0.3.7) — 모니터마다 마우스가 통과하는 투명 창 하나 (`weather-<n>`, weather.html)와, 눈덩이·눈사람 작은 창.
+//! 게임 루프가 매 틱 tick을 부르지만, 날씨가 없으면 (철이 아니거나·메뉴로 껐거나·모두 숨겼으면) 창이 하나도 없고
+//! 1초에 한 번 플래그만 본다 (달력은 1분에 한 번). 켜져 있어도 창 목록을 따로 읽지 않는다 — 내 동물 세계의 디딤판을
+//! 5 Hz로 맞춰 보고, 장면이 바뀐 모니터에만 보낸다. 더미는 1초에 한 번 (screenpet_core::weather).
+//! 그 모니터의 앞 창이 전체 화면이면 창을 숨기고 웹뷰도 그림을 멈춘다.
+
+use std::time::{Duration, Instant};
+
+use chrono::Datelike;
+use screenpet_core::geom::Rect;
+use screenpet_core::weather::{self, PileField, Scene, Weather};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+
+use crate::slots::Slot;
+use crate::AppState;
+
+const PREFIX: &str = "weather-";
+/// 개발용 숨은 미리 보기: snow·light_snow·rain·petals·off (screenpet_core::weather::parse_preview). 메뉴에는 없다
+const PREVIEW_ENV: &str = "SCREENPET_WEATHER";
+/// 미리 보기에선 더미가 이 배로 빨리 쌓인다
+const PREVIEW_GROW: f32 = 10.0;
+/// 앱이 뜨고 이만큼 뒤부터 (시작을 방해하지 않게)
+const START_DELAY: Duration = Duration::from_secs(2);
+const SEASON_EVERY: Duration = Duration::from_secs(60);
+/// 날씨가 없을 때 메뉴·숨기기 플래그를 보는 간격
+const IDLE_EVERY: Duration = Duration::from_secs(1);
+/// 창 목록을 웹뷰에 맞추는 간격 (5 Hz)
+const SCENE_EVERY: Duration = Duration::from_millis(200);
+const PILES_EVERY: Duration = Duration::from_secs(1);
+/// 새 창은 이 시간 동안 1초마다 장면을 다시 보낸다 (첫 장면은 웹뷰가 듣기 전에 지나갈 수 있다)
+const FRESH: Duration = Duration::from_secs(5);
+/// 소품 창 크기 (논리 px, tools/draw_props.py). 아래 가운데가 자리
+const SNOWMAN_SIZE: (f64, f64) = (64.0, 80.0);
+const SNOWBALL_SIZE: (f64, f64) = (40.0, 40.0);
+
+#[derive(Serialize, PartialEq)]
+struct Payload {
+    paused: bool,
+    #[serde(flatten)]
+    scene: Scene,
+}
+
+struct Overlay {
+    window: WebviewWindow,
+    label: String,
+    wa: Rect,
+    scale: f64,
+    paused: bool,
+    born: Instant,
+    resent: Instant,
+    last: Option<Payload>,
+}
+
+struct Snowman {
+    window: WebviewWindow,
+    born: Instant,
+    x: f64,
+}
+
+pub struct WeatherFx {
+    preview: Option<Option<Weather>>,
+    season: Option<Weather>,
+    menu_synced: bool,
+    active: Option<Weather>,
+    next_season: Instant,
+    next_scene: Instant,
+    next_piles: Instant,
+    last_piles: Instant,
+    overlays: Vec<Overlay>,
+    field: PileField,
+    seed: u64,
+    next_label: u64,
+    snowman: Option<Snowman>,
+    ball: Option<(WebviewWindow, (i32, i32))>,
+}
+
+impl WeatherFx {
+    pub fn new(seed: u64) -> Self {
+        let preview = std::env::var(PREVIEW_ENV).ok().and_then(|v| weather::parse_preview(&v));
+        let now = Instant::now();
+        Self {
+            preview,
+            season: None,
+            menu_synced: false,
+            active: None,
+            next_season: now,
+            next_scene: now + START_DELAY,
+            next_piles: now,
+            last_piles: now,
+            overlays: Vec::new(),
+            field: new_field(seed, preview),
+            seed,
+            next_label: 0,
+            snowman: None,
+            ball: None,
+        }
+    }
+
+    /// 메뉴 체크를 지금 상태에 맞춘다. 철이 아니면 (미리 보기도 아니면) 누를 수 없다
+    pub fn sync_menu(&mut self, app: &AppHandle, menu_off: bool) {
+        let item = &app.state::<AppState>().menu.weather;
+        let on_offer = self.season.is_some() || self.preview.is_some();
+        let _ = item.set_enabled(on_offer);
+        let _ = item.set_checked(on_offer && !menu_off);
+        // 다음 틱에 바로 반영한다
+        self.next_scene = Instant::now().min(self.next_scene);
+    }
+
+    /// 게임 루프 스레드에서 매 틱 (창 만들기가 메인 스레드를 기다린다)
+    pub fn tick(&mut self, app: &AppHandle, now: Instant, menu_off: bool, slots: &mut [Slot]) {
+        if self.active.is_some() {
+            if let Some(own) = slots.first_mut() {
+                self.track_own(app, now, own);
+            }
+        }
+        if now < self.next_scene {
+            return;
+        }
+        if now >= self.next_season {
+            self.next_season = now + SEASON_EVERY;
+            let today = chrono::Local::now();
+            let season = weather::season(today.month(), today.day());
+            if season != self.season || !self.menu_synced {
+                self.season = season;
+                self.menu_synced = true;
+                self.sync_menu(app, menu_off);
+            }
+        }
+        let want = weather::wanted(self.season, self.preview, menu_off, crate::windows_hidden(app));
+        if want.is_none() {
+            if self.active.take().is_some() {
+                self.tear_down(slots);
+            }
+            self.next_scene = now + IDLE_EVERY;
+            return;
+        }
+        self.active = want;
+        self.next_scene = now + SCENE_EVERY;
+        let Some(kind) = want else { return };
+        self.step(app, now, kind, slots);
+    }
+
+    /// 날씨가 켜진 동안 5 Hz
+    fn step(&mut self, app: &AppHandle, now: Instant, kind: Weather, slots: &mut [Slot]) {
+        let Some(own) = slots.first() else { return };
+        self.field.sync(&own.world);
+        if now >= self.next_piles {
+            self.next_piles = now + PILES_EVERY;
+            let dt = now.duration_since(self.last_piles).as_secs_f64().min(5.0);
+            self.last_piles = now;
+            self.field.tick(dt, kind);
+        }
+        self.fit_overlays(app, now, &own.world.work_areas);
+        for o in &mut self.overlays {
+            let paused = weather::fullscreen_over(&own.world.windows, &o.wa);
+            if paused != o.paused {
+                o.paused = paused;
+                let _ = if paused { o.window.hide() } else { o.window.show() };
+                if let Some(s) = self.snowman.as_ref().filter(|s| on_area(&o.wa, s.x)) {
+                    let _ = if paused { s.window.hide() } else { s.window.show() };
+                }
+            }
+            let payload = Payload { paused, scene: self.field.scene(kind, &o.wa, o.scale) };
+            let young = now.duration_since(o.born) < FRESH && now.duration_since(o.resent) >= PILES_EVERY;
+            if young || o.last.as_ref() != Some(&payload) {
+                let _ = app.emit_to(o.label.as_str(), "weather-scene", &payload);
+                o.last = Some(payload);
+                o.resent = now;
+            }
+        }
+        let petals = kind == Weather::Petals;
+        for s in slots.iter_mut() {
+            s.pet.set_petals(petals);
+        }
+        if self.snowman.as_ref().is_some_and(|s| !weather::snowman_stays(Some(kind), now.duration_since(s.born).as_secs_f64())) {
+            if let Some(s) = self.snowman.take() {
+                let _ = s.window.destroy();
+            }
+        }
+        let ready = kind.is_snow() && self.snowman.is_none() && self.field.snow_settled();
+        if let Some(own) = slots.first_mut() {
+            own.pet.set_snow_ready(ready);
+        }
+    }
+
+    /// 굴리는 눈덩이를 내 동물 앞에 놓고, 다 쌓으면 눈사람을 세운다 (날씨가 켜진 동안 매 틱)
+    fn track_own(&mut self, app: &AppHandle, now: Instant, own: &mut Slot) {
+        let ball_at = own.pet.snowball_at();
+        match (ball_at, &mut self.ball) {
+            (Some((x, y)), Some((window, last))) => {
+                let pos = bottom_center(x, y, SNOWBALL_SIZE, own.dpi);
+                if *last != pos {
+                    let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
+                    *last = pos;
+                }
+            }
+            (Some((x, y)), None) => {
+                self.next_label += 1;
+                self.ball = self.sprite(app, "snowball", SNOWBALL_SIZE, x, y, own.dpi).map(|w| (w, bottom_center(x, y, SNOWBALL_SIZE, own.dpi)));
+            }
+            (None, Some(_)) => {
+                if let Some((window, _)) = self.ball.take() {
+                    let _ = window.destroy();
+                }
+            }
+            (None, None) => {}
+        }
+        if let Some((x, y)) = own.pet.take_snowman() {
+            if let Some(old) = self.snowman.take() {
+                let _ = old.window.destroy();
+            }
+            self.next_label += 1;
+            self.snowman = self.sprite(app, "snowman", SNOWMAN_SIZE, x, y, own.dpi).map(|window| Snowman { window, born: now, x });
+            own.pet.set_snow_ready(false);
+        }
+    }
+
+    /// 눈덩이·눈사람 작은 창 — 침 자국·밥그릇처럼 마우스가 통과한다 (prop- 창이라 트레이 숨기기/보이기도 따른다)
+    fn sprite(&self, app: &AppHandle, image: &str, (w, h): (f64, f64), x: f64, y: f64, dpi: f64) -> Option<WebviewWindow> {
+        let label = format!("prop-snow-{}", self.next_label);
+        let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
+            .title("ScreenPet Snowman")
+            .initialization_script(&format!("window.PROP_IMAGE = {image:?};"))
+            .inner_size(w, h)
+            .transparent(true)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .focused(false)
+            .visible(false)
+            .build()
+            .inspect(crate::overlay::float_everywhere);
+        let window = match built {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("failed to create {image} window: {e}");
+                return None;
+            }
+        };
+        let _ = window.set_size(LogicalSize::new(w, h));
+        let pos = bottom_center(x, y, (w, h), dpi);
+        let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
+        let _ = window.set_ignore_cursor_events(true);
+        if !crate::windows_hidden(app) {
+            let _ = window.show();
+        }
+        Some(window)
+    }
+
+    /// 모니터마다 창 하나 — 작업 영역이 바뀌면 다시 만든다 (모니터 연결·해상도·작업표시줄)
+    fn fit_overlays(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect]) {
+        let same = self.overlays.len() == work_areas.len() && self.overlays.iter().zip(work_areas).all(|(o, wa)| o.wa == *wa);
+        if same {
+            return;
+        }
+        for o in self.overlays.drain(..) {
+            let _ = o.window.destroy();
+        }
+        for wa in work_areas {
+            let label = format!("{PREFIX}{}", self.next_label);
+            self.next_label += 1;
+            if let Some((window, scale)) = spawn_overlay(app, &label, wa) {
+                self.overlays.push(Overlay { window, label, wa: *wa, scale, paused: false, born: now, resent: now, last: None });
+            }
+        }
+    }
+
+    /// 날씨가 꺼졌다: 창을 모두 닫고 더미도 잊는다 — 이제부터 일이 없다
+    fn tear_down(&mut self, slots: &mut [Slot]) {
+        for o in self.overlays.drain(..) {
+            let _ = o.window.destroy();
+        }
+        if let Some((window, _)) = self.ball.take() {
+            let _ = window.destroy();
+        }
+        if let Some(s) = self.snowman.take() {
+            let _ = s.window.destroy();
+        }
+        self.field = new_field(self.seed, self.preview);
+        for s in slots.iter_mut() {
+            s.pet.set_petals(false);
+            s.pet.set_snow_ready(false);
+        }
+    }
+}
+
+fn new_field(seed: u64, preview: Option<Option<Weather>>) -> PileField {
+    PileField::new(seed, if preview.is_some() { PREVIEW_GROW } else { 1.0 })
+}
+
+fn on_area(wa: &Rect, x: f64) -> bool {
+    x >= wa.left && x < wa.right
+}
+
+fn bottom_center(x: f64, y: f64, (w, h): (f64, f64), dpi: f64) -> (i32, i32) {
+    ((x - w * dpi / 2.0).round() as i32, (y - h * dpi).round() as i32)
+}
+
+/// 이 작업 영역이 있는 모니터의 배율
+fn scale_of(app: &AppHandle, wa: &Rect) -> f64 {
+    let (cx, cy) = ((wa.left + wa.right) / 2.0, (wa.top + wa.bottom) / 2.0);
+    let monitors = app.available_monitors().unwrap_or_default();
+    let found = monitors.iter().find(|m| {
+        let (p, s) = (m.position(), m.size());
+        cx >= p.x as f64 && cx < p.x as f64 + s.width as f64 && cy >= p.y as f64 && cy < p.y as f64 + s.height as f64
+    });
+    found.map_or(1.0, |m| m.scale_factor())
+}
+
+/// 작업 영역을 꼭 덮는 투명 창. 클릭·드래그는 그 아래(동물·다른 앱)로 간다
+fn spawn_overlay(app: &AppHandle, label: &str, wa: &Rect) -> Option<(WebviewWindow, f64)> {
+    let scale = scale_of(app, wa);
+    let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("weather.html".into()))
+        .title("ScreenPet Weather")
+        .inner_size(wa.width() / scale, wa.height() / scale)
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .focused(false)
+        .visible(false)
+        .build()
+        .inspect(crate::overlay::float_everywhere);
+    let window = match built {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("failed to create weather overlay: {e}");
+            return None;
+        }
+    };
+    let _ = window.set_position(PhysicalPosition::new(wa.left.round() as i32, wa.top.round() as i32));
+    let _ = window.set_size(PhysicalSize::new(wa.width().round() as u32, wa.height().round() as u32));
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = window.show();
+    Some((window, scale))
+}

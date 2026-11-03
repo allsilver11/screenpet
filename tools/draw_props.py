@@ -4,6 +4,7 @@
                                   + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop,apple,milk,bread,leaf,watermelon,broccoli,grapes}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
+                                  + ui/effects/{snowball,snowman}.png (계절 날씨) + tools/preview/snowman.png
 
 앱(src-tauri/src/prop.rs)은 동물이 먹을 때 몸 앞 바닥에 WIDTH × HEIGHT(논리 px, 몸 배율 1 기준) 투명 창을 띄우고
 그림을 아래 가운데에 붙여 보인다 (ui/prop.html). 쿠키는 입가에, 꽃은 꿀벌이 내려앉는 자리에 핀다.
@@ -382,6 +383,91 @@ HAND_NAMES += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡: 노
 HAND_DRAW.update(hand_watermelon=hand_watermelon, hand_broccoli=hand_broccoli, hand_grapes=hand_grapes)
 
 
+# ---- 계절 날씨: 눈덩이(굴리는 중) · 눈사람 (바닥 가운데 아래에 앉는다, src-tauri/src/weather.rs) ----
+SNOWMAN_W, SNOWMAN_H = 64, 80
+SNOWBALL = 40
+SNOW = (252, 253, 255)
+SNOW_SHADE = (214, 228, 244)
+SCARF, SCARF_DARK = (232, 92, 96), (196, 66, 76)
+COAL = (70, 62, 72)
+
+
+def seasonal_box(w, h):
+    return ((FRAME - w) // 2, FRAME - h, (FRAME + w) // 2, FRAME)
+
+
+def draw_snowball(img):
+    """굴리는 눈덩이 — 동글, 아래쪽 푸른 그늘, 반짝이 하나."""
+    cx, cy, r = 64, BOTTOM - 15, 15
+    blob(img, [C(cx, cy, r)], SNOW, r=0.4, line=0.9,
+         marks=[([E(cx - r + 3, cy + 3, cx + r - 3, cy + r + 2)], SNOW_SHADE),
+                ([C(cx - 7, cy + 6, 1.4), C(cx + 6, cy - 1, 1.2), C(cx + 2, cy + 9, 1.1)], SNOW_SHADE)])
+
+
+def draw_snowman(img):
+    """작은 눈사람 — 두 덩이 몸, 나뭇가지 팔, 빨간 털모자와 목도리, 당근 코, 볼터치."""
+    # 팔 (몸 뒤)
+    blob(img, [L([(52, 92), (37, 80)], 2.6), L([(41, 84), (37, 89)], 2.0)], TWIG, r=0, line=0.75)
+    blob(img, [L([(76, 92), (91, 80)], 2.6), L([(87, 84), (91, 89)], 2.0)], TWIG, r=0, line=0.75)
+    base_y, base_r = BOTTOM - 20, 20
+    blob(img, [C(64, base_y, base_r), C(64, 79, 15.5)], SNOW, r=1.0, line=0.95,
+         marks=[([E(47, base_y + 5, 81, base_y + base_r + 2)], SNOW_SHADE),
+                ([C(64, 99, 1.9), C(64, 108, 1.9)], COAL)])
+    # 목도리 + 늘어진 자락
+    blob(img, [L([(52.5, 91), (75.5, 91)], 5.4)], SCARF, r=0.4, line=0.75)
+    blob(img, [T((68, 92), (75, 92), (76, 103), (69, 103))], SCARF, r=0.5, line=0.75,
+         marks=[([L([(70, 99.5), (75, 99.5)], 1.0)], SCARF_DARK)])
+    # 얼굴
+    paint(img, aa(shapes([C(58.5, 80, 2.1), C(69.5, 80, 2.1)])), COAL)
+    paint(img, aa(shapes([C(57.9, 79.3, 0.7), C(68.9, 79.3, 0.7)])), WHITE)
+    paint(img, aa(shapes([E(52.5, 83, 56.5, 85.4), E(71.5, 83, 75.5, 85.4)])), (250, 180, 180))
+    blob(img, [T((62.5, 82.2), (62.5, 86.2), (74, 84.6))], CARROT, r=0.4, line=0.6)
+    # 털모자 + 방울
+    blob(img, [E(52, 54, 76, 71)], SCARF, r=0.6, line=0.85,
+         marks=[([E(55.5, 56, 62, 60)], mix(SCARF, WHITE, 0.4))])
+    blob(img, [L([(51.5, 69), (76.5, 69)], 4.4)], mix(SCARF, WHITE, 0.72), r=0.3, line=0.75)
+    blob(img, [C(64, 52.5, 3.6)], SNOW, r=0, line=0.75)
+
+
+SEASONAL = {"snowball": (draw_snowball, SNOWBALL, SNOWBALL), "snowman": (draw_snowman, SNOWMAN_W, SNOWMAN_H)}
+
+
+def draw_seasonal(name):
+    fn, w, h = SEASONAL[name]
+    img = new_canvas()
+    with view(scale=1.0, lift=0):
+        fn(img)
+    return finish(img).crop(seasonal_box(w, h))
+
+
+def build_seasonal(out_dir=OUT_DIR):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    arts = {}
+    for name in SEASONAL:
+        arts[name] = draw_seasonal(name)
+        arts[name].save(out_dir / f"{name}.png")
+    return arts
+
+
+def preview_seasonal(arts):
+    """눈 위의 128px 고양이 옆에 놓아 본다 (밝은 바탕·어두운 바탕, 2배)."""
+    sheet = ROOT / "ui" / "pets" / "cat" / "sheet_teenager.png"
+    pad = 8
+    w = FRAME + sum(a.width + pad for a in arts.values()) + pad
+    im = Image.new("RGBA", (w, 2 * FRAME), (246, 242, 236, 255))
+    im.paste((58, 66, 88, 255), (0, FRAME, w, 2 * FRAME))
+    for row in (0, FRAME):
+        if sheet.is_file():
+            im.alpha_composite(Image.open(sheet).convert("RGBA").crop((0, 0, FRAME, FRAME)), (0, row))
+        x = FRAME
+        for art in arts.values():
+            im.alpha_composite(art, (x, row + FRAME - art.height))
+            x += art.width + pad
+    PREVIEW.parent.mkdir(parents=True, exist_ok=True)
+    im.resize((im.width * 2, im.height * 2), Image.NEAREST).save(PREVIEW.with_name("snowman.png"))
+
+
 DRAW = {"bowl_food": draw_bowl_food, "bowl_water": draw_bowl_water, "cookie": draw_cookie, "flower": draw_flower}
 
 
@@ -433,6 +519,7 @@ def main():
     arts = build()
     preview(arts)
     preview_hand(build_hand())
+    preview_seasonal(build_seasonal())
     print("ok: props")
 
 

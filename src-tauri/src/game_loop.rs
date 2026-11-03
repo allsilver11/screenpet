@@ -23,6 +23,7 @@ use crate::network::{NetInput, Network};
 use crate::pets::PetEntry;
 use crate::prop::{HandWindow, Props};
 use crate::slots::{self, GuestInfo, Role, Slot, StagePayload, OWN_LABEL};
+use crate::weather::WeatherFx;
 use crate::AppState;
 
 const TICK: Duration = Duration::from_millis(16);
@@ -53,6 +54,8 @@ pub enum Input {
     ToggleControl,
     /// 🐾 커서 장난 켜기 / 끄기 (설정에 남는다)
     ToggleCursorPlay,
+    /// 🌨️ 날씨 효과 켜기 / 끄기 (트레이·우클릭 체크 항목)
+    ToggleWeather,
     /// 하우스 창을 눌렀다 (배고프면 음식 고르기, 아니면 손 흔들기)
     HouseClick,
     /// 하우스를 끌어 옮겼다 (house.rs). save = 다 놓았음 — 새 자리를 설정에 적는다
@@ -222,6 +225,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     // 직접 주기: 커서 끝에 붙은 음식과 그 그림 창
     let mut hand: Option<HandFeed> = None;
     let mut hand_win = HandWindow::default();
+    // 계절 날씨 (철이 아니거나 꺼 두면 창도 일도 없다)
+    let mut weather = WeatherFx::new(seed_now());
     // 한 화면의 동물끼리(내 동물 + 손님) 인사·술래 놀이
     let mut social = Social::new(seed_now());
     // 🎮 조작 모드: 켜진 동안만 키를 읽는다 (읽기만 — 앞에 있는 창에도 그대로 간다)
@@ -369,6 +374,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                             let _ = app.emit_to(speech_target(&own.pet), "pet-say-text", crate::tray::CONTROL_HINT);
                         }
                     }
+                }
+                Input::ToggleWeather => {
+                    config.weather_off = !config.weather_off;
+                    weather.sync_menu(&app, config.weather_off);
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
                 Input::ToggleCursorPlay => {
                     config.cursor_play_off = !config.cursor_play_off;
@@ -615,6 +625,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         decals.tick(now);
         props.tick(now);
         hand_win.tick(now);
+        weather.tick(&app, now, config.weather_off, &mut slots);
         let own = &mut slots[OWN];
         let busy = network.own_busy(own);
         if busy != was_busy {

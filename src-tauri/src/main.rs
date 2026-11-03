@@ -10,6 +10,7 @@ mod pets;
 mod prop;
 mod slots;
 mod tray;
+mod weather;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

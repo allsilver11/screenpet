@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- 계절 날씨 (src-tauri/src/weather.rs, ui/weather.js): 모니터 하나를 덮는 마우스 통과 투명 창.
+         더미 캔버스는 장면이 바뀔 때만, 알갱이 캔버스는 알갱이 자리만 지우고 다시 그린다. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+        pointer-events: none;
+      }
+
+      canvas {
+        position: absolute;
+        left: 0;
+        top: 0;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="piles"></canvas>
+    <canvas id="fall"></canvas>
+    <script src="weather.js"></script>
+  </body>
+</html>

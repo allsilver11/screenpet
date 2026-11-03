@@ -31,6 +31,24 @@
         animation: pop 260ms ease-out both;
       }
 
+      /* 눈덩이는 굴리는 동안 자란다 (brain_snow.rs ROLL_SECS), 눈사람은 톡 쌓인다 */
+      #prop.snowball {
+        animation: snowball 3s ease-out both;
+      }
+
+      @keyframes snowball {
+        from {
+          transform: scale(0.25);
+        }
+        to {
+          transform: scale(1);
+        }
+      }
+
+      #prop.snowman {
+        animation: bloom 500ms ease-out both;
+      }
+
       /* 꽃은 아래에서 피어오른다 */
       #prop.flower {
         animation: bloom 700ms ease-out both;

@@ -124,3 +124,47 @@ def test_hand_icons_all_differ(hand_built):
     _, arts = hand_built
     blobs = {n: arts[n].tobytes() for n in HAND}
     assert len(set(blobs.values())) == len(HAND)
+
+
+# ---- 계절 날씨: 눈덩이·눈사람 (아래 가운데에 앉는다) ----
+SEASONAL = {"snowball": (40, 40), "snowman": (64, 80)}
+
+
+@pytest.fixture(scope="module")
+def seasonal_built(tmp_path_factory):
+    out = tmp_path_factory.mktemp("seasonal")
+    return out, draw_props.build_seasonal(out)
+
+
+def test_seasonal_sizes_match_the_app():
+    rs = (ROOT / "src-tauri" / "src" / "weather.rs").read_text()
+    assert "const SNOWMAN_SIZE: (f64, f64) = (64.0, 80.0);" in rs
+    assert "const SNOWBALL_SIZE: (f64, f64) = (40.0, 40.0);" in rs
+
+
+@pytest.mark.parametrize("name", SEASONAL)
+def test_seasonal_files_are_transparent_outlined_and_sit_on_the_bottom(seasonal_built, name):
+    out, arts = seasonal_built
+    w, h = SEASONAL[name]
+    for d in (out, ROOT / "ui" / "effects"):
+        im = Image.open(d / f"{name}.png")
+        assert im.size == (w, h) and im.mode == "RGBA"
+    im = arts[name]
+    a = im.getchannel("A")
+    for corner in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
+        assert a.getpixel(corner) == 0, corner
+    x0, y0, x1, y1 = a.getbbox()
+    assert x0 >= 1 and x1 <= w - 1 and y0 >= 0
+    assert h - 3 <= y1 <= h
+    assert abs((x0 + x1) / 2 - w / 2) <= 2
+    solid = [p for x in range(w) for y in range(h) if (p := im.getpixel((x, y)))[3] == 255]
+    assert sum(1 for p in solid if p[0] < 170 and p[1] < 140 and p[2] < 140) >= 30  # 외곽선
+    assert sum(1 for p in solid if min(p[:3]) > 235) >= 200  # 눈은 하얗다
+
+
+def test_snowman_has_a_red_hat_and_a_carrot_nose(seasonal_built):
+    _, arts = seasonal_built
+    im = arts["snowman"]
+    px = [p for x in range(64) for y in range(80) if (p := im.getpixel((x, y)))[3] == 255]
+    assert sum(1 for p in px if p[0] > 200 and p[1] < 120 and p[2] < 120) >= 40
+    assert sum(1 for p in px if p[0] > 220 and 120 < p[1] < 170 and p[2] < 100) >= 8

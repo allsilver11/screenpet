@@ -12,6 +12,8 @@ tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fastrand = "2"
+# 지역 날짜 (계절 날씨, weather.rs). Tauri가 이미 쓰는 판
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 screenpet-core = { path = "../crates/screenpet-core" }
 screenpet-net = { path = "../crates/screenpet-net" }
 
