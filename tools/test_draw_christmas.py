@@ -129,21 +129,75 @@ def near(col, tol=24):
     return lambda r, g, b, a: (a > 200) & (np.abs(r - col[0]) + np.abs(g - col[1]) + np.abs(b - col[2]) < tol)
 
 
+def patches(im, col, tol):
+    """그 색의 2×2 덩어리 수 — 빨강·흰색 경계의 안티에일리어싱 낱개 픽셀은 세지 않고, 그려진 코·볼·눈만 잡는다."""
+    a = px(im)
+    h = (a[..., 3] > 200) & (np.abs(a[..., :3] - np.array(col)).sum(axis=2) < tol)
+    return int((h[:-1, :-1] & h[1:, :-1] & h[:-1, 1:] & h[1:, 1:]).sum())
+
+
+def back_frames(out, st):
+    return [("climb", c, frame(out, "santa", "climb", c, st)) for c in range(4)] + [("slide", c, frame(out, "santa", "slide", c, st)) for c in range(2)]
+
+
+def torso_box(st, frame_img):
+    """뒷모습 몸통 칸 (모자 테 바로 아래 ~ 몸 아래끝, 가운데 몸 폭): 프레임 좌표. 그림의 _layout을 현재 단계 배율로 옮기고 불투명 아래끝에 맞춘다."""
+    sp = draw_christmas.SANTA
+    with draw_pets.stage(st, sp.stage_tweak.get(st)):
+        s = sp.scale * draw_pets._ST["fit"]
+        ss = draw_christmas._sa()
+        cy_b, hy = draw_christmas._layout(ss, draw_christmas.SA_FLOOR - 1)
+        to_y = lambda y: 126 + (y - 126) * s
+        half = ss["brx"] * s * 0.8
+        top, body_bottom = to_y(hy + ss["hr"] * 0.08), to_y(cy_b + ss["bry"] * 0.72)
+    return round(64 - half), round(top), round(64 + half), round(body_bottom)
+
+
 def test_santa_climbs_with_his_back_to_us(out):
-    """뒷모습: 빨간 등·모자 + 방울, 얼굴 없음 (눈·코·볼 없음), 벨트는 어린이부터, 자루는 어른만, 버클 없음."""
+    """뒷모습은 뒷모습으로 읽혀야 한다: 어느 단계에도 살색·얼굴 없음, 벨트는 어린이부터 등 쪽 띠로, 버클 없음, 자루는 어른만."""
     for st in STAGES:
-        for anim, n in (("climb", 4), ("slide", 2)):
-            for c in range(n):
-                im = frame(out, "santa", anim, c, st)
-                assert count(im, near(draw_christmas.SUIT)) >= 400, (st, anim, c)
-                assert count(im, near(draw_christmas.FUR, 10)) >= 200, (st, anim, c)
-                assert count(im, near((250, 166, 156), 16)) < 10, (st, anim, c)  # 앞모습 코가 없다 (코면 수십 px)
-                assert count(im.crop((0, 0, FRAME, 66)), near(draw_pets.EYE, 12)) < 30, (st, anim, c)  # 머리 쪽에 눈이 없다 (장화·허리띠는 아래, 눈이면 하나에 수십 px)
-                assert count(im, near(draw_christmas.BUCKLE, 30)) < 30, (st, anim, c)  # 버클 없음 (어른 자루의 선물 리본이 몇 px)
-                sack = count(im, near(draw_christmas.SACK, 16))
-                assert (sack >= 200) == (st == "adult"), (st, anim, c, sack)
-                belt = count(im, near(draw_christmas.BELT, 16))
-                assert (belt >= 60) == (st in ("child", "teenager", "adult")), (st, anim, c, belt)
+        for anim, c, im in back_frames(out, st):
+            assert count(im, near(draw_christmas.SUIT)) >= 400, (st, anim, c)
+            assert count(im, near(draw_christmas.SKIN, 14)) == 0, (st, anim, c)  # 살색이 어디에도 없다
+            assert patches(im, draw_christmas.CHEEK_RED, 14) == 0, (st, anim, c)  # 볼터치가 없다
+            assert patches(im, (250, 166, 156), 16) == 0, (st, anim, c)  # 코가 없다
+            assert patches(im.crop((0, 0, FRAME, 66)), draw_pets.EYE, 12) == 0, (st, anim, c)  # 눈이 없다
+            gold = im.crop((0, 95, FRAME, FRAME)) if st == "adult" else im  # 어른의 선물 상자 리본은 위쪽, 버클 자리는 아래쪽
+            assert count(gold, near(draw_christmas.BUCKLE, 30)) == 0, (st, anim, c)
+            sack = count(im, near(draw_christmas.SACK, 16))
+            assert (sack >= 200) == (st == "adult"), (st, anim, c, sack)
+            belt = count(im, near(draw_christmas.BELT, 16))
+            assert (belt >= 60) == (st in ("child", "teenager", "adult")), (st, anim, c, belt)
+
+
+def test_santa_back_torso_is_red_not_a_big_white_oval(out):
+    """모자 아래 몸통은 빨간 등판 — 수염·머리칼이 차지하는 흰 부분은 없다 (얼굴 없는 앞모습처럼 보이던 큰 흰 타원 금지)."""
+    for st in STAGES:
+        for anim, c, im in back_frames(out, st):
+            box = im.crop(torso_box(st, im))
+            white = count(box, near(draw_christmas.FUR, 16)) + count(box, near(draw_christmas.FUR_SHADE, 16))
+            red = count(box, near(draw_christmas.SUIT))
+            area = box.width * box.height
+            assert white <= 0.03 * area, (st, anim, c, white, area)
+            if st != "adult":  # 어른은 자루가 등을 덮는다
+                assert red >= 0.6 * area, (st, anim, c, red, area)
+
+
+def test_santa_back_hair_is_a_thin_line_and_beard_tips_barely_show(out):
+    """모자 테 아래 머리 자리: 가운데 세로줄에서 흰색은 얇은 한 줄(몇 px)뿐, 그 아래는 곧장 빨강."""
+    for st in STAGES:
+        im = frame(out, "santa", "climb", 1, st)
+        sp = draw_christmas.SANTA
+        with draw_pets.stage(st, sp.stage_tweak.get(st)):
+            s = sp.scale * draw_pets._ST["fit"]
+            ss = draw_christmas._sa()
+            _, hy = draw_christmas._layout(ss, draw_christmas.SA_FLOOR - 1)
+            y0 = round(126 + (hy - ss["hr"] * 0.02 - 126) * s)
+            hr = ss["hr"] * s
+        below = im.crop((58, y0, 70, y0 + round(hr * 0.5)))
+        assert count(below, near(draw_christmas.FUR, 16)) <= 2 * below.width, (st, count(below, near(draw_christmas.FUR, 16)))
+        if st != "adult":  # 어른은 자루 위 선물 상자가 이 자리까지 올라온다
+            assert count(below, near(draw_christmas.SUIT)) >= 0.5 * below.width * below.height, st
 
 
 def test_santa_mitts_and_boots_take_turns_on_the_climb(out):

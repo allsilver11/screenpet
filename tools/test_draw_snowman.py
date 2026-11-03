@@ -92,11 +92,11 @@ def test_accessories_grow_with_age(out):
     holly = [count(frame(out, "sit_front", 0, st), draw_snowman.HOLLY) for st in STAGES]
     buttons = [draw_snowman.SN_STAGE[lvl]["buttons"] for lvl in range(len(STAGES))]
     assert scarf[0] == 0 and all(s >= 40 for s in scarf[1:]), scarf
-    assert pail[0] == pail[1] == 0 and all(p >= 40 for p in pail[2:]), pail
-    assert holly[3] == 0 and holly[4] >= 4, holly
+    assert pail[0] == pail[1] == 0 and all(p >= 45 for p in pail[2:]), pail
+    assert holly[3] == 0 and holly[4] >= 5, holly
     assert buttons == [0, 1, 2, 3, 3]  # 단추가 늘어난다
     assert count(frame(out, "sit_front", 0, "baby").crop((30, 96, 98, FRAME)), draw_snowman.COAL, 16) == 0
-    assert count(frame(out, "sit_front", 0, "teenager").crop((30, 72, 98, FRAME)), draw_snowman.COAL, 16) >= 12
+    assert count(frame(out, "sit_front", 0, "teenager").crop((30, 72, 98, FRAME)), draw_snowman.COAL, 16) >= 15
 
 
 def test_readable_on_white(out):

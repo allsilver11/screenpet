@@ -12,7 +12,7 @@
 산타: 큰 머리 꼬마 산타 — 빨간 옷·모자(흰 방울), 복슬 흰 수염, 발그레 볼, 동글 배, 검은 허리띠 + 금 버클, 작은 장화.
       단계: 아기 = 모자 + 작은 수염 뭉치 (몸은 동글 빨간 콩) → 유아 장갑 → 어린이 허리띠 → 청소년 콧수염 + 버클 → 어른 큰 배 + 선물 자루.
       roll(구르기) 대신 썰매를 타고 미끄러진다 (옆모습, 방울·목도리 펄럭, 썰매 날 뒤로 눈가루) — pet.json roll에 spin이 없어 앱이 돌리지 않는다.
-      고양이처럼 벽을 탄다: 뒷모습 climb·slide (빨간 등·허리띠, 모자 + 방울, 수염 끝만 살짝, 어른은 등에 자루, 장화는 몸 뒤에서 번갈아 빼꼼).
+      고양이처럼 벽을 탄다: 뒷모습 climb·slide (살색 없이 빨간 등판·허리띠, 모자 + 방울, 그 아래 흰 머리칼 한 줄, 볼 옆 수염 끝만 살짝, 어른은 등에 자루, 장화는 몸 뒤에서 번갈아 빼꼼).
 eat에는 밥그릇이 없다 (앱의 소품 창이 그릇을 띄운다).
 """
 
@@ -664,28 +664,25 @@ def santa_back(reach, feet, *, sq=(1.0, 1.0), dy=0.0, pom=0.0, scratch=None, swe
             tx = cx + s_ * hr * (1.3 - 0.5 * r)
             ty = hy + hr * (0.42 - 0.95 * r if r <= 0.62 else -0.17 - 2.7 * (r - 0.62))  # 머리 옆 낮게 → 모자 테 아래 → 모자 위로 쭉
             parts.append(dp.Part([L([(cx + s_ * hr * 0.62, hy + hr * 0.5), (tx, ty)], 9.5)], SUIT, outline=True, grow=0))
-            parts.append(dp.Part([C(tx, ty, 6.6)], MITT if lvl else SKIN, [([C(tx - 1.6, ty - 1.8, 1.8)], MITT_LIGHT if lvl else WHITE)], outline=True, grow=0))
+            # 아기는 맨손이지만 뒤에서는 살색 대신 흰 털 소맷부리만 보인다
+            parts.append(dp.Part([C(tx, ty, 6.6)], MITT if lvl else FUR, [([C(tx - 1.6, ty - 1.8, 1.8)], MITT_LIGHT if lvl else FUR_SHADE)], outline=True, grow=0))
             if scratch is not None:
                 for j, d in enumerate((-4, 0, 4)):
                     y0 = ty - 9 - (j % 2) * 1.5 - scratch * 2
                     ops.append(([L([(tx + d * 1.1, y0), (tx + d * 1.3, y0 - 7)], 1.5)], LINE, 1.0, 0, 0))
-        # 등: 빨간 옷 + 아래 흰 털 단 + 허리띠 (버클은 앞에 있어 안 보인다), 등솔기
-        marks = [([E(cx - brx * 1.3, cy_b + bry * 0.6, cx + brx * 1.3, cy_b + bry * 1.7)], FUR),
-                 ([E(cx - brx * 1.3, cy_b + bry * 1.05, cx + brx * 1.3, cy_b + bry * 1.7)], FUR_SHADE),
-                 ([E(cx + brx * 0.3, cy_b - bry * 0.7, cx + brx * 0.7, cy_b - bry * 0.35)], mix(SUIT, WHITE, 0.3))]
-        if lvl >= 1:
-            marks.append(([L([(cx, cy_b - bry), (cx, cy_b + bry * 0.62)], 1.6)], SUIT_SHADE))
+        # 수염 끝: 좌우 볼 옆으로 조금만 — 빨간 등판보다 먼저 그려 가장자리만 삐져나온다
+        k = st["beard"]
+        parts.append(dp.Part([C(cx + s_ * hr * 0.8, hy + 0.14 * hr, hr * (0.14 + 0.08 * k)) for s_ in (-1, 1)], FUR, outline=True, grow=0))
+        # 등판: 머리 자리부터 엉덩이까지 한 덩어리 빨간 옷. 맨 위 모자 테 바로 아래에 흰 머리칼 한 줄, 맨 아래 얇은 털 단, 허리띠 (버클은 앞에 있어 안 보인다), 자락 트임
+        nape_top, nape_bot = hy - hr * 0.6, hy + hr * 0.62
+        marks = [([E(cx - hr, hy - hr * 0.62, cx + hr, hy - hr * 0.02)], FUR),
+                 ([E(cx - brx * 1.3, cy_b + bry * 0.8, cx + brx * 1.3, cy_b + bry * 1.7)], FUR),
+                 ([E(cx + brx * 0.3, cy_b - bry * 0.55, cx + brx * 0.7, cy_b - bry * 0.22)], mix(SUIT, WHITE, 0.3))]
+        marks.append(([L([(cx, cy_b + bry * 0.42), (cx, cy_b + bry * 0.84)], 1.5)], SUIT_SHADE))  # 코트 자락 트임 (긴 줄이면 책처럼 보인다)
         if st["belt"]:
             marks.append(([T((cx - brx * 1.1, cy_b + bry * 0.02), (cx + brx * 1.1, cy_b + bry * 0.02),
                              (cx + brx * 1.1, cy_b + bry * 0.36), (cx - brx * 1.1, cy_b + bry * 0.36))], BELT))
-        parts.append(dp.Part([E(cx - brx, cy_b - bry, cx + brx, cy_b + bry)], SUIT, marks, outline=True, grow=0))
-        # 뒤통수: 볼 옆으로 수염 끝이 살짝, 그 위에 흰 머리칼 + 모자
-        k = st["beard"]
-        tips = [C(cx + s_ * hr * 0.9, hy + 0.42 * hr, hr * (0.14 + 0.1 * k)) for s_ in (-1, 1)]
-        tips += [C(cx + s_ * hr * 0.66, hy + 0.56 * hr + 2 * k, hr * (0.14 + 0.1 * k)) for s_ in (-1, 1)]
-        parts.append(dp.Part(tips, FUR, outline=True, grow=0))
-        nape = [E(cx - hr * 0.9, hy - hr * 0.6, cx + hr * 0.9, hy + hr * 0.6)]
-        parts.append(dp.Part(nape, FUR if lvl >= 1 else SKIN, [([E(cx - hr, hy + hr * 0.3, cx + hr, hy + hr * 0.8)], FUR_SHADE if lvl >= 1 else mix(SKIN, CHEEK_RED, 0.2))], outline=True, grow=0))
+        parts.append(dp.Part([E(cx - brx, cy_b - bry, cx + brx, cy_b + bry), E(cx - hr * 0.82, nape_top, cx + hr * 0.82, nape_bot)], SUIT, marks, outline=True, grow=0))
         parts += _hat_parts(cx, hy, hr, False, pom, lvl)
         if st["sack"]:  # 어른: 등에 멘 선물 자루 — 등 한가운데, 입구로 선물 상자가 빼꼼
             sx0, sy0, sx1, sy1 = cx - 18, cy_b - bry * 0.82, cx + 18, cy_b + bry * 0.98
