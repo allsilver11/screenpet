@@ -28,6 +28,9 @@ async function loadPet() {
   const seq = ++loadSeq;
   const { manifest: m, url, img } = await loadPetSheet(stage.pet, stage.stage);
   if (seq !== loadSeq) return; // 그 사이 다른 동물/단계로 바뀜
+  sheetImg = img;
+  headCache.clear();
+  headgearAt = null;
   const side = 128 * stage.scale;
   petEl.style.width = side + "px";
   // 창 가운데 (창 너비는 128 × max(1, 배율), 편지 쪽지를 펼친 동안은 더 넓다 — 백엔드가 몸을 창 가운데에 둔다)
@@ -143,6 +146,101 @@ function jitter(f, now) {
   return `translate(${(Math.sin(now / 17) * amp).toFixed(2)}px, ${(Math.cos(now / 23) * amp * 0.5).toFixed(2)}px)`;
 }
 
+// 수면 모자·집중 고리 (백엔드 pet-presence {nightcap, ring}): 시트의 지금 칸에서 머리 꼭대기를 찾아 그 위에 얹는다 —
+// 동물·자세마다 머리 자리가 달라도 맞는다. 칸마다 한 번 재서 기억하고, 그릴 때도 칸이 바뀔 때만 옮긴다 (둘 다 꺼져 있으면 아무 일도 안 한다)
+const nightcapEl = document.getElementById("nightcap");
+const focusringEl = document.getElementById("focusring");
+const focusringFill = document.getElementById("focusring-fill");
+const headCache = new Map();
+let sheetImg = null;
+let headgearAt = null;
+
+// 앞모습 동작 (코어 Anim::is_front) — 머리가 가운데다. 옆모습은 시트에서 오른쪽을 본다
+const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "wag", "hungry", "eat", "level_up", "huff", "sting"]);
+
+// 불투명한 덩어리 중 가장 큰 것 (zzz·반짝이처럼 떨어진 조각은 머리가 아니다) → 칸 안 칸번호 목록
+function largestBlob(data, size) {
+  const seen = new Uint8Array(size * size);
+  const stack = [];
+  let best = [];
+  for (let start = 0; start < seen.length; start++) {
+    if (seen[start] || data[start * 4 + 3] <= 128) continue;
+    const blob = [];
+    seen[start] = 1;
+    stack.push(start);
+    while (stack.length) {
+      const c = stack.pop();
+      blob.push(c);
+      const x = c % size;
+      const near = [x > 0 ? c - 1 : -1, x < size - 1 ? c + 1 : -1, c - size, c + size];
+      for (const n of near) {
+        if (n >= 0 && n < seen.length && !seen[n] && data[n * 4 + 3] > 128) {
+          seen[n] = 1;
+          stack.push(n);
+        }
+      }
+    }
+    if (blob.length > best.length) best = blob;
+  }
+  return best;
+}
+
+// 칸 (row, f)의 머리 꼭대기: 칸 왼쪽 위 기준 {x, y} (시트 px). 몸통 덩어리에서, 옆모습이면 앞쪽(오른쪽) 45%만 본다
+function headTop(row, f, front) {
+  const key = `${row}:${f}`;
+  if (headCache.has(key)) return headCache.get(key);
+  const size = manifest.frame_size;
+  let top = { x: size / 2, y: size * 0.15 };
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(sheetImg, f * size, row * size, size, size, 0, 0, size, size);
+    const blob = largestBlob(ctx.getImageData(0, 0, size, size).data, size);
+    if (blob.length) {
+      const xs = blob.map((c) => c % size);
+      const [lo, hi] = [Math.min(...xs), Math.max(...xs)];
+      const from = front ? lo : hi - (hi - lo) * 0.45;
+      const part = blob.filter((c) => c % size >= from);
+      const first = Math.min(...part.map((c) => Math.floor(c / size)));
+      // 맨 위 줄부터 조금 아래까지의 가운데 (귀 끝 한 점에 쏠리지 않게)
+      const band = part.filter((c) => Math.floor(c / size) < first + size * 0.08).map((c) => c % size);
+      top = { x: band.reduce((a, b) => a + b, 0) / band.length, y: first };
+    }
+  } catch {
+    // 시트를 읽지 못하면 칸 위쪽 가운데
+  }
+  headCache.set(key, top);
+  return top;
+}
+
+function placeHeadgear(row, f) {
+  const key = `${row}:${f}:${render.flip}:${display}`;
+  if (key === headgearAt) return;
+  headgearAt = key;
+  const k = display / manifest.frame_size;
+  const head = headTop(row, f, FRONT_ANIMS.has(render.anim));
+  const x = (render.flip ? manifest.frame_size - head.x : head.x) * k + (stageEl.clientWidth - display) / 2;
+  const y = display - head.y * k;
+  // 모자 끝은 머리 뒤로 처진다 (그림의 방울은 오른쪽)
+  const tilt = render.flip ? 12 : -12;
+  const size = Math.sqrt(stage.scale);
+  nightcapEl.style.transform = `translate(${(x - 15).toFixed(1)}px, ${(-y + 8 * size).toFixed(1)}px) scale(${size.toFixed(2)}) rotate(${tilt}deg)${render.flip ? "" : " scaleX(-1)"}`;
+  focusringEl.style.transform = `translate(${(x - 10).toFixed(1)}px, ${(-y - 2).toFixed(1)}px)`;
+}
+
+let lastPresence = null;
+listen("pet-presence", (e) => {
+  const p = e.payload ?? {};
+  if (lastPresence?.nightcap === p.nightcap && lastPresence?.ring === p.ring) return;
+  lastPresence = p;
+  nightcapEl.toggleAttribute("hidden", !p.nightcap);
+  const ring = typeof p.ring === "number";
+  focusringEl.toggleAttribute("hidden", !ring);
+  if (ring) focusringFill.setAttribute("stroke-dashoffset", String(100 - p.ring));
+  headgearAt = null;
+});
+
 function draw(now) {
   if (manifest) {
     // 교체된 동물에 없는 종 전용 애니메이션이어도 throw로 rAF가 끊기지 않게 idle로 대체
@@ -151,6 +249,7 @@ function draw(now) {
     drawNeck(elapsed);
     const f = frameIndex(spec, elapsed);
     petEl.style.backgroundPosition = `${-f * display}px ${-spec.row * display}px`;
+    if (sheetImg && lastPresence && (lastPresence.nightcap || typeof lastPresence.ring === "number")) placeHeadgear(spec.row, f);
     // 좌우 반전 공간 안에서 돌리므로 왼쪽으로 갈 땐 자동으로 반대로 구른다
     const parts = [];
     const shake = jitter(f, now);

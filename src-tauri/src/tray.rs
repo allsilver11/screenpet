@@ -1,6 +1,7 @@
 use screenpet_core::care::{growth_label, Care, Food};
 use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
+use screenpet_core::presence::FocusLength;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use std::sync::atomic::Ordering;
@@ -46,6 +47,10 @@ const WEATHER_ID: &str = "weather";
 /// 🐾 커서 장난 체크 항목 (설정에 남는다)
 const CURSOR_PLAY_ID: &str = "cursor-play";
 const CURSOR_PLAY_LABEL: &str = "🐾 커서 장난";
+/// ⏱️ 집중 친구 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남는다)
+const FOCUS_TOGGLE_ID: &str = "focus:toggle";
+const FOCUS_SHORT_ID: &str = "focus:short";
+const FOCUS_LONG_ID: &str = "focus:long";
 const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift, Esc로 끝)";
 /// 조작 모드를 켤 때 내 동물 머리 위에 잠깐 (키가 다른 창에도 들어간다는 것도)
 pub const CONTROL_HINT: &str = "🎮 ←→ 걷기 · Shift 달리기 · Space 점프 · ↓ 앉기 (방향키가 다른 창에도 입력돼요)";
@@ -102,6 +107,11 @@ pub struct TrayMenu {
     pub cursor_play: CheckMenuItem<Wry>,
     /// 🌨️ 날씨 효과 (11~3월)
     pub weather: CheckMenuItem<Wry>,
+    /// ⏱️ 집중 친구 ▸ (켜져 있으면 글자에 ✓)
+    pub focus: Submenu<Wry>,
+    pub focus_toggle: CheckMenuItem<Wry>,
+    pub focus_short: CheckMenuItem<Wry>,
+    pub focus_long: CheckMenuItem<Wry>,
     /// 동물 고르기 항목 (항목, 동물 id) — `캐릭터: <지금 동물> ▸` 하위 메뉴 안
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
     pub pets_menu: Submenu<Wry>,
@@ -129,6 +139,22 @@ fn feed_mode_label(which: FeedMode, current: FeedMode) -> String {
         format!("{name} ✓")
     } else {
         name.to_string()
+    }
+}
+
+/// 집중 친구 메뉴를 실제 상태로 다시 맞춘다 (체크 항목은 누를 때 스스로 뒤집힌다)
+pub fn sync_focus(menu: &TrayMenu, running: bool, length: FocusLength) {
+    let _ = menu.focus.set_text(focus_label(running));
+    let _ = menu.focus_toggle.set_checked(running);
+    let _ = menu.focus_short.set_checked(length == FocusLength::Short);
+    let _ = menu.focus_long.set_checked(length == FocusLength::Long);
+}
+
+fn focus_label(running: bool) -> &'static str {
+    if running {
+        "⏱️ 집중 친구 ✓"
+    } else {
+        "⏱️ 집중 친구"
     }
 }
 
@@ -364,6 +390,10 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let control = CheckMenuItem::with_id(app, CONTROL_ID, CONTROL_LABEL, true, false, None::<&str>)?;
     let weather = CheckMenuItem::with_id(app, WEATHER_ID, "🌨️ 날씨 효과", false, false, None::<&str>)?;
     let cursor_play = CheckMenuItem::with_id(app, CURSOR_PLAY_ID, CURSOR_PLAY_LABEL, true, true, None::<&str>)?;
+    let focus_toggle = CheckMenuItem::with_id(app, FOCUS_TOGGLE_ID, "집중 시작", true, false, None::<&str>)?;
+    let focus_short = CheckMenuItem::with_id(app, FOCUS_SHORT_ID, "25분 집중 · 5분 쉬기", true, true, None::<&str>)?;
+    let focus_long = CheckMenuItem::with_id(app, FOCUS_LONG_ID, "50분 집중 · 10분 쉬기", true, false, None::<&str>)?;
+    let focus = Submenu::with_items(app, focus_label(false), true, &[&focus_toggle, &PredefinedMenuItem::separator(app)?, &focus_short, &focus_long])?;
     let come_home = MenuItem::with_id(app, COME_HOME_ID, "집에 와", false, None::<&str>)?;
     // 게임 루프가 네트워크를 시작한 뒤 채운다
     let friends = Submenu::with_items(app, "친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
@@ -388,6 +418,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&control)?;
     menu.append(&cursor_play)?;
     menu.append(&weather)?;
+    menu.append(&focus)?;
     menu.append(&friends)?;
     menu.append(&toggle)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -416,6 +447,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             CONTROL_ID => send(app, Input::ToggleControl),
             CURSOR_PLAY_ID => send(app, Input::ToggleCursorPlay),
             WEATHER_ID => send(app, Input::ToggleWeather),
+            FOCUS_TOGGLE_ID => send(app, Input::ToggleFocus),
+            FOCUS_SHORT_ID => send(app, Input::SetFocusLength(FocusLength::Short)),
+            FOCUS_LONG_ID => send(app, Input::SetFocusLength(FocusLength::Long)),
             "reset" => send(app, Input::ResetGrowth),
             other => {
                 let net = |input| send(app, Input::Net(input));
@@ -470,5 +504,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, weather, pets: pet_items, pets_menu, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, weather, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, friends, come_home, hand_mode, auto_mode })
 }

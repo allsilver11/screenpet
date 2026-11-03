@@ -31,6 +31,17 @@ function frameIndex(spec, elapsedMs) {
 // getManifest() = 지금 동물의 pet.json (대사 목록). 돌려주는 hidePicker는 먹기 시작하면 부른다.
 // isQuiet() = 참이면 다른 말풍선·음식 고르기를 띄우지 않는다 (손님 편지를 말풍선에 보이는 동안 — 무엇도 덮지 않게, 그냥 버린다).
 // hideBubble은 편지를 띄우기 전에 부른다 (남은 숨김 타이머도 끈다)
+// 곁에 있기·하루 일과·집중 친구의 말 (코어 brain_presence.rs) — 펫 창과 하우스 창이 같이 쓴다. pet.json에 있으면 그쪽이 먼저
+const RHYTHM_SPEECH = {
+  welcome_back: ["you're back!!"],
+  good_morning: ["good morning!"],
+  lunch_time: ["lunch time?"],
+  go_to_bed: ["go to bed~"],
+  yawn: ["*yaaawn*", "yawn~"],
+  break_time: ["break time!"],
+  focus: ["focus!"],
+};
+
 function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => false }) {
   const { invoke } = window.__TAURI__.core;
   // 전역 event.listen은 다른 창 앞으로 보낸(emit_to) 이벤트까지 받는다 — 이 창 앞으로 온 것만 듣는다
@@ -47,7 +58,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
   // 백엔드가 고른 상황(chatter/tickle/grumpy/hiss/hungry/full/level_up/ignore)에 맞는 대사를
   // pet.json speech에서 랜덤으로 띄운다. 그 동물에 없는 상황이면 말풍선 없음.
   listen("pet-say", (e) => {
-    const lines = getManifest()?.speech?.[e.payload] ?? [];
+    const lines = getManifest()?.speech?.[e.payload] ?? RHYTHM_SPEECH[e.payload] ?? [];
     if (!lines.length || !pickerEl.hidden || isQuiet()) return; // 음식 고르기 버튼·편지 쪽지가 우선
     bubbleEl.textContent = lines[Math.floor(Math.random() * lines.length)];
     bubbleEl.hidden = false;

@@ -459,6 +459,21 @@ body {
   display: none;
 }
 
+/* 수면 모자·집중 고리 — 머리 꼭대기 자리는 main.js placeHeadgear */
+#nightcap,
+#focusring {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 2;
+  transform-origin: 50% 100%;
+}
+#nightcap[hidden],
+#focusring[hidden] {
+  display: none;
+}
+
 /* 편지 "💌 <주인>: <편지>"는 평소 말풍선(#bubble)에 — 여러 줄로 감싸고, 아래 끝(꼬리)은 한 줄 말풍선과
    같은 자리라 위로 자란다. 그동안 창이 위로 60px·너비 232px 이상으로 커진다(백엔드 note_space).
    5줄까지 (넘치면 …, 안쪽 span — 말풍선 자체를 overflow로 자르면 꼬리가 잘린다). 글자는 textContent로만 */

@@ -7,6 +7,7 @@ mod house;
 mod network;
 mod overlay;
 mod pets;
+mod presence;
 mod prop;
 mod slots;
 mod tray;

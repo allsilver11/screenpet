@@ -12,6 +12,7 @@ use screenpet_core::geom::Rect;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::pacing::Pacer;
 use screenpet_core::platform::{default_source, WindowSource};
+use screenpet_core::presence::FocusLength;
 use screenpet_core::social::Social;
 use screenpet_core::visit::Side;
 use screenpet_core::world::World;
@@ -21,6 +22,7 @@ use crate::decal::Decals;
 use crate::house::{self, HouseState};
 use crate::network::{NetInput, Network};
 use crate::pets::PetEntry;
+use crate::presence::Presence;
 use crate::prop::{HandWindow, Props};
 use crate::slots::{self, GuestInfo, Role, Slot, StagePayload, OWN_LABEL};
 use crate::weather::WeatherFx;
@@ -56,6 +58,10 @@ pub enum Input {
     ToggleCursorPlay,
     /// 🌨️ 날씨 효과 켜기 / 끄기 (트레이·우클릭 체크 항목)
     ToggleWeather,
+    /// ⏱️ 집중 친구 시작 / 그만 (켜져 있는지는 설정에 남지 않는다)
+    ToggleFocus,
+    /// ⏱️ 집중 친구 길이 (설정에 남는다, 켜져 있으면 새 길이로 다시 시작)
+    SetFocusLength(FocusLength),
     /// 하우스 창을 눌렀다 (배고프면 음식 고르기, 아니면 손 흔들기)
     HouseClick,
     /// 하우스를 끌어 옮겼다 (house.rs). save = 다 놓았음 — 새 자리를 설정에 적는다
@@ -227,6 +233,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut hand_win = HandWindow::default();
     // 계절 날씨 (철이 아니거나 꺼 두면 창도 일도 없다)
     let mut weather = WeatherFx::new(seed_now());
+    // 자리 비움·돌아옴, 하루 일과, ⏱️ 집중 친구 (1초에 한 번)
+    let mut presence = Presence::new(&app, config.focus_length);
     // 한 화면의 동물끼리(내 동물 + 손님) 인사·술래 놀이
     let mut social = Social::new(seed_now());
     // 🎮 조작 모드: 켜진 동안만 키를 읽는다 (읽기만 — 앞에 있는 창에도 그대로 간다)
@@ -378,6 +386,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 Input::ToggleWeather => {
                     config.weather_off = !config.weather_off;
                     weather.sync_menu(&app, config.weather_off);
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                }
+                Input::ToggleFocus => presence.toggle(&app, config.focus_length, &mut slots[OWN].pet),
+                Input::SetFocusLength(length) => {
+                    config.focus_length = length;
+                    presence.set_length(&app, length, &mut slots[OWN].pet);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
                 Input::ToggleCursorPlay => {
@@ -626,6 +640,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         props.tick(now);
         hand_win.tick(now);
         weather.tick(&app, now, config.weather_off, &mut slots);
+        if presence.tick(&app, now, source.as_mut(), &mut slots[OWN], &mut care, &mut config.daily) {
+            save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+        }
         let own = &mut slots[OWN];
         let busy = network.own_busy(own);
         if busy != was_busy {
