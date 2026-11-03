@@ -431,6 +431,8 @@ pub struct PetConfig {
     pub hop_share: f64,
     /// 위를 올려다본다 (pet.json에 lookup이 있으면 — 없으면 그냥 쳐다본다)
     pub looks_up: bool,
+    /// 가끔 머리 위에 작은 눈구름을 부른다 (pet.json `snow_cloud` — 눈사람, brain_cloud.rs)
+    pub snow_cloud: bool,
     /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
     pub dpi: f64,
 }
@@ -448,6 +450,8 @@ pub struct RenderState {
     pub wobble: bool,
     /// 커서에 매달린 쪽 (+1 커서 오른쪽, -1 왼쪽, 0 = 안 매달림) — 웹뷰가 스프라이트를 커서 쪽으로 붙여 흔든다 (brain_cursor.rs)
     pub hang: i8,
+    /// 머리 위에 작은 눈구름이 떠 있다 — 웹뷰가 머리 위에 띄운다 (brain_cloud.rs)
+    pub cloud: bool,
 }
 
 pub struct Pet {
@@ -561,6 +565,8 @@ pub struct Pet {
     cursor_mood: cursor_moves::CursorMood,
     /// 눈이 쌓임·벚꽃잎 날림·방금 만든 눈사람 (brain_snow.rs)
     snow: snow_moves::SnowMood,
+    /// 눈사람의 작은 눈구름 (brain_cloud.rs)
+    cloud: cloud_moves::SnowCloud,
     /// 자리 비움·졸린 시간·집중 (brain_presence.rs)
     presence: presence_moves::PresenceMood,
     rng: fastrand::Rng,
@@ -631,6 +637,7 @@ impl Pet {
             stomp_calm_until: 0.0,
             cursor_mood: cursor_moves::CursorMood::new(),
             snow: Default::default(),
+            cloud: Default::default(),
             presence: Default::default(),
             rng: fastrand::Rng::with_seed(seed),
         }
@@ -652,6 +659,7 @@ impl Pet {
         self.serve_queued_food();
         self.notice_hand();
         self.tick_send(dt, world);
+        self.tick_snow_cloud(dt);
         if self.housed && self.food.is_some_and(|f| f.from_house) {
             self.come_out_for_food(world);
         }
@@ -801,7 +809,7 @@ impl Pet {
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
         };
         let hang = self.hang_side();
-        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang }
+        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang, cloud: self.snow_cloud_on() }
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
@@ -3017,10 +3025,15 @@ mod stomp_tests;
 /// 눈사람 만들기·벚꽃 올려다보기
 #[path = "brain_snow.rs"]
 pub mod snow_moves;
+#[path = "brain_cloud.rs"]
+pub mod cloud_moves;
 
 #[cfg(test)]
 #[path = "brain_snow_tests.rs"]
 mod snow_tests;
+#[cfg(test)]
+#[path = "brain_cloud_tests.rs"]
+mod cloud_tests;
 
 /// 친구 동물과 놀아 주기 — 클릭하면 애교 또는 "잡아 봐!"
 #[path = "brain_guestplay.rs"]
@@ -3095,6 +3108,7 @@ mod tests {
             hops: false,
             hop_share: 0.0,
             looks_up: false,
+            snow_cloud: false,
             dpi: 1.0,
         }
     }
@@ -3418,7 +3432,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -3509,7 +3523,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -3528,7 +3542,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
     }
 
     #[test]
@@ -3591,6 +3605,7 @@ mod tests {
             hops: false,
             hop_share: 0.0,
             looks_up: false,
+            snow_cloud: false,
             dpi: 1.0,
         }
     }
@@ -4849,7 +4864,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -5667,7 +5682,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0 });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false });
             }
             last_x = p.body.x;
         }

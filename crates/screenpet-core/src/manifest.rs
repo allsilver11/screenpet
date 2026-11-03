@@ -106,6 +106,9 @@ pub struct PetManifest {
     /// 사는 집 (없으면 house_kind()가 sting으로 정한다)
     #[serde(default)]
     pub house: Option<HouseKind>,
+    /// 가끔 머리 위에 작은 눈구름을 부른다 (눈사람)
+    #[serde(default)]
+    pub snow_cloud: bool,
 }
 
 pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
@@ -360,7 +363,7 @@ mod tests {
     #[test]
     fn bundled_pets_look_up() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
-        for id in ["cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa"] {
+        for id in ["cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "snowman"] {
             let json = std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap();
             assert!(parse_manifest(&json).unwrap().can_look_up(), "{id}");
         }
@@ -393,6 +396,19 @@ mod tests {
             assert!(!m.has_anim("climb") && m.locomotion == Locomotion::Walk, "{id}");
             assert!(json.contains(food), "{id}");
         }
+    }
+
+    /// 번들 산타·눈사람은 고양이처럼 벽을 탄다. 눈사람만 구름을 부르고, 둘 다 구르지 않는다 (썰매 · 배 미끄럼)
+    #[test]
+    fn bundled_santa_and_snowman_climb() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
+        let (santa, snowman) = (load("santa"), load("snowman"));
+        assert!(santa.can_climb() && snowman.can_climb());
+        assert!(snowman.snow_cloud && !santa.snow_cloud && !load("cat").snow_cloud);
+        assert_eq!(snowman.hop_share(), 0.5);
+        assert_eq!(snowman.animations["roll"].spin, 0.0);
+        assert_eq!(snowman.favorite_food.as_ref().map(|f| f.name.as_str()), Some("빙수"));
     }
 
     /// 개구리 (아트 에이전트가 ui/pets/frog를 만들면 그대로 읽힌다 — 없으면 건너뛴다)
@@ -515,7 +531,7 @@ mod tests {
     fn bundled_pets_pick_their_house() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         for (id, kind) in [("bee", HouseKind::Hive), ("pumpkin", HouseKind::Haunted), ("ghost", HouseKind::Haunted), ("cat", HouseKind::House),
-                           ("rudolph", HouseKind::Xmas), ("santa", HouseKind::Xmas)] {
+                           ("rudolph", HouseKind::Xmas), ("santa", HouseKind::Xmas), ("snowman", HouseKind::Xmas)] {
             if let Ok(json) = std::fs::read_to_string(dir.join(id).join("pet.json")) {
                 assert_eq!(parse_manifest(&json).unwrap().house_kind(), kind, "{id}");
             }

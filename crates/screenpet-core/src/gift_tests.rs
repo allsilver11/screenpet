@@ -5,8 +5,8 @@ use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::world::World;
 
-const ALL_SPECIES: [&str; 15] = [
-    "cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "dino_yellow", "dino_green", "dino_purple",
+const ALL_SPECIES: [&str; 16] = [
+    "cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "dino_yellow", "dino_green", "dino_purple", "snowman",
 ];
 
 fn gift(id: &str) -> Gift {
@@ -435,6 +435,7 @@ fn pet_cfg(flies: bool) -> crate::brain::PetConfig {
         hops: false,
         hop_share: 0.0,
         looks_up: false,
+        snow_cloud: false,
         dpi: 1.0,
     }
 }

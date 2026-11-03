@@ -6,8 +6,8 @@ use super::*;
 use crate::geom::Rect;
 
 const DT: f64 = 1.0 / 60.0;
-const SPECIES: [&str; 15] = [
-    "cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "dino_yellow", "dino_green", "dino_purple",
+const SPECIES: [&str; 16] = [
+    "cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "dino_yellow", "dino_green", "dino_purple", "snowman",
 ];
 
 fn resting() -> State {

@@ -122,6 +122,7 @@ pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64) -> PetConfig {
         hops: m.hops(),
         hop_share: m.hop_share(),
         looks_up: m.can_look_up(),
+        snow_cloud: m.snow_cloud,
         dpi,
     }
 }

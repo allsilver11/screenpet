@@ -61,7 +61,7 @@ function houseScale() {
 
 // 집 종류를 고르는 기준 (src-tauri/src/house.rs house_kind, core manifest house_kind와 같다)
 const HOUSE_KINDS = new Set(["house", "hive", "haunted", "xmas"]);
-const FALLBACK_KIND = { bee: "hive", pumpkin: "haunted", ghost: "haunted", rudolph: "xmas", santa: "xmas" };
+const FALLBACK_KIND = { bee: "hive", pumpkin: "haunted", ghost: "haunted", rudolph: "xmas", santa: "xmas", snowman: "xmas" };
 
 // pet.json house가 있으면 그 집, 없으면 sting이 있는 동물(꿀벌)은 벌통 (예전 pet.json), 나머지는 보통 집.
 // pet.json이 아직 없으면 id로

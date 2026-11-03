@@ -26,7 +26,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SPEECH, STAGE_SCALE,  # noqa: E402
+from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, SPEECH, STAGE_SCALE,  # noqa: E402
                          STAGES, manifest)
 
 # =====================================================================
@@ -2084,6 +2084,8 @@ def species_fields(pid, m):
         m["house"] = HOUSE[pid]
     if pid in NO_SPIN and "roll" in m.get("animations", {}):
         m["animations"]["roll"].pop("spin", None)
+    if pid in SNOW_CLOUD:
+        m["snow_cloud"] = True
     return m
 
 
@@ -2237,6 +2239,7 @@ import draw_halloween  # noqa: E402,F401
 import draw_farm  # noqa: E402,F401  (오리·기린)
 import draw_christmas  # noqa: E402,F401
 import draw_dino  # noqa: E402,F401  (공룡 셋)
+import draw_snowman  # noqa: E402,F401  (눈사람)
 
 if __name__ == "__main__":
     main()

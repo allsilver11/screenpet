@@ -71,7 +71,7 @@ impl Pet {
     }
 
     pub(super) fn look_up_mult(&self) -> f64 {
-        if self.snow.petals {
+        if self.snow.petals || self.snow_cloud_up() {
             PETAL_LOOK_UP_MULT
         } else {
             1.0

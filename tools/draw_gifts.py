@@ -39,6 +39,7 @@ LINES = {
     "giraffe": ("acacia", "pod", "mango", "cloud", "nest", "scarf"),
     "rudolph": ("bell", "bulb", "snowflake", "star", "moss", "ribbon"),
     "santa": ("giftbox", "candycane", "mitten", "cookie", "stocking", "coal"),
+    "snowman": ("icicle", "carrot", "twig", "globe", "bucket", "snowball"),
     "dino": ("fossil", "eggshell", "fern", "amber", "tooth", "footprint"),
 }
 IDS = [f"{key}_{name}" for key, names in LINES.items() for name in names]
@@ -705,6 +706,50 @@ def santa_coal(i):
     dots(i, [(61, 56)], WHITE, 1.3)
     tiny = mix(ORANGE, WHITE, 0.2)
     dots(i, [(73, 76)], tiny, 1.0)
+
+
+# ---- 눈사람 ----
+SNOW_BLUE = (206, 226, 248)
+SNOW_BLUE_DARK = (150, 184, 226)
+
+
+def snowman_icicle(i):
+    bl(i, [T((48, 48), (80, 48), (68, 90), (64, 94), (60, 90))], SNOW_BLUE, r=0.5, marks=[([T((66, 48), (82, 48), (68, 92))], SNOW_BLUE_DARK), ([L([(56, 52), (61, 76)], 2.4)], WHITE)])
+    bl(i, [E(42, 42, 86, 54)], WHITE, r=0.3, line=0.7, marks=[([E(42, 50, 86, 58)], GRAY_LIGHT)])
+
+
+def snowman_carrot(i):
+    bl(i, [T((50, 56), (58, 48), (84, 82), (82, 85))], ORANGE, r=0.9, marks=[([T((54, 62), (62, 54), (64, 58), (56, 66))], ORANGE_DARK)])
+    strokes(i, [[(60, 62), (64, 60)], [(66, 72), (70, 69)]], ORANGE_DARK, 1.3)
+    bl(i, [L([(53, 52), (44, 44)], 3.4), L([(53, 52), (53, 41)], 3.4), L([(53, 52), (43, 53)], 3.4)], GREEN, r=0, line=0.7)
+    tiny_face(i, 62, 64, 0.65)
+
+
+def snowman_twig(i):
+    bark = (150, 106, 76)
+    bl(i, [L([(45, 85), (64, 64), (82, 44)], 4.6), L([(64, 64), (50, 52)], 3.6), L([(72, 55), (84, 62)], 3.6), L([(55, 74), (68, 82)], 3.2)], bark, r=0, line=0.8)
+    strokes(i, [[(50, 79), (54, 74)], [(68, 59), (72, 55)]], mix(bark, WHITE, 0.3), 1.0)
+
+
+def snowman_globe(i):
+    bl(i, [T((48, 80), (80, 80), (84, 90), (44, 90))], RED, r=0.5, marks=[([E(44, 86, 84, 94)], RED_DARK)])
+    bl(i, [C(64, 62, 21)], SNOW_BLUE, r=0, line=0.7, marks=[([E(40, 73, 88, 92)], WHITE), ([E(49, 45, 57, 52)], WHITE)])
+    bl(i, [C(64, 73, 7), C(64, 63, 5.5)], WHITE, r=0.2, line=0.5)
+    dots(i, [(62, 62), (66, 62)], (52, 52, 66), 0.7)
+    dots(i, [(50, 58), (76, 55), (72, 68), (54, 68), (66, 48)], WHITE, 1.1)
+
+
+def snowman_bucket(i):
+    bl(i, [T((46, 82), (82, 82), (75, 50), (53, 50))], SNOW_BLUE_DARK, r=0.7, marks=[([T((68, 82), (84, 82), (76, 50), (66, 50))], mix(SNOW_BLUE_DARK, LINE, 0.2)), ([L([(55, 56), (53, 76)], 2.6)], WHITE)])
+    bl(i, [E(43, 78, 85, 88)], mix(SNOW_BLUE_DARK, LINE, 0.25), r=0, line=0.6)
+    bl(i, [E(52, 45, 76, 54)], WHITE, r=0.3, line=0.6)
+    strokes(i, [[(53, 52), (48, 42), (64, 36), (80, 42), (75, 52)]], GRAY, 1.5)
+
+
+def snowman_snowball(i):
+    bl(i, [C(64, 67, 21)], WHITE, r=0, marks=[([E(44, 68, 88, 94)], SNOW_BLUE)])
+    tiny_face(i, 64, 66, 1.1)
+    dots(i, [(44, 46), (84, 50), (40, 58)], SNOW_BLUE_DARK, 1.2)
 
 
 # ---- 공룡 ----

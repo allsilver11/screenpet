@@ -229,6 +229,36 @@ function placeHeadgear(row, f) {
   focusringEl.style.transform = `translate(${(x - 10).toFixed(1)}px, ${(-y - 2).toFixed(1)}px)`;
 }
 
+// 눈사람의 작은 눈구름 (백엔드 render.cloud): 떠 있는 동안만 프레임이 바뀔 때 머리 위로 옮긴다 — 눈송이는 CSS.
+// 구름은 창 안 (말풍선 자리까지)에 머문다. 창 맨 위를 넘지 않게 자른다
+const snowcloudEl = document.getElementById("snowcloud");
+const CLOUD_GAP = 14;
+let cloudAt = null;
+function placeCloud(row, f) {
+  const key = `${row}:${f}:${render.flip}:${display}`;
+  if (key === cloudAt) return;
+  const fresh = cloudAt === null;
+  cloudAt = key;
+  const k = display / manifest.frame_size;
+  // 뒷모습은 머리가 가운데 — 앞모습처럼 덩어리 전체에서 찾는다
+  const head = headTop(row, f, FRONT_ANIMS.has(render.anim) || render.anim === "climb" || render.anim === "slide");
+  const size = Math.sqrt(stage.scale);
+  const x = (render.flip ? manifest.frame_size - head.x : head.x) * k + (stageEl.clientWidth - display) / 2;
+  const y = Math.min(display - head.y * k + CLOUD_GAP * size, stageEl.clientHeight - 37 * size);
+  // 처음 뜰 땐 미끄러져 오지 않게 바로 그 자리에 (이후 프레임만 둥실 따라온다)
+  if (fresh) snowcloudEl.style.transition = "none";
+  snowcloudEl.style.transform = `translate(${(x - 28).toFixed(1)}px, ${(-y).toFixed(1)}px) scale(${size.toFixed(2)})`;
+  if (fresh) {
+    void snowcloudEl.offsetWidth;
+    snowcloudEl.style.transition = "";
+  }
+}
+function syncCloud(on) {
+  if (snowcloudEl.hidden === !on) return;
+  snowcloudEl.hidden = !on;
+  cloudAt = null;
+}
+
 let lastPresence = null;
 listen("pet-presence", (e) => {
   const p = e.payload ?? {};
@@ -250,6 +280,7 @@ function draw(now) {
     const f = frameIndex(spec, elapsed);
     petEl.style.backgroundPosition = `${-f * display}px ${-spec.row * display}px`;
     if (sheetImg && lastPresence && (lastPresence.nightcap || typeof lastPresence.ring === "number")) placeHeadgear(spec.row, f);
+    if (sheetImg && render.cloud) placeCloud(spec.row, f);
     // 좌우 반전 공간 안에서 돌리므로 왼쪽으로 갈 땐 자동으로 반대로 구른다
     const parts = [];
     const shake = jitter(f, now);
@@ -340,6 +371,7 @@ const listeningRender = listen("pet-render", (e) => {
   render = e.payload;
   // 조작 모드 중이면 머리 위에 🎮
   ctltagEl.hidden = !render.ctl;
+  syncCloud(!!render.cloud);
 });
 
 // 손님이면 머리 위 띠에 "🏠 <주인>" — 처음 왔을 때 10초, 그 뒤엔 누를 때마다 5초 (말풍선이 뜨는 동안은 가려진다 — style.css)
@@ -487,6 +519,7 @@ const CURSOR_LINES = {
   giraffe: ["ooh, up there?"],
   rudolph: ["jingle!"],
   santa: ["ho ho ho!"],
+  snowman: ["brrr~!", "snow!"],
   dino_yellow: ["RAWR!"],
   dino_green: ["rawr!"],
   dino_purple: ["rawr~"],
@@ -544,6 +577,7 @@ blockWebviewDefaults();
   applyRole(stage);
   if (!gotRender && stage.render) {
     render = stage.render;
+    syncCloud(!!render.cloud);
     animStart = performance.now();
   }
   await loadPet();

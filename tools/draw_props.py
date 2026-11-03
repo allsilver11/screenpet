@@ -383,6 +383,23 @@ HAND_NAMES += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡: 노
 HAND_DRAW.update(hand_watermelon=hand_watermelon, hand_broccoli=hand_broccoli, hand_grapes=hand_grapes)
 
 
+ICE, ICE_SHADE, ICE_SYRUP, ICE_CUP = (246, 251, 255), (214, 228, 246), (250, 140, 170), (252, 208, 116)
+
+
+def hand_shaved_ice(img):
+    """눈사람이 좋아하는 빙수 🍧 — 소복한 얼음 산 + 분홍 시럽 + 노란 컵."""
+    with xf(dy=-2.5, sx=0.92, sy=0.92, pivot=(64, 66)):
+        blob(img, [C(64, 58, 13), E(47, 56, 81, 72)], ICE, r=1.0, line=0.9,
+             marks=[([E(44, 64, 84, 76)], ICE_SHADE), ([C(64, 50, 8.5), E(55, 50, 72, 61)], ICE_SYRUP), ([E(58, 47, 63, 51)], WHITE)])
+        blob(img, [T((48, 70), (80, 70), (73, 87), (55, 87))], ICE_CUP, r=0.6, line=0.9,
+             marks=[([E(44, 82, 84, 92)], mix(ICE_CUP, LINE, 0.16)), ([L([(48, 72), (80, 72)], 2.0)], mix(ICE_CUP, WHITE, 0.5))])
+        tiny_face(img, 64, 77, 0.8)
+
+
+HAND_NAMES += ("hand_shaved_ice",)  # 눈사람 🍧
+HAND_DRAW.update(hand_shaved_ice=hand_shaved_ice)
+
+
 # ---- 계절 날씨: 눈덩이(굴리는 중) · 눈사람 (바닥 가운데 아래에 앉는다, src-tauri/src/weather.rs) ----
 SNOWMAN_W, SNOWMAN_H = 64, 80
 SNOWBALL = 40

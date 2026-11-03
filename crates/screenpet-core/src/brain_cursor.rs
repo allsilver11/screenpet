@@ -223,6 +223,8 @@ impl CursorStyle {
             "giraffe" => CursorStyle { speed: 0.9, arrive: Some((Anim::NeckStretch, behavior::NECK_STRETCH_SECS)), reach: 3.0, leap_secs: 0.5, ..b },
             // 썰매 타고 스르륵
             "santa" => CursorStyle { prep: Some((Anim::Wave, 0.5)), gait: Anim::Roll, speed: 2.0, ..b },
+            // 눈덩이가 통통 — 가서 나뭇가지 팔을 흔든다
+            "snowman" => CursorStyle { gait: Anim::Hop, speed: 1.5, lift: 0.14, beat: 0.42, arrive: Some((Anim::Wave, 0.6)), ..b },
             // 공룡 셋: 크앙 / 쿵쾅 / 화르륵 한 뒤 쿵쿵 걸어간다
             "dino_yellow" => CursorStyle { prep: Some((Anim::Roar, 0.8)), ..dino },
             "dino_green" => CursorStyle { prep: Some((Anim::Stomp, 0.9)), ..dino },

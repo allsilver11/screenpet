@@ -24,6 +24,7 @@ fn cfg(personality: Personality) -> PetConfig {
         hops: false,
         hop_share: 0.0,
         looks_up: false,
+        snow_cloud: false,
         dpi: 1.0,
     }
 }

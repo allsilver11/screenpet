@@ -80,6 +80,7 @@ SPEECH = {
     "giraffe": {"chatter": ["hmm~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "rudolph": {"chatter": ["jingle~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "santa": {"chatter": ["ho ho ho!", "merry~"], "tickle": ["ho ho!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    "snowman": {"chatter": ["brrr~", "snow!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
@@ -87,20 +88,23 @@ DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "bee": "friendly", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
                "duck": "playful", "giraffe": "friendly",
-               "rudolph": "friendly", "santa": "friendly",
+               "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
 
 # 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
 LOCOMOTION = {"bee": "fly", "frog": "hop", "ghost": "fly"}
 
 # 사는 집 그림 (pet.json house) — 보통 집은 적지 않는다. 앱 ui/house/<house>_<stage>.png
-HOUSE = {"bee": "hive", "pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas"}
+HOUSE = {"bee": "hive", "pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
 
 # 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (개구리는 locomotion hop이라 늘 폴짝)
-HOP_SHARE = {"rabbit": 0.5, "pumpkin": 1.0, "rudolph": 0.3}
+HOP_SHARE = {"rabbit": 0.5, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5}
 
-# roll을 돌리지 않는 동물 (pet.json roll에 spin 없음) — 산타는 구르는 대신 썰매를 탄다
-NO_SPIN = {"santa"}
+# roll을 돌리지 않는 동물 (pet.json roll에 spin 없음) — 산타는 구르는 대신 썰매를 타고, 눈사람은 배로 미끄러진다
+NO_SPIN = {"santa", "snowman"}
+
+# 가끔 머리 위에 작은 눈구름을 부르는 동물 (pet.json snow_cloud)
+SNOW_CLOUD = {"snowman"}
 
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {
@@ -116,6 +120,7 @@ FAVORITE_FOOD = {
     "giraffe": {"emoji": "🍃", "name": "나뭇잎"},
     "rudolph": {"emoji": "🍎", "name": "사과"},
     "santa": {"emoji": "🥛", "name": "우유"},
+    "snowman": {"emoji": "🍧", "name": "빙수"},
     "dino_yellow": {"emoji": "🍉", "name": "수박"},
     "dino_green": {"emoji": "🥦", "name": "브로콜리"},
     "dino_purple": {"emoji": "🍇", "name": "포도"},

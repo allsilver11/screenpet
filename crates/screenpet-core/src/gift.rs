@@ -252,6 +252,21 @@ pub const CATALOG: &[GiftList] = &[
         ],
     },
     GiftList {
+        key: "snowman",
+        title: "눈사람",
+        emoji: "⛄",
+        species: &["snowman"],
+        speech: "brrr! for you!",
+        items: &[
+            item("snowman_icicle", "고드름"),
+            item("snowman_carrot", "여분 당근 코"),
+            item("snowman_twig", "나뭇가지 팔"),
+            item("snowman_globe", "스노우볼"),
+            item("snowman_bucket", "양동이 모자"),
+            item("snowman_snowball", "동글 눈덩이"),
+        ],
+    },
+    GiftList {
         key: "dino",
         title: "공룡",
         emoji: "🦖",

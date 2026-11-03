@@ -49,7 +49,7 @@ fn fallback_kind(pet: &str) -> HouseKind {
     match pet {
         "bee" => HouseKind::Hive,
         "pumpkin" | "ghost" => HouseKind::Haunted,
-        "rudolph" | "santa" => HouseKind::Xmas,
+        "rudolph" | "santa" | "snowman" => HouseKind::Xmas,
         _ => HouseKind::House,
     }
 }
