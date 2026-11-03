@@ -15,7 +15,7 @@ use crate::world::World;
 /// 물건 창 한 변 (논리 px). 그림은 128 칸에 그려 이 크기로 줄인다 (tools/draw_objects.py)
 pub const OBJECT_LOGICAL_SIZE: f64 = 96.0;
 /// 한 사람이 만들어 둘 수 있는 물건 수 — 넘치면 가장 오래된 것이 뿅 사라진다
-pub const MAX_OWN_OBJECTS: usize = 5;
+pub const MAX_OWN_OBJECTS: usize = 10;
 /// 친구에게서 받아 화면에 있을 수 있는 물건 수 — 넘치면 가장 오래된 것부터
 pub const MAX_FOREIGN_OBJECTS: usize = 20;
 /// 포스트잇을 눌러 읽는 시간 (초). 그 뒤엔 다시 볼 수 없다
@@ -736,7 +736,7 @@ pub fn accept_toss(kind: &str, fling: Option<Fling>, note: Option<&str>) -> Opti
 /// 물건이 어디서 왔나
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
-    /// 내가 만들었다 (최대 5개)
+    /// 내가 만들었다 (최대 MAX_OWN_OBJECTS개)
     Own,
     /// 친구에게서 날아왔다 (최대 20개)
     Foreign,

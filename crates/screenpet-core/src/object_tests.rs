@@ -467,21 +467,21 @@ fn a_post_it_from_a_friend_cant_be_replaced_or_peeled_but_can_travel_on_unread()
 }
 
 #[test]
-fn roster_keeps_five_own_and_twenty_foreign_dropping_the_oldest() {
+fn roster_keeps_ten_own_and_twenty_foreign_dropping_the_oldest() {
     let mut r = Roster::default();
     for id in 0..MAX_OWN_OBJECTS as u64 {
         assert_eq!(r.add(id, Origin::Own), None);
     }
-    assert_eq!(r.own_count(), 5);
+    assert_eq!(r.own_count(), 10);
     assert_eq!(r.add(100, Origin::Own), Some(0));
     assert_eq!(r.add(101, Origin::Own), Some(1));
-    assert_eq!(r.own_count(), 5);
+    assert_eq!(r.own_count(), 10);
     for id in 200..200 + MAX_FOREIGN_OBJECTS as u64 {
         assert_eq!(r.add(id, Origin::Foreign), None);
     }
     assert_eq!(r.add(300, Origin::Foreign), Some(200));
     // 받은 물건이 내 몫을 밀어내지 않는다
-    assert_eq!(r.own_count(), 5);
+    assert_eq!(r.own_count(), 10);
     assert_eq!(r.foreign_count(), 20);
     // 치우거나 던져 보낸 만큼 자리가 난다
     assert!(r.remove(100));
@@ -489,6 +489,24 @@ fn roster_keeps_five_own_and_twenty_foreign_dropping_the_oldest() {
     assert_eq!(r.add(102, Origin::Own), None);
     r.clear();
     assert_eq!((r.own_count(), r.foreign_count()), (0, 0));
+}
+
+#[test]
+fn the_same_kind_can_fill_the_whole_roster() {
+    // 상한은 종류를 가리지 않는다: 같은 캔 열 개, 열한 번째면 가장 오래된 캔이 나간다
+    let w = wide();
+    let mut r = Roster::default();
+    let mut cans = Vec::new();
+    for id in 0..MAX_OWN_OBJECTS as u64 {
+        cans.push(Object::new(ObjectKind::Can, 200.0 + id as f64 * 50.0, 900.0, 1.0, id));
+        assert_eq!(r.add(id, Origin::Own), None);
+    }
+    for can in &mut cans {
+        run(can, &w, 0.1);
+    }
+    assert_eq!(r.own_count(), MAX_OWN_OBJECTS);
+    assert_eq!(r.add(MAX_OWN_OBJECTS as u64, Origin::Own), Some(0));
+    assert_eq!(r.own_count(), MAX_OWN_OBJECTS);
 }
 
 #[test]
