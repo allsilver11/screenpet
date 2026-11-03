@@ -36,6 +36,9 @@ pub struct Config {
     /// 친구들에게 보이는 내 이름 (친구 화면의 내 동물 이름표). 없으면 컴퓨터 사용자 이름
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_name: Option<String>,
+    /// 🌨️ 날씨 효과를 메뉴에서 껐다 (기본은 켜짐 — 철이 아니면 어차피 없다)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub weather_off: bool,
 }
 
 /// 내가 정하는 이름(내 이름·친구 별명)의 최대 글자 수
@@ -669,6 +672,16 @@ mod tests {
 
     fn spot(monitor: &str, pos: (i32, i32), offset: f64) -> HouseSpot {
         HouseSpot { monitor: monitor.into(), monitor_pos: pos, offset }
+    }
+
+    #[test]
+    fn weather_is_on_unless_turned_off_and_old_files_still_load() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert!(!old.weather_off);
+        assert!(!serde_json::to_string(&old).unwrap().contains("weather_off"), "not written while it is the default");
+        let off = Config { weather_off: true, ..Default::default() };
+        let back: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
+        assert!(back.weather_off);
     }
 
     #[test]

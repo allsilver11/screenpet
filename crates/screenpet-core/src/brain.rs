@@ -171,6 +171,8 @@ pub enum Speech {
     Boing,
     /// 아래 친구 화면으로 바닥을 뚫고 쏙 ("whee!", brain_vert.rs)
     Whee,
+    /// 눈사람을 다 만들었다 ("snowman!", brain_snow.rs)
+    Snowman,
 }
 
 impl Anim {
@@ -288,6 +290,8 @@ pub enum State {
     CatchMe { remaining: f64, dir: f64, commit: f64, dodge: f64 },
     /// 공룡 쿵쾅에 데굴 넘어짐 — dir 쪽(공룡 반대편)으로 조금 미끄러지다 (디딤판 끝에선 멈춘다) 일어선다 (brain_stomp.rs)
     Tumble { remaining: f64, dir: f64 },
+    /// 눈사람 만들기 — 눈덩이 굴리기 → 쌓기 → 뿌듯 (brain_snow.rs)
+    Snowman { phase: snow_moves::SnowPhase, remaining: f64, dir: f64 },
 }
 
 impl State {
@@ -517,6 +521,8 @@ pub struct Pet {
     wobble_timer: f64,
     /// 이 시각(clock)까지는 쿵쾅에 다시 흔들리지 않는다
     stomp_calm_until: f64,
+    /// 눈이 쌓임·벚꽃잎 날림·방금 만든 눈사람 (brain_snow.rs)
+    snow: snow_moves::SnowMood,
     rng: fastrand::Rng,
 }
 
@@ -583,6 +589,7 @@ impl Pet {
             stomp_out: false,
             wobble_timer: 0.0,
             stomp_calm_until: 0.0,
+            snow: Default::default(),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -683,6 +690,7 @@ impl Pet {
             State::WallClimb { window, side, rel_y } => self.update_wall_climb(dt, world, window, side, rel_y),
             State::InnerClimb { window, rel_x, rel_y } => self.update_inner_climb(dt, world, window, rel_x, rel_y),
             State::Tumble { remaining, dir } => self.update_tumble(dt, world, remaining, dir),
+            State::Snowman { phase, remaining, dir } => self.update_snowman(dt, world, phase, remaining, dir),
             _ => {
                 self.pause_for_hover();
                 self.react_to_tickle();
@@ -729,6 +737,7 @@ impl Pet {
             State::Sleep { .. } => Anim::Sleep,
             // 데굴 넘어짐 — 구르기 그림 (앱이 돌린다)
             State::Tumble { .. } => Anim::Roll,
+            State::Snowman { phase, .. } => self.snowman_anim(phase),
             State::Land { .. } => Anim::Land,
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
@@ -937,7 +946,7 @@ impl Pet {
 
     /// 쉬는 박자를 올려다보기로 바꿀지 (lookup이 있는 동물만 주사위를 굴린다 — 없는 동물의 난수 순서는 그대로)
     fn roll_look_up(&mut self) -> bool {
-        self.cfg.looks_up && self.rng.f64() < LOOK_UP_CHANCE
+        self.cfg.looks_up && self.rng.f64() < LOOK_UP_CHANCE * self.look_up_mult()
     }
 
     /// 하우스 안: 말풍선 타이머와 하우스 안에서 먹기·성장 축하·갸웃·하트만 흐른다
@@ -1696,7 +1705,7 @@ impl Pet {
             && self.control.is_none()
             && self.heading().is_none()
             && !self.is_heading_out()
-            && self.rng.f64() < LOOK_UP_WALK_RATE * dt
+            && self.rng.f64() < LOOK_UP_WALK_RATE * self.look_up_mult() * dt
     }
 
     /// 손에 든 음식 쪽을 본다. 같은 바닥 가까이(위로 몸 2.5개, 옆으로 4개 안)면 그 아래까지 걸어간다 (바닥 안에서만).
@@ -2300,6 +2309,7 @@ impl Pet {
             | State::Flee { .. }
             | State::CatchMe { .. }
             | State::Tumble { .. }
+            | State::Snowman { .. }
             | State::Move { .. } => {}
         }
     }
@@ -2604,6 +2614,9 @@ impl Pet {
         }
         if self.hungry && self.rng.f64() < HUNGRY_REST_CHANCE {
             return State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
+        }
+        if let Some(building) = self.snowman_rest(world) {
+            return building;
         }
         if let Some(kind) = self.cfg.special {
             if self.rng.f64() < kind.rest_chance() {
@@ -2929,6 +2942,14 @@ pub mod stomp_moves;
 #[cfg(test)]
 #[path = "brain_stomp_tests.rs"]
 mod stomp_tests;
+
+/// 눈사람 만들기·벚꽃 올려다보기
+#[path = "brain_snow.rs"]
+pub mod snow_moves;
+
+#[cfg(test)]
+#[path = "brain_snow_tests.rs"]
+mod snow_tests;
 
 /// 친구 동물과 놀아 주기 — 클릭하면 애교 또는 "잡아 봐!"
 #[path = "brain_guestplay.rs"]

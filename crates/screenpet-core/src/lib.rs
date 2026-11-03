@@ -15,4 +15,5 @@ pub mod social;
 pub mod sting;
 pub mod surfaces;
 pub mod visit;
+pub mod weather;
 pub mod world;

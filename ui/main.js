@@ -356,6 +356,8 @@ const EXTRA_SPEECH = {
   // 위/아래 친구 화면으로 높이 뛰어 나감·아래에서 튀어 올라옴 / 바닥 밑으로 쏙
   boing: ["boing!"],
   whee: ["whee!"],
+  // 눈사람을 다 만들었다
+  snowman: ["snowman!", "⛄!"],
   // 공룡 동작 (pet.json에 없으면 이 말)
   roar: ["RAWR!"],
   fire: ["fwoosh~"],
