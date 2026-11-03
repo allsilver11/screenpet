@@ -437,6 +437,8 @@ pub struct PetConfig {
     pub dpi: f64,
     /// 커서에 매달릴 때 커서 끝이 닿는 머리 꼭대기 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율. pet.json head의 dragged)
     pub hang_grip: (f64, f64),
+    /// 구르기 그림이 없다 (픽셀 그림, pet.json에 roll 없음) — 구르기를 고르지 않고, 대신 하는 동작도 없다
+    pub no_roll: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -815,6 +817,12 @@ impl Pet {
             State::Housed => Anim::SitFront,
             State::Pressed { grounded: true, .. } => Anim::Idle,
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
+        };
+        // 구르기 그림이 없는 동물: 넘어져 구르거나 굴러떨어지는 동안은 떨어지는 그림, 커서 놀이 썰매·눈덩이 굴리기·막 바꾼 스타일의 남은 구르기는 걷기
+        let anim = match (anim, self.state) {
+            (Anim::Roll, State::Tumble { .. } | State::Air { .. }) if self.cfg.no_roll => Anim::Fall,
+            (Anim::Roll, _) if self.cfg.no_roll => Anim::Walk,
+            _ => anim,
         };
         let hang = self.hang_side();
         RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang, cloud: self.snow_cloud_on(), housed: self.housed }
@@ -2689,6 +2697,10 @@ impl Pet {
                 return self.next_after_beat(State::Special { kind: Special::NeckStretch, remaining: behavior::NECK_STRETCH_SECS });
             }
         }
+        // 구르기 그림이 없는 동물: 구르기는 뽑히지 않은 셈 (걷기·달리기 몫이 그만큼 는다, 대신하는 동작은 없다)
+        while kind == Move::Roll && self.cfg.no_roll {
+            kind = behavior::pick_next_move(&mut self.rng, self.pacing.last_move, after_front);
+        }
         let next = State::Move { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
         self.next_after_beat(next)
     }
@@ -3020,6 +3032,10 @@ mod throw_tests;
 mod giraffe_tests;
 
 #[cfg(test)]
+#[path = "brain_noroll_tests.rs"]
+mod noroll_tests;
+
+#[cfg(test)]
 #[path = "brain_lookup_tests.rs"]
 mod lookup_tests;
 
@@ -3123,6 +3139,7 @@ mod tests {
     pub(super) fn cfg() -> PetConfig {
         PetConfig {
             hang_grip: (0.0, 0.06),
+            no_roll: false,
             size: 128.0,
             half_w: 38.0,
             walk_speed: 60.0,
@@ -3621,6 +3638,7 @@ mod tests {
     pub(super) fn sim_cfg() -> PetConfig {
         PetConfig {
             hang_grip: (0.0, 0.06),
+            no_roll: false,
             size: 128.0,
             half_w: 38.4,
             walk_speed: 90.0,

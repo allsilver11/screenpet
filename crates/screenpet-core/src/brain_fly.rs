@@ -501,7 +501,11 @@ impl Pet {
     /// 다음 날기 (방식만 정하고 길은 날기 시작할 때 정한다)
     pub(super) fn fly_move_state(&mut self) -> State {
         self.flight = None;
-        let kind = flight::pick_move(&mut self.rng);
+        let mut kind = flight::pick_move(&mut self.rng);
+        // 구르기 그림이 없으면 공중제비도 없다
+        while kind == Move::Roll && self.cfg.no_roll {
+            kind = flight::pick_move(&mut self.rng);
+        }
         self.next_after_beat(State::Move { kind, remaining: flight::MAX_FLIGHT_SECS })
     }
 

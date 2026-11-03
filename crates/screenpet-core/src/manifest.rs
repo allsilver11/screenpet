@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::behavior::Personality;
 use crate::care::Stage;
+use crate::style;
 
 pub const REQUIRED_ANIMS: [&str; 21] = [
     "walk", "run", "roll", "idle", "look", "sleep", "hop", "fall", "dragged", "land", "sit_front", "wave", "tilt", "belly", "stretch", "heart",
@@ -86,6 +87,9 @@ pub struct FavoriteFood {
 pub struct PetManifest {
     pub name: String,
     pub frame_size: u32,
+    /// 단계마다 칸 크기가 다른 시트 (단계 이름 → 칸 px, 없는 단계는 frame_size) — 픽셀 그림은 24·28·32·32·36
+    #[serde(default)]
+    pub frame_sizes: HashMap<String, u32>,
     pub walk_speed: f64,
     pub animations: HashMap<String, AnimSpec>,
     /// 성격 (없으면 friendly)
@@ -112,6 +116,9 @@ pub struct PetManifest {
     /// 칸마다 머리 꼭대기 (단계 → 동작 → 칸별 [x, y, 너비, 기울기] 칸 px — 그림 생성기가 적는다)
     #[serde(default)]
     pub head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
+    /// 기린 목 늘이기 층 (단계 → {cut, tile, ext} — 그리는 건 ui/main.js). 코어는 있는지만 본다
+    #[serde(default)]
+    pub neck_stretch: Option<serde_json::Value>,
 }
 
 /// head 표가 없는 동물의 매달리는 자리: 그림 가운데, 윗변에서 조금 아래
@@ -123,7 +130,7 @@ impl PetManifest {
     /// 커서에 매달린 그림(dragged 칸들의 평균)에서 커서 끝이 닿을 머리 꼭대기: (그림 가운데에서 오른쪽, 그림 윗변에서 아래) — 한 변에 대한 비율.
     /// 표의 y는 모자 입구라 머리 위쪽으로 조금 올린다. ui/main.js hangOrigin과 같은 계산
     pub fn hang_grip(&self, stage: &str) -> (f64, f64) {
-        let size = f64::from(self.frame_size);
+        let size = f64::from(self.frame_size_at(stage));
         let Some(cells) = self.head.get(stage).and_then(|anims| anims.get("dragged")).filter(|c| !c.is_empty()) else {
             return DEFAULT_HANG_GRIP;
         };
@@ -137,6 +144,9 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
     let m: PetManifest = serde_json::from_str(json).map_err(|e| e.to_string())?;
     if m.frame_size == 0 {
         return Err("frame_size must be > 0".into());
+    }
+    if let Some((stage, _)) = m.frame_sizes.iter().find(|(_, v)| **v == 0) {
+        return Err(format!("frame_sizes {stage} must be > 0"));
     }
     if m.walk_speed <= 0.0 {
         return Err("walk_speed must be > 0".into());
@@ -163,9 +173,69 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
     Ok(m)
 }
 
+/// 픽셀 그림의 pet.json (ui/pets_pixel/<id>/pet.json): 그림에 관한 것만 읽는다
+#[derive(Deserialize)]
+struct PixelJson {
+    /// 숫자 하나 또는 단계 → 칸 px
+    #[serde(default)]
+    frame_size: Option<serde_json::Value>,
+    #[serde(default)]
+    frame_sizes: HashMap<String, u32>,
+    animations: HashMap<String, AnimSpec>,
+    #[serde(default)]
+    head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
+    #[serde(default)]
+    neck_stretch: Option<serde_json::Value>,
+}
+
+/// 픽셀 그림의 pet.json을 동글 동물(base) 위에 얹는다: 시트 칸·동작 표·머리 표만 그림 것이고 이름·속도·성격·크기·먹이·집은 모두 base 그대로 (스타일은 겉모습뿐).
+/// 칸 크기는 단계마다 frame_sizes → frame_size(표 또는 숫자) → 기본 표(style::pixel_grid). roll은 없어도 된다 (없으면 no_roll)
+pub fn parse_pixel_manifest(json: &str, base: &PetManifest) -> Result<PetManifest, String> {
+    let p: PixelJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let single = p.frame_size.as_ref().and_then(|v| v.as_u64()).map(|v| v as u32);
+    let mut frame_sizes = HashMap::new();
+    for stage in Stage::ALL {
+        let name = stage.name();
+        let from_map = p.frame_sizes.get(name).copied();
+        let from_field = p.frame_size.as_ref().and_then(|v| v.get(name)).and_then(|v| v.as_u64()).map(|v| v as u32);
+        let size = from_map.or(from_field).or(single).unwrap_or(style::pixel_grid(stage).0);
+        if size == 0 {
+            return Err(format!("frame size of {name} must be > 0"));
+        }
+        frame_sizes.insert(name.to_string(), size);
+    }
+    let checked = |name: &str| p.animations.get(name).map_or(Ok(()), |spec| if spec.frames == 0 || spec.fps <= 0.0 { Err(format!("animation {name}: frames and fps must be > 0")) } else { Ok(()) });
+    for name in REQUIRED_ANIMS.into_iter().filter(|a| *a != "roll") {
+        if !p.animations.contains_key(name) {
+            return Err(format!("missing animation: {name}"));
+        }
+        checked(name)?;
+    }
+    for name in OPTIONAL_ANIMS.into_iter().chain(["roll"]) {
+        checked(name)?;
+    }
+    Ok(PetManifest { frame_sizes, animations: p.animations, head: p.head, neck_stretch: p.neck_stretch, ..base.clone() })
+}
+
 impl PetManifest {
     pub fn has_anim(&self, name: &str) -> bool {
         self.animations.contains_key(name)
+    }
+
+    /// 이 단계 시트의 칸 크기 (px)
+    pub fn frame_size_at(&self, stage: &str) -> u32 {
+        self.frame_sizes.get(stage).copied().unwrap_or(self.frame_size)
+    }
+
+    /// 구르기 그림이 없다 (픽셀 그림) — 구르기를 고르지 않는다
+    pub fn no_roll(&self) -> bool {
+        !self.has_anim("roll")
+    }
+
+    /// 이 동물의 특별 동작. 구르기가 없는 그림에서 목 늘이기는 층 그림(neck_stretch)이 있을 때만 — 없으면 기린도 그냥 안 한다
+    pub fn special(&self) -> Option<crate::behavior::Special> {
+        let special = crate::behavior::Special::from_manifest(|n| self.has_anim(n));
+        special.filter(|s| !(s.replaces_roll() && self.no_roll() && self.neck_stretch.is_none()))
     }
 
     /// 벽 타기 (뒷모습 climb + slide 둘 다 있어야 한다)
@@ -578,6 +648,90 @@ mod tests {
                 assert_eq!(parse_manifest(&json).unwrap().house_kind(), kind, "{id}");
             }
         }
+    }
+
+    /// 픽셀 pet.json: 동글 필수 동작에서 roll만 빠진 표
+    fn pixel_json(extra: &str) -> String {
+        let anims: Vec<String> = REQUIRED_ANIMS
+            .iter()
+            .filter(|a| **a != "roll")
+            .enumerate()
+            .map(|(i, a)| format!(r#""{a}": {{"row": {i}, "frames": 2, "fps": 4}}"#))
+            .collect();
+        format!(r#"{{{extra} "animations": {{{}}}}}"#, anims.join(","))
+    }
+
+    #[test]
+    fn round_manifest_frame_size_is_the_same_on_every_stage() {
+        let m = parse_manifest(&full_json()).unwrap();
+        assert!(m.frame_sizes.is_empty());
+        assert_eq!((m.frame_size_at("baby"), m.frame_size_at("adult")), (64, 64));
+        assert!(!m.no_roll(), "round pets always have a roll");
+        assert!(parse_manifest(&full_json().replace(r#""roll""#, r#""rolly""#)).unwrap_err().contains("roll"), "round still needs its roll");
+    }
+
+    #[test]
+    fn stage_frame_sizes_parse_and_fall_back_to_frame_size() {
+        let json = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "frame_sizes": {"baby": 24, "adult": 36},"#);
+        let m = parse_manifest(&json).unwrap();
+        assert_eq!((m.frame_size_at("baby"), m.frame_size_at("adult"), m.frame_size_at("child")), (24, 36, 64));
+        let bad = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "frame_sizes": {"baby": 0},"#);
+        assert!(parse_manifest(&bad).is_err());
+    }
+
+    #[test]
+    fn pixel_manifest_only_brings_its_art_everything_else_stays_the_round_pets() {
+        let base = parse_manifest(&full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "personality": "aloof", "stage_size": {"adult": 1.3}, "hop_share": 0.5,"#)).unwrap();
+        let m = parse_pixel_manifest(&pixel_json(r#""name": "other", "walk_speed": 999, "personality": "playful", "frame_sizes": {"baby": 24, "kinder": 28, "child": 32, "teenager": 32, "adult": 36},"#), &base).unwrap();
+        assert_eq!((m.name.as_str(), m.walk_speed, m.personality, m.size_mult(Stage::Adult), m.hop_share), ("고양이", 60.0, Personality::Aloof, 1.3, 0.5));
+        assert_eq!((m.frame_size_at("baby"), m.frame_size_at("kinder"), m.frame_size_at("adult")), (24, 28, 36));
+        assert!(m.no_roll() && !m.has_anim("roll"));
+    }
+
+    #[test]
+    fn pixel_frame_size_may_be_a_map_a_number_or_missing() {
+        let base = parse_manifest(&full_json()).unwrap();
+        let map = parse_pixel_manifest(&pixel_json(r#""frame_size": {"baby": 20, "adult": 40},"#), &base).unwrap();
+        assert_eq!((map.frame_size_at("baby"), map.frame_size_at("adult")), (20, 40));
+        assert_eq!(map.frame_size_at("kinder"), 28, "default grid for a stage it does not list");
+        let one = parse_pixel_manifest(&pixel_json(r#""frame_size": 30,"#), &base).unwrap();
+        assert_eq!((one.frame_size_at("baby"), one.frame_size_at("adult")), (30, 30));
+        let none = parse_pixel_manifest(&pixel_json(""), &base).unwrap();
+        assert_eq!((none.frame_size_at("baby"), none.frame_size_at("child"), none.frame_size_at("teenager"), none.frame_size_at("adult")), (24, 32, 32, 36));
+        assert!(parse_pixel_manifest(&pixel_json(r#""frame_sizes": {"baby": 0},"#), &base).is_err());
+    }
+
+    #[test]
+    fn pixel_manifest_is_validated_like_a_round_one() {
+        let base = parse_manifest(&full_json()).unwrap();
+        assert!(parse_pixel_manifest("{", &base).is_err());
+        assert!(parse_pixel_manifest(&pixel_json("").replace(r#""sleep""#, r#""nap""#), &base).unwrap_err().contains("sleep"));
+        assert!(parse_pixel_manifest(&pixel_json("").replace(r#""frames": 2"#, r#""frames": 0"#), &base).is_err());
+        let bad_roll = pixel_json("").replace(r#""animations": {"#, r#""animations": {"roll": {"row": 9, "frames": 0, "fps": 4},"#);
+        assert!(parse_pixel_manifest(&bad_roll, &base).is_err());
+    }
+
+    #[test]
+    fn hang_grip_measures_in_the_stages_own_dots() {
+        let base = parse_manifest(&full_json()).unwrap();
+        let json = pixel_json(r#""frame_sizes": {"baby": 24, "adult": 36}, "head": {"baby": {"dragged": [[15, 6, 8, 0]]}, "adult": {"dragged": [[18, 9, 8, 0]]}},"#);
+        let m = parse_pixel_manifest(&json, &base).unwrap();
+        let (x, y) = m.hang_grip("baby");
+        assert!((x - (15.0 / 24.0 - 0.5)).abs() < 1e-9 && (y - (6.0 - 1.2) / 24.0).abs() < 1e-9, "{x} {y}");
+        let (x, _) = m.hang_grip("adult");
+        assert!(x.abs() < 1e-9, "{x}");
+    }
+
+    /// 기린: 목 늘이기 층이 있으면 픽셀에서도 늘이고, 없으면 그 동작은 없다. 구르기는 어느 쪽도 없다
+    #[test]
+    fn pixel_giraffe_keeps_its_neck_stretch_only_with_layers() {
+        use crate::behavior::Special;
+        let base = parse_manifest(&full_json().replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 3, "fps": 2},"#)).unwrap();
+        assert_eq!(base.special(), Some(Special::NeckStretch), "round always");
+        let anim = |extra: &str| pixel_json(extra).replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 3, "fps": 2},"#);
+        assert_eq!(parse_pixel_manifest(&anim(""), &base).unwrap().special(), None);
+        let with = parse_pixel_manifest(&anim(r#""neck_stretch": {"baby": {"cut": 9, "tile": 3, "ext": 12}},"#), &base).unwrap();
+        assert_eq!(with.special(), Some(Special::NeckStretch));
     }
 
     #[test]

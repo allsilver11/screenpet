@@ -51,6 +51,13 @@ impl Stage {
     }
 
     /// 시트 파일 이름에 쓰는 이름 (`sheet_<name>.png`)
+    pub const ALL: [Stage; 5] = [Stage::Baby, Stage::Kinder, Stage::Child, Stage::Teenager, Stage::Adult];
+
+    /// `name`의 반대 (모르는 이름이면 None)
+    pub fn from_name(name: &str) -> Option<Stage> {
+        Stage::ALL.into_iter().find(|s| s.name() == name)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Stage::Baby => "baby",

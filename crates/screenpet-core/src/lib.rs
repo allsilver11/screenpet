@@ -16,6 +16,7 @@ pub mod platform;
 pub mod presence;
 pub mod social;
 pub mod sting;
+pub mod style;
 pub mod surfaces;
 pub mod tumble;
 pub mod visit;

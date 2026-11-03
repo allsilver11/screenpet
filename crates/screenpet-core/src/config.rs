@@ -7,6 +7,7 @@ use crate::care::Care;
 use crate::food::FeedMode;
 use crate::gift::GiftBook;
 use crate::presence::{DailyMarks, FocusLength};
+use crate::style::PetStyle;
 use crate::visit::{ExitEdges, Side};
 
 const FILE: &str = "config.json";
@@ -53,6 +54,9 @@ pub struct Config {
     /// 오늘의 아침·점심 인사를 했는지 (앱을 다시 켜도 하루 한 번)
     #[serde(default, skip_serializing_if = "DailyMarks::is_empty")]
     pub daily: DailyMarks,
+    /// 캐릭터 스타일 (동글동글 / 픽셀, 그림만 다르다). 모르는 값이면 동글동글
+    #[serde(default, skip_serializing_if = "PetStyle::is_round", deserialize_with = "lenient_style")]
+    pub style: PetStyle,
 }
 
 /// 내가 정하는 이름(내 이름·친구 별명)의 최대 글자 수
@@ -80,6 +84,10 @@ pub fn sanitize_name(raw: &str) -> Option<String> {
 }
 
 fn lenient_focus_length<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FocusLength, D::Error> {
+    Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
+}
+
+fn lenient_style<'de, D: serde::Deserializer<'de>>(d: D) -> Result<PetStyle, D::Error> {
     Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
 }
 
@@ -858,6 +866,21 @@ mod tests {
         assert_eq!(back, c);
         let bad: Config = serde_json::from_str(r#"{"pet":"cat","focus_length":"forever"}"#).unwrap();
         assert_eq!((bad.pet.as_deref(), bad.focus_length), (Some("cat"), FocusLength::Short));
+    }
+
+    #[test]
+    fn style_defaults_to_round_and_old_or_odd_files_still_load() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert_eq!(old.style, PetStyle::Round);
+        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("style"), "not written while default");
+        let c = Config { style: PetStyle::Pixel, ..Config::default() };
+        let text = serde_json::to_string(&c).unwrap();
+        assert!(text.contains(r#""style":"pixel""#), "{text}");
+        assert_eq!(serde_json::from_str::<Config>(&text).unwrap(), c);
+        for bad in [r#""sparkly""#, "3", "null", "{}"] {
+            let odd: Config = serde_json::from_str(&format!(r#"{{"pet":"cat","style":{bad}}}"#)).unwrap();
+            assert_eq!((odd.pet.as_deref(), odd.style), (Some("cat"), PetStyle::Round), "{bad}");
+        }
     }
 
     #[test]

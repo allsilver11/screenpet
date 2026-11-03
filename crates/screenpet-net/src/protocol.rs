@@ -175,6 +175,11 @@ pub enum Visit {
         /// when the pet roams on; older versions ignore it.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
         gift: Option<String>,
+        /// How the owner shows this pet: "pixel" (absent = round). Purely
+        /// cosmetic; the receiver validates it and shows round when it does not
+        /// know the value or has no such art. Older versions ignore it.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+        style: Option<String>,
     },
     /// The guest left the receiver's friend's screen. `next: None` = it went
     /// home (also what older versions send). `next: Some(id)` = it walked out
@@ -331,6 +336,7 @@ mod tests {
             fling: None,
             note: None,
             gift: None,
+            style: None,
         });
         let v: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!(v["type"], "visit");
@@ -354,6 +360,7 @@ mod tests {
             fling: None,
             note: None,
             gift: None,
+            style: None,
         });
         let v: serde_json::Value = serde_json::from_slice(&up.to_json()).unwrap();
         assert_eq!((v["enter_side"].as_str(), v["vside"].as_str()), (Some("left"), Some("down")));
@@ -448,6 +455,7 @@ mod tests {
             fling: None,
             note: None,
             gift: None,
+            style: None,
         });
         assert_eq!(Message::parse(&hop.to_json()), Some(hop));
         // 새 필드를 모르는 받는 쪽도 읽을 수 있다 (모르는 필드는 무시)
@@ -471,6 +479,7 @@ mod tests {
             fling: Some(f),
             note: None,
             gift: None,
+            style: None,
         });
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!((j["fling"]["height"].as_f64(), j["fling"]["vx"].as_f64(), j["fling"]["vy"].as_f64()), (Some(0.25), Some(-640.0), Some(-120.5)));
@@ -491,7 +500,7 @@ mod tests {
     #[test]
     fn a_visit_can_carry_a_gift_and_old_peers_ignore_it() {
         let Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, .. }) = visit_with_note(None) else { panic!() };
-        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift: Some("cat_yarn_shiny".into()) });
+        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift: Some("cat_yarn_shiny".into()), style: None });
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!(j["gift"], "cat_yarn_shiny");
         assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
@@ -529,6 +538,7 @@ mod tests {
             fling: None,
             note: note.map(str::to_string),
             gift: None,
+            style: None,
         })
     }
 
@@ -691,6 +701,31 @@ mod tests {
         assert_eq!(Announce::parse(&serde_json::to_vec(&long).unwrap()).unwrap().name.chars().count(), MAX_NAME);
         let long_id = Announce::new(&"i".repeat(MAX_ID + 1), "n", 4000);
         assert_eq!(Announce::parse(&serde_json::to_vec(&long_id).unwrap()), None);
+    }
+
+    /// A pet shown in pixel style says so; old peers ignore it; anything odd is dropped, never the whole visit.
+    #[test]
+    fn visit_style_is_optional_and_backward_compatible() {
+        let Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift, .. }) = visit_with_note(None) else { panic!() };
+        let visit_id_sent = visit_id;
+        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift, style: Some("pixel".into()) });
+        assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
+        // an old peer still reads it
+        #[derive(Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
+        enum OldVisit {
+            Visit { visit_id: u64 },
+        }
+        let OldVisit::Visit { visit_id } = serde_json::from_slice::<OldVisit>(&v.to_json()).unwrap();
+        assert_eq!(visit_id, visit_id_sent);
+        // round sends nothing at all
+        assert!(!String::from_utf8(visit_with_note(None).to_json()).unwrap().contains("style"));
+        let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"baby","scale":1.0,"personality":"aloof","owner":"a","enter_side":"left"}"#;
+        let Some(Message::Visit(Visit::Visit { style, .. })) = Message::parse(old) else { panic!("old visit must parse") };
+        assert_eq!(style, None);
+        let bad = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"baby","scale":1.0,"personality":"aloof","owner":"a","enter_side":"left","style":7}"#;
+        let Some(Message::Visit(Visit::Visit { style, .. })) = Message::parse(bad) else { panic!("bad style must not drop the visit") };
+        assert_eq!(style, None);
     }
 
     #[test]

@@ -114,6 +114,7 @@ fn visit(id: u64) -> Visit {
         fling: None,
         note: None,
         gift: None,
+        style: None,
     }
 }
 
