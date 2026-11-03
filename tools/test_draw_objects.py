@@ -115,3 +115,9 @@ def test_postit_stays_inside_the_turning_room(name):
     s = core_shapes()[name]
     x, y = d.POSTIT_AT[name]
     assert math.hypot(x - s["pivot"][0], y - s["pivot"][1]) + d.POSTIT_REACH <= s["reach"]
+
+
+def test_sock_is_a_flat_limp_heap_not_an_upright_l(built):
+    _, arts = built
+    left, top, right, bottom = arts["sock"].getchannel("A").getbbox()
+    assert right - left > (bottom - top) * 2.5, (left, top, right, bottom)

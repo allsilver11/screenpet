@@ -11,7 +11,7 @@ const POSTIT_AT = {
   glasses: [40, 100],
   computer: [92, 72],
   milk: [74, 92],
-  sock: [58, 76],
+  sock: [81, 110],
   umbrella: [44, 66],
 };
 
