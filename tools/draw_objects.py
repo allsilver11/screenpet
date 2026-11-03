@@ -1,6 +1,6 @@
 """물건 (쓰레기 장난감) — draw_pets.py 엔진으로 그린 128 칸 그림과 노란 포스트잇.
 
-    python tools/draw_objects.py  → ui/objects/{can,paper,glasses,computer,milk,sock,umbrella}.png (128×128)
+    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,sock,umbrella}.png (128×128)
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
@@ -13,6 +13,7 @@ CSS로 돌린다 (ui/object.js) — 그래서 그림 한 장이면 된다.
                                              그림을 고치면 다시 찍어야 한다 (tools/test_draw_objects.py가 어긋나면 알려 준다)
 """
 
+import random
 import sys
 from math import ceil, hypot
 from pathlib import Path
@@ -38,11 +39,12 @@ POSTIT_REACH = 20
 HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
-NAMES = ("can", "paper", "glasses", "computer", "milk", "sock", "umbrella")
+NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "sock", "umbrella")
 # 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다
 POSTIT_AT = {
     "can": (76, 80),
-    "paper": (78, 84),
+    "paper": (86, 104),
+    "stone": (76, 86),
     "glasses": (40, 100),
     "computer": (92, 72),
     "milk": (74, 92),
@@ -52,8 +54,15 @@ POSTIT_AT = {
 
 CAN_RED = (232, 96, 92)
 METAL = (206, 212, 220)
-PAPER = (250, 246, 234)
-CREASE = mix(PAPER, LINE, 0.35)
+NEWS = (216, 216, 210)
+NEWS_LIGHT = (232, 232, 226)
+NEWS_FOLD = (194, 194, 190)
+NEWS_INK = (88, 90, 96)
+NEWS_PHOTO = (132, 134, 140)
+STONE = (146, 134, 120)
+STONE_LIGHT = (172, 160, 144)
+STONE_DARK = (104, 94, 84)
+STONE_CRACK = (66, 58, 52)
 FRAME_BROWN = (146, 100, 76)
 LENS = (214, 236, 250)
 PLASTIC = (222, 214, 196)
@@ -83,13 +92,35 @@ def draw_can(img):
 
 
 def draw_paper(img):
-    """구긴 종이: 각진 뭉치, 구김 선."""
-    ball = [T((38, 86), (46, 68), (62, 62), (78, 66), (90, 80), (92, 100), (84, 118), (68, BOTTOM), (48, 122), (36, 106))]
-    blob(img, ball, PAPER, r=1.2,
-         marks=[([L([(46, 68), (56, 84), (40, 94)], 1.3), L([(56, 84), (72, 78), (78, 66)], 1.3), L([(72, 78), (90, 92)], 1.2),
-                  L([(56, 84), (60, 104), (48, 122)], 1.3), L([(60, 104), (84, 112)], 1.2)], CREASE),
-                ([T((62, 86), (72, 80), (82, 94), (70, 100))], mix(PAPER, CREASE, 0.35))])
-    tiny_face(img, 64, 100, 0.8)
+    """구겨진 신문지: 덜 뭉쳐 일부 펼쳐진 연회색 장. 삐죽한 모서리, 접힌 음영, 제목 블록·사진 칸·글줄."""
+    sheet = [T((16, 90), (30, 72), (24, 56), (48, 62), (64, 50), (84, 60), (108, 50), (100, 72), (116, 88), (104, 104), (112, 120),
+               (84, BOTTOM), (62, 118), (38, BOTTOM), (18, 118), (28, 102))]
+    left_ink = [L([(32, 82 + i * 6), (58, 80 + i * 6)], 1.7) for i in range(6)]
+    right_ink = [L([(68, 88 + i * 6), (104, 91 + i * 6)], 1.7) for i in range(5)]
+    blob(img, sheet, NEWS, r=0.5,
+         marks=[([T((64, 50), (84, 60), (74, 88), (60, 86))], NEWS_FOLD),      # 접혀 그늘진 면
+                ([T((60, 86), (74, 88), (84, BOTTOM), (62, 118))], NEWS_FOLD),
+                ([T((30, 66), (58, 63), (58, 73), (30, 76))], NEWS_INK),       # 제목 블록
+                ([T((68, 62), (94, 62), (94, 81), (69, 83))], NEWS_PHOTO),     # 사진 칸
+                ([E(74, 66, 84, 76)], mix(NEWS_PHOTO, WHITE, 0.3)),
+                (left_ink + right_ink, NEWS_INK),
+                ([L([(64, 50), (60, 86), (62, 118)], 1.3), L([(16, 90), (60, 86)], 1.1), L([(60, 86), (116, 88)], 1.1)], mix(NEWS_FOLD, LINE, 0.5))])
+    # 오른쪽 아래 귀퉁이가 접혀 올라왔다
+    blob(img, [T((112, 120), (104, 104), (88, 112), (84, BOTTOM))], NEWS_LIGHT, r=0.3, line=0.8)
+
+
+def draw_stone(img):
+    """돌멩이: 울퉁불퉁한 회갈색 덩어리. 면이 나뉜 음영, 잔 반점, 작은 균열, 아래쪽 어두운 면."""
+    outline = [(30, 92), (40, 70), (60, 60), (82, 64), (98, 80), (102, 102), (92, 120), (68, BOTTOM), (42, 123), (28, 108)]
+    spots = random.Random(11)
+    specks = [C(spots.uniform(30, 100), spots.uniform(62, 124), spots.uniform(0.7, 1.4)) for _ in range(42)]
+    blob(img, [T(*outline)], STONE, r=2.0,
+         marks=[([T((40, 70), (60, 60), (82, 64), (70, 80), (46, 86))], STONE_LIGHT),                  # 위쪽 밝은 면
+                ([T((82, 64), (98, 80), (102, 102), (82, 96), (70, 80))], mix(STONE, STONE_DARK, 0.35)),  # 오른쪽 면
+                ([T((28, 108), (46, 106), (66, 112), (88, 106), (102, 102), (92, 124), (68, 130), (40, 128))], STONE_DARK),  # 아래쪽 그림자 면
+                (specks, mix(STONE, STONE_CRACK, 0.55)),
+                ([L([(70, 80), (46, 86), (30, 92)], 1.0), L([(70, 80), (82, 96), (102, 102)], 1.0), L([(70, 80), (82, 64)], 0.9)], mix(STONE, LINE, 0.35)),
+                ([L([(52, 90), (58, 98), (54, 104), (60, 112)], 1.2), L([(58, 98), (66, 100)], 1.0)], STONE_CRACK)])
 
 
 def draw_glasses(img):
@@ -195,6 +226,7 @@ def draw_umbrella(img):
 DRAW = {
     "can": draw_can,
     "paper": draw_paper,
+    "stone": draw_stone,
     "glasses": draw_glasses,
     "computer": draw_computer,
     "milk": draw_milk,

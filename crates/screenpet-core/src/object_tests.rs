@@ -46,7 +46,7 @@ fn resting_on(o: &Object, owner: Owner) -> bool {
 
 #[test]
 fn kinds_round_trip_and_unknown_ids_are_rejected() {
-    assert!(ObjectKind::ALL.len() >= 7);
+    assert!(ObjectKind::ALL.len() >= 8);
     for k in ObjectKind::ALL {
         assert_eq!(ObjectKind::from_id(k.id()), Some(k));
         assert!(!k.label().is_empty());
@@ -136,6 +136,8 @@ fn a_gust_is_the_same_roll_light_things_turn_over_heavy_things_barely_budge() {
     assert!(can_turned > 90.0 && can_went > 40.0, "can {can_turned} {can_went}");
     let (computer_turned, computer_went) = gust_of(ObjectKind::Computer);
     assert!(computer_turned < 60.0 && computer_went <= 30.0, "computer {computer_turned} {computer_went}");
+    let (stone_turned, stone_went) = gust_of(ObjectKind::Stone);
+    assert!(stone_turned < can_turned && stone_went <= 30.0, "stone {stone_turned} {stone_went}");
     let (sock_turned, _) = gust_of(ObjectKind::Sock);
     assert!(sock_turned < can_turned, "sock {sock_turned} can {can_turned}");
 }
@@ -704,10 +706,13 @@ fn each_kind_rolls_its_own_way() {
     let (paper_far, paper_turn, _) = go(ObjectKind::Paper, 1);
     let (computer_far, computer_turn, _) = go(ObjectKind::Computer, 1);
     let (sock_far, sock_turn, _) = go(ObjectKind::Sock, 1);
+    let (stone_far, stone_turn, _) = go(ObjectKind::Stone, 1);
     // 캔이 가장 멀리 구른다
-    for (name, far) in [("paper", paper_far), ("computer", computer_far), ("sock", sock_far)] {
+    for (name, far) in [("paper", paper_far), ("computer", computer_far), ("sock", sock_far), ("stone", stone_far)] {
         assert!(can_far > far, "can {can_far} vs {name} {far}");
     }
+    // 돌멩이는 무겁지만 동그래서 데굴 구른다 — 컴퓨터보다 많이, 캔보다 적게
+    assert!(stone_turn > computer_turn && stone_turn < can_turn, "stone {stone_turn}");
     // 컴퓨터는 거의 안 구른다
     assert!(computer_turn < 120.0, "computer turned {computer_turn}");
     assert!(computer_turn * 4.0 < can_turn, "{computer_turn} vs {can_turn}");

@@ -2,6 +2,7 @@ import math
 import re
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -121,3 +122,35 @@ def test_sock_is_a_flat_limp_heap_not_an_upright_l(built):
     _, arts = built
     left, top, right, bottom = arts["sock"].getchannel("A").getbbox()
     assert right - left > (bottom - top) * 2.5, (left, top, right, bottom)
+
+
+def _opaque(im):
+    a = np.asarray(im.convert("RGBA")).reshape(-1, 4)
+    return a[a[:, 3] > 200][:, :3].astype(int)
+
+
+def _share(px, test):
+    return float(np.mean(test(px)))
+
+
+def test_newspaper_is_grey_paper_with_ink(built):
+    _, arts = built
+    px = _opaque(arts["paper"])
+    grey = np.abs(px.max(axis=1) - px.min(axis=1)) < 24
+    assert _share(px, lambda p: grey & (p.mean(axis=1) > 180)) > 0.35, "mostly light grey sheet"
+    assert _share(px, lambda p: grey & (p.mean(axis=1) < 130)) > 0.08, "ink: headline, photo, lines"
+    assert _share(px, lambda p: p.mean(axis=1) > 240) < 0.02, "not the old white wad"
+
+
+def test_stone_is_a_grey_brown_rock_not_white(built):
+    _, arts = built
+    px = _opaque(arts["stone"])
+    assert _share(px, lambda p: p.mean(axis=1) > 200) < 0.01, "white"
+    # 회갈색: 빨강 ≥ 초록 ≥ 파랑, 채도는 낮게
+    r, g, b = px[:, 0].mean(), px[:, 1].mean(), px[:, 2].mean()
+    assert r > g > b and r - b < 50, (r, g, b)
+    # 아래쪽이 위쪽보다 어둡다 (그림자 면)
+    arr = np.asarray(arts["stone"])
+    lit = lambda rows: arr[rows][arr[rows][:, :, 3] > 200][:, :3].mean()
+    assert lit(slice(66, 84)) > lit(slice(108, 122)) + 20
+

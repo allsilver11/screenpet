@@ -38,6 +38,7 @@ const CLICK_SECS: f64 = 0.5;
 pub enum ObjectKind {
     Can,
     Paper,
+    Stone,
     Glasses,
     Computer,
     Milk,
@@ -46,9 +47,10 @@ pub enum ObjectKind {
 }
 
 impl ObjectKind {
-    pub const ALL: [ObjectKind; 7] = [
+    pub const ALL: [ObjectKind; 8] = [
         ObjectKind::Can,
         ObjectKind::Paper,
+        ObjectKind::Stone,
         ObjectKind::Glasses,
         ObjectKind::Computer,
         ObjectKind::Milk,
@@ -61,6 +63,7 @@ impl ObjectKind {
         match self {
             ObjectKind::Can => "can",
             ObjectKind::Paper => "paper",
+            ObjectKind::Stone => "stone",
             ObjectKind::Glasses => "glasses",
             ObjectKind::Computer => "computer",
             ObjectKind::Milk => "milk",
@@ -73,7 +76,8 @@ impl ObjectKind {
     pub fn label(self) -> &'static str {
         match self {
             ObjectKind::Can => "🥫 찌그러진 캔",
-            ObjectKind::Paper => "📄 구긴 종이",
+            ObjectKind::Paper => "📰 구겨진 신문지",
+            ObjectKind::Stone => "🪨 돌멩이",
             ObjectKind::Glasses => "👓 금 간 안경",
             ObjectKind::Computer => "💻 고장난 컴퓨터",
             ObjectKind::Milk => "🥛 빈 우유팩",
@@ -96,6 +100,7 @@ impl ObjectKind {
             ObjectKind::Glasses => (20.0, 60.0),
             ObjectKind::Milk => (30.0, 90.0),
             ObjectKind::Umbrella => (30.0, 80.0),
+            ObjectKind::Stone => (8.0, 24.0),
             ObjectKind::Computer => (6.0, 18.0),
         }
     }

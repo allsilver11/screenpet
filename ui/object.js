@@ -7,7 +7,8 @@ const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 // 포스트잇 가운데 자리 (128 칸 좌표, tools/draw_objects.py POSTIT_AT과 같다)
 const POSTIT_AT = {
   can: [76, 80],
-  paper: [78, 84],
+  paper: [86, 104],
+  stone: [76, 86],
   glasses: [40, 100],
   computer: [92, 72],
   milk: [74, 92],
