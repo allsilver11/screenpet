@@ -122,8 +122,18 @@
       "loop": false,
       "front": true
     },
-    "lookup": {
+    "climb": {
       "row": 21,
+      "frames": 4,
+      "fps": 6
+    },
+    "slide": {
+      "row": 22,
+      "frames": 2,
+      "fps": 8
+    },
+    "lookup": {
+      "row": 23,
       "frames": 3,
       "fps": 3
     }

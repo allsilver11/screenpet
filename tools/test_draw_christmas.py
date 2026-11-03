@@ -1,5 +1,5 @@
 """크리스마스 시트 검사 (루돌프·산타): 크기·투명 여백·모든 동작·pet.json·eat에 밥그릇 없음·루돌프 코가 빨갛게 빛남·
-뿔이 단계마다 자람·산타는 썰매를 타고 roll에 spin이 없음."""
+뿔이 단계마다 자람·산타는 썰매를 타고 roll에 spin이 없음·산타는 고양이처럼 벽을 탄다 (뒷모습)."""
 import json
 
 import numpy as np
@@ -58,7 +58,7 @@ def test_both_are_registered_with_every_required_anim():
     for pid, poses in (("rudolph", draw_christmas.RUDOLPH_POSES), ("santa", draw_christmas.SANTA_POSES)):
         sp = draw_pets.SPECIES[pid]
         assert sp.poses is poses
-        assert names(pid) == [a for a, *_ in ANIMS] + ["lookup"]
+        assert names(pid) == [a for a, *_ in ANIMS] + {"rudolph": [], "santa": ["climb", "slide"]}[pid] + ["lookup"]
         assert all(a in poses for a in names(pid))
 
 
@@ -90,9 +90,11 @@ def test_manifests(out):
     assert sa["name"] == "산타" and sa["personality"] == "friendly" and "locomotion" not in sa and "hop_share" not in sa
     assert sa["favorite_food"] == {"emoji": "🥛", "name": "우유"} and sa["house"] == "xmas"
     assert sa["speech"]["chatter"] == ["ho ho ho!", "merry~"] and sa["speech"]["tickle"] == ["ho ho!"]
+    assert set(ru["animations"]) == {a for a, *_ in ANIMS} | {"lookup"}
+    assert set(sa["animations"]) == {a for a, *_ in ANIMS} | {"climb", "slide", "lookup"}
+    assert sa["animations"]["climb"] == {"row": len(ANIMS), "frames": 4, "fps": 6} and sa["animations"]["slide"] == {"row": len(ANIMS) + 1, "frames": 2, "fps": 8}
     for m in (ru, sa):
-        assert m["speech"]["hungry"] and m["speech"]["full"] and m["speech"]["level_up"]
-        assert set(m["animations"]) == {a for a, *_ in ANIMS} | {"lookup"} and m["stages"] == STAGES
+        assert m["speech"]["hungry"] and m["speech"]["full"] and m["speech"]["level_up"] and m["stages"] == STAGES
         assert m["animations"]["eat"] == {"row": 19, "frames": 4, "fps": 6, "front": True}
 
 
@@ -121,6 +123,38 @@ def test_eat_has_no_bowl(out, pid):
             bowlish = count(im, lambda r, g, b, a: (a > 200) & np.logical_or.reduce(
                 [np.abs(r - col[0]) + np.abs(g - col[1]) + np.abs(b - col[2]) <= 12 for col in BOWL_COLORS]))
             assert bowlish < 60, (st, c, bowlish)  # 그릇이면 수백 px — 루돌프 코 후광·산타 볼터치가 몇 px 섞인다
+
+
+def near(col, tol=24):
+    return lambda r, g, b, a: (a > 200) & (np.abs(r - col[0]) + np.abs(g - col[1]) + np.abs(b - col[2]) < tol)
+
+
+def test_santa_climbs_with_his_back_to_us(out):
+    """뒷모습: 빨간 등·모자 + 방울, 얼굴 없음 (눈·코·볼 없음), 벨트는 어린이부터, 자루는 어른만, 버클 없음."""
+    for st in STAGES:
+        for anim, n in (("climb", 4), ("slide", 2)):
+            for c in range(n):
+                im = frame(out, "santa", anim, c, st)
+                assert count(im, near(draw_christmas.SUIT)) >= 400, (st, anim, c)
+                assert count(im, near(draw_christmas.FUR, 10)) >= 200, (st, anim, c)
+                assert count(im, near((250, 166, 156), 16)) < 10, (st, anim, c)  # 앞모습 코가 없다 (코면 수십 px)
+                assert count(im.crop((0, 0, FRAME, 66)), near(draw_pets.EYE, 12)) < 30, (st, anim, c)  # 머리 쪽에 눈이 없다 (장화·허리띠는 아래, 눈이면 하나에 수십 px)
+                assert count(im, near(draw_christmas.BUCKLE, 30)) < 30, (st, anim, c)  # 버클 없음 (어른 자루의 선물 리본이 몇 px)
+                sack = count(im, near(draw_christmas.SACK, 16))
+                assert (sack >= 200) == (st == "adult"), (st, anim, c, sack)
+                belt = count(im, near(draw_christmas.BELT, 16))
+                assert (belt >= 60) == (st in ("child", "teenager", "adult")), (st, anim, c, belt)
+
+
+def test_santa_mitts_and_boots_take_turns_on_the_climb(out):
+    """장갑은 머리 옆·위로 번갈아, 장화는 번갈아 빼꼼 — 왼쪽과 오른쪽이 프레임마다 바뀐다."""
+    for st in STAGES:
+        frames = [frame(out, "santa", "climb", c, st) for c in range(4)]
+        assert len({f.tobytes() for f in frames}) >= 3, st
+        boot = near(draw_christmas.BOOT, 20)
+        low_left = [count(f.crop((0, 90, 64, FRAME)), boot) for f in frames]
+        low_right = [count(f.crop((64, 90, FRAME, FRAME)), boot) for f in frames]
+        assert low_left[2] > low_left[0] and low_right[0] > low_right[2], (st, low_left, low_right)
 
 
 def test_santa_mouth_sits_over_the_food(out):

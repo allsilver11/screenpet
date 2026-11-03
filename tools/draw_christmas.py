@@ -12,6 +12,7 @@
 산타: 큰 머리 꼬마 산타 — 빨간 옷·모자(흰 방울), 복슬 흰 수염, 발그레 볼, 동글 배, 검은 허리띠 + 금 버클, 작은 장화.
       단계: 아기 = 모자 + 작은 수염 뭉치 (몸은 동글 빨간 콩) → 유아 장갑 → 어린이 허리띠 → 청소년 콧수염 + 버클 → 어른 큰 배 + 선물 자루.
       roll(구르기) 대신 썰매를 타고 미끄러진다 (옆모습, 방울·목도리 펄럭, 썰매 날 뒤로 눈가루) — pet.json roll에 spin이 없어 앱이 돌리지 않는다.
+      고양이처럼 벽을 탄다: 뒷모습 climb·slide (빨간 등·허리띠, 모자 + 방울, 수염 끝만 살짝, 어른은 등에 자루, 장화는 몸 뒤에서 번갈아 빼꼼).
 eat에는 밥그릇이 없다 (앱의 소품 창이 그릇을 띄운다).
 """
 
@@ -641,10 +642,79 @@ def sa_lookup(sp, i):
     return santa(sp, side=True, head_rot=dp.lookup_tilt(i), pom=-6, eyes="up", fx=dp.lookup_fx(i, 112, 14))
 
 
+# ---- 뒷모습 (벽 타기, 고양이처럼) — 다리는 몸 뒤, 장갑 끝만 머리 옆·위로 빼꼼. 보이는 건 빨간 등·허리띠·털 단, 모자 + 방울, 수염 끝 ----
+SA_BACK_FOOT = {"side": (1.02, 0.42), "low": (0.46, 1.02), "tuck": (0.32, 0.2)}  # 몸 (brx, bry) 기준 장화 자리: 옆으로 디딤 · 아래로 빼꼼 · 완전히 숨음
+
+
+def santa_back(reach, feet, *, sq=(1.0, 1.0), dy=0.0, pom=0.0, scratch=None, sweat=None):
+    """산타 뒷모습. reach: (왼, 오) 0 머리 옆 낮게 … 1 머리 위로 쭉 · feet: (왼, 오) SA_BACK_FOOT 키."""
+    st = _sa()
+    lvl = _ST["lvl"]
+    hr, brx, bry = st["hr"], st["brx"], st["bry"]
+    cx = 64.0
+    bottom = SA_FLOOR - 1 + dy
+    cy_b, hy = _layout(st, bottom)
+    parts, ops = [], []
+    with xf(sx=sq[0], sy=sq[1], pivot=(cx, bottom)):
+        for s_, at in zip((-1, 1), feet):  # 장화는 몸 뒤 — 몸 밖으로 나온 만큼만 보인다
+            ox, oy = SA_BACK_FOOT[at]
+            x, y = cx + s_ * brx * ox, cy_b + bry * oy
+            parts.append(dp.Part([E(x - 8, y - 7, x + 8, y + 7)], BOOT, [([E(x - 5, y - 3, x, y)], BOOT_LIGHT)], outline=True, grow=0))
+        for s_, r in zip((-1, 1), reach):  # 소매는 머리 뒤에 숨고 장갑 끝만 빼꼼
+            tx = cx + s_ * hr * (1.3 - 0.5 * r)
+            ty = hy + hr * (0.42 - 0.95 * r if r <= 0.62 else -0.17 - 2.7 * (r - 0.62))  # 머리 옆 낮게 → 모자 테 아래 → 모자 위로 쭉
+            parts.append(dp.Part([L([(cx + s_ * hr * 0.62, hy + hr * 0.5), (tx, ty)], 9.5)], SUIT, outline=True, grow=0))
+            parts.append(dp.Part([C(tx, ty, 6.6)], MITT if lvl else SKIN, [([C(tx - 1.6, ty - 1.8, 1.8)], MITT_LIGHT if lvl else WHITE)], outline=True, grow=0))
+            if scratch is not None:
+                for j, d in enumerate((-4, 0, 4)):
+                    y0 = ty - 9 - (j % 2) * 1.5 - scratch * 2
+                    ops.append(([L([(tx + d * 1.1, y0), (tx + d * 1.3, y0 - 7)], 1.5)], LINE, 1.0, 0, 0))
+        # 등: 빨간 옷 + 아래 흰 털 단 + 허리띠 (버클은 앞에 있어 안 보인다), 등솔기
+        marks = [([E(cx - brx * 1.3, cy_b + bry * 0.6, cx + brx * 1.3, cy_b + bry * 1.7)], FUR),
+                 ([E(cx - brx * 1.3, cy_b + bry * 1.05, cx + brx * 1.3, cy_b + bry * 1.7)], FUR_SHADE),
+                 ([E(cx + brx * 0.3, cy_b - bry * 0.7, cx + brx * 0.7, cy_b - bry * 0.35)], mix(SUIT, WHITE, 0.3))]
+        if lvl >= 1:
+            marks.append(([L([(cx, cy_b - bry), (cx, cy_b + bry * 0.62)], 1.6)], SUIT_SHADE))
+        if st["belt"]:
+            marks.append(([T((cx - brx * 1.1, cy_b + bry * 0.02), (cx + brx * 1.1, cy_b + bry * 0.02),
+                             (cx + brx * 1.1, cy_b + bry * 0.36), (cx - brx * 1.1, cy_b + bry * 0.36))], BELT))
+        parts.append(dp.Part([E(cx - brx, cy_b - bry, cx + brx, cy_b + bry)], SUIT, marks, outline=True, grow=0))
+        # 뒤통수: 볼 옆으로 수염 끝이 살짝, 그 위에 흰 머리칼 + 모자
+        k = st["beard"]
+        tips = [C(cx + s_ * hr * 0.9, hy + 0.42 * hr, hr * (0.14 + 0.1 * k)) for s_ in (-1, 1)]
+        tips += [C(cx + s_ * hr * 0.66, hy + 0.56 * hr + 2 * k, hr * (0.14 + 0.1 * k)) for s_ in (-1, 1)]
+        parts.append(dp.Part(tips, FUR, outline=True, grow=0))
+        nape = [E(cx - hr * 0.9, hy - hr * 0.6, cx + hr * 0.9, hy + hr * 0.6)]
+        parts.append(dp.Part(nape, FUR if lvl >= 1 else SKIN, [([E(cx - hr, hy + hr * 0.3, cx + hr, hy + hr * 0.8)], FUR_SHADE if lvl >= 1 else mix(SKIN, CHEEK_RED, 0.2))], outline=True, grow=0))
+        parts += _hat_parts(cx, hy, hr, False, pom, lvl)
+        if st["sack"]:  # 어른: 등에 멘 선물 자루 — 등 한가운데, 입구로 선물 상자가 빼꼼
+            sx0, sy0, sx1, sy1 = cx - 18, cy_b - bry * 0.82, cx + 18, cy_b + bry * 0.98
+            gift = dp.Part([T((cx - 7, sy0 - 3), (cx + 7, sy0 - 5), (cx + 8, sy0 + 7), (cx - 6, sy0 + 8))], GIFT,
+                           [([L([(cx, sy0 - 4), (cx + 1, sy0 + 8)], 2.2)], GIFT_RIBBON)], outline=True, grow=0)
+            bag = dp.Part([E(sx0, sy0, sx1, sy1)], SACK, [([E(sx0, (sy0 + sy1) / 2 + 3, sx1 + 2, sy1 + 6)], SACK_SHADE),
+                                                          ([L([(sx0 + 7, sy0 + 5), (sx1 - 7, sy0 + 5)], 2.6)], SACK_TIE)], outline=True, grow=0)
+            parts += [gift, bag]
+    fx = sweat_fx(cx + hr + 9, hy - 2 + sweat) if sweat is not None else []
+    return _finish(parts, (), ops, fx)
+
+
+def sa_climb(sp, i):
+    """화면을 기어오름: 장갑 번갈아 위로, 장화는 장갑과 엇갈려 아래로 빼꼼 → 옆으로 → 숨음, 모자 끝 살랑."""
+    reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
+    feet = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")][i]
+    return santa_back(reach, feet, sq=(1.0, [1.04, 1.0, 1.04, 1.0][i]), dy=[-1, 0, -1, 0][i], pom=[-8, 0, 8, 0][i])
+
+
+def sa_slide(sp, i):
+    """주르륵: 두 장갑 쭉 위로 + 긁힌 자국, 살짝 찌그러짐, 땀 한 방울, 모자 끝은 위로 펄럭."""
+    return santa_back((1.0, 1.0), ("low", "low"), sq=(1.03, 0.94), dy=[0, 1][i], pom=[-22, -16][i], scratch=i, sweat=i)
+
+
 SANTA_POSES = {"walk": sa_walk, "run": sa_run, "roll": sa_roll, "idle": sa_idle, "look": sa_look, "sleep": sa_sleep, "hop": sa_hop,
                "fall": sa_fall, "dragged": sa_dragged, "land": sa_land, "sit_front": sa_sit_front, "wave": sa_wave, "tilt": sa_tilt,
                "belly": sa_belly, "stretch": sa_stretch, "heart": sa_heart, "tickle": sa_tickle, "annoyed": sa_annoyed,
-               "hungry": sa_hungry, "eat": sa_eat, "level_up": sa_level_up, "lookup": sa_lookup}
+               "hungry": sa_hungry, "eat": sa_eat, "level_up": sa_level_up, "lookup": sa_lookup,
+               "climb": sa_climb, "slide": sa_slide}
 SANTA_POSES = {k: dh._fit(v) for k, v in SANTA_POSES.items()}
 
 SANTA = Species(
@@ -654,7 +724,7 @@ SANTA = Species(
     stage_tweak={"baby": dict(pale=0.0, sparkle=False, eye=1.0, fit=0.9), "kinder": dict(pale=0.0, sparkle=False, eye=0.95, fit=0.93),
                  "child": dict(smile=False, eye=0.92, fit=0.95), "teenager": dict(eye=0.9, fit=0.97),
                  "adult": dict(calm=False, eye=0.88, fit=0.93)},
-    **{k: v for k, v in dh._COMMON.items() if k != "poses"}, poses=SANTA_POSES,
+    **{k: v for k, v in dh._COMMON.items() if k not in ("poses", "specials")}, specials=["climb", "slide", "lookup"], poses=SANTA_POSES,
 )
 
 
@@ -673,6 +743,8 @@ def main():
     for sp in (RUDOLPH, SANTA):
         by_stage = dp.write_species(sp, root / "ui" / "pets" / sp.id)
         dh.preview_species(by_stage, pv / f"stages_{sp.id}.png")
+        if "climb" in sp.specials:
+            dp.preview_back(by_stage, pv / f"climb_{sp.id}.png")
     print("ok: rudolph, santa")
 
 
