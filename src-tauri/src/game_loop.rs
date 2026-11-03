@@ -302,6 +302,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::SetStyle(style) => {
                     config.style = style;
+                    crate::art::set(style);
+                    gifts.restyle();
+                    let _ = app.emit("art-style", if style == PetStyle::Pixel { "pixel" } else { "round" });
                     let own = &mut slots[OWN];
                     own.restyle(&app, style);
                     // 체크 항목은 누를 때 스스로 뒤집히므로 항상 다시 맞춘다
@@ -644,7 +647,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             // 밥그릇·꽃 놓기·거두기 (손님은 먹이를 받지 않는다)
             if let Some(ev) = s.pet.take_prop() {
                 if s.is_own() {
-                    props.apply(&app, ev, s.dpi, s.shown.scale);
+                    props.apply(&app, ev, s.dpi, s.shown.scale, s.pixel_dot());
                 }
             }
             if let Some(side) = s.pet.take_exit() {
@@ -732,7 +735,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         if last_house.as_ref() != Some(&house_state) {
             *app.state::<AppState>().house.lock().unwrap() = house_state.clone();
             let _ = app.emit_to(house::LABEL, "house-state", house_state.clone());
+            // 스타일이 바뀌면 집 크기와 문 자리도 바뀐다 — 집으로 가는 동물이 새 문으로 간다
+            let restyled = last_house.as_ref().is_some_and(|h| h.style != house_state.style);
             last_house = Some(house_state);
+            if restyled {
+                let spot = house::spot(&app, &own.world.work_areas, own.dpi);
+                own.pet.set_house_door(spot.ground, spot.door_x);
+            }
         }
 
         // 먹다가 눌린 동안(Pressed)도 먹는 중으로 본다 — 손을 떼면 계속 먹으므로 크기를 미리 바꾸지 않는다.

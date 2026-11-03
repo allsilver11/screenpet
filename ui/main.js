@@ -38,6 +38,7 @@ async function loadPet() {
   setPixelBody(pixelMode);
   const side = pixelMode ? snapPixelSide(128 * stage.scale, m.frame_size) : 128 * stage.scale;
   dot = side / m.frame_size;
+  if (pixelMode) document.body.style.setProperty("--dot", dot + "px");
   petEl.style.width = side + "px";
   // 창 가운데 (창 너비는 128 × max(1, 배율), 편지 쪽지를 펼친 동안은 더 넓다 — 백엔드가 몸을 창 가운데에 둔다)
   petEl.style.left = centerLeft(side);
@@ -49,7 +50,10 @@ async function loadPet() {
   petEl.style.backgroundSize = `${img.width * k}px ${img.height * k}px`;
   setupNeck(m, side, k, dir);
   // 동물이 바뀌면 모자 ↔ 목도리 (pet-presence는 그대로라 다시 오지 않는다)
-  if (lastPresence) setCap(!!lastPresence.nightcap);
+  if (lastPresence) {
+    setCap(!!lastPresence.nightcap);
+    applyRing();
+  }
   animStart = performance.now();
 }
 
@@ -176,6 +180,10 @@ const focusringEl = document.getElementById("focusring");
 const focusringFill = document.getElementById("focusring-fill");
 // 밤 목도리: pet.json에 neck 표가 있는 동물(산타 — 모자를 이미 썼다)은 수면 모자 대신 두른다. 자리·몸과 한 덩어리인 것은 모자와 같다
 const scarfEl = document.getElementById("scarf");
+// 픽셀 스타일: 같은 자리에 칸 그림 (effects_pixel/nightcap.png·scarf.png 띠, 고리는 캔버스)
+const capPxEl = document.getElementById("nightcap-px");
+const scarfPxEl = document.getElementById("scarf-px");
+const ringPxEl = document.getElementById("focusring-px");
 let headgearAt = null;
 
 // HEADGEAR-LAYOUT-START (tools/test_nightcap.py가 node로 이 부분을 그대로 돌린다)
@@ -225,6 +233,47 @@ function hangOrigin(cells, frameSize) {
   return `${((mean(0) / frameSize) * 100).toFixed(2)}% ${((y / frameSize) * 100).toFixed(2)}%`;
 }
 // HEADGEAR-LAYOUT-END
+
+// PIXEL-HEADGEAR-START (tools/test_draw_pixel_world.py가 node로 이 부분을 그대로 돌린다)
+// 띠 한 칸의 크기·기준점 (칸, tools/draw_pixel_world.py CAP_*·SCARF_*와 같다)
+const CAP_CELL = [40, 30];
+const CAP_ANCHOR = [20, 24];
+const CAP_WIDTHS = [4, 26];
+const SCARF_CELL = [48, 24];
+const SCARF_ANCHOR = [24, 6];
+const SCARF_WIDTHS = [6, 30];
+const RING_DOTS = 11;
+// entry = 머리 표 [x, y, w, r] (칸). 자리는 칸 단위 정수, 기울기는 90도 단위로만 (칸이 무너지지 않게), 그림은 너비에 맞는 칸을 고른다
+function pixelWearLayout(entry, capOn, flip, d) {
+  const [x, y, w, r] = entry;
+  const quarter = ((Math.round(r / 90) * 90) % 360) + 0;
+  const px = Math.round(x);
+  const py = Math.round(y);
+  const pick = ([lo, hi]) => Math.min(hi, Math.max(lo, Math.round(w))) - lo;
+  const rad = (r * Math.PI) / 180;
+  const lift = (capOn ? 0.6 : 0.3) * w + RING_DOTS / 2 + 1;
+  const half = (RING_DOTS - 1) / 2;
+  return {
+    capCell: pick(CAP_WIDTHS),
+    cap: `translate(${(px - CAP_ANCHOR[0]) * d}px, ${(py - CAP_ANCHOR[1]) * d}px) rotate(${quarter}deg)`,
+    scarfCell: pick(SCARF_WIDTHS),
+    scarf: `translate(${(px - SCARF_ANCHOR[0]) * d}px, ${(py - SCARF_ANCHOR[1]) * d}px) rotate(${quarter}deg)`,
+    ring: `translate(${(Math.round(x + Math.sin(rad) * lift) - half) * d}px, ${(Math.round(y - Math.cos(rad) * lift) - half) * d}px)${flip ? " scaleX(-1)" : ""}`,
+  };
+}
+// 고리 칸들: 위에서 시계 방향 순서
+function ringCells() {
+  const c = (RING_DOTS - 1) / 2;
+  const cells = [];
+  for (let y = 0; y < RING_DOTS; y++) {
+    for (let x = 0; x < RING_DOTS; x++) {
+      const d = Math.hypot(x - c, y - c);
+      if (d > 4 && d < 5.4) cells.push({ x, y, a: (Math.atan2(x - c, c - y) + Math.PI * 2) % (Math.PI * 2) });
+    }
+  }
+  return cells.sort((p, q) => p.a - q.a);
+}
+// PIXEL-HEADGEAR-END
 
 // 아래는 눈사람 눈구름(placeCloud)이 쓰는 머리 찾기 — 시트의 지금 칸을 재서 맨 위를 찾는다 (칸마다 한 번 재서 기억)
 const headCache = new Map();
@@ -288,7 +337,7 @@ function headTop(row, f, front) {
 
 // host: 지금 머리가 있는 층 — 평소 #pet, 기린 목 늘이기 동안은 머리 층 (#pet이 투명해지고 머리가 위로 올라간다)
 function placeHeadgear(anim, f, host) {
-  if (nightcapEl.parentNode !== host) host.append(nightcapEl, focusringEl, scarfEl);
+  if (nightcapEl.parentNode !== host) host.append(nightcapEl, focusringEl, scarfEl, capPxEl, scarfPxEl, ringPxEl);
   const wearing = !!lastPresence.nightcap;
   const scarf = manifest.neck?.[stage.stage]?.[anim]?.[f];
   const capOn = wearing && !manifest.neck;
@@ -297,6 +346,10 @@ function placeHeadgear(anim, f, host) {
   headgearAt = key;
   // 표가 없는 칸: 칸 위쪽 가운데 (HEAD_FALLBACK은 128칸 기준이라 픽셀 시트 칸 수로 줄인다)
   const entry = manifest.head?.[stage.stage]?.[anim]?.[f] ?? (pixelMode ? HEAD_FALLBACK.map((v, i) => (i < 3 ? (v * manifest.frame_size) / 128 : v)) : undefined);
+  if (pixelMode) {
+    placeHeadgearPixel(entry, capOn, scarf, wearing, anim, f);
+    return;
+  }
   const { cap, ring } = headgearLayout(entry, display / manifest.frame_size, capOn, render.flip);
   nightcapEl.style.transform = cap;
   focusringEl.style.transform = ring;
@@ -304,6 +357,45 @@ function placeHeadgear(anim, f, host) {
     scarfEl.style.transform = scarfLayout(scarf, display / manifest.frame_size);
     scarfEl.dataset.view = scarfView(anim, f);
   }
+}
+
+// 픽셀 모자·목도리·고리: 칸 크기(dot)로 띠에서 한 칸 골라 칸 단위 자리에 놓는다
+function placeHeadgearPixel(entry, capOn, scarf, wearing, anim, f) {
+  const l = pixelWearLayout(entry, capOn, render.flip, dot);
+  capPxEl.style.width = CAP_CELL[0] * dot + "px";
+  capPxEl.style.height = CAP_CELL[1] * dot + "px";
+  capPxEl.style.backgroundSize = `${(CAP_WIDTHS[1] - CAP_WIDTHS[0] + 1) * CAP_CELL[0] * dot}px ${CAP_CELL[1] * dot}px`;
+  capPxEl.style.backgroundPosition = `${-l.capCell * CAP_CELL[0] * dot}px 0`;
+  capPxEl.style.transformOrigin = `${CAP_ANCHOR[0] * dot}px ${CAP_ANCHOR[1] * dot}px`;
+  capPxEl.style.transform = l.cap;
+  ringPxEl.style.width = ringPxEl.style.height = RING_DOTS * dot + "px";
+  ringPxEl.style.transform = l.ring;
+  if (wearing && scarf) {
+    const s = pixelWearLayout(scarf, false, false, dot);
+    const view = scarfView(anim, f);
+    const row = view === "front" ? 0 : view === "back" ? 2 : 1;
+    scarfPxEl.style.width = SCARF_CELL[0] * dot + "px";
+    scarfPxEl.style.height = SCARF_CELL[1] * dot + "px";
+    scarfPxEl.style.backgroundSize = `${(SCARF_WIDTHS[1] - SCARF_WIDTHS[0] + 1) * SCARF_CELL[0] * dot}px ${3 * SCARF_CELL[1] * dot}px`;
+    scarfPxEl.style.backgroundPosition = `${-s.scarfCell * SCARF_CELL[0] * dot}px ${-row * SCARF_CELL[1] * dot}px`;
+    scarfPxEl.style.transformOrigin = `${SCARF_ANCHOR[0] * dot}px ${SCARF_ANCHOR[1] * dot}px`;
+    scarfPxEl.style.transform = s.scarf;
+  }
+}
+
+// 픽셀 고리 그리기: 바탕 + 회색 칸 + 진행한 만큼 주황 칸 (p: 0..100)
+let ringCellList = null;
+function drawRingPixel(p) {
+  ringCellList ??= ringCells();
+  const g = ringPxEl.getContext("2d");
+  g.clearRect(0, 0, RING_DOTS, RING_DOTS);
+  g.fillStyle = "#fffaf2";
+  g.fillRect(3, 3, RING_DOTS - 6, RING_DOTS - 6);
+  const done = Math.round((p / 100) * ringCellList.length);
+  ringCellList.forEach((c, i) => {
+    g.fillStyle = i < done ? "#ef8a5b" : "#d8c6ae";
+    g.fillRect(c.x, c.y, 1, 1);
+  });
 }
 
 // 눈사람의 작은 눈구름 (백엔드 render.cloud): 떠 있는 동안만 프레임이 바뀔 때 머리 위로 옮긴다 — 눈송이는 CSS.
@@ -319,6 +411,13 @@ function placeCloud(row, f) {
   const k = display / manifest.frame_size;
   // 뒷모습은 머리가 가운데 — 앞모습처럼 덩어리 전체에서 찾는다
   const head = headTop(row, f, FRONT_ANIMS.has(render.anim) || render.anim === "climb" || render.anim === "slide");
+  if (pixelMode) {
+    const hx = render.flip ? manifest.frame_size - head.x : head.x;
+    const px = Math.round(((stageEl.clientWidth - display) / 2 + hx * k) / dot - 7) * dot;
+    const py = Math.round(Math.min(display - head.y * k + 2 * dot, stageEl.clientHeight - 9 * dot) / dot) * dot;
+    snowcloudEl.style.transform = `translate(${px}px, ${-py}px)`;
+    return;
+  }
   const size = Math.sqrt(stage.scale);
   const x = (render.flip ? manifest.frame_size - head.x : head.x) * k + (stageEl.clientWidth - display) / 2;
   const y = Math.min(display - head.y * k + CLOUD_GAP * size, stageEl.clientHeight - 37 * size);
@@ -341,14 +440,42 @@ const CAP_POOF_MS = 450;
 const CAP_POOF_SPARKS = 5;
 let capPoofTimer = null;
 // 밤에 쓰는 것: 대개 수면 모자, neck 표가 있는 동물은 목도리
-const nightWear = () => (manifest?.neck ? scarfEl : nightcapEl);
+const nightWear = () => (manifest?.neck ? (pixelMode ? scarfPxEl : scarfEl) : pixelMode ? capPxEl : nightcapEl);
 function setCap(on) {
   clearTimeout(capPoofTimer);
-  nightcapEl.classList.remove("cap-poof");
-  scarfEl.classList.remove("cap-poof");
   const wear = nightWear();
-  nightcapEl.toggleAttribute("hidden", !on || wear !== nightcapEl);
-  scarfEl.toggleAttribute("hidden", !on || wear !== scarfEl);
+  for (const el of [nightcapEl, scarfEl, capPxEl, scarfPxEl]) {
+    el.classList.remove("cap-poof");
+    el.toggleAttribute("hidden", !on || wear !== el);
+  }
+}
+// 집중 고리: 지금 스타일의 것만 보인다
+function applyRing() {
+  const ring = typeof lastPresence?.ring === "number";
+  focusringEl.toggleAttribute("hidden", !ring || pixelMode);
+  ringPxEl.toggleAttribute("hidden", !ring || !pixelMode);
+  if (!ring) return;
+  if (pixelMode) drawRingPixel(lastPresence.ring);
+  else focusringFill.setAttribute("stroke-dashoffset", String(100 - lastPresence.ring));
+}
+// 픽셀 효과 조각 (effects_pixel/<name>.png): 칸 단위로 계단처럼 움직이고 뚝 사라진다 — 글자·흐림·확대 없음.
+// cx = 몸 가운데에서 가로, bottom = 아래에서, (dx, dy) = 움직일 거리 (5계단이 칸에 맞게 맞춘다, dy는 위가 음수)
+const BIT_STEPS = 5;
+function pixelBit(name, dots, cx, bottom, dx, dy, delayMs = 0, ms = 900) {
+  const s = document.createElement("span");
+  const side = dots * dot;
+  const snap = (v) => Math.round(v / (BIT_STEPS * dot)) * BIT_STEPS * dot;
+  s.className = "px-bit";
+  s.style.width = s.style.height = side + "px";
+  s.style.backgroundImage = `url(effects_pixel/${name}.png)`;
+  s.style.left = `calc(50% + ${Math.round((cx - side / 2) / dot) * dot}px)`;
+  s.style.bottom = `${Math.round((bottom - side / 2) / dot) * dot}px`;
+  s.style.setProperty("--dx", `${snap(dx)}px`);
+  s.style.setProperty("--dy", `${snap(dy)}px`);
+  s.style.setProperty("--ms", `${ms}ms`);
+  s.style.animationDelay = `${delayMs.toFixed(0)}ms`;
+  stageEl.appendChild(s);
+  setTimeout(() => s.remove(), ms + delayMs + 100);
 }
 function capPoof() {
   const wear = nightWear();
@@ -359,6 +486,10 @@ function capPoof() {
   for (let i = 0; i < CAP_POOF_SPARKS; i++) {
     const a = (i / CAP_POOF_SPARKS) * Math.PI * 2 + Math.random() * 0.5;
     const r = 14 + Math.random() * 10;
+    if (pixelMode) {
+      pixelBit("fx_spark2", 3, cx, up, Math.cos(a) * r, -Math.sin(a) * r, 0, 500);
+      continue;
+    }
     const s = document.createElement("span");
     s.className = "spark";
     s.textContent = i % 2 ? "✦" : "✧";
@@ -383,8 +514,7 @@ listen("pet-presence", (e) => {
   if (capOff && !nightWear().hidden && document.visibilityState !== "hidden") capPoof();
   else setCap(!!p.nightcap);
   const ring = typeof p.ring === "number";
-  focusringEl.toggleAttribute("hidden", !ring);
-  if (ring) focusringFill.setAttribute("stroke-dashoffset", String(100 - p.ring));
+  applyRing();
   headgearAt = null;
 });
 
@@ -460,6 +590,10 @@ function poof() {
   for (let i = 0; i < POOF_SPARKS; i++) {
     const a = (i / POOF_SPARKS) * Math.PI * 2 + Math.random() * 0.5;
     const r = display * (0.28 + Math.random() * 0.12);
+    if (pixelMode) {
+      pixelBit(i % 2 ? "fx_spark" : "fx_spark2", i % 2 ? 5 : 3, 0, cy, Math.cos(a) * r, -Math.sin(a) * r, 0, 500);
+      continue;
+    }
     const s = document.createElement("span");
     s.className = "spark";
     s.textContent = i % 2 ? "✦" : "✧";
@@ -505,6 +639,10 @@ function levelUpBurst() {
   lastBurst = now;
   const { cy, bits } = burstLayout(128 * stage.scale);
   for (const b of bits) {
+    if (pixelMode) {
+      pixelBit(b.heart ? "fx_heart" : "fx_star", 5, 0, cy, b.dx, -b.dy, b.delay);
+      continue;
+    }
     const s = document.createElement("span");
     s.className = "burst-bit";
     s.textContent = b.heart ? "♥" : "★";

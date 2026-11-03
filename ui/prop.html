@@ -144,6 +144,54 @@
           transform: scale(1);
         }
       }
+
+      /* 픽셀 스타일: 칸을 그대로, 확대·회전 없이 칸 단위 계단만 */
+      body.pixel #prop,
+      body.pixel #prop.flower,
+      body.pixel #prop.snowman,
+      body.pixel #prop.snowball {
+        object-fit: fill;
+        image-rendering: pixelated;
+        animation: px-show 240ms step-end both;
+      }
+      @keyframes px-show {
+        0% { opacity: 0; transform: translateY(4px); }
+        50% { opacity: 1; transform: translateY(4px); }
+        100% { opacity: 1; transform: none; }
+      }
+      body.pixel.hand #prop {
+        animation:
+          px-show 200ms step-end both,
+          px-dangle 1.6s step-end 200ms infinite;
+      }
+      @keyframes px-dangle {
+        0%, 100% { transform: none; }
+        50% { transform: translateY(4px); }
+      }
+      /* 냠 — 냠: 아래부터 칸 줄을 뚝뚝 베어 먹는다 */
+      body.pixel.hand.bite #prop {
+        animation: px-bite 800ms step-end forwards;
+      }
+      @keyframes px-bite {
+        0% { clip-path: inset(0); }
+        25% { clip-path: inset(0 0 25% 0); }
+        50% { clip-path: inset(0 0 50% 0); }
+        75% { clip-path: inset(0 0 75% 0); }
+        100% { clip-path: inset(0 0 100% 0); }
+      }
+      body.pixel.hand.drop #prop {
+        animation: px-drop 400ms step-end forwards;
+      }
+      @keyframes px-drop {
+        0% { transform: none; }
+        25% { transform: translateY(4px); }
+        50% { transform: translateY(8px); }
+        75% { transform: translateY(12px); opacity: 1; }
+        100% { transform: translateY(16px); opacity: 0; }
+      }
+      body.pixel.hide #prop {
+        transition: opacity 600ms steps(3, end);
+      }
     </style>
   </head>
   <body>
@@ -153,7 +201,14 @@
       if (window.PROP_MODE === "hand") document.body.classList.add("hand");
       const el = document.getElementById("prop");
       el.className = name;
-      el.src = `effects/${name}.png`;
+      const pixel = window.ART_STYLE === "pixel";
+      if (pixel) document.body.classList.add("pixel");
+      el.src = `${pixel ? "effects_pixel" : "effects"}/${name}.png`;
+      // 픽셀 눈덩이는 커지는 대신 네 그림으로 자란다 (brain_snow.rs ROLL_SECS 3초)
+      if (pixel && name === "snowball") {
+        el.src = "effects_pixel/snowball_0.png";
+        ["snowball_1", "snowball_2", "snowball"].forEach((n, i) => setTimeout(() => (el.src = `effects_pixel/${n}.png`), (i + 1) * 750));
+      }
       window.addEventListener("contextmenu", (e) => e.preventDefault());
     </script>
   </body>

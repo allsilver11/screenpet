@@ -58,6 +58,14 @@
       <img id="mark" src="effects/sting.png" alt="" onerror="this.hidden = true; document.getElementById('fallback').removeAttribute('hidden')" />
     </div>
     <script>
+      // 픽셀 스타일: 칸 그림 (창이 칸 정수배 크기다), 흐려지는 대신 계단으로
+      if (window.ART_STYLE === "pixel") {
+        const mark = document.getElementById("mark");
+        mark.src = "effects_pixel/sting.png";
+        mark.style.width = mark.style.height = "100%";
+        mark.style.imageRendering = "pixelated";
+        document.getElementById("decal").style.animationTimingFunction = "steps(3, end)";
+      }
       window.addEventListener("contextmenu", (e) => e.preventDefault());
     </script>
   </body>

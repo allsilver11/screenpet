@@ -46,7 +46,7 @@ pub struct StagePayload {
     pub pet: String,
     /// 시트 이름 (`sheet_<stage>.png`)
     pub stage: &'static str,
-    /// 몸 크기 배율: 동글은 단계 배율 × 동물별 배율, 픽셀은 칸이 정수 물리 px인 크기 (style::pixel_body_scale)
+    /// 몸 크기 배율: 동글은 단계 배율 × 동물별 배율, 픽셀은 전 종 같은 크기, 칸이 정수 물리 px (style::pixel_body_scale)
     pub scale: f64,
     /// 동글일 때의 몸 크기 배율 — 친구에게 보내는 값 (예전 버전은 동글로 그린다), 하우스 문간
     pub base: f64,
@@ -63,7 +63,7 @@ pub fn stage_payload(entry: &PetEntry, stage: Stage, wanted: PetStyle, dpi: f64)
     let shown = entry.shown_style(wanted);
     let scale = match shown {
         PetStyle::Round => base,
-        PetStyle::Pixel => style::pixel_body_scale(entry.art(shown).frame_size_at(stage.name()), stage, mult, dpi),
+        PetStyle::Pixel => style::pixel_body_scale(entry.art(shown).frame_size_at(stage.name()), stage, dpi),
     };
     StagePayload { pet: entry.id.clone(), stage: stage.name(), scale, base, style: shown, wanted }
 }
@@ -232,6 +232,12 @@ impl Slot {
         let info = self.info();
         app.state::<AppState>().slots.lock().unwrap().insert(self.label.clone(), info.clone());
         let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
+    }
+
+    /// 픽셀 동물이면 칸 한 변 (물리 px) — 밥그릇이 같은 칸으로 놓인다
+    pub fn pixel_dot(&self) -> Option<u32> {
+        let stage = Stage::from_name(self.shown.stage).filter(|_| self.shown.style == PetStyle::Pixel)?;
+        Some(style::dot_physical(stage, self.dpi))
     }
 
     /// 스타일을 바꾼다 (지금 단계·동물 그대로): 창 크기·펫 크기·웹뷰 시트. 그림마다 있는 동작이 다를 수 있으니 진행 중인 특별 동작·벽 타기도 다시 맞춘다

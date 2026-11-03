@@ -20,6 +20,8 @@ const BOOK_LABEL: &str = "book";
 const BOOK_SIZE: (f64, f64) = (470.0, 600.0);
 /// 선물 창 한 변 (논리 px) — 그림(ui/gifts/*.png, tools/draw_gifts.py)과 같다
 const SIZE: f64 = 40.0;
+/// 픽셀 선물 창 한 변 (12칸 × 4, 논리 px — 칸이 정수 물리 px가 되게 art::fit으로 맞춘다)
+const PIXEL_SIZE: f64 = 48.0;
 /// gift.html의 줍기(0.55초)·사라지기(0.6초)가 끝난 뒤 닫는다
 const CLOSE_AFTER: Duration = Duration::from_millis(700);
 /// 시계·손님 선물을 보는 간격
@@ -63,6 +65,19 @@ pub struct Gifts {
 }
 
 impl Gifts {
+    /// 스타일이 바뀌었다: 떠 있는 선물 창을 새 크기로 (아래 가운데는 그대로). 그림은 창이 `art-style`을 듣고 바꾼다
+    pub fn restyle(&mut self) {
+        for w in &mut self.windows {
+            let dpi = w.window.scale_factor().unwrap_or(1.0);
+            let Ok(old) = w.window.inner_size() else { continue };
+            let side = size(dpi);
+            let (cx, by) = (f64::from(w.pos.0) + f64::from(old.width) / 2.0, f64::from(w.pos.1) + f64::from(old.height));
+            w.pos = ((cx - side * dpi / 2.0).round() as i32, (by - side * dpi).round() as i32);
+            let _ = w.window.set_size(LogicalSize::new(side, side));
+            let _ = w.window.set_position(PhysicalPosition::new(w.pos.0, w.pos.1));
+        }
+    }
+
     pub fn new(book: &GiftBook, seed: u64) -> Self {
         publish(book);
         let mut rng = fastrand::Rng::with_seed(seed);
@@ -156,7 +171,7 @@ impl Gifts {
         self.next_label += 1;
         let label = format!("{PREFIX}{}", self.next_label);
         let pos = bottom_center(x, y, dpi);
-        match spawn_window(app, &label, &gift.wire(), pos) {
+        match spawn_window(app, &label, &gift.wire(), pos, dpi) {
             Some(window) => {
                 self.windows.push(LiveWindow { token, label, window, pos });
                 true
@@ -210,16 +225,27 @@ fn publish(book: &GiftBook) {
     *BOOK.lock().unwrap() = Some(book.clone());
 }
 
+/// 지금 스타일의 선물 창 한 변 (논리 px)
+fn size(dpi: f64) -> f64 {
+    if crate::art::is_pixel() {
+        crate::art::fit((PIXEL_SIZE, PIXEL_SIZE), dpi).0
+    } else {
+        SIZE
+    }
+}
+
 fn bottom_center(x: f64, y: f64, dpi: f64) -> (i32, i32) {
-    ((x - SIZE * dpi / 2.0).round() as i32, (y - SIZE * dpi).round() as i32)
+    let side = size(dpi);
+    ((x - side * dpi / 2.0).round() as i32, (y - side * dpi).round() as i32)
 }
 
 /// image는 Gift::wire — 목록에 있는 id뿐이다 (친구가 보낸 글자는 Gift::parse를 지나면 이 목록의 값으로 바뀐다)
-fn spawn_window(app: &AppHandle, label: &str, image: &str, pos: (i32, i32)) -> Option<WebviewWindow> {
+fn spawn_window(app: &AppHandle, label: &str, image: &str, pos: (i32, i32), dpi: f64) -> Option<WebviewWindow> {
+    let side = size(dpi);
     let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("gift.html".into()))
         .title("ScreenPet Gift")
-        .initialization_script(&format!("window.GIFT_IMAGE = {image:?};"))
-        .inner_size(SIZE, SIZE)
+        .initialization_script(&format!("window.GIFT_IMAGE = {image:?}; {}", crate::art::style_script()))
+        .inner_size(side, side)
         .accept_first_mouse(true)
         .transparent(true)
         .decorations(false)
@@ -238,7 +264,7 @@ fn spawn_window(app: &AppHandle, label: &str, image: &str, pos: (i32, i32)) -> O
             return None;
         }
     };
-    let _ = window.set_size(LogicalSize::new(SIZE, SIZE));
+    let _ = window.set_size(LogicalSize::new(side, side));
     let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
     if !crate::windows_hidden(app) {
         let _ = window.show();
@@ -271,6 +297,7 @@ pub fn show_book(app: &AppHandle) {
     }
     let built = WebviewWindowBuilder::new(app, BOOK_LABEL, WebviewUrl::App("book.html".into()))
         .title("🎁 선물 도감")
+        .initialization_script(crate::art::style_script())
         .inner_size(BOOK_SIZE.0, BOOK_SIZE.1)
         .resizable(true)
         .maximizable(false)

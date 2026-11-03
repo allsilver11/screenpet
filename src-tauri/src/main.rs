@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod art;
 mod decal;
 mod game_loop;
 mod gifts;
@@ -191,6 +192,7 @@ fn main() {
             let entry = pets.iter().find(|p| p.id == current).unwrap().clone();
             let care = cfg.care.get(&current).cloned().unwrap_or_default();
 
+            art::set(cfg.style);
             let (tx, rx) = mpsc::channel();
             let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.style)?;
             // 화면 배율은 게임 루프가 창에서 읽어 다시 맞춘다

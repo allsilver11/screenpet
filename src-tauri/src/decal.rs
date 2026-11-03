@@ -31,9 +31,11 @@ impl Decals {
         }
         let label = format!("{PREFIX}{}", self.next);
         self.next += 1;
+        let size = crate::art::fit((SIZE, SIZE), dpi);
         let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("sting.html".into()))
             .title("ScreenPet Sting")
-            .inner_size(SIZE, SIZE)
+            .initialization_script(crate::art::style_script())
+            .inner_size(size.0, size.1)
             .transparent(true)
             .decorations(false)
             .always_on_top(true)
@@ -51,7 +53,7 @@ impl Decals {
                 return;
             }
         };
-        let half = SIZE / 2.0 * dpi;
+        let half = size.0 / 2.0 * dpi;
         let _ = window.set_position(PhysicalPosition::new((x - half).round() as i32, (y - half).round() as i32));
         // 클릭·드래그·간질이기는 침 자국을 지나 그 아래(동물·다른 앱)로 간다
         let _ = window.set_ignore_cursor_events(true);

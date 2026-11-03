@@ -497,7 +497,7 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool) -> Op
     // kind.id()와 숫자는 코어 목록의 값뿐이다 (친구가 보낸 글자가 아니다)
     let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("object.html".into()))
         .title("ScreenPet Object")
-        .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}] }};", kind.id()))
+        .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}] }}; {}", kind.id(), crate::art::style_script()))
         .inner_size(w, h)
         .accept_first_mouse(true)
         .transparent(true)

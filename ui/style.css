@@ -637,3 +637,232 @@ body.pixel #house.house-hop {
   0%, 100% { transform: translateY(0); }
   45% { transform: translateY(-9px); }
 }
+
+/* ---- 픽셀 세계 (phase C): 칸 그림, 흐림 없는 계단. --dot = 칸 한 변 (main.js·house.js) ---- */
+body.pixel #house,
+body.pixel-house #house,
+body.pixel-house #house-front,
+body.pixel #house-front {
+  image-rendering: pixelated;
+}
+body.pixel #house.house-hop,
+body.pixel-house #house.house-hop {
+  animation: house-hop-pixel 0.4s step-end;
+}
+@keyframes house-hop-pixel {
+  0%, 100% { transform: translateY(0); }
+  20%, 70% { transform: translateY(calc(var(--dot, 4px) * -2)); }
+}
+/* 굴뚝 연기: 네 장면 띠를 넘기며 칸 단위로 오른다. 투명도를 쓰지 않고 마지막 장면에서 칸이 듬성해진다 */
+.smoke-px {
+  position: absolute;
+  left: calc(var(--dot, 4px) * -4);
+  top: calc(var(--dot, 4px) * -7);
+  width: calc(var(--dot, 4px) * 8);
+  height: calc(var(--dot, 4px) * 8);
+  background: url(house_pixel/xmas_smoke.png) 0 0 / 400% 100% no-repeat;
+  image-rendering: pixelated;
+  animation:
+    smoke-frames-px 3.6s steps(4, jump-none) infinite,
+    smoke-rise-px 3.6s steps(5, jump-none) infinite;
+}
+@keyframes smoke-frames-px {
+  from { background-position: 0 0; }
+  to { background-position: 100% 0; }
+}
+@keyframes smoke-rise-px {
+  from { transform: translate(0, 0); }
+  to { transform: translate(0, calc(var(--dot, 4px) * -4)); }
+}
+
+/* 모자·목도리·고리·구름 */
+.px-wear,
+#focusring-px {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+  background-repeat: no-repeat;
+}
+#nightcap-px { background-image: url(effects_pixel/nightcap.png); }
+#scarf-px { background-image: url(effects_pixel/scarf.png); }
+.px-wear[hidden],
+#focusring-px[hidden] {
+  display: none;
+}
+.px-wear.cap-poof {
+  animation: px-blink-off 0.45s step-end forwards;
+}
+@keyframes px-blink-off {
+  0% { opacity: 1; }
+  25% { opacity: 0; }
+  50% { opacity: 1; }
+  75%, 100% { opacity: 0; }
+}
+body.pixel #snowcloud {
+  width: calc(var(--dot, 4px) * 14);
+  height: calc(var(--dot, 4px) * 9);
+  background: url(effects_pixel/snow_cloud.png) 0 0 / 100% 100% no-repeat;
+  image-rendering: pixelated;
+  transition: none;
+  animation: none;
+}
+body.pixel #snowcloud i {
+  top: calc(var(--dot, 4px) * 8);
+  width: var(--dot, 4px);
+  height: var(--dot, 4px);
+  border: 0;
+  border-radius: 0;
+  background: #e8f2ff;
+  animation-name: flake-px;
+  animation-timing-function: steps(6, end);
+}
+body.pixel #snowcloud i:nth-child(1) { left: calc(var(--dot, 4px) * 2); }
+body.pixel #snowcloud i:nth-child(2) { left: calc(var(--dot, 4px) * 4); }
+body.pixel #snowcloud i:nth-child(3) { left: calc(var(--dot, 4px) * 7); }
+body.pixel #snowcloud i:nth-child(4) { left: calc(var(--dot, 4px) * 9); }
+body.pixel #snowcloud i:nth-child(5) { left: calc(var(--dot, 4px) * 11); }
+@keyframes flake-px {
+  0% { opacity: 1; transform: translate(0, 0); }
+  100% { opacity: 1; transform: translate(0, calc(var(--dot, 4px) * 6)); }
+}
+
+/* 효과 조각: 칸 단위 계단으로 움직이고 뚝 사라진다 (main.js pixelBit) */
+.px-bit {
+  position: absolute;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  pointer-events: none;
+  z-index: 2;
+  animation:
+    px-bit-move var(--ms, 900ms) steps(5, end) both,
+    px-bit-off var(--ms, 900ms) step-end both;
+}
+@keyframes px-bit-move {
+  from { transform: translate(0, 0); }
+  to { transform: translate(var(--dx), var(--dy)); }
+}
+@keyframes px-bit-off {
+  0% { opacity: 1; }
+  85%, 100% { opacity: 0; }
+}
+body.pixel #heart {
+  left: 50%;
+  margin-left: calc(var(--dot, 4px) * -2);
+  transform: none;
+  width: calc(var(--dot, 4px) * 5);
+  height: calc(var(--dot, 4px) * 5);
+  font-size: 0;
+  background: url(effects_pixel/fx_heart.png) 0 0 / 100% 100% no-repeat;
+  image-rendering: pixelated;
+}
+body.pixel #heart.show {
+  animation: float-up 1s steps(5, end);
+}
+
+/* 호박·루돌프 빛: 번지지 않는 또렷한 칸 테두리가 계단으로 켜졌다 꺼진다 (drop-shadow 흐림 0) */
+body.pixel #pet.flare-pulse,
+body.pixel #pet.flare-flicker,
+body.pixel #pet.flare-bloom,
+body.pixel #pet.flare-sparkle,
+body.pixel #pet.flare-beat,
+body.pixel #pet.nose-glow,
+body.pixel #pet.nose-twinkle {
+  --glow-a: #ffd84a;
+  --glow-b: #ff9628;
+  animation-name: glow-pixel;
+  animation-timing-function: step-end;
+}
+body.pixel #pet.flare-beat { --glow-a: #ffb3c8; --glow-b: #ffbe50; animation-name: glow-pixel-fast; }
+body.pixel #pet.flare-flicker { animation-name: glow-pixel-fast; }
+body.pixel #pet.nose-glow,
+body.pixel #pet.nose-twinkle { --glow-a: #ff6a6a; --glow-b: #e03c3c; }
+body.pixel #pet.nose-twinkle { animation-name: glow-pixel-fast; }
+@keyframes glow-pixel {
+  0%, 100% { filter: none; }
+  10%, 50% {
+    filter: drop-shadow(var(--dot) 0 0 var(--glow-a)) drop-shadow(calc(var(--dot) * -1) 0 0 var(--glow-a)) drop-shadow(0 var(--dot) 0 var(--glow-b)) drop-shadow(0 calc(var(--dot) * -1) 0 var(--glow-b)) brightness(1.12);
+  }
+  30%, 75% {
+    filter: drop-shadow(var(--dot) 0 0 var(--glow-a)) drop-shadow(calc(var(--dot) * -1) 0 0 var(--glow-a));
+  }
+}
+@keyframes glow-pixel-fast {
+  0%, 100% { filter: none; }
+  8%, 28%, 48%, 68% {
+    filter: drop-shadow(var(--dot) 0 0 var(--glow-a)) drop-shadow(calc(var(--dot) * -1) 0 0 var(--glow-a)) drop-shadow(0 var(--dot) 0 var(--glow-b)) drop-shadow(0 calc(var(--dot) * -1) 0 var(--glow-b)) brightness(1.12);
+  }
+  18%, 38%, 58%, 78% { filter: none; }
+}
+body.pixel #pet.flare-sparkle::before,
+body.pixel #pet.flare-sparkle::after,
+body.pixel #pet.nose-twinkle::before,
+body.pixel #pet.nose-twinkle::after {
+  content: "";
+  width: calc(var(--dot) * 5);
+  height: calc(var(--dot) * 5);
+  background: url(effects_pixel/fx_spark.png) 0 0 / 100% 100% no-repeat;
+  image-rendering: pixelated;
+  text-shadow: none;
+  animation-name: px-twinkle;
+  animation-timing-function: step-end;
+}
+@keyframes px-twinkle {
+  0% { opacity: 0; }
+  15%, 45% { opacity: 1; }
+  30%, 60%, 100% { opacity: 0; }
+}
+/* 유령 부~: 두 계단으로 흐려졌다 돌아온다 */
+body.pixel #pet.boo { animation-timing-function: steps(2, end); }
+
+/* 말풍선·이름표: 둥글지 않은 칸 테두리 (글자는 그대로 읽힌다) */
+body.pixel #bubble,
+body.pixel #codetag {
+  border: 0;
+  border-radius: 0;
+  box-shadow: 0 -2px 0 #84605c, 0 2px 0 #84605c, -2px 0 0 #84605c, 2px 0 0 #84605c;
+}
+body.pixel #nametag {
+  border: 0;
+  border-radius: 0;
+  background: #fffaf2;
+  box-shadow: 0 -1px 0 #84605c, 0 1px 0 #84605c, -1px 0 0 #84605c, 1px 0 0 #84605c;
+}
+body.pixel #bubble::after {
+  bottom: -6px;
+  width: 6px;
+  height: 4px;
+  background: #84605c;
+  border: 0;
+  transform: translateX(-50%);
+}
+body.pixel #picker button {
+  border-radius: 0;
+  border: 0;
+  box-shadow: 0 -2px 0 #84605c, 0 2px 0 #84605c, -2px 0 0 #84605c, 2px 0 0 #84605c;
+  transition: none;
+}
+body.pixel #picker button:hover { transform: none; background: #fff0d8; }
+/* 편지 봉투·조작 표시: 작은 표시라 칸은 3·2 px로 고정 (몸 칸을 따르면 봉투가 머리만 해진다) */
+body.pixel #envelope {
+  width: 27px;
+  height: 18px;
+  padding: 0;
+  font-size: 0;
+  background: url(effects_pixel/fx_envelope.png) 0 0 / 100% 100% no-repeat;
+  image-rendering: pixelated;
+  animation: envelope-bob-px 1.2s step-end infinite;
+}
+@keyframes envelope-bob-px {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+body.pixel #ctltag {
+  width: 18px;
+  height: 10px;
+  font-size: 0;
+  background: url(effects_pixel/fx_pad.png) 0 0 / 100% 100% no-repeat;
+  image-rendering: pixelated;
+}

@@ -60,6 +60,11 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      body.pixel .cell img { width: var(--gift-side, 48px); height: var(--gift-side, 48px); image-rendering: pixelated; }
+      body.pixel section,
+      body.pixel .cell,
+      body.pixel .meter,
+      body.pixel .meter > i { border-radius: 0; }
       .hint { color: #a08c74; font-size: 11px; text-align: center; margin-top: 10px; }
     </style>
   </head>

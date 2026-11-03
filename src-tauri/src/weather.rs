@@ -197,7 +197,7 @@ impl WeatherFx {
         let ball_at = own.pet.snowball_at();
         match (ball_at, &mut self.ball) {
             (Some((x, y)), Some((window, last))) => {
-                let pos = bottom_center(x, y, SNOWBALL_SIZE, own.dpi);
+                let pos = bottom_center(x, y, crate::art::fit(SNOWBALL_SIZE, own.dpi), own.dpi);
                 if *last != pos {
                     let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
                     *last = pos;
@@ -205,7 +205,8 @@ impl WeatherFx {
             }
             (Some((x, y)), None) => {
                 self.next_label += 1;
-                self.ball = self.sprite(app, "snowball", SNOWBALL_SIZE, x, y, own.dpi).map(|w| (w, bottom_center(x, y, SNOWBALL_SIZE, own.dpi)));
+                let size = crate::art::fit(SNOWBALL_SIZE, own.dpi);
+                self.ball = self.sprite(app, "snowball", size, x, y, own.dpi).map(|w| (w, bottom_center(x, y, size, own.dpi)));
             }
             (None, Some(_)) => {
                 if let Some((window, _)) = self.ball.take() {
@@ -219,7 +220,7 @@ impl WeatherFx {
                 let _ = old.window.destroy();
             }
             self.next_label += 1;
-            self.snowman = self.sprite(app, "snowman", SNOWMAN_SIZE, x, y, own.dpi).map(|window| Snowman { window, born: now, x });
+            self.snowman = self.sprite(app, "snowman", crate::art::fit(SNOWMAN_SIZE, own.dpi), x, y, own.dpi).map(|window| Snowman { window, born: now, x });
             own.pet.set_snow_ready(false);
         }
     }
@@ -229,7 +230,7 @@ impl WeatherFx {
         let label = format!("prop-snow-{}", self.next_label);
         let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
             .title("ScreenPet Snowman")
-            .initialization_script(&format!("window.PROP_IMAGE = {image:?};"))
+            .initialization_script(&format!("window.PROP_IMAGE = {image:?}; {}", crate::art::style_script()))
             .inner_size(w, h)
             .transparent(true)
             .decorations(false)
@@ -343,6 +344,7 @@ fn spawn_overlay(app: &AppHandle, label: &str, wa: &Rect) -> Option<(WebviewWind
     let scale = scale_of(app, wa);
     let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("weather.html".into()))
         .title("ScreenPet Weather")
+        .initialization_script(crate::art::style_script())
         .inner_size(wa.width() / scale, wa.height() / scale)
         .transparent(true)
         .decorations(false)

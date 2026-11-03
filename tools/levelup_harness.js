@@ -7,7 +7,8 @@ const vm = require("vm");
 
 const UI = path.join(__dirname, "..", "ui");
 const mode = process.argv[2];
-const page = mode === "house" ? "house.js" : "main.js";
+const houseWindow = mode === "house" || mode === "house-pixel";
+const page = houseWindow ? "house.js" : "main.js";
 
 class El {
   constructor(id) {
@@ -85,7 +86,7 @@ let nextTimer = 1;
 const visibility = { state: "visible" };
 const decoding = [];
 let holdDecode = false;
-const houseStateOf = (stage, housed = true) => ({ pet: "cat", stage, scale: stage === "adult" ? 1.15 : 1, hungry: false, housed });
+const houseStateOf = (stage, housed = true) => ({ pet: "cat", stage, scale: stage === "adult" ? 1.15 : 1, hungry: false, housed, style: mode === "house-pixel" ? "pixel" : "round" });
 const slotInfo = { pet: "cat", stage: "teenager", scale: 1, role: mode === "main-guest" ? "guest" : "own", owner: "친구", render: null };
 const sandbox = {
   window: {
@@ -220,6 +221,11 @@ async function runHouse() {
   }
   out.artAfter = house.style.backgroundImage;
   out.houseWidth = house.style.width;
+  out.doorWidth = byId("door").style.width;
+  out.doorPetWidth = byId("door-pet").style.width;
+  out.doorPetLeft = byId("door-pet").style.left;
+  out.dot = sandbox.document.body.style["--dot"];
+  out.pixelHouse = sandbox.document.body.classes.has("pixel-house");
   // 말풍선
   emit("pet-say", "level_up");
   out.bubble = byId("bubble").textContent;
@@ -227,7 +233,7 @@ async function runHouse() {
   return out;
 }
 
-(mode === "house" ? runHouse() : runMain())
+(houseWindow ? runHouse() : runMain())
   .then((out) => console.log(JSON.stringify(out)))
   .catch((e) => {
     console.error(e);

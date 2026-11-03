@@ -10,13 +10,25 @@ function el(tag, className, text) {
   return e;
 }
 
+// 그림 폴더: 픽셀 스타일이면 칸 그림 — 칸(12칸 그림)이 물리 px의 정수배가 되게 크기도 맞춘다
+let pixelArt = window.ART_STYLE === "pixel";
+let lastView = null;
+function artDir() {
+  return pixelArt ? "gifts_pixel" : "gifts";
+}
+function applyArt() {
+  document.body.classList[pixelArt ? "add" : "remove"]("pixel");
+  const dpr = window.devicePixelRatio || 1;
+  document.body.style.setProperty("--gift-side", `${(12 * Math.max(1, Math.round(4 * dpr))) / dpr}px`);
+}
+
 function cell(item) {
   const have = item.count > 0 || item.shiny > 0;
   const c = el("div", `cell${have ? "" : " missing"}${item.shiny > 0 ? " shiny" : ""}`);
   const img = el("img");
   img.alt = "";
   img.draggable = false;
-  img.src = `gifts/${item.image}.png`;
+  img.src = `${artDir()}/${item.image}.png`;
   c.append(img, el("div", "name", item.name));
   const count = el("div", "count");
   if (item.count > 0) count.append(`×${item.count}`);
@@ -34,6 +46,7 @@ function cell(item) {
 }
 
 function show(view) {
+  lastView = view;
   document.getElementById("sum").textContent = `모은 선물 ${view.collected} / ${view.total} · ✨ 반짝이 ${view.shiny}`;
   document.getElementById("bar").style.width = `${view.total ? (100 * view.collected) / view.total : 0}%`;
   const root = document.getElementById("sections");
@@ -57,6 +70,12 @@ window.addEventListener("keydown", (e) => {
 });
 
 (async () => {
+  if (pixelArt) applyArt();
+  await here.listen("art-style", (e) => {
+    pixelArt = e.payload === "pixel";
+    applyArt();
+    if (lastView) show(lastView);
+  });
   await here.listen("book-state", (e) => show(e.payload));
   show(await invoke("book_state"));
 })();

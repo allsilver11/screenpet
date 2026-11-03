@@ -100,6 +100,33 @@
           scale: 0.2;
         }
       }
+
+      /* 픽셀 스타일: 90도 계단으로만 돈다 (object.js), 칸을 그대로 */
+      body.pixel #art,
+      body.pixel #sticker {
+        image-rendering: pixelated;
+      }
+      body.pixel #sticker {
+        animation: none;
+      }
+      body.pixel #note {
+        border-radius: 0;
+        box-shadow: 2px 2px 0 rgba(90, 70, 20, 0.45);
+        animation: px-note 10s step-end both;
+      }
+      @keyframes px-note {
+        0% { opacity: 1; }
+        97%, 100% { opacity: 0; }
+      }
+      body.pixel.poof #thing {
+        animation: px-poof 300ms step-end forwards;
+      }
+      @keyframes px-poof {
+        0% { opacity: 1; }
+        33% { opacity: 0; }
+        66% { opacity: 1; }
+        100% { opacity: 0; }
+      }
     </style>
   </head>
   <body>

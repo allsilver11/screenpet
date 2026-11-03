@@ -25,6 +25,15 @@ function snapPixelSide(side, dots, fit = "round") {
   return (dots * Math.max(1, dot)) / dpr;
 }
 
+// 단계 칸 크기 (논리 px, 전 종 같다 — 동글 stage_size를 곱하지 않는다. 코어 style::pixel_grid, tools/draw_pixel_world.py STAGE_GRID와 같다)
+const PIXEL_BASE_DOT = { baby: 3, kinder: 3, child: 3, teenager: 4, adult: 4 };
+
+// 논리 칸 크기 → 물리 px의 정수배가 되는 CSS px (코어 style::dot_physical과 같은 계산)
+function snapDot(logical) {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.max(1, Math.round(logical * dpr)) / dpr;
+}
+
 // 지금 그림이 픽셀이면 <body class="pixel"> (style.css: image-rendering pixelated, 흐려지는 효과 대신 계단)
 function setPixelBody(on) {
   document.body.classList[on ? "add" : "remove"]("pixel");

@@ -121,14 +121,71 @@
           opacity: 0;
         }
       }
+
+      /* 픽셀 스타일: 칸을 그대로, 찌그러짐·회전 없이 칸 단위 계단만 */
+      body.pixel #gift {
+        image-rendering: pixelated;
+        animation: px-drop 300ms step-end both;
+      }
+      @keyframes px-drop {
+        0% { opacity: 0; transform: translateY(-8px); }
+        33% { opacity: 1; transform: translateY(-8px); }
+        66% { opacity: 1; transform: translateY(-4px); }
+        100% { opacity: 1; transform: none; }
+      }
+      body.pixel #gift:hover {
+        animation: px-hop 400ms step-end;
+      }
+      @keyframes px-hop {
+        0%, 100% { transform: none; }
+        25%, 75% { transform: translateY(-4px); }
+      }
+      body.pixel.hide #gift {
+        transition: opacity 600ms steps(3, end);
+      }
+      body.pixel.collect #gift {
+        animation: px-rise 550ms step-end forwards;
+      }
+      @keyframes px-rise {
+        0% { transform: none; opacity: 1; }
+        25% { transform: translateY(-4px); opacity: 1; }
+        50% { transform: translateY(-12px); opacity: 1; }
+        75% { transform: translateY(-20px); opacity: 1; }
+        100% { transform: translateY(-28px); opacity: 0; }
+      }
+      body.pixel .star {
+        clip-path: none;
+        background: url(effects_pixel/fx_spark2.png) 0 0 / 100% 100% no-repeat;
+        image-rendering: pixelated;
+      }
+      body.pixel .star:nth-of-type(1) { --dx: -16px; --dy: -16px; }
+      body.pixel .star:nth-of-type(2) { --dx: 16px; --dy: -16px; }
+      body.pixel .star:nth-of-type(3) { --dx: -16px; --dy: 16px; }
+      body.pixel .star:nth-of-type(4) { --dx: 16px; --dy: 16px; }
+      body.pixel .star:nth-of-type(5) { --dx: 0px; --dy: -16px; }
+      body.pixel.collect .star {
+        animation: px-burst 550ms steps(4, end) forwards;
+      }
+      @keyframes px-burst {
+        0% { transform: translate(0, 0); opacity: 1; }
+        99% { opacity: 1; }
+        100% { transform: translate(var(--dx), var(--dy)); opacity: 0; }
+      }
     </style>
   </head>
   <body>
     <img id="gift" alt="" draggable="false" />
     <i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i><i class="star"></i>
     <script>
-      document.getElementById("gift").src = `gifts/${window.GIFT_IMAGE || "cat_yarn"}.png`;
+      const giftEl = document.getElementById("gift");
+      // 스타일에 맞는 그림 (art-style: 떠 있는 동안 바뀌면 앱이 창 크기도 맞춘다)
+      function applyArt(pixel) {
+        document.body.classList.toggle("pixel", pixel);
+        giftEl.src = `${pixel ? "gifts_pixel" : "gifts"}/${window.GIFT_IMAGE || "cat_yarn"}.png`;
+      }
+      applyArt(window.ART_STYLE === "pixel");
       const { invoke } = window.__TAURI__.core;
+      window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("art-style", (e) => applyArt(e.payload === "pixel"));
       let sent = false;
       window.addEventListener("pointerdown", (e) => {
         if (e.button !== 0 || sent) return;

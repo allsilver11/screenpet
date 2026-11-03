@@ -11,6 +11,8 @@ const PREFIX: &str = "prop-";
 /// 소품 창 크기 (논리 px, teenager 몸 배율 1 기준) — 128px 동물 옆에서 읽히는 크기. 그림은 아래 가운데에 붙는다
 const WIDTH: f64 = 56.0;
 const HEIGHT: f64 = 48.0;
+/// 픽셀 소품 그림 칸 수 (tools/draw_pixel_world.py PROP_DOTS)
+const PIXEL_DOTS: (f64, f64) = (14.0, 12.0);
 /// prop.html의 흐려지기(0.6초)가 끝난 뒤 닫는다
 const FADE: Duration = Duration::from_millis(700);
 
@@ -34,15 +36,15 @@ pub struct Props {
 }
 
 impl Props {
-    /// ev를 반영한다. dpi = 동물 창의 화면 배율, scale = 동물 몸 배율 (단계 × 동물별).
+    /// ev를 반영한다. dpi = 동물 창의 화면 배율, scale = 동물 몸 배율 (단계 × 동물별), pixel_dot = 픽셀 동물이면 칸 한 변 (물리 px).
     /// 게임 루프 스레드에서만 부른다 (창 만들기가 메인 스레드를 기다린다)
-    pub fn apply(&mut self, app: &AppHandle, ev: PropEvent, dpi: f64, scale: f64) {
+    pub fn apply(&mut self, app: &AppHandle, ev: PropEvent, dpi: f64, scale: f64, pixel_dot: Option<u32>) {
         match ev {
             PropEvent::Show { prop, x, y } => {
                 if let Some(old) = self.live.take() {
                     let _ = old.destroy();
                 }
-                self.live = self.spawn(app, prop, x, y, dpi, scale);
+                self.live = self.spawn(app, prop, x, y, dpi, scale, pixel_dot);
             }
             PropEvent::Hide => {
                 if let Some(w) = self.live.take() {
@@ -53,13 +55,18 @@ impl Props {
         }
     }
 
-    fn spawn(&mut self, app: &AppHandle, prop: Prop, x: f64, y: f64, dpi: f64, scale: f64) -> Option<WebviewWindow> {
+    #[allow(clippy::too_many_arguments)]
+    fn spawn(&mut self, app: &AppHandle, prop: Prop, x: f64, y: f64, dpi: f64, scale: f64, pixel_dot: Option<u32>) -> Option<WebviewWindow> {
         let label = format!("{PREFIX}{}", self.next);
         self.next += 1;
-        let (w, h) = (WIDTH * scale, HEIGHT * scale);
+        let (w, h) = match pixel_dot {
+            Some(dot) => (PIXEL_DOTS.0 * f64::from(dot) / dpi, PIXEL_DOTS.1 * f64::from(dot) / dpi),
+            None => (WIDTH * scale, HEIGHT * scale),
+        };
+        let style = if pixel_dot.is_some() { " window.ART_STYLE = \"pixel\";" } else { "" };
         let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
             .title("ScreenPet Food")
-            .initialization_script(&format!("window.PROP_IMAGE = {:?};", image(prop)))
+            .initialization_script(&format!("window.PROP_IMAGE = {:?};{style}", image(prop)))
             .inner_size(w, h)
             .transparent(true)
             .decorations(false)
@@ -124,12 +131,13 @@ impl HandWindow {
         if let Some(old) = self.live.take() {
             let _ = old.destroy();
         }
+        let side = crate::art::fit((HAND_SIZE, HAND_SIZE), dpi);
         let label = format!("hand-{}", self.next);
         self.next += 1;
         let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
             .title("ScreenPet Hand Food")
-            .initialization_script(&format!("window.PROP_IMAGE = {icon:?}; window.PROP_MODE = \"hand\";"))
-            .inner_size(HAND_SIZE, HAND_SIZE)
+            .initialization_script(&format!("window.PROP_IMAGE = {icon:?}; window.PROP_MODE = \"hand\"; {}", crate::art::style_script()))
+            .inner_size(side.0, side.1)
             .transparent(true)
             .decorations(false)
             .always_on_top(true)
@@ -147,7 +155,7 @@ impl HandWindow {
                 return;
             }
         };
-        let _ = window.set_size(LogicalSize::new(HAND_SIZE, HAND_SIZE));
+        let _ = window.set_size(LogicalSize::new(side.0, side.1));
         // 클릭은 음식을 지나 그 아래(동물·다른 앱)로 간다 — 누름은 게임 루프가 전역으로 읽는다
         let _ = window.set_ignore_cursor_events(true);
         self.last_pos = None;
@@ -161,7 +169,7 @@ impl HandWindow {
     /// 음식 가운데를 (x, y)로 (매 틱)
     pub fn move_to(&mut self, at: (f64, f64), dpi: f64) {
         let Some(w) = &self.live else { return };
-        let half = HAND_SIZE / 2.0 * dpi;
+        let half = crate::art::fit((HAND_SIZE, HAND_SIZE), dpi).0 / 2.0 * dpi;
         let pos = ((at.0 - half).round() as i32, (at.1 - half).round() as i32);
         if self.last_pos != Some(pos) {
             let _ = w.set_position(PhysicalPosition::new(pos.0, pos.1));

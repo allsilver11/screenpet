@@ -6,7 +6,7 @@ const path = require("path");
 const vm = require("vm");
 
 const UI = path.join(__dirname, "..", "ui");
-const [pet, stageName] = process.argv.slice(2);
+const [pet, stageName, artStyle] = process.argv.slice(2);
 
 class El {
   constructor(id) {
@@ -60,7 +60,7 @@ class El {
     return [];
   }
   getContext() {
-    return { drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(128 * 128 * 4) }) };
+    return { drawImage() {}, clearRect() {}, fillRect: (x, y) => (this.filled = (this.filled ?? 0) + 1), getImageData: () => ({ data: new Uint8ClampedArray(128 * 128 * 4) }) };
   }
 }
 
@@ -88,7 +88,7 @@ const windowObj = {
   innerHeight: 164,
   addEventListener() {},
   __TAURI__: {
-    core: { invoke: async (cmd) => (cmd === "slot_info" ? { pet, stage: stageName, scale: 1, label: "pet" } : null) },
+    core: { invoke: async (cmd) => (cmd === "slot_info" ? { pet, stage: stageName, scale: 1, label: "pet", style: artStyle ?? "round" } : null) },
     webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async (ev, f) => (listeners[ev] = f), label: "pet" }) },
   },
 };
@@ -158,6 +158,16 @@ const look = () => ({
   pet: byId("pet").style.transform,
   petOrigin: byId("pet").style.transformOrigin,
   sparks: created.filter((e) => e.className === "spark").length,
+  capPx: byId("nightcap-px").style.transform,
+  capPxHidden: byId("nightcap-px").hidden,
+  capPxPos: byId("nightcap-px").style.backgroundPosition,
+  scarfPx: byId("scarf-px").style.transform,
+  scarfPxHidden: byId("scarf-px").hidden,
+  scarfPxPos: byId("scarf-px").style.backgroundPosition,
+  ringPx: byId("focusring-px").style.transform,
+  ringPxHidden: byId("focusring-px").hidden,
+  ringPxFilled: byId("focusring-px").filled ?? 0,
+  pxBits: created.filter((e) => e.className === "px-bit").length,
 });
 const flushTimers = () => {
   for (const [id, t] of [...timers]) {

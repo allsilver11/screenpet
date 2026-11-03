@@ -39,6 +39,8 @@ const SILL_HIDE = 6;
 // 지금 그림 이름 (house_<stage> | hive_<stage> | haunted_<stage> | xmas_<stage>)과 그 문 사각형 (그림 좌표)
 let art = null;
 let door = { x: 30, y: 60, w: 52, h: 62 };
+// 픽셀 집 (house_pixel/, 좌표는 칸): 집 그림 한 변의 칸 수 — 동글이면 0
+let artDots = 0;
 let house = { pet: null, stage: "teenager", scale: 1, style: "round", hungry: false, housed: false };
 let manifest = null;
 let display = 64;
@@ -60,6 +62,11 @@ function houseScale() {
   return HOUSE_SCALE[house.stage] ?? 1;
 }
 
+// 집 그림 좌표 하나의 CSS px: 동글은 단계 배율, 픽셀은 그 단계 칸 (물리 px의 정수배)
+function artUnit() {
+  return artDots ? snapDot(PIXEL_BASE_DOT[house.stage] ?? 4) : houseScale();
+}
+
 // 집 종류를 고르는 기준 (src-tauri/src/house.rs house_kind, core manifest house_kind와 같다)
 const HOUSE_KINDS = new Set(["house", "hive", "haunted", "xmas"]);
 const FALLBACK_KIND = { bee: "hive", pumpkin: "haunted", ghost: "haunted", rudolph: "xmas", santa: "xmas", snowman: "xmas" };
@@ -78,8 +85,11 @@ function artName(m) {
 
 // 집 그림·앞 레이어·문간을 지금 단계 크기로 놓는다 (집은 창 오른쪽 아래에 붙는다)
 function placeHouse() {
-  const k = houseScale();
-  const side = ART_SIZE * k;
+  const k = artUnit();
+  const side = (artDots || ART_SIZE) * k;
+  // 픽셀 집이면 칸 크기를 CSS에도 (폴짝·연기가 칸 단위로 움직인다)
+  document.body.classList[artDots ? "add" : "remove"]("pixel-house");
+  if (artDots) document.body.style.setProperty("--dot", k + "px");
   houseEl.style.left = "auto";
   houseEl.style.right = "0";
   houseEl.style.width = side + "px";
@@ -103,6 +113,11 @@ let smoke = null;
 let smokeEl = null;
 
 function placeSmoke(k) {
+  // 그림 스타일이 바뀌면 연기도 새로 만든다
+  if (smokeEl && smokeEl.dataset.px !== String(!!artDots)) {
+    smokeEl.remove();
+    smokeEl = null;
+  }
   if (!smoke) {
     smokeEl?.remove();
     smokeEl = null;
@@ -111,11 +126,15 @@ function placeSmoke(k) {
   if (!smokeEl) {
     smokeEl = document.createElement("div");
     smokeEl.id = "smoke";
+    smokeEl.dataset.px = String(!!artDots);
     for (let i = 0; i < SMOKE_PUFFS; i++) {
-      const p = document.createElement("img");
-      p.className = "smoke-puff";
-      p.src = "house/xmas_smoke.png";
-      p.alt = "";
+      // 픽셀: 네 장면 띠(house_pixel/xmas_smoke.png)를 계단으로 넘기며 칸 단위로 오른다 (style.css .smoke-px)
+      const p = document.createElement(artDots ? "div" : "img");
+      p.className = artDots ? "smoke-px" : "smoke-puff";
+      if (!artDots) {
+        p.src = "house/xmas_smoke.png";
+        p.alt = "";
+      }
       p.style.animationDuration = `${SMOKE_SECS}s`;
       p.style.animationDelay = `${(-i * SMOKE_SECS) / SMOKE_PUFFS}s`;
       smokeEl.appendChild(p);
@@ -136,28 +155,43 @@ async function preloadArt(url) {
 
 // 단계(또는 동물 종류)가 바뀌었으면 그 단계 그림과 문을 읽는다
 // seq: loadPet의 순번 — 읽는 사이 다른 동물/단계로 바뀌었으면 버린다
-async function loadArt(name, seq) {
-  if (name === art) return;
+async function loadArt(name, seq, pixel) {
+  let dir = pixel ? "house_pixel" : "house";
+  if (`${dir}/${name}` === art) return;
   let d = null;
   let puff = null;
-  try {
-    const meta = await (await fetch(`house/${name}.json`)).json();
+  let dots = 0;
+  const read = async (from) => {
+    const meta = await (await fetch(`${from}/${name}.json`)).json();
+    await Promise.all([preloadArt(`${from}/${name}.png`), preloadArt(`${from}/${name}_front.png`)]);
     d = meta.door;
     puff = meta.smoke ?? null;
-    await Promise.all([preloadArt(`house/${name}.png`), preloadArt(`house/${name}_front.png`)]);
+    dots = meta.dots ?? 0;
+  };
+  try {
+    await read(dir);
   } catch {
-    // 그림이 없으면 예전 집 (teenager)
+    // 픽셀 집을 못 읽으면 동글 집, 그림이 없으면 예전 집 (teenager)
+    if (pixel) {
+      dir = "house";
+      try {
+        await read(dir);
+      } catch {}
+    }
   }
   if (seq !== loadSeq) return;
   if (!d) {
     name = "house";
+    dir = "house";
+    dots = 0;
     d = { x: 30, y: 60, w: 52, h: 62 };
   }
-  art = name;
+  art = `${dir}/${name}`;
   door = d;
   smoke = puff;
-  houseEl.style.backgroundImage = `url(house/${name}.png)`;
-  frontEl.src = `house/${name}_front.png`;
+  artDots = dots;
+  houseEl.style.backgroundImage = `url(${dir}/${name}.png)`;
+  frontEl.src = `${dir}/${name}_front.png`;
   placeHouse();
 }
 
@@ -165,7 +199,21 @@ async function loadArt(name, seq) {
 function sizePet() {
   if (!sheet || !manifest) return;
   const pixel = sheet.style === "pixel";
-  // 픽셀: 칸이 물리 px의 정수배가 되게 — 문 밖으로 넘치면 잘리니 내림
+  // 픽셀 집이면 동물은 밖에서와 똑같은 칸·크기로 앉는다 (칸은 전 종 같다 — 코어 style.rs, 문은 시트 한 칸이 그대로 들어가는 넓이다)
+  if (pixel && artDots) {
+    const k = artUnit();
+    const dot = k;
+    display = manifest.frame_size * dot;
+    const dpr = window.devicePixelRatio || 1;
+    petEl.style.width = display + "px";
+    petEl.style.bottom = "0px";
+    petEl.style.left = `${Math.round(((door.w * k - display) / 2) * dpr) / dpr}px`;
+    petEl.style.transform = "none";
+    petEl.style.backgroundImage = `url(${sheet.url})`;
+    petEl.style.backgroundSize = `${sheet.img.width * dot}px ${sheet.img.height * dot}px`;
+    return;
+  }
+  // 픽셀 동물 + 동글 집 (집 그림을 못 읽음): 칸이 물리 px의 정수배가 되게 — 문 밖으로 넘치면 잘리니 내림
   display = pixel ? snapPixelSide(DOOR_PET * house.scale, manifest.frame_size, "floor") : Math.round(DOOR_PET * house.scale);
   petEl.style.width = display + "px";
   const sunk = -(SILL_HIDE * houseScale() + display * FEET_PAD_RATIO);
@@ -185,7 +233,7 @@ async function loadPet() {
   const seq = ++loadSeq;
   const { manifest: m, url, img, style } = await loadPetSheet(house.pet, house.stage, house.style);
   if (seq !== loadSeq) return; // 그 사이 다른 동물/단계로 바뀜
-  await loadArt(artName(m), seq);
+  await loadArt(artName(m), seq, house.style === "pixel");
   if (seq !== loadSeq) return;
   loadedKey = key;
   manifest = m;
@@ -299,6 +347,11 @@ function endPress() {
 
 // 집을 우클릭해도 트레이와 같은 메뉴
 houseEl.addEventListener("contextmenu", () => invoke("show_menu"));
+
+// 픽셀 집: 다른 배율의 모니터로 옮겨 가면 칸을 다시 잰다
+window.addEventListener("resize", () => {
+  if (artDots) placeHouse();
+});
 
 blockWebviewDefaults();
 
