@@ -27,6 +27,15 @@ function frameIndex(spec, elapsedMs) {
   return spec.loop === false ? Math.min(n, spec.frames - 1) : n % spec.frames;
 }
 
+// 큰 점프(백엔드 anim "bigjump") 그림이 없는 동물은 hop 줄로 대신한다: hop을 그냥 틀면 땅 위에서 미리 떠 버리니까,
+// 웅크림(hop 0)을 코어 hop::BIG_JUMP_CROUCH_SECS 동안 버티다가 뜨는 순간 hop 1, 그다음 hop 2로 내려설 때까지
+const LEAP_CROUCH_MS = 500;
+function hopLeapFrame(spec, elapsedMs) {
+  if (elapsedMs < LEAP_CROUCH_MS) return 0;
+  const n = Math.floor(((elapsedMs - LEAP_CROUCH_MS) / 1000) * spec.fps);
+  return Math.min(1 + n, spec.frames - 1);
+}
+
 // 말풍선(`pet-say`)과 음식 고르기(`food-picker`). 백엔드는 지금 동물이 있는 창에만(emit_to) 보낸다.
 // getManifest() = 지금 동물의 pet.json (대사 목록). 돌려주는 hidePicker는 먹기 시작하면 부른다.
 // isQuiet() = 참이면 다른 말풍선·음식 고르기를 띄우지 않는다 (손님 편지를 말풍선에 보이는 동안 — 무엇도 덮지 않게, 그냥 버린다).

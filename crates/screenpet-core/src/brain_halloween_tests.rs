@@ -93,9 +93,9 @@ fn pumpkin() -> PetConfig {
     PetConfig { size, half_w: 0.3 * size, walk_speed: 70.0, hop_share: 1.0, personality: Personality::Playful, ..sim_cfg() }
 }
 
-/// 호박 10분 × 6: 걷기·달리기 시간 내내 통통(첫 틱 빼고), 튀기는 낮고 늘 디딤판 위, 큰 점프·벽 타기 없음
+/// 호박 10분 × 6: 걷기·달리기 시간 내내 통통(첫 틱 빼고), 튀기는 낮고 늘 디딤판 위 (큰 점프·벽 타기는 v0.3.9부터 한다)
 #[test]
-fn pumpkin_bounces_through_all_of_its_walking_and_never_jumps_big_or_climbs() {
+fn pumpkin_bounces_through_all_of_its_walking() {
     let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0), win(2, 1200.0, 500.0, 1700.0, 800.0)]);
     let size = pumpkin().size;
     let (mut walking_ticks, mut hopping_ticks, mut hop_frames) = (0usize, 0usize, 0usize);
@@ -103,11 +103,10 @@ fn pumpkin_bounces_through_all_of_its_walking_and_never_jumps_big_or_climbs() {
         let mut p = Pet::new(pumpkin(), 960.0, 128.0, seed);
         for _ in 0..(60 * 600) {
             p.update(DT, &w);
-            assert!(!matches!(p.state, State::Leap { .. }), "seed {seed}: no big jumps");
             let lift = p.body.y - size - p.window_pos().1;
             assert!((0.0..=hop::BUNNY_RUN_HOP_HEIGHT * size + 1e-9).contains(&lift), "seed {seed}: lift {lift}");
             let anim = p.render().anim;
-            assert!(!matches!(anim, Anim::Climb | Anim::Slide | Anim::Sting | Anim::BigJump), "seed {seed}: {anim:?}");
+            assert_ne!(anim, Anim::Sting, "seed {seed}");
             if let State::Move { kind: Move::Walk | Move::Run, .. } = p.state {
                 let st = p.standing.expect("moving pumpkin stands on something");
                 assert_eq!(w.anchor(st.owner).unwrap().1, p.body.y, "seed {seed}: feet on the surface");

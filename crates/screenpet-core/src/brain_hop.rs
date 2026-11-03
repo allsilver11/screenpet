@@ -4,8 +4,9 @@
 //! - 걷기·달리기(State::Move)는 디딤판 위 걷기 그대로지만, 떠 있을 때만 앞으로 가고(hop_pace) 그림만 살짝 띄운다
 //!   (hop_lift — 발 위치·디딤판은 그대로라 창 끝·모니터 경계·먹이·집 가기 규칙이 다른 동물과 같다).
 //! - 벽 타기(Climb·WallClimb·InnerClimb)는 같은 기계를 쓰되 폴짝 오르고 매달리기를 되풀이한다 (climb_pace).
-//! - 토끼는 걷기·달리기 토막마다 hop_share 확률로 같은 걸음을 낮은 깡총 박자(Gait::bunny)로 간다 — 벽·큰 점프는 없다.
-//! - 가끔 닿는 창 윗면으로 크게 뛴다 (State::Leap: 웅크림 → 포물선 → 그 창 윗면에 내려섬).
+//! - 토끼는 걷기·달리기 토막마다 hop_share 확률로 같은 걸음을 낮은 깡총 박자(Gait::bunny)로 간다 — 벽 폴짝 오르기는 없다.
+//! - 걷는 동물은 모두 가끔 닿는 창 윗면으로 크게 뛴다 (State::Leap: 웅크림 → 포물선 → 그 창 윗면에 내려섬).
+//!   bigjump 그림이 없는 동물은 웹뷰가 hop 줄로 대신 그린다 (ui/common.js hopLeapFrame).
 
 use super::*;
 use crate::hop::{self, Gait};
@@ -27,7 +28,7 @@ impl Pet {
         }
     }
 
-    /// 깡총 걸음 중 (토끼의 이번 틱 State::Move 토막이 깡총) — 개구리의 큰 점프·벽 폴짝 오르기는 없다
+    /// 깡총 걸음 중 (토끼의 이번 틱 State::Move 토막이 깡총) — 개구리의 벽 폴짝 오르기는 없다
     pub(super) fn bunny_hopping(&self) -> bool {
         !self.cfg.hops && matches!(self.state, State::Move { .. }) && self.bunny.at(self.clock)
     }
@@ -85,14 +86,21 @@ impl Pet {
         hop::climb_pace(self.hop_beat.tick(self.clock, dt, hop::climb_cycle()))
     }
 
-    /// move_state: 닿는 창 윗면이 있으면 가끔(BIG_JUMP_CHANCE) 그쪽으로 큰 점프 (창 안·집이 그리운 손님은 안 한다)
+    /// 큰 점프 범위·솟는 높이의 기준 크기 — 몸에 비례, 산타처럼 큰 몸은 상한까지 (hop::leap_reach_size)
+    fn leap_size(&self) -> f64 {
+        hop::leap_reach_size(self.cfg.size, self.cfg.dpi)
+    }
+
+    /// move_state: 걷는 동물은 닿는 창 윗면이 있으면 가끔 그쪽으로 큰 점프 — 개구리는 BIG_JUMP_CHANCE, 다른 동물은 그 절반.
+    /// 나는 동물·창 안·집이 그리운 손님·조작 모드는 안 한다
     pub(super) fn big_jump_state(&mut self, world: &World) -> Option<State> {
-        if !self.cfg.hops || self.inside.is_some() || self.is_heading_out() || self.control.is_some() {
+        if self.cfg.flies || self.inside.is_some() || self.is_heading_out() || self.control.is_some() {
             return None;
         }
         let st = self.standing?;
-        let targets = hop::jump_targets(&world.surfaces, st.owner, self.body.x, self.body.y, self.cfg.size, self.cfg.half_w);
-        if targets.is_empty() || self.rng.f64() >= hop::BIG_JUMP_CHANCE {
+        let targets = hop::jump_targets(&world.surfaces, st.owner, self.body.x, self.body.y, self.leap_size(), self.cfg.half_w);
+        let chance = if self.cfg.hops { hop::BIG_JUMP_CHANCE } else { hop::WALKER_BIG_JUMP_CHANCE };
+        if targets.is_empty() || self.rng.f64() >= chance {
             return None;
         }
         let target = targets[self.rng.usize(..targets.len())];
@@ -122,7 +130,7 @@ impl Pet {
                 return;
             };
             let top = world.bounds.top + self.cfg.size;
-            let arc = hop::leap_arc((self.body.x, self.body.y), (ax + rel_x, ay), self.cfg.size * hop::BIG_JUMP_RISE, top);
+            let arc = hop::leap_arc((self.body.x, self.body.y), (ax + rel_x, ay), self.leap_size() * hop::BIG_JUMP_RISE, top);
             self.pacing.after_beat = None;
             self.standing = None;
             self.body.vx = arc.vx;

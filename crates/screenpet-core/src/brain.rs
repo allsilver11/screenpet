@@ -3646,7 +3646,7 @@ mod tests {
                     for (i, &a) in seq.iter().enumerate() {
                         match a {
                             Anim::Idle | Anim::Look | Anim::Sleep | Anim::Annoyed => last = None,
-                            Anim::Hop | Anim::Fall | Anim::Land | Anim::Dragged => {}
+                            Anim::Hop | Anim::BigJump | Anim::Fall | Anim::Land | Anim::Dragged => {}
                             _ => {
                                 let f = family(a);
                                 assert!(last.is_none() || last == f, "{special:?} {personality:?} seed {seed}: {:?}", &seq[i.saturating_sub(4)..=i]);

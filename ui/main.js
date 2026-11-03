@@ -274,10 +274,12 @@ listen("pet-presence", (e) => {
 function draw(now) {
   if (manifest) {
     // 교체된 동물에 없는 종 전용 애니메이션이어도 throw로 rAF가 끊기지 않게 idle로 대체
-    const spec = manifest.animations[render.anim] ?? manifest.animations.idle;
+    // 큰 점프 그림이 없는 동물은 hop 줄로 (common.js hopLeapFrame)
+    const hopLeap = render.anim === "bigjump" && !manifest.animations.bigjump;
+    const spec = hopLeap ? manifest.animations.hop : (manifest.animations[render.anim] ?? manifest.animations.idle);
     const elapsed = now - animStart;
     drawNeck(elapsed);
-    const f = frameIndex(spec, elapsed);
+    const f = hopLeap ? hopLeapFrame(spec, elapsed) : frameIndex(spec, elapsed);
     petEl.style.backgroundPosition = `${-f * display}px ${-spec.row * display}px`;
     if (sheetImg && lastPresence && (lastPresence.nightcap || typeof lastPresence.ring === "number")) placeHeadgear(spec.row, f);
     if (sheetImg && render.cloud) placeCloud(spec.row, f);

@@ -1,5 +1,5 @@
 //! 폴짝 뛰는 동물(개구리, pet.json `locomotion: hop`)의 순수 계산 —
-//! 걸음 대신 작은 폴짝 박자·높이, 벽을 폴짝폴짝 오르는 박자, 큰 점프 포물선과 목표 고르기.
+//! 걸음 대신 작은 폴짝 박자·높이, 벽을 폴짝폴짝 오르는 박자, 큰 점프 포물선과 목표 고르기 (큰 점프는 걷는 동물 모두).
 //! Pet 쪽 연결은 brain_hop.rs.
 
 use crate::physics::GRAVITY;
@@ -28,8 +28,12 @@ pub const LAND_SHOW_SECS: f64 = 0.2;
 pub const CLIMB_HOP_SECS: f64 = 0.3;
 pub const CLIMB_CLING_SECS: f64 = 0.4;
 
-/// 닿을 수 있는 창 윗면이 있을 때 이동 결정 중 큰 점프 확률
+/// 닿을 수 있는 창 윗면이 있을 때 이동 결정 중 큰 점프 확률 — 개구리 (폴짝 동물)
 pub const BIG_JUMP_CHANCE: f64 = 0.12;
+/// 같은 확률 — 다른 걷는 동물은 개구리의 절반 (어쩌다 한 번이라 깜짝 놀란다)
+pub const WALKER_BIG_JUMP_CHANCE: f64 = 0.06;
+/// 큰 점프 높이·거리에 쓰는 몸 크기의 상한 (논리 px, 어른 고양이쯤) — 산타(1.65배)처럼 큰 몸이 화면 끝까지 솟지 않게
+pub const LEAP_REACH_SIZE_CAP: f64 = 150.0;
 /// 큰 점프로 닿는 범위 (× 크기): 위로, 아래로, 옆으로 (착지 지점까지)
 pub const BIG_JUMP_UP: f64 = 3.5;
 pub const BIG_JUMP_DOWN: f64 = 4.0;
@@ -198,6 +202,11 @@ pub fn leap_arc(from: (f64, f64), to: (f64, f64), rise: f64, top_limit: f64) -> 
     Arc { vx: (to.0 - from.0) / secs, vy, secs }
 }
 
+/// 큰 점프 범위·솟는 높이의 기준 크기: 몸 크기에 비례하되 상한이 있다 (dpi = 논리 px 하나의 물리 px)
+pub fn leap_reach_size(size: f64, dpi: f64) -> f64 {
+    size.min(LEAP_REACH_SIZE_CAP * dpi)
+}
+
 /// 큰 점프로 내려설 곳
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct JumpTarget {
@@ -208,7 +217,7 @@ pub struct JumpTarget {
     pub y: f64,
 }
 
-/// (x, y)에 서 있는 동물(크기 size, 몸 반 폭 half_w, 지금 디딤판 from)이 큰 점프로 닿을 수 있는 다른 창 윗면들.
+/// (x, y)에 서 있는 동물(기준 크기 size = leap_reach_size, 몸 반 폭 half_w, 지금 디딤판 from)이 큰 점프로 닿을 수 있는 다른 창 윗면들.
 /// 창을 뚫고 지나가지 않도록 옆에서만 뛴다 (발 x가 그 조각 위·아래에 있으면 제외). 착지는 가까운 끝 안쪽
 pub fn jump_targets(surfaces: &[Surface], from: Owner, x: f64, y: f64, size: f64, half_w: f64) -> Vec<JumpTarget> {
     let inset = half_w + LANDING_INSET * size;

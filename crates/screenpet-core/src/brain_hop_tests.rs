@@ -146,10 +146,224 @@ fn big_jumps_happen_on_about_12_percent_of_move_decisions_when_a_window_is_in_re
     // 너무 멀다 / 너무 높다
     assert_eq!(share(&w, 1500.0), 0.0);
     assert_eq!(share(&world(vec![win(1, 400.0, 500.0, 900.0, 1000.0)]), 250.0), 0.0);
-    // 폴짝 동물이 아니면 안 한다
-    let mut p = Pet::new(PetConfig { hops: false, ..frog() }, 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Ground(0), 250.0, State::Idle { remaining: 10.0, look: false });
-    assert!((0..200).all(|_| p.big_jump_state(&w).is_none()));
+}
+
+// ---- 걷는 동물은 다 창 위로 뛴다 (v0.3.9): 나는 동물만 빼고, 개구리보다 드물게 ----
+
+/// 번들 pet.json 그대로의 설정 (slots.rs pet_config와 같은 계산, body_scale = 청소년 × stage_size)
+fn bundled() -> Vec<(String, PetConfig)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+    let mut out = vec![];
+    for e in std::fs::read_dir(dir).unwrap() {
+        let path = e.unwrap().path();
+        let Ok(json) = std::fs::read_to_string(path.join("pet.json")) else { continue };
+        let m = crate::manifest::parse_manifest(&json).unwrap();
+        let scale = m.size_mult(crate::care::Stage::Teenager);
+        let size = 128.0 * scale;
+        let cfg = PetConfig {
+            size,
+            half_w: 0.3 * size,
+            walk_speed: m.walk_speed * scale.sqrt(),
+            special: Special::from_manifest(|n| m.has_anim(n)),
+            personality: m.personality,
+            can_climb: m.can_climb(),
+            flies: m.flies(),
+            stings: m.can_sting(),
+            hops: m.hops(),
+            hop_share: m.hop_share(),
+            looks_up: m.can_look_up(),
+            ..sim_cfg()
+        };
+        out.push((path.file_name().unwrap().to_string_lossy().into_owned(), cfg));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// 이 동물이 x에 서서 이동을 정할 때 큰 점프가 나오는 몫
+fn leap_share(c: PetConfig, w: &World, x: f64) -> f64 {
+    let n = 4000;
+    let leaps = (0..n)
+        .filter(|&seed| {
+            let mut p = Pet::new(c, 0.0, 0.0, seed);
+            place(&mut p, w, Owner::Ground(0), x, State::Idle { remaining: 10.0, look: false });
+            matches!(p.big_jump_state(w), Some(State::Leap { .. }))
+        })
+        .count();
+    leaps as f64 / n as f64
+}
+
+/// 바닥 옆 창 윗면: 몸 크기만큼 위, 옆으로 몸 하나 떨어진 자리 (누구나 닿는다)
+fn reachable(c: &PetConfig) -> (World, f64) {
+    (world(vec![win(1, 500.0, 1040.0 - c.size, 1200.0, 1040.0)]), 500.0 - c.half_w - 0.5 * c.size)
+}
+
+#[test]
+fn every_walker_leaps_onto_a_window_in_reach_and_flyers_never_do() {
+    let pets = bundled();
+    assert!(pets.len() >= 15, "{}", pets.len());
+    let frog_share = pets.iter().find(|(id, _)| id == "frog").map(|(_, c)| {
+        let (w, x) = reachable(c);
+        leap_share(*c, &w, x)
+    });
+    assert!((0.09..=0.15).contains(&frog_share.unwrap()), "the frog keeps its chance: {frog_share:?}");
+    for (id, c) in pets {
+        let (w, x) = reachable(&c);
+        let share = leap_share(c, &w, x);
+        match id.as_str() {
+            "bee" | "ghost" => assert_eq!(share, 0.0, "{id} flies"),
+            "frog" => {}
+            _ => assert!((0.04..=0.08).contains(&share), "{id}: about half the frog's chance, got {share}"),
+        }
+    }
+}
+
+/// 걷는 동물도 큰 점프는 같은 기계: 웅크림 → 포물선 → 창 윗면 (그림 대체는 웹뷰가 — ui/common.js hopLeapFrame)
+#[test]
+fn a_walker_leap_crouches_flies_and_lands_on_the_window_top() {
+    for (id, c) in bundled().into_iter().filter(|(_, c)| !c.flies) {
+        let (w, x) = reachable(&c);
+        let leap = (0..2000)
+            .find_map(|seed| {
+                let mut p = Pet::new(c, 0.0, 0.0, seed);
+                place(&mut p, &w, Owner::Ground(0), x, State::Idle { remaining: 10.0, look: false });
+                let leap = p.big_jump_state(&w)?;
+                p.state = leap;
+                Some(p)
+            })
+            .unwrap_or_else(|| panic!("{id} never leapt"));
+        let mut p = leap;
+        for _ in 0..(60 * 5) {
+            if !matches!(p.state, State::Leap { .. }) {
+                break;
+            }
+            assert_eq!(p.render().anim, Anim::BigJump, "{id}");
+            p.update(DT, &w);
+        }
+        assert!(matches!(p.state, State::Land { .. }), "{id}: {:?}", p.state);
+        assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)), "{id}");
+        assert_eq!(p.body.y, 1040.0 - c.size, "{id}: feet on the window top");
+    }
+}
+
+/// 닿는 높이는 몸 크기에 비례: 작은 몸은 못 닿는 창에 큰 몸은 닿는다
+#[test]
+fn leap_reach_scales_with_body_size() {
+    let cat = |scale: f64| {
+        let size = 128.0 * scale;
+        PetConfig { size, half_w: 0.3 * size, ..sim_cfg() }
+    };
+    let w = world(vec![win(1, 500.0, 1040.0 - 300.0, 1200.0, 1040.0)]);
+    let x = 450.0;
+    assert_eq!(leap_share(cat(0.45), &w, x), 0.0, "a baby (3.5 x 58 = 202) can't reach 300 up");
+    assert!(leap_share(cat(1.0), &w, x) > 0.03, "a teenager (3.5 x 128 = 448) can");
+    // 옆으로도 마찬가지
+    let far = world(vec![win(1, 500.0, 1040.0 - 100.0, 1200.0, 1040.0)]);
+    let (small, big) = (cat(0.45), cat(1.0));
+    let x = 500.0 - 300.0;
+    assert_eq!(leap_share(small, &far, x), 0.0);
+    assert!(leap_share(big, &far, x) > 0.03);
+}
+
+/// 큰 몸은 그만큼 더 뛰지 않는다: 산타(1.65배, 청소년 211)도 어른 고양이쯤까지만 닿고 그만큼만 솟는다. 배율(dpi)에는 비례
+#[test]
+fn big_bodies_do_not_leap_absurdly_high() {
+    let santa = |dpi: f64| {
+        let size = 128.0 * 1.65 * dpi;
+        PetConfig { size, half_w: 0.3 * size, dpi, walk_speed: 70.0, ..sim_cfg() }
+    };
+    assert_eq!(hop::leap_reach_size(santa(1.0).size, 1.0), hop::LEAP_REACH_SIZE_CAP);
+    assert_eq!(hop::leap_reach_size(santa(2.0).size, 2.0), 2.0 * hop::LEAP_REACH_SIZE_CAP);
+    assert_eq!(hop::leap_reach_size(108.8, 1.0), 108.8, "the frog never hits the cap");
+    // 3.5 × 211 = 739 위까지 닿았을 창 — 이제는 못 닿는다
+    let too_high = world(vec![win(1, 500.0, 1040.0 - 650.0, 1200.0, 1040.0)]);
+    assert_eq!(leap_share(santa(1.0), &too_high, 400.0), 0.0);
+    // 닿는 창이어도 꼭대기는 창 윗면 위로 몸 하나도 안 된다
+    let w = world(vec![win(1, 500.0, 1040.0 - 400.0, 1200.0, 1040.0)]);
+    let mut p = Pet::new(santa(1.0), 0.0, 0.0, 1);
+    place(&mut p, &w, Owner::Ground(0), 400.0, State::Idle { remaining: 10.0, look: false });
+    p.state = State::Leap { crouch: 0.01, remaining: 0.0, owner: Owner::Window(1), rel_x: 100.0 };
+    let mut top = f64::MAX;
+    for _ in 0..(60 * 5) {
+        p.update(DT, &w);
+        top = top.min(p.body.y);
+        if !matches!(p.state, State::Leap { .. }) {
+            break;
+        }
+    }
+    let rise = 640.0 - top;
+    assert!(rise <= hop::BIG_JUMP_RISE * hop::LEAP_REACH_SIZE_CAP + 2.0, "rise {rise}");
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
+}
+
+/// 조작 모드·창 안·집에 가는 길에는 뛰지 않는다
+#[test]
+fn walkers_keep_the_leap_gates() {
+    let c = PetConfig { size: 128.0, half_w: 38.0, ..sim_cfg() };
+    let (w, x) = reachable(&c);
+    let ready = || {
+        let mut p = Pet::new(c, 0.0, 0.0, 1);
+        place(&mut p, &w, Owner::Ground(0), x, State::Idle { remaining: 10.0, look: false });
+        p
+    };
+    assert!(ready_leaps(&mut ready(), &w), "free to leap");
+    let mut controlled = ready();
+    controlled.set_control(true);
+    assert!((0..500).all(|_| controlled.big_jump_state(&w).is_none()), "control mode");
+    let mut inside = ready();
+    inside.inside = Some(crate::inside::Stay { window: 1, mode: crate::inside::Mode::In, leave_in: 100.0, climb_out: false, hops: 0 });
+    assert!((0..500).all(|_| inside.big_jump_state(&w).is_none()), "inside a window");
+    let mut homesick = ready();
+    assert!(homesick.send_to(Side::Left, false));
+    assert!(homesick.is_heading_out());
+    assert!((0..500).all(|_| homesick.big_jump_state(&w).is_none()), "heading out");
+    // 공중·비행은 디딤판이 없다
+    let mut air = ready();
+    air.standing = None;
+    assert!((0..500).all(|_| air.big_jump_state(&w).is_none()), "not standing");
+}
+
+fn ready_leaps(p: &mut Pet, w: &World) -> bool {
+    (0..200).any(|_| p.big_jump_state(w).is_some())
+}
+
+/// 걷는 동물 10분: 늘 화면 안·디딤판 위, 큰 점프는 늘 창 윗면에 내려선다 (나는 동물은 안 뛴다)
+#[test]
+fn walkers_ten_minutes_stay_on_surfaces_and_land_their_leaps() {
+    let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0), win(2, 1200.0, 600.0, 1700.0, 800.0)]);
+    for (id, c) in bundled() {
+        let mut leaps = 0usize;
+        for seed in 0..3 {
+            let mut p = Pet::new(c, 960.0, 128.0, seed);
+            let mut was = None;
+            for _ in 0..(60 * 600) {
+                p.update(DT, &w);
+                let b = w.bounds;
+                assert!(p.body.x >= b.left && p.body.x <= b.right, "{id} seed {seed}: x {}", p.body.x);
+                assert!(p.body.y <= b.bottom + 1e-9, "{id} seed {seed}: y {} {:?}", p.body.y, p.state);
+                if let (State::Move { .. }, false) = (p.state, c.flies) {
+                    let st = p.standing.unwrap_or_else(|| panic!("{id}: walking on nothing"));
+                    assert_eq!(w.anchor(st.owner).unwrap().1, p.body.y, "{id} seed {seed}: feet on the surface");
+                }
+                match (p.state, was) {
+                    (State::Leap { owner, .. }, _) => was = Some(owner),
+                    (s, Some(owner)) => {
+                        assert!(matches!(s, State::Land { .. }), "{id} seed {seed}: leap ended in {s:?}");
+                        assert_eq!(p.standing.map(|s| s.owner), Some(owner), "{id} seed {seed}");
+                        assert!(matches!(owner, Owner::Window(_)));
+                        leaps += 1;
+                        was = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if c.flies {
+            assert_eq!(leaps, 0, "{id}");
+        } else {
+            assert!(leaps > 0, "{id} never leapt in 30 minutes");
+        }
+    }
 }
 
 /// 화면 타기: 같은 기계(목표까지 오르고 매달렸다가 미끄러져 내려옴)지만 폴짝 오르고 매달리기를 되풀이한다 (뒷모습)
@@ -304,7 +518,7 @@ fn rabbit_hop_segment_is_a_low_quick_hop_at_walking_speed() {
 }
 
 /// 토끼 10분 × 10: 걷기·달리기 시간의 절반쯤(±10%) 깡총, 깡총은 낮고 늘 디딤판 위,
-/// 큰 점프·벽 폴짝 오르기는 없고, 깡총 아닌 토막은 예전처럼 평평하게 걷는다
+/// 벽 폴짝 오르기는 없고 (큰 점프는 v0.3.9부터 모두 한다), 깡총 아닌 토막은 예전처럼 평평하게 걷는다
 #[test]
 fn rabbit_hops_about_half_of_its_walking_time() {
     let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0), win(2, 1200.0, 500.0, 1700.0, 800.0)]);
@@ -314,7 +528,6 @@ fn rabbit_hops_about_half_of_its_walking_time() {
         let mut prev: Option<(f64, bool, bool)> = None;
         for _ in 0..(60 * 600) {
             p.update(DT, &w);
-            assert!(!matches!(p.state, State::Leap { .. }), "seed {seed}: no big jumps");
             let lift = p.body.y - SIZE - p.window_pos().1;
             assert!((0.0..=hop::BUNNY_RUN_HOP_HEIGHT * SIZE + 1e-9).contains(&lift), "seed {seed}: lift {lift}");
             match p.state {
