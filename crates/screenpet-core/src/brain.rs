@@ -2426,7 +2426,7 @@ impl Pet {
             // 화면 밖으로 사라짐 → 가까운 위치 상단에서 다시 떨어뜨림
             let b = world.bounds;
             self.body = Body {
-                x: self.body.x.clamp(b.left + self.cfg.half_w, b.right - self.cfg.half_w),
+                x: self.body.x.max(b.left + self.cfg.half_w).min((b.right - self.cfg.half_w).max(b.left + self.cfg.half_w)),
                 y: b.top + self.cfg.size,
                 vx: 0.0,
                 vy: 0.0,
