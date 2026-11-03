@@ -5,7 +5,7 @@ use super::*;
 use crate::brain::control_moves::ControlInput;
 use crate::care::Care;
 use crate::geom::{Rect, WindowInfo};
-use crate::presence::{DailyMarks, FocusLength, LocalMoment, Rhythm, RhythmInput, AWAY_AFTER_SECS};
+use crate::presence::{DailyMarks, FocusLength, FocusPhase, LocalMoment, Rhythm, RhythmInput, AWAY_AFTER_SECS};
 use crate::brain::social_moves::GreetKind;
 use crate::brain::snow_moves::SnowPhase;
 use crate::social::Social;
@@ -560,24 +560,91 @@ fn no_gifts_while_away() {
 
 // ---- 집중 친구 ----
 
+/// 집중 중에 자리를 비운 동물: 타이머만 조용히 돈다. 자리는 그대로
+fn away_during_focus(c: PetConfig, w: &World) -> (Sim, Pet) {
+    let mut sim = Sim::at(15, 0);
+    let mut p = Pet::new(c, 0.0, 0.0, 5);
+    place(&mut p, w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    sim.rhythm.start_focus(FocusLength::Short, sim.secs, &mut p);
+    sim.walk_away(&mut p, w);
+    p.take_speech();
+    (sim, p)
+}
+
+fn phase(sim: &Sim) -> FocusPhase {
+    sim.rhythm.focus().expect("the timer keeps running").phase
+}
+
 #[test]
-fn focus_keeps_priority_and_the_break_is_for_sleeping() {
+fn away_the_focus_buddy_just_sleeps_where_it_is_through_every_segment() {
+    let w = world(vec![]);
+    for c in [walker(), flyer(), frog(), dino()] {
+        let (mut sim, mut p) = away_during_focus(c, &w);
+        let spot = (p.body.x, p.body.y);
+        // 집중 25분 → 쉬기 5분 → 다시 집중 (타이머는 계속 돈다)
+        for (secs, want) in [(25 * 60 - 10, FocusPhase::Focus), (20, FocusPhase::Break), (5 * 60, FocusPhase::Focus)] {
+            for _ in 0..secs {
+                sim.second(&mut p, &w, |p| assert!(is_asleep(p), "{:?}", p.state));
+            }
+            assert_eq!(phase(&sim), want);
+            assert_eq!((p.body.x, p.body.y), spot, "stays where it sleeps");
+        }
+        assert_eq!(sim.said, vec![], "no focus! and no break time!");
+        assert_eq!(p.heart_timer, 0.0, "no break hearts");
+    }
+}
+
+#[test]
+fn back_during_a_focus_segment_the_pet_wakes_and_goes_to_its_corner() {
+    let w = world(vec![]);
+    let (mut sim, mut p) = away_during_focus(walker(), &w);
+    let spot = p.body.x;
+    // 쉬기를 지나 두 번째 집중 시간에 돌아온다
+    sim.run(&mut p, &w, 25 * 60 + 5 * 60 + 30);
+    assert_eq!(phase(&sim), FocusPhase::Focus);
+    assert!(is_asleep(&p) && p.body.x == spot);
+    sim.idle = 0.0;
+    sim.run(&mut p, &w, 60);
+    assert!(!is_asleep(&p), "{:?}", p.state);
+    assert!(p.is_focusing());
+    assert!(p.body.x > spot, "went to the corner");
+    assert!(!sim.said.contains(&Speech::WelcomeBack) && !sim.said.contains(&Speech::BreakTime), "{:?}", sim.said);
+}
+
+#[test]
+fn back_during_a_break_the_pet_wakes_and_welcomes_you_and_focus_resumes_on_time() {
+    let w = world(vec![]);
+    let (mut sim, mut p) = away_during_focus(walker(), &w);
+    sim.run(&mut p, &w, 25 * 60 + 30);
+    assert_eq!(phase(&sim), FocusPhase::Break);
+    assert!(is_asleep(&p));
+    sim.idle = 0.0;
+    sim.run(&mut p, &w, 10);
+    assert!(!is_asleep(&p), "{:?}", p.state);
+    assert!(!p.is_focusing());
+    assert!(sim.said.contains(&Speech::WelcomeBack), "{:?}", sim.said);
+    assert!(!sim.said.contains(&Speech::BreakTime), "the break started without it: {:?}", sim.said);
+    // 쉬기가 끝나면 사용자가 있으니 다시 "focus!" 하고 구석으로
+    sim.idle = 0.0;
+    sim.run(&mut p, &w, 5 * 60);
+    assert_eq!(phase(&sim), FocusPhase::Focus);
+    assert!(sim.said.contains(&Speech::Focus), "{:?}", sim.said);
+    assert!(p.is_focusing());
+}
+
+#[test]
+fn a_user_who_stays_still_hears_the_segment_changes_only_while_present() {
+    // 자리에 있는 동안(유휴 10분 미만)엔 그대로 "break time!" 기지개
     let w = world(vec![]);
     let mut sim = Sim::at(15, 0);
     let mut p = Pet::new(walker(), 0.0, 0.0, 5);
     place(&mut p, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
     sim.rhythm.start_focus(FocusLength::Short, sim.secs, &mut p);
-    sim.walk_away(&mut p, &w);
-    sim.run(&mut p, &w, 60);
-    assert!(!is_asleep(&p), "focus phase sits in the corner: {:?}", p.state);
-    let corner = p.body.x;
-    assert!(corner > 800.0, "went to the corner");
-    // 25분이 지나 쉬는 시간: 잠든다
-    sim.run(&mut p, &w, 25 * 60 + 30);
-    assert!(is_asleep(&p), "{:?}", p.state);
-    // 다시 집중: 구석으로
-    sim.run(&mut p, &w, 5 * 60);
-    assert!(!is_asleep(&p), "{:?}", p.state);
+    for _ in 0..25 * 60 + 2 {
+        sim.idle = 0.0;
+        sim.second(&mut p, &w, |_| {});
+    }
+    assert!(sim.said.contains(&Speech::BreakTime), "{:?}", sim.said);
 }
 
 // ---- 돌보기 ----

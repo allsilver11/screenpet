@@ -2,7 +2,7 @@
 //!
 //! - 자리 비움: 내 동물도 이 화면의 손님도 하던 일을 그만두고 돌아올 때까지 잠만 잔다 (update_user_away). 말도 놀이도 쿵쾅도 없고, 나는 동물은
 //!   앉은 자리나 떠 있던 자리에서 존다. 떨어지기·창 따라가기 같은 물리만 그대로고, 내려서면 바로 다시 잠든다.
-//!   이기는 것: 사용자 볼일(먹이·하우스·조작 등)과 ⏱️ 집중 — 친구의 "펫 데리고 오기"(손 흔들고 뿅 건너간다, 돌아오면 다시 잠)와
+//!   이기는 것: 사용자 볼일(먹이·하우스·조작 등) — ⏱️ 집중 타이머는 조용히 돌기만 하고 (돌아오면 그때 국면으로), 친구의 "펫 데리고 오기"(손 흔들고 뿅 건너간다, 돌아오면 다시 잠)와
 //!   손님의 그리움 상한·"집에 와", 그리고 주인이 키로 조종 중인 손님 (주인은 자리에 있으니 키를 따르고, 키가 끊기면 다시 잠든다).
 //!   돌아오면 바로 깨어 커서가 있는 모니터로 달려가 (바닥이 다르면 폴짝, 나는 동물은 날아서) 통통 뛰며 "you're back!!" + 하트.
 //! - 졸린 시간: 하품이 잦고, 더 자주 더 오래 자고, 가끔 "go to bed~". 수면 모자는 웹뷰가 그린다.
@@ -182,7 +182,7 @@ impl Pet {
 
     /// 지금 잠만 자야 한다 (손님도)
     pub(super) fn sleeps_for_user(&self) -> bool {
-        self.presence.user_away && !self.presence.focus && !self.has_errand()
+        self.presence.user_away && !self.has_errand()
     }
 
     /// update에서 (커서 장난 전): 자리 비움이면 잠만 잔다. 이번 틱을 다 처리했으면 true.
@@ -271,11 +271,11 @@ impl Pet {
             self.update_trip(dt, world);
             return true;
         }
-        if self.presence.focus {
-            return self.focus_tick(world);
-        }
         if self.presence.user_away {
             return false;
+        }
+        if self.presence.focus {
+            return self.focus_tick(world);
         }
         self.nag_bedtime(dt);
         false

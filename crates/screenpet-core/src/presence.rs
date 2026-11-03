@@ -244,13 +244,18 @@ impl Rhythm {
         }
         if let Some(pomodoro) = self.focus.as_mut() {
             match pomodoro.tick(input.secs) {
+                // 자리를 비운 동안엔 타이머만 조용히 돈다: 말도 기지개도 없이 잠만 잔다
                 Some(FocusPhase::Break) => {
                     pet.set_focus(false);
-                    pet.focus_break();
+                    if !self.idle.is_away() {
+                        pet.focus_break();
+                    }
                 }
                 Some(FocusPhase::Focus) => {
                     pet.set_focus(true);
-                    pet.say_focus();
+                    if !self.idle.is_away() {
+                        pet.say_focus();
+                    }
                 }
                 None => {}
             }

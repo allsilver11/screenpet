@@ -629,12 +629,13 @@ fn focus_keeps_morning_and_lunch_and_the_idle_welcome_waiting() {
     keep_busy(&mut sim, &mut p, &w, 5);
     assert!(sim.said.is_empty(), "{:?}", sim.said);
     assert_eq!(sim.marks, DailyMarks::default());
-    // 10분 넘게 입력이 없어도 앉아 있고, 돌아와도 뛰쳐나오지 않는다
+    // 10분 넘게 입력이 없으면 잠만 자고, 돌아오면 깨지만 뛰쳐나와 맞이하지는 않는다 (집중 중이니까)
     sim.idle = Some(AWAY_AFTER_SECS);
     sim.run(&mut p, &w, 5);
-    assert_eq!(p.render().anim, Anim::Idle);
+    assert!(matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
     sim.idle = Some(0.0);
     sim.second(&mut p, &w);
+    assert!(!matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
     assert!(!sim.has_said(Speech::WelcomeBack));
     // 쉬는 시간이 되면 밀린 인사
     sim.secs = 25.0 * 60.0;
