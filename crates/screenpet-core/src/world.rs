@@ -54,7 +54,7 @@ impl World {
     /// 창 옆면 x의 높이 y 지점이 앞쪽 창에 가려졌는지 (창이 없으면 None)
     pub fn side_covered(&self, window: u64, x: f64, y: f64) -> Option<bool> {
         let i = self.windows.iter().position(|w| w.id == window)?;
-        let r = |w: &WindowInfo| w.rect.left <= x && x < w.rect.right && w.rect.top <= y && y < w.rect.bottom;
+        let r = |w: &WindowInfo| w.rect.contains(x, y);
         Some(self.windows[..i].iter().any(r))
     }
 
@@ -112,7 +112,7 @@ impl World {
 
     /// 점 (x, y)를 덮는 가장 앞쪽 창
     pub fn front_window_at(&self, x: f64, y: f64) -> Option<&WindowInfo> {
-        self.windows.iter().find(|w| w.rect.left <= x && x < w.rect.right && w.rect.top <= y && y < w.rect.bottom)
+        self.windows.iter().find(|w| w.rect.contains(x, y))
     }
 
     pub fn piece_at(&self, owner: Owner, x: f64) -> Option<&Surface> {
@@ -122,7 +122,7 @@ impl World {
     /// x 아래에 있는 Ground 디딤판 중 y가 주어진 y 이하인 것 (작업 영역 바닥보다 아래로 내려간 경우용).
     /// 발이 아직 어떤 작업 영역 안이면 None (쌓인 모니터: 아래 모니터에서 떨어지는 중인데 위 모니터 바닥으로 끌려가지 않는다)
     pub fn ground_below(&self, x: f64, y: f64) -> Option<&Surface> {
-        if self.work_areas.iter().any(|r| r.left <= x && x < r.right && r.top <= y && y < r.bottom) {
+        if self.work_areas.iter().any(|r| r.contains(x, y)) {
             return None;
         }
         self.surfaces

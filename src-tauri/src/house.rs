@@ -236,7 +236,7 @@ pub fn spot(app: &AppHandle, work_areas: &[Rect], fallback_dpi: f64) -> Spot {
     let (index, dpi) = match (&monitor, monitor_rect) {
         (Some(m), Some(r)) => {
             let (cx, cy) = ((r.left + r.right) / 2.0, (r.top + r.bottom) / 2.0);
-            let i = work_areas.iter().position(|w| w.left <= cx && cx < w.right && w.top <= cy && cy < w.bottom);
+            let i = work_areas.iter().position(|w| w.contains(cx, cy));
             (i.unwrap_or(0), m.scale_factor())
         }
         _ => (0, fallback_dpi),

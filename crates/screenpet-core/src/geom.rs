@@ -20,6 +20,11 @@ impl Rect {
         self.bottom - self.top
     }
 
+    /// (x, y)가 안에 있다 (왼쪽·위 포함, 오른쪽·아래 제외)
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        self.left <= x && x < self.right && self.top <= y && y < self.bottom
+    }
+
     pub fn union(&self, o: &Rect) -> Rect {
         Rect::new(
             self.left.min(o.left),
