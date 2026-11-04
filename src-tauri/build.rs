@@ -51,16 +51,6 @@ fn main() {
     code.push_str("];\n");
     fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("pets_pixel.rs"), code).unwrap();
 
-    // 하우스 그림의 문 위치 (ui/house/house.json). 아직 없으면 None — 앱은 기본 문 위치를 쓴다
-    let house_json = Path::new(&manifest_dir).join("../ui/house/house.json");
-    println!("cargo:rerun-if-changed={}", house_json.display());
-    let house = if house_json.is_file() {
-        format!("pub const HOUSE_JSON: Option<&str> = Some(include_str!({:?}));\n", house_json.display().to_string())
-    } else {
-        "pub const HOUSE_JSON: Option<&str> = None;\n".to_string()
-    };
-    fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("house.rs"), house).unwrap();
-
     // 앱 커맨드도 권한 목록(capabilities/default.json)에 있는 창만 부를 수 있다. main.rs의 generate_handler와 같은 목록 (tools/test_capabilities.py가 맞춰 본다)
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
         "pointer_down",
