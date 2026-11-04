@@ -96,26 +96,3 @@ python tools/draw_pets.py
 `all_light.png`·`all_dark.png` (teenager 전체 동작), `stages_<id>.png` (5단계 × walk·sit_front·wave·eat·sleep (+고양이·곰 climb, 꿀벌 sting), 오른쪽 열은 화면 표시 크기), `climb_<id>.png` (고양이·곰: 5단계 × climb·slide 모든 프레임), `sting_effect.png` (콕! 효과 밝은·어두운 바탕 + 꿀벌 sting), `eat_with_props.png` (eat 프레임 + 진짜 소품). `ui/effects/sting.png`도 다시 만든다.
 뼈대가 다른 동물(꿀벌)은 `Species.poses`에 자기 포즈 함수를 넣는다 — 없는 동작은 공통 포즈를 쓴다. `Species.outline`으로 외곽선 색을 바꿀 수 있다 (짙은 갈색 곰은 몸보다 짙은 외곽선).
 구조: 엔진(슈퍼샘플 마스크·변환 스택) → 종별 설정(색·무늬 데이터) → 포즈(종 공통 뼈대) → 출력. 새 동물은 `Species` 설정 하나를 추가하면 모든 포즈가 그 무늬로 칠해진다. 성장 단계 비율은 공통 조립(`_side`/`_front`)과 머리 부품이 적용하므로 포즈마다 따로 손대지 않는다.
-
-## AI 그림으로 바꾸기
-동작별 PNG를 만들어 `tools/pack_sheet.py`로 합친다. 파일명: `<동작>_<번호>.png` (0부터).
-크기는 자유(예: 512×512)지만 한 동작의 프레임은 같은 캔버스 크기여야 한다. 동작 안에서는 같은 자르기 박스를 써서 움직임이 보존되고, 모든 프레임은 공통 배율로 128×128에 바닥·가운데 정렬된다.
-
-```bash
-python tools/pack_sheet.py my_frames/cat ui/pets/cat --name 고양이 --walk-speed 90
-```
-새 동물은 `ui/pets/<새id>/`로 출력하면 다음 빌드부터 트레이 메뉴에 나타난다.
-
-### 일관성 팁
-1. **기준 그림 먼저**: 동물 하나의 `sit_front_0`을 마음에 들 때까지 만든 뒤, 그 이미지를 참조로 넣고 나머지 동작을 만든다.
-2. 프롬프트의 스타일 문구를 **모든 프레임에서 그대로 복사**한다.
-3. 한 동작의 프레임들은 한 번에 "가로 N칸 스프라이트 시트"로 요청한 뒤 잘라 쓰면 더 일관적이다.
-4. 배경 제거가 안 되는 도구면 단색 배경으로 만들고 배경 제거 도구로 투명화한다.
-
-### 프롬프트 템플릿
-```
-Cute kawaii chibi {동물}, {방향}, {동작 설명}, soft pastel flat colors,
-thick rounded brown outline, big head, full body, transparent background,
-consistent character, no text
-```
-예: `{동물}=white and ginger tabby cat`, `{방향}=side view facing right`, `{동작 설명}=walking, left front leg forward (frame 1 of 4)`
