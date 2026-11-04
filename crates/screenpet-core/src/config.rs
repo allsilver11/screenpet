@@ -40,7 +40,7 @@ pub struct Config {
     #[serde(default, deserialize_with = "lenient_house_spot")]
     pub house_spot: Option<HouseSpot>,
     /// 먹이 주는 방법 (직접 주기 / 자동 주기). 모르는 값이면 직접 주기
-    #[serde(default, deserialize_with = "lenient_feed_mode")]
+    #[serde(default, deserialize_with = "lenient")]
     pub feed_mode: FeedMode,
     /// 친구들에게 보이는 내 이름 (친구 화면의 내 동물 이름표). 없으면 컴퓨터 사용자 이름
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,19 +58,19 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub poop_off: bool,
     /// ⏱️ 집중 친구 길이 (켜져 있는지는 남기지 않는다). 모르는 값이면 25/5
-    #[serde(default, skip_serializing_if = "FocusLength::is_short", deserialize_with = "lenient_focus_length")]
+    #[serde(default, skip_serializing_if = "FocusLength::is_short", deserialize_with = "lenient")]
     pub focus_length: FocusLength,
     /// 오늘의 아침·점심 인사를 했는지 (앱을 다시 켜도 하루 한 번)
     #[serde(default, skip_serializing_if = "DailyMarks::is_empty")]
     pub daily: DailyMarks,
     /// 캐릭터 스타일 (동글동글 / 픽셀, 그림만 다르다). 모르는 값이면 동글동글
-    #[serde(default, skip_serializing_if = "PetStyle::is_round", deserialize_with = "lenient_style")]
+    #[serde(default, skip_serializing_if = "PetStyle::is_round", deserialize_with = "lenient")]
     pub style: PetStyle,
     /// 메뉴 "사다리 초대 받기"를 껐다 (끄면 초대 창 없이 자동으로 거절)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ladder_invites_off: bool,
     /// 가장 최근 사다리타기 한 판의 결과 표 (메뉴 "지난 사다리 결과"). 망가진 값이면 없는 것으로
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_last_ladder")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub last_ladder: Option<LastLadder>,
 }
 
@@ -121,21 +121,9 @@ pub fn sanitize_name(raw: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
-fn lenient_focus_length<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FocusLength, D::Error> {
+/// 값이 깨졌으면 기본값으로 — 설정 전체를 버리지 않는다
+fn lenient<'de, T: serde::de::DeserializeOwned + Default, D: serde::Deserializer<'de>>(d: D) -> Result<T, D::Error> {
     Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
-}
-
-fn lenient_style<'de, D: serde::Deserializer<'de>>(d: D) -> Result<PetStyle, D::Error> {
-    Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
-}
-
-fn lenient_last_ladder<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<LastLadder>, D::Error> {
-    Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).ok())
-}
-
-fn lenient_feed_mode<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FeedMode, D::Error> {
-    let v = serde_json::Value::deserialize(d)?;
-    Ok(serde_json::from_value(v).unwrap_or_default())
 }
 
 /// 친구: id(이름표) + 고정된 정적 공개키(신원) + 표시 이름 + 내 화면의 어느 끝에 연결됐는지
