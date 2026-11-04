@@ -64,10 +64,7 @@ function show(view) {
   window.scrollTo(0, scroll);
 }
 
-window.addEventListener("contextmenu", (e) => e.preventDefault());
-window.addEventListener("keydown", (e) => {
-  if (e.key === "F5" || (e.ctrlKey && (e.key === "r" || e.key === "R"))) e.preventDefault();
-});
+setupFormKeys();
 
 (async () => {
   if (pixelArt) applyArt();

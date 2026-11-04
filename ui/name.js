@@ -31,12 +31,7 @@ function submit() {
 okBtn.addEventListener("click", submit);
 cancelBtn.addEventListener("click", () => invoke("name_close"));
 
-window.addEventListener("contextmenu", (e) => e.preventDefault());
-window.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") submit();
-  else if (e.key === "Escape") invoke("name_close");
-  else if (e.key === "F5" || (e.ctrlKey && (e.key === "r" || e.key === "R"))) e.preventDefault();
-});
+setupFormKeys({ submit, close: () => invoke("name_close") });
 
 (async () => {
   // 듣기 시작한 뒤에 지금 상태를 묻는다

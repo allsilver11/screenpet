@@ -1,0 +1,74 @@
+"""창 스크립트를 html이 읽는 순서 그대로 가짜 DOM에서 돌린다 (tools/window_harness.js): 첫 로드 실패, 프레임당 스타일 쓰기, 글 쓰는 창의 키."""
+
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+HARNESS = ROOT / "tools" / "window_harness.js"
+pytestmark = pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+
+
+def run(*args):
+    out = subprocess.run(["node", str(HARNESS), *args], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+@pytest.mark.parametrize("page", sorted(p.name for p in (ROOT / "ui").glob("*.html")))
+def test_every_window_loads_its_scripts_without_a_clash(page):
+    run("load", page)
+
+
+@pytest.mark.parametrize("scenario", ["firstLoadFails", "firstLoadFailsHouse"])
+def test_a_failed_first_load_does_not_stop_the_draw_loop(scenario):
+    r = run(scenario)
+    assert r["running"], "그리기 고리가 시작되지 않았다"
+    assert r["drew"], "다음 동물 정보로 다시 그리지 못했다"
+
+
+def test_idle_frames_write_no_styles_but_frames_and_spin_still_do():
+    r = run("drawWrites")
+    assert r["idle"] == [0, 0, 0]
+    assert r["advanced"] >= 2, "칸이 넘어가면 쓴다"
+    # 구르기는 프레임마다 돈다
+    assert r["spinWrites"] == 10 and r["spinDistinct"] == 10, r["spin"]
+    assert "rotate(" in r["spin"]
+
+
+def test_house_door_writes_only_when_the_frame_changes():
+    assert run("drawWritesHouse")["idle"] == 0
+
+
+def test_frame_index_never_goes_negative():
+    r = run("frameIndex")
+    assert r == {"loop": 0, "once": 0, "later": 0}
+
+
+@pytest.mark.parametrize(
+    "page,submit,close",
+    [("letter.html", "letter_submit", "letter_close"), ("postit.html", "postit_submit", "postit_close"), ("name.html", "name_submit", "name_close"), ("code.html", "code_submit", "code_close")],
+)
+def test_form_keys(page, submit, close):
+    r = run("formKeys", page, submit, close)
+    assert r["onButton"] == 0, "버튼 위 Enter는 그 버튼만 누른다"
+    assert r["composing"] == 0, "한글 조합 중 Enter는 글자 확정"
+    assert r["onInput"] == 1
+    assert r["closed"] == 1
+    assert r["f5"] and r["ctrlR"] and r["menu"]
+    assert not r["typing"], "글자 치기는 막지 않는다"
+
+
+def test_book_blocks_refresh_and_has_no_close_key():
+    r = run("bookKeys")
+    assert r["f5"] and r["menu"] and not r["escape"]
+
+
+def test_renewing_a_code_does_not_copy_the_old_one():
+    r = run("renewCopy")
+    assert r["renewed"] == 1
+    assert r["copyDisabled"] and r["whilePending"] == []
+    assert not r["copyDisabledAfter"] and r["copied"] == ["NEW1-2345"]

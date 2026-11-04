@@ -72,19 +72,16 @@ renewBtn.addEventListener("click", () => {
   renewArmed = null;
   renewBtn.textContent = "새 코드";
   invoke("code_renew");
+  // 옛 코드는 이제 못 쓴다 — 새 코드가 올 때까지 복사하지 않는다
+  state = { ...state, code: null };
+  copyBtn.disabled = true;
   codeEl.textContent = "…";
 });
 okBtn.addEventListener("click", submit);
 cancelBtn.addEventListener("click", () => invoke("code_close"));
 inputEl.addEventListener("input", () => (noteEl.textContent = ""));
 
-window.addEventListener("contextmenu", (e) => e.preventDefault());
-window.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") submit();
-  else if (e.key === "Escape") invoke("code_close");
-  // 새로 고침 같은 웹뷰 기본 동작만 막는다 (입력칸 타자는 그대로)
-  else if (e.key === "F5" || (e.ctrlKey && (e.key === "r" || e.key === "R"))) e.preventDefault();
-});
+setupFormKeys({ submit, close: () => invoke("code_close") });
 
 (async () => {
   // 듣기 시작한 뒤에 지금 상태를 묻는다

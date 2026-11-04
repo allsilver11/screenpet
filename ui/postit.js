@@ -30,13 +30,7 @@ const submit = () => invoke("postit_submit", { text: inputEl.value });
 document.getElementById("ok").addEventListener("click", submit);
 document.getElementById("cancel").addEventListener("click", () => invoke("postit_close"));
 
-window.addEventListener("contextmenu", (e) => e.preventDefault());
-window.addEventListener("keydown", (e) => {
-  // 한글 조합 중 Enter는 글자 확정 — 붙이지 않는다
-  if (e.key === "Enter" && !e.isComposing) submit();
-  else if (e.key === "Escape") invoke("postit_close");
-  else if (e.key === "F5" || (e.ctrlKey && (e.key === "r" || e.key === "R"))) e.preventDefault();
-});
+setupFormKeys({ submit, close: () => invoke("postit_close") });
 
 (async () => {
   await here.listen("postit-open", (e) => open(e.payload));

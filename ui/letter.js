@@ -41,13 +41,7 @@ function submit() {
 okBtn.addEventListener("click", submit);
 cancelBtn.addEventListener("click", () => invoke("letter_close"));
 
-window.addEventListener("contextmenu", (e) => e.preventDefault());
-window.addEventListener("keydown", (e) => {
-  // 한글 조합 중 Enter는 글자 확정 — 보내지 않는다
-  if (e.key === "Enter" && !e.isComposing) submit();
-  else if (e.key === "Escape") invoke("letter_close");
-  else if (e.key === "F5" || (e.ctrlKey && (e.key === "r" || e.key === "R"))) e.preventDefault();
-});
+setupFormKeys({ submit, close: () => invoke("letter_close") });
 
 // 못 보냈다: 창과 쓴 글은 그대로 두고 알린다 (글자를 고치면 평소 글자 수로 돌아온다)
 function failed() {

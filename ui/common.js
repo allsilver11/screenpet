@@ -1,7 +1,7 @@
 // 동글 펫 그림 확장자: 배포 파일을 만들 때 tools/pack_webp.py가 "webp"로 바꾼다 (저장소에는 PNG)
 const PET_ART_EXT = "png";
 
-// 펫 창(main.js)과 하우스 창(house.js)이 같이 쓰는 것: 시트 읽기, 프레임 계산, 말풍선, 음식 고르기.
+// 창들이 같이 쓰는 것: 시트 읽기, 프레임 계산, 말풍선, 음식 고르기 (펫·하우스 창), 글 쓰는 창의 키.
 // 일반 스크립트끼리는 최상위 const가 겹치면 안 되므로 window.__TAURI__는 함수 안에서만 꺼낸다.
 
 async function decodeSheet(url) {
@@ -77,7 +77,8 @@ async function loadPetSheet(id, stageName, style = "round") {
 }
 
 function frameIndex(spec, elapsedMs) {
-  const n = Math.floor((elapsedMs / 1000) * spec.fps);
+  // 이벤트가 이번 프레임 시각 뒤에 와서 animStart가 더 늦을 수 있다 — 음수 칸은 없다
+  const n = Math.max(0, Math.floor((elapsedMs / 1000) * spec.fps));
   return spec.loop === false ? Math.min(n, spec.frames - 1) : n % spec.frames;
 }
 
@@ -88,6 +89,17 @@ function hopLeapFrame(spec, elapsedMs) {
   if (elapsedMs < LEAP_CROUCH_MS) return 0;
   const n = Math.floor(((elapsedMs - LEAP_CROUCH_MS) / 1000) * spec.fps);
   return Math.min(1 + n, spec.frames - 1);
+}
+
+// 값이 그대로면 쓰지 않는 스타일 쓰기 (rAF는 화면 주사율마다 돈다 — 칸이 그대로인 프레임은 아무것도 건드리지 않는다).
+// 이 요소의 그 속성은 이 함수로만 쓴다
+function styleWriter(el) {
+  const shown = {};
+  return (prop, value) => {
+    if (shown[prop] === value) return;
+    shown[prop] = value;
+    el.style[prop] = value;
+  };
 }
 
 // 말풍선(`pet-say`)과 음식 고르기(`food-picker`). 백엔드는 지금 동물이 있는 창에만(emit_to) 보낸다.
@@ -172,6 +184,17 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
   }
 
   return { hidePicker, hideBubble };
+}
+
+// 글을 쓰는 창과 도감: 우클릭 메뉴·새로 고침만 막고 타자는 그대로. Enter는 글 넣기 (버튼 위면 그 버튼만 눌리게, 한글 조합 중이면 글자 확정), Esc는 닫기
+function setupFormKeys({ submit, close } = {}) {
+  window.addEventListener("contextmenu", (e) => e.preventDefault());
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      if (!e.isComposing && e.target.tagName !== "BUTTON") submit?.();
+    } else if (e.key === "Escape") close?.();
+    else if (e.key === "F5" || (e.ctrlKey && (e.key === "r" || e.key === "R"))) e.preventDefault();
+  });
 }
 
 // 키보드 UI가 없는 창: 웹뷰 기본 동작(우클릭 메뉴, F5, Ctrl+R, Alt+F4 등)을 막는다.

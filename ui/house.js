@@ -268,14 +268,17 @@ function currentAnim(now) {
   return localAnim;
 }
 
+const writeDoorPet = styleWriter(petEl);
+
 function draw(now) {
-  petEl.hidden = !house.housed || !manifest;
-  if (!petEl.hidden) {
+  const hide = !house.housed || !manifest;
+  if (petEl.hidden !== hide) petEl.hidden = hide;
+  if (!hide) {
     const anim = currentAnim(now);
     const a = manifest.animations;
     const spec = a[anim] ?? a.sit_front ?? a.idle;
     const f = frameIndex(spec, now - animStart);
-    petEl.style.backgroundPosition = `${-f * display}px ${-spec.row * display}px`;
+    writeDoorPet("backgroundPosition", `${-f * display}px ${-spec.row * display}px`);
   }
   requestAnimationFrame(draw);
 }
@@ -363,6 +366,9 @@ window.addEventListener("resize", () => {
 
 blockWebviewDefaults();
 
+// 그리기 고리는 먼저 돌린다 — 첫 그림을 못 읽어도 다음 house-state로 다시 그릴 수 있게
+requestAnimationFrame(draw);
+
 (async () => {
   placeHouse();
   // 듣기 시작한 뒤에 지금 상태를 묻는다 — 그 사이 바뀐 것은 이벤트로 온다
@@ -374,5 +380,4 @@ blockWebviewDefaults();
     animStart = performance.now();
   }
   await loadPet();
-  requestAnimationFrame(draw);
 })();

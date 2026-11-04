@@ -185,7 +185,7 @@ const flushTimers = () => {
 };
 
 (async () => {
-  for (let i = 0; i < 40 && !raf; i++) await new Promise((r) => setImmediate(r));
+  for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r)); // 첫 그림을 다 읽을 때까지
   const out = {};
   const show = (name, render, { width } = {}) => {
     emit("pet-render", { anim: "idle", flip: false, heart: false, ...render });

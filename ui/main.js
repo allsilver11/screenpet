@@ -525,10 +525,11 @@ listen("pet-presence", (e) => {
   lastPresence = p;
   if (capOff && !nightWear().hidden && document.visibilityState !== "hidden") capPoof();
   else setCap(!!p.nightcap);
-  const ring = typeof p.ring === "number";
   applyRing();
   headgearAt = null;
 });
+
+const writePet = styleWriter(petEl);
 
 function draw(now) {
   if (manifest) {
@@ -536,10 +537,10 @@ function draw(now) {
     // 큰 점프 그림이 없는 동물은 hop 줄로 (common.js hopLeapFrame)
     const hopLeap = render.anim === "bigjump" && !manifest.animations.bigjump;
     const spec = hopLeap ? manifest.animations.hop : (manifest.animations[render.anim] ?? manifest.animations.idle);
-    const elapsed = now - animStart;
+    const elapsed = Math.max(0, now - animStart);
     const neckOn = drawNeck(elapsed);
     const f = hopLeap ? hopLeapFrame(spec, elapsed) : frameIndex(spec, elapsed);
-    petEl.style.backgroundPosition = `${-f * display}px ${-spec.row * display}px`;
+    writePet("backgroundPosition", `${-f * display}px ${-spec.row * display}px`);
     if (lastPresence && (lastPresence.nightcap || typeof lastPresence.ring === "number")) {
       const shown = hopLeap ? "hop" : manifest.animations[render.anim] ? render.anim : "idle";
       placeHeadgear(shown, f, neckOn ? nkHead : petEl);
@@ -550,7 +551,7 @@ function draw(now) {
     const shake = jitter(f, now);
     if (shake) parts.push(shake);
     // 커서에 매달림 (백엔드 render.hang): 창은 머리 꼭대기가 커서 끝에 닿는 자리에 있다 (코어 hang_spot) — 커서 끝을 축으로 살랑살랑
-    petEl.style.transformOrigin = render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : "";
+    writePet("transformOrigin", render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : "");
     // 픽셀은 돌리지 않고 한 칸씩 좌우로 (6도 회전은 칸을 무너뜨린다)
     if (render.hang) parts.push(pixelMode ? `translateX(${Math.round(Math.sin(now / 430) * 1.4) * dot}px)` : `rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
     if (render.flip) parts.push("scaleX(-1)");
@@ -559,7 +560,7 @@ function draw(now) {
     const pulse = stingPulse(render.anim, spec, elapsed);
     // 픽셀은 부풀지 않는다 (돌진 그림만)
     if (pulse !== 1 && !pixelMode) parts.push(`scale(${pulse})`);
-    petEl.style.transform = parts.length ? parts.join(" ") : "none";
+    writePet("transform", parts.length ? parts.join(" ") : "none");
   }
   requestAnimationFrame(draw);
 }
@@ -898,6 +899,9 @@ petEl.addEventListener("contextmenu", () => invoke("show_menu"));
 
 blockWebviewDefaults();
 
+// 그리기 고리는 먼저 돌린다 — 첫 그림을 못 읽어도 다음 pet-stage로 다시 그릴 수 있게 (그림이 없는 동안 draw는 아무것도 안 한다)
+requestAnimationFrame(draw);
+
 (async () => {
   // 듣기 시작한 뒤에 지금 상태를 묻는다 — 그 사이 바뀐 것은 이벤트로 온다
   await Promise.all([listeningRender, listeningStage]);
@@ -909,5 +913,4 @@ blockWebviewDefaults();
     animStart = performance.now();
   }
   await loadPet();
-  requestAnimationFrame(draw);
 })();
