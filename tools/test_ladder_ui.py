@@ -30,6 +30,14 @@ def out():
 # ---- 화면·커맨드 연결 (node 없이) ---------------------------------------------------
 
 
+def test_help_does_not_promise_what_a_modified_host_can_break():
+    help_html = (UI / "help.html").read_text(encoding="utf-8")
+    assert "방장도 미리 알거나" not in help_html
+    assert "결과를 먼저 보고 판을 취소한 뒤 다시 열 수 있고" in help_html
+    assert "방장이 알려 준 것이라 사실과 다를 수 있어요" in help_html
+    assert "공정한 게임" not in HTML
+
+
 def test_every_element_the_script_uses_is_in_the_page():
     ids = set(re.findall(r'\$\("([\w-]+)"\)', JS))
     missing = [i for i in sorted(ids) if f'id="{i}"' not in HTML]

@@ -4,10 +4,11 @@
 //! Links are 1:1, so a game is a star: the host collects and relays. Fairness:
 //! every player (the host too) commits to a secret nonce before anyone reveals,
 //! and the seed hashes all nonces plus a fixed binary encoding of the locked
-//! game, so no one — not even the host — can predict or pick the outcome as
-//! long as one player is honest. A host that shows players different lists is
-//! caught by the 4-emoji print. What cannot be prevented (a host withholding
-//! the reveals) is only made visible: the game is cancelled.
+//! game, so no one can pick the outcome in advance as long as one player is
+//! honest. A host that shows players different lists is caught by the 4-emoji
+//! print. A modified host still collects the reveals first, so it can see the
+//! result, cancel and start over; and the `who` in a cancel is only its claim.
+//! That cannot be prevented, only made visible: the game is cancelled.
 //!
 //! The machines do no I/O: they take `Instant`s and return the messages to
 //! send, so all of this is tested on Linux. Strings from the wire are

@@ -36,7 +36,7 @@ pub const MIN_ROWS: usize = 8;
 pub const RESULT_MAX_CHARS: usize = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)] #[serde(rename_all = "snake_case")]
-pub enum Mood { Good, Bad, None }
+pub enum Mood { Good, Bad, Neutral } // 글자로는 "good" | "bad" | "none"
 
 /// rows[r]에 든 c = 그 줄에서 세로줄 c와 c+1을 잇는 가로줄 (한 줄 안에서 이웃하지 않음)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -55,7 +55,6 @@ pub fn clean_result(raw: &str) -> Option<String>;
 /// 같은 표시 이름에 " ②", " ③" … (처음 것은 그대로)
 pub fn disambiguate(names: &[String]) -> Vec<String>;
 /// 화면 표시용 줄임: max자 넘으면 max자 + "…"
-pub fn ellipsize(s: &str, max: usize) -> String;
 /// 칸 너비 (기본 72, 작업 영역 폭에 맞춰 최소 48까지 줄임, 최소 4칸 폭)
 pub fn column_width(players: usize, work_width: f64) -> f64;
 /// 지문 24비트 → SAS 이모지 번호 4개 (6비트씩)
@@ -127,8 +126,8 @@ impl Stream { pub fn new(seed: [u8; 32]) -> Stream; pub fn next_u32(&mut self) -
 pub fn print_bits(seed: &[u8; 32]) -> u32;
 
 pub struct LockedPlayer { pub token: [u8; 16], pub commit: [u8; 32], pub name: String, pub pet: String, pub style: String }
-/// net은 core에 의존하지 않는다 — mood는 u8 (0 none, 1 good, 2 bad), 앱이 core `Mood`로 바꾼다
-pub struct LockedResult { pub text: String, pub mood: u8 }
+/// net은 core에 의존하지 않는다 — mood는 받은 글자 그대로 ("good" | "bad" | "none" | 더 새 값), 앱이 core `Mood`로 바꾼다
+pub struct LockedResult { pub text: String, pub mood: String }
 
 /// 방장 쪽. 보낼 것은 Vec<(받는 친구 id, LadderMsg)>로 돌려준다 (I/O 없음)
 pub struct HostGame { .. }
@@ -187,9 +186,9 @@ pub struct Outcome { pub seed: [u8; 32], pub players: Vec<LockedPlayer>, pub res
 ### Task 5: 앱 — 상태 기계 연결, 트레이, 설정, 펫 반응
 
 **Files:** Create `src-tauri/src/ladder.rs`; Modify `src-tauri/src/{main,network,tray,game_loop}.rs`, `crates/screenpet-core/src/config.rs` (+ 테스트).
-- config: `ladder_invites: bool` (기본 true, 없으면 true), `last_ladder: Option<LastLadder>` (`{ host, at, rows: [{name, text, mood}], print }` — 가장 최근 한 판). 저장은 게임 루프 단일 writer 규칙 유지. config 테스트: 기본값, 예전 설정 파일 읽기, 왕복.
+- config: `ladder_invites_off: bool` (기본 false, 없으면 false), `last_ladder: Option<LastLadder>` (`{ host, at, rows: [{name, text, mood}], print }` — 가장 최근 한 판). 저장은 게임 루프 단일 writer 규칙 유지. config 테스트: 기본값, 예전 설정 파일 읽기, 왕복.
 - `network.rs`: 설정 창 목록의 흐림·"(업데이트 필요)"는 `net.peer_version(id)`로 그때그때 본다. `NetEvent::Ladder` → `ladder.rs`. `Disconnected` → 상태 기계 `on_disconnected`/`on_host_disconnected`. 1초마다 `tick`.
-- 받은 초대: `ladder_invites` 꺼짐 → 자동 `no`, 내 펫 `refuses_arrivals()` → 자동 `busy`, 이미 판 중 → `playing`, 같은 친구 1분 3회 초과 → 조용히 `no`. 아니면 초대 창.
+- 받은 초대: `ladder_invites_off` 켜짐 → 자동 `no`, 내 펫 `refuses_arrivals()` → 자동 `busy`, 이미 판 중 → `playing`, 같은 친구 1분 3회 초과 → 조용히 `no`. 아니면 초대 창.
 - 트레이 `친구랑 놀기 ▸`: `🎲 사다리타기…` (v2 친구가 하나라도 연결돼 있고 내가 집중 중·하우스 안이 아닐 때만 활성), `사다리 초대 받기` (체크), `🎲 지난 사다리 결과` (`last_ladder` 있을 때만).
 - 창: `ladder` 라벨 하나 (설정·초대·게임·결과를 상태로 바꿈). 초대로 열 때는 `.focused(false)`, `set_focus()`를 부르지 않는다. 방장 설정·지난 결과는 사용자가 연 것이므로 포커스를 준다. 크기는 `ladder::column_width` × 인원 기준.
 - 커맨드: `ladder_state`(첫 로드), `ladder_host(friends, results)`, `ladder_answer(join: bool)`, `ladder_begin(results)`(방장 `시작`), `ladder_close`, `ladder_seen`(내 펫 도착 → 진짜 펫 반응). `모두 한꺼번에`는 각자 화면에서만이라 커맨드가 없다. 이벤트 `ladder-state` (상태 바뀔 때). 창 라벨이 `ladder`인 것만 받는다.
@@ -219,7 +218,7 @@ pub struct Outcome { pub seed: [u8; 32], pub players: Vec<LockedPlayer>, pub res
   - [ ] 집중 중·하우스 안이면 초대 창 없이 방장 쪽에 "바빠요"
   - [ ] 봇 8개 + PC 두 대로 10명 판: 모든 화면 지문 이모지가 같음, 결과 표가 같음
   - [ ] 잠근 뒤 봇 하나 끊기(`--drop-after-lock`) → 모두 "<이름>과 연결이 끊겨 취소됐어요"
-  - [ ] 결과 공개 직후 방장 앱 종료 → 참가자 화면은 3초 뒤 스스로 진행
+  - [ ] 결과 공개 직후 방장 앱 종료 → 참가자 화면은 1.5초 뒤 스스로 진행
   - [ ] 결과 기분 😀/😢에 따라 사다리 펫과 내 진짜 펫이 만세/시무룩
   - [ ] `결과 복사` → 채팅창에 붙여 넣으면 이름 → 결과 + 지문
   - [ ] `지난 사다리 결과`가 앱 재시작 뒤에도 열림
