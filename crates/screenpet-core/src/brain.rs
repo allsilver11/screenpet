@@ -889,6 +889,21 @@ impl Pet {
         self.housed
     }
 
+    /// 사다리타기 결과에 한 번 반응한다 (spec 2026-11-04 §1-6): 좋음 = 만세(`level_up`), 나쁨 = 갸웃(`tilt`).
+    /// 바닥(또는 공중에 떠 있는 동물)에서 걷거나 쉬는 중일 때만 — 하우스·놀러 감·손님·들림·공중·먹는 중이면 false (건너뛴다).
+    /// `annoyed`는 끝나면 잠드는 상태라 쓰지 않는다
+    pub fn react_to_result(&mut self, good: bool) -> bool {
+        let settled = (self.standing.is_some() || self.cfg.flies) && !self.off_surface() && !self.is_held() && !self.in_transit();
+        let calm = matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. } | State::Trick { .. });
+        // 다른 볼일 중이면 끊지 않는다: 조작 모드 · 친구에게 보내는 중 · 집에 돌아가는 중 · 창 안 (is_free_to_go가 하우스·손님·들림·축하 등도 본다)
+        let busy = !self.is_free_to_go() || self.control.is_some() || self.inside.is_some() || self.send.is_some() || self.return_home.is_some();
+        if busy || !settled || !calm {
+            return false;
+        }
+        self.state = if good { State::LevelUp { remaining: LEVEL_UP_SECS } } else { State::Trick { kind: Trick::Tilt, remaining: REFUSE_TILT_SECS } };
+        true
+    }
+
     /// 하우스로 가는 중 (아직 도착 전)
     pub fn is_going_home(&self) -> bool {
         self.home_trip.is_some()
@@ -3011,6 +3026,10 @@ impl Pet {
 #[cfg(test)]
 #[path = "brain_inside_tests.rs"]
 mod inside_tests;
+
+#[cfg(test)]
+#[path = "brain_ladder_tests.rs"]
+mod ladder_tests;
 
 /// 날아다니는 동물 (spec 2B §10)
 #[path = "brain_fly.rs"]

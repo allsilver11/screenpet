@@ -9,6 +9,7 @@ pub mod geom;
 pub mod gift;
 pub mod hop;
 pub mod inside;
+pub mod ladder;
 pub mod manifest;
 pub mod object;
 pub mod pacing;
