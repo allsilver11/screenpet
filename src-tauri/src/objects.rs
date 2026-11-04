@@ -67,7 +67,7 @@ fn set_postit_state(label: &str, postit: Option<Postit>) {
 }
 
 fn menu_label(own: usize) -> String {
-    format!("물건 ({own}/{MAX_OWN_OBJECTS})")
+    format!("🗑️ 쓰레기 꺼내기 ({own}/{MAX_OWN_OBJECTS})")
 }
 
 /// 게임 루프로 들어오는 물건 입력
@@ -438,7 +438,7 @@ impl Objects {
         self.fading.push((l.window, Instant::now() + FADE));
     }
 
-    /// `물건 ▸` 글자의 내 물건 수 (바뀔 때만)
+    /// `🗑️ 쓰레기 꺼내기 ▸` 글자의 내 물건 수 (바뀔 때만)
     fn sync_menu(&mut self) {
         let own = self.roster.own_count();
         if own != self.shown_own {

@@ -44,7 +44,8 @@ def test_commands_are_registered_and_windows_have_capabilities():
     main = (ROOT / "src-tauri" / "src" / "main.rs").read_text(encoding="utf-8")
     assert "gifts::gift_collect" in main and "gifts::book_state" in main
     caps = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text(encoding="utf-8"))
-    assert "book" in caps["windows"] and "prop-gift-*" in caps["windows"]
+    windows = {w for cap in caps["capabilities"] for w in cap["windows"]}
+    assert "book" in windows and "prop-gift-*" in windows
 
 
 def test_gift_window_is_prop_labelled_so_tray_hide_follows_it():

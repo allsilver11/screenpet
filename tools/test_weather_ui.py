@@ -43,7 +43,7 @@ def test_nothing_ticks_while_paused():
 
 def test_the_overlay_may_listen_for_scenes():
     caps = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text())
-    assert "weather-*" in caps["windows"]
+    assert "weather-*" in {w for cap in caps["capabilities"] for w in cap["windows"]}
 
 
 def test_preview_is_not_in_the_menu():

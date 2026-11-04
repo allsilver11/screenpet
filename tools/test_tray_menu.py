@@ -1,0 +1,47 @@
+"""트레이·우클릭 메뉴 배치 (사용자가 정한 2026-11-05 구성). 메뉴를 옮기면 도움말 경로도 같이 옮긴다."""
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+TRAY = (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
+HELP = (ROOT / "ui" / "help.html").read_text(encoding="utf-8")
+
+
+def test_top_level_order():
+    build = TRAY[TRAY.index("let menu = Menu::new(app)?;") :]
+    build = build[: build.index("let pet_items")]
+    items = re.findall(r"menu\.append\(&(?:PredefinedMenuItem::(separator)\(app\)\?|([a-z_]+))\)", build)
+    names = [sep or name for sep, name in items]
+    assert names == ["easter_egg", "separator", "my_pet", "feed", "house", "separator", "friends", "separator", "play", "focus", "separator", "settings", "toggle", "help", "quit"]
+
+
+def test_submenus_hold_what_was_decided():
+    assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &pets_menu, &style_menu, &lock, &reset])' in TRAY
+    assert 'Submenu::with_items(app, "스타일", true, &[&style_round, &style_pixel])' in TRAY
+    assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &gift_book])' in TRAY
+    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play])' in TRAY
+    assert 'Submenu::with_items(app, "🎲 사다리타기", true, &[&new_game, &last, &invites])' in TRAY
+    assert '"🍚 밥 주기"' in TRAY and '"👫 친구랑 놀기"' in TRAY and '"🏠 하우스"' in TRAY
+
+
+def test_friends_menu_order():
+    fill = TRAY[TRAY.index("fn try_fill_friends") :]
+    fill = fill[: fill.index("/// 내 동물이 친구 화면에")]
+    order = ["MY_NAME_ID", "SHOW_CODE_ID", "ENTER_CODE_ID", '"놀러 보내기", online', "for f in &model.friends", "for (id, name) in &model.strangers", '"🎲 사다리타기"']
+    positions = [fill.index(x) for x in order]
+    assert positions == sorted(positions)
+
+
+def test_come_home_only_while_away_and_right_under_the_house():
+    assert "menu.menu.insert(&menu.come_home, COME_HOME_POSITION)" in TRAY and "menu.menu.remove(&menu.come_home)" in TRAY
+    assert "const COME_HOME_POSITION: usize = 5;" in TRAY  # danni, 구분선, 내 펫, 밥, 하우스 다음
+
+
+def test_repair_is_gone():
+    assert "다시 친구 맺기" not in TRAY and "다시 친구 맺기 필요" not in HELP and "forgot" not in TRAY
+
+
+def test_help_uses_the_new_paths():
+    for path in ["🐾 내 펫 ▸ 키우기 ▸", "🐾 내 펫 ▸ 스타일 ▸", "⚙️ 설정 ▸ 🌨️ 날씨 효과", "🎮 놀기 ▸ 🎁 선물 도감", "🎮 놀기 ▸ 🗑️ 쓰레기 꺼내기 ▸", "🎲 사다리타기 ▸ 새 사다리…", "🎲 사다리타기 ▸ 초대 받기", "🎲 사다리타기 ▸ 지난 결과"]:
+        assert path in HELP, path
+    assert "캐릭터 ▸" not in HELP and "내 친구 코드 보기" not in HELP and "사다리 초대 받기" not in HELP

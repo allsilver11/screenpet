@@ -860,7 +860,7 @@ const speech = setupSpeech({
   isQuiet: () => noteOpen,
 });
 
-// 트레이 "내 친구 코드 보기": 머리 위 띠에 "🔑 ABCD-1234", 누르면 복사 (잠시 뒤 사라진다)
+// 메뉴 "친구 코드 보기": 머리 위 띠에 "🔑 ABCD-1234", 누르면 복사 (잠시 뒤 사라진다)
 const codetagEl = document.getElementById("codetag");
 let codeTimer = null;
 function hideCodeLater(ms) {

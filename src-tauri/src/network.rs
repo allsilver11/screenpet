@@ -4,7 +4,7 @@
 //! - 짝맞추기 창(`pair`): 양쪽에 이모지 6개를 보이고 두 사람이 모두 확인해야 친구가 된다
 //! - 놀러 가기: 내 동물이 연결된 끝으로 나가면 `Visit`, 손님이 떠나면 `Leave`, 끊기면 바로 귀환
 //! - 인터넷 친구 (spec §1b): 중계 서버(기본 `wss://pet.danni.day/ws`)로 같은 망 밖의 친구와도 연결된다.
-//!   친구 코드: `내 친구 코드 보기`(펫 머리 위 띠, 누르면 복사) / `친구 코드 입력…`(작은 창 `code`) →
+//!   친구 코드: `친구 코드 보기`(펫 머리 위 띠, 누르면 복사) / `코드 입력…`(작은 창 `code`) →
 //!   코드 주인과 같은 짝맞추기(이모지 6개 확인)가 시작된다
 
 use std::collections::{HashMap, HashSet};
@@ -80,9 +80,9 @@ pub enum NetInput {
     Unfriend(String),
     /// 트레이 "집에 와"
     ComeHome,
-    /// 트레이 "내 친구 코드 보기"
+    /// 메뉴 "친구 코드 보기"
     ShowCode,
-    /// 트레이 "친구 코드 입력…"
+    /// 메뉴 "코드 입력…"
     EnterCode,
     /// 코드 입력 창에서 확인 (이미 `ABCD-1234` 꼴로 맞춘 코드)
     SubmitCode(String),
@@ -107,11 +107,11 @@ pub enum NetInput {
     SendOn { label: String, friend: String },
     /// 트레이 "<친구> 펫 데리고 오기": 그 친구에게 동물을 보내 달라고 부탁한다
     BringPet(String),
-    /// 트레이 "🎲 사다리타기…": 판이 있으면 그 창, 없으면 설정 화면
+    /// 메뉴 "🎲 사다리타기 ▸ 새 사다리…": 판이 있으면 그 창, 없으면 설정 화면
     LadderOpen,
-    /// 트레이 "🎲 지난 사다리 결과"
+    /// 메뉴 "🎲 사다리타기 ▸ 지난 결과"
     LadderShowLast,
-    /// 트레이 "사다리 초대 받기" (체크)
+    /// 메뉴 "🎲 사다리타기 ▸ 초대 받기" (체크)
     ToggleLadderInvites,
     /// 설정 화면 "초대": 고른 친구 id, 결과 칸 미리보기
     LadderHost { friends: Vec<String>, results: Vec<crate::ladder::SlotRow> },
@@ -1009,7 +1009,7 @@ impl Network {
             }
             // 던져 넘어온 물건은 게임 루프가 objects.rs로 바로 보낸다 (여기 오지 않는다)
             NetEvent::Tossed { .. } => {}
-            // 사다리타기: 판이 끝나 결과가 나오면 설정에 남긴다 (메뉴 "지난 사다리 결과")
+            // 사다리타기: 판이 끝나 결과가 나오면 설정에 남긴다 (메뉴 "지난 결과")
             NetEvent::Ladder { from, msg } => {
                 let last = self.ladder.on_message(app, &ladder_ctx!(self, config), &slots[0], &from, msg);
                 if let Some(last) = last {
@@ -1333,7 +1333,7 @@ impl Network {
         }
     }
 
-    /// "내 친구 코드 보기": 펫이 화면에 보이면 머리 위 띠에 (누르면 복사), 아니면(하우스 안·놀러 감·연결 끊김) 코드 창에
+    /// "친구 코드 보기": 펫이 화면에 보이면 머리 위 띠에 (누르면 복사), 아니면(하우스 안·놀러 감·연결 끊김) 코드 창에
     fn show_code(&self, app: &AppHandle) {
         let state = app.state::<AppState>();
         let pet_shown = !state.housed.load(Ordering::Relaxed)
@@ -1591,7 +1591,7 @@ impl Network {
         // 손님 우클릭 "<친구>에게 보내기" 목록
         *ONLINE_FRIENDS.lock().unwrap() =
             config.friends.iter().filter(|f| self.is_open(&f.id)).map(|f| (f.id.clone(), f.shown_name().to_string())).collect();
-        let relay = self.relay_enabled.then_some(self.relay_connected);
+        let relay = self.relay_enabled;
         let room = self.guests < MAX_GUESTS;
         // 사다리타기: 판이 있으면 언제든 그 창을, 없으면 사다리를 아는 친구가 연결돼 있고 내가 바쁘지 않을 때
         let ladder_friend = self.net.as_ref().is_some_and(|n| {

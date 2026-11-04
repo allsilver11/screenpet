@@ -16,7 +16,7 @@ use screenpet_core::visit::{self, Side};
 use crate::slots::{self, OWN_LABEL};
 use crate::AppState;
 
-/// 이스터에그 항목 (트레이·펫 우클릭 메뉴 맨 아래, 지금은 누를 수 없음). 나중에 링크를 열게 될 수 있어 id를 따로 둔다
+/// 이스터에그 항목 (트레이·펫 우클릭 메뉴 맨 위, 지금은 누를 수 없음). 나중에 링크를 열게 될 수 있어 id를 따로 둔다
 const EASTER_EGG_LABEL: &str = "danni❤️";
 const EASTER_EGG_ID: &str = "easter-egg";
 
@@ -41,11 +41,13 @@ const LETTER_PREFIX: &str = "net:letter:";
 /// "놀러 보내기 ▸" 목록 항목 (친구 하위 메뉴의 항목과 id가 겹치면 안 된다)
 const SEND_LIST_PREFIX: &str = "net:send-list:";
 const COME_HOME_ID: &str = "net:come-home";
+/// "집에 와"가 들어가는 자리: 메뉴 맨 위부터 danni, 구분선, 🐾 내 펫, 🍚 밥 주기, 🏠 하우스 다음
+const COME_HOME_POSITION: usize = 5;
 /// 🎁 선물 도감 창 열기
 const GIFT_BOOK_ID: &str = "gift-book";
 /// 🎮 조작 모드 체크 항목
 const CONTROL_ID: &str = "control";
-/// 캐릭터 ▸ 스타일 체크 항목 (설정에 남는다, 그림만 바뀐다)
+/// 🐾 내 펫 ▸ 스타일 ▸ 체크 항목 (설정에 남는다, 그림만 바뀐다)
 const STYLE_ROUND_ID: &str = "style:round";
 const STYLE_PIXEL_ID: &str = "style:pixel";
 /// 🌨️ 날씨 효과 체크 항목 (게임 루프가 달력과 설정으로 맞춘다 — 철이 아니면 누를 수 없다)
@@ -70,7 +72,7 @@ const LADDER_INVITES_ID: &str = "net:ladder-invites";
 const LADDER_LAST_ID: &str = "net:ladder-last";
 const ENTER_CODE_ID: &str = "net:enter-code";
 
-/// `친구랑 놀기 ▸`에 보일 것 (게임 루프의 네트워크 상태에서 만든다 — 바뀔 때만 다시 그린다)
+/// `👫 친구랑 놀기 ▸`에 보일 것 (게임 루프의 네트워크 상태에서 만든다 — 바뀔 때만 다시 그린다)
 #[derive(Debug, Clone, PartialEq)]
 pub struct FriendsMenu {
     /// 네트워크가 시작됨
@@ -80,23 +82,23 @@ pub struct FriendsMenu {
     /// 발견된 사람 중 친구가 아닌 사람 (id, 이름)
     pub strangers: Vec<(String, String)>,
     pub friends: Vec<FriendItem>,
-    /// 내 동물이 친구 화면에 가 있음 ("집에 와" 활성)
+    /// 내 동물이 친구 화면에 가 있음 ("집에 와"가 메뉴에 있다)
     pub away: bool,
-    /// 인터넷 친구(중계 서버): None = 쓰지 않음, Some(연결됨?)
-    pub relay: Option<bool>,
+    /// 인터넷 친구(중계 서버)를 쓰도록 설정됨 (코드 항목을 누를 수 있다)
+    pub relay: bool,
     /// 손님을 더 받을 자리가 있음 ("펫 데리고 오기" 활성)
     pub room: bool,
     pub ladder: LadderMenu,
 }
 
-/// `친구랑 놀기 ▸`의 사다리타기 줄
+/// `👫 친구랑 놀기 ▸`의 🎲 사다리타기 ▸
 #[derive(Debug, Clone, PartialEq)]
 pub struct LadderMenu {
-    /// "🎲 사다리타기…" 활성 (판이 있거나, 사다리를 아는 친구가 연결돼 있고 내가 집중 중·하우스 안이 아님)
+    /// "새 사다리…" 활성 (판이 있거나, 사다리를 아는 친구가 연결돼 있고 내가 집중 중·하우스 안이 아님)
     pub open: bool,
-    /// "사다리 초대 받기" 체크
+    /// "초대 받기" 체크
     pub invites: bool,
-    /// "🎲 지난 사다리 결과" 보임
+    /// "지난 결과" 활성
     pub last: bool,
 }
 
@@ -140,12 +142,12 @@ pub struct TrayMenu {
     /// 동물 고르기 항목 (항목, 동물 id) — `키우기: <지금 동물> ▸` 하위 메뉴 안
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
     pub pets_menu: Submenu<Wry>,
-    /// 캐릭터 ▸ 스타일: 동글동글 / 픽셀
+    /// 🐾 내 펫 ▸ 스타일 ▸ 동글동글 / 픽셀
     pub style_round: CheckMenuItem<Wry>,
     pub style_pixel: CheckMenuItem<Wry>,
-    /// `친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
+    /// `👫 친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
     pub friends: Submenu<Wry>,
-    /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 누를 수 있다 — 하우스 옆 바깥 메뉴)
+    /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 메뉴에 있다 — 하우스 아래)
     pub come_home: MenuItem<Wry>,
     /// 밥 주기 방법별 하위 메뉴: 손으로 주기 ▸ / 그릇에 주기 ▸ (마지막에 쓴 쪽에 ✓ — 배고플 때 고르기도 그 방법을 따른다)
     pub hand_mode: Submenu<Wry>,
@@ -205,12 +207,27 @@ fn menu_text(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).collect::<String>().replace('&', "&&")
 }
 
-/// `친구랑 놀기 ▸`을 다시 채운다: 내 이름, 친구별 하위 메뉴, 발견된 사람(누르면 친구 신청), 인터넷 친구 (+ 바깥 "집에 와" 켜고 끄기)
+/// `👫 친구랑 놀기 ▸`을 다시 채운다: 내 이름, 코드, 놀러 보내기 ▸, 친구별 하위 메뉴, 발견된 사람(누르면 친구 신청), 🎲 사다리타기 ▸ (+ 바깥 "집에 와" 넣고 빼기)
 pub fn fill_friends(app: &AppHandle, model: &FriendsMenu) {
     let submenu = &app.state::<AppState>().menu.friends;
     if let Err(e) = try_fill_friends(app, submenu, model) {
         eprintln!("failed to update friends menu: {e}");
     }
+    if let Err(e) = sync_come_home(app, model.away) {
+        eprintln!("failed to update the come-home item: {e}");
+    }
+}
+
+/// "집에 와"는 내 동물이 친구 화면에 가 있을 때만 메뉴에 있다 (🏠 하우스 바로 아래)
+fn sync_come_home(app: &AppHandle, away: bool) -> tauri::Result<()> {
+    let menu = &app.state::<AppState>().menu;
+    let shown = menu.menu.get(COME_HOME_ID).is_some();
+    if away && !shown {
+        menu.menu.insert(&menu.come_home, COME_HOME_POSITION)?;
+    } else if !away && shown {
+        menu.menu.remove(&menu.come_home)?;
+    }
+    Ok(())
 }
 
 fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu) -> tauri::Result<()> {
@@ -221,21 +238,16 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     }
     // 친구들에게 보이는 내 이름 (누르면 바꾸기 창)
     submenu.append(&MenuItem::with_id(app, MY_NAME_ID, format!("내 이름: {} ✏️", menu_text(&model.my_name)), true, None::<&str>)?)?;
+    // 인터넷 친구 (중계 서버): 내 코드 보기, 코드 입력 — 연결 상태는 코드 창에 보인다
+    submenu.append(&MenuItem::with_id(app, SHOW_CODE_ID, "친구 코드 보기", model.relay, None::<&str>)?)?;
+    submenu.append(&MenuItem::with_id(app, ENTER_CODE_ID, "코드 입력…", model.relay, None::<&str>)?)?;
     // 놀러 보내기 ▸ 연결된 친구 (펫 우클릭에서도 같은 메뉴)
     let online: Vec<&FriendItem> = model.friends.iter().filter(|f| f.connected).collect();
-    if !online.is_empty() {
-        let send = Submenu::new(app, "놀러 보내기", online.iter().any(|f| f.can_send))?;
-        for f in online {
-            send.append(&MenuItem::with_id(app, format!("{SEND_LIST_PREFIX}{}", f.id), menu_text(&f.name), f.can_send, None::<&str>)?)?;
-        }
-        submenu.append(&send)?;
+    let send = Submenu::new(app, "놀러 보내기", online.iter().any(|f| f.can_send))?;
+    for f in online {
+        send.append(&MenuItem::with_id(app, format!("{SEND_LIST_PREFIX}{}", f.id), menu_text(&f.name), f.can_send, None::<&str>)?)?;
     }
-    // 사다리타기 (사다리를 모르는 예전 판 친구는 설정 화면에서 흐리게 보인다)
-    submenu.append(&MenuItem::with_id(app, LADDER_ID, "🎲 사다리타기…", model.ladder.open, None::<&str>)?)?;
-    if model.ladder.last {
-        submenu.append(&MenuItem::with_id(app, LADDER_LAST_ID, "🎲 지난 사다리 결과", true, None::<&str>)?)?;
-    }
-    submenu.append(&CheckMenuItem::with_id(app, LADDER_INVITES_ID, "사다리 초대 받기", true, model.ladder.invites, None::<&str>)?)?;
+    submenu.append(&send)?;
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
     for f in &model.friends {
         let dot = if f.connected { "●" } else { "○" };
@@ -251,11 +263,7 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
         let sep = PredefinedMenuItem::separator(app)?;
         let sep2 = PredefinedMenuItem::separator(app)?;
-        let sub = Submenu::with_items(app, title, true, &[&send, &letter, &bring, &sep, &left, &right, &up, &down, &sep2, &nickname, &unfriend])?;
-        submenu.append(&sub)?;
-    }
-    if !model.friends.is_empty() && !model.strangers.is_empty() {
-        submenu.append(&PredefinedMenuItem::separator(app)?)?;
+        submenu.append(&Submenu::with_items(app, title, true, &[&send, &letter, &bring, &sep, &left, &right, &up, &down, &sep2, &nickname, &unfriend])?)?;
     }
     for (id, name) in &model.strangers {
         submenu.append(&MenuItem::with_id(app, format!("{INVITE_PREFIX}{id}"), format!("{} — 친구 신청", menu_text(name)), true, None::<&str>)?)?;
@@ -263,18 +271,12 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     if model.friends.is_empty() && model.strangers.is_empty() {
         submenu.append(&MenuItem::new(app, "같은 네트워크에 ScreenPet이 없어요", false, None::<&str>)?)?;
     }
-    // 인터넷 친구 (중계 서버): 상태 한 줄, 내 코드 보기, 코드 입력
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
-    let status = match model.relay {
-        Some(true) => "인터넷 연결: 연결됨",
-        Some(false) => "인터넷 연결: 끊김",
-        None => "인터넷 연결: 꺼짐",
-    };
-    submenu.append(&MenuItem::new(app, status, false, None::<&str>)?)?;
-    let relay_on = model.relay.is_some();
-    submenu.append(&MenuItem::with_id(app, SHOW_CODE_ID, "내 친구 코드 보기", relay_on, None::<&str>)?)?;
-    submenu.append(&MenuItem::with_id(app, ENTER_CODE_ID, "친구 코드 입력…", relay_on, None::<&str>)?)?;
-    app.state::<AppState>().menu.come_home.set_enabled(model.away)?;
+    // 🎲 사다리타기 ▸ (사다리를 모르는 예전 판 친구는 설정 화면에서 흐리게 보인다)
+    let new_game = MenuItem::with_id(app, LADDER_ID, "새 사다리…", model.ladder.open, None::<&str>)?;
+    let last = MenuItem::with_id(app, LADDER_LAST_ID, "지난 결과", model.ladder.last, None::<&str>)?;
+    let invites = CheckMenuItem::with_id(app, LADDER_INVITES_ID, "초대 받기", true, model.ladder.invites, None::<&str>)?;
+    submenu.append(&Submenu::with_items(app, "🎲 사다리타기", true, &[&new_game, &last, &invites])?)?;
     Ok(())
 }
 
@@ -307,12 +309,12 @@ fn set_pets_label(sub: &Submenu<Wry>, pets: &[(CheckMenuItem<Wry>, String)], cur
     let _ = sub.set_text(pets_label(name.as_deref()));
 }
 
-/// 하우스 항목 글자: 밖에 있으면 "하우스", 하우스 안(또는 가는 중)이면 "하우스에서 나오기"
+/// 하우스 항목 글자: 밖에 있으면 "🏠 하우스", 하우스 안(또는 가는 중)이면 "🏠 하우스에서 나오기"
 pub fn house_label(housed: bool) -> &'static str {
     if housed {
-        "하우스에서 나오기"
+        "🏠 하우스에서 나오기"
     } else {
-        "하우스"
+        "🏠 하우스"
     }
 }
 
@@ -417,7 +419,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let hand_mode = by_mode.pop().expect("hand submenu");
     let fav_auto = favs.pop().expect("auto favorite");
     let fav_hand = favs.pop().expect("hand favorite");
-    let feed = Submenu::with_items(app, "밥 주기", true, &[&hand_mode, &auto_mode, &PredefinedMenuItem::separator(app)?, &water])?;
+    let feed = Submenu::with_items(app, "🍚 밥 주기", true, &[&hand_mode, &auto_mode, &PredefinedMenuItem::separator(app)?, &water])?;
     let growth = MenuItem::new(app, growth_label(care.stage, care.locked), false, None::<&str>)?;
     let lock = CheckMenuItem::with_id(app, "lock", "성장 멈추기", true, care.locked, None::<&str>)?;
     let reset_item = MenuItem::with_id(app, "reset", "정말 처음부터 키울까요? (새끼로 돌아가요)", true, None::<&str>)?;
@@ -434,43 +436,36 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let focus_long = CheckMenuItem::with_id(app, FOCUS_LONG_ID, "50분 집중 · 10분 쉬기", true, false, None::<&str>)?;
     let focus = Submenu::with_items(app, focus_label(false), true, &[&focus_toggle, &PredefinedMenuItem::separator(app)?, &focus_short, &focus_long])?;
     let gift_book = MenuItem::with_id(app, GIFT_BOOK_ID, "🎁 선물 도감", true, None::<&str>)?;
-    let come_home = MenuItem::with_id(app, COME_HOME_ID, "집에 와", false, None::<&str>)?;
+    let come_home = MenuItem::with_id(app, COME_HOME_ID, "집에 와", true, None::<&str>)?;
     // 게임 루프가 네트워크를 시작한 뒤 채운다
-    let friends = Submenu::with_items(app, "친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
+    let friends = Submenu::with_items(app, "👫 친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
-    let help = MenuItem::with_id(app, "help", "도움말 ❓", true, None::<&str>)?;
+    let help = MenuItem::with_id(app, "help", "도움말", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
-
-    let menu = Menu::new(app)?;
-    // 트레이와 펫 우클릭은 같은 메뉴 — 둘 다 맨 위에 보인다
-    menu.append(&easter_egg)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    // 캐릭터 ▸ 스타일을 먼저 고르고 그 아래에서 동물·물건을 고른다
-    let style_title = MenuItem::new(app, "스타일", false, None::<&str>)?;
     let style_round = CheckMenuItem::with_id(app, STYLE_ROUND_ID, "동글동글", true, style == PetStyle::Round, None::<&str>)?;
     let style_pixel = CheckMenuItem::with_id(app, STYLE_PIXEL_ID, "픽셀", true, style == PetStyle::Pixel, None::<&str>)?;
+    let style_menu = Submenu::with_items(app, "스타일", true, &[&style_round, &style_pixel])?;
+    let my_pet = Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &pets_menu, &style_menu, &lock, &reset])?;
     let objects_menu = crate::objects::build_menu(app)?;
-    let character = Submenu::with_items(app, "캐릭터", true, &[&style_title, &style_round, &style_pixel, &PredefinedMenuItem::separator(app)?, &pets_menu, &objects_menu])?;
-    menu.append(&character)?;
+    let play = Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &gift_book])?;
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play])?;
+
+    // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어든다 (COME_HOME_POSITION)
+    let menu = Menu::new(app)?;
+    menu.append(&easter_egg)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&growth)?;
+    menu.append(&my_pet)?;
     menu.append(&feed)?;
-    menu.append(&lock)?;
-    menu.append(&reset)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&house)?;
-    menu.append(&come_home)?;
-    menu.append(&control)?;
-    menu.append(&cursor_play)?;
-    menu.append(&poop)?;
-    menu.append(&weather)?;
-    menu.append(&broom)?;
-    menu.append(&focus)?;
-    menu.append(&gift_book)?;
-    menu.append(&friends)?;
-    menu.append(&toggle)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&friends)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&play)?;
+    menu.append(&focus)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&settings)?;
+    menu.append(&toggle)?;
     menu.append(&help)?;
     menu.append(&quit)?;
 

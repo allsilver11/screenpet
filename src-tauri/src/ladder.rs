@@ -212,7 +212,7 @@ impl Ladders {
         self.game.as_ref().is_some_and(|g| !phase(g).is_over())
     }
 
-    /// 트레이 "🎲 사다리타기…": 판이 있으면 그 창을, 없으면 설정 화면을
+    /// 메뉴 "🎲 사다리타기 ▸ 새 사다리…": 판이 있으면 그 창을, 없으면 설정 화면을
     pub fn open(&mut self, app: &AppHandle, ctx: &Ctx) {
         if !self.busy() {
             self.game = None;
@@ -224,7 +224,7 @@ impl Ladders {
         self.refresh(app, ctx, true);
     }
 
-    /// 트레이 "🎲 지난 사다리 결과"
+    /// 메뉴 "🎲 사다리타기 ▸ 지난 결과"
     pub fn show_last(&mut self, app: &AppHandle, ctx: &Ctx) {
         if ctx.config.last_ladder.is_none() || self.busy() {
             return;
