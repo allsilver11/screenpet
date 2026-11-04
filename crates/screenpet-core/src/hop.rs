@@ -103,6 +103,7 @@ impl Gait {
     }
 
     /// 평균 속도 speed일 때 한 번 폴짝 거리
+    #[cfg(test)]
     pub fn hop_length(&self, speed: f64) -> f64 {
         speed * self.cycle()
     }
@@ -188,6 +189,7 @@ impl Arc {
     }
 
     /// 꼭대기 발 높이 (출발 높이 y0 기준)
+    #[cfg(test)]
     pub fn apex_y(&self, y0: f64) -> f64 {
         y0 - self.vy * self.vy / (2.0 * GRAVITY)
     }

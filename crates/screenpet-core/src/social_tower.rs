@@ -97,7 +97,8 @@ impl Social {
         n
     }
 
-    /// 지금 탑 높이 (테스트·디버그용)
+    /// 지금 탑 높이 (테스트용)
+    #[cfg(test)]
     pub fn tower_height(&self, key: u64) -> usize {
         self.levels(self.top_of(key))
     }

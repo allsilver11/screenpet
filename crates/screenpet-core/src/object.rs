@@ -320,6 +320,7 @@ impl Object {
     }
 
     /// 땅에서 구르는 중 (눕기 전)
+    #[cfg(test)]
     pub fn is_rolling(&self) -> bool {
         matches!(self.phase, Phase::Ground { settle: None, .. })
     }
@@ -921,6 +922,7 @@ impl Roster {
         self.foreign.len()
     }
 
+    #[cfg(test)]
     pub fn poop_count(&self) -> usize {
         self.poops.len()
     }

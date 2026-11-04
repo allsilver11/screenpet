@@ -28,6 +28,7 @@ impl Pet {
     }
 
     /// 지금 쿵쾅에 흔들리는 중
+    #[cfg(test)]
     pub fn wobbling(&self) -> bool {
         self.wobble_timer > 0.0
     }

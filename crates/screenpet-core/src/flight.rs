@@ -97,8 +97,6 @@ pub fn pick_target(rng: &mut fastrand::Rng, b: &Rect) -> (f64, f64) {
 /// 날아가는 길의 모양
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Wave {
-    /// 진행 방향에 수직으로 출렁이는 사인 물결 (amp는 부호로 처음 출렁일 쪽을 정한다)
-    Sine { amp: f64, len: f64 },
     /// 위로 솟는 활 모양 (집으로 갈 때)
     Arc { height: f64 },
 }
@@ -115,10 +113,6 @@ pub fn path_point(from: (f64, f64), to: (f64, f64), s: f64, wave: Wave) -> ((f64
     let envelope = (PI * u).sin();
     let (bx, by) = (from.0 + dx * u, from.1 + dy * u);
     match wave {
-        Wave::Sine { amp, len: wl } => {
-            let off = amp * (TAU * s / wl).sin() * envelope;
-            ((bx - dy / len * off, by + dx / len * off), false)
-        }
         Wave::Arc { height } => ((bx, by - height * envelope), false),
     }
 }
@@ -272,6 +266,7 @@ impl Path {
     }
 
     /// 원·8자·살랑을 도는 중인지
+    #[cfg(test)]
     pub fn in_figure(&self) -> bool {
         let (start, end, _) = self.boost;
         self.seg >= start && self.seg < end
@@ -684,7 +679,7 @@ mod tests {
 
     #[test]
     fn path_starts_and_ends_exactly_and_waves_in_between() {
-        let wave = Wave::Sine { amp: 20.0, len: 384.0 };
+        let wave = Wave::Arc { height: 20.0 };
         let (from, to) = ((100.0, 500.0), (900.0, 300.0));
         assert_eq!(path_point(from, to, 0.0, wave), (from, false));
         let len = (800.0f64).hypot(200.0);
