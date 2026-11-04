@@ -1027,21 +1027,21 @@ mod tests {
 
     #[test]
     fn a_player_rejects_reveals_that_do_not_open_the_commitments() {
-        let mut g = Game::invite(1);
-        let lock = locked_lock(&mut g);
-        let reveal = g.guests[0].1.on_message(lock, g.now).expect("reveal");
-        let LadderMsg::LadderReveal { nonce, game_id } = reveal else { panic!("reveal") };
-        // 방장이 자기 것 대신 다른 값을 보낸다
-        for nonces in [vec![nonce.clone(), to_hex(&random32())], vec![nonce.clone()], vec![to_hex(&random32()), to_hex(&random32())]] {
-            let mut g2 = Game::invite(1);
-            let lock = locked_lock(&mut g2);
-            let LadderMsg::LadderReveal { nonce: n2, .. } = g2.guests[0].1.on_message(lock, g2.now).unwrap() else { panic!() };
-            let nonces: Vec<String> = nonces.iter().map(|x| if *x == nonce { n2.clone() } else { x.clone() }).collect();
-            let gid = g2.guests[0].1.game_id();
-            let reply = g2.guests[0].1.on_message(LadderMsg::LadderReveals { game_id: gid, nonces }, g2.now);
-            assert!(matches!(reply, Some(LadderMsg::LadderCancel { .. })));
+        // 공개 목록은 자리 순서대로 약속을 열어야 한다: 한 칸을 바꿈 · 하나 빠뜨림 · 전부 바꿈
+        type Tamper = fn(Vec<String>) -> Vec<String>;
+        let tamper: [Tamper; 3] = [
+            |n| vec![n[0].clone(), to_hex(&random32())],
+            |n| vec![n[0].clone()],
+            |_| vec![to_hex(&random32()), to_hex(&random32())],
+        ];
+        for (i, t) in tamper.iter().enumerate() {
+            let mut g = Game::invite(1);
+            let lock = locked_lock(&mut g);
+            let LadderMsg::LadderReveal { nonce, game_id } = g.guests[0].1.on_message(lock, g.now).expect("reveal") else { panic!("reveal") };
+            let reply = g.guests[0].1.on_message(LadderMsg::LadderReveals { game_id, nonces: t(vec![nonce]) }, g.now);
+            assert!(matches!(reply, Some(LadderMsg::LadderCancel { .. })), "tamper {i} accepted");
+            assert!(matches!(g.guests[0].1.phase(), Phase::Cancelled { reason: CancelReason::Invalid, .. }), "tamper {i}: {:?}", g.guests[0].1.phase());
         }
-        let _ = game_id;
     }
 
     #[test]
@@ -1239,15 +1239,35 @@ mod tests {
 
     #[test]
     fn install_ids_never_reach_other_players() {
-        let mut g = Game::invite(3);
-        g.join_all();
-        let n = g.host.joined() + 1;
-        let r: Vec<LockedResult> = (0..n).map(|i| LockedResult { text: format!("칸{i}"), mood: "none".into() }).collect();
-        let out = g.host.start(&r, g.now).unwrap();
-        for (_, m) in &out {
+        // 초대부터 끝까지, 방장과 손님이 주고받는 모든 메시지에서
+        let friends = ids(3);
+        let now = Instant::now();
+        let (mut host, invites) = HostGame::new(seat("방장"), &results(&[("a", "good")]), &friends, now).unwrap();
+        let mut wire = invites.clone();
+        let mut guests: Vec<(String, GuestGame)> =
+            invites.into_iter().map(|(to, m)| (to.clone(), GuestGame::on_invite(&to, m, now).unwrap())).collect();
+        let mut from_guests = Vec::new();
+        for (i, (id, g)) in guests.iter_mut().enumerate() {
+            from_guests.push((id.clone(), g.join(seat(&format!("손님{i}")), now).unwrap()));
+        }
+        for (id, m) in std::mem::take(&mut from_guests) {
+            wire.push((id.clone(), m.clone()));
+            wire.extend(host.on_message(&id, m, now));
+        }
+        let r: Vec<LockedResult> = (0..4).map(|i| LockedResult { text: format!("칸{i}"), mood: "none".into() }).collect();
+        let locks = host.start(&r, now).unwrap();
+        wire.extend(locks.clone());
+        for (to, m) in locks {
+            let (id, g) = guests.iter_mut().find(|(id, _)| *id == to).unwrap();
+            let reply = g.on_message(m, now).expect("reveal");
+            wire.push((id.clone(), reply.clone()));
+            wire.extend(host.on_message(&to, reply, now));
+        }
+        assert!(matches!(host.phase(), Phase::Done(_)), "the whole game was covered: {:?}", host.phase());
+        for (_, m) in &wire {
             let json = String::from_utf8(crate::protocol::Message::Ladder(m.clone()).to_json()).unwrap();
-            for id in ids(3) {
-                assert!(!json.contains(&id), "{json}");
+            for id in &friends {
+                assert!(!json.contains(id.as_str()), "{json}");
             }
         }
     }

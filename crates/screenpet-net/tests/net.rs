@@ -564,37 +564,50 @@ fn confirmation_before_sas_is_a_protocol_error() {
 #[test]
 fn stranger_invites_are_capped() {
     let (net, rx, port) = start_sniffed(key(), vec![]);
-    let mut admitted = 0;
     let mut peers = Vec::new();
-    for i in 0..6 {
-        let Ok(s) = TcpStream::connect(local(port)) else { continue };
-        let Ok(mut p) = handshake(s, &key(), true) else { continue }; // over the inbound cap
-        if p.send(hello(&format!("strange{i}"), "S")).is_err() || p.recv_msg().is_err() {
-            continue;
-        }
-        let n = random32();
-        p.send(json!({"type": "invite", "pet": "cat", "commit": hex(&blake2s(&[&n]))})).unwrap();
-        match p.recv_msg() {
-            Ok(v) if v["type"] == "pair_random" => {
+    let mut admitted = Vec::new();
+    // 주소마다 3번씩: 한 주소에서 2개까지, 전체 4개까지 (127.0.0.6은 전체 상한에 걸린다)
+    for src in [1u8, 5, 6] {
+        let mut from_here = 0;
+        for i in 0..3 {
+            let s = connect_from([127, 0, 0, src], port).expect("connection");
+            let mut p = handshake(s, &key(), true).expect("under every connection limit");
+            p.send(hello(&format!("strange{src}x{i}"), "S")).unwrap();
+            assert_eq!(p.recv_msg().unwrap()["type"], "hello");
+            let n = random32();
+            p.send(json!({"type": "invite", "pet": "cat", "commit": hex(&blake2s(&[&n]))})).unwrap();
+            let v = p.recv_msg().unwrap();
+            if v["type"] == "pair_random" {
                 p.send(json!({"type": "pair_reveal", "nonce": hex(&n)})).unwrap();
-                admitted += 1;
+                from_here += 1;
+                // 다음 시도 전에 표시까지 끝낸다 (표시된 짝맞추기만 자리를 지킨다)
+                wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Invited { .. })).expect("Invited");
+            } else {
+                assert_eq!(v, json!({"type": "invite_reply", "accepted": false}));
             }
-            Ok(v) => assert_eq!(v, json!({"type": "invite_reply", "accepted": false})),
-            Err(_) => {}
+            peers.push(p);
         }
-        peers.push(p);
+        admitted.push(from_here);
     }
-    let mut invited = 0;
-    while wait_for(&rx, 1.0, |e| matches!(e, NetEvent::Invited { .. })).is_some() {
-        invited += 1;
-    }
-    assert!(admitted >= 1);
-    assert_eq!(invited, admitted);
-    assert!(invited <= 3, "per-address pairing limit (got {invited})");
+    assert_eq!(admitted, vec![2, 2, 0], "per address, then overall");
+    assert_eq!(wait_for(&rx, 0.5, |e| matches!(e, NetEvent::Invited { .. })), None, "nothing else reached the user");
     net.shutdown();
 }
 
 // ---- friends ------------------------------------------------------------------
+
+#[test]
+fn the_larger_id_dials_after_a_grace_when_the_smaller_cannot_hear_it() {
+    // A(작은 id)는 B의 알림을 못 듣는다: B가 유예 뒤에 대신 건다
+    let (ka, kb) = (key(), key());
+    let pb = free_udp_port();
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, 0, pb, vec![friend("bbbb", &kb)])).unwrap();
+    let (b, brx) = Net::start(cfg("bbbb", "Bob", kb, pb, free_udp_port(), vec![friend("aaaa", &ka)])).unwrap();
+    assert!(wait_for(&brx, 5.0, is_connected).is_some(), "B dialed");
+    assert!(wait_for(&arx, 5.0, is_connected).is_some());
+    a.shutdown();
+    b.shutdown();
+}
 
 #[test]
 fn friends_auto_reconnect_after_restart() {
@@ -604,7 +617,7 @@ fn friends_auto_reconnect_after_restart() {
     let (a2, arx2) = Net::start(cfg("aaaa", "Ann", p.ka, p.pa, p.pb, vec![friend("bbbb", &p.kb)])).unwrap();
     assert_eq!(wait_for(&arx2, 5.0, is_connected), Some(NetEvent::Connected { id: "bbbb".into(), name: "Bob".into() }));
     assert!(wait_for(&p.brx, 5.0, is_connected).is_some());
-    // Restart the larger id too (it never dials; the smaller one must).
+    // Restart the larger id too (the smaller one dials it at once).
     p.b.shutdown();
     wait_for(&arx2, 6.0, is_disconnected).unwrap();
     let (b2, brx2) = Net::start(cfg("bbbb", "Bob", p.kb, p.pb, p.pa, vec![friend("aaaa", &p.ka)])).unwrap();
@@ -1215,14 +1228,21 @@ fn mitm_in_the_middle_of_pairing_gets_different_sas() {
     let sent = wait_for(&arx, 5.0, |e| matches!(e, NetEvent::InviteSent { .. })).expect("A shows a SAS");
     let invited = wait_for(&brx, 5.0, |e| matches!(e, NetEvent::Invited { .. })).expect("B shows a SAS");
     assert_ne!(sas_of(&sent), sas_of(&invited), "users would notice the mismatch");
+    // 사용자가 다르다고 거절하면 아무도 공격자를 고정하지 않는다
+    a.answer_invite(pairing_of(&sent), false);
+    b.answer_invite(pairing_of(&invited), false);
+    assert_eq!(wait_for(&arx, 0.5, is_connected), None);
+    assert_eq!(wait_for(&brx, 0.5, is_connected), None);
+    assert!(a.friends().is_empty() && b.friends().is_empty(), "the attacker's keys are not pinned");
     mitm.join().unwrap().unwrap();
     stop.store(true, Ordering::SeqCst);
     a.shutdown();
     b.shutdown();
 }
 
+/// The relay version of this is `relay_attacker_cannot_inject_or_replay` in tests/relay.rs.
 #[test]
-fn relay_attacker_cannot_inject_or_replay() {
+fn lan_proxy_attacker_cannot_inject_or_replay() {
     let stop = Arc::new(AtomicBool::new(false));
     let (ka, kb) = (key(), key());
     let sniffer = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -1272,6 +1292,209 @@ fn relay_attacker_cannot_inject_or_replay() {
     stop.store(true, Ordering::SeqCst);
     a.shutdown();
     b.shutdown();
+}
+
+// ---- the inviter's side of commit -> random -> reveal ----
+
+/// Net "aaaa" invites a raw "bbbb" (reached by a spoofed announcement); returns
+/// it all up to the moment the invite{commit} has arrived.
+fn invited_by_a_net() -> (Net, Receiver<NetEvent>, Peer, Vec<u8>, Arc<AtomicBool>) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let (net, rx) = Net::start(cfg("aaaa", "Ann", key(), 0, free_udp_port(), vec![])).unwrap();
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    spoof_announcements("bbbb", l.local_addr().unwrap().port(), net.discovery_port(), Duration::from_millis(100), stop.clone());
+    wait_for(&rx, 5.0, |e| matches!(e, NetEvent::PeerSeen { .. })).expect("heard the announcement");
+    net.invite("bbbb", "cat");
+    let (s, _) = l.accept().unwrap();
+    let mut p = handshake(s, &key(), false).unwrap();
+    assert_eq!(p.recv_msg().unwrap()["type"], "hello");
+    p.send(hello("bbbb", "Bob")).unwrap();
+    let invite = p.recv_msg().unwrap();
+    assert_eq!(invite["type"], "invite", "{invite}");
+    let commit = unhex(invite["commit"].as_str().unwrap());
+    (net, rx, p, commit, stop)
+}
+
+fn finish_case(net: Net, stop: Arc<AtomicBool>) {
+    stop.store(true, Ordering::SeqCst);
+    net.shutdown();
+}
+
+#[test]
+fn inviter_commits_first_and_reveals_only_after_the_random() {
+    let (net, rx, mut p, commit, stop) = invited_by_a_net();
+    // random을 받기 전에는 nonce가 나오지 않는다
+    p.s.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let t = Instant::now();
+    while t.elapsed() < Duration::from_millis(400) {
+        match p.recv() {
+            Ok(v) => assert_eq!(v["type"], "ping", "nothing but pings before the random"),
+            Err(e) => assert!(matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut), "{e}"),
+        }
+    }
+    assert_eq!(wait_for(&rx, 0.1, |e| matches!(e, NetEvent::InviteSent { .. })), None, "no SAS yet");
+    p.s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let r_r = random32();
+    p.send(json!({"type": "pair_random", "random": hex(&r_r)})).unwrap();
+    let reveal = p.recv_msg().unwrap();
+    assert_eq!(reveal["type"], "pair_reveal", "{reveal}");
+    let nonce = unhex(reveal["nonce"].as_str().unwrap());
+    assert_eq!(blake2s(&[&nonce]).to_vec(), commit, "the reveal opens the commitment");
+    let sent = wait_for(&rx, 2.0, |e| matches!(e, NetEvent::InviteSent { .. })).expect("InviteSent");
+    assert_eq!(sas_of(&sent), expected_sas(&p.hash, &nonce, &r_r));
+    finish_case(net, stop);
+}
+
+#[test]
+fn inviter_drops_any_step_out_of_order() {
+    let out_of_order = [
+        json!({"type": "pair_reveal", "nonce": hex(&random32())}),                  // reveal is its own to send
+        json!({"type": "invite_reply", "accepted": true}),                          // confirmation before any SAS
+        json!({"type": "invite", "pet": "cat", "commit": hex(&random32())}),        // invites only on links the inviter dialed
+        json!({"type": "pair_random", "random": "zz"}),                             // not a random
+    ];
+    for bad in out_of_order {
+        let (net, rx, mut p, _, stop) = invited_by_a_net();
+        p.send(bad.clone()).unwrap();
+        assert!(closed_by_peer(&mut p.s), "{bad}");
+        assert_eq!(wait_for(&rx, 0.2, |e| matches!(e, NetEvent::InviteSent { .. } | NetEvent::Connected { .. })), None, "{bad}");
+        assert!(net.friends().is_empty(), "{bad}");
+        finish_case(net, stop);
+    }
+}
+
+#[test]
+fn inviter_takes_the_random_only_once() {
+    let (net, rx, mut p, _, stop) = invited_by_a_net();
+    let first = random32();
+    p.send(json!({"type": "pair_random", "random": hex(&first)})).unwrap();
+    wait_for(&rx, 2.0, |e| matches!(e, NetEvent::InviteSent { .. })).expect("InviteSent");
+    assert_eq!(p.recv_msg().unwrap()["type"], "pair_reveal");
+    // 공개를 본 뒤 random을 바꾸려 하면 (SAS를 고르려는 시도) 끊는다
+    p.send(json!({"type": "pair_random", "random": hex(&random32())})).unwrap();
+    assert!(closed_by_peer(&mut p.s));
+    assert_eq!(wait_for(&rx, 0.2, |e| matches!(e, NetEvent::InviteSent { .. })), None, "only ever one SAS");
+    assert!(net.friends().is_empty());
+    finish_case(net, stop);
+}
+
+// ---- frames at the edge, slow senders, handshake floods ----
+
+#[test]
+fn the_largest_message_passes_and_the_largest_frame_of_garbage_only_ends_its_link() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    // 암호화해서 정확히 65535바이트가 되는 메시지
+    let shell = json!({"type": "ping", "ask": ""}).to_string().len();
+    let msg = json!({"type": "ping", "ask": "x".repeat(65535 - 16 - shell)});
+    assert_eq!(msg.to_string().len(), 65535 - 16);
+    p.send(msg).unwrap();
+    let Some(NetEvent::Asked { ask, .. }) = wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Asked { .. })) else { panic!("asked") };
+    assert_eq!(ask.chars().count(), 64, "clamped");
+    // 같은 크기의 쓰레기: 그 링크만 끝난다
+    write_frame(&mut p.s, &vec![0xAB; 65535]).unwrap();
+    assert!(closed_by_peer(&mut p.s));
+    let mut again = raw_friend_connect(port, &kz, "zzzz");
+    again.send(json!({"type": "leave", "visit_id": 5})).unwrap();
+    assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Received { .. })).is_some(), "the friend still gets in");
+    net.shutdown();
+}
+
+#[test]
+fn a_message_too_big_for_a_frame_is_dropped_and_the_link_stays() {
+    let p = connected_pair();
+    let Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, .. } = sample_visit() else { unreachable!() };
+    let huge = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via: None, homesick_in: None, fling: None, note: Some("x".repeat(70_000)), gift: None, style: None, boost: None };
+    p.a.send("bbbb", huge);
+    p.a.send("bbbb", sample_visit());
+    assert_eq!(
+        wait_for(&p.brx, 3.0, |e| matches!(e, NetEvent::Received { .. } | NetEvent::Disconnected { .. })),
+        Some(NetEvent::Received { from: "aaaa".into(), msg: sample_visit() }),
+        "only the one that fits arrives, on the same link"
+    );
+    p.a.shutdown();
+    p.b.shutdown();
+}
+
+/// Writes `bytes` one per `every` until the peer closes; how long that took.
+fn dribble(s: &mut TcpStream, bytes: &[u8], every: Duration) -> Option<Duration> {
+    let t = Instant::now();
+    s.set_read_timeout(Some(every)).unwrap();
+    for b in bytes {
+        if s.write_all(&[*b]).is_err() {
+            return Some(t.elapsed());
+        }
+        match s.read(&mut [0u8; 1024]) {
+            Ok(0) => return Some(t.elapsed()),
+            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => return Some(t.elapsed()),
+            _ => {}
+        }
+    }
+    None
+}
+
+#[test]
+fn a_slow_sender_cannot_hold_a_handshake_past_the_deadline() {
+    let (net, _rx, port) = start_sniffed(key(), vec![]);
+    let mut s = TcpStream::connect(local(port)).unwrap();
+    // 끝나지 않는 큰 프레임을 한 바이트씩: 바이트가 와도 마감은 늘어나지 않는다
+    let mut slow = vec![0xFF, 0xFF];
+    slow.extend(std::iter::repeat_n(0u8, 400));
+    let at = dribble(&mut s, &slow, Duration::from_millis(25)).expect("closed");
+    assert!(at <= fast().conn_timeout + Duration::from_secs(1), "held for {at:?}");
+    net.shutdown();
+}
+
+#[test]
+fn a_friend_dribbling_a_frame_counts_as_silent() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    let mut slow = vec![0xFF, 0xFF];
+    slow.extend(std::iter::repeat_n(0u8, 400));
+    let at = dribble(&mut p.s, &slow, Duration::from_millis(25)).expect("closed");
+    assert!(at <= fast().conn_timeout + Duration::from_secs(1), "held for {at:?}");
+    net.shutdown();
+}
+
+#[test]
+fn a_handshake_flood_does_not_keep_a_friend_out() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let stop = Arc::new(AtomicBool::new(false));
+    // 여러 주소에서 Noise 첫 메시지까지 보내고 그대로 두는 연결을 계속 연다
+    let flood = {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            let mut opened = 0u32;
+            let mut held = std::collections::VecDeque::new();
+            let k = key();
+            // 같은 첫 메시지를 되풀이한다: 공격자는 거의 공짜, 받는 쪽은 매번 키를 계산한다
+            let mut hs = snow::Builder::new("Noise_XX_25519_ChaChaPoly_BLAKE2s".parse().unwrap()).local_private_key(&k).unwrap().prologue(b"screenpet-net/1").unwrap().build_initiator().unwrap();
+            let mut buf = [0u8; 128];
+            let n = hs.write_message(&[], &mut buf).unwrap();
+            while !stop.load(Ordering::SeqCst) {
+                let Some(mut s) = connect_from([127, 0, 0, 20 + (opened % 10) as u8], port) else { continue };
+                let _ = write_frame(&mut s, &buf[..n]);
+                held.push_back(s);
+                opened += 1;
+                if held.len() > 200 {
+                    held.pop_front();
+                }
+            }
+            opened
+        })
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let _friend = raw_friend_connect(port, &kz, "zzzz");
+    assert!(wait_for(&rx, 3.0, is_connected).is_some(), "the friend got in during the flood");
+    stop.store(true, Ordering::SeqCst);
+    let opened = flood.join().unwrap();
+    assert!(opened > 50, "there was no real flood: {opened} connections");
+    net.shutdown();
 }
 
 /// A fake peer: accepts TCP connections and answers with garbage / silence.
@@ -1473,6 +1696,7 @@ fn friends_reconnect_despite_unverified_connection_flood() {
         std::thread::spawn(move || {
             let mut held = std::collections::VecDeque::new();
             let mut n = 0u32;
+            let mut opened = 0u32;
             while !stop.load(Ordering::SeqCst) {
                 let targets: Vec<u16> =
                     ports.lock().unwrap().values().chain(ports_b.lock().unwrap().values()).copied().collect();
@@ -1481,6 +1705,7 @@ fn friends_reconnect_despite_unverified_connection_flood() {
                     n += 1;
                     if let Some(s) = connect_from([127, 0, 0, 2 + (n % 8) as u8], p) {
                         held.push_back(s);
+                        opened += 1;
                     }
                 }
                 // Hold each connection ~2 s (longer than the pre-auth deadline).
@@ -1489,6 +1714,7 @@ fn friends_reconnect_despite_unverified_connection_flood() {
                 }
                 std::thread::sleep(Duration::from_millis(7));
             }
+            opened
         })
     };
     std::thread::sleep(Duration::from_millis(500));
@@ -1504,7 +1730,8 @@ fn friends_reconnect_despite_unverified_connection_flood() {
     );
     assert!(wait_for(&brx, 5.0, is_connected).is_some());
     stop.store(true, Ordering::SeqCst);
-    attacker.join().unwrap();
+    let opened = attacker.join().unwrap();
+    assert!(opened > 100, "there was no real flood: {opened} connections");
     a2.shutdown();
     b.shutdown();
 }
@@ -1522,7 +1749,7 @@ fn friend_announcements_processed_under_spoofed_source_flood() {
         // Many distinct loopback source addresses fill the rate table; one
         // more floods from 127.0.0.1 (B's address) past its per-IP limit.
         let sources: Vec<UdpSocket> = (0..300u32)
-            .filter_map(|i| UdpSocket::bind(SocketAddr::from(([127, 0, 1 + (i / 250) as u8, 1 + (i % 250) as u8], 0))).ok())
+            .map(|i| UdpSocket::bind(SocketAddr::from(([127, 0, 1 + (i / 250) as u8, 1 + (i % 250) as u8], 0))).expect("a loopback source"))
             .collect();
         let local_flood = UdpSocket::bind("127.0.0.1:0").unwrap();
         std::thread::spawn(move || {
