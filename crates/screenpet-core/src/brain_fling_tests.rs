@@ -1,20 +1,11 @@
 //! 던져서 친구 화면으로 넘어가기 (듀얼 모니터처럼, brain_fling.rs). brain.rs의 자식 모듈.
 
-use super::tests::{cfg, place, world};
+use super::tests::{cfg, place, thrown_at, world};
 use super::*;
 use crate::geom::Rect;
 use crate::visit::Fling;
 use crate::test_util::{DT, bee, idle};
 
-
-/// (x, y)에서 vx·vy(물리 px/s)로 던져진 동물
-fn thrown_at(cfg: PetConfig, x: f64, y: f64, vx: f64, vy: f64) -> Pet {
-    let mut p = Pet::new(cfg, x, y, 1);
-    p.state = State::Air { anim: Anim::Fall };
-    p.body = Body { x, y, vx, vy };
-    p.thrown = true;
-    p
-}
 
 /// 땅에 선 동물을 손으로 집어 (cx, cy)까지 끌고 와서, 이후 vx 픽셀/s로 끌다가 놓는다 (vx = 0이면 멈췄다가 그냥 놓는다)
 fn drag_and_release(p: &mut Pet, w: &World, x: f64, to: (f64, f64), vx: f64) {

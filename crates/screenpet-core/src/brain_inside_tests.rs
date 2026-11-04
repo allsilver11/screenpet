@@ -1,17 +1,13 @@
 //! 창 안에서 놀기 (spec 2B §9) — brain 동작 테스트. brain.rs의 자식 모듈 (비공개 필드에 접근).
 
-use super::tests::{cfg, place, run, sim_cfg, win, world};
+use super::tests::{cfg, place, run, sim_cfg, win, world, w1};
 use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::inside::{Mode, Stay};
 use crate::test_util::{DT, idle};
 
 
-/// 창 1: 500..1100 × 400..900 → 안쪽 바닥 y 896, x 504..1096
-fn w1() -> WindowInfo {
-    win(1, 500.0, 400.0, 1100.0, 900.0)
-}
-
+// 창 w1: 500..1100 × 400..900 → 안쪽 바닥 y 896, x 504..1096
 fn climber() -> PetConfig {
     PetConfig { can_climb: true, ..cfg() }
 }

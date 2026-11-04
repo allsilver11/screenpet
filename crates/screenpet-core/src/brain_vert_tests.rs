@@ -1,6 +1,6 @@
 //! 위/아래 친구 화면 (brain_vert.rs). brain.rs의 자식 모듈.
 
-use super::tests::{cfg, place, w1, world};
+use super::tests::{cfg, place, w1, world, thrown_at};
 use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::visit::Fling;
@@ -160,10 +160,7 @@ fn flyers_fly_straight_up_or_down_and_out() {
 #[test]
 fn thrown_into_a_linked_top_edge_flies_across_carrying_the_x_fraction() {
     let w = world(vec![]);
-    let mut p = Pet::new(cfg(), 480.0, 600.0, 1);
-    p.state = State::Air { anim: Anim::Fall };
-    p.body = Body { x: 480.0, y: 600.0, vx: 200.0, vy: -1600.0 };
-    p.thrown = true;
+    let mut p = thrown_at(cfg(), 480.0, 600.0, 200.0, -1600.0);
     p.set_vertical_edges(true, false);
     let (side, _, _) = exit_within(&mut p, &w, 60);
     assert_eq!(side, Some(Side::Up));
@@ -171,10 +168,7 @@ fn thrown_into_a_linked_top_edge_flies_across_carrying_the_x_fraction() {
     assert!((0.2..0.35).contains(&f.height), "x fraction {}", f.height);
     assert!(f.vy < 0.0 && f.vx > 0.0);
     // 위가 연결되지 않았으면 천장에 막힌다
-    let mut q = Pet::new(cfg(), 480.0, 600.0, 1);
-    q.state = State::Air { anim: Anim::Fall };
-    q.body = Body { x: 480.0, y: 600.0, vx: 200.0, vy: -1600.0 };
-    q.thrown = true;
+    let mut q = thrown_at(cfg(), 480.0, 600.0, 200.0, -1600.0);
     assert_eq!(exit_within(&mut q, &w, 120).0, None);
 }
 
@@ -404,17 +398,11 @@ fn hand_throw(w: &World, x: f64, feet_y: f64, v: (f64, f64), dpi: f64) -> Option
 #[test]
 fn throwing_down_from_low_on_the_taskbar_monitor_crosses_though_the_other_monitor_is_longer() {
     let w = taskbar_and_bare();
-    let mut p = Pet::new(cfg(), 500.0, 0.0, 1);
-    p.state = State::Air { anim: Anim::Fall };
-    p.body = Body { x: 500.0, y: 900.0, vx: 0.0, vy: 1500.0 };
-    p.thrown = true;
+    let mut p = thrown_at(cfg(), 500.0, 900.0, 0.0, 1500.0);
     p.set_vertical_edges(false, true);
     assert_eq!(exit_within(&mut p, &w, 60).0, Some(Side::Down));
     // 작업표시줄 없는 쪽 모니터도 그대로
-    let mut q = Pet::new(cfg(), 2500.0, 0.0, 1);
-    q.state = State::Air { anim: Anim::Fall };
-    q.body = Body { x: 2500.0, y: 900.0, vx: 0.0, vy: 1500.0 };
-    q.thrown = true;
+    let mut q = thrown_at(cfg(), 2500.0, 900.0, 0.0, 1500.0);
     q.set_vertical_edges(false, true);
     assert_eq!(exit_within(&mut q, &w, 60).0, Some(Side::Down));
     // 걷다가 바닥 밑으로 쏙도 작업표시줄 모니터의 바닥에서 된다
@@ -431,10 +419,7 @@ fn throwing_down_from_low_on_the_taskbar_monitor_crosses_though_the_other_monito
 fn the_floor_above_another_monitor_is_not_an_outer_edge() {
     let w = stacked();
     // 위 모니터 바닥: 바로 아래 모니터가 있으니 넘어가지 않고 내려선다
-    let mut p = Pet::new(cfg(), 500.0, 0.0, 1);
-    p.state = State::Air { anim: Anim::Fall };
-    p.body = Body { x: 500.0, y: -200.0, vx: 0.0, vy: 1600.0 };
-    p.thrown = true;
+    let mut p = thrown_at(cfg(), 500.0, -200.0, 0.0, 1600.0);
     p.set_vertical_edges(true, true);
     assert_eq!(exit_within(&mut p, &w, 60).0, None);
     assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)));
@@ -459,10 +444,7 @@ fn hand_throw_from(w: &World, owner: Owner, x: f64, feet_y: f64, v: (f64, f64)) 
 fn a_monitor_with_nothing_above_it_is_an_up_edge_even_if_a_taller_one_stands_beside_it() {
     // 오른쪽 모니터가 왼쪽보다 낮게 시작한다
     let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 300.0, 3840.0, 1040.0)], 128.0);
-    let mut p = Pet::new(cfg(), 2500.0, 0.0, 1);
-    p.state = State::Air { anim: Anim::Fall };
-    p.body = Body { x: 2500.0, y: 800.0, vx: 0.0, vy: -1500.0 };
-    p.thrown = true;
+    let mut p = thrown_at(cfg(), 2500.0, 800.0, 0.0, -1500.0);
     p.set_vertical_edges(true, false);
     assert_eq!(exit_within(&mut p, &w, 60).0, Some(Side::Up));
     // 뛰어 나가기도: 자기 모니터 위 끝을 넘으면 사라진다 (합친 화면 위 끝까지 안 간다)
@@ -520,10 +502,7 @@ fn releasing_with_the_feet_already_over_the_taskbar_still_crosses() {
 fn the_crossing_is_not_missed_on_the_tick_that_gravity_carries_past_the_floor() {
     // 중력을 빼면 이번 틱에 바닥에 못 미치고(1039.8), 중력까지 더하면 바닥을 넘는다(1040.3)
     let w = world(vec![]);
-    let mut p = Pet::new(cfg(), 500.0, 0.0, 1);
-    p.state = State::Air { anim: Anim::Fall };
-    p.body = Body { x: 500.0, y: 1014.8, vx: 0.0, vy: 1500.0 };
-    p.thrown = true;
+    let mut p = thrown_at(cfg(), 500.0, 1014.8, 0.0, 1500.0);
     p.set_vertical_edges(false, true);
     p.update(DT, &w);
     assert_eq!(p.take_exit(), Some(Side::Down));
@@ -604,10 +583,7 @@ fn thrown_flyers_cross_down_by_aim_though_drag_slows_them() {
     assert_eq!(fly(300.0, 940.0, (1500.0, 0.0)), None);
     // 작업표시줄 있는 모니터 바닥도 (합친 화면 바닥보다 위)
     let dual = taskbar_and_bare();
-    let mut b = Pet::new(bee(), 900.0, 900.0, 1);
-    b.state = State::Air { anim: Anim::Fall };
-    b.body = Body { x: 900.0, y: 900.0, vx: 0.0, vy: 1500.0 };
-    b.thrown = true;
+    let mut b = thrown_at(bee(), 900.0, 900.0, 0.0, 1500.0);
     b.set_vertical_edges(false, true);
     assert_eq!(exit_within(&mut b, &dual, 120).0, Some(Side::Down));
 }

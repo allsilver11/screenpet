@@ -3332,6 +3332,15 @@ mod tests {
 
     pub(super) use crate::test_util::pet_cfg as cfg;
 
+    /// (x, y)에서 vx·vy(물리 px/s)로 던져진 동물
+    pub(super) fn thrown_at(cfg: PetConfig, x: f64, y: f64, vx: f64, vy: f64) -> Pet {
+        let mut p = Pet::new(cfg, x, y, 1);
+        p.state = State::Air { anim: Anim::Fall };
+        p.body = Body { x, y, vx, vy };
+        p.thrown = true;
+        p
+    }
+
     /// 시뮬레이션용 꿀벌 (실제 걸음 빠르기)
     pub(super) fn sim_bee() -> PetConfig {
         PetConfig { flies: true, stings: true, walk_speed: 70.0, ..sim_cfg() }
