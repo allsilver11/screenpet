@@ -447,6 +447,19 @@ function syncCloud(on) {
   cloudAt = null;
 }
 
+// 뿅 하고 튀는 반짝이 하나 (동글 그림). 애니메이션이 끝나면 지운다
+function spark(i, bottom, dx, dy, marginLeft) {
+  const s = document.createElement("span");
+  s.className = "spark";
+  s.textContent = i % 2 ? "✦" : "✧";
+  s.style.bottom = bottom + "px";
+  if (marginLeft !== undefined) s.style.marginLeft = marginLeft + "px";
+  s.style.setProperty("--dx", `${dx}px`);
+  s.style.setProperty("--dy", `${dy}px`);
+  stageEl.appendChild(s);
+  s.addEventListener("animationend", () => s.remove());
+}
+
 // CSS 효과가 끝나지 않아도(창이 숨겨짐 등) 모자는 반드시 사라진다
 const CAP_POOF_MS = 450;
 const CAP_POOF_SPARKS = 5;
@@ -502,15 +515,7 @@ function capPoof() {
       pixelBit("fx_spark2", 3, cx, up, Math.cos(a) * r, -Math.sin(a) * r, 0, 500);
       continue;
     }
-    const s = document.createElement("span");
-    s.className = "spark";
-    s.textContent = i % 2 ? "✦" : "✧";
-    s.style.bottom = up + "px";
-    s.style.marginLeft = cx + "px";
-    s.style.setProperty("--dx", `${Math.cos(a) * r}px`);
-    s.style.setProperty("--dy", `${-Math.sin(a) * r}px`);
-    stageEl.appendChild(s);
-    s.addEventListener("animationend", () => s.remove());
+    spark(i, up, Math.cos(a) * r, -Math.sin(a) * r, cx);
   }
   wear.classList.add("cap-poof");
   capPoofTimer = setTimeout(() => setCap(false), CAP_POOF_MS);
@@ -607,14 +612,7 @@ function poof() {
       pixelBit(i % 2 ? "fx_spark" : "fx_spark2", i % 2 ? 5 : 3, 0, cy, Math.cos(a) * r, -Math.sin(a) * r, 0, 500);
       continue;
     }
-    const s = document.createElement("span");
-    s.className = "spark";
-    s.textContent = i % 2 ? "✦" : "✧";
-    s.style.bottom = cy + "px";
-    s.style.setProperty("--dx", `${Math.cos(a) * r}px`);
-    s.style.setProperty("--dy", `${-Math.sin(a) * r}px`);
-    stageEl.appendChild(s);
-    s.addEventListener("animationend", () => s.remove());
+    spark(i, cy, Math.cos(a) * r, -Math.sin(a) * r);
   }
 }
 
