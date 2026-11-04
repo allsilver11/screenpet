@@ -189,7 +189,9 @@
         75% { transform: translateY(9px); opacity: 1; }
         100% { transform: translateY(12px); opacity: 0; }
       }
+      /* px-show의 opacity: 1이 남아 있으면 흐려지지 않는다 */
       body.pixel.hide #prop {
+        animation: none;
         transition: opacity 600ms steps(3, end);
       }
     </style>

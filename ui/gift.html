@@ -28,8 +28,11 @@
         -webkit-user-drag: none;
       }
 
+      /* drop을 목록에 남긴다 — 빠졌다 돌아오면 손을 뗄 때 처음부터 다시 떨어진다 */
       #gift:hover {
-        animation: wiggle 500ms ease-in-out;
+        animation:
+          drop 420ms ease-out both,
+          wiggle 500ms ease-in-out;
       }
 
       @keyframes drop {
@@ -134,13 +137,17 @@
         100% { opacity: 1; transform: none; }
       }
       body.pixel #gift:hover {
-        animation: px-hop 400ms step-end;
+        animation:
+          px-drop 300ms step-end both,
+          px-hop 400ms step-end;
       }
       @keyframes px-hop {
         0%, 100% { transform: none; }
         25%, 75% { transform: translateY(-3px); }
       }
+      /* px-drop의 opacity: 1이 남아 있으면 흐려지지 않는다 */
       body.pixel.hide #gift {
+        animation: none;
         transition: opacity 600ms steps(3, end);
       }
       body.pixel.collect #gift {

@@ -229,6 +229,15 @@ body {
   font: 600 12px/1.2 "Segoe UI", "Malgun Gothic", sans-serif;
   white-space: nowrap;
   pointer-events: none;
+  box-sizing: border-box;
+  max-width: calc(100vw - 8px);
+}
+
+/* 긴 이름은 …로 (꼬리 ::after가 말풍선 밖에 있어 자르는 건 안쪽 span — common.js) */
+#bubble > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #bubble::after {
@@ -258,6 +267,10 @@ body {
   font: 600 11px/1.2 "Segoe UI", "Malgun Gothic", sans-serif;
   white-space: nowrap;
   pointer-events: none;
+  box-sizing: border-box;
+  max-width: calc(100vw - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #nametag[hidden],

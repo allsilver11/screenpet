@@ -18,6 +18,7 @@ function htmlScripts(html) {
 }
 
 function openWindow(html, { replies = {}, failFetch = () => false, globals = {} } = {}) {
+  const page = fs.readFileSync(path.join(UI, html), "utf8");
   const els = new Map();
   const channels = {};
   const windowHandlers = {};
@@ -104,7 +105,11 @@ function openWindow(html, { replies = {}, failFetch = () => false, globals = {} 
     }
   }
   const byId = (id) => {
-    if (!els.has(id)) els.set(id, new El(id));
+    if (!els.has(id)) {
+      const el = new El(id);
+      el.hidden = new RegExp(`id="${id}"[^>]*\\shidden`).test(page);
+      els.set(id, el);
+    }
     return els.get(id);
   };
   const sandbox = {
@@ -258,6 +263,15 @@ const scenarios = {
     await tick();
     if (running) w.frame();
     return { running, drew: w.byId("door-pet").style.backgroundPosition ?? null };
+  },
+
+  // 말풍선 글자는 안쪽 span에 (긴 글은 span이 …로 자른다)
+  async bubbleText() {
+    const w = openWindow("index.html", { replies: { slot_info: CAT } });
+    await tick();
+    w.emit("pet-say-text", "off to 아주아주아주긴이름's~ brb!");
+    const bubble = w.byId("bubble");
+    return { tag: bubble.children[0]?.id, text: bubble.textContent, hidden: bubble.hidden };
   },
 
   // 스타일 쓰기: 칸이 그대로면 쓰지 않는다. 몸이 도는 동안은 프레임마다 쓴다

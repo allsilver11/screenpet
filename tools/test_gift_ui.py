@@ -22,6 +22,7 @@ class Node {
 }
 const byId = { sum: new Node("div"), bar: new Node("i"), sections: new Node("div") };
 global.document = { createElement: (t) => new Node(t), getElementById: (id) => byId[id] };
+global.setupFormKeys = () => {}; // common.js
 global.window = {
   scrollY: 0, scrollTo() {}, addEventListener() {},
   __TAURI__: {

@@ -47,7 +47,9 @@ class El {
   insertBefore(x) {
     this.append(x);
   }
-  replaceChildren() {}
+  replaceChildren(...xs) {
+    this.textContent = xs.map((x) => x.textContent).join("");
+  }
   after() {}
   remove() {
     if (this.parentNode) this.parentNode.children = this.parentNode.children.filter((c) => c !== this);

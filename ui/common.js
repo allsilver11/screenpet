@@ -130,28 +130,29 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
     clearTimeout(pickerTimer);
   }
 
+  function showBubble(text, ms) {
+    const span = document.createElement("span");
+    span.textContent = text;
+    bubbleEl.replaceChildren(span);
+    bubbleEl.hidden = false;
+    clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(() => {
+      bubbleEl.hidden = true;
+    }, ms);
+  }
+
   // 백엔드가 고른 상황(chatter/tickle/grumpy/hiss/hungry/full/level_up/ignore)에 맞는 대사를
   // pet.json speech에서 랜덤으로 띄운다. 그 동물에 없는 상황이면 말풍선 없음.
   listen("pet-say", (e) => {
     const lines = getManifest()?.speech?.[e.payload] ?? RHYTHM_SPEECH[e.payload] ?? [];
     if (!lines.length || !pickerEl.hidden || isQuiet()) return; // 음식 고르기 버튼·편지 쪽지가 우선
-    bubbleEl.textContent = lines[Math.floor(Math.random() * lines.length)];
-    bubbleEl.hidden = false;
-    clearTimeout(bubbleTimer);
-    bubbleTimer = setTimeout(() => {
-      bubbleEl.hidden = true;
-    }, 1500);
+    showBubble(lines[Math.floor(Math.random() * lines.length)], 1500);
   });
 
   // 백엔드가 정한 글자 그대로 (친구가 데려갈 때 "off to <name>'s~ brb!", 부탁 거절 "<name>: busy~")
   listen("pet-say-text", (e) => {
     if (typeof e.payload !== "string" || !e.payload || !pickerEl.hidden || isQuiet()) return;
-    bubbleEl.textContent = e.payload;
-    bubbleEl.hidden = false;
-    clearTimeout(bubbleTimer);
-    bubbleTimer = setTimeout(() => {
-      bubbleEl.hidden = true;
-    }, 2500);
+    showBubble(e.payload, 2500);
   });
 
   // 배고플 때 클릭하면 머리 위에 🍚 (좋아하는 것) 🍱 버튼 — 간식·물은 트레이·우클릭 메뉴에서 언제든

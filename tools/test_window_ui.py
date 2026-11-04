@@ -72,3 +72,38 @@ def test_renewing_a_code_does_not_copy_the_old_one():
     assert r["renewed"] == 1
     assert r["copyDisabled"] and r["whilePending"] == []
     assert not r["copyDisabledAfter"] and r["copied"] == ["NEW1-2345"]
+
+
+def test_bubble_text_lives_in_a_clippable_span():
+    assert run("bubbleText") == {"tag": "span", "text": "off to 아주아주아주긴이름's~ brb!", "hidden": False}
+
+
+# ---- CSS: 브라우저 없이는 규칙이 있는지만 본다 (보이는 모습은 실제 앱에서) ----
+def css_rule(text, selector):
+    start = text.index(selector + " {")
+    return text[start : text.index("}", start)]
+
+
+def test_pixel_hide_can_fade_past_the_filled_entrance_animation():
+    # 나타나기 애니메이션의 opacity: 1이 forwards로 남아 있으면 .hide의 흐려짐이 막힌다
+    gift = (ROOT / "ui" / "gift.html").read_text(encoding="utf-8")
+    prop = (ROOT / "ui" / "prop.html").read_text(encoding="utf-8")
+    assert "animation: none" in css_rule(gift, "body.pixel.hide #gift")
+    assert "animation: none" in css_rule(prop, "body.pixel.hide #prop")
+
+
+def test_gift_hover_keeps_the_drop_so_it_does_not_replay():
+    # 애니메이션 목록에서 drop이 빠졌다 돌아오면 처음부터 다시 돈다 — 목록에 남겨 둔다
+    gift = (ROOT / "ui" / "gift.html").read_text(encoding="utf-8")
+    assert "drop 420ms ease-out both" in css_rule(gift, "#gift:hover")
+    assert "px-drop 300ms step-end both" in css_rule(gift, "body.pixel #gift:hover")
+
+
+def test_long_names_end_in_an_ellipsis_inside_the_window():
+    css = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
+    assert "max-width: calc(100vw - 8px)" in css_rule(css, "#bubble")
+    assert "text-overflow: ellipsis" in css_rule(css, "#bubble > span")
+    tag = css_rule(css, "#nametag")
+    assert "max-width: calc(100vw - 8px)" in tag and "text-overflow: ellipsis" in tag and "overflow: hidden" in tag
+    # 꼬리(::after)가 말풍선 밖에 있어 말풍선 자체는 자르지 않는다
+    assert "overflow" not in css_rule(css, "#bubble")
