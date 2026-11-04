@@ -403,12 +403,14 @@ fn big_and_little_pets_meet_too() {
     let w = floor();
     let big = PetConfig { size: 211.0, half_w: 63.3, ..cfg() };
     let little = PetConfig { size: 64.0, half_w: 19.2, ..cfg() };
-    for seed in 0..10 {
+    // 올라서기(Climb)는 지나가지 않아서 social_tower_tests가 본다
+    for seed in 0..30 {
         let mut pets = vec![walker(&w, big, Owner::Ground(0), 800.0, 1.0, seed), walker(&w, little, Owner::Ground(0), 950.0, -1.0, seed + 50)];
         for p in &mut pets {
             p.update(DT, &w);
         }
-        let mut s = always(None, seed);
+        let kind = [MeetKind::Stomp, MeetKind::HighBounce, MeetKind::Pass][seed as usize % 3];
+        let mut s = always(Some(kind), seed);
         step(&mut s, &mut pets, &w);
         assert!(pets.iter().any(|p| phase(p).is_some()), "{seed}");
         run(&mut s, &mut pets, &w, 4.0);

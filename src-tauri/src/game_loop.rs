@@ -779,6 +779,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
             }
         }
+        // 머리 위에 선 동물은 아래 친구를 따라간다 (창을 옮기기 전, 아래층부터)
+        social.carry(&mut slots);
         for (i, side) in left.into_iter().rev() {
             let mut slot = slots.remove(i);
             // 던져서 넘어갔으면 그 움직임 (주인 화면이나 다음 친구 화면으로 날아간다)

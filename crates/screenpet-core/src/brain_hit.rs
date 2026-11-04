@@ -12,6 +12,8 @@ use crate::collide::{self, Face, Hit, HIT_CALM_SECS};
 
 /// 나는 동물이 떠밀리는 속도 (부딪힌 것의 속도 배)
 const FLY_PUSH: f64 = 0.6;
+/// 머리 위에서 맞아 떨어질 때 밀리는 속도 (부딪힌 것의 속도 배)
+const KNOCK_OFF: f64 = 0.3;
 
 impl Pet {
     /// 손에서 던져져 날아가는 중 (창 안에서 노는 중은 빼고): 다른 동물에 부딪힐 수 있다
@@ -35,7 +37,8 @@ impl Pet {
         {
             return false;
         }
-        (self.standing.is_some() || self.cfg.flies)
+        self.is_on_head()
+            || (self.standing.is_some() || self.cfg.flies)
             && matches!(
                 self.state,
                 State::Move { .. }
@@ -70,7 +73,18 @@ impl Pet {
         self.hit_calm_until = self.clock + HIT_CALM_SECS;
         self.wobble_timer = stomp_moves::WOBBLE_SECS;
         let controlled = self.control.is_some();
-        let speech = if !hit.fast && matches!(self.state, State::Sleep { .. } | State::Annoyed { .. }) {
+        let speech = if self.is_on_head() {
+            // 머리 위의 친구: 옆에서 세게 맞으면 떨어지고 (위 층도 같이), 아니면 덜덜만
+            if hit.fast && hit.face != Face::Top {
+                self.fall_off();
+                self.body.vx = hit.vx * KNOCK_OFF;
+                Speech::Whoa
+            } else if hit.face == Face::Top {
+                Speech::Oof
+            } else {
+                Speech::Ow
+            }
+        } else if !hit.fast && matches!(self.state, State::Sleep { .. } | State::Annoyed { .. }) {
             self.state = State::Annoyed { remaining: stomp_moves::WAKE_GRUMPY_SECS, tickled_for: 0.0 };
             Speech::Ow
         } else if self.cfg.flies {

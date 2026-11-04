@@ -4,6 +4,8 @@
 //! - 밟기: 한 마리가 친구 머리로 뛰어 밟고 조금 튀어 친구 너머에 내린다. 밟힌 친구는 잠깐 납작 (Land → Annoyed, "oof!").
 //! - 높이 튀기: 같지만 머리를 밟고 훨씬 높이 솟았다가 너머에 내린다.
 //! - 지나치기: 둘 다 폴짝 — 한 마리는 높이, 한 마리는 낮게, 꼭대기가 같은 때에 오게 해서 닿지 않고 엇갈린다.
+//! - 올라서기: 친구 머리(탑이면 맨 위)로 뛰어올라 그대로 선다 — 그 뒤는 brain_tower.rs.
+//! - 달리던 동물은 웅크림이 짧고 더 멀리 내린다 (Pet::run_carry).
 //!
 //! 뛰는 길은 큰 점프와 같은 포물선(hop::leap_arc)과 중력이고, 그림은 Land·Hop·Fall·Look·Annoyed 그대로다.
 //! 내릴 때 디딤판이 그대로면 그 위에, 아니면 그 자리에서 떨어져 진짜 디딤판에 내린다 (land_leap). 내린 뒤엔 가던 쪽으로 계속 걷는다.
@@ -37,6 +39,8 @@ pub enum MeetKind {
     HighBounce,
     /// 둘 다 폴짝, 닿지 않고 지나친다
     Pass,
+    /// 친구 머리 위로 뛰어올라 선다 (brain_tower.rs) — 친구는 하던 일을 계속한다
+    Climb,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +76,16 @@ pub struct MeetPlan {
     head: Option<(f64, f64)>,
     /// 다음 포물선이 더 솟는 높이 (px)
     rise: f64,
+}
+
+impl MeetPlan {
+    pub(super) fn is_climb(&self) -> bool {
+        self.kind == MeetKind::Climb
+    }
+
+    pub(super) fn set_head(&mut self, head: (f64, f64)) {
+        self.head = Some(head);
+    }
 }
 
 impl Pet {
@@ -211,6 +225,12 @@ impl Pet {
             return;
         };
         match (phase, plan.head) {
+            (MeetPhase::ToHead, Some(head)) if plan.kind == MeetKind::Climb => {
+                self.body.x = head.0;
+                self.body.y = head.1;
+                self.head_bump = true;
+                self.begin_ride();
+            }
             (MeetPhase::ToHead, Some(head)) => {
                 self.body.x = head.0;
                 self.body.y = head.1;

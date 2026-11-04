@@ -65,6 +65,8 @@ const MEET_GAP: f64 = 0.15;
 /// 지나치기: 낮은 쪽이 솟는 높이와, 높은 쪽 발이 낮은 쪽 머리 위로 지나가는 여유 (몸 크기 배)
 const PASS_LOW_RISE: f64 = 0.25;
 const PASS_MARGIN: f64 = 0.2;
+/// 달리던 동물의 웅크림 (평소의 배)
+const RUN_CROUCH: f64 = 0.4;
 
 /// 놀고 싶은 정도 — 술래가 될 가능성과 놀이 확률의 배율
 pub fn eagerness(p: Personality) -> f64 {
@@ -110,6 +112,15 @@ struct Snap {
     span: Option<(f64, f64)>,
     /// 던져져 날아가는 중 (brain_hit.rs)
     flung: bool,
+    /// 들려 있다
+    held: bool,
+    /// 떨어지는 중이라 머리 위에 내려설 수 있다 (social_tower.rs)
+    perching: bool,
+    /// 머리 위에 친구를 태웠다 / 자기가 머리 위에 있다
+    carrying: bool,
+    riding: bool,
+    /// 달리는 중이면 뛰어 내릴 때 더 가는 거리 (아니면 0)
+    run_carry: f64,
 }
 
 impl Snap {
@@ -131,6 +142,11 @@ impl Snap {
             half_w: p.cfg.half_w,
             span: p.walk_span(),
             flung: p.is_flung(),
+            held: p.is_held(),
+            perching: p.can_perch(),
+            carrying: p.has_rider(),
+            riding: p.is_on_head(),
+            run_carry: p.run_carry(),
         }
     }
 
@@ -151,7 +167,7 @@ fn near(a: &Snap, b: &Snap, bodies: f64) -> bool {
 /// 둘이 같은 디딤판에서 서로 쪽으로 걷다가 막 만났다
 fn head_on(a: &Snap, b: &Snap) -> bool {
     let (dx, body) = (b.x - a.x, (a.size + b.size) / 2.0);
-    a.free && b.free && a.walking && b.walking && a.span.is_some() && a.span == b.span && near(a, b, MEET_BODIES) && dx.abs() >= MEET_MIN_BODIES * body && dx * a.facing > 0.0 && dx * b.facing < 0.0
+    !a.carrying && !b.carrying && a.free && b.free && a.walking && b.walking && a.span.is_some() && a.span == b.span && near(a, b, MEET_BODIES) && dx.abs() >= MEET_MIN_BODIES * body && dx * a.facing > 0.0 && dx * b.facing < 0.0
 }
 
 /// jumper가 친구 너머 같은 조각에 내려설 자리 (자리가 없으면 None)
@@ -159,7 +175,10 @@ fn landing_past(jumper: &Snap, other: &Snap) -> Option<f64> {
     let (lo, hi) = jumper.span?;
     let gap = MEET_GAP * (jumper.size + other.size) / 2.0;
     let x = other.x + jumper.facing * (jumper.half_w + other.half_w + gap);
-    (lo + jumper.half_w <= x && x <= hi - jumper.half_w).then_some(x)
+    // 달리던 동물은 더 멀리 내린다 — 자리가 없으면 그냥 친구 바로 너머에
+    let far = x + jumper.facing * jumper.run_carry;
+    let fits = |x: f64| lo + jumper.half_w <= x && x <= hi - jumper.half_w;
+    [far, x].into_iter().find(|&x| fits(x))
 }
 
 /// 잡았다: 가로로 몸이 맞닿고 높이도 비슷 (나는 동물은 몸 하나 차이까지)
@@ -212,6 +231,12 @@ pub struct Social {
     prev: Vec<Snap>,
     /// 짝 → 다시 부딪힐 수 있는 시각 (clock). 부딪힐 때만 넣고 정리한다
     hit_cooldown: HashMap<(u64, u64), f64>,
+    /// 머리 위에 서 있는 짝들, 아래에서 위 순서 (social_tower.rs)
+    rides: Vec<tower::Ride>,
+    /// 머리로 뛰어오르는 중 (뛰는 쪽, 탑 밑동)
+    climbs: Vec<(u64, u64)>,
+    /// 탑 밑동으로 들어온 동물이 올라갈 확률 (테스트에서 바꾼다)
+    tower_chance: f64,
     /// (물건 번호, 동물) → 다시 부딪힐 수 있는 시각
     object_cooldown: HashMap<(u64, u64), f64>,
 }
@@ -222,7 +247,7 @@ fn pair(a: u64, b: u64) -> (u64, u64) {
 
 impl Social {
     pub fn new(seed: u64) -> Self {
-        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), object_cooldown: HashMap::new() }
+        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new() }
     }
 
     /// 지금 놀이 중인 짝 수 (테스트·디버그용)
@@ -233,14 +258,18 @@ impl Social {
     /// 매 틱 (동물 update 전에) 화면 위 동물 전부로 부른다
     pub fn tick<T: AsRef<Pet> + AsMut<Pet>>(&mut self, dt: f64, pets: &mut [T]) {
         self.clock += dt;
+        self.step_rides(pets);
         std::mem::swap(&mut self.snap, &mut self.prev);
         self.snap.clear();
         self.snap.extend(pets.iter().map(|p| Snap::of(p.as_ref())));
+        self.step_climbs(pets);
+        self.perches(dt, pets);
         self.stomps(pets);
         self.thrown_hits(dt, pets);
         self.step_meets(pets);
         self.step_links(dt, pets);
         self.find_head_ons(pets);
+        self.tower_bumps(pets);
         self.find_new(dt, pets);
     }
 
@@ -297,16 +326,21 @@ impl Social {
     /// 고른 만남을 시작한다. 내려설 자리가 없으면 false
     fn start_meet<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T], i: usize, j: usize) -> bool {
         let (ij, it) = if self.meet_rng.bool() { (i, j) } else { (j, i) };
-        let kind = self.meet_only.unwrap_or_else(|| [MeetKind::Stomp, MeetKind::HighBounce, MeetKind::Pass][self.meet_rng.usize(..3)]);
+        let kind = self.meet_only.unwrap_or_else(|| [MeetKind::Stomp, MeetKind::HighBounce, MeetKind::Pass, MeetKind::Climb][self.meet_rng.usize(..4)]);
         let (jump, other) = (self.snap[ij], self.snap[it]);
+        // 달리던 동물은 웅크림이 짧다 (속도가 이어져 보이게)
+        let crouch = if jump.run_carry > 0.0 || other.run_carry > 0.0 { CROUCH_SECS * RUN_CROUCH } else { CROUCH_SECS };
+        if kind == MeetKind::Climb {
+            return self.start_climb(pets, ij, it, crouch);
+        }
         if kind == MeetKind::Pass {
             let (Some(high_x), Some(low_x)) = (landing_past(&jump, &other), landing_past(&other, &jump)) else { return false };
             // 높은 쪽 발은 낮은 쪽 머리 위로 지나간다. 낮은 쪽이 그만큼 늦게 떠서 꼭대기(가운데)가 같은 때에 온다
             let low = PASS_LOW_RISE * other.size;
             let high = low + HEAD_RISE * other.size + PASS_MARGIN * other.size;
             let air = |rise: f64| 2.0 * (2.0 * rise / GRAVITY).sqrt();
-            pets[ij].as_mut().start_vault(kind, None, high_x, high, CROUCH_SECS);
-            pets[it].as_mut().start_vault(kind, None, low_x, low, CROUCH_SECS + (air(high) - air(low)) / 2.0);
+            pets[ij].as_mut().start_vault(kind, None, high_x, high, crouch);
+            pets[it].as_mut().start_vault(kind, None, low_x, low, crouch + (air(high) - air(low)) / 2.0);
             return true;
         }
         // 뛰는 쪽 너머에 자리가 없으면 친구가 뛴다 (둘 다 없으면 그만)
@@ -316,7 +350,7 @@ impl Social {
             (None, None) => return false,
         };
         let target = self.snap[it];
-        pets[ij].as_mut().start_vault(kind, Some((target.x, target.y - HEAD_RISE * target.size)), land, 0.0, CROUCH_SECS);
+        pets[ij].as_mut().start_vault(kind, Some((target.x, target.y - HEAD_RISE * target.size)), land, 0.0, crouch);
         pets[it].as_mut().start_brace();
         self.meets.push((self.snap[ij].key, target.key));
         true
@@ -602,6 +636,9 @@ impl Social {
         }
     }
 }
+
+#[path = "social_tower.rs"]
+pub mod tower;
 
 #[cfg(test)]
 #[path = "social_tests.rs"]

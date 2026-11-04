@@ -84,6 +84,7 @@ fn step(s: &mut Social, pets: &mut [Pet], w: &World) {
     for p in pets.iter_mut() {
         p.update(DT, w);
     }
+    s.carry(pets);
 }
 
 fn run(s: &mut Social, pets: &mut [Pet], w: &World, secs: f64) {
@@ -536,3 +537,6 @@ mod stomp;
 
 #[path = "social_hit_tests.rs"]
 mod hit;
+
+#[path = "social_tower_tests.rs"]
+mod tower_tests;

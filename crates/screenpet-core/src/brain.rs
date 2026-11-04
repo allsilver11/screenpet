@@ -338,6 +338,8 @@ pub enum State {
     Slip { remaining: f64, dir: f64 },
     /// 마주 오던 친구를 밟거나 뛰어넘는 중, 또는 밟히는 중 — 길은 Pet의 meet (brain_meet.rs)
     Meet { phase: meet_moves::MeetPhase, remaining: f64 },
+    /// 친구 머리 위에 서 있다 — 자리는 social이 옮긴다. remaining: 내려올 때까지, age: 올라선 뒤 지난 시간 (brain_tower.rs)
+    OnHead { remaining: f64, age: f64 },
 }
 
 impl State {
@@ -599,6 +601,14 @@ pub struct Pet {
     walk_span: Option<(f64, f64)>,
     /// 방금 친구 머리를 밟았다 (take_head_bump로 한 번 꺼낸다)
     head_bump: bool,
+    /// 머리 위에 친구가 서 있다 (social이 알려 준다, brain_tower.rs)
+    rider_on: bool,
+    /// 코디네이터가 마지막으로 머리 위 자리를 알려 준 때 (clock)
+    ride_seen: f64,
+    /// 탑에서 떨어지거나 내려오는 중 — 내려설 때까지 다른 머리에 다시 서지 않는다
+    no_perch: bool,
+    /// 발밑 모니터 작업 영역의 위 끝 (탑 높이 제한)
+    ceiling: f64,
     rng: fastrand::Rng,
 }
 
@@ -675,6 +685,10 @@ impl Pet {
             meet: None,
             walk_span: None,
             head_bump: false,
+            rider_on: false,
+            ride_seen: 0.0,
+            no_perch: false,
+            ceiling: f64::NEG_INFINITY,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -687,6 +701,10 @@ impl Pet {
         if !matches!(self.state, State::Air { anim: Anim::Fall }) {
             self.thrown = false;
         }
+        if !matches!(self.state, State::Air { .. } | State::OnHead { .. } | State::Pressed { .. }) {
+            self.no_perch = false;
+        }
+        self.ceiling = world.work_area_at(self.body.x, self.body.y).top;
         // 걷는 동안만 맞는 값이다 (안 걷는 사이에 디딤판이 바뀌어도 옛 조각을 믿지 않는다)
         if !matches!(self.state, State::Move { .. }) {
             self.walk_span = None;
@@ -728,6 +746,13 @@ impl Pet {
                 return;
             }
             _ => {}
+        }
+        // 친구 머리 위: 똥·커서 놀이·인사 같은 평소 일은 하지 않는다 (brain_tower.rs)
+        if let State::OnHead { remaining, age } = self.state {
+            self.tick_guest(dt);
+            self.update_on_head(dt, world, remaining, age);
+            self.on_started();
+            return;
         }
         if self.farewell_pending && !self.is_held() && !matches!(self.state, State::Air { .. }) {
             self.farewell_pending = false;
@@ -845,6 +870,7 @@ impl Pet {
             State::Tumble { .. } => Anim::Roll,
             State::Slip { remaining, .. } => self.slip_anim(remaining),
             State::Meet { phase, remaining } => self.meet_anim(phase, remaining),
+            State::OnHead { .. } => Anim::Idle,
             State::CursorPlay { .. } | State::CursorLeap { .. } | State::CursorHang { .. } | State::EdgeCling { .. } | State::Glare { .. } => self.cursor_anim(),
             State::Snowman { phase, .. } => self.snowman_anim(phase),
             State::PresenceTrip => self.trip_anim(),
@@ -1287,7 +1313,7 @@ impl Pet {
         // 집이 먼저 — 이 화면 주인이 다음 친구에게 보내던 길은 그만둔다
         self.send = None;
         // 끌려가는 도중엔 바꾸지 않는다 — 놓여서 내려선 뒤 update가 다시 부른다
-        if self.is_held() || matches!(self.state, State::Air { .. }) {
+        if self.is_held() || matches!(self.state, State::Air { .. } | State::OnHead { .. }) {
             self.farewell_pending = true;
             return;
         }
@@ -1442,6 +1468,7 @@ impl Pet {
                 | State::CursorLeap { .. }
                 | State::CursorHang { .. }
                 | State::EdgeCling { .. }
+                | State::OnHead { .. }
         ) || matches!(self.state, State::Meet { phase, .. } if phase.airborne())
     }
 
@@ -1543,11 +1570,13 @@ impl Pet {
         self.history.clear();
         self.history.push_back((self.clock, cx, cy));
         self.thrown = false;
+        // 머리 위 친구를 그냥 클릭하면 떨어진다 (같은 머리에 다시 서지 않는다). 끌어서 놓으면 다시 설 수 있다
+        self.no_perch = self.is_on_head();
         self.shake.clear();
         // 나는 동물: 눌리면 가던 길은 잊는다 (놓인 자리에서 다시 정한다)
         self.flight = None;
         // 놀던 중이면 놀이는 끝난다 — 무시해도 놀이로 돌아가지 않고 잠깐 앉는다
-        let before = if self.social_role().is_some() || matches!(self.state, State::Meet { .. }) { State::Idle { remaining: TURN_PAUSE, look: false } } else { self.state };
+        let before = if self.social_role().is_some() || matches!(self.state, State::Meet { .. } | State::OnHead { .. }) { State::Idle { remaining: TURN_PAUSE, look: false } } else { self.state };
         self.play_target = None;
         self.before_press = Some((before, self.pacing.after_beat.take()));
         if !grounded {
@@ -2078,6 +2107,7 @@ impl Pet {
                 self.body.vy = vy;
                 self.state = State::Air { anim: Anim::Fall };
                 self.thrown = true;
+                self.no_perch = false;
                 self.thrown_down = visit::aimed_down(vx, vy, self.cfg.dpi);
                 self.drop_check = true;
             }
@@ -2456,6 +2486,7 @@ impl Pet {
             | State::PresenceTrip
             | State::Slip { .. }
             | State::Meet { .. }
+            | State::OnHead { .. }
             | State::Move { .. } => {}
         }
     }
@@ -3105,6 +3136,9 @@ pub mod stomp_moves;
 
 #[path = "brain_hit.rs"]
 mod hit_moves;
+
+#[path = "brain_tower.rs"]
+pub mod tower_moves;
 
 #[path = "brain_poop.rs"]
 pub mod poop_moves;

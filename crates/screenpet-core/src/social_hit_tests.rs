@@ -94,8 +94,8 @@ fn falling_onto_a_head_bounces_up_and_squashes_the_other() {
 #[test]
 fn being_let_go_gently_does_nothing() {
     let w = world(vec![]);
-    // 머리 바로 위에서 놓는다
-    let mut a = Pet::new(friendly(), 800.0, FLOOR_TOP - 5.0, 1);
+    // 머리 옆 바로 위에서 놓는다 (머리 폭 안이면 올라선다, social_tower_tests)
+    let mut a = Pet::new(friendly(), 860.0, FLOOR_TOP - 5.0, 1);
     a.force_throw(0.0, 0.0);
     let mut pets = vec![a, ground(&w, friendly(), 800.0, 2)];
     let mut s = Social::new(1);
