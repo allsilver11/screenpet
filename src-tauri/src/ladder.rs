@@ -36,8 +36,6 @@ const SMALL_SIZE: (f64, f64) = (320.0, 170.0);
 /// 10명 결과 표 + 지문 + 버튼이 다 보이는 크기 (더 작은 화면에서는 표가 스크롤된다)
 const LAST_SIZE: (f64, f64) = (360.0, 470.0);
 const GAME_HEIGHT: f64 = 540.0;
-/// 게임 창 좌우 여백 합 (core `column_width`의 여백과 같다)
-const GAME_MARGIN: f64 = draw::WINDOW_MARGIN;
 /// 주 모니터를 모를 때 쓰는 작업 영역 크기 (논리 px)
 const DEFAULT_WORK_AREA: (f64, f64) = (1280.0, 720.0);
 
@@ -611,7 +609,7 @@ impl Ladders {
             "last" => LAST_SIZE,
             "game" => {
                 let g = view.game.as_ref().expect("game view");
-                (g.column * g.players.len().max(4) as f64 + GAME_MARGIN, GAME_HEIGHT)
+                (g.column * g.players.len().max(4) as f64 + draw::WINDOW_MARGIN, GAME_HEIGHT)
             }
             _ => SMALL_SIZE,
         };

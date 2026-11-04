@@ -24,7 +24,7 @@ const COLUMN_WIDTH: f64 = 72.0;
 const MIN_COLUMN_WIDTH: f64 = 48.0;
 /// 창이 이보다 좁으면 칸을 줄인다 — 적어도 이만큼 칸이 있는 폭으로 잡는다
 const MIN_COLUMNS_WIDE: usize = 4;
-/// 창 좌우 여백 합 (논리 px) — 양 끝 칸의 이름표(두 칸 폭까지 쓴다)가 창 밖으로 나가지 않게 (ui/ladder.js, src-tauri ladder.rs GAME_MARGIN과 같게)
+/// 창 좌우 여백 합 (논리 px) — 양 끝 칸의 이름표(두 칸 폭까지 쓴다)가 창 밖으로 나가지 않게 (tools/test_ladder_ui.py가 이 값으로 잰다)
 pub const WINDOW_MARGIN: f64 = 60.0;
 
 /// 창 안쪽 높이를 정할 때 작업 영역에서 뺄 몫 (제목 표시줄·테두리, 논리 px)

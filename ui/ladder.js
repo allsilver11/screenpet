@@ -52,11 +52,33 @@ const LADDER = (() => {
     return blank.length ? { blank } : null;
   }
 
+  // 초대 중 직접 적은 칸. 칸 수가 "지금 시작 인원(참가 + 방장)"과 "기다리는 사람까지 다 온 인원" 사이면 아직 문제가 아니지만,
+  // 지금 시작하려면 칸을 맞출 수 있어야 하므로 참가자가 있으면 ✕를 보인다
+  function invitingSlots(slots, joined, waiting) {
+    const start = joined + 1;
+    const most = start + waiting;
+    const blank = slots.some((s) => cleanText(s.text) == null);
+    let warning = "";
+    if (slots.length > most) warning = slotWarning({ extra: slots.length - most });
+    else if (blank) warning = slotWarning({ blank: [] });
+    else if (joined > 0 && slots.length > start) warning = `지금 시작하면 ${start}명이에요 — ✕로 칸을 ${start}개로 맞춰 주세요`;
+    return { deletable: slots.length > most || (joined > 0 && slots.length > start), canStart: joined > 0 && !slotProblem(slots, start), warning };
+  }
+
   function slotWarning(p) {
     if (!p) return "";
     if (p.extra) return `칸이 ${p.extra}개 많아요 — 지울 칸을 골라 주세요 (✕)`;
     if (p.missing) return `칸이 ${p.missing}개 모자라요`;
     return "빈 칸이 있어요 (12자까지)";
+  }
+
+  // 친구가 보낸 기분 글자는 표의 열쇠로 그대로 쓰지 않는다 ("constructor" 같은 이름이 객체 안의 다른 것을 꺼내지 않게). 모르는 값은 없음
+  function own(table, key) {
+    return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+  }
+
+  function moodEmoji(m) {
+    return own(MOOD_EMOJI, m) ?? MOOD_EMOJI.none;
   }
 
   function nextMood(m) {
@@ -80,7 +102,7 @@ const LADDER = (() => {
     left: ["나감", "out"],
   };
   function answerLabel(a) {
-    return ANSWERS[a] ?? ["", ""];
+    return own(ANSWERS, a) ?? ["", ""];
   }
 
   // 취소 안내 (누가 일부러 그랬다고 탓하지 않는다 — spec §3.4)
@@ -105,9 +127,13 @@ const LADDER = (() => {
     return Math.max(2, Math.min(NAME_CHARS, Math.floor((2 * col - 2 - TAG_PAD_PX) / TAG_CHAR_PX) - 1));
   }
 
-  // 이름표 어림 너비 (줄였을 때 — 글자 + "…")
-  function tagWidth(col) {
-    return (nameChars(col) + 1) * TAG_CHAR_PX + TAG_PAD_PX;
+  // 이름표 글자: 같은 이름을 가르는 번호(" ②")는 줄여도 남긴다 — 번호까지 지우면 누가 누군지 모른다 (전체가 max + 1자 안에 든다)
+  function tagText(name, max) {
+    const chars = Array.from(name ?? "");
+    if (chars.length <= max) return chars.join("");
+    const number = name.match(/ (?:[\u2460-\u2473]|\(\d+\))$/)?.[0] ?? "";
+    const room = Math.max(1, max - Array.from(number).length);
+    return ellipsize(chars.slice(0, chars.length - Array.from(number).length).join(""), room) + number;
   }
 
   // 이름표 줄 (짝수 칸 아래 줄, 홀수 칸 위 줄 — 이웃 이름표가 겹치지 않게)
@@ -190,15 +216,23 @@ const LADDER = (() => {
     return [head, ...rows.map((r) => `${r.name} → ${r.result}${r.mood === "good" ? " 😀" : r.mood === "bad" ? " 😢" : ""}`)].join("\n");
   }
 
+  const PRESS_KEYS = ["Enter", " ", "Spacebar"];
+
   // 초대 화면은 키로 답하지 않는다 (포커스를 안 가져가는 창이지만, 혹시 키가 와도)
   function ignoreKey(view, key) {
-    return view === "invite" && (key === "Enter" || key === " " || key === "Spacebar");
+    return view === "invite" && PRESS_KEYS.includes(key);
+  }
+
+  // 웹뷰 기본 동작(새로 고침 등)을 막을 키인가: 글자 칸과 Tab, 단추를 누르는 Enter·Space는 둔다
+  function blockDefault(tagName, key) {
+    if (tagName === "INPUT" || key === "Tab") return false;
+    return !(tagName === "BUTTON" && PRESS_KEYS.includes(key));
   }
 
   return {
-    MAX_PLAYERS, NAME_CHARS, SLOT_CHARS, MOOD_EMOJI, PALETTE, TAG_CHAR_PX, TAG_PAD_PX, TAG_ROW_PX, nameChars, tagWidth, tagLift,
-    ellipsize, cleanText, presetSlots, growSlots, slotProblem, slotWarning, nextMood, josa,
-    answerLabel, cancelText, layout, route, length, pointAt, resultRows, copyLines, ignoreKey,
+    MAX_PLAYERS, NAME_CHARS, SLOT_CHARS, PALETTE, TAG_CHAR_PX, TAG_PAD_PX, TAG_ROW_PX, nameChars, tagText, tagLift,
+    ellipsize, cleanText, presetSlots, growSlots, slotProblem, slotWarning, invitingSlots, moodEmoji, nextMood, josa,
+    answerLabel, cancelText, layout, route, length, pointAt, resultRows, copyLines, ignoreKey, blockDefault,
   };
 })();
 
@@ -238,16 +272,23 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       return maybe + 1;
     }
 
+    // 초대 중 직접 적은 칸의 상태 (기다리는 사람은 시작하면 빠진다)
+    function invitingCustom() {
+      if (state?.view !== "inviting" || host.mode !== "custom") return null;
+      return LADDER.invitingSlots(host.slots, state.joined, slotCount() - state.joined - 1);
+    }
+
     function syncSlots(count) {
       if (host.mode === "preset") host.slots = LADDER.presetSlots(count, host.winners);
-      else host.slots = LADDER.growSlots(host.slots, count);
+      // 초대 중에는 지금 시작 인원까지만 채운다 — 기다리는 사람 몫까지 채우면 ✕로 지운 칸이 도로 생긴다
+      else host.slots = LADDER.growSlots(host.slots, state?.view === "inviting" ? state.joined + 1 : count);
     }
 
     function renderSlots(listEl, count) {
       syncSlots(count);
       // 직접 적는 중에 친구 답이 와도 글자 칸을 다시 만들지 않는다 (쓰던 글자·커서가 날아가지 않게).
-      // 단 칸이 남게 되면(누가 거절) ✕를 보여야 하므로 다시 그린다
-      const extra = host.slots.length > count;
+      // 단 ✕가 보이거나 사라져야 하면 다시 그린다
+      const extra = invitingCustom()?.deletable ?? host.slots.length > count;
       const typing = listEl.contains(document.activeElement) && listEl.children.length === host.slots.length;
       if (typing && listEl.dataset.extra === String(extra)) return;
       listEl.dataset.extra = String(extra);
@@ -258,10 +299,10 @@ if (typeof window !== "undefined" && window.__TAURI__) {
           host.slots[i].text = text.value;
           updateWarn();
         });
-        const mood = el("button", { className: "mood", textContent: LADDER.MOOD_EMOJI[s.mood], title: "좋음 😀 / 나쁨 😢 / 없음 ·", disabled: host.mode === "preset" });
+        const mood = el("button", { className: "mood", textContent: LADDER.moodEmoji(s.mood), title: "좋음 😀 / 나쁨 😢 / 없음 ·", disabled: host.mode === "preset" });
         mood.addEventListener("click", () => {
           host.slots[i].mood = LADDER.nextMood(host.slots[i].mood);
-          mood.textContent = LADDER.MOOD_EMOJI[host.slots[i].mood];
+          mood.textContent = LADDER.moodEmoji(host.slots[i].mood);
         });
         const li = el("li", {}, text, mood);
         if (extra) {
@@ -278,20 +319,20 @@ if (typeof window !== "undefined" && window.__TAURI__) {
 
     function updateWarn() {
       if (!state || (state.view !== "setup" && state.view !== "inviting")) return;
-      const count = slotCount();
-      const p = LADDER.slotProblem(host.slots, count);
-      $("setup-warn").textContent = LADDER.slotWarning(p);
       const btn = $("invite");
-      if (state.view === "setup") {
-        btn.disabled = host.selected.size === 0 || !!p;
+      const warn = $("setup-warn");
+      const custom = invitingCustom();
+      if (custom) {
+        warn.textContent = custom.warning;
+        btn.disabled = !custom.canStart;
+      } else if (state.view === "inviting") {
+        // 미리 채운 칸은 시작할 때 인원에 맞춰 다시 만든다
+        warn.textContent = "";
+        btn.disabled = state.joined === 0;
       } else {
-        // 시작: 지금 참가한 사람 + 방장 = 칸 수일 때 (기다리는 사람은 시작하면 빠진다)
-        const startCount = state.joined + 1;
-        const startProblem = LADDER.slotProblem(host.mode === "preset" ? LADDER.presetSlots(startCount, host.winners) : host.slots, startCount);
-        btn.disabled = state.joined === 0 || !!startProblem;
-        if (!p && startProblem && state.joined > 0 && host.mode === "custom") {
-          $("setup-warn").textContent = `지금 시작하면 ${startCount}명이에요 — 칸을 ${startCount}개로 맞춰 주세요`;
-        }
+        const p = LADDER.slotProblem(host.slots, slotCount());
+        warn.textContent = LADDER.slotWarning(p);
+        btn.disabled = host.selected.size === 0 || !!p;
       }
     }
 
@@ -398,7 +439,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       const list = $("invite-slots");
       list.replaceChildren();
       for (const s of state.draft) {
-        list.append(el("span", { className: "chip", textContent: `${s.text} ${LADDER.MOOD_EMOJI[s.mood] ?? "·"}` }));
+        list.append(el("span", { className: "chip", textContent: `${s.text} ${LADDER.moodEmoji(s.mood)}` }));
       }
     }
     $("join").addEventListener("click", () => invoke("ladder_answer", { join: true }));
@@ -483,7 +524,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
         Object.entries({ fill: "none", stroke: LADDER.PALETTE[i % LADDER.PALETTE.length], "stroke-width": 4, "stroke-linejoin": "round", "stroke-linecap": "round", opacity: 0.85 }).forEach(([k, v]) => trail.setAttribute(k, v));
         svg.append(trail);
         const runner = el("div", { className: "runner" });
-        const tag = el("div", { className: `nametag${i === g.me ? " me" : ""}`, textContent: LADDER.ellipsize(p.name, LADDER.nameChars(g.column)), title: p.name });
+        const tag = el("div", { className: `nametag${i === g.me ? " me" : ""}`, textContent: LADDER.tagText(p.name, LADDER.nameChars(g.column)), title: p.name });
         tag.style.borderColor = LADDER.PALETTE[i % LADDER.PALETTE.length];
         board.append(runner, tag);
         const r = { i, el: runner, tag, trail, pts: [], total: 0, d: 0, p: { x: 0, y: 0 }, dir: "down", anim: "sit_front", animStart: performance.now(), phase: "wait", side: pet, sheet: null };
@@ -643,7 +684,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       for (const r of rows) {
         const name = el("span", { className: "grow", textContent: r.name });
         if (r.me) name.style.fontWeight = "700";
-        list.append(el("li", {}, name, el("span", { textContent: `${r.result} ${LADDER.MOOD_EMOJI[r.mood] ?? ""}` })));
+        list.append(el("li", {}, name, el("span", { textContent: `${r.result} ${LADDER.moodEmoji(r.mood)}` })));
       }
       $("table-print").textContent = print;
       $("copy").onclick = async () => {
@@ -723,8 +764,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
           e.stopPropagation();
           return;
         }
-        // 글자 칸 밖에서는 웹뷰 기본 동작(새로 고침 등)을 막는다
-        if (e.target.tagName !== "INPUT" && e.key !== "Tab") e.preventDefault();
+        if (LADDER.blockDefault(e.target.tagName, e.key)) e.preventDefault();
       },
       true,
     );

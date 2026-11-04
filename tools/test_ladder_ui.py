@@ -1,6 +1,7 @@
-"""사다리타기 창 (ui/ladder.html · ui/ladder.js): 계산은 node 하네스로, 화면·커맨드 연결은 글자로 맞춰 본다."""
+"""사다리타기 창 (ui/ladder.html · ui/ladder.js): 계산과 버튼·키 동작은 node 하네스(가짜 DOM)로, 커맨드 연결은 글자로 맞춰 본다."""
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -17,11 +18,13 @@ LADDER_RS = (ROOT / "src-tauri" / "src" / "ladder.rs").read_text(encoding="utf-8
 CORE_RS = (ROOT / "crates" / "screenpet-core" / "src" / "ladder.rs").read_text(encoding="utf-8")
 HARNESS = ROOT / "tools" / "ladder_harness.js"
 needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+MARGIN = re.search(r"pub const WINDOW_MARGIN: f64 = (\d+)\.0;", CORE_RS).group(1)
 
 
 @pytest.fixture(scope="module")
 def out():
-    return json.loads(subprocess.run(["node", str(HARNESS)], capture_output=True, text=True, check=True, encoding="utf-8").stdout)
+    env = {**os.environ, "LADDER_MARGIN": MARGIN}
+    return json.loads(subprocess.run(["node", str(HARNESS)], capture_output=True, text=True, check=True, encoding="utf-8", env=env).stdout)
 
 
 # ---- 화면·커맨드 연결 (node 없이) ---------------------------------------------------
@@ -41,12 +44,11 @@ def test_every_command_the_window_invokes_is_registered():
         assert f"pub fn {cmd}(" in LADDER_RS, f"{cmd} not defined"
 
 
-def test_invite_buttons_cannot_be_pressed_by_keyboard():
-    # 포커스를 뺏지 않는 초대 창: 버튼은 Tab으로 가지 않고, Enter·Space는 키 처리에서 막는다
+def test_invite_buttons_are_not_in_the_tab_order():
+    # 포커스를 뺏지 않는 초대 창: 버튼은 Tab으로 가지 않는다 (Enter·Space는 아래 하네스 시험)
     for bid in ("join", "decline"):
         tag = re.search(rf'<button id="{bid}"[^>]*>', HTML).group(0)
         assert 'tabindex="-1"' in tag, tag
-    assert "ignoreKey" in JS
 
 
 def test_the_invite_tells_about_shrinking_slots_and_privacy():
@@ -54,11 +56,9 @@ def test_the_invite_tells_about_shrinking_slots_and_privacy():
     assert "참가하면 다른 참가자에게 내 이름과 동물이 보여요" in HTML
 
 
-def test_window_margin_matches_between_core_app_and_harness():
-    core = float(re.search(r"pub const WINDOW_MARGIN: f64 = ([\d.]+);", CORE_RS).group(1))
-    assert "const GAME_MARGIN: f64 = draw::WINDOW_MARGIN;" in LADDER_RS
-    harness = float(re.search(r"const MARGIN = (\d+);", HARNESS.read_text(encoding="utf-8")).group(1))
-    assert core == harness == 60
+def test_the_app_sizes_the_game_window_with_the_core_margin():
+    # 이름표가 창 안에 드는지는 같은 값(MARGIN)으로 하네스가 잰다
+    assert "as f64 + draw::WINDOW_MARGIN, GAME_HEIGHT)" in LADDER_RS
 
 
 def test_the_last_result_window_shows_every_row_and_its_buttons():
@@ -95,7 +95,9 @@ def test_the_ladder_window_may_use_ipc():
 
 
 def test_text_is_only_ever_set_as_text():
-    assert "innerHTML" not in JS
+    # 친구가 보낸 글자가 HTML로 해석될 길이 없다
+    for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
+        assert sink not in JS, sink
 
 
 # ---- 계산 (node 하네스) ---------------------------------------------------------------
@@ -135,30 +137,36 @@ def test_cancel_messages_do_not_blame_and_use_the_right_particle(out):
 
 
 @needs_node
-def test_ten_name_tags_do_not_overlap(out):
+def test_ten_long_name_tags_do_not_overlap_and_stay_in_the_window(out):
     for t in out["tags"]:
-        assert 2 <= t["chars"] <= 6
-        # 같은 줄 이웃은 두 칸 건너 — 이름표가 두 칸 폭 안에 들어간다
-        assert t["sameRowGap"] > 0, t
+        assert 2 <= t["max"] <= 6
+        assert t["overlaps"] == 0, t
+        assert t["outside"] == 0, t
         assert t["lifts"] == [0, 18, 0, 18], "neighbours sit on different rows"
-    xs = out["board"]["lay"]["xs"]
-    widest = max(t["width"] for t in out["tags"] if t["col"] == 48)
-    assert xs[0] - widest / 2 >= 0 and xs[-1] + widest / 2 <= out["W"], "edge tags stay inside the window"
+        assert len(set(t["texts"])) == 10, "shortened names stay apart by their number"
+
+
+@needs_node
+def test_a_shortened_name_keeps_its_number(out):
+    assert out["tagText"] == ["곰돌이와친구…", "나비 ②", "곰돌이와… ②", "곰돌이와… ③", "일… (21)"]
+    assert out["ui"]["nametags"] == ["곰돌이와친구…", "곰돌이와… ②", "곰돌이와… ③"], "and that is what the game shows"
 
 
 @needs_node
 def test_every_route_runs_along_the_ladder_to_its_result(out):
-    for board in (out["board"], out["boardSmall"]):
+    for board in (out["board"], out["boardLow"], out["boardSmall"]):
         lay = board["lay"]
         for r in board["routes"]:
-            assert r["axis"], "only vertical and horizontal segments"
+            assert r["walks"], "only down, and sideways only along a rung of that row"
+            assert r["crossings"] == r["turns"], "no rung skipped"
             assert r["last"]["y"] == lay["bottom"]
             assert r["last"]["x"] == lay["xs"][r["endCol"]]
             assert r["end"] == r["last"], "walking past the end stops at the end"
             assert r["first"]["y"] < lay["top"], "starts from the pet's seat above the ladder"
-        assert lay["bottom"] < lay["slotTop"]
+        assert lay["top"] < lay["bottom"] < lay["slotTop"]
         assert all(lay["top"] < y < lay["bottom"] for y in lay["rowYs"])
     assert sorted(r["endCol"] for r in out["board"]["routes"]) == list(range(10)), "a permutation"
+    assert any(r["crossings"] for r in out["board"]["routes"]), "the board has rungs to check"
 
 
 @needs_node
@@ -173,6 +181,42 @@ def test_result_table_and_copy_text(out):
 
 
 @needs_node
-def test_only_the_invite_ignores_enter_and_space(out):
-    assert out["keys"] == [True, True, False, False]
+def test_keys_reach_buttons_except_on_the_invite(out):
+    keys = out["ui"]["keys"]
+    assert not keys["enterOnButton"] and not keys["spaceOnButton"], "a focused button can be pressed by keyboard"
+    assert not keys["typing"] and not keys["tab"]
+    assert keys["enterElsewhere"] and keys["refresh"], "no webview defaults such as F5"
+    assert keys["enterOnInvite"] and keys["spaceOnInvite"], "an invite is never answered by a stray key"
+    assert keys["escapeOnInvite"]
+
+
+@needs_node
+def test_mood_labels_from_friends_are_only_ever_their_own_keys(out):
     assert out["moods"] == ["bad", "none", "good"]
+    assert out["moodEmoji"] == ["😀", "😢", "·", "·", "·", "·", "·"]
+    assert out["answerOfOddKey"] == ["", ""]
+    assert out["ui"]["chips"] == ["당첨 ·", "꽝 😢"], "the invite screen uses it"
+
+
+@needs_node
+def test_custom_slots_can_be_cut_to_start_before_everyone_answers(out):
+    ui = out["ui"]
+    assert ui["setupSlots"] == 4
+    assert ui["hostInvite"][0] == "ladder_host" and len(ui["hostInvite"][1]["results"]) == 4
+    # 셋 초대, 한 명 참가, 둘 기다림: 지금 시작하려면 칸이 2개여야 한다 — ✕가 보여야 맞출 수 있다
+    assert ui["early"] == {"slots": 4, "crosses": 4, "startDisabled": True, "warn": "지금 시작하면 2명이에요 — ✕로 칸을 2개로 맞춰 주세요"}
+    # 지운 칸이 다시 생기지 않고 바로 시작할 수 있다
+    assert ui["deleted"] == {"slots": 2, "crosses": 0, "startDisabled": False, "warn": ""}
+    assert ui["begin"][0] == "ladder_begin" and len(ui["begin"][1]["results"]) == 2
+    # 그 사이 한 명 더 오면 빈 칸이 생기고, 채울 때까지 막힌다
+    assert ui["anotherJoined"] == {"slots": 3, "crosses": 0, "startDisabled": True, "warn": "빈 칸이 있어요 (12자까지)"}
+
+
+@needs_node
+def test_inviting_slot_rules(out):
+    i = out["inviting"]
+    assert i["startingEarly"] == {"deletable": True, "canStart": False, "warning": "지금 시작하면 2명이에요 — ✕로 칸을 2개로 맞춰 주세요"}
+    assert i["afterDeleting"] == {"deletable": False, "canStart": True, "warning": ""}
+    assert i["nobodyYet"] == {"deletable": False, "canStart": False, "warning": ""}, "nothing to pick before anyone joined"
+    assert i["someoneDeclined"] == {"deletable": True, "canStart": False, "warning": "칸이 1개 많아요 — 지울 칸을 골라 주세요 (✕)"}
+    assert i["blank"] == {"deletable": False, "canStart": False, "warning": "빈 칸이 있어요 (12자까지)"}
