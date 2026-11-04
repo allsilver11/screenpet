@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 
 use crate::collide::{rebound, Face};
-use crate::physics::{clamp_speed, step_air, throw_velocity, Body, THROW_GRAVITY_LOGICAL, THROW_LIFT};
+use crate::physics::{clamp_speed, step_air, throw_velocity, Body, THROW_GRAVITY_LOGICAL, THROW_LIFT, VELOCITY_WINDOW};
 use crate::tumble::{self, heft_of, shape_of, throw_spin, wobble_spin};
 use crate::visit::{self, ExitEdges, Fling, Side};
 use crate::surfaces::Owner;
@@ -30,9 +30,6 @@ pub const GUST_EVERY_SECS: (f64, f64) = (30.0, 90.0);
 const HALF_WIDTH_RATIO: f64 = 0.3;
 /// 이보다 세게 떨어지면 살짝 튀어 오른다 (논리 px/s)
 const BOUNCE_MIN_VY: f64 = 350.0;
-/// 놓을 때 커서 속도를 재는 구간 (초, 동물과 같다)
-const VELOCITY_WINDOW: f64 = 0.12;
-const OUTLIER_RATIO: f64 = 3.0;
 /// 빗자루에 쓸린 똥의 최소 가로 속도와 뜨는 속도 (논리 px/s)
 const SWEEP_MIN_VX: f64 = 240.0;
 const SWEEP_POP: f64 = 160.0;
@@ -443,7 +440,7 @@ impl Object {
         if self.moved < CLICK_SLOP * self.dpi && self.clock - self.grabbed_at < CLICK_SECS {
             return Release::Click;
         }
-        let (vx, vy) = release_velocity(&self.samples);
+        let (vx, vy) = crate::physics::release_velocity(self.samples.iter());
         let (vx, vy) = throw_velocity(vx, vy, self.dpi, THROW_LIFT);
         self.body.vx = vx;
         self.body.vy = vy;
@@ -808,44 +805,6 @@ pub fn gusts_ok(hidden: bool, away: bool) -> bool {
 
 fn next_gust(rng: &mut fastrand::Rng) -> f64 {
     GUST_EVERY_SECS.0 + rng.f64() * (GUST_EVERY_SECS.1 - GUST_EVERY_SECS.0)
-}
-
-/// 놓을 때의 커서 속도: 같은 틱의 기록은 마지막 것만, 튀는 첫·끝 구간 하나는 뺀다 (brain.rs Pet::release_velocity와 같은 계산)
-fn release_velocity(samples: &[(f64, f64, f64)]) -> (f64, f64) {
-    let mut pts: Vec<(f64, f64, f64)> = Vec::with_capacity(samples.len());
-    for &s in samples {
-        match pts.last_mut() {
-            Some(last) if s.0 - last.0 < 1e-9 => *last = s,
-            _ => pts.push(s),
-        }
-    }
-    let speed = |a: (f64, f64, f64), b: (f64, f64, f64)| (b.1 - a.1).hypot(b.2 - a.2) / (b.0 - a.0);
-    let (mut lo, mut hi) = (0, pts.len().saturating_sub(1));
-    if pts.len() >= 4 {
-        let segs: Vec<f64> = pts.windows(2).map(|w| speed(w[0], w[1])).collect();
-        let n = segs.len();
-        let median_of = |skip: usize| {
-            let mut rest: Vec<f64> = segs.iter().enumerate().filter(|&(i, _)| i != skip).map(|(_, &v)| v).collect();
-            rest.sort_by(f64::total_cmp);
-            rest[rest.len() / 2]
-        };
-        let (first, last) = (segs[0], segs[n - 1]);
-        let first_out = first > OUTLIER_RATIO * median_of(0);
-        let last_out = last > OUTLIER_RATIO * median_of(n - 1);
-        if last_out && (!first_out || last >= first) {
-            hi -= 1;
-        } else if first_out {
-            lo += 1;
-        }
-    }
-    let (Some(&(t0, x0, y0)), Some(&(t1, x1, y1))) = (pts.get(lo), pts.get(hi)) else {
-        return (0.0, 0.0);
-    };
-    let dt = t1 - t0;
-    if dt < 1e-6 {
-        return (0.0, 0.0);
-    }
-    ((x1 - x0) / dt, (y1 - y0) / dt)
 }
 
 /// 친구가 던져 보낸 물건을 다듬은 것

@@ -46,6 +46,50 @@ pub fn throw_velocity(vx: f64, vy: f64, dpi: f64, lift: f64) -> (f64, f64) {
     clamp_speed(vx, vy - lift * vx.abs(), MAX_THROW_SPEED_LOGICAL * dpi)
 }
 
+/// 손을 놓기 전 이만큼(초)의 커서 기록으로 던지는 속도를 잰다
+pub const VELOCITY_WINDOW: f64 = 0.12;
+/// 처음·마지막 한 구간이 나머지 중간값의 이 배보다 빠르면 튄 이벤트로 본다
+const OUTLIER_RATIO: f64 = 3.0;
+
+/// 커서 기록 (시각, x, y)의 처음→끝 평균 속도 (물리 px/s). 같은 틱의 기록은 마지막 것만 쓰고,
+/// 처음이나 마지막 한 구간만 유난히 빠르면(튄 이벤트) 그 기록 하나를 뺀다
+pub fn release_velocity<'a>(samples: impl Iterator<Item = &'a (f64, f64, f64)>) -> (f64, f64) {
+    let mut pts: Vec<(f64, f64, f64)> = Vec::new();
+    for &s in samples {
+        match pts.last_mut() {
+            Some(last) if s.0 - last.0 < 1e-9 => *last = s,
+            _ => pts.push(s),
+        }
+    }
+    let speed = |a: (f64, f64, f64), b: (f64, f64, f64)| (b.1 - a.1).hypot(b.2 - a.2) / (b.0 - a.0);
+    let (mut lo, mut hi) = (0, pts.len().saturating_sub(1));
+    if pts.len() >= 4 {
+        let segs: Vec<f64> = pts.windows(2).map(|w| speed(w[0], w[1])).collect();
+        let n = segs.len();
+        let median_of = |skip: usize| {
+            let mut rest: Vec<f64> = segs.iter().enumerate().filter(|&(i, _)| i != skip).map(|(_, &v)| v).collect();
+            rest.sort_by(f64::total_cmp);
+            rest[rest.len() / 2]
+        };
+        let (first, last) = (segs[0], segs[n - 1]);
+        let first_out = first > OUTLIER_RATIO * median_of(0);
+        let last_out = last > OUTLIER_RATIO * median_of(n - 1);
+        if last_out && (!first_out || last >= first) {
+            hi -= 1;
+        } else if first_out {
+            lo += 1;
+        }
+    }
+    let (Some(&(t0, x0, y0)), Some(&(t1, x1, y1))) = (pts.get(lo), pts.get(hi)) else {
+        return (0.0, 0.0);
+    };
+    let dt = t1 - t0;
+    if dt < 1e-6 {
+        return (0.0, 0.0);
+    }
+    ((x1 - x0) / dt, (y1 - y0) / dt)
+}
+
 pub fn clamp_speed(vx: f64, vy: f64, max: f64) -> (f64, f64) {
     let speed = (vx * vx + vy * vy).sqrt();
     if speed <= max {

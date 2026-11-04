@@ -9,7 +9,7 @@ use crate::geom::Rect;
 use crate::sting::{ClickMeter, PathMeter, StingPhase};
 use crate::inside::{self, Mode, Stay};
 use crate::behavior::{self, ClickOutcome, ClickReaction, Family, Move, Personality, Rest, Special, Trick};
-use crate::physics::{step_air, throw_velocity, Body, GRAVITY, THROW_GRAVITY_LOGICAL, THROW_LIFT};
+use crate::physics::{step_air, throw_velocity, Body, GRAVITY, THROW_GRAVITY_LOGICAL, THROW_LIFT, VELOCITY_WINDOW};
 use crate::surfaces::{EndKind, Owner, Surface};
 use crate::visit::{self, ExitEdges, Guest};
 use crate::world::{Side, World};
@@ -28,9 +28,6 @@ const SEAM_MAX_HOP_UP: f64 = 150.0;
 const SEAM_HOP_MARGIN: f64 = 24.0;
 const HEART_SECS: f64 = 1.0;
 const CLICK_SLOP: f64 = 5.0;
-const VELOCITY_WINDOW: f64 = 0.12;
-/// 처음·마지막 구간 속도가 나머지 구간 중앙값의 이 배수를 넘으면 튄 샘플로 보고 뺀다
-const OUTLIER_RATIO: f64 = 3.0;
 const TICKLE_WINDOW: f64 = 0.6;
 const TICKLE_DIST: f64 = 250.0;
 const HOVER_PAUSE_SECS: f64 = 0.25;
@@ -2190,7 +2187,7 @@ impl Pet {
                     *trip = HomeTrip { stalled: trip.stalled, ..HomeTrip::new(trip.owner, trip.door_x, cx + self.grab_dx) };
                 }
                 self.record(cx, cy);
-                let (vx, vy) = self.release_velocity();
+                let (vx, vy) = crate::physics::release_velocity(self.history.iter());
                 let lift = if self.cfg.flies { 0.0 } else { THROW_LIFT };
                 let (vx, vy) = throw_velocity(vx, vy, self.cfg.dpi, lift);
                 if vx.abs() > 50.0 {
@@ -2232,45 +2229,6 @@ impl Pet {
         while self.history.len() > 2 && self.clock - self.history[0].0 > VELOCITY_WINDOW {
             self.history.pop_front();
         }
-    }
-
-    /// 최근 커서 샘플의 처음→끝 평균 속도 (물리 px/s). 같은 틱의 샘플은 마지막 것만 쓰고,
-    /// 처음이나 마지막 한 구간만 유난히 빠르면(튄 이벤트) 그 샘플 하나를 뺀다
-    fn release_velocity(&self) -> (f64, f64) {
-        let mut pts: Vec<(f64, f64, f64)> = Vec::with_capacity(self.history.len());
-        for &s in &self.history {
-            match pts.last_mut() {
-                Some(last) if s.0 - last.0 < 1e-9 => *last = s,
-                _ => pts.push(s),
-            }
-        }
-        let speed = |a: (f64, f64, f64), b: (f64, f64, f64)| (b.1 - a.1).hypot(b.2 - a.2) / (b.0 - a.0);
-        let (mut lo, mut hi) = (0, pts.len().saturating_sub(1));
-        if pts.len() >= 4 {
-            let segs: Vec<f64> = pts.windows(2).map(|w| speed(w[0], w[1])).collect();
-            let n = segs.len();
-            let median_of = |skip: usize| {
-                let mut rest: Vec<f64> = segs.iter().enumerate().filter(|&(i, _)| i != skip).map(|(_, &v)| v).collect();
-                rest.sort_by(f64::total_cmp);
-                rest[rest.len() / 2]
-            };
-            let (first, last) = (segs[0], segs[n - 1]);
-            let first_out = first > OUTLIER_RATIO * median_of(0);
-            let last_out = last > OUTLIER_RATIO * median_of(n - 1);
-            if last_out && (!first_out || last >= first) {
-                hi -= 1;
-            } else if first_out {
-                lo += 1;
-            }
-        }
-        let (Some(&(t0, x0, y0)), Some(&(t1, x1, y1))) = (pts.get(lo), pts.get(hi)) else {
-            return (0.0, 0.0);
-        };
-        let dt = t1 - t0;
-        if dt < 1e-6 {
-            return (0.0, 0.0);
-        }
-        ((x1 - x0) / dt, (y1 - y0) / dt)
     }
 
     /// 공중 중력: 던진 비행이면 논리 px 기준의 부드러운 중력, 아니면 평소 중력
