@@ -499,3 +499,16 @@ fn a_flying_pet_drops_from_where_it_flies() {
         assert_eq!(x, p.body.x);
     }
 }
+
+#[test]
+fn ground_gift_comes_back_when_its_monitor_shrinks() {
+    let wide = World::new(vec![], vec![Rect::new(0.0, 0.0, 3840.0, 1040.0)], 128.0);
+    let mut f = GiftField::default();
+    let t = f.add(gift("cat_yarn"), None, 3000.0, 1039.0).unwrap();
+    f.tick(0.05, &wide);
+    assert_eq!(f.get(t).unwrap().y, 1040.0);
+    f.tick(0.016, &world_with(vec![]));
+    let g = f.get(t).unwrap();
+    assert!(g.x <= 1920.0, "off screen at {}", g.x);
+    assert_eq!(g.y, 1040.0);
+}

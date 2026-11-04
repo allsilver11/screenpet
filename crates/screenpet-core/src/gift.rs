@@ -487,8 +487,15 @@ impl LiveGift {
         if let Some((owner, dx)) = self.on {
             if let Some((ax, ay)) = world.anchor(owner) {
                 let x = ax + dx;
-                // 바닥은 최대화한 창에 가려져도 그 자리에 그대로 (선물 창은 항상 위에 있다)
-                let held = matches!(owner, Owner::Ground(_)) || world.piece_at(owner, x).is_some();
+                // 바닥은 최대화한 창에 가려져도 그 자리에 그대로 (선물 창은 항상 위에 있다).
+                // 모니터가 줄어 화면 밖이 됐으면 가까운 바닥으로 돌아온다
+                let on_ground = matches!(owner, Owner::Ground(_));
+                if on_ground && !world.work_areas.iter().any(|r| r.left <= x && x <= r.right && r.bottom == ay) {
+                    (self.x, self.y) = (x, ay);
+                    self.rest_on_nearest_ground(world);
+                    return;
+                }
+                let held = on_ground || world.piece_at(owner, x).is_some();
                 if held {
                     (self.x, self.y) = (x, ay);
                     return;

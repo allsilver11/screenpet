@@ -60,7 +60,11 @@ pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], pet_height:
         }
         // 창 윗면 중앙이 속한 작업 영역 기준으로, 펫이 머리를 둘 공간이 없으면 건너뜀
         let cx = (w.rect.left + w.rect.right) / 2.0;
-        match work_areas.iter().find(|wa| cx >= wa.left && cx <= wa.right) {
+        let wa = work_areas
+            .iter()
+            .find(|wa| cx >= wa.left && cx <= wa.right && y >= wa.top && y <= wa.bottom)
+            .or_else(|| work_areas.iter().find(|wa| cx >= wa.left && cx <= wa.right));
+        match wa {
             Some(wa) if y >= wa.top + pet_height => {}
             _ => continue,
         }
@@ -204,6 +208,16 @@ mod tests {
                 assert_eq!((g.start_kind, g.end_kind), (EndKind::Wall, EndKind::Wall), "{areas:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_window_on_the_upper_stacked_monitor_has_a_top_to_stand_on() {
+        let stacked = vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(0.0, -1080.0, 1920.0, -40.0)];
+        let s = compute_surfaces(&[win(1, 500.0, -800.0, 1100.0, -300.0)], &stacked, 128.0);
+        assert_eq!(pieces_of(&s, Owner::Window(1)).len(), 1);
+        // 그 모니터 위쪽에 붙어 머리 둘 자리가 없는 창은 여전히 빠진다
+        let s = compute_surfaces(&[win(1, 500.0, -1070.0, 1100.0, -300.0)], &stacked, 128.0);
+        assert!(pieces_of(&s, Owner::Window(1)).is_empty());
     }
 
     #[test]
