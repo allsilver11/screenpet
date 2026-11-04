@@ -22,7 +22,7 @@ use crate::{
     Backoff, Conn, Kind, NetEvent, PairStage, Pairing, SessionGuard, Shared, State, INVITED_WINDOW,
     MAX_INVITED_PER_WINDOW, MAX_INVITES_IN, MAX_INVITES_IN_PER_ADDR, MAX_PAIR_ATTEMPTS_PER_ADDR, PRE_AUTH_MAX,
 };
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -77,6 +77,7 @@ struct Ctx {
     hs_hash: [u8; 32],
     peer_addr: String,
     unverified: Arc<AtomicBool>,
+    surfaced: Arc<AtomicBool>,
 }
 
 /// Drive one link until it closes, times out, misbehaves or we shut down.
@@ -111,6 +112,7 @@ pub(crate) fn run_session(
         hs_hash: hash,
         peer_addr: frames.peer_addr(),
         unverified: guard.unverified.clone(),
+        surfaced: guard.surfaced.clone(),
     };
     let we_pinned_them = shared.state().friends.iter().any(|f| f.public_key == remote_static);
     link.send(&ctl(Control::Hello {
@@ -297,9 +299,21 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
 }
 
 /// Pin the peer of pairing link `token` (both users confirmed in time).
-/// Returns other stranger links claiming the same id, to be closed.
+/// Returns other stranger links claiming the same id, to be closed. The friend
+/// list can have filled up since the invite (pairings run side by side): then
+/// this pairing ends in a refusal instead.
 fn pin(shared: &Shared, st: &mut State, token: u64) -> Vec<Arc<SecureLink>> {
+    let full = st.friends.len() >= MAX_FRIENDS;
     let Some(conn) = st.conns.get_mut(&token) else { return Vec::new() };
+    if full {
+        let (id, link) = (conn.peer_id.clone(), conn.link.clone());
+        if let Kind::Stranger(Some(p)) = &mut conn.kind {
+            fail(shared, p, &id, token);
+        }
+        link.send(&ctl(Control::InviteReply { accepted: false }));
+        link.finish();
+        return Vec::new();
+    }
     conn.kind = Kind::Friend;
     conn.announced = true;
     shared.release_unverified(&conn.unverified);
@@ -326,6 +340,12 @@ fn fail(shared: &Shared, p: &mut Pairing, id: &str, token: u64) {
 
 fn expired(shared: &Shared, p: &Pairing, now: Instant) -> bool {
     now.duration_since(p.since) > shared.timing.invite_timeout
+}
+
+/// The inviter answers our random by itself, at once; only the SAS waits for
+/// people. One that stays silent shouldn't hold a pairing slot all that time.
+fn reveal_overdue(shared: &Shared, p: &Pairing, now: Instant) -> bool {
+    matches!(p.stage, PairStage::AwaitReveal { .. }) && now.duration_since(p.since) > shared.timing.conn_timeout.min(PRE_AUTH_MAX)
 }
 
 /// Record an incoming pairing attempt; `true` if it is within all limits.
@@ -456,6 +476,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             let pet = pet.clone();
             p.stage = PairStage::Confirm;
             p.surfaced = true;
+            ctx.surfaced.store(true, Ordering::SeqCst);
             st.invited_log.push_back(now);
             shared.emit(NetEvent::Invited { from: id.to_string(), name: name.to_string(), pet, sas, pairing: ctx.token });
             true
@@ -533,7 +554,7 @@ fn timers(shared: &Shared, ctx: &Ctx) -> bool {
     }
     let (since, id) = (conn.since, conn.peer_id.clone());
     match &mut conn.kind {
-        Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed) && expired(shared, p, now) => {
+        Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed) && (expired(shared, p, now) || reveal_overdue(shared, p, now)) => {
             fail(shared, p, &id, ctx.token);
             drop(st);
             ctx.link.send(&ctl(Control::InviteReply { accepted: false }));

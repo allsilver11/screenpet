@@ -366,6 +366,13 @@ fn own_announcement_is_ignored() {
 }
 
 #[test]
+fn a_taken_discovery_port_stops_a_lan_only_net() {
+    let holder = UdpSocket::bind("0.0.0.0:0").unwrap();
+    let port = holder.local_addr().unwrap().port();
+    assert!(Net::start(cfg("solo", "Solo", key(), port, free_udp_port(), vec![])).is_err(), "nothing could work without discovery");
+}
+
+#[test]
 fn shutdown_is_prompt_and_frees_discovery_port() {
     let (n, _rx) = Net::start(cfg("solo", "Solo", key(), 0, free_udp_port(), vec![])).unwrap();
     let p = n.discovery_port();
@@ -998,6 +1005,42 @@ fn reconnecting_does_not_refill_any_budget() {
 }
 
 #[test]
+fn a_friend_with_a_new_key_stays_offline_until_both_remove_each_other_and_pair_again() {
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (ka, old_kb, new_kb) = (key(), key(), key());
+    // B가 키를 잃고 새 키로 시작했다: A는 예전 키를 고정하고 있고, B는 A를 친구로 기억한다
+    let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, pa, pb, vec![friend("bbbb", &old_kb)])).unwrap();
+    let (b, brx) = Net::start(cfg("bbbb", "Bob", new_kb, pb, pa, vec![friend("aaaa", &ka)])).unwrap();
+    let silent = |e: &NetEvent| is_connected(e) || matches!(e, NetEvent::Invited { .. } | NetEvent::InviteSent { .. });
+    assert_eq!(wait_for(&arx, 2.5, silent), None, "A never takes the new key by itself");
+    assert_eq!(a.friends(), vec![friend("bbbb", &old_kb)], "the pinned key stays");
+    // A가 손으로 지운다. B는 (인증된) A가 자기를 모른다는 걸 알게 되고, 역시 손으로 지운다
+    a.unfriend("bbbb");
+    assert!(a.friends().is_empty());
+    assert!(wait_for(&brx, 8.0, |e| *e == NetEvent::FriendForgotUs { id: "aaaa".into() }).is_some());
+    b.unfriend("aaaa");
+    // 처음부터 다시 짝맞추기
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let sent = loop {
+        a.invite("bbbb", "cat");
+        if let Some(e) = wait_for(&arx, 0.3, |e| matches!(e, NetEvent::InviteSent { .. })) {
+            break e;
+        }
+        assert!(Instant::now() < deadline, "no InviteSent");
+    };
+    let invited = wait_for(&brx, 5.0, |e| matches!(e, NetEvent::Invited { .. })).expect("Invited");
+    assert_eq!(sas_of(&sent), sas_of(&invited));
+    a.answer_invite(pairing_of(&sent), true);
+    b.answer_invite(pairing_of(&invited), true);
+    assert!(wait_for(&arx, 5.0, is_connected).is_some());
+    assert!(wait_for(&brx, 5.0, is_connected).is_some());
+    assert_eq!(a.friends(), vec![friend("bbbb", &new_kb)], "the new key, from a pairing both people confirmed");
+    assert_eq!(b.friends(), vec![friend("aaaa", &ka)]);
+    a.shutdown();
+    b.shutdown();
+}
+
+#[test]
 fn stranger_rehello_does_not_rename() {
     let (net, rx, port) = start_sniffed(key(), vec![]);
     let mut p = raw_connect(port, &key(), "zzzz");
@@ -1547,6 +1590,68 @@ fn confirmations_after_pairing_timeout_never_pin() {
     net.answer_invite(pairing_of(&ev2), true);
     assert_eq!(wait_for(&rx, 1.5, is_connected), None, "nothing pins after the deadline");
     assert!(net.friends().is_empty());
+    net.shutdown();
+}
+
+#[test]
+fn pairings_finishing_together_cannot_overfill_the_friend_list() {
+    // 자리가 하나 남았을 때 두 짝맞추기가 나란히 끝까지 간다
+    let (net, rx, port) = start_sniffed(key(), many_friends(MAX_FRIENDS - 1));
+    let (mut p1, ev1) = raw_pairing(port, &rx, "zzz1");
+    let (mut p2, ev2) = raw_pairing(port, &rx, "zzz2");
+    p1.send(json!({"type": "invite_reply", "accepted": true})).unwrap();
+    p2.send(json!({"type": "invite_reply", "accepted": true})).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    net.answer_invite(pairing_of(&ev1), true);
+    net.answer_invite(pairing_of(&ev2), true);
+    assert_eq!(wait_for(&rx, 2.0, is_connected), Some(NetEvent::Connected { id: "zzz1".into(), name: "Raw".into() }));
+    assert_eq!(net.friends().len(), MAX_FRIENDS, "never more than the cap");
+    assert!(!net.friends().iter().any(|f| f.id == "zzz2"));
+    assert_eq!(
+        wait_for(&rx, 2.0, |e| matches!(e, NetEvent::InviteAnswered { from, accepted: false, .. } if from == "zzz2")),
+        Some(NetEvent::InviteAnswered { from: "zzz2".into(), accepted: false, pairing: pairing_of(&ev2) }),
+        "the one that didn't fit is told so"
+    );
+    assert_eq!(p2.recv_msg().unwrap(), json!({"type": "invite_reply", "accepted": false}));
+    net.shutdown();
+}
+
+#[test]
+fn a_flood_cannot_evict_a_pairing_waiting_for_the_user() {
+    let (net, rx, port) = start_sniffed(key(), vec![]);
+    let (mut p, ev) = raw_pairing(port, &rx, "zzzz");
+    // 사람이 이모지를 비교하는 동안 낯선 연결이 풀을 몇 바퀴 돈다 (다른 주소들과 같은 주소에서)
+    let mut flood = Vec::new();
+    for i in 0..40u8 {
+        flood.push(connect_from([127, 0, 0, 10 + i % 10], port).expect("flood connection"));
+        flood.push(connect_from([127, 0, 0, 1], port).expect("flood connection"));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    p.send(json!({"type": "invite_reply", "accepted": true})).unwrap();
+    net.answer_invite(pairing_of(&ev), true);
+    assert_eq!(wait_for(&rx, 2.0, is_connected), Some(NetEvent::Connected { id: "zzzz".into(), name: "Raw".into() }), "the pairing survived");
+    net.shutdown();
+}
+
+#[test]
+fn an_inviter_that_never_reveals_does_not_hold_a_slot_for_the_whole_pairing_time() {
+    let (net, _rx, port) = start_sniffed(key(), vec![]);
+    let mut p = raw_connect(port, &key(), "zzzz");
+    p.send(json!({"type": "invite", "pet": "cat", "commit": hex(&blake2s(&[&random32()]))})).unwrap();
+    assert_eq!(p.recv_msg().unwrap()["type"], "pair_random");
+    p.s.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let t = Instant::now();
+    let mut refused = None;
+    while refused.is_none() && t.elapsed() < fast().invite_timeout {
+        let _ = p.send(json!({"type": "ping"})); // 연결은 살아 있다
+        if let Ok(v) = p.recv() {
+            if v["type"] == "invite_reply" {
+                refused = Some(t.elapsed());
+            }
+        }
+    }
+    let at = refused.expect("refused before the pairing deadline");
+    assert!(at <= fast().conn_timeout + Duration::from_millis(500), "{at:?}");
     net.shutdown();
 }
 

@@ -355,6 +355,25 @@ fn a_lan_link_replaced_by_a_relay_link_within_grace_does_not_flap() {
 }
 
 #[test]
+fn a_taken_discovery_port_leaves_the_relay_working() {
+    let relay = start_relay("127.0.0.1:0".parse().unwrap());
+    let u = url(&relay);
+    let holder = UdpSocket::bind("0.0.0.0:0").unwrap();
+    let port = holder.local_addr().unwrap().port();
+    let (ka, kb) = (Net::generate_static_key(), Net::generate_static_key());
+    let (fa, fb) = friends_of(&ka, &kb);
+    // 다른 프로그램이 발견 포트를 쓰고 있어도 인터넷 친구는 만난다
+    let (a, arx) = start_net("aaaa", ka, port, free_udp_port(), fa, &u);
+    let (_b, brx) = start_net("bbbb", kb, free_udp_port(), free_udp_port(), fb, &u);
+    assert_eq!(a.discovery_port(), port);
+    assert!(wait_for(&arx, 8.0, is_connected).is_some(), "linked through the relay");
+    assert!(wait_for(&brx, 8.0, is_connected).is_some());
+    // 끊긴 친구 알림(유예 뒤 Disconnected)도 그대로 돈다
+    drop(_b);
+    assert!(wait_for(&arx, 8.0, |e| matches!(e, NetEvent::Disconnected { .. })).is_some());
+}
+
+#[test]
 fn the_relay_key_is_pinned() {
     let relay = start_relay("127.0.0.1:0".parse().unwrap());
     let u = url(&relay);

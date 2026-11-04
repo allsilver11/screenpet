@@ -35,7 +35,16 @@ const DIAL_WINDOW: Duration = Duration::from_secs(60);
 /// Bound on the rate tables and the failure history.
 const MAX_TRACKED: usize = 256;
 
-pub(crate) fn run(shared: Arc<Shared>, udp: UdpSocket, broadcast_to: SocketAddr) {
+/// `udp` = `None`: the port was taken. Nothing is announced or heard, but the
+/// timers still run (they also serve links through the relay).
+pub(crate) fn run(shared: Arc<Shared>, udp: Option<UdpSocket>, broadcast_to: SocketAddr) {
+    let Some(udp) = udp else {
+        while !shared.stopping() {
+            std::thread::sleep(TICK);
+            crate::peers::flush_gone(&shared);
+        }
+        return;
+    };
     let mut next_announce = Instant::now();
     let mut buf = [0u8; 2048];
     while !shared.stopping() {

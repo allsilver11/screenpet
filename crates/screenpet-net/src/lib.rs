@@ -526,12 +526,18 @@ struct Unverified {
     frames: Arc<dyn transport::FrameLink>,
     /// Cleared when the link authenticates as a friend or ends.
     active: Arc<AtomicBool>,
+    /// Set while a person is comparing the emoji on this link (see `SessionGuard`).
+    surfaced: Arc<AtomicBool>,
 }
 
 /// Holds an unverified-inbound slot (if any) until released or dropped.
 pub(crate) struct SessionGuard {
     shared: Arc<Shared>,
     pub unverified: Arc<AtomicBool>,
+    /// The link shows a pairing to the user: not evicted and not counted in
+    /// the pool (those are bounded by `MAX_INVITES_IN`), so a flood can't end a
+    /// pairing while two people compare emoji.
+    pub surfaced: Arc<AtomicBool>,
     /// Counts against `MAX_HANDSHAKES` while set.
     handshaking: AtomicBool,
     class: usize,
@@ -611,6 +617,7 @@ impl Shared {
             return None;
         }
         let active = Arc::new(AtomicBool::new(true));
+        let surfaced = Arc::new(AtomicBool::new(false));
         let mut evicted = Vec::new();
         {
             let mut pool = self.unverified.lock().unwrap_or_else(|e| e.into_inner());
@@ -619,7 +626,7 @@ impl Shared {
                 let victim = pool
                     .iter()
                     .enumerate()
-                    .filter(|(_, u)| u.trusted == trusted && (!same_ip || u.ip == ip))
+                    .filter(|(_, u)| u.trusted == trusted && !u.surfaced.load(Ordering::SeqCst) && (!same_ip || u.ip == ip))
                     .min_by_key(|(_, u)| u.since)
                     .map(|(i, _)| i);
                 if let Some(i) = victim {
@@ -628,28 +635,29 @@ impl Shared {
                     evicted.push(u.frames);
                 }
             };
-            let same_ip = pool.iter().filter(|u| u.trusted == trusted && u.ip == ip).count();
+            let counted = |u: &&Unverified| u.trusted == trusted && !u.surfaced.load(Ordering::SeqCst);
+            let same_ip = pool.iter().filter(counted).filter(|u| u.ip == ip).count();
             if trusted {
                 if same_ip >= MAX_TRUSTED_PER_IP {
                     evict_oldest(&mut pool, true);
-                } else if pool.iter().filter(|u| u.trusted).count() >= MAX_TRUSTED_INBOUND {
+                } else if pool.iter().filter(counted).count() >= MAX_TRUSTED_INBOUND {
                     evict_oldest(&mut pool, false);
                 }
             } else if same_ip >= MAX_UNVERIFIED_PER_IP {
                 evict_oldest(&mut pool, true);
-            } else if pool.iter().filter(|u| !u.trusted).count() >= MAX_UNVERIFIED_INBOUND {
+            } else if pool.iter().filter(counted).count() >= MAX_UNVERIFIED_INBOUND {
                 evict_oldest(&mut pool, false);
             }
-            pool.push(Unverified { ip, trusted, since: Instant::now(), frames, active: active.clone() });
+            pool.push(Unverified { ip, trusted, since: Instant::now(), frames, active: active.clone(), surfaced: surfaced.clone() });
         }
         for f in evicted {
             f.close();
         }
-        Some(SessionGuard { shared: self.clone(), unverified: active, handshaking: AtomicBool::new(true), class })
+        Some(SessionGuard { shared: self.clone(), unverified: active, surfaced, handshaking: AtomicBool::new(true), class })
     }
     /// Outgoing links hold no unverified slot.
     pub fn outbound_guard(self: &Arc<Self>) -> SessionGuard {
-        SessionGuard { shared: self.clone(), unverified: Arc::new(AtomicBool::new(false)), handshaking: AtomicBool::new(false), class: 0 }
+        SessionGuard { shared: self.clone(), unverified: Arc::new(AtomicBool::new(false)), surfaced: Arc::new(AtomicBool::new(false)), handshaking: AtomicBool::new(false), class: 0 }
     }
     /// The link proved to be a friend (or ended): free its unverified slot.
     pub fn release_unverified(&self, flag: &AtomicBool) {
@@ -658,6 +666,13 @@ impl Shared {
             pool.retain(|u| u.active.load(Ordering::SeqCst));
         }
     }
+}
+
+fn discovery_socket(port: u16) -> std::io::Result<UdpSocket> {
+    let udp = UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], port)))?;
+    udp.set_broadcast(true)?;
+    udp.set_read_timeout(Some(TICK))?;
+    Ok(udp)
 }
 
 /// Handle to the running network. Dropping it (or `shutdown`) stops all
@@ -681,10 +696,17 @@ impl Net {
     }
 
     pub fn start(cfg: NetConfig) -> std::io::Result<(Net, Receiver<NetEvent>)> {
-        let udp = UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], cfg.discovery_port)))?;
-        udp.set_broadcast(true)?;
-        udp.set_read_timeout(Some(TICK))?;
-        let discovery_port = udp.local_addr()?.port();
+        // The discovery port can be taken by another program: friends through
+        // the relay don't need it. Without a relay nothing could work.
+        let udp = match discovery_socket(cfg.discovery_port) {
+            Ok(u) => Some(u),
+            Err(e) if cfg.relay_url.as_deref().is_some_and(|u| !u.is_empty()) => {
+                eprintln!("screenpet discovery off (port {}): {e}; relay only", cfg.discovery_port);
+                None
+            }
+            Err(e) => return Err(e),
+        };
+        let discovery_port = udp.as_ref().and_then(|u| u.local_addr().ok()).map_or(cfg.discovery_port, |a| a.port());
         let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], 0)))?;
         listener.set_nonblocking(true)?;
         let tcp_port = listener.local_addr()?.port();
