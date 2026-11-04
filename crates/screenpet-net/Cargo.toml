@@ -11,11 +11,10 @@ screenpet-crypto = { path = "../screenpet-crypto" }
 snow = { version = "0.10", default-features = false, features = ["use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
 curve25519-dalek = { version = "4.1", default-features = false }
 blake2 = { version = "0.10", default-features = false }
-# Relay transport: WebSocket over rustls with a pure-Rust crypto provider
-# (no C toolchain needed, builds for windows-gnu from Linux).
+# Relay transport: WebSocket over rustls with ring. ring's build script compiles C,
+# so every target needs a C compiler, even for `cargo check` (windows-gnu: mingw gcc).
 tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
-rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
-rustls-rustcrypto = "0.0.2-alpha"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 
 [dev-dependencies]

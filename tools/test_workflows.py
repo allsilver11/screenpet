@@ -69,6 +69,13 @@ def test_checkouts_leave_no_credentials_behind():
     assert all(s["with"]["persist-credentials"] is False for s in checkouts)
 
 
+def test_the_windows_net_check_has_a_c_compiler_for_ring():
+    """cargo check도 ring의 빌드 스크립트를 돌리니 mingw gcc가 먼저 깔려 있어야 한다."""
+    runs = [s.get("run", "") for s in steps("relay")]
+    check = next(i for i, r in enumerate(runs) if "-p screenpet-net --target x86_64-pc-windows-gnu" in r)
+    assert any("apt-get install" in r and "gcc-mingw-w64-x86-64" in r for r in runs[:check])
+
+
 def test_every_build_respects_the_lock_file():
     cargo = [r for r in all_runs() if re.search(r"\bcargo (test|check|build)\b", r)]
     assert cargo

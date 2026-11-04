@@ -448,9 +448,9 @@ fn tls_config() -> Arc<rustls::ClientConfig> {
     CONFIG
         .get_or_init(|| {
             let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
-            let cfg = rustls::ClientConfig::builder_with_provider(Arc::new(rustls_rustcrypto::provider()))
+            let cfg = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
                 .with_safe_default_protocol_versions()
-                .expect("rustcrypto provider supports TLS 1.2/1.3")
+                .expect("ring provider supports TLS 1.2/1.3")
                 .with_root_certificates(roots)
                 .with_no_client_auth();
             Arc::new(cfg)
@@ -1030,6 +1030,112 @@ mod tests {
         assert!(got.is_err());
         assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
         assert_eq!(unless_stopped(&AtomicBool::new(false), || Ok(2)).unwrap(), 2);
+    }
+
+    /// 어떤 루트에도 없는 자체 서명 인증서 (localhost, 2126년까지). 시험 전용 키라 비밀이 아니다.
+    const TEST_CERT: &str = "-----BEGIN CERTIFICATE-----\n\
+MIIBsTCCAVagAwIBAgIUHLZ0vPs7S8i3qXDbZxx+ONL2+DAwCgYIKoZIzj0EAwIw\n\
+IzEhMB8GA1UEAwwYc2NyZWVucGV0IHVudHJ1c3RlZCB0ZXN0MCAXDTI2MTEwNDE5\n\
+Mzg0MVoYDzIxMjYxMDExMTkzODQxWjAjMSEwHwYDVQQDDBhzY3JlZW5wZXQgdW50\n\
+cnVzdGVkIHRlc3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQ0sk9q8y54/vas\n\
+zmxM8KjkMLgLIsCzRoiK+gDhY9cS6gsFC9oTEA3h5HGh+huoFghmkruTSR4bcG8k\n\
+Pm0B4kv0o2YwZDAdBgNVHQ4EFgQUkUMkrMSZVgg9WIXkqRle4nl6Ng4wHwYDVR0j\n\
+BBgwFoAUkUMkrMSZVgg9WIXkqRle4nl6Ng4wFAYDVR0RBA0wC4IJbG9jYWxob3N0\n\
+MAwGA1UdEwEB/wQCMAAwCgYIKoZIzj0EAwIDSQAwRgIhAJei3ERvkGlO+qDHBCwf\n\
+aT/r8tyoQc7MFx0Cla6ApmvAAiEAnfYyhIckgowyTyDTeKvoOE0tK0lSzNVsa6hr\n\
+4mLyLUc=\n\
+-----END CERTIFICATE-----";
+    const TEST_KEY: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgo4ifw4MDbd3rkx7Q\n\
+q7r589NxUGjSbyak2ry2O74rNYehRANCAAQ0sk9q8y54/vaszmxM8KjkMLgLIsCz\n\
+RoiK+gDhY9cS6gsFC9oTEA3h5HGh+huoFghmkruTSR4bcG8kPm0B4kv0\n\
+-----END PRIVATE KEY-----";
+
+    fn test_cert() -> rustls::pki_types::CertificateDer<'static> {
+        use rustls::pki_types::pem::PemObject;
+        rustls::pki_types::CertificateDer::from_pem_slice(TEST_CERT.as_bytes()).unwrap()
+    }
+
+    /// 앱과 같은 암호 제공자로 TLS 서버를 한 번 받는다: (포트, 핸드셰이크 결과)
+    fn tls_server(versions: &[&'static rustls::SupportedProtocolVersion]) -> (u16, std::thread::JoinHandle<io::Result<()>>) {
+        use rustls::pki_types::pem::PemObject;
+        let key = rustls::pki_types::PrivateKeyDer::from_pem_slice(TEST_KEY.as_bytes()).unwrap();
+        let cfg = rustls::ServerConfig::builder_with_provider(tls_config().crypto_provider().clone())
+            .with_protocol_versions(versions)
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![test_cert()], key)
+            .unwrap();
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut tcp, _) = listener.accept()?;
+            tcp.set_read_timeout(Some(Duration::from_secs(5)))?;
+            let mut conn = rustls::ServerConnection::new(Arc::new(cfg)).map_err(io::Error::other)?;
+            while conn.is_handshaking() {
+                conn.complete_io(&mut tcp)?;
+            }
+            Ok(())
+        });
+        (port, server)
+    }
+
+    #[test]
+    fn a_certificate_outside_the_webpki_roots_is_refused() {
+        let (port, server) = tls_server(rustls::ALL_VERSIONS);
+        let url = format!("wss://localhost:{port}/ws");
+        let err = connect(&url, &AtomicBool::new(false)).err().expect("an untrusted relay must not connect");
+        // 다른 이유(연결 실패, 시간 초과)로 실패한 것을 통과로 치지 않는다
+        assert!(err.to_string().contains("UnknownIssuer"), "{err}");
+        let _ = server.join().unwrap();
+    }
+
+    /// 위 거부가 인증서 탓임을 보이는 대조군이자, 망 없이 도는 TLS 1.2/1.3 왕복이다.
+    #[test]
+    fn the_provider_completes_tls_12_and_13_with_a_trusted_certificate() {
+        for (version, expected) in [
+            (&rustls::version::TLS13, rustls::ProtocolVersion::TLSv1_3),
+            (&rustls::version::TLS12, rustls::ProtocolVersion::TLSv1_2),
+        ] {
+            // 서버가 한 판만 받으니 클라이언트는 앱처럼 둘 다 내놓아야 한다
+            let (port, server) = tls_server(&[version]);
+            let mut roots = rustls::RootCertStore::empty();
+            roots.add(test_cert()).unwrap();
+            let cfg = rustls::ClientConfig::builder_with_provider(tls_config().crypto_provider().clone())
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            let name = rustls::pki_types::ServerName::try_from("localhost").unwrap();
+            let mut conn = rustls::ClientConnection::new(Arc::new(cfg), name).unwrap();
+            let mut tcp = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            while conn.is_handshaking() {
+                conn.complete_io(&mut tcp).unwrap();
+            }
+            assert_eq!(conn.protocol_version(), Some(expected));
+            server.join().unwrap().unwrap();
+        }
+    }
+
+    /// 실제 릴레이에 TLS와 WebSocket만 잇고 챌린지를 받으면 끊는다 (등록 없음, 키를 보내지 않음).
+    /// `cargo test -p screenpet-net --lib live_relay_gives_a_challenge_over_tls -- --ignored`
+    #[test]
+    #[ignore]
+    fn live_relay_gives_a_challenge_over_tls() {
+        let stop = AtomicBool::new(false);
+        let mut ws = connect(DEFAULT_RELAY_URL, &stop).expect("TLS and WebSocket handshake");
+        if let Stream::Tls(tls) = &ws.get_ref().0 {
+            println!("{:?} {:?}", tls.conn.protocol_version(), tls.conn.negotiated_cipher_suite().map(|s| s.suite()));
+        } else {
+            panic!("not TLS");
+        }
+        let challenge = read_server(&mut ws, Instant::now() + HANDSHAKE_TIMEOUT, &stop);
+        let Some(ServerMsg::Challenge { relay, nonce }) = challenge else { panic!("no challenge") };
+        assert_eq!(relay, DEFAULT_RELAY_KEY);
+        assert!(noise::hex32(&nonce).is_some(), "{nonce}");
+        let _ = ws.close(None);
+        let _ = ws.flush();
     }
 
     #[test]

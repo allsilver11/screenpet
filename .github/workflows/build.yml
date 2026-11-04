@@ -64,7 +64,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Relay tests
         run: cargo test --locked -p screenpet-relay
-      # ring으로 바꾸면 C 컴파일이 필요해진다: 그때 이 단계에 mingw gcc가 필요할 수 있다
+      # ring의 빌드 스크립트는 cargo check에서도 C를 컴파일한다. 이 교차 검사에만 mingw gcc가 필요하고,
+      # 리눅스 빌드는 러너의 gcc, Windows는 MSVC, macOS는 clang이 대상 아키텍처별로 맡는다
+      - name: Install the Windows C compiler
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
       - name: Check the net crate for Windows
         run: cargo check --locked -p screenpet-net --target x86_64-pc-windows-gnu
       - name: Build relay (Linux)
