@@ -1735,9 +1735,6 @@ impl Pet {
             self.queue_food(food, l);
             return true;
         }
-        if self.cfg.flies && !self.housed && self.standing.is_none() {
-            return self.feed_flying(result, food);
-        }
         self.pacing.after_beat = None;
         match result {
             FeedResult::Refused => {

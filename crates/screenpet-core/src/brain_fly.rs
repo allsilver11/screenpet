@@ -510,23 +510,6 @@ impl Pet {
         self.next_after_beat(State::Move { kind, remaining: flight::MAX_FLIGHT_SECS })
     }
 
-    /// 떠 있는 나는 동물의 먹이: 배부르면 떠서 갸웃, 간식은 떠서 오물오물, 밥·물은 꽃(그릇)이 피어난 자리에 내려앉아 먹는다
-    pub(super) fn feed_flying(&mut self, result: FeedResult, food: Food) -> bool {
-        let free = !self.off_surface() && !self.is_held() && !self.in_transit() && self.home_trip.is_none() && !matches!(self.state, State::Sting { .. });
-        if !free {
-            return false;
-        }
-        self.pacing.after_beat = None;
-        match result {
-            FeedResult::Refused => {
-                self.speech = Some(Speech::Full);
-                self.state = State::Trick { kind: Trick::Tilt, remaining: REFUSE_TILT_SECS };
-            }
-            FeedResult::Ate { leveled_up } => self.serve(food, leveled_up),
-        }
-        true
-    }
-
     /// 손에 든 음식으로 날아가 얼굴을 음식에 갖다 댄다 (내려앉아 있었으면 떠오른다)
     fn update_fly_want_food(&mut self, dt: f64, world: &World) {
         let Some((fx, fy)) = self.hand else {
