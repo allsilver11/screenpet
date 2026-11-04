@@ -32,20 +32,12 @@ impl Decals {
         let label = format!("{PREFIX}{}", self.next);
         self.next += 1;
         let size = crate::art::fit((SIZE, SIZE), dpi);
-        let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("sting.html".into()))
-            .title("ScreenPet Sting")
-            .initialization_script(crate::art::style_script())
-            .inner_size(size.0, size.1)
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .focused(false)
-            .visible(false)
-            .build()
-            .inspect(crate::overlay::float_everywhere);
+        let built = crate::overlay::finish(
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App("sting.html".into()))
+                .title("ScreenPet Sting")
+                .initialization_script(crate::art::style_script())
+                .inner_size(size.0, size.1),
+        );
         let window = match built {
             Ok(w) => w,
             Err(e) => {

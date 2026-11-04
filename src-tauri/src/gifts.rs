@@ -240,21 +240,13 @@ fn bottom_center(x: f64, y: f64, dpi: f64) -> (i32, i32) {
 /// image는 Gift::wire — 목록에 있는 id뿐이다 (친구가 보낸 글자는 Gift::parse를 지나면 이 목록의 값으로 바뀐다)
 fn spawn_window(app: &AppHandle, label: &str, image: &str, pos: (i32, i32), dpi: f64) -> Option<WebviewWindow> {
     let side = size(dpi);
-    let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("gift.html".into()))
-        .title("ScreenPet Gift")
-        .initialization_script(&format!("window.GIFT_IMAGE = {image:?}; {}", crate::art::style_script()))
-        .inner_size(side, side)
-        .accept_first_mouse(true)
-        .transparent(true)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .focused(false)
-        .visible(false)
-        .build()
-        .inspect(crate::overlay::float_everywhere);
+    let built = crate::overlay::finish(
+        WebviewWindowBuilder::new(app, label, WebviewUrl::App("gift.html".into()))
+            .title("ScreenPet Gift")
+            .initialization_script(&format!("window.GIFT_IMAGE = {image:?}; {}", crate::art::style_script()))
+            .inner_size(side, side)
+            .accept_first_mouse(true),
+    );
     let window = match built {
         Ok(w) => w,
         Err(e) => {

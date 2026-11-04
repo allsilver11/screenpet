@@ -77,20 +77,12 @@ impl Props {
             None => (WIDTH * scale, HEIGHT * scale),
         };
         let style = if pixel_dot.is_some() { " window.ART_STYLE = \"pixel\";" } else { "" };
-        let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
-            .title("ScreenPet Food")
-            .initialization_script(&format!("window.PROP_IMAGE = {:?};{style}", image(prop)))
-            .inner_size(w, h)
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .focused(false)
-            .visible(false)
-            .build()
-            .inspect(crate::overlay::float_everywhere);
+        let built = crate::overlay::finish(
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
+                .title("ScreenPet Food")
+                .initialization_script(&format!("window.PROP_IMAGE = {:?};{style}", image(prop)))
+                .inner_size(w, h),
+        );
         let window = match built {
             Ok(w) => w,
             Err(e) => {
@@ -140,20 +132,12 @@ impl HandWindow {
         let side = crate::art::fit((HAND_SIZE, HAND_SIZE), dpi);
         let label = format!("hand-{}", self.next);
         self.next += 1;
-        let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
-            .title("ScreenPet Hand Food")
-            .initialization_script(&format!("window.PROP_IMAGE = {icon:?}; window.PROP_MODE = \"hand\"; {}", crate::art::style_script()))
-            .inner_size(side.0, side.1)
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .focused(false)
-            .visible(false)
-            .build()
-            .inspect(crate::overlay::float_everywhere);
+        let built = crate::overlay::finish(
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
+                .title("ScreenPet Hand Food")
+                .initialization_script(&format!("window.PROP_IMAGE = {icon:?}; window.PROP_MODE = \"hand\"; {}", crate::art::style_script()))
+                .inner_size(side.0, side.1),
+        );
         let window = match built {
             Ok(w) => w,
             Err(e) => {

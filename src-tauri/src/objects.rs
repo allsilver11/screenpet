@@ -602,21 +602,13 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale
     let (w, h) = (shape.window_side(), shape.window_side());
     let (px, py) = shape.pivot_logical();
     // kind.id()와 숫자는 코어 목록의 값뿐이다 (친구가 보낸 글자가 아니다)
-    let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("object.html".into()))
-        .title("ScreenPet Object")
-        .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}], scale: {scale} }}; {}", kind.id(), crate::art::style_script()))
-        .inner_size(w, h)
-        .accept_first_mouse(true)
-        .transparent(true)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .focused(false)
-        .visible(false)
-        .build()
-        .inspect(crate::overlay::float_everywhere);
+    let built = crate::overlay::finish(
+        WebviewWindowBuilder::new(app, &label, WebviewUrl::App("object.html".into()))
+            .title("ScreenPet Object")
+            .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}], scale: {scale} }}; {}", kind.id(), crate::art::style_script()))
+            .inner_size(w, h)
+            .accept_first_mouse(true),
+    );
     match built {
         Ok(window) => {
             // 다른 배율의 모니터에서도 논리 크기를 맞춘다

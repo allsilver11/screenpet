@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use tauri::{AppHandle, Manager, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Manager, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry};
 
 /// 사라지는 모습을 보여 주는 동안 기다렸다 닫을 창들
 #[derive(Default)]
@@ -27,6 +27,21 @@ impl Fading {
             }
         });
     }
+}
+
+/// 화면 위에 떠 있는 창을 만든다: 투명, 테두리·그림자 없음, 항상 위, 작업표시줄 숨김, 포커스 안 받음, 숨긴 채 시작
+pub fn finish<M: Manager<Wry>>(builder: WebviewWindowBuilder<'_, Wry, M>) -> tauri::Result<WebviewWindow> {
+    builder
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .focused(false)
+        .visible(false)
+        .build()
+        .inspect(float_everywhere)
 }
 
 /// 이미 있는 창을 앞으로 가져온다. 없으면 false (도움말·도감처럼 정말 닫히는 창)

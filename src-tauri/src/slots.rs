@@ -411,20 +411,12 @@ impl AsMut<Pet> for Slot {
 /// 손님 창: "pet" 창과 같은 설정 (투명·테두리 없음·항상 위·작업표시줄 숨김·포커스 안 받음·숨긴 채 시작)
 fn build_guest_window(app: &AppHandle, label: &str, body_scale: f64) -> tauri::Result<WebviewWindow> {
     let (w, h) = window_logical_size(body_scale);
-    WebviewWindowBuilder::new(app, label, WebviewUrl::App(format!("index.html?role=guest&slot={label}").into()))
-        .title("ScreenPet Guest")
-        .inner_size(w, h)
-        .accept_first_mouse(true)
-        .transparent(true)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .focused(false)
-        .visible(false)
-        .build()
-        .inspect(crate::overlay::float_everywhere)
+    crate::overlay::finish(
+        WebviewWindowBuilder::new(app, label, WebviewUrl::App(format!("index.html?role=guest&slot={label}").into()))
+            .title("ScreenPet Guest")
+            .inner_size(w, h)
+            .accept_first_mouse(true),
+    )
 }
 
 /// 친구 동물이 화면 끝(side)에서 걸어 들어온다. 집(주인 화면)은 들어온 쪽이다.

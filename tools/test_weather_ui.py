@@ -29,7 +29,8 @@ def test_frame_rate_and_particle_budget():
 
 def test_the_overlay_never_takes_a_click():
     assert RS.count("set_ignore_cursor_events(true)") == 2  # 날씨 창, 눈덩이·눈사람 창
-    assert RS.count(".focused(false)") == 2
+    assert RS.count("overlay::finish(") == 2
+    assert ".focused(false)" in (ROOT / "src-tauri" / "src" / "overlay.rs").read_text(encoding="utf-8")
     assert "pointer-events: none" in (ROOT / "ui" / "weather.html").read_text(encoding="utf-8")
 
 

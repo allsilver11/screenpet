@@ -303,20 +303,12 @@ impl WeatherFx {
     /// 눈덩이·눈사람 작은 창 — 침 자국·밥그릇처럼 마우스가 통과한다 (prop- 창이라 트레이 숨기기/보이기도 따른다)
     fn sprite(&self, app: &AppHandle, image: &str, (w, h): (f64, f64), x: f64, y: f64, dpi: f64) -> Option<WebviewWindow> {
         let label = format!("prop-snow-{}", self.next_label);
-        let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
-            .title("ScreenPet Snowman")
-            .initialization_script(&format!("window.PROP_IMAGE = {image:?}; {}", crate::art::style_script()))
-            .inner_size(w, h)
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .focused(false)
-            .visible(false)
-            .build()
-            .inspect(crate::overlay::float_everywhere);
+        let built = crate::overlay::finish(
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
+                .title("ScreenPet Snowman")
+                .initialization_script(&format!("window.PROP_IMAGE = {image:?}; {}", crate::art::style_script()))
+                .inner_size(w, h),
+        );
         let window = match built {
             Ok(w) => w,
             Err(e) => {
@@ -417,20 +409,12 @@ fn scale_of(app: &AppHandle, wa: &Rect) -> f64 {
 /// 작업 영역을 꼭 덮는 투명 창. 클릭·드래그는 그 아래(동물·다른 앱)로 간다
 fn spawn_overlay(app: &AppHandle, label: &str, wa: &Rect) -> Option<(WebviewWindow, f64)> {
     let scale = scale_of(app, wa);
-    let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("weather.html".into()))
-        .title("ScreenPet Weather")
-        .initialization_script(crate::art::style_script())
-        .inner_size(wa.width() / scale, wa.height() / scale)
-        .transparent(true)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .focused(false)
-        .visible(false)
-        .build()
-        .inspect(crate::overlay::float_everywhere);
+    let built = crate::overlay::finish(
+        WebviewWindowBuilder::new(app, label, WebviewUrl::App("weather.html".into()))
+            .title("ScreenPet Weather")
+            .initialization_script(crate::art::style_script())
+            .inner_size(wa.width() / scale, wa.height() / scale),
+    );
     let window = match built {
         Ok(w) => w,
         Err(e) => {
