@@ -21,3 +21,5 @@ webpki-roots = "1"
 [dev-dependencies]
 socket2 = "0.6"
 screenpet-relay = { path = "../screenpet-relay" }
+# examples/ladder_bot: 결과 표를 그리려고 (앱과 같은 사다리 코드)
+screenpet-core = { path = "../screenpet-core" }

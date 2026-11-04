@@ -3,8 +3,13 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Protocol version carried in announcements and `hello`.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// Protocol version carried in announcements and `hello`. 2 = knows the
+/// `ladder_*` messages (v0.5.0). Older versions send 1 and close a link on any
+/// message `type` they do not know, so features with new message types check
+/// the peer's version first (`Net::peer_version`).
+pub const PROTOCOL_VERSION: u32 = 2;
+/// Lowest peer version that may be sent `LadderMsg`s.
+pub const LADDER_MIN_VERSION: u32 = 2;
 /// App tag carried in announcements so unrelated UDP traffic is ignored.
 pub const APP_TAG: &str = "screenpet";
 /// Largest frame on a link (a Noise message is at most 65535 bytes).
@@ -276,13 +281,69 @@ pub enum Control {
     },
 }
 
+/// One player of a locked ladder game, as the host relays it. `token` is a
+/// per-game random id (never the install id: players need not be friends of
+/// each other).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WirePlayer {
+    pub token: String,
+    pub name: String,
+    pub pet: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    pub commit: String,
+}
+
+/// One result slot at the bottom of a ladder. `mood`: "good" | "bad" | "none".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WireResult {
+    pub text: String,
+    #[serde(default)]
+    pub mood: String,
+}
+
+/// Ladder game messages between the host and each player (friend links only,
+/// and only to peers at `LADDER_MIN_VERSION` or newer). Validation of lengths
+/// and hex is done by `ladder`'s state machines, not here.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LadderMsg {
+    LadderInvite { game_id: String, host: String, results: Vec<WireResult>, invited: u8 },
+    LadderJoin {
+        game_id: String,
+        token: String,
+        commit: String,
+        name: String,
+        pet: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style: Option<String>,
+    },
+    /// `reason`: "no" | "busy" | "playing"
+    LadderDecline { game_id: String, reason: String },
+    /// `host` = the host's seat in `players` (sorted by token).
+    LadderLock { game_id: String, host: u8, players: Vec<WirePlayer>, results: Vec<WireResult> },
+    LadderReveal { game_id: String, nonce: String },
+    /// Every player's nonce, in `players` order (the host's included).
+    LadderReveals { game_id: String, nonces: Vec<String> },
+    /// Show the descent now. `mode`: "one_by_one" | "all". Cosmetic only.
+    LadderStart { game_id: String, mode: String },
+    /// `reason`: "host" | "left" | "timeout" | "invalid"; `who` = a player token.
+    LadderCancel {
+        game_id: String,
+        reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        who: Option<String>,
+    },
+}
+
 /// Any message. Untagged at this level: each inner enum carries its own
-/// `type` tag, so an unknown `type` fails to parse as either.
+/// `type` tag, so an unknown `type` fails to parse as any of them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Message {
     Control(Control),
     Visit(Visit),
+    Ladder(LadderMsg),
 }
 
 impl Message {
@@ -434,6 +495,38 @@ mod tests {
             assert_eq!(Message::parse(&m.to_json()), Some(m));
         }
         assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None, steer: None, toss: None })));
+    }
+
+    #[test]
+    fn ladder_messages_round_trip() {
+        let player = WirePlayer { token: "t1".into(), name: "나비".into(), pet: "cat".into(), style: Some("pixel".into()), commit: "c1".into() };
+        let result = WireResult { text: "당첨".into(), mood: "good".into() };
+        for m in [
+            LadderMsg::LadderInvite { game_id: "g".into(), host: "Ann".into(), results: vec![result.clone()], invited: 3 },
+            LadderMsg::LadderJoin { game_id: "g".into(), token: "t".into(), commit: "c".into(), name: "B".into(), pet: "dog".into(), style: None },
+            LadderMsg::LadderDecline { game_id: "g".into(), reason: "busy".into() },
+            LadderMsg::LadderLock { game_id: "g".into(), host: 0, players: vec![player], results: vec![result] },
+            LadderMsg::LadderReveal { game_id: "g".into(), nonce: "n".into() },
+            LadderMsg::LadderReveals { game_id: "g".into(), nonces: vec!["n1".into(), "n2".into()] },
+            LadderMsg::LadderStart { game_id: "g".into(), mode: "all".into() },
+            LadderMsg::LadderCancel { game_id: "g".into(), reason: "left".into(), who: Some("t".into()) },
+        ] {
+            let m = Message::Ladder(m);
+            assert_eq!(Message::parse(&m.to_json()), Some(m));
+        }
+        let v: serde_json::Value =
+            serde_json::from_slice(&Message::Ladder(LadderMsg::LadderReveal { game_id: "g".into(), nonce: "n".into() }).to_json()).unwrap();
+        assert_eq!(v["type"], "ladder_reveal");
+        // 모르는 type은 여전히 어느 쪽으로도 읽히지 않는다 (예전 판이 연결을 끊는 이유)
+        assert_eq!(Message::parse(br#"{"type":"ladder_dance","game_id":"g"}"#), None);
+    }
+
+    #[test]
+    fn hello_from_either_version_parses() {
+        for v in [1, 2, 99] {
+            let raw = format!(r#"{{"type":"hello","id":"a","name":"A","v":{v}}}"#);
+            assert!(matches!(Message::parse(raw.as_bytes()), Some(Message::Control(Control::Hello { v: got, .. })) if got == v));
+        }
     }
 
     #[test]

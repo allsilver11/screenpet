@@ -72,16 +72,21 @@ pub(crate) fn to_hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-/// Exactly 32 bytes of hex, else `None`.
-pub(crate) fn hex32(s: &str) -> Option<[u8; 32]> {
-    if s.len() != 64 || !s.bytes().all(|c| c.is_ascii_hexdigit()) {
+/// Exactly N bytes of hex, else `None`.
+pub(crate) fn hex_array<const N: usize>(s: &str) -> Option<[u8; N]> {
+    if s.len() != 2 * N || !s.bytes().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
-    let mut out = [0u8; 32];
+    let mut out = [0u8; N];
     for (i, o) in out.iter_mut().enumerate() {
         *o = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()?;
     }
     Some(out)
+}
+
+/// Exactly 32 bytes of hex, else `None`.
+pub(crate) fn hex32(s: &str) -> Option<[u8; 32]> {
+    hex_array::<32>(s)
 }
 
 /// X25519 public key for a private key.
