@@ -1035,7 +1035,8 @@ impl Network {
                 // 상대가 친구를 끊었으면(unfriend) net은 조용히 지운다 — 설정에서는 handle 끝의 sync_friends가 지운다
             }
             NetEvent::Received { from, msg } => self.on_visit_message(app, config, slots, &from, msg),
-            NetEvent::FriendForgotUs { id } => {
+            // 친구가 우리를 잊었거나, 친구 id로 다른 키가 자꾸 온다 (키를 잃고 새로 만들었을 수 있다): 다시 친구 맺기를 권한다
+            NetEvent::FriendForgotUs { id } | NetEvent::FriendKeyMismatch { id } => {
                 self.forgot.insert(id);
             }
             NetEvent::RelayStatus { connected } => {

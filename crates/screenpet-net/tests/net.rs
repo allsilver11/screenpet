@@ -1623,9 +1623,9 @@ fn one_sided_pin_reports_friend_forgot_us_and_backs_off() {
 }
 
 #[test]
-fn wrong_key_answer_for_friend_is_silent_and_backed_off() {
+fn wrong_key_answer_for_friend_is_not_a_forgot_us_and_is_backed_off() {
     // A spoofed address answers for friend "bbbb" with a different key (and
-    // even claims to have A pinned). Not proven: no event, just backoff.
+    // even claims to have A pinned). Not proven: no FriendForgotUs, just backoff.
     let stop = Arc::new(AtomicBool::new(false));
     let (ka, kb) = (key(), key());
     let (a, arx) = Net::start(cfg("aaaa", "Ann", ka, 0, free_udp_port(), vec![friend("bbbb", &kb)])).unwrap();
@@ -1661,6 +1661,44 @@ fn wrong_key_answer_for_friend_is_silent_and_backed_off() {
     assert!((1..=3).contains(&n), "{n} dials to the bad candidate in 4 s");
     stop.store(true, Ordering::SeqCst);
     a.shutdown();
+}
+
+#[test]
+fn a_friend_answering_with_a_new_key_is_hinted_after_a_few_tries() {
+    // 친구가 비밀키를 잃어 새 키로 찾아온다: 예전 키를 고정한 쪽은 영영 조용히 막혀 있었다
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let is_hint = |e: &NetEvent| *e == NetEvent::FriendKeyMismatch { id: "zzzz".into() };
+    let new_key = key();
+    for _ in 0..2 {
+        let mut p = raw_connect_claiming(port, &new_key, "zzzz");
+        assert!(closed_by_peer(&mut p.s), "still refused");
+    }
+    assert_eq!(wait_for(&rx, 0.3, is_hint), None, "one or two could be a spoofed address");
+    let mut p = raw_connect_claiming(port, &new_key, "zzzz");
+    assert!(closed_by_peer(&mut p.s));
+    assert!(wait_for(&rx, 2.0, is_hint).is_some(), "now it is worth a hint");
+    let mut p = raw_connect_claiming(port, &new_key, "zzzz");
+    assert!(closed_by_peer(&mut p.s));
+    assert_eq!(wait_for(&rx, 0.3, is_hint), None, "said once");
+    assert_eq!(net.friends(), vec![friend("zzzz", &kz)], "the pinned key stays: only the user re-pairs");
+    net.shutdown();
+}
+
+#[test]
+fn a_linked_friend_gets_no_key_mismatch_hint() {
+    // 진짜 친구가 연결돼 있는 동안 같은 id를 대는 건 사칭일 뿐
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut real = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    for _ in 0..4 {
+        let mut p = raw_connect_claiming(port, &key(), "zzzz");
+        assert!(closed_by_peer(&mut p.s));
+        real.send(json!({"type": "ping"})).unwrap();
+    }
+    assert_eq!(wait_for(&rx, 0.3, |e| matches!(e, NetEvent::FriendKeyMismatch { .. })), None);
+    net.shutdown();
 }
 
 // ---- ladder messages and peer versions -------------------------------------------
