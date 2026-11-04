@@ -22,7 +22,7 @@ use screenpet_core::world::World;
 use screenpet_net::Toss;
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 
 use crate::game_loop::Input;
 use crate::network::{from_net_fling, from_net_side, to_net_fling, to_net_side, Network};
@@ -173,7 +173,7 @@ pub struct Objects {
     /// 받았지만 아직 창을 만들지 않은 물건 (틱마다 하나씩)
     inbox: TossInbox<(AcceptedToss, Side)>,
     poop_queue: VecDeque<WaitingPoop>,
-    fading: Vec<(WebviewWindow, Instant)>,
+    fading: crate::overlay::Fading,
     /// 물건이 있을 때만 맞춘다 (물건 키에 맞춘 세계)
     world: Option<World>,
     /// 친구별 던지기 예산 (받는 쪽 net의 친구별 제한과 같다 — 넘치면 받는 쪽이 버리므로 미리 튕긴다)
@@ -197,7 +197,7 @@ impl Objects {
             roster: Roster::default(),
             inbox: TossInbox::default(),
             poop_queue: VecDeque::new(),
-            fading: Vec::new(),
+            fading: Default::default(),
             world: None,
             budgets: HashMap::new(),
             threw_at: HashMap::new(),
@@ -427,15 +427,13 @@ impl Objects {
 
     fn poof(&mut self, l: Live) {
         set_postit_state(&l.label, None);
-        let _ = l.window.eval("document.body.classList.add('poof')");
-        self.fading.push((l.window, Instant::now() + POOF));
+        self.fading.start(l.window, "poof", Instant::now() + POOF);
     }
 
     /// 다 된 똥이 스르륵 사라진다
     fn fade(&mut self, l: Live) {
         set_postit_state(&l.label, None);
-        let _ = l.window.eval("document.body.classList.add('fade')");
-        self.fading.push((l.window, Instant::now() + FADE));
+        self.fading.start(l.window, "fade", Instant::now() + FADE);
     }
 
     /// `🗑️ 쓰레기 꺼내기 ▸` 글자의 내 물건 수 (바뀔 때만)
@@ -497,14 +495,7 @@ impl Objects {
     /// 매 틱 (게임 루프)
     #[allow(clippy::too_many_arguments)]
     pub fn tick(&mut self, app: &AppHandle, base: &World, dt: f64, now: Instant, cursor: (f64, f64), left_down: bool, away: bool, source: &mut dyn WindowSource, network: &Network, config: &Config) {
-        self.fading.retain(|(w, at)| {
-            if now >= *at {
-                let _ = w.destroy();
-                false
-            } else {
-                true
-            }
-        });
+        self.fading.tick(now);
         self.admit_next_toss(app, base);
         if self.live.is_empty() {
             return;
@@ -532,7 +523,7 @@ impl Objects {
         let secs = now.duration_since(self.started).as_secs_f64();
         let open = {
             let budgets = &self.budgets;
-            move |id: &str| network.is_linked(id) && budgets.get(id).is_none_or(|b| b.can_spend(secs))
+            move |id: &str| network.is_connected(id) && budgets.get(id).is_none_or(|b| b.can_spend(secs))
         };
         let edges = if self.live.iter().all(|l| l.object.is_asleep()) { Default::default() } else { config.exit_edges(&open) };
 
@@ -587,7 +578,7 @@ impl Objects {
     fn toss_away(&mut self, l: &Live, exit: Exit, secs: f64, network: &Network, config: &Config) {
         let friends = {
             let budgets = &self.budgets;
-            config.friends_at(exit.side, |id| network.is_linked(id) && budgets.get(id).is_none_or(|b| b.can_spend(secs)))
+            config.friends_at(exit.side, |id| network.is_connected(id) && budgets.get(id).is_none_or(|b| b.can_spend(secs)))
         };
         if friends.is_empty() {
             return;
@@ -729,13 +720,7 @@ fn show_postit_window(app: &AppHandle) {
                 .build();
             match built {
                 Ok(w) => {
-                    let handle = w.clone();
-                    w.on_window_event(move |ev| {
-                        if let WindowEvent::CloseRequested { api, .. } = ev {
-                            api.prevent_close();
-                            let _ = handle.hide();
-                        }
-                    });
+                    crate::overlay::hide_on_close(&w);
                     w
                 }
                 Err(e) => {

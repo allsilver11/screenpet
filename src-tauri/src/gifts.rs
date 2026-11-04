@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 use screenpet_core::brain::Anim;
 use screenpet_core::care::Care;
 use screenpet_core::gift::{self, BookView, Gift, GiftBook, GiftField, GiftTimer};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, LogicalSize, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::game_loop::Input;
+use crate::overlay::Fading;
 use crate::slots::{Role, Slot, OWN_LABEL};
 use crate::AppState;
 
@@ -56,7 +57,7 @@ struct LiveWindow {
 pub struct Gifts {
     field: GiftField,
     windows: Vec<LiveWindow>,
-    closing: Vec<(WebviewWindow, Instant)>,
+    closing: Fading,
     timer: GiftTimer,
     fast: bool,
     rng: fastrand::Rng,
@@ -86,7 +87,7 @@ impl Gifts {
         let fast = std::env::var(PREVIEW_ENV).is_ok_and(|v| v == "fast");
         let timer = GiftTimer::new(&mut rng, fast);
         let now = Instant::now();
-        Self { field: GiftField::default(), windows: Vec::new(), closing: Vec::new(), timer, fast, rng, pending: Vec::new(), next_check: now + CHECK_EVERY, last_check: now, next_label: 0 }
+        Self { field: GiftField::default(), windows: Vec::new(), closing: Fading::default(), timer, fast, rng, pending: Vec::new(), next_check: now + CHECK_EVERY, last_check: now, next_label: 0 }
     }
 
     /// 선물이 앉아 있는 창들 — 사이 틱에도 경계를 읽어 부드럽게 따라간다
@@ -103,14 +104,7 @@ impl Gifts {
 
     /// 매 틱 (게임 루프 스레드 — 창 만들기가 메인 스레드를 기다린다)
     pub fn tick(&mut self, app: &AppHandle, now: Instant, dt: f64, slots: &[Slot], care: &Care) {
-        self.closing.retain(|(w, at)| {
-            if now >= *at {
-                let _ = w.destroy();
-                false
-            } else {
-                true
-            }
-        });
+        self.closing.tick(now);
         let Some(own) = slots.first() else { return };
         if !self.field.is_empty() {
             for token in self.field.tick(dt, &own.world) {
@@ -203,8 +197,7 @@ impl Gifts {
     fn fade_out(&mut self, token: u64, now: Instant) {
         if let Some(i) = self.windows.iter().position(|w| w.token == token) {
             let w = self.windows.remove(i);
-            let _ = w.window.eval("document.body.classList.add('hide')");
-            self.closing.push((w.window, now + CLOSE_AFTER));
+            self.closing.start(w.window, "hide", now + CLOSE_AFTER);
         }
     }
 
@@ -214,8 +207,7 @@ impl Gifts {
         let Some(i) = self.windows.iter().position(|w| w.label == label) else { return false };
         let w = self.windows.remove(i);
         let collected = self.field.collect(w.token);
-        let _ = w.window.eval("document.body.classList.add('collect')");
-        self.closing.push((w.window, Instant::now() + CLOSE_AFTER));
+        self.closing.start(w.window, "collect", Instant::now() + CLOSE_AFTER);
         let Some((gift, from)) = collected else { return false };
         book.add(gift, from.as_deref());
         publish(book);
@@ -298,10 +290,7 @@ pub fn book_state(window: WebviewWindow) -> Result<BookView, String> {
 
 /// 메뉴 "🎁 선물 도감". 이미 열려 있으면 앞으로 가져온다
 pub fn show_book(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(BOOK_LABEL) {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
+    if crate::overlay::focus_existing(app, BOOK_LABEL) {
         return;
     }
     let built = WebviewWindowBuilder::new(app, BOOK_LABEL, WebviewUrl::App("book.html".into()))

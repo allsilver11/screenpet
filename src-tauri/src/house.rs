@@ -91,53 +91,26 @@ struct HouseJson {
     door: Door,
 }
 
+/// 집 종류 하나의 다섯 단계 문 json
+macro_rules! door_row {
+    ($dir:literal, $kind:literal) => {
+        [
+            ($kind, "baby", include_str!(concat!("../../ui/", $dir, "/", $kind, "_baby.json"))),
+            ($kind, "kinder", include_str!(concat!("../../ui/", $dir, "/", $kind, "_kinder.json"))),
+            ($kind, "child", include_str!(concat!("../../ui/", $dir, "/", $kind, "_child.json"))),
+            ($kind, "teenager", include_str!(concat!("../../ui/", $dir, "/", $kind, "_teenager.json"))),
+            ($kind, "adult", include_str!(concat!("../../ui/", $dir, "/", $kind, "_adult.json"))),
+        ]
+    };
+}
+
+type DoorRow = [(&'static str, &'static str, &'static str); 5];
+
 /// 단계별 집·벌통·귀신의 집·크리스마스 벽돌집 그림의 문 (tools/draw_house.py가 만든다)
-const DOOR_JSON: [(&str, &str, &str); 20] = [
-    ("house", "baby", include_str!("../../ui/house/house_baby.json")),
-    ("house", "kinder", include_str!("../../ui/house/house_kinder.json")),
-    ("house", "child", include_str!("../../ui/house/house_child.json")),
-    ("house", "teenager", include_str!("../../ui/house/house_teenager.json")),
-    ("house", "adult", include_str!("../../ui/house/house_adult.json")),
-    ("hive", "baby", include_str!("../../ui/house/hive_baby.json")),
-    ("hive", "kinder", include_str!("../../ui/house/hive_kinder.json")),
-    ("hive", "child", include_str!("../../ui/house/hive_child.json")),
-    ("hive", "teenager", include_str!("../../ui/house/hive_teenager.json")),
-    ("hive", "adult", include_str!("../../ui/house/hive_adult.json")),
-    ("haunted", "baby", include_str!("../../ui/house/haunted_baby.json")),
-    ("haunted", "kinder", include_str!("../../ui/house/haunted_kinder.json")),
-    ("haunted", "child", include_str!("../../ui/house/haunted_child.json")),
-    ("haunted", "teenager", include_str!("../../ui/house/haunted_teenager.json")),
-    ("haunted", "adult", include_str!("../../ui/house/haunted_adult.json")),
-    ("xmas", "baby", include_str!("../../ui/house/xmas_baby.json")),
-    ("xmas", "kinder", include_str!("../../ui/house/xmas_kinder.json")),
-    ("xmas", "child", include_str!("../../ui/house/xmas_child.json")),
-    ("xmas", "teenager", include_str!("../../ui/house/xmas_teenager.json")),
-    ("xmas", "adult", include_str!("../../ui/house/xmas_adult.json")),
-];
+const DOOR_JSON: [DoorRow; 4] = [door_row!("house", "house"), door_row!("house", "hive"), door_row!("house", "haunted"), door_row!("house", "xmas")];
 
 /// 픽셀 집의 문 (칸 좌표, tools/draw_pixel_world.py가 만든다)
-const PIXEL_DOOR_JSON: [(&str, &str, &str); 20] = [
-    ("house", "baby", include_str!("../../ui/house_pixel/house_baby.json")),
-    ("house", "kinder", include_str!("../../ui/house_pixel/house_kinder.json")),
-    ("house", "child", include_str!("../../ui/house_pixel/house_child.json")),
-    ("house", "teenager", include_str!("../../ui/house_pixel/house_teenager.json")),
-    ("house", "adult", include_str!("../../ui/house_pixel/house_adult.json")),
-    ("hive", "baby", include_str!("../../ui/house_pixel/hive_baby.json")),
-    ("hive", "kinder", include_str!("../../ui/house_pixel/hive_kinder.json")),
-    ("hive", "child", include_str!("../../ui/house_pixel/hive_child.json")),
-    ("hive", "teenager", include_str!("../../ui/house_pixel/hive_teenager.json")),
-    ("hive", "adult", include_str!("../../ui/house_pixel/hive_adult.json")),
-    ("haunted", "baby", include_str!("../../ui/house_pixel/haunted_baby.json")),
-    ("haunted", "kinder", include_str!("../../ui/house_pixel/haunted_kinder.json")),
-    ("haunted", "child", include_str!("../../ui/house_pixel/haunted_child.json")),
-    ("haunted", "teenager", include_str!("../../ui/house_pixel/haunted_teenager.json")),
-    ("haunted", "adult", include_str!("../../ui/house_pixel/haunted_adult.json")),
-    ("xmas", "baby", include_str!("../../ui/house_pixel/xmas_baby.json")),
-    ("xmas", "kinder", include_str!("../../ui/house_pixel/xmas_kinder.json")),
-    ("xmas", "child", include_str!("../../ui/house_pixel/xmas_child.json")),
-    ("xmas", "teenager", include_str!("../../ui/house_pixel/xmas_teenager.json")),
-    ("xmas", "adult", include_str!("../../ui/house_pixel/xmas_adult.json")),
-];
+const PIXEL_DOOR_JSON: [DoorRow; 4] = [door_row!("house_pixel", "house"), door_row!("house_pixel", "hive"), door_row!("house_pixel", "haunted"), door_row!("house_pixel", "xmas")];
 
 /// json이 깨졌을 때 쓰는 문 (teenager 집의 문)
 const DEFAULT_DOOR: Door = Door { x: 30.0, w: 52.0 };
@@ -145,10 +118,10 @@ const DEFAULT_DOOR: Door = Door { x: 30.0, w: 52.0 };
 pub fn door(kind: HouseKind, stage: &str, style: PetStyle) -> Door {
     let kind = kind.art();
     let table = if style == PetStyle::Pixel { &PIXEL_DOOR_JSON } else { &DOOR_JSON };
-    table
-        .iter()
+    let doors = || table.iter().flatten();
+    doors()
         .find(|(k, s, _)| *k == kind && *s == stage)
-        .or_else(|| table.iter().find(|(k, s, _)| *k == kind && *s == "teenager"))
+        .or_else(|| doors().find(|(k, s, _)| *k == kind && *s == "teenager"))
         .and_then(|(_, _, j)| serde_json::from_str::<HouseJson>(j).ok())
         .map_or(DEFAULT_DOOR, |h| h.door)
 }

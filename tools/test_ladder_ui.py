@@ -98,9 +98,8 @@ def test_the_ladder_window_may_use_ipc():
     # Tauri 2: 창 라벨이 capability에 없으면 invoke·listen이 막혀 흰 화면만 뜬다 (첫 Windows 시험에서 실제로 그랬다)
     cap = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text(encoding="utf-8"))
     label = re.search(r'pub const LABEL: &str = "(\w+)";', LADDER_RS).group(1)
-    windows = {w for c in cap["capabilities"] for w in c["windows"]}
-    assert label in windows, windows
-    assert "core:default" in cap["permissions"]
+    granted = {p for c in cap["capabilities"] if label in c["windows"] for p in c["permissions"]}
+    assert "core:event:allow-listen" in granted and "allow-ladder-state" in granted, granted
 
 
 def test_text_is_only_ever_set_as_text():

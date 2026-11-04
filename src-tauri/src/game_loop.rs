@@ -702,7 +702,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     }
                     let world = &slots[OWN].world;
                     let edges = screenpet_core::visit::column_bounds(world, cx).map_or(world.bounds, |c| Rect::new(world.bounds.left, c.top, world.bounds.right, c.bottom));
-                    if let Some(side) = b.crossing(&edges, dpi, |s| !config.friends_at(s, |id| network.is_linked(id)).is_empty()) {
+                    if let Some(side) = b.crossing(&edges, dpi, |s| !config.friends_at(s, |id| network.is_connected(id)).is_empty()) {
                         network.flurry_to(&config, side, kind, b.fling(side, &edges, dpi));
                     }
                 }

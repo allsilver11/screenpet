@@ -501,19 +501,15 @@ impl Network {
         (network, dirty)
     }
 
-    fn is_connected(&self, id: &str) -> bool {
+    /// 연결된 친구 (물건은 손님 자리와 상관없이 던져 보낼 수 있다)
+    pub fn is_connected(&self, id: &str) -> bool {
         self.connected.contains(id)
-    }
-
-    /// 물건을 던져 보낼 수 있는 친구: 연결됨 (손님 자리와 상관없다)
-    pub fn is_linked(&self, id: &str) -> bool {
-        self.is_connected(id)
     }
 
     /// 🧹 쓸어 모은 더미를 그 끝의 친구 한 명에게 흩날려 보낸다 (친구 쪽에서 반대편 끝으로 들어온다)
     pub fn flurry_to(&self, config: &Config, side: Side, kind: screenpet_core::weather::Weather, fling: visit::Fling) {
         let Some(net) = &self.net else { return };
-        let friends = config.friends_at(side, |id| self.is_linked(id));
+        let friends = config.friends_at(side, |id| self.is_connected(id));
         if friends.is_empty() {
             return;
         }
@@ -1689,13 +1685,7 @@ fn build_code_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .skip_taskbar(false)
         .visible(false)
         .build()?;
-    let handle = window.clone();
-    window.on_window_event(move |ev| {
-        if let WindowEvent::CloseRequested { api, .. } = ev {
-            api.prevent_close();
-            let _ = handle.hide();
-        }
-    });
+    crate::overlay::hide_on_close(&window);
     Ok(window)
 }
 
@@ -1772,13 +1762,7 @@ fn build_name_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .skip_taskbar(false)
         .visible(false)
         .build()?;
-    let handle = window.clone();
-    window.on_window_event(move |ev| {
-        if let WindowEvent::CloseRequested { api, .. } = ev {
-            api.prevent_close();
-            let _ = handle.hide();
-        }
-    });
+    crate::overlay::hide_on_close(&window);
     Ok(window)
 }
 
@@ -1844,13 +1828,7 @@ fn build_letter_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .skip_taskbar(false)
         .visible(false)
         .build()?;
-    let handle = window.clone();
-    window.on_window_event(move |ev| {
-        if let WindowEvent::CloseRequested { api, .. } = ev {
-            api.prevent_close();
-            let _ = handle.hide();
-        }
-    });
+    crate::overlay::hide_on_close(&window);
     Ok(window)
 }
 

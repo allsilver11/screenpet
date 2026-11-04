@@ -39,7 +39,7 @@ pub struct Props {
     next: u64,
     live: Option<Placed>,
     /// 흐려지는 중인 창과 닫을 시각
-    fading: Vec<(WebviewWindow, Instant)>,
+    fading: crate::overlay::Fading,
 }
 
 impl Props {
@@ -55,8 +55,7 @@ impl Props {
             }
             PropEvent::Hide => {
                 if let Some(p) = self.live.take() {
-                    let _ = p.window.eval("document.body.classList.add('hide')");
-                    self.fading.push((p.window, Instant::now() + FADE));
+                    self.fading.start(p.window, "hide", Instant::now() + FADE);
                 }
             }
         }
@@ -112,14 +111,7 @@ impl Props {
 
     /// 다 흐려진 창을 닫는다 (매 틱)
     pub fn tick(&mut self, now: Instant) {
-        self.fading.retain(|(w, at)| {
-            if now >= *at {
-                let _ = w.destroy();
-                false
-            } else {
-                true
-            }
-        });
+        self.fading.tick(now);
     }
 }
 
@@ -136,7 +128,7 @@ pub struct HandWindow {
     next: u64,
     live: Option<WebviewWindow>,
     last_pos: Option<(i32, i32)>,
-    fading: Vec<(WebviewWindow, Instant)>,
+    fading: crate::overlay::Fading,
 }
 
 impl HandWindow {
@@ -203,19 +195,11 @@ impl HandWindow {
 
     fn finish(&mut self, class: &str, after: Duration) {
         if let Some(w) = self.live.take() {
-            let _ = w.eval(&format!("document.body.classList.add('{class}')"));
-            self.fading.push((w, Instant::now() + after));
+            self.fading.start(w, class, Instant::now() + after);
         }
     }
 
     pub fn tick(&mut self, now: Instant) {
-        self.fading.retain(|(w, at)| {
-            if now >= *at {
-                let _ = w.destroy();
-                false
-            } else {
-                true
-            }
-        });
+        self.fading.tick(now);
     }
 }
