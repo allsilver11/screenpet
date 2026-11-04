@@ -1587,7 +1587,7 @@ impl Network {
         // 손님 우클릭 "<친구>에게 보내기" 목록
         *ONLINE_FRIENDS.lock().unwrap() =
             config.friends.iter().filter(|f| self.is_open(&f.id)).map(|f| (f.id.clone(), f.shown_name().to_string())).collect();
-        let relay = self.relay_enabled;
+        let relay = self.relay_enabled.then_some(self.relay_connected);
         let room = self.guests < MAX_GUESTS;
         // 사다리타기: 판이 있으면 언제든 그 창을, 없으면 사다리를 아는 친구가 연결돼 있고 내가 바쁘지 않을 때
         let ladder_friend = self.net.as_ref().is_some_and(|n| {

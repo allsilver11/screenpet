@@ -27,9 +27,21 @@ def test_submenus_hold_what_was_decided():
 def test_friends_menu_order():
     fill = TRAY[TRAY.index("fn try_fill_friends") :]
     fill = fill[: fill.index("/// 내 동물이 친구 화면에")]
-    order = ["MY_NAME_ID", "SHOW_CODE_ID", "ENTER_CODE_ID", '"놀러 보내기", online', "for f in &model.friends", "for (id, name) in &model.strangers", '"🎲 사다리타기"']
+    order = ["MY_NAME_ID", "인터넷 연결: 연결됨", "SHOW_CODE_ID", "ENTER_CODE_ID", '"놀러 보내기", online', "for f in &model.friends", "for (id, name) in &model.strangers", '"🎲 사다리타기"']
     positions = [fill.index(x) for x in order]
     assert positions == sorted(positions)
+
+
+def test_relay_status_line_is_shown_in_the_friends_menu():
+    # 연결됨·끊김·꺼짐 한 줄 (누를 수 없다). 상태가 바뀌면 메뉴를 다시 그리도록 모델에 들어 있어야 한다
+    for line in ("인터넷 연결: 연결됨", "인터넷 연결: 끊김", "인터넷 연결: 꺼짐"):
+        assert line in TRAY
+    assert "pub relay: Option<bool>," in TRAY
+    assert "self.relay_enabled.then_some(self.relay_connected)" in (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+
+
+def test_help_item_label():
+    assert 'MenuItem::with_id(app, "help", "도움말 ❓", true' in TRAY
 
 
 def test_come_home_only_while_away_and_right_under_the_house():

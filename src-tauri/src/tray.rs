@@ -84,8 +84,8 @@ pub struct FriendsMenu {
     pub friends: Vec<FriendItem>,
     /// 내 동물이 친구 화면에 가 있음 ("집에 와"가 메뉴에 있다)
     pub away: bool,
-    /// 인터넷 친구(중계 서버)를 쓰도록 설정됨 (코드 항목을 누를 수 있다)
-    pub relay: bool,
+    /// 인터넷 친구(중계 서버): None = 쓰지 않음, Some(연결됨?) — 쓰도록 설정돼 있으면 코드 항목을 누를 수 있다
+    pub relay: Option<bool>,
     /// 손님을 더 받을 자리가 있음 ("펫 데리고 오기" 활성)
     pub room: bool,
     pub ladder: LadderMenu,
@@ -238,9 +238,16 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     }
     // 친구들에게 보이는 내 이름 (누르면 바꾸기 창)
     submenu.append(&MenuItem::with_id(app, MY_NAME_ID, format!("내 이름: {} ✏️", menu_text(&model.my_name)), true, None::<&str>)?)?;
-    // 인터넷 친구 (중계 서버): 내 코드 보기, 코드 입력 — 연결 상태는 코드 창에 보인다
-    submenu.append(&MenuItem::with_id(app, SHOW_CODE_ID, "친구 코드 보기", model.relay, None::<&str>)?)?;
-    submenu.append(&MenuItem::with_id(app, ENTER_CODE_ID, "코드 입력…", model.relay, None::<&str>)?)?;
+    // 인터넷 친구 (중계 서버): 상태 한 줄, 내 코드 보기, 코드 입력
+    let status = match model.relay {
+        Some(true) => "인터넷 연결: 연결됨",
+        Some(false) => "인터넷 연결: 끊김",
+        None => "인터넷 연결: 꺼짐",
+    };
+    submenu.append(&MenuItem::new(app, status, false, None::<&str>)?)?;
+    let relay_on = model.relay.is_some();
+    submenu.append(&MenuItem::with_id(app, SHOW_CODE_ID, "친구 코드 보기", relay_on, None::<&str>)?)?;
+    submenu.append(&MenuItem::with_id(app, ENTER_CODE_ID, "코드 입력…", relay_on, None::<&str>)?)?;
     // 놀러 보내기 ▸ 연결된 친구 (펫 우클릭에서도 같은 메뉴)
     let online: Vec<&FriendItem> = model.friends.iter().filter(|f| f.connected).collect();
     let send = Submenu::new(app, "놀러 보내기", online.iter().any(|f| f.can_send))?;
@@ -440,7 +447,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     // 게임 루프가 네트워크를 시작한 뒤 채운다
     let friends = Submenu::with_items(app, "👫 친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
-    let help = MenuItem::with_id(app, "help", "도움말", true, None::<&str>)?;
+    let help = MenuItem::with_id(app, "help", "도움말 ❓", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
     let style_round = CheckMenuItem::with_id(app, STYLE_ROUND_ID, "동글동글", true, style == PetStyle::Round, None::<&str>)?;
