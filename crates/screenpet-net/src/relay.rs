@@ -522,23 +522,42 @@ fn parse_url(url: &str) -> Option<(bool, String, u16)> {
     (!host.is_empty()).then(|| (tls, host.to_string(), port))
 }
 
+/// Run a call that can block for long (name lookup: tens of seconds on a bad
+/// network, and it cannot be interrupted) on its own thread, so `Net::drop`
+/// is not held up. Given up on at shutdown, that thread ends by itself.
+fn unless_stopped<T: Send + 'static>(stop: &AtomicBool, f: impl FnOnce() -> io::Result<T> + Send + 'static) -> io::Result<T> {
+    let (tx, rx) = sync_channel(1);
+    std::thread::Builder::new().name("screenpet-relay-connect".into()).spawn(move || {
+        let _ = tx.send(f());
+    })?;
+    loop {
+        match rx.recv_timeout(TICK) {
+            Ok(r) => return r,
+            Err(RecvTimeoutError::Disconnected) => return Err(io::Error::other("relay connect thread died")),
+            Err(RecvTimeoutError::Timeout) if stop.load(Ordering::SeqCst) => {
+                return Err(io::Error::new(ErrorKind::Interrupted, "shutting down"));
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+    }
+}
+
 /// Connect, TLS and WebSocket handshakes; gives up at shutdown or after
 /// `HANDSHAKE_TIMEOUT` (reads poll so `Net::drop` is not held up).
 fn connect(url: &str, stop: &AtomicBool) -> io::Result<Ws> {
     let bad = |m: &str| io::Error::new(ErrorKind::InvalidInput, m.to_string());
     let (tls, host, port) = parse_url(url).ok_or_else(|| bad("bad relay url"))?;
-    let mut last = bad("relay host not found");
-    let mut tcp = None;
-    for addr in (host.as_str(), port).to_socket_addrs()? {
-        match TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
-            Ok(s) => {
-                tcp = Some(s);
-                break;
+    let target = (host.clone(), port);
+    let tcp = unless_stopped(stop, move || {
+        let mut last = io::Error::new(ErrorKind::InvalidInput, "relay host not found");
+        for addr in (target.0.as_str(), target.1).to_socket_addrs()? {
+            match TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
+                Ok(s) => return Ok(s),
+                Err(e) => last = e,
             }
-            Err(e) => last = e,
         }
-    }
-    let tcp = tcp.ok_or(last)?;
+        Err(last)
+    })?;
     tcp.set_nodelay(true)?;
     tcp.set_read_timeout(Some(HANDSHAKE_POLL))?;
     tcp.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -593,6 +612,13 @@ fn read_server(ws: &mut Ws, deadline: Instant, stop: &AtomicBool) -> Option<Serv
 
 fn friend_keys(shared: &Shared) -> Vec<String> {
     shared.state().friends.iter().take(MAX_RELAY_FRIENDS).map(|f| noise::to_hex(&f.public_key)).collect()
+}
+
+/// The keys among `keys` that are friends'. The relay is untrusted: nothing it
+/// names beyond them is worth remembering.
+fn friends_among(shared: &Shared, keys: &[String]) -> HashSet<[u8; 32]> {
+    let st = shared.state();
+    keys.iter().filter_map(|k| noise::hex32(k)).filter(|k| st.friends.iter().any(|f| f.public_key == *k)).collect()
 }
 
 /// The relay IO thread: connect, serve, reconnect with backoff until shutdown.
@@ -695,13 +721,14 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
     if ws.get_ref().0.tcp().set_read_timeout(Some(POLL)).is_err() {
         return false;
     }
+    let online = friends_among(shared, &online);
     let gen = client.generation.fetch_add(1, Ordering::SeqCst) + 1;
     let (tx, rx) = sync_channel(OUTBOX);
     *client.outbox.lock().unwrap_or_else(|e| e.into_inner()) = Some((gen, tx));
     {
         let mut inner = client.inner();
         inner.connected = true;
-        inner.online = online.iter().filter_map(|k| noise::hex32(k)).collect();
+        inner.online = online;
         inner.code = Some(code.clone());
         inner.sent_friends = friends;
     }
@@ -783,20 +810,17 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
     true
 }
 
-fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
+/// Tell the relay a changed friend list. Counts as sent only once it is
+/// queued: otherwise the next housekeeping tries again.
+fn sync_friends(shared: &Shared, client: &RelayClient, gen: u64) {
     let keys = friend_keys(shared);
-    let changed = {
-        let mut inner = client.inner();
-        if inner.sent_friends != keys {
-            inner.sent_friends = keys.clone();
-            true
-        } else {
-            false
-        }
-    };
-    if changed {
-        client.send(Some(gen), Out::Text(json(&ClientMsg::Friends { keys })));
+    if client.inner().sent_friends != keys && client.send(Some(gen), Out::Text(json(&ClientMsg::Friends { keys: keys.clone() }))) {
+        client.inner().sent_friends = keys;
     }
+}
+
+fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
+    sync_friends(shared, client, gen);
     let now = Instant::now();
     let (expired, redeem) = {
         let mut inner = client.inner();
@@ -823,16 +847,17 @@ fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
 fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: ServerMsg) {
     match m {
         ServerMsg::Online { keys } => {
-            client.inner().online = keys.iter().filter_map(|k| noise::hex32(k)).collect();
+            let online = friends_among(shared, &keys);
+            client.inner().online = online;
         }
         ServerMsg::Presence { key, online } => {
-            if let Some(k) = noise::hex32(&key) {
-                let mut inner = client.inner();
-                if online {
-                    inner.online.insert(k);
-                } else {
-                    inner.online.remove(&k);
+            if !online {
+                if let Some(k) = noise::hex32(&key) {
+                    client.inner().online.remove(&k);
                 }
+            } else {
+                let friends = friends_among(shared, std::slice::from_ref(&key));
+                client.inner().online.extend(friends);
             }
         }
         ServerMsg::Code { code } => {
@@ -971,6 +996,55 @@ mod tests {
         let silent = SlowRelay { timeouts: usize::MAX, request: Vec::new(), response: None };
         let e = ws_handshake("ws://relay.test/ws", Polled(silent), &stop, Duration::from_millis(30)).err().expect("gives up");
         assert_eq!(e.kind(), ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn presence_of_anyone_but_a_friend_is_not_kept() {
+        let friend_key = [7u8; 32];
+        let net = crate::solo_net(vec![crate::Friend { id: "ff".into(), public_key: friend_key }]);
+        let client = RelayClient::new("ws://relay.test/ws".into(), None);
+        let say = |m| on_message(&net.shared, &client, 1, m);
+        say(ServerMsg::Presence { key: noise::to_hex(&[9; 32]), online: true });
+        assert!(client.inner().online.is_empty(), "a stranger is not tracked");
+        say(ServerMsg::Presence { key: noise::to_hex(&friend_key), online: true });
+        assert!(client.inner().online.contains(&friend_key));
+        say(ServerMsg::Online { keys: vec![noise::to_hex(&[9; 32]), noise::to_hex(&friend_key)] });
+        assert_eq!(client.inner().online.len(), 1, "same for the full list");
+        say(ServerMsg::Presence { key: noise::to_hex(&friend_key), online: false });
+        assert!(client.inner().online.is_empty());
+    }
+
+    #[test]
+    fn a_friend_list_that_could_not_be_queued_is_sent_again() {
+        let net = crate::solo_net(vec![crate::Friend { id: "ff".into(), public_key: [7; 32] }]);
+        let client = RelayClient::new("ws://relay.test/ws".into(), None);
+        // 연결이 없어(또는 큐가 차서) 못 보냈다: 보낸 것으로 치지 않는다
+        sync_friends(&net.shared, &client, 1);
+        assert!(client.inner().sent_friends.is_empty());
+        let (tx, rx) = sync_channel(4);
+        *client.outbox.lock().unwrap() = Some((1, tx));
+        sync_friends(&net.shared, &client, 1);
+        assert!(matches!(rx.try_recv(), Ok(Out::Text(t)) if t.contains("friends")));
+        sync_friends(&net.shared, &client, 1);
+        assert!(rx.try_recv().is_err(), "unchanged: nothing more to send");
+    }
+
+    #[test]
+    fn a_slow_name_lookup_does_not_hold_up_shutdown() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let setter = stop.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            setter.store(true, Ordering::SeqCst);
+        });
+        let t = Instant::now();
+        let got = unless_stopped(&stop, || {
+            std::thread::sleep(Duration::from_secs(5)); // getaddrinfo가 오래 걸리는 망
+            Ok(1)
+        });
+        assert!(got.is_err());
+        assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+        assert_eq!(unless_stopped(&AtomicBool::new(false), || Ok(2)).unwrap(), 2);
     }
 
     #[test]

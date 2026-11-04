@@ -905,6 +905,15 @@ pub fn new_install_id() -> String {
     format!("{:032x}", fastrand::u128(..))
 }
 
+/// A running Net that hears nobody, for unit tests of its parts.
+#[cfg(test)]
+pub(crate) fn solo_net(friends: Vec<Friend>) -> Net {
+    let mut cfg = NetConfig::new("solo", "Solo", Net::generate_static_key(), friends);
+    cfg.discovery_port = 0;
+    cfg.broadcast_to = SocketAddr::from(([127, 0, 0, 1], 9));
+    Net::start(cfg).unwrap().0
+}
+
 #[cfg(test)]
 mod budget_tests {
     use super::*;
@@ -944,16 +953,9 @@ mod inbound_tests {
         }
     }
 
-    fn solo() -> Net {
-        let mut cfg = NetConfig::new("solo", "Solo", Net::generate_static_key(), vec![]);
-        cfg.discovery_port = 0;
-        cfg.broadcast_to = SocketAddr::from(([127, 0, 0, 1], 9));
-        Net::start(cfg).unwrap().0
-    }
-
     #[test]
     fn handshake_threads_are_capped_until_one_says_hello() {
-        let net = solo();
+        let net = solo_net(vec![]);
         let link = || -> Arc<dyn transport::FrameLink> { Arc::new(NoLink) };
         let mut held: Vec<_> = (0..MAX_HANDSHAKES).map(|_| net.shared.admit_inbound(link()).expect("under the cap")).collect();
         assert!(net.shared.admit_inbound(link()).is_none(), "the cap is reached");
@@ -973,7 +975,7 @@ mod inbound_tests {
 
     #[test]
     fn each_address_has_its_own_connection_budget_and_a_friends_is_larger() {
-        let net = solo();
+        let net = solo_net(vec![]);
         let now = Instant::now();
         let allow = |addr: &str| net.shared.allow_inbound(addr, now);
         assert_eq!((0..200).filter(|_| allow("10.0.0.1")).count(), MAX_CONNS_PER_ADDR as usize);
