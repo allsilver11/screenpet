@@ -2,7 +2,8 @@
 //! - 높이 뛰어 나가기: 이동을 정할 때 가끔(visit::vertical_exit_chance) 웅크렸다가 "boing!" 하고 화면 위로 솟구쳐 나간다
 //!   (바닥이나 창 윗면에서, 머리 위가 비었을 때만 — 개구리는 더 자주). 나는 동물은 그냥 위로 날아 나간다.
 //! - 바닥 밑으로 쏙: 가장 아래 바닥(작업표시줄 위)에서 폴짝 뛰었다가 "whee!" 하고 바닥을 뚫고 아래로 빠진다. 나는 동물은 아래로 날아 나간다.
-//! - 던지기: 위 끝으로 세게 던지거나 아래 바닥으로 내리꽂으면 듀얼 모니터처럼 넘어간다 (Fling.height = 폭 비율 0 왼쪽 … 1 오른쪽).
+//! - 던지기: 위 끝으로 세게 던지거나 아래로 던져 바닥에 닿으면 듀얼 모니터처럼 넘어간다 (Fling.height = 폭 비율 0 왼쪽 … 1 오른쪽).
+//!   끝은 그 줄의 끝이다 (visit::column_bounds): 모니터마다 작업표시줄이나 크기가 달라도 위아래에 다른 모니터가 없으면 넘어간다.
 //! - 들어오기: 위에서 오면(위 끝으로 들어옴) 위에서 떨어져 내려서고, 아래에서 오면 바닥 밑에서 "boing!" 튀어 올라 내려선다.
 //!   나는 동물은 위/아래에서 날아 들어온다.
 //!
@@ -37,23 +38,24 @@ impl Pet {
         None
     }
 
-    /// 지금 자리에서 side(위/아래) 끝으로 나갈 수 있는지: 그 줄이 가장 바깥 끝에 닿아야 하고,
-    /// 걷는 동물은 위로면 머리 위(SKY_HEADROOM_SIZES)에 창이 없어야, 아래로면 가장 아래 바닥에 서 있어야 한다
+    /// 지금 자리에서 side(위/아래) 끝으로 나갈 수 있는지: 그 줄(visit::column_bounds)에 작업 영역이 있어야 하고,
+    /// 걷는 동물은 위로면 머리 위(SKY_HEADROOM_SIZES)에 창이 없고 그 위에 다른 모니터가 없어야, 아래로면 그 줄 가장 아래 바닥에 서 있어야 한다
     pub(super) fn can_go_vertical(&self, world: &World, side: Side) -> bool {
         let (x, y) = (self.body.x, self.body.y);
-        if !visit::outer_edge_at(world, side, x) {
+        let Some(col) = visit::column_bounds(world, x) else {
             return false;
-        }
+        };
         if self.cfg.flies {
-            return true;
+            return visit::is_vertical(side);
         }
         match side {
             Side::Up => {
                 let (hw, top) = (self.cfg.half_w, y - visit::SKY_HEADROOM_SIZES * self.cfg.size);
-                !world.windows.iter().any(|w| w.rect.left < x + hw && x - hw < w.rect.right && w.rect.top < y - 1.0 && w.rect.bottom > top)
+                let own_top = world.work_area_at(x, y).top;
+                (own_top - col.top).abs() <= 2.0 && !world.windows.iter().any(|w| w.rect.left < x + hw && x - hw < w.rect.right && w.rect.top < y - 1.0 && w.rect.bottom > top)
             }
             Side::Down => {
-                matches!(self.standing, Some(Standing { owner: Owner::Ground(_), .. })) && (y - world.bounds.bottom).abs() <= 2.0
+                matches!(self.standing, Some(Standing { owner: Owner::Ground(_), .. })) && (y - col.bottom).abs() <= 2.0
             }
             Side::Left | Side::Right => false,
         }
@@ -92,7 +94,7 @@ impl Pet {
 
     /// 걷는 동물: 웅크림(서 있는 동안) → 위로 솟구치거나(Up) 폴짝 뒤 바닥을 뚫고(Down) → 몸이 다 빠져나가면 사라진다
     fn update_vexit(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
-        let b = world.bounds;
+        let b = visit::column_bounds(world, self.body.x).unwrap_or(world.bounds);
         if self.standing.is_some() {
             if !self.follow_anchor(world) {
                 self.standing = None;
@@ -130,7 +132,8 @@ impl Pet {
         let dir = if side == Side::Up { -1.0 } else { 1.0 };
         self.body.y += dir * self.vertical_fly_speed() * dt;
         let remaining = remaining - dt;
-        if remaining <= 0.0 || visit::fully_outside_v(&world.bounds, side, self.body.y, self.cfg.size) {
+        let b = visit::column_bounds(world, self.body.x).unwrap_or(world.bounds);
+        if remaining <= 0.0 || visit::fully_outside_v(&b, side, self.body.y, self.cfg.size) {
             self.vanish(side);
         } else {
             self.state = State::Exit { remaining, side };
@@ -216,19 +219,26 @@ impl Pet {
         }
     }
 
-    /// 던진 비행의 다음 발 높이(next_y)가 top 위로(올라가는 중) 또는 아래 바닥 bottom 밑으로(세게 내리꽂는 중) 넘어가면:
-    /// 그 끝으로 넘어갈 수 있으면 넘어가고 true
-    pub(super) fn fling_out_vertical(&mut self, world: &World, next_y: f64, top: f64, bottom: f64) -> bool {
+    /// 던진 비행의 다음 발 높이(next_y)가 이 줄의 위 끝 + head 위로(올라가는 중) 또는 이 줄 가장 아래 바닥 밑으로(아래로 던졌거나 세게 내리꽂는 중)
+    /// 넘어가면: 그 끝으로 넘어갈 수 있으면 넘어가고 true. 발이 이미 바닥 밑이어도 된다 (작업표시줄 위에서 놓은 경우).
+    /// 그 바닥에 내려서기 전에 불러야 한다 (next_y는 이번 틱의 중력까지 더한 값)
+    pub(super) fn fling_out_vertical(&mut self, world: &World, next_y: f64, head: f64) -> bool {
+        if !self.thrown || self.home_trip.is_some() || self.inside.is_some() {
+            return false;
+        }
+        let Some(col) = visit::column_bounds(world, self.body.x) else {
+            return false;
+        };
         let vy = self.body.vy;
         let min_down = if self.cfg.flies { visit::FLY_FLING_DOWN_MIN_SPEED } else { visit::FLING_DOWN_MIN_SPEED };
-        let side = if vy < 0.0 && next_y < top {
+        let side = if vy < 0.0 && next_y < (col.top + head).min(col.bottom) {
             Side::Up
-        } else if vy >= min_down * self.cfg.dpi && self.body.y <= bottom && next_y >= bottom {
+        } else if next_y >= col.bottom && visit::falls_through(self.thrown_down, vy, min_down, self.cfg.dpi) {
             Side::Down
         } else {
             return false;
         };
-        if !self.thrown || self.home_trip.is_some() || self.inside.is_some() || !visit::outer_edge_at(world, side, self.body.x) || self.exit_odds(side) <= 0.0 {
+        if self.exit_odds(side) <= 0.0 {
             return false;
         }
         let dpi = self.cfg.dpi.max(0.01);
@@ -255,5 +265,6 @@ impl Pet {
             self.facing = self.body.vx.signum();
         }
         self.thrown = true;
+        self.thrown_down = false;
     }
 }

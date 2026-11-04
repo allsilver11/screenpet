@@ -898,3 +898,65 @@ fn an_object_from_a_friend_arrives_tumbling_from_its_speed() {
     assert!(o.spin() != 0.0);
     tumble(&mut o, &w);
 }
+
+// ---- 아래로 던지기: 동물과 같은 규칙 ----
+
+fn crossed(o: &mut Object, w: &World, edges: ExitEdges) -> Option<Side> {
+    for _ in 0..600 {
+        if let Some(e) = o.tick(DT, w, edges, false) {
+            return Some(e.side);
+        }
+    }
+    None
+}
+
+#[test]
+fn thrown_down_it_crosses_even_if_slow_at_the_floor_on_every_screen() {
+    let down = ExitEdges { down: true, ..NONE };
+    for dpi in [1.0, 1.5, 2.0] {
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0 * dpi, 1040.0 * dpi)], 96.0 * dpi);
+        let throw = |v: (f64, f64)| {
+            let mut o = Object::new(ObjectKind::Can, 500.0 * dpi, 780.0 * dpi, dpi, 1);
+            fling(&mut o, &w, (500.0 * dpi, 760.0 * dpi), (v.0 * dpi, v.1 * dpi));
+            o
+        };
+        // 커서 1000 px/s: 바닥에서 900쯤 (옛 기준 1400 미만)
+        assert_eq!(crossed(&mut throw((0.0, 1000.0)), &w, down), Some(Side::Down), "dpi {dpi}");
+        // 옆으로, 위로, 살살 던지면 바닥에 앉는다
+        for v in [(1500.0, 0.0), (0.0, -600.0), (0.0, 200.0)] {
+            assert_eq!(crossed(&mut throw(v), &w, down), None, "dpi {dpi} {v:?}");
+        }
+    }
+}
+
+#[test]
+fn thrown_down_with_the_body_already_over_the_taskbar_it_still_crosses() {
+    let w = floor();
+    let down = ExitEdges { down: true, ..NONE };
+    let mut o = Object::new(ObjectKind::Can, 500.0, 980.0, 1.0, 1);
+    fling(&mut o, &w, (500.0, 960.0), (0.0, 1000.0));
+    assert!(o.body.y > 1040.0, "{}", o.body.y);
+    assert_eq!(crossed(&mut o, &w, down), Some(Side::Down));
+}
+
+#[test]
+fn it_crosses_at_the_floor_under_it_not_the_longest_monitors() {
+    let down = ExitEdges { down: true, ..NONE };
+    let up = ExitEdges { up: true, ..NONE };
+    // 작업표시줄 있는 모니터 + 없는 모니터
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 300.0, 3840.0, 1080.0)], 96.0);
+    let mut o = Object::new(ObjectKind::Can, 500.0, 780.0, 1.0, 1);
+    fling(&mut o, &w, (500.0, 760.0), (0.0, 1000.0));
+    assert_eq!(crossed(&mut o, &w, down), Some(Side::Down));
+    // 위가 낮은 모니터도 그 위 끝으로
+    let mut o = Object::new(ObjectKind::Can, 2500.0, 900.0, 1.0, 1);
+    fling(&mut o, &w, (2500.0, 880.0), (0.0, -2500.0));
+    assert_eq!(crossed(&mut o, &w, up), Some(Side::Up));
+    // 쌓인 모니터의 위쪽 바닥은 끝이 아니다
+    let w = World::new(vec![], vec![Rect::new(0.0, -1080.0, 1920.0, -40.0), Rect::new(0.0, 0.0, 1920.0, 1040.0)], 96.0);
+    let mut o = Object::new(ObjectKind::Can, 500.0, -300.0, 1.0, 1);
+    fling(&mut o, &w, (500.0, -320.0), (0.0, 1000.0));
+    assert_eq!(crossed(&mut o, &w, down), None);
+    assert!(o.is_asleep());
+    assert_eq!(o.body.y, -40.0);
+}

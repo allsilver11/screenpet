@@ -122,8 +122,8 @@ fn sky_jump_needs_headroom_and_the_outer_top() {
     assert!(p.can_go_vertical(&w, Side::Up));
     // 그러나 창 윗면에서 바닥 밑으로는 못 간다
     assert!(!p.can_go_vertical(&w, Side::Down));
-    // 위에 쌓인 모니터가 없는 줄(아래 모니터만)도 가장 바깥 위 끝이 아니면 못 뛴다
-    let stacked = World::new(vec![], vec![Rect::new(0.0, 0.0, 1000.0, 1040.0), Rect::new(1000.0, 500.0, 2000.0, 1040.0)], 128.0);
+    // 그 위에 다른 모니터가 있으면 못 뛴다 (위 끝이 낮은 모니터라도 위가 비면 뛴다 — a_monitor_with_nothing_above_it_…)
+    let stacked = World::new(vec![], vec![Rect::new(1000.0, -1000.0, 2000.0, -40.0), Rect::new(1000.0, 0.0, 2000.0, 1040.0)], 128.0);
     let mut q = Pet::new(cfg(), 1500.0, 0.0, 1);
     place(&mut q, &stacked, Owner::Ground(1), 1500.0, State::Idle { remaining: 1.0, look: false });
     assert!(!q.can_go_vertical(&stacked, Side::Up));
@@ -343,4 +343,275 @@ fn sent_pets_wave_and_poof_toward_an_up_friend() {
     p.set_vertical_edges(true, false);
     assert!(p.send_to(Side::Up, false));
     assert_eq!(exit_within(&mut p, &w, 200).0, Some(Side::Up));
+}
+
+// ---- 아래로 던지기: 작업표시줄·모니터 구성과 상관없이, 아래로 던지면 넘어간다 ----
+
+/// 작업표시줄 있는 왼쪽 모니터 + 작업표시줄 없는(더 긴) 오른쪽 모니터
+fn taskbar_and_bare() -> World {
+    World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1080.0)], 128.0)
+}
+
+/// 위아래로 쌓인 모니터: 위 모니터는 작업표시줄이 있어 아래 모니터와 틈이 있다
+fn stacked() -> World {
+    World::new(vec![], vec![Rect::new(0.0, -1080.0, 1920.0, -40.0), Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0)
+}
+
+fn scaled(cfg: PetConfig, dpi: f64) -> PetConfig {
+    PetConfig { size: 128.0 * dpi, half_w: 38.0 * dpi, walk_speed: 60.0 * dpi, dpi, ..cfg }
+}
+
+/// 진짜 손놀림: 잡아서 발이 feet_y에 닿을 자리까지 옮겨 잠깐 멈춘 뒤, 커서를 (vx, vy) 물리 px/s로 8틱 끌고 놓는다 (놓는 순간 발이 feet_y)
+fn throw_by_hand(p: &mut Pet, w: &World, owner: Owner, x: f64, feet_y: f64, v: (f64, f64)) {
+    let (_, ay) = w.anchor(owner).unwrap();
+    place(p, w, owner, x, State::Idle { remaining: 100.0, look: false });
+    let grab = p.cfg.size / 2.0;
+    p.pointer_down(x, ay - grab);
+    let n = 8.0;
+    let (mut cx, mut cy) = (x - v.0 * n * DT, feet_y - grab - v.1 * n * DT);
+    for _ in 0..12 {
+        p.update(DT, w);
+        p.pointer_move(cx, cy);
+    }
+    for _ in 0..8 {
+        p.update(DT, w);
+        cx += v.0 * DT;
+        cy += v.1 * DT;
+        p.pointer_move(cx, cy);
+    }
+    assert!((p.body.y - feet_y).abs() < 1e-6, "feet {} vs {feet_y}", p.body.y);
+    p.pointer_up(cx, cy);
+    assert_eq!(p.state, State::Air { anim: Anim::Fall });
+}
+
+/// 놓은 뒤 어떻게 됐나: 넘어간 끝, 또는 내려서면 None
+fn outcome(p: &mut Pet, w: &World) -> Option<Side> {
+    for _ in 0..600 {
+        p.update(DT, w);
+        if let Some(side) = p.take_exit() {
+            return Some(side);
+        }
+        if p.standing.is_some() {
+            return None;
+        }
+    }
+    panic!("neither crossed nor landed: {:?} {:?}", p.state, p.body);
+}
+
+fn hand_throw(w: &World, x: f64, feet_y: f64, v: (f64, f64), dpi: f64) -> Option<Side> {
+    let mut p = Pet::new(scaled(cfg(), dpi), x, 0.0, 1);
+    p.set_vertical_edges(true, true);
+    throw_by_hand(&mut p, w, Owner::Ground(0), x, feet_y, v);
+    outcome(&mut p, w)
+}
+
+#[test]
+fn throwing_down_from_low_on_the_taskbar_monitor_crosses_though_the_other_monitor_is_longer() {
+    let w = taskbar_and_bare();
+    let mut p = Pet::new(cfg(), 500.0, 0.0, 1);
+    p.state = State::Air { anim: Anim::Fall };
+    p.body = Body { x: 500.0, y: 900.0, vx: 0.0, vy: 1500.0 };
+    p.thrown = true;
+    p.set_vertical_edges(false, true);
+    assert_eq!(exit_within(&mut p, &w, 60).0, Some(Side::Down));
+    // 작업표시줄 없는 쪽 모니터도 그대로
+    let mut q = Pet::new(cfg(), 2500.0, 0.0, 1);
+    q.state = State::Air { anim: Anim::Fall };
+    q.body = Body { x: 2500.0, y: 900.0, vx: 0.0, vy: 1500.0 };
+    q.thrown = true;
+    q.set_vertical_edges(false, true);
+    assert_eq!(exit_within(&mut q, &w, 60).0, Some(Side::Down));
+    // 걷다가 바닥 밑으로 쏙도 작업표시줄 모니터의 바닥에서 된다
+    let mut d = Pet::new(cfg(), 500.0, 0.0, 1);
+    place(&mut d, &w, Owner::Ground(0), 500.0, State::Idle { remaining: 1.0, look: false });
+    assert!(d.can_go_vertical(&w, Side::Down));
+    d.state = d.vertical_exit(Side::Down);
+    let (side, _, hi) = exit_within(&mut d, &w, 300);
+    assert_eq!(side, Some(Side::Down));
+    assert!(hi - 128.0 < 1080.0, "gone just below its own floor, not the union's: {hi}");
+}
+
+#[test]
+fn the_floor_above_another_monitor_is_not_an_outer_edge() {
+    let w = stacked();
+    // 위 모니터 바닥: 바로 아래 모니터가 있으니 넘어가지 않고 내려선다
+    let mut p = Pet::new(cfg(), 500.0, 0.0, 1);
+    p.state = State::Air { anim: Anim::Fall };
+    p.body = Body { x: 500.0, y: -200.0, vx: 0.0, vy: 1600.0 };
+    p.thrown = true;
+    p.set_vertical_edges(true, true);
+    assert_eq!(exit_within(&mut p, &w, 60).0, None);
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)));
+    assert!(!p.can_go_vertical(&w, Side::Down));
+    assert!(p.can_go_vertical(&w, Side::Up));
+    // 아래 모니터 바닥은 넘어가고, 아래 모니터에선 위로 뛰어 나가지 못한다
+    let mut q = Pet::new(cfg(), 500.0, 0.0, 1);
+    place(&mut q, &w, Owner::Ground(1), 500.0, State::Idle { remaining: 1.0, look: false });
+    assert!(q.can_go_vertical(&w, Side::Down));
+    assert!(!q.can_go_vertical(&w, Side::Up));
+    assert_eq!(hand_throw_from(&w, Owner::Ground(1), 500.0, 900.0, (0.0, 1000.0)), Some(Side::Down));
+}
+
+fn hand_throw_from(w: &World, owner: Owner, x: f64, feet_y: f64, v: (f64, f64)) -> Option<Side> {
+    let mut p = Pet::new(cfg(), x, 0.0, 1);
+    p.set_vertical_edges(true, true);
+    throw_by_hand(&mut p, w, owner, x, feet_y, v);
+    outcome(&mut p, w)
+}
+
+#[test]
+fn a_monitor_with_nothing_above_it_is_an_up_edge_even_if_a_taller_one_stands_beside_it() {
+    // 오른쪽 모니터가 왼쪽보다 낮게 시작한다
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 300.0, 3840.0, 1040.0)], 128.0);
+    let mut p = Pet::new(cfg(), 2500.0, 0.0, 1);
+    p.state = State::Air { anim: Anim::Fall };
+    p.body = Body { x: 2500.0, y: 800.0, vx: 0.0, vy: -1500.0 };
+    p.thrown = true;
+    p.set_vertical_edges(true, false);
+    assert_eq!(exit_within(&mut p, &w, 60).0, Some(Side::Up));
+    // 뛰어 나가기도: 자기 모니터 위 끝을 넘으면 사라진다 (합친 화면 위 끝까지 안 간다)
+    let mut q = Pet::new(cfg(), 2500.0, 0.0, 1);
+    place(&mut q, &w, Owner::Ground(1), 2500.0, State::Idle { remaining: 1.0, look: false });
+    assert!(q.can_go_vertical(&w, Side::Up));
+    q.state = q.vertical_exit(Side::Up);
+    let (side, lo, _) = exit_within(&mut q, &w, 300);
+    assert_eq!(side, Some(Side::Up));
+    assert!((200.0..=300.0).contains(&lo), "vanished at its own top: {lo}");
+}
+
+#[test]
+fn a_real_downward_throw_crosses_even_if_slow_at_the_floor_on_every_screen() {
+    for dpi in [1.0, 1.5, 2.0] {
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0 * dpi, 1040.0 * dpi)], 128.0 * dpi);
+        // 커서 1000 px/s로 바닥 200 px 위에서 놓는다: 바닥에 닿을 때 1000쯤 (옛 기준 1400에 못 미친다)
+        assert_eq!(hand_throw(&w, 500.0 * dpi, 840.0 * dpi, (0.0, 1000.0 * dpi), dpi), Some(Side::Down), "dpi {dpi}");
+        // 살짝 비스듬해도 아래로 던진 것
+        assert_eq!(hand_throw(&w, 500.0 * dpi, 840.0 * dpi, (500.0 * dpi, 1000.0 * dpi), dpi), Some(Side::Down), "dpi {dpi}");
+    }
+}
+
+#[test]
+fn tosses_that_merely_fall_on_the_floor_still_land() {
+    for dpi in [1.0, 1.5, 2.0] {
+        let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0 * dpi, 1040.0 * dpi)], 128.0 * dpi);
+        for v in [
+            // 옆으로, 위로, 옆이 더 빠른 비스듬히, 살살 아래로, 그냥 놓기
+            (1500.0, 0.0),
+            (0.0, -1000.0),
+            (1500.0, 500.0),
+            (0.0, 200.0),
+            (0.0, 0.0),
+        ] {
+            assert_eq!(hand_throw(&w, 300.0 * dpi, 840.0 * dpi, (v.0 * dpi, v.1 * dpi), dpi), None, "dpi {dpi} {v:?}");
+        }
+    }
+}
+
+#[test]
+fn releasing_with_the_feet_already_over_the_taskbar_still_crosses() {
+    let w = world(vec![]);
+    // 커서가 작업표시줄 위에 있을 때 놓으면 발은 이미 바닥(1040) 아래다
+    assert_eq!(hand_throw(&w, 500.0, 1070.0, (0.0, 1000.0), 1.0), Some(Side::Down));
+    // 그 자리에서 그냥 놓으면 바닥에 내려선다
+    assert_eq!(hand_throw(&w, 500.0, 1070.0, (0.0, 0.0), 1.0), None);
+    let mut p = Pet::new(cfg(), 500.0, 0.0, 1);
+    throw_by_hand(&mut p, &w, Owner::Ground(0), 500.0, 1070.0, (0.0, 1000.0));
+    // 아래 친구가 없으면 바닥에 내려선다
+    assert_eq!(outcome(&mut p, &w), None);
+}
+
+#[test]
+fn the_crossing_is_not_missed_on_the_tick_that_gravity_carries_past_the_floor() {
+    // 중력을 빼면 이번 틱에 바닥에 못 미치고(1039.8), 중력까지 더하면 바닥을 넘는다(1040.3)
+    let w = world(vec![]);
+    let mut p = Pet::new(cfg(), 500.0, 0.0, 1);
+    p.state = State::Air { anim: Anim::Fall };
+    p.body = Body { x: 500.0, y: 1014.8, vx: 0.0, vy: 1500.0 };
+    p.thrown = true;
+    p.set_vertical_edges(false, true);
+    p.update(DT, &w);
+    assert_eq!(p.take_exit(), Some(Side::Down));
+}
+
+#[test]
+fn single_monitor_with_the_taskbar_on_any_edge() {
+    for wa in [
+        Rect::new(0.0, 0.0, 1920.0, 1040.0),  // 아래
+        Rect::new(0.0, 40.0, 1920.0, 1080.0), // 위
+        Rect::new(60.0, 0.0, 1920.0, 1080.0), // 왼쪽
+        Rect::new(0.0, 0.0, 1860.0, 1080.0),  // 오른쪽
+    ] {
+        let w = World::new(vec![], vec![wa], 128.0);
+        assert_eq!(hand_throw(&w, 500.0, wa.bottom - 150.0, (0.0, 1000.0), 1.0), Some(Side::Down), "{wa:?}");
+        // 위 끝 친구: 위로 던지면 넘어간다 (작업표시줄이 위에 있어도)
+        assert_eq!(hand_throw(&w, 500.0, wa.top + 300.0, (0.0, -2000.0), 1.0), Some(Side::Up), "{wa:?}");
+    }
+}
+
+#[test]
+fn guests_throw_down_only_where_the_roaming_rules_allow() {
+    let w = world(vec![]);
+    let guest = |home: Side, friends_below: bool, homesick_in: f64| {
+        let mut p = Pet::new(cfg(), 500.0, 0.0, 1);
+        p.set_guest(home, homesick_in);
+        p.set_vertical_edges(false, friends_below);
+        throw_by_hand(&mut p, &w, Owner::Ground(0), 500.0, 900.0, (0.0, 1000.0));
+        outcome(&mut p, &w)
+    };
+    // 집이 아래면 넘어가고, 다른 친구가 아래에 있으면 돌아다니고, 아무도 없거나 그리우면 내려선다
+    assert_eq!(guest(Side::Down, false, 1000.0), Some(Side::Down));
+    assert_eq!(guest(Side::Left, true, 1000.0), Some(Side::Down));
+    assert_eq!(guest(Side::Left, false, 1000.0), None);
+    assert_eq!(guest(Side::Left, true, 0.0), None);
+}
+
+#[test]
+fn arriving_after_a_throw_does_not_count_as_a_throw_down_again() {
+    // 위에서 넘어온 동물이 살살 떨어져 아래 친구까지 줄줄이 빠져나가지 않는다
+    let w = world(vec![]);
+    let mut p = Pet::new(cfg(), 500.0, 0.0, 1);
+    p.set_vertical_edges(false, true);
+    throw_by_hand(&mut p, &w, Owner::Ground(0), 500.0, 900.0, (0.0, 1000.0));
+    assert_eq!(outcome(&mut p, &w), Some(Side::Down));
+    let tall = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 400.0)], 128.0);
+    p.enter_flung(&tall, Side::Up, Fling { height: 0.5, vx: 0.0, vy: 0.0 });
+    assert_eq!(outcome(&mut p, &tall), None);
+}
+
+#[test]
+fn thrown_flyers_cross_down_by_aim_though_drag_slows_them() {
+    let w = world(vec![]);
+    let fly = |x: f64, y: f64, v: (f64, f64)| {
+        let mut b = Pet::new(bee(), x, y, 1);
+        b.state = State::Air { anim: Anim::Fall };
+        b.body.x = x;
+        b.body.y = y;
+        b.set_vertical_edges(false, true);
+        b.pointer_down(x, y - 60.0);
+        let (mut cx, mut cy) = (x, y - 60.0 - v.1 * 8.0 * DT);
+        for _ in 0..12 {
+            b.update(DT, &w);
+            b.pointer_move(cx, cy);
+        }
+        for _ in 0..8 {
+            b.update(DT, &w);
+            cx += v.0 * DT;
+            cy += v.1 * DT;
+            b.pointer_move(cx, cy);
+        }
+        b.pointer_up(cx, cy);
+        exit_within(&mut b, &w, 240).0
+    };
+    // 커서 1000 px/s, 바닥 100 px 위: 공기 저항으로 바닥에서 250쯤 — 옛 기준 400 미만
+    assert_eq!(fly(900.0, 940.0, (0.0, 1000.0)), Some(Side::Down));
+    // 옆으로 던지면 뜬 채로
+    assert_eq!(fly(300.0, 940.0, (1500.0, 0.0)), None);
+    // 작업표시줄 있는 모니터 바닥도 (합친 화면 바닥보다 위)
+    let dual = taskbar_and_bare();
+    let mut b = Pet::new(bee(), 900.0, 900.0, 1);
+    b.state = State::Air { anim: Anim::Fall };
+    b.body = Body { x: 900.0, y: 900.0, vx: 0.0, vy: 1500.0 };
+    b.thrown = true;
+    b.set_vertical_edges(false, true);
+    assert_eq!(exit_within(&mut b, &dual, 120).0, Some(Side::Down));
 }

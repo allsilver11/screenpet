@@ -553,6 +553,8 @@ pub struct Pet {
     bunny: crate::hop::Stretch,
     /// 손에서 던져져 날아가는 중 (State::Air) — 논리 px 기준의 부드러운 중력을 쓴다. 공중을 벗어나면 꺼진다
     thrown: bool,
+    /// 놓는 순간 아래로 던졌다 (visit::aimed_down) — 바닥에 닿으면 속도와 상관없이 넘어간다
+    thrown_down: bool,
     /// 다른 동물과 놀 때 구별하는 번호 (프로세스 안에서 유일, social.rs)
     social_key: u64,
     /// 인사·술래 놀이 중인 친구의 자리 (발 위치) — social.rs가 매 틱 알려 준다
@@ -634,6 +636,7 @@ impl Pet {
             hop_beat: Default::default(),
             bunny: Default::default(),
             thrown: false,
+            thrown_down: false,
             social_key: social_moves::next_key(),
             play_target: None,
             control: None,
@@ -2037,6 +2040,7 @@ impl Pet {
                 self.body.vy = vy;
                 self.state = State::Air { anim: Anim::Fall };
                 self.thrown = true;
+                self.thrown_down = visit::aimed_down(vx, vy, self.cfg.dpi);
                 self.drop_check = true;
             }
             _ => {}
@@ -2423,7 +2427,7 @@ impl Pet {
         // 던져서 친구가 연결된 화면 끝에 닿으면 튕기지 않고 넘어간다 (brain_fling.rs)
         let (half_w, b) = (self.cfg.half_w, world.bounds);
         if self.fling_out(world, self.body.x + self.body.vx * dt, b.left + half_w, b.right - half_w)
-            || self.fling_out_vertical(world, self.body.y + self.body.vy * dt, b.top + self.cfg.size, b.bottom)
+            || self.fling_out_vertical(world, self.body.y + (self.body.vy + self.air_gravity() * dt) * dt, self.cfg.size)
         {
             return;
         }

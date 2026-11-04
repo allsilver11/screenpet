@@ -383,7 +383,7 @@ impl Pet {
         let (mut vx, mut vy) = flight::drift(self.body.vx, self.body.vy, dt);
         let (mut x, mut y) = (self.body.x + vx * dt, self.body.y + vy * dt);
         // 던져서 친구가 연결된 화면 끝에 닿으면 넘어간다 (brain_fling.rs)
-        if self.fling_out(world, x, b.left, b.right) || self.fling_out_vertical(world, y, b.top, b.bottom) {
+        if self.fling_out(world, x, b.left, b.right) || self.fling_out_vertical(world, y, self.fly_head()) {
             return;
         }
         if x < b.left || x > b.right {

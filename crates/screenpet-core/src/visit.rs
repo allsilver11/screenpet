@@ -329,11 +329,25 @@ pub const DIVE_HOP_SIZES: f64 = 0.6;
 pub const POP_UP_SIZES: f64 = 2.0;
 /// 위로 뛰어 나갈 때 머리 위에 창이 없어야 하는 높이 (몸 높이의 배)
 pub const SKY_HEADROOM_SIZES: f64 = 2.0;
-/// 아래 끝으로 던져 넘기려면 바닥에 닿을 때 이 속도(논리 px/s) 이상으로 내리꽂혀야 한다 — 그냥 떨어뜨리거나 살살 던지면 바닥에 내려선다
-/// (던진 비행의 중력으로 화면 절반쯤 떨어지면 1300쯤)
+/// 아래로 던졌는지 (놓는 순간의 던진 속도, THROW_FEEL·THROW_LIFT를 거친 값): 아래로 이 속도(논리 px/s) 이상이고
+/// 가로 속도의 FLING_DOWN_AIM_RATIO배 이상이면 바닥에 닿을 때 얼마나 빠르든 넘어간다. 커서로는 아래로 450 px/s쯤, 옆보다 아래가 더 빠른 휙
+pub const FLING_DOWN_AIM_SPEED: f64 = 250.0;
+pub const FLING_DOWN_AIM_RATIO: f64 = 0.5;
+/// 아래로 던지지 않았어도(옆·위로 던져 떨어지는 중) 바닥에 닿을 때 이 속도(논리 px/s) 이상이면 넘어간다
+/// (던진 비행의 중력으로 화면 절반쯤 떨어지면 1300쯤 — 그냥 떨어뜨리거나 살살 던지면 바닥에 내려선다)
 pub const FLING_DOWN_MIN_SPEED: f64 = 1400.0;
 /// 나는 동물은 공기 저항으로 금방 느려지므로 이 속도면 아래 끝으로 넘어간다
 pub const FLY_FLING_DOWN_MIN_SPEED: f64 = 400.0;
+
+/// 놓는 순간의 던진 속도(물리 px/s)가 아래로 던진 것인지 (화면 배율과 무관)
+pub fn aimed_down(vx: f64, vy: f64, dpi: f64) -> bool {
+    vy >= FLING_DOWN_AIM_SPEED * dpi.max(0.01) && vy >= FLING_DOWN_AIM_RATIO * vx.abs()
+}
+
+/// 던진 것이 지금 속도 vy(물리 px/s)로 바닥을 뚫고 넘어갈 만한지: 아래로 던졌거나, min_speed(논리 px/s) 이상으로 내리꽂히거나
+pub fn falls_through(aimed: bool, vy: f64, min_speed: f64, dpi: f64) -> bool {
+    vy > 0.0 && (aimed || vy >= min_speed * dpi.max(0.01))
+}
 
 /// 위/아래로 나갈 확률 (이동을 정할 때마다): visit 규칙(exit_chance) × VERTICAL_DECISION_SCALE, 개구리가 위로면 × 2.
 /// 반드시 나가야 하면(그리운 손님의 집 쪽) 1
@@ -349,18 +363,18 @@ pub fn vertical_exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>, 
     (chance * VERTICAL_DECISION_SCALE * mult).min(1.0)
 }
 
-/// x 줄에서 합친 화면의 가장 바깥 위(Up)/아래(Down) 끝에 닿는 작업 영역이 있는지 (그 줄로 위/아래 친구 화면에 넘어갈 수 있다)
-pub fn outer_edge_at(world: &World, side: Side, x: f64) -> bool {
+/// x 줄의 위/아래 끝: top = 그 줄 가장 위 작업 영역의 위, bottom = 가장 아래 작업 영역의 바닥 (왼쪽/오른쪽은 합친 화면 그대로).
+/// 이 끝으로 위/아래 친구 화면에 넘어간다. 합친 화면의 끝과 맞을 필요는 없다 — 작업표시줄 있는 모니터 옆에 없는 모니터가 있거나
+/// 크기가 달라도, 그 줄 위아래로 다른 모니터가 없으면 그 모니터의 끝이 바깥이다. 쌓인 모니터 사이(작업표시줄만큼 틈이 있어도)는 끝이 아니다.
+/// x 줄에 작업 영역이 없으면 None
+pub fn column_bounds(world: &World, x: f64) -> Option<Rect> {
     let b = world.bounds;
-    world.work_areas.iter().any(|r| {
-        r.left <= x
-            && x < r.right
-            && match side {
-                Side::Up => (r.top - b.top).abs() <= EDGE_TOLERANCE,
-                Side::Down => (r.bottom - b.bottom).abs() <= EDGE_TOLERANCE,
-                Side::Left | Side::Right => false,
-            }
-    })
+    world
+        .work_areas
+        .iter()
+        .filter(|r| r.left <= x && x < r.right)
+        .map(|r| Rect::new(b.left, r.top, b.right, r.bottom))
+        .reduce(|a, c| a.union(&c))
 }
 
 /// 위/아래 끝 어디쯤인지 (합친 화면 폭의 0 왼쪽 … 1 오른쪽) — 던져 넘길 때 Fling.height에 싣는다
@@ -372,7 +386,7 @@ pub fn edge_fraction(bounds: &Rect, x: f64) -> f64 {
     }
 }
 
-/// 위/아래 끝(side)으로 들어올 x: 폭 비율 frac(없으면 rng로 아무 데나) 자리에서 가장 가까운, 그 끝에 닿은 작업 영역 안 (몸 반폭만큼 안쪽)
+/// 위/아래 끝(side)으로 들어올 x (들어올 때는 합친 화면의 끝으로 — 그 끝에 닿은 모니터가 꼭 있다): 폭 비율 frac(없으면 rng로 아무 데나) 자리에서 가장 가까운, 그 끝에 닿은 작업 영역 안 (몸 반폭만큼 안쪽)
 pub fn vertical_entry_x(world: &World, side: Side, frac: Option<f64>, half_w: f64, rng: &mut fastrand::Rng) -> f64 {
     let b = world.bounds;
     let frac = frac.filter(|f| f.is_finite()).unwrap_or_else(|| rng.f64()).clamp(0.0, 1.0);
@@ -706,13 +720,38 @@ mod tests {
     }
 
     #[test]
+    fn aimed_down_is_in_logical_px_and_needs_down_to_dominate() {
+        for dpi in [1.0, 1.5, 2.0] {
+            assert!(aimed_down(0.0, 250.0 * dpi, dpi));
+            assert!(aimed_down(400.0 * dpi, 250.0 * dpi, dpi));
+            assert!(!aimed_down(0.0, 249.0 * dpi, dpi));
+            assert!(!aimed_down(600.0 * dpi, 250.0 * dpi, dpi));
+            assert!(!aimed_down(0.0, -800.0 * dpi, dpi));
+            assert!(falls_through(true, 1.0, FLING_DOWN_MIN_SPEED, dpi));
+            assert!(!falls_through(true, -1.0, FLING_DOWN_MIN_SPEED, dpi));
+            assert!(!falls_through(false, 1399.0 * dpi, FLING_DOWN_MIN_SPEED, dpi));
+            assert!(falls_through(false, 1400.0 * dpi, FLING_DOWN_MIN_SPEED, dpi));
+        }
+    }
+
+    #[test]
     fn outer_top_and_bottom_columns() {
         // 큰 모니터 옆에 위가 낮고 아래가 같은 모니터
         let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 300.0, 3000.0, 1040.0)], 128.0);
-        assert!(outer_edge_at(&w, Side::Up, 100.0) && outer_edge_at(&w, Side::Down, 100.0));
-        assert!(!outer_edge_at(&w, Side::Up, 2500.0) && outer_edge_at(&w, Side::Down, 2500.0));
-        assert!(!outer_edge_at(&w, Side::Left, 100.0));
-        assert!(!outer_edge_at(&w, Side::Up, 5000.0));
+        let col = |w: &World, x: f64| column_bounds(w, x).map(|c| (c.top, c.bottom));
+        assert_eq!(col(&w, 100.0), Some((0.0, 1040.0)));
+        // 합친 화면 위 끝에 안 닿아도 그 위에 다른 모니터가 없으면 자기 위 끝이 바깥
+        assert_eq!(col(&w, 2500.0), Some((300.0, 1040.0)));
+        assert_eq!(col(&w, 5000.0), None);
+        // 작업표시줄 있는 모니터 + 없는 모니터: 저마다 자기 바닥
+        let bars = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1080.0)], 128.0);
+        assert_eq!(col(&bars, 100.0), Some((0.0, 1040.0)));
+        assert_eq!(col(&bars, 2000.0), Some((0.0, 1080.0)));
+        // 쌓인 모니터: 작업표시줄 틈이 있어도 한 줄의 끝은 맨 위와 맨 아래. 아래 모니터가 겹치지 않는 줄은 위 모니터 바닥이 끝
+        let stacked = World::new(vec![], vec![Rect::new(0.0, -1080.0, 1920.0, -40.0), Rect::new(1000.0, 0.0, 2920.0, 1040.0)], 128.0);
+        assert_eq!(col(&stacked, 1500.0), Some((-1080.0, 1040.0)));
+        assert_eq!(col(&stacked, 500.0), Some((-1080.0, -40.0)));
+        assert_eq!(col(&stacked, 2500.0), Some((0.0, 1040.0)));
         // 위에서 들어올 자리는 위 끝에 닿은 모니터 안으로
         let mut rng = fastrand::Rng::with_seed(1);
         assert_eq!(vertical_entry_x(&w, Side::Up, Some(0.9), 38.0, &mut rng), 1920.0 - 38.0);

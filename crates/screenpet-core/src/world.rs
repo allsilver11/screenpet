@@ -119,8 +119,12 @@ impl World {
         self.surfaces.iter().find(|s| s.owner == owner && s.contains_x(x))
     }
 
-    /// x 아래에 있는 Ground 디딤판 중 y가 주어진 y 이하인 것 (작업 영역 바닥보다 아래로 내려간 경우용)
+    /// x 아래에 있는 Ground 디딤판 중 y가 주어진 y 이하인 것 (작업 영역 바닥보다 아래로 내려간 경우용).
+    /// 발이 아직 어떤 작업 영역 안이면 None (쌓인 모니터: 아래 모니터에서 떨어지는 중인데 위 모니터 바닥으로 끌려가지 않는다)
     pub fn ground_below(&self, x: f64, y: f64) -> Option<&Surface> {
+        if self.work_areas.iter().any(|r| r.left <= x && x < r.right && r.top <= y && y < r.bottom) {
+            return None;
+        }
         self.surfaces
             .iter()
             .filter(|s| matches!(s.owner, Owner::Ground(_)) && s.contains_x(x) && s.y <= y)
@@ -311,5 +315,11 @@ mod tests {
         assert_eq!(g.owner, Owner::Ground(0));
         assert!(w.ground_below(800.0, 1000.0).is_none());
         assert!(w.ground_below(5000.0, 1090.0).is_none());
+        // 쌓인 모니터: 아래 모니터 안에서 떨어지는 중이면 위 모니터 바닥은 아니다. 작업표시줄 틈과 맨 아래 바닥 밑은 그대로
+        let top = Rect::new(0.0, -1080.0, 1920.0, -40.0);
+        let stacked = World::new(vec![], vec![top, Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+        assert!(stacked.ground_below(800.0, 500.0).is_none());
+        assert_eq!(stacked.ground_below(800.0, -20.0).map(|s| s.owner), Some(Owner::Ground(0)));
+        assert_eq!(stacked.ground_below(800.0, 1060.0).map(|s| s.owner), Some(Owner::Ground(1)));
     }
 }

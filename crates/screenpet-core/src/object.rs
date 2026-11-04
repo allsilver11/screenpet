@@ -157,6 +157,8 @@ pub struct Object {
     spin: f64,
     /// 던진 비행 — 이때만 화면 끝을 넘어간다 (바람·낙하는 넘어가지 않는다)
     thrown: bool,
+    /// 놓는 순간 아래로 던졌다 (visit::aimed_down) — 바닥에 닿으면 넘어간다
+    thrown_down: bool,
     gust_in: f64,
     rng: fastrand::Rng,
     clock: f64,
@@ -186,6 +188,7 @@ impl Object {
             angle: 0.0,
             spin: 0.0,
             thrown: false,
+            thrown_down: false,
             gust_in,
             rng,
             clock: 0.0,
@@ -339,6 +342,7 @@ impl Object {
         self.body.vx = vx;
         self.body.vy = vy;
         self.thrown = true;
+        self.thrown_down = visit::aimed_down(vx, vy, self.dpi);
         self.spin = self.spin_of_throw();
         Release::Throw
     }
@@ -544,14 +548,17 @@ impl Object {
         let b = world.bounds;
         let (hw, size, dpi) = (self.half_w(), self.size(), self.dpi);
         let Body { x, y, vx, vy } = self.body;
-        let (next_x, next_y) = (x + vx * dt, y + vy * dt);
+        // next_y는 이번 틱의 중력까지 더한다: 이 틱에 바닥을 지나면 내려앉기 전에 넘어가야 한다
+        let (next_x, next_y) = (x + vx * dt, y + (vy + THROW_GRAVITY_LOGICAL * dpi * dt) * dt);
+        // 위/아래 끝은 이 줄의 끝 (모니터마다 작업표시줄·크기가 달라도 위아래에 다른 모니터가 없으면 넘어간다)
+        let col = visit::column_bounds(world, x);
         let exit = if next_x < b.left + hw && vx < 0.0 && edges.left {
             Some(Side::Left)
         } else if next_x > b.right - hw && vx > 0.0 && edges.right {
             Some(Side::Right)
-        } else if vy < 0.0 && next_y < b.top + size && edges.up && visit::outer_edge_at(world, Side::Up, x) {
+        } else if vy < 0.0 && edges.up && col.is_some_and(|c| next_y < c.top + size) {
             Some(Side::Up)
-        } else if vy >= visit::FLING_DOWN_MIN_SPEED * dpi && y <= b.bottom && next_y >= b.bottom && edges.down && visit::outer_edge_at(world, Side::Down, x) {
+        } else if edges.down && col.is_some_and(|c| next_y >= c.bottom) && visit::falls_through(self.thrown_down, vy, visit::FLING_DOWN_MIN_SPEED, dpi) {
             Some(Side::Down)
         } else {
             None
