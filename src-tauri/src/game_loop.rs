@@ -7,6 +7,7 @@ use screenpet_core::brain::control_moves::ControlInput;
 use screenpet_core::brain::Pet;
 use screenpet_core::care::{Care, FeedResult, Food, Stage};
 use screenpet_core::config::{self, Config};
+use screenpet_core::broom::Broom;
 use screenpet_core::food::{self, FeedMode, HandFeed, HandInput};
 use screenpet_core::geom::Rect;
 use screenpet_core::manifest::FavoriteFood;
@@ -64,6 +65,8 @@ pub enum Input {
     ToggleControl,
     /// 🐾 커서 장난 켜기 / 끄기 (설정에 남는다)
     ToggleCursorPlay,
+    /// 🧹 빗자루 들기 / 내려놓기 (트레이·우클릭 체크 항목)
+    ToggleBroom,
     /// 🌨️ 날씨 효과 켜기 / 끄기 (트레이·우클릭 체크 항목)
     ToggleWeather,
     /// ⏱️ 집중 친구 시작 / 그만 (켜져 있는지는 설정에 남지 않는다)
@@ -141,6 +144,11 @@ fn apply_own_stage(app: &AppHandle, own: &mut Slot, care: &Care) {
 fn show_hand(app: &AppHandle, hand_win: &mut HandWindow, food: Food, (cx, cy): (f64, f64), own: &Slot) {
     let off = food::HAND_OFFSET * own.dpi;
     hand_win.show(app, food::hand_icon(food, &own.entry.id), (cx + off, cy + off), own.dpi);
+}
+
+/// 🧹 빗자루 창의 가운데: 쓰는 끝(왼쪽 아래)이 커서에 온다
+fn broom_at((cx, cy): (f64, f64), dpi: f64) -> (f64, f64) {
+    (cx + food::HAND_OFFSET * dpi, cy - food::HAND_OFFSET * dpi)
 }
 
 /// 픽셀을 골랐는데 지금 동물은 아직 그림이 없어 동글로 보인다 — 한 줄 알린다
@@ -247,6 +255,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     // 직접 주기: 커서 끝에 붙은 음식과 그 그림 창
     let mut hand: Option<HandFeed> = None;
     let mut hand_win = HandWindow::default();
+    let mut broom: Option<Broom> = None;
+    let mut broom_win = HandWindow::default();
     // 계절 날씨 (철이 아니거나 꺼 두면 창도 일도 없다)
     let mut weather = WeatherFx::new(seed_now());
     // 🎁 선물 (없으면 1초에 한 번 시계만 본다)
@@ -323,6 +333,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     props.restyle(&app, own.dpi, own.shown.scale, own.pixel_dot());
                     if let Some(h) = &hand {
                         show_hand(&app, &mut hand_win, h.food, source.cursor(), own);
+                    }
+                    if broom.is_some() {
+                        broom_win.show(&app, food::BROOM_ICON, broom_at(source.cursor(), own.dpi), own.dpi);
                     }
                     weather.restyle(&app, own.dpi);
                     hint_no_pixel_art(&app, own);
@@ -423,6 +436,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         saw_key = false;
                     }
                 }
+                Input::ToggleBroom => {
+                    if broom.take().is_some() {
+                        broom_win.drop_back();
+                    } else {
+                        let cursor = source.cursor();
+                        broom = Some(Broom::new(cursor));
+                        broom_win.show(&app, food::BROOM_ICON, broom_at(cursor, slots[OWN].dpi), slots[OWN].dpi);
+                    }
+                    let _ = app.state::<AppState>().menu.broom.set_checked(broom.is_some());
+                }
                 Input::ToggleWeather => {
                     config.weather_on = !config.weather_on;
                     weather.sync_menu(&app, !config.weather_on);
@@ -518,6 +541,14 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 // 친구가 던진 물건 (net이 인증된 친구 링크·친구별 한도를 확인했고, 받은 물건 20개 상한과 다듬기는 objects가 지키고, 창은 틱마다 하나씩 만든다)
                 Input::Net(NetInput::Event(screenpet_net::NetEvent::Tossed { from, toss })) => {
+                    // 🧹 친구가 쓸어 보낸 더미: 내 친구의 것만, 집중·하우스 중이면 조용히 버린다
+                    if let Some(kind) = screenpet_core::weather::parse_flurry_kind(&toss.kind) {
+                        if config.friend(&from).is_some() && !slots[OWN].pet.refuses_arrivals() {
+                            let at = toss.fling.as_ref().map_or(0.5, |f| f.height);
+                            weather.receive_flurry(&app, kind, crate::network::from_net_side(toss.side, toss.vside), at);
+                        }
+                        continue;
+                    }
                     // 집중·하우스 중이면 받지 않고 되돌린다
                     match screenpet_core::visit::toss_answer(slots[OWN].pet.refuses_arrivals(), toss.bounced, objects.threw_lately(&from)) {
                         screenpet_core::visit::TossAnswer::Take => objects.receive(&config, &from, toss),
@@ -599,6 +630,28 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             if done {
                 hand = None;
                 app.state::<AppState>().hand_feeding.store(false, Ordering::Relaxed);
+            }
+        }
+        // 🧹 빗자루: 커서를 따라다니며 지나가는 더미를 쓴다. 쓴 것을 친구 쪽 끝으로 밀면 친구 화면에 흩날린다
+        if let Some(b) = broom.as_mut() {
+            let dpi = slots[OWN].dpi;
+            broom_win.move_to(broom_at((cx, cy), dpi), dpi);
+            if b.tick(dt, (cx, cy), source.left_button_down(), source.right_button_down(), source.escape_down()) {
+                broom = None;
+                broom_win.drop_back();
+                let _ = app.state::<AppState>().menu.broom.set_checked(false);
+            } else {
+                let (x0, x1) = b.span(dpi);
+                if let Some((amount, kind)) = weather.sweep(x0, x1, cy, Broom::reach_y(dpi)) {
+                    if let Some(count) = b.swept(amount) {
+                        weather.puff(&app, kind, (cx, cy), b.velocity(), count);
+                    }
+                    let world = &slots[OWN].world;
+                    let edges = screenpet_core::visit::column_bounds(world, cx).map_or(world.bounds, |c| Rect::new(world.bounds.left, c.top, world.bounds.right, c.bottom));
+                    if let Some(side) = b.crossing(&edges, dpi, |s| !config.friends_at(s, |id| network.is_linked(id)).is_empty()) {
+                        network.flurry_to(&config, side, kind, b.fling(side, &edges, dpi));
+                    }
+                }
             }
         }
         // 🎮 조작 모드: 키를 내 동물에게 (친구 화면에 가 있으면 친구 링크로도). Esc(직접 주기 중이 아닐 때)·키 없이 3분이면 끝
@@ -699,6 +752,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         decals.tick(now);
         props.tick(now);
         hand_win.tick(now);
+        broom_win.tick(now);
         weather.tick(&app, now, !config.weather_on, presence.is_away(), &mut slots);
         for g in network.take_guest_gifts() {
             gifts.guest_arrived(g, now);

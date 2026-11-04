@@ -144,3 +144,14 @@ def test_a_petal_or_leaf_pile_keeps_its_look_while_rain_melts_it(run):
 
 def test_only_rain_and_showers_splash(run):
     assert run["hasSplash"] == (run["kind"] in ("rain", "shower"))
+
+
+def test_flurries_are_capped_and_fade_away(run):
+    assert 0 < run["flurryPeak"] <= 120
+    assert run["flurryLeft"] == 0
+
+
+def test_the_broom_is_in_the_menu_and_flurries_reach_the_overlay():
+    tray = (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
+    assert '"🧹 빗자루"' in tray and "Input::ToggleBroom" in tray
+    assert '"weather-flurry"' in RS and 'listen("weather-flurry"' in JS

@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{Datelike, Timelike};
 use screenpet_core::geom::Rect;
+use screenpet_core::visit::Side;
 use screenpet_core::weather::{self, OverlayRetry, PileField, Scene, Weather};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -33,6 +34,21 @@ const FRESH: Duration = Duration::from_secs(5);
 /// 소품 창 크기 (논리 px, tools/draw_props.py). 아래 가운데가 자리
 const SNOWMAN_SIZE: (f64, f64) = (64.0, 80.0);
 const SNOWBALL_SIZE: (f64, f64) = (40.0, 40.0);
+
+/// 흩날리는 알갱이 한 뭉치 (논리 px, 이 창 왼쪽 위가 (0, 0))
+#[derive(Serialize)]
+struct Flurry {
+    kind: Weather,
+    x: f64,
+    y: f64,
+    vx: f64,
+    vy: f64,
+    count: u32,
+}
+
+/// 친구가 쓸어 보낸 알갱이 수, 날아 들어오는 속도 (논리 px/s)
+const FLURRY_COUNT: u32 = 40;
+const FLURRY_SPEED: f64 = 420.0;
 
 #[derive(Serialize, PartialEq)]
 struct Payload {
@@ -191,6 +207,48 @@ impl WeatherFx {
         if let Some(own) = slots.first_mut() {
             own.pet.set_snow_ready(ready);
         }
+    }
+
+    /// 🧹 빗자루가 지나갔다: 쓴 양과 더미 그림 (날씨가 없으면 None). 장면은 다음 5 Hz에 나간다
+    pub fn sweep(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64) -> Option<(f32, Weather)> {
+        self.active?;
+        let kind = self.field.pile_kind()?;
+        Some((self.field.sweep(x0, x1, y, reach_y), kind))
+    }
+
+    /// 빗자루 끝에서 알갱이가 날린다 (x, y: 물리 px, 속도: 물리 px/s)
+    pub fn puff(&self, app: &AppHandle, kind: Weather, (x, y): (f64, f64), (vx, vy): (f64, f64), count: u32) {
+        let Some(o) = self.overlays.iter().find(|o| on_area(&o.wa, x) && y >= o.wa.top && y <= o.wa.bottom + 80.0) else { return };
+        let flurry = Flurry { kind, x: (x - o.wa.left) / o.scale, y: (y - o.wa.top) / o.scale, vx: vx / o.scale, vy: vy / o.scale, count };
+        let _ = app.emit_to(o.label.as_str(), "weather-flurry", &flurry);
+    }
+
+    /// 친구가 쓸어 보낸 더미가 side 끝에서 흩날려 들어온다 (at: 끝을 따라 어디쯤). 날씨 창이 없으면(꺼 뒀거나 맑음) 보이지 않는다
+    pub fn receive_flurry(&self, app: &AppHandle, kind: Weather, side: Side, at: f64) {
+        let at = if at.is_finite() { at.clamp(0.0, 1.0) } else { 0.5 };
+        let areas = || self.overlays.iter();
+        let picked = match side {
+            Side::Left => areas().min_by(|a, b| a.wa.left.total_cmp(&b.wa.left)),
+            Side::Right => areas().max_by(|a, b| a.wa.right.total_cmp(&b.wa.right)),
+            Side::Up | Side::Down => {
+                let (left, right) = areas().fold((f64::MAX, f64::MIN), |(l, r), o| (l.min(o.wa.left), r.max(o.wa.right)));
+                let x = left + at * (right - left);
+                areas().find(|o| on_area(&o.wa, x)).or_else(|| areas().last())
+            }
+        };
+        let Some(o) = picked else { return };
+        let (w, h) = (o.wa.width() / o.scale, o.wa.height() / o.scale);
+        let across = |o: &Overlay| {
+            let (left, right) = areas().fold((f64::MAX, f64::MIN), |(l, r), o| (l.min(o.wa.left), r.max(o.wa.right)));
+            (left + at * (right - left) - o.wa.left) / o.scale
+        };
+        let (x, y, vx, vy) = match side {
+            Side::Left => (0.0, at * h, FLURRY_SPEED, -60.0),
+            Side::Right => (w, at * h, -FLURRY_SPEED, -60.0),
+            Side::Up => (across(o), 0.0, 0.0, FLURRY_SPEED * 0.5),
+            Side::Down => (across(o), h, 0.0, -FLURRY_SPEED),
+        };
+        let _ = app.emit_to(o.label.as_str(), "weather-flurry", &Flurry { kind, x, y, vx, vy, count: FLURRY_COUNT });
     }
 
     /// 굴리는 눈덩이를 내 동물 앞에 놓고, 다 쌓으면 눈사람을 세운다 (날씨가 켜진 동안 매 틱)

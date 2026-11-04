@@ -431,3 +431,32 @@ fn a_failed_overlay_is_retried_later_and_later() {
     r.failed(t0);
     assert!(r.ready(after(5)));
 }
+
+#[test]
+fn the_broom_clears_only_the_pile_it_passes_over() {
+    let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+    run(&mut f, Weather::Snow, 300);
+    let (top, ground) = (depth(&f, Owner::Window(1)), depth(&f, Owner::Ground(0)));
+    assert!(top > 0.5 && ground > 0.5);
+    // 창 윗면 높이, 왼쪽 절반만
+    assert!(f.sweep(200.0, 600.0, 410.0, 40.0) > 0.0);
+    let pile = f.piles.iter().find(|p| p.owner == Owner::Window(1)).unwrap();
+    let (left, right) = pile.cells.split_at(pile.cells.len() / 2);
+    assert_eq!(left.iter().sum::<f32>(), 0.0);
+    assert!(right.iter().sum::<f32>() > 0.0);
+    assert_eq!(depth(&f, Owner::Ground(0)), ground, "the floor is far below");
+    // 더미 없는 높이는 아무것도 쓸지 않는다
+    assert_eq!(f.sweep(0.0, 1920.0, 100.0, 40.0), 0.0);
+    // 다시 쓸면 쓸 것이 없다
+    assert_eq!(f.sweep(200.0, 600.0, 410.0, 40.0), 0.0);
+}
+
+#[test]
+fn only_piling_weather_can_be_swept_to_a_friend() {
+    for kind in [Weather::LightSnow, Weather::Snow, Weather::Petals, Weather::Leaves] {
+        assert_eq!(parse_flurry_kind(&flurry_kind(kind)), Some(kind));
+    }
+    for raw in ["flurry:rain", "flurry:shower", "flurry:off", "flurry:", "flurry:lava", "can", "snow"] {
+        assert_eq!(parse_flurry_kind(raw), None, "{raw}");
+    }
+}

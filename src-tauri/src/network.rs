@@ -487,6 +487,18 @@ impl Network {
         self.is_connected(id)
     }
 
+    /// 🧹 쓸어 모은 더미를 그 끝의 친구 한 명에게 흩날려 보낸다 (친구 쪽에서 반대편 끝으로 들어온다)
+    pub fn flurry_to(&self, config: &Config, side: Side, kind: screenpet_core::weather::Weather, fling: visit::Fling) {
+        let Some(net) = &self.net else { return };
+        let friends = config.friends_at(side, |id| self.is_linked(id));
+        if friends.is_empty() {
+            return;
+        }
+        let friend = &friends[fastrand::usize(..friends.len())].id;
+        let (side, vside) = to_net_side(visit::opposite(side));
+        net.toss(friend, screenpet_net::Toss { kind: screenpet_core::weather::flurry_kind(kind), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false });
+    }
+
     /// 받지 않는 물건을 던진 친구에게 되돌린다: 그 친구 화면에서 나간 끝으로 다시 날아 들어간다 (포스트잇도 그대로)
     pub fn bounce_toss(&self, friend: &str, toss: screenpet_net::Toss) {
         let Some(net) = &self.net else { return };

@@ -38,6 +38,18 @@ impl Weather {
         matches!(self, Weather::Petals | Weather::Leaves)
     }
 
+    /// 설정·통신에 쓰는 이름 (parse_preview와 같다)
+    pub fn name(self) -> &'static str {
+        match self {
+            Weather::LightSnow => "light_snow",
+            Weather::Snow => "snow",
+            Weather::Rain => "rain",
+            Weather::Shower => "shower",
+            Weather::Petals => "petals",
+            Weather::Leaves => "leaves",
+        }
+    }
+
     fn rates(self) -> Rates {
         match self {
             Weather::LightSnow => Rates { grow: 0.012, melt: 0.003, cap: 5.0 },
@@ -55,6 +67,17 @@ struct Rates {
     grow: f32,
     melt: f32,
     cap: f32,
+}
+
+/// 🧹 친구 화면으로 쓸어 보내는 더미의 이름: 물건 던지기 통로로 간다 (예전 판은 모르는 물건이라 그냥 버린다)
+pub fn flurry_kind(kind: Weather) -> String {
+    format!("flurry:{}", kind.name())
+}
+
+/// 받은 물건 이름이 쓸어 보낸 더미면 그 날씨 (쌓이는 날씨만)
+pub fn parse_flurry_kind(raw: &str) -> Option<Weather> {
+    let kind = parse_preview(raw.strip_prefix("flurry:")?)??;
+    (kind.rates().cap > 0.0).then_some(kind)
 }
 
 /// 지역 날짜의 날씨 (여름의 Shower는 하루 중 잠깐씩만이다, weather_at): 3·4월 벚꽃잎, 5~8월 소나기, 9·10월 낙엽,
@@ -358,6 +381,31 @@ impl PileField {
     }
 
     /// 모니터(작업 영역 wa, 배율 scale) 하나의 장면. 그 모니터에 걸친 것만
+    /// 지금 더미의 그림
+    pub fn pile_kind(&self) -> Option<Weather> {
+        self.pile_kind
+    }
+
+    /// 🧹 [x0, x1]를 지나며 높이 y(±reach_y)의 보이는 더미를 쓴다: 쓴 양(칸 높이의 합, 논리 px)
+    pub fn sweep(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64) -> f32 {
+        let tops = &self.tops;
+        let mut swept = 0.0;
+        for p in self.piles.iter_mut().filter(|p| (p.y - y).abs() <= reach_y) {
+            if !tops.iter().any(|t| t.owner == p.owner && t.x1 > x0 && t.x0 < x1) {
+                continue;
+            }
+            let left = p.left;
+            for (i, c) in p.cells.iter_mut().enumerate() {
+                let x = left + (i as f64 + 0.5) * CELL;
+                if x >= x0 && x <= x1 {
+                    swept += *c;
+                    *c = 0.0;
+                }
+            }
+        }
+        swept
+    }
+
     pub fn scene(&self, kind: Weather, wa: &Rect, scale: f64) -> Scene {
         let lx = |x: f64| ((x.clamp(wa.left, wa.right) - wa.left) / scale).round() as f32;
         let ly = |y: f64| ((y - wa.top) / scale).round() as f32;

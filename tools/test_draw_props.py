@@ -83,6 +83,7 @@ HAND += ("hand_bread", "hand_leaf")  # 농장
 HAND += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡
 HAND += ("hand_shaved_ice",)  # 눈사람
 HAND += ("hand_special",)  # 특식 🍱
+HAND += ("hand_broom",)  # 🧹 빗자루
 
 
 @pytest.fixture(scope="module")

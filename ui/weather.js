@@ -280,10 +280,93 @@ function spriteFor(i) {
   return sprites[look[i] - angle + (angle + Math.floor(phase[i] * 1.2)) % frames];
 }
 
+// ---- 🧹 흩날리는 알갱이 (빗자루로 쓴 것, 친구가 쓸어 보낸 것) ----
+// 받은 속도로 날아가다 공기에 느려지며 천천히 떨어져 사라진다. 없으면 일도 없다
+const MAX_FLURRY = 120;
+const FLURRY_DRAG = 1.8;
+const FLURRY_GRAVITY = 90;
+const FLURRY_MAX_FALL = 90;
+const FLURRY_MAX_SPEED = 900;
+const FLURRY_LIFE = [1.8, 3.6];
+let flurry = [];
+
+function flurryBox(k) {
+  return pixelArt ? PX_BOX[k] ?? PX_BOX.snow : (KINDS[k] || KINDS.snow).box;
+}
+
+function flurrySprites(k) {
+  if (tumblers[k]) return tumblerSprites(k);
+  const key = `${pixelArt}:flake`;
+  if (!tumblerCache[key]) {
+    const box = flurryBox("snow");
+    tumblerCache[key] = pixelArt ? PX_FLAKES.map((rows) => pxSprite(rows, box)) : [1.6, 2.2, 2.9].map((r) => makeSprite(box, flake(r)));
+  }
+  return tumblerCache[key];
+}
+
+function addFlurry(f) {
+  if (!running || !KINDS[f.kind]) return;
+  const speed = Math.hypot(f.vx, f.vy);
+  const limit = speed > FLURRY_MAX_SPEED ? FLURRY_MAX_SPEED / speed : 1;
+  const count = Math.min(f.count, MAX_FLURRY);
+  const look = flurrySprites(f.kind);
+  const box = flurryBox(f.kind);
+  const tumbling = !!tumblers[f.kind];
+  // 넘치면 가장 오래된 것부터 (지울 자리는 이번 프레임에 함께 지운다)
+  const over = flurry.length + count - MAX_FLURRY;
+  if (over > 0) {
+    for (const p of flurry.splice(0, over)) fallCtx.clearRect(p.oldX, p.oldY, p.box, p.box);
+  }
+  for (let i = 0; i < count; i++) {
+    const spread = 0.55 + Math.random() * 0.9;
+    flurry.push({
+      x: f.x + (Math.random() - 0.5) * 50,
+      y: f.y + (Math.random() - 0.5) * 50,
+      vx: f.vx * limit * spread + (Math.random() - 0.5) * 120,
+      vy: f.vy * limit * spread - Math.random() * 110,
+      age: 0,
+      life: between(FLURRY_LIFE),
+      look,
+      first: Math.floor(Math.random() * look.length),
+      tumbling,
+      box,
+      oldX: -box * 2,
+      oldY: -box * 2,
+    });
+  }
+}
+
+function clearFlurry() {
+  for (const p of flurry) fallCtx.clearRect(p.oldX, p.oldY, p.box, p.box);
+}
+
+function stepFlurry(dt) {
+  const drag = Math.max(0, 1 - FLURRY_DRAG * dt);
+  let kept = 0;
+  for (const p of flurry) {
+    p.age += dt;
+    p.vx *= drag;
+    p.vy = Math.min(p.vy * drag + FLURRY_GRAVITY * dt, FLURRY_MAX_FALL + Math.max(0, p.vy * drag));
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    if (p.age >= p.life || p.x < -p.box || p.x > width + p.box || p.y > height + p.box) continue;
+    flurry[kept++] = p;
+    // 도는 그림은 같은 색 8장 안에서 돈다
+    const sprite = p.tumbling ? p.look[p.first - (p.first % 8) + ((p.first % 8) + Math.floor(p.age * 9)) % 8] : p.look[p.first];
+    const x = pixelArt ? Math.floor((p.x - p.box / 2) / PX_DOT) * PX_DOT : (p.x - p.box / 2) | 0;
+    const y = pixelArt ? Math.floor((p.y - p.box / 2) / PX_DOT) * PX_DOT : (p.y - p.box / 2) | 0;
+    fallCtx.drawImage(sprite, x, y);
+    p.oldX = x;
+    p.oldY = y;
+  }
+  flurry.length = kept;
+}
+
 function frame(now) {
   if (!running) return;
   const dt = Math.min((now - lastT) / 1000, 0.1);
   lastT = now;
+  clearFlurry();
   const box = spec.box;
   const half = box / 2;
   const sway = spec.sway;
@@ -321,6 +404,7 @@ function frame(now) {
     oldX[i] = x;
     oldY[i] = y;
   }
+  stepFlurry(dt);
   schedule();
 }
 
@@ -342,6 +426,7 @@ function stop() {
   fallCtx.clearRect(0, 0, width, height);
   pilesCtx.clearRect(0, 0, width, height);
   lastPiles = "";
+  flurry = [];
 }
 
 function hash(a, b) {
@@ -478,6 +563,7 @@ fitCanvas();
 if (window.__TAURI__) {
   // 이 창으로 온 장면만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받는다)
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("art-style", (e) => setPixelArt(e.payload === "pixel"));
+  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("weather-flurry", (e) => addFlurry(e.payload));
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("weather-scene", (e) => applyScene(e.payload));
 } else {
   devPreview();

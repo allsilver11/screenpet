@@ -109,6 +109,14 @@ function run(kind) {
   listener({ payload: scene });
   const repaintedPiles = (counts.fill || 0) + (counts.drawImage || 0) - paintsBefore;
 
+  // 🧹 흩날림: 몰려와도 상한을 넘지 않고, 곧 모두 사라지며, 자리는 남기지 않는다
+  const addFlurry = (count) => vm.runInContext(`addFlurry({ kind: ${JSON.stringify(kind)}, x: 100, y: 100, vx: 5000, vy: -200, count: ${count} })`, sandbox);
+  addFlurry(500);
+  addFlurry(500);
+  const flurryPeak = vm.runInContext("flurry.length", sandbox);
+  for (let f = 0; f < 120; f++) step();
+  const flurryLeft = vm.runInContext("flurry.length", sandbox);
+
   // 멈추면 타이머도 그림도 없다
   listener({ payload: { ...scene, paused: true } });
   const pendingAfterPause = timers.size;
@@ -131,6 +139,8 @@ function run(kind) {
 
   return {
     kind,
+    flurryPeak,
+    flurryLeft,
     maxDraws,
     maxClears,
     deepest,

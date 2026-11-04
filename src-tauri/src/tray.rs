@@ -50,6 +50,7 @@ const STYLE_ROUND_ID: &str = "style:round";
 const STYLE_PIXEL_ID: &str = "style:pixel";
 /// 🌨️ 날씨 효과 체크 항목 (게임 루프가 달력과 설정으로 맞춘다 — 철이 아니면 누를 수 없다)
 const WEATHER_ID: &str = "weather";
+const BROOM_ID: &str = "broom";
 /// 🐾 커서 장난 체크 항목 (설정에 남는다)
 const CURSOR_PLAY_ID: &str = "cursor-play";
 const CURSOR_PLAY_LABEL: &str = "🐾 커서 장난";
@@ -111,6 +112,8 @@ pub struct TrayMenu {
     pub cursor_play: CheckMenuItem<Wry>,
     /// 🌨️ 날씨 효과 (11~3월)
     pub weather: CheckMenuItem<Wry>,
+    /// 🧹 빗자루 (게임 루프가 들고 있는지에 맞춘다)
+    pub broom: CheckMenuItem<Wry>,
     /// ⏱️ 집중 친구 ▸ (켜져 있으면 글자에 ✓)
     pub focus: Submenu<Wry>,
     pub focus_toggle: CheckMenuItem<Wry>,
@@ -403,6 +406,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     // 방향키로 내 동물 움직이기 (친구 화면에 가 있어도). 키는 읽기만 해서 앞에 있는 창에도 그대로 입력된다 — 켤 때 말풍선으로 알린다
     let control = CheckMenuItem::with_id(app, CONTROL_ID, CONTROL_LABEL, true, false, None::<&str>)?;
     let weather = CheckMenuItem::with_id(app, WEATHER_ID, "🌨️ 날씨 효과", true, false, None::<&str>)?;
+    let broom = CheckMenuItem::with_id(app, BROOM_ID, "🧹 빗자루", true, false, None::<&str>)?;
     let cursor_play = CheckMenuItem::with_id(app, CURSOR_PLAY_ID, CURSOR_PLAY_LABEL, true, true, None::<&str>)?;
     let focus_toggle = CheckMenuItem::with_id(app, FOCUS_TOGGLE_ID, "집중 시작", true, false, None::<&str>)?;
     let focus_short = CheckMenuItem::with_id(app, FOCUS_SHORT_ID, "25분 집중 · 5분 쉬기", true, true, None::<&str>)?;
@@ -415,7 +419,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
     let help = MenuItem::with_id(app, "help", "도움말 ❓", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
-    let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, EASTER_EGG_LABEL, false, None::<&str>)?;
+    let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
 
     let menu = Menu::new(app)?;
     // 트레이와 펫 우클릭은 같은 메뉴 — 둘 다 맨 위에 보인다
@@ -439,6 +443,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&control)?;
     menu.append(&cursor_play)?;
     menu.append(&weather)?;
+    menu.append(&broom)?;
     menu.append(&focus)?;
     menu.append(&gift_book)?;
     menu.append(&friends)?;
@@ -472,6 +477,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             CONTROL_ID => send(app, Input::ToggleControl),
             CURSOR_PLAY_ID => send(app, Input::ToggleCursorPlay),
             WEATHER_ID => send(app, Input::ToggleWeather),
+            BROOM_ID => send(app, Input::ToggleBroom),
             FOCUS_TOGGLE_ID => send(app, Input::ToggleFocus),
             FOCUS_SHORT_ID => send(app, Input::SetFocusLength(FocusLength::Short)),
             FOCUS_LONG_ID => send(app, Input::SetFocusLength(FocusLength::Long)),
@@ -526,5 +532,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, weather, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, friends, come_home, hand_mode, auto_mode })
 }

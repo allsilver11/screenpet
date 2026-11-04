@@ -423,6 +423,20 @@ HAND_NAMES += ("hand_special",)  # 특식 🍱
 HAND_DRAW.update(hand_special=hand_special)
 
 
+def hand_broom(img):
+    """🧹 쓰는 끝이 왼쪽 아래 (커서 자리)."""
+    STRAW = (240, 196, 92)
+    paint(img, aa(shapes([L([(82, 45), (61, 67)], 5.0)])), LINE)
+    paint(img, aa(shapes([L([(82, 45), (61, 67)], 3.0)])), (170, 110, 72))
+    blob(img, [T((56, 60), (68, 71), (60, 84), (45, 79))], STRAW, r=1.5, line=1.0,
+         marks=[([L([(56, 71), (51, 79)], 1.2), L([(61, 74), (57, 82)], 1.2)], mix(STRAW, LINE, 0.35)),
+                ([L([(56, 62), (66, 71)], 3.0)], (214, 80, 70))])
+
+
+HAND_NAMES += ("hand_broom",)  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
+HAND_DRAW.update(hand_broom=hand_broom)
+
+
 # ---- 계절 날씨: 눈덩이(굴리는 중) · 눈사람 (바닥 가운데 아래에 앉는다, src-tauri/src/weather.rs) ----
 SNOWMAN_W, SNOWMAN_H = 64, 80
 SNOWBALL = 40

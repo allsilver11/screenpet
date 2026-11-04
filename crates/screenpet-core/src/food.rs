@@ -73,6 +73,8 @@ pub const MOUTH_HEIGHT: f64 = 0.45;
 pub const HAND_TIMEOUT_SECS: f64 = 30.0;
 /// 음식 그림 가운데가 커서 끝에서 오른쪽 아래로 이만큼 (논리 px) — 손에 쥔 것처럼
 pub const HAND_OFFSET: f64 = 14.0;
+/// 🧹 빗자루 그림 (음식처럼 커서를 따라다닌다)
+pub const BROOM_ICON: &str = "hand_broom";
 
 /// 손에 든 음식 그림 (ui/effects/<name>.png, tools/draw_props.py). 좋아하는 음식은 동물마다
 pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
