@@ -64,19 +64,15 @@ function houseScale() {
 
 // 집 그림 좌표 하나의 CSS px: 동글은 단계 배율, 픽셀은 그 단계 칸 (물리 px의 정수배)
 function artUnit() {
-  return artDots ? snapDot(PIXEL_BASE_DOT[house.stage] ?? 3) : houseScale();
+  return artDots ? snapDot(PIXEL_DOT) : houseScale();
 }
 
 // 집 종류를 고르는 기준 (src-tauri/src/house.rs house_kind, core manifest house_kind와 같다)
 const HOUSE_KINDS = new Set(["house", "hive", "haunted", "xmas"]);
-const FALLBACK_KIND = { bee: "hive", pumpkin: "haunted", ghost: "haunted", rudolph: "xmas", santa: "xmas", snowman: "xmas" };
 
-// pet.json house가 있으면 그 집, 없으면 sting이 있는 동물(꿀벌)은 벌통 (예전 pet.json), 나머지는 보통 집.
-// pet.json이 아직 없으면 id로
+// pet.json house가 있으면 그 집, 없으면 보통 집
 function houseKind(m) {
-  if (!m) return FALLBACK_KIND[house.pet] ?? "house";
-  if (HOUSE_KINDS.has(m.house)) return m.house;
-  return m.animations?.sting ? "hive" : "house";
+  return HOUSE_KINDS.has(m.house) ? m.house : "house";
 }
 
 function artName(m) {
@@ -153,13 +149,6 @@ function showHouse() {
 }
 setTimeout(showHouse, ART_WAIT_MS);
 
-// 그림을 먼저 받아 풀어 둔다 — 없는 그림을 바로 끼우면 집이 잠깐 비어 보인다
-async function preloadArt(url) {
-  const img = new Image();
-  img.src = url;
-  await img.decode();
-}
-
 // 단계(또는 동물 종류)가 바뀌었으면 그 단계 그림과 문을 읽는다
 // seq: loadPet의 순번 — 읽는 사이 다른 동물/단계로 바뀌었으면 버린다
 async function loadArt(name, seq, pixel) {
@@ -170,7 +159,8 @@ async function loadArt(name, seq, pixel) {
   let dots = 0;
   const read = async (from) => {
     const meta = await (await fetch(`${from}/${name}.json`)).json();
-    await Promise.all([preloadArt(`${from}/${name}.png`), preloadArt(`${from}/${name}_front.png`)]);
+    // 그림을 먼저 받아 풀어 둔다 — 없는 그림을 바로 끼우면 집이 잠깐 비어 보인다
+    await Promise.all([decodeSheet(`${from}/${name}.png`), decodeSheet(`${from}/${name}_front.png`)]);
     d = meta.door;
     puff = meta.smoke ?? null;
     dots = meta.dots ?? 0;

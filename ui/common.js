@@ -11,15 +11,6 @@ async function decodeSheet(url) {
   return img;
 }
 
-// 픽셀 시트의 단계별 칸 수 (코어 style::pixel_grid, tools/draw_pixel.py STAGE_GRID와 같다 — pet.json에 없을 때)
-const PIXEL_DOTS = { baby: 24, kinder: 28, child: 32, teenager: 32, adult: 36 };
-
-// 칸 크기: frame_sizes[단계] → frame_size(표 또는 숫자) → PIXEL_DOTS (코어 manifest::parse_pixel_manifest와 같은 순서)
-function pixelFrameSize(px, stageName) {
-  const field = px.frame_size;
-  return px.frame_sizes?.[stageName] ?? field?.[stageName] ?? (typeof field === "number" ? field : PIXEL_DOTS[stageName] ?? 32);
-}
-
 // 픽셀 몸 한 변 (CSS px): 칸 한 변이 물리 px의 정수배가 되도록 맞춘다 (코어 style::pixel_body_scale로 이미 맞춰 온 값을 지금 창의 배율로 한 번 더).
 // fit = "floor"면 내림 (문간처럼 넘치면 잘리는 자리)
 function snapPixelSide(side, dots, fit = "round") {
@@ -28,8 +19,8 @@ function snapPixelSide(side, dots, fit = "round") {
   return (dots * Math.max(1, dot)) / dpr;
 }
 
-// 단계 칸 크기 (논리 px, 전 종 같다 — 동글 stage_size를 곱하지 않는다. 코어 style::pixel_grid, tools/draw_pixel_world.py STAGE_GRID와 같다)
-const PIXEL_BASE_DOT = { baby: 3, kinder: 3, child: 3, teenager: 3, adult: 3 };
+// 칸 크기 (논리 px, 전 종·전 단계 같다 — 동글 stage_size를 곱하지 않는다. 코어 style::pixel_grid, tools/draw_pixel_world.py STAGE_GRID와 같다)
+const PIXEL_DOT = 3;
 
 // 논리 칸 크기 → 물리 px의 정수배가 되는 CSS px (코어 style::dot_physical과 같은 계산)
 function snapDot(logical) {
@@ -47,7 +38,7 @@ async function loadPixelSheet(id, stageName, round) {
   const px = await (await fetch(`pets_pixel/${id}/pet.json`)).json();
   const url = `pets_pixel/${id}/sheet_${stageName}.png`;
   const img = await decodeSheet(url);
-  const manifest = { ...round, frame_size: pixelFrameSize(px, stageName), animations: px.animations, head: px.head, neck: px.neck, neck_stretch: px.neck_stretch };
+  const manifest = { ...round, frame_size: px.frame_sizes[stageName], animations: px.animations, head: px.head, neck: px.neck, neck_stretch: px.neck_stretch };
   return { manifest, url, img, style: "pixel", dir: `pets_pixel/${id}/` };
 }
 

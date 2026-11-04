@@ -107,3 +107,14 @@ def test_long_names_end_in_an_ellipsis_inside_the_window():
     assert "max-width: calc(100vw - 8px)" in tag and "text-overflow: ellipsis" in tag and "overflow: hidden" in tag
     # 꼬리(::after)가 말풍선 밖에 있어 말풍선 자체는 자르지 않는다
     assert "overflow" not in css_rule(css, "#bubble")
+
+
+# ---- 지운 대체 경로가 다시 필요해지지 않게: 웹뷰가 믿는 그림 자료 ----
+def test_pet_data_the_windows_rely_on():
+    for d in (ROOT / "ui" / "pets").iterdir():
+        m = json.loads((d / "pet.json").read_text(encoding="utf-8"))
+        if m["animations"].get("sting"):
+            assert m.get("house"), f"{d.name}: 쏘는 동물은 집을 적어 둔다 (house.js)"
+    for d in (ROOT / "ui" / "pets_pixel").iterdir():
+        sizes = json.loads((d / "pet.json").read_text(encoding="utf-8"))["frame_sizes"]
+        assert set(sizes) >= {"baby", "kinder", "child", "teenager", "adult"}, d.name
