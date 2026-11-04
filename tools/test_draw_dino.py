@@ -6,10 +6,10 @@ import pytest
 
 import draw_dino
 import draw_pets
-from sprite_spec import ANIMS, FRAME, OPTIONAL_ANIMS, SPEECH, STAGES, sheet_128
+from conftest import anim_names as names, assert_eat_has_no_bowl, assert_feet_only_peek, assert_frames_inside_cell, assert_roll_fits_circle, cell, record_draw_order
+from sprite_spec import ANIMS, OPTIONAL_ANIMS, SPEECH, STAGES, sheet_128
 
 IDS = ["dino_yellow", "dino_green", "dino_purple"]
-BOWL_COLORS = [(246, 196, 150), (252, 226, 196), (230, 222, 206)]
 
 
 @pytest.fixture(scope="module")
@@ -18,14 +18,6 @@ def out(tmp_path_factory):
     for sp in draw_dino.DINOS:
         draw_pets.write_species(sp, root / sp.id)
     return root
-
-
-def cell(sheet, row, col):
-    return sheet.crop((col * FRAME, row * FRAME, (col + 1) * FRAME, (row + 1) * FRAME))
-
-
-def names(sp):
-    return [a for a, *_ in draw_pets.rows_for(sp)]
 
 
 def test_registered_with_dino_anims_after_every_other_optional_anim():
@@ -42,20 +34,13 @@ def test_registered_with_dino_anims_after_every_other_optional_anim():
 
 @pytest.mark.parametrize("pid", IDS)
 def test_every_frame_is_drawn_inside_the_cell(out, pid):
-    sp = draw_pets.SPECIES[pid]
-    rows = draw_pets.rows_for(sp)
-    for st in STAGES:
-        sheet = sheet_128(out / pid / f"sheet_{st}.png")
-        assert sheet.size == (4 * FRAME, len(rows) * FRAME)
-        for r, (anim, n, *_) in enumerate(rows):
-            for c in range(n):
-                box = cell(sheet, r, c).getchannel("A").getbbox()
-                assert box, (st, anim, c)
-                if anim == "roll":
-                    continue
-                x0, y0, x1, y1 = box
-                assert x0 >= 1 and y0 >= 1 and x1 <= FRAME - 1 and y1 <= FRAME - 1, (st, anim, c, box)
-    assert not (out / pid / "sheet.png").exists()
+    assert_frames_inside_cell(out / pid, draw_pets.SPECIES[pid], STAGES, free=("roll",))
+
+
+@pytest.mark.parametrize("pid", IDS)
+def test_roll_ball_fits_rotation_circle(out, pid):
+    # 지금 가시 끝이 43.2px까지 나온다 (반지름 38): 돌면 창 아래(축에서 40px)로 3px쯤 잘린다. 더 나빠지지 않게만 막는다 (그림을 줄일지는 사용자 결정)
+    assert_roll_fits_circle(out / pid, draw_pets.SPECIES[pid], STAGES, slack=6)
 
 
 def test_manifests(out):
@@ -84,15 +69,8 @@ def test_manifests(out):
 
 @pytest.mark.parametrize("pid", IDS)
 def test_eat_has_no_bowl(out, pid):
-    """밥그릇은 앱의 소품 창이 띄운다 — 시트 eat에는 그릇 색이 없다."""
-    row = names(draw_pets.SPECIES[pid]).index("eat")
     for st in STAGES:
-        sheet = sheet_128(out / pid / f"sheet_{st}.png").convert("RGBA")
-        for c in range(4):
-            a = np.asarray(cell(sheet, row, c)).astype(int)
-            for col in BOWL_COLORS:
-                near = (np.abs(a[..., :3] - col).sum(axis=2) < 12) & (a[..., 3] > 200)
-                assert near.sum() < 25, (st, c, col, near.sum())
+        assert_eat_has_no_bowl(out / pid / f"sheet_{st}.png", draw_pets.SPECIES[pid])
 
 
 def _count(im, col, tol=24):
@@ -170,25 +148,9 @@ def test_back_view_has_no_face_or_belly_and_spikes_run_down_the_back(out, pid):
 
 
 def _drawn_order(monkeypatch, sp, st, anim, n):
-    tags, orders = {}, []
-    compose = draw_pets.compose
-
-    def tagged(kind, fn):
-        def f(*a, **k):
-            r = fn(*a, **k)
-            for p in r if isinstance(r, list) else [r[0] if isinstance(r, tuple) else r]:
-                tags[id(p)] = kind
-            return r
-        return f
     with monkeypatch.context() as m:
-        for kind, name in (("foot", "back_foot"), ("arm", "back_arm"), ("tail", "back_tail")):
-            m.setattr(draw_dino, name, tagged(kind, getattr(draw_dino, name)))
-
-        def spy(parts, *a, **k):
-            orders.append([tags.get(id(p), "body" if p.shapes else "spike") for p in parts])
-            tags.clear()  # 다음 프레임이 같은 id를 다시 쓸 수 있다
-            return compose(parts, *a, **k)
-        m.setattr(draw_pets, "compose", spy)
+        orders = record_draw_order(m, [(draw_dino, "back_foot", "foot"), (draw_dino, "back_arm", "arm"), (draw_dino, "back_tail", "tail")],
+                                   other=lambda p: "body" if p.shapes else "spike")
         with draw_pets.stage(st, sp.stage_tweak.get(st)):
             draw_pets.frames(draw_pets.staged_species(sp), anim, n)
     return orders
@@ -207,21 +169,5 @@ def test_feet_and_arms_are_behind_the_body_and_the_tail_on_top(monkeypatch):
 
 
 def test_feet_only_peek_and_take_turns(monkeypatch):
-    """발은 언뜻언뜻: 발을 뺀 그림과 비교하면 조금만 보이고, 오르는 동안 왼발·오른발이 번갈아 옆으로 나온다."""
     sp = draw_dino.DINO_GREEN
-
-    def diff(a, b):
-        d = np.abs(np.asarray(a).astype(int) - np.asarray(b).astype(int)).sum(axis=2) > 60
-        return int(d[:, :FRAME // 2].sum()), int(d[:, FRAME // 2:].sum())
-    for st in STAGES:
-        with draw_pets.stage(st, sp.stage_tweak.get(st)):
-            ssp = draw_pets.staged_species(sp)
-            full = draw_pets.frames(ssp, "climb", 4)
-            with monkeypatch.context() as m:
-                m.setattr(draw_dino, "back_foot", lambda s, *a, **k: draw_pets.Part([], draw_dino.PALETTES[s.id]["body"]))
-                bare = draw_pets.frames(ssp, "climb", 4)
-        seen = [diff(f, b) for f, b in zip(full, bare)]
-        sil = [int((np.asarray(f.getchannel("A")) > 128).sum()) for f in full]
-        for n, ((l, r), area) in enumerate(zip(seen, sil)):
-            assert 0 < l + r < 0.16 * area, (st, n, l, r, area)
-        assert seen[0][1] > seen[0][0] and seen[2][0] > seen[2][1], (st, seen)
+    assert_feet_only_peek(monkeypatch, sp, draw_dino, "back_foot", lambda s, *a, **k: draw_pets.Part([], draw_dino.PALETTES[s.id]["body"]), STAGES, most=0.16)

@@ -8,11 +8,11 @@ import pytest
 import draw_pets
 import draw_props
 import draw_snowman
+from conftest import assert_eat_has_no_bowl, assert_frames_inside_cell
 from sprite_spec import ANIMS, FRAME, STAGES, sheet_128
 
 ROOT = Path(__file__).resolve().parent.parent
 GROUNDED = {"walk", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed", "hungry", "eat", "lookup"}
-BOWL_COLORS = [(246, 160, 170), (250, 205, 210)]
 
 
 @pytest.fixture(scope="module")
@@ -44,17 +44,7 @@ def test_registered_with_every_anim():
 
 
 def test_every_frame_fits_the_cell(out):
-    rows = draw_pets.rows_for(draw_snowman.SNOWMAN)
-    for st in STAGES:
-        sheet = sheet_128(out / "snowman" / f"sheet_{st}.png")
-        assert sheet.mode == "RGBA" and sheet.size == (4 * FRAME, len(rows) * FRAME), st
-        for r, (anim, n, *_) in enumerate(rows):
-            for c in range(n):
-                bbox = sheet.crop((c * FRAME, r * FRAME, (c + 1) * FRAME, (r + 1) * FRAME)).getchannel("A").getbbox()
-                assert bbox and bbox[0] >= 1 and bbox[1] >= 1 and bbox[2] <= FRAME - 1 and bbox[3] <= FRAME - 1, (st, anim, c, bbox)
-                if anim in GROUNDED:
-                    assert bbox[3] >= 116, (st, anim, c, bbox)
-    assert not (out / "snowman" / "sheet.png").exists()
+    assert_frames_inside_cell(out / "snowman", draw_snowman.SNOWMAN, STAGES, grounded=GROUNDED, ground_y=116)
 
 
 @pytest.mark.parametrize("st", ["baby", "teenager", "adult"])
@@ -109,7 +99,7 @@ def test_readable_on_white(out):
 def test_eat_has_no_bowl_and_the_mouth_sits_over_the_food(out):
     for st in STAGES:
         im = frame(out, "eat", 0, st)
-        assert sum(count(im, c, 12) for c in BOWL_COLORS) < 60, st
+        assert_eat_has_no_bowl(out / "snowman" / f"sheet_{st}.png", draw_snowman.SNOWMAN, frames=1, most=60)
         assert count(im.crop((50, 70, 79, 97)), draw_pets.MOUTH_IN, 40) >= 6, st
 
 

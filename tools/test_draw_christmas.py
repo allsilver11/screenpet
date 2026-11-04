@@ -8,11 +8,11 @@ from PIL import Image
 
 import draw_christmas
 import draw_pets
+from conftest import assert_eat_has_no_bowl, assert_frames_inside_cell, assert_roll_fits_circle, cell
 from sprite_spec import ANIMS, FRAME, STAGES, sheet_128
 
 GROUNDED = {"walk", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
             "hungry", "level_up", "eat"}
-BOWL_COLORS = [(246, 160, 170), (250, 205, 210)]
 
 
 @pytest.fixture(scope="module")
@@ -25,10 +25,6 @@ def out(tmp_path_factory):
 
 def names(pid):
     return [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES[pid])]
-
-
-def cell(sheet, row, col):
-    return sheet.crop((col * FRAME, row * FRAME, (col + 1) * FRAME, (row + 1) * FRAME))
 
 
 def frame(out, pid, anim, col=0, st="teenager"):
@@ -64,20 +60,12 @@ def test_both_are_registered_with_every_required_anim():
 
 @pytest.mark.parametrize("pid", ["rudolph", "santa"])
 def test_sheets_have_every_frame_inside_the_cell(out, pid):
-    rows = draw_pets.rows_for(draw_pets.SPECIES[pid])
-    for st in STAGES:
-        sheet = sheet_128(out / pid / f"sheet_{st}.png")
-        assert sheet.mode == "RGBA" and sheet.size == (4 * FRAME, len(rows) * FRAME), st
-        for r, (anim, n, *_) in enumerate(rows):
-            for c in range(n):
-                bbox = cell(sheet, r, c).getchannel("A").getbbox()
-                assert bbox is not None, (st, anim, c)
-                assert bbox[0] >= 1 and bbox[1] >= 1 and bbox[2] <= FRAME - 1 and bbox[3] <= FRAME - 1, (st, anim, c, bbox)
-                if anim in GROUNDED:
-                    assert bbox[3] >= 116, (st, anim, c, bbox)
-            for c in range(n, 4):
-                assert cell(sheet, r, c).getchannel("A").getbbox() is None, (st, anim, c)
-    assert not (out / pid / "sheet.png").exists()
+    # 루돌프의 구르기는 도는 공: 칸 안이고 회전 원 안이다 (test_rudolph_roll_ball_fits_rotation_circle)
+    assert_frames_inside_cell(out / pid, draw_pets.SPECIES[pid], STAGES, grounded=GROUNDED, ground_y=116)
+
+
+def test_rudolph_roll_ball_fits_rotation_circle(out):
+    assert_roll_fits_circle(out / "rudolph", draw_pets.SPECIES["rudolph"], STAGES)
 
 
 def test_manifests(out):
@@ -118,11 +106,7 @@ def test_santa_rides_a_sled_instead_of_rolling(out):
 @pytest.mark.parametrize("pid", ["rudolph", "santa"])
 def test_eat_has_no_bowl(out, pid):
     for st in ("baby", "teenager", "adult"):
-        for c in range(4):
-            im = frame(out, pid, "eat", c, st)
-            bowlish = count(im, lambda r, g, b, a: (a > 200) & np.logical_or.reduce(
-                [np.abs(r - col[0]) + np.abs(g - col[1]) + np.abs(b - col[2]) <= 12 for col in BOWL_COLORS]))
-            assert bowlish < 60, (st, c, bowlish)  # 그릇이면 수백 px — 루돌프 코 후광·산타 볼터치가 몇 px 섞인다
+        assert_eat_has_no_bowl(out / pid / f"sheet_{st}.png", draw_pets.SPECIES[pid], most=60)  # 그릇이면 수백 px — 루돌프 코 후광·산타 볼터치가 몇 px 섞인다
 
 
 def near(col, tol=24):

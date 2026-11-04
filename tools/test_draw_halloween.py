@@ -6,14 +6,13 @@ import pytest
 
 import draw_pets  # 먼저: draw_halloween을 먼저 부르면 draw_pets 끝의 순환 import가 빈 모듈을 만나 깨진다
 import draw_halloween  # noqa: I001
+from conftest import assert_eat_has_no_bowl, assert_feet_only_peek, assert_frames_inside_cell, cell, record_draw_order
 from sprite_spec import ANIMS, FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES, sheet_128
 
 PUMPKIN_GROUNDED = {"idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
                     "hungry", "level_up", "belly"}
 GHOST_GROUNDED = {"sleep", "annoyed", "land", "belly"}  # 유령은 떠다니고 이 동작만 바닥에 내려앉는다
 GHOST_HOVER = {"walk", "run", "idle", "look", "sit_front", "wave", "tilt", "heart", "tickle", "level_up"}
-# 밥그릇 몸통·테 (draw_props BOWL_PINK·BOWL_PINK_LIGHT) — 유령 배 속 빛(크림 주황)은 옛 밥알 색과 겹쳐 그릇 몸 색으로 본다
-BOWL_COLORS = [(246, 160, 170), (250, 205, 210)]
 
 
 @pytest.fixture(scope="module")
@@ -26,10 +25,6 @@ def out(tmp_path_factory):
 
 def names(pid):
     return [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES[pid])]
-
-
-def cell(sheet, row, col):
-    return sheet.crop((col * FRAME, row * FRAME, (col + 1) * FRAME, (row + 1) * FRAME))
 
 
 def frame(out, pid, anim, col=0, st="teenager"):
@@ -57,23 +52,9 @@ def test_both_are_registered_with_every_required_anim():
 
 @pytest.mark.parametrize("pid", ["pumpkin", "ghost"])
 def test_sheets_have_every_frame_inside_the_cell(out, pid):
-    rows = draw_pets.rows_for(draw_pets.SPECIES[pid])
     grounded = PUMPKIN_GROUNDED if pid == "pumpkin" else GHOST_GROUNDED
-    for st in STAGES:
-        sheet = sheet_128(out / pid / f"sheet_{st}.png")
-        assert sheet.mode == "RGBA" and sheet.size == (4 * FRAME, len(rows) * FRAME), st
-        for r, (anim, n, *_) in enumerate(rows):
-            for c in range(n):
-                bbox = cell(sheet, r, c).getchannel("A").getbbox()
-                assert bbox is not None, (st, anim, c)
-                assert bbox[0] >= 1 and bbox[1] >= 1 and bbox[2] <= FRAME - 1 and bbox[3] <= FRAME - 1, (st, anim, c, bbox)
-                if anim in grounded:
-                    assert bbox[3] >= 118, (st, anim, c, bbox)
-                if pid == "ghost" and anim in GHOST_HOVER:
-                    assert bbox[3] <= 116, (st, anim, c, bbox)  # 떠 있다 — 바닥과 틈
-            for c in range(n, 4):
-                assert cell(sheet, r, c).getchannel("A").getbbox() is None, (st, anim, c)
-    assert not (out / pid / "sheet.png").exists()
+    hover = GHOST_HOVER if pid == "ghost" else ()
+    assert_frames_inside_cell(out / pid, draw_pets.SPECIES[pid], STAGES, grounded=grounded, hover=hover)
 
 
 def test_manifests(out):
@@ -98,10 +79,7 @@ def test_manifests(out):
 @pytest.mark.parametrize("pid", ["pumpkin", "ghost"])
 def test_eat_has_no_bowl_and_mouth_sits_over_the_food(out, pid):
     for st in ("baby", "teenager", "adult"):
-        for c in range(4):
-            im = frame(out, pid, "eat", c, st)
-            bowlish = sum(1 for p in pixels(im) if p[3] > 200 and any(sum(abs(p[k] - col[k]) for k in range(3)) <= 12 for col in BOWL_COLORS))
-            assert bowlish < 20, (st, c, bowlish)
+        assert_eat_has_no_bowl(out / pid / f"sheet_{st}.png", draw_pets.SPECIES[pid], most=20)
         # 입(앙 벌린 입)이 그릇 밥 더미 위 (프레임 x 50–78, y 70–96)
         im = frame(out, pid, "eat", 0, st)
         px = im.load()
@@ -196,23 +174,7 @@ def test_pumpkin_back_has_ribs_and_stem_but_no_glowing_face(out):
 
 
 def test_pumpkin_back_limbs_are_behind_the_body(monkeypatch):
-    tags, orders = {}, []
-    compose = draw_pets.compose
-
-    def tagged(kind, fn):
-        def f(*a, **k):
-            r = fn(*a, **k)
-            tags[id(r[0] if isinstance(r, tuple) else r)] = kind
-            return r
-        return f
-    monkeypatch.setattr(draw_halloween, "pk_back_foot", tagged("foot", draw_halloween.pk_back_foot))
-    monkeypatch.setattr(draw_halloween, "pk_back_arm", tagged("arm", draw_halloween.pk_back_arm))
-
-    def spy(parts, *a, **k):
-        orders.append([tags.get(id(p)) for p in parts])
-        tags.clear()  # 다음 프레임이 같은 id를 다시 쓸 수 있다
-        return compose(parts, *a, **k)
-    monkeypatch.setattr(draw_pets, "compose", spy)
+    orders = record_draw_order(monkeypatch, [(draw_halloween, "pk_back_foot", "foot"), (draw_halloween, "pk_back_arm", "arm")])
     sp = draw_halloween.PUMPKIN
     for st in STAGES:
         with draw_pets.stage(st, sp.stage_tweak.get(st)):
@@ -224,27 +186,4 @@ def test_pumpkin_back_limbs_are_behind_the_body(monkeypatch):
 
 
 def test_pumpkin_feet_only_peek_and_take_turns(monkeypatch):
-    sp = draw_halloween.PUMPKIN
-
-    def diff(a, b):
-        l = r = 0
-        pa, pb = pixels(a), pixels(b)
-        for k, (p, q) in enumerate(zip(pa, pb)):
-            if sum(abs(u - v) for u, v in zip(p, q)) > 60:
-                if k % FRAME < FRAME // 2:
-                    l += 1
-                else:
-                    r += 1
-        return l, r
-    for st in STAGES:
-        with draw_pets.stage(st, sp.stage_tweak.get(st)):
-            ssp = draw_pets.staged_species(sp)
-            full = draw_pets.frames(ssp, "climb", 4)
-            with monkeypatch.context() as m:
-                m.setattr(draw_halloween, "pk_back_foot", lambda *a, **k: draw_pets.Part([], draw_halloween.PUMP_FOOT))
-                bare = draw_pets.frames(ssp, "climb", 4)
-        seen = [diff(f, b) for f, b in zip(full, bare)]
-        for n, ((l, r), f) in enumerate(zip(seen, full)):
-            area = sum(1 for p in pixels(f) if p[3] > 128)
-            assert 0 < l + r < 0.09 * area, (st, n, l, r, area)
-        assert seen[0][1] > seen[0][0] and seen[2][0] > seen[2][1], (st, seen)
+    assert_feet_only_peek(monkeypatch, draw_halloween.PUMPKIN, draw_halloween, "pk_back_foot", lambda *a, **k: draw_pets.Part([], draw_halloween.PUMP_FOOT), STAGES)

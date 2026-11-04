@@ -8,10 +8,10 @@ from PIL import Image
 
 import draw_farm
 import draw_pets
+from conftest import anim_names as names, assert_eat_has_no_bowl, assert_frames_inside_cell, assert_roll_fits_circle, cell
 from sprite_spec import ANIMS, FRAME, NO_SPIN, STAGES, frame_px, sheet_128
 
 ROOT = Path(__file__).resolve().parent.parent
-BOWL_COLORS = [(246, 196, 150), (252, 226, 196), (230, 222, 206)]
 
 
 @pytest.fixture(scope="module")
@@ -24,14 +24,6 @@ def out(tmp_path_factory):
     return root
 
 
-def cell(sheet, row, col):
-    return sheet.crop((col * FRAME, row * FRAME, (col + 1) * FRAME, (row + 1) * FRAME))
-
-
-def names(sp):
-    return [a for a, *_ in draw_pets.rows_for(sp)]
-
-
 def test_registered_with_their_own_poses():
     assert draw_pets.SPECIES["duck"] is draw_farm.DUCK and draw_pets.SPECIES["giraffe"] is draw_farm.GIRAFFE
     assert names(draw_farm.DUCK) == [a for a, *_ in ANIMS] + ["lookup"]
@@ -42,20 +34,12 @@ def test_registered_with_their_own_poses():
 
 @pytest.mark.parametrize("pid", ["duck", "giraffe"])
 def test_every_frame_is_drawn_inside_the_cell(out, pid):
-    sp = draw_pets.SPECIES[pid]
-    rows = draw_pets.rows_for(sp)
-    for st in STAGES:
-        sheet = sheet_128(out / pid / f"sheet_{st}.png")
-        assert sheet.size == (4 * FRAME, len(rows) * FRAME)
-        for r, (anim, n, *_) in enumerate(rows):
-            for c in range(n):
-                box = cell(sheet, r, c).getchannel("A").getbbox()
-                assert box, (st, anim, c)
-                if anim in ("roll", "neckstretch"):
-                    continue
-                x0, y0, x1, y1 = box
-                assert x0 >= 1 and y0 >= 1 and x1 <= FRAME - 1 and y1 <= FRAME - 1, (st, anim, c, box)
-    assert not (out / pid / "sheet.png").exists()
+    assert_frames_inside_cell(out / pid, draw_pets.SPECIES[pid], STAGES, free=("roll", "neckstretch"))
+
+
+def test_duck_roll_ball_fits_rotation_circle(out):
+    # 지금 어른 오리는 43.4px까지 나온다 (반지름 38): 공룡과 같다 (test_draw_dino.py). 더 나빠지지 않게만 막는다
+    assert_roll_fits_circle(out / "duck", draw_pets.SPECIES["duck"], STAGES, slack=6)
 
 
 def test_manifests(out):
@@ -88,16 +72,8 @@ def test_the_build_reproduces_the_committed_giraffe(out):
 
 @pytest.mark.parametrize("pid", ["duck", "giraffe"])
 def test_eat_has_no_bowl(out, pid):
-    """밥그릇은 앱의 소품 창이 띄운다 — 시트 eat에는 그릇 색이 없다."""
-    row = names(draw_pets.SPECIES[pid]).index("eat")
     for st in STAGES:
-        sheet = sheet_128(out / pid / f"sheet_{st}.png").convert("RGBA")
-        for c in range(4):
-            a = np.asarray(cell(sheet, row, c)).astype(int)
-            # 하얀 오리의 날개 그늘은 회색 그릇 색과 비슷해 뺀다
-            for col in (BOWL_COLORS[:2] if pid == "duck" else BOWL_COLORS):
-                near = (np.abs(a[..., :3] - col).sum(axis=2) < 12) & (a[..., 3] > 200)
-                assert near.sum() < 25, (st, c, col, near.sum())
+        assert_eat_has_no_bowl(out / pid / f"sheet_{st}.png", draw_pets.SPECIES[pid])
 
 
 def test_neck_stretch_layers_fit_the_sheet(out):

@@ -7,12 +7,11 @@ from PIL import ImageChops
 
 import draw_frog
 import draw_pets
+from conftest import assert_eat_has_no_bowl, assert_feet_only_peek, assert_frames_inside_cell, assert_roll_fits_circle, cell, record_draw_order, spy_compose
 from sprite_spec import ANIMS, FRAME, STAGES, sheet_128
 
 GROUNDED = {"walk", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
             "hungry", "eat", "level_up"}
-# 밥그릇·밥알 색 (draw_pets의 옛 bowl_parts) — 흰 밥(거의 흰색)은 눈 반짝이와 겹쳐 빼고 본다
-BOWL_COLORS = [(246, 196, 150), (252, 226, 196), (230, 222, 206)]
 
 
 @pytest.fixture(scope="module")
@@ -26,10 +25,6 @@ def rows():
     return draw_pets.rows_for(draw_frog.FROG)
 
 
-def cell(sheet, row, col):
-    return sheet.crop((col * FRAME, row * FRAME, (col + 1) * FRAME, (row + 1) * FRAME))
-
-
 def test_frog_is_registered_with_its_own_poses():
     assert draw_pets.SPECIES["frog"] is draw_frog.FROG
     names = [a for a, *_ in rows()]
@@ -38,20 +33,11 @@ def test_frog_is_registered_with_its_own_poses():
 
 
 def test_sheets_have_every_frame_inside_the_cell(out):
-    for st in STAGES:
-        sheet = sheet_128(out / f"sheet_{st}.png")
-        assert sheet.mode == "RGBA"
-        assert sheet.size == (4 * FRAME, len(rows()) * FRAME), st
-        for r, (anim, n, *_) in enumerate(rows()):
-            for c in range(n):
-                bbox = cell(sheet, r, c).getchannel("A").getbbox()
-                assert bbox is not None, (st, anim, c)
-                assert bbox[0] >= 1 and bbox[1] >= 1 and bbox[2] <= FRAME - 1 and bbox[3] <= FRAME - 1, (st, anim, c, bbox)
-                if anim in GROUNDED:
-                    assert bbox[3] >= 118, (st, anim, c, bbox)
-            for c in range(n, 4):  # 빈 칸은 완전히 투명
-                assert cell(sheet, r, c).getchannel("A").getbbox() is None, (st, anim, c)
-    assert not (out / "sheet.png").exists()
+    assert_frames_inside_cell(out, draw_frog.FROG, STAGES, grounded=GROUNDED)
+
+
+def test_roll_ball_fits_rotation_circle(out):
+    assert_roll_fits_circle(out, draw_frog.FROG, STAGES)
 
 
 def test_manifest(out):
@@ -71,7 +57,8 @@ def test_manifest(out):
 def test_eat_has_no_bowl_and_shows_a_tongue(out):
     sheet = sheet_128(out / "sheet_teenager.png").convert("RGBA")
     row = [a for a, *_ in rows()].index("eat")
-    tongue = bowlish = 0
+    assert_eat_has_no_bowl(out / "sheet_teenager.png", draw_frog.FROG, most=20)  # 그릇이 있으면 수백 픽셀 (안티에일리어싱 몇 점만 허용)
+    tongue = 0
     for c in range(4):
         px = cell(sheet, row, c).load()
         for y in range(FRAME):
@@ -79,11 +66,8 @@ def test_eat_has_no_bowl_and_shows_a_tongue(out):
                 p = px[x, y]
                 if p[3] < 200:
                     continue
-                if any(sum(abs(p[k] - col[k]) for k in range(3)) <= 12 for col in BOWL_COLORS):
-                    bowlish += 1
                 if c == 1 and 78 <= y <= 96 and 54 <= x <= 80 and sum(abs(p[k] - draw_pets.TONGUE[k]) for k in range(3)) < 20:
                     tongue += 1
-    assert bowlish < 20, bowlish  # 그릇이 있으면 수백 픽셀 (안티에일리어싱 몇 점만 허용)
     assert tongue > 15, tongue  # 혀 끝이 앞-아래 — 앱 소품 창의 밥 더미 위 (x 36–92, y ≈ 82)
 
 
@@ -105,12 +89,7 @@ def test_baby_has_a_tadpole_tail_and_others_do_not():
 
 def test_back_view_hands_are_behind_the_head(monkeypatch):
     orders = []
-    compose = draw_pets.compose
-
-    def spy(parts, *a, **k):
-        orders.append(parts)
-        return compose(parts, *a, **k)
-    monkeypatch.setattr(draw_pets, "compose", spy)
+    spy_compose(monkeypatch, orders.append)
     with draw_pets.stage("teenager"):
         draw_pets.frames(draw_frog.FROG, "climb", 1)
     parts = orders[0]
@@ -120,23 +99,7 @@ def test_back_view_hands_are_behind_the_head(monkeypatch):
 
 def test_back_view_feet_are_behind_the_body(monkeypatch):
     """뒷모습: 뒷발·몸·머리 순서 — 발은 몸 뒤에 숨어 엉덩이를 가리지 않는다."""
-    tags, orders = {}, []
-    compose = draw_pets.compose
-
-    def tagged(kind, fn):
-        def f(*a, **k):
-            r = fn(*a, **k)
-            tags[id(r)] = kind
-            return r
-        return f
-    monkeypatch.setattr(draw_frog, "frog_back_foot", tagged("leg", draw_frog.frog_back_foot))
-    monkeypatch.setattr(draw_frog, "frog_back_body", tagged("body", draw_frog.frog_back_body))
-
-    def spy(parts, *a, **k):
-        orders.append([tags.get(id(p)) for p in parts])
-        tags.clear()
-        return compose(parts, *a, **k)
-    monkeypatch.setattr(draw_pets, "compose", spy)
+    orders = record_draw_order(monkeypatch, [(draw_frog, "frog_back_foot", "leg"), (draw_frog, "frog_back_body", "body")])
     for st in STAGES:
         with draw_pets.stage(st, draw_frog.FROG.stage_tweak.get(st)):
             draw_pets.frames(draw_frog.FROG, "climb", 4)
@@ -162,27 +125,7 @@ def test_back_view_shows_no_suction_pads_on_the_rump():
 
 
 def test_climb_feet_only_peek_and_take_turns(monkeypatch):
-    for st in STAGES:
-        with draw_pets.stage(st, draw_frog.FROG.stage_tweak.get(st)):
-            full = draw_pets.frames(draw_frog.FROG, "climb", 4)
-            with monkeypatch.context() as m:
-                m.setattr(draw_frog, "frog_back_foot", lambda sp, *a, **k: draw_pets.Part([], sp.base))
-                bare = draw_pets.frames(draw_frog.FROG, "climb", 4)
-        seen = []
-        for f, b in zip(full, bare):
-            left = right = 0
-            for y in range(FRAME):
-                for x in range(FRAME):
-                    if sum(abs(p - q) for p, q in zip(f.getpixel((x, y)), b.getpixel((x, y)))) > 60:
-                        if x < FRAME // 2:
-                            left += 1
-                        else:
-                            right += 1
-            seen.append((left, right))
-        areas = [sum(f.getchannel("A").histogram()[129:]) for f in full]
-        for n, ((l, r), area) in enumerate(zip(seen, areas)):
-            assert 0 < l + r < 0.09 * area, (st, n, l, r, area)
-        assert seen[0][1] > seen[0][0] and seen[2][0] > seen[2][1], (st, seen)
+    assert_feet_only_peek(monkeypatch, draw_frog.FROG, draw_frog, "frog_back_foot", lambda sp, *a, **k: draw_pets.Part([], sp.base), STAGES, staged=False)
 
 
 def test_back_view_is_not_cut_by_the_cell_or_nudged_between_frames():
