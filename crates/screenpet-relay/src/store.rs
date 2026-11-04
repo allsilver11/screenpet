@@ -133,12 +133,8 @@ impl Store {
         self.data.installs.get(key)
     }
 
-    pub fn len(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.data.installs.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.data.installs.is_empty()
     }
 
     pub fn is_full(&self) -> bool {
@@ -170,13 +166,9 @@ impl Store {
 
     /// Record a successful authentication. Creates the install (with a code)
     /// if new — `false` if the store is full; updates its id label and
-    /// friend list (written only if something changed).
-    pub fn register(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64) -> bool {
-        self.register_with(key, id, friends, now, &|_| false)
-    }
-
-    /// As `register`; when full, first evicts the least recently seen
-    /// install that has no friends and is not `online`.
+    /// friend list (written only if something changed). When full, first
+    /// evicts the least recently seen install that has no friends and is not
+    /// `online`.
     pub fn register_with(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64, online: &dyn Fn(&str) -> bool) -> bool {
         if self.is_full() && !self.data.installs.contains_key(key) {
             let victim = self
@@ -285,12 +277,7 @@ impl Store {
     }
 
     /// Forget installs not seen for half a year, and installs that never
-    /// befriended anyone after a day.
-    pub fn prune(&mut self, now: u64) {
-        self.prune_with(now, &|_| false)
-    }
-
-    /// As `prune`, never forgetting an `online` install.
+    /// befriended anyone after a day; never an `online` one.
     pub fn prune_with(&mut self, now: u64, online: &dyn Fn(&str) -> bool) {
         let before = self.data.installs.len();
         let befriended: std::collections::HashSet<String> =
@@ -325,13 +312,6 @@ impl Store {
         self.dirty = true;
     }
 
-    /// Snapshot and write now (tests, shutdown).
-    pub fn flush(&mut self) -> io::Result<()> {
-        match self.snapshot() {
-            Some(snap) => write_snapshot(&snap).inspect_err(|_| self.dirty = true),
-            None => Ok(()),
-        }
-    }
 }
 
 /// Write a snapshot: private temp file, fsync, keep the old file as
@@ -401,6 +381,23 @@ mod tests {
 
     fn k(n: u8) -> String {
         proto::to_hex(&[n; 32])
+    }
+
+    impl Store {
+        fn register(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64) -> bool {
+            self.register_with(key, id, friends, now, &|_| false)
+        }
+
+        fn prune(&mut self, now: u64) {
+            self.prune_with(now, &|_| false)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            match self.snapshot() {
+                Some(snap) => write_snapshot(&snap),
+                None => Ok(()),
+            }
+        }
     }
 
     #[test]
@@ -477,7 +474,7 @@ mod tests {
         assert!(s.get(&k(1)).is_some(), "loaded from relay.json.bak");
         std::fs::write(dir.join(format!("{DATA_FILE}.bak")), b"garbage").unwrap();
         let s = Store::open(&dir).unwrap();
-        assert!(s.is_empty(), "both torn: start empty instead of refusing");
+        assert_eq!(s.count(), 0, "both torn: start empty instead of refusing");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -94,9 +94,9 @@ struct State {
     target_redeems: HashMap<String, VecDeque<(Instant, String)>>,
     /// Well-formed redeems per source address (fair share of the global budget).
     ip_wellformed: HashMap<String, VecDeque<Instant>>,
-    /// Global windows (keyed by "*"): new installs per hour, redeems per minute.
-    global_registrations: HashMap<String, VecDeque<Instant>>,
-    global_redeems: HashMap<String, VecDeque<Instant>>,
+    /// Whole relay: new installs in the last hour, redeems in the last minute.
+    global_registrations: VecDeque<Instant>,
+    global_redeems: VecDeque<Instant>,
 }
 
 impl State {
@@ -193,25 +193,30 @@ fn make_room<V: Stamped>(table: &mut HashMap<String, VecDeque<V>>, key: &str, wi
     }
 }
 
-/// Sliding-window counter: `true` (and counted) if fewer than `limit` in
-/// `window`. O(1) amortized; stale keys are dropped by `prune_table`.
-fn allow(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize, window: Duration) -> bool {
-    allow_in(table, key, limit, window, MAX_RATE_KEYS)
-}
-
-fn allow_in(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize, window: Duration, max_keys: usize) -> bool {
+/// Drop entries older than `window`.
+fn expire(q: &mut VecDeque<Instant>, window: Duration) {
     let now = Instant::now();
-    let key = capped_key(table, key);
-    make_room(table, &key, window, max_keys);
-    let q = table.entry(key).or_default();
     while q.front().is_some_and(|t| now.duration_since(*t) >= window) {
         q.pop_front();
     }
+}
+
+/// One sliding window: `true` (and counted) if fewer than `limit` in `window`.
+fn allow_window(q: &mut VecDeque<Instant>, limit: usize, window: Duration) -> bool {
+    expire(q, window);
     if q.len() >= limit {
         return false;
     }
-    q.push_back(now);
+    q.push_back(Instant::now());
     true
+}
+
+/// Sliding window per key, in a table of at most `max_keys`. O(1) amortized;
+/// stale keys are dropped by `prune_table`.
+fn allow(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: usize, window: Duration, max_keys: usize) -> bool {
+    let key = capped_key(table, key);
+    make_room(table, &key, window, max_keys);
+    allow_window(table.entry(key).or_default(), limit, window)
 }
 
 /// `who` may count against `key` if already among its requesters in the
@@ -219,11 +224,7 @@ fn allow_in(table: &mut HashMap<String, VecDeque<Instant>>, key: &str, limit: us
 ///
 /// Security-relevant: live entries are never evicted. When the table is full
 /// of live keys, *new* keys are refused (known keys keep working).
-fn allow_distinct(table: &mut HashMap<String, VecDeque<(Instant, String)>>, key: &str, who: &str, limit: usize, window: Duration) -> bool {
-    allow_distinct_in(table, key, who, limit, window, MAX_RATE_KEYS)
-}
-
-fn allow_distinct_in(
+fn allow_distinct(
     table: &mut HashMap<String, VecDeque<(Instant, String)>>,
     key: &str,
     who: &str,
@@ -398,8 +399,8 @@ impl Hub {
             // a stale friendless install.)
             // Each network gets its own budget; the global ceiling is a
             // looser backstop.
-            if !allow(&mut st.ip_registrations, &network_bucket(ip), self.limits.registrations_per_ip_per_hour, HOUR)
-                || !allow(&mut st.global_registrations, "*", self.limits.registrations_per_hour, HOUR)
+            if !allow(&mut st.ip_registrations, &network_bucket(ip), self.limits.registrations_per_ip_per_hour, HOUR, MAX_RATE_KEYS)
+                || !allow_window(&mut st.global_registrations, self.limits.registrations_per_hour, HOUR)
             {
                 return Err("busy");
             }
@@ -477,7 +478,7 @@ impl Hub {
         if !Self::is_current(&st, key, conn) {
             return None;
         }
-        if !allow(&mut st.ip_redeems, ip, self.limits.redeems_per_ip_per_min, MINUTE) {
+        if !allow(&mut st.ip_redeems, ip, self.limits.redeems_per_ip_per_min, MINUTE, MAX_RATE_KEYS) {
             return fail("rate");
         }
         // One answer for "no such code", "owner offline" and "your own code":
@@ -491,16 +492,13 @@ impl Hub {
         // to everyone.
         let per_min = self.limits.redeems_per_min;
         let share = (per_min / 10).min(self.limits.redeems_per_ip_per_min).max(1);
-        let light = allow(&mut st.ip_wellformed, &share_bucket(ip), share, MINUTE);
-        let global = st.global_redeems.entry("*".to_string()).or_default();
-        let now_i = Instant::now();
-        while global.front().is_some_and(|t| now_i.duration_since(*t) >= MINUTE) {
-            global.pop_front();
-        }
-        if global.len() >= 2 * per_min || (!light && global.len() >= per_min) {
+        let light = allow(&mut st.ip_wellformed, &share_bucket(ip), share, MINUTE, MAX_RATE_KEYS);
+        expire(&mut st.global_redeems, MINUTE);
+        let used = st.global_redeems.len();
+        if used >= 2 * per_min || (!light && used >= per_min) {
             return fail("rate");
         }
-        global.push_back(now_i);
+        st.global_redeems.push_back(Instant::now());
         let now = unix_now();
         let Some(target) = st.store_ref().by_code(&norm, now, self.limits.code_ttl.as_secs()).map(str::to_string) else {
             return fail("unknown");
@@ -511,7 +509,7 @@ impl Hub {
         // A code that keeps being redeemed is being guessed or spread: cap
         // distinct requesters per code (a new code starts fresh; a requester
         // retrying counts once).
-        if !allow_distinct(&mut st.target_redeems, &format!("{target} {norm}"), key, self.limits.redeems_per_target_per_hour, HOUR) {
+        if !allow_distinct(&mut st.target_redeems, &format!("{target} {norm}"), key, self.limits.redeems_per_target_per_hour, HOUR, MAX_RATE_KEYS) {
             return fail("unknown");
         }
         st.store().mark_active(key);
@@ -634,9 +632,9 @@ impl Hub {
             let now = Instant::now();
             st.grants.retain(|g| g.until > now);
             prune_table(&mut st.ip_redeems, MINUTE);
-            prune_table(&mut st.global_redeems, MINUTE);
+            expire(&mut st.global_redeems, MINUTE);
             prune_table(&mut st.ip_registrations, HOUR);
-            prune_table(&mut st.global_registrations, HOUR);
+            expire(&mut st.global_registrations, HOUR);
             prune_table(&mut st.target_redeems, HOUR);
             prune_table(&mut st.ip_wellformed, MINUTE);
             let st = &mut *st;
@@ -666,12 +664,12 @@ mod tests {
     fn a_full_rate_table_evicts_instead_of_refusing_newcomers() {
         let mut t = HashMap::new();
         for i in 0..4 {
-            assert!(allow_in(&mut t, &format!("k{i}"), 1, HOUR, 4));
+            assert!(allow(&mut t, &format!("k{i}"), 1, HOUR, 4));
         }
         // Table full of live keys: a new key still gets its own budget.
-        assert!(allow_in(&mut t, "new", 1, HOUR, 4));
+        assert!(allow(&mut t, "new", 1, HOUR, 4));
         assert!(t.len() <= 4);
-        assert!(!allow_in(&mut t, "new", 1, HOUR, 4), "and its limit still applies");
+        assert!(!allow(&mut t, "new", 1, HOUR, 4), "and its limit still applies");
     }
 
     #[test]
@@ -679,12 +677,12 @@ mod tests {
         let mut t = HashMap::new();
         for i in 0..100u32 {
             let key = format!("2001:db8:1:{i:x}::/64");
-            allow_in(&mut t, &key, 1000, HOUR, 4096);
+            allow(&mut t, &key, 1000, HOUR, 4096);
         }
         assert!(t.len() <= MAX_KEYS_PER_PARENT + 1, "{} keys from one /48", t.len());
         let mut t = HashMap::new();
         for i in 0..100u32 {
-            allow_in(&mut t, &format!("203.0.113.{i}"), 1000, HOUR, 4096);
+            allow(&mut t, &format!("203.0.113.{i}"), 1000, HOUR, 4096);
         }
         assert!(t.len() <= MAX_KEYS_PER_PARENT + 1, "{} keys from one /24", t.len());
     }
@@ -692,10 +690,10 @@ mod tests {
     #[test]
     fn the_per_code_table_fails_closed_for_new_targets_only() {
         let mut t = HashMap::new();
-        assert!(allow_distinct_in(&mut t, "t1 c", "x", 5, HOUR, 2));
-        assert!(allow_distinct_in(&mut t, "t2 c", "x", 5, HOUR, 2));
-        assert!(!allow_distinct_in(&mut t, "t3 c", "x", 5, HOUR, 2), "full: no eviction of live caps");
-        assert!(allow_distinct_in(&mut t, "t1 c", "y", 5, HOUR, 2), "known targets keep working");
+        assert!(allow_distinct(&mut t, "t1 c", "x", 5, HOUR, 2));
+        assert!(allow_distinct(&mut t, "t2 c", "x", 5, HOUR, 2));
+        assert!(!allow_distinct(&mut t, "t3 c", "x", 5, HOUR, 2), "full: no eviction of live caps");
+        assert!(allow_distinct(&mut t, "t1 c", "y", 5, HOUR, 2), "known targets keep working");
         assert!(t.contains_key("t1 c") && t.contains_key("t2 c"));
     }
 
