@@ -814,86 +814,70 @@ impl Network {
 
     fn handle_input(&mut self, app: &AppHandle, input: NetInput, config: &mut Config, slots: &mut Vec<Slot>) -> bool {
         match input {
-            NetInput::Event(ev) => self.on_event(app, ev, config, slots),
-            NetInput::Invite(id) => {
-                self.start_invite(app, &id, &slots[0].entry.id);
-                false
-            }
-            NetInput::PairAnswer(accept) => {
-                self.on_pair_answer(app, accept);
-                false
-            }
+            NetInput::Event(ev) => return self.on_event(app, ev, config, slots),
+            NetInput::Invite(id) => self.start_invite(app, &id, &slots[0].entry.id),
+            NetInput::PairAnswer(accept) => self.on_pair_answer(app, accept),
             NetInput::SetSide { id, side } => {
                 // 이미 체크된 항목을 누르면 체크가 풀리므로 메뉴를 항상 다시 그린다
                 self.last_menu = None;
-                config.set_friend_side(&id, side)
+                return config.set_friend_side(&id, side);
             }
-            NetInput::Unfriend(id) => self.unfriend(&id, config),
+            NetInput::Unfriend(id) => return self.unfriend(&id, config),
             NetInput::ComeHome => {
                 if let (Some(net), Some(a)) = (&self.net, self.away.as_mut()) {
                     net.send(&a.friend, Visit::ComeHome { visit_id: a.visit_id });
                     a.come_home_by.get_or_insert(Instant::now() + COME_HOME_FALLBACK);
                 }
-                false
             }
-            NetInput::ShowCode => {
-                self.show_code(app);
-                false
-            }
+            NetInput::ShowCode => self.show_code(app),
             NetInput::EnterCode => {
                 self.update_code_view(app);
                 show_code_window(app);
-                false
             }
-            NetInput::SubmitCode(code) => {
-                self.start_code_invite(app, &code, &slots[0].entry.id);
-                false
-            }
+            NetInput::SubmitCode(code) => self.start_code_invite(app, &code, &slots[0].entry.id),
             NetInput::NewCode => {
                 // 새 코드는 FriendCode 이벤트로 온다
                 if !self.net.as_ref().is_some_and(|n| n.new_friend_code()) {
                     eprintln!("cannot get a new friend code: not connected to the relay");
                 }
-                false
             }
             NetInput::EditMyName => {
                 let view = NameView { target: "me", current: config.owner_name.clone().unwrap_or_default(), fallback: DEFAULT_NAME.to_string(), max: MAX_NAME_CHARS };
                 self.naming = Some(Naming::Me);
                 show_name_window(app, view);
-                false
             }
             NetInput::EditNickname(id) => {
                 let Some(f) = config.friend(&id) else { return false };
                 let view = NameView { target: "friend", current: f.nickname.clone().unwrap_or_default(), fallback: f.name.clone(), max: MAX_NAME_CHARS };
                 self.naming = Some(Naming::Friend(id));
                 show_name_window(app, view);
-                false
             }
-            NetInput::SubmitName(name) => match self.naming.take() {
-                Some(Naming::Me) => {
-                    let dirty = config.set_owner_name(&name);
-                    let shown = config.my_name();
-                    if shown != self.name {
-                        self.name = shown;
-                        // 연결된 친구들에게 바로 알린다 (다음 연결·발견 알림도 새 이름)
-                        if let Some(net) = &self.net {
-                            net.set_name(&self.name);
+            NetInput::SubmitName(name) => {
+                return match self.naming.take() {
+                    Some(Naming::Me) => {
+                        let dirty = config.set_owner_name(&name);
+                        let shown = config.my_name();
+                        if shown != self.name {
+                            self.name = shown;
+                            // 연결된 친구들에게 바로 알린다 (다음 연결·발견 알림도 새 이름)
+                            if let Some(net) = &self.net {
+                                net.set_name(&self.name);
+                            }
                         }
+                        dirty
                     }
-                    dirty
-                }
-                Some(Naming::Friend(id)) => config.set_friend_nickname(&id, &name),
-                None => false,
-            },
+                    Some(Naming::Friend(id)) => config.set_friend_nickname(&id, &name),
+                    None => false,
+                };
+            }
             // 게임 루프가 하우스에서 꺼낸 뒤 send_to를 직접 부른다 (여기 오지 않는다)
-            NetInput::SendTo(_) | NetInput::SubmitLetter(_) => false,
+            NetInput::SendTo(_) | NetInput::SubmitLetter(_) => {}
             NetInput::EditLetter(id) => {
                 let Some(f) = config.friend(&id) else { return false };
                 let view = LetterView { name: f.shown_name().to_string(), max: visit::MAX_NOTE_CHARS, reply: false };
                 self.lettering = Some(id);
                 self.replying = None;
                 show_letter_window(app, view);
-                false
             }
             NetInput::EditReply(label) => {
                 // 이미 답장을 맡겼거나 떠나는 중인 손님에겐 열지 않는다
@@ -910,52 +894,27 @@ impl Network {
                 self.replying = Some((label, g.visit_id));
                 self.lettering = None;
                 show_letter_window(app, view);
-                false
             }
-            NetInput::SendOn { label, friend } => {
-                self.send_on(config, slots, &label, &friend);
-                false
-            }
+            NetInput::SendOn { label, friend } => self.send_on(config, slots, &label, &friend),
             NetInput::BringPet(id) => {
                 if let (Some(net), true) = (&self.net, self.is_connected(&id) && self.guests < MAX_GUESTS) {
                     net.ask(&id, ASK_INVITE);
                     self.invite_asked.insert(id, Instant::now());
                 }
-                false
             }
-            NetInput::LadderOpen => {
-                self.ladder.open(app, &ladder_ctx!(self, config));
-                false
-            }
-            NetInput::LadderShowLast => {
-                self.ladder.show_last(app, &ladder_ctx!(self, config));
-                false
-            }
+            NetInput::LadderOpen => self.ladder.open(app, &ladder_ctx!(self, config)),
+            NetInput::LadderShowLast => self.ladder.show_last(app, &ladder_ctx!(self, config)),
             NetInput::ToggleLadderInvites => {
                 config.ladder_invites_off = !config.ladder_invites_off;
-                true
+                return true;
             }
-            NetInput::LadderHost { friends, results } => {
-                self.ladder.host(app, &ladder_ctx!(self, config), &slots[0], friends, results);
-                false
-            }
-            NetInput::LadderBegin(results) => {
-                self.ladder.begin(app, &ladder_ctx!(self, config), results);
-                false
-            }
-            NetInput::LadderAnswer(join) => {
-                self.ladder.answer(app, &ladder_ctx!(self, config), &slots[0], join);
-                false
-            }
-            NetInput::LadderClose => {
-                self.ladder.close(app, &ladder_ctx!(self, config));
-                false
-            }
-            NetInput::LadderReact => {
-                self.ladder.react(app, &mut slots[0]);
-                false
-            }
+            NetInput::LadderHost { friends, results } => self.ladder.host(app, &ladder_ctx!(self, config), &slots[0], friends, results),
+            NetInput::LadderBegin(results) => self.ladder.begin(app, &ladder_ctx!(self, config), results),
+            NetInput::LadderAnswer(join) => self.ladder.answer(app, &ladder_ctx!(self, config), &slots[0], join),
+            NetInput::LadderClose => self.ladder.close(app, &ladder_ctx!(self, config)),
+            NetInput::LadderReact => self.ladder.react(app, &mut slots[0]),
         }
+        false
     }
 
     fn unfriend(&mut self, id: &str, config: &mut Config) -> bool {

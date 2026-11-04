@@ -737,10 +737,6 @@ fn from_ladder(window: &WebviewWindow) -> bool {
     window.label() == LABEL
 }
 
-fn net_input(state: &tauri::State<AppState>, input: NetInput) {
-    state.send(Input::Net(input));
-}
-
 /// 사다리 창의 지금 화면 (웹뷰 첫 로드용 — 사다리 창만)
 #[tauri::command]
 pub fn ladder_state(window: WebviewWindow) -> Option<LadderView> {
@@ -754,7 +750,7 @@ pub fn ladder_state(window: WebviewWindow) -> Option<LadderView> {
 #[tauri::command]
 pub fn ladder_host(window: WebviewWindow, state: tauri::State<AppState>, friends: Vec<String>, results: Vec<SlotRow>) {
     if from_ladder(&window) && friends.len() < draw::MAX_PLAYERS && results.len() <= draw::MAX_PLAYERS {
-        net_input(&state, NetInput::LadderHost { friends, results });
+        state.send(Input::Net(NetInput::LadderHost { friends, results }));
     }
 }
 
@@ -762,7 +758,7 @@ pub fn ladder_host(window: WebviewWindow, state: tauri::State<AppState>, friends
 #[tauri::command]
 pub fn ladder_begin(window: WebviewWindow, state: tauri::State<AppState>, results: Vec<SlotRow>) {
     if from_ladder(&window) && results.len() <= draw::MAX_PLAYERS {
-        net_input(&state, NetInput::LadderBegin(results));
+        state.send(Input::Net(NetInput::LadderBegin(results)));
     }
 }
 
@@ -770,7 +766,7 @@ pub fn ladder_begin(window: WebviewWindow, state: tauri::State<AppState>, result
 #[tauri::command]
 pub fn ladder_answer(window: WebviewWindow, state: tauri::State<AppState>, join: bool) {
     if from_ladder(&window) {
-        net_input(&state, NetInput::LadderAnswer(join));
+        state.send(Input::Net(NetInput::LadderAnswer(join)));
     }
 }
 
@@ -778,7 +774,7 @@ pub fn ladder_answer(window: WebviewWindow, state: tauri::State<AppState>, join:
 #[tauri::command]
 pub fn ladder_close(window: WebviewWindow, state: tauri::State<AppState>) {
     if from_ladder(&window) {
-        net_input(&state, NetInput::LadderClose);
+        state.send(Input::Net(NetInput::LadderClose));
     }
 }
 
@@ -786,6 +782,6 @@ pub fn ladder_close(window: WebviewWindow, state: tauri::State<AppState>) {
 #[tauri::command]
 pub fn ladder_seen(window: WebviewWindow, state: tauri::State<AppState>) {
     if from_ladder(&window) {
-        net_input(&state, NetInput::LadderReact);
+        state.send(Input::Net(NetInput::LadderReact));
     }
 }
