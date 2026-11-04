@@ -9,6 +9,21 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 use tungstenite::{Error as WsError, Message, WebSocket};
 
+/// A place to connect to: an in-process relay or a spawned binary.
+trait Target {
+    fn addr(&self) -> SocketAddr;
+}
+impl Target for Relay {
+    fn addr(&self) -> SocketAddr {
+        self.local_addr()
+    }
+}
+impl Target for SocketAddr {
+    fn addr(&self) -> SocketAddr {
+        *self
+    }
+}
+
 fn start(limits: Limits) -> Relay {
     let mut cfg = RelayConfig::new(SocketAddr::from(([127, 0, 0, 1], 0)), None);
     cfg.limits = limits;
@@ -30,20 +45,20 @@ struct Client {
 
 impl Client {
     /// Connect and read the challenge (not yet authenticated).
-    fn raw(relay: &Relay) -> Client {
+    fn raw(relay: &impl Target) -> Client {
         Client::raw_as(relay, None)
     }
 
     /// As `raw`, appearing (via the trusted loopback proxy header) to come
     /// from `ip`.
-    fn raw_as(relay: &Relay, ip: Option<&str>) -> Client {
+    fn raw_as(relay: &impl Target, ip: Option<&str>) -> Client {
         Client::try_raw(relay, ip, None).expect("upgrade")
     }
 
     /// As `raw_as`; `Err(HTTP status)` if the relay refused the upgrade.
-    fn try_raw(relay: &Relay, ip: Option<&str>, origin: Option<&str>) -> Result<Client, u16> {
+    fn try_raw(relay: &impl Target, ip: Option<&str>, origin: Option<&str>) -> Result<Client, u16> {
         use tungstenite::client::IntoClientRequest;
-        let addr = relay.local_addr();
+        let addr = relay.addr();
         let tcp = TcpStream::connect(addr).unwrap();
         let mut req = format!("ws://{addr}/ws").into_client_request().unwrap();
         if let Some(ip) = ip {
@@ -82,12 +97,12 @@ impl Client {
     }
 
     /// Connect and authenticate; returns the client and its `welcome`.
-    fn login(relay: &Relay, priv_key: &[u8; 32], id: &str, friends: &[String]) -> (Client, Value) {
+    fn login(relay: &impl Target, priv_key: &[u8; 32], id: &str, friends: &[String]) -> (Client, Value) {
         Client::login_as(relay, None, priv_key, id, friends).expect("welcome")
     }
 
     /// Log in from `ip`; `Err(reason)` if refused.
-    fn login_as(relay: &Relay, ip: Option<&str>, priv_key: &[u8; 32], id: &str, friends: &[String]) -> Result<(Client, Value), String> {
+    fn login_as(relay: &impl Target, ip: Option<&str>, priv_key: &[u8; 32], id: &str, friends: &[String]) -> Result<(Client, Value), String> {
         let mut c = Client::raw_as(relay, ip);
         let auth = c.auth_msg(priv_key, id, friends);
         c.send(&auth);
@@ -200,8 +215,8 @@ impl Client {
     }
 }
 
-fn http_get(relay: &Relay, path: &str) -> String {
-    let mut s = TcpStream::connect(relay.local_addr()).unwrap();
+fn http_get(relay: &impl Target, path: &str) -> String {
+    let mut s = TcpStream::connect(relay.addr()).unwrap();
     write!(s, "GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
     let mut out = String::new();
     s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
@@ -757,4 +772,176 @@ fn bandwidth_over_the_global_cap_closes_the_channel() {
         a.send_bin(ch, &[7u8; 10_000]);
     }
     assert_eq!(a.expect("close", 2.0)["ch"], ch);
+}
+
+/// A fresh data directory (short path: it holds a Unix socket).
+fn data_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{tag}-{}", proto::to_hex(&key()[..4])));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn start_in(dir: &std::path::Path, limits: Limits) -> Relay {
+    let mut cfg = RelayConfig::new(SocketAddr::from(([127, 0, 0, 1], 0)), Some(dir.to_path_buf()));
+    cfg.limits = limits;
+    Relay::start(cfg).unwrap()
+}
+
+fn wait_until(what: &str, mut ok: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ok() {
+        assert!(Instant::now() < deadline, "timed out: {what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn new_installs_are_capped_per_wider_network_per_day() {
+    let relay = start(Limits { registrations_per_network_per_day: 2, ..Limits::default() });
+    assert!(Client::login_as(&relay, Some("2001:db8:1:1::1"), &key(), "a", &[]).is_ok());
+    assert!(Client::login_as(&relay, Some("2001:db8:1:2::1"), &key(), "b", &[]).is_ok());
+    let third = Client::login_as(&relay, Some("2001:db8:1:3::1"), &key(), "c", &[]);
+    assert_eq!(third.err().as_deref(), Some("busy"), "another /64 in the same /48");
+    assert!(Client::login_as(&relay, Some("2001:db8:2:1::1"), &key(), "d", &[]).is_ok());
+}
+
+#[test]
+fn one_network_cannot_use_up_the_per_code_table() {
+    let relay = start(Limits { new_codes_per_network_per_hour: 1, ..Limits::default() });
+    let (_b, wb) = Client::login_as(&relay, Some("192.0.2.1"), &key(), "b", &[]).unwrap();
+    let (_c, wc) = Client::login_as(&relay, Some("192.0.2.2"), &key(), "c", &[]).unwrap();
+    let (mut a, _) = Client::login_as(&relay, Some("203.0.113.1"), &key(), "a", &[]).unwrap();
+    a.send(&json!({"t": "redeem", "code": wb["code"]}));
+    a.expect("redeemed", 2.0);
+    a.send(&json!({"t": "redeem", "code": wc["code"]}));
+    assert_eq!(a.expect("redeem_failed", 2.0)["reason"], "rate");
+    // The same code again adds nothing to the table.
+    a.send(&json!({"t": "redeem", "code": wb["code"]}));
+    a.expect("redeemed", 2.0);
+    // Another network has its own allowance.
+    let (mut d, _) = Client::login_as(&relay, Some("198.51.100.1"), &key(), "d", &[]).unwrap();
+    d.send(&json!({"t": "redeem", "code": wc["code"]}));
+    d.expect("redeemed", 2.0);
+}
+
+#[test]
+fn friend_list_updates_are_rate_limited() {
+    let relay = start(Limits::default());
+    let (mut a, _) = Client::login(&relay, &key(), "aaaa", &[]);
+    for _ in 0..40 {
+        a.send(&json!({"t": "friends", "keys": [pubhex(&key())]}));
+    }
+    assert_eq!(a.closed(2.0), Some(Some("rate".into())));
+}
+
+#[test]
+fn data_is_written_on_the_timer_not_on_every_change() {
+    let dir = data_dir("save");
+    let file = dir.join("relay.json");
+    let k = key();
+    {
+        let relay = start_in(&dir, Limits { save_every: Duration::from_secs(3600), ..Limits::default() });
+        let (mut a, _) = Client::login(&relay, &k, "aaaa", &[]);
+        a.send(&json!({"t": "friends", "keys": [pubhex(&key())]}));
+        a.expect("online", 2.0);
+        // The old loop wrote within two seconds.
+        std::thread::sleep(Duration::from_millis(2500));
+        assert!(!file.exists(), "no write yet");
+    }
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains(&pubhex(&k)), "written when the relay stopped");
+    assert!(!text.contains('\n'), "compact");
+    {
+        let relay = start_in(&dir, Limits { save_every: Duration::from_millis(100), ..Limits::default() });
+        let k2 = key();
+        let _a = Client::login(&relay, &k2, "bbbb", &[]);
+        wait_until("timed save", || std::fs::read_to_string(&file).is_ok_and(|t| t.contains(&pubhex(&k2))));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_restart_does_not_forget_installs_that_were_online() {
+    let dir = data_dir("restart");
+    let k = key();
+    let two_days_ago = screenpet_relay::store::unix_now() - 2 * 24 * 3600;
+    let now = screenpet_relay::store::unix_now();
+    let file = json!({"installs": {pubhex(&k): {"id": "a", "code": "ABCD-1234", "code_at": now, "last_seen": two_days_ago}}});
+    std::fs::write(dir.join("relay.json"), file.to_string()).unwrap();
+    let relay = start_in(&dir, Limits::default());
+    // The old loop pruned two seconds after start, before clients came back.
+    std::thread::sleep(Duration::from_millis(2500));
+    let (_a, w) = Client::login(&relay, &k, "a", &[]);
+    assert_eq!(w["code"], "ABCD-1234", "still known, friend code kept");
+    drop(relay);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The real binary on a free port.
+#[cfg(unix)]
+struct Bin {
+    child: std::process::Child,
+    addr: SocketAddr,
+}
+
+#[cfg(unix)]
+impl Bin {
+    fn start(dir: &std::path::Path) -> Bin {
+        use std::io::BufRead;
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_screenpet-relay"))
+            .args(["--bind", "127.0.0.1:0", "--data"])
+            .arg(dir)
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut lines = std::io::BufReader::new(child.stderr.take().unwrap()).lines();
+        let addr = loop {
+            let line = lines.next().expect("relay output").unwrap();
+            if let Some(rest) = line.strip_prefix("screenpet-relay listening on ") {
+                break rest.split(' ').next().unwrap().parse().unwrap();
+            }
+        };
+        // Keep the pipe drained so its logging can't block.
+        std::thread::spawn(move || lines.for_each(drop));
+        Bin { child, addr }
+    }
+
+    fn signal(&self, name: &str) {
+        let pid = self.child.id().to_string();
+        assert!(std::process::Command::new("kill").args([name, &pid]).status().unwrap().success());
+    }
+
+    fn wait_exit(&mut self) -> std::process::ExitStatus {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                return status;
+            }
+            assert!(Instant::now() < deadline, "relay did not stop");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Bin {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn sigterm_tells_clients_and_saves() {
+    let dir = data_dir("term");
+    let mut bin = Bin::start(&dir);
+    let k = key();
+    let (mut a, _) = Client::login(&bin.addr, &k, "aaaa", &[]);
+    bin.signal("-TERM");
+    assert_eq!(a.closed(5.0), Some(Some("shutdown".into())));
+    assert!(bin.wait_exit().success());
+    let text = std::fs::read_to_string(dir.join("relay.json")).expect("saved on the way out");
+    assert!(text.contains(&pubhex(&k)));
+    let _ = std::fs::remove_dir_all(&dir);
 }

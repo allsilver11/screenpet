@@ -18,6 +18,13 @@ const FORGET_AFTER_SECS: u64 = 180 * 24 * 3600;
 /// forgotten after this long unseen (so registrations can't fill the store
 /// for good).
 pub const IDLE_FORGET_SECS: u64 = 24 * 3600;
+/// Befriended installs seen on fewer than `ESTABLISHED_DAYS` days are
+/// forgotten after this long unseen: keys that only befriend each other can't
+/// buy half a year. Being forgotten costs a real install little, its next
+/// login registers it again with the same friend list.
+const NEW_FRIEND_FORGET_SECS: u64 = 14 * 24 * 3600;
+const ESTABLISHED_DAYS: u32 = 3;
+const DAY_SECS: u64 = 24 * 3600;
 /// `last_seen` alone makes the store dirty at most this often per install.
 const TOUCH_EVERY_SECS: u64 = 600;
 /// Default hard cap on stored installs.
@@ -41,6 +48,9 @@ pub struct Install {
     /// mutual friend).
     #[serde(default)]
     pub active: bool,
+    /// Distinct days this install has been seen on.
+    #[serde(default)]
+    pub seen_days: u32,
 }
 
 
@@ -171,13 +181,12 @@ impl Store {
     /// `online`.
     pub fn register_with(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64, online: &dyn Fn(&str) -> bool) -> bool {
         if self.is_full() && !self.data.installs.contains_key(key) {
-            let victim = self
-                .data
-                .installs
-                .iter()
-                .filter(|(k, _)| !online(k) && !self.befriended(k))
-                .min_by_key(|(_, i)| i.last_seen)
-                .map(|(k, _)| k.clone());
+            let stalest = |keep: &dyn Fn(&str, &Install) -> bool| {
+                let offline = self.data.installs.iter().filter(|(k, i)| !online(k) && !keep(k, i));
+                offline.min_by_key(|(_, i)| i.last_seen).map(|(k, _)| k.clone())
+            };
+            // Friendless first, then friends that are still new.
+            let victim = stalest(&|k, _| self.befriended(k)).or_else(|| stalest(&|_, i| i.seen_days >= ESTABLISHED_DAYS));
             if let Some(v) = victim {
                 self.remove(&v);
             }
@@ -195,7 +204,7 @@ impl Store {
             }
             None if full => false,
             None => {
-                let inst = Install { id: id.to_string(), friends, code: String::new(), code_at: 0, last_seen: now, active: false };
+                let inst = Install { id: id.to_string(), friends, code: String::new(), code_at: 0, last_seen: now, active: false, seen_days: 1 };
                 self.data.installs.insert(key.to_string(), inst);
                 self.dirty = true;
                 self.issue_code(key, now);
@@ -227,6 +236,9 @@ impl Store {
     pub fn touch(&mut self, key: &str, now: u64) {
         if let Some(inst) = self.data.installs.get_mut(key) {
             if now.saturating_sub(inst.last_seen) >= TOUCH_EVERY_SECS {
+                if now / DAY_SECS != inst.last_seen / DAY_SECS {
+                    inst.seen_days = inst.seen_days.saturating_add(1);
+                }
                 inst.last_seen = now;
                 self.dirty = true;
             }
@@ -276,25 +288,39 @@ impl Store {
         }
     }
 
-    /// Forget installs not seen for half a year, and installs that never
-    /// befriended anyone after a day; never an `online` one.
-    pub fn prune_with(&mut self, now: u64, online: &dyn Fn(&str) -> bool) {
-        let before = self.data.installs.len();
-        let befriended: std::collections::HashSet<String> =
-            self.data.installs.keys().filter(|k| self.befriended(k)).cloned().collect();
-        let by_code = &mut self.by_code;
-        self.data.installs.retain(|k, i| {
-            let idle = now.saturating_sub(i.last_seen);
-            let limit = if befriended.contains(k) { FORGET_AFTER_SECS } else { IDLE_FORGET_SECS };
-            let keep = online(k) || idle < limit;
-            if !keep {
-                by_code.remove(&i.code);
-            }
-            keep
-        });
-        if self.data.installs.len() != before {
-            self.dirty = true;
+    /// How long `key` is kept unseen.
+    fn keep_for(&self, key: &str, inst: &Install) -> u64 {
+        if !self.befriended(key) {
+            IDLE_FORGET_SECS
+        } else if inst.seen_days < ESTABLISHED_DAYS {
+            NEW_FRIEND_FORGET_SECS
+        } else {
+            FORGET_AFTER_SECS
         }
+    }
+
+    /// Forget installs unseen for longer than `keep_for` says; never an
+    /// `online` one. Friendships are only looked at for installs at least
+    /// `IDLE_FORGET_SECS` unseen, so the usual pass is a plain scan.
+    pub fn prune_with(&mut self, now: u64, online: &dyn Fn(&str) -> bool) {
+        let expired: Vec<String> = self
+            .data
+            .installs
+            .iter()
+            .filter(|(k, i)| {
+                let idle = now.saturating_sub(i.last_seen);
+                idle >= IDLE_FORGET_SECS && !online(k) && idle >= self.keep_for(k, i)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in expired {
+            self.remove(&k);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn touch_at_for_test(&mut self, key: &str, when: u64) {
+        self.data.installs.get_mut(key).unwrap().last_seen = when;
     }
 
     /// If anything changed, a copy to write (marks the store clean; call
@@ -319,7 +345,7 @@ impl Store {
 pub fn write_snapshot(snap: &Snapshot) -> io::Result<()> {
     let main = snap.dir.join(DATA_FILE);
     let tmp = snap.dir.join(format!("{DATA_FILE}.tmp"));
-    let bytes = serde_json::to_vec_pretty(&snap.data).map_err(io::Error::other)?;
+    let bytes = serde_json::to_vec(&snap.data).map_err(io::Error::other)?;
     write_private(&tmp, &bytes)?;
     if main.exists() {
         std::fs::rename(&main, snap.dir.join(format!("{DATA_FILE}.bak")))?;
@@ -397,6 +423,10 @@ mod tests {
                 Some(snap) => write_snapshot(&snap),
                 None => Ok(()),
             }
+        }
+
+        fn establish(&mut self, key: &str) {
+            self.data.installs.get_mut(key).unwrap().seen_days = ESTABLISHED_DAYS;
         }
     }
 
@@ -500,7 +530,9 @@ mod tests {
         s.max_installs = 2;
         assert!(s.register(&k(1), "a", vec![k(2)], 0));
         assert!(s.register(&k(2), "b", vec![k(1)], 0));
-        assert!(!s.register(&k(3), "c", vec![], 0), "full of mutual friends");
+        s.establish(&k(1));
+        s.establish(&k(2));
+        assert!(!s.register(&k(3), "c", vec![], 0), "full of established mutual friends");
         assert!(s.register(&k(1), "a", vec![k(2)], 0), "known installs still log in");
     }
 
@@ -532,6 +564,61 @@ mod tests {
     }
 
     #[test]
+    fn keys_befriending_each_other_get_no_long_retention() {
+        let mut s = Store::memory();
+        s.register(&k(1), "new", vec![k(2)], 0);
+        s.register(&k(2), "new", vec![k(1)], 0);
+        s.register(&k(3), "old", vec![k(4)], 0);
+        s.register(&k(4), "old", vec![k(3)], 0);
+        s.establish(&k(3));
+        s.establish(&k(4));
+        s.prune(NEW_FRIEND_FORGET_SECS - 1);
+        assert!(s.get(&k(1)).is_some(), "kept past the friendless day");
+        s.prune(NEW_FRIEND_FORGET_SECS);
+        assert!(s.get(&k(1)).is_none() && s.get(&k(2)).is_none());
+        assert!(s.get(&k(3)).is_some() && s.get(&k(4)).is_some(), "seen on several days");
+        s.prune(FORGET_AFTER_SECS);
+        assert!(s.get(&k(3)).is_none());
+    }
+
+    #[test]
+    fn a_full_store_gives_way_to_new_installs_over_new_friends() {
+        let mut s = Store::memory();
+        s.max_installs = 3;
+        s.register(&k(1), "clique", vec![k(2)], 500);
+        s.register(&k(2), "clique", vec![k(1)], 600);
+        s.register(&k(3), "old", vec![k(4)], 0);
+        s.establish(&k(3));
+        assert!(s.register_with(&k(5), "friendless goes first", vec![], 700, &|_| false));
+        assert!(s.get(&k(3)).is_none(), "k3's friend isn't stored: friendless");
+        assert!(s.register_with(&k(6), "x", vec![], 800, &|key| key == k(5)));
+        assert!(s.get(&k(1)).is_none(), "the stalest new friend went");
+        assert!(s.get(&k(2)).is_some());
+    }
+
+    #[test]
+    fn days_seen_count_distinct_days() {
+        let mut s = Store::memory();
+        s.register(&k(1), "a", vec![], 1000);
+        assert_eq!(s.get(&k(1)).unwrap().seen_days, 1);
+        s.touch(&k(1), 2000);
+        assert_eq!(s.get(&k(1)).unwrap().seen_days, 1, "same day");
+        s.touch(&k(1), DAY_SECS + 5);
+        assert_eq!(s.get(&k(1)).unwrap().seen_days, 2);
+    }
+
+    #[test]
+    fn older_data_files_still_load() {
+        let dir = tmpdir("old");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = format!(r#"{{"installs":{{"{}":{{"id":"a","code":"ABCD-1234","code_at":5,"last_seen":7}}}}}}"#, k(1));
+        std::fs::write(dir.join(DATA_FILE), file).unwrap();
+        let s = Store::open(&dir).unwrap();
+        assert_eq!(s.get(&k(1)).unwrap().seen_days, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_full_store_evicts_the_stalest_friendless_install_first() {
         let mut s = Store::memory();
         s.max_installs = 3;
@@ -539,6 +626,7 @@ mod tests {
         s.register(&k(2), "newer", vec![], 1000);
         s.register(&k(3), "redeemer", vec![], 0);
         s.mark_active(&k(3));
+        s.establish(&k(3));
         assert!(s.register_with(&k(4), "d", vec![], 2000, &|_| false));
         assert!(s.get(&k(1)).is_none(), "least recently seen friendless install evicted");
         assert!(s.get(&k(4)).is_some());
@@ -552,6 +640,8 @@ mod tests {
         s.max_installs = 3;
         s.register(&k(2), "b", vec![k(3)], 0);
         s.register(&k(3), "c", vec![k(2)], 0);
+        s.establish(&k(2));
+        s.establish(&k(3));
         // Self-declared friend that does not list it back: no protection.
         s.register(&k(1), "a", vec![k(9)], 500);
         assert!(s.register_with(&k(4), "d", vec![], 1000, &|_| false));

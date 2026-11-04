@@ -24,7 +24,33 @@ fn usage() -> ! {
     std::process::exit(2);
 }
 
+/// SIGTERM and SIGINT, blocked in every thread and collected by `wait`: no
+/// signal handler to get wrong, and shutting down is ordinary code.
+#[cfg(unix)]
+mod signals {
+    pub fn block() -> libc::sigset_t {
+        // SAFETY: the set is initialized by sigemptyset before use.
+        unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::sigaddset(&mut set, libc::SIGTERM);
+            libc::sigaddset(&mut set, libc::SIGINT);
+            libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+            set
+        }
+    }
+
+    pub fn wait(set: &libc::sigset_t) {
+        let mut sig = 0;
+        // SAFETY: both pointers are valid for the call.
+        unsafe { libc::sigwait(set, &mut sig) };
+    }
+}
+
 fn main() {
+    // Before any thread starts, so all of them inherit the mask.
+    #[cfg(unix)]
+    let stop_signals = signals::block();
     let mut bind: SocketAddr = std::env::var("SCREENPET_RELAY_BIND")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -58,6 +84,14 @@ fn main() {
                 data.display(),
                 screenpet_relay::proto::to_hex(&relay.public_key())
             );
+            // Dropping the relay tells clients, ends the threads and saves.
+            #[cfg(unix)]
+            {
+                signals::wait(&stop_signals);
+                eprintln!("screenpet-relay: stopping");
+                drop(relay);
+            }
+            #[cfg(not(unix))]
             relay.wait();
         }
         Err(e) => {

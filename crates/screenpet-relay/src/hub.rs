@@ -149,6 +149,11 @@ struct State {
     /// Per "target-key code": recent distinct requesters (cap per code, so
     /// a new code starts fresh and one requester retrying counts once).
     target_redeems: HashMap<String, VecDeque<(Instant, String)>>,
+    /// New codes in `target_redeems` per network: one network can't fill that
+    /// fail-closed table and so block pairing for everyone.
+    net_new_codes: HashMap<String, VecDeque<Instant>>,
+    /// New installs per network (IPv4 /24, IPv6 /48) in the last day.
+    net_registrations: HashMap<String, VecDeque<Instant>>,
     /// Well-formed redeems per source address (fair share of the global budget).
     ip_wellformed: HashMap<String, VecDeque<Instant>>,
     /// Whole relay: new installs in the last hour, redeems in the last minute.
@@ -330,6 +335,7 @@ fn network_bucket(ip: &str) -> String {
 
 const HOUR: Duration = Duration::from_secs(3600);
 const MINUTE: Duration = Duration::from_secs(60);
+const DAY: Duration = Duration::from_secs(24 * 3600);
 
 pub struct Hub {
     pub limits: Limits,
@@ -491,6 +497,7 @@ impl Hub {
             // Each network gets its own budget; the global ceiling is a
             // looser backstop.
             if !allow(&mut st.ip_registrations, &network_bucket(ip), self.limits.registrations_per_ip_per_hour, HOUR, MAX_RATE_KEYS)
+                || !allow(&mut st.net_registrations, &share_bucket(ip), self.limits.registrations_per_network_per_day, DAY, MAX_RATE_KEYS)
                 || !allow_window(&mut st.global_registrations, self.limits.registrations_per_hour, HOUR)
             {
                 return Err("busy");
@@ -608,7 +615,13 @@ impl Hub {
         // A code that keeps being redeemed is being guessed or spread: cap
         // distinct requesters per code (a new code starts fresh; a requester
         // retrying counts once).
-        if !allow_distinct(&mut st.target_redeems, &format!("{target} {norm}"), key, self.limits.redeems_per_target_per_hour, HOUR, MAX_RATE_KEYS) {
+        let per_code = format!("{target} {norm}");
+        if !st.target_redeems.contains_key(&per_code)
+            && !allow(&mut st.net_new_codes, &share_bucket(ip), self.limits.new_codes_per_network_per_hour, HOUR, MAX_RATE_KEYS)
+        {
+            return fail("rate");
+        }
+        if !allow_distinct(&mut st.target_redeems, &per_code, key, self.limits.redeems_per_target_per_hour, HOUR, MAX_RATE_KEYS) {
             return fail("unknown");
         }
         st.store().mark_active(key);
@@ -755,25 +768,40 @@ impl Hub {
         rotated.then_some(ServerMsg::Code { code, code_ttl })
     }
 
-    /// Periodic housekeeping: expire grants, prune and save the store.
-    /// The snapshot is taken under the lock; serializing and writing happen
-    /// outside it so connections are never blocked on the disk.
+    /// Periodic housekeeping of what's only in memory: grants, rate tables.
     pub(crate) fn maintain(&self) {
-        let snapshot = {
-            let mut st = self.state();
-            let now = Instant::now();
-            st.grants.retain(|g| g.until > now);
-            prune_table(&mut st.ip_redeems, MINUTE);
-            expire(&mut st.global_redeems, MINUTE);
-            prune_table(&mut st.ip_registrations, HOUR);
-            expire(&mut st.global_registrations, HOUR);
-            prune_table(&mut st.target_redeems, HOUR);
-            prune_table(&mut st.ip_wellformed, MINUTE);
-            let st = &mut *st;
-            let peers = &st.peers;
-            st.store.as_mut().expect("store present").prune_with(unix_now(), &|k| peers.contains_key(k));
-            st.store().snapshot()
-        };
+        let mut st = self.state();
+        let now = Instant::now();
+        st.grants.retain(|g| g.until > now);
+        prune_table(&mut st.ip_redeems, MINUTE);
+        expire(&mut st.global_redeems, MINUTE);
+        prune_table(&mut st.ip_registrations, HOUR);
+        prune_table(&mut st.net_registrations, DAY);
+        expire(&mut st.global_registrations, HOUR);
+        prune_table(&mut st.target_redeems, HOUR);
+        prune_table(&mut st.net_new_codes, HOUR);
+        prune_table(&mut st.ip_wellformed, MINUTE);
+    }
+
+    /// Forget stale installs. Online ones are noted as seen first, so what's
+    /// on disk stays fresh enough that a restart doesn't make them look gone.
+    pub(crate) fn prune_store(&self) {
+        let now = unix_now();
+        let mut guard = self.state();
+        let st = &mut *guard;
+        let store = st.store.as_mut().expect("store present");
+        for key in st.peers.keys() {
+            store.touch(key, now);
+        }
+        let peers = &st.peers;
+        store.prune_with(now, &|k| peers.contains_key(k));
+    }
+
+    /// Write the store if it changed. The snapshot is taken under the lock;
+    /// serializing and writing happen outside it so connections are never
+    /// blocked on the disk.
+    pub(crate) fn save(&self) {
+        let snapshot = self.state().store().snapshot();
         if let Some(snap) = snapshot {
             if let Err(e) = crate::store::write_snapshot(&snap) {
                 eprintln!("screenpet-relay: cannot save data: {e}");
@@ -857,6 +885,16 @@ mod tests {
         old.out.try_send(Out::Text("filler".into())).unwrap();
         let (_, _, _new, _rx2) = peer(&h, 1, &[], 8);
         assert_eq!(old.kill.get(), Some(&"replaced"), "it could not be told through the queue");
+    }
+
+    #[test]
+    fn online_installs_are_kept_fresh_for_after_a_restart() {
+        let h = hub(Limits::default());
+        let (key, _, _, _rx) = peer(&h, 1, &[], 8);
+        let long_ago = unix_now() - 2 * 24 * 3600;
+        h.state().store().touch_at_for_test(&key, long_ago);
+        h.prune_store();
+        assert!(h.state().store_ref().get(&key).unwrap().last_seen > long_ago);
     }
 
     #[test]

@@ -89,6 +89,15 @@ pub struct Limits {
     pub max_total_outbox_bytes: usize,
     /// New installs per hour per network (IPv4 /24, IPv6 /64).
     pub registrations_per_ip_per_hour: usize,
+    /// New installs per day per wider network (IPv4 /24, IPv6 /48).
+    pub registrations_per_network_per_day: usize,
+    /// Different friend codes redeemed per hour per network (IPv4 /24, IPv6 /48).
+    pub new_codes_per_network_per_hour: usize,
+    /// Write changed data this often (and at shutdown).
+    pub save_every: Duration,
+    /// Forget stale installs this often; the first pass is this long after
+    /// start, once clients that were online have had time to come back.
+    pub prune_every: Duration,
 }
 
 impl Default for Limits {
@@ -126,6 +135,10 @@ impl Default for Limits {
             max_outbox_bytes: 2 * 1024 * 1024,
             max_total_outbox_bytes: 256 * 1024 * 1024,
             registrations_per_ip_per_hour: 30,
+            registrations_per_network_per_day: 100,
+            new_codes_per_network_per_hour: 64,
+            save_every: Duration::from_secs(30),
+            prune_every: Duration::from_secs(600),
         }
     }
 }
@@ -156,7 +169,7 @@ impl RelayConfig {
 pub struct Relay {
     hub: Arc<Hub>,
     addr: SocketAddr,
-    accept: Option<JoinHandle<()>>,
+    threads: Vec<JoinHandle<()>>,
 }
 
 impl Relay {
@@ -171,7 +184,9 @@ impl Relay {
         let hub = Arc::new(Hub::new(cfg.limits, cfg.trusted_proxies, key, store));
         let h = hub.clone();
         let accept = std::thread::Builder::new().name("relay-accept".into()).spawn(move || accept_loop(h, listener))?;
-        Ok(Relay { hub, addr, accept: Some(accept) })
+        let h = hub.clone();
+        let upkeep = std::thread::Builder::new().name("relay-upkeep".into()).spawn(move || upkeep_loop(h))?;
+        Ok(Relay { hub, addr, threads: vec![accept, upkeep] })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -187,9 +202,9 @@ impl Relay {
         self.hub.online_count()
     }
 
-    /// Block until the process is killed (the binary's main loop).
+    /// Block until the process is killed.
     pub fn wait(mut self) {
-        if let Some(t) = self.accept.take() {
+        for t in self.threads.drain(..) {
             let _ = t.join();
         }
     }
@@ -198,16 +213,15 @@ impl Relay {
 impl Drop for Relay {
     fn drop(&mut self) {
         self.hub.stop();
-        if let Some(t) = self.accept.take() {
+        for t in self.threads.drain(..) {
             let _ = t.join();
         }
         self.hub.join_all();
-        self.hub.maintain();
+        self.hub.save();
     }
 }
 
 fn accept_loop(hub: Arc<Hub>, listener: TcpListener) {
-    let mut last_maintain = Instant::now();
     while !hub.stopping() {
         match listener.accept() {
             Ok((stream, _)) => {
@@ -218,9 +232,26 @@ fn accept_loop(hub: Arc<Hub>, listener: TcpListener) {
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(20)),
             Err(_) => std::thread::sleep(Duration::from_millis(100)),
         }
-        if last_maintain.elapsed() >= Duration::from_secs(2) {
-            last_maintain = Instant::now();
+    }
+}
+
+/// Timed work, on its own thread so a slow disk never holds up `accept`.
+fn upkeep_loop(hub: Arc<Hub>) {
+    const MAINTAIN_EVERY: Duration = Duration::from_secs(60);
+    let (mut maintained, mut pruned, mut saved) = (Instant::now(), Instant::now(), Instant::now());
+    while !hub.stopping() {
+        std::thread::sleep(Duration::from_millis(50));
+        if maintained.elapsed() >= MAINTAIN_EVERY {
+            maintained = Instant::now();
             hub.maintain();
+        }
+        if pruned.elapsed() >= hub.limits.prune_every {
+            pruned = Instant::now();
+            hub.prune_store();
+        }
+        if saved.elapsed() >= hub.limits.save_every {
+            saved = Instant::now();
+            hub.save();
         }
     }
 }

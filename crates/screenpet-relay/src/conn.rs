@@ -24,6 +24,11 @@ const ACTIVE_FOR: Duration = Duration::from_secs(2);
 const REDEEMS_PER_CONN_PER_MIN: usize = 10;
 /// Most "new code" requests per connection.
 const NEW_CODES_PER_CONN: usize = 5;
+/// `friends` updates per connection: the apps send one when the list changes
+/// and they rewrite stored data. Past this a client is disconnected: its next
+/// `auth` carries its list, so nothing is lost.
+const FRIENDS_PER_SEC: f64 = 0.5;
+const FRIENDS_BURST: f64 = 30.0;
 
 struct Authed {
     key: String,
@@ -66,6 +71,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
     let mut bytes = Bucket::new(lim.conn_bytes_per_sec, lim.conn_bytes_burst);
     let mut redeems: std::collections::VecDeque<Instant> = Default::default();
     let mut new_codes = 0usize;
+    let mut friend_updates = Bucket::new(FRIENDS_PER_SEC, FRIENDS_BURST);
     'conn: loop {
         let ending = if hub.stopping() { Some("shutdown") } else { link.kill.get().copied() };
         if let Some(reason) = ending {
@@ -172,7 +178,13 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                         }
                         (Some(a), cm) => {
                             let reply = match cm {
-                                ClientMsg::Friends { keys } => hub.set_friends(&a.key, a.conn, &keys),
+                                ClientMsg::Friends { keys } => {
+                                    if !friend_updates.take(1.0) {
+                                        refuse(&mut ws, "rate");
+                                        break;
+                                    }
+                                    hub.set_friends(&a.key, a.conn, &keys)
+                                }
                                 ClientMsg::Redeem { code } => {
                                     let now = Instant::now();
                                     while redeems.front().is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(60)) {
