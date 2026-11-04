@@ -212,7 +212,8 @@ pub enum NetEvent {
     CodeRedeemed { code: String, id: String },
     /// A code could not be used. `reason`: `invalid` (not a code), `unknown`
     /// (no such code), `offline` (relay or owner not connected), `self`,
-    /// `already_friend`, `busy`, `rate`, `timeout`, `full` (we have `MAX_FRIENDS`).
+    /// `already_friend`, `busy`, `rate`, `timeout`, `full` (we have `MAX_FRIENDS`),
+    /// `disabled` (the relay has friend codes switched off).
     CodeFailed { code: String, reason: String },
 }
 

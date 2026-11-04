@@ -229,7 +229,7 @@ pub struct PairView {
     pub sas: Vec<String>,
     /// 상대가 이미 "똑같아요"를 눌렀음
     pub other_ok: bool,
-    /// 실패 이유: "unreachable" | "declined" | "timeout" | "busy" | 친구 코드: "badcode" | "offline" | "selfcode" | "already"
+    /// 실패 이유: "unreachable" | "declined" | "timeout" | "busy" | 친구 코드: "badcode" | "offline" | "selfcode" | "already" | "disabled"
     pub reason: &'static str,
 }
 
@@ -370,6 +370,7 @@ fn code_failure(reason: &str) -> &'static str {
         "already_friend" => "already",
         "busy" => "busy",
         "full" => "full",
+        "disabled" => "disabled",
         _ => "unreachable",
     }
 }
@@ -1042,7 +1043,8 @@ impl Network {
                 self.update_code_view(app);
             }
             NetEvent::FriendCode { code } => {
-                self.friend_code = Some(code);
+                // 릴레이가 친구 코드를 꺼 두면 "----"가 온다: 코드가 없는 것으로 둔다
+                self.friend_code = Some(code).filter(|c| c.chars().any(char::is_alphanumeric));
                 self.update_code_view(app);
             }
             NetEvent::CodeRedeemed { id, .. } => {

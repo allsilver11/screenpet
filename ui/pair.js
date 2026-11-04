@@ -27,6 +27,7 @@ const FAILED = {
   selfcode: "내 친구 코드예요",
   already: "이미 친구예요",
   full: "친구가 너무 많아요 (최대 50명)",
+  disabled: "지금은 친구 코드를 쓸 수 없어요",
 };
 
 function show(v) {
