@@ -4,6 +4,7 @@
 //! - 바닥 밑으로 쏙: 가장 아래 바닥(작업표시줄 위)에서 폴짝 뛰었다가 "whee!" 하고 바닥을 뚫고 아래로 빠진다. 나는 동물은 아래로 날아 나간다.
 //! - 던지기: 위 끝으로 세게 던지거나 아래로 던져 바닥에 닿으면 듀얼 모니터처럼 넘어간다 (Fling.height = 폭 비율 0 왼쪽 … 1 오른쪽).
 //!   끝은 그 줄의 끝이다 (visit::column_bounds): 모니터마다 작업표시줄이나 크기가 달라도 위아래에 다른 모니터가 없으면 넘어간다.
+//!   아래로 던진 것은 창 윗면에 내려앉지 않고 바닥까지 간다 (아래 친구가 있을 때만).
 //! - 들어오기: 위에서 오면(위 끝으로 들어옴) 위에서 떨어져 내려서고, 아래에서 오면 바닥 밑에서 "boing!" 튀어 올라 내려선다.
 //!   나는 동물은 위/아래에서 날아 들어온다.
 //!
@@ -247,6 +248,11 @@ impl Pet {
         self.vanish(side);
         self.fling = fling;
         true
+    }
+
+    /// 아래로 던졌고 그 끝으로 넘어갈 수 있다 (바닥까지 창 윗면에 내려앉지 않는다)
+    pub(super) fn thrown_to_friend_below(&mut self) -> bool {
+        self.thrown && self.thrown_down && self.home_trip.is_none() && self.inside.is_none() && self.exit_odds(Side::Down) > 0.0
     }
 
     /// 다른 화면에서 위/아래로 던져져 들어온다 (enter_flung이 부른다): 그 끝의 폭 비율 자리에서, 가로 속도를 이어 받고

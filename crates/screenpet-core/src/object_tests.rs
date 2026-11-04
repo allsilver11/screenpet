@@ -960,3 +960,17 @@ fn it_crosses_at_the_floor_under_it_not_the_longest_monitors() {
     assert!(o.is_asleep());
     assert_eq!(o.body.y, -40.0);
 }
+
+#[test]
+fn thrown_down_it_falls_past_window_tops_to_the_friend_below() {
+    let w = world();
+    let down = ExitEdges { down: true, ..NONE };
+    let mut o = Object::new(ObjectKind::Can, 800.0, 200.0, 1.0, 1);
+    fling(&mut o, &w, (800.0, 180.0), (0.0, 1000.0));
+    assert_eq!(crossed(&mut o, &w, down), Some(Side::Down));
+    // 아래 친구가 없으면 창 위에 앉는다
+    let mut o = Object::new(ObjectKind::Can, 800.0, 200.0, 1.0, 1);
+    fling(&mut o, &w, (800.0, 180.0), (0.0, 1000.0));
+    assert_eq!(crossed(&mut o, &w, NONE), None);
+    assert!(o.is_asleep() && o.body.y == 400.0, "{:?}", o.body);
+}

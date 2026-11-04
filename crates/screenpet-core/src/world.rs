@@ -141,6 +141,17 @@ impl World {
             .filter(|s| !matches!(s.owner, Owner::Inside(_)) && s.contains_x(x) && prev_y <= s.y && new_y >= s.y)
             .min_by(|a, b| a.y.total_cmp(&b.y))
     }
+
+    /// landing과 같되 바닥만 디딘다 (아래 친구에게 던진 것은 창 윗면에 내려앉지 않고 지나간다)
+    pub fn ground_landing(&self, x: f64, prev_y: f64, new_y: f64) -> Option<&Surface> {
+        if new_y <= prev_y {
+            return None;
+        }
+        self.surfaces
+            .iter()
+            .filter(|s| matches!(s.owner, Owner::Ground(_)) && s.contains_x(x) && prev_y <= s.y && new_y >= s.y)
+            .min_by(|a, b| a.y.total_cmp(&b.y))
+    }
 }
 
 #[cfg(test)]

@@ -487,7 +487,9 @@ impl Object {
             self.spin *= -tumble::WALL_SPIN_KEEP;
         }
         self.angle += self.spin * dt;
-        let landing = world.landing(self.body.x, prev_y, self.body.y).copied().or_else(|| {
+        // 아래 친구에게 던졌으면 창 윗면을 지나 바닥까지 간다
+        let first = if self.thrown && self.thrown_down && edges.down { world.ground_landing(self.body.x, prev_y, self.body.y) } else { world.landing(self.body.x, prev_y, self.body.y) };
+        let landing = first.copied().or_else(|| {
             // 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 Ground를 바닥으로 취급
             if self.body.vy >= 0.0 {
                 world.ground_below(self.body.x, self.body.y).copied()

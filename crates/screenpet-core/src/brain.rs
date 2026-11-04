@@ -2450,7 +2450,9 @@ impl Pet {
 
     /// 낙하·미끄러짐 공통: 이번 틱에 지나친 디딤판에 내려서거나, 화면 밖으로 사라졌으면 위에서 다시 떨어뜨린다
     fn land_or_recover(&mut self, prev_y: f64, world: &World) {
-        let landing = world.landing(self.body.x, prev_y, self.body.y).copied().or_else(|| {
+        // 아래 친구에게 던졌으면 창 윗면을 지나 바닥까지 간다 (brain_vert.rs)
+        let first = if self.thrown_to_friend_below() { world.ground_landing(self.body.x, prev_y, self.body.y) } else { world.landing(self.body.x, prev_y, self.body.y) };
+        let landing = first.copied().or_else(|| {
             // 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 Ground를 바닥으로 취급
             if self.body.vy >= 0.0 { world.ground_below(self.body.x, self.body.y).copied() } else { None }
         });
@@ -2772,7 +2774,8 @@ impl Pet {
     /// 매 틱 (주 동작 전): 놓인 자리 판정, 창이 사라지면 밖으로, 선 자리가 가려졌거나 집에 가야 하면 뛰어나가기,
     /// 머문 시간이 다 되면 나가기 (벽 타는 동물은 절반은 안쪽 벽으로 걸어가 기어오른다)
     fn update_inside(&mut self, dt: f64, world: &World) {
-        if std::mem::take(&mut self.drop_check) && matches!(self.state, State::Air { .. }) && self.home_trip.is_none() {
+        // 아래 친구에게 던졌으면 창 안에 놓인 게 아니다
+        if std::mem::take(&mut self.drop_check) && matches!(self.state, State::Air { .. }) && self.home_trip.is_none() && !self.thrown_to_friend_below() {
             let target = inside::drop_target(world, self.body.x, self.body.y, self.cfg.half_w, self.cfg.size);
             self.inside = target.map(|id| Stay::new(id, Mode::In, &mut self.rng));
         }

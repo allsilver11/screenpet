@@ -615,3 +615,97 @@ fn thrown_flyers_cross_down_by_aim_though_drag_slows_them() {
     b.set_vertical_edges(false, true);
     assert_eq!(exit_within(&mut b, &dual, 120).0, Some(Side::Down));
 }
+
+// ---- 시뮬레이션: Windows, 작업표시줄이 아래 (작업 영역 아래 끝 = 작업표시줄 위) ----
+
+/// 단일 / 듀얼 (모든 화면에 작업표시줄, 주 모니터에만, 크기가 다른 모니터, 왼쪽에 놓인 보조 모니터 — 음수 좌표)
+fn windows_bottom_taskbar_setups() -> Vec<(&'static str, World, f64)> {
+    let w = |areas: Vec<Rect>| World::new(vec![], areas, 128.0);
+    vec![
+        ("single", w(vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)]), 500.0),
+        ("dual, taskbar on both", w(vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1040.0)]), 500.0),
+        ("dual, taskbar on the primary only", w(vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1080.0)]), 500.0),
+        ("dual, the bare secondary", w(vec![Rect::new(1920.0, 0.0, 3840.0, 1080.0), Rect::new(0.0, 0.0, 1920.0, 1040.0)]), 2500.0),
+        ("dual, larger secondary", w(vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, -200.0, 4480.0, 1240.0)]), 500.0),
+        ("dual, secondary to the left", w(vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(-1920.0, 0.0, 0.0, 1080.0)]), 500.0),
+    ]
+}
+
+#[test]
+fn windows_bottom_taskbar_ground_surface_is_the_work_area_bottom() {
+    for (name, w, x) in windows_bottom_taskbar_setups() {
+        let wa = w.work_areas[0];
+        let ground = w.surfaces.iter().find(|s| s.owner == Owner::Ground(0)).unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(ground.y, wa.bottom, "{name}");
+        assert_eq!(crate::visit::column_bounds(&w, x).map(|c| c.bottom), Some(wa.bottom), "{name}");
+    }
+}
+
+/// 진짜 틱 순서: 놓은 뒤 매 틱 update — 넘어가는 틱까지 한 번도 바닥에 내려서지 않는다. 틱 길이와 놓는 높이를 바꿔 가며 (틱이 바닥을 지나는 자리가 다 다르게)
+#[test]
+fn windows_bottom_taskbar_downward_throw_crosses_before_any_landing_tick_by_tick() {
+    for (name, w, x) in windows_bottom_taskbar_setups() {
+        let floor = w.work_area_at(x, 900.0).bottom;
+        for dt in [1.0 / 30.0, 1.0 / 60.0, 1.0 / 144.0] {
+            for k in 0..40 {
+                let feet = floor - 150.0 - 0.37 * k as f64;
+                let mut p = Pet::new(cfg(), x, 0.0, 1);
+                p.set_vertical_edges(false, true);
+                throw_by_hand(&mut p, &w, Owner::Ground(0), x, feet, (0.0, 1000.0));
+                let mut crossed = false;
+                for _ in 0..300 {
+                    p.update(dt, &w);
+                    assert!(p.standing.is_none() && !matches!(p.state, State::Land { .. }), "{name} dt {dt} k {k}: landed first {:?}", p.body);
+                    if p.take_exit() == Some(Side::Down) {
+                        crossed = true;
+                        break;
+                    }
+                }
+                assert!(crossed, "{name} dt {dt} k {k}: {:?}", p.body);
+                let f = p.take_fling().expect("fling carried");
+                assert!(f.vy > 0.0, "{name}");
+            }
+        }
+    }
+}
+
+#[test]
+fn windows_bottom_taskbar_release_over_the_taskbar_and_tosses_on_every_setup() {
+    for (name, w, x) in windows_bottom_taskbar_setups() {
+        let floor = w.work_area_at(x, 900.0).bottom;
+        let throw = |feet: f64, v: (f64, f64)| {
+            let mut p = Pet::new(cfg(), x, 0.0, 1);
+            p.set_vertical_edges(false, true);
+            throw_by_hand(&mut p, &w, Owner::Ground(0), x, feet, v);
+            outcome(&mut p, &w)
+        };
+        // 커서가 작업표시줄 위까지 가서 놓았다 (발은 이미 바닥 아래)
+        assert_eq!(throw(floor + 30.0, (0.0, 1000.0)), Some(Side::Down), "{name}");
+        // 그냥 놓거나 옆으로 던지면 내려선다
+        assert_eq!(throw(floor - 150.0, (0.0, 0.0)), None, "{name}");
+        assert_eq!(throw(floor - 150.0, (1200.0, 0.0)), None, "{name}");
+    }
+}
+
+#[test]
+fn thrown_down_from_a_window_it_falls_past_window_tops_to_the_friend_below() {
+    let win = WindowInfo { id: 1, rect: Rect::new(500.0, 400.0, 1100.0, 900.0) };
+    let low = WindowInfo { id: 2, rect: Rect::new(600.0, 950.0, 1000.0, 1040.0) };
+    let w = World::new(vec![win, low], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    let throw = |feet: f64, v: (f64, f64), below: bool| {
+        let mut p = Pet::new(cfg(), 800.0, 0.0, 1);
+        p.set_vertical_edges(false, below);
+        throw_by_hand(&mut p, &w, Owner::Window(1), 800.0, feet, v);
+        let out = outcome(&mut p, &w);
+        (out, p.standing.map(|s| s.owner))
+    };
+    // 창 위에 서 있다가, 윗면보다 위에서 놓아도 / 윗면을 지나서 놓아도 아래 친구에게로 (창 윗면들에 내려앉지 않는다)
+    assert_eq!(throw(300.0, (0.0, 1000.0), true).0, Some(Side::Down));
+    assert_eq!(throw(600.0, (0.0, 1000.0), true).0, Some(Side::Down));
+    // 아래 친구가 없으면 창 윗면에 내려앉는다
+    assert_eq!(throw(300.0, (0.0, 1000.0), false), (None, Some(Owner::Window(1))));
+    // 옆으로 던지거나 살살 놓으면 친구가 있어도 창 윗면에
+    assert_eq!(throw(300.0, (0.0, 200.0), true), (None, Some(Owner::Window(1))));
+    assert_eq!(throw(300.0, (0.0, 0.0), true), (None, Some(Owner::Window(1))));
+    assert_eq!(throw(250.0, (300.0, -800.0), true), (None, Some(Owner::Window(1))));
+}
