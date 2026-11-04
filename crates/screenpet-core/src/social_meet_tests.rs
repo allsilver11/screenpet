@@ -223,6 +223,15 @@ fn they_only_meet_walking_at_each_other_on_the_same_stretch() {
     }
 }
 
+/// 바쁜 일은 그대로 둔 채, 겉모습만 x에서 왼쪽으로 걷는 동물로 돌려놓는다 (만날 수 있는 자리·자세)
+fn back_to_walking_at(p: &mut Pet, x: f64, w: &World) {
+    let (ax, _) = w.anchor(Owner::Ground(0)).unwrap();
+    p.standing = Some(crate::brain::Standing { owner: Owner::Ground(0), rel_x: x - ax });
+    p.body.x = x;
+    p.state = State::Move { kind: Move::Walk, remaining: 60.0 };
+    p.facing = -1.0;
+}
+
 #[test]
 fn control_food_home_focus_and_homesick_pets_do_not_take_part() {
     let w = floor();
@@ -236,11 +245,7 @@ fn control_food_home_focus_and_homesick_pets_do_not_take_part() {
     ];
     // 비교: 아무 일 없는 짝은 같은 자리·같은 순서로 만난다
     let mut pets = head_on_pair(&w, 200.0, 3);
-    pets[1].update(1.0, &w);
-    pets[1].state = State::Move { kind: Move::Walk, remaining: 60.0 };
-    pets[1].facing = -1.0;
-    pets[1].body.x = 1000.0;
-    pets[1].update(DT, &w);
+    back_to_walking_at(&mut pets[1], 1000.0, &w);
     let mut s = always(None, 3);
     s.tick(DT, &mut pets);
     assert!(pets.iter().any(|p| phase(p).is_some()), "the control pair meets");
@@ -248,15 +253,12 @@ fn control_food_home_focus_and_homesick_pets_do_not_take_part() {
         let mut pets = head_on_pair(&w, 200.0, 3);
         setup(&mut pets[1]);
         // 손님의 집 생각은 시간이 지나야 든다
-        pets[1].update(1.0, &w);
-        // 여전히 바쁜 채로 다시 걷는 자세로 돌려놓고 걷는 조각을 새로 안다 (자세만 보면 만날 수 있는 모습)
-        pets[1].state = State::Move { kind: Move::Walk, remaining: 60.0 };
-        pets[1].facing = -1.0;
-        pets[1].body.x = 1000.0;
-        pets[1].update(DT, &w);
-        pets[1].state = State::Move { kind: Move::Walk, remaining: 60.0 };
-        pets[1].facing = -1.0;
-        assert!(pets[1].walks_on_surface(), "{name}");
+        if name == "homesick" {
+            pets[1].update(1.0, &w);
+        }
+        // 여전히 바쁜 채로 다시 걷는 자세로 돌려놓는다 (틱을 돌리면 걷는 조각을 잊어 바쁜 판정까지 가지 못한다)
+        back_to_walking_at(&mut pets[1], 1000.0, &w);
+        assert!(pets[1].walks_on_surface() && pets[1].walk_span().is_some(), "{name}");
         let mut s = always(None, 3);
         s.tick(DT, &mut pets);
         assert!(pets.iter().all(|p| phase(p).is_none()), "{name}");
