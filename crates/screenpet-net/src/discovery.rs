@@ -11,7 +11,7 @@ use crate::peers::DialOutcome;
 use crate::protocol::Announce;
 use crate::transport::{self, Candidate};
 use crate::{Backoff, NetEvent, Seen, Shared, State, MAX_UNVERIFIED_DIALS_PER_MIN, TICK};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
@@ -47,7 +47,7 @@ pub(crate) fn run(shared: Arc<Shared>, udp: UdpSocket, broadcast_to: SocketAddr)
         }
         match udp.recv_from(&mut buf) {
             Ok((n, src)) => {
-                if let Some(a) = Announce::parse(&buf[..n]) {
+                if let Some(a) = Announce::parse(&buf[..n]).filter(|_| local_source(src.ip())) {
                     let admitted = admit_announcement(&mut shared.state(), &a.id, src.ip(), Instant::now());
                     if admitted {
                         heard(&shared, a, src);
@@ -60,6 +60,16 @@ pub(crate) fn run(shared: Arc<Shared>, udp: UdpSocket, broadcast_to: SocketAddr)
         }
         expire(&shared);
         crate::peers::flush_gone(&shared);
+    }
+}
+
+/// May this source announce at all? Discovery is for one local network: a
+/// datagram from elsewhere (a forwarded port) must not become a dial target.
+pub(crate) fn local_source(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
+        // ::1, fc00::/7 (unique local), fe80::/10 (link local)
+        IpAddr::V6(v6) => v6.is_loopback() || v6.segments()[0] & 0xfe00 == 0xfc00 || v6.segments()[0] & 0xffc0 == 0xfe80,
     }
 }
 
@@ -130,7 +140,7 @@ fn heard(shared: &Arc<Shared>, a: Announce, src: SocketAddr) {
         candidates: HashMap::new(),
         verified: None,
         tried: HashMap::new(),
-        unverified_dials: VecDeque::new(),
+        unverified_dials: HashMap::new(),
         last: now,
     });
     seen.last = now;
@@ -241,18 +251,31 @@ pub(crate) fn pick_candidate(st: &State, id: &str) -> Option<Candidate> {
 }
 
 /// Record a dial to `cand` for round-robin. Dials to non-verified candidates
-/// are capped per id per minute when `capped`; returns `false` if over the cap.
+/// are capped per id, per announcing source, per minute when `capped` (a source
+/// spoofing a friend's id spends only its own budget); returns `false` if over
+/// the cap. Either way the candidate has had its turn, so the next one comes up.
 pub(crate) fn note_dial(st: &mut State, id: &str, cand: Candidate, now: Instant, capped: bool) -> bool {
     let Some(seen) = st.seen.get_mut(id) else { return true };
-    let verified = seen.verified.is_some_and(|(c, _)| c == cand);
-    if !verified {
-        seen.unverified_dials.retain(|t| now.duration_since(*t) < DIAL_WINDOW);
-        if capped && seen.unverified_dials.len() >= MAX_UNVERIFIED_DIALS_PER_MIN {
-            return false;
-        }
-        seen.unverified_dials.push_back(now);
-    }
     seen.tried.insert(cand, now);
+    if seen.verified.is_some_and(|(c, _)| c == cand) {
+        return true;
+    }
+    let Some(&(_, source)) = seen.candidates.get(&cand) else { return true };
+    seen.unverified_dials.retain(|_, dials| {
+        dials.retain(|t| now.duration_since(*t) < DIAL_WINDOW);
+        !dials.is_empty()
+    });
+    if seen.unverified_dials.len() >= MAX_TRACKED && !seen.unverified_dials.contains_key(&source) {
+        let oldest = seen.unverified_dials.iter().min_by_key(|(_, d)| d.back().copied()).map(|(s, _)| *s);
+        if let Some(o) = oldest {
+            seen.unverified_dials.remove(&o);
+        }
+    }
+    let dials = seen.unverified_dials.entry(source).or_default();
+    if capped && dials.len() >= MAX_UNVERIFIED_DIALS_PER_MIN {
+        return false;
+    }
+    dials.push_back(now);
     true
 }
 
@@ -325,6 +348,72 @@ mod tests {
     }
 
     #[test]
+    fn only_addresses_on_a_local_network_may_announce() {
+        for good in ["10.1.2.3", "172.16.0.9", "172.31.255.1", "192.168.1.5", "169.254.10.10", "127.0.0.1"] {
+            assert!(local_source(good.parse().unwrap()), "{good}");
+        }
+        for bad in ["8.8.8.8", "172.32.0.1", "192.169.0.1", "100.64.0.1", "0.0.0.0", "255.255.255.255", "224.0.0.1"] {
+            assert!(!local_source(bad.parse().unwrap()), "{bad}");
+        }
+        for v6 in ["::1", "fe80::1", "fd00::1"] {
+            assert!(local_source(v6.parse().unwrap()), "{v6}");
+        }
+        assert!(!local_source("2001:4860:4860::8888".parse().unwrap()));
+    }
+
+    /// One id with candidates announced from different sources (nothing verified).
+    fn two_sources() -> State {
+        let now = Instant::now();
+        let mut st = State::default();
+        let mut seen = Seen {
+            candidates: HashMap::new(),
+            verified: None,
+            tried: HashMap::new(),
+            unverified_dials: HashMap::new(),
+            last: now,
+        };
+        seen.candidates.insert(lan(1), (now, ip(1)));
+        seen.candidates.insert(lan(2), (now, ip(2)));
+        st.seen.insert("x".into(), seen);
+        st
+    }
+
+    #[test]
+    fn a_source_burning_its_dial_budget_does_not_spend_anothers() {
+        let mut st = two_sources();
+        let now = Instant::now();
+        let allowed = (0..100).filter(|_| note_dial(&mut st, "x", lan(1), now, true)).count();
+        assert_eq!(allowed, MAX_UNVERIFIED_DIALS_PER_MIN);
+        assert!(note_dial(&mut st, "x", lan(2), now, true), "the other source still gets dialed");
+    }
+
+    #[test]
+    fn a_candidate_over_budget_loses_its_turn_in_the_round_robin() {
+        let mut st = two_sources();
+        let now = Instant::now();
+        while note_dial(&mut st, "x", lan(1), now, true) {}
+        // 예산이 바닥난 후보가 차례를 붙들고 있으면 다른 후보는 영영 불리지 않는다
+        let t = now + Duration::from_millis(1);
+        st.seen.get_mut("x").unwrap().tried.insert(lan(2), now);
+        assert!(!note_dial(&mut st, "x", lan(1), t, true));
+        assert_eq!(pick_candidate(&st, "x"), Some(lan(2)), "next time the other one is picked");
+    }
+
+    #[test]
+    fn dial_bookkeeping_stays_bounded_under_spoofed_sources() {
+        let mut st = two_sources();
+        let now = Instant::now();
+        for n in 0..(MAX_TRACKED as u32 * 2) {
+            let c = lan(1000 + n as u16);
+            let seen = st.seen.get_mut("x").unwrap();
+            seen.candidates.clear();
+            seen.candidates.insert(c, (now, ip(5000 + n)));
+            note_dial(&mut st, "x", c, now, true);
+        }
+        assert!(st.seen["x"].unverified_dials.len() <= MAX_TRACKED);
+    }
+
+    #[test]
     fn per_source_budget() {
         let mut t = HashMap::new();
         let now = Instant::now();
@@ -389,7 +478,7 @@ mod tests {
             candidates: HashMap::new(),
             verified: None,
             tried: HashMap::new(),
-            unverified_dials: VecDeque::new(),
+            unverified_dials: HashMap::new(),
             last: now,
         };
         for n in 1..=3 {
@@ -419,7 +508,7 @@ mod tests {
             candidates: HashMap::new(),
             verified: Some((lan(9), now)),
             tried: HashMap::new(),
-            unverified_dials: VecDeque::new(),
+            unverified_dials: HashMap::new(),
             last: now,
         };
         seen.candidates.insert(lan(1), (now, ip(1)));

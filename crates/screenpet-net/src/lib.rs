@@ -79,7 +79,7 @@ pub(crate) const KEY_MISMATCH_HINT_AFTER: u32 = 3;
 /// Most concurrent incoming pairing requests, and per source address.
 pub(crate) const MAX_INVITES_IN: usize = 4;
 pub(crate) const MAX_INVITES_IN_PER_ADDR: usize = 2;
-/// Dials to not-yet-verified candidates of one id per minute.
+/// Dials to not-yet-verified candidates of one id, per announcing source, per minute.
 pub(crate) const MAX_UNVERIFIED_DIALS_PER_MIN: usize = 20;
 /// At most this many `Invited` events per `INVITED_WINDOW`.
 pub(crate) const MAX_INVITED_PER_WINDOW: usize = 10;
@@ -239,8 +239,9 @@ pub(crate) struct Seen {
     pub verified: Option<(Candidate, Instant)>,
     /// When each candidate was last dialed (round-robin order).
     pub tried: HashMap<Candidate, Instant>,
-    /// Recent dials to non-verified candidates (capped per minute).
-    pub unverified_dials: VecDeque<Instant>,
+    /// Recent dials to non-verified candidates, per announcing source IP
+    /// (capped per minute).
+    pub unverified_dials: HashMap<IpAddr, VecDeque<Instant>>,
     pub last: Instant,
 }
 
