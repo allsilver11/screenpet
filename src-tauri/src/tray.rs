@@ -32,7 +32,6 @@ const INVITE_PREFIX: &str = "net:invite:";
 /// 친구 자리 고르기 (뒤는 "<visit::SIDE_CHOICES 열쇠>:<친구 id>" — 왼쪽에/오른쪽에/위에/아래에)
 const SIDE_PREFIX: &str = "net:side:";
 const UNFRIEND_PREFIX: &str = "net:unfriend:";
-const REPAIR_PREFIX: &str = "net:repair:";
 const NICKNAME_PREFIX: &str = "net:nickname:";
 const MY_NAME_ID: &str = "net:my-name";
 const SEND_PREFIX: &str = "net:send:";
@@ -110,8 +109,6 @@ pub struct FriendItem {
     pub connected: bool,
     /// 지금 내 동물을 이 친구에게 보낼 수 있음 (연결됨 + 내 동물이 놀러 가 있지 않음)
     pub can_send: bool,
-    /// 상대가 나를 더 이상 친구로 알아보지 못함
-    pub forgot: bool,
 }
 
 /// 트레이와 우클릭에 같이 쓰는 메뉴, 그리고 동물에 따라 바뀌는 항목
@@ -242,10 +239,7 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
     for f in &model.friends {
         let dot = if f.connected { "●" } else { "○" };
-        let mut title = format!("{dot} {}", menu_text(&f.name));
-        if f.forgot {
-            title.push_str(" (다시 친구 맺기 필요)");
-        }
+        let title = format!("{dot} {}", menu_text(&f.name));
         let [left, right, up, down] = visit::SIDE_CHOICES.map(|(side, key, label)| CheckMenuItem::with_id(app, format!("{SIDE_PREFIX}{key}:{}", f.id), label, true, f.side == side, None::<&str>));
         let (left, right, up, down) = (left?, right?, up?, down?);
         let send = MenuItem::with_id(app, format!("{SEND_PREFIX}{}", f.id), "놀러 보내기", f.can_send, None::<&str>)?;
@@ -258,9 +252,6 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         let sep = PredefinedMenuItem::separator(app)?;
         let sep2 = PredefinedMenuItem::separator(app)?;
         let sub = Submenu::with_items(app, title, true, &[&send, &letter, &bring, &sep, &left, &right, &up, &down, &sep2, &nickname, &unfriend])?;
-        if f.forgot {
-            sub.append(&MenuItem::with_id(app, format!("{REPAIR_PREFIX}{}", f.id), "다시 친구 맺기", true, None::<&str>)?)?;
-        }
         submenu.append(&sub)?;
     }
     if !model.friends.is_empty() && !model.strangers.is_empty() {
@@ -552,8 +543,6 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::SetSide { id: id.to_string(), side });
                 } else if let Some(id) = other.strip_prefix(UNFRIEND_PREFIX) {
                     net(NetInput::Unfriend(id.to_string()));
-                } else if let Some(id) = other.strip_prefix(REPAIR_PREFIX) {
-                    net(NetInput::Repair(id.to_string()));
                 } else if let Some((mode, food)) = other.strip_prefix("feed:").and_then(|rest| rest.split_once(':')) {
                     // 방법을 기억하고 (배고플 때 고르기도 따른다) 바로 먹인다
                     let mode = if mode == "hand" { FeedMode::Hand } else { FeedMode::Auto };

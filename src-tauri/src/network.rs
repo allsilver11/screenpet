@@ -55,7 +55,7 @@ const DECLINE_LOG_EVERY: Duration = Duration::from_secs(5);
 /// 조작 모드: 친구 화면에 가 있는 내 동물에게 키를 누르고 있는 동안 이 간격으로 다시 보낸다 (받는 쪽은 1초 소식이 없으면 키를 놓는다)
 const STEER_KEEPALIVE: Duration = Duration::from_millis(200);
 /// 표시 이름이 없을 때
-const DEFAULT_NAME: &str = "친구";
+use screenpet_core::config::DEFAULT_OWNER_NAME as DEFAULT_NAME;
 /// 친구 코드 입력 창 라벨
 pub const CODE_LABEL: &str = "code";
 const CODE_SIZE: (f64, f64) = (320.0, 178.0);
@@ -80,8 +80,6 @@ pub enum NetInput {
     PairAnswer(bool),
     SetSide { id: String, side: Side },
     Unfriend(String),
-    /// "다시 친구 맺기": 친구에서 지우고 새로 신청
-    Repair(String),
     /// 트레이 "집에 와"
     ComeHome,
     /// 트레이 "내 친구 코드 보기"
@@ -168,7 +166,7 @@ pub struct NameView {
     pub target: &'static str,
     /// 지금 정해 둔 이름·별명 (없으면 빈 글자)
     pub current: String,
-    /// 비워 두면 쓰일 이름 (컴퓨터 사용자 이름 / 친구가 정한 이름)
+    /// 비워 두면 쓰일 이름 ("친구" / 친구가 정한 이름)
     pub fallback: String,
     /// 최대 글자 수
     pub max: usize,
@@ -279,17 +277,13 @@ struct AwayVisit {
 
 pub struct Network {
     net: Option<Net>,
-    /// 내 표시 이름 (친구들에게 보이는 이름 — 설정의 owner_name, 없으면 컴퓨터 사용자 이름)
+    /// 내 표시 이름 (친구들에게 보이는 이름 — 설정의 owner_name, 없으면 "친구")
     name: String,
-    /// 컴퓨터 사용자 이름 (내 이름을 비우면 이것으로)
-    system_name: String,
     /// 이름 바꾸기 창이 지금 다루는 이름
     naming: Option<Naming>,
     /// 발견된 사람 id → 이름 (친구 포함)
     seen: BTreeMap<String, String>,
     connected: HashSet<String>,
-    /// 나를 더 이상 친구로 알아보지 못하는 친구
-    forgot: HashSet<String>,
     pairing: Option<Pairing>,
     away: Option<AwayVisit>,
     /// "놀러 보내기"로 그 친구(id)가 연결된 끝(side)으로 가는 중 — 그 끝으로 나가면 이 친구에게 간다
@@ -420,17 +414,6 @@ fn clamp(s: &str) -> String {
     screenpet_core::config::clean_text(s, 64)
 }
 
-/// Windows 사용자 이름 (spec §1). 없으면 "친구"
-fn display_name() -> String {
-    let name = std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default();
-    let name = clamp(name.trim());
-    if name.is_empty() {
-        DEFAULT_NAME.to_string()
-    } else {
-        name
-    }
-}
-
 /// 내 동물이 화면 끝으로 걸어 나가거나, 보내져 손 흔들고 사라지는 중
 fn is_exiting(own: &Slot) -> bool {
     matches!(own.pet.state, State::Exit { .. } | State::Farewell { .. })
@@ -441,16 +424,13 @@ impl Network {
     /// 비밀키는 config.json이 아니라 config 폴더의 `identity.key`에 있다.
     pub fn start(app: &AppHandle, config: &mut Config) -> (Network, bool) {
         let dirty = config.ensure_install_id(screenpet_net::new_install_id);
-        let system_name = display_name();
-        let name = config.my_name(&system_name);
+        let name = config.my_name();
         let mut network = Network {
             net: None,
             name: name.clone(),
-            system_name,
             naming: None,
             seen: BTreeMap::new(),
             connected: HashSet::new(),
-            forgot: HashSet::new(),
             pairing: None,
             away: None,
             sending: None,
@@ -482,6 +462,11 @@ impl Network {
             own_refuses: (false, false),
         };
         let state = app.state::<AppState>();
+        // 설정을 못 읽은 실행: 친구 목록이 빈 채로 나가면 친구들이 "나를 잊었다"고 보고 나를 지운다
+        if config.keep_file {
+            eprintln!("network disabled: the config file could not be read");
+            return (network, dirty);
+        }
         let key = match screenpet_core::config::load_or_create_identity_key(&state.config_dir, Net::generate_static_key) {
             Ok(k) => k,
             Err(e) => {
@@ -824,11 +809,6 @@ impl Network {
                 config.set_friend_side(&id, side)
             }
             NetInput::Unfriend(id) => self.unfriend(&id, config),
-            NetInput::Repair(id) => {
-                let dirty = self.unfriend(&id, config);
-                self.start_invite(app, &id, &slots[0].entry.id);
-                dirty
-            }
             NetInput::ComeHome => {
                 if let (Some(net), Some(a)) = (&self.net, self.away.as_mut()) {
                     net.send(&a.friend, Visit::ComeHome { visit_id: a.visit_id });
@@ -857,7 +837,7 @@ impl Network {
                 false
             }
             NetInput::EditMyName => {
-                let view = NameView { target: "me", current: config.owner_name.clone().unwrap_or_default(), fallback: self.system_name.clone(), max: MAX_NAME_CHARS };
+                let view = NameView { target: "me", current: config.owner_name.clone().unwrap_or_default(), fallback: DEFAULT_NAME.to_string(), max: MAX_NAME_CHARS };
                 self.naming = Some(Naming::Me);
                 show_name_window(app, view);
                 false
@@ -872,7 +852,7 @@ impl Network {
             NetInput::SubmitName(name) => match self.naming.take() {
                 Some(Naming::Me) => {
                     let dirty = config.set_owner_name(&name);
-                    let shown = config.my_name(&self.system_name);
+                    let shown = config.my_name();
                     if shown != self.name {
                         self.name = shown;
                         // 연결된 친구들에게 바로 알린다 (다음 연결·발견 알림도 새 이름)
@@ -963,7 +943,6 @@ impl Network {
             // 연결돼 있었다면 Disconnected가 뒤따라 손님 보내기·귀환을 처리한다
             net.unfriend(id);
         }
-        self.forgot.remove(id);
         config.remove_friend(id)
     }
 
@@ -981,7 +960,6 @@ impl Network {
             NetEvent::InviteAnswered { from: _, accepted, pairing } => self.on_invite_answered(app, accepted, pairing),
             NetEvent::Connected { id, name } => {
                 self.connected.insert(id.clone());
-                self.forgot.remove(&id);
                 // 고정된 키를 증명한 링크의 이름 (방금 끝난 짝맞추기도 그 링크에서 Connected가 온다)
                 self.note_name(&id, &name);
                 if let Some(p) = self.pairing.as_mut().filter(|p| p.peer == id && matches!(p.view.phase, "confirm" | "waiting")) {
@@ -1035,9 +1013,8 @@ impl Network {
                 // 상대가 친구를 끊었으면(unfriend) net은 조용히 지운다 — 설정에서는 handle 끝의 sync_friends가 지운다
             }
             NetEvent::Received { from, msg } => self.on_visit_message(app, config, slots, &from, msg),
-            NetEvent::FriendForgotUs { id } => {
-                self.forgot.insert(id);
-            }
+            // 고정한 키를 증명한 친구가 나를 지웠다: net이 지웠고, 설정에서는 handle 끝의 sync_friends가 지운다
+            NetEvent::FriendForgotUs { id } => eprintln!("friend {id} no longer has us; removed them too"),
             NetEvent::RelayStatus { connected } => {
                 self.relay_connected = connected;
                 self.update_code_view(app);
@@ -1123,7 +1100,6 @@ impl Network {
         let mut dirty = false;
         let gone: Vec<String> = config.friends.iter().filter(|f| !pinned.iter().any(|p| p.id == f.id)).map(|f| f.id.clone()).collect();
         for id in gone {
-            self.forgot.remove(&id);
             dirty |= config.remove_friend(&id);
         }
         for p in pinned {
@@ -1560,7 +1536,6 @@ impl Network {
                 side: f.side,
                 connected: self.is_connected(&f.id),
                 can_send: self.can_send && self.is_connected(&f.id),
-                forgot: self.forgot.contains(&f.id),
             })
             .collect();
         // 손님 우클릭 "<친구>에게 보내기" 목록

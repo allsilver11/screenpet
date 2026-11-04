@@ -10,6 +10,9 @@ use crate::presence::{DailyMarks, FocusLength};
 use crate::style::PetStyle;
 use crate::visit::{ExitEdges, Side};
 
+/// 내 이름을 정하지 않았을 때 친구들에게 보이는 이름
+pub const DEFAULT_OWNER_NAME: &str = "친구";
+
 const FILE: &str = "config.json";
 const TMP_FILE: &str = "config.json.tmp";
 const BAK_FILE: &str = "config.json.bak";
@@ -256,9 +259,9 @@ impl Config {
         changed
     }
 
-    /// 친구들에게 보일 내 이름: 정한 이름, 없으면 system (컴퓨터 사용자 이름)
-    pub fn my_name(&self, system: &str) -> String {
-        self.owner_name.as_deref().and_then(sanitize_name).unwrap_or_else(|| system.to_string())
+    /// 친구들에게 보일 내 이름: 정한 이름, 없으면 "친구" (컴퓨터 사용자 이름은 같은 망에 알리지 않는다)
+    pub fn my_name(&self) -> String {
+        self.owner_name.as_deref().and_then(sanitize_name).unwrap_or_else(|| DEFAULT_OWNER_NAME.to_string())
     }
 
     pub fn remove_friend(&mut self, id: &str) -> bool {
@@ -418,6 +421,22 @@ pub fn save(dir: &Path, c: &Config) -> std::io::Result<()> {
         f.sync_all()?;
     }
     std::fs::rename(&tmp, dir.join(FILE))
+}
+
+const CRASH_FILE: &str = "crash.log";
+/// 충돌 기록이 이보다 커지면 처음부터 다시 쓴다
+const CRASH_LOG_MAX: u64 = 64 * 1024;
+
+/// 충돌 내용을 config 폴더의 `crash.log`에 덧붙인다 (배포판에는 콘솔이 없다). 실패는 무시한다 — 이미 죽어 가는 중이다
+pub fn append_crash_log(dir: &Path, text: &str) {
+    use std::io::Write;
+    let path = dir.join(CRASH_FILE);
+    let keep = std::fs::metadata(&path).is_ok_and(|m| m.len() < CRASH_LOG_MAX);
+    let _ = std::fs::create_dir_all(dir);
+    let file = std::fs::OpenOptions::new().create(true).write(true).append(keep).truncate(!keep).open(&path);
+    if let Ok(mut f) = file {
+        let _ = writeln!(f, "{text}");
+    }
 }
 
 /// 장기 X25519 비밀키 파일 (config.json과 따로 — 설정 파일은 비밀이 아닌 것만 갖는다)
@@ -806,6 +825,17 @@ mod tests {
     }
 
     #[test]
+    fn crashes_are_appended_and_the_log_stays_small() {
+        let d = temp_dir("crashlog");
+        append_crash_log(&d, "one");
+        append_crash_log(&d, "two");
+        assert_eq!(std::fs::read_to_string(d.join("crash.log")).unwrap(), "one\ntwo\n");
+        std::fs::write(d.join("crash.log"), "x".repeat(CRASH_LOG_MAX as usize)).unwrap();
+        append_crash_log(&d, "three");
+        assert_eq!(std::fs::read_to_string(d.join("crash.log")).unwrap(), "three\n");
+    }
+
+    #[test]
     fn a_config_that_is_not_text_counts_as_corrupt() {
         let d = temp_dir("notutf8");
         std::fs::create_dir_all(&d).unwrap();
@@ -976,17 +1006,17 @@ mod tests {
     #[test]
     fn owner_name_overrides_the_system_name_and_empty_resets() {
         let mut c = Config::default();
-        assert_eq!(c.my_name("winuser"), "winuser");
+        assert_eq!(c.my_name(), DEFAULT_OWNER_NAME);
         assert!(c.set_owner_name("  danni  "));
         assert_eq!(c.owner_name.as_deref(), Some("danni"));
-        assert_eq!(c.my_name("winuser"), "danni");
+        assert_eq!(c.my_name(), "danni");
         assert!(!c.set_owner_name("danni"), "unchanged");
         assert!(c.set_owner_name("   "));
         assert_eq!(c.owner_name, None);
-        assert_eq!(c.my_name("winuser"), "winuser");
+        assert_eq!(c.my_name(), DEFAULT_OWNER_NAME);
         // 손으로 고친 설정 파일의 긴 이름도 화면엔 20자까지만
         c.owner_name = Some("b".repeat(50));
-        assert_eq!(c.my_name("winuser"), "b".repeat(20));
+        assert_eq!(c.my_name(), "b".repeat(20));
     }
 
     #[test]
