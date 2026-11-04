@@ -27,6 +27,11 @@ const MIN_COLUMNS_WIDE: usize = 4;
 /// 창 좌우 여백 합 (논리 px) — 양 끝 칸의 이름표(두 칸 폭까지 쓴다)가 창 밖으로 나가지 않게 (ui/ladder.js, src-tauri ladder.rs GAME_MARGIN과 같게)
 pub const WINDOW_MARGIN: f64 = 60.0;
 
+/// 창 안쪽 높이를 정할 때 작업 영역에서 뺄 몫 (제목 표시줄·테두리, 논리 px)
+const WINDOW_CHROME: f64 = 40.0;
+/// 아무리 작은 화면이어도 창 안쪽 높이는 이만큼 (판이 그려질 자리)
+const MIN_WINDOW_HEIGHT: f64 = 300.0;
+
 /// 결과 칸의 기분 — 펫이 만세(좋음)·시무룩(나쁨)·그냥 앉기(없음)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -191,6 +196,27 @@ pub fn column_width(players: usize, work_width: f64) -> f64 {
     COLUMN_WIDTH.min(fit).max(MIN_COLUMN_WIDTH)
 }
 
+/// 창 안쪽 높이 (논리 px): 원하는 높이가 작업 영역에 안 들어가면 줄인다 (하한 `MIN_WINDOW_HEIGHT`)
+pub fn window_height(wanted: f64, work_height: f64) -> f64 {
+    wanted.min((work_height - WINDOW_CHROME).max(MIN_WINDOW_HEIGHT))
+}
+
+/// 한 축에서 창이 작업 영역 안에 들어가는 위치. 들어가면 그대로, 영역보다 크면 시작 쪽에 맞춘다 (제목 표시줄이 보이게)
+pub fn keep_on_screen(pos: f64, len: f64, area_start: f64, area_len: f64) -> f64 {
+    pos.min(area_start + area_len - len).max(area_start)
+}
+
+/// 친구가 보낸 글자를 화면용으로: 보이지 않는 글자(방향 바꾸기 등)를 뺀다. 남는 글자가 없으면 "?".
+/// 표시에만 쓴다 — 지문과 시드는 받은 글자 그대로 해시한다
+pub fn shown_text(raw: &str, max: usize) -> String {
+    let s = crate::config::clean_text(raw, max);
+    if s.is_empty() {
+        "?".to_string()
+    } else {
+        s
+    }
+}
+
 /// 공정성 지문 24비트 → SAS 이모지 번호 4개 (앞에서부터 6비트씩)
 pub fn print_indices(bits24: u32) -> [usize; 4] {
     [18, 12, 6, 0].map(|shift| ((bits24 >> shift) & 63) as usize)
@@ -323,6 +349,39 @@ mod tests {
         let names: Vec<String> = ["나비", "나비", "곰", "나비"].iter().map(|s| s.to_string()).collect();
         assert_eq!(disambiguate(&names), ["나비", "나비 ②", "곰", "나비 ③"]);
         assert_eq!(circled(21), "(21)");
+    }
+
+    #[test]
+    fn tall_windows_shrink_to_the_work_area() {
+        assert_eq!(window_height(540.0, 1040.0), 540.0);
+        // 1366×768 150% 배율: 작업 영역 약 480 논리 px → 제목 표시줄 몫을 빼고
+        assert_eq!(window_height(540.0, 480.0), 440.0);
+        assert_eq!(window_height(170.0, 480.0), 170.0, "small windows stay as they are");
+        assert_eq!(window_height(540.0, 100.0), 300.0, "the board still needs some height");
+    }
+
+    #[test]
+    fn a_grown_window_is_pulled_back_on_screen() {
+        // 초대 창(250)이 있던 자리에서 게임 창(540)으로 커졌다 — 아래가 잘리면 위로 올린다
+        assert_eq!(keep_on_screen(259.0, 540.0, 0.0, 728.0), 188.0);
+        // 들어가면 사용자가 옮긴 자리 그대로
+        assert_eq!(keep_on_screen(100.0, 540.0, 0.0, 728.0), 100.0);
+        // 왼쪽·위로 나갔으면 안으로, 보조 모니터(음수 좌표)도 같다
+        assert_eq!(keep_on_screen(-50.0, 300.0, 0.0, 1280.0), 0.0);
+        assert_eq!(keep_on_screen(-1000.0, 300.0, -1920.0, 1920.0), -1000.0);
+        assert_eq!(keep_on_screen(-100.0, 300.0, -1920.0, 1920.0), -300.0);
+        // 작업 영역보다 크면 시작 부분(제목 표시줄과 닫기 단추)이 보이게
+        assert_eq!(keep_on_screen(50.0, 900.0, 0.0, 728.0), 0.0);
+    }
+
+    #[test]
+    fn hidden_characters_never_reach_the_screen() {
+        assert_eq!(shown_text("\u{202E}Bob\u{200B}", 20), "Bob");
+        assert_eq!(shown_text("나비", 20), "나비");
+        assert_eq!(shown_text("\u{200B}\u{3164}", 20), "?", "nothing visible is left");
+        // 보이지 않는 글자로만 다른 두 이름은 같은 이름이라 번호로 구분된다
+        let names = [shown_text("나비", 20), shown_text("나\u{200B}비", 20)];
+        assert_eq!(disambiguate(&names), ["나비", "나비 ②"]);
     }
 
     #[test]

@@ -61,6 +61,24 @@ def test_window_margin_matches_between_core_app_and_harness():
     assert core == harness == 60
 
 
+def test_the_last_result_window_shows_every_row_and_its_buttons():
+    # 10명: 줄 28 × 10 + 표 테두리 10 + 제목 20 + 지문 32 + 안내 16 + 버튼 28 + 사이 8 × 4 + 위아래 여백 28
+    needed = 28 * 10 + 10 + 20 + 32 + 16 + 28 + 8 * 4 + 28
+    height = float(re.search(r"const LAST_SIZE: \(f64, f64\) = \([\d.]+, ([\d.]+)\);", LADDER_RS).group(1))
+    assert height >= needed
+    # 그래도 낮은 화면에서는 표만 줄어 스크롤되고, 나머지는 줄지 않는다
+    rule = re.search(r"#table > ul \{([^}]*)\}", HTML).group(1)
+    assert "min-height: 0" in rule and "overflow-y: auto" in rule and "flex: 0 1 auto" in rule
+    assert re.search(r"#table > \* \{ flex: none; \}", HTML)
+
+
+def test_the_window_is_kept_on_screen_when_it_grows():
+    # 보이는 채로 커질 때도 (초대 → 게임) 작업 영역 안으로 옮긴다
+    show = re.search(r"\nfn show\(.*?\n}\n", LADDER_RS, re.S).group(0)
+    assert "if hidden || resized {" in show and "keep_in_work_area(app, &window, size);" in show
+    assert "draw::window_height(height, work_area(app).1)" in LADDER_RS
+
+
 def test_the_ladder_window_may_use_ipc():
     # Tauri 2: 창 라벨이 capability에 없으면 invoke·listen이 막혀 흰 화면만 뜬다 (첫 Windows 시험에서 실제로 그랬다)
     cap = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text(encoding="utf-8"))

@@ -33,12 +33,13 @@ const INVITES_PER_WINDOW: usize = 3;
 const SETUP_SIZE: (f64, f64) = (380.0, 470.0);
 const INVITE_SIZE: (f64, f64) = (340.0, 250.0);
 const SMALL_SIZE: (f64, f64) = (320.0, 170.0);
-const LAST_SIZE: (f64, f64) = (360.0, 380.0);
+/// 10명 결과 표 + 지문 + 버튼이 다 보이는 크기 (더 작은 화면에서는 표가 스크롤된다)
+const LAST_SIZE: (f64, f64) = (360.0, 470.0);
 const GAME_HEIGHT: f64 = 540.0;
 /// 게임 창 좌우 여백 합 (core `column_width`의 여백과 같다)
 const GAME_MARGIN: f64 = draw::WINDOW_MARGIN;
-/// 주 모니터를 모를 때 쓰는 작업 영역 폭 (논리 px)
-const DEFAULT_WORK_WIDTH: f64 = 1280.0;
+/// 주 모니터를 모를 때 쓰는 작업 영역 크기 (논리 px)
+const DEFAULT_WORK_AREA: (f64, f64) = (1280.0, 720.0);
 
 /// 웹뷰 첫 로드용 지금 화면 (그 뒤로는 `ladder-state` 이벤트)
 static VIEW: Mutex<Option<LadderView>> = Mutex::new(None);
@@ -188,9 +189,12 @@ fn unix_now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
-/// 주 모니터 작업 영역 폭 (논리 px)
-fn work_width(app: &AppHandle) -> f64 {
-    app.primary_monitor().ok().flatten().map_or(DEFAULT_WORK_WIDTH, |m| m.work_area().size.width as f64 / m.scale_factor())
+/// 주 모니터 작업 영역 크기 (논리 px)
+fn work_area(app: &AppHandle) -> (f64, f64) {
+    app.primary_monitor().ok().flatten().map_or(DEFAULT_WORK_AREA, |m| {
+        let (area, dpi) = (m.work_area().size, m.scale_factor());
+        (area.width as f64 / dpi, area.height as f64 / dpi)
+    })
 }
 
 impl Ladders {
@@ -512,7 +516,7 @@ impl Ladders {
             me: o.me,
             host: o.host,
             print: print_emoji(o.print),
-            column: draw::column_width(o.players.len(), work_width(app)),
+            column: draw::column_width(o.players.len(), work_area(app).0),
             skip,
             host_name,
         }
@@ -596,7 +600,7 @@ impl Ladders {
         if !focus && self.sent.as_ref() == Some(&view) {
             return;
         }
-        let size = match view.view {
+        let (width, height) = match view.view {
             "setup" | "inviting" => SETUP_SIZE,
             "invite" => INVITE_SIZE,
             "last" => LAST_SIZE,
@@ -606,6 +610,7 @@ impl Ladders {
             }
             _ => SMALL_SIZE,
         };
+        let size = (width, draw::window_height(height, work_area(app).1));
         let resized = self.sent.as_ref().is_none_or(|s| s.view != view.view);
         *VIEW.lock().unwrap() = Some(view.clone());
         show(app, &view, size, focus, resized);
@@ -653,12 +658,33 @@ fn show(app: &AppHandle, view: &LadderView, size: (f64, f64), focus: bool, resiz
     if resized {
         let _ = window.set_size(LogicalSize::new(size.0, size.1));
     }
-    if !window.is_visible().unwrap_or(false) {
+    let hidden = !window.is_visible().unwrap_or(false);
+    if hidden {
         crate::network::place_on_primary(app, &window, size);
+    }
+    // 작은 초대 창이 있던 자리에서 게임 창으로 커지면 아래·오른쪽이 화면 밖으로 나갈 수 있다
+    if hidden || resized {
+        keep_in_work_area(app, &window, size);
+    }
+    if hidden {
         let _ = window.show();
     }
     if focus {
         let _ = window.set_focus();
+    }
+}
+
+/// 창이 지금 모니터의 작업 영역 안에 들어오게 옮긴다 (들어 있으면 사용자가 둔 자리 그대로). `inner` = 방금 정한 안쪽 크기
+fn keep_in_work_area(app: &AppHandle, window: &WebviewWindow, inner: (f64, f64)) {
+    let monitor = window.current_monitor().ok().flatten().or_else(|| app.primary_monitor().ok().flatten());
+    let (Some(m), Ok(pos)) = (monitor, window.outer_position()) else { return };
+    let (area, dpi) = (m.work_area(), m.scale_factor());
+    // 숨긴 창이거나 크기 변경이 아직 안 끝났으면 바깥 크기가 작게 나올 수 있다 — 안쪽 크기보다 작게 잡지 않는다
+    let outer = window.outer_size().map_or((0.0, 0.0), |s| (s.width as f64, s.height as f64));
+    let x = draw::keep_on_screen(pos.x as f64, outer.0.max(inner.0 * dpi), area.position.x as f64, area.size.width as f64);
+    let y = draw::keep_on_screen(pos.y as f64, outer.1.max(inner.1 * dpi), area.position.y as f64, area.size.height as f64);
+    if (x as i32, y as i32) != (pos.x, pos.y) {
+        let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
     }
 }
 

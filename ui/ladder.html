@@ -67,7 +67,9 @@
       .slot.hit { background: #fff1c9; }
       #gamebar { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; gap: 8px; align-items: center; }
       #table { position: absolute; inset: 0; background: rgba(255, 250, 242, 0.96); display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px; box-sizing: border-box; }
-      #table ul { width: 100%; max-width: 320px; }
+      /* 표만 스크롤된다 — 사람이 많거나 창이 낮아도 지문과 버튼은 잘리지 않는다 */
+      #table > * { flex: none; }
+      #table > ul { flex: 0 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 320px; box-sizing: border-box; }
       .chips { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; max-height: 64px; overflow: hidden; }
       .chip { font-size: 12px; background: #fff; border: 1px solid #ecdcc4; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
       [hidden] { display: none !important; }
