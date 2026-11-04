@@ -931,8 +931,9 @@ impl Pet {
     pub fn react_to_result(&mut self, good: bool) -> bool {
         let settled = (self.standing.is_some() || self.cfg.flies) && !self.off_surface() && !self.is_held() && !self.in_transit();
         let calm = matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. } | State::Trick { .. });
-        // 다른 볼일 중이면 끊지 않는다: 조작 모드 · 친구에게 보내는 중 · 집에 돌아가는 중 · 창 안 (is_free_to_go가 하우스·손님·들림·축하 등도 본다)
-        let busy = !self.is_free_to_go() || self.control.is_some() || self.inside.is_some() || self.send.is_some() || self.return_home.is_some();
+        // 다른 볼일 중이면 끊지 않는다: 사용자가 시킨 일(먹이 포함) · 창 안 · 머리 위 친구 (자세를 바꾸면 탑이 무너진다).
+        // is_free_to_go가 하우스·손님·들림·축하 등도 본다
+        let busy = !self.is_free_to_go() || self.has_errand() || self.inside.is_some() || self.rider_on;
         if busy || !settled || !calm {
             return false;
         }
