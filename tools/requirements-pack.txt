@@ -1,0 +1,5 @@
+# tools/pack_webp.py (build.yml) only. Exact version and hashes: Python 3.12 wheels for Windows and macOS.
+pillow==13.0.0 \
+    --hash=sha256:67c8d44ad89fa7eb88de5d6ef6199b1e03dd24974f85a67639fc8badb801fe79 \
+    --hash=sha256:fc481f742ccda20e9ed760b8f978dff50f2a4e9bc253ac167fb0a05b0783ef52 \
+    --hash=sha256:ff3fe9eb621fbb9db4c4be33ab946f6bac5f98ab50ca8d3260503653656c961b
