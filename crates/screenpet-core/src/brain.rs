@@ -2892,13 +2892,17 @@ impl Pet {
     }
 
     /// 매 틱 (주 동작 전): 놓인 자리 판정, 창이 사라지면 밖으로, 선 자리가 가려졌거나 집에 가야 하면 뛰어나가기,
-    /// 머문 시간이 다 되면 나가기 (벽 타는 동물은 절반은 안쪽 벽으로 걸어가 기어오른다)
-    fn update_inside(&mut self, dt: f64, world: &World) {
-        // 아래 친구에게 던졌으면 창 안에 놓인 게 아니다
+    /// 놓은 다음 틱: 창 안에 놓였는지 본다. 아래 친구에게 던졌으면 창 안에 놓인 게 아니다
+    pub(super) fn check_dropped_in(&mut self, world: &World) {
         if std::mem::take(&mut self.drop_check) && matches!(self.state, State::Air { .. }) && self.home_trip.is_none() && !self.thrown_to_friend_below() {
             let target = inside::drop_target(world, self.body.x, self.body.y, self.cfg.half_w, self.cfg.size);
             self.inside = target.map(|id| Stay::new(id, Mode::In, &mut self.rng));
         }
+    }
+
+    /// 머문 시간이 다 되면 나가기 (벽 타는 동물은 절반은 안쪽 벽으로 걸어가 기어오른다)
+    fn update_inside(&mut self, dt: f64, world: &World) {
+        self.check_dropped_in(world);
         let Some(mut stay) = self.inside else { return };
         stay.leave_in -= dt;
         self.inside = Some(stay);

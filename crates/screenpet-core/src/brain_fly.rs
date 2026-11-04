@@ -79,11 +79,7 @@ impl Pet {
 
     /// 창 안에 놓였는지 보고(놓은 다음 틱), 창이 사라지거나 머문 시간이 다 되거나 집에 가야 하면 창 밖으로 날아 나간다
     fn update_fly_inside(&mut self, dt: f64, world: &World) {
-        // 아래 친구에게 던졌으면 창 안에 놓인 게 아니다
-        if std::mem::take(&mut self.drop_check) && matches!(self.state, State::Air { .. }) && self.home_trip.is_none() && !self.thrown_to_friend_below() {
-            let target = inside::drop_target(world, self.body.x, self.body.y, self.cfg.half_w, self.cfg.size);
-            self.inside = target.map(|id| Stay::new(id, Mode::In, &mut self.rng));
-        }
+        self.check_dropped_in(world);
         let Some(mut stay) = self.inside else { return };
         stay.leave_in -= dt;
         self.inside = Some(stay);
