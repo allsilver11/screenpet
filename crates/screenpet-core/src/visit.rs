@@ -82,11 +82,6 @@ pub fn carried_homesick(sent: Option<f64>, rng: &mut fastrand::Rng) -> f64 {
     }
 }
 
-/// 건너온 손님이 들어올 끝: 이 화면에서 이전 친구(via)가 연결된 끝, 모르면 이전 화면에서 나간 끝의 반대편
-pub fn hop_enter_side(via: Option<Side>, exited: Side) -> Side {
-    via.unwrap_or(opposite(exited))
-}
-
 pub fn opposite(side: Side) -> Side {
     match side {
         Side::Left => Side::Right,
@@ -430,8 +425,42 @@ pub fn fully_inside_v(bounds: &Rect, side: Side, y: f64, height: f64) -> bool {
     }
 }
 
+/// 친구가 던진 물건을 어떻게 할까
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TossAnswer {
+    Take,
+    /// 집중·하우스 중이라 받지 않는다: 던진 친구에게 되돌린다
+    SendBack,
+    /// 내가 던진 적 없는데 "되돌아왔다"고 한다: 막혀 있는 동안은 버린다
+    Drop,
+}
+
+/// refusing = 지금 던지는 걸 받지 않는다 (Pet::refuses_throws), bounced = 상대가 되돌린 물건이라고 한다,
+/// threw_lately = 방금 내가 그 친구에게 던졌다. 되돌아온 물건은 다시 되돌리지 않는다 (둘 다 집중 중이어도 오가지 않게)
+pub fn toss_answer(refusing: bool, bounced: bool, threw_lately: bool) -> TossAnswer {
+    match (refusing, bounced) {
+        (false, _) => TossAnswer::Take,
+        (true, false) => TossAnswer::SendBack,
+        (true, true) if threw_lately => TossAnswer::Take,
+        (true, true) => TossAnswer::Drop,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn thrown_objects_are_sent_back_while_refusing_and_never_bounce_twice() {
+        use super::{toss_answer, TossAnswer::*};
+        assert_eq!(toss_answer(false, false, false), Take);
+        assert_eq!(toss_answer(true, false, false), SendBack);
+        assert_eq!(toss_answer(true, false, true), SendBack);
+        // 내 물건이 되돌아왔다: 나도 집중 중이어도 받는다
+        assert_eq!(toss_answer(false, true, true), Take);
+        assert_eq!(toss_answer(true, true, true), Take);
+        // 던진 적도 없는데 되돌아왔다는 물건으로 막기를 넘지 못한다
+        assert_eq!(toss_answer(true, true, false), Drop);
+    }
+
     use super::*;
     use crate::geom::{Rect, WindowInfo};
     use crate::surfaces::{EndKind, Owner};
@@ -628,11 +657,7 @@ mod tests {
     }
 
     #[test]
-    fn hop_enters_from_the_edge_linked_to_the_previous_host() {
-        assert_eq!(hop_enter_side(Some(Side::Right), Side::Right), Side::Right);
-        // 이전 친구를 모르면 나간 쪽의 반대편에서
-        assert_eq!(hop_enter_side(None, Side::Right), Side::Left);
-        assert_eq!(hop_enter_side(None, Side::Left), Side::Right);
+    fn left_and_right_are_opposites() {
         assert_eq!((opposite(Side::Left), opposite(Side::Right)), (Side::Right, Side::Left));
     }
 
@@ -693,8 +718,6 @@ mod tests {
         assert_eq!((opposite(Side::Up), opposite(Side::Down)), (Side::Down, Side::Up));
         assert_eq!((dir(Side::Up), dir(Side::Down)), (0.0, 0.0));
         assert!(is_vertical(Side::Up) && is_vertical(Side::Down) && !is_vertical(Side::Left) && !is_vertical(Side::Right));
-        assert_eq!(hop_enter_side(None, Side::Up), Side::Down);
-        assert_eq!(hop_enter_side(Some(Side::Up), Side::Left), Side::Up);
     }
 
     #[test]

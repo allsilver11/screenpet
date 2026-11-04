@@ -480,6 +480,22 @@ fn keep_busy(sim: &mut Sim, p: &mut Pet, w: &World, secs: u32) {
 }
 
 #[test]
+fn throws_are_refused_while_focusing_or_in_the_house_but_not_on_a_break() {
+    let (mut p, w) = on_ground(sim_cfg(), 300.0);
+    let mut sim = Sim::new();
+    assert!(!p.refuses_throws());
+    start_focus(&mut sim, &mut p, FocusLength::Short);
+    assert!(p.refuses_throws());
+    keep_busy(&mut sim, &mut p, &w, 25 * 60 + 2);
+    assert!(!p.is_focusing(), "the break has started");
+    assert!(!p.refuses_throws());
+
+    let (mut p, _) = on_ground(sim_cfg(), 300.0);
+    p.enter_house();
+    assert!(p.refuses_throws());
+}
+
+#[test]
 fn focusing_pets_go_to_the_bottom_right_corner_and_sit_quietly() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
     let mut sim = Sim::new();

@@ -518,7 +518,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 // 친구가 던진 물건 (net이 인증된 친구 링크·친구별 한도를 확인했고, 받은 물건 20개 상한과 다듬기는 objects가 지키고, 창은 틱마다 하나씩 만든다)
                 Input::Net(NetInput::Event(screenpet_net::NetEvent::Tossed { from, toss })) => {
-                    objects.receive(&config, &from, toss);
+                    // 집중·하우스 중이면 받지 않고 되돌린다
+                    match screenpet_core::visit::toss_answer(slots[OWN].pet.refuses_throws(), toss.bounced, objects.threw_lately(&from)) {
+                        screenpet_core::visit::TossAnswer::Take => objects.receive(&config, &from, toss),
+                        screenpet_core::visit::TossAnswer::SendBack => network.bounce_toss(&from, toss),
+                        screenpet_core::visit::TossAnswer::Drop => {}
+                    }
                 }
                 Input::Net(input) => {
                     if network.handle(&app, input, &mut config, &mut slots) {

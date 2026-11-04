@@ -162,6 +162,8 @@ pub struct Objects {
     world: Option<World>,
     /// 친구별 던지기 예산 (받는 쪽 net의 친구별 제한과 같다 — 넘치면 받는 쪽이 버리므로 미리 튕긴다)
     budgets: HashMap<String, TossBudget>,
+    /// 친구별 마지막으로 던진 때 (되돌아온 물건이 정말 내 것인지 본다)
+    threw_at: HashMap<String, Instant>,
     started: Instant,
     ride_until: Instant,
     frame: u64,
@@ -181,6 +183,7 @@ impl Objects {
             fading: Vec::new(),
             world: None,
             budgets: HashMap::new(),
+            threw_at: HashMap::new(),
             started: now,
             ride_until: now,
             frame: 0,
@@ -276,6 +279,11 @@ impl Objects {
                 self.poof(l);
             }
         }
+    }
+
+    /// 방금 그 친구에게 물건을 던졌다
+    pub fn threw_lately(&self, friend: &str) -> bool {
+        self.threw_at.get(friend).is_some_and(|t| t.elapsed() < BOUNCE_WINDOW)
     }
 
     /// 줄의 맨 앞 물건 하나의 창을 만든다 (틱마다)
@@ -482,12 +490,16 @@ impl Objects {
         }
         let friend = friends[fastrand::usize(..friends.len())].id.clone();
         self.budgets.entry(friend.clone()).or_default().spend(secs);
+        self.threw_at.insert(friend.clone(), Instant::now());
         let (side, vside) = to_net_side(visit::opposite(exit.side));
-        let toss = Toss { kind: l.object.kind.id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send() };
+        let toss = Toss { kind: l.object.kind.id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false };
         eprintln!("threw a {} to {friend}{}", l.object.kind.id(), if toss.note.is_some() { " with a post-it" } else { "" });
         network.toss_to(&friend, toss);
     }
 }
+
+/// 던지고 이만큼 안에 되돌아온 물건만 내 것으로 본다
+const BOUNCE_WINDOW: Duration = Duration::from_secs(30);
 
 fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool) -> Option<WebviewWindow> {
     let label = format!("{PREFIX}{id}");
@@ -530,7 +542,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         sub.append(&MenuItem::with_id(app, format!("{MENU_SPAWN}{}", kind.id()), kind.label(), true, None::<&str>)?)?;
     }
     sub.append(&PredefinedMenuItem::separator(app)?)?;
-    sub.append(&MenuItem::with_id(app, MENU_CLEAR, "🧹 물건 다 치우기", true, None::<&str>)?)?;
+    sub.append(&MenuItem::with_id(app, MENU_CLEAR, "🧹 쓰레기 다 치우기", true, None::<&str>)?)?;
     let _ = MENU.set(sub.clone());
     Ok(sub)
 }
@@ -582,8 +594,9 @@ pub async fn object_menu(window: tauri::Window) -> Result<(), String> {
             // 친구가 붙인 포스트잇은 덮어쓰거나 뗄 수 없다 (읽는 중에도)
             other => MenuItem::with_id(&app, format!("{MENU_NOTE}{label}"), "📝 포스트잇 붙이기…", other == Postit::None, None::<&str>)?,
         };
-        let remove = MenuItem::with_id(&app, format!("{MENU_REMOVE}{label}"), "🗑️ 치우기", true, None::<&str>)?;
-        Menu::with_items(&app, &[&note, &remove])
+        let remove = MenuItem::with_id(&app, format!("{MENU_REMOVE}{label}"), "🗑️ 이것만 치우기", true, None::<&str>)?;
+        let clear = MenuItem::with_id(&app, MENU_CLEAR, "🧹 쓰레기 다 치우기", true, None::<&str>)?;
+        Menu::with_items(&app, &[&note, &remove, &clear])
     };
     let menu = build().map_err(|e| e.to_string())?;
     window.popup_menu(&menu).map_err(|e| e.to_string())
