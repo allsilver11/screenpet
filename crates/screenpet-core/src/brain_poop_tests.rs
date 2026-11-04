@@ -223,10 +223,16 @@ fn a_hop_over_really_lands_past_the_poop_and_a_turn_walks_away() {
             }
             State::Turn { .. } => {
                 turns += 1;
+                let turned_at = p.body.x;
                 for _ in 0..40 {
                     p.update(DT, &w);
                 }
                 assert_eq!(p.facing, -1.0, "{seed}: {:?}", p.state);
+                // 돌아서 걸어간다 (똥 쪽으로 다시 가지 않는다)
+                for _ in 0..60 {
+                    p.update(DT, &w);
+                }
+                assert!(p.body.x < turned_at, "{seed}: walks away {} from {turned_at} {:?}", p.body.x, p.state);
             }
             State::Slip { .. } => {}
             other => panic!("{other:?}"),

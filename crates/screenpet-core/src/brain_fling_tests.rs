@@ -155,6 +155,32 @@ fn garbage_fling_falls_back_to_walking_in() {
 }
 
 #[test]
+fn garbage_fling_from_above_or_below_falls_back_to_walking_in() {
+    let w = world(vec![]);
+    let plain = |side: Side| {
+        let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+        p.enter(&w, side);
+        (p.state, p.body, p.thrown)
+    };
+    for side in [Side::Up, Side::Down] {
+        for bad in [
+            Fling { height: f64::NAN, vx: 1.0, vy: 1.0 },
+            Fling { height: 0.5, vx: f64::NAN, vy: 1.0 },
+            Fling { height: 0.5, vx: 1.0, vy: f64::INFINITY },
+        ] {
+            let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
+            p.enter_flung(&w, side, bad);
+            assert_eq!((p.state, p.body, p.thrown), plain(side), "{side:?} {bad:?}");
+            assert!(p.body.x.is_finite() && p.body.y.is_finite() && p.body.vx.is_finite() && p.body.vy.is_finite(), "{:?}", p.body);
+        }
+        // 비교: 멀쩡한 값은 던져진 채 들어온다
+        let mut q = Pet::new(cfg(), 0.0, 0.0, 1);
+        q.enter_flung(&w, side, Fling { height: 0.5, vx: 300.0, vy: if side == Side::Up { 500.0 } else { -900.0 } });
+        assert!(q.thrown, "{side:?}");
+    }
+}
+
+#[test]
 fn bee_drifts_in_and_settles() {
     let w = world(vec![]);
     let mut b = Pet::new(bee(), 0.0, 0.0, 1);

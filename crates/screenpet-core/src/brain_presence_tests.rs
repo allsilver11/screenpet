@@ -122,6 +122,7 @@ fn a_walking_pet_finishes_on_the_spot_and_a_napping_pet_stays_napping() {
     let mut sim = Sim::new();
     sim_away(&mut sim, &mut p, &w);
     assert!(matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
+    assert!((p.body.x - 800.0).abs() < 5.0, "on the spot: {}", p.body.x);
     let (mut q, w) = on_ground(sim_cfg(), 800.0);
     q.state = State::Sleep { remaining: 3.0 };
     let mut sim = Sim::new();
@@ -132,11 +133,57 @@ fn a_walking_pet_finishes_on_the_spot_and_a_napping_pet_stays_napping() {
 
 #[test]
 fn no_cursor_play_or_friends_while_the_user_is_away() {
-    let (mut p, _w) = on_ground(sim_cfg(), 800.0);
+    let (mut p, w) = on_ground(sim_cfg(), 800.0);
     p.set_user_away(true);
     assert!(!p.social_free());
     p.set_user_away(false);
     assert!(p.social_free());
+    // 커서가 코앞에 있어도 장난치러 오지 않는다 (같은 자리에 있으면 깨어 있는 동물은 온다)
+    let stays_put = |away: bool| {
+        let (mut p, w) = on_ground(sim_cfg(), 800.0);
+        p.set_user_away(away);
+        p.cursor_mood.ready_at = 0.0;
+        for _ in 0..(60 * 30) {
+            p.hover(1000.0, 800.0, false);
+            p.cursor_input(false, false, true);
+            p.update(DT, &w);
+            if matches!(p.state, State::CursorPlay { .. }) {
+                return false;
+            }
+            if !matches!(p.state, State::Sleep { .. }) {
+                p.state = State::Idle { remaining: 100.0, look: false };
+            }
+        }
+        true
+    };
+    assert!(stays_put(true));
+    assert!(!stays_put(false), "the control comes to play");
+    // 친구가 옆에 있어도 인사하지 않는다
+    let friend = || {
+        let (mut q, _) = on_ground(sim_cfg(), 900.0);
+        q.state = State::Idle { remaining: 100.0, look: false };
+        q
+    };
+    let (mut a, _) = on_ground(sim_cfg(), 800.0);
+    a.state = State::Idle { remaining: 100.0, look: false };
+    let mut awake = vec![a, friend()];
+    let mut s = crate::social::Social::new(1);
+    s.tick(DT, &mut awake);
+    assert_eq!(s.active(), 1, "the control greets");
+    let (mut a, _) = on_ground(sim_cfg(), 800.0);
+    a.state = State::Idle { remaining: 100.0, look: false };
+    let mut gone = vec![a, friend()];
+    for p in &mut gone {
+        p.set_user_away(true);
+    }
+    let mut s = crate::social::Social::new(1);
+    for _ in 0..60 {
+        s.tick(DT, &mut gone);
+        for p in &mut gone {
+            p.update(DT, &w);
+        }
+        assert_eq!(s.active(), 0);
+    }
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! 친구 동물과 놀아 주기 (brain_guestplay.rs) — 클릭하면 애교 또는 "잡아 봐!"
 
 use super::guest_play::{pick_guest_click, steer_away, GuestClick, CATCH_ME_SECS, CORNER_COMMIT_SECS, DODGE_BODIES};
-use super::tests::{place, sim_cfg, w1, world};
+use super::tests::{place, sim_cfg, w1, win, world};
 use super::*;
 use crate::test_util::LoopLimit;
 
@@ -36,6 +36,26 @@ fn running_guest(cfg: PetConfig, w: &World, owner: Owner, x: f64) -> Pet {
         }
     }
     panic!("never ran away");
+}
+
+/// 몸보다 좁은 디딤판 조각 위에선 달아나지 못하고 제자리다: 밖으로 튕겨 나가거나 패닉하지 않는다
+#[test]
+fn on_a_piece_narrower_than_the_body_catch_me_stays_put() {
+    // 창 1 윗면의 가운데 40px만 앞창 2·3 사이로 드러난다
+    let front = vec![win(2, 400.0, 300.0, 780.0, 800.0), win(3, 820.0, 300.0, 1200.0, 800.0), win(1, 500.0, 400.0, 1100.0, 900.0)];
+    let w = world(front);
+    let piece = w.piece_at(Owner::Window(1), 800.0).copied().expect("the visible gap is a piece");
+    assert!(piece.x_end - piece.x_start < 2.0 * sim_cfg().half_w, "{piece:?}");
+    let mut p = running_guest(sim_cfg(), &w, Owner::Window(1), 800.0);
+    let (x, y) = (p.body.x, p.body.y);
+    for _ in 0..(CATCH_ME_SECS.0 * 0.5 / DT) as usize {
+        // 커서가 코앞에서 쫓아 온다
+        p.hover(x + 30.0, y - 40.0, false);
+        p.update(DT, &w);
+        assert!(p.is_catch_me(), "{:?}", p.state);
+        assert_eq!((p.body.x, p.body.y), (x, y));
+        assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
+    }
 }
 
 #[test]

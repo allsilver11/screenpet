@@ -638,7 +638,27 @@ fn windows_bottom_taskbar_ground_surface_is_the_work_area_bottom() {
         let ground = w.surfaces.iter().find(|s| s.owner == Owner::Ground(0)).unwrap_or_else(|| panic!("{name}"));
         assert_eq!(ground.y, wa.bottom, "{name}");
         assert_eq!(crate::visit::column_bounds(&w, x).map(|c| c.bottom), Some(wa.bottom), "{name}");
+        // 모든 모니터: 그 모니터의 바닥 디딤판이 그 모니터 작업 영역 바닥이고, 거기서 넘어가는 끝도 그 바닥이다
+        for (i, area) in w.work_areas.iter().enumerate() {
+            let g = w.surfaces.iter().find(|s| s.owner == Owner::Ground(i)).unwrap_or_else(|| panic!("{name}: no Ground({i})"));
+            assert_eq!(g.y, area.bottom, "{name} Ground({i})");
+            let mid = (area.left + area.right) / 2.0;
+            assert!(g.contains_x(mid), "{name} Ground({i}) covers its own monitor");
+            assert_eq!(crate::visit::column_bounds(&w, mid).map(|c| c.bottom), Some(area.bottom), "{name} Ground({i})");
+        }
     }
+}
+
+/// 둘째 모니터 바닥에 내려서고 그 위를 걷는다 (Ground(1))
+#[test]
+fn a_pet_dropped_on_the_second_monitor_lands_on_its_own_ground() {
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1080.0)], 128.0);
+    let mut p = Pet::new(cfg(), 2500.0, 700.0, 1);
+    for _ in 0..240 {
+        p.update(DT, &w);
+    }
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(1)), "{:?}", p.state);
+    assert_eq!(p.body.y, 1080.0);
 }
 
 /// 진짜 틱 순서: 놓은 뒤 매 틱 update — 넘어가는 틱까지 한 번도 바닥에 내려서지 않는다. 틱 길이와 놓는 높이를 바꿔 가며 (틱이 바닥을 지나는 자리가 다 다르게)
@@ -646,7 +666,8 @@ fn windows_bottom_taskbar_ground_surface_is_the_work_area_bottom() {
 fn windows_bottom_taskbar_downward_throw_crosses_before_any_landing_tick_by_tick() {
     for (name, w, x) in windows_bottom_taskbar_setups() {
         let floor = w.work_area_at(x, 900.0).bottom;
-        for dt in [1.0 / 30.0, 1.0 / 60.0, 1.0 / 144.0] {
+        // 0.05 = game_loop.rs MAX_DT: 가장 긴 틱
+        for dt in [0.05, 1.0 / 30.0, 1.0 / 60.0, 1.0 / 144.0] {
             for k in 0..40 {
                 let feet = floor - 150.0 - 0.37 * k as f64;
                 let mut p = Pet::new(cfg(), x, 0.0, 1);

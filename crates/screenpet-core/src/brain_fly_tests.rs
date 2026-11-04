@@ -347,7 +347,7 @@ fn edge_flights(n: u64, edges: (bool, bool)) -> (usize, usize) {
 fn bee_near_a_connected_edge_flies_out_about_30_percent() {
     let (exits, stays) = edge_flights(400, (false, true));
     assert!((90..=150).contains(&exits), "exits {exits}");
-    assert_eq!(exits + stays, 400);
+    assert!((250..=310).contains(&stays), "stays {stays}");
     assert_eq!(edge_flights(100, (true, false)).0, 0);
 }
 

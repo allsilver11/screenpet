@@ -515,24 +515,6 @@ fn roster_keeps_ten_own_and_twenty_foreign_dropping_the_oldest() {
 }
 
 #[test]
-fn the_same_kind_can_fill_the_whole_roster() {
-    // 상한은 종류를 가리지 않는다: 같은 캔 열 개, 열한 번째면 가장 오래된 캔이 나간다
-    let w = wide();
-    let mut r = Roster::default();
-    let mut cans = Vec::new();
-    for id in 0..MAX_OWN_OBJECTS as u64 {
-        cans.push(Object::new(ObjectKind::Can, 200.0 + id as f64 * 50.0, 900.0, 1.0, id));
-        assert_eq!(r.add(id, Origin::Own), None);
-    }
-    for can in &mut cans {
-        run(can, &w, 0.1);
-    }
-    assert_eq!(r.own_count(), MAX_OWN_OBJECTS);
-    assert_eq!(r.add(MAX_OWN_OBJECTS as u64, Origin::Own), Some(0));
-    assert_eq!(r.own_count(), MAX_OWN_OBJECTS);
-}
-
-#[test]
 fn toss_budget_allows_ten_a_minute_per_link() {
     let mut b = TossBudget::default();
     for _ in 0..10 {

@@ -161,6 +161,10 @@ fn picking_the_pet_up_drops_the_ball_and_no_snowman_appears() {
     assert!(p.is_held());
     assert_eq!(p.snowball_at(), None);
     assert_eq!(p.take_snowman(), None);
+    // 내려놓고 기다려도 눈사람은 나오지 않는다
+    p.pointer_up(p.body.x, p.body.y - 40.0);
+    assert_eq!(run_until_built(&mut p, &w, 30.0), None);
+    assert_eq!(p.snowball_at(), None);
 }
 
 #[test]

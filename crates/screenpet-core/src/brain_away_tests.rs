@@ -673,7 +673,19 @@ fn a_user_who_stays_still_hears_the_segment_changes_only_while_present() {
         sim.idle = 0.0;
         sim.second(&mut p, &w, |_| {});
     }
-    assert!(sim.said.contains(&Speech::BreakTime), "{:?}", sim.said);
+    assert_eq!(sim.said.iter().filter(|s| **s == Speech::BreakTime).count(), 1, "{:?}", sim.said);
+    assert_eq!(phase(&sim), FocusPhase::Break);
+    // 자리를 비운 사용자에겐 같은 순간이 조용히 지나간다
+    let mut sim = Sim::at(15, 0);
+    let mut p = Pet::new(walker(), 0.0, 0.0, 5);
+    place(&mut p, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    sim.rhythm.start_focus(FocusLength::Short, sim.secs, &mut p);
+    sim.idle = AWAY_AFTER_SECS;
+    for _ in 0..25 * 60 + 2 {
+        sim.second(&mut p, &w, |_| {});
+    }
+    assert_eq!(phase(&sim), FocusPhase::Break);
+    assert!(!sim.said.contains(&Speech::BreakTime), "{:?}", sim.said);
 }
 
 // ---- 돌보기 ----
@@ -685,4 +697,14 @@ fn being_away_only_makes_it_hungry_never_smaller() {
     assert_eq!(care.fullness, 0.0);
     assert_eq!(care.stage, crate::care::Stage::Baby);
     assert_eq!(care.stamina, 3.0);
+    // 정말 자리를 비운 채 두 시간 Rhythm이 돌아도 몸은 그대로다
+    let w = world(vec![]);
+    let mut sim = Sim::at(15, 0);
+    sim.care = Care { stage: crate::care::Stage::Teenager, stamina: 3.0, fullness: 1.0, locked: false };
+    let mut p = Pet::new(walker(), 0.0, 0.0, 5);
+    place(&mut p, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    sim.walk_away(&mut p, &w);
+    sim.run(&mut p, &w, TWO_HOURS);
+    assert_eq!(sim.care.stage, crate::care::Stage::Teenager);
+    assert_eq!(sim.care.stamina, 3.0);
 }

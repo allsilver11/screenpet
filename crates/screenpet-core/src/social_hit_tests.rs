@@ -439,6 +439,52 @@ fn a_real_throw_counts_too() {
     assert!(o.in_flight());
 }
 
+/// 게임 루프 순서 그대로: 손으로 던진 물건이 Object::tick으로 날아가 Social::object_hits로 동물을 맞힌다
+#[test]
+fn a_hand_thrown_object_flies_by_its_own_physics_and_hits_the_pet() {
+    let w = world(vec![]);
+    let edges = ExitEdges::default();
+    let throw = || {
+        let mut o = Object::new(ObjectKind::Can, 500.0, GROUND - 40.0, 1.0, 1);
+        o.pointer_down(500.0, GROUND - 40.0);
+        for i in 1..=8 {
+            o.tick(DT, &w, edges, false);
+            o.pointer_move(500.0 + 1500.0 * i as f64 * DT, GROUND - 60.0);
+        }
+        o.pointer_up();
+        assert!(o.in_flight());
+        o
+    };
+    let mut pets = vec![ground(&w, friendly(), 900.0, 2)];
+    let mut s = Social::new(1);
+    let mut o = throw();
+    let mut hit = false;
+    for _ in 0..120 {
+        s.tick(DT, &mut pets);
+        let before = o.body.vx;
+        o.tick(DT, &w, edges, false);
+        s.object_hits(7, &mut o, DT, &mut pets);
+        if pets[0].wobbling() {
+            assert!(before > 0.0 && o.body.vx < before, "bounced back: {before} -> {}", o.body.vx);
+            assert!(o.body.x < 900.0, "{}", o.body.x);
+            hit = true;
+            break;
+        }
+    }
+    assert!(hit, "{:?}", o.body);
+    assert!(matches!(pets[0].take_speech(), Some(Speech::Whoa | Speech::Ow)));
+    // 비교: 동물이 없는 쪽으로 던지면 그냥 날아간다
+    let mut far = vec![ground(&w, friendly(), 100.0, 2)];
+    let mut s = Social::new(1);
+    let mut o = throw();
+    for _ in 0..120 {
+        s.tick(DT, &mut far);
+        o.tick(DT, &w, edges, false);
+        s.object_hits(7, &mut o, DT, &mut far);
+        assert!(!far[0].wobbling());
+    }
+}
+
 #[test]
 fn poop_also_disgusts() {
     let w = world(vec![]);
@@ -519,10 +565,19 @@ fn an_object_does_not_hit_the_same_pet_again_at_once() {
 #[test]
 fn busy_pets_are_not_hit_by_objects() {
     let w = world(vec![]);
-    let mut pets = vec![ground(&w, friendly(), 800.0, 2)];
-    pets[0].state = State::Dragged;
-    let mut s = Social::new(1);
-    let mut o = thrown_object(ObjectKind::Can, 600.0, GROUND - 20.0, 1200.0, 0.0);
-    assert!(!fly_object(&mut s, &mut o, &mut pets, 30));
-    assert_eq!(pets[0].state, State::Dragged);
+    let hit = |busy: bool| {
+        let mut pets = vec![ground(&w, friendly(), 800.0, 2)];
+        if busy {
+            pets[0].state = State::Dragged;
+        }
+        let mut s = Social::new(1);
+        let mut o = thrown_object(ObjectKind::Can, 600.0, GROUND - 20.0, 1200.0, 0.0);
+        let hit = fly_object(&mut s, &mut o, &mut pets, 30);
+        if busy {
+            assert_eq!(pets[0].state, State::Dragged);
+        }
+        hit
+    };
+    assert!(hit(false), "the same throw hits a free pet");
+    assert!(!hit(true));
 }

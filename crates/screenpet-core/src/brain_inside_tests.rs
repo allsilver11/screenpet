@@ -301,6 +301,17 @@ fn sleeping_pet_waits_to_leave_until_it_wakes() {
     run(&mut p, &w, 60);
     assert!(matches!(p.state, State::Sleep { .. }));
     assert_eq!(p.inside_window(), Some(1));
+    // 깨고 나면 나간다 (자는 동안엔 나가지 않는다)
+    for _ in 0..(60 * 60) {
+        p.update(DT, &w);
+        if matches!(p.state, State::Sleep { .. }) {
+            assert_eq!(p.inside_window(), Some(1));
+        }
+        if p.inside_window().is_none() {
+            return;
+        }
+    }
+    panic!("never left: {:?}", p.state);
 }
 
 #[test]
@@ -417,12 +428,19 @@ fn go_home_while_hopping_in_lands_then_hops_out() {
     p.state = State::Air { anim: Anim::Hop };
     p.inside.as_mut().unwrap().mode = Mode::HopIn;
     p.go_home(Owner::Ground(0), 1800.0);
+    // 뛰어드는 걸 마저 해 창 안에 내려선 다음, 창 밖으로 나와 집으로
+    let (mut landed_inside, mut left) = (false, false);
     for _ in 0..(60 * 30) {
         p.update(DT, &w);
+        if !left && p.inside.is_some() {
+            landed_inside |= p.standing.is_some();
+        }
+        left |= p.inside.is_none();
         if p.is_housed() {
             break;
         }
     }
+    assert!(landed_inside && left, "landed {landed_inside} left {left}");
     assert!(p.is_housed());
 }
 

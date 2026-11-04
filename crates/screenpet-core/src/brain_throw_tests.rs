@@ -226,4 +226,18 @@ fn falls_and_hops_keep_the_normal_gravity() {
     p.body.y = 500.0;
     p.update(DT, &w);
     assert!((p.body.vy - GRAVITY * DT).abs() < 1e-9, "after landing {}", p.body.vy);
+    // 깡총: 던졌던 동물이 내려선 뒤 스스로 뛰면 평소 중력이다
+    flick(&mut p, &w, 1.0, 300.0, (10.0, -10.0), 6);
+    fly_out(&mut p, &w, 1.0);
+    p.start_hop(1.0);
+    let mut hop_ticks = 0;
+    while p.standing.is_none() && hop_ticks < 120 {
+        let vy = p.body.vy;
+        p.update(DT, &w);
+        if p.standing.is_none() {
+            assert!((p.body.vy - vy - GRAVITY * DT).abs() < 1e-9, "hop {vy} -> {}", p.body.vy);
+            hop_ticks += 1;
+        }
+    }
+    assert!((5..120).contains(&hop_ticks), "really hopped and landed: {hop_ticks}");
 }

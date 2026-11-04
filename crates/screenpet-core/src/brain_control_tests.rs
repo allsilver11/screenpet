@@ -492,14 +492,18 @@ fn remote_keys_steer_a_homesick_guest_and_keep_it_from_leaving() {
 #[test]
 fn remote_keys_cannot_hold_a_guest_on_the_host_screen_forever() {
     let (mut p, w) = guest_on_ground(900.0, 0.0);
-    let mut sent_home = false;
-    for tick in 0..((crate::visit::CONTROLLED_HOMESICK_LIMIT_SECS + 60.0) / DT) as usize {
+    let limit = crate::visit::CONTROLLED_HOMESICK_LIMIT_SECS;
+    let mut sent_home = None;
+    for tick in 0..((limit + 60.0) / DT) as usize {
         let right = tick % 240 < 120;
         p.remote_keys(true, keys(|k| if right { k.right = true } else { k.left = true }));
         p.update(DT, &w);
-        sent_home |= p.leaving() || p.take_exit().is_some() || p.home_trip.is_some() || p.farewell_pending;
+        if sent_home.is_none() && (p.leaving() || p.take_exit().is_some() || p.home_trip.is_some() || p.farewell_pending) {
+            sent_home = Some(tick as f64 * DT);
+        }
     }
-    assert!(sent_home, "{:?}", p.state);
+    let at = sent_home.unwrap_or_else(|| panic!("{:?}", p.state));
+    assert!((limit - 1.0..limit + 60.0).contains(&at), "friend keeps it for the whole limit, then no longer: {at}");
 }
 
 #[test]
@@ -517,20 +521,29 @@ fn pressing_a_key_brings_a_guest_out_of_a_window_and_then_it_obeys() {
         p.update(DT, &w);
     }
     assert!(p.inside.is_some(), "settled inside: {:?}", p.state);
-    let mut moved_out = false;
+    let mut out_at = None;
     for _ in 0..(6.0 / DT) as usize {
         p.remote_keys(true, keys(|k| k.right = true));
         p.update(DT, &w);
-        moved_out |= p.inside.is_none();
+        if p.inside.is_none() && p.standing.is_some() {
+            out_at.get_or_insert(p.body.x);
+        }
     }
-    assert!(moved_out, "still inside: {:?} {:?}", p.state, p.body);
+    let out_at = out_at.unwrap_or_else(|| panic!("still inside: {:?} {:?}", p.state, p.body));
+    // 나온 뒤엔 키대로 오른쪽으로 걷는다
+    assert!(p.is_controlled());
+    assert!(p.body.x > out_at + 10.0, "obeys: {} from {out_at}", p.body.x);
 }
 
 #[test]
 fn remote_control_times_out_after_three_key_less_minutes() {
     let (mut p, w) = guest_on_ground(900.0, 10_000.0);
     p.remote_keys(true, NONE);
-    for _ in 0..((CONTROL_IDLE_SECS + 1.0) / DT) as usize {
+    for _ in 0..((CONTROL_IDLE_SECS - 1.0) / DT) as usize {
+        p.update(DT, &w);
+    }
+    assert!(p.is_controlled(), "not before the time is up");
+    for _ in 0..(2.0 / DT) as usize {
         p.update(DT, &w);
     }
     assert!(!p.is_controlled());

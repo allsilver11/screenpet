@@ -198,6 +198,17 @@ fn pets_without_lookup_never_look_up() {
             assert_ne!(p.render().anim, Anim::LookUp);
         }
     }
+    // 주사위를 정말 굴리지 않는다 (있는 동물은 굴린다)
+    let dice = |c: PetConfig| {
+        let mut p = Pet::new(c, 0.0, 0.0, 3);
+        let before = p.rng.get_seed();
+        for _ in 0..50 {
+            p.roll_look_up();
+        }
+        p.rng.get_seed() != before
+    };
+    assert!(!dice(sim_cfg()));
+    assert!(dice(looker()));
     // 같은 순간에 lookup이 있는 동물은 올려다보고, 없는 동물은 그냥 쳐다본다
     let (mut p, _) = standing_at(cfg(), 800.0);
     p.state = State::Idle { remaining: 1.0, look: true };
