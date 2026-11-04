@@ -33,6 +33,22 @@ pub fn cocoa_to_top_left(x: f64, y: f64, w: f64, h: f64, primary_height: f64) ->
     Rect::new(x, top, x + w, top + h)
 }
 
+/// 화면 목록을 다시 읽을 때를 잰다 (매 틱 메인 스레드로 보내지 않는다)
+#[derive(Debug, Default)]
+pub struct RefreshGate {
+    last: Option<std::time::Instant>,
+}
+
+impl RefreshGate {
+    pub fn due(&mut self, now: std::time::Instant, every: std::time::Duration) -> bool {
+        if self.last.is_some_and(|t| now.duration_since(t) < every) {
+            return false;
+        }
+        self.last = Some(now);
+        true
+    }
+}
+
 fn contains(r: &Rect, x: f64, y: f64) -> bool {
     r.left <= x && x < r.right && r.top <= y && y < r.bottom
 }
@@ -80,6 +96,16 @@ pub fn work_areas_physical(screens: &[Screen]) -> Vec<Rect> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_refresh_waits_between_reads() {
+        let t0 = std::time::Instant::now();
+        let every = std::time::Duration::from_secs(1);
+        let mut gate = RefreshGate::default();
+        assert!(gate.due(t0, every), "first read is at once");
+        assert!(!gate.due(t0 + std::time::Duration::from_millis(16), every), "not every tick");
+        assert!(gate.due(t0 + every, every));
+    }
 
     #[test]
     fn primary_screen_flips_to_top_left() {

@@ -5,6 +5,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use dispatch2::DispatchQueue;
 use objc2::MainThreadMarker;
@@ -17,7 +18,7 @@ use objc2_core_graphics::{
     CGWindowListCopyWindowInfo, CGWindowListOption,
 };
 
-use super::mac_coords::{self, Screen};
+use super::mac_coords::{self, RefreshGate, Screen};
 use super::WindowSource;
 use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
@@ -148,6 +149,14 @@ fn number(info: &CFDictionary<CFString, CFType>, key: &CFString) -> Option<CFRet
 static CACHE: OnceLock<Mutex<Option<Vec<Screen>>>> = OnceLock::new();
 static REFRESHING: AtomicBool = AtomicBool::new(false);
 
+/// 화면 목록을 다시 읽는 간격 (모니터를 꽂거나 뽑으면 이만큼 뒤에 안다)
+const SCREEN_REFRESH: Duration = Duration::from_secs(1);
+
+fn gate() -> &'static Mutex<RefreshGate> {
+    static GATE: OnceLock<Mutex<RefreshGate>> = OnceLock::new();
+    GATE.get_or_init(|| Mutex::new(RefreshGate::default()))
+}
+
 fn cache() -> &'static Mutex<Option<Vec<Screen>>> {
     CACHE.get_or_init(|| Mutex::new(None))
 }
@@ -158,7 +167,9 @@ fn screens() -> Vec<Screen> {
         *cache().lock().unwrap() = Some(list.clone());
         return list;
     }
-    if !REFRESHING.swap(true, Ordering::AcqRel) {
+    // 커서 읽기만 해도 매 틱 여기로 온다 — 메인 스레드에는 가끔만 부탁하고 사이엔 저장된 목록을 쓴다
+    let due = gate().lock().unwrap().due(Instant::now(), SCREEN_REFRESH);
+    if due && !REFRESHING.swap(true, Ordering::AcqRel) {
         DispatchQueue::main().exec_async(|| {
             if let Some(mtm) = MainThreadMarker::new() {
                 let list = read_ns_screens(mtm);
