@@ -133,24 +133,21 @@ impl World {
 
     /// 바깥에서 떨어지는 동물이 이번 틱에 처음 지나친 디딤판 (창 안쪽 바닥은 디디지 않는다)
     pub fn landing(&self, x: f64, prev_y: f64, new_y: f64) -> Option<&Surface> {
-        if new_y <= prev_y {
-            return None;
-        }
-        self.surfaces
-            .iter()
-            .filter(|s| !matches!(s.owner, Owner::Inside(_)) && s.contains_x(x) && prev_y <= s.y && new_y >= s.y)
-            .min_by(|a, b| a.y.total_cmp(&b.y))
+        self.first_crossed(x, prev_y, new_y, |o| !matches!(o, Owner::Inside(_)))
     }
 
-    /// landing과 같되 바닥만 디딘다 (아래 친구에게 던진 것은 창 윗면에 내려앉지 않고 지나간다)
-    pub fn ground_landing(&self, x: f64, prev_y: f64, new_y: f64) -> Option<&Surface> {
+    /// 던지거나 떨어진 것이 이번 틱에 내려설 디딤판. to_ground = 바닥만 디딘다 (아래 친구에게 던진 것은 창 윗면에 내려앉지 않고 지나간다).
+    /// 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 내려오는 동안 Ground를 바닥으로 친다
+    pub fn fall_landing(&self, x: f64, prev_y: f64, new_y: f64, vy: f64, to_ground: bool) -> Option<Surface> {
+        let first = if to_ground { self.first_crossed(x, prev_y, new_y, |o| matches!(o, Owner::Ground(_))) } else { self.landing(x, prev_y, new_y) };
+        first.or_else(|| if vy >= 0.0 { self.ground_below(x, new_y) } else { None }).copied()
+    }
+
+    fn first_crossed(&self, x: f64, prev_y: f64, new_y: f64, stands: impl Fn(Owner) -> bool) -> Option<&Surface> {
         if new_y <= prev_y {
             return None;
         }
-        self.surfaces
-            .iter()
-            .filter(|s| matches!(s.owner, Owner::Ground(_)) && s.contains_x(x) && prev_y <= s.y && new_y >= s.y)
-            .min_by(|a, b| a.y.total_cmp(&b.y))
+        self.surfaces.iter().filter(|s| stands(s.owner) && s.contains_x(x) && prev_y <= s.y && new_y >= s.y).min_by(|a, b| a.y.total_cmp(&b.y))
     }
 }
 

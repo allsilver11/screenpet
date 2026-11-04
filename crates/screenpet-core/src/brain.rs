@@ -2576,11 +2576,8 @@ impl Pet {
     /// 낙하·미끄러짐 공통: 이번 틱에 지나친 디딤판에 내려서거나, 화면 밖으로 사라졌으면 위에서 다시 떨어뜨린다
     fn land_or_recover(&mut self, prev_y: f64, world: &World) {
         // 아래 친구에게 던졌으면 창 윗면을 지나 바닥까지 간다 (brain_vert.rs)
-        let first = if self.thrown_to_friend_below() { world.ground_landing(self.body.x, prev_y, self.body.y) } else { world.landing(self.body.x, prev_y, self.body.y) };
-        let landing = first.copied().or_else(|| {
-            // 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 Ground를 바닥으로 취급
-            if self.body.vy >= 0.0 { world.ground_below(self.body.x, self.body.y).copied() } else { None }
-        });
+        let to_ground = self.thrown_to_friend_below();
+        let landing = world.fall_landing(self.body.x, prev_y, self.body.y, self.body.vy, to_ground);
         if let Some(s) = landing {
             let (ax, _) = world.anchor(s.owner).expect("surface owner has anchor");
             self.body = Body { x: self.body.x, y: s.y, vx: 0.0, vy: 0.0 };

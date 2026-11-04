@@ -591,15 +591,8 @@ impl Object {
         }
         self.angle += self.spin * dt;
         // 아래 친구에게 던졌으면 창 윗면을 지나 바닥까지 간다
-        let first = if self.thrown && self.thrown_down && edges.down { world.ground_landing(self.body.x, prev_y, self.body.y) } else { world.landing(self.body.x, prev_y, self.body.y) };
-        let landing = first.copied().or_else(|| {
-            // 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 Ground를 바닥으로 취급
-            if self.body.vy >= 0.0 {
-                world.ground_below(self.body.x, self.body.y).copied()
-            } else {
-                None
-            }
-        });
+        let to_ground = self.thrown && self.thrown_down && edges.down;
+        let landing = world.fall_landing(self.body.x, prev_y, self.body.y, self.body.vy, to_ground);
         if let Some(s) = landing {
             self.body.y = s.y;
             self.thrown = false;
