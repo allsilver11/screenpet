@@ -288,3 +288,56 @@ def test_verify_waits_for_a_running_test_but_not_forever(tmp_path):
 def test_verify_fails_when_github_cannot_answer(tmp_path):
     result, _ = run_script(tmp_path, script(release(), VERIFY), "{}", GH_FAIL_ON="check-runs")
     assert result.returncode != 0
+
+
+# ---- 지난 릴리즈의 소개글 ------------------------------------------------------
+
+NOTES = ROOT / ".github" / "workflows" / "release-notes.yml"
+
+
+def notes_job():
+    return load(NOTES)["jobs"]["update"]
+
+
+def notes_tree(tmp_path, *tags):
+    (tmp_path / "docs" / "releases").mkdir(parents=True)
+    for tag in tags:
+        (tmp_path / "docs" / "releases" / f"{tag}.md").write_text(f"{tag} 소개\n", encoding="utf-8")
+
+
+def test_release_notes_only_run_for_notes_on_main():
+    wf = load(NOTES)
+    assert wf[True] == {"push": {"branches": ["main"], "paths": ["docs/releases/**"]}}
+    assert wf["permissions"] == {"contents": "read"}
+    assert notes_job()["permissions"] == {"contents": "write"}
+
+
+@needs_jq
+def test_release_notes_edit_only_existing_releases_and_only_the_text(tmp_path):
+    notes_tree(tmp_path, "v0.3.10", "v0.3.2", "v0.3.3", "v0.4.0")
+    reply = json.dumps([{"tag_name": t} for t in ("v0.4.0", "v0.3.10", "v0.3.2")])  # v0.3.3은 지워진 릴리즈
+    step = script(notes_job(), "Update release bodies")
+    result, log = run_script(tmp_path, step, reply)
+    assert result.returncode == 0, result.stdout + result.stderr
+    edits = [line for line in log if not line.startswith("api ")]
+    assert edits == [
+        f"release edit {tag} --notes-file docs/releases/{tag}.md" for tag in ("v0.3.2", "v0.3.10", "v0.4.0")
+    ], "version order, newest last"
+    assert "v0.3.3" in result.stdout
+
+
+@needs_jq
+def test_release_notes_fail_when_a_release_cannot_be_edited(tmp_path):
+    notes_tree(tmp_path, "v0.4.0")
+    step = script(notes_job(), "Update release bodies")
+    result, _ = run_script(tmp_path, step, json.dumps([{"tag_name": "v0.4.0"}]), GH_FAIL_ON="release edit")
+    assert result.returncode != 0
+
+
+@needs_jq
+def test_release_notes_fail_rather_than_skip_everything_when_the_list_fails(tmp_path):
+    notes_tree(tmp_path, "v0.4.0")
+    step = script(notes_job(), "Update release bodies")
+    result, log = run_script(tmp_path, step, "[]", GH_FAIL_ON="/releases")
+    assert result.returncode != 0
+    assert not [line for line in log if line.startswith("release edit")]
