@@ -20,7 +20,7 @@ use crate::secure::SecureLink;
 use crate::transport::{self, FrameLink, FrameReader, Recv};
 use crate::{
     Backoff, Conn, Kind, NetEvent, PairStage, Pairing, SessionGuard, Shared, State, INVITED_WINDOW,
-    KEY_MISMATCH_HINT_AFTER, MAX_INVITED_PER_WINDOW, MAX_INVITES_IN, MAX_INVITES_IN_PER_ADDR, MAX_PAIR_ATTEMPTS_PER_ADDR, PRE_AUTH_MAX,
+    MAX_INVITED_PER_WINDOW, MAX_INVITES_IN, MAX_INVITES_IN_PER_ADDR, MAX_PAIR_ATTEMPTS_PER_ADDR, PRE_AUTH_MAX,
 };
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -206,16 +206,8 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
         let pinned = st.friend_key(id);
         match pinned {
             Some(k) if k != ctx.remote_key => {
-                // Unproven: whoever answered is not our friend. The dialed
-                // candidate is backed off by the caller; a friend that stays
-                // away while its id keeps coming with another key gets a hint.
-                if !st.friend_links.contains_key(id) {
-                    let tries = st.key_mismatches.entry(id.to_string()).or_insert(0);
-                    *tries = tries.saturating_add(1);
-                    if *tries == KEY_MISMATCH_HINT_AFTER {
-                        shared.emit(NetEvent::FriendKeyMismatch { id: id.to_string() });
-                    }
-                }
+                // Unproven: whoever answered is not our friend. Silent; the
+                // dialed candidate is backed off by the caller.
                 return Reg::WrongKey;
             }
             None if st.friends.iter().any(|f| f.public_key == ctx.remote_key) => return Reg::Reject,
@@ -251,7 +243,6 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
             shared.release_unverified(&ctx.unverified);
             st.trust_ip(id, &ctx.peer_addr, now);
             st.friend_wait.remove(id);
-            st.key_mismatches.remove(id);
             st.backoff.remove(&Backoff::Id(id.to_string()));
             st.friend_links.insert(id.to_string(), ctx.token);
             Kind::Friend

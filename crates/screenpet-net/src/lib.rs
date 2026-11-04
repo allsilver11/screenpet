@@ -77,8 +77,6 @@ pub(crate) const MAX_TRUSTED_INBOUND: usize = 32;
 pub(crate) const PRE_AUTH_MAX: Duration = Duration::from_secs(3);
 /// Longest redial backoff for a friend whose identity check keeps failing.
 pub(crate) const MAX_BACKOFF: Duration = Duration::from_secs(300);
-/// Wrong-key connections claiming a friend id before the user gets a hint.
-pub(crate) const KEY_MISMATCH_HINT_AFTER: u32 = 3;
 /// Most concurrent incoming pairing requests, and per source address.
 pub(crate) const MAX_INVITES_IN: usize = 4;
 pub(crate) const MAX_INVITES_IN_PER_ADDR: usize = 2;
@@ -212,14 +210,10 @@ pub enum NetEvent {
     Ladder { from: String, msg: LadderMsg },
     /// Friend `id` proved its pinned key but no longer recognizes us as a
     /// friend (e.g. pairing finished on one side only, or it removed us).
-    /// Redials back off; suggest re-pairing to the user.
+    /// Redials back off; suggest re-pairing to the user. (An address that
+    /// answers for `id` with a *different* key is just treated as a bad
+    /// candidate, silently.)
     FriendForgotUs { id: String },
-    /// Friend `id` has no link, and several connections claimed its id with a
-    /// *different* key: it may have lost its key and made a new one, so suggest
-    /// re-pairing. Unproven (an address on the LAN can claim any id), so nothing
-    /// changes: the pinned key stays and those links are refused. Said once,
-    /// until a link with the pinned key comes up or the friend is removed.
-    FriendKeyMismatch { id: String },
     /// The relay connection came up (`true`) or went down (`false`).
     RelayStatus { connected: bool },
     /// Our current friend code from the relay (on connect and on rotation).
@@ -410,8 +404,6 @@ pub(crate) struct State {
     /// Addresses that authenticated as a friend → when (bounded).
     /// Keyed by (friend id, address).
     pub trusted_ips: HashMap<(String, String), Instant>,
-    /// Friend id → wrong-key connections claiming it while it had no link.
-    pub key_mismatches: HashMap<String, u32>,
     /// New inbound connections per source address (see `Shared::allow_inbound`).
     pub conn_rate: HashMap<String, (Instant, u32)>,
     /// Announcements from a trusted (id, source IP), own finite budget.
@@ -447,7 +439,6 @@ impl State {
     pub fn remove_friend(&mut self, id: &str) {
         self.friends.retain(|f| f.id != id);
         self.budgets.remove(id);
-        self.key_mismatches.remove(id);
         // Its address is no reason for trust any more
         self.trusted_ips.retain(|(friend, _), _| friend != id);
         self.trusted_rate.retain(|(friend, _), _| friend != id);
