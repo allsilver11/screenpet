@@ -1310,7 +1310,6 @@ def hungry(sp, i):
 # 소품 창(56×48 × 몸 배율)은 몸 중심 아래(발 높이)에 아래 가운데를 맞춰 동물 창 앞에 뜬다 (Rust food::PropEvent, src-tauri prop.rs).
 # 동물 프레임(128 × 몸 배율)과 같은 배율이라 프레임 좌표로: 그릇 x 36–92 · y 80–128 (밥 더미 위 ≈ 82), 꽃 꽃잎 ≈ y 87–112 (꽃술 (64, 100)).
 # 먹는 동작은 그릇을 그리지 않고 그 자리를 내려다보며 먹는다 (앞모습, 그릇은 몸 가운데 앞).
-PROP_BOX = (56, 48)
 EAT_MOUTH_Y = 77  # 먹을 때 입 윗선 (프레임 좌표) — 밥 더미 바로 위
 FLOWER_HEART = (64, 100)  # 꽃 소품의 꽃술 (프레임 좌표)
 CRUMB = (255, 250, 236)
@@ -1626,7 +1625,7 @@ def bee_antennae_side(sp, cx, cy, rx, ry, mode="up", sway=0.0):
     return ops
 
 
-def bee_antennae_front(sp, cx, cy, rx, ry, mode="up", sway=0.0, k=1.0):
+def bee_antennae_front(sp, cx, cy, ry, mode="up", sway=0.0, k=1.0):
     a = _bee()["ant"] * k
     ops = []
     for s in (-1, 1):
@@ -1672,7 +1671,7 @@ def bee_face_side(cx, cy, rx, ry, eyes="dot", mouth=None, brow=None):
     return ops
 
 
-def bee_face_front(cx, cy, rx, ry, eyes="dot", mouth=None, brow=None, mouth_dy=0.0):
+def bee_face_front(cx, cy, ry, eyes="dot", mouth=None, brow=None, mouth_dy=0.0):
     fs = _ST["head"] ** 0.6
     fy = cy - ry * 0.14
     with xf(sx=fs, sy=fs, pivot=(cx, fy)):
@@ -1713,7 +1712,7 @@ def bee_side_parts(sp, cx, cy, rx, ry, face, legs="dangle", leg_sw=0.0, stinger=
     return parts
 
 
-def bee_front_parts(sp, cx, cy, rx, ry, face, legs=True, belly=False):
+def bee_front_parts(sp, cx, cy, rx, ry, face, legs=True):
     b = _bee()
     mark_head(cx, cy - ry * 0.84, rx * 1.15)
     ys = {1: [0.52], 2: [0.46, 0.76], 3: [0.4, 0.63, 0.86]}[b["n"]]
@@ -1780,14 +1779,14 @@ def _bee_front(sp, *, c=None, ground=None, sq=(1.0, 1.0), rot=0.0, wings="flap",
         cy = ground - ry
     with xf(rot=rot, pivot=(cx, cy)):
         with xf(sx=sq[0], sy=sq[1], pivot=(cx, cy + ry)):
-            face = bee_face_front(cx, cy, rx, ry, eyes, mouth, brow, mouth_dy)
+            face = bee_face_front(cx, cy, ry, eyes, mouth, brow, mouth_dy)
             parts = bee_front_parts(sp, cx, cy, rx, ry, face, legs)
             if after:
                 parts += after(cx, cy, rx, ry)
             parts += [h() for h in held]
             for side, a in arms:
                 parts.append(bee_arm(sp, cx, cy, rx, ry, side, *((a, None) if isinstance(a, (int, float)) else (None, a))))
-            aops = bee_antennae_front(sp, cx, cy, rx, ry, ant, sway)
+            aops = bee_antennae_front(sp, cx, cy, ry, ant, sway)
             back_w, front_w = bee_wings_front(cx, cy, rx, ry, wings, phase)
     parts += [p() for p in props]
     return bee_compose(parts, aops + list(ops), fx, back_w, front_w)
@@ -1897,9 +1896,9 @@ def bee_roll(sp, i):
     r = 26.5
     with view(scale=1.0, lift=0):
         with xf(rot=[-6, 6][i], pivot=(cx, cy)):
-            face = bee_face_front(cx, cy + 3, r, r, "happy", "open" if i else None)
+            face = bee_face_front(cx, cy + 3, r, "happy", "open" if i else None)
             parts = bee_front_parts(sp, cx, cy + 3, r, r, face, legs=False)
-            ops = bee_antennae_front(sp, cx, cy + 3, r, r, "droop", k=0.62)
+            ops = bee_antennae_front(sp, cx, cy + 3, r, "droop", k=0.62)
             back_w, _ = bee_wings_front(cx, cy + 3, r, r, "flap", [0, 2][i], k=0.55)
         if i == 1:
             ops += [([E(36, 90, 48, 97), E(80, 90, 92, 97)], BLUSH)]

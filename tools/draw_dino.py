@@ -23,7 +23,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
-from draw_pets import (C, E, EYE, HEART, L, LINE, MOUTH_IN, T, TONGUE, WHITE, Part, Species, _ST, anger_fx, arc, blush,  # noqa: E402
+from draw_pets import (C, E, HEART, L, LINE, MOUTH_IN, T, WHITE, Part, Species, _ST, anger_fx, arc, blush,  # noqa: E402
                        brows, heart_fx, mix, open_mouth, question_fx, sparkle_fx, stage_eye, sweat_fx, view, xf, z_fx)
 from draw_halloween import _bubble, _fit, _stars, speed_fx  # noqa: E402
 from sprite_spec import FRAME, OPTIONAL_ANIMS, ROLL_CENTER, STAGES  # noqa: E402
@@ -99,7 +99,7 @@ def _mark_dino(st, x, hy, hr, shell_tilt):
         dp.mark_head(x, hy - hr * 0.76, hr * 1.22)
 
 
-def egg_shell(cx, top, w, side=True):
+def egg_shell(cx, top, w):
     """아기 머리 위 알껍데기 모자: 동글 윗부분 + 지그재그 깨진 아래 가장자리, 점 두어 개."""
     dome = arc(cx, top + w * 0.42, w * 0.5, w * 0.55, 180, 360, 14)
     zig = []
@@ -139,11 +139,11 @@ def front_mouth(kind, cx, my):
 
 
 def dino(sp, *, side=True, cx=64.0, bottom=None, sq=(1.0, 1.0), rot=0.0, eyes="dot", mouth=None, brow=None, head=(0.0, 0.0),
-         head_rot=0.0, arm=20.0, arms=None, legs=((0, 0), (0, 0)), tail_rot=0.0, fx=(), held=(), belly_up=False, ball=False,
+         head_rot=0.0, arm=20.0, arms=None, legs=((0, 0), (0, 0)), tail_rot=0.0, fx=(), held=(), belly_up=False,
          look_up=False, puff=False):
     """공룡 한 장. side: 오른쪽을 보는 옆모습 · bottom: 몸 아래끝 · legs: (뒤/왼, 앞/오른) 발 (dx, 들어올림) 또는 None ·
     arm: 옆모습 앞발 각도 (0 = 아래, 90 = 앞으로) · arms: 앞모습 [(쪽, 각도)] · head: 머리 (dx, dy) · head_rot: 고개 (음수 = 턱 듦) ·
-    belly_up: 발라당 (앞모습, 발이 위로) · ball: 구르기 공 · look_up: 눈동자를 위로 · puff: 볼 빵빵 (불 뿜기 전 흡)."""
+    belly_up: 발라당 (앞모습, 발이 위로) · look_up: 눈동자를 위로 · puff: 볼 빵빵 (불 뿜기 전 흡)."""
     pal = _pal(sp)
     col, spk, bel = pal["body"], pal["spike"], pal["belly"]
     st = _dn()
@@ -185,7 +185,7 @@ def dino(sp, *, side=True, cx=64.0, bottom=None, sq=(1.0, 1.0), rot=0.0, eyes="d
                 spikes.append(spike(px, py, dy / ln, -dx / ln, sh * (0.62 - 0.18 * k), sh * (0.8 - 0.2 * k)))
             parts.append(Part([], spk, grow=0, outline=True, spikes=spikes))
             # 뒷다리 (몸 뒤, 조금 짙게)
-            if legs and not ball:
+            if legs:
                 (bdx, blift), (fdx, flift) = legs
                 lx = bx - rx * 0.35 + bdx
                 parts.append(Part([E(lx - 9, bottom - 14 - blift, lx + 9, bottom + 2 - blift),
@@ -193,7 +193,7 @@ def dino(sp, *, side=True, cx=64.0, bottom=None, sq=(1.0, 1.0), rot=0.0, eyes="d
             belly_m = [([E(bx - rx * 0.05, bcy - ry * 0.55, bx + rx * 1.15, bcy + ry * 1.1)], bel),
                        ([E(bx - rx * 0.7, bcy - ry * 0.95, bx + rx * 0.1, bcy - ry * 0.45)], mix(col, WHITE, 0.22))]
             parts.append(Part(body_sh + tail_sh, col, belly_m, grow=0))
-            if legs and not ball:
+            if legs:
                 lx = bx + rx * 0.3 + fdx
                 parts.append(Part([E(lx - 12, bcy - ry * 0.05 - flift * 0.4, lx + 9, bottom + 1 - flift * 0.6),
                                    E(lx - 8, fl - 8.5 - flift, lx + 12, fl - flift)], col,
@@ -218,7 +218,7 @@ def dino(sp, *, side=True, cx=64.0, bottom=None, sq=(1.0, 1.0), rot=0.0, eyes="d
             parts.append(hpart)
             with xf(rot=head_rot, pivot=hpiv):
                 _mark_dino(st, hx - hr * (0.1 if st["shell"] else 0.25), hy, hr, -12)
-            if arm is not None and not ball:
+            if arm is not None:
                 shx, shy = bx + rx * 0.62, bcy - ry * 0.32
                 with xf(rot=-arm, pivot=(shx, shy)):
                     parts.append(Part([L([(shx, shy), (shx + 1.5, shy + 9 * (0.8 + 0.2 * bk))], 6.6)], col,
@@ -243,11 +243,11 @@ def dino(sp, *, side=True, cx=64.0, bottom=None, sq=(1.0, 1.0), rot=0.0, eyes="d
             rxf = rx * _ST["fbody"][0]
             hx, hy = fcx + head[0], bcy - ry * 0.72 - hr * 0.5 + head[1]
             body_sh = [E(fcx - rxf, bcy - ry, fcx + rxf, bcy + ry)]
-            tail_sh = [] if belly_up or ball else [T((fcx + rxf * 0.5, bcy + ry * 0.2), (fcx + rxf + 13, bcy + ry * 0.75),
+            tail_sh = [] if belly_up else [T((fcx + rxf * 0.5, bcy + ry * 0.2), (fcx + rxf + 13, bcy + ry * 0.75),
                                                     (fcx + rxf * 0.4, bcy + ry * 0.9))]
             parts.append(Part(body_sh + tail_sh, col, grow=1))
             late = []
-            if legs and not ball:
+            if legs:
                 for j, (ldx, lift) in enumerate(legs):
                     s = -1 if j == 0 else 1
                     lx = fcx + s * rxf * 0.55 + ldx
@@ -287,12 +287,11 @@ def dino(sp, *, side=True, cx=64.0, bottom=None, sq=(1.0, 1.0), rot=0.0, eyes="d
                 face += blush(hx - hr * 0.8, hy + hr * 0.18) + blush(hx + hr * 0.8, hy + hr * 0.18)
                 face += [([C(hx - 3, hy + hr * 0.3, 1.1), C(hx + 3, hy + hr * 0.3, 1.1)], _shade(mix(col, LINE, 0.4)))]
                 face += front_mouth(mouth, hx, hy + hr * 0.55)
-            if not ball:
-                for s, a in (arms or [(-1, 30), (1, 30)]):
-                    out = min(1.0, max(0.0, (a - 60) / 90))  # 번쩍 든 팔은 몸 옆으로 (볼에 가리지 않게)
-                    shx, shy = fcx + s * rxf * (0.62 + 0.3 * out), bcy - ry * (0.35 + 0.1 * out)
-                    with xf(rot=-s * a, pivot=(shx, shy)):
-                        parts.append(Part([L([(shx, shy), (shx + s * 2.5, shy + (6.5 + 4 * out) * (0.8 + 0.2 * bk))], 7.4)], col, grow=0, outline=True))
+            for s, a in (arms or [(-1, 30), (1, 30)]):
+                out = min(1.0, max(0.0, (a - 60) / 90))  # 번쩍 든 팔은 몸 옆으로 (볼에 가리지 않게)
+                shx, shy = fcx + s * rxf * (0.62 + 0.3 * out), bcy - ry * (0.35 + 0.1 * out)
+                with xf(rot=-s * a, pivot=(shx, shy)):
+                    parts.append(Part([L([(shx, shy), (shx + s * 2.5, shy + (6.5 + 4 * out) * (0.8 + 0.2 * bk))], 7.4)], col, grow=0, outline=True))
             ops += face
         parts += [h() for h in held]
     return dp.compose(parts, ops, list(fx))

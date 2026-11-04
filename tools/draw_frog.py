@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
-from draw_pets import (BLUSH, C, E, EYE, HEART, L, LINE, MOUTH_IN, SPEED, T, TONGUE, WHITE, Part, Species, _ST, _shown,  # noqa: E402
+from draw_pets import (BLUSH, C, E, HEART, L, LINE, MOUTH_IN, SPEED, T, TONGUE, WHITE, Part, Species, _ST, _shown,  # noqa: E402
                        anger_fx, arc, blush, brows, heart_fx, mix, open_mouth, question_fx, sparkle_fx, stage_eye, strand, sweat_fx,
                        view, xf, z_fx)
 from sprite_spec import FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES  # noqa: E402
@@ -385,9 +385,6 @@ def frog_front(sp, *, whole=None, head=None, body=None, arms=(F_ARM, F_ARM), hin
             parts.append(_limb(c2, [12.5 * lw], _pads_at(c2[-1], c2[-2], 3, 40, 3.8), sp, pad_r=3.1, floor=FLOOR if ground else None))
         parts += [p() for p in props]
     return dp.compose(parts, f_ops + list(ops), fx)
-
-
-RAISED = [(46, 84), (34, 70), (28, 52)]  # 앞발 번쩍 (왼쪽 기준)
 
 
 def frog_sit_front(sp, i):

@@ -165,7 +165,7 @@ INSIDE, FLOOR_IN, SHADE_IN = (92, 64, 62), (118, 84, 76), (74, 50, 50)
 GRASS, GRASS_DARK = (150, 204, 124), (104, 164, 96)
 GLASS = (206, 230, 244)
 CURTAIN = (250, 176, 192)
-BRICK, BRICK_DARK, MORTAR = (206, 92, 80), (168, 66, 62), (236, 178, 152)
+BRICK, MORTAR = (206, 92, 80), (236, 178, 152)
 SNOW, SNOW_SHADE = (255, 255, 255), (204, 224, 244)
 H_WALL, H_PLANK, H_ROOF, H_ROOF_DARK = (184, 168, 222), (156, 138, 198), (118, 98, 166), (90, 72, 136)
 H_WOOD, H_WOOD_LIGHT = (176, 128, 104), (210, 170, 146)
@@ -262,7 +262,6 @@ def chimney(c, x, top, bottom, col=(222, 150, 124), w=5):
 
 
 TUFT = ["g.g", "ggg"]
-FLOWER_S = [".p.", "pyp", ".p.", ".g."]
 
 
 def ground(front, xs, col=None):
@@ -641,8 +640,6 @@ def build_overlays():
 
 
 # ---------------------------------------------------------------- 내보내기
-SHINY_SPOTS = ((0, 0), (9, 1), (1, 9))
-SPARK = ["..w..", ".wyw.", "wyyyw", ".wyw.", "..w.."]
 SPARK_S = [".w.", "wyw", ".w."]
 
 

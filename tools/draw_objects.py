@@ -148,35 +148,19 @@ def draw_computer(img):
     blob(img, [T((106, 28), (114, 38), (108, 38), (116, 50), (100, 36), (106, 36))], SPARK, r=0.2, line=0.7)
 
 
-def smooth(points, widths, n=6):
-    """꺾은선을 부드러운 곡선으로 (Catmull-Rom), 굵기도 함께."""
-    out_p, out_w = [], []
+def smooth(points, n=6):
+    """꺾은선을 부드러운 곡선으로 (Catmull-Rom)."""
+    out = []
     last = len(points) - 1
     for i in range(last):
         p0, p1, p2, p3 = points[max(i - 1, 0)], points[i], points[i + 1], points[min(i + 2, last)]
         for k in range(n):
             t = k / n
-            out_p.append(tuple(
+            out.append(tuple(
                 0.5 * (2 * p1[a] + (p2[a] - p0[a]) * t + (2 * p0[a] - 5 * p1[a] + 4 * p2[a] - p3[a]) * t ** 2
                        + (3 * p1[a] - p0[a] - 3 * p2[a] + p3[a]) * t ** 3)
                 for a in (0, 1)))
-            out_w.append(widths[i] + (widths[i + 1] - widths[i]) * t)
-    return out_p + [points[-1]], out_w + [widths[-1]]
-
-
-def strip(points, widths):
-    """가운데 선을 따라 굵기가 변하는 조각 (끝이 가늘어지는 다각형)."""
-    left, right = [], []
-    n = len(points)
-    for i, (x, y) in enumerate(points):
-        px, py = points[max(i - 1, 0)]
-        qx, qy = points[min(i + 1, n - 1)]
-        dx, dy = qx - px, qy - py
-        d = hypot(dx, dy) or 1.0
-        w = widths[i] / 2
-        left.append((x - dy / d * w, y + dx / d * w))
-        right.append((x + dy / d * w, y - dx / d * w))
-    return T(*left, *reversed(right))
+    return out + [points[-1]]
 
 
 def draw_milk(img):
@@ -192,9 +176,9 @@ def draw_sock(img):
     """찢어진 양말: 벗어 던져 놓은 긴 천 덩어리. 납작하게 축 늘어졌고 윤곽은 물결, 고무단은 살짝 접혔고 뒤꿈치·발끝은 색으로만, 구멍 하나."""
     y = BOTTOM
     # 위쪽 윤곽은 구겨져 울퉁불퉁, 아래쪽은 바닥에 퍼져 거의 평평하다. 가운데 살짝 불룩한 데가 뒤꿈치 주머니
-    top, _ = smooth([(14, y - 22), (27, y - 27), (39, y - 21), (51, y - 25), (62, y - 21), (73, y - 29), (86, y - 30), (96, y - 23),
-                     (106, y - 27), (116, y - 24), (120, y - 14)], [0] * 11)
-    under, _ = smooth([(120, y - 14), (116, y - 4), (104, y - 1), (86, y), (66, y - 1), (46, y), (28, y - 1), (14, y - 3), (8, y - 13), (14, y - 22)], [0] * 10)
+    top = smooth([(14, y - 22), (27, y - 27), (39, y - 21), (51, y - 25), (62, y - 21), (73, y - 29), (86, y - 30), (96, y - 23),
+                  (106, y - 27), (116, y - 24), (120, y - 14)])
+    under = smooth([(120, y - 14), (116, y - 4), (104, y - 1), (86, y), (66, y - 1), (46, y), (28, y - 1), (14, y - 3), (8, y - 13), (14, y - 22)])
     wrinkles = [L(pts, 1.3) for pts in (
         [(66, y - 20), (69, y - 12), (66, y - 4)],
         [(99, y - 20), (101, y - 12), (99, y - 5)],
@@ -205,7 +189,7 @@ def draw_sock(img):
     blob(img, [T((47, y - 18), (52, y - 15), (56, y - 19), (60, y - 14), (58, y - 9), (53, y - 11), (49, y - 7), (45, y - 12))], mix(SOCK, LINE, 0.75), r=0, line=0.5)
 
     # 고무단: 왼쪽 끝이 뒤로 살짝 접혀 몸통에 얹혔다
-    cuff, _ = smooth([(7, y - 25), (20, y - 30), (33, y - 27), (37, y - 15), (34, y - 2), (18, y - 1), (7, y - 3), (5, y - 14), (7, y - 25)], [0] * 9)
+    cuff = smooth([(7, y - 25), (20, y - 30), (33, y - 27), (37, y - 15), (34, y - 2), (18, y - 1), (7, y - 3), (5, y - 14), (7, y - 25)])
     blob(img, [T(*cuff)], SOCK_STRIPE, r=0.8,
          marks=[([L([(11, y - 34), (9, y + 1)], 3.4), L([(19, y - 34), (18, y + 1)], 3.4), L([(28, y - 34), (28, y + 1)], 3.4)], SOCK)])
 

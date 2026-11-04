@@ -26,11 +26,11 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
-from draw_pets import (BLUSH, C, E, EYE, HEART, L, LINE, MOUTH_IN, SPEED, T, TONGUE, WHITE, Part, Species, _ST, anger_fx,  # noqa: E402
+from draw_pets import (BLUSH, C, E, EYE, HEART, L, LINE, MOUTH_IN, T, TONGUE, WHITE, Part, Species, _ST, anger_fx,  # noqa: E402
                        arc, blush, brows, heart_fx, mix, open_mouth, question_fx, sparkle_fx, stage_eye, strand, sweat_fx, view,
                        xf, z_fx)
 from draw_halloween import _bubble, _fit, _stars, speed_fx  # noqa: E402
-from sprite_spec import FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES, frame_px  # noqa: E402
+from sprite_spec import FRAME, ROLL_CENTER, STAGES, frame_px  # noqa: E402
 
 FLOOR = 125.0
 
@@ -43,11 +43,11 @@ BILL, BILL_DARK, BILL_LIGHT = (255, 160, 64), (226, 120, 46), (255, 200, 130)
 SCARF, SCARF_DARK, SCARF_LIGHT = (126, 186, 236), (92, 150, 210), (210, 234, 252)
 # 단계(lvl)별 — col: 몸 색 · fluff: 정수리 솜털 가닥 · curl: 머리(child)·꽁지(teen+) 꼬불 깃 · wing: 날개 크기 · scarf
 DK_STAGE = {
-    0: dict(col=DUCK_Y, fluff=3, curl=None, wing=0.72, scarf=False, r=1.0),
-    1: dict(col=DUCK_Y, fluff=1, curl=None, wing=0.85, scarf=False, r=1.0),
-    2: dict(col=DUCK_LEMON, fluff=0, curl="head", wing=0.95, scarf=False, r=1.0),
-    3: dict(col=DUCK_W, fluff=0, curl="tail", wing=1.0, scarf=False, r=1.0),
-    4: dict(col=DUCK_W, fluff=0, curl="tail", wing=1.05, scarf=True, r=1.0),
+    0: dict(col=DUCK_Y, fluff=3, curl=None, wing=0.72, scarf=False),
+    1: dict(col=DUCK_Y, fluff=1, curl=None, wing=0.85, scarf=False),
+    2: dict(col=DUCK_LEMON, fluff=0, curl="head", wing=0.95, scarf=False),
+    3: dict(col=DUCK_W, fluff=0, curl="tail", wing=1.0, scarf=False),
+    4: dict(col=DUCK_W, fluff=0, curl="tail", wing=1.05, scarf=True),
 }
 BREAD, BREAD_CRUST = (250, 214, 150), (214, 150, 84)
 
@@ -126,7 +126,7 @@ def duck_wing(sh, ang, k, col, side):
         return Part(body, _wing_col(col), grow=0, outline=True)
 
 
-def duck_fluff(cx, top, n, col):
+def duck_fluff(cx, top, n):
     """정수리 솜털 (아기 세 가닥, 유아 한 가닥) · 어린이 꼬불 깃."""
     if n == 0:
         return []
@@ -137,7 +137,7 @@ def duck_fluff(cx, top, n, col):
 
 
 def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="dot", mouth=None, brow=None, wings=None,
-         feet=((0, 0), (0, 0)), head=(0.0, 0.0), head_rot=0.0, fx=(), held=(), props=(), ball=False, belly=False, tilt=0.0):
+         feet=((0, 0), (0, 0)), head=(0.0, 0.0), head_rot=0.0, fx=(), held=(), props=(), ball=False, belly=False):
     """오리 한 장. side: 오른쪽을 보는 옆모습 · bottom: 몸 아래끝 (발 위) · wings: [(쪽, 각도)] (None = 접음) ·
     feet: (뒤/왼, 앞/오른) 발 (dx, dy) 또는 None · head: 머리 (dx, dy) · ball: 구르기 공 · belly: 발라당 (앞모습, 발이 위로)."""
     st = _dk()
@@ -172,14 +172,14 @@ def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="d
                 body = Part([E(bx - rx, bcy - ry, bx + rx, bcy + ry)] + tail, col, belly_m, grow=1, spikes=spikes)
                 with xf(rot=head_rot, pivot=(hx - hr * 0.3, hy + hr * 0.8)):
                     neck = L([(bx + rx * 0.4, bcy - ry * 0.3), (hx - 2, hy + hr * 0.4)], hr * 0.9)
-                    hspk = duck_fluff(hx - 2, hy - hr, st["fluff"], col)
+                    hspk = duck_fluff(hx - 2, hy - hr, st["fluff"])
                     if st["curl"] == "head":
                         hspk.append(strand([(hx - 3, hy - hr + 4), (hx - 2, hy - hr - 3)] + arc(hx + 2, hy - hr - 5, 4, 4, 180, 330, 8), 4.2, 1.6))
                     hpart = Part([C(hx, hy, hr), neck], col, grow=1, spikes=hspk)
                     dp.mark_head(hx - 2, hy - hr * 0.84, hr * 1.25)
-                    parts.insert(0, body) if not parts else parts.insert(0, body)
+                    parts.insert(0, body)
                     parts.append(hpart)
-                    bp, bo = duck_bill(hx + hr * 0.78, hy + hr * 0.18, "quack" if mouth == "quack" else mouth, True, k=hk ** 0.5)
+                    bp, bo = duck_bill(hx + hr * 0.78, hy + hr * 0.18, mouth, True, k=hk ** 0.5)
                     ex, ey = hx + hr * 0.3, hy - hr * 0.16
                     face = list(stage_eye(eyes, ex, ey))
                     if brow:
@@ -215,7 +215,7 @@ def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="d
                             parts.append(Part([L([(x, bottom - 5), (x, FLOOR - 2 + fy_)], 3.2)], BILL, grow=0, outline=True))
                             parts.append(duck_foot(x, FLOOR - 0.5 + fy_, rot=s * 8, side=False))
                 with xf(rot=head_rot, pivot=(hx, hy + hr * 0.9)):
-                    hspk = duck_fluff(hx - 1, hy - hr, st["fluff"], col)
+                    hspk = duck_fluff(hx - 1, hy - hr, st["fluff"])
                     if st["curl"] == "head":
                         hspk.append(strand([(hx - 1, hy - hr + 4), (hx, hy - hr - 3)] + arc(hx + 4, hy - hr - 5, 4, 4, 180, 330, 8), 4.2, 1.6))
                     parts.append(Part([C(hx, hy, hr)], col, grow=1, spikes=hspk))
@@ -332,7 +332,7 @@ def neck_marks(a, b, w, period=None, phase=0.0):
     return marks
 
 
-def gf_head(sp, hx, hy, *, side, eyes, mouth, brow, rot=0.0, munch=False):
+def gf_head(sp, hx, hy, *, side, eyes, mouth, brow, rot=0.0):
     """기린 머리 Part들과 얼굴 ops (hx, hy = 머리 중심). 옆모습은 오른쪽을 본다."""
     st = _gf()
     hk = _ST["head"]
@@ -347,10 +347,7 @@ def gf_head(sp, hx, hy, *, side, eyes, mouth, brow, rot=0.0, munch=False):
             for (bx, by), (tx, ty) in zip(bases, tips):
                 horn.append(L([(bx, by), (tx, ty)], 4.6))
             knob = [C(tx, ty, 3.6 if st["ossi"] == 2 else 3.0) for tx, ty in tips]
-            if st["ossi"] == 0:
-                parts.append(Part(horn + knob, GIR, [(knob, OSSI)], grow=0, outline=True))
-            else:
-                parts.append(Part(horn + knob, GIR, [(knob, OSSI)], grow=0, outline=True))
+            parts.append(Part(horn + knob, GIR, [(knob, OSSI)], grow=0, outline=True))
             # 귀
             if side:
                 with xf(rot=-24, pivot=(hx - 10, hy - 6)):
@@ -377,7 +374,7 @@ def gf_head(sp, hx, hy, *, side, eyes, mouth, brow, rot=0.0, munch=False):
                     face += brows(brow, ex, ey + _ST["eye_dy"], flip=True)
                 face.append(([E(hx + 19, hy + 1.5, hx + 21.5, hy + 4)], mix(GIR_CREAM, GIR_LINE, 0.55)))
                 face += gf_blush(hx + 4, hy + 8)
-                face += gf_mouth(mouth, hx + 17, hy + 10, munch)
+                face += gf_mouth(mouth, hx + 17, hy + 10)
             else:
                 skull = [E(hx - 18, hy - 16, hx + 18, hy + 12), E(hx - 13, hy - 2, hx + 13, hy + 17)]
                 muzzle = [([E(hx - 12.5, hy + 1, hx + 12.5, hy + 18)], GIR_CREAM)]
@@ -394,7 +391,7 @@ def gf_head(sp, hx, hy, *, side, eyes, mouth, brow, rot=0.0, munch=False):
                 nost = mix(GIR_CREAM, GIR_LINE, 0.55)
                 face.append(([E(hx - 5.5, hy + 5, hx - 3, hy + 7.4), E(hx + 3, hy + 5, hx + 5.5, hy + 7.4)], nost))
                 face += gf_blush(hx - 13, hy + 6) + gf_blush(hx + 13, hy + 6)
-                face += gf_mouth(mouth, hx, hy + 12, munch)
+                face += gf_mouth(mouth, hx, hy + 12)
             if st["ossi"] == 0:  # 아기: 뿔 끝 털 뭉치
                 parts.append(Part([], GIR, grow=0, sharp=True,
                                   spikes=[strand([(tx, ty + 1), (tx - 2, ty - 4), (tx - 4, ty - 6)], 3.0, 0.8) for tx, ty in tips]
@@ -407,7 +404,7 @@ def gf_head(sp, hx, hy, *, side, eyes, mouth, brow, rot=0.0, munch=False):
     return parts, ops
 
 
-def gf_mouth(kind, mx, my, munch=False):
+def gf_mouth(kind, mx, my):
     if kind is None:
         return [([L(arc(mx, my - 1.6, 3.2, 2.2, 20, 160, 8), 1.3)], LINE)]
     if kind in ("frown", "pout", "chew", "wavy", "sip"):
@@ -442,7 +439,7 @@ def gf_blush(cx, cy):
 
 def giraffe(sp, *, side=True, cx=64.0, bottom=None, rot=0.0, sq=(1.0, 1.0), eyes="dot", mouth=None, brow=None, neck_ang=18.0,
             neck_k=1.0, head=(0.0, 0.0), head_rot=0.0, legs=None, lie=False, tail=0.0, fx=(), props=(), held=(), front_legs=None,
-            neck_period=None, neck_phase=0.0, parts_out=None, belly=False, munch=False):
+            neck_period=None, neck_phase=0.0, parts_out=None, belly=False):
     """기린 한 장. side: 오른쪽을 보는 옆모습. neck_ang: 목 기울기 (0 = 수직, + = 앞으로) · neck_k: 목 길이 배율 ·
     legs: 옆모습 다리 [(엉덩이 dx, 발굽 dx, 발굽 dy)] ×4 (뒤 먼 쪽, 뒤, 앞 먼 쪽, 앞) · lie: 엎드림 (다리 접음) ·
     front_legs: 앞모습 앞다리 [(발굽 dx, dy)] ×2 · parts_out: dict면 목 위치(어깨·머리 밑 점)를 적어 둔다 (목 늘이기 층)."""
@@ -491,7 +488,7 @@ def giraffe(sp, *, side=True, cx=64.0, bottom=None, rot=0.0, sq=(1.0, 1.0), eyes
                             neck_marks(a, b, NECK_W * bk ** 0.5, neck_period, neck_phase), grow=1)
                 parts.insert(1, neck)
                 hx, hy = b[0] + 4 + head[0], b[1] - 9 + head[1]
-                hp, ho = gf_head(sp, hx, hy, side=True, eyes=eyes, mouth=mouth, brow=brow, rot=head_rot, munch=munch)
+                hp, ho = gf_head(sp, hx, hy, side=True, eyes=eyes, mouth=mouth, brow=brow, rot=head_rot)
                 parts += hp
                 ops += ho
             else:
@@ -522,7 +519,7 @@ def giraffe(sp, *, side=True, cx=64.0, bottom=None, rot=0.0, sq=(1.0, 1.0), eyes
                 neck = Part([L([a, b], NECK_W * 1.1 * bk ** 0.5)], GIR, neck_marks(a, b, NECK_W * 1.1), grow=1)
                 parts.insert(1, neck)
                 hx, hy = b[0] + head[0], b[1] - 12 + head[1]
-                hp, ho = gf_head(sp, hx, hy, side=False, eyes=eyes, mouth=mouth, brow=brow, rot=head_rot, munch=munch)
+                hp, ho = gf_head(sp, hx, hy, side=False, eyes=eyes, mouth=mouth, brow=brow, rot=head_rot)
                 parts += hp
                 ops += ho
             parts += [h() for h in held]
@@ -534,7 +531,6 @@ def leaf_bubble_fx(cx, cy):
     """생각 풍선 안에 나뭇잎 하나."""
     fx = _bubble(cx, cy)
     leaf = arc(cx, cy, 7.5, 4.6, 0, 360, 18)
-    leaf = [(x + (cx - x) * 0.0, y) for x, y in leaf]
     with xf(rot=-30, pivot=(cx, cy)):
         fx += [([T(*leaf), L(leaf, 2.4)], LINE, 0), ([T(*leaf)], LEAF_G, 0), ([L([(cx - 6, cy), (cx + 6, cy)], 1.0)], LEAF_V, 0)]
     return fx
@@ -941,7 +937,7 @@ def neck_layers(sp):
         im = _neck_pose(sp, j, g["period"], g["cut_pre"])
         strip.paste(im.crop((0, 0, side, cut)), ((j + 1) * side, 0))
     # 목 토막: 목만 아주 길게 그려 자르는 높이 바로 위 NECK_TILE px (무늬 주기와 같아 위아래로 이어진다)
-    a, b = g["a"], g["b"]
+    a = g["a"]
     w = NECK_W * _ST["body"] ** 0.5
     col = Part([L([(a[0], a[1] + 200), (a[0], a[1] - 400)], w)], GIR,
                neck_marks((a[0], a[1] + 200), (a[0], a[1] - 400), w, g["period"], g["cut_pre"]), grow=1)

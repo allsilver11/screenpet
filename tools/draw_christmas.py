@@ -22,7 +22,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
@@ -114,9 +114,6 @@ def _nose_glow(im, i, lit=1.0):
             dp.shift_head(-dx, 0)
             im = sh
             core = _nose_core(im, u)
-    m = Image.fromarray((core * 255).astype(np.uint8))
-    if u > 1:
-        m = m.resize(im.size, Image.NEAREST)
     # 동글 코: 찾은 코 둘레를 1.5px씩 넓힌 타원 (작은 옆모습 코도 동그랗게)
     ys, xs = np.nonzero(core)
     # 루돌프의 자랑: 찾은 코보다 1.65배 큰 동글 코 (입을 덜 가리게 조금 위로)
@@ -125,7 +122,6 @@ def _nose_glow(im, i, lit=1.0):
     h = max(h, 0.84 * w)
     ncx, ncy = (xs.min() + xs.max() + 1) / 2, (ys.min() + ys.max() + 1) / 2 - 0.18 * h
     bx0, bx1, by0, by1 = ncx - w / 2, ncx + w / 2, ncy - h / 2, ncy + h / 2
-    from PIL import ImageDraw
     hi = Image.new("L", (side * 4, side * 4), 0)
     ImageDraw.Draw(hi).ellipse((bx0 * 4 * u, by0 * 4 * u, bx1 * 4 * u, by1 * 4 * u), fill=255)
     big = hi.resize(im.size, Image.LANCZOS)
@@ -150,11 +146,10 @@ def _nose_glow(im, i, lit=1.0):
     x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
     rim = Image.new("RGBA", im.size, NOSE_DEEP + (255,))
     out.paste(rim, (0, 0), big.filter(ImageFilter.GaussianBlur(0.4 * u)))
-    inner = big.filter(ImageFilter.MinFilter(2 * u + 1)) if (x1 - x0) >= 7 * u else m
+    inner = big.filter(ImageFilter.MinFilter(2 * u + 1))
     out.paste(Image.new("RGBA", im.size, NOSE_RED + (255,)), (0, 0), inner.filter(ImageFilter.GaussianBlur(0.4 * u)))
     w, h = x1 - x0, y1 - y0
     sh = Image.new("L", im.size, 0)
-    from PIL import ImageDraw
     dd = ImageDraw.Draw(sh)
     sx, sy = x0 + w * 0.22, y0 + h * 0.18
     dd.ellipse((sx, sy, sx + max(2.0 * u, w * 0.32), sy + max(1.6 * u, h * 0.3)), fill=round(255 * min(1.0, 0.75 + 0.25 * tw)))

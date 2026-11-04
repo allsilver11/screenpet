@@ -84,7 +84,7 @@ def cap_shapes():
 CAP = cap_shapes()
 
 
-def draw_cap(mat, canvas_size, zoom, ss=4):
+def draw_cap(mat, canvas_size, ss=4):
     """mat(px, py) → 그림 좌표. zoom 배로 그린 RGBA 층."""
     w, h = canvas_size
     layer = Image.new("RGBA", (w * ss, h * ss), (0, 0, 0, 0))
@@ -153,7 +153,7 @@ def head_entry(man, stage, anim, f):
 
 
 # ---- 그리기 ----
-def compose_cell(sheet, spec, f, pid, man, stage, flip, zoom):
+def compose_cell(sheet, spec, f, man, stage, flip, zoom):
     """한 칸: 진짜 표시 크기 × zoom. 위에 말풍선 자리 없이 칸 + 위 여백만."""
     side = 128 * STAGE_SCALE[stage] * man["stage_size"].get(stage, 1.0)
     cell = sheet.crop((f * FRAME, spec["row"] * FRAME, (f + 1) * FRAME, (spec["row"] + 1) * FRAME))
@@ -177,7 +177,7 @@ def compose_cell(sheet, spec, f, pid, man, stage, flip, zoom):
             cx = FRAME - cx
         return ((left + cx * k) * zoom, (pad_top + cy * k) * zoom)
 
-    out.alpha_composite(draw_cap(m, (W, H), zoom))
+    out.alpha_composite(draw_cap(m, (W, H)))
     return out
 
 
@@ -200,7 +200,7 @@ def page(pid, zoom=1):
         d.text((2, 16 + r * cell_h + cell_h // 2), f"{pid}\n{st}", fill=(60, 60, 60), font=label_font())
         for c, (a, f, flip) in enumerate(cols):
             spec = dict(man["animations"][a], _anim=a)
-            tile = compose_cell(sheet, spec, f, pid, man, st, flip, zoom)
+            tile = compose_cell(sheet, spec, f, man, st, flip, zoom)
             img.alpha_composite(tile, (64 + c * cell_w + (cell_w - tile.width) // 2, 16 + r * cell_h + cell_h - tile.height))
     return img
 
@@ -219,12 +219,12 @@ def all_anims_page(pid, stage, zoom=1):
     for i, (a, f) in enumerate(cells):
         x, y = (i % cols) * cell_w, (i // cols) * (cell_h + 14)
         d.text((x + 2, y), f"{a} {f}", fill=(60, 60, 60), font=label_font())
-        tile = compose_cell(sheet, dict(man["animations"][a], _anim=a), f, pid, man, stage, False, zoom)
+        tile = compose_cell(sheet, dict(man["animations"][a], _anim=a), f, man, stage, False, zoom)
         img.alpha_composite(tile, (x + (cell_w - tile.width) // 2, y + 14 + cell_h - tile.height))
     return img
 
 
-def _pet_tile(pid, stage, anim, f, zoom, man=None, sheet=None, head_entry_override=None):
+def _pet_tile(pid, stage, anim, f, zoom, man=None, sheet=None):
     """#pet 한 칸 (스프라이트 + 자식 모자)을 칸 크기 × zoom으로 — 몸의 CSS 변환은 이 그림 전체에 걸린다 (앱의 부모-자식과 같다)."""
     man = man or manifest(pid)
     sheet = sheet or layer_128(pid, stage, f"sheet_{stage}.png")
@@ -235,7 +235,7 @@ def _pet_tile(pid, stage, anim, f, zoom, man=None, sheet=None, head_entry_overri
     out.alpha_composite(cell, (pad, pad))
     mc = new_cap_matrix_cell(head_entry(man, stage, anim, f))
     m = lambda px, py: tuple(v * zoom + pad for v in mc(px, py))  # noqa: E731
-    out.alpha_composite(draw_cap(m, out.size, zoom))
+    out.alpha_composite(draw_cap(m, out.size))
     return out, pad
 
 
@@ -288,14 +288,14 @@ def _neck_tile(pid, stage, f, ext_part, zoom):
     out.alpha_composite(head, (pad, pad - ext * zoom))
     mc = new_cap_matrix_cell(head_entry(man, stage, "neckstretch", f))
     m = lambda px, py: (mc(px, py)[0] * zoom + pad, (mc(px, py)[1] - ext) * zoom + pad)  # noqa: E731
-    out.alpha_composite(draw_cap(m, out.size, zoom))
+    out.alpha_composite(draw_cap(m, out.size))
     return out
 
 
 CURSOR = [(0, 0), (0, 16), (4, 12), (7, 18), (9, 17), (6, 11), (11, 11)]
 
 
-def hang_page(path, zoom=1):
+def hang_page(path):
     """커서 끝에 매달린 모습 (모든 동물 × 5단계, 몸은 커서 끝을 축으로 ±6도, 모자는 자식이라 함께): 빨간 십자 칸 = 커서 끝."""
     cell_w, cell_h = 230, 210
     img = Image.new("RGBA", (70 + len(SPECIES) * cell_w, 16 + 5 * cell_h), (236, 240, 246, 255))

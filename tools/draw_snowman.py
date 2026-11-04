@@ -22,14 +22,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
 import draw_halloween as dh  # noqa: E402
 from draw_halloween import _finish, _heart_items, _stars, _swing, speed_fx  # noqa: E402
-from draw_pets import (C, E, L, LINE, Part, Species, T, WHITE, _ST, anger_fx, bee_mouth, brows, heart_fx, mix, question_fx,  # noqa: E402
+from draw_pets import (C, E, L, LINE, Part, Species, T, WHITE, _ST, anger_fx, bee_mouth, brows, heart_fx, question_fx,  # noqa: E402
                        stage_eye, sweat_fx, view, xf, z_fx)
 from sprite_spec import FRAME, STAGES, STAGE_SCALE  # noqa: E402
 
 SNOW, SNOW_SHADE, SNOW_LINE = (253, 254, 255), (222, 233, 247), (124, 146, 184)
 COAL, COAL_SHINE = (52, 52, 66), (150, 156, 176)
 CARROT, CARROT_DARK, CARROT_LINE = (250, 152, 72), (226, 118, 52), (176, 94, 52)
-TWIG, TWIG_LINE = (150, 106, 76), (96, 68, 52)
+TWIG = (150, 106, 76)
 CHEEK = (255, 170, 184)
 SCARF, SCARF_DARK, SCARF_STRIPE = (240, 92, 96), (204, 66, 78), (255, 232, 214)
 PAIL, PAIL_DARK, PAIL_LIGHT, PAIL_RIM = (146, 190, 236), (112, 158, 214), (204, 228, 250), (98, 140, 198)

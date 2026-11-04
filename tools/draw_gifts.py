@@ -23,8 +23,6 @@ OUT_DIR = ROOT / "ui" / "gifts"
 PREVIEW = ROOT / "tools" / "preview" / "gifts.png"
 
 ICON = 40
-# 그림은 128 프레임 가운데 둘레(46~82)에 그린다. 잘라서 아래 가운데로 옮긴다
-AREA = (64 - ICON // 2, 64 - ICON // 2, 64 + ICON // 2, 64 + ICON // 2)
 SHINY = "_shiny"
 LINES = {
     "cat": ("fishbone", "yarn", "feather", "mouse", "bell", "catnip"),

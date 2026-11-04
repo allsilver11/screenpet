@@ -70,8 +70,6 @@ class Grid:
     c: int
     x0: int  # 칸 (0,0)의 슈퍼샘플 좌표
     y0: int
-    half_px: float = 0.0
-    top_px: float = 0.0
 
     @property
     def cell(self):
@@ -678,9 +676,8 @@ def _bee():
     return dict(b, n=max(b["n"], 2))
 
 
-def bee_front_parts(sp, cx, cy, rx, ry, face, legs=True, belly=False):
+def bee_front_parts(sp, cx, cy, rx, ry, face, legs=True):
     """앞모습: 줄무늬 호가 붙으면 턱수염이 된다 → 한 칸 두께 두 줄, 배 위쪽에 넉넉히."""
-    b = dp._bee()
     dp.mark_head(cx, cy - ry * 0.84, rx * 1.15)
     cell = _PX["grid"].cell
     w = cell * (1.7 if _wide() else 1.0)
@@ -862,7 +859,7 @@ ICONS = {  # 넓은 격자, 좁은 격자
 
 
 def _bubble_rows(icon):
-    w, h = len(icon[0]), len(icon)
+    w = len(icon[0])
     rows = ["." + "l" * (w + 2) + "."] + ["l" + "f" + "".join(c if c != "." else "f" for c in r) + "f" + "l" for r in icon]
     rows += ["." + "l" * (w + 2) + ".", "l" + "." * (w + 3)]
     return rows
@@ -987,7 +984,7 @@ def neck_layers_pixel(sp, stage):
                 for j in range(3):
                     im = dfarm._neck_pose(ssp, j, g["period"], g["cut_pre"])
                     strip.paste(im.crop((0, 0, n, cut)), ((j + 1) * n, 0))
-                a, b = g["a"], g["b"]
+                a = g["a"]
                 w = dfarm.NECK_W * dp._ST["body"] ** 0.5
                 col = dp.Part([dp.L([(a[0], a[1] + 200), (a[0], a[1] - 400)], w)], dfarm.GIR,
                               dfarm.neck_marks((a[0], a[1] + 200), (a[0], a[1] - 400), w, g["period"], g["cut_pre"]), grow=1)
@@ -1091,9 +1088,9 @@ def stage_grid(sp, stage):
     h = max(b[3] - b[1] for b in boxes)
     c = max(math.ceil(max(w, h) / (n - 2)), 8)
     y1 = max(b[3] for b in boxes)
-    _GRIDS[key] = Grid(n, c, dp.S // 2 - c * n // 2, y1 - c * (n - 1), w / 2 / K, min(b[1] for b in boxes) / K)
+    _GRIDS[key] = Grid(n, c, dp.S // 2 - c * n // 2, y1 - c * (n - 1))
     if _GRID_CACHE:
-        cache[ck] = dict(n=_GRIDS[key].n, c=c, x0=_GRIDS[key].x0, y0=_GRIDS[key].y0, half_px=_GRIDS[key].half_px, top_px=_GRIDS[key].top_px)
+        cache[ck] = dict(n=_GRIDS[key].n, c=c, x0=_GRIDS[key].x0, y0=_GRIDS[key].y0)
         Path(_GRID_CACHE).write_text(json.dumps(cache))
     return _GRIDS[key]
 
@@ -1248,22 +1245,6 @@ def preview_group(name, by_species, out_dir):
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(path, optimize=True)
     return path
-
-
-def preview_all(sp, by_stage, stage, path, zoom=4, cols=20):
-    """개발용: 한 단계의 모든 동작·프레임 확대."""
-    frames = [(a, i, im) for a, v in by_stage[stage].items() for i, im in enumerate(v)]
-    n = stage_dots(sp.id, stage)
-    cell = n * zoom + 8
-    rows = math.ceil(len(frames) / cols)
-    img = Image.new("RGBA", (cols * cell, rows * (cell + 12)), LIGHT + (255,))
-    d = ImageDraw.Draw(img)
-    font = ImageFont.load_default()
-    for k, (a, i, im) in enumerate(frames):
-        x, y = (k % cols) * cell, (k // cols) * (cell + 12)
-        d.text((x + 2, y), f"{a}{i}", fill=(90, 90, 100), font=font)
-        _blit(img, im, x + 4, y + 12, zoom)
-    img.save(path)
 
 
 def main(argv):
