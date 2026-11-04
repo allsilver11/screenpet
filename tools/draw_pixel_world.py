@@ -24,12 +24,12 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pixel_world_icons as icons  # noqa: E402
+from sprite_spec import STAGES  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "ui"
 PREVIEW = ROOT / "tools" / "preview"
 
-STAGES = ("baby", "kinder", "child", "teenager", "adult")
 # 단계 → (시트 한 칸 수, 칸 크기) — tools/draw_pixel.py STAGE_GRID, 코어 style::pixel_grid와 같다
 STAGE_GRID = {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 3), "adult": (36, 3)}
 # 집 그림 한 변 (칸)
@@ -136,14 +136,10 @@ class Dots:
         return Image.fromarray(self.a, "RGBA")
 
 
-def rows_of(text):
-    return icons.art(text)
-
-
 def icon(text, w, h=None, bottom=False, ink=INK, pal=None):
     """표 → (w, h)칸 캔버스 가운데 (bottom이면 아래에 붙여) + 외곽선."""
     h = h or w
-    rows = rows_of(text)
+    rows = icons.art(text)
     aw = max(len(r) for r in rows)
     x = (w - aw) // 2
     y = h - len(rows) - 1 if bottom else (h - len(rows)) // 2
@@ -633,7 +629,7 @@ def build_overlays():
             grid.over(scarf_cell(w, v), i * SCARF_CELL[0], j * SCARF_CELL[1])
     save(grid, out / "scarf.png")
     for name, text in icons.FX.items():
-        rows = rows_of(text)
+        rows = icons.art(text)
         c = Dots(max(len(r) for r in rows), len(rows))
         c.stamp(rows, 0, 0)
         save(c, out / f"{name}.png")
@@ -682,7 +678,7 @@ def build_effects():
     save(icon(icons.SNOWMAN, *SNOWMAN_DOTS, bottom=True), out / "snowman.png")
     save(icon(icons.SNOW_CLOUD, *CLOUD_DOTS, ink=(150, 170, 200)), out / "snow_cloud.png")
     s = Dots(32)
-    s.stamp(rows_of(icons.STING), 0, 0)
+    s.stamp(icons.art(icons.STING), 0, 0)
     save(s, out / "sting.png")
 
 
@@ -690,7 +686,7 @@ def build_objects():
     out = UI / "objects_pixel"
     for name, text in icons.OBJECTS.items():
         c = Dots(OBJECT_DOTS)
-        c.stamp(rows_of(text), 0, 0)
+        c.stamp(icons.art(text), 0, 0)
         save(c.outlined(), out / f"{name}.png")
     save(icon(icons.POSTIT, POSTIT_DOTS, ink=(190, 150, 60)), out / "postit.png")
 
@@ -718,24 +714,30 @@ def scaled(img, k):
     return img.resize((img.width * k, img.height * k), Image.NEAREST)
 
 
+def pet_cell(pid, stage, anim):
+    """픽셀 시트의 그 동작 첫 칸 → (pet.json, 칸 수, 그림)."""
+    p = UI / "pets_pixel" / pid
+    m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
+    n = m["frame_sizes"][stage]
+    row = m["animations"][anim]["row"]
+    return m, n, Image.open(p / f"sheet_{stage}.png").convert("RGBA").crop((0, row * n, n, (row + 1) * n))
+
+
 def door_pet(kind, stage):
     """문간에 앉힐 동물 (시트가 있으면) — sit_front 첫 칸."""
     for pid in RESIDENTS[kind]:
         p = UI / "pets_pixel" / pid
         if (p / "pet.json").is_file() and (p / f"sheet_{stage}.png").is_file():
-            m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
-            n = m["frame_sizes"][stage]
-            row = m["animations"]["sit_front"]["row"]
-            return Image.open(p / f"sheet_{stage}.png").convert("RGBA").crop((0, row * n, n, (row + 1) * n))
+            return pet_cell(pid, stage, "sit_front")[2]
     return None
 
 
-def house_with_pet(kind, stage):
+def house_with_pet(kind, stage, pet=None):
+    """집 + 문간에 앉은 동물 (앱과 같은 자리: 문 가운데, 발은 문 바닥). pet이 없으면 그 집의 첫 주민."""
     out = UI / "house_pixel"
     img = Image.open(out / f"{kind}_{stage}.png").convert("RGBA")
-    meta = json.loads((out / f"{kind}_{stage}.json").read_text(encoding="utf-8"))
-    pet = door_pet(kind, stage)
-    d = meta["door"]
+    d = json.loads((out / f"{kind}_{stage}.json").read_text(encoding="utf-8"))["door"]
+    pet = pet or door_pet(kind, stage)
     if pet:
         n = pet.width
         img.alpha_composite(pet, (d["x"] + (d["w"] - n) // 2, d["y"] + d["h"] - n))
@@ -786,28 +788,9 @@ def build_previews():
     doors_preview()
 
 
-def seat(kind, stage, pid):
-    """집 + 문간에 앉은 pid (앱과 같은 자리: 문 가운데, 발은 문 바닥)."""
-    out = UI / "house_pixel"
-    img = Image.open(out / f"{kind}_{stage}.png").convert("RGBA")
-    d = json.loads((out / f"{kind}_{stage}.json").read_text(encoding="utf-8"))["door"]
-    p = UI / "pets_pixel" / pid
-    m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
-    n = m["frame_sizes"][stage]
-    row = m["animations"]["sit_front"]["row"]
-    pet = Image.open(p / f"sheet_{stage}.png").convert("RGBA").crop((0, row * n, n, (row + 1) * n))
-    img.alpha_composite(pet, (d["x"] + (d["w"] - n) // 2, d["y"] + d["h"] - n))
-    img.alpha_composite(Image.open(out / f"{kind}_{stage}_front.png").convert("RGBA"))
-    return img
-
-
 def worn(pid, stage, anim):
     """시트 칸 + 모자(또는 산타 목도리)를 앱과 같은 자리에 (칸 단위)."""
-    p = UI / "pets_pixel" / pid
-    m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
-    n = m["frame_sizes"][stage]
-    row = m["animations"][anim]["row"]
-    frame = Image.open(p / f"sheet_{stage}.png").convert("RGBA").crop((0, row * n, n, (row + 1) * n))
+    m, n, frame = pet_cell(pid, stage, anim)
     pad = 12
     img = Image.new("RGBA", (n + 2 * pad, n + 2 * pad))
     img.alpha_composite(frame, (pad, pad))
@@ -832,7 +815,7 @@ def worn(pid, stage, anim):
 
 def doors_preview():
     """모든 입주자 × 작은·큰 단계 (앉은 모습), 모자·목도리를 쓴 모습."""
-    tiles = [scaled(seat(k, s, pid), STAGE_GRID[s][1]) for k in KINDS for pid in RESIDENTS[k] for s in ("baby", "teenager")]
+    tiles = [scaled(house_with_pet(k, s, pet_cell(pid, s, "sit_front")[2]), STAGE_GRID[s][1]) for k in KINDS for pid in RESIDENTS[k] for s in ("baby", "teenager")]
     grid_preview(tiles, 8, (192, 192), PREVIEW / "pixel_world_doors.png")
     wear = [scaled(worn(pid, s, a), STAGE_GRID[s][1]) for pid in ("cat", "frog", "bear", "giraffe", "santa") for s in ("baby", "teenager") for a in ("idle",)]
     grid_preview(wear, 5, (224, 224), PREVIEW / "pixel_world_wear.png")

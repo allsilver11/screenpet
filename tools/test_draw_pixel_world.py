@@ -169,7 +169,7 @@ def _outlined_icons():
 @pytest.mark.parametrize("name,text,cw,ch,bottom", list(_outlined_icons()), ids=lambda v: v if isinstance(v, str) and len(v) < 20 else "")
 def test_every_outlined_icon_leaves_room_for_its_outline(name, text, cw, ch, bottom):
     """표가 캔버스에 꽉 차면 윗줄이 잘리거나(눈사람 모자) 위 외곽선만 빠진다 (꽃·눈구름)."""
-    rows = w.rows_of(text)
+    rows = icons.art(text)
     aw = max(len(r) for r in rows)
     x = (cw - aw) // 2
     y = ch - len(rows) - 1 if bottom else (ch - len(rows)) // 2
