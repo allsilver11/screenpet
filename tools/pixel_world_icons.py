@@ -1251,7 +1251,6 @@ PROPS = {
         ...pPPyyPPp.
         ...pPPppPPp.
         ....pp.Gpp..
-        .ggg...G....
         .glgg..G.gg.
         ..gggG.Gggl.
         .....GGGgg..
@@ -1289,7 +1288,6 @@ SNOWBALLS = [
 
 SNOWMAN = """
     ....rrrr....
-    ....rrrr....
     ...WWWWWW...
     ...rrrrrr...
     ..WWWWWWWW..
@@ -1305,13 +1303,11 @@ SNOWMAN = """
     WWWWWWWWRRWW
     WWWWWkWWWWWW
     WWWWWWWWWWWW
-    WWWWWkWWWWWW
-    .WWWWWWWWWc.
+    .WWWWkWWWWc.
     ..ccccccccc.
 """
 
 SNOW_CLOUD = """
-    ....WWWWW...
     ...WWWWWWW..
     ..WWWWWWWWWW
     .WWkWWWWkWWW

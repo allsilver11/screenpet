@@ -156,6 +156,34 @@ def test_effect_sizes_are_the_round_window_at_four_px_a_dot(name, size):
     assert Image.open(UI / "effects_pixel" / f"{name}.png").size == tuple(size)
 
 
+def _outlined_icons():
+    yield from (("gift " + n, t, w.GIFT_DOTS, w.GIFT_DOTS, False) for n, t in icons.GIFTS.items())
+    yield from (("hand " + n, t, w.HAND_DOTS, w.HAND_DOTS, False) for n, t in icons.HAND.items())
+    yield from ((n, t, *w.PROP_DOTS, True) for n, t in icons.PROPS.items())
+    yield from ((f"snowball {i}", t, *w.SNOWBALL_DOTS, True) for i, t in enumerate(icons.SNOWBALLS))
+    yield "snowman", icons.SNOWMAN, *w.SNOWMAN_DOTS, True
+    yield "snow_cloud", icons.SNOW_CLOUD, *w.CLOUD_DOTS, False
+    yield "postit", icons.POSTIT, w.POSTIT_DOTS, w.POSTIT_DOTS, False
+
+
+@pytest.mark.parametrize("name,text,cw,ch,bottom", list(_outlined_icons()), ids=lambda v: v if isinstance(v, str) and len(v) < 20 else "")
+def test_every_outlined_icon_leaves_room_for_its_outline(name, text, cw, ch, bottom):
+    """표가 캔버스에 꽉 차면 윗줄이 잘리거나(눈사람 모자) 위 외곽선만 빠진다 (꽃·눈구름)."""
+    rows = w.rows_of(text)
+    aw = max(len(r) for r in rows)
+    x = (cw - aw) // 2
+    y = ch - len(rows) - 1 if bottom else (ch - len(rows)) // 2
+    assert x >= 1 and x + aw <= cw - 1 and y >= 1 and y + len(rows) <= ch - 1, (x, y, aw, len(rows))
+
+
+@pytest.mark.parametrize("name,ink", [("snowman", w.INK), ("flower", w.INK), ("snow_cloud", (150, 170, 200))])
+def test_the_shipped_icon_has_a_closed_top_outline(name, ink):
+    a = np.asarray(Image.open(UI / "effects_pixel" / f"{name}.png").convert("RGBA"))
+    ys, xs = np.nonzero(a[..., 3])
+    top = a[ys.min(), xs[ys == ys.min()]]
+    assert (top[:, :3] == ink).all(), top
+
+
 def test_objects_sit_where_the_tumble_shape_says():
     """코어 tumble.rs의 볼록 껍질(128칸)과 칸 그림의 네모가 몇 칸 안에서 맞는다 — 구를 때 바닥에 닿는 자리가 같다."""
     src = (ROOT / "crates" / "screenpet-core" / "src" / "tumble.rs").read_text(encoding="utf-8")
