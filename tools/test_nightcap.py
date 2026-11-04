@@ -68,8 +68,8 @@ def check_fit(cell, mat, eyes=True):
         eye |= (np.abs(rgb - np.array(c)).sum(axis=2) < 14) & (alpha > 200)
     if eye.sum() >= 3:
         hidden = (eye & cover).sum() / eye.sum()
-        # 낱개 픽셀 하나는 잡음이다 (또렷한 2배 칸을 128로 줄이면 눈 끝·속눈썹 픽셀이 몇 개만 눈 색으로 남아 비율이 크게 튄다)
-        if hidden > 0.1 and (eye & cover).sum() >= 2:
+        # 낱개 픽셀 한두 개는 잡음이다 (또렷한 2배 칸을 128로 줄이면 눈 끝·속눈썹 픽셀이 몇 개만 눈 색으로 남아 비율이 크게 튄다)
+        if hidden > 0.1 and (eye & cover).sum() >= 3:
             problems.append(f"eyes:{hidden:.2f}")
     return problems
 

@@ -536,11 +536,11 @@ def roll(sp, i):
         if _is_ghost(sp):
             st = _gh()
             k = 31 / (st["r"] + st["L"] * 0.5)
-            return ghost(sp, bottom=cy + 30, size=k * 1.25, sq=(1.0, 0.8), rot=[-6, 6][i], eyes="happy", mouth="open" if i else None,
+            return ghost(sp, bottom=cy + 30, size=k * 1.25, sq=(1.0, 0.8), rot=0, eyes="happy", mouth="open" if i else None,
                          arms=[], trim=True, phase=i, circle=circle)
         st = _pk()
         k = 33 / st["rx"]
-        return pumpkin(sp, bottom=cy + 33 * st["ry"] / st["rx"] - 2, size=k, rot=[-6, 6][i], eyes="happy",
+        return pumpkin(sp, bottom=cy + 33 * st["ry"] / st["rx"] - 2, size=k, rot=0, eyes="happy",
                        mouth="open" if i else None, trim=True, feet=None, arms=[], stem=[-8, 8][i], circle=circle)
 
 
