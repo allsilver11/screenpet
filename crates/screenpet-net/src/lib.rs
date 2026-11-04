@@ -67,9 +67,12 @@ pub(crate) const MAX_TRUSTED_IPS: usize = 64;
 pub(crate) const MAX_CONNS_PER_ADDR: u32 = 20;
 /// The same for an address that previously authenticated as a friend.
 pub(crate) const MAX_CONNS_PER_TRUSTED_ADDR: u32 = 100;
-/// Most inbound session threads still before their hello. Evicted links end
-/// within a tick, so a flood only reaches this if it outruns even that.
+/// Most inbound session threads still before their hello, per class of link
+/// (see `HandshakeClass`). Evicted links end within a tick, so a flood only
+/// reaches this if it outruns even that.
 pub(crate) const MAX_HANDSHAKES: usize = 32;
+/// Most unverified links from addresses a friend authenticated from, in all.
+pub(crate) const MAX_TRUSTED_INBOUND: usize = 32;
 /// Handshake + hello must complete within this (or `conn_timeout` if shorter).
 pub(crate) const PRE_AUTH_MAX: Duration = Duration::from_secs(3);
 /// Longest redial backoff for a friend whose identity check keeps failing.
@@ -445,6 +448,10 @@ impl State {
         self.friends.retain(|f| f.id != id);
         self.budgets.remove(id);
         self.key_mismatches.remove(id);
+        // Its address is no reason for trust any more
+        self.trusted_ips.retain(|(friend, _), _| friend != id);
+        self.trusted_rate.retain(|(friend, _), _| friend != id);
+        self.friend_rate.retain(|(friend, _), _| friend != id);
     }
     pub fn is_trusted(&self, id: &str, ip: &str) -> bool {
         self.trusted_ips.contains_key(&(id.to_string(), ip.to_string()))
@@ -504,8 +511,19 @@ pub(crate) struct Shared {
     threads: Mutex<Vec<JoinHandle<()>>>,
     next_token: AtomicU64,
     unverified: Mutex<Vec<Unverified>>,
-    /// Inbound session threads before their hello (`MAX_HANDSHAKES`).
-    handshakes: AtomicUsize,
+    /// Inbound session threads before their hello, per `handshake_class`
+    /// (`MAX_HANDSHAKES` each): strangers can only fill their own class.
+    handshakes: [AtomicUsize; 3],
+}
+
+/// Which `Shared::handshakes` counter a link counts against: a stranger on the
+/// LAN, a stranger through the relay, or an address a friend authenticated from.
+fn handshake_class(addr: &str, trusted: bool) -> usize {
+    match (trusted, addr.starts_with(relay::ADDR_PREFIX)) {
+        (true, _) => 2,
+        (false, true) => 1,
+        (false, false) => 0,
+    }
 }
 
 /// An inbound link not (yet) authenticated as a friend.
@@ -525,13 +543,14 @@ pub(crate) struct SessionGuard {
     pub unverified: Arc<AtomicBool>,
     /// Counts against `MAX_HANDSHAKES` while set.
     handshaking: AtomicBool,
+    class: usize,
 }
 
 impl SessionGuard {
     /// The peer's hello arrived: this thread no longer counts as a handshake.
     pub fn handshake_done(&self) {
         if self.handshaking.swap(false, Ordering::SeqCst) {
-            self.shared.handshakes.fetch_sub(1, Ordering::SeqCst);
+            self.shared.handshakes[self.class].fetch_sub(1, Ordering::SeqCst);
         }
     }
 }
@@ -586,17 +605,20 @@ impl Shared {
     /// unverified link from the same address (if it has `MAX_UNVERIFIED_PER_IP`)
     /// or overall (if the pool is full), so a flood cannot lock friends out; it
     /// can only churn other unverified links. `None` only when `MAX_HANDSHAKES`
-    /// threads are already handshaking: the link is dropped and the peer retries.
+    /// threads of the link's own class are already handshaking: the link is
+    /// dropped and the peer retries. A stranger flood on the LAN therefore never
+    /// refuses a link through the relay or from an address a friend used.
     ///
     /// Links from an address that previously authenticated as a friend use a
     /// separate per-address allowance, so strangers can never crowd them out.
     pub fn admit_inbound(self: &Arc<Self>, frames: Arc<dyn transport::FrameLink>) -> Option<SessionGuard> {
-        if self.handshakes.fetch_add(1, Ordering::SeqCst) >= MAX_HANDSHAKES {
-            self.handshakes.fetch_sub(1, Ordering::SeqCst);
-            return None;
-        }
         let ip = frames.peer_addr();
         let trusted = self.state().ip_trusted(&ip);
+        let class = handshake_class(&ip, trusted);
+        if self.handshakes[class].fetch_add(1, Ordering::SeqCst) >= MAX_HANDSHAKES {
+            self.handshakes[class].fetch_sub(1, Ordering::SeqCst);
+            return None;
+        }
         let active = Arc::new(AtomicBool::new(true));
         let mut evicted = Vec::new();
         {
@@ -619,6 +641,8 @@ impl Shared {
             if trusted {
                 if same_ip >= MAX_TRUSTED_PER_IP {
                     evict_oldest(&mut pool, true);
+                } else if pool.iter().filter(|u| u.trusted).count() >= MAX_TRUSTED_INBOUND {
+                    evict_oldest(&mut pool, false);
                 }
             } else if same_ip >= MAX_UNVERIFIED_PER_IP {
                 evict_oldest(&mut pool, true);
@@ -630,11 +654,11 @@ impl Shared {
         for f in evicted {
             f.close();
         }
-        Some(SessionGuard { shared: self.clone(), unverified: active, handshaking: AtomicBool::new(true) })
+        Some(SessionGuard { shared: self.clone(), unverified: active, handshaking: AtomicBool::new(true), class })
     }
     /// Outgoing links hold no unverified slot.
     pub fn outbound_guard(self: &Arc<Self>) -> SessionGuard {
-        SessionGuard { shared: self.clone(), unverified: Arc::new(AtomicBool::new(false)), handshaking: AtomicBool::new(false) }
+        SessionGuard { shared: self.clone(), unverified: Arc::new(AtomicBool::new(false)), handshaking: AtomicBool::new(false), class: 0 }
     }
     /// The link proved to be a friend (or ended): free its unverified slot.
     pub fn release_unverified(&self, flag: &AtomicBool) {
@@ -695,7 +719,7 @@ impl Net {
             threads: Mutex::new(Vec::new()),
             next_token: AtomicU64::new(1),
             unverified: Mutex::new(Vec::new()),
-            handshakes: AtomicUsize::new(0),
+            handshakes: Default::default(),
         });
         let s1 = shared.clone();
         let s2 = shared.clone();
@@ -971,7 +995,82 @@ mod inbound_tests {
         assert!(net.shared.admit_inbound(link()).is_none(), "released once");
         drop(next);
         drop(held);
-        assert_eq!(net.shared.handshakes.load(Ordering::SeqCst), 0);
+        assert_eq!(net.shared.handshakes[0].load(Ordering::SeqCst), 0);
+    }
+
+    struct At(String);
+    impl transport::FrameLink for At {
+        fn send_frame(&self, _: &[u8]) -> bool {
+            true
+        }
+        fn finish(&self) {}
+        fn close(&self) {}
+        fn peer_addr(&self) -> String {
+            self.0.clone()
+        }
+    }
+
+    fn at(addr: &str) -> Arc<dyn transport::FrameLink> {
+        Arc::new(At(addr.to_string()))
+    }
+
+    #[test]
+    fn a_stranger_flood_never_refuses_a_trusted_or_relay_link() {
+        let net = solo_net(vec![]);
+        net.shared.state().trust_ip("friend", "10.0.0.9", Instant::now());
+        // LAN의 낯선 주소들이 핸드셰이크 자리를 다 채운다
+        let flood: Vec<_> = (0..MAX_HANDSHAKES).map(|i| net.shared.admit_inbound(at(&format!("10.1.0.{i}"))).expect("under the cap")).collect();
+        assert!(net.shared.admit_inbound(at("10.1.1.1")).is_none(), "strangers are at their cap");
+        assert!(net.shared.admit_inbound(at("10.0.0.9")).is_some(), "a friend's address has its own");
+        assert!(net.shared.admit_inbound(at("relay:abcd")).is_some(), "the relay has its own");
+        drop(flood);
+    }
+
+    #[test]
+    fn relay_strangers_do_not_use_up_lan_handshakes() {
+        let net = solo_net(vec![]);
+        let flood: Vec<_> = (0..MAX_HANDSHAKES).map(|i| net.shared.admit_inbound(at(&format!("relay:{i}"))).expect("under the cap")).collect();
+        assert!(net.shared.admit_inbound(at("relay:x")).is_none());
+        assert!(net.shared.admit_inbound(at("10.1.1.1")).is_some(), "LAN is untouched");
+        drop(flood);
+    }
+
+    #[test]
+    fn trusted_handshakes_and_pool_entries_are_capped_too() {
+        let net = solo_net(vec![]);
+        let now = Instant::now();
+        for i in 0..MAX_TRUSTED_IPS {
+            net.shared.state().trust_ip("friend", &format!("10.2.0.{i}"), now);
+        }
+        let held: Vec<_> = (0..MAX_HANDSHAKES).map(|i| net.shared.admit_inbound(at(&format!("10.2.0.{i}"))).expect("under the cap")).collect();
+        assert!(net.shared.admit_inbound(at("10.2.0.40")).is_none(), "trusted links are bounded as well");
+        drop(held);
+        // 풀에도 신뢰 주소 전체의 상한이 있다 (오래된 것이 밀려난다)
+        let mut held = Vec::new();
+        for i in 0..MAX_TRUSTED_IPS {
+            let g = net.shared.admit_inbound(at(&format!("10.2.0.{i}"))).expect("slot");
+            g.handshake_done();
+            held.push(g);
+        }
+        let live = net.shared.unverified.lock().unwrap().iter().filter(|u| u.trusted && u.active.load(Ordering::SeqCst)).count();
+        assert!(live <= MAX_TRUSTED_INBOUND, "{live}");
+    }
+
+    #[test]
+    fn removing_a_friend_forgets_where_it_authenticated_from() {
+        let now = Instant::now();
+        let ip: IpAddr = "10.0.0.5".parse().unwrap();
+        let mut st = State::default();
+        st.add_friend("a", [1; 32]);
+        st.add_friend("b", [2; 32]);
+        st.trust_ip("a", "10.0.0.5", now);
+        st.trust_ip("b", "10.0.0.6", now);
+        st.trusted_rate.insert(("a".into(), ip), (now, 1));
+        st.friend_rate.insert(("a".into(), ip), (now, 1));
+        st.remove_friend("a");
+        assert!(!st.ip_trusted("10.0.0.5"), "no more trust from the removed friend's address");
+        assert!(st.ip_trusted("10.0.0.6"), "other friends stay");
+        assert!(st.trusted_rate.is_empty() && st.friend_rate.is_empty());
     }
 
     #[test]
