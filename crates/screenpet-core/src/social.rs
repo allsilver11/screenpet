@@ -250,7 +250,8 @@ impl Social {
         Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new() }
     }
 
-    /// 지금 놀이 중인 짝 수 (테스트·디버그용)
+    /// 지금 놀이 중인 짝 수 (테스트용)
+    #[cfg(test)]
     pub fn active(&self) -> usize {
         self.links.len()
     }
@@ -279,9 +280,12 @@ impl Social {
         while i < self.meets.len() {
             let (jumper, target) = self.meets[i];
             let (ij, it) = (self.index(jumper), self.index(target));
-            if let (Some(ij), Some(it)) = (ij, it) {
+            // 밟힌 쪽이 없어졌어도 꺼내 둔다 — 남겨 두면 나중의 올라서기가 곧바로 끝난다
+            if let Some(ij) = ij {
                 if pets[ij].as_mut().take_head_bump() {
-                    pets[it].as_mut().feel_head_stomp();
+                    if let Some(it) = it {
+                        pets[it].as_mut().feel_head_stomp();
+                    }
                 }
             }
             let flying = ij.is_some_and(|k| pets[k].as_ref().is_meeting());

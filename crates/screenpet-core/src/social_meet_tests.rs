@@ -399,6 +399,20 @@ fn grabbing_the_jumper_frees_the_one_waiting_and_grabbing_the_target_ends_it_saf
 }
 
 #[test]
+fn a_jumper_whose_target_left_does_not_keep_the_head_bump_for_later() {
+    let w = floor();
+    let mut pets = head_on_pair(&w, 200.0, 8);
+    let mut s = always(Some(MeetKind::Stomp), 8);
+    step(&mut s, &mut pets, &w);
+    let (j, t) = roles(&pets);
+    pets.remove(t);
+    let j = if t < j { j - 1 } else { j };
+    run(&mut s, &mut pets, &w, 3.0);
+    assert!(!pets[j].is_meeting());
+    assert!(!pets[j].take_head_bump(), "a stale bump would end a later climb early");
+}
+
+#[test]
 fn big_and_little_pets_meet_too() {
     let w = floor();
     let big = PetConfig { size: 211.0, half_w: 63.3, ..cfg() };
