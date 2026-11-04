@@ -7,6 +7,7 @@
 //! - 틱마다 할당하지 않는다 (스냅샷 Vec을 다시 쓴다; 쿨다운 표는 놀이가 끝날 때만 넣는다).
 
 use std::collections::HashMap;
+use std::hash::Hash;
 
 use crate::behavior::{self, Personality};
 use crate::collide::{self, Hit, HIT_FAST_SPEED, HIT_MIN_SPEED, HIT_PAIR_COOLDOWN};
@@ -170,6 +171,17 @@ fn head_on(a: &Snap, b: &Snap) -> bool {
     !a.carrying && !b.carrying && a.free && b.free && a.walking && b.walking && a.span.is_some() && a.span == b.span && near(a, b, MEET_BODIES) && dx.abs() >= MEET_MIN_BODIES * body && dx * a.facing > 0.0 && dx * b.facing < 0.0
 }
 
+/// 이 짝이 아직 쉬는 중
+fn cooling<K: Hash + Eq>(cooldowns: &HashMap<K, f64>, key: &K, now: f64) -> bool {
+    cooldowns.get(key).is_some_and(|&until| now < until)
+}
+
+/// 이 짝을 secs 동안 쉬게 한다. 오래된 쿨다운은 이때만 정리한다 (틱마다 하지 않는다)
+fn cool<K: Hash + Eq>(cooldowns: &mut HashMap<K, f64>, key: K, now: f64, secs: f64) {
+    cooldowns.retain(|_, until| *until > now);
+    cooldowns.insert(key, now + secs);
+}
+
 /// jumper가 친구 너머 같은 조각에 내려설 자리 (자리가 없으면 None)
 fn landing_past(jumper: &Snap, other: &Snap) -> Option<f64> {
     let (lo, hi) = jumper.span?;
@@ -308,14 +320,13 @@ impl Social {
             for j in (i + 1)..n {
                 let (a, b) = (self.snap[i], self.snap[j]);
                 let key = pair(a.key, b.key);
-                if a.engaged || b.engaged || !head_on(&a, &b) || self.meet_cooldown.get(&key).is_some_and(|&until| self.clock < until) {
+                if a.engaged || b.engaged || !head_on(&a, &b) || cooling(&self.meet_cooldown, &key, self.clock) {
                     continue;
                 }
                 let now = self.clock;
-                self.meet_cooldown.retain(|_, until| *until > now);
                 let started = self.meet_rng.f64() < self.meet_chance && self.start_meet(pets, i, j);
                 let wait = if started { behavior::range(&mut self.meet_rng, MEET_COOLDOWN) } else { MEET_PASS_COOLDOWN };
-                self.meet_cooldown.insert(key, now + wait);
+                cool(&mut self.meet_cooldown, key, now, wait);
                 if started {
                     self.snap[i].engaged = true;
                     self.snap[j].engaged = true;
@@ -406,7 +417,7 @@ impl Social {
                 let Body { vx, vy, .. } = pets[i].as_ref().body;
                 let dpi = pets[i].as_ref().cfg.dpi;
                 let key = pair(a.key, b.key);
-                if self.hit_cooldown.get(&key).is_some_and(|&until| self.clock < until) {
+                if cooling(&self.hit_cooldown, &key, self.clock) {
                     continue;
                 }
                 // 그냥 놓은 동물이 머리 위로 떨어지면 튕기지 않고 올라선다 (perches). 탑이 꽉 찼으면 평소처럼 튕긴다
@@ -415,9 +426,7 @@ impl Social {
                 pets[i].as_mut().bounce_off(face, away);
                 pets[j].as_mut().feel_hit(Hit { face, vx, vy, dir: -away, fast, poop: false });
                 self.snap[j] = Snap { engaged: true, ..Snap::of(pets[j].as_ref()) };
-                let now = self.clock;
-                self.hit_cooldown.retain(|_, until| *until > now);
-                self.hit_cooldown.insert(key, now + HIT_PAIR_COOLDOWN);
+                cool(&mut self.hit_cooldown, key, self.clock, HIT_PAIR_COOLDOWN);
             }
         }
     }
@@ -448,7 +457,7 @@ impl Social {
             }
             let b = self.snap[j];
             let key = (id, b.key);
-            if self.object_cooldown.get(&key).is_some_and(|&until| self.clock < until) {
+            if cooling(&self.object_cooldown, &key, self.clock) {
                 continue;
             }
             let Body { x, y, vx, vy } = object.body;
@@ -456,9 +465,7 @@ impl Social {
             let Some((face, away, fast)) = self.touch(b, (x - vx * dt, y - vy * dt), (x, y), half_w, height, vx, vy, object.dpi()) else { continue };
             object.bounce_off(face, away);
             pets[j].as_mut().feel_hit(Hit { face, vx, vy, dir: -away, fast, poop: object.kind.is_poop() });
-            let now = self.clock;
-            self.object_cooldown.retain(|_, until| *until > now);
-            self.object_cooldown.insert(key, now + HIT_PAIR_COOLDOWN);
+            cool(&mut self.object_cooldown, key, self.clock, HIT_PAIR_COOLDOWN);
         }
     }
 
@@ -466,8 +473,8 @@ impl Social {
         self.snap.iter().position(|s| s.key == key)
     }
 
-    fn cooling(&self, a: u64, b: u64) -> bool {
-        self.cooldown.get(&pair(a, b)).is_some_and(|&until| self.clock < until)
+    fn greeted_lately(&self, a: u64, b: u64) -> bool {
+        cooling(&self.cooldown, &pair(a, b), self.clock)
     }
 
     fn step_links<T: AsRef<Pet> + AsMut<Pet>>(&mut self, dt: f64, pets: &mut [T]) {
@@ -577,10 +584,7 @@ impl Social {
             }
         }
         let secs = behavior::range(&mut self.rng, if link.played { PLAY_COOLDOWN } else { GREET_COOLDOWN });
-        // 오래된 쿨다운은 이때만 정리한다 (틱마다 하지 않는다)
-        let now = self.clock;
-        self.cooldown.retain(|_, until| *until > now);
-        self.cooldown.insert(pair(link.a, link.b), now + secs);
+        cool(&mut self.cooldown, pair(link.a, link.b), self.clock, secs);
     }
 
     /// 새로 마주친 짝: 인사 (자는 친구는 쳐다보기만), 또는 가끔 바로 술래 놀이
@@ -589,7 +593,7 @@ impl Social {
         for i in 0..n {
             for j in (i + 1)..n {
                 let (a, b) = (self.snap[i], self.snap[j]);
-                if a.engaged || b.engaged || !(a.free || b.free) || self.cooling(a.key, b.key) {
+                if a.engaged || b.engaged || !(a.free || b.free) || self.greeted_lately(a.key, b.key) {
                     continue;
                 }
                 if !a.free || !b.free {

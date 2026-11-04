@@ -55,10 +55,8 @@ impl Social {
             }
             // 막 내려온 짝은 서로 부딪히거나 바로 다시 올라가지 않는다
             let (key, now) = (pair(ride.rider, ride.carrier), self.clock);
-            self.hit_cooldown.retain(|_, until| *until > now);
-            self.hit_cooldown.insert(key, now + HIT_PAIR_COOLDOWN);
-            self.meet_cooldown.retain(|_, until| *until > now);
-            self.meet_cooldown.insert(key, now + MEET_PASS_COOLDOWN);
+            cool(&mut self.hit_cooldown, key, now, HIT_PAIR_COOLDOWN);
+            cool(&mut self.meet_cooldown, key, now, MEET_PASS_COOLDOWN);
         }
         for ride in &self.rides {
             if let Some(ir) = position(pets, ride.rider) {
@@ -192,15 +190,15 @@ impl Social {
                     || !near(&a, &b, MEET_BODIES)
                     || dx.abs() < MEET_MIN_BODIES * body
                     || dx * a.facing <= 0.0
-                    || self.meet_cooldown.get(&key).is_some_and(|&until| self.clock < until)
+                    || cooling(&self.meet_cooldown, &key, self.clock)
                 {
                     continue;
                 }
                 let now = self.clock;
-                self.meet_cooldown.retain(|_, until| *until > now);
                 let crouch = if a.run_carry > 0.0 { CROUCH_SECS * RUN_CROUCH } else { CROUCH_SECS };
                 let started = self.meet_rng.f64() < self.tower_chance && self.start_climb(pets, i, j, crouch);
-                self.meet_cooldown.insert(key, now + if started { behavior::range(&mut self.meet_rng, MEET_COOLDOWN) } else { MEET_PASS_COOLDOWN });
+                let wait = if started { behavior::range(&mut self.meet_rng, MEET_COOLDOWN) } else { MEET_PASS_COOLDOWN };
+                cool(&mut self.meet_cooldown, key, now, wait);
                 if started {
                     self.snap[i].engaged = true;
                     let greet = behavior::range(&mut self.meet_rng, GREET_COOLDOWN);
