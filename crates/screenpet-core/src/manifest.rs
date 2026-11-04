@@ -145,28 +145,13 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
     if !(0.0..=1.0).contains(&m.hop_share) {
         return Err(format!("hop_share {} must be within 0..=1", m.hop_share));
     }
-    for name in REQUIRED_ANIMS {
-        let spec = m.animations.get(name).ok_or_else(|| format!("missing animation: {name}"))?;
-        if spec.frames == 0 || spec.fps <= 0.0 {
-            return Err(format!("animation {name}: frames and fps must be > 0"));
-        }
-    }
-    for name in OPTIONAL_ANIMS {
-        if let Some(spec) = m.animations.get(name) {
-            if spec.frames == 0 || spec.fps <= 0.0 {
-                return Err(format!("animation {name}: frames and fps must be > 0"));
-            }
-        }
-    }
+    check_anims(&m.animations, &REQUIRED_ANIMS, &OPTIONAL_ANIMS)?;
     Ok(m)
 }
 
 /// 픽셀 그림의 pet.json (ui/pets_pixel/<id>/pet.json): 그림에 관한 것만 읽는다
 #[derive(Deserialize)]
 struct PixelJson {
-    /// 숫자 하나 또는 단계 → 칸 px
-    #[serde(default)]
-    frame_size: Option<serde_json::Value>,
     #[serde(default)]
     frame_sizes: HashMap<String, u32>,
     animations: HashMap<String, AnimSpec>,
@@ -176,32 +161,34 @@ struct PixelJson {
     neck_stretch: Option<serde_json::Value>,
 }
 
+/// required는 있어야 하고, 있는 동작(required·optional)은 칸 수와 속도가 0보다 커야 한다
+fn check_anims(animations: &HashMap<String, AnimSpec>, required: &[&str], optional: &[&str]) -> Result<(), String> {
+    for &name in required.iter().chain(optional) {
+        match animations.get(name) {
+            Some(spec) if spec.frames == 0 || spec.fps <= 0.0 => return Err(format!("animation {name}: frames and fps must be > 0")),
+            None if required.contains(&name) => return Err(format!("missing animation: {name}")),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// 픽셀 그림의 pet.json을 동글 동물(base) 위에 얹는다: 시트 칸·동작 표·머리 표만 그림 것이고 이름·속도·성격·크기·먹이·집은 모두 base 그대로 (스타일은 겉모습뿐).
-/// 칸 크기는 단계마다 frame_sizes → frame_size(표 또는 숫자) → 기본 표(style::pixel_grid). roll은 없어도 된다 (없으면 no_roll)
+/// 칸 크기는 frame_sizes, 없는 단계는 기본 표(style::pixel_grid). roll은 없어도 된다 (없으면 no_roll)
 pub fn parse_pixel_manifest(json: &str, base: &PetManifest) -> Result<PetManifest, String> {
     let p: PixelJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    let single = p.frame_size.as_ref().and_then(|v| v.as_u64()).map(|v| v as u32);
     let mut frame_sizes = HashMap::new();
     for stage in Stage::ALL {
         let name = stage.name();
-        let from_map = p.frame_sizes.get(name).copied();
-        let from_field = p.frame_size.as_ref().and_then(|v| v.get(name)).and_then(|v| v.as_u64()).map(|v| v as u32);
-        let size = from_map.or(from_field).or(single).unwrap_or(style::pixel_grid(stage).0);
+        let size = p.frame_sizes.get(name).copied().unwrap_or(style::pixel_grid(stage).0);
         if size == 0 {
             return Err(format!("frame size of {name} must be > 0"));
         }
         frame_sizes.insert(name.to_string(), size);
     }
-    let checked = |name: &str| p.animations.get(name).map_or(Ok(()), |spec| if spec.frames == 0 || spec.fps <= 0.0 { Err(format!("animation {name}: frames and fps must be > 0")) } else { Ok(()) });
-    for name in REQUIRED_ANIMS.into_iter().filter(|a| *a != "roll") {
-        if !p.animations.contains_key(name) {
-            return Err(format!("missing animation: {name}"));
-        }
-        checked(name)?;
-    }
-    for name in OPTIONAL_ANIMS.into_iter().chain(["roll"]) {
-        checked(name)?;
-    }
+    let required: Vec<&str> = REQUIRED_ANIMS.into_iter().filter(|a| *a != "roll").collect();
+    check_anims(&p.animations, &required, &["roll"])?;
+    check_anims(&p.animations, &[], &OPTIONAL_ANIMS)?;
     Ok(PetManifest { frame_sizes, animations: p.animations, head: p.head, neck_stretch: p.neck_stretch, ..base.clone() })
 }
 
@@ -685,13 +672,11 @@ mod tests {
     }
 
     #[test]
-    fn pixel_frame_size_may_be_a_map_a_number_or_missing() {
+    fn pixel_frame_sizes_default_to_the_grid() {
         let base = parse_manifest(&full_json()).unwrap();
-        let map = parse_pixel_manifest(&pixel_json(r#""frame_size": {"baby": 20, "adult": 40},"#), &base).unwrap();
-        assert_eq!((map.frame_size_at("baby"), map.frame_size_at("adult")), (20, 40));
-        assert_eq!(map.frame_size_at("kinder"), 28, "default grid for a stage it does not list");
-        let one = parse_pixel_manifest(&pixel_json(r#""frame_size": 30,"#), &base).unwrap();
-        assert_eq!((one.frame_size_at("baby"), one.frame_size_at("adult")), (30, 30));
+        let some = parse_pixel_manifest(&pixel_json(r#""frame_sizes": {"baby": 20, "adult": 40},"#), &base).unwrap();
+        assert_eq!((some.frame_size_at("baby"), some.frame_size_at("adult")), (20, 40));
+        assert_eq!(some.frame_size_at("kinder"), 28, "default grid for a stage it does not list");
         let none = parse_pixel_manifest(&pixel_json(""), &base).unwrap();
         assert_eq!((none.frame_size_at("baby"), none.frame_size_at("child"), none.frame_size_at("teenager"), none.frame_size_at("adult")), (24, 32, 32, 36));
         assert!(parse_pixel_manifest(&pixel_json(r#""frame_sizes": {"baby": 0},"#), &base).is_err());
