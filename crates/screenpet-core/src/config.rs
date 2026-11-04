@@ -94,10 +94,11 @@ pub struct LastLadderRow {
 pub const MAX_NAME_CHARS: usize = 20;
 
 /// 글자에 보이지 않게 끼어드는 것: 제어 문자, 방향 바꾸기(U+202A–202E, U+2066–2069, U+061C), 폭 없는 글자(U+200B–200F,
-/// U+2060–2064, U+180E), BOM(U+FEFF), 소프트 하이픈
+/// U+2060–2064, U+180E), BOM(U+FEFF), 소프트 하이픈, 빈 칸처럼 보이는 채움 글자(한글 U+3164·U+115F·U+1160·U+FFA0, 점자
+/// U+2800), 태그 문자(U+E0000–E007F), 줄·문단 구분자(U+2028·U+2029)
 fn is_hidden_char(c: char) -> bool {
     c.is_control()
-        || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}' | '\u{061C}' | '\u{180E}' | '\u{00AD}')
+        || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}' | '\u{061C}' | '\u{180E}' | '\u{00AD}' | '\u{3164}' | '\u{115F}' | '\u{1160}' | '\u{FFA0}' | '\u{2800}' | '\u{E0000}'..='\u{E007F}' | '\u{2028}' | '\u{2029}')
 }
 
 /// 다른 사람이 정했거나 내가 친 이름을 화면용으로: 보이지 않는 글자를 빼고, 앞뒤 공백을 지우고, max자까지.
@@ -407,6 +408,7 @@ pub fn load_or_create_identity_key(dir: &Path, new_key: impl FnOnce() -> [u8; 32
     match std::fs::read(&path) {
         Ok(bytes) => {
             if let Some(k) = std::str::from_utf8(&bytes).ok().and_then(|t| hex32::decode(t.trim())) {
+                lock_down(&path);
                 return Ok(k);
             }
             eprintln!("identity key {} is corrupt; making a new one", path.display());
@@ -427,6 +429,22 @@ pub fn load_or_create_identity_key(dir: &Path, new_key: impl FnOnce() -> [u8; 32
     std::fs::rename(&tmp, &path)?;
     Ok(key)
 }
+
+/// 복사나 백업으로 남도 읽을 수 있게 된 비밀키는 읽을 때 다시 잠근다. 못 잠가도 키는 쓴다 (친구를 잃는 것보다 낫다)
+#[cfg(unix)]
+fn lock_down(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::metadata(path) else { return };
+    if meta.permissions().mode() & 0o077 != 0 {
+        if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+            eprintln!("identity key {} is readable by others and could not be locked: {e}", path.display());
+        }
+    }
+}
+
+/// Windows: %APPDATA% 아래 파일은 그 사용자 전용 ACL을 물려받는다
+#[cfg(not(unix))]
+fn lock_down(_path: &Path) {}
 
 #[cfg(unix)]
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
@@ -560,6 +578,17 @@ mod tests {
         assert_eq!(load(&d), c);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn an_identity_key_left_readable_by_others_is_locked_down_on_load() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = temp_dir("identity_key_perms");
+        let k = load_or_create_identity_key(&d, || key(0x11)).unwrap();
+        std::fs::set_permissions(d.join("identity.key"), std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(load_or_create_identity_key(&d, || panic!("no new key")).unwrap(), k);
+        assert_eq!(std::fs::metadata(d.join("identity.key")).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
     #[test]
     fn identity_key_is_created_once_in_its_own_file() {
         let d = temp_dir("idkey");
@@ -619,6 +648,17 @@ mod tests {
         // friends가 배열이 아니면 그건 깨진 설정이다
         std::fs::write(d.join("config.json"), r#"{"pet": "cat", "friends": 3}"#).unwrap();
         assert_eq!(load(&d), Config::default());
+    }
+
+    #[test]
+    fn invisible_look_alikes_are_hidden_too() {
+        // 채움 글자(한글·반각·점자)와 태그 문자, 줄·문단 구분자: 보이지 않는 이름을 만들 수 있다
+        for c in ['\u{3164}', '\u{115F}', '\u{1160}', '\u{FFA0}', '\u{2800}', '\u{E0000}', '\u{E0041}', '\u{E007F}', '\u{2028}', '\u{2029}'] {
+            assert_eq!(sanitize_name(&format!("{c}{c}")), None, "U+{:X}", c as u32);
+            assert_eq!(sanitize_name(&format!("da{c}nni")), Some("danni".into()), "U+{:X}", c as u32);
+        }
+        // 보통 한글 자모와 이모지는 그대로
+        assert_eq!(sanitize_name("ㅎㅎ 한글 🐱"), Some("ㅎㅎ 한글 🐱".into()));
     }
 
     #[test]

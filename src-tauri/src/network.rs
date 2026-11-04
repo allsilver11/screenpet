@@ -983,7 +983,7 @@ impl Network {
                 self.connected.insert(id.clone());
                 self.forgot.remove(&id);
                 // 고정된 키를 증명한 링크의 이름 (방금 끝난 짝맞추기도 그 링크에서 Connected가 온다)
-                self.note_name(&id, &clamp(&name));
+                self.note_name(&id, &name);
                 if let Some(p) = self.pairing.as_mut().filter(|p| p.peer == id && matches!(p.view.phase, "confirm" | "waiting")) {
                     p.view.phase = "done";
                     p.deadline = Instant::now() + RESULT_SECS;
@@ -993,7 +993,7 @@ impl Network {
             NetEvent::Renamed { id, name } => {
                 // 인증된 친구 링크에서 온 이름만 (net이 확인한다) — 설정은 handle 끝의 sync_friends가 맞춘다
                 if config.friend(&id).is_some() {
-                    self.note_name(&id, &clamp(&name));
+                    self.note_name(&id, &name);
                 }
             }
             NetEvent::Asked { from, ask } => self.on_ask(app, config, slots, &from, &ask),
@@ -1108,9 +1108,10 @@ impl Network {
         }
     }
 
+    /// 친구 이름은 내가 정하는 이름과 같은 규칙으로 (보이지 않는 글자 빼고 20자까지, 비면 그대로 둔다)
     fn note_name(&mut self, id: &str, name: &str) {
-        if !name.is_empty() {
-            self.names.insert(id.to_string(), name.to_string());
+        if let Some(name) = screenpet_core::config::sanitize_name(name) {
+            self.names.insert(id.to_string(), name);
         }
     }
 
