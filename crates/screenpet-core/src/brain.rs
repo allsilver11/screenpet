@@ -1294,7 +1294,8 @@ impl Pet {
         g.homesick_in -= dt;
         let (now, home) = (g.is_homesick(), g.home);
         // 그리워진 지 3분이 지나도 못 갔으면 (붙잡혀 있으면 놓인 뒤) 제자리에서 손 흔들고 집으로
-        if g.is_overdue() && self.control.is_none() {
+        // 조작 중이면 기다리되, 친구가 키로 내 화면에 끝없이 붙잡아 두지는 못한다
+        if g.is_overdue() && (self.control.is_none() || g.homesick_in <= -visit::CONTROLLED_HOMESICK_LIMIT_SECS) {
             self.go_home_now();
             return;
         }

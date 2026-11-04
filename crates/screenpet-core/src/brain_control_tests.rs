@@ -487,6 +487,19 @@ fn remote_keys_steer_a_homesick_guest_and_keep_it_from_leaving() {
 }
 
 #[test]
+fn remote_keys_cannot_hold_a_guest_on_the_host_screen_forever() {
+    let (mut p, w) = guest_on_ground(900.0, 0.0);
+    let mut sent_home = false;
+    for tick in 0..((crate::visit::CONTROLLED_HOMESICK_LIMIT_SECS + 60.0) / DT) as usize {
+        let right = tick % 240 < 120;
+        p.remote_keys(true, keys(|k| if right { k.right = true } else { k.left = true }));
+        p.update(DT, &w);
+        sent_home |= p.leaving() || p.take_exit().is_some() || p.home_trip.is_some() || p.farewell_pending;
+    }
+    assert!(sent_home, "{:?}", p.state);
+}
+
+#[test]
 fn pressing_a_key_brings_a_guest_out_of_a_window_and_then_it_obeys() {
     let win = crate::geom::WindowInfo { id: 1, rect: Rect::new(500.0, 300.0, 1300.0, 800.0) };
     let w = World::new(vec![win], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);

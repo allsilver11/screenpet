@@ -17,6 +17,8 @@ pub const ENTER_SECS: f64 = 1.0;
 pub const FAREWELL_SECS: f64 = 1.0;
 /// 방문 뒤 이만큼(초) 지나면 집이 그리워진다
 pub const HOMESICK_SECS: (f64, f64) = (180.0, 360.0);
+/// 조작 중인 손님도 그리워진 뒤 이만큼 지나면 집으로 간다 (초)
+pub const CONTROLLED_HOMESICK_LIMIT_SECS: f64 = 600.0;
 /// 손님이 (집 쪽이 아닌) 다른 친구가 연결된 끝에 닿았을 때 그 친구에게 더 놀러 갈 확률 (그리우면 0)
 pub const ROAM_CHANCE: f64 = 0.7;
 /// 한 화면에 동시에 받는 손님 수 — 넘치면 오는 손님은 바로 집으로 돌아간다
