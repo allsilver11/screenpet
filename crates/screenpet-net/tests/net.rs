@@ -974,11 +974,11 @@ fn a_friend_with_a_new_key_stays_offline_until_both_remove_each_other_and_pair_a
     let silent = |e: &NetEvent| is_connected(e) || matches!(e, NetEvent::Invited { .. } | NetEvent::InviteSent { .. });
     assert_eq!(wait_for(&arx, 2.5, silent), None, "A never takes the new key by itself");
     assert_eq!(a.friends(), vec![friend("bbbb", &old_kb)], "the pinned key stays");
-    // A가 손으로 지운다. B는 (인증된) A가 자기를 모른다는 걸 알게 되고, 역시 손으로 지운다
+    // A가 손으로 지운다. B는 (인증된) A가 자기를 모른다는 걸 알게 되고 저절로 지운다
     a.unfriend("bbbb");
     assert!(a.friends().is_empty());
     assert!(wait_for(&brx, 8.0, |e| *e == NetEvent::FriendForgotUs { id: "aaaa".into() }).is_some());
-    b.unfriend("aaaa");
+    assert!(b.friends().is_empty(), "the authenticated friend said it does not know us");
     // 처음부터 다시 짝맞추기
     let deadline = Instant::now() + Duration::from_secs(8);
     let sent = loop {
@@ -1885,7 +1885,7 @@ fn count_events(rx: &Receiver<NetEvent>, secs: f64, pred: impl Fn(&NetEvent) -> 
 }
 
 #[test]
-fn one_sided_pin_reports_friend_forgot_us_and_backs_off() {
+fn a_proven_friend_that_forgot_us_is_removed_and_reported_once() {
     let (pa, pb) = (free_udp_port(), free_udp_port());
     let (ka, kb) = (key(), key());
     // A pinned B, but B never pinned A (e.g. pairing finished on one side).
@@ -1894,11 +1894,59 @@ fn one_sided_pin_reports_friend_forgot_us_and_backs_off() {
     let (mismatches, connected) =
         count_events(&arx, 4.0, |e| *e == NetEvent::FriendForgotUs { id: "bbbb".into() });
     assert!(!connected);
-    // Announcements arrive every 150 ms; backoff (1.5 s, doubling) bounds redials.
-    assert!((1..=3).contains(&mismatches), "{mismatches} redials in 4 s");
+    assert_eq!(mismatches, 1, "it stops being a friend, so nothing redials");
+    assert!(a.friends().is_empty(), "the right key said it does not know us");
     assert_eq!(wait_for(&brx, 0.1, is_connected), None);
     a.shutdown();
     b.shutdown();
+}
+
+#[test]
+fn only_the_pinned_key_can_say_it_forgot_us() {
+    let (ka, kb, stranger) = (key(), key(), key());
+    let (a, arx, port) = start_sniffed(ka, vec![friend("bbbb", &kb)]);
+    // 틀린 키로 같은 말을 해도 (인증되지 않았다) 아무 일도 없다
+    let _wrong = raw_connect_claiming(port, &stranger, "bbbb");
+    assert_eq!(wait_for(&arx, 1.0, |e| matches!(e, NetEvent::FriendForgotUs { .. })), None);
+    assert_eq!(a.friends(), vec![friend("bbbb", &kb)]);
+    // 고정한 키로 말하면 지운다
+    let _right = raw_connect_claiming(port, &kb, "bbbb");
+    assert!(wait_for(&arx, 3.0, |e| *e == NetEvent::FriendForgotUs { id: "bbbb".into() }).is_some());
+    assert!(a.friends().is_empty());
+    a.shutdown();
+}
+
+#[test]
+fn a_friend_that_restarted_without_us_ends_the_link_it_left_behind() {
+    let (ka, kb) = (key(), key());
+    let (a, arx, port) = start_sniffed(ka, vec![friend("bbbb", &kb)]);
+    let _old = raw_friend_connect(port, &kb, "bbbb");
+    assert!(wait_for(&arx, 3.0, is_connected).is_some());
+    let _new = raw_connect_claiming(port, &kb, "bbbb");
+    assert!(wait_for(&arx, 3.0, |e| *e == NetEvent::FriendForgotUs { id: "bbbb".into() }).is_some());
+    assert!(wait_for(&arx, 3.0, |e| *e == NetEvent::Disconnected { id: "bbbb".into() }).is_some());
+    assert!(a.friends().is_empty());
+    a.shutdown();
+}
+
+#[test]
+fn a_hello_sent_just_before_the_friend_pinned_us_does_not_remove_it() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![]);
+    let mut p = raw_connect(port, &kz, "zzzz");
+    let n = random32();
+    p.send(json!({"type": "invite", "pet": "cat", "commit": hex(&blake2s(&[&n]))})).unwrap();
+    p.recv_msg().unwrap(); // pair_random
+    p.send(json!({"type": "pair_reveal", "nonce": hex(&n)})).unwrap();
+    let ev = wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Invited { .. })).expect("Invited");
+    p.send(json!({"type": "invite_reply", "accepted": true})).unwrap();
+    net.answer_invite(pairing_of(&ev), true);
+    assert!(wait_for(&rx, 2.0, is_connected).is_some());
+    // 상대가 나를 고정하기 전에 보낸 인사가 이제야 온다
+    let _late = raw_connect_claiming(port, &kz, "zzzz");
+    assert_eq!(wait_for(&rx, 1.0, |e| matches!(e, NetEvent::FriendForgotUs { .. })), None);
+    assert_eq!(net.friends().len(), 1, "too soon after pairing to mean anything");
+    net.shutdown();
 }
 
 #[test]
@@ -1936,6 +1984,7 @@ fn wrong_key_answer_for_friend_is_silent_and_backed_off() {
     let (events, connected) = count_events(&arx, 4.0, |e| matches!(e, NetEvent::FriendForgotUs { .. }));
     assert!(!connected);
     assert_eq!(events, 0, "unproven wrong key is not reported");
+    assert_eq!(a.friends(), vec![friend("bbbb", &kb)], "an unproven answer never removes a friend");
     let n = accepts.load(Ordering::SeqCst);
     assert!((1..=3).contains(&n), "{n} dials to the bad candidate in 4 s");
     stop.store(true, Ordering::SeqCst);

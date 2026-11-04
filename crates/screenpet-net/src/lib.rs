@@ -209,10 +209,10 @@ pub enum NetEvent {
     /// A ladder game message from a connected friend (validated by `ladder`).
     Ladder { from: String, msg: LadderMsg },
     /// Friend `id` proved its pinned key but no longer recognizes us as a
-    /// friend (e.g. pairing finished on one side only, or it removed us).
-    /// Redials back off; suggest re-pairing to the user. (An address that
-    /// answers for `id` with a *different* key is just treated as a bad
-    /// candidate, silently.)
+    /// friend (e.g. pairing finished on one side only, or it removed us), so
+    /// it has been removed here too: [`Net::friends`] no longer lists it. Only
+    /// the pinned key can cause this; an address that answers for `id` with a
+    /// *different* key is just treated as a bad candidate, silently.
     FriendForgotUs { id: String },
     /// The relay connection came up (`true`) or went down (`false`).
     RelayStatus { connected: bool },
@@ -387,6 +387,8 @@ pub(crate) struct State {
     pub conns: HashMap<u64, Conn>,
     /// Friend id → token of its authenticated link.
     pub friend_links: HashMap<String, u64>,
+    /// When each friend paired in this run was pinned (see `just_paired`).
+    pub paired_at: HashMap<String, Instant>,
     /// Friend id → since when it has been heard without a link (the larger
     /// id only dials after a grace period, so both sides rarely dial at once).
     pub friend_wait: HashMap<String, Instant>,
@@ -436,8 +438,24 @@ impl State {
         self.friends.retain(|f| f.id != id && f.public_key != key);
         self.friends.push(Friend { id: id.to_string(), public_key: key });
     }
+    /// Was this friend pinned so recently that a hello sent before the peer
+    /// pinned us could still arrive? (Hello goes out at session start, and a
+    /// session has PRE_AUTH_MAX to deliver it; both sides pin about together.)
+    pub fn just_paired(&self, id: &str, now: Instant) -> bool {
+        self.paired_at.get(id).is_some_and(|t| now.duration_since(*t) < PRE_AUTH_MAX * 2)
+    }
+    /// Turn the friend link of a no-longer-friend into a plain link, for the
+    /// caller to close (`announced` stays: Disconnected follows).
+    pub fn demote_friend_link(&mut self, id: &str) -> Option<Arc<secure::SecureLink>> {
+        let token = self.friend_links.remove(id)?;
+        self.conns.get_mut(&token).map(|c| {
+            c.kind = Kind::Stranger(None);
+            c.link.clone()
+        })
+    }
     pub fn remove_friend(&mut self, id: &str) {
         self.friends.retain(|f| f.id != id);
+        self.paired_at.remove(id);
         self.budgets.remove(id);
         // Its address is no reason for trust any more
         self.trusted_ips.retain(|(friend, _), _| friend != id);
@@ -856,11 +874,7 @@ impl Net {
             let mut st = self.shared.state();
             st.remove_friend(peer_id);
             st.invites_out.remove(peer_id);
-            let token = st.friend_links.remove(peer_id);
-            token.and_then(|t| st.conns.get_mut(&t)).map(|c| {
-                c.kind = Kind::Stranger(None); // `announced` stays: Disconnected follows
-                c.link.clone()
-            })
+            st.demote_friend_link(peer_id)
         };
         if let Some(l) = link {
             l.send(&Message::Control(Control::Unfriend));

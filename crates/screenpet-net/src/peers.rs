@@ -217,9 +217,22 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
         }
         let friend_link = pinned.is_some();
         if friend_link && !peer_pinned_us {
-            // Authenticated friend that does not have us: back off redials.
-            st.back_off(Backoff::Id(id.to_string()), shared.timing.peer_timeout, now);
+            // The pinned key itself says it does not have us (`pinned` matched
+            // `remote_key` above, proven by the Noise handshake). A hello sent
+            // just before the peer pinned us can still arrive right after we
+            // pinned it; that one means nothing, so only back off.
+            if st.just_paired(id, now) {
+                st.back_off(Backoff::Id(id.to_string()), shared.timing.peer_timeout, now);
+                return Reg::NotMutual;
+            }
+            st.remove_friend(id);
+            st.invites_out.remove(id);
+            let stale = st.demote_friend_link(id);
             shared.emit(NetEvent::FriendForgotUs { id: id.to_string() });
+            drop(st);
+            if let Some(l) = stale {
+                l.close(); // `announced` stays: Disconnected follows
+            }
             return Reg::NotMutual;
         }
         if !friend_link && peer_pinned_us {
@@ -319,6 +332,7 @@ fn pin(shared: &Shared, st: &mut State, token: u64) -> Vec<Arc<SecureLink>> {
     shared.release_unverified(&conn.unverified);
     let (id, key, name, addr) = (conn.peer_id.clone(), conn.remote_key, conn.name.clone(), conn.peer_addr.clone());
     st.add_friend(&id, key);
+    st.paired_at.insert(id.clone(), Instant::now());
     st.trust_ip(&id, &addr, Instant::now());
     st.friend_links.insert(id.clone(), token);
     if st.pending_gone.remove(&id).is_none() {
