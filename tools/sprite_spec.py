@@ -33,7 +33,7 @@ ANIMS = [
     ("level_up", 3, 6, False, True),
 ]
 
-# 성장 단계 (Rust care::Stage) — 종마다 sheet_<stage>.png, sheet.png는 teenager와 같은 파일
+# 성장 단계 (Rust care::Stage) — 종마다 sheet_<stage>.png
 STAGES = ["baby", "kinder", "child", "teenager", "adult"]
 # 화면 표시 배율 (Rust Stage::scale)
 STAGE_SCALE = {"baby": 0.45, "kinder": 0.60, "child": 0.78, "teenager": 1.00, "adult": 1.15}

@@ -1,7 +1,7 @@
 """크리스마스 친구들 🦌🎅 — 코가 빨갛게 빛나는 루돌프(rudolph)와 꼬마 산타(santa). draw_pets 엔진(슈퍼샘플 마스크·녹이기·외곽선)을
 그대로 쓴다.
 
-    python tools/draw_christmas.py → ui/pets/{rudolph,santa}/{sheet_<stage>.png ×5, sheet.png, pet.json}
+    python tools/draw_christmas.py → ui/pets/{rudolph,santa}/{sheet_<stage>.png ×5, pet.json}
                                      + tools/preview/stages_{rudolph,santa}.png
     (python tools/draw_pets.py도 둘을 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 

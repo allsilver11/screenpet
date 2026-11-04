@@ -77,7 +77,7 @@ def test_sheets_have_every_frame_inside_the_cell(out, pid):
                     assert bbox[3] >= 116, (st, anim, c, bbox)
             for c in range(n, 4):
                 assert cell(sheet, r, c).getchannel("A").getbbox() is None, (st, anim, c)
-    assert (out / pid / "sheet.png").read_bytes() == (out / pid / "sheet_teenager.png").read_bytes()
+    assert not (out / pid / "sheet.png").exists()
 
 
 def test_manifests(out):

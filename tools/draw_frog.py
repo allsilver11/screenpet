@@ -1,7 +1,7 @@
 """개구리 🐸 — 폴짝폴짝 뛰는 동물 (pet.json "locomotion": "hop"). draw_pets 엔진(슈퍼샘플 마스크·녹이기·외곽선)을 그대로 쓰고
 뼈대만 개구리 것: 머리와 몸이 한 덩어리, 머리 위로 볼록 솟은 두 눈 언덕, 넓은 웃는 입, 밝은 배, 접힌 뒷다리, 발끝 동그란 빨판.
 
-    python tools/draw_frog.py  → ui/pets/frog/{sheet_<stage>.png ×5, sheet.png, pet.json} + tools/preview/{stages_frog,climb_frog}.png
+    python tools/draw_frog.py  → ui/pets/frog/{sheet_<stage>.png ×5, pet.json} + tools/preview/{stages_frog,climb_frog}.png
     (python tools/draw_pets.py도 개구리를 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 
 단계: 아기 = 동글 올챙이 개구리 (엉덩이에 꼬리 꼬투리, 아주 짧은 다리, 점 없음) → 유아 꼬리 없어지고 점 하나 → 어린이 점 셋, 다리 자람, 머리에 새싹 잎

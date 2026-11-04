@@ -18,6 +18,7 @@ def ui(tmp_path):
     (tmp_path / "pets" / "ghost").mkdir(parents=True)
     src = ROOT / "ui" / "pets" / "ghost"
     shutil.copy(src / "sheet_baby.png", tmp_path / "pets" / "ghost")
+    shutil.copy(src / "sheet_teenager.png", tmp_path / "pets" / "ghost")
     shutil.copy(src / "pet.json", tmp_path / "pets" / "ghost")
     shutil.copy(ROOT / "ui" / "common.js", tmp_path)
     return tmp_path
@@ -27,11 +28,27 @@ def test_pack_is_lossless_and_switches_the_app_to_webp(ui):
     png = ui / "pets" / "ghost" / "sheet_baby.png"
     want = np.asarray(Image.open(png).convert("RGBA"))
     count, before, after = pack_webp.pack(ui)
-    assert count == 1 and after < before
+    assert count == 2 and after < before
     assert not png.exists()
     assert (ui / "pets" / "ghost" / "pet.json").exists()
     assert np.array_equal(np.asarray(Image.open(png.with_suffix(".webp")).convert("RGBA")), want)
     assert 'const PET_ART_EXT = "webp";' in (ui / "common.js").read_text(encoding="utf-8")
+
+
+def test_the_build_check_finds_a_sheet_before_and_after_packing(ui):
+    """src-tauri/build.rs는 동물마다 sheet_teenager(.png 또는 .webp)를 확인한다 — 저장소 트리·배포 트리 어느 쪽에서도 통과해야 한다."""
+    build = (ROOT / "src-tauri" / "build.rs").read_text(encoding="utf-8")
+    assert '"sheet_teenager.png"' in build and '"sheet_teenager.webp"' in build and '"sheet.png"' not in build
+    pet = ui / "pets" / "ghost"
+    assert (pet / "sheet_teenager.png").is_file()
+    pack_webp.pack(ui)
+    assert (pet / "sheet_teenager.webp").is_file()
+
+
+def test_the_app_has_no_sheet_fallback():
+    """시트는 단계마다 있다 — 옛 sheet.png 대체 경로는 없다."""
+    common = (ROOT / "ui" / "common.js").read_text(encoding="utf-8")
+    assert "/sheet." not in common
 
 
 def test_pack_refuses_a_tree_it_already_packed(ui):

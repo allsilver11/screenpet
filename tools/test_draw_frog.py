@@ -50,7 +50,7 @@ def test_sheets_have_every_frame_inside_the_cell(out):
                     assert bbox[3] >= 118, (st, anim, c, bbox)
             for c in range(n, 4):  # 빈 칸은 완전히 투명
                 assert cell(sheet, r, c).getchannel("A").getbbox() is None, (st, anim, c)
-    assert (out / "sheet.png").read_bytes() == (out / "sheet_teenager.png").read_bytes()
+    assert not (out / "sheet.png").exists()
 
 
 def test_manifest(out):

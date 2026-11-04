@@ -1,6 +1,6 @@
 """농장 친구들 🦆🦒 — 뒤뚱뒤뚱 오리(duck)와 목을 쭉 늘이는 기린(giraffe). draw_pets 엔진(슈퍼샘플 마스크·녹이기·외곽선)을 그대로 쓴다.
 
-    python tools/draw_farm.py → ui/pets/{duck,giraffe}/{sheet_<stage>.png ×5, sheet.png, pet.json}
+    python tools/draw_farm.py → ui/pets/{duck,giraffe}/{sheet_<stage>.png ×5, pet.json}
                                 + ui/pets/giraffe/{neck_<stage>.png, neck_tile_<stage>.png} (목 늘이기 층)
                                 + tools/preview/{stages_duck,stages_giraffe,neck_giraffe}.png
     (python tools/draw_pets.py도 둘을 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)

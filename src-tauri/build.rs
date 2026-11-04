@@ -15,8 +15,8 @@ fn main() {
     for id in &ids {
         assert!(
             // 배포 빌드는 tools/pack_webp.py가 WebP로 바꿔 둔다
-            pets_dir.join(id).join("sheet.png").is_file() || pets_dir.join(id).join("sheet.webp").is_file(),
-            "ui/pets/{id} 폴더에 pet.json은 있지만 sheet.png(또는 sheet.webp)가 없습니다"
+            pets_dir.join(id).join("sheet_teenager.png").is_file() || pets_dir.join(id).join("sheet_teenager.webp").is_file(),
+            "ui/pets/{id} 폴더에 pet.json은 있지만 sheet_teenager.png(또는 sheet_teenager.webp)가 없습니다"
         );
     }
     assert!(!ids.is_empty(), "ui/pets 안에 pet.json이 있는 동물 폴더가 하나 이상 필요합니다");

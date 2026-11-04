@@ -1,6 +1,6 @@
 """공룡 친구들 🦖 — 노란 공룡(dino_yellow) · 초록 공룡(dino_green) · 보라 공룡(dino_purple). draw_pets 엔진을 그대로 쓴다.
 
-    python tools/draw_dino.py → ui/pets/dino_{yellow,green,purple}/{sheet_<stage>.png ×5, sheet.png, pet.json}
+    python tools/draw_dino.py → ui/pets/dino_{yellow,green,purple}/{sheet_<stage>.png ×5, pet.json}
                                 + tools/preview/stages_dino.png (세 색 × 다섯 단계, 2배 확대), climb_dino.png (뒷모습)
     (python tools/draw_pets.py도 셋을 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 

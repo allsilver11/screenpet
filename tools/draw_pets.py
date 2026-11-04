@@ -1,7 +1,7 @@
 """카와이 스프라이트 생성기 — 5종 × 21동작 (+ 고양이 arch·huff, 강아지 wag, 고양이·곰 뒷모습 climb·slide, 꿀벌 sting) × 성장 5단계, 128px.
 꿀벌은 나는 동물이라 자기 포즈(BEE_POSES)를 쓴다 (5b).
 
-    python tools/draw_pets.py  → ui/pets/<id>/{sheet_<stage>.png ×5, sheet.png (= teenager), pet.json} + ui/effects/sting.png
+    python tools/draw_pets.py  → ui/pets/<id>/{sheet_<stage>.png ×5, pet.json} + ui/effects/sting.png
                                  + tools/preview/{all_light,all_dark,stages_<id>,climb_<id>,sting_effect,eat_with_props}.png
 
 구성:
@@ -17,7 +17,6 @@
 import json
 import math
 import re
-import shutil
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, replace
@@ -2196,13 +2195,12 @@ def species_fields(pid, m):
 
 
 def write_species(sp, out_dir):
-    """sheet_<stage>.png 5장 + sheet.png(= sheet_teenager.png 바이트 그대로) + pet.json. {stage: {anim: [frames]}} 반환."""
+    """sheet_<stage>.png 5장 + pet.json. {stage: {anim: [frames]}} 반환."""
     out_dir.mkdir(parents=True, exist_ok=True)
     by_stage = {}
     for st in STAGES:
         by_stage[st] = render_species(sp, st)
         write_sheet(sp, by_stage[st], out_dir / f"sheet_{st}.png")
-    shutil.copyfile(out_dir / "sheet_teenager.png", out_dir / "sheet.png")
     counts = {anim: len(by_stage["teenager"][anim]) for anim, *_ in rows_for(sp)}
     sizes = {st: frame_px(sp.id, st) for st in STAGES if frame_px(sp.id, st) != FRAME}
     m = species_fields(sp.id, manifest(sp.name, sp.walk_speed, counts, SPEECH[sp.id], FAVORITE_FOOD[sp.id], STAGES, sp.stage_size, sizes))

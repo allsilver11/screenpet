@@ -1,6 +1,6 @@
 """눈사람 ⛄ — 동글동글 눈덩이 친구 (snowman). draw_pets 엔진(슈퍼샘플 마스크·녹이기·외곽선)을 그대로 쓴다.
 
-    python tools/draw_snowman.py → ui/pets/snowman/{sheet_<stage>.png ×5, sheet.png, pet.json}
+    python tools/draw_snowman.py → ui/pets/snowman/{sheet_<stage>.png ×5, pet.json}
                                    + ui/effects/snow_cloud.png + tools/preview/stages_snowman.png, climb_snowman.png, snow_cloud.png
     (python tools/draw_pets.py도 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 

@@ -51,7 +51,7 @@ def test_every_frame_is_drawn_inside_the_cell(out, pid):
                     continue
                 x0, y0, x1, y1 = box
                 assert x0 >= 1 and y0 >= 1 and x1 <= FRAME - 1 and y1 <= FRAME - 1, (st, anim, c, box)
-    assert (out / pid / "sheet.png").read_bytes() == (out / pid / "sheet_teenager.png").read_bytes()
+    assert not (out / pid / "sheet.png").exists()
 
 
 def test_manifests(out):

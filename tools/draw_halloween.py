@@ -1,7 +1,7 @@
 """할로윈 친구들 🎃👻 — 눈에 불이 들어오는 호박(pumpkin)과 우유빛 유령(ghost). draw_pets 엔진(슈퍼샘플 마스크·녹이기·외곽선)을
 그대로 쓰고, 빛(glow)은 따로 겹치는 층으로 그린다: 몸 안쪽으로 잘린 부드러운 후광 층 → 얼굴 층(조각한 눈·입, 반짝이).
 
-    python tools/draw_halloween.py  → ui/pets/{pumpkin,ghost}/{sheet_<stage>.png ×5, sheet.png, pet.json}
+    python tools/draw_halloween.py  → ui/pets/{pumpkin,ghost}/{sheet_<stage>.png ×5, pet.json}
                                       + tools/preview/stages_{pumpkin,ghost}.png, climb_pumpkin.png
     (python tools/draw_pets.py도 둘을 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 

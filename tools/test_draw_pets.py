@@ -68,7 +68,7 @@ def test_only_cat_has_arch_and_huff_and_only_dog_has_wag(tmp_path):
     assert m["speech"]["hiss"] == ["hiss!"]
     assert m["speech"]["ignore"] == ["..."]
     assert m["personality"] == "aloof"
-    sheet = sheet_128(tmp_path / "cat" / "sheet.png")
+    sheet = sheet_128(tmp_path / "cat" / "sheet_teenager.png")
     assert sheet.height == FRAME * (len(ANIMS) + 5)  # arch, huff, climb, slide, lookup
 
 
@@ -93,7 +93,7 @@ def test_stage_sheets_and_manifest(tmp_path):
     for pid in SPECIES_IDS:
         for st in STAGES:
             assert (tmp_path / pid / f"sheet_{st}.png").is_file(), (pid, st)
-        assert (tmp_path / pid / "sheet.png").read_bytes() == (tmp_path / pid / "sheet_teenager.png").read_bytes()
+        assert not (tmp_path / pid / "sheet.png").exists()
         m = json.loads((tmp_path / pid / "pet.json").read_text(encoding="utf-8"))
         assert m["stages"] == STAGES
         assert m["favorite_food"]["emoji"]
@@ -209,7 +209,7 @@ def test_bee_flies_and_only_bee_has_sting(tmp_path):
     assert all(a in m["animations"] for a, *_ in ANIMS)
     assert m["speech"]["chatter"] == ["bzz~", "♪"] and "sting" not in m["speech"]
     assert m["favorite_food"] == {"emoji": "🌸", "name": "꽃꿀"}
-    sheet = sheet_128(tmp_path / "bee" / "sheet.png")
+    sheet = sheet_128(tmp_path / "bee" / "sheet_teenager.png")
     assert sheet.height == FRAME * (len(ANIMS) + 2)  # sting, lookup
 
 
@@ -476,4 +476,4 @@ def test_every_layer_has_the_cell_size_the_manifest_says():
                 with Image.open(d / f"neck_{st}.png") as strip, Image.open(d / f"neck_tile_{st}.png") as tile:
                     assert strip.size == (4 * px, px) and tile.size == (px, meta["tile"]), (pid, st)
                 assert meta["tile"] == 16 * px // FRAME and 16 * px // FRAME <= meta["ext"] <= 56 * px // FRAME and meta["cut"] < px, (pid, st, meta)
-        assert (d / "sheet.png").read_bytes() == (d / "sheet_teenager.png").read_bytes(), pid
+        assert not (d / "sheet.png").exists(), pid  # 앱은 단계 시트만 읽는다 (sheet.png는 sheet_teenager.png와 같은 바이트였다)

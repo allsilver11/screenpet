@@ -63,7 +63,7 @@
 
 ## 성장 단계 시트
 - 단계: `baby`, `kinder`, `child`, `teenager`, `adult` (`sprite_spec.STAGES`, Rust `care::Stage`). 화면 표시 배율은 Rust `Stage::scale()` (0.45 / 0.60 / 0.78 / 1.00 / 1.15) × 동물별 `stage_size`.
-- 동물마다 `sheet_<stage>.png` 5장을 둔다. 행·열 배치는 모든 단계가 같아서 `pet.json`은 하나다. 단계 시트가 없으면 앱은 `sheet.png`로 대체한다 (기본 그림의 `sheet.png`는 `sheet_teenager.png`와 같은 파일).
+- 동물마다 `sheet_<stage>.png` 5장을 둔다. 행·열 배치는 모든 단계가 같아서 `pet.json`은 하나다.
 - 크게 보이는 단계는 시트 칸이 2배(256 px)다: 모든 동물의 adult, stage_size ≥ 1인 동물(santa, 공룡 셋, giraffe)의 teenager (`sprite_spec.frame_px`). `pet.json` `frame_sizes`에 적고, 그 단계의 `head`·`neck`·`neck_stretch` 값과 기린 `neck_*` 층도 그 칸의 px다. 화면 크기는 칸과 상관없다 (앱은 칸을 표시 크기에 맞춘다). 생성기는 PNG를 키우지 않고 128 좌표의 벡터에서 다시 그린다 (`draw_pets.output`).
 - **단계마다 디자인이 다르다** — 어릴수록 더 귀엽게. teenager가 기준 그림이다. 모든 단계가 같은 캐릭터로 읽혀야 한다 (고양이: 생강색 머리 덮개는 아기부터, 이마 흰 줄·왼쪽 뺨 점은 유아부터).
 
@@ -92,7 +92,7 @@
 ```bash
 python tools/draw_pets.py
 ```
-`ui/pets/<id>/{sheet_<stage>.png ×5, sheet.png, pet.json}`을 다시 만들고, 미리보기를 `tools/preview/`에 저장한다(커밋하지 않음):
+`ui/pets/<id>/{sheet_<stage>.png ×5, pet.json}`을 다시 만들고, 미리보기를 `tools/preview/`에 저장한다(커밋하지 않음):
 `all_light.png`·`all_dark.png` (teenager 전체 동작), `stages_<id>.png` (5단계 × walk·sit_front·wave·eat·sleep (+고양이·곰 climb, 꿀벌 sting), 오른쪽 열은 화면 표시 크기), `climb_<id>.png` (고양이·곰: 5단계 × climb·slide 모든 프레임), `sting_effect.png` (콕! 효과 밝은·어두운 바탕 + 꿀벌 sting), `eat_with_props.png` (eat 프레임 + 진짜 소품). `ui/effects/sting.png`도 다시 만든다.
 뼈대가 다른 동물(꿀벌)은 `Species.poses`에 자기 포즈 함수를 넣는다 — 없는 동작은 공통 포즈를 쓴다. `Species.outline`으로 외곽선 색을 바꿀 수 있다 (짙은 갈색 곰은 몸보다 짙은 외곽선).
 구조: 엔진(슈퍼샘플 마스크·변환 스택) → 종별 설정(색·무늬 데이터) → 포즈(종 공통 뼈대) → 출력. 새 동물은 `Species` 설정 하나를 추가하면 모든 포즈가 그 무늬로 칠해진다. 성장 단계 비율은 공통 조립(`_side`/`_front`)과 머리 부품이 적용하므로 포즈마다 따로 손대지 않는다.

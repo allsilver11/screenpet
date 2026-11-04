@@ -55,7 +55,7 @@ def test_every_frame_fits_the_cell(out):
                 assert bbox and bbox[0] >= 1 and bbox[1] >= 1 and bbox[2] <= FRAME - 1 and bbox[3] <= FRAME - 1, (st, anim, c, bbox)
                 if anim in GROUNDED:
                     assert bbox[3] >= 116, (st, anim, c, bbox)
-    assert (out / "snowman" / "sheet.png").read_bytes() == (out / "snowman" / "sheet_teenager.png").read_bytes()
+    assert not (out / "snowman" / "sheet.png").exists()
 
 
 @pytest.mark.parametrize("st", ["baby", "teenager", "adult"])

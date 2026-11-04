@@ -28,7 +28,7 @@ let dot = 1;
 // dot을 잰 화면 배율 — 웹뷰 배율이 pet-stage보다 늦게 바뀌면 resize에서 다시 잰다
 let measuredDpr = 1;
 
-// 단계별 시트 sheet_<stage>.png를 먼저 쓰고, 없으면 sheet.png
+// 단계별 시트 sheet_<stage>.png
 async function loadPet() {
   const seq = ++loadSeq;
   const { manifest: m, url, img, style, dir } = await loadPetSheet(stage.pet, stage.stage, stage.style);
