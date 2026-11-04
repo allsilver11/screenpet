@@ -514,9 +514,34 @@ pub fn incoming_pair_may_show(confirming: bool, quiet: bool) -> bool {
 /// 메뉴에 보일 친구 아닌 사람의 수 — 가짜 알림을 쏟아도 메뉴가 넘치지 않는다
 pub const MAX_MENU_STRANGERS: usize = 8;
 
-/// 메뉴에 보일 친구 아닌 사람 (id, 이름)
-pub fn menu_strangers(seen: &std::collections::BTreeMap<String, String>, is_friend: impl Fn(&str) -> bool) -> Vec<(String, String)> {
-    seen.iter().filter(|(id, _)| !is_friend(id)).take(MAX_MENU_STRANGERS).map(|(id, name)| (id.clone(), name.clone())).collect()
+/// 같은 망에서 발견한 사람 (id, 이름), 처음 본 순서로. 메뉴가 앞에서부터 자르므로 id 순서로 두면
+/// 낮은 id를 골라 보낸 가짜 알림이 이미 있던 사람을 밀어낸다. 크기는 net의 MAX_SEEN이 막는다
+#[derive(Debug, Default)]
+pub struct SeenPeers {
+    list: Vec<(String, String)>,
+}
+
+impl SeenPeers {
+    /// 알림을 적는다: 아는 사람이면 자리는 그대로 이름만 바꾼다
+    pub fn note(&mut self, id: String, name: String) {
+        match self.list.iter_mut().find(|(known, _)| *known == id) {
+            Some(entry) => entry.1 = name,
+            None => self.list.push((id, name)),
+        }
+    }
+
+    pub fn forget(&mut self, id: &str) {
+        self.list.retain(|(known, _)| known != id);
+    }
+
+    pub fn name(&self, id: &str) -> Option<&str> {
+        self.list.iter().find(|(known, _)| known == id).map(|(_, name)| name.as_str())
+    }
+
+    /// 메뉴에 보일 친구 아닌 사람 (id, 이름) — 먼저 온 사람부터
+    pub fn menu_strangers(&self, is_friend: impl Fn(&str) -> bool) -> Vec<(String, String)> {
+        self.list.iter().filter(|(id, _)| !is_friend(id)).take(MAX_MENU_STRANGERS).cloned().collect()
+    }
 }
 
 #[cfg(test)]
@@ -553,9 +578,39 @@ mod tests {
     #[test]
     fn a_flood_of_fake_announcements_stays_short_in_the_menu() {
         use super::*;
-        let seen: std::collections::BTreeMap<String, String> = (0..64).map(|i| (format!("id{i:02}"), format!("n{i}"))).collect();
-        assert_eq!(menu_strangers(&seen, |_| false).len(), MAX_MENU_STRANGERS);
-        assert!(menu_strangers(&seen, |id| id == "id00").iter().all(|(id, _)| id != "id00"), "friends are not strangers");
+        let mut seen = SeenPeers::default();
+        for i in 0..64 {
+            seen.note(format!("id{i:02}"), format!("n{i}"));
+        }
+        assert_eq!(seen.menu_strangers(|_| false).len(), MAX_MENU_STRANGERS);
+        assert!(seen.menu_strangers(|id| id == "id00").iter().all(|(id, _)| id != "id00"), "friends are not strangers");
+    }
+
+    #[test]
+    fn fake_low_ids_cannot_push_someone_already_listed_out_of_the_menu() {
+        use super::*;
+        let mut seen = SeenPeers::default();
+        seen.note("zz-real".into(), "진짜".into());
+        for i in 0..64 {
+            seen.note(format!("00-fake{i:02}"), "가짜".into());
+        }
+        let shown = seen.menu_strangers(|_| false);
+        assert_eq!(shown.len(), MAX_MENU_STRANGERS);
+        assert_eq!(shown[0].0, "zz-real", "first seen stays first");
+    }
+
+    #[test]
+    fn a_repeated_announcement_keeps_its_place_and_updates_the_name() {
+        use super::*;
+        let mut seen = SeenPeers::default();
+        seen.note("b".into(), "비".into());
+        seen.note("a".into(), "에이".into());
+        seen.note("b".into(), "새 이름".into());
+        assert_eq!(seen.menu_strangers(|_| false), vec![("b".to_string(), "새 이름".to_string()), ("a".to_string(), "에이".to_string())]);
+        assert_eq!(seen.name("b"), Some("새 이름"));
+        seen.forget("b");
+        assert_eq!(seen.name("b"), None);
+        assert_eq!(seen.menu_strangers(|_| false).len(), 1);
     }
 
     #[test]

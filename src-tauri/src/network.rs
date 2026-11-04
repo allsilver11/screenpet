@@ -7,7 +7,7 @@
 //!   친구 코드: `내 친구 코드 보기`(펫 머리 위 띠, 누르면 복사) / `친구 코드 입력…`(작은 창 `code`) →
 //!   코드 주인과 같은 짝맞추기(이모지 6개 확인)가 시작된다
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
@@ -282,7 +282,7 @@ pub struct Network {
     /// 이름 바꾸기 창이 지금 다루는 이름
     naming: Option<Naming>,
     /// 발견된 사람 id → 이름 (친구 포함)
-    seen: BTreeMap<String, String>,
+    seen: visit::SeenPeers,
     connected: HashSet<String>,
     pairing: Option<Pairing>,
     away: Option<AwayVisit>,
@@ -431,7 +431,7 @@ impl Network {
             net: None,
             name: name.clone(),
             naming: None,
-            seen: BTreeMap::new(),
+            seen: visit::SeenPeers::default(),
             connected: HashSet::new(),
             pairing: None,
             away: None,
@@ -973,10 +973,10 @@ impl Network {
         match ev {
             NetEvent::PeerSeen { id, name } => {
                 // 발견 알림의 이름은 인증되지 않았다 — 친구 아닌 사람 메뉴에만 쓰고 설정에는 적지 않는다
-                self.seen.insert(id, clamp(&name));
+                self.seen.note(id, clamp(&name));
             }
             NetEvent::PeerGone { id } => {
-                self.seen.remove(&id);
+                self.seen.forget(&id);
             }
             NetEvent::Invited { from, name, pet, sas, pairing } => self.on_invited(app, from, name, pet, sas, pairing),
             NetEvent::InviteSent { to, sas, pairing } => self.on_invite_sent(app, &to, &sas, pairing),
@@ -1291,7 +1291,7 @@ impl Network {
             self.show_pair(app);
             return;
         }
-        let name = self.seen.get(peer).cloned().unwrap_or_else(|| DEFAULT_NAME.to_string());
+        let name = self.seen.name(peer).unwrap_or(DEFAULT_NAME).to_string();
         // 친구가 이미 MAX_FRIENDS명이면 net이 신청하지 않는다 — 바로 알린다
         let full = net.friends().len() >= MAX_FRIENDS;
         let view = if full {
@@ -1576,7 +1576,7 @@ impl Network {
     }
 
     fn menu_model(&self, config: &Config) -> FriendsMenu {
-        let strangers = visit::menu_strangers(&self.seen, |id| config.friend(id).is_some());
+        let strangers = self.seen.menu_strangers(|id| config.friend(id).is_some());
         let friends = config
             .friends
             .iter()
