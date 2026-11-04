@@ -54,9 +54,9 @@ pub const TUMBLE_CHANCE: f64 = 0.35;
 pub const MEET_BODIES: f64 = GREET_BODIES;
 pub const MEET_MIN_BODIES: f64 = 0.4;
 /// 마주칠 때 밟기·튀기·지나치기 중 하나를 할 확률 (한 번의 마주침에 한 번만 정한다, 나머지는 평소대로 인사)
-pub const MEET_CHANCE: f64 = 0.35;
+pub const MEET_CHANCE: f64 = 0.7;
 /// 그 짝이 다시 만남을 정하기까지 (초): 했으면 / 안 했으면
-pub const MEET_COOLDOWN: (f64, f64) = (120.0, 240.0);
+pub const MEET_COOLDOWN: (f64, f64) = (45.0, 90.0);
 pub const MEET_PASS_COOLDOWN: f64 = 20.0;
 /// 내려설 때 친구와 떨어지는 거리 (몸 크기 평균의 배, 두 몸 반 폭에 더한다)
 const MEET_GAP: f64 = 0.15;
