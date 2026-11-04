@@ -78,6 +78,15 @@ pub struct Limits {
     pub max_unauthed: usize,
     pub max_unauthed_per_ip: usize,
     pub max_unauthed_per_network: usize,
+    /// Bytes of friend frames forwarded per second, per address and in all.
+    pub ip_bytes_per_sec: f64,
+    pub ip_bytes_burst: f64,
+    pub global_bytes_per_sec: f64,
+    pub global_bytes_burst: f64,
+    /// Bytes of friend frames waiting for one connection (over: disconnected
+    /// as `slow`), and for all connections (over: the channel is closed).
+    pub max_outbox_bytes: usize,
+    pub max_total_outbox_bytes: usize,
     /// New installs per hour per network (IPv4 /24, IPv6 /64).
     pub registrations_per_ip_per_hour: usize,
 }
@@ -110,6 +119,12 @@ impl Default for Limits {
             max_unauthed: 512,
             max_unauthed_per_ip: 8,
             max_unauthed_per_network: 32,
+            ip_bytes_per_sec: 2.0 * 1024.0 * 1024.0,
+            ip_bytes_burst: 4.0 * 1024.0 * 1024.0,
+            global_bytes_per_sec: 16.0 * 1024.0 * 1024.0,
+            global_bytes_burst: 32.0 * 1024.0 * 1024.0,
+            max_outbox_bytes: 2 * 1024 * 1024,
+            max_total_outbox_bytes: 256 * 1024 * 1024,
             registrations_per_ip_per_hour: 30,
         }
     }

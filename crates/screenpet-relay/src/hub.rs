@@ -7,9 +7,9 @@ use crate::proto::{self, ServerMsg};
 use crate::store::{unix_now, Store};
 use crate::Limits;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::SyncSender;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -30,6 +30,12 @@ pub(crate) struct Bucket {
     last: Instant,
 }
 
+impl Default for Bucket {
+    fn default() -> Bucket {
+        Bucket::new(0.0, 0.0)
+    }
+}
+
 impl Bucket {
     pub fn new(rate: f64, burst: f64) -> Bucket {
         Bucket { tokens: burst, rate, burst, last: Instant::now() }
@@ -47,19 +53,40 @@ impl Bucket {
     }
 }
 
+/// The hub's handle on a connection thread.
+#[derive(Clone)]
+pub(crate) struct Link {
+    pub out: SyncSender<Out>,
+    /// Once set, the thread sends this as `error{reason}` and disconnects.
+    pub kill: Arc<OnceLock<&'static str>>,
+    /// Bytes of friend frames waiting in `out`.
+    pub queued: Arc<AtomicUsize>,
+}
+
+impl Link {
+    pub fn new(out: SyncSender<Out>) -> Link {
+        Link { out, kill: Arc::default(), queued: Arc::default() }
+    }
+
+    /// Disconnect now with `reason`. The queue may be stuck or full of frames,
+    /// so `kill` is what makes it immediate.
+    fn kick(&self, reason: &'static str) {
+        let _ = self.out.try_send(Out::Kick(reason.into()));
+        let _ = self.kill.set(reason);
+    }
+}
+
 struct Peer {
     conn: u64,
     id: String,
-    out: SyncSender<Out>,
-    /// Set when the peer's queue overflowed: its thread disconnects it.
-    kill: Arc<AtomicBool>,
+    link: Link,
     channels: HashSet<u32>,
 }
 
 impl Peer {
     fn send(&self, m: ServerMsg) {
-        if self.out.try_send(Out::Text(m.to_json())).is_err() {
-            self.kill.store(true, Ordering::SeqCst);
+        if self.link.out.try_send(Out::Text(m.to_json())).is_err() {
+            let _ = self.link.kill.set("slow");
         }
     }
 }
@@ -114,6 +141,9 @@ struct State {
     ip_conns: HashMap<String, Conns>,
     net_conns: HashMap<String, Conns>,
     all_conns: Conns,
+    /// Forwarded bytes per address key (while it has connections), and in all.
+    ip_bytes: HashMap<String, Bucket>,
+    global_bytes: Bucket,
     ip_redeems: HashMap<String, VecDeque<Instant>>,
     ip_registrations: HashMap<String, VecDeque<Instant>>,
     /// Per "target-key code": recent distinct requesters (cap per code, so
@@ -310,6 +340,8 @@ pub struct Hub {
     state: Mutex<State>,
     stop: AtomicBool,
     proxy_warned: AtomicBool,
+    /// Bytes of friend frames in all connection queues.
+    queued_total: AtomicUsize,
     next_conn: AtomicU64,
     threads: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -317,14 +349,16 @@ pub struct Hub {
 impl Hub {
     pub(crate) fn new(limits: Limits, trusted_proxies: Vec<std::net::IpAddr>, private_key: [u8; 32], mut store: Store) -> Hub {
         store.max_installs = limits.max_installs;
+        let global_bytes = Bucket::new(limits.global_bytes_per_sec, limits.global_bytes_burst);
         Hub {
             limits,
             trusted_proxies,
             private_key,
             public_key: proto::public_key(&private_key),
-            state: Mutex::new(State { store: Some(store), next_ch: 1, ..State::default() }),
+            state: Mutex::new(State { store: Some(store), next_ch: 1, global_bytes, ..State::default() }),
             stop: AtomicBool::new(false),
             proxy_warned: AtomicBool::new(false),
+            queued_total: AtomicUsize::new(0),
             next_conn: AtomicU64::new(1),
             threads: Mutex::new(Vec::new()),
         }
@@ -396,6 +430,7 @@ impl Hub {
         }
         st.all_conns.admit();
         st.ip_conns.entry(ip.to_string()).or_default().admit();
+        st.ip_bytes.entry(ip.to_string()).or_insert_with(|| Bucket::new(lim.ip_bytes_per_sec, lim.ip_bytes_burst));
         st.net_conns.entry(net).or_default().admit();
         true
     }
@@ -407,6 +442,7 @@ impl Hub {
         st.all_conns.release(authed);
         if st.ip_conns.get_mut(ip).is_some_and(|c| c.release(authed)) {
             st.ip_conns.remove(ip);
+            st.ip_bytes.remove(ip);
         }
         if st.net_conns.get_mut(&net).is_some_and(|c| c.release(authed)) {
             st.net_conns.remove(&net);
@@ -443,8 +479,7 @@ impl Hub {
         friends: &[String],
         ip: &str,
         conn: u64,
-        out: SyncSender<Out>,
-        kill: Arc<AtomicBool>,
+        link: Link,
     ) -> Result<ServerMsg, &'static str> {
         let friends = self.clean_friends(key, friends);
         let now = unix_now();
@@ -462,7 +497,7 @@ impl Hub {
             }
         }
         if let Some(old) = st.peers.remove(key) {
-            let _ = old.out.try_send(Out::Kick("replaced".into()));
+            old.link.kick("replaced");
             for ch in old.channels {
                 st.close_channel(ch, Some(key));
             }
@@ -476,7 +511,7 @@ impl Hub {
             return Err("full");
         }
         let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs()).expect("registered");
-        st.peers.insert(key.to_string(), Peer { conn, id: id.to_string(), out, kill, channels: HashSet::new() });
+        st.peers.insert(key.to_string(), Peer { conn, id: id.to_string(), link, channels: HashSet::new() });
         let net = share_bucket(ip);
         st.all_conns.authed();
         if let Some(c) = st.ip_conns.get_mut(ip) {
@@ -652,21 +687,50 @@ impl Hub {
 
     /// Forward one binary message (`ch` header + frame) to the channel's other
     /// end. Unknown channels are ignored (closed while in flight). A channel
-    /// over its rate, or whose receiver is not keeping up, is closed.
-    pub(crate) fn forward(&self, key: &str, conn: u64, msg: Vec<u8>) {
+    /// over its rate (or its sender's address, or the relay, over their
+    /// bandwidth), or whose receiver is not keeping up, is closed. A receiver
+    /// with too many bytes waiting is disconnected: each costs server memory.
+    pub(crate) fn forward(&self, key: &str, conn: u64, ip: &str, msg: Vec<u8>) {
         let ch = u32::from_be_bytes([msg[0], msg[1], msg[2], msg[3]]);
-        let mut st = self.state();
+        let len = msg.len();
+        let mut guard = self.state();
+        let st = &mut *guard;
         let Some(c) = st.channels.get_mut(&ch) else { return };
         let Some(side) = c.ends.iter().position(|e| e.0 == key && e.1 == conn) else { return };
-        if !c.buckets[side].take(1.0) {
+        if !c.buckets[side].take(1.0)
+            || st.ip_bytes.get_mut(ip).is_some_and(|b| !b.take(len as f64))
+            || !st.global_bytes.take(len as f64)
+        {
             st.close_channel(ch, None);
             return;
         }
         let other = c.ends[1 - side].0.clone();
-        let delivered = st.peers.get(&other).is_some_and(|p| p.out.try_send(Out::Binary(msg)).is_ok());
+        let delivered = st.peers.get(&other).is_some_and(|p| {
+            if p.link.queued.load(Ordering::Relaxed) + len > self.limits.max_outbox_bytes {
+                let _ = p.link.kill.set("slow");
+                return false;
+            }
+            if self.queued_total.load(Ordering::Relaxed) + len > self.limits.max_total_outbox_bytes {
+                return false;
+            }
+            // Counted first: the connection thread may take it off at once.
+            p.link.queued.fetch_add(len, Ordering::Relaxed);
+            self.queued_total.fetch_add(len, Ordering::Relaxed);
+            let sent = p.link.out.try_send(Out::Binary(msg)).is_ok();
+            if !sent {
+                self.dequeued(&p.link.queued, len);
+            }
+            sent
+        });
         if !delivered {
             st.close_channel(ch, None);
         }
+    }
+
+    /// `len` bytes of friend frames left a connection's queue.
+    pub(crate) fn dequeued(&self, queued: &AtomicUsize, len: usize) {
+        queued.fetch_sub(len, Ordering::Relaxed);
+        self.queued_total.fetch_sub(len, Ordering::Relaxed);
     }
 
     /// Issue a fresh code now (user asked for a new one).
@@ -727,6 +791,82 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc::{sync_channel, Receiver};
+
+    fn hub(limits: Limits) -> Hub {
+        Hub::new(limits, Vec::new(), proto::random32(), Store::memory())
+    }
+
+    /// Join install `n`, friends with `friends`, on a queue nobody drains.
+    fn peer(hub: &Hub, n: u8, friends: &[u8], cap: usize) -> (String, u64, Link, Receiver<Out>) {
+        let key = proto::to_hex(&[n; 32]);
+        let friends: Vec<String> = friends.iter().map(|f| proto::to_hex(&[*f; 32])).collect();
+        let (tx, rx) = sync_channel(cap);
+        let link = Link::new(tx);
+        let conn = hub.conn_id();
+        hub.join(&key, "x", &friends, "203.0.113.1", conn, link.clone()).unwrap();
+        (key, conn, link, rx)
+    }
+
+    /// Two mutual friends and a channel between them, `b` never reading.
+    fn stuck_pair(hub: &Hub) -> (String, u64, Link, Link, u32, Receiver<Out>, Receiver<Out>) {
+        let (ka, ca, la, ra) = peer(hub, 1, &[2], 512);
+        let (kb, _, lb, rb) = peer(hub, 2, &[1], 512);
+        let Some(ServerMsg::Opened { ch, .. }) = hub.open(&ka, ca, 1, &kb) else { panic!("no channel") };
+        (ka, ca, la, lb, ch, ra, rb)
+    }
+
+    fn frame(ch: u32, len: usize) -> Vec<u8> {
+        let mut m = ch.to_be_bytes().to_vec();
+        m.resize(4 + len, 0);
+        m
+    }
+
+    #[test]
+    fn too_many_queued_bytes_disconnect_the_receiver() {
+        let limits = Limits { max_outbox_bytes: 200_000, chan_msgs_burst: 1000.0, ..Limits::default() };
+        let h = hub(limits);
+        let (ka, ca, _la, lb, ch, _ra, _rb) = stuck_pair(&h);
+        // The old limit was 512 messages, so 33 MB of 64 KB frames.
+        for _ in 0..3 {
+            h.forward(&ka, ca, "203.0.113.1", frame(ch, 60_000));
+        }
+        assert_eq!(lb.queued.load(Ordering::Relaxed), 180_012);
+        assert!(lb.kill.get().is_none());
+        h.forward(&ka, ca, "203.0.113.1", frame(ch, 60_000));
+        assert_eq!(lb.kill.get(), Some(&"slow"));
+        assert_eq!(lb.queued.load(Ordering::Relaxed), 180_012, "the refused frame is not counted");
+        assert!(h.state().channels.is_empty(), "and its channel is closed");
+    }
+
+    #[test]
+    fn too_many_queued_bytes_in_all_close_the_channel_only() {
+        let limits = Limits { max_total_outbox_bytes: 100_000, chan_msgs_burst: 1000.0, ..Limits::default() };
+        let h = hub(limits);
+        let (ka, ca, _la, lb, ch, _ra, _rb) = stuck_pair(&h);
+        h.forward(&ka, ca, "203.0.113.1", frame(ch, 60_000));
+        h.forward(&ka, ca, "203.0.113.1", frame(ch, 60_000));
+        assert!(lb.kill.get().is_none());
+        assert!(h.state().channels.is_empty());
+    }
+
+    #[test]
+    fn a_replaced_connection_with_a_full_queue_still_goes() {
+        let h = hub(Limits::default());
+        let (_, _, old, _rx) = peer(&h, 1, &[], 1);
+        old.out.try_send(Out::Text("filler".into())).unwrap();
+        let (_, _, _new, _rx2) = peer(&h, 1, &[], 8);
+        assert_eq!(old.kill.get(), Some(&"replaced"), "it could not be told through the queue");
+    }
+
+    #[test]
+    fn a_full_queue_is_slow() {
+        let h = hub(Limits::default());
+        let (_, _, a, _rx) = peer(&h, 1, &[2], 1);
+        a.out.try_send(Out::Text("filler".into())).unwrap();
+        let (_, _, _b, _rx2) = peer(&h, 2, &[1], 8); // presence for 1 doesn't fit
+        assert_eq!(a.kill.get(), Some(&"slow"));
+    }
 
     #[test]
     fn a_full_rate_table_evicts_instead_of_refusing_newcomers() {

@@ -2,11 +2,11 @@
 //! authentication → control messages and frame forwarding, with per
 //! connection rate limits and timeouts.
 
-use crate::hub::{Bucket, Hub, Out};
+use crate::hub::{Bucket, Hub, Link, Out};
 use crate::proto::{self, ClientMsg, ServerMsg, HEADER, MAX_FRAME, MAX_ID, PROTOCOL_VERSION};
 use std::io::ErrorKind;
 use std::net::TcpStream;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{sync_channel, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -14,8 +14,12 @@ use tungstenite::{Error as WsError, Message, WebSocket};
 
 /// Messages queued to one connection before it counts as stuck.
 const OUTBOX: usize = 512;
-/// How long a read waits before the loop checks its queue and timers.
+/// How long a read waits before the loop checks its queue and timers, while
+/// friend frames are flowing and once they have stopped for `ACTIVE_FOR`: a
+/// connection that only pings shouldn't wake 66 times a second.
 const POLL: Duration = Duration::from_millis(15);
+const POLL_IDLE: Duration = Duration::from_millis(100);
+const ACTIVE_FOR: Duration = Duration::from_secs(2);
 /// Most redeem attempts per connection per minute.
 const REDEEMS_PER_CONN_PER_MIN: usize = 10;
 /// Most "new code" requests per connection.
@@ -51,7 +55,9 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
     }
     let mut joined = false;
     let (tx, rx) = sync_channel::<Out>(OUTBOX);
-    let kill = Arc::new(AtomicBool::new(false));
+    let link = Link::new(tx);
+    let mut poll = POLL;
+    let mut last_frame = Instant::now();
     let mut authed: Option<Authed> = None;
     let started = Instant::now();
     let mut last_recv = Instant::now();
@@ -61,9 +67,15 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
     let mut redeems: std::collections::VecDeque<Instant> = Default::default();
     let mut new_codes = 0usize;
     'conn: loop {
-        if hub.stopping() || kill.load(Ordering::SeqCst) {
-            refuse(&mut ws, if kill.load(Ordering::SeqCst) { "slow" } else { "shutdown" });
+        let ending = if hub.stopping() { Some("shutdown") } else { link.kill.get().copied() };
+        if let Some(reason) = ending {
+            refuse(&mut ws, reason);
             break;
+        }
+        let want = poll_for(last_frame.elapsed());
+        if want != poll {
+            poll = want;
+            let _ = ws.get_mut().set_read_timeout(Some(poll));
         }
         // Queue → socket.
         loop {
@@ -74,6 +86,8 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                     }
                 }
                 Ok(Out::Binary(b)) => {
+                    hub.dequeued(&link.queued, b.len());
+                    last_frame = Instant::now();
                     if ws.write(Message::binary(b)).is_err() {
                         break 'conn;
                     }
@@ -126,7 +140,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                             match authenticate(&hub, &nonce, &id, &key, &mac) {
                                 Some((key, client_pub, shared)) => {
                                     let conn = hub.conn_id();
-                                    match hub.join(&key, &id, &friends, &ip, conn, tx.clone(), kill.clone()) {
+                                    match hub.join(&key, &id, &friends, &ip, conn, link.clone()) {
                                         Ok(mut welcome) => {
                                             joined = true;
                                             if let (ServerMsg::Welcome { proof, .. }, Some(cn)) =
@@ -204,7 +218,8 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                         refuse(&mut ws, "bad_frame");
                         break;
                     }
-                    hub.forward(&a.key, a.conn, b.to_vec());
+                    last_frame = Instant::now();
+                    hub.forward(&a.key, a.conn, &ip, b.to_vec());
                 }
                 Message::Close(_) => break,
                 Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
@@ -233,7 +248,17 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
     if let Some(a) = authed {
         hub.leave(&a.key, a.conn);
     }
+    // Nothing can be queued any more: this peer has left the hub.
+    hub.dequeued(&link.queued, link.queued.load(Ordering::Relaxed));
     joined
+}
+
+fn poll_for(since_last_frame: Duration) -> Duration {
+    if since_last_frame < ACTIVE_FOR {
+        POLL
+    } else {
+        POLL_IDLE
+    }
 }
 
 /// Check `auth`: the MAC proves the client holds the private key for `key`.
@@ -247,4 +272,15 @@ fn authenticate(hub: &Hub, nonce: &[u8; 32], id: &str, key: &str, mac: &str) -> 
     let shared = proto::dh(&hub.private_key, &client_pub)?;
     let expected = proto::auth_mac(&shared, nonce, &hub.public_key, &client_pub, id);
     proto::ct_eq(&mac, &expected).then(|| (proto::to_hex(&client_pub), client_pub, shared))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_connections_poll_less_often() {
+        assert_eq!(poll_for(Duration::ZERO), POLL);
+        assert_eq!(poll_for(ACTIVE_FOR), POLL_IDLE);
+    }
 }

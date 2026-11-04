@@ -717,3 +717,44 @@ fn unauthenticated_connections_have_a_smaller_share() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+/// `a` and `b`, mutual through a redeemed code, with a channel open.
+fn linked(relay: &Relay, ip_a: Option<&str>, ip_b: Option<&str>) -> (Client, Client, u32) {
+    let (mut a, _) = Client::login_as(relay, ip_a, &key(), "aaaa", &[]).unwrap();
+    let (mut b, wb) = Client::login_as(relay, ip_b, &key(), "bbbb", &[]).unwrap();
+    let (ch, _) = a.pair_open(wb["code"].as_str().unwrap(), 1);
+    b.expect("incoming", 2.0);
+    (a, b, ch)
+}
+
+#[test]
+fn delivered_frames_stop_counting_against_the_byte_cap() {
+    let relay = start(Limits { max_outbox_bytes: 50_000, chan_msgs_per_sec: 1000.0, chan_msgs_burst: 1000.0, ..Limits::default() });
+    let (mut a, mut b, ch) = linked(&relay, None, None);
+    for _ in 0..30 {
+        a.send_bin(ch, &[7u8; 10_000]);
+        assert_eq!(b.recv_bin(2.0).map(|(_, p)| p.len()), Some(10_000));
+    }
+}
+
+#[test]
+fn bandwidth_over_the_address_cap_closes_the_channel() {
+    let relay = start(Limits { ip_bytes_per_sec: 1.0, ip_bytes_burst: 25_000.0, ..Limits::default() });
+    let (mut a, mut b, ch) = linked(&relay, Some("203.0.113.1"), Some("198.51.100.1"));
+    for _ in 0..3 {
+        a.send_bin(ch, &[7u8; 10_000]);
+    }
+    assert_eq!(a.expect("close", 2.0)["ch"], ch);
+    assert_eq!(b.recv_bin(2.0).map(|(_, p)| p.len()), Some(10_000));
+    assert_eq!(b.expect("close", 2.0)["ch"], ch);
+}
+
+#[test]
+fn bandwidth_over_the_global_cap_closes_the_channel() {
+    let relay = start(Limits { global_bytes_per_sec: 1.0, global_bytes_burst: 25_000.0, ..Limits::default() });
+    let (mut a, _b, ch) = linked(&relay, Some("203.0.113.1"), Some("198.51.100.1"));
+    for _ in 0..3 {
+        a.send_bin(ch, &[7u8; 10_000]);
+    }
+    assert_eq!(a.expect("close", 2.0)["ch"], ch);
+}
