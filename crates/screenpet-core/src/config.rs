@@ -60,6 +60,34 @@ pub struct Config {
     /// 캐릭터 스타일 (동글동글 / 픽셀, 그림만 다르다). 모르는 값이면 동글동글
     #[serde(default, skip_serializing_if = "PetStyle::is_round", deserialize_with = "lenient_style")]
     pub style: PetStyle,
+    /// 메뉴 "사다리 초대 받기"를 껐다 (끄면 초대 창 없이 자동으로 거절)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ladder_invites_off: bool,
+    /// 가장 최근 사다리타기 한 판의 결과 표 (메뉴 "지난 사다리 결과"). 망가진 값이면 없는 것으로
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_last_ladder")]
+    pub last_ladder: Option<LastLadder>,
+}
+
+/// 지난 사다리타기 결과 (보여 주기만 한다 — 이름은 그때 화면에 보인 이름)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LastLadder {
+    /// 방장 이름 (내가 방장이면 내 이름)
+    pub host: String,
+    /// 끝난 시각 (유닉스 초)
+    pub at: i64,
+    /// 공정성 지문 이모지 4개
+    pub print: String,
+    pub rows: Vec<LastLadderRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LastLadderRow {
+    pub name: String,
+    pub result: String,
+    /// "good" | "bad" | "none"
+    pub mood: String,
+    #[serde(default)]
+    pub me: bool,
 }
 
 /// 내가 정하는 이름(내 이름·친구 별명)의 최대 글자 수
@@ -92,6 +120,10 @@ fn lenient_focus_length<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FocusL
 
 fn lenient_style<'de, D: serde::Deserializer<'de>>(d: D) -> Result<PetStyle, D::Error> {
     Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
+}
+
+fn lenient_last_ladder<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<LastLadder>, D::Error> {
+    Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).ok())
 }
 
 fn lenient_feed_mode<'de, D: serde::Deserializer<'de>>(d: D) -> Result<FeedMode, D::Error> {
@@ -884,6 +916,27 @@ mod tests {
             let odd: Config = serde_json::from_str(&format!(r#"{{"pet":"cat","style":{bad}}}"#)).unwrap();
             assert_eq!((odd.pet.as_deref(), odd.style), (Some("cat"), PetStyle::Round), "{bad}");
         }
+    }
+
+    #[test]
+    fn ladder_settings_default_off_the_file_and_round_trip() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert!(!old.ladder_invites_off);
+        assert_eq!(old.last_ladder, None);
+        let plain = serde_json::to_string(&Config::default()).unwrap();
+        assert!(!plain.contains("ladder"), "{plain}");
+        let last = LastLadder {
+            host: "방장".into(),
+            at: 1_793_000_000,
+            print: "🐱🍎🎈🌙".into(),
+            rows: vec![LastLadderRow { name: "나".into(), result: "커피".into(), mood: "bad".into(), me: true }],
+        };
+        let c = Config { ladder_invites_off: true, last_ladder: Some(last.clone()), ..Config::default() };
+        let back: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert!(back.ladder_invites_off);
+        assert_eq!(back.last_ladder, Some(last));
+        let torn: Config = serde_json::from_str(r#"{"pet":"cat","last_ladder":{"host":3}}"#).unwrap();
+        assert_eq!(torn.last_ladder, None);
     }
 
     #[test]

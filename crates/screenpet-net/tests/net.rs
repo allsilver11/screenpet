@@ -3,7 +3,7 @@
 //! Noise clients (via `snow`) for the protocol / attack cases.
 
 use blake2::{Blake2s256, Digest};
-use screenpet_net::{new_install_id, Fling, Friend, Net, NetConfig, NetEvent, Side, Steer, Timing, Toss, VSide, Visit, MAX_FRIENDS, SAS_EMOJI};
+use screenpet_net::{new_install_id, Fling, Friend, LadderMsg, Net, NetConfig, NetEvent, Side, Steer, Timing, Toss, VSide, Visit, MAX_FRIENDS, SAS_EMOJI};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -1553,4 +1553,68 @@ fn wrong_key_answer_for_friend_is_silent_and_backed_off() {
     assert!((1..=3).contains(&n), "{n} dials to the bad candidate in 4 s");
     stop.store(true, Ordering::SeqCst);
     a.shutdown();
+}
+
+// ---- ladder messages and peer versions -------------------------------------------
+
+fn sample_ladder() -> LadderMsg {
+    LadderMsg::LadderReveal { game_id: "00112233445566778899aabbccddeeff".into(), nonce: "ab".into() }
+}
+
+#[test]
+fn ladder_messages_flow_between_current_builds() {
+    let p = connected_pair();
+    assert_eq!(p.a.peer_version("bbbb"), Some(screenpet_net::PROTOCOL_VERSION));
+    assert!(p.a.send_ladder("bbbb", sample_ladder()));
+    assert_eq!(
+        wait_for(&p.brx, 2.0, |e| matches!(e, NetEvent::Ladder { .. })),
+        Some(NetEvent::Ladder { from: "aaaa".into(), msg: sample_ladder() })
+    );
+    assert!(!p.a.send_ladder("nobody", sample_ladder()), "not connected");
+    assert_eq!(p.a.peer_version("nobody"), None);
+    p.a.shutdown();
+    p.b.shutdown();
+}
+
+#[test]
+fn ladder_messages_are_never_sent_to_an_older_build() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    // 예전 판 흉내: hello v 1, 모르는 type을 받으면 연결을 끊는 쪽
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert_eq!(net.peer_version("zzzz"), Some(1));
+    assert!(!net.send_ladder("zzzz", sample_ladder()));
+    for _ in 0..4 {
+        let m = p.recv().unwrap();
+        assert_eq!(m["type"], "ping", "only pings reach the old build: {m}");
+    }
+    assert_eq!(wait_for(&rx, 0.5, is_disconnected), None);
+    net.shutdown();
+}
+
+#[test]
+fn ladder_message_from_a_stranger_is_ignored() {
+    let (net, rx, port) = start_sniffed(key(), vec![]);
+    let mut p = raw_connect(port, &key(), "zzzz");
+    p.send(serde_json::to_value(sample_ladder()).unwrap()).unwrap();
+    assert_eq!(wait_for(&rx, 0.8, |e| matches!(e, NetEvent::Ladder { .. })), None);
+    net.shutdown();
+}
+
+#[test]
+fn a_rehello_updates_the_peer_version() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert_eq!(net.peer_version("zzzz"), Some(1));
+    p.send(json!({"type": "hello", "id": "zzzz", "name": "Raw", "v": 2, "friend": true})).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while net.peer_version("zzzz") != Some(2) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(net.peer_version("zzzz"), Some(2));
+    assert!(net.send_ladder("zzzz", sample_ladder()));
+    net.shutdown();
 }

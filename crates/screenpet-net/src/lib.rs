@@ -21,6 +21,7 @@
 //!   friends outside the LAN, friend codes, LAN-preferred link choice.
 
 mod discovery;
+pub mod ladder;
 mod noise;
 mod peers;
 mod protocol;
@@ -30,7 +31,7 @@ mod tcp;
 mod transport;
 
 pub use noise::SAS_EMOJI;
-pub use protocol::{Fling, Side, Steer, Toss, VSide, Visit, MAX_FRIENDS, MAX_NOTE};
+pub use protocol::{Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WirePlayer, WireResult, LADDER_MIN_VERSION, MAX_FRIENDS, MAX_NOTE, PROTOCOL_VERSION};
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};
@@ -194,6 +195,8 @@ pub enum NetEvent {
     Tossed { from: String, toss: Toss },
     Disconnected { id: String },
     Received { from: String, msg: Visit },
+    /// A ladder game message from a connected friend (validated by `ladder`).
+    Ladder { from: String, msg: LadderMsg },
     /// Friend `id` proved its pinned key but no longer recognizes us as a
     /// friend (e.g. pairing finished on one side only, or it removed us).
     /// Redials back off; suggest re-pairing to the user. (An address that
@@ -311,6 +314,8 @@ pub(crate) struct Conn {
     pub link: Arc<secure::SecureLink>,
     /// Last display name heard on this link (hello, then renames).
     pub name: String,
+    /// Protocol version from the peer's hello (`PROTOCOL_VERSION` of its build).
+    pub v: u32,
     /// Rate limit for renames and asks on this link.
     pub asks: AskBucket,
     /// Rate limit for steering (control mode) on this link.
@@ -700,6 +705,26 @@ impl Net {
             }
         };
         link.send(&Message::Visit(msg));
+    }
+
+    /// Queue a ladder message to a connected friend, only if its build knows
+    /// ladder messages (an older one would drop the link on the unknown
+    /// `type`). `false` = not sent. Never blocks.
+    pub fn send_ladder(&self, peer_id: &str, msg: LadderMsg) -> bool {
+        let link = {
+            let st = self.shared.state();
+            match st.friend_conn(peer_id) {
+                Some(c) if matches!(c.kind, Kind::Friend) && c.v >= LADDER_MIN_VERSION => c.link.clone(),
+                _ => return false,
+            }
+        };
+        link.send(&Message::Ladder(msg))
+    }
+
+    /// Protocol version of a connected friend's build (`None` if not connected).
+    pub fn peer_version(&self, peer_id: &str) -> Option<u32> {
+        let st = self.shared.state();
+        st.friend_conn(peer_id).filter(|c| matches!(c.kind, Kind::Friend)).map(|c| c.v)
     }
 
     /// Send an app request (e.g. "invite", "busy") to a connected friend

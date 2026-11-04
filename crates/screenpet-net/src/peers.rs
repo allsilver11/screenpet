@@ -137,9 +137,9 @@ pub(crate) fn run_session(
                 let Some(msg) = Message::parse(&buf[..n]) else { break };
                 match &registered {
                     None => {
-                        let Message::Control(Control::Hello { id, name, friend, .. }) = msg else { break };
+                        let Message::Control(Control::Hello { id, name, friend, v }) = msg else { break };
                         let name = clamp_name(&name);
-                        match register(&shared, &ctx, &id, &name, friend) {
+                        match register(&shared, &ctx, &id, &name, friend, v) {
                             Reg::Ok => {
                                 outcome = DialOutcome::Proven;
                                 registered = Some((id, name));
@@ -188,7 +188,7 @@ pub(crate) fn run_session(
 }
 
 /// Classify the link after the peer's hello and record it.
-fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bool) -> Reg {
+fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bool, v: u32) -> Reg {
     if id.is_empty() || id.len() > MAX_ID || id == shared.id {
         return Reg::Reject;
     }
@@ -268,6 +268,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
                 peer_id: id.to_string(),
                 link: ctx.link.clone(),
                 name: name.to_string(),
+                v,
                 asks: AskBucket::new(now),
                 steers: AskBucket::steering(now),
                 kind,
@@ -363,10 +364,13 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
     match msg {
         // A repeated hello on an authenticated friend link (same id) = the friend renamed itself.
         // Unchanged names are ignored; renames and asks share one budget per connection
-        Message::Control(Control::Hello { id: hid, name: new_name, .. }) => {
+        Message::Control(Control::Hello { id: hid, name: new_name, v, .. }) => {
             let new_name = clamp_name(&new_name);
             let friend = hid == id && matches!(conn.kind, Kind::Friend) && st.is_friend(id);
             let Some(c) = st.conns.get_mut(&ctx.token) else { return false };
+            if hid == id {
+                c.v = v;
+            }
             if friend && c.name != new_name && c.asks.take(now) {
                 c.name = new_name.clone();
                 shared.emit(NetEvent::Renamed { id: id.to_string(), name: new_name });
@@ -512,6 +516,13 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
         Message::Visit(v) => {
             if matches!(conn.kind, Kind::Friend) && st.is_friend(id) {
                 shared.emit(NetEvent::Received { from: id.to_string(), msg: v });
+            }
+            true
+        }
+        // Like visits: friend links only (ignored otherwise)
+        Message::Ladder(m) => {
+            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) {
+                shared.emit(NetEvent::Ladder { from: id.to_string(), msg: m });
             }
             true
         }

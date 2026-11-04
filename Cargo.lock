@@ -3528,6 +3528,7 @@ dependencies = [
  "getrandom 0.3.4",
  "rustls",
  "rustls-rustcrypto",
+ "screenpet-core",
  "screenpet-relay",
  "serde",
  "serde_json",

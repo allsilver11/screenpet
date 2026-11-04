@@ -30,7 +30,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindo
 use crate::game_loop::Input;
 use crate::gifts::GuestGift;
 use crate::slots::{self, GuestInfo, Role, Slot, OWN_LABEL};
-use crate::tray::{FriendItem, FriendsMenu};
+use crate::tray::{FriendItem, FriendsMenu, LadderMenu};
 use crate::AppState;
 
 /// 짝맞추기 창 라벨
@@ -111,6 +111,29 @@ pub enum NetInput {
     SendOn { label: String, friend: String },
     /// 트레이 "<친구> 펫 데리고 오기": 그 친구에게 동물을 보내 달라고 부탁한다
     BringPet(String),
+    /// 트레이 "🎲 사다리타기…": 판이 있으면 그 창, 없으면 설정 화면
+    LadderOpen,
+    /// 트레이 "🎲 지난 사다리 결과"
+    LadderShowLast,
+    /// 트레이 "사다리 초대 받기" (체크)
+    ToggleLadderInvites,
+    /// 설정 화면 "초대": 고른 친구 id, 결과 칸 미리보기
+    LadderHost { friends: Vec<String>, results: Vec<crate::ladder::SlotRow> },
+    /// 방장 "시작": 최종 결과 칸 (참가 인원 + 방장)
+    LadderBegin(Vec<crate::ladder::SlotRow>),
+    /// 초대 화면 "참가"(true) / "안 할래요"(false)
+    LadderAnswer(bool),
+    /// 사다리 창 닫기·그만두기
+    LadderClose,
+    /// 사다리 창: 내 펫이 결과 칸에 닿았다 (진짜 펫도 반응)
+    LadderReact,
+}
+
+/// 사다리 상태 기계에 넘길 네트워크 사정 (필드를 따로 빌린다 — self.ladder는 따로 &mut)
+macro_rules! ladder_ctx {
+    ($s:expr, $config:expr) => {
+        crate::ladder::Ctx { net: $s.net.as_ref(), config: $config, connected: &$s.connected, my_name: &$s.name }
+    };
 }
 
 /// 친구에게 하는 부탁 (net의 ask): 펫 데리고 오기 / 지금은 못 가요
@@ -318,6 +341,10 @@ pub struct Network {
     gift_sent: Option<Instant>,
     /// 방금 들어온 손님이 들고 온 선물 (게임 루프가 꺼내 간다)
     guest_gifts: Vec<GuestGift>,
+    /// 사다리타기 (판 하나와 창)
+    ladder: crate::ladder::Ladders,
+    /// (내 펫이 지금 손님을 받지 않음 — 집중 중·하우스 안, 사다리 판이 있음) — 바뀌면 메뉴의 사다리 항목을 다시 맞춘다
+    own_refuses: (bool, bool),
 }
 
 /// 중계 서버 주소와 고정할 공개키. 기본값은 배포된 서버 주소 + 그 공개키(다른 키를 내미는 서버는 거절).
@@ -450,6 +477,8 @@ impl Network {
             gift_limit: FriendLimit::default(),
             gift_sent: None,
             guest_gifts: Vec::new(),
+            ladder: crate::ladder::Ladders::default(),
+            own_refuses: (false, false),
         };
         let state = app.state::<AppState>();
         let key = match screenpet_core::config::load_or_create_identity_key(&state.config_dir, Net::generate_static_key) {
@@ -893,6 +922,38 @@ impl Network {
                 }
                 false
             }
+            NetInput::LadderOpen => {
+                self.ladder.open(app, &ladder_ctx!(self, config));
+                false
+            }
+            NetInput::LadderShowLast => {
+                self.ladder.show_last(app, &ladder_ctx!(self, config));
+                false
+            }
+            NetInput::ToggleLadderInvites => {
+                config.ladder_invites_off = !config.ladder_invites_off;
+                true
+            }
+            NetInput::LadderHost { friends, results } => {
+                self.ladder.host(app, &ladder_ctx!(self, config), &slots[0], friends, results);
+                false
+            }
+            NetInput::LadderBegin(results) => {
+                self.ladder.begin(app, &ladder_ctx!(self, config), results);
+                false
+            }
+            NetInput::LadderAnswer(join) => {
+                self.ladder.answer(app, &ladder_ctx!(self, config), &slots[0], join);
+                false
+            }
+            NetInput::LadderClose => {
+                self.ladder.close(app, &ladder_ctx!(self, config));
+                false
+            }
+            NetInput::LadderReact => {
+                self.ladder.react(app, &mut slots[0]);
+                false
+            }
         }
     }
 
@@ -946,8 +1007,18 @@ impl Network {
             }
             // 던져 넘어온 물건은 게임 루프가 objects.rs로 바로 보낸다 (여기 오지 않는다)
             NetEvent::Tossed { .. } => {}
+            // 사다리타기: 판이 끝나 결과가 나오면 설정에 남긴다 (메뉴 "지난 사다리 결과")
+            NetEvent::Ladder { from, msg } => {
+                let last = self.ladder.on_message(app, &ladder_ctx!(self, config), &slots[0], &from, msg);
+                if let Some(last) = last {
+                    config.last_ladder = Some(last);
+                    return true;
+                }
+            }
             NetEvent::Disconnected { id } => {
                 self.connected.remove(&id);
+                // 사다리 판의 그 친구 (방장이면 판이 끝난다, 참가자면 빠지거나 판 취소)
+                let _ = self.ladder.on_disconnected(app, &ladder_ctx!(self, config), &slots[0], &id);
                 // 그 친구에게 보내던 손님은 그만 가고, 그 친구의 손님에게 걸어 둔 보내기는 지운다
                 self.drop_guest_sends(slots, |owner, to| owner == id || to == id);
                 // 그 친구의 손님은 손 흔들고 사라진다
@@ -1438,6 +1509,12 @@ impl Network {
     /// 매 틱: 짝맞추기 시간, "집에 와" 대비, 트레이 `친구랑 놀기` 메뉴
     pub fn tick(&mut self, app: &AppHandle, now: Instant, config: &Config, own: &mut Slot) {
         self.tick_pairing(app, now);
+        self.ladder.tick(app, &ladder_ctx!(self, config), own);
+        let refuses = (own.pet.refuses_arrivals(), self.ladder.busy());
+        if refuses != self.own_refuses {
+            self.own_refuses = refuses;
+            self.menu_dirty = true;
+        }
         // 놀러 보내는 중: 그 친구가 끊겼으면 그만두고, 동물 쪽에서 끝났으면(하우스로 감 등) 잊는다
         if let Some((id, _)) = &self.sending {
             if !self.is_connected(id) || config.friend(id).is_none() {
@@ -1488,7 +1565,16 @@ impl Network {
             config.friends.iter().filter(|f| self.is_open(&f.id)).map(|f| (f.id.clone(), f.shown_name().to_string())).collect();
         let relay = self.relay_enabled.then_some(self.relay_connected);
         let room = self.guests < MAX_GUESTS;
-        FriendsMenu { available: self.net.is_some(), my_name: self.name.clone(), strangers, friends, away: self.away.is_some(), relay, room }
+        // 사다리타기: 판이 있으면 언제든 그 창을, 없으면 사다리를 아는 친구가 연결돼 있고 내가 바쁘지 않을 때
+        let ladder_friend = self.net.as_ref().is_some_and(|n| {
+            config.friends.iter().any(|f| self.is_connected(&f.id) && n.peer_version(&f.id).is_some_and(|v| v >= screenpet_net::LADDER_MIN_VERSION))
+        });
+        let ladder = LadderMenu {
+            open: self.ladder.busy() || (ladder_friend && !self.own_refuses.0),
+            invites: !config.ladder_invites_off,
+            last: config.last_ladder.is_some() && !self.ladder.busy(),
+        };
+        FriendsMenu { available: self.net.is_some(), my_name: self.name.clone(), strangers, friends, away: self.away.is_some(), relay, room, ladder }
     }
 }
 
@@ -1504,7 +1590,7 @@ fn refresh_guest_tags(app: &AppHandle, config: &Config, slots: &mut [Slot]) {
 }
 
 /// 작은 창을 주 모니터 가운데에 놓는다 (주 모니터를 모르면 지금 모니터 가운데)
-fn place_on_primary(app: &AppHandle, window: &WebviewWindow, inner: (f64, f64)) {
+pub fn place_on_primary(app: &AppHandle, window: &WebviewWindow, inner: (f64, f64)) {
     let Some(m) = app.primary_monitor().ok().flatten() else {
         let _ = window.center();
         return;

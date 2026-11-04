@@ -6,6 +6,7 @@ mod game_loop;
 mod gifts;
 mod help;
 mod house;
+mod ladder;
 mod network;
 mod objects;
 mod overlay;
@@ -243,6 +244,12 @@ fn main() {
             network::letter_state,
             network::letter_submit,
             network::letter_close,
+            ladder::ladder_state,
+            ladder::ladder_host,
+            ladder::ladder_begin,
+            ladder::ladder_answer,
+            ladder::ladder_close,
+            ladder::ladder_seen,
             gifts::gift_collect,
             gifts::book_state,
             objects::object_down,
