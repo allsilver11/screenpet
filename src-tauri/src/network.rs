@@ -46,8 +46,6 @@ const RESULT_SECS: Duration = Duration::from_millis(2500);
 const COME_HOME_FALLBACK: Duration = Duration::from_secs(15);
 /// 한 친구에게서 받아들인 방문 사이 최소 간격 (그보다 잦은 Visit은 Leave로 돌려보낸다)
 const VISIT_COOLDOWN: Duration = Duration::from_secs(5);
-/// 보낸 방문이 이만큼 안에 그냥 돌아오면(던지기·"집에 와" 아님) 그 친구 화면이 꽉 찼다고 본다
-const QUICK_DECLINE: Duration = Duration::from_secs(3);
 /// 꽉 찬 친구 화면으로는 이만큼 동안 걸어 나가거나 던져 넘기지 않는다
 const FULL_FOR: Duration = Duration::from_secs(60);
 /// 거절 로그는 친구마다 이 간격에 한 번만
@@ -241,6 +239,8 @@ struct Pairing {
     view: PairView,
     /// 지금 단계가 끝나는 때 (연결 대기 10초, 확인 20초, 결과 표시 2.5초)
     deadline: Instant,
+    /// 창에 한 번이라도 보였다 (받은 신청은 조용해질 때까지 미룬다)
+    shown: bool,
 }
 
 /// 손님이 도착한 방식 (Visit 메시지에서)
@@ -339,6 +339,8 @@ pub struct Network {
     ladder: crate::ladder::Ladders,
     /// (내 펫이 지금 손님을 받지 않음 — 집중 중·하우스 안, 사다리 판이 있음) — 바뀌면 메뉴의 사다리 항목을 다시 맞춘다
     own_refuses: (bool, bool),
+    /// 집중 중이거나 전체 화면 앱이 떠 있음 — 받은 친구 신청 창을 미룬다
+    quiet: bool,
 }
 
 /// 중계 서버 주소와 고정할 공개키. 기본값은 배포된 서버 주소 + 그 공개키(다른 키를 내미는 서버는 거절).
@@ -460,6 +462,7 @@ impl Network {
             guest_gifts: Vec::new(),
             ladder: crate::ladder::Ladders::default(),
             own_refuses: (false, false),
+            quiet: false,
         };
         let state = app.state::<AppState>();
         // 설정을 못 읽은 실행: 친구 목록이 빈 채로 나가면 친구들이 "나를 잊었다"고 보고 나를 지운다
@@ -771,6 +774,10 @@ impl Network {
     /// 내 동물이 돌아온다: enter = 들어올 끝 (친구 화면에서 나간 끝의 반대편, 모르면 나갔던 끝)
     fn come_back(&mut self, own: &mut Slot, fling: Option<visit::Fling>, enter: Option<Side>) {
         if let Some(a) = self.away.take() {
+            // 집에 돌아오고 한참 뒤 원래 크기로 (게임 루프가 tick_boost를 부른다) — 어떻게 돌아왔든
+            if own.boost > 1.0 {
+                self.boost_until = Some(Instant::now() + Duration::from_secs(visit::BOOST_HOME_SECS));
+            }
             let side = enter.unwrap_or(a.side);
             match fling {
                 // 친구 화면에서 던져져 날아 돌아온다
@@ -1128,13 +1135,20 @@ impl Network {
                     return;
                 }
                 let now = Instant::now();
+                // 방금 왔다 간 친구: 꽉 찬 게 아니라 잠깐 이른 것 — 들어오려던 끝을 실어 주면(꽉 찼다는 뜻이 아니다) 던져졌으면 날아온 그대로 돌아간다
+                if self.last_visit.get(from).is_some_and(|t| now.duration_since(*t) < VISIT_COOLDOWN) {
+                    if !self.last_decline_log.get(from).is_some_and(|t| now.duration_since(*t) < DECLINE_LOG_EVERY) {
+                        eprintln!("sent back visit {visit_id} from {from}: too soon after the last visit");
+                        self.last_decline_log.insert(from.to_string(), now);
+                    }
+                    if let Some(net) = &self.net {
+                        net.send(from, Visit::Leave { visit_id, next: None, side: Some(enter_side), vside, homesick_in: None, fling, note: None, boost: None });
+                    }
+                    return;
+                }
                 let note = note.as_deref().and_then(visit::sanitize_note);
-                let result = if self.last_visit.get(from).is_some_and(|t| now.duration_since(*t) < VISIT_COOLDOWN) {
-                    Err("too soon after the last visit".to_string())
-                } else {
-                    let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()), boost };
-                    self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival)
-                };
+                let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()), boost };
+                let result = self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival);
                 match result {
                     Ok(()) => {
                         self.last_visit.insert(from.to_string(), now);
@@ -1168,15 +1182,11 @@ impl Network {
                     slots[0].set_boost(app, grown);
                 }
                 // 보내자마자 그냥 돌아왔다 — 그 친구 화면이 꽉 찼다고 보고 잠깐 보내지 않는다
-                if next.is_none() && fling.is_none() && a.come_home_by.is_none() && a.since.elapsed() < QUICK_DECLINE {
+                if visit::return_means_full(next.is_some(), fling.is_some(), a.come_home_by.is_some(), side.is_some(), a.since.elapsed().as_secs_f64()) {
                     self.full_until.insert(from.to_string(), Instant::now() + FULL_FOR);
                 }
                 let forwarded = next.is_some_and(|n| self.forward_visit(config, &slots[0], &n, side.map(|s| from_net_side(s, vside)), homesick_in, fling));
                 if !forwarded {
-                    // 집에 돌아오고 한참 뒤 원래 크기로 (게임 루프가 tick_boost를 부른다)
-                    if slots[0].boost > 1.0 {
-                        self.boost_until = Some(Instant::now() + Duration::from_secs(visit::BOOST_HOME_SECS));
-                    }
                     self.come_back(&mut slots[0], fling, side.map(|s| opposite(from_net_side(s, vside))));
                     if let Some(note) = reply {
                         // 돌아온 내 동물 머리 옆에 💌 — 누르면 "💌 <친구>: <답장>" (웹뷰는 textContent로만)
@@ -1275,7 +1285,7 @@ impl Network {
             PairView { phase: "connecting", name, ..PairView::default() }
         };
         let wait = if full { RESULT_SECS } else { CONNECT_TIMEOUT };
-        self.pairing = Some(Pairing { peer: peer.to_string(), by_code: false, token: None, view, deadline: Instant::now() + wait });
+        self.pairing = Some(Pairing { peer: peer.to_string(), by_code: false, token: None, view, deadline: Instant::now() + wait, shown: false });
         self.show_pair(app);
     }
 
@@ -1293,6 +1303,7 @@ impl Network {
             token: None,
             view: PairView { phase: "connecting", name: code.to_string(), ..PairView::default() },
             deadline: Instant::now() + CODE_CONNECT_TIMEOUT,
+            shown: false,
         });
         self.show_pair(app);
     }
@@ -1365,6 +1376,7 @@ impl Network {
                 ..PairView::default()
             },
             deadline: Instant::now() + CONFIRM_TIMEOUT,
+            shown: false,
         });
         self.show_pair(app);
     }
@@ -1440,9 +1452,15 @@ impl Network {
     }
 
     /// 짝맞추기 창에 지금 상태를 보이고 앞으로 가져온다 (처음이면 만든다 — 게임 루프 스레드에서만)
-    fn show_pair(&self, app: &AppHandle) {
-        let Some(p) = &self.pairing else { return };
+    fn show_pair(&mut self, app: &AppHandle) {
+        let quiet = self.quiet;
+        let Some(p) = self.pairing.as_mut() else { return };
         *app.state::<AppState>().pair.lock().unwrap() = p.view.clone();
+        // 받은 신청은 인증되지 않은 누구든 보낼 수 있다: 하던 일을 끊지 않게 포커스를 뺏지 않고, 집중·전체 화면이 끝날 때까지 미룬다
+        if p.view.incoming && !p.shown && !visit::incoming_pair_may_show(p.view.phase == "confirm", quiet) {
+            return;
+        }
+        p.shown = true;
         let window = match app.get_webview_window(PAIR_LABEL) {
             Some(w) => w,
             None => match build_pair_window(app) {
@@ -1457,7 +1475,10 @@ impl Network {
         if !window.is_visible().unwrap_or(false) {
             place_on_primary(app, &window, PAIR_SIZE);
             let _ = window.show();
-            let _ = window.set_focus();
+            // 내가 시작한 신청만 앞으로 가져온다
+            if !p.view.incoming {
+                let _ = window.set_focus();
+            }
         }
     }
 
@@ -1487,7 +1508,12 @@ impl Network {
 
     /// 매 틱: 짝맞추기 시간, "집에 와" 대비, 트레이 `친구랑 놀기` 메뉴
     pub fn tick(&mut self, app: &AppHandle, now: Instant, config: &Config, own: &mut Slot) {
+        self.quiet = own.pet.is_focusing() || screenpet_core::weather::any_fullscreen(&own.world.windows, &own.world.work_areas);
         self.tick_pairing(app, now);
+        // 미뤄 둔 받은 신청: 조용해졌으면 지금 띄운다
+        if !self.quiet && self.pairing.as_ref().is_some_and(|p| p.view.incoming && !p.shown && p.view.phase == "confirm") {
+            self.show_pair(app);
+        }
         self.ladder.tick(app, &ladder_ctx!(self, config), own);
         let refuses = (own.pet.refuses_arrivals(), self.ladder.busy());
         if refuses != self.own_refuses {
@@ -1510,6 +1536,14 @@ impl Network {
             self.can_send = can_send;
             self.menu_dirty = true;
         }
+        // 연결은 살아 있는데 친구 쪽 방문이 너무 오래 끝나지 않는다: 평소 "집에 와"처럼 부른다
+        if let (Some(net), Some(a)) = (&self.net, self.away.as_mut()) {
+            if a.come_home_by.is_none() && a.since.elapsed().as_secs_f64() >= visit::AWAY_SILENCE_LIMIT_SECS {
+                eprintln!("no word from {} for too long; calling the pet home", a.friend);
+                net.send(&a.friend, Visit::ComeHome { visit_id: a.visit_id });
+                a.come_home_by = Some(now + COME_HOME_FALLBACK);
+            }
+        }
         if self.away.as_ref().and_then(|a| a.come_home_by).is_some_and(|t| now >= t) {
             eprintln!("no answer to come-home; coming back anyway");
             self.come_back(own, None, None);
@@ -1526,7 +1560,7 @@ impl Network {
     }
 
     fn menu_model(&self, config: &Config) -> FriendsMenu {
-        let strangers = self.seen.iter().filter(|(id, _)| config.friend(id).is_none()).map(|(id, name)| (id.clone(), name.clone())).collect();
+        let strangers = visit::menu_strangers(&self.seen, |id| config.friend(id).is_some());
         let friends = config
             .friends
             .iter()
@@ -1594,6 +1628,7 @@ fn build_pair_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .minimizable(false)
         .always_on_top(true)
         .skip_taskbar(false)
+        .focused(false)
         .visible(false)
         .build()?;
     let handle = app.clone();

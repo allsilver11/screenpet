@@ -460,3 +460,13 @@ fn only_piling_weather_can_be_swept_to_a_friend() {
         assert_eq!(parse_flurry_kind(raw), None, "{raw}");
     }
 }
+
+#[test]
+fn any_fullscreen_sees_every_monitor_and_ignores_maximized_windows() {
+    let areas = [Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1040.0)];
+    let full = WindowInfo { id: 1, rect: Rect::new(1920.0, 0.0, 3840.0, 1080.0) };
+    let maximized = WindowInfo { id: 2, rect: Rect::new(0.0, 0.0, 1920.0, 1040.0) };
+    assert!(any_fullscreen(&[full], &areas));
+    assert!(!any_fullscreen(&[maximized], &areas));
+    assert!(!any_fullscreen(&[], &areas));
+}

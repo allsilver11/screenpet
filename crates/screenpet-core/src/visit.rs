@@ -492,8 +492,72 @@ pub fn toss_answer(refusing: bool, bounced: bool, threw_lately: bool) -> TossAns
     }
 }
 
+/// 보낸 방문이 이만큼(초) 안에 돌아오면 그 친구 화면이 꽉 찼을 수 있다
+pub const QUICK_DECLINE_SECS: f64 = 3.0;
+
+/// 돌아온 방문이 "꽉 찼어요"라는 뜻인가: 이어 가지도, 던져지지도, 불러서 온 것도 아닌데 곧바로 돌아왔고
+/// 나간 끝도 알려 주지 않았다. 잠깐 사이 또 왔다고 돌려보낼 땐 끝을 실어 주므로 꽉 찬 것으로 치지 않는다
+pub fn return_means_full(went_on: bool, flung: bool, called_home: bool, side_told: bool, secs_away: f64) -> bool {
+    !went_on && !flung && !called_home && !side_told && secs_away < QUICK_DECLINE_SECS
+}
+
+/// 친구 화면에 간 내 동물이 이만큼(초) 소식이 없으면 집으로 부른다. 한 화면에 가장 오래 머무는 경우
+/// (가장 늦게 그리워지고 + 조작 중이라 더 머무는 상한)의 두 배 — 게임 루프가 느린 컴퓨터에서도 멀쩡한 방문을 끊지 않는다
+pub const AWAY_SILENCE_LIMIT_SECS: f64 = 2.0 * (HOMESICK_SECS.1 + CONTROLLED_HOMESICK_LIMIT_SECS);
+
+/// 받은 친구 신청 창을 지금 띄워도 되나: 확인을 기다리는 중이고, 집중·전체 화면을 방해하지 않을 때만.
+/// 신청은 net의 시간 제한으로 끝나므로 못 띄운 채 끝나면 조용히 거절된다
+pub fn incoming_pair_may_show(confirming: bool, quiet: bool) -> bool {
+    confirming && !quiet
+}
+
+/// 메뉴에 보일 친구 아닌 사람의 수 — 가짜 알림을 쏟아도 메뉴가 넘치지 않는다
+pub const MAX_MENU_STRANGERS: usize = 8;
+
+/// 메뉴에 보일 친구 아닌 사람 (id, 이름)
+pub fn menu_strangers(seen: &std::collections::BTreeMap<String, String>, is_friend: impl Fn(&str) -> bool) -> Vec<(String, String)> {
+    seen.iter().filter(|(id, _)| !is_friend(id)).take(MAX_MENU_STRANGERS).map(|(id, name)| (id.clone(), name.clone())).collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_an_unexplained_quick_return_means_full() {
+        use super::*;
+        assert!(return_means_full(false, false, false, false, 1.0));
+        assert!(!return_means_full(false, false, false, false, QUICK_DECLINE_SECS), "stayed a while");
+        assert!(!return_means_full(true, false, false, false, 1.0), "walked on to another friend");
+        assert!(!return_means_full(false, true, false, false, 1.0), "thrown back");
+        assert!(!return_means_full(false, false, true, false, 1.0), "called home");
+        assert!(!return_means_full(false, false, false, true, 1.0), "sent back as too soon, tells the side");
+    }
+
+    #[test]
+    fn the_silence_limit_never_cuts_a_healthy_visit() {
+        use super::*;
+        let longest_uncontrolled = HOMESICK_SECS.1 + HOMESICK_HARD_CAP_SECS;
+        let longest_controlled = HOMESICK_SECS.1 + CONTROLLED_HOMESICK_LIMIT_SECS;
+        assert!(AWAY_SILENCE_LIMIT_SECS > longest_uncontrolled.max(longest_controlled));
+        // 게임 루프가 절반 속도로 돌아도 (그리움 시계가 절반으로 가도) 넘지 않는다
+        assert!(AWAY_SILENCE_LIMIT_SECS >= 2.0 * longest_controlled);
+    }
+
+    #[test]
+    fn an_incoming_pair_window_waits_for_a_quiet_moment() {
+        use super::*;
+        assert!(incoming_pair_may_show(true, false));
+        assert!(!incoming_pair_may_show(true, true), "focus or fullscreen");
+        assert!(!incoming_pair_may_show(false, false), "ended before it could show");
+    }
+
+    #[test]
+    fn a_flood_of_fake_announcements_stays_short_in_the_menu() {
+        use super::*;
+        let seen: std::collections::BTreeMap<String, String> = (0..64).map(|i| (format!("id{i:02}"), format!("n{i}"))).collect();
+        assert_eq!(menu_strangers(&seen, |_| false).len(), MAX_MENU_STRANGERS);
+        assert!(menu_strangers(&seen, |id| id == "id00").iter().all(|(id, _)| id != "id00"), "friends are not strangers");
+    }
+
     #[test]
     fn feeding_a_guest_grows_it_up_to_santa_size_at_most() {
         use super::*;

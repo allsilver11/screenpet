@@ -178,6 +178,11 @@ pub fn fullscreen_over(windows: &[WindowInfo], wa: &Rect) -> bool {
     covers && overhang >= FULLSCREEN_OVERHANG
 }
 
+/// 어느 모니터든 전체 화면 앱이 덮고 있다 (방해하면 안 되는 창을 미룰 때)
+pub fn any_fullscreen(windows: &[WindowInfo], work_areas: &[Rect]) -> bool {
+    work_areas.iter().any(|wa| fullscreen_over(windows, wa))
+}
+
 /// 이 모니터의 날씨를 멈춰 둘 때: 사용자가 자리를 비웠거나 전체 화면 앱이 덮고 있다 (창을 숨기고 웹뷰 타이머도 멈춘다)
 pub fn overlay_paused(away: bool, windows: &[WindowInfo], wa: &Rect) -> bool {
     away || fullscreen_over(windows, wa)
