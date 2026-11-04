@@ -1,9 +1,10 @@
+import json
 from pathlib import Path
 
 from PIL import Image
 
 import draw_pets
-from sprite_spec import ANIMS, FRAME, OPTIONAL_ANIMS, ROLL_CENTER, ROLL_RADIUS
+from sprite_spec import ANIMS, FRAME, HIRES_TEENAGER, OPTIONAL_ANIMS, ROLL_CENTER, ROLL_RADIUS, STAGES as STAGE_NAMES, frame_px, sheet_128
 
 STANDING = {"walk", "run", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
             "hungry", "eat", "level_up", "huff", "lookup"}
@@ -23,7 +24,7 @@ def test_sleep_is_lying_flat(tmp_path):
     row = [a for a, *_ in ANIMS].index("sleep")
     for pid in SPECIES_IDS:
         for st in CHECK_STAGES:
-            cell = Image.open(tmp_path / pid / f"sheet_{st}.png").crop((0, row * FRAME, FRAME, (row + 1) * FRAME))
+            cell = sheet_128(tmp_path / pid / f"sheet_{st}.png").crop((0, row * FRAME, FRAME, (row + 1) * FRAME))
             # z 글자는 제외하고 몸만: 불투명한 큰 덩어리의 위쪽이 낮아야 한다
             alpha = cell.getchannel("A").point(lambda v: 255 if v > 200 else 0)
             body_top = min(y for y in range(FRAME) if sum(alpha.getpixel((x, y)) > 0 for x in range(FRAME)) >= 20)
@@ -34,7 +35,7 @@ def test_every_species_every_animation(tmp_path):
     draw_pets.build(tmp_path)
     for pid in SPECIES_IDS:
         for st in CHECK_STAGES:
-            sheet = Image.open(tmp_path / pid / f"sheet_{st}.png")
+            sheet = sheet_128(tmp_path / pid / f"sheet_{st}.png")
             # 필수 21행 + 그 종의 선택 동작 행 (고양이 arch·huff·climb·slide, 강아지 wag, 곰 climb·slide)
             rows = list(ANIMS) + [o for o in OPTIONAL_ANIMS if o[0] in draw_pets.SPECIES[pid].specials]
             assert sheet.height == FRAME * len(rows)
@@ -67,7 +68,7 @@ def test_only_cat_has_arch_and_huff_and_only_dog_has_wag(tmp_path):
     assert m["speech"]["hiss"] == ["hiss!"]
     assert m["speech"]["ignore"] == ["..."]
     assert m["personality"] == "aloof"
-    sheet = Image.open(tmp_path / "cat" / "sheet.png")
+    sheet = sheet_128(tmp_path / "cat" / "sheet.png")
     assert sheet.height == FRAME * (len(ANIMS) + 5)  # arch, huff, climb, slide, lookup
 
 
@@ -77,7 +78,7 @@ def test_roll_ball_fits_rotation_circle(tmp_path):
     row = [a for a, *_ in ANIMS].index("roll")
     for pid in SPECIES_IDS:
         for st in CHECK_STAGES:
-            cell = Image.open(tmp_path / pid / f"sheet_{st}.png").crop((0, row * FRAME, FRAME, (row + 1) * FRAME))
+            cell = sheet_128(tmp_path / pid / f"sheet_{st}.png").crop((0, row * FRAME, FRAME, (row + 1) * FRAME))
             alpha = cell.getchannel("A")
             for y in range(FRAME):
                 for x in range(FRAME):
@@ -132,7 +133,7 @@ def test_baby_head_is_relatively_bigger_than_adult(tmp_path):
     draw_pets.build(tmp_path)
     row = [a for a, *_ in ANIMS].index("sit_front")
     def head_ratio(st):
-        cell = Image.open(tmp_path / "cat" / f"sheet_{st}.png").crop((0, row * FRAME, FRAME, (row + 1) * FRAME))
+        cell = sheet_128(tmp_path / "cat" / f"sheet_{st}.png").crop((0, row * FRAME, FRAME, (row + 1) * FRAME))
         a = cell.getchannel("A").point(lambda v: 255 if v > 128 else 0)
         widths = [sum(1 for x in range(FRAME) if a.getpixel((x, y))) for y in range(FRAME)]
         top = next(y for y, w in enumerate(widths) if w)
@@ -165,7 +166,7 @@ def test_climb_and_slide_fit_cell_in_every_stage(tmp_path):
     for pid in ("cat", "bear"):
         names = [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES[pid])]
         for st in STAGES:
-            sheet = Image.open(tmp_path / pid / f"sheet_{st}.png")
+            sheet = sheet_128(tmp_path / pid / f"sheet_{st}.png")
             for anim, n in (("climb", 4), ("slide", 2)):
                 row = names.index(anim)
                 for col in range(n):
@@ -180,7 +181,9 @@ def test_baby_eyes_are_relatively_bigger_than_adult(tmp_path):
     row = [a for a, *_ in ANIMS].index("sit_front")
 
     def eye_ratio(pid, st):
-        cell = Image.open(tmp_path / pid / f"sheet_{st}.png").crop((0, row * FRAME, FRAME, (row + 1) * FRAME)).convert("RGBA")
+        # 128 칸 시트와 같은 필터(LANCZOS)로 줄여 잰다 — 얇은 눈의 픽셀 수는 필터에 민감하다
+        sheet = Image.open(tmp_path / pid / f"sheet_{st}.png").convert("RGBA")
+        cell = sheet.resize((4 * FRAME, sheet.height * 4 * FRAME // sheet.width), Image.LANCZOS).crop((0, row * FRAME, FRAME, (row + 1) * FRAME))
         px = cell.load()
         er, eg, eb = draw_pets.EYE
         dark = sum(1 for y in range(FRAME) for x in range(FRAME)
@@ -206,7 +209,7 @@ def test_bee_flies_and_only_bee_has_sting(tmp_path):
     assert all(a in m["animations"] for a, *_ in ANIMS)
     assert m["speech"]["chatter"] == ["bzz~", "♪"] and "sting" not in m["speech"]
     assert m["favorite_food"] == {"emoji": "🌸", "name": "꽃꿀"}
-    sheet = Image.open(tmp_path / "bee" / "sheet.png")
+    sheet = sheet_128(tmp_path / "bee" / "sheet.png")
     assert sheet.height == FRAME * (len(ANIMS) + 2)  # sting, lookup
 
 
@@ -214,7 +217,7 @@ def test_bee_hovers_above_the_ground_when_flying(tmp_path):
     """떠 있는 꿀벌: walk·idle·sit_front는 바닥(y 127)에서 떨어져 있다 (날고 있는 게 보인다)."""
     draw_pets.build(tmp_path)
     names = [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES["bee"])]
-    sheet = Image.open(tmp_path / "bee" / "sheet_teenager.png")
+    sheet = sheet_128(tmp_path / "bee" / "sheet_teenager.png")
     for anim in ("walk", "idle", "sit_front"):
         row = names.index(anim)
         bbox = sheet.crop((0, row * FRAME, FRAME, (row + 1) * FRAME)).getchannel("A").getbbox()
@@ -224,7 +227,7 @@ def test_bee_hovers_above_the_ground_when_flying(tmp_path):
 def test_bee_wings_are_translucent(tmp_path):
     """날개는 반투명 층: walk 첫 장에 반투명(알파 60~200) 픽셀이 많다."""
     draw_pets.build(tmp_path)
-    cell = Image.open(tmp_path / "bee" / "sheet_teenager.png").crop((0, 0, FRAME, FRAME))
+    cell = sheet_128(tmp_path / "bee" / "sheet_teenager.png").crop((0, 0, FRAME, FRAME))
     semi = sum(cell.getchannel("A").histogram()[60:201])
     assert semi > 150, semi
 
@@ -366,7 +369,7 @@ def test_bear_is_a_deeper_brown_with_bigger_ears():
 def _eat_cell(tmp_path, pid, st, col):
     names = [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES[pid])]
     row = names.index("eat")
-    return Image.open(tmp_path / pid / f"sheet_{st}.png").convert("RGBA").crop((col * FRAME, row * FRAME, (col + 1) * FRAME, (row + 1) * FRAME))
+    return sheet_128(tmp_path / pid / f"sheet_{st}.png").convert("RGBA").crop((col * FRAME, row * FRAME, (col + 1) * FRAME, (row + 1) * FRAME))
 
 
 def test_eat_mouth_meets_the_real_bowl(tmp_path):
@@ -439,3 +442,38 @@ def test_up_eye_sits_higher_than_dot_eye():
                 fns = [f for fs, *_ in draw_pets.stage_eye(kind, 64, 64) for f in fs]
                 tops.append(draw_pets.shapes(fns).getbbox()[1])
         assert tops[1] < tops[0], (st, tops)
+
+
+# ---- 2배 칸 (sprite_spec.frame_px): 저장소의 진짜 그림을 본다 (그리지 않아 빠르다)
+def _shipped():
+    root = Path(__file__).resolve().parent.parent / "ui" / "pets"
+    return [(d.name, json.loads((d / "pet.json").read_text(encoding="utf-8")), d) for d in sorted(root.iterdir())]
+
+
+def test_hires_stages_follow_the_on_screen_size():
+    """청소년 때 이미 128보다 크게 보이는 동물(stage_size >= 1)만 청소년도 2배, 어른은 모두 2배."""
+    shipped = _shipped()
+    assert len(shipped) == 16
+    assert {pid for pid, m, _ in shipped if m["stage_size"]["teenager"] >= 1} == HIRES_TEENAGER
+    for pid, m, _ in shipped:
+        assert m["frame_size"] == FRAME
+        assert m["frame_sizes"] == {st: frame_px(pid, st) for st in STAGE_NAMES if frame_px(pid, st) != FRAME}
+        assert m["frame_sizes"]["adult"] == 2 * FRAME and ("teenager" in m["frame_sizes"]) == (pid in HIRES_TEENAGER)
+
+
+def test_every_layer_has_the_cell_size_the_manifest_says():
+    for pid, m, d in _shipped():
+        rows = 1 + max(a["row"] for a in m["animations"].values())
+        for st in STAGE_NAMES:
+            px = m.get("frame_sizes", {}).get(st, FRAME)
+            with Image.open(d / f"sheet_{st}.png") as im:
+                assert im.size == (4 * px, rows * px), (pid, st, im.size)
+            for key in ("head", "neck"):
+                for cells in m.get(key, {}).get(st, {}).values():
+                    assert all(-px * 0.2 < c[0] < px * 1.2 and -px * 0.2 < c[1] < px * 1.2 and c[2] < px for c in cells), (pid, st, key)
+            if "neck_stretch" in m:
+                meta = m["neck_stretch"][st]
+                with Image.open(d / f"neck_{st}.png") as strip, Image.open(d / f"neck_tile_{st}.png") as tile:
+                    assert strip.size == (4 * px, px) and tile.size == (px, meta["tile"]), (pid, st)
+                assert meta["tile"] == 16 * px // FRAME and 16 * px // FRAME <= meta["ext"] <= 56 * px // FRAME and meta["cut"] < px, (pid, st, meta)
+        assert (d / "sheet.png").read_bytes() == (d / "sheet_teenager.png").read_bytes(), pid

@@ -9,7 +9,7 @@ from PIL import Image
 import draw_pets
 import draw_props
 import draw_snowman
-from sprite_spec import ANIMS, FRAME, STAGES
+from sprite_spec import ANIMS, FRAME, STAGES, sheet_128
 
 ROOT = Path(__file__).resolve().parent.parent
 GROUNDED = {"walk", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed", "hungry", "eat", "lookup"}
@@ -29,7 +29,7 @@ def names():
 
 def frame(out, anim, col=0, st="teenager"):
     r = names().index(anim)
-    return Image.open(out / "snowman" / f"sheet_{st}.png").convert("RGBA").crop((col * FRAME, r * FRAME, (col + 1) * FRAME, (r + 1) * FRAME))
+    return sheet_128(out / "snowman" / f"sheet_{st}.png").convert("RGBA").crop((col * FRAME, r * FRAME, (col + 1) * FRAME, (r + 1) * FRAME))
 
 
 def count(im, col, tol=24):
@@ -47,7 +47,7 @@ def test_registered_with_every_anim():
 def test_every_frame_fits_the_cell(out):
     rows = draw_pets.rows_for(draw_snowman.SNOWMAN)
     for st in STAGES:
-        sheet = Image.open(out / "snowman" / f"sheet_{st}.png")
+        sheet = sheet_128(out / "snowman" / f"sheet_{st}.png")
         assert sheet.mode == "RGBA" and sheet.size == (4 * FRAME, len(rows) * FRAME), st
         for r, (anim, n, *_) in enumerate(rows):
             for c in range(n):

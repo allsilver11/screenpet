@@ -18,6 +18,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sprite_spec import frame_px  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 PETS = ROOT / "ui" / "pets"
 FRAME = 128
@@ -150,7 +153,23 @@ def old_cap_matrix(cell_alpha, anim, stage, flip, side, stage_w):
 
 # ---- 고친 뒤 계산: pet.json head 표 → ui/main.js capPlacement ----
 def manifest(pid):
-    return json.loads((PETS / pid / "pet.json").read_text(encoding="utf-8"))
+    """pet.json — 표는 단계마다 128 칸 좌표로 되돌려 읽는다 (아래 계산은 모두 128 칸. 2배 칸은 sprite_spec.frame_px)."""
+    man = json.loads((PETS / pid / "pet.json").read_text(encoding="utf-8"))
+    for st, px in man.get("frame_sizes", {}).items():
+        k = FRAME / px
+        for key in ("head", "neck"):
+            if st in man.get(key, {}):
+                man[key][st] = {a: [[c[0] * k, c[1] * k, c[2] * k, c[3]] for c in cells] for a, cells in man[key][st].items()}
+        if st in man.get("neck_stretch", {}):
+            man["neck_stretch"][st] = {n: round(v * k) for n, v in man["neck_stretch"][st].items()}
+    return man
+
+
+def layer_128(pid, stage, name):
+    """그 단계의 그림 파일을 128 칸으로 읽는다."""
+    im = Image.open(PETS / pid / name).convert("RGBA")
+    px = frame_px(pid, stage)
+    return im if px == FRAME else im.resize((im.width * FRAME // px, im.height * FRAME // px), Image.LANCZOS)
 
 
 CAP_BRIM_W = 27.0  # 모자 입구 너비 (viewBox 3..30) — main.js CAP_BRIM_W
@@ -233,7 +252,7 @@ def page(pid, mode, zoom=1):
     for c, (a, f, flip) in enumerate(cols):
         d.text((64 + c * cell_w + 2, 2), f"{a} {f}{' <' if flip else ''}", fill=(60, 60, 60), font=label_font())
     for r, st in enumerate(STAGES):
-        sheet = Image.open(PETS / pid / f"sheet_{st}.png").convert("RGBA")
+        sheet = layer_128(pid, st, f"sheet_{st}.png")
         d.text((2, 16 + r * cell_h + cell_h // 2), f"{pid}\n{st}", fill=(60, 60, 60), font=label_font())
         for c, (a, f, flip) in enumerate(cols):
             spec = dict(man["animations"][a], _anim=a)
@@ -245,7 +264,7 @@ def page(pid, mode, zoom=1):
 def all_anims_page(pid, stage, mode, zoom=1):
     """한 단계의 모든 동작 모든 칸."""
     man = manifest(pid)
-    sheet = Image.open(PETS / pid / f"sheet_{stage}.png").convert("RGBA")
+    sheet = layer_128(pid, stage, f"sheet_{stage}.png")
     names = list(man["animations"])
     cell_w, cell_h = 150 * zoom, 186 * zoom
     cols = 12
@@ -264,7 +283,7 @@ def all_anims_page(pid, stage, mode, zoom=1):
 def _pet_tile(pid, stage, anim, f, zoom, man=None, sheet=None, head_entry_override=None):
     """#pet 한 칸 (스프라이트 + 자식 모자)을 칸 크기 × zoom으로 — 몸의 CSS 변환은 이 그림 전체에 걸린다 (앱의 부모-자식과 같다)."""
     man = man or manifest(pid)
-    sheet = sheet or Image.open(PETS / pid / f"sheet_{stage}.png").convert("RGBA")
+    sheet = sheet or layer_128(pid, stage, f"sheet_{stage}.png")
     row = man["animations"][anim]["row"]
     cell = sheet.crop((f * FRAME, row * FRAME, (f + 1) * FRAME, (row + 1) * FRAME)).resize((FRAME * zoom, FRAME * zoom), Image.LANCZOS)
     pad = 60 * zoom
@@ -310,8 +329,8 @@ def _neck_tile(pid, stage, f, ext_part, zoom):
     """기린 목 늘이기: 몸 층 + 목 토막 + 머리 층(모자 자식 포함)을 앱과 같은 계산으로."""
     man = manifest(pid)
     meta = man["neck_stretch"][stage]
-    layer = Image.open(PETS / pid / f"neck_{stage}.png").convert("RGBA")
-    tile_img = Image.open(PETS / pid / f"neck_tile_{stage}.png").convert("RGBA")
+    layer = layer_128(pid, stage, f"neck_{stage}.png")
+    tile_img = layer_128(pid, stage, f"neck_tile_{stage}.png")
     pad = 60 * zoom
     side = FRAME * zoom
     out = Image.new("RGBA", (side + 2 * pad, side + 2 * pad), (0, 0, 0, 0))

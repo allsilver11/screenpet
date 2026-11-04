@@ -570,7 +570,7 @@ def main():
     root = Path(__file__).resolve().parent.parent
     pv = root / "tools" / "preview"
     pv.mkdir(exist_ok=True)
-    by_stage = dp.write_species(SNOWMAN, root / "ui" / "pets" / SNOWMAN.id)
+    by_stage = dp.at_frame(dp.write_species(SNOWMAN, root / "ui" / "pets" / SNOWMAN.id))
     dh.preview_species(by_stage, pv / "stages_snowman.png")
     dp.preview_back(by_stage, pv / "climb_snowman.png")
     cloud = draw_cloud()

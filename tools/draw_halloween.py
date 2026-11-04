@@ -105,7 +105,7 @@ def _layer(items):
         lay = Image.new("RGBA", (S, S), color + (0,))
         lay.putalpha(m)
         img.alpha_composite(lay)
-    return img.resize((FRAME, FRAME), Image.LANCZOS)
+    return img.resize((dp.out_px(), dp.out_px()), Image.LANCZOS)
 
 
 def _ops(ops, alpha=1.0, recolor=None):
@@ -119,12 +119,12 @@ def _finish(parts, glow=(), face=(), fx=(), translucent=None, circle=None):
     a_body = out.getchannel("A")
     if translucent:
         a = np.asarray(a_body).astype(np.float32)
-        inner = np.asarray(a_body.filter(ImageFilter.MinFilter(5))) >= 250
+        inner = np.asarray(a_body.filter(ImageFilter.MinFilter(4 * dp.out_u() + 1))) >= 250
         a[inner] *= translucent
         out.putalpha(Image.fromarray(np.round(a).astype(np.uint8)))
     if glow:
         g = _layer(glow)
-        g.putalpha(ImageChops.multiply(g.getchannel("A"), a_body.filter(ImageFilter.MinFilter(3))))
+        g.putalpha(ImageChops.multiply(g.getchannel("A"), a_body.filter(ImageFilter.MinFilter(2 * dp.out_u() + 1))))
         out.alpha_composite(g)
     items = list(face)
     for fns, color, halo in fx:
@@ -138,7 +138,7 @@ def _finish(parts, glow=(), face=(), fx=(), translucent=None, circle=None):
         m = Image.new("L", (S, S), 0)
         from PIL import ImageDraw
         ImageDraw.Draw(m).ellipse(((cx - r) * K, (cy - r) * K, (cx + r) * K, (cy + r) * K), fill=255)
-        out.putalpha(ImageChops.multiply(out.getchannel("A"), m.resize((FRAME, FRAME), Image.LANCZOS)))
+        out.putalpha(ImageChops.multiply(out.getchannel("A"), m.resize((dp.out_px(), dp.out_px()), Image.LANCZOS)))
     out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
     return out
 
@@ -824,13 +824,14 @@ def _fit(fn):
     def f(sp, i):
         im = fn(sp, i)
         x0, y0, x1, y1 = im.getchannel("A").getbbox()
-        dx = (1 - x0) if x0 < 1 else min(0, (FRAME - 1) - x1)
-        dy = (1 - y0) if y0 < 1 else min(0, (FRAME - 1) - y1)
+        u, side = dp.out_u(), dp.out_px()
+        dx = (u - x0) if x0 < u else min(0, (side - u) - x1)
+        dy = (u - y0) if y0 < u else min(0, (side - u) - y1)
         if not (dx or dy):
             return im
         out = Image.new("RGBA", im.size, (0, 0, 0, 0))
         out.paste(im, (dx, dy))
-        dp.shift_head(dx, dy)
+        dp.shift_head(dx / u, dy / u)
         return out
     f.__name__ = fn.__name__
     return f
@@ -915,7 +916,7 @@ def main():
     pv = root / "tools" / "preview"
     pv.mkdir(exist_ok=True)
     for sp in (PUMPKIN, GHOST_SP):
-        by_stage = dp.write_species(sp, root / "ui" / "pets" / sp.id)
+        by_stage = dp.at_frame(dp.write_species(sp, root / "ui" / "pets" / sp.id))
         preview_species(by_stage, pv / f"stages_{sp.id}.png")
         if "climb" in sp.specials:
             dp.preview_back(by_stage, pv / f"climb_{sp.id}.png")

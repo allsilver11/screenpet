@@ -61,13 +61,16 @@ async function loadPetSheet(id, stageName, style = "round") {
   }
   let url = `pets/${id}/sheet_${stageName}.png`;
   let img;
+  // 크게 보이는 단계는 시트 칸이 2배다 (frame_sizes, tools/sprite_spec.py frame_px). 표시 크기는 칸과 상관없다 — head·neck·neck_stretch 표도 이 칸의 px
+  let frameSize = manifest.frame_sizes?.[stageName] ?? manifest.frame_size;
   try {
     img = await decodeSheet(url);
   } catch {
-    url = `pets/${id}/sheet.png`;
+    url = `pets/${id}/sheet.png`; // sheet.png는 sheet_teenager.png와 같은 그림
     img = await decodeSheet(url);
+    frameSize = manifest.frame_sizes?.teenager ?? manifest.frame_size;
   }
-  return { manifest, url, img, style: "round", dir: `pets/${id}/` };
+  return { manifest: { ...manifest, frame_size: frameSize }, url, img, style: "round", dir: `pets/${id}/` };
 }
 
 function frameIndex(spec, elapsedMs) {

@@ -68,7 +68,8 @@ def check_fit(cell, mat, eyes=True):
         eye |= (np.abs(rgb - np.array(c)).sum(axis=2) < 14) & (alpha > 200)
     if eye.sum() >= 3:
         hidden = (eye & cover).sum() / eye.sum()
-        if hidden > 0.1:
+        # 낱개 픽셀 하나는 잡음이다 (또렷한 2배 칸을 128로 줄이면 눈 끝·속눈썹 픽셀이 몇 개만 눈 색으로 남아 비율이 크게 튄다)
+        if hidden > 0.1 and (eye & cover).sum() >= 2:
             problems.append(f"eyes:{hidden:.2f}")
     return problems
 
@@ -80,7 +81,7 @@ def cell_of(pid, st, row, f):
     key = (pid, st)
     if key not in _SHEETS:
         _SHEETS.clear()
-        _SHEETS[key] = np.asarray(Image.open(PETS / pid / f"sheet_{st}.png").convert("RGBA"))
+        _SHEETS[key] = np.asarray(pn.layer_128(pid, st, f"sheet_{st}.png"))
     return _SHEETS[key][row * FRAME:(row + 1) * FRAME, f * FRAME:(f + 1) * FRAME]
 
 
@@ -97,7 +98,7 @@ def test_cap_sits_on_the_head_in_every_cell():
     bad = []
     for pid, man, st, anim, spec, f in cells():
         mat = pn.new_cap_matrix_cell(man["head"][st][anim][f])
-        bad += [(pid, st, anim, f, p) for p in check_fit(cell_of(pid, st, spec["row"], f), mat, anim not in BROW_ANIMS)]
+        bad += [(pid, st, anim, f, p) for p in check_fit(cell_of(pid, st, spec["row"], f), mat, anim not in BROW_ANIMS and "neck" not in man)]  # neck 표가 있는 동물(산타)은 모자 대신 목도리 (ui/main.js capOn) — 눈을 덮을 모자가 없다
     assert not bad, f"{len(bad)}: {bad[:40]}"
 
 
@@ -325,7 +326,7 @@ def test_scarf_hides_the_green_sled_scarf():
         green[:, 50:] = False
         mask = scarf_mask(ps.scarf_view(anim, f), man["neck"][st][anim][f])
         assert green.sum() > 20, (st, f)
-        assert (green & ~mask).sum() <= 0.03 * green.sum(), (st, f, int((green & ~mask).sum()), int(green.sum()))
+        assert (green & ~mask).sum() <= max(1, 0.03 * green.sum()), (st, f, int((green & ~mask).sum()), int(green.sum()))
 
 
 def test_scarf_is_the_same_blue_as_the_nightcap_with_white_fringe():

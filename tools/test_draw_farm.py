@@ -7,7 +7,7 @@ from PIL import Image
 
 import draw_farm
 import draw_pets
-from sprite_spec import ANIMS, FRAME, STAGES
+from sprite_spec import ANIMS, FRAME, STAGES, frame_px, sheet_128
 
 BOWL_COLORS = [(246, 196, 150), (252, 226, 196), (230, 222, 206)]
 
@@ -41,7 +41,7 @@ def test_every_frame_is_drawn_inside_the_cell(out, pid):
     sp = draw_pets.SPECIES[pid]
     rows = draw_pets.rows_for(sp)
     for st in STAGES:
-        sheet = Image.open(out / pid / f"sheet_{st}.png")
+        sheet = sheet_128(out / pid / f"sheet_{st}.png")
         assert sheet.size == (4 * FRAME, len(rows) * FRAME)
         for r, (anim, n, *_) in enumerate(rows):
             for c in range(n):
@@ -76,7 +76,7 @@ def test_eat_has_no_bowl(out, pid):
     """밥그릇은 앱의 소품 창이 띄운다 — 시트 eat에는 그릇 색이 없다."""
     row = names(draw_pets.SPECIES[pid]).index("eat")
     for st in STAGES:
-        sheet = Image.open(out / pid / f"sheet_{st}.png").convert("RGBA")
+        sheet = sheet_128(out / pid / f"sheet_{st}.png").convert("RGBA")
         for c in range(4):
             a = np.asarray(cell(sheet, row, c)).astype(int)
             # 하얀 오리의 날개 그늘은 회색 그릇 색과 비슷해 뺀다
@@ -91,15 +91,17 @@ def test_neck_stretch_layers_fit_the_sheet(out):
     assert set(meta) == set(STAGES)
     row = names(draw_farm.GIRAFFE).index("neckstretch")
     for st in STAGES:
-        m = meta[st]
+        u = frame_px("giraffe", st) // FRAME
+        assert all(v % u == 0 for v in meta[st].values()), (st, meta[st])  # 2배 칸은 128 칸 값의 정확히 2배 (같은 자리에서 자른다)
+        m = {k: v // u for k, v in meta[st].items()}
         assert m["tile"] == draw_farm.NECK_TILE and m["ext"] % m["tile"] == 0
         assert 40 < m["cut"] < 110, m
         # 목을 두 배쯤 (지금 목 길이를 토막 배수로) — 앱은 창을 위로 키워 담는다 (src-tauri slots STRETCH_SPACE)
         assert 16 <= m["ext"] <= 56, m
-        strip = Image.open(out / "giraffe" / f"neck_{st}.png")
-        tile = Image.open(out / "giraffe" / f"neck_tile_{st}.png")
+        strip = Image.open(out / "giraffe" / f"neck_{st}.png").reduce(u)
+        tile = Image.open(out / "giraffe" / f"neck_tile_{st}.png").reduce(u)
         assert strip.size == (4 * FRAME, FRAME) and tile.size == (FRAME, m["tile"])
-        sheet = Image.open(out / "giraffe" / f"sheet_{st}.png")
+        sheet = sheet_128(out / "giraffe" / f"sheet_{st}.png")
         for j in range(3):
             comp = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
             comp.paste(strip.crop((0, m["cut"], FRAME, FRAME)), (0, m["cut"]))

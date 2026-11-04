@@ -2,7 +2,7 @@
 
 import math
 
-FRAME = 128
+FRAME = 128  # 그림 좌표의 한 변 (draw_*는 모두 이 좌표로 그린다). 시트 한 칸의 실제 px는 frame_px
 # roll 공: 이 점을 축으로 웹뷰가 회전시킨다 (ui/style.css transform-origin 50% 68.75%)
 ROLL_CENTER = (64, 88)
 ROLL_RADIUS = 38
@@ -37,6 +37,21 @@ ANIMS = [
 STAGES = ["baby", "kinder", "child", "teenager", "adult"]
 # 화면 표시 배율 (Rust Stage::scale)
 STAGE_SCALE = {"baby": 0.45, "kinder": 0.60, "child": 0.78, "teenager": 1.00, "adult": 1.15}
+# 청소년 때 이미 128px보다 크게 보이는 동물 (pet.json stage_size >= 1) — 어른과 함께 2배 시트
+HIRES_TEENAGER = {"santa", "dino_green", "dino_purple", "dino_yellow", "giraffe"}
+
+
+def sheet_128(path):
+    """시험용: 시트(가로 4칸)를 128 칸으로 읽는다 — 그림 좌표로 재는 검사는 칸 크기와 상관없다. 2배 칸은 2×2 평균이라 1px 여백도 그대로."""
+    from PIL import Image
+    im = Image.open(path)
+    return im.reduce(im.width // (4 * FRAME)) if im.width > 4 * FRAME else im
+
+
+def frame_px(pid, stage):
+    """동글 시트 한 칸의 px: 크게 보이는 단계는 벡터에서 2배로 다시 그린다 (화면 크기는 그대로 — 앱은 칸을 표시 크기에 맞춘다).
+    pet.json frame_sizes에 적히고, head·neck·neck_stretch 표도 이 칸의 px로 적는다."""
+    return FRAME * 2 if stage == "adult" or (stage == "teenager" and pid in HIRES_TEENAGER) else FRAME
 
 
 # 특정 동물만 가진 동작 (Rust manifest::OPTIONAL_ANIMS) — 필수 동작 행 뒤에 이어 붙인다
@@ -132,11 +147,12 @@ def roll_spin(walk_speed):
     return round(walk_speed * ROLL_SPEED_MULT / ROLL_RADIUS * 180 / math.pi, 1)
 
 
-def manifest(name, walk_speed, frame_counts, speech=None, favorite_food=None, stages=None, stage_size=None):
+def manifest(name, walk_speed, frame_counts, speech=None, favorite_food=None, stages=None, stage_size=None, frame_sizes=None):
     """frame_counts: {동작: 프레임 수} — 선택 동작은 들어 있을 때만 포함.
     행 번호: 필수 ANIMS 순서, 그 뒤 frame_counts에 있는 OPTIONAL_ANIMS 순서. speech: 말풍선 대사 (없으면 DEFAULT_SPEECH).
     favorite_food: {"emoji", "name"} · stages: sheet_<stage>.png가 있는 단계 목록 ·
-    stage_size: {단계: 종 배율} — 공통 단계 배율(STAGE_SCALE)에 곱한다 (셋 다 있을 때만 적는다)."""
+    stage_size: {단계: 종 배율} — 공통 단계 배율(STAGE_SCALE)에 곱한다 (셋 다 있을 때만 적는다) ·
+    frame_sizes: {단계: 칸 px} — FRAME과 다른 단계만 (없는 단계는 frame_size)."""
     animations = {}
     rows = list(ANIMS) + [o for o in OPTIONAL_ANIMS if o[0] in frame_counts]
     for row, (anim, _, fps, loop, front) in enumerate(rows):
@@ -148,8 +164,10 @@ def manifest(name, walk_speed, frame_counts, speech=None, favorite_food=None, st
         if anim == "roll":
             spec["spin"] = roll_spin(walk_speed)
         animations[anim] = spec
-    m = {"name": name, "frame_size": FRAME, "walk_speed": walk_speed, "animations": animations,
-         "speech": speech or DEFAULT_SPEECH}
+    m = {"name": name, "frame_size": FRAME}
+    if frame_sizes:
+        m["frame_sizes"] = frame_sizes
+    m.update({"walk_speed": walk_speed, "animations": animations, "speech": speech or DEFAULT_SPEECH})
     if favorite_food:
         m["favorite_food"] = favorite_food
     if stages:

@@ -77,7 +77,7 @@ window.addEventListener("resize", () => {
 });
 
 // 기린 목 늘이기 (백엔드 anim "neckstretch" — 코어 behavior::NECK_STRETCH_SECS 3.4초 동안 제자리):
-// 목이 평소의 두 배로 쭉 늘었다가 돌아온다. 시트 한 칸(128)으로는 담을 수 없어 층으로 그린다 —
+// 목이 평소의 두 배로 쭉 늘었다가 돌아온다. 시트 한 칸으로는 담을 수 없어 층으로 그린다 —
 // pets/giraffe/neck_<stage>.png (가로 4칸: 몸 · 머리 "어?" · 머리 깜빡 · 머리 ✧ 흐뭇, 모두 시트와 같은 좌표)와
 // neck_tile_<stage>.png (곧은 목 한 토막, 무늬 주기 = 높이). pet.json neck_stretch[stage] = {cut, tile, ext}:
 // cut 줄 아래는 몸 층, 위는 머리 층. 머리 층을 ext만큼 올리고 그 사이를 목 토막으로 채운다 (토막은 머리에 붙어 함께 올라간다).
@@ -351,8 +351,8 @@ function placeHeadgear(anim, f, host) {
   const key = `${stage.stage}:${anim}:${f}:${render.flip}:${display}:${capOn}:${wearing}`;
   if (key === headgearAt) return;
   headgearAt = key;
-  // 표가 없는 칸: 칸 위쪽 가운데 (HEAD_FALLBACK은 128칸 기준이라 픽셀 시트 칸 수로 줄인다)
-  const entry = manifest.head?.[stage.stage]?.[anim]?.[f] ?? (pixelMode ? HEAD_FALLBACK.map((v, i) => (i < 3 ? (v * manifest.frame_size) / 128 : v)) : undefined);
+  // 표가 없는 칸: 칸 위쪽 가운데 (HEAD_FALLBACK은 128칸 기준이라 이 단계 시트의 칸 크기로 옮긴다)
+  const entry = manifest.head?.[stage.stage]?.[anim]?.[f] ?? HEAD_FALLBACK.map((v, i) => (i < 3 ? (v * manifest.frame_size) / 128 : v));
   if (pixelMode) {
     placeHeadgearPixel(entry, capOn, scarf, wearing, anim, f);
     return;

@@ -13,6 +13,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
 import draw_pixel as px  # noqa: E402
+from sprite_spec import FRAME, frame_px  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PIXEL = ROOT / "ui" / "pets_pixel"
@@ -44,7 +45,7 @@ def _frames(pid, stage):
 def _committed_frame(pid, stage, anim, i):
     raw = subprocess.check_output(["git", "-C", str(ROOT), "show", f"HEAD:ui/pets/{pid}/sheet_{stage}.png"])
     man = json.loads(subprocess.check_output(["git", "-C", str(ROOT), "show", f"HEAD:ui/pets/{pid}/pet.json"]))
-    fs, row = man["frame_size"], man["animations"][anim]["row"]
+    fs, row = man.get("frame_sizes", {}).get(stage, man["frame_size"]), man["animations"][anim]["row"]
     sheet = Image.open(io.BytesIO(raw)).convert("RGBA")
     return sheet.crop((i * fs, row * fs, (i + 1) * fs, (row + 1) * fs))
 
@@ -239,7 +240,7 @@ def test_round_art_stays_byte_identical(pid, stage, anim, i):
     """픽셀 모드를 한 번 돌린 뒤에도 동글 그림은 커밋된 시트와 바이트까지 같다."""
     sp = dp.SPECIES[pid]
     px.render_pixel(sp, "kinder", anims=["walk"])
-    with dp.stage(stage, sp.stage_tweak.get(stage)):
+    with dp.stage(stage, sp.stage_tweak.get(stage)), dp.output(frame_px(pid, stage) // FRAME):
         ssp = dp.staged_species(sp)
         n = [r[1] for r in dp.rows_for(sp) if r[0] == anim][0]
         got = dp.frames(ssp, anim, n)[i]

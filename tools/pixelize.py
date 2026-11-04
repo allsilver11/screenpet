@@ -1,6 +1,7 @@
 """픽셀(네모네모) 버전 프로토타입 — 기존 동글동글 시트의 프레임을 저해상도 도트로 변환해 비교한다.
 
-앱 코드·시트는 건드리지 않는다. 시트는 작업 트리가 아니라 커밋(`--ref`, 기본 HEAD)에서 읽는다.
+앱 코드·시트는 건드리지 않는다. 시트는 작업 트리가 아니라 커밋(`--ref`, 기본 ROUND_128_REF)에서 읽는다.
+이 변환은 128px 칸을 가정하므로 기본은 모든 동글 시트가 128px였던 마지막 커밋이다 (지금 어른 시트는 2배 칸, sprite_spec.frame_px — 2배 칸을 넣으면 결과가 달라진다).
 
 접근법
   a: 면적 평균 축소 + 팔레트 양자화 + 알파 문턱값 (그냥 줄이기)
@@ -28,6 +29,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 FRAME = 128
+ROUND_128_REF = "976d0ed"  # 모든 동글 시트가 128px였던 마지막 커밋
 STAGES = ["baby", "kinder", "child", "teenager", "adult"]
 
 EYE_RGB = np.array([84, 58, 56])  # draw_pets.EYE
@@ -61,17 +63,17 @@ def _git_show(ref, rel):
     return subprocess.check_output(["git", "-C", str(ROOT), "show", f"{ref}:{rel}"])
 
 
-def load_manifest(pet, ref="HEAD"):
+def load_manifest(pet, ref=ROUND_128_REF):
     return json.loads(_git_show(ref, f"ui/pets/{pet}/pet.json"))
 
 
 @lru_cache(maxsize=32)
-def load_sheet(pet, stage, ref="HEAD"):
+def load_sheet(pet, stage, ref=ROUND_128_REF):
     raw = _git_show(ref, f"ui/pets/{pet}/sheet_{stage}.png")
     return np.array(Image.open(io.BytesIO(raw)).convert("RGBA"))
 
 
-def get_frame(pet, stage, anim, index=0, ref="HEAD"):
+def get_frame(pet, stage, anim, index=0, ref=ROUND_128_REF):
     man = load_manifest(pet, ref)
     fs = man["frame_size"]
     row = man["animations"][anim]["row"]
@@ -129,7 +131,7 @@ def body_mask(frame):
 
 
 @lru_cache(maxsize=64)
-def species_palette(pet, ref="HEAD", k=PALETTE_SIZE):
+def species_palette(pet, ref=ROUND_128_REF, k=PALETTE_SIZE):
     """종 전체(5단계) 시트에서 넓은 면을 차지하는 색부터 뽑는다 — 비슷한 색은 합친다."""
     counts = Counter()
     for st in STAGES:
@@ -155,7 +157,7 @@ def nearest(rgb, palette):
 
 
 @lru_cache(maxsize=64)
-def sheet_fit(pet, stage, ref="HEAD"):
+def sheet_fit(pet, stage, ref=ROUND_128_REF):
     """시트 전체(모든 동작)의 몸 경계 → 한 칸 크기 계산의 기준. 프레임마다 바꾸면 애니메이션 중 크기가 튄다."""
     man = load_manifest(pet, ref)
     fs = man["frame_size"]
@@ -389,7 +391,7 @@ class Grid:
         self.w, self.h = w, h or w
 
     @classmethod
-    def for_sheet(cls, pet, stage, size, ref="HEAD"):
+    def for_sheet(cls, pet, stage, size, ref=ROUND_128_REF):
         """몸 중심(x=64)을 격자선에, 시트 바닥을 맨 아랫줄에 맞추고 시트 전체가 들어가게 키운다."""
         fit = sheet_fit(pet, stage, ref)
         cell = max(fit["half"] / (size / 2), (fit["low"] - fit["top"]) / size, FRAME / size * 0.70)
@@ -539,7 +541,7 @@ def area_downscale(frame, grid):
     return s / np.maximum(c[..., None], 1e-6), c / np.maximum(n, 1)
 
 
-def approach_a(pet, stage, anim, index, size, ref="HEAD"):
+def approach_a(pet, stage, anim, index, size, ref=ROUND_128_REF):
     frame = get_frame(pet, stage, anim, index, ref)
     rgb, cov = area_downscale(frame, Grid(FRAME / size, 0, 0, size))
     pal = species_palette(pet, ref)
@@ -550,7 +552,7 @@ def approach_a(pet, stage, anim, index, size, ref="HEAD"):
     return img
 
 
-def approach_b(pet, stage, anim, index, size, ref="HEAD"):
+def approach_b(pet, stage, anim, index, size, ref=ROUND_128_REF):
     """면적 평균 색(탁함 있음) + 격자 맞춤 + 외곽선 + 눈·볼."""
     frame = get_frame(pet, stage, anim, index, ref)
     grid = Grid.for_sheet(pet, stage, size, ref)
@@ -622,7 +624,7 @@ def _box(shape, c):
 FACE_FINDERS = {"pumpkin": find_face_pumpkin}  # 종별 손질: 기본 눈 색이 아닌 종
 
 
-def approach_c(pet, stage, anim, index, size, ref="HEAD"):
+def approach_c(pet, stage, anim, index, size, ref=ROUND_128_REF):
     frame = split_zzz(get_frame(pet, stage, anim, index, ref), anim)
     front = bool(load_manifest(pet, ref)["animations"][anim].get("front"))
     grid = Grid.for_sheet(pet, stage, size, ref)
@@ -655,7 +657,7 @@ def art_palette(frame, k=12):
     return np.array(picks) if picks else np.zeros((1, 3))
 
 
-def load_art(rel, ref="HEAD"):
+def load_art(rel, ref=ROUND_128_REF):
     return np.array(Image.open(io.BytesIO(_git_show(ref, rel))).convert("RGBA"))
 
 
@@ -854,7 +856,7 @@ def world_block(ref):
     return out
 
 
-def make_preview(out, ref="HEAD", pets=SHOW_PETS, ncols=2, world=True):
+def make_preview(out, ref=ROUND_128_REF, pets=SHOW_PETS, ncols=2, world=True):
     variants = [("a", 32), ("b", 32), ("c", 32), ("a", 24), ("b", 24), ("c", 24)]
     blocks = [species_block(p, ref, variants) for p in pets]
     if world:
@@ -885,7 +887,7 @@ def main():
     ap.add_argument("--frame", type=int, default=0)
     ap.add_argument("--size", type=int, default=32)
     ap.add_argument("--approach", default="c", choices=sorted(APPROACHES))
-    ap.add_argument("--ref", default="HEAD", help="시트를 읽을 git ref")
+    ap.add_argument("--ref", default=ROUND_128_REF, help="시트를 읽을 git ref")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     if args.preview:

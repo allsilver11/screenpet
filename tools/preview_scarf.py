@@ -14,6 +14,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from preview_nightcap import path_points
+from sprite_spec import frame_px
 
 ROOT = Path(__file__).resolve().parent.parent
 FRAME = 128
@@ -85,7 +86,9 @@ def draw_scarf(view, mat, zoom, size, ss=4):
 
 def sheet_row(sheet_cache, man, st, anim):
     if st not in sheet_cache:
-        sheet_cache[st] = Image.open(ROOT / "ui" / "pets" / "santa" / f"sheet_{st}.png").convert("RGBA")
+        sheet = Image.open(ROOT / "ui" / "pets" / "santa" / f"sheet_{st}.png").convert("RGBA")
+        px = frame_px("santa", st)
+        sheet_cache[st] = sheet.resize((sheet.width * FRAME // px, sheet.height * FRAME // px), Image.LANCZOS) if px != FRAME else sheet
     return sheet_cache[st], man["animations"][anim]["row"]
 
 
@@ -93,7 +96,8 @@ def tile(cache, man, st, anim, f, px):
     sheet, row = sheet_row(cache, man, st, anim)
     big = FRAME * 3
     cell = sheet.crop((f * FRAME, row * FRAME, (f + 1) * FRAME, (row + 1) * FRAME)).resize((big, big), Image.LANCZOS)
-    cell.alpha_composite(draw_scarf(scarf_view(anim, f), scarf_matrix(man["neck"][st][anim][f]), 3, big))
+    entry = [v * FRAME / frame_px("santa", st) for v in man["neck"][st][anim][f][:3]] + man["neck"][st][anim][f][3:]
+    cell.alpha_composite(draw_scarf(scarf_view(anim, f), scarf_matrix(entry), 3, big))
     return cell.resize((px, px), Image.LANCZOS)
 
 

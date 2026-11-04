@@ -6,7 +6,7 @@ from PIL import Image
 
 import draw_frog
 import draw_pets
-from sprite_spec import ANIMS, FRAME, STAGES
+from sprite_spec import ANIMS, FRAME, STAGES, sheet_128
 
 GROUNDED = {"walk", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
             "hungry", "eat", "level_up"}
@@ -38,7 +38,7 @@ def test_frog_is_registered_with_its_own_poses():
 
 def test_sheets_have_every_frame_inside_the_cell(out):
     for st in STAGES:
-        sheet = Image.open(out / f"sheet_{st}.png")
+        sheet = sheet_128(out / f"sheet_{st}.png")
         assert sheet.mode == "RGBA"
         assert sheet.size == (4 * FRAME, len(rows()) * FRAME), st
         for r, (anim, n, *_) in enumerate(rows()):
@@ -68,7 +68,7 @@ def test_manifest(out):
 
 
 def test_eat_has_no_bowl_and_shows_a_tongue(out):
-    sheet = Image.open(out / "sheet_teenager.png").convert("RGBA")
+    sheet = sheet_128(out / "sheet_teenager.png").convert("RGBA")
     row = [a for a, *_ in rows()].index("eat")
     tongue = bowlish = 0
     for c in range(4):
@@ -87,7 +87,7 @@ def test_eat_has_no_bowl_and_shows_a_tongue(out):
 
 
 def test_hop_lifts_off_and_bigjump_goes_higher(out):
-    sheet = Image.open(out / "sheet_teenager.png")
+    sheet = sheet_128(out / "sheet_teenager.png")
     names = [a for a, *_ in rows()]
     hop = cell(sheet, names.index("hop"), 1).getchannel("A").getbbox()
     sit = cell(sheet, names.index("idle"), 0).getchannel("A").getbbox()

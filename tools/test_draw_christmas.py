@@ -8,7 +8,7 @@ from PIL import Image
 
 import draw_christmas
 import draw_pets
-from sprite_spec import ANIMS, FRAME, STAGES
+from sprite_spec import ANIMS, FRAME, STAGES, sheet_128
 
 GROUNDED = {"walk", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
             "hungry", "level_up", "eat"}
@@ -32,7 +32,7 @@ def cell(sheet, row, col):
 
 
 def frame(out, pid, anim, col=0, st="teenager"):
-    return cell(Image.open(out / pid / f"sheet_{st}.png").convert("RGBA"), names(pid).index(anim), col)
+    return cell(sheet_128(out / pid / f"sheet_{st}.png").convert("RGBA"), names(pid).index(anim), col)
 
 
 def px(im):
@@ -66,7 +66,7 @@ def test_both_are_registered_with_every_required_anim():
 def test_sheets_have_every_frame_inside_the_cell(out, pid):
     rows = draw_pets.rows_for(draw_pets.SPECIES[pid])
     for st in STAGES:
-        sheet = Image.open(out / pid / f"sheet_{st}.png")
+        sheet = sheet_128(out / pid / f"sheet_{st}.png")
         assert sheet.mode == "RGBA" and sheet.size == (4 * FRAME, len(rows) * FRAME), st
         for r, (anim, n, *_) in enumerate(rows):
             for c in range(n):

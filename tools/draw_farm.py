@@ -30,7 +30,7 @@ from draw_pets import (BLUSH, C, E, EYE, HEART, L, LINE, MOUTH_IN, SPEED, T, TON
                        arc, blush, brows, heart_fx, mix, open_mouth, question_fx, sparkle_fx, stage_eye, strand, sweat_fx, view,
                        xf, z_fx)
 from draw_halloween import _bubble, _fit, _stars, speed_fx  # noqa: E402
-from sprite_spec import FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES  # noqa: E402
+from sprite_spec import FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES, frame_px  # noqa: E402
 
 FLOOR = 125.0
 
@@ -894,10 +894,11 @@ def _neck_k():
 
 
 def neck_geometry(sp):
-    """(현재 단계·view 안에서) 목 늘이기 좌표: 어깨 a, 머리 밑 b (pre), 자르는 높이 cut (프레임 정수 px — 곧은 목만 지나는 줄),
-    무늬 주기 (pre), 늘이는 길이 ext (지금 목 길이를 토막 높이 배수로)."""
+    """(현재 단계·view 안에서) 목 늘이기 좌표: 어깨 a, 머리 밑 b (pre), 자르는 높이 cut (128 칸의 정수 px — 곧은 목만 지나는 줄),
+    무늬 주기 (pre), 늘이는 길이 ext (지금 목 길이를 토막 높이 배수로). 2배 칸도 128로 재서 × 2 한다 (같은 자리에서 자른다)."""
     out = {}
-    im = _neck_pose(sp, 0, out=out)
+    with dp.output(1):
+        im = _neck_pose(sp, 0, out=out)
     a, b = out["a"], out["b"]
     s, lift = _view_k()
     alpha = im.getchannel("A").load()
@@ -929,23 +930,24 @@ def gf_neckstretch(sp, i):
 
 
 def neck_layers(sp):
-    """현재 단계(view 포함)의 목 늘이기 층 → (층 그림 4칸 가로 512×128, 목 토막 128×NECK_TILE, 메타)."""
+    """현재 단계(view 포함)의 목 늘이기 층 → (층 그림 4칸 가로, 목 토막 칸 너비×토막 높이, 메타). px와 메타는 모두 이 단계 칸의 px (128칸이면 512×128, 128×NECK_TILE)."""
     g = neck_geometry(sp)
-    cut = g["cut"]
-    strip = Image.new("RGBA", (4 * FRAME, FRAME), (0, 0, 0, 0))
+    u, side = dp.out_u(), dp.out_px()
+    cut = g["cut"] * u
+    strip = Image.new("RGBA", (4 * side, side), (0, 0, 0, 0))
     full0 = _neck_pose(sp, 0, g["period"], g["cut_pre"])
-    strip.paste(full0.crop((0, cut, FRAME, FRAME)), (0, cut))
+    strip.paste(full0.crop((0, cut, side, side)), (0, cut))
     for j in range(3):
         im = _neck_pose(sp, j, g["period"], g["cut_pre"])
-        strip.paste(im.crop((0, 0, FRAME, cut)), ((j + 1) * FRAME, 0))
+        strip.paste(im.crop((0, 0, side, cut)), ((j + 1) * side, 0))
     # 목 토막: 목만 아주 길게 그려 자르는 높이 바로 위 NECK_TILE px (무늬 주기와 같아 위아래로 이어진다)
     a, b = g["a"], g["b"]
     w = NECK_W * _ST["body"] ** 0.5
     col = Part([L([(a[0], a[1] + 200), (a[0], a[1] - 400)], w)], GIR,
                neck_marks((a[0], a[1] + 200), (a[0], a[1] - 400), w, g["period"], g["cut_pre"]), grow=1)
     tall = dp.compose([col])
-    tile = tall.crop((0, cut - NECK_TILE, FRAME, cut))
-    meta = {"cut": cut, "tile": NECK_TILE, "ext": g["ext"]}
+    tile = tall.crop((0, cut - NECK_TILE * u, side, cut))
+    meta = {"cut": cut, "tile": NECK_TILE * u, "ext": g["ext"] * u}
     return strip, tile, meta
 
 
@@ -996,7 +998,7 @@ def write_neck_layers(out_dir):
     """기린 목 늘이기 층: neck_<stage>.png · neck_tile_<stage>.png + {단계: 메타}."""
     meta = {}
     for st in STAGES:
-        with dp.stage(st, GIRAFFE.stage_tweak.get(st)):
+        with dp.stage(st, GIRAFFE.stage_tweak.get(st)), dp.output(frame_px(GIRAFFE.id, st) // FRAME):
             ssp = dp.staged_species(GIRAFFE)
             old = dp._INK["line"]
             dp._INK["line"] = GIRAFFE.outline
@@ -1032,7 +1034,8 @@ def preview_species(by_stage, path, bg=(255, 255, 255)):
 
 def preview_neck(out_dir, path):
     """목 늘이기 미리보기: 단계마다 평소 → 늘이는 중 → 다 늘임 (✧) — 앱처럼 층을 겹쳐 2배로."""
-    meta = json.loads((Path(out_dir) / "pet.json").read_text(encoding="utf-8"))["neck_stretch"]
+    meta = {st: {k: v * FRAME // frame_px(GIRAFFE.id, st) for k, v in m.items()}
+            for st, m in json.loads((Path(out_dir) / "pet.json").read_text(encoding="utf-8"))["neck_stretch"].items()}
     steps = [0.0, 0.5, 1.0, 1.0]
     heads = [0, 0, 1, 2]
     top = 70
@@ -1064,7 +1067,7 @@ def main():
     pv.mkdir(exist_ok=True)
     for sp in (DUCK, GIRAFFE):
         out = root / "ui" / "pets" / sp.id
-        by_stage = write_farm(sp, out)
+        by_stage = dp.at_frame(write_farm(sp, out))
         preview_species(by_stage, pv / f"stages_{sp.id}.png")
     preview_neck(root / "ui" / "pets" / "giraffe", pv / "neck_giraffe.png")
     print("ok: duck, giraffe")

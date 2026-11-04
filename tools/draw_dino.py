@@ -789,7 +789,7 @@ def main():
     pv.mkdir(exist_ok=True)
     by_id = {}
     for sp in DINOS:
-        by_id[sp.id] = dp.write_species(sp, root / "ui" / "pets" / sp.id)
+        by_id[sp.id] = dp.at_frame(dp.write_species(sp, root / "ui" / "pets" / sp.id))
     preview_dinos(by_id, pv / "stages_dino.png")
     preview_climb(by_id, pv / "climb_dino.png")
     print("ok:", ", ".join(sp.id for sp in DINOS))

@@ -7,7 +7,7 @@ from PIL import Image
 
 import draw_dino
 import draw_pets
-from sprite_spec import ANIMS, FRAME, OPTIONAL_ANIMS, SPEECH, STAGES
+from sprite_spec import ANIMS, FRAME, OPTIONAL_ANIMS, SPEECH, STAGES, sheet_128
 
 IDS = ["dino_yellow", "dino_green", "dino_purple"]
 BOWL_COLORS = [(246, 196, 150), (252, 226, 196), (230, 222, 206)]
@@ -46,7 +46,7 @@ def test_every_frame_is_drawn_inside_the_cell(out, pid):
     sp = draw_pets.SPECIES[pid]
     rows = draw_pets.rows_for(sp)
     for st in STAGES:
-        sheet = Image.open(out / pid / f"sheet_{st}.png")
+        sheet = sheet_128(out / pid / f"sheet_{st}.png")
         assert sheet.size == (4 * FRAME, len(rows) * FRAME)
         for r, (anim, n, *_) in enumerate(rows):
             for c in range(n):
@@ -88,7 +88,7 @@ def test_eat_has_no_bowl(out, pid):
     """밥그릇은 앱의 소품 창이 띄운다 — 시트 eat에는 그릇 색이 없다."""
     row = names(draw_pets.SPECIES[pid]).index("eat")
     for st in STAGES:
-        sheet = Image.open(out / pid / f"sheet_{st}.png").convert("RGBA")
+        sheet = sheet_128(out / pid / f"sheet_{st}.png").convert("RGBA")
         for c in range(4):
             a = np.asarray(cell(sheet, row, c)).astype(int)
             for col in BOWL_COLORS:
@@ -108,7 +108,7 @@ def test_palettes_body_spikes_and_dandelion(out):
     alphas = []
     for pid in IDS:
         pal = draw_dino.PALETTES[pid]
-        f = cell(Image.open(out / pid / "sheet_teenager.png"), walk, 0)
+        f = cell(sheet_128(out / pid / "sheet_teenager.png"), walk, 0)
         assert _count(f, pal["body"]) > 1500, pid
         assert _count(f, pal["spike"]) > 60, pid
         alphas.append(np.asarray(f.getchannel("A")) > 128)
@@ -118,12 +118,12 @@ def test_palettes_body_spikes_and_dandelion(out):
 
 def test_baby_wears_an_egg_shell_and_adult_has_the_biggest_spikes(out):
     sit = names(draw_dino.DINO_GREEN).index("sit_front")
-    baby = cell(Image.open(out / "dino_green" / "sheet_baby.png"), sit, 0)
-    teen = cell(Image.open(out / "dino_green" / "sheet_teenager.png"), sit, 0)
+    baby = cell(sheet_128(out / "dino_green" / "sheet_baby.png"), sit, 0)
+    teen = cell(sheet_128(out / "dino_green" / "sheet_teenager.png"), sit, 0)
     assert _count(baby, draw_dino.SHELL, 10) > 80 and _count(teen, draw_dino.SHELL, 10) < 10
     walk = names(draw_dino.DINO_GREEN).index("walk")
     spike = draw_dino.PALETTES["dino_green"]["spike"]
-    counts = [_count(cell(Image.open(out / "dino_green" / f"sheet_{st}.png"), walk, 0), spike) for st in STAGES]
+    counts = [_count(cell(sheet_128(out / "dino_green" / f"sheet_{st}.png"), walk, 0), spike) for st in STAGES]
     assert counts[-1] == max(counts) and counts[0] < counts[2] < counts[-1], counts
 
 
@@ -131,7 +131,7 @@ def test_fire_puffs_a_flame_inside_the_cell(out):
     """불꽃은 퐁·화르륵 프레임에만 (흡·흐뭇엔 없다), 입 앞 (몸 오른쪽)에."""
     row = names(draw_dino.DINO_PURPLE).index("fire")
     for st in STAGES:
-        sheet = Image.open(out / "dino_purple" / f"sheet_{st}.png")
+        sheet = sheet_128(out / "dino_purple" / f"sheet_{st}.png")
         fl = [_count(cell(sheet, row, c), draw_dino.FLAME, 30) for c in range(4)]
         assert fl[0] == 0 and fl[3] == 0 and fl[1] > 15 and fl[2] > fl[1], (st, fl)
         a = np.asarray(cell(sheet, row, 2).convert("RGBA")).astype(int)
@@ -141,7 +141,7 @@ def test_fire_puffs_a_flame_inside_the_cell(out):
 
 # ---- 뒷모습 (벽 타기) ----
 def back_frames(out, pid, st):
-    sheet = Image.open(out / pid / f"sheet_{st}.png").convert("RGBA")
+    sheet = sheet_128(out / pid / f"sheet_{st}.png").convert("RGBA")
     ns = names(draw_pets.SPECIES[pid])
     return [cell(sheet, ns.index("climb"), c) for c in range(4)] + [cell(sheet, ns.index("slide"), c) for c in range(2)]
 

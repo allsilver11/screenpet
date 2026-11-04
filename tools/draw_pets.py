@@ -28,7 +28,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, SPEECH, STAGE_SCALE,  # noqa: E402
-                         STAGES, manifest)
+                         STAGES, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -56,6 +56,26 @@ ANGER = (228, 76, 76)
 _INK = {"line": LINE}  # 실루엣·부품 외곽선 색 (종마다 바꿀 수 있다: Species.outline — 짙은 곰은 더 짙은 외곽선)
 _XF = [(1.0, 0.0, 0.0, 0.0, 1.0, 0.0)]  # 현재 변환 (x' = a x + b y + c, y' = d x + e y + f)
 _VIEW = {"scale": 1.0, "lift": LIFT}  # 종 배율: 발 기준점 (64, 126)으로 축소
+_OUT = {"u": 1}  # 내보내는 칸 = FRAME × u (좌표는 늘 128, 슈퍼샘플 S에서 이 크기로 줄인다 — output)
+
+
+@contextmanager
+def output(u):
+    """이 문맥 안의 compose·층 그림은 FRAME × u px로 나온다. 다 그린 칸을 px로 만지는 코드는 u를 곱한다."""
+    old = _OUT["u"]
+    _OUT["u"] = u
+    try:
+        yield
+    finally:
+        _OUT["u"] = old
+
+
+def out_u():
+    return _OUT["u"]
+
+
+def out_px():
+    return FRAME * _OUT["u"]
 
 
 def _mul(m, n):
@@ -261,7 +281,8 @@ def melt(m, r=2.4):
 
 
 def aa(m):
-    return m.filter(ImageFilter.GaussianBlur(0.35 * K))
+    # 경계 번짐은 내보내는 px 기준 (2배 칸이면 그림 좌표로 절반만 번져 그만큼 또렷하다)
+    return m.filter(ImageFilter.GaussianBlur(0.35 * K / _OUT["u"]))
 
 
 def grow(m, px):
@@ -341,7 +362,7 @@ def compose(parts, ops=(), fx=(), clip=None):
         if halo:
             paint(img, aa(grow(m, halo)), WHITE)
         paint(img, aa(m), color)
-    out = img.resize((FRAME, FRAME), Image.LANCZOS)
+    out = img.resize((out_px(), out_px()), Image.LANCZOS)
     # LANCZOS 링잉이 남기는 거의 투명한 찌꺼기(알파 < 10)를 지워 1px 여백을 지킨다
     out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
     return out
@@ -1536,7 +1557,7 @@ def wing_layer(fns, alpha=1.0, hl=()):
     put(aa(m), WING, 130)
     if hl:
         put(ImageChops.multiply(aa(shapes(hl)), m), WING_HL, 220)
-    out = img.resize((FRAME, FRAME), Image.LANCZOS)
+    out = img.resize((out_px(), out_px()), Image.LANCZOS)
     out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
     return out
 
@@ -1718,7 +1739,7 @@ def bee_arm(sp, cx, cy, rx, ry, side, ang=None, tip=None):
 def bee_compose(parts, ops, fx=(), back_w=(), front_w=(), circle=None):
     """몸(compose) 앞뒤로 반투명 날개 층을 alpha_composite. circle: (cx, cy, r) 밖은 지운다 (roll)."""
     body = compose(parts, ops, fx)
-    out = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
+    out = Image.new("RGBA", (out_px(), out_px()), (0, 0, 0, 0))
     for w in back_w:
         out.alpha_composite(w)
     out.alpha_composite(body)
@@ -1728,7 +1749,7 @@ def bee_compose(parts, ops, fx=(), back_w=(), front_w=(), circle=None):
         cx, cy, r = circle
         m = Image.new("L", (S, S), 0)
         ImageDraw.Draw(m).ellipse(((cx - r) * K, (cy - r) * K, (cx + r) * K, (cy + r) * K), fill=255)
-        out.putalpha(ImageChops.multiply(out.getchannel("A"), m.resize((FRAME, FRAME), Image.LANCZOS)))
+        out.putalpha(ImageChops.multiply(out.getchannel("A"), m.resize((out_px(), out_px()), Image.LANCZOS)))
     out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
     return out
 
@@ -2114,14 +2135,29 @@ def staged_species(sp):
 def render_species(sp, stage_name="teenager"):
     key = (sp.id, stage_name)
     if key not in _RENDERED:
-        with stage(stage_name, sp.stage_tweak.get(stage_name)):
+        with stage(stage_name, sp.stage_tweak.get(stage_name)), output(frame_px(sp.id, stage_name) // FRAME):
             ssp = staged_species(sp)
             _HEAD_LOG.clear()
             _NECK_LOG.clear()
             _RENDERED[key] = {anim: frames(ssp, anim, n) for anim, n, *_ in rows_for(sp)}
-            _HEADS[key] = dict(_HEAD_LOG)
-            _NECKS[key] = dict(_NECK_LOG)
+            _HEADS[key] = _table_at(_HEAD_LOG, sp.id, stage_name)
+            _NECKS[key] = _table_at(_NECK_LOG, sp.id, stage_name)
     return _RENDERED[key]
+
+
+def _table_at(log, pid, stage_name):
+    """그림 좌표(128)로 적어 둔 head·neck 표 → 그 단계 시트의 칸 px (기울기는 그대로)."""
+    u = frame_px(pid, stage_name) // FRAME
+    if u == 1:
+        return dict(log)
+    return {anim: [[round(x * u, 1), round(y * u, 1), round(w * u, 1), r] for x, y, w, r in cells] for anim, cells in log.items()}
+
+
+def at_frame(by_stage):
+    """미리보기용: {단계: {동작: [프레임]}}을 모두 FRAME px로 (미리보기 코드는 128 칸을 가정한다)."""
+    def small(im):
+        return im if im.width == FRAME else im.resize((FRAME, FRAME), Image.LANCZOS)
+    return {st: {anim: [small(im) for im in ims] for anim, ims in anims.items()} for st, anims in by_stage.items()}
 
 
 def _manifest_text(m):
@@ -2134,10 +2170,11 @@ def _manifest_text(m):
 def write_sheet(sp, rendered, path):
     rows = rows_for(sp)
     cols = max(n for _, n, *_ in rows)
-    sheet = Image.new("RGBA", (cols * FRAME, len(rows) * FRAME), (0, 0, 0, 0))
+    px = rendered[rows[0][0]][0].width
+    sheet = Image.new("RGBA", (cols * px, len(rows) * px), (0, 0, 0, 0))
     for r, (anim, *_) in enumerate(rows):
         for c, im in enumerate(rendered[anim]):
-            sheet.paste(im, (c * FRAME, r * FRAME))
+            sheet.paste(im, (c * px, r * px))
     sheet.save(path)
 
 
@@ -2167,7 +2204,8 @@ def write_species(sp, out_dir):
         write_sheet(sp, by_stage[st], out_dir / f"sheet_{st}.png")
     shutil.copyfile(out_dir / "sheet_teenager.png", out_dir / "sheet.png")
     counts = {anim: len(by_stage["teenager"][anim]) for anim, *_ in rows_for(sp)}
-    m = species_fields(sp.id, manifest(sp.name, sp.walk_speed, counts, SPEECH[sp.id], FAVORITE_FOOD[sp.id], STAGES, sp.stage_size))
+    sizes = {st: frame_px(sp.id, st) for st in STAGES if frame_px(sp.id, st) != FRAME}
+    m = species_fields(sp.id, manifest(sp.name, sp.walk_speed, counts, SPEECH[sp.id], FAVORITE_FOOD[sp.id], STAGES, sp.stage_size, sizes))
     m["head"] = {st: _HEADS[(sp.id, st)] for st in STAGES}
     if _NECKS[(sp.id, STAGES[0])]:  # 밤에 수면 모자 대신 목도리 (산타, ui/main.js)
         m["neck"] = {st: _NECKS[(sp.id, st)] for st in STAGES}
@@ -2247,7 +2285,7 @@ def preview(all_frames, path, bg):
 
 def main():
     root = Path(__file__).resolve().parent.parent
-    all_frames = build(root / "ui" / "pets")
+    all_frames = {pid: at_frame(by_stage) for pid, by_stage in build(root / "ui" / "pets").items()}
     pv = root / "tools" / "preview"
     pv.mkdir(exist_ok=True)
     preview(all_frames, pv / "all_light.png", (255, 255, 255))

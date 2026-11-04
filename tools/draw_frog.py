@@ -634,13 +634,14 @@ def _fit(fn):
     def f(sp, i):
         im = fn(sp, i)
         x0, y0, x1, y1 = im.getchannel("A").getbbox()
-        dx = (1 - x0) if x0 < 1 else min(0, (FRAME - 1) - x1)
-        dy = (1 - y0) if y0 < 1 else min(0, (FRAME - 1) - y1)
+        u, side = dp.out_u(), dp.out_px()
+        dx = (u - x0) if x0 < u else min(0, (side - u) - x1)
+        dy = (u - y0) if y0 < u else min(0, (side - u) - y1)
         if not (dx or dy):
             return im
         out = Image.new("RGBA", im.size, (0, 0, 0, 0))
         out.paste(im, (dx, dy))
-        dp.shift_head(dx, dy)
+        dp.shift_head(dx / u, dy / u)
         return out
     f.__name__ = fn.__name__
     f.__doc__ = fn.__doc__
@@ -679,7 +680,7 @@ register()
 
 def main():
     root = Path(__file__).resolve().parent.parent
-    by_stage = dp.write_species(FROG, root / "ui" / "pets" / "frog")
+    by_stage = dp.at_frame(dp.write_species(FROG, root / "ui" / "pets" / "frog"))
     pv = root / "tools" / "preview"
     pv.mkdir(exist_ok=True)
     preview_frog(by_stage, pv / "stages_frog.png")

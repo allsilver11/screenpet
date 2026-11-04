@@ -91,26 +91,32 @@ def _deer_parts(lvl, t):
     return dict(front_ears=front_ears, front_ear_marks=dp._pale(marks, t), side_ears=dp._pale([sear, near], t))
 
 
+def _nose_core(im, u):
+    """코 픽셀 표시 (128 칸 격자) — 2배 칸도 128로 재야 코 크기와 몸을 미는 양이 128 칸 그림과 같다 (경계 픽셀이 덜 깎여 코가 커지지 않게)."""
+    a = np.asarray(im if u == 1 else im.reduce(u)).astype(np.int16)
+    d = np.abs(a[..., :3] - np.array(NOSE_KEY)).sum(axis=2)
+    return (d < 30) & (a[..., 3] > 160)
+
+
 def _nose_glow(im, i, lit=1.0):
     """코(NOSE_KEY 픽셀)를 찾아 1px 키우고, 동글 빨간 코 + 하이라이트 + 부드러운 후광을 덧칠한다."""
-    a = np.asarray(im).astype(np.int16)
-    d = np.abs(a[..., :3] - np.array(NOSE_KEY)).sum(axis=2)
-    core = (d < 30) & (a[..., 3] > 160)
+    u, side = dp.out_u(), dp.out_px()  # 코 자리는 128 칸으로 재고, 그리는 px 값은 128 칸 기준 × u
+    core = _nose_core(im, u)
     if core.sum() < 3:
         return im
     ys, xs = np.nonzero(core)
     if xs.max() > FRAME - 18:  # 옆모습 코가 칸 끝에 붙어 있으면 후광이 잘리지 않게 몸 전체를 왼쪽으로 조금 민다
         x0 = im.getchannel("A").getbbox()[0]
-        dx = min(11, xs.max() - (FRAME - 18), x0 - 1)
+        dx = min(11, xs.max() - (FRAME - 18), x0 // u - 1)
         if dx > 0:
             sh = Image.new("RGBA", im.size, (0, 0, 0, 0))
-            sh.paste(im, (-dx, 0))
+            sh.paste(im, (-dx * u, 0))
             dp.shift_head(-dx, 0)
             im = sh
-            a = np.asarray(im).astype(np.int16)
-            d = np.abs(a[..., :3] - np.array(NOSE_KEY)).sum(axis=2)
-            core = (d < 30) & (a[..., 3] > 160)
+            core = _nose_core(im, u)
     m = Image.fromarray((core * 255).astype(np.uint8))
+    if u > 1:
+        m = m.resize(im.size, Image.NEAREST)
     # 동글 코: 찾은 코 둘레를 1.5px씩 넓힌 타원 (작은 옆모습 코도 동그랗게)
     ys, xs = np.nonzero(core)
     # 루돌프의 자랑: 찾은 코보다 1.65배 큰 동글 코 (입을 덜 가리게 조금 위로)
@@ -120,16 +126,16 @@ def _nose_glow(im, i, lit=1.0):
     ncx, ncy = (xs.min() + xs.max() + 1) / 2, (ys.min() + ys.max() + 1) / 2 - 0.18 * h
     bx0, bx1, by0, by1 = ncx - w / 2, ncx + w / 2, ncy - h / 2, ncy + h / 2
     from PIL import ImageDraw
-    hi = Image.new("L", (FRAME * 4, FRAME * 4), 0)
-    ImageDraw.Draw(hi).ellipse((bx0 * 4, by0 * 4, bx1 * 4, by1 * 4), fill=255)
+    hi = Image.new("L", (side * 4, side * 4), 0)
+    ImageDraw.Draw(hi).ellipse((bx0 * 4 * u, by0 * 4 * u, bx1 * 4 * u, by1 * 4 * u), fill=255)
     big = hi.resize(im.size, Image.LANCZOS)
     out = im.copy()
     tw = TWINKLE[i % 4] * lit
     # 후광 (몸 위·밖으로 번진다, 칸 1px 여백 안으로 자른다)
-    halo = big.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.GaussianBlur(4.2))
+    halo = big.filter(ImageFilter.MaxFilter(2 * u + 1)).filter(ImageFilter.GaussianBlur(4.2 * u))
     ha = np.asarray(halo).astype(np.float32) * min(1.0, 1.25 * tw)
-    ha[:1, :] = ha[-1:, :] = 0
-    ha[:, :1] = ha[:, -1:] = 0
+    ha[:u, :] = ha[-u:, :] = 0
+    ha[:, :u] = ha[:, -u:] = 0
     glow = Image.new("RGBA", im.size, GLOW + (0,))
     glow.putalpha(Image.fromarray(np.clip(ha, 0, 255).astype(np.uint8)))
     under = Image.new("RGBA", im.size, (0, 0, 0, 0))
@@ -143,19 +149,19 @@ def _nose_glow(im, i, lit=1.0):
     ys, xs = np.nonzero(np.asarray(big) > 127)
     x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
     rim = Image.new("RGBA", im.size, NOSE_DEEP + (255,))
-    out.paste(rim, (0, 0), big.filter(ImageFilter.GaussianBlur(0.4)))
-    inner = big.filter(ImageFilter.MinFilter(3)) if (x1 - x0) >= 7 else m
-    out.paste(Image.new("RGBA", im.size, NOSE_RED + (255,)), (0, 0), inner.filter(ImageFilter.GaussianBlur(0.4)))
+    out.paste(rim, (0, 0), big.filter(ImageFilter.GaussianBlur(0.4 * u)))
+    inner = big.filter(ImageFilter.MinFilter(2 * u + 1)) if (x1 - x0) >= 7 * u else m
+    out.paste(Image.new("RGBA", im.size, NOSE_RED + (255,)), (0, 0), inner.filter(ImageFilter.GaussianBlur(0.4 * u)))
     w, h = x1 - x0, y1 - y0
     sh = Image.new("L", im.size, 0)
     from PIL import ImageDraw
     dd = ImageDraw.Draw(sh)
     sx, sy = x0 + w * 0.22, y0 + h * 0.18
-    dd.ellipse((sx, sy, sx + max(2.0, w * 0.32), sy + max(1.6, h * 0.3)), fill=round(255 * min(1.0, 0.75 + 0.25 * tw)))
-    out.paste(Image.new("RGBA", im.size, NOSE_SHINE + (255,)), (0, 0), sh.filter(ImageFilter.GaussianBlur(0.3)))
+    dd.ellipse((sx, sy, sx + max(2.0 * u, w * 0.32), sy + max(1.6 * u, h * 0.3)), fill=round(255 * min(1.0, 0.75 + 0.25 * tw)))
+    out.paste(Image.new("RGBA", im.size, NOSE_SHINE + (255,)), (0, 0), sh.filter(ImageFilter.GaussianBlur(0.3 * u)))
     if i % 2 == 0 and lit >= 0.9:  # 반짝 ✦ (코 오른쪽 위)
-        r = 2.2 if i == 0 else 1.6
-        cx, cy = min(FRAME - 4, x1 + 2), max(3, y0 - 2)
+        r = (2.2 if i == 0 else 1.6) * u
+        cx, cy = min(side - 4 * u, x1 + 2 * u), max(3 * u, y0 - 2 * u)
         st = Image.new("L", im.size, 0)
         sd = ImageDraw.Draw(st)
         sd.polygon([(cx, cy - r * 1.6), (cx + r * 0.45, cy - r * 0.45), (cx + r * 1.6, cy), (cx + r * 0.45, cy + r * 0.45),
@@ -163,8 +169,8 @@ def _nose_glow(im, i, lit=1.0):
         out.alpha_composite(Image.composite(Image.new("RGBA", im.size, (255, 250, 230, 255)), Image.new("RGBA", im.size, (0, 0, 0, 0)), st))
     # 큰 코의 후광이 칸 끝까지 번지면 1px 투명 여백을 지킨다 (몸 전체를 밀지 않게)
     a = np.asarray(out).copy()
-    a[:, -1, 3] = 0
-    a[0, :, 3] = 0
+    a[:, -u:, 3] = 0
+    a[:u, :, 3] = 0
     return Image.fromarray(a)
 
 
@@ -748,7 +754,7 @@ def main():
     pv = root / "tools" / "preview"
     pv.mkdir(exist_ok=True)
     for sp in (RUDOLPH, SANTA):
-        by_stage = dp.write_species(sp, root / "ui" / "pets" / sp.id)
+        by_stage = dp.at_frame(dp.write_species(sp, root / "ui" / "pets" / sp.id))
         dh.preview_species(by_stage, pv / f"stages_{sp.id}.png")
         if "climb" in sp.specials:
             dp.preview_back(by_stage, pv / f"climb_{sp.id}.png")

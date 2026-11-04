@@ -7,7 +7,7 @@ from PIL import Image
 
 import draw_halloween
 import draw_pets
-from sprite_spec import ANIMS, FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES
+from sprite_spec import ANIMS, FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES, sheet_128
 
 PUMPKIN_GROUNDED = {"idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
                     "hungry", "level_up", "belly"}
@@ -34,7 +34,7 @@ def cell(sheet, row, col):
 
 
 def frame(out, pid, anim, col=0, st="teenager"):
-    return cell(Image.open(out / pid / f"sheet_{st}.png").convert("RGBA"), names(pid).index(anim), col)
+    return cell(sheet_128(out / pid / f"sheet_{st}.png").convert("RGBA"), names(pid).index(anim), col)
 
 
 def pixels(im):
@@ -61,7 +61,7 @@ def test_sheets_have_every_frame_inside_the_cell(out, pid):
     rows = draw_pets.rows_for(draw_pets.SPECIES[pid])
     grounded = PUMPKIN_GROUNDED if pid == "pumpkin" else GHOST_GROUNDED
     for st in STAGES:
-        sheet = Image.open(out / pid / f"sheet_{st}.png")
+        sheet = sheet_128(out / pid / f"sheet_{st}.png")
         assert sheet.mode == "RGBA" and sheet.size == (4 * FRAME, len(rows) * FRAME), st
         for r, (anim, n, *_) in enumerate(rows):
             for c in range(n):

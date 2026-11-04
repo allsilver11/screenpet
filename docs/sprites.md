@@ -64,6 +64,7 @@
 ## 성장 단계 시트
 - 단계: `baby`, `kinder`, `child`, `teenager`, `adult` (`sprite_spec.STAGES`, Rust `care::Stage`). 화면 표시 배율은 Rust `Stage::scale()` (0.45 / 0.60 / 0.78 / 1.00 / 1.15) × 동물별 `stage_size`.
 - 동물마다 `sheet_<stage>.png` 5장을 둔다. 행·열 배치는 모든 단계가 같아서 `pet.json`은 하나다. 단계 시트가 없으면 앱은 `sheet.png`로 대체한다 (기본 그림의 `sheet.png`는 `sheet_teenager.png`와 같은 파일).
+- 크게 보이는 단계는 시트 칸이 2배(256 px)다: 모든 동물의 adult, stage_size ≥ 1인 동물(santa, 공룡 셋, giraffe)의 teenager (`sprite_spec.frame_px`). `pet.json` `frame_sizes`에 적고, 그 단계의 `head`·`neck`·`neck_stretch` 값과 기린 `neck_*` 층도 그 칸의 px다. 화면 크기는 칸과 상관없다 (앱은 칸을 표시 크기에 맞춘다). 생성기는 PNG를 키우지 않고 128 좌표의 벡터에서 다시 그린다 (`draw_pets.output`).
 - **단계마다 디자인이 다르다** — 어릴수록 더 귀엽게. teenager가 기준 그림이다. 모든 단계가 같은 캐릭터로 읽혀야 한다 (고양이: 생강색 머리 덮개는 아기부터, 이마 흰 줄·왼쪽 뺨 점은 유아부터).
 
 | 단계 | 디자인 (`draw_pets.STAGE_PROPS`) |

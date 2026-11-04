@@ -290,6 +290,16 @@ mod tests {
         assert_eq!(m.hang_grip("adult"), super::DEFAULT_HANG_GRIP, "no table for this stage");
     }
 
+    /// 2배 칸 단계 (frame_sizes): 표도 칸 px로 2배라 비율로 재는 값은 128 칸일 때와 같다 — 표시 크기는 칸과 상관없다
+    #[test]
+    fn a_doubled_stage_sheet_keeps_the_same_hang_grip() {
+        let json = r#"{"name":"t","frame_size":128,"frame_sizes":{"adult":256},"walk_speed":60,"animations":{},
+            "head":{"baby":{"dragged":[[70,30,40,-4],[74,32,40,4]]},"adult":{"dragged":[[140,60,80,-4],[148,64,80,4]]}}}"#;
+        let m: super::PetManifest = serde_json::from_str(json).unwrap();
+        assert_eq!((m.frame_size_at("baby"), m.frame_size_at("adult")), (128, 256));
+        assert_eq!(m.hang_grip("baby"), m.hang_grip("adult"));
+    }
+
     use super::*;
 
     fn full_json() -> String {

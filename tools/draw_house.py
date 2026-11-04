@@ -1072,8 +1072,9 @@ def sit_frame(pet_id, stage):
     sheet = d / f"sheet_{stage}.png"
     if not sheet.is_file():
         return None
-    row = json.loads((d / "pet.json").read_text())["animations"]["sit_front"]["row"]
-    return Image.open(sheet).convert("RGBA").crop((0, row * FRAME, FRAME, (row + 1) * FRAME))
+    man = json.loads((d / "pet.json").read_text())
+    row, px = man["animations"]["sit_front"]["row"], man.get("frame_sizes", {}).get(stage, FRAME)
+    return Image.open(sheet).convert("RGBA").crop((0, row * px, px, (row + 1) * px)).resize((FRAME, FRAME), Image.LANCZOS)
 
 
 def bee_placeholder():
