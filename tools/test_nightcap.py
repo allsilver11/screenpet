@@ -3,14 +3,16 @@
 import json
 import math
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
+import draw_pets  # 먼저: draw_halloween을 먼저 부르면 draw_pets 끝의 순환 import가 빈 모듈을 만나 깨진다
+import draw_halloween  # noqa: I001
+import draw_snowman
+from conftest import needs_node, node_json
 import preview_nightcap as pn
 import preview_scarf as ps
 from sprite_spec import FRAME
@@ -20,10 +22,10 @@ PETS = ROOT / "ui" / "pets"
 MAIN = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
 HTML = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
 HARNESS = ROOT / "tools" / "nightcap_harness.js"
-needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
 
-# 그림에 쓰는 눈 색 (draw_pets EYE·EYE_LIGHT, 눈사람 COAL 계열)
-EYE_COLORS = [(84, 58, 56)]
+# 그림에 쓰는 눈 색 (draw_pets EYE). 눈사람은 석탄, 호박은 조각한 눈 (테두리·안쪽 불빛)
+EYE_COLORS = {"snowman": [draw_snowman.COAL], "pumpkin": [draw_halloween.CARVE, draw_halloween.GLOW_Y]}
+DEFAULT_EYE_COLORS = [draw_pets.EYE]
 # 슬픈 눈썹도 눈과 같은 색이라 눈 색으로는 가려졌는지 가릴 수 없다 — 모자가 눈썹만 살짝 덮는 동작 (머리 자리는 앉은 동작과 같은 식이다)
 BROW_ANIMS = {"hungry"}
 BRIM_X = [8, 11, 14, 16.5, 19, 22, 25]
@@ -38,8 +40,8 @@ def cells():
                     yield pid, man, st, anim, spec, f
 
 
-def check_fit(cell, mat, eyes=True):
-    """문제 목록. cell: 칸 RGBA 배열 · mat: 모자 svg 점 → 칸 좌표 · eyes: 눈도 본다."""
+def check_fit(cell, mat, eyes=True, pid=None):
+    """문제 목록. cell: 칸 RGBA 배열 · mat: 모자 svg 점 → 칸 좌표 · eyes: 눈도 본다 · pid: 그 동물의 눈 색으로."""
     problems = []
     alpha = cell[..., 3]
     # 1. 뜨지 않았다: 모자 입구 띠 아래 가장자리가 몸 위에 얹힌다
@@ -64,7 +66,7 @@ def check_fit(cell, mat, eyes=True):
     cover = np.asarray(mask) > 0
     rgb = cell[..., :3].astype(np.int16)
     eye = np.zeros(cover.shape, bool)
-    for c in EYE_COLORS:
+    for c in EYE_COLORS.get(pid, DEFAULT_EYE_COLORS):
         eye |= (np.abs(rgb - np.array(c)).sum(axis=2) < 14) & (alpha > 200)
     if eye.sum() >= 3:
         hidden = (eye & cover).sum() / eye.sum()
@@ -98,7 +100,7 @@ def test_cap_sits_on_the_head_in_every_cell():
     bad = []
     for pid, man, st, anim, spec, f in cells():
         mat = pn.new_cap_matrix_cell(man["head"][st][anim][f])
-        bad += [(pid, st, anim, f, p) for p in check_fit(cell_of(pid, st, spec["row"], f), mat, anim not in BROW_ANIMS and "neck" not in man)]  # neck 표가 있는 동물(산타)은 모자 대신 목도리 (ui/main.js capOn) — 눈을 덮을 모자가 없다
+        bad += [(pid, st, anim, f, p) for p in check_fit(cell_of(pid, st, spec["row"], f), mat, anim not in BROW_ANIMS and "neck" not in man, pid)]  # neck 표가 있는 동물(산타)은 모자 대신 목도리 (ui/main.js capOn) — 눈을 덮을 모자가 없다
     assert not bad, f"{len(bad)}: {bad[:40]}"
 
 
@@ -151,7 +153,7 @@ def run_layout(entries, k, cap_on, flip):
     a = MAIN.index("// HEADGEAR-LAYOUT-START")
     b = MAIN.index("// HEADGEAR-LAYOUT-END")
     js = f"{MAIN[a:b]}\nconsole.log(JSON.stringify({json.dumps(entries)}.map((e) => headgearLayout(e, {k}, {json.dumps(cap_on)}, {json.dumps(flip)}))));"
-    return json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
+    return node_json("-e", js)
 
 
 def parse_cap(css):
@@ -206,7 +208,7 @@ def test_cap_and_ring_are_children_of_the_body():
 
 
 def harness(pid, st="teenager"):
-    return json.loads(subprocess.run(["node", str(HARNESS), pid, st], capture_output=True, text=True, check=True).stdout)
+    return node_json(HARNESS, pid, st)
 
 
 @needs_node
@@ -234,7 +236,7 @@ def test_cap_moves_as_one_with_the_body(pid):
     # 구르기: 회전은 몸이 받고 모자는 칸 안에서 머리 자리에 있다 (숨지 않는다)
     assert not r["roll"]["capHidden"] and r["roll"]["capParent"] == "pet"
     # 없는 동작은 idle로 그리므로 idle 자리
-    assert r["unknownAnim"]["cap"].startswith("translate(")
+    assert r["unknownAnim"]["cap"] == base["cap"], (r["unknownAnim"]["cap"], base["cap"])
 
 
 @needs_node
@@ -344,7 +346,7 @@ def test_python_scarf_preview_matches_main_js():
     a, b = MAIN.index("// HEADGEAR-LAYOUT-START"), MAIN.index("// HEADGEAR-LAYOUT-END")
     entry = [80.5, 96.2, 52.1, -7.5]
     js = f"{MAIN[a:b]}\nconsole.log(JSON.stringify({{ css: scarfLayout({json.dumps(entry)}, 1), views: [['roll', 3], ['climb', 0], ['slide', 1], ['sit_front', 0], ['sleep', 0]].map(([n, f]) => scarfView(n, f)) }}));"
-    out = json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
+    out = node_json("-e", js)
     tx, ty, rot, s, ax, ay = (float(v) for v in re.match(r"translate\((.+)px, (.+)px\) rotate\((.+)deg\) scale\((.+)\) translate\((.+)px, (.+)px\)", out["css"]).groups())
     c, sn = math.cos(math.radians(rot)), math.sin(math.radians(rot))
     m = ps.scarf_matrix(entry)

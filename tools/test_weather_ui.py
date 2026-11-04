@@ -3,10 +3,10 @@
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import run_node
 
 ROOT = Path(__file__).resolve().parent.parent
 JS = (ROOT / "ui" / "weather.js").read_text(encoding="utf-8")
@@ -83,7 +83,7 @@ def test_help_tells_the_whole_year():
 def run(request):
     if not shutil.which("node"):
         pytest.skip("node not installed")
-    out = subprocess.run(["node", str(ROOT / "tools" / "weather_harness.js"), request.param], capture_output=True, text=True, check=True, timeout=60)
+    out = run_node(ROOT / "tools" / "weather_harness.js", request.param, timeout=60)
     return json.loads(out.stdout)
 
 

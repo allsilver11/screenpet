@@ -2,11 +2,9 @@
 
 import json
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
-import pytest
+from conftest import needs_node, run_node
 
 ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "ui"
@@ -75,7 +73,7 @@ def test_menu_item_is_korean():
     assert '"🎁 선물 도감"' in (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@needs_node
 def test_book_renders_colored_silhouette_and_friend_name(tmp_path):
     item = lambda id, name, count, shiny, frm: {"id": id, "name": name, "count": count, "shiny": shiny, "from": frm, "image": id}  # noqa: E731
     view = {
@@ -88,7 +86,7 @@ def test_book_renders_colored_silhouette_and_friend_name(tmp_path):
     }
     script = tmp_path / "harness.js"
     script.write_text(HARNESS, encoding="utf-8")
-    out = subprocess.run(["node", str(script), str(UI / "book.js"), json.dumps(view)], capture_output=True, text=True, timeout=30, check=True)
+    out = run_node(script, UI / "book.js", json.dumps(view), timeout=30)
     r = json.loads(out.stdout)
     assert r["n"] == 1 and "2 / 4" in r["sum"] and "반짝이 1" in r["sum"] and r["bar"] == "50%"
     yarn, bell, mouse = r["cells"]

@@ -2,11 +2,9 @@
 
 import json
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
-import pytest
+from conftest import needs_node, run_node
 
 ROOT = Path(__file__).resolve().parent.parent
 COMMON = (ROOT / "ui" / "common.js").read_text(encoding="utf-8")
@@ -24,13 +22,13 @@ def test_main_uses_the_fallback_only_without_bigjump_art():
     assert "hopLeapFrame(spec, elapsed)" in MAIN
 
 
-@pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+@needs_node
 def test_hop_frames_crouch_then_fly_and_hold():
     fn = COMMON[COMMON.index("const LEAP_CROUCH_MS"):COMMON.index("// 말풍선(`pet-say`)")]
     spec = {"row": 6, "frames": 3, "fps": 10, "loop": False}
     times = [0, 250, 499, 500, 599, 600, 700, 5000]
     js = f"{fn}\nconsole.log(JSON.stringify({times}.map((t) => hopLeapFrame({json.dumps(spec)}, t))));"
-    out = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout
+    out = run_node("-e", js).stdout
     assert json.loads(out) == [0, 0, 0, 1, 1, 2, 2, 2]
 
 

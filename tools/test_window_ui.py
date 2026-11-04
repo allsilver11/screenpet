@@ -1,19 +1,18 @@
 """창 스크립트를 html이 읽는 순서 그대로 가짜 DOM에서 돌린다 (tools/window_harness.js): 첫 로드 실패, 프레임당 스타일 쓰기, 글 쓰는 창의 키."""
 
 import json
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import needs_node, run_node
 
 ROOT = Path(__file__).resolve().parent.parent
 HARNESS = ROOT / "tools" / "window_harness.js"
-pytestmark = pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
+pytestmark = needs_node
 
 
 def run(*args):
-    out = subprocess.run(["node", str(HARNESS), *args], capture_output=True, text=True, timeout=60)
+    out = run_node(HARNESS, *args, check=False, timeout=60)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
 

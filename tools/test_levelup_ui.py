@@ -2,21 +2,19 @@
 
 import json
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 import draw_pets as dp
 from sprite_spec import SPEECH, STAGE_SCALE, STAGES
+from conftest import needs_node, node_json
 
 ROOT = Path(__file__).resolve().parent.parent
 PETS = ROOT / "ui" / "pets"
 MAIN = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
 CSS = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
 HARNESS = ROOT / "tools" / "levelup_harness.js"
-needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
 
 
 def manifests():
@@ -25,7 +23,7 @@ def manifests():
 
 
 def harness(mode):
-    return json.loads(subprocess.run(["node", str(HARNESS), mode], capture_output=True, text=True, check=True).stdout)
+    return node_json(HARNESS, mode)
 
 
 def test_every_pet_says_i_grew_up():
@@ -79,7 +77,7 @@ def burst_js(sides, runs=40):
 def test_burst_stays_inside_the_window_at_every_stage_and_species():
     sides = sorted({round(128 * STAGE_SCALE[st] * m["stage_size"].get(st, 1.0), 2) for _, m in manifests() for st in STAGES})
     assert min(sides) < 60 and max(sides) > 200
-    res = json.loads(subprocess.run(["node", "-e", burst_js(sides)], capture_output=True, text=True, check=True).stdout)
+    res = node_json("-e", burst_js(sides))
     assert 10 <= res["count"] <= 14
     for side, layouts in res["out"].items():
         side = float(side)

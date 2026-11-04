@@ -113,6 +113,7 @@ const look = () => ({
   scarfPx: byId("scarf-px").style.transform,
   scarfPxHidden: byId("scarf-px").hidden,
   scarfPxPos: byId("scarf-px").style.backgroundPosition,
+  ringHidden: byId("focusring").hidden,
   ringPx: byId("focusring-px").style.transform,
   ringPxHidden: byId("focusring-px").hidden,
   ringPxFilled: byId("focusring-px").filled ?? 0,

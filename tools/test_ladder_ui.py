@@ -3,11 +3,10 @@
 import json
 import os
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import needs_node, node_json
 
 ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "ui"
@@ -17,14 +16,13 @@ MAIN_RS = (ROOT / "src-tauri" / "src" / "main.rs").read_text(encoding="utf-8")
 LADDER_RS = (ROOT / "src-tauri" / "src" / "ladder.rs").read_text(encoding="utf-8")
 CORE_RS = (ROOT / "crates" / "screenpet-core" / "src" / "ladder.rs").read_text(encoding="utf-8")
 HARNESS = ROOT / "tools" / "ladder_harness.js"
-needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
 MARGIN = re.search(r"pub const WINDOW_MARGIN: f64 = (\d+)\.0;", CORE_RS).group(1)
 
 
 @pytest.fixture(scope="module")
 def out():
     env = {**os.environ, "LADDER_MARGIN": MARGIN}
-    return json.loads(subprocess.run(["node", str(HARNESS)], capture_output=True, text=True, check=True, encoding="utf-8", env=env).stdout)
+    return node_json(HARNESS, env=env)
 
 
 # ---- 화면·커맨드 연결 (node 없이) ---------------------------------------------------

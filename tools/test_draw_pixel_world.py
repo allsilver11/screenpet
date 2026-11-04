@@ -3,7 +3,6 @@
 import ast
 import json
 import re
-import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +11,7 @@ from PIL import Image
 
 import draw_pixel_world as w
 import pixel_world_icons as icons
+from conftest import node_json
 
 ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "ui"
@@ -85,8 +85,6 @@ def test_every_resident_sheet_on_disk_fits_the_door(kind, stage):
     for pid in w.RESIDENTS[kind]:
         p = UI / "pets_pixel" / pid
         sheet = p / f"sheet_{stage}.png"
-        if not (p / "pet.json").is_file() or not sheet.is_file():
-            continue  # 아직 그리는 중
         m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
         n = m["frame_sizes"][stage]
         assert n <= w.STAGE_GRID[stage][0], "공룡만 칸 수가 더 적다"
@@ -205,8 +203,7 @@ def test_objects_sit_where_the_tumble_shape_says():
 def node_run(marker_file, start, end, tail):
     src = (UI / marker_file).read_text(encoding="utf-8")
     body = src[src.index(start): src.index(end)]
-    out = subprocess.run(["node", "-e", body + "\n" + tail], capture_output=True, text=True, check=True)
-    return json.loads(out.stdout)
+    return node_json("-e", body + "\n" + tail)
 
 
 def test_pixel_headgear_stays_on_whole_dots_and_quarter_turns():
@@ -261,20 +258,16 @@ def test_pixel_css_has_no_blur():
 
 def main_in_pixel_mode(pid, stage="teenager"):
     tools = ROOT / "tools"
-    out = subprocess.run(["node", str(tools / "nightcap_harness.js"), pid, stage, "pixel"], capture_output=True, text=True, check=True)
-    return json.loads(out.stdout)
+    return node_json(tools / "nightcap_harness.js", pid, stage, "pixel")
 
 
 @pytest.mark.parametrize("pid", ["cat", "bear"])
 def test_main_window_wears_the_pixel_cap_on_whole_dots(pid):
-    if not (UI / "pets_pixel" / pid / "pet.json").is_file():
-        pytest.skip("시트를 그리는 중")
     r = main_in_pixel_mode(pid)
     assert r["base"]["capHidden"] and not r["base"]["capPxHidden"], "SVG 대신 칸 모자"
-    assert r["base"]["ringHidden"] if "ringHidden" in r["base"] else True
+    assert r["base"]["ringHidden"], "SVG 고리 대신 칸 고리"
     assert not r["base"]["ringPxHidden"] and r["base"]["ringPxFilled"] > 0
     for name in ("base", "sleep", "climb", "flip", "hop"):
-        assert "rotate(0deg)" in r[name]["capPx"] or "deg)" in r[name]["capPx"]
         angle = int(re.search(r"rotate\((-?\d+)deg\)", r[name]["capPx"]).group(1))
         assert angle % 90 == 0, name
     assert r["morning"]["capPxHidden"] is False and r["morning"]["pxBits"] > 0, "뿅은 칸 조각으로"
@@ -282,8 +275,6 @@ def test_main_window_wears_the_pixel_cap_on_whole_dots(pid):
 
 
 def test_santa_wears_the_pixel_scarf():
-    if not (UI / "pets_pixel" / "santa" / "pet.json").is_file():
-        pytest.skip("시트를 그리는 중")
     r = main_in_pixel_mode("santa")
     assert r["base"]["capPxHidden"] and not r["base"]["scarfPxHidden"]
     assert r["base"]["scarfHidden"], "SVG 목도리는 숨는다"
@@ -292,10 +283,7 @@ def test_santa_wears_the_pixel_scarf():
 
 
 def test_house_window_loads_pixel_art_and_seats_the_pet_at_full_size():
-    if not (UI / "pets_pixel" / "cat" / "pet.json").is_file():
-        pytest.skip("시트를 그리는 중")
-    out = subprocess.run(["node", str(ROOT / "tools" / "levelup_harness.js"), "house-pixel"], capture_output=True, text=True, check=True)
-    r = json.loads(out.stdout)
+    r = node_json(ROOT / "tools" / "levelup_harness.js", "house-pixel")
     assert "house_pixel/house_adult.png" in r["artAfter"]
     assert r["houseWidth"] == "162px" and r["doorWidth"] == "114px"  # 54칸·38칸 × 3
     assert r["doorPetWidth"] == "108px", "어른 고양이 그대로 (36칸 × 3)"
@@ -314,8 +302,7 @@ def test_house_stays_hidden_until_its_art_is_set():
     assert '<body class="art-pending">' in html
     assert re.search(r"body\.art-pending #house \{\s*visibility: hidden;", (UI / "style.css").read_text(encoding="utf-8"))
     for mode in ("house", "house-pixel"):
-        out = subprocess.run(["node", str(ROOT / "tools" / "levelup_harness.js"), mode], capture_output=True, text=True, check=True)
-        r = json.loads(out.stdout)
+        r = node_json(ROOT / "tools" / "levelup_harness.js", mode)
         assert r["pendingWhileDecoding"] and not r["artWhilePending"], mode
         assert not r["pendingAfterArt"], mode
     # 그림을 끝내 못 읽어도 집은 나타난다
@@ -324,8 +311,6 @@ def test_house_stays_hidden_until_its_art_is_set():
 
 def test_pixel_body_is_measured_again_on_a_new_monitor_scale():
     """pet-stage가 웹뷰 배율보다 먼저 와도 resize 때 칸을 다시 잰다."""
-    if not (UI / "pets_pixel" / "cat" / "pet.json").is_file():
-        pytest.skip("시트를 그리는 중")
     r = main_in_pixel_mode("cat")
     assert r["resizeStart"]["width"] == "96px" and r["resizeStart"]["loads"] == 0
     # 배율이 그대로면 left만 다시 맞춘다
