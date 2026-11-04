@@ -4,6 +4,7 @@ import pytest
 from PIL import Image
 
 import draw_props
+from conftest import assert_folder_matches_shipped
 
 ROOT = Path(__file__).resolve().parent.parent
 NAMES = ("bowl_food", "bowl_water", "cookie", "flower")
@@ -13,6 +14,12 @@ NAMES = ("bowl_food", "bowl_water", "cookie", "flower")
 def built(tmp_path_factory):
     out = tmp_path_factory.mktemp("props")
     return out, draw_props.build(out)
+
+
+def test_shipped_props_match_the_generator(built, hand_built, seasonal_built):
+    """들어 있는 그림 == 생성기 출력 (그릇·손 음식·눈 소품)."""
+    for out, _ in (built, hand_built, seasonal_built):
+        assert_folder_matches_shipped(out, ROOT / "ui" / "effects")
 
 
 def test_box_matches_the_app_window():

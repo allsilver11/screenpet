@@ -5,6 +5,7 @@ import pytest
 from PIL import Image
 
 import draw_house
+from conftest import assert_folder_matches_shipped
 from sprite_spec import FRAME, STAGES
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,42 +23,50 @@ def _inside_arch(door, px, py, inset):
     return (px - cx) ** 2 + (py - cy) ** 2 <= (r - inset) ** 2
 
 
-def test_generated_files(tmp_path):
-    draw_house.build(tmp_path)
-    for out in (tmp_path, ROOT / "ui" / "house"):
+@pytest.fixture(scope="module")
+def built(tmp_path_factory):
+    out = tmp_path_factory.mktemp("house")
+    draw_house.build(out)
+    return out
+
+
+def test_shipped_houses_match_the_generator(built):
+    """들어 있는 그림·문 자리 == 생성기 출력."""
+    assert_folder_matches_shipped(built, ROOT / "ui" / "house")
+
+
+def test_generated_files(built):
+    for out in (built, ROOT / "ui" / "house"):
         for name in ("house.png", "house_front.png"):
             im = Image.open(out / name)
             assert im.size == (FRAME, FRAME) and im.mode == "RGBA"
         assert json.loads((out / "house.json").read_text())["door"]
 
 
-def test_house_sits_on_bottom_edge(tmp_path):
-    draw_house.build(tmp_path)
-    house = Image.open(tmp_path / "house.png")
+def test_house_sits_on_bottom_edge(built):
+    house = Image.open(built / "house.png")
     assert house.getpixel((0, 0))[3] == 0  # 투명 배경
     x0, y0, x1, y1 = house.getchannel("A").getbbox()
     assert x0 >= 1 and y0 >= 1 and x1 <= FRAME - 1  # 1px 투명 여백
     assert 121 <= y1 <= FRAME  # 바닥은 프레임 아래 끝(y 120–127)에 앉는다
 
 
-def test_door_rect_inside_frame_and_pet_sized(tmp_path):
-    draw_house.build(tmp_path)
-    door = json.loads((tmp_path / "house.json").read_text())["door"]
+def test_door_rect_inside_frame_and_pet_sized(built):
+    door = json.loads((built / "house.json").read_text())["door"]
     assert set(door) == {"x", "y", "w", "h"}
     assert door["x"] >= 1 and door["y"] >= 1
     assert door["x"] + door["w"] <= FRAME - 1 and door["y"] + door["h"] <= FRAME - 1
     assert 48 <= door["w"] <= 56 and 56 <= door["h"] <= 64
     # 문 바닥 = 집 바닥: 문 안쪽 바로 위는 어둡고 불투명, 문턱 아래로는 집이 이어진다
-    house = Image.open(tmp_path / "house.png")
+    house = Image.open(built / "house.png")
     cx = door["x"] + door["w"] // 2
     r, g, b, a = house.getpixel((cx, door["y"] + door["h"] - 6))
     assert a == 255 and r + g + b < 3 * 140
 
 
-def test_front_layer_transparent_inside_door(tmp_path):
-    draw_house.build(tmp_path)
-    door = json.loads((tmp_path / "house.json").read_text())["door"]
-    front = Image.open(tmp_path / "house_front.png").getchannel("A")
+def test_front_layer_transparent_inside_door(built):
+    door = json.loads((built / "house.json").read_text())["door"]
+    front = Image.open(built / "house_front.png").getchannel("A")
     assert front.getbbox() is not None  # 문틀·문턱은 있다
     sill_top = door["y"] + door["h"] - 6  # 문턱 (외곽선 포함) (펫 앞에 와야 하는 부분)
     for py in range(door["y"], sill_top):
@@ -71,13 +80,6 @@ def test_front_layer_transparent_inside_door(tmp_path):
 
 # ---- 단계별 집 + 벌통 + 귀신의 집 ----
 ARTS = [(kind, stage) for kind in ("house", "hive", "haunted", "xmas") for stage in STAGES]
-
-
-@pytest.fixture(scope="module")
-def built(tmp_path_factory):
-    out = tmp_path_factory.mktemp("house")
-    draw_house.build(out)
-    return out
 
 
 def _door(out, kind, stage):
@@ -176,8 +178,6 @@ def test_kinds_include_haunted():
 @pytest.mark.parametrize("stage", STAGES)
 def test_haunted_door_fits_pumpkin_and_ghost(built, pet, stage):
     """실제 시트로 잰 호박·유령 몸 폭이 귀신의 집 문을 teenager 집의 고양이처럼 (±15 %) 채운다 (호박 0.9 · 유령 0.85 — 크기를 되돌리며 문도 되돌렸다)."""
-    if draw_house.sit_frame(pet, stage) is None:
-        pytest.skip(f"no {pet} sheet")
     teen = _door(built, "house", "teenager")
     teen_fill = draw_house.door_pet_size("teenager") * _body_width("cat", "teenager") / teen["w"]
     door = _door(built, "haunted", stage)
@@ -233,8 +233,6 @@ def _rgba(im):
 def test_xmas_door_fits_rudolph_and_santa(built, stage):
     """루돌프(넓은 귀)는 문을 고양이처럼 (±30 %) 채운다. 산타는 몸 배율 1.65로 커져서 (사용자 요청 "1.5배만") 문을 꽉 채운다 —
     고양이보다 넓지만 1.6배는 넘지 않는다 (문 그림은 그대로라 산타에겐 아늑하게 꼭 맞는 문)."""
-    if draw_house.sit_frame("rudolph", stage) is None or draw_house.sit_frame("santa", stage) is None:
-        pytest.skip("no christmas sheets")
     door = _door(built, "xmas", stage)
     cat_fill = _design_cat_fill(built, stage)
     rudolph, santa = (draw_house.door_pet_size(stage) * _body_width(p, stage) / door["w"] for p in ("rudolph", "santa"))

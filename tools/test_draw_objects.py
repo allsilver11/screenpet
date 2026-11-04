@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 import draw_objects as d
+from conftest import assert_folder_matches_shipped
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -59,9 +60,11 @@ def test_postit_is_yellow_not_an_envelope_or_heart(built):
     assert a == 255 and r > 230 and g > 200 and b < 150
 
 
-def test_shipped_files_exist():
-    for name in d.NAMES + ("postit",):
-        assert (ROOT / "ui" / "objects" / f"{name}.png").exists()
+def test_shipped_objects_match_the_generator(built):
+    """들어 있는 그림 == 생성기 출력 (이름 전부: 없는 파일도 여기서 걸린다)."""
+    out, arts = built
+    assert set(arts) == set(d.NAMES) | {"postit"}
+    assert_folder_matches_shipped(out, ROOT / "ui" / "objects")
 
 
 def test_note_text_reaches_the_page_only_as_text():

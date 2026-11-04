@@ -1,10 +1,12 @@
 import re
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
 import draw_gifts
+from conftest import assert_folder_matches_shipped
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = (ROOT / "crates" / "screenpet-core" / "src" / "gift.rs").read_text(encoding="utf-8")
@@ -14,6 +16,11 @@ CATALOG = (ROOT / "crates" / "screenpet-core" / "src" / "gift.rs").read_text(enc
 def built(tmp_path_factory):
     out = tmp_path_factory.mktemp("gifts")
     return out, draw_gifts.build(out)
+
+
+def test_shipped_gifts_match_the_generator(built):
+    """들어 있는 그림 == 생성기 출력 (한쪽만 고치면 다음 빌드에 달라진다)."""
+    assert_folder_matches_shipped(built[0], ROOT / "ui" / "gifts")
 
 
 def test_ids_match_the_core_catalog():
@@ -60,6 +67,10 @@ def test_shiny_is_gold_with_sparkles(built, name):
     b = gold.convert("RGBA").tobytes()
     px = [b[k:k + 4] for k in range(0, len(b), 4) if b[k + 3] > 200]
     assert sum(p[0] - p[2] for p in px) / len(px) > 20
+    # 별만 찍은 게 아니라 몸 전체가 물든다 (원래 금빛인 선물도)
+    was, now = np.asarray(plain.convert("RGBA")).astype(int), np.asarray(gold.convert("RGBA")).astype(int)
+    body = was[..., 3] > 200
+    assert (np.abs(was - now).sum(axis=2) > 8)[body].mean() > 0.8
 
 
 def test_silhouettes_differ_within_each_list(built):
