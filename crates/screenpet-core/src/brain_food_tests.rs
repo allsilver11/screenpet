@@ -131,10 +131,13 @@ fn feeding_again_on_the_way_keeps_one_bowl_and_the_celebration() {
     let (mut p, w) = standing_at(800.0, 1.0);
     assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Favorite));
     run(&mut p, &w, 10);
+    assert!(matches!(p.take_prop(), Some(PropEvent::Show { prop: Prop::FoodBowl, .. })));
     assert!(p.feed_result(ATE, Food::Meal));
     assert!(p.feed_result(ATE, Food::Snack));
-    let seen = run_props(&mut p, &w, 0);
-    assert!(seen.is_empty());
+    // 그릇에 닿을 때까지 새 그릇이 나오지 않는다
+    assert!(!eating(&p));
+    let seen = run_props(&mut p, &w, 20);
+    assert!(seen.is_empty(), "{seen:?}");
     assert!(run_until(&mut p, &w, 60 * 5, eating));
     assert!(matches!(p.state, State::Eating { favorite: true, level_up: true, .. }), "{:?}", p.state);
     assert!(run_until(&mut p, &w, 60 * 5, |p| matches!(p.state, State::LevelUp { .. })));
@@ -570,9 +573,27 @@ fn a_snack_given_on_the_way_home_levels_up_inside_the_house() {
 }
 
 #[test]
-fn the_game_loop_holds_the_new_stage_while_a_level_up_is_queued() {
+fn the_new_stage_is_held_while_a_level_up_is_queued_or_being_eaten() {
+    let w = world(vec![]);
+    let mut p = Pet::new(cfg(), 0.0, 0.0, 5);
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
+    assert!(!p.stage_change_due(false), "nothing pending");
+    assert!(p.stage_change_due(true), "free: applied right away");
+    // 날아가는 중에 받은 먹이가 성장을 안고 있다
+    p.state = State::Air { anim: Anim::Fall };
+    p.standing = None;
+    assert!(p.feed_result(LEVELED, Food::Snack));
+    assert!(!p.stage_change_due(true), "queued");
+    // 먹는 동안에도 기다린다
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
+    assert!(run_until(&mut p, &w, 60 * 5, eating), "{:?}", p.state);
+    assert!(!p.stage_change_due(true), "eating");
+    // 축하까지 끝나면 적용한다
+    assert!(run_until(&mut p, &w, 60 * 30, |p| !p.stage_change_waits()), "{:?}", p.state);
+    assert!(p.stage_change_due(true));
+    // 게임 루프(src-tauri, 여기서 빌드 못 함)가 이 판단을 쓴다
     let game_loop = include_str!("../../../src-tauri/src/game_loop.rs");
-    assert!(game_loop.contains("if pending_stage && !own.pet.stage_change_waits() {"));
+    assert!(game_loop.contains("own.pet.stage_change_due(pending_stage)"));
 }
 
 #[test]

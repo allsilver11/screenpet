@@ -900,7 +900,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
 
         // 먹다가 눌린 동안(Pressed)도 먹는 중으로 본다 — 손을 떼면 계속 먹으므로 크기를 미리 바꾸지 않는다.
         // 공중·축하 중에 받아 기억해 둔 먹이(간식 포함)가 성장을 안고 있어도 먹고 축하할 때까지 기다린다
-        if pending_stage && !own.pet.stage_change_waits() {
+        if own.pet.stage_change_due(pending_stage) {
             pending_stage = false;
             apply_own_stage(&app, own, &care);
         }

@@ -923,6 +923,11 @@ impl Pet {
         self.is_eating() || self.queued_food.is_some_and(|(_, level_up)| level_up)
     }
 
+    /// 게임 루프가 미뤄 둔 새 크기(pending)를 이번 틱에 적용해도 되는가
+    pub fn stage_change_due(&self, pending: bool) -> bool {
+        pending && !self.stage_change_waits()
+    }
+
     /// 하우스 안에 있음 (가는 중은 아님). 하우스에 있는 동안엔 놀러 가지 않는다 (phase 3)
     pub fn is_housed(&self) -> bool {
         self.housed
