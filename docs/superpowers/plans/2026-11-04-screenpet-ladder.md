@@ -66,7 +66,7 @@ pub fn print_indices(bits24: u32) -> [usize; 4];
   - 균등성: 3명 × 60000번 → 순열 6가지 카이제곱(자유도 5, 유의수준 0.001 임계값 20.52 미만). 10명 × 20000번 → 위 칸 0의 결과 칸 분포 카이제곱(자유도 9, 임계값 27.88 미만).
   - `uniform`: bound가 2의 거듭제곱이 아닐 때 거부가 일어나는 입력에서도 범위 안·치우침 없음 (bound 3, 꽉 찬 u32 경계값).
   - **고정 벡터**: 정해진 u32 수열 → 정해진 perm과 rows (값을 테스트에 그대로 적어 둔다 — 알고리즘이 바뀌면 깨지게).
-  - `clean_result`("", "  당첨  ", 13자, 탭 포함, 이모지), `disambiguate`(["나비","나비","곰","나비"] → ["나비","나비 ②","곰","나비 ③"]), `ellipsize`, `column_width`(10명 × 좁은 화면 → 48 하한), `print_indices`.
+  - `clean_result`("", "  당첨  ", 13자, 탭 포함, 이모지), `disambiguate`(["나비","나비","곰","나비"] → ["나비","나비 ②","곰","나비 ③"]), `column_width`(10명 × 좁은 화면 → 48 하한), `print_indices`.
 - 커밋 `feat(core): ladder — uniform permutation drawn as a ladder`.
 
 ### Task 2: net — 프로토콜 버전 2, 상대 버전 기억, `Ladder` 메시지

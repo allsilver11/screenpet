@@ -900,12 +900,21 @@ mod tests {
             }
         }
 
+        fn join_one(&mut self, i: usize, name: &str) {
+            let id = self.guests[i].0.clone();
+            let m = self.guests[i].1.join(seat(name), self.now).expect("join");
+            self.deliver_to_host(&id, m);
+        }
+
+        fn decline_one(&mut self, i: usize, reason: DeclineReason) {
+            let id = self.guests[i].0.clone();
+            let m = self.guests[i].1.decline(reason).expect("decline");
+            self.deliver_to_host(&id, m);
+        }
+
         fn join_all(&mut self) {
             for i in 0..self.guests.len() {
-                let (id, g) = &mut self.guests[i];
-                let id = id.clone();
-                let m = g.join(seat(&format!("손님{i}")), self.now).expect("join");
-                self.deliver_to_host(&id, m);
+                self.join_one(i, &format!("손님{i}"));
             }
         }
 
@@ -945,16 +954,8 @@ mod tests {
     #[test]
     fn declines_and_timeouts_leave_the_rest_playing() {
         let mut g = Game::invite(3);
-        let (id0, m0) = {
-            let (id, guest) = &mut g.guests[0];
-            (id.clone(), guest.decline(DeclineReason::Busy).unwrap())
-        };
-        g.deliver_to_host(&id0, m0);
-        let (id1, m1) = {
-            let (id, guest) = &mut g.guests[1];
-            (id.clone(), guest.join(seat("둘"), g.now).unwrap())
-        };
-        g.deliver_to_host(&id1, m1);
+        g.decline_one(0, DeclineReason::Busy);
+        g.join_one(1, "둘");
         assert_eq!(g.host.answers()[0].1, Answer::Declined(DeclineReason::Busy));
         assert!(!g.host.all_answered());
         // 셋째는 답이 없다 — 30초 뒤 불참
@@ -973,8 +974,7 @@ mod tests {
     #[test]
     fn waiting_invitees_are_told_the_invitation_closed() {
         let mut g = Game::invite(2);
-        let (id, m) = (g.guests[0].0.clone(), g.guests[0].1.join(seat("일"), g.now).unwrap());
-        g.deliver_to_host(&id, m);
+        g.join_one(0, "일");
         let out = g.host.start(&results(&[("a", "good"), ("b", "bad")]), g.now).unwrap();
         assert!(out.iter().any(|(to, m)| to == "friend1" && matches!(m, LadderMsg::LadderCancel { reason, .. } if reason == "host")));
         g.route(out);
@@ -1005,8 +1005,7 @@ mod tests {
     #[test]
     fn a_player_rejects_a_lock_that_changed_its_commitment() {
         let mut g = Game::invite(1);
-        let (id, m) = (g.guests[0].0.clone(), g.guests[0].1.join(seat("일"), g.now).unwrap());
-        g.deliver_to_host(&id, m);
+        g.join_one(0, "일");
         let out = g.host.start(&results(&[("a", "good"), ("b", "bad")]), g.now).unwrap();
         let (_, LadderMsg::LadderLock { game_id, host, mut players, results }) = out.into_iter().next().unwrap() else { panic!("lock") };
         let mine = players.iter_mut().find(|p| p.name == "일").unwrap();
@@ -1017,8 +1016,7 @@ mod tests {
     }
 
     fn locked_lock(g: &mut Game) -> LadderMsg {
-        let (id, m) = (g.guests[0].0.clone(), g.guests[0].1.join(seat("일"), g.now).unwrap());
-        g.deliver_to_host(&id, m);
+        g.join_one(0, "일");
         let out = g.host.start(&results(&[("a", "good"), ("b", "bad")]), g.now).unwrap();
         out.into_iter().next().unwrap().1
     }
@@ -1262,21 +1260,18 @@ mod tests {
         // 둘 다 거절
         let mut g = Game::invite(2);
         for i in 0..2 {
-            let (id, m) = (g.guests[i].0.clone(), g.guests[i].1.decline(DeclineReason::No).unwrap());
-            g.deliver_to_host(&id, m);
+            g.decline_one(i, DeclineReason::No);
         }
         assert!(matches!(g.host.phase(), Phase::Cancelled { reason: CancelReason::Nobody, .. }), "{:?}", g.host.phase());
         // 하나는 거절, 하나는 답 없음
         let mut g = Game::invite(2);
-        let (id, m) = (g.guests[0].0.clone(), g.guests[0].1.decline(DeclineReason::Busy).unwrap());
-        g.deliver_to_host(&id, m);
+        g.decline_one(0, DeclineReason::Busy);
         assert_eq!(*g.host.phase(), Phase::Inviting);
         g.host.tick(g.now + INVITE_TIMEOUT);
         assert!(matches!(g.host.phase(), Phase::Cancelled { reason: CancelReason::Nobody, .. }));
         // 한 명이라도 참가했으면 끝내지 않는다
         let mut g = Game::invite(2);
-        let (id, m) = (g.guests[0].0.clone(), g.guests[0].1.join(seat("일"), g.now).unwrap());
-        g.deliver_to_host(&id, m);
+        g.join_one(0, "일");
         g.host.tick(g.now + INVITE_TIMEOUT);
         assert_eq!(*g.host.phase(), Phase::Inviting);
         // 끊겨서 0명
@@ -1289,10 +1284,8 @@ mod tests {
     fn answer_counts_follow_the_answers() {
         let mut g = Game::invite(3);
         assert_eq!(g.host.answer_counts(), [3, 0, 0, 0, 0, 0, 0]);
-        let (id, m) = (g.guests[0].0.clone(), g.guests[0].1.join(seat("일"), g.now).unwrap());
-        g.deliver_to_host(&id, m);
-        let (id, m) = (g.guests[1].0.clone(), g.guests[1].1.decline(DeclineReason::Busy).unwrap());
-        g.deliver_to_host(&id, m);
+        g.join_one(0, "일");
+        g.decline_one(1, DeclineReason::Busy);
         assert_eq!(g.host.answer_counts(), [1, 1, 0, 1, 0, 0, 0]);
     }
 

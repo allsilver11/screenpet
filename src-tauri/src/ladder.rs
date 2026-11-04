@@ -186,6 +186,11 @@ fn locked(rows: &[SlotRow]) -> Option<Vec<LockedResult>> {
     rows.iter().map(|r| Some(LockedResult { text: draw::clean_result(&r.text)?, mood: Mood::from_wire(&r.mood).to_wire().to_string() })).collect()
 }
 
+/// 위 칸 `i`가 닿는 결과 칸
+fn end_column(view: &GameView, i: usize) -> usize {
+    *view.paths[i].last().expect("path")
+}
+
 fn print_emoji(print: u32) -> String {
     draw::print_indices(print).iter().map(|&i| SAS_EMOJI[i]).collect()
 }
@@ -470,7 +475,7 @@ impl Ladders {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            let end = *view.paths[i].last().expect("path");
+                            let end = end_column(&view, i);
                             LastLadderRow { name: p.name.clone(), result: view.results[end].text.clone(), mood: view.results[end].mood.clone(), me: i == view.me }
                         })
                         .collect(),
@@ -547,8 +552,7 @@ impl Ladders {
             return;
         }
         self.reacted = true;
-        let end = *view.paths[view.me].last().expect("path");
-        let slot = &view.results[end];
+        let slot = &view.results[end_column(view, view.me)];
         let good = match Mood::from_wire(&slot.mood) {
             Mood::Good => true,
             Mood::Bad => false,

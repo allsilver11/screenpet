@@ -178,6 +178,11 @@ def test_every_route_runs_along_the_ladder_to_its_result(out):
 
 
 @needs_node
+def test_a_finished_game_lights_every_slot_and_opens_the_table(out):
+    assert out["ui"]["finish"] == {"hits": [0, 1, 2], "seen": "ladder_seen", "tableBefore": True, "tableAfter": False, "rows": 3}
+
+
+@needs_node
 def test_result_table_and_copy_text(out):
     assert [r["me"] for r in out["results"]].count(True) == 1
     assert out["copy"].splitlines() == [

@@ -201,11 +201,13 @@ async function bootWindow() {
   const invoked = [];
   const channels = {};
   const windowListeners = {};
+  const timers = [];
+  const frames = [];
   const sandbox = {
     console,
     performance: { now: () => 0 },
-    setTimeout() {},
-    requestAnimationFrame() {},
+    setTimeout: (fn) => timers.push(fn),
+    requestAnimationFrame: (fn) => (frames[0] = fn),
     loadPetSheet: () => new Promise(() => {}),
     setPixelBody() {},
     window: {
@@ -237,6 +239,8 @@ async function bootWindow() {
     $: (id) => ids.get(id),
     radios,
     invoked,
+    timers,
+    frames,
     show: async (view) => {
       channels["ladder-state"]({ payload: { friends: [], draft: [], joined: 0, ...view } });
       await new Promise(setImmediate);
@@ -316,6 +320,17 @@ async function bootWindow() {
   const g = game(3, 48, [[0], [1], [0]], ["곰돌이와친구들", "곰돌이와친구들 ②", "곰돌이와친구들 ③"]);
   await w.show({ view: "game", game: g });
   ui.nametags = w.$("board").find((e) => e.className?.startsWith("nametag")).map((e) => e.textContent);
+
+  // 모두 한꺼번에 → 다 내려가면 도착 칸이 켜지고, 내 펫이 닿았다고 알리고, 결과 표가 뜬다
+  const hits = [];
+  w.$("board").find((e) => e.className?.startsWith("slot")).forEach((slot, i) => (slot.classList.add = () => hits.push(i)));
+  w.$("all").click();
+  w.timers.length = 0;
+  w.frames[0](1e7);
+  ui.finish = { hits: [...hits].sort(), seen: w.invoked.at(-1)[0], tableBefore: w.$("table").hidden };
+  w.timers.forEach((fn) => fn());
+  ui.finish.tableAfter = w.$("table").hidden;
+  ui.finish.rows = w.$("table-rows").children.length;
 
   out.ui = ui;
   process.stdout.write(JSON.stringify(out));

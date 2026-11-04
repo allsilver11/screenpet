@@ -173,7 +173,7 @@ const LADDER = (() => {
       pts.push({ x: lay.xs[path[r]], y });
       if (path[r + 1] !== path[r]) pts.push({ x: lay.xs[path[r + 1]], y });
     });
-    pts.push({ x: lay.xs[path[path.length - 1]], y: lay.bottom });
+    pts.push({ x: lay.xs[endColumn(game, i)], y: lay.bottom });
     return pts;
   }
 
@@ -201,11 +201,15 @@ const LADDER = (() => {
     return { p: pts[0], dir: "down", trail: [pts[0]] };
   }
 
+  // 위 칸 i가 닿는 결과 칸
+  function endColumn(game, i) {
+    return game.paths[i][game.paths[i].length - 1];
+  }
+
   // 결과 표 (이름 → 결과): 위 칸 순서
   function resultRows(game) {
     return game.players.map((p, i) => {
-      const end = game.paths[i][game.paths[i].length - 1];
-      const slot = game.results[end];
+      const slot = game.results[endColumn(game, i)];
       return { name: p.name, result: slot.text, mood: slot.mood, me: i === game.me };
     });
   }
@@ -232,7 +236,7 @@ const LADDER = (() => {
   return {
     MAX_PLAYERS, NAME_CHARS, SLOT_CHARS, PALETTE, TAG_CHAR_PX, TAG_PAD_PX, TAG_ROW_PX, nameChars, tagText, tagLift,
     ellipsize, cleanText, presetSlots, growSlots, slotProblem, slotWarning, invitingSlots, moodEmoji, nextMood, josa,
-    answerLabel, cancelText, layout, route, length, pointAt, resultRows, copyLines, ignoreKey, blockDefault,
+    answerLabel, cancelText, layout, route, length, pointAt, endColumn, resultRows, copyLines, ignoreKey, blockDefault,
   };
 })();
 
@@ -261,6 +265,15 @@ if (typeof window !== "undefined" && window.__TAURI__) {
 
     function showOnly(name) {
       for (const [k, v] of Object.entries(views)) v.hidden = k !== name;
+    }
+
+    function setAttrs(node, attrs) {
+      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    }
+
+    // 백엔드로 보낼 결과 칸
+    function wireSlots(slots) {
+      return slots.map((s) => ({ text: LADDER.cleanText(s.text), mood: s.mood }));
     }
 
     // ---- 방장: 친구 고르기 + 결과 칸 ----
@@ -403,7 +416,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       const slots = host.mode === "preset" ? LADDER.presetSlots(count, host.winners) : host.slots;
       if (LADDER.slotProblem(slots, count)) return;
       host.begunFor = state.joined;
-      invoke("ladder_begin", { results: slots.map((s) => ({ text: LADDER.cleanText(s.text), mood: s.mood })) });
+      invoke("ladder_begin", { results: wireSlots(slots) });
     }
 
     for (const r of document.querySelectorAll('input[name="mode"]')) {
@@ -424,7 +437,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
         const count = host.selected.size + 1;
         if (LADDER.slotProblem(host.slots, count)) return;
         host.begunFor = null;
-        invoke("ladder_host", { friends: [...host.selected], results: host.slots.map((s) => ({ text: LADDER.cleanText(s.text), mood: s.mood })) });
+        invoke("ladder_host", { friends: [...host.selected], results: wireSlots(host.slots) });
       } else if (state?.view === "inviting") {
         begin();
       }
@@ -499,19 +512,23 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       }
     }
 
+    function clearBoard() {
+      $("board").querySelectorAll(".runner, .nametag, .slot").forEach((e) => e.remove());
+      $("lines").replaceChildren();
+    }
+
     async function renderGame() {
       const g = state.game;
       if (game?.view.game_id === g.game_id) return; // 같은 판을 다시 받으면 그대로 둔다
       showOnly("game");
       $("table").hidden = true;
+      clearBoard();
       const board = $("board");
-      board.querySelectorAll(".runner, .nametag, .slot").forEach((e) => e.remove());
       const svg = $("lines");
-      svg.replaceChildren();
       const ns = "http://www.w3.org/2000/svg";
       const vlines = g.players.map(() => {
         const line = document.createElementNS(ns, "line");
-        Object.entries({ stroke: "#c9b79f", "stroke-width": 3, "stroke-linecap": "round" }).forEach(([k, v]) => line.setAttribute(k, v));
+        setAttrs(line, { stroke: "#c9b79f", "stroke-width": 3, "stroke-linecap": "round" });
         svg.append(line);
         return line;
       });
@@ -526,7 +543,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       const pet = Math.min(48, g.column - 8);
       const runners = g.players.map((p, i) => {
         const trail = document.createElementNS(ns, "polyline");
-        Object.entries({ fill: "none", stroke: LADDER.PALETTE[i % LADDER.PALETTE.length], "stroke-width": 4, "stroke-linejoin": "round", "stroke-linecap": "round", opacity: 0.85 }).forEach(([k, v]) => trail.setAttribute(k, v));
+        setAttrs(trail, { fill: "none", stroke: LADDER.PALETTE[i % LADDER.PALETTE.length], "stroke-width": 4, "stroke-linejoin": "round", "stroke-linecap": "round", opacity: 0.85 });
         svg.append(trail);
         const runner = el("div", { className: "runner" });
         const tag = el("div", { className: `nametag${i === g.me ? " me" : ""}`, textContent: LADDER.tagText(p.name, LADDER.nameChars(g.column)), title: p.name });
@@ -558,6 +575,15 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       requestAnimationFrame(tick);
     }
 
+    function drawTrail(r, pts) {
+      r.trail.setAttribute("points", pts.map((q) => `${q.x},${q.y}`).join(" "));
+    }
+
+    // 결과 칸 바로 위 (도착한 펫의 자리)
+    function restSpot(r) {
+      return { x: game.lay.xs[LADDER.endColumn(game.view, r.i)], y: game.lay.slotTop - r.side / 2 - 2 };
+    }
+
     // 판 배치를 지금 창 크기에 맞춘다. 게임 화면이 뜰 때 창은 아직 이전 화면(초대·대기) 크기일 수 있다 —
     // 백엔드가 창을 키우면 resize가 오고, 내려가던 펫은 진행한 비율 그대로 새 판에서 이어 간다
     function placeBoard() {
@@ -570,7 +596,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       svg.setAttribute("width", W);
       svg.setAttribute("height", H);
       game.vlines.forEach((line, i) => {
-        Object.entries({ x1: lay.xs[i], y1: lay.top, x2: lay.xs[i], y2: lay.bottom }).forEach(([k, v]) => line.setAttribute(k, v));
+        setAttrs(line, { x1: lay.xs[i], y1: lay.top, x2: lay.xs[i], y2: lay.bottom });
       });
       game.slots.forEach((slot, i) => {
         slot.style.left = `${lay.xs[i]}px`;
@@ -587,12 +613,11 @@ if (typeof window !== "undefined" && window.__TAURI__) {
           r.t0 = now - (r.d / SPEED) * 1000;
           const at = LADDER.pointAt(r.pts, r.d);
           r.p = at.p;
-          r.trail.setAttribute("points", at.trail.map((q) => `${q.x},${q.y}`).join(" "));
+          drawTrail(r, at.trail);
         } else if (r.phase === "done") {
           r.d = r.total;
-          const end = g.paths[r.i][g.paths[r.i].length - 1];
-          r.p = { x: lay.xs[end], y: lay.slotTop - r.side / 2 - 2 };
-          r.trail.setAttribute("points", r.pts.map((q) => `${q.x},${q.y}`).join(" "));
+          r.p = restSpot(r);
+          drawTrail(r, r.pts);
         } else {
           r.p = { x: r.pts[0].x, y: r.pts[0].y };
         }
@@ -648,7 +673,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
           r.dir = at.dir;
           const vertical = r.sheet?.manifest.animations.slide ? "slide" : "fall";
           setAnim(r, at.dir === "down" ? vertical : "walk", now);
-          r.trail.setAttribute("points", at.trail.map((q) => `${q.x},${q.y}`).join(" "));
+          drawTrail(r, at.trail);
           if (r.d >= r.total) arrive(r, now);
         }
         paintRunner(r, now);
@@ -659,11 +684,11 @@ if (typeof window !== "undefined" && window.__TAURI__) {
     function arrive(r, now) {
       r.phase = "done";
       const g = game.view;
-      const end = g.paths[r.i][g.paths[r.i].length - 1];
+      const end = LADDER.endColumn(g, r.i);
       const slot = g.results[end];
-      r.p = { x: game.lay.xs[end], y: game.lay.slotTop - r.side / 2 - 2 };
+      r.p = restSpot(r);
       setAnim(r, slot.mood === "good" ? "level_up" : slot.mood === "bad" ? "annoyed" : "sit_front", now);
-      document.querySelectorAll(".slot")[end]?.classList.add("hit");
+      game.slots[end].classList.add("hit");
       if (r.i === g.me) invoke("ladder_seen");
       game.finished += 1;
       if (game.finished === game.runners.length) {
@@ -704,8 +729,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
     function renderLast() {
       showOnly("game");
       game = null;
-      $("board").querySelectorAll(".runner, .nametag, .slot").forEach((e) => e.remove());
-      $("lines").replaceChildren();
+      clearBoard();
       $("all").hidden = true;
       $("game-note").textContent = "";
       const last = state.last;
