@@ -4,71 +4,12 @@
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const { El, elementStore } = require("./fake_dom");
 
 const UI = path.join(__dirname, "..", "ui");
 const [pet, stageName, artStyle] = process.argv.slice(2);
 
-class El {
-  constructor(id) {
-    this.id = id;
-    this.style = { setProperty() {} };
-    this.children = [];
-    this.parentNode = null;
-    this.dataset = {};
-    this.hidden = false;
-    this.clientWidth = 128;
-    this.clientHeight = 164;
-    this.offsetWidth = 128;
-    this.classes = new Set();
-    const self = this;
-    this.classList = { add: (...c) => c.forEach((x) => self.classes.add(x)), remove: (...c) => c.forEach((x) => self.classes.delete(x)), contains: (c) => self.classes.has(c) };
-  }
-  set innerHTML(_) {
-    // #neck의 세 층
-    this.children = ["nk-body", "nk-tile", "nk-head"].map((n) => {
-      const c = new El(n);
-      c.parentNode = this;
-      return c;
-    });
-  }
-  append(...xs) {
-    for (const x of xs) {
-      if (x.parentNode) x.parentNode.children = x.parentNode.children.filter((c) => c !== x);
-      x.parentNode = this;
-      this.children.push(x);
-    }
-  }
-  appendChild(x) {
-    this.append(x);
-  }
-  replaceChildren() {}
-  after() {}
-  remove() {}
-  focus() {}
-  toggleAttribute(name, on) {
-    if (name === "hidden") this.hidden = on;
-  }
-  setAttribute() {}
-  addEventListener() {}
-  getBoundingClientRect() {
-    return { left: 0, top: 0, width: 34, height: 26, bottom: 26, right: 34 };
-  }
-  querySelector() {
-    return new El("q");
-  }
-  querySelectorAll() {
-    return [];
-  }
-  getContext() {
-    return { drawImage() {}, clearRect() {}, fillRect: (x, y) => (this.filled = (this.filled ?? 0) + 1), getImageData: () => ({ data: new Uint8ClampedArray(128 * 128 * 4) }) };
-  }
-}
-
-const els = new Map();
-const byId = (id) => {
-  if (!els.has(id)) els.set(id, new El(id));
-  return els.get(id);
-};
+const byId = elementStore();
 // index.html과 같은 부모 — 테스트가 html도 따로 확인한다
 const html = fs.readFileSync(path.join(UI, "index.html"), "utf8");
 for (const id of ["nightcap", "focusring", "scarf"]) {
