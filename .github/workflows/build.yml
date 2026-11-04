@@ -72,6 +72,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Pack pet art as lossless WebP
+        run: |
+          pip install pillow numpy
+          python tools/pack_webp.py
       - name: Build installers
         run: npm run tauri build
       - uses: actions/upload-artifact@v4
@@ -106,6 +113,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
       # 서명 안 됨 — 처음 열 때 우클릭 → 열기 (README 참고)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Pack pet art as lossless WebP
+        run: |
+          pip install pillow numpy
+          python tools/pack_webp.py
       - name: Build universal .dmg
         run: npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
       - uses: actions/upload-artifact@v4

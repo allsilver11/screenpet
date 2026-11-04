@@ -78,6 +78,11 @@ window.addEventListener("resize", () => {
 
 // 기린 목 늘이기 (백엔드 anim "neckstretch" — 코어 behavior::NECK_STRETCH_SECS 3.4초 동안 제자리):
 // 목이 평소의 두 배로 쭉 늘었다가 돌아온다. 시트 한 칸으로는 담을 수 없어 층으로 그린다 —
+// 픽셀 그림은 늘 PNG다 (WebP로 바꾸는 건 동글 그림뿐, tools/pack_webp.py)
+function neckExt(dir) {
+  return dir.startsWith("pets_pixel") ? "png" : PET_ART_EXT;
+}
+
 // pets/giraffe/neck_<stage>.png (가로 4칸: 몸 · 머리 "어?" · 머리 깜빡 · 머리 ✧ 흐뭇, 모두 시트와 같은 좌표)와
 // neck_tile_<stage>.png (곧은 목 한 토막, 무늬 주기 = 높이). pet.json neck_stretch[stage] = {cut, tile, ext}:
 // cut 줄 아래는 몸 층, 위는 머리 층. 머리 층을 ext만큼 올리고 그 사이를 목 토막으로 채운다 (토막은 머리에 붙어 함께 올라간다).
@@ -104,10 +109,10 @@ function setupNeck(m, side, k, dir) {
   neckEl.style.height = side + "px";
   neckEl.style.left = petEl.style.left;
   for (const el of [nkBody, nkHead]) {
-    el.style.backgroundImage = `url(${dir}neck_${stage.stage}.png)`;
+    el.style.backgroundImage = `url(${dir}neck_${stage.stage}.${neckExt(dir)})`;
     el.style.backgroundSize = `${4 * side}px ${side}px`;
   }
-  nkTile.style.backgroundImage = `url(${dir}neck_tile_${stage.stage}.png)`;
+  nkTile.style.backgroundImage = `url(${dir}neck_tile_${stage.stage}.${neckExt(dir)})`;
   nkTile.style.backgroundSize = `${side}px ${meta.tile * k}px`;
 }
 

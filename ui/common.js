@@ -1,3 +1,6 @@
+// 동글 펫 그림 확장자: 배포 파일을 만들 때 tools/pack_webp.py가 "webp"로 바꾼다 (저장소에는 PNG)
+const PET_ART_EXT = "png";
+
 // 펫 창(main.js)과 하우스 창(house.js)이 같이 쓰는 것: 시트 읽기, 프레임 계산, 말풍선, 음식 고르기.
 // 일반 스크립트끼리는 최상위 const가 겹치면 안 되므로 window.__TAURI__는 함수 안에서만 꺼낸다.
 
@@ -59,14 +62,14 @@ async function loadPetSheet(id, stageName, style = "round") {
       // 아래 동글로
     }
   }
-  let url = `pets/${id}/sheet_${stageName}.png`;
+  let url = `pets/${id}/sheet_${stageName}.${PET_ART_EXT}`;
   let img;
   // 크게 보이는 단계는 시트 칸이 2배다 (frame_sizes, tools/sprite_spec.py frame_px). 표시 크기는 칸과 상관없다 — head·neck·neck_stretch 표도 이 칸의 px
   let frameSize = manifest.frame_sizes?.[stageName] ?? manifest.frame_size;
   try {
     img = await decodeSheet(url);
   } catch {
-    url = `pets/${id}/sheet.png`; // sheet.png는 sheet_teenager.png와 같은 그림
+    url = `pets/${id}/sheet.${PET_ART_EXT}`; // sheet.png는 sheet_teenager.png와 같은 그림
     img = await decodeSheet(url);
     frameSize = manifest.frame_sizes?.teenager ?? manifest.frame_size;
   }
