@@ -29,13 +29,13 @@ pub const MIN_WIDTH: f64 = 100.0;
 const RIGHT_MARGIN: f64 = 8.0;
 
 /// 단계별 집 크기 배율 (ui/house.js HOUSE_SCALE, tools/draw_house.py HOUSE_SCALE와 같다)
-pub fn house_scale(stage: &str) -> f64 {
+pub fn house_scale(stage: Stage) -> f64 {
     match stage {
-        "baby" => 0.55,
-        "kinder" => 0.68,
-        "child" => 0.82,
-        "adult" => 1.12,
-        _ => 1.0,
+        Stage::Baby => 0.55,
+        Stage::Kinder => 0.68,
+        Stage::Child => 0.82,
+        Stage::Teenager => 1.0,
+        Stage::Adult => 1.12,
     }
 }
 
@@ -57,23 +57,23 @@ fn fallback_kind(pet: &str) -> HouseKind {
 }
 
 /// 집 그림 한 변 (논리 px). 픽셀 집은 칸이 정수 물리 px인 크기 (문에 동물이 줄지 않고 들어가 동글보다 크다)
-pub fn house_side(stage: &str, style: PetStyle, dpi: f64) -> f64 {
-    match Stage::from_name(stage).filter(|_| style == PetStyle::Pixel) {
-        Some(st) => style::pixel_house_side(st, dpi),
-        None => HOUSE_SIZE * house_scale(stage),
+pub fn house_side(stage: Stage, style: PetStyle, dpi: f64) -> f64 {
+    match style {
+        PetStyle::Pixel => style::pixel_house_side(stage, dpi),
+        PetStyle::Round => HOUSE_SIZE * house_scale(stage),
     }
 }
 
 /// 집 그림 좌표 한 칸의 물리 px (문 자리 계산용)
-fn art_unit(stage: &str, style: PetStyle, dpi: f64) -> f64 {
-    match Stage::from_name(stage).filter(|_| style == PetStyle::Pixel) {
-        Some(st) => f64::from(style::dot_physical(st, dpi)),
-        None => house_scale(stage) * dpi,
+fn art_unit(stage: Stage, style: PetStyle, dpi: f64) -> f64 {
+    match style {
+        PetStyle::Pixel => f64::from(style::dot_physical(stage, dpi)),
+        PetStyle::Round => house_scale(stage) * dpi,
     }
 }
 
 /// 하우스 창 크기 (논리 px): 너비 = max(집, MIN_WIDTH), 높이 = 말풍선 자리 + 집
-pub fn window_size(stage: &str, style: PetStyle, dpi: f64) -> (f64, f64) {
+pub fn window_size(stage: Stage, style: PetStyle, dpi: f64) -> (f64, f64) {
     let side = house_side(stage, style, dpi);
     (side.max(MIN_WIDTH), side + BUBBLE_SPACE)
 }
@@ -115,12 +115,12 @@ const PIXEL_DOOR_JSON: [DoorRow; 4] = [door_row!("house_pixel", "house"), door_r
 /// json이 깨졌을 때 쓰는 문 (teenager 집의 문)
 const DEFAULT_DOOR: Door = Door { x: 30.0, w: 52.0 };
 
-pub fn door(kind: HouseKind, stage: &str, style: PetStyle) -> Door {
+pub fn door(kind: HouseKind, stage: Stage, style: PetStyle) -> Door {
     let kind = kind.art();
     let table = if style == PetStyle::Pixel { &PIXEL_DOOR_JSON } else { &DOOR_JSON };
     let doors = || table.iter().flatten();
     doors()
-        .find(|(k, s, _)| *k == kind && *s == stage)
+        .find(|(k, s, _)| *k == kind && *s == stage.name())
         .or_else(|| doors().find(|(k, s, _)| *k == kind && *s == "teenager"))
         .and_then(|(_, _, j)| serde_json::from_str::<HouseJson>(j).ok())
         .map_or(DEFAULT_DOOR, |h| h.door)
@@ -130,7 +130,7 @@ pub fn door(kind: HouseKind, stage: &str, style: PetStyle) -> Door {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HouseState {
     pub pet: String,
-    pub stage: &'static str,
+    pub stage: Stage,
     /// 몸 크기 배율 (동글 기준 — 픽셀 문간은 house.js가 칸 정수배로 맞춘다)
     pub scale: f64,
     /// 문간 동물의 그림
@@ -212,11 +212,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 }
 
 /// 지금 하우스에 보이는 동물과 단계 (게임 루프가 AppState.house에 적는다)
-fn shown(app: &AppHandle) -> (String, &'static str, PetStyle) {
-    app.try_state::<AppState>().map_or((String::new(), "teenager", PetStyle::Round), |s| {
-        let h = s.house.lock().unwrap();
-        (h.pet.clone(), h.stage, h.style)
-    })
+fn shown(app: &AppHandle) -> (String, Stage, PetStyle) {
+    let state = app.state::<AppState>();
+    let h = state.house.lock().unwrap();
+    (h.pet.clone(), h.stage, h.style)
 }
 
 /// 모니터의 작업 영역 (물리 px)

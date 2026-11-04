@@ -715,7 +715,7 @@ impl Network {
             Visit::Visit {
                 visit_id,
                 species: own.entry.id.clone(),
-                stage: own.shown.stage.to_string(),
+                stage: own.shown.stage.name().to_string(),
                 // 동글일 때의 크기: 예전 버전은 동글로 그리고, 새 버전은 픽셀이면 이쪽 화면에 맞춰 다시 잰다
                 scale: own.shown.base,
                 personality: personality_name(own.entry.manifest.personality).to_string(),
@@ -1238,7 +1238,7 @@ impl Network {
     ) -> Result<(), String> {
         let state = app.state::<AppState>();
         let entry = state.pets.iter().find(|p| p.id == species).cloned().ok_or_else(|| format!("unknown species {species:?}"))?;
-        let stage: Stage = serde_json::from_value(serde_json::Value::String(stage.to_string())).map_err(|_| format!("unknown stage {stage:?}"))?;
+        let stage = Stage::from_name(stage).ok_or_else(|| format!("unknown stage {stage:?}"))?;
         let guests = slots.iter().filter(|s| !s.is_own());
         if guests.clone().count() >= MAX_GUESTS {
             return Err("too many guests".into());

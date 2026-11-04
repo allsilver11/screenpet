@@ -42,7 +42,7 @@ pub fn is_guest_label(label: &str) -> bool {
 pub struct StagePayload {
     pub pet: String,
     /// 시트 이름 (`sheet_<stage>.png`)
-    pub stage: &'static str,
+    pub stage: Stage,
     /// 몸 크기 배율: 동글은 단계 배율 × 동물별 배율, 픽셀은 시트 칸 수(pet.json frame_sizes) × 칸, 칸이 정수 물리 px (style::pixel_body_scale)
     pub scale: f64,
     /// 동글일 때의 몸 크기 배율 — 친구에게 보내는 값 (예전 버전은 동글로 그린다), 하우스 문간
@@ -62,7 +62,7 @@ pub fn stage_payload(entry: &PetEntry, stage: Stage, wanted: PetStyle, dpi: f64)
         PetStyle::Round => base,
         PetStyle::Pixel => style::pixel_body_scale(entry.art(shown).frame_size_at(stage.name()), stage, dpi),
     };
-    StagePayload { pet: entry.id.clone(), stage: stage.name(), scale, base, style: shown, wanted }
+    StagePayload { pet: entry.id.clone(), stage, scale, base, style: shown, wanted }
 }
 
 /// 놀러 온 친구 동물
@@ -85,7 +85,7 @@ pub enum Role {
 #[derive(Debug, Clone, Serialize)]
 pub struct SlotInfo {
     pub pet: String,
-    pub stage: &'static str,
+    pub stage: Stage,
     pub scale: f64,
     /// "round" | "pixel" — 웹뷰가 읽을 그림 폴더
     pub style: PetStyle,
@@ -125,8 +125,8 @@ pub fn note_window_logical_size(body_scale: f64) -> (f64, f64) {
 
 /// style = 지금 보이는 스타일. 그림에 달린 것(칸 크기·머리 표·있는 동작)만 다르고 나머지는 같다 (PetEntry::art).
 /// 몸 폭은 픽셀도 같은 비율: 시트에서 재 보면 앉은 몸 폭의 절반이 동글 0.38, 픽셀 0.33~0.39로 거의 같다
-pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64, stage: &str, style: PetStyle) -> PetConfig {
-    PetConfig::from_manifest(entry.art(style), dpi, body_scale, stage)
+pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64, stage: Stage, style: PetStyle) -> PetConfig {
+    PetConfig::from_manifest(entry.art(style), dpi, body_scale, stage.name())
 }
 
 pub struct Slot {
@@ -223,16 +223,15 @@ impl Slot {
 
     /// 지금 일시 확대 배율이 몸 크기에 곱해지는 값 (픽셀은 칸이 정수 물리 px로 남게)
     fn boost_factor(&self, shown: &StagePayload) -> f64 {
-        match (shown.style, Stage::from_name(shown.stage)) {
-            (PetStyle::Pixel, Some(stage)) => visit::pixel_boost(style::dot_physical(stage, self.dpi), self.boost),
-            (_, Some(stage)) => visit::round_boost(shown.scale, stage.scale(), self.boost),
-            _ => 1.0,
+        match shown.style {
+            PetStyle::Pixel => visit::pixel_boost(style::dot_physical(shown.stage, self.dpi), self.boost),
+            PetStyle::Round => visit::round_boost(shown.scale, shown.stage.scale(), self.boost),
         }
     }
 
     /// 이 동물의 최대 일시 확대 배율
     pub fn boost_cap(&self) -> f64 {
-        Stage::from_name(self.shown.stage).map_or(1.0, |stage| visit::boost_cap(self.entry.manifest.size_mult(stage)))
+        visit::boost_cap(self.entry.manifest.size_mult(self.shown.stage))
     }
 
     /// 일시 확대 배율을 바꾼다: 창 크기·몸 크기·웹뷰 그림 (성장과 상관없다, 저장하지 않는다)
@@ -245,14 +244,12 @@ impl Slot {
 
     /// 픽셀 동물이면 칸 한 변 (물리 px) — 밥그릇이 같은 칸으로 놓인다
     pub fn pixel_dot(&self) -> Option<u32> {
-        let stage = Stage::from_name(self.shown.stage).filter(|_| self.shown.style == PetStyle::Pixel)?;
-        Some(style::dot_physical(stage, self.dpi))
+        (self.shown.style == PetStyle::Pixel).then(|| style::dot_physical(self.shown.stage, self.dpi))
     }
 
     /// 스타일을 바꾼다 (지금 단계·동물 그대로): 창 크기·펫 크기·웹뷰 시트. 그림마다 있는 동작이 다를 수 있으니 진행 중인 특별 동작·벽 타기도 다시 맞춘다
     pub fn restyle(&mut self, app: &AppHandle, wanted: PetStyle) {
-        let Some(stage) = Stage::from_name(self.shown.stage) else { return };
-        let shown = stage_payload(&self.entry, stage, wanted, self.dpi);
+        let shown = stage_payload(&self.entry, self.shown.stage, wanted, self.dpi);
         self.set_stage(app, shown);
         self.pet.set_special(self.pet.cfg.special);
         self.pet.set_can_climb(self.pet.cfg.can_climb);
@@ -342,12 +339,11 @@ impl Slot {
         if dpi != self.dpi {
             self.dpi = dpi;
             // 픽셀: 다른 배율의 모니터로 옮기면 칸 물리 px가 달라진다 — 창·시트까지 다시 맞춘다
-            match Stage::from_name(self.shown.stage).filter(|_| self.shown.style == PetStyle::Pixel) {
-                Some(stage) => {
-                    let (app, shown) = (self.window.app_handle().clone(), stage_payload(&self.entry, stage, self.shown.wanted, dpi));
-                    self.set_stage(&app, shown);
-                }
-                None => self.pet.cfg = pet_config(dpi, &self.entry, self.shown.scale, self.shown.stage, self.shown.style),
+            if self.shown.style == PetStyle::Pixel {
+                let (app, shown) = (self.window.app_handle().clone(), stage_payload(&self.entry, self.shown.stage, self.shown.wanted, dpi));
+                self.set_stage(&app, shown);
+            } else {
+                self.pet.cfg = pet_config(dpi, &self.entry, self.shown.scale, self.shown.stage, self.shown.style);
             }
         }
         self.world = World::new(windows.to_vec(), work_areas.to_vec(), self.pet.cfg.size);
