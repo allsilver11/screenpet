@@ -182,6 +182,26 @@ function setupFormKeys({ submit, close } = {}) {
   });
 }
 
+// 한 줄 글 칸 (편지·포스트잇): 쓴 글을 max자에서 자르고, 글자 수가 바뀌면 showCount(글자 수, max)를 부른다. open(max)로 비우고 포커스
+function noteField(inputEl, showCount) {
+  let max = 80;
+  const count = () => showCount([...inputEl.value].length, max);
+  inputEl.addEventListener("input", () => {
+    const chars = [...inputEl.value];
+    if (chars.length > max) inputEl.value = chars.slice(0, max).join("");
+    count();
+  });
+  return {
+    open(n) {
+      max = n || 80;
+      inputEl.maxLength = max * 2; // maxlength는 UTF-16 단위 — 이모지도 들어가게 넉넉히, 글자 수는 위에서 자른다
+      inputEl.value = "";
+      count();
+      inputEl.focus();
+    },
+  };
+}
+
 // 키보드 UI가 없는 창: 웹뷰 기본 동작(우클릭 메뉴, F5, Ctrl+R, Alt+F4 등)을 막는다.
 function blockWebviewDefaults() {
   window.addEventListener("contextmenu", (e) => e.preventDefault());

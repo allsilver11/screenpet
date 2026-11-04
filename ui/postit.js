@@ -5,24 +5,8 @@ const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 const inputEl = document.getElementById("input");
 const countEl = document.getElementById("count");
 
-let max = 80;
-
-function count() {
-  countEl.textContent = `${[...inputEl.value].length}/${max}자 · Enter로 붙이기`;
-}
-
-function open(n) {
-  max = n || 80;
-  inputEl.maxLength = max * 2; // maxlength는 UTF-16 단위 — 이모지도 들어가게 넉넉히, 글자 수는 아래에서 자른다
-  inputEl.value = "";
-  count();
-  inputEl.focus();
-}
-
-inputEl.addEventListener("input", () => {
-  const chars = [...inputEl.value];
-  if (chars.length > max) inputEl.value = chars.slice(0, max).join("");
-  count();
+const field = noteField(inputEl, (n, max) => {
+  countEl.textContent = `${n}/${max}자 · Enter로 붙이기`;
 });
 
 const submit = () => invoke("postit_submit", { text: inputEl.value });
@@ -33,6 +17,6 @@ document.getElementById("cancel").addEventListener("click", () => invoke("postit
 setupFormKeys({ submit, close: () => invoke("postit_close") });
 
 (async () => {
-  await here.listen("postit-open", (e) => open(e.payload));
-  open(await invoke("postit_max"));
+  await here.listen("postit-open", (e) => field.open(e.payload));
+  field.open(await invoke("postit_max"));
 })();

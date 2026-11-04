@@ -11,28 +11,15 @@ const noteEl = document.getElementById("note");
 const okBtn = document.getElementById("ok");
 const cancelBtn = document.getElementById("cancel");
 
-let max = 80;
-
-function count() {
-  const n = [...inputEl.value].length;
+const field = noteField(inputEl, (n, max) => {
   noteEl.textContent = `${n}/${max}자 · Enter로 보내기`;
-}
+});
 
 function show(v) {
-  max = v.max || 80;
-  inputEl.maxLength = max * 2; // maxlength는 UTF-16 단위 — 이모지도 들어가게 넉넉히, 글자 수는 아래에서 자른다
   // 답장: 와 있는 손님이 들고 주인에게 돌아간다
   titleEl.textContent = v.reply ? `💌 ${v.name}에게 답장` : `💌 ${v.name}에게 펫과 함께 보낼 편지`;
-  inputEl.value = "";
-  count();
-  inputEl.focus();
+  field.open(v.max);
 }
-
-inputEl.addEventListener("input", () => {
-  const chars = [...inputEl.value];
-  if (chars.length > max) inputEl.value = chars.slice(0, max).join("");
-  count();
-});
 
 function submit() {
   invoke("letter_submit", { text: inputEl.value });
