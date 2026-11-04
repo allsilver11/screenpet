@@ -78,7 +78,6 @@ struct Snowman {
 pub struct WeatherFx {
     preview: Option<Option<Weather>>,
     season: Option<Weather>,
-    menu_synced: bool,
     active: Option<Weather>,
     next_season: Instant,
     next_scene: Instant,
@@ -103,7 +102,6 @@ impl WeatherFx {
         Self {
             preview,
             season: None,
-            menu_synced: false,
             active: None,
             next_season: now,
             next_scene: now + START_DELAY,
@@ -120,11 +118,9 @@ impl WeatherFx {
         }
     }
 
-    /// 메뉴 체크를 지금 상태에 맞춘다. 일 년 내내 누를 수 있다 (소나기 사이에도)
+    /// 메뉴 체크를 지금 상태에 맞춘다
     pub fn sync_menu(&mut self, app: &AppHandle, menu_off: bool) {
-        let item = &app.state::<AppState>().menu.weather;
-        let _ = item.set_enabled(true);
-        let _ = item.set_checked(!menu_off);
+        let _ = app.state::<AppState>().menu.weather.set_checked(!menu_off);
         // 다음 틱에 바로 반영한다
         self.next_scene = Instant::now().min(self.next_scene);
     }
@@ -143,10 +139,6 @@ impl WeatherFx {
             self.next_season = now + SEASON_EVERY;
             let today = chrono::Local::now();
             self.season = weather::weather_at(today.year(), today.month(), today.day(), today.num_seconds_from_midnight());
-            if !self.menu_synced {
-                self.menu_synced = true;
-                self.sync_menu(app, menu_off);
-            }
         }
         let want = weather::wanted(self.season, self.preview, menu_off, crate::windows_hidden(app));
         if want.is_none() {

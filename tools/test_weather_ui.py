@@ -56,7 +56,7 @@ def test_preview_is_not_in_the_menu():
 def test_the_menu_is_open_all_year():
     tray = (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
     assert '"🌨️ 날씨 효과", true,' in tray
-    assert "item.set_enabled(true)" in RS
+    assert "set_enabled" not in RS
     assert "on_offer" not in RS
 
 

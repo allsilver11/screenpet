@@ -296,6 +296,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut broom_win = HandWindow::default();
     // 계절 날씨 (철이 아니거나 꺼 두면 창도 일도 없다)
     let mut weather = WeatherFx::new(seed_now());
+    let _ = app.state::<AppState>().menu.weather.set_checked(config.weather_on);
     // 🎁 선물 (없으면 1초에 한 번 시계만 본다)
     let mut gifts = Gifts::new(&config.gifts, seed_now());
     // 자리 비움·돌아옴, 하루 일과, ⏱️ 집중 친구 (1초에 한 번)
