@@ -154,6 +154,8 @@ pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64, stage: &str, styl
 pub struct Slot {
     /// 친구가 밥을 줘서 일시적으로 커진 배율 (1 = 평소)
     pub boost: f64,
+    /// 지금 몸 크기에 실제로 곱해진 값 (되돌릴 때 나눈다)
+    boost_applied: f64,
     pub label: String,
     pub role: Role,
     pub entry: PetEntry,
@@ -195,6 +197,7 @@ impl Slot {
             dpi,
             shown,
             boost: 1.0,
+            boost_applied: 1.0,
             need_show: true,
             last_pos: None,
             last_render: None,
@@ -228,7 +231,8 @@ impl Slot {
     /// 단계(또는 동물)가 바뀌었다: 창 크기, 펫 크기, 웹뷰 시트
     pub fn set_stage(&mut self, app: &AppHandle, mut shown: StagePayload) {
         // 친구가 밥을 줘서 일시적으로 커졌으면 어떤 그림·단계든 그만큼 크게
-        shown.scale *= self.boost_factor(&shown);
+        self.boost_applied = self.boost_factor(&shown);
+        shown.scale *= self.boost_applied;
         let (w, h) = self.logical_size(shown.scale);
         let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
         self.pet.cfg = pet_config(self.dpi, &self.entry, shown.scale, shown.stage, shown.style);
@@ -243,7 +247,8 @@ impl Slot {
     fn boost_factor(&self, shown: &StagePayload) -> f64 {
         match (shown.style, Stage::from_name(shown.stage)) {
             (PetStyle::Pixel, Some(stage)) => visit::pixel_boost(style::dot_physical(stage, self.dpi), self.boost),
-            _ => self.boost,
+            (_, Some(stage)) => visit::round_boost(shown.scale, stage.scale(), self.boost),
+            _ => 1.0,
         }
     }
 
@@ -255,7 +260,7 @@ impl Slot {
     /// 일시 확대 배율을 바꾼다: 창 크기·몸 크기·웹뷰 그림 (성장과 상관없다, 저장하지 않는다)
     pub fn set_boost(&mut self, app: &AppHandle, boost: f64) {
         let mut plain = self.shown.clone();
-        plain.scale /= self.boost_factor(&plain);
+        plain.scale /= self.boost_applied;
         self.boost = boost;
         self.set_stage(app, plain);
     }

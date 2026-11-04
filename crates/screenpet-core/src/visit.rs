@@ -432,7 +432,7 @@ pub fn fully_inside_v(bounds: &Rect, side: Side, y: f64, height: f64) -> bool {
 /// 한 번 먹을 때마다 커지는 배율
 pub const BOOST_STEP: f64 = 1.15;
 /// 가장 큰 크기: 같은 단계의 산타 크기 (산타 stage_size)
-const BOOST_LARGEST_SIZE: f64 = 1.65;
+pub const BOOST_LARGEST_SIZE: f64 = 1.65;
 /// 집에 돌아오고 이만큼 뒤 원래 크기로 (초)
 pub const BOOST_HOME_SECS: u64 = 600;
 
@@ -458,10 +458,17 @@ pub fn sanitize_boost(sent: Option<f64>, cap: f64) -> f64 {
     }
 }
 
-/// 픽셀 칸 dot(물리 px)을 boost배 할 때의 실제 배율: 칸이 정수 물리 px로 남는다
+/// 동글 몸 크기 scale에 곱하는 실제 배율: 곱한 값이 그 단계의 가장 큰 크기를 넘지 않는다
+/// (친구가 보낸 scale이 범위 안에서 크더라도 배율로 더 키우지 못한다)
+pub fn round_boost(scale: f64, stage_scale: f64, boost: f64) -> f64 {
+    let room = if scale > 0.0 { stage_scale * BOOST_LARGEST_SIZE / scale } else { 1.0 };
+    boost.min(room).max(1.0)
+}
+
+/// 픽셀 칸 dot(물리 px)을 boost배 할 때의 실제 배율: 칸이 정수 물리 px로 남고 boost를 넘지 않는다
 pub fn pixel_boost(dot: u32, boost: f64) -> f64 {
     let dot = f64::from(dot.max(1));
-    (dot * boost).round().max(dot) / dot
+    (dot * boost + 1e-9).floor().max(dot) / dot
 }
 
 /// 친구가 던진 물건을 어떻게 할까
@@ -505,7 +512,18 @@ mod tests {
         assert_eq!(pixel_boost(3, 1.0), 1.0);
         assert_eq!(pixel_boost(3, 1.34), 4.0 / 3.0);
         assert_eq!(pixel_boost(3, 1.1), 1.0);
-        assert_eq!(pixel_boost(4, 1.65), 7.0 / 4.0);
+        assert_eq!(pixel_boost(4, 1.65), 6.0 / 4.0);
+        assert_eq!(pixel_boost(3, 1.2), 1.0, "never past the boost");
+        // 곱한 크기는 어떤 값을 받아도 그 단계의 산타 크기까지
+        let adult = 1.15;
+        let largest = adult * BOOST_LARGEST_SIZE;
+        assert!((1.05 * round_boost(1.05, adult, 1.8) - 1.05 * 1.8).abs() < 1e-9, "room left: the whole boost");
+        assert!((1.05 * round_boost(1.05, adult, 3.0) - largest).abs() < 1e-9, "no room: stops at the largest");
+        for scale in [0.2, 1.05, 1.9, 2.5, 4.0] {
+            let got = scale * round_boost(scale, adult, 3.0);
+            assert!(got <= largest.max(scale) + 1e-9, "{scale}: {got}");
+        }
+        assert_eq!(round_boost(4.0, adult, 3.0), 1.0, "already past it: no bigger");
     }
 
     #[test]
