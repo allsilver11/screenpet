@@ -995,3 +995,311 @@ fn a_wide_network_cannot_use_up_the_per_code_table_through_many_48s() {
         .collect();
     assert_eq!(reasons, ["ok", "ok", "ok", "ok", "rate", "rate"], "four networks' worth per /32");
 }
+
+// ---- admin commands --------------------------------------------------------
+
+#[cfg(unix)]
+mod admin {
+    use super::*;
+    use screenpet_relay::admin::request;
+    use std::path::Path;
+
+    fn ok(dir: &Path, words: &[&str]) -> String {
+        let (good, text) = request(dir, words).unwrap();
+        assert!(good, "{words:?}: {text}");
+        text
+    }
+
+    fn refused(dir: &Path, words: &[&str]) -> String {
+        let (good, text) = request(dir, words).unwrap();
+        assert!(!good, "{words:?}: {text}");
+        text
+    }
+
+    #[test]
+    fn status_shows_who_is_online_and_counts() {
+        let dir = data_dir("status");
+        let relay = start_in(&dir, Limits::default());
+        let (ka, kb) = (key(), key());
+        let (_a, _) = Client::login_as(&relay, Some("203.0.113.5"), &ka, "first", &[pubhex(&kb)]).unwrap();
+        let (_b, _) = Client::login_as(&relay, Some("2001:db8:1:2::9"), &kb, "second", &[pubhex(&ka)]).unwrap();
+        let mut bad = Client::raw(&relay);
+        let mut forged = bad.auth_msg(&key(), "x", &[]);
+        forged["key"] = json!(pubhex(&ka));
+        bad.send(&forged);
+        bad.closed(2.0);
+        wait_until("auth counted", || ok(&dir, &["status"]).contains("auth_failed 1"));
+        let text = ok(&dir, &["status"]);
+        for part in ["relay on, registration on, friendcode on", "online 2", "stored 2", &pubhex(&ka)[..12], "\"first\"", "203.0.113.5", "2001:db8:1:2::/64", "friends 1 (1 mutual)", "conns_admitted 3", "registrations 2"] {
+            assert!(text.contains(part), "{part} missing in:\n{text}");
+        }
+        assert!(refused(&dir, &["nonsense"]).contains("unknown command"));
+        drop(relay);
+        assert!(!dir.join("admin.sock").exists(), "socket removed at stop");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_socket_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = data_dir("sock");
+        let _relay = start_in(&dir, Limits::default());
+        assert_eq!(std::fs::metadata(dir.join("admin.sock")).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[test]
+    fn kick_disconnects_with_a_reason_and_it_may_come_back() {
+        let dir = data_dir("kick");
+        let relay = start_in(&dir, Limits::default());
+        let (ka, kb) = (key(), key());
+        let (mut a, _) = Client::login(&relay, &ka, "kickme", &[pubhex(&kb)]);
+        let (mut b, _) = Client::login(&relay, &kb, "other", &[pubhex(&ka)]);
+        ok(&dir, &["kick", &pubhex(&ka)[..10]]);
+        assert_eq!(a.closed(2.0), Some(Some("kicked".into())));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while b.wait("presence", 2.0).is_some_and(|p| p["online"] != false) {
+            assert!(Instant::now() < deadline);
+        }
+        let (_a2, _) = Client::login(&relay, &ka, "kickme", &[]);
+        ok(&dir, &["kick", "kickme"]);
+        assert!(refused(&dir, &["kick", "kickme"]).contains("not online"));
+        assert!(refused(&dir, &["kick", "nobody-here"]).contains("no install"));
+        drop(relay);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_prefix_matching_several_refuses_and_lists_them() {
+        let dir = data_dir("ambig");
+        let relay = start_in(&dir, Limits::default());
+        let (ka, kb) = (key(), key());
+        let (mut a, _) = Client::login(&relay, &ka, "same-1", &[]);
+        let (mut b, _) = Client::login(&relay, &kb, "same-2", &[]);
+        for command in ["kick", "ban", "purge"] {
+            let text = refused(&dir, &[command, "same"]);
+            assert!(text.contains("matches 2") && text.contains(&pubhex(&ka)) && text.contains(&pubhex(&kb)), "{text}");
+        }
+        assert!(refused(&dir, &["kick", "s"]).contains("no install"), "too short to be a prefix");
+        assert!(a.closed(0.3).is_none() && b.closed(0.1).is_none(), "nothing happened");
+        assert!(ok(&dir, &["bans"]).contains("keys (0)"));
+        ok(&dir, &["kick", "same-1"]);
+        assert!(a.closed(2.0).is_some());
+        drop(relay);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_ban_disconnects_refuses_and_survives_a_restart() {
+        let dir = data_dir("ban");
+        let k = key();
+        let unseen = key();
+        {
+            let relay = start_in(&dir, Limits::default());
+            let (mut a, _) = Client::login(&relay, &k, "banme", &[]);
+            ok(&dir, &["ban", "banme"]);
+            assert_eq!(a.closed(2.0), Some(Some("banned".into())));
+            assert_eq!(Client::login_as(&relay, None, &k, "banme", &[]).err().as_deref(), Some("banned"));
+            // A whole key works before it has ever been seen, and registers nothing.
+            ok(&dir, &["ban", &pubhex(&unseen)]);
+            assert_eq!(Client::login_as(&relay, None, &unseen, "u", &[]).err().as_deref(), Some("banned"));
+            let bans = ok(&dir, &["bans"]);
+            assert!(bans.contains(&pubhex(&k)) && bans.contains("banme") && bans.contains("keys (2)"), "{bans}");
+        }
+        let relay = start_in(&dir, Limits::default());
+        assert_eq!(Client::login_as(&relay, None, &k, "banme", &[]).err().as_deref(), Some("banned"), "still banned");
+        ok(&dir, &["unban", &pubhex(&k)[..10]]);
+        assert!(Client::login_as(&relay, None, &k, "banme", &[]).is_ok());
+        assert_eq!(Client::login_as(&relay, None, &unseen, "u", &[]).err().as_deref(), Some("banned"), "the other stays");
+        drop(relay);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_address_ban_refuses_there_and_never_the_proxy() {
+        let dir = data_dir("banip");
+        {
+            let relay = start_in(&dir, Limits::default());
+            let (mut a, _) = Client::login_as(&relay, Some("203.0.113.7"), &key(), "a", &[]).unwrap();
+            let mut pre = Client::raw_as(&relay, Some("203.0.113.7"));
+            let (mut other, _) = Client::login_as(&relay, Some("203.0.113.8"), &key(), "b", &[]).unwrap();
+            ok(&dir, &["ban-ip", "203.0.113.7"]);
+            assert_eq!(a.closed(2.0), Some(Some("banned".into())));
+            assert_eq!(pre.closed(2.0), Some(Some("banned".into())), "unauthenticated too");
+            assert_eq!(Client::try_raw(&relay, Some("203.0.113.7"), None).err(), Some(403));
+            assert!(other.closed(0.2).is_none(), "its neighbour is fine");
+            for proxy in ["127.0.0.1", "::1", "192.168.0.52", "::ffff:192.168.0.52"] {
+                assert!(refused(&dir, &["ban-ip", proxy]).contains("trusted proxy"), "{proxy}");
+            }
+            assert!(refused(&dir, &["ban-ip", "not-an-ip"]).contains("not an address"));
+            ok(&dir, &["ban-ip", "2001:db8:1:2::9"]);
+            assert_eq!(Client::try_raw(&relay, Some("2001:db8:1:2:ffff::1"), None).err(), Some(403), "the whole /64");
+        }
+        let relay = start_in(&dir, Limits::default());
+        assert_eq!(Client::try_raw(&relay, Some("203.0.113.7"), None).err(), Some(403), "after a restart");
+        assert!(ok(&dir, &["bans"]).contains("addresses (2)"));
+        ok(&dir, &["unban", "203.0.113.7"]);
+        assert!(Client::try_raw(&relay, Some("203.0.113.7"), None).is_ok());
+        drop(relay);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_corrupt_control_file_stops_the_start() {
+        let dir = data_dir("corrupt");
+        drop(start_in(&dir, Limits::default()));
+        std::fs::write(dir.join("control.json"), "{\"banned_keys\": [").unwrap();
+        let cfg = RelayConfig::new(SocketAddr::from(([127, 0, 0, 1], 0)), Some(dir.clone()));
+        let err = Relay::start(cfg).err().expect("must not start");
+        assert!(err.to_string().contains("control.json"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn registration_off_lets_existing_installs_in() {
+        let dir = data_dir("reg");
+        let known = key();
+        {
+            let relay = start_in(&dir, Limits::default());
+            drop(Client::login(&relay, &known, "known", &[]));
+            ok(&dir, &["registration", "off"]);
+            assert_eq!(Client::login_as(&relay, None, &key(), "new", &[]).err().as_deref(), Some("registration_closed"));
+            assert!(Client::login_as(&relay, None, &known, "known", &[]).is_ok());
+        }
+        let relay = start_in(&dir, Limits::default());
+        assert!(ok(&dir, &["status"]).contains("registration off"));
+        assert!(Client::login_as(&relay, None, &key(), "new", &[]).is_err(), "still off after a restart");
+        ok(&dir, &["registration", "on"]);
+        assert!(Client::login_as(&relay, None, &key(), "new", &[]).is_ok());
+        drop(relay);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn friendcode_off_stops_codes_for_everyone_friends_still_connect() {
+        let dir = data_dir("code");
+        let relay = start_in(&dir, Limits::default());
+        let (ka, kb, kc) = (key(), key(), key());
+        let (mut a, _) = Client::login(&relay, &ka, "aaaa", &[pubhex(&kb)]);
+        let (mut b, wb) = Client::login(&relay, &kb, "bbbb", &[pubhex(&ka)]);
+        let (mut c, _) = Client::login(&relay, &kc, "cccc", &[]);
+        // Redeemed just before: the grant must not outlive the switch.
+        c.send(&json!({"t": "redeem", "code": wb["code"]}));
+        let granted = c.expect("redeemed", 2.0);
+        ok(&dir, &["friendcode", "off"]);
+        assert_eq!(a.expect("code", 2.0)["code"], "----", "online installs are told");
+        c.send(&json!({"t": "open", "req": 1, "to": granted["key"]}));
+        assert_eq!(c.expect("open_failed", 2.0)["reason"], "not_friends");
+        c.send(&json!({"t": "redeem", "code": wb["code"]}));
+        assert_eq!(c.expect("redeem_failed", 2.0)["reason"], "disabled");
+        a.send(&json!({"t": "new_code"}));
+        assert_eq!(a.expect("code", 2.0)["code"], "----");
+        let (_d, wd) = Client::login(&relay, &key(), "dddd", &[]);
+        assert_eq!(wd["code"], "----", "welcome carries no code");
+        // Friends are not affected.
+        a.send(&json!({"t": "open", "req": 2, "to": pubhex(&kb)}));
+        let ch = a.expect("opened", 2.0)["ch"].as_u64().unwrap() as u32;
+        a.send_bin(ch, b"hi");
+        assert_eq!(b.recv_bin(2.0), Some((ch, b"hi".to_vec())));
+        // Back on: online installs get their code again.
+        ok(&dir, &["friendcode", "on"]);
+        let code = c.expect("code", 2.0)["code"].clone();
+        assert_ne!(code, "----");
+        let code_b = b.expect("code", 2.0)["code"].clone();
+        assert_eq!(code_b, wb["code"]);
+        c.send(&json!({"t": "redeem", "code": code_b}));
+        c.expect("redeemed", 2.0);
+        drop((a, b, c, _d, relay));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn relay_off_refuses_everyone_but_the_health_check() {
+        let dir = data_dir("off");
+        {
+            let relay = start_in(&dir, Limits::default());
+            let k = key();
+            let (mut a, _) = Client::login(&relay, &k, "aaaa", &[]);
+            let mut pre = Client::raw(&relay);
+            ok(&dir, &["relay", "off"]);
+            assert_eq!(a.closed(2.0), Some(Some("relay_off".into())));
+            assert_eq!(pre.closed(2.0), Some(Some("relay_off".into())));
+            assert_eq!(Client::try_raw(&relay, None, None).err(), Some(503));
+            assert!(http_get(&relay, "/healthz").starts_with("HTTP/1.1 200"));
+            wait_until("everyone gone", || relay.online_count() == 0);
+        }
+        let relay = start_in(&dir, Limits::default());
+        assert_eq!(Client::try_raw(&relay, None, None).err(), Some(503), "still off after a restart");
+        assert!(http_get(&relay, "/healthz").starts_with("HTTP/1.1 200"));
+        ok(&dir, &["relay", "on"]);
+        assert!(Client::login_as(&relay, None, &key(), "a", &[]).is_ok());
+        drop(relay);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purge_forgets_an_install_and_its_code() {
+        let dir = data_dir("purge");
+        let relay = start_in(&dir, Limits::default());
+        let k = key();
+        let (mut a, wa) = Client::login(&relay, &k, "aaaa", &[]);
+        ok(&dir, &["purge", "aaaa"]);
+        assert_eq!(a.closed(2.0), Some(Some("purged".into())));
+        assert!(ok(&dir, &["status"]).contains("stored 0"));
+        let (_a2, wa2) = Client::login(&relay, &k, "aaaa", &[]);
+        assert_ne!(wa2["code"], wa["code"], "registered afresh");
+        drop((_a2, relay));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purging_groups_and_idle_installs_needs_yes() {
+        let dir = data_dir("isl");
+        let (ka, kb, kc) = (key(), key(), key());
+        let now = screenpet_relay::store::unix_now();
+        let install = |id: &str, friends: Vec<String>, last_seen: u64| json!({"id": id, "friends": friends, "code": format!("ABCD-{id}"), "code_at": now, "last_seen": last_seen});
+        let file = json!({"installs": {
+            pubhex(&ka): install("1111", vec![pubhex(&kb)], now),
+            pubhex(&kb): install("2222", vec![pubhex(&ka)], now),
+            pubhex(&kc): install("3333", vec![], now - 40 * 24 * 3600),
+        }});
+        std::fs::write(dir.join("relay.json"), file.to_string()).unwrap();
+        let relay = start_in(&dir, Limits::default());
+        assert!(ok(&dir, &["purge-islands", "2"]).contains("would purge 2"));
+        assert!(ok(&dir, &["purge-idle", "30"]).contains("would purge 1"));
+        assert!(ok(&dir, &["status"]).contains("stored 3"));
+        assert!(refused(&dir, &["purge-islands", "1"]).contains("at least 2"));
+        // An online member protects its group.
+        let online = Client::login(&relay, &ka, "1111", &[pubhex(&kb)]);
+        assert!(ok(&dir, &["purge-islands", "2", "--yes"]).contains("purged 0"));
+        drop(online);
+        wait_until("offline", || relay.online_count() == 0);
+        assert!(ok(&dir, &["purge-idle", "30", "--yes"]).contains("purged 1"));
+        assert!(ok(&dir, &["purge-islands", "2", "--yes"]).contains("purged 2"));
+        assert!(ok(&dir, &["status"]).contains("stored 0"));
+        drop(relay);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_command_line_reaches_the_running_binary() {
+        let dir = data_dir("cli");
+        let bin = Bin::start(&dir);
+        let cli = |words: &[&str]| {
+            let out = std::process::Command::new(env!("CARGO_BIN_EXE_screenpet-relay")).args(["admin", "--data"]).arg(&dir).args(words).output().unwrap();
+            (out.status.code(), String::from_utf8_lossy(&out.stdout).to_string(), String::from_utf8_lossy(&out.stderr).to_string())
+        };
+        let (code, stdout, _) = cli(&["status"]);
+        assert_eq!(code, Some(0));
+        assert!(stdout.contains("relay on"), "{stdout}");
+        let (code, _, stderr) = cli(&["kick", "nobody-here"]);
+        assert_eq!(code, Some(1));
+        assert!(stderr.contains("no install"), "{stderr}");
+        drop(bin);
+        let (code, _, stderr) = cli(&["status"]);
+        assert_eq!(code, Some(2));
+        assert!(stderr.contains("cannot reach"), "{stderr}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

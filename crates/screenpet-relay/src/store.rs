@@ -152,6 +152,48 @@ impl Store {
         self.data.installs.len()
     }
 
+    pub fn installs(&self) -> impl Iterator<Item = (&String, &Install)> {
+        self.data.installs.iter()
+    }
+
+    /// Mutual friends of `key`.
+    pub fn mutual_count(&self, key: &str) -> usize {
+        self.get(key).map_or(0, |i| i.friends.iter().filter(|f| self.mutual(key, f)).count())
+    }
+
+    /// Offline installs not seen for `secs`.
+    pub fn idle(&self, now: u64, secs: u64, online: &dyn Fn(&str) -> bool) -> Vec<String> {
+        self.installs().filter(|(k, i)| !online(k) && now.saturating_sub(i.last_seen) >= secs).map(|(k, _)| k.clone()).collect()
+    }
+
+    /// Groups joined by mutual friendship with at least `min` members, none of
+    /// them `online`: what keys befriending only each other look like. (So does
+    /// a real group of friends who are all away, which is why it takes `min`.)
+    pub fn islands(&self, min: usize, online: &dyn Fn(&str) -> bool) -> Vec<Vec<String>> {
+        let mut seen = std::collections::HashSet::new();
+        let mut groups = Vec::new();
+        for start in self.data.installs.keys() {
+            if !seen.insert(start.clone()) {
+                continue;
+            }
+            let mut group = vec![start.clone()];
+            let mut next = 0;
+            while next < group.len() {
+                let key = group[next].clone();
+                next += 1;
+                for friend in &self.data.installs[&key].friends {
+                    if self.mutual(&key, friend) && seen.insert(friend.clone()) {
+                        group.push(friend.clone());
+                    }
+                }
+            }
+            if group.len() >= min && !group.iter().any(|k| online(k)) {
+                groups.push(group);
+            }
+        }
+        groups
+    }
+
     pub fn is_full(&self) -> bool {
         self.data.installs.len() >= self.max_installs
     }
@@ -394,7 +436,7 @@ pub fn load_or_create_key(dir: &Path) -> io::Result<[u8; 32]> {
 }
 
 /// Write `bytes` to a new 0600 file (unix) and fsync it.
-fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -605,6 +647,25 @@ mod tests {
         assert!(s.get(&k(3)).is_some(), "established, so its friend list still counts");
         assert!(s.get(&k(1)).is_none() || s.get(&k(2)).is_none(), "a new friend made room for lonely");
         assert!(!s.register_with(&k(6), "x", vec![], 800, &|key| key == k(7) || key == k(2)), "only established ones left");
+    }
+
+    #[test]
+    fn islands_are_offline_mutual_groups_of_a_size() {
+        let mut s = Store::memory();
+        // 1-2-3 a chain, 4-5 a pair, 6 one-sided towards 1.
+        s.register(&k(1), "", vec![k(2)], 0);
+        s.register(&k(2), "", vec![k(1), k(3)], 0);
+        s.register(&k(3), "", vec![k(2)], 0);
+        s.register(&k(4), "", vec![k(5)], 0);
+        s.register(&k(5), "", vec![k(4)], 0);
+        s.register(&k(6), "", vec![k(1)], 0);
+        let found = s.islands(3, &|_| false);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].len(), 3);
+        assert_eq!(s.islands(2, &|_| false).len(), 2);
+        assert_eq!(s.islands(3, &|key| key == k(2)).len(), 0, "someone in it is online");
+        assert_eq!(s.idle(100, 100, &|key| key != k(1)), vec![k(1)]);
+        assert!(s.idle(99, 100, &|_| false).is_empty());
     }
 
     #[test]

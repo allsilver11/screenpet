@@ -3,6 +3,7 @@
 //! talk to each other only through `Out` queues (never blocking under the
 //! hub lock).
 
+use crate::control::Control;
 use crate::proto::{self, ServerMsg};
 use crate::store::{unix_now, Store};
 use crate::Limits;
@@ -10,6 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::path::PathBuf;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -33,6 +35,10 @@ counters!(
     conns_admitted,
     conns_refused_limit,
     conns_refused_origin,
+    conns_refused_banned,
+    conns_refused_relay_off,
+    logins_refused_banned,
+    registrations_refused_closed,
     unauthed_evicted,
     threads_refused,
     accept_errors,
@@ -135,6 +141,9 @@ impl Link {
 struct Peer {
     conn: u64,
     id: String,
+    /// Address key and connect time: only for `admin status`, never stored.
+    ip: String,
+    since: u64,
     link: Link,
     channels: HashSet<u32>,
 }
@@ -167,6 +176,17 @@ pub(crate) struct Admission {
     pub kill: Arc<OnceLock<&'static str>>,
     net_queued: Arc<AtomicUsize>,
 }
+
+/// Why `admit_ip` said no.
+pub(crate) enum Refused {
+    Busy,
+    Banned,
+    RelayOff,
+}
+
+/// What `welcome` and `code` carry while friend codes are off. The apps
+/// require the field and show it, so it should read as "no code".
+pub(crate) const NO_CODE: &str = "----";
 
 /// A connection that has not authenticated yet.
 struct Unauthed {
@@ -208,6 +228,7 @@ struct State {
     ip_conns: HashMap<String, Conns>,
     net_conns: HashMap<String, Conns>,
     all_conns: Conns,
+    control: Control,
     /// Not authenticated yet, oldest first (keyed by connection id).
     unauthed: BTreeMap<u64, Unauthed>,
     /// Bytes of friend frames queued per network, while it has connections.
@@ -273,6 +294,46 @@ impl State {
             bump(&counters.unauthed_evicted);
         }
     }
+    /// Take `key` offline now: it is told `reason`, its channels close and
+    /// its friends see it go. `false` if it wasn't online.
+    fn drop_peer(&mut self, key: &str, reason: &'static str) -> bool {
+        let online = self.mutual_online(key);
+        let Some(peer) = self.peers.remove(key) else { return false };
+        peer.link.kick(reason);
+        for ch in peer.channels {
+            self.close_channel(ch, Some(key));
+        }
+        for f in online {
+            if let Some(p) = self.peers.get(&f) {
+                p.send(ServerMsg::Presence { key: key.to_string(), online: false });
+            }
+        }
+        self.store().touch(key, unix_now());
+        true
+    }
+    /// The install `who` picks out: a key or id prefix matching exactly one.
+    fn resolve(&self, who: &str) -> Result<String, String> {
+        let matches = self.matching(who);
+        match matches.as_slice() {
+            [] => Err(format!("no install matches {who:?}")),
+            [one] => Ok(one.clone()),
+            many => Err(format!("{who:?} matches {} installs, nothing done:\n{}", many.len(), self.describe(many))),
+        }
+    }
+    fn matching(&self, who: &str) -> Vec<String> {
+        let lower = who.to_ascii_lowercase();
+        // Short key prefixes are too easy to get wrong; a short id must be exact.
+        let long = who.len() >= MIN_PREFIX;
+        let hit = |k: &str, id: &str| id == who || (long && (k.starts_with(&lower) || id.starts_with(who)));
+        self.store_ref().installs().filter(|(k, i)| hit(k, &i.id)).map(|(k, _)| k.clone()).collect()
+    }
+    fn describe(&self, keys: &[String]) -> String {
+        let line = |k: &String| {
+            let id = self.store_ref().get(k).map_or("", |i| i.id.as_str());
+            format!("  {k} {id:?}{}", if self.peers.contains_key(k) { " online" } else { "" })
+        };
+        keys.iter().map(line).collect::<Vec<_>>().join("\n")
+    }
     /// Remove channel `ch` and tell its other end(s) (`except` = the end that
     /// asked, which needs no notice).
     fn close_channel(&mut self, ch: u32, except: Option<&str>) {
@@ -287,6 +348,9 @@ impl State {
         }
     }
 }
+
+/// Shortest prefix `admin` accepts for a key or id.
+const MIN_PREFIX: usize = 4;
 
 /// The fair share of the global byte budget each network keeps.
 const NET_BYTES_SHARE: f64 = 1.0 / 16.0;
@@ -489,13 +553,24 @@ pub struct Hub {
     queued_total: AtomicUsize,
     started: Instant,
     pub counters: Counters,
+    data_dir: Option<PathBuf>,
+    /// Mirrors `control.relay` for connection threads, which don't lock to check.
+    relay_off: AtomicBool,
     next_conn: AtomicU64,
     threads: Mutex<Vec<JoinHandle<()>>>,
 }
 
 impl Hub {
-    pub(crate) fn new(limits: Limits, trusted_proxies: Vec<std::net::IpAddr>, private_key: [u8; 32], mut store: Store) -> Hub {
+    pub(crate) fn new(
+        limits: Limits,
+        trusted_proxies: Vec<std::net::IpAddr>,
+        private_key: [u8; 32],
+        mut store: Store,
+        control: Control,
+        data_dir: Option<PathBuf>,
+    ) -> Hub {
         store.max_installs = limits.max_installs;
+        let relay_off = !control.relay;
         let global_bytes = Bucket::new(limits.global_bytes_per_sec, limits.global_bytes_burst);
         let global_bytes_hard = Bucket::new(2.0 * limits.global_bytes_per_sec, 2.0 * limits.global_bytes_burst);
         Hub {
@@ -503,7 +578,9 @@ impl Hub {
             trusted_proxies,
             private_key,
             public_key: proto::public_key(&private_key),
-            state: Mutex::new(State { store: Some(store), next_ch: 1, global_bytes, global_bytes_hard, ..State::default() }),
+            state: Mutex::new(State { store: Some(store), next_ch: 1, global_bytes, global_bytes_hard, control, ..State::default() }),
+            data_dir,
+            relay_off: AtomicBool::new(relay_off),
             stop: AtomicBool::new(false),
             proxy_warned: AtomicBool::new(false),
             queued_total: AtomicUsize::new(0),
@@ -520,6 +597,10 @@ impl Hub {
 
     pub fn stopping(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn relay_is_off(&self) -> bool {
+        self.relay_off.load(Ordering::SeqCst)
     }
 
     pub fn stop(&self) {
@@ -563,22 +644,30 @@ impl Hub {
     /// have their own smaller pools, per address, per network and in all. A
     /// full pool never refuses the newcomer: its oldest member goes instead,
     /// so holding the pool means opening it all again every round trip.
-    pub(crate) fn admit_ip(&self, ip: &str) -> Option<Admission> {
+    pub(crate) fn admit_ip(&self, ip: &str) -> Result<Admission, Refused> {
         let lim = &self.limits;
         let net = share_bucket(ip);
         let mut guard = self.state();
         let st = &mut *guard;
+        if !st.control.relay {
+            bump(&self.counters.conns_refused_relay_off);
+            return Err(Refused::RelayOff);
+        }
+        if st.control.banned_ips.contains(ip) {
+            bump(&self.counters.conns_refused_banned);
+            return Err(Refused::Banned);
+        }
         let by_ip = st.ip_conns.get(ip).copied().unwrap_or_default();
         let by_net = st.net_conns.get(&net).copied().unwrap_or_default();
         if by_ip.total >= lim.max_conns_per_ip || by_net.total >= lim.max_conns_per_network {
             bump(&self.counters.conns_refused_limit);
-            return None;
+            return Err(Refused::Busy);
         }
         if st.all_conns.total >= lim.max_conns {
             // Room for the next try, if any of them isn't a real install.
             st.evict_unauthed(&self.counters, |_| true);
             bump(&self.counters.conns_refused_limit);
-            return None;
+            return Err(Refused::Busy);
         }
         if by_ip.unauthed >= lim.max_unauthed_per_ip {
             st.evict_unauthed(&self.counters, |u| u.ip == ip);
@@ -597,7 +686,7 @@ impl Hub {
         let conn = self.conn_id();
         let kill: Arc<OnceLock<&'static str>> = Arc::default();
         st.unauthed.insert(conn, Unauthed { ip: ip.to_string(), net, kill: kill.clone() });
-        Some(Admission { conn, kill, net_queued })
+        Ok(Admission { conn, kill, net_queued })
     }
 
     /// A connection let in by `admit_ip` ended.
@@ -654,8 +743,19 @@ impl Hub {
         if !st.unauthed.contains_key(&conn) {
             return Err("busy"); // evicted just now
         }
+        if !st.control.relay {
+            return Err("relay_off");
+        }
+        if st.control.banned_keys.contains(key) || st.control.banned_ips.contains(ip) {
+            bump(&self.counters.logins_refused_banned);
+            return Err("banned");
+        }
         let known = st.store_ref().get(key).is_some();
         if !known {
+            if !st.control.registration {
+                bump(&self.counters.registrations_refused_closed);
+                return Err("registration_closed");
+            }
             // (A full store is handled by `register_with`, which first evicts
             // a stale friendless install.)
             // Each network gets its own budget; the global ceiling is a
@@ -686,8 +786,13 @@ impl Hub {
         if !known {
             bump(&self.counters.registrations);
         }
-        let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs()).expect("registered");
-        st.peers.insert(key.to_string(), Peer { conn, id: id.to_string(), link, channels: HashSet::new() });
+        let (code, code_ttl) = if st.control.friendcode {
+            let (code, ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs()).expect("registered");
+            (code, ttl)
+        } else {
+            (NO_CODE.to_string(), 0)
+        };
+        st.peers.insert(key.to_string(), Peer { conn, id: id.to_string(), ip: ip.to_string(), since: now, link, channels: HashSet::new() });
         st.no_longer_unauthed(conn);
         let online = st.mutual_online(key);
         for f in &online {
@@ -745,6 +850,9 @@ impl Hub {
         let mut st = self.state();
         if !Self::is_current(&st, key, conn) {
             return None;
+        }
+        if !st.control.friendcode {
+            return fail("disabled");
         }
         if !allow(&mut st.ip_redeems, ip, self.limits.redeems_per_ip_per_min, MINUTE, MAX_RATE_KEYS) {
             return fail("rate");
@@ -957,6 +1065,9 @@ impl Hub {
         if !Self::is_current(&st, key, conn) {
             return None;
         }
+        if !st.control.friendcode {
+            return Some(ServerMsg::Code { code: NO_CODE.to_string(), code_ttl: 0 }); // the apps wait for an answer
+        }
         let now = unix_now();
         st.store().rotate(key, now);
         let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs())?;
@@ -966,7 +1077,7 @@ impl Hub {
     /// A rotated friend code for `key`, if its code expired.
     pub(crate) fn rotated_code(&self, key: &str, conn: u64) -> Option<ServerMsg> {
         let mut st = self.state();
-        if !Self::is_current(&st, key, conn) {
+        if !Self::is_current(&st, key, conn) || !st.control.friendcode {
             return None;
         }
         let (code, code_ttl, rotated) = st.store().code(key, unix_now(), self.limits.code_ttl.as_secs())?;
@@ -1018,6 +1129,223 @@ impl Hub {
         }
     }
 
+    /// Save the switches and bans, then put them in force; the disk comes first
+    /// so a ban that couldn't be saved isn't reported as done. Written outside
+    /// the lock. Only the admin thread changes these, one command at a time.
+    fn commit_control(&self, next: Control) -> Result<MutexGuard<'_, State>, String> {
+        if let Some(dir) = &self.data_dir {
+            next.save(dir).map_err(|e| format!("cannot save control.json, nothing changed: {e}"))?;
+        }
+        let mut st = self.state();
+        self.relay_off.store(!next.relay, Ordering::SeqCst);
+        st.control = next;
+        Ok(st)
+    }
+
+    fn control(&self) -> Control {
+        self.state().control.clone()
+    }
+
+    pub(crate) fn admin_status(&self) -> String {
+        let st = self.state();
+        let switch = |on| if on { "on" } else { "off" };
+        let c = &st.control;
+        let mut out = format!(
+            "relay {}, registration {}, friendcode {}\nonline {}, connections {} ({} unauthenticated), stored {}, channels {}, grants {}, banned keys {}, banned addresses {}\n",
+            switch(c.relay),
+            switch(c.registration),
+            switch(c.friendcode),
+            st.peers.len(),
+            st.all_conns.total,
+            st.all_conns.unauthed,
+            st.store_ref().count(),
+            st.channels.len(),
+            st.grants.len(),
+            c.banned_keys.len(),
+            c.banned_ips.len(),
+        );
+        let now = unix_now();
+        let mut peers: Vec<(&String, &Peer)> = st.peers.iter().collect();
+        peers.sort_by_key(|(_, p)| p.since);
+        for (key, p) in peers {
+            let friends = st.store_ref().get(key).map_or(0, |i| i.friends.len());
+            let up = now.saturating_sub(p.since);
+            out += &format!(
+                "  {} {:?} since {} ({}h{:02}m) from {} friends {} ({} mutual)\n",
+                &key[..12],
+                p.id,
+                p.since,
+                up / 3600,
+                up % 3600 / 60,
+                p.ip,
+                friends,
+                st.store_ref().mutual_count(key)
+            );
+        }
+        out += "counters:\n";
+        for (name, value) in self.counters.all() {
+            out += &format!("  {name} {value}\n");
+        }
+        out
+    }
+
+    pub(crate) fn admin_kick(&self, who: &str) -> Result<String, String> {
+        let mut st = self.state();
+        let key = st.resolve(who)?;
+        if st.drop_peer(&key, "kicked") {
+            Ok(format!("kicked {key}"))
+        } else {
+            Err(format!("{key} is not online"))
+        }
+    }
+
+    pub(crate) fn admin_ban(&self, who: &str) -> Result<String, String> {
+        // A whole key can be banned before it has ever connected.
+        let key = match proto::norm_key(who) {
+            Some(k) => k,
+            None => self.state().resolve(who)?,
+        };
+        let mut next = self.control();
+        next.banned_keys.insert(key.clone());
+        let mut st = self.commit_control(next)?;
+        let was_online = st.drop_peer(&key, "banned");
+        st.grants.retain(|g| g.from != key && g.to != key);
+        Ok(format!("banned {key}{}", if was_online { ", disconnected" } else { "" }))
+    }
+
+    pub(crate) fn admin_ban_ip(&self, ip: &str) -> Result<String, String> {
+        let addr: std::net::IpAddr = ip.parse().map_err(|_| format!("not an address: {ip}"))?;
+        let addr = addr.to_canonical();
+        let bucket = crate::http::bucket(addr);
+        // Everyone arrives through these when a forwarded header goes missing.
+        if addr.is_loopback() || self.trusted_proxies.iter().any(|p| crate::http::bucket(p.to_canonical()) == bucket) {
+            return Err(format!("{ip} is loopback or a trusted proxy: banning it could refuse everyone"));
+        }
+        let mut next = self.control();
+        next.banned_ips.insert(bucket.clone());
+        let mut st = self.commit_control(next)?;
+        let keys: Vec<String> = st.peers.iter().filter(|(_, p)| p.ip == bucket).map(|(k, _)| k.clone()).collect();
+        for key in &keys {
+            st.drop_peer(key, "banned");
+        }
+        for u in st.unauthed.values().filter(|u| u.ip == bucket) {
+            let _ = u.kill.set("banned");
+        }
+        Ok(format!("banned {bucket}, {} disconnected", keys.len()))
+    }
+
+    pub(crate) fn admin_unban(&self, who: &str) -> Result<String, String> {
+        let mut next = self.control();
+        let ip_key = who.parse::<std::net::IpAddr>().map(|a| crate::http::bucket(a.to_canonical())).unwrap_or_else(|_| who.to_string());
+        if next.banned_ips.remove(&ip_key) {
+            drop(self.commit_control(next)?);
+            return Ok(format!("unbanned {ip_key}"));
+        }
+        let lower = who.to_ascii_lowercase();
+        let matches: Vec<String> = {
+            let st = self.state();
+            let by_id = st.matching(who);
+            let long = who.len() >= MIN_PREFIX;
+            next.banned_keys.iter().filter(|k| (long && k.starts_with(&lower)) || by_id.contains(k)).cloned().collect()
+        };
+        match matches.as_slice() {
+            [] => Err(format!("no ban matches {who:?}")),
+            [key] => {
+                next.banned_keys.remove(key);
+                drop(self.commit_control(next)?);
+                Ok(format!("unbanned {key}"))
+            }
+            many => Err(format!("{who:?} matches {} bans, nothing done:\n{}", many.len(), self.state().describe(many))),
+        }
+    }
+
+    pub(crate) fn admin_bans(&self) -> String {
+        let st = self.state();
+        let keys: Vec<String> = st.control.banned_keys.iter().cloned().collect();
+        let mut out = format!("keys ({}):\n{}\naddresses ({}):\n", keys.len(), st.describe(&keys), st.control.banned_ips.len());
+        for ip in &st.control.banned_ips {
+            out += &format!("  {ip}\n");
+        }
+        out
+    }
+
+    pub(crate) fn admin_registration(&self, on: bool) -> Result<String, String> {
+        let next = Control { registration: on, ..self.control() };
+        drop(self.commit_control(next)?);
+        Ok(format!("registration {}", if on { "on" } else { "off" }))
+    }
+
+    pub(crate) fn admin_friendcode(&self, on: bool) -> Result<String, String> {
+        let next = Control { friendcode: on, ..self.control() };
+        let mut guard = self.commit_control(next)?;
+        let st = &mut *guard;
+        if !on {
+            st.grants.clear(); // a code redeemed a moment ago opens nothing now
+        }
+        // Whoever is online holds a code, or is holding a placeholder.
+        let ttl = self.limits.code_ttl.as_secs();
+        let now = unix_now();
+        let keys: Vec<String> = st.peers.keys().cloned().collect();
+        for key in keys {
+            let current = if on { st.store().code(&key, now, ttl).map(|(code, left, _)| (code, left)) } else { Some((NO_CODE.to_string(), 0)) };
+            if let Some((code, code_ttl)) = current {
+                st.peers[&key].send(ServerMsg::Code { code, code_ttl });
+            }
+        }
+        Ok(format!("friendcode {}", if on { "on" } else { "off" }))
+    }
+
+    /// Off: connection threads see `relay_off` within a poll and disconnect
+    /// with `relay_off`, whether authenticated or not.
+    pub(crate) fn admin_relay(&self, on: bool) -> Result<String, String> {
+        let next = Control { relay: on, ..self.control() };
+        drop(self.commit_control(next)?);
+        Ok(format!("relay {}", if on { "on" } else { "off" }))
+    }
+
+    pub(crate) fn admin_purge(&self, who: &str) -> Result<String, String> {
+        let mut st = self.state();
+        let key = st.resolve(who)?;
+        let was_online = st.drop_peer(&key, "purged");
+        st.grants.retain(|g| g.from != key && g.to != key);
+        st.store().remove(&key);
+        Ok(format!("purged {key}{}", if was_online { ", disconnected (it registers again if it comes back)" } else { "" }))
+    }
+
+    pub(crate) fn admin_purge_idle(&self, days: u64, yes: bool) -> Result<String, String> {
+        if days == 0 {
+            return Err("days must be at least 1".into());
+        }
+        let mut guard = self.state();
+        let st = &mut *guard;
+        let peers = &st.peers;
+        let keys = st.store.as_ref().expect("store present").idle(unix_now(), days.saturating_mul(24 * 3600), &|k| peers.contains_key(k));
+        Ok(Self::purge_listed(st, keys, yes))
+    }
+
+    pub(crate) fn admin_purge_islands(&self, min: u64, yes: bool) -> Result<String, String> {
+        if min < 2 {
+            return Err("a group needs at least 2 installs".into());
+        }
+        let mut guard = self.state();
+        let st = &mut *guard;
+        let peers = &st.peers;
+        let groups = st.store.as_ref().expect("store present").islands(min as usize, &|k| peers.contains_key(k));
+        Ok(Self::purge_listed(st, groups.into_iter().flatten().collect(), yes))
+    }
+
+    /// Forget `keys` (all offline), or with `yes` false only say what that'd be.
+    fn purge_listed(st: &mut State, keys: Vec<String>, yes: bool) -> String {
+        let list = st.describe(&keys);
+        if !yes {
+            return format!("would purge {} installs (add --yes):\n{list}", keys.len());
+        }
+        for key in &keys {
+            st.store().remove(key);
+        }
+        format!("purged {} installs:\n{list}", keys.len())
+    }
+
     /// Number of installs online (for logs/tests).
     pub fn online_count(&self) -> usize {
         self.state().peers.len()
@@ -1030,7 +1358,7 @@ mod tests {
     use std::sync::mpsc::{sync_channel, Receiver};
 
     fn hub(limits: Limits) -> Hub {
-        Hub::new(limits, Vec::new(), proto::random32(), Store::memory())
+        Hub::new(limits, Vec::new(), proto::random32(), Store::memory(), Control::default(), None)
     }
 
     /// Join install `n`, friends with `friends`, on a queue nobody drains.
@@ -1042,7 +1370,7 @@ mod tests {
         let key = proto::to_hex(&[n; 32]);
         let friends: Vec<String> = friends.iter().map(|f| proto::to_hex(&[*f; 32])).collect();
         let (tx, rx) = sync_channel(cap);
-        let admission = hub.admit_ip(ip).expect("admitted");
+        let admission = hub.admit_ip(ip).ok().expect("admitted");
         let link = Link::new(tx, &admission);
         hub.join(&key, "x", &friends, ip, admission.conn, link.clone()).unwrap();
         (key, admission.conn, link, rx)
@@ -1144,7 +1472,7 @@ mod tests {
     #[test]
     fn byte_buckets_are_kept_until_refilled_in_a_bounded_table() {
         let h = hub(Limits { ip_bytes_per_sec: 1.0, ip_bytes_burst: 1000.0, ..Limits::default() });
-        let a = h.admit_ip("203.0.113.1").unwrap();
+        let a = h.admit_ip("203.0.113.1").ok().unwrap();
         assert!(h.bandwidth_allows(&mut h.state(), "203.0.113.1", 900.0));
         h.release_ip("203.0.113.1", a.conn);
         h.maintain();
@@ -1167,8 +1495,8 @@ mod tests {
     #[test]
     fn an_evicted_connection_cannot_join() {
         let h = hub(Limits { max_unauthed_per_ip: 1, ..Limits::default() });
-        let first = h.admit_ip("203.0.113.1").unwrap();
-        let second = h.admit_ip("203.0.113.1").unwrap();
+        let first = h.admit_ip("203.0.113.1").ok().unwrap();
+        let second = h.admit_ip("203.0.113.1").ok().unwrap();
         assert_eq!(first.kill.get(), Some(&"busy"));
         assert!(second.kill.get().is_none());
         let (tx, _rx) = sync_channel(1);

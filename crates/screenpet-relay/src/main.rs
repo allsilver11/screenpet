@@ -6,6 +6,9 @@
 //! `SCREENPET_RELAY_BIND`, `SCREENPET_RELAY_DATA`,
 //! `SCREENPET_RELAY_TRUSTED_PROXIES` (comma-separated; empty = loopback only).
 //! Health check: `GET /healthz`; WebSocket: `/ws`.
+//!
+//! `screenpet-relay admin [--data DIR] <command>` runs an operator command on
+//! the relay using that data directory (see `admin::USAGE`).
 
 use screenpet_relay::{Relay, RelayConfig, DEFAULT_PORT, DEFAULT_TRUSTED_PROXY};
 use std::net::{IpAddr, SocketAddr};
@@ -21,6 +24,7 @@ fn default_data_dir() -> PathBuf {
 
 fn usage() -> ! {
     eprintln!("usage: screenpet-relay [--bind ADDR:PORT] [--data DIR] [--trusted-proxy IP]...");
+    eprintln!("       screenpet-relay admin [--data DIR] <command>   (admin --help lists them)");
     std::process::exit(2);
 }
 
@@ -47,6 +51,33 @@ mod signals {
     }
 }
 
+#[cfg(unix)]
+fn run_admin(mut data: PathBuf, mut words: Vec<String>) -> ! {
+    if words.first().is_some_and(|w| w == "--data") && words.len() >= 2 {
+        data = PathBuf::from(words.remove(1));
+        words.remove(0);
+    }
+    if words.is_empty() || words[0] == "-h" || words[0] == "--help" {
+        println!("usage: screenpet-relay admin [--data DIR] <command>\n{}", screenpet_relay::admin::USAGE);
+        std::process::exit(if words.is_empty() { 2 } else { 0 });
+    }
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    match screenpet_relay::admin::request(&data, &words) {
+        Ok((true, text)) => {
+            println!("{}", text.trim_end());
+            std::process::exit(0);
+        }
+        Ok((false, text)) => {
+            eprintln!("{}", text.trim_end());
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("cannot reach the relay through {}: {e}", data.display());
+            std::process::exit(2);
+        }
+    }
+}
+
 fn main() {
     // Before any thread starts, so all of them inherit the mask.
     #[cfg(unix)]
@@ -59,6 +90,15 @@ fn main() {
     let mut proxies: Option<Vec<IpAddr>> = std::env::var("SCREENPET_RELAY_TRUSTED_PROXIES").ok().map(|s| {
         s.split(',').filter(|p| !p.trim().is_empty()).map(|p| p.trim().parse().unwrap_or_else(|_| usage())).collect()
     });
+    if std::env::args().nth(1).as_deref() == Some("admin") {
+        #[cfg(unix)]
+        run_admin(data, std::env::args().skip(2).collect());
+        #[cfg(not(unix))]
+        {
+            eprintln!("admin commands need a Unix socket");
+            std::process::exit(2);
+        }
+    }
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {

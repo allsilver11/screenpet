@@ -1,7 +1,7 @@
 //! Minimal HTTP front: `GET /healthz` → `200 ok`, `GET /ws` with a WebSocket
 //! upgrade → the relay protocol, anything else → 404.
 
-use crate::hub::Hub;
+use crate::hub::{Hub, Refused};
 use crate::proto::{HEADER, MAX_FRAME};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -139,9 +139,11 @@ pub(crate) fn handle(hub: Arc<Hub>, mut stream: TcpStream) {
                 hub.warn_proxy_without_address();
             }
             let ip = client_ip(peer.ip(), &req.headers, &hub.trusted_proxies);
-            let Some(admission) = hub.admit_ip(&ip) else {
-                respond(&mut stream, "503 Service Unavailable", "busy\n");
-                return;
+            let admission = match hub.admit_ip(&ip) {
+                Ok(a) => a,
+                Err(Refused::Busy) => return respond(&mut stream, "503 Service Unavailable", "busy\n"),
+                Err(Refused::Banned) => return respond(&mut stream, "403 Forbidden", "forbidden\n"),
+                Err(Refused::RelayOff) => return respond(&mut stream, "503 Service Unavailable", "off\n"),
             };
             let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
             let ok = write!(

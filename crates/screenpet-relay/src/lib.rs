@@ -17,7 +17,10 @@
 //! Plain std threads and synchronous `tungstenite`; TLS terminates at the
 //! reverse proxy (Nginx Proxy Manager) in front of it.
 
+#[cfg(unix)]
+pub mod admin;
 mod conn;
+pub mod control;
 mod http;
 mod hub;
 pub mod proto;
@@ -174,24 +177,38 @@ pub struct Relay {
     hub: Arc<Hub>,
     addr: SocketAddr,
     threads: Vec<JoinHandle<()>>,
+    data_dir: Option<PathBuf>,
 }
 
 impl Relay {
     pub fn start(mut cfg: RelayConfig) -> std::io::Result<Relay> {
         cfg.limits.max_conns = conns_within_fd_limit(cfg.limits.max_conns);
-        let (key, store) = match &cfg.data_dir {
-            Some(dir) => (store::load_or_create_key(dir)?, store::Store::open(dir)?),
-            None => (proto::random32(), store::Store::memory()),
+        let (key, store, control) = match &cfg.data_dir {
+            // A bad control file ends the start here, before anyone connects.
+            Some(dir) => (store::load_or_create_key(dir)?, store::Store::open(dir)?, control::Control::load(dir)?),
+            None => (proto::random32(), store::Store::memory(), control::Control::default()),
         };
         let listener = TcpListener::bind(cfg.bind)?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
-        let hub = Arc::new(Hub::new(cfg.limits, cfg.trusted_proxies, key, store));
+        let hub = Arc::new(Hub::new(cfg.limits, cfg.trusted_proxies, key, store, control, cfg.data_dir.clone()));
         let h = hub.clone();
         let accept = std::thread::Builder::new().name("relay-accept".into()).spawn(move || accept_loop(h, listener))?;
         let h = hub.clone();
         let upkeep = std::thread::Builder::new().name("relay-upkeep".into()).spawn(move || upkeep_loop(h))?;
-        Ok(Relay { hub, addr, threads: vec![accept, upkeep] })
+        let mut threads = vec![accept, upkeep];
+        // The relay is worth running even if its admin socket can't be made.
+        #[cfg(unix)]
+        if let Some(dir) = &cfg.data_dir {
+            match admin::bind(dir) {
+                Ok(listener) => {
+                    let h = hub.clone();
+                    threads.push(std::thread::Builder::new().name("relay-admin".into()).spawn(move || admin::serve(h, listener))?);
+                }
+                Err(e) => eprintln!("screenpet-relay: no admin socket in {}: {e}", dir.display()),
+            }
+        }
+        Ok(Relay { hub, addr, threads, data_dir: cfg.data_dir })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -223,6 +240,10 @@ impl Drop for Relay {
         }
         self.hub.join_all();
         self.hub.save();
+        #[cfg(unix)]
+        if let Some(dir) = &self.data_dir {
+            let _ = std::fs::remove_file(admin::socket_path(dir));
+        }
     }
 }
 

@@ -72,7 +72,13 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
     let mut new_codes = 0usize;
     let mut friend_updates = Bucket::new(FRIENDS_PER_SEC, FRIENDS_BURST);
     'conn: loop {
-        let ending = if hub.stopping() { Some("shutdown") } else { link.kill.get().copied() };
+        let ending = if hub.stopping() {
+            Some("shutdown")
+        } else if hub.relay_is_off() {
+            Some("relay_off")
+        } else {
+            link.kill.get().copied()
+        };
         if let Some(reason) = ending {
             if reason == "slow" {
                 bump(&hub.counters.kicked_slow);

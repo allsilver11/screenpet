@@ -24,6 +24,9 @@
 //! both              close {ch}
 //! client -> relay   ping                      -> pong
 //! relay  -> client  error {reason}            (then the connection closes)
+//!                   apps only log the reason. While `admin friendcode off`:
+//!                   welcome and code carry code "----", redeem_failed says
+//!                   `disabled`.
 //! ```
 
 use serde::{Deserialize, Serialize};
