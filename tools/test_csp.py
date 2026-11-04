@@ -36,3 +36,25 @@ def test_nothing_is_loaded_from_outside_the_app():
     for f in [*PAGES, *SCRIPTS, UI / "style.css"]:
         text = f.read_text(encoding="utf-8").replace("http://www.w3.org/2000/svg", "")
         assert not re.search(r"https?://|\bdata:|\bblob:|\basset:|convertFileSrc|createObjectURL|toDataURL", text), f.name
+
+
+# 고칠 땐 앱을 띄워 창마다 확인한다 — 잘못되면 창이 빈 채로 뜨고 어떤 테스트도 잡지 못한다
+POLICY = {
+    "default-src": "'self'",
+    "script-src": "'self'",
+    # 글자 style 속성·<style> (창마다 있다). Tauri가 style-src에 nonce를 넣으면 'unsafe-inline'이 무시되므로 그것만 끈다
+    "style-src": "'self' 'unsafe-inline'",
+    "img-src": "'self'",
+    # ipc: / http://ipc.localhost = invoke (macOS·Windows), 'self' = pet.json fetch
+    "connect-src": "'self' ipc: http://ipc.localhost",
+    "object-src": "'none'",
+    "base-uri": "'none'",
+}
+
+
+def test_policy_is_the_one_reviewed():
+    conf = json.loads((ROOT / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
+    security = conf["app"]["security"]
+    assert security["csp"] == POLICY
+    assert security["dangerousDisableAssetCspModification"] == ["style-src"]
+    assert "'unsafe-eval'" not in json.dumps(security)
