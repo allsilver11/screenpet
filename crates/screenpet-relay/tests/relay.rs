@@ -274,8 +274,23 @@ fn bad_codes_and_strangers_are_refused() {
     // Not friends, no code: no channel.
     a.send(&json!({"t": "open", "req": 1, "to": pubhex(&kb)}));
     assert_eq!(a.expect("open_failed", 2.0)["reason"], "not_friends");
-    // Offline target.
+    // A stranger's key answers the same whether it is online or not: nobody
+    // can probe who is online.
     a.send(&json!({"t": "open", "req": 2, "to": pubhex(&key())}));
+    assert_eq!(a.expect("open_failed", 2.0)["reason"], "not_friends");
+    a.send(&json!({"t": "open", "req": 3, "to": pubhex(&kc)}));
+    assert_eq!(a.expect("open_failed", 2.0)["reason"], "not_friends");
+}
+
+#[test]
+fn offline_is_only_said_about_friends() {
+    let relay = start(Limits::default());
+    let (ka, kb) = (key(), key());
+    let (mut a, _) = Client::login(&relay, &ka, "aaaa", &[pubhex(&kb)]);
+    let (b, _) = Client::login(&relay, &kb, "bbbb", &[pubhex(&ka)]);
+    drop(b);
+    assert!(a.wait("presence", 2.0).is_some_and(|p| p["online"] == false) || a.wait("presence", 2.0).is_some_and(|p| p["online"] == false));
+    a.send(&json!({"t": "open", "req": 1, "to": pubhex(&kb)}));
     assert_eq!(a.expect("open_failed", 2.0)["reason"], "offline");
 }
 

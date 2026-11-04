@@ -537,6 +537,14 @@ impl Hub {
         if to == key {
             return fail("self");
         }
+        // Allowed at all? Asked first: a stranger learns nothing about whether
+        // a key is online.
+        let now = Instant::now();
+        let grant = st.grants.iter().position(|g| g.from == key && g.to == to && g.until > now);
+        let mutual = st.store_ref().mutual(key, &to);
+        if !mutual && grant.is_none() {
+            return fail("not_friends");
+        }
         let Some(target) = st.peers.get(&to) else { return fail("offline") };
         let target_conn = target.conn;
         let max = self.limits.max_channels;
@@ -547,11 +555,7 @@ impl Hub {
         if between >= self.limits.max_channels_per_pair {
             return fail("busy");
         }
-        if !st.store_ref().mutual(key, &to) {
-            let now = Instant::now();
-            let Some(i) = st.grants.iter().position(|g| g.from == key && g.to == to && g.until > now) else {
-                return fail("not_friends");
-            };
+        if let (false, Some(i)) = (mutual, grant) {
             st.grants.remove(i);
         }
         let ch = loop {
