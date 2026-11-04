@@ -90,15 +90,17 @@ pub(crate) fn bucket(ip: IpAddr) -> String {
 fn client_ip(peer: IpAddr, headers: &HashMap<String, String>, trusted: &[IpAddr]) -> String {
     let peer = peer.to_canonical();
     if peer.is_loopback() || trusted.contains(&peer) {
-        let forwarded = headers
-            .get("x-real-ip")
-            .map(|s| s.trim().to_string())
-            .or_else(|| headers.get("x-forwarded-for").and_then(|s| s.rsplit(',').next()).map(|s| s.trim().to_string()));
-        if let Some(ip) = forwarded.and_then(|s| s.parse::<IpAddr>().ok()) {
-            return bucket(ip.to_canonical());
+        if let Some(ip) = forwarded_ip(headers) {
+            return bucket(ip);
         }
     }
     bucket(peer)
+}
+
+/// `X-Real-IP`, else the rightmost `X-Forwarded-For` entry, if it parses.
+fn forwarded_ip(headers: &HashMap<String, String>) -> Option<IpAddr> {
+    let value = headers.get("x-real-ip").map(String::as_str).or_else(|| headers.get("x-forwarded-for").and_then(|s| s.rsplit(',').next()))?;
+    value.trim().parse::<IpAddr>().ok().map(|ip| ip.to_canonical())
 }
 
 pub(crate) fn ws_config() -> WebSocketConfig {
@@ -126,6 +128,15 @@ pub(crate) fn handle(hub: Arc<Hub>, mut stream: TcpStream) {
                 respond(&mut stream, "426 Upgrade Required", "websocket only\n");
                 return;
             };
+            // The apps are not browsers and send no Origin: refuse web pages
+            // that would spend visitors' browsers on the relay.
+            if req.headers.contains_key("origin") {
+                respond(&mut stream, "403 Forbidden", "forbidden\n");
+                return;
+            }
+            if hub.trusted_proxies.contains(&peer.ip().to_canonical()) && forwarded_ip(&req.headers).is_none() {
+                hub.warn_proxy_without_address();
+            }
             let ip = client_ip(peer.ip(), &req.headers, &hub.trusted_proxies);
             if !hub.admit_ip(&ip) {
                 respond(&mut stream, "503 Service Unavailable", "busy\n");
@@ -137,11 +148,12 @@ pub(crate) fn handle(hub: Arc<Hub>, mut stream: TcpStream) {
                 "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
             )
             .and_then(|_| stream.flush());
+            let mut joined = false;
             if ok.is_ok() {
                 let ws = WebSocket::from_partially_read(stream, req.rest, Role::Server, Some(ws_config()));
-                crate::conn::serve(hub.clone(), ws, ip.clone());
+                joined = crate::conn::serve(hub.clone(), ws, ip.clone());
             }
-            hub.release_ip(&ip);
+            hub.release_ip(&ip, joined);
         }
         _ => respond(&mut stream, "404 Not Found", "not found\n"),
     }
@@ -170,6 +182,10 @@ mod tests {
         let xff = h(&[("x-forwarded-for", "6.6.6.6, 203.0.113.9")]);
         assert_eq!(client_ip(npm, &xff, &trusted), "203.0.113.9");
         assert_eq!(client_ip(npm, &h(&[("x-real-ip", "junk")]), &trusted), "192.168.0.52");
+        // Those last cases are what the proxy warning looks for.
+        assert_eq!(forwarded_ip(&h(&[("x-real-ip", "junk")])), None);
+        assert_eq!(forwarded_ip(&h(&[])), None);
+        assert_eq!(forwarded_ip(&xff), "203.0.113.9".parse().ok());
     }
 
     #[test]

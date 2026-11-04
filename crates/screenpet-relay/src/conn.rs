@@ -37,7 +37,8 @@ fn refuse(ws: &mut WebSocket<TcpStream>, reason: &str) {
     let _ = ws.flush();
 }
 
-pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) {
+/// Serve one connection until it ends. `true` if it ever joined the hub.
+pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> bool {
     let lim = hub.limits.clone();
     let _ = ws.get_mut().set_read_timeout(Some(POLL));
     let _ = ws.get_mut().set_write_timeout(Some(Duration::from_secs(5)));
@@ -46,8 +47,9 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) {
     let challenge =
         ServerMsg::Challenge { relay: proto::to_hex(&hub.public_key), nonce: proto::to_hex(&nonce), v: PROTOCOL_VERSION };
     if ws.send(Message::text(challenge.to_json())).is_err() {
-        return;
+        return false;
     }
+    let mut joined = false;
     let (tx, rx) = sync_channel::<Out>(OUTBOX);
     let kill = Arc::new(AtomicBool::new(false));
     let mut authed: Option<Authed> = None;
@@ -126,6 +128,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) {
                                     let conn = hub.conn_id();
                                     match hub.join(&key, &id, &friends, &ip, conn, tx.clone(), kill.clone()) {
                                         Ok(mut welcome) => {
+                                            joined = true;
                                             if let (ServerMsg::Welcome { proof, .. }, Some(cn)) =
                                                 (&mut welcome, cnonce.as_deref().and_then(proto::hex32))
                                             {
@@ -230,6 +233,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) {
     if let Some(a) = authed {
         hub.leave(&a.key, a.conn);
     }
+    joined
 }
 
 /// Check `auth`: the MAC proves the client holds the private key for `key`.

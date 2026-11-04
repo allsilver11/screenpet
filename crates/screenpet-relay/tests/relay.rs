@@ -37,6 +37,11 @@ impl Client {
     /// As `raw`, appearing (via the trusted loopback proxy header) to come
     /// from `ip`.
     fn raw_as(relay: &Relay, ip: Option<&str>) -> Client {
+        Client::try_raw(relay, ip, None).expect("upgrade")
+    }
+
+    /// As `raw_as`; `Err(HTTP status)` if the relay refused the upgrade.
+    fn try_raw(relay: &Relay, ip: Option<&str>, origin: Option<&str>) -> Result<Client, u16> {
         use tungstenite::client::IntoClientRequest;
         let addr = relay.local_addr();
         let tcp = TcpStream::connect(addr).unwrap();
@@ -44,12 +49,19 @@ impl Client {
         if let Some(ip) = ip {
             req.headers_mut().insert("X-Real-IP", ip.parse().unwrap());
         }
-        let (mut ws, _) = tungstenite::client::client(req, tcp).unwrap();
+        if let Some(origin) = origin {
+            req.headers_mut().insert("Origin", origin.parse().unwrap());
+        }
+        let mut ws = match tungstenite::client::client(req, tcp) {
+            Ok((ws, _)) => ws,
+            Err(tungstenite::HandshakeError::Failure(WsError::Http(r))) => return Err(r.status().as_u16()),
+            Err(e) => panic!("handshake: {e}"),
+        };
         ws.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
         let mut c = Client { ws, challenge: Value::Null };
         c.challenge = c.next_json(2.0).expect("challenge");
         assert_eq!(c.challenge["t"], "challenge");
-        c
+        Ok(c)
     }
 
     fn auth_msg(&self, priv_key: &[u8; 32], id: &str, friends: &[String]) -> Value {
@@ -289,7 +301,10 @@ fn offline_is_only_said_about_friends() {
     let (mut a, _) = Client::login(&relay, &ka, "aaaa", &[pubhex(&kb)]);
     let (b, _) = Client::login(&relay, &kb, "bbbb", &[pubhex(&ka)]);
     drop(b);
-    assert!(a.wait("presence", 2.0).is_some_and(|p| p["online"] == false) || a.wait("presence", 2.0).is_some_and(|p| p["online"] == false));
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while a.wait("presence", 2.0).is_some_and(|p| p["online"] != false) {
+        assert!(Instant::now() < deadline);
+    }
     a.send(&json!({"t": "open", "req": 1, "to": pubhex(&kb)}));
     assert_eq!(a.expect("open_failed", 2.0)["reason"], "offline");
 }
@@ -624,4 +639,81 @@ fn light_sources_cannot_exceed_the_hard_global_ceiling() {
         reasons.push(c.expect("redeem_failed", 2.0)["reason"].as_str().unwrap().to_string());
     }
     assert_eq!(reasons, ["unknown", "unknown", "unknown", "unknown", "rate", "rate"]);
+}
+
+#[test]
+fn web_pages_are_refused_apps_send_no_origin() {
+    let relay = start(Limits::default());
+    assert_eq!(Client::try_raw(&relay, None, Some("https://evil.example")).err(), Some(403));
+    assert!(Client::try_raw(&relay, None, None).is_ok());
+}
+
+/// Log in `n` installs from `ip`; how many were let in. Keeps them connected.
+fn fill(relay: &Relay, ip: &str, n: usize, held: &mut Vec<Client>) -> usize {
+    let mut admitted = 0;
+    for _ in 0..n {
+        if let Ok(mut c) = Client::try_raw(relay, Some(ip), None) {
+            let auth = c.auth_msg(&key(), "x", &[]);
+            c.send(&auth);
+            c.expect("welcome", 2.0);
+            held.push(c);
+            admitted += 1;
+        }
+    }
+    admitted
+}
+
+#[test]
+fn connections_are_capped_per_network() {
+    let relay = start(Limits { max_conns_per_ip: 2, max_conns_per_network: 3, ..Limits::default() });
+    let mut held = Vec::new();
+    assert_eq!(fill(&relay, "203.0.113.1", 5, &mut held), 2, "address cap");
+    assert_eq!(fill(&relay, "203.0.113.2", 5, &mut held), 1, "same /24: network cap");
+    assert_eq!(fill(&relay, "198.51.100.1", 1, &mut held), 1, "another network is not affected");
+    // IPv6: distinct /64s in one /48 share the network cap.
+    assert_eq!(fill(&relay, "2001:db8:1:1::1", 2, &mut held), 2);
+    assert_eq!(fill(&relay, "2001:db8:1:2::1", 2, &mut held), 1);
+    assert_eq!(fill(&relay, "2001:db8:2:1::1", 1, &mut held), 1);
+    // A freed slot can be used again.
+    drop(held.remove(0));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Client::try_raw(&relay, Some("203.0.113.1"), None).is_err() {
+        assert!(Instant::now() < deadline, "slot not released");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn unauthenticated_connections_have_a_smaller_share() {
+    let relay = start(Limits { max_unauthed: 4, max_unauthed_per_ip: 2, max_unauthed_per_network: 3, ..Limits::default() });
+    let open = |ip: &str, n: usize, held: &mut Vec<Client>| {
+        let got: Vec<Client> = (0..n).filter_map(|_| Client::try_raw(&relay, Some(ip), None).ok()).collect();
+        let count = got.len();
+        held.extend(got);
+        count
+    };
+    let mut pre = Vec::new();
+    assert_eq!(open("203.0.113.1", 3, &mut pre), 2, "per address");
+    assert_eq!(open("203.0.113.2", 3, &mut pre), 1, "per network");
+    assert_eq!(open("198.51.100.1", 3, &mut pre), 1, "in all");
+    assert!(Client::try_raw(&relay, Some("192.0.2.1"), None).is_err(), "in all");
+    // Authenticating gives the slot back, and the install stays connected.
+    let auth = pre[0].auth_msg(&key(), "x", &[]);
+    pre[0].send(&auth);
+    pre[0].expect("welcome", 2.0);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let late = loop {
+        if let Ok(c) = Client::try_raw(&relay, Some("192.0.2.1"), None) {
+            break c;
+        }
+        assert!(Instant::now() < deadline);
+    };
+    drop(late);
+    // A connection that gives up unauthenticated frees its slot too.
+    drop(pre.remove(1));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Client::try_raw(&relay, Some("192.0.2.2"), None).is_err() {
+        assert!(Instant::now() < deadline, "unauthenticated slot not released");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }

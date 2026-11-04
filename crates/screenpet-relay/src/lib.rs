@@ -71,6 +71,13 @@ pub struct Limits {
     pub max_installs: usize,
     pub max_conns: usize,
     pub max_conns_per_ip: usize,
+    /// Connections per network (IPv4 /24, IPv6 /48).
+    pub max_conns_per_network: usize,
+    /// Connections that have not authenticated yet: in all, per address, per
+    /// network.
+    pub max_unauthed: usize,
+    pub max_unauthed_per_ip: usize,
+    pub max_unauthed_per_network: usize,
     /// New installs per hour per network (IPv4 /24, IPv6 /64).
     pub registrations_per_ip_per_hour: usize,
 }
@@ -99,6 +106,10 @@ impl Default for Limits {
             max_installs: store::MAX_INSTALLS,
             max_conns: 2048,
             max_conns_per_ip: 16,
+            max_conns_per_network: 128,
+            max_unauthed: 512,
+            max_unauthed_per_ip: 8,
+            max_unauthed_per_network: 32,
             registrations_per_ip_per_hour: 30,
         }
     }

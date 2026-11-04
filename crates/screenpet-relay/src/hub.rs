@@ -78,6 +78,31 @@ struct Grant {
     until: Instant,
 }
 
+/// Connections, and how many of them have not authenticated yet.
+#[derive(Default, Clone, Copy)]
+struct Conns {
+    total: usize,
+    unauthed: usize,
+}
+
+impl Conns {
+    fn admit(&mut self) {
+        self.total += 1;
+        self.unauthed += 1;
+    }
+    fn authed(&mut self) {
+        self.unauthed = self.unauthed.saturating_sub(1);
+    }
+    /// One ended; `true` if none are left.
+    fn release(&mut self, authed: bool) -> bool {
+        self.total = self.total.saturating_sub(1);
+        if !authed {
+            self.authed();
+        }
+        self.total == 0
+    }
+}
+
 #[derive(Default)]
 struct State {
     store: Option<Store>,
@@ -85,8 +110,10 @@ struct State {
     channels: HashMap<u32, Channel>,
     next_ch: u32,
     grants: Vec<Grant>,
-    ip_conns: HashMap<String, usize>,
-    total_conns: usize,
+    /// Connections per address key, per network (IPv4 /24, IPv6 /48), in all.
+    ip_conns: HashMap<String, Conns>,
+    net_conns: HashMap<String, Conns>,
+    all_conns: Conns,
     ip_redeems: HashMap<String, VecDeque<Instant>>,
     ip_registrations: HashMap<String, VecDeque<Instant>>,
     /// Per "target-key code": recent distinct requesters (cap per code, so
@@ -282,6 +309,7 @@ pub struct Hub {
     pub public_key: [u8; 32],
     state: Mutex<State>,
     stop: AtomicBool,
+    proxy_warned: AtomicBool,
     next_conn: AtomicU64,
     threads: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -296,6 +324,7 @@ impl Hub {
             public_key: proto::public_key(&private_key),
             state: Mutex::new(State { store: Some(store), next_ch: 1, ..State::default() }),
             stop: AtomicBool::new(false),
+            proxy_warned: AtomicBool::new(false),
             next_conn: AtomicU64::new(1),
             threads: Mutex::new(Vec::new()),
         }
@@ -345,25 +374,52 @@ impl Hub {
     }
 
     /// Count a new connection from `ip`; `false` if over a limit.
+    ///
+    /// Every limit also counts connections still in the challenge: those cost
+    /// an attacker nothing, so they get a smaller share per address, per
+    /// network and in all, and can't take every slot from real installs.
     pub fn admit_ip(&self, ip: &str) -> bool {
+        let lim = &self.limits;
+        let net = share_bucket(ip);
         let mut st = self.state();
-        let n = st.ip_conns.get(ip).copied().unwrap_or(0);
-        if st.total_conns >= self.limits.max_conns || n >= self.limits.max_conns_per_ip {
+        let by_ip = st.ip_conns.get(ip).copied().unwrap_or_default();
+        let by_net = st.net_conns.get(&net).copied().unwrap_or_default();
+        let all = st.all_conns;
+        if all.total >= lim.max_conns
+            || by_ip.total >= lim.max_conns_per_ip
+            || by_net.total >= lim.max_conns_per_network
+            || all.unauthed >= lim.max_unauthed
+            || by_ip.unauthed >= lim.max_unauthed_per_ip
+            || by_net.unauthed >= lim.max_unauthed_per_network
+        {
             return false;
         }
-        st.total_conns += 1;
-        *st.ip_conns.entry(ip.to_string()).or_default() += 1;
+        st.all_conns.admit();
+        st.ip_conns.entry(ip.to_string()).or_default().admit();
+        st.net_conns.entry(net).or_default().admit();
         true
     }
 
-    pub fn release_ip(&self, ip: &str) {
+    /// A connection admitted by `admit_ip` ended; `authed` = it had joined.
+    pub fn release_ip(&self, ip: &str, authed: bool) {
+        let net = share_bucket(ip);
         let mut st = self.state();
-        st.total_conns = st.total_conns.saturating_sub(1);
-        if let Some(n) = st.ip_conns.get_mut(ip) {
-            *n -= 1;
-            if *n == 0 {
-                st.ip_conns.remove(ip);
-            }
+        st.all_conns.release(authed);
+        if st.ip_conns.get_mut(ip).is_some_and(|c| c.release(authed)) {
+            st.ip_conns.remove(ip);
+        }
+        if st.net_conns.get_mut(&net).is_some_and(|c| c.release(authed)) {
+            st.net_conns.remove(&net);
+        }
+    }
+
+    /// Say once that the configured proxy isn't telling client addresses.
+    pub fn warn_proxy_without_address(&self) {
+        if !self.proxy_warned.swap(true, Ordering::Relaxed) {
+            eprintln!(
+                "screenpet-relay: a trusted proxy sent no usable X-Real-IP or X-Forwarded-For; \
+                 its clients all share one address's limits (check the proxy config)"
+            );
         }
     }
 
@@ -421,6 +477,14 @@ impl Hub {
         }
         let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs()).expect("registered");
         st.peers.insert(key.to_string(), Peer { conn, id: id.to_string(), out, kill, channels: HashSet::new() });
+        let net = share_bucket(ip);
+        st.all_conns.authed();
+        if let Some(c) = st.ip_conns.get_mut(ip) {
+            c.authed();
+        }
+        if let Some(c) = st.net_conns.get_mut(&net) {
+            c.authed();
+        }
         let online = st.mutual_online(key);
         for f in &online {
             st.peers[f].send(ServerMsg::Presence { key: key.to_string(), online: true });
