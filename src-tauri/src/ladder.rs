@@ -94,12 +94,12 @@ pub struct CancelView {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
 pub struct LadderView {
-    /// "setup" | "inviting" | "invite" | "joined" | "locked" | "game" | "cancelled" | "last"
+    /// "setup" | "inviting" | "invite" | "joined" | "confirm" | "locked" | "game" | "cancelled" | "last"
     pub view: &'static str,
     pub host_name: String,
     pub invited: u8,
     pub friends: Vec<FriendRow>,
-    /// 초대 화면: 결과 칸 미리보기
+    /// 초대 화면: 결과 칸 미리보기. 확인 화면("confirm"): 바뀐 최종 결과 칸
     pub draft: Vec<SlotRow>,
     pub joined: usize,
     pub all_answered: bool,
@@ -119,6 +119,8 @@ enum Game {
 #[derive(Default)]
 pub struct Ladders {
     game: Option<Game>,
+    /// 결과 칸이 초대 때와 달라 내 답을 기다리는 잠그기와 그 최종 칸 (답하기 전에는 내 난수를 공개하지 않는다)
+    held_lock: Option<(LadderMsg, Vec<LockedResult>)>,
     /// 설정 화면이 열려 있음 (아직 초대 전)
     setup: bool,
     /// 지난 결과 화면이 열려 있음
@@ -277,7 +279,12 @@ impl Ladders {
     pub fn answer(&mut self, app: &AppHandle, ctx: &Ctx, own: &Slot, join: bool) {
         let Some(Game::Guest(g)) = self.game.as_mut() else { return };
         let host = g.host_id().to_string();
-        let msg = if join { g.join(seat(ctx, own), Instant::now()) } else { g.decline(DeclineReason::No) };
+        let msg = match self.held_lock.take() {
+            Some((lock, _)) if join => g.on_message(lock, Instant::now()),
+            Some(_) => g.refuse_lock(),
+            None if join => g.join(seat(ctx, own), Instant::now()),
+            None => g.decline(DeclineReason::No),
+        };
         if let Some(m) = msg {
             send(ctx, vec![(host, m)]);
         }
@@ -302,6 +309,7 @@ impl Ladders {
             None => {}
         }
         self.game = None;
+        self.held_lock = None;
         self.setup = false;
         self.showing_last = false;
         self.layout = None;
@@ -329,6 +337,12 @@ impl Ladders {
                     if *game_id == g.game_id() {
                         let _ = app.emit_to(LABEL, "ladder-start", ());
                     }
+                    return None;
+                }
+                // 초대 때와 다른 결과 칸: 공개하기 전에 묻는다 (방장의 공개 기한이 지나면 방장이 판을 취소한다)
+                if let Some(changed) = g.lock_changed_results(&msg) {
+                    self.held_lock = Some((msg, changed));
+                    self.refresh(app, ctx, false);
                     return None;
                 }
                 if let Some(reply) = g.on_message(msg, now) {
@@ -375,6 +389,7 @@ impl Ladders {
             return;
         }
         self.game = Some(Game::Guest(g));
+        self.held_lock = None;
         self.setup = false;
         self.showing_last = false;
         self.layout = None;
@@ -582,13 +597,15 @@ impl Ladders {
                 LadderView { view, host_name: ctx.my_name.to_string(), friends: rows, joined: h.joined(), all_answered: h.all_answered(), ..Default::default() }
             }
             (Game::Guest(g), p) => {
+                let held = self.held_lock.as_ref().filter(|_| *p == Phase::Joined);
                 let view = match p {
                     Phase::Invited => "invite",
+                    Phase::Joined if held.is_some() => "confirm",
                     Phase::Joined => "joined",
                     _ => "locked",
                 };
                 let host_name = ctx.config.friend(g.host_id()).map_or_else(|| shown_name(g.host_name()), |f| f.shown_name().to_string());
-                LadderView { view, host_name, invited: g.invited(), draft: slot_rows(g.draft()), ..Default::default() }
+                LadderView { view, host_name, invited: g.invited(), draft: slot_rows(held.map_or(g.draft(), |(_, changed)| changed)), ..Default::default() }
             }
         })
     }
@@ -605,7 +622,7 @@ impl Ladders {
         }
         let (width, height) = match view.view {
             "setup" | "inviting" => SETUP_SIZE,
-            "invite" => INVITE_SIZE,
+            "invite" | "confirm" => INVITE_SIZE,
             "last" => LAST_SIZE,
             "game" => {
                 let g = view.game.as_ref().expect("game view");

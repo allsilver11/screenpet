@@ -181,6 +181,20 @@ def test_result_table_and_copy_text(out):
 
 
 @needs_node
+def test_changed_slots_are_shown_and_answered_by_click_only(out):
+    c = out["ui"]["confirm"]
+    assert c["shown"] and "초대 때와 달라요" in c["title"]
+    assert c["chips"] == ["벌칙 커피 😢", "꽝 😢"]
+    assert c["buttons"] == ["계속", "그만두기"]
+    assert c["notes"] == [True, False]
+    assert c["enter"], "a stray key does not answer"
+    assert c["answered"] == ["ladder_answer", {"join": True}]
+    assert c["backToInvite"] == ["참가", False, True], "the next invite reads as an invite again"
+    # 칸이 많아도 전부 볼 수 있다
+    assert "max-height: 64px; overflow-y: auto;" in re.search(r"\.chips \{([^}]*)\}", HTML).group(1)
+
+
+@needs_node
 def test_keys_reach_buttons_except_on_the_invite(out):
     keys = out["ui"]["keys"]
     assert not keys["enterOnButton"] and not keys["spaceOnButton"], "a focused button can be pressed by keyboard"

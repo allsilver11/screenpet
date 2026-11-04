@@ -218,9 +218,9 @@ const LADDER = (() => {
 
   const PRESS_KEYS = ["Enter", " ", "Spacebar"];
 
-  // 초대 화면은 키로 답하지 않는다 (포커스를 안 가져가는 창이지만, 혹시 키가 와도)
+  // 초대·확인 화면은 키로 답하지 않는다 (포커스를 안 가져가는 창이지만, 혹시 키가 와도)
   function ignoreKey(view, key) {
-    return view === "invite" && PRESS_KEYS.includes(key);
+    return (view === "invite" || view === "confirm") && PRESS_KEYS.includes(key);
   }
 
   // 웹뷰 기본 동작(새로 고침 등)을 막을 키인가: 글자 칸과 Tab, 단추를 누르는 Enter·Space는 둔다
@@ -431,11 +431,16 @@ if (typeof window !== "undefined" && window.__TAURI__) {
     });
     $("setup-close").addEventListener("click", () => invoke("ladder_close"));
 
-    // ---- 참가자: 초대 ----
+    // ---- 참가자: 초대, 그리고 결과 칸이 바뀌었을 때의 확인 (같은 화면) ----
     function renderInvite() {
       showOnly("invite");
-      $("invite-title").textContent = `🎲 ${state.host_name}의 사다리타기 — 참가할래요?`;
-      $("invite-count").textContent = `${state.invited + 1}명까지 · 결과 칸`;
+      const confirm = state.view === "confirm";
+      $("invite-title").textContent = confirm ? "🎲 결과 칸이 초대 때와 달라요 — 계속할까요?" : `🎲 ${state.host_name}의 사다리타기 — 참가할래요?`;
+      $("invite-count").textContent = confirm ? `${state.host_name}의 사다리타기 · 최종 결과 칸` : `${state.invited + 1}명까지 · 결과 칸`;
+      $("invite-note").hidden = confirm;
+      $("confirm-note").hidden = !confirm;
+      $("join").textContent = confirm ? "계속" : "참가";
+      $("decline").textContent = confirm ? "그만두기" : "안 할래요";
       const list = $("invite-slots");
       list.replaceChildren();
       for (const s of state.draft) {
@@ -717,6 +722,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
           renderSetup();
           break;
         case "invite":
+        case "confirm":
           renderInvite();
           break;
         case "joined":

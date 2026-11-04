@@ -70,7 +70,7 @@
       /* 표만 스크롤된다 — 사람이 많거나 창이 낮아도 지문과 버튼은 잘리지 않는다 */
       #table > * { flex: none; }
       #table > ul { flex: 0 1 auto; min-height: 0; overflow-y: auto; width: 100%; max-width: 320px; box-sizing: border-box; }
-      .chips { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; max-height: 64px; overflow: hidden; }
+      .chips { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; max-height: 64px; overflow-y: auto; }
       .chip { font-size: 12px; background: #fff; border: 1px solid #ecdcc4; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
       [hidden] { display: none !important; }
     </style>
@@ -95,12 +95,13 @@
       </div>
     </section>
 
-    <!-- 참가자: 초대 받음 (포커스를 뺏지 않는 창 — 키로는 답하지 않는다) -->
+    <!-- 참가자: 초대 받음 / 바뀐 결과 칸 확인 (포커스를 뺏지 않는 창 — 키로는 답하지 않는다) -->
     <section class="view center" id="v-invite" hidden>
       <h1 id="invite-title"></h1>
       <div class="note" id="invite-count"></div>
       <div id="invite-slots" class="chips"></div>
-      <div class="note">참가 인원에 따라 결과 칸이 줄어들 수 있어요<br />참가하면 다른 참가자에게 내 이름과 동물이 보여요</div>
+      <div class="note" id="invite-note">참가 인원에 따라 결과 칸이 줄어들 수 있어요<br />참가하면 다른 참가자에게 내 이름과 동물이 보여요</div>
+      <div class="note" id="confirm-note" hidden>방장이 초대 뒤에 칸을 고쳤어요. 15초 안에 답하지 않거나 그만두면 판이 취소돼요</div>
       <div class="buttons">
         <button id="decline" tabindex="-1">안 할래요</button>
         <button id="join" class="primary" tabindex="-1">참가</button>

@@ -297,6 +297,21 @@ async function bootWindow() {
   ui.keys.escapeOnInvite = w.key("BUTTON", "Escape");
   ui.chips = w.$("invite-slots").children.map((c) => c.textContent);
 
+  // 결과 칸이 바뀐 잠그기: 최종 칸을 보여 주고 답을 받는다 (키로는 답하지 않는다)
+  await w.show({ view: "confirm", host_name: "방장", invited: 2, draft: [{ text: "벌칙 커피", mood: "bad" }, { text: "꽝", mood: "bad" }] });
+  ui.confirm = {
+    shown: !w.$("v-invite").hidden,
+    title: w.$("invite-title").textContent,
+    chips: w.$("invite-slots").children.map((c) => c.textContent),
+    buttons: [w.$("join").textContent, w.$("decline").textContent],
+    notes: [w.$("invite-note").hidden, w.$("confirm-note").hidden],
+    enter: w.key("BUTTON", "Enter"),
+  };
+  w.$("join").click();
+  ui.confirm.answered = w.invoked.at(-1);
+  await w.show({ view: "invite", host_name: "방장", invited: 2, draft: [{ text: "꽝", mood: "bad" }] });
+  ui.confirm.backToInvite = [w.$("join").textContent, w.$("invite-note").hidden, w.$("confirm-note").hidden];
+
   // 게임: 줄어든 이름표에서도 번호가 남는다
   const g = game(3, 48, [[0], [1], [0]], ["곰돌이와친구들", "곰돌이와친구들 ②", "곰돌이와친구들 ③"]);
   await w.show({ view: "game", game: g });

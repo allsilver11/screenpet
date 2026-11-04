@@ -725,6 +725,26 @@ impl GuestGame {
         }
     }
 
+    /// The final slots of a valid lock for this game, if they are not just the
+    /// invite's slots with some removed (fewer players is normal; other text,
+    /// moods or extra copies are not what we joined for). The app asks the player
+    /// before passing such a lock to `on_message`, which would reveal our nonce.
+    pub fn lock_changed_results(&self, msg: &LadderMsg) -> Option<Vec<LockedResult>> {
+        let LadderMsg::LadderLock { game_id, host, players, results } = msg else { return None };
+        if *game_id != self.game_id() || self.phase != Phase::Joined {
+            return None;
+        }
+        let (_, _, results) = self.check_lock(*host, players, results)?;
+        let mut left = self.draft.clone();
+        let shrunk = results.iter().all(|r| left.iter().position(|d| d == r).map(|i| left.swap_remove(i)).is_some());
+        (!shrunk).then_some(results)
+    }
+
+    /// The player refused a lock with changed slots: no reveal, the game is off.
+    pub fn refuse_lock(&mut self) -> Option<LadderMsg> {
+        (self.phase == Phase::Joined).then(|| self.invalid()).flatten()
+    }
+
     /// A message from the host. Returns the reply to send (our reveal after the lock).
     pub fn on_message(&mut self, msg: LadderMsg, now: Instant) -> Option<LadderMsg> {
         if self.phase.is_over() {
@@ -1152,6 +1172,75 @@ mod tests {
         g.on_message(m, now);
         assert!(g.phase().is_over());
         assert!(!g.ended_unanswered());
+    }
+
+    /// 초대에 "당첨 1 + 꽝 2" (3칸)를 보여 주고 친구 둘을 초대해, 첫 친구가 참가한 상태
+    fn joined_to_a_draft() -> (HostGame, GuestGame, Instant) {
+        let now = Instant::now();
+        let draft = results(&[("당첨", "good"), ("꽝", "bad"), ("꽝", "bad")]);
+        let (mut host, out) = HostGame::new(seat("방장"), &draft, &ids(2), now).unwrap();
+        let mut guest = GuestGame::on_invite("host", out[0].1.clone(), now).unwrap();
+        host.on_message("friend0", guest.join(seat("일"), now).unwrap(), now);
+        (host, guest, now)
+    }
+
+    #[test]
+    fn slots_that_only_shrank_from_the_invite_need_no_confirmation() {
+        let (mut host, guest, now) = joined_to_a_draft();
+        let out = host.start(&results(&[("꽝", "bad"), ("당첨", "good")]), now).unwrap();
+        assert_eq!(guest.lock_changed_results(&out[0].1), None);
+    }
+
+    #[test]
+    fn slots_that_changed_from_the_invite_are_shown_before_we_reveal() {
+        let changed: [&[(&str, &str)]; 3] = [
+            &[("벌칙 커피", "bad"), ("꽝", "bad")],        // 글자가 바뀜
+            &[("당첨", "bad"), ("꽝", "bad")],             // 기분이 바뀜
+            &[("당첨", "good"), ("당첨", "good")],         // 같은 글자라도 초대 때보다 많음
+        ];
+        for slots in changed {
+            let (mut host, mut guest, now) = joined_to_a_draft();
+            let out = host.start(&results(slots), now).unwrap();
+            let lock = out[0].1.clone();
+            assert_eq!(guest.lock_changed_results(&lock), Some(results(slots)));
+            // 묻는 동안 아직 아무것도 공개하지 않았고, 물은 것 자체는 상태를 바꾸지 않는다
+            assert_eq!(*guest.phase(), Phase::Joined);
+            // 계속하면 평소처럼 공개한다
+            assert!(matches!(guest.on_message(lock, now), Some(LadderMsg::LadderReveal { .. })));
+            assert_eq!(*guest.phase(), Phase::Locked);
+        }
+    }
+
+    #[test]
+    fn refusing_changed_slots_cancels_the_game_without_revealing() {
+        let (mut host, mut guest, now) = joined_to_a_draft();
+        let bad = results(&[("벌칙 커피", "bad"), ("꽝", "bad")]);
+        host.start(&bad, now).unwrap();
+        let reply = guest.refuse_lock().expect("tells the host");
+        assert!(matches!(guest.phase(), Phase::Cancelled { reason: CancelReason::Invalid, .. }));
+        host.on_message("friend0", reply, now);
+        assert!(matches!(host.phase(), Phase::Cancelled { reason: CancelReason::Invalid, who: Some(n) } if n == "일"), "{:?}", host.phase());
+        // 이미 끝났으면 다시 알리지 않는다
+        assert_eq!(guest.refuse_lock(), None);
+    }
+
+    #[test]
+    fn only_a_valid_lock_for_this_game_is_held_for_confirmation() {
+        let (mut host, mut guest, now) = joined_to_a_draft();
+        let out = host.start(&results(&[("벌칙 커피", "bad"), ("꽝", "bad")]), now).unwrap();
+        let LadderMsg::LadderLock { game_id, host: seat, players, results: slots } = out[0].1.clone() else { panic!("lock") };
+        // 다른 판의 잠그기
+        let other = LadderMsg::LadderLock { game_id: to_hex(&[9; 16]), host: seat, players: players.clone(), results: slots.clone() };
+        assert_eq!(guest.lock_changed_results(&other), None);
+        // 형식이 틀린 잠그기는 묻지 않고 평소대로 거부한다 (글자가 화면에 나오지 않는다)
+        let mut long = slots.clone();
+        long[0].text = "너무 길어서 칸에 들어가지 않는 글자".into();
+        let malformed = LadderMsg::LadderLock { game_id: game_id.clone(), host: seat, players: players.clone(), results: long };
+        assert_eq!(guest.lock_changed_results(&malformed), None);
+        // 이미 잠긴 뒤에는 묻지 않는다
+        let lock = LadderMsg::LadderLock { game_id, host: seat, players, results: slots };
+        guest.on_message(lock.clone(), now).unwrap();
+        assert_eq!(guest.lock_changed_results(&lock), None);
     }
 
     #[test]
