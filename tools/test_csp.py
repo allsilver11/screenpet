@@ -33,7 +33,7 @@ def test_scripts_do_not_need_eval(script):
 
 def test_nothing_is_loaded_from_outside_the_app():
     # img-src·connect-src는 앱 안 파일만이다: 원격 주소·data:·blob:을 쓰면 정책도 함께 고친다
-    for f in [*PAGES, *SCRIPTS, UI / "style.css"]:
+    for f in [*PAGES, *SCRIPTS, UI / "style.css", UI / "form.css"]:
         text = f.read_text(encoding="utf-8").replace("http://www.w3.org/2000/svg", "")
         assert not re.search(r"https?://|\bdata:|\bblob:|\basset:|convertFileSrc|createObjectURL|toDataURL", text), f.name
 
@@ -50,6 +50,11 @@ POLICY = {
     "object-src": "'none'",
     "base-uri": "'none'",
 }
+
+
+@pytest.mark.parametrize("page", ["pair.html", "code.html", "name.html", "letter.html", "postit.html"])
+def test_form_windows_share_form_css(page):
+    assert '<link rel="stylesheet" href="form.css" />' in (UI / page).read_text(encoding="utf-8")
 
 
 def test_policy_is_the_one_reviewed():

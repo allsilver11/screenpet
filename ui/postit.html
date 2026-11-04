@@ -2,46 +2,13 @@
 <html>
   <head>
     <meta charset="utf-8" />
+    <link rel="stylesheet" href="form.css" />
     <style>
-      html, body { margin: 0; height: 100%; }
-      body {
-        font-family: "Segoe UI", "Malgun Gothic", sans-serif;
-        background: #ffe86e;
-        color: #4b3d17;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 7px;
-        padding: 8px 12px;
-        box-sizing: border-box;
-        user-select: none;
-        text-align: center;
-      }
-      #title { font-size: 12px; }
-      #input {
-        font: inherit;
-        font-size: 13px;
-        text-align: center;
-        width: 260px;
-        box-sizing: border-box;
-        padding: 4px 8px;
-        border: 1px solid #c9a93f;
-        border-radius: 4px;
-        background: #fff8c8;
-      }
+      body { background: #ffe86e; color: #4b3d17; }
+      #input { font-size: 13px; width: 260px; box-sizing: border-box; border-color: #c9a93f; border-radius: 4px; background: #fff8c8; }
       #count { font-size: 11px; color: #7a6526; min-height: 1em; }
-      #buttons { display: flex; gap: 8px; }
-      button {
-        font: inherit;
-        font-size: 11px;
-        padding: 4px 12px;
-        border-radius: 6px;
-        border: 1px solid #c9a93f;
-        background: #fff8c8;
-        cursor: pointer;
-      }
-      button.primary { background: #ffcf5a; font-weight: 600; }
+      button { border-radius: 6px; border-color: #c9a93f; background: #fff8c8; }
+      button.primary { background: #ffcf5a; border-color: #c9a93f; }
     </style>
   </head>
   <body>
