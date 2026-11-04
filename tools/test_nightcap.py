@@ -13,13 +13,13 @@ from PIL import Image, ImageDraw
 
 import preview_nightcap as pn
 import preview_scarf as ps
+from sprite_spec import FRAME
 
 ROOT = Path(__file__).resolve().parent.parent
 PETS = ROOT / "ui" / "pets"
 MAIN = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
 HTML = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
 HARNESS = ROOT / "tools" / "nightcap_harness.js"
-FRAME = 128
 needs_node = pytest.mark.skipif(not shutil.which("node"), reason="node 없음")
 
 # 그림에 쓰는 눈 색 (draw_pets EYE·EYE_LIGHT, 눈사람 COAL 계열)

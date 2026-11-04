@@ -19,7 +19,7 @@ import draw_pets as dp  # noqa: E402
 from draw_pets import (BLUSH, C, E, HEART, L, LINE, MOUTH_IN, SPEED, T, TONGUE, WHITE, Part, Species, _ST, _shown,  # noqa: E402
                        anger_fx, arc, blush, brows, heart_fx, mix, open_mouth, question_fx, sparkle_fx, stage_eye, strand, sweat_fx,
                        view, xf, z_fx)
-from sprite_spec import FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES  # noqa: E402
+from sprite_spec import ROLL_CENTER, ROLL_RADIUS, STAGES  # noqa: E402
 
 FROG_G, FROG_SPOT, FROG_BELLY, FROG_LINE = (152, 212, 116), (104, 176, 90), (244, 248, 206), (76, 116, 70)
 FLY_BODY, FLY_WING = (92, 96, 112), (226, 240, 252)
@@ -508,10 +508,7 @@ def frog_eat(sp, i):
 
 def frog_level_up(sp, i):
     lift = [0, 1, 2][i]
-    stars = [[(14, 40, 5.5), (114, 34, 4.0), (16, 86, 3.6), (112, 84, 5.0)],
-             [(16, 30, 4.2), (112, 26, 6.0), (12, 74, 5.0), (116, 74, 3.6)],
-             [(14, 50, 6.0), (114, 44, 4.6), (20, 18, 3.8), (108, 14, 4.4)]][i]
-    fx = [f for x, y, r in stars for f in sparkle_fx(x, y, r)]
+    fx = dp.level_up_stars(i)
     up = [(46, 84), (32, 68 - 2 * lift), (26, 50 - 4 * lift)]
     return frog_front(sp, whole=dict(dy=-1 if i == 2 else 0), eyes="happy", mouth="big", arms=(up, up), fx=fx)
 
@@ -624,39 +621,16 @@ def frog_slide(sp, i):
     return frog_back(sp, hands=(22, 10), feet=("low", "low"), sy=0.94, dy=[0, 1][i], scratch=i, sweat=i)
 
 
-def _fit(fn):
-    """다 그린 프레임이 1px 투명 여백을 넘으면 (빨판·뻗은 다리 끝이 1~4px) 그만큼 안쪽으로 민다."""
-    from PIL import Image
-
-    def f(sp, i):
-        im = fn(sp, i)
-        x0, y0, x1, y1 = im.getchannel("A").getbbox()
-        u, side = dp.out_u(), dp.out_px()
-        dx = (u - x0) if x0 < u else min(0, (side - u) - x1)
-        dy = (u - y0) if y0 < u else min(0, (side - u) - y1)
-        if not (dx or dy):
-            return im
-        out = Image.new("RGBA", im.size, (0, 0, 0, 0))
-        out.paste(im, (dx, dy))
-        dp.shift_head(dx / u, dy / u)
-        return out
-    f.__name__ = fn.__name__
-    f.__doc__ = fn.__doc__
-    return f
-
-
 FROG_POSES = {"walk": frog_walk, "run": frog_run, "roll": frog_roll, "idle": frog_idle, "look": frog_look, "sleep": frog_sleep,
               "hop": frog_hop, "fall": frog_fall, "dragged": frog_dragged, "land": frog_land, "sit_front": frog_sit_front,
               "wave": frog_wave, "tilt": frog_tilt, "belly": frog_belly, "stretch": frog_stretch, "heart": frog_heart,
               "tickle": frog_tickle, "annoyed": frog_annoyed, "hungry": frog_hungry, "eat": frog_eat, "level_up": frog_level_up,
               "climb": frog_climb, "slide": frog_slide, "bigjump": frog_bigjump, "lookup": frog_lookup}
-FROG_POSES = {k: (v if k == "roll" else _fit(v)) for k, v in FROG_POSES.items()}  # roll은 회전 원 안 그대로
+FROG_POSES = {k: (v if k == "roll" else dp._fit(v)) for k, v in FROG_POSES.items()}  # roll은 회전 원 안 그대로
 
 FROG = Species(
     id="frog", name="개구리", walk_speed=90, scale=0.94, base=FROG_G, back=FROG_G, belly=FROG_BELLY, nose=FROG_SPOT, mouth="w",
-    front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[],
-    front_tail=[], front_tail_root=(64, 112), front_tail_color=FROG_G, side_ears=[], ears_over=False,
-    side_head_marks=[], side_torso_marks=[], side_tail=[], tail_root=(28, 108), tail_color=FROG_G,
+    front_tail_color=FROG_G, tail_color=FROG_G, **dp.NO_COMMON_PARTS,
     specials=["climb", "slide", "bigjump", "lookup"], stage_size=dict.fromkeys(STAGES, 0.85), stripe=FROG_SPOT, poses=FROG_POSES,
     outline=FROG_LINE,
     # 동글 찹쌀떡 몸 (가로가 더 넓다) · 모든 단계 반짝이 두 개 큰 눈 (어른도 — 귀여움 우선, 크기만 작게) · 아기는 눈이 더 크다
@@ -686,33 +660,6 @@ def main():
 
 
 def preview_frog(by_stage, path, bg=(255, 255, 255)):
-    """5단계 × walk·sit_front·wave·eat(혀)·sleep·hop·bigjump·climb + 화면 표시 크기 + sit_front 2배 확대 (귀여움 확인용)."""
-    from PIL import Image, ImageDraw, ImageFont
-    from sprite_spec import STAGE_SCALE
+    """5단계 × walk·sit_front·wave·eat(혀)·sleep·hop·bigjump·climb."""
     names = [("walk", 0), ("sit_front", 0), ("wave", 0), ("eat", 1), ("sleep", 0), ("hop", 1), ("bigjump", 1), ("climb", 0)]
-    cell, label, row_h = FRAME + 4, 70, 2 * FRAME + 8
-    x_disp = label + len(names) * cell + 24
-    x_zoom = x_disp + cell + 24
-    W, H = x_zoom + 2 * FRAME + 8, 24 + len(STAGES) * row_h
-    img = Image.new("RGBA", (W, H), bg + (255,))
-    d = ImageDraw.Draw(img)
-    font = ImageFont.load_default()
-    for c, (anim, k) in enumerate(names):
-        d.text((label + c * cell, 6), f"{anim} {k}", fill=(60, 60, 60), font=font)
-    d.text((x_disp, 6), "(display)", fill=(60, 60, 60), font=font)
-    d.text((x_zoom, 6), "sit_front x2", fill=(60, 60, 60), font=font)
-    for r, st in enumerate(STAGES):
-        y = 24 + r * row_h
-        base = y + row_h - FRAME - 8
-        d.text((4, base + FRAME // 2), st, fill=(60, 60, 60), font=font)
-        for c, (anim, k) in enumerate(names):
-            img.alpha_composite(by_stage[st][anim][k], (label + c * cell, base))
-        s = STAGE_SCALE[st] / STAGE_SCALE["adult"]
-        small = by_stage[st]["sit_front"][0].resize((round(FRAME * s), round(FRAME * s)), Image.LANCZOS)
-        img.alpha_composite(small, (x_disp + (FRAME - small.width) // 2, base + FRAME - small.height))
-        img.alpha_composite(by_stage[st]["sit_front"][0].resize((2 * FRAME, 2 * FRAME), Image.LANCZOS), (x_zoom, y))
-    img.save(path)
-
-
-if __name__ == "__main__":
-    main()
+    dp.preview_poses([(bg, [(st, by_stage, st) for st in STAGES])], names, path, bg=bg)

@@ -23,10 +23,10 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
-from draw_pets import (C, E, HEART, L, LINE, MOUTH_IN, T, WHITE, Part, Species, _ST, anger_fx, arc, blush,  # noqa: E402
-                       brows, heart_fx, mix, open_mouth, question_fx, sparkle_fx, stage_eye, sweat_fx, view, xf, z_fx)
-from draw_halloween import _bubble, _fit, _stars, speed_fx  # noqa: E402
-from sprite_spec import FRAME, OPTIONAL_ANIMS, ROLL_CENTER, STAGES  # noqa: E402
+from draw_pets import (C, E, L, LINE, MOUTH_IN, T, WHITE, Part, Species, _ST, anger_fx, arc, blush,  # noqa: E402
+                       brows, mix, open_mouth, question_fx, sparkle_fx, stage_eye, sweat_fx, view, xf, z_fx)
+from draw_pets import _bubble, _fit, _stars, speed_fx  # noqa: E402
+from sprite_spec import OPTIONAL_ANIMS, ROLL_CENTER, STAGES  # noqa: E402
 
 FLOOR = 125.0
 
@@ -490,12 +490,9 @@ def dn_stretch(sp, i):
 
 
 def dn_heart(sp, i):
-    hs = [heart_fx(112, 40 - 6 * i, 4.6 + 0.6 * i), heart_fx(16, 46 - 6 * i, 4 + 0.5 * i)]
-    if i:
-        hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
+    hs = dp.heart_burst(i)
     hy = FLOOR - 7 * _ST["leg"] - 23 * _ST["body"] * 0.7
-    held = [lambda: Part([C(64 - 6, hy, 7), C(64 + 6, hy, 7), T((51, hy + 2), (77, hy + 2), (64, hy + 14))], HEART,
-                         [([E(53, hy - 5, 57, hy - 1)], WHITE)], grow=0, outline=True)]
+    held = [lambda: dp.held_heart(hy)]
     return dino(sp, side=False, eyes="happy", arms=[(-1, 55), (1, 55)], held=held, fx=hs)
 
 
@@ -518,19 +515,13 @@ def dn_eat(sp, i):
     hr = 21.0 * _ST["head"]
     hy0 = bottom - ry - ry * 0.72 - hr * 0.5
     want = my - hr * 0.55
-    with view(scale=1.0, lift=0):
-        crumbs = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]][i]
-        fx = []
-        for x, y in crumbs:
-            fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], (255, 236, 200), 0)]
+    fx = dp.eat_crumbs(i)
     return dino(sp, side=False, head=(0, want - hy0), head_rot=[0, -2, 0, 2][i], eyes="happy" if bite else "closed",
                 mouth="open" if bite else "chew", arms=[(-1, 40), (1, 40)], fx=fx)
 
 
 def dn_level_up(sp, i):
-    stars = _stars([[(14, 40, 5.5), (114, 34, 4.0), (16, 86, 3.6), (112, 84, 5.0)],
-                    [(16, 30, 4.2), (112, 26, 6.0), (12, 74, 5.0), (116, 74, 3.6)],
-                    [(14, 50, 6.0), (114, 44, 4.6), (20, 18, 3.8), (108, 14, 4.4)]][i])
+    stars = dp.level_up_stars(i)
     up = [150, 165, 175][i]
     return dino(sp, side=False, bottom=FLOOR - 7 * _ST["leg"] - [0, 1, 3][i], eyes="happy", mouth="big", arms=[(-1, up), (1, up)], fx=stars)
 
@@ -675,8 +666,7 @@ def dino_back(sp, reach, feet, *, sq=(1.0, 1.0), dy=0.0, tail_rot=0.0, scratch=N
 
 def dn_climb(sp, i):
     """화면을 기어오름: 앞발 끝 번갈아 위로, 발은 앞발과 엇갈려 빼꼼 → 옆으로 디딤 → 숨음, 몸 살짝 늘어남, 꼬리 살랑."""
-    reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
-    feet = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")][i]
+    reach, feet = dp.CLIMB_REACH[i], dp.CLIMB_FEET[i]
     return dino_back(sp, reach, feet, sq=(1.0, [1.04, 1.0, 1.04, 1.0][i]), dy=[-1, 0, -1, 0][i], tail_rot=[-14, 0, 14, 0][i])
 
 
@@ -693,9 +683,6 @@ DINO_POSES = {"walk": dn_walk, "run": dn_run, "roll": dn_roll, "idle": dn_idle, 
               "roar": dn_roar, "stomp": dn_stomp, "climb": dn_climb, "slide": dn_slide}
 DINO_POSES = {k: (v if k == "roll" else _fit(v)) for k, v in DINO_POSES.items()}
 
-_COMMON = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[], front_tail=[],
-               front_tail_root=(64, 112), side_ears=[], ears_over=False, side_head_marks=[], side_torso_marks=[], side_tail=[],
-               tail_root=(28, 108))
 # 작은 점 눈 (참고 인형처럼) — 아기·유아는 그래도 반짝이 눈
 _TWEAK = {"baby": dict(pale=0.0, eye=1.05, fit=0.88), "kinder": dict(pale=0.0, eye=0.95, fit=0.92),
           "child": dict(pale=0.0, eye=0.9), "teenager": dict(eye=0.86), "adult": dict(eye=0.86, fit=0.93)}
@@ -711,7 +698,7 @@ def _dino_species(pid, name):
     return Species(id=pid, name=name, walk_speed=72, scale=0.94, base=pal["body"], back=pal["body"], belly=pal["belly"],
                    nose=pal["line"], mouth="w", front_tail_color=pal["body"], tail_color=pal["body"],
                    stage_size=dict.fromkeys(STAGES, 1.2), stripe=pal["spike"], outline=pal["line"], stage_tweak=_TWEAK,
-                   specials=_specials(), poses=DINO_POSES, **_COMMON)
+                   specials=_specials(), poses=DINO_POSES, **dp.NO_COMMON_PARTS)
 
 
 DINO_YELLOW = _dino_species("dino_yellow", "노란 공룡")
@@ -729,40 +716,13 @@ register()
 
 
 def preview_dinos(by_id, path, bg=(255, 255, 255)):
-    """세 색 × 다섯 단계 × 대표 동작 (+ 공룡 동작) + 화면 표시 크기 + sit_front·walk 2배 확대."""
-    from PIL import ImageDraw, ImageFont
-    from sprite_spec import STAGE_SCALE
+    """세 색 × 다섯 단계 × 대표 동작 (+ 공룡 동작)."""
     names = [("walk", 0), ("walk", 2), ("run", 1), ("sit_front", 0), ("wave", 1), ("eat", 0), ("sleep", 0), ("tickle", 0),
              ("hungry", 0), ("belly", 0), ("roll", 0), ("dragged", 0)]
     names += [(a, k) for a, n in (("lookup", 3), ("fire", 4), ("roar", 3), ("stomp", 4)) if a in DINO_YELLOW.specials
               for k in (range(n) if a in ("fire", "stomp") else (n - 1,))]
-    cell, label, row_h = FRAME + 4, 110, 2 * FRAME + 8
-    x_disp = label + len(names) * cell + 16
-    x_zoom = x_disp + cell + 16
-    W = x_zoom + 2 * (2 * FRAME + 8)
-    rows = [(pid, st) for pid in by_id for st in STAGES]
-    H = 24 + len(rows) * row_h
-    img = Image.new("RGBA", (W, H), bg + (255,))
-    d = ImageDraw.Draw(img)
-    font = ImageFont.load_default()
-    for c, (anim, k) in enumerate(names):
-        d.text((label + c * cell, 6), f"{anim} {k}", fill=(60, 60, 60), font=font)
-    d.text((x_disp, 6), "(display)", fill=(60, 60, 60), font=font)
-    d.text((x_zoom, 6), "sit_front x2 / walk x2", fill=(60, 60, 60), font=font)
-    for r, (pid, st) in enumerate(rows):
-        by_stage = by_id[pid]
-        y = 24 + r * row_h
-        base = y + row_h - FRAME - 8
-        d.text((4, base + FRAME // 2), f"{pid[5:]} {st}", fill=(60, 60, 60), font=font)
-        for c, (anim, k) in enumerate(names):
-            img.alpha_composite(by_stage[st][anim][k], (label + c * cell, base))
-        s = STAGE_SCALE[st] / STAGE_SCALE["adult"]
-        small = by_stage[st]["sit_front"][0].resize((round(FRAME * s), round(FRAME * s)), Image.LANCZOS)
-        img.alpha_composite(small, (x_disp + (FRAME - small.width) // 2, base + FRAME - small.height))
-        for z, (anim, k) in enumerate([("sit_front", 0), ("walk", 0)]):
-            big = by_stage[st][anim][k].resize((2 * FRAME, 2 * FRAME), Image.LANCZOS)
-            img.alpha_composite(big, (x_zoom + z * (2 * FRAME + 8), y))
-    img.save(path)
+    rows = [(f"{pid[5:]} {st}", by_stage, st) for pid, by_stage in by_id.items() for st in STAGES]
+    dp.preview_poses([(bg, rows)], names, path, zoom=("sit_front", "walk"), label=110, gap=16, bg=bg)
 
 
 def preview_climb(by_id, path, bg=(255, 255, 255)):

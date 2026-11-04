@@ -483,3 +483,18 @@ def test_every_layer_has_the_cell_size_the_manifest_says():
                     assert strip.size == (4 * px, px) and tile.size == (px, meta["tile"]), (pid, st)
                 assert meta["tile"] == 16 * px // FRAME and 16 * px // FRAME <= meta["ext"] <= 56 * px // FRAME and meta["cut"] < px, (pid, st, meta)
         assert not (d / "sheet.png").exists(), pid  # 앱은 단계 시트만 읽는다 (sheet.png는 sheet_teenager.png와 같은 바이트였다)
+
+
+def test_preview_poses_draws_every_band(tmp_path):
+    """개발용 표: 줄 수만큼 높이, zoom 수만큼 너비 — 밝은·어두운 띠 둘 다 그려진다."""
+    blank = Image.new("RGBA", (FRAME, FRAME), (255, 0, 0, 255))
+    by_stage = {st: {"walk": [blank], "sit_front": [blank]} for st in STAGE_NAMES}
+    rows = [(st, by_stage, st) for st in STAGE_NAMES]
+    out = tmp_path / "p.png"
+    draw_pets.preview_poses([((255, 255, 255), rows), ((40, 44, 52), rows)], [("walk", 0)], out, zoom=("sit_front", "walk"))
+    im = Image.open(out)
+    row_h = 2 * FRAME + 8
+    assert im.height == 24 + 10 * row_h
+    assert im.getpixel((2, 24 + 9 * row_h))[:3] == (40, 44, 52)
+    assert im.getpixel((im.width - 10, 24 + row_h // 2))[:3] == (255, 0, 0)
+

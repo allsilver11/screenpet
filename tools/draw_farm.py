@@ -26,10 +26,10 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
-from draw_pets import (BLUSH, C, E, EYE, HEART, L, LINE, MOUTH_IN, T, TONGUE, WHITE, Part, Species, _ST, anger_fx,  # noqa: E402
-                       arc, blush, brows, heart_fx, mix, open_mouth, question_fx, sparkle_fx, stage_eye, strand, sweat_fx, view,
+from draw_pets import (BLUSH, C, E, EYE, L, LINE, MOUTH_IN, T, TONGUE, WHITE, Part, Species, _ST, anger_fx,  # noqa: E402
+                       arc, blush, brows, mix, open_mouth, question_fx, sparkle_fx, stage_eye, strand, sweat_fx, view,
                        xf, z_fx)
-from draw_halloween import _bubble, _fit, _stars, speed_fx  # noqa: E402
+from draw_pets import _bubble, _fit, _stars, speed_fx  # noqa: E402
 from sprite_spec import FRAME, ROLL_CENTER, STAGES, frame_px  # noqa: E402
 
 FLOOR = 125.0
@@ -640,12 +640,9 @@ def dk_stretch(sp, i):
 
 
 def dk_heart(sp, i):
-    hs = [heart_fx(112, 40 - 6 * i, 4.6 + 0.6 * i), heart_fx(16, 46 - 6 * i, 4 + 0.5 * i)]
-    if i:
-        hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
+    hs = dp.heart_burst(i)
     hy = FLOOR - 4 - 22 * _ST["body"] * 0.5
-    held = [lambda: Part([C(64 - 6, hy, 7), C(64 + 6, hy, 7), T((51, hy + 2), (77, hy + 2), (64, hy + 14))], HEART,
-                         [([E(53, hy - 5, 57, hy - 1)], WHITE)], grow=0, outline=True)]
+    held = [lambda: dp.held_heart(hy)]
     return duck(sp, side=False, eyes="happy", wings=[(-1, 60), (1, 60)], held=held, fx=hs)
 
 
@@ -669,19 +666,13 @@ def dk_eat(sp, i):
     bcy = st_b - ry
     hy0 = bcy - ry * 0.6 - hr * 0.62
     want = my - hr * 0.3 - 6.5 * _ST["head"] ** 0.5 * 0.5
-    with view(scale=1.0, lift=0):
-        crumbs = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]][i]
-        fx = []
-        for x, y in crumbs:
-            fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], (255, 236, 200), 0)]
+    fx = dp.eat_crumbs(i)
     return duck(sp, side=False, head=(0, want - hy0), eyes="happy" if bite else "closed", mouth="open" if bite else "chew",
                 wings=[(-1, 40), (1, 40)], feet=None, fx=fx)
 
 
 def dk_level_up(sp, i):
-    stars = _stars([[(14, 40, 5.5), (114, 34, 4.0), (16, 86, 3.6), (112, 84, 5.0)],
-                    [(16, 30, 4.2), (112, 26, 6.0), (12, 74, 5.0), (116, 74, 3.6)],
-                    [(14, 50, 6.0), (114, 44, 4.6), (20, 18, 3.8), (108, 14, 4.4)]][i])
+    stars = dp.level_up_stars(i)
     up = [150, 165, 175][i]
     return duck(sp, side=False, bottom=FLOOR - 4 - [0, 1, 3][i], eyes="happy", mouth="big", wings=[(-1, up), (1, up)], fx=stars)
 
@@ -811,12 +802,9 @@ def gf_stretch(sp, i):
 
 
 def gf_heart(sp, i):
-    hs = [heart_fx(112, 40 - 6 * i, 4.6 + 0.6 * i), heart_fx(16, 46 - 6 * i, 4 + 0.5 * i)]
-    if i:
-        hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
+    hs = dp.heart_burst(i)
     hy = FLOOR - 30
-    held = [lambda: Part([C(64 - 6, hy, 7), C(64 + 6, hy, 7), T((51, hy + 2), (77, hy + 2), (64, hy + 14))], HEART,
-                         [([E(53, hy - 5, 57, hy - 1)], WHITE)], grow=0, outline=True)]
+    held = [lambda: dp.held_heart(hy)]
     return giraffe(sp, side=False, eyes="happy", held=held, fx=hs, head_rot=[0, 3, -3][i])
 
 
@@ -843,19 +831,13 @@ def gf_eat(sp, i):
     bcy = bottom - ry
     nl = NECK_LEN * _gf()["neck"] * 0.5
     b_y = bcy - ry * 0.6 - nl * 0.62
-    with view(scale=1.0, lift=0):
-        crumbs = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]][i]
-        fx = []
-        for x, y in crumbs:
-            fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], (255, 236, 200), 0)]
+    fx = dp.eat_crumbs(i)
     return giraffe(sp, side=False, neck_ang=0.0, neck_k=0.5, head=(0, hy - (b_y - 12)), eyes="happy" if bite else "closed",
                    mouth="open" if bite else "chew", front_legs=[(-3, 0), (3, 0)], fx=fx)
 
 
 def gf_level_up(sp, i):
-    stars = _stars([[(14, 40, 5.5), (114, 34, 4.0), (16, 86, 3.6), (112, 84, 5.0)],
-                    [(16, 30, 4.2), (112, 26, 6.0), (12, 74, 5.0), (116, 74, 3.6)],
-                    [(14, 50, 6.0), (114, 44, 4.6), (20, 18, 3.8), (108, 14, 4.4)]][i])
+    stars = dp.level_up_stars(i)
     return giraffe(sp, side=False, eyes="happy", mouth="big", neck_k=[1.0, 1.08, 1.14][i], front_legs=[(-4, -[4, 8, 10][i]), (4, -[4, 8, 10][i])],
                    fx=stars)
 
@@ -955,16 +937,13 @@ GIRAFFE_POSES = {"walk": gf_walk, "run": gf_run, "roll": gf_roll, "idle": gf_idl
 # 목 늘이기 행은 층과 같은 좌표여야 해서 밀지 않는다
 GIRAFFE_POSES = {k: (v if k == "neckstretch" else _fit(v)) for k, v in GIRAFFE_POSES.items()}
 
-_COMMON = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[], front_tail=[],
-               front_tail_root=(64, 112), side_ears=[], ears_over=False, side_head_marks=[], side_torso_marks=[], side_tail=[],
-               tail_root=(28, 108))
 
 DUCK = Species(
     id="duck", name="오리", walk_speed=80, scale=0.94, base=DUCK_W, back=DUCK_W, belly=DUCK_W, nose=BILL, mouth="w",
     front_tail_color=DUCK_W, tail_color=DUCK_W, stage_size=dict.fromkeys(STAGES, 0.9), stripe=BILL, outline=DUCK_LINE,
     stage_tweak={"baby": dict(pale=0.0, eye=1.2, fit=0.9), "kinder": dict(pale=0.0, eye=1.12, fit=0.93),
                  "child": dict(pale=0.0, eye=1.05), "adult": dict(fit=0.94)},
-    specials=["lookup"], poses=DUCK_POSES, **_COMMON,
+    specials=["lookup"], poses=DUCK_POSES, **dp.NO_COMMON_PARTS,
 )
 
 GIRAFFE = Species(
@@ -973,7 +952,7 @@ GIRAFFE = Species(
     stripe=GIR_SPOT, outline=GIR_LINE,
     stage_tweak={"baby": dict(pale=0.0, eye=1.2, fit=0.9), "kinder": dict(pale=0.0, eye=1.1, fit=0.93),
                  "child": dict(pale=0.0), "adult": dict(fit=0.94)},
-    specials=["neckstretch", "lookup"], poses=GIRAFFE_POSES, write_layers=lambda out_dir: {"neck_stretch": write_neck_layers(out_dir)}, **_COMMON,
+    specials=["neckstretch", "lookup"], poses=GIRAFFE_POSES, write_layers=lambda out_dir: {"neck_stretch": write_neck_layers(out_dir)}, **dp.NO_COMMON_PARTS,
 )
 
 
@@ -1009,11 +988,6 @@ def write_neck_layers(out_dir):
     return meta
 
 
-def preview_species(by_stage, path, bg=(255, 255, 255)):
-    from draw_halloween import preview_species as pv
-    pv(by_stage, path, bg)
-
-
 def preview_neck(out_dir, path):
     """목 늘이기 미리보기: 단계마다 평소 → 늘이는 중 → 다 늘임 (✧) — 앱처럼 층을 겹쳐 2배로."""
     raw = json.loads((Path(out_dir) / "pet.json").read_text(encoding="utf-8"))["neck_stretch"]
@@ -1044,13 +1018,14 @@ def preview_neck(out_dir, path):
 
 
 def main():
+    import draw_halloween as dh
     root = Path(__file__).resolve().parent.parent
     pv = root / "tools" / "preview"
     pv.mkdir(exist_ok=True)
     for sp in (DUCK, GIRAFFE):
         out = root / "ui" / "pets" / sp.id
         by_stage = dp.at_frame(dp.write_species(sp, out))
-        preview_species(by_stage, pv / f"stages_{sp.id}.png")
+        dh.preview_species(by_stage, pv / f"stages_{sp.id}.png")
     preview_neck(root / "ui" / "pets" / "giraffe", pv / "neck_giraffe.png")
     print("ok: duck, giraffe")
 

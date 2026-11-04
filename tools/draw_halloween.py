@@ -26,9 +26,9 @@ from PIL import Image, ImageChops, ImageFilter
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
 from draw_pets import (BLUSH, C, E, HEART, K, L, LINE, S, SPEED, T, WHITE, Part, Species, _ST, aa, anger_fx,  # noqa: E402
-                       arc, bee_mouth, brows, grow, heart_fx, mix, question_fx, shapes, sparkle_fx, stage_eye, strand, sweat_fx,
+                       arc, bee_mouth, brows, grow, mix, question_fx, shapes, stage_eye, strand, sweat_fx,
                        view, xf, z_fx)
-from sprite_spec import FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES  # noqa: E402
+from sprite_spec import ROLL_CENTER, ROLL_RADIUS, STAGES  # noqa: E402
 
 # ---- 색 ----
 PUMP, PUMP_RIDGE, PUMP_LINE, PUMP_FOOT = (250, 156, 62), (222, 108, 38), (150, 80, 48), (238, 128, 48)
@@ -139,7 +139,7 @@ def _finish(parts, glow=(), face=(), fx=(), translucent=None, circle=None):
         from PIL import ImageDraw
         ImageDraw.Draw(m).ellipse(((cx - r) * K, (cy - r) * K, (cx + r) * K, (cy + r) * K), fill=255)
         out.putalpha(ImageChops.multiply(out.getchannel("A"), m.resize((dp.out_px(), dp.out_px()), Image.LANCZOS)))
-    out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
+    dp.drop_faint(out)
     return out
 
 
@@ -462,16 +462,9 @@ def ghost(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes=
 # =====================================================================
 # 효과
 # =====================================================================
-def _bubble(cx, cy, r=12.5):
-    fx = []
-    for x, y, rr in [(cx - r - 7, cy + r + 8, 2.0), (cx - r - 1, cy + r + 1, 3.2), (cx, cy, r)]:
-        fx += [([C(x, y, rr + 1.5)], LINE, 1.0), ([C(x, y, rr)], WHITE, 0)]
-    return fx
-
-
 def candy_bubble_fx(cx, cy):
     """생각 풍선 안에 포장 사탕."""
-    fx = _bubble(cx, cy)
+    fx = dp._bubble(cx, cy)
     wr = [T((cx - 4, cy), (cx - 10, cy - 4.5), (cx - 10, cy + 4.5)), T((cx + 4, cy), (cx + 10, cy - 4.5), (cx + 10, cy + 4.5))]
     fx += [(wr, LINE, 0.9), (wr, CANDY_WRAP, 0), ([C(cx, cy, 6.2)], LINE, 0), ([C(cx, cy, 5.0)], CANDY, 0),
            ([L([(cx - 3, cy + 3), (cx + 3, cy - 3)], 1.4)], CANDY_STRIPE, 0)]
@@ -480,23 +473,11 @@ def candy_bubble_fx(cx, cy):
 
 def lolly_bubble_fx(cx, cy):
     """생각 풍선 안에 막대사탕."""
-    fx = _bubble(cx, cy)
+    fx = dp._bubble(cx, cy)
     spiral = [(cx + 0.55 * t * math.cos(t), cy - 2 + 0.55 * t * math.sin(t)) for t in (k * 0.4 for k in range(2, 22))]
     fx += [([L([(cx, cy + 2), (cx, cy + 10)], 3.2)], LINE, 0), ([L([(cx, cy + 2), (cx, cy + 10)], 1.6)], WHITE, 0),
            ([C(cx, cy - 2, 6.6)], LINE, 0), ([C(cx, cy - 2, 5.4)], LOLLY, 0), ([L(spiral, 1.2)], LOLLY_SWIRL, 0)]
     return fx
-
-
-def speed_fx(x0, ys, ln, shift=0.0):
-    return [([L([(x0 + shift, y), (x0 + ln + shift, y)], 1.8)], SPEED, 0) for y in ys]
-
-
-def _stars(items):
-    return [f for x, y, r in items for f in sparkle_fx(x, y, r)]
-
-
-def _swing(v):
-    return dp._swing(v)
 
 
 # =====================================================================
@@ -520,12 +501,12 @@ def walk(sp, i):
 def run(sp, i):
     if _is_ghost(sp):
         return ghost(sp, side=True, bottom=110 - [0, 1, 0, 1][i], rot=12, phase=i, trail=1.6, mouth="open" if i % 2 else None,
-                     arms=[(1, 100)], fx=speed_fx(2, (52, 70, 88), 14, [0, -3, 0, -3][i]))
+                     arms=[(1, 100)], fx=dp.speed_fx(2, (52, 70, 88), 14, [0, -3, 0, -3][i]))
     up = [0, 7, 11, 5][i]
     sq = [(1.1, 0.88), (0.93, 1.08), (0.98, 1.02), (0.96, 1.05)][i]
     return pumpkin(sp, side=True, bottom=FLOOR - 6 - up, sq=sq, rot=[2, -8, -6, -2][i], stem=[10, -10, -16, 0][i],
                    eyes="happy", mouth="open", feet=((-3, 0), (3, 0)) if i == 0 else ((-4, 2), (4, -2)), arms=[(1, 95)],
-                   lit=FLICK[i], fx=speed_fx(2, (74, 92, 108), 12, [0, -3, 0, -3][i]))
+                   lit=FLICK[i], fx=dp.speed_fx(2, (74, 92, 108), 12, [0, -3, 0, -3][i]))
 
 
 def roll(sp, i):
@@ -599,7 +580,7 @@ def hop(sp, i):
 
 
 def fall(sp, i):
-    stars = _stars([(100, 22, 3.6), (26, 30, 3.0)] if i == 0 else [(30, 20, 3.6), (104, 32, 3.0)])
+    stars = dp._stars([(100, 22, 3.6), (26, 30, 3.0)] if i == 0 else [(30, 20, 3.6), (104, 32, 3.0)])
     if _is_ghost(sp):
         return ghost(sp, side=True, bottom=110, rot=[-14, 14][i], eyes="spiral", mouth="wavy", arms=[(1, [150, 120][i])],
                      phase=i * 2, fx=stars)
@@ -660,7 +641,7 @@ def wave(sp, i):
 
 
 def tilt(sp, i):
-    return _front(sp, **_kw(sp, i, **_bob(sp, 3), rot=_swing([8, 12, 12][i]), stem=6, fx=[question_fx(18, 22 + [2, 0, -2][i])]))
+    return _front(sp, **_kw(sp, i, **_bob(sp, 3), rot=dp._swing([8, 12, 12][i]), stem=6, fx=[question_fx(18, 22 + [2, 0, -2][i])]))
 
 
 def belly(sp, i):
@@ -684,9 +665,7 @@ def stretch(sp, i):
 
 
 def heart(sp, i):
-    hs = [heart_fx(112, 40 - 6 * i, 4.6 + 0.6 * i), heart_fx(16, 46 - 6 * i, 4 + 0.5 * i)]
-    if i:
-        hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
+    hs = dp.heart_burst(i)
     if _is_ghost(sp):
         st = _gh()
         hy = 112 - st["r"] * 0.3 - _skirt(st) + min(st["r"] * 0.95, st["L"] - 9)  # 아기는 치마가 짧아 조금 위로
@@ -699,7 +678,7 @@ def heart(sp, i):
 
 
 def tickle(sp, i):
-    return _front(sp, **_kw(sp, i, rot=_swing([-7, 7, 0][i]), eyes="happy", mouth="open",
+    return _front(sp, **_kw(sp, i, rot=dp._swing([-7, 7, 0][i]), eyes="happy", mouth="open",
                             arms=[(-1, [60, 110, 85][i]), (1, [110, 60, 85][i])], stem=[-10, 10, 0][i]))
 
 
@@ -722,11 +701,7 @@ def eat(sp, i):
     fs = _fs()
     mx, my = dp._frame_to_pre(64, 84 + [0, 1, 0, 1][i])
     eyes, mouth = ("happy", "open") if bite else ("closed", "chew")
-    with view(scale=1.0, lift=0):
-        crumbs = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]][i]
-        fx = []
-        for x, y in crumbs:
-            fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], (255, 236, 200), 0)]
+    fx = dp.eat_crumbs(i)
     paws = [dp._frame_to_pre(44, 98), dp._frame_to_pre(84, 98)]  # 그릇 가장자리를 두 손으로
     if _is_ghost(sp):
         st = _gh()
@@ -742,9 +717,7 @@ def eat(sp, i):
 
 
 def level_up(sp, i):
-    stars = _stars([[(14, 40, 5.5), (114, 34, 4.0), (16, 86, 3.6), (112, 84, 5.0)],
-                    [(16, 30, 4.2), (112, 26, 6.0), (12, 74, 5.0), (116, 74, 3.6)],
-                    [(14, 50, 6.0), (114, 44, 4.6), (20, 18, 3.8), (108, 14, 4.4)]][i])
+    stars = dp.level_up_stars(i)
     up = [150, 165, 175][i]
     kw = dict(eyes="happy", mouth="big", arms=[(-1, up), (1, up)], fx=stars)
     if _is_ghost(sp):
@@ -809,8 +782,7 @@ def pumpkin_back(sp, reach, feet, *, sq=(1.0, 1.0), dy=0.0, stem=0.0, scratch=No
 
 def pk_climb(sp, i):
     """화면을 기어오름: 손끝 번갈아 위로, 발은 손과 엇갈려 빼꼼 → 옆으로 디딤 → 숨음, 몸 살짝 늘어남, 꼭지 살랑."""
-    reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
-    feet = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")][i]
+    reach, feet = dp.CLIMB_REACH[i], dp.CLIMB_FEET[i]
     return pumpkin_back(sp, reach, feet, sq=(1.0, [1.04, 1.0, 1.04, 1.0][i]), dy=[-1, 0, -1, 0][i], stem=[-7, 0, 7, 0][i])
 
 
@@ -819,33 +791,13 @@ def pk_slide(sp, i):
     return pumpkin_back(sp, (1.0, 1.0), ("low", "low"), sq=(1.03, 0.94), dy=[0, 1][i], stem=[-3, 3][i], scratch=i, sweat=i)
 
 
-def _fit(fn):
-    """다 그린 프레임이 1px 투명 여백을 넘으면 그만큼 안쪽으로 민다."""
-    def f(sp, i):
-        im = fn(sp, i)
-        x0, y0, x1, y1 = im.getchannel("A").getbbox()
-        u, side = dp.out_u(), dp.out_px()
-        dx = (u - x0) if x0 < u else min(0, (side - u) - x1)
-        dy = (u - y0) if y0 < u else min(0, (side - u) - y1)
-        if not (dx or dy):
-            return im
-        out = Image.new("RGBA", im.size, (0, 0, 0, 0))
-        out.paste(im, (dx, dy))
-        dp.shift_head(dx / u, dy / u)
-        return out
-    f.__name__ = fn.__name__
-    return f
-
-
 POSES = {"walk": walk, "run": run, "roll": roll, "idle": idle, "look": look, "sleep": sleep, "hop": hop, "fall": fall,
          "dragged": dragged, "land": land, "sit_front": sit_front, "wave": wave, "tilt": tilt, "belly": belly,
          "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "hungry": hungry, "eat": eat,
          "level_up": level_up, "lookup": lookup, "climb": pk_climb, "slide": pk_slide}  # climb·slide는 호박만 (유령은 specials에 없다)
-POSES = {k: (v if k == "roll" else _fit(v)) for k, v in POSES.items()}  # roll은 회전 원 안 그대로
+POSES = {k: (v if k == "roll" else dp._fit(v)) for k, v in POSES.items()}  # roll은 회전 원 안 그대로
 
-_COMMON = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[], front_tail=[],
-               front_tail_root=(64, 112), side_ears=[], ears_over=False, side_head_marks=[], side_torso_marks=[], side_tail=[],
-               tail_root=(28, 108), specials=["lookup"], poses=POSES)
+_COMMON = dict(dp.NO_COMMON_PARTS, specials=["lookup"], poses=POSES)
 
 PUMPKIN = Species(
     id="pumpkin", name="호박", walk_speed=70, scale=0.94, base=PUMP, back=PUMP, belly=PUMP, nose=PUMP_RIDGE, mouth="w",
@@ -876,39 +828,11 @@ register()
 
 
 def preview_species(by_stage, path, bg=(255, 255, 255)):
-    """5단계 × 대표 동작 + 화면 표시 크기 + sit_front·walk 2배 확대 (귀여움 확인용). 아래 띠: 어두운 바탕 (빛·반투명 확인)."""
-    from PIL import ImageDraw, ImageFont
-    from sprite_spec import STAGE_SCALE
+    """5단계 × 대표 동작. 아래 띠: 어두운 바탕 (빛·반투명 확인)."""
     names = [("walk", 0), ("walk", 2), ("sit_front", 0), ("wave", 1), ("eat", 0), ("eat", 1), ("sleep", 0), ("hop", 1),
              ("tickle", 0), ("hungry", 0), ("belly", 0), ("roll", 0), ("dragged", 0)]
-    cell, label, row_h = FRAME + 4, 70, 2 * FRAME + 8
-    x_disp = label + len(names) * cell + 24
-    x_zoom = x_disp + cell + 24
-    W = x_zoom + 2 * (2 * FRAME + 8)
-    H = 24 + 2 * len(STAGES) * row_h
-    img = Image.new("RGBA", (W, H), bg + (255,))
-    d = ImageDraw.Draw(img)
-    font = ImageFont.load_default()
-    for c, (anim, k) in enumerate(names):
-        d.text((label + c * cell, 6), f"{anim} {k}", fill=(60, 60, 60), font=font)
-    d.text((x_disp, 6), "(display)", fill=(60, 60, 60), font=font)
-    d.text((x_zoom, 6), "sit_front x2 / walk x2", fill=(60, 60, 60), font=font)
-    for band, bgc in enumerate([bg, (40, 44, 52)]):
-        y0 = 24 + band * len(STAGES) * row_h
-        if band:
-            img.paste(Image.new("RGBA", (W, len(STAGES) * row_h), bgc + (255,)), (0, y0))
-        for r, st in enumerate(STAGES):
-            y = y0 + r * row_h
-            base = y + row_h - FRAME - 8
-            d.text((4, base + FRAME // 2), st, fill=(60, 60, 60) if not band else (220, 220, 220), font=font)
-            for c, (anim, k) in enumerate(names):
-                img.alpha_composite(by_stage[st][anim][k], (label + c * cell, base))
-            s = STAGE_SCALE[st] / STAGE_SCALE["adult"]
-            small = by_stage[st]["sit_front"][0].resize((round(FRAME * s), round(FRAME * s)), Image.LANCZOS)
-            img.alpha_composite(small, (x_disp + (FRAME - small.width) // 2, base + FRAME - small.height))
-            img.alpha_composite(by_stage[st]["sit_front"][0].resize((2 * FRAME, 2 * FRAME), Image.LANCZOS), (x_zoom, y))
-            img.alpha_composite(by_stage[st]["walk"][0].resize((2 * FRAME, 2 * FRAME), Image.LANCZOS), (x_zoom + 2 * FRAME + 8, y))
-    img.save(path)
+    rows = [(st, by_stage, st) for st in STAGES]
+    dp.preview_poses([(bg, rows), ((40, 44, 52), rows)], names, path, zoom=("sit_front", "walk"), bg=bg)
 
 
 def main():

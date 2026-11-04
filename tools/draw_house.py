@@ -24,7 +24,7 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from draw_pets import (EYE, LINE, OUTLINE, PINK, S, WHITE, C, E, L, T, aa, blank, grow, melt, mix, paint,  # noqa: E402
+from draw_pets import (EYE, LINE, OUTLINE, PINK, S, WHITE, C, E, L, T, aa, blank, drop_faint, grow, melt, mix, paint,  # noqa: E402
                        shapes, view)
 from sprite_spec import FRAME, STAGE_SCALE, STAGES  # noqa: E402
 
@@ -171,7 +171,7 @@ def blob(img, fns, color, r=2.4, line=1.0, line_color=LINE, marks=()):
 def finish(img):
     """draw_pets.compose와 같은 마무리: 128로 줄이고 거의 투명한 찌꺼기를 지운다."""
     out = img.resize((FRAME, FRAME), Image.LANCZOS)
-    out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
+    drop_faint(out)
     return out
 
 
@@ -1076,23 +1076,6 @@ def sit_frame(pet_id, stage):
     return Image.open(sheet).convert("RGBA").crop((0, row * px, px, (row + 1) * px)).resize((FRAME, FRAME), Image.LANCZOS)
 
 
-def bee_placeholder():
-    """ui/pets/bee가 아직 없을 때 미리보기용 꿀벌 (앞모습 대충)."""
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    with view(scale=1.0, lift=0):
-        blob(img, [E(14, 30, 52, 74), E(76, 30, 114, 74)], (226, 240, 252), r=0.5, line=0.8)
-        blob(img, [E(30, 62, 98, 126)], (252, 212, 84), r=0.5,
-             marks=[([L([(28, 88), (100, 88)], 7), L([(32, 108), (96, 108)], 7)], (96, 70, 60))])
-        blob(img, [L([(52, 22), (44, 8)], 2), L([(76, 22), (84, 8)], 2), C(44, 8, 4), C(84, 8, 4)], (96, 70, 60),
-             r=0, line=0.5)
-        blob(img, [E(26, 14, 102, 78)], (252, 212, 84), r=0.5)
-        paint(img, aa(shapes([C(50, 46, 4.2), C(78, 46, 4.2)])), EYE)
-        paint(img, aa(shapes([C(48.6, 44.4, 1.4), C(76.6, 44.4, 1.4)])), WHITE)
-        paint(img, aa(shapes([E(36, 54, 46, 60), E(82, 54, 92, 60)])), (252, 170, 160))
-        paint(img, aa(shapes([L([(59, 56), (64, 59), (69, 56)], 1.6)])), LINE)
-    return finish(img)
-
-
 def preview(arts, path=PREVIEW):
     """teenager 집 (그림 / 앞 레이어 / 고양이와 함께) — 예전 미리보기와 같다."""
     house, front = arts["house", "teenager"]
@@ -1114,116 +1097,56 @@ def preview(arts, path=PREVIEW):
     bg.convert("RGB").save(path)
 
 
-def preview_all(arts, path=PREVIEW_ALL):
-    """단계마다 앱에서 보이는 크기(128 × HOUSE_SCALE, 2배 확대)로: 집 + 고양이, 벌통 + 꿀벌. 아래 줄은 어두운 배경."""
+def _house_rows_preview(arts, rows, path, under=None):
+    """단계마다 앱 크기(128 × HOUSE_SCALE, 2배 확대)로 rows의 (집 종류, 동물)을 한 줄씩. 아래 절반은 어두운 배경.
+    under(comp, stage): 동물을 앉히기 전에 집 위에 더 그린다 (굴뚝 연기)."""
     big = 2
-    bee = {s: sit_frame("bee", s) for s in STAGES}
-    col_w = round(FRAME * max(HOUSE_SCALE.values()) * big) + 12
-    width = 16 + len(STAGES) * col_w
-    height = 16 + 2 * 2 * (round(FRAME * max(HOUSE_SCALE.values()) * big) + 12)
-    out = Image.new("RGBA", (width, height), (200, 200, 200, 255))
-    cell_h = round(FRAME * max(HOUSE_SCALE.values()) * big) + 12
+    cell = round(FRAME * max(HOUSE_SCALE.values()) * big) + 12
+    out = Image.new("RGBA", (16 + len(STAGES) * cell, 16 + 2 * len(rows) * cell), (200, 200, 200, 255))
     for c, stage in enumerate(STAGES):
         side = round(FRAME * HOUSE_SCALE[stage] * big)
-        pets = {"house": (sit_frame("cat", stage), body_scale("cat", stage)),
-                "hive": (bee[stage], body_scale("bee", stage)) if bee[stage] else (bee_placeholder(), 0.8)}
-        for k, kind in enumerate(("house", "hive")):
+        for k, (kind, pet_id) in enumerate(rows):
             art, front = arts[kind, stage]
             comp = art.copy()
-            pet, body = pets[kind]
-            comp.alpha_composite(pet_in_door(pet, DOORS[kind][stage], door_pet_size(stage, body)))
+            if under:
+                under(comp, stage)
+            pet = sit_frame(pet_id, stage)
+            if pet is not None:
+                comp.alpha_composite(pet_in_door(pet, DOORS[kind][stage], door_pet_size(stage, body_scale(pet_id, stage))))
             comp.alpha_composite(front)
             comp = comp.resize((side, side), Image.LANCZOS)
             for b, bg in enumerate([(255, 255, 255), (40, 44, 52)]):
-                cell = Image.new("RGBA", (side, side), bg + (255,))
-                cell.alpha_composite(comp)
-                x = 16 + c * col_w + (col_w - 12 - side) // 2
-                y = 16 + (b * 2 + k) * cell_h + (cell_h - 12 - side)
-                out.paste(cell, (x, y))
+                tile = Image.new("RGBA", (side, side), bg + (255,))
+                tile.alpha_composite(comp)
+                out.paste(tile, (16 + c * cell + (cell - 12 - side) // 2, 16 + (b * len(rows) + k) * cell + (cell - 12 - side)))
     path.parent.mkdir(exist_ok=True)
     out.convert("RGB").save(path)
+
+
+def preview_all(arts, path=PREVIEW_ALL):
+    _house_rows_preview(arts, [("house", "cat"), ("hive", "bee")], path)
 
 
 def preview_haunted(arts, path=PREVIEW_HAUNTED):
-    """단계마다 앱 크기(128 × HOUSE_SCALE, 2배 확대)로 귀신의 집 + 호박 / + 유령. 아래 두 줄은 어두운 배경."""
-    big = 2
-    cell = round(FRAME * max(HOUSE_SCALE.values()) * big) + 12
-    pets = ("pumpkin", "ghost")
-    out = Image.new("RGBA", (16 + len(STAGES) * cell, 16 + 2 * len(pets) * cell), (200, 200, 200, 255))
-    for c, stage in enumerate(STAGES):
-        side = round(FRAME * HOUSE_SCALE[stage] * big)
-        art, front = arts["haunted", stage]
-        for k, pet_id in enumerate(pets):
-            comp = art.copy()
-            pet = sit_frame(pet_id, stage)
-            if pet is not None:
-                size = door_pet_size(stage, body_scale(pet_id, stage))
-                comp.alpha_composite(pet_in_door(pet, DOORS["haunted"][stage], size))
-            comp.alpha_composite(front)
-            comp = comp.resize((side, side), Image.LANCZOS)
-            for b, bg in enumerate([(255, 255, 255), (40, 44, 52)]):
-                tile = Image.new("RGBA", (side, side), bg + (255,))
-                tile.alpha_composite(comp)
-                x = 16 + c * cell + (cell - 12 - side) // 2
-                y = 16 + (b * len(pets) + k) * cell + (cell - 12 - side)
-                out.paste(tile, (x, y))
-    path.parent.mkdir(exist_ok=True)
-    out.convert("RGB").save(path)
+    _house_rows_preview(arts, [("haunted", "pumpkin"), ("haunted", "ghost")], path)
 
 
 def preview_hive(arts, path=PREVIEW_HIVE):
-    """단계마다 앱 크기(128 × HOUSE_SCALE, 2배 확대)로 벌통 + 꿀벌. 아랫줄은 어두운 배경."""
-    big = 2
-    cell = round(FRAME * max(HOUSE_SCALE.values()) * big) + 12
-    out = Image.new("RGBA", (16 + len(STAGES) * cell, 16 + 2 * cell), (200, 200, 200, 255))
-    for c, stage in enumerate(STAGES):
-        side = round(FRAME * HOUSE_SCALE[stage] * big)
-        art, front = arts["hive", stage]
-        comp = art.copy()
-        comp.alpha_composite(pet_in_door(sit_frame("bee", stage), DOORS["hive"][stage], door_pet_size(stage, body_scale("bee", stage))))
-        comp.alpha_composite(front)
-        comp = comp.resize((side, side), Image.LANCZOS)
-        for b, bg in enumerate([(255, 255, 255), (40, 44, 52)]):
-            tile = Image.new("RGBA", (side, side), bg + (255,))
-            tile.alpha_composite(comp)
-            out.paste(tile, (16 + c * cell + (cell - 12 - side) // 2, 16 + b * cell + (cell - 12 - side)))
-    path.parent.mkdir(exist_ok=True)
-    out.convert("RGB").save(path)
+    _house_rows_preview(arts, [("hive", "bee")], path)
 
 
 def preview_xmas(arts, path=PREVIEW_XMAS):
-    """단계마다 앱 크기(128 × HOUSE_SCALE, 2배 확대)로 크리스마스 벽돌집 + 루돌프 / + 산타 (굴뚝 위 연기 세 모금을 앱처럼 겹쳐 본다).
-    아래 두 줄은 어두운 배경."""
-    big = 2
-    cell = round(FRAME * max(HOUSE_SCALE.values()) * big) + 12
-    pets = ("rudolph", "santa")
+    """크리스마스 벽돌집 + 루돌프 / + 산타 (굴뚝 위 연기 세 모금을 앱처럼 겹쳐 본다)."""
     puff = smoke_puff()
-    out = Image.new("RGBA", (16 + len(STAGES) * cell, 16 + 2 * len(pets) * cell), (200, 200, 200, 255))
-    for c, stage in enumerate(STAGES):
-        side = round(FRAME * HOUSE_SCALE[stage] * big)
-        art, front = arts["xmas", stage]
+
+    def smoke(comp, stage):
         sx, sy = XMAS_SMOKE[stage]
-        for k, pet_id in enumerate(pets):
-            comp = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
-            comp.alpha_composite(art)
-            for j, (rise, size) in enumerate(((0, 10), (8, 13), (16, 16))):  # house.js: 오르며 커진다
-                p = puff.resize((size, size), Image.LANCZOS)
-                p.putalpha(p.getchannel("A").point(lambda v, a=(1.0, 0.75, 0.45)[j]: int(v * a)))
-                comp.alpha_composite(p, (max(0, round(sx - size / 2 + 1.5 * j)), max(0, round(sy - size / 2 - rise))))
-            pet = sit_frame(pet_id, stage)
-            if pet is not None:
-                size = door_pet_size(stage, body_scale(pet_id, stage))
-                comp.alpha_composite(pet_in_door(pet, DOORS["xmas"][stage], size))
-            comp.alpha_composite(front)
-            comp = comp.resize((side, side), Image.LANCZOS)
-            for b, bg in enumerate([(255, 255, 255), (40, 44, 52)]):
-                tile = Image.new("RGBA", (side, side), bg + (255,))
-                tile.alpha_composite(comp)
-                x = 16 + c * cell + (cell - 12 - side) // 2
-                y = 16 + (b * len(pets) + k) * cell + (cell - 12 - side)
-                out.paste(tile, (x, y))
-    path.parent.mkdir(exist_ok=True)
-    out.convert("RGB").save(path)
+        for j, (rise, size) in enumerate(((0, 10), (8, 13), (16, 16))):  # house.js: 오르며 커진다
+            p = puff.resize((size, size), Image.LANCZOS)
+            p.putalpha(p.getchannel("A").point(lambda v, a=(1.0, 0.75, 0.45)[j]: int(v * a)))
+            comp.alpha_composite(p, (max(0, round(sx - size / 2 + 1.5 * j)), max(0, round(sy - size / 2 - rise))))
+
+    _house_rows_preview(arts, [("xmas", "rudolph"), ("xmas", "santa")], path, under=smoke)
 
 
 def main():

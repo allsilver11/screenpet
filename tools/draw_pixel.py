@@ -251,12 +251,17 @@ def brows(kind, cx, cy, flip=False):
     return [([st], None)]
 
 
+def _fx_stamp(cx, cy, rows, pal, **kw):
+    """몸 밖에 찍는 효과 한 장 (compose의 fx 항목)."""
+    return ([_stamp(cx, cy, rows, pal, where="out", **kw)], None, 0)
+
+
 Z_BIG = ["###", "..#", ".#.", "###"]
 Z_SMALL = ["##", ".#", "##"]
 
 
 def z_fx(cx, cy, s):
-    return ([_stamp(cx, cy, Z_BIG if s >= 3.0 else Z_SMALL, {"#": Z_COL}, where="out", alts=(Z_SMALL,))], None, 0)
+    return _fx_stamp(cx, cy, Z_BIG if s >= 3.0 else Z_SMALL, {"#": Z_COL}, alts=(Z_SMALL,))
 
 
 HEARTS = [  # 칸으로 잰 반지름 상한 — 작은 격자에서 하트가 머리만 해지지 않게
@@ -268,24 +273,24 @@ HEARTS = [  # 칸으로 잰 반지름 상한 — 작은 격자에서 하트가 �
 
 def heart_fx(cx, cy, r):
     rows = next(rw for lim, rw in HEARTS if r / _PX["grid"].cell <= lim)
-    return ([_stamp(cx, cy, rows, {"#": dp.HEART, "o": SHINE}, where="out", alts=(HEARTS[0][1],), optional=True)], None, 0)
+    return _fx_stamp(cx, cy, rows, {"#": dp.HEART, "o": SHINE}, alts=(HEARTS[0][1],), optional=True)
 
 
 def question_fx(cx, cy):
     rows = ["###", "#.#", "..#", ".#.", "...", ".#."]
-    return ([_stamp(cx, cy, rows, {"#": dp.LINE}, where="out", halo=SHINE)], None, 0)
+    return _fx_stamp(cx, cy, rows, {"#": dp.LINE}, halo=SHINE)
 
 
 def anger_fx(cx, cy, r=5.0):
     small = ["#.#", ".#.", "#.#"]
     rows = [".#.#.", "##.##", ".....", "##.##", ".#.#."] if r / _PX["grid"].cell >= 1.4 else small
-    return ([_stamp(cx, cy, rows, {"#": ANGER_COL}, where="out", alts=(small,))], None, 0)
+    return _fx_stamp(cx, cy, rows, {"#": ANGER_COL}, alts=(small,))
 
 
 def sparkle_fx(cx, cy, r):
     small = [".e.", "eye", ".e."]
     rows = ["..e..", "..y..", "eyyye", "..y..", "..e.."] if r / _PX["grid"].cell >= 1.1 else small
-    return [([_stamp(cx, cy, rows, {"y": STAR_COL, "e": STAR_EDGE}, where="out", alts=(small,), optional=True)], None, 0)]
+    return [_fx_stamp(cx, cy, rows, {"y": STAR_COL, "e": STAR_EDGE}, alts=(small,), optional=True)]
 
 
 def back_arm(sp, side, reach, scratch=None):
@@ -1131,13 +1136,7 @@ def pixel_rows(sp):
 
 
 def write_sheet(sp, rendered, path):
-    rows = pixel_rows(sp)
-    n = next(iter(rendered.values()))[0].width
-    sheet = Image.new("RGBA", (max(r[1] for r in rows) * n, len(rows) * n), (0, 0, 0, 0))
-    for row, (anim, *_) in enumerate(rows):
-        for col, im in enumerate(rendered[anim]):
-            sheet.paste(im, (col * n, row * n))
-    sheet.save(path, optimize=True)
+    dp.sheet_image(pixel_rows(sp), rendered).save(path, optimize=True)
 
 
 def manifest_for(sp, heads, necks, neck_stretch=None):

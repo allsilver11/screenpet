@@ -3,7 +3,7 @@ import json
 
 import numpy as np
 import pytest
-from PIL import Image, ImageChops
+from PIL import ImageChops
 
 import draw_frog
 import draw_pets

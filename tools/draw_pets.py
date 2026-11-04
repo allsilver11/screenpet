@@ -190,25 +190,25 @@ _HEAD_LOG = {}  # 지금 단계의 {동작: [칸별 표시]}
 _NECK_LOG = {}  # 지금 단계의 {동작: [칸별 목 표시]} — 밤 목도리를 두르는 동물만 (산타)
 
 
-def mark_head(x, y, w, tilt=0.0):
-    """모자 입구 가운데 (x, y) · 입구 너비 w · 더 기울이는 각도 tilt (도, 시계 방향) — 현재 변환 안의 좌표로 적으면 프레임 좌표로 옮겨 적는다.
-    머리가 돌아가거나 찌그러지면 표시도 그대로 따라간다."""
+def _mark(x, y, w, tilt):
+    """현재 변환 안의 (x, y, 너비 w, 기울기 tilt)를 프레임 좌표 [x, y, w, 각도]로."""
     px, py = _pt(x, y)
     lx, ly = _pt(x - w / 2, y)
     rx, ry = _pt(x + w / 2, y)
     ux, uy = _pt(x, y - 10)
-    _HEAD["at"] = [round(px / K, 1), round(py / K, 1), round(math.hypot(rx - lx, ry - ly) / K, 1),
-                   round(math.degrees(math.atan2(ux - px, py - uy)) + tilt, 1)]
+    return [round(px / K, 1), round(py / K, 1), round(math.hypot(rx - lx, ry - ly) / K, 1),
+            round(math.degrees(math.atan2(ux - px, py - uy)) + tilt, 1)]
+
+
+def mark_head(x, y, w, tilt=0.0):
+    """모자 입구 가운데 (x, y) · 입구 너비 w · 더 기울이는 각도 tilt (도, 시계 방향) — 현재 변환 안의 좌표로 적으면 프레임 좌표로 옮겨 적는다.
+    머리가 돌아가거나 찌그러지면 표시도 그대로 따라간다."""
+    _HEAD["at"] = _mark(x, y, w, tilt)
 
 
 def mark_neck(x, y, w, tilt=0.0):
     """밤 목도리가 감기는 자리 (mark_head와 같은 식): 목도리 윗변 가운데 (x, y) · 목도리 너비 w · 기울기 tilt."""
-    px, py = _pt(x, y)
-    lx, ly = _pt(x - w / 2, y)
-    rx, ry = _pt(x + w / 2, y)
-    ux, uy = _pt(x, y - 10)
-    _HEAD["neck"] = [round(px / K, 1), round(py / K, 1), round(math.hypot(rx - lx, ry - ly) / K, 1),
-                     round(math.degrees(math.atan2(ux - px, py - uy)) + tilt, 1)]
+    _HEAD["neck"] = _mark(x, y, w, tilt)
 
 
 def shift_head(dx, dy):
@@ -363,7 +363,7 @@ def compose(parts, ops=(), fx=(), clip=None):
         paint(img, aa(m), color)
     out = img.resize((out_px(), out_px()), Image.LANCZOS)
     # LANCZOS 링잉이 남기는 거의 투명한 찌꺼기(알파 < 10)를 지워 1px 여백을 지킨다
-    out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
+    drop_faint(out)
     return out
 
 
@@ -1215,6 +1215,90 @@ def wave(sp, i):
     return _front(sp, arms=[(1, [0, 26, 0, 26][i])], head=dict(rot=[-3, -1, -3, -1][i], pivot=(64, 84)))
 
 
+def _stars(items):
+    return [f for x, y, r in items for f in sparkle_fx(x, y, r)]
+
+
+# 레벨 업 반짝이 세 장 — 넓게 (몸이 넓은 동물) · 좁게 (공통 뼈대, 꿀벌)
+LEVEL_STARS_WIDE = [[(14, 40, 5.5), (114, 34, 4.0), (16, 86, 3.6), (112, 84, 5.0)],
+                    [(16, 30, 4.2), (112, 26, 6.0), (12, 74, 5.0), (116, 74, 3.6)],
+                    [(14, 50, 6.0), (114, 44, 4.6), (20, 18, 3.8), (108, 14, 4.4)]]
+LEVEL_STARS_NEAR = [[(18, 40, 5.5), (110, 34, 4.0), (22, 86, 3.6), (106, 84, 5.0)],
+                    [(20, 30, 4.2), (106, 26, 6.0), (18, 74, 5.0), (110, 74, 3.6)],
+                    [(18, 50, 6.0), (110, 44, 4.6), (24, 22, 3.8), (104, 16, 4.4)]]
+
+
+def level_up_stars(i, table=LEVEL_STARS_WIDE):
+    return _stars(table[i])
+
+
+def heart_burst(i):
+    """heart 동작의 떠오르는 하트들 (첫 장은 둘, 그다음부터 셋)."""
+    hs = [heart_fx(112, 40 - 6 * i, 4.6 + 0.6 * i), heart_fx(16, 46 - 6 * i, 4 + 0.5 * i)]
+    if i:
+        hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
+    return hs
+
+
+def held_heart(hy):
+    """가슴 앞에 든 하트 (가운데 x = 64, 높이 hy)."""
+    return Part([C(64 - 6, hy, 7), C(64 + 6, hy, 7), T((51, hy + 2), (77, hy + 2), (64, hy + 14))], HEART,
+                [([E(53, hy - 5, 57, hy - 1)], WHITE)], grow=0, outline=True)
+
+
+EAT_CRUMBS = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]]
+
+
+def eat_crumbs(i, col=(255, 236, 200)):
+    """eat 부스러기 (프레임 좌표)."""
+    with view(scale=1.0, lift=0):
+        fx = []
+        for x, y in EAT_CRUMBS[i]:
+            fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], col, 0)]
+    return fx
+
+
+def _bubble(cx, cy, r=12.5):
+    """왼쪽 위 생각 풍선 (안에 그릴 그림은 부르는 쪽이 더한다)."""
+    fx = []
+    for x, y, rr in [(cx - r - 7, cy + r + 8, 2.0), (cx - r - 1, cy + r + 1, 3.2), (cx, cy, r)]:
+        fx += [([C(x, y, rr + 1.5)], LINE, 1.0), ([C(x, y, rr)], WHITE, 0)]
+    return fx
+
+
+def _fit(fn):
+    """다 그린 프레임이 1px 투명 여백을 넘으면 그만큼 안쪽으로 민다."""
+    def f(sp, i):
+        im = fn(sp, i)
+        x0, y0, x1, y1 = im.getchannel("A").getbbox()
+        u, side = out_u(), out_px()
+        dx = (u - x0) if x0 < u else min(0, (side - u) - x1)
+        dy = (u - y0) if y0 < u else min(0, (side - u) - y1)
+        if not (dx or dy):
+            return im
+        out = Image.new("RGBA", im.size, (0, 0, 0, 0))
+        out.paste(im, (dx, dy))
+        shift_head(dx / u, dy / u)
+        return out
+    f.__name__ = fn.__name__
+    f.__doc__ = fn.__doc__
+    return f
+
+
+def drop_faint(out):
+    """거의 투명한 가장자리(알파 10 미만)를 지운다."""
+    out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
+
+
+# 뒷모습 기어오르기 네 장: 앞발 높이 · 뒷발 자리 (BACK_FOOT 키)
+CLIMB_REACH = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)]
+CLIMB_FEET = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")]
+# 자기 뼈대를 그리는 종: 공통 뼈대용 Species 칸을 비운다
+NO_COMMON_PARTS = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[], front_tail=[],
+                       front_tail_root=(64, 112), side_ears=[], ears_over=False, side_head_marks=[], side_torso_marks=[], side_tail=[],
+                       tail_root=(28, 108))
+
+
 def _swing(v):
     """머리를 돌리는 각도·흔드는 폭: 큰 머리(아기)는 덜 돌려 프레임 안에 둔다."""
     return v / max(1.0, _ST["head"]) ** 4
@@ -1330,11 +1414,7 @@ def eat(sp, i):
     top = 66 if sp.mouth == "dog" else 64
     mouth_pre = _frame_to_pre(64, EAT_MOUTH_Y + (0 if bite else -1.5))[1]
     dy = mouth_pre - ((1 - b) * (FRONT_BODY_PIVOT[1] - 84) + 84 + (top - 84) * h + _ST["snout"] * h)
-    with view(scale=1.0, lift=0):  # 부스러기는 프레임 좌표 (그릇 위 양옆으로 튐)
-        crumbs = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]][i]
-        fx = []
-        for x, y in crumbs:
-            fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], CRUMB, 0)]
+    fx = eat_crumbs(i, CRUMB)  # 그릇 위 양옆으로 튐
     paws = [_frame_to_pre(34, 103), _frame_to_pre(94, 103)]  # 그릇 양옆 (그릇 창 뒤로 반쯤 가려짐)
     return _front(sp, eyes="happy" if bite else "closed", mouth="open" if bite else "chew", head_kw=dict(cheeks=not bite),
                   head=dict(dy=dy, rot=[0, -2, 0, 2][i], pivot=(64, 84)), body=dict(sy=0.97, pivot=FRONT_BODY_PIVOT), fx=fx,
@@ -1344,10 +1424,7 @@ def eat(sp, i):
 def level_up(sp, i):
     """레벨 업 만세: 양팔 번쩍, 눈 ^^, 활짝 웃음, 노란 반짝이 (프레임마다 자리·크기 변화), 프레임 2는 1px 점프."""
     lift = [12, 17, 20][i]
-    stars = [[(18, 40, 5.5), (110, 34, 4.0), (22, 86, 3.6), (106, 84, 5.0)],
-             [(20, 30, 4.2), (106, 26, 6.0), (18, 74, 5.0), (110, 74, 3.6)],
-             [(18, 50, 6.0), (110, 44, 4.6), (24, 22, 3.8), (104, 16, 4.4)]][i]
-    fx = [f for x, y, r in stars for f in sparkle_fx(x, y, r)]
+    fx = level_up_stars(i, LEVEL_STARS_NEAR)
     return _front(sp, whole=dict(dy=-1 if i == 2 else 0), eyes="happy", mouth="big", arms=[(1, lift), (-1, lift)],
                   arm_fn=raised_arm, fx=fx)
 
@@ -1473,8 +1550,7 @@ def _back(sp, reach, feet, tail_rot, body_sy=1.0, dy=0.0, scratch=None, sweat=No
 def climb(sp, i):
     """뒷모습으로 화면을 기어오름: 앞발 번갈아 위로 (왼↑오↓ → 오↑왼↓), 뒷발은 앞발과 엇갈려
     아래로 빼꼼 → 옆으로 디딤 → 몸 뒤로 숨음, 몸 살짝 늘어남, 꼬리 좌우 살랑."""
-    reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
-    feet = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")][i]
+    reach, feet = CLIMB_REACH[i], CLIMB_FEET[i]
     return _back(sp, reach, feet, tail_rot=[-16, 0, 16, 0][i], body_sy=[1.05, 1.0, 1.05, 1.0][i], dy=[-1, 0, -1, 0][i])
 
 
@@ -1557,7 +1633,7 @@ def wing_layer(fns, alpha=1.0, hl=()):
     if hl:
         put(ImageChops.multiply(aa(shapes(hl)), m), WING_HL, 220)
     out = img.resize((out_px(), out_px()), Image.LANCZOS)
-    out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
+    drop_faint(out)
     return out
 
 
@@ -1749,7 +1825,7 @@ def bee_compose(parts, ops, fx=(), back_w=(), front_w=(), circle=None):
         m = Image.new("L", (S, S), 0)
         ImageDraw.Draw(m).ellipse(((cx - r) * K, (cy - r) * K, (cx + r) * K, (cy + r) * K), fill=255)
         out.putalpha(ImageChops.multiply(out.getchannel("A"), m.resize((out_px(), out_px()), Image.LANCZOS)))
-    out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
+    drop_faint(out)
     return out
 
 
@@ -2011,10 +2087,7 @@ def bee_eat(sp, i):
 
 
 def bee_level_up(sp, i):
-    stars = [[(18, 40, 5.5), (110, 34, 4.0), (22, 86, 3.6), (106, 84, 5.0)],
-             [(20, 30, 4.2), (106, 26, 6.0), (18, 74, 5.0), (110, 74, 3.6)],
-             [(18, 50, 6.0), (110, 44, 4.6), (24, 22, 3.8), (104, 16, 4.4)]][i]
-    fx = [f for x, y, r in stars for f in sparkle_fx(x, y, r)]
+    fx = level_up_stars(i, LEVEL_STARS_NEAR)
     up = [150, 165, 175][i]
     return _bee_front(sp, c=(64, BEE_FRONT_C[1] - 2 * i), eyes="happy", mouth="big", arms=((-1, up), (1, up)), phase=i, fx=fx)
 
@@ -2093,7 +2166,7 @@ def sting_effect():
         paint(img, aa(shapes([C(cx - 21, cy - 21, 2.6)])), BEE_Y)
         paint(img, aa(shapes([L([(cx - 17.5, cy - 20.5), (cx - 3.5, cy - 5)], 1.2)])), mix(BEE_ST, WHITE, 0.55))
     out = img.resize((FRAME, FRAME), Image.LANCZOS)
-    out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
+    drop_faint(out)
     return out
 
 
@@ -2166,15 +2239,19 @@ def _manifest_text(m):
     return re.sub(r"\[\s+(\[[-\d., ]+\](?:,\s+\[[-\d., ]+\])*)\s+\]", lambda g: "[" + re.sub(r",\s+\[", ", [", g.group(1)) + "]", text) + "\n"
 
 
-def write_sheet(sp, rendered, path):
-    rows = rows_for(sp)
+def sheet_image(rows, rendered):
+    """rows 순서대로 동작 한 줄씩 붙인 시트 (칸 크기는 그림 크기)."""
     cols = max(n for _, n, *_ in rows)
     px = rendered[rows[0][0]][0].width
     sheet = Image.new("RGBA", (cols * px, len(rows) * px), (0, 0, 0, 0))
     for r, (anim, *_) in enumerate(rows):
         for c, im in enumerate(rendered[anim]):
             sheet.paste(im, (c * px, r * px))
-    sheet.save(path)
+    return sheet
+
+
+def write_sheet(sp, rendered, path):
+    sheet_image(rows_for(sp), rendered).save(path)
 
 
 def species_fields(pid, m):
@@ -2220,6 +2297,39 @@ def build(out_root):
 
 
 STAGE_PREVIEW_ANIMS = ["walk", "sit_front", "wave", "eat", "sleep"]
+
+
+def preview_poses(bands, names, path, zoom=("sit_front",), label=70, gap=24, bg=(255, 255, 255)):
+    """귀여움 확인용 표. bands: 띠마다 (바탕색, [(줄 이름, {단계: {동작: [프레임]}}, 단계)]) · names: [(동작, 칸)] 열 ·
+    오른쪽에 화면 표시 크기(STAGE_SCALE)의 sit_front, zoom 동작들의 첫 칸 2배 확대."""
+    from PIL import ImageFont
+    cell, row_h = FRAME + 4, 2 * FRAME + 8
+    x_disp = label + len(names) * cell + gap
+    x_zoom = x_disp + cell + gap
+    W, H = x_zoom + len(zoom) * row_h, 24 + sum(len(rows) for _, rows in bands) * row_h
+    img = Image.new("RGBA", (W, H), bg + (255,))
+    d = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    for c, (anim, k) in enumerate(names):
+        d.text((label + c * cell, 6), f"{anim} {k}", fill=(60, 60, 60), font=font)
+    d.text((x_disp, 6), "(display)", fill=(60, 60, 60), font=font)
+    d.text((x_zoom, 6), " / ".join(f"{a} x2" for a in zoom), fill=(60, 60, 60), font=font)
+    y = 24
+    for band_bg, rows in bands:
+        img.paste(Image.new("RGBA", (W, len(rows) * row_h), band_bg + (255,)), (0, y))
+        ink = (60, 60, 60) if sum(band_bg) > 380 else (220, 220, 220)
+        for name, by_stage, st in rows:
+            base = y + row_h - FRAME - 8
+            d.text((4, base + FRAME // 2), name, fill=ink, font=font)
+            for c, (anim, k) in enumerate(names):
+                img.alpha_composite(by_stage[st][anim][k], (label + c * cell, base))
+            s = STAGE_SCALE[st] / STAGE_SCALE["adult"]
+            small = by_stage[st]["sit_front"][0].resize((round(FRAME * s), round(FRAME * s)), Image.LANCZOS)
+            img.alpha_composite(small, (x_disp + (FRAME - small.width) // 2, base + FRAME - small.height))
+            for z, anim in enumerate(zoom):
+                img.alpha_composite(by_stage[st][anim][0].resize((2 * FRAME, 2 * FRAME), Image.LANCZOS), (x_zoom + z * row_h, y))
+            y += row_h
+    img.save(path)
 
 
 def preview_stages(by_stage, sp, path, bg=(255, 255, 255)):

@@ -14,12 +14,9 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from preview_nightcap import path_points
-from sprite_spec import frame_px
+from sprite_spec import FRAME, STAGES, frame_px
 
 ROOT = Path(__file__).resolve().parent.parent
-FRAME = 128
-STAGES = ["baby", "kinder", "child", "teenager", "adult"]
-STAGE_SCALE = {"baby": 0.45, "kinder": 0.60, "child": 0.78, "teenager": 1.00, "adult": 1.15}
 FRONT_ANIMS = {"sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "wag", "hungry", "eat", "level_up", "huff", "sting"}
 SHOWCASE = [("sleep", 0), ("sleep", 1), ("idle", 0), ("walk", 0), ("walk", 2), ("sit_front", 0), ("wave", 0), ("eat", 1), ("heart", 0), ("hungry", 1), ("tilt", 1),
             ("belly", 0), ("level_up", 2), ("lookup", 2), ("hop", 1), ("fall", 0), ("dragged", 0), ("climb", 0), ("climb", 2), ("slide", 0), ("roll", 0), ("roll", 1)]

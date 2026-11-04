@@ -26,7 +26,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
-from draw_pets import (C, E, LINE, PINK, T, WHITE, Ear, L, Species, _ST, arc, mix, view, xf)  # noqa: E402
+from draw_pets import (C, E, LINE, PINK, T, WHITE, Ear, L, Species, _ST, arc, mix, xf)  # noqa: E402
 from sprite_spec import FRAME, STAGES  # noqa: E402
 
 # =====================================================================
@@ -171,9 +171,7 @@ def _nose_glow(im, i, lit=1.0):
 
 def _apple_bubble(cx, cy, r=12.5):
     """생각 풍선 안에 빨간 사과 🍎."""
-    fx = []
-    for x, y, rr in [(cx - r - 7, cy + r + 8, 2.0), (cx - r - 1, cy + r + 1, 3.2), (cx, cy, r)]:
-        fx += [([C(x, y, rr + 1.5)], LINE, 1.0), ([C(x, y, rr)], WHITE, 0)]
+    fx = dp._bubble(cx, cy, r)
     body = [C(cx - 3, cy + 1.5, 5.6), C(cx + 3, cy + 1.5, 5.6)]
     fx += [(body, (140, 50, 56), 1.0), ([C(cx - 3, cy + 1.5, 4.4), C(cx + 3, cy + 1.5, 4.4)], (244, 96, 92), 0),
            ([L([(cx, cy - 3), (cx + 1, cy - 8)], 1.6)], (120, 84, 54), 0),
@@ -187,11 +185,6 @@ def _rudolph_hungry(sp, i):
                      tail_rot=6, paws=[(56 + dx, 100 + dy)], toes=True, fx=_apple_bubble(108, 17))
 
 
-def _fit(fn):
-    import draw_halloween
-    return draw_halloween._fit(fn)
-
-
 def _rudolph_pose(anim):
     base = _rudolph_hungry if anim == "hungry" else dp.POSES[anim]
 
@@ -201,7 +194,7 @@ def _rudolph_pose(anim):
         lit = 0.55 if anim == "sleep" else 1.0
         return _nose_glow(im, i, lit)
     f.__name__ = f"rudolph_{anim}"
-    return f if anim == "roll" else _fit(f)  # 넓은 귀·뿔이 1px 여백을 넘으면 안쪽으로 (roll은 회전 원 안 그대로)
+    return f if anim == "roll" else dp._fit(f)  # 넓은 귀·뿔이 1px 여백을 넘으면 안쪽으로 (roll은 회전 원 안 그대로)
 
 
 def _rudolph_poses():
@@ -243,8 +236,9 @@ RUDOLPH = Species(
 # 산타 🎅 — 할로윈 호박처럼 동글 몸 하나로 그리는 꼬마 (draw_halloween의 층 쌓기 _finish를 그대로 쓴다)
 # =====================================================================
 import draw_halloween as dh  # noqa: E402
-from draw_halloween import _arm, _finish, _heart_items, _stars, _swing, speed_fx  # noqa: E402
-from draw_pets import (anger_fx, bee_mouth, brows, heart_fx, question_fx, stage_eye, strand, sweat_fx, z_fx)  # noqa: E402
+from draw_halloween import _arm, _finish, _heart_items  # noqa: E402
+from draw_pets import _stars, _swing, speed_fx  # noqa: E402
+from draw_pets import (anger_fx, bee_mouth, brows, question_fx, stage_eye, strand, sweat_fx, z_fx)  # noqa: E402
 
 SUIT, SUIT_SHADE, SUIT_LINE = (232, 72, 72), (204, 52, 60), (128, 52, 56)
 FUR, FUR_SHADE = (255, 255, 255), (232, 236, 244)
@@ -452,7 +446,7 @@ def santa(sp, *, side=False, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes=
 # ---- 효과 ----
 def milk_bubble_fx(cx, cy):
     """생각 풍선 안에 우유 한 잔 + 쿠키."""
-    fx = dh._bubble(cx, cy)
+    fx = dp._bubble(cx, cy)
     glass = T((cx - 6.5, cy - 7), (cx + 3.5, cy - 7), (cx + 2.5, cy + 7), (cx - 5.5, cy + 7))
     fx += [([glass], LINE, 0.9), ([glass], MILK_GLASS, 0),
            ([T((cx - 6, cy - 3.5), (cx + 3, cy - 3.5), (cx + 2.4, cy + 6.2), (cx - 4.9, cy + 6.2))], MILK, 0),
@@ -598,9 +592,7 @@ def sa_stretch(sp, i):
 
 
 def sa_heart(sp, i):
-    hs = [heart_fx(112, 40 - 6 * i, 4.6 + 0.6 * i), heart_fx(16, 46 - 6 * i, 4 + 0.5 * i)]
-    if i:
-        hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
+    hs = dp.heart_burst(i)
     st = _sa()
     cy_b, _ = _layout(st, SA_FLOOR - 1)
     hy = cy_b - st["bry"] * 0.25
@@ -627,20 +619,14 @@ def sa_eat(sp, i):
     _, my = dp._frame_to_pre(64, 84 + [0, 1, 0, 1][i])
     _, hy0 = _layout(st, SA_FLOOR - 1)
     head_dy = max(-6.0, min(18.0, my - (hy0 + mouth_dy(st))))
-    with view(scale=1.0, lift=0):
-        crumbs = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]][i]
-        fx = []
-        for x, y in crumbs:
-            fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], (255, 236, 200), 0)]
+    fx = dp.eat_crumbs(i)
     paws = [dp._frame_to_pre(42, 98), dp._frame_to_pre(86, 98)]
     return santa(sp, head_dy=head_dy, eyes="happy" if bite else "closed", mouth="open" if bite else "chew", head_rot=[0, -2, 0, 2][i],
                  pom=[6, -6, 6, -6][i], arms=[(-1, paws[0]), (1, paws[1])], fx=fx)
 
 
 def sa_level_up(sp, i):
-    stars = _stars([[(14, 40, 5.5), (114, 34, 4.0), (16, 86, 3.6), (112, 84, 5.0)],
-                    [(16, 30, 4.2), (112, 26, 6.0), (12, 74, 5.0), (116, 74, 3.6)],
-                    [(14, 50, 6.0), (114, 44, 4.6), (20, 18, 3.8), (108, 14, 4.4)]][i])
+    stars = dp.level_up_stars(i)
     up = [150, 165, 175][i]
     return santa(sp, bottom=SA_FLOOR - 1 - [0, 1, 3][i], eyes="happy", mouth="big", arms=[(-1, up), (1, up)], pom=[-8, 8, -4][i],
                  feet=((0, 0), (0, 0)) if i < 2 else ((-1, 1), (1, 1)), fx=stars)
@@ -708,8 +694,7 @@ def santa_back(reach, feet, *, sq=(1.0, 1.0), dy=0.0, pom=0.0, scratch=None, swe
 
 def sa_climb(sp, i):
     """화면을 기어오름: 장갑 번갈아 위로, 장화는 장갑과 엇갈려 아래로 빼꼼 → 옆으로 → 숨음, 모자 끝 살랑."""
-    reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
-    feet = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")][i]
+    reach, feet = dp.CLIMB_REACH[i], dp.CLIMB_FEET[i]
     return santa_back(reach, feet, sq=(1.0, [1.04, 1.0, 1.04, 1.0][i]), dy=[-1, 0, -1, 0][i], pom=[-8, 0, 8, 0][i])
 
 
@@ -723,7 +708,7 @@ SANTA_POSES = {"walk": sa_walk, "run": sa_run, "roll": sa_roll, "idle": sa_idle,
                "belly": sa_belly, "stretch": sa_stretch, "heart": sa_heart, "tickle": sa_tickle, "annoyed": sa_annoyed,
                "hungry": sa_hungry, "eat": sa_eat, "level_up": sa_level_up, "lookup": sa_lookup,
                "climb": sa_climb, "slide": sa_slide}
-SANTA_POSES = {k: dh._fit(v) for k, v in SANTA_POSES.items()}
+SANTA_POSES = {k: dp._fit(v) for k, v in SANTA_POSES.items()}
 
 SANTA = Species(
     id="santa", name="산타", walk_speed=70, scale=0.94, base=SUIT, back=SUIT, belly=FUR, nose=SKIN, mouth="w",
@@ -732,7 +717,7 @@ SANTA = Species(
     stage_tweak={"baby": dict(pale=0.0, sparkle=False, eye=1.0, fit=0.9), "kinder": dict(pale=0.0, sparkle=False, eye=0.95, fit=0.93),
                  "child": dict(smile=False, eye=0.92, fit=0.95), "teenager": dict(eye=0.9, fit=0.97),
                  "adult": dict(calm=False, eye=0.88, fit=0.93)},
-    **{k: v for k, v in dh._COMMON.items() if k not in ("poses", "specials")}, specials=["climb", "slide", "lookup"], poses=SANTA_POSES,
+    **dp.NO_COMMON_PARTS, specials=["climb", "slide", "lookup"], poses=SANTA_POSES,
 )
 
 

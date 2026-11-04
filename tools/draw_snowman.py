@@ -21,8 +21,9 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
 import draw_halloween as dh  # noqa: E402
-from draw_halloween import _finish, _heart_items, _stars, _swing, speed_fx  # noqa: E402
-from draw_pets import (C, E, L, LINE, Part, Species, T, WHITE, _ST, anger_fx, bee_mouth, brows, heart_fx, question_fx,  # noqa: E402
+from draw_halloween import _finish, _heart_items  # noqa: E402
+from draw_pets import _stars, _swing, speed_fx  # noqa: E402
+from draw_pets import (C, E, L, LINE, Part, Species, T, WHITE, _ST, anger_fx, bee_mouth, brows, question_fx,  # noqa: E402
                        stage_eye, sweat_fx, view, xf, z_fx)
 from sprite_spec import FRAME, STAGES, STAGE_SCALE  # noqa: E402
 
@@ -266,7 +267,7 @@ def snow_puffs(items):
 
 def ice_bubble_fx(cx, cy):
     """생각 풍선 안에 빙수 한 컵."""
-    fx = dh._bubble(cx, cy)
+    fx = dp._bubble(cx, cy)
     cup = T((cx - 7, cy + 1), (cx + 7, cy + 1), (cx + 4.6, cy + 8), (cx - 4.6, cy + 8))
     fx += [([C(cx, cy - 1.5, 6.8), E(cx - 8, cy - 2, cx + 8, cy + 2.6)], SNOW_LINE, 0.6), ([C(cx, cy - 1.5, 5.8), E(cx - 7, cy - 1.5, cx + 7, cy + 2)], ICE, 0),
            ([E(cx - 3.8, cy - 6.6, cx + 3.4, cy - 2.2)], ICE_SYRUP, 0), ([cup], LINE, 0.6), ([cup], ICE_CUP, 0)]
@@ -393,9 +394,7 @@ def sn_stretch(sp, i):
 
 
 def sn_heart(sp, i):
-    hs = [heart_fx(112, 40 - 6 * i, 4.6 + 0.6 * i), heart_fx(16, 46 - 6 * i, 4 + 0.5 * i)]
-    if i:
-        hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
+    hs = dp.heart_burst(i)
     st = _sn()
     balls, _ = _centers(st, SN_FLOOR)
     hy = balls[-1][1] - 3
@@ -421,20 +420,14 @@ def sn_eat(sp, i):
     stack = 0.72
     _, (_, hy0) = _centers(st, SN_FLOOR, stack)
     head_dy = max(-6.0, my - (hy0 + mouth_dy(st)))
-    with view(scale=1.0, lift=0):
-        crumbs = [[(40, 84), (88, 80)], [(34, 76), (93, 72), (86, 86)], [(42, 82), (90, 78)], [(36, 74), (94, 70), (44, 86)]][i]
-        fx = []
-        for x, y in crumbs:
-            fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], (255, 236, 200), 0)]
+    fx = dp.eat_crumbs(i)
     paws = [dp._frame_to_pre(40, 96), dp._frame_to_pre(88, 96)]
     return snowman(sp, stack=stack, head_dy=head_dy, eyes="happy" if bite else "closed", mouth="open" if bite else "chew", head_rot=[0, -2, 0, 2][i],
                    sq=(1.04, 1.0), arms=[(-1, paws[0]), (1, paws[1])], fx=fx)
 
 
 def sn_level_up(sp, i):
-    stars = _stars([[(14, 40, 5.5), (114, 34, 4.0), (16, 86, 3.6), (112, 84, 5.0)],
-                    [(16, 30, 4.2), (112, 26, 6.0), (12, 74, 5.0), (116, 74, 3.6)],
-                    [(14, 50, 6.0), (114, 44, 4.6), (20, 18, 3.8), (108, 14, 4.4)]][i])
+    stars = dp.level_up_stars(i)
     up = [150, 165, 175][i]
     return snowman(sp, bottom=SN_FLOOR - [0, 1, 3][i], eyes="happy", mouth="big", arms=[(-1, up), (1, up)], feet=((0, 0), (0, 0)) if i < 2 else ((-1, 1), (1, 1)), fx=stars)
 
@@ -480,8 +473,7 @@ def snowman_back(reach, feet, *, sq=(1.0, 1.0), dy=0.0, scratch=None, sweat=None
 
 def sn_climb(sp, i):
     """화면을 기어오름: 나뭇가지 손끝 번갈아 위로, 발은 손과 엇갈려 빼꼼 → 옆으로 → 숨음, 덩이 살짝 늘어남."""
-    reach = [(1.0, 0.25), (0.62, 0.62), (0.25, 1.0), (0.62, 0.62)][i]
-    feet = [("tuck", "side"), ("low", "tuck"), ("side", "tuck"), ("tuck", "low")][i]
+    reach, feet = dp.CLIMB_REACH[i], dp.CLIMB_FEET[i]
     return snowman_back(reach, feet, sq=(1.0, [1.04, 1.0, 1.04, 1.0][i]), dy=[-1, 0, -1, 0][i], wave=[1, 0, -1, 0][i])
 
 
@@ -495,7 +487,7 @@ SNOWMAN_POSES = {"walk": sn_walk, "run": sn_run, "roll": sn_roll, "idle": sn_idl
                  "heart": sn_heart, "tickle": sn_tickle, "annoyed": sn_annoyed, "hungry": sn_hungry, "eat": sn_eat, "level_up": sn_level_up, "lookup": sn_lookup,
                  "climb": sn_climb, "slide": sn_slide}
 RAW_POSES = dict(SNOWMAN_POSES)  # 테스트: 자르기 전에 칸을 넘지 않는지
-SNOWMAN_POSES = {k: dh._fit(v) for k, v in SNOWMAN_POSES.items()}
+SNOWMAN_POSES = {k: dp._fit(v) for k, v in SNOWMAN_POSES.items()}
 
 SNOWMAN = Species(
     id="snowman", name="눈사람", walk_speed=70, scale=0.94, base=SNOW, back=SNOW, belly=SNOW, nose=CARROT, mouth="w",
@@ -504,7 +496,7 @@ SNOWMAN = Species(
     stage_tweak={"baby": dict(pale=0.0, sparkle=False, soft=0.0, eye=1.2, eye_dy=0.0, fit=0.98, smile=False), "kinder": dict(pale=0.0, sparkle=False, soft=0.0, eye=1.12, eye_dy=0.0, fit=0.98),
                  "child": dict(smile=False, soft=0.0, eye=1.04, eye_dy=0.0, fit=0.96), "teenager": dict(eye=0.96, fit=0.94),
                  "adult": dict(calm=False, eye=0.96, eye_dy=0.0, fit=0.9)},
-    **{k: v for k, v in dh._COMMON.items() if k not in ("poses", "specials")}, specials=["climb", "slide", "lookup"], poses=SNOWMAN_POSES,
+    **dp.NO_COMMON_PARTS, specials=["climb", "slide", "lookup"], poses=SNOWMAN_POSES,
 )
 
 
@@ -530,7 +522,7 @@ def draw_cloud():
     # 그림 좌표 (27, 37)~(101, 86)을 슈퍼샘플에서 바로 줄인다
     k = dp.K
     out = img.crop((27 * k, 37 * k, 101 * k, 86 * k)).resize((CLOUD_W, CLOUD_H), Image.LANCZOS)
-    out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
+    dp.drop_faint(out)
     return out
 
 

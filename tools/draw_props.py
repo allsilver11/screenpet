@@ -125,8 +125,6 @@ def draw_flower(img):
 HAND = 48
 HAND_BOX = ((FRAME - HAND) // 2, (FRAME - HAND) // 2, (FRAME + HAND) // 2, (FRAME + HAND) // 2)
 # crates/screenpet-core/src/food.rs hand_icon과 같은 이름
-HAND_NAMES = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly",
-              "hand_candy", "hand_lollipop")
 NORI = (70, 96, 82)
 FISH = (150, 186, 214)
 FISH_BELLY = mix(FISH, WHITE, 0.6)
@@ -282,13 +280,6 @@ def hand_milk(img):
          marks=[([C(71, 73, 1.7), C(77, 75, 1.5), C(73.5, 80, 1.6)], CHIP), ([C(70, 71.5, 1.3)], mix(COOKIE, WHITE, 0.5))])
 
 
-HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish, "hand_bone": hand_bone,
-             "hand_carrot": hand_carrot, "hand_honey": hand_honey, "hand_nectar": hand_nectar,
-             "hand_fly": hand_fly, "hand_candy": hand_candy, "hand_lollipop": hand_lollipop}
-HAND_NAMES += ("hand_apple", "hand_milk")  # 크리스마스: 루돌프 🍎 · 산타 🥛
-HAND_DRAW.update(hand_apple=hand_apple, hand_milk=hand_milk)
-
-
 def draw_hand(name):
     """손에 든 음식 하나를 HAND × HAND RGBA로."""
     img = new_canvas()
@@ -337,9 +328,6 @@ def hand_leaf(img):
     tiny_face(img, 64, 58, 0.85)
 
 
-HAND_NAMES += ("hand_bread", "hand_leaf")  # 농장: 오리 🍞 · 기린 🍃
-HAND_DRAW.update(hand_bread=hand_bread, hand_leaf=hand_leaf)
-
 MELON, MELON_PALE, MELON_RIND, MELON_RIND_DARK, SEED = (250, 104, 118), (240, 252, 214), (112, 192, 94), (78, 150, 74), (70, 50, 52)
 BROC, BROC_DARK, BROC_STEM = (118, 190, 96), (84, 152, 74), (190, 224, 152)
 GRAPE, GRAPE_DARK, GRAPE_LIGHT = (164, 112, 204), (126, 82, 168), (214, 186, 238)
@@ -378,10 +366,6 @@ def hand_grapes(img):
         tiny_face(img, 64, 65, 0.8)
 
 
-HAND_NAMES += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡: 노랑 🍉 · 초록 🥦 · 보라 🍇
-HAND_DRAW.update(hand_watermelon=hand_watermelon, hand_broccoli=hand_broccoli, hand_grapes=hand_grapes)
-
-
 ICE, ICE_SHADE, ICE_SYRUP, ICE_CUP = (246, 251, 255), (214, 228, 246), (250, 140, 170), (252, 208, 116)
 
 
@@ -394,9 +378,6 @@ def hand_shaved_ice(img):
              marks=[([E(44, 82, 84, 92)], mix(ICE_CUP, LINE, 0.16)), ([L([(48, 72), (80, 72)], 2.0)], mix(ICE_CUP, WHITE, 0.5))])
         tiny_face(img, 64, 77, 0.8)
 
-
-HAND_NAMES += ("hand_shaved_ice",)  # 눈사람 🍧
-HAND_DRAW.update(hand_shaved_ice=hand_shaved_ice)
 
 BENTO, BENTO_RIM, BENTO_IN = (222, 92, 86), (176, 62, 66), (255, 244, 224)
 UME, EGG, GREEN, SAUSAGE = (232, 80, 96), (255, 214, 96), (122, 190, 104), (246, 138, 138)
@@ -418,10 +399,6 @@ def hand_special(img):
         blob(img, [T((70, 72), (79, 72), (79, 77), (70, 77))], SAUSAGE, r=1.0, line=0.6, marks=[([L([(73, 72), (73, 77)], 0.7), L([(76, 72), (76, 77)], 0.7)], mix(SAUSAGE, LINE, 0.3))])
 
 
-HAND_NAMES += ("hand_special",)  # 특식 🍱
-HAND_DRAW.update(hand_special=hand_special)
-
-
 def hand_broom(img):
     """🧹 쓰는 끝이 왼쪽 아래 (커서 자리)."""
     STRAW = (240, 196, 92)
@@ -430,10 +407,6 @@ def hand_broom(img):
     blob(img, [T((56, 60), (68, 71), (60, 84), (45, 79))], STRAW, r=1.5, line=1.0,
          marks=[([L([(56, 71), (51, 79)], 1.2), L([(61, 74), (57, 82)], 1.2)], mix(STRAW, LINE, 0.35)),
                 ([L([(56, 62), (66, 71)], 3.0)], (214, 80, 70))])
-
-
-HAND_NAMES += ("hand_broom",)  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
-HAND_DRAW.update(hand_broom=hand_broom)
 
 
 # ---- 계절 날씨: 눈덩이(굴리는 중) · 눈사람 (바닥 가운데 아래에 앉는다, src-tauri/src/weather.rs) ----
@@ -519,6 +492,19 @@ def preview_seasonal(arts):
             x += art.width + pad
     PREVIEW.parent.mkdir(parents=True, exist_ok=True)
     im.resize((im.width * 2, im.height * 2), Image.NEAREST).save(PREVIEW.with_name("snowman.png"))
+
+
+# 손에 든 음식 (앱 메뉴 순서와 같다)
+HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish, "hand_bone": hand_bone,
+             "hand_carrot": hand_carrot, "hand_honey": hand_honey, "hand_nectar": hand_nectar, "hand_fly": hand_fly,
+             "hand_candy": hand_candy, "hand_lollipop": hand_lollipop,
+             "hand_apple": hand_apple, "hand_milk": hand_milk,  # 크리스마스: 루돌프 🍎 · 산타 🥛
+             "hand_bread": hand_bread, "hand_leaf": hand_leaf,  # 농장: 오리 🍞 · 기린 🍃
+             "hand_watermelon": hand_watermelon, "hand_broccoli": hand_broccoli, "hand_grapes": hand_grapes,  # 공룡: 노랑 🍉 · 초록 🥦 · 보라 🍇
+             "hand_shaved_ice": hand_shaved_ice,  # 눈사람 🍧
+             "hand_special": hand_special,  # 특식 🍱
+             "hand_broom": hand_broom}  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
+HAND_NAMES = tuple(HAND_DRAW)
 
 
 DRAW = {"bowl_food": draw_bowl_food, "bowl_water": draw_bowl_water, "cookie": draw_cookie, "flower": draw_flower}

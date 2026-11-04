@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
 
 import draw_pets
 import draw_props
