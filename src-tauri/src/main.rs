@@ -60,15 +60,29 @@ pub struct AppState {
     pub hidden: AtomicBool,
 }
 
+impl AppState {
+    /// 게임 루프로 보낸다 (루프가 끝났으면 버려진다)
+    pub fn send(&self, input: Input) {
+        let _ = self.tx.lock().unwrap().send(input);
+    }
+}
+
 /// 사용자가 트레이로 모두 숨겨 둠
 pub fn windows_hidden(app: &AppHandle) -> bool {
     app.try_state::<AppState>().is_some_and(|s| s.hidden.load(Ordering::Relaxed))
 }
 
+/// 내 동물이나 손님이 보이는 창
+fn is_pet_window(label: &str) -> bool {
+    label == OWN_LABEL || slots::is_guest_label(label)
+}
+
 /// 창의 동물을 눌렀다 — 부른 창의 라벨로 어느 동물인지 찾는다
 #[tauri::command]
 fn pointer_down(window: WebviewWindow, state: State<AppState>) {
-    let _ = state.tx.lock().unwrap().send(Input::PointerDown { label: window.label().to_string() });
+    if is_pet_window(window.label()) {
+        state.send(Input::PointerDown { label: window.label().to_string() });
+    }
 }
 
 /// 펫 창이 편지 말풍선을 펼친다(open) / 접는다 — 게임 루프가 창을 위로 키우거나 줄인다
@@ -76,22 +90,25 @@ fn pointer_down(window: WebviewWindow, state: State<AppState>) {
 #[tauri::command]
 fn note_space(window: WebviewWindow, state: State<AppState>, open: bool) {
     let label = window.label().to_string();
-    if slots::is_guest_label(&label) || label == OWN_LABEL {
-        let _ = state.tx.lock().unwrap().send(Input::NoteSpace { label, open });
+    if is_pet_window(&label) {
+        state.send(Input::NoteSpace { label, open });
     }
 }
 
-/// 부른 창(또는 label 창)의 동물·단계·크기·역할·지금 모습 (웹뷰 첫 로드용 — 첫 pet-render는 웹뷰가 듣기 전에 지나갔을 수 있다).
-/// 하우스 창은 label "pet"으로 내 동물의 지금 모습을 묻는다
+/// 부른 창의 동물·단계·크기·역할·지금 모습 (웹뷰 첫 로드용 — 첫 pet-render는 웹뷰가 듣기 전에 지나갔을 수 있다).
+/// 하우스 창만 다른 창을 묻는다: label "pet" = 내 동물의 지금 모습
 #[tauri::command]
 fn slot_info(window: WebviewWindow, state: State<AppState>, label: Option<String>) -> Result<SlotInfo, String> {
-    let label = label.unwrap_or_else(|| window.label().to_string());
+    let label = if window.label() == house::LABEL { label.filter(|l| l == OWN_LABEL).unwrap_or_else(|| window.label().to_string()) } else { window.label().to_string() };
     state.slots.lock().unwrap().get(&label).cloned().ok_or_else(|| format!("no pet for window {label}"))
 }
 
 #[tauri::command]
-fn house_state(state: State<AppState>) -> HouseState {
-    state.house.lock().unwrap().clone()
+fn house_state(window: WebviewWindow, state: State<AppState>) -> Result<HouseState, String> {
+    if window.label() != house::LABEL {
+        return Err("wrong window".into());
+    }
+    Ok(state.house.lock().unwrap().clone())
 }
 
 /// 하우스 창에서 집을 끌기 시작했다 — 하우스 창이 부른 것만 받는다
@@ -104,18 +121,20 @@ fn house_drag_start(window: WebviewWindow) {
 
 /// 하우스 창을 눌렀다 — 배고프면 음식 고르기, 아니면 문간에서 손 흔들기
 #[tauri::command]
-fn house_click(state: State<AppState>) {
-    let _ = state.tx.lock().unwrap().send(Input::HouseClick);
+fn house_click(window: WebviewWindow, state: State<AppState>) {
+    if window.label() == house::LABEL {
+        state.send(Input::HouseClick);
+    }
 }
 
 /// 음식 고르기 버튼 — 내 동물(펫 창·하우스 창)만 먹는다. 손님은 밥을 먹지 않는다
 #[tauri::command]
 fn feed(window: WebviewWindow, state: State<AppState>, food: String) {
-    if slots::is_guest_label(window.label()) {
+    if window.label() != OWN_LABEL && window.label() != house::LABEL {
         return;
     }
     let Some(food) = Food::from_name(&food) else { return };
-    let _ = state.tx.lock().unwrap().send(Input::Feed(food));
+    state.send(Input::Feed(food));
 }
 
 /// 펫을 우클릭하면 트레이와 같은 메뉴를, 손님을 우클릭하면 "<주인>에게 돌려보내기"만 커서 위치에 띄운다.
@@ -124,6 +143,9 @@ fn feed(window: WebviewWindow, state: State<AppState>, food: String) {
 #[tauri::command]
 async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
     let label = window.label().to_string();
+    if !is_pet_window(&label) && label != house::LABEL {
+        return Ok(());
+    }
     // 직접 주기 중의 우클릭은 음식을 거두는 것 (게임 루프가 전역 버튼으로 읽는다) — 메뉴는 띄우지 않는다
     if !slots::is_guest_label(&label) && state.hand_feeding.load(Ordering::Relaxed) {
         return Ok(());
@@ -140,8 +162,11 @@ async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<
 
 /// 짝맞추기 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `pair-state` 이벤트)
 #[tauri::command]
-fn pair_state(state: State<AppState>) -> PairView {
-    state.pair.lock().unwrap().clone()
+fn pair_state(window: WebviewWindow, state: State<AppState>) -> Result<PairView, String> {
+    if window.label() != network::PAIR_LABEL {
+        return Err("wrong window".into());
+    }
+    Ok(state.pair.lock().unwrap().clone())
 }
 
 /// 짝맞추기 창 버튼: true = 똑같아요, 친구 맺기 / false = 달라요·취소.
@@ -151,14 +176,14 @@ fn pair_answer(window: WebviewWindow, state: State<AppState>, accept: bool) {
     if window.label() != network::PAIR_LABEL {
         return;
     }
-    let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::PairAnswer(accept)));
+    state.send(Input::Net(NetInput::PairAnswer(accept)));
 }
 
 /// 트레이에서 동물을 바꿨을 때. 저장·크기·웹뷰 시트 교체는 게임 루프가 한다 (설정은 루프만 쓴다).
 pub fn select_pet(app: &AppHandle, id: &str) {
     let state = app.state::<AppState>();
     let Some(entry) = state.pets.iter().find(|p| p.id == id) else { return };
-    let _ = state.tx.lock().unwrap().send(Input::SetPet { entry: entry.clone() });
+    state.send(Input::SetPet { entry: entry.clone() });
 }
 
 /// 패닉을 config 폴더의 `crash.log`에 남긴다 (배포판은 콘솔이 없어 그냥 사라진다)

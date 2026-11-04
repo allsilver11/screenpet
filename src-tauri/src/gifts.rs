@@ -49,6 +49,8 @@ struct LiveWindow {
     label: String,
     window: WebviewWindow,
     pos: (i32, i32),
+    /// 창이 놓인 모니터의 배율 (내 동물이 다른 배율의 모니터에 있을 수 있다)
+    dpi: f64,
 }
 
 pub struct Gifts {
@@ -114,7 +116,7 @@ impl Gifts {
             for token in self.field.tick(dt, &own.world) {
                 self.fade_out(token, now);
             }
-            self.move_windows(own.dpi);
+            self.move_windows();
         }
         if now < self.next_check {
             return;
@@ -170,10 +172,12 @@ impl Gifts {
         let Some(token) = self.field.add(gift, from, x, y) else { return false };
         self.next_label += 1;
         let label = format!("{PREFIX}{}", self.next_label);
+        // 떨어진 자리의 모니터 배율 (모르면 내 동물의 배율)
+        let dpi = app.monitor_from_point(x, y).ok().flatten().map_or(dpi, |m| m.scale_factor());
         let pos = bottom_center(x, y, dpi);
         match spawn_window(app, &label, &gift.wire(), pos, dpi) {
             Some(window) => {
-                self.windows.push(LiveWindow { token, label, window, pos });
+                self.windows.push(LiveWindow { token, label, window, pos, dpi });
                 true
             }
             None => {
@@ -183,13 +187,15 @@ impl Gifts {
         }
     }
 
-    fn move_windows(&mut self, dpi: f64) {
+    fn move_windows(&mut self) {
         for w in &mut self.windows {
             let Some(g) = self.field.get(w.token) else { continue };
-            let pos = bottom_center(g.x, g.y, dpi);
+            let pos = bottom_center(g.x, g.y, w.dpi);
             if pos != w.pos {
                 let _ = w.window.set_position(PhysicalPosition::new(pos.0, pos.1));
                 w.pos = pos;
+                // 다른 모니터로 넘어갔을 수 있다 (움직일 때만 묻는다)
+                w.dpi = w.window.scale_factor().unwrap_or(w.dpi);
             }
         }
     }
@@ -277,14 +283,17 @@ fn spawn_window(app: &AppHandle, label: &str, image: &str, pos: (i32, i32), dpi:
 pub fn gift_collect(window: WebviewWindow, state: State<AppState>) {
     let label = window.label();
     if label.starts_with(PREFIX) {
-        let _ = state.tx.lock().unwrap().send(Input::CollectGift { label: label.to_string() });
+        state.send(Input::CollectGift { label: label.to_string() });
     }
 }
 
 /// 도감 창의 지금 내용 (첫 로드용 — 그 뒤로는 `book-state` 이벤트)
 #[tauri::command]
-pub fn book_state() -> BookView {
-    gift::book_view(&BOOK.lock().unwrap().clone().unwrap_or_default())
+pub fn book_state(window: WebviewWindow) -> Result<BookView, String> {
+    if window.label() != BOOK_LABEL {
+        return Err("wrong window".into());
+    }
+    Ok(gift::book_view(&BOOK.lock().unwrap().clone().unwrap_or_default()))
 }
 
 /// 메뉴 "🎁 선물 도감". 이미 열려 있으면 앞으로 가져온다

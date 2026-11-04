@@ -736,7 +736,7 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     window.on_window_event(move |ev| {
         if let WindowEvent::CloseRequested { api, .. } = ev {
             api.prevent_close();
-            let _ = handle.state::<AppState>().tx.lock().unwrap().send(Input::Net(NetInput::LadderClose));
+            handle.state::<AppState>().send(Input::Net(NetInput::LadderClose));
         }
     });
     Ok(window)
@@ -747,7 +747,7 @@ fn from_ladder(window: &WebviewWindow) -> bool {
 }
 
 fn net_input(state: &tauri::State<AppState>, input: NetInput) {
-    let _ = state.tx.lock().unwrap().send(Input::Net(input));
+    state.send(Input::Net(input));
 }
 
 /// 사다리 창의 지금 화면 (웹뷰 첫 로드용 — 사다리 창만)

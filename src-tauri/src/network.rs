@@ -1651,7 +1651,7 @@ fn build_pair_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     window.on_window_event(move |ev| {
         if let WindowEvent::CloseRequested { api, .. } = ev {
             api.prevent_close();
-            let _ = handle.state::<AppState>().tx.lock().unwrap().send(Input::Net(NetInput::PairAnswer(false)));
+            handle.state::<AppState>().send(Input::Net(NetInput::PairAnswer(false)));
         }
     });
     Ok(window)
@@ -1701,8 +1701,11 @@ fn build_code_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 
 /// 코드 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `code-state` 이벤트)
 #[tauri::command]
-pub fn code_state() -> CodeView {
-    CODE_VIEW.lock().unwrap().clone()
+pub fn code_state(window: WebviewWindow) -> Result<CodeView, String> {
+    if window.label() != CODE_LABEL {
+        return Err("wrong window".into());
+    }
+    Ok(CODE_VIEW.lock().unwrap().clone())
 }
 
 /// 코드 창의 "친구 신청": 코드 꼴이 맞으면 게임 루프로 보내고 창을 숨긴다 (짝맞추기 창이 이어 받는다).
@@ -1713,7 +1716,7 @@ pub fn code_submit(window: WebviewWindow, state: tauri::State<AppState>, code: S
         return Err("wrong window".into());
     }
     let Some(code) = normalize_code(&code) else { return Err("invalid".into()) };
-    let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::SubmitCode(code)));
+    state.send(Input::Net(NetInput::SubmitCode(code)));
     let _ = window.hide();
     Ok(())
 }
@@ -1722,7 +1725,7 @@ pub fn code_submit(window: WebviewWindow, state: tauri::State<AppState>, code: S
 #[tauri::command]
 pub fn code_renew(window: WebviewWindow, state: tauri::State<AppState>) {
     if window.label() == CODE_LABEL {
-        let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::NewCode));
+        state.send(Input::Net(NetInput::NewCode));
     }
 }
 
@@ -1781,8 +1784,11 @@ fn build_name_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 
 /// 이름 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `name-state` 이벤트)
 #[tauri::command]
-pub fn name_state() -> NameView {
-    NAME_VIEW.lock().unwrap().clone()
+pub fn name_state(window: WebviewWindow) -> Result<NameView, String> {
+    if window.label() != NAME_LABEL {
+        return Err("wrong window".into());
+    }
+    Ok(NAME_VIEW.lock().unwrap().clone())
 }
 
 /// 이름 창의 "저장": 게임 루프로 보내고 창을 숨긴다 (다듬기·길이 제한은 설정이 한다 — 빈 글자 = 기본 이름)
@@ -1793,7 +1799,7 @@ pub fn name_submit(window: WebviewWindow, state: tauri::State<AppState>, name: S
     }
     // 아주 긴 글자는 보내기 전에 자른다 (설정이 다시 20자로 자른다)
     let name: String = name.chars().take(256).collect();
-    let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::SubmitName(name)));
+    state.send(Input::Net(NetInput::SubmitName(name)));
     let _ = window.hide();
 }
 
@@ -1850,8 +1856,11 @@ fn build_letter_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 
 /// 편지 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `letter-state` 이벤트)
 #[tauri::command]
-pub fn letter_state() -> LetterView {
-    LETTER_VIEW.lock().unwrap().clone()
+pub fn letter_state(window: WebviewWindow) -> Result<LetterView, String> {
+    if window.label() != LETTER_LABEL {
+        return Err("wrong window".into());
+    }
+    Ok(LETTER_VIEW.lock().unwrap().clone())
 }
 
 /// 편지 창의 "보내기": 게임 루프로 보낸다. 창은 보낸 뒤 게임 루프가 닫는다 — 못 보내면 쓴 글이 남는다 (다듬기·80자 제한도 게임 루프가 한다)
@@ -1862,7 +1871,7 @@ pub fn letter_submit(window: WebviewWindow, state: tauri::State<AppState>, text:
     }
     // 아주 긴 글자는 보내기 전에 자른다 (sanitize_note가 다시 80자로 자른다)
     let text: String = text.chars().take(256).collect();
-    let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::SubmitLetter(text)));
+    state.send(Input::Net(NetInput::SubmitLetter(text)));
 }
 
 /// 편지 창의 "닫기"

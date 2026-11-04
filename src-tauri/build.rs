@@ -61,5 +61,41 @@ fn main() {
     };
     fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("house.rs"), house).unwrap();
 
-    tauri_build::build();
+    // 앱 커맨드도 권한 목록(capabilities/default.json)에 있는 창만 부를 수 있다. main.rs의 generate_handler와 같은 목록 (tools/test_capabilities.py가 맞춰 본다)
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+        "pointer_down",
+        "slot_info",
+        "feed",
+        "show_menu",
+        "house_state",
+        "house_click",
+        "pair_state",
+        "pair_answer",
+        "house_drag_start",
+        "code_state",
+        "code_submit",
+        "code_renew",
+        "code_close",
+        "name_state",
+        "name_submit",
+        "name_close",
+        "letter_state",
+        "letter_submit",
+        "letter_close",
+        "ladder_state",
+        "ladder_host",
+        "ladder_begin",
+        "ladder_answer",
+        "ladder_close",
+        "ladder_seen",
+        "gift_collect",
+        "book_state",
+        "object_down",
+        "object_menu",
+        "postit_max",
+        "postit_submit",
+        "postit_close",
+        "note_space",
+    ])))
+    .expect("tauri build failed");
 }

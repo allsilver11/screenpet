@@ -1,6 +1,65 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "windows": ["pet", "house", "guest-*", "pair", "code", "name", "letter", "ladder", "weather-*", "prop-gift-*", "book"],
-  "permissions": ["core:default"]
+  "capabilities": [
+    {
+      "identifier": "events",
+      "description": "모든 창: 앱이 보내는 이벤트 듣기만 (창·앱을 다루는 API와 이벤트 보내기는 주지 않는다)",
+      "windows": ["pet", "house", "guest-*", "pair", "code", "name", "letter", "ladder", "weather-*", "prop-gift-*", "book", "object-*", "postit"],
+      "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+    },
+    {
+      "identifier": "pet-windows",
+      "windows": ["pet", "guest-*"],
+      "permissions": ["allow-pointer-down", "allow-note-space", "allow-show-menu", "allow-slot-info", "allow-feed"]
+    },
+    {
+      "identifier": "house-window",
+      "windows": ["house"],
+      "permissions": ["allow-house-click", "allow-house-drag-start", "allow-house-state", "allow-show-menu", "allow-slot-info", "allow-feed"]
+    },
+    {
+      "identifier": "pair-window",
+      "windows": ["pair"],
+      "permissions": ["allow-pair-state", "allow-pair-answer"]
+    },
+    {
+      "identifier": "code-window",
+      "windows": ["code"],
+      "permissions": ["allow-code-state", "allow-code-submit", "allow-code-renew", "allow-code-close"]
+    },
+    {
+      "identifier": "name-window",
+      "windows": ["name"],
+      "permissions": ["allow-name-state", "allow-name-submit", "allow-name-close"]
+    },
+    {
+      "identifier": "letter-window",
+      "windows": ["letter"],
+      "permissions": ["allow-letter-state", "allow-letter-submit", "allow-letter-close"]
+    },
+    {
+      "identifier": "ladder-window",
+      "windows": ["ladder"],
+      "permissions": ["allow-ladder-state", "allow-ladder-host", "allow-ladder-begin", "allow-ladder-answer", "allow-ladder-close", "allow-ladder-seen"]
+    },
+    {
+      "identifier": "gift-windows",
+      "windows": ["prop-gift-*"],
+      "permissions": ["allow-gift-collect"]
+    },
+    {
+      "identifier": "book-window",
+      "windows": ["book"],
+      "permissions": ["allow-book-state"]
+    },
+    {
+      "identifier": "object-windows",
+      "windows": ["object-*"],
+      "permissions": ["allow-object-down", "allow-object-menu"]
+    },
+    {
+      "identifier": "postit-window",
+      "windows": ["postit"],
+      "permissions": ["allow-postit-max", "allow-postit-submit", "allow-postit-close"]
+    }
+  ]
 }

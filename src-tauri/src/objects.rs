@@ -668,7 +668,7 @@ pub fn handle_menu(app: &AppHandle, id: &str) -> bool {
     } else {
         return false;
     };
-    let _ = app.state::<AppState>().tx.lock().unwrap().send(Input::Object(input));
+    app.state::<AppState>().send(Input::Object(input));
     true
 }
 
@@ -680,7 +680,7 @@ fn is_object_label(label: &str) -> bool {
 #[tauri::command]
 pub fn object_down(window: WebviewWindow, state: State<AppState>) {
     if is_object_label(window.label()) {
-        let _ = state.tx.lock().unwrap().send(Input::Object(ObjectInput::Down { label: window.label().to_string() }));
+        state.send(Input::Object(ObjectInput::Down { label: window.label().to_string() }));
     }
 }
 
@@ -755,8 +755,11 @@ fn show_postit_window(app: &AppHandle) {
 
 /// 포스트잇 창 최대 글자 수 (첫 로드용)
 #[tauri::command]
-pub fn postit_max() -> usize {
-    MAX_NOTE_CHARS
+pub fn postit_max(window: WebviewWindow) -> Result<usize, String> {
+    if window.label() != POSTIT_LABEL {
+        return Err("wrong window".into());
+    }
+    Ok(MAX_NOTE_CHARS)
 }
 
 /// 포스트잇 창 "붙이기": 게임 루프로 보내고 창을 숨긴다 (다듬기·80자 제한은 코어가 한다)
@@ -766,7 +769,7 @@ pub fn postit_submit(window: WebviewWindow, state: State<AppState>, text: String
         return;
     }
     let text: String = text.chars().take(256).collect();
-    let _ = state.tx.lock().unwrap().send(Input::Object(ObjectInput::SubmitPostit(text)));
+    state.send(Input::Object(ObjectInput::SubmitPostit(text)));
     let _ = window.hide();
 }
 

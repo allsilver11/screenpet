@@ -387,7 +387,7 @@ fn toggle_windows(app: &AppHandle) {
 }
 
 fn send(app: &AppHandle, input: Input) {
-    let _ = app.state::<AppState>().tx.lock().unwrap().send(input);
+    app.state::<AppState>().send(input);
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -333,7 +333,7 @@ fn set_placed(monitors: &[Monitor], cursor: (f64, f64), left: f64, width: f64) {
 
 fn send(app: &AppHandle, input: Input) {
     if let Some(state) = app.try_state::<AppState>() {
-        let _ = state.tx.lock().unwrap().send(input);
+        state.send(input);
     }
 }
 
