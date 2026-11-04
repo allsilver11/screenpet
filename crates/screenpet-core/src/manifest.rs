@@ -45,18 +45,6 @@ pub enum HouseKind {
     Xmas,
 }
 
-impl HouseKind {
-    /// 그림 이름 앞부분 (ui/house/<art>_<stage>.png)
-    pub fn art(self) -> &'static str {
-        match self {
-            HouseKind::House => "house",
-            HouseKind::Hive => "hive",
-            HouseKind::Haunted => "haunted",
-            HouseKind::Xmas => "xmas",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnimSpec {
     pub row: u32,
@@ -642,10 +630,8 @@ mod tests {
         // 적힌 값이 sting보다 먼저
         let haunted_stinger = stinger.replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "house": "haunted","#);
         assert_eq!(parse_manifest(&haunted_stinger).unwrap().house_kind(), HouseKind::Haunted);
-        assert_eq!((HouseKind::House.art(), HouseKind::Hive.art(), HouseKind::Haunted.art()), ("house", "hive", "haunted"));
         // 루돌프·산타의 크리스마스 벽돌집
         assert_eq!(parse_manifest(&with("xmas")).unwrap().house_kind(), HouseKind::Xmas);
-        assert_eq!(HouseKind::Xmas.art(), "xmas");
     }
 
     /// 번들 pet.json: 꿀벌은 벌통, 호박·유령은 귀신의 집, 루돌프·산타는 크리스마스 벽돌집, 나머지는 보통 집

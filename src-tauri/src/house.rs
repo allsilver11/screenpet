@@ -39,21 +39,9 @@ pub fn house_scale(stage: Stage) -> f64 {
     }
 }
 
-/// 이 동물이 사는 집 그림 — pet.json `house` (없으면 sting이 있는 꿀벌은 벌통, 나머지는 보통 집; ui/house.js와 같은 기준).
-/// 번들에 없는 id면 id로: 꿀벌은 벌통, 호박·유령은 귀신의 집, 루돌프·산타는 크리스마스 벽돌집
-pub fn house_kind(app: &AppHandle, pet: &str) -> HouseKind {
-    let kind = app.try_state::<AppState>().and_then(|s| s.pets.iter().find(|p| p.id == pet).map(|p| p.manifest.house_kind()));
-    kind.unwrap_or_else(|| fallback_kind(pet))
-}
-
-/// pet.json을 못 읽었을 때 id로 고른 집
-fn fallback_kind(pet: &str) -> HouseKind {
-    match pet {
-        "bee" => HouseKind::Hive,
-        "pumpkin" | "ghost" => HouseKind::Haunted,
-        "rudolph" | "santa" | "snowman" => HouseKind::Xmas,
-        _ => HouseKind::House,
-    }
+/// 이 동물이 사는 집 그림 — pet.json `house` (없으면 sting이 있는 꿀벌은 벌통, 나머지는 보통 집; ui/house.js와 같은 기준)
+fn house_kind(app: &AppHandle, pet: &str) -> HouseKind {
+    app.state::<AppState>().pets.iter().find(|p| p.id == pet).map_or(HouseKind::House, |p| p.manifest.house_kind())
 }
 
 /// 집 그림 한 변 (논리 px). 픽셀 집은 칸이 정수 물리 px인 크기 (문에 동물이 줄지 않고 들어가 동글보다 크다)
@@ -91,39 +79,37 @@ struct HouseJson {
     door: Door,
 }
 
-/// 집 종류 하나의 다섯 단계 문 json
-macro_rules! door_row {
-    ($dir:literal, $kind:literal) => {
-        [
-            ($kind, "baby", include_str!(concat!("../../ui/", $dir, "/", $kind, "_baby.json"))),
-            ($kind, "kinder", include_str!(concat!("../../ui/", $dir, "/", $kind, "_kinder.json"))),
-            ($kind, "child", include_str!(concat!("../../ui/", $dir, "/", $kind, "_child.json"))),
-            ($kind, "teenager", include_str!(concat!("../../ui/", $dir, "/", $kind, "_teenager.json"))),
-            ($kind, "adult", include_str!(concat!("../../ui/", $dir, "/", $kind, "_adult.json"))),
-        ]
+/// 집 종류 하나의 단계별 문 json (번들에 들어 있는 파일)
+macro_rules! door_of_stage {
+    ($dir:literal, $kind:literal, $stage:expr) => {
+        match $stage {
+            Stage::Baby => include_str!(concat!("../../ui/", $dir, "/", $kind, "_baby.json")),
+            Stage::Kinder => include_str!(concat!("../../ui/", $dir, "/", $kind, "_kinder.json")),
+            Stage::Child => include_str!(concat!("../../ui/", $dir, "/", $kind, "_child.json")),
+            Stage::Teenager => include_str!(concat!("../../ui/", $dir, "/", $kind, "_teenager.json")),
+            Stage::Adult => include_str!(concat!("../../ui/", $dir, "/", $kind, "_adult.json")),
+        }
     };
 }
 
-type DoorRow = [(&'static str, &'static str, &'static str); 5];
-
-/// 단계별 집·벌통·귀신의 집·크리스마스 벽돌집 그림의 문 (tools/draw_house.py가 만든다)
-const DOOR_JSON: [DoorRow; 4] = [door_row!("house", "house"), door_row!("house", "hive"), door_row!("house", "haunted"), door_row!("house", "xmas")];
-
-/// 픽셀 집의 문 (칸 좌표, tools/draw_pixel_world.py가 만든다)
-const PIXEL_DOOR_JSON: [DoorRow; 4] = [door_row!("house_pixel", "house"), door_row!("house_pixel", "hive"), door_row!("house_pixel", "haunted"), door_row!("house_pixel", "xmas")];
-
-/// json이 깨졌을 때 쓰는 문 (teenager 집의 문)
-const DEFAULT_DOOR: Door = Door { x: 30.0, w: 52.0 };
+/// 집·벌통·귀신의 집·크리스마스 벽돌집의 문 json
+macro_rules! door_of_kind {
+    ($dir:literal, $kind:expr, $stage:expr) => {
+        match $kind {
+            HouseKind::House => door_of_stage!($dir, "house", $stage),
+            HouseKind::Hive => door_of_stage!($dir, "hive", $stage),
+            HouseKind::Haunted => door_of_stage!($dir, "haunted", $stage),
+            HouseKind::Xmas => door_of_stage!($dir, "xmas", $stage),
+        }
+    };
+}
 
 pub fn door(kind: HouseKind, stage: Stage, style: PetStyle) -> Door {
-    let kind = kind.art();
-    let table = if style == PetStyle::Pixel { &PIXEL_DOOR_JSON } else { &DOOR_JSON };
-    let doors = || table.iter().flatten();
-    doors()
-        .find(|(k, s, _)| *k == kind && *s == stage.name())
-        .or_else(|| doors().find(|(k, s, _)| *k == kind && *s == "teenager"))
-        .and_then(|(_, _, j)| serde_json::from_str::<HouseJson>(j).ok())
-        .map_or(DEFAULT_DOOR, |h| h.door)
+    let json = match style {
+        PetStyle::Round => door_of_kind!("house", kind, stage), // tools/draw_house.py가 만든다
+        PetStyle::Pixel => door_of_kind!("house_pixel", kind, stage), // 칸 좌표, tools/draw_pixel_world.py가 만든다
+    };
+    serde_json::from_str::<HouseJson>(json).expect("bundled door json").door
 }
 
 /// 하우스 창 웹뷰에 보내는 상태 (`house-state` 이벤트, `house_state` 커맨드)
