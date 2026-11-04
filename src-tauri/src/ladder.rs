@@ -13,7 +13,7 @@ use screenpet_core::ladder::{self as draw, Mood};
 use screenpet_net::ladder::{Answer, CancelReason, DeclineReason, GuestGame, HostGame, LockedResult, Outcome, Phase, Seat};
 use screenpet_net::{LadderMsg, Net, LADDER_MIN_VERSION, SAS_EMOJI};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, WebviewWindow, WindowEvent};
 
 use crate::game_loop::Input;
 use crate::network::NetInput;
@@ -684,7 +684,7 @@ fn show(app: &AppHandle, view: &LadderView, size: (f64, f64), focus: bool, resiz
     }
     let hidden = !window.is_visible().unwrap_or(false);
     if hidden {
-        crate::network::place_on_primary(app, &window, size);
+        crate::overlay::place_on_primary(app, &window, size);
     }
     // 작은 초대 창이 있던 자리에서 게임 창으로 커지면 아래·오른쪽이 화면 밖으로 나갈 수 있다
     if hidden || resized {
@@ -721,17 +721,8 @@ fn hide(app: &AppHandle) {
 
 /// 사다리 창: 작고 테두리 있는 창, 항상 위, **처음부터 포커스 없음**. 닫기(X)는 그만두기로 바꾼다 (창은 다시 쓴다)
 fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("ladder.html".into()))
-        .title("ScreenPet 사다리타기")
-        .inner_size(SETUP_SIZE.0, SETUP_SIZE.1)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .skip_taskbar(false)
-        .focused(false)
-        .visible(false)
-        .build()?;
+    let form = crate::overlay::Form { label: LABEL, page: "ladder.html", title: "ScreenPet 사다리타기", size: SETUP_SIZE };
+    let window = crate::overlay::form_builder(app, &form).focused(false).build()?;
     let handle = app.clone();
     window.on_window_event(move |ev| {
         if let WindowEvent::CloseRequested { api, .. } = ev {

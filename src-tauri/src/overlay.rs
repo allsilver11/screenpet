@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use tauri::{AppHandle, Manager, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry};
 
 /// 사라지는 모습을 보여 주는 동안 기다렸다 닫을 창들
 #[derive(Default)]
@@ -62,6 +62,69 @@ pub fn hide_on_close(window: &WebviewWindow) {
             let _ = handle.hide();
         }
     });
+}
+
+/// 작고 테두리 있는 입력 창
+pub struct Form {
+    pub label: &'static str,
+    pub page: &'static str,
+    pub title: &'static str,
+    /// 안쪽 크기 (논리 px)
+    pub size: (f64, f64),
+}
+
+/// 입력 창의 공통 설정: 크기 고정, 항상 위, 숨긴 채 시작
+pub fn form_builder<'a>(app: &'a AppHandle, form: &Form) -> WebviewWindowBuilder<'a, Wry, AppHandle> {
+    WebviewWindowBuilder::new(app, form.label, WebviewUrl::App(form.page.into()))
+        .title(form.title)
+        .inner_size(form.size.0, form.size.1)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .always_on_top(true)
+        .skip_taskbar(false)
+        .visible(false)
+}
+
+/// 입력 창을 보이고 앞으로 가져온다 (처음이면 만든다 — 게임 루프 스레드에서만). 닫기(X)는 숨기기로 바꾼다 (창은 다시 쓴다).
+/// prepare = 보이기 전에 창에 지금 상태를 알린다. place = 숨어 있던 창을 놓을 자리
+pub fn show_form(app: &AppHandle, form: &Form, place: fn(&AppHandle, &WebviewWindow, (f64, f64)), prepare: impl FnOnce(&WebviewWindow)) {
+    let window = match app.get_webview_window(form.label) {
+        Some(w) => w,
+        None => match form_builder(app, form).build() {
+            Ok(w) => {
+                hide_on_close(&w);
+                w
+            }
+            Err(e) => {
+                eprintln!("failed to create {} window: {e}", form.label);
+                return;
+            }
+        },
+    };
+    prepare(&window);
+    if !window.is_visible().unwrap_or(false) {
+        place(app, &window, form.size);
+        let _ = window.show();
+    }
+    let _ = window.set_focus();
+}
+
+/// 작은 창을 주 모니터 가운데에 놓는다 (주 모니터를 모르면 지금 모니터 가운데)
+pub fn place_on_primary(app: &AppHandle, window: &WebviewWindow, inner: (f64, f64)) {
+    let Some(m) = app.primary_monitor().ok().flatten() else {
+        let _ = window.center();
+        return;
+    };
+    let (pos, size, dpi) = (m.position(), m.size(), m.scale_factor());
+    // 숨긴 창의 바깥 크기(제목 표시줄 포함)를 모르면 안쪽 크기로 어림한다
+    let (w, h) = match window.outer_size() {
+        Ok(s) if s.width > 0 && s.height > 0 => (s.width as f64, s.height as f64),
+        _ => (inner.0 * dpi, inner.1 * dpi),
+    };
+    let x = pos.x as f64 + (size.width as f64 - w) / 2.0;
+    let y = pos.y as f64 + (size.height as f64 - h) / 2.0;
+    let _ = window.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
 }
 
 /// 테두리 없이 화면 위에 떠 있는 창 (나머지 창은 제목 표시줄이 있고 닫으면 숨거나 정말 닫힌다)

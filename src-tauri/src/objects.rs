@@ -31,7 +31,7 @@ use crate::AppState;
 const PREFIX: &str = "object-";
 /// 포스트잇 쓰기 창 라벨
 pub const POSTIT_LABEL: &str = "postit";
-const POSTIT_SIZE: (f64, f64) = (300.0, 176.0);
+const POSTIT_FORM: crate::overlay::Form = crate::overlay::Form { label: POSTIT_LABEL, page: "postit.html", title: "ScreenPet 포스트잇", size: (300.0, 176.0) };
 /// 포스트잇을 읽는 동안의 창: 너비, 위로 더하는 자리 (논리 px)
 const NOTE_WIDTH: f64 = 232.0;
 const NOTE_SPACE: f64 = 84.0;
@@ -695,39 +695,14 @@ pub async fn object_menu(window: tauri::Window) -> Result<(), String> {
     window.popup_menu(&menu).map_err(|e| e.to_string())
 }
 
-/// 포스트잇 쓰기 창을 보이고 앞으로 (처음이면 만든다 — 게임 루프 스레드에서만). 닫기(X)는 숨기기로 바꾼다
+/// 포스트잇 쓰기 창
 fn show_postit_window(app: &AppHandle) {
-    let window = match app.get_webview_window(POSTIT_LABEL) {
-        Some(w) => w,
-        None => {
-            let built = WebviewWindowBuilder::new(app, POSTIT_LABEL, WebviewUrl::App("postit.html".into()))
-                .title("ScreenPet 포스트잇")
-                .inner_size(POSTIT_SIZE.0, POSTIT_SIZE.1)
-                .resizable(false)
-                .maximizable(false)
-                .minimizable(false)
-                .always_on_top(true)
-                .skip_taskbar(false)
-                .visible(false)
-                .build();
-            match built {
-                Ok(w) => {
-                    crate::overlay::hide_on_close(&w);
-                    w
-                }
-                Err(e) => {
-                    eprintln!("failed to create post-it window: {e}");
-                    return;
-                }
-            }
-        }
-    };
-    let _ = app.emit_to(POSTIT_LABEL, "postit-open", MAX_NOTE_CHARS);
-    if !window.is_visible().unwrap_or(false) {
+    let center = |_: &AppHandle, window: &WebviewWindow, _: (f64, f64)| {
         let _ = window.center();
-        let _ = window.show();
-    }
-    let _ = window.set_focus();
+    };
+    crate::overlay::show_form(app, &POSTIT_FORM, center, |_| {
+        let _ = app.emit_to(POSTIT_LABEL, "postit-open", MAX_NOTE_CHARS);
+    });
 }
 
 /// 포스트잇 창 최대 글자 수 (첫 로드용)

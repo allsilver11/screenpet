@@ -25,17 +25,18 @@ use screenpet_core::style::PetStyle;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
 use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Steer, VSide, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, MAX_FRIENDS};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
 
 use crate::game_loop::Input;
 use crate::gifts::GuestGift;
+use crate::overlay::Form;
 use crate::slots::{self, GuestInfo, Role, Slot, OWN_LABEL};
 use crate::tray::{FriendItem, FriendsMenu, LadderMenu};
 use crate::AppState;
 
 /// 짝맞추기 창 라벨
 pub const PAIR_LABEL: &str = "pair";
-const PAIR_SIZE: (f64, f64) = (320.0, 168.0);
+const PAIR_FORM: Form = Form { label: PAIR_LABEL, page: "pair.html", title: "ScreenPet 친구 맺기", size: (320.0, 168.0) };
 /// 초대를 보냈는데 이만큼 동안 InviteSent가 없으면 "연결하지 못했어요" (net은 그 전 실패를 알려 주지 않는다)
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// 이모지를 보인 뒤 두 사람이 모두 확인해야 하는 시간 (net의 invite_timeout과 같다)
@@ -56,15 +57,15 @@ const STEER_KEEPALIVE: Duration = Duration::from_millis(200);
 use screenpet_core::config::DEFAULT_OWNER_NAME as DEFAULT_NAME;
 /// 친구 코드 입력 창 라벨
 pub const CODE_LABEL: &str = "code";
-const CODE_SIZE: (f64, f64) = (320.0, 178.0);
+const CODE_FORM: Form = Form { label: CODE_LABEL, page: "code.html", title: "ScreenPet 친구 코드", size: (320.0, 178.0) };
 /// 친구 코드로 신청했을 때 InviteSent까지 기다리는 시간 (중계 서버 왕복이 더 있다)
 const CODE_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// 이름 바꾸기 창 라벨 (내 이름 / 친구 별명)
 pub const NAME_LABEL: &str = "name";
-const NAME_SIZE: (f64, f64) = (300.0, 150.0);
+const NAME_FORM: Form = Form { label: NAME_LABEL, page: "name.html", title: "ScreenPet 내 이름", size: (300.0, 150.0) };
 /// 편지 쓰기 창 라벨 ("편지 들려 보내기…")
 pub const LETTER_LABEL: &str = "letter";
-const LETTER_SIZE: (f64, f64) = (320.0, 170.0);
+const LETTER_FORM: Form = Form { label: LETTER_LABEL, page: "letter.html", title: "ScreenPet 편지", size: (320.0, 170.0) };
 /// config 폴더의 이 파일이 있으면 첫 줄 주소의 중계 서버를 쓴다 (둘째 줄: 그 서버의 공개키 hex — 있으면 고정).
 /// 비어 있거나 "off"면 중계를 쓰지 않는다
 const RELAY_URL_FILE: &str = "relay_url.txt";
@@ -1485,7 +1486,7 @@ impl Network {
         };
         let _ = app.emit_to(PAIR_LABEL, "pair-state", p.view.clone());
         if !window.is_visible().unwrap_or(false) {
-            place_on_primary(app, &window, PAIR_SIZE);
+            crate::overlay::place_on_primary(app, &window, PAIR_FORM.size);
             let _ = window.show();
             // 내가 시작한 신청만 앞으로 가져온다
             if !p.view.incoming {
@@ -1613,36 +1614,9 @@ fn refresh_guest_tags(app: &AppHandle, config: &Config, slots: &mut [Slot]) {
     }
 }
 
-/// 작은 창을 주 모니터 가운데에 놓는다 (주 모니터를 모르면 지금 모니터 가운데)
-pub fn place_on_primary(app: &AppHandle, window: &WebviewWindow, inner: (f64, f64)) {
-    let Some(m) = app.primary_monitor().ok().flatten() else {
-        let _ = window.center();
-        return;
-    };
-    let (pos, size, dpi) = (m.position(), m.size(), m.scale_factor());
-    // 숨긴 창의 바깥 크기(제목 표시줄 포함)를 모르면 안쪽 크기로 어림한다
-    let (w, h) = match window.outer_size() {
-        Ok(s) if s.width > 0 && s.height > 0 => (s.width as f64, s.height as f64),
-        _ => (inner.0 * dpi, inner.1 * dpi),
-    };
-    let x = pos.x as f64 + (size.width as f64 - w) / 2.0;
-    let y = pos.y as f64 + (size.height as f64 - h) / 2.0;
-    let _ = window.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
-}
-
 /// 짝맞추기 창: 작고 테두리 있는 창, 항상 위. 닫기(X)는 숨기기 + 취소로 바꾼다 (창은 다시 쓴다)
 fn build_pair_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    let window = WebviewWindowBuilder::new(app, PAIR_LABEL, WebviewUrl::App("pair.html".into()))
-        .title("ScreenPet 친구 맺기")
-        .inner_size(PAIR_SIZE.0, PAIR_SIZE.1)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .skip_taskbar(false)
-        .focused(false)
-        .visible(false)
-        .build()?;
+    let window = crate::overlay::form_builder(app, &PAIR_FORM).focused(false).build()?;
     let handle = app.clone();
     window.on_window_event(move |ev| {
         if let WindowEvent::CloseRequested { api, .. } = ev {
@@ -1653,40 +1627,11 @@ fn build_pair_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     Ok(window)
 }
 
-/// 친구 코드 창을 보이고 앞으로 가져온다 (처음이면 만든다 — 게임 루프 스레드에서만)
+/// 친구 코드 창: 내 코드(복사) + 상대 코드 입력
 fn show_code_window(app: &AppHandle) {
-    let window = match app.get_webview_window(CODE_LABEL) {
-        Some(w) => w,
-        None => match build_code_window(app) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("failed to create friend code window: {e}");
-                return;
-            }
-        },
-    };
-    let _ = app.emit_to(CODE_LABEL, "code-state", CODE_VIEW.lock().unwrap().clone());
-    if !window.is_visible().unwrap_or(false) {
-        place_on_primary(app, &window, CODE_SIZE);
-        let _ = window.show();
-    }
-    let _ = window.set_focus();
-}
-
-/// 친구 코드 창: 내 코드(복사) + 상대 코드 입력. 닫기(X)는 숨기기로 바꾼다 (창은 다시 쓴다)
-fn build_code_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    let window = WebviewWindowBuilder::new(app, CODE_LABEL, WebviewUrl::App("code.html".into()))
-        .title("ScreenPet 친구 코드")
-        .inner_size(CODE_SIZE.0, CODE_SIZE.1)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .skip_taskbar(false)
-        .visible(false)
-        .build()?;
-    crate::overlay::hide_on_close(&window);
-    Ok(window)
+    crate::overlay::show_form(app, &CODE_FORM, crate::overlay::place_on_primary, |_| {
+        let _ = app.emit_to(CODE_LABEL, "code-state", CODE_VIEW.lock().unwrap().clone());
+    });
 }
 
 /// 코드 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `code-state` 이벤트)
@@ -1727,43 +1672,13 @@ pub fn code_close(window: WebviewWindow) {
     }
 }
 
-/// 이름 바꾸기 창을 보이고 앞으로 가져온다 (처음이면 만든다 — 게임 루프 스레드에서만)
+/// 이름 바꾸기 창: 글자 칸 하나 + 저장/닫기
 fn show_name_window(app: &AppHandle, view: NameView) {
     *NAME_VIEW.lock().unwrap() = view.clone();
-    let window = match app.get_webview_window(NAME_LABEL) {
-        Some(w) => w,
-        None => match build_name_window(app) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("failed to create name window: {e}");
-                return;
-            }
-        },
-    };
-    let title = if view.target == "me" { "ScreenPet 내 이름" } else { "ScreenPet 친구 이름" };
-    let _ = window.set_title(title);
-    let _ = app.emit_to(NAME_LABEL, "name-state", view);
-    if !window.is_visible().unwrap_or(false) {
-        place_on_primary(app, &window, NAME_SIZE);
-        let _ = window.show();
-    }
-    let _ = window.set_focus();
-}
-
-/// 이름 바꾸기 창: 글자 칸 하나 + 저장/닫기. 닫기(X)는 숨기기로 바꾼다 (창은 다시 쓴다)
-fn build_name_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    let window = WebviewWindowBuilder::new(app, NAME_LABEL, WebviewUrl::App("name.html".into()))
-        .title("ScreenPet 내 이름")
-        .inner_size(NAME_SIZE.0, NAME_SIZE.1)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .skip_taskbar(false)
-        .visible(false)
-        .build()?;
-    crate::overlay::hide_on_close(&window);
-    Ok(window)
+    crate::overlay::show_form(app, &NAME_FORM, crate::overlay::place_on_primary, |window| {
+        let _ = window.set_title(if view.target == "me" { "ScreenPet 내 이름" } else { "ScreenPet 친구 이름" });
+        let _ = app.emit_to(NAME_LABEL, "name-state", view);
+    });
 }
 
 /// 이름 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `name-state` 이벤트)
@@ -1795,41 +1710,12 @@ pub fn name_close(window: WebviewWindow) {
     }
 }
 
-/// 편지 쓰기 창을 보이고 앞으로 가져온다 (처음이면 만든다 — 게임 루프 스레드에서만)
+/// 편지 쓰기 창: 한 줄 글자 칸 + 보내기/닫기
 fn show_letter_window(app: &AppHandle, view: LetterView) {
     *LETTER_VIEW.lock().unwrap() = view.clone();
-    let window = match app.get_webview_window(LETTER_LABEL) {
-        Some(w) => w,
-        None => match build_letter_window(app) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("failed to create letter window: {e}");
-                return;
-            }
-        },
-    };
-    let _ = app.emit_to(LETTER_LABEL, "letter-state", view);
-    if !window.is_visible().unwrap_or(false) {
-        place_on_primary(app, &window, LETTER_SIZE);
-        let _ = window.show();
-    }
-    let _ = window.set_focus();
-}
-
-/// 편지 쓰기 창: 한 줄 글자 칸 + 보내기/닫기. 닫기(X)는 숨기기로 바꾼다 (창은 다시 쓴다)
-fn build_letter_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    let window = WebviewWindowBuilder::new(app, LETTER_LABEL, WebviewUrl::App("letter.html".into()))
-        .title("ScreenPet 편지")
-        .inner_size(LETTER_SIZE.0, LETTER_SIZE.1)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .skip_taskbar(false)
-        .visible(false)
-        .build()?;
-    crate::overlay::hide_on_close(&window);
-    Ok(window)
+    crate::overlay::show_form(app, &LETTER_FORM, crate::overlay::place_on_primary, |_| {
+        let _ = app.emit_to(LETTER_LABEL, "letter-state", view);
+    });
 }
 
 /// 편지 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `letter-state` 이벤트)
