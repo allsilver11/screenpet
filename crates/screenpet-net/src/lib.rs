@@ -847,24 +847,24 @@ impl Net {
     /// (dropped otherwise). Carried in a ping, which older versions ignore.
     /// Never blocks.
     pub fn ask(&self, peer_id: &str, ask: &str) {
-        if let Some(link) = self.friend_link(peer_id) {
-            link.send(&Message::Control(Control::Ping { ask: Some(protocol::clamp_name(ask)), steer: None, toss: None }));
-        }
+        self.ping(peer_id, Some(protocol::clamp_name(ask)), None, None);
     }
 
     /// Steer our pet visiting a connected friend (control mode; dropped
     /// otherwise). Carried in a ping, which older versions ignore. Never blocks.
     pub fn steer(&self, peer_id: &str, steer: Steer) {
-        if let Some(link) = self.friend_link(peer_id) {
-            link.send(&Message::Control(Control::Ping { ask: None, steer: Some(steer), toss: None }));
-        }
+        self.ping(peer_id, None, Some(steer), None);
     }
 
     /// Throw an object onto a connected friend's screen (dropped otherwise).
     /// Carried in a ping, which older versions ignore. Never blocks.
     pub fn toss(&self, peer_id: &str, toss: Toss) {
+        self.ping(peer_id, None, None, Some(toss));
+    }
+
+    fn ping(&self, peer_id: &str, ask: Option<String>, steer: Option<Steer>, toss: Option<Toss>) {
         if let Some(link) = self.friend_link(peer_id) {
-            link.send(&Message::Control(Control::Ping { ask: None, steer: None, toss: Some(toss) }));
+            link.send(&Message::Control(Control::Ping { ask, steer, toss }));
         }
     }
 
