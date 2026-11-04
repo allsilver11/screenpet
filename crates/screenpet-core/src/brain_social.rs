@@ -70,7 +70,7 @@ impl Pet {
     }
 
     /// 놀이를 끊는 일이 생겼다: 사용자 손길·먹이·집 가기·손님의 집 생각·창 안
-    fn social_interrupted(&self) -> bool {
+    pub(super) fn social_interrupted(&self) -> bool {
         self.tickling
             || self.housed
             || self.home_trip.is_some()

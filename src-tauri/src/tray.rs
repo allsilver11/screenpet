@@ -55,6 +55,8 @@ const BROOM_ID: &str = "broom";
 /// 🐾 커서 장난 체크 항목 (설정에 남는다)
 const CURSOR_PLAY_ID: &str = "cursor-play";
 const CURSOR_PLAY_LABEL: &str = "🐾 커서 장난";
+const POOP_ID: &str = "poop";
+const POOP_LABEL: &str = "💩 똥 싸기";
 /// ⏱️ 집중 친구 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남는다)
 const FOCUS_TOGGLE_ID: &str = "focus:toggle";
 const FOCUS_SHORT_ID: &str = "focus:short";
@@ -111,6 +113,8 @@ pub struct TrayMenu {
     pub control: CheckMenuItem<Wry>,
     /// 🐾 커서 장난 (게임 루프가 실제 설정으로 다시 맞춘다)
     pub cursor_play: CheckMenuItem<Wry>,
+    /// 💩 똥 싸기 (게임 루프가 실제 설정으로 다시 맞춘다)
+    pub poop: CheckMenuItem<Wry>,
     /// 🌨️ 날씨 효과 (11~3월)
     pub weather: CheckMenuItem<Wry>,
     /// 🧹 빗자루 (게임 루프가 들고 있는지에 맞춘다)
@@ -410,6 +414,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let weather = CheckMenuItem::with_id(app, WEATHER_ID, "🌨️ 날씨 효과", true, false, None::<&str>)?;
     let broom = CheckMenuItem::with_id(app, BROOM_ID, "🧹 빗자루", true, false, None::<&str>)?;
     let cursor_play = CheckMenuItem::with_id(app, CURSOR_PLAY_ID, CURSOR_PLAY_LABEL, true, true, None::<&str>)?;
+    let poop = CheckMenuItem::with_id(app, POOP_ID, POOP_LABEL, true, true, None::<&str>)?;
     let focus_toggle = CheckMenuItem::with_id(app, FOCUS_TOGGLE_ID, "집중 시작", true, false, None::<&str>)?;
     let focus_short = CheckMenuItem::with_id(app, FOCUS_SHORT_ID, "25분 집중 · 5분 쉬기", true, true, None::<&str>)?;
     let focus_long = CheckMenuItem::with_id(app, FOCUS_LONG_ID, "50분 집중 · 10분 쉬기", true, false, None::<&str>)?;
@@ -444,6 +449,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&come_home)?;
     menu.append(&control)?;
     menu.append(&cursor_play)?;
+    menu.append(&poop)?;
     menu.append(&weather)?;
     menu.append(&broom)?;
     menu.append(&focus)?;
@@ -478,6 +484,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "house" => send(app, Input::ToggleHouse),
             CONTROL_ID => send(app, Input::ToggleControl),
             CURSOR_PLAY_ID => send(app, Input::ToggleCursorPlay),
+            POOP_ID => send(app, Input::TogglePoop),
             WEATHER_ID => send(app, Input::ToggleWeather),
             BROOM_ID => send(app, Input::ToggleBroom),
             FOCUS_TOGGLE_ID => send(app, Input::ToggleFocus),
@@ -536,5 +543,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, friends, come_home, hand_mode, auto_mode })
 }

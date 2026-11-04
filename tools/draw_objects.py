@@ -1,6 +1,6 @@
 """물건 (쓰레기 장난감) — draw_pets.py 엔진으로 그린 128 칸 그림과 노란 포스트잇.
 
-    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,sock,umbrella}.png (128×128)
+    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,sock,umbrella,poop,dropping,pellets}.png (128×128)
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
@@ -39,8 +39,8 @@ POSTIT_REACH = 20
 HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
-NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "sock", "umbrella")
-# 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다
+NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "sock", "umbrella", "poop", "dropping", "pellets")
+# 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다. 똥(poop, dropping, pellets)엔 포스트잇을 붙이지 않는다
 POSTIT_AT = {
     "can": (76, 80),
     "paper": (86, 104),
@@ -74,6 +74,9 @@ SOCK_STRIPE = (255, 240, 226)
 CLOTH = (150, 132, 214)
 CLOTH_LIGHT = mix(CLOTH, WHITE, 0.35)
 HANDLE = (176, 128, 92)
+POOP = (138, 92, 58)
+DROPPING = (118, 112, 62)
+PELLET = (112, 76, 50)
 NOTE = (255, 232, 110)
 NOTE_FOLD = (238, 200, 74)
 NOTE_LINE = (196, 160, 70)
@@ -217,6 +220,33 @@ def draw_umbrella(img):
     paint(img, aa(shapes([L([(92, 56), (108, 44), (114, 46)], 1.8)])), mix(METAL, LINE, 0.3))
 
 
+def soft_log(img, x0, x1, height, colour):
+    """길쭉하고 말랑한 타원 하나 (똬리가 아니다): 윗면의 밝은 자리와 옅은 주름 둘."""
+    top = BOTTOM - height
+    w, mid = x1 - x0, (x0 + x1) / 2
+    blob(img, [E(x0, top, x1, BOTTOM)], colour, r=1.0,
+         marks=[([E(x0 + w * 0.16, top + height * 0.16, x0 + w * 0.5, top + height * 0.42)], mix(colour, WHITE, 0.28)),
+                ([L([(mid - w * 0.12, top + height * 0.3), (mid - w * 0.17, top + height * 0.72)], 1.2),
+                  L([(mid + w * 0.17, top + height * 0.28), (mid + w * 0.12, top + height * 0.7)], 1.2)], mix(colour, LINE, 0.4))])
+
+
+def draw_poop(img):
+    """강아지 똥: 바닥에 누운 길쭉한 갈색 타원."""
+    soft_log(img, 26, 102, 30, POOP)
+
+
+def draw_dropping(img):
+    """작은 동물(개구리·오리·꿀벌·유령)의 똥: 더 작고 올리브빛인 타원."""
+    soft_log(img, 37, 91, 22, DROPPING)
+
+
+def draw_pellets(img):
+    """토끼 똥: 동글동글한 알갱이 여럿이 따로따로 흩어져 있다."""
+    for cx, cy, r in ((27, 120, 6), (42, 110, 5.5), (56, 121, 5.5), (71, 111, 5.5), (86, 120.5, 6), (102, 112, 5.5)):
+        blob(img, [C(cx, cy, r)], PELLET, r=0, line=0.9,
+             marks=[([C(cx - r * 0.3, cy - r * 0.32, r * 0.3)], mix(PELLET, WHITE, 0.3))])
+
+
 DRAW = {
     "can": draw_can,
     "paper": draw_paper,
@@ -226,6 +256,9 @@ DRAW = {
     "milk": draw_milk,
     "sock": draw_sock,
     "umbrella": draw_umbrella,
+    "poop": draw_poop,
+    "dropping": draw_dropping,
+    "pellets": draw_pellets,
 }
 
 
@@ -264,6 +297,8 @@ def with_postit(art, name, postit):
     out = art.copy()
     side = 28
     small = postit.resize((side, side), Image.LANCZOS)
+    if name not in POSTIT_AT:
+        return out
     x, y = POSTIT_AT[name]
     out.alpha_composite(small, (x - side // 2, y - side // 2))
     return out
@@ -330,8 +365,10 @@ def shape_of(name, art):
     hull = simplify_hull(convex_hull(corners))
     ys, xs = np.nonzero(a > 0)
     far = float(np.hypot(xs + 0.5 - pivot[0], ys + 0.5 - pivot[1]).max()) + 1.0
-    nx, ny = POSTIT_AT[name]
-    note = hypot(nx - pivot[0], ny - pivot[1]) + POSTIT_REACH
+    note = 0.0
+    if name in POSTIT_AT:
+        nx, ny = POSTIT_AT[name]
+        note = hypot(nx - pivot[0], ny - pivot[1]) + POSTIT_REACH
     return {"pivot": pivot, "hull": hull, "reach": ceil(max(far, note))}
 
 

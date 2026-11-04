@@ -9,6 +9,8 @@
 use std::collections::HashMap;
 
 use crate::behavior::{self, Personality};
+use crate::physics::GRAVITY;
+use crate::brain::meet_moves::{MeetKind, CROUCH_SECS, HEAD_RISE};
 use crate::brain::social_moves::{GreetKind, SocialRole};
 use crate::brain::Pet;
 use crate::surfaces::Owner;
@@ -48,6 +50,20 @@ pub const STOMP_BODIES: f64 = 5.0;
 /// 쿵쾅에 흔들린 걷는 친구가 데굴 넘어질 확률 (나머지는 흔들리기만)
 pub const TUMBLE_CHANCE: f64 = 0.35;
 
+/// 마주 오던 둘이 만났다고 보는 거리 (인사 거리와 같아서 인사보다 먼저 본다, 이보다 가까우면 이미 지나치는 중)
+pub const MEET_BODIES: f64 = GREET_BODIES;
+pub const MEET_MIN_BODIES: f64 = 0.4;
+/// 마주칠 때 밟기·튀기·지나치기 중 하나를 할 확률 (한 번의 마주침에 한 번만 정한다, 나머지는 평소대로 인사)
+pub const MEET_CHANCE: f64 = 0.35;
+/// 그 짝이 다시 만남을 정하기까지 (초): 했으면 / 안 했으면
+pub const MEET_COOLDOWN: (f64, f64) = (120.0, 240.0);
+pub const MEET_PASS_COOLDOWN: f64 = 20.0;
+/// 내려설 때 친구와 떨어지는 거리 (몸 크기 평균의 배, 두 몸 반 폭에 더한다)
+const MEET_GAP: f64 = 0.15;
+/// 지나치기: 낮은 쪽이 솟는 높이와, 높은 쪽 발이 낮은 쪽 머리 위로 지나가는 여유 (몸 크기 배)
+const PASS_LOW_RISE: f64 = 0.25;
+const PASS_MARGIN: f64 = 0.2;
+
 /// 놀고 싶은 정도 — 술래가 될 가능성과 놀이 확률의 배율
 pub fn eagerness(p: Personality) -> f64 {
     match p {
@@ -85,6 +101,11 @@ struct Snap {
     role: Option<SocialRole>,
     /// 이번 틱에 이미 놀이에 들어가 있음
     engaged: bool,
+    /// 스스로 걷는 중이고 걷는 곳이 어딘지 (마주침, brain_meet.rs)
+    walking: bool,
+    facing: f64,
+    half_w: f64,
+    span: Option<(f64, f64)>,
 }
 
 impl Snap {
@@ -101,6 +122,10 @@ impl Snap {
             personality: p.cfg.personality,
             role: p.social_role(),
             engaged: false,
+            walking: p.walks_on_surface(),
+            facing: p.facing,
+            half_w: p.cfg.half_w,
+            span: p.walk_span(),
         }
     }
 
@@ -116,6 +141,20 @@ fn near(a: &Snap, b: &Snap, bodies: f64) -> bool {
         return (a.x - b.x).hypot(a.y - b.y) <= reach;
     }
     a.owner.is_some() && a.owner == b.owner && (a.y - b.y).abs() <= SAME_LEVEL_PX && (a.x - b.x).abs() <= reach
+}
+
+/// 둘이 같은 디딤판에서 서로 쪽으로 걷다가 막 만났다
+fn head_on(a: &Snap, b: &Snap) -> bool {
+    let (dx, body) = (b.x - a.x, (a.size + b.size) / 2.0);
+    a.free && b.free && a.walking && b.walking && a.span.is_some() && a.span == b.span && near(a, b, MEET_BODIES) && dx.abs() >= MEET_MIN_BODIES * body && dx * a.facing > 0.0 && dx * b.facing < 0.0
+}
+
+/// jumper가 친구 너머 같은 조각에 내려설 자리 (자리가 없으면 None)
+fn landing_past(jumper: &Snap, other: &Snap) -> Option<f64> {
+    let (lo, hi) = jumper.span?;
+    let gap = MEET_GAP * (jumper.size + other.size) / 2.0;
+    let x = other.x + jumper.facing * (jumper.half_w + other.half_w + gap);
+    (lo + jumper.half_w <= x && x <= hi - jumper.half_w).then_some(x)
 }
 
 /// 잡았다: 가로로 몸이 맞닿고 높이도 비슷 (나는 동물은 몸 하나 차이까지)
@@ -155,6 +194,15 @@ pub struct Social {
     clock: f64,
     rng: fastrand::Rng,
     snap: Vec<Snap>,
+    /// 머리를 밟으러 뛰는 중인 짝 (뛰는 쪽, 밟힐 쪽)
+    meets: Vec<(u64, u64)>,
+    /// 짝 → 다시 만남을 정할 수 있는 시각 (clock)
+    meet_cooldown: HashMap<(u64, u64), f64>,
+    /// 만남은 따로 굴린다 (인사·술래 고르기에 영향이 없다)
+    meet_rng: fastrand::Rng,
+    meet_chance: f64,
+    /// 테스트: 이 만남만 고른다
+    meet_only: Option<MeetKind>,
 }
 
 fn pair(a: u64, b: u64) -> (u64, u64) {
@@ -163,7 +211,7 @@ fn pair(a: u64, b: u64) -> (u64, u64) {
 
 impl Social {
     pub fn new(seed: u64) -> Self {
-        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new() }
+        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, meet_only: None }
     }
 
     /// 지금 놀이 중인 짝 수 (테스트·디버그용)
@@ -177,8 +225,88 @@ impl Social {
         self.snap.clear();
         self.snap.extend(pets.iter().map(|p| Snap::of(p.as_ref())));
         self.stomps(pets);
+        self.step_meets(pets);
         self.step_links(dt, pets);
+        self.find_head_ons(pets);
         self.find_new(dt, pets);
+    }
+
+    /// 뛰는 동물이 머리를 밟으면 밟힌 쪽이 반응한다. 뛰는 쪽이 못 오게 됐으면 (잡힘 등) 기다리던 쪽을 풀어 준다
+    fn step_meets<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T]) {
+        let mut i = 0;
+        while i < self.meets.len() {
+            let (jumper, target) = self.meets[i];
+            let (ij, it) = (self.index(jumper), self.index(target));
+            if let (Some(ij), Some(it)) = (ij, it) {
+                if pets[ij].as_mut().take_head_bump() {
+                    pets[it].as_mut().feel_head_stomp();
+                }
+            }
+            let flying = ij.is_some_and(|k| pets[k].as_ref().is_meeting());
+            if flying {
+                i += 1;
+                continue;
+            }
+            if let Some(it) = it {
+                pets[it].as_mut().end_brace();
+            }
+            self.meets.swap_remove(i);
+        }
+    }
+
+    /// 마주 오다 만난 짝: 한 번의 마주침에 한 번만 정한다 — 가끔 밟기·높이 튀기·지나치기. 나머지는 그대로 (곧 인사로 이어진다).
+    /// 한 짝의 인사 쿨다운 중에도 일어난다 (인사 없이 걷던 둘이 그냥 겹쳐 지나가지 않게)
+    fn find_head_ons<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T]) {
+        let n = self.snap.len();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let (a, b) = (self.snap[i], self.snap[j]);
+                let key = pair(a.key, b.key);
+                if a.engaged || b.engaged || !head_on(&a, &b) || self.meet_cooldown.get(&key).is_some_and(|&until| self.clock < until) {
+                    continue;
+                }
+                let now = self.clock;
+                self.meet_cooldown.retain(|_, until| *until > now);
+                let started = self.meet_rng.f64() < self.meet_chance && self.start_meet(pets, i, j);
+                let wait = if started { behavior::range(&mut self.meet_rng, MEET_COOLDOWN) } else { MEET_PASS_COOLDOWN };
+                self.meet_cooldown.insert(key, now + wait);
+                if started {
+                    self.snap[i].engaged = true;
+                    self.snap[j].engaged = true;
+                    // 내리자마자 인사하지 않는다
+                    let greet = behavior::range(&mut self.meet_rng, GREET_COOLDOWN);
+                    self.cooldown.insert(key, now + greet);
+                }
+            }
+        }
+    }
+
+    /// 고른 만남을 시작한다. 내려설 자리가 없으면 false
+    fn start_meet<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T], i: usize, j: usize) -> bool {
+        let (ij, it) = if self.meet_rng.bool() { (i, j) } else { (j, i) };
+        let kind = self.meet_only.unwrap_or_else(|| [MeetKind::Stomp, MeetKind::HighBounce, MeetKind::Pass][self.meet_rng.usize(..3)]);
+        let (jump, other) = (self.snap[ij], self.snap[it]);
+        if kind == MeetKind::Pass {
+            let (Some(high_x), Some(low_x)) = (landing_past(&jump, &other), landing_past(&other, &jump)) else { return false };
+            // 높은 쪽 발은 낮은 쪽 머리 위로 지나간다. 낮은 쪽이 그만큼 늦게 떠서 꼭대기(가운데)가 같은 때에 온다
+            let low = PASS_LOW_RISE * other.size;
+            let high = low + HEAD_RISE * other.size + PASS_MARGIN * other.size;
+            let air = |rise: f64| 2.0 * (2.0 * rise / GRAVITY).sqrt();
+            pets[ij].as_mut().start_vault(kind, None, high_x, high, CROUCH_SECS);
+            pets[it].as_mut().start_vault(kind, None, low_x, low, CROUCH_SECS + (air(high) - air(low)) / 2.0);
+            return true;
+        }
+        // 뛰는 쪽 너머에 자리가 없으면 친구가 뛴다 (둘 다 없으면 그만)
+        let (ij, it, land) = match (landing_past(&jump, &other), landing_past(&other, &jump)) {
+            (Some(x), _) => (ij, it, x),
+            (None, Some(x)) => (it, ij, x),
+            (None, None) => return false,
+        };
+        let target = self.snap[it];
+        pets[ij].as_mut().start_vault(kind, Some((target.x, target.y - HEAD_RISE * target.size)), land, 0.0, CROUCH_SECS);
+        pets[it].as_mut().start_brace();
+        self.meets.push((self.snap[ij].key, target.key));
+        true
     }
 
     /// 공룡이 쿵쾅을 시작했으면 같은 바닥 STOMP_BODIES 안의 친구들이 흔들린다 (걷는 친구는 TUMBLE_CHANCE로 데굴).
@@ -389,3 +517,7 @@ impl Social {
 #[cfg(test)]
 #[path = "social_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "social_meet_tests.rs"]
+mod meet_tests;

@@ -48,6 +48,9 @@ pub struct Config {
     /// 🐾 커서 장난을 메뉴에서 껐다 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cursor_play_off: bool,
+    /// 💩 똥 싸기를 메뉴에서 껐다 (기본은 켜짐)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub poop_off: bool,
     /// ⏱️ 집중 친구 길이 (켜져 있는지는 남기지 않는다). 모르는 값이면 25/5
     #[serde(default, skip_serializing_if = "FocusLength::is_short", deserialize_with = "lenient_focus_length")]
     pub focus_length: FocusLength,
@@ -892,6 +895,17 @@ mod tests {
         let off = Config { cursor_play_off: true, ..Config::default() };
         let back: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
         assert!(back.cursor_play_off);
+    }
+
+    #[test]
+    fn pooping_is_on_unless_turned_off() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert!(!old.poop_off);
+        let on = serde_json::to_string(&Config::default()).unwrap();
+        assert!(!on.contains("poop_off"));
+        let off = Config { poop_off: true, ..Config::default() };
+        let back: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
+        assert!(back.poop_off);
     }
 
     #[test]

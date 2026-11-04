@@ -44,7 +44,7 @@ def test_sprite_fits_the_cell_and_sits_on_the_bottom(built, name):
     assert top > 0
 
 
-@pytest.mark.parametrize("name", d.NAMES)
+@pytest.mark.parametrize("name", sorted(d.POSTIT_AT))
 def test_postit_is_stuck_on_the_object(built, name):
     _, arts = built
     x, y = d.POSTIT_AT[name]
@@ -111,7 +111,7 @@ def test_turning_sprite_touches_where_the_core_thinks_and_is_not_clipped(built, 
     assert abs(drawn - lowest) <= 3.0, (drawn, lowest)
 
 
-@pytest.mark.parametrize("name", d.NAMES)
+@pytest.mark.parametrize("name", sorted(d.POSTIT_AT))
 def test_postit_stays_inside_the_turning_room(name):
     s = core_shapes()[name]
     x, y = d.POSTIT_AT[name]
@@ -176,3 +176,59 @@ def test_broken_computer_screen_is_black_glass_with_no_white_marks(built):
     screen = np.asarray(arts["computer"])[56:95, 31:97, :3].astype(int)
     assert screen.mean() < 70
     assert (screen.min(axis=2) > 200).sum() == 0, "x eyes or a mouth"
+
+
+POOPS = ("poop", "dropping", "pellets")
+
+
+def test_only_trash_takes_post_its():
+    assert set(d.POSTIT_AT) == set(d.NAMES) - set(POOPS)
+
+
+@pytest.mark.parametrize("name,min_ratio", [("poop", 2.2), ("dropping", 2.2)])
+def test_poop_is_a_long_lying_oval_not_a_tall_swirl(built, name, min_ratio):
+    """똬리(위로 뾰족한 더미)가 아니다: 납작하게 누운 타원이고 가운데 줄이 가장 넓다."""
+    _, arts = built
+    a = np.asarray(arts[name].getchannel("A")) >= 128
+    ys, xs = a.nonzero()
+    w, h = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+    assert w >= h * min_ratio, (w, h)
+    widths = a.sum(axis=1)[ys.min(): ys.max() + 1]
+    assert widths.argmax() in range(h // 4, h - h // 4 + 1), widths.tolist()
+    top = a[ys.min() + h // 4].sum()
+    assert top >= w * 0.6, "the top is round and wide, not a peak"
+
+
+def _lumps(mask):
+    """이어진 덩어리 수 (4방향)."""
+    seen = np.zeros_like(mask)
+    count = 0
+    for start in zip(*mask.nonzero()):
+        if seen[start]:
+            continue
+        count += 1
+        stack = [start]
+        while stack:
+            y, x = stack.pop()
+            if not (0 <= y < mask.shape[0] and 0 <= x < mask.shape[1]) or seen[y, x] or not mask[y, x]:
+                continue
+            seen[y, x] = True
+            stack += [(y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)]
+    return count
+
+
+def test_rabbit_pellets_are_several_separate_little_balls(built):
+    _, arts = built
+    # 외곽선 안쪽의 갈색만 보면 알갱이 하나하나가 떨어져 있다
+    px = np.asarray(arts["pellets"]).astype(int)
+    fill = (px[..., 3] > 200) & (px[..., 0] > 95)
+    assert _lumps(fill) >= 5
+
+
+def test_poop_is_brown_and_the_small_kind_is_smaller_and_olive(built):
+    _, arts = built
+    big, small = _opaque(arts["poop"]).mean(axis=0), _opaque(arts["dropping"]).mean(axis=0)
+    assert big[0] > big[1] > big[2], big
+    assert small[1] > big[1] * 0.9 and small[0] - small[1] < big[0] - big[1], (small, big)
+    area = lambda n: (np.asarray(arts[n].getchannel("A")) >= 128).sum()
+    assert area("dropping") < area("poop") * 0.7

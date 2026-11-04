@@ -154,7 +154,7 @@ impl Pet {
     }
 
     /// 도착: 목표 자리가 그대로(보이고 가까이) 있으면 그 창 윗면에 내려서고, 아니면 그 자리에서 떨어진다
-    fn land_leap(&mut self, world: &World, owner: Owner, rel_x: f64) {
+    pub(super) fn land_leap(&mut self, world: &World, owner: Owner, rel_x: f64) {
         let spot = world.anchor(owner).map(|(ax, ay)| (ax + rel_x, ay));
         match spot {
             Some((x, y))

@@ -1,0 +1,83 @@
+//! 💩 똥 (순수 계산): 왼쪽 버튼을 새로 누른 순간(눌렀다는 사실만 — 자리도 대상도 모른다)마다 화면 위 동물이 낮은 확률로 싼다.
+//! 똥은 물건(object.rs)이다: 끌고 던지고 치우고 친구 화면으로 넘길 수 있다. 메뉴로 꺼내지는 못하고, 물건 수와 따로 센다.
+//! 동물의 동작은 brain_poop.rs.
+//!
+//! 확률 계산: 부지런히 쓸 때 1분에 10번쯤 누른다고 보면 (쉬는 시간 뺀) 평균 대기는 1 / (0.04 × 10) = 2.5분,
+//! 여기에 싼 뒤 쉬는 10~20분(평균 15분)을 더해 한 마리당 약 17.5분에 한 번이다. 1분에 3번이면 약 23분, 30번이면 약 16분.
+
+use crate::object::ObjectKind;
+use crate::surfaces::Owner;
+
+/// 누를 때마다 쌀 확률
+pub const CLICK_CHANCE: f64 = 0.04;
+/// 한 번 싸고 다시 쌀 수 있을 때까지 (초)
+pub const COOLDOWN_SECS: (f64, f64) = (600.0, 1200.0);
+/// 저절로 사라질 때까지 (초)
+pub const LIFE_SECS: f64 = 1800.0;
+/// 걷다가 똥을 알아채는 앞쪽 거리 (몸 크기 배)
+pub const LOOK_AHEAD: f64 = 0.9;
+/// 이만큼(몸 크기 배) 앞까지 오면 밟았다
+pub const STEP_REACH: f64 = 0.12;
+/// 못 보고 밟아 미끄러질 확률 (나머지는 "ew!" 하고 피한다)
+pub const SLIP_CHANCE: f64 = 0.2;
+/// 피할 때 뛰어넘을 확률 (뛸 자리가 있을 때, 나머지는 돌아선다)
+pub const HOP_OVER_CHANCE: f64 = 0.5;
+/// 같은 똥에 다시 반응하기까지 (초)
+pub const SAME_POOP_SECS: f64 = 90.0;
+/// 어떤 똥이든 다시 반응하기까지 (초) — 똥이 모여 있어도 말풍선이 줄줄이 나오지 않는다
+pub const CALM_SECS: f64 = 6.0;
+/// 같은 디딤판으로 보는 높이 차 (px)
+pub const SAME_LEVEL_PX: f64 = 4.0;
+/// 뛰어넘을 때 똥 너머로 더 가는 거리 (몸 크기 배, 몸 반 폭에 더한다)
+pub const HOP_CLEAR: f64 = 0.3;
+
+/// 바닥에 놓인 똥 하나 (앱이 매 틱 Pet::notice_poops로 넘긴다)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PoopSpot {
+    pub id: u64,
+    pub x: f64,
+    pub y: f64,
+    pub owner: Owner,
+}
+
+/// 앱 쪽 조건: 메뉴에서 켜 뒀고, 모두 숨겨 두지 않았고, 집중 중이 아니다 (손님도 집중을 방해하지 않는다).
+/// 자리 비움·전체 화면은 동물이 있는 모니터마다 weather::overlay_paused로 본다
+pub fn may_poop(off: bool, hidden: bool, focusing: bool) -> bool {
+    !off && !hidden && !focusing
+}
+
+/// 동물 종류 → 똥 그림: 토끼는 알갱이, 작은 동물은 작은 타원, 나머지는 타원
+pub fn kind_for(species: &str) -> ObjectKind {
+    match species {
+        "rabbit" => ObjectKind::Pellets,
+        "frog" | "duck" | "bee" | "ghost" => ObjectKind::Dropping,
+        _ => ObjectKind::Poop,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_app_switches_decide_here() {
+        assert!(may_poop(false, false, false));
+        assert!(!may_poop(true, false, false), "turned off");
+        assert!(!may_poop(false, true, false), "windows hidden");
+        assert!(!may_poop(false, false, true), "focusing");
+    }
+
+    #[test]
+    fn rabbits_get_pellets_little_pets_a_small_oval_and_everyone_else_the_oval() {
+        assert_eq!(kind_for("rabbit"), ObjectKind::Pellets);
+        for s in ["frog", "duck", "bee", "ghost"] {
+            assert_eq!(kind_for(s), ObjectKind::Dropping, "{s}");
+        }
+        for s in ["cat", "dog", "bear", "giraffe", "dino_green", "santa", "unknown"] {
+            assert_eq!(kind_for(s), ObjectKind::Poop, "{s}");
+        }
+        for k in [ObjectKind::Poop, ObjectKind::Dropping, ObjectKind::Pellets] {
+            assert!(k.is_poop());
+        }
+    }
+}

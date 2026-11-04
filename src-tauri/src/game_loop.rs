@@ -65,6 +65,8 @@ pub enum Input {
     ToggleControl,
     /// 🐾 커서 장난 켜기 / 끄기 (설정에 남는다)
     ToggleCursorPlay,
+    /// 💩 똥 싸기 켜기 / 끄기 (설정에 남는다)
+    TogglePoop,
     /// 🧹 빗자루 들기 / 내려놓기 (트레이·우클릭 체크 항목)
     ToggleBroom,
     /// 🌨️ 날씨 효과 켜기 / 끄기 (트레이·우클릭 체크 항목)
@@ -230,6 +232,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     }
     sync_menu(&app, &slots[OWN].entry, &care, config.housed);
     let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
+    let _ = app.state::<AppState>().menu.poop.set_checked(!config.poop_off);
     let mut was_housed = slots[OWN].pet.is_housed();
     let mut was_away = false;
     let mut last_house: Option<HouseState> = None;
@@ -267,6 +270,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut presence = Presence::new(&app, config.focus_length);
     // 물건 (쓰레기 장난감 — 없거나 잠들어 있으면 일이 없다)
     let mut objects = Objects::new();
+    // 💩 왼쪽 버튼을 새로 누른 순간만 쓴다 (어디를 무엇을 눌렀는지는 보지도 남기지도 않는다)
+    let mut was_left_down = false;
+    let mut poop_spots = Vec::new();
     // 한 화면의 동물끼리(내 동물 + 손님) 인사·술래 놀이
     let mut social = Social::new(seed_now());
     // 🎮 조작 모드: 켜진 동안만 키를 읽는다 (읽기만 — 앞에 있는 창에도 그대로 간다)
@@ -467,6 +473,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
+                Input::TogglePoop => {
+                    config.poop_off = !config.poop_off;
+                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춘다
+                    let _ = app.state::<AppState>().menu.poop.set_checked(!config.poop_off);
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                }
                 Input::CollectGift { label } => {
                     if gifts.collect(&app, &label, &mut config.gifts, &slots[OWN]) {
                         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
@@ -657,6 +669,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 broom_win.drop_back();
                 let _ = app.state::<AppState>().menu.broom.set_checked(false);
             } else {
+                objects.sweep_poops(b);
                 let (x0, x1) = b.span(dpi);
                 if let Some((amount, kind)) = weather.sweep(x0, x1, cy, Broom::reach_y(dpi)) {
                     if let Some(count) = b.swept(amount) {
@@ -699,6 +712,21 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         let hovered = if held.is_some() || objects.is_held() { None } else { slots::hover_target(&slots, cx, cy) };
         // 🐾 커서 장난: 무언가 끌고 있거나 음식을 들고 있거나 모두 숨겨 둔 동안엔 새로 시작하지 않는다 (조작 모드 등은 코어가 본다)
         let left_down = source.left_button_down();
+        // 💩 새로 누른 틱에만: 화면 위 동물(내 동물·손님)마다 낮은 확률로 싼다. 자리 비움·전체 화면(그 동물이 있는 모니터)·숨김·집중 중엔 안 한다
+        if std::mem::replace(&mut was_left_down, left_down) != left_down
+            && left_down
+            && screenpet_core::poop::may_poop(config.poop_off, crate::windows_hidden(&app), slots[OWN].pet.is_focusing())
+        {
+            for s in &mut slots {
+                let wa = s.world.work_area_at(s.pet.body.x, s.pet.body.y);
+                if screenpet_core::weather::overlay_paused(presence.is_away(), &s.world.windows, &wa) {
+                    continue;
+                }
+                if let Some((x, y)) = s.pet.try_poop() {
+                    objects.drop_poop(screenpet_core::poop::kind_for(&s.entry.id), x, y);
+                }
+            }
+        }
         let play_busy = held.is_some() || hand.is_some() || objects.is_held() || crate::windows_hidden(&app);
         for (i, s) in slots.iter_mut().enumerate() {
             s.pet.cursor_input(left_down, play_busy || s.note_is_open(), !config.cursor_play_off);
@@ -719,9 +747,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         network.set_exit_edges(&config, &mut slots);
         let mut own_exit = None;
         let mut left = Vec::new();
+        objects.poop_spots(&mut poop_spots);
         for (i, s) in slots.iter_mut().enumerate() {
             // 친구 화면에 가 있는 동안엔 물리·행동이 멈춘다
             if !s.pet.is_away() {
+                s.pet.notice_poops(&poop_spots, &s.world);
                 s.pet.update(dt, &s.world);
             }
             if let Some(speech) = s.pet.take_speech() {

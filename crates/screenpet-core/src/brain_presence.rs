@@ -173,7 +173,7 @@ impl Pet {
     }
 
     /// 사용자가 시킨 일, 주인의 조종, 떠나는 길
-    fn has_errand(&self) -> bool {
+    pub(super) fn has_errand(&self) -> bool {
         self.control.is_some()
             || self.home_trip.is_some()
             || self.return_home.is_some()
@@ -212,6 +212,7 @@ impl Pet {
             | State::WallClimb { .. }
             | State::InnerClimb { .. }
             | State::Leap { .. }
+            | State::Meet { .. }
             | State::HomeLeap { .. }
             | State::CursorLeap { .. }
             | State::CursorHang { .. }

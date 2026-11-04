@@ -101,9 +101,19 @@ impl Pet {
 
     /// 데굴: 디딤판을 따라가며 dir 쪽으로 점점 느리게 미끄러진다 — 조각 끝에서 멈춘다. 끝나면 착지 자세로 일어선다
     pub(super) fn update_tumble(&mut self, dt: f64, world: &World, remaining: f64, dir: f64) {
+        let fade = (remaining / TUMBLE_SECS.1).clamp(0.0, 1.0);
+        if !self.skid(dt, world, dir, TUMBLE_SPEED * self.cfg.size / 128.0 * fade) {
+            return;
+        }
+        let remaining = remaining - dt;
+        self.state = if remaining > 0.0 { State::Tumble { remaining, dir } } else { State::Land { remaining: LAND_SECS } };
+    }
+
+    /// 디딤판을 따라가며 dir 쪽으로 미끄러진다 — 조각 끝에서 멈춘다. 디딤판이 사라졌으면 떨어지기 시작하고 false
+    pub(super) fn skid(&mut self, dt: f64, world: &World, dir: f64, speed: f64) -> bool {
         if !self.follow_anchor(world) {
             self.start_fall();
-            return;
+            return false;
         }
         let st = self.standing.expect("follow_anchor keeps standing");
         let x = self.body.x;
@@ -111,14 +121,11 @@ impl Pet {
             let (lo, hi) = (piece.x_start + self.cfg.half_w, piece.x_end - self.cfg.half_w);
             // 이미 끝을 넘어 서 있으면 그 자리보다 더 나가지 않는다
             let (lo, hi) = (lo.min(x), hi.max(x));
-            let fade = (remaining / TUMBLE_SECS.1).clamp(0.0, 1.0);
-            let speed = TUMBLE_SPEED * self.cfg.size / 128.0 * fade;
             let new_x = (x + dir * speed * dt).clamp(lo, hi);
             self.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (new_x - x) });
             self.body.x = new_x;
         }
-        let remaining = remaining - dt;
-        self.state = if remaining > 0.0 { State::Tumble { remaining, dir } } else { State::Land { remaining: LAND_SECS } };
+        true
     }
 }
 

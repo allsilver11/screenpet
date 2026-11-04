@@ -3,7 +3,7 @@
     python tools/draw_pixel_world.py   → ui/house_pixel/  {house,hive,haunted,xmas}_<stage>{.png,_front.png,.json} + xmas_smoke.png
                                          ui/effects_pixel/ 소품·손 음식·눈덩이(4)·눈사람·눈구름·침·모자·목도리·효과
                                          ui/gifts_pixel/   선물 전부 + _shiny
-                                         ui/objects_pixel/ 물건 8 + 포스트잇
+                                         ui/objects_pixel/ 물건 8 + 똥 3 + 포스트잇
                                          tools/preview/pixel_world_*.png
 
 한 칸 크기 (어디서나 화면 3px — 동물·세계 그림이 고르다):
@@ -66,6 +66,7 @@ PAL = {
     "n": (170, 110, 72), "N": (112, 70, 50), "t": (222, 176, 124), "T": (244, 220, 176),
     "w": (255, 255, 255), "W": (250, 246, 236), "s": (176, 176, 188), "S": (112, 112, 126),
     "k": (52, 44, 52), "f": (255, 214, 196), "m": (255, 240, 200),
+    "e": (138, 92, 58), "d": (128, 122, 66), "D": (96, 90, 50),
 }
 
 

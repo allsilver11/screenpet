@@ -195,6 +195,10 @@ pub enum Speech {
     BreakTime,
     /// 집중 시작 ("focus!")
     Focus,
+    /// 앞에 똥이 있다 ("ew!", brain_poop.rs)
+    Ew,
+    /// 똥을 밟고 꽈당 / 친구에게 머리를 밟힘 ("oof!", brain_poop.rs, brain_meet.rs)
+    Oof,
 }
 
 impl Anim {
@@ -326,6 +330,10 @@ pub enum State {
     Glare { remaining: f64 },
     /// 돌아온 사용자를 맞으러, 또는 집중하러 구석으로 가는 중 — 길은 presence.trip (brain_presence.rs)
     PresenceTrip,
+    /// 똥을 밟고 꽈당 — dir 쪽으로 미끄러졌다가 일어나 투덜댄다 (brain_poop.rs)
+    Slip { remaining: f64, dir: f64 },
+    /// 마주 오던 친구를 밟거나 뛰어넘는 중, 또는 밟히는 중 — 길은 Pet의 meet (brain_meet.rs)
+    Meet { phase: meet_moves::MeetPhase, remaining: f64 },
 }
 
 impl State {
@@ -577,6 +585,14 @@ pub struct Pet {
     cloud: cloud_moves::SnowCloud,
     /// 자리 비움·졸린 시간·집중 (brain_presence.rs)
     presence: presence_moves::PresenceMood,
+    /// 똥: 다시 쌀 수 있는 때, 지나친 똥의 기억 (brain_poop.rs)
+    poop: poop_moves::PoopMood,
+    /// 마주 오던 친구와 만나는 길 (brain_meet.rs)
+    meet: Option<meet_moves::MeetPlan>,
+    /// 지금 걷는 디딤판 조각 (왼쪽, 오른쪽) — social.rs가 뛰어 내릴 자리를 본다
+    walk_span: Option<(f64, f64)>,
+    /// 방금 친구 머리를 밟았다 (take_head_bump로 한 번 꺼낸다)
+    head_bump: bool,
     rng: fastrand::Rng,
 }
 
@@ -648,6 +664,10 @@ impl Pet {
             snow: Default::default(),
             cloud: Default::default(),
             presence: Default::default(),
+            poop: Default::default(),
+            meet: None,
+            walk_span: None,
+            head_bump: false,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -660,9 +680,14 @@ impl Pet {
         if !matches!(self.state, State::Air { anim: Anim::Fall }) {
             self.thrown = false;
         }
+        // 걷는 동안만 맞는 값이다 (안 걷는 사이에 디딤판이 바뀌어도 옛 조각을 믿지 않는다)
+        if !matches!(self.state, State::Move { .. }) {
+            self.walk_span = None;
+        }
         self.heart_timer = (self.heart_timer - dt).max(0.0);
         self.wobble_timer = (self.wobble_timer - dt).max(0.0);
         self.drop_flying_state();
+        self.drop_walking_moves();
         self.after_meal();
         self.track_prop(world);
         self.serve_queued_food();
@@ -741,6 +766,7 @@ impl Pet {
             State::Housed => {}
             State::HomeLeap { remaining } => self.update_home_leap(dt, remaining, world),
             State::Leap { crouch, remaining, owner, rel_x } => self.update_leap(dt, world, crouch, remaining, owner, rel_x),
+            State::Meet { phase, remaining } if phase.airborne() => self.update_meet(dt, world, phase, remaining),
             State::Enter { remaining, side } => self.update_enter(dt, world, remaining, side),
             State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } if self.home_trip.is_some() => {
                 self.start_fall()
@@ -761,6 +787,8 @@ impl Pet {
             State::WallClimb { window, side, rel_y } => self.update_wall_climb(dt, world, window, side, rel_y),
             State::InnerClimb { window, rel_x, rel_y } => self.update_inner_climb(dt, world, window, rel_x, rel_y),
             State::Tumble { remaining, dir } => self.update_tumble(dt, world, remaining, dir),
+            State::Slip { remaining, dir } => self.update_slip(dt, world, remaining, dir),
+            State::Meet { phase, remaining } => self.update_meet(dt, world, phase, remaining),
             State::Snowman { phase, remaining, dir } => self.update_snowman(dt, world, phase, remaining, dir),
             _ => {
                 self.pause_for_hover();
@@ -808,6 +836,8 @@ impl Pet {
             State::Sleep { .. } => Anim::Sleep,
             // 데굴 넘어짐 — 구르기 그림 (앱이 돌린다)
             State::Tumble { .. } => Anim::Roll,
+            State::Slip { remaining, .. } => self.slip_anim(remaining),
+            State::Meet { phase, remaining } => self.meet_anim(phase, remaining),
             State::CursorPlay { .. } | State::CursorLeap { .. } | State::CursorHang { .. } | State::EdgeCling { .. } | State::Glare { .. } => self.cursor_anim(),
             State::Snowman { phase, .. } => self.snowman_anim(phase),
             State::PresenceTrip => self.trip_anim(),
@@ -1405,7 +1435,7 @@ impl Pet {
                 | State::CursorLeap { .. }
                 | State::CursorHang { .. }
                 | State::EdgeCling { .. }
-        )
+        ) || matches!(self.state, State::Meet { phase, .. } if phase.airborne())
     }
 
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
@@ -1510,7 +1540,7 @@ impl Pet {
         // 나는 동물: 눌리면 가던 길은 잊는다 (놓인 자리에서 다시 정한다)
         self.flight = None;
         // 놀던 중이면 놀이는 끝난다 — 무시해도 놀이로 돌아가지 않고 잠깐 앉는다
-        let before = if self.social_role().is_some() { State::Idle { remaining: TURN_PAUSE, look: false } } else { self.state };
+        let before = if self.social_role().is_some() || matches!(self.state, State::Meet { .. }) { State::Idle { remaining: TURN_PAUSE, look: false } } else { self.state };
         self.play_target = None;
         self.before_press = Some((before, self.pacing.after_beat.take()));
         if !grounded {
@@ -2234,6 +2264,7 @@ impl Pet {
             State::ToFood { remaining } => self.update_to_food(dt, world, st, &piece, remaining),
             State::WantFood { .. } => self.update_want_food(dt, st, &piece),
             State::Move { kind, remaining } => {
+                self.walk_span = Some((piece.x_start, piece.x_end));
                 let speed = self.cfg.walk_speed * kind.speed_mult() * self.hop_pace(kind, dt);
                 let new_x = self.body.x + self.facing * speed * dt;
                 let (edge_x, end) = if self.facing > 0.0 { (piece.x_end, piece.end_kind) } else { (piece.x_start, piece.start_kind) };
@@ -2416,6 +2447,8 @@ impl Pet {
             | State::EdgeCling { .. }
             | State::Glare { .. }
             | State::PresenceTrip
+            | State::Slip { .. }
+            | State::Meet { .. }
             | State::Move { .. } => {}
         }
     }
@@ -3062,6 +3095,16 @@ pub mod social_moves;
 /// 공룡 쿵쾅에 흔들리고 데굴 넘어지기 (누가 흔들리는지는 social.rs)
 #[path = "brain_stomp.rs"]
 pub mod stomp_moves;
+
+#[path = "brain_poop.rs"]
+pub mod poop_moves;
+
+#[cfg(test)]
+#[path = "brain_poop_tests.rs"]
+mod poop_tests;
+
+#[path = "brain_meet.rs"]
+pub mod meet_moves;
 
 #[cfg(test)]
 #[path = "brain_stomp_tests.rs"]

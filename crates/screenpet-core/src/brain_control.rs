@@ -252,6 +252,8 @@ impl Pet {
             || self.hand.is_some()
             || self.farewell_pending
             || self.inside.is_some()
+            // 친구를 뛰어넘는 중엔 내려설 때까지 기다린다
+            || matches!(self.state, State::Meet { .. })
             // 집이 그리워도 주인이 조작하면 따른다 (보내기로 떠나는 길만 막는다)
             || self.send.is_some();
         if busy {

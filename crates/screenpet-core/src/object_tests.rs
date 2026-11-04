@@ -974,3 +974,181 @@ fn thrown_down_it_falls_past_window_tops_to_the_friend_below() {
     assert_eq!(crossed(&mut o, &w, NONE), None);
     assert!(o.is_asleep() && o.body.y == 400.0, "{:?}", o.body);
 }
+
+// ---- 💩 똥 ----
+
+const POOPS: [ObjectKind; 3] = [ObjectKind::Poop, ObjectKind::Dropping, ObjectKind::Pellets];
+
+fn poop_on_floor(kind: ObjectKind) -> (Object, World) {
+    let w = floor();
+    let mut o = Object::new(kind, 900.0, 1000.0, 1.0, 3);
+    run(&mut o, &w, 3.0);
+    assert!(o.is_asleep(), "{kind:?}");
+    (o, w)
+}
+
+#[test]
+fn poops_are_foreign_validated_but_not_offered_in_the_menu() {
+    assert_eq!(ObjectKind::TRASH.len() + POOPS.len(), ObjectKind::ALL.len());
+    for k in POOPS {
+        assert!(k.is_poop());
+        assert!(!ObjectKind::TRASH.contains(&k), "{k:?}");
+        assert_eq!(accept_toss(k.id(), None, None).map(|a| a.kind), Some(k));
+    }
+    for k in ObjectKind::TRASH {
+        assert!(!k.is_poop(), "{k:?}");
+    }
+    // 위아래 틀린 이름은 모르는 종류다
+    for bad in ["Poop", "poop ", "poops", "💩", "pellet"] {
+        assert!(accept_toss(bad, None, None).is_none(), "{bad:?}");
+    }
+}
+
+#[test]
+fn poops_land_flat_and_the_wind_does_not_move_them() {
+    for k in POOPS {
+        let (mut o, w) = poop_on_floor(k);
+        assert_eq!(o.angle(), 0.0, "{k:?}");
+        assert_eq!(o.body.y, 1040.0);
+        let x = o.body.x;
+        o.start_gust(1.0);
+        assert!(o.is_asleep(), "{k:?}");
+        // 바람을 불게 두어도 그대로
+        let mut t = 0.0;
+        while t < GUST_EVERY_SECS.1 + 1.0 {
+            o.tick(0.05, &w, NONE, true);
+            t += 0.05;
+        }
+        assert_eq!(o.body.x, x, "{k:?}");
+        assert!(o.is_asleep());
+    }
+}
+
+#[test]
+fn poops_take_no_post_its_even_from_a_friend() {
+    for k in POOPS {
+        let mut o = Object::new(k, 900.0, 1000.0, 1.0, 3);
+        assert_eq!(o.postit(), Postit::Never);
+        assert!(!o.attach_note("hello"));
+        o.receive_note(Some("hi".into()));
+        assert_eq!(o.postit(), Postit::Never);
+        assert_eq!(o.read_note(), None);
+        assert_eq!(o.note_to_send(), None);
+        assert!(!o.has_sticker());
+        let a = accept_toss(k.id(), None, Some("message")).unwrap();
+        assert_eq!(a.note, None);
+    }
+    // 쓰레기는 그대로
+    assert_eq!(accept_toss("can", None, Some("message")).unwrap().note.as_deref(), Some("message"));
+}
+
+#[test]
+fn only_poops_fade_after_thirty_minutes_and_not_while_held() {
+    let (mut o, w) = poop_on_floor(ObjectKind::Poop);
+    let mut stone = Object::new(ObjectKind::Stone, 800.0, 1040.0, 1.0, 3);
+    let mut t = 0.0;
+    while t < crate::poop::LIFE_SECS - 10.0 {
+        o.tick(0.05, &w, NONE, false);
+        stone.tick(0.05, &w, NONE, false);
+        t += 0.05;
+    }
+    assert!(!o.expired(), "still here near the end");
+    let (x, y) = (o.body.x, o.body.y);
+    o.pointer_down(x, y);
+    o.tick(20.0, &w, NONE, false);
+    stone.tick(20.0, &w, NONE, false);
+    assert!(!o.expired(), "not out of the hand");
+    o.pointer_up();
+    assert!(o.expired());
+    assert!(!stone.expired());
+    assert!(crate::poop::LIFE_SECS >= 25.0 * 60.0 && crate::poop::LIFE_SECS <= 35.0 * 60.0);
+}
+
+#[test]
+fn only_a_settled_poop_reports_its_spot() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Poop, 900.0, 800.0, 1.0, 3);
+    assert_eq!(o.poop_spot(7), None, "still falling");
+    run(&mut o, &w, 3.0);
+    let s = o.poop_spot(7).unwrap();
+    assert_eq!((s.id, s.x, s.y, s.owner), (7, 900.0, 1040.0, Owner::Ground(0)));
+    o.pointer_down(900.0, 1000.0);
+    assert_eq!(o.poop_spot(7), None, "held");
+    let mut can = Object::new(ObjectKind::Can, 900.0, 1040.0, 1.0, 3);
+    run(&mut can, &w, 3.0);
+    assert_eq!(can.poop_spot(7), None, "not a poop");
+}
+
+#[test]
+fn the_roster_counts_poops_on_their_own_and_they_never_push_out_trash() {
+    let mut r = Roster::default();
+    for id in 0..MAX_OWN_OBJECTS as u64 {
+        assert_eq!(r.add(id, Origin::Own), None);
+    }
+    for id in 100..100 + MAX_FOREIGN_OBJECTS as u64 {
+        assert_eq!(r.add(id, Origin::Foreign), None);
+    }
+    for id in 200..200 + MAX_POOPS as u64 {
+        assert_eq!(r.add(id, Origin::Poop), None);
+    }
+    assert_eq!(r.poop_count(), MAX_POOPS);
+    // 넘치면 가장 오래된 똥만
+    assert_eq!(r.add(300, Origin::Poop), Some(200));
+    assert_eq!((r.poop_count(), r.own_count(), r.foreign_count()), (MAX_POOPS, MAX_OWN_OBJECTS, MAX_FOREIGN_OBJECTS));
+    assert!(r.remove(201));
+    assert_eq!(r.poop_count(), MAX_POOPS - 1);
+    r.clear();
+    assert_eq!(r.poop_count(), 0);
+}
+
+#[test]
+fn the_broom_sweeps_a_poop_along_and_lets_it_settle_again() {
+    let (mut o, w) = poop_on_floor(ObjectKind::Poop);
+    assert!(!o.sweep(0.0, 0.0), "the broom has to move");
+    assert!(o.sweep(600.0, 0.0));
+    assert!(o.body.vx > 0.0 && o.body.vy < 0.0, "{:?}", o.body);
+    assert!(!o.sweep(600.0, 0.0), "already flying");
+    run(&mut o, &w, 4.0);
+    assert!(o.is_asleep());
+    assert!(o.body.x > 900.0 + 30.0, "{}", o.body.x);
+    assert_eq!(o.body.y, 1040.0);
+    assert!(o.sweep(-60.0, 0.0), "a slow stroke still moves it");
+    assert!(o.body.vx <= -SWEEP_MIN_VX);
+    // 쓰레기는 쓸리지 않고, 든 것도 쓸리지 않는다
+    let mut can = Object::new(ObjectKind::Can, 900.0, 1040.0, 1.0, 3);
+    run(&mut can, &w, 3.0);
+    assert!(!can.sweep(600.0, 0.0));
+    let (mut held, _) = poop_on_floor(ObjectKind::Poop);
+    held.pointer_down(900.0, 1000.0);
+    assert!(!held.sweep(600.0, 0.0));
+}
+
+#[test]
+fn a_poop_swept_at_a_linked_edge_flies_across_and_at_a_closed_edge_stays() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Poop, 1880.0, 1000.0, 1.0, 3);
+    run(&mut o, &w, 3.0);
+    assert!(o.sweep(900.0, 0.0));
+    let mut exit = None;
+    for _ in 0..200 {
+        exit = o.tick(DT, &w, ALL, false);
+        if exit.is_some() {
+            break;
+        }
+    }
+    let exit = exit.expect("crossed");
+    assert_eq!(exit.side, Side::Right);
+    assert!(exit.fling.vx > 0.0);
+    // 받는 쪽: 코어의 평소 통로로 들어와 내려앉는다
+    let a = accept_toss(ObjectKind::Poop.id(), Some(exit.fling), None).unwrap();
+    let mut got = Object::flown_in(a.kind, &w, Side::Left, a.fling, 1.0, 9);
+    assert_eq!(got.postit(), Postit::Never);
+    run(&mut got, &w, 4.0);
+    assert!(got.is_asleep());
+    // 친구가 없는 끝에선 튕겨 돌아와 그 화면에 남는다
+    let mut o = Object::new(ObjectKind::Poop, 1880.0, 1000.0, 1.0, 3);
+    run(&mut o, &w, 3.0);
+    assert!(o.sweep(900.0, 0.0));
+    assert!(run(&mut o, &w, 4.0).is_none());
+    assert_eq!(o.body.y, 1040.0);
+}

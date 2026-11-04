@@ -90,6 +90,15 @@
         animation: poof 300ms ease-in forwards;
       }
 
+      /* 💩 다 된 똥은 스르륵 (objects.rs FADE) */
+      body.fade #thing {
+        transition: opacity 1.5s ease-out;
+        opacity: 0;
+      }
+      body.pixel.fade #thing {
+        transition: opacity 1.5s steps(4);
+      }
+
       @keyframes poof {
         60% {
           opacity: 0.8;

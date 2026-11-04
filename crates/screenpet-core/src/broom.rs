@@ -69,6 +69,12 @@ impl Broom {
         REACH_Y * dpi
     }
 
+    /// 이번 틱에 (x, y)의 바닥에 놓인 것 위를 지나갔다 (움직이는 중일 때만)
+    pub fn passes_over(&self, x: f64, y: f64, dpi: f64) -> bool {
+        let (x0, x1) = self.span(dpi);
+        self.velocity != (0.0, 0.0) && x0 <= x && x <= x1 && (self.at.1 - y).abs() <= Self::reach_y(dpi)
+    }
+
     pub fn velocity(&self) -> (f64, f64) {
         self.velocity
     }
@@ -165,6 +171,19 @@ mod tests {
         moving(&mut b, (400.0, 0.0));
         assert_eq!(b.span(1.0), (64.0, 436.0));
         assert_eq!(b.span(2.0), (28.0, 472.0));
+    }
+
+    #[test]
+    fn it_only_passes_over_what_is_under_a_moving_stroke() {
+        let mut b = Broom::new((100.0, 1000.0));
+        moving(&mut b, (200.0, 1000.0));
+        assert!(b.passes_over(150.0, 1040.0, 1.0), "under the stroke");
+        assert!(b.passes_over(236.0, 1000.0, 1.0), "at the end of the reach");
+        assert!(!b.passes_over(300.0, 1000.0, 1.0), "too far ahead");
+        assert!(!b.passes_over(150.0, 700.0, 1.0), "on a window far above");
+        // 멈춰 있으면 쓸지 않는다
+        b.tick(DT, (200.0, 1000.0), false, false, false);
+        assert!(!b.passes_over(200.0, 1000.0, 1.0));
     }
 
     #[test]

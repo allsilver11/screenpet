@@ -18,6 +18,8 @@ pub const OBJECT_LOGICAL_SIZE: f64 = 96.0;
 pub const MAX_OWN_OBJECTS: usize = 10;
 /// 친구에게서 받아 화면에 있을 수 있는 물건 수 — 넘치면 가장 오래된 것부터
 pub const MAX_FOREIGN_OBJECTS: usize = 20;
+/// 화면에 있을 수 있는 똥 수 (내 동물·손님·친구가 던진 것 모두) — 넘치면 가장 오래된 똥이 사라진다. 쓰레기 수와 따로 센다
+pub const MAX_POOPS: usize = 10;
 /// 포스트잇을 눌러 읽는 시간 (초). 그 뒤엔 다시 볼 수 없다
 pub const NOTE_READ_SECS: f64 = 10.0;
 /// 바람이 부는 간격 (초, 물건마다 따로)
@@ -30,6 +32,9 @@ const BOUNCE_MIN_VY: f64 = 350.0;
 /// 놓을 때 커서 속도를 재는 구간 (초, 동물과 같다)
 const VELOCITY_WINDOW: f64 = 0.12;
 const OUTLIER_RATIO: f64 = 3.0;
+/// 빗자루에 쓸린 똥의 최소 가로 속도와 뜨는 속도 (논리 px/s)
+const SWEEP_MIN_VX: f64 = 240.0;
+const SWEEP_POP: f64 = 160.0;
 /// 이만큼 안에서 이만큼 안 움직이고 놓으면 클릭 (논리 px, 초)
 const CLICK_SLOP: f64 = 6.0;
 const CLICK_SECS: f64 = 0.5;
@@ -44,10 +49,28 @@ pub enum ObjectKind {
     Milk,
     Sock,
     Umbrella,
+    /// 💩 동물이 싼 똥 (poop.rs): 길쭉한 타원, 작은 타원, 토끼의 알갱이. 메뉴에 없고 포스트잇을 못 붙인다
+    Poop,
+    Dropping,
+    Pellets,
 }
 
 impl ObjectKind {
-    pub const ALL: [ObjectKind; 8] = [
+    pub const ALL: [ObjectKind; 11] = [
+        ObjectKind::Can,
+        ObjectKind::Paper,
+        ObjectKind::Stone,
+        ObjectKind::Glasses,
+        ObjectKind::Computer,
+        ObjectKind::Milk,
+        ObjectKind::Sock,
+        ObjectKind::Umbrella,
+        ObjectKind::Poop,
+        ObjectKind::Dropping,
+        ObjectKind::Pellets,
+    ];
+    /// `물건 ▸` 메뉴로 꺼내는 쓰레기
+    pub const TRASH: [ObjectKind; 8] = [
         ObjectKind::Can,
         ObjectKind::Paper,
         ObjectKind::Stone,
@@ -57,6 +80,11 @@ impl ObjectKind {
         ObjectKind::Sock,
         ObjectKind::Umbrella,
     ];
+
+    /// 똥이다: 수를 따로 세고, 저절로 사라지고, 바람에 구르지 않고, 빗자루에 쓸린다
+    pub fn is_poop(self) -> bool {
+        matches!(self, ObjectKind::Poop | ObjectKind::Dropping | ObjectKind::Pellets)
+    }
 
     /// 통신과 그림 파일(ui/objects/<id>.png)에 쓰는 이름
     pub fn id(self) -> &'static str {
@@ -69,6 +97,9 @@ impl ObjectKind {
             ObjectKind::Milk => "milk",
             ObjectKind::Sock => "sock",
             ObjectKind::Umbrella => "umbrella",
+            ObjectKind::Poop => "poop",
+            ObjectKind::Dropping => "dropping",
+            ObjectKind::Pellets => "pellets",
         }
     }
 
@@ -83,6 +114,7 @@ impl ObjectKind {
             ObjectKind::Milk => "🥛 빈 우유팩",
             ObjectKind::Sock => "🧦 찢어진 양말",
             ObjectKind::Umbrella => "☂️ 부러진 우산",
+            ObjectKind::Poop | ObjectKind::Dropping | ObjectKind::Pellets => "💩 똥",
         }
     }
 
@@ -102,6 +134,8 @@ impl ObjectKind {
             ObjectKind::Umbrella => (30.0, 80.0),
             ObjectKind::Stone => (8.0, 24.0),
             ObjectKind::Computer => (6.0, 18.0),
+            // 바닥에 붙어 있다 (start_gust가 막는다)
+            ObjectKind::Poop | ObjectKind::Dropping | ObjectKind::Pellets => (0.0, 0.0),
         }
     }
 }
@@ -117,6 +151,8 @@ pub enum Postit {
     Unread,
     /// 읽는 중 — 글자는 이미 웹뷰로 갔고 여기엔 남아 있지 않다
     Reading,
+    /// 똥: 포스트잇을 붙일 수 없다 (저절로 사라지면 받은 글자도 사라지니까)
+    Never,
 }
 
 /// 포인터를 놓은 결과
@@ -197,7 +233,7 @@ impl Object {
             moved: 0.0,
             grabbed_from: (x, y),
             samples: Vec::new(),
-            postit: Postit::None,
+            postit: if kind.is_poop() { Postit::Never } else { Postit::None },
             note: None,
             read_left: 0.0,
             note_ended: false,
@@ -290,6 +326,42 @@ impl Object {
         self.standing.map(|(o, _)| o)
     }
 
+    /// 똥이 다 말라 사라질 때다 (들고 있는 동안은 기다린다)
+    pub fn expired(&self) -> bool {
+        self.kind.is_poop() && self.clock >= crate::poop::LIFE_SECS && !self.is_held()
+    }
+
+    /// 바닥에 놓인 똥의 자리 (동물이 알아챈다). 들렸거나 날아가는 중이면 None
+    pub fn poop_spot(&self, id: u64) -> Option<crate::poop::PoopSpot> {
+        if !self.kind.is_poop() || !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) {
+            return None;
+        }
+        Some(crate::poop::PoopSpot { id, x: self.body.x, y: self.body.y, owner: self.owner()? })
+    }
+
+    /// 빗자루(vx, vy = 빗자루 속도, 물리 px/s)가 바닥의 똥을 쓸었다: 그 쪽으로 던진 것과 같다 — 친구가 연결된 화면 끝을 넘으면 평소처럼 날아간다.
+    /// 살살 쓸어도 조금은 밀리고 살짝 뜬다. 날아가는 중이거나 들려 있으면 그대로 (내려앉아야 다시 쓸린다). 쓸렸으면 true
+    pub fn sweep(&mut self, vx: f64, vy: f64) -> bool {
+        if !self.kind.is_poop() || !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) || (vx == 0.0 && vy == 0.0) {
+            return false;
+        }
+        let (mut vx, mut vy) = throw_velocity(vx, vy, self.dpi, THROW_LIFT);
+        if vx != 0.0 && vx.abs() < SWEEP_MIN_VX * self.dpi {
+            vx = vx.signum() * SWEEP_MIN_VX * self.dpi;
+        }
+        self.thrown_down = visit::aimed_down(vx, vy, self.dpi);
+        if !self.thrown_down {
+            vy = vy.min(-SWEEP_POP * self.dpi);
+        }
+        self.body.vx = vx;
+        self.body.vy = vy;
+        self.standing = None;
+        self.thrown = true;
+        self.phase = Phase::Air;
+        self.spin = self.spin_of_throw();
+        true
+    }
+
     /// 윗면에 앉아 있는 창
     pub fn ridden_window(&self) -> Option<u64> {
         match self.owner() {
@@ -376,7 +448,7 @@ impl Object {
 
     /// 바람이 분다 (dir = ±1). 잠들어 있을 때만. 던졌을 때와 같은 구르기를 살살
     pub fn start_gust(&mut self, dir: f64) {
-        if self.phase != Phase::Rest {
+        if self.phase != Phase::Rest || self.kind.is_poop() {
             return;
         }
         let heft = heft_of(self.kind);
@@ -640,6 +712,9 @@ impl Object {
 
     /// 친구가 붙여 보낸 포스트잇 (accept_toss로 다듬은 글자)
     pub fn receive_note(&mut self, note: Option<String>) {
+        if self.postit == Postit::Never {
+            return;
+        }
         self.postit = if note.is_some() { Postit::Unread } else { Postit::None };
         self.note = note;
     }
@@ -743,7 +818,8 @@ pub fn accept_toss(kind: &str, fling: Option<Fling>, note: Option<&str>) -> Opti
     let kind = ObjectKind::from_id(kind)?;
     let fling = fling.and_then(Fling::sanitized).unwrap_or(DEFAULT_FLING);
     let (vx, vy) = clamp_speed(fling.vx, fling.vy, visit::MAX_FLING_SPEED);
-    let note = note.and_then(visit::sanitize_note);
+    // 똥엔 포스트잇이 없다 (옛 버전·고친 앱이 보내도)
+    let note = note.filter(|_| !kind.is_poop()).and_then(visit::sanitize_note);
     Some(AcceptedToss { kind, fling: Fling { height: fling.height, vx, vy }, note })
 }
 
@@ -754,6 +830,8 @@ pub enum Origin {
     Own,
     /// 친구에게서 날아왔다 (최대 20개)
     Foreign,
+    /// 똥: 어디서 왔든 최대 MAX_POOPS개
+    Poop,
 }
 
 /// 화면 위 물건 수 지키기: 넘치면 그 쪽에서 가장 오래된 것을 내보낸다
@@ -761,6 +839,7 @@ pub enum Origin {
 pub struct Roster {
     own: VecDeque<u64>,
     foreign: VecDeque<u64>,
+    poops: VecDeque<u64>,
 }
 
 impl Roster {
@@ -769,6 +848,7 @@ impl Roster {
         let (list, max) = match origin {
             Origin::Own => (&mut self.own, MAX_OWN_OBJECTS),
             Origin::Foreign => (&mut self.foreign, MAX_FOREIGN_OBJECTS),
+            Origin::Poop => (&mut self.poops, MAX_POOPS),
         };
         list.push_back(id);
         if list.len() > max {
@@ -779,7 +859,7 @@ impl Roster {
     }
 
     pub fn remove(&mut self, id: u64) -> bool {
-        for list in [&mut self.own, &mut self.foreign] {
+        for list in [&mut self.own, &mut self.foreign, &mut self.poops] {
             if let Some(i) = list.iter().position(|&x| x == id) {
                 list.remove(i);
                 return true;
@@ -796,9 +876,14 @@ impl Roster {
         self.foreign.len()
     }
 
+    pub fn poop_count(&self) -> usize {
+        self.poops.len()
+    }
+
     pub fn clear(&mut self) {
         self.own.clear();
         self.foreign.clear();
+        self.poops.clear();
     }
 }
 

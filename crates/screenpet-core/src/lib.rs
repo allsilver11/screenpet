@@ -14,6 +14,7 @@ pub mod object;
 pub mod pacing;
 pub mod physics;
 pub mod platform;
+pub mod poop;
 pub mod presence;
 pub mod social;
 pub mod sting;

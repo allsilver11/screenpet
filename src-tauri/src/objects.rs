@@ -2,14 +2,17 @@
 //! 물건은 대부분 잠들어 있다: 잠든 물건은 창도 웹뷰도 건드리지 않는다 (틱마다 바람 시계만 줄어든다).
 //! 창 목록이 그대로면 세계도 다시 만들지 않고, 창 크기·화면 배율도 깨어 있는 물건만 다시 읽는다.
 //! 받은 물건은 인증된 친구 링크에서 온 것만, 종류·움직임·글자를 코어가 다듬은 뒤에 쓴다 (글자는 웹뷰에서 textContent로만).
+//! 💩 똥도 물건이다 (끌기·던지기·치우기·친구에게 넘기기·집중 중 되돌리기가 그대로): 메뉴로 못 꺼내고, 수는 따로 10개까지, 30분이면 스르륵 사라지고, 빗자루에 쓸린다.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use screenpet_core::config::Config;
 use screenpet_core::geom::{Rect, WindowInfo};
-use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, OBJECT_LOGICAL_SIZE};
+use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE};
+use screenpet_core::broom::Broom;
+use screenpet_core::poop::PoopSpot;
 use screenpet_core::tumble::shape_of;
 use screenpet_core::platform::WindowSource;
 use screenpet_core::visit::{self, Side, MAX_NOTE_CHARS};
@@ -32,6 +35,8 @@ const NOTE_WIDTH: f64 = 232.0;
 const NOTE_SPACE: f64 = 84.0;
 /// 뿅 사라지는 동안 기다렸다 닫는다 (object.html poof 0.3초)
 const POOF: Duration = Duration::from_millis(400);
+/// 똥이 스르륵 사라지는 동안 기다렸다 닫는다 (object.html fade 1.5초)
+const FADE: Duration = Duration::from_millis(1600);
 /// 앉은 창이 움직인 뒤 이만큼은 매 틱 따라간다 (사이엔 창 목록을 100 ms마다 읽을 때만 본다)
 const RIDE_FOLLOW: Duration = Duration::from_secs(1);
 
@@ -151,12 +156,21 @@ impl Live {
     }
 }
 
+/// 창을 기다리는 똥 (틱마다 하나씩 — 창 만들기는 메인 스레드를 기다린다). 받은 쓰레기 줄과 따로 세어 서로 밀어내지 않는다
+enum WaitingPoop {
+    /// 동물이 쌌다
+    Dropped { kind: ObjectKind, x: f64, y: f64 },
+    /// 친구가 던졌다
+    Tossed(AcceptedToss, Side),
+}
+
 pub struct Objects {
     next: u64,
     live: Vec<Live>,
     roster: Roster,
     /// 받았지만 아직 창을 만들지 않은 물건 (틱마다 하나씩)
     inbox: TossInbox<(AcceptedToss, Side)>,
+    poop_queue: VecDeque<WaitingPoop>,
     fading: Vec<(WebviewWindow, Instant)>,
     /// 물건이 있을 때만 맞춘다 (물건 키에 맞춘 세계)
     world: Option<World>,
@@ -180,6 +194,7 @@ impl Objects {
             live: Vec::new(),
             roster: Roster::default(),
             inbox: TossInbox::default(),
+            poop_queue: VecDeque::new(),
             fading: Vec::new(),
             world: None,
             budgets: HashMap::new(),
@@ -208,6 +223,7 @@ impl Objects {
             ObjectInput::ClearAll => {
                 self.roster.clear();
                 self.inbox.clear();
+                self.poop_queue.clear();
                 for l in std::mem::take(&mut self.live) {
                     self.poof(l);
                 }
@@ -261,6 +277,34 @@ impl Objects {
         self.admit(id, window, object, Origin::Own);
     }
 
+    /// 동물이 쌌다: (x, y)에서 떨어지기 시작한다. 창은 tick이 만든다
+    pub fn drop_poop(&mut self, kind: ObjectKind, x: f64, y: f64) {
+        self.queue_poop(WaitingPoop::Dropped { kind, x, y });
+    }
+
+    fn queue_poop(&mut self, poop: WaitingPoop) {
+        if self.poop_queue.len() >= MAX_POOPS {
+            self.poop_queue.pop_front();
+        }
+        self.poop_queue.push_back(poop);
+    }
+
+    /// 바닥에 놓인 똥 자리를 out에 다시 채운다 (동물이 알아챈다, 틱마다 할당하지 않는다)
+    pub fn poop_spots(&self, out: &mut Vec<PoopSpot>) {
+        out.clear();
+        out.extend(self.live.iter().filter_map(|l| l.object.poop_spot(l.id)));
+    }
+
+    /// 🧹 빗자루가 지나간 똥은 빗자루 쪽으로 밀려 날아간다 (평소의 던지기 — 친구가 연결된 끝을 넘으면 tick이 친구에게 보낸다)
+    pub fn sweep_poops(&mut self, broom: &Broom) {
+        let (vx, vy) = broom.velocity();
+        for l in self.live.iter_mut().filter(|l| l.object.kind.is_poop()) {
+            if broom.passes_over(l.object.body.x, l.object.body.y, l.object.dpi()) {
+                l.object.sweep(vx, vy);
+            }
+        }
+    }
+
     /// 친구가 던진 물건 (인증된 친구 링크 — net이 확인 — 에서 온 내 친구의 것만). 받은 물건은 기다리는 것까지 20개, 넘치면 가장 오래된 것부터 치운다.
     /// 여기서는 줄만 세운다 — 창은 tick이 하나씩 만든다 (한꺼번에 오면 게임 루프가 멈추지 않게)
     pub fn receive(&mut self, config: &Config, from: &str, toss: Toss) {
@@ -273,6 +317,13 @@ impl Objects {
             return;
         };
         let side = from_net_side(toss.side, toss.vside);
+        if accepted.kind.is_poop() {
+            // 💩 똥 싸기를 꺼 둔 사람에겐 조용히 사라진다 (날씨를 꺼 둔 사람의 흩날림처럼)
+            if !config.poop_off {
+                self.queue_poop(WaitingPoop::Tossed(accepted, side));
+            }
+            return;
+        }
         if let Some(old) = self.inbox.push((accepted, side), &mut self.roster) {
             if let Some(i) = self.live.iter().position(|l| l.id == old) {
                 let l = self.live.remove(i);
@@ -288,6 +339,10 @@ impl Objects {
 
     /// 줄의 맨 앞 물건 하나의 창을 만든다 (틱마다)
     fn admit_next_toss(&mut self, app: &AppHandle, base: &World) {
+        if let Some(poop) = self.poop_queue.pop_front() {
+            self.admit_poop(app, base, poop);
+            return;
+        }
         let Some((accepted, side)) = self.inbox.pop() else { return };
         let id = self.next_id();
         let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some()) else { return };
@@ -296,6 +351,26 @@ impl Objects {
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
         object.receive_note(accepted.note);
         self.admit(id, window, object, Origin::Foreign);
+    }
+
+    fn admit_poop(&mut self, app: &AppHandle, base: &World, poop: WaitingPoop) {
+        let id = self.next_id();
+        let kind = match &poop {
+            WaitingPoop::Dropped { kind, .. } => *kind,
+            WaitingPoop::Tossed(accepted, _) => accepted.kind,
+        };
+        let Some(window) = build_window(app, id, kind, false) else { return };
+        let dpi = window.scale_factor().unwrap_or(1.0);
+        let world = self.world_for(base, dpi);
+        let object = match poop {
+            WaitingPoop::Dropped { kind, x, y } => {
+                let b = world.bounds;
+                let margin = OBJECT_LOGICAL_SIZE * dpi / 2.0;
+                Object::new(kind, x.clamp(b.left + margin, (b.right - margin).max(b.left + margin)), y, dpi, fastrand::u64(..))
+            }
+            WaitingPoop::Tossed(accepted, side) => Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..)),
+        };
+        self.admit(id, window, object, Origin::Poop);
     }
 
     fn next_id(&mut self) -> u64 {
@@ -308,7 +383,7 @@ impl Objects {
         self.world.get_or_insert_with(|| World::new(base.windows.clone(), base.work_areas.clone(), OBJECT_LOGICAL_SIZE * dpi))
     }
 
-    /// 물건 수를 지키며 들인다: 넘치면 그 쪽(내 것 5 / 받은 것 20)의 가장 오래된 것이 뿅 사라진다
+    /// 물건 수를 지키며 들인다: 넘치면 그 쪽(내 것 10 / 받은 것 20 / 똥 10)의 가장 오래된 것이 뿅 사라진다
     fn admit(&mut self, id: u64, window: WebviewWindow, object: Object, origin: Origin) {
         if let Some(old) = self.roster.add(id, origin) {
             if let Some(i) = self.live.iter().position(|l| l.id == old) {
@@ -342,6 +417,13 @@ impl Objects {
         set_postit_state(&l.label, None);
         let _ = l.window.eval("document.body.classList.add('poof')");
         self.fading.push((l.window, Instant::now() + POOF));
+    }
+
+    /// 다 된 똥이 스르륵 사라진다
+    fn fade(&mut self, l: Live) {
+        set_postit_state(&l.label, None);
+        let _ = l.window.eval("document.body.classList.add('fade')");
+        self.fading.push((l.window, Instant::now() + FADE));
     }
 
     /// `물건 ▸` 글자의 내 물건 수 (바뀔 때만)
@@ -476,6 +558,16 @@ impl Objects {
             set_postit_state(&l.label, None);
             let _ = l.window.destroy();
         }
+        let mut i = 0;
+        while i < self.live.len() {
+            if self.live[i].object.expired() {
+                let l = self.live.remove(i);
+                self.roster.remove(l.id);
+                self.fade(l);
+            } else {
+                i += 1;
+            }
+        }
         self.sync_menu();
     }
 
@@ -538,7 +630,8 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool) -> Op
 /// `물건 ▸` 하위 메뉴 (tray::build가 부른다)
 pub fn build_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     let sub = Submenu::new(app, menu_label(0), true)?;
-    for kind in ObjectKind::ALL {
+    // 똥은 메뉴로 꺼내지 않는다 (동물이 싼다)
+    for kind in ObjectKind::TRASH {
         sub.append(&MenuItem::with_id(app, format!("{MENU_SPAWN}{}", kind.id()), kind.label(), true, None::<&str>)?)?;
     }
     sub.append(&PredefinedMenuItem::separator(app)?)?;
@@ -590,13 +683,18 @@ pub async fn object_menu(window: tauri::Window) -> Result<(), String> {
     let app = window.app_handle().clone();
     let build = || -> tauri::Result<Menu<Wry>> {
         let note = match postit {
-            Postit::Mine => MenuItem::with_id(&app, format!("{MENU_PEEL}{label}"), "📝 포스트잇 떼기", true, None::<&str>)?,
+            // 똥엔 포스트잇이 없다
+            Postit::Never => None,
+            Postit::Mine => Some(MenuItem::with_id(&app, format!("{MENU_PEEL}{label}"), "📝 포스트잇 떼기", true, None::<&str>)?),
             // 친구가 붙인 포스트잇은 덮어쓰거나 뗄 수 없다 (읽는 중에도)
-            other => MenuItem::with_id(&app, format!("{MENU_NOTE}{label}"), "📝 포스트잇 붙이기…", other == Postit::None, None::<&str>)?,
+            other => Some(MenuItem::with_id(&app, format!("{MENU_NOTE}{label}"), "📝 포스트잇 붙이기…", other == Postit::None, None::<&str>)?),
         };
         let remove = MenuItem::with_id(&app, format!("{MENU_REMOVE}{label}"), "🗑️ 이것만 치우기", true, None::<&str>)?;
         let clear = MenuItem::with_id(&app, MENU_CLEAR, "🧹 쓰레기 다 치우기", true, None::<&str>)?;
-        Menu::with_items(&app, &[&note, &remove, &clear])
+        match &note {
+            Some(note) => Menu::with_items(&app, &[note, &remove, &clear]),
+            None => Menu::with_items(&app, &[&remove, &clear]),
+        }
     };
     let menu = build().map_err(|e| e.to_string())?;
     window.popup_menu(&menu).map_err(|e| e.to_string())
