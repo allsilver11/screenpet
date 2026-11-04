@@ -101,11 +101,10 @@ def test_stage_sheets_and_manifest(tmp_path):
         assert list(m["stage_size"]) == STAGES, pid
         assert m.get("hop_share") == (0.5 if pid == "rabbit" else None), pid
     size = {pid: json.loads((tmp_path / pid / "pet.json").read_text(encoding="utf-8"))["stage_size"] for pid in SPECIES_IDS}
-    assert size["bear"]["baby"] == size["bear"]["kinder"] == 1.0
-    assert all(size["bear"][st] > 1.0 for st in ("child", "teenager", "adult"))
-    assert all(v == 0.85 for v in size["rabbit"].values())
-    assert all(v == 1.0 for pid in ("cat", "dog") for v in size[pid].values())
-    assert all(v == 1.1 for v in size["bee"].values())  # v0.3.10: 토끼만큼 키웠다
+    # "동물이 너무 크다"는 피드백: 예전 곰 단계별 배율(더 크게 요청)과 v0.3.10의 꿀벌 1.1을 되돌렸다
+    want = {"bear": 0.89, "rabbit": 0.85, "cat": 0.91, "dog": 0.94, "bee": 0.8}
+    for pid, v in want.items():
+        assert all(x == v for x in size[pid].values()), pid
 
 
 def test_rabbit_manifest_keeps_hop_share():

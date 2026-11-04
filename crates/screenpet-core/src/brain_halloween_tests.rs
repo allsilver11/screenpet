@@ -11,8 +11,8 @@ const DT: f64 = 1.0 / 60.0;
 // ---- 유령: locomotion fly, walk_speed 40, sting 없음 ----
 
 fn ghost() -> PetConfig {
-    // stage_size 1.0 (v0.3.10)
-    let size = 128.0 * 1.0;
+    // stage_size 0.85
+    let size = 128.0 * 0.85;
     PetConfig { size, half_w: 0.3 * size, walk_speed: 40.0, flies: true, stings: false, ..sim_cfg() }
 }
 
@@ -88,9 +88,9 @@ fn ghost_floats_at_its_slow_walk_speed() {
 // ---- 호박: 걷는 동물, hop_share 1.0 — 걷기·달리기는 늘 통통 ----
 
 fn pumpkin() -> PetConfig {
-    // stage_size 1.15 (v0.3.10)
-    let size = 128.0 * 1.15;
-    PetConfig { size, half_w: 0.3 * size, walk_speed: 70.0 * 1.15_f64.sqrt(), hop_share: 1.0, personality: Personality::Playful, ..sim_cfg() }
+    // stage_size 0.9
+    let size = 128.0 * 0.9;
+    PetConfig { size, half_w: 0.3 * size, walk_speed: 70.0, hop_share: 1.0, personality: Personality::Playful, ..sim_cfg() }
 }
 
 /// 호박 10분 × 6: 걷기·달리기 시간 내내 통통(첫 틱 빼고), 튀기는 낮고 늘 디딤판 위 (큰 점프·벽 타기는 v0.3.9부터 한다)
@@ -119,6 +119,5 @@ fn pumpkin_bounces_through_all_of_its_walking() {
     let share = hopping_ticks as f64 / walking_ticks as f64;
     assert!(walking_ticks > 60 * 600, "walked {walking_ticks}");
     assert!(share > 0.99, "hop share {share:.4}");
-    // v0.3.10: 몸이 1.15배로 커져 폴짝 보폭이 늘었다 — 떠 있는 시간(BUNNY_AIR_SECS)은 그대로라 웅크린 틈이 조금 길다 (1/4 → 1/5)
-    assert!(hop_frames > walking_ticks / 5, "hop frames {hop_frames} of {walking_ticks}");
+    assert!(hop_frames > walking_ticks / 4, "hop frames {hop_frames} of {walking_ticks}");
 }

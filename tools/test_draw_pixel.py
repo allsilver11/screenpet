@@ -17,7 +17,7 @@ import draw_pixel as px  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 PIXEL = ROOT / "ui" / "pets_pixel"
 ALL = list(dp.SPECIES)
-DISPLAY = {"baby": 72, "kinder": 84, "child": 96, "teenager": 128, "adult": 144}
+DISPLAY = {"baby": 72, "kinder": 84, "child": 96, "teenager": 96, "adult": 108}  # "동물이 너무 크다"는 피드백으로 ×3으로 통일
 PALETTE_MAX = 32  # 한 프레임 색 수 상한 (효과 포함, 실측 최대 + 여유). 넘으면 어딘가 색이 섞이고 있다
 
 
@@ -51,8 +51,20 @@ def _committed_frame(pid, stage, anim, i):
 
 # ---- 격자
 def test_stage_grid_is_integer_scale():
-    assert px.STAGE_GRID == {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 4), "adult": (36, 4)}
+    assert px.STAGE_GRID == {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 3), "adult": (36, 3)}
     assert {st: n * s for st, (n, s) in px.STAGE_GRID.items()} == DISPLAY
+
+
+def test_dinos_alone_have_fewer_dots_at_the_same_dot_size():
+    """픽셀 공룡만 조금 작게 (사용자 요청): 칸 크기는 같아 점이 고르고, 칸 수만 적다 — 60/72/84/84/96 px. 앱은 pet.json frame_sizes를 따른다."""
+    want = {"baby": 20, "kinder": 24, "child": 28, "teenager": 28, "adult": 32}
+    for pid in ALL:
+        m = json.loads((PIXEL / pid / "pet.json").read_text(encoding="utf-8"))
+        if pid.startswith("dino_"):
+            assert m["frame_sizes"] == want, pid
+            assert {st: n * 3 for st, n in want.items()} == {"baby": 60, "kinder": 72, "child": 84, "teenager": 84, "adult": 96}
+        else:
+            assert m["frame_sizes"] == {st: n for st, (n, _) in px.STAGE_GRID.items()}, pid
 
 
 @pytest.mark.parametrize("pid", ALL)
@@ -84,7 +96,8 @@ def test_fit_shift_moves_whole_dots_and_keeps_margin():
 def test_sheet_dims_and_frames_exist(pid):
     m = _man(pid)
     rows, cols = len(m["animations"]), max(s["frames"] for s in m["animations"].values())
-    for st, (n, _s) in px.STAGE_GRID.items():
+    for st in px.STAGE_GRID:
+        n = px.stage_dots(pid, st)
         assert m["frame_sizes"][st] == n
         with Image.open(PIXEL / pid / f"sheet_{st}.png") as im:
             assert im.size == (cols * n, rows * n), st
@@ -117,7 +130,7 @@ def test_hard_dots_no_empty_frames_palette_bound(pid):
 def test_big_enough_at_every_stage(pid):
     """앉은 모습이 캔버스에서 충분히 크다 — 아기 24칸에서도 알아볼 수 있게."""
     for st in dp.STAGES:
-        n = px.STAGE_GRID[st][0]
+        n = px.stage_dots(pid, st)
         f = next(f for a, i, f in _frames(pid, st) if a == "sit_front")
         ys, xs = np.nonzero(f[..., 3] > 0)
         assert ys.max() - ys.min() + 1 >= n * 0.6 and xs.max() - xs.min() + 1 >= n * 0.45, (st, int(xs.max() - xs.min()), int(ys.max() - ys.min()))
@@ -234,4 +247,4 @@ def test_round_art_stays_byte_identical(pid, stage, anim, i):
 
 
 def test_shipped_round_sheets_untouched():
-    assert subprocess.check_output(["git", "-C", str(ROOT), "status", "--porcelain", "--", "ui/pets"]).strip() == b""
+    assert subprocess.check_output(["git", "-C", str(ROOT), "status", "--porcelain", "--", "ui/pets/*/*.png"]).strip() == b""  # 크기는 pet.json — 그림만 그대로

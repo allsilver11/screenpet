@@ -26,7 +26,7 @@ function snapPixelSide(side, dots, fit = "round") {
 }
 
 // 단계 칸 크기 (논리 px, 전 종 같다 — 동글 stage_size를 곱하지 않는다. 코어 style::pixel_grid, tools/draw_pixel_world.py STAGE_GRID와 같다)
-const PIXEL_BASE_DOT = { baby: 3, kinder: 3, child: 3, teenager: 4, adult: 4 };
+const PIXEL_BASE_DOT = { baby: 3, kinder: 3, child: 3, teenager: 3, adult: 3 };
 
 // 논리 칸 크기 → 물리 px의 정수배가 되는 CSS px (코어 style::dot_physical과 같은 계산)
 function snapDot(logical) {

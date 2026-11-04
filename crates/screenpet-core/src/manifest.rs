@@ -393,9 +393,9 @@ mod tests {
         };
         let (cat, dog, bear, rabbit) = (load("cat"), load("dog"), load("bear"), load("rabbit"));
         assert_eq!((cat.personality, dog.personality), (Personality::Aloof, Personality::Friendly));
-        assert_eq!(bear.size_mult(Stage::Teenager), 1.2);
+        assert_eq!(bear.size_mult(Stage::Teenager), 0.89);
         assert_eq!(rabbit.size_mult(Stage::Baby), 0.85);
-        assert_eq!(cat.size_mult(Stage::Adult), 1.0);
+        assert_eq!(cat.size_mult(Stage::Adult), 0.91);
     }
 
     #[test]

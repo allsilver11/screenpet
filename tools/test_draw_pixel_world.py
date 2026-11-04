@@ -67,11 +67,14 @@ def test_door_is_dark_inside_and_open_in_front(kind, stage):
 def test_door_fits_a_whole_sheet_frame_at_the_pets_own_dot(stage):
     """문은 시트 한 칸 전체 + 외곽선만큼 — 어떤 동물이든 줄이지 않고 앉는다."""
     n, dot = w.STAGE_GRID[stage]
+    assert dot == 3, "동물·집·세계 그림이 같은 칸"
     for kind in w.KINDS:
         door = w.DRAW[kind](stage)[2]
         assert door["w"] >= n + 2 and door["h"] >= n + 1
-    # 몸이 예전 문간 동물보다 작지 않다 (phase B: 24/28/32/64/72 px, 동글 32/43/56/71/82 px)
+    # 몸이 동글 문간 동물보다 작지 않다 (동글 32/43/56/71/82 px)
     assert n * dot >= {"baby": 32, "kinder": 43, "child": 56, "teenager": 71, "adult": 82}[stage]
+    # 집 한 변: 114/126/144/144/162 px ("동물이 너무 크다"는 피드백으로 teenager·adult 칸을 4 → 3으로)
+    assert w.HOUSE_DOTS[stage] * dot == {"baby": 114, "kinder": 126, "child": 144, "teenager": 144, "adult": 162}[stage]
 
 
 @pytest.mark.parametrize("kind", w.KINDS)
@@ -79,14 +82,14 @@ def test_door_fits_a_whole_sheet_frame_at_the_pets_own_dot(stage):
 def test_every_resident_sheet_on_disk_fits_the_door(kind, stage):
     """있는 시트로 실제로 재 본다: 앉은 모습(sit_front)이 문 위 계단 모서리·양옆 외곽선에 걸리지 않는다."""
     door = w.DRAW[kind](stage)[2]
-    n = w.STAGE_GRID[stage][0]
     for pid in w.RESIDENTS[kind]:
         p = UI / "pets_pixel" / pid
         sheet = p / f"sheet_{stage}.png"
         if not (p / "pet.json").is_file() or not sheet.is_file():
             continue  # 아직 그리는 중
         m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
-        assert m["frame_sizes"][stage] == n
+        n = m["frame_sizes"][stage]
+        assert n <= w.STAGE_GRID[stage][0], "공룡만 칸 수가 더 적다"
         s = m["animations"]["sit_front"]
         im = Image.open(sheet).convert("RGBA")
         for f in range(s["frames"]):
@@ -266,10 +269,10 @@ def test_house_window_loads_pixel_art_and_seats_the_pet_at_full_size():
     out = subprocess.run(["node", str(ROOT / "tools" / "levelup_harness.js"), "house-pixel"], capture_output=True, text=True, check=True)
     r = json.loads(out.stdout)
     assert "house_pixel/house_adult.png" in r["artAfter"]
-    assert r["houseWidth"] == "216px" and r["doorWidth"] == "152px"  # 54칸·38칸 × 4
-    assert r["doorPetWidth"] == "144px", "어른 고양이 그대로 (36칸 × 4)"
-    assert r["doorPetLeft"] == "4px"
-    assert r["dot"] == "4px" and r["pixelHouse"] is True
+    assert r["houseWidth"] == "162px" and r["doorWidth"] == "114px"  # 54칸·38칸 × 3
+    assert r["doorPetWidth"] == "108px", "어른 고양이 그대로 (36칸 × 3)"
+    assert r["doorPetLeft"] == "3px"
+    assert r["dot"] == "3px" and r["pixelHouse"] is True
 
 
 def dropOf_flat():
@@ -296,13 +299,13 @@ def test_pixel_body_is_measured_again_on_a_new_monitor_scale():
     if not (UI / "pets_pixel" / "cat" / "pet.json").is_file():
         pytest.skip("시트를 그리는 중")
     r = main_in_pixel_mode("cat")
-    assert r["resizeStart"]["width"] == "128px" and r["resizeStart"]["loads"] == 0
+    assert r["resizeStart"]["width"] == "96px" and r["resizeStart"]["loads"] == 0
     # 배율이 그대로면 left만 다시 맞춘다
-    assert r["resizeWider"]["width"] == "128px" and r["resizeWider"]["left"] == "36px" and r["resizeWider"]["loads"] == 0
-    # 110%: 칸 4.4 물리 px → 4 물리 px (32칸)
+    assert r["resizeWider"]["width"] == "96px" and r["resizeWider"]["left"] == "52px" and r["resizeWider"]["loads"] == 0
+    # 110%: 칸 3.3 물리 px → 3 물리 px (32칸)
     changed = r["resizeDpr"]
     assert changed["loads"] > 0
-    side = 32 * 4 / 1.1
+    side = 32 * 3 / 1.1
     assert float(changed["width"].removesuffix("px")) == pytest.approx(side)
     assert float(changed["bg"].split("px")[0]) == pytest.approx(512 * side / 32)
     assert r["resizeDprAgain"]["loads"] == 0, "한 번만"
@@ -346,8 +349,9 @@ def test_object_layout_scales_the_pivot_with_the_dots():
         # 축은 그림 안 같은 자리에 (물리 px로 맞추느라 반 물리 px까지 어긋난다)
         assert abs(m["pivotX"] - 48 * m["side"] / 96) * dpr <= 0.5 + 1e-9, dpr
         assert abs(m["pivotY"] - 72 * m["side"] / 96) * dpr <= 0.5 + 1e-9, dpr
-    assert [r["at"][i]["pivotX"] for i in (0, 3, 4)] == [48, 48, 48], "100/150/200%는 그대로"
-    # 물리는 칸 4 논리 px로 바닥을 잡는다 — 그림 칸이 더 작으면 그만큼 내려 닿게 한다
+    # 칸 3 논리 px: 그림 한 변 72 — 100%·200%는 칸이 정확히 3
+    assert r["at"][0]["dot"] == 3 and r["at"][0]["side"] == 72 and r["at"][0]["pivotX"] == 36 and r["at"][4]["dot"] == 3
+    # 물리는 칸 4 논리 px로 바닥을 잡는다 (96 px 몸) — 그림 칸이 더 작으면 그만큼 내려 닿게 한다
     assert r["scaled"]["drop"] == pytest.approx(r["tall"] * 1.1 - dropOf_flat(), abs=1e-6)
     assert r["same"]["drop"] == pytest.approx(r["tall"] - dropOf_flat(), abs=1e-6)
     assert r["flat"]["drop"] == pytest.approx(dropOf_flat() * 0.1, abs=1e-6)

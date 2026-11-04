@@ -93,7 +93,7 @@ const windowObj = {
     if (ev === "resize") resizeHandlers.push(f);
   },
   __TAURI__: {
-    core: { invoke: async (cmd) => (cmd === "slot_info" ? { pet, stage: stageName, scale: 1, label: "pet", style: artStyle ?? "round" } : null) },
+    core: { invoke: async (cmd) => (cmd === "slot_info" ? { pet, stage: stageName, scale: artStyle === "pixel" ? { baby: 72, kinder: 84, child: 96, teenager: 96, adult: 108 }[stageName] / 128 : 1, label: "pet", style: artStyle ?? "round" } : null) },
     webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async (ev, f) => (listeners[ev] = f), label: "pet" }) },
   },
 };

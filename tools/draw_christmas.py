@@ -230,7 +230,7 @@ RUDOLPH = Species(
                       ([("E", 88, 80, 98, 90)], BELL, 2), ([("E", 89.5, 81.5, 93, 84.5)], BELL_LIGHT, 2)],
     side_tail=[("E", 8, 58, 28, 76)], tail_root=(20, 70), tail_color=DEER_CREAM,
     lie_ears=(-20, -16), outline=DEER_LINE, stripe=DEER, poses=RUDOLPH_POSES, specials=["lookup"],
-    stage_size=dict.fromkeys(STAGES, 0.9),
+    stage_size=dict.fromkeys(STAGES, 0.84),
     # 귀·뿔 크기는 _deer_parts가 단계마다 직접 정한다 (공통 ear 배율 1.0) · 모든 단계 반짝이 두 개 큰 눈, 어른도
     stage_tweak={"baby": dict(ear=1.0, pale=0.22, tuft=False), "kinder": dict(ear=1.0, pale=0.12),
                  "child": dict(ear=1.0, sparkle=True, smile=False, eye=1.18), "teenager": dict(ear=1.0, sparkle=True, eye=1.1),

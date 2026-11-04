@@ -648,15 +648,15 @@ body.pixel-house #house.house-hop {
 }
 @keyframes house-hop-pixel {
   0%, 100% { transform: translateY(0); }
-  20%, 70% { transform: translateY(calc(var(--dot, 4px) * -2)); }
+  20%, 70% { transform: translateY(calc(var(--dot, 3px) * -2)); }
 }
 /* 굴뚝 연기: 네 장면 띠를 넘기며 칸 단위로 오른다. 투명도를 쓰지 않고 마지막 장면에서 칸이 듬성해진다 */
 .smoke-px {
   position: absolute;
-  left: calc(var(--dot, 4px) * -4);
-  top: calc(var(--dot, 4px) * -7);
-  width: calc(var(--dot, 4px) * 8);
-  height: calc(var(--dot, 4px) * 8);
+  left: calc(var(--dot, 3px) * -4);
+  top: calc(var(--dot, 3px) * -7);
+  width: calc(var(--dot, 3px) * 8);
+  height: calc(var(--dot, 3px) * 8);
   background: url(house_pixel/xmas_smoke.png) 0 0 / 400% 100% no-repeat;
   image-rendering: pixelated;
   animation:
@@ -669,7 +669,7 @@ body.pixel-house #house.house-hop {
 }
 @keyframes smoke-rise-px {
   from { transform: translate(0, 0); }
-  to { transform: translate(0, calc(var(--dot, 4px) * -4)); }
+  to { transform: translate(0, calc(var(--dot, 3px) * -4)); }
 }
 
 /* 모자·목도리·고리·구름 */
@@ -698,31 +698,31 @@ body.pixel-house #house.house-hop {
   75%, 100% { opacity: 0; }
 }
 body.pixel #snowcloud {
-  width: calc(var(--dot, 4px) * 14);
-  height: calc(var(--dot, 4px) * 9);
+  width: calc(var(--dot, 3px) * 14);
+  height: calc(var(--dot, 3px) * 9);
   background: url(effects_pixel/snow_cloud.png) 0 0 / 100% 100% no-repeat;
   image-rendering: pixelated;
   transition: none;
   animation: none;
 }
 body.pixel #snowcloud i {
-  top: calc(var(--dot, 4px) * 8);
-  width: var(--dot, 4px);
-  height: var(--dot, 4px);
+  top: calc(var(--dot, 3px) * 8);
+  width: var(--dot, 3px);
+  height: var(--dot, 3px);
   border: 0;
   border-radius: 0;
   background: #e8f2ff;
   animation-name: flake-px;
   animation-timing-function: steps(6, end);
 }
-body.pixel #snowcloud i:nth-child(1) { left: calc(var(--dot, 4px) * 2); }
-body.pixel #snowcloud i:nth-child(2) { left: calc(var(--dot, 4px) * 4); }
-body.pixel #snowcloud i:nth-child(3) { left: calc(var(--dot, 4px) * 7); }
-body.pixel #snowcloud i:nth-child(4) { left: calc(var(--dot, 4px) * 9); }
-body.pixel #snowcloud i:nth-child(5) { left: calc(var(--dot, 4px) * 11); }
+body.pixel #snowcloud i:nth-child(1) { left: calc(var(--dot, 3px) * 2); }
+body.pixel #snowcloud i:nth-child(2) { left: calc(var(--dot, 3px) * 4); }
+body.pixel #snowcloud i:nth-child(3) { left: calc(var(--dot, 3px) * 7); }
+body.pixel #snowcloud i:nth-child(4) { left: calc(var(--dot, 3px) * 9); }
+body.pixel #snowcloud i:nth-child(5) { left: calc(var(--dot, 3px) * 11); }
 @keyframes flake-px {
   0% { opacity: 1; transform: translate(0, 0); }
-  100% { opacity: 1; transform: translate(0, calc(var(--dot, 4px) * 6)); }
+  100% { opacity: 1; transform: translate(0, calc(var(--dot, 3px) * 6)); }
 }
 
 /* 효과 조각: 칸 단위 계단으로 움직이고 뚝 사라진다 (main.js pixelBit) */
@@ -749,10 +749,10 @@ body.pixel #snowcloud i:nth-child(5) { left: calc(var(--dot, 4px) * 11); }
 }
 body.pixel #heart {
   left: 50%;
-  margin-left: calc(var(--dot, 4px) * -2);
+  margin-left: calc(var(--dot, 3px) * -2);
   transform: none;
-  width: calc(var(--dot, 4px) * 5);
-  height: calc(var(--dot, 4px) * 5);
+  width: calc(var(--dot, 3px) * 5);
+  height: calc(var(--dot, 3px) * 5);
   font-size: 0;
   background: url(effects_pixel/fx_heart.png) 0 0 / 100% 100% no-repeat;
   image-rendering: pixelated;

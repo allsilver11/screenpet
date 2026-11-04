@@ -163,11 +163,11 @@
     "adult"
   ],
   "stage_size": {
-    "baby": 0.9,
-    "kinder": 0.9,
-    "child": 0.9,
-    "teenager": 0.9,
-    "adult": 0.9
+    "baby": 0.84,
+    "kinder": 0.84,
+    "child": 0.84,
+    "teenager": 0.84,
+    "adult": 0.84
   },
   "personality": "friendly",
   "hop_share": 0.3,

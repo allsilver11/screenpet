@@ -64,7 +64,7 @@ def test_manifests(out):
     assert duck["speech"]["chatter"] == ["quack!", "♪"] and gir["speech"]["chatter"] == ["hmm~", "♪"]
     # 보통 집 · 걷는다
     assert "house" not in duck and "house" not in gir and "locomotion" not in duck and "locomotion" not in gir
-    assert gir["stage_size"]["teenager"] == 1.1 and gir["stage_size"]["baby"] == 1.0
+    assert set(gir["stage_size"].values()) == {1.06}  # "동물이 너무 크다"는 피드백: 단계별 배율 없앰, 토끼쯤으로
     # 기린은 구르지 않는다: neckstretch 동작 (코어 Special::NeckStretch), roll은 돌지 않는다
     assert gir["animations"]["neckstretch"] == {"row": 21, "frames": 3, "fps": 2}
     assert "spin" not in gir["animations"]["roll"] and "spin" in duck["animations"]["roll"]

@@ -110,9 +110,10 @@ def _door(cx, w, h):
 # 문 사각형 (128 프레임 좌표). 위는 반원 아치, 아래는 집 바닥.
 # 너비·높이 = teenager(52×62) × STAGE_SCALE / HOUSE_SCALE (펫이 문을 같은 비율로 채운다)
 DOOR_SIZE = {"baby": (42, 51), "kinder": (46, 55), "child": (50, 59), "teenager": (52, 62), "adult": (54, 64)}
-# 꿀벌은 프레임 안에서 몸이 고양이보다 좁아(sit_front 몸 폭 66–80 vs 94–102), 몸 배율 1.1 (v0.3.10)로 같은 비율로 채우려면
-# 벌통 입구가 집 문의 (꿀벌 몸 폭 × 1.1 / 고양이 몸 폭)배 — 단계별 0.72 / 0.80 / 0.85 / 0.92 / 0.89 — 둥근 구멍이 된다
-HIVE_FILL = {"baby": 0.72, "kinder": 0.80, "child": 0.85, "teenager": 0.92, "adult": 0.89}
+# 꿀벌은 프레임 안에서 몸이 고양이보다 좁고(sit_front 몸 폭 66–80 vs 94–102) 몸 배율도 0.8이라, 같은 비율로 채우려면
+# 벌통 입구가 집 문의 (꿀벌 몸 폭 × 0.8 / 고양이 몸 폭)배 — 단계별 0.52 / 0.58 / 0.62 / 0.67 / 0.65 — 작은 둥근 구멍이 된다
+# (v0.3.10에 꿀벌을 1.1로 키우며 넓혔다가, "동물이 너무 크다"는 피드백으로 크기와 함께 되돌렸다)
+HIVE_FILL = {"baby": 0.52, "kinder": 0.58, "child": 0.62, "teenager": 0.67, "adult": 0.65}
 HIVE_DOOR_SIZE = {s: (round(w * HIVE_FILL[s]), round(w * HIVE_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
 DOORS = {
     "house": {"baby": _door(64, *DOOR_SIZE["baby"]), "kinder": _door(49, *DOOR_SIZE["kinder"]),
@@ -120,14 +121,14 @@ DOORS = {
               "adult": _door(46, *DOOR_SIZE["adult"])},
     "hive": {s: _door(64, *HIVE_DOOR_SIZE[s]) for s in STAGES},
 }
-# 호박(몸 배율 1.15)·유령(1.0) (v0.3.10): 같은 방법으로 잰 두 몸 폭의 평균 — 단계별
-# 호박 0.77 / 0.87 / 0.96 / 1.07 / 1.05, 유령 0.68 / 0.74 / 0.78 / 0.84 / 0.84
-HAUNTED_FILL = {"baby": 0.72, "kinder": 0.80, "child": 0.87, "teenager": 0.95, "adult": 0.94}
+# 호박(몸 배율 0.9)·유령(0.85)도 고양이보다 좁아서, 같은 방법으로 잰 두 몸 폭의 평균 — 단계별
+# 호박 0.60 / 0.68 / 0.75 / 0.84 / 0.82, 유령 0.58 / 0.63 / 0.66 / 0.71 / 0.71 (v0.3.10에 넓혔다가 크기와 함께 되돌렸다)
+HAUNTED_FILL = {"baby": 0.59, "kinder": 0.65, "child": 0.71, "teenager": 0.78, "adult": 0.76}
 HAUNTED_DOOR_SIZE = {s: (round(w * HAUNTED_FILL[s]), round(w * HAUNTED_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
-HAUNTED_DOOR_X = {"baby": 56, "kinder": 46, "child": 46, "teenager": 44, "adult": 45}
+HAUNTED_DOOR_X = {"baby": 56, "kinder": 46, "child": 46, "teenager": 44, "adult": 44}
 DOORS["haunted"] = {s: _door(HAUNTED_DOOR_X[s], *HAUNTED_DOOR_SIZE[s]) for s in STAGES}
-# 크리스마스 벽돌집 (루돌프 몸 배율 0.9 · 산타 1.1): 루돌프는 귀가 넓어 고양이보다 넓고 산타는 좁다 — 같은 방법으로 잰 두 몸 폭의 평균,
-# 단계별 루돌프 1.11 / 1.13 / 1.14 / 1.13 / 1.00, 산타 0.67 / 0.69 / 0.71 / 0.75 / 0.88
+# 크리스마스 벽돌집 (문은 루돌프 0.9 · 산타 1.1일 때 잰 값 — 지금 루돌프 0.84 · 눈사람 0.9는 그대로 들어가고, 1.65로 키운 산타는 꼭 맞게 찬다): 루돌프는 귀가 넓어 고양이보다 넓고
+# 산타는 좁다 — 같은 방법으로 잰 두 몸 폭의 평균, 단계별 루돌프 1.11 / 1.13 / 1.14 / 1.13 / 1.00, 산타 0.67 / 0.69 / 0.71 / 0.75 / 0.88
 XMAS_FILL = {"baby": 0.89, "kinder": 0.91, "child": 0.92, "teenager": 0.93, "adult": 0.94}
 XMAS_DOOR_SIZE = {s: (round(w * XMAS_FILL[s]), round(w * XMAS_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
 XMAS_DOOR_X = {"baby": 60, "kinder": 52, "child": 50, "teenager": 48, "adult": 46}
@@ -761,7 +762,7 @@ def draw_haunted_adult():
         glow_window(img, 104, 96, 5.5, tower)
         opening = haunted_door(img, d)
         sill = door_sill(img, d, color=H_WOOD_LIGHT)
-        jack_o_lantern(img, 82, 121, 8.5)
+        jack_o_lantern(img, 79, 121, 8.5)
         jack_o_lantern(img, 112, 122, 6)
         bat(img, 72, 12, 1.15)
         bat(img, 15, 14, 1.0)
@@ -1125,7 +1126,7 @@ def preview_all(arts, path=PREVIEW_ALL):
     for c, stage in enumerate(STAGES):
         side = round(FRAME * HOUSE_SCALE[stage] * big)
         pets = {"house": (sit_frame("cat", stage), body_scale("cat", stage)),
-                "hive": (bee[stage], body_scale("bee", stage)) if bee[stage] else (bee_placeholder(), 1.1)}
+                "hive": (bee[stage], body_scale("bee", stage)) if bee[stage] else (bee_placeholder(), 0.8)}
         for k, kind in enumerate(("house", "hive")):
             art, front = arts[kind, stage]
             comp = art.copy()

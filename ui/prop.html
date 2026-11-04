@@ -155,8 +155,8 @@
         animation: px-show 240ms step-end both;
       }
       @keyframes px-show {
-        0% { opacity: 0; transform: translateY(4px); }
-        50% { opacity: 1; transform: translateY(4px); }
+        0% { opacity: 0; transform: translateY(3px); }
+        50% { opacity: 1; transform: translateY(3px); }
         100% { opacity: 1; transform: none; }
       }
       body.pixel.hand #prop {
@@ -166,7 +166,7 @@
       }
       @keyframes px-dangle {
         0%, 100% { transform: none; }
-        50% { transform: translateY(4px); }
+        50% { transform: translateY(3px); }
       }
       /* 냠 — 냠: 아래부터 칸 줄을 뚝뚝 베어 먹는다 */
       body.pixel.hand.bite #prop {
@@ -184,10 +184,10 @@
       }
       @keyframes px-drop {
         0% { transform: none; }
-        25% { transform: translateY(4px); }
-        50% { transform: translateY(8px); }
-        75% { transform: translateY(12px); opacity: 1; }
-        100% { transform: translateY(16px); opacity: 0; }
+        25% { transform: translateY(3px); }
+        50% { transform: translateY(6px); }
+        75% { transform: translateY(9px); opacity: 1; }
+        100% { transform: translateY(12px); opacity: 0; }
       }
       body.pixel.hide #prop {
         transition: opacity 600ms steps(3, end);

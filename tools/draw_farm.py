@@ -963,7 +963,7 @@ _COMMON = dict(front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_hea
 
 DUCK = Species(
     id="duck", name="오리", walk_speed=80, scale=0.94, base=DUCK_W, back=DUCK_W, belly=DUCK_W, nose=BILL, mouth="w",
-    front_tail_color=DUCK_W, tail_color=DUCK_W, stage_size=dict.fromkeys(STAGES, 1.3), stripe=BILL, outline=DUCK_LINE,
+    front_tail_color=DUCK_W, tail_color=DUCK_W, stage_size=dict.fromkeys(STAGES, 0.9), stripe=BILL, outline=DUCK_LINE,
     stage_tweak={"baby": dict(pale=0.0, eye=1.2, fit=0.9), "kinder": dict(pale=0.0, eye=1.12, fit=0.93),
                  "child": dict(pale=0.0, eye=1.05), "adult": dict(fit=0.94)},
     specials=["lookup"], poses=DUCK_POSES, **_COMMON,
@@ -971,7 +971,7 @@ DUCK = Species(
 
 GIRAFFE = Species(
     id="giraffe", name="기린", walk_speed=75, scale=0.94, base=GIR, back=GIR, belly=GIR_CREAM, nose=GIR_LINE, mouth="w",
-    front_tail_color=GIR, tail_color=GIR, stage_size={"baby": 1.0, "kinder": 1.0, "child": 1.1, "teenager": 1.1, "adult": 1.1},
+    front_tail_color=GIR, tail_color=GIR, stage_size=dict.fromkeys(STAGES, 1.06),
     stripe=GIR_SPOT, outline=GIR_LINE,
     stage_tweak={"baby": dict(pale=0.0, eye=1.2, fit=0.9), "kinder": dict(pale=0.0, eye=1.1, fit=0.93),
                  "child": dict(pale=0.0), "adult": dict(fit=0.94)},

@@ -27,7 +27,7 @@ const LEAF_TONES = [
 
 // 픽셀 스타일 (window.ART_STYLE, 앱의 art-style 이벤트): 칸(PX_DOT px)으로만 그린다 — 안티에일리어싱 없음, 자리도 칸에 맞춘다, 더미는 칸 계단.
 // 그림은 글자 표 (글자 → 색), 도는 낙엽·꽃잎은 90도 네 장을 번갈아 (frames 수는 같게 맞춘다)
-const PX_DOT = 4;
+const PX_DOT = 3;
 const PX_COLORS = {
   w: "#ffffff", c: "#b4cdeb", b: "#6491d2", B: "#4a70b0",
   p: "#fbc4d4", P: "#d87896",
@@ -38,7 +38,7 @@ const PX_DROP = ["..b.", "..b.", ".b..", ".b.."];
 const PX_SPLASH = ["b..b", ".bb."];
 const PX_PETAL = ["pp.", "Ppp", ".pP"];
 const PX_LEAF = [".LL.", "LLLF", "FLLL", ".FF."];
-const PX_BOX = { light_snow: 12, snow: 12, rain: 16, shower: 16, petals: 12, leaves: 16 };
+const PX_BOX = { light_snow: 9, snow: 9, rain: 12, shower: 12, petals: 9, leaves: 12 };
 
 function pxRotate(rows, turns) {
   let out = rows;

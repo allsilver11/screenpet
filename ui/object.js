@@ -32,7 +32,7 @@ let pivotY = pivotY0;
 
 // 픽셀 스타일 (objects_pixel/): 칸이 물리 px의 정수배. 돌 때는 90도 계단으로만 그리고 (칸이 무너지지 않게), 구르는 거리·물리는 그대로다
 let pixelArt = false;
-let dotPx = 4;
+let dotPx = 3;
 let solid = []; // 불투명 칸 가운데 (칸 좌표) — 계단 각도에서도 바닥에 닿게
 let lastPose = { angle: 0, dx: 0 };
 const POSTIT_DOTS = 6;
@@ -47,14 +47,14 @@ function dropOf(cells, pivot, angle) {
   return low === -Infinity ? 0 : low;
 }
 // 픽셀 포즈: 가까운 90도 + 진짜 각도에서처럼 바닥에 닿도록 내린 칸 수 (물리가 그 각도의 바닥을 기준으로 축을 놓으니까).
-// physics = 물리의 칸(4 논리 px) / 그림 칸 — 110%처럼 그림 칸이 4 CSS px가 아닐 때 그만큼 더 내려야 바닥에 닿는다
+// physics = 물리의 칸(4 논리 px, 동글 96 px 기준) / 그림 칸 — 그림 칸(3 CSS px쯤)이 더 작으니 그만큼 더 내려야 바닥에 닿는다
 function pixelPose(cells, pivot, angle, physics = 1) {
   const quarter = Math.round(angle / 90) * 90;
   return { quarter, drop: dropOf(cells, pivot, angle) * physics - dropOf(cells, pivot, quarter) };
 }
 // 칸 한 변·그림 한 변·축 (CSS px): 칸이 물리 px의 정수배. 축(96 논리 px 기준 좌표)도 그림과 같은 비율로, 물리 px에 맞춰서
 function pixelMetrics(dpr, [rawX, rawY]) {
-  const dot = Math.max(1, Math.round(4 * dpr)) / dpr;
+  const dot = Math.max(1, Math.round(3 * dpr)) / dpr;
   const k = dot / 4;
   const snap = (v) => Math.round(v * k * dpr) / dpr;
   return { dot, side: 24 * dot, pivotX: snap(rawX), pivotY: snap(rawY) };
@@ -69,7 +69,7 @@ function layout() {
   thing.style.width = pixelArt ? `${m.side}px` : "";
   thing.style.height = pixelArt ? `${m.side}px` : "";
   const postit = pixelArt ? POSTIT_DOTS * dotPx : 21;
-  // 포스트잇 자리: 96 논리 px 좌표 → 칸 (칸 4 논리 px)
+  // 포스트잇 자리: 96 논리 px 좌표 → 칸 (96 ÷ 24칸 = 칸마다 4)
   const px = pixelArt ? Math.round((spot[0] * SCALE) / 4) * dotPx : spot[0] * SCALE;
   const py = pixelArt ? Math.round((spot[1] * SCALE) / 4) * dotPx : spot[1] * SCALE;
   sticker.style.width = `${postit}px`;

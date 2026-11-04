@@ -83,12 +83,12 @@ def test_manifests(out):
     assert pk["favorite_food"] == {"emoji": "🍬", "name": "사탕"}
     assert pk["speech"]["chatter"] == ["trick or treat!", "boo~", "♪"] and pk["speech"]["grumpy"] == ["hmph!"]
     assert pk["speech"]["hungry"] and pk["speech"]["full"] and pk["speech"]["level_up"]
-    assert all(v == 1.15 for v in pk["stage_size"].values()) and pk["stages"] == STAGES
+    assert all(v == 0.9 for v in pk["stage_size"].values()) and pk["stages"] == STAGES
     gh = json.loads((out / "ghost" / "pet.json").read_text(encoding="utf-8"))
     assert gh["name"] == "유령" and gh["personality"] == "friendly" and gh["locomotion"] == "fly" and "hop_share" not in gh
     assert gh["favorite_food"] == {"emoji": "🍭", "name": "막대사탕"} and gh["walk_speed"] == 40
     assert gh["speech"]["chatter"] == ["boo!", "ooo~"] and gh["speech"]["tickle"] == ["hehe!"]
-    assert all(v == 1.0 for v in gh["stage_size"].values())
+    assert all(v == 0.85 for v in gh["stage_size"].values())
     assert set(gh["animations"]) == {a for a, *_ in ANIMS} | {"lookup"}  # sting·climb 없음
     assert set(pk["animations"]) == {a for a, *_ in ANIMS} | {"climb", "slide", "lookup"}  # 호박은 벽을 탄다
     assert pk["animations"]["climb"] == {"row": len(ANIMS), "frames": 4, "fps": 6} and pk["animations"]["slide"] == {"row": len(ANIMS) + 1, "frames": 2, "fps": 8}

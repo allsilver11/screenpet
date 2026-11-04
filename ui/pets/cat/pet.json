@@ -190,11 +190,11 @@
     "adult"
   ],
   "stage_size": {
-    "baby": 1.0,
-    "kinder": 1.0,
-    "child": 1.0,
-    "teenager": 1.0,
-    "adult": 1.0
+    "baby": 0.91,
+    "kinder": 0.91,
+    "child": 0.91,
+    "teenager": 0.91,
+    "adult": 0.91
   },
   "personality": "aloof",
   "head": {

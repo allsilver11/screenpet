@@ -24,7 +24,7 @@ pub fn style_script() -> &'static str {
     }
 }
 
-/// 언제나 teenager 칸(4)으로 그리는 창의 논리 크기. 동글이면 그대로
+/// 언제나 같은 칸(style::WORLD_DOT)으로 그리는 창의 논리 크기 (받는 값은 칸 수 × 4). 동글이면 그대로
 pub fn fit((w, h): (f64, f64), dpi: f64) -> (f64, f64) {
     if is_pixel() {
         (style::world_side(w, dpi), style::world_side(h, dpi))

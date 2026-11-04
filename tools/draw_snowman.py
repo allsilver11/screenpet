@@ -499,7 +499,7 @@ SNOWMAN_POSES = {k: dh._fit(v) for k, v in SNOWMAN_POSES.items()}
 
 SNOWMAN = Species(
     id="snowman", name="눈사람", walk_speed=70, scale=0.94, base=SNOW, back=SNOW, belly=SNOW, nose=CARROT, mouth="w",
-    front_tail_color=SNOW, tail_color=SNOW, stage_size=dict.fromkeys(STAGES, 1.0), stripe=SNOW_SHADE, outline=SNOW_LINE,
+    front_tail_color=SNOW, tail_color=SNOW, stage_size=dict.fromkeys(STAGES, 0.9), stripe=SNOW_SHADE, outline=SNOW_LINE,
     # 작은 석탄 점 눈 (모든 단계 동그랗게 — 반쯤 감은 눈 없이) · 어릴수록 크게
     stage_tweak={"baby": dict(pale=0.0, sparkle=False, soft=0.0, eye=1.2, eye_dy=0.0, fit=0.98, smile=False), "kinder": dict(pale=0.0, sparkle=False, soft=0.0, eye=1.12, eye_dy=0.0, fit=0.98),
                  "child": dict(smile=False, soft=0.0, eye=1.04, eye_dy=0.0, fit=0.96), "teenager": dict(eye=0.96, fit=0.94),

@@ -173,11 +173,11 @@
     "adult"
   ],
   "stage_size": {
-    "baby": 1.0,
-    "kinder": 1.0,
-    "child": 1.1,
-    "teenager": 1.2,
-    "adult": 1.3
+    "baby": 0.89,
+    "kinder": 0.89,
+    "child": 0.89,
+    "teenager": 0.89,
+    "adult": 0.89
   },
   "head": {
     "baby": {

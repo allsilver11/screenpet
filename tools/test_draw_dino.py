@@ -73,7 +73,7 @@ def test_manifests(out):
         # 보통 집 · 걷는다 · 벽을 탄다 (climb·slide 둘 다 있어야 앱이 켠다) · 크기 1.2
         assert not {"house", "locomotion", "hop_share"} & set(m)
         assert not {"arch", "wag"} & set(m["animations"])
-        assert set(m["stage_size"].values()) == {1.2}  # v0.3.10: 토끼만큼 키웠다
+        assert set(m["stage_size"].values()) == {1.2}  # 토끼만큼 — "너무 크다" 피드백에도 공룡은 사용자 요청으로 그대로
         a = m["animations"]
         base = len(ANIMS) + 2 + (1 if "lookup" in a else 0)
         assert a["climb"] == {"row": len(ANIMS), "frames": 4, "fps": 6} and a["slide"] == {"row": len(ANIMS) + 1, "frames": 2, "fps": 8}

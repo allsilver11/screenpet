@@ -555,6 +555,7 @@ _cat_tail_line = [(26, 78), (12, 64), (10, 46), (16, 36)]
 _cat_lobe_stripes = [[(19, 35), (27, 37.5)], [(18, 43), (25, 44.5)]]
 CAT = Species(
     id="cat", name="고양이", walk_speed=90, scale=0.94, base=CAT_W, back=CAT_G, belly=CAT_W, nose=NOSE, mouth="w",
+    stage_size=dict.fromkeys(STAGES, 0.91),
     front_ears=[("T", (20, 40), (24, 6), (52, 22)), ("T", (76, 22), (104, 6), (108, 40))],
     front_ear_pivots=((38, 32), (90, 32)),
     front_ear_marks=[([("T", (28, 30), (29, 14), (44, 23)), ("T", (84, 23), (99, 14), (100, 30))], PINK)],
@@ -613,6 +614,7 @@ CAT = Species(
 DOG_W, DOG_G, DOG_EAR = (255, 247, 236), (222, 168, 112), (196, 140, 92)
 DOG = Species(
     id="dog", name="강아지", walk_speed=105, scale=0.94, base=DOG_W, back=DOG_G, belly=DOG_W, nose=DARK_NOSE, mouth="dog",
+    stage_size=dict.fromkeys(STAGES, 0.94),
     front_ears=[("E", 8, 30, 32, 76), ("E", 96, 30, 120, 76)],
     front_ear_pivots=((22, 32), (106, 32)),
     front_ear_marks=[
@@ -676,7 +678,7 @@ BEAR = Species(
     side_torso_marks=[([("E", 28, 90, 94, 120)], BEAR_SOFT, (0, 0)), ([("E", 28, 90, 94, 120)], BEAR_L, 1)],
     side_tail=[("E", 6, 62, 26, 82)], tail_root=(18, 74), tail_color=BEAR_B, lie_ears=(-56, -50),
     specials=["climb", "slide", "lookup"],
-    stage_size={"baby": 1.0, "kinder": 1.0, "child": 1.1, "teenager": 1.2, "adult": 1.3},
+    stage_size=dict.fromkeys(STAGES, 0.89),
     # 귀 18% 크게 · 아기·유아도 또렷한 갈색 (파스텔 섞임을 줄임) · 어른은 넓은 어깨
     stage_tweak={st: dict(ear=STAGE_PROPS[st]["ear"] * BEAR_EAR, **{"baby": dict(pale=0.2), "kinder": dict(pale=0.1),
                                                                      "adult": dict(fbody=(1.06, 1.0), torso=(1.06, 1.0), fit=0.91)}.get(st, {}))
@@ -2033,7 +2035,7 @@ BEE = Species(
     front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[],
     front_tail=[], front_tail_root=(64, 112), front_tail_color=BEE_ST, side_ears=[], ears_over=False,
     side_head_marks=[], side_torso_marks=[], side_tail=[], tail_root=(20, 84), tail_color=BEE_ST,
-    specials=["sting", "lookup"], stage_size=dict.fromkeys(STAGES, 1.1), stripe=BEE_ST, poses=BEE_POSES,
+    specials=["sting", "lookup"], stage_size=dict.fromkeys(STAGES, 0.8), stripe=BEE_ST, poses=BEE_POSES,
 )
 SPECIES[BEE.id] = BEE
 

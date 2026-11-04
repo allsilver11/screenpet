@@ -6,11 +6,11 @@
                                          ui/objects_pixel/ 물건 8 + 포스트잇
                                          tools/preview/pixel_world_*.png
 
-한 칸 크기 (teenager 칸 = 화면 4px):
-  - 동물: 전 종 같은 표시 크기 72/84/96/128/144 px (칸 3/3/3/4/4 — 코어 style.rs, 동글 stage_size는 곱하지 않는다).
+한 칸 크기 (어디서나 화면 3px — 동물·세계 그림이 고르다):
+  - 동물: 전 종 같은 표시 크기 72/84/96/96/108 px (칸 3 — 코어 style.rs, 동글 stage_size는 곱하지 않는다). 공룡만 칸 수가 적어 60/72/84/84/96 px (pet.json frame_sizes).
   - 집: 그 단계 동물과 같은 칸. 문은 그 단계 시트 한 칸 전체(frame n칸)가 들어가는 넓이 (n+2)×(n+1)라서
-    어느 동물이든 줄이지 않고 그대로 앉는다 — 그래서 집은 동글보다 크다 (114/126/144/192/216 px, 동글 70/87/105/128/143).
-  - 밥그릇·꽃·쿠키: 그 단계 칸. 손 음식·선물·물건·눈사람·침: 언제나 teenager 칸 4 (동글도 크기가 고정이다).
+    어느 동물이든 줄이지 않고 그대로 앉는다 — 그래서 집은 동글보다 크다 (114/126/144/144/162 px, 동글 70/87/105/128/143).
+  - 밥그릇·꽃·쿠키: 그 단계 칸. 손 음식·선물·물건·눈사람·침: 같은 칸 3 (동글도 크기가 고정이다).
 """
 
 import hashlib
@@ -31,7 +31,7 @@ PREVIEW = ROOT / "tools" / "preview"
 
 STAGES = ("baby", "kinder", "child", "teenager", "adult")
 # 단계 → (시트 한 칸 수, 칸 크기) — tools/draw_pixel.py STAGE_GRID, 코어 style::pixel_grid와 같다
-STAGE_GRID = {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 4), "adult": (36, 4)}
+STAGE_GRID = {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 3), "adult": (36, 3)}
 # 집 그림 한 변 (칸)
 HOUSE_DOTS = {"baby": 38, "kinder": 42, "child": 48, "teenager": 48, "adult": 54}
 KINDS = ("house", "hive", "haunted", "xmas")
@@ -726,7 +726,7 @@ def door_pet(kind, stage):
         p = UI / "pets_pixel" / pid
         if (p / "pet.json").is_file() and (p / f"sheet_{stage}.png").is_file():
             m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
-            n = STAGE_GRID[stage][0]
+            n = m["frame_sizes"][stage]
             row = m["animations"]["sit_front"]["row"]
             return Image.open(p / f"sheet_{stage}.png").convert("RGBA").crop((0, row * n, n, (row + 1) * n))
     return None
@@ -739,7 +739,7 @@ def house_with_pet(kind, stage):
     pet = door_pet(kind, stage)
     d = meta["door"]
     if pet:
-        n = STAGE_GRID[stage][0]
+        n = pet.width
         img.alpha_composite(pet, (d["x"] + (d["w"] - n) // 2, d["y"] + d["h"] - n))
     img.alpha_composite(Image.open(out / f"{kind}_{stage}_front.png").convert("RGBA"))
     return img
@@ -795,7 +795,7 @@ def seat(kind, stage, pid):
     d = json.loads((out / f"{kind}_{stage}.json").read_text(encoding="utf-8"))["door"]
     p = UI / "pets_pixel" / pid
     m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
-    n = STAGE_GRID[stage][0]
+    n = m["frame_sizes"][stage]
     row = m["animations"]["sit_front"]["row"]
     pet = Image.open(p / f"sheet_{stage}.png").convert("RGBA").crop((0, row * n, n, (row + 1) * n))
     img.alpha_composite(pet, (d["x"] + (d["w"] - n) // 2, d["y"] + d["h"] - n))
@@ -807,7 +807,7 @@ def worn(pid, stage, anim):
     """시트 칸 + 모자(또는 산타 목도리)를 앱과 같은 자리에 (칸 단위)."""
     p = UI / "pets_pixel" / pid
     m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
-    n = STAGE_GRID[stage][0]
+    n = m["frame_sizes"][stage]
     row = m["animations"][anim]["row"]
     frame = Image.open(p / f"sheet_{stage}.png").convert("RGBA").crop((0, row * n, n, (row + 1) * n))
     pad = 12

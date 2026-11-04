@@ -46,7 +46,7 @@ pub struct StagePayload {
     pub pet: String,
     /// 시트 이름 (`sheet_<stage>.png`)
     pub stage: &'static str,
-    /// 몸 크기 배율: 동글은 단계 배율 × 동물별 배율, 픽셀은 전 종 같은 크기, 칸이 정수 물리 px (style::pixel_body_scale)
+    /// 몸 크기 배율: 동글은 단계 배율 × 동물별 배율, 픽셀은 시트 칸 수(pet.json frame_sizes) × 칸, 칸이 정수 물리 px (style::pixel_body_scale)
     pub scale: f64,
     /// 동글일 때의 몸 크기 배율 — 친구에게 보내는 값 (예전 버전은 동글로 그린다), 하우스 문간
     pub base: f64,

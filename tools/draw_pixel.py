@@ -40,7 +40,16 @@ K = dp.K
 OUT_ROOT = Path(__file__).resolve().parent.parent / "ui" / "pets_pixel"
 NO_ANIM = {"roll"}
 # 단계 → (캔버스 칸 수, 화면 배율). 표시 크기 = 칸 × 배율
-STAGE_GRID = {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 4), "adult": (36, 4)}
+STAGE_GRID = {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 3), "adult": (36, 3)}
+# 종마다 다른 칸 수 (칸 크기는 그대로라 점이 고르다): 공룡은 픽셀에서만 조금 작다 — 60/72/84/84/96 px. 앱은 pet.json frame_sizes를 따른다
+_DINO_DOTS = {"baby": 20, "kinder": 24, "child": 28, "teenager": 28, "adult": 32}
+SPECIES_DOTS = {"dino_yellow": _DINO_DOTS, "dino_green": _DINO_DOTS, "dino_purple": _DINO_DOTS}
+
+
+def stage_dots(pid, stage):
+    """그 동물·단계 시트 한 칸의 칸 수."""
+    return SPECIES_DOTS.get(pid, {}).get(stage, STAGE_GRID[stage][0])
+
 
 EYE_COL = (58, 38, 42)
 SHINE = (255, 255, 255)
@@ -1070,7 +1079,7 @@ def stage_grid(sp, stage):
     if ck in cache:
         _GRIDS[key] = Grid(**cache[ck])
         return _GRIDS[key]
-    n = STAGE_GRID[stage][0]
+    n = stage_dots(sp.id, stage)
     boxes = []
     dummy = Grid(n, 12, 0, 0)
     with _stage_ctx(sp, stage), pixel_mode(dummy, collect=boxes):
@@ -1144,7 +1153,7 @@ def manifest_for(sp, heads, necks, neck_stretch=None):
         if front:
             spec["front"] = True
         animations[anim] = spec
-    m = {"name": sp.name, "frame_sizes": {st: STAGE_GRID[st][0] for st in dp.STAGES}, "animations": animations, "head": heads}
+    m = {"name": sp.name, "frame_sizes": {st: stage_dots(sp.id, st) for st in dp.STAGES}, "animations": animations, "head": heads}
     if any(necks.values()):
         m["neck"] = necks
     if neck_stretch:
@@ -1196,7 +1205,7 @@ def _panel_species(sp, by_stage):
     font = ImageFont.load_default()
     real, big, label = 150, 216, 84
     keys = {st: _keys_for(by_stage[st]) for st in dp.STAGES}
-    heights = [STAGE_GRID[st][0] * STAGE_GRID[st][1] + 6 for st in dp.STAGES]
+    heights = [stage_dots(sp.id, st) * STAGE_GRID[st][1] + 6 for st in dp.STAGES]
     W = label + 2 * real * KEY_COUNT
     H = 18 + sum(heights) + 16 + len(dp.STAGES) * (big + 4)
     img = Image.new("RGBA", (W, H), (255, 255, 255, 255))
@@ -1206,7 +1215,7 @@ def _panel_species(sp, by_stage):
     d.rectangle((label + real * KEY_COUNT, 18, W, 18 + sum(heights)), fill=DARK + (255,))
     y = 18
     for st, h in zip(dp.STAGES, heights):
-        n, sc = STAGE_GRID[st]
+        n, sc = stage_dots(sp.id, st), STAGE_GRID[st][1]
         d.text((4, y + 4), f"{st}\n{n}x{sc}={n * sc}px", fill=(50, 50, 50), font=font)
         for side in (0, 1):
             for c, (anim, i) in enumerate(keys[st]):
@@ -1215,7 +1224,7 @@ def _panel_species(sp, by_stage):
         y += h
     y += 16
     for st in dp.STAGES:
-        n, _sc = STAGE_GRID[st]
+        n = stage_dots(sp.id, st)
         z = (big - 8) // n
         d.rectangle((label, y, label + big * len(keys[st]) - 1, y + big), fill=LIGHT + (255,))
         d.text((4, y + 4), f"{st}\nx{z}", fill=(50, 50, 50), font=font)
@@ -1243,7 +1252,7 @@ def preview_group(name, by_species, out_dir):
 def preview_all(sp, by_stage, stage, path, zoom=4, cols=20):
     """개발용: 한 단계의 모든 동작·프레임 확대."""
     frames = [(a, i, im) for a, v in by_stage[stage].items() for i, im in enumerate(v)]
-    n = STAGE_GRID[stage][0]
+    n = stage_dots(sp.id, stage)
     cell = n * zoom + 8
     rows = math.ceil(len(frames) / cols)
     img = Image.new("RGBA", (cols * cell, rows * (cell + 12)), LIGHT + (255,))

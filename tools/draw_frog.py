@@ -659,7 +659,7 @@ FROG = Species(
     front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[],
     front_tail=[], front_tail_root=(64, 112), front_tail_color=FROG_G, side_ears=[], ears_over=False,
     side_head_marks=[], side_torso_marks=[], side_tail=[], tail_root=(28, 108), tail_color=FROG_G,
-    specials=["climb", "slide", "bigjump", "lookup"], stage_size=dict.fromkeys(STAGES, 0.9), stripe=FROG_SPOT, poses=FROG_POSES,
+    specials=["climb", "slide", "bigjump", "lookup"], stage_size=dict.fromkeys(STAGES, 0.85), stripe=FROG_SPOT, poses=FROG_POSES,
     outline=FROG_LINE,
     # 동글 찹쌀떡 몸 (가로가 더 넓다) · 모든 단계 반짝이 두 개 큰 눈 (어른도 — 귀여움 우선, 크기만 작게) · 아기는 눈이 더 크다
     stage_tweak={"baby": dict(torso=(1.14, 0.94), fbody=(1.14, 0.94), eye=1.6),

@@ -64,7 +64,7 @@ function houseScale() {
 
 // 집 그림 좌표 하나의 CSS px: 동글은 단계 배율, 픽셀은 그 단계 칸 (물리 px의 정수배)
 function artUnit() {
-  return artDots ? snapDot(PIXEL_BASE_DOT[house.stage] ?? 4) : houseScale();
+  return artDots ? snapDot(PIXEL_BASE_DOT[house.stage] ?? 3) : houseScale();
 }
 
 // 집 종류를 고르는 기준 (src-tauri/src/house.rs house_kind, core manifest house_kind와 같다)

@@ -20,7 +20,7 @@ const BOOK_LABEL: &str = "book";
 const BOOK_SIZE: (f64, f64) = (470.0, 600.0);
 /// 선물 창 한 변 (논리 px) — 그림(ui/gifts/*.png, tools/draw_gifts.py)과 같다
 const SIZE: f64 = 40.0;
-/// 픽셀 선물 창 한 변 (12칸 × 4, 논리 px — 칸이 정수 물리 px가 되게 art::fit으로 맞춘다)
+/// 픽셀 선물 창 한 변 (12칸 × 4로 적는다 — 칸이 정수 물리 px가 되게 art::fit이 실제 크기로 맞춘다, 100%에서 36 px)
 const PIXEL_SIZE: f64 = 48.0;
 /// gift.html의 줍기(0.55초)·사라지기(0.6초)가 끝난 뒤 닫는다
 const CLOSE_AFTER: Duration = Duration::from_millis(700);
