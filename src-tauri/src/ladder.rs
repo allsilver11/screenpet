@@ -342,8 +342,11 @@ impl Ladders {
         let Some(mut g) = GuestGame::on_invite(from, msg, now) else { return };
         let log = self.invite_log.entry(from.to_string()).or_default();
         log.retain(|t| now.duration_since(*t) < INVITE_WINDOW);
+        // 넘친 초대는 세지 않는다 (받은 만큼 기록이 자라지 않게)
         let flooding = log.len() >= INVITES_PER_WINDOW;
-        log.push_back(now);
+        if !flooding {
+            log.push_back(now);
+        }
         // 판 중(내가 방장 설정 화면을 열어 둔 것도, 끝난 판의 진행·결과 화면을 보고 있는 것도) · 너무 잦음 · 초대 받기 끔 ·
         // 집중 중이거나 하우스 안 (기존 거절 규칙) → 창 없이 답한다
         // 끝난 판은 내 펫이 결과 칸에 닿기 전(아직 내려가는 중)에만 막는다 — 취소 안내나 이미 본 결과는 새 초대로 바꾼다

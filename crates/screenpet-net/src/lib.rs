@@ -261,39 +261,17 @@ pub(crate) enum Kind {
     Stranger(Option<Pairing>),
 }
 
-/// One live link (after hello). Several stranger links may claim the same id;
-/// at most one friend link per id (see `State::friend_links`).
-/// Per-link budget for friend renames and asks: ASK_BURST at once, then one
-/// per ASK_EVERY (a flooding friend can't spam the app with events).
-pub(crate) struct AskBucket {
+/// A token bucket: `burst` at once, then one per `every`.
+pub(crate) struct Bucket {
     tokens: f64,
     at: Instant,
     burst: f64,
     every: Duration,
 }
 
-const ASK_BURST: f64 = 2.0;
-const ASK_EVERY: Duration = Duration::from_secs(2);
-/// Steering (control mode): up to 30 messages at once, then 30 per second.
-const STEER_BURST: f64 = 30.0;
-const STEER_EVERY: Duration = Duration::from_micros(33_334);
-/// Thrown objects: up to 10 at once, then 10 per minute.
-const TOSS_BURST: f64 = 10.0;
-const TOSS_EVERY: Duration = Duration::from_secs(6);
-
-impl AskBucket {
-    pub fn new(now: Instant) -> AskBucket {
-        AskBucket { tokens: ASK_BURST, at: now, burst: ASK_BURST, every: ASK_EVERY }
-    }
-
-    /// Budget for steering messages on one link.
-    pub fn steering(now: Instant) -> AskBucket {
-        AskBucket { tokens: STEER_BURST, at: now, burst: STEER_BURST, every: STEER_EVERY }
-    }
-
-    /// Budget for thrown objects on one link.
-    pub fn tossing(now: Instant) -> AskBucket {
-        AskBucket { tokens: TOSS_BURST, at: now, burst: TOSS_BURST, every: TOSS_EVERY }
+impl Bucket {
+    fn new(now: Instant, burst: f64, every: Duration) -> Bucket {
+        Bucket { tokens: burst, at: now, burst, every }
     }
 
     /// Spend one token if there is one.
@@ -310,6 +288,48 @@ impl AskBucket {
     }
 }
 
+/// Renames and asks: 2 at once, then one per 2 s.
+const ASK_BURST: f64 = 2.0;
+const ASK_EVERY: Duration = Duration::from_secs(2);
+/// Steering (control mode): up to 30 messages at once, then 30 per second.
+const STEER_BURST: f64 = 30.0;
+const STEER_EVERY: Duration = Duration::from_micros(33_334);
+/// Thrown objects: up to 10 at once, then 10 per minute.
+const TOSS_BURST: f64 = 10.0;
+const TOSS_EVERY: Duration = Duration::from_secs(6);
+/// Visit messages: far more than a pet walking back and forth ever sends.
+const VISIT_BURST: f64 = 20.0;
+const VISIT_EVERY: Duration = Duration::from_millis(500);
+/// Ladder messages: a game takes a handful per friend.
+const LADDER_BURST: f64 = 20.0;
+const LADDER_EVERY: Duration = Duration::from_millis(500);
+
+/// What one friend may make us process (over budget = dropped, the link stays:
+/// a flooding friend can't spam the app with events). Kept per friend, not per
+/// link: a reconnect continues with the tokens that were left. Each kind has
+/// its own bucket, so a burst of one never starves another.
+pub(crate) struct Budget {
+    pub asks: Bucket,
+    pub steers: Bucket,
+    pub tosses: Bucket,
+    pub visits: Bucket,
+    pub ladder: Bucket,
+}
+
+impl Budget {
+    fn new(now: Instant) -> Budget {
+        Budget {
+            asks: Bucket::new(now, ASK_BURST, ASK_EVERY),
+            steers: Bucket::new(now, STEER_BURST, STEER_EVERY),
+            tosses: Bucket::new(now, TOSS_BURST, TOSS_EVERY),
+            visits: Bucket::new(now, VISIT_BURST, VISIT_EVERY),
+            ladder: Bucket::new(now, LADDER_BURST, LADDER_EVERY),
+        }
+    }
+}
+
+/// One live link (after hello). Several stranger links may claim the same id;
+/// at most one friend link per id (see `State::friend_links`).
 pub(crate) struct Conn {
     pub peer_id: String,
     pub link: Arc<secure::SecureLink>,
@@ -317,10 +337,6 @@ pub(crate) struct Conn {
     pub name: String,
     /// Protocol version from the peer's hello (`PROTOCOL_VERSION` of its build).
     pub v: u32,
-    /// Rate limit for renames and asks on this link.
-    pub asks: AskBucket,
-    /// Rate limit for steering (control mode) on this link.
-    pub steers: AskBucket,
     pub kind: Kind,
     /// `Connected` has been emitted for this peer (so `Disconnected` is owed).
     pub announced: bool,
@@ -385,16 +401,15 @@ pub(crate) struct State {
     /// registering in time (e.g. relay ↔ LAN switch, quick restart) takes
     /// over silently — no Disconnected/Connected pair.
     pub pending_gone: HashMap<String, Instant>,
-    /// Friend id → budget for its thrown objects. Kept per friend, not per
-    /// link: a reconnect continues with the tokens that were left. Only ever
-    /// holds authenticated friends, and leaves with the friend.
-    pub toss_budget: HashMap<String, AskBucket>,
+    /// Friend id → what it may still make us process. Only ever holds
+    /// authenticated friends, and leaves with the friend.
+    pub budgets: HashMap<String, Budget>,
 }
 
 impl State {
-    /// Spend one of friend `id`'s thrown-object tokens, if it has one.
-    pub fn take_toss(&mut self, id: &str, now: Instant) -> bool {
-        self.toss_budget.entry(id.to_string()).or_insert_with(|| AskBucket::tossing(now)).take(now)
+    /// Friend `id`'s budget (only call for an authenticated friend).
+    pub fn budget(&mut self, id: &str, now: Instant) -> &mut Budget {
+        self.budgets.entry(id.to_string()).or_insert_with(|| Budget::new(now))
     }
 
     pub fn is_friend(&self, id: &str) -> bool {
@@ -409,7 +424,7 @@ impl State {
     }
     pub fn remove_friend(&mut self, id: &str) {
         self.friends.retain(|f| f.id != id);
-        self.toss_budget.remove(id);
+        self.budgets.remove(id);
     }
     pub fn is_trusted(&self, id: &str, ip: &str) -> bool {
         self.trusted_ips.contains_key(&(id.to_string(), ip.to_string()))
@@ -844,7 +859,7 @@ pub fn new_install_id() -> String {
 }
 
 #[cfg(test)]
-mod toss_budget_tests {
+mod budget_tests {
     use super::*;
 
     #[test]
@@ -852,15 +867,16 @@ mod toss_budget_tests {
         let now = Instant::now();
         let mut st = State::default();
         for _ in 0..10 {
-            assert!(st.take_toss("a", now));
+            assert!(st.budget("a", now).tosses.take(now));
         }
-        assert!(!st.take_toss("a", now));
-        // 다른 친구의 몫은 따로
-        assert!(st.take_toss("b", now));
+        assert!(!st.budget("a", now).tosses.take(now));
+        // 다른 친구의 몫은 따로, 다른 종류의 몫도 따로
+        assert!(st.budget("b", now).tosses.take(now));
+        assert!(st.budget("a", now).visits.take(now));
         // 시간이 지나면 다시 찬다
-        assert!(st.take_toss("a", now + TOSS_EVERY));
+        assert!(st.budget("a", now).tosses.take(now + TOSS_EVERY));
         st.remove_friend("a");
-        assert!(!st.toss_budget.contains_key("a"));
-        assert!(st.toss_budget.contains_key("b"));
+        assert!(!st.budgets.contains_key("a"));
+        assert!(st.budgets.contains_key("b"));
     }
 }

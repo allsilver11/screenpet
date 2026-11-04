@@ -19,7 +19,7 @@ use crate::protocol::{clamp_name, Control, Message, MAX_FRAME, MAX_FRIENDS, MAX_
 use crate::secure::SecureLink;
 use crate::transport::{self, FrameLink, FrameReader, Recv};
 use crate::{
-    AskBucket, Backoff, Conn, Kind, NetEvent, PairStage, Pairing, SessionGuard, Shared, State, INVITED_WINDOW,
+    Backoff, Conn, Kind, NetEvent, PairStage, Pairing, SessionGuard, Shared, State, INVITED_WINDOW,
     MAX_INVITED_PER_WINDOW, MAX_INVITES_IN, MAX_INVITES_IN_PER_ADDR, MAX_PAIR_ATTEMPTS_PER_ADDR, PRE_AUTH_MAX,
 };
 use std::sync::atomic::AtomicBool;
@@ -269,8 +269,6 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
                 link: ctx.link.clone(),
                 name: name.to_string(),
                 v,
-                asks: AskBucket::new(now),
-                steers: AskBucket::steering(now),
                 kind,
                 announced: announced || connected,
                 outgoing,
@@ -363,44 +361,39 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
     let (outgoing, hs_hash) = (conn.outgoing, conn.hs_hash);
     match msg {
         // A repeated hello on an authenticated friend link (same id) = the friend renamed itself.
-        // Unchanged names are ignored; renames and asks share one budget per connection
+        // Unchanged names are ignored; renames and asks share one budget per friend
         Message::Control(Control::Hello { id: hid, name: new_name, v, .. }) => {
             let new_name = clamp_name(&new_name);
             let friend = hid == id && matches!(conn.kind, Kind::Friend) && st.is_friend(id);
+            let renamed = friend && conn.name != new_name;
             let Some(c) = st.conns.get_mut(&ctx.token) else { return false };
             if hid == id {
                 c.v = v;
             }
-            if friend && c.name != new_name && c.asks.take(now) {
-                c.name = new_name.clone();
+            if renamed && st.budget(id, now).asks.take(now) {
+                if let Some(c) = st.conns.get_mut(&ctx.token) {
+                    c.name = new_name.clone();
+                }
                 shared.emit(NetEvent::Renamed { id: id.to_string(), name: new_name });
             }
             true
         }
         Message::Control(Control::Ping { ask: None, steer: None, toss: None }) => true,
         // A friend's app request, steering of its visiting pet and/or a thrown object (authenticated
-        // friend links only, like visits). Asks and steers are budgeted per connection, tosses per friend
+        // friend links only, like visits). Budgeted per friend: reconnecting doesn't refill it
         Message::Control(Control::Ping { ask, steer, toss }) => {
-            let friend = matches!(conn.kind, Kind::Friend) && st.is_friend(id);
-            let Some(c) = st.conns.get_mut(&ctx.token) else { return false };
-            if !friend {
+            if !(matches!(conn.kind, Kind::Friend) && st.is_friend(id)) {
                 return true;
             }
-            if let Some(ask) = ask {
-                if c.asks.take(now) {
-                    shared.emit(NetEvent::Asked { from: id.to_string(), ask: clamp_name(&ask) });
-                }
+            let budget = st.budget(id, now);
+            if let Some(ask) = ask.filter(|_| budget.asks.take(now)) {
+                shared.emit(NetEvent::Asked { from: id.to_string(), ask: clamp_name(&ask) });
             }
-            if let Some(steer) = steer {
-                if c.steers.take(now) {
-                    shared.emit(NetEvent::Steered { from: id.to_string(), steer });
-                }
+            if let Some(steer) = steer.filter(|_| budget.steers.take(now)) {
+                shared.emit(NetEvent::Steered { from: id.to_string(), steer });
             }
-            // Budgeted per friend (not per link): reconnecting doesn't refill it
-            if let Some(toss) = toss {
-                if st.take_toss(id, now) {
-                    shared.emit(NetEvent::Tossed { from: id.to_string(), toss });
-                }
+            if let Some(toss) = toss.filter(|_| budget.tosses.take(now)) {
+                shared.emit(NetEvent::Tossed { from: id.to_string(), toss });
             }
             true
         }
@@ -514,14 +507,14 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             false
         }
         Message::Visit(v) => {
-            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) {
+            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) && st.budget(id, now).visits.take(now) {
                 shared.emit(NetEvent::Received { from: id.to_string(), msg: v });
             }
             true
         }
         // Like visits: friend links only (ignored otherwise)
         Message::Ladder(m) => {
-            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) {
+            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) && st.budget(id, now).ladder.take(now) {
                 shared.emit(NetEvent::Ladder { from: id.to_string(), msg: m });
             }
             true

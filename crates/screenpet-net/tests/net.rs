@@ -849,7 +849,7 @@ fn stranger_toss_is_ignored_and_the_link_stays() {
 }
 
 #[test]
-fn flooded_tosses_are_rate_limited_per_link_without_dropping_it() {
+fn flooded_tosses_are_rate_limited_without_dropping_the_link() {
     let kz = key();
     let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
     let mut p = raw_friend_connect(port, &kz, "zzzz");
@@ -907,6 +907,93 @@ fn reconnecting_does_not_refill_the_toss_budget() {
     assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Asked { .. })).is_some(), "the new link works");
     let again = count_tosses(&mut second, &rx, 30, Duration::from_millis(500));
     assert!(again <= 1, "budget carried over the reconnect: {again}");
+    net.shutdown();
+}
+
+/// 윈도우 동안 조건에 맞는 이벤트 수와, 끊겼는지
+fn tally(rx: &Receiver<NetEvent>, window: Duration, pred: impl Fn(&NetEvent) -> bool) -> (usize, bool) {
+    let deadline = Instant::now() + window;
+    let (mut events, mut disconnected) = (0, false);
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(NetEvent::Disconnected { .. }) => disconnected = true,
+            Ok(e) if pred(&e) => events += 1,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    (events, disconnected)
+}
+
+fn visit_json(i: u64) -> Value {
+    json!({"type": "leave", "visit_id": i})
+}
+
+fn ladder_json(i: u64) -> Value {
+    json!({"type": "ladder_start", "game_id": format!("g{i}"), "mode": "all"})
+}
+
+#[test]
+fn flooded_visits_are_rate_limited_and_keep_the_link() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    for i in 0..500 {
+        p.send(visit_json(i)).unwrap();
+    }
+    // 처음 20개까지는 바로, 그 뒤엔 0.5초에 하나 꼴 — 연결은 끊지 않는다
+    let (events, disconnected) = tally(&rx, Duration::from_millis(600), |e| matches!(e, NetEvent::Received { .. }));
+    assert!((20..=23).contains(&events), "rate limited: {events}");
+    assert!(!disconnected);
+    p.send(json!({"type": "ping", "ask": "invite"})).unwrap();
+    assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Asked { .. })).is_some(), "other kinds have their own budget");
+    net.shutdown();
+}
+
+#[test]
+fn flooded_ladder_messages_are_rate_limited_and_keep_the_link() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    for i in 0..500 {
+        p.send(ladder_json(i)).unwrap();
+    }
+    let (events, disconnected) = tally(&rx, Duration::from_millis(600), |e| matches!(e, NetEvent::Ladder { .. }));
+    assert!((20..=23).contains(&events), "rate limited: {events}");
+    assert!(!disconnected);
+    p.send(visit_json(1)).unwrap();
+    assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Received { .. })).is_some(), "visits have their own budget");
+    net.shutdown();
+}
+
+#[test]
+fn reconnecting_does_not_refill_any_budget() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let is_counted = |e: &NetEvent| matches!(e, NetEvent::Received { .. } | NetEvent::Ladder { .. } | NetEvent::Steered { .. } | NetEvent::Asked { .. });
+    let flood = |p: &mut Peer| {
+        for i in 0..40 {
+            p.send(visit_json(i)).unwrap();
+            p.send(ladder_json(i)).unwrap();
+            p.send(json!({"type": "ping", "steer": {"visit_id": 1, "on": true, "keys": 1}})).unwrap();
+            p.send(json!({"type": "ping", "ask": "invite"})).unwrap();
+        }
+    };
+    let mut first = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    flood(&mut first);
+    let (spent, _) = tally(&rx, Duration::from_millis(500), is_counted);
+    assert!(spent >= 72, "the whole budget went through: {spent}"); // 방문 20 + 사다리 20 + 조작 30 + 부탁 2
+    drop(first);
+    std::thread::sleep(Duration::from_millis(200));
+    let mut second = raw_friend_connect(port, &kz, "zzzz");
+    std::thread::sleep(Duration::from_millis(200));
+    flood(&mut second);
+    // 시간이 지나 찬 만큼만: 0.5초에 방문·사다리 하나씩, 조작 초당 30, 부탁 2초에 하나
+    let (again, _) = tally(&rx, Duration::from_millis(500), is_counted);
+    assert!(again <= 40, "budgets carried over the reconnect: {again}");
     net.shutdown();
 }
 

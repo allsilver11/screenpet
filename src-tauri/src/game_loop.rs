@@ -37,6 +37,8 @@ const TICK: Duration = Duration::from_millis(16);
 const WORLD_REFRESH: Duration = Duration::from_millis(100);
 const SAVE_EVERY: Duration = Duration::from_secs(60);
 const MAX_DT: f64 = 0.05;
+/// 한 틱에 처리하는 입력 수의 상한 (틱 16ms면 초당 4000개, 친구 메시지 예산을 다 더한 것보다 훨씬 많다)
+const MAX_INPUTS_PER_TICK: usize = 64;
 /// slots[OWN] = 내 동물 (항상 맨 앞), 그 뒤는 손님
 const OWN: usize = 0;
 /// macOS: 조작 모드를 켠 뒤 이만큼 동안 키가 한 번도 눌린 것으로 읽히지 않으면 입력 모니터링 권한 안내 (실행마다 한 번)
@@ -283,7 +285,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut key_hint_shown = false;
 
     loop {
-        while let Ok(input) = rx.try_recv() {
+        // 한 틱에 처리할 입력은 정해 둔다 (남은 건 다음 틱에) — 입력이 쏟아져도 화면이 멈추지 않는다
+        for _ in 0..MAX_INPUTS_PER_TICK {
+            let Ok(input) = rx.try_recv() else { break };
             match input {
                 Input::PointerDown { label } => {
                     // 한 번에 한 마리만 잡는다. 음식을 들고 있는 동안의 누름은 주기·거두기 (아래 매 틱 처리)
