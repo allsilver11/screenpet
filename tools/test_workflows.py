@@ -1,7 +1,12 @@
 """GitHub Actions 설정: 실제 실행은 푸시해야 보이니, 깨지기 쉬운 약속을 여기서 지킨다."""
+import json
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -117,3 +122,169 @@ def test_a_branch_push_with_an_open_pr_runs_once():
             # test를 건너뛴 것이 괜찮은 건 태그뿐: 같은 저장소의 PR이면 빌드도 건너뛴다
             assert "needs.test.result == 'success'" in job["if"], name
             assert "startsWith(github.ref, 'refs/tags/v') && needs.test.result == 'skipped'" in job["if"], name
+
+
+# ---- 릴리즈 --------------------------------------------------------------------
+
+def release():
+    return build()["jobs"]["release"]
+
+
+def script(job, name):
+    return next(s for s in job["steps"] if s.get("name") == name)
+
+
+def fake_gh(tmp_path, json_reply):
+    """--jq는 진짜 jq로 돌리고 받은 인자를 적어 두는 가짜 gh."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (tmp_path / "reply.json").write_text(json_reply, encoding="utf-8")
+    gh = bin_dir / "gh"
+    gh.write_text(
+        '#!/bin/bash\n'
+        'echo "$*" >> "$GH_LOG"\n'
+        'if [ -n "${GH_FAIL_ON:-}" ] && [[ "$*" == *"$GH_FAIL_ON"* ]]; then echo boom >&2; exit 1; fi\n'
+        'while [ $# -gt 0 ]; do if [ "$1" = --jq ]; then shift; jq -r "$1" "$GH_REPLY"; fi; shift; done\n',
+        encoding="utf-8",
+    )
+    gh.chmod(0o755)
+    return bin_dir
+
+
+def run_script(tmp_path, step, reply, cwd=None, **env):
+    bin_dir = fake_gh(tmp_path, reply)
+    full = {
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "GH_LOG": str(tmp_path / "gh.log"),
+        "GH_REPLY": str(tmp_path / "reply.json"),
+        "GITHUB_REPOSITORY": "me/pets",
+        "GITHUB_SHA": "abc123",
+        **{k: str(v) for k, v in step.get("env", {}).items() if "${{" not in str(v)},
+        **{k: str(v) for k, v in env.items()},
+    }
+    result = subprocess.run(["bash", "-c", step["run"]], env=full, cwd=cwd or tmp_path, capture_output=True, text=True, timeout=30)
+    log = tmp_path / "gh.log"
+    return result, log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+
+def check_runs(*runs):
+    return json.dumps({"check_runs": [{"app": {"slug": slug}, "status": status, "conclusion": conclusion} for slug, status, conclusion in runs]})
+
+
+needs_jq = pytest.mark.skipif(not shutil.which("jq"), reason="jq 없음")
+VERIFY = "Verify the tagged commit passed the test job"
+
+
+def test_only_the_release_job_can_write():
+    jobs = build()["jobs"]
+    assert release()["permissions"] == {"contents": "write", "checks": "read"}
+    for name, job in jobs.items():
+        if name != "release":
+            assert "permissions" not in job, name
+
+
+def test_builds_only_upload_artifacts_and_fail_when_they_made_nothing():
+    upload = [s for s in steps("build") if s.get("uses", "").startswith("actions/upload-artifact")]
+    assert len(upload) == 1 and upload[0]["with"]["if-no-files-found"] == "error"
+    assert not [s for s in steps("build") if "action-gh-release" in s.get("uses", "")]
+
+
+def test_builds_cover_both_platforms_and_one_failure_does_not_cancel_the_other():
+    strategy = build()["jobs"]["build"]["strategy"]
+    assert strategy["fail-fast"] is False
+    assert {(r["os"], r["artifact"]) for r in strategy["matrix"]["include"]} == {
+        ("windows-latest", "screenpet-windows"), ("macos-latest", "screenpet-macos"),
+    }
+
+
+def test_release_needs_a_fully_successful_build_on_a_tag():
+    """test가 건너뛰어지면 그 뒤 작업도 조용히 건너뛰니, 결과를 직접 물어야 태그에서 돈다."""
+    job = release()
+    assert job["needs"] == "build"
+    assert "!cancelled()" in job["if"]
+    assert "needs.build.result == 'success'" in job["if"]
+    assert "startsWith(github.ref, 'refs/tags/v')" in job["if"]
+
+
+def test_release_runs_no_repo_code():
+    """쓰기 토큰을 든 작업: 저장소 파일은 읽기만 한다."""
+    for step in release()["steps"]:
+        assert not re.search(r"\b(npm|npx|cargo|python|pip|make|node)\b|\./", step.get("run", "")), step
+        if "uses" in step:
+            assert step["uses"].split("@")[0] in {"actions/checkout", "actions/download-artifact", "softprops/action-gh-release"}, step
+
+
+def test_release_checks_come_before_anything_is_published():
+    order = [s.get("name") or s.get("uses", "") for s in release()["steps"]]
+    publish = next(i for i, s in enumerate(release()["steps"]) if "action-gh-release" in s.get("uses", ""))
+    assert order.index(VERIFY) < publish
+    assert order.index("Require the release notes") < publish
+    assert publish == len(order) - 1
+
+
+def test_release_publishes_notes_and_every_installer_or_fails():
+    step = next(s for s in release()["steps"] if "action-gh-release" in s.get("uses", ""))
+    assert step["with"]["body_path"] == "docs/releases/${{ github.ref_name }}.md"
+    assert step["with"]["fail_on_unmatched_files"] is True
+    files = step["with"]["files"]
+    for ext in ("msi", "exe", "dmg"):
+        assert f"dist/**/*.{ext}" in files
+
+
+def test_release_downloads_what_the_builds_upload():
+    names = {s["with"]["name"] for s in release()["steps"] if s.get("uses", "").startswith("actions/download-artifact")}
+    assert names == {r["artifact"] for r in build()["jobs"]["build"]["strategy"]["matrix"]["include"]}
+
+
+@pytest.mark.parametrize("present", [True, False])
+def test_release_notes_guard(tmp_path, present):
+    if present:
+        (tmp_path / "docs" / "releases").mkdir(parents=True)
+        (tmp_path / "docs" / "releases" / "v1.2.3.md").write_text("안녕\n", encoding="utf-8")
+    step = script(release(), "Require the release notes")
+    result, _ = run_script(tmp_path, step, "{}", TAG="v1.2.3")
+    assert (result.returncode == 0) == present, result.stderr
+    if not present:
+        assert "docs/releases/v1.2.3.md" in result.stdout
+
+
+@needs_jq
+def test_verify_accepts_a_passed_test_even_beside_the_tag_runs_own_skipped_one(tmp_path):
+    """태그 실행의 test는 skipped로 같은 커밋에 남고, 가장 최근 것이기도 하다."""
+    reply = check_runs(("github-actions", "completed", "success"), ("github-actions", "completed", "skipped"))
+    result, log = run_script(tmp_path, script(release(), VERIFY), reply)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "repos/me/pets/commits/abc123/check-runs" in log[0]
+    assert "check_name=test" in log[0] and "filter=all" in log[0]
+
+
+@needs_jq
+@pytest.mark.parametrize("runs", [
+    [],
+    [("github-actions", "completed", "skipped")],
+    [("github-actions", "completed", "failure")],
+    [("someone-else", "completed", "success")],
+])
+def test_verify_refuses_a_commit_without_a_passed_test(tmp_path, runs):
+    result, _ = run_script(tmp_path, script(release(), VERIFY), check_runs(*runs))
+    assert result.returncode == 1
+    assert "::error::" in result.stdout and "abc123" in result.stdout
+
+
+@needs_jq
+def test_verify_waits_for_a_running_test_but_not_forever(tmp_path):
+    """main과 태그를 같이 푸시하면 빌드가 30분 걸리는 test보다 먼저 끝난다."""
+    reply = check_runs(("github-actions", "in_progress", None))
+    result, log = run_script(tmp_path, script(release(), VERIFY), reply, WAIT_MINUTES=0, POLL_SECONDS=0)
+    assert result.returncode == 1
+    assert "::error::" in result.stdout
+    # 기다림의 끝이 작업 시간 제한보다 먼저 와야 위 메시지가 보인다
+    step = script(release(), VERIFY)
+    assert step["env"]["WAIT_MINUTES"] >= build()["jobs"]["test"]["timeout-minutes"]
+    assert step["env"]["WAIT_MINUTES"] + 5 <= release()["timeout-minutes"]
+
+
+@needs_jq
+def test_verify_fails_when_github_cannot_answer(tmp_path):
+    result, _ = run_script(tmp_path, script(release(), VERIFY), "{}", GH_FAIL_ON="check-runs")
+    assert result.returncode != 0
