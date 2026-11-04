@@ -234,14 +234,29 @@ fn control_food_home_focus_and_homesick_pets_do_not_take_part() {
         ("homesick", Box::new(|p| p.set_guest(crate::visit::Side::Right, 0.0))),
         ("fed", Box::new(|p| { p.feed_result(crate::care::FeedResult::Ate { leveled_up: false }, crate::care::Food::Meal); })),
     ];
+    // 비교: 아무 일 없는 짝은 같은 자리·같은 순서로 만난다
+    let mut pets = head_on_pair(&w, 200.0, 3);
+    pets[1].update(1.0, &w);
+    pets[1].state = State::Move { kind: Move::Walk, remaining: 60.0 };
+    pets[1].facing = -1.0;
+    pets[1].body.x = 1000.0;
+    pets[1].update(DT, &w);
+    let mut s = always(None, 3);
+    s.tick(DT, &mut pets);
+    assert!(pets.iter().any(|p| phase(p).is_some()), "the control pair meets");
     for (name, setup) in setups {
         let mut pets = head_on_pair(&w, 200.0, 3);
         setup(&mut pets[1]);
         // 손님의 집 생각은 시간이 지나야 든다
         pets[1].update(1.0, &w);
-        if !matches!(pets[1].state, State::Move { .. }) {
-            pets[1].state = State::Move { kind: Move::Walk, remaining: 60.0 };
-        }
+        // 여전히 바쁜 채로 다시 걷는 자세로 돌려놓고 걷는 조각을 새로 안다 (자세만 보면 만날 수 있는 모습)
+        pets[1].state = State::Move { kind: Move::Walk, remaining: 60.0 };
+        pets[1].facing = -1.0;
+        pets[1].body.x = 1000.0;
+        pets[1].update(DT, &w);
+        pets[1].state = State::Move { kind: Move::Walk, remaining: 60.0 };
+        pets[1].facing = -1.0;
+        assert!(pets[1].walks_on_surface(), "{name}");
         let mut s = always(None, 3);
         s.tick(DT, &mut pets);
         assert!(pets.iter().all(|p| phase(p).is_none()), "{name}");
@@ -287,22 +302,23 @@ fn it_is_rolled_once_per_meeting_and_then_cools_down() {
 fn it_happens_about_as_often_as_promised_and_every_kind_shows_up() {
     let w = floor();
     let (mut met, n) = (0, 400);
-    let mut stomped = [0; 2];
+    let mut kinds = [0; 4];
+    let all = [MeetKind::Stomp, MeetKind::HighBounce, MeetKind::Pass, MeetKind::Climb];
     for seed in 0..n {
         let mut pets = head_on_pair(&w, 200.0, seed);
         let mut s = Social::new(seed);
         s.tick(DT, &mut pets);
         if pets.iter().any(|p| phase(p).is_some()) {
             met += 1;
-            let brace = pets.iter().any(|p| phase(p) == Some(MeetPhase::Brace));
-            stomped[brace as usize] += 1;
+            let kind = pets.iter().find_map(Pet::meet_kind).expect("a jumper has a plan");
+            kinds[all.iter().position(|k| *k == kind).unwrap()] += 1;
         } else {
             assert_eq!(s.active(), 1, "otherwise they greet as before");
         }
     }
     let share = met as f64 / n as f64;
     assert!((share - MEET_CHANCE).abs() < 0.08, "{share}");
-    assert!(stomped[0] > 10 && stomped[1] > 10, "{stomped:?}");
+    assert!(kinds.iter().all(|&k| k > 30), "every kind about a quarter: {kinds:?}");
 }
 
 #[test]

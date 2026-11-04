@@ -131,9 +131,9 @@ fn close_pets_on_the_same_surface_stop_face_each_other_and_say_hi() {
     }
     run(&mut s, &mut pets, &w, 0.8);
     for p in &pets {
-        if is_greet(p) {
-            assert!(matches!(p.render().anim, Anim::Wave | Anim::Tilt), "{:?}", p.render());
-        }
+        // 인사는 1.5초 넘게 가니 아직 인사 중이다
+        assert!(is_greet(p), "{:?}", p.state);
+        assert!(matches!(p.render().anim, Anim::Wave | Anim::Tilt), "{:?}", p.render());
     }
     // 걷지 않고 제자리
     assert_eq!(pets[0].body.x, 800.0);
@@ -164,10 +164,15 @@ fn greeting_lasts_about_two_seconds_and_the_pair_cools_down() {
     let mut starts = Vec::new();
     let mut ends = Vec::new();
     let mut was = false;
+    let mut greet_end = None;
     let ticks = (400.0 / DT) as usize;
     for t in 0..ticks {
         s.tick(DT, &mut pets);
         let now = s.active() > 0;
+        // 술래 놀이로 이어져도 인사 자체는 여기서 끝이다
+        if !starts.is_empty() && greet_end.is_none() && !pets.iter().all(is_greet) {
+            greet_end = Some(t as f64 * DT);
+        }
         if now != was {
             if now { starts.push(t as f64 * DT) } else { ends.push(t as f64 * DT) }
             was = now;
@@ -183,9 +188,9 @@ fn greeting_lasts_about_two_seconds_and_the_pair_cools_down() {
             assert!(next - end >= GREET_COOLDOWN.0 - 0.1, "cooldown too short: {starts:?} {ends:?}");
         }
     }
-    // 처음 인사 (술래 놀이로 이어지지 않았다면) 1.5–2.5초
-    let first = ends[0] - starts[0];
-    assert!(first >= GREET_SECS.0 - 0.05, "{first}");
+    // 처음 인사 1.5–2.5초
+    let first = greet_end.unwrap() - starts[0];
+    assert!((GREET_SECS.0 - 0.05..=GREET_SECS.1 + 0.05).contains(&first), "{first}");
 }
 
 #[test]
@@ -313,6 +318,8 @@ fn the_chaser_stops_at_the_end_of_its_surface() {
         assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
         assert!(p.body.x <= 1100.0 - 38.4 + 1e-6);
     }
+    // 끝까지 갔다
+    assert!(pets[0].body.x >= 1100.0 - 38.4 - 1.0, "{}", pets[0].body.x);
 }
 
 #[test]
@@ -426,6 +433,23 @@ fn tickling_or_feeding_interrupts_play() {
     run(&mut s, &mut pets, &w, 0.1);
     assert_eq!(pets[1].social_role(), None);
     assert_eq!(pets[0].social_role(), None);
+    assert_eq!(s.active(), 0);
+    // 간질이기: 커서로 도망자 위를 문지른다
+    let mut pets = vec![ground(&w, friendly(), 800.0, 1), ground(&w, friendly(), 1200.0, 2)];
+    let mut s = Social::new(1);
+    s.start_play(&mut pets, 0, 1, true);
+    assert_eq!(s.active(), 1);
+    for i in 0..60 {
+        let (x, y) = (pets[1].body.x, pets[1].body.y - 40.0);
+        pets[1].hover(x + if i % 2 == 0 { -30.0 } else { 30.0 }, y, true);
+        step(&mut s, &mut pets, &w);
+        if s.active() == 0 {
+            break;
+        }
+    }
+    assert_eq!(s.active(), 0);
+    assert_eq!(pets[0].social_role(), None);
+    assert_eq!(pets[1].social_role(), None);
 }
 
 #[test]
@@ -446,7 +470,128 @@ fn many_pets_pair_up_one_game_each() {
     let mut pets: Vec<Pet> = (0..11).map(|k| ground(&w, friendly(), 100.0 + 150.0 * k as f64, k as u64)).collect();
     let mut s = Social::new(2);
     run(&mut s, &mut pets, &w, 5.0);
-    assert!(s.active() <= 5);
+    assert!((1..=5).contains(&s.active()), "{}", s.active());
+    // 한 동물은 한 놀이에만: 역할이 있는 동물 수 = 짝 수 × 2
+    assert_eq!(pets.iter().filter(|p| p.social_role().is_some()).count(), 2 * s.active());
+}
+
+// ---- 인사 없이 바로 술래 놀이 · 술래 바꾸기 · 놀이 뒤 쿨다운 ----
+
+/// 몸 3개쯤 떨어진 짝은 (인사 거리 밖) 드물게 바로 술래 놀이를 시작한다: 1초에 PLAY_RATE × 더 놀고 싶은 쪽의 eagerness
+#[test]
+fn a_pair_in_play_range_sometimes_starts_a_chase_without_greeting_at_the_promised_rate() {
+    let w = world(vec![]);
+    let (n, secs, dt) = (600u64, 30.0, 0.1);
+    let share = |c: PetConfig| {
+        let mut started = 0;
+        for seed in 0..n {
+            let mut pets = vec![ground(&w, c, 800.0, seed), ground(&w, c, 800.0 + 3.0 * 128.0, seed + 1000)];
+            let mut s = Social::new(seed);
+            for _ in 0..(secs / dt) as usize {
+                s.tick(dt, &mut pets);
+                if s.active() > 0 {
+                    let mut got = roles(&pets);
+                    got.sort_by_key(|r| *r == Some(SocialRole::Flee));
+                    assert_eq!(got, vec![Some(SocialRole::Chase), Some(SocialRole::Flee)], "straight to the chase, no greeting");
+                    started += 1;
+                    break;
+                }
+            }
+        }
+        started as f64 / n as f64
+    };
+    let expected = |rate: f64| 1.0 - (-rate * secs).exp();
+    let friendly_share = share(friendly());
+    assert!((friendly_share - expected(PLAY_RATE)).abs() < 0.08, "{friendly_share}");
+    let playful_share = share(cfg(Personality::Playful));
+    assert!((playful_share - expected(2.0 * PLAY_RATE)).abs() < 0.08, "{playful_share}");
+    // 놀이 거리 밖이면 시작하지 않는다
+    let mut pets = vec![ground(&w, friendly(), 300.0, 1), ground(&w, friendly(), 300.0 + 5.5 * 128.0, 2)];
+    let mut s = Social::new(1);
+    for _ in 0..3000 {
+        s.tick(dt, &mut pets);
+    }
+    assert_eq!(s.active(), 0);
+}
+
+/// 코앞의 짝: 시작하자마자 잡는다. 하트 뒤 SWAP_CHANCE로 잡혔던 쪽이 술래가 되고, 한 번만 바꾼다
+#[test]
+fn after_a_catch_the_caught_one_sometimes_becomes_the_chaser_but_only_once() {
+    let w = world(vec![]);
+    let n = 500u64;
+    let mut swapped = 0;
+    for seed in 0..n {
+        let mut pets = vec![ground(&w, friendly(), 800.0, seed), ground(&w, friendly(), 840.0, seed + 1000)];
+        let mut s = Social::new(seed);
+        s.start_play(&mut pets, 0, 1, true);
+        step(&mut s, &mut pets, &w);
+        assert!(pets.iter().all(is_greet), "caught at once: {:?}", roles(&pets));
+        // 하트가 끝나는 틱까지
+        for _ in 0..((CAUGHT_SECS + 0.2) / DT) as usize {
+            if !pets.iter().all(is_greet) {
+                break;
+            }
+            step(&mut s, &mut pets, &w);
+        }
+        if s.active() == 0 {
+            assert_eq!(roles(&pets), vec![None, None]);
+            continue;
+        }
+        swapped += 1;
+        assert_eq!(roles(&pets), vec![Some(SocialRole::Flee), Some(SocialRole::Chase)], "seed {seed}");
+        // 코앞이라 곧 다시 잡힌다: 이번엔 더 바꾸지 않고 끝난다
+        step(&mut s, &mut pets, &w);
+        assert!(pets.iter().all(is_greet), "seed {seed}: {:?}", roles(&pets));
+        run(&mut s, &mut pets, &w, CAUGHT_SECS + 0.1);
+        assert_eq!(s.active(), 0, "seed {seed}");
+    }
+    let share = swapped as f64 / n as f64;
+    assert!((share - SWAP_CHANCE).abs() < 0.07, "{share}");
+}
+
+#[test]
+fn a_game_cools_the_pair_down_longer_than_a_greeting() {
+    let w = world(vec![]);
+    let mut greeted_only = 0;
+    for seed in 0..40 {
+        // 술래 놀이 뒤: PLAY_COOLDOWN
+        let mut pets = vec![ground(&w, friendly(), 800.0, seed), ground(&w, friendly(), 840.0, seed + 1000)];
+        let keys = pair(pets[0].social_key(), pets[1].social_key());
+        let mut s = Social::new(seed);
+        s.start_play(&mut pets, 0, 1, true);
+        // 잡힌 뒤 (술래 바꾸기가 나오면 끝날 때까지 다시 잡히게 둔다)
+        for _ in 0..(60.0 / DT) as usize {
+            if s.active() == 0 {
+                break;
+            }
+            pets[0].body.x = pets[1].body.x + 40.0;
+            step(&mut s, &mut pets, &w);
+        }
+        assert_eq!(s.active(), 0, "seed {seed}");
+        let left = s.cooldown[&keys] - s.clock;
+        assert!((PLAY_COOLDOWN.0 - 0.1..=PLAY_COOLDOWN.1).contains(&left), "seed {seed}: {left}");
+        // 그 시간 동안은 코앞에서 쉬고 있어도 다시 어울리지 않는다
+        for (p, x) in pets.iter_mut().zip([800.0, 840.0]) {
+            let fresh = ground(&w, friendly(), x, 1);
+            (p.body, p.standing, p.state) = (fresh.body, fresh.standing, resting());
+            assert!(p.social_free(), "{:?}", p.state);
+        }
+        for _ in 0..((PLAY_COOLDOWN.0 - 1.0) / 0.5) as usize {
+            s.tick(0.5, &mut pets);
+            assert_eq!(s.active(), 0, "seed {seed}");
+        }
+        // 인사만 한 짝은 더 짧다 (술래 놀이로 이어지지 않은 경우)
+        let mut pets = vec![ground(&w, friendly(), 800.0, seed), ground(&w, friendly(), 950.0, seed + 1000)];
+        let keys = pair(pets[0].social_key(), pets[1].social_key());
+        let mut s = Social::new(seed);
+        run(&mut s, &mut pets, &w, GREET_SECS.1 + 0.1);
+        if s.active() == 0 {
+            greeted_only += 1;
+            let left = s.cooldown[&keys] - s.clock;
+            assert!((GREET_COOLDOWN.0 - 1.0..=GREET_COOLDOWN.1).contains(&left), "seed {seed}: {left}");
+        }
+    }
+    assert!(greeted_only > 5, "{greeted_only}");
 }
 
 #[test]

@@ -88,6 +88,14 @@ impl MeetPlan {
     }
 }
 
+#[cfg(test)]
+impl Pet {
+    /// 이 동물이 뛰는 만남의 종류 (뛰는 쪽만)
+    pub(crate) fn meet_kind(&self) -> Option<MeetKind> {
+        self.meet.map(|m| m.kind)
+    }
+}
+
 impl Pet {
     /// 스스로 걷거나 달리는 걷는 동물 (마주침을 볼 수 있다)
     pub fn walks_on_surface(&self) -> bool {

@@ -211,9 +211,19 @@ fn a_rider_that_changes_size_comes_off_and_a_removed_carrier_too() {
     let mut s = Social::new(8);
     let mut pets = tower(&mut s, &w, 2, 800.0);
     step(&mut s, &mut pets, &w);
+    assert!(pets[1].is_on_head() && pets[0].has_rider());
     pets[1].cfg.size = 90.0;
     s.tick(DT, &mut pets);
     assert!(!pets[1].is_on_head() && !pets[0].has_rider());
+    // 태운 쪽이 화면에서 사라지면 (떠나거나 친구가 끊겼다) 위에 있던 쪽은 내려온다
+    let mut s = Social::new(8);
+    let mut pets = tower(&mut s, &w, 2, 800.0);
+    step(&mut s, &mut pets, &w);
+    assert!(pets[1].is_on_head());
+    pets.remove(0);
+    s.tick(DT, &mut pets);
+    assert!(!pets[0].is_on_head(), "{:?}", pets[0].state);
+    assert_eq!(s.tower_height(pets[0].social_key()), 1);
 }
 
 #[test]
@@ -353,6 +363,7 @@ fn a_rider_does_not_poop_notice_poop_or_socialise() {
         let mut pets = tower(&mut s, &w, 2, 800.0);
         pets.push(ground(&w, friendly(), 860.0, seed + 500));
         step(&mut s, &mut pets, &w);
+        assert!(pets[1].is_on_head(), "{:?}", pets[1].state);
         assert!(pets[1].try_poop().is_none());
         assert!(!pets[1].social_free());
         let before = pets[1].state;
@@ -744,6 +755,7 @@ fn a_climb_whose_target_left_just_falls_to_a_surface() {
     s.meet_only = Some(MeetKind::Climb);
     s.tick(DT, &mut pets);
     let j = if pets[0].is_climbing() { 0 } else { 1 };
+    assert!(pets[j].is_climbing(), "{:?}", pets[j].state);
     let t = 1 - j;
     pets[t].state = State::Dragged;
     all_land_held(&mut s, &mut pets, &w, 3.0, t);
@@ -788,6 +800,7 @@ fn soak_towers_form_stay_bounded_and_always_come_down() {
         for p in &pets {
             assert!(!p.is_on_head());
             assert!(p.standing.is_some() || matches!(p.state, State::Air { .. } | State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::Leap { .. }), "{:?}", p.state);
+            assert!(p.body.y <= GROUND + 1e-9 && p.body.x >= 0.0 && p.body.x <= 1920.0, "{:?}", p.body);
         }
     }
     assert!(tallest >= 3, "towers should form: {tallest}");

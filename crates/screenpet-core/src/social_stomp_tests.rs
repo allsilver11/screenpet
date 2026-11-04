@@ -55,6 +55,40 @@ fn about_a_third_tumble_away_and_flyers_only_wobble() {
     assert!((share - TUMBLE_CHANCE).abs() < 0.05, "{share}");
 }
 
+/// 어느 쪽에 있든 공룡 반대쪽으로 구른다
+#[test]
+fn a_tumble_rolls_away_from_the_dino_on_either_side() {
+    let w = world(vec![]);
+    for (friend_x, dir) in [(950.0, 1.0), (650.0, -1.0)] {
+        let tumbled = (0..200).find_map(|seed| {
+            let mut pets = vec![ground(&w, dino(), 800.0, seed), ground(&w, friendly(), friend_x, seed + 1)];
+            pets[0].force_stomp();
+            Social::new(seed).tick(DT, &mut pets);
+            match pets[1].state {
+                State::Tumble { dir, .. } => Some(dir),
+                _ => None,
+            }
+        });
+        assert_eq!(tumbled, Some(dir), "friend at {friend_x}");
+    }
+}
+
+/// 날아서 떠 있는 공룡의 쿵쾅은 바닥을 흔들지 않는다 (거리만 보면 가까운 땅의 친구까지 닿는다)
+#[test]
+fn a_dino_in_the_air_shakes_nobody() {
+    let w = world(vec![]);
+    let flying = PetConfig { flies: true, ..dino() };
+    let mut pets = vec![ground(&w, flying, 800.0, 1), ground(&w, friendly(), 900.0, 2)];
+    pets[0].force_stomp();
+    pets[0].standing = None;
+    pets[0].body.y -= 100.0;
+    let mut s = Social::new(1);
+    s.tick(DT, &mut pets);
+    assert!(!pets[1].wobbling());
+    assert_eq!(pets[1].take_speech(), None);
+    assert!(!pets[0].take_stomp(), "the stomp is used up");
+}
+
 /// 자던 친구는 투덜 깨고, 들려 있거나 먹는 친구는 그대로, 한 번 흔들리면 10초 동안은 다시 흔들리지 않는다
 #[test]
 fn sleepers_wake_grumpy_busy_pets_are_skipped_and_there_is_a_cooldown() {
