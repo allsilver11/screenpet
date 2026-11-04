@@ -191,6 +191,11 @@ fn follow_ridden_windows(source: &mut dyn WindowSource, slots: &mut [Slot], gift
     }
 }
 
+/// 하우스 안, 집으로 가는 중, 또는 하우스에서 나와 먹는 중(다 먹으면 들어갈 참)
+fn in_or_going_home(pet: &Pet) -> bool {
+    pet.is_housed() || pet.is_going_home() || pet.returns_home()
+}
+
 /// 하우스에서 꺼낸다: 문 앞에서 걸어 나온다 (가는 중이었다면 그 자리에서 멈춘다). 집 창은 숨긴다
 fn leave_house_now(app: &AppHandle, own: &mut Slot, house_window: Option<&tauri::WebviewWindow>) {
     let spot = house::spot(app, &own.world.work_areas, own.dpi);
@@ -439,8 +444,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         continue;
                     }
                     let spot = house::spot(&app, &own.world.work_areas, own.dpi);
-                    // 하우스에서 나와 먹는 중(다 먹으면 들어갈 참)도 "하우스에서 나오기"다
-                    if own.pet.is_housed() || own.pet.is_going_home() || own.pet.returns_home() {
+                    if in_or_going_home(&own.pet) {
                         leave_house_now(&app, own, house_window.as_ref());
                         config.housed = false;
                     } else {
@@ -556,19 +560,18 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 input @ (Input::Net(NetInput::SendTo(_)) | Input::Net(NetInput::SubmitLetter(_))) => {
                     // 놀러 보내기 (편지 들려 보내기도 같은 길 — Visit에 편지를 싣는다):
                     // 하우스 안이면 먼저 문 앞으로 나온 뒤 그 친구 쪽 끝으로 간다
-                    let is_letter = matches!(input, Input::Net(NetInput::SubmitLetter(_)));
-                    let (id, note) = match input {
-                        Input::Net(NetInput::SubmitLetter(text)) => match network.letter_target(&text) {
-                            Some(x) => x,
-                            None => continue,
-                        },
-                        Input::Net(NetInput::SendTo(id)) => (id, None),
+                    let (id, note, is_letter) = match input {
+                        Input::Net(NetInput::SubmitLetter(text)) => {
+                            let Some((id, note)) = network.letter_target(&text) else { continue };
+                            (id, note, true)
+                        }
+                        Input::Net(NetInput::SendTo(id)) => (id, None, false),
                         _ => continue,
                     };
                     let own = &mut slots[OWN];
                     let mut sent = false;
                     if network.can_send(own, &id) {
-                        if own.pet.is_housed() || own.pet.is_going_home() || own.pet.returns_home() {
+                        if in_or_going_home(&own.pet) {
                             leave_house_now(&app, own, house_window.as_ref());
                             config.housed = false;
                             sync_menu(&app, &own.entry, &care, config.housed);
