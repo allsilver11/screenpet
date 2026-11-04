@@ -22,14 +22,16 @@ impl Pet {
         if self.exit_odds(side) <= 0.0 {
             return false;
         }
-        let wa = world.work_area_at(self.body.x, self.body.y);
-        let height = if wa.height() > 0.0 { (self.body.y - wa.top) / wa.height() } else { 1.0 };
-        let dpi = self.cfg.dpi.max(0.01);
-        let fling = Fling { height, vx: self.body.vx / dpi, vy: self.body.vy / dpi }.sanitized();
+        self.fling_over(world, side);
+        true
+    }
+
+    /// 던진 비행이 side 끝을 넘어 사라진다
+    pub(super) fn fling_over(&mut self, world: &World, side: Side) {
+        let fling = visit::fling_across(world, side, &self.body, self.cfg.dpi);
         self.thrown = false;
         self.vanish(side);
         self.fling = fling;
-        true
     }
 
     /// 던져서 넘어간 움직임 (take_exit 뒤에 한 번 꺼낸다)

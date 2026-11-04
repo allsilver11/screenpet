@@ -242,11 +242,7 @@ impl Pet {
         if self.exit_odds(side) <= 0.0 {
             return false;
         }
-        let dpi = self.cfg.dpi.max(0.01);
-        let fling = Fling { height: visit::edge_fraction(&world.bounds, self.body.x), vx: self.body.vx / dpi, vy: vy / dpi }.sanitized();
-        self.thrown = false;
-        self.vanish(side);
-        self.fling = fling;
+        self.fling_over(world, side);
         true
     }
 

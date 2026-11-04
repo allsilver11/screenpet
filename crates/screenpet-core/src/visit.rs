@@ -4,6 +4,7 @@ use crate::behavior;
 use crate::geom::Rect;
 use crate::surfaces::{EndKind, Owner, Surface};
 pub use crate::world::Side;
+use crate::physics::Body;
 use crate::world::World;
 
 /// 연결된 화면 끝에 닿았을 때 걸어 나갈 확률 (내 동물)
@@ -134,6 +135,22 @@ impl Fling {
         let (vx, vy) = crate::physics::clamp_speed(self.vx, self.vy, MAX_FLING_SPEED);
         Some(Fling { height: self.height.clamp(0.0, 1.0), vx, vy })
     }
+}
+
+/// 던진 것이 side 끝을 넘어갈 때 친구 화면에 넘겨줄 움직임: 옆 끝은 작업 영역 높이 비율, 위/아래 끝은 폭 비율 + 논리 속도. 숫자가 이상하면 None
+pub fn fling_across(world: &World, side: Side, body: &Body, dpi: f64) -> Option<Fling> {
+    let height = if is_vertical(side) {
+        edge_fraction(&world.bounds, body.x)
+    } else {
+        let wa = world.work_area_at(body.x, body.y);
+        if wa.height() > 0.0 {
+            (body.y - wa.top) / wa.height()
+        } else {
+            1.0
+        }
+    };
+    let dpi = dpi.max(0.01);
+    Fling { height, vx: body.vx / dpi, vy: body.vy / dpi }.sanitized()
 }
 
 /// 손님이 exited 끝으로 떠났을 때 이어 갈 친구 (Leave의 next — 주인이 자기 친구일 때만 이어 보낸다).

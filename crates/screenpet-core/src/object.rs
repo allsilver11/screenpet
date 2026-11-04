@@ -662,17 +662,7 @@ impl Object {
             None
         };
         let side = exit?;
-        let height = if visit::is_vertical(side) {
-            visit::edge_fraction(&b, x)
-        } else {
-            let wa = world.work_area_at(x, y);
-            if wa.height() > 0.0 {
-                (y - wa.top) / wa.height()
-            } else {
-                1.0
-            }
-        };
-        let fling = Fling { height, vx: vx / dpi, vy: vy / dpi }.sanitized()?;
+        let fling = visit::fling_across(world, side, &self.body, dpi)?;
         self.thrown = false;
         Some(Exit { side, fling })
     }
