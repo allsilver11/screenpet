@@ -65,6 +65,10 @@ const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift, Esc로
 /// macOS: 키가 늘 안 눌림으로 읽힐 때 한 번 — 말풍선은 줄바꿈 없이 창(128px)에 잘리니 한 줄로 짧게 (어디서 켜는지는 ui/help.html)
 pub const KEY_PERMISSION_HINT: &str = "키 권한 필요해요";
 const SHOW_CODE_ID: &str = "net:show-code";
+/// 🎲 사다리타기 (설정 화면 / 진행 중인 판), 초대 받기 체크, 지난 결과
+const LADDER_ID: &str = "net:ladder";
+const LADDER_INVITES_ID: &str = "net:ladder-invites";
+const LADDER_LAST_ID: &str = "net:ladder-last";
 const ENTER_CODE_ID: &str = "net:enter-code";
 
 /// `친구랑 놀기 ▸`에 보일 것 (게임 루프의 네트워크 상태에서 만든다 — 바뀔 때만 다시 그린다)
@@ -83,6 +87,18 @@ pub struct FriendsMenu {
     pub relay: Option<bool>,
     /// 손님을 더 받을 자리가 있음 ("펫 데리고 오기" 활성)
     pub room: bool,
+    pub ladder: LadderMenu,
+}
+
+/// `친구랑 놀기 ▸`의 사다리타기 줄
+#[derive(Debug, Clone, PartialEq)]
+pub struct LadderMenu {
+    /// "🎲 사다리타기…" 활성 (판이 있거나, 사다리를 아는 친구가 연결돼 있고 내가 집중 중·하우스 안이 아님)
+    pub open: bool,
+    /// "사다리 초대 받기" 체크
+    pub invites: bool,
+    /// "🎲 지난 사다리 결과" 보임
+    pub last: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -217,6 +233,12 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         }
         submenu.append(&send)?;
     }
+    // 사다리타기 (사다리를 모르는 예전 판 친구는 설정 화면에서 흐리게 보인다)
+    submenu.append(&MenuItem::with_id(app, LADDER_ID, "🎲 사다리타기…", model.ladder.open, None::<&str>)?)?;
+    if model.ladder.last {
+        submenu.append(&MenuItem::with_id(app, LADDER_LAST_ID, "🎲 지난 사다리 결과", true, None::<&str>)?)?;
+    }
+    submenu.append(&CheckMenuItem::with_id(app, LADDER_INVITES_ID, "사다리 초대 받기", true, model.ladder.invites, None::<&str>)?)?;
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
     for f in &model.friends {
         let dot = if f.connected { "●" } else { "○" };
@@ -504,6 +526,12 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::SendOn { label: label.to_string(), friend: friend.to_string() });
                 } else if other == COME_HOME_ID {
                     net(NetInput::ComeHome);
+                } else if other == LADDER_ID {
+                    net(NetInput::LadderOpen);
+                } else if other == LADDER_LAST_ID {
+                    net(NetInput::LadderShowLast);
+                } else if other == LADDER_INVITES_ID {
+                    net(NetInput::ToggleLadderInvites);
                 } else if other == SHOW_CODE_ID {
                     net(NetInput::ShowCode);
                 } else if other == ENTER_CODE_ID {

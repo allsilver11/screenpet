@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+        background: #fffaf2;
+        color: #3b3024;
+        font-size: 13px;
+        user-select: none;
+        overflow: hidden;
+      }
+      .view { position: absolute; inset: 0; padding: 12px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; }
+      .center { align-items: center; justify-content: center; text-align: center; }
+      h1 { font-size: 15px; margin: 0; }
+      .note { font-size: 12px; color: #6b5a47; }
+      .warn { font-size: 12px; color: #b4613a; font-weight: 600; min-height: 1em; }
+      .box { background: #fff; border: 1px solid #ecdcc4; border-radius: 10px; padding: 6px 10px; }
+      .scroll { overflow-y: auto; }
+      ul.plain { list-style: none; margin: 0; padding: 0; }
+      ul.plain li { display: flex; align-items: center; gap: 6px; padding: 2px 0; min-height: 24px; }
+      ul.plain.box { padding: 4px 10px; }
+      ul.plain li .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      li.dim { color: #a8977f; }
+      .tag { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: #f3e9da; color: #6b5a47; white-space: nowrap; }
+      .tag.joined { background: #dff3d8; color: #2f6b22; }
+      .tag.out { background: #f6dcd6; color: #8a3a2a; }
+      button {
+        font: inherit;
+        font-size: 13px;
+        padding: 4px 11px;
+        border-radius: 8px;
+        border: 1px solid #c9b79f;
+        background: #fff;
+        cursor: pointer;
+        color: inherit;
+      }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.primary { background: #ffcf8a; border-color: #e0a54f; font-weight: 600; }
+      button.small { font-size: 11px; padding: 1px 7px; }
+      button.mood { width: 30px; padding: 2px 0; }
+      input[type="text"] { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid #c9b79f; border-radius: 6px; min-width: 0; flex: 1; background: #fffdf8; color: inherit; }
+      input[type="number"] { font: inherit; width: 44px; padding: 2px 4px; border: 1px solid #c9b79f; border-radius: 6px; }
+      .row { display: flex; align-items: center; gap: 8px; }
+      .buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: auto; }
+      .center .buttons { justify-content: center; margin-top: 4px; }
+      #print, .print { font-size: 24px; letter-spacing: 3px; }
+      /* 게임 화면 */
+      #board { position: absolute; inset: 0; }
+      #lines { position: absolute; inset: 0; overflow: visible; }
+      .runner { position: absolute; background-repeat: no-repeat; will-change: transform; }
+      body.pixel .runner { image-rendering: pixelated; }
+      .nametag {
+        position: absolute; transform: translateX(-50%); font-size: 11px; font-weight: 600; white-space: nowrap;
+        background: #fff; border: 1px solid #ecdcc4; border-radius: 8px; padding: 0 5px; line-height: 16px;
+      }
+      .nametag.me { background: #ffcf8a; border-color: #e0a54f; }
+      .slot {
+        position: absolute; transform: translateX(-50%); text-align: center; font-size: 12px; line-height: 15px;
+        background: #fff; border: 1px solid #ecdcc4; border-radius: 8px; padding: 3px 4px; box-sizing: border-box;
+        word-break: keep-all; overflow-wrap: anywhere; transition: background 0.3s;
+      }
+      .slot.good { border-color: #9ccf8a; }
+      .slot.bad { border-color: #e2a596; }
+      .slot.hit { background: #fff1c9; }
+      #gamebar { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; gap: 8px; align-items: center; }
+      #table { position: absolute; inset: 0; background: rgba(255, 250, 242, 0.96); display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px; box-sizing: border-box; }
+      #table ul { width: 100%; max-width: 320px; }
+      .chips { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; max-height: 64px; overflow: hidden; }
+      .chip { font-size: 12px; background: #fff; border: 1px solid #ecdcc4; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <!-- 방장: 친구 고르기 + 결과 칸 -->
+    <section class="view" id="v-setup" hidden>
+      <h1>🎲 사다리타기</h1>
+      <div class="note">같이 할 친구를 고르세요 (방장 포함 10명까지)</div>
+      <ul class="plain box scroll" id="friends" style="max-height: 150px"></ul>
+      <div class="row">
+        <label><input type="radio" name="mode" value="preset" checked /> 당첨</label>
+        <input type="number" id="winners" min="1" max="9" value="1" />
+        <span>개 + 꽝</span>
+        <label style="margin-left: auto"><input type="radio" name="mode" value="custom" /> 직접 적기</label>
+      </div>
+      <ul class="plain box scroll" id="slots" style="flex: 1"></ul>
+      <div class="warn" id="setup-warn"></div>
+      <div class="buttons">
+        <button id="setup-close">닫기</button>
+        <button id="invite" class="primary">초대</button>
+      </div>
+    </section>
+
+    <!-- 참가자: 초대 받음 (포커스를 뺏지 않는 창 — 키로는 답하지 않는다) -->
+    <section class="view center" id="v-invite" hidden>
+      <h1 id="invite-title"></h1>
+      <div class="note" id="invite-count"></div>
+      <div id="invite-slots" class="chips"></div>
+      <div class="note">참가 인원에 따라 결과 칸이 줄어들 수 있어요<br />참가하면 다른 참가자에게 내 이름과 동물이 보여요</div>
+      <div class="buttons">
+        <button id="decline" tabindex="-1">안 할래요</button>
+        <button id="join" class="primary" tabindex="-1">참가</button>
+      </div>
+    </section>
+
+    <!-- 짧은 안내 (참가함 / 잠김 / 취소) -->
+    <section class="view center" id="v-small" hidden>
+      <h1 id="small-title"></h1>
+      <div class="note" id="small-note"></div>
+      <div class="buttons"><button id="small-close"></button></div>
+    </section>
+
+    <!-- 게임 -->
+    <section class="view" id="v-game" hidden style="padding: 0">
+      <div id="board">
+        <svg id="lines"></svg>
+      </div>
+      <div id="gamebar">
+        <span class="note" id="game-note"></span>
+        <button id="all" class="small">모두 한꺼번에</button>
+      </div>
+      <div id="table" hidden>
+        <h1 id="table-title"></h1>
+        <ul class="plain box" id="table-rows"></ul>
+        <div class="print" id="table-print"></div>
+        <div class="note">모두의 이모지가 같으면 공정한 게임이에요</div>
+        <div class="buttons">
+          <button id="copy">결과 복사</button>
+          <button id="game-close" class="primary">닫기</button>
+        </div>
+      </div>
+    </section>
+
+    <script src="common.js"></script>
+    <script src="ladder.js"></script>
+  </body>
+</html>
