@@ -5,6 +5,7 @@ use super::tests::{cfg, place};
 use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::physics::{GRAVITY, MAX_THROW_SPEED_LOGICAL, THROW_FEEL, THROW_LIFT};
+use crate::test_util::LoopLimit;
 
 const DT: f64 = 1.0 / 60.0;
 
@@ -75,7 +76,9 @@ fn typical_flick_is_gentler_than_the_old_throw_but_still_a_throw() {
     // 예전 물리: 커서 속도 그대로, 중력 2500
     let mut old = Body { vx: 1500.0, vy: -900.0, ..start };
     let (mut old_ticks, mut old_top) = (0, start.y);
+    let mut limit = LoopLimit::new();
     while old.y < 1040.0 {
+        limit.step();
         crate::physics::step_air(&mut old, DT, &w.bounds, 38.0, 128.0, GRAVITY);
         old_top = old_top.min(old.y);
         old_ticks += 1;

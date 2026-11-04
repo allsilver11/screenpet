@@ -3,6 +3,7 @@
 use super::snow_moves::{SnowPhase, PETAL_LOOK_UP_MULT, ROLL_SECS};
 use super::tests::{cfg, place, sim_cfg, w1, world};
 use super::*;
+use crate::test_util::LoopLimit;
 
 const DT: f64 = 1.0 / 60.0;
 
@@ -135,7 +136,9 @@ fn the_snowball_stays_on_the_ground_near_a_wall() {
     p.set_snow_ready(true);
     p.start_snowman(-1.0);
     let b = w.work_areas[0];
+    let mut limit = LoopLimit::new();
     while matches!(p.state, State::Snowman { phase: SnowPhase::Roll, .. }) {
+        limit.step();
         p.update(DT, &w);
         let ball = p.snowball_at().unwrap();
         assert!(ball.0 >= b.left && ball.0 <= b.right, "{ball:?}");

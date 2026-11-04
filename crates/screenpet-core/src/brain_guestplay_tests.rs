@@ -3,6 +3,7 @@
 use super::guest_play::{pick_guest_click, steer_away, GuestClick, CATCH_ME_SECS, CORNER_COMMIT_SECS, DODGE_BODIES};
 use super::tests::{place, sim_cfg, w1, world};
 use super::*;
+use crate::test_util::LoopLimit;
 
 const DT: f64 = 1.0 / 60.0;
 
@@ -161,7 +162,9 @@ fn run_ends_after_its_time_with_a_heart_or_a_look_back() {
         p.hover(800.0, 900.0, false);
         p.start_catch_me();
         let mut t = 0.0;
+        let mut limit = LoopLimit::new();
         while p.is_catch_me() {
+            limit.step();
             p.hover(800.0, 900.0, false);
             p.update(DT, &w);
             t += DT;

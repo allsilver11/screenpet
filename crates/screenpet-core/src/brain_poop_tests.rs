@@ -4,6 +4,7 @@ use super::tests::{cfg, place, sim_cfg, world};
 use super::*;
 use crate::geom::WindowInfo;
 use crate::poop::{self, PoopSpot};
+use crate::test_util::LoopLimit;
 
 const DT: f64 = 1.0 / 60.0;
 const FLOOR: Owner = Owner::Ground(0);
@@ -198,7 +199,9 @@ fn a_hop_over_really_lands_past_the_poop_and_a_turn_walks_away() {
     for seed in 0..80 {
         let mut p = walker(&w, 800.0, seed);
         p.poop.calm_until = 0.0;
+        let mut limit = LoopLimit::new();
         loop {
+            limit.step();
             p.notice_poops(&spots, &w);
             if !matches!(p.state, State::Move { .. }) {
                 break;

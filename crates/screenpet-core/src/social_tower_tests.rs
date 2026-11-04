@@ -6,6 +6,7 @@ use crate::behavior::Move;
 use crate::brain::control_moves::ControlInput;
 use crate::brain::tower_moves::{RIDE_MAX_SECS, RIDE_SECS};
 use crate::poop::PoopSpot;
+use crate::test_util::LoopLimit;
 
 const HEAD: f64 = 0.8 * 128.0;
 
@@ -110,7 +111,9 @@ fn a_rider_comes_down_by_itself_within_its_few_seconds() {
     let mut s = Social::new(4);
     let mut pets = tower(&mut s, &w, 2, 900.0);
     let mut t = 0.0;
+    let mut limit = LoopLimit::new();
     while pets[1].is_on_head() {
+        limit.step();
         pets[0].state = resting();
         step(&mut s, &mut pets, &w);
         t += DT;
@@ -125,7 +128,9 @@ fn no_pet_stays_up_past_the_hard_limit_even_under_another() {
     let mut s = Social::new(5);
     let mut pets = tower(&mut s, &w, 3, 900.0);
     let mut t = 0.0;
+    let mut limit = LoopLimit::new();
     while pets[1].is_on_head() {
+        limit.step();
         // 맨 위는 영영 안 내려간다고 치자
         if let Some((_, age)) = pets[2].ride_clock() {
             pets[2].state = State::OnHead { remaining: 50.0, age };

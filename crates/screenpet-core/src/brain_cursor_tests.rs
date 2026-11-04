@@ -4,6 +4,7 @@ use super::cursor_moves::*;
 use super::tests::{cfg, place, sim_cfg, w1, win, world};
 use super::*;
 use crate::geom::Rect;
+use crate::test_util::LoopLimit;
 
 const DT: f64 = 1.0 / 60.0;
 const SPECIES: [&str; 16] = [
@@ -225,7 +226,9 @@ fn walkers_stay_on_their_surface_while_approaching() {
     p.set_cursor_species("dog");
     let cursor = (1250.0, 200.0);
     assert!(wait_for_play(&mut p, &w, cursor));
+    let mut limit = LoopLimit::new();
     while matches!(p.state, State::CursorPlay { .. }) {
+        limit.step();
         tick(&mut p, &w, cursor);
         if matches!(p.state, State::CursorPlay { .. }) {
             assert_eq!(p.body.y, 400.0);
@@ -406,7 +409,9 @@ fn it_follows_the_cursor_then_lets_go_within_five_seconds_and_falls() {
     }
     assert!((p.body.x - (x0 - 60.0)).abs() < 3.0, "{} vs {}", p.body.x, x0 - 60.0);
     let mut secs = 30.0 * DT;
+    let mut limit = LoopLimit::new();
     while matches!(p.state, State::CursorHang { .. }) {
+        limit.step();
         tick(&mut p, &w, c);
         secs += DT;
         assert!(secs <= HANG_SECS.1 + 0.1, "hung too long");
@@ -426,7 +431,9 @@ fn shaking_the_mouse_shakes_it_off_early_with_a_whoa() {
     let mut x = cursor.0;
     let mut dir = 1.0;
     let mut ticks = 0;
+    let mut limit = LoopLimit::new();
     while matches!(p.state, State::CursorHang { .. }) {
+        limit.step();
         if ticks % 5 == 4 {
             dir = -dir;
         }
@@ -456,11 +463,15 @@ fn a_cursor_snatched_away_mid_leap_makes_it_miss() {
     let cursor = (1000.0, 800.0);
     let (mut p, w) = ready_pet(cfg(), 25);
     assert!(wait_for_play(&mut p, &w, cursor));
+    let mut limit = LoopLimit::new();
     while !matches!(p.state, State::CursorLeap { .. }) {
+        limit.step();
         tick(&mut p, &w, cursor);
     }
     let away = (100.0, 100.0);
+    let mut limit = LoopLimit::new();
     while matches!(p.state, State::CursorLeap { .. }) {
+        limit.step();
         tick(&mut p, &w, away);
     }
     assert!(matches!(p.state, State::Air { .. }), "{:?}", p.state);
@@ -604,7 +615,9 @@ fn clinging_rides_the_window_then_climbs_back_or_drops() {
         p.update(DT, &w);
         assert!(p.body.y > 300.0 && p.body.y < 300.0 + 128.0, "dangles below the top edge: {}", p.body.y);
         let mut secs = 0.0;
+        let mut limit = LoopLimit::new();
         while matches!(p.state, State::EdgeCling { .. }) {
+            limit.step();
             p.update(DT, &w);
             secs += DT;
             assert!(secs < QUAKE_CLING_SECS + 0.1);

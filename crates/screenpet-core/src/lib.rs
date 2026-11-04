@@ -26,3 +26,6 @@ pub mod tumble;
 pub mod visit;
 pub mod weather;
 pub mod world;
+
+#[cfg(test)]
+mod test_util;

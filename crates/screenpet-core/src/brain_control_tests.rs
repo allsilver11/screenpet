@@ -3,6 +3,7 @@
 use super::control_moves::{ControlInput, CONTROL_IDLE_SECS, JUMP_BODIES, REMOTE_STALE_SECS};
 use super::tests::{place, sim_cfg, win, world};
 use super::*;
+use crate::test_util::LoopLimit;
 
 const DT: f64 = 1.0 / 60.0;
 
@@ -189,7 +190,9 @@ fn arrows_steer_a_little_in_the_air() {
     p.control_keys(keys(|k| k.jump = true), DT);
     p.update(DT, &w);
     let mut max_vx: f64 = 0.0;
+    let mut limit = LoopLimit::new();
     while p.standing.is_none() {
+        limit.step();
         p.control_keys(keys(|k| k.right = true), DT);
         p.update(DT, &w);
         max_vx = max_vx.max(p.body.vx.abs());

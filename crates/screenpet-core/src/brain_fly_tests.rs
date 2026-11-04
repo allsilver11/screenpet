@@ -5,6 +5,7 @@ use super::*;
 use crate::care::{FeedResult, Food};
 use crate::flight::{self, Goal};
 use crate::sting::StingPhase;
+use crate::test_util::LoopLimit;
 
 const DT: f64 = 1.0 / 60.0;
 
@@ -250,7 +251,9 @@ fn roll_is_a_loop_de_loop_on_the_way() {
     p.start_flight(Goal::Point(1500.0, 700.0), Move::Roll);
     let (mut looped, mut min_y, mut start_y) = (0, f64::MAX, None);
     assert_eq!(p.render().anim, Anim::Walk);
+    let mut limit = LoopLimit::new();
     while p.flight.is_some() {
+        limit.step();
         p.update(DT, &w);
         if p.render().anim == Anim::Roll {
             looped += 1;
@@ -271,7 +274,9 @@ fn bee_flies_home_in_an_arc_and_goes_in() {
     let mut p = hovering(300.0, 300.0, idle(), 1);
     p.go_home(Owner::Ground(0), 1500.0);
     let mut ticks = 0;
+    let mut limit = LoopLimit::new();
     while !p.is_housed() {
+        limit.step();
         p.update(DT, &w);
         ticks += 1;
         assert!(ticks < 60 * 20, "never got home: {:?} {:?}", p.state, p.body);
@@ -300,7 +305,9 @@ fn bee_dragged_on_the_way_home_flies_home_from_where_it_was_dropped() {
     p.pointer_up(1700.0, 160.0);
     let mut prev = (p.body.x, p.body.y);
     let mut ticks = 0;
+    let mut limit = LoopLimit::new();
     while !p.is_housed() {
+        limit.step();
         p.update(DT, &w);
         // 놓인 자리에서 이어서 난다 (예전 길로 순간이동하지 않는다)
         assert!((p.body.x - prev.0).hypot(p.body.y - prev.1) < 10.0, "jump {prev:?} -> {:?}", p.body);
@@ -372,7 +379,9 @@ fn guest_bee_flies_in_from_the_edge() {
     assert!(p.body.x - p.cfg.half_w >= 1920.0 && p.standing.is_none());
     assert!(p.body.y < 1040.0 - 200.0);
     let mut ticks = 0;
+    let mut limit = LoopLimit::new();
     while matches!(p.state, State::Enter { .. }) {
+        limit.step();
         p.update(DT, &w);
         ticks += 1;
         assert!(ticks < 60 * 10 && p.standing.is_none());
@@ -513,7 +522,9 @@ fn recoil_looks_grumpy_and_the_bee_flies_on_after_1_5_s() {
     assert!(run_until(&mut p, &w, 60, |p| p.sting_at.is_some()));
     assert!(p.take_sting().is_some());
     let mut ticks = 0;
+    let mut limit = LoopLimit::new();
     while matches!(p.state, State::Sting { .. }) {
+        limit.step();
         if let State::Sting { phase: StingPhase::Recoil, .. } = p.state {
             assert_eq!(p.render().anim, Anim::Annoyed);
         }

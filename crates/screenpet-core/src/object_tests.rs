@@ -3,6 +3,7 @@ use crate::geom::{Rect, WindowInfo};
 use crate::visit::{ExitEdges, Fling, Side};
 use crate::surfaces::Owner;
 use crate::world::World;
+use crate::test_util::LoopLimit;
 
 const DT: f64 = 0.016;
 
@@ -113,7 +114,9 @@ fn gusts_come_every_30_to_90_seconds_and_only_a_short_way() {
         run(&mut o, &w, 0.5);
         let start = o.body.x;
         let mut t = 0.0;
+        let mut limit = LoopLimit::new();
         while o.is_asleep() {
+            limit.step();
             o.tick(DT, &w, NONE, true);
             t += DT;
             assert!(t <= GUST_EVERY_SECS.1 + 1.0, "no gust in time");
@@ -121,7 +124,9 @@ fn gusts_come_every_30_to_90_seconds_and_only_a_short_way() {
         assert!(t >= GUST_EVERY_SECS.0 - 1.0, "gust too soon: {t}");
         // 그동안 혼자 움직였다가 다시 잠든다
         let mut t = 0.0;
+        let mut limit = LoopLimit::new();
         while !o.is_asleep() {
+            limit.step();
             o.tick(DT, &w, NONE, false);
             t += DT;
             assert!(t < 5.0, "gust never ended");
@@ -587,7 +592,9 @@ fn queued_and_live_foreign_objects_share_the_twenty_and_the_live_ones_go_first()
 fn tumble(o: &mut Object, w: &World) -> (f64, f64, f64) {
     let start = o.body.x;
     let (mut turned, mut t) = (0.0f64, 0.0f64);
+    let mut limit = LoopLimit::new();
     while !o.is_asleep() {
+        limit.step();
         let before = o.angle();
         o.tick(DT, w, NONE, false);
         // 잠들 때 각도를 한 바퀴 안으로 접으므로 그때는 세지 않는다
@@ -642,7 +649,9 @@ fn after_landing_it_keeps_rolling_forward_then_friction_stops_it() {
     let mut o = thrown(ObjectKind::Can, &w, 3000.0, (1400.0, 0.0), 1);
     // 바닥에 처음 닿아 구르기 시작할 때까지 날아간다
     let mut t = 0.0;
+    let mut limit = LoopLimit::new();
     while !o.is_rolling() {
+        limit.step();
         o.tick(DT, &w, NONE, false);
         t += DT;
         assert!(t < 6.0, "never touched down");
@@ -651,7 +660,9 @@ fn after_landing_it_keeps_rolling_forward_then_friction_stops_it() {
     assert!(o.body.vx > 0.0 && o.spin() > 0.0, "vx {} spin {}", o.body.vx, o.spin());
     let mut last_v = o.body.vx;
     let mut t = 0.0;
+    let mut limit = LoopLimit::new();
     while o.body.vx > 0.0 {
+        limit.step();
         o.tick(DT, &w, NONE, false);
         assert!(o.body.vx <= last_v, "friction only slows it");
         last_v = o.body.vx;
@@ -709,7 +720,9 @@ fn a_gentle_drop_only_wobbles_a_little_and_comes_back() {
             assert_eq!(o.spin(), 0.0, "{kind:?}");
             let mut most = 0.0f64;
             let mut t = 0.0;
+            let mut limit = LoopLimit::new();
             while !o.is_asleep() {
+                limit.step();
                 o.tick(DT, &w, NONE, false);
                 most = most.max(o.angle().abs());
                 t += DT;
@@ -726,7 +739,9 @@ fn a_landing_wobbles_at_least_visibly() {
     let w = floor();
     let mut o = Object::new(ObjectKind::Milk, 800.0, 900.0, 1.0, 1);
     let mut most = 0.0f64;
+    let mut limit = LoopLimit::new();
     while !o.is_asleep() {
+        limit.step();
         o.tick(DT, &w, NONE, false);
         most = most.max(o.angle().abs());
     }
@@ -815,7 +830,9 @@ fn rolling_off_a_window_keeps_turning_and_falls_naturally() {
     o.pointer_up();
     let mut fell_spinning = false;
     let mut t = 0.0;
+    let mut limit = LoopLimit::new();
     while !o.is_asleep() {
+        limit.step();
         let was_on_window = o.owner() == Some(Owner::Window(1));
         o.tick(DT, &w, NONE, false);
         fell_spinning |= was_on_window && o.owner().is_none() && o.spin() != 0.0;

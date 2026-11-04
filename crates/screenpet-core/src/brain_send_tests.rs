@@ -4,6 +4,7 @@
 use super::send_moves::{SEND_POOF_SECS, SEND_WAVE_SECS};
 use super::tests::{cfg, place, sim_cfg, w1, world};
 use super::*;
+use crate::test_util::LoopLimit;
 
 const DT: f64 = 1.0 / 60.0;
 
@@ -70,7 +71,9 @@ fn the_last_moment_of_the_wave_is_a_poof() {
     p.send_to(Side::Left, false);
     let mut t = 0.0;
     let mut first_poof = None;
+    let mut limit = LoopLimit::new();
     while p.take_exit().is_none() {
+        limit.step();
         p.update(DT, &w);
         t += DT;
         if p.render().poof && first_poof.is_none() {
@@ -93,7 +96,9 @@ fn a_cancelled_poof_shows_the_pet_again_and_a_vanished_one_stays_poofed() {
     let mut p = Pet::new(sim_cfg(), 0.0, 0.0, 1);
     place(&mut p, &w, Owner::Ground(0), 700.0, idle());
     p.send_to(Side::Left, false);
+    let mut limit = LoopLimit::new();
     while !p.render().poof {
+        limit.step();
         p.update(DT, &w);
     }
     // 뿅 하는 중에 그 친구가 끊겼다 — 바로 다시 보인다 (poof 아님)
