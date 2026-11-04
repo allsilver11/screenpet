@@ -159,9 +159,9 @@ impl Live {
 /// 창을 기다리는 똥 (틱마다 하나씩 — 창 만들기는 메인 스레드를 기다린다). 받은 쓰레기 줄과 따로 세어 서로 밀어내지 않는다
 enum WaitingPoop {
     /// 동물이 쌌다
-    Dropped { kind: ObjectKind, x: f64, y: f64 },
+    Dropped { kind: ObjectKind, x: f64, y: f64, scale: f64 },
     /// 친구가 던졌다
-    Tossed(AcceptedToss, Side),
+    Tossed(AcceptedToss, Side, f64),
 }
 
 pub struct Objects {
@@ -266,7 +266,7 @@ impl Objects {
     /// 메뉴에서 만들기: 커서 근처(트레이에서 눌렀으면 그 위)에서 떨어진다. 넘치면 가장 오래된 내 물건이 뿅
     fn spawn_own(&mut self, app: &AppHandle, kind: ObjectKind, base: &World, cursor: (f64, f64)) {
         let id = self.next_id();
-        let Some(window) = build_window(app, id, kind, false) else { return };
+        let Some(window) = build_window(app, id, kind, false, 1.0) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let b = world.bounds;
@@ -278,8 +278,8 @@ impl Objects {
     }
 
     /// 동물이 쌌다: (x, y)에서 떨어지기 시작한다. 창은 tick이 만든다
-    pub fn drop_poop(&mut self, kind: ObjectKind, x: f64, y: f64) {
-        self.queue_poop(WaitingPoop::Dropped { kind, x, y });
+    pub fn drop_poop(&mut self, kind: ObjectKind, x: f64, y: f64, scale: f64) {
+        self.queue_poop(WaitingPoop::Dropped { kind, x, y, scale });
     }
 
     fn queue_poop(&mut self, poop: WaitingPoop) {
@@ -320,7 +320,7 @@ impl Objects {
         if accepted.kind.is_poop() {
             // 💩 똥 싸기를 꺼 둔 사람에겐 조용히 사라진다 (날씨를 꺼 둔 사람의 흩날림처럼)
             if !config.poop_off {
-                self.queue_poop(WaitingPoop::Tossed(accepted, side));
+                self.queue_poop(WaitingPoop::Tossed(accepted, side, screenpet_core::poop::sanitize_size(toss.scale)));
             }
             return;
         }
@@ -345,7 +345,7 @@ impl Objects {
         }
         let Some((accepted, side)) = self.inbox.pop() else { return };
         let id = self.next_id();
-        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some()) else { return };
+        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), 1.0) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
@@ -357,19 +357,24 @@ impl Objects {
         let id = self.next_id();
         let kind = match &poop {
             WaitingPoop::Dropped { kind, .. } => *kind,
-            WaitingPoop::Tossed(accepted, _) => accepted.kind,
+            WaitingPoop::Tossed(accepted, ..) => accepted.kind,
         };
-        let Some(window) = build_window(app, id, kind, false) else { return };
+        let scale = match &poop {
+            WaitingPoop::Dropped { scale, .. } | WaitingPoop::Tossed(_, _, scale) => *scale,
+        };
+        let Some(window) = build_window(app, id, kind, false, scale) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let object = match poop {
-            WaitingPoop::Dropped { kind, x, y } => {
+            WaitingPoop::Dropped { kind, x, y, .. } => {
                 let b = world.bounds;
                 let margin = OBJECT_LOGICAL_SIZE * dpi / 2.0;
                 Object::new(kind, x.clamp(b.left + margin, (b.right - margin).max(b.left + margin)), y, dpi, fastrand::u64(..))
             }
-            WaitingPoop::Tossed(accepted, side) => Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..)),
+            WaitingPoop::Tossed(accepted, side, _) => Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..)),
         };
+        let mut object = object;
+        object.set_scale(scale);
         self.admit(id, window, object, Origin::Poop);
     }
 
@@ -584,7 +589,7 @@ impl Objects {
         self.budgets.entry(friend.clone()).or_default().spend(secs);
         self.threw_at.insert(friend.clone(), Instant::now());
         let (side, vside) = to_net_side(visit::opposite(exit.side));
-        let toss = Toss { kind: l.object.kind.id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false };
+        let toss = Toss { kind: l.object.kind.id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()) };
         eprintln!("threw a {} to {friend}{}", l.object.kind.id(), if toss.note.is_some() { " with a post-it" } else { "" });
         network.toss_to(&friend, toss);
     }
@@ -593,7 +598,7 @@ impl Objects {
 /// 던지고 이만큼 안에 되돌아온 물건만 내 것으로 본다
 const BOUNCE_WINDOW: Duration = Duration::from_secs(30);
 
-fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool) -> Option<WebviewWindow> {
+fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale: f64) -> Option<WebviewWindow> {
     let label = format!("{PREFIX}{id}");
     let shape = shape_of(kind);
     let (w, h) = (shape.window_side(), shape.window_side());
@@ -601,7 +606,7 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool) -> Op
     // kind.id()와 숫자는 코어 목록의 값뿐이다 (친구가 보낸 글자가 아니다)
     let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("object.html".into()))
         .title("ScreenPet Object")
-        .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}] }}; {}", kind.id(), crate::art::style_script()))
+        .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}], scale: {scale} }}; {}", kind.id(), crate::art::style_script()))
         .inner_size(w, h)
         .accept_first_mouse(true)
         .transparent(true)

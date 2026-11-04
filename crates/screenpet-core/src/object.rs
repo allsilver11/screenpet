@@ -181,6 +181,8 @@ enum Phase {
 
 #[derive(Debug, Clone)]
 pub struct Object {
+    /// 그림 크기 배율 (1 = 96 논리 px 칸)
+    scale: f64,
     pub kind: ObjectKind,
     /// x = 바닥 중심, y = 바닥 (화면 아래로 +)
     pub body: Body,
@@ -212,6 +214,15 @@ pub struct Object {
 
 impl Object {
     /// (x, y)에서 떨어지기 시작한다
+    /// 그림 크기 배율 (똥은 싼 동물 크기를 따른다, 웹뷰도 같은 값으로 그린다)
+    pub fn set_scale(&mut self, scale: f64) {
+        self.scale = scale;
+    }
+
+    pub fn scale(&self) -> f64 {
+        self.scale
+    }
+
     pub fn new(kind: ObjectKind, x: f64, y: f64, dpi: f64, seed: u64) -> Object {
         let mut rng = fastrand::Rng::with_seed(seed);
         let gust_in = next_gust(&mut rng);
@@ -219,6 +230,7 @@ impl Object {
             kind,
             body: Body { x, y, vx: 0.0, vy: 0.0 },
             dpi: dpi.max(0.01),
+            scale: 1.0,
             phase: Phase::Air,
             standing: None,
             angle: 0.0,
@@ -314,7 +326,7 @@ impl Object {
     /// 그림이 도는 축의 화면 자리 (물리 px): 창은 이곳을 가운데로 놓는다. 가장 낮은 점이 언제나 body.y에 온다
     pub fn pivot(&self) -> (f64, f64) {
         let shape = shape_of(self.kind);
-        (self.body.x + shape.pivot_offset_x() * self.dpi, self.body.y - shape.drop_at(self.angle) * self.dpi)
+        (self.body.x + shape.pivot_offset_x() * self.scale * self.dpi, self.body.y - shape.drop_at(self.angle) * self.scale * self.dpi)
     }
 
     /// 다음 바람이나 세계 변화까지 할 일이 없다 (창도 웹뷰도 건드리지 않는다)

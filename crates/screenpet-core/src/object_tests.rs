@@ -1152,3 +1152,19 @@ fn a_poop_swept_at_a_linked_edge_flies_across_and_at_a_closed_edge_stays() {
     assert!(run(&mut o, &w, 4.0).is_none());
     assert_eq!(o.body.y, 1040.0);
 }
+
+#[test]
+fn a_smaller_drawing_still_sits_on_the_floor() {
+    let w = World::new(Vec::new(), vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 96.0);
+    let (mut big, mut small) = (Object::new(ObjectKind::Poop, 800.0, 900.0, 1.0, 1), Object::new(ObjectKind::Poop, 800.0, 900.0, 1.0, 1));
+    small.set_scale(0.25);
+    for _ in 0..600 {
+        big.tick(DT, &w, NONE, false);
+        small.tick(DT, &w, NONE, false);
+    }
+    assert_eq!((big.body.y, big.angle), (small.body.y, small.angle), "same place on the floor");
+    let drop = crate::tumble::shape_of(ObjectKind::Poop).drop_at(big.angle);
+    assert!((big.body.y - big.pivot().1 - drop).abs() < 1e-6);
+    // 축이 그만큼 바닥에 가까워야 그림 아래쪽이 바닥에 닿는다
+    assert!((small.body.y - small.pivot().1 - drop * 0.25).abs() < 1e-6);
+}

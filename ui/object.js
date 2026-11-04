@@ -24,6 +24,10 @@ const note = document.getElementById("note");
 
 const spot = POSTIT_AT[info.kind] || POSTIT_AT.can;
 const SCALE = 96 / 128;
+// 그림 크기 배율 (앱이 정한다: 똥은 싼 동물 크기를 따른다). 코어 Object::scale과 같은 값
+const DRAW_SCALE = info.scale || 1;
+// 픽셀 똥은 칸이 정수라 동글보다 조금 크게 잡아야 단계 차이가 난다
+const PIXEL_POOP_DOT = 1.2;
 // 축을 아래쪽 정사각형(한 변 side)의 가운데에 놓는다 (창이 쪽지로 넓어져도 그대로, objects.rs logical_size)
 const side = info.side || 112;
 const [rawPivotX, pivotY0] = info.pivot || [48, 72];
@@ -53,8 +57,8 @@ function pixelPose(cells, pivot, angle, physics = 1) {
   return { quarter, drop: dropOf(cells, pivot, angle) * physics - dropOf(cells, pivot, quarter) };
 }
 // 칸 한 변·그림 한 변·축 (CSS px): 칸이 물리 px의 정수배. 축(96 논리 px 기준 좌표)도 그림과 같은 비율로, 물리 px에 맞춰서
-function pixelMetrics(dpr, [rawX, rawY]) {
-  const dot = Math.max(1, Math.round(3 * dpr)) / dpr;
+function pixelMetrics(dpr, [rawX, rawY], scale = 1) {
+  const dot = Math.max(1, Math.round(3 * scale * dpr)) / dpr;
   const k = dot / 4;
   const snap = (v) => Math.round(v * k * dpr) / dpr;
   return { dot, side: 24 * dot, pivotX: snap(rawX), pivotY: snap(rawY) };
@@ -62,12 +66,12 @@ function pixelMetrics(dpr, [rawX, rawY]) {
 // OBJECT-POSE-END
 
 function layout() {
-  const m = pixelArt ? pixelMetrics(window.devicePixelRatio || 1, [rawPivotX, pivotY0]) : { dot: 4, side: 96, pivotX: rawPivotX, pivotY: pivotY0 };
+  const m = pixelArt ? pixelMetrics(window.devicePixelRatio || 1, [rawPivotX, pivotY0], DRAW_SCALE < 1 ? DRAW_SCALE * PIXEL_POOP_DOT : 1) : { dot: 4 * DRAW_SCALE, side: 96 * DRAW_SCALE, pivotX: rawPivotX * DRAW_SCALE, pivotY: pivotY0 * DRAW_SCALE };
   dotPx = m.dot;
   pivotX = m.pivotX;
   pivotY = m.pivotY;
-  thing.style.width = pixelArt ? `${m.side}px` : "";
-  thing.style.height = pixelArt ? `${m.side}px` : "";
+  thing.style.width = pixelArt || DRAW_SCALE !== 1 ? `${m.side}px` : "";
+  thing.style.height = pixelArt || DRAW_SCALE !== 1 ? `${m.side}px` : "";
   const postit = pixelArt ? POSTIT_DOTS * dotPx : 21;
   // 포스트잇 자리: 96 논리 px 좌표 → 칸 (96 ÷ 24칸 = 칸마다 4)
   const px = pixelArt ? Math.round((spot[0] * SCALE) / 4) * dotPx : spot[0] * SCALE;
@@ -90,7 +94,7 @@ function applyPose(p) {
     return;
   }
   const dpr = window.devicePixelRatio || 1;
-  const { quarter, drop } = pixelPose(solid, [pivotX / dotPx, pivotY / dotPx], p.angle, 4 / dotPx);
+  const { quarter, drop } = pixelPose(solid, [pivotX / dotPx, pivotY / dotPx], p.angle, (4 * DRAW_SCALE) / dotPx);
   // 창 가운데(홀수 폭이면 반 px)·분수 이동이 칸을 어긋나게 하지 않도록 물리 px에 맞춘다
   const left = Math.round((window.innerWidth / 2 - pivotX + p.dx) * dpr) / dpr;
   thing.style.left = `${left}px`;

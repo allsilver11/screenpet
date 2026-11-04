@@ -723,7 +723,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     continue;
                 }
                 if let Some((x, y)) = s.pet.try_poop() {
-                    objects.drop_poop(screenpet_core::poop::kind_for(&s.entry.id), x, y);
+                    objects.drop_poop(screenpet_core::poop::kind_for(&s.entry.id), x, y, screenpet_core::poop::size_for(s.shown.scale));
                 }
             }
         }

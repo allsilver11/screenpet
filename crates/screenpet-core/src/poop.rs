@@ -46,6 +46,29 @@ pub fn may_poop(off: bool, hidden: bool, focusing: bool) -> bool {
     !off && !hidden && !focusing
 }
 
+/// 똥 그림 크기 범위 (96 논리 px 칸에 곱한다), 친구가 크기를 안 보냈을 때
+const SIZE_RANGE: (f64, f64) = (0.2, 0.9);
+const SIZE_UNKNOWN: f64 = 0.5;
+/// 몸 크기 배율에 곱한다: 몸의 4분의 1쯤 되는 똥
+const SIZE_PER_BODY: f64 = 0.5;
+
+/// 몸 크기 배율(단계 × 동물별, 일시 확대까지) → 똥 크기: 어린 동물일수록 작다
+pub fn size_for(body_scale: f64) -> f64 {
+    if body_scale.is_finite() {
+        (body_scale * SIZE_PER_BODY).clamp(SIZE_RANGE.0, SIZE_RANGE.1)
+    } else {
+        SIZE_UNKNOWN
+    }
+}
+
+/// 친구가 보낸 똥 크기를 다듬는다
+pub fn sanitize_size(sent: Option<f64>) -> f64 {
+    match sent {
+        Some(s) if s.is_finite() => s.clamp(SIZE_RANGE.0, SIZE_RANGE.1),
+        _ => SIZE_UNKNOWN,
+    }
+}
+
 /// 동물 종류 → 똥 그림: 토끼는 알갱이, 작은 동물은 작은 타원, 나머지는 타원
 pub fn kind_for(species: &str) -> ObjectKind {
     match species {
@@ -58,6 +81,20 @@ pub fn kind_for(species: &str) -> ObjectKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn poop_size_follows_the_body_and_a_friend_cannot_send_a_giant() {
+        // 고양이 아기 → 어른, 산타 어른
+        let baby = size_for(0.45 * 0.91);
+        let adult = size_for(1.15 * 0.91);
+        assert!((baby - 0.2047).abs() < 1e-3 && (adult - 0.523).abs() < 1e-3, "{baby} {adult}");
+        assert!(baby < size_for(0.78 * 0.91) && size_for(0.78 * 0.91) < adult);
+        assert!((size_for(1.15 * 1.65) - 0.9).abs() < 1e-9);
+        assert_eq!(size_for(f64::NAN), SIZE_UNKNOWN);
+        for (sent, want) in [(None, SIZE_UNKNOWN), (Some(f64::INFINITY), SIZE_UNKNOWN), (Some(50.0), 0.9), (Some(0.001), 0.2), (Some(0.4), 0.4)] {
+            assert_eq!(sanitize_size(sent), want, "{sent:?}");
+        }
+    }
 
     #[test]
     fn only_the_app_switches_decide_here() {

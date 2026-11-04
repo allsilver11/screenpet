@@ -134,6 +134,10 @@ pub struct Toss {
     /// the sender. Never bounced again; older versions ignore the flag.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bounced: bool,
+    /// How big the thing is drawn (a poop goes with the pet's size). The
+    /// receiver limits it; older versions ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_boost")]
+    pub scale: Option<f64>,
 }
 
 fn left_side() -> Side {
@@ -659,7 +663,7 @@ mod tests {
 
     #[test]
     fn ping_can_carry_a_toss_that_old_peers_ignore() {
-        let t = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Down), fling: Some(Fling { height: 0.5, vx: 300.0, vy: -20.0 }), note: Some("붙였어!".into()), bounced: false };
+        let t = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Down), fling: Some(Fling { height: 0.5, vx: 300.0, vy: -20.0 }), note: Some("붙였어!".into()), bounced: false, scale: None };
         let m = Message::Control(Control::Ping { ask: None, steer: None, toss: Some(t) });
         let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!((j["type"].as_str(), j["toss"]["kind"].as_str(), j["toss"]["side"].as_str(), j["toss"]["vside"].as_str(), j["toss"]["note"].as_str()), (Some("ping"), Some("can"), Some("right"), Some("down"), Some("붙였어!")));
@@ -684,7 +688,7 @@ mod tests {
         let odd = br#"{"type":"ping","toss":{"kind":"can","side":"north","vside":3,"fling":{"height":"x"},"note":[1]}}"#;
         assert_eq!(
             Message::parse(odd),
-            Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false }) }))
+            Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None }) }))
         );
         // side가 없어도 왼쪽
         assert!(matches!(Message::parse(br#"{"type":"ping","toss":{"kind":"can"}}"#), Some(Message::Control(Control::Ping { toss: Some(Toss { side: Side::Left, .. }), .. }))));
