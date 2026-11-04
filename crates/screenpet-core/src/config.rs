@@ -16,6 +16,9 @@ const BAK_FILE: &str = "config.json.bak";
 
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Config {
+    /// 파일을 읽지 못해 기본값으로 돈다 — 이 실행은 파일을 덮어쓰지 않는다 (친구 목록을 지키려고)
+    #[serde(skip)]
+    pub keep_file: bool,
     /// 마지막으로 고른 동물 폴더 이름
     pub pet: Option<String>,
     /// 동물별 돌보기 상태 (없으면 새끼부터)
@@ -371,34 +374,59 @@ mod hex32 {
 /// 설정을 읽는다. 없으면 기본값. 깨진 파일은 `config.json.bak`으로 남겨 두고 기본값으로 시작한다.
 pub fn load(dir: &Path) -> Config {
     let path = dir.join(FILE);
-    let Ok(text) = std::fs::read_to_string(&path) else { return Config::default() };
-    match serde_json::from_str(&text) {
+    let parsed = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text).map_err(|e| e.to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Config::default(),
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => Err(e.to_string()),
+        // 권한·잠금 등: 파일은 멀쩡할 수 있다. 기본값으로 돌되 덮어쓰지 않는다
+        Err(e) => {
+            eprintln!("config {} cannot be read ({e}); running on defaults without saving", path.display());
+            return Config { keep_file: true, ..Config::default() };
+        }
+    };
+    match parsed {
         Ok(c) => c,
         Err(e) => {
             let bak = dir.join(BAK_FILE);
             match std::fs::copy(&path, &bak) {
-                Ok(_) => eprintln!("config {} is corrupt ({e}); kept a copy at {}, starting fresh", path.display(), bak.display()),
-                Err(be) => eprintln!("config {} is corrupt ({e}); backup failed ({be}), starting fresh", path.display()),
+                Ok(_) => {
+                    eprintln!("config {} is corrupt ({e}); kept a copy at {}, starting fresh", path.display(), bak.display());
+                    Config::default()
+                }
+                // 백업이 없으면 덮어쓰지 않는다
+                Err(be) => {
+                    eprintln!("config {} is corrupt ({e}); backup failed ({be}), running on defaults without saving", path.display());
+                    Config { keep_file: true, ..Config::default() }
+                }
             }
-            Config::default()
         }
     }
 }
 
 /// 임시 파일에 다 쓴 뒤 이름을 바꿔 덮어쓴다 — 쓰다 꺼져도 이전 설정이 남는다
 pub fn save(dir: &Path, c: &Config) -> std::io::Result<()> {
+    if c.keep_file {
+        return Err(std::io::Error::other("the config file could not be read at start; not overwriting it"));
+    }
     std::fs::create_dir_all(dir)?;
     let tmp = dir.join(TMP_FILE);
-    std::fs::write(&tmp, serde_json::to_string_pretty(c)?)?;
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(serde_json::to_string_pretty(c)?.as_bytes())?;
+        // 이름을 바꾸기 전에 디스크까지 — 꺼져도 빈 파일이 남지 않는다
+        f.sync_all()?;
+    }
     std::fs::rename(&tmp, dir.join(FILE))
 }
 
 /// 장기 X25519 비밀키 파일 (config.json과 따로 — 설정 파일은 비밀이 아닌 것만 갖는다)
 const KEY_FILE: &str = "identity.key";
 const KEY_TMP_FILE: &str = "identity.key.tmp";
+const KEY_BAK_FILE: &str = "identity.key.bak";
 
 /// 이 설치의 비밀키(친구들이 고정한 신원)를 config 폴더의 `identity.key`(hex 64자)에서 읽는다.
-/// 없거나 내용이 깨졌으면 new_key()로 만들어 저장한다 (깨진 파일은 덮어쓴다 — 그러면 친구들과 다시 짝맞추기가 필요하다).
+/// 없거나 내용이 깨졌으면 new_key()로 만들어 저장한다 (깨진 파일은 `identity.key.bak`으로 남기고 — 못 남기면 Err — 새로 쓴다. 그러면 친구들과 다시 짝맞추기가 필요하다).
 /// 그 밖의 읽기 에러(권한 등)는 그대로 Err — 멀쩡할 수 있는 키를 덮어쓰지 않는다 (그 실행에서는 친구 기능을 끈다).
 ///
 /// 권한: Unix에서는 폴더를 0o700, 파일을 0o600으로 만든다. Windows에서는 config 폴더(%APPDATA% 아래)가
@@ -411,7 +439,10 @@ pub fn load_or_create_identity_key(dir: &Path, new_key: impl FnOnce() -> [u8; 32
                 lock_down(&path);
                 return Ok(k);
             }
-            eprintln!("identity key {} is corrupt; making a new one", path.display());
+            let bak = dir.join(KEY_BAK_FILE);
+            std::fs::copy(&path, &bak)?;
+            lock_down(&bak);
+            eprintln!("identity key {} is corrupt; kept a copy at {}, making a new one", path.display(), bak.display());
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
@@ -745,6 +776,53 @@ mod tests {
         std::fs::write(d.join("config.json"), "not json").unwrap();
         assert_eq!(load(&d), Config::default());
         assert_eq!(std::fs::read_to_string(d.join("config.json.bak")).unwrap(), "not json");
+    }
+
+    /// 읽기 권한 없는 파일로 읽기 실패를 만든다 (root로 돌면 읽히므로 건너뛴다)
+    #[cfg(unix)]
+    fn unreadable(d: &Path, name: &str, text: &str) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(d).unwrap();
+        let path = d.join(name);
+        std::fs::write(&path, text).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        std::fs::read(&path).is_err()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_config_that_cannot_be_read_is_never_overwritten() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = temp_dir("unreadable");
+        if !unreadable(&d, "config.json", "{\"pet\":\"dog\"}") {
+            return;
+        }
+        let c = load(&d);
+        assert_eq!(c.pet, None);
+        assert!(c.keep_file, "this run must not write over the friends it could not read");
+        assert!(save(&d, &c).is_err());
+        std::fs::set_permissions(d.join("config.json"), std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(load(&d).pet.as_deref(), Some("dog"));
+    }
+
+    #[test]
+    fn a_config_that_is_not_text_counts_as_corrupt() {
+        let d = temp_dir("notutf8");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("config.json"), [0xff, 0xfe, 0x00]).unwrap();
+        let c = load(&d);
+        assert!(!c.keep_file);
+        assert_eq!(std::fs::read(d.join("config.json.bak")).unwrap(), [0xff, 0xfe, 0x00]);
+    }
+
+    #[test]
+    fn a_corrupt_identity_key_is_kept_as_a_backup_before_a_new_one_is_made() {
+        let d = temp_dir("corruptkey");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("identity.key"), "not a key").unwrap();
+        let k = load_or_create_identity_key(&d, || [7u8; 32]).unwrap();
+        assert_eq!(k, [7u8; 32]);
+        assert_eq!(std::fs::read_to_string(d.join("identity.key.bak")).unwrap(), "not a key");
     }
 
     #[test]
