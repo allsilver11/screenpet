@@ -9,12 +9,42 @@ Wants=network-online.target
 ExecStart=%h/.local/bin/screenpet-relay --bind 0.0.0.0:9411 --data %h/.local/share/screenpet-relay
 Restart=always
 RestartSec=5
-# Data (relay.key, relay.json) stays private to the user.
+# SIGTERM: clients are told, threads end (a stuck write takes up to 5 s), data is saved.
+TimeoutStopSec=20
+# Data (relay.key, relay.json, control.json) stays private to the user.
 UMask=0077
 # Trust forwarded client addresses only from the proxy (and loopback).
 Environment=SCREENPET_RELAY_TRUSTED_PROXIES=192.168.0.52
+
+# Resources: 2048 connections + spare threads and descriptors. Queued frames
+# are capped at 512 MB in all, so MemoryMax holds at the worst case.
+LimitNOFILE=8192
+TasksMax=2200
+MemoryMax=1G
+
+# Sandbox. In a user unit the mount and kernel settings need a user namespace;
+# PrivateUsers says so explicitly (systemd would imply it anyway).
 NoNewPrivileges=true
+PrivateUsers=true
 PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+# Must exist before start (the unit fails with 226/NAMESPACE otherwise).
+ReadWritePaths=%h/.local/share/screenpet-relay
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# AF_UNIX is the admin socket.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]
 WantedBy=default.target

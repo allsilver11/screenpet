@@ -22,6 +22,8 @@ pub mod admin;
 mod conn;
 pub mod control;
 mod http;
+// The admin commands live here but are only reachable over a Unix socket.
+#[cfg_attr(not(unix), allow(dead_code))]
 mod hub;
 pub mod proto;
 pub mod store;
