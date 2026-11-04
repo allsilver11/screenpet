@@ -945,3 +945,18 @@ fn sigterm_tells_clients_and_saves() {
     assert!(text.contains(&pubhex(&k)));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The default connection cap can't run into a low soft descriptor limit.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_binary_raises_its_file_descriptor_limit() {
+    let dir = data_dir("fds");
+    let bin = Bin::start(&dir);
+    let limits = std::fs::read_to_string(format!("/proc/{}/limits", bin.child.id())).unwrap();
+    let line = limits.lines().find(|l| l.starts_with("Max open files")).unwrap();
+    let mut fields = line.split_whitespace().skip(3);
+    let (soft, hard): (u64, u64) = (fields.next().unwrap().parse().unwrap(), fields.next().unwrap().parse().unwrap());
+    assert!(soft >= (Limits::default().max_conns as u64 + 64).min(hard), "{line}");
+    drop(bin);
+    let _ = std::fs::remove_dir_all(&dir);
+}

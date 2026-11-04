@@ -173,7 +173,8 @@ pub struct Relay {
 }
 
 impl Relay {
-    pub fn start(cfg: RelayConfig) -> std::io::Result<Relay> {
+    pub fn start(mut cfg: RelayConfig) -> std::io::Result<Relay> {
+        cfg.limits.max_conns = conns_within_fd_limit(cfg.limits.max_conns);
         let (key, store) = match &cfg.data_dir {
             Some(dir) => (store::load_or_create_key(dir)?, store::Store::open(dir)?),
             None => (proto::random32(), store::Store::memory()),
@@ -221,16 +222,68 @@ impl Drop for Relay {
     }
 }
 
+/// File descriptors kept for everything but connections (the listener, data
+/// files, the connection threads over `max_conns` that are about to refuse).
+const FDS_RESERVED: usize = 64;
+
+/// What fits in a file descriptor limit of `soft`.
+fn conns_for_fds(max_conns: usize, soft: u64) -> usize {
+    max_conns.min(usize::try_from(soft).unwrap_or(usize::MAX).saturating_sub(FDS_RESERVED))
+}
+
+/// Raise the soft file descriptor limit as far as `max_conns` needs and the
+/// hard limit allows (the usual soft default is 1024); if that isn't enough,
+/// fewer connections are admitted, so running out shows up as `busy` and not
+/// as `accept` failing for everyone.
+#[cfg(unix)]
+fn conns_within_fd_limit(max_conns: usize) -> usize {
+    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `lim` is valid for both calls.
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) != 0 {
+            return max_conns;
+        }
+        let want = (max_conns + FDS_RESERVED) as libc::rlim_t;
+        if lim.rlim_cur < want {
+            let raised = libc::rlimit { rlim_cur: want.min(lim.rlim_max), rlim_max: lim.rlim_max };
+            if libc::setrlimit(libc::RLIMIT_NOFILE, &raised) == 0 {
+                lim = raised;
+            }
+        }
+    }
+    let conns = conns_for_fds(max_conns, lim.rlim_cur as u64);
+    if conns < max_conns {
+        eprintln!("screenpet-relay: file descriptor limit {} allows only {conns} connections", lim.rlim_cur);
+    }
+    conns
+}
+
+#[cfg(not(unix))]
+fn conns_within_fd_limit(max_conns: usize) -> usize {
+    max_conns
+}
+
 fn accept_loop(hub: Arc<Hub>, listener: TcpListener) {
+    let mut last_accept_log = None;
     while !hub.stopping() {
         match listener.accept() {
             Ok((stream, _)) => {
                 let _ = stream.set_nonblocking(false);
                 let h = hub.clone();
-                hub.spawn("relay-conn", move || http::handle(h, stream));
+                if !hub.spawn("relay-conn", move || http::handle(h, stream)) {
+                    hub::bump(&hub.counters.threads_refused);
+                }
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(20)),
-            Err(_) => std::thread::sleep(Duration::from_millis(100)),
+            Err(e) => {
+                // Out of file descriptors, most likely: say so, but not 10 times a second.
+                hub::bump(&hub.counters.accept_errors);
+                if last_accept_log.is_none_or(|t: Instant| t.elapsed() >= Duration::from_secs(60)) {
+                    last_accept_log = Some(Instant::now());
+                    eprintln!("screenpet-relay: cannot accept connections: {e}");
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
         }
     }
 }
@@ -253,5 +306,17 @@ fn upkeep_loop(hub: Arc<Hub>) {
             saved = Instant::now();
             hub.save();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connections_fit_in_the_file_descriptor_limit() {
+        assert_eq!(conns_for_fds(2048, 1024), 960);
+        assert_eq!(conns_for_fds(2048, 8192), 2048);
+        assert_eq!(conns_for_fds(2048, 10), 0);
     }
 }

@@ -131,6 +131,7 @@ pub(crate) fn handle(hub: Arc<Hub>, mut stream: TcpStream) {
             // The apps are not browsers and send no Origin: refuse web pages
             // that would spend visitors' browsers on the relay.
             if req.headers.contains_key("origin") {
+                crate::hub::bump(&hub.counters.conns_refused_origin);
                 respond(&mut stream, "403 Forbidden", "forbidden\n");
                 return;
             }

@@ -13,6 +13,48 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+macro_rules! counters {
+    ($($name:ident),* $(,)?) => {
+        /// Running totals since start, for `admin status`. No addresses or ids.
+        #[derive(Default)]
+        pub(crate) struct Counters {
+            $(pub $name: AtomicU64,)*
+        }
+
+        impl Counters {
+            pub fn all(&self) -> Vec<(&'static str, u64)> {
+                vec![$((stringify!($name), self.$name.load(Ordering::Relaxed)),)*]
+            }
+        }
+    };
+}
+
+counters!(
+    conns_admitted,
+    conns_refused_limit,
+    conns_refused_origin,
+    threads_refused,
+    accept_errors,
+    auth_failed,
+    registrations,
+    registrations_refused,
+    store_full,
+    kicked_rate,
+    kicked_slow,
+    redeems_ok,
+    redeems_failed,
+    channels_closed_rate,
+    channels_closed_queue,
+    frames_forwarded,
+    bytes_forwarded,
+    proxy_without_address,
+    save_errors,
+);
+
+pub(crate) fn bump(counter: &AtomicU64) {
+    counter.fetch_add(1, Ordering::Relaxed);
+}
+
 /// Something for a connection thread to send.
 pub(crate) enum Out {
     Text(String),
@@ -348,6 +390,7 @@ pub struct Hub {
     proxy_warned: AtomicBool,
     /// Bytes of friend frames in all connection queues.
     queued_total: AtomicUsize,
+    pub counters: Counters,
     next_conn: AtomicU64,
     threads: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -365,6 +408,7 @@ impl Hub {
             stop: AtomicBool::new(false),
             proxy_warned: AtomicBool::new(false),
             queued_total: AtomicUsize::new(0),
+            counters: Counters::default(),
             next_conn: AtomicU64::new(1),
             threads: Mutex::new(Vec::new()),
         }
@@ -432,8 +476,10 @@ impl Hub {
             || by_ip.unauthed >= lim.max_unauthed_per_ip
             || by_net.unauthed >= lim.max_unauthed_per_network
         {
+            bump(&self.counters.conns_refused_limit);
             return false;
         }
+        bump(&self.counters.conns_admitted);
         st.all_conns.admit();
         st.ip_conns.entry(ip.to_string()).or_default().admit();
         st.ip_bytes.entry(ip.to_string()).or_insert_with(|| Bucket::new(lim.ip_bytes_per_sec, lim.ip_bytes_burst));
@@ -457,6 +503,7 @@ impl Hub {
 
     /// Say once that the configured proxy isn't telling client addresses.
     pub fn warn_proxy_without_address(&self) {
+        bump(&self.counters.proxy_without_address);
         if !self.proxy_warned.swap(true, Ordering::Relaxed) {
             eprintln!(
                 "screenpet-relay: a trusted proxy sent no usable X-Real-IP or X-Forwarded-For; \
@@ -500,6 +547,7 @@ impl Hub {
                 || !allow(&mut st.net_registrations, &share_bucket(ip), self.limits.registrations_per_network_per_day, DAY, MAX_RATE_KEYS)
                 || !allow_window(&mut st.global_registrations, self.limits.registrations_per_hour, HOUR)
             {
+                bump(&self.counters.registrations_refused);
                 return Err("busy");
             }
         }
@@ -515,7 +563,11 @@ impl Hub {
             st.store.as_mut().expect("store present").register_with(key, id, friends, now, &|k| peers.contains_key(k))
         };
         if !registered {
+            bump(&self.counters.store_full);
             return Err("full");
+        }
+        if !known {
+            bump(&self.counters.registrations);
         }
         let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs()).expect("registered");
         st.peers.insert(key.to_string(), Peer { conn, id: id.to_string(), link, channels: HashSet::new() });
@@ -714,6 +766,7 @@ impl Hub {
             || st.ip_bytes.get_mut(ip).is_some_and(|b| !b.take(len as f64))
             || !st.global_bytes.take(len as f64)
         {
+            bump(&self.counters.channels_closed_rate);
             st.close_channel(ch, None);
             return;
         }
@@ -735,7 +788,11 @@ impl Hub {
             }
             sent
         });
-        if !delivered {
+        if delivered {
+            bump(&self.counters.frames_forwarded);
+            self.counters.bytes_forwarded.fetch_add(len as u64, Ordering::Relaxed);
+        } else {
+            bump(&self.counters.channels_closed_queue);
             st.close_channel(ch, None);
         }
     }
@@ -805,6 +862,7 @@ impl Hub {
         if let Some(snap) = snapshot {
             if let Err(e) = crate::store::write_snapshot(&snap) {
                 eprintln!("screenpet-relay: cannot save data: {e}");
+                bump(&self.counters.save_errors);
                 self.state().store().mark_dirty();
             }
         }

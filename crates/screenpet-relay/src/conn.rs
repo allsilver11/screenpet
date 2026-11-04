@@ -2,7 +2,7 @@
 //! authentication → control messages and frame forwarding, with per
 //! connection rate limits and timeouts.
 
-use crate::hub::{Bucket, Hub, Link, Out};
+use crate::hub::{bump, Bucket, Hub, Link, Out};
 use crate::proto::{self, ClientMsg, ServerMsg, HEADER, MAX_FRAME, MAX_ID, PROTOCOL_VERSION};
 use std::io::ErrorKind;
 use std::net::TcpStream;
@@ -75,6 +75,9 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
     'conn: loop {
         let ending = if hub.stopping() { Some("shutdown") } else { link.kill.get().copied() };
         if let Some(reason) = ending {
+            if reason == "slow" {
+                bump(&hub.counters.kicked_slow);
+            }
             refuse(&mut ws, reason);
             break;
         }
@@ -128,6 +131,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                 _ => 0,
             };
             if !msgs.take(1.0) || !bytes.take(len as f64) {
+                bump(&hub.counters.kicked_rate);
                 refuse(&mut ws, "rate");
                 break;
             }
@@ -167,6 +171,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                                     }
                                 }
                                 None => {
+                                    bump(&hub.counters.auth_failed);
                                     refuse(&mut ws, "auth");
                                     break;
                                 }
@@ -180,6 +185,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                             let reply = match cm {
                                 ClientMsg::Friends { keys } => {
                                     if !friend_updates.take(1.0) {
+                                        bump(&hub.counters.kicked_rate);
                                         refuse(&mut ws, "rate");
                                         break;
                                     }
@@ -194,7 +200,10 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                                         Some(ServerMsg::RedeemFailed { code, reason: "rate".into() })
                                     } else {
                                         redeems.push_back(now);
-                                        hub.redeem(&a.key, a.conn, &ip, &code)
+                                        let reply = hub.redeem(&a.key, a.conn, &ip, &code);
+                                        let ok = matches!(reply, Some(ServerMsg::Redeemed { .. }));
+                                        bump(if ok { &hub.counters.redeems_ok } else { &hub.counters.redeems_failed });
+                                        reply
                                     }
                                 }
                                 ClientMsg::Open { req, to } => hub.open(&a.key, a.conn, req, &to),
