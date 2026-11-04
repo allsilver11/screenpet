@@ -118,9 +118,6 @@ pub enum Food {
     Special,
 }
 
-/// 배고플 때 누르면 뜨는 음식 고르기 버튼 (ui/index.html·house.html #picker와 같은 순서)
-pub const PICKER_FOODS: [Food; 3] = [Food::Meal, Food::Favorite, Food::Special];
-
 impl Food {
     /// 끼니: 밥, 좋아하는 음식, 특식 — 배부르면 안 먹고, 고르기 버튼에 뜨고, 그릇으로 가서 먹는다
     pub fn is_meal(self) -> bool {
@@ -231,6 +228,9 @@ impl Care {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 배고플 때 누르면 뜨는 음식 고르기 버튼 (ui/index.html·house.html #picker와 같은 순서)
+    const PICKER_FOODS: [Food; 3] = [Food::Meal, Food::Favorite, Food::Special];
 
     fn hungry_care() -> Care {
         Care { fullness: 0.1, ..Care::default() }
@@ -348,7 +348,6 @@ mod tests {
 
     #[test]
     fn hungry_picker_offers_meal_favorite_and_special() {
-        assert_eq!(PICKER_FOODS, [Food::Meal, Food::Favorite, Food::Special]);
         // 자라게 해도 간식은 끼니가 아니다 — 고르기 버튼에 없다
         assert!(PICKER_FOODS.iter().all(|f| f.is_meal()) && !PICKER_FOODS.contains(&Food::Snack));
         // 펫 창·하우스 창의 고르기 버튼이 같은 음식을 같은 순서로
