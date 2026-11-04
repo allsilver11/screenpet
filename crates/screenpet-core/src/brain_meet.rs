@@ -219,10 +219,7 @@ impl Pet {
 
     /// 포물선 위 한 틱. 끝에 닿으면 머리를 밟고 튀거나 내려선다
     fn fly_arc(&mut self, dt: f64, world: &World, phase: MeetPhase, remaining: f64) {
-        let step = dt.min(remaining);
-        self.body.x += self.body.vx * step;
-        self.body.y += self.body.vy * step + 0.5 * GRAVITY * step * step;
-        self.body.vy += GRAVITY * step;
+        self.body.arc_step(dt.min(remaining));
         let remaining = remaining - dt;
         if remaining > 0.0 {
             self.state = State::Meet { phase, remaining };

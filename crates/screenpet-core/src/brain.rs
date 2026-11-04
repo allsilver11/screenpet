@@ -1279,10 +1279,7 @@ impl Pet {
     }
 
     fn update_home_leap(&mut self, dt: f64, remaining: f64, world: &World) {
-        let step = dt.min(remaining);
-        self.body.x += self.body.vx * step;
-        self.body.y += self.body.vy * step + 0.5 * GRAVITY * step * step;
-        self.body.vy += GRAVITY * step;
+        self.body.arc_step(dt.min(remaining));
         let remaining = remaining - dt;
         if remaining > 0.0 {
             self.state = State::HomeLeap { remaining };
@@ -1978,8 +1975,7 @@ impl Pet {
         self.gaze_up = self.cfg.looks_up && self.above_head(fx, fy, LOOK_UP_REACH);
         let walking = near && gap.abs() > 2.0 && !self.gaze_up;
         if walking {
-            let step = (self.walk_speed() * dt).min(gap.abs());
-            let new_x = self.body.x + gap.signum() * step;
+            let new_x = crate::physics::step_toward(self.body.x, goal, self.walk_speed() * dt);
             self.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (new_x - self.body.x) });
             self.body.x = new_x;
         }
@@ -2081,7 +2077,7 @@ impl Pet {
             self.start_eating();
             return;
         }
-        let new_x = if dx.abs() <= step { target } else { self.body.x + dx.signum() * step };
+        let new_x = crate::physics::step_toward(self.body.x, target, step);
         if dx.abs() > 1e-9 {
             self.facing = dx.signum();
         }

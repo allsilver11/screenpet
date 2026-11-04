@@ -270,8 +270,7 @@ impl Pet {
             State::Chase { .. } => {
                 let tx = self.play_target.map_or(x, |t| t.0);
                 self.face_x(tx);
-                let dx = tx - x;
-                x + dx.signum() * (speed * dt).min(dx.abs())
+                crate::physics::step_toward(x, tx, speed * dt)
             }
             State::Flee { remaining, dir } => {
                 let want = x + dir * speed * dt;

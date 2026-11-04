@@ -21,6 +21,15 @@ pub struct Body {
     pub vy: f64,
 }
 
+impl Body {
+    /// 포물선 위로 step초 (중력을 정확히 적분해 계산한 도착점에 닿는다)
+    pub fn arc_step(&mut self, step: f64) {
+        self.x += self.vx * step;
+        self.y += self.vy * step + 0.5 * GRAVITY * step * step;
+        self.vy += GRAVITY * step;
+    }
+}
+
 pub fn step_air(b: &mut Body, dt: f64, bounds: &Rect, half_w: f64, height: f64, gravity: f64) {
     b.vy += gravity * dt;
     b.x += b.vx * dt;
@@ -36,6 +45,16 @@ pub fn step_air(b: &mut Body, dt: f64, bounds: &Rect, half_w: f64, height: f64, 
     if b.y - height < bounds.top {
         b.y = bounds.top + height;
         b.vy = b.vy.max(0.0);
+    }
+}
+
+/// x에서 target 쪽으로 step까지 간 자리 (닿으면 정확히 target)
+pub fn step_toward(x: f64, target: f64, step: f64) -> f64 {
+    let dx = target - x;
+    if dx.abs() <= step {
+        target
+    } else {
+        x + dx.signum() * step
     }
 }
 

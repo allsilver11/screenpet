@@ -583,8 +583,7 @@ impl Pet {
         // 디딤판 끝에서 멈춘다 (커서를 쫓다 일부러 떨어지지 않는다) — 이미 끝을 넘어 서 있으면 더 나가지 않는다
         let x = self.body.x;
         let (lo, hi) = ((piece.x_start + self.cfg.half_w).min(x), (piece.x_end - self.cfg.half_w).max(x));
-        let dx = self.cursor.0 - x;
-        let new_x = (x + dx.signum() * (speed * dt).min(dx.abs())).clamp(lo, hi);
+        let new_x = crate::physics::step_toward(x, self.cursor.0, speed * dt).clamp(lo, hi);
         self.standing = Some(Standing { owner: st.owner, rel_x: st.rel_x + (new_x - x) });
         self.body.x = new_x;
     }

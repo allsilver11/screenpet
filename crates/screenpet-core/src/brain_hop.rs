@@ -141,10 +141,7 @@ impl Pet {
             self.state = State::Leap { crouch: 0.0, remaining: arc.secs, owner, rel_x };
             return;
         }
-        let step = dt.min(remaining);
-        self.body.x += self.body.vx * step;
-        self.body.y += self.body.vy * step + 0.5 * GRAVITY * step * step;
-        self.body.vy += GRAVITY * step;
+        self.body.arc_step(dt.min(remaining));
         let remaining = remaining - dt;
         if remaining > 0.0 {
             self.state = State::Leap { crouch: 0.0, remaining, owner, rel_x };
