@@ -366,11 +366,7 @@ fn admit_invite(st: &mut State, addr: &str, now: Instant) -> bool {
     if attempts.len() < 2 * MAX_PAIR_ATTEMPTS_PER_ADDR {
         attempts.push_back(now);
     }
-    let pairing = st
-        .conns
-        .values()
-        .filter(|c| !c.outgoing && matches!(&c.kind, Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed)))
-        .count();
+    let pairing = st.conns.values().filter(|c| !c.outgoing && pairing_active(c)).count();
     addr_ok && pairing < MAX_INVITES_IN && st.invited_log.len() < MAX_INVITED_PER_WINDOW
 }
 
@@ -622,19 +618,24 @@ pub(crate) fn dial_failed(shared: &Shared, id: &str) {
     st.invites_out.remove(id);
 }
 
+/// May we start a pairing with `peer_id` now? Always on a fresh outgoing link;
+/// inbound links claiming this id (possibly squatters, even mid-pairing)
+/// neither block it nor get reused.
+fn can_invite(shared: &Shared, st: &State, peer_id: &str) -> bool {
+    peer_id != shared.id
+        && !st.invites_out.contains_key(peer_id)
+        && !st.is_friend(peer_id)
+        && st.friends.len() < MAX_FRIENDS
+        && !st.dialing.contains(peer_id)
+        && !outbound_pairing(st, peer_id)
+}
+
 pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
     let mut st = shared.state();
-    if peer_id == shared.id || st.invites_out.contains_key(peer_id) {
+    if !can_invite(shared, &st, peer_id) {
         return;
     }
-    if st.is_friend(peer_id) || st.friends.len() >= MAX_FRIENDS {
-        return;
-    }
-    // Always a fresh outgoing link; inbound links claiming this id (possibly
-    // squatters, even mid-pairing) neither block nor get reused.
-    let busy = st.dialing.contains(peer_id) || outbound_pairing(&st, peer_id);
-    let target = if busy { None } else { pick_candidate(&st, peer_id) };
-    let Some(target) = target else {
+    let Some(target) = pick_candidate(&st, peer_id) else {
         return;
     };
     note_dial(&mut st, peer_id, target, Instant::now(), false);
@@ -647,13 +648,7 @@ pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
 /// `false` if not possible now (us, already a friend, or one in progress).
 pub(crate) fn invite_at(shared: &Arc<Shared>, peer_id: &str, pet: &str, target: transport::Candidate) -> bool {
     let mut st = shared.state();
-    if peer_id == shared.id
-        || st.invites_out.contains_key(peer_id)
-        || st.is_friend(peer_id)
-        || st.friends.len() >= MAX_FRIENDS
-        || st.dialing.contains(peer_id)
-        || outbound_pairing(&st, peer_id)
-    {
+    if !can_invite(shared, &st, peer_id) {
         return false;
     }
     st.invites_out.insert(peer_id.to_string(), clamp_name(pet));

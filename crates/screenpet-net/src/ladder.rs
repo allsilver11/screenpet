@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use blake2::{Blake2s256, Digest};
 
-use crate::noise::{hex32, hex_array, random32, to_hex};
+use crate::noise::{blake2s, hex32, hex_array, random32, to_hex};
 use crate::protocol::{LadderMsg, WirePlayer, WireResult, MAX_NAME};
 
 /// 한 판의 인원 (방장 포함). core `screenpet_core::ladder`와 같은 값이어야 한다 — net은 core에 의존하지 않아 따로 두고,
@@ -42,14 +42,6 @@ const COMMIT_TAG: &[u8] = b"screenpet-ladder-commit-v1";
 const LOCK_TAG: &[u8] = b"screenpet-ladder-lock-v1";
 const SEED_TAG: &[u8] = b"screenpet-ladder-seed-v1";
 const PRINT_TAG: &[u8] = b"screenpet-ladder-print-v1";
-
-fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
-    let mut h = Blake2s256::new();
-    for p in parts {
-        h.update(p);
-    }
-    h.finalize().into()
-}
 
 // ---- crypto -------------------------------------------------------------------
 

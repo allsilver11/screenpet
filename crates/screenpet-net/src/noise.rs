@@ -31,7 +31,7 @@ pub const SAS_EMOJI: [&str; 64] = [
 /// Number of SAS symbols (6 bits each → 36 bits).
 pub(crate) const SAS_LEN: usize = 6;
 
-fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
+pub(crate) fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
     use blake2::{Blake2s256, Digest};
     let mut h = Blake2s256::new();
     for p in parts {

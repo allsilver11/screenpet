@@ -20,7 +20,8 @@
 use crate::peers::{self, dial_failed, run_session, DialOutcome};
 use crate::protocol::{MAX_FRAME, MAX_FRIENDS, MAX_ID};
 use crate::transport::{Candidate, FrameLink, FrameReader, Recv};
-use crate::{noise, Backoff, NetEvent, Shared, TICK};
+use crate::noise::{self, blake2s};
+use crate::{Backoff, NetEvent, Shared, TICK};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, ErrorKind, Read, Write};
@@ -47,8 +48,6 @@ pub fn parse_relay_key(hex: &str) -> Option<[u8; 32]> {
 pub(crate) const ADDR_PREFIX: &str = "relay:";
 /// Longest wait between reconnect attempts.
 pub(crate) const MAX_RETRY: Duration = Duration::from_secs(60);
-/// Most friend keys sent to the relay (the relay's per-install cap).
-const MAX_RELAY_FRIENDS: usize = 50;
 /// Read poll while connected: bounds the latency of queued sends.
 const POLL: Duration = Duration::from_millis(20);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -128,15 +127,6 @@ pub fn normalize_code(input: &str) -> Option<String> {
         chars.push(c);
     }
     (chars.len() == 8).then(|| format!("{}-{}", &chars[..4], &chars[4..]))
-}
-
-fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
-    use blake2::{Blake2s256, Digest};
-    let mut h = Blake2s256::new();
-    for p in parts {
-        h.update(p);
-    }
-    h.finalize().into()
 }
 
 fn auth_mac(shared: &[u8; 32], nonce: &[u8; 32], relay_pub: &[u8; 32], client_pub: &[u8; 32], id: &str) -> [u8; 32] {
@@ -611,7 +601,7 @@ fn read_server(ws: &mut Ws, deadline: Instant, stop: &AtomicBool) -> Option<Serv
 }
 
 fn friend_keys(shared: &Shared) -> Vec<String> {
-    shared.state().friends.iter().take(MAX_RELAY_FRIENDS).map(|f| noise::to_hex(&f.public_key)).collect()
+    shared.state().friends.iter().take(MAX_FRIENDS).map(|f| noise::to_hex(&f.public_key)).collect()
 }
 
 /// The keys among `keys` that are friends'. The relay is untrusted: nothing it

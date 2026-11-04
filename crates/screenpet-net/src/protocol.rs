@@ -48,14 +48,9 @@ fn lenient_side<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Side, D::Error
     Ok(serde_json::from_value(v).unwrap_or(Side::Left))
 }
 
-/// An optional `side`; an unknown value is dropped instead of the whole message.
-fn lenient_opt_side<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Side>, D::Error> {
-    let v = Option::<serde_json::Value>::deserialize(d)?;
-    Ok(v.and_then(|v| serde_json::from_value(v).ok()))
-}
-
-/// An optional `vside`; an unknown value is dropped (the plain `side` stands).
-fn lenient_vside<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<VSide>, D::Error> {
+/// Any optional field: a value that doesn't fit is dropped, never the whole
+/// message (a newer or older peer may send something else there).
+fn lenient<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>>(d: D) -> Result<Option<T>, D::Error> {
     let v = Option::<serde_json::Value>::deserialize(d)?;
     Ok(v.and_then(|v| serde_json::from_value(v).ok()))
 }
@@ -71,30 +66,9 @@ pub struct Fling {
     pub vy: f64,
 }
 
-/// An optional `fling`; a malformed one is dropped instead of the whole message.
-fn lenient_fling<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Fling>, D::Error> {
-    let v = Option::<serde_json::Value>::deserialize(d)?;
-    Ok(v.and_then(|v| serde_json::from_value(v).ok()))
-}
-
 /// Longest note (characters) a visiting pet carries; the receiver sanitizes
 /// and clamps again.
 pub const MAX_NOTE: usize = 80;
-
-/// An optional `note`; anything but a string is dropped instead of the whole message.
-/// An optional size multiplier; anything but a number is dropped instead of the whole message.
-fn lenient_boost<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> {
-    let v = Option::<serde_json::Value>::deserialize(d)?;
-    Ok(v.and_then(|v| v.as_f64()))
-}
-
-fn lenient_note<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
-    let v = Option::<serde_json::Value>::deserialize(d)?;
-    Ok(match v {
-        Some(serde_json::Value::String(s)) => Some(s),
-        _ => None,
-    })
-}
 
 /// The owner of a pet visiting the receiver steers it (control mode): `on` =
 /// control mode is on, `keys` = held keys as bits (left 1, right 2, up 4,
@@ -111,12 +85,6 @@ pub struct Steer {
     pub keys: u8,
 }
 
-/// An optional `steer`; a malformed one is dropped instead of the whole ping.
-fn lenient_steer<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Steer>, D::Error> {
-    let v = Option::<serde_json::Value>::deserialize(d)?;
-    Ok(v.and_then(|v| serde_json::from_value(v).ok()))
-}
-
 /// A thrown object (trash toy) flying over to the receiver's screen. Objects
 /// have no owner and never go home: the sender forgets it, the receiver keeps
 /// it as one of its objects. Carried in a ping so older versions ignore it
@@ -128,12 +96,12 @@ pub struct Toss {
     pub kind: String,
     #[serde(default = "left_side", deserialize_with = "lenient_side")]
     pub side: Side,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_vside")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub vside: Option<VSide>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_fling")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub fling: Option<Fling>,
     /// The post-it stuck on the object.
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub note: Option<String>,
     /// The receiver refused it (focusing or in the house) and threw it back to
     /// the sender. Never bounced again; older versions ignore the flag.
@@ -141,18 +109,12 @@ pub struct Toss {
     pub bounced: bool,
     /// How big the thing is drawn (a poop goes with the pet's size). The
     /// receiver limits it; older versions ignore it.
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_boost")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub scale: Option<f64>,
 }
 
 fn left_side() -> Side {
     Side::Left
-}
-
-/// An optional `toss`; a malformed one is dropped instead of the whole ping.
-fn lenient_toss<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Toss>, D::Error> {
-    let v = Option::<serde_json::Value>::deserialize(d)?;
-    Ok(v.and_then(|v| serde_json::from_value(v).ok()))
 }
 
 /// Messages about visiting pets, delivered to the app via `NetEvent::Received`.
@@ -171,7 +133,7 @@ pub enum Visit {
         /// It enters through the receiver's top/bottom edge instead (the
         /// sender is below/above); `enter_side` then holds a left/right
         /// fallback for older versions.
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_vside")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         vside: Option<VSide>,
         /// The pet walked over from this friend's screen (owner's friend id);
         /// the receiver enters it from the edge it links to that friend, if any.
@@ -181,27 +143,27 @@ pub enum Visit {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         homesick_in: Option<f64>,
         /// The pet was thrown across: it flies in keeping this motion.
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_fling")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         fling: Option<Fling>,
         /// A short message the owner attached to the pet (shown as a 💌 on the
         /// receiver's screen). Re-sent unchanged by the owner when the pet roams
         /// on; older versions ignore it.
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         note: Option<String>,
         /// A small gift (catalog id) the pet will leave on the receiver's
         /// screen. Unknown or foreign ids are dropped by the receiver, which
         /// also limits how often a friend's gift is accepted; never re-sent
         /// when the pet roams on; older versions ignore it.
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         gift: Option<String>,
         /// How the owner shows this pet: "pixel" (absent = round). Purely
         /// cosmetic; the receiver validates it and shows round when it does not
         /// know the value or has no such art. Older versions ignore it.
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         style: Option<String>,
         /// A friend fed this pet and it is temporarily bigger (multiplier). The
         /// receiver limits it; older versions ignore it.
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_boost")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         boost: Option<f64>,
     },
     /// The guest left the receiver's friend's screen. `next: None` = it went
@@ -213,25 +175,25 @@ pub enum Visit {
         visit_id: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         next: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_opt_side")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         side: Option<Side>,
         /// It left through the top/bottom edge instead (`side` then holds a
         /// left/right fallback for older owners).
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_vside")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         vside: Option<VSide>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         homesick_in: Option<f64>,
         /// The guest was thrown out through that edge (home, or on to `next`).
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_fling")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         fling: Option<Fling>,
         /// A reply the host wrote to the owner when sending the pet home (only
         /// on a homecoming `Leave`, at most once per visit; the owner accepts
         /// it only for its own away pet on that host's link). Older owners
         /// ignore it and the pet just comes home.
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         note: Option<String>,
         /// The host fed the guest: how much bigger it goes on (the owner limits it).
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_boost")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         boost: Option<f64>,
     },
     ComeHome {
@@ -277,10 +239,10 @@ pub enum Control {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ask: Option<String>,
         /// Steering for our pet visiting the receiver (control mode).
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_steer")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         steer: Option<Steer>,
         /// An object thrown over to the receiver's screen.
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_toss")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         toss: Option<Toss>,
     },
 }
@@ -402,23 +364,38 @@ impl Announce {
 mod tests {
     use super::*;
 
+    /// A `Visit::Visit` message with these fields changed from an ordinary one.
+    macro_rules! visit {
+        ($($field:ident: $value:expr),* $(,)?) => {{
+            #[allow(unused_mut)]
+            let mut v = Visit::Visit {
+                visit_id: 8,
+                species: "cat".into(),
+                stage: "child".into(),
+                scale: 1.0,
+                personality: "friendly".into(),
+                owner: "A".into(),
+                enter_side: Side::Left,
+                vside: None,
+                via: None,
+                homesick_in: None,
+                fling: None,
+                note: None,
+                gift: None,
+                style: None,
+                boost: None,
+            };
+            #[allow(unused_variables)]
+            if let Visit::Visit { $($field,)* .. } = &mut v {
+                $(*$field = $value;)*
+            }
+            Message::Visit(v)
+        }};
+    }
+
     #[test]
     fn visit_wire_format_uses_type_tag() {
-        let m = Message::Visit(Visit::Visit {
-            visit_id: 7,
-            species: "cat".into(),
-            stage: "child".into(),
-            scale: 1.5,
-            personality: "playful".into(),
-            owner: "Ann".into(),
-            enter_side: Side::Left,
-            vside: None,
-            via: None,
-            homesick_in: None,
-            fling: None,
-            note: None,
-            gift: None,
-            style: None, boost: None });
+        let m = visit!(visit_id: 7, scale: 1.5, personality: "playful".into(), owner: "Ann".into());
         let v: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!(v["type"], "visit");
         assert_eq!(v["enter_side"], "left");
@@ -427,21 +404,7 @@ mod tests {
 
     #[test]
     fn up_down_edges_ride_next_to_a_side_old_versions_understand() {
-        let up = Message::Visit(Visit::Visit {
-            visit_id: 7,
-            species: "frog".into(),
-            stage: "child".into(),
-            scale: 1.0,
-            personality: "playful".into(),
-            owner: "Ann".into(),
-            enter_side: Side::Left,
-            vside: Some(VSide::Down),
-            via: None,
-            homesick_in: None,
-            fling: None,
-            note: None,
-            gift: None,
-            style: None, boost: None });
+        let up = visit!(visit_id: 7, species: "frog".into(), personality: "playful".into(), owner: "Ann".into(), vside: Some(VSide::Down));
         let v: serde_json::Value = serde_json::from_slice(&up.to_json()).unwrap();
         assert_eq!((v["enter_side"].as_str(), v["vside"].as_str()), (Some("left"), Some("down")));
         assert_eq!(Message::parse(&up.to_json()), Some(up.clone()));
@@ -553,21 +516,7 @@ mod tests {
         let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
         let Some(Message::Visit(Visit::Visit { via, homesick_in, .. })) = Message::parse(old) else { panic!("old visit must parse") };
         assert_eq!((via, homesick_in), (None, None));
-        let hop = Message::Visit(Visit::Visit {
-            visit_id: 2,
-            species: "cat".into(),
-            stage: "child".into(),
-            scale: 1.0,
-            personality: "friendly".into(),
-            owner: "A".into(),
-            enter_side: Side::Right,
-            vside: None,
-            via: Some("bb".into()),
-            homesick_in: Some(10.0),
-            fling: None,
-            note: None,
-            gift: None,
-            style: None, boost: None });
+        let hop = visit!(visit_id: 2, enter_side: Side::Right, via: Some("bb".into()), homesick_in: Some(10.0));
         assert_eq!(Message::parse(&hop.to_json()), Some(hop));
         // 새 필드를 모르는 받는 쪽도 읽을 수 있다 (모르는 필드는 무시)
         assert!(Message::parse(br#"{"type":"leave","visit_id":3,"next":"x","future":1}"#).is_some());
@@ -576,21 +525,7 @@ mod tests {
     #[test]
     fn visit_and_leave_can_carry_a_throw_and_old_peers_still_parse() {
         let f = Fling { height: 0.25, vx: -640.0, vy: -120.5 };
-        let v = Message::Visit(Visit::Visit {
-            visit_id: 5,
-            species: "cat".into(),
-            stage: "child".into(),
-            scale: 1.0,
-            personality: "friendly".into(),
-            owner: "A".into(),
-            enter_side: Side::Right,
-            vside: None,
-            via: None,
-            homesick_in: None,
-            fling: Some(f),
-            note: None,
-            gift: None,
-            style: None, boost: None });
+        let v = visit!(visit_id: 5, enter_side: Side::Right, fling: Some(f));
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!((j["fling"]["height"].as_f64(), j["fling"]["vx"].as_f64(), j["fling"]["vy"].as_f64()), (Some(0.25), Some(-640.0), Some(-120.5)));
         assert_eq!(Message::parse(&v.to_json()), Some(v));
@@ -609,8 +544,7 @@ mod tests {
 
     #[test]
     fn a_visit_can_carry_a_gift_and_old_peers_ignore_it() {
-        let Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, .. }) = visit_with_note(None) else { panic!() };
-        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift: Some("cat_yarn_shiny".into()), style: None, boost: None });
+        let v = visit!(gift: Some("cat_yarn_shiny".into()));
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!(j["gift"], "cat_yarn_shiny");
         assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
@@ -633,22 +567,8 @@ mod tests {
         assert_eq!(gift, None);
     }
 
-    fn visit_with_note(note: Option<&str>) -> Message {
-        Message::Visit(Visit::Visit {
-            visit_id: 8,
-            species: "cat".into(),
-            stage: "child".into(),
-            scale: 1.0,
-            personality: "friendly".into(),
-            owner: "A".into(),
-            enter_side: Side::Left,
-            vside: None,
-            via: None,
-            homesick_in: None,
-            fling: None,
-            note: note.map(str::to_string),
-            gift: None,
-            style: None, boost: None })
+    fn visit_with_note(text: Option<&str>) -> Message {
+        visit!(note: text.map(str::to_string))
     }
 
     #[test]
@@ -815,9 +735,7 @@ mod tests {
     /// A pet shown in pixel style says so; old peers ignore it; anything odd is dropped, never the whole visit.
     #[test]
     fn visit_style_is_optional_and_backward_compatible() {
-        let Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift, .. }) = visit_with_note(None) else { panic!() };
-        let visit_id_sent = visit_id;
-        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift, style: Some("pixel".into()), boost: None });
+        let v = visit!(style: Some("pixel".into()));
         assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
         // an old peer still reads it
         #[derive(Deserialize)]
@@ -826,7 +744,7 @@ mod tests {
             Visit { visit_id: u64 },
         }
         let OldVisit::Visit { visit_id } = serde_json::from_slice::<OldVisit>(&v.to_json()).unwrap();
-        assert_eq!(visit_id, visit_id_sent);
+        assert_eq!(visit_id, 8);
         // round sends nothing at all
         assert!(!String::from_utf8(visit_with_note(None).to_json()).unwrap().contains("style"));
         let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"baby","scale":1.0,"personality":"aloof","owner":"a","enter_side":"left"}"#;

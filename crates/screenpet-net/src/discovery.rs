@@ -173,12 +173,9 @@ fn heard(shared: &Arc<Shared>, a: Announce, src: SocketAddr) {
         && !st.dialing.contains(&a.id)
         && !st.backed_off(&Backoff::Id(a.id.clone()), now)
     {
-        if let Some(target) = pick_candidate(&st, &a.id) {
-            if note_dial(&mut st, &a.id, target, now, true) {
-                st.dialing.insert(a.id.clone());
-                drop(st);
-                transport::dial(shared, a.id, target);
-            }
+        if let Some(target) = next_dial(&mut st, &a.id, now) {
+            drop(st);
+            transport::dial(shared, a.id, target);
         }
     } else if friend && shared.id < a.id && st.relay_linked(&a.id) {
         // LAN preferred: a friend linked only through the relay is redialed
@@ -191,17 +188,23 @@ fn heard(shared: &Arc<Shared>, a: Announce, src: SocketAddr) {
         if st.lan_upgrade.get(&a.id).is_some_and(|t| now.duration_since(*t) < every) {
             return;
         }
-        if let Some(target) = pick_candidate(&st, &a.id) {
-            if note_dial(&mut st, &a.id, target, now, true) {
-                let friends = st.friends.clone();
-                st.lan_upgrade.retain(|id, _| friends.iter().any(|f| &f.id == id));
-                st.lan_upgrade.insert(a.id.clone(), now);
-                st.dialing.insert(a.id.clone());
-                drop(st);
-                transport::dial(shared, a.id, target);
-            }
+        if let Some(target) = next_dial(&mut st, &a.id, now) {
+            let friends = st.friends.clone();
+            st.lan_upgrade.retain(|id, _| friends.iter().any(|f| &f.id == id));
+            st.lan_upgrade.insert(a.id.clone(), now);
+            drop(st);
+            transport::dial(shared, a.id, target);
         }
     }
+}
+
+/// The candidate to dial for a friend now, if its budget allows, marked as being dialed.
+fn next_dial(st: &mut State, id: &str, now: Instant) -> Option<Candidate> {
+    let target = pick_candidate(st, id)?;
+    note_dial(st, id, target, now, true).then(|| {
+        st.dialing.insert(id.to_string());
+        target
+    })
 }
 
 /// Insert/refresh a candidate within the per-source and per-id caps, never

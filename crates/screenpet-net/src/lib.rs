@@ -498,7 +498,7 @@ pub(crate) struct Shared {
     pub relay: Option<Arc<relay::RelayClient>>,
     pub stop: AtomicBool,
     pub state: Mutex<State>,
-    events: Mutex<Sender<NetEvent>>,
+    events: Sender<NetEvent>,
     threads: Mutex<Vec<JoinHandle<()>>>,
     next_token: AtomicU64,
     unverified: Mutex<Vec<Unverified>>,
@@ -568,8 +568,7 @@ impl Shared {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
     pub fn emit(&self, ev: NetEvent) {
-        let tx = self.events.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = tx.send(ev);
+        let _ = self.events.send(ev);
     }
     pub fn stopping(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
@@ -728,7 +727,7 @@ impl Net {
             relay: cfg.relay_url.filter(|u| !u.is_empty()).map(|u| relay::RelayClient::new(u, cfg.relay_key)),
             stop: AtomicBool::new(false),
             state: Mutex::new(state),
-            events: Mutex::new(tx),
+            events: tx,
             threads: Mutex::new(Vec::new()),
             next_token: AtomicU64::new(1),
             unverified: Mutex::new(Vec::new()),
@@ -795,31 +794,29 @@ impl Net {
         peers::answer_invite(&self.shared, pairing, accept);
     }
 
+    /// The link of a connected friend (not a pairing, not someone else).
+    fn friend_link(&self, peer_id: &str) -> Option<Arc<secure::SecureLink>> {
+        let st = self.shared.state();
+        st.friend_conn(peer_id).filter(|c| matches!(c.kind, Kind::Friend)).map(|c| c.link.clone())
+    }
+
     /// Queue a visit message to a connected friend (dropped otherwise).
     /// Never blocks.
     pub fn send(&self, peer_id: &str, msg: Visit) {
-        let link = {
-            let st = self.shared.state();
-            match st.friend_conn(peer_id) {
-                Some(c) if matches!(c.kind, Kind::Friend) => c.link.clone(),
-                _ => return,
-            }
-        };
-        link.send(&Message::Visit(msg));
+        if let Some(link) = self.friend_link(peer_id) {
+            link.send(&Message::Visit(msg));
+        }
     }
 
     /// Queue a ladder message to a connected friend, only if its build knows
     /// ladder messages (an older one would drop the link on the unknown
     /// `type`). `false` = not sent. Never blocks.
     pub fn send_ladder(&self, peer_id: &str, msg: LadderMsg) -> bool {
-        let link = {
-            let st = self.shared.state();
-            match st.friend_conn(peer_id) {
-                Some(c) if matches!(c.kind, Kind::Friend) && c.v >= LADDER_MIN_VERSION => c.link.clone(),
-                _ => return false,
-            }
-        };
-        link.send(&Message::Ladder(msg))
+        let old = self.peer_version(peer_id).is_none_or(|v| v < LADDER_MIN_VERSION);
+        match self.friend_link(peer_id) {
+            Some(link) if !old => link.send(&Message::Ladder(msg)),
+            _ => false,
+        }
     }
 
     /// Protocol version of a connected friend's build (`None` if not connected).
@@ -832,40 +829,25 @@ impl Net {
     /// (dropped otherwise). Carried in a ping, which older versions ignore.
     /// Never blocks.
     pub fn ask(&self, peer_id: &str, ask: &str) {
-        let link = {
-            let st = self.shared.state();
-            match st.friend_conn(peer_id) {
-                Some(c) if matches!(c.kind, Kind::Friend) => c.link.clone(),
-                _ => return,
-            }
-        };
-        link.send(&Message::Control(Control::Ping { ask: Some(protocol::clamp_name(ask)), steer: None, toss: None }));
+        if let Some(link) = self.friend_link(peer_id) {
+            link.send(&Message::Control(Control::Ping { ask: Some(protocol::clamp_name(ask)), steer: None, toss: None }));
+        }
     }
 
     /// Steer our pet visiting a connected friend (control mode; dropped
     /// otherwise). Carried in a ping, which older versions ignore. Never blocks.
     pub fn steer(&self, peer_id: &str, steer: Steer) {
-        let link = {
-            let st = self.shared.state();
-            match st.friend_conn(peer_id) {
-                Some(c) if matches!(c.kind, Kind::Friend) => c.link.clone(),
-                _ => return,
-            }
-        };
-        link.send(&Message::Control(Control::Ping { ask: None, steer: Some(steer), toss: None }));
+        if let Some(link) = self.friend_link(peer_id) {
+            link.send(&Message::Control(Control::Ping { ask: None, steer: Some(steer), toss: None }));
+        }
     }
 
     /// Throw an object onto a connected friend's screen (dropped otherwise).
     /// Carried in a ping, which older versions ignore. Never blocks.
     pub fn toss(&self, peer_id: &str, toss: Toss) {
-        let link = {
-            let st = self.shared.state();
-            match st.friend_conn(peer_id) {
-                Some(c) if matches!(c.kind, Kind::Friend) => c.link.clone(),
-                _ => return,
-            }
-        };
-        link.send(&Message::Control(Control::Ping { ask: None, steer: None, toss: Some(toss) }));
+        if let Some(link) = self.friend_link(peer_id) {
+            link.send(&Message::Control(Control::Ping { ask: None, steer: None, toss: Some(toss) }));
+        }
     }
 
     /// Forget a friend, tell them, and disconnect (gracefully). Never blocks.
