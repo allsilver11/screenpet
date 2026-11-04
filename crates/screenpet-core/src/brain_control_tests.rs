@@ -437,6 +437,80 @@ fn remote_keys_drive_a_guest_and_go_stale_after_a_second() {
 }
 
 #[test]
+fn remote_keys_wake_a_guest_sleeping_because_the_host_is_away() {
+    let (mut p, w) = guest_on_ground(900.0, 600.0);
+    p.set_user_away(true);
+    for _ in 0..(3.0 / DT) as usize {
+        p.update(DT, &w);
+    }
+    assert!(matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
+    p.remote_keys(true, keys(|k| k.right = true));
+    for _ in 0..(1.5 / DT) as usize {
+        p.remote_keys(true, keys(|k| k.right = true));
+        p.update(DT, &w);
+    }
+    assert!(p.body.x > 900.0 + 10.0, "walks right: {} {:?}", p.body.x, p.state);
+    // 조작이 끝나면 다시 잔다
+    p.remote_keys(false, NONE);
+    for _ in 0..(3.0 / DT) as usize {
+        p.update(DT, &w);
+    }
+    assert!(matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
+}
+
+#[test]
+fn remote_keys_steer_a_homesick_guest_and_keep_it_from_leaving() {
+    // 친구 화면에 오래 둬서 벌써 집이 그립다 (왼쪽이 집 쪽)
+    let (mut p, w) = guest_on_ground(900.0, 0.0);
+    for _ in 0..(1.0 / DT) as usize {
+        p.update(DT, &w);
+    }
+    assert!(p.is_heading_out());
+    let x = p.body.x;
+    // 3분 넘게 몰아도 포기하고 떠나지 않고, 키를 따른다
+    for tick in 0..(240.0 / DT) as usize {
+        let right = tick % 240 < 120;
+        p.remote_keys(true, keys(|k| if right { k.right = true } else { k.left = true }));
+        p.update(DT, &w);
+        assert!(!p.leaving(), "left at tick {tick}");
+    }
+    p.remote_keys(true, keys(|k| k.right = true));
+    let before = p.body.x;
+    for _ in 0..(0.5 / DT) as usize {
+        p.remote_keys(true, keys(|k| k.right = true));
+        p.update(DT, &w);
+    }
+    assert!(p.body.x > before, "still obeys: {x} {before} {}", p.body.x);
+    // 놓으면 다시 집으로
+    p.remote_keys(false, NONE);
+    assert!(p.is_heading_out());
+}
+
+#[test]
+fn pressing_a_key_brings_a_guest_out_of_a_window_and_then_it_obeys() {
+    let win = crate::geom::WindowInfo { id: 1, rect: Rect::new(500.0, 300.0, 1300.0, 800.0) };
+    let w = World::new(vec![win], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    let mut p = Pet::new(sim_cfg(), 900.0, 0.0, 9);
+    p.set_guest(Side::Left, 600.0);
+    // 창 안에 내려놓는다
+    p.body = Body { x: 900.0, y: 700.0, vx: 0.0, vy: 0.0 };
+    p.state = State::Air { anim: Anim::Fall };
+    p.standing = None;
+    p.inside = Some(crate::inside::Stay::new(1, crate::inside::Mode::In, &mut p.rng));
+    for _ in 0..(2.0 / DT) as usize {
+        p.update(DT, &w);
+    }
+    assert!(p.inside.is_some(), "settled inside: {:?}", p.state);
+    let mut moved_out = false;
+    for _ in 0..(6.0 / DT) as usize {
+        p.remote_keys(true, keys(|k| k.right = true));
+        p.update(DT, &w);
+        moved_out |= p.inside.is_none();
+    }
+    assert!(moved_out, "still inside: {:?} {:?}", p.state, p.body);
+}
+
+#[test]
 fn remote_control_times_out_after_three_key_less_minutes() {
     let (mut p, w) = guest_on_ground(900.0, 10_000.0);
     p.remote_keys(true, NONE);
@@ -444,25 +518,6 @@ fn remote_control_times_out_after_three_key_less_minutes() {
         p.update(DT, &w);
     }
     assert!(!p.is_controlled());
-}
-
-#[test]
-fn homesick_guest_heads_home_whatever_the_keys_say() {
-    let (mut p, w) = guest_on_ground(900.0, 0.0);
-    p.update(DT, &w);
-    let mut gone = None;
-    for _ in 0..(60.0 / DT) as usize {
-        p.remote_keys(true, keys(|k| {
-            k.right = true;
-            k.run = true;
-        }));
-        p.update(DT, &w);
-        if let Some(side) = p.take_exit() {
-            gone = Some(side);
-            break;
-        }
-    }
-    assert_eq!(gone, Some(Side::Left), "went home (left) instead of running right");
 }
 
 #[test]

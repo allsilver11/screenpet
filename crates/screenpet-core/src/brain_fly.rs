@@ -98,7 +98,7 @@ impl Pet {
             return;
         }
         let free = matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. });
-        if self.home_trip.is_some() || self.is_heading_out() || stay.leave_in <= 0.0 && free {
+        if self.home_trip.is_some() || self.is_heading_out() || self.control_pressed() || stay.leave_in <= 0.0 && free {
             // 창 윗면 위로 날아 나간다
             self.inside = None;
             if self.standing.is_some() {

@@ -237,7 +237,12 @@ impl Pet {
         }
     }
 
-    /// 지금 키를 따를 수 있음: 먹이·손길·하우스·떠나기·집 그리움·창 안이 아니고, 쉬기·걷기·공중·벽 타기 중
+    /// 키를 누르고 있다 (창 안에 있으면 나오게 한다, update_inside)
+    pub(super) fn control_pressed(&self) -> bool {
+        self.control.is_some_and(|c| c.input.any())
+    }
+
+    /// 지금 키를 따를 수 있음: 먹이·손길·하우스·떠나기·창 안이 아니고, 쉬기·걷기·공중·벽 타기 중
     fn controllable(&self) -> bool {
         let busy = self.housed
             || self.home_trip.is_some()
@@ -247,7 +252,8 @@ impl Pet {
             || self.hand.is_some()
             || self.farewell_pending
             || self.inside.is_some()
-            || self.is_heading_out();
+            // 집이 그리워도 주인이 조작하면 따른다 (보내기로 떠나는 길만 막는다)
+            || self.send.is_some();
         if busy {
             return false;
         }

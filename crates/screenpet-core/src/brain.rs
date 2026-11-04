@@ -1294,7 +1294,7 @@ impl Pet {
         g.homesick_in -= dt;
         let (now, home) = (g.is_homesick(), g.home);
         // 그리워진 지 3분이 지나도 못 갔으면 (붙잡혀 있으면 놓인 뒤) 제자리에서 손 흔들고 집으로
-        if g.is_overdue() {
+        if g.is_overdue() && self.control.is_none() {
             self.go_home_now();
             return;
         }
@@ -2795,7 +2795,7 @@ impl Pet {
         }
         let room = world.piece_at(Owner::Inside(stay.window), self.body.x).is_some_and(|p| p.width() >= 2.0 * self.cfg.half_w);
         // 집에 가는 중이거나 집이 그리운 손님이면 바로 나간다
-        if !room || (self.home_trip.is_some() || self.is_heading_out()) && !self.celebrating() {
+        if !room || (self.home_trip.is_some() || self.is_heading_out() || self.control_pressed()) && !self.celebrating() {
             self.hop_out(world, &rect, dt);
             return;
         }
