@@ -83,10 +83,13 @@ pub struct Limits {
     pub ip_bytes_burst: f64,
     pub global_bytes_per_sec: f64,
     pub global_bytes_burst: f64,
-    /// Bytes of friend frames waiting for one connection (over: disconnected
-    /// as `slow`), and for all connections (over: the channel is closed).
+    /// Bytes of friend frames waiting for one connection and for all of them
+    /// (over: the channel is closed).
     pub max_outbox_bytes: usize,
     pub max_total_outbox_bytes: usize,
+    /// A connection whose queue is over `max_outbox_bytes` and hasn't moved
+    /// for this long is disconnected as `slow`.
+    pub slow_after: Duration,
     /// New installs per hour per network (IPv4 /24, IPv6 /64).
     pub registrations_per_ip_per_hour: usize,
     /// New installs per day per wider network (IPv4 /24, IPv6 /48).
@@ -134,6 +137,7 @@ impl Default for Limits {
             global_bytes_burst: 32.0 * 1024.0 * 1024.0,
             max_outbox_bytes: 2 * 1024 * 1024,
             max_total_outbox_bytes: 256 * 1024 * 1024,
+            slow_after: Duration::from_secs(5),
             registrations_per_ip_per_hour: 30,
             registrations_per_network_per_day: 100,
             new_codes_per_network_per_hour: 64,

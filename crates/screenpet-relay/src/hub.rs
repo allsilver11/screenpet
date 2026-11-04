@@ -6,7 +6,7 @@
 use crate::proto::{self, ServerMsg};
 use crate::store::{unix_now, Store};
 use crate::Limits;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -33,6 +33,7 @@ counters!(
     conns_admitted,
     conns_refused_limit,
     conns_refused_origin,
+    unauthed_evicted,
     threads_refused,
     accept_errors,
     auth_failed,
@@ -82,6 +83,10 @@ impl Bucket {
     pub fn new(rate: f64, burst: f64) -> Bucket {
         Bucket { tokens: burst, rate, burst, last: Instant::now() }
     }
+    /// Would it be at `burst` by now? Then forgetting it loses nothing.
+    fn is_full(&self) -> bool {
+        self.tokens + self.last.elapsed().as_secs_f64() * self.rate >= self.burst
+    }
     pub fn take(&mut self, n: f64) -> bool {
         let now = Instant::now();
         self.tokens = (self.tokens + now.duration_since(self.last).as_secs_f64() * self.rate).min(self.burst);
@@ -101,13 +106,22 @@ pub(crate) struct Link {
     pub out: SyncSender<Out>,
     /// Once set, the thread sends this as `error{reason}` and disconnects.
     pub kill: Arc<OnceLock<&'static str>>,
-    /// Bytes of friend frames waiting in `out`.
+    /// Bytes of friend frames waiting in `out`, and in the queues of its network.
     pub queued: Arc<AtomicUsize>,
+    net_queued: Arc<AtomicUsize>,
+    /// When `out` last made progress (ms since the hub started).
+    drained_at: Arc<AtomicU64>,
 }
 
 impl Link {
-    pub fn new(out: SyncSender<Out>) -> Link {
-        Link { out, kill: Arc::default(), queued: Arc::default() }
+    pub fn new(out: SyncSender<Out>, admission: &Admission) -> Link {
+        Link {
+            out,
+            kill: admission.kill.clone(),
+            queued: Arc::default(),
+            net_queued: admission.net_queued.clone(),
+            drained_at: Arc::default(),
+        }
     }
 
     /// Disconnect now with `reason`. The queue may be stuck or full of frames,
@@ -147,6 +161,20 @@ struct Grant {
     until: Instant,
 }
 
+/// A connection let in by `admit_ip`.
+pub(crate) struct Admission {
+    pub conn: u64,
+    pub kill: Arc<OnceLock<&'static str>>,
+    net_queued: Arc<AtomicUsize>,
+}
+
+/// A connection that has not authenticated yet.
+struct Unauthed {
+    ip: String,
+    net: String,
+    kill: Arc<OnceLock<&'static str>>,
+}
+
 /// Connections, and how many of them have not authenticated yet.
 #[derive(Default, Clone, Copy)]
 struct Conns {
@@ -163,11 +191,8 @@ impl Conns {
         self.unauthed = self.unauthed.saturating_sub(1);
     }
     /// One ended; `true` if none are left.
-    fn release(&mut self, authed: bool) -> bool {
+    fn release(&mut self) -> bool {
         self.total = self.total.saturating_sub(1);
-        if !authed {
-            self.authed();
-        }
         self.total == 0
     }
 }
@@ -183,9 +208,19 @@ struct State {
     ip_conns: HashMap<String, Conns>,
     net_conns: HashMap<String, Conns>,
     all_conns: Conns,
-    /// Forwarded bytes per address key (while it has connections), and in all.
+    /// Not authenticated yet, oldest first (keyed by connection id).
+    unauthed: BTreeMap<u64, Unauthed>,
+    /// Bytes of friend frames queued per network, while it has connections.
+    net_queued: HashMap<String, Arc<AtomicUsize>>,
+    /// Forwarded bytes per address key (a hard cap) and per network (a fair
+    /// share kept inside the global budget). These outlive connections, so
+    /// reconnecting doesn't refill them; `maintain` drops them once refilled.
     ip_bytes: HashMap<String, Bucket>,
+    net_bytes: HashMap<String, Bucket>,
+    /// Whole relay: the budget (past it only fair shares pass), and the
+    /// ceiling for everyone at twice that.
     global_bytes: Bucket,
+    global_bytes_hard: Bucket,
     ip_redeems: HashMap<String, VecDeque<Instant>>,
     ip_registrations: HashMap<String, VecDeque<Instant>>,
     /// Per "target-key code": recent distinct requesters (cap per code, so
@@ -215,6 +250,29 @@ impl State {
         let Some(inst) = self.store_ref().get(key) else { return Vec::new() };
         inst.friends.iter().filter(|f| self.peers.contains_key(*f) && self.store_ref().mutual(key, f)).cloned().collect()
     }
+    /// Connection `conn` stops counting as unauthenticated (it authenticated,
+    /// ended or was evicted). `None` if it already did.
+    fn no_longer_unauthed(&mut self, conn: u64) -> Option<Unauthed> {
+        let u = self.unauthed.remove(&conn)?;
+        self.all_conns.authed();
+        if let Some(c) = self.ip_conns.get_mut(&u.ip) {
+            c.authed();
+        }
+        if let Some(c) = self.net_conns.get_mut(&u.net) {
+            c.authed();
+        }
+        Some(u)
+    }
+    /// Disconnect the oldest unauthenticated connection that `pick` accepts.
+    /// A real client answers the challenge within a round trip, so the oldest
+    /// is the one least likely to be real.
+    fn evict_unauthed(&mut self, counters: &Counters, pick: impl Fn(&Unauthed) -> bool) {
+        let oldest = self.unauthed.iter().find(|(_, u)| pick(u)).map(|(conn, _)| *conn);
+        if let Some(u) = oldest.and_then(|conn| self.no_longer_unauthed(conn)) {
+            let _ = u.kill.set("busy");
+            bump(&counters.unauthed_evicted);
+        }
+    }
     /// Remove channel `ch` and tell its other end(s) (`except` = the end that
     /// asked, which needs no notice).
     fn close_channel(&mut self, ch: u32, except: Option<&str>) {
@@ -229,6 +287,32 @@ impl State {
         }
     }
 }
+
+/// The fair share of the global byte budget each network keeps.
+const NET_BYTES_SHARE: f64 = 1.0 / 16.0;
+/// Past the total queue cap, a network may still queue this part of it (and
+/// everyone stops at twice the cap).
+const NET_QUEUE_SHARE: usize = 64;
+
+/// `key`'s bucket in a table of at most `max_keys`. When full, buckets that
+/// have refilled go first, then the fullest one.
+fn bucket_in<'a>(table: &'a mut HashMap<String, Bucket>, key: &str, rate: f64, burst: f64, max_keys: usize) -> &'a mut Bucket {
+    if !table.contains_key(key) && table.len() >= max_keys {
+        table.retain(|_, b| !b.is_full());
+        while table.len() >= max_keys {
+            let fullest = table.iter().max_by(|a, b| a.1.tokens.total_cmp(&b.1.tokens)).map(|(k, _)| k.clone());
+            match fullest {
+                Some(k) => table.remove(&k),
+                None => break,
+            };
+        }
+    }
+    table.entry(key.to_string()).or_insert_with(|| Bucket::new(rate, burst))
+}
+
+/// A wide network (`wide_bucket`) may add this many networks' worth of codes
+/// to the per-code table: /48s are cheap, /32s aren't.
+const WIDE_NEW_CODES: usize = 4;
 
 /// Most keys tracked per rate table. A new key arriving at a full table
 /// evicts stale keys, else the least recently active one — newcomers are
@@ -267,6 +351,19 @@ fn parent_of(key: &str) -> Option<String> {
 /// Bucket for the redeem fair share: IPv4 /24, IPv6 /48.
 fn share_bucket(ip: &str) -> String {
     parent_of(ip).unwrap_or_else(|| ip.to_string())
+}
+
+/// A network holder's whole allocation, more or less: IPv4 /16, IPv6 /32.
+fn wide_bucket(ip: &str) -> String {
+    if let Ok(v4) = ip.parse::<std::net::Ipv4Addr>() {
+        let o = v4.octets();
+        return format!("{}.{}.0.0/16", o[0], o[1]);
+    }
+    let mut segs = ip.split(':');
+    match (segs.next(), segs.next()) {
+        (Some(a), Some(b)) => format!("{a}:{b}::/32"),
+        _ => ip.to_string(),
+    }
 }
 
 /// The key to count `key` under: itself, or its network once that network
@@ -390,6 +487,7 @@ pub struct Hub {
     proxy_warned: AtomicBool,
     /// Bytes of friend frames in all connection queues.
     queued_total: AtomicUsize,
+    started: Instant,
     pub counters: Counters,
     next_conn: AtomicU64,
     threads: Mutex<Vec<JoinHandle<()>>>,
@@ -399,15 +497,17 @@ impl Hub {
     pub(crate) fn new(limits: Limits, trusted_proxies: Vec<std::net::IpAddr>, private_key: [u8; 32], mut store: Store) -> Hub {
         store.max_installs = limits.max_installs;
         let global_bytes = Bucket::new(limits.global_bytes_per_sec, limits.global_bytes_burst);
+        let global_bytes_hard = Bucket::new(2.0 * limits.global_bytes_per_sec, 2.0 * limits.global_bytes_burst);
         Hub {
             limits,
             trusted_proxies,
             private_key,
             public_key: proto::public_key(&private_key),
-            state: Mutex::new(State { store: Some(store), next_ch: 1, global_bytes, ..State::default() }),
+            state: Mutex::new(State { store: Some(store), next_ch: 1, global_bytes, global_bytes_hard, ..State::default() }),
             stop: AtomicBool::new(false),
             proxy_warned: AtomicBool::new(false),
             queued_total: AtomicUsize::new(0),
+            started: Instant::now(),
             counters: Counters::default(),
             next_conn: AtomicU64::new(1),
             threads: Mutex::new(Vec::new()),
@@ -459,45 +559,59 @@ impl Hub {
 
     /// Count a new connection from `ip`; `false` if over a limit.
     ///
-    /// Every limit also counts connections still in the challenge: those cost
-    /// an attacker nothing, so they get a smaller share per address, per
-    /// network and in all, and can't take every slot from real installs.
-    pub fn admit_ip(&self, ip: &str) -> bool {
+    /// Connections still in the challenge cost an attacker nothing, so they
+    /// have their own smaller pools, per address, per network and in all. A
+    /// full pool never refuses the newcomer: its oldest member goes instead,
+    /// so holding the pool means opening it all again every round trip.
+    pub(crate) fn admit_ip(&self, ip: &str) -> Option<Admission> {
         let lim = &self.limits;
         let net = share_bucket(ip);
-        let mut st = self.state();
+        let mut guard = self.state();
+        let st = &mut *guard;
         let by_ip = st.ip_conns.get(ip).copied().unwrap_or_default();
         let by_net = st.net_conns.get(&net).copied().unwrap_or_default();
-        let all = st.all_conns;
-        if all.total >= lim.max_conns
-            || by_ip.total >= lim.max_conns_per_ip
-            || by_net.total >= lim.max_conns_per_network
-            || all.unauthed >= lim.max_unauthed
-            || by_ip.unauthed >= lim.max_unauthed_per_ip
-            || by_net.unauthed >= lim.max_unauthed_per_network
-        {
+        if by_ip.total >= lim.max_conns_per_ip || by_net.total >= lim.max_conns_per_network {
             bump(&self.counters.conns_refused_limit);
-            return false;
+            return None;
+        }
+        if st.all_conns.total >= lim.max_conns {
+            // Room for the next try, if any of them isn't a real install.
+            st.evict_unauthed(&self.counters, |_| true);
+            bump(&self.counters.conns_refused_limit);
+            return None;
+        }
+        if by_ip.unauthed >= lim.max_unauthed_per_ip {
+            st.evict_unauthed(&self.counters, |u| u.ip == ip);
+        }
+        if st.net_conns.get(&net).is_some_and(|c| c.unauthed >= lim.max_unauthed_per_network) {
+            st.evict_unauthed(&self.counters, |u| u.net == net);
+        }
+        if st.all_conns.unauthed >= lim.max_unauthed {
+            st.evict_unauthed(&self.counters, |_| true);
         }
         bump(&self.counters.conns_admitted);
         st.all_conns.admit();
         st.ip_conns.entry(ip.to_string()).or_default().admit();
-        st.ip_bytes.entry(ip.to_string()).or_insert_with(|| Bucket::new(lim.ip_bytes_per_sec, lim.ip_bytes_burst));
-        st.net_conns.entry(net).or_default().admit();
-        true
+        st.net_conns.entry(net.clone()).or_default().admit();
+        let net_queued = st.net_queued.entry(net.clone()).or_default().clone();
+        let conn = self.conn_id();
+        let kill: Arc<OnceLock<&'static str>> = Arc::default();
+        st.unauthed.insert(conn, Unauthed { ip: ip.to_string(), net, kill: kill.clone() });
+        Some(Admission { conn, kill, net_queued })
     }
 
-    /// A connection admitted by `admit_ip` ended; `authed` = it had joined.
-    pub fn release_ip(&self, ip: &str, authed: bool) {
+    /// A connection let in by `admit_ip` ended.
+    pub fn release_ip(&self, ip: &str, conn: u64) {
         let net = share_bucket(ip);
         let mut st = self.state();
-        st.all_conns.release(authed);
-        if st.ip_conns.get_mut(ip).is_some_and(|c| c.release(authed)) {
+        st.no_longer_unauthed(conn);
+        st.all_conns.release();
+        if st.ip_conns.get_mut(ip).is_some_and(Conns::release) {
             st.ip_conns.remove(ip);
-            st.ip_bytes.remove(ip);
         }
-        if st.net_conns.get_mut(&net).is_some_and(|c| c.release(authed)) {
+        if st.net_conns.get_mut(&net).is_some_and(Conns::release) {
             st.net_conns.remove(&net);
+            st.net_queued.remove(&net);
         }
     }
 
@@ -537,6 +651,9 @@ impl Hub {
         let friends = self.clean_friends(key, friends);
         let now = unix_now();
         let mut st = self.state();
+        if !st.unauthed.contains_key(&conn) {
+            return Err("busy"); // evicted just now
+        }
         let known = st.store_ref().get(key).is_some();
         if !known {
             // (A full store is handled by `register_with`, which first evicts
@@ -571,14 +688,7 @@ impl Hub {
         }
         let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs()).expect("registered");
         st.peers.insert(key.to_string(), Peer { conn, id: id.to_string(), link, channels: HashSet::new() });
-        let net = share_bucket(ip);
-        st.all_conns.authed();
-        if let Some(c) = st.ip_conns.get_mut(ip) {
-            c.authed();
-        }
-        if let Some(c) = st.net_conns.get_mut(&net) {
-            c.authed();
-        }
+        st.no_longer_unauthed(conn);
         let online = st.mutual_online(key);
         for f in &online {
             st.peers[f].send(ServerMsg::Presence { key: key.to_string(), online: true });
@@ -669,7 +779,8 @@ impl Hub {
         // retrying counts once).
         let per_code = format!("{target} {norm}");
         if !st.target_redeems.contains_key(&per_code)
-            && !allow(&mut st.net_new_codes, &share_bucket(ip), self.limits.new_codes_per_network_per_hour, HOUR, MAX_RATE_KEYS)
+            && !(allow(&mut st.net_new_codes, &share_bucket(ip), self.limits.new_codes_per_network_per_hour, HOUR, MAX_RATE_KEYS)
+                && allow(&mut st.net_new_codes, &wide_bucket(ip), WIDE_NEW_CODES * self.limits.new_codes_per_network_per_hour, HOUR, MAX_RATE_KEYS))
         {
             return fail("rate");
         }
@@ -753,8 +864,7 @@ impl Hub {
     /// Forward one binary message (`ch` header + frame) to the channel's other
     /// end. Unknown channels are ignored (closed while in flight). A channel
     /// over its rate (or its sender's address, or the relay, over their
-    /// bandwidth), or whose receiver is not keeping up, is closed. A receiver
-    /// with too many bytes waiting is disconnected: each costs server memory.
+    /// bandwidth), or whose receiver has too much waiting, is closed.
     pub(crate) fn forward(&self, key: &str, conn: u64, ip: &str, msg: Vec<u8>) {
         let ch = u32::from_be_bytes([msg[0], msg[1], msg[2], msg[3]]);
         let len = msg.len();
@@ -762,32 +872,14 @@ impl Hub {
         let st = &mut *guard;
         let Some(c) = st.channels.get_mut(&ch) else { return };
         let Some(side) = c.ends.iter().position(|e| e.0 == key && e.1 == conn) else { return };
-        if !c.buckets[side].take(1.0)
-            || st.ip_bytes.get_mut(ip).is_some_and(|b| !b.take(len as f64))
-            || !st.global_bytes.take(len as f64)
-        {
+        let rate_ok = c.buckets[side].take(1.0);
+        let other = c.ends[1 - side].0.clone();
+        if !rate_ok || !self.bandwidth_allows(st, ip, len as f64) {
             bump(&self.counters.channels_closed_rate);
             st.close_channel(ch, None);
             return;
         }
-        let other = c.ends[1 - side].0.clone();
-        let delivered = st.peers.get(&other).is_some_and(|p| {
-            if p.link.queued.load(Ordering::Relaxed) + len > self.limits.max_outbox_bytes {
-                let _ = p.link.kill.set("slow");
-                return false;
-            }
-            if self.queued_total.load(Ordering::Relaxed) + len > self.limits.max_total_outbox_bytes {
-                return false;
-            }
-            // Counted first: the connection thread may take it off at once.
-            p.link.queued.fetch_add(len, Ordering::Relaxed);
-            self.queued_total.fetch_add(len, Ordering::Relaxed);
-            let sent = p.link.out.try_send(Out::Binary(msg)).is_ok();
-            if !sent {
-                self.dequeued(&p.link.queued, len);
-            }
-            sent
-        });
+        let delivered = st.peers.get(&other).is_some_and(|p| self.enqueue_frame(&p.link, msg));
         if delivered {
             bump(&self.counters.frames_forwarded);
             self.counters.bytes_forwarded.fetch_add(len as u64, Ordering::Relaxed);
@@ -797,10 +889,66 @@ impl Hub {
         }
     }
 
-    /// `len` bytes of friend frames left a connection's queue.
-    pub(crate) fn dequeued(&self, queued: &AtomicUsize, len: usize) {
-        queued.fetch_sub(len, Ordering::Relaxed);
+    /// May `n` more bytes from `ip` go through? The address cap is hard. The
+    /// global budget doesn't bind a network within its fair share, so one
+    /// source using up the budget closes only its own channels; many networks
+    /// together still stop at the ceiling.
+    fn bandwidth_allows(&self, st: &mut State, ip: &str, n: f64) -> bool {
+        let lim = &self.limits;
+        if !bucket_in(&mut st.ip_bytes, ip, lim.ip_bytes_per_sec, lim.ip_bytes_burst, MAX_RATE_KEYS).take(n) || !st.global_bytes_hard.take(n) {
+            return false;
+        }
+        let (rate, burst) = (lim.global_bytes_per_sec * NET_BYTES_SHARE, lim.global_bytes_burst * NET_BYTES_SHARE);
+        let in_share = bucket_in(&mut st.net_bytes, &share_bucket(ip), rate, burst, MAX_RATE_KEYS).take(n);
+        st.global_bytes.take(n) || in_share
+    }
+
+    fn now_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+
+    /// Queue a friend frame for `link`; `false` if it doesn't fit. Memory is
+    /// bounded here, but a full queue alone only costs the frame's channel: a
+    /// sender can fill a healthy receiver's queue faster than it drains, and
+    /// must not get it disconnected. Only a queue that isn't moving is `slow`.
+    fn enqueue_frame(&self, link: &Link, msg: Vec<u8>) -> bool {
+        let len = msg.len();
+        let lim = &self.limits;
+        let queued = link.queued.load(Ordering::Relaxed);
+        if queued == 0 {
+            link.drained_at.store(self.now_ms(), Ordering::Relaxed);
+        }
+        if queued + len > lim.max_outbox_bytes {
+            let still = self.now_ms().saturating_sub(link.drained_at.load(Ordering::Relaxed));
+            if still >= lim.slow_after.as_millis() as u64 {
+                let _ = link.kill.set("slow");
+            }
+            return false;
+        }
+        // The total caps server memory; one network's stuck receivers using it
+        // up stop only that network, until the ceiling of twice the cap.
+        let total = self.queued_total.load(Ordering::Relaxed) + len;
+        let net = link.net_queued.load(Ordering::Relaxed) + len;
+        if total > lim.max_total_outbox_bytes && (net > lim.max_total_outbox_bytes / NET_QUEUE_SHARE || total > 2 * lim.max_total_outbox_bytes) {
+            return false;
+        }
+        // Counted first: the connection thread may take it off at once.
+        link.queued.fetch_add(len, Ordering::Relaxed);
+        link.net_queued.fetch_add(len, Ordering::Relaxed);
+        self.queued_total.fetch_add(len, Ordering::Relaxed);
+        if link.out.try_send(Out::Binary(msg)).is_err() {
+            self.dequeued(link, len);
+            return false;
+        }
+        true
+    }
+
+    /// `len` bytes of friend frames left `link`'s queue.
+    pub(crate) fn dequeued(&self, link: &Link, len: usize) {
+        link.queued.fetch_sub(len, Ordering::Relaxed);
+        link.net_queued.fetch_sub(len, Ordering::Relaxed);
         self.queued_total.fetch_sub(len, Ordering::Relaxed);
+        link.drained_at.store(self.now_ms(), Ordering::Relaxed);
     }
 
     /// Issue a fresh code now (user asked for a new one).
@@ -838,6 +986,8 @@ impl Hub {
         prune_table(&mut st.target_redeems, HOUR);
         prune_table(&mut st.net_new_codes, HOUR);
         prune_table(&mut st.ip_wellformed, MINUTE);
+        st.ip_bytes.retain(|_, b| !b.is_full());
+        st.net_bytes.retain(|_, b| !b.is_full());
     }
 
     /// Forget stale installs. Online ones are noted as seen first, so what's
@@ -885,13 +1035,17 @@ mod tests {
 
     /// Join install `n`, friends with `friends`, on a queue nobody drains.
     fn peer(hub: &Hub, n: u8, friends: &[u8], cap: usize) -> (String, u64, Link, Receiver<Out>) {
+        peer_at(hub, "203.0.113.1", n, friends, cap)
+    }
+
+    fn peer_at(hub: &Hub, ip: &str, n: u8, friends: &[u8], cap: usize) -> (String, u64, Link, Receiver<Out>) {
         let key = proto::to_hex(&[n; 32]);
         let friends: Vec<String> = friends.iter().map(|f| proto::to_hex(&[*f; 32])).collect();
         let (tx, rx) = sync_channel(cap);
-        let link = Link::new(tx);
-        let conn = hub.conn_id();
-        hub.join(&key, "x", &friends, "203.0.113.1", conn, link.clone()).unwrap();
-        (key, conn, link, rx)
+        let admission = hub.admit_ip(ip).expect("admitted");
+        let link = Link::new(tx, &admission);
+        hub.join(&key, "x", &friends, ip, admission.conn, link.clone()).unwrap();
+        (key, admission.conn, link, rx)
     }
 
     /// Two mutual friends and a channel between them, `b` never reading.
@@ -909,8 +1063,8 @@ mod tests {
     }
 
     #[test]
-    fn too_many_queued_bytes_disconnect_the_receiver() {
-        let limits = Limits { max_outbox_bytes: 200_000, chan_msgs_burst: 1000.0, ..Limits::default() };
+    fn a_full_queue_closes_the_channel_and_only_a_stuck_one_disconnects() {
+        let limits = Limits { max_outbox_bytes: 200_000, chan_msgs_burst: 1000.0, slow_after: Duration::from_millis(100), ..Limits::default() };
         let h = hub(limits);
         let (ka, ca, _la, lb, ch, _ra, _rb) = stuck_pair(&h);
         // The old limit was 512 messages, so 33 MB of 64 KB frames.
@@ -920,9 +1074,112 @@ mod tests {
         assert_eq!(lb.queued.load(Ordering::Relaxed), 180_012);
         assert!(lb.kill.get().is_none());
         h.forward(&ka, ca, "203.0.113.1", frame(ch, 60_000));
-        assert_eq!(lb.kill.get(), Some(&"slow"));
+        assert!(lb.kill.get().is_none(), "a sender filling the queue fast can't get the receiver disconnected");
         assert_eq!(lb.queued.load(Ordering::Relaxed), 180_012, "the refused frame is not counted");
-        assert!(h.state().channels.is_empty(), "and its channel is closed");
+        assert!(h.state().channels.is_empty(), "its channel is closed");
+        // A queue that drains is fine however long it has been around…
+        std::thread::sleep(Duration::from_millis(150));
+        h.dequeued(&lb, 4);
+        let Some(ServerMsg::Opened { ch, .. }) = h.open(&ka, ca, 2, &proto::to_hex(&[2; 32])) else { panic!("no channel") };
+        h.forward(&ka, ca, "203.0.113.1", frame(ch, 60_000));
+        assert!(lb.kill.get().is_none());
+        // …one that has not moved for `slow_after` is not.
+        std::thread::sleep(Duration::from_millis(150));
+        let Some(ServerMsg::Opened { ch, .. }) = h.open(&ka, ca, 3, &proto::to_hex(&[2; 32])) else { panic!("no channel") };
+        h.forward(&ka, ca, "203.0.113.1", frame(ch, 60_000));
+        assert_eq!(lb.kill.get(), Some(&"slow"));
+    }
+
+    #[test]
+    fn one_network_using_up_the_total_queue_stops_only_itself() {
+        let limits = Limits { max_total_outbox_bytes: 64_000, chan_msgs_burst: 1000.0, ..Limits::default() };
+        let h = hub(limits);
+        // 1 → 2 stuck in one network; 3 → 4 with its receiver in another.
+        let (k1, c1, _, _r1) = peer_at(&h, "203.0.113.1", 1, &[2], 512);
+        let (k2, _, _, _r2) = peer_at(&h, "203.0.113.2", 2, &[1], 512);
+        let (k3, c3, _, _r3) = peer_at(&h, "192.0.2.1", 3, &[4], 512);
+        let (k4, _, _, _r4) = peer_at(&h, "198.51.100.1", 4, &[3], 512);
+        let Some(ServerMsg::Opened { ch: heavy, .. }) = h.open(&k1, c1, 1, &k2) else { panic!() };
+        let Some(ServerMsg::Opened { ch: light, .. }) = h.open(&k3, c3, 1, &k4) else { panic!() };
+        h.forward(&k1, c1, "203.0.113.1", frame(heavy, 63_000));
+        h.forward(&k1, c1, "203.0.113.1", frame(heavy, 63_000));
+        assert!(!h.state().channels.contains_key(&heavy), "over the total and its share");
+        h.forward(&k3, c3, "192.0.2.1", frame(light, 500));
+        assert!(h.state().channels.contains_key(&light), "within its share");
+    }
+
+    #[test]
+    fn the_global_byte_budget_keeps_a_share_per_network_up_to_a_ceiling() {
+        // Budget 160 KB (ceiling 320 KB), each network's share 10 KB.
+        let limits = Limits { global_bytes_per_sec: 1.0, global_bytes_burst: 160_000.0, chan_msgs_burst: 1000.0, ..Limits::default() };
+        let h = hub(limits);
+        let (ka, ca, _, _ra, ) = peer(&h, 1, &[2], 512);
+        let (kb, _, _, _rb) = peer(&h, 2, &[1], 512);
+        let open = |req| {
+            let Some(ServerMsg::Opened { ch, .. }) = h.open(&ka, ca, req, &kb) else { panic!("no channel") };
+            ch
+        };
+        let alive = |ch| h.state().channels.contains_key(&ch);
+        let ch = open(1);
+        for _ in 0..16 {
+            h.forward(&ka, ca, "203.0.113.1", frame(ch, 9_000));
+        }
+        // Budget nearly gone: this source, past its share, loses its channel.
+        h.forward(&ka, ca, "203.0.113.1", frame(ch, 9_000));
+        h.forward(&ka, ca, "203.0.113.1", frame(ch, 9_000));
+        assert!(!alive(ch));
+        // Another network within its share goes through.
+        let ch = open(2);
+        h.forward(&ka, ca, "198.51.100.1", frame(ch, 9_000));
+        assert!(alive(ch));
+        // Enough different networks reach the ceiling.
+        let mut n = 0;
+        while alive(ch) {
+            n += 1;
+            assert!(n < 40, "no ceiling");
+            h.forward(&ka, ca, &format!("10.{n}.0.1"), frame(ch, 9_000));
+        }
+    }
+
+    #[test]
+    fn byte_buckets_are_kept_until_refilled_in_a_bounded_table() {
+        let h = hub(Limits { ip_bytes_per_sec: 1.0, ip_bytes_burst: 1000.0, ..Limits::default() });
+        let a = h.admit_ip("203.0.113.1").unwrap();
+        assert!(h.bandwidth_allows(&mut h.state(), "203.0.113.1", 900.0));
+        h.release_ip("203.0.113.1", a.conn);
+        h.maintain();
+        assert!(!h.bandwidth_allows(&mut h.state(), "203.0.113.1", 900.0), "reconnecting doesn't refill it");
+
+        let h = hub(Limits { ip_bytes_per_sec: 1e9, ip_bytes_burst: 1000.0, ..Limits::default() });
+        assert!(h.bandwidth_allows(&mut h.state(), "203.0.113.1", 900.0));
+        std::thread::sleep(Duration::from_millis(5));
+        h.maintain();
+        assert!(h.state().ip_bytes.is_empty(), "refilled: dropped");
+
+        let mut t = HashMap::new();
+        bucket_in(&mut t, "used", 1.0, 100.0, 2).take(90.0);
+        bucket_in(&mut t, "fresh", 1.0, 100.0, 2);
+        bucket_in(&mut t, "new", 1.0, 100.0, 2);
+        assert_eq!(t.len(), 2);
+        assert!(t.contains_key("used") && !t.contains_key("fresh"), "the fullest goes");
+    }
+
+    #[test]
+    fn an_evicted_connection_cannot_join() {
+        let h = hub(Limits { max_unauthed_per_ip: 1, ..Limits::default() });
+        let first = h.admit_ip("203.0.113.1").unwrap();
+        let second = h.admit_ip("203.0.113.1").unwrap();
+        assert_eq!(first.kill.get(), Some(&"busy"));
+        assert!(second.kill.get().is_none());
+        let (tx, _rx) = sync_channel(1);
+        let link = Link::new(tx, &first);
+        assert_eq!(h.join(&proto::to_hex(&[1; 32]), "x", &[], "203.0.113.1", first.conn, link).err(), Some("busy"));
+        // Its slot is counted once when it finally ends.
+        h.release_ip("203.0.113.1", first.conn);
+        h.release_ip("203.0.113.1", second.conn);
+        let st = h.state();
+        assert_eq!((st.all_conns.total, st.all_conns.unauthed), (0, 0));
+        assert!(st.ip_conns.is_empty() && st.net_conns.is_empty() && st.net_queued.is_empty());
     }
 
     #[test]
@@ -999,6 +1256,12 @@ mod tests {
         assert!(!allow_distinct(&mut t, "t3 c", "x", 5, HOUR, 2), "full: no eviction of live caps");
         assert!(allow_distinct(&mut t, "t1 c", "y", 5, HOUR, 2), "known targets keep working");
         assert!(t.contains_key("t1 c") && t.contains_key("t2 c"));
+    }
+
+    #[test]
+    fn wide_buckets() {
+        assert_eq!(wide_bucket("203.0.113.9"), "203.0.0.0/16");
+        assert_eq!(wide_bucket("2001:db8:1:2::/64"), "2001:db8::/32");
     }
 
     #[test]

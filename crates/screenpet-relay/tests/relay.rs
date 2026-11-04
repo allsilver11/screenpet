@@ -699,38 +699,27 @@ fn connections_are_capped_per_network() {
 }
 
 #[test]
-fn unauthenticated_connections_have_a_smaller_share() {
+fn a_full_challenge_pool_drops_its_oldest_not_the_newcomer() {
     let relay = start(Limits { max_unauthed: 4, max_unauthed_per_ip: 2, max_unauthed_per_network: 3, ..Limits::default() });
-    let open = |ip: &str, n: usize, held: &mut Vec<Client>| {
-        let got: Vec<Client> = (0..n).filter_map(|_| Client::try_raw(&relay, Some(ip), None).ok()).collect();
-        let count = got.len();
-        held.extend(got);
-        count
-    };
-    let mut pre = Vec::new();
-    assert_eq!(open("203.0.113.1", 3, &mut pre), 2, "per address");
-    assert_eq!(open("203.0.113.2", 3, &mut pre), 1, "per network");
-    assert_eq!(open("198.51.100.1", 3, &mut pre), 1, "in all");
-    assert!(Client::try_raw(&relay, Some("192.0.2.1"), None).is_err(), "in all");
-    // Authenticating gives the slot back, and the install stays connected.
-    let auth = pre[0].auth_msg(&key(), "x", &[]);
-    pre[0].send(&auth);
-    pre[0].expect("welcome", 2.0);
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let late = loop {
-        if let Ok(c) = Client::try_raw(&relay, Some("192.0.2.1"), None) {
-            break c;
-        }
-        assert!(Instant::now() < deadline);
-    };
+    let raw = |ip: &str| Client::try_raw(&relay, Some(ip), None).expect("never refused for the pool");
+    // Per address.
+    let mut first = raw("203.0.113.1");
+    let mut second = raw("203.0.113.1");
+    let _third = raw("203.0.113.1");
+    assert_eq!(first.closed(2.0), Some(Some("busy".into())));
+    // Per network: three between its addresses.
+    let _fourth = raw("203.0.113.2");
+    let _fifth = raw("203.0.113.3");
+    assert_eq!(second.closed(2.0), Some(Some("busy".into())));
+    // In all: a flood from elsewhere can't keep a real install out…
+    let mut flood: Vec<Client> = ["198.51.100.1", "192.0.2.1", "198.18.0.1", "198.19.0.1"].iter().map(|ip| raw(ip)).collect();
+    let (mut real, _) = Client::login_as(&relay, Some("100.64.0.1"), &key(), "real", &[]).expect("real client gets in");
+    // …and installs that have authenticated are never in the pool.
+    let late: Vec<Client> = (1..=8).map(|n| raw(&format!("10.{n}.0.1"))).collect();
+    assert_eq!(flood[0].closed(2.0), Some(Some("busy".into())));
+    real.send(&json!({"t": "ping"}));
+    real.expect("pong", 2.0);
     drop(late);
-    // A connection that gives up unauthenticated frees its slot too.
-    drop(pre.remove(1));
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while Client::try_raw(&relay, Some("192.0.2.2"), None).is_err() {
-        assert!(Instant::now() < deadline, "unauthenticated slot not released");
-        std::thread::sleep(Duration::from_millis(20));
-    }
 }
 
 /// `a` and `b`, mutual through a redeemed code, with a channel open.
@@ -959,4 +948,50 @@ fn the_binary_raises_its_file_descriptor_limit() {
     assert!(soft >= (Limits::default().max_conns as u64 + 64).min(hard), "{line}");
     drop(bin);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn reconnecting_does_not_refill_the_byte_budget() {
+    let relay = start(Limits { ip_bytes_per_sec: 1.0, ip_bytes_burst: 25_000.0, ..Limits::default() });
+    let (mut a, mut b, ch) = linked(&relay, Some("203.0.113.1"), Some("198.51.100.1"));
+    for _ in 0..2 {
+        a.send_bin(ch, &[7u8; 10_000]);
+        assert!(b.recv_bin(2.0).is_some());
+    }
+    drop((a, b));
+    let (mut a, _b, ch) = linked(&relay, Some("203.0.113.1"), Some("198.51.100.1"));
+    a.send_bin(ch, &[7u8; 10_000]);
+    assert_eq!(a.expect("close", 2.0)["ch"], ch);
+}
+
+#[test]
+fn one_source_over_the_global_byte_budget_leaves_others_alone() {
+    let limits = Limits { global_bytes_per_sec: 1.0, global_bytes_burst: 320_000.0, chan_msgs_burst: 1000.0, ..Limits::default() };
+    let relay = start(limits);
+    let (mut heavy, _h, ch) = linked(&relay, Some("203.0.113.1"), Some("198.51.100.1"));
+    let (mut light, mut other, ch2) = linked(&relay, Some("192.0.2.1"), Some("198.18.0.1"));
+    for _ in 0..40 {
+        heavy.send_bin(ch, &[7u8; 10_000]);
+    }
+    assert_eq!(heavy.expect("close", 2.0)["ch"], ch);
+    light.send_bin(ch2, &[7u8; 10_000]);
+    assert_eq!(other.recv_bin(2.0).map(|(c, _)| c), Some(ch2));
+}
+
+#[test]
+fn a_wide_network_cannot_use_up_the_per_code_table_through_many_48s() {
+    let relay = start(Limits { new_codes_per_network_per_hour: 1, ..Limits::default() });
+    let codes: Vec<(Client, Value)> =
+        (1..=6).map(|n| Client::login_as(&relay, Some(&format!("192.0.2.{n}")), &key(), "t", &[]).unwrap()).collect();
+    let reasons: Vec<String> = codes
+        .iter()
+        .enumerate()
+        .map(|(n, (_, w))| {
+            let (mut a, _) = Client::login_as(&relay, Some(&format!("2001:db8:{:x}::1", n + 1)), &key(), "a", &[]).unwrap();
+            a.send(&json!({"t": "redeem", "code": w["code"]}));
+            let reply = a.next_json(2.0).unwrap();
+            if reply["t"] == "redeemed" { "ok".to_string() } else { reply["reason"].as_str().unwrap().to_string() }
+        })
+        .collect();
+    assert_eq!(reasons, ["ok", "ok", "ok", "ok", "rate", "rate"], "four networks' worth per /32");
 }

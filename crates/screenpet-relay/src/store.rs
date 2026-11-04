@@ -23,7 +23,7 @@ pub const IDLE_FORGET_SECS: u64 = 24 * 3600;
 /// buy half a year. Being forgotten costs a real install little, its next
 /// login registers it again with the same friend list.
 const NEW_FRIEND_FORGET_SECS: u64 = 14 * 24 * 3600;
-const ESTABLISHED_DAYS: u32 = 3;
+const ESTABLISHED_DAYS: u32 = 7;
 const DAY_SECS: u64 = 24 * 3600;
 /// `last_seen` alone makes the store dirty at most this often per install.
 const TOUCH_EVERY_SECS: u64 = 600;
@@ -32,6 +32,10 @@ pub const MAX_INSTALLS: usize = 20_000;
 
 pub fn unix_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn established_days() -> u32 {
+    ESTABLISHED_DAYS
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,8 +52,9 @@ pub struct Install {
     /// mutual friend).
     #[serde(default)]
     pub active: bool,
-    /// Distinct days this install has been seen on.
-    #[serde(default)]
+    /// Distinct days this install has been seen on. Files from before this
+    /// count was kept hold real installs: they start out established.
+    #[serde(default = "established_days")]
     pub seen_days: u32,
 }
 
@@ -186,7 +191,7 @@ impl Store {
                 offline.min_by_key(|(_, i)| i.last_seen).map(|(k, _)| k.clone())
             };
             // Friendless first, then friends that are still new.
-            let victim = stalest(&|k, _| self.befriended(k)).or_else(|| stalest(&|_, i| i.seen_days >= ESTABLISHED_DAYS));
+            let victim = stalest(&|k, i| self.has_friends(k, i)).or_else(|| stalest(&|_, i| i.seen_days >= ESTABLISHED_DAYS));
             if let Some(v) = victim {
                 self.remove(&v);
             }
@@ -288,9 +293,15 @@ impl Store {
         }
     }
 
+    /// Worth keeping as someone's friend: `befriended`, or established with a
+    /// friend list, which stays so when a friend happens to be forgotten.
+    fn has_friends(&self, key: &str, inst: &Install) -> bool {
+        self.befriended(key) || (inst.seen_days >= ESTABLISHED_DAYS && !inst.friends.is_empty())
+    }
+
     /// How long `key` is kept unseen.
     fn keep_for(&self, key: &str, inst: &Install) -> u64 {
-        if !self.befriended(key) {
+        if !self.has_friends(key, inst) {
             IDLE_FORGET_SECS
         } else if inst.seen_days < ESTABLISHED_DAYS {
             NEW_FRIEND_FORGET_SECS
@@ -589,11 +600,11 @@ mod tests {
         s.register(&k(2), "clique", vec![k(1)], 600);
         s.register(&k(3), "old", vec![k(4)], 0);
         s.establish(&k(3));
-        assert!(s.register_with(&k(5), "friendless goes first", vec![], 700, &|_| false));
-        assert!(s.get(&k(3)).is_none(), "k3's friend isn't stored: friendless");
-        assert!(s.register_with(&k(6), "x", vec![], 800, &|key| key == k(5)));
-        assert!(s.get(&k(1)).is_none(), "the stalest new friend went");
-        assert!(s.get(&k(2)).is_some());
+        s.register(&k(7), "lonely", vec![], 650);
+        assert_eq!(s.count(), 3, "the stalest friendless install went");
+        assert!(s.get(&k(3)).is_some(), "established, so its friend list still counts");
+        assert!(s.get(&k(1)).is_none() || s.get(&k(2)).is_none(), "a new friend made room for lonely");
+        assert!(!s.register_with(&k(6), "x", vec![], 800, &|key| key == k(7) || key == k(2)), "only established ones left");
     }
 
     #[test]
@@ -614,8 +625,37 @@ mod tests {
         let file = format!(r#"{{"installs":{{"{}":{{"id":"a","code":"ABCD-1234","code_at":5,"last_seen":7}}}}}}"#, k(1));
         std::fs::write(dir.join(DATA_FILE), file).unwrap();
         let s = Store::open(&dir).unwrap();
-        assert_eq!(s.get(&k(1)).unwrap().seen_days, 0);
+        assert_eq!(s.get(&k(1)).unwrap().seen_days, ESTABLISHED_DAYS);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The fields of a real relay.json from before `seen_days`.
+    #[test]
+    fn friends_from_an_older_file_keep_their_long_retention() {
+        let dir = tmpdir("legacy");
+        std::fs::create_dir_all(&dir).unwrap();
+        let install = |friend: String, code: &str| serde_json::json!({"id": "a", "friends": [friend], "code": code, "code_at": 5, "last_seen": 0, "active": false});
+        let file = serde_json::json!({"installs": {k(1): install(k(2), "ABCD-1234"), k(2): install(k(1), "ABCD-1235")}});
+        std::fs::write(dir.join(DATA_FILE), file.to_string()).unwrap();
+        let mut s = Store::open(&dir).unwrap();
+        s.prune(NEW_FRIEND_FORGET_SECS + 1);
+        assert!(s.get(&k(1)).is_some() && s.get(&k(2)).is_some(), "past 14 days");
+        s.register(&k(3), "new", vec![], 0);
+        assert_eq!(s.get(&k(3)).unwrap().seen_days, 1, "new installs still start new");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_established_install_keeps_its_retention_when_its_friend_goes() {
+        let mut s = Store::memory();
+        s.register(&k(1), "a", vec![k(2)], 0);
+        s.register(&k(2), "b", vec![k(1)], 0);
+        s.establish(&k(1));
+        s.remove(&k(2));
+        s.prune(IDLE_FORGET_SECS + 1);
+        assert!(s.get(&k(1)).is_some());
+        s.prune(FORGET_AFTER_SECS);
+        assert!(s.get(&k(1)).is_none());
     }
 
     #[test]

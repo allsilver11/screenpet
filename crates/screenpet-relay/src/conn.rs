@@ -2,7 +2,7 @@
 //! authentication → control messages and frame forwarding, with per
 //! connection rate limits and timeouts.
 
-use crate::hub::{bump, Bucket, Hub, Link, Out};
+use crate::hub::{bump, Admission, Bucket, Hub, Link, Out};
 use crate::proto::{self, ClientMsg, ServerMsg, HEADER, MAX_FRAME, MAX_ID, PROTOCOL_VERSION};
 use std::io::ErrorKind;
 use std::net::TcpStream;
@@ -46,8 +46,8 @@ fn refuse(ws: &mut WebSocket<TcpStream>, reason: &str) {
     let _ = ws.flush();
 }
 
-/// Serve one connection until it ends. `true` if it ever joined the hub.
-pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> bool {
+/// Serve one connection until it ends.
+pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, admission: &Admission) {
     let lim = hub.limits.clone();
     let _ = ws.get_mut().set_read_timeout(Some(POLL));
     let _ = ws.get_mut().set_write_timeout(Some(Duration::from_secs(5)));
@@ -56,11 +56,10 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
     let challenge =
         ServerMsg::Challenge { relay: proto::to_hex(&hub.public_key), nonce: proto::to_hex(&nonce), v: PROTOCOL_VERSION };
     if ws.send(Message::text(challenge.to_json())).is_err() {
-        return false;
+        return;
     }
-    let mut joined = false;
     let (tx, rx) = sync_channel::<Out>(OUTBOX);
-    let link = Link::new(tx);
+    let link = Link::new(tx, admission);
     let mut poll = POLL;
     let mut last_frame = Instant::now();
     let mut authed: Option<Authed> = None;
@@ -95,7 +94,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                     }
                 }
                 Ok(Out::Binary(b)) => {
-                    hub.dequeued(&link.queued, b.len());
+                    hub.dequeued(&link, b.len());
                     last_frame = Instant::now();
                     if ws.write(Message::binary(b)).is_err() {
                         break 'conn;
@@ -149,10 +148,9 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
                         (None, ClientMsg::Auth { id, key, mac, friends, cnonce }) => {
                             match authenticate(&hub, &nonce, &id, &key, &mac) {
                                 Some((key, client_pub, shared)) => {
-                                    let conn = hub.conn_id();
+                                    let conn = admission.conn;
                                     match hub.join(&key, &id, &friends, &ip, conn, link.clone()) {
                                         Ok(mut welcome) => {
-                                            joined = true;
                                             if let (ServerMsg::Welcome { proof, .. }, Some(cn)) =
                                                 (&mut welcome, cnonce.as_deref().and_then(proto::hex32))
                                             {
@@ -270,8 +268,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String) -> 
         hub.leave(&a.key, a.conn);
     }
     // Nothing can be queued any more: this peer has left the hub.
-    hub.dequeued(&link.queued, link.queued.load(Ordering::Relaxed));
-    joined
+    hub.dequeued(&link, link.queued.load(Ordering::Relaxed));
 }
 
 fn poll_for(since_last_frame: Duration) -> Duration {

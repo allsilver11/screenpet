@@ -139,22 +139,21 @@ pub(crate) fn handle(hub: Arc<Hub>, mut stream: TcpStream) {
                 hub.warn_proxy_without_address();
             }
             let ip = client_ip(peer.ip(), &req.headers, &hub.trusted_proxies);
-            if !hub.admit_ip(&ip) {
+            let Some(admission) = hub.admit_ip(&ip) else {
                 respond(&mut stream, "503 Service Unavailable", "busy\n");
                 return;
-            }
+            };
             let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
             let ok = write!(
                 stream,
                 "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
             )
             .and_then(|_| stream.flush());
-            let mut joined = false;
             if ok.is_ok() {
                 let ws = WebSocket::from_partially_read(stream, req.rest, Role::Server, Some(ws_config()));
-                joined = crate::conn::serve(hub.clone(), ws, ip.clone());
+                crate::conn::serve(hub.clone(), ws, ip.clone(), &admission);
             }
-            hub.release_ip(&ip, joined);
+            hub.release_ip(&ip, admission.conn);
         }
         _ => respond(&mut stream, "404 Not Found", "not found\n"),
     }
