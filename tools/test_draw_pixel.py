@@ -249,3 +249,11 @@ def test_round_art_stays_byte_identical(pid, stage, anim, i):
 
 def test_shipped_round_sheets_untouched():
     assert subprocess.check_output(["git", "-C", str(ROOT), "status", "--porcelain", "--", "ui/pets/*/*.png"]).strip() == b""  # 크기는 pet.json — 그림만 그대로
+
+
+def test_preview_group_makes_its_folder(tmp_path, monkeypatch):
+    """tools/preview는 커밋되지 않는다 — 새 체크아웃에서도 미리보기가 저장된다."""
+    monkeypatch.setattr(px, "_panel_species", lambda sp, by_stage: Image.new("RGBA", (4, 4)))
+    name, pids = next(iter(px.GROUPS.items()))
+    path = px.preview_group(name, dict.fromkeys(pids), tmp_path / "new" / "dir")
+    assert path.is_file()

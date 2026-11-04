@@ -1,10 +1,8 @@
 """수면 모자 미리보기 — 진짜 시트 위에 ui/index.html의 진짜 모자 SVG를 앱과 같은 계산으로 얹어 본다 (브라우저 없이).
 
-    python tools/preview_nightcap.py after  [--out tools/preview/nightcap_after.png] [--pages DIR]
-    python tools/preview_nightcap.py before [--out tools/preview/nightcap_before.png] [--pages DIR]
+    python tools/preview_nightcap.py [--out tools/preview/nightcap.png] [--pages DIR]
 
-before = 고치기 전 main.js의 머리 찾기(가장 큰 덩어리의 맨 위 줄)를 그대로 옮긴 것 — 버그를 다시 보려고 남겨 둔다.
-after  = pet.json head 표 + ui/main.js capPlacement 계산 (test_nightcap.py도 같은 계산을 쓴다).
+pet.json head 표 + ui/main.js capPlacement 계산 (test_nightcap.py도 같은 계산을 쓴다).
 --pages: 동물마다 큰 그림(5단계 × 대표 동작 + 청소년 모든 동작)을 따로 저장한다.
 """
 
@@ -15,25 +13,19 @@ import re
 import sys
 from pathlib import Path
 
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sprite_spec import frame_px  # noqa: E402
+from sprite_spec import FRAME, STAGE_SCALE, STAGES, frame_px  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PETS = ROOT / "ui" / "pets"
-FRAME = 128
-STAGES = ["baby", "kinder", "child", "teenager", "adult"]
-STAGE_SCALE = {"baby": 0.45, "kinder": 0.60, "child": 0.78, "teenager": 1.00, "adult": 1.15}
 SPECIES = ["cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "snowman",
            "dino_yellow", "dino_green", "dino_purple"]
-FRONT_ANIMS = {"sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "wag", "hungry", "eat", "level_up", "huff", "sting"}
 # 대표 칸 (동작, 프레임) — 모자가 가장 자주 보이는 자세부터
 SHOWCASE = [("sleep", 0), ("sleep", 1), ("idle", 0), ("walk", 1), ("sit_front", 0), ("tilt", 1), ("look", 1), ("lookup", 2), ("hop", 1),
             ("annoyed", 0), ("eat", 1), ("fall", 0), ("climb", 1), ("level_up", 2)]
 
-CAP_BOX = (34, 26)
 
 
 # ---- 모자 그림: ui/index.html의 SVG 경로를 그대로 읽어 다각형으로 ----
@@ -108,50 +100,7 @@ def draw_cap(mat, canvas_size, zoom, ss=4):
     return layer.resize((w, h), Image.LANCZOS)
 
 
-# ---- 고치기 전 계산 (main.js headTop + placeHeadgear를 그대로 옮김) ----
-def old_head_top(cell_alpha, front):
-    from scipy import ndimage
-    size = cell_alpha.shape[0]
-    lab, n = ndimage.label(cell_alpha > 128)
-    if n == 0:
-        return (size / 2, size * 0.15)
-    counts = np.bincount(lab.ravel())[1:]
-    ys, xs = np.nonzero(lab == int(np.argmax(counts)) + 1)
-    lo, hi = xs.min(), xs.max()
-    start = lo if front else hi - (hi - lo) * 0.45
-    keep = xs >= start
-    xs, ys = xs[keep], ys[keep]
-    first = ys.min()
-    band = xs[ys < first + size * 0.08]
-    return (float(band.sum()) / band.size, int(first))
-
-
-def old_cap_matrix(cell_alpha, anim, stage, flip, side, stage_w):
-    """스테이지 좌표(왼쪽 위 0,0 — 높이 36 + side)로 옮기는 함수를 돌려준다. CSS: left 0, bottom 0, origin 50% 100%."""
-    k = side / FRAME
-    hx, hy = old_head_top(cell_alpha, anim in FRONT_ANIMS)
-    x = (FRAME - hx if flip else hx) * k + (stage_w - side) / 2
-    y = side - hy * k
-    tilt = 12 if flip else -12
-    size = math.sqrt(STAGE_SCALE[stage])
-    tx, ty = x - 15, -y + 8 * size
-    rad = math.radians(tilt)
-    c, s = math.cos(rad), math.sin(rad)
-    stage_h = 36 + side
-    ox, oy = CAP_BOX[0] / 2, CAP_BOX[1]
-
-    def m(px, py):
-        qx, qy = px - ox, py - oy
-        if not flip:
-            qx = -qx
-        rx, ry = c * qx - s * qy, s * qx + c * qy
-        rx, ry = rx * size, ry * size
-        return (rx + ox + tx, ry + stage_h - CAP_BOX[1] + oy + ty)
-
-    return m
-
-
-# ---- 고친 뒤 계산: pet.json head 표 → ui/main.js capPlacement ----
+# ---- pet.json head 표 → ui/main.js capPlacement ----
 def manifest(pid):
     """pet.json — 표는 단계마다 128 칸 좌표로 되돌려 읽는다 (아래 계산은 모두 128 칸. 2배 칸은 sprite_spec.frame_px)."""
     man = json.loads((PETS / pid / "pet.json").read_text(encoding="utf-8"))
@@ -204,7 +153,7 @@ def head_entry(man, stage, anim, f):
 
 
 # ---- 그리기 ----
-def compose_cell(sheet, spec, f, pid, man, stage, flip, zoom, mode):
+def compose_cell(sheet, spec, f, pid, man, stage, flip, zoom):
     """한 칸: 진짜 표시 크기 × zoom. 위에 말풍선 자리 없이 칸 + 위 여백만."""
     side = 128 * STAGE_SCALE[stage] * man["stage_size"].get(stage, 1.0)
     cell = sheet.crop((f * FRAME, spec["row"] * FRAME, (f + 1) * FRAME, (spec["row"] + 1) * FRAME))
@@ -218,20 +167,15 @@ def compose_cell(sheet, spec, f, pid, man, stage, flip, zoom, mode):
         big = big.transpose(Image.FLIP_LEFT_RIGHT)
     left = (stage_w - side) / 2
     out.alpha_composite(big, (round(left * zoom), H - big.height))
-    if mode == "before":
-        alpha = np.asarray(cell.getchannel("A"))
-        m0 = old_cap_matrix(alpha, spec["_anim"], stage, flip, side, stage_w)
-        m = lambda px, py: tuple(v * zoom for v in m0(px, py))  # noqa: E731
-    else:
-        entry = head_entry(man, stage, spec["_anim"], f)
-        mc = new_cap_matrix_cell(entry)
-        k = side / FRAME
+    entry = head_entry(man, stage, spec["_anim"], f)
+    mc = new_cap_matrix_cell(entry)
+    k = side / FRAME
 
-        def m(px, py):
-            cx, cy = mc(px, py)
-            if flip:
-                cx = FRAME - cx
-            return ((left + cx * k) * zoom, (pad_top + cy * k) * zoom)
+    def m(px, py):
+        cx, cy = mc(px, py)
+        if flip:
+            cx = FRAME - cx
+        return ((left + cx * k) * zoom, (pad_top + cy * k) * zoom)
 
     out.alpha_composite(draw_cap(m, (W, H), zoom))
     return out
@@ -241,7 +185,7 @@ def label_font():
     return ImageFont.load_default()
 
 
-def page(pid, mode, zoom=1):
+def page(pid, zoom=1):
     """동물 한 장: 5단계 × 대표 칸 (왼쪽을 볼 때도 한 칸)."""
     man = manifest(pid)
     cols = [(a, f, False) for a, f in SHOWCASE if a in man["animations"] and f < man["animations"][a]["frames"]]
@@ -256,12 +200,12 @@ def page(pid, mode, zoom=1):
         d.text((2, 16 + r * cell_h + cell_h // 2), f"{pid}\n{st}", fill=(60, 60, 60), font=label_font())
         for c, (a, f, flip) in enumerate(cols):
             spec = dict(man["animations"][a], _anim=a)
-            tile = compose_cell(sheet, spec, f, pid, man, st, flip, zoom, mode)
+            tile = compose_cell(sheet, spec, f, pid, man, st, flip, zoom)
             img.alpha_composite(tile, (64 + c * cell_w + (cell_w - tile.width) // 2, 16 + r * cell_h + cell_h - tile.height))
     return img
 
 
-def all_anims_page(pid, stage, mode, zoom=1):
+def all_anims_page(pid, stage, zoom=1):
     """한 단계의 모든 동작 모든 칸."""
     man = manifest(pid)
     sheet = layer_128(pid, stage, f"sheet_{stage}.png")
@@ -275,7 +219,7 @@ def all_anims_page(pid, stage, mode, zoom=1):
     for i, (a, f) in enumerate(cells):
         x, y = (i % cols) * cell_w, (i // cols) * (cell_h + 14)
         d.text((x + 2, y), f"{a} {f}", fill=(60, 60, 60), font=label_font())
-        tile = compose_cell(sheet, dict(man["animations"][a], _anim=a), f, pid, man, stage, False, zoom, mode)
+        tile = compose_cell(sheet, dict(man["animations"][a], _anim=a), f, pid, man, stage, False, zoom)
         img.alpha_composite(tile, (x + (cell_w - tile.width) // 2, y + 14 + cell_h - tile.height))
     return img
 
@@ -410,36 +354,35 @@ def scenarios(path, zoom=1):
     img.convert("RGB").save(path, optimize=True)
 
 
-def contact(mode, path):
+def contact(path):
     """동물 × 단계 전부 (대표 칸) — 세로로 길다."""
-    pages = [page(pid, mode) for pid in SPECIES]
+    pages = [page(pid) for pid in SPECIES]
     w = max(p.width for p in pages)
     img = Image.new("RGBA", (w, sum(p.height for p in pages)), (236, 240, 246, 255))
     y = 0
     for p in pages:
         img.alpha_composite(p, (0, y))
         y += p.height
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     img.convert("RGB").save(path, optimize=True)
     return pages
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["before", "after"])
     ap.add_argument("--out")
     ap.add_argument("--pages", help="동물마다 따로 저장할 폴더")
     a = ap.parse_args()
-    out = Path(a.out or ROOT / "tools" / "preview" / f"nightcap_{a.mode}.png")
-    pages = contact(a.mode, out)
-    if a.mode == "after":
-        scenarios(out.with_name("nightcap_moves.png"))
-        hang_page(out.with_name("nightcap_hang.png"))
+    out = Path(a.out or ROOT / "tools" / "preview" / "nightcap.png")
+    pages = contact(out)
+    scenarios(out.with_name("nightcap_moves.png"))
+    hang_page(out.with_name("nightcap_hang.png"))
     if a.pages:
         d = Path(a.pages)
         d.mkdir(parents=True, exist_ok=True)
         for pid, p in zip(SPECIES, pages):
-            p.convert("RGB").save(d / f"{a.mode}_{pid}.png")
-            all_anims_page(pid, "teenager", a.mode).convert("RGB").save(d / f"{a.mode}_{pid}_all.png")
+            p.convert("RGB").save(d / f"{pid}.png")
+            all_anims_page(pid, "teenager").convert("RGB").save(d / f"{pid}_all.png")
     print("ok", out)
 
 

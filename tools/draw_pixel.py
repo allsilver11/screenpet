@@ -1245,6 +1245,7 @@ def preview_group(name, by_species, out_dir):
         img.paste(p, (0, y), p)
         y += p.height + 12
     path = Path(out_dir) / f"pixel_{name}.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
     img.save(path, optimize=True)
     return path
 
@@ -1266,7 +1267,7 @@ def preview_all(sp, by_stage, stage, path, zoom=4, cols=20):
 
 
 def main(argv):
-    """python tools/draw_pixel.py [--no-preview] [--group NAME …] : 시트·pet.json + 미리보기."""
+    """python tools/draw_pixel.py [묶음 …] [--no-preview] : 시트·pet.json + 미리보기."""
     preview = "--no-preview" not in argv
     argv = [a for a in argv if a != "--no-preview"]
     names = argv or list(GROUPS)

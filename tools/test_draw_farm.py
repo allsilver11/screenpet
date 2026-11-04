@@ -1,5 +1,6 @@
 """오리·기린 시트 검사: 모든 동작·투명 여백·pet.json·eat에 밥그릇 없음·기린 목 늘이기 층 (구르지 않음)."""
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -121,3 +122,17 @@ def test_neck_stretch_layers_fit_the_sheet(out):
         body_row = np.asarray(strip.getchannel("A"))[m["cut"], :FRAME] > 128
         assert np.array_equal(np.nonzero(ta[0])[0][[0, -1]], np.nonzero(body_row)[0][[0, -1]]) or \
             np.abs(np.nonzero(ta[0])[0][[0, -1]] - np.nonzero(body_row)[0][[0, -1]]).max() <= 1, st
+
+
+@pytest.mark.parametrize("st", ["kinder", "teenager", "adult"])
+def test_neck_preview_shows_the_same_giraffe_on_2x_cells(tmp_path, st):
+    """preview_neck는 층을 128 칸으로 줄여 겹친다: 첫 칸(평소)은 시트의 neckstretch 첫 프레임과 같아야 한다."""
+    d = Path(draw_farm.__file__).resolve().parent.parent / "ui" / "pets" / "giraffe"
+    out = tmp_path / "neck.png"
+    draw_farm.preview_neck(d, out)
+    bg = (236, 240, 246, 255)
+    x, y = 4 + STAGES.index(st) * 4 * (FRAME + 4), 4 + 70
+    got = Image.open(out).reduce(2).convert("RGB").crop((x, y, x + FRAME, y + FRAME))
+    frame = cell(sheet_128(d / f"sheet_{st}.png"), names(draw_farm.GIRAFFE).index("neckstretch"), 0)
+    want = Image.alpha_composite(Image.new("RGBA", frame.size, bg), frame).convert("RGB")
+    assert np.abs(np.asarray(got).astype(int) - np.asarray(want).astype(int)).mean() < 2.0

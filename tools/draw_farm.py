@@ -1034,17 +1034,17 @@ def preview_species(by_stage, path, bg=(255, 255, 255)):
 
 def preview_neck(out_dir, path):
     """목 늘이기 미리보기: 단계마다 평소 → 늘이는 중 → 다 늘임 (✧) — 앱처럼 층을 겹쳐 2배로."""
-    meta = {st: {k: v * FRAME // frame_px(GIRAFFE.id, st) for k, v in m.items()}
-            for st, m in json.loads((Path(out_dir) / "pet.json").read_text(encoding="utf-8"))["neck_stretch"].items()}
+    raw = json.loads((Path(out_dir) / "pet.json").read_text(encoding="utf-8"))["neck_stretch"]
     steps = [0.0, 0.5, 1.0, 1.0]
     heads = [0, 0, 1, 2]
     top = 70
     cw, ch = FRAME, FRAME + top
     img = Image.new("RGBA", (len(STAGES) * len(steps) * (cw + 4) + 8, ch + 8), (236, 240, 246, 255))
     for si, st in enumerate(STAGES):
-        strip = Image.open(Path(out_dir) / f"neck_{st}.png")
-        tile = Image.open(Path(out_dir) / f"neck_tile_{st}.png")
-        m = meta[st]
+        u = frame_px(GIRAFFE.id, st) // FRAME  # 2배 칸의 층·메타는 128 칸으로 줄여 겹친다
+        strip = Image.open(Path(out_dir) / f"neck_{st}.png").reduce(u)
+        tile = Image.open(Path(out_dir) / f"neck_tile_{st}.png").reduce(u)
+        m = {k: v // u for k, v in raw[st].items()}
         for k, (t, h) in enumerate(zip(steps, heads)):
             ext = round(m["ext"] * t)
             cell = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))

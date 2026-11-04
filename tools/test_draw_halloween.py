@@ -5,8 +5,8 @@ import math
 import pytest
 from PIL import Image
 
-import draw_halloween
-import draw_pets
+import draw_pets  # 먼저: draw_halloween을 먼저 부르면 draw_pets 끝의 순환 import가 빈 모듈을 만나 깨진다
+import draw_halloween  # noqa: I001
 from sprite_spec import ANIMS, FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES, sheet_128
 
 PUMPKIN_GROUNDED = {"idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",

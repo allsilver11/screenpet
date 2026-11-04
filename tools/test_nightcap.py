@@ -389,3 +389,17 @@ def test_round_body_ignores_a_scale_change():
 def test_other_pets_keep_the_nightcap_and_no_scarf():
     r = harness("cat")
     assert not r["base"]["capHidden"] and r["base"]["scarfHidden"]
+
+
+def test_contact_sheet_makes_its_folder(tmp_path, monkeypatch):
+    """tools/preview는 커밋되지 않는다 — 새 체크아웃에서도 미리보기가 저장된다."""
+    monkeypatch.setattr(pn, "page", lambda pid: Image.new("RGBA", (4, 4)))
+    out = tmp_path / "new" / "dir" / "nightcap.png"
+    pn.contact(out)
+    assert out.is_file()
+
+
+def test_preview_has_no_old_head_finder():
+    """고치기 전 계산(before 모드)과 그 scipy 의존은 없어졌다 — CI에 없는 패키지를 부르지 않는다."""
+    src = Path(pn.__file__).read_text(encoding="utf-8")
+    assert "scipy" not in src and "old_head_top" not in src
