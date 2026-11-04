@@ -29,12 +29,10 @@
 //!                   `disabled`.
 //! ```
 
+pub use screenpet_crypto::{auth_mac, hex32, public_key, random32, to_hex, welcome_proof};
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u32 = 1;
-/// Domain separation for the authentication MAC.
-pub const AUTH_LABEL: &[u8] = b"screenpet-relay/1 auth";
-pub const WELCOME_LABEL: &[u8] = b"screenpet-relay/1 welcome";
 /// Largest opaque frame carried on a channel (same as the LAN transport).
 pub const MAX_FRAME: usize = 65535;
 /// Channel id header in binary messages.
@@ -101,15 +99,6 @@ impl ServerMsg {
     }
 }
 
-pub fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
-    use blake2::{Blake2s256, Digest};
-    let mut h = Blake2s256::new();
-    for p in parts {
-        h.update(p);
-    }
-    h.finalize().into()
-}
-
 /// X25519(private, public). `None` for a low-order public key (all-zero result).
 pub fn dh(private: &[u8; 32], public: &[u8; 32]) -> Option<[u8; 32]> {
     let shared = curve25519_dalek::MontgomeryPoint(*public).mul_clamped(*private).to_bytes();
@@ -120,44 +109,9 @@ pub fn dh(private: &[u8; 32], public: &[u8; 32]) -> Option<[u8; 32]> {
     }
 }
 
-pub fn public_key(private: &[u8; 32]) -> [u8; 32] {
-    curve25519_dalek::MontgomeryPoint::mul_base_clamped(*private).to_bytes()
-}
-
-pub fn auth_mac(shared: &[u8; 32], nonce: &[u8; 32], relay_pub: &[u8; 32], client_pub: &[u8; 32], id: &str) -> [u8; 32] {
-    blake2s(&[AUTH_LABEL, shared, nonce, relay_pub, client_pub, id.as_bytes()])
-}
-
-/// Proof in `welcome` that the relay holds the private key it announced.
-pub fn welcome_proof(shared: &[u8; 32], cnonce: &[u8; 32], nonce: &[u8; 32], client_pub: &[u8; 32]) -> [u8; 32] {
-    blake2s(&[WELCOME_LABEL, shared, cnonce, nonce, client_pub])
-}
-
 /// Equality without an early exit.
 pub fn ct_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-pub fn random32() -> [u8; 32] {
-    let mut k = [0u8; 32];
-    getrandom::fill(&mut k).expect("OS random number generator unavailable");
-    k
-}
-
-pub fn to_hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
-}
-
-/// Exactly 32 bytes of lowercase-or-uppercase hex, else `None`.
-pub fn hex32(s: &str) -> Option<[u8; 32]> {
-    if s.len() != 64 || !s.bytes().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (i, o) in out.iter_mut().enumerate() {
-        *o = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()?;
-    }
-    Some(out)
 }
 
 /// Canonical (lowercase) hex of a 32-byte key, or `None` if malformed.

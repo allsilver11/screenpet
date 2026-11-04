@@ -1,0 +1,10 @@
+[package]
+name = "screenpet-crypto"
+version = "0.1.0"
+edition = "2021"
+description = "Small crypto and hex helpers shared by the ScreenPet network code and relay"
+
+[dependencies]
+getrandom = "0.3"
+curve25519-dalek = { version = "4.1", default-features = false }
+blake2 = { version = "0.10", default-features = false }

@@ -20,7 +20,8 @@
 use crate::peers::{self, dial_failed, run_session, DialOutcome};
 use crate::protocol::{MAX_FRAME, MAX_FRIENDS, MAX_ID};
 use crate::transport::{Candidate, FrameLink, FrameReader, Recv};
-use crate::noise::{self, blake2s};
+use crate::noise;
+use screenpet_crypto::{auth_mac, welcome_proof};
 use crate::{Backoff, NetEvent, Shared, TICK};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -63,8 +64,6 @@ const HOUSEKEEP: Duration = Duration::from_millis(200);
 const OUTBOX: usize = 1024;
 /// Frames queued per channel before it counts as stuck.
 const CHANNEL_QUEUE: usize = 256;
-const AUTH_LABEL: &[u8] = b"screenpet-relay/1 auth";
-const WELCOME_LABEL: &[u8] = b"screenpet-relay/1 welcome";
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 #[derive(Debug, Serialize)]
@@ -127,10 +126,6 @@ pub fn normalize_code(input: &str) -> Option<String> {
         chars.push(c);
     }
     (chars.len() == 8).then(|| format!("{}-{}", &chars[..4], &chars[4..]))
-}
-
-fn auth_mac(shared: &[u8; 32], nonce: &[u8; 32], relay_pub: &[u8; 32], client_pub: &[u8; 32], id: &str) -> [u8; 32] {
-    blake2s(&[AUTH_LABEL, shared, nonce, relay_pub, client_pub, id.as_bytes()])
 }
 
 enum Out {
@@ -695,7 +690,7 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
     let (code, online) = match read_server(&mut ws, deadline, &shared.stop) {
         Some(ServerMsg::Welcome { code, online, proof }) => {
             // Only the holder of the relay key can compute this.
-            let expected = blake2s(&[WELCOME_LABEL, &shared_secret, &cnonce, &nonce, &own_pub]);
+            let expected = welcome_proof(&shared_secret, &cnonce, &nonce, &own_pub);
             if proof.as_deref().and_then(noise::hex32) != Some(expected) {
                 eprintln!("screenpet relay {}: relay did not prove its key; refusing", client.url);
                 return false;

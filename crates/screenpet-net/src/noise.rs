@@ -12,6 +12,9 @@
 //! (ChaCha20-Poly1305 with implicit nonces: no replay, reordering or
 //! injection on the link).
 
+pub use screenpet_crypto::{hex32, to_hex};
+pub(crate) use screenpet_crypto::{blake2s, hex_array, public_key, random32};
+
 use crate::protocol::MAX_FRAME;
 use crate::transport::{FrameLink, FrameReader, Recv};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,15 +34,6 @@ pub const SAS_EMOJI: [&str; 64] = [
 /// Number of SAS symbols (6 bits each → 36 bits).
 pub(crate) const SAS_LEN: usize = 6;
 
-pub(crate) fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
-    use blake2::{Blake2s256, Digest};
-    let mut h = Blake2s256::new();
-    for p in parts {
-        h.update(p);
-    }
-    h.finalize().into()
-}
-
 /// Commitment to the inviter's pairing nonce: BLAKE2s(nonce_i).
 pub(crate) fn commit(nonce_i: &[u8; 32]) -> [u8; 32] {
     blake2s(&[nonce_i])
@@ -56,42 +50,9 @@ pub(crate) fn sas(handshake_hash: &[u8; 32], nonce_i: &[u8; 32], r_r: &[u8; 32])
         .join(" ")
 }
 
-/// 32 bytes from the OS CSPRNG.
-pub(crate) fn random32() -> [u8; 32] {
-    let mut k = [0u8; 32];
-    getrandom::fill(&mut k).expect("OS random number generator unavailable");
-    k
-}
-
 /// New X25519 private key from the OS CSPRNG.
 pub(crate) fn generate_static_key() -> [u8; 32] {
     random32()
-}
-
-pub fn to_hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
-}
-
-/// Exactly N bytes of hex, else `None`.
-pub(crate) fn hex_array<const N: usize>(s: &str) -> Option<[u8; N]> {
-    if s.len() != 2 * N || !s.bytes().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-    let mut out = [0u8; N];
-    for (i, o) in out.iter_mut().enumerate() {
-        *o = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()?;
-    }
-    Some(out)
-}
-
-/// Exactly 32 bytes of hex, else `None`.
-pub fn hex32(s: &str) -> Option<[u8; 32]> {
-    hex_array::<32>(s)
-}
-
-/// X25519 public key for a private key.
-pub(crate) fn public_key(private: &[u8; 32]) -> [u8; 32] {
-    curve25519_dalek::MontgomeryPoint::mul_base_clamped(*private).to_bytes()
 }
 
 pub(crate) struct Established {

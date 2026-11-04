@@ -3519,16 +3519,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "screenpet-crypto"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "curve25519-dalek",
+ "getrandom 0.3.4",
+]
+
+[[package]]
 name = "screenpet-net"
 version = "0.1.0"
 dependencies = [
  "blake2",
  "curve25519-dalek",
  "fastrand",
- "getrandom 0.3.4",
  "rustls",
  "rustls-rustcrypto",
  "screenpet-core",
+ "screenpet-crypto",
  "screenpet-relay",
  "serde",
  "serde_json",
@@ -3542,10 +3551,9 @@ dependencies = [
 name = "screenpet-relay"
 version = "0.1.0"
 dependencies = [
- "blake2",
  "curve25519-dalek",
- "getrandom 0.3.4",
  "libc",
+ "screenpet-crypto",
  "serde",
  "serde_json",
  "tungstenite",
