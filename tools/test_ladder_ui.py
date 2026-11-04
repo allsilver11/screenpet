@@ -79,6 +79,13 @@ def test_the_window_is_kept_on_screen_when_it_grows():
     assert "draw::window_height(height, work_area(app).1)" in LADDER_RS
 
 
+def test_names_from_friends_are_cleaned_for_the_screen():
+    assert "unwrap_or_else(|| shown_name(&p.name))" in LADDER_RS, "player names in the game"
+    assert "who.as_deref().map(shown_name)" in LADDER_RS, "the name in a cancel message"
+    assert "map_or_else(|| shown_name(g.host_name())," in LADDER_RS, "the host name in an invite"
+    assert "draw::shown_text(&r.text, draw::RESULT_MAX_CHARS)" in LADDER_RS, "result slots"
+
+
 def test_the_ladder_window_may_use_ipc():
     # Tauri 2: 창 라벨이 capability에 없으면 invoke·listen이 막혀 흰 화면만 뜬다 (첫 Windows 시험에서 실제로 그랬다)
     cap = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text(encoding="utf-8"))

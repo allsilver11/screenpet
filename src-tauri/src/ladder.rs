@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use screenpet_core::config::{Config, LastLadder, LastLadderRow};
+use screenpet_core::config::{Config, LastLadder, LastLadderRow, MAX_NAME_CHARS};
 use screenpet_core::ladder::{self as draw, Mood};
 use screenpet_net::ladder::{Answer, CancelReason, DeclineReason, GuestGame, HostGame, LockedResult, Outcome, Phase, Seat};
 use screenpet_net::{LadderMsg, Net, LADDER_MIN_VERSION, SAS_EMOJI};
@@ -172,8 +172,13 @@ fn answer_label(a: &Answer) -> &'static str {
     }
 }
 
+/// 친구가 알린 이름을 화면용으로 (상태 기계는 받은 글자 그대로 해시한다)
+fn shown_name(raw: &str) -> String {
+    draw::shown_text(raw, MAX_NAME_CHARS)
+}
+
 fn slot_rows(r: &[LockedResult]) -> Vec<SlotRow> {
-    r.iter().map(|r| SlotRow { text: r.text.clone(), mood: r.mood.clone() }).collect()
+    r.iter().map(|r| SlotRow { text: draw::shown_text(&r.text, draw::RESULT_MAX_CHARS), mood: r.mood.clone() }).collect()
 }
 
 /// 웹뷰가 보낸 결과 칸 → 상태 기계용 (글자는 core 규칙으로 다듬는다 — 다듬은 뒤엔 net이 그대로 검사한다)
@@ -499,7 +504,7 @@ impl Ladders {
                     _ if i == o.host => host_friend.clone(),
                     _ => None,
                 };
-                friend.and_then(|id| ctx.config.friend(&id).map(|f| f.shown_name().to_string())).unwrap_or_else(|| p.name.clone())
+                friend.and_then(|id| ctx.config.friend(&id).map(|f| f.shown_name().to_string())).unwrap_or_else(|| shown_name(&p.name))
             })
             .collect();
         let host_name = if me_host { ctx.my_name.to_string() } else { names[o.host].clone() };
@@ -560,7 +565,7 @@ impl Ladders {
         let Some(game) = &self.game else {
             return self.setup.then(|| LadderView { view: "setup", host_name: ctx.my_name.to_string(), friends: friends(&[]), notice: self.notice, ..Default::default() });
         };
-        let cancel = |reason: CancelReason, who: &Option<String>| CancelView { reason: reason.wire(), who: who.clone() };
+        let cancel = |reason: CancelReason, who: &Option<String>| CancelView { reason: reason.wire(), who: who.as_deref().map(shown_name) };
         Some(match (game, phase(game)) {
             (_, Phase::Done(_)) => LadderView { view: "game", game: self.layout.clone(), ..Default::default() },
             (_, Phase::Cancelled { reason, who }) => LadderView { view: "cancelled", cancel: Some(cancel(*reason, who)), ..Default::default() },
@@ -584,7 +589,7 @@ impl Ladders {
                     Phase::Joined => "joined",
                     _ => "locked",
                 };
-                let host_name = ctx.config.friend(g.host_id()).map_or_else(|| g.host_name().to_string(), |f| f.shown_name().to_string());
+                let host_name = ctx.config.friend(g.host_id()).map_or_else(|| shown_name(g.host_name()), |f| f.shown_name().to_string());
                 LadderView { view, host_name, invited: g.invited(), draft: slot_rows(g.draft()), ..Default::default() }
             }
         })

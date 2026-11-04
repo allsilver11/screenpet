@@ -1310,6 +1310,16 @@ mod tests {
         assert_ne!(lock_hash(&gid, 0, &[p("a", "b")], &r), lock_hash(&gid, 0, &[p("a", "b")], &results(&[("a", "bad")])));
     }
 
+    #[test]
+    fn hidden_characters_in_a_name_stay_in_the_hash() {
+        // 화면에는 지워서 보이지만, 해시는 받은 글자 그대로 — 지우면 빌드마다 시드가 달라질 수 있다
+        assert!(valid_name("나\u{200B}비"));
+        let gid = [7u8; 16];
+        let p = |name: &str| LockedPlayer { token: [1; 16], commit: [2; 32], name: name.into(), pet: "cat".into(), style: String::new() };
+        let r = results(&[("a", "good")]);
+        assert_ne!(lock_hash(&gid, 0, &[p("나비")], &r), lock_hash(&gid, 0, &[p("나\u{200B}비")], &r));
+    }
+
     /// Every build must derive the same seed, stream and print from the same
     /// game. If this changes, the protocol changed.
     #[test]
