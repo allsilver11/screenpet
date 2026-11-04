@@ -2,26 +2,14 @@
 //! (spec 2026-11-04 §3, §6). Discovery is unicast: both players announce to
 //! the host's port, so the host ("aaaa", the smallest id) dials them both.
 
+mod common;
+
+use common::{fast, free_udp_port, friend};
 use screenpet_net::ladder::{CancelReason, GuestGame, HostGame, LockedResult, Phase, Seat};
-use screenpet_net::{Friend, LadderMsg, Net, NetConfig, NetEvent, Timing};
-use std::net::{SocketAddr, UdpSocket};
+use screenpet_net::{Friend, LadderMsg, Net, NetConfig, NetEvent};
+use std::net::SocketAddr;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
-
-fn fast() -> Timing {
-    Timing {
-        announce_interval: Duration::from_millis(150),
-        peer_timeout: Duration::from_millis(1500),
-        ping_interval: Duration::from_millis(200),
-        conn_timeout: Duration::from_millis(1500),
-        invite_timeout: Duration::from_millis(3000),
-        relay_retry: Duration::from_millis(300),
-    }
-}
-
-fn free_udp_port() -> u16 {
-    UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
 
 fn cfg(id: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Friend>) -> NetConfig {
     let mut c = NetConfig::new(id, id.to_uppercase(), key, friends);
@@ -29,10 +17,6 @@ fn cfg(id: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Friend>) -> Net
     c.broadcast_to = SocketAddr::from(([127, 0, 0, 1], to));
     c.timing = fast();
     c
-}
-
-fn friend(id: &str, key: &[u8; 32]) -> Friend {
-    Friend { id: id.into(), public_key: Net::public_key(key) }
 }
 
 struct Three {

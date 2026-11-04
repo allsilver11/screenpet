@@ -3,7 +3,9 @@
 
 use screenpet_net::{Friend, Net, NetConfig, NetEvent, Side, Timing, Visit};
 use screenpet_relay::{Relay, RelayConfig};
-use blake2::{Blake2s256, Digest};
+mod common;
+
+use common::{blake2s, fast, free_udp_port, friend, hex, is_connected, unhex, wait_for};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io;
@@ -13,21 +15,6 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tungstenite::{Error as WsError, Message as WsMessage, WebSocket};
-
-fn fast() -> Timing {
-    Timing {
-        announce_interval: Duration::from_millis(150),
-        peer_timeout: Duration::from_millis(1500),
-        ping_interval: Duration::from_millis(200),
-        conn_timeout: Duration::from_millis(1500),
-        invite_timeout: Duration::from_millis(3000),
-        relay_retry: Duration::from_millis(300),
-    }
-}
-
-fn free_udp_port() -> u16 {
-    UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
 
 fn start_relay(addr: SocketAddr) -> Relay {
     Relay::start(RelayConfig::new(addr, None)).unwrap()
@@ -68,18 +55,6 @@ fn start_net_with(
     .unwrap()
 }
 
-fn wait_for(rx: &Receiver<NetEvent>, secs: f64, pred: impl Fn(&NetEvent) -> bool) -> Option<NetEvent> {
-    let deadline = Instant::now() + Duration::from_secs_f64(secs);
-    loop {
-        let left = deadline.checked_duration_since(Instant::now())?;
-        match rx.recv_timeout(left) {
-            Ok(ev) if pred(&ev) => return Some(ev),
-            Ok(_) => continue,
-            Err(_) => return None,
-        }
-    }
-}
-
 /// Every event within `secs`.
 fn collect(rx: &Receiver<NetEvent>, secs: f64) -> Vec<NetEvent> {
     let deadline = Instant::now() + Duration::from_secs_f64(secs);
@@ -98,10 +73,6 @@ fn code_of(rx: &Receiver<NetEvent>) -> String {
         Some(NetEvent::FriendCode { code }) => code,
         other => panic!("no friend code: {other:?}"),
     }
-}
-
-fn is_connected(e: &NetEvent) -> bool {
-    matches!(e, NetEvent::Connected { .. })
 }
 
 fn visit(id: u64) -> Visit {
@@ -128,10 +99,7 @@ fn received(rx: &Receiver<NetEvent>, id: u64) -> bool {
 }
 
 fn friends_of(ka: &[u8; 32], kb: &[u8; 32]) -> (Vec<Friend>, Vec<Friend>) {
-    (
-        vec![Friend { id: "bbbb".into(), public_key: Net::public_key(kb) }],
-        vec![Friend { id: "aaaa".into(), public_key: Net::public_key(ka) }],
-    )
+    (vec![friend("bbbb", kb)], vec![friend("aaaa", ka)])
 }
 
 #[test]
@@ -166,8 +134,8 @@ fn pair_with_a_friend_code_then_visit_through_the_relay() {
     b.answer_invite(pb, true);
     assert!(wait_for(&arx, 5.0, is_connected).is_some());
     assert!(wait_for(&brx, 5.0, is_connected).is_some());
-    assert_eq!(a.friends(), vec![Friend { id: "bbbb".into(), public_key: Net::public_key(&kb) }]);
-    assert_eq!(b.friends(), vec![Friend { id: "aaaa".into(), public_key: Net::public_key(&ka) }]);
+    assert_eq!(a.friends(), vec![friend("bbbb", &kb)]);
+    assert_eq!(b.friends(), vec![friend("aaaa", &ka)]);
 
     a.send("bbbb", visit(1));
     assert!(received(&brx, 1));
@@ -441,21 +409,8 @@ impl Drop for FakeRelay {
     }
 }
 
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
-}
-
 fn unhex32(s: &str) -> [u8; 32] {
-    let v: Vec<u8> = (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect();
-    v.try_into().unwrap()
-}
-
-fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
-    let mut h = Blake2s256::new();
-    for p in parts {
-        h.update(p);
-    }
-    h.finalize().into()
+    unhex(s).try_into().unwrap()
 }
 
 struct RelayConn {

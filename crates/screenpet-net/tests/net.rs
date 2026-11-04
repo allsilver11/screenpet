@@ -2,7 +2,9 @@
 //! each "broadcasting" (UDP unicast) to the other's port, plus hand-rolled
 //! Noise clients (via `snow`) for the protocol / attack cases.
 
-use blake2::{Blake2s256, Digest};
+mod common;
+
+use common::{blake2s, fast, free_udp_port, friend, hex, is_connected, is_disconnected, unhex, wait_for};
 use screenpet_net::{new_install_id, Fling, Friend, LadderMsg, Net, NetConfig, NetEvent, Side, Steer, Timing, Toss, VSide, Visit, MAX_FRIENDS, SAS_EMOJI};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
@@ -14,31 +16,12 @@ use std::time::{Duration, Instant};
 
 // ---- helpers ---------------------------------------------------------------
 
-fn fast() -> Timing {
-    Timing {
-        announce_interval: Duration::from_millis(150),
-        peer_timeout: Duration::from_millis(1500),
-        ping_interval: Duration::from_millis(200),
-        conn_timeout: Duration::from_millis(1500),
-        invite_timeout: Duration::from_millis(3000),
-        relay_retry: Duration::from_millis(300),
-    }
-}
-
-fn free_udp_port() -> u16 {
-    UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
-
 fn local(port: u16) -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], port))
 }
 
 fn key() -> [u8; 32] {
     Net::generate_static_key()
-}
-
-fn friend(id: &str, key: &[u8; 32]) -> Friend {
-    Friend { id: id.into(), public_key: Net::public_key(key) }
 }
 
 fn cfg(id: &str, name: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Friend>) -> NetConfig {
@@ -53,26 +36,6 @@ fn cfg(id: &str, name: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Fri
         relay_url: None,
         relay_key: None,
     }
-}
-
-/// Wait until an event matching `pred` arrives (skipping others).
-fn wait_for(rx: &Receiver<NetEvent>, secs: f64, pred: impl Fn(&NetEvent) -> bool) -> Option<NetEvent> {
-    let deadline = Instant::now() + Duration::from_secs_f64(secs);
-    loop {
-        let left = deadline.checked_duration_since(Instant::now())?;
-        match rx.recv_timeout(left) {
-            Ok(ev) if pred(&ev) => return Some(ev),
-            Ok(_) => continue,
-            Err(_) => return None,
-        }
-    }
-}
-
-fn is_connected(e: &NetEvent) -> bool {
-    matches!(e, NetEvent::Connected { .. })
-}
-fn is_disconnected(e: &NetEvent) -> bool {
-    matches!(e, NetEvent::Disconnected { .. })
 }
 
 struct Pair {
@@ -260,22 +223,6 @@ fn raw_connect_claiming(port: u16, key: &[u8; 32], id: &str) -> Peer {
     let mut p = handshake(TcpStream::connect(local(port)).unwrap(), key, true).unwrap();
     p.send(hello(id, "Raw")).unwrap();
     p
-}
-
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
-}
-
-fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
-}
-
-fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
-    let mut h = Blake2s256::new();
-    for p in parts {
-        h.update(p);
-    }
-    h.finalize().into()
 }
 
 /// Independent implementation of the documented SAS:
