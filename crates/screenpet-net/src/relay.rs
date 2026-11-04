@@ -418,6 +418,8 @@ fn auto_dial(shared: &Arc<Shared>, client: &Arc<RelayClient>) {
 
 // ---- connection --------------------------------------------------------------
 
+type Ws = WebSocket<Polled<Stream>>;
+
 enum Stream {
     Plain(TcpStream),
     Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
@@ -471,6 +473,30 @@ fn tls_config() -> Arc<rustls::ClientConfig> {
         .clone()
 }
 
+/// A socket whose read and write timeouts are only polls. Windows reports an
+/// expired timeout as `TimedOut`, Unix as `WouldBlock`; tungstenite's handshake
+/// resumes only on `WouldBlock`, so this makes them the same everywhere.
+struct Polled<S>(S);
+
+fn polled<T>(r: io::Result<T>) -> io::Result<T> {
+    r.map_err(|e| if e.kind() == ErrorKind::TimedOut { io::Error::new(ErrorKind::WouldBlock, e) } else { e })
+}
+
+impl<S: Read> Read for Polled<S> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        polled(self.0.read(buf))
+    }
+}
+
+impl<S: Write> Write for Polled<S> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        polled(self.0.write(buf))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        polled(self.0.flush())
+    }
+}
+
 /// `(tls, host, port)` of a `ws://` / `wss://` URL.
 fn parse_url(url: &str) -> Option<(bool, String, u16)> {
     let (tls, rest) = if let Some(r) = url.strip_prefix("wss://") {
@@ -498,7 +524,7 @@ fn parse_url(url: &str) -> Option<(bool, String, u16)> {
 
 /// Connect, TLS and WebSocket handshakes; gives up at shutdown or after
 /// `HANDSHAKE_TIMEOUT` (reads poll so `Net::drop` is not held up).
-fn connect(url: &str, stop: &AtomicBool) -> io::Result<WebSocket<Stream>> {
+fn connect(url: &str, stop: &AtomicBool) -> io::Result<Ws> {
     let bad = |m: &str| io::Error::new(ErrorKind::InvalidInput, m.to_string());
     let (tls, host, port) = parse_url(url).ok_or_else(|| bad("bad relay url"))?;
     let mut last = bad("relay host not found");
@@ -523,10 +549,15 @@ fn connect(url: &str, stop: &AtomicBool) -> io::Result<WebSocket<Stream>> {
     } else {
         Stream::Plain(tcp)
     };
+    ws_handshake(url, Polled(stream), stop, HANDSHAKE_TIMEOUT)
+}
+
+/// The WebSocket upgrade over a polling socket: keeps going while reads time out.
+fn ws_handshake<S: Read + Write>(url: &str, stream: S, stop: &AtomicBool, limit: Duration) -> io::Result<WebSocket<S>> {
     let cfg = tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(MAX_FRAME + 4))
         .max_frame_size(Some(MAX_FRAME + 4));
-    let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
+    let deadline = Instant::now() + limit;
     let mut attempt = tungstenite::client::client_with_config(url, stream, Some(cfg));
     loop {
         match attempt {
@@ -547,7 +578,7 @@ fn would_block(e: &WsError) -> bool {
 }
 
 /// Next control message before `deadline` or shutdown (handshake phase).
-fn read_server(ws: &mut WebSocket<Stream>, deadline: Instant, stop: &AtomicBool) -> Option<ServerMsg> {
+fn read_server(ws: &mut Ws, deadline: Instant, stop: &AtomicBool) -> Option<ServerMsg> {
     while Instant::now() < deadline && !stop.load(Ordering::SeqCst) {
         match ws.read() {
             Ok(Message::Text(t)) => return serde_json::from_str(t.as_str()).ok(),
@@ -619,7 +650,7 @@ fn disconnected(shared: &Shared, client: &RelayClient) {
 }
 
 /// Authenticate and serve one connection. `true` if it got past `welcome`.
-fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: WebSocket<Stream>) -> bool {
+fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
     let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
     let Some(ServerMsg::Challenge { relay, nonce }) = read_server(&mut ws, deadline, &shared.stop) else { return false };
     let (Some(relay_pub), Some(nonce)) = (noise::hex32(&relay), noise::hex32(&nonce)) else { return false };
@@ -661,7 +692,7 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: WebSocket<Stre
         }
         _ => return false,
     };
-    if ws.get_ref().tcp().set_read_timeout(Some(POLL)).is_err() {
+    if ws.get_ref().0.tcp().set_read_timeout(Some(POLL)).is_err() {
         return false;
     }
     let gen = client.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -884,6 +915,56 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A relay on a slow line: every read first times out `timeouts` times, the
+    /// way a Windows socket with a 200 ms read timeout does, then answers the upgrade.
+    struct SlowRelay {
+        timeouts: usize,
+        request: Vec<u8>,
+        response: Option<io::Cursor<Vec<u8>>>,
+    }
+
+    impl Read for SlowRelay {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.timeouts > 0 {
+                self.timeouts -= 1;
+                return Err(io::Error::new(ErrorKind::TimedOut, "read timed out"));
+            }
+            let request = String::from_utf8_lossy(&self.request).to_string();
+            let response = self.response.get_or_insert_with(|| {
+                let key = request.lines().find_map(|l| l.strip_prefix("Sec-WebSocket-Key: ").or_else(|| l.strip_prefix("sec-websocket-key: "))).expect("upgrade request");
+                let accept = tungstenite::handshake::derive_accept_key(key.trim().as_bytes());
+                io::Cursor::new(format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n").into_bytes())
+            });
+            response.read(buf)
+        }
+    }
+
+    impl Write for SlowRelay {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.request.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_read_timeout_during_the_upgrade_is_only_a_poll() {
+        let stop = AtomicBool::new(false);
+        let slow = SlowRelay { timeouts: 3, request: Vec::new(), response: None };
+        let done = ws_handshake("ws://relay.test/ws", Polled(slow), &stop, Duration::from_secs(2));
+        assert!(done.is_ok(), "{:?}", done.err());
+    }
+
+    #[test]
+    fn a_stopped_or_silent_upgrade_still_gives_up() {
+        let stop = AtomicBool::new(false);
+        let silent = SlowRelay { timeouts: usize::MAX, request: Vec::new(), response: None };
+        let e = ws_handshake("ws://relay.test/ws", Polled(silent), &stop, Duration::from_millis(30)).err().expect("gives up");
+        assert_eq!(e.kind(), ErrorKind::TimedOut);
+    }
 
     #[test]
     fn urls() {
