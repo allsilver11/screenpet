@@ -435,7 +435,7 @@ pub enum TossAnswer {
     Drop,
 }
 
-/// refusing = 지금 던지는 걸 받지 않는다 (Pet::refuses_throws), bounced = 상대가 되돌린 물건이라고 한다,
+/// refusing = 지금 받지 않는다 (Pet::refuses_arrivals), bounced = 상대가 되돌린 물건이라고 한다,
 /// threw_lately = 방금 내가 그 친구에게 던졌다. 되돌아온 물건은 다시 되돌리지 않는다 (둘 다 집중 중이어도 오가지 않게)
 pub fn toss_answer(refusing: bool, bounced: bool, threw_lately: bool) -> TossAnswer {
     match (refusing, bounced) {

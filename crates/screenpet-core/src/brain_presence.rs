@@ -158,8 +158,8 @@ impl Pet {
         self.presence.focus
     }
 
-    /// 집중 중(쉬는 시간 제외)이거나 하우스 안이면 친구가 던지는 동물·물건을 받지 않는다 (걸어오는 손님은 받는다)
-    pub fn refuses_throws(&self) -> bool {
+    /// 집중 중(쉬는 시간 제외)이거나 하우스 안이면 새 손님(걸어오든 던져지든)과 던진 물건을 받지 않는다 (이미 와 있는 손님은 그대로)
+    pub fn refuses_arrivals(&self) -> bool {
         self.presence.focus || self.housed
     }
 

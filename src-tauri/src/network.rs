@@ -1039,9 +1039,10 @@ impl Network {
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
             Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, .. } => {
-                // 집중·하우스 중엔 던진 동물을 받지 않는다: 날아온 그대로 되돌아간다 (걸어오는 손님은 받는다)
-                if fling.is_some() && slots[0].pet.refuses_throws() {
-                    eprintln!("sent back thrown visit {visit_id} from {from}");
+                // 집중·하우스 중엔 새 손님을 받지 않는다: 던져졌으면 날아온 그대로, 걸어왔으면 걸어서 되돌아간다
+                // (걸어온 쪽은 바로 돌아온 것을 보고 잠깐 보내지 않는다 — QUICK_DECLINE)
+                if slots[0].pet.refuses_arrivals() {
+                    eprintln!("sent back visit {visit_id} from {from}");
                     if let Some(net) = &self.net {
                         net.send(from, Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling, note: None });
                         net.ask(from, ASK_NOT_NOW);
