@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image
 
 import draw_pets
-from sprite_spec import ANIMS, FRAME, HIRES_TEENAGER, OPTIONAL_ANIMS, ROLL_CENTER, ROLL_RADIUS, STAGES as STAGE_NAMES, frame_px, sheet_128
+from sprite_spec import ANIMS, FRAME, HIRES_TEENAGER, NO_SPIN, OPTIONAL_ANIMS, ROLL_CENTER, ROLL_RADIUS, STAGES as STAGE_NAMES, frame_px, sheet_128
 
 STANDING = {"walk", "run", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
             "hungry", "eat", "level_up", "huff", "lookup"}
@@ -461,6 +461,11 @@ def test_hires_stages_follow_the_on_screen_size():
         assert m["frame_sizes"]["adult"] == 2 * FRAME and ("teenager" in m["frame_sizes"]) == (pid in HIRES_TEENAGER)
 
 
+def test_only_rolling_pets_have_a_roll_spin():
+    for pid, m, _ in _shipped():
+        assert ("spin" in m["animations"]["roll"]) == (pid not in NO_SPIN), pid
+
+
 def test_every_layer_has_the_cell_size_the_manifest_says():
     for pid, m, d in _shipped():
         rows = 1 + max(a["row"] for a in m["animations"].values())
@@ -471,7 +476,8 @@ def test_every_layer_has_the_cell_size_the_manifest_says():
             for key in ("head", "neck"):
                 for cells in m.get(key, {}).get(st, {}).values():
                     assert all(-px * 0.2 < c[0] < px * 1.2 and -px * 0.2 < c[1] < px * 1.2 and c[2] < px for c in cells), (pid, st, key)
-            if "neck_stretch" in m:
+            assert ("neck_stretch" in m) == (pid == "giraffe"), pid
+            if pid == "giraffe":
                 meta = m["neck_stretch"][st]
                 with Image.open(d / f"neck_{st}.png") as strip, Image.open(d / f"neck_tile_{st}.png") as tile:
                     assert strip.size == (4 * px, px) and tile.size == (px, meta["tile"]), (pid, st)

@@ -973,7 +973,7 @@ GIRAFFE = Species(
     stripe=GIR_SPOT, outline=GIR_LINE,
     stage_tweak={"baby": dict(pale=0.0, eye=1.2, fit=0.9), "kinder": dict(pale=0.0, eye=1.1, fit=0.93),
                  "child": dict(pale=0.0), "adult": dict(fit=0.94)},
-    specials=["neckstretch", "lookup"], poses=GIRAFFE_POSES, **_COMMON,
+    specials=["neckstretch", "lookup"], poses=GIRAFFE_POSES, write_layers=lambda out_dir: {"neck_stretch": write_neck_layers(out_dir)}, **_COMMON,
 )
 
 
@@ -1007,20 +1007,6 @@ def write_neck_layers(out_dir):
         tile.save(out_dir / f"neck_tile_{st}.png")
         meta[st] = m
     return meta
-
-
-def write_farm(sp, out_dir):
-    """시트·pet.json (+ 기린: 목 늘이기 층과 pet.json neck_stretch, roll은 돌리지 않음)."""
-    out_dir = Path(out_dir)
-    by_stage = dp.write_species(sp, out_dir)
-    if sp is GIRAFFE:
-        meta = write_neck_layers(out_dir)
-        pj = out_dir / "pet.json"
-        m = json.loads(pj.read_text(encoding="utf-8"))
-        m["animations"]["roll"].pop("spin", None)
-        m["neck_stretch"] = meta
-        pj.write_text(dp._manifest_text(m), encoding="utf-8")
-    return by_stage
 
 
 def preview_species(by_stage, path, bg=(255, 255, 255)):
@@ -1063,7 +1049,7 @@ def main():
     pv.mkdir(exist_ok=True)
     for sp in (DUCK, GIRAFFE):
         out = root / "ui" / "pets" / sp.id
-        by_stage = dp.at_frame(write_farm(sp, out))
+        by_stage = dp.at_frame(dp.write_species(sp, out))
         preview_species(by_stage, pv / f"stages_{sp.id}.png")
     preview_neck(root / "ui" / "pets" / "giraffe", pv / "neck_giraffe.png")
     print("ok: duck, giraffe")

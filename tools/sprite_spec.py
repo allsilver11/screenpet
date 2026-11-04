@@ -115,8 +115,8 @@ HOUSE = {"bee": "hive", "pumpkin": "haunted", "ghost": "haunted", "rudolph": "xm
 # 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (개구리는 locomotion hop이라 늘 폴짝)
 HOP_SHARE = {"rabbit": 0.5, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5}
 
-# roll을 돌리지 않는 동물 (pet.json roll에 spin 없음) — 산타는 구르는 대신 썰매를 타고, 눈사람은 배로 미끄러진다
-NO_SPIN = {"santa", "snowman"}
+# roll을 돌리지 않는 동물 (pet.json roll에 spin 없음) — 산타는 구르는 대신 썰매를 타고, 눈사람은 배로 미끄러지고, 기린은 목을 늘인다
+NO_SPIN = {"santa", "snowman", "giraffe"}
 
 # 가끔 머리 위에 작은 눈구름을 부르는 동물 (pet.json snow_cloud)
 SNOW_CLOUD = {"snowman"}

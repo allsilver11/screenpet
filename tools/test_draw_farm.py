@@ -8,16 +8,19 @@ from PIL import Image
 
 import draw_farm
 import draw_pets
-from sprite_spec import ANIMS, FRAME, STAGES, frame_px, sheet_128
+from sprite_spec import ANIMS, FRAME, NO_SPIN, STAGES, frame_px, sheet_128
 
+ROOT = Path(__file__).resolve().parent.parent
 BOWL_COLORS = [(246, 196, 150), (252, 226, 196), (230, 222, 206)]
 
 
 @pytest.fixture(scope="module")
 def out(tmp_path_factory):
+    """문서의 명령(python tools/draw_pets.py)이 부르는 build로 만든다 — 기린 층과 neck_stretch도 여기서 나와야 한다."""
     root = tmp_path_factory.mktemp("pets")
-    for sp in (draw_farm.DUCK, draw_farm.GIRAFFE):
-        draw_farm.write_farm(sp, root / sp.id)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(draw_pets, "SPECIES", {"duck": draw_farm.DUCK, "giraffe": draw_farm.GIRAFFE})
+        draw_pets.build(root)
     return root
 
 
@@ -70,6 +73,17 @@ def test_manifests(out):
     assert gir["animations"]["neckstretch"] == {"row": 21, "frames": 3, "fps": 2}
     assert "spin" not in gir["animations"]["roll"] and "spin" in duck["animations"]["roll"]
     assert "neckstretch" not in duck["animations"]
+    assert "neck_stretch" in gir and "neck_stretch" not in duck
+    assert "giraffe" in NO_SPIN
+
+
+def test_the_build_reproduces_the_committed_giraffe(out):
+    """draw_pets 빌드 결과가 저장소의 기린과 바이트까지 같다 (빌드가 neck_stretch를 지우고 spin을 되살리던 버그)."""
+    shipped = ROOT / "ui" / "pets" / "giraffe"
+    names = sorted(p.name for p in shipped.iterdir())
+    assert names == sorted(p.name for p in (out / "giraffe").iterdir())
+    for name in names:
+        assert (out / "giraffe" / name).read_bytes() == (shipped / name).read_bytes(), name
 
 
 @pytest.mark.parametrize("pid", ["duck", "giraffe"])
@@ -127,7 +141,7 @@ def test_neck_stretch_layers_fit_the_sheet(out):
 @pytest.mark.parametrize("st", ["kinder", "teenager", "adult"])
 def test_neck_preview_shows_the_same_giraffe_on_2x_cells(tmp_path, st):
     """preview_neck는 층을 128 칸으로 줄여 겹친다: 첫 칸(평소)은 시트의 neckstretch 첫 프레임과 같아야 한다."""
-    d = Path(draw_farm.__file__).resolve().parent.parent / "ui" / "pets" / "giraffe"
+    d = ROOT / "ui" / "pets" / "giraffe"
     out = tmp_path / "neck.png"
     draw_farm.preview_neck(d, out)
     bg = (236, 240, 246, 255)

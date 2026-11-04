@@ -560,6 +560,7 @@ class Species:
     back_body_marks: list = field(default_factory=list)
     outline: tuple = None  # 실루엣 외곽선 색 (없으면 LINE)
     poses: dict = None  # 이 종만의 포즈 {동작: 함수} — 뼈대가 다른 동물 (꿀벌: 날개로 난다). 없는 동작은 공통 POSES
+    write_layers: object = None  # 시트 말고 더 쓸 그림이 있는 종 (기린 목 늘이기): (out_dir) → pet.json에 더할 칸
 
 
 def _stripe(pts, w=2.8):
@@ -2206,6 +2207,8 @@ def write_species(sp, out_dir):
     m["head"] = {st: _HEADS[(sp.id, st)] for st in STAGES}
     if _NECKS[(sp.id, STAGES[0])]:  # 밤에 수면 모자 대신 목도리 (산타, ui/main.js)
         m["neck"] = {st: _NECKS[(sp.id, st)] for st in STAGES}
+    if sp.write_layers:
+        m.update(sp.write_layers(out_dir))
     (out_dir / "pet.json").write_text(_manifest_text(m), encoding="utf-8")
     return by_stage
 
