@@ -3,6 +3,7 @@
 use super::tests::{place, run, sim_cfg, win, world};
 use super::*;
 use crate::hop;
+use crate::test_util::{bundled, species};
 
 const DT: f64 = 1.0 / 60.0;
 const SIZE: f64 = 108.8;
@@ -150,36 +151,6 @@ fn big_jumps_happen_on_about_12_percent_of_move_decisions_when_a_window_is_in_re
 
 // ---- 걷는 동물은 다 창 위로 뛴다 (v0.3.9): 나는 동물만 빼고, 개구리보다 드물게 ----
 
-/// 번들 pet.json 그대로의 설정 (slots.rs pet_config와 같은 계산, body_scale = 청소년 × stage_size)
-fn bundled() -> Vec<(String, PetConfig)> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
-    let mut out = vec![];
-    for e in std::fs::read_dir(dir).unwrap() {
-        let path = e.unwrap().path();
-        let Ok(json) = std::fs::read_to_string(path.join("pet.json")) else { continue };
-        let m = crate::manifest::parse_manifest(&json).unwrap();
-        let scale = m.size_mult(crate::care::Stage::Teenager);
-        let size = 128.0 * scale;
-        let cfg = PetConfig {
-            size,
-            half_w: 0.3 * size,
-            walk_speed: m.walk_speed * scale.sqrt(),
-            special: Special::from_manifest(|n| m.has_anim(n)),
-            personality: m.personality,
-            can_climb: m.can_climb(),
-            flies: m.flies(),
-            stings: m.can_sting(),
-            hops: m.hops(),
-            hop_share: m.hop_share(),
-            looks_up: m.can_look_up(),
-            ..sim_cfg()
-        };
-        out.push((path.file_name().unwrap().to_string_lossy().into_owned(), cfg));
-    }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out
-}
-
 /// 이 동물이 x에 서서 이동을 정할 때 큰 점프가 나오는 몫
 fn leap_share(c: PetConfig, w: &World, x: f64) -> f64 {
     let n = 4000;
@@ -201,7 +172,7 @@ fn reachable(c: &PetConfig) -> (World, f64) {
 #[test]
 fn every_walker_leaps_onto_a_window_in_reach_and_flyers_never_do() {
     let pets = bundled();
-    assert!(pets.len() >= 15, "{}", pets.len());
+    assert_eq!(pets.len(), species().len());
     let frog_share = pets.iter().find(|(id, _)| id == "frog").map(|(_, c)| {
         let (w, x) = reachable(c);
         leap_share(*c, &w, x)

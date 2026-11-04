@@ -4,13 +4,9 @@ use super::cursor_moves::*;
 use super::tests::{cfg, place, sim_cfg, w1, win, world};
 use super::*;
 use crate::geom::Rect;
-use crate::test_util::LoopLimit;
+use crate::test_util::{species, LoopLimit};
 
 const DT: f64 = 1.0 / 60.0;
-const SPECIES: [&str; 16] = [
-    "cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "dino_yellow", "dino_green", "dino_purple", "snowman",
-];
-
 fn resting() -> State {
     State::Idle { remaining: 100.0, look: false }
 }
@@ -140,10 +136,19 @@ fn it_never_starts_when_off_busy_dragging_controlled_or_otherwise_occupied() {
 fn without_the_app_feeding_the_cursor_nothing_ever_starts() {
     // 다른 테스트·시뮬레이션의 난수 순서를 건드리지 않는다
     let (mut p, w) = ready_pet(cfg(), 4);
+    let dice = p.rng.get_seed();
     for _ in 0..1200 {
         p.update(DT, &w);
         assert!(!matches!(p.state, State::CursorPlay { .. }));
     }
+    assert_eq!(p.rng.get_seed(), dice, "no dice were rolled while it rested");
+    // 비교: 같은 자리에서 커서를 먹이면 주사위를 굴린다
+    let (mut q, w) = ready_pet(cfg(), 4);
+    let dice = q.rng.get_seed();
+    for _ in 0..1200 {
+        tick(&mut q, &w, (900.0, 900.0));
+    }
+    assert_ne!(q.rng.get_seed(), dice);
 }
 
 #[test]
@@ -179,14 +184,15 @@ fn a_far_or_fast_or_low_cursor_does_not_tempt_it() {
 
 #[test]
 fn every_species_has_its_own_style_with_animations_it_really_has() {
-    let styles: Vec<CursorStyle> = SPECIES.iter().map(|id| CursorStyle::of(id).unwrap_or_else(|| panic!("{id}"))).collect();
+    let all = species();
+    let styles: Vec<CursorStyle> = all.iter().map(|id| CursorStyle::of(id).unwrap_or_else(|| panic!("{id}"))).collect();
     for (i, a) in styles.iter().enumerate() {
         for (j, b) in styles.iter().enumerate() {
-            assert!(i == j || a != b, "{} and {} play the same", SPECIES[i], SPECIES[j]);
+            assert!(i == j || a != b, "{} and {} play the same", all[i], all[j]);
         }
     }
     assert!(CursorStyle::of("mystery").is_none());
-    for (id, style) in SPECIES.iter().zip(&styles) {
+    for (id, style) in all.iter().zip(&styles) {
         let path = format!("{}/../../ui/pets/{id}/pet.json", env!("CARGO_MANIFEST_DIR"));
         let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         for anim in style.anims() {
@@ -199,7 +205,7 @@ fn every_species_has_its_own_style_with_animations_it_really_has() {
 
 #[test]
 fn every_species_gets_to_the_cursor_and_hangs_from_it() {
-    for (n, id) in SPECIES.iter().enumerate() {
+    for (n, id) in species().iter().enumerate() {
         let (mut p, w) = species_pet(id, 100 + n as u64);
         // 몸 둘 옆, 머리 위 몸 하나쯤 높이
         let cursor = (1056.0, 1040.0 - 128.0 * 1.6);

@@ -17,10 +17,7 @@ use crate::AppState;
 /// 내 동물 창
 pub const OWN_LABEL: &str = "pet";
 const GUEST_PREFIX: &str = "guest-";
-/// teenager(배율 1.0) 스프라이트 한 변 (논리 px)
-pub const PET_LOGICAL_SIZE: f64 = 128.0;
-/// 몸 폭 절반 / 스프라이트 크기
-const HALF_WIDTH_RATIO: f64 = 0.3;
+pub use screenpet_core::brain::PET_LOGICAL_SIZE;
 /// 스프라이트 위 말풍선·음식 버튼·이름표 자리 (논리 px)
 pub const BUBBLE_SPACE: f64 = 36.0;
 /// 손님 편지(💌)를 펼친 동안 창 위에 더하는 자리와 최소 창 너비 (논리 px) — 편지 말풍선(평소 말풍선, 여러 줄)이 5줄까지 들어간다
@@ -129,26 +126,7 @@ pub fn note_window_logical_size(body_scale: f64) -> (f64, f64) {
 /// style = 지금 보이는 스타일. 그림에 달린 것(칸 크기·머리 표·있는 동작)만 다르고 나머지는 같다 (PetEntry::art).
 /// 몸 폭은 픽셀도 같은 비율: 시트에서 재 보면 앉은 몸 폭의 절반이 동글 0.38, 픽셀 0.33~0.39로 거의 같다
 pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64, stage: &str, style: PetStyle) -> PetConfig {
-    let m = entry.art(style);
-    let size = PET_LOGICAL_SIZE * body_scale * dpi;
-    PetConfig {
-        size,
-        half_w: size * HALF_WIDTH_RATIO,
-        // 큰 몸은 조금 빠르게, 작은 몸은 조금 느리게 (크기에 정비례하면 너무 차이 난다)
-        walk_speed: m.walk_speed * body_scale.sqrt() * dpi,
-        special: m.special(),
-        personality: m.personality,
-        can_climb: m.can_climb(),
-        flies: m.flies(),
-        stings: m.can_sting(),
-        hops: m.hops(),
-        hop_share: m.hop_share(),
-        looks_up: m.can_look_up(),
-        snow_cloud: m.snow_cloud,
-        dpi,
-        hang_grip: m.hang_grip(stage),
-        no_roll: m.no_roll(),
-    }
+    PetConfig::from_manifest(entry.art(style), dpi, body_scale, stage)
 }
 
 pub struct Slot {

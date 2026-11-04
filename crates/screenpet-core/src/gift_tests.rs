@@ -5,10 +5,6 @@ use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::world::World;
 
-const ALL_SPECIES: [&str; 16] = [
-    "cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "dino_yellow", "dino_green", "dino_purple", "snowman",
-];
-
 fn gift(id: &str) -> Gift {
     Gift::parse(id).expect("known gift")
 }
@@ -25,8 +21,8 @@ fn window(id: u64, left: f64, top: f64, right: f64, bottom: f64) -> WindowInfo {
 
 #[test]
 fn every_species_has_about_six_gifts_and_only_dinos_share() {
-    for s in ALL_SPECIES {
-        let list = list_for(s).unwrap_or_else(|| panic!("no gift list for {s}"));
+    for s in crate::test_util::species() {
+        let list = list_for(&s).unwrap_or_else(|| panic!("no gift list for {s}"));
         assert!((5..=7).contains(&list.items.len()), "{s}: {}", list.items.len());
     }
     assert_eq!(list_for("dino_green").map(|l| l.key), list_for("dino_purple").map(|l| l.key));
@@ -346,6 +342,11 @@ fn book_counts_do_not_overflow_and_friend_name_is_bounded() {
     let e = b.entry("cat_yarn").unwrap();
     assert_eq!(e.n, u32::MAX);
     assert_eq!(e.from.as_ref().unwrap().chars().count(), crate::config::MAX_NAME_CHARS);
+    // 반짝이 수도 넘치지 않는다
+    b.items.get_mut("cat_yarn").unwrap().shiny = u32::MAX;
+    b.add(gift("cat_yarn_shiny"), None);
+    let e = b.entry("cat_yarn").unwrap();
+    assert_eq!((e.n, e.shiny), (u32::MAX, u32::MAX));
 }
 
 #[test]
@@ -494,10 +495,13 @@ fn a_flying_pet_drops_from_where_it_flies() {
     let w = world_with(vec![]);
     let mut p = crate::brain::Pet::new(pet_cfg(true), 800.0, 500.0, 9);
     run_until_calm(&mut p, &w);
-    let (x, _) = drop_spot(&p, &w).unwrap();
-    if p.standing.is_none() {
-        assert_eq!(x, p.body.x);
-    }
+    p.standing = None;
+    p.body.x = 640.0;
+    p.body.y = 500.0;
+    p.state = crate::brain::State::Idle { remaining: 100.0, look: false };
+    let (x, y) = drop_spot(&p, &w).unwrap();
+    assert_eq!(x, 640.0);
+    assert!(y >= 500.0, "from where it flies, not above: {y}");
 }
 
 #[test]

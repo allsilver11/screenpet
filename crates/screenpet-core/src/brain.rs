@@ -455,6 +455,36 @@ pub struct PetConfig {
     pub no_roll: bool,
 }
 
+/// teenager(배율 1.0) 스프라이트 한 변 (논리 px)
+pub const PET_LOGICAL_SIZE: f64 = 128.0;
+/// 디딤판 끝 판정에 쓰는 몸 폭 절반 / 스프라이트 한 변
+pub const HALF_WIDTH_RATIO: f64 = 0.3;
+
+impl PetConfig {
+    /// pet.json으로 만든 설정 (body_scale = 단계 배율 × stage_size, stage = 지금 단계 이름)
+    pub fn from_manifest(m: &crate::manifest::PetManifest, dpi: f64, body_scale: f64, stage: &str) -> PetConfig {
+        let size = PET_LOGICAL_SIZE * body_scale * dpi;
+        PetConfig {
+            size,
+            half_w: size * HALF_WIDTH_RATIO,
+            // 큰 몸은 조금 빠르게, 작은 몸은 조금 느리게 (크기에 정비례하면 너무 차이 난다)
+            walk_speed: m.walk_speed * body_scale.sqrt() * dpi,
+            special: m.special(),
+            personality: m.personality,
+            can_climb: m.can_climb(),
+            flies: m.flies(),
+            stings: m.can_sting(),
+            hops: m.hops(),
+            hop_share: m.hop_share(),
+            looks_up: m.can_look_up(),
+            snow_cloud: m.snow_cloud,
+            dpi,
+            hang_grip: m.hang_grip(stage),
+            no_roll: m.no_roll(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct RenderState {
     pub anim: Anim,

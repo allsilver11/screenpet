@@ -5,6 +5,7 @@ use super::tests::{sim_cfg, win, world};
 use super::*;
 use crate::flight;
 use crate::hop;
+use crate::test_util::bundled;
 
 const DT: f64 = 1.0 / 60.0;
 
@@ -54,21 +55,31 @@ fn ghost_ten_minutes_floats_within_bounds_never_stings_and_sleeps_only_perched()
 #[test]
 fn pestered_ghost_never_stings() {
     let w = world(vec![]);
-    let mut p = Pet::new(ghost(), 800.0, 300.0, 1);
-    p.state = State::Idle { remaining: 100.0, look: false };
-    for i in 0..(60 * 20) {
-        let (x, y) = (p.body.x, p.body.y - 50.0);
-        p.hover(x + if i % 2 == 0 { 0.0 } else { 40.0 }, y, true);
-        if i % 30 == 0 {
-            p.pointer_down(x, y);
+    let stung = |c: PetConfig| {
+        let mut p = Pet::new(c, 800.0, 300.0, 1);
+        p.state = State::Idle { remaining: 100.0, look: false };
+        for i in 0..(60 * 20) {
+            let (x, y) = (p.body.x, p.body.y - 50.0);
+            p.hover(x + if i % 2 == 0 { 0.0 } else { 40.0 }, y, true);
+            if i % 30 == 0 {
+                p.pointer_down(x, y);
+            }
+            p.update(DT, &w);
+            if i % 30 == 1 {
+                p.pointer_up(x, y);
+            }
+            if matches!(p.state, State::Sting { .. }) || p.take_sting().is_some() {
+                return true;
+            }
         }
-        p.update(DT, &w);
-        if i % 30 == 1 {
-            p.pointer_up(x, y);
-        }
-        assert!(!matches!(p.state, State::Sting { .. }), "tick {i}: {:?}", p.state);
-        assert!(p.take_sting().is_none());
-    }
+        false
+    };
+    assert!(stung(PetConfig { stings: true, ..ghost() }), "the same pestering makes a stinger sting");
+    assert!(!stung(ghost()));
+    // 번들 유령 설정 그대로
+    let real = bundled().into_iter().find(|(id, _)| id == "ghost").expect("ghost in ui/pets").1;
+    assert!(real.flies);
+    assert!(!stung(real));
 }
 
 /// 유령은 꿀벌보다 느리게 떠다닌다 — 날기 속도는 walk_speed 그대로
