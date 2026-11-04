@@ -371,17 +371,18 @@ pub fn show_all(app: &AppHandle) {
     }
 }
 
-/// 숨기기 / 보이기: 하나라도 보이면 모두 숨기고, 다 숨어 있으면 모두 보인다 (손님 창도 같이)
+/// 숨기기 / 보이기: 숨겨 둔 상태를 뒤집는다 (손님 창도 같이). 보이는 창으로 정하지 않는다 —
+/// 내 동물이 놀러 가 있고 손님도 없으면 보이는 창이 없어도 "숨기기"다
 fn toggle_windows(app: &AppHandle) {
-    let windows: Vec<WebviewWindow> = own_window(app).into_iter().chain(guest_windows(app)).collect();
-    if windows.iter().any(|w| w.is_visible().unwrap_or(true)) {
+    if crate::windows_hidden(app) {
+        show_all(app);
+    } else {
         // 숨겨 둔 동안 게임 루프가 다시 보이지 않게 먼저 적는다
         app.state::<AppState>().hidden.store(true, Ordering::Relaxed);
-        for w in windows.iter().chain(effect_windows(app).iter()) {
+        // 집은 동물이 달려가는 동안에도 보인다
+        for w in own_window(app).into_iter().chain(app.get_webview_window(crate::house::LABEL)).chain(guest_windows(app)).chain(effect_windows(app)) {
             let _ = w.hide();
         }
-    } else {
-        show_all(app);
     }
 }
 
@@ -488,8 +489,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                 }
             }
             "toggle" => toggle_windows(app),
-            "help" => crate::help::show(app),
-            GIFT_BOOK_ID => crate::gifts::show_book(app),
+            "help" => send(app, Input::ShowHelp),
+            GIFT_BOOK_ID => send(app, Input::ShowGiftBook),
             "feed:water" => send(app, Input::Feed(Food::Water)),
             "lock" => send(app, Input::ToggleLock),
             STYLE_ROUND_ID => send(app, Input::SetStyle(PetStyle::Round)),

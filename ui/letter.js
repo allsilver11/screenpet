@@ -49,7 +49,13 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "F5" || (e.ctrlKey && (e.key === "r" || e.key === "R"))) e.preventDefault();
 });
 
+// 못 보냈다: 창과 쓴 글은 그대로 두고 알린다 (글자를 고치면 평소 글자 수로 돌아온다)
+function failed() {
+  noteEl.textContent = "지금은 보낼 수 없어요. 친구 연결을 확인하고 다시 눌러 주세요.";
+}
+
 (async () => {
+  await here.listen("letter-failed", failed);
   await here.listen("letter-state", (e) => show(e.payload));
   show(await invoke("letter_state"));
 })();

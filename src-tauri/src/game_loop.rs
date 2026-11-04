@@ -1,5 +1,5 @@
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -93,8 +93,14 @@ pub enum Input {
     Net(NetInput),
     /// 물건 (메뉴·누르기·포스트잇)
     Object(ObjectInput),
+    /// 메뉴 "도움말": 창 만들기는 메뉴 처리기 안에서 하면 Windows에서 멈춘다 (Tauri 문서) — 게임 루프 스레드에서
+    ShowHelp,
+    /// 메뉴 "🎁 선물 도감" (창 만들기는 게임 루프 스레드에서)
+    ShowGiftBook,
     /// 저장하고 앱 종료
     Quit,
+    /// 앱이 끝나는 중 (창이 닫힘·로그오프 등): 저장만 하고 알린 뒤 루프를 끝낸다
+    SaveAndStop(Sender<()>),
 }
 
 /// 좋아하는 음식 (매니페스트에 없으면 별)
@@ -103,7 +109,13 @@ pub fn favorite_of(entry: &PetEntry) -> FavoriteFood {
 }
 
 pub fn spawn(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
-    thread::spawn(move || run(app, rx, entry, config));
+    thread::spawn(move || {
+        let handle = app.clone();
+        // 게임 루프가 죽으면 펫은 멈춘 채 남는다 — 기록은 패닉 훅이 남겼으니 앱을 끝낸다
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(app, rx, entry, config))).is_err() {
+            handle.exit(1);
+        }
+    });
 }
 
 /// 설정 저장 — 게임 루프만 설정을 쓴다 (단일 작성자). 하우스 여부는 config.housed에 직접 적어 둔다
@@ -176,6 +188,19 @@ fn follow_ridden_windows(source: &mut dyn WindowSource, slots: &mut [Slot], gift
     let rects: Vec<(u64, Rect)> = ids.into_iter().filter_map(|id| source.rect_of(id).map(|r| (id, r))).collect();
     for s in slots {
         s.world.patch_windows(&rects);
+    }
+}
+
+/// 하우스에서 꺼낸다: 문 앞에서 걸어 나온다 (가는 중이었다면 그 자리에서 멈춘다). 집 창은 숨긴다
+fn leave_house_now(app: &AppHandle, own: &mut Slot, house_window: Option<&tauri::WebviewWindow>) {
+    let spot = house::spot(app, &own.world.work_areas, own.dpi);
+    let was_inside = own.pet.is_housed();
+    own.pet.leave_house(&own.world, spot.door_x, spot.ground);
+    if was_inside {
+        own.need_show = true;
+    }
+    if let Some(hw) = house_window {
+        let _ = hw.hide();
     }
 }
 
@@ -416,19 +441,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     let spot = house::spot(&app, &own.world.work_areas, own.dpi);
                     // 하우스에서 나와 먹는 중(다 먹으면 들어갈 참)도 "하우스에서 나오기"다
                     if own.pet.is_housed() || own.pet.is_going_home() || own.pet.returns_home() {
-                        // 문 앞에서 왼쪽으로 걸어 나온다 (가는 중이었다면 그 자리에서 멈춘다)
-                        let was_inside = own.pet.is_housed();
-                        own.pet.leave_house(&own.world, spot.door_x, spot.ground);
-                        if was_inside {
-                            own.need_show = true;
-                        }
-                        if let Some(hw) = &house_window {
-                            let _ = hw.hide();
-                        }
+                        leave_house_now(&app, own, house_window.as_ref());
                         config.housed = false;
                     } else {
-                        // 집이 먼저 나타나고, 동물이 집으로 달려간다
-                        if let Some(hw) = &house_window {
+                        // 집이 먼저 나타나고, 동물이 집으로 달려간다 (모두 숨겨 뒀으면 보일 때 나타난다)
+                        if let Some(hw) = house_window.as_ref().filter(|_| !crate::windows_hidden(&app)) {
                             house::show_at(hw, &spot);
                         }
                         own.pet.go_home(spot.ground, spot.door_x);
@@ -533,13 +550,15 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 // 답장 창 "보내기": 그 손님이 답장을 들고 손 흔들고 집으로 (편지 창이 답장 창으로 열려 있을 때)
                 Input::Net(NetInput::SubmitLetter(text)) if network.is_replying() => {
-                    network.submit_reply(&text, &mut slots);
+                    let sent = network.submit_reply(&text, &mut slots);
+                    network.finish_letter(&app, sent);
                 }
                 input @ (Input::Net(NetInput::SendTo(_)) | Input::Net(NetInput::SubmitLetter(_))) => {
                     // 놀러 보내기 (편지 들려 보내기도 같은 길 — Visit에 편지를 싣는다):
                     // 하우스 안이면 먼저 문 앞으로 나온 뒤 그 친구 쪽 끝으로 간다
+                    let is_letter = matches!(input, Input::Net(NetInput::SubmitLetter(_)));
                     let (id, note) = match input {
-                        Input::Net(NetInput::SubmitLetter(text)) => match network.take_letter(&text) {
+                        Input::Net(NetInput::SubmitLetter(text)) => match network.letter_target(&text) {
                             Some(x) => x,
                             None => continue,
                         },
@@ -547,25 +566,20 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         _ => continue,
                     };
                     let own = &mut slots[OWN];
-                    if !network.can_send(own, &id) {
-                        continue;
-                    }
-                    if own.pet.is_housed() || own.pet.is_going_home() || own.pet.returns_home() {
-                        let spot = house::spot(&app, &own.world.work_areas, own.dpi);
-                        let was_inside = own.pet.is_housed();
-                        own.pet.leave_house(&own.world, spot.door_x, spot.ground);
-                        if was_inside {
-                            own.need_show = true;
+                    let mut sent = false;
+                    if network.can_send(own, &id) {
+                        if own.pet.is_housed() || own.pet.is_going_home() || own.pet.returns_home() {
+                            leave_house_now(&app, own, house_window.as_ref());
+                            config.housed = false;
+                            sync_menu(&app, &own.entry, &care, config.housed);
+                            save_config(&app, &mut config, &own.entry.id, &care);
                         }
-                        if let Some(hw) = &house_window {
-                            let _ = hw.hide();
-                        }
-                        config.housed = false;
-                        sync_menu(&app, &own.entry, &care, config.housed);
-                        save_config(&app, &mut config, &own.entry.id, &care);
+                        // 그 자리에서 손 흔들고("bye~!", 편지를 들었으면 "💌!") 뿅 사라진다 — 사라지면 own_exited가 Visit을 보낸다
+                        sent = network.send_to(&config, own, &id, note);
                     }
-                    // 그 자리에서 손 흔들고("bye~!", 편지를 들었으면 "💌!") 뿅 사라진다 — 사라지면 own_exited가 Visit을 보낸다
-                    network.send_to(&config, own, &id, note);
+                    if is_letter {
+                        network.finish_letter(&app, sent);
+                    }
                 }
                 Input::Object(input) => {
                     let busy = hand.is_some() || slots.iter().any(|s| s.pet.is_held());
@@ -593,9 +607,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     }
                 }
+                Input::ShowHelp => crate::help::show(&app),
+                Input::ShowGiftBook => crate::gifts::show_book(&app),
                 Input::Quit => {
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     app.exit(0);
+                    return;
+                }
+                Input::SaveAndStop(done) => {
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                    let _ = done.send(());
                     return;
                 }
             }
@@ -835,6 +856,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             if was_housed {
                 // 문에 닿았다 — 펫 창을 숨기고 하우스 창 문간에 보인다
                 let _ = own.window.hide();
+                // 집으로 가는 동안 모두 숨겼다가 다시 보였으면 집이 아직 안 보인다
+                if let Some(hw) = house_window.as_ref().filter(|w| !crate::windows_hidden(&app) && !w.is_visible().unwrap_or(true)) {
+                    let spot = house::spot(&app, &own.world.work_areas, own.dpi);
+                    house::show_at(hw, &spot);
+                }
             } else {
                 // 하우스에서 나왔다 (나오기, 또는 문 앞 그릇으로 먹으러) — 문 앞 자리로 옮긴 뒤 보인다
                 own.need_show = true;

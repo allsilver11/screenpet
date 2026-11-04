@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use game_loop::Input;
 use house::HouseState;
@@ -160,6 +161,18 @@ pub fn select_pet(app: &AppHandle, id: &str) {
     let _ = state.tx.lock().unwrap().send(Input::SetPet { entry: entry.clone() });
 }
 
+/// 패닉을 config 폴더의 `crash.log`에 남긴다 (배포판은 콘솔이 없어 그냥 사라진다)
+fn install_panic_log(dir: PathBuf) {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        config::append_crash_log(&dir, &format!("v{}: {info}", env!("CARGO_PKG_VERSION")));
+        default(info);
+    }));
+}
+
+/// 앱이 끝날 때 게임 루프가 저장할 시간 (로그오프·종료는 오래 기다려 주지 않는다)
+const EXIT_SAVE_WAIT: Duration = Duration::from_secs(2);
+
 fn main() {
     let pets = pets::load_pets();
     assert!(!pets.is_empty(), "no valid pets bundled");
@@ -176,6 +189,14 @@ fn main() {
                 }
             }
         }))
+        // Alt+F4 등으로 떠 있는 창(펫·하우스·손님·소품)이 닫히면 되살릴 길이 없다. 이 앱의 코드는 destroy로 닫으므로 여기 걸리지 않는다
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if overlay::is_floating(window.label()) {
+                    api.prevent_close();
+                }
+            }
+        })
         .setup(move |app| {
             // macOS: 메뉴 막대 앱처럼 Dock 아이콘 없이 돈다 (트레이 아이콘이 메뉴 막대에 있다)
             #[cfg(target_os = "macos")]
@@ -206,6 +227,7 @@ fn main() {
                 hungry: care.is_hungry(),
                 housed: cfg.housed,
             };
+            install_panic_log(config_dir.clone());
             app.manage(AppState {
                 tx: Mutex::new(tx),
                 pets: pets.clone(),
@@ -259,6 +281,15 @@ fn main() {
             objects::postit_close,
             note_space
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running ScreenPet");
+        .build(tauri::generate_context!())
+        .expect("error while building ScreenPet")
+        .run(|app, event| {
+            // 메뉴 "종료"가 아닌 길로 끝나도 (로그오프·시스템 종료) 게임 루프가 저장한다. 이미 끝났으면 send가 실패한다
+            if let tauri::RunEvent::Exit = event {
+                let (done, wait) = mpsc::channel();
+                if app.state::<AppState>().tx.lock().unwrap().send(Input::SaveAndStop(done)).is_ok() {
+                    let _ = wait.recv_timeout(EXIT_SAVE_WAIT);
+                }
+            }
+        });
 }

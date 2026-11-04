@@ -3,6 +3,12 @@
 
 use tauri::WebviewWindow;
 
+/// 테두리 없이 화면 위에 떠 있는 창 (나머지 창은 제목 표시줄이 있고 닫으면 숨거나 정말 닫힌다)
+pub fn is_floating(label: &str) -> bool {
+    const PREFIXES: [&str; 6] = ["guest-", "prop-", "hand-", "sting-", "object-", "weather-"];
+    label == crate::slots::OWN_LABEL || label == crate::house::LABEL || PREFIXES.iter().any(|p| label.starts_with(p))
+}
+
 /// macOS: 모든 Space에 보이고 (canJoinAllSpaces), 다른 앱의 전체 화면 위에도 뜨고 (fullScreenAuxiliary),
 /// Mission Control에서 제자리에 있고 (stationary), ⌘` 창 순환에서 빠진다 (ignoresCycle). 그림자 없음.
 #[cfg(target_os = "macos")]

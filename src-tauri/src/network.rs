@@ -604,10 +604,24 @@ impl Network {
         true
     }
 
-    /// 편지 창 "보내기": 창을 연 친구 id와 다듬은 편지 (비었으면 편지 없이 그냥 놀러 보내기). 창이 다루던 친구가 없으면 None
-    pub fn take_letter(&mut self, text: &str) -> Option<(String, Option<String>)> {
-        let id = self.lettering.take()?;
+    /// 편지 창 "보내기": 창을 연 친구 id와 다듬은 편지 (비었으면 편지 없이 그냥 놀러 보내기). 창이 다루던 친구가 없으면 None.
+    /// 창이 다루던 친구는 그대로 둔다 — 못 보내면 창이 남아 다시 누를 수 있다
+    pub fn letter_target(&self, text: &str) -> Option<(String, Option<String>)> {
+        let id = self.lettering.clone()?;
         Some((id, visit::sanitize_note(text)))
+    }
+
+    /// 편지를 보냈으면 창을 닫고, 못 보냈으면 창을 둔 채 알린다 (쓴 글이 사라지지 않게)
+    pub fn finish_letter(&mut self, app: &AppHandle, sent: bool) {
+        if sent {
+            self.lettering = None;
+            self.replying = None;
+            if let Some(w) = app.get_webview_window(LETTER_LABEL) {
+                let _ = w.hide();
+            }
+        } else {
+            let _ = app.emit_to(LETTER_LABEL, "letter-failed", ());
+        }
     }
 
     /// 편지 창이 답장 창으로 열려 있음 ("보내기"가 submit_reply로 간다)
@@ -617,15 +631,17 @@ impl Network {
 
     /// 답장 창 "보내기": 그 손님이 아직 그 방문으로 와 있으면 답장(방문 하나에 한 통, 비면 없이)을 맡기고
     /// 그 자리에서 손 흔들고("bye~! 💌") 뿅 집으로 — 떠날 때 guest_left가 Leave에 싣는다
-    pub fn submit_reply(&mut self, text: &str, slots: &mut [Slot]) {
-        let Some((label, visit_id)) = self.replying.take() else { return };
-        let Some(slot) = slots.iter_mut().find(|s| s.label == label && matches!(&s.role, Role::Guest(g) if g.visit_id == visit_id)) else { return };
+    /// 그새 떠난 손님이면 false (답장을 받을 사람이 없다)
+    pub fn submit_reply(&mut self, text: &str, slots: &mut [Slot]) -> bool {
+        let Some((label, visit_id)) = self.replying.clone() else { return false };
+        let Some(slot) = slots.iter_mut().find(|s| s.label == label && matches!(&s.role, Role::Guest(g) if g.visit_id == visit_id)) else { return false };
         let wrote = self.replies.write(&visit_id, text);
         eprintln!("sending guest {visit_id} home{}", if wrote { " with a reply" } else { "" });
         self.guest_sends.remove(&visit_id);
         if !(wrote && slot.pet.send_home_with_reply()) {
             slot.pet.go_home_now();
         }
+        true
     }
 
     /// 매 틱: Leave 없이 사라진 손님의 답장은 버린다 (평소엔 guest_left가 꺼낸다 — 비어 있으면 아무 일도 없다)
@@ -1838,7 +1854,7 @@ pub fn letter_state() -> LetterView {
     LETTER_VIEW.lock().unwrap().clone()
 }
 
-/// 편지 창의 "보내기": 게임 루프로 보내고 창을 숨긴다 (다듬기·80자 제한은 게임 루프가 한다)
+/// 편지 창의 "보내기": 게임 루프로 보낸다. 창은 보낸 뒤 게임 루프가 닫는다 — 못 보내면 쓴 글이 남는다 (다듬기·80자 제한도 게임 루프가 한다)
 #[tauri::command]
 pub fn letter_submit(window: WebviewWindow, state: tauri::State<AppState>, text: String) {
     if window.label() != LETTER_LABEL {
@@ -1847,7 +1863,6 @@ pub fn letter_submit(window: WebviewWindow, state: tauri::State<AppState>, text:
     // 아주 긴 글자는 보내기 전에 자른다 (sanitize_note가 다시 80자로 자른다)
     let text: String = text.chars().take(256).collect();
     let _ = state.tx.lock().unwrap().send(Input::Net(NetInput::SubmitLetter(text)));
-    let _ = window.hide();
 }
 
 /// 편지 창의 "닫기"
