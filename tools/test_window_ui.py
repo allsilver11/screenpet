@@ -78,6 +78,12 @@ def test_bubble_text_lives_in_a_clippable_span():
     assert run("bubbleText") == {"tag": "span", "text": "off to 아주아주아주긴이름's~ brb!", "hidden": False}
 
 
+@pytest.mark.parametrize("style,src", [("round", "effects/sting.png"), ("pixel", "effects_pixel/sting.png")])
+def test_sting_shows_the_drawn_mark_when_its_picture_fails(style, src):
+    r = run("stingFallback", style)
+    assert r == {"src": src, "fallbackHidden": True, "markHidden": True, "fallbackHiddenAfter": False}
+
+
 # ---- CSS: 브라우저 없이는 규칙이 있는지만 본다 (보이는 모습은 실제 앱에서) ----
 def css_rule(text, selector):
     start = text.index(selector + " {")

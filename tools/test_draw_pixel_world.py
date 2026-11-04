@@ -212,11 +212,11 @@ def test_object_pose_snaps_to_quarters_and_keeps_the_object_on_the_floor():
 def test_ui_wires_every_pixel_folder_and_keeps_round_paths():
     house = (UI / "house.js").read_text(encoding="utf-8")
     assert "house_pixel" in house and '"house"' in house
-    assert "gifts_pixel" in (UI / "gift.html").read_text(encoding="utf-8")
+    assert "gifts_pixel" in (UI / "gift.js").read_text(encoding="utf-8")
     assert "gifts_pixel" in (UI / "book.js").read_text(encoding="utf-8")
     assert "objects_pixel" in (UI / "object.js").read_text(encoding="utf-8")
-    assert "effects_pixel" in (UI / "prop.html").read_text(encoding="utf-8")
-    assert "effects_pixel" in (UI / "sting.html").read_text(encoding="utf-8")
+    assert "effects_pixel" in (UI / "prop.js").read_text(encoding="utf-8")
+    assert "effects_pixel" in (UI / "sting.js").read_text(encoding="utf-8")
     assert "effects_pixel" in (UI / "style.css").read_text(encoding="utf-8")
     assert "art-style" in (UI / "weather.js").read_text(encoding="utf-8")
     for f in ("prop.html", "gift.html", "object.html"):

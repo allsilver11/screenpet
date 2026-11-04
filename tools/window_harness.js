@@ -92,7 +92,9 @@ function openWindow(html, { replies = {}, failFetch = () => false, globals = {} 
       this.textContent = xs.map((x) => x.textContent).join("");
     }
     setAttribute() {}
-    removeAttribute() {}
+    removeAttribute(a) {
+      if (a === "hidden") this.hidden = false;
+    }
     toggleAttribute() {}
     querySelectorAll() {
       return [];
@@ -263,6 +265,15 @@ const scenarios = {
     await tick();
     if (running) w.frame();
     return { running, drew: w.byId("door-pet").style.backgroundPosition ?? null };
+  },
+
+  // 침 그림을 못 읽으면 SVG 자국 (예전 인라인 onerror)
+  async stingFallback([style]) {
+    const w = openWindow("sting.html", { globals: { ART_STYLE: style } });
+    const [mark, fallback] = [w.byId("mark"), w.byId("fallback")];
+    const start = { src: mark.src, fallbackHidden: fallback.hidden };
+    mark.fire("error");
+    return { ...start, markHidden: mark.hidden, fallbackHiddenAfter: fallback.hidden };
   },
 
   // 말풍선 글자는 안쪽 span에 (긴 글은 span이 …로 자른다)

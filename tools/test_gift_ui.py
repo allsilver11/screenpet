@@ -56,12 +56,12 @@ def test_gift_window_is_prop_labelled_so_tray_hide_follows_it():
 
 
 def test_pages_never_use_inner_html():
-    for name in ("gift.html", "book.html", "book.js"):
+    for name in ("gift.html", "gift.js", "book.html", "book.js"):
         assert "innerHTML" not in (UI / name).read_text(encoding="utf-8"), name
 
 
 def test_gift_page_has_no_idle_animation():
-    html = (UI / "gift.html").read_text(encoding="utf-8")
+    html = (UI / "gift.html").read_text(encoding="utf-8") + (UI / "gift.js").read_text(encoding="utf-8")
     assert "infinite" not in html and "setInterval" not in html and "requestAnimationFrame" not in html
 
 

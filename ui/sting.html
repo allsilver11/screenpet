@@ -55,18 +55,8 @@
         <path d="M58 58 L70 58 L64 74 Z" fill="#3a2a22" />
         <circle cx="64" cy="64" r="3" fill="#3a2a22" />
       </svg>
-      <img id="mark" src="effects/sting.png" alt="" onerror="this.hidden = true; document.getElementById('fallback').removeAttribute('hidden')" />
+      <img id="mark" alt="" />
     </div>
-    <script>
-      // 픽셀 스타일: 칸 그림 (창이 칸 정수배 크기다), 흐려지는 대신 계단으로
-      if (window.ART_STYLE === "pixel") {
-        const mark = document.getElementById("mark");
-        mark.src = "effects_pixel/sting.png";
-        mark.style.width = mark.style.height = "100%";
-        mark.style.imageRendering = "pixelated";
-        document.getElementById("decal").style.animationTimingFunction = "steps(3, end)";
-      }
-      window.addEventListener("contextmenu", (e) => e.preventDefault());
-    </script>
+    <script src="sting.js"></script>
   </body>
 </html>
