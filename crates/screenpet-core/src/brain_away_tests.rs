@@ -6,7 +6,6 @@ use crate::brain::control_moves::ControlInput;
 use crate::care::Care;
 use crate::geom::{Rect, WindowInfo};
 use crate::presence::{DailyMarks, FocusLength, FocusPhase, LocalMoment, Rhythm, RhythmInput, AWAY_AFTER_SECS};
-use crate::brain::social_moves::GreetKind;
 use crate::brain::snow_moves::SnowPhase;
 use crate::social::Social;
 use crate::visit::HOMESICK_HARD_CAP_SECS;
@@ -495,12 +494,19 @@ fn the_usual_reasons_still_refuse_an_invite_while_away() {
 #[test]
 fn sleepers_side_by_side_do_not_greet_or_get_stomped_awake() {
     let w = world(vec![]);
-    let mut own = Pet::new(walker(), 0.0, 0.0, 1);
-    place(&mut own, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
-    let mut guest = Pet::new(dino(), 0.0, 0.0, 2);
-    place(&mut guest, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
-    guest.set_guest(Side::Left, 1e9);
-    let mut pets = vec![own, guest];
+    let side_by_side = || {
+        let mut own = Pet::new(walker(), 0.0, 0.0, 1);
+        place(&mut own, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+        let mut guest = Pet::new(dino(), 0.0, 0.0, 2);
+        place(&mut guest, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        guest.set_guest(Side::Left, 1e9);
+        vec![own, guest]
+    };
+    // 비교: 깨어 있으면 이 자리에서 바로 인사한다 (자리를 비운 것만 다르다)
+    let mut control = Social::new(4);
+    control.tick(DT, &mut side_by_side());
+    assert_eq!(control.active(), 1, "the control pair greets");
+    let mut pets = side_by_side();
     let mut social = Social::new(4);
     for p in &mut pets {
         p.set_user_away(true);
@@ -528,21 +534,44 @@ fn a_game_in_progress_ends_when_i_leave() {
     place(&mut a, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
     let mut b = Pet::new(frog(), 0.0, 0.0, 2);
     place(&mut b, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
-    a.start_greet(900.0, GreetKind::Hello, 5.0);
-    b.start_greet(800.0, GreetKind::Hello, 5.0);
+    let mut pets = vec![a, b];
+    // 진짜 놀이: Social이 인사를 시작하고 짝(Link)을 잡고 있다
+    let mut social = Social::new(4);
+    social.tick(DT, &mut pets);
+    assert_eq!(social.active(), 1);
+    assert!(pets.iter().all(|p| p.social_role().is_some()));
+    leave_and_settle(&mut social, &mut pets, &w);
+}
+
+#[test]
+fn a_chase_in_progress_ends_when_i_leave() {
+    let w = world(vec![]);
+    let mut a = Pet::new(walker(), 0.0, 0.0, 1);
+    place(&mut a, &w, Owner::Ground(0), 700.0, State::Idle { remaining: 100.0, look: false });
+    let mut b = Pet::new(frog(), 0.0, 0.0, 2);
+    place(&mut b, &w, Owner::Ground(0), 1100.0, State::Idle { remaining: 100.0, look: false });
     let mut pets = vec![a, b];
     let mut social = Social::new(4);
-    for p in &mut pets {
+    social.start_play(&mut pets, 0, 1, true);
+    assert_eq!(social.active(), 1);
+    assert_eq!(pets[0].social_role(), Some(crate::brain::social_moves::SocialRole::Chase));
+    leave_and_settle(&mut social, &mut pets, &w);
+}
+
+/// 놀던 짝이 자리를 비우자 곧 둘 다 잠들고, 짝이 풀리고, 곧장 다시 놀지 않는다
+fn leave_and_settle(social: &mut Social, pets: &mut [Pet], w: &World) {
+    for p in pets.iter_mut() {
         p.set_user_away(true);
     }
     for _ in 0..60 {
-        social.tick(DT, &mut pets);
-        for p in &mut pets {
-            p.update(DT, &w);
+        social.tick(DT, pets);
+        for p in pets.iter_mut() {
+            p.update(DT, w);
         }
     }
     assert!(is_asleep(&pets[0]) && is_asleep(&pets[1]), "{:?} {:?}", pets[0].state, pets[1].state);
-    assert_eq!(social.active(), 0);
+    assert_eq!(social.active(), 0, "the link is gone");
+    assert!(pets.iter().all(|p| p.social_role().is_none()));
 }
 
 #[test]

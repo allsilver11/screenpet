@@ -20,6 +20,25 @@ fn bee() -> PetConfig {
     PetConfig { flies: true, stings: true, ..cfg() }
 }
 
+/// 땅에 선 동물을 손으로 집어 (cx, cy)까지 끌고 와서, 이후 vx 픽셀/s로 끌다가 놓는다 (vx = 0이면 멈췄다가 그냥 놓는다)
+fn drag_and_release(p: &mut Pet, w: &World, x: f64, to: (f64, f64), vx: f64) {
+    place(p, w, Owner::Ground(0), x, State::Idle { remaining: 100.0, look: false });
+    p.pointer_down(x, 1000.0);
+    let (mut cx, cy) = to;
+    for _ in 0..30 {
+        p.update(DT, w);
+        p.pointer_move(cx, cy);
+    }
+    assert_eq!(p.state, State::Dragged);
+    for _ in 0..8 {
+        p.update(DT, w);
+        cx += vx * DT;
+        p.pointer_move(cx, cy);
+    }
+    p.pointer_up(cx, cy);
+    assert_eq!(p.state, State::Air { anim: Anim::Fall });
+}
+
 /// 나갈 때까지 (최대 ticks틱) — 나간 쪽
 fn exit_within(p: &mut Pet, w: &World, ticks: usize) -> Option<Side> {
     for _ in 0..ticks {
@@ -68,6 +87,14 @@ fn unlinked_edge_or_a_plain_fall_bounces_as_before() {
     p.set_exit_edges(true, false);
     assert_eq!(exit_within(&mut p, &w, 120), None);
     assert!(p.body.x < 1920.0 - 38.0 + 1e-6);
+    // 손으로 정말 던졌어도 연결 안 된 끝에선 튕겨 나온다
+    let mut h = Pet::new(cfg(), 0.0, 0.0, 1);
+    h.set_exit_edges(true, false);
+    drag_and_release(&mut h, &w, 1700.0, (1700.0, 700.0), 1500.0);
+    assert!(h.body.vx > 500.0, "really thrown at the edge: {:?}", h.body);
+    assert_eq!(exit_within(&mut h, &w, 120), None);
+    assert!(h.body.vx <= 0.0 || h.standing.is_some(), "bounced: {:?}", h.body);
+    assert!(h.body.x <= 1920.0 - 38.0 + 1e-6);
     // 던진 게 아니라 그냥 떨어지는 중
     let mut q = thrown_at(cfg(), 1800.0, 520.0, 900.0, 0.0);
     q.thrown = false;
@@ -153,11 +180,17 @@ fn thrown_bee_crosses_a_linked_edge() {
 #[test]
 fn drag_release_on_the_ground_without_speed_does_not_cross() {
     let w = world(vec![]);
+    // 커서는 왼쪽 끝을 넘어갔지만 멈췄다가 놓는다: 연결된 끝이어도 그 자리에 내려선다
     let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Ground(0), 60.0, State::Idle { remaining: 100.0, look: false });
     p.set_exit_edges(true, true);
-    for _ in 0..60 {
-        p.update(DT, &w);
-    }
-    assert_eq!(p.take_exit(), None);
+    drag_and_release(&mut p, &w, 300.0, (-40.0, 1000.0), 0.0);
+    assert_eq!(p.body.vx, 0.0, "{:?}", p.body);
+    assert_eq!(exit_within(&mut p, &w, 120), None);
+    assert!(p.standing.is_some() && !p.is_away(), "{:?}", p.state);
+    assert_eq!(p.take_fling(), None);
+    // 비교: 같은 곳에서 끝 쪽으로 빠르게 던지면 넘어간다
+    let mut q = Pet::new(cfg(), 0.0, 0.0, 1);
+    q.set_exit_edges(true, true);
+    drag_and_release(&mut q, &w, 300.0, (60.0, 1000.0), -1500.0);
+    assert_eq!(exit_within(&mut q, &w, 60), Some(Side::Left));
 }

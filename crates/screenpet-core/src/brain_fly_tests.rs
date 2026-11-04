@@ -543,14 +543,14 @@ fn bee_stings_at_most_every_8_seconds() {
     assert!(tickle_until_sting(&mut p, &w, 60));
     let started = p.clock;
     run_sting(&mut p, &w);
-    // 쿨다운 중엔 간질이면 투덜대기만 한다
-    assert!(!tickle_until_sting(&mut p, &w, 60 * 2));
+    // 쿨다운 중엔 8초가 되기 직전까지 계속 간질여도 투덜대기만 한다
+    let until_cooled = (60.0 * (started + 7.95 - p.clock)) as usize;
+    assert!(!tickle_until_sting(&mut p, &w, until_cooled), "stung again after {}", p.clock - started);
     assert!(matches!(p.state, State::Tickled { .. }), "{:?}", p.state);
-    // 쿨다운이 끝나면 다시 쏜다
-    let wait = (60.0 * (started + 8.0 - p.clock)) as usize;
-    run(&mut p, &w, wait);
+    // 쿨다운이 끝나면 다시 쏜다 (8초에서 멀지 않게)
     assert!(tickle_until_sting(&mut p, &w, 60 * 2));
-    assert!(p.clock - started >= 8.0);
+    let again = p.clock - started;
+    assert!((8.0..10.0).contains(&again), "{again}");
 }
 
 #[test]

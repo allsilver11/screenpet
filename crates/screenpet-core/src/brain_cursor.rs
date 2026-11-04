@@ -339,7 +339,7 @@ impl Pet {
     }
 
     /// 창이 커서 끝을 덮고 있다
-    fn window_covers_cursor(&self) -> bool {
+    pub(super) fn window_covers_cursor(&self) -> bool {
         let (cx, cy) = self.cursor;
         let dpi = self.cfg.dpi;
         let half = self.cfg.size.max(WINDOW_MIN_WIDTH * dpi) / 2.0;

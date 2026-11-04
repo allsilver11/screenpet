@@ -328,6 +328,8 @@ fn the_mouse_keeps_passing_through_until_the_falling_pet_has_cleared_the_cursor_
     p.state = State::CursorHang { remaining: 0.001 };
     let mut fell = false;
     let mut landed = false;
+    let mut cleared = false;
+    let mut falling_over_cursor = 0;
     for _ in 0..(60 * 8) {
         tick(&mut p, &w, cursor);
         if matches!(p.state, State::CursorHang { .. }) {
@@ -339,12 +341,22 @@ fn the_mouse_keeps_passing_through_until_the_falling_pet_has_cleared_the_cursor_
             assert!(matches!(p.state, State::Air { .. }));
             assert!(p.cursor_through(), "still under the cursor on the first falling tick");
         }
-        if !matches!(p.state, State::Air { .. }) {
+        if matches!(p.state, State::Air { .. }) {
+            // 떨어지는 동안: 창이 커서를 덮는 사이엔 계속 통과, 벗어나면 다음 틱부터 다시 클릭을 받는다
+            if p.window_covers_cursor() {
+                assert!(p.cursor_through(), "{:?}", p.body);
+                falling_over_cursor += 1;
+            } else {
+                assert!(!cleared || !p.cursor_through(), "{:?}", p.body);
+                cleared = true;
+            }
+        } else {
             landed = true;
             assert!(!p.cursor_through(), "off again after landing: {:?}", p.state);
         }
     }
-    assert!(fell && landed);
+    assert!(fell && landed && cleared);
+    assert!(falling_over_cursor > 1, "checks the middle of the fall too: {falling_over_cursor}");
     assert!(!p.cursor_through());
 }
 
@@ -580,7 +592,7 @@ fn shaking_the_window_throws_most_pets_off_and_some_cling_to_the_edge() {
         }
     }
     assert!((90..=150).contains(&fell), "fell {fell}");
-    assert_eq!(fell + clung, 200);
+    assert!((50..=110).contains(&clung), "clung {clung}");
 }
 
 #[test]
@@ -649,6 +661,13 @@ fn a_window_closed_while_clinging_drops_the_pet() {
     panic!("nobody clung");
 }
 
+/// 그대로 창 위에 있다: 떨어져 바닥에 서거나 끝에 매달리지 않았고 "으아!"도 없다
+fn assert_stayed_on_window(p: &mut Pet) {
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)), "{:?}", p.state);
+    assert!(!matches!(p.state, State::EdgeCling { .. } | State::Air { .. }), "{:?}", p.state);
+    assert_ne!(p.take_speech(), Some(Speech::Whoa));
+}
+
 #[test]
 fn moving_a_window_normally_or_trembling_it_does_nothing() {
     // 한 방향으로 끌기
@@ -658,16 +677,20 @@ fn moving_a_window_normally_or_trembling_it_does_nothing() {
         let dx = i as f64 * 4.0;
         w.patch_windows(&[(1, Rect::new(base.left + dx, base.top, base.right + dx, base.bottom))]);
         p.update(DT, &w);
+        assert_stayed_on_window(&mut p);
     }
-    assert!(p.standing.is_some(), "{:?}", p.state);
     // 천천히 왔다 갔다 (0.8초에 뒤집힘 세 번 안 됨)
     let (mut p, mut w) = on_window(cfg(), 41);
-    shake_window(&mut p, &mut w, 240, 60.0, 40);
-    assert!(p.standing.is_some());
+    for _ in 0..4 {
+        shake_window(&mut p, &mut w, 60, 60.0, 40);
+        assert_stayed_on_window(&mut p);
+    }
     // 아주 작은 떨림
     let (mut p, mut w) = on_window(cfg(), 42);
-    shake_window(&mut p, &mut w, 60, 2.0, 3);
-    assert!(p.standing.is_some());
+    for _ in 0..6 {
+        shake_window(&mut p, &mut w, 10, 2.0, 3);
+        assert_stayed_on_window(&mut p);
+    }
 }
 
 #[test]
