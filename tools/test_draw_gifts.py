@@ -44,7 +44,7 @@ def test_art_sits_on_the_bottom_edge_and_reads_at_small_size(built, name):
     assert bottom == draw_gifts.ICON, "sits on the surface"
     assert right - left >= 20 and bottom - top >= 16, (left, top, right, bottom)
     assert abs((left + right) / 2 - draw_gifts.ICON / 2) <= 1, "centered"
-    opaque = sum(1 for v in alpha.getdata() if v > 200)
+    opaque = sum(1 for v in alpha.tobytes() if v > 200)
     assert opaque >= 150, "enough body for a silhouette in the book"
 
 
@@ -55,9 +55,10 @@ def test_shiny_is_gold_with_sparkles(built, name):
     assert plain.tobytes() != gold.tobytes()
     # 별은 보통 그림의 바깥까지 번진다
     a0, a1 = plain.getchannel("A"), gold.getchannel("A")
-    assert sum(a1.getdata()) > sum(a0.getdata())
+    assert sum(a1.tobytes()) > sum(a0.tobytes())
     # 금빛: 빨강이 파랑보다 뚜렷이 많다 (불투명한 칸 평균)
-    px = [p for p in gold.getdata() if p[3] > 200]
+    b = gold.convert("RGBA").tobytes()
+    px = [b[k:k + 4] for k in range(0, len(b), 4) if b[k + 3] > 200]
     assert sum(p[0] - p[2] for p in px) / len(px) > 20
 
 
