@@ -3,8 +3,8 @@
 
 use super::tests::{place, sim_cfg, w1, win, world};
 use super::*;
+use crate::test_util::{DT, idle};
 
-const DT: f64 = 1.0 / 60.0;
 
 fn giraffe() -> PetConfig {
     PetConfig { special: Some(Special::NeckStretch), ..sim_cfg() }
@@ -54,7 +54,7 @@ fn other_pets_still_roll_and_never_neck_stretch() {
 fn neck_stretch_stands_still_for_its_fixed_time() {
     let w = world(vec![w1()]);
     let mut p = Pet::new(giraffe(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.start_special(Special::NeckStretch);
     assert_eq!(p.take_speech(), None);
     let State::Special { remaining, .. } = p.state else { panic!("{:?}", p.state) };
@@ -82,7 +82,7 @@ fn neck_stretch_only_replaces_rolling() {
     let w = world(vec![w1()]);
     for seed in 0..200 {
         let mut p = Pet::new(giraffe(), 0.0, 0.0, seed);
-        place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+        place(&mut p, &w, Owner::Window(1), 800.0, idle());
         for i in 0..10 {
             p.hover(800.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, 350.0, true);
             p.update(DT, &w);

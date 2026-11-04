@@ -4,15 +4,11 @@ use super::tests::{cfg, place, w1, world};
 use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::visit::Fling;
+use crate::test_util::{DT, bee, idle};
 
-const DT: f64 = 1.0 / 60.0;
 
 fn frog() -> PetConfig {
     PetConfig { hops: true, ..cfg() }
-}
-
-fn bee() -> PetConfig {
-    PetConfig { flies: true, stings: true, ..cfg() }
 }
 
 /// 바닥(Ground 0) x에 서 있는 동물
@@ -364,7 +360,7 @@ fn scaled(cfg: PetConfig, dpi: f64) -> PetConfig {
 /// 진짜 손놀림: 잡아서 발이 feet_y에 닿을 자리까지 옮겨 잠깐 멈춘 뒤, 커서를 (vx, vy) 물리 px/s로 8틱 끌고 놓는다 (놓는 순간 발이 feet_y)
 fn throw_by_hand(p: &mut Pet, w: &World, owner: Owner, x: f64, feet_y: f64, v: (f64, f64)) {
     let (_, ay) = w.anchor(owner).unwrap();
-    place(p, w, owner, x, State::Idle { remaining: 100.0, look: false });
+    place(p, w, owner, x, idle());
     let grab = p.cfg.size / 2.0;
     p.pointer_down(x, ay - grab);
     let n = 8.0;

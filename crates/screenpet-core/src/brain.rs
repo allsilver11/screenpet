@@ -3328,27 +3328,19 @@ mod tests {
     use super::*;
     use crate::behavior::{Move, Trick};
     use crate::geom::{Rect, WindowInfo};
+    use crate::test_util::DT;
 
-    const DT: f64 = 1.0 / 60.0;
+    pub(super) use crate::test_util::pet_cfg as cfg;
 
-    pub(super) fn cfg() -> PetConfig {
-        PetConfig {
-            hang_grip: (0.0, 0.06),
-            no_roll: false,
-            size: 128.0,
-            half_w: 38.0,
-            walk_speed: 60.0,
-            special: None,
-            personality: Personality::Friendly,
-            can_climb: false,
-            flies: false,
-            stings: false,
-            hops: false,
-            hop_share: 0.0,
-            looks_up: false,
-            snow_cloud: false,
-            dpi: 1.0,
-        }
+    /// 시뮬레이션용 꿀벌 (실제 걸음 빠르기)
+    pub(super) fn sim_bee() -> PetConfig {
+        PetConfig { flies: true, stings: true, walk_speed: 70.0, ..sim_cfg() }
+    }
+
+    /// 시뮬레이션용 개구리 (실제 크기·빠르기·성격)
+    pub(super) fn sim_frog() -> PetConfig {
+        let size = 108.8;
+        PetConfig { size, half_w: 0.3 * size, walk_speed: 83.0, personality: Personality::Playful, can_climb: true, hops: true, ..sim_cfg() }
     }
 
     pub(super) fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
@@ -3831,23 +3823,7 @@ mod tests {
     }
 
     pub(super) fn sim_cfg() -> PetConfig {
-        PetConfig {
-            hang_grip: (0.0, 0.06),
-            no_roll: false,
-            size: 128.0,
-            half_w: 38.4,
-            walk_speed: 90.0,
-            special: None,
-            personality: Personality::Friendly,
-            can_climb: false,
-            flies: false,
-            stings: false,
-            hops: false,
-            hop_share: 0.0,
-            looks_up: false,
-            snow_cloud: false,
-            dpi: 1.0,
-        }
+        PetConfig { half_w: 38.4, walk_speed: 90.0, ..cfg() }
     }
 
     /// 10분 동안 바뀐 동작 순서 (같은 동작 연속은 하나로)

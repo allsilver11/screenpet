@@ -4,12 +4,7 @@ use super::cursor_moves::*;
 use super::tests::{cfg, place, sim_cfg, w1, win, world};
 use super::*;
 use crate::geom::Rect;
-use crate::test_util::{species, LoopLimit};
-
-const DT: f64 = 1.0 / 60.0;
-fn resting() -> State {
-    State::Idle { remaining: 100.0, look: false }
-}
+use crate::test_util::{DT, LoopLimit, idle, species};
 
 fn tick(p: &mut Pet, w: &World, cursor: (f64, f64)) {
     p.hover(cursor.0, cursor.1, false);
@@ -21,7 +16,7 @@ fn tick(p: &mut Pet, w: &World, cursor: (f64, f64)) {
 fn ready_pet(c: PetConfig, seed: u64) -> (Pet, World) {
     let w = world(vec![]);
     let mut p = Pet::new(c, 800.0, 1040.0, seed);
-    place(&mut p, &w, Owner::Ground(0), 800.0, resting());
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     p.cursor_mood.ready_at = 0.0;
     (p, w)
 }
@@ -34,7 +29,7 @@ fn wait_for_play(p: &mut Pet, w: &World, cursor: (f64, f64)) -> bool {
             return true;
         }
         if !matches!(p.state, State::Idle { .. }) {
-            p.state = resting();
+            p.state = idle();
         }
     }
     false
@@ -126,7 +121,7 @@ fn it_never_starts_when_off_busy_dragging_controlled_or_otherwise_occupied() {
             p.update(DT, &w);
             assert!(!matches!(p.state, State::CursorPlay { .. }), "left {left} busy {busy} on {on}");
             if !matches!(p.state, State::Idle { .. }) {
-                p.state = resting();
+                p.state = idle();
             }
         }
     }
@@ -158,7 +153,7 @@ fn a_far_or_fast_or_low_cursor_does_not_tempt_it() {
     for _ in 0..900 {
         tick(&mut p, &w, (1800.0, 900.0));
         assert!(!matches!(p.state, State::CursorPlay { .. }));
-        p.state = resting();
+        p.state = idle();
     }
     // 빠르게 움직이는 중
     let (mut p, w) = ready_pet(cfg(), 6);
@@ -166,17 +161,17 @@ fn a_far_or_fast_or_low_cursor_does_not_tempt_it() {
         let x = 700.0 + (i % 40) as f64 * 15.0;
         tick(&mut p, &w, (x, 900.0));
         assert!(!matches!(p.state, State::CursorPlay { .. }));
-        p.state = resting();
+        p.state = idle();
     }
     // 창 위에 서 있는데 커서는 발 아래
     let w = world(vec![w1()]);
     let mut p = Pet::new(cfg(), 800.0, 400.0, 7);
-    place(&mut p, &w, Owner::Window(1), 800.0, resting());
+    place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.cursor_mood.ready_at = 0.0;
     for _ in 0..900 {
         tick(&mut p, &w, (800.0, 700.0));
         assert!(!matches!(p.state, State::CursorPlay { .. }));
-        p.state = resting();
+        p.state = idle();
     }
 }
 
@@ -227,7 +222,7 @@ fn every_species_gets_to_the_cursor_and_hangs_from_it() {
 fn walkers_stay_on_their_surface_while_approaching() {
     let w = world(vec![w1()]);
     let mut p = Pet::new(cfg(), 800.0, 400.0, 8);
-    place(&mut p, &w, Owner::Window(1), 800.0, resting());
+    place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.cursor_mood.ready_at = 0.0;
     p.set_cursor_species("dog");
     let cursor = (1250.0, 200.0);
@@ -580,7 +575,7 @@ fn shake_window(p: &mut Pet, w: &mut World, ticks: usize, amp: f64, every: usize
 fn on_window(c: PetConfig, seed: u64) -> (Pet, World) {
     let w = world(vec![w1()]);
     let mut p = Pet::new(c, 800.0, 400.0, seed);
-    place(&mut p, &w, Owner::Window(1), 800.0, resting());
+    place(&mut p, &w, Owner::Window(1), 800.0, idle());
     (p, w)
 }
 

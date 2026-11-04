@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::world::World;
+use crate::test_util::idle;
 
 fn gift(id: &str) -> Gift {
     Gift::parse(id).expect("known gift")
@@ -424,23 +425,7 @@ fn speech_is_english_and_short() {
 // ---- 어디에 떨어뜨리나 (진짜 동물로) ----
 
 fn pet_cfg(flies: bool) -> crate::brain::PetConfig {
-    crate::brain::PetConfig {
-        hang_grip: (0.0, 0.06),
-        no_roll: false,
-        size: 128.0,
-        half_w: 38.0,
-        walk_speed: 60.0,
-        special: None,
-        personality: crate::behavior::Personality::Friendly,
-        can_climb: false,
-        flies,
-        stings: false,
-        hops: false,
-        hop_share: 0.0,
-        looks_up: false,
-        snow_cloud: false,
-        dpi: 1.0,
-    }
+    crate::brain::PetConfig { flies, ..crate::test_util::pet_cfg() }
 }
 
 /// 선물을 떨어뜨려도 되는 때가 올 때까지 돌린다
@@ -498,7 +483,7 @@ fn a_flying_pet_drops_from_where_it_flies() {
     p.standing = None;
     p.body.x = 640.0;
     p.body.y = 500.0;
-    p.state = crate::brain::State::Idle { remaining: 100.0, look: false };
+    p.state = idle();
     let (x, y) = drop_spot(&p, &w).unwrap();
     assert_eq!(x, 640.0);
     assert!(y >= 500.0, "from where it flies, not above: {y}");

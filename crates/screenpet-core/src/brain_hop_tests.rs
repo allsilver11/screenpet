@@ -3,9 +3,8 @@
 use super::tests::{place, run, sim_cfg, win, world};
 use super::*;
 use crate::hop;
-use crate::test_util::{bundled, species};
+use crate::test_util::{DT, bundled, idle, species};
 
-const DT: f64 = 1.0 / 60.0;
 const SIZE: f64 = 108.8;
 
 fn frog() -> PetConfig {
@@ -558,7 +557,7 @@ fn rabbit_is_sent_off_and_plays_catch_me() {
     let w = world(vec![]);
     for seed in 1..=8 {
         let mut p = Pet::new(rabbit(), 0.0, 0.0, seed);
-        place(&mut p, &w, Owner::Ground(0), 1200.0, State::Idle { remaining: 100.0, look: false });
+        place(&mut p, &w, Owner::Ground(0), 1200.0, idle());
         assert!(p.send_to(Side::Left, false));
         let mut out = None;
         for _ in 0..(60 * 40) {
@@ -571,7 +570,7 @@ fn rabbit_is_sent_off_and_plays_catch_me() {
         assert_eq!(out, Some(Side::Left), "seed {seed}");
     }
     let mut p = Pet::new(rabbit(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Ground(0), 900.0, idle());
     p.set_guest(Side::Left, 1000.0);
     p.start_catch_me();
     assert!(p.is_catch_me());

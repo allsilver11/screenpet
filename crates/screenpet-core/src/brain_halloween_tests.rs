@@ -5,9 +5,8 @@ use super::tests::{sim_cfg, win, world};
 use super::*;
 use crate::flight;
 use crate::hop;
-use crate::test_util::bundled;
+use crate::test_util::{DT, bundled, idle};
 
-const DT: f64 = 1.0 / 60.0;
 
 // ---- 유령: locomotion fly, walk_speed 40, sting 없음 ----
 
@@ -57,7 +56,7 @@ fn pestered_ghost_never_stings() {
     let w = world(vec![]);
     let stung = |c: PetConfig| {
         let mut p = Pet::new(c, 800.0, 300.0, 1);
-        p.state = State::Idle { remaining: 100.0, look: false };
+        p.state = idle();
         for i in 0..(60 * 20) {
             let (x, y) = (p.body.x, p.body.y - 50.0);
             p.hover(x + if i % 2 == 0 { 0.0 } else { 40.0 }, y, true);
@@ -87,7 +86,7 @@ fn pestered_ghost_never_stings() {
 fn ghost_floats_at_its_slow_walk_speed() {
     let w = world(vec![]);
     let mut p = Pet::new(ghost(), 300.0, 500.0, 1);
-    p.state = State::Idle { remaining: 100.0, look: false };
+    p.state = idle();
     p.start_flight(flight::Goal::Point(1800.0, 500.0), Move::Walk);
     for _ in 0..60 {
         p.update(DT, &w);

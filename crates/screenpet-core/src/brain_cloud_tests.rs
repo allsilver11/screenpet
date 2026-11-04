@@ -3,6 +3,7 @@
 use super::cloud_moves::{CLOUD_FIRST_WAIT_SECS, CLOUD_SECS, CLOUD_WAIT_SECS};
 use super::tests::{cfg, place, sim_cfg, w1, win, world};
 use super::*;
+use crate::test_util::idle;
 
 const DT: f64 = 1.0 / 30.0;
 
@@ -62,7 +63,7 @@ fn other_pets_never_get_a_cloud_and_their_dice_stay_the_same() {
 fn under_cloud() -> (Pet, World) {
     let w = world(vec![w1()]);
     let mut p = Pet::new(snowman(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.cloud.wait = Some(0.0);
     p.tick_snow_cloud(DT);
     assert!(p.render().cloud, "{:?}", p.state);

@@ -5,20 +5,11 @@ use super::*;
 use crate::care::{FeedResult, Food};
 use crate::flight::{self, Goal};
 use crate::sting::StingPhase;
-use crate::test_util::LoopLimit;
+use crate::test_util::{DT, LoopLimit, bee, idle, run_until};
 
-const DT: f64 = 1.0 / 60.0;
-
-fn bee() -> PetConfig {
-    PetConfig { flies: true, stings: true, ..cfg() }
-}
 
 fn sim_bee() -> PetConfig {
     PetConfig { flies: true, stings: true, walk_speed: 70.0, ..sim_cfg() }
-}
-
-fn idle() -> State {
-    State::Idle { remaining: 100.0, look: false }
 }
 
 /// (x, y)에 떠 있는 벌
@@ -31,16 +22,6 @@ fn hovering(x: f64, y: f64, state: State, seed: u64) -> Pet {
 /// 바깥에서 나는 범위 (몸·머리 위 말풍선 자리가 화면 안)
 fn limits(p: &Pet, w: &World) -> Rect {
     flight::fly_bounds(&w.bounds, p.cfg.half_w, p.cfg.size * (1.0 + flight::TOP_SPACE))
-}
-
-fn run_until(p: &mut Pet, w: &World, ticks: usize, done: impl Fn(&Pet) -> bool) -> bool {
-    for _ in 0..ticks {
-        p.update(DT, w);
-        if done(p) {
-            return true;
-        }
-    }
-    false
 }
 
 /// 커서를 40px씩 좌우로 흔들며 몸 위를 간질인다 — 쏘기가 시작되면 멈춘다

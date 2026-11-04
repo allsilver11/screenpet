@@ -4,8 +4,8 @@ use super::tests::{cfg, place, run, sim_cfg, win, world};
 use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::inside::{Mode, Stay};
+use crate::test_util::{DT, idle};
 
-const DT: f64 = 1.0 / 60.0;
 
 /// 창 1: 500..1100 × 400..900 → 안쪽 바닥 y 896, x 504..1096
 fn w1() -> WindowInfo {
@@ -14,10 +14,6 @@ fn w1() -> WindowInfo {
 
 fn climber() -> PetConfig {
     PetConfig { can_climb: true, ..cfg() }
-}
-
-fn idle() -> State {
-    State::Idle { remaining: 100.0, look: false }
 }
 
 /// 창 id 안쪽 바닥 x에 세운다 (머무는 시간 leave_in)

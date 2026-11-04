@@ -5,16 +5,12 @@ use super::tests::{cfg, place, run, w1, world};
 use super::*;
 use crate::care::{FeedResult, Food};
 use crate::food::{Prop, PropEvent, FOOD_TIMEOUT_SECS};
+use crate::test_util::{DT, bee, idle, run_until};
 
-const DT: f64 = 1.0 / 60.0;
 const ATE: FeedResult = FeedResult::Ate { leveled_up: false };
 /// 집 문 x (기본 화면 바닥 Ground(0) 위)
 const DOOR: f64 = 1500.0;
 const HOME: Owner = Owner::Ground(0);
-
-fn idle() -> State {
-    State::Idle { remaining: 100.0, look: false }
-}
 
 /// 창 1 (500..1100, 윗면 400) 위 x에 서서 facing쪽을 보는 동물
 fn standing_at(x: f64, facing: f64) -> (Pet, World) {
@@ -23,16 +19,6 @@ fn standing_at(x: f64, facing: f64) -> (Pet, World) {
     place(&mut p, &w, Owner::Window(1), x, idle());
     p.facing = facing;
     (p, w)
-}
-
-fn run_until(p: &mut Pet, w: &World, ticks: usize, done: impl Fn(&Pet) -> bool) -> bool {
-    for _ in 0..ticks {
-        p.update(DT, w);
-        if done(p) {
-            return true;
-        }
-    }
-    false
 }
 
 /// 돌리면서 나온 소품 변화를 모은다
@@ -259,10 +245,6 @@ fn arriving_home_remembers_the_door() {
     p.update(DT, &w);
     assert!(!p.is_housed());
     assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::WaterBowl, x: DOOR - 75.0, y: 1040.0 }));
-}
-
-fn bee() -> PetConfig {
-    PetConfig { flies: true, stings: true, ..cfg() }
 }
 
 #[test]

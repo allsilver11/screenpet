@@ -7,28 +7,12 @@ use crate::geom::{Rect, WindowInfo};
 use crate::physics::Body;
 use crate::visit::Side;
 use crate::world::World;
+use crate::test_util::{DT, idle};
 
-const DT: f64 = 1.0 / 60.0;
 const GROUND: f64 = 1040.0;
 
 fn cfg(personality: Personality) -> PetConfig {
-    PetConfig {
-        hang_grip: (0.0, 0.06),
-        no_roll: false,
-        size: 128.0,
-        half_w: 38.4,
-        walk_speed: 60.0,
-        special: None,
-        personality,
-        can_climb: false,
-        flies: false,
-        stings: false,
-        hops: false,
-        hop_share: 0.0,
-        looks_up: false,
-        snow_cloud: false,
-        dpi: 1.0,
-    }
+    PetConfig { personality, half_w: 38.4, ..crate::test_util::pet_cfg() }
 }
 
 fn friendly() -> PetConfig {
@@ -52,17 +36,13 @@ fn w1() -> WindowInfo {
     WindowInfo { id: 1, rect: Rect::new(500.0, 400.0, 1100.0, 900.0) }
 }
 
-fn resting() -> State {
-    State::Idle { remaining: 100.0, look: false }
-}
-
 /// owner 위 x에 쉬는 동물
 fn pet_on(w: &World, c: PetConfig, owner: Owner, x: f64, seed: u64) -> Pet {
     let mut p = Pet::new(c, x, 0.0, seed);
     let (ax, ay) = w.anchor(owner).unwrap();
     p.standing = Some(Standing { owner, rel_x: x - ax });
     p.body = Body { x, y: ay, vx: 0.0, vy: 0.0 };
-    p.state = resting();
+    p.state = idle();
     p
 }
 
@@ -71,7 +51,7 @@ fn bee_at(x: f64, y: f64, seed: u64) -> Pet {
     let mut p = Pet::new(bee(), x, y, seed);
     p.standing = None;
     p.body = Body { x, y, vx: 0.0, vy: 0.0 };
-    p.state = resting();
+    p.state = idle();
     p
 }
 
@@ -107,7 +87,7 @@ fn pin(p: &mut Pet, w: &World, x: f64) {
         let fresh = ground(w, friendly(), x, 1);
         p.body = fresh.body;
         p.standing = fresh.standing;
-        p.state = resting();
+        p.state = idle();
     }
 }
 
@@ -573,7 +553,7 @@ fn a_game_cools_the_pair_down_longer_than_a_greeting() {
         // 그 시간 동안은 코앞에서 쉬고 있어도 다시 어울리지 않는다
         for (p, x) in pets.iter_mut().zip([800.0, 840.0]) {
             let fresh = ground(&w, friendly(), x, 1);
-            (p.body, p.standing, p.state) = (fresh.body, fresh.standing, resting());
+            (p.body, p.standing, p.state) = (fresh.body, fresh.standing, idle());
             assert!(p.social_free(), "{:?}", p.state);
         }
         for _ in 0..((PLAY_COOLDOWN.0 - 1.0) / 0.5) as usize {

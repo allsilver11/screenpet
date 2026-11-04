@@ -3,14 +3,13 @@
 use super::snow_moves::{SnowPhase, PETAL_LOOK_UP_MULT, ROLL_SECS};
 use super::tests::{cfg, place, sim_cfg, w1, world};
 use super::*;
-use crate::test_util::LoopLimit;
+use crate::test_util::{DT, LoopLimit, idle};
 
-const DT: f64 = 1.0 / 60.0;
 
 fn on_ground(c: PetConfig, x: f64) -> (Pet, World) {
     let w = world(vec![]);
     let mut p = Pet::new(c, 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Ground(0), x, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Ground(0), x, idle());
     (p, w)
 }
 
@@ -117,7 +116,7 @@ fn only_a_walking_own_pet_on_the_ground_builds() {
     // 창 윗면
     let w = world(vec![w1()]);
     let mut p = Pet::new(sim_cfg(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.set_snow_ready(true);
     assert!(!p.can_build_snowman(&w));
     // 준비 안 됨 / 됨

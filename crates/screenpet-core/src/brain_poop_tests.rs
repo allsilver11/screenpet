@@ -4,18 +4,13 @@ use super::tests::{cfg, place, sim_cfg, world};
 use super::*;
 use crate::geom::WindowInfo;
 use crate::poop::{self, PoopSpot};
-use crate::test_util::LoopLimit;
+use crate::test_util::{DT, LoopLimit, idle};
 
-const DT: f64 = 1.0 / 60.0;
 const FLOOR: Owner = Owner::Ground(0);
 const GROUND: f64 = 1040.0;
 
 fn walking() -> State {
     State::Move { kind: Move::Walk, remaining: 100.0 }
-}
-
-fn idle() -> State {
-    State::Idle { remaining: 100.0, look: false }
 }
 
 fn walker(w: &World, x: f64, seed: u64) -> Pet {

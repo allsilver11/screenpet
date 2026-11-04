@@ -2,21 +2,16 @@
 
 use super::tests::{place, sim_cfg, w1, world};
 use super::*;
-use crate::care::Care;
 use crate::geom::Rect;
-use crate::presence::{DailyMarks, FocusLength, LocalMoment, Rhythm, RhythmInput, AWAY_AFTER_SECS};
+use crate::presence::{DailyMarks, FocusLength, AWAY_AFTER_SECS};
+use crate::test_util::{DT, Sim, idle};
 
-const DT: f64 = 1.0 / 60.0;
 const AFTERNOON: (u32, u32) = (15, 0);
-
-fn resting() -> State {
-    State::Idle { remaining: 100.0, look: false }
-}
 
 fn on_ground(c: PetConfig, x: f64) -> (Pet, World) {
     let w = world(vec![]);
     let mut p = Pet::new(c, 0.0, 0.0, 7);
-    place(&mut p, &w, Owner::Ground(0), x, resting());
+    place(&mut p, &w, Owner::Ground(0), x, idle());
     (p, w)
 }
 
@@ -24,70 +19,17 @@ fn flyer() -> PetConfig {
     PetConfig { flies: true, ..sim_cfg() }
 }
 
-/// 가짜 세상: 시각·유휴 시간을 테스트가 정한다. 1초에 한 번 Rhythm::tick, 그 사이 60 틱
-struct Sim {
-    rhythm: Rhythm,
-    care: Care,
-    marks: DailyMarks,
-    secs: f64,
-    day: i32,
-    time: (u32, u32),
-    idle: Option<f64>,
-    visible: bool,
-    said: Vec<Speech>,
-    house_waves: u32,
+/// 오후의 멈춘 시계
+fn afternoon() -> Sim {
+    Sim::fixed_at(AFTERNOON)
 }
 
-impl Sim {
-    fn new() -> Self {
-        // 오늘 아침 인사는 이미 했다 (따로 시험하는 테스트만 지운다)
-        Self {
-            rhythm: Rhythm::default(),
-            care: Care::default(),
-            marks: DailyMarks { morning: Some(1), lunch: Some(1) },
-            secs: 0.0,
-            day: 1,
-            time: AFTERNOON,
-            idle: Some(0.0),
-            visible: true,
-            said: Vec::new(),
-            house_waves: 0,
-        }
-    }
+fn has_said(sim: &Sim, s: Speech) -> bool {
+    sim.said.contains(&s)
+}
 
-    fn input(&self) -> RhythmInput {
-        RhythmInput { secs: self.secs, moment: LocalMoment::new(self.day, self.time.0, self.time.1), idle: self.idle, visible: self.visible }
-    }
-
-    fn second(&mut self, p: &mut Pet, w: &World) {
-        let input = self.input();
-        let out = self.rhythm.tick(&input, p, w, &mut self.care, &mut self.marks);
-        self.house_waves += out.house_wave as u32;
-        for _ in 0..60 {
-            p.update(DT, w);
-            if let Some(s) = p.take_speech() {
-                self.said.push(s);
-            }
-        }
-        self.secs += 1.0;
-        if let Some(i) = self.idle.as_mut() {
-            *i += 1.0;
-        }
-    }
-
-    fn run(&mut self, p: &mut Pet, w: &World, secs: u32) {
-        for _ in 0..secs {
-            self.second(p, w);
-        }
-    }
-
-    fn has_said(&self, s: Speech) -> bool {
-        self.said.contains(&s)
-    }
-
-    fn count(&self, s: Speech) -> usize {
-        self.said.iter().filter(|&&x| x == s).count()
-    }
+fn count_said(sim: &Sim, s: Speech) -> usize {
+    sim.said.iter().filter(|&&x| x == s).count()
 }
 
 /// 10분 넘게 입력이 없으면 잠든다
@@ -101,7 +43,7 @@ fn sim_away(sim: &mut Sim, p: &mut Pet, w: &World) {
 #[test]
 fn after_ten_idle_minutes_the_pet_sleeps_and_stays_asleep() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.idle = Some(AWAY_AFTER_SECS - 5.0);
     sim.run(&mut p, &w, 3);
     assert!(!matches!(p.state, State::Sleep { .. }), "not yet: {:?}", p.state);
@@ -119,13 +61,13 @@ fn after_ten_idle_minutes_the_pet_sleeps_and_stays_asleep() {
 fn a_walking_pet_finishes_on_the_spot_and_a_napping_pet_stays_napping() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
     p.state = State::Move { kind: Move::Walk, remaining: 100.0 };
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim_away(&mut sim, &mut p, &w);
     assert!(matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
     assert!((p.body.x - 800.0).abs() < 5.0, "on the spot: {}", p.body.x);
     let (mut q, w) = on_ground(sim_cfg(), 800.0);
     q.state = State::Sleep { remaining: 3.0 };
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim_away(&mut sim, &mut q, &w);
     sim.run(&mut q, &w, 120);
     assert!(matches!(q.state, State::Sleep { .. }), "{:?}", q.state);
@@ -151,7 +93,7 @@ fn no_cursor_play_or_friends_while_the_user_is_away() {
                 return false;
             }
             if !matches!(p.state, State::Sleep { .. }) {
-                p.state = State::Idle { remaining: 100.0, look: false };
+                p.state = idle();
             }
         }
         true
@@ -161,17 +103,17 @@ fn no_cursor_play_or_friends_while_the_user_is_away() {
     // 친구가 옆에 있어도 인사하지 않는다
     let friend = || {
         let (mut q, _) = on_ground(sim_cfg(), 900.0);
-        q.state = State::Idle { remaining: 100.0, look: false };
+        q.state = idle();
         q
     };
     let (mut a, _) = on_ground(sim_cfg(), 800.0);
-    a.state = State::Idle { remaining: 100.0, look: false };
+    a.state = idle();
     let mut awake = vec![a, friend()];
     let mut s = crate::social::Social::new(1);
     s.tick(DT, &mut awake);
     assert_eq!(s.active(), 1, "the control greets");
     let (mut a, _) = on_ground(sim_cfg(), 800.0);
-    a.state = State::Idle { remaining: 100.0, look: false };
+    a.state = idle();
     let mut gone = vec![a, friend()];
     for p in &mut gone {
         p.set_user_away(true);
@@ -189,12 +131,12 @@ fn no_cursor_play_or_friends_while_the_user_is_away() {
 #[test]
 fn on_return_the_pet_runs_to_the_cursor_and_bounces_happily() {
     let (mut p, w) = on_ground(sim_cfg(), 200.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim_away(&mut sim, &mut p, &w);
     p.hover(1500.0, 500.0, false);
     sim.idle = Some(0.0);
     sim.second(&mut p, &w);
-    assert!(sim.has_said(Speech::WelcomeBack) || matches!(p.state, State::PresenceTrip), "{:?}", p.state);
+    assert!(has_said(&sim, Speech::WelcomeBack) || matches!(p.state, State::PresenceTrip), "{:?}", p.state);
     // 달리는 동안의 모습
     let (mut q, _) = on_ground(sim_cfg(), 200.0);
     q.hover(1500.0, 500.0, false);
@@ -204,7 +146,7 @@ fn on_return_the_pet_runs_to_the_cursor_and_bounces_happily() {
     assert!(!q.render().flip, "faces the cursor");
     // 끝까지
     sim.run(&mut p, &w, 6);
-    assert_eq!(sim.count(Speech::WelcomeBack), 1, "{:?}", sim.said);
+    assert_eq!(count_said(&sim, Speech::WelcomeBack), 1, "{:?}", sim.said);
     assert!((p.body.x - 1500.0).abs() < 1.5 * p.cfg.size, "near the cursor: {}", p.body.x);
     assert_eq!(p.body.y, 1040.0, "back on the floor");
 }
@@ -240,7 +182,7 @@ fn the_welcome_is_two_bounces_with_a_heart_each() {
 fn the_pet_leaps_to_another_monitor_when_the_cursor_is_there() {
     let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1040.0)], 128.0);
     let mut p = Pet::new(sim_cfg(), 0.0, 0.0, 3);
-    place(&mut p, &w, Owner::Ground(0), 400.0, resting());
+    place(&mut p, &w, Owner::Ground(0), 400.0, idle());
     p.hover(3000.0, 500.0, false);
     assert!(p.welcome_back(&w));
     assert_eq!(p.state, State::PresenceTrip);
@@ -266,7 +208,7 @@ fn the_pet_leaps_to_another_monitor_when_the_cursor_is_there() {
 fn a_pet_on_a_window_comes_down_to_the_cursor_floor() {
     let w = world(vec![w1()]);
     let mut p = Pet::new(sim_cfg(), 0.0, 0.0, 3);
-    place(&mut p, &w, Owner::Window(1), 800.0, resting());
+    place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.hover(1700.0, 900.0, false);
     assert!(p.welcome_back(&w));
     for _ in 0..300 {
@@ -302,13 +244,13 @@ fn a_flyer_glides_to_the_cursor_and_hovers_with_a_heart() {
 fn a_housed_pet_greets_from_the_house() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
     p.enter_house();
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim_away(&mut sim, &mut p, &w);
     assert!(p.is_housed());
     sim.idle = Some(0.0);
     sim.second(&mut p, &w);
     assert_eq!(sim.house_waves, 1);
-    assert!(sim.has_said(Speech::WelcomeBack));
+    assert!(has_said(&sim, Speech::WelcomeBack));
     assert!(p.is_housed());
 }
 
@@ -316,13 +258,13 @@ fn a_housed_pet_greets_from_the_house() {
 fn control_mode_and_held_pets_are_left_alone() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
     p.set_control(true);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim_away(&mut sim, &mut p, &w);
     assert!(!matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
     sim.idle = Some(0.0);
     p.hover(1500.0, 500.0, false);
     sim.second(&mut p, &w);
-    assert!(!sim.has_said(Speech::WelcomeBack));
+    assert!(!has_said(&sim, Speech::WelcomeBack));
     let (mut q, w) = on_ground(sim_cfg(), 800.0);
     q.pointer_down(800.0, 1000.0);
     assert!(!q.welcome_back(&w));
@@ -353,7 +295,7 @@ fn being_picked_up_stops_the_run() {
 fn sleep_share(time: (u32, u32), secs: u32) -> (f64, Sim) {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
     p.state = State::Idle { remaining: 0.1, look: false };
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.time = time;
     let mut asleep = 0;
     for _ in 0..secs {
@@ -375,17 +317,17 @@ fn after_midnight_the_pet_sleeps_much_more() {
 #[test]
 fn after_midnight_the_pet_yawns_and_nags_only_at_night() {
     let (_, night) = sleep_share((2, 0), 1800);
-    assert!(night.has_said(Speech::Yawn), "{:?}", night.said);
-    assert!(night.has_said(Speech::GoToBed), "{:?}", night.said);
-    assert!(night.count(Speech::GoToBed) <= 8, "occasionally: {}", night.count(Speech::GoToBed));
+    assert!(has_said(&night, Speech::Yawn), "{:?}", night.said);
+    assert!(has_said(&night, Speech::GoToBed), "{:?}", night.said);
+    assert!(count_said(&night, Speech::GoToBed) <= 8, "occasionally: {}", count_said(&night, Speech::GoToBed));
     let (_, day) = sleep_share(AFTERNOON, 1800);
-    assert!(!day.has_said(Speech::Yawn));
-    assert!(!day.has_said(Speech::GoToBed));
+    assert!(!has_said(&day, Speech::Yawn));
+    assert!(!has_said(&day, Speech::GoToBed));
 }
 
 #[test]
 fn the_nightcap_comes_off_at_half_past_eight_with_the_sleepy_hours() {
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     let cap_at = |sim: &mut Sim, time| {
         sim.time = time;
         sim.rhythm.overlay(&sim.input()).nightcap
@@ -400,12 +342,12 @@ fn the_nightcap_comes_off_at_half_past_eight_with_the_sleepy_hours() {
 fn a_delayed_greeting_never_keeps_the_nightcap_on() {
     // 인사가 집중 시간 때문에 미뤄져도 (오늘 인사 표시가 비어 있어도) 모자는 시계만 보고 벗는다
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.marks = DailyMarks::default();
     sim.time = (8, 30);
     sim.rhythm.start_focus(FocusLength::Short, sim.secs, &mut p);
     sim.run(&mut p, &w, 3);
-    assert!(!sim.has_said(Speech::GoodMorning), "focus keeps the greeting waiting");
+    assert!(!has_said(&sim, Speech::GoodMorning), "focus keeps the greeting waiting");
     assert_eq!(sim.marks.morning, None);
     assert!(!sim.rhythm.overlay(&sim.input()).nightcap);
 }
@@ -415,11 +357,11 @@ fn a_delayed_greeting_never_keeps_the_nightcap_on() {
 #[test]
 fn good_morning_is_a_big_stretch_once_a_day() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.marks = DailyMarks::default();
     sim.time = (8, 29);
     sim.second(&mut p, &w);
-    assert!(!sim.has_said(Speech::GoodMorning));
+    assert!(!has_said(&sim, Speech::GoodMorning));
     sim.time = (8, 30);
     let input = sim.input();
     let out = sim.rhythm.tick(&input, &mut p, &w, &mut sim.care, &mut sim.marks);
@@ -428,25 +370,25 @@ fn good_morning_is_a_big_stretch_once_a_day() {
     assert_eq!(p.render().anim, Anim::Stretch);
     assert_eq!(sim.marks.morning, Some(1));
     sim.run(&mut p, &w, 30);
-    assert_eq!(sim.count(Speech::GoodMorning), 0, "not again today");
+    assert_eq!(count_said(&sim, Speech::GoodMorning), 0, "not again today");
     sim.day = 2;
     sim.run(&mut p, &w, 8);
-    assert_eq!(sim.count(Speech::GoodMorning), 1, "tomorrow");
+    assert_eq!(count_said(&sim, Speech::GoodMorning), 1, "tomorrow");
 }
 
 #[test]
 fn good_morning_waits_until_the_pet_is_seen() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.marks = DailyMarks::default();
     sim.time = (9, 30);
     sim.visible = false;
     sim.run(&mut p, &w, 3);
-    assert!(!sim.has_said(Speech::GoodMorning), "hidden");
+    assert!(!has_said(&sim, Speech::GoodMorning), "hidden");
     assert_eq!(sim.marks.morning, None);
     sim.visible = true;
     sim_away(&mut sim, &mut p, &w);
-    assert!(!sim.has_said(Speech::GoodMorning), "user away");
+    assert!(!has_said(&sim, Speech::GoodMorning), "user away");
     assert_eq!(sim.marks.morning, None);
     // 돌아오면 먼저 "you're back!!", 그 다음 아침 인사
     p.hover(800.0, 900.0, false);
@@ -469,7 +411,7 @@ fn good_morning_waits_for_the_pet_to_land() {
 #[test]
 fn lunch_time_makes_a_full_pet_hungry_once_a_day() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.marks = DailyMarks { morning: Some(1), lunch: None };
     assert!(!sim.care.is_hungry());
     sim.time = (11, 29);
@@ -477,7 +419,7 @@ fn lunch_time_makes_a_full_pet_hungry_once_a_day() {
     assert!(!sim.care.is_hungry());
     sim.time = (11, 30);
     sim.second(&mut p, &w);
-    assert!(sim.has_said(Speech::LunchTime));
+    assert!(has_said(&sim, Speech::LunchTime));
     assert!(sim.care.is_hungry());
     assert!(p.hungry);
     assert_eq!(sim.marks.lunch, Some(1));
@@ -485,30 +427,30 @@ fn lunch_time_makes_a_full_pet_hungry_once_a_day() {
     sim.care.fullness = 1.0;
     p.set_hungry(false);
     sim.run(&mut p, &w, 20);
-    assert_eq!(sim.count(Speech::LunchTime), 1);
+    assert_eq!(count_said(&sim, Speech::LunchTime), 1);
     assert!(!sim.care.is_hungry());
 }
 
 #[test]
 fn lunch_time_is_said_when_already_hungry_and_keeps_it_hungry() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.marks = DailyMarks { morning: Some(1), lunch: None };
     sim.care.fullness = 0.0;
     sim.time = (12, 0);
     sim.second(&mut p, &w);
-    assert!(sim.has_said(Speech::LunchTime));
+    assert!(has_said(&sim, Speech::LunchTime));
     assert_eq!(sim.care.fullness, 0.0, "not refilled");
 }
 
 #[test]
 fn outside_the_window_there_is_no_lunch() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.marks = DailyMarks { morning: Some(1), lunch: None };
     sim.time = (13, 0);
     sim.run(&mut p, &w, 5);
-    assert!(!sim.has_said(Speech::LunchTime));
+    assert!(!has_said(&sim, Speech::LunchTime));
     assert!(!sim.care.is_hungry());
 }
 
@@ -529,7 +471,7 @@ fn keep_busy(sim: &mut Sim, p: &mut Pet, w: &World, secs: u32) {
 #[test]
 fn arrivals_are_refused_while_focusing_or_in_the_house_but_not_on_a_break() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     assert!(!p.refuses_arrivals());
     start_focus(&mut sim, &mut p, FocusLength::Short);
     assert!(p.refuses_arrivals());
@@ -545,7 +487,7 @@ fn arrivals_are_refused_while_focusing_or_in_the_house_but_not_on_a_break() {
 #[test]
 fn focusing_pets_go_to_the_bottom_right_corner_and_sit_quietly() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     start_focus(&mut sim, &mut p, FocusLength::Short);
     assert_eq!(p.take_speech(), Some(Speech::Focus));
     keep_busy(&mut sim, &mut p, &w, 8);
@@ -568,7 +510,7 @@ fn focusing_pets_go_to_the_bottom_right_corner_and_sit_quietly() {
 #[test]
 fn the_ring_shows_progress_only_while_focusing() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     assert_eq!(sim.rhythm.overlay(&sim.input()).ring, None);
     start_focus(&mut sim, &mut p, FocusLength::Short);
     assert_eq!(sim.rhythm.overlay(&sim.input()).ring, Some(0));
@@ -582,7 +524,7 @@ fn the_ring_shows_progress_only_while_focusing() {
 #[test]
 fn when_focus_ends_the_pet_stretches_and_plays_and_then_goes_back() {
     let (mut p, w) = on_ground(sim_cfg(), 1800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     start_focus(&mut sim, &mut p, FocusLength::Short);
     p.take_speech();
     keep_busy(&mut sim, &mut p, &w, 5);
@@ -607,14 +549,14 @@ fn when_focus_ends_the_pet_stretches_and_plays_and_then_goes_back() {
     sim.said.clear();
     sim.secs = 30.0 * 60.0;
     keep_busy(&mut sim, &mut p, &w, 10);
-    assert_eq!(sim.count(Speech::Focus), 1, "{:?}", sim.said);
+    assert_eq!(count_said(&sim, Speech::Focus), 1, "{:?}", sim.said);
     assert!((p.body.x - (1920.0 - 0.75 * p.cfg.size)).abs() <= 4.0, "{}", p.body.x);
 }
 
 #[test]
 fn stopping_focus_lets_the_pet_wander_again() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     start_focus(&mut sim, &mut p, FocusLength::Long);
     keep_busy(&mut sim, &mut p, &w, 8);
     let x = p.body.x;
@@ -634,8 +576,8 @@ fn stopping_focus_lets_the_pet_wander_again() {
 fn a_flyer_perches_in_the_corner_while_focusing() {
     let w = world(vec![]);
     let mut p = Pet::new(flyer(), 300.0, 500.0, 3);
-    p.state = resting();
-    let mut sim = Sim::new();
+    p.state = idle();
+    let mut sim = afternoon();
     start_focus(&mut sim, &mut p, FocusLength::Short);
     keep_busy(&mut sim, &mut p, &w, 8);
     assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)));
@@ -657,7 +599,7 @@ fn a_flyer_perches_in_the_corner_while_focusing() {
 #[test]
 fn a_dragged_pet_is_dropped_and_returns_to_the_corner() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     start_focus(&mut sim, &mut p, FocusLength::Short);
     keep_busy(&mut sim, &mut p, &w, 8);
     p.pointer_down(p.body.x, p.body.y - 50.0);
@@ -673,7 +615,7 @@ fn a_dragged_pet_is_dropped_and_returns_to_the_corner() {
 #[test]
 fn control_mode_beats_focus_and_the_pet_returns_afterwards() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     p.set_control(true);
     start_focus(&mut sim, &mut p, FocusLength::Short);
     keep_busy(&mut sim, &mut p, &w, 5);
@@ -686,7 +628,7 @@ fn control_mode_beats_focus_and_the_pet_returns_afterwards() {
 #[test]
 fn food_comes_first_while_focusing() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     start_focus(&mut sim, &mut p, FocusLength::Short);
     keep_busy(&mut sim, &mut p, &w, 8);
     assert!(p.feed_result(FeedResult::Ate { leveled_up: false }, Food::Snack));
@@ -702,7 +644,7 @@ fn food_comes_first_while_focusing() {
 #[test]
 fn focus_keeps_morning_and_lunch_and_the_idle_welcome_waiting() {
     let (mut p, w) = on_ground(sim_cfg(), 300.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.marks = DailyMarks::default();
     sim.time = (11, 45);
     start_focus(&mut sim, &mut p, FocusLength::Short);
@@ -717,19 +659,19 @@ fn focus_keeps_morning_and_lunch_and_the_idle_welcome_waiting() {
     sim.idle = Some(0.0);
     sim.second(&mut p, &w);
     assert!(!matches!(p.state, State::Sleep { .. }), "{:?}", p.state);
-    assert!(!sim.has_said(Speech::WelcomeBack));
+    assert!(!has_said(&sim, Speech::WelcomeBack));
     // 쉬는 시간이 되면 밀린 인사
     sim.secs = 25.0 * 60.0;
     keep_busy(&mut sim, &mut p, &w, 20);
-    assert!(sim.has_said(Speech::GoodMorning), "{:?}", sim.said);
-    assert!(sim.has_said(Speech::LunchTime), "{:?}", sim.said);
+    assert!(has_said(&sim, Speech::GoodMorning), "{:?}", sim.said);
+    assert!(has_said(&sim, Speech::LunchTime), "{:?}", sim.said);
 }
 
 #[test]
 fn nothing_changes_for_guests() {
     let w = world(vec![]);
     let mut p = Pet::new(sim_cfg(), 0.0, 0.0, 3);
-    place(&mut p, &w, Owner::Ground(0), 800.0, resting());
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     p.set_guest(crate::visit::Side::Left, 1000.0);
     assert!(!p.welcome_back(&w));
     assert!(!p.good_morning());
@@ -744,7 +686,7 @@ fn welcome_back_on_a_work_area_narrower_than_the_pet_does_not_panic() {
     let narrow = Rect::new(0.0, 0.0, c.half_w, 1040.0);
     let w = World::new(vec![], vec![narrow], c.size);
     let mut p = Pet::new(c, 0.0, 1040.0, 7);
-    p.state = resting();
+    p.state = idle();
     p.hover(c.half_w / 2.0, 500.0, false);
     let _ = p.welcome_back(&w);
 }
@@ -754,7 +696,7 @@ fn welcome_back_on_a_work_area_narrower_than_the_pet_does_not_panic() {
 #[test]
 fn the_rhythm_tells_whether_the_user_is_away() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     assert!(!sim.rhythm.is_away());
     sim_away(&mut sim, &mut p, &w);
     assert!(sim.rhythm.is_away());
@@ -768,18 +710,18 @@ fn the_rhythm_tells_whether_the_user_is_away() {
 #[test]
 fn past_noon_the_morning_greeting_is_skipped_for_the_day() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
-    let mut sim = Sim::new();
+    let mut sim = afternoon();
     sim.marks = DailyMarks { morning: None, lunch: Some(1) };
     sim.time = (12, 0);
     sim.run(&mut p, &w, 3);
-    assert_eq!(sim.count(Speech::GoodMorning), 0);
+    assert_eq!(count_said(&sim, Speech::GoodMorning), 0);
     sim.time = (23, 0);
     sim.run(&mut p, &w, 3);
-    assert_eq!(sim.count(Speech::GoodMorning), 0, "does not greet at 23:00");
+    assert_eq!(count_said(&sim, Speech::GoodMorning), 0, "does not greet at 23:00");
     assert_eq!(sim.marks.morning, None);
     sim.day = 2;
     sim.marks.lunch = Some(2);
     sim.time = (11, 59);
     sim.run(&mut p, &w, 8);
-    assert_eq!(sim.count(Speech::GoodMorning), 1, "the next morning");
+    assert_eq!(count_said(&sim, Speech::GoodMorning), 1, "the next morning");
 }

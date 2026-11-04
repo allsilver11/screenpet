@@ -4,8 +4,8 @@
 
 use super::tests::{cfg, place, sim_cfg, w1, win, world};
 use super::*;
+use crate::test_util::{DT, idle};
 
-const DT: f64 = 1.0 / 60.0;
 
 fn looker() -> PetConfig {
     PetConfig { looks_up: true, ..cfg() }
@@ -15,7 +15,7 @@ fn looker() -> PetConfig {
 fn standing_at(c: PetConfig, x: f64) -> (Pet, World) {
     let w = world(vec![w1()]);
     let mut p = Pet::new(c, 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Window(1), x, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Window(1), x, idle());
     p.facing = 1.0;
     (p, w)
 }

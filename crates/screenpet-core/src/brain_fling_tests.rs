@@ -4,8 +4,8 @@ use super::tests::{cfg, place, world};
 use super::*;
 use crate::geom::Rect;
 use crate::visit::Fling;
+use crate::test_util::{DT, bee, idle};
 
-const DT: f64 = 1.0 / 60.0;
 
 /// (x, y)에서 vx·vy(물리 px/s)로 던져진 동물
 fn thrown_at(cfg: PetConfig, x: f64, y: f64, vx: f64, vy: f64) -> Pet {
@@ -16,13 +16,9 @@ fn thrown_at(cfg: PetConfig, x: f64, y: f64, vx: f64, vy: f64) -> Pet {
     p
 }
 
-fn bee() -> PetConfig {
-    PetConfig { flies: true, stings: true, ..cfg() }
-}
-
 /// 땅에 선 동물을 손으로 집어 (cx, cy)까지 끌고 와서, 이후 vx 픽셀/s로 끌다가 놓는다 (vx = 0이면 멈췄다가 그냥 놓는다)
 fn drag_and_release(p: &mut Pet, w: &World, x: f64, to: (f64, f64), vx: f64) {
-    place(p, w, Owner::Ground(0), x, State::Idle { remaining: 100.0, look: false });
+    place(p, w, Owner::Ground(0), x, idle());
     p.pointer_down(x, 1000.0);
     let (mut cx, cy) = to;
     for _ in 0..30 {

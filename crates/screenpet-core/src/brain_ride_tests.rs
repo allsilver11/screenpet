@@ -5,12 +5,8 @@ use super::tests::{cfg, place, w1, win, world};
 use super::*;
 use crate::geom::Rect;
 use crate::inside::{Mode, Stay};
+use crate::test_util::{DT, idle};
 
-const DT: f64 = 1.0 / 60.0;
-
-fn idle() -> State {
-    State::Idle { remaining: 100.0, look: false }
-}
 
 #[test]
 fn ridden_window_is_the_window_the_pet_depends_on() {

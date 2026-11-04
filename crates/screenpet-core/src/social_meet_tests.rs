@@ -6,28 +6,12 @@ use crate::behavior::Move;
 use crate::brain::meet_moves::MeetPhase;
 use crate::geom::{Rect, WindowInfo};
 use crate::world::World;
+use crate::test_util::DT;
 
-const DT: f64 = 1.0 / 60.0;
 const GROUND: f64 = 1040.0;
 
 fn cfg() -> PetConfig {
-    PetConfig {
-        hang_grip: (0.0, 0.06),
-        no_roll: false,
-        size: 128.0,
-        half_w: 38.4,
-        walk_speed: 60.0,
-        special: None,
-        personality: Personality::Friendly,
-        can_climb: false,
-        flies: false,
-        stings: false,
-        hops: false,
-        hop_share: 0.0,
-        looks_up: false,
-        snow_cloud: false,
-        dpi: 1.0,
-    }
+    PetConfig { half_w: 38.4, ..crate::test_util::pet_cfg() }
 }
 
 fn floor() -> World {

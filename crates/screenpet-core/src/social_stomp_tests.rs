@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::behavior::Special;
+use crate::test_util::idle;
 
 fn dino() -> PetConfig {
     PetConfig { special: Some(Special::Stomp), ..cfg(Personality::Playful) }
@@ -105,10 +106,10 @@ fn sleepers_wake_grumpy_busy_pets_are_skipped_and_there_is_a_cooldown() {
     assert_eq!(pets[2].state, State::Dragged);
     assert!(matches!(pets[3].state, State::Eating { .. }) && !pets[3].wobbling());
     // 다시 쿵쾅 — 방금 깬 친구는 그대로
-    pets[1].state = resting();
+    pets[1].state = idle();
     pets[0].force_stomp();
     s.tick(DT, &mut pets);
-    assert_eq!(pets[1].state, resting());
+    assert_eq!(pets[1].state, idle());
 }
 
 /// 데굴 넘어진 친구는 이번 틱에 인사·놀이를 시작하지 않고, 놀던 짝은 풀린다

@@ -3,13 +3,9 @@
 use super::control_moves::{ControlInput, CONTROL_IDLE_SECS, JUMP_BODIES, REMOTE_STALE_SECS};
 use super::tests::{place, sim_cfg, win, world};
 use super::*;
-use crate::test_util::LoopLimit;
+use crate::test_util::{DT, LoopLimit, idle};
+use super::tests::{sim_bee as bee, sim_frog as frog};
 
-const DT: f64 = 1.0 / 60.0;
-
-fn idle() -> State {
-    State::Idle { remaining: 100.0, look: false }
-}
 
 fn keys(f: impl FnOnce(&mut ControlInput)) -> ControlInput {
     let mut k = ControlInput::default();
@@ -38,15 +34,6 @@ fn controlled_on_ground(cfg: PetConfig, x: f64) -> (Pet, World) {
 
 fn walk_speed(cfg: &PetConfig, kind: Move) -> f64 {
     cfg.walk_speed * kind.speed_mult()
-}
-
-fn bee() -> PetConfig {
-    PetConfig { flies: true, stings: true, walk_speed: 70.0, ..sim_cfg() }
-}
-
-fn frog() -> PetConfig {
-    let size = 108.8;
-    PetConfig { size, half_w: 0.3 * size, walk_speed: 83.0, personality: Personality::Playful, can_climb: true, hops: true, ..sim_cfg() }
 }
 
 fn cat() -> PetConfig {

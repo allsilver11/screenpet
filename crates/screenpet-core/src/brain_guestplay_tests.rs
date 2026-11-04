@@ -3,13 +3,8 @@
 use super::guest_play::{pick_guest_click, steer_away, GuestClick, CATCH_ME_SECS, CORNER_COMMIT_SECS, DODGE_BODIES};
 use super::tests::{place, sim_cfg, w1, win, world};
 use super::*;
-use crate::test_util::LoopLimit;
+use crate::test_util::{DT, LoopLimit, idle};
 
-const DT: f64 = 1.0 / 60.0;
-
-fn idle() -> State {
-    State::Idle { remaining: 100.0, look: false }
-}
 
 fn guest(cfg: PetConfig, w: &World, owner: Owner, x: f64, seed: u64) -> Pet {
     let mut p = Pet::new(cfg, 0.0, 0.0, seed);

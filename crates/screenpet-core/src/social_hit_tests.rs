@@ -6,6 +6,7 @@ use crate::brain::control_moves::ControlInput;
 use crate::collide::{HIT_CALM_SECS, HIT_MIN_SPEED};
 use crate::object::{Object, ObjectKind};
 use crate::visit::ExitEdges;
+use crate::test_util::idle;
 
 const FLOOR_TOP: f64 = GROUND - 0.8 * 128.0;
 
@@ -217,7 +218,7 @@ fn a_pair_does_not_hit_again_right_away_and_a_hit_pet_is_calm_for_a_moment() {
     c.force_throw(1200.0, 0.0);
     c.body.x = pets[1].body.x - 100.0;
     let mut trio = vec![pets.remove(0), pets.remove(0), c];
-    trio[0].state = resting();
+    trio[0].state = idle();
     s.tick(DT, &mut trio);
     for _ in 0..8 {
         trio[2].update(DT, &w);
@@ -246,20 +247,20 @@ fn a_pair_does_not_hit_again_right_away_and_a_hit_pet_is_calm_for_a_moment() {
 
 fn run_pin(s: &mut Social, pets: &mut [Pet], w: &World, secs: f64, x: f64) {
     for _ in 0..(secs / DT) as usize {
-        pets[1].state = resting();
+        pets[1].state = idle();
         pets[1].body.x = x;
         pets[1].standing = ground(w, friendly(), x, 9).standing;
         step(s, pets, w);
         s.tick(0.0, pets);
     }
-    pets[1].state = resting();
+    pets[1].state = idle();
     pets[0].take_speech();
     pets[1].take_speech();
 }
 
 fn tick_until_hit_quiet(s: &mut Social, pets: &mut [Pet], w: &World) -> Option<Speech> {
     for _ in 0..12 {
-        pets[1].state = resting();
+        pets[1].state = idle();
         s.tick(DT, pets);
         if let Some(said) = pets[1].take_speech() {
             return Some(said);
@@ -330,7 +331,7 @@ fn control_mode_is_only_tumbled_and_fliers_keep_flying() {
     pets[0].update(DT, &w);
     s.tick(DT, &mut pets);
     assert_eq!(pets[0].take_speech(), Some(Speech::Boing));
-    assert_eq!(pets[1].state, resting());
+    assert_eq!(pets[1].state, idle());
     assert_eq!(pets[1].take_speech(), Some(Speech::Ow));
     // 나는 동물: 덜덜만
     let mut a = Pet::new(friendly(), 700.0, 600.0, 1);
@@ -342,7 +343,7 @@ fn control_mode_is_only_tumbled_and_fliers_keep_flying() {
     pets[0].body.x += 20.0;
     s.tick(DT, &mut pets);
     assert!(pets[1].wobbling());
-    assert_eq!(pets[1].state, resting());
+    assert_eq!(pets[1].state, idle());
 }
 
 #[test]
@@ -420,7 +421,7 @@ fn a_thrown_object_bounces_off_and_the_pet_reacts() {
     let mut o = thrown_object(ObjectKind::Stone, 600.0, GROUND - 20.0, 600.0, 0.0);
     assert!(fly_object(&mut s, &mut o, &mut pets, 40));
     assert_eq!(pets[0].take_speech(), Some(Speech::Ow));
-    assert_eq!(pets[0].state, resting());
+    assert_eq!(pets[0].state, idle());
 }
 
 #[test]
@@ -505,7 +506,7 @@ fn slow_resting_rolling_and_held_objects_do_nothing() {
         let mut pets = vec![ground(&w, friendly(), 800.0, 2)];
         let mut s = Social::new(1);
         assert!(!fly_object(&mut s, &mut o, &mut pets, 40));
-        assert!(!pets[0].wobbling() && pets[0].state == resting());
+        assert!(!pets[0].wobbling() && pets[0].state == idle());
     };
     quiet(thrown_object(ObjectKind::Can, 600.0, GROUND - 20.0, HIT_MIN_SPEED - 30.0, 0.0));
     // 떨어지는 중 (던진 게 아니다)

@@ -5,9 +5,8 @@ use super::tests::{cfg, place};
 use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::physics::{GRAVITY, MAX_THROW_SPEED_LOGICAL, THROW_FEEL, THROW_LIFT};
-use crate::test_util::LoopLimit;
+use crate::test_util::{DT, LoopLimit, idle};
 
-const DT: f64 = 1.0 / 60.0;
 
 fn scaled_cfg(dpi: f64) -> PetConfig {
     PetConfig { size: 128.0 * dpi, half_w: 38.0 * dpi, walk_speed: 60.0 * dpi, dpi, ..cfg() }
@@ -19,7 +18,7 @@ fn scaled_world(dpi: f64, windows: Vec<WindowInfo>) -> World {
 
 /// 바닥에 선 동물을 (x, 바닥 − 40) 에서 잡아 (논리 px/틱) step씩 n틱 움직이고 놓는다. 놓인 커서 자리를 돌려준다
 fn flick(p: &mut Pet, w: &World, dpi: f64, x: f64, step: (f64, f64), n: usize) -> (f64, f64) {
-    place(p, w, Owner::Ground(0), x * dpi, State::Idle { remaining: 100.0, look: false });
+    place(p, w, Owner::Ground(0), x * dpi, idle());
     let (mut cx, mut cy) = (x * dpi, 1000.0 * dpi);
     p.pointer_down(cx, cy);
     for _ in 0..n {
@@ -122,7 +121,7 @@ fn a_single_jittery_last_sample_does_not_spike_the_throw() {
     let (cx, cy) = flick(&mut p, &w, 1.0, 300.0, (20.0, 0.0), 8);
     // 다시 잡아서 같은 휙, 마지막 이벤트만 200 px 튐
     let mut q = Pet::new(cfg(), 0.0, 0.0, 1);
-    place(&mut q, &w, Owner::Ground(0), 300.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut q, &w, Owner::Ground(0), 300.0, idle());
     q.pointer_down(300.0, 1000.0);
     let mut x = 300.0;
     for _ in 0..7 {
@@ -139,7 +138,7 @@ fn a_single_jittery_last_sample_does_not_spike_the_throw() {
 
     // 첫 샘플이 튄 경우도
     let mut r = Pet::new(cfg(), 0.0, 0.0, 1);
-    place(&mut r, &w, Owner::Ground(0), 300.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut r, &w, Owner::Ground(0), 300.0, idle());
     r.pointer_down(300.0, 1000.0);
     r.update(DT, &w);
     r.pointer_move(120.0, 1000.0);
@@ -157,7 +156,7 @@ fn a_single_jittery_last_sample_does_not_spike_the_throw() {
 fn steady_accelerating_flick_is_not_mistaken_for_jitter() {
     let w = scaled_world(1.0, vec![]);
     let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Ground(0), 300.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Ground(0), 300.0, idle());
     p.pointer_down(300.0, 1000.0);
     let mut x = 300.0;
     for i in 1..=8 {
@@ -177,7 +176,7 @@ fn thrown_climber_sticks_to_a_window_side_on_every_screen() {
         let win = WindowInfo { id: 1, rect: Rect::new(800.0 * dpi, 300.0 * dpi, 1300.0 * dpi, 900.0 * dpi) };
         let w = scaled_world(dpi, vec![win]);
         let mut p = Pet::new(PetConfig { can_climb: true, ..scaled_cfg(dpi) }, 0.0, 0.0, 1);
-        place(&mut p, &w, Owner::Ground(0), 600.0 * dpi, State::Idle { remaining: 100.0, look: false });
+        place(&mut p, &w, Owner::Ground(0), 600.0 * dpi, idle());
         p.pointer_down(600.0 * dpi, 1000.0 * dpi);
         // 들어 올려 잠깐 멈춘 뒤, 창 쪽으로 가볍게 휙 (커서 ≈ 900 논리 px/s)
         p.update(DT, &w);

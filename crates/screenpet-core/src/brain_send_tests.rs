@@ -4,13 +4,9 @@
 use super::send_moves::{SEND_POOF_SECS, SEND_WAVE_SECS};
 use super::tests::{cfg, place, sim_cfg, w1, world};
 use super::*;
-use crate::test_util::LoopLimit;
+use crate::test_util::{DT, LoopLimit, idle};
+use super::tests::{sim_bee as bee, sim_frog as frog};
 
-const DT: f64 = 1.0 / 60.0;
-
-fn idle() -> State {
-    State::Idle { remaining: 100.0, look: false }
-}
 
 /// 사라질 때까지 돌린다 (최대 secs초). 사라진 쪽과 걸린 시간. 그동안 한 번도 화면 끝으로 걸어 나가지 않는다
 fn run_until_gone(p: &mut Pet, w: &World, secs: f64) -> Option<(Side, f64)> {
@@ -27,15 +23,6 @@ fn run_until_gone(p: &mut Pet, w: &World, secs: f64) -> Option<(Side, f64)> {
 }
 
 const GONE_SECS: f64 = SEND_WAVE_SECS + SEND_POOF_SECS;
-
-fn bee() -> PetConfig {
-    PetConfig { flies: true, stings: true, walk_speed: 70.0, ..sim_cfg() }
-}
-
-fn frog() -> PetConfig {
-    let size = 108.8;
-    PetConfig { size, half_w: 0.3 * size, walk_speed: 83.0, personality: Personality::Playful, can_climb: true, hops: true, ..sim_cfg() }
-}
 
 #[test]
 fn sent_pet_waves_bye_in_place_then_poofs_away_through_that_side() {

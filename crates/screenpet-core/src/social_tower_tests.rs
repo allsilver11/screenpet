@@ -6,13 +6,26 @@ use crate::behavior::Move;
 use crate::brain::control_moves::ControlInput;
 use crate::brain::tower_moves::{RIDE_MAX_SECS, RIDE_SECS};
 use crate::poop::PoopSpot;
-use crate::test_util::LoopLimit;
+use crate::test_util::{LoopLimit, idle};
 
 const HEAD: f64 = 0.8 * 128.0;
 
 fn walking(p: &mut Pet, facing: f64, kind: Move) {
     p.state = State::Move { kind, remaining: 300.0 };
     p.facing = facing;
+}
+
+/// 땅 위에서 마주 오는 짝: 0번(x 800)은 kind로, 1번(x 1000)은 걸어서. 한 틱 걸어 걷는 조각을 안다
+fn head_on_pair(w: &World, seed_a: u64, seed_b: u64, kind: Move) -> Vec<Pet> {
+    let mut a = ground(w, friendly(), 800.0, seed_a);
+    let mut b = ground(w, friendly(), 1000.0, seed_b);
+    walking(&mut a, 1.0, kind);
+    walking(&mut b, -1.0, Move::Walk);
+    let mut pets = vec![a, b];
+    for p in &mut pets {
+        p.update(DT, w);
+    }
+    pets
 }
 
 /// 땅 위 x에 n층 탑 (0번이 맨 아래)
@@ -32,7 +45,7 @@ fn all_land(s: &mut Social, pets: &mut [Pet], w: &World, secs: f64) {
         for p in pets.iter_mut() {
             // 돌아다니며 다시 올라가지 않게: 땅에 서면 앉아 있는다
             if p.standing.is_some() && !p.is_held() && !matches!(p.state, State::Land { .. }) {
-                p.state = resting();
+                p.state = idle();
             }
         }
     }
@@ -114,7 +127,7 @@ fn a_rider_comes_down_by_itself_within_its_few_seconds() {
     let mut limit = LoopLimit::new();
     while pets[1].is_on_head() {
         limit.step();
-        pets[0].state = resting();
+        pets[0].state = idle();
         step(&mut s, &mut pets, &w);
         t += DT;
         assert!(t <= RIDE_SECS.1 + 0.1, "stayed too long");
@@ -135,7 +148,7 @@ fn no_pet_stays_up_past_the_hard_limit_even_under_another() {
         if let Some((_, age)) = pets[2].ride_clock() {
             pets[2].state = State::OnHead { remaining: 50.0, age };
         }
-        pets[0].state = resting();
+        pets[0].state = idle();
         step(&mut s, &mut pets, &w);
         t += DT;
         assert!(t <= RIDE_MAX_SECS + 0.1, "{t}");
@@ -179,7 +192,7 @@ fn every_way_the_lower_pet_leaves_drops_the_riders() {
             s.tick(DT, &mut pets);
             for p in &mut pets[1..] {
                 if p.standing.is_some() {
-                    p.state = resting();
+                    p.state = idle();
                 }
             }
         }
@@ -245,13 +258,13 @@ fn a_five_high_tower_collapses_from_the_middle() {
     // 떨어지는 동물은 남은 머리에 다시 서지 않고 땅까지 간다
     let mut upper = true;
     for _ in 0..(1.5 / DT) as usize {
-        pets[0].state = resting();
+        pets[0].state = idle();
         step(&mut s, &mut pets, &w);
         upper &= pets[1].is_on_head();
         for p in &mut pets[3..] {
             assert!(!p.is_on_head(), "no re-landing while falling off");
             if p.standing.is_some() {
-                p.state = resting();
+                p.state = idle();
             }
         }
     }
@@ -347,7 +360,7 @@ fn food_home_guests_and_the_user_going_away_end_the_ride() {
     pets[1].go_home_now();
     let mut waved = false;
     for _ in 0..180 {
-        pets[0].state = resting();
+        pets[0].state = idle();
         step(&mut s, &mut pets, &w);
         waved |= matches!(pets[1].state, State::Farewell { .. });
         assert!(waved || pets[1].standing.is_none() || pets[1].body.y == GROUND);
@@ -426,7 +439,7 @@ fn a_drop_from_high_up_still_stacks_when_it_lines_up_but_not_when_it_misses() {
         pets[0].pointer_up(cx, cy);
         let (mut stacked, mut fastest) = (false, 0.0f64);
         for _ in 0..120 {
-            pets[1].state = resting();
+            pets[1].state = idle();
             step(&mut s, &mut pets, &w);
             fastest = fastest.max(pets[0].body.vy);
             stacked |= pets[0].is_on_head();
@@ -452,7 +465,7 @@ fn a_gentle_drop_stacks_and_ends_on_a_real_surface() {
     assert!(pets[0].is_flung());
     let mut stacked = false;
     for _ in 0..30 {
-        pets[1].state = resting();
+        pets[1].state = idle();
         step(&mut s, &mut pets, &w);
         stacked |= pets[0].is_on_head();
     }
@@ -585,7 +598,7 @@ fn the_work_area_top_limits_the_height() {
     let mut s = Social::new(5);
     for p in &mut pets {
         p.update(DT, &w);
-        p.state = resting();
+        p.state = idle();
     }
     assert!(s.can_host(&pets, 0, 128.0));
     s.force_board(&mut pets, 1, 0);
@@ -606,14 +619,7 @@ fn the_work_area_top_limits_the_height() {
 fn a_meet_can_end_standing_on_the_head_while_the_other_walks_on() {
     let w = world(vec![]);
     for seed in 0..8 {
-        let mut a = ground(&w, friendly(), 800.0, seed);
-        let mut b = ground(&w, friendly(), 1000.0, seed + 40);
-        walking(&mut a, 1.0, Move::Walk);
-        walking(&mut b, -1.0, Move::Walk);
-        let mut pets = vec![a, b];
-        for p in &mut pets {
-            p.update(DT, &w);
-        }
+        let mut pets = head_on_pair(&w, seed, seed + 40, Move::Walk);
         let mut s = Social::new(seed);
         s.meet_chance = 1.0;
         s.meet_only = Some(MeetKind::Climb);
@@ -644,14 +650,7 @@ fn climbing_is_about_a_quarter_of_the_meet_outcomes() {
     let w = world(vec![]);
     let (mut climbs, n) = (0, 800);
     for seed in 0..n {
-        let mut a = ground(&w, friendly(), 800.0, seed);
-        let mut b = ground(&w, friendly(), 1000.0, seed + 5000);
-        walking(&mut a, 1.0, Move::Walk);
-        walking(&mut b, -1.0, Move::Walk);
-        let mut pets = vec![a, b];
-        for p in &mut pets {
-            p.update(DT, &w);
-        }
+        let mut pets = head_on_pair(&w, seed, seed + 5000, Move::Walk);
         let mut s = Social::new(seed);
         s.meet_chance = 1.0;
         s.tick(DT, &mut pets);
@@ -674,7 +673,7 @@ fn a_walker_or_runner_climbs_a_tower_it_walks_into() {
         pets.push(a);
         let mut up = false;
         for _ in 0..240 {
-            pets[0].state = resting();
+            pets[0].state = idle();
             for p in &mut pets[1..3] {
                 p.state = State::OnHead { remaining: 50.0, age: 0.0 };
             }
@@ -808,35 +807,13 @@ fn soak_towers_form_stay_bounded_and_always_come_down() {
 
 // ---- 달리기 ----
 
-fn running_pair(w: &World, seed: u64) -> Vec<Pet> {
-    let mut a = ground(w, friendly(), 800.0, seed);
-    let mut b = ground(w, friendly(), 1000.0, seed + 40);
-    walking(&mut a, 1.0, Move::Run);
-    walking(&mut b, -1.0, Move::Walk);
-    let mut pets = vec![a, b];
-    for p in &mut pets {
-        p.update(DT, w);
-    }
-    pets
-}
-
 #[test]
 fn a_running_jumper_lands_farther_and_leaves_sooner_than_a_walking_one() {
     let w = world(vec![]);
     // 0번이 뛰는 시드를 찾는다
     let outcome = |run: bool| {
         for seed in 0..40 {
-            let mut pets = if run { running_pair(&w, seed) } else {
-                let mut a = ground(&w, friendly(), 800.0, seed);
-                let mut b = ground(&w, friendly(), 1000.0, seed + 40);
-                walking(&mut a, 1.0, Move::Walk);
-                walking(&mut b, -1.0, Move::Walk);
-                let mut v = vec![a, b];
-                for p in &mut v {
-                    p.update(DT, &w);
-                }
-                v
-            };
+            let mut pets = head_on_pair(&w, seed, seed + 40, if run { Move::Run } else { Move::Walk });
             let mut s = Social::new(seed);
             s.meet_chance = 1.0;
             s.meet_only = Some(MeetKind::Stomp);

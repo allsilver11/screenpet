@@ -5,12 +5,8 @@ use super::tests::{cfg, place, w1, world};
 use super::*;
 use crate::care::{Care, FeedResult, Food};
 use crate::food;
+use crate::test_util::{DT, idle};
 
-const DT: f64 = 1.0 / 60.0;
-
-fn idle() -> State {
-    State::Idle { remaining: 100.0, look: false }
-}
 
 /// 창 1 (500..1100, 윗면 400) 위 x에 서서 오른쪽을 보는 동물
 fn standing_at(x: f64) -> (Pet, World) {

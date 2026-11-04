@@ -3,8 +3,8 @@
 
 use super::tests::{place, sim_cfg, win, world};
 use super::*;
+use crate::test_util::DT;
 
-const DT: f64 = 1.0 / 60.0;
 
 fn pixel() -> PetConfig {
     PetConfig { no_roll: true, ..sim_cfg() }

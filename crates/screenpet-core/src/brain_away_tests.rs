@@ -5,12 +5,12 @@ use super::*;
 use crate::brain::control_moves::ControlInput;
 use crate::care::Care;
 use crate::geom::{Rect, WindowInfo};
-use crate::presence::{DailyMarks, FocusLength, FocusPhase, LocalMoment, Rhythm, RhythmInput, AWAY_AFTER_SECS};
+use crate::presence::{FocusLength, FocusPhase, AWAY_AFTER_SECS};
 use crate::brain::snow_moves::SnowPhase;
 use crate::social::Social;
 use crate::visit::HOMESICK_HARD_CAP_SECS;
+use crate::test_util::{DT, Sim, idle};
 
-const DT: f64 = 1.0 / 60.0;
 const TWO_HOURS: u32 = 2 * 60 * 60;
 
 fn walker() -> PetConfig {
@@ -47,62 +47,12 @@ fn tempted(c: PetConfig, w: &World) -> Pet {
     p
 }
 
-/// 1초에 한 번 Rhythm::tick, 그 사이 60 틱 — 내 동물의 하루
-struct Sim {
-    rhythm: Rhythm,
-    care: Care,
-    marks: DailyMarks,
-    secs: f64,
-    /// 시작 시각 (분)
-    start: u32,
-    idle: f64,
-    said: Vec<Speech>,
-}
-
-impl Sim {
-    fn at(hour: u32, minute: u32) -> Self {
-        Self { rhythm: Rhythm::default(), care: Care::default(), marks: DailyMarks::default(), secs: 0.0, start: hour * 60 + minute, idle: 0.0, said: Vec::new() }
-    }
-
-    fn input(&self) -> RhythmInput {
-        let minute = self.start + (self.secs / 60.0) as u32;
-        RhythmInput { secs: self.secs, moment: LocalMoment::new(1, minute / 60, minute % 60), idle: Some(self.idle), visible: true }
-    }
-
-    fn tick_rhythm(&mut self, p: &mut Pet, w: &World) {
-        let input = self.input();
-        self.rhythm.tick(&input, p, w, &mut self.care, &mut self.marks);
-    }
-
-    /// 1초. each는 틱마다 (세상을 흔들거나 살펴본다)
-    fn second(&mut self, p: &mut Pet, w: &World, mut each: impl FnMut(&Pet)) {
-        self.tick_rhythm(p, w);
-        for _ in 0..60 {
-            let (cx, cy) = (p.body.x + 90.0, p.body.y - 200.0);
-            p.hover(cx, cy, false);
-            p.update(DT, w);
-            if let Some(s) = p.take_speech() {
-                self.said.push(s);
-            }
-            each(p);
-        }
-        self.secs += 1.0;
-        self.idle += 1.0;
-    }
-
-    fn run(&mut self, p: &mut Pet, w: &World, secs: u32) {
-        for _ in 0..secs {
-            self.second(p, w, |_| {});
-        }
-    }
-
-    /// 자리를 비운다: 다음 Rhythm::tick이 알아챈다 (하던 일은 몇 틱 안에 잠으로)
-    fn walk_away(&mut self, p: &mut Pet, w: &World) {
-        self.idle = AWAY_AFTER_SECS;
-        self.second(p, w, |_| {});
-        assert!(self.rhythm.is_away());
-        self.said.clear();
-    }
+/// 자리를 비운다: 다음 Rhythm::tick이 알아챈다 (하던 일은 몇 틱 안에 잠으로)
+fn walk_away(sim: &mut Sim, p: &mut Pet, w: &World) {
+    sim.idle = Some(AWAY_AFTER_SECS);
+    sim.second(p, w);
+    assert!(sim.rhythm.is_away());
+    sim.said.clear();
 }
 
 fn is_asleep(p: &Pet) -> bool {
@@ -112,10 +62,10 @@ fn is_asleep(p: &Pet) -> bool {
 /// 두 시간 내내 잠만 — 자세도 자리도 말도 그대로
 fn sleeps_two_hours(name: &str, c: PetConfig, start: (u32, u32)) {
     let w = world(vec![]);
-    let mut sim = Sim::at(start.0, start.1);
+    let mut sim = Sim::from(start.0, start.1);
     let mut p = tempted(c, &w);
     sim.run(&mut p, &w, 20);
-    sim.walk_away(&mut p, &w);
+    walk_away(&mut sim, &mut p, &w);
     // 친구가 있는 화면 끝도 나가는 길이 되지 않는다
     p.set_exit_edges(true, true);
     p.set_vertical_edges(true, true);
@@ -123,14 +73,14 @@ fn sleeps_two_hours(name: &str, c: PetConfig, start: (u32, u32)) {
     // 공중이었으면 내려선 뒤
     for _ in 0..10 {
         if !is_asleep(&p) {
-            sim.second(&mut p, &w, |_| {});
+            sim.second(&mut p, &w);
         }
     }
     assert!(is_asleep(&p), "{name}: asleep, was {:?}", p.state);
     let (x, y) = (p.body.x, p.body.y);
     let flies = p.cfg.flies;
     for _ in 0..TWO_HOURS {
-        sim.second(&mut p, &w, |p| {
+        sim.second_with(&mut p, &w, |p| {
             assert!(is_asleep(p), "{name}: only sleep, was {:?}", p.state);
             let r = p.render();
             assert_eq!(r.anim, Anim::Sleep, "{name}");
@@ -162,18 +112,18 @@ fn two_hours_away_is_only_sleep_through_bedtime_and_morning() {
 #[test]
 fn a_perched_flyer_sleeps_on_its_perch_and_a_flying_one_dozes_where_it_is() {
     let w = world(vec![]);
-    let mut sim = Sim::at(15, 0);
+    let mut sim = Sim::from(15, 0);
     let mut perched = Pet::new(flyer(), 0.0, 0.0, 3);
-    place(&mut perched, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
-    sim.walk_away(&mut perched, &w);
+    place(&mut perched, &w, Owner::Ground(0), 800.0, idle());
+    walk_away(&mut sim, &mut perched, &w);
     assert!(is_asleep(&perched));
     assert!(perched.standing.is_some(), "stays on the perch");
 
-    let mut sim = Sim::at(15, 0);
+    let mut sim = Sim::from(15, 0);
     let mut flying = tempted(flyer(), &w);
     sim.run(&mut flying, &w, 5);
     let from = (flying.body.x, flying.body.y);
-    sim.walk_away(&mut flying, &w);
+    walk_away(&mut sim, &mut flying, &w);
     assert!(is_asleep(&flying));
     assert!(flying.flight.is_none(), "no long flight to find a perch");
     let moved = (flying.body.x - from.0).hypot(flying.body.y - from.1);
@@ -202,10 +152,10 @@ fn whatever_it_was_doing_stops_for_sleep() {
     ];
     for state in states {
         for c in [walker(), flyer()] {
-            let mut sim = Sim::at(15, 0);
+            let mut sim = Sim::from(15, 0);
             let mut p = tempted(c, &w);
             p.state = state;
-            sim.idle = AWAY_AFTER_SECS;
+            sim.idle = Some(AWAY_AFTER_SECS);
             sim.tick_rhythm(&mut p, &w);
             // 벽이나 커서에 매달려 있었으면 떨어져 내린 뒤에
             for _ in 0..(10 * 60) {
@@ -224,9 +174,9 @@ fn whatever_it_was_doing_stops_for_sleep() {
 #[test]
 fn it_falls_when_dropped_and_goes_straight_back_to_sleep_on_landing() {
     let w = world(vec![]);
-    let mut sim = Sim::at(15, 0);
+    let mut sim = Sim::from(15, 0);
     let mut p = tempted(walker(), &w);
-    sim.walk_away(&mut p, &w);
+    walk_away(&mut sim, &mut p, &w);
     p.standing = None;
     p.body.y = 200.0;
     p.state = State::Air { anim: Anim::Fall };
@@ -248,10 +198,10 @@ fn it_falls_when_dropped_and_goes_straight_back_to_sleep_on_landing() {
 fn it_rides_a_moving_window_asleep_and_falls_asleep_again_when_the_window_closes() {
     let top = |y| world(vec![window(1, y)]);
     let w = top(500.0);
-    let mut sim = Sim::at(15, 0);
+    let mut sim = Sim::from(15, 0);
     let mut p = Pet::new(walker(), 0.0, 0.0, 5);
-    place(&mut p, &w, Owner::Window(1), 800.0, State::Idle { remaining: 100.0, look: false });
-    sim.walk_away(&mut p, &w);
+    place(&mut p, &w, Owner::Window(1), 800.0, idle());
+    walk_away(&mut sim, &mut p, &w);
     assert!(is_asleep(&p));
 
     // 창이 움직인다 (흔들어도 놀라지 않는다)
@@ -279,13 +229,13 @@ fn it_rides_a_moving_window_asleep_and_falls_asleep_again_when_the_window_closes
 fn coming_back_wakes_it_right_away_with_the_welcome() {
     for c in [walker(), flyer(), frog(), dino()] {
         let w = world(vec![]);
-        let mut sim = Sim::at(15, 0);
+        let mut sim = Sim::from(15, 0);
         let mut p = tempted(c, &w);
-        sim.walk_away(&mut p, &w);
+        walk_away(&mut sim, &mut p, &w);
         sim.run(&mut p, &w, 600);
         assert!(is_asleep(&p));
         p.cursor = (300.0, 900.0);
-        sim.idle = 0.0;
+        sim.idle = Some(0.0);
         sim.tick_rhythm(&mut p, &w);
         assert!(!sim.rhythm.is_away());
         assert!(!is_asleep(&p), "awake on the same tick: {:?}", p.state);
@@ -299,7 +249,7 @@ fn coming_back_wakes_it_even_when_it_cannot_run_to_the_welcome() {
     // 맞이할 수 없는 때(집중)에도 잠은 바로 깬다
     let w = world(vec![]);
     let mut p = Pet::new(walker(), 0.0, 0.0, 5);
-    place(&mut p, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     p.set_user_away(true);
     p.update(DT, &w);
     assert!(is_asleep(&p));
@@ -312,7 +262,7 @@ fn coming_back_wakes_it_even_when_it_cannot_run_to_the_welcome() {
 fn a_click_as_the_first_input_is_not_a_sleeper_click_once_it_knows_you_are_back() {
     let w = world(vec![]);
     let mut p = Pet::new(walker(), 0.0, 0.0, 5);
-    place(&mut p, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     p.set_user_away(true);
     p.update(DT, &w);
     p.pointer_down(800.0, 900.0);
@@ -326,15 +276,15 @@ fn a_click_as_the_first_input_is_not_a_sleeper_click_once_it_knows_you_are_back(
 #[test]
 fn a_housed_pet_stays_quiet_and_is_welcomed_when_you_are_back() {
     let w = world(vec![]);
-    let mut sim = Sim::at(11, 0);
+    let mut sim = Sim::from(11, 0);
     let mut p = tempted(walker(), &w);
     p.enter_house();
-    sim.walk_away(&mut p, &w);
+    walk_away(&mut sim, &mut p, &w);
     sim.run(&mut p, &w, 3 * 60 * 60);
     assert!(p.is_housed());
     assert_eq!(sim.said, vec![], "not a word from the house");
-    sim.idle = 0.0;
-    sim.second(&mut p, &w, |_| {});
+    sim.idle = Some(0.0);
+    sim.second(&mut p, &w);
     assert!(sim.said.contains(&Speech::WelcomeBack), "{:?}", sim.said);
 }
 
@@ -439,9 +389,9 @@ fn a_guest_its_owner_is_steering_obeys_and_sleeps_when_the_keys_stop() {
 #[test]
 fn a_friend_can_still_take_the_sleeping_pet_and_it_sleeps_again_when_it_comes_home() {
     let w = world(vec![]);
-    let mut sim = Sim::at(15, 0);
+    let mut sim = Sim::from(15, 0);
     let mut p = tempted(walker(), &w);
-    sim.walk_away(&mut p, &w);
+    walk_away(&mut sim, &mut p, &w);
     sim.run(&mut p, &w, 60);
     assert!(is_asleep(&p));
 
@@ -496,9 +446,9 @@ fn sleepers_side_by_side_do_not_greet_or_get_stomped_awake() {
     let w = world(vec![]);
     let side_by_side = || {
         let mut own = Pet::new(walker(), 0.0, 0.0, 1);
-        place(&mut own, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+        place(&mut own, &w, Owner::Ground(0), 800.0, idle());
         let mut guest = Pet::new(dino(), 0.0, 0.0, 2);
-        place(&mut guest, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+        place(&mut guest, &w, Owner::Ground(0), 900.0, idle());
         guest.set_guest(Side::Left, 1e9);
         vec![own, guest]
     };
@@ -531,9 +481,9 @@ fn sleepers_side_by_side_do_not_greet_or_get_stomped_awake() {
 fn a_game_in_progress_ends_when_i_leave() {
     let w = world(vec![]);
     let mut a = Pet::new(walker(), 0.0, 0.0, 1);
-    place(&mut a, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut a, &w, Owner::Ground(0), 800.0, idle());
     let mut b = Pet::new(frog(), 0.0, 0.0, 2);
-    place(&mut b, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut b, &w, Owner::Ground(0), 900.0, idle());
     let mut pets = vec![a, b];
     // 진짜 놀이: Social이 인사를 시작하고 짝(Link)을 잡고 있다
     let mut social = Social::new(4);
@@ -547,9 +497,9 @@ fn a_game_in_progress_ends_when_i_leave() {
 fn a_chase_in_progress_ends_when_i_leave() {
     let w = world(vec![]);
     let mut a = Pet::new(walker(), 0.0, 0.0, 1);
-    place(&mut a, &w, Owner::Ground(0), 700.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut a, &w, Owner::Ground(0), 700.0, idle());
     let mut b = Pet::new(frog(), 0.0, 0.0, 2);
-    place(&mut b, &w, Owner::Ground(0), 1100.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut b, &w, Owner::Ground(0), 1100.0, idle());
     let mut pets = vec![a, b];
     let mut social = Social::new(4);
     social.start_play(&mut pets, 0, 1, true);
@@ -579,7 +529,7 @@ fn no_gifts_while_away() {
     let w = world(vec![]);
     // 깨어 있는 자세여도 (손 흔들러 깬 동물 등) 선물은 없다
     let mut p = tempted(walker(), &w);
-    place(&mut p, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     assert!(crate::gift::drop_spot(&p, &w).is_some());
     p.set_user_away(true);
     assert!(crate::gift::drop_spot(&p, &w).is_none());
@@ -591,11 +541,11 @@ fn no_gifts_while_away() {
 
 /// 집중 중에 자리를 비운 동물: 타이머만 조용히 돈다. 자리는 그대로
 fn away_during_focus(c: PetConfig, w: &World) -> (Sim, Pet) {
-    let mut sim = Sim::at(15, 0);
+    let mut sim = Sim::from(15, 0);
     let mut p = Pet::new(c, 0.0, 0.0, 5);
-    place(&mut p, w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, w, Owner::Ground(0), 800.0, idle());
     sim.rhythm.start_focus(FocusLength::Short, sim.secs, &mut p);
-    sim.walk_away(&mut p, w);
+    walk_away(&mut sim, &mut p, w);
     p.take_speech();
     (sim, p)
 }
@@ -613,7 +563,7 @@ fn away_the_focus_buddy_just_sleeps_where_it_is_through_every_segment() {
         // 집중 25분 → 쉬기 5분 → 다시 집중 (타이머는 계속 돈다)
         for (secs, want) in [(25 * 60 - 10, FocusPhase::Focus), (20, FocusPhase::Break), (5 * 60, FocusPhase::Focus)] {
             for _ in 0..secs {
-                sim.second(&mut p, &w, |p| assert!(is_asleep(p), "{:?}", p.state));
+                sim.second_with(&mut p, &w, |p| assert!(is_asleep(p), "{:?}", p.state));
             }
             assert_eq!(phase(&sim), want);
             assert_eq!((p.body.x, p.body.y), spot, "stays where it sleeps");
@@ -632,7 +582,7 @@ fn back_during_a_focus_segment_the_pet_wakes_and_goes_to_its_corner() {
     sim.run(&mut p, &w, 25 * 60 + 5 * 60 + 30);
     assert_eq!(phase(&sim), FocusPhase::Focus);
     assert!(is_asleep(&p) && p.body.x == spot);
-    sim.idle = 0.0;
+    sim.idle = Some(0.0);
     sim.run(&mut p, &w, 60);
     assert!(!is_asleep(&p), "{:?}", p.state);
     assert!(p.is_focusing());
@@ -647,14 +597,14 @@ fn back_during_a_break_the_pet_wakes_and_welcomes_you_and_focus_resumes_on_time(
     sim.run(&mut p, &w, 25 * 60 + 30);
     assert_eq!(phase(&sim), FocusPhase::Break);
     assert!(is_asleep(&p));
-    sim.idle = 0.0;
+    sim.idle = Some(0.0);
     sim.run(&mut p, &w, 10);
     assert!(!is_asleep(&p), "{:?}", p.state);
     assert!(!p.is_focusing());
     assert!(sim.said.contains(&Speech::WelcomeBack), "{:?}", sim.said);
     assert!(!sim.said.contains(&Speech::BreakTime), "the break started without it: {:?}", sim.said);
     // 쉬기가 끝나면 사용자가 있으니 다시 "focus!" 하고 구석으로
-    sim.idle = 0.0;
+    sim.idle = Some(0.0);
     sim.run(&mut p, &w, 5 * 60);
     assert_eq!(phase(&sim), FocusPhase::Focus);
     assert!(sim.said.contains(&Speech::Focus), "{:?}", sim.said);
@@ -665,24 +615,24 @@ fn back_during_a_break_the_pet_wakes_and_welcomes_you_and_focus_resumes_on_time(
 fn a_user_who_stays_still_hears_the_segment_changes_only_while_present() {
     // 자리에 있는 동안(유휴 10분 미만)엔 그대로 "break time!" 기지개
     let w = world(vec![]);
-    let mut sim = Sim::at(15, 0);
+    let mut sim = Sim::from(15, 0);
     let mut p = Pet::new(walker(), 0.0, 0.0, 5);
-    place(&mut p, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     sim.rhythm.start_focus(FocusLength::Short, sim.secs, &mut p);
     for _ in 0..25 * 60 + 2 {
-        sim.idle = 0.0;
-        sim.second(&mut p, &w, |_| {});
+        sim.idle = Some(0.0);
+        sim.second(&mut p, &w);
     }
     assert_eq!(sim.said.iter().filter(|s| **s == Speech::BreakTime).count(), 1, "{:?}", sim.said);
     assert_eq!(phase(&sim), FocusPhase::Break);
     // 자리를 비운 사용자에겐 같은 순간이 조용히 지나간다
-    let mut sim = Sim::at(15, 0);
+    let mut sim = Sim::from(15, 0);
     let mut p = Pet::new(walker(), 0.0, 0.0, 5);
-    place(&mut p, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     sim.rhythm.start_focus(FocusLength::Short, sim.secs, &mut p);
-    sim.idle = AWAY_AFTER_SECS;
+    sim.idle = Some(AWAY_AFTER_SECS);
     for _ in 0..25 * 60 + 2 {
-        sim.second(&mut p, &w, |_| {});
+        sim.second(&mut p, &w);
     }
     assert_eq!(phase(&sim), FocusPhase::Break);
     assert!(!sim.said.contains(&Speech::BreakTime), "{:?}", sim.said);
@@ -699,11 +649,11 @@ fn being_away_only_makes_it_hungry_never_smaller() {
     assert_eq!(care.stamina, 3.0);
     // 정말 자리를 비운 채 두 시간 Rhythm이 돌아도 몸은 그대로다
     let w = world(vec![]);
-    let mut sim = Sim::at(15, 0);
+    let mut sim = Sim::from(15, 0);
     sim.care = Care { stage: crate::care::Stage::Teenager, stamina: 3.0, fullness: 1.0, locked: false };
     let mut p = Pet::new(walker(), 0.0, 0.0, 5);
-    place(&mut p, &w, Owner::Ground(0), 800.0, State::Idle { remaining: 100.0, look: false });
-    sim.walk_away(&mut p, &w);
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
+    walk_away(&mut sim, &mut p, &w);
     sim.run(&mut p, &w, TWO_HOURS);
     assert_eq!(sim.care.stage, crate::care::Stage::Teenager);
     assert_eq!(sim.care.stamina, 3.0);

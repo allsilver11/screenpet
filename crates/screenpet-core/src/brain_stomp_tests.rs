@@ -4,15 +4,11 @@
 use super::stomp_moves::{STOMP_CALM_SECS, TUMBLE_SECS, WOBBLE_SECS};
 use super::tests::{cfg, place, sim_cfg, w1, world};
 use super::*;
+use crate::test_util::{DT, idle};
 
-const DT: f64 = 1.0 / 60.0;
 
 fn dino() -> PetConfig {
     PetConfig { special: Some(Special::Fire), ..sim_cfg() }
-}
-
-fn resting() -> State {
-    State::Idle { remaining: 100.0, look: false }
 }
 
 /// 공룡 동작을 시작하면 셋 중 하나 — 동작마다 말풍선이 다르고, 쿵쾅만 친구들에게 알린다 (한 번)
@@ -22,7 +18,7 @@ fn a_dino_special_is_fire_roar_or_stomp_with_its_own_speech() {
     let mut seen = Vec::new();
     for seed in 0..60 {
         let mut p = Pet::new(dino(), 0.0, 0.0, seed);
-        place(&mut p, &w, Owner::Ground(0), 800.0, resting());
+        place(&mut p, &w, Owner::Ground(0), 800.0, idle());
         p.start_special(Special::Fire);
         let State::Special { kind, remaining } = p.state else { panic!("{:?}", p.state) };
         let (lo, hi) = kind.secs();
@@ -56,7 +52,7 @@ fn other_specials_are_not_reshuffled() {
 
 /// 10분 × 3 — 쉬다가 불·크앙·쿵쾅이 모두 나온다
 #[test]
-fn a_dino_breathes_fire_roars_and_stomps_while_resting() {
+fn a_dino_breathes_fire_roars_and_stomps_while_idle() {
     let w = world(vec![w1()]);
     let mut counts = [0usize; 3];
     for seed in 0..3 {
@@ -88,7 +84,7 @@ fn tickling_a_dino_sometimes_makes_it_puff_fire_or_roar() {
     let n = 2000;
     for seed in 0..n {
         let mut p = Pet::new(dino(), 0.0, 0.0, seed as u64);
-        place(&mut p, &w, Owner::Ground(0), 800.0, resting());
+        place(&mut p, &w, Owner::Ground(0), 800.0, idle());
         p.tickling = true;
         p.react_to_tickle();
         if let State::Special { kind, .. } = p.state {
@@ -109,7 +105,7 @@ fn a_tumble_rolls_away_and_stops_at_the_ledge() {
     let w = world(vec![w1()]);
     let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
     let edge = 1100.0 - p.cfg.half_w;
-    place(&mut p, &w, Owner::Window(1), edge - 6.0, resting());
+    place(&mut p, &w, Owner::Window(1), edge - 6.0, idle());
     assert!(p.feel_stomp(edge - 80.0, true));
     assert!(matches!(p.state, State::Tumble { dir, .. } if dir == 1.0), "{:?}", p.state);
     assert_eq!(p.take_speech(), Some(Speech::Whoa));
@@ -137,7 +133,7 @@ fn a_tumble_never_pushes_a_pet_off_a_ledge() {
     let w = world(vec![w1()]);
     let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
     let x = 1100.0 - p.cfg.half_w + 10.0;
-    place(&mut p, &w, Owner::Window(1), x, resting());
+    place(&mut p, &w, Owner::Window(1), x, idle());
     assert!(p.feel_stomp(900.0, true));
     for _ in 0..90 {
         p.update(DT, &w);
@@ -145,7 +141,7 @@ fn a_tumble_never_pushes_a_pet_off_a_ledge() {
     assert!(p.body.x <= x + 1e-6 && p.standing.is_some());
 
     let mut q = Pet::new(cfg(), 0.0, 0.0, 2);
-    place(&mut q, &w, Owner::Window(1), 800.0, resting());
+    place(&mut q, &w, Owner::Window(1), 800.0, idle());
     assert!(q.feel_stomp(850.0, true));
     for _ in 0..90 {
         q.update(DT, &w);
@@ -159,19 +155,19 @@ fn a_tumble_never_pushes_a_pet_off_a_ledge() {
 fn a_wobble_is_short_and_there_is_a_cooldown() {
     let w = world(vec![]);
     let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Ground(0), 800.0, resting());
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     assert!(p.feel_stomp(700.0, false));
     assert!(matches!(p.state, State::Idle { .. }) && p.wobbling());
     for _ in 0..((WOBBLE_SECS + 0.05) / DT) as usize {
         p.update(DT, &w);
     }
     assert!(!p.wobbling());
-    place(&mut p, &w, Owner::Ground(0), 800.0, resting());
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     assert!(!p.feel_stomp(700.0, true));
     for _ in 0..(STOMP_CALM_SECS / DT) as usize {
         p.update(DT, &w);
         if !matches!(p.state, State::Idle { .. }) {
-            place(&mut p, &w, Owner::Ground(0), 800.0, resting());
+            place(&mut p, &w, Owner::Ground(0), 800.0, idle());
         }
     }
     assert!(p.feel_stomp(700.0, false));
@@ -206,7 +202,7 @@ fn busy_pets_do_not_feel_the_stomp() {
         assert!(!p.render().wobble);
     }
     let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Ground(0), 800.0, resting());
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     p.housed = true;
     assert!(!p.feel_stomp(700.0, true));
 }
@@ -216,12 +212,12 @@ fn busy_pets_do_not_feel_the_stomp() {
 fn flyers_only_wobble() {
     let w = world(vec![]);
     let mut p = Pet::new(PetConfig { flies: true, ..cfg() }, 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Ground(0), 800.0, resting());
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
     assert!(p.feel_stomp(700.0, true));
     assert!(matches!(p.state, State::Idle { .. }) && p.wobbling());
     let mut q = Pet::new(PetConfig { flies: true, ..cfg() }, 800.0, 500.0, 2);
     q.standing = None;
-    q.state = resting();
+    q.state = idle();
     assert!(q.feel_stomp(700.0, true));
     assert!(matches!(q.state, State::Idle { .. }) && q.wobbling());
 }
