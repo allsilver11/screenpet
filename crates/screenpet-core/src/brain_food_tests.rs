@@ -636,3 +636,60 @@ fn moving_the_house_while_a_bee_flies_home_keeps_its_flight() {
     assert!(run_until(&mut p, &w, 60 * 20, |p| p.is_housed()), "{:?}", p.state);
     assert_eq!(p.body.x, 1300.0);
 }
+
+#[test]
+fn a_pet_that_vanishes_on_its_way_to_the_bowl_takes_the_bowl_away() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    assert!(p.feed_result(ATE, Food::Meal));
+    p.update(DT, &w);
+    assert!(matches!(p.take_prop(), Some(PropEvent::Show { .. })));
+    p.vanish(Side::Right);
+    assert_eq!(p.take_prop(), Some(PropEvent::Hide));
+    assert!(!p.is_eating());
+}
+
+#[test]
+fn a_growth_on_the_way_to_the_bowl_survives_vanishing_and_is_celebrated_later() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Meal));
+    p.update(DT, &w);
+    p.vanish(Side::Right);
+    assert!(p.stage_change_waits(), "the size changes only when the celebration starts");
+    place(&mut p, &w, Owner::Window(1), 800.0, idle());
+    assert!(run_until(&mut p, &w, 60 * 10, |p| matches!(p.state, State::LevelUp { .. })), "{:?}", p.state);
+    assert!(!p.stage_change_waits());
+}
+
+#[test]
+fn dragging_a_pet_away_from_a_growing_meal_keeps_the_celebration() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    p.state = State::Eating { remaining: 1.0, favorite: false, level_up: true };
+    p.pointer_down(800.0, 380.0);
+    p.update(DT, &w);
+    p.pointer_move(860.0, 300.0);
+    assert!(matches!(p.state, State::Dragged), "{:?}", p.state);
+    assert!(p.stage_change_waits());
+    p.pointer_up(860.0, 300.0);
+    assert!(run_until(&mut p, &w, 60 * 15, |p| matches!(p.state, State::LevelUp { .. })), "{:?}", p.state);
+}
+
+#[test]
+fn losing_the_floor_during_a_growing_meal_keeps_the_celebration() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    p.state = State::Eating { remaining: 1.0, favorite: false, level_up: true };
+    p.start_fall();
+    assert!(p.stage_change_waits());
+    assert!(run_until(&mut p, &w, 60 * 15, |p| matches!(p.state, State::LevelUp { .. })), "{:?}", p.state);
+}
+
+#[test]
+fn a_fed_guest_eats_where_it_stands_because_the_bowl_is_only_on_the_owners_side() {
+    let (mut p, w) = standing_at(800.0, 1.0);
+    p.set_guest(Side::Right, 1000.0);
+    assert!(p.feed_result(ATE, Food::Meal));
+    assert!(eating(&p), "{:?}", p.state);
+    assert!(p.food.is_none());
+    p.update(DT, &w);
+    assert_eq!(p.take_prop(), None);
+    assert_eq!(p.body.x, 800.0);
+}

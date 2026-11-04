@@ -547,6 +547,8 @@ pub struct Pet {
     hand: Option<(f64, f64)>,
     /// 이번에 내민 음식을 이미 알아챘음 (배고프면 한 번 "냠!?")
     hand_noticed: bool,
+    /// 배불러 거절한 음식의 자리 — 음식을 옮길 때까지 다시 조르지 않는다
+    hand_refused: Option<(f64, f64)>,
     /// 쳐다보는 중(Idle look · 손에 든 음식 보기)에 위를 올려다본다 — cfg.looks_up일 때만 LookUp으로 그린다
     gaze_up: bool,
     /// 커서가 머리 위에 머물기 시작한 시각 (clock 기준)
@@ -660,6 +662,7 @@ impl Pet {
             queued_food: None,
             hand: None,
             hand_noticed: false,
+            hand_refused: None,
             gaze_up: false,
             above_since: None,
             prop_anchor: None,
@@ -720,7 +723,7 @@ impl Pet {
         self.track_prop(world);
         self.serve_queued_food();
         self.notice_hand();
-        self.tick_send(dt, world);
+        self.tick_send();
         self.tick_snow_cloud(dt);
         if self.housed && self.food.is_some_and(|f| f.from_house) {
             self.come_out_for_food(world);
@@ -1389,6 +1392,10 @@ impl Pet {
 
     /// 걷다가 화면 가장 바깥 끝(piece의 진행 방향 끝)에 닿음: 걸어 나갈 거면 그 쪽
     fn wants_exit(&mut self, world: &World, piece: &Surface) -> Option<Side> {
+        // 커서에 음식을 들고 있는 동안엔 스스로 화면을 떠나지 않는다 (보내기는 사용자가 시킨 것)
+        if self.hand.is_some() && self.send.is_none() {
+            return None;
+        }
         let side = visit::screen_edge(world, piece, self.facing)?;
         let chance = self.exit_odds(side);
         (chance >= 1.0 || chance > 0.0 && self.rng.f64() < chance).then_some(side)
@@ -1466,7 +1473,29 @@ impl Pet {
         self.body.vy = 0.0;
         self.pacing.after_beat = None;
         self.clear_hover();
+        self.drop_meal_on_leaving();
         self.state = State::Away;
+    }
+
+    /// 화면을 떠난다: 놓인 그릇·꽃은 거둔다. 안고 있던 성장은 돌아와서 먹고 축하한다
+    fn drop_meal_on_leaving(&mut self) {
+        let level_up = self.food.take().is_some_and(|t| t.level_up) | self.meal_pending.take().is_some_and(|(_, l)| l);
+        self.meal_spot = None;
+        self.hide_prop();
+        if level_up {
+            self.queue_food(Food::Snack, true);
+        }
+    }
+
+    /// 먹던 것을 다 먹지 못하게 됐다 (끌려가거나 디딤판을 잃음): 안고 있던 성장은 내려선 뒤 먹고 축하한다
+    fn keep_growth_of_interrupted_meal(&mut self) {
+        let eating = match self.state {
+            State::Pressed { .. } | State::Dragged => self.before_press.map(|(s, _)| s),
+            s => Some(s),
+        };
+        if matches!(eating, Some(State::Eating { level_up: true, .. })) {
+            self.queue_food(Food::Snack, true);
+        }
     }
 
     pub fn is_held(&self) -> bool {
@@ -1611,6 +1640,7 @@ impl Pet {
             State::Pressed { start_cx, start_cy, .. } => {
                 self.record(cx, cy);
                 if (cx - start_cx).hypot(cy - start_cy) >= CLICK_SLOP {
+                    self.keep_growth_of_interrupted_meal();
                     self.standing = None;
                     // 집어 들면 창 밖 — 놓은 자리에서 다시 정한다
                     self.inside = None;
@@ -1777,8 +1807,9 @@ impl Pet {
             self.meal_pending = Some((favorite || heart, was || level_up));
             return;
         }
-        if food == Food::Snack || self.housed && self.house_door.is_none() {
-            if food == Food::Snack && !self.housed {
+        // 손님은 그 자리에서 먹는다: 그릇 창은 내 동물에게만 놓이니 손님은 보이지 않는 그릇으로 걸어가게 된다
+        if food == Food::Snack || self.housed && self.house_door.is_none() || self.guest.is_some() {
+            if food == Food::Snack && !self.housed && self.guest.is_none() {
                 let (x, y) = (self.body.x, self.body.y - self.cfg.size * food::COOKIE_RISE);
                 self.show_prop(Prop::Cookie, x, y);
             }
@@ -1812,6 +1843,7 @@ impl Pet {
     pub fn end_hand(&mut self) {
         self.hand = None;
         self.hand_noticed = false;
+        self.hand_refused = None;
         if matches!(self.state, State::WantFood { .. }) {
             self.state = self.idle_state();
         }
@@ -1827,6 +1859,7 @@ impl Pet {
             FeedResult::Refused => {
                 self.speech = Some(Speech::Full);
                 self.state = State::Trick { kind: Trick::Tilt, remaining: REFUSE_TILT_SECS };
+                self.hand_refused = self.hand;
             }
             FeedResult::Ate { leveled_up } => {
                 self.hand = None;
@@ -1844,6 +1877,13 @@ impl Pet {
                 self.state = self.idle_state();
             }
             return;
+        }
+        // 방금 거절한 음식이 그대로 있으면 다시 조르지 않는다 (사용자가 옮기면 다시 내민 것으로 본다)
+        if let (Some(at), Some(hand)) = (self.hand_refused, self.hand) {
+            if !self.hungry && (hand.0 - at.0).hypot(hand.1 - at.1) < self.cfg.size {
+                return;
+            }
+            self.hand_refused = None;
         }
         let busy = self.housed
             || self.guest.is_some()
@@ -2719,6 +2759,7 @@ impl Pet {
     }
 
     fn start_fall(&mut self) {
+        self.keep_growth_of_interrupted_meal();
         self.pacing.after_beat = None;
         self.standing = None;
         self.body.vx = 0.0;

@@ -119,7 +119,7 @@ impl Pet {
     }
 
     /// 매 틱 (주 동작 전): 끝났으면 지우고, 손 흔들 수 있게 되면(내려서 있고, 들리거나 창 안·먹는 중이 아님) 그 자리에서 손 흔든다
-    pub(super) fn tick_send(&mut self, _dt: f64, _world: &World) {
+    pub(super) fn tick_send(&mut self) {
         let Some(trip) = self.send else { return };
         // 손 흔드는 중 — update_farewell이 끝나면 trip.side로 사라진다
         if matches!(self.state, State::Farewell { .. }) {

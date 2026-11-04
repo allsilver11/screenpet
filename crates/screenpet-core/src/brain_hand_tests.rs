@@ -130,13 +130,26 @@ fn full_pet_refuses_a_meal_and_the_food_stays_on_the_cursor() {
     assert!(p.eat_from_hand(result, Food::Meal));
     assert_eq!(p.take_speech(), Some(Speech::Full));
     assert_eq!(p.render().anim, Anim::Tilt);
-    // 갸웃하는 동안은 다시 내밀어도 받지 않고, 끝나면 다시 음식을 본다
+    // 갸웃하는 동안은 다시 내밀어도 받지 않는다 (그 뒤는 아래 테스트: 음식을 옮겨야 다시 본다)
     for _ in 0..60 {
         let (x, y) = at_mouth(&p);
         assert!(!p.offer_hand(x, y));
         p.update(DT, &w);
     }
-    assert!(offer_until(&mut p, &w, 60 * 3, at_mouth));
+}
+
+#[test]
+fn a_pet_that_turns_hungry_looks_at_the_refused_food_again() {
+    let (mut p, w) = standing_at(800.0);
+    assert!(offer_until(&mut p, &w, 120, at_mouth));
+    assert!(p.eat_from_hand(FeedResult::Refused, Food::Meal));
+    for _ in 0..(60 * 3) {
+        let (x, y) = at_mouth(&p);
+        p.offer_hand(x, y);
+        p.update(DT, &w);
+    }
+    p.set_hungry(true);
+    assert!(offer_until(&mut p, &w, 60 * 3, at_mouth), "{:?}", p.state);
 }
 
 #[test]
@@ -203,4 +216,59 @@ fn bee_flies_to_the_food() {
     assert!(p.eat_from_hand(FeedResult::Ate { leveled_up: true }, Food::Favorite));
     assert!(matches!(p.state, State::Eating { favorite: true, level_up: true, .. }));
     assert!(p.standing.is_none(), "eats hovering");
+}
+
+#[test]
+fn a_full_pet_refuses_once_and_ignores_food_held_still() {
+    let (mut p, w) = standing_at(800.0);
+    assert!(offer_until(&mut p, &w, 120, at_mouth));
+    let at = at_mouth(&p);
+    assert!(p.eat_from_hand(FeedResult::Refused, Food::Meal));
+    assert_eq!(p.take_speech(), Some(Speech::Full));
+    for _ in 0..(60 * 30) {
+        assert!(!p.offer_hand(at.0, at.1), "refused again: {:?}", p.state);
+        p.update(DT, &w);
+        assert_ne!(p.take_speech(), Some(Speech::Full));
+    }
+}
+
+#[test]
+fn moving_the_refused_food_away_and_back_offers_it_again() {
+    let (mut p, w) = standing_at(800.0);
+    assert!(offer_until(&mut p, &w, 120, at_mouth));
+    let at = at_mouth(&p);
+    assert!(p.eat_from_hand(FeedResult::Refused, Food::Meal));
+    for _ in 0..(60 * 3) {
+        p.offer_hand(at.0, at.1);
+        p.update(DT, &w);
+    }
+    p.offer_hand(100.0, 50.0);
+    p.update(DT, &w);
+    assert!(offer_until(&mut p, &w, 60 * 20, at_mouth), "{:?}", p.state);
+}
+
+#[test]
+fn a_pet_with_food_on_the_cursor_does_not_walk_off_the_screen() {
+    let w = world(vec![]);
+    let run = |seed: u64, with_food: bool| -> bool {
+        let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+        place(&mut p, &w, Owner::Ground(0), 1880.0, State::Move { kind: Move::Walk, remaining: 100.0 });
+        p.facing = 1.0;
+        p.set_exit_edges(true, true);
+        p.set_vertical_edges(true, true);
+        for _ in 0..(60 * 10) {
+            if with_food {
+                // 거절한 음식이라 조르지 않고 하던 걸 계속한다
+                p.hand = Some((1880.0, 100.0));
+                p.hand_refused = Some((1880.0, 100.0));
+            }
+            p.update(DT, &w);
+            if matches!(p.state, State::Exit { .. } | State::Away) {
+                return true;
+            }
+        }
+        false
+    };
+    assert!((0..40).any(|seed| run(seed, false)), "without food some of them leave");
+    assert!(!(0..40).any(|seed| run(seed, true)), "with food on the cursor none do");
 }

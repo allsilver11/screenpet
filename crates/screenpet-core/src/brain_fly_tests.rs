@@ -910,3 +910,13 @@ fn bee_flies_curvy_balanced_paths_with_circles_on_real_screens() {
         assert!(st.flips > 20 && st.min_flip_gap >= flight::FLIP_HOLD - 1e-6, "{msg}");
     }
 }
+
+#[test]
+fn turning_into_a_flyer_ends_a_walkers_leap_and_tumble() {
+    let w = world(vec![w1()]);
+    for state in [State::Leap { crouch: 0.0, remaining: 1.0, owner: Owner::Window(1), rel_x: 50.0 }, State::Tumble { remaining: 1.0, dir: 1.0 }] {
+        let mut p = hovering(800.0, 250.0, state, 1);
+        p.update(1.0 / 60.0, &w);
+        assert!(!matches!(p.state, State::Leap { .. } | State::Tumble { .. }), "{:?}", p.state);
+    }
+}

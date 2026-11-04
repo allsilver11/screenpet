@@ -19,9 +19,9 @@ impl Pet {
         self.exit_edges = ExitEdges { up, down, ..self.exit_edges };
     }
 
-    /// move_state 처음: 위/아래로 나갈지 정한다 (나가면 그 상태). 창 안·집에 가는 길·보내는 중·먹이·조작 중엔 안 한다
+    /// move_state 처음: 위/아래로 나갈지 정한다 (나가면 그 상태). 창 안·집에 가는 길·보내는 중·먹이·손 음식·조작 중엔 안 한다
     pub(super) fn vertical_exit_state(&mut self, world: &World) -> Option<State> {
-        if self.control.is_some() || self.inside.is_some() || self.home_trip.is_some() || self.send.is_some() || self.food.is_some() || self.housed {
+        if self.control.is_some() || self.inside.is_some() || self.home_trip.is_some() || self.send.is_some() || self.food.is_some() || self.hand.is_some() || self.housed {
             return None;
         }
         if !self.cfg.flies && !matches!(self.standing, Some(Standing { owner: Owner::Ground(_) | Owner::Window(_), .. })) {

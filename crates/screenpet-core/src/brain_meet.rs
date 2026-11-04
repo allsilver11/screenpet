@@ -158,7 +158,7 @@ impl Pet {
 
     /// 나는 동물로 바뀌었으면 걷는 동물의 동작은 끝낸다 (나는 동물의 길에는 이 상태들이 없다)
     pub(super) fn drop_walking_moves(&mut self) {
-        if self.cfg.flies && matches!(self.state, State::Meet { .. } | State::Slip { .. }) {
+        if self.cfg.flies && matches!(self.state, State::Meet { .. } | State::Slip { .. } | State::Leap { .. } | State::Tumble { .. }) {
             self.meet = None;
             self.state = self.idle_state();
         }
