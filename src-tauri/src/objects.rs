@@ -318,10 +318,8 @@ impl Objects {
         };
         let side = from_net_side(toss.side, toss.vside);
         if accepted.kind.is_poop() {
-            // 💩 똥 싸기를 꺼 둔 사람에겐 조용히 사라진다 (날씨를 꺼 둔 사람의 흩날림처럼)
-            if !config.poop_off {
-                self.queue_poop(WaitingPoop::Tossed(accepted, side, screenpet_core::poop::sanitize_size(toss.scale)));
-            }
+            // 메뉴로 꺼도 친구가 던진 똥은 받는다 (끄는 건 동물이 싸는 것뿐, 받기 싫으면 집중·하우스)
+            self.queue_poop(WaitingPoop::Tossed(accepted, side, screenpet_core::poop::sanitize_size(toss.scale)));
             return;
         }
         if let Some(old) = self.inbox.push((accepted, side), &mut self.roster) {

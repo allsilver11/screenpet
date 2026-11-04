@@ -56,7 +56,7 @@ const BROOM_ID: &str = "broom";
 const CURSOR_PLAY_ID: &str = "cursor-play";
 const CURSOR_PLAY_LABEL: &str = "🐾 커서 장난";
 const POOP_ID: &str = "poop";
-const POOP_LABEL: &str = "💩 똥 싸기";
+const POOP_LABEL: &str = "💩 펫이 똥 싸기";
 /// ⏱️ 집중 친구 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남는다)
 const FOCUS_TOGGLE_ID: &str = "focus:toggle";
 const FOCUS_SHORT_ID: &str = "focus:short";
