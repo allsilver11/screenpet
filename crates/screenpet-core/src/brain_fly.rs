@@ -5,7 +5,7 @@
 //! 내려앉았을 때(`standing` = Some)만 디딤판 위 동작(update_ground)을 쓴다. 중력은 받지 않는다.
 
 use super::*;
-use crate::flight::{self, Goal, Loop, Style, Wave};
+use crate::flight::{self, Goal, Loop, Style};
 use crate::sting;
 
 /// 쏘기 시작 때 나는 범위 밖이면 이 속도(1/초)로 범위 안으로 미끄러져 들어온다 ("!" 0.5초 안에 거의 다)
@@ -183,7 +183,7 @@ impl Pet {
     /// 길 모양(style)을 정해 날기 시작한다 — 곡선 자체는 첫 틱에 범위를 보고 만든다 (fly_step)
     fn start_flight_styled(&mut self, goal: Goal, kind: Move, style: Style) {
         let from = (self.body.x, self.body.y);
-        let mut f = Flight::new(goal, from, Wave::Arc { height: 0.0 });
+        let mut f = Flight::new(goal, from, 0.0);
         f.style = style;
         if kind == Move::Roll {
             if let Goal::Point(x, y) = goal {
@@ -316,7 +316,7 @@ impl Pet {
                     let boost = path.speed_mult();
                     path.advance(speed * boost * dt, to)
                 }
-                None => flight::path_point(f.from, to, f.s, f.wave),
+                None => flight::path_point(f.from, to, f.s, f.arc),
             };
             done = arrived;
             // 가로로 가는 쪽을 바라본다 — 충분히 그쪽으로 가고, 지난번 뒤집은 지 조금 지났을 때만 (깜빡깜빡 뒤집지 않게)
@@ -423,11 +423,11 @@ impl Pet {
                 let from = (self.body.x, self.body.y);
                 let len = (to.0 - from.0).hypot(to.1 - from.1);
                 let height = (flight::HOME_ARC * len).min(flight::HOME_ARC_MAX * self.cfg.size);
-                Flight::new(Goal::Home, from, Wave::Arc { height })
+                Flight::new(Goal::Home, from, height)
             }
         };
         f.s += self.fly_speed(Move::Run) * dt;
-        let ((x, y), done) = flight::path_point(f.from, to, f.s, f.wave);
+        let ((x, y), done) = flight::path_point(f.from, to, f.s, f.arc);
         if (to.0 - f.from.0).abs() > 1.0 {
             self.facing = (to.0 - f.from.0).signum();
         }

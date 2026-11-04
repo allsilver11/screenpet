@@ -94,16 +94,9 @@ pub fn pick_target(rng: &mut fastrand::Rng, b: &Rect) -> (f64, f64) {
     (x, y)
 }
 
-/// 날아가는 길의 모양
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Wave {
-    /// 위로 솟는 활 모양 (집으로 갈 때)
-    Arc { height: f64 },
-}
-
-/// from → to 직선을 s만큼 간 지점에 물결을 더한 점, 그리고 다 왔는지.
-/// 물결은 양 끝에서 0이 되도록 sin(πu)로 줄인다 — 출발점과 목표에 정확히 닿는다
-pub fn path_point(from: (f64, f64), to: (f64, f64), s: f64, wave: Wave) -> ((f64, f64), bool) {
+/// from → to 직선을 s만큼 간 지점에 위로 솟는 활 모양(높이 arc, 집으로 갈 때)을 더한 점, 그리고 다 왔는지.
+/// 활은 양 끝에서 0이 되도록 sin(πu)로 줄인다 — 출발점과 목표에 정확히 닿는다
+pub fn path_point(from: (f64, f64), to: (f64, f64), s: f64, arc: f64) -> ((f64, f64), bool) {
     let (dx, dy) = (to.0 - from.0, to.1 - from.1);
     let len = dx.hypot(dy);
     if len < 1e-6 || s >= len {
@@ -112,9 +105,7 @@ pub fn path_point(from: (f64, f64), to: (f64, f64), s: f64, wave: Wave) -> ((f64
     let u = (s / len).max(0.0);
     let envelope = (PI * u).sin();
     let (bx, by) = (from.0 + dx * u, from.1 + dy * u);
-    match wave {
-        Wave::Arc { height } => ((bx, by - height * envelope), false),
-    }
+    ((bx, by - arc * envelope), false)
 }
 
 /// 공중제비: start에서 진행 방향(facing)으로 원을 한 바퀴 (up이면 위로 돈다). theta = 0 → start
@@ -607,14 +598,15 @@ pub struct Flight {
     pub from: (f64, f64),
     /// 지금까지 간 거리 (공중제비는 빼고)
     pub s: f64,
-    pub wave: Wave,
+    /// path가 없을 때 활 높이 (path_point)
+    pub arc: f64,
     /// 이 거리에서 공중제비를 돈다 (Roll)
     pub loop_at: Option<f64>,
     pub looping: Option<Loop>,
     /// 화면 끝 나가기를 이미 정했는지 (날기마다 한 번)
     pub edge_checked: bool,
     pub elapsed: f64,
-    /// 길 모양 — 곡선(path)은 처음 날 때 (범위를 알 때) 만든다. path가 없고 만들지도 않으면 wave를 따라간다 (집으로)
+    /// 길 모양 — 곡선(path)은 처음 날 때 (범위를 알 때) 만든다. path가 없고 만들지도 않으면 활(arc)을 따라간다 (집으로)
     pub style: Style,
     pub path: Option<Path>,
     /// 마지막으로 좌우를 뒤집은 때 (elapsed)
@@ -622,8 +614,8 @@ pub struct Flight {
 }
 
 impl Flight {
-    pub fn new(goal: Goal, from: (f64, f64), wave: Wave) -> Self {
-        Self { goal, from, s: 0.0, wave, loop_at: None, looping: None, edge_checked: false, elapsed: 0.0, style: Style::Gentle, path: None, flipped_at: f64::NEG_INFINITY }
+    pub fn new(goal: Goal, from: (f64, f64), arc: f64) -> Self {
+        Self { goal, from, s: 0.0, arc, loop_at: None, looping: None, edge_checked: false, elapsed: 0.0, style: Style::Gentle, path: None, flipped_at: f64::NEG_INFINITY }
     }
 }
 
@@ -679,17 +671,17 @@ mod tests {
 
     #[test]
     fn path_starts_and_ends_exactly_and_waves_in_between() {
-        let wave = Wave::Arc { height: 20.0 };
+        let arc = 20.0;
         let (from, to) = ((100.0, 500.0), (900.0, 300.0));
-        assert_eq!(path_point(from, to, 0.0, wave), (from, false));
+        assert_eq!(path_point(from, to, 0.0, arc), (from, false));
         let len = (800.0f64).hypot(200.0);
-        assert_eq!(path_point(from, to, len, wave), (to, true));
-        assert_eq!(path_point(from, to, len + 50.0, wave), (to, true));
+        assert_eq!(path_point(from, to, len, arc), (to, true));
+        assert_eq!(path_point(from, to, len + 50.0, arc), (to, true));
         // 중간엔 직선에서 벗어난다 (진폭 이내)
         let mut max_off: f64 = 0.0;
         for i in 1..100 {
             let s = len * i as f64 / 100.0;
-            let ((x, y), done) = path_point(from, to, s, wave);
+            let ((x, y), done) = path_point(from, to, s, arc);
             assert!(!done);
             let u = s / len;
             let off = (x - (100.0 + 800.0 * u)).hypot(y - (500.0 - 200.0 * u));
@@ -698,7 +690,7 @@ mod tests {
         }
         assert!(max_off > 10.0, "{max_off}");
         // 활: 위로 솟는다
-        let ((_, y), _) = path_point((0.0, 1000.0), (1000.0, 1000.0), 500.0, Wave::Arc { height: 100.0 });
+        let ((_, y), _) = path_point((0.0, 1000.0), (1000.0, 1000.0), 500.0, 100.0);
         assert!((y - 900.0).abs() < 1e-9);
     }
 
