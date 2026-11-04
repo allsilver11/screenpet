@@ -1,8 +1,7 @@
 """픽셀 그림: 도트가 진짜 도트인지, 시트·pet.json이 규격에 맞는지, 기존 동글 그림이 바이트까지 그대로인지."""
 
-import io
+import hashlib
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -42,12 +41,22 @@ def _frames(pid, stage):
             yield anim, i, sheet[spec["row"] * n:(spec["row"] + 1) * n, i * n:(i + 1) * n]
 
 
-def _committed_frame(pid, stage, anim, i):
-    raw = subprocess.check_output(["git", "-C", str(ROOT), "show", f"HEAD:ui/pets/{pid}/sheet_{stage}.png"])
-    man = json.loads(subprocess.check_output(["git", "-C", str(ROOT), "show", f"HEAD:ui/pets/{pid}/pet.json"]))
+def _shipped_frame(pid, stage, anim, i):
+    """들어 있는 동글 시트의 한 칸 (이 테스트 파일이 돌기 전 그대로인지는 test_shipped_round_sheets_untouched가 본다)."""
+    d = ROOT / "ui" / "pets" / pid
+    man = json.loads((d / "pet.json").read_text(encoding="utf-8"))
     fs, row = man.get("frame_sizes", {}).get(stage, man["frame_size"]), man["animations"][anim]["row"]
-    sheet = Image.open(io.BytesIO(raw)).convert("RGBA")
+    sheet = Image.open(d / f"sheet_{stage}.png").convert("RGBA")
     return sheet.crop((i * fs, row * fs, (i + 1) * fs, (row + 1) * fs))
+
+
+def _round_sheets():
+    """동글 시트 전부의 지문 (git 없이도, 고친 트리에서도 돈다)."""
+    return {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((ROOT / "ui" / "pets").glob("*/*.png"))}
+
+
+# 이 파일을 읽을 때의 시트: 픽셀 그리기가 끝난 뒤에도 그대로여야 한다
+ROUND_SHEETS_AT_START = _round_sheets()
 
 
 # ---- 격자
@@ -244,11 +253,12 @@ def test_round_art_stays_byte_identical(pid, stage, anim, i):
         ssp = dp.staged_species(sp)
         n = [r[1] for r in dp.rows_for(sp) if r[0] == anim][0]
         got = dp.frames(ssp, anim, n)[i]
-    assert got.tobytes() == _committed_frame(pid, stage, anim, i).tobytes()
+    assert got.tobytes() == _shipped_frame(pid, stage, anim, i).tobytes()
 
 
 def test_shipped_round_sheets_untouched():
-    assert subprocess.check_output(["git", "-C", str(ROOT), "status", "--porcelain", "--", "ui/pets/*/*.png"]).strip() == b""  # 크기는 pet.json — 그림만 그대로
+    """픽셀 모드를 돌려도 동글 시트 파일은 그대로다 (크기는 pet.json — 그림만 그대로)."""
+    assert _round_sheets() == ROUND_SHEETS_AT_START
 
 
 def test_preview_group_makes_its_folder(tmp_path, monkeypatch):
