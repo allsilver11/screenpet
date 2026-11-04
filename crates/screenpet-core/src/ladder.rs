@@ -55,23 +55,6 @@ impl Mood {
             Mood::Neutral => "none",
         }
     }
-
-    /// 잠그기 인코딩의 한 바이트 (0 없음, 1 좋음, 2 나쁨 — net `ladder::lock_hash`)
-    pub fn to_byte(self) -> u8 {
-        match self {
-            Mood::Neutral => 0,
-            Mood::Good => 1,
-            Mood::Bad => 2,
-        }
-    }
-
-    pub fn from_byte(b: u8) -> Mood {
-        match b {
-            1 => Mood::Good,
-            2 => Mood::Bad,
-            _ => Mood::Neutral,
-        }
-    }
 }
 
 /// `rows[r]`에 든 `c` = 그 줄에서 세로줄 `c`와 `c+1`을 잇는 가로줄 (오름차순, 한 줄 안에서 서로 이웃하지 않음)
@@ -198,17 +181,6 @@ fn circled(n: usize) -> String {
         char::from_u32(0x2460 + n as u32 - 1).map(String::from).unwrap_or_default()
     } else {
         format!("({n})")
-    }
-}
-
-/// 화면 표시용 줄임: `max`자를 넘으면 `max`자 + "…"
-pub fn ellipsize(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(max).collect();
-        out.push('…');
-        out
     }
 }
 
@@ -354,12 +326,6 @@ mod tests {
     }
 
     #[test]
-    fn long_text_is_shortened() {
-        assert_eq!(ellipsize("여섯글자요", 6), "여섯글자요");
-        assert_eq!(ellipsize("일곱글자입니다", 6), "일곱글자입니…");
-    }
-
-    #[test]
     fn columns_shrink_to_fit_small_screens() {
         assert_eq!(column_width(3, 1920.0), 72.0);
         assert_eq!(column_width(10, 1920.0), 72.0);
@@ -378,7 +344,6 @@ mod tests {
     fn moods_round_trip() {
         for m in [Mood::Good, Mood::Bad, Mood::Neutral] {
             assert_eq!(Mood::from_wire(m.to_wire()), m);
-            assert_eq!(Mood::from_byte(m.to_byte()), m);
         }
         assert_eq!(Mood::from_wire("great"), Mood::Neutral);
         assert_eq!(serde_json::to_string(&Mood::Neutral).unwrap(), "\"none\"");

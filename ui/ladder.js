@@ -18,7 +18,7 @@ const LADDER = (() => {
   // 참가자별 길 색 (10명)
   const PALETTE = ["#e8735a", "#4f9de0", "#5fb86a", "#c77dd8", "#e0a02f", "#3fb7b0", "#e06a9c", "#8a8fe8", "#9aa63a", "#b5835a"];
 
-  // 글자 수(코드 포인트)로 자른다 — 코어 ladder::ellipsize와 같다
+  // 글자 수(코드 포인트)로 자른다
   function ellipsize(s, max) {
     const chars = Array.from(s ?? "");
     return chars.length <= max ? chars.join("") : chars.slice(0, max).join("") + "…";

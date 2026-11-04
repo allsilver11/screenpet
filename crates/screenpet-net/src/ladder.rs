@@ -261,7 +261,6 @@ impl CancelReason {
 /// A finished game: same on every honest screen given the same lock.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
-    pub game_id: [u8; 16],
     pub seed: [u8; 32],
     pub print: u32,
     pub host: usize,
@@ -301,7 +300,7 @@ impl Phase {
 fn outcome(game_id: [u8; 16], host: usize, players: Vec<LockedPlayer>, results: Vec<LockedResult>, nonces: &[[u8; 32]], me: usize) -> Outcome {
     let l = lock_hash(&game_id, host as u8, &players, &results);
     let seed = seed(&l, nonces);
-    Outcome { game_id, seed, print: print_bits(&seed), host, players, results, me }
+    Outcome { seed, print: print_bits(&seed), host, players, results, me }
 }
 
 // ---- host ---------------------------------------------------------------------------------

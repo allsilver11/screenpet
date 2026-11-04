@@ -54,10 +54,8 @@ pub struct SlotRow {
 pub struct FriendRow {
     pub id: String,
     pub name: String,
-    /// 연결됨 + 사다리를 아는 판
+    /// 연결됨 + 사다리를 아는 판 (아니면 "업데이트 필요" — 사다리 메시지를 보낼 수 없다)
     pub can_invite: bool,
-    /// 연결됐지만 예전 판 ("업데이트 필요" — 사다리 메시지를 보낼 수 없다)
-    pub old: bool,
     /// 초대 뒤 답: "" | "waiting" | "joined" | "no" | "busy" | "playing" | "timeout" | "left"
     pub answer: &'static str,
 }
@@ -552,7 +550,7 @@ impl Ladders {
                 .map(|f| {
                     let v = ctx.net.and_then(|n| n.peer_version(&f.id)).unwrap_or(0);
                     let answer = answers.iter().find(|(id, _)| *id == f.id).map_or("", |(_, a)| answer_label(a));
-                    FriendRow { id: f.id.clone(), name: f.shown_name().to_string(), can_invite: v >= LADDER_MIN_VERSION, old: v < LADDER_MIN_VERSION, answer }
+                    FriendRow { id: f.id.clone(), name: f.shown_name().to_string(), can_invite: v >= LADDER_MIN_VERSION, answer }
                 })
                 .collect()
         };
@@ -571,7 +569,7 @@ impl Ladders {
                 for (id, a) in &answers {
                     if !rows.iter().any(|r| r.id == *id) {
                         let name = ctx.config.friend(id).map_or_else(|| id.clone(), |f| f.shown_name().to_string());
-                        rows.push(FriendRow { id: id.clone(), name, can_invite: false, old: false, answer: answer_label(a) });
+                        rows.push(FriendRow { id: id.clone(), name, can_invite: false, answer: answer_label(a) });
                     }
                 }
                 let view = if *p == Phase::Locked { "locked" } else { "inviting" };
