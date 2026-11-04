@@ -427,6 +427,43 @@ pub fn fully_inside_v(bounds: &Rect, side: Side, y: f64, height: f64) -> bool {
     }
 }
 
+// ---- 친구 펫 밥 주기: 일시 확대 (성장과 상관없다, 저장하지 않는다) ----
+
+/// 한 번 먹을 때마다 커지는 배율
+pub const BOOST_STEP: f64 = 1.15;
+/// 가장 큰 크기: 같은 단계의 산타 크기 (산타 stage_size)
+const BOOST_LARGEST_SIZE: f64 = 1.65;
+/// 집에 돌아오고 이만큼 뒤 원래 크기로 (초)
+pub const BOOST_HOME_SECS: u64 = 600;
+
+/// 이 동물의 최대 배율 (stage_size = pet.json의 동물별 배율)
+pub fn boost_cap(stage_size: f64) -> f64 {
+    if stage_size.is_finite() && stage_size > 0.0 {
+        (BOOST_LARGEST_SIZE / stage_size).max(1.0)
+    } else {
+        1.0
+    }
+}
+
+/// 한 번 더 먹은 배율
+pub fn next_boost(now: f64, cap: f64) -> f64 {
+    (now * BOOST_STEP).min(cap).max(1.0)
+}
+
+/// 받은 배율을 다듬는다: 숫자가 아니거나 1 아래면 1, cap까지 (친구가 작게 만들거나 끝없이 키우지 못한다)
+pub fn sanitize_boost(sent: Option<f64>, cap: f64) -> f64 {
+    match sent {
+        Some(b) if b.is_finite() => b.clamp(1.0, cap.max(1.0)),
+        _ => 1.0,
+    }
+}
+
+/// 픽셀 칸 dot(물리 px)을 boost배 할 때의 실제 배율: 칸이 정수 물리 px로 남는다
+pub fn pixel_boost(dot: u32, boost: f64) -> f64 {
+    let dot = f64::from(dot.max(1));
+    (dot * boost).round().max(dot) / dot
+}
+
 /// 친구가 던진 물건을 어떻게 할까
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TossAnswer {
@@ -450,6 +487,27 @@ pub fn toss_answer(refusing: bool, bounced: bool, threw_lately: bool) -> TossAns
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn feeding_a_guest_grows_it_up_to_santa_size_at_most() {
+        use super::*;
+        assert!((boost_cap(0.91) - 1.65 / 0.91).abs() < 1e-9);
+        assert!((boost_cap(1.2) - 1.375).abs() < 1e-9);
+        assert_eq!(boost_cap(1.65), 1.0, "santa stays");
+        assert_eq!(boost_cap(f64::NAN), 1.0);
+        assert_eq!(boost_cap(0.0), 1.0);
+        assert!((next_boost(1.0, 2.0) - 1.15).abs() < 1e-9);
+        assert_eq!(next_boost(1.9, 2.0), 2.0);
+        assert_eq!(next_boost(1.0, 1.0), 1.0);
+        for (sent, want) in [(None, 1.0), (Some(f64::NAN), 1.0), (Some(f64::INFINITY), 1.0), (Some(0.2), 1.0), (Some(1.3), 1.3), (Some(99.0), 1.5)] {
+            assert_eq!(sanitize_boost(sent, 1.5), want, "{sent:?}");
+        }
+        // 픽셀 칸은 정수로
+        assert_eq!(pixel_boost(3, 1.0), 1.0);
+        assert_eq!(pixel_boost(3, 1.34), 4.0 / 3.0);
+        assert_eq!(pixel_boost(3, 1.1), 1.0);
+        assert_eq!(pixel_boost(4, 1.65), 7.0 / 4.0);
+    }
+
     #[test]
     fn thrown_objects_are_sent_back_while_refusing_and_never_bounce_twice() {
         use super::{toss_answer, TossAnswer::*};

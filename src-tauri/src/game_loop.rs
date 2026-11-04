@@ -81,6 +81,8 @@ pub enum Input {
     HouseMoved { save: bool },
     /// 손님(label)을 주인에게 돌려보낸다 (손님 우클릭 메뉴)
     SendHome { label: String },
+    /// 🍚 놀러 온 친구 동물에게 밥 주기: 먹으면 일시적으로 커진다 (성장과 상관없다)
+    FeedGuest { label: String },
     /// 손님 창(label)이 편지 쪽지를 펼친다 / 접는다 — 그동안 창이 위로 크다
     NoteSpace { label: String, open: bool },
     /// 친구 네트워크 (네트워크 이벤트, 트레이 `친구랑 놀기`, 짝맞추기 창)
@@ -302,6 +304,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         app.state::<AppState>().hand_feeding.store(false, Ordering::Relaxed);
                     }
                     own.entry = next;
+                    // 일시 확대는 그 동물 것이다
+                    own.boost = 1.0;
                     care = config.care.get(&own.entry.id).cloned().unwrap_or_default();
                     pending_stage = false;
                     apply_own_stage(&app, own, &care);
@@ -486,6 +490,18 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     if save {
                         config.house_spot = house::placed();
                         save_config(&app, &mut config, &own.entry.id, &care);
+                    }
+                }
+                Input::FeedGuest { label } => {
+                    if let Some(i) = slots::find(&slots, &label).filter(|&i| !slots[i].is_own()) {
+                        let slot = &mut slots[i];
+                        // 친구 동물은 내 Care를 건드리지 않는다. 못 먹는 때(공중·떠나는 중)면 그대로
+                        if slot.pet.feed_result(FeedResult::Ate { leveled_up: false }, Food::Meal) {
+                            let grown = screenpet_core::visit::next_boost(slot.boost, slot.boost_cap());
+                            if grown != slot.boost {
+                                slot.set_boost(&app, grown);
+                            }
+                        }
                     }
                 }
                 Input::SendHome { label } => {
@@ -737,7 +753,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             let fling = slot.pet.take_fling();
             if let Role::Guest(g) = &slot.role {
                 eprintln!("guest {} ({}) left", g.visit_id, g.owner_id);
-                network.guest_left(&config, g, side, slot.pet.guest(), fling);
+                network.guest_left(&config, g, side, slot.pet.guest(), fling, slot.boost);
             }
             slots::close(&app, slot);
         }
@@ -753,6 +769,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         props.tick(now);
         hand_win.tick(now);
         broom_win.tick(now);
+        network.tick_boost(&app, &mut slots[OWN], now);
         weather.tick(&app, now, !config.weather_on, presence.is_away(), &mut slots);
         for g in network.take_guest_gifts() {
             gifts.guest_arrived(g, now);

@@ -152,6 +152,8 @@ pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64, stage: &str, styl
 }
 
 pub struct Slot {
+    /// 친구가 밥을 줘서 일시적으로 커진 배율 (1 = 평소)
+    pub boost: f64,
     pub label: String,
     pub role: Role,
     pub entry: PetEntry,
@@ -192,6 +194,7 @@ impl Slot {
             world,
             dpi,
             shown,
+            boost: 1.0,
             need_show: true,
             last_pos: None,
             last_render: None,
@@ -223,7 +226,9 @@ impl Slot {
     }
 
     /// 단계(또는 동물)가 바뀌었다: 창 크기, 펫 크기, 웹뷰 시트
-    pub fn set_stage(&mut self, app: &AppHandle, shown: StagePayload) {
+    pub fn set_stage(&mut self, app: &AppHandle, mut shown: StagePayload) {
+        // 친구가 밥을 줘서 일시적으로 커졌으면 어떤 그림·단계든 그만큼 크게
+        shown.scale *= self.boost_factor(&shown);
         let (w, h) = self.logical_size(shown.scale);
         let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
         self.pet.cfg = pet_config(self.dpi, &self.entry, shown.scale, shown.stage, shown.style);
@@ -232,6 +237,27 @@ impl Slot {
         let info = self.info();
         app.state::<AppState>().slots.lock().unwrap().insert(self.label.clone(), info.clone());
         let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
+    }
+
+    /// 지금 일시 확대 배율이 몸 크기에 곱해지는 값 (픽셀은 칸이 정수 물리 px로 남게)
+    fn boost_factor(&self, shown: &StagePayload) -> f64 {
+        match (shown.style, Stage::from_name(shown.stage)) {
+            (PetStyle::Pixel, Some(stage)) => visit::pixel_boost(style::dot_physical(stage, self.dpi), self.boost),
+            _ => self.boost,
+        }
+    }
+
+    /// 이 동물의 최대 일시 확대 배율
+    pub fn boost_cap(&self) -> f64 {
+        Stage::from_name(self.shown.stage).map_or(1.0, |stage| visit::boost_cap(self.entry.manifest.size_mult(stage)))
+    }
+
+    /// 일시 확대 배율을 바꾼다: 창 크기·몸 크기·웹뷰 그림 (성장과 상관없다, 저장하지 않는다)
+    pub fn set_boost(&mut self, app: &AppHandle, boost: f64) {
+        let mut plain = self.shown.clone();
+        plain.scale /= self.boost_factor(&plain);
+        self.boost = boost;
+        self.set_stage(app, plain);
     }
 
     /// 픽셀 동물이면 칸 한 변 (물리 px) — 밥그릇이 같은 칸으로 놓인다

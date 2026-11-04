@@ -234,6 +234,8 @@ struct Arrival {
     fling: Option<visit::Fling>,
     /// 주인이 들려 보낸 편지 (다듬은 것)
     note: Option<String>,
+    /// 다른 친구가 밥을 줘서 커진 배율 (아직 다듬지 않은 값)
+    boost: Option<f64>,
     /// 주인이 보여 주는 스타일 (이쪽에 그 그림이 없으면 동글)
     style: PetStyle,
 }
@@ -291,6 +293,8 @@ pub struct Network {
     last_decline_log: HashMap<String, Instant>,
     /// 꽉 찬 것 같은 친구 화면 → 이때까지는 보내지 않는다 (걸어 나가기·던져 넘기기)
     full_until: HashMap<String, Instant>,
+    /// 내 동물의 일시 확대가 끝나는 때
+    boost_until: Option<Instant>,
     /// "<친구>에게 보내기"로 보낸 손님: visit_id → (그 친구, 그 친구가 연결된 끝)
     guest_sends: HashMap<String, (String, Side)>,
     /// 친구별 마지막으로 받아들인 "펫 데리고 오기" 부탁 시각 (60초에 한 번)
@@ -433,6 +437,7 @@ impl Network {
             last_visit: HashMap::new(),
             last_decline_log: HashMap::new(),
             full_until: HashMap::new(),
+            boost_until: None,
             guest_sends: HashMap::new(),
             invite_accepted: HashMap::new(),
             invite_accepted_any: None,
@@ -497,6 +502,15 @@ impl Network {
         let friend = &friends[fastrand::usize(..friends.len())].id;
         let (side, vside) = to_net_side(visit::opposite(side));
         net.toss(friend, screenpet_net::Toss { kind: screenpet_core::weather::flurry_kind(kind), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false });
+    }
+
+    /// 집에 돌아온 내 동물의 일시 확대가 끝날 때가 됐으면 원래 크기로 (친구 화면에 가 있으면 돌아온 뒤에)
+    pub fn tick_boost(&mut self, app: &AppHandle, own: &mut Slot, now: Instant) {
+        if self.away.is_none() && self.boost_until.is_some_and(|t| now >= t) {
+            self.boost_until = None;
+            own.set_boost(app, 1.0);
+            eprintln!("own pet is back to its usual size");
+        }
     }
 
     /// 받지 않는 물건을 던진 친구에게 되돌린다: 그 친구 화면에서 나간 끝으로 다시 날아 들어간다 (포스트잇도 그대로)
@@ -683,6 +697,7 @@ impl Network {
                 note,
                 gift,
                 style: own.shown.style.to_wire(),
+                boost: (own.boost > 1.0).then_some(own.boost),
             },
         );
         visit_id
@@ -691,7 +706,8 @@ impl Network {
     /// 손님이 떠났다 (side 끝으로 걸어 나감 / 손 흔들고 사라짐): 주인에게 Leave.
     /// 집 쪽이 아닌 끝으로 나갔으면 그 끝의 (주인 아닌) 연결된 친구 하나를 next로 — 주인이 그 친구에게 이어 보낸다.
     /// 그새 아무도 없으면 next 없이 (집으로)
-    pub fn guest_left(&mut self, config: &Config, guest: &GuestInfo, side: Side, state: Option<visit::Guest>, fling: Option<visit::Fling>) {
+    pub fn guest_left(&mut self, config: &Config, guest: &GuestInfo, side: Side, state: Option<visit::Guest>, fling: Option<visit::Fling>, boost: f64) {
+        let boost = (boost > 1.0).then_some(boost);
         let sent = self.guest_sends.remove(&guest.visit_id);
         // 이 화면 주인이 쓴 답장은 집으로 갈 때만 싣는다 (다음 친구에게 가면 버린다)
         let reply = self.replies.take(&guest.visit_id);
@@ -704,13 +720,13 @@ impl Network {
             Some(next) => {
                 eprintln!("guest {visit_id} ({}) walks on to {next}", guest.owner_id);
                 let (side, vside) = to_net_side(side);
-                Visit::Leave { visit_id, next: Some(next), side: Some(side), vside, homesick_in: state.map(|g| g.homesick_in), fling: fling.map(to_net_fling), note: None }
+                Visit::Leave { visit_id, next: Some(next), side: Some(side), vside, homesick_in: state.map(|g| g.homesick_in), fling: fling.map(to_net_fling), note: None, boost }
             }
             // 집으로 (던져졌으면 그 움직임 그대로 주인 화면으로 날아간다)
             // 나간 끝을 실어 주인이 반대편으로 받게 한다 (예전 주인은 무시하고 나갔던 끝으로 받는다)
             None => {
                 let (side, vside) = to_net_side(side);
-                Visit::Leave { visit_id, next: None, side: Some(side), vside, homesick_in: None, fling: fling.map(to_net_fling), note: reply }
+                Visit::Leave { visit_id, next: None, side: Some(side), vside, homesick_in: None, fling: fling.map(to_net_fling), note: reply, boost }
             }
         };
         net.send(&guest.owner_id, msg);
@@ -1050,13 +1066,13 @@ impl Network {
 
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, boost, .. } => {
                 // 집중·하우스 중엔 새 손님을 받지 않는다: 던져졌으면 날아온 그대로, 걸어왔으면 걸어서 되돌아간다
                 // (걸어온 쪽은 바로 돌아온 것을 보고 잠깐 보내지 않는다 — QUICK_DECLINE)
                 if slots[0].pet.refuses_arrivals() {
                     eprintln!("sent back visit {visit_id} from {from}");
                     if let Some(net) = &self.net {
-                        net.send(from, Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling, note: None });
+                        net.send(from, Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling, note: None, boost: None });
                         net.ask(from, ASK_NOT_NOW);
                     }
                     return;
@@ -1066,7 +1082,7 @@ impl Network {
                 let result = if self.last_visit.get(from).is_some_and(|t| now.duration_since(*t) < VISIT_COOLDOWN) {
                     Err("too soon after the last visit".to_string())
                 } else {
-                    let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()) };
+                    let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()), boost };
                     self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival)
                 };
                 match result {
@@ -1091,17 +1107,26 @@ impl Network {
                     }
                 }
             }
-            Visit::Leave { visit_id, next, side, vside, homesick_in, fling, note } => {
+            Visit::Leave { visit_id, next, side, vside, homesick_in, fling, note, boost } => {
                 // 답장은 내 동물이 가 있던 그 친구(인증된 링크)가 그 방문을 집으로 돌려보낼 때만
                 let reply = visit::accept_reply(self.away.as_ref().map(|a| (a.friend.as_str(), a.visit_id)), from, visit_id, next.is_none(), note.as_deref());
                 let Some(a) = self.away.as_ref().filter(|a| a.friend == from && a.visit_id == visit_id) else { return };
                 let fling = fling.map(from_net_fling);
+                // 친구가 밥을 줘서 커졌다 (다듬어서, 더 작아지지는 않는다). 다음 친구에게 가도 그 크기다
+                let grown = visit::sanitize_boost(boost, slots[0].boost_cap());
+                if grown > slots[0].boost {
+                    slots[0].set_boost(app, grown);
+                }
                 // 보내자마자 그냥 돌아왔다 — 그 친구 화면이 꽉 찼다고 보고 잠깐 보내지 않는다
                 if next.is_none() && fling.is_none() && a.come_home_by.is_none() && a.since.elapsed() < QUICK_DECLINE {
                     self.full_until.insert(from.to_string(), Instant::now() + FULL_FOR);
                 }
                 let forwarded = next.is_some_and(|n| self.forward_visit(config, &slots[0], &n, side.map(|s| from_net_side(s, vside)), homesick_in, fling));
                 if !forwarded {
+                    // 집에 돌아오고 한참 뒤 원래 크기로 (게임 루프가 tick_boost를 부른다)
+                    if slots[0].boost > 1.0 {
+                        self.boost_until = Some(Instant::now() + Duration::from_secs(visit::BOOST_HOME_SECS));
+                    }
                     self.come_back(&mut slots[0], fling, side.map(|s| opposite(from_net_side(s, vside))));
                     if let Some(note) = reply {
                         // 돌아온 내 동물 머리 옆에 💌 — 누르면 "💌 <친구>: <답장>" (웹뷰는 textContent로만)
@@ -1162,6 +1187,10 @@ impl Network {
         if home != side || arrival.homesick_in.is_some() {
             let mut rng = fastrand::Rng::with_seed(seed);
             slot.pet.set_guest(home, visit::carried_homesick(arrival.homesick_in, &mut rng));
+        }
+        let boost = visit::sanitize_boost(arrival.boost, slot.boost_cap());
+        if boost > 1.0 {
+            slot.set_boost(app, boost);
         }
         // 던져져 넘어왔으면 옆 모니터에서 날아오듯 그 높이·속도로 들어온다
         if let Some(f) = arrival.fling {

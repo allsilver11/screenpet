@@ -77,6 +77,12 @@ fn lenient_fling<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Fling>
 pub const MAX_NOTE: usize = 80;
 
 /// An optional `note`; anything but a string is dropped instead of the whole message.
+/// An optional size multiplier; anything but a number is dropped instead of the whole message.
+fn lenient_boost<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.and_then(|v| v.as_f64()))
+}
+
 fn lenient_note<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     let v = Option::<serde_json::Value>::deserialize(d)?;
     Ok(match v {
@@ -184,6 +190,10 @@ pub enum Visit {
         /// know the value or has no such art. Older versions ignore it.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
         style: Option<String>,
+        /// A friend fed this pet and it is temporarily bigger (multiplier). The
+        /// receiver limits it; older versions ignore it.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_boost")]
+        boost: Option<f64>,
     },
     /// The guest left the receiver's friend's screen. `next: None` = it went
     /// home (also what older versions send). `next: Some(id)` = it walked out
@@ -211,6 +221,9 @@ pub enum Visit {
         /// ignore it and the pet just comes home.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_note")]
         note: Option<String>,
+        /// The host fed the guest: how much bigger it goes on (the owner limits it).
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_boost")]
+        boost: Option<f64>,
     },
     ComeHome {
         visit_id: u64,
@@ -220,7 +233,7 @@ pub enum Visit {
 impl Visit {
     /// A plain "went home" `Leave` (same wire shape as protocol v1 without roaming).
     pub fn leave(visit_id: u64) -> Visit {
-        Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling: None, note: None }
+        Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling: None, note: None, boost: None }
     }
 }
 
@@ -340,8 +353,7 @@ mod tests {
             fling: None,
             note: None,
             gift: None,
-            style: None,
-        });
+            style: None, boost: None });
         let v: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!(v["type"], "visit");
         assert_eq!(v["enter_side"], "left");
@@ -364,8 +376,7 @@ mod tests {
             fling: None,
             note: None,
             gift: None,
-            style: None,
-        });
+            style: None, boost: None });
         let v: serde_json::Value = serde_json::from_slice(&up.to_json()).unwrap();
         assert_eq!((v["enter_side"].as_str(), v["vside"].as_str()), (Some("left"), Some("down")));
         assert_eq!(Message::parse(&up.to_json()), Some(up.clone()));
@@ -378,7 +389,7 @@ mod tests {
         }
         let OldVisit::Visit { visit_id, enter_side } = serde_json::from_slice::<OldVisit>(&up.to_json()).unwrap() else { panic!() };
         assert_eq!((visit_id, enter_side), (7, Side::Left));
-        let leave = Message::Visit(Visit::Leave { visit_id: 9, next: Some("c".into()), side: Some(Side::Right), vside: Some(VSide::Up), homesick_in: None, fling: None, note: None });
+        let leave = Message::Visit(Visit::Leave { visit_id: 9, next: Some("c".into()), side: Some(Side::Right), vside: Some(VSide::Up), homesick_in: None, fling: None, note: None, boost: None });
         let j: serde_json::Value = serde_json::from_slice(&leave.to_json()).unwrap();
         assert_eq!((j["side"].as_str(), j["vside"].as_str()), (Some("right"), Some("up")));
         assert_eq!(Message::parse(&leave.to_json()), Some(leave.clone()));
@@ -401,7 +412,7 @@ mod tests {
         let leave = br#"{"type":"leave","visit_id":3,"next":"x","side":"up","vside":"north"}"#;
         assert_eq!(
             Message::parse(leave),
-            Some(Message::Visit(Visit::Leave { visit_id: 3, next: Some("x".into()), side: None, vside: None, homesick_in: None, fling: None, note: None }))
+            Some(Message::Visit(Visit::Leave { visit_id: 3, next: Some("x".into()), side: None, vside: None, homesick_in: None, fling: None, note: None, boost: None }))
         );
         let leave = br#"{"type":"leave","visit_id":3,"side":"left","vside":"down"}"#;
         assert!(matches!(Message::parse(leave), Some(Message::Visit(Visit::Leave { side: Some(Side::Left), vside: Some(VSide::Down), .. }))));
@@ -427,14 +438,14 @@ mod tests {
 
     #[test]
     fn leave_can_name_the_next_friend_and_stays_backward_compatible() {
-        let hop = Message::Visit(Visit::Leave { visit_id: 9, next: Some("xx".into()), side: Some(Side::Left), vside: None, homesick_in: Some(42.5), fling: None, note: None });
+        let hop = Message::Visit(Visit::Leave { visit_id: 9, next: Some("xx".into()), side: Some(Side::Left), vside: None, homesick_in: Some(42.5), fling: None, note: None, boost: None });
         let v: serde_json::Value = serde_json::from_slice(&hop.to_json()).unwrap();
         assert_eq!((v["next"].as_str(), v["side"].as_str(), v["homesick_in"].as_f64()), (Some("xx"), Some("left"), Some(42.5)));
         assert_eq!(Message::parse(&hop.to_json()), Some(hop));
         // 예전 판의 leave (next 없음) = 집으로
         assert_eq!(
             Message::parse(br#"{"type":"leave","visit_id":3}"#),
-            Some(Message::Visit(Visit::Leave { visit_id: 3, next: None, side: None, vside: None, homesick_in: None, fling: None, note: None }))
+            Some(Message::Visit(Visit::Leave { visit_id: 3, next: None, side: None, vside: None, homesick_in: None, fling: None, note: None, boost: None }))
         );
         // 집으로 가는 leave는 예전 판과 같은 모양
         assert_eq!(Message::Visit(Visit::leave(3)).to_json(), br#"{"type":"leave","visit_id":3}"#.to_vec());
@@ -459,8 +470,7 @@ mod tests {
             fling: None,
             note: None,
             gift: None,
-            style: None,
-        });
+            style: None, boost: None });
         assert_eq!(Message::parse(&hop.to_json()), Some(hop));
         // 새 필드를 모르는 받는 쪽도 읽을 수 있다 (모르는 필드는 무시)
         assert!(Message::parse(br#"{"type":"leave","visit_id":3,"next":"x","future":1}"#).is_some());
@@ -483,12 +493,11 @@ mod tests {
             fling: Some(f),
             note: None,
             gift: None,
-            style: None,
-        });
+            style: None, boost: None });
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!((j["fling"]["height"].as_f64(), j["fling"]["vx"].as_f64(), j["fling"]["vy"].as_f64()), (Some(0.25), Some(-640.0), Some(-120.5)));
         assert_eq!(Message::parse(&v.to_json()), Some(v));
-        let back = Message::Visit(Visit::Leave { visit_id: 5, next: None, side: Some(Side::Left), vside: None, homesick_in: None, fling: Some(f), note: None });
+        let back = Message::Visit(Visit::Leave { visit_id: 5, next: None, side: Some(Side::Left), vside: None, homesick_in: None, fling: Some(f), note: None, boost: None });
         assert_eq!(Message::parse(&back.to_json()), Some(back));
         // 던지기를 모르는 예전 판: 필드가 없으면 None (평소처럼 걸어 들어온다)
         let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
@@ -504,7 +513,7 @@ mod tests {
     #[test]
     fn a_visit_can_carry_a_gift_and_old_peers_ignore_it() {
         let Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, .. }) = visit_with_note(None) else { panic!() };
-        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift: Some("cat_yarn_shiny".into()), style: None });
+        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift: Some("cat_yarn_shiny".into()), style: None, boost: None });
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!(j["gift"], "cat_yarn_shiny");
         assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
@@ -542,8 +551,7 @@ mod tests {
             fling: None,
             note: note.map(str::to_string),
             gift: None,
-            style: None,
-        })
+            style: None, boost: None })
     }
 
     #[test]
@@ -574,7 +582,7 @@ mod tests {
 
     #[test]
     fn leave_can_carry_a_reply_and_old_owners_still_parse() {
-        let reply = |note: Option<&str>| Message::Visit(Visit::Leave { visit_id: 4, next: None, side: None, vside: None, homesick_in: None, fling: None, note: note.map(str::to_string) });
+        let reply = |note: Option<&str>| Message::Visit(Visit::Leave { visit_id: 4, next: None, side: None, vside: None, homesick_in: None, fling: None, note: note.map(str::to_string), boost: None });
         let m = reply(Some("잘 놀다 가 🐶"));
         let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!(j["note"].as_str(), Some("잘 놀다 가 🐶"));
@@ -712,7 +720,7 @@ mod tests {
     fn visit_style_is_optional_and_backward_compatible() {
         let Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift, .. }) = visit_with_note(None) else { panic!() };
         let visit_id_sent = visit_id;
-        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift, style: Some("pixel".into()) });
+        let v = Message::Visit(Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside, via, homesick_in, fling, note, gift, style: Some("pixel".into()), boost: None });
         assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
         // an old peer still reads it
         #[derive(Deserialize)]
@@ -736,5 +744,15 @@ mod tests {
     fn clamp_counts_characters() {
         assert_eq!(clamp_name(&"🐱".repeat(100)).chars().count(), MAX_NAME);
         assert_eq!(clamp_name("Ann"), "Ann");
+    }
+
+    #[test]
+    fn boost_is_optional_and_a_bad_one_does_not_lose_the_message() {
+        let leave = Message::Visit(Visit::leave(7));
+        assert!(!String::from_utf8(leave.to_json()).unwrap().contains("boost"));
+        let Some(Message::Visit(Visit::Leave { boost, .. })) = Message::parse(br#"{"type":"leave","visit_id":7,"boost":1.5}"#) else { panic!() };
+        assert_eq!(boost, Some(1.5));
+        let Some(Message::Visit(Visit::Leave { boost, visit_id, .. })) = Message::parse(br#"{"type":"leave","visit_id":7,"boost":"huge"}"#) else { panic!() };
+        assert_eq!((boost, visit_id), (None, 7));
     }
 }

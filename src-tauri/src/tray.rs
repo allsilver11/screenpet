@@ -22,6 +22,7 @@ const EASTER_EGG_ID: &str = "easter-egg";
 
 /// 손님 우클릭 메뉴 항목 id 앞부분 (뒤는 손님 창 라벨)
 const SEND_HOME_PREFIX: &str = "send-home:";
+const FEED_GUEST_PREFIX: &str = "feed-guest:";
 /// 손님 우클릭 "편지 써서 돌려보내기…" (+ 손님 창 label)
 const REPLY_PREFIX: &str = "reply:";
 /// 손님 우클릭 "<친구>에게 보내기" (뒤는 "<손님 창 라벨>|<친구 id>" — 라벨에는 |가 없다)
@@ -307,7 +308,8 @@ pub fn favorite_label(f: &FavoriteFood) -> String {
 pub fn guest_menu(app: &AppHandle, label: &str, owner: &str, targets: &[(String, String)]) -> tauri::Result<Menu<Wry>> {
     let item = MenuItem::with_id(app, format!("{SEND_HOME_PREFIX}{label}"), format!("{}에게 돌려보내기", menu_text(owner)), true, None::<&str>)?;
     let reply = MenuItem::with_id(app, format!("{REPLY_PREFIX}{label}"), "편지 써서 돌려보내기…", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&item, &reply])?;
+    let feed = MenuItem::with_id(app, format!("{FEED_GUEST_PREFIX}{label}"), "🍚 밥 주기 (잠깐 커져요)", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&feed, &item, &reply])?;
     if !targets.is_empty() {
         menu.append(&PredefinedMenuItem::separator(app)?)?;
     }
@@ -485,7 +487,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             other if crate::objects::handle_menu(app, other) => {}
             other => {
                 let net = |input| send(app, Input::Net(input));
-                if let Some(label) = other.strip_prefix(SEND_HOME_PREFIX) {
+                if let Some(label) = other.strip_prefix(FEED_GUEST_PREFIX) {
+                    send(app, Input::FeedGuest { label: label.to_string() });
+                } else if let Some(label) = other.strip_prefix(SEND_HOME_PREFIX) {
                     send(app, Input::SendHome { label: label.to_string() });
                 } else if let Some(label) = other.strip_prefix(REPLY_PREFIX) {
                     net(NetInput::EditReply(label.to_string()));
