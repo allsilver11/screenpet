@@ -607,6 +607,8 @@ pub struct Pet {
     ride_seen: f64,
     /// 탑에서 떨어지거나 내려오는 중 — 내려설 때까지 다른 머리에 다시 서지 않는다
     no_perch: bool,
+    /// 던지지 않고 그냥 놓았다 (떨어지는 동안 빨라져도 머리 위에 서고, 튕기지 않는다)
+    gentle_drop: bool,
     /// 발밑 모니터 작업 영역의 위 끝 (탑 높이 제한)
     ceiling: f64,
     rng: fastrand::Rng,
@@ -688,6 +690,7 @@ impl Pet {
             rider_on: false,
             ride_seen: 0.0,
             no_perch: false,
+            gentle_drop: false,
             ceiling: f64::NEG_INFINITY,
             rng: fastrand::Rng::with_seed(seed),
         }
@@ -2108,6 +2111,7 @@ impl Pet {
                 self.state = State::Air { anim: Anim::Fall };
                 self.thrown = true;
                 self.no_perch = false;
+                self.gentle_drop = crate::collide::logical_speed(vx, vy, self.cfg.dpi) < crate::collide::HIT_MIN_SPEED;
                 self.thrown_down = visit::aimed_down(vx, vy, self.cfg.dpi);
                 self.drop_check = true;
             }

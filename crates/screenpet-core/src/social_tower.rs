@@ -210,7 +210,7 @@ impl Social {
     }
 
     /// 떨어지던 동물의 발이 맨 위 동물 머리에 살며시 닿았으면 올라선다 (자는 친구는 그대로 잔다).
-    /// HIT_MIN_SPEED 이상이면 여기서 보지 않는다 — thrown_hits가 튕겨 낸다. 탑 가운데 층은 맨 위가 아니라서 그냥 지나가거나 부딪힌다.
+    /// 그냥 놓은 동물은 높은 데서 떨어져 빨라졌어도 올라선다. 던진 것이 HIT_MIN_SPEED 이상이면 여기서 보지 않는다 — thrown_hits가 튕겨 낸다. 탑 가운데 층은 맨 위가 아니라서 그냥 지나가거나 부딪힌다.
     /// 나는 동물은 끼지 않는다
     pub(super) fn perches<T: AsRef<Pet> + AsMut<Pet>>(&mut self, dt: f64, pets: &mut [T]) {
         for i in 0..self.snap.len() {
@@ -220,7 +220,7 @@ impl Social {
             }
             let Body { vx, vy, .. } = pets[i].as_ref().body;
             let dpi = pets[i].as_ref().cfg.dpi;
-            if vy < 0.0 || collide::logical_speed(vx, vy, dpi) >= HIT_MIN_SPEED {
+            if vy < 0.0 || (!pets[i].as_ref().is_gentle_drop() && collide::logical_speed(vx, vy, dpi) >= HIT_MIN_SPEED) {
                 continue;
             }
             let Some(was) = self.prev.iter().find(|s| s.key == a.key).copied() else { continue };

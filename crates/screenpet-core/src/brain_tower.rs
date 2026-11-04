@@ -90,6 +90,11 @@ impl Pet {
     }
 
     /// 떨어지는 중이라 머리 위에 내려설 수 있다 (폴짝 뛰는 중·탑에서 떨어지는 중·아래 친구를 노린 던지기는 아니다)
+    /// 사용자가 던지지 않고 그냥 놓아 떨어지는 중
+    pub fn is_gentle_drop(&self) -> bool {
+        self.gentle_drop && self.thrown
+    }
+
     pub fn can_perch(&self) -> bool {
         matches!(self.state, State::Air { anim: Anim::Fall })
             && !self.cfg.flies

@@ -398,6 +398,32 @@ fn dropped_at(x: f64, y: f64, seed: u64) -> Pet {
 }
 
 #[test]
+fn a_drop_from_high_up_still_stacks_when_it_lines_up_but_not_when_it_misses() {
+    let w = world(vec![]);
+    for (x, want) in [(805.0, true), (800.0 + 200.0, false)] {
+        let mut p = dropped_at(x, GROUND - HEAD - 600.0, 1);
+        let (cx, cy) = (p.body.x, p.body.y - 60.0);
+        p.update(DT, &w);
+        let mut pets = vec![p, ground(&w, friendly(), 800.0, 2)];
+        let mut s = Social::new(1);
+        s.tick(DT, &mut pets);
+        pets[0].pointer_up(cx, cy);
+        let (mut stacked, mut fastest) = (false, 0.0f64);
+        for _ in 0..120 {
+            pets[1].state = resting();
+            step(&mut s, &mut pets, &w);
+            fastest = fastest.max(pets[0].body.vy);
+            stacked |= pets[0].is_on_head();
+        }
+        assert_eq!(stacked, want, "x {x}");
+        assert!(fastest > crate::collide::HIT_MIN_SPEED, "fell fast: {fastest}");
+        if !want {
+            assert!(on_real_surface(&pets[0], &w));
+        }
+    }
+}
+
+#[test]
 fn a_gentle_drop_stacks_and_ends_on_a_real_surface() {
     let w = world(vec![]);
     let mut p = dropped_at(805.0, GROUND - HEAD - 20.0, 1);

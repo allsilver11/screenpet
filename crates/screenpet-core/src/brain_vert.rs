@@ -272,5 +272,6 @@ impl Pet {
         }
         self.thrown = true;
         self.thrown_down = false;
+        self.gentle_drop = false;
     }
 }

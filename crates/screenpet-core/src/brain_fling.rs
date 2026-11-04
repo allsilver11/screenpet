@@ -68,5 +68,6 @@ impl Pet {
         self.state = State::Air { anim: Anim::Fall };
         self.thrown = true;
         self.thrown_down = false;
+        self.gentle_drop = false;
     }
 }

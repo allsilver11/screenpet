@@ -405,7 +405,9 @@ impl Social {
                 if self.hit_cooldown.get(&key).is_some_and(|&until| self.clock < until) {
                     continue;
                 }
-                let Some((face, away, fast)) = self.touch(b, from, a.at(), a.half_w, HEAD_RISE * a.size, vx, vy, dpi) else { continue };
+                // 그냥 놓은 동물이 머리 위로 떨어지면 튕기지 않고 올라선다 (perches). 탑이 꽉 찼으면 평소처럼 튕긴다
+                let settles = pets[i].as_ref().is_gentle_drop() && a.perching && self.can_host(pets, j, a.size);
+                let Some((face, away, fast)) = self.touch(b, from, a.at(), a.half_w, HEAD_RISE * a.size, vx, vy, dpi).filter(|&(face, ..)| !(settles && face == collide::Face::Top)) else { continue };
                 pets[i].as_mut().bounce_off(face, away);
                 pets[j].as_mut().feel_hit(Hit { face, vx, vy, dir: -away, fast, poop: false });
                 self.snap[j] = Snap { engaged: true, ..Snap::of(pets[j].as_ref()) };

@@ -136,6 +136,7 @@ impl Pet {
         self.state = State::Air { anim: Anim::Fall };
         self.thrown = true;
         self.thrown_down = false;
+        self.gentle_drop = false;
     }
 
     pub(crate) fn force_throw_down(&mut self, vx: f64, vy: f64) {
