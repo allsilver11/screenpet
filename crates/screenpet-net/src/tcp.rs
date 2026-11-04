@@ -8,7 +8,7 @@ use crate::{Shared, TICK};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub(crate) struct TcpLink {
     /// Held for a whole frame, which can block for the write timeout.
@@ -99,15 +99,19 @@ fn wrap(stream: TcpStream) -> std::io::Result<(Arc<dyn FrameLink>, Box<dyn Frame
     Ok((Arc::new(TcpLink { writer: Mutex::new(writer), control, ip }), Box::new(TcpReader { stream, buf: Vec::new() })))
 }
 
-/// Accept incoming LAN connections until shutdown. Each joins the bounded
-/// unverified pool (evicting the oldest unverified link if needed); nothing
-/// here can panic the loop.
+/// Accept incoming LAN connections until shutdown. A connection over its
+/// address's budget, or over the handshake cap, is dropped here (no thread, no
+/// key exchange). Each other joins the bounded unverified pool (evicting the
+/// oldest unverified link if needed); nothing here can panic the loop.
 pub(crate) fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
     while !shared.stopping() {
         match listener.accept() {
-            Ok((stream, _)) => {
+            Ok((stream, from)) => {
+                if !shared.allow_inbound(&from.ip().to_string(), Instant::now()) {
+                    continue;
+                }
                 if let Ok((link, reader)) = wrap(stream) {
-                    let guard = shared.admit_inbound(link.clone());
+                    let Some(guard) = shared.admit_inbound(link.clone()) else { continue };
                     let s = shared.clone();
                     // On spawn failure the closure (link + guard) is dropped.
                     shared.spawn(move || {
@@ -145,7 +149,6 @@ pub(crate) fn dial(shared: &Arc<Shared>, peer_id: String, addr: SocketAddr) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
 
     /// A link whose peer never reads, with a writer stuck inside `send_frame`.
     fn stuck_link() -> (Arc<dyn FrameLink>, TcpStream) {

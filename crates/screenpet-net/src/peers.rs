@@ -141,6 +141,7 @@ pub(crate) fn run_session(
                         let name = clamp_name(&name);
                         match register(&shared, &ctx, &id, &name, friend, v) {
                             Reg::Ok => {
+                                guard.handshake_done();
                                 outcome = DialOutcome::Proven;
                                 registered = Some((id, name));
                             }

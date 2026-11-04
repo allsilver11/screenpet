@@ -84,7 +84,7 @@ pub(crate) fn admit_announcement(st: &mut State, id: &str, ip: IpAddr, now: Inst
 /// Count one event for `key`; `false` once it exceeds `limit` per window.
 /// The table is bounded: when full of live entries (e.g. spoofed sources) the
 /// oldest entry is evicted rather than refusing every new key.
-fn rate_allow<K: Hash + Eq + Clone>(table: &mut HashMap<K, (Instant, u32)>, key: K, now: Instant, limit: u32) -> bool {
+pub(crate) fn rate_allow<K: Hash + Eq + Clone>(table: &mut HashMap<K, (Instant, u32)>, key: K, now: Instant, limit: u32) -> bool {
     if table.len() >= MAX_TRACKED && !table.contains_key(&key) {
         table.retain(|_, (start, _)| now.duration_since(*start) < RATE_WINDOW);
         if table.len() >= MAX_TRACKED {

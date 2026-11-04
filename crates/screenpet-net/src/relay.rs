@@ -897,8 +897,15 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
                 client.send(Some(gen), Out::Text(json(&ClientMsg::Close { ch })));
                 return;
             };
+            if !shared.allow_inbound(&format!("{ADDR_PREFIX}{from}"), Instant::now()) {
+                client.send(Some(gen), Out::Text(json(&ClientMsg::Close { ch })));
+                return;
+            }
             let (link, reader) = new_channel(client, gen, ch, &key);
-            let guard = shared.admit_inbound(link.clone());
+            let Some(guard) = shared.admit_inbound(link.clone()) else {
+                link.close();
+                return;
+            };
             let s = shared.clone();
             let l = link.clone();
             if !shared.spawn(move || {

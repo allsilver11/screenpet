@@ -1287,9 +1287,11 @@ fn dialed_peer_answering_with_other_id_is_rejected() {
 fn connection_flood_does_not_kill_accept_loop() {
     let kz = key();
     let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
-    let mut flood: Vec<TcpStream> = (0..60).filter_map(|_| TcpStream::connect(local(port)).ok()).collect();
-    // Closed = evicted from the bounded unverified pool by newer connections;
-    // a read timeout = still held (awaiting handshake).
+    // From another address than the friend's (a flood from the friend's own
+    // address costs it that second: see the next test).
+    let mut flood: Vec<TcpStream> = (0..60).map(|_| connect_from([127, 0, 0, 2], port).expect("flood connection")).collect();
+    // Closed = over the address's budget, or evicted from the bounded
+    // unverified pool by newer connections; a read timeout = still held.
     let refused = flood
         .iter_mut()
         .map(|s| {
@@ -1308,6 +1310,25 @@ fn connection_flood_does_not_kill_accept_loop() {
     std::thread::sleep(Duration::from_millis(300));
     let _p = raw_friend_connect(port, &kz, "zzzz");
     assert!(wait_for(&rx, 5.0, is_connected).is_some(), "accept loop still serves friends");
+    net.shutdown();
+}
+
+#[test]
+fn a_flood_from_one_address_is_cut_off_and_recovers_within_a_second() {
+    let kz = key();
+    let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
+    let flood: Vec<TcpStream> = (0..25).map(|_| connect_from([127, 0, 0, 3], port).expect("flood connection")).collect();
+    // 예산이 바닥난 주소의 새 연결은 Noise를 시작하지도 못한다
+    let probe = connect_from([127, 0, 0, 3], port).expect("probe connection");
+    assert!(handshake(probe, &key(), true).is_err(), "no key exchange past the address's budget");
+    // 다른 주소는 그대로 받는다
+    let other = connect_from([127, 0, 0, 4], port).expect("other address");
+    assert!(handshake(other, &key(), true).is_ok(), "another address is served");
+    drop(flood);
+    // 그 주소도 잠시 뒤에는 다시 들어온다 (친구가 같은 공유기 뒤에 있어도 영영 막히지 않는다)
+    std::thread::sleep(Duration::from_millis(1100));
+    let _p = raw_friend_connect(port, &kz, "zzzz");
+    assert!(wait_for(&rx, 5.0, is_connected).is_some());
     net.shutdown();
 }
 
