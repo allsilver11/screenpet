@@ -19,7 +19,7 @@ pub const TUMBLE_SPEED: f64 = 110.0;
 /// 한 번 흔들린 뒤 다시 흔들리기까지 (초)
 pub const STOMP_CALM_SECS: f64 = 10.0;
 /// 자다 깨어 투덜대는 시간 (그 뒤 다시 잠든다)
-const WAKE_GRUMPY_SECS: f64 = 1.5;
+pub(super) const WAKE_GRUMPY_SECS: f64 = 1.5;
 
 impl Pet {
     /// 공룡이 막 쿵쾅을 시작했으면 true (한 번만)
@@ -91,12 +91,16 @@ impl Pet {
         // 창 안에서 노는 중엔 창 안 길을 따라가야 해서 흔들리기만, 공룡끼리도 서로 흔들리기만 (같이 데굴 구르면 끝이 없다)
         if tumble && !flying && self.inside.is_none() && !matches!(self.state, State::Special { .. }) {
             let dx = self.body.x - from_x;
-            let dir = if dx.abs() > 1.0 { dx.signum() } else { -self.facing };
-            self.pacing.after_beat = None;
-            self.clear_hover();
-            self.state = State::Tumble { remaining: behavior::range(&mut self.rng, TUMBLE_SECS), dir };
+            self.start_tumble(if dx.abs() > 1.0 { dx.signum() } else { -self.facing });
         }
         true
+    }
+
+    /// dir 쪽으로 데굴 넘어진다
+    pub(super) fn start_tumble(&mut self, dir: f64) {
+        self.pacing.after_beat = None;
+        self.clear_hover();
+        self.state = State::Tumble { remaining: behavior::range(&mut self.rng, TUMBLE_SECS), dir };
     }
 
     /// 데굴: 디딤판을 따라가며 dir 쪽으로 점점 느리게 미끄러진다 — 조각 끝에서 멈춘다. 끝나면 착지 자세로 일어선다

@@ -533,3 +533,6 @@ fn a_flee_without_a_coordinator_ends_by_itself() {
 /// 공룡 쿵쾅에 흔들리기
 #[path = "social_stomp_tests.rs"]
 mod stomp;
+
+#[path = "social_hit_tests.rs"]
+mod hit;

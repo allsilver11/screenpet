@@ -199,6 +199,10 @@ pub enum Speech {
     Ew,
     /// 똥을 밟고 꽈당 / 친구에게 머리를 밟힘 ("oof!", brain_poop.rs, brain_meet.rs)
     Oof,
+    /// 던져져 날다가 옆으로 부딪혀 되튐 ("ting!", brain_hit.rs)
+    Ting,
+    /// 날아온 것에 살짝 맞음 ("ow!", brain_hit.rs)
+    Ow,
 }
 
 impl Anim {
@@ -577,6 +581,8 @@ pub struct Pet {
     wobble_timer: f64,
     /// 이 시각(clock)까지는 쿵쾅에 다시 흔들리지 않는다
     stomp_calm_until: f64,
+    /// 이 시각(clock)까지는 날아온 것에 다시 맞지 않는다 (brain_hit.rs)
+    hit_calm_until: f64,
     /// 커서 장난·창 흔들림의 기억 (brain_cursor.rs)
     cursor_mood: cursor_moves::CursorMood,
     /// 눈이 쌓임·벚꽃잎 날림·방금 만든 눈사람 (brain_snow.rs)
@@ -660,6 +666,7 @@ impl Pet {
             stomp_out: false,
             wobble_timer: 0.0,
             stomp_calm_until: 0.0,
+            hit_calm_until: 0.0,
             cursor_mood: cursor_moves::CursorMood::new(),
             snow: Default::default(),
             cloud: Default::default(),
@@ -3095,6 +3102,9 @@ pub mod social_moves;
 /// 공룡 쿵쾅에 흔들리고 데굴 넘어지기 (누가 흔들리는지는 social.rs)
 #[path = "brain_stomp.rs"]
 pub mod stomp_moves;
+
+#[path = "brain_hit.rs"]
+mod hit_moves;
 
 #[path = "brain_poop.rs"]
 pub mod poop_moves;

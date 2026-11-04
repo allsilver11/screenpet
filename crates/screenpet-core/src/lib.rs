@@ -2,6 +2,7 @@ pub mod behavior;
 pub mod brain;
 pub mod broom;
 pub mod care;
+pub mod collide;
 pub mod config;
 pub mod flight;
 pub mod food;

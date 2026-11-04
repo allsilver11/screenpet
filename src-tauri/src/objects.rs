@@ -11,7 +11,9 @@ use std::time::{Duration, Instant};
 use screenpet_core::config::Config;
 use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE};
+use screenpet_core::brain::Pet;
 use screenpet_core::broom::Broom;
+use screenpet_core::social::Social;
 use screenpet_core::poop::PoopSpot;
 use screenpet_core::tumble::shape_of;
 use screenpet_core::platform::WindowSource;
@@ -302,6 +304,13 @@ impl Objects {
             if broom.passes_over(l.object.body.x, l.object.body.y, l.object.dpi()) {
                 l.object.sweep(vx, vy);
             }
+        }
+    }
+
+    /// 던져서 날아가는 물건이 동물에 부딪힌다 (같은 화면만 — 판정과 쿨다운은 코어 social.rs, 통신할 것이 없다)
+    pub fn hit_pets<T: AsRef<Pet> + AsMut<Pet>>(&mut self, social: &mut Social, dt: f64, pets: &mut [T]) {
+        for l in &mut self.live {
+            social.object_hits(l.id, &mut l.object, dt, pets);
         }
     }
 

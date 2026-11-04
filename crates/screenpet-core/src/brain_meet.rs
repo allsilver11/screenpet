@@ -19,7 +19,7 @@ const LANDING_SECS: f64 = 0.2;
 /// 밟히기를 기다리는 시간의 상한 (뛴 친구가 사라져도 스스로 끝낸다)
 const BRACE_MAX_SECS: f64 = 2.0;
 /// 밟힌 친구: Land (납작) 뒤 Annoyed
-const SQUASH_SECS: f64 = 1.0;
+pub(super) const SQUASH_SECS: f64 = 1.0;
 const SQUASH_GRUMPY_FROM: f64 = 0.75;
 /// 머리 꼭대기 높이 (발에서 몸 크기의 이 비율 위, brain.rs HEAD_TOP과 같다)
 pub const HEAD_RISE: f64 = HEAD_TOP;

@@ -6,6 +6,7 @@
 
 use std::collections::VecDeque;
 
+use crate::collide::{rebound, Face};
 use crate::physics::{clamp_speed, step_air, throw_velocity, Body, THROW_GRAVITY_LOGICAL, THROW_LIFT};
 use crate::tumble::{self, heft_of, shape_of, throw_spin, wobble_spin};
 use crate::visit::{self, ExitEdges, Fling, Side};
@@ -321,6 +322,26 @@ impl Object {
     /// 땅에서 구르는 중 (눕기 전)
     pub fn is_rolling(&self) -> bool {
         matches!(self.phase, Phase::Ground { settle: None, .. })
+    }
+
+    /// 던져져 날아가는 중 (동물에 부딪힐 수 있다). 떨어지거나 구르거나 들린 것은 아니다
+    pub fn in_flight(&self) -> bool {
+        self.phase == Phase::Air && self.thrown
+    }
+
+    /// 그려진 크기의 부딪힘 상자 (반 폭, 높이, 물리 px) — 똥은 작게 그려진다
+    pub fn hit_box(&self) -> (f64, f64) {
+        let hw = self.half_w() * self.scale;
+        (hw, 2.0 * hw)
+    }
+
+    /// 동물에 부딪혀 되튄다 (away = 맞은 몸에서 멀어지는 쪽). 비행은 이어지지만 아래 친구를 노린 것은 잊는다
+    pub fn bounce_off(&mut self, face: Face, away: f64) {
+        let (vx, vy) = rebound(face, self.body.vx, self.body.vy, away, self.dpi);
+        self.body.vx = vx;
+        self.body.vy = vy;
+        self.thrown_down = false;
+        self.spin *= -tumble::WALL_SPIN_KEEP;
     }
 
     /// 그림이 도는 축의 화면 자리 (물리 px): 창은 이곳을 가운데로 놓는다. 가장 낮은 점이 언제나 body.y에 온다
@@ -764,6 +785,18 @@ impl Object {
     /// 읽는 10초가 끝났다 (한 번만 참)
     pub fn take_note_ended(&mut self) -> bool {
         std::mem::take(&mut self.note_ended)
+    }
+}
+
+#[cfg(test)]
+impl Object {
+    /// 테스트: 지금 자리에서 (vx, vy)로 던져져 날아간다
+    pub(crate) fn force_throw(&mut self, vx: f64, vy: f64) {
+        self.body.vx = vx;
+        self.body.vy = vy;
+        self.standing = None;
+        self.phase = Phase::Air;
+        self.thrown = true;
     }
 }
 

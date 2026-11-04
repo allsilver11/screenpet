@@ -743,6 +743,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
 
         // 가까이 마주친 동물끼리 인사·술래 놀이 (손길·먹이·집 생각은 각 동물 update가 먼저 챙긴다)
         social.tick(dt, &mut slots);
+        // 던진 물건·똥이 동물에 부딪힌다 (동물 update 전에, 말풍선은 아래에서 나간다)
+        objects.hit_pets(&mut social, dt, &mut slots);
         // 연결된 친구가 있는 끝으로만 나간다
         network.set_exit_edges(&config, &mut slots);
         let mut own_exit = None;

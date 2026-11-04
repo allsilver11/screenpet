@@ -9,7 +9,9 @@
 use std::collections::HashMap;
 
 use crate::behavior::{self, Personality};
-use crate::physics::GRAVITY;
+use crate::collide::{self, Hit, HIT_FAST_SPEED, HIT_MIN_SPEED, HIT_PAIR_COOLDOWN};
+use crate::object::Object;
+use crate::physics::{Body, GRAVITY};
 use crate::brain::meet_moves::{MeetKind, CROUCH_SECS, HEAD_RISE};
 use crate::brain::social_moves::{GreetKind, SocialRole};
 use crate::brain::Pet;
@@ -106,6 +108,8 @@ struct Snap {
     facing: f64,
     half_w: f64,
     span: Option<(f64, f64)>,
+    /// 던져져 날아가는 중 (brain_hit.rs)
+    flung: bool,
 }
 
 impl Snap {
@@ -126,6 +130,7 @@ impl Snap {
             facing: p.facing,
             half_w: p.cfg.half_w,
             span: p.walk_span(),
+            flung: p.is_flung(),
         }
     }
 
@@ -203,6 +208,12 @@ pub struct Social {
     meet_chance: f64,
     /// 테스트: 이 만남만 고른다
     meet_only: Option<MeetKind>,
+    /// 지난 틱의 모습 (날다가 처음 닿는 순간을 본다) — snap과 번갈아 쓴다
+    prev: Vec<Snap>,
+    /// 짝 → 다시 부딪힐 수 있는 시각 (clock). 부딪힐 때만 넣고 정리한다
+    hit_cooldown: HashMap<(u64, u64), f64>,
+    /// (물건 번호, 동물) → 다시 부딪힐 수 있는 시각
+    object_cooldown: HashMap<(u64, u64), f64>,
 }
 
 fn pair(a: u64, b: u64) -> (u64, u64) {
@@ -211,7 +222,7 @@ fn pair(a: u64, b: u64) -> (u64, u64) {
 
 impl Social {
     pub fn new(seed: u64) -> Self {
-        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, meet_only: None }
+        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), object_cooldown: HashMap::new() }
     }
 
     /// 지금 놀이 중인 짝 수 (테스트·디버그용)
@@ -222,9 +233,11 @@ impl Social {
     /// 매 틱 (동물 update 전에) 화면 위 동물 전부로 부른다
     pub fn tick<T: AsRef<Pet> + AsMut<Pet>>(&mut self, dt: f64, pets: &mut [T]) {
         self.clock += dt;
+        std::mem::swap(&mut self.snap, &mut self.prev);
         self.snap.clear();
         self.snap.extend(pets.iter().map(|p| Snap::of(p.as_ref())));
         self.stomps(pets);
+        self.thrown_hits(dt, pets);
         self.step_meets(pets);
         self.step_links(dt, pets);
         self.find_head_ons(pets);
@@ -330,6 +343,82 @@ impl Social {
                     self.snap[j] = Snap { engaged: true, ..Snap::of(pets[j].as_ref()) };
                 }
             }
+        }
+    }
+
+    /// 던진 동물이 이번 틱에 다른 동물에 처음 닿았으면 되튀고, 맞은 쪽이 반응한다 (맞을 수 없는 동물은 그대로 지나간다).
+    /// 던진 동물이 없으면 할 일이 없다
+    fn thrown_hits<T: AsRef<Pet> + AsMut<Pet>>(&mut self, dt: f64, pets: &mut [T]) {
+        for i in 0..self.snap.len() {
+            if !self.snap[i].flung {
+                continue;
+            }
+            let a = self.snap[i];
+            let Some(from) = self.prev.iter().find(|s| s.key == a.key).map(Snap::at) else { continue };
+            // 화면 밖에서 위로 되돌아오거나 다른 화면에서 막 들어온 건 날아온 길이 아니다
+            let Body { vx, vy, .. } = pets[i].as_ref().body;
+            if (a.x - from.0).hypot(a.y - from.1) > 2.0 * vx.hypot(vy) * dt + a.size {
+                continue;
+            }
+            for j in 0..self.snap.len() {
+                if j == i || !pets[j].as_ref().hit_feels() {
+                    continue;
+                }
+                let b = self.snap[j];
+                let Body { vx, vy, .. } = pets[i].as_ref().body;
+                let dpi = pets[i].as_ref().cfg.dpi;
+                let key = pair(a.key, b.key);
+                if self.hit_cooldown.get(&key).is_some_and(|&until| self.clock < until) {
+                    continue;
+                }
+                let Some((face, away, fast)) = self.touch(b, from, a.at(), a.half_w, HEAD_RISE * a.size, vx, vy, dpi) else { continue };
+                pets[i].as_mut().bounce_off(face, away);
+                pets[j].as_mut().feel_hit(Hit { face, vx, vy, dir: -away, fast, poop: false });
+                self.snap[j] = Snap { engaged: true, ..Snap::of(pets[j].as_ref()) };
+                let now = self.clock;
+                self.hit_cooldown.retain(|_, until| *until > now);
+                self.hit_cooldown.insert(key, now + HIT_PAIR_COOLDOWN);
+            }
+        }
+    }
+
+    /// 움직이는 몸(from → now, 발 기준)이 이번 틱에 동물 b에 처음, 충분히 빠르게 닿았다: 들어온 쪽, 멀어지는 쪽, 빠른 충돌인가
+    #[allow(clippy::too_many_arguments)]
+    fn touch(&self, b: Snap, from: (f64, f64), now: (f64, f64), half_w: f64, height: f64, vx: f64, vy: f64, dpi: f64) -> Option<(collide::Face, f64, bool)> {
+        let speed = collide::logical_speed(vx, vy, dpi);
+        if speed < HIT_MIN_SPEED {
+            return None;
+        }
+        // 맞는 쪽도 움직인다 (걷기·달리기): 서로에 대한 상대 자리로 본다
+        let was = self.prev.iter().find(|s| s.key == b.key)?;
+        let rel_prev = (from.0 - was.x, from.1 - was.y);
+        let rel_now = (now.0 - b.x, now.1 - b.y);
+        let face = collide::entry(rel_prev, rel_now, half_w + b.half_w, HEAD_RISE * b.size, height)?;
+        Some((face, collide::away_from(rel_prev.0, vx, face), speed >= HIT_FAST_SPEED))
+    }
+
+    /// 던진 물건이 이번 틱에 동물에 처음 닿았으면 되튀고, 맞은 쪽이 반응한다 (똥이면 "ew!"). 게임 루프가 tick 바로 뒤에 물건마다 부른다 (날아가는 물건이 없으면 할 일이 없다)
+    pub fn object_hits<T: AsRef<Pet> + AsMut<Pet>>(&mut self, id: u64, object: &mut Object, dt: f64, pets: &mut [T]) {
+        if !object.in_flight() {
+            return;
+        }
+        for j in 0..self.snap.len().min(pets.len()) {
+            if !pets[j].as_ref().hit_feels() {
+                continue;
+            }
+            let b = self.snap[j];
+            let key = (id, b.key);
+            if self.object_cooldown.get(&key).is_some_and(|&until| self.clock < until) {
+                continue;
+            }
+            let Body { x, y, vx, vy } = object.body;
+            let (half_w, height) = object.hit_box();
+            let Some((face, away, fast)) = self.touch(b, (x - vx * dt, y - vy * dt), (x, y), half_w, height, vx, vy, object.dpi()) else { continue };
+            object.bounce_off(face, away);
+            pets[j].as_mut().feel_hit(Hit { face, vx, vy, dir: -away, fast, poop: object.kind.is_poop() });
+            let now = self.clock;
+            self.object_cooldown.retain(|_, until| *until > now);
+            self.object_cooldown.insert(key, now + HIT_PAIR_COOLDOWN);
         }
     }
 

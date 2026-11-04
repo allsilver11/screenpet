@@ -829,6 +829,9 @@ const EXTRA_SPEECH = {
   // 앞에 똥이 있다 / 똥을 밟고 꽈당·친구에게 머리를 밟힘
   ew: ["ew!", "yuck!"],
   oof: ["oof!", "ouch!"],
+  // 던져져 날다가 친구에게 부딪혀 되튐 / 날아온 것에 살짝 맞음
+  ting: ["ting!", "boink!"],
+  ow: ["ow!", "ouch!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {
