@@ -82,6 +82,7 @@ let lastPiles = "";
 let pileKind = null;
 let running = false;
 let timer = 0;
+let frameRequest = 0;
 let lastT = 0;
 let cursor = 0;
 let n = 0;
@@ -410,7 +411,9 @@ function frame(now) {
 
 // rAF는 창이 가려지면 쉬고, 타이머가 24 fps 아래로 묶어 둔다 (rAF만 쓰면 화면 주사율마다 깨어난다)
 function schedule() {
-  timer = setTimeout(() => requestAnimationFrame(frame), FRAME_MS);
+  timer = setTimeout(() => {
+    frameRequest = requestAnimationFrame(frame);
+  }, FRAME_MS);
 }
 
 function start() {
@@ -423,6 +426,8 @@ function start() {
 function stop() {
   running = false;
   clearTimeout(timer);
+  // 타이머가 이미 지나 rAF를 기다리는 중일 수 있다 (가려진 창은 오래 기다린다) — 안 끊으면 다시 켤 때 고리가 둘이 된다
+  cancelAnimationFrame(frameRequest);
   fallCtx.clearRect(0, 0, width, height);
   pilesCtx.clearRect(0, 0, width, height);
   lastPiles = "";
@@ -538,7 +543,6 @@ function fitCanvas() {
   height = window.innerHeight;
   pilesCanvas.width = fallCanvas.width = width;
   pilesCanvas.height = fallCanvas.height = height;
-  lastPiles = "";
   // 동글은 예전 그대로 (캔버스 스타일을 건드리지 않는다)
   if (pixelArt || pilesCanvas.style?.imageRendering) pilesCanvas.style.imageRendering = fallCanvas.style.imageRendering = pixelArt ? "pixelated" : "";
   if (kind) {
@@ -546,6 +550,8 @@ function fitCanvas() {
     kind = null;
     startKind(k);
   }
+  // 크기를 바꾸면 캔버스가 지워진다 — 장면이 다시 오길 기다리지 않는다 (멈춘 동안은 빈 채로, 그때 lastPiles도 비어 있다)
+  if (running) drawPiles();
 }
 
 // 스타일이 바뀌면 알갱이·더미를 새 그림으로
@@ -553,7 +559,6 @@ function setPixelArt(on) {
   if (on === pixelArt) return;
   pixelArt = on;
   fitCanvas();
-  if (running) drawPiles();
 }
 
 window.addEventListener("resize", fitCanvas);

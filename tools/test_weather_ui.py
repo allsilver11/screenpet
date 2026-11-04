@@ -109,6 +109,16 @@ def test_pausing_stops_all_work_and_resuming_restarts(run):
     assert run["drawsAfterResume"] > 0
 
 
+def test_pause_and_resume_never_stack_a_second_frame_loop(run):
+    assert run["loopsAfterPauseRace"] == 1
+
+
+def test_piles_come_back_after_a_resize(run):
+    wet = run["kind"] in ("rain", "shower")
+    assert run["pilesAfterResize"] == (0 if wet else 1)
+    assert run["pilesAfterPausedResize"] == 0
+
+
 def test_a_flake_or_drop_stays_the_same_and_petals_and_leaves_tumble(run):
     if run["kind"] in ("petals", "leaves"):
         assert run["tumbleSprites"] >= 4, "turns as it falls"

@@ -35,11 +35,14 @@ function run(kind) {
   let nextId = 1;
   const delays = [];
   let rafs = [];
+  const rafIds = new Map();
+  let nextRaf = 1;
+  let resized = null;
   let now = 0;
   let listener = null;
   const sandbox = {
     document: { getElementById: canvas, createElement: sprite, documentElement: { style: {} }, body: {} },
-    window: { innerWidth: W, innerHeight: H, addEventListener() {}, __TAURI__: { webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (_, f) => (listener = f) }) } } },
+    window: { innerWidth: W, innerHeight: H, addEventListener: (ev, f) => ev === "resize" && (resized = f), __TAURI__: { webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (_, f) => (listener = f) }) } } },
     performance: { now: () => now },
     setTimeout(f, ms) {
       delays.push(ms);
@@ -47,7 +50,14 @@ function run(kind) {
       return nextId++;
     },
     clearTimeout: (id) => timers.delete(id),
-    requestAnimationFrame: (f) => rafs.push(f),
+    requestAnimationFrame: (f) => {
+      const id = nextRaf++;
+      const once = (t) => rafIds.delete(id) && f(t);
+      rafIds.set(id, once);
+      rafs.push(once);
+      return id;
+    },
+    cancelAnimationFrame: (id) => rafIds.delete(id),
     location: { search: "" },
     console,
     Math,
@@ -132,6 +142,28 @@ function run(kind) {
   for (let i = 0; i < 10; i++) step();
   const drawsAfterResume = draws.length;
 
+  // 창 크기가 바뀌면 캔버스가 지워진다 — 같은 장면이 다시 오지 않아도 더미를 다시 그린다 (멈춰 있으면 안 그린다)
+  const clipsBefore = counts.clip || 0;
+  sandbox.window.innerWidth = W - 100;
+  resized();
+  const pilesAfterResize = (counts.clip || 0) - clipsBefore;
+  sandbox.window.innerWidth = W;
+  resized();
+  listener({ payload: { ...scene, paused: true } });
+  const clipsPaused = counts.clip || 0;
+  resized();
+  const pilesAfterPausedResize = (counts.clip || 0) - clipsPaused;
+
+  // 타이머는 지났는데 rAF가 아직 안 온 사이(가려진 창은 rAF가 쉰다)에 멈췄다 풀려도 그리기 고리는 하나다
+  listener({ payload: scene });
+  const dueNow = [...timers.values()];
+  timers.clear();
+  dueNow.forEach((f) => f());
+  listener({ payload: { ...scene, paused: true } });
+  listener({ payload: scene });
+  for (let i = 0; i < 5; i++) step();
+  const loopsAfterPauseRace = timers.size;
+
   // 쌓였던 더미가 비 오는 날 녹는 동안에도 제 그림 그대로
   const meltBefore = counts.drawImage || 0;
   listener({ payload: { ...scene, kind: "rain", piles: wet ? [] : [{ ...pile, h: [5, 15, 25, 15, 5] }] } });
@@ -157,6 +189,9 @@ function run(kind) {
     timersAfterRaf,
     drawsWhilePaused,
     drawsAfterResume,
+    pilesAfterResize,
+    pilesAfterPausedResize,
+    loopsAfterPauseRace,
     minDelay: Math.min(...delays),
     msPerFrame,
     particles,
