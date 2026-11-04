@@ -684,6 +684,12 @@ impl GuestGame {
         &self.phase
     }
 
+    /// The invite ended (closed by the host, host gone, timed out) before we
+    /// joined: nothing to report, the invite just goes away.
+    pub fn ended_unanswered(&self) -> bool {
+        self.phase.is_over() && self.mine.is_none()
+    }
+
     /// Join with a fresh token and committed nonce. `None` if already answered.
     pub fn join(&mut self, me: Seat, now: Instant) -> Option<LadderMsg> {
         if self.phase != Phase::Invited || !valid_seat(&me) {
@@ -1115,6 +1121,37 @@ mod tests {
         g.join(seat("일"), now).unwrap();
         g.on_host_disconnected();
         assert!(matches!(g.phase(), Phase::Cancelled { reason: CancelReason::Left, who: Some(n) } if n == "방장"));
+    }
+
+    #[test]
+    fn an_invite_that_ends_before_any_answer_is_marked_for_a_silent_close() {
+        let invite = |now| {
+            let (_, out) = HostGame::new(seat("방장"), &results(&[("a", "good")]), &ids(1), now).unwrap();
+            GuestGame::on_invite("host", out[0].1.clone(), now).unwrap()
+        };
+        let now = Instant::now();
+        let cancel = |g: &GuestGame| LadderMsg::LadderCancel { game_id: g.game_id(), reason: "host".into(), who: None };
+        // 아직 답을 기다리는 초대는 그대로 보인다
+        let mut g = invite(now);
+        assert!(!g.ended_unanswered());
+        // 방장이 닫음 · 방장이 끊김 · 시간 초과
+        let m = cancel(&g);
+        g.on_message(m, now);
+        assert!(g.ended_unanswered());
+        let mut g = invite(now);
+        g.on_host_disconnected();
+        assert!(g.ended_unanswered());
+        let mut g = invite(now);
+        g.tick(now + INVITE_TIMEOUT);
+        assert!(g.ended_unanswered());
+        // 참가한 뒤의 취소는 안내해야 한다
+        let mut g = invite(now);
+        g.join(seat("일"), now).unwrap();
+        assert!(!g.ended_unanswered());
+        let m = cancel(&g);
+        g.on_message(m, now);
+        assert!(g.phase().is_over());
+        assert!(!g.ended_unanswered());
     }
 
     #[test]

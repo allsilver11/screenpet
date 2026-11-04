@@ -404,15 +404,8 @@ impl Ladders {
             Game::Host(h) => send(ctx, h.tick(now)),
             Game::Guest(g) => {
                 let host = g.host_id().to_string();
-                let unanswered = *g.phase() == Phase::Invited;
                 if let Some(m) = g.tick(now) {
                     send(ctx, vec![(host, m)]);
-                    // 답하지 않은 초대가 시간이 지나 저절로 거절됐다 — 안내 없이 창을 닫는다
-                    if unanswered {
-                        self.game = None;
-                        self.hide_window(app);
-                        return;
-                    }
                 }
             }
         }
@@ -427,6 +420,12 @@ impl Ladders {
 
     /// 상태가 바뀐 뒤: 방금 끝났으면 결과 그림을 만들고 (방장은 진행 시작 신호도 보낸다), 화면을 맞춘다
     fn after_change(&mut self, app: &AppHandle, ctx: &Ctx, own: &Slot) -> Option<LastLadder> {
+        // 답하지 않은 초대가 끝났다 (시간 초과·방장이 닫음·방장이 끊김) — 안내 카드로 남기지 않고 창을 닫는다
+        if matches!(&self.game, Some(Game::Guest(g)) if g.ended_unanswered()) {
+            self.game = None;
+            self.hide_window(app);
+            return None;
+        }
         let mut last = None;
         let mut start_now = false;
         if self.layout.is_none() {
