@@ -314,7 +314,7 @@ def notes_tree(tmp_path, *tags):
 
 def test_release_notes_only_run_for_notes_on_main():
     wf = load(NOTES)
-    assert wf[True] == {"push": {"branches": ["main"], "paths": ["docs/releases/**"]}}
+    assert wf[True] == {"push": {"branches": ["main", "feat/phase3"], "paths": ["docs/releases/**"]}}
     assert wf["permissions"] == {"contents": "read"}
     assert notes_job()["permissions"] == {"contents": "write"}
 

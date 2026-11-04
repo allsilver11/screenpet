@@ -3,7 +3,7 @@ name: release notes
 # docs/releases/<태그>.md를 고치면 이미 있는 릴리즈의 소개글을 맞춘다. 글만 바꾸고 첨부 파일은 건드리지 않는다.
 on:
   push:
-    branches: [main]
+    branches: [main, feat/phase3]
     paths: ["docs/releases/**"]
 
 permissions:
