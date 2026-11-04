@@ -665,7 +665,7 @@ def dk_eat(sp, i):
     mx, my = dp._frame_to_pre(64, 84 + [0, 1, 0, 1][i])
     st_b = FLOOR - 4
     ry = 22 * _ST["body"] * _ST["torso"][1]
-    hr = 22 * _ST["head"]
+    hr = 25.0 * _ST["head"]  # duck() 앞모습 머리 반지름
     bcy = st_b - ry
     hy0 = bcy - ry * 0.6 - hr * 0.62
     want = my - hr * 0.3 - 6.5 * _ST["head"] ** 0.5 * 0.5
@@ -848,7 +848,7 @@ def gf_eat(sp, i):
         fx = []
         for x, y in crumbs:
             fx += [([C(x, y, 2.4)], LINE, 0), ([C(x, y, 1.5)], (255, 236, 200), 0)]
-    return giraffe(sp, side=False, neck_k=0.5, head=(0, hy - (b_y - 12)), eyes="happy" if bite else "closed",
+    return giraffe(sp, side=False, neck_ang=0.0, neck_k=0.5, head=(0, hy - (b_y - 12)), eyes="happy" if bite else "closed",
                    mouth="open" if bite else "chew", front_legs=[(-3, 0), (3, 0)], fx=fx)
 
 

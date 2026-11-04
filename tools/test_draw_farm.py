@@ -150,3 +150,32 @@ def test_neck_preview_shows_the_same_giraffe_on_2x_cells(tmp_path, st):
     frame = cell(sheet_128(d / f"sheet_{st}.png"), names(draw_farm.GIRAFFE).index("neckstretch"), 0)
     want = Image.alpha_composite(Image.new("RGBA", frame.size, bg), frame).convert("RGB")
     assert np.abs(np.asarray(got).astype(int) - np.asarray(want).astype(int)).mean() < 2.0
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_giraffe_eats_right_above_the_bowl(st):
+    """입이 그릇 밥 더미 바로 위, 프레임 (64, 84) — 목이 기울면 입이 옆으로 비껴 간다."""
+    sp = draw_farm.GIRAFFE
+    with draw_pets.stage(st, sp.stage_tweak.get(st)):
+        im = draw_pets.frames(draw_pets.staged_species(sp), "eat", 4)[0]
+    a = np.asarray(im.convert("RGBA")).astype(int)
+    near = lambda col: np.abs(a[..., :3] - col).sum(axis=2) < 12  # noqa: E731
+    mouth = (near(draw_pets.MOUTH_IN) | near(draw_pets.TONGUE)) & (a[..., 3] > 200)  # 작은 입은 혀가 다 채운다
+    ys, xs = np.nonzero(mouth)
+    assert abs(xs.mean() - 64) <= 1.0, (st, xs.mean())
+    assert abs(ys.mean() - 84) <= 3.0, (st, ys.mean())
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_duck_eat_puts_the_bill_on_the_bowl_with_the_real_head_radius(st, monkeypatch):
+    """dk_eat의 부리 자리 계산은 duck()의 앞모습 머리 반지름(25)과 같아야 한다."""
+    sp = draw_farm.DUCK
+    seen = []
+    real = draw_farm.duck_bill
+    monkeypatch.setattr(draw_farm, "duck_bill", lambda cx, cy, *a, **k: seen.append((cy, k["k"])) or real(cx, cy, *a, **k))
+    with draw_pets.stage(st, sp.stage_tweak.get(st)):
+        with draw_farm._in_view(draw_pets.staged_species(sp)):
+            my = draw_pets._frame_to_pre(64, 84)[1]
+            draw_farm.dk_eat(sp, 0)
+    cy, k = seen[0]
+    assert abs(cy + 6.5 * k * 0.5 - my) < 0.01, (st, cy, k, my)

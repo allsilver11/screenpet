@@ -360,7 +360,7 @@ def frog_front(sp, *, whole=None, head=None, body=None, arms=(F_ARM, F_ARM), hin
                             bumps = [C(38, 36, 16), C(90, 36, 16)]
                         puff = []
                         if cheeks:
-                            puff = [E(12, 56, 40, 86), E(88, 56, 116, 86)]
+                            puff = [E(88, 56, 116, 86)] if cheeks == "right" else [E(12, 56, 40, 86), E(88, 56, 116, 86)]
                         marks = [([E(34, 72, 94, 112)], sp.belly)] + _spots(sp, FRONT_SPOTS_HEAD)
                         if fs["pouch"]:
                             marks.append(([L(arc(64, 88, 14, 4, 20, 160, 10), 1.2)], mix(LINE, sp.belly, 0.55)))
@@ -451,7 +451,7 @@ def frog_tickle(sp, i):
                       arms=(a[i], a[(i + 1) % 3]))
 
 
-FLY_SPOT = (66, 86)  # eat: 혀 끝이 닿는 앞-아래 — 앱 소품 창의 그릇 밥 더미 위 (x 36–92, y ≈ 82)
+FLY_SPOT = (66, 86)  # eat: 혀 끝이 닿는 앞-아래 (프레임 좌표) — 앱 소품 창의 그릇 밥 더미 위 (x 36–92, y ≈ 82)
 
 
 def fly_fx(cx, cy, k=1.0):
@@ -475,7 +475,7 @@ def frog_hungry(sp, i):
     dx, dy = [(-2, 0), (0, 2), (2, 0)][i]
     rub = [(46, 90), (54 + dx, 100 + dy), (60 + dx, 106 + dy)]
     return frog_front(sp, eyes="closed", mouth="frown", brow="sad", head=dict(dy=2, rot=-4, pivot=(64, 96)),
-                      arms=(F_ARM, _mx(rub)), fx=fly_bubble_fx(22, 19))
+                      arms=(F_ARM, rub), fx=fly_bubble_fx(22, 19))
 
 
 def _tongue_ops(start, end, w=5.0):
@@ -499,7 +499,7 @@ def frog_eat(sp, i):
         return frog_front(sp, eyes="dot", mouth="open", head=dict(dy=3, pivot=(64, 96)))
     if i == 1:
         return frog_front(sp, eyes="tight", mouth="wide", head=dict(dy=4, pivot=(64, 96)),
-                          ops=_tongue_ops((mouth[0], mouth[1] + 4), FLY_SPOT))
+                          ops=_tongue_ops((mouth[0], mouth[1] + 4), dp._frame_to_pre(*FLY_SPOT)))
     if i == 2:
         return frog_front(sp, eyes="happy", mouth="chew", cheeks=True, head=dict(dy=2, pivot=(64, 96)))
     return frog_front(sp, eyes="closed", mouth="chew", cheeks="right", head=dict(dy=1, rot=-3, pivot=(64, 96)),

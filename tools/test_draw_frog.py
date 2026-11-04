@@ -1,8 +1,9 @@
 """개구리 시트 검사: 크기·투명 여백·모든 동작·pet.json·eat에 밥그릇 없음·뒷모습 앞발은 머리 뒤."""
 import json
 
+import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops
 
 import draw_frog
 import draw_pets
@@ -194,3 +195,40 @@ def test_back_view_is_not_cut_by_the_cell_or_nudged_between_frames():
         for n, im in enumerate(raw):
             x0, y0, x1, y1 = im.getchannel("A").getbbox()
             assert x0 >= 1 and y0 >= 1 and x1 <= FRAME - 1 and y1 <= FRAME - 1, (st, n, (x0, y0, x1, y1))
+
+
+def test_hungry_has_one_arm_on_each_side(monkeypatch):
+    """한 앞발로 배를 문지른다 — 두 팔이 다 왼쪽으로 몰리면 안 된다 (arms[1]은 frog_front가 좌우로 뒤집는다)."""
+    sp = draw_frog.FROG
+    tips = []
+    real = draw_frog._limb
+    monkeypatch.setattr(draw_frog, "_limb", lambda ch, *a, **k: (tips.append(ch[-1]) if k.get("pad_r") == 3.1 else None) or real(ch, *a, **k))
+    with draw_pets.stage("teenager"):
+        draw_frog.frog_hungry(sp, 1)
+    assert len(tips) == 2 and tips[0][0] < 64 < tips[1][0], tips
+
+
+def test_right_cheek_puff_changes_only_the_right_side():
+    """cheeks="right"는 오른쪽 볼만 (True는 양쪽)."""
+    sp = draw_frog.FROG
+    with draw_pets.stage("teenager"):
+        plain = draw_frog.frog_front(sp)
+        right = draw_frog.frog_front(sp, cheeks="right")
+        both = draw_frog.frog_front(sp, cheeks=True)
+    box = ImageChops.difference(plain.getchannel("A"), right.getchannel("A")).getbbox()
+    assert box and box[0] >= 64, box
+    assert ImageChops.difference(plain.getchannel("A"), both.getchannel("A")).getbbox()[0] < 64
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_tongue_tip_lands_on_the_fly_spot(st):
+    """FLY_SPOT은 프레임 좌표 — 단계마다 view 배율이 달라도 혀 끝이 그 자리에 온다."""
+    sp = draw_frog.FROG
+    with draw_pets.stage(st, sp.stage_tweak.get(st)):
+        im = draw_pets.frames(draw_pets.staged_species(sp), "eat", 4)[1]
+        k = sp.scale * draw_pets._ST["fit"]
+    a = np.asarray(im.convert("RGBA")).astype(int)
+    pink = (np.abs(a[..., :3] - draw_pets.TONGUE).sum(axis=2) < 12) & (a[..., 3] > 200)
+    bottom = np.nonzero(pink)[0].max() + 1
+    want = draw_frog.FLY_SPOT[1] + 5.0 * 0.95 * k  # 혀끝 원의 아래 끝
+    assert abs(bottom - want) <= 2.0, (st, bottom, want)  # 안티에일리어싱·_fit 1px씩
