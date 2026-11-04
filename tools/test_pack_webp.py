@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 from PIL import Image
 
 import pack_webp
@@ -50,8 +51,33 @@ def test_the_repo_app_reads_png_and_every_pet_sheet_url_uses_the_constant():
     assert "`pets_pixel/${id}/sheet_${stageName}.png`" in common
 
 
+def packed_platforms(ci):
+    """설치 파일을 만드는 작업마다 그 빌드 앞에서 그림을 꼭 변환하는지 보고, 만드는 플랫폼을 돌려준다."""
+    platforms = set()
+    for job in ci["jobs"].values():
+        runs = [step.get("run", "") for step in job["steps"]]
+        builds = [i for i, run in enumerate(runs) if "tauri build" in run]
+        if not builds:
+            continue
+        packs = [i for i, run in enumerate(runs) if "python tools/pack_webp.py" in run]
+        assert len(builds) == 1 and len(packs) == 1
+        assert packs[0] < builds[0], "installer built before packing"
+        assert "if" not in job["steps"][packs[0]], "packing must not be conditional"
+        matrix = job.get("strategy", {}).get("matrix", {}).get("include")
+        platforms |= {row["os"] for row in matrix} if matrix else {job["runs-on"]}
+    return platforms
+
+
 def test_the_build_packs_before_every_installer():
-    ci = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
-    assert ci.count("python tools/pack_webp.py") == 2
-    for build in ("npm run tauri build\n", "npm run tauri build -- --target universal-apple-darwin"):
-        assert ci.index("python tools/pack_webp.py") < ci.index(build)
+    ci = yaml.safe_load((ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8"))
+    assert packed_platforms(ci) == {"windows-latest", "macos-latest"}
+
+
+def test_the_packing_order_check_catches_a_late_pack():
+    ci = yaml.safe_load((ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8"))
+    for job in ci["jobs"].values():
+        job["steps"] = [s for s in job["steps"] if "pack_webp" not in s.get("run", "")] + [
+            s for s in job["steps"] if "pack_webp" in s.get("run", "")
+        ]
+    with pytest.raises(AssertionError, match="before packing"):
+        packed_platforms(ci)
