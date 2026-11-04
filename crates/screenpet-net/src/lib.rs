@@ -30,7 +30,7 @@ mod secure;
 mod tcp;
 mod transport;
 
-pub use noise::SAS_EMOJI;
+pub use noise::{hex32, to_hex, SAS_EMOJI};
 pub use protocol::{Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WirePlayer, WireResult, LADDER_MIN_VERSION, MAX_FRIENDS, MAX_NOTE, PROTOCOL_VERSION};
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 

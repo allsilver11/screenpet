@@ -68,7 +68,7 @@ pub(crate) fn generate_static_key() -> [u8; 32] {
     random32()
 }
 
-pub(crate) fn to_hex(b: &[u8]) -> String {
+pub fn to_hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
@@ -85,7 +85,7 @@ pub(crate) fn hex_array<const N: usize>(s: &str) -> Option<[u8; N]> {
 }
 
 /// Exactly 32 bytes of hex, else `None`.
-pub(crate) fn hex32(s: &str) -> Option<[u8; 32]> {
+pub fn hex32(s: &str) -> Option<[u8; 32]> {
     hex_array::<32>(s)
 }
 

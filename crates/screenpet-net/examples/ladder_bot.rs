@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use screenpet_core::ladder::{build, disambiguate, permutation, print_indices, trace};
 use screenpet_net::ladder::{DeclineReason, GuestGame, HostGame, LockedResult, Phase, Seat};
-use screenpet_net::{new_install_id, normalize_code, parse_relay_key, Friend, LadderMsg, Net, NetConfig, NetEvent, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, SAS_EMOJI};
+use screenpet_net::{hex32, new_install_id, normalize_code, parse_relay_key, to_hex, Friend, LadderMsg, Net, NetConfig, NetEvent, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, SAS_EMOJI};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default)]
@@ -70,27 +70,60 @@ struct State {
     friends: Vec<(String, String)>,
 }
 
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
+fn key_of(st: &State) -> Option<[u8; 32]> {
+    hex32(&st.key)
 }
 
-fn unhex32(s: &str) -> Option<[u8; 32]> {
-    (s.len() == 64).then(|| core::array::from_fn(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap_or(0)))
+/// bot.json에는 비밀키가 들어 있다 — 남이 못 읽게 잠근다 (Windows는 폴더의 ACL을 따른다)
+#[cfg(unix)]
+fn lock_state(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn lock_state(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn open_state(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)
+}
+
+#[cfg(not(unix))]
+fn open_state(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::create(path)
 }
 
 fn load(dir: &Path) -> State {
     let path = dir.join("bot.json");
     if let Some(st) = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
+        lock_state(&path).expect("lock state");
         return st;
     }
     std::fs::create_dir_all(dir).expect("state dir");
-    let st = State { id: new_install_id(), key: hex(&Net::generate_static_key()), friends: Vec::new() };
+    let st = State { id: new_install_id(), key: to_hex(&Net::generate_static_key()), friends: Vec::new() };
     save(dir, &st);
     st
 }
 
 fn save(dir: &Path, st: &State) {
-    std::fs::write(dir.join("bot.json"), serde_json::to_vec_pretty(st).expect("json")).expect("write state");
+    use std::io::Write;
+    let path = dir.join("bot.json");
+    // 이미 있는 파일은 mode가 듣지 않으므로 쓰기 전에 잠근다
+    if path.exists() {
+        lock_state(&path).expect("lock state");
+    }
+    let mut f = open_state(&path).expect("open state");
+    f.write_all(&serde_json::to_vec_pretty(st).expect("json")).expect("write state");
+}
+
+fn send_all(net: &Net, out: Vec<(String, LadderMsg)>) {
+    for (to, m) in out {
+        net.send_ladder(&to, m);
+    }
 }
 
 fn emoji(print: u32) -> String {
@@ -101,8 +134,11 @@ fn main() {
     let a = args();
     let dir = a.dir.clone().expect("checked");
     let mut st = load(&dir);
-    let key = unhex32(&st.key).expect("key in bot.json");
-    let friends = st.friends.iter().filter_map(|(id, k)| Some(Friend { id: id.clone(), public_key: unhex32(k)? })).collect();
+    let Some(key) = key_of(&st) else {
+        eprintln!("{}의 key가 hex 64자가 아니에요 — 파일을 지우면 새 봇으로 시작해요", dir.join("bot.json").display());
+        std::process::exit(2);
+    };
+    let friends = st.friends.iter().filter_map(|(id, k)| Some(Friend { id: id.clone(), public_key: hex32(k)? })).collect();
     let mut cfg = NetConfig::new(st.id.clone(), a.name.clone(), key, friends);
     cfg.discovery_port = 0;
     cfg.broadcast_to = SocketAddr::from(([255, 255, 255, 255], 47321));
@@ -148,9 +184,7 @@ fn main() {
                         println!("초대할 친구가 없어요 (연결된 새 판 친구 {}명)", friends.len());
                         continue;
                     };
-                    for (to, m) in out {
-                        net.send_ladder(&to, m);
-                    }
+                    send_all(&net, out);
                     println!("📨 {}명에게 초대를 보냈어요 (당첨 {winners}개)", friends.len());
                     host = Some((h, winners));
                     started = false;
@@ -160,9 +194,7 @@ fn main() {
                     if let Some((h, w)) = host.as_mut() {
                         match h.start(&preset(h.joined() + 1, *w), Instant::now()) {
                             Some(out) => {
-                                for (to, m) in out {
-                                    net.send_ladder(&to, m);
-                                }
+                                send_all(&net, out);
                                 started = true;
                             }
                             None => println!("아직 시작할 수 없어요 (참가 {}명)", h.joined()),
@@ -171,9 +203,7 @@ fn main() {
                 }
                 Some("q") => {
                     if let Some((h, _)) = host.as_mut() {
-                        for (to, m) in h.abort() {
-                            net.send_ladder(&to, m);
-                        }
+                        send_all(&net, h.abort());
                     }
                 }
                 Some("f") => {
@@ -215,16 +245,14 @@ fn main() {
                 println!("● {name} 연결됨 (판 v{})", net.peer_version(&id).unwrap_or(0));
                 online.insert(id.clone());
                 names.insert(id, name);
-                st.friends = net.friends().iter().map(|f| (f.id.clone(), hex(&f.public_key))).collect();
+                st.friends = net.friends().iter().map(|f| (f.id.clone(), to_hex(&f.public_key))).collect();
                 save(&dir, &st);
             }
             Ok(NetEvent::Disconnected { id }) => {
                 println!("○ {} 끊김", names.get(&id).map_or(id.as_str(), String::as_str));
                 online.remove(&id);
                 if let Some((h, _)) = host.as_mut() {
-                    for (to, m) in h.on_disconnected(&id, Instant::now()) {
-                        net.send_ladder(&to, m);
-                    }
+                    send_all(&net, h.on_disconnected(&id, Instant::now()));
                 }
                 if let Some(g) = game.as_mut().filter(|g| g.host_id() == id) {
                     g.on_host_disconnected();
@@ -262,9 +290,7 @@ fn main() {
             Ok(NetEvent::Ladder { from, msg }) => {
                 if let Some((h, _)) = host.as_mut() {
                     let answer = matches!(&msg, LadderMsg::LadderJoin { .. } | LadderMsg::LadderDecline { .. });
-                    for (to, m) in h.on_message(&from, msg, now) {
-                        net.send_ladder(&to, m);
-                    }
+                    send_all(&net, h.on_message(&from, msg, now));
                     if answer {
                         for (id, ans) in h.answers() {
                             println!("   {} → {ans:?}", names.get(&id).map_or(id.as_str(), String::as_str));
@@ -290,15 +316,11 @@ fn main() {
             Err(_) => return,
         }
         if let Some((h, w)) = host.as_mut() {
-            for (to, m) in h.tick(now) {
-                net.send_ladder(&to, m);
-            }
+            send_all(&net, h.tick(now));
             // 모두 답하면 저절로 시작 (미리 채운 칸이라 인원에 맞춰 다시 만든다)
             if !started && h.all_answered() && h.joined() > 0 && *h.phase() == Phase::Inviting {
                 if let Some(out) = h.start(&preset(h.joined() + 1, *w), now) {
-                    for (to, m) in out {
-                        net.send_ladder(&to, m);
-                    }
+                    send_all(&net, out);
                     started = true;
                 }
             }
@@ -350,7 +372,7 @@ fn report(phase: &Phase) {
             let perm = permutation(o.players.len(), &mut next);
             let ladder = build(&perm, &mut next);
             let names = disambiguate(&o.players.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
-            println!("✅ 결과 — 지문 {} · 시드 {}", emoji(o.print), hex(&o.seed));
+            println!("✅ 결과 — 지문 {} · 시드 {}", emoji(o.print), to_hex(&o.seed));
             for (i, name) in names.iter().enumerate() {
                 let end = *trace(&ladder, i).last().expect("path");
                 let mark = if i == o.me { " (나)" } else if i == o.host { " (방장)" } else { "" };
@@ -362,5 +384,44 @@ fn report(phase: &Phase) {
         Phase::Joined => println!("🙋 참가함"),
         Phase::Inviting => println!("⏳ 답 기다리는 중 (모두 답하면 시작, `s` = 지금 시작)"),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("screenpet-bot-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_state_file_with_the_key_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = temp_dir("perms");
+        let mode = |d: &Path| std::fs::metadata(d.join("bot.json")).unwrap().permissions().mode() & 0o777;
+        let st = load(&d);
+        assert_eq!(mode(&d), 0o600, "created private");
+        // 예전 봇이 남이 읽을 수 있게 만든 파일도 다시 저장하거나 읽을 때 잠근다
+        std::fs::set_permissions(d.join("bot.json"), std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(load(&d).key, st.key);
+        assert_eq!(mode(&d), 0o600, "locked on load");
+        std::fs::set_permissions(d.join("bot.json"), std::fs::Permissions::from_mode(0o644)).unwrap();
+        save(&d, &st);
+        assert_eq!(mode(&d), 0o600, "locked on save");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_broken_key_is_an_error_not_a_panic_or_a_zero_key() {
+        let st = |key: &str| State { id: "x".into(), key: key.into(), friends: Vec::new() };
+        assert_eq!(key_of(&st(&"ab".repeat(32))), Some([0xab; 32]));
+        assert_eq!(key_of(&st(&format!("{}x", "가".repeat(21)))), None, "64 bytes, not on char boundaries");
+        assert_eq!(key_of(&st(&"zz".repeat(32))), None, "not hex: used to become an all-zero key");
+        assert_eq!(key_of(&st("ab")), None);
     }
 }
