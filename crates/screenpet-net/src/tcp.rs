@@ -10,7 +10,13 @@ use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub(crate) struct TcpLink(Mutex<TcpStream>, String);
+pub(crate) struct TcpLink {
+    /// Held for a whole frame, which can block for the write timeout.
+    writer: Mutex<TcpStream>,
+    /// Shuts the socket down without that lock: closing never waits for a writer.
+    control: TcpStream,
+    ip: String,
+}
 
 impl FrameLink for TcpLink {
     fn send_frame(&self, frame: &[u8]) -> bool {
@@ -20,7 +26,7 @@ impl FrameLink for TcpLink {
         let mut out = Vec::with_capacity(frame.len() + 2);
         out.extend_from_slice(&(frame.len() as u16).to_be_bytes());
         out.extend_from_slice(frame);
-        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut s = self.writer.lock().unwrap_or_else(|e| e.into_inner());
         if s.write_all(&out).and_then(|_| s.flush()).is_err() {
             let _ = s.shutdown(Shutdown::Both);
             return false;
@@ -28,15 +34,13 @@ impl FrameLink for TcpLink {
         true
     }
     fn finish(&self) {
-        let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = s.shutdown(Shutdown::Write);
+        let _ = self.control.shutdown(Shutdown::Write);
     }
     fn close(&self) {
-        let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = s.shutdown(Shutdown::Both);
+        let _ = self.control.shutdown(Shutdown::Both);
     }
     fn peer_addr(&self) -> String {
-        self.1.clone()
+        self.ip.clone()
     }
 }
 
@@ -91,7 +95,8 @@ fn wrap(stream: TcpStream) -> std::io::Result<(Arc<dyn FrameLink>, Box<dyn Frame
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
     let writer = stream.try_clone()?;
     let ip = stream.peer_addr()?.ip().to_string();
-    Ok((Arc::new(TcpLink(Mutex::new(writer), ip)), Box::new(TcpReader { stream, buf: Vec::new() })))
+    let control = stream.try_clone()?;
+    Ok((Arc::new(TcpLink { writer: Mutex::new(writer), control, ip }), Box::new(TcpReader { stream, buf: Vec::new() })))
 }
 
 /// Accept incoming LAN connections until shutdown. Each joins the bounded
@@ -134,5 +139,39 @@ pub(crate) fn dial(shared: &Arc<Shared>, peer_id: String, addr: SocketAddr) {
     });
     if !spawned {
         dial_failed(shared, &peer_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    /// A link whose peer never reads, with a writer stuck inside `send_frame`.
+    fn stuck_link() -> (Arc<dyn FrameLink>, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (silent_peer, _) = listener.accept().unwrap();
+        let (link, _reader) = wrap(stream).unwrap();
+        let writer = link.clone();
+        std::thread::spawn(move || while writer.send_frame(&[0u8; MAX_FRAME]) {});
+        std::thread::sleep(Duration::from_millis(400)); // the socket buffer fills up; the writer blocks
+        (link, silent_peer)
+    }
+
+    #[test]
+    fn close_never_waits_for_a_stuck_writer() {
+        let (link, _peer) = stuck_link();
+        let t = Instant::now();
+        link.close();
+        assert!(t.elapsed() < Duration::from_millis(200), "close took {:?}", t.elapsed());
+    }
+
+    #[test]
+    fn finish_never_waits_for_a_stuck_writer() {
+        let (link, _peer) = stuck_link();
+        let t = Instant::now();
+        link.finish();
+        assert!(t.elapsed() < Duration::from_millis(200), "finish took {:?}", t.elapsed());
     }
 }
