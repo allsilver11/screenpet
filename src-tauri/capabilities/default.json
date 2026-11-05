@@ -3,7 +3,7 @@
     {
       "identifier": "events",
       "description": "모든 창: 앱이 보내는 이벤트 듣기만 (창·앱을 다루는 API와 이벤트 보내기는 주지 않는다)",
-      "windows": ["pet", "house", "guest-*", "pair", "code", "name", "letter", "ladder", "weather-*", "prop-gift-*", "book", "object-*", "postit"],
+      "windows": ["pet", "house", "guest-*", "pair", "code", "name", "size", "letter", "ladder", "weather-*", "prop-gift-*", "book", "object-*", "postit"],
       "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
     },
     {
@@ -30,6 +30,11 @@
       "identifier": "name-window",
       "windows": ["name"],
       "permissions": ["allow-name-state", "allow-name-submit", "allow-name-close"]
+    },
+    {
+      "identifier": "size-window",
+      "windows": ["size"],
+      "permissions": ["allow-size-state", "allow-size-set", "allow-size-close"]
     },
     {
       "identifier": "letter-window",

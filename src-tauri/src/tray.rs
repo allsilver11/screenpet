@@ -56,6 +56,7 @@ const WEATHER_ID: &str = "weather";
 const BROOM_ID: &str = "broom";
 /// 🐾 커서 장난 체크 항목 (설정에 남는다)
 const CURSOR_PLAY_ID: &str = "cursor-play";
+const SIZES_ID: &str = "sizes";
 const CURSOR_PLAY_LABEL: &str = "🐾 커서 장난";
 const POOP_ID: &str = "poop";
 const POOP_LABEL: &str = "💩 펫이 똥 싸기";
@@ -458,7 +459,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let my_pet = Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &pets_menu, &style_menu, &lock, &reset])?;
     let objects_menu = crate::objects::build_menu(app)?;
     let play = Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &gift_book])?;
-    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play])?;
+    let sizes = MenuItem::with_id(app, SIZES_ID, "📏 크기 조절…", true, None::<&str>)?;
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play, &sizes])?;
 
     // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어든다 (COME_HOME_POSITION)
     let menu = Menu::new(app)?;
@@ -502,6 +504,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "house" => send(app, Input::ToggleHouse),
             CONTROL_ID => send(app, Input::ToggleControl),
             CURSOR_PLAY_ID => send(app, Input::ToggleCursorPlay),
+            SIZES_ID => send(app, Input::ShowSizes),
             POOP_ID => send(app, Input::TogglePoop),
             WEATHER_ID => send(app, Input::ToggleWeather),
             BROOM_ID => send(app, Input::ToggleBroom),

@@ -97,6 +97,10 @@ pub enum Input {
     ShowHelp,
     /// 메뉴 "🎁 선물 도감" (창 만들기는 게임 루프 스레드에서)
     ShowGiftBook,
+    /// 📏 크기 조절 창을 연다
+    ShowSizes,
+    /// 크기 조절 창의 값 (%). save = 슬라이더를 놓았다: 파일에 남긴다
+    SetSizes { pet: u32, object: u32, save: bool },
     /// 저장하고 앱 종료
     Quit,
     /// 앱이 끝나는 중 (창이 닫힘·로그오프 등): 저장만 하고 알린 뒤 루프를 끝낸다
@@ -153,7 +157,7 @@ fn speech_target(pet: &Pet) -> &'static str {
 
 /// 내 동물의 단계(또는 동물)가 바뀌었을 때: 창 크기, 펫 크기, 웹뷰 시트
 fn apply_own_stage(app: &AppHandle, own: &mut Slot, care: &Care) {
-    let payload = slots::stage_payload(&own.entry, care.stage, own.shown.wanted, own.dpi);
+    let payload = slots::stage_payload(&own.entry, care.stage, own.shown.wanted, own.dpi, own.size());
     own.set_stage(app, payload);
     sync_growth(app, care);
 }
@@ -221,7 +225,7 @@ fn spawn_debug_guest(app: &AppHandle, slots: &mut Vec<Slot>) {
     let stage = Stage::Teenager;
     let scale = stage.scale() * entry.manifest.size_mult(stage);
     let guest = GuestInfo { visit_id: "debug".into(), owner_id: "debug".into(), owner_name: "디버그 친구".into(), note: None };
-    match slots::spawn_guest(app, guest, entry, stage, scale, slots[OWN].shown.wanted, slots[OWN].dpi, Side::Right, &slots[OWN].world, seed_now()) {
+    match slots::spawn_guest(app, guest, entry, stage, scale, slots[OWN].shown.wanted, slots[OWN].dpi, Side::Right, &slots[OWN].world, seed_now(), slots[OWN].size()) {
         Ok(slot) => slots.push(slot),
         Err(e) => eprintln!("failed to create debug guest window: {e}"),
     }
@@ -239,12 +243,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let dpi = window.scale_factor().unwrap_or(1.0);
     let mut source = default_source();
 
-    let shown = slots::stage_payload(&entry, care.stage, config.style, dpi);
+    let shown = slots::stage_payload(&entry, care.stage, config.style, dpi, config.pet_size());
     let cfg = slots::pet_config(dpi, &entry, shown.scale, shown.stage, shown.style);
     let world = World::new(source.windows(), source.work_areas(), cfg.size);
     let b = world.bounds;
     let pet = Pet::new(cfg, b.left + b.width() / 2.0, b.top + cfg.size, seed_now());
-    let mut slots = vec![Slot::new(OWN_LABEL.to_string(), Role::Own, entry, pet, window, world, dpi, shown.clone())];
+    let mut slots = vec![Slot::new(OWN_LABEL.to_string(), Role::Own, entry, pet, window, world, dpi, shown.clone(), config.pet_size())];
     // 창 크기·웹뷰 시트를 맞춘다
     slots[OWN].set_stage(&app, shown);
     slots[OWN].pet.set_hungry(care.is_hungry());
@@ -303,6 +307,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut presence = Presence::new(&app, config.focus_length);
     // 물건 (쓰레기 장난감 — 없거나 잠들어 있으면 일이 없다)
     let mut objects = Objects::new();
+    objects.set_size(&app, config.object_size());
     // 💩 왼쪽 버튼을 새로 누른 순간만 쓴다 (어디를 무엇을 눌렀는지는 보지도 남기지도 않는다)
     let mut was_left_down = false;
     let mut poop_spots = Vec::new();
@@ -613,6 +618,21 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::ShowHelp => crate::help::show(&app),
                 Input::ShowGiftBook => crate::gifts::show_book(&app),
+                Input::ShowSizes => crate::sizes::show(&app, &config),
+                Input::SetSizes { pet, object, save } => {
+                    config.set_sizes(pet, object);
+                    crate::sizes::remember(&config);
+                    for slot in slots.iter_mut() {
+                        slot.set_size(&app, config.pet_size());
+                    }
+                    objects.set_size(&app, config.object_size());
+                    if save {
+                        // 밥그릇·손 음식처럼 펫 크기로 만든 창을 맞추고 남긴다
+                        let own = &slots[OWN];
+                        props.restyle(&app, own.dpi, own.shown.scale, own.pixel_dot());
+                        save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                    }
+                }
                 Input::Quit => {
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     app.exit(0);

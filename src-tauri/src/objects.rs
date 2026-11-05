@@ -87,6 +87,13 @@ pub enum ObjectInput {
     ThrowVolley(String),
 }
 
+/// 크기 조절 창이 바꾼 그림 크기와 창 한 변 (`object-scale`)
+#[derive(Debug, Clone, Copy, Serialize)]
+struct ScalePayload {
+    scale: f64,
+    side: f64,
+}
+
 /// 웹뷰가 그릴 모습 (`object-pose`)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 struct PosePayload {
@@ -146,6 +153,16 @@ impl Live {
         PosePayload { angle: self.object.angle(), dx }
     }
 
+    fn set_scale(&mut self, app: &AppHandle, scale: f64) {
+        self.object.set_scale(scale);
+        let (w, h) = self.logical_size();
+        let dpi = self.object.dpi();
+        crate::overlay::resize_quietly(&self.window, self.hwnd, (w * dpi).round() as u32, (h * dpi).round() as u32);
+        self.last_pos = None;
+        let side = shape_of(self.object.kind).window_side_at(scale);
+        let _ = app.emit_to(self.label.as_str(), "object-scale", ScalePayload { scale, side });
+    }
+
     fn set_note_open(&mut self, open: bool) {
         if self.note_open == open {
             return;
@@ -180,6 +197,8 @@ pub struct Objects {
     budgets: HashMap<String, TossBudget>,
     /// "물건 10개 던지기"에서 아직 못 던진 것 (친구별)
     volleys: HashMap<String, Volley>,
+    /// 크기 조절 창의 물건 크기 배율
+    size: f64,
     /// 친구별 마지막으로 던진 때 (되돌아온 물건이 정말 내 것인지 본다)
     threw_at: HashMap<String, Instant>,
     started: Instant,
@@ -203,6 +222,7 @@ impl Objects {
             world: None,
             budgets: HashMap::new(),
             volleys: HashMap::new(),
+            size: 1.0,
             threw_at: HashMap::new(),
             started: now,
             ride_until: now,
@@ -269,17 +289,35 @@ impl Objects {
         self.sync_menu();
     }
 
+    /// 쓰레기의 그림 크기 배율 (똥은 싼 동물을 따라 따로 정한다)
+    fn scale_of(&self, kind: ObjectKind) -> f64 {
+        kind.base_scale() * self.size
+    }
+
+    /// 크기 조절 창: 화면 위 쓰레기까지 바로 바꾼다
+    pub fn set_size(&mut self, app: &AppHandle, size: f64) {
+        if size == self.size {
+            return;
+        }
+        self.size = size;
+        for l in self.live.iter_mut().filter(|l| !l.object.kind.is_poop()) {
+            l.set_scale(app, l.object.kind.base_scale() * size);
+        }
+    }
+
     /// 메뉴에서 만들기: 커서 근처(트레이에서 눌렀으면 그 위)에서 떨어진다. 넘치면 가장 오래된 내 물건이 뿅
     fn spawn_own(&mut self, app: &AppHandle, kind: ObjectKind, base: &World, cursor: (f64, f64)) {
         let id = self.next_id();
-        let Some(window) = build_window(app, id, kind, false, kind.base_scale()) else { return };
+        let scale = self.scale_of(kind);
+        let Some(window) = build_window(app, id, kind, false, scale) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let b = world.bounds;
         let size = OBJECT_LOGICAL_SIZE * dpi;
         let x = cursor.0.clamp(b.left + size / 2.0, (b.right - size / 2.0).max(b.left + size / 2.0));
         let y = (cursor.1 - size / 2.0).clamp(b.top + size, b.bottom.max(b.top + size));
-        let object = Object::new(kind, x, y, dpi, fastrand::u64(..));
+        let mut object = Object::new(kind, x, y, dpi, fastrand::u64(..));
+        object.set_scale(scale);
         self.admit(id, window, object, Origin::Own);
     }
 
@@ -356,10 +394,12 @@ impl Objects {
         }
         let Some((accepted, side)) = self.inbox.pop() else { return };
         let id = self.next_id();
-        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), accepted.kind.base_scale()) else { return };
+        let scale = self.scale_of(accepted.kind);
+        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), scale) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
+        object.set_scale(scale);
         object.receive_note(accepted.note);
         self.admit(id, window, object, Origin::Foreign);
     }
@@ -594,7 +634,7 @@ impl Objects {
             let mut rng = fastrand::Rng::new();
             for _ in 0..count {
                 let (kind, fling) = volley_piece(&mut rng);
-                network.toss_to(id, Toss { kind: kind.id().to_string(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None });
+                network.toss_to(id, Toss { kind: kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None });
             }
             !volley.is_done()
         });
@@ -613,7 +653,7 @@ impl Objects {
         self.budgets.entry(friend.clone()).or_default().spend(secs);
         self.threw_at.insert(friend.clone(), Instant::now());
         let (side, vside) = to_net_side(visit::opposite(exit.side));
-        let toss = Toss { kind: l.object.kind.id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()) };
+        let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()) };
         eprintln!("threw a {} to {friend}{}", l.object.kind.id(), if toss.note.is_some() { " with a post-it" } else { "" });
         network.toss_to(&friend, toss);
     }

@@ -74,7 +74,7 @@ fn a_dropped_object_falls_lands_and_sleeps() {
 #[test]
 fn an_object_never_moves_by_itself_between_gusts() {
     let w = floor();
-    let mut o = Object::new(ObjectKind::Sock, 800.0, 1040.0, 1.0, 7);
+    let mut o = Object::new(ObjectKind::Shirt, 800.0, 1040.0, 1.0, 7);
     run(&mut o, &w, 1.0);
     assert!(o.is_asleep());
     let at = o.body;
@@ -161,7 +161,7 @@ fn a_gust_is_the_same_roll_light_things_turn_over_heavy_things_barely_budge() {
     assert!(computer_turned < 60.0 && computer_went <= 30.0, "computer {computer_turned} {computer_went}");
     let (stone_turned, stone_went) = gust_of(ObjectKind::Stone);
     assert!(stone_turned < can_turned && stone_went <= 30.0, "stone {stone_turned} {stone_went}");
-    let (sock_turned, _) = gust_of(ObjectKind::Sock);
+    let (sock_turned, _) = gust_of(ObjectKind::Shirt);
     assert!(sock_turned < can_turned, "sock {sock_turned} can {can_turned}");
 }
 
@@ -392,7 +392,7 @@ fn it_flies_in_from_each_edge_keeping_height_and_speed() {
     assert!(o.body.vy < 0.0 && o.body.y <= 1040.0);
     // 어디서 왔든 결국 이 화면에 내려앉아 잠든다
     for side in [Side::Left, Side::Right, Side::Up, Side::Down] {
-        let mut o = Object::flown_in(ObjectKind::Sock, &w, side, Fling { height: 0.5, vx: 300.0, vy: -50.0 }, 1.0, 1);
+        let mut o = Object::flown_in(ObjectKind::Shirt, &w, side, Fling { height: 0.5, vx: 300.0, vy: -50.0 }, 1.0, 1);
         run(&mut o, &w, 8.0);
         assert!(o.is_asleep(), "{side:?}");
         assert!(o.body.x >= 0.0 && o.body.x <= 1920.0);
@@ -738,7 +738,7 @@ fn each_kind_rolls_its_own_way() {
     let (can_far, can_turn, _) = go(ObjectKind::Can, 1);
     let (paper_far, paper_turn, _) = go(ObjectKind::Paper, 1);
     let (computer_far, computer_turn, _) = go(ObjectKind::Computer, 1);
-    let (sock_far, sock_turn, _) = go(ObjectKind::Sock, 1);
+    let (sock_far, sock_turn, _) = go(ObjectKind::Shirt, 1);
     let (stone_far, stone_turn, _) = go(ObjectKind::Stone, 1);
     // 캔이 가장 멀리 구른다
     for (name, far) in [("paper", paper_far), ("computer", computer_far), ("sock", sock_far), ("stone", stone_far)] {
@@ -749,7 +749,7 @@ fn each_kind_rolls_its_own_way() {
     // 컴퓨터는 거의 안 구른다
     assert!(computer_turn < 120.0, "computer turned {computer_turn}");
     assert!(computer_turn * 4.0 < can_turn, "{computer_turn} vs {can_turn}");
-    // 양말은 철퍼덕 — 캔보다 훨씬 덜 돈다
+    // 티셔츠는 철퍼덕 — 캔보다 훨씬 덜 돈다
     assert!(sock_turn * 2.0 < can_turn, "sock {sock_turn} can {can_turn}");
     assert!(paper_turn > sock_turn, "paper {paper_turn} sock {sock_turn}");
 }
@@ -1294,4 +1294,19 @@ fn a_window_fits_the_drawn_size_but_never_goes_below_the_smallest_known_good_one
     }
     let can = crate::tumble::shape_of(ObjectKind::Paper);
     assert!(can.window_side_at(0.5) < can.window_side_at(1.0));
+}
+
+#[test]
+fn the_shirt_still_travels_as_sock_so_older_friends_can_catch_it() {
+    assert_eq!(ObjectKind::Shirt.wire_id(), "sock");
+    assert_eq!(ObjectKind::Shirt.id(), "shirt");
+    assert_eq!(ObjectKind::from_id("sock"), Some(ObjectKind::Shirt));
+    assert_eq!(ObjectKind::from_id("shirt"), Some(ObjectKind::Shirt));
+    for k in ObjectKind::ALL {
+        assert_eq!(ObjectKind::from_id(k.wire_id()), Some(k));
+        if k != ObjectKind::Shirt {
+            assert_eq!(k.wire_id(), k.id());
+        }
+    }
+    assert!(!ObjectKind::Shirt.label().contains("양말"));
 }

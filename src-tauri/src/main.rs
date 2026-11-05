@@ -13,6 +13,7 @@ mod overlay;
 mod pets;
 mod presence;
 mod prop;
+mod sizes;
 mod slots;
 mod tray;
 mod weather;
@@ -243,7 +244,7 @@ fn main() {
             let (tx, rx) = mpsc::channel();
             let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.style)?;
             // 화면 배율은 게임 루프가 창에서 읽어 다시 맞춘다
-            let stage = slots::stage_payload(&entry, care.stage, cfg.style, 1.0);
+            let stage = slots::stage_payload(&entry, care.stage, cfg.style, 1.0, cfg.pet_size());
             let house_state = HouseState {
                 pet: stage.pet.clone(),
                 stage: stage.stage,
@@ -288,6 +289,9 @@ fn main() {
             network::name_state,
             network::name_submit,
             network::name_close,
+            sizes::size_state,
+            sizes::size_set,
+            sizes::size_close,
             network::letter_state,
             network::letter_submit,
             network::letter_close,

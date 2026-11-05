@@ -1221,7 +1221,7 @@ impl Network {
         let side = arrival.enter_side;
         let home = config.friend(from).map_or(side, |f| f.side);
         let seed = fastrand::u64(..);
-        let mut slot = slots::spawn_guest(app, guest, entry, stage, scale, arrival.style, slots[0].dpi, side, &slots[0].world, seed)?;
+        let mut slot = slots::spawn_guest(app, guest, entry, stage, scale, arrival.style, slots[0].dpi, side, &slots[0].world, seed, slots[0].size())?;
         if home != side || arrival.homesick_in.is_some() {
             let mut rng = fastrand::Rng::with_seed(seed);
             slot.pet.set_guest(home, visit::carried_homesick(arrival.homesick_in, &mut rng));

@@ -112,7 +112,7 @@ pub fn shape_of(kind: ObjectKind) -> Shape {
         ObjectKind::Glasses => Shape { pivot: (64.0, 105.0), reach: 68.0, hull: &[(5.0, 74.0), (10.0, 73.0), (92.0, 85.0), (111.0, 89.0), (122.0, 97.0), (125.0, 106.0), (124.0, 114.0), (97.0, 127.0), (93.0, 128.0), (35.0, 128.0), (22.0, 120.0), (7.0, 87.0)] },
         ObjectKind::Computer => Shape { pivot: (65.0, 80.0), reach: 70.0, hull: &[(15.0, 48.0), (22.0, 41.0), (105.0, 26.0), (116.0, 36.0), (118.0, 51.0), (113.0, 108.0), (92.0, 126.0), (84.0, 128.0), (44.0, 128.0), (36.0, 126.0), (18.0, 112.0), (15.0, 107.0)] },
         ObjectKind::Milk => Shape { pivot: (64.0, 92.0), reach: 46.0, hull: &[(38.0, 92.0), (39.0, 80.0), (46.0, 52.0), (82.0, 52.0), (88.0, 76.0), (91.0, 111.0), (91.0, 115.0), (89.0, 127.0), (88.0, 128.0), (41.0, 128.0), (39.0, 126.0), (38.0, 115.0)] },
-        ObjectKind::Sock => Shape { pivot: (62.0, 112.0), reach: 62.0, hull: &[(2.0, 111.0), (4.0, 100.0), (16.0, 94.0), (84.0, 93.0), (113.0, 97.0), (119.0, 100.0), (122.0, 107.0), (122.0, 119.0), (119.0, 125.0), (110.0, 128.0), (8.0, 128.0), (3.0, 124.0)] },
+        ObjectKind::Shirt => Shape { pivot: (65.0, 93.0), reach: 60.0, hull: &[(8.0, 82.0), (31.0, 62.0), (39.0, 59.0), (87.0, 59.0), (113.0, 72.0), (123.0, 83.0), (122.0, 93.0), (104.0, 124.0), (91.0, 128.0), (38.0, 128.0), (26.0, 123.0), (8.0, 88.0)] },
         ObjectKind::Umbrella => Shape { pivot: (67.0, 69.0), reach: 57.0, hull: &[(23.0, 67.0), (37.0, 50.0), (62.0, 31.0), (67.0, 31.0), (109.0, 43.0), (115.0, 45.0), (112.0, 75.0), (64.0, 123.0), (59.0, 124.0), (50.0, 122.0), (48.0, 120.0), (23.0, 75.0)] },
         ObjectKind::Poop => Shape { pivot: (64.0, 98.0), reach: 46.0, hull: &[(24.0, 103.0), (36.0, 79.0), (70.0, 55.0), (78.0, 57.0), (92.0, 79.0), (104.0, 103.0), (105.0, 111.0), (98.0, 121.0), (81.0, 126.0), (47.0, 126.0), (30.0, 121.0), (24.0, 114.0)] },
         ObjectKind::Dropping => Shape { pivot: (64.0, 106.0), reach: 34.0, hull: &[(35.0, 109.0), (44.0, 91.0), (67.0, 75.0), (74.0, 75.0), (84.0, 91.0), (93.0, 109.0), (93.0, 119.0), (85.0, 125.0), (76.0, 127.0), (52.0, 127.0), (43.0, 125.0), (35.0, 119.0)] },
@@ -156,8 +156,8 @@ pub fn heft_of(kind: ObjectKind) -> Heft {
         // 컴퓨터: 무거워서 거의 안 구른다
         ObjectKind::Computer => h(0.05, 70.0, 2000.0, 70.0, 14.0, 0.12, 0.45, 0.4, 0.0),
         ObjectKind::Milk => h(0.5, 720.0, 520.0, 24.0, 8.0, 0.35, 0.75, 0.7, 30.0),
-        // 양말: 흐물흐물 — 천천히 돌다 철퍼덕 떨어져 거의 안 튀고 안 구른다
-        ObjectKind::Sock => h(0.25, 380.0, 1500.0, 60.0, 18.0, 0.05, 0.35, 0.15, 25.0),
+        // 티셔츠: 흐물흐물 — 천천히 돌다 철퍼덕 떨어져 거의 안 튀고 안 구른다
+        ObjectKind::Shirt => h(0.25, 380.0, 1500.0, 60.0, 18.0, 0.05, 0.35, 0.15, 25.0),
         ObjectKind::Umbrella => h(0.4, 600.0, 950.0, 34.0, 10.0, 0.2, 0.65, 0.55, 40.0),
         // 똥: 철퍽 붙어 거의 안 튀고, 무겁게 데굴 구르다 멈춘다
         ObjectKind::Poop | ObjectKind::Dropping | ObjectKind::Pellets => h(0.3, 420.0, 900.0, 18.0, 16.0, 0.04, 0.5, 0.2, 15.0),
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn each_kind_has_its_own_heft() {
-        let (can, paper, computer, sock) = (heft_of(ObjectKind::Can), heft_of(ObjectKind::Paper), heft_of(ObjectKind::Computer), heft_of(ObjectKind::Sock));
+        let (can, paper, computer, sock) = (heft_of(ObjectKind::Can), heft_of(ObjectKind::Paper), heft_of(ObjectKind::Computer), heft_of(ObjectKind::Shirt));
         for kind in ObjectKind::ALL {
             let h = heft_of(kind);
             assert!(can.friction <= h.friction, "the can rolls farthest: {kind:?}");
@@ -225,7 +225,7 @@ mod tests {
         // 돌멩이는 묵직하다: 안 튀고 금방 멈춘다
         let stone = heft_of(ObjectKind::Stone);
         assert!(stone.friction > can.friction * 4.0 && stone.bounce < can.bounce / 3.0 && stone.jitter == 0.0);
-        // 양말은 철퍼덕
+        // 티셔츠는 철퍼덕
         assert!(sock.roll_radius > can.roll_radius * 2.0 && sock.bounce < can.bounce / 2.0);
     }
 

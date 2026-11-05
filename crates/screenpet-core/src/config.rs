@@ -51,6 +51,12 @@ pub struct Config {
     /// 🎁 주운 선물 (도감). 잘못된 줄은 건너뛴다
     #[serde(default, skip_serializing_if = "GiftBook::is_empty")]
     pub gifts: GiftBook,
+    /// 📏 펫 크기 (%). 없으면 100
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pet_size_pct: Option<u32>,
+    /// 📏 물건 크기 (%). 없으면 100
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    object_size_pct: Option<u32>,
     /// 🐾 커서 장난을 메뉴에서 껐다 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cursor_play_off: bool,
@@ -124,6 +130,14 @@ pub fn sanitize_name(raw: &str) -> Option<String> {
 /// 값이 깨졌으면 기본값으로 — 설정 전체를 버리지 않는다
 fn lenient<'de, T: serde::de::DeserializeOwned + Default, D: serde::Deserializer<'de>>(d: D) -> Result<T, D::Error> {
     Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
+}
+
+/// 📏 크기 조절 슬라이더의 범위와 기본값 (%)
+pub const SIZE_PCT_RANGE: (u32, u32) = (50, 150);
+pub const SIZE_PCT_DEFAULT: u32 = 100;
+
+fn clean_size_pct(pct: Option<u32>) -> u32 {
+    pct.unwrap_or(SIZE_PCT_DEFAULT).clamp(SIZE_PCT_RANGE.0, SIZE_PCT_RANGE.1)
 }
 
 /// 친구: id(이름표) + 고정된 정적 공개키(신원) + 표시 이름 + 내 화면의 어느 끝에 연결됐는지
@@ -245,6 +259,31 @@ impl Config {
         let changed = self.owner_name != name;
         self.owner_name = name;
         changed
+    }
+
+    pub fn pet_size_pct(&self) -> u32 {
+        clean_size_pct(self.pet_size_pct)
+    }
+
+    pub fn object_size_pct(&self) -> u32 {
+        clean_size_pct(self.object_size_pct)
+    }
+
+    /// 펫 크기 배율 (내 화면에만, 1.0 = 기본)
+    pub fn pet_size(&self) -> f64 {
+        f64::from(self.pet_size_pct()) / 100.0
+    }
+
+    /// 쓰레기 크기 배율 (내 화면에만, 1.0 = 기본)
+    pub fn object_size(&self) -> f64 {
+        f64::from(self.object_size_pct()) / 100.0
+    }
+
+    /// 크기 조절 창의 값을 넣는다 (범위 밖은 안으로, 기본값은 파일에 안 남긴다)
+    pub fn set_sizes(&mut self, pet: u32, object: u32) {
+        let keep = |pct: u32| Some(clean_size_pct(Some(pct))).filter(|&p| p != SIZE_PCT_DEFAULT);
+        self.pet_size_pct = keep(pet);
+        self.object_size_pct = keep(object);
     }
 
     /// 친구들에게 보일 내 이름: 정한 이름, 없으면 "친구" (컴퓨터 사용자 이름은 같은 망에 알리지 않는다)
@@ -512,6 +551,37 @@ fn private_file(path: &Path) -> std::io::Result<std::fs::File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sizes_default_to_100_percent_and_stay_in_range() {
+        let mut c: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!((c.pet_size_pct(), c.object_size_pct()), (SIZE_PCT_DEFAULT, SIZE_PCT_DEFAULT));
+        assert_eq!((c.pet_size(), c.object_size()), (1.0, 1.0));
+        c.set_sizes(10, 900);
+        assert_eq!((c.pet_size_pct(), c.object_size_pct()), SIZE_PCT_RANGE);
+        c.set_sizes(125, 75);
+        assert_eq!((c.pet_size(), c.object_size()), (1.25, 0.75));
+    }
+
+    #[test]
+    fn sizes_survive_a_restart_and_default_is_not_written() {
+        let mut c: Config = serde_json::from_str("{}").unwrap();
+        c.set_sizes(125, 75);
+        let saved = serde_json::to_string(&c).unwrap();
+        let back: Config = serde_json::from_str(&saved).unwrap();
+        assert_eq!((back.pet_size_pct(), back.object_size_pct()), (125, 75));
+        c.set_sizes(SIZE_PCT_DEFAULT, SIZE_PCT_DEFAULT);
+        let saved = serde_json::to_string(&c).unwrap();
+        assert!(!saved.contains("size_pct"), "{saved}");
+    }
+
+    #[test]
+    fn a_broken_size_in_the_file_does_not_lose_the_config() {
+        let c: Config = serde_json::from_str(r#"{"pet_size_pct":"huge","object_size_pct":9000,"housed":true}"#).unwrap();
+        assert!(c.housed);
+        assert_eq!(c.pet_size_pct(), SIZE_PCT_DEFAULT);
+        assert_eq!(c.object_size_pct(), SIZE_PCT_RANGE.1);
+    }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("screenpet-test-{name}-{}", std::process::id()));

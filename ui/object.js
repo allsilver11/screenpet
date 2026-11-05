@@ -12,7 +12,7 @@ const POSTIT_AT = {
   glasses: [40, 100],
   computer: [92, 72],
   milk: [74, 92],
-  sock: [81, 110],
+  shirt: [64, 100],
   umbrella: [44, 66],
 };
 
@@ -25,12 +25,12 @@ const note = document.getElementById("note");
 const spot = POSTIT_AT[info.kind] || POSTIT_AT.can;
 const SCALE = 96 / 128;
 // 그림 크기 배율 (앱이 정한다: 쓰레기는 절반, 똥은 싼 동물 크기를 따른다). 코어 Object::scale과 같은 값
-const DRAW_SCALE = info.scale || 1;
+let DRAW_SCALE = info.scale || 1;
 const IS_POOP = ["poop", "dropping", "pellets"].includes(info.kind);
 // 픽셀 똥은 칸이 정수라 동글보다 조금 크게 잡아야 단계 차이가 난다
 const PIXEL_POOP_DOT = 1.2;
 // 축을 아래쪽 정사각형(한 변 side)의 가운데에 놓는다 (창이 쪽지로 넓어져도 그대로, objects.rs logical_size)
-const side = info.side || 112;
+let side = info.side || 112;
 const [rawPivotX, pivotY0] = info.pivot || [48, 72];
 let pivotX = rawPivotX;
 let pivotY = pivotY0;
@@ -153,6 +153,13 @@ window.addEventListener("contextmenu", (e) => e.preventDefault());
 window.addEventListener("dragstart", (e) => e.preventDefault());
 
 here.listen("object-pose", ({ payload: p }) => applyPose(p));
+// 크기 조절 창에서 물건 크기를 바꿨다
+here.listen("object-scale", ({ payload: p }) => {
+  DRAW_SCALE = p.scale;
+  side = p.side;
+  layout();
+  applyPose(lastPose);
+});
 here.listen("art-style", (e) => applyArt(e.payload === "pixel"));
 here.listen("object-sticker", ({ payload: on }) => {
   sticker.hidden = !on;

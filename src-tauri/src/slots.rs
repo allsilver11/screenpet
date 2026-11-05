@@ -54,13 +54,14 @@ pub struct StagePayload {
 }
 
 /// stage 단계의 시트·크기. dpi는 픽셀 칸을 물리 px에 맞추는 데만 쓴다
-pub fn stage_payload(entry: &PetEntry, stage: Stage, wanted: PetStyle, dpi: f64) -> StagePayload {
+/// size = 크기 조절 창의 펫 크기 배율 (친구에게 보내는 base에는 들어가지 않는다 — 내 화면에만)
+pub fn stage_payload(entry: &PetEntry, stage: Stage, wanted: PetStyle, dpi: f64, size: f64) -> StagePayload {
     let mult = entry.manifest.size_mult(stage);
     let base = stage.scale() * mult;
     let shown = entry.shown_style(wanted);
     let scale = match shown {
-        PetStyle::Round => base,
-        PetStyle::Pixel => style::pixel_body_scale(entry.art(shown).frame_size_at(stage.name()), stage, dpi),
+        PetStyle::Round => base * size,
+        PetStyle::Pixel => style::pixel_body_scale_at(entry.art(shown).frame_size_at(stage.name()), stage, dpi, size),
     };
     StagePayload { pet: entry.id.clone(), stage, scale, base, style: shown, wanted }
 }
@@ -154,6 +155,8 @@ pub struct Slot {
     stretch_open: bool,
     /// 커서에 매달리느라 창이 마우스를 통과시키고 있음 (그동안 클릭은 사용자 것)
     click_through: bool,
+    /// 크기 조절 창의 펫 크기 배율
+    size: f64,
     /// Windows: 창 핸들 (만들 때 한 번 읽어 둔다 — hwnd()는 메인 스레드에 물어본다). 매 틱 SetWindowPos로 바로 옮긴다
     #[cfg(windows)]
     hwnd: Option<isize>,
@@ -161,7 +164,7 @@ pub struct Slot {
 
 impl Slot {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(label: String, role: Role, entry: PetEntry, mut pet: Pet, window: WebviewWindow, world: World, dpi: f64, shown: StagePayload) -> Self {
+    pub fn new(label: String, role: Role, entry: PetEntry, mut pet: Pet, window: WebviewWindow, world: World, dpi: f64, shown: StagePayload, size: f64) -> Self {
         pet.set_cursor_species(&entry.id);
         #[cfg(windows)]
         let hwnd = window.hwnd().ok().map(|h| h.0 as isize);
@@ -182,6 +185,7 @@ impl Slot {
             note_open: false,
             stretch_open: false,
             click_through: false,
+            size,
             #[cfg(windows)]
             hwnd,
         }
@@ -212,7 +216,7 @@ impl Slot {
         self.boost_applied = self.boost_factor(&shown);
         shown.scale *= self.boost_applied;
         let (w, h) = self.logical_size(shown.scale);
-        let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
+        self.resize_window(w, h);
         self.pet.cfg = pet_config(self.dpi, &self.entry, shown.scale, shown.stage, shown.style);
         self.pet.set_cursor_species(&self.entry.id);
         self.shown = shown;
@@ -221,10 +225,37 @@ impl Slot {
         let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
     }
 
+    /// 창 크기를 바꾼다 (논리 px). 포커스를 뺏지 않는다 — 슬라이더를 끄는 동안에도 불린다
+    fn resize_window(&self, w: f64, h: f64) {
+        #[cfg(windows)]
+        let hwnd = self.hwnd;
+        #[cfg(not(windows))]
+        let hwnd = None;
+        crate::overlay::resize_quietly(&self.window, hwnd, (w * self.dpi).round() as u32, (h * self.dpi).round() as u32);
+    }
+
+    /// 크기 조절 창: 펫 크기 배율을 바꾼다. 일시 확대는 그대로 두고 그 아래만 바꾼다
+    pub fn set_size(&mut self, app: &AppHandle, size: f64) {
+        if size == self.size {
+            return;
+        }
+        let mut plain = self.shown.clone();
+        plain.scale = match plain.style {
+            PetStyle::Round => plain.scale / self.boost_applied / self.size * size,
+            PetStyle::Pixel => stage_payload(&self.entry, plain.stage, plain.wanted, self.dpi, size).scale,
+        };
+        self.size = size;
+        self.set_stage(app, plain);
+    }
+
+    pub fn size(&self) -> f64 {
+        self.size
+    }
+
     /// 지금 일시 확대 배율이 몸 크기에 곱해지는 값 (픽셀은 칸이 정수 물리 px로 남게)
     fn boost_factor(&self, shown: &StagePayload) -> f64 {
         match shown.style {
-            PetStyle::Pixel => visit::pixel_boost(style::dot_physical(shown.stage, self.dpi), self.boost),
+            PetStyle::Pixel => visit::pixel_boost(style::dot_physical_at(shown.stage, self.dpi, self.size), self.boost),
             PetStyle::Round => visit::round_boost(shown.scale, shown.stage.scale(), self.boost),
         }
     }
@@ -244,12 +275,12 @@ impl Slot {
 
     /// 픽셀 동물이면 칸 한 변 (물리 px) — 밥그릇이 같은 칸으로 놓인다
     pub fn pixel_dot(&self) -> Option<u32> {
-        (self.shown.style == PetStyle::Pixel).then(|| style::dot_physical(self.shown.stage, self.dpi))
+        (self.shown.style == PetStyle::Pixel).then(|| style::dot_physical_at(self.shown.stage, self.dpi, self.size))
     }
 
     /// 스타일을 바꾼다 (지금 단계·동물 그대로): 창 크기·펫 크기·웹뷰 시트. 그림마다 있는 동작이 다를 수 있으니 진행 중인 특별 동작·벽 타기도 다시 맞춘다
     pub fn restyle(&mut self, app: &AppHandle, wanted: PetStyle) {
-        let shown = stage_payload(&self.entry, self.shown.stage, wanted, self.dpi);
+        let shown = stage_payload(&self.entry, self.shown.stage, wanted, self.dpi, self.size);
         self.set_stage(app, shown);
         self.pet.set_special(self.pet.cfg.special);
         self.pet.set_can_climb(self.pet.cfg.can_climb);
@@ -273,7 +304,7 @@ impl Slot {
         }
         self.stretch_open = stretch;
         let (w, h) = self.logical_size(self.shown.scale);
-        let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
+        self.resize_window(w, h);
         self.last_pos = None;
     }
 
@@ -304,7 +335,7 @@ impl Slot {
         }
         self.note_open = open;
         let (w, h) = self.logical_size(self.shown.scale);
-        let _ = self.window.set_size(tauri::LogicalSize::new(w, h));
+        self.resize_window(w, h);
         let pos = self.window_target();
         self.move_window(pos.0, pos.1);
         self.last_pos = Some(pos);
@@ -340,7 +371,7 @@ impl Slot {
             self.dpi = dpi;
             // 픽셀: 다른 배율의 모니터로 옮기면 칸 물리 px가 달라진다 — 창·시트까지 다시 맞춘다
             if self.shown.style == PetStyle::Pixel {
-                let (app, shown) = (self.window.app_handle().clone(), stage_payload(&self.entry, self.shown.stage, self.shown.wanted, dpi));
+                let (app, shown) = (self.window.app_handle().clone(), stage_payload(&self.entry, self.shown.stage, self.shown.wanted, dpi, self.size));
                 self.set_stage(&app, shown);
             } else {
                 self.pet.cfg = pet_config(dpi, &self.entry, self.shown.scale, self.shown.stage, self.shown.style);
@@ -430,12 +461,13 @@ pub fn spawn_guest(
     side: Side,
     base: &World,
     seed: u64,
+    size: f64,
 ) -> Result<Slot, String> {
     let label = guest_label(&guest.visit_id).ok_or_else(|| format!("invalid visit id {:?}", guest.visit_id))?;
     let role = Role::Guest(guest);
-    let mut shown = stage_payload(&entry, stage, style, dpi_hint);
+    let mut shown = stage_payload(&entry, stage, style, dpi_hint, size);
     if shown.style == PetStyle::Round {
-        shown.scale = scale;
+        shown.scale = scale * size;
     }
     // 웹뷰가 뜨자마자 slot_info를 부르므로 창보다 먼저 적어 둔다. 같은 라벨이 이미 있으면 (같은 방문이 두 번) 거절
     let state = app.state::<AppState>();
@@ -461,7 +493,7 @@ pub fn spawn_guest(
     let mut pet = Pet::new_entering(cfg, &world, side, seed);
     let mut rng = fastrand::Rng::with_seed(seed ^ 0x9e37_79b9_7f4a_7c15);
     pet.set_guest(side, visit::pick_homesick_after(&mut rng));
-    Ok(Slot::new(label, role, entry, pet, window, world, dpi, shown))
+    Ok(Slot::new(label, role, entry, pet, window, world, dpi, shown, size))
 }
 
 /// 손님이 떠났다 — 창을 닫는다

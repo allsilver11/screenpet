@@ -111,9 +111,35 @@ pub fn pixel_body_scale(frame_dots: u32, stage: Stage, dpi: f64) -> f64 {
     f64::from(frame_dots * dot_physical(stage, dpi)) / dpi / BASE_SIDE
 }
 
+/// 사용자가 정한 크기(size배)의 칸 한 변 (물리 px): 칸이 정수라 크기는 계단으로 변한다
+pub fn dot_physical_at(stage: Stage, dpi: f64, size: f64) -> u32 {
+    let size = if size.is_finite() && size > 0.0 { size } else { 1.0 };
+    ((f64::from(dot_physical(stage, dpi)) * size).round() as u32).max(1)
+}
+
+/// 사용자가 정한 크기의 픽셀 몸 크기 배율
+pub fn pixel_body_scale_at(frame_dots: u32, stage: Stage, dpi: f64, size: f64) -> f64 {
+    pixel_body_scale(frame_dots, stage, dpi) * f64::from(dot_physical_at(stage, dpi, size)) / f64::from(dot_physical(stage, dpi))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_size_keeps_pixel_dots_whole_and_at_least_one() {
+        assert_eq!(dot_physical_at(Stage::Adult, 1.0, 1.0), dot_physical(Stage::Adult, 1.0));
+        for size in [0.5, 0.75, 1.0, 1.25, 1.5] {
+            for dpi in [1.0, 1.25, 1.5, 2.0] {
+                assert!(dot_physical_at(Stage::Baby, dpi, size) >= 1);
+                let plain = pixel_body_scale(pixel_grid(Stage::Baby).0, Stage::Baby, dpi);
+                let want = plain * f64::from(dot_physical_at(Stage::Baby, dpi, size)) / f64::from(dot_physical(Stage::Baby, dpi));
+                assert_eq!(pixel_body_scale_at(pixel_grid(Stage::Baby).0, Stage::Baby, dpi, size), want);
+            }
+        }
+        assert!(dot_physical_at(Stage::Adult, 2.0, 1.5) > dot_physical_at(Stage::Adult, 2.0, 1.0));
+        assert!(dot_physical_at(Stage::Adult, 2.0, 0.5) < dot_physical_at(Stage::Adult, 2.0, 1.0));
+    }
 
     #[test]
     fn default_display_sizes_at_100_percent() {

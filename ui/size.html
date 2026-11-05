@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="form.css" />
+    <style>
+      .row { display: grid; grid-template-columns: 56px 1fr 40px 28px; align-items: center; gap: 6px; width: 100%; font-size: 12px; }
+      .row label { text-align: left; }
+      .row input { width: 100%; margin: 0; accent-color: #b98a5a; }
+      .row output { text-align: right; font-variant-numeric: tabular-nums; }
+      .row button { padding: 2px 0; }
+    </style>
+  </head>
+  <body>
+    <div id="title">내 화면에서 보이는 크기예요</div>
+    <div class="row">
+      <label for="pet">🐾 펫</label>
+      <input id="pet" type="range" step="5" />
+      <output id="pet-value"></output>
+      <button id="pet-reset" title="펫만 기본값으로">↺</button>
+    </div>
+    <div class="row">
+      <label for="object">🗑️ 물건</label>
+      <input id="object" type="range" step="5" />
+      <output id="object-value"></output>
+      <button id="object-reset" title="물건만 기본값으로">↺</button>
+    </div>
+    <div id="note">픽셀 스타일은 칸 단위로 크기가 바뀌어요</div>
+    <div id="buttons">
+      <button id="reset" class="primary">모두 기본값으로</button>
+      <button id="close">닫기</button>
+    </div>
+    <script src="common.js"></script>
+    <script src="size.js"></script>
+  </body>
+</html>

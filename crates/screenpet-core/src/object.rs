@@ -45,7 +45,7 @@ pub enum ObjectKind {
     Glasses,
     Computer,
     Milk,
-    Sock,
+    Shirt,
     Umbrella,
     /// 💩 동물이 싼 똥 (poop.rs): 둘둘 쌓인 큰 똥, 작은 똥, 토끼의 알갱이. 메뉴에 없고 포스트잇을 못 붙인다
     Poop,
@@ -61,7 +61,7 @@ impl ObjectKind {
         ObjectKind::Glasses,
         ObjectKind::Computer,
         ObjectKind::Milk,
-        ObjectKind::Sock,
+        ObjectKind::Shirt,
         ObjectKind::Umbrella,
         ObjectKind::Poop,
         ObjectKind::Dropping,
@@ -75,7 +75,7 @@ impl ObjectKind {
         ObjectKind::Glasses,
         ObjectKind::Computer,
         ObjectKind::Milk,
-        ObjectKind::Sock,
+        ObjectKind::Shirt,
         ObjectKind::Umbrella,
     ];
 
@@ -102,7 +102,7 @@ impl ObjectKind {
             ObjectKind::Glasses => "glasses",
             ObjectKind::Computer => "computer",
             ObjectKind::Milk => "milk",
-            ObjectKind::Sock => "sock",
+            ObjectKind::Shirt => "shirt",
             ObjectKind::Umbrella => "umbrella",
             ObjectKind::Poop => "poop",
             ObjectKind::Dropping => "dropping",
@@ -119,7 +119,7 @@ impl ObjectKind {
             ObjectKind::Glasses => "👓 금 간 안경",
             ObjectKind::Computer => "💻 고장난 컴퓨터",
             ObjectKind::Milk => "🥛 빈 우유팩",
-            ObjectKind::Sock => "🧦 찢어진 양말",
+            ObjectKind::Shirt => "👕 꾸겨진 티셔츠",
             ObjectKind::Umbrella => "☂️ 부러진 우산",
             ObjectKind::Poop | ObjectKind::Dropping | ObjectKind::Pellets => "💩 똥",
         }
@@ -127,7 +127,16 @@ impl ObjectKind {
 
     /// 아는 이름만 (친구가 보낸 글자 — 그대로 파일 이름·창 스크립트에 쓰이므로 목록과 정확히 같아야 한다)
     pub fn from_id(id: &str) -> Option<ObjectKind> {
-        ObjectKind::ALL.into_iter().find(|k| k.id() == id)
+        ObjectKind::ALL.into_iter().find(|k| k.id() == id || k.wire_id() == id)
+    }
+
+    /// 친구에게 던질 때의 이름: 티셔츠는 양말 자리를 물려받아, 옛 버전 친구는 양말로 받는다
+    pub fn wire_id(self) -> &'static str {
+        if self == ObjectKind::Shirt {
+            "sock"
+        } else {
+            self.id()
+        }
     }
 
     /// 한 번의 바람에 가는 거리 (논리 px, 최소·최대) — 무거운 것은 거의 안 간다
@@ -135,7 +144,7 @@ impl ObjectKind {
         match self {
             ObjectKind::Can => (80.0, 180.0),
             ObjectKind::Paper => (60.0, 170.0),
-            ObjectKind::Sock => (40.0, 120.0),
+            ObjectKind::Shirt => (40.0, 120.0),
             ObjectKind::Glasses => (20.0, 60.0),
             ObjectKind::Milk => (30.0, 90.0),
             ObjectKind::Umbrella => (30.0, 80.0),

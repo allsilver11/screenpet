@@ -121,10 +121,16 @@ def test_postit_stays_inside_the_turning_room(name):
     assert math.hypot(x - s["pivot"][0], y - s["pivot"][1]) + d.POSTIT_REACH <= s["reach"]
 
 
-def test_sock_is_a_flat_limp_heap_not_an_upright_l(built):
+def test_shirt_has_sleeves_wider_than_its_hem_and_a_dipped_neck(built):
     _, arts = built
-    left, top, right, bottom = arts["sock"].getchannel("A").getbbox()
-    assert right - left > (bottom - top) * 2.5, (left, top, right, bottom)
+    a = np.asarray(arts["shirt"].getchannel("A")) >= 128
+    ys, xs = a.nonzero()
+    h = ys.max() - ys.min() + 1
+    widths = a.sum(axis=1)[ys.min(): ys.max() + 1]
+    assert widths[: h // 2].max() > widths[-h // 4:].max() * 1.3, widths.tolist()
+    tops = [np.flatnonzero(a[:, x])[0] if a[:, x].any() else 128 for x in range(128)]
+    mid = (xs.min() + xs.max()) // 2
+    assert tops[mid] > min(tops[mid - 20: mid]) + 3 and tops[mid] > min(tops[mid + 1: mid + 21]) + 3, tops[mid - 20: mid + 21]
 
 
 def _opaque(im):

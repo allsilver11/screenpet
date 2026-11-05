@@ -19,7 +19,7 @@ def test_submenus_hold_what_was_decided():
     assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &pets_menu, &style_menu, &lock, &reset])' in TRAY
     assert 'Submenu::with_items(app, "스타일", true, &[&style_round, &style_pixel])' in TRAY
     assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &gift_book])' in TRAY
-    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play])' in TRAY
+    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play, &sizes])' in TRAY
     assert 'Submenu::with_items(app, "🎲 사다리타기", true, &[&new_game, &last, &invites])' in TRAY
     assert '"🍚 밥 주기"' in TRAY and '"👫 친구랑 놀기"' in TRAY and '"🏠 하우스"' in TRAY
 
@@ -78,3 +78,20 @@ def test_objects_appear_without_taking_focus():
     assert "window.show()" not in objects
     # tao의 set_position·set_size는 보이는 창을 다시 활성화한다
     assert ".set_position(" not in objects and ".set_size(" not in objects
+
+
+def test_size_window_slides_live_and_resets_easily():
+    assert '"📏 크기 조절…"' in TRAY and "SIZES_ID => send(app, Input::ShowSizes)" in TRAY
+    assert "⚙️ 설정 ▸ 📏 크기 조절…" in HELP
+    html = (ROOT / "ui" / "size.html").read_text(encoding="utf-8")
+    js = (ROOT / "ui" / "size.js").read_text(encoding="utf-8")
+    for el in ('id="pet"', 'id="object"', 'id="pet-reset"', 'id="object-reset"', 'id="reset"', "모두 기본값으로"):
+        assert el in html, el
+    # 움직이는 동안은 보여 주기만, 놓거나 기본값을 누르면 저장
+    assert 'addEventListener("input", () => send(false))' in js and 'addEventListener("change", () => send(true))' in js
+    assert "send(true)" in js[js.index("function resetTo") :]
+    # 슬라이더를 끄는 동안 펫 창이 포커스를 뺏으면 안 된다
+    slots = (ROOT / "src-tauri" / "src" / "slots.rs").read_text(encoding="utf-8")
+    assert ".set_size(" not in slots.replace("slot.set_size(", "")
+    # 친구에게는 내 슬라이더가 안 들어간 크기를 보낸다
+    assert "scale: own.shown.base," in (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")

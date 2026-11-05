@@ -1,6 +1,6 @@
 """물건 (쓰레기 장난감) — draw_pets.py 엔진으로 그린 128 칸 그림과 노란 포스트잇.
 
-    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,sock,umbrella,poop,dropping,pellets}.png (128×128)
+    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,shirt,umbrella,poop,dropping,pellets}.png (128×128)
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
@@ -39,7 +39,7 @@ POSTIT_REACH = 20
 HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
-NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "sock", "umbrella", "poop", "dropping", "pellets")
+NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "dropping", "pellets")
 # 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다. 똥(poop, dropping, pellets)엔 포스트잇을 붙이지 않는다
 POSTIT_AT = {
     "can": (76, 80),
@@ -48,7 +48,7 @@ POSTIT_AT = {
     "glasses": (40, 100),
     "computer": (92, 72),
     "milk": (74, 92),
-    "sock": (81, 110),
+    "shirt": (64, 100),
     "umbrella": (44, 66),
 }
 
@@ -69,8 +69,7 @@ PLASTIC = (222, 214, 196)
 SCREEN = (34, 36, 42)
 SPARK = (255, 214, 102)
 MILK_BLUE = (138, 186, 232)
-SOCK = (246, 160, 170)
-SOCK_STRIPE = (255, 240, 226)
+SHIRT = (106, 160, 232)
 CLOTH = (150, 132, 214)
 CLOTH_LIGHT = mix(CLOTH, WHITE, 0.35)
 HANDLE = (176, 128, 92)
@@ -172,26 +171,22 @@ def draw_milk(img):
     blob(img, [T((48, 54), (80, 54), (80, 63), (48, 63))], WHITE, r=0.6, line=0.9)
 
 
-def draw_sock(img):
-    """찢어진 양말: 벗어 던져 놓은 긴 천 덩어리. 납작하게 축 늘어졌고 윤곽은 물결, 고무단은 살짝 접혔고 뒤꿈치·발끝은 색으로만, 구멍 하나."""
+def draw_shirt(img):
+    """꾸겨진 티셔츠: 벗어 던져 납작하게 놓였다. 양쪽 소매, 목둘레, 구겨진 주름, 비뚤어진 밑단."""
     y = BOTTOM
-    # 위쪽 윤곽은 구겨져 울퉁불퉁, 아래쪽은 바닥에 퍼져 거의 평평하다. 가운데 살짝 불룩한 데가 뒤꿈치 주머니
-    top = smooth([(14, y - 22), (27, y - 27), (39, y - 21), (51, y - 25), (62, y - 21), (73, y - 29), (86, y - 30), (96, y - 23),
-                  (106, y - 27), (116, y - 24), (120, y - 14)])
-    under = smooth([(120, y - 14), (116, y - 4), (104, y - 1), (86, y), (66, y - 1), (46, y), (28, y - 1), (14, y - 3), (8, y - 13), (14, y - 22)])
-    wrinkles = [L(pts, 1.3) for pts in (
-        [(66, y - 20), (69, y - 12), (66, y - 4)],
-        [(99, y - 20), (101, y - 12), (99, y - 5)],
+    body = smooth([(10, y - 42), (34, y - 62), (50, y - 64), (64, y - 54), (78, y - 65), (97, y - 60), (120, y - 42), (110, y - 28),
+                   (97, y - 36), (99, y - 20), (102, y - 6), (84, y - 1), (70, y - 5), (52, y), (34, y - 3), (28, y - 8), (32, y - 24), (32, y - 36), (20, y - 26)])
+    fold = mix(SHIRT, LINE, 0.45)
+    wrinkles = [L(pts, 1.5) for pts in (
+        [(44, y - 46), (54, y - 34), (50, y - 20)],
+        [(82, y - 48), (72, y - 34), (80, y - 14)],
+        [(62, y - 30), (66, y - 18), (60, y - 8)],
+        [(16, y - 36), (28, y - 44)],
+        [(114, y - 36), (102, y - 44)],
     )]
-    blob(img, [T(*top, *under)], SOCK, r=1.2,
-         marks=[([E(67, y - 40, 96, y - 8), E(106, y - 36, 142, y + 8)], mix(SOCK, WHITE, 0.45)), (wrinkles, mix(SOCK, LINE, 0.4))])
-    # 구멍: 발목 쪽 천이 뜯긴 들쭉날쭉한 자리 (둥글면 입처럼 보인다)
-    blob(img, [T((47, y - 18), (52, y - 15), (56, y - 19), (60, y - 14), (58, y - 9), (53, y - 11), (49, y - 7), (45, y - 12))], mix(SOCK, LINE, 0.75), r=0, line=0.5)
-
-    # 고무단: 왼쪽 끝이 뒤로 살짝 접혀 몸통에 얹혔다
-    cuff = smooth([(7, y - 25), (20, y - 30), (33, y - 27), (37, y - 15), (34, y - 2), (18, y - 1), (7, y - 3), (5, y - 14), (7, y - 25)])
-    blob(img, [T(*cuff)], SOCK_STRIPE, r=0.8,
-         marks=[([L([(11, y - 34), (9, y + 1)], 3.4), L([(19, y - 34), (18, y + 1)], 3.4), L([(28, y - 34), (28, y + 1)], 3.4)], SOCK)])
+    blob(img, [T(*body)], SHIRT, r=0.8,
+         marks=[([L([(51, y - 62), (64, y - 50), (77, y - 63)], 2.6)], mix(SHIRT, WHITE, 0.55)),
+                (wrinkles, fold)])
 
 
 def draw_umbrella(img):
@@ -249,7 +244,7 @@ DRAW = {
     "glasses": draw_glasses,
     "computer": draw_computer,
     "milk": draw_milk,
-    "sock": draw_sock,
+    "shirt": draw_shirt,
     "umbrella": draw_umbrella,
     "poop": draw_poop,
     "dropping": draw_dropping,

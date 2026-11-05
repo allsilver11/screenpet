@@ -17,6 +17,7 @@ PAGES = {
     "pair": "pair.html",
     "code": "code.html",
     "name": "name.html",
+    "size": "size.html",
     "letter": "letter.html",
     "ladder": "ladder.html",
     "weather-1": "weather.html",
