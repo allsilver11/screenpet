@@ -1221,3 +1221,34 @@ fn volley_pieces_are_random_trash_and_never_poop() {
     }
     assert_eq!(kinds.len(), ObjectKind::TRASH.len());
 }
+
+/// 던져서 바닥에 처음 닿은 뒤 다시 떠오른 가장 큰 높이
+fn rebound(kind: ObjectKind, w: &World) -> f64 {
+    let floor = w.bounds.bottom;
+    let mut o = thrown(kind, w, 300.0, (900.0, 600.0), 5);
+    let mut limit = LoopLimit::new();
+    while !o.is_rolling() && o.body.y < floor {
+        limit.step();
+        o.tick(DT, w, NONE, false);
+    }
+    let mut top = 0.0f64;
+    while !o.is_asleep() {
+        limit.step();
+        o.tick(DT, w, NONE, false);
+        top = top.max(floor - o.body.y);
+    }
+    top
+}
+
+#[test]
+fn a_thrown_poop_splats_then_rolls_heavily() {
+    let w = floor();
+    let (milk_went, _, _) = tumble(&mut thrown(ObjectKind::Milk, &w, 300.0, (900.0, -200.0), 5), &w);
+    for k in POOPS {
+        assert!(rebound(k, &w) < 12.0, "{k:?} bounced {}", rebound(k, &w));
+        let (went, turned, _) = tumble(&mut thrown(k, &w, 300.0, (900.0, -200.0), 5), &w);
+        assert!(went < milk_went * 0.75, "{k:?} went {went}, milk {milk_went}");
+        // 미끄러지기만 하지 않고 눈에 띄게 굴러 넘어간다
+        assert!(turned >= 180.0, "{k:?} turned {turned}");
+    }
+}

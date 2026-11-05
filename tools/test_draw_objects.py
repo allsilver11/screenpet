@@ -234,3 +234,21 @@ def test_poop_is_brown_and_the_small_kind_is_smaller_and_olive(built):
     assert small[1] > big[1] * 0.9 and small[0] - small[1] < big[0] - big[1], (small, big)
     area = lambda n: (np.asarray(arts[n].getchannel("A")) >= 128).sum()
     assert area("dropping") < area("poop") * 0.7
+
+
+@pytest.mark.parametrize("name", ["poop", "dropping"])
+def test_poop_has_the_classic_outline_not_an_oval(built, name):
+    """전형적인 똥: 단 사이 옆선이 안으로 꺾이고, 꼭지는 오른쪽으로 휜다."""
+    _, arts = built
+    a = np.asarray(arts[name].getchannel("A")) >= 128
+    ys, xs = a.nonzero()
+    w = xs.max() - xs.min() + 1
+    # 타원은 왼쪽 옆선이 볼록해 한 번 꺾이면 안으로 돌아오지 않는다: 위에서 내려오며 왼쪽 끝의 이동폭이 다시 커지면 단이 나뉜 것
+    lefts = [np.flatnonzero(row)[0] for row in a[ys.min(): ys.max() + 1]]
+    steps = [lefts[i] - lefts[i + 2] for i in range(len(lefts) - 2)]
+    drop = int(np.argmin(steps[len(steps) // 4: len(steps) * 3 // 4])) + len(steps) // 4
+    assert max(steps[drop:]) > steps[drop], steps
+    tip = np.flatnonzero(a[ys.min()]).mean()
+    assert tip > (xs.min() + xs.max()) / 2 + w * 0.05, (tip, xs.min(), xs.max())
+    # 바닥이 캔버스에 납작하게 잘리지 않는다
+    assert a[-1].sum() < w * 0.3, a[-1].sum()

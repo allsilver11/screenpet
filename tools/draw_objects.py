@@ -205,27 +205,28 @@ def draw_umbrella(img):
 
 
 def swirl(img, x0, x1, height, colour):
-    """둘둘 쌓인 똥: 아래로 갈수록 넓은 세 겹에 위로 뾰족한 꼭지. 겹 사이는 비스듬한 어두운 줄, 왼쪽 위가 밝다."""
+    """전형적인 똥 (얼굴 없는 💩): 뚱뚱한 아랫단, 둥근 윗단, 오른쪽으로 휘어 올라간 꼭지."""
     top = BOTTOM - height
     w, mid = x1 - x0, (x0 + x1) / 2
-    def y(f):
-        return top + height * f
-    def tier(half, y0, y1):
-        return E(mid - w * half, y(y0), mid + w * half, y(y1))
-    shapes = [tier(0.5, 0.56, 1.0), tier(0.36, 0.32, 0.72), tier(0.23, 0.14, 0.46),
-              T((mid - w * 0.1, y(0.2)), (mid + w * 0.05, y(0.0)), (mid + w * 0.13, y(0.24)))]
-    groove = mix(colour, LINE, 0.55)
+    def p(fx, fy):
+        return (mid + w * fx, top + height * fy)
+    def lobe(half, y0, y1, shift=0.0):
+        return E(mid + w * (shift - half), top + height * y0, mid + w * (shift + half), top + height * y1)
+    shapes = [lobe(0.5, 0.52, 0.965), lobe(0.46, 0.66, 0.965), lobe(0.36, 0.22, 0.68),
+              T(p(-0.19, 0.24), p(-0.06, 0.19), p(0.03, 0.13), p(0.085, 0.05), p(0.115, 0.0), p(0.145, 0.03), p(0.175, 0.12), p(0.19, 0.24), p(0.05, 0.34), p(-0.14, 0.34))]
+    groove = mix(colour, LINE, 0.6)
     shine = mix(colour, WHITE, 0.3)
-    blob(img, shapes, colour, r=1.0,
-         marks=[([L([(mid - w * 0.36, y(0.70)), (mid - w * 0.1, y(0.77)), (mid + w * 0.2, y(0.74)), (mid + w * 0.38, y(0.62))], 1.8),
-                  L([(mid - w * 0.23, y(0.42)), (mid - w * 0.03, y(0.49)), (mid + w * 0.14, y(0.47)), (mid + w * 0.26, y(0.37))], 1.6)], groove),
-                ([E(mid - w * 0.36, y(0.76), mid - w * 0.14, y(0.86))], shine),
-                ([E(mid - w * 0.24, y(0.50), mid - w * 0.08, y(0.58))], shine),
-                ([E(mid - w * 0.15, y(0.24), mid - w * 0.04, y(0.33))], shine)])
+    line = max(1.4, w * 0.026)
+    blob(img, shapes, colour, r=0.8,
+         marks=[([L([p(-0.33, 0.56), p(-0.15, 0.65), p(0.15, 0.65), p(0.33, 0.56)], line),
+                  L([p(-0.11, 0.29), p(0.02, 0.345), p(0.11, 0.31), p(0.175, 0.23)], line)], groove),
+                ([E(*p(-0.38, 0.70), *p(-0.2, 0.79))], shine),
+                ([E(*p(-0.24, 0.37), *p(-0.1, 0.45))], shine),
+                ([E(*p(0.03, 0.14), *p(0.1, 0.21))], shine)])
 
 
 def draw_poop(img):
-    """강아지 등 큰 동물의 똥: 소프트아이스크림처럼 둘둘 쌓인 갈색 똥."""
+    """강아지 등 큰 동물의 똥: 전형적인 모양의 갈색 똥."""
     swirl(img, 26, 102, 70, POOP)
 
 
