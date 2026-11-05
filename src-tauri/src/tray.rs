@@ -36,6 +36,7 @@ const NICKNAME_PREFIX: &str = "net:nickname:";
 const MY_NAME_ID: &str = "net:my-name";
 const SEND_PREFIX: &str = "net:send:";
 const BRING_PREFIX: &str = "net:bring:";
+const THROW_VOLLEY_PREFIX: &str = "net:throw10:";
 /// 친구 하위 메뉴 "편지 들려 보내기…" (뒤는 친구 id)
 const LETTER_PREFIX: &str = "net:letter:";
 /// "놀러 보내기 ▸" 목록 항목 (친구 하위 메뉴의 항목과 id가 겹치면 안 된다)
@@ -266,11 +267,12 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         let letter = MenuItem::with_id(app, format!("{LETTER_PREFIX}{}", f.id), "편지 들려 보내기…", f.can_send, None::<&str>)?;
         let bring_label = format!("{} 펫 데리고 오기", menu_text(&f.name));
         let bring = MenuItem::with_id(app, format!("{BRING_PREFIX}{}", f.id), bring_label, f.connected && model.room, None::<&str>)?;
+        let throw = MenuItem::with_id(app, format!("{THROW_VOLLEY_PREFIX}{}", f.id), "🗑️ 물건 10개 던지기", f.connected, None::<&str>)?;
         let nickname = MenuItem::with_id(app, format!("{NICKNAME_PREFIX}{}", f.id), "이름 바꾸기…", true, None::<&str>)?;
         let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
         let sep = PredefinedMenuItem::separator(app)?;
         let sep2 = PredefinedMenuItem::separator(app)?;
-        submenu.append(&Submenu::with_items(app, title, true, &[&send, &letter, &bring, &sep, &left, &right, &up, &down, &sep2, &nickname, &unfriend])?)?;
+        submenu.append(&Submenu::with_items(app, title, true, &[&send, &letter, &bring, &throw, &sep, &left, &right, &up, &down, &sep2, &nickname, &unfriend])?)?;
     }
     for (id, name) in &model.strangers {
         submenu.append(&MenuItem::with_id(app, format!("{INVITE_PREFIX}{id}"), format!("{} — 친구 신청", menu_text(name)), true, None::<&str>)?)?;
@@ -538,6 +540,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::EditLetter(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(BRING_PREFIX) {
                     net(NetInput::BringPet(id.to_string()));
+                } else if let Some(id) = other.strip_prefix(THROW_VOLLEY_PREFIX) {
+                    send(app, Input::Object(crate::objects::ObjectInput::ThrowVolley(id.to_string())));
                 } else if let Some(id) = other.strip_prefix(NICKNAME_PREFIX) {
                     net(NetInput::EditNickname(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(INVITE_PREFIX) {

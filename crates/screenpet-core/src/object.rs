@@ -951,6 +951,43 @@ impl TossBudget {
     }
 }
 
+/// 메뉴 한 번에 던지는 물건 수
+const VOLLEY_SIZE: u32 = 10;
+
+/// 친구 한 명에게 "물건 10개 던지기"로 기다리는 수: 다시 눌러도 10개까지만 기다린다
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Volley {
+    left: u32,
+}
+
+impl Volley {
+    pub fn request(&mut self) {
+        self.left = VOLLEY_SIZE;
+    }
+
+    /// 예산이 되는 만큼 예산을 쓰고, 지금 던질 수를 돌려준다
+    pub fn release(&mut self, budget: &mut TossBudget, now: f64) -> u32 {
+        let mut sent = 0;
+        while self.left > 0 && budget.can_spend(now) {
+            budget.spend(now);
+            self.left -= 1;
+            sent += 1;
+        }
+        sent
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.left == 0
+    }
+}
+
+/// 던질 물건 하나: 쓰레기 중 아무거나 (똥은 빼고), 들어오는 높이와 속도도 제각각
+pub fn volley_piece(rng: &mut fastrand::Rng) -> (ObjectKind, Fling) {
+    let kind = ObjectKind::TRASH[rng.usize(..ObjectKind::TRASH.len())];
+    let fling = Fling { height: 0.1 + rng.f64() * 0.6, vx: 300.0 + rng.f64() * 500.0, vy: -(100.0 + rng.f64() * 400.0) };
+    (kind, fling)
+}
+
 #[cfg(test)]
 #[path = "object_tests.rs"]
 mod tests;

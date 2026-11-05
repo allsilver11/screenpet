@@ -1167,3 +1167,57 @@ fn a_smaller_drawing_still_sits_on_the_floor() {
     // 축이 그만큼 바닥에 가까워야 그림 아래쪽이 바닥에 닿는다
     assert!((small.body.y - small.pivot().1 - drop * 0.25).abs() < 1e-6);
 }
+
+#[test]
+fn volley_sends_ten_at_once_on_a_full_budget() {
+    let mut b = TossBudget::default();
+    let mut v = Volley::default();
+    v.request();
+    assert_eq!(v.release(&mut b, 0.0), 10);
+    assert!(v.is_done());
+    assert!(!b.can_spend(0.0), "the volley spends the same budget as a hand throw");
+}
+
+#[test]
+fn volley_over_the_budget_waits_for_its_turn() {
+    let mut b = TossBudget::default();
+    for _ in 0..7 {
+        b.spend(0.0);
+    }
+    let mut v = Volley::default();
+    v.request();
+    assert_eq!(v.release(&mut b, 0.0), 3);
+    assert_eq!(v.release(&mut b, 5.0), 0);
+    assert_eq!(v.release(&mut b, 6.0), 1);
+    assert!(!v.is_done());
+    assert_eq!(v.release(&mut b, 1000.0), 6);
+    assert!(v.is_done());
+}
+
+#[test]
+fn volley_requests_do_not_pile_up() {
+    let mut b = TossBudget::default();
+    for _ in 0..10 {
+        b.spend(0.0);
+    }
+    let mut v = Volley::default();
+    for _ in 0..50 {
+        v.request();
+    }
+    assert_eq!(v.release(&mut b, 1000.0), 10);
+    assert!(v.is_done());
+}
+
+#[test]
+fn volley_pieces_are_random_trash_and_never_poop() {
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut kinds = std::collections::HashSet::new();
+    for _ in 0..200 {
+        let (kind, fling) = volley_piece(&mut rng);
+        assert!(ObjectKind::TRASH.contains(&kind) && !kind.is_poop());
+        assert_eq!(fling.sanitized(), Some(fling), "the friend's app would have changed it");
+        assert!(fling.vx.abs() >= 100.0, "it must clear the edge it enters from");
+        kinds.insert(kind.id());
+    }
+    assert_eq!(kinds.len(), ObjectKind::TRASH.len());
+}

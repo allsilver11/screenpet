@@ -57,3 +57,10 @@ def test_help_uses_the_new_paths():
     for path in ["🐾 내 펫 ▸ 키우기 ▸", "🐾 내 펫 ▸ 스타일 ▸", "⚙️ 설정 ▸ 🌨️ 날씨 효과", "🎮 놀기 ▸ 🎁 선물 도감", "🎮 놀기 ▸ 🗑️ 쓰레기 꺼내기 ▸", "🎲 사다리타기 ▸ 새 사다리…", "🎲 사다리타기 ▸ 초대 받기", "🎲 사다리타기 ▸ 지난 결과"]:
         assert path in HELP, path
     assert "캐릭터 ▸" not in HELP and "내 친구 코드 보기" not in HELP and "사다리 초대 받기" not in HELP
+
+
+def test_friend_menu_throws_a_volley_only_when_connected():
+    assert '"🗑️ 물건 10개 던지기", f.connected,' in TRAY
+    assert "&[&send, &letter, &bring, &throw, &sep," in TRAY
+    assert "ObjectInput::ThrowVolley(id.to_string())" in TRAY
+    assert "🗑️ 물건 10개 던지기" in HELP

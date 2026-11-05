@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use screenpet_core::config::Config;
 use screenpet_core::geom::{Rect, WindowInfo};
-use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE};
+use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE, Volley, volley_piece};
 use screenpet_core::brain::Pet;
 use screenpet_core::broom::Broom;
 use screenpet_core::social::Social;
@@ -83,6 +83,8 @@ pub enum ObjectInput {
     PeelPostit { label: String },
     /// 포스트잇 창 "붙이기"
     SubmitPostit(String),
+    /// 친구 메뉴 "물건 10개 던지기"
+    ThrowVolley(String),
 }
 
 /// 웹뷰가 그릴 모습 (`object-pose`)
@@ -178,6 +180,8 @@ pub struct Objects {
     world: Option<World>,
     /// 친구별 던지기 예산 (받는 쪽 net의 친구별 제한과 같다 — 넘치면 받는 쪽이 버리므로 미리 튕긴다)
     budgets: HashMap<String, TossBudget>,
+    /// "물건 10개 던지기"에서 아직 못 던진 것 (친구별)
+    volleys: HashMap<String, Volley>,
     /// 친구별 마지막으로 던진 때 (되돌아온 물건이 정말 내 것인지 본다)
     threw_at: HashMap<String, Instant>,
     started: Instant,
@@ -200,6 +204,7 @@ impl Objects {
             fading: Default::default(),
             world: None,
             budgets: HashMap::new(),
+            volleys: HashMap::new(),
             threw_at: HashMap::new(),
             started: now,
             ride_until: now,
@@ -230,6 +235,7 @@ impl Objects {
                     self.poof(l);
                 }
             }
+            ObjectInput::ThrowVolley(friend) => self.volleys.entry(friend).or_default().request(),
             ObjectInput::Remove { label } => self.remove(&label),
             ObjectInput::Down { label } => {
                 if !busy && !self.is_held() {
@@ -497,6 +503,8 @@ impl Objects {
     pub fn tick(&mut self, app: &AppHandle, base: &World, dt: f64, now: Instant, cursor: (f64, f64), left_down: bool, away: bool, source: &mut dyn WindowSource, network: &Network, config: &Config) {
         self.fading.tick(now);
         self.admit_next_toss(app, base);
+        let secs = now.duration_since(self.started).as_secs_f64();
+        self.release_volleys(secs, network, config);
         if self.live.is_empty() {
             return;
         }
@@ -520,7 +528,6 @@ impl Objects {
         }
 
         // 던져 넘길 수 있는 끝은 날아가는 물건이 있을 때만 계산한다
-        let secs = now.duration_since(self.started).as_secs_f64();
         let open = {
             let budgets = &self.budgets;
             move |id: &str| network.is_connected(id) && budgets.get(id).is_none_or(|b| b.can_spend(secs))
@@ -572,6 +579,26 @@ impl Objects {
             }
         }
         self.sync_menu();
+    }
+
+    /// "물건 10개 던지기": 예산이 되는 만큼 던진다. 그 사이 연결이 끊기거나 친구가 지워지면 남은 것은 버린다
+    fn release_volleys(&mut self, secs: f64, network: &Network, config: &Config) {
+        let (budgets, threw_at) = (&mut self.budgets, &mut self.threw_at);
+        self.volleys.retain(|id, volley| {
+            let Some(friend) = config.friend(id).filter(|_| network.is_connected(id)) else { return false };
+            let count = volley.release(budgets.entry(id.clone()).or_default(), secs);
+            if count > 0 {
+                threw_at.insert(id.clone(), Instant::now());
+                eprintln!("threw {count} objects to {id}");
+            }
+            let (side, vside) = to_net_side(visit::opposite(friend.side));
+            let mut rng = fastrand::Rng::new();
+            for _ in 0..count {
+                let (kind, fling) = volley_piece(&mut rng);
+                network.toss_to(id, Toss { kind: kind.id().to_string(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None });
+            }
+            !volley.is_done()
+        });
     }
 
     /// 물건이 side 끝을 넘어갔다: 그 끝의 연결된 친구 하나에게 날려 보낸다 (친구 쪽에서 반대편 끝으로 들어온다). 돌아오지 않는다
