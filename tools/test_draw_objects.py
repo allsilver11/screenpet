@@ -272,3 +272,19 @@ def test_umbrella_lies_flipped_with_the_handle_up(built):
     ys = a.any(axis=1).nonzero()[0]
     widths = a.sum(axis=1)
     assert widths.argmax() > (ys.min() + ys.max()) / 2, widths.tolist()
+
+
+def test_shirt_is_tattered_not_a_neat_tee(built):
+    """누더기: 밑단이 들쭉날쭉하고, 양쪽 소매가 다르게 뜯겼다."""
+    _, arts = built
+    a = np.asarray(arts["shirt"].getchannel("A")) >= 128
+    xs = a.any(axis=0).nonzero()[0]
+    bottoms = np.array([np.flatnonzero(a[:, x])[-1] for x in xs])
+    hem = bottoms[len(bottoms) // 4: len(bottoms) * 3 // 4]
+    turns = int(((hem[1:-1] > hem[:-2]) & (hem[1:-1] >= hem[2:])).sum())
+    assert turns >= 3 and hem.max() - hem.min() >= 7, hem.tolist()
+    ys = a.any(axis=1).nonzero()[0]
+    mid = (xs.min() + xs.max()) // 2
+    left, right = a[ys.min():, :mid + 1], a[ys.min():, mid + 1:][:, ::-1]
+    n = min(left.shape[1], right.shape[1])
+    assert (left[:, -n:] != right[:, -n:]).sum() > a.sum() * 0.05, "the two sides should tear differently"

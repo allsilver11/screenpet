@@ -119,7 +119,7 @@ impl ObjectKind {
             ObjectKind::Glasses => "👓 금 간 안경",
             ObjectKind::Computer => "💻 고장난 컴퓨터",
             ObjectKind::Milk => "🥛 빈 우유팩",
-            ObjectKind::Shirt => "👕 꾸겨진 티셔츠",
+            ObjectKind::Shirt => "👕 누더기 티셔츠",
             ObjectKind::Umbrella => "☂️ 부러진 우산",
             ObjectKind::Poop | ObjectKind::Dropping | ObjectKind::Pellets => "💩 똥",
         }
