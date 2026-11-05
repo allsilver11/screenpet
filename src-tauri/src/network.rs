@@ -20,6 +20,7 @@ use screenpet_core::brain::control_moves::{ControlInput, SteerPacer};
 use screenpet_core::brain::State;
 use screenpet_core::care::Stage;
 use screenpet_core::config::{Config, MAX_NAME_CHARS};
+use screenpet_core::dodge;
 use screenpet_core::gift::{self, FriendLimit};
 use screenpet_core::style::PetStyle;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
@@ -506,6 +507,14 @@ impl Network {
     }
 
     /// 연결된 친구 (물건은 손님 자리와 상관없이 던져 보낼 수 있다)
+    /// 💩 똥피하기 새 최고 기록을 연결된 친구들에게 알린다
+    pub fn share_dodge_best(&self, best: u32) {
+        let Some(net) = &self.net else { return };
+        for id in &self.connected {
+            net.ask(id, &dodge::score_ask(best));
+        }
+    }
+
     pub fn is_connected(&self, id: &str) -> bool {
         self.connected.contains(id)
     }
@@ -944,6 +953,10 @@ impl Network {
                 self.connected.insert(id.clone());
                 // 고정된 키를 증명한 링크의 이름 (방금 끝난 짝맞추기도 그 링크에서 Connected가 온다)
                 self.note_name(&id, &name);
+                // 💩 똥피하기 최고 기록을 알린다 (예전 판은 모르는 부탁을 무시한다)
+                if let Some(net) = self.net.as_ref().filter(|_| config.dodge_best > 0) {
+                    net.ask(&id, &dodge::score_ask(config.dodge_best));
+                }
                 if let Some(p) = self.pairing.as_mut().filter(|p| p.peer == id && matches!(p.view.phase, "confirm" | "waiting")) {
                     p.view.phase = "done";
                     p.deadline = Instant::now() + RESULT_SECS;
@@ -956,7 +969,11 @@ impl Network {
                     self.note_name(&id, &name);
                 }
             }
-            NetEvent::Asked { from, ask } => self.on_ask(app, config, slots, &from, &ask),
+            NetEvent::Asked { from, ask } => match dodge::parse_score_ask(&ask) {
+                // 친구의 💩 똥피하기 최고 기록
+                Some(score) => return config.set_friend_dodge_best(&from, score),
+                None => self.on_ask(app, config, slots, &from, &ask),
+            },
             NetEvent::Steered { from, steer } => {
                 // 그 친구(인증된 링크 from) 자신의 손님에게만 — 다른 사람의 손님 visit_id를 대도 무시한다
                 let id = steer.visit_id.to_string();

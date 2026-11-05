@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>ScreenPet 똥피하기</title>
+    <!-- 메뉴 🎮 놀기 ▸ 💩 똥피하기 (src-tauri/src/dodge.rs): 내 동물이 있는 모니터를 덮는 투명 창. 똥·점수·카드는 dodge.js가 그린다 -->
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+      body {
+        font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+        color: #3b3024;
+        /* 게임 중임을 알 수 있게 아주 살짝 어둡게 (클릭도 이 창이 받는다) */
+        background: rgba(40, 28, 12, 0.1);
+        user-select: none;
+        cursor: default;
+      }
+      #field { position: absolute; inset: 0; }
+      #field > img { position: absolute; image-rendering: auto; pointer-events: none; }
+      body.pixel #field > img { image-rendering: pixelated; }
+      #hud {
+        position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+        background: #fffaf2; border: 1px solid #ecdcc4; border-radius: 999px;
+        padding: 4px 16px; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      }
+      #card {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: 260px; background: #fffaf2; border: 1px solid #ecdcc4; border-radius: 14px;
+        padding: 16px 18px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); text-align: center;
+      }
+      #card h1 { font-size: 18px; margin: 0 0 2px; }
+      #score { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 4px 0 0; }
+      #record { color: #c8822e; font-weight: 700; font-size: 13px; }
+      #keys { color: #8a7660; font-size: 12px; margin-top: 2px; }
+      #ranks { list-style: none; margin: 12px 0 0; padding: 4px 8px; background: #fff; border: 1px solid #ecdcc4; border-radius: 10px; text-align: left; font-size: 13px; }
+      #ranks li { display: grid; grid-template-columns: 22px 1fr auto; gap: 6px; padding: 4px 0; }
+      #ranks li + li { border-top: 1px solid #f4ead8; }
+      #ranks li.me { font-weight: 700; color: #c8822e; }
+      #ranks .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #ranks .s { font-variant-numeric: tabular-nums; }
+      .buttons { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+      button { font: inherit; font-size: 13px; padding: 5px 14px; border-radius: 8px; border: 1px solid #c9b79f; background: #fff; color: #3b3024; cursor: pointer; }
+      button.primary { background: #f0a860; border-color: #e0964e; color: #fff; font-weight: 700; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="field"></div>
+    <div id="hud" hidden></div>
+    <div id="card" hidden>
+      <h1>💩 똥피하기</h1>
+      <div id="score" hidden></div>
+      <div id="record" hidden>🏆 최고 기록!</div>
+      <div id="keys">← → 피하기 · Space 점프</div>
+      <ol id="ranks"></ol>
+      <div class="buttons">
+        <button id="start" class="primary">시작 (Space)</button>
+        <button id="close">닫기 (Esc)</button>
+      </div>
+    </div>
+    <script src="dodge.js"></script>
+  </body>
+</html>
