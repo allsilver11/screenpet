@@ -1310,3 +1310,16 @@ fn the_shirt_still_travels_as_sock_so_older_friends_can_catch_it() {
     }
     assert!(!ObjectKind::Shirt.label().contains("양말"));
 }
+
+#[test]
+fn a_new_umbrella_falls_and_rests_flipped_with_the_handle_up() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Umbrella, 800.0, 700.0, 1.0, 3);
+    assert_eq!(o.angle(), 0.0);
+    let mut limit = LoopLimit::new();
+    while !o.is_asleep() {
+        limit.step();
+        o.tick(DT, &w, NONE, false);
+    }
+    assert!(o.angle().abs() < 60.0, "rests at {}", o.angle());
+}

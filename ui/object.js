@@ -13,7 +13,7 @@ const POSTIT_AT = {
   computer: [92, 72],
   milk: [74, 92],
   shirt: [64, 100],
-  umbrella: [44, 66],
+  umbrella: [46, 96],
 };
 
 const info = window.OBJECT || { kind: "can", sticker: false };

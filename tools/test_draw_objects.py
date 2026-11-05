@@ -258,3 +258,17 @@ def test_poop_has_the_classic_outline_not_an_oval(built, name):
     assert tip > (xs.min() + xs.max()) / 2 + w * 0.05, (tip, xs.min(), xs.max())
     # 바닥이 캔버스에 납작하게 잘리지 않는다
     assert a[-1].sum() < w * 0.3, a[-1].sum()
+
+
+def test_umbrella_lies_flipped_with_the_handle_up(built):
+    """뒤집힌 우산: 손잡이가 위로, 천이 아래로 간다."""
+    _, arts = built
+    px = np.asarray(arts["umbrella"].convert("RGBA")).astype(int)
+    def rows(colour):
+        return ((np.abs(px[..., :3] - colour).sum(axis=2) < 30) & (px[..., 3] > 200)).nonzero()[0]
+    handle, cloth = rows(d.HANDLE), rows(d.CLOTH)
+    assert handle.mean() < cloth.mean() - 15, (handle.mean(), cloth.mean())
+    a = px[..., 3] >= 128
+    ys = a.any(axis=1).nonzero()[0]
+    widths = a.sum(axis=1)
+    assert widths.argmax() > (ys.min() + ys.max()) / 2, widths.tolist()
