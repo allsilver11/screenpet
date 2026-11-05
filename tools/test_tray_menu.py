@@ -64,3 +64,17 @@ def test_friend_menu_throws_a_volley_only_when_connected():
     assert "&[&send, &letter, &bring, &throw, &sep," in TRAY
     assert "ObjectInput::ThrowVolley(id.to_string())" in TRAY
     assert "🗑️ 물건 10개 던지기" in HELP
+
+
+def test_objects_appear_without_taking_focus():
+    """tao는 숨긴 채 만든 창의 나중 show()를 활성화로 띄운다 (SW_SHOW): 친구가 던진 물건이 포커스를 뺏고 트레이 메뉴를 닫는다.
+    만들면서 보이게 해야 tao가 활성화 없이 띄운다 (SW_SHOWNOACTIVATE)."""
+    objects = (ROOT / "src-tauri" / "src" / "objects.rs").read_text(encoding="utf-8")
+    overlay = (ROOT / "src-tauri" / "src" / "overlay.rs").read_text(encoding="utf-8")
+    quiet = overlay[overlay.index("pub fn finish_quiet") :]
+    quiet = quiet[: quiet.index("\n}\n")]
+    assert ".visible(true)" in quiet and ".focused(false)" in quiet
+    assert "overlay::finish_quiet(" in objects and "overlay::finish(" not in objects
+    assert "window.show()" not in objects
+    # tao의 set_position·set_size는 보이는 창을 다시 활성화한다
+    assert ".set_position(" not in objects and ".set_size(" not in objects

@@ -4,7 +4,7 @@
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
-앱은 그림을 96 논리 px로 줄여 보인다 (crates/screenpet-core/src/object.rs OBJECT_LOGICAL_SIZE). 움직임은 그림을 더 그리지 않고
+앱은 그림을 96 논리 px 칸에 맞춰 보이고, 쓰레기는 그 절반으로 그린다 (crates/screenpet-core/src/object.rs). 움직임은 그림을 더 그리지 않고
 CSS로 돌린다 (ui/object.js) — 그래서 그림 한 장이면 된다.
 바닥은 칸 아래 끝 BOTTOM에 앉는다. POSTIT_AT은 포스트잇을 붙일 자리 (ui/object.js POSTIT_AT과 같다).
 

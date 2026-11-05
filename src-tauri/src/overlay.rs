@@ -44,6 +44,56 @@ pub fn finish<M: Manager<Wry>>(builder: WebviewWindowBuilder<'_, Wry, M>) -> tau
         .inspect(float_everywhere)
 }
 
+/// finish와 같되 포커스를 뺏지 않는다: tao는 만들 때 보인 창만 활성화 없이 띄우고, 나중의 show()는
+/// 활성화한다. 그래서 화면 밖에 보이게 만들고, 그 뒤로는 move_quietly·resize_quietly로만 다룬다
+pub fn finish_quiet<M: Manager<Wry>>(builder: WebviewWindowBuilder<'_, Wry, M>) -> tauri::Result<WebviewWindow> {
+    builder
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .focused(false)
+        .position(0.0, -20000.0)
+        .visible(true)
+        .build()
+        .inspect(float_everywhere)
+}
+
+/// Windows 창 핸들 (만들 때 한 번 읽어 둔다 — hwnd()는 메인 스레드에 물어본다)
+pub fn hwnd_of(window: &WebviewWindow) -> Option<isize> {
+    #[cfg(windows)]
+    {
+        window.hwnd().ok().map(|h| h.0 as isize)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        None
+    }
+}
+
+/// 창을 물리 px로 옮긴다. Windows에서 tao의 set_position은 보이는 창을 매번 활성화한다 (SW_SHOW)
+pub fn move_quietly(window: &WebviewWindow, hwnd: Option<isize>, x: i32, y: i32) {
+    #[cfg(windows)]
+    if hwnd.is_some_and(|h| screenpet_core::platform::move_window(h, x, y)) {
+        return;
+    }
+    let _ = hwnd;
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// 창 크기를 물리 px로 바꾼다 (이유는 move_quietly와 같다)
+pub fn resize_quietly(window: &WebviewWindow, hwnd: Option<isize>, w: u32, h: u32) {
+    #[cfg(windows)]
+    if hwnd.is_some_and(|handle| screenpet_core::platform::resize_window(handle, w as i32, h as i32)) {
+        return;
+    }
+    let _ = hwnd;
+    let _ = window.set_size(tauri::PhysicalSize::new(w, h));
+}
+
 /// 이미 있는 창을 앞으로 가져온다. 없으면 false (도움말·도감처럼 정말 닫히는 창)
 pub fn focus_existing(app: &AppHandle, label: &str) -> bool {
     let Some(window) = app.get_webview_window(label) else { return false };

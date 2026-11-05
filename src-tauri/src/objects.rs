@@ -22,7 +22,7 @@ use screenpet_core::world::World;
 use screenpet_net::Toss;
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 
 use crate::game_loop::Input;
 use crate::network::{from_net_fling, from_net_side, to_net_fling, to_net_side, Network};
@@ -103,14 +103,15 @@ struct Live {
     last_pos: Option<(i32, i32)>,
     last_pose: PosePayload,
     note_open: bool,
-    need_show: bool,
+    /// Windows 창 핸들 (포커스를 뺏지 않고 옮기려고)
+    hwnd: Option<isize>,
 }
 
 impl Live {
     /// 창은 도는 축을 가운데에 두는 정사각형 (어떤 각도로 돌아도 그림이 잘리지 않는다, 종류마다 크기가 다르다).
     /// 쪽지를 읽는 동안엔 넓어지고 위로 자리가 더 생긴다 — 축은 아래쪽 정사각형의 가운데 그대로
     fn logical_size(&self) -> (f64, f64) {
-        let side = shape_of(self.object.kind).window_side();
+        let side = shape_of(self.object.kind).window_side_at(self.object.scale());
         if self.note_open {
             (NOTE_WIDTH, side + NOTE_SPACE)
         } else {
@@ -119,7 +120,7 @@ impl Live {
     }
 
     /// 창을 몸 자리로, 처음이면 보인다. 달라졌을 때만 OS에 알린다
-    fn place(&mut self, world: &World, hidden: bool) {
+    fn place(&mut self, world: &World) {
         let dpi = self.object.dpi();
         let (w, h) = self.logical_size();
         let (cx, cy) = self.object.pivot();
@@ -129,15 +130,11 @@ impl Live {
             let wa = world.work_area_at(cx, self.object.body.y);
             x = x.clamp(wa.left, (wa.right - w * dpi).max(wa.left));
         }
-        let side = shape_of(self.object.kind).window_side();
+        let side = shape_of(self.object.kind).window_side_at(self.object.scale());
         let pos = (x.round() as i32, (cy + (side / 2.0 - h) * dpi).round() as i32);
         if self.last_pos != Some(pos) {
-            let _ = self.window.set_position(PhysicalPosition::new(pos.0, pos.1));
+            crate::overlay::move_quietly(&self.window, self.hwnd, pos.0, pos.1);
             self.last_pos = Some(pos);
-        }
-        if self.need_show && !hidden {
-            let _ = self.window.show();
-            self.need_show = false;
         }
     }
 
@@ -155,7 +152,8 @@ impl Live {
         }
         self.note_open = open;
         let (w, h) = self.logical_size();
-        let _ = self.window.set_size(LogicalSize::new(w, h));
+        let dpi = self.object.dpi();
+        crate::overlay::resize_quietly(&self.window, self.hwnd, (w * dpi).round() as u32, (h * dpi).round() as u32);
         self.last_pos = None;
     }
 }
@@ -274,7 +272,7 @@ impl Objects {
     /// 메뉴에서 만들기: 커서 근처(트레이에서 눌렀으면 그 위)에서 떨어진다. 넘치면 가장 오래된 내 물건이 뿅
     fn spawn_own(&mut self, app: &AppHandle, kind: ObjectKind, base: &World, cursor: (f64, f64)) {
         let id = self.next_id();
-        let Some(window) = build_window(app, id, kind, false, 1.0) else { return };
+        let Some(window) = build_window(app, id, kind, false, kind.base_scale()) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let b = world.bounds;
@@ -358,7 +356,7 @@ impl Objects {
         }
         let Some((accepted, side)) = self.inbox.pop() else { return };
         let id = self.next_id();
-        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), 1.0) else { return };
+        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), accepted.kind.base_scale()) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
@@ -410,6 +408,7 @@ impl Objects {
             }
         }
         let label = window.label().to_string();
+        let hwnd = crate::overlay::hwnd_of(&window);
         set_postit_state(&label, Some(object.postit()));
         self.live.push(Live {
             id,
@@ -419,7 +418,7 @@ impl Objects {
             last_pos: None,
             last_pose: PosePayload { angle: 0.0, dx: 0.0 },
             note_open: false,
-            need_show: true,
+            hwnd,
         });
     }
 
@@ -550,7 +549,7 @@ impl Objects {
             }
             let asleep = l.object.is_asleep();
             // 잠든 물건은 창이 제자리에 있으면 아무것도 하지 않는다 (reseat가 옮겼으면 last_pos와 달라진다)
-            l.place(world, hidden);
+            l.place(world);
             if asleep && was_asleep && l.last_pose == l.pose() {
                 continue;
             }
@@ -626,10 +625,10 @@ const BOUNCE_WINDOW: Duration = Duration::from_secs(30);
 fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale: f64) -> Option<WebviewWindow> {
     let label = format!("{PREFIX}{id}");
     let shape = shape_of(kind);
-    let (w, h) = (shape.window_side(), shape.window_side());
+    let (w, h) = (shape.window_side_at(scale), shape.window_side_at(scale));
     let (px, py) = shape.pivot_logical();
     // kind.id()와 숫자는 코어 목록의 값뿐이다 (친구가 보낸 글자가 아니다)
-    let built = crate::overlay::finish(
+    let built = crate::overlay::finish_quiet(
         WebviewWindowBuilder::new(app, &label, WebviewUrl::App("object.html".into()))
             .title("ScreenPet Object")
             .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}], scale: {scale} }}; {}", kind.id(), crate::art::style_script()))
@@ -639,7 +638,12 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale
     match built {
         Ok(window) => {
             // 다른 배율의 모니터에서도 논리 크기를 맞춘다
-            let _ = window.set_size(LogicalSize::new(w, h));
+            let dpi = window.scale_factor().unwrap_or(1.0);
+            crate::overlay::resize_quietly(&window, crate::overlay::hwnd_of(&window), (w * dpi).round() as u32, (h * dpi).round() as u32);
+            // 모두 숨긴 동안 온 물건은 "보이기"가 함께 보인다
+            if crate::windows_hidden(app) {
+                let _ = window.hide();
+            }
             Some(window)
         }
         Err(e) => {

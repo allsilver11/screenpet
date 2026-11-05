@@ -10,6 +10,8 @@ const CELL: f64 = 128.0;
 const CELL_TO_LOGICAL: f64 = OBJECT_LOGICAL_SIZE / CELL;
 /// 창 가장자리에 남기는 여유 (논리 px)
 const WINDOW_MARGIN: f64 = 2.0;
+const SCALED_WINDOW_SLACK: f64 = 8.0;
+const MIN_WINDOW_SIDE: f64 = 56.0;
 
 /// 이보다 느리게 놓으면(논리 px/s) 돌지 않는다 — 살며시 내려놓기
 pub const GENTLE_SPEED: f64 = 220.0;
@@ -80,6 +82,15 @@ impl Shape {
     /// 창 한 변 (논리 px): 어떤 각도로 돌아도 축 둘레로 그림이 잘리지 않는다
     pub fn window_side(&self) -> f64 {
         (2.0 * self.reach * CELL_TO_LOGICAL + 2.0 * WINDOW_MARGIN).ceil()
+    }
+
+    /// scale배로 그릴 때의 창 한 변 (논리 px): 픽셀 그림은 칸이 정수라 조금 클 수 있어 여유를 둔다.
+    /// 지금까지 쓰던 가장 작은 창보다 줄이지 않는다
+    pub fn window_side_at(&self, scale: f64) -> f64 {
+        if scale >= 1.0 {
+            return self.window_side();
+        }
+        ((2.0 * self.reach * CELL_TO_LOGICAL * scale + 2.0 * WINDOW_MARGIN).ceil() + SCALED_WINDOW_SLACK).max(MIN_WINDOW_SIDE).min(self.window_side())
     }
 
     /// 그림 칸(96 논리 px) 안의 축 자리 (논리 px)

@@ -84,6 +84,15 @@ impl ObjectKind {
         matches!(self, ObjectKind::Poop | ObjectKind::Dropping | ObjectKind::Pellets)
     }
 
+    /// 그림 크기 배율: 쓰레기는 96 논리 px 칸의 절반 (똥은 싼 동물을 따라 set_scale로 정한다)
+    pub fn base_scale(self) -> f64 {
+        if self.is_poop() {
+            1.0
+        } else {
+            0.5
+        }
+    }
+
     /// 통신과 그림 파일(ui/objects/<id>.png)에 쓰는 이름
     pub fn id(self) -> &'static str {
         match self {
@@ -228,7 +237,7 @@ impl Object {
             kind,
             body: Body { x, y, vx: 0.0, vy: 0.0 },
             dpi: dpi.max(0.01),
-            scale: 1.0,
+            scale: kind.base_scale(),
             phase: Phase::Air,
             standing: None,
             angle: 0.0,
@@ -287,7 +296,7 @@ impl Object {
     }
 
     fn size(&self) -> f64 {
-        OBJECT_LOGICAL_SIZE * self.dpi
+        OBJECT_LOGICAL_SIZE * self.dpi * self.scale
     }
 
     pub fn half_w(&self) -> f64 {
@@ -329,7 +338,7 @@ impl Object {
 
     /// 그려진 크기의 부딪힘 상자 (반 폭, 높이, 물리 px) — 똥은 작게 그려진다
     pub fn hit_box(&self) -> (f64, f64) {
-        let hw = self.half_w() * self.scale;
+        let hw = self.half_w();
         (hw, 2.0 * hw)
     }
 

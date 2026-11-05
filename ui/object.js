@@ -24,8 +24,9 @@ const note = document.getElementById("note");
 
 const spot = POSTIT_AT[info.kind] || POSTIT_AT.can;
 const SCALE = 96 / 128;
-// 그림 크기 배율 (앱이 정한다: 똥은 싼 동물 크기를 따른다). 코어 Object::scale과 같은 값
+// 그림 크기 배율 (앱이 정한다: 쓰레기는 절반, 똥은 싼 동물 크기를 따른다). 코어 Object::scale과 같은 값
 const DRAW_SCALE = info.scale || 1;
+const IS_POOP = ["poop", "dropping", "pellets"].includes(info.kind);
 // 픽셀 똥은 칸이 정수라 동글보다 조금 크게 잡아야 단계 차이가 난다
 const PIXEL_POOP_DOT = 1.2;
 // 축을 아래쪽 정사각형(한 변 side)의 가운데에 놓는다 (창이 쪽지로 넓어져도 그대로, objects.rs logical_size)
@@ -40,6 +41,7 @@ let dotPx = 3;
 let solid = []; // 불투명 칸 가운데 (칸 좌표) — 계단 각도에서도 바닥에 닿게
 let lastPose = { angle: 0, dx: 0 };
 const POSTIT_DOTS = 6;
+const POSTIT_MIN_SCALE = 0.7;
 
 // OBJECT-POSE-START (tools/test_draw_pixel_world.py가 node로 이 부분을 그대로 돌린다)
 // angle(도)일 때 축에서 가장 낮은 칸까지 (칸) — 코어 tumble.rs drop_at과 같은 계산, 칸 그림 위에서
@@ -66,16 +68,17 @@ function pixelMetrics(dpr, [rawX, rawY], scale = 1) {
 // OBJECT-POSE-END
 
 function layout() {
-  const m = pixelArt ? pixelMetrics(window.devicePixelRatio || 1, [rawPivotX, pivotY0], DRAW_SCALE < 1 ? DRAW_SCALE * PIXEL_POOP_DOT : 1) : { dot: 4 * DRAW_SCALE, side: 96 * DRAW_SCALE, pivotX: rawPivotX * DRAW_SCALE, pivotY: pivotY0 * DRAW_SCALE };
+  const m = pixelArt ? pixelMetrics(window.devicePixelRatio || 1, [rawPivotX, pivotY0], DRAW_SCALE < 1 ? DRAW_SCALE * (IS_POOP ? PIXEL_POOP_DOT : 1) : 1) : { dot: 4 * DRAW_SCALE, side: 96 * DRAW_SCALE, pivotX: rawPivotX * DRAW_SCALE, pivotY: pivotY0 * DRAW_SCALE };
   dotPx = m.dot;
   pivotX = m.pivotX;
   pivotY = m.pivotY;
   thing.style.width = pixelArt || DRAW_SCALE !== 1 ? `${m.side}px` : "";
   thing.style.height = pixelArt || DRAW_SCALE !== 1 ? `${m.side}px` : "";
-  const postit = pixelArt ? POSTIT_DOTS * dotPx : 21;
+  // 절반 크기여도 눈에 띄도록 쪽지는 그림만큼 줄이지 않는다
+  const postit = pixelArt ? POSTIT_DOTS * dotPx : 21 * Math.max(DRAW_SCALE, POSTIT_MIN_SCALE);
   // 포스트잇 자리: 96 논리 px 좌표 → 칸 (96 ÷ 24칸 = 칸마다 4)
-  const px = pixelArt ? Math.round((spot[0] * SCALE) / 4) * dotPx : spot[0] * SCALE;
-  const py = pixelArt ? Math.round((spot[1] * SCALE) / 4) * dotPx : spot[1] * SCALE;
+  const px = pixelArt ? Math.round((spot[0] * SCALE) / 4) * dotPx : spot[0] * SCALE * DRAW_SCALE;
+  const py = pixelArt ? Math.round((spot[1] * SCALE) / 4) * dotPx : spot[1] * SCALE * DRAW_SCALE;
   sticker.style.width = `${postit}px`;
   sticker.style.height = `${postit}px`;
   sticker.style.left = `${px - postit / 2}px`;

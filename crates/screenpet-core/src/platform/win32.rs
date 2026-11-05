@@ -10,7 +10,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
-    IsIconic, IsWindow, IsWindowVisible, SetWindowPos, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOSIZE,
+    IsIconic, IsWindow, IsWindowVisible, SetWindowPos, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SWP_NOZORDER, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
@@ -166,6 +166,12 @@ fn frame_rect(hwnd: HWND) -> Option<Rect> {
         DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut RECT as *mut c_void, size_of::<RECT>() as u32).ok()?;
     }
     Some(to_rect(r))
+}
+
+/// 우리 창(hwnd) 크기를 물리 px로 바꾼다 — 자리·Z 순서·포커스는 그대로 (Tauri set_size는 창을 활성화한다)
+pub fn resize_window(hwnd: isize, w: i32, h: i32) -> bool {
+    let h_ = HWND(hwnd as *mut c_void);
+    unsafe { SetWindowPos(h_, HWND::default(), 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS).is_ok() }
 }
 
 /// 우리 창(hwnd)을 물리 px (x, y)로 바로 옮긴다 — Tauri set_position은 이벤트 루프를 한 번 거쳐 늦고 들쭉날쭉하다.

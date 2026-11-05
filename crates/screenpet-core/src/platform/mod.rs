@@ -4,7 +4,7 @@ use crate::geom::{Rect, WindowInfo};
 #[cfg(windows)]
 mod win32;
 #[cfg(windows)]
-pub use win32::{move_window, Win32Source};
+pub use win32::{move_window, resize_window, Win32Source};
 
 #[cfg(any(target_os = "macos", test))]
 mod mac_coords;

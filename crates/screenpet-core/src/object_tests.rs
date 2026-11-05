@@ -778,9 +778,9 @@ fn the_sprite_keeps_touching_the_surface_at_every_angle() {
             o.tick(DT, &w, NONE, false);
             let (px, py) = o.pivot();
             // 축 아래로 가장 낮은 점 = 몸 바닥 — 땅에선 표면에 닿고, 표면 아래로 내려가지 않는다
-            assert!((py + s.drop_at(o.angle()) - o.body.y).abs() < 1e-9, "{kind:?}");
+            assert!((py + s.drop_at(o.angle()) * o.scale() - o.body.y).abs() < 1e-9, "{kind:?}");
             assert!(o.body.y <= 1040.0, "{kind:?}");
-            assert!((px - s.pivot_offset_x() - o.body.x).abs() < 1e-9, "{kind:?}");
+            assert!((px - s.pivot_offset_x() * o.scale() - o.body.x).abs() < 1e-9, "{kind:?}");
         }
     }
 }
@@ -1251,4 +1251,47 @@ fn a_thrown_poop_splats_then_rolls_heavily() {
         // 미끄러지기만 하지 않고 눈에 띄게 굴러 넘어간다
         assert!(turned >= 180.0, "{k:?} turned {turned}");
     }
+}
+
+#[test]
+fn trash_is_half_size_and_poop_keeps_its_own_size() {
+    for k in ObjectKind::TRASH {
+        let o = Object::new(k, 500.0, 500.0, 2.0, 1);
+        assert_eq!(o.scale(), 0.5, "{k:?}");
+        assert_eq!(o.half_w(), OBJECT_LOGICAL_SIZE * 2.0 * 0.5 * HALF_WIDTH_RATIO, "{k:?}");
+        assert_eq!(o.hit_box().0, o.half_w(), "{k:?}");
+    }
+    for k in POOPS {
+        assert_eq!(Object::new(k, 500.0, 500.0, 1.0, 1).scale(), 1.0, "{k:?}");
+    }
+}
+
+#[test]
+fn half_size_trash_stops_at_the_wall_where_its_body_ends() {
+    let w = floor();
+    let mut o = thrown(ObjectKind::Stone, &w, 300.0, (-1400.0, 0.0), 1);
+    let mut closest = f64::MAX;
+    let mut limit = LoopLimit::new();
+    while !o.is_asleep() {
+        limit.step();
+        o.tick(DT, &w, NONE, false);
+        closest = closest.min(o.body.x);
+    }
+    assert!((closest - o.half_w()).abs() < 1.0, "{closest} vs {}", o.half_w());
+}
+
+#[test]
+fn a_window_fits_the_drawn_size_but_never_goes_below_the_smallest_known_good_one() {
+    for k in ObjectKind::ALL {
+        let s = crate::tumble::shape_of(k);
+        assert_eq!(s.window_side_at(1.0), s.window_side(), "{k:?}");
+        for scale in [0.2, 0.5, 0.9] {
+            let side = s.window_side_at(scale);
+            assert!(side >= s.window_side().min(56.0), "{k:?}");
+            assert!(side <= s.window_side_at(1.0), "{k:?}");
+            assert!(s.reach * (96.0 / 128.0) * scale < side / 2.0, "{k:?}");
+        }
+    }
+    let can = crate::tumble::shape_of(ObjectKind::Paper);
+    assert!(can.window_side_at(0.5) < can.window_side_at(1.0));
 }
