@@ -509,6 +509,14 @@ pub fn toss_answer(refusing: bool, bounced: bool, threw_lately: bool) -> TossAns
     }
 }
 
+/// "지금은 못 받아요"가 잇따르는 동안(초) 말풍선은 처음 한 번만
+pub const NOT_NOW_QUIET_SECS: f64 = 10.0;
+
+/// 이번 "지금은 못 받아요"를 보여 줄까: 지난번(보여 줬든 아니든)에서 조용히 지난 초로 정한다
+pub fn not_now_is_news(secs_since_last: Option<f64>) -> bool {
+    secs_since_last.is_none_or(|s| s >= NOT_NOW_QUIET_SECS)
+}
+
 /// 보낸 방문이 이만큼(초) 안에 돌아오면 그 친구 화면이 꽉 찼을 수 있다
 pub const QUICK_DECLINE_SECS: f64 = 3.0;
 
@@ -563,6 +571,15 @@ impl SeenPeers {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn busy_is_said_once_however_many_objects_come_back() {
+        assert!(not_now_is_news(None));
+        assert!(!not_now_is_news(Some(0.0)));
+        // 6초에 하나씩 돌아오는 동안에도 조용하다
+        assert!(!not_now_is_news(Some(6.0)));
+        assert!(not_now_is_news(Some(NOT_NOW_QUIET_SECS)));
+    }
+
     #[test]
     fn only_an_unexplained_quick_return_means_full() {
         use super::*;

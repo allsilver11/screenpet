@@ -321,6 +321,8 @@ pub struct Network {
     invite_accepted_any: Option<Instant>,
     /// 친구별 내가 "펫 데리고 오기"를 부탁한 시각
     invite_asked: HashMap<String, Instant>,
+    /// 친구별로 지난번 "지금은 못 받아요"가 온 때 (여러 개가 돌아와도 말풍선은 한 번)
+    not_now_at: HashMap<String, Instant>,
     /// 지금 와 있는 손님 수 (꽉 차면 "펫 데리고 오기"를 막는다)
     guests: usize,
     /// 중계 서버를 쓰도록 설정됨 / 지금 연결됨
@@ -453,6 +455,7 @@ impl Network {
             invite_accepted: HashMap::new(),
             invite_accepted_any: None,
             invite_asked: HashMap::new(),
+            not_now_at: HashMap::new(),
             guests: 0,
             relay_enabled: false,
             relay_connected: false,
@@ -1056,8 +1059,11 @@ impl Network {
             }
             // 던졌는데 그 친구가 지금 받지 않는다 (집중·하우스 중)
             ASK_NOT_NOW => {
-                let name = screenpet_core::config::sanitize_name(f.shown_name()).unwrap_or_else(|| DEFAULT_NAME.to_string());
-                let _ = app.emit_to(OWN_LABEL, "pet-say-text", format!("{name}: busy~"));
+                let last = self.not_now_at.insert(from.to_string(), Instant::now());
+                if visit::not_now_is_news(last.map(|t| t.elapsed().as_secs_f64())) {
+                    let name = screenpet_core::config::sanitize_name(f.shown_name()).unwrap_or_else(|| DEFAULT_NAME.to_string());
+                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", format!("{name}: busy~"));
+                }
             }
             // 모르는 부탁 (새 판) — 무시
             _ => {}
