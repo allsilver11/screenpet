@@ -551,6 +551,11 @@ impl Network {
         self.is_connected(id) && !self.full_until.get(id).is_some_and(|t| Instant::now() < *t)
     }
 
+    /// 내 동물이 지금 가 있는 친구 id (다른 친구에게 이어 가면 그 친구로 바뀐다 — 이어 보내기는 늘 내가 한다)
+    pub fn away_friend(&self) -> Option<&str> {
+        self.away.as_ref().map(|a| a.friend.as_str())
+    }
+
     /// 내 동물이 친구 화면에 가 있거나 가는 중 — 하우스·동물 바꾸기를 막는다
     pub fn own_busy(&self, own: &Slot) -> bool {
         self.away.is_some() || own.pet.is_away() || is_exiting(own)

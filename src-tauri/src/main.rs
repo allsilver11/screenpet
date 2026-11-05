@@ -14,6 +14,7 @@ mod pets;
 mod presence;
 mod prop;
 mod slots;
+mod timeline;
 mod tray;
 mod weather;
 
@@ -299,6 +300,8 @@ fn main() {
             ladder::ladder_seen,
             gifts::gift_collect,
             gifts::book_state,
+            timeline::timeline_state,
+            timeline::timeline_fit,
             objects::object_down,
             objects::object_menu,
             objects::postit_max,
