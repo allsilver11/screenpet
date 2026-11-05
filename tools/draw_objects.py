@@ -204,24 +204,34 @@ def draw_umbrella(img):
     paint(img, aa(shapes([L([(92, 56), (108, 44), (114, 46)], 1.8)])), mix(METAL, LINE, 0.3))
 
 
-def soft_log(img, x0, x1, height, colour):
-    """길쭉하고 말랑한 타원 하나 (똬리가 아니다): 윗면의 밝은 자리와 옅은 주름 둘."""
+def swirl(img, x0, x1, height, colour):
+    """둘둘 쌓인 똥: 아래로 갈수록 넓은 세 겹에 위로 뾰족한 꼭지. 겹 사이는 비스듬한 어두운 줄, 왼쪽 위가 밝다."""
     top = BOTTOM - height
     w, mid = x1 - x0, (x0 + x1) / 2
-    blob(img, [E(x0, top, x1, BOTTOM)], colour, r=1.0,
-         marks=[([E(x0 + w * 0.16, top + height * 0.16, x0 + w * 0.5, top + height * 0.42)], mix(colour, WHITE, 0.28)),
-                ([L([(mid - w * 0.12, top + height * 0.3), (mid - w * 0.17, top + height * 0.72)], 1.2),
-                  L([(mid + w * 0.17, top + height * 0.28), (mid + w * 0.12, top + height * 0.7)], 1.2)], mix(colour, LINE, 0.4))])
+    def y(f):
+        return top + height * f
+    def tier(half, y0, y1):
+        return E(mid - w * half, y(y0), mid + w * half, y(y1))
+    shapes = [tier(0.5, 0.56, 1.0), tier(0.36, 0.32, 0.72), tier(0.23, 0.14, 0.46),
+              T((mid - w * 0.1, y(0.2)), (mid + w * 0.05, y(0.0)), (mid + w * 0.13, y(0.24)))]
+    groove = mix(colour, LINE, 0.55)
+    shine = mix(colour, WHITE, 0.3)
+    blob(img, shapes, colour, r=1.0,
+         marks=[([L([(mid - w * 0.36, y(0.70)), (mid - w * 0.1, y(0.77)), (mid + w * 0.2, y(0.74)), (mid + w * 0.38, y(0.62))], 1.8),
+                  L([(mid - w * 0.23, y(0.42)), (mid - w * 0.03, y(0.49)), (mid + w * 0.14, y(0.47)), (mid + w * 0.26, y(0.37))], 1.6)], groove),
+                ([E(mid - w * 0.36, y(0.76), mid - w * 0.14, y(0.86))], shine),
+                ([E(mid - w * 0.24, y(0.50), mid - w * 0.08, y(0.58))], shine),
+                ([E(mid - w * 0.15, y(0.24), mid - w * 0.04, y(0.33))], shine)])
 
 
 def draw_poop(img):
-    """강아지 똥: 바닥에 누운 길쭉한 갈색 타원."""
-    soft_log(img, 26, 102, 30, POOP)
+    """강아지 등 큰 동물의 똥: 소프트아이스크림처럼 둘둘 쌓인 갈색 똥."""
+    swirl(img, 26, 102, 70, POOP)
 
 
 def draw_dropping(img):
-    """작은 동물(개구리·오리·꿀벌·유령)의 똥: 더 작고 올리브빛인 타원."""
-    soft_log(img, 37, 91, 22, DROPPING)
+    """작은 동물(개구리·오리·꿀벌·유령)의 똥: 더 작고 올리브빛인 똥."""
+    swirl(img, 37, 91, 50, DROPPING)
 
 
 def draw_pellets(img):

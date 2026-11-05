@@ -47,7 +47,7 @@ pub enum ObjectKind {
     Milk,
     Sock,
     Umbrella,
-    /// 💩 동물이 싼 똥 (poop.rs): 길쭉한 타원, 작은 타원, 토끼의 알갱이. 메뉴에 없고 포스트잇을 못 붙인다
+    /// 💩 동물이 싼 똥 (poop.rs): 둘둘 쌓인 큰 똥, 작은 똥, 토끼의 알갱이. 메뉴에 없고 포스트잇을 못 붙인다
     Poop,
     Dropping,
     Pellets,

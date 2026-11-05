@@ -69,7 +69,7 @@ pub fn sanitize_size(sent: Option<f64>) -> f64 {
     }
 }
 
-/// 동물 종류 → 똥 그림: 토끼는 알갱이, 작은 동물은 작은 타원, 나머지는 타원
+/// 동물 종류 → 똥 그림: 토끼는 알갱이, 작은 동물은 작은 똥, 나머지는 큰 똥
 pub fn kind_for(species: &str) -> ObjectKind {
     match species {
         "rabbit" => ObjectKind::Pellets,
@@ -105,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn rabbits_get_pellets_little_pets_a_small_oval_and_everyone_else_the_oval() {
+    fn rabbits_get_pellets_little_pets_a_small_swirl_and_everyone_else_the_big_one() {
         assert_eq!(kind_for("rabbit"), ObjectKind::Pellets);
         for s in ["frog", "duck", "bee", "ghost"] {
             assert_eq!(kind_for(s), ObjectKind::Dropping, "{s}");

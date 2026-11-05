@@ -188,18 +188,17 @@ def test_only_trash_takes_post_its():
     assert set(d.POSTIT_AT) == set(d.NAMES) - set(POOPS)
 
 
-@pytest.mark.parametrize("name,min_ratio", [("poop", 2.2), ("dropping", 2.2)])
-def test_poop_is_a_long_lying_oval_not_a_tall_swirl(built, name, min_ratio):
-    """똬리(위로 뾰족한 더미)가 아니다: 납작하게 누운 타원이고 가운데 줄이 가장 넓다."""
+@pytest.mark.parametrize("name", ["poop", "dropping"])
+def test_poop_is_a_swirl_stacked_narrower_toward_a_tip(built, name):
+    """둘둘 쌓인 똥: 바닥이 가장 넓고 위로 갈수록 좁아지며 꼭지로 끝난다."""
     _, arts = built
     a = np.asarray(arts[name].getchannel("A")) >= 128
     ys, xs = a.nonzero()
     w, h = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
-    assert w >= h * min_ratio, (w, h)
+    assert h >= w * 0.75, (w, h)
     widths = a.sum(axis=1)[ys.min(): ys.max() + 1]
-    assert widths.argmax() in range(h // 4, h - h // 4 + 1), widths.tolist()
-    top = a[ys.min() + h // 4].sum()
-    assert top >= w * 0.6, "the top is round and wide, not a peak"
+    assert widths.argmax() >= h * 2 // 3, widths.tolist()
+    assert widths[: h // 6].max() < w * 0.45, widths.tolist()
 
 
 def _lumps(mask):
