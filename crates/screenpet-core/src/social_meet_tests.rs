@@ -304,7 +304,8 @@ fn it_happens_about_as_often_as_promised_and_every_kind_shows_up() {
     }
     let share = met as f64 / n as f64;
     assert!((share - MEET_CHANCE).abs() < 0.08, "{share}");
-    assert!(kinds.iter().all(|&k| k > 30), "every kind about a quarter: {kinds:?}");
+    assert!(kinds.iter().all(|&k| k > 30), "every kind shows up: {kinds:?}");
+    assert!(kinds[1..].iter().all(|&k| k < kinds[0]), "the stomp is the usual meet: {kinds:?}");
 }
 
 #[test]

@@ -646,7 +646,7 @@ fn a_meet_can_end_standing_on_the_head_while_the_other_walks_on() {
 }
 
 #[test]
-fn climbing_is_about_a_quarter_of_the_meet_outcomes() {
+fn climbing_takes_its_share_of_the_meet_outcomes() {
     let w = world(vec![]);
     let (mut climbs, n) = (0, 800);
     for seed in 0..n {
@@ -657,7 +657,8 @@ fn climbing_is_about_a_quarter_of_the_meet_outcomes() {
         climbs += usize::from(!s.climbs.is_empty());
     }
     let share = climbs as f64 / n as f64;
-    assert!((share - 0.25).abs() < 0.05, "{share}");
+    let want = MEET_KINDS.iter().find(|(k, _)| *k == MeetKind::Climb).unwrap().1;
+    assert!((share - want).abs() < 0.05, "{share}");
 }
 
 #[test]

@@ -56,10 +56,12 @@ pub const TUMBLE_CHANCE: f64 = 0.35;
 /// 마주 오던 둘이 만났다고 보는 거리 (인사 거리와 같아서 인사보다 먼저 본다, 이보다 가까우면 이미 지나치는 중)
 pub const MEET_BODIES: f64 = GREET_BODIES;
 pub const MEET_MIN_BODIES: f64 = 0.4;
-/// 마주칠 때 밟기·튀기·지나치기 중 하나를 할 확률 (한 번의 마주침에 한 번만 정한다, 나머지는 평소대로 인사)
-pub const MEET_CHANCE: f64 = 0.7;
+/// 마주칠 때 밟기·튀기·지나치기·올라서기 중 하나를 할 확률 (한 번의 마주침에 한 번만 정한다, 나머지는 평소대로 인사)
+pub const MEET_CHANCE: f64 = 0.85;
+/// 만남 고르기의 몫: 머리 밟고 넘기가 가장 흔하고, 나머지는 가끔 (합 1)
+pub const MEET_KINDS: [(MeetKind, f64); 4] = [(MeetKind::Stomp, 0.55), (MeetKind::HighBounce, 0.15), (MeetKind::Pass, 0.15), (MeetKind::Climb, 0.15)];
 /// 그 짝이 다시 만남을 정하기까지 (초): 했으면 / 안 했으면
-pub const MEET_COOLDOWN: (f64, f64) = (45.0, 90.0);
+pub const MEET_COOLDOWN: (f64, f64) = (15.0, 30.0);
 pub const MEET_PASS_COOLDOWN: f64 = 20.0;
 /// 내려설 때 친구와 떨어지는 거리 (몸 크기 평균의 배, 두 몸 반 폭에 더한다)
 const MEET_GAP: f64 = 0.15;
@@ -193,6 +195,18 @@ fn landing_past(jumper: &Snap, other: &Snap) -> Option<f64> {
     [far, x].into_iter().find(|&x| fits(x))
 }
 
+/// 0 ≤ roll < 1을 MEET_KINDS의 몫대로 만남 하나로 바꾼다
+fn pick_meet(roll: f64) -> MeetKind {
+    let mut left = roll;
+    for (kind, share) in MEET_KINDS {
+        if left < share {
+            return kind;
+        }
+        left -= share;
+    }
+    MEET_KINDS[0].0
+}
+
 /// 잡았다: 가로로 몸이 맞닿고 높이도 비슷 (나는 동물은 몸 하나 차이까지)
 fn caught(a: &Snap, b: &Snap) -> bool {
     let body = (a.size + b.size) / 2.0;
@@ -312,7 +326,7 @@ impl Social {
         }
     }
 
-    /// 마주 오다 만난 짝: 한 번의 마주침에 한 번만 정한다 — 가끔 밟기·높이 튀기·지나치기. 나머지는 그대로 (곧 인사로 이어진다).
+    /// 마주 오다 만난 짝: 한 번의 마주침에 한 번만 정한다 — 대개 머리 밟고 넘기, 가끔 높이 튀기·지나치기·올라서기. 나머지는 그대로 (곧 인사로 이어진다).
     /// 한 짝의 인사 쿨다운 중에도 일어난다 (인사 없이 걷던 둘이 그냥 겹쳐 지나가지 않게)
     fn find_head_ons<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T]) {
         let n = self.snap.len();
@@ -341,7 +355,7 @@ impl Social {
     /// 고른 만남을 시작한다. 내려설 자리가 없으면 false
     fn start_meet<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T], i: usize, j: usize) -> bool {
         let (ij, it) = if self.meet_rng.bool() { (i, j) } else { (j, i) };
-        let kind = self.meet_only.unwrap_or_else(|| [MeetKind::Stomp, MeetKind::HighBounce, MeetKind::Pass, MeetKind::Climb][self.meet_rng.usize(..4)]);
+        let kind = self.meet_only.unwrap_or_else(|| pick_meet(self.meet_rng.f64()));
         let (jump, other) = (self.snap[ij], self.snap[it]);
         // 달리던 동물은 웅크림이 짧다 (속도가 이어져 보이게)
         let crouch = if jump.run_carry > 0.0 || other.run_carry > 0.0 { CROUCH_SECS * RUN_CROUCH } else { CROUCH_SECS };
@@ -657,3 +671,7 @@ mod tests;
 #[cfg(test)]
 #[path = "social_meet_tests.rs"]
 mod meet_tests;
+
+#[cfg(test)]
+#[path = "social_meet_sim_tests.rs"]
+mod meet_sim_tests;
