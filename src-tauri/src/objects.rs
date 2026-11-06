@@ -363,7 +363,8 @@ impl Objects {
             return;
         }
         let fling = toss.fling.map(from_net_fling);
-        let Some(accepted) = accept_toss(&toss.kind, fling, toss.note.as_deref()) else {
+        let kind = ObjectKind::wire_kind(&toss.kind, toss.rainbow).map_or(toss.kind.clone(), |k| k.id().to_string());
+        let Some(accepted) = accept_toss(&kind, fling, toss.note.as_deref()) else {
             eprintln!("ignored a thrown object of unknown kind from {from}");
             return;
         };
@@ -634,7 +635,7 @@ impl Objects {
             let mut rng = fastrand::Rng::new();
             for _ in 0..count {
                 let (kind, fling) = volley_piece(&mut rng);
-                network.toss_to(id, Toss { kind: kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None });
+                network.toss_to(id, Toss { kind: kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None, rainbow: false });
             }
             !volley.is_done()
         });
@@ -653,7 +654,7 @@ impl Objects {
         self.budgets.entry(friend.clone()).or_default().spend(secs);
         self.threw_at.insert(friend.clone(), Instant::now());
         let (side, vside) = to_net_side(visit::opposite(exit.side));
-        let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()) };
+        let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()), rainbow: l.object.kind == ObjectKind::Rainbow };
         eprintln!("threw a {} to {friend}{}", l.object.kind.id(), if toss.note.is_some() { " with a post-it" } else { "" });
         network.toss_to(&friend, toss);
     }

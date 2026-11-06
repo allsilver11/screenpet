@@ -253,10 +253,16 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     // 놀러 보내기 ▸ 연결된 친구 (펫 우클릭에서도 같은 메뉴)
     let online: Vec<&FriendItem> = model.friends.iter().filter(|f| f.connected).collect();
     let send = Submenu::new(app, "놀러 보내기", online.iter().any(|f| f.can_send))?;
-    for f in online {
+    for f in &online {
         send.append(&MenuItem::with_id(app, format!("{SEND_LIST_PREFIX}{}", f.id), menu_text(&f.name), f.can_send, None::<&str>)?)?;
     }
     submenu.append(&send)?;
+    // 🗑️ 연결된 친구에게 쓰레기 10개 (연달아 눌러 다섯 번까지 쌓인다)
+    let throw = Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !online.is_empty())?;
+    for f in &online {
+        throw.append(&MenuItem::with_id(app, format!("{THROW_VOLLEY_PREFIX}{}", f.id), menu_text(&f.name), true, None::<&str>)?)?;
+    }
+    submenu.append(&throw)?;
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
     for f in &model.friends {
         let dot = if f.connected { "●" } else { "○" };
@@ -268,12 +274,11 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         let letter = MenuItem::with_id(app, format!("{LETTER_PREFIX}{}", f.id), "편지 들려 보내기…", f.can_send, None::<&str>)?;
         let bring_label = format!("{} 펫 데리고 오기", menu_text(&f.name));
         let bring = MenuItem::with_id(app, format!("{BRING_PREFIX}{}", f.id), bring_label, f.connected && model.room, None::<&str>)?;
-        let throw = MenuItem::with_id(app, format!("{THROW_VOLLEY_PREFIX}{}", f.id), "🗑️ 물건 10개 던지기", f.connected, None::<&str>)?;
         let nickname = MenuItem::with_id(app, format!("{NICKNAME_PREFIX}{}", f.id), "이름 바꾸기…", true, None::<&str>)?;
         let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
         let sep = PredefinedMenuItem::separator(app)?;
         let sep2 = PredefinedMenuItem::separator(app)?;
-        submenu.append(&Submenu::with_items(app, title, true, &[&send, &letter, &bring, &throw, &sep, &left, &right, &up, &down, &sep2, &nickname, &unfriend])?)?;
+        submenu.append(&Submenu::with_items(app, title, true, &[&send, &letter, &bring, &sep, &left, &right, &up, &down, &sep2, &nickname, &unfriend])?)?;
     }
     for (id, name) in &model.strangers {
         submenu.append(&MenuItem::with_id(app, format!("{INVITE_PREFIX}{id}"), format!("{} — 친구 신청", menu_text(name)), true, None::<&str>)?)?;

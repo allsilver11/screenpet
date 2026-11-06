@@ -187,14 +187,14 @@ def test_broken_computer_screen_is_black_glass_with_no_white_marks(built):
     assert (screen.min(axis=2) > 200).sum() == 0, "x eyes or a mouth"
 
 
-POOPS = ("poop", "dropping", "pellets")
+POOPS = ("poop", "rainbow", "pellets")
 
 
 def test_only_trash_takes_post_its():
     assert set(d.POSTIT_AT) == set(d.NAMES) - set(POOPS)
 
 
-@pytest.mark.parametrize("name", ["poop", "dropping"])
+@pytest.mark.parametrize("name", ["poop", "rainbow"])
 def test_poop_is_a_swirl_stacked_narrower_toward_a_tip(built, name):
     """둘둘 쌓인 똥: 바닥이 가장 넓고 위로 갈수록 좁아지며 꼭지로 끝난다."""
     _, arts = built
@@ -233,16 +233,26 @@ def test_rabbit_pellets_are_several_separate_little_balls(built):
     assert _lumps(fill) >= 5
 
 
-def test_poop_is_brown_and_the_small_kind_is_smaller_and_olive(built):
+def test_poop_is_brown_and_the_rainbow_one_has_every_colour(built):
     _, arts = built
-    big, small = _opaque(arts["poop"]).mean(axis=0), _opaque(arts["dropping"]).mean(axis=0)
+    big = _opaque(arts["poop"]).mean(axis=0)
     assert big[0] > big[1] > big[2], big
-    assert small[1] > big[1] * 0.9 and small[0] - small[1] < big[0] - big[1], (small, big)
+    px = _opaque(arts["rainbow"])
+    hues = {"red": (220, 80, 80), "orange": (240, 150, 60), "yellow": (250, 214, 84), "green": (110, 190, 100), "blue": (100, 150, 230), "violet": (160, 120, 220)}
+    for name, c in hues.items():
+        near = (np.abs(px - np.array(c)).sum(axis=1) < 70).sum()
+        assert near > 40, (name, near)
     area = lambda n: (np.asarray(arts[n].getchannel("A")) >= 128).sum()
-    assert area("dropping") < area("poop") * 0.7
+    assert abs(area("rainbow") - area("poop")) < area("poop") * 0.1, "same swirl, other colours"
 
 
-@pytest.mark.parametrize("name", ["poop", "dropping"])
+def test_the_green_poop_is_gone():
+    assert "dropping" not in d.NAMES
+    assert not (ROOT / "ui" / "objects" / "dropping.png").exists()
+    assert not (ROOT / "ui" / "objects_pixel" / "dropping.png").exists()
+
+
+@pytest.mark.parametrize("name", ["poop", "rainbow"])
 def test_poop_has_the_classic_outline_not_an_oval(built, name):
     """전형적인 똥: 단 사이 옆선이 안으로 꺾이고, 꼭지는 오른쪽으로 휜다."""
     _, arts = built

@@ -306,9 +306,9 @@ const ASK_EVERY: Duration = Duration::from_secs(2);
 /// Steering (control mode): up to 30 messages at once, then 30 per second.
 const STEER_BURST: f64 = 30.0;
 const STEER_EVERY: Duration = Duration::from_micros(33_334);
-/// Thrown objects: up to 10 at once, then 10 per minute.
-const TOSS_BURST: f64 = 10.0;
-const TOSS_EVERY: Duration = Duration::from_secs(6);
+/// Thrown objects: up to 50 at once (five volleys), then 50 per minute.
+const TOSS_BURST: f64 = 50.0;
+const TOSS_EVERY: Duration = Duration::from_millis(1200);
 /// Visit messages: far more than a pet walking back and forth ever sends.
 const VISIT_BURST: f64 = 20.0;
 const VISIT_EVERY: Duration = Duration::from_millis(500);
@@ -956,7 +956,7 @@ mod budget_tests {
     fn the_budget_is_per_friend_and_leaves_with_the_friend() {
         let now = Instant::now();
         let mut st = State::default();
-        for _ in 0..10 {
+        for _ in 0..50 {
             assert!(st.budget("a", now).tosses.take(now));
         }
         assert!(!st.budget("a", now).tosses.take(now));

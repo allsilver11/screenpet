@@ -1,6 +1,6 @@
 """물건 (쓰레기 장난감) — draw_pets.py 엔진으로 그린 128 칸 그림과 노란 포스트잇.
 
-    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,shirt,umbrella,poop,dropping,pellets}.png (128×128)
+    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,shirt,umbrella,poop,rainbow,pellets}.png (128×128)
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
@@ -39,8 +39,8 @@ POSTIT_REACH = 20
 HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
-NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "dropping", "pellets")
-# 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다. 똥(poop, dropping, pellets)엔 포스트잇을 붙이지 않는다
+NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "rainbow", "pellets")
+# 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다. 똥(poop, rainbow, pellets)엔 포스트잇을 붙이지 않는다
 POSTIT_AT = {
     "can": (76, 80),
     "paper": (86, 104),
@@ -74,7 +74,7 @@ CLOTH = (150, 132, 214)
 CLOTH_LIGHT = mix(CLOTH, WHITE, 0.35)
 HANDLE = (176, 128, 92)
 POOP = (138, 92, 58)
-DROPPING = (118, 112, 62)
+RAINBOW = ((164, 130, 226), (106, 160, 232), (124, 190, 96), (252, 214, 84), (244, 150, 60), (232, 84, 84))
 PELLET = (112, 76, 50)
 NOTE = (255, 232, 110)
 NOTE_FOLD = (238, 200, 74)
@@ -211,7 +211,7 @@ def draw_umbrella(img):
     paint(img, aa(shapes([L([(92, 104), (108, 116), (114, 114)], 1.8)])), mix(METAL, LINE, 0.3))
 
 
-def swirl(img, x0, x1, height, colour):
+def swirl(img, x0, x1, height, colour, bands=()):
     """전형적인 똥 (얼굴 없는 💩): 뚱뚱한 아랫단, 둥근 윗단, 오른쪽으로 휘어 올라간 꼭지."""
     top = BOTTOM - height
     w, mid = x1 - x0, (x0 + x1) / 2
@@ -224,8 +224,13 @@ def swirl(img, x0, x1, height, colour):
     groove = mix(colour, LINE, 0.6)
     shine = mix(colour, WHITE, 0.3)
     line = max(1.4, w * 0.026)
+    # 무지개: 위(꼭지)부터 아래까지 가로 띠
+    stripes = [([T(p(-0.6, k / len(bands)), p(0.6, k / len(bands)), p(0.6, (k + 1) / len(bands)), p(-0.6, (k + 1) / len(bands)))], c)
+               for k, c in enumerate(bands)]
+    if bands:
+        groove = mix(LINE, WHITE, 0.25)
     blob(img, shapes, colour, r=0.8,
-         marks=[([L([p(-0.33, 0.56), p(-0.15, 0.65), p(0.15, 0.65), p(0.33, 0.56)], line),
+         marks=stripes + [([L([p(-0.33, 0.56), p(-0.15, 0.65), p(0.15, 0.65), p(0.33, 0.56)], line),
                   L([p(-0.11, 0.29), p(0.02, 0.345), p(0.11, 0.31), p(0.175, 0.23)], line)], groove),
                 ([E(*p(-0.38, 0.70), *p(-0.2, 0.79))], shine),
                 ([E(*p(-0.24, 0.37), *p(-0.1, 0.45))], shine),
@@ -237,9 +242,9 @@ def draw_poop(img):
     swirl(img, 26, 102, 70, POOP)
 
 
-def draw_dropping(img):
-    """작은 동물(개구리·오리·꿀벌·유령)의 똥: 더 작고 올리브빛인 똥."""
-    swirl(img, 37, 91, 50, DROPPING)
+def draw_rainbow(img):
+    """가끔 나오는 무지개 똥: 똥과 같은 모양에 무지개 띠."""
+    swirl(img, 26, 102, 70, RAINBOW[0], bands=RAINBOW)
 
 
 def draw_pellets(img):
@@ -259,7 +264,7 @@ DRAW = {
     "shirt": draw_shirt,
     "umbrella": draw_umbrella,
     "poop": draw_poop,
-    "dropping": draw_dropping,
+    "rainbow": draw_rainbow,
     "pellets": draw_pellets,
 }
 

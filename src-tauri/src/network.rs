@@ -519,7 +519,7 @@ impl Network {
         }
         let friend = &friends[fastrand::usize(..friends.len())].id;
         let (side, vside) = to_net_side(visit::opposite(side));
-        net.toss(friend, screenpet_net::Toss { kind: screenpet_core::weather::flurry_kind(kind), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None });
+        net.toss(friend, screenpet_net::Toss { kind: screenpet_core::weather::flurry_kind(kind), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None, rainbow: false });
     }
 
     /// 집에 돌아온 내 동물의 일시 확대가 끝날 때가 됐으면 원래 크기로 (친구 화면에 가 있으면 돌아온 뒤에)

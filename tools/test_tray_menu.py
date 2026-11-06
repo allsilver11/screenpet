@@ -59,12 +59,14 @@ def test_help_uses_the_new_paths():
     assert "캐릭터 ▸" not in HELP and "내 친구 코드 보기" not in HELP and "사다리 초대 받기" not in HELP
 
 
-def test_friend_menu_throws_a_volley_only_when_connected():
-    assert '"🗑️ 물건 10개 던지기", f.connected,' in TRAY
-    assert "&[&send, &letter, &bring, &throw, &sep," in TRAY
+def test_throwing_ten_is_one_menu_that_lists_the_friends():
+    fill = TRAY[TRAY.index("fn try_fill_friends") :]
+    assert 'Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !online.is_empty())' in fill
+    assert "format!(\"{THROW_VOLLEY_PREFIX}{}\", f.id)" in fill
+    # 친구별 하위 메뉴에서는 빠졌다
+    assert "&[&send, &letter, &bring, &sep," in fill and "물건 10개 던지기" not in fill
     assert "ObjectInput::ThrowVolley(id.to_string())" in TRAY
-    assert "🗑️ 물건 10개 던지기" in HELP
-
+    assert "🗑️ 쓰레기 10개 던지기" in HELP
 
 def test_objects_appear_without_taking_focus():
     """tao는 숨긴 채 만든 창의 나중 show()를 활성화로 띄운다 (SW_SHOW): 친구가 던진 물건이 포커스를 뺏고 트레이 메뉴를 닫는다.

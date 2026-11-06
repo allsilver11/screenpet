@@ -69,12 +69,23 @@ pub fn sanitize_size(sent: Option<f64>) -> f64 {
     }
 }
 
-/// 동물 종류 → 똥 그림: 토끼는 알갱이, 작은 동물은 작은 똥, 나머지는 큰 똥
+/// 동물 종류 → 똥 그림: 토끼는 알갱이, 나머지는 똥 (크기는 몸을 따른다)
 pub fn kind_for(species: &str) -> ObjectKind {
     match species {
         "rabbit" => ObjectKind::Pellets,
-        "frog" | "duck" | "bee" | "ghost" => ObjectKind::Dropping,
         _ => ObjectKind::Poop,
+    }
+}
+
+/// 가끔 무지개 똥이 나온다 (어느 동물이든)
+pub const RAINBOW_CHANCE: f64 = 0.08;
+
+/// 싼 똥의 종류: roll = 0..1 난수
+pub fn pick_kind(species: &str, roll: f64) -> ObjectKind {
+    if roll < RAINBOW_CHANCE {
+        ObjectKind::Rainbow
+    } else {
+        kind_for(species)
     }
 }
 
@@ -105,15 +116,21 @@ mod tests {
     }
 
     #[test]
+    fn now_and_then_a_poop_comes_out_rainbow() {
+        assert_eq!(pick_kind("dog", 0.0), ObjectKind::Rainbow);
+        assert_eq!(pick_kind("rabbit", 0.0), ObjectKind::Rainbow);
+        assert_eq!(pick_kind("dog", RAINBOW_CHANCE), ObjectKind::Poop);
+        assert_eq!(pick_kind("rabbit", 0.99), ObjectKind::Pellets);
+        assert!((0.03..=0.15).contains(&RAINBOW_CHANCE));
+    }
+
+    #[test]
     fn rabbits_get_pellets_little_pets_a_small_swirl_and_everyone_else_the_big_one() {
         assert_eq!(kind_for("rabbit"), ObjectKind::Pellets);
-        for s in ["frog", "duck", "bee", "ghost"] {
-            assert_eq!(kind_for(s), ObjectKind::Dropping, "{s}");
-        }
-        for s in ["cat", "dog", "bear", "giraffe", "dino_green", "santa", "unknown"] {
+        for s in ["frog", "duck", "bee", "ghost", "cat", "dog", "bear", "giraffe", "dino_green", "santa", "unknown"] {
             assert_eq!(kind_for(s), ObjectKind::Poop, "{s}");
         }
-        for k in [ObjectKind::Poop, ObjectKind::Dropping, ObjectKind::Pellets] {
+        for k in [ObjectKind::Poop, ObjectKind::Rainbow, ObjectKind::Pellets] {
             assert!(k.is_poop());
         }
     }

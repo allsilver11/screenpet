@@ -780,11 +780,11 @@ fn flooded_steers_are_rate_limited() {
 #[test]
 fn tosses_reach_connected_friends_with_kind_fling_and_note() {
     let p = connected_pair();
-    let toss = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Up), fling: Some(Fling { height: 0.5, vx: -300.0, vy: 20.0 }), note: Some("hi".into()), bounced: false, scale: None };
+    let toss = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Up), fling: Some(Fling { height: 0.5, vx: -300.0, vy: 20.0 }), note: Some("hi".into()), bounced: false, scale: None, rainbow: false };
     p.a.toss("bbbb", toss.clone());
     assert_eq!(wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Tossed { .. })), Some(NetEvent::Tossed { from: "aaaa".into(), toss }));
     // 모르는 상대에게는 보내지 않는다
-    p.a.toss("zzzz", Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None });
+    p.a.toss("zzzz", Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, rainbow: false });
     p.a.shutdown();
     p.b.shutdown();
 }
@@ -835,8 +835,8 @@ fn flooded_tosses_are_rate_limited_without_dropping_the_link() {
             Err(_) => break,
         }
     }
-    // 처음 10개까지만 바로 (그 뒤엔 6초에 하나) — 연결은 끊지 않는다
-    assert_eq!(events, 10, "rate limited");
+    // 처음 50개까지만 바로 (그 뒤엔 1.2초에 하나) — 연결은 끊지 않는다
+    assert_eq!(events, 50, "rate limited");
     assert!(!disconnected);
     net.shutdown();
 }
@@ -864,16 +864,16 @@ fn reconnecting_does_not_refill_the_toss_budget() {
     let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
     let mut first = raw_friend_connect(port, &kz, "zzzz");
     wait_for(&rx, 5.0, is_connected).unwrap();
-    assert_eq!(count_tosses(&mut first, &rx, 30, Duration::from_millis(500)), 10);
+    assert_eq!(count_tosses(&mut first, &rx, 60, Duration::from_millis(500)), 50);
     drop(first);
     std::thread::sleep(Duration::from_millis(200));
-    // 같은 친구의 새 링크: 남은 토큰을 이어받는다 (6초에 하나만 다시 찬다)
+    // 같은 친구의 새 링크: 남은 토큰을 이어받는다 (1.2초에 하나만 다시 찬다)
     let mut second = raw_friend_connect(port, &kz, "zzzz");
     std::thread::sleep(Duration::from_millis(200));
     second.send(json!({"type": "ping", "ask": "invite"})).unwrap();
     assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Asked { .. })).is_some(), "the new link works");
-    let again = count_tosses(&mut second, &rx, 30, Duration::from_millis(500));
-    assert!(again <= 1, "budget carried over the reconnect: {again}");
+    let again = count_tosses(&mut second, &rx, 60, Duration::from_millis(500));
+    assert!(again <= 2, "budget carried over the reconnect: {again}");
     net.shutdown();
 }
 
