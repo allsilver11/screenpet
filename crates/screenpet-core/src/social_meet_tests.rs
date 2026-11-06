@@ -250,6 +250,83 @@ fn control_food_home_focus_and_homesick_pets_do_not_take_part() {
 }
 
 #[test]
+fn a_bounce_back_bumps_the_head_and_hops_back_the_way_it_came() {
+    let w = floor();
+    for seed in 0..8 {
+        let mut pets = head_on_pair(&w, 200.0, seed);
+        let mut s = always(Some(MeetKind::BounceBack), seed);
+        step(&mut s, &mut pets, &w);
+        let (j, t) = roles(&pets);
+        let (tx, dir) = (pets[t].body.x, pets[j].facing);
+        let (mut squashed, mut boing) = (false, false);
+        for _ in 0..(60 * 3) {
+            step(&mut s, &mut pets, &w);
+            squashed |= phase(&pets[t]) == Some(MeetPhase::Squash);
+            boing |= pets[j].take_speech() == Some(Speech::Boing);
+            if phase(&pets[j]).is_none() && phase(&pets[t]).is_none() {
+                break;
+            }
+        }
+        assert!(squashed && boing, "{seed}: {squashed} {boing}");
+        // 온 쪽에 내려서서 돌아서 간다 — 친구 몸 안이 아니다
+        assert!(pets[j].standing.is_some());
+        assert!((pets[j].body.x - tx) * dir < -(pets[j].cfg.half_w + pets[t].cfg.half_w), "{seed}");
+        assert_eq!(pets[j].facing, -dir, "{seed}");
+        assert!(matches!(pets[j].state, State::Move { .. }));
+    }
+}
+
+#[test]
+fn a_walker_stomps_a_friend_standing_still_and_the_friend_goes_flat() {
+    let w = floor();
+    for seed in 0..8 {
+        let mut pets = head_on_pair(&w, 200.0, seed);
+        pets[1].state = State::Idle { remaining: 30.0, look: false };
+        let mut s = always(Some(MeetKind::Stomp), seed);
+        s.one_way_chance = 1.0;
+        step(&mut s, &mut pets, &w);
+        // 다가간 쪽이 뛰고, 서 있던 쪽은 기다린다
+        assert_eq!(phase(&pets[0]), Some(MeetPhase::Crouch), "{seed}");
+        assert_eq!(phase(&pets[1]), Some(MeetPhase::Brace), "{seed}");
+        let mut squashed = false;
+        for _ in 0..(60 * 3) {
+            step(&mut s, &mut pets, &w);
+            squashed |= phase(&pets[1]) == Some(MeetPhase::Squash);
+        }
+        assert!(squashed);
+        assert!(pets[0].body.x > pets[1].body.x + pets[0].cfg.half_w, "landed past: {} {}", pets[0].body.x, pets[1].body.x);
+    }
+}
+
+#[test]
+fn a_perched_flyer_can_be_stomped_on_but_never_jumps() {
+    let w = floor();
+    let bird = PetConfig { flies: true, ..cfg() };
+    let mut pets = head_on_pair(&w, 200.0, 4);
+    let x = pets[1].body.x;
+    pets[1] = walker(&w, bird, Owner::Ground(0), x, -1.0, 9);
+    pets[1].state = State::Idle { remaining: 30.0, look: false };
+    let mut s = always(Some(MeetKind::Stomp), 4);
+    s.one_way_chance = 1.0;
+    step(&mut s, &mut pets, &w);
+    assert_eq!(phase(&pets[1]), Some(MeetPhase::Brace));
+    let mut squashed = false;
+    for _ in 0..(60 * 3) {
+        step(&mut s, &mut pets, &w);
+        squashed |= phase(&pets[1]) == Some(MeetPhase::Squash);
+    }
+    assert!(squashed, "the bird goes flat");
+    assert!(phase(&pets[1]).is_none() && pets[1].standing.is_some(), "{:?}", pets[1].state);
+    // 나는 동물은 걷지 않으니 다가가 밟지 않는다
+    let mut pets = vec![walker(&w, bird, Owner::Ground(0), 800.0, 1.0, 3), walker(&w, cfg(), Owner::Ground(0), 900.0, 1.0, 4)];
+    pets[1].state = State::Idle { remaining: 30.0, look: false };
+    let mut s = always(Some(MeetKind::Stomp), 3);
+    s.one_way_chance = 1.0;
+    s.tick(DT, &mut pets);
+    assert!(pets.iter().all(|p| phase(p).is_none()));
+}
+
+#[test]
 fn it_is_rolled_once_per_meeting_and_then_cools_down() {
     let w = floor();
     // 안 하기로 했으면 이번 마주침엔 다시 묻지 않고 평소대로 인사한다
@@ -288,8 +365,8 @@ fn it_is_rolled_once_per_meeting_and_then_cools_down() {
 fn it_happens_about_as_often_as_promised_and_every_kind_shows_up() {
     let w = floor();
     let (mut met, n) = (0, 400);
-    let mut kinds = [0; 4];
-    let all = [MeetKind::Stomp, MeetKind::HighBounce, MeetKind::Pass, MeetKind::Climb];
+    let mut kinds = [0; 5];
+    let all = [MeetKind::Stomp, MeetKind::HighBounce, MeetKind::Pass, MeetKind::Climb, MeetKind::BounceBack];
     for seed in 0..n {
         let mut pets = head_on_pair(&w, 200.0, seed);
         let mut s = Social::new(seed);

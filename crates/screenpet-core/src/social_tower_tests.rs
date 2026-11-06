@@ -794,6 +794,7 @@ fn soak_towers_form_stay_bounded_and_always_come_down() {
         }
         s.tower_chance = 0.0;
         s.meet_chance = 0.0;
+        s.one_way_chance = 0.0;
         for _ in 0..((RIDE_MAX_SECS + 5.0) / DT) as usize {
             step(&mut s, &mut pets, &w);
         }

@@ -823,6 +823,12 @@ impl Pet {
             self.on_started();
             return;
         }
+        // 내려앉아 있다가 친구에게 머리를 밟히는 나는 동물 (brain_meet.rs)
+        if let (true, State::Meet { phase, remaining }) = (self.perched_meet(), self.state) {
+            self.update_meet(dt, world, phase, remaining);
+            self.on_started();
+            return;
+        }
         if self.cfg.flies {
             self.update_flyer(dt, world);
             self.on_started();

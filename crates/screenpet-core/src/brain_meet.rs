@@ -1,11 +1,13 @@
-//! 마주 오던 두 동물이 만났을 때 (같은 디딤판, 서로 쪽으로 걷는 중) — brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 두 동물이 만났을 때 (같은 디딤판, 서로 쪽으로 걷거나 한쪽이 다른 쪽 앞에 걸어·달려 옴) — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //! 누가 무엇을 할지와 뛰어 내릴 자리는 social.rs가 정하고, 여기서는 그대로 움직인다:
 //!
 //! - 밟기: 한 마리가 친구 머리로 뛰어 밟고 조금 튀어 친구 너머에 내린다. 밟힌 친구는 잠깐 납작 (Land → Annoyed, "oof!").
 //! - 높이 튀기: 같지만 머리를 밟고 훨씬 높이 솟았다가 너머에 내린다.
 //! - 지나치기: 둘 다 폴짝 — 한 마리는 높이, 한 마리는 낮게, 꼭대기가 같은 때에 오게 해서 닿지 않고 엇갈린다.
 //! - 올라서기: 친구 머리(탑이면 맨 위)로 뛰어올라 그대로 선다 — 그 뒤는 brain_tower.rs.
-//! - 달리던 동물은 웅크림이 짧고 더 멀리 내린다 (Pet::run_carry).
+//! - 밟고 폴짝 되튀기: 머리를 밟고 돌아서 온 쪽으로 작게 폴짝 내린 뒤 그쪽으로 간다.
+//! - 한쪽만 다가가도 (친구가 서 있거나 앞서 가도) 다가간 쪽이 밟는다. 내려앉은 나는 동물도 밟힐 수 있다 (나는 동물은 뛰지 않는다).
+//! - 달리던 동물은 웅크림이 짧고, 조금 더 멀리서 뛰고, 더 멀리 내린다 (Pet::run_carry).
 //!
 //! 뛰는 길은 큰 점프와 같은 포물선(hop::leap_arc)과 중력이고, 그림은 Land·Hop·Fall·Look·Annoyed 그대로다.
 //! 내릴 때 디딤판이 그대로면 그 위에, 아니면 그 자리에서 떨어져 진짜 디딤판에 내린다 (land_leap). 내린 뒤엔 가던 쪽으로 계속 걷는다.
@@ -41,6 +43,8 @@ pub enum MeetKind {
     Pass,
     /// 친구 머리 위로 뛰어올라 선다 (brain_tower.rs) — 친구는 하던 일을 계속한다
     Climb,
+    /// 머리를 밟고 폴짝 되튀어 온 쪽에 내려선 뒤 돌아서 간다
+    BounceBack,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,16 +161,21 @@ impl Pet {
         }
     }
 
-    /// 가던 쪽으로 다시 걷는다
+    /// 가던 쪽으로 다시 걷는다 (내려앉아 밟힌 나는 동물은 그대로 앉아 있다가 평소대로)
     fn carry_on(&mut self) {
         self.meet = None;
         self.pacing.after_beat = None;
-        self.state = State::Move { kind: Move::Walk, remaining: behavior::range(&mut self.rng, Move::Walk.secs()) };
+        self.state = if self.cfg.flies { self.idle_state() } else { State::Move { kind: Move::Walk, remaining: behavior::range(&mut self.rng, Move::Walk.secs()) } };
     }
 
-    /// 나는 동물로 바뀌었으면 걷는 동물의 동작은 끝낸다 (나는 동물의 길에는 이 상태들이 없다)
+    /// 내려앉은 나는 동물이 밟히기를 기다리거나 밟힌 중 (나는 동물이 하는 만남은 이것뿐)
+    pub(super) fn perched_meet(&self) -> bool {
+        self.cfg.flies && self.standing.is_some() && matches!(self.state, State::Meet { phase: MeetPhase::Brace | MeetPhase::Squash, .. })
+    }
+
+    /// 나는 동물로 바뀌었으면 걷는 동물의 동작은 끝낸다 (나는 동물의 길에는 이 상태들이 없다 — 내려앉아 밟히는 것만 빼고)
     pub(super) fn drop_walking_moves(&mut self) {
-        if self.cfg.flies && matches!(self.state, State::Meet { .. } | State::Slip { .. } | State::Leap { .. } | State::Tumble { .. }) {
+        if self.cfg.flies && !self.perched_meet() && matches!(self.state, State::Meet { .. } | State::Slip { .. } | State::Leap { .. } | State::Tumble { .. }) {
             self.meet = None;
             self.state = self.idle_state();
         }
@@ -245,6 +254,10 @@ impl Pet {
                     _ => (Speech::Boing, BOUNCE_RISE),
                 };
                 self.speech = Some(speech);
+                // 되튀기: 머리 위에서 돌아서 온 쪽으로 폴짝 (내린 뒤 그쪽으로 간다)
+                if plan.kind == MeetKind::BounceBack {
+                    self.facing = (plan.land.0 - self.body.x).signum();
+                }
                 self.take_arc(world, plan.land, rise * self.cfg.size, MeetPhase::Final);
             }
             _ => {
