@@ -22,6 +22,7 @@ pub mod social;
 pub mod sting;
 pub mod style;
 pub mod surfaces;
+pub mod timeline;
 pub mod tumble;
 pub mod visit;
 pub mod weather;

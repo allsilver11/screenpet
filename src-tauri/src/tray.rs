@@ -46,6 +46,8 @@ const COME_HOME_ID: &str = "net:come-home";
 const COME_HOME_POSITION: usize = 5;
 /// 🎁 선물 도감 창 열기
 const GIFT_BOOK_ID: &str = "gift-book";
+/// 🐾 내 펫 ▸ 🕐 최근 한 시간 창 열기
+const TIMELINE_ID: &str = "timeline";
 /// 🎮 조작 모드 체크 항목
 const CONTROL_ID: &str = "control";
 /// 🐾 내 펫 ▸ 스타일 ▸ 체크 항목 (설정에 남는다, 그림만 바뀐다)
@@ -451,6 +453,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let focus_long = CheckMenuItem::with_id(app, FOCUS_LONG_ID, "50분 집중 · 10분 쉬기", true, false, None::<&str>)?;
     let focus = Submenu::with_items(app, focus_label(false), true, &[&focus_toggle, &PredefinedMenuItem::separator(app)?, &focus_short, &focus_long])?;
     let gift_book = MenuItem::with_id(app, GIFT_BOOK_ID, "🎁 선물 도감", true, None::<&str>)?;
+    let timeline = MenuItem::with_id(app, TIMELINE_ID, "🕐 최근 한 시간", true, None::<&str>)?;
     let come_home = MenuItem::with_id(app, COME_HOME_ID, "집에 와", true, None::<&str>)?;
     // 게임 루프가 네트워크를 시작한 뒤 채운다
     let friends = Submenu::with_items(app, "👫 친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
@@ -461,7 +464,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let style_round = CheckMenuItem::with_id(app, STYLE_ROUND_ID, "동글동글", true, style == PetStyle::Round, None::<&str>)?;
     let style_pixel = CheckMenuItem::with_id(app, STYLE_PIXEL_ID, "픽셀", true, style == PetStyle::Pixel, None::<&str>)?;
     let style_menu = Submenu::with_items(app, "스타일", true, &[&style_round, &style_pixel])?;
-    let my_pet = Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &pets_menu, &style_menu, &lock, &reset])?;
+    let my_pet = Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &style_menu, &lock, &reset])?;
     let objects_menu = crate::objects::build_menu(app)?;
     let play = Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &gift_book])?;
     let sizes = MenuItem::with_id(app, SIZES_ID, "📏 크기 조절…", true, None::<&str>)?;
@@ -502,6 +505,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "toggle" => toggle_windows(app),
             "help" => send(app, Input::ShowHelp),
             GIFT_BOOK_ID => send(app, Input::ShowGiftBook),
+            TIMELINE_ID => send(app, Input::ShowTimeline),
             "feed:water" => send(app, Input::Feed(Food::Water)),
             "lock" => send(app, Input::ToggleLock),
             STYLE_ROUND_ID => send(app, Input::SetStyle(PetStyle::Round)),

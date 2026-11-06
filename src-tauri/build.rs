@@ -83,6 +83,8 @@ fn main() {
         "ladder_seen",
         "gift_collect",
         "book_state",
+        "timeline_state",
+        "timeline_fit",
         "object_down",
         "object_menu",
         "postit_max",

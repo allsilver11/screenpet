@@ -16,7 +16,7 @@ def test_top_level_order():
 
 
 def test_submenus_hold_what_was_decided():
-    assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &pets_menu, &style_menu, &lock, &reset])' in TRAY
+    assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &style_menu, &lock, &reset])' in TRAY
     assert 'Submenu::with_items(app, "스타일", true, &[&style_round, &style_pixel])' in TRAY
     assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &gift_book])' in TRAY
     assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play, &sizes])' in TRAY

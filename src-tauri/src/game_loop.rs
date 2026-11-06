@@ -29,6 +29,7 @@ use crate::pets::PetEntry;
 use crate::presence::Presence;
 use crate::prop::{HandWindow, Props};
 use crate::slots::{self, GuestInfo, Role, Slot, OWN_LABEL};
+use crate::timeline::TimelineFx;
 use crate::weather::WeatherFx;
 use crate::AppState;
 
@@ -101,6 +102,8 @@ pub enum Input {
     ShowSizes,
     /// 크기 조절 창의 값 (%). save = 슬라이더를 놓았다: 파일에 남긴다
     SetSizes { pet: u32, object: u32, save: bool },
+    /// 메뉴 "🕐 최근 한 시간" (기록은 게임 루프가 가진다)
+    ShowTimeline,
     /// 저장하고 앱 종료
     Quit,
     /// 앱이 끝나는 중 (창이 닫힘·로그오프 등): 저장만 하고 알린 뒤 루프를 끝낸다
@@ -308,6 +311,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     // 물건 (쓰레기 장난감 — 없거나 잠들어 있으면 일이 없다)
     let mut objects = Objects::new();
     objects.set_size(&app, config.object_size());
+    // 🕐 최근 한 시간 (메모리에만)
+    let mut timeline = TimelineFx::new();
     // 💩 왼쪽 버튼을 새로 누른 순간만 쓴다 (어디를 무엇을 눌렀는지는 보지도 남기지도 않는다)
     let mut was_left_down = false;
     let mut poop_spots = Vec::new();
@@ -412,8 +417,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     let before = care.clone();
                     let result = care.feed(food);
                     if own.pet.feed_result(result, food) {
-                        if let FeedResult::Ate { leveled_up: true } = result {
-                            pending_stage = true;
+                        if let FeedResult::Ate { leveled_up } = result {
+                            pending_stage |= leveled_up;
+                            timeline.ate(&app, food, &favorite_of(&own.entry), &config);
                         }
                         save_config(&app, &mut config, &own.entry.id, &care);
                     } else {
@@ -633,6 +639,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     }
                 }
+                Input::ShowTimeline => timeline.show(&app, &config),
                 Input::Quit => {
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     app.exit(0);
@@ -647,7 +654,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
 
         let now = Instant::now();
-        let dt = (now - last).as_secs_f64().min(MAX_DT);
+        // 타임라인은 실제로 흐른 시간을 쓴다 (컴퓨터가 잤으면 그 틈을 비워 둔다)
+        let real_dt = (now - last).as_secs_f64();
+        let dt = real_dt.min(MAX_DT);
         last = now;
         care.tick(dt);
         if now - last_refresh >= WORLD_REFRESH {
@@ -686,6 +695,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 if own.pet.eat_from_hand(result, food) {
                     if let FeedResult::Ate { leveled_up } = result {
                         pending_stage |= leveled_up;
+                        timeline.ate(&app, food, &favorite_of(&own.entry), &config);
                         hand_win.bite();
                         done = true;
                         save_config(&app, &mut config, &own.entry.id, &care);
@@ -847,6 +857,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             network.own_exited(&config, &mut slots[OWN], side);
         }
         network.tick(&app, now, &config, &mut slots[OWN]);
+        timeline.tick(&app, real_dt, &slots[OWN], network.away_friend(), &config);
         objects.tick(&app, &slots[OWN].world, dt, now, (cx, cy), left_down, presence.is_away(), source.as_mut(), &network, &config);
         decals.tick(now);
         props.tick(now);
