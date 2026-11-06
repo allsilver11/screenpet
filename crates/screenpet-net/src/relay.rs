@@ -864,7 +864,7 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
             }
             let known = {
                 let st = shared.state();
-                st.is_friend(&id) && !st.introduced_unconfirmed(&id)
+                st.is_friend(&id) && !st.introduced_only(&id)
             };
             if known {
                 return fail("already_friend");

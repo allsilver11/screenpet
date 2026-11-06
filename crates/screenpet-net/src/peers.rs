@@ -214,7 +214,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
         match pinned {
             // A key only a friend's introduction vouches for: whoever this is
             // may still pair for real (as a stranger, SAS-confirmed).
-            Some(k) if k != ctx.remote_key && st.introduced_unconfirmed(id) => {}
+            Some(k) if k != ctx.remote_key && st.introduced_only(id) => {}
             Some(k) if k != ctx.remote_key => {
                 // Unproven: whoever answered is not our friend. Silent; the
                 // dialed candidate is backed off by the caller.
@@ -702,7 +702,7 @@ pub(crate) fn dial_failed(shared: &Shared, id: &str) {
 fn can_invite(shared: &Shared, st: &State, peer_id: &str) -> bool {
     peer_id != shared.id
         && !st.invites_out.contains_key(peer_id)
-        && (!st.is_friend(peer_id) || st.introduced_unconfirmed(peer_id))
+        && (!st.is_friend(peer_id) || st.introduced_only(peer_id))
         && st.friends.len() < MAX_FRIENDS
         && !st.dialing.contains(peer_id)
         && !outbound_pairing(st, peer_id)

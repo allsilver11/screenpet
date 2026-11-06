@@ -2479,6 +2479,30 @@ fn a_real_pairing_replaces_a_friends_fake_introduction_of_that_id() {
 }
 
 #[test]
+fn a_fake_introduction_confirmed_by_its_own_key_is_still_replaced_by_a_real_pairing() {
+    // 고친 앱의 친구가 남의 id를 자기 키로 소개하고, 그 키로 직접 붙어 확인까지 마쳤다 (pending이 풀렸다).
+    // 그래도 소개로만 들어온 항목이라, 진짜 그 사람과 이모지 확인을 거쳐 맺으면 진짜 키로 바뀐다
+    let (kz, fake) = (key(), key());
+    let (victim, real) = (hid(20), key());
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend(&victim, &fake)]);
+    c.introduced = vec![(victim.clone(), "zzzz".to_string())];
+    let (net, rx, port) = sniffed(c);
+    assert!(!net.friend_info(&victim).unwrap().pending);
+    let mut p = raw_connect(port, &real, &victim);
+    let n = random32();
+    p.send(json!({"type": "invite", "pet": "cat", "commit": hex(&blake2s(&[&n]))})).unwrap();
+    assert_eq!(p.recv_msg().unwrap()["type"], "pair_random");
+    p.send(json!({"type": "pair_reveal", "nonce": hex(&n)})).unwrap();
+    let ev = wait_for(&rx, 5.0, |e| matches!(e, NetEvent::Invited { .. })).expect("Invited");
+    p.send(json!({"type": "invite_reply", "accepted": true})).unwrap();
+    net.answer_invite(pairing_of(&ev), true);
+    assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::Connected { id, .. } if *id == victim)).is_some());
+    assert!(net.friends().contains(&friend(&victim, &real)));
+    assert!(net.friend_info(&victim).unwrap().via.is_none());
+    net.shutdown();
+}
+
+#[test]
 fn i_can_still_invite_someone_a_friend_falsely_introduced() {
     let kz = key();
     let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));

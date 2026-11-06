@@ -497,8 +497,11 @@ impl State {
     }
     /// Only introduced by a friend and never seen knowing us: its key is that
     /// friend's word alone, so a real (SAS-confirmed) pairing may replace it.
-    pub fn introduced_unconfirmed(&self, id: &str) -> bool {
-        self.via.contains_key(id) && self.pending.contains_key(id)
+    /// Only a friend's introduction vouches for this id's key (confirmed or not:
+    /// whoever holds that key can confirm itself), so a real SAS-confirmed
+    /// pairing may still replace it.
+    pub fn introduced_only(&self, id: &str) -> bool {
+        self.via.contains_key(id)
     }
     pub fn friend_key(&self, id: &str) -> Option<[u8; 32]> {
         self.friends.iter().find(|f| f.id == id).map(|f| f.public_key)
