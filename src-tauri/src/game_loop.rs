@@ -654,7 +654,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
 
         let now = Instant::now();
-        // 타임라인은 실제로 흐른 시간을 쓴다 (컴퓨터가 잤으면 그 틈을 비워 둔다)
+        // 타임라인은 실제로 흐른 시간을 쓴다 (컴퓨터가 잤으면 그 시간도 지금 자리에 더한다)
         let real_dt = (now - last).as_secs_f64();
         let dt = real_dt.min(MAX_DT);
         last = now;

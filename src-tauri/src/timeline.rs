@@ -35,7 +35,7 @@ impl TimelineFx {
         Self::default()
     }
 
-    /// 매 틱. real_dt = 지난 틱부터 실제로 흐른 초 (게임 루프의 dt처럼 자르지 않는다 — 긴 틈은 코어가 비워 둔다)
+    /// 매 틱. real_dt = 지난 틱부터 실제로 흐른 초 (게임 루프의 dt처럼 자르지 않는다 — 컴퓨터가 잠들었던 긴 틈도 지금 자리에 더한다)
     pub fn tick(&mut self, app: &AppHandle, real_dt: f64, own: &Slot, away_friend: Option<&str>, config: &Config) {
         // 하우스에서 나와 문 앞에서 먹고 다시 들어갈 참이면 하우스로 센다 (잠깐 나온 걸 놀기로 쪼개지 않는다)
         let housed = own.pet.is_housed() || own.pet.returns_home();
@@ -113,6 +113,11 @@ pub fn timeline_fit(window: WebviewWindow, height: f64) {
     if (h - inner.height as f64 / dpi).abs() < 1.0 {
         return;
     }
+    // Windows: tao의 set_size·set_position은 보이는 창을 다시 활성화한다 (다른 앱에서 치던 글이 끊긴다)
+    let hwnd = crate::overlay::hwnd_of(&window);
+    #[cfg(windows)]
+    crate::overlay::resize_quietly(&window, hwnd, outer.width, ((h + frame) * dpi).round() as u32);
+    #[cfg(not(windows))]
     let _ = window.set_size(LogicalSize::new(inner.width as f64 / dpi, h));
     // 커져서 아래가 작업 영역 밖이면 위로 (위쪽 끝보다 위로는 안 간다)
     if let (Some(a), Ok(pos)) = (area, window.outer_position()) {
@@ -120,7 +125,7 @@ pub fn timeline_fit(window: WebviewWindow, height: f64) {
         let over = pos.y as f64 + (h + frame) * dpi - bottom;
         if over > 0.0 {
             let y = (pos.y as f64 - over).max(a.position.y as f64 + SCREEN_MARGIN * dpi);
-            let _ = window.set_position(PhysicalPosition::new(pos.x, y.round() as i32));
+            crate::overlay::move_quietly(&window, hwnd, pos.x, y.round() as i32);
         }
     }
 }

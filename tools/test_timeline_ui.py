@@ -198,3 +198,11 @@ def test_each_event_redraws_at_once(tmp_path):
 def test_under_a_minute_says_just_now(tmp_path):
     r = render(tmp_path, ground_view(42))["first"]
     assert r["sum"] == "지금: 🎈 집에서 놀기 (방금)" and "1분 미만" in r["strip"][0]["title"]
+
+
+def test_fitting_the_window_does_not_take_focus():
+    """Windows에서 tao의 set_size·set_position은 보이는 창을 다시 활성화한다: 다른 앱에서 치던 글이 끊긴다."""
+    src = (Path(__file__).resolve().parent.parent / "src-tauri" / "src" / "timeline.rs").read_text(encoding="utf-8")
+    fit = src[src.index("pub fn timeline_fit") :]
+    assert "resize_quietly" in fit and "move_quietly" in fit
+    assert ".set_position(" not in fit
