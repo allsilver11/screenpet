@@ -155,3 +155,35 @@ def test_duck_eat_puts_the_bill_on_the_bowl_with_the_real_head_radius(st, monkey
             draw_farm.dk_eat(sp, 0)
     cy, k = seen[0]
     assert abs(cy + 6.5 * k * 0.5 - my) < 0.01, (st, cy, k, my)
+
+
+@pytest.mark.parametrize("anim", ["walk", "idle", "sit_front"])
+@pytest.mark.parametrize("stage", ["baby", "adult"])
+def test_duck_legs_go_behind_the_body(monkeypatch, anim, stage):
+    """다리는 몸 뒤: 몸(가장 큰 조각)을 다리·발보다 나중에 칠해 몸 아래로 발만 나온다 (위에 칠하면 몸에 꽂힌 막대처럼 보인다)."""
+    seen = []
+    monkeypatch.setattr(draw_pets, "compose", lambda parts, ops, fx: seen.append(list(parts)) or Image.new("RGBA", (8, 8), (0, 0, 0, 255)))
+    with draw_pets.stage(stage):
+        draw_farm.DUCK_POSES[anim](draw_farm.DUCK, 0)
+    parts = seen[0]
+    # 몸 = 처음 칠하는 몸 색 조각, 머리 = 그다음 (부리도 주황이라 머리 앞 것만 다리로 센다)
+    body, head = [k for k, p in enumerate(parts) if p.grow == 1 and p.base != draw_farm.BILL][:2]
+    legs = [k for k, p in enumerate(parts[:head]) if p.base == draw_farm.BILL]
+    assert legs and body > max(legs), (anim, stage, legs, body)
+
+def test_duck_scarf_follows_the_neck_when_the_head_drops(out):
+    """어른 오리 목도리: 잘 때 머리가 내려가면 목도리도 따라 내려간다 (제자리에 남으면 얼굴에 걸친다)."""
+    meta = json.loads((out / "duck" / "pet.json").read_text(encoding="utf-8"))
+    fs = meta["frame_sizes"].get("adult", meta["frame_size"])
+    sheet = np.asarray(Image.open(out / "duck" / "sheet_adult.png").convert("RGBA")).astype(int)
+
+    def scarf_y(anim):
+        r = meta["animations"][anim]["row"]
+        f = sheet[r * fs:(r + 1) * fs, :fs]
+        m = (np.abs(f[..., :3] - np.array(draw_farm.SCARF)).sum(axis=2) < 30) & (f[..., 3] > 200)
+        # 머리를 묻어 목이 거의 안 보이면 목도리도 거의 가린다 (그것도 괜찮다)
+        return m.nonzero()[0].mean() if m.sum() > 50 else None
+
+    asleep, awake = scarf_y("sleep"), scarf_y("idle")
+    assert awake is not None
+    assert asleep is None or asleep - awake >= fs * 0.05

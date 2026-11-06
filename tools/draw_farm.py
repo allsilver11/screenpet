@@ -144,7 +144,8 @@ def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="d
     col = st["col"]
     hk = _ST["head"]
     bk = _ST["body"]
-    bottom = FLOOR - 4 if bottom is None else bottom
+    # 서 있을 땐 몸을 조금 띄워 몸 아래로 다리가 보인다 (다리 윗끝은 몸 뒤)
+    bottom = FLOOR - 8 if bottom is None else bottom
     parts, ops = [], []
     rx, ry = 29 * bk * _ST["torso"][0], 22 * bk * _ST["torso"][1]
     bcy = bottom - ry
@@ -177,7 +178,8 @@ def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="d
                         hspk.append(strand([(hx - 3, hy - hr + 4), (hx - 2, hy - hr - 3)] + arc(hx + 2, hy - hr - 5, 4, 4, 180, 330, 8), 4.2, 1.6))
                     hpart = Part([C(hx, hy, hr), neck], col, grow=1, spikes=hspk)
                     dp.mark_head(hx - 2, hy - hr * 0.84, hr * 1.25)
-                    parts.insert(0, body)
+                    # 몸은 다리 위에 (다리는 몸 뒤라 몸 아래로 발만 나온다)
+                    parts.append(body)
                     parts.append(hpart)
                     bp, bo = duck_bill(hx + hr * 0.78, hy + hr * 0.18, mouth, True, k=hk ** 0.5)
                     ex, ey = hx + hr * 0.3, hy - hr * 0.16
@@ -187,7 +189,8 @@ def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="d
                     face += blush(hx + hr * 0.12, hy + hr * 0.42)
                     hops = face
                 if st["scarf"]:
-                    sx_, sy_ = bx + rx * 0.45, bcy - ry * 0.72
+                    # 목에 두른다: 머리가 내려가거나(잘 때·엎드릴 때) 움직이면 그만큼 따라간다
+                    sx_, sy_ = bx + rx * 0.45 + head[0] * 0.6, bcy - ry * 0.72 + head[1] * 0.75
                     parts.append(Part([L(arc(sx_ + 2, sy_ - 2, 10, 5, 30, 200, 10), 5.0),
                                        T((sx_ - 6, sy_ - 1), (sx_ - 14, sy_ + 9), (sx_ - 3, sy_ + 6))], SCARF,
                                       [([L([(sx_ - 11, sy_ + 6), (sx_ - 5, sy_ + 4)], 1.0)], SCARF_LIGHT)], grow=0, outline=True))
@@ -202,7 +205,7 @@ def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="d
                 late = []  # 발라당: 발은 머리·배 앞에 (위로 버둥)
                 body_parts = [E(fcx - rx, bcy - ry, fcx + rx, bcy + ry)]
                 belly_m = [([E(fcx - rx * 0.62, bcy - ry * 0.2, fcx + rx * 0.62, bcy + ry * 1.1)], mix(col, WHITE, 0.45))]
-                parts.append(Part(body_parts, col, belly_m, grow=1))
+                body = Part(body_parts, col, belly_m, grow=1)
                 if feet and not ball:
                     for j, (fx_, fy_) in enumerate(feet):
                         s = -1 if j == 0 else 1
@@ -214,6 +217,8 @@ def duck(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="d
                         else:
                             parts.append(Part([L([(x, bottom - 5), (x, FLOOR - 2 + fy_)], 3.2)], BILL, grow=0, outline=True))
                             parts.append(duck_foot(x, FLOOR - 0.5 + fy_, rot=s * 8, side=False))
+                # 몸은 다리 위에 (발라당 다리는 late로 몸 앞에)
+                parts.append(body)
                 with xf(rot=head_rot, pivot=(hx, hy + hr * 0.9)):
                     hspk = duck_fluff(hx - 1, hy - hr, st["fluff"])
                     if st["curl"] == "head":
@@ -544,13 +549,13 @@ def dk_walk(sp, i):
     t = [-7, 0, 7, 0][i]
     up = [0, 1.5, 0, 1.5][i]
     feet = [((-3, -3), (3, 0)), ((0, -1), (0, 0)), ((3, 0), (-3, -3)), ((0, 0), (0, -1))][i]
-    return duck(sp, bottom=FLOOR - 4 - up, rot=t, head_rot=-t * 0.4, feet=feet, wings=[(1, [10, 20, 10, 20][i])])
+    return duck(sp, bottom=FLOOR - 8 - up, rot=t, head_rot=-t * 0.4, feet=feet, wings=[(1, [10, 20, 10, 20][i])])
 
 
 def dk_run(sp, i):
     up = [0, 3, 5, 2][i]
     feet = [((-5, -4), (5, 0)), ((-2, -2), (2, -1)), ((5, 0), (-5, -4)), ((2, -1), (-2, -2))][i]
-    return duck(sp, bottom=FLOOR - 4 - up, rot=[-10, -4, -10, -4][i] - 4, eyes="happy", mouth="open", feet=feet,
+    return duck(sp, bottom=FLOOR - 8 - up, rot=[-10, -4, -10, -4][i] - 4, eyes="happy", mouth="open", feet=feet,
                 wings=[(1, [70, 110, 70, 110][i])], fx=speed_fx(2, (70, 88, 104), 12, [0, -3, 0, -3][i]))
 
 
@@ -667,14 +672,14 @@ def dk_eat(sp, i):
     hy0 = bcy - ry * 0.6 - hr * 0.62
     want = my - hr * 0.3 - 6.5 * _ST["head"] ** 0.5 * 0.5
     fx = dp.eat_crumbs(i)
-    return duck(sp, side=False, head=(0, want - hy0), eyes="happy" if bite else "closed", mouth="open" if bite else "chew",
+    return duck(sp, side=False, bottom=st_b, head=(0, want - hy0), eyes="happy" if bite else "closed", mouth="open" if bite else "chew",
                 wings=[(-1, 40), (1, 40)], feet=None, fx=fx)
 
 
 def dk_level_up(sp, i):
     stars = dp.level_up_stars(i)
     up = [150, 165, 175][i]
-    return duck(sp, side=False, bottom=FLOOR - 4 - [0, 1, 3][i], eyes="happy", mouth="big", wings=[(-1, up), (1, up)], fx=stars)
+    return duck(sp, side=False, bottom=FLOOR - 8 - [0, 1, 3][i], eyes="happy", mouth="big", wings=[(-1, up), (1, up)], fx=stars)
 
 
 DUCK_POSES = {"walk": dk_walk, "run": dk_run, "roll": dk_roll, "idle": dk_idle, "look": dk_look, "sleep": dk_sleep, "hop": dk_hop,
