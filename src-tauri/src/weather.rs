@@ -388,7 +388,7 @@ fn bottom_center(x: f64, y: f64, (w, h): (f64, f64), dpi: f64) -> (i32, i32) {
 }
 
 /// 이 작업 영역이 있는 모니터의 배율
-fn scale_of(app: &AppHandle, wa: &Rect) -> f64 {
+pub(crate) fn scale_of(app: &AppHandle, wa: &Rect) -> f64 {
     let (cx, cy) = ((wa.left + wa.right) / 2.0, (wa.top + wa.bottom) / 2.0);
     let monitors = app.available_monitors().unwrap_or_default();
     let found = monitors.iter().find(|m| {

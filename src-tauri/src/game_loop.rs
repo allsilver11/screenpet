@@ -98,6 +98,10 @@ pub enum Input {
     ShowHelp,
     /// 메뉴 "🎁 선물 도감" (창 만들기는 게임 루프 스레드에서)
     ShowGiftBook,
+    /// 메뉴 "💩 똥피하기"
+    ShowDodge,
+    /// 똥피하기 창에서
+    Dodge(crate::dodge::DodgeInput),
     /// 📏 크기 조절 창을 연다
     ShowSizes,
     /// 크기 조절 창의 값 (%). save = 슬라이더를 놓았다: 파일에 남긴다
@@ -310,6 +314,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut presence = Presence::new(&app, config.focus_length);
     // 물건 (쓰레기 장난감 — 없거나 잠들어 있으면 일이 없다)
     let mut objects = Objects::new();
+    let mut dodge = crate::dodge::DodgeFx::new();
     objects.set_size(&app, config.object_size());
     // 🕐 최근 한 시간 (메모리에만)
     let mut timeline = TimelineFx::new();
@@ -472,6 +477,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     sync_menu(&app, &own.entry, &care, config.housed);
                     save_config(&app, &mut config, &own.entry.id, &care);
                 }
+                // 똥피하기 창이 열려 있으면 조작 모드는 켜지 않는다 (게임이 키를 준다)
+                Input::ToggleControl if dodge.is_open() => {
+                    let _ = app.state::<AppState>().menu.control.set_checked(false);
+                }
                 Input::ToggleControl => {
                     control_on = !control_on;
                     let own = &mut slots[OWN];
@@ -624,6 +633,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::ShowHelp => crate::help::show(&app),
                 Input::ShowGiftBook => crate::gifts::show_book(&app),
+                Input::ShowDodge => {
+                    // 조작 모드는 게임이 대신한다
+                    if control_on {
+                        control_on = false;
+                        slots[OWN].pet.set_control(false);
+                        let _ = app.state::<AppState>().menu.control.set_checked(false);
+                    }
+                    dodge.open(&app, &slots[OWN], &config);
+                }
+                Input::Dodge(d) => dodge.handle(&app, d, &mut slots[OWN], &config),
                 Input::ShowSizes => crate::sizes::show(&app, &config),
                 Input::SetSizes { pet, object, save } => {
                     config.set_sizes(pet, object);
@@ -744,6 +763,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
         // 🎮 조작 모드: 키를 내 동물에게 (친구 화면에 가 있으면 친구 링크로도). Esc(직접 주기 중이 아닐 때)·키 없이 3분이면 끝
         let mut keys = ControlInput::default();
+        // 💩 똥피하기: 게임 창이 받은 키를 내 동물에게
+        dodge.steer(&mut slots[OWN], dt);
         if control_on {
             keys = source.control_keys();
             saw_key |= keys.any();
@@ -806,6 +827,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         objects.hit_pets(&mut social, dt, &mut slots);
         // 연결된 친구가 있는 끝으로만 나간다
         network.set_exit_edges(&config, &mut slots);
+        // 똥피하기 창이 열려 있는 동안엔 화면 끝으로 나가지 않는다
+        if dodge.is_open() {
+            slots[OWN].pet.set_exit_edges(false, false);
+            slots[OWN].pet.set_vertical_edges(false, false);
+        }
         let mut own_exit = None;
         let mut left = Vec::new();
         objects.poop_spots(&mut poop_spots);
@@ -858,6 +884,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
         network.tick(&app, now, &config, &mut slots[OWN]);
         timeline.tick(&app, real_dt, &slots[OWN], network.away_friend(), &config);
+        if dodge.tick(&app, dt, &mut slots[OWN], &mut config, &network) {
+            save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+        }
         objects.tick(&app, &slots[OWN].world, dt, now, (cx, cy), left_down, presence.is_away(), source.as_mut(), &network, &config);
         decals.tick(now);
         props.tick(now);

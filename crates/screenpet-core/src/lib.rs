@@ -4,6 +4,7 @@ pub mod broom;
 pub mod care;
 pub mod collide;
 pub mod config;
+pub mod dodge;
 pub mod flight;
 pub mod food;
 pub mod geom;

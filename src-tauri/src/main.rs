@@ -2,6 +2,7 @@
 
 mod art;
 mod decal;
+mod dodge;
 mod game_loop;
 mod gifts;
 mod help;
@@ -306,6 +307,10 @@ fn main() {
             gifts::book_state,
             timeline::timeline_state,
             timeline::timeline_fit,
+            dodge::dodge_state,
+            dodge::dodge_keys,
+            dodge::dodge_start,
+            dodge::dodge_close,
             objects::object_down,
             objects::object_menu,
             objects::postit_max,

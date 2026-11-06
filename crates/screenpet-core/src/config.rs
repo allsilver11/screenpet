@@ -51,6 +51,9 @@ pub struct Config {
     /// 🎁 주운 선물 (도감). 잘못된 줄은 건너뛴다
     #[serde(default, skip_serializing_if = "GiftBook::is_empty")]
     pub gifts: GiftBook,
+    /// 💩 똥피하기 내 최고 기록 (피한 똥 수). 모르는 값이면 0
+    #[serde(default, skip_serializing_if = "is_zero", deserialize_with = "lenient")]
+    pub dodge_best: u32,
     /// 📏 펫 크기 (%). 없으면 100
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pet_size_pct: Option<u32>,
@@ -152,6 +155,13 @@ pub struct Friend {
     /// 내가 붙인 별명 (그 친구 동물의 이름표·메뉴에 이름 대신). 없으면 친구가 정한 이름
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nickname: Option<String>,
+    /// 💩 똥피하기 그 친구의 최고 기록 (친구가 알려 준 것 — 받은 적 없으면 None)
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub dodge_best: Option<u32>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 impl Friend {
@@ -234,7 +244,7 @@ impl Config {
             }
             None => {
                 let side = self.next_side();
-                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side, nickname: None });
+                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side, nickname: None, dodge_best: None });
                 changed = true;
             }
         }
@@ -289,6 +299,28 @@ impl Config {
     /// 친구들에게 보일 내 이름: 정한 이름, 없으면 "친구" (컴퓨터 사용자 이름은 같은 망에 알리지 않는다)
     pub fn my_name(&self) -> String {
         self.owner_name.as_deref().and_then(sanitize_name).unwrap_or_else(|| DEFAULT_OWNER_NAME.to_string())
+    }
+
+    /// 💩 똥피하기 한 판 끝: 최고 기록이면 남기고 true
+    pub fn record_dodge(&mut self, score: u32) -> bool {
+        let score = score.min(crate::dodge::MAX_SCORE);
+        if score <= self.dodge_best {
+            return false;
+        }
+        self.dodge_best = score;
+        true
+    }
+
+    /// 친구가 알려 준 똥피하기 최고 기록. 바뀌었으면 true (모르는 친구는 무시)
+    pub fn set_friend_dodge_best(&mut self, id: &str, score: u32) -> bool {
+        let score = Some(score.min(crate::dodge::MAX_SCORE));
+        match self.friends.iter_mut().find(|f| f.id == id) {
+            Some(f) if f.dodge_best != score => {
+                f.dodge_best = score;
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn remove_friend(&mut self, id: &str) -> bool {
@@ -1075,6 +1107,28 @@ mod tests {
         // 손으로 고친 설정 파일의 긴 이름도 화면엔 20자까지만
         c.owner_name = Some("b".repeat(50));
         assert_eq!(c.my_name(), "b".repeat(20));
+    }
+
+    #[test]
+    fn dodge_records_keep_the_best_and_survive_a_roundtrip() {
+        let mut c = Config::default();
+        assert!(c.record_dodge(12));
+        assert!(!c.record_dodge(7), "lower score");
+        assert!(!c.record_dodge(12), "same score");
+        assert_eq!(c.dodge_best, 12);
+        c.upsert_friend("a", "Ann", key(1));
+        assert!(c.set_friend_dodge_best("a", 30));
+        assert!(!c.set_friend_dodge_best("a", 30));
+        assert!(!c.set_friend_dodge_best("nobody", 3));
+        // 이름이 바뀌어도 기록은 남는다
+        c.upsert_friend("a", "Annie", key(1));
+        assert_eq!(c.friend("a").unwrap().dodge_best, Some(30));
+        let back: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!((back.dodge_best, back.friends[0].dodge_best), (12, Some(30)));
+        // 기록이 없으면 저장 파일에도 없고, 잘못된 값은 0 / None
+        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("dodge"));
+        let bad: Config = serde_json::from_str(r#"{"pet":"cat","dodge_best":"lots"}"#).unwrap();
+        assert_eq!(bad.dodge_best, 0);
     }
 
     #[test]
