@@ -49,12 +49,13 @@ pub enum ObjectKind {
     Umbrella,
     /// 💩 동물이 싼 똥 (poop.rs): 둘둘 쌓인 큰 똥, 작은 똥, 토끼의 알갱이. 메뉴에 없고 포스트잇을 못 붙인다
     Poop,
+    Pink,
     Rainbow,
     Pellets,
 }
 
 impl ObjectKind {
-    pub const ALL: [ObjectKind; 11] = [
+    pub const ALL: [ObjectKind; 12] = [
         ObjectKind::Can,
         ObjectKind::Paper,
         ObjectKind::Stone,
@@ -64,6 +65,7 @@ impl ObjectKind {
         ObjectKind::Shirt,
         ObjectKind::Umbrella,
         ObjectKind::Poop,
+        ObjectKind::Pink,
         ObjectKind::Rainbow,
         ObjectKind::Pellets,
     ];
@@ -81,7 +83,7 @@ impl ObjectKind {
 
     /// 똥이다: 수를 따로 세고, 저절로 사라지고, 바람에 구르지 않고, 빗자루에 쓸린다
     pub fn is_poop(self) -> bool {
-        matches!(self, ObjectKind::Poop | ObjectKind::Rainbow | ObjectKind::Pellets)
+        matches!(self, ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets)
     }
 
     /// 그림 크기 배율: 쓰레기는 96 논리 px 칸의 절반 (똥은 싼 동물을 따라 set_scale로 정한다)
@@ -105,6 +107,7 @@ impl ObjectKind {
             ObjectKind::Shirt => "shirt",
             ObjectKind::Umbrella => "umbrella",
             ObjectKind::Poop => "poop",
+            ObjectKind::Pink => "pink",
             ObjectKind::Rainbow => "rainbow",
             ObjectKind::Pellets => "pellets",
         }
@@ -121,7 +124,7 @@ impl ObjectKind {
             ObjectKind::Milk => "🥛 빈 우유팩",
             ObjectKind::Shirt => "👕 누더기 티셔츠",
             ObjectKind::Umbrella => "☂️ 부러진 우산",
-            ObjectKind::Poop | ObjectKind::Rainbow | ObjectKind::Pellets => "💩 똥",
+            ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets => "💩 똥",
         }
     }
 
@@ -134,11 +137,21 @@ impl ObjectKind {
         ObjectKind::ALL.into_iter().find(|k| k.id() == id || k.wire_id() == id)
     }
 
-    /// 친구가 던진 이름과 무지개 표시 → 종류 (무지개는 똥에만)
-    pub fn wire_kind(id: &str, rainbow: bool) -> Option<ObjectKind> {
-        match ObjectKind::from_id(id)? {
-            ObjectKind::Poop if rainbow => Some(ObjectKind::Rainbow),
-            kind => Some(kind),
+    /// 친구가 던진 이름과 색 표시 → 종류 (색은 똥에만, 모르는 색은 그냥 똥)
+    pub fn wire_kind(id: &str, look: Option<&str>) -> Option<ObjectKind> {
+        match (ObjectKind::from_id(id)?, look) {
+            (ObjectKind::Poop, Some("pink")) => Some(ObjectKind::Pink),
+            (ObjectKind::Poop, Some("rainbow")) => Some(ObjectKind::Rainbow),
+            (kind, _) => Some(kind),
+        }
+    }
+
+    /// 똥 색 (Toss::look으로 보낸다 — 옛 버전 친구는 몰라서 갈색 똥으로 받는다)
+    pub fn look(self) -> Option<&'static str> {
+        match self {
+            ObjectKind::Pink => Some("pink"),
+            ObjectKind::Rainbow => Some("rainbow"),
+            _ => None,
         }
     }
 
@@ -147,7 +160,7 @@ impl ObjectKind {
         // 옛 버전 친구는 무지개를 몰라 그냥 똥으로 받는다 (Toss::rainbow로 알린다)
         if self == ObjectKind::Shirt {
             "sock"
-        } else if self == ObjectKind::Rainbow {
+        } else if self.look().is_some() {
             "poop"
         } else {
             self.id()
@@ -166,7 +179,7 @@ impl ObjectKind {
             ObjectKind::Stone => (8.0, 24.0),
             ObjectKind::Computer => (6.0, 18.0),
             // 바닥에 붙어 있다 (start_gust가 막는다)
-            ObjectKind::Poop | ObjectKind::Rainbow | ObjectKind::Pellets => (0.0, 0.0),
+            ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets => (0.0, 0.0),
         }
     }
 }

@@ -26,7 +26,7 @@ const spot = POSTIT_AT[info.kind] || POSTIT_AT.can;
 const SCALE = 96 / 128;
 // 그림 크기 배율 (앱이 정한다: 쓰레기는 절반, 똥은 싼 동물 크기를 따른다). 코어 Object::scale과 같은 값
 let DRAW_SCALE = info.scale || 1;
-const IS_POOP = ["poop", "rainbow", "pellets"].includes(info.kind);
+const IS_POOP = ["poop", "pink", "rainbow", "pellets"].includes(info.kind);
 // 픽셀 똥은 칸이 정수라 동글보다 조금 크게 잡아야 단계 차이가 난다
 const PIXEL_POOP_DOT = 1.2;
 // 축을 아래쪽 정사각형(한 변 side)의 가운데에 놓는다 (창이 쪽지로 넓어져도 그대로, objects.rs logical_size)

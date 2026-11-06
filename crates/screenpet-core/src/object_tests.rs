@@ -976,7 +976,7 @@ fn thrown_down_it_falls_past_window_tops_to_the_friend_below() {
 
 // ---- 💩 똥 ----
 
-const POOPS: [ObjectKind; 3] = [ObjectKind::Poop, ObjectKind::Rainbow, ObjectKind::Pellets];
+const POOPS: [ObjectKind; 4] = [ObjectKind::Poop, ObjectKind::Pink, ObjectKind::Rainbow, ObjectKind::Pellets];
 
 fn poop_on_floor(kind: ObjectKind) -> (Object, World) {
     let w = floor();
@@ -1309,8 +1309,8 @@ fn the_shirt_still_travels_as_sock_so_older_friends_can_catch_it() {
     assert_eq!(ObjectKind::from_id("sock"), Some(ObjectKind::Shirt));
     assert_eq!(ObjectKind::from_id("shirt"), Some(ObjectKind::Shirt));
     for k in ObjectKind::ALL {
-        assert_eq!(ObjectKind::wire_kind(k.wire_id(), k == ObjectKind::Rainbow), Some(k));
-        if k != ObjectKind::Shirt && k != ObjectKind::Rainbow {
+        assert_eq!(ObjectKind::wire_kind(k.wire_id(), k.look()), Some(k));
+        if k != ObjectKind::Shirt && k.look().is_none() {
             assert_eq!(k.wire_id(), k.id());
         }
     }
@@ -1339,8 +1339,22 @@ fn rainbow_poop_travels_as_poop_and_the_green_one_is_gone() {
     // 옛 친구가 보낸 초록 똥은 그냥 똥이 된다
     assert_eq!(ObjectKind::from_id("dropping"), Some(ObjectKind::Poop));
     assert!(ObjectKind::ALL.iter().all(|k| k.id() != "dropping"));
-    assert_eq!(ObjectKind::wire_kind(ObjectKind::Rainbow.wire_id(), true), Some(ObjectKind::Rainbow));
-    assert_eq!(ObjectKind::wire_kind("poop", false), Some(ObjectKind::Poop));
-    // 똥이 아닌 것에 붙은 무지개 표시는 무시한다
-    assert_eq!(ObjectKind::wire_kind("can", true), Some(ObjectKind::Can));
+    assert_eq!(ObjectKind::wire_kind(ObjectKind::Rainbow.wire_id(), Some("rainbow")), Some(ObjectKind::Rainbow));
+    assert_eq!(ObjectKind::wire_kind("poop", None), Some(ObjectKind::Poop));
+    // 똥이 아닌 것에 붙은 색 표시, 모르는 색은 무시한다
+    assert_eq!(ObjectKind::wire_kind("can", Some("rainbow")), Some(ObjectKind::Can));
+    assert_eq!(ObjectKind::wire_kind("poop", Some("plaid")), Some(ObjectKind::Poop));
+}
+
+#[test]
+fn pink_poop_travels_as_poop_with_its_colour() {
+    assert!(ObjectKind::Pink.is_poop());
+    assert_eq!(ObjectKind::Pink.id(), "pink");
+    assert_eq!(ObjectKind::Pink.wire_id(), "poop", "older friends get a plain poop");
+    assert_eq!(ObjectKind::Pink.look(), Some("pink"));
+    assert_eq!(ObjectKind::Rainbow.look(), Some("rainbow"));
+    assert_eq!(ObjectKind::Poop.look(), None);
+    for k in ObjectKind::ALL {
+        assert_eq!(ObjectKind::wire_kind(k.wire_id(), k.look()), Some(k), "{k:?}");
+    }
 }

@@ -185,7 +185,7 @@ def test_the_shipped_icon_has_a_closed_top_outline(name, ink):
 def test_objects_sit_where_the_tumble_shape_says():
     """코어 tumble.rs의 볼록 껍질(128칸)과 칸 그림의 네모가 몇 칸 안에서 맞는다 — 구를 때 바닥에 닿는 자리가 같다."""
     src = (ROOT / "crates" / "screenpet-core" / "src" / "tumble.rs").read_text(encoding="utf-8")
-    for kind in ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "rainbow", "pellets"):
+    for kind in ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "pink", "rainbow", "pellets"):
         title = kind.capitalize()
         hull_txt = re.search(rf"ObjectKind::{title} => Shape .*?hull: &\[(.*?)\] \}}", src).group(1)
         pts = [(float(a), float(b)) for a, b in re.findall(r"\(([\d.]+), ([\d.]+)\)", hull_txt)]

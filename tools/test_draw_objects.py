@@ -187,14 +187,14 @@ def test_broken_computer_screen_is_black_glass_with_no_white_marks(built):
     assert (screen.min(axis=2) > 200).sum() == 0, "x eyes or a mouth"
 
 
-POOPS = ("poop", "rainbow", "pellets")
+POOPS = ("poop", "pink", "rainbow", "pellets")
 
 
 def test_only_trash_takes_post_its():
     assert set(d.POSTIT_AT) == set(d.NAMES) - set(POOPS)
 
 
-@pytest.mark.parametrize("name", ["poop", "rainbow"])
+@pytest.mark.parametrize("name", ["poop", "pink", "rainbow"])
 def test_poop_is_a_swirl_stacked_narrower_toward_a_tip(built, name):
     """둘둘 쌓인 똥: 바닥이 가장 넓고 위로 갈수록 좁아지며 꼭지로 끝난다."""
     _, arts = built
@@ -252,7 +252,7 @@ def test_the_green_poop_is_gone():
     assert not (ROOT / "ui" / "objects_pixel" / "dropping.png").exists()
 
 
-@pytest.mark.parametrize("name", ["poop", "rainbow"])
+@pytest.mark.parametrize("name", ["poop", "pink", "rainbow"])
 def test_poop_has_the_classic_outline_not_an_oval(built, name):
     """전형적인 똥: 단 사이 옆선이 안으로 꺾이고, 꼭지는 오른쪽으로 휜다."""
     _, arts = built
@@ -298,3 +298,11 @@ def test_shirt_is_tattered_not_a_neat_tee(built):
     left, right = a[ys.min():, :mid + 1], a[ys.min():, mid + 1:][:, ::-1]
     n = min(left.shape[1], right.shape[1])
     assert (left[:, -n:] != right[:, -n:]).sum() > a.sum() * 0.05, "the two sides should tear differently"
+
+
+def test_pink_poop_is_pink_and_the_same_swirl(built):
+    _, arts = built
+    r, g, b = _opaque(arts["pink"]).mean(axis=0)
+    assert r > g + 40 and b > g, (r, g, b)
+    area = lambda n: (np.asarray(arts[n].getchannel("A")) >= 128).sum()
+    assert abs(area("pink") - area("poop")) < area("poop") * 0.05

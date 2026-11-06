@@ -50,11 +50,6 @@ fn lenient_side<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Side, D::Error
 
 /// Any optional field: a value that doesn't fit is dropped, never the whole
 /// message (a newer or older peer may send something else there).
-/// A flag that reads as false when it is not a bool.
-fn lenient_flag<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
-    Ok(lenient::<bool, D>(d)?.unwrap_or(false))
-}
-
 fn lenient<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>>(d: D) -> Result<Option<T>, D::Error> {
     let v = Option::<serde_json::Value>::deserialize(d)?;
     Ok(v.and_then(|v| serde_json::from_value(v).ok()))
@@ -116,9 +111,10 @@ pub struct Toss {
     /// receiver limits it; older versions ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub scale: Option<f64>,
-    /// A rainbow poop, sent as kind "poop" so older versions get a plain one.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient_flag")]
-    pub rainbow: bool,
+    /// A coloured poop ("pink", "rainbow"), sent as kind "poop" so older
+    /// versions get a plain one. The receiver's app checks the name.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub look: Option<String>,
 }
 
 fn left_side() -> Side {
@@ -684,7 +680,7 @@ mod tests {
 
     #[test]
     fn ping_can_carry_a_toss_that_old_peers_ignore() {
-        let t = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Down), fling: Some(Fling { height: 0.5, vx: 300.0, vy: -20.0 }), note: Some("붙였어!".into()), bounced: false, scale: None, rainbow: false };
+        let t = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Down), fling: Some(Fling { height: 0.5, vx: 300.0, vy: -20.0 }), note: Some("붙였어!".into()), bounced: false, scale: None, look: None };
         let m = Message::Control(Control::Ping { ask: None, steer: None, toss: Some(t) });
         let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!((j["type"].as_str(), j["toss"]["kind"].as_str(), j["toss"]["side"].as_str(), j["toss"]["vside"].as_str(), j["toss"]["note"].as_str()), (Some("ping"), Some("can"), Some("right"), Some("down"), Some("붙였어!")));
@@ -709,12 +705,14 @@ mod tests {
         let odd = br#"{"type":"ping","toss":{"kind":"can","side":"north","vside":3,"fling":{"height":"x"},"note":[1]}}"#;
         assert_eq!(
             Message::parse(odd),
-            Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, rainbow: false }) }))
+            Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None }) }))
         );
         // side가 없어도 왼쪽
-        // 무지개 똥 표시: 없으면 false, 있으면 그대로 (옛 버전은 모르는 필드를 무시한다)
-        let rainbow = Message::parse(br#"{"type":"ping","toss":{"kind":"poop","rainbow":true}}"#);
-        assert!(matches!(rainbow, Some(Message::Control(Control::Ping { toss: Some(Toss { rainbow: true, .. }), .. }))));
+        // 똥 색 표시: 없으면 None, 있으면 그대로 (옛 버전은 모르는 필드를 무시한다). 글자가 아니면 버린다
+        let pink = Message::parse(br#"{"type":"ping","toss":{"kind":"poop","look":"pink"}}"#);
+        assert!(matches!(&pink, Some(Message::Control(Control::Ping { toss: Some(Toss { look: Some(l), .. }), .. })) if l == "pink"));
+        let odd = Message::parse(br#"{"type":"ping","toss":{"kind":"poop","look":7}}"#);
+        assert!(matches!(odd, Some(Message::Control(Control::Ping { toss: Some(Toss { look: None, .. }), .. }))));
         assert!(matches!(Message::parse(br#"{"type":"ping","toss":{"kind":"can"}}"#), Some(Message::Control(Control::Ping { toss: Some(Toss { side: Side::Left, .. }), .. }))));
     }
 

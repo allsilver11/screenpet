@@ -1,6 +1,6 @@
 """물건 (쓰레기 장난감) — draw_pets.py 엔진으로 그린 128 칸 그림과 노란 포스트잇.
 
-    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,shirt,umbrella,poop,rainbow,pellets}.png (128×128)
+    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,shirt,umbrella,poop,pink,rainbow,pellets}.png (128×128)
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
@@ -39,8 +39,8 @@ POSTIT_REACH = 20
 HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
-NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "rainbow", "pellets")
-# 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다. 똥(poop, rainbow, pellets)엔 포스트잇을 붙이지 않는다
+NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "pink", "rainbow", "pellets")
+# 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다. 똥(poop, pink, rainbow, pellets)엔 포스트잇을 붙이지 않는다
 POSTIT_AT = {
     "can": (76, 80),
     "paper": (86, 104),
@@ -74,6 +74,7 @@ CLOTH = (150, 132, 214)
 CLOTH_LIGHT = mix(CLOTH, WHITE, 0.35)
 HANDLE = (176, 128, 92)
 POOP = (138, 92, 58)
+PINK_POOP = (240, 136, 176)
 RAINBOW = ((164, 130, 226), (106, 160, 232), (124, 190, 96), (252, 214, 84), (244, 150, 60), (232, 84, 84))
 PELLET = (112, 76, 50)
 NOTE = (255, 232, 110)
@@ -242,6 +243,11 @@ def draw_poop(img):
     swirl(img, 26, 102, 70, POOP)
 
 
+def draw_pink(img):
+    """핑크 똥: 똥과 같은 모양, 분홍빛."""
+    swirl(img, 26, 102, 70, PINK_POOP)
+
+
 def draw_rainbow(img):
     """가끔 나오는 무지개 똥: 똥과 같은 모양에 무지개 띠."""
     swirl(img, 26, 102, 70, RAINBOW[0], bands=RAINBOW)
@@ -264,6 +270,7 @@ DRAW = {
     "shirt": draw_shirt,
     "umbrella": draw_umbrella,
     "poop": draw_poop,
+    "pink": draw_pink,
     "rainbow": draw_rainbow,
     "pellets": draw_pellets,
 }

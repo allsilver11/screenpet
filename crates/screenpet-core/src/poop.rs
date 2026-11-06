@@ -77,13 +77,16 @@ pub fn kind_for(species: &str) -> ObjectKind {
     }
 }
 
-/// 가끔 무지개 똥이 나온다 (어느 동물이든)
-pub const RAINBOW_CHANCE: f64 = 0.08;
+/// 똥 색 비율: 무지개 10%, 핑크 30%, 나머지 60%는 그 동물의 똥 (토끼는 알갱이)
+pub const RAINBOW_CHANCE: f64 = 0.10;
+pub const PINK_CHANCE: f64 = 0.30;
 
 /// 싼 똥의 종류: roll = 0..1 난수
 pub fn pick_kind(species: &str, roll: f64) -> ObjectKind {
     if roll < RAINBOW_CHANCE {
         ObjectKind::Rainbow
+    } else if roll < RAINBOW_CHANCE + PINK_CHANCE {
+        ObjectKind::Pink
     } else {
         kind_for(species)
     }
@@ -116,12 +119,16 @@ mod tests {
     }
 
     #[test]
-    fn now_and_then_a_poop_comes_out_rainbow() {
-        assert_eq!(pick_kind("dog", 0.0), ObjectKind::Rainbow);
-        assert_eq!(pick_kind("rabbit", 0.0), ObjectKind::Rainbow);
-        assert_eq!(pick_kind("dog", RAINBOW_CHANCE), ObjectKind::Poop);
+    fn poops_are_sixty_brown_thirty_pink_ten_rainbow() {
+        let mut n = std::collections::HashMap::new();
+        for i in 0..1000 {
+            *n.entry(pick_kind("dog", (i as f64 + 0.5) / 1000.0)).or_insert(0) += 1;
+        }
+        assert_eq!((n[&ObjectKind::Poop], n[&ObjectKind::Pink], n[&ObjectKind::Rainbow]), (600, 300, 100));
+        // 토끼는 갈색 자리에 알갱이
         assert_eq!(pick_kind("rabbit", 0.99), ObjectKind::Pellets);
-        assert!((0.03..=0.15).contains(&RAINBOW_CHANCE));
+        assert_eq!(pick_kind("rabbit", 0.0), ObjectKind::Rainbow);
+        assert_eq!(pick_kind("rabbit", 0.2), ObjectKind::Pink);
     }
 
     #[test]
@@ -130,7 +137,7 @@ mod tests {
         for s in ["frog", "duck", "bee", "ghost", "cat", "dog", "bear", "giraffe", "dino_green", "santa", "unknown"] {
             assert_eq!(kind_for(s), ObjectKind::Poop, "{s}");
         }
-        for k in [ObjectKind::Poop, ObjectKind::Rainbow, ObjectKind::Pellets] {
+        for k in [ObjectKind::Poop, ObjectKind::Pink, ObjectKind::Rainbow, ObjectKind::Pellets] {
             assert!(k.is_poop());
         }
     }
