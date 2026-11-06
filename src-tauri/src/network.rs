@@ -506,7 +506,6 @@ impl Network {
         (network, dirty)
     }
 
-    /// 연결된 친구 (물건은 손님 자리와 상관없이 던져 보낼 수 있다)
     /// 💩 똥피하기 새 최고 기록을 연결된 친구들에게 알린다
     pub fn share_dodge_best(&self, best: u32) {
         let Some(net) = &self.net else { return };
@@ -515,6 +514,7 @@ impl Network {
         }
     }
 
+    /// 연결된 친구 (물건은 손님 자리와 상관없이 던져 보낼 수 있다)
     pub fn is_connected(&self, id: &str) -> bool {
         self.connected.contains(id)
     }

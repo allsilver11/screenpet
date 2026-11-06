@@ -158,3 +158,18 @@ def test_pixel_style_uses_pixel_poop(tmp_path):
     harness.write_text(HARNESS.replace("global.window = {", "global.window = { ART_STYLE: \"pixel\",", 1), encoding="utf-8")
     out = json.loads(run_node(harness, UI / "dodge.js", json.dumps([view("play", poops=[(0, 10, 10, 17)])]), "[]", timeout=30).stdout)
     assert out["snaps"][0]["poops"][0]["src"] == "objects_pixel/poop.png"
+
+
+def test_review_fixes_for_the_app_side():
+    src = (ROOT / "src-tauri" / "src" / "dodge.rs").read_text(encoding="utf-8")
+    # 하우스 안이면 하우스 창에 말한다
+    assert "speech_target(&own.pet)" in src and 'emit_to(OWN_LABEL, "pet-say-text"' not in src
+    # 게임 중 하우스에 들어가거나 친구에게 가면 판을 닫는다
+    tick = src[src.index("pub fn tick") :]
+    assert "can_play(own)" in tick[: tick.index("fn publish")]
+    # 새 기록은 몰아서 한 번만 알린다 (친구의 부탁 예산을 함께 쓴다)
+    assert "SHARE_AFTER" in src and "network.share_dodge_best(" in tick
+    assert src.count("share_dodge_best(") == 1
+    # 다시 시작할 때 지난 판의 눌린 키가 남지 않는다
+    start = src[src.index("DodgeInput::Start =>") :]
+    assert "b.keys = ControlInput::default();" in start[: start.index("DodgeInput::Close")]

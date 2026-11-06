@@ -2,6 +2,7 @@
 //! 게임 동안 이 창이 키보드를 받아 (다른 앱에 키가 가지 않는다) 내 동물을 조작 모드로 움직이고, Esc·닫기면 원래대로.
 //! 최고 기록은 설정에 남기고, 새 기록이면 연결된 친구들에게 알린다 (network.rs).
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use screenpet_core::brain::control_moves::ControlInput;
 use screenpet_core::collide::{Face, Hit};
@@ -12,12 +13,14 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::network::Network;
-use crate::slots::{Slot, OWN_LABEL};
+use crate::slots::Slot;
 use crate::AppState;
 
 pub const LABEL: &str = "dodge";
 /// 게임을 할 수 없을 때 내 동물 말풍선
 const NOT_NOW: &str = "지금은 못 해요";
+/// 새 기록은 마지막 판 뒤 이만큼 지나 한 번만 알린다 (친구의 부탁 예산을 이름·초대와 같이 쓴다)
+const SHARE_AFTER: Duration = Duration::from_secs(10);
 
 /// 웹뷰 → 게임 루프
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -58,6 +61,8 @@ struct Board {
 #[derive(Default)]
 pub struct DodgeFx {
     board: Option<Board>,
+    /// 친구들에게 알릴 새 기록이 있다: 이때 알린다
+    share_at: Option<Instant>,
 }
 
 impl DodgeFx {
@@ -77,7 +82,7 @@ impl DodgeFx {
             return;
         }
         if !can_play(own) {
-            let _ = app.emit_to(OWN_LABEL, "pet-say-text", NOT_NOW);
+            let _ = app.emit_to(crate::game_loop::speech_target(&own.pet), "pet-say-text", NOT_NOW);
             return;
         }
         let area = own.world.work_area_at(own.pet.body.x, own.pet.body.y);
@@ -98,9 +103,10 @@ impl DodgeFx {
                 let area = b.game.area();
                 let inside = own.pet.body.x >= area.left && own.pet.body.x < area.right;
                 if !(can_play(own) && inside) {
-                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", NOT_NOW);
+                    let _ = app.emit_to(crate::game_loop::speech_target(&own.pet), "pet-say-text", NOT_NOW);
                 } else if b.game.start() {
                     b.new_best = false;
+                    b.keys = ControlInput::default();
                     own.pet.set_control(true);
                 }
             }
@@ -133,9 +139,18 @@ impl DodgeFx {
 
     /// 매 틱 (동물 update 뒤). 최고 기록이 바뀌었으면 true (저장 필요)
     pub fn tick(&mut self, app: &AppHandle, dt: f64, own: &mut Slot, config: &mut Config, network: &Network) -> bool {
+        if self.share_at.is_some_and(|at| Instant::now() >= at) {
+            self.share_at = None;
+            network.share_dodge_best(config.dodge_best);
+        }
         let Some(b) = self.board.as_mut() else { return false };
         // 창이 닫혔다 (Alt+F4 등)
         if app.get_webview_window(LABEL).is_none() {
+            self.close(own);
+            return false;
+        }
+        // 게임 중 하우스에 들어갔거나 친구에게 갔다: 기록 없이 닫는다
+        if b.game.phase() == Phase::Play && !can_play(own) {
             self.close(own);
             return false;
         }
@@ -149,7 +164,7 @@ impl DodgeFx {
             }
             if config.record_dodge(over.score) {
                 b.new_best = true;
-                network.share_dodge_best(config.dodge_best);
+                self.share_at = Some(Instant::now() + SHARE_AFTER);
                 dirty = true;
             }
         }

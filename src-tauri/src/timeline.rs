@@ -7,7 +7,7 @@ use screenpet_core::care::Food;
 use screenpet_core::config::Config;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::timeline::{self, Timeline, TimelineView};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::slots::Slot;
 
@@ -118,7 +118,7 @@ pub fn timeline_fit(window: WebviewWindow, height: f64) {
     #[cfg(windows)]
     crate::overlay::resize_quietly(&window, hwnd, outer.width, ((h + frame) * dpi).round() as u32);
     #[cfg(not(windows))]
-    let _ = window.set_size(LogicalSize::new(inner.width as f64 / dpi, h));
+    let _ = window.set_size(tauri::LogicalSize::new(inner.width as f64 / dpi, h));
     // 커져서 아래가 작업 영역 밖이면 위로 (위쪽 끝보다 위로는 안 간다)
     if let (Some(a), Ok(pos)) = (area, window.outer_position()) {
         let bottom = (a.position.y + a.size.height as i32) as f64 - SCREEN_MARGIN * dpi;

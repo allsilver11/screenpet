@@ -154,7 +154,7 @@ fn sync_growth(app: &AppHandle, care: &Care) {
 }
 
 /// 지금 내 동물의 말풍선·음식 고르기를 띄울 창: 하우스 안이면 하우스 창, 아니면 펫 창
-fn speech_target(pet: &Pet) -> &'static str {
+pub(crate) fn speech_target(pet: &Pet) -> &'static str {
     if pet.is_housed() {
         house::LABEL
     } else {
