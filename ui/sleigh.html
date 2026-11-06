@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+      /* 썰매 날 가운데 아래가 창 아래 가운데 — 거기를 축으로 기울고 돌아선다 */
+      #ride { position: absolute; left: 50%; bottom: 0; transform-origin: 50% 100%; }
+      #ride > * { position: absolute; }
+      .pet { background-repeat: no-repeat; }
+      #sleigh { bottom: 0; }
+      #reins { height: 2px; background: #7a4b2a; transform-origin: 0 50%; }
+      .spark { font-size: 14px; opacity: 0; animation: spark 900ms ease-out infinite; }
+      @keyframes spark { 0% { opacity: 0; transform: translate(0, 0) scale(0.6); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(-24px, 6px) scale(1.1); } }
+      #ho { font: bold 13px "Segoe UI", "Malgun Gothic", sans-serif; color: #b3202c; background: #fffaf2; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
+      body.pixel .pet, body.pixel #sleigh { image-rendering: pixelated; }
+    </style>
+  </head>
+  <body>
+    <div id="ride">
+      <span class="spark" id="spark1">✨</span>
+      <span class="spark" id="spark2">⭐</span>
+      <span class="spark" id="spark3">✨</span>
+      <div class="pet" id="rider"></div>
+      <img id="sleigh" alt="" />
+      <div id="reins"></div>
+      <div class="pet" id="puller"></div>
+      <div id="ho">Ho ho ho! 🎄</div>
+    </div>
+    <script src="common.js"></script>
+    <script src="sleigh.js"></script>
+  </body>
+</html>

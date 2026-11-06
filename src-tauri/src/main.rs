@@ -15,6 +15,7 @@ mod pets;
 mod presence;
 mod prop;
 mod sizes;
+mod sleigh;
 mod slots;
 mod timeline;
 mod tray;

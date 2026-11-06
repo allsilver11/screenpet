@@ -393,6 +393,18 @@ impl Slot {
         !self.pet.is_housed() && !self.pet.is_away()
     }
 
+    /// 🛷 썰매에 탔다: 창을 화면 밖으로 치워 둔다 (보이기·숨기기 없이 — 포커스를 뺏지 않는다)
+    pub fn park(&mut self) {
+        const AWAY: i32 = -32000;
+        self.move_window(AWAY, AWAY);
+        self.last_pos = Some((AWAY, AWAY));
+    }
+
+    /// 썰매에서 내렸다: 다음 place가 몸 자리로 되돌린다
+    pub fn unpark(&mut self) {
+        self.last_pos = None;
+    }
+
     /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보인다. hidden = 사용자가 트레이로 모두 숨겨 둠 (그동안은 보이지 않는다)
     pub fn place(&mut self, hidden: bool) {
         self.sync_stretch();

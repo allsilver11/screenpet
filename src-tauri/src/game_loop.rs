@@ -315,6 +315,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     // 물건 (쓰레기 장난감 — 없거나 잠들어 있으면 일이 없다)
     let mut objects = Objects::new();
     let mut dodge = crate::dodge::DodgeFx::new();
+    let mut sleigh = crate::sleigh::SleighFx::new();
     objects.set_size(&app, config.object_size());
     // 🕐 최근 한 시간 (메모리에만)
     let mut timeline = TimelineFx::new();
@@ -836,8 +837,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         let mut left = Vec::new();
         objects.poop_spots(&mut poop_spots);
         for (i, s) in slots.iter_mut().enumerate() {
-            // 친구 화면에 가 있는 동안엔 물리·행동이 멈춘다
-            if !s.pet.is_away() {
+            // 친구 화면에 가 있거나 🛷 썰매에 탄 동안엔 물리·행동이 멈춘다
+            if !s.pet.is_away() && !sleigh.is_riding(&s.label) {
                 s.pet.notice_poops(&poop_spots, &s.world);
                 s.pet.update(dt, &s.world);
             }
@@ -970,7 +971,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
 
         let hidden = crate::windows_hidden(&app);
+        // 🛷 루돌프와 산타가 만나면 썰매로 한 바퀴 (탄 동안 둘의 창은 치워 둔다)
+        sleigh.tick(&app, dt, &mut slots, hidden || dodge.is_open());
         for s in &mut slots {
+            if sleigh.is_riding(&s.label) {
+                continue;
+            }
             s.place(hidden);
             if let Some(render) = s.take_render(&app) {
                 let _ = app.emit_to(s.label.as_str(), "pet-render", render);
