@@ -220,8 +220,10 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
             // The pinned key itself says it does not have us (`pinned` matched
             // `remote_key` above, proven by the Noise handshake). A hello sent
             // just before the peer pinned us can still arrive right after we
-            // pinned it; that one means nothing, so only back off.
-            if st.just_paired(id, now) {
+            // pinned it; that one means nothing, so only back off. The same for
+            // a friend added without pairing (another computer of mine or an
+            // introduction): its news of us may not have arrived yet.
+            if st.just_paired(id, now) || st.pending.contains(id) {
                 st.back_off(Backoff::Id(id.to_string()), shared.timing.peer_timeout, now);
                 return Reg::NotMutual;
             }
@@ -229,10 +231,12 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
             st.invites_out.remove(id);
             let stale = st.demote_friend_link(id);
             shared.emit(NetEvent::FriendForgotUs { id: id.to_string() });
+            let dropped = crate::devices::drop_introduced(shared, &mut st, id);
             drop(st);
             if let Some(l) = stale {
                 l.close(); // `announced` stays: Disconnected follows
             }
+            crate::devices::close_dropped(dropped);
             return Reg::NotMutual;
         }
         if !friend_link && peer_pinned_us {
@@ -259,6 +263,8 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
             st.trust_ip(id, &ctx.peer_addr, now);
             st.friend_wait.remove(id);
             st.backoff.remove(&Backoff::Id(id.to_string()));
+            // It pinned us too: no longer unconfirmed
+            st.pending.remove(id);
             st.friend_links.insert(id.to_string(), ctx.token);
             Kind::Friend
         } else if outgoing {
@@ -525,6 +531,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             }
             st.conns.get_mut(&ctx.token).expect("current conn").kind = Kind::Stranger(None);
             st.remove_friend(id);
+            let dropped = crate::devices::drop_introduced(shared, &mut st, id);
             // Also drop any other friend link for this id (e.g. one that
             // registered while this message was in flight).
             let other = st.friend_links.remove(id).filter(|t| *t != ctx.token);
@@ -536,7 +543,22 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             if let Some(l) = other {
                 l.close();
             }
+            crate::devices::close_dropped(dropped);
             false
+        }
+        // Friend lists between my computers and introductions: authenticated
+        // friend links only, budgeted per friend; `devices` checks the rest
+        Message::Control(Control::DeviceFriends { friends, want }) => {
+            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) && st.budget(id, now).links.take(now) {
+                crate::devices::on_device_friends(shared, &mut st, id, friends, want);
+            }
+            true
+        }
+        Message::Control(Control::MyDevices { devices }) => {
+            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) && st.budget(id, now).links.take(now) {
+                crate::devices::on_my_devices(shared, &mut st, id, devices);
+            }
+            true
         }
         Message::Visit(v) => {
             if matches!(conn.kind, Kind::Friend) && st.is_friend(id) && st.budget(id, now).visits.take(now) {

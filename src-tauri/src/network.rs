@@ -80,6 +80,8 @@ pub enum NetInput {
     PairAnswer(bool),
     SetSide { id: String, side: Side },
     Unfriend(String),
+    /// 친구 하위 메뉴 "📱 내 다른 컴퓨터": 그 친구를 내 다른 컴퓨터로 표시하거나 푼다
+    ToggleDevice(String),
     /// 트레이 "집에 와"
     ComeHome,
     /// 메뉴 "친구 코드 보기"
@@ -141,6 +143,10 @@ const ASK_BUSY: &str = "busy";
 const ASK_NOT_NOW: &str = "not_now";
 /// 부탁한 뒤 이만큼 안에 온 "busy"만 내 동물 머리 위에 보인다
 const ASK_ANSWER_WINDOW: Duration = Duration::from_secs(30);
+/// 📱 내 다른 컴퓨터를 켰을 때 내 펫 말풍선 (한 줄로 짧게 — 자세한 건 도움말)
+const DEVICE_ON_BUBBLE: &str = "저쪽에서도 켜 주세요";
+/// 친구 목록이 바뀌었을 때 내 다른 컴퓨터에 알리는 간격 (받는 쪽 예산보다 넉넉히)
+const SHARE_EVERY: Duration = Duration::from_secs(5);
 
 /// 손님 우클릭 메뉴용: 지금 연결된 내 친구 (id, 보일 이름) — 게임 루프가 메뉴를 다시 계산할 때 맞춘다
 static ONLINE_FRIENDS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
@@ -345,6 +351,9 @@ pub struct Network {
     own_refuses: (bool, bool),
     /// 집중 중이거나 전체 화면 앱이 떠 있음 — 받은 친구 신청 창을 미룬다
     quiet: bool,
+    /// 친구 목록이 바뀌어 내 다른 컴퓨터들에게 다시 알릴 것이 있다 (마지막으로 알린 때)
+    share_due: bool,
+    last_share: Option<Instant>,
 }
 
 /// 중계 서버 주소와 고정할 공개키. 기본값은 배포된 서버 주소 + 그 공개키(다른 키를 내미는 서버는 거절).
@@ -468,6 +477,8 @@ impl Network {
             ladder: crate::ladder::Ladders::default(),
             own_refuses: (false, false),
             quiet: false,
+            share_due: false,
+            last_share: None,
         };
         let state = app.state::<AppState>();
         // 설정을 못 읽은 실행: 친구 목록이 빈 채로 나가면 친구들이 "나를 잊었다"고 보고 나를 지운다
@@ -485,6 +496,10 @@ impl Network {
         let friends = config.friends.iter().map(|f| screenpet_net::Friend { id: f.id.clone(), public_key: f.public_key }).collect();
         let id = config.install_id.clone().unwrap_or_default();
         let mut net_config = NetConfig::new(id, name, key, friends);
+        // 📱 내 다른 컴퓨터 표시, 친구가 소개한 기기, 아직 확인 못 한 친구 (net이 다시 확인한다)
+        net_config.devices = config.friends.iter().filter(|f| f.device).map(|f| f.id.clone()).collect();
+        net_config.introduced = config.friends.iter().filter_map(|f| Some((f.id.clone(), f.via.clone()?))).collect();
+        net_config.pending = config.friends.iter().filter(|f| f.pending).map(|f| f.id.clone()).collect();
         (net_config.relay_url, net_config.relay_key) = relay_settings(&state.config_dir);
         network.relay_enabled = net_config.relay_url.is_some();
         network.update_code_view(app);
@@ -840,6 +855,22 @@ impl Network {
                 return config.set_friend_side(&id, side);
             }
             NetInput::Unfriend(id) => return self.unfriend(&id, config),
+            NetInput::ToggleDevice(id) => {
+                // 체크 항목은 누르면 저절로 바뀌므로 메뉴를 항상 다시 그린다. 설정은 handle 끝의 sync_friends가 맞춘다
+                self.last_menu = None;
+                let (Some(net), Some(f)) = (&self.net, config.friend(&id)) else { return false };
+                let on = !f.device;
+                net.set_device(&id, on);
+                if on {
+                    // 저쪽도 켰으면 바로 목록을 나눈다 (저쪽 목록도 달라고 한다)
+                    net.send_device_friends(&id, true, describe_friend(config));
+                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", DEVICE_ON_BUBBLE);
+                }
+                // 친구들에게 알리는 내 기기 목록이 바뀌었다
+                for f in config.friends.iter().filter(|f| self.is_connected(&f.id)) {
+                    net.send_my_devices(&f.id);
+                }
+            }
             NetInput::ComeHome => {
                 if let (Some(net), Some(a)) = (&self.net, self.away.as_mut()) {
                     net.send(&a.friend, Visit::ComeHome { visit_id: a.visit_id });
@@ -962,6 +993,11 @@ impl Network {
                 if let Some(net) = self.net.as_ref().filter(|_| config.dodge_best > 0) {
                     net.ask(&id, &dodge::score_ask(config.dodge_best));
                 }
+                // 📱 내 다른 컴퓨터: 서로 표시한 기기면 친구 목록을, 다른 친구에겐 내 기기들을 알린다 (예전 판에는 net이 보내지 않는다)
+                if let Some(net) = &self.net {
+                    net.send_device_friends(&id, false, describe_friend(config));
+                    net.send_my_devices(&id);
+                }
                 if let Some(p) = self.pairing.as_mut().filter(|p| p.peer == id && matches!(p.view.phase, "confirm" | "waiting")) {
                     p.view.phase = "done";
                     p.deadline = Instant::now() + RESULT_SECS;
@@ -1019,6 +1055,16 @@ impl Network {
             NetEvent::Received { from, msg } => self.on_visit_message(app, config, slots, &from, msg),
             // 고정한 키를 증명한 친구가 나를 지웠다: net이 지웠고, 설정에서는 handle 끝의 sync_friends가 지운다
             NetEvent::FriendForgotUs { id } => eprintln!("friend {id} no longer has us; removed them too"),
+            // 📱 짝맞추기 없이 들어온 친구 (내 다른 컴퓨터가 나눈 친구, 또는 친구가 소개한 그 친구의 다른 컴퓨터)
+            NetEvent::FriendAdded { id, name, via, side } => return self.on_friend_added(config, &id, &name, via.as_deref(), side.as_deref()),
+            // 소개해 준 친구가 지워져 그 친구의 다른 컴퓨터도 지웠다 — 설정에서는 handle 끝의 sync_friends가 지운다
+            NetEvent::FriendDropped { id } => eprintln!("removed {id} together with the friend who introduced it"),
+            // 내 다른 컴퓨터가 친구 목록을 보냈다 (net이 이미 더했다). 달라고 하면 내 목록도 보낸다
+            NetEvent::DeviceSynced { from, want } => {
+                if let Some(net) = self.net.as_ref().filter(|_| want) {
+                    net.send_device_friends(&from, false, describe_friend(config));
+                }
+            }
             NetEvent::RelayStatus { connected } => {
                 self.relay_connected = connected;
                 self.update_code_view(app);
@@ -1092,6 +1138,23 @@ impl Network {
         }
     }
 
+    /// net이 짝맞추기 없이 고정한 친구를 설정에 넣는다. 소개받은 기기는 소개한 친구와 같은 이름으로,
+    /// 내 다른 컴퓨터가 나눈 친구는 그 컴이 알던 이름·화면 끝을 처음 값으로 (이름은 연결되면 친구가 정한 이름으로 바뀐다)
+    fn on_friend_added(&mut self, config: &mut Config, id: &str, name: &str, via: Option<&str>, side: Option<&str>) -> bool {
+        let Some(key) = self.net.as_ref().and_then(|n| n.friends().into_iter().find(|f| f.id == id)).map(|f| f.public_key) else { return false };
+        let name = match via {
+            Some(v) => config.friend(v).map(|f| f.name.clone()),
+            None => screenpet_core::config::sanitize_name(name),
+        }
+        .unwrap_or_else(|| DEFAULT_NAME.to_string());
+        let mut dirty = config.upsert_friend(id, &name, key);
+        if let Some(side) = side.and_then(visit::side_choice).filter(|_| via.is_none()) {
+            dirty |= config.set_friend_side(id, side);
+        }
+        self.share_due = true;
+        dirty
+    }
+
     /// 친구 이름은 내가 정하는 이름과 같은 규칙으로 (보이지 않는 글자 빼고 20자까지, 비면 그대로 둔다)
     fn note_name(&mut self, id: &str, name: &str) {
         if let Some(name) = screenpet_core::config::sanitize_name(name) {
@@ -1106,6 +1169,10 @@ impl Network {
         let pinned = net.friends();
         let mut dirty = false;
         let gone: Vec<String> = config.friends.iter().filter(|f| !pinned.iter().any(|p| p.id == f.id)).map(|f| f.id.clone()).collect();
+        // 친구가 늘거나 줄었으면 내 다른 컴퓨터들에게 다시 알린다 (tick에서, 너무 잦지 않게)
+        if !gone.is_empty() || pinned.iter().any(|p| config.friend(&p.id).is_none()) {
+            self.share_due = true;
+        }
         for id in gone {
             dirty |= config.remove_friend(&id);
         }
@@ -1117,6 +1184,10 @@ impl Network {
                 .or_else(|| config.friend(&p.id).map(|f| f.name.clone()))
                 .unwrap_or_else(|| DEFAULT_NAME.to_string());
             dirty |= config.upsert_friend(&p.id, &name, p.public_key);
+            // 📱 내 다른 컴퓨터 표시·소개한 친구·확인 전 (net이 아는 대로)
+            if let Some(info) = net.friend_info(&p.id) {
+                dirty |= config.set_friend_links(&p.id, info.device, info.via.as_deref(), info.pending);
+            }
         }
         dirty
     }
@@ -1548,6 +1619,16 @@ impl Network {
             eprintln!("no answer to come-home; coming back anyway");
             self.come_back(own, None, None);
         }
+        // 📱 친구 목록이 바뀌었으면 연결된 내 다른 컴퓨터들에게 알린다 (net이 서로 표시한 새 판에만 보낸다)
+        if self.share_due && self.last_share.is_none_or(|t| now.duration_since(t) >= SHARE_EVERY) {
+            self.share_due = false;
+            self.last_share = Some(now);
+            if let Some(net) = &self.net {
+                for f in config.friends.iter().filter(|f| f.device && self.is_connected(&f.id)) {
+                    net.send_device_friends(&f.id, false, describe_friend(config));
+                }
+            }
+        }
         // 메뉴는 네트워크 입력이나 놀러 가기/돌아오기가 있었을 때만 다시 계산한다
         if self.menu_dirty {
             self.menu_dirty = false;
@@ -1570,6 +1651,8 @@ impl Network {
                 side: f.side,
                 connected: self.is_connected(&f.id),
                 can_send: self.can_send && self.is_connected(&f.id),
+                device: f.device,
+                introduced: f.via.is_some(),
             })
             .collect();
         // 손님 우클릭 "<친구>에게 보내기" 목록
@@ -1587,6 +1670,14 @@ impl Network {
             last: config.last_ladder.is_some() && !self.ladder.busy(),
         };
         FriendsMenu { available: self.net.is_some(), my_name: self.name.clone(), strangers, friends, away: self.away.is_some(), relay, room, ladder }
+    }
+}
+
+/// 내 다른 컴퓨터에 친구를 알릴 때 붙이는 처음 값: 친구가 정한 이름과 내 화면의 끝
+fn describe_friend(config: &Config) -> impl Fn(&str) -> (String, Option<String>) + '_ {
+    move |id| match config.friend(id) {
+        Some(f) => (f.name.clone(), visit::SIDE_CHOICES.iter().find(|c| c.0 == f.side).map(|c| c.1.to_string())),
+        None => (DEFAULT_NAME.to_string(), None),
     }
 }
 

@@ -4,12 +4,17 @@
 use serde::{Deserialize, Serialize};
 
 /// Protocol version carried in announcements and `hello`. 2 = knows the
-/// `ladder_*` messages (v0.5.0). Older versions send 1 and close a link on any
-/// message `type` they do not know, so features with new message types check
-/// the peer's version first (`Net::peer_version`).
-pub const PROTOCOL_VERSION: u32 = 2;
+/// `ladder_*` messages (v0.5.0). 3 = knows `device_friends` and `my_devices`
+/// (linked devices, v0.5.3). Older versions close a link on any message `type`
+/// they do not know, so features with new message types check the peer's
+/// version first (`Net::peer_version`).
+pub const PROTOCOL_VERSION: u32 = 3;
 /// Lowest peer version that may be sent `LadderMsg`s.
 pub const LADDER_MIN_VERSION: u32 = 2;
+/// Lowest peer version that may be sent `device_friends` / `my_devices`.
+pub const DEVICES_MIN_VERSION: u32 = 3;
+/// Most devices one friend introduces (`my_devices`), in one message and in all.
+pub const MAX_DEVICES: usize = 3;
 /// App tag carried in announcements so unrelated UDP traffic is ignored.
 pub const APP_TAG: &str = "screenpet";
 /// Largest frame on a link (a Noise message is at most 65535 bytes).
@@ -115,6 +120,43 @@ pub struct Toss {
     /// versions get a plain one. The receiver's app checks the name.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub look: Option<String>,
+}
+
+/// A list whose malformed entries are skipped (never the whole message);
+/// anything but an array reads as empty. At most 256 entries are kept.
+fn lenient_list<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<T>, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    let items = match v {
+        serde_json::Value::Array(items) => items,
+        _ => Vec::new(),
+    };
+    Ok(items.into_iter().take(256).filter_map(|v| serde_json::from_value(v).ok()).collect())
+}
+
+/// A string that may be missing or something else (read as empty).
+fn lenient_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(v.as_str().map(str::to_string).unwrap_or_default())
+}
+
+/// One of my friends, as shared with my other computer (`device_friends`).
+/// `key` = the friend's static public key (64 hex digits). `name` and `side`
+/// are only first values for the receiver's list (it checks them).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WireFriend {
+    pub id: String,
+    pub key: String,
+    #[serde(default, deserialize_with = "lenient_string")]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub side: Option<String>,
+}
+
+/// One of my other computers, as introduced to a friend (`my_devices`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WireDevice {
+    pub id: String,
+    pub key: String,
 }
 
 fn left_side() -> Side {
@@ -248,6 +290,23 @@ pub enum Control {
         /// An object thrown over to the receiver's screen.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         toss: Option<Toss>,
+    },
+    /// My friends, sent to a friend I marked as my other computer (only to
+    /// `DEVICES_MIN_VERSION` peers). The receiver takes it only if it marked
+    /// me too, and only adds friends it does not know. `want` = please send
+    /// yours back (I just marked you).
+    DeviceFriends {
+        #[serde(default, deserialize_with = "lenient_list")]
+        friends: Vec<WireFriend>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        want: bool,
+    },
+    /// My other computers (at most `MAX_DEVICES`), introduced to a friend that
+    /// is not one of them (only to `DEVICES_MIN_VERSION` peers). The friend adds
+    /// them as friends that leave together with me.
+    MyDevices {
+        #[serde(default, deserialize_with = "lenient_list")]
+        devices: Vec<WireDevice>,
     },
 }
 
@@ -778,5 +837,26 @@ mod tests {
         assert_eq!(boost, Some(1.5));
         let Some(Message::Visit(Visit::Leave { boost, visit_id, .. })) = Message::parse(br#"{"type":"leave","visit_id":7,"boost":"huge"}"#) else { panic!() };
         assert_eq!((boost, visit_id), (None, 7));
+    }
+
+    #[test]
+    fn device_messages_skip_bad_entries_instead_of_failing() {
+        let k = "ab".repeat(32);
+        let raw = format!(r#"{{"type":"device_friends","friends":[{{"id":"x","key":"{k}","name":5,"side":7}},3,{{"id":"y"}},{{"id":"z","key":"{k}","name":"Z","side":"up"}}]}}"#);
+        let Some(Message::Control(Control::DeviceFriends { friends, want })) = Message::parse(raw.as_bytes()) else { panic!() };
+        assert!(!want);
+        assert_eq!(friends.len(), 2);
+        assert_eq!((friends[0].name.as_str(), friends[0].side.as_deref()), ("", None));
+        assert_eq!((friends[1].name.as_str(), friends[1].side.as_deref()), ("Z", Some("up")));
+        // 배열이 아니면 빈 목록, 없어도 빈 목록
+        let Some(Message::Control(Control::MyDevices { devices })) = Message::parse(br#"{"type":"my_devices","devices":"lots"}"#) else { panic!() };
+        assert!(devices.is_empty());
+        let Some(Message::Control(Control::DeviceFriends { friends, .. })) = Message::parse(br#"{"type":"device_friends"}"#) else { panic!() };
+        assert!(friends.is_empty());
+        // 보내는 모양
+        let m = Message::Control(Control::MyDevices { devices: vec![WireDevice { id: "d".into(), key: k.clone() }] });
+        assert_eq!(String::from_utf8(m.to_json()).unwrap(), format!(r#"{{"type":"my_devices","devices":[{{"id":"d","key":"{k}"}}]}}"#));
+        let m = Message::Control(Control::DeviceFriends { friends: vec![], want: false });
+        assert_eq!(String::from_utf8(m.to_json()).unwrap(), r#"{"type":"device_friends","friends":[]}"#);
     }
 }

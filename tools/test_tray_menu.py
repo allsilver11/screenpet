@@ -97,3 +97,18 @@ def test_size_window_slides_live_and_resets_easily():
     assert ".set_size(" not in slots.replace("slot.set_size(", "")
     # 친구에게는 내 슬라이더가 안 들어간 크기를 보낸다
     assert "scale: own.shown.base," in (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+
+
+def test_friend_submenu_marks_my_other_computer():
+    fill = TRAY[TRAY.index("fn try_fill_friends") :]
+    fill = fill[: fill.index("/// 내 동물이 친구 화면에")]
+    # 친구 하위 메뉴의 체크 항목 (이름 바꾸기 위)
+    assert 'CheckMenuItem::with_id(app, format!("{DEVICE_PREFIX}{}", f.id), "📱 내 다른 컴퓨터", true, f.device, None::<&str>)' in fill
+    assert "&sep2, &device, &nickname, &unfriend]" in fill
+    # 친구 목록 이름표
+    assert '"(내 컴퓨터)"' in fill and '"(다른 컴퓨터)"' in fill
+    assert 'const DEVICE_PREFIX: &str = "net:device:";' in TRAY
+    assert "net(NetInput::ToggleDevice(id.to_string()))" in TRAY
+    network = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+    assert "NetInput::ToggleDevice(id) =>" in network and "DEVICE_ON_BUBBLE" in network
+    assert "📱 내 다른 컴퓨터" in HELP

@@ -20,6 +20,7 @@
 //! - `relay`: the relay transport (`screenpet-relay` over WebSocket) for
 //!   friends outside the LAN, friend codes, LAN-preferred link choice.
 
+mod devices;
 mod discovery;
 pub mod ladder;
 mod noise;
@@ -31,7 +32,7 @@ mod tcp;
 mod transport;
 
 pub use noise::{hex32, to_hex, SAS_EMOJI};
-pub use protocol::{Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WirePlayer, WireResult, LADDER_MIN_VERSION, MAX_FRIENDS, MAX_NOTE, PROTOCOL_VERSION};
+pub use protocol::{Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WirePlayer, WireResult, DEVICES_MIN_VERSION, LADDER_MIN_VERSION, MAX_DEVICES, MAX_FRIENDS, MAX_NOTE, PROTOCOL_VERSION};
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};
@@ -152,6 +153,26 @@ pub struct NetConfig {
     /// [`DEFAULT_RELAY_KEY`] with [`DEFAULT_RELAY_URL`]). A relay that
     /// presents another key is refused. `None` = trust on each connect.
     pub relay_key: Option<[u8; 32]>,
+    /// Friends I marked as my other computers (see [`Net::set_device`]).
+    pub devices: Vec<String>,
+    /// Friends a friend introduced as its other computers: (device id, the
+    /// introducing friend's id). They leave together with that friend.
+    pub introduced: Vec<(String, String)>,
+    /// Friends added from another computer or an introduction that have not
+    /// yet shown on a link that they know us (see [`FriendInfo::pending`]).
+    pub pending: Vec<String>,
+}
+
+/// What [`Net::friend_info`] knows about a friend besides its key.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FriendInfo {
+    /// I marked it as my other computer.
+    pub device: bool,
+    /// It was introduced by this friend as one of its computers.
+    pub via: Option<String>,
+    /// Added from another computer or an introduction and not yet seen
+    /// knowing us; not removed when it says it doesn't (yet).
+    pub pending: bool,
 }
 
 impl NetConfig {
@@ -168,6 +189,9 @@ impl NetConfig {
             timing: Timing::default(),
             relay_url: None,
             relay_key: None,
+            devices: Vec::new(),
+            introduced: Vec::new(),
+            pending: Vec::new(),
         }
     }
 }
@@ -226,6 +250,16 @@ pub enum NetEvent {
     /// `already_friend`, `busy`, `rate`, `timeout`, `full` (we have `MAX_FRIENDS`),
     /// `disabled` (the relay has friend codes switched off).
     CodeFailed { code: String, reason: String },
+    /// A friend was pinned without pairing: from `device_friends` of a friend
+    /// I marked as my other computer (`via: None`; `name` and `side` are its
+    /// first values, clamped but otherwise unchecked), or introduced by friend
+    /// `via` as one of its computers (`name` empty). [`Net::friends`] lists it.
+    FriendAdded { id: String, name: String, via: Option<String>, side: Option<String> },
+    /// A friend introduced by a friend that is now removed went with it.
+    FriendDropped { id: String },
+    /// My other computer `from` sent its friends (already merged). `want` =
+    /// it asks for mine ([`Net::send_device_friends`]).
+    DeviceSynced { from: String, want: bool },
 }
 
 /// A peer id heard via discovery. Announcements are unauthenticated hints.
@@ -315,6 +349,10 @@ const VISIT_EVERY: Duration = Duration::from_millis(500);
 /// Ladder messages: a game takes a handful per friend.
 const LADDER_BURST: f64 = 20.0;
 const LADDER_EVERY: Duration = Duration::from_millis(500);
+/// Friend lists between my computers and introductions: a few on each
+/// connect or change.
+const LINKS_BURST: f64 = 6.0;
+const LINKS_EVERY: Duration = Duration::from_secs(5);
 
 /// What one friend may make us process (over budget = dropped, the link stays:
 /// a flooding friend can't spam the app with events). Kept per friend, not per
@@ -326,6 +364,7 @@ pub(crate) struct Budget {
     pub tosses: Bucket,
     pub visits: Bucket,
     pub ladder: Bucket,
+    pub links: Bucket,
 }
 
 impl Budget {
@@ -336,6 +375,7 @@ impl Budget {
             tosses: Bucket::new(now, TOSS_BURST, TOSS_EVERY),
             visits: Bucket::new(now, VISIT_BURST, VISIT_EVERY),
             ladder: Bucket::new(now, LADDER_BURST, LADDER_EVERY),
+            links: Bucket::new(now, LINKS_BURST, LINKS_EVERY),
         }
     }
 }
@@ -420,6 +460,12 @@ pub(crate) struct State {
     /// Friend id → what it may still make us process. Only ever holds
     /// authenticated friends, and leaves with the friend.
     pub budgets: HashMap<String, Budget>,
+    /// Friends I marked as my other computers.
+    pub devices: HashSet<String>,
+    /// Introduced device id → the friend that introduced it.
+    pub via: HashMap<String, String>,
+    /// Friends added without pairing, not yet seen knowing us.
+    pub pending: HashSet<String>,
 }
 
 impl State {
@@ -457,6 +503,9 @@ impl State {
         self.friends.retain(|f| f.id != id);
         self.paired_at.remove(id);
         self.budgets.remove(id);
+        self.devices.remove(id);
+        self.via.remove(id);
+        self.pending.remove(id);
         // Its address is no reason for trust any more
         self.trusted_ips.retain(|(friend, _), _| friend != id);
         self.trusted_rate.retain(|(friend, _), _| friend != id);
@@ -736,6 +785,21 @@ impl Net {
                 state.add_friend(&f.id, f.public_key);
             }
         }
+        for id in &cfg.devices {
+            if state.is_friend(id) {
+                state.devices.insert(id.clone());
+            }
+        }
+        for (id, via) in &cfg.introduced {
+            if id != via && state.is_friend(id) && state.is_friend(via) && !state.devices.contains(id) {
+                state.via.insert(id.clone(), via.clone());
+            }
+        }
+        for id in &cfg.pending {
+            if state.is_friend(id) {
+                state.pending.insert(id.clone());
+            }
+        }
         let shared = Arc::new(Shared {
             id: cfg.id,
             name: Mutex::new(protocol::clamp_name(&cfg.name)),
@@ -868,17 +932,103 @@ impl Net {
         }
     }
 
-    /// Forget a friend, tell them, and disconnect (gracefully). Never blocks.
+    /// Forget a friend, tell them, and disconnect (gracefully). The devices it
+    /// introduced go with it ([`NetEvent::FriendDropped`]). Never blocks.
     pub fn unfriend(&self, peer_id: &str) {
-        let link = {
+        let (link, dropped) = {
             let mut st = self.shared.state();
             st.remove_friend(peer_id);
             st.invites_out.remove(peer_id);
-            st.demote_friend_link(peer_id)
+            let dropped = devices::drop_introduced(&self.shared, &mut st, peer_id);
+            (st.demote_friend_link(peer_id), dropped)
         };
         if let Some(l) = link {
             l.send(&Message::Control(Control::Unfriend));
             l.finish();
+        }
+        devices::close_dropped(dropped);
+    }
+
+    /// Mark (or unmark) friend `id` as my other computer. Friend lists are
+    /// shared only on a link both sides marked. A marked device is mine: it no
+    /// longer counts as introduced by anyone. `false` if `id` is no friend or
+    /// nothing changed. Send it [`Net::send_device_friends`] after marking.
+    pub fn set_device(&self, id: &str, on: bool) -> bool {
+        let mut st = self.shared.state();
+        if !st.is_friend(id) {
+            return false;
+        }
+        if on {
+            st.via.remove(id);
+            st.devices.insert(id.to_string())
+        } else {
+            st.devices.remove(id)
+        }
+    }
+
+    /// Device marks and origin of friend `id` (`None` if no friend).
+    pub fn friend_info(&self, id: &str) -> Option<FriendInfo> {
+        let st = self.shared.state();
+        st.is_friend(id).then(|| FriendInfo { device: st.devices.contains(id), via: st.via.get(id).cloned(), pending: st.pending.contains(id) })
+    }
+
+    /// The link of a connected friend whose build knows the device messages.
+    fn devices_link(&self, peer_id: &str) -> Option<Arc<secure::SecureLink>> {
+        let new = self.peer_version(peer_id).is_some_and(|v| v >= DEVICES_MIN_VERSION);
+        self.friend_link(peer_id).filter(|_| new)
+    }
+
+    /// Send my friends to `peer_id` if I marked it as my other computer and its
+    /// build knows the message (otherwise `false`, nothing sent). Introduced and
+    /// unconfirmed friends are left out (they come from their own source), and
+    /// so is the receiver. `describe(id)` gives each friend's name and side
+    /// (first values for the receiver). `want` asks for its list back. Never blocks.
+    pub fn send_device_friends(&self, peer_id: &str, want: bool, describe: impl Fn(&str) -> (String, Option<String>)) -> bool {
+        if !self.shared.state().devices.contains(peer_id) {
+            return false;
+        }
+        let Some(link) = self.devices_link(peer_id) else { return false };
+        let ids: Vec<(String, [u8; 32])> = {
+            let st = self.shared.state();
+            st.friends
+                .iter()
+                .filter(|f| f.id != peer_id && !st.via.contains_key(&f.id) && !st.pending.contains(&f.id))
+                .take(MAX_FRIENDS)
+                .map(|f| (f.id.clone(), f.public_key))
+                .collect()
+        };
+        let friends = ids
+            .into_iter()
+            .map(|(id, key)| {
+                let (name, side) = describe(&id);
+                protocol::WireFriend { key: to_hex(&key), name: protocol::clamp_name(&name), side, id }
+            })
+            .collect();
+        link.send(&Message::Control(Control::DeviceFriends { friends, want }))
+    }
+
+    /// Introduce my other computers (at most `MAX_DEVICES`) to friend `peer_id`,
+    /// unless it is one of them or its build does not know the message. `false`
+    /// = nothing sent (also when I have no other computer). Never blocks.
+    pub fn send_my_devices(&self, peer_id: &str) -> bool {
+        let devices: Vec<protocol::WireDevice> = {
+            let st = self.shared.state();
+            if st.devices.contains(peer_id) {
+                return false;
+            }
+            st.friends
+                .iter()
+                .filter(|f| f.id != peer_id && st.devices.contains(&f.id) && !st.pending.contains(&f.id))
+                .take(MAX_DEVICES)
+                .map(|f| protocol::WireDevice { id: f.id.clone(), key: to_hex(&f.public_key) })
+                .collect()
+        };
+        if devices.is_empty() {
+            return false;
+        }
+        match self.devices_link(peer_id) {
+            Some(link) => link.send(&Message::Control(Control::MyDevices { devices })),
+            None => false,
         }
     }
 

@@ -158,6 +158,15 @@ pub struct Friend {
     /// 💩 똥피하기 그 친구의 최고 기록 (친구가 알려 준 것 — 받은 적 없으면 None)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub dodge_best: Option<u32>,
+    /// 📱 내 다른 컴퓨터로 표시했다 (양쪽이 다 표시해야 친구 목록을 나눈다)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient")]
+    pub device: bool,
+    /// 이 친구 id가 자기 다른 컴퓨터라고 소개했다 (그 친구를 지우면 같이 지워진다)
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub via: Option<String>,
+    /// 짝맞추기 없이 (내 다른 컴퓨터나 친구의 소개로) 들어왔고, 아직 상대가 나를 아는지 못 봤다
+    #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient")]
+    pub pending: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -244,7 +253,7 @@ impl Config {
             }
             None => {
                 let side = self.next_side();
-                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side, nickname: None, dodge_best: None });
+                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side, nickname: None, dodge_best: None, device: false, via: None, pending: false });
                 changed = true;
             }
         }
@@ -317,6 +326,19 @@ impl Config {
         match self.friends.iter_mut().find(|f| f.id == id) {
             Some(f) if f.dodge_best != score => {
                 f.dodge_best = score;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 📱 내 다른 컴퓨터 표시와 어디서 왔는지를 맞춘다 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
+    pub fn set_friend_links(&mut self, id: &str, device: bool, via: Option<&str>, pending: bool) -> bool {
+        match self.friends.iter_mut().find(|f| f.id == id) {
+            Some(f) if (f.device, f.via.as_deref(), f.pending) != (device, via, pending) => {
+                f.device = device;
+                f.via = via.map(str::to_string);
+                f.pending = pending;
                 true
             }
             _ => false,
@@ -1237,5 +1259,42 @@ mod tests {
         c.set_friend_nickname("a", "");
         save(&d, &c).unwrap();
         assert!(!std::fs::read_to_string(d.join("config.json")).unwrap().contains("nickname"));
+    }
+
+    #[test]
+    fn linked_device_marks_roundtrip_and_old_friends_still_load() {
+        let d = temp_dir("devices");
+        let mut c = Config { install_id: Some("me".into()), ..Config::default() };
+        c.upsert_friend("home", "Ann", key(1));
+        c.upsert_friend("pal", "Bo", key(2));
+        c.upsert_friend("pal2", "Bo", key(3));
+        assert!(c.set_friend_links("home", true, None, false));
+        assert!(c.set_friend_links("pal2", false, Some("pal"), true));
+        assert!(!c.set_friend_links("pal2", false, Some("pal"), true), "unchanged");
+        assert!(!c.set_friend_links("nobody", true, None, false));
+        save(&d, &c).unwrap();
+        let text = std::fs::read_to_string(d.join("config.json")).unwrap();
+        // 표시가 없는 친구는 예전과 같은 모양으로 저장된다
+        assert_eq!(text.matches("\"device\"").count(), 1, "{text}");
+        assert_eq!(text.matches("\"pending\"").count(), 1, "{text}");
+        let back = load(&d);
+        assert_eq!(back, c);
+        let pal2 = back.friend("pal2").unwrap();
+        assert_eq!((pal2.device, pal2.via.as_deref(), pal2.pending), (false, Some("pal"), true));
+        assert!(back.friend("home").unwrap().device);
+        // 예전 친구 항목: 표시 없음
+        let old = format!(r#"{{"friends": [{{"id": "a", "name": "A", "public_key": "{}", "side": "left"}}]}}"#, "01".repeat(32));
+        let old: Config = serde_json::from_str(&old).unwrap();
+        let a = old.friend("a").unwrap();
+        assert_eq!((a.device, a.via.as_deref(), a.pending), (false, None, false));
+    }
+
+    #[test]
+    fn bad_device_marks_are_dropped_not_the_friend() {
+        let k = "01".repeat(32);
+        let text = format!(r#"{{"friends": [{{"id": "a", "name": "A", "public_key": "{k}", "side": "left", "device": "yes", "via": 5, "pending": []}}]}}"#);
+        let c: Config = serde_json::from_str(&text).unwrap();
+        let a = c.friend("a").expect("the friend stays");
+        assert_eq!((a.device, a.via.as_deref(), a.pending), (false, None, false));
     }
 }
