@@ -46,6 +46,10 @@ const LETTER_PREFIX: &str = "net:letter:";
 /// "놀러 보내기 ▸" 목록 항목 (친구 하위 메뉴의 항목과 id가 겹치면 안 된다)
 const SEND_LIST_PREFIX: &str = "net:send-list:";
 const COME_HOME_ID: &str = "net:come-home";
+/// 📱 대기 중인 컴퓨터의 "이 컴퓨터로 놀기"
+const PLAY_HERE_ID: &str = "net:play-here";
+/// 📱 노는 컴퓨터의 "다른 컴퓨터 펫 데리고 오기"
+const BRING_DEVICE_ID: &str = "net:bring-device";
 /// "집에 와"가 들어가는 자리: 메뉴 맨 위부터 danni, 구분선, 🐾 내 펫, 🍚 밥 주기, 🏠 하우스 다음
 const COME_HOME_POSITION: usize = 5;
 /// 🎁 선물 도감 창 열기
@@ -98,6 +102,10 @@ pub struct FriendsMenu {
     /// 손님을 더 받을 자리가 있음 ("펫 데리고 오기" 활성)
     pub room: bool,
     pub ladder: LadderMenu,
+    /// 📱 이 컴퓨터는 대기 중 (내 다른 컴퓨터에서 놀고 있다): 친구와 연결하지 않는다
+    pub standby: bool,
+    /// 📱 내 다른 컴퓨터와 연결돼 있고 이 컴퓨터가 논다: 그 컴퓨터 펫을 데려올 수 있다 (Some(누를 수 있음))
+    pub bring_device: Option<bool>,
 }
 
 /// `👫 친구랑 놀기 ▸`의 🎲 사다리타기 ▸
@@ -113,17 +121,20 @@ pub struct LadderMenu {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FriendItem {
+    /// 그 사람 (처음 친구가 된 컴퓨터): 화면 끝·이름 바꾸기·연결 끊기
     pub id: String,
+    /// 📱 보내기·편지·데리고 오기·던지기가 갈 컴퓨터 (그 사람이 지금 노는 컴퓨터, 다른 컴퓨터가 없으면 id)
+    pub target: String,
     /// 보일 이름 (내가 붙인 별명, 없으면 친구가 정한 이름)
     pub name: String,
     pub side: Side,
     pub connected: bool,
     /// 지금 내 동물을 이 친구에게 보낼 수 있음 (연결됨 + 내 동물이 놀러 가 있지 않음)
     pub can_send: bool,
+    /// 물건을 던질 수 있음 (연결됐고, 대기 중인 내 다른 컴퓨터가 아님)
+    pub can_throw: bool,
     /// 📱 연결된 내 다른 컴퓨터 (코드로 연결했다)
     pub device: bool,
-    /// 친구가 자기 다른 컴퓨터라고 소개했다
-    pub introduced: bool,
 }
 
 /// 트레이와 우클릭에 같이 쓰는 메뉴, 그리고 동물에 따라 바뀌는 항목
@@ -251,6 +262,14 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     }
     // 친구들에게 보이는 내 이름 (누르면 바꾸기 창)
     submenu.append(&MenuItem::with_id(app, MY_NAME_ID, format!("내 이름: {} ✏️", menu_text(&model.my_name)), true, None::<&str>)?)?;
+    // 📱 한 번에 한 컴퓨터만 논다: 대기 중이면 알리고 이 컴퓨터로 가져올 수 있다
+    if model.standby {
+        submenu.append(&MenuItem::new(app, "📱 지금은 다른 컴퓨터에서 놀고 있어요", false, None::<&str>)?)?;
+        submenu.append(&MenuItem::with_id(app, PLAY_HERE_ID, "📱 이 컴퓨터로 놀기", true, None::<&str>)?)?;
+    }
+    if let Some(enabled) = model.bring_device {
+        submenu.append(&MenuItem::with_id(app, BRING_DEVICE_ID, "📱 다른 컴퓨터 펫 데리고 오기", enabled, None::<&str>)?)?;
+    }
     // 인터넷 친구 (중계 서버): 상태 한 줄, 내 코드 보기, 코드 입력
     let status = match model.relay {
         Some(true) => "인터넷 연결: 연결됨",
@@ -265,37 +284,33 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
     let online: Vec<&FriendItem> = model.friends.iter().filter(|f| f.connected).collect();
     let send = Submenu::new(app, "놀러 보내기", online.iter().any(|f| f.can_send))?;
     for f in &online {
-        send.append(&MenuItem::with_id(app, format!("{SEND_LIST_PREFIX}{}", f.id), menu_text(&f.name), f.can_send, None::<&str>)?)?;
+        send.append(&MenuItem::with_id(app, format!("{SEND_LIST_PREFIX}{}", f.target), menu_text(&f.name), f.can_send, None::<&str>)?)?;
     }
     submenu.append(&send)?;
     // 🗑️ 연결된 친구에게 쓰레기 10개 (연달아 눌러 다섯 번까지 쌓인다)
-    let throw = Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !online.is_empty())?;
-    for f in &online {
-        throw.append(&MenuItem::with_id(app, format!("{THROW_VOLLEY_PREFIX}{}", f.id), menu_text(&f.name), true, None::<&str>)?)?;
+    // (대기 중인 내 다른 컴퓨터에는 던지지 않는다 — 보낼 수 없는 곳)
+    let targets: Vec<&&FriendItem> = online.iter().filter(|f| f.can_throw).collect();
+    let throw = Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !targets.is_empty())?;
+    for f in targets {
+        throw.append(&MenuItem::with_id(app, format!("{THROW_VOLLEY_PREFIX}{}", f.target), menu_text(&f.name), true, None::<&str>)?)?;
     }
     submenu.append(&throw)?;
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
     for f in &model.friends {
         let dot = if f.connected { "●" } else { "○" };
-        // 내 다른 컴퓨터, 친구의 다른 컴퓨터는 이름 뒤에 붙여 보인다
-        let tag = if f.device {
-            Some("(내 컴퓨터)")
-        } else if f.introduced {
-            Some("(다른 컴퓨터)")
-        } else {
-            None
-        };
+        // 내 다른 컴퓨터는 이름 뒤에 붙여 보인다 (친구의 다른 컴퓨터는 그 친구와 한 줄)
+        let tag = f.device.then_some("(내 컴퓨터)");
         let title = match tag {
             Some(tag) => format!("{dot} {} {tag}", menu_text(&f.name)),
             None => format!("{dot} {}", menu_text(&f.name)),
         };
         let [left, right, up, down] = visit::SIDE_CHOICES.map(|(side, key, label)| CheckMenuItem::with_id(app, format!("{SIDE_PREFIX}{key}:{}", f.id), label, true, f.side == side, None::<&str>));
         let (left, right, up, down) = (left?, right?, up?, down?);
-        let send = MenuItem::with_id(app, format!("{SEND_PREFIX}{}", f.id), "놀러 보내기", f.can_send, None::<&str>)?;
+        let send = MenuItem::with_id(app, format!("{SEND_PREFIX}{}", f.target), "놀러 보내기", f.can_send, None::<&str>)?;
         // 편지를 실어 보내기: "놀러 보내기"와 같은 때만 누를 수 있다
-        let letter = MenuItem::with_id(app, format!("{LETTER_PREFIX}{}", f.id), "편지 들려 보내기…", f.can_send, None::<&str>)?;
+        let letter = MenuItem::with_id(app, format!("{LETTER_PREFIX}{}", f.target), "편지 들려 보내기…", f.can_send, None::<&str>)?;
         let bring_label = format!("{} 펫 데리고 오기", menu_text(&f.name));
-        let bring = MenuItem::with_id(app, format!("{BRING_PREFIX}{}", f.id), bring_label, f.connected && model.room, None::<&str>)?;
+        let bring = MenuItem::with_id(app, format!("{BRING_PREFIX}{}", f.target), bring_label, f.connected && model.room, None::<&str>)?;
         // 📱 연결 안 됐으면 코드 창 (다른 컴퓨터와 이미 연결돼 있으면 창이 먼저 끊으라고 알린다), 연결된 그 컴퓨터면 끊기
         let device = if f.device {
             MenuItem::with_id(app, format!("{UNLINK_PREFIX}{}", f.id), "📱 연결 끊기 (내 컴퓨터)", true, None::<&str>)?
@@ -560,6 +575,10 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     net(NetInput::EditReply(label.to_string()));
                 } else if let Some((label, friend)) = other.strip_prefix(SEND_ON_PREFIX).and_then(|r| r.split_once('|')) {
                     net(NetInput::SendOn { label: label.to_string(), friend: friend.to_string() });
+                } else if other == PLAY_HERE_ID {
+                    net(NetInput::PlayHere);
+                } else if other == BRING_DEVICE_ID {
+                    net(NetInput::BringDevicePet);
                 } else if other == COME_HOME_ID {
                     net(NetInput::ComeHome);
                 } else if other == LADDER_ID {

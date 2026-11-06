@@ -44,6 +44,7 @@ pub(crate) fn run(shared: Arc<Shared>, udp: Option<UdpSocket>, broadcast_to: Soc
             crate::peers::flush_gone(&shared);
             crate::devices::expire_pending(&shared);
             crate::devices::expire_confirms(&shared);
+            crate::devices::tick_active(&shared);
         }
         return;
     };
@@ -73,6 +74,7 @@ pub(crate) fn run(shared: Arc<Shared>, udp: Option<UdpSocket>, broadcast_to: Soc
         crate::peers::flush_gone(&shared);
         crate::devices::expire_pending(&shared);
         crate::devices::expire_confirms(&shared);
+        crate::devices::tick_active(&shared);
     }
 }
 
@@ -172,6 +174,10 @@ fn heard(shared: &Arc<Shared>, a: Announce, src: SocketAddr) {
     };
     let grace = shared.timing.announce_interval * 3;
     let my_turn = shared.id < a.id || unlinked_since.is_some_and(|t| now.duration_since(t) >= grace);
+    // 📱 On standby only my linked computer is dialed
+    if st.standby_blocks(&a.id) {
+        return;
+    }
     if unlinked_since.is_some()
         && my_turn
         && !st.dialing.contains(&a.id)

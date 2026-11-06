@@ -376,6 +376,7 @@ fn auto_dial(shared: &Arc<Shared>, client: &Arc<RelayClient>) {
                 continue;
             }
             if st.dialing.contains(&f.id)
+                || st.standby_blocks(&f.id)
                 || st.backed_off(&Backoff::Id(f.id.clone()), now)
                 || inner.retry.get(&f.id).is_some_and(|(until, _)| now < *until)
             {

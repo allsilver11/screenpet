@@ -522,7 +522,7 @@ impl Ladders {
                     _ if i == o.host => host_friend.clone(),
                     _ => None,
                 };
-                friend.and_then(|id| ctx.config.friend(&id).map(|f| f.shown_name().to_string())).unwrap_or_else(|| shown_name(&p.name))
+                friend.and_then(|id| ctx.config.person_name(&id).map(str::to_string)).unwrap_or_else(|| shown_name(&p.name))
             })
             .collect();
         let host_name = if me_host { ctx.my_name.to_string() } else { names[o.host].clone() };
@@ -575,7 +575,7 @@ impl Ladders {
                 .map(|f| {
                     let v = ctx.net.and_then(|n| n.peer_version(&f.id)).unwrap_or(0);
                     let answer = answers.iter().find(|(id, _)| *id == f.id).map_or("", |(_, a)| answer_label(a));
-                    FriendRow { id: f.id.clone(), name: f.shown_name().to_string(), can_invite: v >= LADDER_MIN_VERSION, answer }
+                    FriendRow { id: f.id.clone(), name: ctx.config.person_name(&f.id).unwrap_or(&f.name).to_string(), can_invite: v >= LADDER_MIN_VERSION, answer }
                 })
                 .collect()
         };
@@ -593,7 +593,7 @@ impl Ladders {
                 rows.retain(|r| answers.iter().any(|(id, _)| *id == r.id));
                 for (id, a) in &answers {
                     if !rows.iter().any(|r| r.id == *id) {
-                        let name = ctx.config.friend(id).map_or_else(|| id.clone(), |f| f.shown_name().to_string());
+                        let name = ctx.config.person_name(id).map_or_else(|| id.clone(), str::to_string);
                         rows.push(FriendRow { id: id.clone(), name, can_invite: false, answer: answer_label(a) });
                     }
                 }
@@ -608,7 +608,7 @@ impl Ladders {
                     Phase::Joined => "joined",
                     _ => "locked",
                 };
-                let host_name = ctx.config.friend(g.host_id()).map_or_else(|| shown_name(g.host_name()), |f| f.shown_name().to_string());
+                let host_name = ctx.config.person_name(g.host_id()).map_or_else(|| shown_name(g.host_name()), str::to_string);
                 LadderView { view, host_name, invited: g.invited(), draft: slot_rows(held.map_or(g.draft(), |(_, changed)| changed)), ..Default::default() }
             }
         })

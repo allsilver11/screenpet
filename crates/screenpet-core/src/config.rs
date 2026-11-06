@@ -348,14 +348,65 @@ impl Config {
 
     /// 📱 친구가 어디서 왔는지(소개한 친구, 확인 전)를 맞춘다 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
     pub fn set_friend_links(&mut self, id: &str, via: Option<&str>, pending: bool) -> bool {
-        match self.friends.iter_mut().find(|f| f.id == id) {
+        let changed = match self.friends.iter_mut().find(|f| f.id == id) {
             Some(f) if (f.via.as_deref(), f.pending) != (via, pending) => {
                 f.via = via.map(str::to_string);
                 f.pending = pending;
                 true
             }
             _ => false,
+        };
+        // 소개받은 컴퓨터는 그 사람이 있는 끝에
+        if let Some(side) = via.and_then(|v| self.friend(v)).map(|f| f.side).filter(|_| changed) {
+            self.set_friend_side(id, side);
         }
+        changed
+    }
+
+    /// 📱 친구 목록을 linked::Member로 (connected = 연결된 때, 클수록 나중)
+    fn members(&self, connected: impl Fn(&str) -> Option<f64>) -> Vec<crate::linked::Member<'_>> {
+        self.friends.iter().map(|f| crate::linked::Member { id: &f.id, via: f.via.as_deref(), connected: connected(&f.id) }).collect()
+    }
+
+    /// 📱 이 친구가 속한 사람(처음 친구가 된 컴퓨터)의 id — 친구가 소개한 그 친구의 다른 컴퓨터면 그 친구
+    pub fn person_id<'a>(&'a self, id: &'a str) -> &'a str {
+        crate::linked::person_id(&self.members(|_| None), id)
+    }
+
+    /// 📱 그 사람의 보일 이름 (별명, 없으면 처음 친구가 정한 이름) — 다른 컴퓨터에서 온 동물도 같은 이름표
+    pub fn person_name(&self, id: &str) -> Option<&str> {
+        self.friend(self.person_id(id)).map(Friend::shown_name)
+    }
+
+    /// 📱 친구를 사람으로 묶는다 (메뉴 한 줄씩). connected = 연결된 때 (None = 연결 안 됨)
+    pub fn people(&self, connected: impl Fn(&str) -> Option<f64>) -> Vec<crate::linked::Person> {
+        crate::linked::group(&self.members(connected))
+    }
+
+    /// 📱 a와 b는 한 사람의 서로 다른 컴퓨터다
+    pub fn same_person(&self, a: &str, b: &str) -> bool {
+        a != b && self.friend(a).is_some() && self.friend(b).is_some() && self.person_id(a) == self.person_id(b)
+    }
+
+    /// 📱 친구 id의 동물에게 보낼 말을 실을 링크: 그 id가 연결돼 있으면 그대로, 아니면 그 사람의 연결된 다른 컴퓨터
+    /// (대기 중인 컴퓨터의 동물은 노는 컴퓨터를 거쳐 왔다). 아무도 없으면 그 id
+    pub fn reach<'a>(&'a self, id: &'a str, connected: impl Fn(&str) -> bool) -> &'a str {
+        if connected(id) {
+            return id;
+        }
+        let person = self.person_id(id);
+        self.friends.iter().map(|f| f.id.as_str()).find(|f| *f != id && self.person_id(f) == person && connected(f)).unwrap_or(id)
+    }
+
+    /// 💩 똥피하기 순위에 넣을 친구: 사람마다 한 줄, 그 사람 컴퓨터들 중 가장 좋은 기록
+    pub fn dodge_friends(&self) -> Vec<(String, u32)> {
+        self.people(|_| None)
+            .iter()
+            .filter_map(|p| {
+                let best = p.members.iter().filter_map(|id| self.friend(id)?.dodge_best).max()?;
+                Some((self.person_name(&p.id)?.to_string(), best))
+            })
+            .collect()
     }
 
     /// 📱 내 다른 컴퓨터와 나눈 비밀을 맞춘다 (net이 아는 대로, None = 연결 안 됨). 바뀌었으면 true (모르는 친구는 무시)
@@ -392,14 +443,18 @@ impl Config {
         self.friends.len() != before
     }
 
+    /// 친구가 붙은 끝 — 📱 한 사람의 컴퓨터 둘은 같은 끝에
     pub fn set_friend_side(&mut self, id: &str, side: Side) -> bool {
-        match self.friends.iter_mut().find(|f| f.id == id) {
-            Some(f) if f.side != side => {
+        let person = self.person_id(id).to_string();
+        let members: Vec<String> = self.people(|_| None).into_iter().find(|p| p.id == person).map_or_else(|| vec![id.to_string()], |p| p.members);
+        let mut changed = false;
+        for f in self.friends.iter_mut().filter(|f| members.contains(&f.id)) {
+            if f.side != side {
                 f.side = side;
-                true
+                changed = true;
             }
-            _ => false,
         }
+        changed
     }
 
     /// 지금 연결된(connected) 친구가 있는 화면 끝
@@ -904,6 +959,60 @@ mod tests {
         assert!(c.friend("b").is_none());
         assert_eq!(c.friends.len(), 2);
         assert!(c.remove_friend("a") && !c.remove_friend("a"));
+    }
+
+    /// 친구 X(왼쪽), X가 소개한 X의 다른 컴퓨터 x2, 다른 친구 y
+    fn with_two_computers() -> Config {
+        let mut c = Config::default();
+        c.upsert_friend("x", "Xavier", key(1));
+        c.upsert_friend("y", "Yuna", key(2));
+        c.set_friend_side("x", Side::Left);
+        c.upsert_friend("x2", "x on the laptop", key(3));
+        c.set_friend_links("x2", Some("x"), false);
+        c
+    }
+
+    #[test]
+    fn a_friends_other_computer_is_the_same_person_with_the_same_name_and_side() {
+        let mut c = with_two_computers();
+        assert_eq!(c.friend("x2").unwrap().side, Side::Left, "it sits where its person sits");
+        assert_eq!(c.person_id("x2"), "x");
+        assert_eq!(c.person_id("y"), "y");
+        assert_eq!(c.person_name("x2"), Some("Xavier"));
+        assert_eq!(c.person_name("nobody"), None);
+        c.set_friend_nickname("x", "자비");
+        assert_eq!(c.person_name("x2"), Some("자비"), "the nickname is for the person");
+        // 화면 끝은 둘 다
+        assert!(c.set_friend_side("x", Side::Up));
+        assert_eq!((c.friend("x").unwrap().side, c.friend("x2").unwrap().side), (Side::Up, Side::Up));
+        assert!(c.set_friend_side("x2", Side::Down));
+        assert_eq!((c.friend("x").unwrap().side, c.friend("x2").unwrap().side), (Side::Down, Side::Down));
+        assert_eq!(c.friend("y").unwrap().side, Side::Left, "others stay");
+        let people = c.people(|id| (id == "x2").then_some(1.0));
+        assert_eq!(people.len(), 2);
+        assert_eq!((people[0].id.as_str(), people[0].target.as_str(), people[0].connected), ("x", "x2", true));
+    }
+
+    #[test]
+    fn messages_for_a_persons_pet_go_to_whichever_of_their_computers_is_connected() {
+        let c = with_two_computers();
+        assert_eq!(c.reach("x2", |id| id == "x2"), "x2");
+        assert_eq!(c.reach("x2", |id| id == "x"), "x", "x2 plays elsewhere: its pet is reached through x");
+        assert_eq!(c.reach("x", |id| id == "x2"), "x2");
+        assert_eq!(c.reach("x", |_| false), "x");
+        assert_eq!(c.reach("y", |id| id == "x"), "y", "never someone else");
+        // 한 사람이 보낸 다른 컴퓨터의 동물만 (소개한 쪽이든 소개받은 쪽이든)
+        assert!(c.same_person("x", "x2") && c.same_person("x2", "x"));
+        assert!(!c.same_person("x", "y") && !c.same_person("x", "x") && !c.same_person("x", "nobody"));
+    }
+
+    #[test]
+    fn the_dodge_ranking_has_one_line_per_person_with_their_best() {
+        let mut c = with_two_computers();
+        c.set_friend_dodge_best("x", 10);
+        c.set_friend_dodge_best("x2", 30);
+        c.set_friend_dodge_best("y", 20);
+        assert_eq!(c.dodge_friends(), vec![("Xavier".to_string(), 30), ("Yuna".to_string(), 20)]);
     }
 
     #[test]

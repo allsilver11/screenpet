@@ -60,7 +60,7 @@ impl TimelineFx {
 
     /// 지금 내용을 창에 보낸다 (창이 없으면 첫 로드용으로 남기기만)
     fn publish(&self, app: &AppHandle, config: &Config) {
-        let view = self.timeline.view(&|id| config.friend(id).map(|f| f.shown_name().to_string()));
+        let view = self.timeline.view(&|id| config.person_name(id).map(str::to_string));
         *VIEW.lock().unwrap() = Some(view.clone());
         let _ = app.emit_to(LABEL, "timeline-state", view);
     }

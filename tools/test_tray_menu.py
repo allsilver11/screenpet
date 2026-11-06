@@ -61,8 +61,8 @@ def test_help_uses_the_new_paths():
 
 def test_throwing_ten_is_one_menu_that_lists_the_friends():
     fill = TRAY[TRAY.index("fn try_fill_friends") :]
-    assert 'Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !online.is_empty())' in fill
-    assert "format!(\"{THROW_VOLLEY_PREFIX}{}\", f.id)" in fill
+    assert 'Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !targets.is_empty())' in fill
+    assert "format!(\"{THROW_VOLLEY_PREFIX}{}\", f.target)" in fill
     # 친구별 하위 메뉴에서는 빠졌다
     assert "&[&send, &letter, &bring, &sep," in fill and "물건 10개 던지기" not in fill
     assert "ObjectInput::ThrowVolley(id.to_string())" in TRAY
@@ -108,7 +108,7 @@ def test_friend_submenu_links_my_other_computer_with_a_code():
     assert "&sep2, &device, &nickname, &unfriend]" in fill
     assert "CheckMenuItem::with_id(app, format!(\"{DEVICE_PREFIX}" not in fill, "no plain checkbox any more"
     # 친구 목록 이름표
-    assert '"(내 컴퓨터)"' in fill and '"(다른 컴퓨터)"' in fill
+    assert '"(내 컴퓨터)"' in fill
     assert 'const DEVICE_PREFIX: &str = "net:device:";' in TRAY and 'const UNLINK_PREFIX: &str = "net:unlink:";' in TRAY
     assert "net(NetInput::LinkDevice(id.to_string()))" in TRAY and "net(NetInput::UnlinkDevice(id.to_string()))" in TRAY
     network = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
@@ -132,3 +132,76 @@ def test_friend_submenu_links_my_other_computer_with_a_code():
         if "eprintln!" in line:
             assert "secret" not in line, line
     assert "📱 내 다른 컴퓨터" in HELP and "코드" in HELP[HELP.index("📱 내 다른 컴퓨터") :][:600]
+
+
+NETWORK = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+
+
+def _fill():
+    fill = TRAY[TRAY.index("fn try_fill_friends") :]
+    return fill[: fill.index("/// 내 동물이 친구 화면에")]
+
+
+def test_a_friend_and_their_other_computer_are_one_row_that_acts_on_the_computer_they_play_on():
+    fill = _fill()
+    # 사람마다 한 줄: 친구가 소개한 그 친구의 다른 컴퓨터는 따로 보이지 않는다
+    assert '"(다른 컴퓨터)"' not in fill
+    assert "config.people(" in NETWORK[NETWORK.index("fn menu_model") :]
+    assert "pub target: String," in TRAY
+    # 보내기·편지·데리고 오기·던지기는 지금 노는 컴퓨터로, 화면 끝·이름·연결 끊기는 그 사람(처음 친구)으로
+    for prefix in ("SEND_LIST_PREFIX", "THROW_VOLLEY_PREFIX", "SEND_PREFIX", "LETTER_PREFIX", "BRING_PREFIX"):
+        assert 'format!("{%s}{}", f.target)' % prefix in fill, prefix
+    for prefix in ("NICKNAME_PREFIX", "UNFRIEND_PREFIX", "UNLINK_PREFIX", "DEVICE_PREFIX"):
+        assert 'format!("{%s}{}", f.id)' % prefix in fill, prefix
+    assert 'format!("{SIDE_PREFIX}{key}:{}", f.id)' in fill
+    # 이름표·순위·사다리·타임라인도 그 사람의 이름
+    assert "config.person_name(from)" in NETWORK and "config.person_name(&g.owner_id)" in NETWORK
+    assert "config.dodge_friends()" in (ROOT / "src-tauri" / "src" / "dodge.rs").read_text(encoding="utf-8")
+    assert "person_name(" in (ROOT / "src-tauri" / "src" / "ladder.rs").read_text(encoding="utf-8")
+    assert "person_name(" in (ROOT / "src-tauri" / "src" / "timeline.rs").read_text(encoding="utf-8")
+
+
+def test_the_computer_on_standby_says_so_and_can_take_over():
+    fill = _fill()
+    assert '"📱 지금은 다른 컴퓨터에서 놀고 있어요"' in fill and '"📱 이 컴퓨터로 놀기"' in fill
+    assert fill.index("MY_NAME_ID") < fill.index("📱 지금은 다른 컴퓨터에서 놀고 있어요") < fill.index("SHOW_CODE_ID")
+    assert "PLAY_HERE_ID => net(NetInput::PlayHere)" in TRAY or "other == PLAY_HERE_ID" in TRAY
+    assert "NetInput::PlayHere =>" in NETWORK and "net.claim_active()" in NETWORK
+    # 저절로 넘어오기: 대기 중에 다시 쓰기 시작하면 (core의 ClaimWatch), 쓴 지 얼마나 됐는지는 net에도
+    assert "ClaimWatch" in NETWORK and "net.set_idle(" in NETWORK
+    # 대기가 되면 친구에게 가 있는 내 펫만 부른다 (내 다른 컴퓨터에 가 있으면 그대로)
+    standby = NETWORK[NETWORK.index("NetEvent::Standby { me, device } =>") :]
+    standby = standby[: standby.index("NetEvent::RelayStatus")]
+    assert "call_home_from_friends" in standby
+    call = NETWORK[NETWORK.index("fn call_home_from_friends") :]
+    call = call[: call.index("\n    }\n")]
+    assert "is_my_device(" in call and "Visit::ComeHome" in call
+
+
+def test_my_other_computers_pet_can_be_brought_over_but_my_pet_does_not_go_to_it_on_standby():
+    fill = _fill()
+    assert '"📱 다른 컴퓨터 펫 데리고 오기"' in fill
+    assert "BRING_DEVICE_ID" in fill and "other == BRING_DEVICE_ID" in TRAY
+    assert "NetInput::BringDevicePet =>" in NETWORK
+    # 대기 중인 내 다른 컴퓨터는 내 펫·물건이 갈 곳이 아니다 (끝이 닫히고, 메뉴 보내기·던지기에서 빠진다)
+    is_connected = NETWORK[NETWORK.index("pub fn is_connected") :]
+    is_connected = is_connected[: is_connected.index("\n    }\n")]
+    assert "linked::playable(" in is_connected
+    objects = (ROOT / "src-tauri" / "src" / "objects.rs").read_text(encoding="utf-8")
+    assert "network.is_connected(id)" in objects
+    assert "self.connected.contains(" not in NETWORK[NETWORK.index("fn menu_model") :].split("can_send")[1][:200]
+
+
+def test_my_other_computers_visiting_pet_can_go_on_to_a_friend_as_me():
+    # 이 컴퓨터가 대신 데려다준다 (대기 중인 컴퓨터는 친구와 연결이 없다) — 받는 쪽은 한 사람으로 본다
+    assert "fn carry_for_device" in NETWORK and "of: Some(" in NETWORK
+    assert "config.same_person(" in NETWORK
+    assert "config.reach(" in NETWORK
+    assert "carried:" in NETWORK
+    carry = NETWORK[NETWORK.index("fn carry_for_device") :]
+    carry = carry[: carry.index("\n    }\n")]
+    assert "v >= DEVICES_MIN_VERSION" in carry, "never to an older build"
+
+
+def test_help_explains_one_computer_at_a_time():
+    assert "📱 이 컴퓨터로 놀기" in HELP and "📱 다른 컴퓨터 펫 데리고 오기" in HELP

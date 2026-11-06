@@ -10,6 +10,7 @@ pub mod food;
 pub mod geom;
 pub mod gift;
 pub mod hop;
+pub mod linked;
 pub mod inside;
 pub mod ladder;
 pub mod manifest;

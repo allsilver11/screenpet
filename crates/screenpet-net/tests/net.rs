@@ -85,7 +85,7 @@ fn sample_visit() -> Visit {
         fling: None,
         note: None,
         gift: None,
-        style: None, boost: None }
+        style: None, boost: None, of: None }
 }
 
 /// Start a Net "mmmm" (discovery on an OS-chosen port) that "broadcasts" to
@@ -600,7 +600,7 @@ fn visit_messages_round_trip() {
     // 편지를 들려 보낸 방문, 그리고 주인이 다음 친구에게 이어 보낼 때도 같은 편지를 다시 싣는다 (via)
     for via in [None, Some("cccc".to_string())] {
         let Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, homesick_in, fling, .. } = sample_visit() else { unreachable!() };
-        let letter = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via, homesick_in, fling, note: Some("놀러 왔어 💌".into()), gift: None, style: None, boost: None };
+        let letter = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via, homesick_in, fling, note: Some("놀러 왔어 💌".into()), gift: None, style: None, boost: None, of: None };
         p.a.send("bbbb", letter.clone());
         assert_eq!(
             wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
@@ -1357,7 +1357,7 @@ fn the_largest_message_passes_and_the_largest_frame_of_garbage_only_ends_its_lin
 fn a_message_too_big_for_a_frame_is_dropped_and_the_link_stays() {
     let p = connected_pair();
     let Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, .. } = sample_visit() else { unreachable!() };
-    let huge = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via: None, homesick_in: None, fling: None, note: Some("x".repeat(70_000)), gift: None, style: None, boost: None };
+    let huge = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via: None, homesick_in: None, fling: None, note: Some("x".repeat(70_000)), gift: None, style: None, boost: None, of: None };
     p.a.send("bbbb", huge);
     p.a.send("bbbb", sample_visit());
     assert_eq!(
@@ -2104,6 +2104,11 @@ fn wire(id: &str, key: &[u8; 32]) -> Value {
     json!({"id": id, "key": hex(key)})
 }
 
+/// Messages other than `device_active` (my state, told on each proven device link).
+fn but_active(msgs: Vec<Value>) -> Vec<Value> {
+    msgs.into_iter().filter(|m| m["type"] != "device_active").collect()
+}
+
 fn added(e: &NetEvent) -> bool {
     matches!(e, NetEvent::FriendAdded { .. })
 }
@@ -2284,7 +2289,7 @@ fn device_friends_go_only_to_a_proven_device_and_leave_out_introduced_and_unconf
     prove_as_device(&mut p, &s, &kz);
     assert_eq!(wait_for(&rx, 2.0, proven), Some(NetEvent::DeviceProven { id: "zzzz".into() }));
     assert!(net.send_device_friends("zzzz", true, names));
-    let got = messages_within(&mut p, Duration::from_millis(500));
+    let got = but_active(messages_within(&mut p, Duration::from_millis(500)));
     assert_eq!(got.len(), 1, "{got:?}");
     assert_eq!(got[0]["type"], "device_friends");
     assert_eq!(got[0]["want"], true);
@@ -3012,7 +3017,7 @@ fn unlinking_is_told_to_the_other_computer_and_its_unlink_is_heard() {
     assert!(wait_for(&rx, 2.0, proven).is_some());
     assert!(net.unlink_device("zzzz"));
     assert!(!net.unlink_device("zzzz"), "nothing left to unlink");
-    assert_eq!(messages_within(&mut p, Duration::from_millis(400)), vec![json!({"type": "device_unlink"})]);
+    assert_eq!(but_active(messages_within(&mut p, Duration::from_millis(400))), vec![json!({"type": "device_unlink"})]);
     assert_eq!(net.linked_device(), None);
     assert!(!net.send_device_friends("zzzz", false, names));
     // 저쪽이 끊어도 듣는다
@@ -3020,7 +3025,7 @@ fn unlinking_is_told_to_the_other_computer_and_its_unlink_is_heard() {
     raw_enter(&mut p, &code, &kz).expect("linked again");
     confirm_both(&net, &rx, &mut p, "zzzz");
     assert!(wait_for(&rx, 2.0, linked_ev).is_some());
-    assert_eq!(messages_within(&mut p, Duration::from_millis(300)), vec![json!({"type": "device_confirm"})]);
+    assert_eq!(but_active(messages_within(&mut p, Duration::from_millis(300))), vec![json!({"type": "device_confirm"})]);
     p.send(json!({"type": "device_unlink"})).unwrap();
     assert_eq!(event_of(&rx, |e| matches!(e, NetEvent::DeviceUnlinked { .. })), NetEvent::DeviceUnlinked { id: "zzzz".into() });
     assert_eq!(net.linked_device(), None);
@@ -3155,7 +3160,7 @@ fn a_raw_peer_cannot_skip_the_confirm() {
     // 이쪽도 확인: 이제 연결된다 (저쪽에도 확인을 알린다)
     assert!(net.confirm_device("zzzz", true));
     assert_eq!(event_of(&rx, linked_ev), NetEvent::DeviceLinked { id: "zzzz".into() });
-    assert_eq!(messages_within(&mut p, Duration::from_millis(300)), vec![json!({"type": "device_confirm"})]);
+    assert_eq!(but_active(messages_within(&mut p, Duration::from_millis(300))), vec![json!({"type": "device_confirm"})]);
     assert!(net.device_secret("zzzz").is_some());
     net.shutdown();
 }
@@ -3221,4 +3226,314 @@ fn the_confirm_message_has_its_wire_shape_and_is_never_sent_to_an_older_build() 
     assert_eq!(messages_within(&mut p, Duration::from_millis(400)), Vec::<Value>::new());
     assert_eq!(wait_for(&rx, 0.2, |e| linked_ev(e) || cancelled(e)), None);
     net.shutdown();
+}
+
+// ---- 📱 one of my two computers plays at a time ------------------------------------
+
+fn standby_ev(e: &NetEvent) -> bool {
+    matches!(e, NetEvent::Standby { .. })
+}
+
+/// Wait until `net.standby()` is `want` (polling; events may have been read elsewhere).
+fn standby_becomes(net: &Net, want: bool, secs: f64) -> bool {
+    let deadline = Instant::now() + Duration::from_secs_f64(secs);
+    while Instant::now() < deadline {
+        if net.standby() == want {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    net.standby() == want
+}
+
+/// Like `standby_becomes`, keeping raw peer `p` alive meanwhile (a raw peer sends no pings by itself).
+fn standby_becomes_p(net: &Net, want: bool, secs: f64, p: &mut Peer) -> bool {
+    let deadline = Instant::now() + Duration::from_secs_f64(secs);
+    loop {
+        let _ = p.send(json!({"type": "ping"}));
+        if net.standby() == want || Instant::now() >= deadline {
+            return net.standby() == want;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Wait for an event, keeping raw peer `p` alive meanwhile.
+fn wait_p(rx: &Receiver<NetEvent>, secs: f64, p: &mut Peer, pred: impl Fn(&NetEvent) -> bool) -> Option<NetEvent> {
+    let deadline = Instant::now() + Duration::from_secs_f64(secs);
+    while Instant::now() < deadline {
+        let _ = p.send(json!({"type": "ping"}));
+        if let Some(e) = wait_for(rx, 0.2, &pred) {
+            return Some(e);
+        }
+    }
+    None
+}
+
+/// As raw device `p`: my state, once per link (you play, I was used just now).
+fn raw_sync(p: &mut Peer) {
+    p.send(json!({"type": "device_active", "term": 0, "you": true, "idle": 0})).unwrap();
+}
+
+fn connected_to(rx: &Receiver<NetEvent>, secs: f64, id: &str) -> bool {
+    wait_for(rx, secs, |e| matches!(e, NetEvent::Connected { id: i, .. } if i == id)).is_some()
+}
+
+fn disconnected_from(rx: &Receiver<NetEvent>, secs: f64, id: &str) -> bool {
+    wait_for(rx, secs, |e| matches!(e, NetEvent::Disconnected { id: i } if i == id)).is_some()
+}
+
+/// A raw proven device "zzzz" claims the play: the net goes standby, tells the
+/// app, and from then on lets no other friend in (closed before any hello).
+#[test]
+fn a_claim_from_my_other_computer_puts_this_one_on_standby_and_keeps_friends_out() {
+    let ky = key();
+    let (kz, s) = (key(), random32());
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend("yyyy", &ky)]);
+    linked(&mut c, "zzzz", s);
+    let (net, rx, port) = sniffed(c);
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    prove_as_device(&mut p, &s, &kz);
+    assert!(wait_for(&rx, 2.0, proven).is_some());
+    // 증명되면 내 상태를 알린다: 누가 놀고 있는지(term, 받는 쪽인지)와 내 유휴 시간
+    let sync = p.recv_msg().unwrap();
+    assert_eq!(sync["type"], "device_active", "{sync}");
+    assert_eq!(sync["term"], 0);
+    assert!(sync["idle"].as_u64().is_some(), "{sync}");
+    raw_sync(&mut p);
+    assert!(!net.standby());
+    // 다른 친구는 아직 들어온다
+    let y = raw_connect_as(port, &ky, v3_hello("yyyy"));
+    assert!(connected_to(&rx, 5.0, "yyyy"));
+    // 저쪽이 놀기 시작했다
+    p.send(json!({"type": "device_active", "term": 1})).unwrap();
+    // (내 상태를 나눈 직후엔 "저쪽이 쉰다"가 먼저 올 수 있다 — 이 컴퓨터가 쉬게 되는 것을 기다린다)
+    assert_eq!(wait_p(&rx, 5.0, &mut p, |e| matches!(e, NetEvent::Standby { me: true, .. })), Some(NetEvent::Standby { me: true, device: false }));
+    assert!(net.standby() && !net.device_standby());
+    // 친구 링크는 잠깐 뒤 닫힌다 (그 사이에 내 펫을 불러올 수 있다)
+    let mut y = y;
+    assert!(closed_by_peer(&mut y.s));
+    assert!(wait_p(&rx, 5.0, &mut p, |e| matches!(e, NetEvent::Disconnected { id } if id == "yyyy")).is_some());
+    // 다시 들어오려 해도 hello 전에 닫힌다
+    let mut again = handshake(TcpStream::connect(local(port)).unwrap(), &ky, true).unwrap();
+    let _ = again.send(v3_hello("yyyy"));
+    let got = again.recv();
+    assert!(got.is_err(), "no hello for a friend while on standby: {got:?}");
+    assert_eq!(wait_p(&rx, 0.5, &mut p, |e| matches!(e, NetEvent::Connected { id, .. } if id == "yyyy")), None);
+    // 내 다른 컴퓨터와의 링크는 그대로
+    assert_eq!(wait_p(&rx, 0.3, &mut p, |e| matches!(e, NetEvent::Disconnected { id } if id == "zzzz")), None);
+    // 이 컴퓨터로 놀기: 저쪽에 알리고 대기에서 벗어난다
+    assert!(net.claim_active());
+    let claim = loop {
+        let m = p.recv_msg().unwrap();
+        if m["type"] != "hello" {
+            break m;
+        }
+    };
+    assert_eq!((claim["type"].as_str(), claim["term"].as_u64(), claim.get("you")), (Some("device_active"), Some(2), None), "{claim}");
+    assert!(!net.standby() && net.device_standby(), "at once, as soon as the claim is made");
+    assert_eq!(wait_for(&rx, 2.0, standby_ev), Some(NetEvent::Standby { me: false, device: true }));
+    let _y = raw_connect_as(port, &ky, v3_hello("yyyy"));
+    assert!(connected_to(&rx, 5.0, "yyyy"), "friends come back in");
+    net.shutdown();
+}
+
+#[test]
+fn an_older_claim_changes_nothing_and_my_other_computer_going_away_makes_this_one_play() {
+    let (kz, s) = (key(), random32());
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
+    linked(&mut c, "zzzz", s);
+    let (net, rx, port) = sniffed(c);
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    prove_as_device(&mut p, &s, &kz);
+    raw_sync(&mut p);
+    p.send(json!({"type": "device_active", "term": 5})).unwrap();
+    assert!(standby_becomes_p(&net, true, 2.0, &mut p));
+    // 오래된 주장(작은 term)이나 "네가 논다"(you)도 순서대로 따진다
+    p.send(json!({"type": "device_active", "term": 3, "you": true})).unwrap();
+    assert!(!standby_becomes_p(&net, false, 0.4, &mut p), "an older claim is ignored");
+    p.send(json!({"type": "device_active", "term": 6, "you": true})).unwrap();
+    assert!(standby_becomes_p(&net, false, 2.0, &mut p), "a newer one that names me");
+    p.send(json!({"type": "device_active", "term": 7})).unwrap();
+    assert!(standby_becomes_p(&net, true, 2.0, &mut p));
+    // 엉터리 값은 무시한다 (연결은 남는다)
+    p.send(json!({"type": "device_active", "term": "lots"})).unwrap();
+    p.send(json!({"type": "device_active", "term": -1, "you": true})).unwrap();
+    p.send(json!({"type": "device_active", "term": 1u64 << 60, "you": true})).unwrap();
+    assert!(!standby_becomes_p(&net, false, 0.4, &mut p));
+    // 저쪽과 닿지 않으면 (잠깐 기다린 뒤) 이 컴퓨터가 논다
+    drop(p);
+    assert!(standby_becomes(&net, false, 5.0));
+    assert!(!net.device_standby());
+    net.shutdown();
+}
+
+#[test]
+fn only_a_proven_device_link_may_claim_and_claims_never_reach_others() {
+    let (kz, kw, ky, s) = (key(), key(), key(), random32());
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend("wwww", &kw), friend("yyyy", &ky)]);
+    linked(&mut c, "zzzz", s);
+    let (net, rx, port) = sniffed(c);
+    // 그냥 친구(새 판)가 device_active를 보내도 아무 일도 없다
+    let mut y = raw_connect_as(port, &ky, v3_hello("yyyy"));
+    assert!(connected_to(&rx, 5.0, "yyyy"));
+    y.send(json!({"type": "device_active", "term": 9})).unwrap();
+    // 예전 판(v2)의 내 기기는 증명도 못 하고 아무것도 받지 않는다
+    let mut z = raw_connect_as(port, &kz, json!({"type": "hello", "id": "zzzz", "name": "Old", "v": 2, "friend": true}));
+    assert!(connected_to(&rx, 5.0, "zzzz"));
+    z.send(json!({"type": "device_active", "term": 9})).unwrap();
+    assert!(!standby_becomes(&net, true, 0.5));
+    assert!(!net.claim_active(), "no proven link to tell");
+    let w = raw_connect_as(port, &kw, json!({"type": "hello", "id": "wwww", "name": "Old", "v": 2, "friend": true}));
+    assert!(connected_to(&rx, 5.0, "wwww"));
+    let mut w = w;
+    assert!(!net.claim_active());
+    for (p, who) in [(&mut y, "v3 friend"), (&mut z, "v2 device"), (&mut w, "v2 friend")] {
+        let got = messages_within(p, Duration::from_millis(500));
+        assert!(!all_text(&got).contains("DEVICE_ACTIVE"), "{who}: {got:?}");
+    }
+    assert_eq!(wait_for(&rx, 0.2, is_disconnected), None);
+    net.shutdown();
+}
+
+#[test]
+fn device_claim_floods_are_rate_limited_and_keep_the_link() {
+    let (net, rx, mut p) = proven_device();
+    raw_sync(&mut p);
+    for t in 1..=60u64 {
+        p.send(json!({"type": "device_active", "term": t})).unwrap();
+    }
+    assert!(standby_becomes_p(&net, true, 5.0, &mut p));
+    // 홍수가 다 처리될 만큼 링크를 살려 둔다 (예산을 넘은 것은 그동안 버려진다)
+    assert!(!standby_becomes_p(&net, false, 0.5, &mut p));
+    assert_eq!(wait_for(&rx, 0.1, is_disconnected), None);
+    // 예산(16개)을 넘은 것은 버려졌다: 마지막 주장까지 가지 않았다
+    assert!(net.claim_active());
+    let claim = messages_within(&mut p, Duration::from_millis(1500)).into_iter().find(|v| v["type"] == "device_active" && v.get("idle").is_none()).expect("claim");
+    assert!(claim["term"].as_u64().unwrap() < 60, "{claim}");
+    net.shutdown();
+}
+
+/// My computers A and B (linked) and friend F, all real Nets on one machine.
+struct Three {
+    a: Net,
+    arx: Receiver<NetEvent>,
+    b: Net,
+    brx: Receiver<NetEvent>,
+    f: Net,
+    frx: Receiver<NetEvent>,
+    ids: [String; 3],
+}
+
+fn three(a_idle: Option<u64>, b_idle: Option<u64>) -> Three {
+    let (pa, pb, pf) = (free_udp_port(), free_udp_port(), free_udp_port());
+    let (ka, kb, kf) = (key(), key(), key());
+    let [a_id, b_id, f_id] = [hid(0xa1), hid(0xb2), hid(0xf3)];
+    let s = random32();
+    // A → B, B → F, F → A로 알린다: 셋 다 서로 연결된다
+    let mut ca = cfg(&a_id, "Ann", ka, pa, pb, vec![friend(&b_id, &kb), friend(&f_id, &kf)]);
+    let mut cb = cfg(&b_id, "Ann", kb, pb, pf, vec![friend(&a_id, &ka), friend(&f_id, &kf)]);
+    let cf = cfg(&f_id, "Fred", kf, pf, pa, vec![friend(&a_id, &ka), friend(&b_id, &kb)]);
+    linked(&mut ca, &b_id, s);
+    linked(&mut cb, &a_id, s);
+    let (a, arx) = Net::start(ca).unwrap();
+    if let Some(i) = a_idle {
+        a.set_idle(Duration::from_secs(i));
+    }
+    let (b, brx) = Net::start(cb).unwrap();
+    if let Some(i) = b_idle {
+        b.set_idle(Duration::from_secs(i));
+    }
+    let (f, frx) = Net::start(cf).unwrap();
+    Three { a, arx, b, brx, f, frx, ids: [a_id, b_id, f_id] }
+}
+
+#[test]
+fn friends_only_ever_see_the_computer_i_play_on_and_the_play_moves_with_a_claim() {
+    // A를 오래 안 썼고 B를 방금 썼다: 둘이 닿으면 B가 논다
+    let t = three(Some(600), Some(1));
+    let [a_id, b_id, _] = t.ids.clone();
+    assert_eq!(wait_for(&t.arx, 5.0, standby_ev), Some(NetEvent::Standby { me: true, device: false }));
+    assert_eq!(wait_for(&t.brx, 5.0, standby_ev), Some(NetEvent::Standby { me: false, device: true }));
+    assert!(t.a.standby() && !t.b.standby());
+    // 친구는 B만 본다 (A가 먼저 붙었어도 끊기고, 다시 붙지 않는다)
+    assert!(connected_to(&t.frx, 5.0, &b_id));
+    let deadline = Instant::now() + Duration::from_secs(4);
+    while t.f.peer_version(&a_id).is_some() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(t.f.peer_version(&a_id), None, "the standby computer is not connected to friends");
+    assert!(!connected_to(&t.frx, 1.5, &a_id), "and stays off");
+    assert!(t.f.peer_version(&b_id).is_some());
+    // A에서 "이 컴퓨터로 놀기": 친구는 B를 잃고 A를 얻는다
+    assert!(t.a.claim_active());
+    assert!(standby_becomes(&t.b, true, 3.0));
+    assert!(!t.a.standby());
+    assert!(connected_to(&t.frx, 8.0, &a_id), "the computer I play on reconnects");
+    assert!(disconnected_from(&t.frx, 8.0, &b_id));
+    assert!(!connected_to(&t.frx, 1.5, &b_id));
+    // 둘 사이 링크는 남는다
+    assert!(t.a.peer_version(&b_id).is_some());
+}
+
+#[test]
+fn on_reconnect_the_computer_used_last_plays_whichever_started_first() {
+    let t = three(Some(1), Some(600));
+    assert!(standby_becomes(&t.b, true, 5.0));
+    assert!(!t.a.standby());
+    assert!(t.a.device_standby() && !t.b.device_standby());
+}
+
+#[test]
+fn two_claims_at_once_settle_on_exactly_one_computer() {
+    let t = three(None, None);
+    let b_id = t.ids[1].clone();
+    wait_for(&t.arx, 5.0, |e| matches!(e, NetEvent::DeviceProven { id } if *id == b_id)).unwrap();
+    // 두 쪽이 같은 답에 닿을 때까지 (메시지가 오가는 시간만큼) 기다린다: 한 쪽만 놀고, 서로 그렇게 안다
+    let settled = |t: &Three| {
+        let (a, b) = (t.a.standby(), t.b.standby());
+        a != b && t.a.device_standby() == b && t.b.device_standby() == a
+    };
+    for round in 0..5 {
+        assert!(t.a.claim_active());
+        assert!(t.b.claim_active());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !settled(&t) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(settled(&t), "round {round}: a standby {}, b standby {}", t.a.standby(), t.b.standby());
+        // 그리고 그대로 머문다 (다시 뒤집히지 않는다)
+        let (a, b) = (t.a.standby(), t.b.standby());
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!((t.a.standby(), t.b.standby()), (a, b), "round {round}: it stays");
+    }
+}
+
+#[test]
+fn my_standby_computer_still_visits_the_one_i_play_on_and_its_pet_is_carried_on_to_friends() {
+    let t = three(Some(1), Some(600));
+    let [a_id, b_id, f_id] = t.ids.clone();
+    assert!(standby_becomes(&t.b, true, 5.0));
+    // B는 쉬어도 A와의 링크는 남는다: A가 B의 펫을 부르고, B의 펫이 A에 놀러 간다
+    t.a.ask(&b_id, "invite");
+    assert!(wait_for(&t.brx, 3.0, |e| matches!(e, NetEvent::Asked { from, ask } if *from == a_id && ask == "invite")).is_some());
+    let mut v = sample_visit();
+    t.b.send(&a_id, v.clone());
+    assert!(wait_for(&t.arx, 3.0, |e| matches!(e, NetEvent::Received { from, .. } if *from == b_id)).is_some());
+    // A가 그 펫을 친구 F에게 데려다준다: F는 B의 펫이라는 것(of)을 받는다
+    assert!(connected_to(&t.frx, 5.0, &a_id));
+    if let Visit::Visit { of, .. } = &mut v {
+        *of = Some(b_id.clone());
+    }
+    t.a.send(&f_id, v);
+    let got = wait_for(&t.frx, 3.0, |e| matches!(e, NetEvent::Received { .. })).expect("carried visit");
+    assert!(matches!(&got, NetEvent::Received { from, msg: Visit::Visit { of: Some(o), .. } } if *from == a_id && *o == b_id), "{got:?}");
+    // F에게 B는 연결되지 않는다 (쉬는 컴퓨터 — 둘이 서로 확인하기 전에 잠깐 붙었던 링크도 닫힌다)
+    let deadline = Instant::now() + Duration::from_secs(4);
+    while t.f.peer_version(&b_id).is_some() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(t.f.peer_version(&b_id), None);
 }

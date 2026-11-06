@@ -205,7 +205,8 @@ fn can_play(own: &Slot) -> bool {
 
 /// 나 + 기록을 알려 준 친구들
 fn ranking(config: &Config) -> Vec<Rank> {
-    let friends: Vec<(String, u32)> = config.friends.iter().filter_map(|f| f.dodge_best.map(|s| (f.shown_name().to_string(), s))).collect();
+    // 📱 한 사람의 두 컴퓨터는 한 줄 (더 좋은 기록)
+    let friends: Vec<(String, u32)> = config.dodge_friends();
     dodge::ranking(&config.my_name(), config.dodge_best, &friends)
 }
 

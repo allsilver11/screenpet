@@ -873,7 +873,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             let fling = slot.pet.take_fling();
             if let Role::Guest(g) = &slot.role {
                 eprintln!("guest {} ({}) left", g.visit_id, g.owner_id);
-                network.guest_left(&config, g, side, slot.pet.guest(), fling, slot.boost);
+                network.guest_left(&config, &slot, g, side, slot.pet.guest(), fling);
             }
             slots::close(&app, slot);
         }
@@ -901,6 +901,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         gifts.tick(&app, now, dt, &slots, &care);
         if presence.tick(&app, now, source.as_mut(), &mut slots[OWN], &mut care, &mut config.daily) {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+        }
+        // 📱 대기 중인 이 컴퓨터를 다시 쓰기 시작했으면 이 컴퓨터로 논다 (쓴 지 얼마나 됐는지는 net에도)
+        if let Some((secs, idle)) = presence.take_sample() {
+            network.tick_presence(secs, idle);
         }
         // 손님도 이 화면 주인이 자리를 비운 동안엔 잠만 잔다
         for s in &mut slots[OWN + 1..] {

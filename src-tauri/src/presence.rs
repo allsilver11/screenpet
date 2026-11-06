@@ -24,18 +24,25 @@ pub struct Presence {
     next: Instant,
     last: Option<Overlay>,
     last_sent: Instant,
+    /// 📱 방금 읽은 (초, 유휴 시간) — 게임 루프가 꺼내 네트워크에 넘긴다 (어느 컴퓨터로 놀지)
+    sample: Option<(f64, Option<f64>)>,
 }
 
 impl Presence {
     pub fn new(app: &AppHandle, length: FocusLength) -> Self {
         crate::tray::sync_focus(&app.state::<AppState>().menu, false, length);
         let now = Instant::now();
-        Self { rhythm: Rhythm::default(), start: now, next: now, last: None, last_sent: now }
+        Self { rhythm: Rhythm::default(), start: now, next: now, last: None, last_sent: now, sample: None }
     }
 
     /// 사용자가 자리를 비웠다 (1초에 한 번 tick이 유휴 시간을 본 결과)
     pub fn is_away(&self) -> bool {
         self.rhythm.is_away()
+    }
+
+    /// 1초에 한 번 읽은 (초, 유휴 시간), 새것이 있으면
+    pub fn take_sample(&mut self) -> Option<(f64, Option<f64>)> {
+        self.sample.take()
     }
 
     fn secs(&self) -> f64 {
@@ -79,6 +86,7 @@ impl Presence {
             idle: source.idle_seconds(),
             visible: !crate::windows_hidden(app),
         };
+        self.sample = Some((input.secs, input.idle));
         let out = self.rhythm.tick(&input, &mut own.pet, &own.world, care, marks);
         if out.house_wave {
             let _ = app.emit_to(house::LABEL, "house-wave", ());

@@ -103,6 +103,12 @@ pub(crate) fn run_session(
         cleanup(&shared, None, dialed.as_deref());
         return DialOutcome::Failed;
     };
+    // 📱 On standby no friend gets in (my linked computer does): closed before any hello
+    if shared.state().standby_refuses_key(&remote_static) {
+        frames.close();
+        cleanup(&shared, None, dialed.as_deref());
+        return DialOutcome::Failed;
+    }
     let transport = Arc::new(Mutex::new(transport));
     let Some(link) = SecureLink::start(&shared, frames.clone(), transport.clone()) else {
         frames.close();
@@ -600,7 +606,8 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             | Control::DeviceNonce { .. }
             | Control::DeviceProof { .. }
             | Control::DeviceUnlink
-            | Control::DeviceConfirm),
+            | Control::DeviceConfirm
+            | Control::DeviceActive { .. }),
         ) => {
             if !(matches!(conn.kind, Kind::Friend) && conn.v >= DEVICES_MIN_VERSION && st.is_friend(id) && st.budget(id, now).codes.take(now)) {
                 return true;

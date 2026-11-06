@@ -135,6 +135,11 @@ fn lenient_list<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>
 }
 
 /// A string that may be missing or something else (read as empty).
+fn lenient_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(v.as_bool().unwrap_or(false))
+}
+
 fn lenient_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     let v = serde_json::Value::deserialize(d)?;
     Ok(v.as_str().map(str::to_string).unwrap_or_default())
@@ -212,6 +217,13 @@ pub enum Visit {
         /// receiver limits it; older versions ignore it.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         boost: Option<f64>,
+        /// 📱 The pet belongs to the sender's other computer (this install id),
+        /// which may be on standby: the sender carries it (only to
+        /// `DEVICES_MIN_VERSION` peers). The receiver takes it only if it knows
+        /// both ids as one person's computers, and answers through whichever is
+        /// connected.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        of: Option<String>,
     },
     /// The guest left the receiver's friend's screen. `next: None` = it went
     /// home (also what older versions send). `next: Some(id)` = it walked out
@@ -346,6 +358,21 @@ pub enum Control {
     /// After a matched code, the sender's user pressed 확인 ("본인의 PC가
     /// 맞습니까?"). Only once both sent it does the link count.
     DeviceConfirm,
+    /// 📱 Which of my two linked computers plays (only on a link where the
+    /// secret was proven both ways, only to `DEVICES_MIN_VERSION` peers; never
+    /// to friends). The one with the highest (`term`, install id) plays; the
+    /// other is on standby (no friend links). `you` = the receiver holds that
+    /// term, else the sender. A claim is the sender's term + 1. `idle` (seconds
+    /// since the sender's user last used it) is only in the first one on each
+    /// proven link: the computer used last then claims.
+    DeviceActive {
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        term: Option<u64>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient_bool")]
+        you: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        idle: Option<u64>,
+    },
 }
 
 /// One player of a locked ladder game, as the host relays it. `token` is a
@@ -485,6 +512,7 @@ mod tests {
                 gift: None,
                 style: None,
                 boost: None,
+                of: None,
             };
             #[allow(unused_variables)]
             if let Visit::Visit { $($field,)* .. } = &mut v {
@@ -899,6 +927,15 @@ mod tests {
     }
 
     #[test]
+    fn a_visit_may_say_it_is_my_other_computers_pet() {
+        let v = visit!(of: Some("b2".into()));
+        assert!(String::from_utf8(v.to_json()).unwrap().contains(r#""of":"b2""#));
+        assert!(!String::from_utf8(visit!().to_json()).unwrap().contains(r#""of""#), "absent unless carried");
+        let Some(Message::Visit(Visit::Visit { of, visit_id, .. })) = Message::parse(br#"{"type":"visit","visit_id":3,"species":"cat","stage":"child","scale":1,"personality":"p","owner":"A","enter_side":"left","of":7}"#) else { panic!() };
+        assert_eq!((of, visit_id), (None, 3), "a bad value is dropped, not the visit");
+    }
+
+    #[test]
     fn device_link_messages_have_their_wire_shape_and_bad_fields_read_as_nothing() {
         let shape = |m: Control| String::from_utf8(Message::Control(m).to_json()).unwrap();
         assert_eq!(shape(Control::DeviceCode { nonce: "ab".into() }), r#"{"type":"device_code","nonce":"ab"}"#);
@@ -914,5 +951,10 @@ mod tests {
         let Some(Message::Control(Control::DeviceNo { reason, left })) = Message::parse(br#"{"type":"device_no","reason":5,"left":"many"}"#) else { panic!() };
         assert_eq!((reason.as_str(), left), ("", None));
         assert_eq!(Message::parse(br#"{"type":"device_mark","on":true}"#), None, "gone before any release");
+        // 📱 누가 노는지
+        assert_eq!(shape(Control::DeviceActive { term: Some(2), you: false, idle: None }), r#"{"type":"device_active","term":2}"#);
+        assert_eq!(shape(Control::DeviceActive { term: Some(0), you: true, idle: Some(5) }), r#"{"type":"device_active","term":0,"you":true,"idle":5}"#);
+        let Some(Message::Control(Control::DeviceActive { term, you, idle })) = Message::parse(br#"{"type":"device_active","term":-3,"you":"yes","idle":"x"}"#) else { panic!() };
+        assert_eq!((term, you, idle), (None, false, None));
     }
 }

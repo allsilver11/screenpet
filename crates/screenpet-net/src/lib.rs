@@ -109,6 +109,9 @@ pub struct Timing {
     /// 📱 After a link code matched, both users must press 확인 within this
     /// time ([`Net::confirm_device`]); otherwise it is cancelled on both.
     pub device_confirm_timeout: Duration,
+    /// 📱 A computer that goes on standby keeps its friend links this long
+    /// (so the app can call its pet home) before it closes them.
+    pub standby_grace: Duration,
 }
 
 impl Default for Timing {
@@ -121,6 +124,7 @@ impl Default for Timing {
             invite_timeout: Duration::from_secs(20),
             relay_retry: Duration::from_secs(5),
             device_confirm_timeout: Duration::from_secs(60),
+            standby_grace: Duration::from_secs(5),
         }
     }
 }
@@ -325,6 +329,12 @@ pub enum NetEvent {
     /// My other computer `from` sent its friends (already merged). `want` =
     /// it asks for mine ([`Net::send_device_friends`]).
     DeviceSynced { from: String, want: bool },
+    /// 📱 Which of my two linked computers plays changed. `me` = this one is
+    /// on standby: friend links close after `Timing::standby_grace` (call my
+    /// pet home from friends now) and none open until it plays again.
+    /// `device` = my linked computer is on standby (I play; don't send it my
+    /// pet). Both `false` when the two can't reach each other: each plays.
+    Standby { me: bool, device: bool },
 }
 
 /// A peer id heard via discovery. Announcements are unauthenticated hints.
@@ -545,6 +555,18 @@ pub(crate) struct State {
     pub pending: HashMap<String, u64>,
     /// Unconfirmed friend → authenticated hellos saying it doesn't know us.
     pub pending_denied: HashMap<String, u32>,
+    /// 📱 Who plays, as far as I know: (term, install id) — the highest wins
+    /// (see `devices::tick_active`). Starts as (0, me).
+    pub active: (u64, String),
+    /// When the user last used this computer (`Net::set_idle`).
+    pub last_input: Option<Instant>,
+    /// Last time the link to my linked computer was up and proven.
+    pub device_seen: Option<Instant>,
+    /// As last reported (`NetEvent::Standby`): this computer / my linked one is on standby.
+    pub standby: bool,
+    pub device_standby: bool,
+    /// When this computer went on standby (friend links close after the grace).
+    pub standby_since: Option<Instant>,
 }
 
 impl State {
@@ -603,6 +625,14 @@ impl State {
         self.trusted_ips.retain(|(friend, _), _| friend != id);
         self.trusted_rate.retain(|(friend, _), _| friend != id);
         self.friend_rate.retain(|(friend, _), _| friend != id);
+    }
+    /// 📱 On standby, only my linked computer may have a link.
+    pub fn standby_blocks(&self, id: &str) -> bool {
+        self.standby && !self.device.as_ref().is_some_and(|(d, _)| d == id)
+    }
+    /// 📱 On standby, a link from a friend's key (not my linked computer's) is closed before hello.
+    pub fn standby_refuses_key(&self, key: &[u8; 32]) -> bool {
+        self.standby && self.friends.iter().any(|f| f.public_key == *key && self.standby_blocks(&f.id))
     }
     pub fn is_trusted(&self, id: &str, ip: &str) -> bool {
         self.trusted_ips.contains_key(&(id.to_string(), ip.to_string()))
@@ -887,6 +917,8 @@ impl Net {
                 state.via.insert(id.clone(), via.clone());
             }
         }
+        state.active = (0, cfg.id.clone());
+        state.last_input = Some(Instant::now());
         let now = devices::unix_now();
         for id in &cfg.pending {
             if state.is_friend(id) {
@@ -1112,6 +1144,32 @@ impl Net {
         let Some((link, msg)) = told else { return false };
         link.send(&Message::Control(msg));
         true
+    }
+
+    /// 📱 Play on this computer: my linked computer goes on standby (told over
+    /// our proven link). Also counts as the user using this computer. `false`
+    /// if that link is not up (then the two can't reach each other and both
+    /// play anyway; when they meet again the one used last plays).
+    pub fn claim_active(&self) -> bool {
+        let Some((link, msg)) = devices::claim(&self.shared) else { return false };
+        link.send(&Message::Control(msg))
+    }
+
+    /// 📱 How long ago the user last used this computer (the app reports it
+    /// regularly). Decides who plays when my two computers meet again.
+    pub fn set_idle(&self, idle: Duration) {
+        let now = Instant::now();
+        self.shared.state().last_input = Some(now.checked_sub(idle).unwrap_or(now));
+    }
+
+    /// 📱 This computer is on standby: my other computer plays.
+    pub fn standby(&self) -> bool {
+        self.shared.state().standby
+    }
+
+    /// 📱 My linked computer is on standby: this one plays (don't send it my pet).
+    pub fn device_standby(&self) -> bool {
+        self.shared.state().device_standby
     }
 
     /// My linked other computer, if any.
