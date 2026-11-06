@@ -11,12 +11,17 @@
       #input { font-size: 15px; letter-spacing: 1px; text-transform: uppercase; width: 140px; }
       #note { white-space: normal; }
       #note.bad { color: #b0503c; }
+      #title.ask { font-size: 15px; font-weight: 700; }
+      #ask { white-space: normal; }
+      #who { font-size: 13px; }
       button:disabled { opacity: 0.5; cursor: default; }
       [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <div id="title"></div>
+    <div id="ask" hidden>스크린펫의 모든 데이터가 공유됩니다.</div>
+    <div id="who" hidden></div>
     <div id="mineBox">
       <div id="mine">이 컴퓨터의 연결 코드 (10분 동안, 한 번만)</div>
       <div id="code"></div>

@@ -91,6 +91,10 @@ pub enum NetInput {
     UnlinkDevice(String),
     /// 연결 창 "연결": 저쪽 컴퓨터가 보여 주는 코드 (꼴은 net이 본다). 누구와인지는 창을 연 쪽(Network::linking)이 안다
     SubmitLinkCode(String),
+    /// 연결 창 "본인의 PC가 맞습니까?"의 확인(true) / 취소(false)
+    ConfirmLink(bool),
+    /// 연결 창 닫기 (닫기·Esc·X): 확인 단계였으면 취소한다
+    LinkClose,
     /// 트레이 "집에 와"
     ComeHome,
     /// 메뉴 "친구 코드 보기"
@@ -213,6 +217,7 @@ pub struct LinkView {
     /// 이 컴의 연결 코드 (없으면 빈 글자)
     pub code: String,
     /// "ready" (코드 보이기·입력) | "waiting" (저쪽 대답 기다림) | "done" | "failed" (다시 넣을 수 있다) | "blocked" (이미 다른 컴퓨터와 연결됨)
+    /// | "confirm" (코드가 맞았다: 본인의 PC가 맞는지 묻는다) | "confirmed" (확인함, 저쪽 확인을 기다림) | "cancelled"
     pub phase: &'static str,
     /// 안내 한 줄
     pub note: String,
@@ -225,6 +230,8 @@ static LINK_VIEW: Mutex<LinkView> = Mutex::new(LinkView { name: String::new(), c
 struct Linking {
     friend: String,
     until: Option<Instant>,
+    /// 코드가 맞아 "본인의 PC가 맞습니까?"를 묻는 중 (net이 아직 아무것도 연결·저장하지 않았다)
+    asking: bool,
 }
 
 /// 편지 창 첫 로드용
@@ -896,6 +903,16 @@ impl Network {
                 }
             }
             NetInput::SubmitLinkCode(code) => self.submit_link_code(app, config, &code),
+            NetInput::ConfirmLink(yes) => self.answer_link(app, yes),
+            NetInput::LinkClose => {
+                // 확인 단계에서 창을 닫으면 취소 (저쪽에도 알리고, 결과는 DeviceLinkCancelled로 온다)
+                if self.linking.as_ref().is_some_and(|l| l.asking) {
+                    self.answer_link(app, false);
+                }
+                if let Some(w) = app.get_webview_window(LINK_LABEL) {
+                    let _ = w.hide();
+                }
+            }
             NetInput::ComeHome => {
                 if let (Some(net), Some(a)) = (&self.net, self.away.as_mut()) {
                     net.send(&a.friend, Visit::ComeHome { visit_id: a.visit_id });
@@ -1103,6 +1120,26 @@ impl Network {
                 }
             }
             NetEvent::DeviceLinkFailed { id, reason, left } => self.on_link_failed(app, &id, &reason, left),
+            // 📱 코드가 맞았다: 두 컴퓨터 모두에서 "본인의 PC가 맞습니까?" — 둘 다 확인해야 연결된다 (그 전엔 비밀도 목록도 없다)
+            NetEvent::DeviceConfirm { id } => {
+                let Some(f) = config.friend(&id) else { return false };
+                let view = LinkView { name: f.shown_name().to_string(), code: String::new(), phase: "confirm", note: String::new() };
+                self.linking = Some(Linking { friend: id, until: None, asking: true });
+                *LINK_VIEW.lock().unwrap() = view.clone();
+                show_link_window(app, view);
+            }
+            // 어느 쪽이 취소했거나, 대답이 없었거나, 연결이 끊겼다: 아무것도 연결·저장되지 않았다
+            NetEvent::DeviceLinkCancelled { id } => {
+                if let Some(l) = self.linking.as_mut().filter(|l| l.friend == id) {
+                    l.asking = false;
+                    l.until = None;
+                    self.update_link_view(app, |v| {
+                        v.phase = "cancelled";
+                        v.code.clear();
+                        v.note = "연결을 취소했어요".into();
+                    });
+                }
+            }
             // 연결된 내 다른 컴퓨터가 새 연결에서 저장한 비밀을 증명했다: 이제 목록을 나눈다
             NetEvent::DeviceProven { id } => {
                 if let Some(net) = &self.net {
@@ -1472,11 +1509,32 @@ impl Network {
                 return;
             }
         };
-        self.linking = Some(Linking { friend: id.to_string(), until: None });
+        if self.linking.as_ref().is_some_and(|l| l.asking && l.friend != id) {
+            self.answer_link(app, false); // 다른 친구와 확인하던 것은 취소
+        }
+        self.linking = Some(Linking { friend: id.to_string(), until: None, asking: false });
         *LINK_VIEW.lock().unwrap() = view.clone();
-        crate::overlay::show_form(app, &LINK_FORM, crate::overlay::place_on_primary, |_| {
-            let _ = app.emit_to(LINK_LABEL, "link-state", view);
-        });
+        show_link_window(app, view);
+    }
+
+    /// "본인의 PC가 맞습니까?"의 확인/취소 (창 닫기도 취소). 둘 다 확인하면 net이 DeviceLinked를 낸다
+    fn answer_link(&mut self, app: &AppHandle, yes: bool) {
+        let (Some(net), Some(l)) = (&self.net, self.linking.as_mut().filter(|l| l.asking)) else { return };
+        let answered = net.confirm_device(&l.friend, yes);
+        if yes && answered {
+            self.update_link_view(app, |v| {
+                v.phase = "confirmed";
+                v.note = "저쪽 컴퓨터에서도 확인을 눌러 주세요".into();
+            });
+        } else {
+            // 취소했다 (또는 이미 늦었다): 결과(DeviceLinkCancelled)를 기다리지 않고 바로 보인다
+            l.asking = false;
+            self.update_link_view(app, |v| {
+                v.phase = "cancelled";
+                v.code.clear();
+                v.note = "연결을 취소했어요".into();
+            });
+        }
     }
 
     /// 연결 창 "연결": 저쪽 컴퓨터가 보여 주는 코드를 넣었다 (코드는 net이 선에 싣지 않고 증명만 한다)
@@ -1912,12 +1970,49 @@ pub fn link_submit(window: WebviewWindow, state: tauri::State<AppState>, code: S
     state.send(Input::Net(NetInput::SubmitLinkCode(code)));
 }
 
-/// 연결 창의 "닫기"
+/// 연결 창의 "닫기"·Esc: 숨기고, 확인 단계였으면 게임 루프가 취소한다
 #[tauri::command]
-pub fn link_close(window: WebviewWindow) {
+pub fn link_close(window: WebviewWindow, state: tauri::State<AppState>) {
     if window.label() == LINK_LABEL {
         let _ = window.hide();
+        state.send(Input::Net(NetInput::LinkClose));
     }
+}
+
+/// 연결 창의 "본인의 PC가 맞습니까?" 확인(true) / 취소(false)
+#[tauri::command]
+pub fn link_confirm(window: WebviewWindow, state: tauri::State<AppState>, yes: bool) {
+    if window.label() == LINK_LABEL {
+        state.send(Input::Net(NetInput::ConfirmLink(yes)));
+    }
+}
+
+/// 📱 연결 창을 보인다 (처음이면 만든다 — 게임 루프 스레드에서만)
+fn show_link_window(app: &AppHandle, view: LinkView) {
+    if app.get_webview_window(LINK_LABEL).is_none() {
+        if let Err(e) = build_link_window(app) {
+            eprintln!("failed to create link window: {e}");
+            return;
+        }
+    }
+    crate::overlay::show_form(app, &LINK_FORM, crate::overlay::place_on_primary, |_| {
+        let _ = app.emit_to(LINK_LABEL, "link-state", view);
+    });
+}
+
+/// 연결 창: 닫기(X)는 숨기기 + (확인 단계면) 취소로 바꾼다 (창은 다시 쓴다)
+fn build_link_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let window = crate::overlay::form_builder(app, &LINK_FORM).build()?;
+    let handle = app.clone();
+    let shown = window.clone();
+    window.on_window_event(move |ev| {
+        if let WindowEvent::CloseRequested { api, .. } = ev {
+            api.prevent_close();
+            let _ = shown.hide();
+            handle.state::<AppState>().send(Input::Net(NetInput::LinkClose));
+        }
+    });
+    Ok(window)
 }
 
 /// 이름 바꾸기 창: 글자 칸 하나 + 저장/닫기

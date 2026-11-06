@@ -115,6 +115,17 @@ def test_friend_submenu_links_my_other_computer_with_a_code():
     for arm in ("NetInput::LinkDevice(id) =>", "NetInput::UnlinkDevice(id) =>", "NetInput::SubmitLinkCode(code) =>", "NetEvent::DeviceLinked { id } =>", "NetEvent::DeviceLinkFailed {", "NetEvent::DeviceProven { id } =>", "NetEvent::DeviceUnlinked { id } =>"):
         assert arm in network, arm
     assert "DEVICE_ON_BUBBLE" not in network
+    # 📱 코드가 맞으면 양쪽에 "본인의 PC가 맞습니까?" — 확인/취소, 창 닫기(X·Esc·닫기)도 취소
+    for arm in ("NetEvent::DeviceConfirm { id } =>", "NetEvent::DeviceLinkCancelled { id } =>", "NetInput::ConfirmLink(yes) =>", "NetInput::LinkClose =>"):
+        assert arm in network, arm
+    assert "net.confirm_device(" in network
+    assert '"저쪽 컴퓨터에서도 확인을 눌러 주세요"' in network and '"연결을 취소했어요"' in network
+    build_link = network[network.index("fn build_link_window") :]
+    build_link = build_link[: build_link.index("\n}\n")]
+    assert "CloseRequested" in build_link and "NetInput::LinkClose" in build_link
+    link_close = network[network.index("pub fn link_close") :]
+    link_close = link_close[: link_close.index("\n}\n")]
+    assert "NetInput::LinkClose" in link_close
     # 비밀은 설정에만 (로그에 찍지 않는다)
     assert "set_friend_device_secret(" in network and "linked_device()" in network
     for line in network.splitlines():

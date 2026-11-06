@@ -11,6 +11,13 @@
 //!   only then does A prove it back (A never answers a wrong guess with
 //!   anything that could test another guess offline). Both then store the
 //!   same long-term secret S = BLAKE2s(label || K || keys || nonces).
+//! - **Both users confirm.** A matched code only asks each user "본인의 PC가
+//!   맞습니까?" (`NetEvent::DeviceConfirm`); S stays on that link alone
+//!   (`DevLink::confirming`) — not stored, nothing shared — until both pressed
+//!   확인 (`device_confirm` each way). A no, closing the window, no answer
+//!   within `Timing::device_confirm_timeout`, or losing the link cancels on
+//!   both sides (`device_unlink`, `NetEvent::DeviceLinkCancelled`) and S is
+//!   gone; a restart finds nothing.
 //! - **Every later link proves S again** (fresh nonces from both sides, each
 //!   side checks the other's proof). Until it checks out the link is just a
 //!   friend: `device_friends` is neither sent nor taken. A wrong proof, or a
@@ -72,6 +79,16 @@ struct Entering {
     na: Option<[u8; 32]>,
 }
 
+/// A matched code waiting for both users' 확인 (gone with the link).
+pub(crate) struct Confirming {
+    secret: [u8; 32],
+    /// I pressed 확인 (and sent `device_confirm`).
+    mine: bool,
+    /// The other computer sent `device_confirm`.
+    theirs: bool,
+    until: Instant,
+}
+
 /// Device-link state of one friend link (gone with the link).
 #[derive(Default)]
 pub(crate) struct DevLink {
@@ -83,6 +100,8 @@ pub(crate) struct DevLink {
     entering: Option<Entering>,
     /// I hold a code for the peer and sent my nonce: (nb, na).
     holding: Option<([u8; 32], [u8; 32])>,
+    /// The code matched on this link; waiting for both users' 확인.
+    pub confirming: Option<Confirming>,
 }
 
 /// A fresh code as shown to the user, `ABCD-EFGH`, and its key.
@@ -153,8 +172,26 @@ fn dev(st: &mut State, token: u64) -> Option<&mut DevLink> {
     st.conns.get_mut(&token).map(|c| &mut c.dev)
 }
 
-/// Linked to `id` with secret `s`, proven on link `token`.
-fn link(shared: &Shared, st: &mut State, token: u64, id: &str, s: [u8; 32]) {
+/// The code matched with `id` on link `token` (secret `s`): ask the user,
+/// keep `s` on this link only until both confirm.
+fn ask(shared: &Shared, st: &mut State, token: u64, id: &str, s: [u8; 32]) {
+    st.link_code = None; // single use
+    let until = Instant::now() + shared.timing.device_confirm_timeout;
+    let Some(d) = dev(st, token) else { return };
+    d.entering = None;
+    d.holding = None;
+    d.confirming = Some(Confirming { secret: s, mine: false, theirs: false, until });
+    shared.emit(NetEvent::DeviceConfirm { id: id.to_string() });
+}
+
+/// Both confirmed on link `token`: linked to `id`, proven on that link.
+/// `false` (nothing linked) if I got linked to another computer meanwhile.
+fn link(shared: &Shared, st: &mut State, token: u64, id: &str) -> bool {
+    let Some(s) = dev(st, token).and_then(|d| d.confirming.take()).map(|c| c.secret) else { return false };
+    if linked_elsewhere(st, id) {
+        shared.emit(NetEvent::DeviceLinkCancelled { id: id.to_string() });
+        return false;
+    }
     st.device = Some((id.to_string(), s));
     st.via.remove(id); // mine now, not introduced by anyone
     st.link_code = None;
@@ -164,6 +201,48 @@ fn link(shared: &Shared, st: &mut State, token: u64, id: &str, s: [u8; 32]) {
         d.holding = None;
     }
     shared.emit(NetEvent::DeviceLinked { id: id.to_string() });
+    true
+}
+
+/// The user's answer for friend `id` (see `Net::confirm_device`): the link to
+/// tell and what to tell it, or `None` if nothing waits for an answer.
+pub(crate) fn answer(shared: &Shared, st: &mut State, id: &str, yes: bool) -> Option<(Arc<SecureLink>, Control)> {
+    let token = *st.friend_links.get(id)?;
+    let conn = st.conns.get_mut(&token)?;
+    let to = conn.link.clone();
+    let c = conn.dev.confirming.as_mut()?;
+    if !yes {
+        conn.dev.confirming = None;
+        shared.emit(NetEvent::DeviceLinkCancelled { id: id.to_string() });
+        return Some((to, Control::DeviceUnlink));
+    }
+    if c.mine {
+        return None; // already answered
+    }
+    c.mine = true;
+    if c.theirs && !link(shared, st, token, id) {
+        return Some((to, Control::DeviceUnlink));
+    }
+    Some((to, Control::DeviceConfirm))
+}
+
+/// Cancel the confirms nobody answered in time (called every tick).
+pub(crate) fn expire_confirms(shared: &Shared) {
+    let now = Instant::now();
+    let mut gone = Vec::new();
+    {
+        let mut st = shared.state();
+        for c in st.conns.values_mut() {
+            if c.dev.confirming.as_ref().is_some_and(|k| now >= k.until) {
+                c.dev.confirming = None;
+                gone.push((c.peer_id.clone(), c.link.clone()));
+            }
+        }
+    }
+    for (id, link) in gone {
+        shared.emit(NetEvent::DeviceLinkCancelled { id });
+        link.send(&crate::protocol::Message::Control(Control::DeviceUnlink));
+    }
 }
 
 fn linked_elsewhere(st: &State, id: &str) -> bool {
@@ -210,7 +289,7 @@ pub(crate) fn on_link_message(shared: &Shared, st: &mut State, token: u64, id: &
                 return vec![no("wrong", Some(left))];
             }
             let key = code.key;
-            link(shared, st, token, id, derive_secret(&key, &me, &them, &na, &nb));
+            ask(shared, st, token, id, derive_secret(&key, &me, &them, &na, &nb));
             vec![Control::DeviceCodeOk { proof: to_hex(&hold_proof(&key, &nb, &na, &me, &them)) }]
         }
         // I typed a code: the holder answers
@@ -231,7 +310,16 @@ pub(crate) fn on_link_message(shared: &Shared, st: &mut State, token: u64, id: &
                 fail("taken", 0);
                 return Vec::new();
             }
-            link(shared, st, token, id, derive_secret(&e.key, &them, &me, &na, &e.nb));
+            ask(shared, st, token, id, derive_secret(&e.key, &them, &me, &na, &e.nb));
+            Vec::new()
+        }
+        // The other user pressed 확인
+        Control::DeviceConfirm => {
+            let Some(c) = dev(st, token).and_then(|d| d.confirming.as_mut()) else { return Vec::new() };
+            c.theirs = true;
+            if c.mine && !link(shared, st, token, id) {
+                return vec![Control::DeviceUnlink];
+            }
             Vec::new()
         }
         Control::DeviceNo { reason, left } => {
@@ -269,6 +357,9 @@ pub(crate) fn on_link_message(shared: &Shared, st: &mut State, token: u64, id: &
         Control::DeviceUnlink => {
             if let Some(d) = dev(st, token) {
                 d.proven = false;
+                if d.confirming.take().is_some() {
+                    shared.emit(NetEvent::DeviceLinkCancelled { id: id.to_string() });
+                }
             }
             if st.device.as_ref().is_some_and(|(d, _)| d == id) {
                 st.device = None;

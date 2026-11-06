@@ -72,6 +72,7 @@ fn main() {
         "link_state",
         "link_submit",
         "link_close",
+        "link_confirm",
         "size_state",
         "size_set",
         "size_close",

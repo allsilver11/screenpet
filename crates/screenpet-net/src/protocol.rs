@@ -340,8 +340,12 @@ pub enum Control {
     /// prover nonce). Friend lists flow only once that proof checked out.
     DeviceNonce { nonce: String },
     DeviceProof { proof: String },
-    /// Forget our link (the sender unlinked, or holds no secret for us).
+    /// Forget our link (the sender unlinked, or holds no secret for us); also
+    /// "cancelled" while confirming a matched code.
     DeviceUnlink,
+    /// After a matched code, the sender's user pressed 확인 ("본인의 PC가
+    /// 맞습니까?"). Only once both sent it does the link count.
+    DeviceConfirm,
 }
 
 /// One player of a locked ladder game, as the host relays it. `token` is a
@@ -906,6 +910,7 @@ mod tests {
         assert_eq!(shape(Control::DeviceNonce { nonce: "ab".into() }), r#"{"type":"device_nonce","nonce":"ab"}"#);
         assert_eq!(shape(Control::DeviceProof { proof: "ab".into() }), r#"{"type":"device_proof","proof":"ab"}"#);
         assert_eq!(shape(Control::DeviceUnlink), r#"{"type":"device_unlink"}"#);
+        assert_eq!(shape(Control::DeviceConfirm), r#"{"type":"device_confirm"}"#);
         let Some(Message::Control(Control::DeviceNo { reason, left })) = Message::parse(br#"{"type":"device_no","reason":5,"left":"many"}"#) else { panic!() };
         assert_eq!((reason.as_str(), left), ("", None));
         assert_eq!(Message::parse(br#"{"type":"device_mark","on":true}"#), None, "gone before any release");

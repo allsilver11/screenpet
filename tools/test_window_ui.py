@@ -61,6 +61,25 @@ def test_form_keys(page, submit, close):
     assert not r["typing"], "글자 치기는 막지 않는다"
 
 
+def test_link_window_asks_whether_it_is_my_own_pc_before_linking():
+    r = run("linkConfirm")
+    c = r["confirm"]
+    assert c["title"] == "본인의 PC가 맞습니까?"
+    assert c["ask"] == "스크린펫의 모든 데이터가 공유됩니다."
+    assert "민수" in c["who"], "저쪽이 누구인지 보인다"
+    assert (c["ok"], c["cancel"]) == ("확인", "취소")
+    assert not c["okDisabled"] and not c["input"] and not c["code"]
+    assert r["yes"] == [{"yes": True}]
+    w = r["waiting"]
+    assert w["title"] == "본인의 PC가 맞습니까?" and w["note"] == "저쪽 컴퓨터에서도 확인을 눌러 주세요"
+    assert w["okDisabled"] and w["cancel"] == "취소"
+    # 기다리는 동안 확인은 다시 가지 않고, 취소는 간다
+    assert r["after"] == [{"yes": True}, {"yes": False}]
+    assert r["closed"] == 1, "Esc는 창 닫기 (백엔드가 취소한다)"
+    x = r["cancelled"]
+    assert x["note"] == "연결을 취소했어요" and x["ok"] is None and x["ask"] is None and x["cancel"] == "닫기"
+
+
 def test_book_blocks_refresh_and_has_no_close_key():
     r = run("bookKeys")
     assert r["f5"] and r["menu"] and not r["escape"]

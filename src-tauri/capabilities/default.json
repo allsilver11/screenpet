@@ -34,7 +34,7 @@
     {
       "identifier": "link-window",
       "windows": ["link"],
-      "permissions": ["allow-link-state", "allow-link-submit", "allow-link-close"]
+      "permissions": ["allow-link-state", "allow-link-submit", "allow-link-close", "allow-link-confirm"]
     },
     {
       "identifier": "size-window",

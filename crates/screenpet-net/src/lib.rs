@@ -106,6 +106,9 @@ pub struct Timing {
     /// First wait before reconnecting to the relay (doubles up to 60 s); also
     /// the first redial delay for a friend whose relay link failed.
     pub relay_retry: Duration,
+    /// 📱 After a link code matched, both users must press 확인 within this
+    /// time ([`Net::confirm_device`]); otherwise it is cancelled on both.
+    pub device_confirm_timeout: Duration,
 }
 
 impl Default for Timing {
@@ -117,6 +120,7 @@ impl Default for Timing {
             conn_timeout: Duration::from_secs(6),
             invite_timeout: Duration::from_secs(20),
             relay_retry: Duration::from_secs(5),
+            device_confirm_timeout: Duration::from_secs(60),
         }
     }
 }
@@ -292,8 +296,19 @@ pub enum NetEvent {
     /// that is now removed, or never confirmed (a week, or it said three
     /// times that it doesn't know us).
     FriendDropped { id: String },
-    /// Friend `id` is now my linked other computer: a code matched on both
-    /// sides (store [`Net::device_secret`]). Friend lists flow on this link
+    /// The link code matched with friend `id`: ask the user "본인의 PC가
+    /// 맞습니까?" and answer with [`Net::confirm_device`]. Nothing is linked,
+    /// stored or shared until both computers confirm (then
+    /// [`NetEvent::DeviceLinked`]); a no, a lost link or
+    /// `Timing::device_confirm_timeout` gives [`NetEvent::DeviceLinkCancelled`]
+    /// on both.
+    DeviceConfirm { id: String },
+    /// Linking with friend `id` was cancelled before both confirmed (one of
+    /// us said no, did not answer in time, or the link was lost). Nothing was
+    /// linked or stored.
+    DeviceLinkCancelled { id: String },
+    /// Friend `id` is now my linked other computer: a code matched and both
+    /// users confirmed (store [`Net::device_secret`]). Friend lists flow on this link
     /// now — send it mine ([`Net::send_device_friends`]).
     DeviceLinked { id: String },
     /// Linking with friend `id` by code did not work: `reason` = `wrong`
@@ -1086,6 +1101,16 @@ impl Net {
         if let Some(link) = self.devices_link(id) {
             link.send(&Message::Control(Control::DeviceUnlink));
         }
+        true
+    }
+
+    /// The user's answer to [`NetEvent::DeviceConfirm`] for friend `id`
+    /// (`true` = 확인, `false` = 취소 or the window closed). `false` if
+    /// nothing waits for an answer from that friend.
+    pub fn confirm_device(&self, id: &str, yes: bool) -> bool {
+        let told = devices::answer(&self.shared, &mut self.shared.state(), id, yes);
+        let Some((link, msg)) = told else { return false };
+        link.send(&Message::Control(msg));
         true
     }
 

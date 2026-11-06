@@ -599,7 +599,8 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             | Control::DeviceNo { .. }
             | Control::DeviceNonce { .. }
             | Control::DeviceProof { .. }
-            | Control::DeviceUnlink),
+            | Control::DeviceUnlink
+            | Control::DeviceConfirm),
         ) => {
             if !(matches!(conn.kind, Kind::Friend) && conn.v >= DEVICES_MIN_VERSION && st.is_friend(id) && st.budget(id, now).codes.take(now)) {
                 return true;
@@ -666,6 +667,10 @@ fn cleanup(shared: &Shared, token: Option<u64>, dialed: Option<&str>) {
         st.invites_out.remove(d);
     }
     let Some(conn) = token.and_then(|t| st.conns.remove(&t)) else { return };
+    if conn.dev.confirming.is_some() {
+        // 📱 the link went away before both confirmed: cancelled, nothing kept
+        shared.emit(NetEvent::DeviceLinkCancelled { id: conn.peer_id.clone() });
+    }
     if st.friend_links.get(&conn.peer_id) == token.as_ref() {
         st.friend_links.remove(&conn.peer_id);
     }

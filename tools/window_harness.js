@@ -350,6 +350,38 @@ const scenarios = {
     return { f5: w.key("F5", "BODY"), menu: w.menu(), escape: w.key("Escape", "BODY") };
   },
 
+  // 📱 코드가 맞은 뒤 "본인의 PC가 맞습니까?": 확인은 저쪽을 기다리고, 취소·Esc는 취소한다
+  async linkConfirm() {
+    const w = openWindow("link.html", { replies: { link_state: { name: "민수", code: "", phase: "confirm", note: "" } } });
+    await tick();
+    const look = () => ({
+      title: w.byId("title").textContent,
+      ask: w.byId("ask").hidden ? null : w.byId("ask").textContent,
+      who: w.byId("who").hidden ? null : w.byId("who").textContent,
+      ok: w.byId("ok").hidden ? null : w.byId("ok").textContent,
+      okDisabled: w.byId("ok").disabled,
+      cancel: w.byId("cancel").textContent,
+      input: !w.byId("input").hidden,
+      code: !w.byId("mineBox").hidden,
+      note: w.byId("note").textContent,
+    });
+    const confirm = look();
+    w.byId("ok").fire("click");
+    await tick();
+    const yes = w.invoked.filter((c) => c.cmd === "link_confirm").map((c) => c.args);
+    w.emit("link-state", { name: "민수", code: "", phase: "confirmed", note: "저쪽 컴퓨터에서도 확인을 눌러 주세요" });
+    const waiting = look();
+    w.byId("ok").fire("click");
+    w.byId("cancel").fire("click");
+    await tick();
+    const after = w.invoked.filter((c) => c.cmd === "link_confirm").map((c) => c.args);
+    w.key("Escape", "BODY");
+    await tick();
+    w.emit("link-state", { name: "민수", code: "", phase: "cancelled", note: "연결을 취소했어요" });
+    const cancelled = look();
+    return { confirm, yes, waiting, after, closed: w.calls("link_close"), cancelled };
+  },
+
   // 새 코드를 기다리는 동안 복사하면 이미 못 쓰게 된 옛 코드가 복사된다
   async renewCopy() {
     const w = openWindow("code.html", { replies: { code_state: { code: "OLD1-2345", connected: true, enabled: true } } });

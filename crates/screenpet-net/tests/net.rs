@@ -2205,6 +2205,21 @@ fn raw_enter(p: &mut Peer, code: &str, mine: &[u8; 32]) -> Result<[u8; 32], Valu
     Ok(derive_secret(&k, &net, &me, &na, &nb))
 }
 
+fn confirm_ask(e: &NetEvent) -> bool {
+    matches!(e, NetEvent::DeviceConfirm { .. })
+}
+
+fn cancelled(e: &NetEvent) -> bool {
+    matches!(e, NetEvent::DeviceLinkCancelled { .. })
+}
+
+/// The code matched with raw peer `p` (friend `id` of `net`): both sides press 확인.
+fn confirm_both(net: &Net, rx: &Receiver<NetEvent>, p: &mut Peer, id: &str) {
+    assert_eq!(wait_for(rx, 5.0, confirm_ask), Some(NetEvent::DeviceConfirm { id: id.into() }));
+    p.send(json!({"type": "device_confirm"})).unwrap();
+    assert!(net.confirm_device(id, true));
+}
+
 #[test]
 fn device_messages_are_never_sent_to_an_older_build() {
     let kz = key();
@@ -2465,6 +2480,7 @@ fn linking_an_introduced_device_makes_it_mine_and_not_someone_elses() {
     let mut d = raw_connect_as(port, &kd, v3_hello(&hid(10)));
     wait_for(&rx, 5.0, is_connected).unwrap();
     raw_enter(&mut d, &code, &kd).expect("linked");
+    confirm_both(&net, &rx, &mut d, &hid(10));
     assert_eq!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::DeviceLinked { .. })), Some(NetEvent::DeviceLinked { id: hid(10) }));
     let info = net.friend_info(&hid(10)).unwrap();
     assert!(info.device && info.via.is_none());
@@ -2519,6 +2535,11 @@ fn two_computers_link_with_a_code_share_friends_and_prove_it_again_after_a_resta
     assert_eq!(code.len(), 9, "{code}");
     assert_eq!(&code[4..5], "-");
     assert_eq!(b.enter_link_code(&a_id, &code.to_lowercase()), Ok(()));
+    // 코드가 맞으면 양쪽에서 "본인의 PC가 맞습니까?"에 확인을 누른다
+    assert_eq!(event_of(&arx, confirm_ask), NetEvent::DeviceConfirm { id: b_id.clone() });
+    assert_eq!(event_of(&brx, confirm_ask), NetEvent::DeviceConfirm { id: a_id.clone() });
+    assert!(a.confirm_device(&b_id, true));
+    assert!(b.confirm_device(&a_id, true));
     assert_eq!(event_of(&arx, |e| matches!(e, NetEvent::DeviceLinked { .. })), NetEvent::DeviceLinked { id: b_id.clone() });
     assert_eq!(event_of(&brx, |e| matches!(e, NetEvent::DeviceLinked { .. })), NetEvent::DeviceLinked { id: a_id.clone() });
     let (sa, sb) = (a.device_secret(&b_id).expect("A stores it"), b.device_secret(&a_id).expect("B stores it"));
@@ -2824,6 +2845,7 @@ fn the_right_code_links_and_the_code_never_crosses_the_wire() {
     let r2 = p.recv_msg().unwrap();
     assert_eq!(r2["type"], "device_code_ok");
     assert_eq!(b32(&r2, "proof"), hold_proof(&k, &nb, &na, &net_pub, &me));
+    confirm_both(&net, &rx, &mut p, "zzzz");
     assert_eq!(event_of(&rx, linked_ev), NetEvent::DeviceLinked { id: "zzzz".into() });
     let s = derive_secret(&k, &net_pub, &me, &na, &nb);
     assert_eq!(net.device_secret("zzzz"), Some(DeviceSecret(s)));
@@ -2869,6 +2891,7 @@ fn typing_a_code_proves_it_without_sending_it() {
     p.send(json!({"type": "device_code_nonce", "nonce": hex(&na)})).unwrap();
     assert_eq!(b32(&p.recv_msg().unwrap(), "proof"), enter_proof(&k, &nb, &na, &net_pub, &me));
     p.send(json!({"type": "device_code_ok", "proof": hex(&hold_proof(&k, &nb, &na, &me, &net_pub))})).unwrap();
+    confirm_both(&net, &rx, &mut p, "zzzz");
     assert_eq!(event_of(&rx, linked_ev), NetEvent::DeviceLinked { id: "zzzz".into() });
     assert_eq!(net.device_secret("zzzz"), Some(DeviceSecret(derive_secret(&k, &me, &net_pub, &na, &nb))));
     net.shutdown();
@@ -2995,7 +3018,9 @@ fn unlinking_is_told_to_the_other_computer_and_its_unlink_is_heard() {
     // 저쪽이 끊어도 듣는다
     let code = net.new_link_code("zzzz").unwrap();
     raw_enter(&mut p, &code, &kz).expect("linked again");
+    confirm_both(&net, &rx, &mut p, "zzzz");
     assert!(wait_for(&rx, 2.0, linked_ev).is_some());
+    assert_eq!(messages_within(&mut p, Duration::from_millis(300)), vec![json!({"type": "device_confirm"})]);
     p.send(json!({"type": "device_unlink"})).unwrap();
     assert_eq!(event_of(&rx, |e| matches!(e, NetEvent::DeviceUnlinked { .. })), NetEvent::DeviceUnlinked { id: "zzzz".into() });
     assert_eq!(net.linked_device(), None);
@@ -3020,6 +3045,8 @@ fn only_one_other_computer_can_be_linked() {
     assert!(net.unlink_device("zzzz"));
     let code = net.new_link_code("yyyy").unwrap();
     raw_enter(&mut p, &code, &ky).expect("linked");
+    confirm_both(&net, &rx, &mut p, "yyyy");
+    assert!(wait_for(&rx, 2.0, linked_ev).is_some());
     assert_eq!(net.linked_device().as_deref(), Some("yyyy"));
     net.shutdown();
 }
@@ -3039,6 +3066,7 @@ fn a_code_made_before_another_link_cannot_add_a_third_computer() {
     let _ = z.recv_msg().unwrap();
     let (k, me, net_pub) = (code_key("ABCD-EFGH"), Net::public_key(&kz), z.remote);
     z.send(json!({"type": "device_code_ok", "proof": hex(&hold_proof(&k, &nb, &na, &me, &net_pub))})).unwrap();
+    confirm_both(&net, &rx, &mut z, "zzzz");
     assert!(wait_for(&rx, 2.0, linked_ev).is_some());
     drop(z);
     wait_for(&rx, 5.0, is_disconnected).unwrap();
@@ -3046,5 +3074,151 @@ fn a_code_made_before_another_link_cannot_add_a_third_computer() {
     wait_for(&rx, 5.0, is_connected).unwrap();
     assert_eq!(raw_enter(&mut y, &code_y, &ky).unwrap_err(), json!({"type": "device_no", "reason": "taken"}));
     assert_eq!(net.linked_device().as_deref(), Some("zzzz"));
+    net.shutdown();
+}
+
+// ---- linked devices: "본인의 PC가 맞습니까?" on both computers before anything is shared --
+
+/// Two real nets that are friends: A (friend F too) and B. Returns them with A's code entered on B.
+fn two_ready_to_confirm() -> (Net, Receiver<NetEvent>, Net, Receiver<NetEvent>, NetConfig, NetConfig, [String; 3]) {
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (ka, kb, kf) = (key(), key(), key());
+    let (a_id, b_id, f_id) = (hid(0xa1), hid(0xb2), hid(0xf3));
+    let ca = cfg(&a_id, "Ann", ka, pa, pb, vec![friend(&b_id, &kb), friend(&f_id, &kf)]);
+    let cb = cfg(&b_id, "Ann", kb, pb, pa, vec![friend(&a_id, &ka)]);
+    let (a, arx) = Net::start(ca.clone()).unwrap();
+    let (b, brx) = Net::start(cb.clone()).unwrap();
+    wait_for(&arx, 5.0, is_connected).unwrap();
+    wait_for(&brx, 5.0, is_connected).unwrap();
+    (a, arx, b, brx, ca, cb, [a_id, b_id, f_id])
+}
+
+/// A shows a code, B types it: both are asked to confirm.
+fn match_code(a: &Net, arx: &Receiver<NetEvent>, b: &Net, brx: &Receiver<NetEvent>, a_id: &str, b_id: &str) {
+    let code = a.new_link_code(b_id).unwrap();
+    assert_eq!(b.enter_link_code(a_id, &code), Ok(()));
+    assert_eq!(event_of(arx, confirm_ask), NetEvent::DeviceConfirm { id: b_id.into() });
+    assert_eq!(event_of(brx, confirm_ask), NetEvent::DeviceConfirm { id: a_id.into() });
+}
+
+fn nothing_linked(a: &Net, b: &Net, a_id: &str, b_id: &str) {
+    assert_eq!((a.linked_device(), b.linked_device()), (None, None));
+    assert_eq!((a.device_secret(b_id), b.device_secret(a_id)), (None, None), "no secret to save");
+    assert!(!a.friend_info(b_id).unwrap().device && !b.friend_info(a_id).unwrap().device, "the menu shows no link");
+    assert!(!a.send_device_friends(b_id, false, names) && !b.send_device_friends(a_id, false, names));
+}
+
+#[test]
+fn nothing_is_shared_or_saved_until_both_computers_confirm() {
+    let (a, arx, b, brx, ca, cb, [a_id, b_id, f_id]) = two_ready_to_confirm();
+    match_code(&a, &arx, &b, &brx, &a_id, &b_id);
+    // 코드는 맞았지만 아직 아무도 확인을 누르지 않았다
+    assert_eq!(wait_for(&arx, 0.5, linked_ev), None);
+    nothing_linked(&a, &b, &a_id, &b_id);
+    assert!(!a.send_my_devices(&f_id), "no computer to introduce yet");
+    // A만 확인했다: 저쪽을 기다린다
+    assert!(a.confirm_device(&b_id, true));
+    assert_eq!(wait_for(&arx, 0.5, linked_ev), None);
+    assert_eq!(wait_for(&brx, 0.1, linked_ev), None);
+    nothing_linked(&a, &b, &a_id, &b_id);
+    assert_eq!(wait_for(&brx, 0.3, added), None, "no friend list moved");
+    // 확인 단계에서 꺼졌다 켜면 아무것도 연결돼 있지 않다
+    b.shutdown();
+    assert_eq!(event_of(&arx, cancelled), NetEvent::DeviceLinkCancelled { id: b_id.clone() });
+    assert!(!a.confirm_device(&b_id, true), "nothing left to confirm");
+    let (b, brx) = Net::start(cb.clone()).unwrap();
+    wait_for(&brx, 5.0, is_connected).unwrap();
+    assert_eq!(wait_for(&brx, 0.8, |e| proven(e) || linked_ev(e) || added(e)), None);
+    nothing_linked(&a, &b, &a_id, &b_id);
+    a.shutdown();
+    b.shutdown();
+    let _ = ca;
+}
+
+#[test]
+fn a_raw_peer_cannot_skip_the_confirm() {
+    let kz = key();
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend(&hid(2), &key())]));
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    let code = net.new_link_code("zzzz").unwrap();
+    raw_enter(&mut p, &code, &kz).expect("the code matched");
+    assert_eq!(event_of(&rx, confirm_ask), NetEvent::DeviceConfirm { id: "zzzz".into() });
+    // 저쪽이 먼저 확인하고 바로 친구 목록을 보내도: 이쪽이 확인하기 전에는 받지 않는다
+    p.send(json!({"type": "device_confirm"})).unwrap();
+    p.send(json!({"type": "device_friends", "friends": [wire(&hid(30), &key())]})).unwrap();
+    assert_eq!(wait_for(&rx, 0.6, |e| added(e) || linked_ev(e)), None);
+    assert_eq!(net.linked_device(), None);
+    assert_eq!(net.device_secret("zzzz"), None);
+    assert!(!net.send_device_friends("zzzz", false, names));
+    assert_eq!(messages_within(&mut p, Duration::from_millis(300)), Vec::<Value>::new(), "nothing goes out before I confirm");
+    // 이쪽도 확인: 이제 연결된다 (저쪽에도 확인을 알린다)
+    assert!(net.confirm_device("zzzz", true));
+    assert_eq!(event_of(&rx, linked_ev), NetEvent::DeviceLinked { id: "zzzz".into() });
+    assert_eq!(messages_within(&mut p, Duration::from_millis(300)), vec![json!({"type": "device_confirm"})]);
+    assert!(net.device_secret("zzzz").is_some());
+    net.shutdown();
+}
+
+#[test]
+fn cancel_on_either_side_cancels_both_and_saves_nothing() {
+    let (a, arx, b, brx, _ca, _cb, [a_id, b_id, _]) = two_ready_to_confirm();
+    // B가 취소 (A는 이미 확인했어도)
+    match_code(&a, &arx, &b, &brx, &a_id, &b_id);
+    assert!(a.confirm_device(&b_id, true));
+    assert!(b.confirm_device(&a_id, false));
+    assert_eq!(event_of(&brx, cancelled), NetEvent::DeviceLinkCancelled { id: a_id.clone() });
+    assert_eq!(event_of(&arx, cancelled), NetEvent::DeviceLinkCancelled { id: b_id.clone() });
+    assert_eq!(wait_for(&arx, 0.4, linked_ev), None);
+    nothing_linked(&a, &b, &a_id, &b_id);
+    assert!(!a.confirm_device(&b_id, true) && !b.confirm_device(&a_id, true), "the confirm is gone");
+    // A가 취소
+    match_code(&a, &arx, &b, &brx, &a_id, &b_id);
+    assert!(b.confirm_device(&a_id, true));
+    assert!(a.confirm_device(&b_id, false));
+    assert_eq!(event_of(&arx, cancelled), NetEvent::DeviceLinkCancelled { id: b_id.clone() });
+    assert_eq!(event_of(&brx, cancelled), NetEvent::DeviceLinkCancelled { id: a_id.clone() });
+    assert_eq!(wait_for(&brx, 0.4, linked_ev), None);
+    nothing_linked(&a, &b, &a_id, &b_id);
+    assert_eq!(wait_for(&brx, 0.1, |e| matches!(e, NetEvent::Disconnected { .. })), None, "still friends, still connected");
+    // 다시 하면 된다
+    match_code(&a, &arx, &b, &brx, &a_id, &b_id);
+    assert!(a.confirm_device(&b_id, true) && b.confirm_device(&a_id, true));
+    event_of(&arx, linked_ev);
+    event_of(&brx, linked_ev);
+    assert_eq!(a.device_secret(&b_id), b.device_secret(&a_id));
+    assert!(a.device_secret(&b_id).is_some());
+    a.shutdown();
+    b.shutdown();
+}
+
+#[test]
+fn an_unanswered_confirm_is_cancelled_on_both_after_a_while() {
+    let (a, arx, b, brx, _ca, _cb, [a_id, b_id, _]) = two_ready_to_confirm();
+    let t0 = Instant::now();
+    match_code(&a, &arx, &b, &brx, &a_id, &b_id);
+    assert!(a.confirm_device(&b_id, true));
+    // B는 대답하지 않는다
+    assert_eq!(wait_for(&arx, 5.0, cancelled), Some(NetEvent::DeviceLinkCancelled { id: b_id.clone() }));
+    assert_eq!(wait_for(&brx, 2.0, cancelled), Some(NetEvent::DeviceLinkCancelled { id: a_id.clone() }));
+    assert!(t0.elapsed() >= fast().device_confirm_timeout, "{:?}", t0.elapsed());
+    assert!(!b.confirm_device(&a_id, true), "too late");
+    assert_eq!(wait_for(&arx, 0.4, linked_ev), None);
+    nothing_linked(&a, &b, &a_id, &b_id);
+    a.shutdown();
+    b.shutdown();
+}
+
+#[test]
+fn the_confirm_message_has_its_wire_shape_and_is_never_sent_to_an_older_build() {
+    let kz = key();
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
+    let mut p = raw_connect_as(port, &kz, json!({"type": "hello", "id": "zzzz", "name": "Old", "v": 2, "friend": true}));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert!(!net.confirm_device("zzzz", true), "nothing to confirm");
+    assert!(!net.confirm_device("zzzz", false));
+    p.send(json!({"type": "device_confirm"})).unwrap();
+    assert_eq!(messages_within(&mut p, Duration::from_millis(400)), Vec::<Value>::new());
+    assert_eq!(wait_for(&rx, 0.2, |e| linked_ev(e) || cancelled(e)), None);
     net.shutdown();
 }

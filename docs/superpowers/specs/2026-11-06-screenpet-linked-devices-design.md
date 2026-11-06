@@ -31,8 +31,14 @@ pubA = 코드를 보여 준 컴(A)의 정적 공개키, pubB = 코드를 넣은 
 4. A가 확인한다. 틀리면 `device_no {reason: "wrong", left: n}` — 다섯 번 틀리면 코드를 없애고 `"locked"`.
    **A는 B의 증명이 맞은 뒤에만** 자기 증명을 보낸다: 틀린 짐작에 답이 없으니, 코드를 넣는 쪽이 오프라인으로 코드를 맞춰 볼 수 없다.
    맞으면 A → B `device_code_ok {proof: BLAKE2s(label ‖ "hold" ‖ K ‖ nb ‖ na ‖ pubA ‖ pubB)}`.
-5. 양쪽이 같은 비밀 S = BLAKE2s("screenpet-device/1 secret" ‖ K ‖ pubA ‖ pubB ‖ na ‖ nb) 를 **각자 설정 파일**(그 친구 항목의 `device_secret`, hex)에 적는다.
-   코드는 한 번 쓰면 없어진다. 코드는 그 친구에게만 유효하다 (다른 친구가 같은 코드를 넣어도 `none`).
+5. 양쪽이 같은 비밀 S = BLAKE2s("screenpet-device/1 secret" ‖ K ‖ pubA ‖ pubB ‖ na ‖ nb) 를 계산하지만, 아직 **그 링크에만** 들고 있는다.
+   코드는 한 번 쓰면 없어진다.
+6. **두 컴 모두** "본인의 PC가 맞습니까? 스크린펫의 모든 데이터가 공유됩니다." (저쪽 이름과 함께, 확인/취소)를 묻는다 —
+   친구 PC와 잘못 묶지 않도록. 확인을 누른 쪽은 `device_confirm` 을 보내고 "저쪽 컴퓨터에서도 확인을 눌러 주세요"로 기다린다.
+   양쪽 `device_confirm` 이 다 모여야 연결이다: 그때 S를 **각자 설정 파일**(그 친구 항목의 `device_secret`, hex)에 적고,
+   바로 `device_friends` 와 소개(`my_devices`)를 보낸다. 그 전에는 S를 저장하지 않고, 목록을 보내지도 받지도 않으며, 메뉴도 묶인 것으로 보이지 않는다.
+7. 한쪽의 취소, 확인 창 닫기, 60초 동안 대답 없음(`Timing::device_confirm_timeout`), 링크 끊김은 모두 양쪽 취소다:
+   `device_unlink` 를 보내고 S를 버리며 양쪽 창에 "연결을 취소했어요". 확인 단계에서 꺼지면 남는 것이 없다. 코드는 그 친구에게만 유효하다 (다른 친구가 같은 코드를 넣어도 `none`).
 
 ## 다시 연결될 때마다
 묶인 두 컴의 새 친구 링크에서 양쪽이 `device_nonce {nonce}` (새 난수)를 보내고, 상대 난수에 `device_proof` 로 답한다:
@@ -43,7 +49,7 @@ BLAKE2s("screenpet-device/1 proof" ‖ S ‖ 증명하는 쪽 키 ‖ 확인하�
 
 ## 통신
 - `PROTOCOL_VERSION` 3. `device_friends`, `my_devices`, `device_code`, `device_code_nonce`, `device_code_proof`, `device_code_ok`,
-  `device_no`, `device_nonce`, `device_proof`, `device_unlink` 는 상대 버전 3 이상에만 보내고, 3 이상인 친구 링크에서만 받는다.
+  `device_no`, `device_confirm`, `device_nonce`, `device_proof`, `device_unlink` 는 상대 버전 3 이상에만 보내고, 3 이상인 친구 링크에서만 받는다.
   옛 판(2 이하)에는 하나도 가지 않는다 (모르는 type이면 연결을 끊기 때문).
 - `device_*` 는 친구별 예산(16개, 2초에 하나)으로 홍수를 막는다. 코드 하나에 시도는 다섯 번.
 - 받는 쪽은 개수(친구 50명, 기기 1대), 이름 길이(clamp_name), 키 길이(32바이트 hex)를 다듬는다.
@@ -58,5 +64,6 @@ BLAKE2s("screenpet-device/1 proof" ‖ S ‖ 증명하는 쪽 키 ‖ 확인하�
 ## 화면
 - 친구 하위 메뉴: 묶이지 않았으면 `📱 내 다른 컴퓨터로 연결…` (연결 창), 묶인 그 친구면 `📱 연결 끊기 (내 컴퓨터)`.
 - 연결 창(`link`): 이 컴의 코드(크게), 저쪽 코드 입력 칸, 안내 한 줄 (틀림·남은 횟수·없어짐·시간 지남·저쪽이 예전 판·이미 다른 컴과 연결됨).
+  코드가 맞으면 같은 창이 (닫혀 있었으면 다시 떠서) `본인의 PC가 맞습니까?` / `스크린펫의 모든 데이터가 공유됩니다.` / 저쪽 이름 / `확인`·`취소` 로 바뀐다.
 - 친구 목록: 묶인 기기는 `● 이름 (내 컴퓨터)`, 친구의 기기는 `● 친구이름 (다른 컴퓨터)`.
 - 도움말에 사용법 한 단락.

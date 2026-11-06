@@ -15,6 +15,7 @@ pub fn fast() -> Timing {
         conn_timeout: Duration::from_millis(1500),
         invite_timeout: Duration::from_millis(3000),
         relay_retry: Duration::from_millis(300),
+        device_confirm_timeout: Duration::from_millis(2500),
     }
 }
 

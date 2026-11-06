@@ -295,6 +295,7 @@ fn main() {
             network::link_state,
             network::link_submit,
             network::link_close,
+            network::link_confirm,
             sizes::size_state,
             sizes::size_set,
             sizes::size_close,
