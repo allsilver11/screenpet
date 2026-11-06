@@ -305,8 +305,12 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
         } else {
             Kind::Stranger(None)
         };
-        if friend_link && v >= DEVICES_MIN_VERSION && st.devices.contains(id) {
-            first_msg = Some(Control::DeviceMark { on: true });
+        // My linked computer proves our secret again on every new link
+        let mut dev = crate::devices::DevLink::default();
+        if friend_link && v >= DEVICES_MIN_VERSION && st.device.as_ref().is_some_and(|(d, _)| d == id) {
+            let nonce = crate::devices::link_nonce();
+            dev.mine = Some(nonce);
+            first_msg = Some(Control::DeviceNonce { nonce: noise::to_hex(&nonce) });
         }
         let connected = friend_link && !announced;
         st.conns.insert(
@@ -325,6 +329,7 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
                 hs_hash: ctx.hs_hash,
                 since: now,
                 unverified: ctx.unverified.clone(),
+                dev,
             },
         );
         if connected {
@@ -579,19 +584,30 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
         // Friend lists between my computers and introductions: authenticated
         // friend links only, budgeted per friend; `devices` checks the rest
         Message::Control(Control::DeviceFriends { friends, want }) => {
-            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) && st.budget(id, now).links.take(now) {
+            if matches!(conn.kind, Kind::Friend) && conn.dev.proven && st.is_friend(id) && st.budget(id, now).links.take(now) {
                 crate::devices::on_device_friends(shared, &mut st, id, friends, want);
             }
             true
         }
-        // Whether it marked me as its other computer (friend links only, budgeted)
-        Message::Control(Control::DeviceMark { on }) => {
-            if matches!(conn.kind, Kind::Friend) && st.is_friend(id) && st.budget(id, now).links.take(now) {
-                if !on {
-                    st.peer_marked_me.remove(id);
-                } else if st.peer_marked_me.insert(id.to_string()) && st.devices.contains(id) {
-                    shared.emit(NetEvent::PeerMarkedMe { id: id.to_string() });
-                }
+        // Linking by code and proving the stored secret: friend links of
+        // builds that know them only, budgeted per friend; `devices` checks the rest
+        Message::Control(
+            c @ (Control::DeviceCode { .. }
+            | Control::DeviceCodeNonce { .. }
+            | Control::DeviceCodeProof { .. }
+            | Control::DeviceCodeOk { .. }
+            | Control::DeviceNo { .. }
+            | Control::DeviceNonce { .. }
+            | Control::DeviceProof { .. }
+            | Control::DeviceUnlink),
+        ) => {
+            if !(matches!(conn.kind, Kind::Friend) && conn.v >= DEVICES_MIN_VERSION && st.is_friend(id) && st.budget(id, now).codes.take(now)) {
+                return true;
+            }
+            let replies = crate::devices::on_link_message(shared, &mut st, ctx.token, id, c);
+            drop(st);
+            for r in replies {
+                ctx.link.send(&ctl(r));
             }
             true
         }
@@ -652,7 +668,6 @@ fn cleanup(shared: &Shared, token: Option<u64>, dialed: Option<&str>) {
     let Some(conn) = token.and_then(|t| st.conns.remove(&t)) else { return };
     if st.friend_links.get(&conn.peer_id) == token.as_ref() {
         st.friend_links.remove(&conn.peer_id);
-        st.peer_marked_me.remove(&conn.peer_id); // told again on its next link
     }
     if let Kind::Stranger(Some(p)) = &conn.kind {
         if !p.failure_reported && p.surfaced {

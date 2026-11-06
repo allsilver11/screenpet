@@ -33,8 +33,10 @@ const INVITE_PREFIX: &str = "net:invite:";
 const SIDE_PREFIX: &str = "net:side:";
 const UNFRIEND_PREFIX: &str = "net:unfriend:";
 const NICKNAME_PREFIX: &str = "net:nickname:";
-/// 친구 하위 메뉴 "📱 내 다른 컴퓨터" 체크 (뒤는 친구 id)
+/// 친구 하위 메뉴 "📱 내 다른 컴퓨터로 연결…": 연결 코드 창 (뒤는 친구 id)
 const DEVICE_PREFIX: &str = "net:device:";
+/// 친구 하위 메뉴 "📱 연결 끊기 (내 컴퓨터)" (뒤는 친구 id)
+const UNLINK_PREFIX: &str = "net:unlink:";
 const MY_NAME_ID: &str = "net:my-name";
 const SEND_PREFIX: &str = "net:send:";
 const BRING_PREFIX: &str = "net:bring:";
@@ -118,7 +120,7 @@ pub struct FriendItem {
     pub connected: bool,
     /// 지금 내 동물을 이 친구에게 보낼 수 있음 (연결됨 + 내 동물이 놀러 가 있지 않음)
     pub can_send: bool,
-    /// 📱 내 다른 컴퓨터로 표시했다
+    /// 📱 연결된 내 다른 컴퓨터 (코드로 연결했다)
     pub device: bool,
     /// 친구가 자기 다른 컴퓨터라고 소개했다
     pub introduced: bool,
@@ -294,7 +296,12 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         let letter = MenuItem::with_id(app, format!("{LETTER_PREFIX}{}", f.id), "편지 들려 보내기…", f.can_send, None::<&str>)?;
         let bring_label = format!("{} 펫 데리고 오기", menu_text(&f.name));
         let bring = MenuItem::with_id(app, format!("{BRING_PREFIX}{}", f.id), bring_label, f.connected && model.room, None::<&str>)?;
-        let device = CheckMenuItem::with_id(app, format!("{DEVICE_PREFIX}{}", f.id), "📱 내 다른 컴퓨터", true, f.device, None::<&str>)?;
+        // 📱 연결 안 됐으면 코드 창 (다른 컴퓨터와 이미 연결돼 있으면 창이 먼저 끊으라고 알린다), 연결된 그 컴퓨터면 끊기
+        let device = if f.device {
+            MenuItem::with_id(app, format!("{UNLINK_PREFIX}{}", f.id), "📱 연결 끊기 (내 컴퓨터)", true, None::<&str>)?
+        } else {
+            MenuItem::with_id(app, format!("{DEVICE_PREFIX}{}", f.id), "📱 내 다른 컴퓨터로 연결…", true, None::<&str>)?
+        };
         let nickname = MenuItem::with_id(app, format!("{NICKNAME_PREFIX}{}", f.id), "이름 바꾸기…", true, None::<&str>)?;
         let unfriend = MenuItem::with_id(app, format!("{UNFRIEND_PREFIX}{}", f.id), "연결 끊기", true, None::<&str>)?;
         let sep = PredefinedMenuItem::separator(app)?;
@@ -576,7 +583,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                 } else if let Some(id) = other.strip_prefix(THROW_VOLLEY_PREFIX) {
                     send(app, Input::Object(crate::objects::ObjectInput::ThrowVolley(id.to_string())));
                 } else if let Some(id) = other.strip_prefix(DEVICE_PREFIX) {
-                    net(NetInput::ToggleDevice(id.to_string()));
+                    net(NetInput::LinkDevice(id.to_string()));
+                } else if let Some(id) = other.strip_prefix(UNLINK_PREFIX) {
+                    net(NetInput::UnlinkDevice(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(NICKNAME_PREFIX) {
                     net(NetInput::EditNickname(id.to_string()));
                 } else if let Some(id) = other.strip_prefix(INVITE_PREFIX) {

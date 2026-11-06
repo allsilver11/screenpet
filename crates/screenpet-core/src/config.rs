@@ -158,9 +158,10 @@ pub struct Friend {
     /// 💩 똥피하기 그 친구의 최고 기록 (친구가 알려 준 것 — 받은 적 없으면 None)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub dodge_best: Option<u32>,
-    /// 📱 내 다른 컴퓨터로 표시했다 (양쪽이 다 표시해야 친구 목록을 나눈다)
-    #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient")]
-    pub device: bool,
+    /// 📱 내 다른 컴퓨터: 연결 코드가 맞아 둘이 나눠 가진 비밀. 연결될 때마다 서로 이 비밀을 증명해야 친구 목록을 나눈다.
+    /// 컴퓨터는 둘까지라 이 값이 있는 친구는 하나뿐이다 (net이 정한다). 깨진 값은 연결 없음으로 읽는다
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub device_secret: Option<DeviceSecret>,
     /// 이 친구 id가 자기 다른 컴퓨터라고 소개했다 (그 친구를 지우면 같이 지워진다)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub via: Option<String>,
@@ -170,6 +171,16 @@ pub struct Friend {
     /// 확인 못 한 채로 들어온 때 (유닉스 초) — 일주일이 지나도 확인 못 하면 net이 지운다. 껐다 켜도 이어 센다
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub pending_since: Option<u64>,
+}
+
+/// 📱 내 다른 컴퓨터와 나눈 비밀 (파일에는 hex 64자). Debug로 찍어도 값은 나오지 않는다
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceSecret(#[serde(with = "hex32")] pub [u8; 32]);
+
+impl std::fmt::Debug for DeviceSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DeviceSecret(..)")
+    }
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -256,7 +267,7 @@ impl Config {
             }
             None => {
                 let side = self.next_side();
-                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side, nickname: None, dodge_best: None, device: false, via: None, pending: false, pending_since: None });
+                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side, nickname: None, dodge_best: None, device_secret: None, via: None, pending: false, pending_since: None });
                 changed = true;
             }
         }
@@ -335,17 +346,33 @@ impl Config {
         }
     }
 
-    /// 📱 내 다른 컴퓨터 표시와 어디서 왔는지를 맞춘다 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
-    pub fn set_friend_links(&mut self, id: &str, device: bool, via: Option<&str>, pending: bool) -> bool {
+    /// 📱 친구가 어디서 왔는지(소개한 친구, 확인 전)를 맞춘다 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
+    pub fn set_friend_links(&mut self, id: &str, via: Option<&str>, pending: bool) -> bool {
         match self.friends.iter_mut().find(|f| f.id == id) {
-            Some(f) if (f.device, f.via.as_deref(), f.pending) != (device, via, pending) => {
-                f.device = device;
+            Some(f) if (f.via.as_deref(), f.pending) != (via, pending) => {
                 f.via = via.map(str::to_string);
                 f.pending = pending;
                 true
             }
             _ => false,
         }
+    }
+
+    /// 📱 내 다른 컴퓨터와 나눈 비밀을 맞춘다 (net이 아는 대로, None = 연결 안 됨). 바뀌었으면 true (모르는 친구는 무시)
+    pub fn set_friend_device_secret(&mut self, id: &str, secret: Option<[u8; 32]>) -> bool {
+        let secret = secret.map(DeviceSecret);
+        match self.friends.iter_mut().find(|f| f.id == id) {
+            Some(f) if f.device_secret != secret => {
+                f.device_secret = secret;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 📱 연결된 내 다른 컴퓨터 (id, 비밀) — 여럿 적혀 있으면 (손으로 고친 파일) 처음 것만
+    pub fn linked_device(&self) -> Option<(&str, [u8; 32])> {
+        self.friends.iter().find_map(|f| Some((f.id.as_str(), f.device_secret?.0)))
     }
 
     /// 확인 못 한 친구가 들어온 때를 맞춘다 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
@@ -1276,40 +1303,49 @@ mod tests {
     }
 
     #[test]
-    fn linked_device_marks_roundtrip_and_old_friends_still_load() {
+    fn linked_device_secrets_roundtrip_and_old_friends_still_load() {
         let d = temp_dir("devices");
         let mut c = Config { install_id: Some("me".into()), ..Config::default() };
         c.upsert_friend("home", "Ann", key(1));
         c.upsert_friend("pal", "Bo", key(2));
         c.upsert_friend("pal2", "Bo", key(3));
-        assert!(c.set_friend_links("home", true, None, false));
-        assert!(c.set_friend_links("pal2", false, Some("pal"), true));
-        assert!(!c.set_friend_links("pal2", false, Some("pal"), true), "unchanged");
-        assert!(!c.set_friend_links("nobody", true, None, false));
+        assert!(c.set_friend_device_secret("home", Some([7; 32])));
+        assert!(!c.set_friend_device_secret("home", Some([7; 32])), "unchanged");
+        assert!(!c.set_friend_device_secret("nobody", Some([7; 32])));
+        assert!(c.set_friend_links("pal2", Some("pal"), true));
+        assert!(!c.set_friend_links("pal2", Some("pal"), true), "unchanged");
+        assert!(!c.set_friend_links("nobody", None, false));
         save(&d, &c).unwrap();
         let text = std::fs::read_to_string(d.join("config.json")).unwrap();
-        // 표시가 없는 친구는 예전과 같은 모양으로 저장된다
-        assert_eq!(text.matches("\"device\"").count(), 1, "{text}");
+        // 연결 안 된 친구는 예전과 같은 모양으로 저장된다
+        assert_eq!(text.matches("\"device_secret\"").count(), 1, "{text}");
         assert_eq!(text.matches("\"pending\"").count(), 1, "{text}");
         let back = load(&d);
         assert_eq!(back, c);
         let pal2 = back.friend("pal2").unwrap();
-        assert_eq!((pal2.device, pal2.via.as_deref(), pal2.pending), (false, Some("pal"), true));
-        assert!(back.friend("home").unwrap().device);
-        // 예전 친구 항목: 표시 없음
-        let old = format!(r#"{{"friends": [{{"id": "a", "name": "A", "public_key": "{}", "side": "left"}}]}}"#, "01".repeat(32));
+        assert_eq!((pal2.device_secret, pal2.via.as_deref(), pal2.pending), (None, Some("pal"), true));
+        assert_eq!(back.friend("home").unwrap().device_secret, Some(DeviceSecret([7; 32])));
+        assert_eq!(back.linked_device(), Some(("home", [7; 32])));
+        // 비밀은 Debug로도 찍히지 않는다
+        assert!(!format!("{back:?}").contains("7, 7"), "the secret is never printed");
+        assert!(c.set_friend_device_secret("home", None), "unlinked");
+        assert_eq!(c.linked_device(), None);
+        // 예전 친구 항목 (예전 판의 "device": true 표시도): 연결 없음
+        let old = format!(r#"{{"friends": [{{"id": "a", "name": "A", "public_key": "{}", "side": "left", "device": true}}]}}"#, "01".repeat(32));
         let old: Config = serde_json::from_str(&old).unwrap();
         let a = old.friend("a").unwrap();
-        assert_eq!((a.device, a.via.as_deref(), a.pending), (false, None, false));
+        assert_eq!((a.device_secret, a.via.as_deref(), a.pending), (None, None, false));
     }
 
     #[test]
-    fn bad_device_marks_are_dropped_not_the_friend() {
+    fn bad_device_values_are_dropped_not_the_friend() {
         let k = "01".repeat(32);
-        let text = format!(r#"{{"friends": [{{"id": "a", "name": "A", "public_key": "{k}", "side": "left", "device": "yes", "via": 5, "pending": []}}]}}"#);
-        let c: Config = serde_json::from_str(&text).unwrap();
-        let a = c.friend("a").expect("the friend stays");
-        assert_eq!((a.device, a.via.as_deref(), a.pending), (false, None, false));
+        for secret in [r#""yes""#, r#""0102""#, "5", &format!(r#""{}""#, "zz".repeat(32))] {
+            let text = format!(r#"{{"friends": [{{"id": "a", "name": "A", "public_key": "{k}", "side": "left", "device_secret": {secret}, "via": 5, "pending": []}}]}}"#);
+            let c: Config = serde_json::from_str(&text).unwrap();
+            let a = c.friend("a").expect("the friend stays");
+            assert_eq!((a.device_secret, a.via.as_deref(), a.pending), (None, None, false), "{secret}");
+        }
     }
 
     #[test]

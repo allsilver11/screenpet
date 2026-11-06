@@ -24,7 +24,7 @@ use screenpet_core::dodge;
 use screenpet_core::gift::{self, FriendLimit};
 use screenpet_core::style::PetStyle;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
-use screenpet_net::{normalize_code, parse_relay_key, Net, NetConfig, NetEvent, Steer, VSide, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, MAX_FRIENDS};
+use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, MAX_FRIENDS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
 
@@ -64,6 +64,11 @@ const CODE_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// 이름 바꾸기 창 라벨 (내 이름 / 친구 별명)
 pub const NAME_LABEL: &str = "name";
 const NAME_FORM: Form = Form { label: NAME_LABEL, page: "name.html", title: "ScreenPet 내 이름", size: (300.0, 150.0) };
+/// 📱 내 다른 컴퓨터 연결 창 라벨 (이 컴의 연결 코드 보이기 + 저쪽 코드 넣기)
+pub const LINK_LABEL: &str = "link";
+const LINK_FORM: Form = Form { label: LINK_LABEL, page: "link.html", title: "ScreenPet 내 다른 컴퓨터", size: (330.0, 220.0) };
+/// 코드를 넣고 저쪽 대답을 기다리는 시간
+const LINK_WAIT: Duration = Duration::from_secs(15);
 /// 편지 쓰기 창 라벨 ("편지 들려 보내기…")
 pub const LETTER_LABEL: &str = "letter";
 const LETTER_FORM: Form = Form { label: LETTER_LABEL, page: "letter.html", title: "ScreenPet 편지", size: (320.0, 170.0) };
@@ -80,8 +85,12 @@ pub enum NetInput {
     PairAnswer(bool),
     SetSide { id: String, side: Side },
     Unfriend(String),
-    /// 친구 하위 메뉴 "📱 내 다른 컴퓨터": 그 친구를 내 다른 컴퓨터로 표시하거나 푼다
-    ToggleDevice(String),
+    /// 친구 하위 메뉴 "📱 내 다른 컴퓨터로 연결…": 이 컴의 연결 코드를 만들어 창에 보이고, 저쪽 코드도 받는다
+    LinkDevice(String),
+    /// 친구 하위 메뉴 "📱 연결 끊기 (내 컴퓨터)"
+    UnlinkDevice(String),
+    /// 연결 창 "연결": 저쪽 컴퓨터가 보여 주는 코드 (꼴은 net이 본다). 누구와인지는 창을 연 쪽(Network::linking)이 안다
+    SubmitLinkCode(String),
     /// 트레이 "집에 와"
     ComeHome,
     /// 메뉴 "친구 코드 보기"
@@ -143,8 +152,6 @@ const ASK_BUSY: &str = "busy";
 const ASK_NOT_NOW: &str = "not_now";
 /// 부탁한 뒤 이만큼 안에 온 "busy"만 내 동물 머리 위에 보인다
 const ASK_ANSWER_WINDOW: Duration = Duration::from_secs(30);
-/// 📱 내 다른 컴퓨터를 켰을 때 내 펫 말풍선 (한 줄로 짧게 — 자세한 건 도움말)
-const DEVICE_ON_BUBBLE: &str = "저쪽에서도 켜 주세요";
 /// 친구 목록이 바뀌었을 때 내 다른 컴퓨터에 알리는 간격 (받는 쪽 예산보다 넉넉히)
 const SHARE_EVERY: Duration = Duration::from_secs(5);
 
@@ -196,6 +203,28 @@ pub struct PetMail {
     pub from: String,
     /// 다듬은 답장
     pub note: String,
+}
+
+/// 📱 연결 창에 보이는 것 (`link-state` 이벤트, `link_state` 커맨드)
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LinkView {
+    /// 그 친구 (보일 이름)
+    pub name: String,
+    /// 이 컴의 연결 코드 (없으면 빈 글자)
+    pub code: String,
+    /// "ready" (코드 보이기·입력) | "waiting" (저쪽 대답 기다림) | "done" | "failed" (다시 넣을 수 있다) | "blocked" (이미 다른 컴퓨터와 연결됨)
+    pub phase: &'static str,
+    /// 안내 한 줄
+    pub note: String,
+}
+
+/// 연결 창 첫 로드용
+static LINK_VIEW: Mutex<LinkView> = Mutex::new(LinkView { name: String::new(), code: String::new(), phase: "ready", note: String::new() });
+
+/// 📱 연결 창이 다루는 친구와, 코드를 넣고 대답을 기다리는 끝
+struct Linking {
+    friend: String,
+    until: Option<Instant>,
 }
 
 /// 편지 창 첫 로드용
@@ -354,6 +383,8 @@ pub struct Network {
     /// 친구 목록이 바뀌어 내 다른 컴퓨터들에게 다시 알릴 것이 있다 (마지막으로 알린 때)
     share_due: bool,
     last_share: Option<Instant>,
+    /// 📱 연결 창 (열었던 친구)
+    linking: Option<Linking>,
 }
 
 /// 중계 서버 주소와 고정할 공개키. 기본값은 배포된 서버 주소 + 그 공개키(다른 키를 내미는 서버는 거절).
@@ -479,6 +510,7 @@ impl Network {
             quiet: false,
             share_due: false,
             last_share: None,
+            linking: None,
         };
         let state = app.state::<AppState>();
         // 설정을 못 읽은 실행: 친구 목록이 빈 채로 나가면 친구들이 "나를 잊었다"고 보고 나를 지운다
@@ -496,8 +528,8 @@ impl Network {
         let friends = config.friends.iter().map(|f| screenpet_net::Friend { id: f.id.clone(), public_key: f.public_key }).collect();
         let id = config.install_id.clone().unwrap_or_default();
         let mut net_config = NetConfig::new(id, name, key, friends);
-        // 📱 내 다른 컴퓨터 표시, 친구가 소개한 기기, 아직 확인 못 한 친구 (net이 다시 확인한다)
-        net_config.devices = config.friends.iter().filter(|f| f.device).map(|f| f.id.clone()).collect();
+        // 📱 연결된 내 다른 컴퓨터와 나눈 비밀, 친구가 소개한 기기, 아직 확인 못 한 친구 (net이 다시 확인한다)
+        net_config.device = config.linked_device().map(|(id, secret)| (id.to_string(), DeviceSecret(secret)));
         net_config.introduced = config.friends.iter().filter_map(|f| Some((f.id.clone(), f.via.clone()?))).collect();
         net_config.pending = config.friends.iter().filter(|f| f.pending).map(|f| f.id.clone()).collect();
         net_config.pending_added = config.friends.iter().filter(|f| f.pending).filter_map(|f| Some((f.id.clone(), f.pending_since?))).collect();
@@ -856,22 +888,14 @@ impl Network {
                 return config.set_friend_side(&id, side);
             }
             NetInput::Unfriend(id) => return self.unfriend(&id, config),
-            NetInput::ToggleDevice(id) => {
-                // 체크 항목은 누르면 저절로 바뀌므로 메뉴를 항상 다시 그린다. 설정은 handle 끝의 sync_friends가 맞춘다
-                self.last_menu = None;
-                let (Some(net), Some(f)) = (&self.net, config.friend(&id)) else { return false };
-                let on = !f.device;
-                net.set_device(&id, on);
-                if on {
-                    // 저쪽도 켰으면 바로 목록을 나눈다 (저쪽 목록도 달라고 한다)
-                    net.send_device_friends(&id, true, describe_friend(config));
-                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", DEVICE_ON_BUBBLE);
-                }
-                // 친구들에게 알리는 내 기기 목록이 바뀌었다
-                for f in config.friends.iter().filter(|f| self.is_connected(&f.id)) {
-                    net.send_my_devices(&f.id);
+            NetInput::LinkDevice(id) => self.open_link(app, config, &id),
+            NetInput::UnlinkDevice(id) => {
+                // 이쪽 비밀을 지우고 저쪽에도 알린다 (저쪽도 지운다). 설정은 handle 끝의 sync_friends가 맞춘다
+                if let Some(net) = &self.net {
+                    net.unlink_device(&id);
                 }
             }
+            NetInput::SubmitLinkCode(code) => self.submit_link_code(app, config, &code),
             NetInput::ComeHome => {
                 if let (Some(net), Some(a)) = (&self.net, self.away.as_mut()) {
                     net.send(&a.friend, Visit::ComeHome { visit_id: a.visit_id });
@@ -994,9 +1018,9 @@ impl Network {
                 if let Some(net) = self.net.as_ref().filter(|_| config.dodge_best > 0) {
                     net.ask(&id, &dodge::score_ask(config.dodge_best));
                 }
-                // 📱 내 다른 컴퓨터: 서로 표시한 기기면 친구 목록을, 다른 친구에겐 내 기기들을 알린다 (예전 판에는 net이 보내지 않는다)
+                // 📱 다른 친구에겐 내 다른 컴퓨터를 알린다 (예전 판에는 net이 보내지 않는다).
+                // 내 다른 컴퓨터와는 저장한 비밀을 서로 증명한 뒤(DeviceProven)에 친구 목록을 나눈다
                 if let Some(net) = &self.net {
-                    net.send_device_friends(&id, false, describe_friend(config));
                     net.send_my_devices(&id);
                 }
                 if let Some(p) = self.pairing.as_mut().filter(|p| p.peer == id && matches!(p.view.phase, "confirm" | "waiting")) {
@@ -1061,12 +1085,32 @@ impl Network {
             // 소개해 준 친구가 지워져 그 친구의 다른 컴퓨터도 지웠다 — 설정에서는 handle 끝의 sync_friends가 지운다
             // (또는 확인 못 한 친구가 일주일 넘게, 또는 거듭 나를 모른다고 해서 지웠다)
             NetEvent::FriendDropped { id } => eprintln!("removed {id} (introduced by a removed friend, or never confirmed)"),
-            // 내가 표시한 내 다른 컴퓨터가 나도 표시했다고 알렸다: 이제 서로 표시했으니 내 목록을 보낸다
-            NetEvent::PeerMarkedMe { id } => {
+            // 📱 연결 코드가 양쪽에서 맞았다: 비밀은 handle 끝의 sync_friends가 설정에 적는다. 바로 목록을 나누고 친구들에게 알린다
+            NetEvent::DeviceLinked { id } => {
+                if let Some(net) = &self.net {
+                    net.send_device_friends(&id, false, describe_friend(config));
+                    for f in config.friends.iter().filter(|f| f.id != id && self.is_connected(&f.id)) {
+                        net.send_my_devices(&f.id);
+                    }
+                }
+                if self.linking.as_ref().is_some_and(|l| l.friend == id) {
+                    self.linking = None;
+                    self.update_link_view(app, |v| {
+                        v.phase = "done";
+                        v.code.clear();
+                        v.note = "연결됐어요! 이제 두 컴퓨터가 친구 목록을 나눠요.".into();
+                    });
+                }
+            }
+            NetEvent::DeviceLinkFailed { id, reason, left } => self.on_link_failed(app, &id, &reason, left),
+            // 연결된 내 다른 컴퓨터가 새 연결에서 저장한 비밀을 증명했다: 이제 목록을 나눈다
+            NetEvent::DeviceProven { id } => {
                 if let Some(net) = &self.net {
                     net.send_device_friends(&id, false, describe_friend(config));
                 }
             }
+            // 저쪽이 연결을 끊었거나 비밀이 맞지 않았다 (그냥 친구로 남는다) — 설정은 handle 끝의 sync_friends가 지운다
+            NetEvent::DeviceUnlinked { id } => eprintln!("{id} is no longer linked as my other computer"),
             // 내 다른 컴퓨터가 친구 목록을 보냈다 (net이 이미 더했다). 달라고 하면 내 목록도 보낸다
             NetEvent::DeviceSynced { from, want } => {
                 if let Some(net) = self.net.as_ref().filter(|_| want) {
@@ -1192,11 +1236,12 @@ impl Network {
                 .or_else(|| config.friend(&p.id).map(|f| f.name.clone()))
                 .unwrap_or_else(|| DEFAULT_NAME.to_string());
             dirty |= config.upsert_friend(&p.id, &name, p.public_key);
-            // 📱 내 다른 컴퓨터 표시·소개한 친구·확인 전 (net이 아는 대로)
+            // 📱 내 다른 컴퓨터와 나눈 비밀·소개한 친구·확인 전 (net이 아는 대로)
             if let Some(info) = net.friend_info(&p.id) {
-                dirty |= config.set_friend_links(&p.id, info.device, info.via.as_deref(), info.pending);
+                dirty |= config.set_friend_links(&p.id, info.via.as_deref(), info.pending);
                 dirty |= config.set_friend_pending_since(&p.id, info.pending_since);
             }
+            dirty |= config.set_friend_device_secret(&p.id, net.device_secret(&p.id).map(|s| s.0));
         }
         dirty
     }
@@ -1414,6 +1459,81 @@ impl Network {
         }
     }
 
+    /// 📱 "내 다른 컴퓨터로 연결…": 이 컴의 새 연결 코드를 창에 보인다 (저쪽 코드도 이 창에 넣는다).
+    /// 이미 다른 컴퓨터와 연결돼 있으면 코드 없이 먼저 끊으라고 알린다 (컴퓨터는 둘까지)
+    fn open_link(&mut self, app: &AppHandle, config: &Config, id: &str) {
+        let (Some(net), Some(f)) = (&self.net, config.friend(id)) else { return };
+        let name = f.shown_name().to_string();
+        let view = match net.new_link_code(id) {
+            Ok(code) => LinkView { name, code, phase: "ready", note: String::new() },
+            Err(LinkError::Taken(other)) => LinkView { name, code: String::new(), phase: "blocked", note: taken_note(config, &other) },
+            Err(e) => {
+                eprintln!("cannot make a link code for {id}: {e:?}");
+                return;
+            }
+        };
+        self.linking = Some(Linking { friend: id.to_string(), until: None });
+        *LINK_VIEW.lock().unwrap() = view.clone();
+        crate::overlay::show_form(app, &LINK_FORM, crate::overlay::place_on_primary, |_| {
+            let _ = app.emit_to(LINK_LABEL, "link-state", view);
+        });
+    }
+
+    /// 연결 창 "연결": 저쪽 컴퓨터가 보여 주는 코드를 넣었다 (코드는 net이 선에 싣지 않고 증명만 한다)
+    fn submit_link_code(&mut self, app: &AppHandle, config: &Config, code: &str) {
+        let (Some(net), Some(l)) = (&self.net, self.linking.as_mut()) else { return };
+        let (phase, note) = match net.enter_link_code(&l.friend, code) {
+            Ok(()) => {
+                l.until = Some(Instant::now() + LINK_WAIT);
+                ("waiting", "저쪽 컴퓨터와 확인하는 중…".to_string())
+            }
+            Err(LinkError::Invalid) => ("failed", "코드는 8글자예요 (예: ABCD-EFGH). 저쪽 창의 코드를 확인해 주세요.".into()),
+            Err(LinkError::Offline) => ("failed", "저쪽 컴퓨터가 지금 연결돼 있지 않아요. 둘 다 켜 두고 다시 해 주세요.".into()),
+            Err(LinkError::Old) => ("failed", "저쪽 앱이 예전 버전이에요. 둘 다 새 버전으로 올려 주세요.".into()),
+            Err(LinkError::Taken(other)) => ("blocked", taken_note(config, &other)),
+            Err(LinkError::NotFriend) => ("failed", "이제 친구가 아니에요.".into()),
+        };
+        self.update_link_view(app, |v| {
+            v.phase = phase;
+            v.note = note;
+        });
+    }
+
+    /// 코드로 연결하지 못했다. 코드를 넣은 쪽(기다리던 쪽)과 코드를 보여 준 쪽의 안내가 다르다
+    fn on_link_failed(&mut self, app: &AppHandle, id: &str, reason: &str, left: u32) {
+        let Some(l) = self.linking.as_mut().filter(|l| l.friend == id) else { return };
+        let typed_here = l.until.take().is_some();
+        let note = match (reason, typed_here) {
+            ("wrong", true) if left > 0 => format!("코드가 틀렸어요. 저쪽 창의 코드를 다시 확인해 주세요 ({left}번 남음)."),
+            ("wrong", true) => "저쪽의 확인이 맞지 않아요. 저쪽 창을 다시 열어 새 코드로 해 주세요.".to_string(),
+            ("wrong", false) => format!("저쪽에서 넣은 코드가 틀렸어요 ({left}번 남음)."),
+            ("locked", true) => "너무 많이 틀려서 저쪽 코드가 없어졌어요. 저쪽에서 창을 다시 열어 새 코드를 받아 주세요.".to_string(),
+            ("locked", false) => "너무 많이 틀려서 이 코드는 없앴어요. 메뉴에서 다시 열면 새 코드가 나와요.".to_string(),
+            ("taken", _) => "저쪽 컴퓨터는 이미 다른 컴퓨터와 연결돼 있어요. 저쪽에서 먼저 연결을 끊어 주세요.".to_string(),
+            _ => "저쪽에 이 컴퓨터용 코드가 없어요 (10분이 지났거나 이미 썼어요). 저쪽에서 창을 열어 새 코드를 받아 주세요.".to_string(),
+        };
+        let locked_here = reason == "locked" && !typed_here;
+        self.update_link_view(app, |v| {
+            v.phase = "failed";
+            v.note = note;
+            if locked_here {
+                v.code.clear();
+            }
+        });
+    }
+
+    /// 연결 창의 상태를 고쳐 보낸다 (창이 열려 있으면)
+    fn update_link_view(&self, app: &AppHandle, change: impl FnOnce(&mut LinkView)) {
+        let view = {
+            let mut v = LINK_VIEW.lock().unwrap();
+            change(&mut v);
+            v.clone()
+        };
+        if app.get_webview_window(LINK_LABEL).is_some() {
+            let _ = app.emit_to(LINK_LABEL, "link-state", view);
+        }
+    }
+
     fn on_invite_sent(&mut self, app: &AppHandle, to: &str, sas: &str, token: u64) {
         match self.pairing.as_mut() {
             Some(p) if p.peer == to && p.token.is_none() && p.view.phase == "connecting" => {
@@ -1590,6 +1710,14 @@ impl Network {
     pub fn tick(&mut self, app: &AppHandle, now: Instant, config: &Config, own: &mut Slot) {
         self.quiet = own.pet.is_focusing() || screenpet_core::weather::any_fullscreen(&own.world.windows, &own.world.work_areas);
         self.tick_pairing(app, now);
+        // 📱 코드를 넣었는데 저쪽이 대답하지 않는다
+        if let Some(l) = self.linking.as_mut().filter(|l| l.until.is_some_and(|t| now >= t)) {
+            l.until = None;
+            self.update_link_view(app, |v| {
+                v.phase = "failed";
+                v.note = "저쪽 컴퓨터가 대답하지 않아요. 잠시 뒤 다시 해 주세요.".into();
+            });
+        }
         // 미뤄 둔 받은 신청: 조용해졌으면 지금 띄운다
         if !self.quiet && self.pairing.as_ref().is_some_and(|p| p.view.incoming && !p.shown && p.view.phase == "confirm") {
             self.show_pair(app);
@@ -1633,7 +1761,7 @@ impl Network {
             self.share_due = false;
             self.last_share = Some(now);
             if let Some(net) = &self.net {
-                for f in config.friends.iter().filter(|f| f.device && self.is_connected(&f.id)) {
+                for f in config.friends.iter().filter(|f| f.device_secret.is_some() && self.is_connected(&f.id)) {
                     net.send_device_friends(&f.id, false, describe_friend(config));
                 }
             }
@@ -1660,7 +1788,7 @@ impl Network {
                 side: f.side,
                 connected: self.is_connected(&f.id),
                 can_send: self.can_send && self.is_connected(&f.id),
-                device: f.device,
+                device: f.device_secret.is_some(),
                 introduced: f.via.is_some(),
             })
             .collect();
@@ -1755,6 +1883,39 @@ pub fn code_renew(window: WebviewWindow, state: tauri::State<AppState>) {
 #[tauri::command]
 pub fn code_close(window: WebviewWindow) {
     if window.label() == CODE_LABEL {
+        let _ = window.hide();
+    }
+}
+
+/// 📱 이미 다른 컴퓨터와 연결돼 있을 때 (컴퓨터는 둘까지)
+fn taken_note(config: &Config, other: &str) -> String {
+    let name = config.friend(other).map_or("다른", |f| f.shown_name());
+    format!("이미 \"{name}\" 컴퓨터와 연결돼 있어요. 컴퓨터는 둘까지라, 먼저 그 친구 메뉴에서 📱 연결 끊기를 해 주세요.")
+}
+
+/// 연결 창의 지금 상태 (웹뷰 첫 로드용 — 그 뒤로는 `link-state` 이벤트)
+#[tauri::command]
+pub fn link_state(window: WebviewWindow) -> Result<LinkView, String> {
+    if window.label() != LINK_LABEL {
+        return Err("wrong window".into());
+    }
+    Ok(LINK_VIEW.lock().unwrap().clone())
+}
+
+/// 연결 창의 "연결": 저쪽 코드를 게임 루프로 보낸다 (창은 그대로 — 결과가 `link-state`로 온다)
+#[tauri::command]
+pub fn link_submit(window: WebviewWindow, state: tauri::State<AppState>, code: String) {
+    if window.label() != LINK_LABEL {
+        return;
+    }
+    let code: String = code.chars().take(32).collect();
+    state.send(Input::Net(NetInput::SubmitLinkCode(code)));
+}
+
+/// 연결 창의 "닫기"
+#[tauri::command]
+pub fn link_close(window: WebviewWindow) {
+    if window.label() == LINK_LABEL {
         let _ = window.hide();
     }
 }

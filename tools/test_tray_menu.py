@@ -99,16 +99,25 @@ def test_size_window_slides_live_and_resets_easily():
     assert "scale: own.shown.base," in (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
 
 
-def test_friend_submenu_marks_my_other_computer():
+def test_friend_submenu_links_my_other_computer_with_a_code():
     fill = TRAY[TRAY.index("fn try_fill_friends") :]
     fill = fill[: fill.index("/// 내 동물이 친구 화면에")]
-    # 친구 하위 메뉴의 체크 항목 (이름 바꾸기 위)
-    assert 'CheckMenuItem::with_id(app, format!("{DEVICE_PREFIX}{}", f.id), "📱 내 다른 컴퓨터", true, f.device, None::<&str>)' in fill
+    # 친구 하위 메뉴: 연결 안 됐으면 코드 창을 여는 항목, 연결된 그 친구면 연결 끊기 (이름 바꾸기 위)
+    assert '"📱 내 다른 컴퓨터로 연결…"' in fill and '"📱 연결 끊기 (내 컴퓨터)"' in fill
+    assert 'format!("{UNLINK_PREFIX}{}", f.id)' in fill and 'format!("{DEVICE_PREFIX}{}", f.id)' in fill
     assert "&sep2, &device, &nickname, &unfriend]" in fill
+    assert "CheckMenuItem::with_id(app, format!(\"{DEVICE_PREFIX}" not in fill, "no plain checkbox any more"
     # 친구 목록 이름표
     assert '"(내 컴퓨터)"' in fill and '"(다른 컴퓨터)"' in fill
-    assert 'const DEVICE_PREFIX: &str = "net:device:";' in TRAY
-    assert "net(NetInput::ToggleDevice(id.to_string()))" in TRAY
+    assert 'const DEVICE_PREFIX: &str = "net:device:";' in TRAY and 'const UNLINK_PREFIX: &str = "net:unlink:";' in TRAY
+    assert "net(NetInput::LinkDevice(id.to_string()))" in TRAY and "net(NetInput::UnlinkDevice(id.to_string()))" in TRAY
     network = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
-    assert "NetInput::ToggleDevice(id) =>" in network and "DEVICE_ON_BUBBLE" in network
-    assert "📱 내 다른 컴퓨터" in HELP
+    for arm in ("NetInput::LinkDevice(id) =>", "NetInput::UnlinkDevice(id) =>", "NetInput::SubmitLinkCode(code) =>", "NetEvent::DeviceLinked { id } =>", "NetEvent::DeviceLinkFailed {", "NetEvent::DeviceProven { id } =>", "NetEvent::DeviceUnlinked { id } =>"):
+        assert arm in network, arm
+    assert "DEVICE_ON_BUBBLE" not in network
+    # 비밀은 설정에만 (로그에 찍지 않는다)
+    assert "set_friend_device_secret(" in network and "linked_device()" in network
+    for line in network.splitlines():
+        if "eprintln!" in line:
+            assert "secret" not in line, line
+    assert "📱 내 다른 컴퓨터" in HELP and "코드" in HELP[HELP.index("📱 내 다른 컴퓨터") :][:600]

@@ -327,7 +327,7 @@ const scenarios = {
 
   // 글 쓰는 창의 키: 버튼 위 Enter는 그 버튼만, 한글 조합 중 Enter는 글자 확정, Esc는 닫기
   async formKeys([html, submitCmd, closeCmd]) {
-    const replies = { letter_state: { name: "친구", max: 80 }, postit_max: 80, name_state: { target: "me", current: "", fallback: "친구", max: 20 }, code_state: { code: "ABCD-1234", connected: true, enabled: true } };
+    const replies = { letter_state: { name: "친구", max: 80 }, postit_max: 80, name_state: { target: "me", current: "", fallback: "친구", max: 20 }, code_state: { code: "ABCD-1234", connected: true, enabled: true }, link_state: { name: "친구", code: "WXYZ-2345", phase: "ready", note: "" } };
     const w = openWindow(html, { replies });
     await tick();
     w.byId("input").value = "ABCD-1234";

@@ -51,7 +51,7 @@ fn start_net_with(
         timing,
         relay_url: Some(relay_url.into()),
         relay_key,
-        devices: vec![],
+        device: None,
         introduced: vec![],
         pending: vec![],
         pending_added: vec![],

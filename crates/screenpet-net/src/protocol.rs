@@ -4,17 +4,18 @@
 use serde::{Deserialize, Serialize};
 
 /// Protocol version carried in announcements and `hello`. 2 = knows the
-/// `ladder_*` messages (v0.5.0). 3 = knows `device_friends` and `my_devices`
-/// (linked devices, v0.5.3). Older versions close a link on any message `type`
+/// `ladder_*` messages (v0.5.0). 3 = knows `device_friends`, `my_devices` and
+/// the `device_*` code-linking messages (linked devices, v0.5.3). Older versions close a link on any message `type`
 /// they do not know, so features with new message types check the peer's
 /// version first (`Net::peer_version`).
 pub const PROTOCOL_VERSION: u32 = 3;
 /// Lowest peer version that may be sent `LadderMsg`s.
 pub const LADDER_MIN_VERSION: u32 = 2;
-/// Lowest peer version that may be sent `device_friends` / `my_devices`.
+/// Lowest peer version that may be sent `device_friends`, `my_devices` and `device_*`.
 pub const DEVICES_MIN_VERSION: u32 = 3;
-/// Most devices one friend introduces (`my_devices`), in one message and in all.
-pub const MAX_DEVICES: usize = 3;
+/// Most devices one friend introduces (`my_devices`), in one message and in
+/// all: a person links at most two computers, so a friend has one other.
+pub const MAX_DEVICES: usize = 1;
 /// App tag carried in announcements so unrelated UDP traffic is ignored.
 pub const APP_TAG: &str = "screenpet";
 /// Largest frame on a link (a Noise message is at most 65535 bytes).
@@ -131,12 +132,6 @@ fn lenient_list<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>
         _ => Vec::new(),
     };
     Ok(items.into_iter().take(256).filter_map(|v| serde_json::from_value(v).ok()).collect())
-}
-
-/// A flag that may be missing or something else (read as `false`).
-fn lenient_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
-    let v = serde_json::Value::deserialize(d)?;
-    Ok(v.as_bool().unwrap_or_default())
 }
 
 /// A string that may be missing or something else (read as empty).
@@ -297,30 +292,56 @@ pub enum Control {
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         toss: Option<Toss>,
     },
-    /// My friends, sent to a friend I marked as my other computer (only to
-    /// `DEVICES_MIN_VERSION` peers). The receiver takes it only if it marked
-    /// me too, and only adds friends it does not know. `want` = please send
-    /// yours back (I just marked you).
+    /// My friends, sent to my linked computer once it proved our secret on
+    /// this link (only to `DEVICES_MIN_VERSION` peers). The receiver takes it
+    /// only from a link where the proof checked out, and only adds friends it
+    /// does not know. `want` = please send yours back.
     DeviceFriends {
         #[serde(default, deserialize_with = "lenient_list")]
         friends: Vec<WireFriend>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         want: bool,
     },
-    /// My other computers (at most `MAX_DEVICES`), introduced to a friend that
+    /// My other computer (at most `MAX_DEVICES`), introduced to a friend that
     /// is not one of them (only to `DEVICES_MIN_VERSION` peers). The friend adds
     /// them as friends that leave together with me.
     MyDevices {
         #[serde(default, deserialize_with = "lenient_list")]
         devices: Vec<WireDevice>,
     },
-    /// Whether I marked the receiver as my other computer (only to
-    /// `DEVICES_MIN_VERSION` peers): sent on connect when marked, and on every
-    /// change. `device_friends` goes only where both sides marked each other.
-    DeviceMark {
-        #[serde(default, deserialize_with = "lenient_bool")]
-        on: bool,
+    /// 📱 Linking with a code (all `device_*` messages only to
+    /// `DEVICES_MIN_VERSION` peers). The enterer typed the code the receiver
+    /// is showing for it: `nonce` = its fresh 32-byte nonce nb (hex). The code
+    /// itself never goes on the wire.
+    DeviceCode { nonce: String },
+    /// The code holder's fresh nonce na, only if it holds an unexpired code
+    /// for the sender (`device_no` otherwise).
+    DeviceCodeNonce { nonce: String },
+    /// The enterer's proof that it knows the code K = BLAKE2s(label || code):
+    /// BLAKE2s(label || "enter" || K || nb || na || enterer key || holder key).
+    DeviceCodeProof { proof: String },
+    /// The holder checked that proof and now proves the code too (it never
+    /// proves first, so a wrong guess learns nothing):
+    /// BLAKE2s(label || "hold" || K || nb || na || holder key || enterer key).
+    /// Both then store S = BLAKE2s(label || K || holder key || enterer key || na || nb).
+    DeviceCodeOk { proof: String },
+    /// The code did not link: `reason` = "wrong" (`left` tries remain),
+    /// "locked" (too many wrong tries: the code is gone), "none" (no code for
+    /// you, expired or used), "taken" (I am linked to another computer).
+    DeviceNo {
+        #[serde(default, deserialize_with = "lenient_string")]
+        reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        left: Option<u32>,
     },
+    /// On every friend link between two linked computers, each sends a fresh
+    /// nonce, and answers the other's with `device_proof` =
+    /// BLAKE2s(label || S || prover key || verifier key || verifier nonce ||
+    /// prover nonce). Friend lists flow only once that proof checked out.
+    DeviceNonce { nonce: String },
+    DeviceProof { proof: String },
+    /// Forget our link (the sender unlinked, or holds no secret for us).
+    DeviceUnlink,
 }
 
 /// One player of a locked ladder game, as the host relays it. `token` is a
@@ -871,5 +892,22 @@ mod tests {
         assert_eq!(String::from_utf8(m.to_json()).unwrap(), format!(r#"{{"type":"my_devices","devices":[{{"id":"d","key":"{k}"}}]}}"#));
         let m = Message::Control(Control::DeviceFriends { friends: vec![], want: false });
         assert_eq!(String::from_utf8(m.to_json()).unwrap(), r#"{"type":"device_friends","friends":[]}"#);
+    }
+
+    #[test]
+    fn device_link_messages_have_their_wire_shape_and_bad_fields_read_as_nothing() {
+        let shape = |m: Control| String::from_utf8(Message::Control(m).to_json()).unwrap();
+        assert_eq!(shape(Control::DeviceCode { nonce: "ab".into() }), r#"{"type":"device_code","nonce":"ab"}"#);
+        assert_eq!(shape(Control::DeviceCodeNonce { nonce: "ab".into() }), r#"{"type":"device_code_nonce","nonce":"ab"}"#);
+        assert_eq!(shape(Control::DeviceCodeProof { proof: "ab".into() }), r#"{"type":"device_code_proof","proof":"ab"}"#);
+        assert_eq!(shape(Control::DeviceCodeOk { proof: "ab".into() }), r#"{"type":"device_code_ok","proof":"ab"}"#);
+        assert_eq!(shape(Control::DeviceNo { reason: "wrong".into(), left: Some(3) }), r#"{"type":"device_no","reason":"wrong","left":3}"#);
+        assert_eq!(shape(Control::DeviceNo { reason: "none".into(), left: None }), r#"{"type":"device_no","reason":"none"}"#);
+        assert_eq!(shape(Control::DeviceNonce { nonce: "ab".into() }), r#"{"type":"device_nonce","nonce":"ab"}"#);
+        assert_eq!(shape(Control::DeviceProof { proof: "ab".into() }), r#"{"type":"device_proof","proof":"ab"}"#);
+        assert_eq!(shape(Control::DeviceUnlink), r#"{"type":"device_unlink"}"#);
+        let Some(Message::Control(Control::DeviceNo { reason, left })) = Message::parse(br#"{"type":"device_no","reason":5,"left":"many"}"#) else { panic!() };
+        assert_eq!((reason.as_str(), left), ("", None));
+        assert_eq!(Message::parse(br#"{"type":"device_mark","on":true}"#), None, "gone before any release");
     }
 }

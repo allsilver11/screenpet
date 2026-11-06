@@ -49,7 +49,7 @@ def test_frame_index_never_goes_negative():
 
 @pytest.mark.parametrize(
     "page,submit,close",
-    [("letter.html", "letter_submit", "letter_close"), ("postit.html", "postit_submit", "postit_close"), ("name.html", "name_submit", "name_close"), ("code.html", "code_submit", "code_close")],
+    [("letter.html", "letter_submit", "letter_close"), ("postit.html", "postit_submit", "postit_close"), ("name.html", "name_submit", "name_close"), ("code.html", "code_submit", "code_close"), ("link.html", "link_submit", "link_close")],
 )
 def test_form_keys(page, submit, close):
     r = run("formKeys", page, submit, close)

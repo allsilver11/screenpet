@@ -5,7 +5,7 @@
 mod common;
 
 use common::{blake2s, fast, free_udp_port, friend, hex, is_connected, is_disconnected, unhex, wait_for};
-use screenpet_net::{new_install_id, Fling, Friend, LadderMsg, Net, NetConfig, NetEvent, Side, Steer, Timing, Toss, VSide, Visit, MAX_FRIENDS, SAS_EMOJI};
+use screenpet_net::{new_install_id, DeviceSecret, Fling, Friend, LadderMsg, LinkError, Net, NetConfig, NetEvent, Side, Steer, Timing, Toss, VSide, Visit, MAX_DEVICES, MAX_FRIENDS, SAS_EMOJI};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -35,7 +35,7 @@ fn cfg(id: &str, name: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Fri
         timing: fast(),
         relay_url: None,
         relay_key: None,
-        devices: vec![],
+        device: None,
         introduced: vec![],
         pending: vec![],
         pending_added: vec![],
@@ -2096,6 +2096,7 @@ fn messages_within(p: &mut Peer, window: Duration) -> Vec<Value> {
             Err(_) => break,
         }
     }
+    p.s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     out
 }
 
@@ -2125,20 +2126,96 @@ fn names(n: &str) -> (String, Option<String>) {
     (format!("name of {n}"), Some("left".into()))
 }
 
+// The documented device-link scheme, written out independently here.
+const L_CODE: &[u8] = b"screenpet-device/1 code";
+const L_CODE_PROOF: &[u8] = b"screenpet-device/1 code proof";
+const L_SECRET: &[u8] = b"screenpet-device/1 secret";
+const L_PROOF: &[u8] = b"screenpet-device/1 proof";
+
+/// K = BLAKE2s(label || the 8 code symbols, upper case, no dash).
+fn code_key(code: &str) -> [u8; 32] {
+    let c: String = code.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_uppercase()).collect();
+    blake2s(&[L_CODE, c.as_bytes()])
+}
+
+/// The proof of whoever typed the code (sent first; the holder answers only if it is right).
+fn enter_proof(k: &[u8; 32], nb: &[u8; 32], na: &[u8; 32], enterer: &[u8; 32], holder: &[u8; 32]) -> [u8; 32] {
+    blake2s(&[L_CODE_PROOF, b"enter", k, nb, na, enterer, holder])
+}
+
+/// The code holder's proof, after it checked the enterer's.
+fn hold_proof(k: &[u8; 32], nb: &[u8; 32], na: &[u8; 32], holder: &[u8; 32], enterer: &[u8; 32]) -> [u8; 32] {
+    blake2s(&[L_CODE_PROOF, b"hold", k, nb, na, holder, enterer])
+}
+
+/// The long-term secret both store.
+fn derive_secret(k: &[u8; 32], holder: &[u8; 32], enterer: &[u8; 32], na: &[u8; 32], nb: &[u8; 32]) -> [u8; 32] {
+    blake2s(&[L_SECRET, k, holder, enterer, na, nb])
+}
+
+/// Proof of the stored secret on a later link (to the verifier's fresh nonce).
+fn secret_proof(s: &[u8; 32], prover: &[u8; 32], verifier: &[u8; 32], n_verifier: &[u8; 32], n_prover: &[u8; 32]) -> [u8; 32] {
+    blake2s(&[L_PROOF, s, prover, verifier, n_verifier, n_prover])
+}
+
+fn b32(v: &Value, field: &str) -> [u8; 32] {
+    unhex(v[field].as_str().unwrap_or_else(|| panic!("{field} in {v}"))).try_into().unwrap()
+}
+
+fn linked(c: &mut NetConfig, id: &str, s: [u8; 32]) {
+    c.device = Some((id.to_string(), DeviceSecret(s)));
+}
+
+fn proven(e: &NetEvent) -> bool {
+    matches!(e, NetEvent::DeviceProven { .. })
+}
+
+/// As the raw linked device `p` (private key `mine`): take the net's
+/// `device_nonce`, send ours, check the net's proof, send ours.
+fn prove_as_device(p: &mut Peer, s: &[u8; 32], mine: &[u8; 32]) {
+    let theirs = p.recv_msg().unwrap();
+    assert_eq!(theirs["type"], "device_nonce", "{theirs}");
+    let nn = b32(&theirs, "nonce");
+    let nm = random32();
+    p.send(json!({"type": "device_nonce", "nonce": hex(&nm)})).unwrap();
+    let (me, net) = (Net::public_key(mine), p.remote);
+    let proof = p.recv_msg().unwrap();
+    assert_eq!(proof["type"], "device_proof", "{proof}");
+    assert_eq!(b32(&proof, "proof"), secret_proof(s, &net, &me, &nm, &nn), "the net proves the same secret");
+    p.send(json!({"type": "device_proof", "proof": hex(&secret_proof(s, &me, &net, &nn, &nm))})).unwrap();
+}
+
+/// As the raw peer `p` (private key `mine`), type `code` that the net is
+/// holding for us. `Ok(secret)` when linked; `Err(the net's answer)` if not.
+fn raw_enter(p: &mut Peer, code: &str, mine: &[u8; 32]) -> Result<[u8; 32], Value> {
+    let nb = random32();
+    p.send(json!({"type": "device_code", "nonce": hex(&nb)})).unwrap();
+    let r = p.recv_msg().unwrap();
+    if r["type"] != "device_code_nonce" {
+        return Err(r);
+    }
+    let na = b32(&r, "nonce");
+    let (k, me, net) = (code_key(code), Net::public_key(mine), p.remote);
+    p.send(json!({"type": "device_code_proof", "proof": hex(&enter_proof(&k, &nb, &na, &me, &net))})).unwrap();
+    let r = p.recv_msg().unwrap();
+    if r["type"] != "device_code_ok" {
+        return Err(r);
+    }
+    assert_eq!(b32(&r, "proof"), hold_proof(&k, &nb, &na, &net, &me), "the holder proves the code too");
+    Ok(derive_secret(&k, &net, &me, &na, &nb))
+}
+
 #[test]
 fn device_messages_are_never_sent_to_an_older_build() {
     let kz = key();
     let me = hid(1);
     let mut c = cfg(&me, "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend(&hid(2), &key())]);
-    c.devices = vec!["zzzz".into()];
+    linked(&mut c, &hid(2), random32());
     let (net, rx, port) = sniffed(c);
     // 예전 판 흉내 (hello v 1, 모르는 type이면 연결을 끊는다): 새 메시지는 하나도 가지 않는다
     let mut p = raw_friend_connect(port, &kz, "zzzz");
     wait_for(&rx, 5.0, is_connected).unwrap();
     assert!(!net.send_device_friends("zzzz", true, names));
-    assert!(!net.send_my_devices("zzzz"));
-    net.set_device("zzzz", false);
-    net.set_device(&hid(2), true);
     assert!(!net.send_my_devices("zzzz"), "an old build is never told about my devices");
     let got = messages_within(&mut p, Duration::from_millis(700));
     assert!(got.is_empty(), "only pings reach the old build: {got:?}");
@@ -2158,26 +2235,42 @@ fn device_messages_are_never_sent_to_an_older_build() {
 }
 
 #[test]
-fn device_friends_go_only_to_a_device_i_marked_and_leave_out_introduced_and_unconfirmed_friends() {
+fn a_linked_device_on_an_older_build_is_never_asked_for_proof_or_told_to_unlink() {
+    let kz = key();
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
+    linked(&mut c, "zzzz", random32());
+    let (net, rx, port) = sniffed(c);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert_eq!(net.enter_link_code("zzzz", "ABCD-EFGH"), Err(LinkError::Old));
+    assert!(net.new_link_code("zzzz").is_ok(), "a code can be shown, but the old build cannot use it");
+    assert!(net.unlink_device("zzzz"));
+    assert_eq!(messages_within(&mut p, Duration::from_millis(600)), Vec::<Value>::new());
+    assert_eq!(wait_for(&rx, 0.3, is_disconnected), None);
+    net.shutdown();
+}
+
+#[test]
+fn device_friends_go_only_to_a_proven_device_and_leave_out_introduced_and_unconfirmed_friends() {
     let (kz, ky) = (key(), key());
     let me = hid(1);
     let (plain, introduced, unconfirmed) = (hid(2), hid(3), hid(4));
     let kp = key();
+    let s = random32();
     let mut c = cfg(&me, "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend("yyyy", &ky), friend(&plain, &kp), friend(&introduced, &key()), friend(&unconfirmed, &key())]);
     c.introduced = vec![(introduced.clone(), "yyyy".into())];
     c.pending = vec![unconfirmed.clone()];
+    linked(&mut c, "zzzz", s);
     let (net, rx, port) = sniffed(c);
     let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
-    p.send(json!({"type": "device_mark", "on": true})).unwrap(); // 저쪽은 나를 표시했다
-    std::thread::sleep(Duration::from_millis(200));
-    assert!(!net.send_device_friends("zzzz", false, names), "not marked as my device");
-    assert!(net.set_device("zzzz", true));
+    // 비밀을 증명하기 전에는 그냥 친구다
+    assert!(!net.send_device_friends("zzzz", false, names), "not proven yet");
+    prove_as_device(&mut p, &s, &kz);
+    assert_eq!(wait_for(&rx, 2.0, proven), Some(NetEvent::DeviceProven { id: "zzzz".into() }));
     assert!(net.send_device_friends("zzzz", true, names));
     let got = messages_within(&mut p, Duration::from_millis(500));
-    assert_eq!(got.len(), 2, "{got:?}");
-    assert_eq!(got[0], json!({"type": "device_mark", "on": true}));
-    let got = &got[1..];
+    assert_eq!(got.len(), 1, "{got:?}");
     assert_eq!(got[0]["type"], "device_friends");
     assert_eq!(got[0]["want"], true);
     let ids: Vec<&str> = got[0]["friends"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
@@ -2188,22 +2281,24 @@ fn device_friends_go_only_to_a_device_i_marked_and_leave_out_introduced_and_unco
 }
 
 #[test]
-fn device_friends_are_accepted_only_from_a_device_i_marked_and_only_add() {
+fn device_friends_are_accepted_only_from_a_proven_device_and_only_add() {
     let (kz, kk) = (key(), key());
     let (me, mine) = (hid(1), key());
     let known = hid(2);
+    let s = random32();
     let mut c = cfg(&me, "Me", mine, 0, 0, vec![friend("zzzz", &kz), friend(&known, &kk)]);
-    c.devices = vec![];
+    linked(&mut c, "zzzz", s);
     let (net, rx, port) = sniffed(c);
     let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
     let new = hid(3);
     let kn = key();
-    // 내가 기기로 표시하지 않은 친구가 보낸 목록은 버린다 (연결은 그대로)
+    // 비밀을 증명하지 않은 링크의 목록은 버린다 (연결은 그대로)
     p.send(json!({"type": "device_friends", "friends": [wire(&new, &kn)]})).unwrap();
     assert_eq!(wait_for(&rx, 0.6, added), None);
     assert_eq!(net.friends().len(), 2);
-    assert!(net.set_device("zzzz", true));
+    prove_as_device(&mut p, &s, &kz);
+    assert!(wait_for(&rx, 2.0, proven).is_some());
     let other_key = key();
     p.send(json!({"type": "device_friends", "want": true, "friends": [
         {"id": new, "key": hex(&kn), "name": "N", "side": "up"},
@@ -2236,14 +2331,22 @@ fn device_friends_are_accepted_only_from_a_device_i_marked_and_only_add() {
     net.shutdown();
 }
 
-#[test]
-fn device_friends_stop_at_the_friend_limit_and_names_are_clamped() {
-    let kz = key();
+/// A net linked to raw device "zzzz" that proved its secret on this link.
+fn proven_device() -> (Net, Receiver<NetEvent>, Peer) {
+    let (kz, s) = (key(), random32());
     let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
-    c.devices = vec!["zzzz".into()];
+    linked(&mut c, "zzzz", s);
     let (net, rx, port) = sniffed(c);
     let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
+    prove_as_device(&mut p, &s, &kz);
+    assert!(wait_for(&rx, 2.0, proven).is_some());
+    (net, rx, p)
+}
+
+#[test]
+fn device_friends_stop_at_the_friend_limit_and_names_are_clamped() {
+    let (net, rx, mut p) = proven_device();
     let list: Vec<Value> = (0..60u8).map(|i| json!({"id": hid(100 + i), "key": hex(&key()), "name": "가".repeat(100)})).collect();
     p.send(json!({"type": "device_friends", "friends": list})).unwrap();
     let first = wait_for(&rx, 2.0, added).unwrap();
@@ -2257,12 +2360,7 @@ fn device_friends_stop_at_the_friend_limit_and_names_are_clamped() {
 
 #[test]
 fn device_friend_floods_are_rate_limited_and_keep_the_link() {
-    let kz = key();
-    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
-    c.devices = vec!["zzzz".into()];
-    let (net, rx, port) = sniffed(c);
-    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
-    wait_for(&rx, 5.0, is_connected).unwrap();
+    let (net, rx, mut p) = proven_device();
     for i in 0..40u8 {
         p.send(json!({"type": "device_friends", "friends": [wire(&hid(100 + i), &key())]})).unwrap();
     }
@@ -2273,37 +2371,32 @@ fn device_friend_floods_are_rate_limited_and_keep_the_link() {
 }
 
 #[test]
-fn an_introduction_adds_at_most_three_devices_and_they_leave_with_the_introducer() {
+fn an_introduction_adds_at_most_one_device_and_it_leaves_with_the_introducer() {
+    // 한 사람의 컴퓨터는 둘까지: 친구가 소개하는 다른 컴퓨터는 하나뿐
     let (kz, kk) = (key(), key());
     let known = hid(2);
     let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend(&known, &kk)]));
     let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
-    let devs: Vec<String> = (10..15u8).map(hid).collect();
-    // 앞의 셋만 본다: 내 친구의 키를 바꾸려는 것은 건너뛴다
-    p.send(json!({"type": "my_devices", "devices": [
-        wire(&known, &key()), wire(&devs[0], &key()), wire(&devs[1], &key()), wire(&devs[2], &key()),
-    ]})).unwrap();
+    let devs: Vec<String> = (10..13u8).map(hid).collect();
+    assert_eq!(MAX_DEVICES, 1);
+    // 첫 항목만 본다: 내 친구의 키를 바꾸려는 것이면 아무도 더하지 않는다
+    p.send(json!({"type": "my_devices", "devices": [wire(&known, &key()), wire(&devs[0], &key())]})).unwrap();
+    assert_eq!(added_ids(&rx, 0.8), Vec::<String>::new(), "only the first entry is looked at");
+    p.send(json!({"type": "my_devices", "devices": [wire(&devs[0], &key()), wire(&devs[1], &key())]})).unwrap();
     let ev = wait_for(&rx, 2.0, added).unwrap();
-    assert!(matches!(&ev, NetEvent::FriendAdded { via: Some(v), name, .. } if v == "zzzz" && name.is_empty()), "{ev:?}");
-    let mut ids = vec![match ev {
-        NetEvent::FriendAdded { id, .. } => id,
-        _ => unreachable!(),
-    }];
-    ids.extend(added_ids(&rx, 0.8));
-    assert_eq!(ids, devs[..2].to_vec(), "only the first three entries are looked at");
-    // 다시 소개해도 그 친구가 소개한 기기는 모두 합쳐 셋까지
-    p.send(json!({"type": "my_devices", "devices": [wire("zzzz", &key()), wire(&devs[3], &key()), wire(&devs[4], &key())]})).unwrap();
-    std::thread::sleep(Duration::from_millis(400));
-    assert_eq!(added_ids(&rx, 0.8), vec![devs[3].clone()]);
+    assert!(matches!(&ev, NetEvent::FriendAdded { id, via: Some(v), name, .. } if *id == devs[0] && v == "zzzz" && name.is_empty()), "{ev:?}");
+    assert_eq!(added_ids(&rx, 0.8), Vec::<String>::new());
+    // 다시 소개해도 그 친구가 소개한 기기는 모두 합쳐 하나까지
+    p.send(json!({"type": "my_devices", "devices": [wire(&devs[2], &key())]})).unwrap();
+    assert_eq!(added_ids(&rx, 0.8), Vec::<String>::new());
     assert_eq!(net.friend_info(&devs[0]).unwrap().via.as_deref(), Some("zzzz"));
     assert_eq!(net.friend_info(&known).unwrap().via, None);
     assert_eq!(net.friends().iter().find(|f| f.id == known).unwrap().public_key, Net::public_key(&kk));
-    assert_eq!(net.friends().len(), 5);
-    // 소개한 친구를 지우면 그 기기들도 함께
+    assert_eq!(net.friends().len(), 3);
+    // 소개한 친구를 지우면 그 기기도 함께
     net.unfriend("zzzz");
-    let dropped: Vec<NetEvent> = (0..3).filter_map(|_| wait_for(&rx, 1.0, |e| matches!(e, NetEvent::FriendDropped { .. }))).collect();
-    assert_eq!(dropped.len(), 3);
+    assert_eq!(wait_for(&rx, 1.0, |e| matches!(e, NetEvent::FriendDropped { .. })), Some(NetEvent::FriendDropped { id: devs[0].clone() }));
     assert_eq!(net.friends(), vec![friend(&known, &kk)]);
     net.shutdown();
 }
@@ -2338,17 +2431,18 @@ fn introduced_devices_leave_when_the_introducer_removes_me() {
 }
 
 #[test]
-fn introductions_are_ignored_from_strangers_old_messages_and_my_own_devices() {
+fn introductions_are_ignored_from_strangers_old_messages_and_my_own_device() {
     let kz = key();
     let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
-    c.devices = vec!["zzzz".into()];
+    linked(&mut c, "zzzz", random32());
     let (net, rx, port) = sniffed(c);
     // 낯선 사람
     let mut s = raw_connect(port, &key(), &hid(9));
     let _ = s.send(json!({"type": "my_devices", "devices": [wire(&hid(10), &key())]}));
     let _ = s.send(json!({"type": "device_friends", "friends": [wire(&hid(11), &key())]}));
     assert_eq!(wait_for(&rx, 0.6, added), None);
-    // 내 기기로 표시한 친구의 소개는 받지 않는다 (그 컴의 기기는 device_friends로 온다)
+    drop(s);
+    // 내 다른 컴퓨터의 소개는 받지 않는다 (그 컴의 친구는 device_friends로 온다)
     let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
     p.send(json!({"type": "my_devices", "devices": [wire(&hid(12), &key())]})).unwrap();
@@ -2358,20 +2452,26 @@ fn introductions_are_ignored_from_strangers_old_messages_and_my_own_devices() {
 }
 
 #[test]
-fn marking_a_device_makes_it_mine_and_not_someone_elses() {
+fn linking_an_introduced_device_makes_it_mine_and_not_someone_elses() {
     let (kz, kd) = (key(), key());
     let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
     let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
-    p.send(json!({"type": "my_devices", "devices": [wire(&hid(10), &kd)]})).unwrap();
+    p.send(json!({"type": "my_devices", "devices": [wire(&hid(10), &Net::public_key(&kd))]})).unwrap();
     assert!(wait_for(&rx, 2.0, added).is_some());
-    assert!(net.set_device(&hid(10), true));
+    drop(p); // 같은 주소의 raw 링크는 하나씩
+    wait_for(&rx, 5.0, is_disconnected).unwrap();
+    let code = net.new_link_code(&hid(10)).unwrap();
+    let mut d = raw_connect_as(port, &kd, v3_hello(&hid(10)));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    raw_enter(&mut d, &code, &kd).expect("linked");
+    assert_eq!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::DeviceLinked { .. })), Some(NetEvent::DeviceLinked { id: hid(10) }));
     let info = net.friend_info(&hid(10)).unwrap();
     assert!(info.device && info.via.is_none());
-    assert!(!net.set_device("nobody", true), "only friends");
+    assert_eq!(net.new_link_code("nobody"), Err(LinkError::NotFriend), "only friends");
     net.unfriend("zzzz");
     assert_eq!(wait_for(&rx, 0.8, |e| matches!(e, NetEvent::FriendDropped { .. })), None);
-    assert_eq!(net.friends(), vec![Friend { id: hid(10), public_key: kd }]);
+    assert_eq!(net.friends(), vec![Friend { id: hid(10), public_key: Net::public_key(&kd) }]);
     net.shutdown();
 }
 
@@ -2396,29 +2496,87 @@ fn an_unconfirmed_friend_that_does_not_know_us_yet_is_kept_until_it_does() {
     net.shutdown();
 }
 
+fn event_of(rx: &Receiver<NetEvent>, pred: impl Fn(&NetEvent) -> bool) -> NetEvent {
+    wait_for(rx, 5.0, pred).expect("event")
+}
+
 #[test]
-fn two_devices_share_their_friends_over_a_real_link() {
+fn two_computers_link_with_a_code_share_friends_and_prove_it_again_after_a_restart() {
     let (pa, pb) = (free_udp_port(), free_udp_port());
     let (ka, kb, kf) = (key(), key(), key());
     let (a_id, b_id, f_id) = (hid(0xa1), hid(0xb2), hid(0xf3));
-    let mut ca = cfg(&a_id, "Ann", ka, pa, pb, vec![friend(&b_id, &kb), friend(&f_id, &kf)]);
-    ca.devices = vec![b_id.clone()];
-    let mut cb = cfg(&b_id, "Ann", kb, pb, pa, vec![friend(&a_id, &ka)]);
-    cb.devices = vec![a_id.clone()];
-    let (a, arx) = Net::start(ca).unwrap();
-    let (b, brx) = Net::start(cb).unwrap();
+    let ca = cfg(&a_id, "Ann", ka, pa, pb, vec![friend(&b_id, &kb), friend(&f_id, &kf)]);
+    let cb = cfg(&b_id, "Ann", kb, pb, pa, vec![friend(&a_id, &ka)]);
+    let (a, arx) = Net::start(ca.clone()).unwrap();
+    let (b, brx) = Net::start(cb.clone()).unwrap();
     wait_for(&arx, 5.0, is_connected).unwrap();
     wait_for(&brx, 5.0, is_connected).unwrap();
     assert_eq!(a.peer_version(&b_id), Some(3));
-    assert_eq!(wait_for(&arx, 2.0, |e| matches!(e, NetEvent::PeerMarkedMe { .. })), Some(NetEvent::PeerMarkedMe { id: b_id.clone() }));
+    // 서로 친구일 뿐: 친구 목록은 가지 않는다
+    assert!(!a.send_device_friends(&b_id, false, |_| ("Fred".into(), None)));
+    // A가 코드를 보여 주고 B에서 그 코드를 넣는다
+    let code = a.new_link_code(&b_id).unwrap();
+    assert_eq!(code.len(), 9, "{code}");
+    assert_eq!(&code[4..5], "-");
+    assert_eq!(b.enter_link_code(&a_id, &code.to_lowercase()), Ok(()));
+    assert_eq!(event_of(&arx, |e| matches!(e, NetEvent::DeviceLinked { .. })), NetEvent::DeviceLinked { id: b_id.clone() });
+    assert_eq!(event_of(&brx, |e| matches!(e, NetEvent::DeviceLinked { .. })), NetEvent::DeviceLinked { id: a_id.clone() });
+    let (sa, sb) = (a.device_secret(&b_id).expect("A stores it"), b.device_secret(&a_id).expect("B stores it"));
+    assert_eq!(sa, sb, "both store the same secret");
+    assert_eq!(format!("{sa:?}"), "DeviceSecret(..)", "never printed");
+    assert_eq!((a.linked_device(), b.linked_device()), (Some(b_id.clone()), Some(a_id.clone())));
     assert!(a.send_device_friends(&b_id, false, |_| ("Fred".into(), None)));
     assert_eq!(wait_for(&brx, 2.0, added), Some(NetEvent::FriendAdded { id: f_id.clone(), name: "Fred".into(), via: None, side: None }));
     assert!(b.friends().contains(&friend(&f_id, &kf)));
     assert!(!b.send_my_devices(&a_id), "my devices are not introduced to my own devices");
+    // 그 코드는 한 번만
+    assert_eq!(b.enter_link_code(&a_id, &code), Ok(()));
+    assert!(matches!(event_of(&brx, |e| matches!(e, NetEvent::DeviceLinkFailed { .. })), NetEvent::DeviceLinkFailed { reason, .. } if reason == "none"));
+    // 껐다 켜면 저장한 비밀을 다시 증명한다
+    let b_friends = b.friends();
+    a.shutdown();
+    b.shutdown();
+    let (mut ca2, mut cb2) = (ca.clone(), cb.clone());
+    ca2.device = Some((b_id.clone(), sa));
+    cb2.device = Some((a_id.clone(), sb));
+    cb2.friends = b_friends;
+    let (a, arx) = Net::start(ca2).unwrap();
+    let (b, brx) = Net::start(cb2).unwrap();
+    assert_eq!(event_of(&arx, proven), NetEvent::DeviceProven { id: b_id.clone() });
+    assert_eq!(event_of(&brx, proven), NetEvent::DeviceProven { id: a_id.clone() });
+    assert!(a.send_device_friends(&b_id, false, |_| ("Fred".into(), None)));
+    // 연결 끊기는 저쪽에도 알린다
+    assert!(a.unlink_device(&b_id));
+    assert_eq!(event_of(&brx, |e| matches!(e, NetEvent::DeviceUnlinked { .. })), NetEvent::DeviceUnlinked { id: a_id.clone() });
+    assert_eq!((a.linked_device(), b.linked_device()), (None, None));
+    assert_eq!((a.device_secret(&b_id), b.device_secret(&a_id)), (None, None));
+    assert!(!a.send_device_friends(&b_id, false, |_| ("Fred".into(), None)));
+    assert!(b.friends().iter().any(|f| f.id == a_id), "still friends");
     a.shutdown();
     b.shutdown();
 }
 
+#[test]
+fn unfriending_my_other_computer_unlinks_both() {
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (ka, kb) = (key(), key());
+    let (a_id, b_id) = (hid(0xa1), hid(0xb2));
+    let s = random32();
+    let mut ca = cfg(&a_id, "Ann", ka, pa, pb, vec![friend(&b_id, &kb)]);
+    let mut cb = cfg(&b_id, "Ann", kb, pb, pa, vec![friend(&a_id, &ka)]);
+    linked(&mut ca, &b_id, s);
+    linked(&mut cb, &a_id, s);
+    let (a, arx) = Net::start(ca).unwrap();
+    let (b, brx) = Net::start(cb).unwrap();
+    event_of(&arx, proven);
+    event_of(&brx, proven);
+    a.unfriend(&b_id);
+    wait_for(&brx, 5.0, is_disconnected).unwrap();
+    assert_eq!((a.linked_device(), b.linked_device()), (None, None));
+    assert!(b.friends().is_empty());
+    a.shutdown();
+    b.shutdown();
+}
 // ---- linked devices: introductions cannot squat someone's id -----------------
 
 /// Announce `id` once on `net`'s discovery port (as a stranger on the LAN).
@@ -2441,7 +2599,9 @@ fn an_introduction_cannot_take_the_id_of_someone_i_see_or_am_pairing_with() {
     // 같은 와이파이에서 보이는 낯선 사람
     announce_to(&net, &seen);
     assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::PeerSeen { id, .. } if *id == seen)).is_some());
-    p.send(json!({"type": "my_devices", "devices": [wire(&seen, &key()), wire(&pairing, &key()), wire(&other, &key())]})).unwrap();
+    for d in [&seen, &pairing, &other] {
+        p.send(json!({"type": "my_devices", "devices": [wire(d, &key())]})).unwrap();
+    }
     assert_eq!(added_ids(&rx, 1.0), vec![other.clone()], "only the one I know nothing about");
     assert!(!net.friends().iter().any(|f| f.id == seen || f.id == pairing));
     net.shutdown();
@@ -2613,77 +2773,278 @@ fn an_unconfirmed_friend_that_keeps_saying_it_does_not_know_us_is_dropped() {
     net.shutdown();
 }
 
-// ---- linked devices: friend lists flow only where both sides marked -----------
+// ---- linked devices: a code links two computers, a stored secret keeps them linked --
 
-fn marked_me(e: &NetEvent) -> bool {
-    matches!(e, NetEvent::PeerMarkedMe { .. })
+fn linked_ev(e: &NetEvent) -> bool {
+    matches!(e, NetEvent::DeviceLinked { .. })
+}
+
+fn failed_ev(e: &NetEvent) -> bool {
+    matches!(e, NetEvent::DeviceLinkFailed { .. })
+}
+
+/// Everything in `msgs` as one string, to look for leaks.
+fn all_text(msgs: &[Value]) -> String {
+    msgs.iter().map(Value::to_string).collect::<Vec<_>>().join("\n").to_uppercase()
 }
 
 #[test]
-fn my_friends_go_only_to_a_device_that_marked_me_too() {
-    // 한쪽만 표시하면 친구 목록이 새면 안 된다: 내가 표시했어도 상대가 나를 표시하지 않았으면 보내지 않는다
-    let kz = key();
-    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend(&hid(2), &key())]);
-    c.devices = vec!["zzzz".into()];
-    let (net, rx, port) = sniffed(c);
-    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
-    wait_for(&rx, 5.0, is_connected).unwrap();
-    // 연결되면 내가 표시했다고 알린다
-    assert_eq!(p.recv_msg().unwrap(), json!({"type": "device_mark", "on": true}));
-    // 저쪽은 나를 표시하지 않았다: 목록을 달라고 해도 (받기는 내가 표시했으니 한다) 보내지 않는다
-    p.send(json!({"type": "device_friends", "want": true, "friends": []})).unwrap();
-    assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::DeviceSynced { .. })).is_some());
-    assert!(!net.send_device_friends("zzzz", false, names), "it did not mark me");
-    assert_eq!(messages_within(&mut p, Duration::from_millis(400)), Vec::<Value>::new());
-    // 저쪽도 표시한다: 이제 보낸다
-    p.send(json!({"type": "device_mark", "on": true})).unwrap();
-    assert_eq!(wait_for(&rx, 2.0, marked_me), Some(NetEvent::PeerMarkedMe { id: "zzzz".into() }));
-    assert!(net.send_device_friends("zzzz", false, names));
-    let got = messages_within(&mut p, Duration::from_millis(400));
-    assert_eq!(got.len(), 1, "{got:?}");
-    assert_eq!(got[0]["type"], "device_friends");
-    // 저쪽이 표시를 풀면 다시 보내지 않는다 (깨진 값도 '안 함'으로 읽는다)
-    p.send(json!({"type": "device_mark", "on": "yes"})).unwrap();
-    std::thread::sleep(Duration::from_millis(300));
-    assert!(!net.send_device_friends("zzzz", false, names));
-    // 내가 표시를 풀거나 다시 켜면 알린다
-    assert!(net.set_device("zzzz", false));
-    assert!(net.set_device("zzzz", true));
-    let got = messages_within(&mut p, Duration::from_millis(400));
-    assert_eq!(got, vec![json!({"type": "device_mark", "on": false}), json!({"type": "device_mark", "on": true})]);
-    assert_eq!(wait_for(&rx, 0.3, is_disconnected), None, "the link stays");
+fn link_codes_are_eight_unambiguous_symbols_and_fresh_each_time() {
+    let (net, _rx, _) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &key())]));
+    let a = net.new_link_code("zzzz").unwrap();
+    let b = net.new_link_code("zzzz").unwrap();
+    assert_ne!(a, b);
+    for c in [&a, &b] {
+        let (left, right) = c.split_once('-').unwrap();
+        assert_eq!((left.len(), right.len()), (4, 4), "{c}");
+        assert!(c.chars().filter(|&ch| ch != '-').all(|ch| "ABCDEFGHJKMNPQRSTUVWXYZ23456789".contains(ch)), "{c}");
+    }
+    assert_eq!(net.enter_link_code("zzzz", "ABCD-EFG"), Err(LinkError::Invalid));
+    assert_eq!(net.enter_link_code("zzzz", "ABCD-EFGO"), Err(LinkError::Invalid), "O is not a code symbol");
+    assert_eq!(net.enter_link_code("zzzz", "ABCD-EFGH"), Err(LinkError::Offline));
     net.shutdown();
 }
 
 #[test]
-fn a_device_mark_is_forgotten_when_the_link_ends() {
+fn the_right_code_links_and_the_code_never_crosses_the_wire() {
     let kz = key();
-    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
-    c.devices = vec!["zzzz".into()];
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend(&hid(2), &key())]));
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    let code = net.new_link_code("zzzz").unwrap();
+    // 코드를 넣는 쪽이 먼저 증명한다: 맞는 증명이 오기 전엔 지키는 쪽은 증명을 내지 않는다
+    let nb = random32();
+    p.send(json!({"type": "device_code", "nonce": hex(&nb)})).unwrap();
+    let r1 = p.recv_msg().unwrap();
+    assert_eq!(r1["type"], "device_code_nonce");
+    assert_eq!(r1.as_object().unwrap().len(), 2, "only a nonce: {r1}");
+    let na = b32(&r1, "nonce");
+    let (k, me, net_pub) = (code_key(&code), Net::public_key(&kz), p.remote);
+    p.send(json!({"type": "device_code_proof", "proof": hex(&enter_proof(&k, &nb, &na, &me, &net_pub))})).unwrap();
+    let r2 = p.recv_msg().unwrap();
+    assert_eq!(r2["type"], "device_code_ok");
+    assert_eq!(b32(&r2, "proof"), hold_proof(&k, &nb, &na, &net_pub, &me));
+    assert_eq!(event_of(&rx, linked_ev), NetEvent::DeviceLinked { id: "zzzz".into() });
+    let s = derive_secret(&k, &net_pub, &me, &na, &nb);
+    assert_eq!(net.device_secret("zzzz"), Some(DeviceSecret(s)));
+    assert_eq!(net.linked_device().as_deref(), Some("zzzz"));
+    assert!(net.friend_info("zzzz").unwrap().device);
+    // 연결된 그 링크에서 바로 친구 목록을 나눈다
+    assert!(net.send_device_friends("zzzz", false, names));
+    let rest = messages_within(&mut p, Duration::from_millis(400));
+    // 코드도, 코드에서 나온 키도, 비밀도 선에 실리지 않는다
+    let text = all_text(&[vec![r1, r2], rest].concat());
+    for leak in [code.clone(), code.replace('-', ""), hex(&k).to_uppercase(), hex(&s).to_uppercase()] {
+        assert!(!text.contains(&leak), "{leak} on the wire");
+    }
+    net.shutdown();
+}
+
+#[test]
+fn typing_a_code_proves_it_without_sending_it() {
+    let kz = key();
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    let code = "QRST-2345";
+    assert_eq!(net.enter_link_code("zzzz", "qrst 2345"), Ok(()));
+    let m = p.recv_msg().unwrap();
+    assert_eq!(m["type"], "device_code");
+    let nb = b32(&m, "nonce");
+    let na = random32();
+    p.send(json!({"type": "device_code_nonce", "nonce": hex(&na)})).unwrap();
+    let m2 = p.recv_msg().unwrap();
+    assert_eq!(m2["type"], "device_code_proof");
+    let (k, me, net_pub) = (code_key(code), Net::public_key(&kz), p.remote);
+    assert_eq!(b32(&m2, "proof"), enter_proof(&k, &nb, &na, &net_pub, &me));
+    assert!(!all_text(&[m, m2.clone()]).contains("QRST"), "the code is not on the wire");
+    // 지키는 쪽의 증명이 틀리면 연결하지 않는다
+    p.send(json!({"type": "device_code_ok", "proof": hex(&random32())})).unwrap();
+    assert!(matches!(event_of(&rx, failed_ev), NetEvent::DeviceLinkFailed { reason, .. } if reason == "wrong"));
+    assert_eq!(net.linked_device(), None);
+    // 다시: 이번엔 맞다
+    assert_eq!(net.enter_link_code("zzzz", code), Ok(()));
+    let nb = b32(&p.recv_msg().unwrap(), "nonce");
+    let na = random32();
+    p.send(json!({"type": "device_code_nonce", "nonce": hex(&na)})).unwrap();
+    assert_eq!(b32(&p.recv_msg().unwrap(), "proof"), enter_proof(&k, &nb, &na, &net_pub, &me));
+    p.send(json!({"type": "device_code_ok", "proof": hex(&hold_proof(&k, &nb, &na, &me, &net_pub))})).unwrap();
+    assert_eq!(event_of(&rx, linked_ev), NetEvent::DeviceLinked { id: "zzzz".into() });
+    assert_eq!(net.device_secret("zzzz"), Some(DeviceSecret(derive_secret(&k, &me, &net_pub, &na, &nb))));
+    net.shutdown();
+}
+
+#[test]
+fn a_wrong_code_does_not_link_and_five_wrong_tries_cancel_the_code() {
+    let kz = key();
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    let code = net.new_link_code("zzzz").unwrap();
+    let wrong = if code.starts_with('A') { "BBBB-BBBB" } else { "AAAA-AAAA" };
+    for left in (1..5).rev() {
+        let no = raw_enter(&mut p, wrong, &kz).unwrap_err();
+        assert_eq!(no, json!({"type": "device_no", "reason": "wrong", "left": left}));
+        assert_eq!(event_of(&rx, failed_ev), NetEvent::DeviceLinkFailed { id: "zzzz".into(), reason: "wrong".into(), left });
+    }
+    // 다섯 번째로 틀리면 코드가 없어진다: 이제 맞는 코드도 안 된다
+    assert_eq!(raw_enter(&mut p, wrong, &kz).unwrap_err(), json!({"type": "device_no", "reason": "locked"}));
+    assert_eq!(event_of(&rx, failed_ev), NetEvent::DeviceLinkFailed { id: "zzzz".into(), reason: "locked".into(), left: 0 });
+    assert_eq!(raw_enter(&mut p, &code, &kz).unwrap_err(), json!({"type": "device_no", "reason": "none"}));
+    assert_eq!(net.linked_device(), None);
+    assert_eq!(wait_for(&rx, 0.3, is_disconnected), None, "the link stays");
+    // 새 코드는 다시 쓸 수 있다
+    let code = net.new_link_code("zzzz").unwrap();
+    raw_enter(&mut p, &code, &kz).expect("a fresh code links");
+    net.shutdown();
+}
+
+#[test]
+fn a_code_is_only_for_the_friend_it_was_made_for() {
+    let (kz, ky) = (key(), key());
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend("yyyy", &ky)]));
+    let code = net.new_link_code("yyyy").unwrap();
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert_eq!(raw_enter(&mut p, &code, &kz).unwrap_err(), json!({"type": "device_no", "reason": "none"}));
+    assert_eq!(net.linked_device(), None);
+    net.shutdown();
+}
+
+#[test]
+fn a_stored_secret_is_proven_again_on_every_link() {
+    let (kz, s) = (key(), random32());
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend(&hid(2), &key())]);
+    linked(&mut c, "zzzz", s);
     let (net, rx, port) = sniffed(c);
     let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
-    p.send(json!({"type": "device_mark", "on": true})).unwrap();
-    assert!(wait_for(&rx, 2.0, marked_me).is_some());
+    prove_as_device(&mut p, &s, &kz);
+    assert!(wait_for(&rx, 2.0, proven).is_some());
+    assert!(net.send_device_friends("zzzz", false, names));
     drop(p);
     wait_for(&rx, 5.0, is_disconnected).expect("the link ends");
-    // 다시 연결됐지만 (다른 판일 수도 있다) 아직 표시를 알리지 않았다
-    let _p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    // 새 링크: 다시 증명하기 전에는 목록을 보내지도 받지도 않는다
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
+    assert_eq!(p.recv_msg().unwrap()["type"], "device_nonce");
     assert!(!net.send_device_friends("zzzz", false, names));
+    p.send(json!({"type": "device_friends", "friends": [wire(&hid(30), &key())]})).unwrap();
+    assert_eq!(wait_for(&rx, 0.6, added), None);
     net.shutdown();
 }
 
 #[test]
-fn device_marks_are_never_sent_to_an_older_build() {
-    let kz = key();
-    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
-    c.devices = vec!["zzzz".into()];
+fn a_peer_with_a_wrong_secret_gets_no_friend_list_and_both_are_unlinked() {
+    let (kz, s) = (key(), random32());
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend(&hid(2), &key())]);
+    linked(&mut c, "zzzz", s);
     let (net, rx, port) = sniffed(c);
-    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
-    assert!(net.set_device("zzzz", false));
-    assert!(net.set_device("zzzz", true));
-    assert_eq!(messages_within(&mut p, Duration::from_millis(500)), Vec::<Value>::new());
+    // 비밀을 모르는 쪽: 다른 비밀로 증명한다
+    prove_as_device_badly(&mut p, &kz);
+    assert_eq!(event_of(&rx, |e| matches!(e, NetEvent::DeviceUnlinked { .. } | NetEvent::DeviceProven { .. })), NetEvent::DeviceUnlinked { id: "zzzz".into() });
+    assert_eq!(net.linked_device(), None);
+    assert!(!net.send_device_friends("zzzz", false, names));
+    let got = messages_within(&mut p, Duration::from_millis(400));
+    assert_eq!(got, vec![json!({"type": "device_unlink"})]);
+    assert!(net.friends().iter().any(|f| f.id == "zzzz"), "still a friend");
+    net.shutdown();
+}
+
+/// Like `prove_as_device`, but with a secret that is not the net's.
+fn prove_as_device_badly(p: &mut Peer, mine: &[u8; 32]) {
+    let theirs = p.recv_msg().unwrap();
+    assert_eq!(theirs["type"], "device_nonce");
+    let nn = b32(&theirs, "nonce");
+    let nm = random32();
+    p.send(json!({"type": "device_nonce", "nonce": hex(&nm)})).unwrap();
+    assert_eq!(p.recv_msg().unwrap()["type"], "device_proof");
+    let fake = random32();
+    p.send(json!({"type": "device_proof", "proof": hex(&secret_proof(&fake, &Net::public_key(mine), &p.remote, &nn, &nm))})).unwrap();
+}
+
+#[test]
+fn a_computer_without_our_secret_is_told_to_forget_it() {
+    // 저쪽이 연결을 끊는 동안 내가 꺼져 있었다: 다음 연결에서 저쪽이 잊으라고 한다
+    let kz = key();
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    p.send(json!({"type": "device_nonce", "nonce": hex(&random32())})).unwrap();
+    assert_eq!(messages_within(&mut p, Duration::from_millis(500)), vec![json!({"type": "device_unlink"})]);
+    net.shutdown();
+}
+
+#[test]
+fn unlinking_is_told_to_the_other_computer_and_its_unlink_is_heard() {
+    let (kz, s) = (key(), random32());
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
+    linked(&mut c, "zzzz", s);
+    let (net, rx, port) = sniffed(c);
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    prove_as_device(&mut p, &s, &kz);
+    assert!(wait_for(&rx, 2.0, proven).is_some());
+    assert!(net.unlink_device("zzzz"));
+    assert!(!net.unlink_device("zzzz"), "nothing left to unlink");
+    assert_eq!(messages_within(&mut p, Duration::from_millis(400)), vec![json!({"type": "device_unlink"})]);
+    assert_eq!(net.linked_device(), None);
+    assert!(!net.send_device_friends("zzzz", false, names));
+    // 저쪽이 끊어도 듣는다
+    let code = net.new_link_code("zzzz").unwrap();
+    raw_enter(&mut p, &code, &kz).expect("linked again");
+    assert!(wait_for(&rx, 2.0, linked_ev).is_some());
+    p.send(json!({"type": "device_unlink"})).unwrap();
+    assert_eq!(event_of(&rx, |e| matches!(e, NetEvent::DeviceUnlinked { .. })), NetEvent::DeviceUnlinked { id: "zzzz".into() });
+    assert_eq!(net.linked_device(), None);
+    assert_eq!(wait_for(&rx, 0.3, is_disconnected), None, "still friends");
+    net.shutdown();
+}
+
+#[test]
+fn only_one_other_computer_can_be_linked() {
+    let (kz, ky) = (key(), key());
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend("yyyy", &ky)]);
+    linked(&mut c, "zzzz", random32());
+    let (net, rx, port) = sniffed(c);
+    assert_eq!(net.new_link_code("yyyy"), Err(LinkError::Taken("zzzz".into())));
+    let mut p = raw_connect_as(port, &ky, v3_hello("yyyy"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert_eq!(net.enter_link_code("yyyy", "ABCD-EFGH"), Err(LinkError::Taken("zzzz".into())));
+    // 셋째 컴퓨터가 코드를 넣어 봐도: 코드가 없다
+    assert_eq!(raw_enter(&mut p, "ABCD-EFGH", &ky).unwrap_err()["type"], "device_no");
+    assert_eq!(net.linked_device().as_deref(), Some("zzzz"));
+    // 첫째를 끊으면 이제 된다
+    assert!(net.unlink_device("zzzz"));
+    let code = net.new_link_code("yyyy").unwrap();
+    raw_enter(&mut p, &code, &ky).expect("linked");
+    assert_eq!(net.linked_device().as_deref(), Some("yyyy"));
+    net.shutdown();
+}
+
+#[test]
+fn a_code_made_before_another_link_cannot_add_a_third_computer() {
+    let (kz, ky) = (key(), key());
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend("yyyy", &ky)]));
+    let code_y = net.new_link_code("yyyy").unwrap();
+    // zzzz가 먼저 이 컴의 코드를 받아 연결된다 (그 사이 yyyy 코드는 아직 살아 있다)
+    let mut z = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert_eq!(net.enter_link_code("zzzz", "ABCD-EFGH"), Ok(()));
+    let nb = b32(&z.recv_msg().unwrap(), "nonce");
+    let na = random32();
+    z.send(json!({"type": "device_code_nonce", "nonce": hex(&na)})).unwrap();
+    let _ = z.recv_msg().unwrap();
+    let (k, me, net_pub) = (code_key("ABCD-EFGH"), Net::public_key(&kz), z.remote);
+    z.send(json!({"type": "device_code_ok", "proof": hex(&hold_proof(&k, &nb, &na, &me, &net_pub))})).unwrap();
+    assert!(wait_for(&rx, 2.0, linked_ev).is_some());
+    drop(z);
+    wait_for(&rx, 5.0, is_disconnected).unwrap();
+    let mut y = raw_connect_as(port, &ky, v3_hello("yyyy"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert_eq!(raw_enter(&mut y, &code_y, &ky).unwrap_err(), json!({"type": "device_no", "reason": "taken"}));
+    assert_eq!(net.linked_device().as_deref(), Some("zzzz"));
     net.shutdown();
 }
