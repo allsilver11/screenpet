@@ -42,6 +42,7 @@ pub(crate) fn run(shared: Arc<Shared>, udp: Option<UdpSocket>, broadcast_to: Soc
         while !shared.stopping() {
             std::thread::sleep(TICK);
             crate::peers::flush_gone(&shared);
+            crate::devices::expire_pending(&shared);
         }
         return;
     };
@@ -69,6 +70,7 @@ pub(crate) fn run(shared: Arc<Shared>, udp: Option<UdpSocket>, broadcast_to: Soc
         }
         expire(&shared);
         crate::peers::flush_gone(&shared);
+        crate::devices::expire_pending(&shared);
     }
 }
 

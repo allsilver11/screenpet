@@ -38,6 +38,7 @@ fn cfg(id: &str, name: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Fri
         devices: vec![],
         introduced: vec![],
         pending: vec![],
+        pending_added: vec![],
     }
 }
 
@@ -2168,11 +2169,15 @@ fn device_friends_go_only_to_a_device_i_marked_and_leave_out_introduced_and_unco
     let (net, rx, port) = sniffed(c);
     let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
+    p.send(json!({"type": "device_mark", "on": true})).unwrap(); // 저쪽은 나를 표시했다
+    std::thread::sleep(Duration::from_millis(200));
     assert!(!net.send_device_friends("zzzz", false, names), "not marked as my device");
     assert!(net.set_device("zzzz", true));
     assert!(net.send_device_friends("zzzz", true, names));
     let got = messages_within(&mut p, Duration::from_millis(500));
-    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert_eq!(got[0], json!({"type": "device_mark", "on": true}));
+    let got = &got[1..];
     assert_eq!(got[0]["type"], "device_friends");
     assert_eq!(got[0]["want"], true);
     let ids: Vec<&str> = got[0]["friends"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap()).collect();
@@ -2405,10 +2410,256 @@ fn two_devices_share_their_friends_over_a_real_link() {
     wait_for(&arx, 5.0, is_connected).unwrap();
     wait_for(&brx, 5.0, is_connected).unwrap();
     assert_eq!(a.peer_version(&b_id), Some(3));
+    assert_eq!(wait_for(&arx, 2.0, |e| matches!(e, NetEvent::PeerMarkedMe { .. })), Some(NetEvent::PeerMarkedMe { id: b_id.clone() }));
     assert!(a.send_device_friends(&b_id, false, |_| ("Fred".into(), None)));
     assert_eq!(wait_for(&brx, 2.0, added), Some(NetEvent::FriendAdded { id: f_id.clone(), name: "Fred".into(), via: None, side: None }));
     assert!(b.friends().contains(&friend(&f_id, &kf)));
     assert!(!b.send_my_devices(&a_id), "my devices are not introduced to my own devices");
     a.shutdown();
     b.shutdown();
+}
+
+// ---- linked devices: introductions cannot squat someone's id -----------------
+
+/// Announce `id` once on `net`'s discovery port (as a stranger on the LAN).
+fn announce_to(net: &Net, id: &str) {
+    let u = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let msg = json!({"app": "screenpet", "v": 3, "id": id, "name": "S", "port": 1}).to_string();
+    u.send_to(msg.as_bytes(), local(net.discovery_port())).unwrap();
+}
+
+#[test]
+fn an_introduction_cannot_take_the_id_of_someone_i_see_or_am_pairing_with() {
+    // 고친 앱의 친구가 아직 친구가 아닌 사람의 id를 가짜 키로 "내 기기"라고 소개해, 그 사람과 짝맞추기를 못 하게 하려 한다
+    let kz = key();
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
+    let (seen, pairing, other) = (hid(20), hid(21), hid(22));
+    // 지금 짝맞추기 중인 낯선 사람 (이모지 확인 단계)
+    let (_pp, _ev) = raw_pairing(port, &rx, &pairing);
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    // 같은 와이파이에서 보이는 낯선 사람
+    announce_to(&net, &seen);
+    assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::PeerSeen { id, .. } if *id == seen)).is_some());
+    p.send(json!({"type": "my_devices", "devices": [wire(&seen, &key()), wire(&pairing, &key()), wire(&other, &key())]})).unwrap();
+    assert_eq!(added_ids(&rx, 1.0), vec![other.clone()], "only the one I know nothing about");
+    assert!(!net.friends().iter().any(|f| f.id == seen || f.id == pairing));
+    net.shutdown();
+}
+
+#[test]
+fn a_real_pairing_replaces_a_friends_fake_introduction_of_that_id() {
+    let kz = key();
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
+    let (victim, real) = (hid(20), key());
+    let mut z = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    // 친구가 아직 모르는 사람의 id를 가짜 키로 소개한다 (그 사람은 아직 안 보인다)
+    z.send(json!({"type": "my_devices", "devices": [wire(&victim, &key())]})).unwrap();
+    assert_eq!(added_ids(&rx, 1.0), vec![victim.clone()]);
+    // 진짜 그 사람이 짝맞추기를 건다: 이모지를 확인하고 둘 다 받으면 진짜 키로 바뀐다
+    let mut p = raw_connect(port, &real, &victim);
+    let n = random32();
+    p.send(json!({"type": "invite", "pet": "cat", "commit": hex(&blake2s(&[&n]))})).unwrap();
+    assert_eq!(p.recv_msg().unwrap()["type"], "pair_random");
+    p.send(json!({"type": "pair_reveal", "nonce": hex(&n)})).unwrap();
+    let ev = wait_for(&rx, 5.0, |e| matches!(e, NetEvent::Invited { .. })).expect("Invited");
+    p.send(json!({"type": "invite_reply", "accepted": true})).unwrap();
+    net.answer_invite(pairing_of(&ev), true);
+    assert_eq!(wait_for(&rx, 2.0, is_connected), Some(NetEvent::Connected { id: victim.clone(), name: "Raw".into() }));
+    assert!(net.friends().contains(&friend(&victim, &real)));
+    assert_eq!(net.friends().len(), 2);
+    let info = net.friend_info(&victim).unwrap();
+    assert!(info.via.is_none() && !info.pending && !info.device, "a plain friend now: {info:?}");
+    // 확인된 친구의 키는 다시는 바뀌지 않는다
+    let mut q = raw_connect_claiming(port, &key(), &victim);
+    assert!(closed_by_peer(&mut q.s));
+    assert!(net.friends().contains(&friend(&victim, &real)));
+    net.shutdown();
+}
+
+#[test]
+fn i_can_still_invite_someone_a_friend_falsely_introduced() {
+    let kz = key();
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
+    let victim: &'static str = Box::leak(hid(20).into_boxed_str());
+    let real = key();
+    let mut z = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    z.send(json!({"type": "my_devices", "devices": [wire(victim, &key())]})).unwrap();
+    assert_eq!(added_ids(&rx, 1.0), vec![victim.to_string()]);
+    // 그 사람이 같은 와이파이에 나타난다: 내가 짝맞추기를 걸 수 있다
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    spoof_announcements(victim, listener.local_addr().unwrap().port(), net.discovery_port(), Duration::from_millis(100), stop.clone());
+    let invited = Arc::new(AtomicBool::new(false));
+    let inv = invited.clone();
+    std::thread::spawn(move || {
+        for s in listener.incoming() {
+            let Ok(s) = s else { break };
+            let Ok(mut p) = handshake(s, &real, false) else { continue };
+            if p.recv_msg().is_err() {
+                continue; // its hello
+            }
+            let _ = p.send(json!({"type": "hello", "id": victim, "name": "V", "v": 3}));
+            if p.recv_msg().is_ok_and(|m| m["type"] == "invite") {
+                inv.store(true, Ordering::SeqCst);
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !invited.load(Ordering::SeqCst) && Instant::now() < deadline {
+        net.invite(victim, "cat");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    stop.store(true, Ordering::SeqCst);
+    assert!(invited.load(Ordering::SeqCst), "an invite reaches the real person");
+    net.shutdown();
+}
+
+// ---- linked devices: unconfirmed friends do not stay forever -------------------
+
+const DAY: u64 = 24 * 60 * 60;
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+}
+
+fn dropped(e: &NetEvent) -> bool {
+    matches!(e, NetEvent::FriendDropped { .. })
+}
+
+#[test]
+fn an_unconfirmed_friend_is_dropped_after_a_week() {
+    let now = unix_now();
+    let (old, fresh, ageless) = (hid(5), hid(6), hid(7));
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend(&old, &key()), friend(&fresh, &key()), friend(&ageless, &key())]);
+    c.pending = vec![old.clone(), fresh.clone(), ageless.clone()];
+    // 일주일 넘게 확인 못 한 친구, 엿새 된 친구, 언제 들어왔는지 모르는 (예전 설정의) 친구
+    c.pending_added = vec![(old.clone(), now - 8 * DAY), (fresh.clone(), now - 6 * DAY)];
+    let (net, rx, _) = sniffed(c);
+    assert_eq!(wait_for(&rx, 2.0, dropped), Some(NetEvent::FriendDropped { id: old.clone() }));
+    assert_eq!(wait_for(&rx, 0.5, dropped), None);
+    let mut ids: Vec<String> = net.friends().into_iter().map(|f| f.id).collect();
+    ids.sort();
+    assert_eq!(ids, vec![fresh.clone(), ageless.clone()]);
+    assert_eq!(net.friend_info(&fresh).unwrap().pending_since, Some(now - 6 * DAY), "the clock survives a restart");
+    let since = net.friend_info(&ageless).unwrap().pending_since.expect("counts from this start");
+    assert!(since >= now && since <= unix_now(), "{since} vs {now}");
+    net.shutdown();
+}
+
+#[test]
+fn an_introduced_friend_gets_its_clock_when_it_comes_in() {
+    let kz = key();
+    let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    let before = unix_now();
+    p.send(json!({"type": "my_devices", "devices": [wire(&hid(10), &key())]})).unwrap();
+    assert_eq!(added_ids(&rx, 1.0), vec![hid(10)]);
+    let since = net.friend_info(&hid(10)).unwrap().pending_since.expect("unconfirmed since now");
+    assert!(since >= before && since <= unix_now());
+    assert_eq!(net.friend_info("zzzz").unwrap().pending_since, None);
+    net.shutdown();
+}
+
+#[test]
+fn an_unconfirmed_friend_that_keeps_saying_it_does_not_know_us_is_dropped() {
+    let kq = key();
+    let q = hid(5);
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend(&q, &kq)]);
+    c.pending = vec![q.clone()];
+    let (net, rx, port) = sniffed(c);
+    let deny = || {
+        let mut p = handshake(TcpStream::connect(local(port)).unwrap(), &kq, true).unwrap();
+        p.send(json!({"type": "hello", "id": q, "name": "Q", "v": 3})).unwrap();
+        assert!(closed_by_peer(&mut p.s));
+    };
+    // 두 번까지는 소개가 늦는 중일 수 있다
+    deny();
+    deny();
+    assert_eq!(wait_for(&rx, 0.3, dropped), None);
+    assert!(net.friend_info(&q).unwrap().pending);
+    // 세 번째: 정말 나를 모르는 친구다
+    deny();
+    assert_eq!(wait_for(&rx, 1.0, dropped), Some(NetEvent::FriendDropped { id: q.clone() }));
+    assert!(net.friends().is_empty());
+    net.shutdown();
+}
+
+// ---- linked devices: friend lists flow only where both sides marked -----------
+
+fn marked_me(e: &NetEvent) -> bool {
+    matches!(e, NetEvent::PeerMarkedMe { .. })
+}
+
+#[test]
+fn my_friends_go_only_to_a_device_that_marked_me_too() {
+    // 한쪽만 표시하면 친구 목록이 새면 안 된다: 내가 표시했어도 상대가 나를 표시하지 않았으면 보내지 않는다
+    let kz = key();
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend(&hid(2), &key())]);
+    c.devices = vec!["zzzz".into()];
+    let (net, rx, port) = sniffed(c);
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    // 연결되면 내가 표시했다고 알린다
+    assert_eq!(p.recv_msg().unwrap(), json!({"type": "device_mark", "on": true}));
+    // 저쪽은 나를 표시하지 않았다: 목록을 달라고 해도 (받기는 내가 표시했으니 한다) 보내지 않는다
+    p.send(json!({"type": "device_friends", "want": true, "friends": []})).unwrap();
+    assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::DeviceSynced { .. })).is_some());
+    assert!(!net.send_device_friends("zzzz", false, names), "it did not mark me");
+    assert_eq!(messages_within(&mut p, Duration::from_millis(400)), Vec::<Value>::new());
+    // 저쪽도 표시한다: 이제 보낸다
+    p.send(json!({"type": "device_mark", "on": true})).unwrap();
+    assert_eq!(wait_for(&rx, 2.0, marked_me), Some(NetEvent::PeerMarkedMe { id: "zzzz".into() }));
+    assert!(net.send_device_friends("zzzz", false, names));
+    let got = messages_within(&mut p, Duration::from_millis(400));
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["type"], "device_friends");
+    // 저쪽이 표시를 풀면 다시 보내지 않는다 (깨진 값도 '안 함'으로 읽는다)
+    p.send(json!({"type": "device_mark", "on": "yes"})).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!net.send_device_friends("zzzz", false, names));
+    // 내가 표시를 풀거나 다시 켜면 알린다
+    assert!(net.set_device("zzzz", false));
+    assert!(net.set_device("zzzz", true));
+    let got = messages_within(&mut p, Duration::from_millis(400));
+    assert_eq!(got, vec![json!({"type": "device_mark", "on": false}), json!({"type": "device_mark", "on": true})]);
+    assert_eq!(wait_for(&rx, 0.3, is_disconnected), None, "the link stays");
+    net.shutdown();
+}
+
+#[test]
+fn a_device_mark_is_forgotten_when_the_link_ends() {
+    let kz = key();
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
+    c.devices = vec!["zzzz".into()];
+    let (net, rx, port) = sniffed(c);
+    let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    p.send(json!({"type": "device_mark", "on": true})).unwrap();
+    assert!(wait_for(&rx, 2.0, marked_me).is_some());
+    drop(p);
+    wait_for(&rx, 5.0, is_disconnected).expect("the link ends");
+    // 다시 연결됐지만 (다른 판일 수도 있다) 아직 표시를 알리지 않았다
+    let _p = raw_connect_as(port, &kz, v3_hello("zzzz"));
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert!(!net.send_device_friends("zzzz", false, names));
+    net.shutdown();
+}
+
+#[test]
+fn device_marks_are_never_sent_to_an_older_build() {
+    let kz = key();
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
+    c.devices = vec!["zzzz".into()];
+    let (net, rx, port) = sniffed(c);
+    let mut p = raw_friend_connect(port, &kz, "zzzz");
+    wait_for(&rx, 5.0, is_connected).unwrap();
+    assert!(net.set_device("zzzz", false));
+    assert!(net.set_device("zzzz", true));
+    assert_eq!(messages_within(&mut p, Duration::from_millis(500)), Vec::<Value>::new());
+    net.shutdown();
 }

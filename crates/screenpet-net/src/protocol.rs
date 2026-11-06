@@ -133,6 +133,12 @@ fn lenient_list<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>
     Ok(items.into_iter().take(256).filter_map(|v| serde_json::from_value(v).ok()).collect())
 }
 
+/// A flag that may be missing or something else (read as `false`).
+fn lenient_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(v.as_bool().unwrap_or_default())
+}
+
 /// A string that may be missing or something else (read as empty).
 fn lenient_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     let v = serde_json::Value::deserialize(d)?;
@@ -307,6 +313,13 @@ pub enum Control {
     MyDevices {
         #[serde(default, deserialize_with = "lenient_list")]
         devices: Vec<WireDevice>,
+    },
+    /// Whether I marked the receiver as my other computer (only to
+    /// `DEVICES_MIN_VERSION` peers): sent on connect when marked, and on every
+    /// change. `device_friends` goes only where both sides marked each other.
+    DeviceMark {
+        #[serde(default, deserialize_with = "lenient_bool")]
+        on: bool,
     },
 }
 

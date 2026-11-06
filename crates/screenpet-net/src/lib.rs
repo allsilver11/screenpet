@@ -161,6 +161,9 @@ pub struct NetConfig {
     /// Friends added from another computer or an introduction that have not
     /// yet shown on a link that they know us (see [`FriendInfo::pending`]).
     pub pending: Vec<String>,
+    /// When each of `pending` was added (unix seconds), so a restart doesn't
+    /// restart its clock. One missing here counts from this start.
+    pub pending_added: Vec<(String, u64)>,
 }
 
 /// What [`Net::friend_info`] knows about a friend besides its key.
@@ -173,6 +176,8 @@ pub struct FriendInfo {
     /// Added from another computer or an introduction and not yet seen
     /// knowing us; not removed when it says it doesn't (yet).
     pub pending: bool,
+    /// When it was added unconfirmed (unix seconds; `None` if confirmed).
+    pub pending_since: Option<u64>,
 }
 
 impl NetConfig {
@@ -192,6 +197,7 @@ impl NetConfig {
             devices: Vec::new(),
             introduced: Vec::new(),
             pending: Vec::new(),
+            pending_added: Vec::new(),
         }
     }
 }
@@ -255,8 +261,14 @@ pub enum NetEvent {
     /// first values, clamped but otherwise unchecked), or introduced by friend
     /// `via` as one of its computers (`name` empty). [`Net::friends`] lists it.
     FriendAdded { id: String, name: String, via: Option<String>, side: Option<String> },
-    /// A friend introduced by a friend that is now removed went with it.
+    /// A friend added without pairing was removed: introduced by a friend
+    /// that is now removed, or never confirmed (a week, or it said three
+    /// times that it doesn't know us).
     FriendDropped { id: String },
+    /// Friend `id`, which I marked as my other computer, marked me too (its
+    /// `device_mark`): friend lists now flow both ways — send it mine
+    /// ([`Net::send_device_friends`]).
+    PeerMarkedMe { id: String },
     /// My other computer `from` sent its friends (already merged). `want` =
     /// it asks for mine ([`Net::send_device_friends`]).
     DeviceSynced { from: String, want: bool },
@@ -464,8 +476,14 @@ pub(crate) struct State {
     pub devices: HashSet<String>,
     /// Introduced device id → the friend that introduced it.
     pub via: HashMap<String, String>,
-    /// Friends added without pairing, not yet seen knowing us.
-    pub pending: HashSet<String>,
+    /// Friends added without pairing, not yet seen knowing us → when they
+    /// were added (unix seconds; see `devices::expire_pending`).
+    pub pending: HashMap<String, u64>,
+    /// Friends that told us on their current link that they marked us as
+    /// their other computer (`device_mark`).
+    pub peer_marked_me: HashSet<String>,
+    /// Unconfirmed friend → authenticated hellos saying it doesn't know us.
+    pub pending_denied: HashMap<String, u32>,
 }
 
 impl State {
@@ -476,6 +494,11 @@ impl State {
 
     pub fn is_friend(&self, id: &str) -> bool {
         self.friends.iter().any(|f| f.id == id)
+    }
+    /// Only introduced by a friend and never seen knowing us: its key is that
+    /// friend's word alone, so a real (SAS-confirmed) pairing may replace it.
+    pub fn introduced_unconfirmed(&self, id: &str) -> bool {
+        self.via.contains_key(id) && self.pending.contains_key(id)
     }
     pub fn friend_key(&self, id: &str) -> Option<[u8; 32]> {
         self.friends.iter().find(|f| f.id == id).map(|f| f.public_key)
@@ -504,8 +527,10 @@ impl State {
         self.paired_at.remove(id);
         self.budgets.remove(id);
         self.devices.remove(id);
+        self.peer_marked_me.remove(id);
         self.via.remove(id);
         self.pending.remove(id);
+        self.pending_denied.remove(id);
         // Its address is no reason for trust any more
         self.trusted_ips.retain(|(friend, _), _| friend != id);
         self.trusted_rate.retain(|(friend, _), _| friend != id);
@@ -795,9 +820,11 @@ impl Net {
                 state.via.insert(id.clone(), via.clone());
             }
         }
+        let now = devices::unix_now();
         for id in &cfg.pending {
             if state.is_friend(id) {
-                state.pending.insert(id.clone());
+                let added = cfg.pending_added.iter().find(|(p, _)| p == id).map_or(now, |(_, t)| (*t).min(now));
+                state.pending.insert(id.clone(), added);
             }
         }
         let shared = Arc::new(Shared {
@@ -952,24 +979,31 @@ impl Net {
     /// Mark (or unmark) friend `id` as my other computer. Friend lists are
     /// shared only on a link both sides marked. A marked device is mine: it no
     /// longer counts as introduced by anyone. `false` if `id` is no friend or
-    /// nothing changed. Send it [`Net::send_device_friends`] after marking.
+    /// nothing changed. A change is told to it (`device_mark`, if its build
+    /// knows the message). Send it [`Net::send_device_friends`] after marking.
     pub fn set_device(&self, id: &str, on: bool) -> bool {
-        let mut st = self.shared.state();
-        if !st.is_friend(id) {
-            return false;
+        let changed = {
+            let mut st = self.shared.state();
+            if !st.is_friend(id) {
+                return false;
+            }
+            if on {
+                st.via.remove(id);
+                st.devices.insert(id.to_string())
+            } else {
+                st.devices.remove(id)
+            }
+        };
+        if let Some(link) = self.devices_link(id).filter(|_| changed) {
+            link.send(&Message::Control(Control::DeviceMark { on }));
         }
-        if on {
-            st.via.remove(id);
-            st.devices.insert(id.to_string())
-        } else {
-            st.devices.remove(id)
-        }
+        changed
     }
 
     /// Device marks and origin of friend `id` (`None` if no friend).
     pub fn friend_info(&self, id: &str) -> Option<FriendInfo> {
         let st = self.shared.state();
-        st.is_friend(id).then(|| FriendInfo { device: st.devices.contains(id), via: st.via.get(id).cloned(), pending: st.pending.contains(id) })
+        st.is_friend(id).then(|| FriendInfo { device: st.devices.contains(id), via: st.via.get(id).cloned(), pending: st.pending.contains_key(id), pending_since: st.pending.get(id).copied() })
     }
 
     /// The link of a connected friend whose build knows the device messages.
@@ -978,13 +1012,18 @@ impl Net {
         self.friend_link(peer_id).filter(|_| new)
     }
 
-    /// Send my friends to `peer_id` if I marked it as my other computer and its
-    /// build knows the message (otherwise `false`, nothing sent). Introduced and
+    /// Send my friends to `peer_id` if I marked it as my other computer, it
+    /// marked me too (its `device_mark` on this link) and its build knows the
+    /// message (otherwise `false`, nothing sent). Introduced and
     /// unconfirmed friends are left out (they come from their own source), and
     /// so is the receiver. `describe(id)` gives each friend's name and side
     /// (first values for the receiver). `want` asks for its list back. Never blocks.
     pub fn send_device_friends(&self, peer_id: &str, want: bool, describe: impl Fn(&str) -> (String, Option<String>)) -> bool {
-        if !self.shared.state().devices.contains(peer_id) {
+        let both = {
+            let st = self.shared.state();
+            st.devices.contains(peer_id) && st.peer_marked_me.contains(peer_id)
+        };
+        if !both {
             return false;
         }
         let Some(link) = self.devices_link(peer_id) else { return false };
@@ -992,7 +1031,7 @@ impl Net {
             let st = self.shared.state();
             st.friends
                 .iter()
-                .filter(|f| f.id != peer_id && !st.via.contains_key(&f.id) && !st.pending.contains(&f.id))
+                .filter(|f| f.id != peer_id && !st.via.contains_key(&f.id) && !st.pending.contains_key(&f.id))
                 .take(MAX_FRIENDS)
                 .map(|f| (f.id.clone(), f.public_key))
                 .collect()
@@ -1018,7 +1057,7 @@ impl Net {
             }
             st.friends
                 .iter()
-                .filter(|f| f.id != peer_id && st.devices.contains(&f.id) && !st.pending.contains(&f.id))
+                .filter(|f| f.id != peer_id && st.devices.contains(&f.id) && !st.pending.contains_key(&f.id))
                 .take(MAX_DEVICES)
                 .map(|f| protocol::WireDevice { id: f.id.clone(), key: to_hex(&f.public_key) })
                 .collect()

@@ -54,6 +54,7 @@ fn start_net_with(
         devices: vec![],
         introduced: vec![],
         pending: vec![],
+        pending_added: vec![],
     })
     .unwrap()
 }

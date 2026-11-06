@@ -862,7 +862,11 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
             if id.is_empty() || id.len() > MAX_ID || id == shared.id {
                 return fail("unknown");
             }
-            if shared.state().is_friend(&id) {
+            let known = {
+                let st = shared.state();
+                st.is_friend(&id) && !st.introduced_unconfirmed(&id)
+            };
+            if known {
                 return fail("already_friend");
             }
             if peers::invite_at(shared, &id, &pet, Candidate::Relay(key)) {

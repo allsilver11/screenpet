@@ -167,6 +167,9 @@ pub struct Friend {
     /// 짝맞추기 없이 (내 다른 컴퓨터나 친구의 소개로) 들어왔고, 아직 상대가 나를 아는지 못 봤다
     #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient")]
     pub pending: bool,
+    /// 확인 못 한 채로 들어온 때 (유닉스 초) — 일주일이 지나도 확인 못 하면 net이 지운다. 껐다 켜도 이어 센다
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub pending_since: Option<u64>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -253,7 +256,7 @@ impl Config {
             }
             None => {
                 let side = self.next_side();
-                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side, nickname: None, dodge_best: None, device: false, via: None, pending: false });
+                self.friends.push(Friend { id: id.to_string(), name: name.to_string(), public_key, side, nickname: None, dodge_best: None, device: false, via: None, pending: false, pending_since: None });
                 changed = true;
             }
         }
@@ -339,6 +342,17 @@ impl Config {
                 f.device = device;
                 f.via = via.map(str::to_string);
                 f.pending = pending;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 확인 못 한 친구가 들어온 때를 맞춘다 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
+    pub fn set_friend_pending_since(&mut self, id: &str, since: Option<u64>) -> bool {
+        match self.friends.iter_mut().find(|f| f.id == id) {
+            Some(f) if f.pending_since != since => {
+                f.pending_since = since;
                 true
             }
             _ => false,
@@ -1296,5 +1310,28 @@ mod tests {
         let c: Config = serde_json::from_str(&text).unwrap();
         let a = c.friend("a").expect("the friend stays");
         assert_eq!((a.device, a.via.as_deref(), a.pending), (false, None, false));
+    }
+
+    #[test]
+    fn when_an_unconfirmed_friend_came_in_is_kept_and_old_or_bad_values_load_as_unknown() {
+        let d = temp_dir("pending-since");
+        let mut c = Config { install_id: Some("me".into()), ..Config::default() };
+        c.upsert_friend("pal2", "Bo", key(3));
+        c.upsert_friend("pal", "Bo", key(2));
+        assert!(c.set_friend_pending_since("pal2", Some(1_700_000_000)));
+        assert!(!c.set_friend_pending_since("pal2", Some(1_700_000_000)), "unchanged");
+        assert!(!c.set_friend_pending_since("nobody", Some(1)));
+        save(&d, &c).unwrap();
+        let text = std::fs::read_to_string(d.join("config.json")).unwrap();
+        assert_eq!(text.matches("\"pending_since\"").count(), 1, "{text}");
+        let back = load(&d);
+        assert_eq!(back, c);
+        assert_eq!(back.friend("pal2").unwrap().pending_since, Some(1_700_000_000));
+        assert_eq!(back.friend("pal").unwrap().pending_since, None);
+        assert!(c.set_friend_pending_since("pal2", None), "confirmed");
+        let k = "01".repeat(32);
+        let text = format!(r#"{{"friends": [{{"id": "a", "name": "A", "public_key": "{k}", "side": "left", "pending": true, "pending_since": "soon"}}]}}"#);
+        let c: Config = serde_json::from_str(&text).unwrap();
+        assert_eq!(c.friend("a").expect("the friend stays").pending_since, None);
     }
 }

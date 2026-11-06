@@ -1,25 +1,40 @@
 //! Linked devices (📱 내 다른 컴퓨터): one person's computers each keep their
 //! own identity but share their friend lists.
 //!
-//! - `device_friends` (my friends) goes only to a friend I marked as my device,
-//!   and is taken only from a friend I marked as my device — so it flows only
-//!   on a link both sides marked. It only ever adds friends I do not know.
+//! - `device_friends` (my friends) goes only to a friend I marked as my device
+//!   that told me (`device_mark`) it marked me too, and is taken only from a
+//!   friend I marked as my device — so it flows only on a link both sides
+//!   marked. It only ever adds friends I do not know.
 //! - `my_devices` (my other computers, at most `MAX_DEVICES`) goes to my other
 //!   friends; they add those computers as friends that remember who introduced
-//!   them (`via`) and leave together with that friend.
+//!   them (`via`) and leave together with that friend. Never an id I see on
+//!   the LAN, invite or am pairing with; and a real pairing with an introduced,
+//!   still unconfirmed id replaces the introduced key.
 //!
 //! Everything received is checked here: install-id format, 32-byte key, never
 //! my own id or key, never an id or key already pinned (no key is ever
 //! replaced), `MAX_FRIENDS` in all. Friends added this way are *unconfirmed*
 //! (`State::pending`) until they prove on a link that they pinned us too; until
 //! then a hello saying "I don't know you" only backs off instead of removing
-//! them (their introduction to us may simply not have arrived yet).
+//! them (their introduction to us may simply not have arrived yet). One that
+//! stays unconfirmed for `PENDING_DAYS`, or says so `PENDING_STRIKES` times,
+//! is dropped.
 
 use crate::noise;
 use crate::protocol::{clamp_name, WireFriend, MAX_DEVICES, MAX_FRIENDS};
 use crate::secure::SecureLink;
 use crate::{NetEvent, Shared, State};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// An unconfirmed friend is dropped after this many days.
+const PENDING_DAYS: u64 = 7;
+/// … or after this many authenticated hellos saying it doesn't know us.
+pub(crate) const PENDING_STRIKES: u32 = 3;
+
+pub(crate) fn unix_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
 
 /// An install id as `new_install_id` makes them: 32 lowercase hex digits.
 pub(crate) fn is_install_id(s: &str) -> bool {
@@ -39,7 +54,7 @@ fn adopt(shared: &Shared, st: &mut State, id: &str, key: &str) -> bool {
         && st.friends.len() < MAX_FRIENDS;
     if ok {
         st.add_friend(id, key);
-        st.pending.insert(id.to_string());
+        st.pending.insert(id.to_string(), unix_now());
     }
     ok
 }
@@ -70,7 +85,10 @@ pub(crate) fn on_my_devices(shared: &Shared, st: &mut State, from: &str, devices
         if st.via.values().filter(|v| v.as_str() == from).count() >= MAX_DEVICES {
             break;
         }
-        if d.id != from && adopt(shared, st, &d.id, &d.key) {
+        // Never someone I may be about to pair with: a made-up key under their
+        // id would stand in the way of the real one
+        let known = st.seen.contains_key(&d.id) || st.invites_out.contains_key(&d.id) || crate::peers::pairing_with(st, &d.id);
+        if d.id != from && !known && adopt(shared, st, &d.id, &d.key) {
             st.via.insert(d.id.clone(), from.to_string());
             shared.emit(NetEvent::FriendAdded { id: d.id, name: String::new(), via: Some(from.to_string()), side: None });
         }
@@ -96,6 +114,30 @@ pub(crate) fn drop_introduced(shared: &Shared, st: &mut State, gone: &str) -> Ve
         }
     }
     links
+}
+
+/// Forget unconfirmed friend `id` (and whoever it introduced). Returns links
+/// for `close_dropped`, like `drop_introduced`.
+pub(crate) fn drop_pending(shared: &Shared, st: &mut State, id: &str) -> Vec<Arc<SecureLink>> {
+    st.remove_friend(id);
+    st.invites_out.remove(id);
+    let mut links: Vec<_> = st.demote_friend_link(id).into_iter().collect();
+    shared.emit(NetEvent::FriendDropped { id: id.to_string() });
+    links.extend(drop_introduced(shared, st, id));
+    links
+}
+
+/// Drop the friends unconfirmed for `PENDING_DAYS` (called every tick).
+pub(crate) fn expire_pending(shared: &Shared) {
+    let now = unix_now();
+    let mut st = shared.state();
+    let old: Vec<String> = st.pending.iter().filter(|(_, t)| now.saturating_sub(**t) >= PENDING_DAYS * 24 * 60 * 60).map(|(id, _)| id.clone()).collect();
+    let mut links = Vec::new();
+    for id in old {
+        links.extend(drop_pending(shared, &mut st, &id));
+    }
+    drop(st);
+    close_dropped(links);
 }
 
 /// Tell the dropped devices' links we are no longer friends, and close them.

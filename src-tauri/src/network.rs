@@ -500,6 +500,7 @@ impl Network {
         net_config.devices = config.friends.iter().filter(|f| f.device).map(|f| f.id.clone()).collect();
         net_config.introduced = config.friends.iter().filter_map(|f| Some((f.id.clone(), f.via.clone()?))).collect();
         net_config.pending = config.friends.iter().filter(|f| f.pending).map(|f| f.id.clone()).collect();
+        net_config.pending_added = config.friends.iter().filter(|f| f.pending).filter_map(|f| Some((f.id.clone(), f.pending_since?))).collect();
         (net_config.relay_url, net_config.relay_key) = relay_settings(&state.config_dir);
         network.relay_enabled = net_config.relay_url.is_some();
         network.update_code_view(app);
@@ -1058,7 +1059,14 @@ impl Network {
             // 📱 짝맞추기 없이 들어온 친구 (내 다른 컴퓨터가 나눈 친구, 또는 친구가 소개한 그 친구의 다른 컴퓨터)
             NetEvent::FriendAdded { id, name, via, side } => return self.on_friend_added(config, &id, &name, via.as_deref(), side.as_deref()),
             // 소개해 준 친구가 지워져 그 친구의 다른 컴퓨터도 지웠다 — 설정에서는 handle 끝의 sync_friends가 지운다
-            NetEvent::FriendDropped { id } => eprintln!("removed {id} together with the friend who introduced it"),
+            // (또는 확인 못 한 친구가 일주일 넘게, 또는 거듭 나를 모른다고 해서 지웠다)
+            NetEvent::FriendDropped { id } => eprintln!("removed {id} (introduced by a removed friend, or never confirmed)"),
+            // 내가 표시한 내 다른 컴퓨터가 나도 표시했다고 알렸다: 이제 서로 표시했으니 내 목록을 보낸다
+            NetEvent::PeerMarkedMe { id } => {
+                if let Some(net) = &self.net {
+                    net.send_device_friends(&id, false, describe_friend(config));
+                }
+            }
             // 내 다른 컴퓨터가 친구 목록을 보냈다 (net이 이미 더했다). 달라고 하면 내 목록도 보낸다
             NetEvent::DeviceSynced { from, want } => {
                 if let Some(net) = self.net.as_ref().filter(|_| want) {
@@ -1187,6 +1195,7 @@ impl Network {
             // 📱 내 다른 컴퓨터 표시·소개한 친구·확인 전 (net이 아는 대로)
             if let Some(info) = net.friend_info(&p.id) {
                 dirty |= config.set_friend_links(&p.id, info.device, info.via.as_deref(), info.pending);
+                dirty |= config.set_friend_pending_since(&p.id, info.pending_since);
             }
         }
         dirty
