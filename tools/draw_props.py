@@ -1,7 +1,7 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
     python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie,flower}.png
-                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop,apple,milk,bread,leaf,watermelon,broccoli,grapes,shaved_ice,special}.png (직접 주기, 48×48)
+                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop,apple,milk,bread,leaf,watermelon,broccoli,grapes,shaved_ice,seeds,special}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
                                   + ui/effects/{snowball,snowman}.png (계절 날씨) + tools/preview/snowman.png
@@ -379,6 +379,30 @@ def hand_shaved_ice(img):
         tiny_face(img, 64, 77, 0.8)
 
 
+GRAIN, GRAIN_DARK = (240, 206, 120), (196, 150, 78)
+SUNSEED, SUNSEED_STRIPE = (120, 110, 118), (236, 232, 226)
+
+
+def hand_seeds(img):
+    """새가 좋아하는 모이 🌾 — 이삭 하나 (낟알 여러 개) 앞에 해바라기씨 둘, 가운데 통통한 씨앗에 작은 얼굴."""
+    with xf(dx=-1, dy=-1, sx=0.82, sy=0.82, pivot=(64, 66)):
+        _seeds(img)
+
+
+def _seeds(img):
+    blob(img, [L([(70, 86), (72, 66), (78, 46)], 2.2)], GRAIN_DARK, r=0, line=0.8)
+    for k, (x, y) in enumerate([(78, 46), (74, 50), (81, 52), (76, 56), (83, 58), (73, 61)]):
+        with xf(rot=-20 + 12 * (k % 2), pivot=(x, y)):
+            blob(img, [E(x - 3, y - 4.6, x + 3, y + 4.6)], GRAIN, r=0, line=0.75)
+    for x, y, rot in ((50, 74, -35), (78, 78, 30)):
+        with xf(rot=rot, pivot=(x, y)):
+            blob(img, [E(x - 4.2, y - 7.5, x + 4.2, y + 7.5)], SUNSEED, r=0, line=0.8,
+                 marks=[([L([(x, y - 6), (x, y + 6)], 1.4)], SUNSEED_STRIPE)])
+    blob(img, [E(54, 58, 72, 84), T((58, 62), (63, 52), (68, 62))], GRAIN, r=1.2, line=0.9,
+         marks=[([E(56, 76, 72, 88)], mix(GRAIN, LINE, 0.18)), ([E(57, 61, 62, 67)], mix(GRAIN, WHITE, 0.55))])
+    tiny_face(img, 63, 71, 0.8)
+
+
 BENTO, BENTO_RIM, BENTO_IN = (222, 92, 86), (176, 62, 66), (255, 244, 224)
 UME, EGG, GREEN, SAUSAGE = (232, 80, 96), (255, 214, 96), (122, 190, 104), (246, 138, 138)
 
@@ -502,6 +526,7 @@ HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": ha
              "hand_bread": hand_bread, "hand_leaf": hand_leaf,  # 농장: 오리 🍞 · 기린 🍃
              "hand_watermelon": hand_watermelon, "hand_broccoli": hand_broccoli, "hand_grapes": hand_grapes,  # 공룡: 노랑 🍉 · 초록 🥦 · 보라 🍇
              "hand_shaved_ice": hand_shaved_ice,  # 눈사람 🍧
+             "hand_seeds": hand_seeds,  # 새 🌾
              "hand_special": hand_special,  # 특식 🍱
              "hand_broom": hand_broom}  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
 HAND_NAMES = tuple(HAND_DRAW)

@@ -35,6 +35,7 @@ import draw_farm as dfarm  # noqa: E402
 import draw_frog as df  # noqa: E402
 import draw_halloween as dh  # noqa: E402
 import draw_snowman as ds  # noqa: E402
+import draw_bird as dbird  # noqa: E402
 
 K = dp.K
 OUT_ROOT = Path(__file__).resolve().parent.parent / "ui" / "pets_pixel"
@@ -105,6 +106,7 @@ _OWNERS = {  # 바꿔 끼우는 이름 → 원래 있는 모듈
     dfarm: ("bread_bubble_fx", "leaf_bubble_fx", "duck_bill", "GF_STAGE", "neck_geometry"),
     dd: ("melon_bubble_fx", "broc_bubble_fx", "grape_bubble_fx", "FOOD_BUBBLE", "wave_fx", "dust_fx", "impact_fx"),
     ds: ("ice_bubble_fx",),
+    dbird: ("seeds_bubble_fx",),
 }
 _ORIG = {name: getattr(mod, name) for mod, names in _OWNERS.items() for name in names}
 _ORIG_E, _ORIG_L = _ORIG["E"], _ORIG["L"]
@@ -867,6 +869,7 @@ ICONS = {  # 넓은 격자, 좁은 격자
     "broc": ([".ggg.", "gGgGg", ".ggg.", "..n.."], ["ggg", ".n."]),
     "grape": (["..g..", "PP.PP", ".PPP.", "..P.."], ["P.P", ".P."]),
     "ice": ([".www.", "wwwww", "BBBBB", ".BBB."], ["sss", "BBB"]),
+    "seeds": (["..t..", ".tbt.", "t.t.t", ".tbt."], [".t.", "tbt"]),
 }
 
 
@@ -942,12 +945,12 @@ _PATCH = dict(compose=compose, stage_eye=stage_eye, blush=blush, open_mouth=open
               _apple_bubble=_bubble_fn("apple"), milk_bubble_fx=_bubble_fn("milk"), fly_bubble_fx=_bubble_fn("fly"), bread_bubble_fx=_bubble_fn("bread"),
               leaf_bubble_fx=_bubble_fn("leaf"), melon_bubble_fx=_bubble_fn("melon"), broc_bubble_fx=_bubble_fn("broc"), grape_bubble_fx=_bubble_fn("grape"),
               ice_bubble_fx=_bubble_fn("ice"), bee_arm=bee_arm, _beard_fns=_beard_fns, _mitt_arm=_mitt_arm, duck_bill=duck_bill, GF_STAGE=GF_STAGE,
-              wave_fx=wave_fx, dust_fx=dust_fx, impact_fx=impact_fx,
+              wave_fx=wave_fx, dust_fx=dust_fx, impact_fx=impact_fx, seeds_bubble_fx=_bubble_fn("seeds"),
               FOOD_BUBBLE={"dino_yellow": _bubble_fn("melon"), "dino_green": _bubble_fn("broc"), "dino_purple": _bubble_fn("grape")})
 
 
 def _modules():
-    return [dp, dc, dd, dfarm, df, dh, ds]
+    return [dp, dc, dd, dfarm, df, dh, ds, dbird]
 
 
 @contextmanager
@@ -1184,7 +1187,8 @@ def write_species(sp, out_root=OUT_ROOT):
 # ---------------------------------------------------------------- 미리보기 (tools/preview/pixel_<묶음>.png)
 LIGHT, DARK = (240, 240, 244), (44, 46, 58)
 GROUPS = {"animals": ["cat", "dog", "rabbit", "bear", "persian"], "bee_frog": ["bee", "frog"], "halloween": ["pumpkin", "ghost"],
-          "farm": ["duck", "giraffe"], "christmas": ["rudolph", "santa", "snowman"], "dinos": ["dino_yellow", "dino_green", "dino_purple"]}
+          "farm": ["duck", "giraffe"], "christmas": ["rudolph", "santa", "snowman"], "dinos": ["dino_yellow", "dino_green", "dino_purple"],
+          "birds": ["bird"]}
 KEY_FRAMES = [("walk", 0), ("run", 1), ("sit_front", 0), ("sleep", 0), ("hungry", 1), ("heart", 2), ("tilt", 1), ("fall", 0), ("wave", 1),
               ("eat", 0), ("level_up", 2), ("lookup", 2)]
 EXTRA_KEYS = [("climb", 0), ("climb", 2), ("slide", 1), ("sting", 2), ("bigjump", 1), ("neckstretch", 2), ("wag", 1), ("arch", 2), ("huff", 1),

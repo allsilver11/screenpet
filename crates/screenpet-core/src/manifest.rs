@@ -101,6 +101,9 @@ pub struct PetManifest {
     /// 가끔 머리 위에 작은 눈구름을 부른다 (눈사람)
     #[serde(default)]
     pub snow_cloud: bool,
+    /// 빠른 나는 동물 (새) — locomotion fly일 때만 뜻이 있다. 모르는 칸이라 옛 앱은 그냥 무시한다
+    #[serde(default)]
+    pub swift: bool,
     /// 칸마다 머리 꼭대기 (단계 → 동작 → 칸별 [x, y, 너비, 기울기] 칸 px — 그림 생성기가 적는다)
     #[serde(default)]
     pub head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
@@ -401,6 +404,17 @@ mod tests {
                 assert!(m.favorite_food.is_some_and(|f| !f.emoji.is_empty() && !f.name.is_empty()), "{path:?}");
             }
         }
+    }
+
+    /// 새: swift는 나는 동물에게만 뜻이 있다 (걷는 동물에 적혀 있어도 PetConfig::swift는 꺼진다). 없으면 false
+    #[test]
+    fn swift_defaults_off_and_only_counts_for_flyers() {
+        assert!(!parse_manifest(&full_json()).unwrap().swift);
+        let walker = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "swift": true,"#);
+        let m = parse_manifest(&walker).unwrap();
+        assert!(m.swift && !crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").swift);
+        let flyer = walker.replace(r#""swift": true,"#, r#""swift": true, "locomotion": "fly","#);
+        assert!(crate::brain::PetConfig::from_manifest(&parse_manifest(&flyer).unwrap(), 1.0, 1.0, "teenager").swift);
     }
 
     #[test]

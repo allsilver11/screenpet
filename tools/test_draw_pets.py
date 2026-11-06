@@ -394,7 +394,7 @@ def _shipped():
 def test_hires_stages_follow_the_on_screen_size():
     """청소년 때 이미 128보다 크게 보이는 동물(stage_size >= 1)만 청소년도 2배, 어른은 모두 2배."""
     shipped = _shipped()
-    assert len(shipped) == 17
+    assert len(shipped) == 18
     assert {pid for pid, m, _ in shipped if m["stage_size"]["teenager"] >= 1} == HIRES_TEENAGER
     for pid, m, _ in shipped:
         assert m["frame_size"] == FRAME

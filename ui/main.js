@@ -831,6 +831,8 @@ const EXTRA_SPEECH = {
   // 던져져 날다가 친구에게 부딪혀 되튐 / 날아온 것에 살짝 맞음
   ting: ["ting!", "boink!"],
   ow: ["ow!", "ouch!"],
+  // 빠른 새가 친구 화면으로 쌩 날아 나가거나 들어옴
+  whoosh: ["whoosh!", "whoosh~"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {
@@ -851,6 +853,7 @@ const CURSOR_LINES = {
   dino_yellow: ["RAWR!"],
   dino_green: ["rawr!"],
   dino_purple: ["rawr~"],
+  bird: ["chirp chirp!", "tweet?"],
 };
 const speech = setupSpeech({
   bubbleEl,

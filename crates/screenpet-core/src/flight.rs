@@ -18,6 +18,12 @@ pub const RUN_CHANCE: f64 = 0.3;
 pub const ROLL_CHANCE: f64 = 0.1;
 /// 떠서 쉬기로 정할 때 대신 어딘가에 내려앉으러 갈 확률
 pub const PERCH_CHANCE: f64 = 0.35;
+/// 빠른 나는 동물(새, PetConfig::swift): 떠서 쉬기로 정할 때 내려앉으러 갈 확률 (꿀벌보다 훨씬 자주 — 창 위에 앉아 쉬는 새)
+pub const SWIFT_PERCH_CHANCE: f64 = 0.6;
+/// 빠른 나는 동물이 화면 끝에서 나갈지 정하는 거리 (몸 크기 배) — 멀리서부터 끝까지 쌩 날아간다
+pub const SWIFT_EDGE_ZONE: f64 = 4.0;
+/// 빠른 나는 동물이 친구 화면으로 쌩 날아 나가고 들어오는 속도 (걷기 속도 배)
+pub const SWIFT_DASH: f64 = 4.0;
 /// 내려앉아 쉬다가 다음 할 일을 정할 때 잠들 확률 (떠 있을 땐 자지 않는다)
 pub const PERCH_SLEEP_CHANCE: f64 = 0.35;
 /// 공중제비 원 반지름 (몸 크기 배 — 지름 1.5 몸)
@@ -537,13 +543,18 @@ fn area_at_edge(world: &World, side: Side, y: Option<f64>) -> Option<Rect> {
 /// 몸이 화면 가장 바깥 끝에서 몸 하나(EDGE_ZONE) 안으로 들어와 그쪽(facing)으로 날고 있으면 그 끝.
 /// 그 높이의 작업 영역이 그 끝까지 닿아 있어야 한다 (모니터 사이 경계는 끝이 아니다)
 pub fn edge_ahead(world: &World, x: f64, y: f64, half_w: f64, size: f64, facing: f64) -> Option<Side> {
+    edge_within(world, x, y, half_w, EDGE_ZONE * size, facing)
+}
+
+/// edge_ahead와 같되 끝까지의 거리 zone(px)을 정해서 (빠른 나는 동물은 더 멀리서부터)
+pub fn edge_within(world: &World, x: f64, y: f64, half_w: f64, zone: f64, facing: f64) -> Option<Side> {
     let b = world.bounds;
     let side = visit::side_of(facing);
     let gap = match side {
         Side::Left => x - half_w - b.left,
         Side::Right | Side::Up | Side::Down => b.right - (x + half_w),
     };
-    (gap <= EDGE_ZONE * size && area_at_edge(world, side, Some(y)).is_some()).then_some(side)
+    (gap <= zone && area_at_edge(world, side, Some(y)).is_some()).then_some(side)
 }
 
 /// 화면 끝(side) 쪽으로 나가려고 날아갈 지점 — 그 끝의 작업 영역 안, 끝에서 몸 반 개 안쪽까지

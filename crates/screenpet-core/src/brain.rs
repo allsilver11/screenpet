@@ -200,6 +200,8 @@ pub enum Speech {
     Ting,
     /// 날아온 것에 살짝 맞음 ("ow!", brain_hit.rs)
     Ow,
+    /// 빠른 새가 친구 화면으로 쌩 날아 나가거나 들어옴 ("whoosh!", brain_fly.rs)
+    Whoosh,
 }
 
 impl Anim {
@@ -436,6 +438,8 @@ pub struct PetConfig {
     pub flies: bool,
     /// 괴롭히면 화면을 쏜다 (pet.json에 sting이 있는 꿀벌)
     pub stings: bool,
+    /// 빠른 나는 동물 (pet.json `swift` — 새): 더 자주 내려앉고, 친구 화면으로는 멀리서부터 "whoosh!" 쌩 (brain_fly.rs)
+    pub swift: bool,
     /// 폴짝폴짝 뛰어다닌다 (pet.json `locomotion: hop` — 개구리, brain_hop.rs)
     pub hops: bool,
     /// 걷기·달리기 토막 중 깡총거리는 몫 (pet.json `hop_share` — 토끼 0.5, brain_hop.rs). 개구리(hops)는 늘 폴짝
@@ -471,6 +475,7 @@ impl PetConfig {
             can_climb: m.can_climb(),
             flies: m.flies(),
             stings: m.can_sting(),
+            swift: m.flies() && m.swift,
             hops: m.hops(),
             hop_share: m.hop_share(),
             looks_up: m.can_look_up(),
@@ -919,6 +924,9 @@ impl Pet {
         };
         // 구르기 그림이 없는 동물: 넘어져 구르거나 굴러떨어지는 동안은 떨어지는 그림, 커서 놀이 썰매·눈덩이 굴리기·막 바꾼 스타일의 남은 구르기는 걷기
         let anim = match (anim, self.state) {
+            // 빠른 새: 친구 화면으로 쌩 나가고 들어올 땐 빠른 날기, 떠서 쉴 땐 파닥파닥 (idle은 내려앉아 앉은 그림)
+            (Anim::Walk, State::Exit { .. } | State::Enter { .. }) if self.cfg.swift => Anim::Run,
+            (Anim::Idle, State::Idle { .. } | State::Turn { .. }) if self.cfg.swift && self.standing.is_none() => Anim::Walk,
             (Anim::Roll, State::Tumble { .. } | State::Air { .. }) if self.cfg.no_roll => Anim::Fall,
             (Anim::Roll, _) if self.cfg.no_roll => Anim::Walk,
             _ => anim,
@@ -3109,6 +3117,10 @@ mod fly;
 #[cfg(test)]
 #[path = "brain_fly_tests.rs"]
 mod fly_tests;
+
+#[cfg(test)]
+#[path = "brain_swift_tests.rs"]
+mod swift_tests;
 
 #[cfg(test)]
 #[path = "brain_food_tests.rs"]

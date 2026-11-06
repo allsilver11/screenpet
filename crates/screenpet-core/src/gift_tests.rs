@@ -31,6 +31,8 @@ fn every_species_has_about_six_gifts_and_only_dinos_share() {
     assert_eq!(list_for("persian").map(|l| l.key), Some("cat")); // 페르시안도 고양이 선물 (털실·깃털…)
     assert_ne!(list_for("rudolph").map(|l| l.key), list_for("santa").map(|l| l.key));
     assert_ne!(list_for("pumpkin").map(|l| l.key), list_for("ghost").map(|l| l.key));
+    assert_eq!(list_for("bird").map(|l| (l.key, l.emoji)), Some(("bird", "🐦")));
+    assert!(list_for("bird").unwrap().items.iter().any(|i| i.id == "bird_gourdseed")); // 흥부네 제비의 박씨
     assert!(list_for("dragon").is_none());
 }
 

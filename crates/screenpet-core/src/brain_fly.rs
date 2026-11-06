@@ -1,4 +1,4 @@
-//! 날아다니는 동물(꿀벌, spec 2B §10)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 날아다니는 동물(꿀벌·유령·새, spec 2B §10)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //! 비행 수치·경로 계산은 flight.rs, 쏘기 판정은 sting.rs.
 //!
 //! 나는 동물은 `standing`이 None인 채로 날거나 떠 있고(State::Move = 날기, 그 밖의 쉬기·애교 = 제자리에 떠서),
@@ -32,6 +32,11 @@ impl Pet {
 
     pub(super) fn fly_speed(&self, kind: Move) -> f64 {
         self.cfg.walk_speed * flight::speed_mult(kind)
+    }
+
+    /// 친구 화면으로 날아 나가고 들어오는 속도: 빠른 나는 동물(새)은 쌩 (SWIFT_DASH배), 나머지는 보통 날기
+    fn cross_speed(&self) -> f64 {
+        if self.cfg.swift { self.cfg.walk_speed * flight::SWIFT_DASH } else { self.fly_speed(Move::Walk) }
     }
 
     pub(super) fn update_flyer(&mut self, dt: f64, world: &World) {
@@ -362,13 +367,17 @@ impl Pet {
             Some(side) if !visit::is_vertical(side) => visit::dir(side),
             _ => self.facing,
         };
-        let Some(side) = flight::edge_ahead(world, self.body.x, self.body.y, self.cfg.half_w, self.cfg.size, dir) else { return false };
+        let zone = if self.cfg.swift { flight::SWIFT_EDGE_ZONE } else { flight::EDGE_ZONE } * self.cfg.size;
+        let Some(side) = flight::edge_within(world, self.body.x, self.body.y, self.cfg.half_w, zone, dir) else { return false };
         f.edge_checked = true;
         self.flight = Some(*f);
         let chance = self.exit_odds(side);
         if chance >= 1.0 || chance > 0.0 && self.rng.f64() < chance {
             self.flight = None;
             self.start_exit(side);
+            if self.cfg.swift {
+                self.speech = Some(Speech::Whoosh);
+            }
             return true;
         }
         false
@@ -445,7 +454,7 @@ impl Pet {
     pub(super) fn update_fly_exit(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         self.facing = visit::dir(side);
         self.standing = None;
-        self.body.x += self.facing * self.fly_speed(Move::Walk) * dt;
+        self.body.x += self.facing * self.cross_speed() * dt;
         let remaining = remaining - dt;
         if remaining <= 0.0 && visit::fully_outside(&world.bounds, side, self.body.x, self.cfg.half_w) {
             self.vanish(side);
@@ -463,12 +472,15 @@ impl Pet {
         self.flight = None;
         self.hover_at = None;
         self.state = State::Enter { remaining: visit::ENTER_SECS, side };
+        if self.cfg.swift {
+            self.speech = Some(Speech::Whoosh);
+        }
     }
 
     fn update_fly_enter(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         self.facing = -visit::dir(side);
         self.standing = None;
-        self.body.x += self.facing * self.fly_speed(Move::Walk) * dt;
+        self.body.x += self.facing * self.cross_speed() * dt;
         let remaining = remaining - dt;
         self.state = if remaining <= 0.0 && visit::fully_inside(&world.bounds, side, self.body.x, self.cfg.half_w) {
             State::Move { kind: Move::Walk, remaining: flight::MAX_FLIGHT_SECS }
@@ -482,7 +494,8 @@ impl Pet {
         if self.hungry && self.rng.f64() < HUNGRY_REST_CHANCE {
             return State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
         }
-        if !self.is_heading_out() && self.rng.f64() < flight::PERCH_CHANCE {
+        let perch = if self.cfg.swift { flight::SWIFT_PERCH_CHANCE } else { flight::PERCH_CHANCE };
+        if !self.is_heading_out() && self.rng.f64() < perch {
             let inside = self.inside.map(|s| s.window);
             let head = self.fly_head();
             if let Some(p) = flight::pick_perch(&mut self.rng, world, inside, self.cfg.half_w, head) {

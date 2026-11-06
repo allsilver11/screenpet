@@ -207,6 +207,21 @@ pub const CATALOG: &[GiftList] = &[
         ],
     },
     GiftList {
+        key: "bird",
+        title: "새",
+        emoji: "🐦",
+        species: &["bird"],
+        speech: "chirp! for you!",
+        items: &[
+            item("bird_gourdseed", "박씨"),
+            item("bird_feather", "제비 깃털"),
+            item("bird_twig", "둥지 지푸라기"),
+            item("bird_berry", "빨간 열매"),
+            item("bird_egg", "하늘색 알"),
+            item("bird_dandelion", "민들레 홀씨"),
+        ],
+    },
+    GiftList {
         key: "giraffe",
         title: "기린",
         emoji: "🦒",

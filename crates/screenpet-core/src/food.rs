@@ -95,6 +95,7 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "santa" => "hand_milk",
             "duck" => "hand_bread",
             "giraffe" => "hand_leaf",
+            "bird" => "hand_seeds",
             "dino_yellow" => "hand_watermelon",
             "dino_green" => "hand_broccoli",
             "dino_purple" => "hand_grapes",
@@ -206,6 +207,8 @@ mod tests {
         assert_eq!((hand_icon(Food::Favorite, "rudolph"), hand_icon(Food::Favorite, "santa")), ("hand_apple", "hand_milk"));
         assert_eq!(hand_icon(Food::Snack, "santa"), "hand_cookie");
         assert_eq!((hand_icon(Food::Favorite, "duck"), hand_icon(Food::Favorite, "giraffe")), ("hand_bread", "hand_leaf"));
+        // 새는 모이(씨앗)를 콕콕
+        assert_eq!((hand_icon(Food::Favorite, "bird"), hand_icon(Food::Meal, "bird")), ("hand_seeds", "hand_meal"));
         assert_eq!(hand_icon(Food::Meal, "giraffe"), "hand_meal");
         assert_eq!(hand_icon(Food::Favorite, "persian"), "hand_milk");
         assert_eq!(

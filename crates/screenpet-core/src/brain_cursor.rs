@@ -235,6 +235,8 @@ impl CursorStyle {
             // 꿀벌은 빠르게 붕붕, 유령은 부~ 한 뒤 느릿느릿 둥실
             "bee" => CursorStyle { prep: Some((Anim::Look, 0.3)), speed: 3.5, sway: (0.35, 3.0), ..b },
             "ghost" => CursorStyle { prep: Some((Anim::Tickle, 0.6)), speed: 3.0, sway: (0.15, 0.8), ..b },
+            // 새는 쌩 — 가장 빠르게 날아와 짹짹 (파닥이는 폭은 작고 빠르게)
+            "bird" => CursorStyle { speed: 4.5, sway: (0.2, 4.0), chatty: true, ..b },
             _ => return None,
         })
     }

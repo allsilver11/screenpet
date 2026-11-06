@@ -37,7 +37,7 @@ fn wait_for_play(p: &mut Pet, w: &World, cursor: (f64, f64)) -> bool {
 
 /// 시뮬레이션 설정 + 그 동물의 몸놀림 (pet.json locomotion에 맞춘다)
 fn species_pet(id: &str, seed: u64) -> (Pet, World) {
-    let c = PetConfig { flies: matches!(id, "bee" | "ghost"), hops: id == "frog", ..cfg() };
+    let c = PetConfig { flies: matches!(id, "bee" | "ghost" | "bird"), swift: id == "bird", hops: id == "frog", ..cfg() };
     let (mut p, w) = ready_pet(c, seed);
     p.set_cursor_species(id);
     (p, w)

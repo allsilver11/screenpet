@@ -560,6 +560,79 @@ GIFTS = {
         s...s...k.
         ........kk
         """,
+    # ---- 새 (제비)
+    "bird_gourdseed": """
+        ....TT....
+        ...TTTT...
+        ..TTmmTT..
+        ..TmmmmT..
+        .TmmmmmmT.
+        .TmkmmkmT.
+        .TmmmmmmT.
+        .TTmmmmTT.
+        ..TTTTTT..
+        ...TTTT...
+        """,
+    "bird_feather": """
+        ........bb
+        .......bbB
+        ......bbBb
+        .....bbBbb
+        ....bbBbb.
+        ...bbBbb..
+        ..bbBbb...
+        ..bBbb....
+        .B.bb.....
+        B.........
+        """,
+    "bird_twig": """
+        .........t
+        .......t.t
+        .....t.tt.
+        ...t.ttt..
+        ..ttggg...
+        ..tgggt...
+        .tttt.....
+        .tt.t.....
+        t.t.......
+        t.........
+        """,
+    "bird_berry": """
+        ....G.....
+        ...GgG.gg.
+        ...G.Ggg..
+        ..G...G...
+        .rr...rr..
+        rrrr.rrrr.
+        rwrr.rwrr.
+        rrrR.rrrR.
+        .RR...RR..
+        ..........
+        """,
+    "bird_egg": """
+        ...cccc...
+        ..cccccc..
+        .cwccccsc.
+        .cwcccccc.
+        cccccscccc
+        ccscccccsc
+        cccccccccc
+        .cccscccc.
+        ..bccccb..
+        ...bbbb...
+        """,
+    "bird_dandelion": """
+        ...WWWW...
+        ..WWWWWW..
+        .WWWWWWWW.
+        .WWWyyWWW.
+        .WWWyyWWW.
+        .WWWWWWWW.
+        ..WWWWWW..
+        ...WWgW...
+        .....g....
+        ....gg....
+        """,
     # ---- 오리
     "duck_bread": """
         ..tttttt..
@@ -1203,6 +1276,18 @@ HAND = {
         WWWWWWWWWW
         gggggggggg
         GGGGGGGGGG
+        """,
+    "seeds": """
+        .......yY.
+        ......yYy.
+        ...TT..Yy.
+        ..TmmT.d..
+        .TmmmmTd..
+        .TmkmkTd..
+        .TmmmmT...
+        SSTmmTSS..
+        SWSTTSWS..
+        .SS..SS...
         """,
 }
 

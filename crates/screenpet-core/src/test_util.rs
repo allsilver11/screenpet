@@ -22,6 +22,7 @@ pub(crate) fn pet_cfg() -> PetConfig {
         can_climb: false,
         flies: false,
         stings: false,
+        swift: false,
         hops: false,
         hop_share: 0.0,
         looks_up: false,

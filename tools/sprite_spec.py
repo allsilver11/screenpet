@@ -97,18 +97,22 @@ SPEECH = {
     "rudolph": {"chatter": ["jingle~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "santa": {"chatter": ["ho ho ho!", "merry~"], "tickle": ["ho ho!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "snowman": {"chatter": ["brrr~", "snow!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    "bird": {"chatter": ["chirp!", "whoosh!", "tweet~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "persian": "aloof", "bee": "friendly", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
-               "duck": "playful", "giraffe": "friendly",
+               "duck": "playful", "giraffe": "friendly", "bird": "playful",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
 
 # 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
-LOCOMOTION = {"bee": "fly", "frog": "hop", "ghost": "fly"}
+LOCOMOTION = {"bee": "fly", "frog": "hop", "ghost": "fly", "bird": "fly"}
+
+# 빠른 나는 동물 (pet.json swift) — 더 자주 내려앉아 쉬고, 친구 화면으로는 "whoosh!" 쌩 (코어 PetConfig::swift)
+SWIFT = {"bird"}
 
 # 사는 집 그림 (pet.json house) — 보통 집은 적지 않는다. 앱 ui/house/<house>_<stage>.png
 HOUSE = {"bee": "hive", "pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
@@ -141,6 +145,7 @@ FAVORITE_FOOD = {
     "dino_yellow": {"emoji": "🍉", "name": "수박"},
     "dino_green": {"emoji": "🥦", "name": "브로콜리"},
     "dino_purple": {"emoji": "🍇", "name": "포도"},
+    "bird": {"emoji": "🌾", "name": "모이"},
 }
 
 

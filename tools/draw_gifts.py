@@ -34,6 +34,7 @@ LINES = {
     "pumpkin": ("candycorn", "lantern", "seed", "vine", "lollipop", "hat"),
     "ghost": ("candle", "key", "web", "bat", "tombstone", "moon"),
     "duck": ("bread", "pebble", "rubber", "feather", "shell", "reed"),
+    "bird": ("gourdseed", "feather", "twig", "berry", "egg", "dandelion"),
     "giraffe": ("acacia", "pod", "mango", "cloud", "nest", "scarf"),
     "rudolph": ("bell", "bulb", "snowflake", "star", "moss", "ribbon"),
     "santa": ("giftbox", "candycane", "mitten", "cookie", "stocking", "coal"),
@@ -554,6 +555,56 @@ def duck_reed(i):
     leaf(i, (63, 86), (82, 72), 4.5)
     for (a, b) in (((53, 62), (50.5, 50)), ((73, 58), (76, 45))):
         bl(i, [L([a, b], 7)], BROWN, r=0.1, line=0.6, marks=[([L([(a[0] - 2, a[1]), (b[0] - 2, b[1])], 1.4)], BROWN_LIGHT)])
+
+
+# ---- 새 (제비) ----
+SWALLOW_BLUE = (112, 138, 206)
+
+
+def bird_gourdseed(i):
+    """흥부네 제비가 물어다 준 박씨: 통통한 물방울 씨앗 + 가운데 줄 + 반짝."""
+    seed = (236, 214, 168)
+    m = bl(i, [E(51, 52, 77, 86), T((56, 58), (64, 44), (72, 58))], seed, r=1.2,
+           marks=[([E(54, 76, 74, 90)], mix(seed, LINE, 0.18)), ([E(56, 55, 62, 63)], mix(seed, WHITE, 0.6))])
+    strokes(i, [curve((64, 50), (62, 68), (64, 84))], mix(seed, LINE, 0.4), 1.1, clip=m)
+    tiny_face(i, 64, 72, 0.9)
+
+
+def bird_feather(i):
+    feather(i, (76, 86), (52, 46), SWALLOW_BLUE, mix(SWALLOW_BLUE, WHITE, 0.45))
+
+
+def bird_twig(i):
+    """둥지 짓는 지푸라기 한 다발 (가운데를 풀잎으로 묶음)."""
+    straw = (238, 204, 120)
+    for a, b in (((46, 82), (80, 50)), ((50, 86), (84, 58)), ((44, 72), (76, 46)), ((54, 88), (82, 66))):
+        bl(i, [L([a, b], 3.2)], straw, r=0, line=0.55, marks=[([L([a, b], 0.8)], mix(straw, LINE, 0.25))])
+    bl(i, [L([(58, 74), (70, 64)], 4.5)], GREEN, r=0.2, line=0.55)
+
+
+def bird_berry(i):
+    """빨간 열매 두 알 + 잎 하나."""
+    bl(i, [L(curve((64, 50), (62, 58), (56, 66)), 1.6), L(curve((64, 50), (68, 60), (73, 68)), 1.6)], BROWN, r=0)
+    leaf(i, (64, 50), (78, 44), 5.0)
+    for x, y, r in ((55, 74, 9), (73, 76, 8.5)):
+        bl(i, [C(x, y, r)], RED, r=0, marks=[([C(x - 3, y - 3, 2.2)], RED_LIGHT), ([E(x - r, y + r * 0.4, x + r, y + r * 1.2)], RED_DARK)])
+
+
+def bird_egg(i):
+    """하늘색 작은 알 (얼룩 몇 점)."""
+    egg = (176, 220, 240)
+    bl(i, [E(51, 50, 77, 87)], egg, r=0.2,
+       marks=[([E(53, 78, 75, 92)], mix(egg, LINE, 0.14)), ([E(55, 54, 62, 62)], WHITE)])
+    dots(i, [(68, 60), (60, 70), (71, 74), (64, 80)], mix(egg, LINE, 0.35), 1.1)
+
+
+def bird_dandelion(i):
+    """바람 타는 민들레 홀씨 (동글 솜털 공 + 줄기)."""
+    bl(i, [L(curve((64, 88), (62, 76), (64, 64)), 2.0)], GREEN_DARK, r=0)
+    puff = (250, 250, 246)
+    bl(i, ring(64, 58, 10, 4.2, 10) + [C(64, 58, 10)], puff, r=0.6, marks=[([C(64, 58, 4)], mix(puff, LINE, 0.12))])
+    strokes(i, [[(64, 58), polar(64, 58, 12, a)] for a in range(-90, 270, 36)], mix(puff, LINE, 0.22), 0.6)
+    dots(i, [(64, 58)], GOLD_DARK, 1.8)
 
 
 # ---- 기린 ----

@@ -89,6 +89,7 @@ HAND += ("hand_apple", "hand_milk")  # 크리스마스
 HAND += ("hand_bread", "hand_leaf")  # 농장
 HAND += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡
 HAND += ("hand_shaved_ice",)  # 눈사람
+HAND += ("hand_seeds",)  # 새
 HAND += ("hand_special",)  # 특식 🍱
 HAND += ("hand_broom",)  # 🧹 빗자루
 
