@@ -208,6 +208,8 @@ impl CursorStyle {
         Some(match species {
             // 살금살금 다가가 엉덩이를 씰룩이다가 먼 곳에서 와락
             "cat" => CursorStyle { speed: 0.6, arrive: Some((Anim::Look, 0.9)), wiggle: true, range: 3.5, leap_secs: 0.5, glare: Anim::Huff, ..b },
+            // 페르시안: 느릿느릿 어슬렁 가서 기지개 한 번 — 멀리서 와락은 귀찮다
+            "persian" => CursorStyle { speed: 0.4, arrive: Some((Anim::Stretch, 1.0)), range: 1.5, leap_secs: 0.6, glare: Anim::Huff, ..b },
             // 꼬리 치며 쫄래쫄래
             "dog" => CursorStyle { gait: Anim::Run, speed: 1.3, arrive: Some((Anim::Wag, 0.7)), ..b },
             "rabbit" => CursorStyle { gait: Anim::Hop, speed: 2.2, lift: 0.18, beat: 0.4, range: 1.5, ..b },

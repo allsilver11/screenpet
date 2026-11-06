@@ -411,7 +411,7 @@ def _worst_fit(table_name):
 
 
 def test_every_species_has_a_pixel_sheet_now():
-    assert len(_pixel_ids()) == 16
+    assert len(_pixel_ids()) == 17
 
 
 def test_nightcap_table_fits_every_pixel_frame():

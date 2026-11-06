@@ -84,6 +84,7 @@ _DINO_SPEECH = {"chatter": ["rawr!", "♪"], "tickle": ["hehe!"], "grumpy": ["gr
 SPEECH = {
     "cat": {"chatter": ["meow!", "nya~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "hiss": ["hiss!"], "ignore": ["..."],
             **_CARE_SPEECH},
+    "persian": {"chatter": ["mrr...", "*yawn*"], "tickle": ["...mrr~"], "grumpy": ["hmph."], "ignore": ["...", "zzz..."], **_CARE_SPEECH},
     "dog": {"chatter": ["woof!", "arf!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "rabbit": {"chatter": ["boing!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "bear": {"chatter": ["grr~", "hmm~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
@@ -101,7 +102,7 @@ SPEECH = {
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
-PERSONALITY = {"cat": "aloof", "bee": "friendly", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
+PERSONALITY = {"cat": "aloof", "persian": "aloof", "bee": "friendly", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
                "duck": "playful", "giraffe": "friendly",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
@@ -124,6 +125,7 @@ SNOW_CLOUD = {"snowman"}
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {
     "cat": {"emoji": "🐟", "name": "생선"},
+    "persian": {"emoji": "🥛", "name": "우유"},
     "dog": {"emoji": "🦴", "name": "뼈다귀"},
     "rabbit": {"emoji": "🥕", "name": "당근"},
     "bear": {"emoji": "🍯", "name": "꿀"},

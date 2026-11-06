@@ -153,6 +153,10 @@ def _wide():
 def _eye_rows(kind, flip=False):
     n = _PX["grid"].n
     wide = _wide()
+    if kind == "dot" and _ST_get("sleepy"):  # 반쯤 감은 졸린 눈 (페르시안): 넓은 눈꺼풀 한 줄 아래 반쪽 눈
+        if _ST_get("sparkle"):
+            return ["####", "o##.", ".#i."] if n >= 28 else ["###", "o#i"]
+        return ["####", ".o#."] if wide else ["###", ".#."]
     if kind in ("dot", "up"):
         if _ST_get("sparkle"):
             return ["o##", "###", "##i"] if n < 28 else ["o##", "###", "###", "#i#"]
@@ -213,13 +217,16 @@ FRONT_MOUTHS = {  # 넓은 격자 (32칸 이상), 좁은 격자 — 첫 줄이 �
     "yawn": ([".nn.", ".ll.", "lrrl", "lrrl", "lttl", ".ll."], [".nn.", "lrrl", "lrrl", ".tt."]),
     "big": ([".nn.", "llll", "lrrl", "lrrl", "lttl", ".ll."], [".nn.", "lrrl", "lrrl", ".tt."]),
     "tongue": ([".nn.", ".ll.", ".tt.", ".tt."], ["nn", "tt"]),
+    "flat": ([".nn.", "....", ".ll."], ["nn", "..", "ll"]),  # 무표정 일자 입 (페르시안)
 }
 
 
 def front_mouth(sp, kind=None, tongue_dy=0):
     key = "smile" if kind is None and dp._ST["smile"] else kind
+    if key is None and sp.mouth == "flat":
+        key = "flat"
     rows = FRONT_MOUTHS[key][0 if _wide() else 1]
-    ny = 57 if sp.mouth == "dog" else 59.5
+    ny = {"dog": 57, "flat": 57.5}.get(sp.mouth, 59.5)
     return [([_stamp(64, ny, rows, dict(MOUTH_PAL, n=sp.nose), anchor_top=True)], None)]
 
 
@@ -1176,7 +1183,7 @@ def write_species(sp, out_root=OUT_ROOT):
 
 # ---------------------------------------------------------------- 미리보기 (tools/preview/pixel_<묶음>.png)
 LIGHT, DARK = (240, 240, 244), (44, 46, 58)
-GROUPS = {"animals": ["cat", "dog", "rabbit", "bear"], "bee_frog": ["bee", "frog"], "halloween": ["pumpkin", "ghost"],
+GROUPS = {"animals": ["cat", "dog", "rabbit", "bear", "persian"], "bee_frog": ["bee", "frog"], "halloween": ["pumpkin", "ghost"],
           "farm": ["duck", "giraffe"], "christmas": ["rudolph", "santa", "snowman"], "dinos": ["dino_yellow", "dino_green", "dino_purple"]}
 KEY_FRAMES = [("walk", 0), ("run", 1), ("sit_front", 0), ("sleep", 0), ("hungry", 1), ("heart", 2), ("tilt", 1), ("fall", 0), ("wave", 1),
               ("eat", 0), ("level_up", 2), ("lookup", 2)]

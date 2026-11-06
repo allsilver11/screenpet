@@ -28,6 +28,7 @@ fn every_species_has_about_six_gifts_and_only_dinos_share() {
     }
     assert_eq!(list_for("dino_green").map(|l| l.key), list_for("dino_purple").map(|l| l.key));
     assert_eq!(list_for("dino_green").map(|l| l.key), list_for("dino_yellow").map(|l| l.key));
+    assert_eq!(list_for("persian").map(|l| l.key), Some("cat")); // 페르시안도 고양이 선물 (털실·깃털…)
     assert_ne!(list_for("rudolph").map(|l| l.key), list_for("santa").map(|l| l.key));
     assert_ne!(list_for("pumpkin").map(|l| l.key), list_for("ghost").map(|l| l.key));
     assert!(list_for("dragon").is_none());

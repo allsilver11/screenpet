@@ -835,6 +835,7 @@ const EXTRA_SPEECH = {
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {
   cat: ["mrrow...", "*wiggle wiggle*"],
+  persian: ["...mrr?", "*streeetch*"],
   dog: ["woof woof!", "ooh! ooh!"],
   rabbit: ["hop hop!"],
   bear: ["grr-paw!"],

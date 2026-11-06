@@ -123,6 +123,7 @@ def xf(dx=0.0, dy=0.0, rot=0.0, sx=1.0, sy=1.0, pivot=(64, 126)):
 #        blush: 볼터치 (가로, 세로) 배율 · ear: 귀 크기 · tuft: 정수리 삐죽 털
 # 몸   — tail: 꼬리 길이 · tail_w: 꼬리 굵기 · cheek_fluff: 볼 지그재그 털
 # 종 특징 (Species.stage_tweak로 켠다) — whiskers: 수염 · snout: 주둥이 길이 · chest_fluff: 가슴 털
+#        sleepy: 기본 눈("dot")이 눈꺼풀이 반쯤 내려온 졸린 눈 (페르시안)
 STAGE_PROPS = {
     "baby": dict(head=1.25, body=0.80, leg=0.45, line=1.1, soft=0.22, fit=0.84, torso=(0.9, 1.14), fbody=(1.12, 1.0),
                  pale=0.35, lvl=0, eye=1.5, eye_dy=2.5, sparkle=True, calm=False, smile=False, blush=(1.25, 1.45), ear=0.66,
@@ -140,7 +141,7 @@ STAGE_PROPS = {
                   pale=0.0, lvl=4, eye=0.92, eye_dy=0.5, sparkle=False, calm=True, smile=False, blush=(0.95, 0.9), ear=1.0,
                   tuft=False, tail=1.0, tail_w=1.22, cheek_fluff=True),
 }
-STAGE_FLAGS = dict(whiskers=False, snout=0.0, chest_fluff=False)  # 종 특징 기본값 (Species.stage_tweak로 덮어씀)
+STAGE_FLAGS = dict(whiskers=False, snout=0.0, chest_fluff=False, sleepy=False)  # 종 특징 기본값 (Species.stage_tweak로 덮어씀)
 _ST = dict(STAGE_PROPS["teenager"], **STAGE_FLAGS)
 
 
@@ -408,6 +409,8 @@ def stage_eye(kind, cx, cy, flip=False):
     cy += _ST["eye_dy"]
     if kind == "up" and _ST["sparkle"]:  # 반짝이 큰 눈 그대로, 눈동자만 위로 (어른의 느긋한 눈은 동그랗게 뜬다)
         kind, cy = "dot", cy - 1.6 * es
+    if kind == "dot" and _ST["sleepy"]:
+        return sleepy_eye(cx, cy, es, flip)
     if kind == "dot" and _ST["sparkle"]:
         rx, ry = 4 * es, 5 * es
         return [([E(cx - rx, cy - ry, cx + rx, cy + ry)], EYE),
@@ -421,6 +424,24 @@ def stage_eye(kind, cx, cy, flip=False):
     k = es if kind == "dot" else es ** 0.6
     with xf(sx=k, sy=k, pivot=(cx, cy)):
         return eye(kind, cx, cy, flip)
+
+
+def sleepy_eye(cx, cy, es, flip=False):
+    """반쯤 감은 졸린 눈: 굵은 눈꺼풀 선 아래로 동그란 눈의 아랫부분만 (바깥 끝이 살짝 처짐) + 작은 반짝이.
+    아기·유아(sparkle)는 눈을 조금 더 뜨고 반짝이도 크다."""
+    s = 1 if flip else -1  # 바깥쪽 (왼쪽 눈은 -x)
+    rx, ry = 4.6 * es, 5.0 * es
+    lid = 0.12 if _ST["sparkle"] else 0.05  # 눈꺼풀 높이 (눈 반지름 비율, 가운데 기준 위로 +)
+    y_in, y_out = cy - ry * lid, cy - ry * lid + 1.4 * es  # 안쪽 끝 · 바깥 끝 (처진 눈꺼풀)
+    lid_y = lambda x: y_in + (y_out - y_in) * ((x - cx) * s / rx + 1) / 2
+    ball = [(x, max(y, lid_y(x))) for x, y in arc(cx, cy, rx, ry, 0, 360, 48)]
+    ops = [([T(*ball)], EYE)]
+    if _ST["sparkle"]:
+        ops.append(([E(cx - rx * 0.7, cy + ry * 0.3, cx + rx * 0.7, cy + ry * 0.9)], EYE_LIGHT))
+    hx = cx - s * rx * 0.3
+    ops.append(([C(hx, lid_y(hx) + 1.8 * es, (0.95 if _ST["sparkle"] else 0.75) * es)], WHITE))
+    ops.append(([L([(cx + s * (rx + 1.4), y_out + 0.6), (cx, (y_in + y_out) / 2), (cx - s * (rx + 0.6), y_in)], 2.0)], EYE))
+    return ops
 
 
 def strand(pts, w0, w1):
@@ -561,6 +582,9 @@ class Species:
     outline: tuple = None  # 실루엣 외곽선 색 (없으면 LINE)
     poses: dict = None  # 이 종만의 포즈 {동작: 함수} — 뼈대가 다른 동물 (꿀벌: 날개로 난다). 없는 동작은 공통 POSES
     write_layers: object = None  # 시트 말고 더 쓸 그림이 있는 종 (기린 목 늘이기): (out_dir) → pet.json에 더할 칸
+    front_head: list = field(default_factory=lambda: [("E", 16, 16, 112, 84)])  # 앞모습 머리 도형 (페르시안: 넓적 네모 얼굴 + 볼 털 갈기)
+    side_head: list = field(default_factory=lambda: [("E", 52, 12, 124, 78)])  # 옆모습 머리 도형
+    fur_tufts: tuple = ((), ())  # 머리 가장자리 삐죽 털 (앞모습, 옆모습) — 녹이지 않는 삼각형 (긴 털 갈기)
 
 
 def _stripe(pts, w=2.8):
@@ -630,6 +654,62 @@ CAT = Species(
         ([_stripe(arc(64, 84 + dy, 22 - abs(dy) * 0.3, 6, 205, 335, 8), 3.0) for dy in (-10, 2)], CAT_ST, (2, 2)),
         ([_stripe(arc(64, 80 + dy, 22, 6, 205, 335, 8), 3.0) for dy in (-10, 0, 10)], CAT_ST, 3),
     ],
+)
+
+# 페르시안 고양이: 푸른빛 도는 연회색 긴 털 + 크림색 볼 털·갈기·가슴·발. 넓적한 네모 얼굴(동글 두 개를 겹친 납작한 윗머리),
+# 볼과 턱 아래를 감싼 복슬 갈기(작은 동그라미를 이어 붙여 녹이면 몽글몽글한 가장자리), 털에 반쯤 묻힌 낮고 작은 귀,
+# 눈 사이 높은 작은 코 + 무표정 일자 입(mouth "flat"), 반쯤 감은 졸린 눈(sleepy), 아주 복슬한 꼬리. 느릿느릿 걷는다.
+PER_G, PER_C, PER_IN, PER_LINE = (198, 204, 224), (255, 248, 236), (244, 190, 196), (116, 106, 124)
+
+
+def _puffs(pts, r):
+    """동그라미 털뭉치들 (가장자리가 몽글몽글)."""
+    return [("E", x - r, y - r, x + r, y + r) for x, y in pts]
+
+
+def _tufts(cx, cy, rx, ry, angles, ln=6.5, w=11):
+    """타원 (cx, cy, rx, ry) 둘레에서 바깥으로 삐죽 나온 털 끝 삼각형들 (각도: 0=오른쪽, 90=아래)."""
+    out = []
+    for a in angles:
+        t, n = math.radians(a), math.radians(a + 90)
+        bx, by = cx + rx * math.cos(t), cy + ry * math.sin(t)
+        h = w / 2
+        out.append(("T", (bx - h * math.cos(n) - 2 * math.cos(t), by - h * math.sin(n) - 2 * math.sin(t)),
+                    (bx + ln * math.cos(t), by + ln * math.sin(t)), (bx + h * math.cos(n) - 2 * math.cos(t), by + h * math.sin(n) - 2 * math.sin(t))))
+    return out
+
+
+_per_ear = [("T", (16, 38), (20, 18), (38, 27))]
+_per_ear_in = [("T", (21, 33), (22.5, 23), (31, 28.5))]
+_per_ruff = _puffs([(14, 62), (12, 72), (17, 81), (26, 87), (37, 90), (50, 92), (64, 93)], 8.5)  # 왼쪽 볼 → 턱 아래 갈기
+PERSIAN = Species(
+    id="persian", name="페르시안 고양이", walk_speed=50, scale=0.94, base=PER_G, back=PER_G, belly=PER_C, nose=(232, 150, 156),
+    mouth="flat", stage_size=dict.fromkeys(STAGES, 0.92),
+    front_head=[("E", 12, 16, 86, 84), ("E", 42, 16, 116, 84)] + _per_ruff + [("E", 128 - x1, y0, 128 - x0, y1) for _, x0, y0, x1, y1 in _per_ruff],
+    front_ears=_per_ear + [("T", *_mirror(_per_ear[0][1:]))],
+    front_ear_pivots=((26, 34), (102, 34)),
+    front_ear_marks=[(_per_ear_in + [("T", *_mirror(_per_ear_in[0][1:]))], PER_IN)],
+    front_head_marks=[
+        ([("E", -4, 63, 132, 118)], PER_C),  # 볼 털·갈기 (크림)
+        ([("E", 38, 47, 90, 80)], PER_C),  # 코 둘레 (크림)
+    ],
+    front_body_marks=[([("E", 40, 64, 88, 122)], PER_C), ([("E", 34, 100, 62, 127), ("E", 66, 100, 94, 127)], PER_C)],
+    front_tail=[("E", 84, 94, 116, 122)], front_tail_root=(94, 112), front_tail_color=PER_G,
+    side_head=[("E", 52, 14, 124, 80)] + _puffs([(58, 62), (64, 73), (75, 80), (89, 84), (103, 82)], 9),
+    side_ears=[Ear([("T", (64, 30), (68, 13), (84, 22))], (74, 26), PER_G, [([("T", (68.5, 27), (69.5, 17.5), (78, 23))], PER_IN)]),
+               Ear([("T", (98, 20), (108, 10), (114, 26))], (106, 24), PER_G)],
+    ears_over=False,
+    side_head_marks=[([("E", 40, 54, 136, 112)], PER_C), ([("E", 98, 36, 132, 66)], PER_C)],
+    side_torso_marks=[([("E", 22, 86, 100, 122)], PER_C), ([("E", 78, 56, 112, 112)], PER_C)],
+    side_tail=[("L", [(26, 80), (13, 68), (9, 52), (14, 40)], 17)] + _puffs([(8, 58), (9, 46), (17, 37)], 9), tail_root=(26, 80),
+    tail_color=PER_G,
+    fur_tufts=(_tufts(64, 72, 59, 27, [160, 140, 118, 62, 40, 20], ln=7.5),  # 볼·턱 갈기 끝
+               _tufts(76, 66, 30, 18, [150, 172], ln=7.5)),
+    specials=["huff", "lookup"],
+    # 모든 단계: 졸린 반눈 · 어린이도 웃지 않는 무표정 · 수염·볼 지그재그 털 없음 (갈기가 대신)
+    stage_tweak={st: dict(sleepy=True, smile=False, cheek_fluff=False, **{"baby": dict(ear=0.85), "kinder": dict(ear=0.9)}.get(st, {}))
+                 for st in STAGES},
+    outline=PER_LINE,
 )
 
 DOG_W, DOG_G, DOG_EAR = (255, 247, 236), (222, 168, 112), (196, 140, 92)
@@ -707,7 +787,7 @@ BEAR = Species(
     outline=BEAR_LINE,
 )
 
-SPECIES = {s.id: s for s in (CAT, DOG, RABBIT, BEAR)}
+SPECIES = {s.id: s for s in (CAT, DOG, RABBIT, BEAR, PERSIAN)}
 
 
 # =====================================================================
@@ -761,7 +841,8 @@ def front_head(sp, eyes="dot", mouth=None, tongue_dy=0, outline=False, cheeks=Fa
         spikes = tuft(64, 16) if _ST["tuft"] else []
         if _ST["cheek_fluff"]:
             spikes += [T(*t) for t in CHEEK_FLUFF if not lc] + [T(*_mirror(t)) for t in CHEEK_FLUFF if not rc]
-        part = Part([shape(("E", 16, 16, 112, 84))] + puff + snout + ear_fns, sp.base,
+        spikes += [shape(d) for d in sp.fur_tufts[0]]
+        part = Part([shape(d) for d in sp.front_head] + puff + snout + ear_fns, sp.base,
                     ear_marks + _marks(sp.front_head_marks), grow=1, outline=outline, spikes=spikes)
         lb, rb = 5 if lc else 0, 5 if rc else 0
         bd = 2 if _ST["sparkle"] else 0  # 큰 눈 아래로 볼터치를 조금 내림
@@ -777,18 +858,26 @@ def front_head(sp, eyes="dot", mouth=None, tongue_dy=0, outline=False, cheeks=Fa
     return part, ops
 
 
+def mouth_top(sp):
+    """앞모습 입 윗선 (머리 좌표): 강아지·곰은 큰 코 아래, 납작 얼굴(페르시안)은 눈 사이 높은 코 바로 아래."""
+    return {"dog": 66, "flat": 61.5}.get(sp.mouth, 64)
+
+
 def front_mouth(sp, kind=None, tongue_dy=0):
     ops = []
+    top = mouth_top(sp)
     if sp.mouth == "dog":
         ops.append(([E(59, 56, 69, 63)], sp.nose))
-        top = 66
+    elif sp.mouth == "flat":  # 눈 사이에 콕 박힌 작은 코
+        ops.append(([T((61.4, 57.2), (66.6, 57.2), (64, 60.4))], sp.nose))
     else:
         ops.append(([E(61.6, 59.4, 66.4, 62.6)], sp.nose))
-        top = 64
     if kind is None and _ST["smile"]:  # 어린이: 작게 벌린 웃는 입
         return ops + open_mouth(64, top + 0.4, 3.2, 3.4)
     if kind is None:
-        if sp.mouth == "dog":
+        if sp.mouth == "flat":  # 무표정 일자 입 (코에서 짧은 세로줄)
+            ops += [([L([(64, 60.2), (64, 62.6)], 1.2)], LINE), ([L([(60.6, 63.4), (64, 62.6), (67.4, 63.4)], 1.3)], LINE)]
+        elif sp.mouth == "dog":
             ops += [([L([(64, 63), (64, 66)], 1.3)], LINE), ([L([(59, 66), (62, 68.5), (64, 66), (66, 68.5), (69, 66)], 1.3)], LINE)]
         else:
             ops.append(([L([(59.8, 64), (61.9, 65.8), (64, 64), (66.1, 65.8), (68.2, 64)], 1.3)], LINE))
@@ -868,8 +957,8 @@ def side_head(sp, eyes="dot", mouth=None, ear_rot=(0, 0), ear_dy=0, outline=Fals
                 ears.append(Part([shape(d) for d in ear.shapes], ear.color, _marks(ear.marks), grow=1, outline=outline and sp.ears_over))
         sn = _ST["snout"]
         snout = [shape(("E", 96, 38, 124 + 2 * sn, 68))] if sn else []
-        head = Part([shape(("E", 52, 12, 124, 78))] + snout, sp.base, _marks(sp.side_head_marks), grow=1, outline=outline,
-                    spikes=tuft(90, 12) if _ST["tuft"] else [])
+        head = Part([shape(d) for d in sp.side_head] + snout, sp.base, _marks(sp.side_head_marks), grow=1, outline=outline,
+                    spikes=(tuft(90, 12) if _ST["tuft"] else []) + [shape(d) for d in sp.fur_tufts[1]])
         parts = [head] + ears if sp.ears_over else ears + [head]
         bd = 2 if _ST["sparkle"] else 0
         ops = blush(99 - bd, 59 + bd) + stage_eye(eyes, 104, 46)
@@ -882,6 +971,8 @@ def side_head(sp, eyes="dot", mouth=None, ear_rot=(0, 0), ear_dy=0, outline=Fals
 
 def side_mouth(sp, kind=None):
     nose = [([E(118, 51, 125, 56)], sp.nose)]
+    if kind is None and sp.mouth == "flat":  # 납작 얼굴: 높은 코 + 무표정 짧은 일자 입
+        return [([E(119, 48.5, 125, 53)], sp.nose), ([L([(122, 53.5), (121.5, 57.5)], 1.2), L([(122, 58), (116, 58.4)], 1.3)], LINE)]
     if kind is None:
         return nose + [([L([(121, 57), (119, 60), (115, 59)], 1.3)], LINE)]
     if kind == "pout":
@@ -1411,7 +1502,7 @@ def eat(sp, i):
     앙(입 벌림·^^) ↔ 오물오물(볼 빵빵·‿)을 번갈아, 머리 살짝 좌우, 앞발은 그릇 양옆을 잡고, 부스러기가 튄다. 그릇은 그리지 않는다."""
     bite = i % 2 == 0
     b, h = _ST["body"], _ST["head"]
-    top = 66 if sp.mouth == "dog" else 64
+    top = mouth_top(sp)
     mouth_pre = _frame_to_pre(64, EAT_MOUTH_Y + (0 if bite else -1.5))[1]
     dy = mouth_pre - ((1 - b) * (FRONT_BODY_PIVOT[1] - 84) + 84 + (top - 84) * h + _ST["snout"] * h)
     fx = eat_crumbs(i, CRUMB)  # 그릇 위 양옆으로 튐

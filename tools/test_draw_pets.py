@@ -394,7 +394,7 @@ def _shipped():
 def test_hires_stages_follow_the_on_screen_size():
     """청소년 때 이미 128보다 크게 보이는 동물(stage_size >= 1)만 청소년도 2배, 어른은 모두 2배."""
     shipped = _shipped()
-    assert len(shipped) == 16
+    assert len(shipped) == 17
     assert {pid for pid, m, _ in shipped if m["stage_size"]["teenager"] >= 1} == HIRES_TEENAGER
     for pid, m, _ in shipped:
         assert m["frame_size"] == FRAME
@@ -439,3 +439,66 @@ def test_preview_poses_draws_every_band(tmp_path):
     assert im.getpixel((2, 24 + 9 * row_h))[:3] == (40, 44, 52)
     assert im.getpixel((im.width - 10, 24 + row_h // 2))[:3] == (255, 0, 0)
 
+
+
+# ---- 🐱 페르시안 고양이: 한눈에 고양이와 다르다 — 납작 네모 얼굴 · 낮고 작은 귀 · 졸린 반눈 · 복슬 갈기·꼬리 · 느릿느릿
+def _one(pid, anim, st="teenager"):
+    """한 동물·한 단계의 첫 장만 (128 칸) — 시트 전체를 그리지 않아 빠르다."""
+    sp = draw_pets.SPECIES[pid]
+    with draw_pets.stage(st, sp.stage_tweak.get(st)), draw_pets.output(1):
+        return draw_pets.frames(draw_pets.staged_species(sp), anim, 1)[0]
+
+
+def _widths(im):
+    a = im.getchannel("A").point(lambda v: 255 if v > 128 else 0)
+    return [sum(1 for x in range(FRAME) if a.getpixel((x, y))) for y in range(FRAME)]
+
+
+def _area(pts):
+    return abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]))) / 2
+
+
+def test_persian_is_a_lazy_aloof_cat():
+    sp = draw_pets.SPECIES["persian"]
+    assert sp.name == "페르시안 고양이" and sp.walk_speed < draw_pets.CAT.walk_speed * 0.7
+    assert draw_pets.PERSONALITY["persian"] == "aloof" and "huff" in sp.specials  # 새침한 고양이는 클릭에 흥! (Rust: Aloof → Huff)
+    assert draw_pets.FAVORITE_FOOD["persian"]["emoji"] != draw_pets.FAVORITE_FOOD["cat"]["emoji"]
+    assert sp.mouth == "flat"  # 납작 얼굴: 눈 사이 높은 작은 코 + 무표정 일자 입
+
+
+def test_persian_ears_are_much_smaller_than_the_cats():
+    ear = lambda sp: max(_area(list(d[1:])) for d in sp.front_ears if d[0] == "T")
+    assert ear(draw_pets.SPECIES["persian"]) < 0.45 * ear(draw_pets.CAT)
+
+
+@pytest.mark.parametrize("st", ["baby", "teenager", "adult"])
+def test_persian_face_is_wide_and_square_with_a_ruff(st):
+    """앉은 앞모습: 머리(위쪽) 실루엣이 고양이보다 넓고 (볼 털·갈기), 꼭대기 바로 아래가 이미 넓다 (낮은 작은 귀 = 네모난 윗머리 —
+    고양이는 뾰족 귀 두 개만 있는 줄). 아기는 정수리 삐죽 털이 꼭대기라 폭만 본다."""
+    def head(pid):
+        w = _widths(_one(pid, "sit_front", st))
+        top = next(y for y, v in enumerate(w) if v)
+        widest = max(w[top:top + 48])
+        return widest, w[top + 6] / widest
+    (pw, pt), (cw, ct) = head("persian"), head("cat")
+    assert pw > cw * 1.06, (st, pw, cw)
+    if st != "baby":
+        assert pt > ct + 0.2, (st, pt, ct)
+
+
+@pytest.mark.parametrize("anim", ["idle", "sit_front"])
+def test_persian_resting_eyes_are_half_closed(anim):
+    """쉴 때 눈: 눈 색 덩어리의 높이가 고양이보다 한참 낮다 (반쯤 감은 졸린 눈)."""
+    def eye_h(pid):
+        px = _one(pid, anim).load()
+        er, eg, eb = draw_pets.EYE
+        ys = [y for y in range(FRAME // 2 + 16) for x in range(FRAME)
+              if px[x, y][3] > 200 and abs(px[x, y][0] - er) + abs(px[x, y][1] - eg) + abs(px[x, y][2] - eb) < 30
+              and (x < 64 if anim == "sit_front" else True)]
+        return max(ys) - min(ys) + 1
+    assert eye_h("persian") < 0.7 * eye_h("cat"), (eye_h("persian"), eye_h("cat"))
+
+
+def test_persian_tail_is_bushier_than_the_cats():
+    w = lambda sp: max(d[2] for d in sp.side_tail if d[0] == "L")
+    assert w(draw_pets.SPECIES["persian"]) > 1.4 * w(draw_pets.CAT)

@@ -75,7 +75,7 @@ pub const CATALOG: &[GiftList] = &[
         key: "cat",
         title: "고양이",
         emoji: "🐱",
-        species: &["cat"],
+        species: &["cat", "persian"],
         speech: "...for you. hmph.",
         items: &[
             item("cat_fishbone", "생선 뼈"),
