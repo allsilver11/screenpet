@@ -22,8 +22,40 @@ pub fn fast() -> Timing {
     }
 }
 
+/// A UDP port for a Net's discovery that nothing else in this test process
+/// will take: the tests run in parallel and need each other's ports before
+/// starting, so the OS can't pick them (port 0).
+///
+/// Asking the OS for a free port and closing it again is racy: the OS hands
+/// that same port to the next `bind(…:0)` (another test's Net or socket), and
+/// a test that restarts a Net on its old port loses it the same way. So ports
+/// come from below every OS's ephemeral range (Linux 32768+, Windows/macOS
+/// 49152+), where port-0 binds never land, and each is handed out at most
+/// once per process. A port another program holds is skipped.
 pub fn free_udp_port() -> u16 {
-    UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    // The Net binds 0.0.0.0; free there means free on 127.0.0.1 too.
+    reserved_port(|port| UdpSocket::bind(("0.0.0.0", port)).is_ok())
+}
+
+/// The same for a TCP listener that is restarted on its old port (a relay).
+pub fn free_tcp_port() -> u16 {
+    reserved_port(|port| std::net::TcpListener::bind(("127.0.0.1", port)).is_ok())
+}
+
+fn reserved_port(free: impl Fn(u16) -> bool) -> u16 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    const FIRST: u32 = 20000;
+    const COUNT: u32 = 12000;
+    // A per-process start, so two test processes at once rarely meet.
+    static NEXT: AtomicU32 = AtomicU32::new(u32::MAX);
+    let _ = NEXT.compare_exchange(u32::MAX, std::process::id().wrapping_mul(7919) % COUNT, Ordering::SeqCst, Ordering::SeqCst);
+    for _ in 0..COUNT {
+        let port = (FIRST + NEXT.fetch_add(1, Ordering::SeqCst) % COUNT) as u16;
+        if free(port) {
+            return port;
+        }
+    }
+    panic!("no free port in {FIRST}..{}", FIRST + COUNT);
 }
 
 pub fn friend(id: &str, key: &[u8; 32]) -> Friend {

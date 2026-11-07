@@ -5,7 +5,7 @@ use screenpet_net::{Friend, Net, NetConfig, NetEvent, Side, Timing, Visit};
 use screenpet_relay::{Relay, RelayConfig};
 mod common;
 
-use common::{blake2s, fast, free_udp_port, friend, hex, is_connected, unhex, wait_for};
+use common::{blake2s, fast, free_tcp_port, free_udp_port, friend, hex, is_connected, unhex, wait_for};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io;
@@ -167,7 +167,8 @@ fn bad_codes_are_reported() {
 
 #[test]
 fn friends_reconnect_through_the_relay_and_after_it_restarts() {
-    let relay = start_relay("127.0.0.1:0".parse().unwrap());
+    // Restarted on its port below: one the OS could hand to another test meanwhile won't do
+    let relay = start_relay(SocketAddr::from(([127, 0, 0, 1], free_tcp_port())));
     let addr = relay.local_addr();
     let u = url(&relay);
     let (ka, kb) = (Net::generate_static_key(), Net::generate_static_key());
@@ -303,7 +304,8 @@ fn live_relay_smoke() {
 #[test]
 fn a_lan_link_replaced_by_a_relay_link_within_grace_does_not_flap() {
     // The relay is down at first, so the friends link on the LAN.
-    let addr = start_relay("127.0.0.1:0".parse().unwrap()).local_addr();
+    // Restarted on its port below: one the OS could hand to another test meanwhile won't do
+    let addr = start_relay(SocketAddr::from(([127, 0, 0, 1], free_tcp_port()))).local_addr();
     let u = format!("ws://{addr}/ws");
     let (ka, kb) = (Net::generate_static_key(), Net::generate_static_key());
     let (fa, fb) = friends_of(&ka, &kb);

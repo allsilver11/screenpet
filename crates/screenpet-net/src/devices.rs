@@ -273,7 +273,7 @@ fn linked_elsewhere(st: &State, id: &str) -> bool {
 /// version-checked and budgeted by the caller). Returns the replies to send.
 pub(crate) fn on_link_message(shared: &Shared, st: &mut State, token: u64, id: &str, msg: Control) -> Vec<Control> {
     let now = Instant::now();
-    let me = noise::public_key(&shared.static_key);
+    let me = shared.public_key;
     let Some(them) = st.conns.get(&token).map(|c| c.remote_key) else { return Vec::new() };
     let fail = |reason: &str, left: u32| shared.emit(NetEvent::DeviceLinkFailed { id: id.to_string(), reason: reason.to_string(), left });
     match msg {
@@ -651,7 +651,7 @@ fn adopt(shared: &Shared, st: &mut State, id: &str, key: &str) -> bool {
     let ok = is_install_id(id)
         && id != shared.id
         && key != [0; 32]
-        && key != noise::public_key(&shared.static_key)
+        && key != shared.public_key
         && !st.is_friend(id)
         && !st.friends.iter().any(|f| f.public_key == key)
         && st.friends.len() < MAX_FRIENDS;

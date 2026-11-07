@@ -723,6 +723,9 @@ pub(crate) struct Shared {
     /// Display name (changes with [`Net::set_name`]).
     name: Mutex<String>,
     pub static_key: [u8; 32],
+    /// Public half of `static_key`, computed once: deriving it costs a
+    /// scalar multiplication, too slow to repeat per message under the state lock.
+    pub public_key: [u8; 32],
     pub timing: Timing,
     pub tcp_port: u16,
     /// Relay transport, if configured.
@@ -971,6 +974,7 @@ impl Net {
             id: cfg.id,
             name: Mutex::new(protocol::clamp_name(&cfg.name)),
             static_key: cfg.static_key,
+            public_key: own_public,
             timing: cfg.timing,
             tcp_port,
             relay: cfg.relay_url.filter(|u| !u.is_empty()).map(|u| relay::RelayClient::new(u, cfg.relay_key)),

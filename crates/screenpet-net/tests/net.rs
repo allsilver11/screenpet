@@ -514,7 +514,13 @@ fn confirmation_before_sas_is_a_protocol_error() {
 
 #[test]
 fn stranger_invites_are_capped() {
-    let (net, rx, port) = start_sniffed(key(), vec![]);
+    // Only the caps are under test. The held pairings stay silent while the
+    // next ones handshake, so on a slow runner `fast()` timeouts would free
+    // their slots mid-test and let a later one in.
+    let mut c = cfg("mmmm", "Mia", key(), 0, 0, vec![]);
+    c.timing.conn_timeout = Duration::from_secs(30);
+    c.timing.invite_timeout = Duration::from_secs(30);
+    let (net, rx, port) = sniffed(c);
     let mut peers = Vec::new();
     let mut admitted = Vec::new();
     // 주소마다 3번씩: 한 주소에서 2개까지, 전체 4개까지 (127.0.0.6은 전체 상한에 걸린다)
@@ -764,6 +770,7 @@ fn flooded_steers_are_rate_limited() {
     let (net, rx, port) = start_sniffed(key(), vec![friend("zzzz", &kz)]);
     let mut p = raw_friend_connect(port, &kz, "zzzz");
     wait_for(&rx, 5.0, is_connected).unwrap();
+    let start = Instant::now();
     for i in 0..300u64 {
         p.send(json!({"type": "ping", "steer": {"visit_id": 1, "on": true, "keys": i % 4}})).unwrap();
     }
@@ -776,8 +783,11 @@ fn flooded_steers_are_rate_limited() {
             Err(_) => break,
         }
     }
-    // 처음 30개까지는 바로, 그 뒤엔 초당 30개 꼴 — 300개를 다 넘기지 않는다
-    assert!((30..=60).contains(&events), "rate limited: {events}");
+    // 처음 30개까지는 바로, 그 뒤엔 초당 30개 꼴 — 300개를 다 넘기지 않는다. The refill
+    // is counted over the measured time (a slow runner takes longer to send and handle them).
+    let allowed = 31 + (30.0 * start.elapsed().as_secs_f64()).ceil() as usize;
+    assert!(allowed < 300, "too slow to tell");
+    assert!((30..=allowed).contains(&events), "rate limited: {events} > {allowed}");
     net.shutdown();
 }
 
@@ -954,6 +964,7 @@ fn reconnecting_does_not_refill_any_budget() {
     };
     let mut first = raw_friend_connect(port, &kz, "zzzz");
     wait_for(&rx, 5.0, is_connected).unwrap();
+    let drained = Instant::now(); // the budgets are spent after this
     flood(&mut first);
     let (spent, _) = tally(&rx, Duration::from_millis(500), is_counted);
     assert!(spent >= 72, "the whole budget went through: {spent}"); // 방문 20 + 사다리 20 + 조작 30 + 부탁 2
@@ -962,9 +973,17 @@ fn reconnecting_does_not_refill_any_budget() {
     let mut second = raw_friend_connect(port, &kz, "zzzz");
     std::thread::sleep(Duration::from_millis(200));
     flood(&mut second);
-    // 시간이 지나 찬 만큼만: 0.5초에 방문·사다리 하나씩, 조작 초당 30, 부탁 2초에 하나
-    let (again, _) = tally(&rx, Duration::from_millis(500), is_counted);
-    assert!(again <= 40, "budgets carried over the reconnect: {again}");
+    // 시간이 지나 찬 만큼만: 0.5초에 방문·사다리 하나씩, 부탁 2초에 하나. Counted from
+    // the measured time, so a slow runner (more time, more refill) can't fail it.
+    // Carried over, these would come back in full (42); 조작 (30 a second) is
+    // full again within a second anyway, so it can't show a carry-over.
+    let slow = |e: &NetEvent| matches!(e, NetEvent::Received { .. } | NetEvent::Ladder { .. } | NetEvent::Asked { .. });
+    let (again, _) = tally(&rx, Duration::from_millis(500), slow);
+    let e = drained.elapsed().as_secs_f64();
+    let refilled = |every: f64, burst: f64| (1.0 + e / every).min(burst).floor() as usize;
+    let allowed = 2 * refilled(0.5, 20.0) + refilled(2.0, 2.0);
+    assert!(allowed < 42, "too slow to tell ({e:.1}s)");
+    assert!(again <= allowed, "budgets carried over the reconnect: {again} > {allowed} after {e:.1}s");
     net.shutdown();
 }
 
@@ -1440,8 +1459,25 @@ fn a_handshake_flood_does_not_keep_a_friend_out() {
         })
     };
     std::thread::sleep(Duration::from_millis(300));
-    let _friend = raw_friend_connect(port, &kz, "zzzz");
-    assert!(wait_for(&rx, 3.0, is_connected).is_some(), "the friend got in during the flood");
+    // The friend's address never authenticated here, so its link sits in the
+    // unverified pool with the flood's and one attempt can be churned out
+    // before its handshake ends (a slow runner makes the handshake outlast the
+    // pool's turnover). A real friend's Net dials again on its next
+    // announcement; so does this one, and the flood must not stop all of them.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let (mut friend, mut attempts) = (None, 0);
+    while friend.is_none() && Instant::now() < deadline {
+        attempts += 1;
+        let attempt = handshake(TcpStream::connect(local(port)).unwrap(), &kz, true).and_then(|mut p| {
+            p.send(friend_hello("zzzz", "Raw"))?;
+            p.recv_msg().map(|_| p)
+        });
+        friend = attempt.ok().filter(|_| wait_for(&rx, 1.0, is_connected).is_some());
+        if friend.is_none() {
+            std::thread::sleep(fast().announce_interval);
+        }
+    }
+    assert!(friend.is_some(), "the friend got in during the flood ({attempts} attempts)");
     stop.store(true, Ordering::SeqCst);
     let opened = flood.join().unwrap();
     assert!(opened > 50, "there was no real flood: {opened} connections");
@@ -2100,6 +2136,22 @@ fn messages_within(p: &mut Peer, window: Duration) -> Vec<Value> {
     out
 }
 
+/// Messages each of `peers` gets within `window`, read one peer after the
+/// other. All of them ping before each read: a raw peer sends nothing on its
+/// own, and one left silent past `conn_timeout` while the others are read is
+/// dropped as dead, which would make the checks on it pass vacuously.
+fn messages_of_each(peers: &mut [(&mut Peer, &str)], window: Duration) -> Vec<(String, Vec<Value>)> {
+    let mut out = Vec::new();
+    for i in 0..peers.len() {
+        for (q, who) in peers.iter_mut() {
+            q.send(json!({"type": "ping"})).unwrap_or_else(|e| panic!("{who} was dropped: {e}"));
+        }
+        let (p, who) = &mut peers[i];
+        out.push((who.to_string(), messages_within(p, window)));
+    }
+    out
+}
+
 fn wire(id: &str, key: &[u8; 32]) -> Value {
     json!({"id": id, "key": hex(key)})
 }
@@ -2619,12 +2671,15 @@ fn an_introduction_cannot_take_the_id_of_someone_i_see_or_am_pairing_with() {
     let (net, rx, port) = sniffed(cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]));
     let (seen, pairing, other) = (hid(20), hid(21), hid(22));
     // 지금 짝맞추기 중인 낯선 사람 (이모지 확인 단계)
-    let (_pp, _ev) = raw_pairing(port, &rx, &pairing);
+    let (mut pp, _ev) = raw_pairing(port, &rx, &pairing);
     let mut p = raw_connect_as(port, &kz, v3_hello("zzzz"));
     wait_for(&rx, 5.0, is_connected).unwrap();
     // 같은 와이파이에서 보이는 낯선 사람
     announce_to(&net, &seen);
     assert!(wait_for(&rx, 2.0, |e| matches!(e, NetEvent::PeerSeen { id, .. } if *id == seen)).is_some());
+    // The raw pairing sends nothing on its own: keep it alive (silent past
+    // `conn_timeout` it would be dropped and its id free for an introduction)
+    pp.send(json!({"type": "ping"})).unwrap();
     for d in [&seen, &pairing, &other] {
         p.send(json!({"type": "my_devices", "devices": [wire(d, &key())]})).unwrap();
     }
@@ -3386,12 +3441,14 @@ fn only_a_proven_device_link_may_claim_and_claims_never_reach_others() {
     z.send(json!({"type": "device_active", "term": 9})).unwrap();
     assert!(!standby_becomes(&net, true, 0.5));
     assert!(!net.claim_active(), "no proven link to tell");
+    // raw peers stay silent otherwise: keep their links alive
+    y.send(json!({"type": "ping"})).unwrap();
+    z.send(json!({"type": "ping"})).unwrap();
     let w = raw_connect_as(port, &kw, json!({"type": "hello", "id": "wwww", "name": "Old", "v": 2, "friend": true}));
     assert!(connected_to(&rx, 5.0, "wwww"));
     let mut w = w;
     assert!(!net.claim_active());
-    for (p, who) in [(&mut y, "v3 friend"), (&mut z, "v2 device"), (&mut w, "v2 friend")] {
-        let got = messages_within(p, Duration::from_millis(500));
+    for (who, got) in messages_of_each(&mut [(&mut y, "v3 friend"), (&mut z, "v2 device"), (&mut w, "v2 friend")], Duration::from_millis(500)) {
         assert!(!all_text(&got).contains("DEVICE_ACTIVE"), "{who}: {got:?}");
     }
     assert_eq!(wait_for(&rx, 0.2, is_disconnected), None);
@@ -3489,8 +3546,10 @@ fn on_reconnect_the_computer_used_last_plays_whichever_started_first() {
 #[test]
 fn two_claims_at_once_settle_on_exactly_one_computer() {
     let t = three(None, None);
-    let b_id = t.ids[1].clone();
+    let [a_id, b_id, _] = t.ids.clone();
+    // Each side proves the other on its own: both must be done before either can claim
     wait_for(&t.arx, 5.0, |e| matches!(e, NetEvent::DeviceProven { id } if *id == b_id)).unwrap();
+    wait_for(&t.brx, 5.0, |e| matches!(e, NetEvent::DeviceProven { id } if *id == a_id)).unwrap();
     // 두 쪽이 같은 답에 닿을 때까지 (메시지가 오가는 시간만큼) 기다린다: 한 쪽만 놀고, 서로 그렇게 안다
     let settled = |t: &Three| {
         let (a, b) = (t.a.standby(), t.b.standby());
@@ -3709,12 +3768,12 @@ fn the_state_goes_only_to_my_proven_v3_computer_while_i_play_never_to_friends_or
     assert!(connected_to(&rx, 5.0, "yyyy"));
     let mut w = raw_connect_as(port, &kw, json!({"type": "hello", "id": "wwww", "name": "Old", "v": 2, "friend": true}));
     assert!(connected_to(&rx, 5.0, "wwww"));
+    y.send(json!({"type": "ping"})).unwrap(); // raw peers stay silent otherwise: keep y's link alive
     // 예전 판의 내 기기: 증명도 못 하고 상태도 받지 않는다
     let mut z = raw_connect_as(port, &kz, json!({"type": "hello", "id": "zzzz", "name": "Old", "v": 2, "friend": true}));
     assert!(connected_to(&rx, 5.0, "zzzz"));
     net.share_state("cat", vec![care("cat", "child", 2.0)]);
-    for (p, who) in [(&mut y, "v3 friend"), (&mut z, "v2 device"), (&mut w, "v2 friend")] {
-        let got = messages_within(p, Duration::from_millis(600));
+    for (who, got) in messages_of_each(&mut [(&mut y, "v3 friend"), (&mut z, "v2 device"), (&mut w, "v2 friend")], Duration::from_millis(600)) {
         assert!(!all_text(&got).contains("DEVICE_STATE"), "{who}: {got:?}");
     }
     // 그냥 친구가 보낸 상태는 무시한다
