@@ -5,7 +5,7 @@
 mod common;
 
 use common::{blake2s, fast, free_udp_port, friend, hex, is_connected, is_disconnected, unhex, wait_for};
-use screenpet_net::{new_install_id, DeviceSecret, Fling, Friend, LadderMsg, LinkError, Net, NetConfig, NetEvent, Side, Steer, Timing, Toss, VSide, Visit, MAX_DEVICES, MAX_FRIENDS, SAS_EMOJI};
+use screenpet_net::{new_install_id, DeviceSecret, Fling, Friend, LadderMsg, LinkError, Net, NetConfig, NetEvent, Side, Steer, Timing, Toss, VSide, Visit, WireCare, MAX_DEVICES, MAX_FRIENDS, SAS_EMOJI};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -3536,4 +3536,240 @@ fn my_standby_computer_still_visits_the_one_i_play_on_and_its_pet_is_carried_on_
         std::thread::sleep(Duration::from_millis(50));
     }
     assert_eq!(t.f.peer_version(&b_id), None);
+}
+
+// ---- 📱 my two computers share the pet and its growth --------------------------------
+
+fn care(pet: &str, stage: &str, stamina: f64) -> WireCare {
+    WireCare { pet: pet.into(), stage: stage.into(), stamina, fullness: 0.5, locked: false }
+}
+
+fn state_ev(e: &NetEvent) -> bool {
+    matches!(e, NetEvent::DeviceState { .. })
+}
+
+/// The `DeviceState` event's (pet, care), if `e` is one from `from`.
+fn state_of(e: &NetEvent, from: &str) -> Option<(Option<String>, Vec<WireCare>)> {
+    match e {
+        NetEvent::DeviceState { from: f, pet, care } if f == from => Some((pet.clone(), care.clone())),
+        _ => None,
+    }
+}
+
+/// Wait until `rx` brings my other computer `from`'s state equal to (`pet`, `care`).
+fn gets_state(rx: &Receiver<NetEvent>, secs: f64, from: &str, pet: &str, care: &[WireCare]) -> bool {
+    wait_for(rx, secs, |e| state_of(e, from).is_some_and(|(p, c)| p.as_deref() == Some(pet) && c == care)).is_some()
+}
+
+/// My two linked computers A and B (real Nets), no friends besides each other.
+struct Two {
+    a: Net,
+    arx: Receiver<NetEvent>,
+    b: Net,
+    brx: Receiver<NetEvent>,
+    ids: [String; 2],
+}
+
+fn two(a_idle: u64, b_idle: u64, before: impl Fn(&Net, &Net)) -> Two {
+    let (pa, pb) = (free_udp_port(), free_udp_port());
+    let (ka, kb) = (key(), key());
+    let [a_id, b_id] = [hid(0xa1), hid(0xb2)];
+    let s = random32();
+    let mut ca = cfg(&a_id, "Ann", ka, pa, pb, vec![friend(&b_id, &kb)]);
+    let mut cb = cfg(&b_id, "Ann", kb, pb, pa, vec![friend(&a_id, &ka)]);
+    linked(&mut ca, &b_id, s);
+    linked(&mut cb, &a_id, s);
+    let (a, arx) = Net::start(ca).unwrap();
+    a.set_idle(Duration::from_secs(a_idle));
+    let (b, brx) = Net::start(cb).unwrap();
+    b.set_idle(Duration::from_secs(b_idle));
+    before(&a, &b);
+    Two { a, arx, b, brx, ids: [a_id, b_id] }
+}
+
+/// Wait until A plays and B is on standby, and both know it.
+fn a_plays(t: &Two) {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !(t.b.standby() && !t.a.standby() && t.a.device_standby()) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(t.b.standby() && !t.a.standby() && t.a.device_standby(), "A plays, B is on standby");
+}
+
+#[test]
+fn the_computer_i_play_on_shares_its_pet_and_care_and_the_standby_one_takes_it() {
+    let t = two(1, 600, |_, _| {});
+    let [a_id, b_id] = t.ids.clone();
+    a_plays(&t);
+    let s1 = vec![care("cat", "child", 3.0), care("dog", "baby", 0.0)];
+    t.a.share_state("cat", s1.clone());
+    assert!(gets_state(&t.brx, 5.0, &a_id, "cat", &s1), "right away");
+    // 펫을 바꾸고 먹이면 그것도 간다
+    let s2 = vec![care("cat", "child", 3.0), care("dog", "kinder", 1.0)];
+    t.a.share_state("dog", s2.clone());
+    assert!(gets_state(&t.brx, 5.0, &a_id, "dog", &s2));
+    // 같은 상태를 다시 알려도 새 소식은 없다
+    t.a.share_state("dog", s2.clone());
+    assert_eq!(wait_for(&t.brx, 0.8, state_ev), None);
+    // 쉬는 컴퓨터의 상태는 노는 컴퓨터로 가지 않는다
+    t.b.share_state("bird", vec![care("bird", "adult", 0.0)]);
+    assert_eq!(wait_for(&t.arx, 1.0, |e| state_of(e, &b_id).is_some()), None);
+}
+
+#[test]
+fn on_reconnect_the_state_of_the_computer_used_last_wins() {
+    // 서로 닿지 않는 동안 둘 다 놀았다: 다시 만나면 마지막에 쓴 A의 상태를 B가 받는다
+    let sa = vec![care("cat", "adult", 0.0)];
+    let sb = vec![care("cat", "baby", 9.0), care("frog", "child", 1.0)];
+    let t = two(1, 600, |a, b| {
+        a.share_state("cat", sa.clone());
+        b.share_state("frog", sb.clone());
+    });
+    let [a_id, b_id] = t.ids.clone();
+    assert!(gets_state(&t.brx, 8.0, &a_id, "cat", &sa));
+    a_plays(&t);
+    assert_eq!(wait_for(&t.arx, 1.0, |e| state_of(e, &b_id).is_some()), None, "B's state never overwrites A's");
+}
+
+#[test]
+fn taking_over_continues_from_the_latest_state_of_the_other_computer() {
+    let t = two(1, 600, |_, _| {});
+    let [a_id, b_id] = t.ids.clone();
+    a_plays(&t);
+    let s1 = vec![care("cat", "child", 3.0)];
+    t.a.share_state("cat", s1.clone());
+    assert!(gets_state(&t.brx, 5.0, &a_id, "cat", &s1));
+    // A가 막 먹였는데(아직 모아 두는 중) B에서 "이 컴퓨터로 놀기": B는 A의 마지막 상태에서 이어 간다
+    let s2 = vec![care("cat", "teenager", 0.0)];
+    t.a.share_state("cat", s2.clone());
+    assert!(t.b.claim_active());
+    assert!(gets_state(&t.brx, 5.0, &a_id, "cat", &s2), "handed over");
+    assert!(standby_becomes(&t.a, true, 5.0));
+    // 이제 B가 놀고 B의 상태가 A로 간다
+    let s3 = vec![care("cat", "adult", 0.0)];
+    t.b.share_state("rabbit", s3.clone());
+    assert!(gets_state(&t.arx, 5.0, &b_id, "rabbit", &s3));
+}
+
+#[test]
+fn what_i_did_on_the_standby_computer_before_taking_over_is_kept() {
+    let t = two(1, 600, |_, _| {});
+    let [a_id, b_id] = t.ids.clone();
+    a_plays(&t);
+    let s1 = vec![care("cat", "child", 3.0)];
+    t.a.share_state("cat", s1.clone());
+    assert!(gets_state(&t.brx, 5.0, &a_id, "cat", &s1));
+    // 쉬는 B에서 밥을 줬고 (앱은 그때 B로 논다고 알린다): A의 넘겨주기가 그것을 덮지 않는다
+    let s2 = vec![care("cat", "child", 8.0)];
+    t.b.share_state("cat", s2.clone());
+    assert!(t.b.claim_active());
+    assert!(gets_state(&t.arx, 5.0, &b_id, "cat", &s2), "A takes B's state");
+    assert_eq!(wait_for(&t.brx, 0.8, |e| state_of(e, &a_id).is_some()), None, "B keeps its own");
+}
+
+#[test]
+fn many_changes_go_out_as_a_few_messages_and_the_last_one_wins() {
+    let (net, _rx, mut p) = proven_device();
+    // 이 net이 논다 (저쪽: "네가 논다")
+    raw_sync(&mut p);
+    assert_eq!(messages_within(&mut p, Duration::from_millis(300)).iter().filter(|m| m["type"] == "device_state").count(), 0, "nothing to share yet");
+    for i in 0..30 {
+        net.share_state("cat", vec![care("cat", "baby", f64::from(i))]);
+    }
+    // (a raw peer sends no pings by itself: keep the link alive while listening)
+    let got: Vec<Value> = (0..4)
+        .flat_map(|_| {
+            let _ = p.send(json!({"type": "ping"}));
+            messages_within(&mut p, Duration::from_millis(250))
+        })
+        .filter(|m| m["type"] == "device_state")
+        .collect();
+    assert!(!got.is_empty() && got.len() <= 4, "coalesced: {got:?}");
+    let last = got.last().unwrap();
+    assert_eq!(last["care"][0]["stamina"], 29.0, "{last}");
+    assert_eq!(last["pet"], "cat");
+    assert!(last.get("handover").is_none());
+    // 바뀐 게 없어도 가끔 다시 알린다 (상대가 놓쳤을 수도 있다)
+    let again = (0..20).find_map(|_| {
+        let _ = p.send(json!({"type": "ping"}));
+        messages_within(&mut p, Duration::from_millis(300)).into_iter().find(|m| m["type"] == "device_state")
+    });
+    assert_eq!(again.as_ref().map(|m| &m["care"][0]["stamina"]), Some(&json!(29.0)), "slow refresh");
+    net.shutdown();
+}
+
+#[test]
+fn the_state_goes_only_to_my_proven_v3_computer_while_i_play_never_to_friends_or_older_builds() {
+    let (kz, kw, ky, s) = (key(), key(), key(), random32());
+    let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz), friend("wwww", &kw), friend("yyyy", &ky)]);
+    linked(&mut c, "zzzz", s);
+    let (net, rx, port) = sniffed(c);
+    net.share_state("cat", vec![care("cat", "child", 1.0)]);
+    let mut y = raw_connect_as(port, &ky, v3_hello("yyyy"));
+    assert!(connected_to(&rx, 5.0, "yyyy"));
+    let mut w = raw_connect_as(port, &kw, json!({"type": "hello", "id": "wwww", "name": "Old", "v": 2, "friend": true}));
+    assert!(connected_to(&rx, 5.0, "wwww"));
+    // 예전 판의 내 기기: 증명도 못 하고 상태도 받지 않는다
+    let mut z = raw_connect_as(port, &kz, json!({"type": "hello", "id": "zzzz", "name": "Old", "v": 2, "friend": true}));
+    assert!(connected_to(&rx, 5.0, "zzzz"));
+    net.share_state("cat", vec![care("cat", "child", 2.0)]);
+    for (p, who) in [(&mut y, "v3 friend"), (&mut z, "v2 device"), (&mut w, "v2 friend")] {
+        let got = messages_within(p, Duration::from_millis(600));
+        assert!(!all_text(&got).contains("DEVICE_STATE"), "{who}: {got:?}");
+    }
+    // 그냥 친구가 보낸 상태는 무시한다
+    y.send(json!({"type": "device_state", "pet": "dog", "care": [{"pet": "dog", "stage": "adult", "stamina": 0, "fullness": 1}]})).unwrap();
+    assert_eq!(wait_for(&rx, 0.5, state_ev), None);
+    assert_eq!(wait_for(&rx, 0.1, is_disconnected), None);
+    net.shutdown();
+}
+
+#[test]
+fn a_standby_computer_shares_nothing_and_takes_only_the_players_state() {
+    let (net, rx, mut p) = proven_device();
+    raw_sync(&mut p);
+    // 아직 이 net이 논다: 저쪽 상태는 받지 않는다
+    p.send(json!({"type": "device_state", "pet": "dog", "care": []})).unwrap();
+    assert_eq!(wait_p(&rx, 0.5, &mut p, state_ev), None, "not from the computer on standby");
+    // 저쪽이 논다
+    p.send(json!({"type": "device_active", "term": 1})).unwrap();
+    assert!(standby_becomes_p(&net, true, 3.0, &mut p));
+    net.share_state("cat", vec![care("cat", "child", 1.0)]);
+    assert!(!all_text(&messages_within(&mut p, Duration::from_millis(600))).contains("DEVICE_STATE"), "standby shares nothing");
+    p.send(json!({"type": "device_state", "pet": "dog", "care": [{"pet": "dog", "stage": "adult", "stamina": 0, "fullness": 1}]})).unwrap();
+    let got = wait_p(&rx, 3.0, &mut p, state_ev).expect("the player's state");
+    assert_eq!(state_of(&got, "zzzz"), Some((Some("dog".into()), vec![WireCare { pet: "dog".into(), stage: "adult".into(), stamina: 0.0, fullness: 1.0, locked: false }])));
+    net.shutdown();
+}
+
+#[test]
+fn a_bad_state_is_trimmed_and_floods_are_rate_limited() {
+    let (net, rx, mut p) = proven_device();
+    raw_sync(&mut p);
+    p.send(json!({"type": "device_active", "term": 1})).unwrap();
+    assert!(standby_becomes_p(&net, true, 3.0, &mut p));
+    let mut list: Vec<Value> = (0..300).map(|i| json!({"pet": format!("p{i}"), "stage": "baby", "stamina": 0, "fullness": 1})).collect();
+    list.insert(0, json!({"pet": "Bad Pet!", "stage": "baby", "stamina": 0, "fullness": 1}));
+    list.insert(0, json!({"pet": "x".repeat(200), "stage": "baby", "stamina": 0, "fullness": 1}));
+    list.insert(0, json!({"pet": "cat", "stage": "s".repeat(200), "stamina": 0, "fullness": 1}));
+    list.insert(0, json!({"pet": "cat", "stage": "baby", "stamina": 1e300, "fullness": -1e300}));
+    p.send(json!({"type": "device_state", "pet": "y".repeat(500), "care": list})).unwrap();
+    let got = wait_p(&rx, 3.0, &mut p, state_ev).expect("trimmed, not dropped");
+    let Some((pet, care)) = state_of(&got, "zzzz") else { unreachable!() };
+    assert_eq!(pet, None, "a pet id that is no pet id");
+    assert!(care.len() <= 64, "{}", care.len());
+    assert_eq!(care[0].pet, "cat", "numbers are the app's to clamp");
+    assert!(care.iter().all(|c| c.pet.len() <= 32 && c.stage.len() <= 16 && c.pet.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')), "{care:?}");
+    assert_eq!(care.iter().filter(|c| c.pet == "cat").count(), 1, "one entry per pet");
+    // 홍수: 예산 안의 것만 (연결은 남는다)
+    for i in 0..100 {
+        p.send(json!({"type": "device_state", "pet": "cat", "care": [{"pet": "cat", "stage": "baby", "stamina": i, "fullness": 1}]})).unwrap();
+    }
+    let mut n = 0;
+    while wait_p(&rx, 0.6, &mut p, state_ev).is_some() {
+        n += 1;
+    }
+    assert!(n < 30, "{n} states taken");
+    assert_eq!(wait_for(&rx, 0.1, is_disconnected), None);
+    net.shutdown();
 }

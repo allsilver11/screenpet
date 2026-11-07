@@ -28,6 +28,15 @@
 //!   and `Net::claim_active` claims at any time. The other is on standby: no
 //!   friend links (none dialed, friends' keys closed before hello, open ones
 //!   closed after `Timing::standby_grace`). Out of reach = both play.
+//! - **The pet and its growth follow the computer that plays.** It sends
+//!   `device_state` (selected pet, every pet's care) on the proven link right
+//!   after both met, when it starts playing, on a change (coalesced to one per
+//!   `Timing::device_state_every`) and every `Timing::device_state_refresh`;
+//!   the one on standby takes it from the computer that plays only. A claim
+//!   (`Net::claim_active`) waits up to `device_state_every` for the other's
+//!   last state (`handover`), taken unless the claimer changed its own since
+//!   it last took one. The claim that settles who plays as the two meet again
+//!   (`meet`) hands nothing over: the computer used last wins.
 //! - `device_friends` (my friends) only ever adds friends I do not know.
 //! - `my_devices` (my other computer, at most `MAX_DEVICES`) goes to my other
 //!   friends; they add it as a friend that remembers who introduced it
@@ -45,7 +54,7 @@
 //! is dropped.
 
 use crate::noise::{self, blake2s, hex32, random32, to_hex};
-use crate::protocol::{clamp_name, Control, WireFriend, MAX_DEVICES, MAX_FRIENDS};
+use crate::protocol::{clamp_name, Control, WireCare, WireFriend, MAX_DEVICES, MAX_FRIENDS};
 use crate::secure::SecureLink;
 use crate::{NetEvent, Shared, State};
 use std::sync::Arc;
@@ -366,12 +375,15 @@ pub(crate) fn on_link_message(shared: &Shared, st: &mut State, token: u64, id: &
             vec![Control::DeviceUnlink]
         }
         // My linked computer says who plays (its state once per link, or a claim)
-        Control::DeviceActive { term, you, idle } => {
+        Control::DeviceActive { term, you, idle, meet } => {
             let Some(term) = term.filter(|t| *t <= MAX_TERM) else { return Vec::new() };
             if !st.device.as_ref().is_some_and(|(d, _)| d == id) {
                 return Vec::new();
             }
+            let was_playing = st.device_standby && st.active.1 == shared.id;
             let Some(d) = dev(st, token).filter(|d| d.proven) else { return Vec::new() };
+            // I played and we had met on this link: a claim takes over from me
+            let was_playing = was_playing && d.active_heard;
             let first = idle.is_some() && !d.active_heard;
             if idle.is_some() {
                 d.active_heard = true;
@@ -384,13 +396,49 @@ pub(crate) fn on_link_message(shared: &Shared, st: &mut State, token: u64, id: &
             let mine = st.last_input.map_or(u64::MAX, |t| now.duration_since(t).as_secs());
             let theirs = idle.unwrap_or(u64::MAX);
             let used_last = mine < theirs || (mine == theirs && shared.id.as_str() < id);
-            let replies = if first && used_last && st.active.1 != shared.id { vec![claim_in(st, &shared.id)] } else { Vec::new() };
+            let mut replies = if first && used_last && st.active.1 != shared.id { vec![claim_in(st, &shared.id, true)] } else { Vec::new() };
             if first {
                 // Both states met on this link: it counts as reachable from now
                 st.device_seen = Some(now);
             }
             decide(shared, st, now);
+            // It took over from me: my last state goes along (never when we
+            // just met again — then the computer used last wins as it is)
+            if was_playing && !meet && st.active.1 != shared.id {
+                if let Some(s) = st.dstate.clone() {
+                    st.dstate_dirty = false;
+                    replies.push(Control::DeviceState { pet: s.pet, care: s.care, handover: true });
+                }
+            }
             replies
+        }
+        // 📱 My linked computer's pet and care
+        Control::DeviceState { pet, care, handover } => {
+            if !st.device.as_ref().is_some_and(|(d, _)| d == id) || !dev(st, token).is_some_and(|d| d.proven) {
+                return Vec::new();
+            }
+            let playing = st.active.1 == shared.id;
+            let take = if handover {
+                // I just took over: its last state, unless I changed mine since I last took one
+                if playing {
+                    st.handover_until = None;
+                }
+                playing && !st.dstate_edited
+            } else {
+                st.active.1 == id // from the computer that plays only
+            };
+            if !take {
+                return Vec::new();
+            }
+            let s = clean_state(pet, care);
+            // Taken over: mine to share now (it may have missed something meanwhile)
+            st.dstate_dirty = handover;
+            st.dstate_edited = false;
+            if st.dstate.as_ref() != Some(&s) {
+                st.dstate = Some(s.clone());
+                shared.emit(NetEvent::DeviceState { from: id.to_string(), pet: s.pet, care: s.care });
+            }
+            Vec::new()
         }
         Control::DeviceUnlink => {
             if let Some(d) = dev(st, token) {
@@ -412,10 +460,11 @@ pub(crate) fn on_link_message(shared: &Shared, st: &mut State, token: u64, id: &
 /// Terms beyond this are nonsense (JSON numbers stay exact up to 2^53).
 const MAX_TERM: u64 = 1 << 53;
 
-/// Claim the play in `st` (my id `me`): the claim to send.
-fn claim_in(st: &mut State, me: &str) -> Control {
+/// Claim the play in `st` (my id `me`): the claim to send. `meet` = it
+/// settles who plays as we meet again (nothing is handed over).
+fn claim_in(st: &mut State, me: &str, meet: bool) -> Control {
     st.active = ((st.active.0 + 1).min(MAX_TERM), me.to_string());
-    Control::DeviceActive { term: Some(st.active.0), you: false, idle: None }
+    Control::DeviceActive { term: Some(st.active.0), you: false, idle: None, meet }
 }
 
 /// 📱 The user plays on this computer: the claim and the proven link to my
@@ -423,8 +472,13 @@ fn claim_in(st: &mut State, me: &str) -> Control {
 /// claim still counts here).
 pub(crate) fn claim(shared: &Shared) -> Option<(Arc<SecureLink>, Control)> {
     let mut st = shared.state();
-    st.last_input = Some(Instant::now());
-    let msg = claim_in(&mut st, &shared.id);
+    let now = Instant::now();
+    st.last_input = Some(now);
+    if st.active.1 != shared.id {
+        // Wait a moment for the other computer's last state before sharing mine
+        st.handover_until = Some(now + shared.timing.device_state_every);
+    }
+    let msg = claim_in(&mut st, &shared.id, false);
     decide(shared, &mut st, Instant::now());
     let link = proven_device_link(&st)?;
     Some((link, msg))
@@ -462,7 +516,7 @@ fn decide(shared: &Shared, st: &mut State, now: Instant) -> bool {
 /// = both play.
 pub(crate) fn tick_active(shared: &Shared) {
     let now = Instant::now();
-    let mut send = None;
+    let mut send = Vec::new();
     let mut close = Vec::new();
     {
         let mut st = shared.state();
@@ -474,7 +528,7 @@ pub(crate) fn tick_active(shared: &Shared) {
             if let Some(d) = token.and_then(|t| dev(&mut st, t)) {
                 if !d.active_sent {
                     d.active_sent = true;
-                    send = Some((link, Control::DeviceActive { term: Some(term), you, idle: Some(idle) }));
+                    send.push((link, Control::DeviceActive { term: Some(term), you, idle: Some(idle), meet: false }));
                 }
                 // Only once both states met on this link (no flip before that)
                 if d.active_heard {
@@ -483,6 +537,8 @@ pub(crate) fn tick_active(shared: &Shared) {
             }
         }
         let standby = decide(shared, &mut st, now);
+        // (after my state on this link: the other hears who plays first)
+        send.extend(state_due(shared, &mut st, now));
         if standby && st.standby_since.is_some_and(|t| now.duration_since(t) >= shared.timing.standby_grace) {
             for (id, t) in &st.friend_links {
                 if st.standby_blocks(id) {
@@ -493,12 +549,85 @@ pub(crate) fn tick_active(shared: &Shared) {
             }
         }
     }
-    if let Some((link, msg)) = send {
+    for (link, msg) in send {
         link.send(&crate::protocol::Message::Control(msg));
     }
     for l in close {
         l.finish();
     }
+}
+
+/// 📱 Most pets in one `device_state` (both ways), …
+pub(crate) const MAX_CARE: usize = 64;
+/// … pet ids (folder names: a-z, 0-9, _) and stage names this long at most.
+const MAX_PET_ID: usize = 32;
+const MAX_STAGE: usize = 16;
+
+/// 📱 A selected pet and every pet's care, shape-checked (`clean_state`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SharedState {
+    pub pet: Option<String>,
+    pub care: Vec<WireCare>,
+}
+
+fn is_word(s: &str, max: usize) -> bool {
+    !s.is_empty() && s.len() <= max && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// Keep what looks like a pet: pet ids and stages as words, finite numbers,
+/// one entry per pet (the first), at most `MAX_CARE`. Species and value
+/// ranges are the app's to check.
+pub(crate) fn clean_state(pet: Option<String>, care: Vec<WireCare>) -> SharedState {
+    let mut kept: Vec<WireCare> = Vec::new();
+    for c in care {
+        if kept.len() >= MAX_CARE {
+            break;
+        }
+        let ok = is_word(&c.pet, MAX_PET_ID) && is_word(&c.stage, MAX_STAGE) && c.stamina.is_finite() && c.fullness.is_finite();
+        if ok && !kept.iter().any(|k| k.pet == c.pet) {
+            kept.push(c);
+        }
+    }
+    SharedState { pet: pet.filter(|p| is_word(p, MAX_PET_ID)), care: kept }
+}
+
+/// My pet or care changed (`Net::share_state`): it goes out while I play.
+pub(crate) fn share(st: &mut State, pet: &str, care: Vec<WireCare>) {
+    let s = clean_state(Some(pet.to_string()), care);
+    if st.dstate.as_ref() != Some(&s) {
+        st.dstate = Some(s);
+        st.dstate_dirty = true;
+        st.dstate_edited = true;
+    }
+}
+
+/// 📱 My state for my linked computer, if it is due: I play, it is on
+/// standby on a proven link where both states met, no handover is awaited;
+/// and this link or my turn to play is new, or it changed and the last one
+/// went out `device_state_every` ago, or `device_state_refresh` passed.
+fn state_due(shared: &Shared, st: &mut State, now: Instant) -> Option<(Arc<SecureLink>, Control)> {
+    if !(st.device_standby && st.active.1 == shared.id) {
+        return None;
+    }
+    if st.handover_until.is_some_and(|t| now < t) {
+        return None;
+    }
+    st.handover_until = None;
+    let link = proven_device_link(st)?;
+    let token = st.device.as_ref().and_then(|(d, _)| st.friend_links.get(d).copied())?;
+    let met = st.conns.get(&token).is_some_and(|c| c.dev.active_sent && c.dev.active_heard);
+    let s = st.dstate.clone().filter(|_| met)?;
+    let t = &shared.timing;
+    let due = match st.dstate_sent {
+        Some((tk, term, at)) if (tk, term) == (token, st.active.0) => (st.dstate_dirty && now >= at + t.device_state_every) || now >= at + t.device_state_refresh,
+        _ => true,
+    };
+    if !due {
+        return None;
+    }
+    st.dstate_sent = Some((token, st.active.0, now));
+    st.dstate_dirty = false;
+    Some((link, Control::DeviceState { pet: s.pet, care: s.care, handover: false }))
 }
 
 /// An unconfirmed friend is dropped after this many days.

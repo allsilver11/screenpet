@@ -158,6 +158,18 @@ pub struct WireFriend {
     pub side: Option<String>,
 }
 
+/// 📱 One pet's care as my two computers share it (`device_state`): the
+/// receiver checks the shape (`devices::clean_state`), the app the values.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WireCare {
+    pub pet: String,
+    pub stage: String,
+    pub stamina: f64,
+    pub fullness: f64,
+    #[serde(default, deserialize_with = "lenient_bool")]
+    pub locked: bool,
+}
+
 /// One of my other computers, as introduced to a friend (`my_devices`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WireDevice {
@@ -372,6 +384,23 @@ pub enum Control {
         you: bool,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         idle: Option<u64>,
+        /// This claim settles who plays as the two meet again (the one used
+        /// last): the receiver hands nothing over (see `device_state`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient_bool")]
+        meet: bool,
+    },
+    /// 📱 The selected pet and every pet's care, from the computer that plays
+    /// to my other computer (same rules as `device_active`). The one on
+    /// standby takes it from the computer that plays only. `handover` = the
+    /// sender just stopped playing because the receiver claimed: its last
+    /// state, taken unless the receiver changed its own meanwhile.
+    DeviceState {
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        pet: Option<String>,
+        #[serde(default, deserialize_with = "lenient_list")]
+        care: Vec<WireCare>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient_bool")]
+        handover: bool,
     },
 }
 
@@ -952,9 +981,30 @@ mod tests {
         assert_eq!((reason.as_str(), left), ("", None));
         assert_eq!(Message::parse(br#"{"type":"device_mark","on":true}"#), None, "gone before any release");
         // 📱 누가 노는지
-        assert_eq!(shape(Control::DeviceActive { term: Some(2), you: false, idle: None }), r#"{"type":"device_active","term":2}"#);
-        assert_eq!(shape(Control::DeviceActive { term: Some(0), you: true, idle: Some(5) }), r#"{"type":"device_active","term":0,"you":true,"idle":5}"#);
-        let Some(Message::Control(Control::DeviceActive { term, you, idle })) = Message::parse(br#"{"type":"device_active","term":-3,"you":"yes","idle":"x"}"#) else { panic!() };
+        assert_eq!(shape(Control::DeviceActive { term: Some(2), you: false, idle: None, meet: false }), r#"{"type":"device_active","term":2}"#);
+        assert_eq!(shape(Control::DeviceActive { term: Some(0), you: true, idle: Some(5), meet: false }), r#"{"type":"device_active","term":0,"you":true,"idle":5}"#);
+        let Some(Message::Control(Control::DeviceActive { term, you, idle, .. })) = Message::parse(br#"{"type":"device_active","term":-3,"you":"yes","idle":"x"}"#) else { panic!() };
         assert_eq!((term, you, idle), (None, false, None));
+    }
+
+    #[test]
+    fn device_state_and_the_meeting_claim_have_their_wire_shape() {
+        let shape = |m: Control| String::from_utf8(Message::Control(m).to_json()).unwrap();
+        let c = WireCare { pet: "cat".into(), stage: "child".into(), stamina: 3.0, fullness: 0.5, locked: true };
+        assert_eq!(
+            shape(Control::DeviceState { pet: Some("cat".into()), care: vec![c.clone()], handover: false }),
+            r#"{"type":"device_state","pet":"cat","care":[{"pet":"cat","stage":"child","stamina":3.0,"fullness":0.5,"locked":true}]}"#
+        );
+        assert!(shape(Control::DeviceState { pet: None, care: vec![], handover: true }).ends_with(r#""care":[],"handover":true}"#));
+        // 깨진 항목은 그 항목만 버린다
+        let Some(Message::Control(Control::DeviceState { pet, care, handover })) =
+            Message::parse(br#"{"type":"device_state","pet":7,"care":[{"pet":"cat","stage":"baby","stamina":1,"fullness":1},{"pet":"dog"},5],"handover":"yes"}"#)
+        else {
+            panic!()
+        };
+        assert_eq!((pet, handover), (None, false));
+        assert_eq!(care, vec![WireCare { pet: "cat".into(), stage: "baby".into(), stamina: 1.0, fullness: 1.0, locked: false }]);
+        // 다시 만나서 정한 주장 (넘겨주기 없음)
+        assert_eq!(shape(Control::DeviceActive { term: Some(2), you: false, idle: None, meet: true }), r#"{"type":"device_active","term":2,"meet":true}"#);
     }
 }

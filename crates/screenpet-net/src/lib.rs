@@ -32,7 +32,7 @@ mod tcp;
 mod transport;
 
 pub use noise::{hex32, to_hex, SAS_EMOJI};
-pub use protocol::{Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WirePlayer, WireResult, DEVICES_MIN_VERSION, LADDER_MIN_VERSION, MAX_DEVICES, MAX_FRIENDS, MAX_NOTE, PROTOCOL_VERSION};
+pub use protocol::{Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WireCare, WirePlayer, WireResult, DEVICES_MIN_VERSION, LADDER_MIN_VERSION, MAX_DEVICES, MAX_FRIENDS, MAX_NOTE, PROTOCOL_VERSION};
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};
@@ -112,6 +112,11 @@ pub struct Timing {
     /// 📱 A computer that goes on standby keeps its friend links this long
     /// (so the app can call its pet home) before it closes them.
     pub standby_grace: Duration,
+    /// 📱 The computer that plays shares a changed pet or care at most this
+    /// often (changes in between are coalesced) …
+    pub device_state_every: Duration,
+    /// … and the same state again this often (in case it went missing).
+    pub device_state_refresh: Duration,
 }
 
 impl Default for Timing {
@@ -125,6 +130,8 @@ impl Default for Timing {
             relay_retry: Duration::from_secs(5),
             device_confirm_timeout: Duration::from_secs(60),
             standby_grace: Duration::from_secs(5),
+            device_state_every: Duration::from_secs(2),
+            device_state_refresh: Duration::from_secs(60),
         }
     }
 }
@@ -335,6 +342,12 @@ pub enum NetEvent {
     /// `device` = my linked computer is on standby (I play; don't send it my
     /// pet). Both `false` when the two can't reach each other: each plays.
     Standby { me: bool, device: bool },
+    /// 📱 My linked computer `from`, which plays, shares its selected pet and
+    /// every pet's care (or hands them over as I take over). Shape-checked
+    /// (pet ids, at most `MAX_CARE` entries, one per pet); the app checks
+    /// species and clamps values, then adopts it. Only when it differs from
+    /// the last state shared either way.
+    DeviceState { from: String, pet: Option<String>, care: Vec<WireCare> },
 }
 
 /// A peer id heard via discovery. Announcements are unauthenticated hints.
@@ -432,6 +445,10 @@ const LINKS_EVERY: Duration = Duration::from_secs(5);
 /// and the secret proof on each connect.
 const CODES_BURST: f64 = 16.0;
 const CODES_EVERY: Duration = Duration::from_secs(2);
+/// 📱 Shared pet and care: the sender coalesces to one per
+/// `Timing::device_state_every` (plus a claim's handover), so a few at once.
+const STATES_BURST: f64 = 4.0;
+const STATES_EVERY: Duration = Duration::from_secs(1);
 
 /// What one friend may make us process (over budget = dropped, the link stays:
 /// a flooding friend can't spam the app with events). Kept per friend, not per
@@ -446,9 +463,20 @@ pub(crate) struct Budget {
     pub links: Bucket,
     /// `device_*` messages (linking by code, proving the stored secret).
     pub codes: Bucket,
+    /// `device_state` (its own bucket: shared pets never starve a claim).
+    pub states: Bucket,
 }
 
 impl Budget {
+    /// Spend on a `device_*` message (`state` = a `device_state`).
+    pub fn device(&mut self, state: bool, now: Instant) -> bool {
+        if state {
+            self.states.take(now)
+        } else {
+            self.codes.take(now)
+        }
+    }
+
     fn new(now: Instant) -> Budget {
         Budget {
             asks: Bucket::new(now, ASK_BURST, ASK_EVERY),
@@ -458,6 +486,7 @@ impl Budget {
             ladder: Bucket::new(now, LADDER_BURST, LADDER_EVERY),
             links: Bucket::new(now, LINKS_BURST, LINKS_EVERY),
             codes: Bucket::new(now, CODES_BURST, CODES_EVERY),
+            states: Bucket::new(now, STATES_BURST, STATES_EVERY),
         }
     }
 }
@@ -567,6 +596,18 @@ pub(crate) struct State {
     pub device_standby: bool,
     /// When this computer went on standby (friend links close after the grace).
     pub standby_since: Option<Instant>,
+    /// 📱 The latest selected pet and care shared between my two computers:
+    /// mine (`Net::share_state`) or the one my linked computer shared.
+    pub dstate: Option<devices::SharedState>,
+    /// It changed since it was last sent (sent within `Timing::device_state_every`).
+    pub dstate_dirty: bool,
+    /// I changed it here since I last took one from my linked computer (a
+    /// handover then does not overwrite it).
+    pub dstate_edited: bool,
+    /// Last sent: (link token, term I played in, when).
+    pub dstate_sent: Option<(u64, u64, Instant)>,
+    /// I just claimed the play: my linked computer's handover may come until then.
+    pub handover_until: Option<Instant>,
 }
 
 impl State {
@@ -1160,6 +1201,14 @@ impl Net {
     pub fn set_idle(&self, idle: Duration) {
         let now = Instant::now();
         self.shared.state().last_input = Some(now.checked_sub(idle).unwrap_or(now));
+    }
+
+    /// 📱 My selected pet and every pet's care changed (or the regular
+    /// refresh): shared with my linked computer while this one plays
+    /// (coalesced, `Timing::device_state_every`). Changing it while on
+    /// standby counts as playing here only if the app also claims.
+    pub fn share_state(&self, pet: &str, care: Vec<WireCare>) {
+        devices::share(&mut self.shared.state(), pet, care);
     }
 
     /// 📱 This computer is on standby: my other computer plays.

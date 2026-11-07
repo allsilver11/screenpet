@@ -17,6 +17,8 @@ pub fn fast() -> Timing {
         relay_retry: Duration::from_millis(300),
         device_confirm_timeout: Duration::from_millis(2500),
         standby_grace: Duration::from_millis(300),
+        device_state_every: Duration::from_millis(300),
+        device_state_refresh: Duration::from_millis(1500),
     }
 }
 

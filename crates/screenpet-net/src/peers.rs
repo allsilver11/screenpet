@@ -607,9 +607,12 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
             | Control::DeviceProof { .. }
             | Control::DeviceUnlink
             | Control::DeviceConfirm
-            | Control::DeviceActive { .. }),
+            | Control::DeviceActive { .. }
+            | Control::DeviceState { .. }),
         ) => {
-            if !(matches!(conn.kind, Kind::Friend) && conn.v >= DEVICES_MIN_VERSION && st.is_friend(id) && st.budget(id, now).codes.take(now)) {
+            // (shared pets have their own bucket: they never starve a claim)
+            let state = matches!(c, Control::DeviceState { .. });
+            if !(matches!(conn.kind, Kind::Friend) && conn.v >= DEVICES_MIN_VERSION && st.is_friend(id) && st.budget(id, now).device(state, now)) {
                 return true;
             }
             let replies = crate::devices::on_link_message(shared, &mut st, ctx.token, id, c);

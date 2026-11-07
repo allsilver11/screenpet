@@ -18,14 +18,14 @@ use std::time::{Duration, Instant};
 use screenpet_core::behavior::Personality;
 use screenpet_core::brain::control_moves::{ControlInput, SteerPacer};
 use screenpet_core::brain::State;
-use screenpet_core::care::Stage;
+use screenpet_core::care::{Care, Stage};
 use screenpet_core::config::{Config, MAX_NAME_CHARS};
 use screenpet_core::dodge;
 use screenpet_core::gift::{self, FriendLimit};
 use screenpet_core::linked::{self, ClaimWatch};
 use screenpet_core::style::PetStyle;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
-use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, MAX_FRIENDS};
+use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, MAX_FRIENDS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
 
@@ -625,6 +625,27 @@ impl Network {
         }
         if self.claim_watch.observe(secs, idle, self.standby) {
             eprintln!("this computer is in use again: playing here");
+            net.claim_active();
+        }
+    }
+
+    /// 📱 내 펫과 모든 펫의 돌보기 상태를 내 다른 컴퓨터와 나눈다 (`pet`의 지금 상태는 `care`).
+    /// net은 이 컴퓨터가 노는 동안만 모아서 보낸다. edit = 사용자가 바꿨다 (먹이기·펫 바꾸기·성장 멈추기·처음부터):
+    /// 쉬는 중이면 그것만 알리고 이 컴퓨터로 논다 (저쪽의 넘겨주기가 덮지 않게). 쉬는 중의 그냥 새로 고침은 알리지 않는다
+    pub fn share_state(&self, config: &Config, pet: &str, care: &Care, edit: bool) {
+        let Some(net) = self.net.as_ref().filter(|_| config.linked_device().is_some()) else { return };
+        if self.standby && !edit {
+            return;
+        }
+        let mut all = config.care.clone();
+        all.insert(pet.to_string(), care.clone());
+        let list = linked::shared_care(&all)
+            .into_iter()
+            .map(|c| WireCare { pet: c.pet, stage: c.stage, stamina: c.stamina, fullness: c.fullness, locked: c.locked })
+            .collect();
+        net.share_state(pet, list);
+        if self.standby {
+            eprintln!("changed the pet on this standby computer: playing here");
             net.claim_active();
         }
     }
@@ -1335,6 +1356,8 @@ impl Network {
                     }
                 }
             }
+            // 📱 내 다른 컴퓨터의 펫과 성장은 게임 루프가 바로 받는다 (돌보기 상태는 루프가 가진다)
+            NetEvent::DeviceState { .. } => {}
             NetEvent::RelayStatus { connected } => {
                 self.relay_connected = connected;
                 self.update_code_view(app);

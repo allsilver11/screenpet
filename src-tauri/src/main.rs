@@ -187,7 +187,7 @@ fn pair_answer(window: WebviewWindow, state: State<AppState>, accept: bool) {
 pub fn select_pet(app: &AppHandle, id: &str) {
     let state = app.state::<AppState>();
     let Some(entry) = state.pets.iter().find(|p| p.id == id) else { return };
-    state.send(Input::SetPet { entry: entry.clone() });
+    state.send(Input::SetPet { entry: entry.clone(), remote: false });
 }
 
 /// 패닉을 config 폴더의 `crash.log`에 남긴다 (배포판은 콘솔이 없어 그냥 사라진다)

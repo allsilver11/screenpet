@@ -10,6 +10,7 @@ use screenpet_core::config::{self, Config};
 use screenpet_core::broom::Broom;
 use screenpet_core::food::{self, FeedMode, HandFeed, HandInput};
 use screenpet_core::geom::Rect;
+use screenpet_core::linked;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::style::PetStyle;
 use screenpet_core::pacing::Pacer;
@@ -53,8 +54,9 @@ const NO_PIXEL_ART_HINT: &str = "픽셀 그림 준비 중!";
 pub enum Input {
     /// 창(label)의 동물을 눌렀다
     PointerDown { label: String },
-    /// 동물 교체 — 돌보기 상태는 게임 루프가 가진 설정에서 찾는다
-    SetPet { entry: PetEntry },
+    /// 동물 교체 — 돌보기 상태는 게임 루프가 가진 설정에서 찾는다.
+    /// remote = 📱 노는 내 다른 컴퓨터가 바꿨다 (다시 알리지 않고, 트레이 체크를 맞춘다)
+    SetPet { entry: PetEntry, remote: bool },
     /// 캐릭터 스타일 (동글동글 / 픽셀, 설정에 남는다) — 바로 그림이 바뀐다
     SetStyle(PetStyle),
     Feed(Food),
@@ -127,6 +129,11 @@ pub fn spawn(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Confi
             handle.exit(1);
         }
     });
+}
+
+/// 📱 내 펫·돌보기 상태가 바뀌었다: 내 다른 컴퓨터와 나눈다 (edit = 사용자가 바꿈 — 쉬는 중이면 이 컴퓨터로 논다)
+fn share_care(network: &Network, config: &Config, own: &Slot, care: &Care, edit: bool) {
+    network.share_state(config, &own.entry.id, care, edit);
 }
 
 /// 설정 저장 — 게임 루프만 설정을 쓴다 (단일 작성자). 하우스 여부는 config.housed에 직접 적어 둔다
@@ -286,6 +293,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     if new_id {
         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
     }
+    share_care(&network, &config, &slots[OWN], &care, false);
     // 내 동물이 친구 화면에 가 있거나 가는 중 (하우스·동물 바꾸기 메뉴를 막는다)
     let mut was_busy = false;
 
@@ -346,7 +354,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         slots[i].pet.pointer_down(cx, cy);
                     }
                 }
-                Input::SetPet { entry: next } => {
+                Input::SetPet { entry: next, remote } => {
                     let own = &mut slots[OWN];
                     // 친구 화면에 가 있거나 가는 중엔 바꾸지 않는다 (트레이 체크만 되돌린다)
                     if network.own_busy(own) {
@@ -376,6 +384,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     sync_menu(&app, &own.entry, &care, config.housed);
                     save_config(&app, &mut config, &own.entry.id, &care);
                     hint_no_pixel_art(&app, own);
+                    if !remote {
+                        share_care(&network, &config, own, &care, true);
+                    } else {
+                        // 📱 저쪽에서 바꿨다: 트레이 체크도 맞춘다 (누른 항목만 스스로 뒤집힌다)
+                        crate::tray::sync_pet_checks(&app.state::<AppState>().menu, &own.entry.id);
+                    }
                 }
                 Input::SetStyle(style) => {
                     // 체크 항목은 누를 때 스스로 뒤집히므로 항상 다시 맞춘다
@@ -428,6 +442,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                             timeline.ate(&app, food, &favorite_of(&own.entry), &config);
                         }
                         save_config(&app, &mut config, &own.entry.id, &care);
+                        share_care(&network, &config, own, &care, true);
                     } else {
                         // 공중·드래그·놀러 가는 중이라 못 먹었다 — 먹지 않은 것으로 되돌린다
                         care = before;
@@ -445,6 +460,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춘다
                     sync_menu(&app, &slots[OWN].entry, &care, config.housed);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                    share_care(&network, &config, &slots[OWN], &care, true);
                 }
                 Input::ResetGrowth => {
                     let own = &mut slots[OWN];
@@ -453,6 +469,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     apply_own_stage(&app, own, &care);
                     own.pet.set_hungry(care.is_hungry());
                     save_config(&app, &mut config, &own.entry.id, &care);
+                    share_care(&network, &config, own, &care, true);
                 }
                 Input::ToggleHouse => {
                     let own = &mut slots[OWN];
@@ -627,6 +644,37 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         screenpet_core::visit::TossAnswer::Drop => {}
                     }
                 }
+                // 📱 노는 내 다른 컴퓨터의 펫과 성장 (net이 그 컴퓨터가 놀 때만, 모양을 확인해 넘긴다):
+                // 아는 동물만 다듬어 합치고 (보내지 않은 동물은 그대로), 화면의 내 펫·단계·배고픔도 바로 맞춘다. 다시 보내지 않는다
+                Input::Net(NetInput::Event(screenpet_net::NetEvent::DeviceState { from, pet, care: shared })) => {
+                    if config.linked_device().map(|(id, _)| id) != Some(from.as_str()) {
+                        continue;
+                    }
+                    let state = app.state::<AppState>();
+                    let known = |p: &str| state.pets.iter().any(|e| e.id == p);
+                    let list: Vec<linked::SharedCare> = shared
+                        .into_iter()
+                        .map(|c| linked::SharedCare { pet: c.pet, stage: c.stage, stamina: c.stamina, fullness: c.fullness, locked: c.locked })
+                        .collect();
+                    let own = &mut slots[OWN];
+                    config.care.insert(own.entry.id.clone(), care.clone());
+                    let got = linked::adopt_shared(&mut config.care, &own.entry.id, pet.as_deref(), &list, known);
+                    if got.changed {
+                        let shown = care.stage;
+                        care = config.care.get(&own.entry.id).cloned().unwrap_or_default();
+                        if care.stage != shown || pending_stage {
+                            pending_stage = false;
+                            apply_own_stage(&app, own, &care);
+                        }
+                        own.pet.set_hungry(care.is_hungry());
+                        sync_menu(&app, &own.entry, &care, config.housed);
+                        save_config(&app, &mut config, &own.entry.id, &care);
+                    }
+                    // 펫 바꾸기는 평소 길로 (친구에게 가 있으면 다음 소식 때 다시)
+                    if let Some(entry) = got.switch_to.and_then(|id| state.pets.iter().find(|e| e.id == id).cloned()) {
+                        state.send(Input::SetPet { entry, remote: true });
+                    }
+                }
                 Input::Net(input) => {
                     if network.handle(&app, input, &mut config, &mut slots) {
                         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
@@ -692,6 +740,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
         if now - last_save >= SAVE_EVERY {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+            // 📱 노는 동안 가끔 지금 포만감까지 (쉬는 컴퓨터도 같은 시간만큼 배고파진다)
+            share_care(&network, &config, &slots[OWN], &care, false);
             last_save = now;
         }
 
@@ -719,6 +769,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         hand_win.bite();
                         done = true;
                         save_config(&app, &mut config, &own.entry.id, &care);
+                        share_care(&network, &config, own, &care, true);
                     }
                     // 배불러 갸웃 — 음식은 손에 남는다
                 } else {
@@ -901,6 +952,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         gifts.tick(&app, now, dt, &slots, &care);
         if presence.tick(&app, now, source.as_mut(), &mut slots[OWN], &mut care, &mut config.daily) {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+            share_care(&network, &config, &slots[OWN], &care, false);
         }
         // 📱 대기 중인 이 컴퓨터를 다시 쓰기 시작했으면 이 컴퓨터로 논다 (쓴 지 얼마나 됐는지는 net에도)
         if let Some((secs, idle)) = presence.take_sample() {

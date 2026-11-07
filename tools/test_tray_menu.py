@@ -205,3 +205,34 @@ def test_my_other_computers_visiting_pet_can_go_on_to_a_friend_as_me():
 
 def test_help_explains_one_computer_at_a_time():
     assert "📱 이 컴퓨터로 놀기" in HELP and "📱 다른 컴퓨터 펫 데리고 오기" in HELP
+
+
+GAME_LOOP = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+
+
+def test_my_two_computers_share_the_pet_and_its_growth():
+    # 노는 컴퓨터가 고른 펫과 모든 펫의 돌보기 상태를 보낸다 (net이 모아서, 노는 동안만)
+    share = NETWORK[NETWORK.index("pub fn share_state") :]
+    share = share[: share.index("\n    }\n")]
+    assert "linked::shared_care(" in share and "net.share_state(" in share
+    # 쉬는 컴퓨터에서 밥을 주거나 펫을 바꾸면 그 컴퓨터가 논다 (넘겨받기가 그걸 덮지 않게), 그냥 새로 고침은 보내지 않는다
+    assert "claim_active()" in share and "self.standby" in share
+    # 받은 쪽: core가 아는 동물만 다듬어 합치고, 화면의 펫·단계·배고픔을 바꾼다
+    arm = GAME_LOOP[GAME_LOOP.index("NetEvent::DeviceState {") :]
+    arm = arm[: arm.index("Input::Net(input) =>")]
+    assert "linked::adopt_shared(" in arm and "apply_own_stage(" in arm and "set_hungry(" in arm
+    assert "Input::SetPet { entry, remote: true }" in arm, "the pet switches through the usual path"
+    assert "share_state(" not in arm, "what came from the other computer is not sent back"
+    set_pet = GAME_LOOP[GAME_LOOP.index("Input::SetPet { entry: next, remote } =>") :]
+    set_pet = set_pet[: set_pet.index("Input::SetStyle(")]
+    assert "sync_pet_checks(" in set_pet and "if !remote" in set_pet
+    # 먹이기·성장 멈추기·처음부터·펫 바꾸기·점심 배고픔·주기적 저장 때 알린다
+    assert GAME_LOOP.count("share_care(") >= 7
+
+
+def test_help_says_what_my_two_computers_share():
+    one = HELP[HELP.index("📱 한 번에 한 컴퓨터") :]
+    one = one[: one.index("</li>")]
+    assert "펫·성장·선물·기록은 컴마다 따로" not in one
+    assert "고른 펫과 성장" in one and "그사이 다른 컴에서 키운 건 덮어써질 수 있어요" in one
+    assert "선물 도감" in one and "따로" in one
