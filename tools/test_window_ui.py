@@ -151,4 +151,7 @@ def test_pet_glow_gets_room_below_only_while_it_shines():
     js = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
     assert "pub const GLOW_SPACE: f64" in slots and "pub fn start_glow(" in slots and '"pet-pad"' in slots
     assert ".start_glow();" in loop[loop.index("Input::PointerDown { label }") :][:800]
+    # 바닥에 선 채로 빛날 땐 늘리지 않는다 (아래가 작업 표시줄) — 들어 올렸을 때만
+    sync = slots[slots.index("fn sync_glow") :]
+    assert "self.pet.is_held()" in sync[: sync.index("\n    }\n")]
     assert 'listen("pet-pad"' in js and "stageEl.style.bottom" in js

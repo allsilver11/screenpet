@@ -26,8 +26,8 @@ pub const NOTE_WIDTH: f64 = 232.0;
 /// 기린이 목을 늘이는 동안(Anim::NeckStretch, 코어 behavior::NECK_STRETCH_SECS) 창 위에 더하는 자리 (몸 배율 1 기준 논리 px).
 /// 머리가 그림 칸 위로 pet.json neck_stretch.ext(≤ 48 그림 px)만큼 솟는다 — 말풍선 자리(BUBBLE_SPACE)와 합쳐 넉넉히 들어간다
 pub const STRETCH_SPACE: f64 = 52.0;
-/// 루돌프 코·호박 빛이 몸 아래로 번지는 자리 (논리 px): 빛나는 동안만 창 아래를 이만큼 늘린다
-/// (늘 비워 두면 그 투명한 띠가 바닥 밑 작업 표시줄의 클릭을 막는다)
+/// 루돌프 코·호박 빛이 몸 아래로 번지는 자리 (논리 px): 들어 올린 채 빛나는 동안만 창 아래를 이만큼 늘린다
+/// (바닥에 서 있을 땐 늘리지 않는다 — 그 투명한 띠가 바닥 밑 작업 표시줄의 클릭을 막는다)
 pub const GLOW_SPACE: f64 = 24.0;
 /// 누르면 빛나는 동물과 빛이 이어지는 시간 (ui/main.js PET_FX, style.css 애니메이션 2.2초 안팎)
 const GLOW_PETS: [&str; 2] = ["rudolph", "pumpkin"];
@@ -325,9 +325,9 @@ impl Slot {
         }
     }
 
-    /// 빛이 시작·끝나면 창을 아래로 늘리거나 줄이고, 웹뷰가 펫을 그만큼 올려 그린다 (`pet-pad`)
+    /// 들어 올린 채 빛나기 시작·끝나면 창을 아래로 늘리거나 줄이고, 웹뷰가 펫을 그만큼 올려 그린다 (`pet-pad`)
     fn sync_glow(&mut self) {
-        let on = self.glow_until.is_some_and(|t| std::time::Instant::now() < t);
+        let on = self.pet.is_held() && self.glow_until.is_some_and(|t| std::time::Instant::now() < t);
         if on == self.glow_open {
             return;
         }
