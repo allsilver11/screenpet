@@ -671,6 +671,16 @@ mod tests {
         assert!(m.no_roll() && !m.has_anim("roll"));
     }
 
+    /// 배로 미끄러지는 동물: 픽셀 pet.json에 roll이 있으면 구른다 (spin은 픽셀 pet.json에 없다 — 돌지 않는다)
+    #[test]
+    fn a_pixel_belly_slide_keeps_its_roll_without_spin() {
+        let base = parse_manifest(&full_json()).unwrap();
+        let json = pixel_json("").replace(r#""animations": {"#, r#""animations": {"roll": {"row": 21, "frames": 2, "fps": 4},"#);
+        let m = parse_pixel_manifest(&json, &base).unwrap();
+        assert!(!m.no_roll() && m.has_anim("roll"));
+        assert_eq!(m.animations["roll"].spin, 0.0);
+    }
+
     #[test]
     fn pixel_frame_sizes_default_to_the_grid() {
         let base = parse_manifest(&full_json()).unwrap();
@@ -732,7 +742,12 @@ mod tests {
             let id = path.file_name().unwrap().to_string_lossy().into_owned();
             let base = parse_manifest(&std::fs::read_to_string(ui.join("pets").join(&id).join("pet.json")).unwrap()).unwrap_or_else(|e| panic!("{id}: {e}"));
             let m = parse_pixel_manifest(&json, &base).unwrap_or_else(|e| panic!("{id}: {e}"));
-            assert!(m.no_roll(), "{id} must not carry a roll");
+            // 도는 구르기는 도트로 돌리면 무너진다 — 돌지 않는 배 미끄럼(펭귄·눈사람)만 픽셀에도 있다 (tools/draw_pixel.py PIXEL_ROLL)
+            let slides = matches!(id.as_str(), "penguin" | "snowman");
+            assert_eq!(m.no_roll(), !slides, "{id}: only the belly sliders carry a roll in pixel");
+            if let Some(roll) = m.animations.get("roll") {
+                assert_eq!((roll.spin, base.animations["roll"].spin), (0.0, 0.0), "{id}: a pixel roll never spins");
+            }
             for stage in Stage::ALL {
                 let (name, sheet) = (stage.name(), path.join(format!("sheet_{}.png", stage.name())));
                 if !sheet.is_file() {

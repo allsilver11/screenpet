@@ -1,4 +1,4 @@
-"""픽셀(네모네모) 그림 — 완성된 PNG를 변환하지 않고, 그림 코드에서 바로 도트를 찍는다 (모든 동물, 다섯 단계, roll 빼고 모든 동작).
+"""픽셀(네모네모) 그림 — 완성된 PNG를 변환하지 않고, 그림 코드에서 바로 도트를 찍는다 (모든 동물, 다섯 단계, 도는 roll 빼고 모든 동작).
 
 그림 파일(draw_pets 등)은 한 줄도 고치지 않는다. pixel_mode() 안에서만 compose·stage_eye·blush·z_fx·heart_fx… 를 도트 버전으로
 바꿔 끼우고, 나오면 되돌린다 (이 문맥이 곧 플래그). 포즈·뼈대·종별 설정은 동글 그림과 같은 코드를 그대로 쓰므로:
@@ -43,6 +43,15 @@ import draw_redpanda as dred  # noqa: E402
 K = dp.K
 OUT_ROOT = Path(__file__).resolve().parent.parent / "ui" / "pets_pixel"
 NO_ANIM = {"roll"}
+# 도는 구르기는 도트로 돌리면 무너져서 픽셀에서 빠진다. 돌지 않는 배 미끄럼(sprite_spec NO_SPIN 중 펭귄·눈사람)만 roll 줄을 그대로 그린다
+# — 픽셀 pet.json에는 spin이 없어 앱도 돌리지 않는다. 산타 썰매·기린 목 늘이기는 NO_SPIN이어도 픽셀에서는 아직 없다
+PIXEL_ROLL = {"penguin", "snowman"}
+assert PIXEL_ROLL <= dp.NO_SPIN
+
+
+def dropped_anims(sp):
+    """이 동물의 픽셀 시트에서 빠지는 동작."""
+    return NO_ANIM - {"roll"} if sp.id in PIXEL_ROLL else NO_ANIM
 # 단계 → (캔버스 칸 수, 화면 배율). 표시 크기 = 칸 × 배율
 STAGE_GRID = {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 3), "adult": (36, 3)}
 # 종마다 다른 칸 수 (칸 크기는 그대로라 점이 고르다): 공룡은 픽셀에서만 조금 작다 — 60/72/84/84/96 px. 앱은 pet.json frame_sizes를 따른다
@@ -964,7 +973,7 @@ _PATCH["acorn_bubble_fx"] = _bubble_fn("acorn")  # 다람쥐 🌰
 
 
 def _anims(sp):
-    return [(a, n) for a, n, *_ in dp.rows_for(sp) if a not in NO_ANIM]
+    return [(a, n) for a, n, *_ in dp.rows_for(sp) if a not in dropped_anims(sp)]
 
 
 def _unfit(fn):
@@ -1066,8 +1075,8 @@ def render_with_marks(sp, stage):
 
 
 def pixel_rows(sp):
-    """(동작, 프레임 수, fps, 반복, 앞모습) — roll만 빠지고 순서는 동글 시트와 같다. 줄 번호는 이어 붙인다."""
-    return [r for r in dp.rows_for(sp) if r[0] not in NO_ANIM]
+    """(동작, 프레임 수, fps, 반복, 앞모습) — roll만 빠지고 (PIXEL_ROLL은 남는다) 순서는 동글 시트와 같다. 줄 번호는 이어 붙인다."""
+    return [r for r in dp.rows_for(sp) if r[0] not in dropped_anims(sp)]
 
 
 def write_sheet(sp, rendered, path):

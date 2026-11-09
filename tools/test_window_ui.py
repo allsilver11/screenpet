@@ -38,6 +38,20 @@ def test_idle_frames_write_no_styles_but_frames_and_spin_still_do():
     assert "rotate(" in r["spin"]
 
 
+@pytest.mark.parametrize("pet", ["penguin", "snowman"])
+def test_pixel_belly_slide_plays_its_roll_row_without_spinning(pet):
+    r = run("pixelRoll", pet)
+    assert r["hasRoll"] and r["row"] == r["rollRow"], r
+    assert not r["rotates"], r
+
+
+@pytest.mark.parametrize("pet", ["cat", "santa", "giraffe"])
+def test_other_pixel_pets_still_have_no_roll_and_never_spin(pet):
+    r = run("pixelRoll", pet)
+    assert not r["hasRoll"] and r["row"] == r["idleRow"], r
+    assert not r["rotates"], r
+
+
 def test_house_door_writes_only_when_the_frame_changes():
     assert run("drawWritesHouse")["idle"] == 0
 

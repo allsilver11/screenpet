@@ -115,17 +115,18 @@ GIFTS = {
         ..tttNtt..
         ...tttt...
         """,
+    # 은행잎: 기울어진 부채 + 가운데 홈 + 잎자루 (좌우 대칭이면 하트로 읽힌다). 잎자루는 오른쪽 아래 — 반짝이 셋이 비우는 귀퉁이
     "squirrel_ginkgo": """
-        .yyyy.yyy.
-        yyyyyYyyyy
-        yYyyyYyyYy
-        yyYyyYyYyy
-        .yyYyYYyy.
-        ..yyYYyy..
-        ...yyyy...
-        ....YY....
-        ....Y.....
-        ....Y.....
+        .....yyyy.
+        ..y.yyyyyy
+        .yyYyYyyYy
+        yyyyYYyYyy
+        yYYyYYYyy.
+        yyyYYYyy..
+        yyyyyyy...
+        ......d...
+        .......d..
+        ........d.
         """,
     "squirrel_fluff": """
         ....oooo..
@@ -1255,29 +1256,18 @@ HAND = {
         gggggggggg
         GGGGGGGGGG
         """,
-    "shrimo": """
-        .O..O.....
-        ..OO.ooo..
-        ..oooooOo.
-        .okooOooOo
-        .oooOooOoo
-        ..oo..oOoo
-        .OO..oOoo.
-        OOOoooOo..
-        .OOOooo...
-        ..........
-        """,
+    # 새우: 머리(왼쪽 위, 눈·뿔)에서 등이 한 바퀴 말려 꼬리 부채가 머리 밑에 — 마디는 진한 띠, 다리는 안쪽 아래. 더듬이는 HAND_LINES
     "shrimp": """
-        .O..O.....
-        ..OO.ooo..
-        ..oooooOo.
-        .okooOooOo
-        .oooOooOoo
-        ..oo..oOoo
-        .OO..oOoo.
-        OOOoooOo..
-        .OOOooo...
-        ..........
+        ....ooOo..
+        ..ooOoOoo.
+        .okoOoOoOo
+        ooooo..OOo
+        .O.O....oo
+        .......OOo
+        O.....ooo.
+        oO.oOoOo..
+        .OOoOoO...
+        OO........
         """,
     "bamboo": """
         .g..G..g..
@@ -1302,6 +1292,15 @@ HAND = {
         SSTmmTSS..
         SWSTTSWS..
         .SS..SS...
+        """,
+}
+
+# 외곽선을 두른 뒤 얹는 가는 선 (손 음식 12×12칸, 외곽선 칸 포함 좌표) — 1칸 선에 외곽선을 두르면 3칸 덩어리가 된다
+HAND_LINES = {
+    "shrimp": """
+        R...R.......
+        .R.R........
+        ..R.........
         """,
 }
 

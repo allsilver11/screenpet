@@ -616,7 +616,10 @@ def build_gifts():
 def build_effects():
     out = UI / "effects_pixel"
     for name, text in icons.HAND.items():
-        save(icon(text, HAND_DOTS), out / f"hand_{name}.png")
+        c = icon(text, HAND_DOTS)
+        if name in icons.HAND_LINES:
+            c.stamp(icons.art(icons.HAND_LINES[name]), 0, 0)
+        save(c, out / f"hand_{name}.png")
     for name, text in icons.PROPS.items():
         save(icon(text, PROP_DOTS[0], PROP_DOTS[1], bottom=True), out / f"{name}.png")
     # 눈덩이: 네 크기 (같은 칸 크기로 자란다), snowball.png가 다 자란 것

@@ -300,6 +300,21 @@ const scenarios = {
     }
     return { idle, advanced, spinWrites: count("transform") - tBefore, spinDistinct: new Set(spins).size, spin: spins[0] };
   },
+  // 픽셀 구르기: 배로 미끄러지는 동물(펭귄·눈사람)은 roll 줄을 돌리지 않고 틀고, 구르기 그림이 없는 동물은 idle 줄 (역시 안 돈다)
+  async pixelRoll([pet]) {
+    const slot = { pet, stage: "adult", scale: 1, style: "pixel" };
+    const w = openWindow("index.html", { replies: { slot_info: { ...slot, render: { anim: "roll", flip: false, heart: false } } } });
+    await tick();
+    w.emit("pet-render", { anim: "roll", flip: false, heart: false });
+    const transforms = [];
+    for (let i = 0; i < 20; i++) {
+      w.frame(16);
+      transforms.push(w.byId("pet").style.transform ?? "");
+    }
+    const [m, display] = vm.runInContext("[manifest, display]", w.sandbox);
+    const pos = w.byId("pet").style.backgroundPosition;
+    return { hasRoll: !!m.animations.roll, row: Math.round(-parseFloat(pos.split(" ")[1]) / display), rollRow: m.animations.roll?.row ?? null, idleRow: m.animations.idle.row, rotates: transforms.some((t) => t.includes("rotate")) };
+  },
   async drawWritesHouse() {
     const w = openWindow("house.html", { replies: { slot_info: CAT, house_state: HOUSED } });
     await tick();

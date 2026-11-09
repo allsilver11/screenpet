@@ -12,7 +12,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
 import draw_pixel as px  # noqa: E402
-from sprite_spec import FRAME, frame_px  # noqa: E402
+from sprite_spec import FRAME, NO_SPIN, frame_px  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PIXEL = ROOT / "ui" / "pets_pixel"
@@ -113,13 +113,22 @@ def test_sheet_dims_and_frames_exist(pid):
             assert im.size == (cols * n, rows * n), st
 
 
+def test_only_belly_sliders_keep_their_roll_in_pixel():
+    """도는 구르기는 도트로 돌리면 무너진다 — 픽셀에서는 빠진다. 돌지 않는 배 미끄럼(펭귄·눈사람)만 남는다."""
+    assert px.PIXEL_ROLL == {"penguin", "snowman"}
+    assert px.PIXEL_ROLL <= NO_SPIN
+    for pid in ALL:
+        assert ("roll" in [r[0] for r in px.pixel_rows(dp.SPECIES[pid])]) == (pid in px.PIXEL_ROLL), pid
+
+
 @pytest.mark.parametrize("pid", ALL)
-def test_anims_match_round_minus_roll(pid):
+def test_anims_match_round_minus_spinning_roll(pid):
     m = _man(pid)
     round_m = json.loads((ROOT / "ui" / "pets" / pid / "pet.json").read_text(encoding="utf-8"))
-    want = {a: s for a, s in round_m["animations"].items() if a != "roll"}
+    want = {a: s for a, s in round_m["animations"].items() if a != "roll" or pid in px.PIXEL_ROLL}
     assert set(m["animations"]) == set(want)
-    assert "roll" not in m["animations"]
+    assert ("roll" in m["animations"]) == (pid in px.PIXEL_ROLL)
+    assert all("spin" not in s for s in m["animations"].values()), "픽셀은 돌지 않는다"
     assert sorted(s["row"] for s in m["animations"].values()) == list(range(len(want)))  # 빈 줄 없음
     for a, s in want.items():
         got = m["animations"][a]

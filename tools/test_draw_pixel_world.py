@@ -131,6 +131,36 @@ def test_gift_art_leaves_room_for_the_outline():
             assert len(rows) <= side and max(map(len, rows)) <= side, name
 
 
+def test_hand_table_draws_exactly_the_round_hand_foods():
+    assert {f"hand_{n}" for n in icons.HAND} == {n for n in round_names("effects") if n.startswith("hand_")}
+
+
+def test_hand_lines_are_thin_dots_drawn_after_the_outline():
+    """가는 선(새우 더듬이)은 외곽선 뒤에 1칸으로 — 외곽선을 두르면 3칸 덩어리가 되어 뿔처럼 보인다."""
+    assert set(icons.HAND_LINES) <= set(icons.HAND)
+    for name, text in icons.HAND_LINES.items():
+        rows = icons.art(text)
+        assert len(rows) <= w.HAND_DOTS and max(map(len, rows)) <= w.HAND_DOTS, name
+        assert set("".join(rows)) <= set(w.PAL) | {"."}, name
+
+
+def test_pixel_shrimp_has_feelers_reaching_the_top_corner():
+    a = np.asarray(Image.open(UI / "effects_pixel" / "hand_shrimp.png").convert("RGBA"))
+    feeler = (a[..., :3] == w.PAL["R"]).all(axis=-1) & (a[..., 3] > 0)
+    ys, xs = np.nonzero(feeler)
+    assert len(ys) >= 4 and ys.min() == 0, "더듬이가 칸 맨 위까지"
+    assert (a[..., 3] > 0).sum() >= 90, "칸을 채운다"
+
+
+@pytest.mark.parametrize("name", ["squirrel_ginkgo", "squirrel_ginkgo_shiny"])
+def test_ginkgo_is_a_tilted_fan_on_a_stem_not_a_heart(name):
+    a = np.asarray(Image.open(UI / "gifts_pixel" / f"{name}.png").convert("RGBA"))
+    solid = a[..., 3] > 0
+    assert (solid != solid[:, ::-1]).sum() >= 20, "하트처럼 좌우 대칭이 아니다 (기울어진 부채)"
+    rows = icons.art(icons.GIFTS["squirrel_ginkgo"])
+    assert sum(r.count("d") for r in rows) >= 3, "잎자루"
+
+
 def test_shiny_differs_from_plain_and_has_white_sparkle_dots():
     a = np.asarray(Image.open(UI / "gifts_pixel" / "cat_yarn.png").convert("RGBA"))
     b = np.asarray(Image.open(UI / "gifts_pixel" / "cat_yarn_shiny.png").convert("RGBA"))
