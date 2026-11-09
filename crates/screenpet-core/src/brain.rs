@@ -122,6 +122,8 @@ pub enum Anim {
     Roar,
     /// 공룡 제자리 쿵쾅쿵쾅 (옆모습) — 앱은 몸을 살짝 떨고, 같은 바닥의 친구들이 흔들린다 (brain_stomp.rs)
     Stomp,
+    /// 레서판다 깜짝 — 뒷발로 벌떡 서서 두 팔을 번쩍 (앞모습, 한 번)
+    Surprise,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -196,6 +198,8 @@ pub enum Speech {
     Ow,
     /// 빠른 새가 친구 화면으로 쌩 날아 나가거나 들어옴 ("whoosh!", brain_fly.rs)
     Whoosh,
+    /// 깜짝 놀라 벌떡 ("!!", 레서판다 Special::Surprise)
+    Surprise,
 }
 
 impl Anim {
@@ -206,7 +210,7 @@ impl Anim {
 
     /// 앞모습 동작 — 좌우 반전하지 않는다.
     pub fn is_front(self) -> bool {
-        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Hungry | Anim::Eat | Anim::LevelUp | Anim::Huff)
+        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Hungry | Anim::Eat | Anim::LevelUp | Anim::Huff | Anim::Surprise)
     }
 }
 
@@ -228,6 +232,7 @@ impl From<Special> for Anim {
             Special::Fire => Anim::Fire,
             Special::Roar => Anim::Roar,
             Special::Stomp => Anim::Stomp,
+            Special::Surprise => Anim::Surprise,
         }
     }
 }
@@ -2095,6 +2100,11 @@ impl Pet {
                     self.guest_click();
                     return;
                 }
+                // 잘 놀라는 동물 (레서판다): 반쯤은 깜짝 벌떡
+                if self.cfg.special == Some(Special::Surprise) && self.rng.f64() < behavior::SURPRISE_CLICK_CHANCE {
+                    self.startle();
+                    return;
+                }
                 let reaction = match behavior::pick_click_outcome(&mut self.rng, self.cfg.personality, self.hungry) {
                     ClickOutcome::React(r) => r,
                     ClickOutcome::Ignore { speak } => {
@@ -2228,6 +2238,16 @@ impl Pet {
         };
     }
 
+    /// 깜짝 놀라 벌떡 선다 (Special::Surprise가 있는 동물만 — 레서판다). 놀랐으면 true
+    pub(crate) fn startle(&mut self) -> bool {
+        if self.cfg.special != Some(Special::Surprise) || self.standing.is_none() {
+            return false;
+        }
+        self.pacing.after_beat = None;
+        self.start_special(Special::Surprise);
+        true
+    }
+
     pub(crate) fn start_special(&mut self, kind: Special) {
         // 공룡: 불·크앙·쿵쾅 중 하나 (간질이면 불·크앙이 더 자주)
         let kind = if kind.is_dino() { behavior::pick_dino(&mut self.rng, self.tickling) } else { kind };
@@ -2239,6 +2259,7 @@ impl Pet {
             Special::Fire => Some(Speech::Fire),
             Special::Roar => Some(Speech::Roar),
             Special::Stomp => Some(Speech::Stomp),
+            Special::Surprise => Some(Speech::Surprise),
         };
         self.state = State::Special { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
     }
@@ -3120,6 +3141,10 @@ mod noroll_tests;
 #[path = "brain_lookup_tests.rs"]
 mod lookup_tests;
 
+#[cfg(test)]
+#[path = "brain_surprise_tests.rs"]
+mod surprise_tests;
+
 /// 기대고 있는 창 (게임 루프가 매 틱 그 창 경계만 다시 읽는다)
 #[path = "brain_ride.rs"]
 mod ride;
@@ -3698,7 +3723,7 @@ mod tests {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

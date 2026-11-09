@@ -31,10 +31,14 @@ fn every_species_has_about_six_gifts_and_only_dinos_share() {
     assert_eq!(list_for("persian").map(|l| l.key), Some("cat")); // 페르시안도 고양이 선물 (털실·깃털…)
     assert_ne!(list_for("rudolph").map(|l| l.key), list_for("santa").map(|l| l.key));
     assert_ne!(list_for("pumpkin").map(|l| l.key), list_for("ghost").map(|l| l.key));
+    assert_eq!(list_for("squirrel").map(|l| (l.key, l.emoji, l.title)), Some(("squirrel", "🐿️", "다람쥐")));
+    assert!(list_for("squirrel").unwrap().items.iter().any(|i| i.id == "squirrel_acorn")); // 겨울 대비 도토리
     assert_eq!(list_for("bird").map(|l| (l.key, l.emoji)), Some(("bird", "🐦")));
     assert!(list_for("bird").unwrap().items.iter().any(|i| i.id == "bird_gourdseed")); // 흥부네 제비의 박씨
     assert_eq!(list_for("penguin").map(|l| (l.key, l.emoji)), Some(("penguin", "🐧")));
     assert!(list_for("penguin").unwrap().items.iter().any(|i| i.id == "penguin_pebble")); // 펭귄이 고백할 때 건네는 조약돌
+    assert_eq!(list_for("redpanda").map(|l| (l.key, l.emoji, l.title)), Some(("redpanda", "🐾", "레서판다")));
+    assert!(list_for("redpanda").unwrap().items.iter().any(|i| i.id == "redpanda_bamboo"));
     assert!(list_for("dragon").is_none());
 }
 

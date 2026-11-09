@@ -85,12 +85,14 @@ def test_bowls_differ_by_contents(built):
 # ---- 직접 주기: 커서 끝에 붙는 음식 (48×48, 가운데) ----
 HAND = ("hand_meal", "hand_cookie", "hand_fish", "hand_carrot", "hand_fly",
         "hand_candy", "hand_lollipop")
+HAND += ("hand_acorn",)  # 다람쥐
 HAND += ("hand_apple", "hand_milk")  # 크리스마스
 HAND += ("hand_bread", "hand_leaf")  # 농장
 HAND += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡
 HAND += ("hand_shaved_ice",)  # 눈사람
 HAND += ("hand_seeds",)  # 새
 HAND += ("hand_shrimp",)  # 펭귄
+HAND += ("hand_bamboo",)  # 레서판다
 HAND += ("hand_special",)  # 특식 🍱
 HAND += ("hand_broom",)  # 🧹 빗자루
 

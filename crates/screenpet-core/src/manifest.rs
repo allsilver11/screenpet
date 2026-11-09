@@ -15,7 +15,7 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// 기린 neckstretch — 있으면 구르는 대신 목을 늘인다, 올려다보기 lookup — 없으면 그냥 쳐다본다(look)).
 /// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같다
 /// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔든다).
-pub const OPTIONAL_ANIMS: [&str; 10] = ["arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp"];
+pub const OPTIONAL_ANIMS: [&str; 11] = ["arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -446,6 +446,7 @@ mod tests {
     #[test]
     fn parses_lookup_as_the_last_optional_anim() {
         assert_eq!(OPTIONAL_ANIMS[6], "lookup");
+        assert_eq!(OPTIONAL_ANIMS[10], "surprise"); // 레서판다 깜짝 (v0.5.5)
         assert!(!parse_manifest(&full_json()).unwrap().can_look_up());
         let json = full_json().replace(r#""animations": {"#, r#""animations": {"lookup": {"row": 21, "frames": 3, "fps": 3},"#);
         assert!(parse_manifest(&json).unwrap().can_look_up());
@@ -463,10 +464,10 @@ mod tests {
         }
     }
 
-    /// 공룡: 선택 동작 맨 끝의 fire·roar·stomp → 공룡 특별 동작 (셋 중 하나를 고른다)
+    /// 공룡: lookup 뒤의 fire·roar·stomp → 공룡 특별 동작 (셋 중 하나를 고른다)
     #[test]
     fn parses_dino_anims_as_the_dino_special() {
-        assert_eq!(OPTIONAL_ANIMS[OPTIONAL_ANIMS.len() - 3..], ["fire", "roar", "stomp"]);
+        assert_eq!(OPTIONAL_ANIMS[7..10], ["fire", "roar", "stomp"]);
         let json = full_json().replace(
             r#""animations": {"#,
             r#""animations": {"fire": {"row": 21, "frames": 4, "fps": 4, "loop": false}, "roar": {"row": 22, "frames": 3, "fps": 4}, "stomp": {"row": 23, "frames": 4, "fps": 6},"#,
@@ -512,6 +513,16 @@ mod tests {
         assert_eq!(snowman.hop_share(), 0.5);
         assert_eq!(snowman.animations["roll"].spin, 0.0);
         assert_eq!(snowman.favorite_food.as_ref().map(|f| f.name.as_str()), Some("빙수"));
+    }
+
+    /// 번들 다람쥐는 고양이처럼 벽을 타고, 걷다가 가끔 깡총거리고, 도토리를 좋아한다
+    #[test]
+    fn bundled_squirrel_climbs_and_hops_now_and_then() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets/squirrel/pet.json");
+        let m = parse_manifest(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(m.can_climb() && m.locomotion == Locomotion::Walk);
+        assert!(m.hop_share() > 0.0 && m.hop_share() < 1.0);
+        assert_eq!(m.favorite_food.as_ref().map(|f| f.name.as_str()), Some("도토리"));
     }
 
     /// 개구리 (아트 에이전트가 ui/pets/frog를 만들면 그대로 읽힌다 — 없으면 건너뛴다)

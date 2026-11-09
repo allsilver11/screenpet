@@ -377,6 +377,39 @@ def _shrimp(img):
     tiny_face(img, 54, 62, 0.8)
 
 
+BAMBOO_STALK, BAMBOO_NODE, BAMBOO_LEAF, BAMBOO_LEAF_DARK = (186, 214, 110), (130, 168, 74), (124, 196, 98), (78, 146, 72)
+
+
+def hand_bamboo(img):
+    """레서판다가 좋아하는 대나무잎 🎋 — 비스듬한 대나무 한 마디 (마디 띠) 끝에 길쭉한 잎 셋이 부채처럼, 줄기에 작은 얼굴."""
+    with xf(dx=2, dy=-1, sx=0.58, sy=0.58, pivot=(64, 64)):
+        for tip in ((40, 42), (60, 32), (86, 42)):
+            base = (66, 54)
+            mx, my = (tip[0] + base[0]) / 2, (tip[1] + base[1]) / 2
+            nx, ny = -(tip[1] - base[1]) * 0.24, (tip[0] - base[0]) * 0.24
+            blob(img, [T(base, (mx + nx, my + ny), tip, (mx - nx, my - ny))], BAMBOO_LEAF, r=0.8, line=0.8,
+                 marks=[([L([base, tip], 1.0)], BAMBOO_LEAF_DARK)])
+        m = blob(img, [L([(56, 90), (68, 52)], 13)], BAMBOO_STALK, r=0.4, line=0.9,
+                 marks=[([L([(62, 90), (73, 54)], 3.0)], mix(BAMBOO_STALK, LINE, 0.1)), ([L([(52, 84), (60, 58)], 2.2)], mix(BAMBOO_STALK, WHITE, 0.5))])
+        paint(img, aa(shapes([L([(52, 63), (70, 69)], 2.0), L([(48, 83), (64, 88)], 2.0)])), BAMBOO_NODE, clip=m)
+        tiny_face(img, 61, 75, 0.8)
+
+
+ACORN, ACORN_DARK, ACORN_LIGHT = (220, 156, 88), (180, 116, 62), (248, 210, 160)
+ACORN_CAP, ACORN_CAP_DARK = (150, 100, 62), (112, 72, 48)
+
+
+def hand_acorn(img):
+    """다람쥐가 좋아하는 도토리 🌰 — 통통한 알 + 비늘 무늬 깍정이 모자 + 꼭지, 알에 작은 얼굴."""
+    with xf(dx=0, dy=1, sx=0.64, sy=0.64, pivot=(64, 66)):
+        blob(img, [E(48, 56, 80, 88), T((52, 78), (76, 78), (64, 96))], ACORN, r=1.4, line=0.9,
+             marks=[([E(52, 62, 60, 76)], ACORN_LIGHT), ([E(46, 82, 82, 100)], ACORN_DARK)])
+        m = blob(img, [E(44, 44, 84, 66), L([(64, 46), (68, 34)], 3.6)], ACORN_CAP, r=0.8, line=0.9)
+        paint(img, aa(shapes([L(p, 1.1) for p in ([(46, 52), (82, 52)], [(46, 58), (82, 58)], [(54, 44), (58, 66)], [(64, 44), (64, 66)],
+                                                  [(74, 44), (70, 66)])])), ACORN_CAP_DARK, clip=m)
+        tiny_face(img, 64, 76, 0.85)
+
+
 BENTO, BENTO_RIM, BENTO_IN = (222, 92, 86), (176, 62, 66), (255, 244, 224)
 UME, EGG, GREEN, SAUSAGE = (232, 80, 96), (255, 214, 96), (122, 190, 104), (246, 138, 138)
 
@@ -496,12 +529,14 @@ def preview_seasonal(arts):
 HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish,
              "hand_carrot": hand_carrot, "hand_fly": hand_fly,
              "hand_candy": hand_candy, "hand_lollipop": hand_lollipop,
+             "hand_acorn": hand_acorn,  # 다람쥐 🌰
              "hand_apple": hand_apple, "hand_milk": hand_milk,  # 크리스마스: 루돌프 🍎 · 산타 🥛
              "hand_bread": hand_bread, "hand_leaf": hand_leaf,  # 농장: 오리 🍞 · 기린 🍃
              "hand_watermelon": hand_watermelon, "hand_broccoli": hand_broccoli, "hand_grapes": hand_grapes,  # 공룡: 노랑 🍉 · 초록 🥦 · 보라 🍇
              "hand_shaved_ice": hand_shaved_ice,  # 눈사람 🍧
              "hand_seeds": hand_seeds,  # 새 🌾
              "hand_shrimp": hand_shrimp,  # 펭귄 🦐
+             "hand_bamboo": hand_bamboo,  # 레서판다 🎋
              "hand_special": hand_special,  # 특식 🍱
              "hand_broom": hand_broom}  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
 HAND_NAMES = tuple(HAND_DRAW)

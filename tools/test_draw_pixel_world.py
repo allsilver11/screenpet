@@ -116,7 +116,7 @@ def round_names(folder):
 
 def test_every_round_gift_has_a_pixel_gift_and_shiny():
     names = round_names("gifts")
-    assert len(names) == 156  # v0.5.5: 곰·꿀벌·강아지 선물 −36, 펭귄 +12
+    assert len(names) == 180  # v0.5.5: 곰·꿀벌·강아지 선물 −36, 펭귄 +12, 레서판다 +12, 다람쥐 +12
     assert round_names("gifts_pixel") == names
     for n in names:
         p = UI / "gifts_pixel" / f"{n}.png"
@@ -410,7 +410,7 @@ def _worst_fit(table_name):
 
 
 def test_every_species_has_a_pixel_sheet_now():
-    assert len(_pixel_ids()) == 16  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1
+    assert len(_pixel_ids()) == 18  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1, 레서판다 +1, 다람쥐 +1
 
 
 def test_nightcap_table_fits_every_pixel_frame():

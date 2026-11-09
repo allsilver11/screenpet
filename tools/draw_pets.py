@@ -583,6 +583,7 @@ class Species:
     front_head: list = field(default_factory=lambda: [("E", 16, 16, 112, 84)])  # 앞모습 머리 도형 (페르시안: 넓적 네모 얼굴 + 볼 털 갈기)
     side_head: list = field(default_factory=lambda: [("E", 52, 12, 124, 78)])  # 옆모습 머리 도형
     fur_tufts: tuple = ((), ())  # 머리 가장자리 삐죽 털 (앞모습, 옆모습) — 녹이지 않는 삼각형 (긴 털 갈기)
+    front_tail_marks: list = field(default_factory=list)  # 앞모습 꼬리 무늬 (레서판다 고리) — 꼬리와 함께 돌고 커진다
 
 
 def _stripe(pts, w=2.8):
@@ -855,7 +856,7 @@ def front_body(sp, leg_dy=(0, 0)):
 def front_tail(sp, rot=0.0):
     k = _ST["tail"] ** 0.5 * _ST["tail_w"] ** 0.5
     with xf(rot=rot, sx=k, sy=k, pivot=sp.front_tail_root):
-        return Part([shape(d) for d in sp.front_tail], sp.front_tail_color)
+        return Part([shape(d) for d in sp.front_tail], sp.front_tail_color, _marks(sp.front_tail_marks))
 
 
 def front_arm(sp, side=1, rot=0.0, beans=True, outline=False):
@@ -1925,6 +1926,8 @@ import draw_dino  # noqa: E402,F401  (공룡 셋)
 import draw_snowman  # noqa: E402,F401  (눈사람)
 import draw_bird  # noqa: E402,F401  (새)
 import draw_penguin  # noqa: E402,F401  (펭귄)
+import draw_squirrel  # noqa: E402,F401  (다람쥐)
+import draw_redpanda  # noqa: E402,F401  (레서판다)
 
 if __name__ == "__main__":
     main()

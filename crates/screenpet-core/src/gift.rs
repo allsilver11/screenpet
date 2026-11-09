@@ -87,6 +87,21 @@ pub const CATALOG: &[GiftList] = &[
         ],
     },
     GiftList {
+        key: "squirrel",
+        title: "다람쥐",
+        emoji: "🐿️",
+        species: &["squirrel"],
+        speech: "chk! for you!",
+        items: &[
+            item("squirrel_acorn", "도토리"),
+            item("squirrel_pinecone", "솔방울"),
+            item("squirrel_walnut", "호두"),
+            item("squirrel_ginkgo", "노란 은행잎"),
+            item("squirrel_fluff", "꼬리 솜털"),
+            item("squirrel_mushroom", "작은 버섯"),
+        ],
+    },
+    GiftList {
         key: "rabbit",
         title: "토끼",
         emoji: "🐰",
@@ -189,6 +204,21 @@ pub const CATALOG: &[GiftList] = &[
             item("penguin_snowflake", "눈송이"),
             item("penguin_down", "아기 솜털"),
             item("penguin_shell", "소라 껍데기"),
+        ],
+    },
+    GiftList {
+        key: "redpanda",
+        title: "레서판다",
+        emoji: "🐾",
+        species: &["redpanda"],
+        speech: "kyu! for you!",
+        items: &[
+            item("redpanda_bamboo", "대나무잎"),
+            item("redpanda_berry", "산딸기"),
+            item("redpanda_stick", "작은 나뭇가지"),
+            item("redpanda_maple", "빨간 단풍잎"),
+            item("redpanda_fluff", "꼬리 털뭉치"),
+            item("redpanda_flower", "들꽃"),
         ],
     },
     GiftList {

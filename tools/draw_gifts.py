@@ -26,6 +26,7 @@ ICON = 40
 SHINY = "_shiny"
 LINES = {
     "cat": ("fishbone", "yarn", "feather", "mouse", "bell", "catnip"),
+    "squirrel": ("acorn", "pinecone", "walnut", "ginkgo", "fluff", "mushroom"),
     "rabbit": ("carrot", "clover", "lettuce", "radish", "daisy", "strawberry"),
     "frog": ("lilypad", "dragonfly", "fly", "lotus", "tadpole", "pebble"),
     "pumpkin": ("candycorn", "lantern", "seed", "vine", "lollipop", "hat"),
@@ -33,6 +34,7 @@ LINES = {
     "duck": ("bread", "pebble", "rubber", "feather", "shell", "reed"),
     "bird": ("gourdseed", "feather", "twig", "berry", "egg", "dandelion"),
     "penguin": ("pebble", "ice", "fish", "snowflake", "down", "shell"),
+    "redpanda": ("bamboo", "berry", "stick", "maple", "fluff", "flower"),
     "giraffe": ("acacia", "pod", "mango", "cloud", "nest", "scarf"),
     "rudolph": ("bell", "bulb", "snowflake", "star", "moss", "ribbon"),
     "santa": ("giftbox", "candycane", "mitten", "cookie", "stocking", "coal"),
@@ -480,6 +482,70 @@ def bird_dandelion(i):
     dots(i, [(64, 58)], GOLD_DARK, 1.8)
 
 
+# ---- 다람쥐 ----
+SQ_NUT, SQ_CAP = (214, 150, 86), (150, 100, 62)
+
+
+def squirrel_acorn(i):
+    """반질반질 도토리 한 알 (깍정이 모자 + 비늘 무늬 + 꼭지, 작은 얼굴)."""
+    bl(i, [E(51, 58, 77, 82), T((53, 72), (75, 72), (64, 88))], SQ_NUT, r=1.2,
+       marks=[([E(55, 63, 60, 74)], mix(SQ_NUT, WHITE, 0.45)), ([E(50, 78, 78, 92)], mix(SQ_NUT, LINE, 0.18))])
+    m = bl(i, [E(48, 50, 80, 67), L([(64, 52), (67, 43)], 3.0)], SQ_CAP, r=0.7)
+    strokes(i, [[(50, 56), (78, 56)], [(50, 61), (78, 61)], [(56, 50), (60, 67)], [(64, 50), (64, 67)], [(72, 50), (68, 67)]],
+            mix(SQ_CAP, LINE, 0.35), 0.9, clip=m)
+    tiny_face(i, 64, 75, 0.85)
+
+
+def squirrel_pinecone(i):
+    """솔방울 (겹겹 비늘, 꼭대기에 솔잎 하나)."""
+    bl(i, [E(51, 50, 77, 86)], BROWN, r=0.8)
+    for row, (y, xs) in enumerate(((54, (64,)), (60, (58, 70)), (66, (53.5, 64, 74.5)), (72, (58, 70)), (78, (64,)))):
+        for x in xs:
+            bl(i, [E(x - 5.2, y - 3.5, x + 5.2, y + 4)], BROWN_LIGHT if row % 2 else mix(BROWN, TAN, 0.5), r=0, line=0.45)
+    leaf(i, (64, 50), (71, 43), 3.6, GREEN_DARK)
+
+
+def squirrel_walnut(i):
+    """동글 호두 (가운데 이음 줄 + 꼬불꼬불 주름)."""
+    nut = (206, 164, 112)
+    m = bl(i, [E(46, 54, 82, 88)], nut, r=1.0, marks=[([E(48, 76, 80, 92)], mix(nut, LINE, 0.22)), ([E(52, 59, 60, 66)], mix(nut, WHITE, 0.45))])
+    dark = mix(nut, LINE, 0.45)
+    strokes(i, [[(64, 54), (64, 88)]], dark, 1.4, clip=m)
+    strokes(i, [curve((52, 66), (57, 70), (53, 76), 8), curve((76, 66), (71, 71), (75, 78), 8), curve((58, 60), (60, 64), (58, 68), 6),
+                curve((70, 60), (68, 65), (71, 69), 6), curve((57, 80), (60, 83), (58, 86), 6), curve((71, 80), (68, 83), (70, 86), 6)],
+            dark, 0.9, clip=m)
+
+
+def squirrel_ginkgo(i):
+    """노란 은행잎 한 장 (부채꼴 + 가운데 홈 + 잎맥 + 잎자루)."""
+    gold = (250, 210, 90)
+    bl(i, [L(curve((64, 74), (63, 82), (66, 89), 6), 2.0)], (206, 160, 60), r=0, line=0.5)
+    fan = T(*([(64, 76)] + [polar(64, 76, 24, a) for a in range(-160, -19, 10)]))
+    m = bl(i, [fan, C(64, 74, 4)], gold, r=1.4, marks=[([E(44, 52, 84, 66)], mix(gold, WHITE, 0.35))])
+    strokes(i, [[(64, 76), polar(64, 76, 22, a)] for a in range(-150, -29, 20)], mix(gold, LINE, 0.25), 0.7, clip=m)
+    strokes(i, [[(64, 52), (64, 60)]], mix(gold, LINE, 0.45), 1.3)  # 가운데 갈라진 홈
+
+
+def squirrel_fluff(i):
+    """다람쥐 꼬리 솜털 한 다발 (위로 솟아 끝이 말린 복슬 깃털 꼬리 모양 + 밝은 털 줄 + 삐죽 털)."""
+    fur = (204, 104, 60)
+    pts = [(58, 88, 4), (55, 80, 6), (54, 71, 8), (56, 62, 9.5), (61, 54, 10), (68, 50, 9), (75, 51, 7), (78, 56, 5)]
+    chain = []
+    for (x0, y0, r0), (x1, y1, r1) in zip(pts, pts[1:]):
+        chain += [(x0 + (x1 - x0) * t / 4, y0 + (y1 - y0) * t / 4, r0 + (r1 - r0) * t / 4) for t in range(4)]
+    spikes = [T(polar(x, y, r - 1, a - 14), polar(x, y, r + 4, a), polar(x, y, r - 1, a + 14))
+              for (x, y, r), a in zip(chain[4::3], (180, 190, 215, 245, 270, 290, 310))]
+    m = bl(i, [C(x, y, r) for x, y, r in chain] + spikes, fur, r=0.6, marks=[([E(44, 70, 64, 92)], mix(fur, LINE, 0.15))])
+    strokes(i, [[(x + r * 0.35, y + r * 0.1) for x, y, r in chain[3:-6]]], (240, 162, 108), 1.6, clip=m)
+
+
+def squirrel_mushroom(i):
+    """빨간 점박이 꼬마 버섯 (크림 기둥 + 흰 점 갓, 작은 얼굴)."""
+    bl(i, [T((58, 66), (70, 66), (73, 86), (55, 86))], CREAM, r=1.4, marks=[([L([(69, 68), (71, 86)], 3)], mix(CREAM, LINE, 0.15))])
+    bl(i, [E(46, 46, 82, 76)], RED, r=0.6, marks=[([E(48, 66, 80, 80)], RED_DARK), ([C(57, 55, 4.2), C(71, 53, 3.4), C(64, 63, 3.4), C(77, 62, 2.4), C(50, 63, 2.2)], BONE)])
+    tiny_face(i, 64, 78, 0.75)
+
+
 # ---- 펭귄 ----
 PEN_ICE, PEN_ICE_DARK = (206, 236, 250), (140, 194, 228)
 
@@ -539,6 +605,60 @@ def penguin_shell(i):
     spiral = [polar(64, 66, 3 + t * 0.9, -40 + t * 26) for t in range(20)]
     strokes(i, [spiral, curve((66, 56), (74, 52), (80, 46))], mix(shell, LINE, 0.32), 1.1, clip=m)
     bl(i, [E(48, 72, 60, 86)], (252, 168, 172), r=0, line=0.5)
+
+
+# ---- 레서판다 ----
+RP_RUST, RP_RING = (214, 104, 58), (150, 64, 42)
+
+
+def redpanda_bamboo(i):
+    """길쭉한 대나무잎 한 장 (가운데 잎맥, 짧은 잎자루)."""
+    a, b = (48, 86), (80, 48)
+    mx, my = 64, 67
+    bl(i, [L([(45, 89), (50, 84)], 2.2)], GREEN_DARK, r=0, line=0.5)
+    bl(i, [T(a, (mx - 8, my - 9), b, (mx + 8, my + 7))], GREEN, r=1.0,
+       marks=[([T(a, (mx + 8, my + 7), b)], mix(GREEN, LINE, 0.12)), ([E(55, 66, 61, 71)], GREEN_LIGHT)])
+    strokes(i, [[a, b]], GREEN_DARK, 1.0)
+
+
+def redpanda_berry(i):
+    """빨간 산딸기 (작은 알이 오글오글) + 초록 꼭지."""
+    bl(i, ring(64, 70, 8, 6.2, 7) + [C(64, 70, 9)], RED, r=0.4,
+       marks=[([E(50, 74, 78, 88)], RED_DARK), ([C(59, 64, 2.2)], RED_LIGHT)])
+    dots(i, [(64, 70), (58, 72), (70, 72), (64, 78), (70, 64)], RED_DARK, 1.0)
+    for a in (-140, -90, -40):
+        leaf(i, (64, 59), polar(64, 59, 8, a), 3.6)
+
+
+def redpanda_stick(i):
+    """오르기 좋은 작은 나뭇가지 (곁가지 하나에 새싹)."""
+    bl(i, [L([(46, 84), (82, 50)], 5.0), L([(64, 67), (68, 56)], 3.2)], BROWN, r=0.3,
+       marks=[([L([(48, 84), (82, 52)], 1.4)], BROWN_DARK)])
+    leaf(i, (68, 56), (74, 48), 4.6)
+
+
+def redpanda_maple(i):
+    """빨간 단풍잎 (다섯 갈래 별 모양 + 잎자루)."""
+    bl(i, [L([(64, 74), (64, 90)], 2.2)], BROWN_DARK, r=0, line=0.5)
+    bl(i, [T(*star_pts(64, 64, 18, 0.5))], RED, r=1.0,
+       marks=[([T(*star_pts(64, 66, 9, 0.5))], RED_DARK), ([E(56, 54, 61, 59)], RED_LIGHT)])
+    strokes(i, [[(64, 74), polar(64, 64, 15, a)] for a in (-90, -18, -162)], RED_DARK, 0.8)
+
+
+def redpanda_fluff(i):
+    """레서판다 꼬리 털뭉치 (주황 복슬 공에 짙은 고리 줄 둘)."""
+    m = bl(i, ring(64, 68, 12, 6.5, 9) + [C(64, 68, 13)], RP_RUST, r=1.0,
+           marks=[([E(48, 76, 80, 90)], mix(RP_RUST, LINE, 0.15)), ([E(54, 56, 62, 62)], mix(RP_RUST, WHITE, 0.5))])
+    strokes(i, [curve((50, 62), (64, 58), (78, 64)), curve((50, 74), (64, 70), (78, 76))], RP_RING, 3.2, clip=m)
+
+
+def redpanda_flower(i):
+    """분홍 들꽃 (다섯 잎 + 노란 가운데 + 잎 하나)."""
+    bl(i, [L(curve((64, 90), (60, 80), (64, 70)), 2.0)], GREEN_DARK, r=0)
+    leaf(i, (62, 84), (52, 78), 4.6)
+    bl(i, ring(64, 62, 8, 6.4, 5) + [C(64, 62, 7)], PINK, r=0.4, marks=[([C(60, 58, 2.6)], PINK_LIGHT)])
+    bl(i, [C(64, 62, 4.6)], GOLD, r=0, line=0.5)
+    tiny_face(i, 64, 62.5, 0.5)
 
 
 # ---- 기린 ----

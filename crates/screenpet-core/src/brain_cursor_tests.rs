@@ -198,6 +198,14 @@ fn every_species_has_its_own_style_with_animations_it_really_has() {
     }
 }
 
+/// 다람쥐: 호기심 많고 날쌔다 — 깡충깡충 빠르게 와서 고개를 갸웃
+#[test]
+fn squirrel_scampers_over_in_quick_hops_and_tilts_its_head() {
+    let s = CursorStyle::of("squirrel").expect("squirrel");
+    // anims(): 걸음 · 뛰기 · 째려보기 · (준비) · 도착
+    assert_eq!(s.anims(), vec![Anim::Hop, Anim::Hop, Anim::Annoyed, Anim::Tilt]);
+}
+
 #[test]
 fn every_species_gets_to_the_cursor_and_hangs_from_it() {
     for (n, id) in species().iter().enumerate() {

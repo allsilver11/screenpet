@@ -211,6 +211,8 @@ impl CursorStyle {
             // 페르시안: 느릿느릿 어슬렁 가서 기지개 한 번 — 멀리서 와락은 귀찮다
             "persian" => CursorStyle { speed: 0.4, arrive: Some((Anim::Stretch, 1.0)), range: 1.5, leap_secs: 0.6, glare: Anim::Huff, ..b },
             "rabbit" => CursorStyle { gait: Anim::Hop, speed: 2.2, lift: 0.18, beat: 0.4, range: 1.5, ..b },
+            // 다람쥐는 호기심 많고 날쌔다 — 짧게 깡충깡충 쪼르르 와서 고개를 갸웃
+            "squirrel" => CursorStyle { gait: Anim::Hop, speed: 2.6, lift: 0.12, beat: 0.28, arrive: Some((Anim::Tilt, 0.6)), range: 2.0, chatty: true, ..b },
             // 멀리서도 크게 한 번에
             "frog" => CursorStyle { gait: Anim::Hop, speed: 1.8, lift: 0.3, beat: 0.55, leap: Anim::BigJump, range: 2.5, reach: 2.5, ..b },
             // 묵직하게 통, 통
@@ -234,6 +236,8 @@ impl CursorStyle {
             "bird" => CursorStyle { speed: 4.5, sway: (0.2, 4.0), chatty: true, ..b },
             // 펭귄은 배로 쭉 미끄러져 와서 지느러미를 파닥파닥
             "penguin" => CursorStyle { gait: Anim::Roll, speed: 1.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
+            // 레서판다는 총총 달려와서는 커서에 깜짝 놀라 두 팔을 번쩍
+            "redpanda" => CursorStyle { gait: Anim::Run, speed: 2.2, arrive: Some((Anim::Surprise, 0.9)), chatty: true, ..b },
             _ => return None,
         })
     }

@@ -37,7 +37,8 @@ HOUSE_DOTS = {"baby": 38, "kinder": 42, "child": 48, "teenager": 48, "adult": 54
 KINDS = ("house", "haunted", "xmas")
 # 그 집에 사는 동물 (문 크기 확인용)
 RESIDENTS = {"haunted": ("pumpkin", "ghost"), "xmas": ("rudolph", "santa", "snowman"),
-             "house": ("cat", "persian", "rabbit", "frog", "duck", "giraffe", "dino_yellow", "dino_green", "dino_purple", "bird", "penguin")}
+             "house": ("cat", "persian", "rabbit", "frog", "duck", "giraffe", "dino_yellow", "dino_green", "dino_purple", "bird", "penguin", "redpanda")}
+RESIDENTS["house"] += ("squirrel",)
 GIFT_DOTS = 12
 HAND_DOTS = 12
 PROP_DOTS = (14, 12)

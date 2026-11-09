@@ -85,6 +85,8 @@ pub const MOVE_END_TURN_CHANCE: f64 = 0.3;
 pub const WALK_EDGE_HOP_CHANCE: f64 = 0.8;
 pub const RUN_LEAP_VX_MULT: f64 = 1.8;
 pub const CLICK_TRICK_SECS: f64 = 2.0;
+/// 잘 놀라는 동물(레서판다, Special::Surprise)이 클릭에 깜짝 벌떡 서는 몫 (나머지는 평소 클릭 반응)
+pub const SURPRISE_CLICK_CHANCE: f64 = 0.6;
 
 /// 특정 동물만 가진 특별 동작 (spec §2.7)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +101,8 @@ pub enum Special {
     Roar,
     /// 공룡 — 제자리 쿵쾅쿵쾅 (같은 바닥의 친구들이 흔들리거나 데굴 넘어진다, social.rs)
     Stomp,
+    /// 레서판다 — 깜짝! 뒷발로 벌떡 서서 두 팔을 번쩍 (클릭·살짝 부딪힘에만, brain_hit.rs·brain.rs pointer_up)
+    Surprise,
 }
 
 /// 공룡의 세 동작 중 하나를 고르는 몫 (불 · 크앙 · 쿵쾅) — 쉴 때 / 간질일 때 (간질이면 쿵쾅보다 불·크앙)
@@ -128,6 +132,8 @@ impl Special {
             Special::NeckStretch => 0.0,
             // 공룡: 쉬는 박자의 18%는 셋 중 하나 (pick_dino)
             Special::Fire | Special::Roar | Special::Stomp => 0.18,
+            // 놀랄 일이 있어야 놀란다
+            Special::Surprise => 0.0,
         }
     }
 
@@ -136,6 +142,7 @@ impl Special {
             Special::Arch => 0.25,
             Special::NeckStretch => 0.0,
             Special::Fire | Special::Roar | Special::Stomp => 0.30,
+            Special::Surprise => 0.0,
         }
     }
 
@@ -148,6 +155,8 @@ impl Special {
             Special::Roar => (1.5, 2.2),
             // 쿵쾅 한 번 = 0.67초 (stomp 4장 6fps) — 두세 번
             Special::Stomp => (1.4, 2.0),
+            // 벌떡 (surprise 3장 8fps, 한 번) 뒤 마지막 칸으로 잠깐 굳는다
+            Special::Surprise => (1.1, 1.5),
         }
     }
 
@@ -158,6 +167,7 @@ impl Special {
             Special::Fire => "fire",
             Special::Roar => "roar",
             Special::Stomp => "stomp",
+            Special::Surprise => "surprise",
         }
     }
 
@@ -173,7 +183,7 @@ impl Special {
 
     /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾는다
     pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special> {
-        [Special::Arch, Special::NeckStretch, Special::Fire, Special::Roar, Special::Stomp]
+        [Special::Arch, Special::NeckStretch, Special::Fire, Special::Roar, Special::Stomp, Special::Surprise]
             .into_iter()
             .find(|s| has_anim(s.anim_name()))
     }

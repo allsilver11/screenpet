@@ -37,6 +37,8 @@ import draw_halloween as dh  # noqa: E402
 import draw_snowman as ds  # noqa: E402
 import draw_bird as dbird  # noqa: E402
 import draw_penguin as dpeng  # noqa: E402
+import draw_squirrel as dsq  # noqa: E402
+import draw_redpanda as dred  # noqa: E402
 
 K = dp.K
 OUT_ROOT = Path(__file__).resolve().parent.parent / "ui" / "pets_pixel"
@@ -109,6 +111,8 @@ _OWNERS = {  # 바꿔 끼우는 이름 → 원래 있는 모듈
     ds: ("ice_bubble_fx",),
     dbird: ("seeds_bubble_fx",),
     dpeng: ("shrimp_bubble_fx",),
+    dsq: ("acorn_bubble_fx",),
+    dred: ("bamboo_bubble_fx",),
 }
 _ORIG = {name: getattr(mod, name) for mod, names in _OWNERS.items() for name in names}
 _ORIG_E, _ORIG_L = _ORIG["E"], _ORIG["L"]
@@ -791,6 +795,8 @@ ICONS = {  # 넓은 격자, 좁은 격자
     "ice": ([".www.", "wwwww", "BBBBB", ".BBB."], ["sss", "BBB"]),
     "shrimp": ([".oo..", "o..o.", "o.oo.", ".oo.."], ["oo.", "o.o", ".o."]),
     "seeds": (["..t..", ".tbt.", "t.t.t", ".tbt."], [".t.", "tbt"]),
+    "acorn": (["..n..", "nnnnn", ".ooo.", ".ooo.", "..o.."], [".n.", "nnn", ".o."]),
+    "bamboo": (["g..yG", ".gyG.", "..yg.", ".yG.g"], [".yg", "gy.", "y.."]),
 }
 
 
@@ -866,12 +872,12 @@ _PATCH = dict(compose=compose, stage_eye=stage_eye, blush=blush, open_mouth=open
               _apple_bubble=_bubble_fn("apple"), milk_bubble_fx=_bubble_fn("milk"), fly_bubble_fx=_bubble_fn("fly"), bread_bubble_fx=_bubble_fn("bread"),
               leaf_bubble_fx=_bubble_fn("leaf"), melon_bubble_fx=_bubble_fn("melon"), broc_bubble_fx=_bubble_fn("broc"), grape_bubble_fx=_bubble_fn("grape"),
               ice_bubble_fx=_bubble_fn("ice"), _beard_fns=_beard_fns, _mitt_arm=_mitt_arm, duck_bill=duck_bill, GF_STAGE=GF_STAGE,
-              wave_fx=wave_fx, dust_fx=dust_fx, impact_fx=impact_fx, seeds_bubble_fx=_bubble_fn("seeds"), shrimp_bubble_fx=_bubble_fn("shrimp"),
+              wave_fx=wave_fx, dust_fx=dust_fx, impact_fx=impact_fx, seeds_bubble_fx=_bubble_fn("seeds"), shrimp_bubble_fx=_bubble_fn("shrimp"), bamboo_bubble_fx=_bubble_fn("bamboo"),
               FOOD_BUBBLE={"dino_yellow": _bubble_fn("melon"), "dino_green": _bubble_fn("broc"), "dino_purple": _bubble_fn("grape")})
 
 
 def _modules():
-    return [dp, dc, dd, dfarm, df, dh, ds, dbird, dpeng]
+    return [dp, dc, dd, dfarm, df, dh, ds, dbird, dpeng, dred, dsq]
 
 
 @contextmanager
@@ -954,6 +960,7 @@ def pixel_mode(grid, collect=None):
 
 
 _PATCH["neck_geometry"] = neck_geometry
+_PATCH["acorn_bubble_fx"] = _bubble_fn("acorn")  # 다람쥐 🌰
 
 
 def _anims(sp):
@@ -1106,7 +1113,8 @@ def write_species(sp, out_root=OUT_ROOT):
 LIGHT, DARK = (240, 240, 244), (44, 46, 58)
 GROUPS = {"animals": ["cat", "rabbit", "persian"], "frog": ["frog"], "halloween": ["pumpkin", "ghost"],
           "farm": ["duck", "giraffe"], "christmas": ["rudolph", "santa", "snowman"], "dinos": ["dino_yellow", "dino_green", "dino_purple"],
-          "birds": ["bird"], "penguin": ["penguin"]}
+          "birds": ["bird"], "penguin": ["penguin"], "redpanda": ["redpanda"]}
+GROUPS["squirrel"] = ["squirrel"]
 KEY_FRAMES = [("walk", 0), ("run", 1), ("sit_front", 0), ("sleep", 0), ("hungry", 1), ("heart", 2), ("tilt", 1), ("fall", 0), ("wave", 1),
               ("eat", 0), ("level_up", 2), ("lookup", 2)]
 EXTRA_KEYS = [("climb", 0), ("climb", 2), ("slide", 1), ("bigjump", 1), ("neckstretch", 2), ("arch", 2), ("huff", 1),

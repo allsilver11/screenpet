@@ -81,6 +81,7 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
         Food::Special => "hand_special",
         Food::Favorite => match pet_id {
             "cat" => "hand_fish",
+            "squirrel" => "hand_acorn",
             "persian" => "hand_milk",
             "rabbit" => "hand_carrot",
             "frog" => "hand_fly",
@@ -92,6 +93,7 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "giraffe" => "hand_leaf",
             "bird" => "hand_seeds",
             "penguin" => "hand_shrimp",
+            "redpanda" => "hand_bamboo",
             "dino_yellow" => "hand_watermelon",
             "dino_green" => "hand_broccoli",
             "dino_purple" => "hand_grapes",
@@ -201,12 +203,16 @@ mod tests {
         assert_eq!(hand_icon(Food::Snack, "pumpkin"), "hand_cookie");
         // 크리스마스: 루돌프는 사과, 산타는 우유 (밥·간식은 같다)
         assert_eq!((hand_icon(Food::Favorite, "rudolph"), hand_icon(Food::Favorite, "santa")), ("hand_apple", "hand_milk"));
+        // 다람쥐는 도토리를 두 앞발로 오물오물
+        assert_eq!((hand_icon(Food::Favorite, "squirrel"), hand_icon(Food::Snack, "squirrel")), ("hand_acorn", "hand_cookie"));
         assert_eq!(hand_icon(Food::Snack, "santa"), "hand_cookie");
         assert_eq!((hand_icon(Food::Favorite, "duck"), hand_icon(Food::Favorite, "giraffe")), ("hand_bread", "hand_leaf"));
         // 새는 모이(씨앗)를 콕콕
         assert_eq!((hand_icon(Food::Favorite, "bird"), hand_icon(Food::Meal, "bird")), ("hand_seeds", "hand_meal"));
         // 펭귄은 새우를 냠냠
         assert_eq!((hand_icon(Food::Favorite, "penguin"), hand_icon(Food::Snack, "penguin")), ("hand_shrimp", "hand_cookie"));
+        // 레서판다는 대나무잎을 오물오물
+        assert_eq!((hand_icon(Food::Favorite, "redpanda"), hand_icon(Food::Meal, "redpanda")), ("hand_bamboo", "hand_meal"));
         assert_eq!(hand_icon(Food::Meal, "giraffe"), "hand_meal");
         assert_eq!(hand_icon(Food::Favorite, "persian"), "hand_milk");
         assert_eq!(

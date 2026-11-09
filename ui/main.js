@@ -200,7 +200,7 @@ function headgearLayout(entry, k, capOn, flip) {
   return { cap, ring };
 }
 // 앞모습 동작 (코어 Anim::is_front) — 머리가 가운데다. 옆모습은 시트에서 오른쪽을 본다
-const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "hungry", "eat", "level_up", "huff"]);
+const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "hungry", "eat", "level_up", "huff", "surprise"]);
 // 목도리 SVG(ui/index.html #scarf)의 기준점과 너비 (viewBox 좌표)
 const SCARF_ANCHOR_X = 26;
 const SCARF_ANCHOR_Y = 8;
@@ -814,12 +814,15 @@ const EXTRA_SPEECH = {
   ow: ["ow!", "ouch!"],
   // 빠른 새가 친구 화면으로 쌩 날아 나가거나 들어옴
   whoosh: ["whoosh!", "whoosh~"],
+  // 깜짝 놀라 벌떡 (레서판다, pet.json에 없으면 이 말)
+  surprise: ["!!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {
   cat: ["mrrow...", "*wiggle wiggle*"],
   persian: ["...mrr?", "*streeetch*"],
   rabbit: ["hop hop!"],
+  squirrel: ["chk chk?", "ooh, shiny?"],
   frog: ["ribbit!"],
   pumpkin: ["bounce!"],
   ghost: ["boo~"],
@@ -833,6 +836,7 @@ const CURSOR_LINES = {
   dino_purple: ["rawr~"],
   bird: ["chirp chirp!", "tweet?"],
   penguin: ["wheee~!", "slide slide!"],
+  redpanda: ["pounce~!", "kyu kyu!"],
 };
 const speech = setupSpeech({
   bubbleEl,

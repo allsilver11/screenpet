@@ -71,6 +71,8 @@ OPTIONAL_ANIMS = [
     ("fire", 4, 4, False, False),
     ("roar", 3, 4, True, False),
     ("stomp", 4, 6, True, False),
+    # 레서판다: 깜짝! 뒷발로 벌떡 서서 두 팔 번쩍 (앞모습, 한 번 — 마지막 칸으로 잠깐 굳는다)
+    ("surprise", 3, 8, False, True),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -81,6 +83,7 @@ _DINO_SPEECH = {"chatter": ["rawr!", "♪"], "tickle": ["hehe!"], "grumpy": ["gr
 SPEECH = {
     "cat": {"chatter": ["meow!", "nya~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "hiss": ["hiss!"], "ignore": ["..."],
             **_CARE_SPEECH},
+    "squirrel": {"chatter": ["chk chk!", "nuts!", "zoom!"], "tickle": ["hehe!"], "grumpy": ["chk-chk!"], **_CARE_SPEECH},
     "persian": {"chatter": ["mrr...", "*yawn*"], "tickle": ["...mrr~"], "grumpy": ["hmph."], "ignore": ["...", "zzz..."], **_CARE_SPEECH},
     "rabbit": {"chatter": ["boing!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "frog": {"chatter": ["ribbit!", "hop hop!", "ribbit~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
@@ -93,13 +96,15 @@ SPEECH = {
     "snowman": {"chatter": ["brrr~", "snow!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "bird": {"chatter": ["chirp!", "whoosh!", "tweet~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "penguin": {"chatter": ["waddle~", "wheee!", "pip pip!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    "redpanda": {"chatter": ["kyu kyu~", "peekaboo!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "surprise": ["!!", "eep!"],
+                 **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
-PERSONALITY = {"cat": "aloof", "persian": "aloof", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
-               "duck": "playful", "giraffe": "friendly", "bird": "playful", "penguin": "playful",
+PERSONALITY = {"cat": "aloof", "persian": "aloof", "squirrel": "playful", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
+               "duck": "playful", "giraffe": "friendly", "bird": "playful", "penguin": "playful", "redpanda": "playful",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
 
@@ -113,7 +118,7 @@ SWIFT = {"bird"}
 HOUSE = {"pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
 
 # 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (개구리는 locomotion hop이라 늘 폴짝)
-HOP_SHARE = {"rabbit": 0.5, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5}
+HOP_SHARE = {"rabbit": 0.5, "squirrel": 0.35, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5}
 
 # roll을 돌리지 않는 동물 (pet.json roll에 spin 없음) — 산타는 구르는 대신 썰매를 타고, 눈사람은 배로 미끄러지고, 기린은 목을 늘이고, 펭귄은 배로 쭉 미끄러진다
 NO_SPIN = {"santa", "snowman", "giraffe", "penguin"}
@@ -125,6 +130,7 @@ SNOW_CLOUD = {"snowman"}
 FAVORITE_FOOD = {
     "cat": {"emoji": "🐟", "name": "생선"},
     "persian": {"emoji": "🥛", "name": "우유"},
+    "squirrel": {"emoji": "🌰", "name": "도토리"},
     "rabbit": {"emoji": "🥕", "name": "당근"},
     "frog": {"emoji": "🪰", "name": "파리"},
     "pumpkin": {"emoji": "🍬", "name": "사탕"},
@@ -139,6 +145,7 @@ FAVORITE_FOOD = {
     "dino_purple": {"emoji": "🍇", "name": "포도"},
     "bird": {"emoji": "🌾", "name": "모이"},
     "penguin": {"emoji": "🦐", "name": "새우"},
+    "redpanda": {"emoji": "🎋", "name": "대나무잎"},
 }
 
 
