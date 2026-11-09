@@ -1,6 +1,7 @@
 """크리스마스 시트 검사 (루돌프·산타): 크기·투명 여백·모든 동작·pet.json·eat에 밥그릇 없음·루돌프 코가 빨갛게 빛남·
 뿔이 단계마다 자람·산타는 썰매를 타고 roll에 spin이 없음·산타는 고양이처럼 벽을 탄다 (뒷모습)."""
 import json
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -233,3 +234,51 @@ def test_rudolph_apple_bubble_is_not_mistaken_for_the_nose(out):
             im = frame(out, "rudolph", "hungry", c, st)
             assert red_nose(im) < 400, (st, c, red_nose(im))  # 큰 코 하나만큼
             assert red_nose(im.crop((0, 0, FRAME, 40))) < 30, (st, c)  # 머리 위 풍선 쪽엔 빨간 코가 없다
+
+
+# ---------------------------------------------------------------- 루돌프 등 무늬 (아기 사슴 흰 점) — 크면서 없어지지 않는다
+SIDE_BACK_ANIMS = ("walk", "idle", "run", "sleep")
+
+
+def _spotless(sp):
+    """등 흰 점만 뺀 루돌프 (다른 무늬는 그대로) — 두 그림의 차이가 곧 등 무늬."""
+    spots = [m for m in sp.side_torso_marks if len(m[0]) >= 6]
+    assert len(spots) == 1, "등 흰 점 무늬 한 묶음"
+    return replace(sp, side_torso_marks=[m for m in sp.side_torso_marks if m is not spots[0]])
+
+
+def _back_spot_pixels(a, b):
+    """두 프레임에서 다른 불투명 픽셀 중 점 쪽(b보다 밝은 크림색)이 몸 위쪽(등)에 있는 수."""
+    pa, pb = px(a), px(b)
+    diff = (pa[..., 3] > 200) & (np.abs(pa[..., :3] - pb[..., :3]).sum(axis=2) > 40) & (pa[..., :3].sum(axis=2) > pb[..., :3].sum(axis=2))
+    ys = np.nonzero(pa[..., 3] > 200)[0]
+    if not len(ys):
+        return 0
+    top, bottom = ys.min(), ys.max()
+    upper = np.zeros_like(diff)
+    upper[: top + int((bottom - top) * 0.75)] = True  # 배(크림)는 아래 — 점은 등·옆구리 위쪽
+    return int((diff & upper).sum())
+
+
+def _round_side_frames(sp, st, anim):
+    with draw_pets.stage(st, sp.stage_tweak.get(st)):
+        return draw_pets.frames(draw_pets.staged_species(sp), anim, 1)[0]
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_rudolph_keeps_back_spots_at_every_stage_round(st):
+    sp = draw_christmas.RUDOLPH
+    plain = _spotless(sp)
+    counts = {anim: _back_spot_pixels(_round_side_frames(sp, st, anim), _round_side_frames(plain, st, anim)) for anim in SIDE_BACK_ANIMS}
+    assert min(counts.values()) >= 10 and sum(counts.values()) >= 100, (st, counts)  # 엎드려 자는 옆모습은 등이 덜 보인다
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_rudolph_keeps_back_spots_at_every_stage_pixel(st):
+    import draw_pixel
+    sp = draw_christmas.RUDOLPH
+    plain = _spotless(sp)
+    anims = set(SIDE_BACK_ANIMS) - set(draw_pixel.NO_ANIM)
+    with_spots, without = draw_pixel.render_pixel(sp, st, anims), draw_pixel.render_pixel(plain, st, anims)
+    counts = {anim: _back_spot_pixels(with_spots[anim][0], without[anim][0]) for anim in anims}
+    assert sum(counts.values()) >= 3 and counts["walk"] >= 1, (st, counts)  # 도트 하나 = 1px (시트 칸 크기 그대로) · 아기 24칸은 점이 몇 개뿐

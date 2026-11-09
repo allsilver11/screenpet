@@ -240,8 +240,8 @@ def test_pixel_mode_stays_out_of_the_way_of_unpatched():
 
 # ---- 동글 그림
 @pytest.mark.parametrize("pid,stage,anim,i", [
-    ("cat", "baby", "sleep", 0), ("cat", "adult", "roll", 0), ("dog", "teenager", "walk", 1), ("bee", "adult", "walk", 1),
-    ("bee", "baby", "sting", 1), ("frog", "child", "bigjump", 1), ("pumpkin", "adult", "sit_front", 0), ("ghost", "kinder", "walk", 0),
+    ("cat", "baby", "sleep", 0), ("cat", "adult", "roll", 0), ("rabbit", "teenager", "walk", 1), ("bird", "adult", "walk", 1),
+    ("persian", "baby", "huff", 1), ("frog", "child", "bigjump", 1), ("pumpkin", "adult", "sit_front", 0), ("ghost", "kinder", "walk", 0),
     ("duck", "teenager", "hungry", 1), ("giraffe", "child", "neckstretch", 1), ("rudolph", "adult", "walk", 0),
     ("santa", "adult", "hungry", 1), ("snowman", "kinder", "heart", 1), ("dino_green", "teenager", "fire", 2),
 ])

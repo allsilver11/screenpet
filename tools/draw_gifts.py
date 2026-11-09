@@ -26,15 +26,13 @@ ICON = 40
 SHINY = "_shiny"
 LINES = {
     "cat": ("fishbone", "yarn", "feather", "mouse", "bell", "catnip"),
-    "dog": ("bone", "ball", "stick", "frisbee", "slipper", "sock"),
     "rabbit": ("carrot", "clover", "lettuce", "radish", "daisy", "strawberry"),
-    "bear": ("honey", "acorn", "salmon", "berry", "pinecone", "mushroom"),
-    "bee": ("flower", "honeycomb", "pollen", "dew", "tulip", "honeydrop"),
     "frog": ("lilypad", "dragonfly", "fly", "lotus", "tadpole", "pebble"),
     "pumpkin": ("candycorn", "lantern", "seed", "vine", "lollipop", "hat"),
     "ghost": ("candle", "key", "web", "bat", "tombstone", "moon"),
     "duck": ("bread", "pebble", "rubber", "feather", "shell", "reed"),
     "bird": ("gourdseed", "feather", "twig", "berry", "egg", "dandelion"),
+    "penguin": ("pebble", "ice", "fish", "snowflake", "down", "shell"),
     "giraffe": ("acacia", "pod", "mango", "cloud", "nest", "scarf"),
     "rudolph": ("bell", "bulb", "snowflake", "star", "moss", "ribbon"),
     "santa": ("giftbox", "candycane", "mitten", "cookie", "stocking", "coal"),
@@ -57,7 +55,6 @@ ORANGE_DARK = (214, 118, 48)
 GOLD = (250, 204, 84)
 GOLD_DARK = (214, 160, 54)
 GOLD_LIGHT = mix(GOLD, WHITE, 0.55)
-HONEY = (246, 184, 62)
 BROWN = (170, 118, 78)
 BROWN_DARK = (128, 84, 58)
 BROWN_LIGHT = mix(BROWN, WHITE, 0.35)
@@ -181,45 +178,6 @@ def cat_catnip(i):
 
 
 # ---- 강아지 ----
-def dog_bone(i):
-    a, b = (53, 72), (75, 58)
-    knobs = [C(a[0] - 4, a[1] - 3, 5.6), C(a[0] + 2, a[1] + 5, 5.6), C(b[0] - 2, b[1] - 5, 5.6), C(b[0] + 4, b[1] + 3, 5.6)]
-    bl(i, [L([a, b], 9)] + knobs, BONE, r=0.8, marks=[([L([(56, 66), (72, 56)], 1.5)], WHITE), ([L([(58, 77), (77, 66)], 2)], mix(BONE, LINE, 0.2))])
-
-
-def dog_ball(i):
-    fuzz = (206, 224, 92)
-    m = bl(i, [C(64, 66, 16)], fuzz, r=0, marks=[([E(49, 69, 79, 86)], mix(fuzz, LINE, 0.15)), ([E(53, 53, 62, 59)], mix(fuzz, WHITE, 0.5))])
-    strokes(i, [curve((50, 54), (62, 66), (52, 80)), curve((78, 52), (66, 66), (76, 80))], WHITE, 1.7, clip=m)
-
-
-def dog_stick(i):
-    bl(i, [L([(47, 78), (81, 54)], 5.8), L([(64, 66), (62, 51)], 3.6)], BROWN, r=0.5, marks=[([L([(50, 74), (78, 54)], 1.1)], BROWN_LIGHT), ([L([(50, 80), (82, 58)], 1.2)], BROWN_DARK)])
-    leaf(i, (62, 50), (72, 44), 5.5)
-    dots(i, [(80.5, 54.5)], BROWN_LIGHT, 1.3)
-
-
-def dog_frisbee(i):
-    bl(i, [E(46, 56, 82, 80)], RED, r=0, marks=[([E(46, 66, 82, 84)], RED_DARK)])
-    bl(i, [E(53, 58.5, 75, 71.5)], RED_LIGHT, r=0, line=0.4)
-    paint(i, aa(shapes(ring(64, 65, 2.4, 1.3, 3))), WHITE)
-
-
-def dog_slipper(i):
-    blue = (130, 170, 226)
-    bl(i, [L([(47, 80), (83, 80)], 7)], CREAM, r=0.3)
-    m = bl(i, [T((55, 79), (60, 64), (72, 58), (84, 68), (85, 79))], blue, r=1.6, marks=[([E(70, 70, 92, 86)], mix(blue, LINE, 0.18))])
-    strokes(i, [[(60, 70), (84, 70)], curve((62, 64), (72, 60), (82, 65))], mix(blue, WHITE, 0.55), 1.8, clip=m)
-    dots(i, [(66, 76), (73, 76), (80, 76)], WHITE, 1.1, clip=m)
-
-
-def dog_sock(i):
-    m = bl(i, [L([(60, 49), (60, 72)], 14), L([(60, 73), (76, 76)], 13)], (238, 238, 244), r=1.0, marks=[([E(68, 70, 84, 84)], (232, 150, 150))])
-    strokes(i, [[(50, 52), (70, 52)], [(50, 57), (70, 57)]], RED, 2.2, clip=m)
-    bl(i, [C(58, 70, 2.3)], mix(GRAY, LINE, 0.3), r=0, line=0.3)
-
-
-# ---- 토끼 ----
 def rabbit_carrot(i):
     for b in ((58, 47), (64, 44.5), (70, 47)):
         bl(i, [L([(64, 56), b], 3.2)], GREEN, r=0.3, line=0.6)
@@ -261,91 +219,6 @@ def rabbit_strawberry(i):
 
 
 # ---- 곰 ----
-def bear_honey(i):
-    pot = (216, 148, 88)
-    bl(i, [E(47, 55, 81, 85), E(52, 50, 76, 60)], pot, r=1.2, marks=[([E(49, 57, 56, 66)], mix(pot, WHITE, 0.4)), ([E(50, 76, 78, 90)], mix(pot, LINE, 0.25))])
-    bl(i, [E(51, 45.5, 77, 55), L([(56, 52), (56, 60)], 3.6), L([(71, 52), (71, 64)], 3.6)], HONEY, r=0.6, line=0.6, marks=[([E(56, 46.5, 64, 50)], GOLD_LIGHT)])
-    tiny_face(i, 64, 71, 1.0)
-
-
-def bear_acorn(i):
-    nut = (206, 150, 92)
-    bl(i, [E(51, 58, 77, 80), T((53, 72), (75, 72), (64, 87))], nut, r=1.2, marks=[([E(55, 63, 60, 74)], mix(nut, WHITE, 0.45))])
-    m = bl(i, [E(48, 50, 80, 67), L([(64, 52), (66, 44)], 3.0)], BROWN_DARK, r=0.7)
-    strokes(i, [[(50, 56), (78, 56)], [(50, 61), (78, 61)], [(56, 50), (60, 67)], [(64, 50), (64, 67)], [(72, 50), (68, 67)]], BROWN, 0.9, clip=m)
-
-
-def bear_salmon(i):
-    fish = (244, 142, 124)
-    bl(i, [T((62, 58), (70, 49), (72, 59))], mix(fish, LINE, 0.25), r=0.4, line=0.6)
-    bl(i, [E(46, 56, 76, 77), T((72, 66.5), (85, 54), (85, 79))], fish, r=1.2, marks=[([E(48, 69, 74, 80)], mix(fish, WHITE, 0.6)), ([E(58, 58, 66, 62)], mix(fish, WHITE, 0.35))])
-    dots(i, [(53, 64)], INK, 1.8)
-    dots(i, [(52.4, 63.4)], WHITE, 0.6)
-
-
-def bear_berry(i):
-    leaf(i, (64, 56), (53, 47), 7)
-    leaf(i, (64, 56), (76, 48), 7)
-    berries = [(55, 62), (64, 60), (73, 62), (59, 70), (69, 70), (64, 78)]
-    bl(i, [C(x, y, 6.3) for x, y in berries], (216, 66, 98), r=0.4)
-    dots(i, [(x - 2, y - 2.2) for x, y in berries], (248, 170, 186), 1.3)
-
-
-def bear_pinecone(i):
-    bl(i, [E(51, 50, 77, 84)], BROWN, r=0.8)
-    for row, (y, xs) in enumerate(((54, (64,)), (60, (58, 70)), (66, (53.5, 64, 74.5)), (72, (58, 70)), (78, (64,)))):
-        for x in xs:
-            bl(i, [E(x - 5.2, y - 3.5, x + 5.2, y + 4)], BROWN_LIGHT if row % 2 else mix(BROWN, TAN, 0.5), r=0, line=0.45)
-    leaf(i, (64, 50), (70, 44), 3.6, GREEN_DARK)
-
-
-def bear_mushroom(i):
-    bl(i, [T((58, 66), (70, 66), (73, 84), (55, 84))], CREAM, r=1.4, marks=[([L([(69, 68), (71, 84)], 3)], mix(CREAM, LINE, 0.15))])
-    bl(i, [E(46, 46, 82, 76)], RED, r=0.6, marks=[([E(48, 66, 80, 80)], RED_DARK), ([C(57, 55, 4.2), C(71, 53, 3.4), C(64, 63, 3.4), C(77, 62, 2.4), C(50, 63, 2.2)], BONE)])
-
-
-# ---- 꿀벌 ----
-def bee_flower(i):
-    bl(i, [L(curve((64, 70), (63, 78), (65, 86)), 2.4)], GREEN_DARK, r=0)
-    leaf(i, (64, 82), (52, 78), 6)
-    bl(i, ring(64, 60, 8.8, 6.2, 5), PINK, r=0.2, marks=[([C(*polar(64, 60, 10, -90 + 72 * k), 2.6) for k in range(5)], PINK_LIGHT)])
-    bl(i, [C(64, 60, 5.2)], GOLD, r=0, line=0.5, marks=[([C(62.6, 58.6, 1.7)], WHITE)])
-
-
-def bee_honeycomb(i):
-    cells = [(56, 58), (72, 58), (64, 72), (48, 72), (80, 72)]
-    for x, y in cells:
-        bl(i, [hexagon(x, y, 9.2)], HONEY, r=0, line=0.7, marks=[([hexagon(x, y, 5.8)], GOLD_LIGHT if (x, y) != (64, 72) else GOLD_DARK)])
-    bl(i, [C(64, 72, 1.0), L([(64, 73), (64, 82)], 3.2)], HONEY, r=0, line=0.5)
-
-
-def bee_pollen(i):
-    pollen = (250, 214, 92)
-    bl(i, ring(64, 66, 14, 3.6, 14) + [C(64, 66, 14)], pollen, r=0.4, marks=[([E(50, 70, 78, 86)], GOLD_DARK), ([E(55, 54, 63, 60)], GOLD_LIGHT)])
-    dots(i, [(58, 66), (66, 62), (72, 68), (62, 74), (70, 76)], ORANGE, 1.1)
-
-
-def bee_dew(i):
-    leaf(i, (47, 84), (82, 79), 8)
-    bl(i, [C(64, 69, 11), T((54.6, 64), (73.4, 64), (64, 47))], BLUE_LIGHT, r=0.4, line=0.65, marks=[([E(55, 72, 75, 82)], BLUE)])
-    dots(i, [(60, 65)], WHITE, 2.2)
-    dots(i, [(67, 75)], WHITE, 1.0)
-
-
-def bee_tulip(i):
-    bl(i, [L([(64, 66), (64, 86)], 2.6)], GREEN_DARK, r=0)
-    leaf(i, (64, 85), (50, 68), 7)
-    leaf(i, (64, 85), (78, 70), 7)
-    bl(i, [T((52, 47), (58, 54), (64, 45), (70, 54), (76, 47), (76, 62), (52, 62)), E(52, 54, 76, 73)], (240, 110, 130), r=0.5, marks=[([T((64, 45), (60, 72), (68, 72))], (250, 150, 166))])
-
-
-def bee_honeydrop(i):
-    bl(i, [C(64, 69, 15), T((51, 62), (77, 62), (64, 44))], HONEY, r=0.8, marks=[([E(52, 72, 76, 86)], GOLD_DARK)])
-    dots(i, [(58, 61)], WHITE, 2.2)
-    tiny_face(i, 64, 71, 1.05)
-
-
-# ---- 개구리 ----
 def frog_lilypad(i):
     pad = T(*[polar(64, 70, 18 if abs(((a + 90) % 360) - 0) > 22 and abs(((a + 90) % 360) - 360) > 22 else 3, a) for a in range(0, 360, 12)])
     m = bl(i, [pad], GREEN, r=0.4, marks=[([E(44, 76, 84, 90)], GREEN_DARK)])
@@ -605,6 +478,67 @@ def bird_dandelion(i):
     bl(i, ring(64, 58, 10, 4.2, 10) + [C(64, 58, 10)], puff, r=0.6, marks=[([C(64, 58, 4)], mix(puff, LINE, 0.12))])
     strokes(i, [[(64, 58), polar(64, 58, 12, a)] for a in range(-90, 270, 36)], mix(puff, LINE, 0.22), 0.6)
     dots(i, [(64, 58)], GOLD_DARK, 1.8)
+
+
+# ---- 펭귄 ----
+PEN_ICE, PEN_ICE_DARK = (206, 236, 250), (140, 194, 228)
+
+
+def penguin_pebble(i):
+    """펭귄이 마음에 드는 친구에게 건네는 반들반들 조약돌 (하트 반짝)."""
+    stone = (150, 156, 176)
+    bl(i, [E(46, 58, 82, 86)], stone, r=0.3, marks=[([E(50, 76, 80, 92)], mix(stone, LINE, 0.25)), ([E(52, 61, 64, 67)], mix(stone, WHITE, 0.55))])
+    heart = [C(62, 71, 3.2), C(68, 71, 3.2), T((59, 72), (71, 72), (65, 78.5))]
+    paint(i, aa(shapes(heart)), (250, 170, 186))
+
+
+def penguin_ice(i):
+    """네모난 얼음 조각 (반짝 모서리, 작은 얼굴)."""
+    bl(i, [T((48, 60), (70, 52), (82, 62), (80, 84), (56, 88), (46, 78))], PEN_ICE, r=1.6,
+       marks=[([T((48, 60), (70, 52), (82, 62), (60, 68))], WHITE), ([T((60, 68), (82, 62), (80, 84), (62, 88))], mix(PEN_ICE, PEN_ICE_DARK, 0.5))])
+    strokes(i, [[(56, 62), (64, 59)]], WHITE, 1.4)
+    tiny_face(i, 60, 76, 0.85)
+
+
+def penguin_fish(i):
+    """은빛 멸치 한 마리 (통통한 몸 + 꼬리 + 동글 눈)."""
+    silver = (176, 206, 226)
+    bl(i, [E(48, 60, 78, 76), T((76, 68), (88, 58), (88, 78))], silver, r=0.8,
+       marks=[([E(48, 68, 78, 80)], mix(silver, WHITE, 0.55)), ([L([(52, 63), (72, 62)], 1.6)], (110, 140, 188))])
+    dots(i, [(55, 66)], INK, 1.6)
+    dots(i, [(54.5, 65.3)], WHITE, 0.5)
+
+
+def penguin_snowflake(i):
+    """동글한 눈송이 (가운데 동그라미 + 여섯 갈래 + 끝 방울)."""
+    snow = (232, 244, 255)
+    arms = []
+    for k in range(6):
+        a = 60 * k - 90
+        tip = polar(64, 66, 18, a)
+        arms += [L([(64, 66), tip], 3.2), C(tip[0], tip[1], 3.0)]
+        base = polar(64, 66, 10, a)
+        arms += [L([base, polar(base[0], base[1], 5, a - 50)], 2.2), L([base, polar(base[0], base[1], 5, a + 50)], 2.2)]
+    bl(i, arms + [C(64, 66, 7)], snow, r=0.2, line=0.6, marks=[([C(64, 66, 5)], PEN_ICE)])
+    tiny_face(i, 64, 66, 0.6)
+
+
+def penguin_down(i):
+    """아기 펭귄의 회색 솜털 한 뭉치 (보송한 공 + 삐죽 털)."""
+    down = (196, 200, 214)
+    fluff = ring(64, 70, 13, 6.5, 9) + [C(64, 70, 14)]
+    bl(i, fluff, down, r=1.0, marks=[([E(50, 76, 80, 90)], mix(down, LINE, 0.15)), ([E(54, 58, 64, 66)], mix(down, WHITE, 0.6))])
+    strokes(i, [curve((62, 56), (60, 50), (66, 46), 6), curve((66, 56), (70, 50), (74, 51), 6)], mix(down, LINE, 0.35), 1.1)
+
+
+def penguin_shell(i):
+    """동글 소라 껍데기: 통통한 몸 + 뾰족 꼭지 + 나선 줄 + 분홍 입구."""
+    shell = (250, 214, 190)
+    m = bl(i, [C(60, 72, 15), T((52, 62), (82, 44), (74, 70))], shell, r=1.6,
+           marks=[([E(44, 78, 78, 92)], mix(shell, LINE, 0.2)), ([E(50, 62, 58, 68)], mix(shell, WHITE, 0.6))])
+    spiral = [polar(64, 66, 3 + t * 0.9, -40 + t * 26) for t in range(20)]
+    strokes(i, [spiral, curve((66, 56), (74, 52), (80, 46))], mix(shell, LINE, 0.32), 1.1, clip=m)
+    bl(i, [E(48, 72, 60, 86)], (252, 168, 172), r=0, line=0.5)
 
 
 # ---- 기린 ----

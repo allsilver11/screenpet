@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod art;
-mod decal;
 mod dodge;
 mod game_loop;
 mod gifts;
@@ -39,8 +38,6 @@ use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 /// 설정이 없을 때 처음 데려오는 동물
 const DEFAULT_PET: &str = "cat";
-/// 없어진 동물 → 대신 데려올 동물 (저장된 선택과 돌보기 상태를 옮긴다)
-const RENAMED_PETS: [(&str, &str); 1] = [("beaver", "bear")];
 
 pub struct AppState {
     pub tx: Mutex<Sender<Input>>,
@@ -234,10 +231,8 @@ fn main() {
                 overlay::float_everywhere(&window);
             }
             let config_dir = app.path().app_config_dir()?;
-            let mut cfg = config::load(&config_dir);
-            for (from, to) in RENAMED_PETS {
-                cfg.rename_pet(from, to);
-            }
+            // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이)은 load가 옮긴다 (Config::retire_pets)
+            let cfg = config::load(&config_dir);
             let fallback = if pets.iter().any(|p| p.id == DEFAULT_PET) { DEFAULT_PET.to_string() } else { pets[0].id.clone() };
             let current = cfg.pet.clone().filter(|id| pets.iter().any(|p| &p.id == id)).unwrap_or(fallback);
             let entry = pets.iter().find(|p| p.id == current).unwrap().clone();

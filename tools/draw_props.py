@@ -1,13 +1,13 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
-    python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie,flower}.png
-                                  + ui/effects/hand_{meal,cookie,fish,bone,carrot,honey,nectar,fly,candy,lollipop,apple,milk,bread,leaf,watermelon,broccoli,grapes,shaved_ice,seeds,special}.png (직접 주기, 48×48)
+    python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie}.png
+                                  + ui/effects/hand_{meal,cookie,fish,carrot,fly,candy,lollipop,apple,milk,bread,leaf,watermelon,broccoli,grapes,shaved_ice,seeds,special}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
                                   + ui/effects/{snowball,snowman}.png (계절 날씨) + tools/preview/snowman.png
 
 앱(src-tauri/src/prop.rs)은 동물이 먹을 때 몸 앞 바닥에 WIDTH × HEIGHT(논리 px, 몸 배율 1 기준) 투명 창을 띄우고
-그림을 아래 가운데에 붙여 보인다 (ui/prop.html). 쿠키는 입가에, 꽃은 꿀벌이 내려앉는 자리에 핀다.
+그림을 아래 가운데에 붙여 보인다 (ui/prop.html). 쿠키는 입가에 뜬다.
 그림은 모두 같은 상자(WIDTH × HEIGHT) — 바닥은 아래 끝 1px 투명 여백 위에 앉는다.
 """
 
@@ -18,7 +18,7 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from draw_house import blob, finish, paw, tuft  # noqa: E402
+from draw_house import blob, finish, paw  # noqa: E402
 from draw_pets import LINE, S, WHITE, C, E, L, T, aa, arc, mix, paint, shapes, view, xf  # noqa: E402
 from sprite_spec import FRAME  # noqa: E402
 
@@ -44,12 +44,9 @@ WATER_DEEP = (150, 204, 240)
 COOKIE = (232, 184, 116)
 COOKIE_DARK = mix(COOKIE, LINE, 0.3)
 CHIP = (110, 70, 58)
-PETAL = (248, 150, 176)
-PETAL_LIGHT = mix(PETAL, WHITE, 0.4)
-CENTER = (255, 214, 102)
 LEAF = (150, 204, 124)
 
-NAMES = ("bowl_food", "bowl_water", "cookie", "flower")
+NAMES = ("bowl_food", "bowl_water", "cookie")
 
 
 def new_canvas():
@@ -107,20 +104,6 @@ def draw_cookie(img):
     blob(img, [C(cx + 15, BOTTOM - 3, 1.6), C(cx - 15, BOTTOM - 2.5, 1.3)], COOKIE, r=0, line=0.5)
 
 
-def draw_flower(img):
-    cx, top = 64, 99
-    blob(img, tuft(cx - 9, BOTTOM - 0.5, 9, -1) + tuft(cx + 9, BOTTOM - 0.5, 8, 1), LEAF, r=0.6, line=0.8)
-    blob(img, [L([(cx, top + 6), (cx + 0.5, BOTTOM - 1)], 2.0)], LEAF, r=0, line=0.7)
-    blob(img, [E(cx + 1, 112, cx + 11, 117.5), E(cx - 10, 108, cx - 1, 113.5)], LEAF, r=0.4, line=0.7)
-    r = 11
-    petals = [C(cx + r * 0.62 * math.cos(math.radians(-90 + 72 * i)), top + r * 0.62 * math.sin(math.radians(-90 + 72 * i)),
-                r * 0.5) for i in range(5)]
-    blob(img, petals, PETAL, r=0.3, line=0.8,
-         marks=[([C(cx + r * 0.62 * math.cos(math.radians(-90 + 72 * i)) - 1.2,
-                    top + r * 0.62 * math.sin(math.radians(-90 + 72 * i)) - 1.2, 1.8) for i in range(5)], PETAL_LIGHT)])
-    blob(img, [C(cx, top, r * 0.36)], CENTER, r=0, line=0.6, marks=[([C(cx - 1.3, top - 1.3, 1.2)], WHITE)])
-
-
 # ---- 직접 주기: 커서 끝에 붙는 음식 (HAND × HAND, 가운데 (64, 64)) ----
 HAND = 48
 HAND_BOX = ((FRAME - HAND) // 2, (FRAME - HAND) // 2, (FRAME + HAND) // 2, (FRAME + HAND) // 2)
@@ -128,12 +111,8 @@ HAND_BOX = ((FRAME - HAND) // 2, (FRAME - HAND) // 2, (FRAME + HAND) // 2, (FRAM
 NORI = (70, 96, 82)
 FISH = (150, 186, 214)
 FISH_BELLY = mix(FISH, WHITE, 0.6)
-BONE = (250, 240, 220)
 CARROT = (246, 150, 70)
 CARROT_DARK = mix(CARROT, LINE, 0.3)
-POT = (214, 150, 96)
-POT_LIGHT = mix(POT, WHITE, 0.45)
-HONEY_GOLD = (252, 200, 72)
 FLY = (92, 98, 122)
 FLY_EYE = (60, 42, 48)
 WING = (214, 236, 250)
@@ -177,41 +156,11 @@ def hand_fish(img):
     paint(img, aa(shapes([E(47.5, 66.5, 51.5, 69)])), (250, 180, 180))
 
 
-def hand_bone(img):
-    a, b = (54, 69), (74, 59)
-    knobs = [C(a[0] - 4, a[1] - 2, 4.8), C(a[0] + 1, a[1] + 4, 4.8), C(b[0] - 1, b[1] - 4, 4.8), C(b[0] + 4, b[1] + 2, 4.8)]
-    blob(img, [L([a, b], 8)] + knobs, BONE, r=1.0,
-         marks=[([L([(56, 65.5), (71, 58)], 1.4)], WHITE)])
-
-
 def hand_carrot(img):
     blob(img, [L([(61, 53), (57, 47)], 3.0), L([(64, 52), (65, 45.5)], 3.2), L([(67, 53), (72, 47)], 3.0)], LEAF, r=0.6, line=0.85)
     blob(img, [T((53, 55), (75, 55), (65, 84)), E(53, 51, 75, 61)], CARROT, r=1.6,
          marks=[([L([(57, 63), (62, 63)], 1.2), L([(66, 70), (70, 70)], 1.2), L([(59, 76), (63, 76)], 1.2)], CARROT_DARK),
                 ([E(56, 53, 63, 58)], mix(CARROT, WHITE, 0.4))])
-
-
-def hand_honey(img):
-    blob(img, [E(46, 54, 82, 82.5), E(52, 49, 76, 58)], POT, r=1.2,
-         marks=[([E(52, 63, 76, 77)], POT_LIGHT), ([E(49, 58, 56, 66)], mix(POT, WHITE, 0.3))])
-    # 넘치는 꿀
-    blob(img, [E(51, 45, 77, 54), L([(56, 52), (56, 58)], 3.2), L([(71, 52), (71, 61)], 3.2)], HONEY_GOLD, r=0.8, line=0.8,
-         marks=[([E(56, 46, 63, 49)], mix(HONEY_GOLD, WHITE, 0.55))])
-    tiny_face(img, 64, 69, 0.9)
-
-
-def hand_nectar(img):
-    cx, cy, r = 64, 62, 17
-    blob(img, [E(60, 74, 76, 84), E(50, 76, 63, 85)], LEAF, r=0.4, line=0.8)
-    petals = [C(cx + r * 0.6 * math.cos(math.radians(-90 + 72 * i)), cy + r * 0.6 * math.sin(math.radians(-90 + 72 * i)), r * 0.47)
-              for i in range(5)]
-    blob(img, petals, PETAL, r=0.3, line=0.9,
-         marks=[([C(cx + r * 0.6 * math.cos(math.radians(-90 + 72 * i)) - 1.6,
-                    cy + r * 0.6 * math.sin(math.radians(-90 + 72 * i)) - 1.6, 2.4) for i in range(5)], PETAL_LIGHT)])
-    blob(img, [C(cx, cy, r * 0.34)], CENTER, r=0, line=0.7, marks=[([C(cx - 1.8, cy - 1.8, 1.6)], WHITE)])
-    # 꿀 방울
-    blob(img, [C(78, 79, 3.2), T((75.4, 78), (80.6, 78), (78, 72.5))], HONEY_GOLD, r=0.3, line=0.6,
-         marks=[([C(77, 78.5, 1.0)], WHITE)])
 
 
 def hand_fly(img):
@@ -403,6 +352,31 @@ def _seeds(img):
     tiny_face(img, 63, 71, 0.8)
 
 
+SHRIMP, SHRIMP_DARK, SHRIMP_LIGHT = (255, 146, 112), (226, 98, 82), (255, 206, 186)
+
+
+def hand_shrimp(img):
+    """펭귄이 좋아하는 새우 🦐 — C자로 꼬부린 통통한 몸 (마디 줄) + 꼬리 부채 + 더듬이, 머리에 작은 얼굴."""
+    with xf(dx=2, dy=2, sx=0.7, sy=0.7, pivot=(64, 66)):
+        _shrimp(img)
+
+
+def _shrimp(img):
+    body = arc(62, 66, 15, 14, -160, 100, 18)  # 머리(왼쪽 위) → 오른쪽으로 휘어 → 꼬리(아래)
+    tail = body[-1]
+    blob(img, [L([(tail[0] - 1, tail[1] - 2), (tail[0] - 10, tail[1] + 2)], 2.0), T((tail[0], tail[1]), (tail[0] - 14, tail[1] - 2), (tail[0] - 9, tail[1] + 9))],
+         SHRIMP_DARK, r=0.6, line=0.8)
+    blob(img, [L([(52, 56), (40, 40)], 1.4), L([(55, 54), (50, 36)], 1.4)], SHRIMP_DARK, r=0, line=0.6)
+    fns = [C(x, y, 10.5 - 6.5 * k / (len(body) - 1)) for k, (x, y) in enumerate(body)]
+    m = blob(img, fns, SHRIMP, r=1.4, line=0.9, marks=[([E(50, 70, 82, 86)], mix(SHRIMP, LINE, 0.12)), ([E(56, 50, 66, 56)], SHRIMP_LIGHT)])
+    for k in (6, 9, 12, 15):
+        x, y = body[k]
+        dx, dy = x - 62, y - 66
+        n = math.hypot(dx, dy) or 1
+        paint(img, aa(shapes([L([(x - dx / n * 7, y - dy / n * 7), (x + dx / n * 7, y + dy / n * 7)], 1.2)])), SHRIMP_DARK, clip=m)
+    tiny_face(img, 54, 62, 0.8)
+
+
 BENTO, BENTO_RIM, BENTO_IN = (222, 92, 86), (176, 62, 66), (255, 244, 224)
 UME, EGG, GREEN, SAUSAGE = (232, 80, 96), (255, 214, 96), (122, 190, 104), (246, 138, 138)
 
@@ -519,20 +493,21 @@ def preview_seasonal(arts):
 
 
 # 손에 든 음식 (앱 메뉴 순서와 같다)
-HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish, "hand_bone": hand_bone,
-             "hand_carrot": hand_carrot, "hand_honey": hand_honey, "hand_nectar": hand_nectar, "hand_fly": hand_fly,
+HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish,
+             "hand_carrot": hand_carrot, "hand_fly": hand_fly,
              "hand_candy": hand_candy, "hand_lollipop": hand_lollipop,
              "hand_apple": hand_apple, "hand_milk": hand_milk,  # 크리스마스: 루돌프 🍎 · 산타 🥛
              "hand_bread": hand_bread, "hand_leaf": hand_leaf,  # 농장: 오리 🍞 · 기린 🍃
              "hand_watermelon": hand_watermelon, "hand_broccoli": hand_broccoli, "hand_grapes": hand_grapes,  # 공룡: 노랑 🍉 · 초록 🥦 · 보라 🍇
              "hand_shaved_ice": hand_shaved_ice,  # 눈사람 🍧
              "hand_seeds": hand_seeds,  # 새 🌾
+             "hand_shrimp": hand_shrimp,  # 펭귄 🦐
              "hand_special": hand_special,  # 특식 🍱
              "hand_broom": hand_broom}  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
 HAND_NAMES = tuple(HAND_DRAW)
 
 
-DRAW = {"bowl_food": draw_bowl_food, "bowl_water": draw_bowl_water, "cookie": draw_cookie, "flower": draw_flower}
+DRAW = {"bowl_food": draw_bowl_food, "bowl_water": draw_bowl_water, "cookie": draw_cookie}
 
 
 def draw(name):

@@ -218,7 +218,40 @@ enum SideDef {
     Down,
 }
 
+/// 이름이 바뀐 동물 (예전 이름, 지금 이름) — 불러올 때 옮긴다 (retire_pets)
+pub const RENAMED_PETS: [(&str, &str); 1] = [("beaver", "bear")];
+/// 더 이상 없는 동물 (v0.5.5: 곰·꿀벌·강아지) — 고른 동물이면 RETIRED_TO로 바꾸고, 키운 기록은 RETIRED_TO에 넘긴다
+pub const RETIRED_PETS: [&str; 3] = ["bear", "bee", "dog"];
+pub const RETIRED_TO: &str = "cat";
+
+/// 돌보기 기록 중 더 많이 큰 쪽 (단계, 같으면 체력)
+fn further_grown(a: &Care, b: &Care) -> bool {
+    let rank = |c: &Care| crate::care::Stage::ALL.iter().position(|s| *s == c.stage).unwrap_or(0);
+    (rank(a), a.stamina) > (rank(b), b.stamina)
+}
+
 impl Config {
+    /// 이름이 바뀌었거나 없어진 동물을 지금 동물로 옮긴다 (`load`가 부른다). 없어진 동물이 골라져 있으면 고양이로 바꾸고,
+    /// 그 동물들의 기록 중 가장 많이 큰 것을 (고양이 기록보다 더 컸을 때만) 고양이에게 넘긴다 — 키운 만큼은 잃지 않는다.
+    pub fn retire_pets(&mut self) {
+        for (from, to) in RENAMED_PETS {
+            self.rename_pet(from, to);
+        }
+        for gone in RETIRED_PETS {
+            if self.pet.as_deref() == Some(gone) {
+                self.pet = Some(RETIRED_TO.to_string());
+            }
+            if let Some(care) = self.care.remove(gone) {
+                match self.care.get(RETIRED_TO) {
+                    Some(have) if !further_grown(&care, have) => {}
+                    _ => {
+                        self.care.insert(RETIRED_TO.to_string(), care);
+                    }
+                }
+            }
+        }
+    }
+
     /// 없어진 동물을 다른 동물로 옮긴다 (선택과 돌보기 상태). 대상에 이미 기록이 있으면 그쪽을 남긴다.
     pub fn rename_pet(&mut self, from: &str, to: &str) {
         if self.pet.as_deref() == Some(from) {
@@ -555,7 +588,7 @@ mod hex32 {
 pub fn load(dir: &Path) -> Config {
     let path = dir.join(FILE);
     let parsed = match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text).map_err(|e| e.to_string()),
+        Ok(text) => serde_json::from_str::<Config>(&text).map_err(|e| e.to_string()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Config::default(),
         Err(e) if e.kind() == std::io::ErrorKind::InvalidData => Err(e.to_string()),
         // 권한·잠금 등: 파일은 멀쩡할 수 있다. 기본값으로 돌되 덮어쓰지 않는다
@@ -565,7 +598,10 @@ pub fn load(dir: &Path) -> Config {
         }
     };
     match parsed {
-        Ok(c) => c,
+        Ok(mut c) => {
+            c.retire_pets();
+            c
+        }
         Err(e) => {
             let bak = dir.join(BAK_FILE);
             match std::fs::copy(&path, &bak) {
@@ -766,10 +802,95 @@ mod tests {
     fn care_per_pet_roundtrips() {
         use crate::care::{Care, Stage};
         let d = temp_dir("care");
-        let mut c = Config { pet: Some("dog".into()), ..Config::default() };
-        c.care.insert("dog".into(), Care { stage: Stage::Child, stamina: 12.0, fullness: 0.3, locked: true });
+        let mut c = Config { pet: Some("rabbit".into()), ..Config::default() };
+        c.care.insert("rabbit".into(), Care { stage: Stage::Child, stamina: 12.0, fullness: 0.3, locked: true });
         save(&d, &c).unwrap();
         assert_eq!(load(&d), c);
+    }
+
+    // ---- 없어진 동물 (곰·꿀벌·강아지) → 고양이, 키운 만큼은 그대로 ----
+
+    fn cfg_with(pet: &str, care: &[(&str, crate::care::Care)]) -> Config {
+        let mut c = Config { pet: Some(pet.into()), owner_name: Some("민지".into()), ..Config::default() };
+        c.care.extend(care.iter().map(|(id, cr)| (id.to_string(), cr.clone())));
+        c
+    }
+
+    #[test]
+    fn retired_pets_move_to_the_cat_with_their_growth() {
+        use crate::care::{Care, Stage};
+        let grown = Care { stage: Stage::Teenager, stamina: 40.0, fullness: 0.4, locked: true };
+        for gone in ["bear", "bee", "dog"] {
+            let mut c = cfg_with(gone, &[(gone, grown.clone())]);
+            c.retire_pets();
+            assert_eq!(c.pet.as_deref(), Some(RETIRED_TO), "{gone}");
+            assert_eq!(c.care.get("cat"), Some(&grown), "{gone}: growth is carried over");
+            assert!(!c.care.contains_key(gone), "{gone}");
+            assert_eq!(c.owner_name.as_deref(), Some("민지"), "the rest of the config is kept");
+        }
+        assert_eq!(RETIRED_TO, "cat");
+    }
+
+    #[test]
+    fn retired_pets_keep_the_furthest_grown_care() {
+        use crate::care::{Care, Stage};
+        let baby = Care { stage: Stage::Baby, stamina: 20.0, ..Care::default() };
+        let child = Care { stage: Stage::Child, stamina: 5.0, ..Care::default() };
+        let child_more = Care { stage: Stage::Child, stamina: 30.0, ..Care::default() };
+        let adult = Care { stage: Stage::Adult, ..Care::default() };
+        // 고양이가 더 어리면 없어진 동물의 기록을 받는다
+        let mut c = cfg_with("dog", &[("dog", child.clone()), ("cat", baby.clone())]);
+        c.retire_pets();
+        assert_eq!((c.pet.as_deref(), c.care.get("cat")), (Some("cat"), Some(&child)));
+        // 고양이가 더 컸으면 고양이 기록을 남긴다
+        let mut c = cfg_with("bear", &[("bear", child.clone()), ("cat", adult.clone())]);
+        c.retire_pets();
+        assert_eq!(c.care.get("cat"), Some(&adult));
+        // 같은 단계면 체력이 더 많은 쪽 · 여러 마리면 가장 많이 큰 하나
+        let mut c = cfg_with("rabbit", &[("bee", child_more.clone()), ("dog", child.clone()), ("cat", child.clone())]);
+        c.retire_pets();
+        assert_eq!(c.pet.as_deref(), Some("rabbit"), "a remaining pet stays selected");
+        assert_eq!(c.care.get("cat"), Some(&child_more));
+        assert!(!c.care.contains_key("bee") && !c.care.contains_key("dog"));
+        assert_eq!(c.care.len(), 1);
+    }
+
+    #[test]
+    fn retiring_leaves_remaining_pets_alone() {
+        use crate::care::{Care, Stage};
+        let teen = Care { stage: Stage::Teenager, ..Care::default() };
+        let mut c = cfg_with("rabbit", &[("rabbit", teen.clone())]);
+        let before = serde_json::to_string(&c).unwrap();
+        c.retire_pets();
+        assert_eq!(serde_json::to_string(&c).unwrap(), before);
+        let mut none = Config::default();
+        none.retire_pets();
+        assert_eq!(none, Config::default(), "a new install keeps no pet chosen");
+    }
+
+    #[test]
+    fn a_very_old_beaver_becomes_a_cat_too() {
+        use crate::care::{Care, Stage};
+        let kinder = Care { stage: Stage::Kinder, ..Care::default() };
+        let mut c = cfg_with("beaver", &[("beaver", kinder.clone())]);
+        c.retire_pets();
+        assert_eq!((c.pet.as_deref(), c.care.get("cat")), (Some("cat"), Some(&kinder)));
+        assert_eq!(c.care.len(), 1);
+    }
+
+    #[test]
+    fn loading_an_old_config_retires_bear_bee_and_dog() {
+        let d = temp_dir("retired");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("config.json"),
+            r#"{"pet": "bee", "owner_name": "민지", "care": {"bee": {"stage": "child", "stamina": 12.0, "fullness": 0.5, "locked": false}}}"#,
+        )
+        .unwrap();
+        let c = load(&d);
+        assert_eq!(c.pet.as_deref(), Some("cat"));
+        assert_eq!(c.care.get("cat").map(|c| (c.stage, c.stamina)), Some((crate::care::Stage::Child, 12.0)));
+        assert_eq!(c.owner_name.as_deref(), Some("민지"));
     }
 
     #[test]
@@ -778,9 +899,9 @@ mod tests {
         let child = Care { stage: Stage::Child, ..Care::default() };
         let mut c = Config { pet: Some("beaver".into()), ..Config::default() };
         c.care.insert("beaver".into(), child.clone());
-        c.rename_pet("beaver", "bear");
-        assert_eq!(c.pet.as_deref(), Some("bear"));
-        assert_eq!(c.care.get("bear"), Some(&child));
+        c.rename_pet("beaver", "rabbit");
+        assert_eq!(c.pet.as_deref(), Some("rabbit"));
+        assert_eq!(c.care.get("rabbit"), Some(&child));
         assert!(!c.care.contains_key("beaver"));
     }
 
@@ -790,10 +911,10 @@ mod tests {
         let adult = Care { stage: Stage::Adult, ..Care::default() };
         let mut c = Config { pet: Some("cat".into()), ..Config::default() };
         c.care.insert("beaver".into(), Care::default());
-        c.care.insert("bear".into(), adult.clone());
-        c.rename_pet("beaver", "bear");
+        c.care.insert("rabbit".into(), adult.clone());
+        c.rename_pet("beaver", "rabbit");
         assert_eq!(c.pet.as_deref(), Some("cat"));
-        assert_eq!(c.care.get("bear"), Some(&adult));
+        assert_eq!(c.care.get("rabbit"), Some(&adult));
         assert!(!c.care.contains_key("beaver"));
     }
 
@@ -1075,7 +1196,7 @@ mod tests {
     fn a_config_that_cannot_be_read_is_never_overwritten() {
         use std::os::unix::fs::PermissionsExt;
         let d = temp_dir("unreadable");
-        if !unreadable(&d, "config.json", "{\"pet\":\"dog\"}") {
+        if !unreadable(&d, "config.json", "{\"pet\":\"rabbit\"}") {
             return;
         }
         let c = load(&d);
@@ -1083,7 +1204,7 @@ mod tests {
         assert!(c.keep_file, "this run must not write over the friends it could not read");
         assert!(save(&d, &c).is_err());
         std::fs::set_permissions(d.join("config.json"), std::fs::Permissions::from_mode(0o600)).unwrap();
-        assert_eq!(load(&d).pet.as_deref(), Some("dog"));
+        assert_eq!(load(&d).pet.as_deref(), Some("rabbit"));
     }
 
     #[test]
@@ -1132,7 +1253,7 @@ mod tests {
     fn save_is_atomic_and_leaves_no_temp_file() {
         let d = temp_dir("atomic");
         save(&d, &Config { pet: Some("cat".into()), ..Config::default() }).unwrap();
-        let c = Config { pet: Some("dog".into()), ..Config::default() };
+        let c = Config { pet: Some("rabbit".into()), ..Config::default() };
         save(&d, &c).unwrap();
         assert!(!d.join("config.json.tmp").exists());
         assert_eq!(load(&d), c);
@@ -1163,7 +1284,7 @@ mod tests {
         let bad: Config = serde_json::from_str(r#"{"pet":"cat","feed_mode":"teleport"}"#).unwrap();
         assert_eq!((bad.pet.as_deref(), bad.feed_mode), (Some("cat"), FeedMode::Hand));
         let dir = temp_dir("feedmode");
-        let c = Config { pet: Some("dog".into()), feed_mode: FeedMode::Auto, ..Config::default() };
+        let c = Config { pet: Some("rabbit".into()), feed_mode: FeedMode::Auto, ..Config::default() };
         save(&dir, &c).unwrap();
         assert_eq!(load(&dir).feed_mode, FeedMode::Auto);
     }

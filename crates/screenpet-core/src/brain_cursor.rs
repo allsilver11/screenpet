@@ -147,7 +147,7 @@ pub enum PlayPhase {
     Prep,
     /// 커서 쪽으로 간다 (걷는 동물은 디딤판 위로만, 나는 동물은 곧장)
     Approach,
-    /// 닿을 자리에서 한 번 더 (고양이 엉덩이 씰룩, 곰 앞발 휘두르기, 강아지 꼬리, 기린 목 늘이기)
+    /// 닿을 자리에서 한 번 더 (고양이 엉덩이 씰룩, 페르시안 기지개, 기린 목 늘이기)
     Reach,
 }
 
@@ -210,16 +210,12 @@ impl CursorStyle {
             "cat" => CursorStyle { speed: 0.6, arrive: Some((Anim::Look, 0.9)), wiggle: true, range: 3.5, leap_secs: 0.5, glare: Anim::Huff, ..b },
             // 페르시안: 느릿느릿 어슬렁 가서 기지개 한 번 — 멀리서 와락은 귀찮다
             "persian" => CursorStyle { speed: 0.4, arrive: Some((Anim::Stretch, 1.0)), range: 1.5, leap_secs: 0.6, glare: Anim::Huff, ..b },
-            // 꼬리 치며 쫄래쫄래
-            "dog" => CursorStyle { gait: Anim::Run, speed: 1.3, arrive: Some((Anim::Wag, 0.7)), ..b },
             "rabbit" => CursorStyle { gait: Anim::Hop, speed: 2.2, lift: 0.18, beat: 0.4, range: 1.5, ..b },
             // 멀리서도 크게 한 번에
             "frog" => CursorStyle { gait: Anim::Hop, speed: 1.8, lift: 0.3, beat: 0.55, leap: Anim::BigJump, range: 2.5, reach: 2.5, ..b },
             // 묵직하게 통, 통
             "pumpkin" => CursorStyle { gait: Anim::Hop, speed: 1.2, lift: 0.12, beat: 0.5, leap_secs: 0.5, ..b },
             "rudolph" => CursorStyle { gait: Anim::Hop, speed: 1.8, lift: 0.24, beat: 0.45, range: 1.5, ..b },
-            // 어슬렁어슬렁 가서 앞발을 휘두른다
-            "bear" => CursorStyle { speed: 0.75, arrive: Some((Anim::Wave, 0.8)), leap_secs: 0.55, ..b },
             // 뒤뚱뒤뚱, 꽥꽥
             "duck" => CursorStyle { speed: 1.1, lift: 0.04, beat: 0.3, chatty: true, ..b },
             // 천천히 가서 목을 쭉 — 더 높이 닿는다
@@ -232,11 +228,12 @@ impl CursorStyle {
             "dino_yellow" => CursorStyle { prep: Some((Anim::Roar, 0.8)), ..dino },
             "dino_green" => CursorStyle { prep: Some((Anim::Stomp, 0.9)), ..dino },
             "dino_purple" => CursorStyle { prep: Some((Anim::Fire, 1.0)), ..dino },
-            // 꿀벌은 빠르게 붕붕, 유령은 부~ 한 뒤 느릿느릿 둥실
-            "bee" => CursorStyle { prep: Some((Anim::Look, 0.3)), speed: 3.5, sway: (0.35, 3.0), ..b },
+            // 유령은 부~ 한 뒤 느릿느릿 둥실
             "ghost" => CursorStyle { prep: Some((Anim::Tickle, 0.6)), speed: 3.0, sway: (0.15, 0.8), ..b },
             // 새는 쌩 — 가장 빠르게 날아와 짹짹 (파닥이는 폭은 작고 빠르게)
             "bird" => CursorStyle { speed: 4.5, sway: (0.2, 4.0), chatty: true, ..b },
+            // 펭귄은 배로 쭉 미끄러져 와서 지느러미를 파닥파닥
+            "penguin" => CursorStyle { gait: Anim::Roll, speed: 1.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
             _ => return None,
         })
     }

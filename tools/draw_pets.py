@@ -1,8 +1,8 @@
-"""카와이 스프라이트 생성기 — 5종 × 21동작 (+ 고양이 arch·huff, 강아지 wag, 고양이·곰 뒷모습 climb·slide, 꿀벌 sting) × 성장 5단계, 128px.
-꿀벌은 나는 동물이라 자기 포즈(BEE_POSES)를 쓴다 (5b).
+"""카와이 스프라이트 생성기 — 고양이·토끼·페르시안 × 21동작 (+ 고양이 arch·huff, 고양이 뒷모습 climb·slide) × 성장 5단계, 128px.
+(곰·꿀벌·강아지는 v0.5.5에서 빠졌다.)
 
-    python tools/draw_pets.py  → ui/pets/<id>/{sheet_<stage>.png ×5, pet.json} + ui/effects/sting.png
-                                 + tools/preview/{all_light,all_dark,stages_<id>,climb_<id>,sting_effect,eat_with_props}.png
+    python tools/draw_pets.py  → ui/pets/<id>/{sheet_<stage>.png ×5, pet.json}
+                                 + tools/preview/{all_light,all_dark,stages_<id>,climb_<id>,eat_with_props}.png
 
 구성:
   1. 엔진      — 4배 슈퍼샘플 마스크, 변환 스택(xf), 도형(E/T/L), 녹이기(melt)로 한 덩어리 실루엣 + 굵은 외곽선
@@ -41,7 +41,6 @@ PART_OUTLINE = 1.0  # 몸 앞에 겹친 조각(앞발·머리)의 자기 외곽�
 LINE = (132, 96, 92)
 PINK = (250, 180, 180)
 NOSE = (236, 136, 142)
-DARK_NOSE = (96, 66, 60)
 BLUSH = (252, 196, 194)
 BLUSH_LINE = (238, 150, 150)
 EYE = (84, 58, 56)
@@ -52,7 +51,7 @@ HEART = (246, 116, 140)
 ZZZ = (112, 132, 196)
 ANGER = (228, 76, 76)
 
-_INK = {"line": LINE}  # 실루엣·부품 외곽선 색 (종마다 바꿀 수 있다: Species.outline — 짙은 곰은 더 짙은 외곽선)
+_INK = {"line": LINE}  # 실루엣·부품 외곽선 색 (종마다 바꿀 수 있다: Species.outline — 짙은 동물은 더 짙은 외곽선)
 _XF = [(1.0, 0.0, 0.0, 0.0, 1.0, 0.0)]  # 현재 변환 (x' = a x + b y + c, y' = d x + e y + f)
 _VIEW = {"scale": 1.0, "lift": LIFT}  # 종 배율: 발 기준점 (64, 126)으로 축소
 _OUT = {"u": 1}  # 내보내는 칸 = FRAME × u (좌표는 늘 128, 슈퍼샘플 S에서 이 크기로 줄인다 — output)
@@ -554,7 +553,7 @@ class Species:
     back: tuple  # 등 색 (배 보이기·구르기·뒷모습에서 쓰임)
     belly: tuple  # 배 색
     nose: tuple
-    mouth: str  # "w" (고양이·토끼 ω) | "dog" (큰 코 + 갈라진 입: 강아지·곰)
+    mouth: str  # "w" (고양이·토끼 ω) | "dog" (큰 코 + 갈라진 입: 루돌프)
     front_ears: list  # 머리 도형에 합쳐지는 귀 (왼쪽, 오른쪽)
     front_ear_pivots: tuple  # 귀 크기를 바꿀 때 기준점 (귀 뿌리) — 왼쪽, 오른쪽
     front_ear_marks: list  # 귀 안쪽 무늬 (귀와 함께 크기가 바뀐다; x < 64면 왼쪽 귀)
@@ -571,7 +570,6 @@ class Species:
     tail_root: tuple
     tail_color: tuple
     tail_marks: list = field(default_factory=list)
-    wag_tail: list = field(default_factory=list)  # 앞모습 살랑 꼬리 (뿌리 기준)
     lie_ears: tuple = (-34, -30)  # 엎드렸을 때 귀를 뒤로 눕히는 각도
     specials: list = field(default_factory=list)
     stage_size: dict = field(default_factory=lambda: dict.fromkeys(STAGES, 1.0))  # pet.json stage_size: 공통 단계 배율에 곱하는 종 배율
@@ -580,7 +578,7 @@ class Species:
     back_head_marks: list = field(default_factory=list)  # 뒷모습 (climb·slide) 머리·몸 무늬 — 바탕은 back 색
     back_body_marks: list = field(default_factory=list)
     outline: tuple = None  # 실루엣 외곽선 색 (없으면 LINE)
-    poses: dict = None  # 이 종만의 포즈 {동작: 함수} — 뼈대가 다른 동물 (꿀벌: 날개로 난다). 없는 동작은 공통 POSES
+    poses: dict = None  # 이 종만의 포즈 {동작: 함수} — 뼈대가 다른 동물 (새: 날개로 난다). 없는 동작은 공통 POSES
     write_layers: object = None  # 시트 말고 더 쓸 그림이 있는 종 (기린 목 늘이기): (out_dir) → pet.json에 더할 칸
     front_head: list = field(default_factory=lambda: [("E", 16, 16, 112, 84)])  # 앞모습 머리 도형 (페르시안: 넓적 네모 얼굴 + 볼 털 갈기)
     side_head: list = field(default_factory=lambda: [("E", 52, 12, 124, 78)])  # 옆모습 머리 도형
@@ -712,32 +710,6 @@ PERSIAN = Species(
     outline=PER_LINE,
 )
 
-DOG_W, DOG_G, DOG_EAR = (255, 247, 236), (222, 168, 112), (196, 140, 92)
-DOG = Species(
-    id="dog", name="강아지", walk_speed=105, scale=0.94, base=DOG_W, back=DOG_G, belly=DOG_W, nose=DARK_NOSE, mouth="dog",
-    stage_size=dict.fromkeys(STAGES, 0.94),
-    front_ears=[("E", 8, 30, 32, 76), ("E", 96, 30, 120, 76)],
-    front_ear_pivots=((22, 32), (106, 32)),
-    front_ear_marks=[
-        ([("E", 8, 30, 32, 76), ("E", 96, 30, 120, 76)], DOG_EAR),
-        ([("L", [(31, 34), (28, 52), (31, 72)], 1.6), ("L", [(97, 34), (100, 52), (97, 72)], 1.6)], LINE, 2),
-    ],
-    front_head_marks=[
-        ([("E", 8, -6, 120, 44)], DOG_G),
-        ([("E", 30, 46, 52, 60)], DOG_G, 2),  # 눈가 점 (어린이부터)
-    ],
-    front_body_marks=[([("E", 16, 72, 40, 110), ("E", 88, 72, 112, 110)], DOG_G, 1), ([("E", 90, 90, 112, 114)], DOG_G, 1)],
-    front_tail=[("E", 92, 92, 110, 112)], front_tail_root=(96, 108), front_tail_color=DOG_G,
-    side_ears=[Ear([("E", 64, 22, 84, 58)], (74, 26), DOG_EAR)],
-    ears_over=True,
-    side_head_marks=[([("E", 40, -6, 120, 40)], DOG_G)],
-    side_torso_marks=[([("E", 8, 48, 92, 80)], DOG_G, 1), ([("E", 60, 50, 74, 60)], DOG_EAR, 4)],
-    side_tail=[("L", [(24, 70), (14, 56), (20, 44)], 11)], tail_root=(24, 70), tail_color=DOG_G,
-    wag_tail=[("L", [(0, 0), (12, -10), (16, -24)], 10)],
-    specials=["wag", "lookup"],
-    stage_tweak={"adult": dict(snout=3.0)},
-)
-
 RAB_W = (255, 252, 250)
 RABBIT = Species(
     id="rabbit", name="토끼", walk_speed=120, scale=0.8, base=RAB_W, back=RAB_W, belly=RAB_W, nose=NOSE, mouth="w",
@@ -759,35 +731,7 @@ RABBIT = Species(
     stage_tweak={"baby": dict(ear=0.8), "kinder": dict(ear=0.88), "adult": dict(ear=1.12, chest_fluff=True)},
 )
 
-# 짙은 갈색 곰: 몸 짙은 밤색, 주둥이·배는 따뜻한 황갈색, 귀 안쪽은 더 짙게, 외곽선도 몸보다 짙게
-BEAR_B, BEAR_L, BEAR_IN, BEAR_NOSE, BEAR_LINE = (125, 82, 52), (240, 204, 158), (100, 62, 40), (70, 44, 34), (74, 46, 34)
-BEAR_EAR = 1.18  # 동글 귀를 단계 귀 크기보다 18% 크게 (앞·옆·뒷모습 모두 _ST["ear"]로)
-BEAR_SOFT = mix(BEAR_L, BEAR_B, 0.3)  # 아기: 주둥이·배 대비를 줄인 색
-BEAR = Species(
-    id="bear", name="곰", walk_speed=60, scale=0.94, base=BEAR_B, back=BEAR_B, belly=BEAR_L, nose=BEAR_NOSE, mouth="dog",
-    front_ears=[("E", 14, 10, 42, 38), ("E", 86, 10, 114, 38)],
-    front_ear_pivots=((22, 34), (106, 34)),  # 귀 바깥 아래 — 큰 귀가 바깥으로 넘치지 않고 위·안쪽으로 자란다
-    front_ear_marks=[([("E", 20, 16, 36, 32), ("E", 92, 16, 108, 32)], BEAR_IN)],
-    front_head_marks=[([("E", 44, 52, 84, 78)], BEAR_SOFT, (0, 0)), ([("E", 44, 52, 84, 78)], BEAR_L, (1, 3)),
-                      ([("E", 40, 50, 88, 81)], BEAR_L, 4)],
-    front_body_marks=[([("E", 44, 80, 84, 120)], BEAR_SOFT, (0, 0)), ([("E", 44, 80, 84, 120)], BEAR_L, 1)],
-    front_tail=[("E", 92, 104, 110, 120)], front_tail_root=(98, 112), front_tail_color=BEAR_B,
-    side_ears=[Ear([("E", 69, 5, 91, 27)], (80, 20), BEAR_B, [([("E", 74, 10, 86, 22)], BEAR_IN)])],
-    ears_over=False,
-    side_head_marks=[([("E", 100, 40, 132, 70)], BEAR_SOFT, (0, 0)), ([("E", 100, 40, 132, 70)], BEAR_L, (1, 3)),
-                     ([("E", 97, 38, 134, 73)], BEAR_L, 4)],
-    side_torso_marks=[([("E", 28, 90, 94, 120)], BEAR_SOFT, (0, 0)), ([("E", 28, 90, 94, 120)], BEAR_L, 1)],
-    side_tail=[("E", 6, 62, 26, 82)], tail_root=(18, 74), tail_color=BEAR_B, lie_ears=(-56, -50),
-    specials=["climb", "slide", "lookup"],
-    stage_size=dict.fromkeys(STAGES, 0.89),
-    # 귀 18% 크게 · 아기·유아도 또렷한 갈색 (파스텔 섞임을 줄임) · 어른은 넓은 어깨
-    stage_tweak={st: dict(ear=STAGE_PROPS[st]["ear"] * BEAR_EAR, **{"baby": dict(pale=0.2), "kinder": dict(pale=0.1),
-                                                                     "adult": dict(fbody=(1.06, 1.0), torso=(1.06, 1.0), fit=0.91)}.get(st, {}))
-                 for st in STAGES},
-    outline=BEAR_LINE,
-)
-
-SPECIES = {s.id: s for s in (CAT, DOG, RABBIT, BEAR, PERSIAN)}
+SPECIES = {s.id: s for s in (CAT, RABBIT, PERSIAN)}
 
 
 # =====================================================================
@@ -859,7 +803,7 @@ def front_head(sp, eyes="dot", mouth=None, tongue_dy=0, outline=False, cheeks=Fa
 
 
 def mouth_top(sp):
-    """앞모습 입 윗선 (머리 좌표): 강아지·곰은 큰 코 아래, 납작 얼굴(페르시안)은 눈 사이 높은 코 바로 아래."""
+    """앞모습 입 윗선 (머리 좌표): 큰 코(루돌프)는 큰 코 아래, 납작 얼굴(페르시안)은 눈 사이 높은 코 바로 아래."""
     return {"dog": 66, "flat": 61.5}.get(sp.mouth, 64)
 
 
@@ -1310,7 +1254,7 @@ def _stars(items):
     return [f for x, y, r in items for f in sparkle_fx(x, y, r)]
 
 
-# 레벨 업 반짝이 세 장 — 넓게 (몸이 넓은 동물) · 좁게 (공통 뼈대, 꿀벌)
+# 레벨 업 반짝이 세 장 — 넓게 (몸이 넓은 동물) · 좁게 (공통 뼈대)
 LEVEL_STARS_WIDE = [[(14, 40, 5.5), (114, 34, 4.0), (16, 86, 3.6), (112, 84, 5.0)],
                     [(16, 30, 4.2), (112, 26, 6.0), (12, 74, 5.0), (116, 74, 3.6)],
                     [(14, 50, 6.0), (114, 44, 4.6), (20, 18, 3.8), (108, 14, 4.4)]]
@@ -1446,12 +1390,6 @@ def tickle(sp, i):
                   arms=[(1, [-6, 18, 6][i]), (-1, [18, -6, 6][i])], leg_dy=[(-3, 0), (0, -3), (-2, -2)][i])
 
 
-def wag(sp, i):
-    rot = [-25, -5, 15, -5][i]
-    return _front(sp, eyes="happy", mouth="tongue", tongue_dy=[0, 1, 0, 1][i], body=dict(dy=[0, -1, 0, -1][i]),
-                  head=dict(dy=[0, -1, 0, -1][i]), tail_desc=sp.wag_tail, tail_rot=rot)
-
-
 def roll(sp, i):
     """몸을 동글게 만 털뭉치: 옆으로 조금 납작한 달걀꼴 (가로:세로 ≈ 1.15:1) 위로 머리·귀가 볼록, 아래로 앞발,
     옆으로 꼬리가 삐죽 나온다. 회전 중심 (64, 88) — 모든 픽셀이 반지름 ROLL_RADIUS 원 안 (안 보이는 원으로 잘라 둔다)."""
@@ -1482,12 +1420,11 @@ def hungry(sp, i):
                   tail_rot=6, paws=[(56 + dx, 100 + dy)], toes=True, fx=thought_fx(108, 17))
 
 
-# ---- 먹기: 그릇·꽃은 앱의 진짜 소품 창 (ui/effects/bowl_food·bowl_water·cookie·flower.png, tools/draw_props.py) ----
+# ---- 먹기: 그릇은 앱의 진짜 소품 창 (ui/effects/bowl_food·bowl_water·cookie.png, tools/draw_props.py) ----
 # 소품 창(56×48 × 몸 배율)은 몸 중심 아래(발 높이)에 아래 가운데를 맞춰 동물 창 앞에 뜬다 (Rust food::PropEvent, src-tauri prop.rs).
-# 동물 프레임(128 × 몸 배율)과 같은 배율이라 프레임 좌표로: 그릇 x 36–92 · y 80–128 (밥 더미 위 ≈ 82), 꽃 꽃잎 ≈ y 87–112 (꽃술 (64, 100)).
+# 동물 프레임(128 × 몸 배율)과 같은 배율이라 프레임 좌표로: 그릇 x 36–92 · y 80–128 (밥 더미 위 ≈ 82).
 # 먹는 동작은 그릇을 그리지 않고 그 자리를 내려다보며 먹는다 (앞모습, 그릇은 몸 가운데 앞).
 EAT_MOUTH_Y = 77  # 먹을 때 입 윗선 (프레임 좌표) — 밥 더미 바로 위
-FLOWER_HEART = (64, 100)  # 꽃 소품의 꽃술 (프레임 좌표)
 CRUMB = (255, 250, 236)
 
 
@@ -1529,7 +1466,7 @@ def huff(sp, i):
                   fx=[anger_fx(24, 24 - u + [0, -1, -2][i], 6.0)])
 
 
-# ---- 뒷모습 포즈 (고양이·곰): 화면에 매달려 기어오르기 / 미끄러지기. 얼굴은 안 보인다 ----
+# ---- 뒷모습 포즈 (고양이): 화면에 매달려 기어오르기 / 미끄러지기. 얼굴은 안 보인다 ----
 SWEAT, SWEAT_LINE = (176, 220, 248), (104, 156, 204)
 BACK_HEAD = 0.8  # 뒷모습 머리는 조금 작게 (몸과 위로 뻗은 앞발이 보이게)
 
@@ -1600,7 +1537,7 @@ def back_body(sp):
 
 
 def back_tail(sp, rot):
-    """뒷모습 꼬리: 줄 꼬리(고양이)는 엉덩이에서 위로 세워 살랑, 동그란 꼬리(곰)는 엉덩이에 동글."""
+    """뒷모습 꼬리: 줄 꼬리(고양이)는 엉덩이에서 위로 세워 살랑, 동그란 꼬리는 엉덩이에 동글."""
     root = (64, 112)
     tl, tw = _ST["tail"], _ST["tail_w"]
     if sp.side_tail[0][0] == "L":
@@ -1652,7 +1589,7 @@ def slide(sp, i):
 
 POSES = {"walk": walk, "run": run, "roll": roll, "idle": idle, "look": look, "sleep": sleep, "hop": hop, "fall": fall,
          "dragged": dragged, "land": land, "sit_front": sit_front, "wave": wave, "tilt": tilt, "belly": belly,
-         "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "arch": arch, "wag": wag,
+         "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "arch": arch,
          "hungry": hungry, "eat": eat, "level_up": level_up, "huff": huff,
          "climb": climb, "slide": slide, "lookup": lookup}
 
@@ -1680,132 +1617,9 @@ def frames(sp, anim, n):
 
 
 # =====================================================================
-# 5b. 꿀벌 — 날아다니는 동물 (pet.json "locomotion": "fly"). 다리·귀·꼬리 뼈대 대신 동그란 보송 몸 + 줄무늬 +
-#     반투명 날개 + 공 달린 더듬이 (+ 옆모습 꽁무니 침). 날개는 따로 반투명 층(wing_layer)으로 그려 alpha_composite 한다.
-#     걷기 = 둥실 날기, 앞모습 동작 = 정면으로 떠서 하는 같은 동작. 앉은(내려앉은) 동작: sleep · annoyed · land · eat(꽃)
+# 5b. 공용 효과 — 다른 그림 파일(할로윈·크리스마스·농장·눈사람·새·개구리·공룡)이 쓰는 작은 입·속도선·땀방울
 # =====================================================================
-BEE_Y, BEE_ST, BEE_CREAM = (255, 212, 96), (122, 84, 62), (255, 238, 186)
-WING, WING_LINE, WING_HL = (232, 244, 255), (146, 178, 212), (255, 255, 255)
-PETAL, PETAL_IN = (250, 168, 190), (255, 200, 92)
-STRAW_HONEY = (238, 148, 58)  # 꿀 빠는 빨대 입 (몸 노랑보다 진한 꿀색)
-SPEED = mix(LINE, WHITE, 0.35)  # 속도선·붕붕 선
-# 단계(lvl)별 — 옆 몸 (rx, ry) · 앞 몸 (rx, ry) · 날개 배율 · 줄무늬 수 · 줄 굵기 · 더듬이 길이
-BEE_STAGE = {
-    0: ((31.5, 30.5), (32.5, 31.5), 0.62, 1, 6.0, 0.72),
-    1: ((33, 30), (33.5, 32), 0.76, 2, 5.6, 0.84),
-    2: ((34.5, 29.5), (34, 32.5), 0.88, 2, 6.4, 0.94),
-    3: ((36, 29.5), (34.5, 33), 1.0, 2, 7.0, 1.0),
-    4: ((39.5, 29), (35, 34.5), 1.06, 3, 6.4, 1.05),
-}
-BEE_SIDE_C, BEE_FRONT_C = (60, 76), (64, 74)  # 떠 있을 때 몸 중심 (몸 아래로 바닥까지 틈이 보인다)
-SIDE_FLAP = [-12, -36, -60, -36]  # 옆모습 날갯짓 (위 → 아래)
-FRONT_FLAP = [30, 50, 70, 50]  # 앞모습 날갯짓 (세로에서 벌어진 각도)
-
-
-def _bee():
-    side, front, wing, n, w, ant = BEE_STAGE[_ST["lvl"]]
-    return dict(side=side, front=front, wing=wing, n=n, w=w, ant=ant)
-
-
-def _bee_stripe(sp):
-    """아기는 몸 색에 반쯤 섞인 흐린 줄 하나."""
-    return mix(sp.stripe, sp.base, 0.5) if _ST["lvl"] == 0 else sp.stripe
-
-
-def wing_layer(fns, alpha=1.0, hl=()):
-    """반투명 날개 한 장 (128 RGBA): 연한 푸른 외곽선 + 반투명 흰 막 + 반짝 줄. alpha: 잔상용 전체 투명도."""
-    m = shapes(fns)
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-
-    def put(mask, color, a):
-        img.paste(Image.new("RGBA", (S, S), color + (round(a * alpha),)), (0, 0), mask)
-    put(aa(grow(m, 1.3 * _ST["line"])), WING_LINE, 225)
-    put(aa(m), WING, 130)
-    if hl:
-        put(ImageChops.multiply(aa(shapes(hl)), m), WING_HL, 220)
-    out = img.resize((out_px(), out_px()), Image.LANCZOS)
-    drop_faint(out)
-    return out
-
-
-def _wing(root, rot, ln, wd, alpha=1.0):
-    """뿌리에서 위로 뻗은 타원 날개를 rot도 돌린 층."""
-    x, y = root
-    with xf(rot=rot, pivot=root):
-        return wing_layer([E(x - wd / 2, y - ln, x + wd / 2, y + 3)], alpha,
-                          [L([(x - wd * 0.14, y - ln * 0.3), (x - wd * 0.1, y - ln * 0.78)], wd * 0.16)])
-
-
-def bee_wings_side(cx, cy, rx, ry, mode="flap", phase=0):
-    """옆모습 날개 → (몸 뒤 층들, 몸 앞 층들). mode: flap(phase) | blur (빠른 날갯짓 잔상) | fold (등에 접음)."""
-    ws = _bee()["wing"]
-    root = (cx - rx * 0.12, cy - ry * 0.8)
-    big, small = (36 * ws, 18 * ws), (24 * ws, 13 * ws)
-    if mode == "fold":
-        return [], [_wing((root[0] + 2, root[1] + 4), -96, big[0] * 0.85, big[1] * 0.85)]
-    if mode == "blur":
-        return ([_wing(root, r - 14, *big, alpha=0.4) for r in SIDE_FLAP[:3]],
-                [_wing(root, r, *big, alpha=0.5) for r in SIDE_FLAP[:3]])
-    r = SIDE_FLAP[phase % 4]
-    return [_wing(root, r - 16, *big, alpha=0.9)], [_wing(root, r - 34, *small), _wing(root, r, *big)]
-
-
-def bee_wings_front(cx, cy, rx, ry, mode="flap", phase=0, k=1.0):
-    """앞모습 날개 (양쪽, 모두 몸 뒤). k: 크기 배율 (공 모양에서 작게)."""
-    ws = _bee()["wing"] * k
-    big, small = (36 * ws, 18 * ws), (24 * ws, 13 * ws)
-    out = []
-    for s in (-1, 1):
-        root = (cx + s * rx * 0.42, cy - ry * 0.6)
-        if mode == "blur":
-            out += [_wing(root, r * s, *big, alpha=0.45) for r in FRONT_FLAP[:3]]
-        elif mode == "fold":
-            out += [_wing(root, 16 * s, big[0] * 0.8, big[1] * 0.8)]
-        else:
-            r = FRONT_FLAP[phase % 4]
-            out += [_wing(root, (r + 34) * s, *small), _wing(root, r * s, *big)]
-    return out, []
-
-
-def antenna(root, tip, bend, r, col):
-    """곡선 더듬이 + 끝 공 (반짝이 점)."""
-    (x0, y0), (x1, y1) = root, tip
-    mx, my = (x0 + x1) / 2 + bend[0], (y0 + y1) / 2 + bend[1]
-    pts = [((1 - t) ** 2 * x0 + 2 * (1 - t) * t * mx + t * t * x1, (1 - t) ** 2 * y0 + 2 * (1 - t) * t * my + t * t * y1)
-           for t in (k / 10 for k in range(11))]
-    return [([L(pts, 2.1)], LINE), ([C(x1, y1, r + 1.4)], LINE), ([C(x1, y1, r)], col),
-            ([C(x1 - r * 0.35, y1 - r * 0.35, r * 0.32)], WHITE)]
-
-
-def bee_antennae_side(sp, cx, cy, rx, ry, mode="up", sway=0.0):
-    """옆모습 더듬이 둘 (뒤 것부터). mode: up | droop (잘 때 앞으로 축) | back (뒤로 젖힘)."""
-    a = _bee()["ant"]
-    ops = []
-    for k, fx_ in enumerate((0.1, 0.36)):
-        x0, y0 = cx + rx * fx_, cy - ry * math.sqrt(1 - fx_ ** 2) + 2.5
-        if mode == "droop":
-            tip, bend = (x0 + 16 * a, y0 - 5 * a + 2 * k), (0, -6)
-        elif mode == "back":
-            tip, bend = (x0 - (10 - 4 * k) * a, y0 - 15 * a), (3, -3)
-        else:
-            tip, bend = (x0 + (3 + 6 * k + sway) * a, y0 - (21 - 2 * k) * a), (-4, 0)
-        ops += antenna((x0, y0), tip, bend, 3.5 + 0.7 * k, sp.stripe)
-    return ops
-
-
-def bee_antennae_front(sp, cx, cy, ry, mode="up", sway=0.0, k=1.0):
-    a = _bee()["ant"] * k
-    ops = []
-    for s in (-1, 1):
-        x0, y0 = cx + s * 9, cy - ry * 0.96 + 2.5
-        if mode == "droop":
-            tip, bend = (x0 + s * 16 * a, y0 - 4 * a), (0, -6)
-        elif mode == "back":  # 화나서 뒤로 바짝
-            tip, bend = (x0 + s * 15 * a, y0 - 12 * a), (s * -2, -4)
-        else:
-            tip, bend = (x0 + s * 8 * a + sway, y0 - 20 * a), (-s * 3, 0)
-        ops += antenna((x0, y0), tip, bend, 4.0, sp.stripe)
-    return ops
+SPEED = mix(LINE, WHITE, 0.35)  # 속도선
 
 
 def bee_mouth(kind, mx, my):
@@ -1827,438 +1641,13 @@ def bee_mouth(kind, mx, my):
     return open_mouth(mx, my - 1, rx, ry, tongue=kind != "yawn")
 
 
-def bee_face_side(cx, cy, rx, ry, eyes="dot", mouth=None, brow=None):
-    fs = _ST["head"] ** 0.6
-    ex, ey = cx + rx * 0.48, cy - ry * 0.1
-    with xf(sx=fs, sy=fs, pivot=(ex, ey)):
-        bd = 2 if _ST["sparkle"] else 0
-        ops = blush(ex - 5, ey + 12 + bd) + stage_eye(eyes, ex, ey)
-        ops += bee_mouth(mouth, ex + 9.5, ey + 9)
-        if brow:
-            ops += brows(brow, ex, ey + _ST["eye_dy"])
-    return ops
-
-
-def bee_face_front(cx, cy, ry, eyes="dot", mouth=None, brow=None, mouth_dy=0.0):
-    fs = _ST["head"] ** 0.6
-    fy = cy - ry * 0.14
-    with xf(sx=fs, sy=fs, pivot=(cx, fy)):
-        bd = 2 if _ST["sparkle"] else 0
-        ops = blush(cx - 20, fy + 11 + bd) + blush(cx + 20, fy + 11 + bd)
-        ops += stage_eye(eyes, cx - 13, fy) + stage_eye(eyes, cx + 13, fy, flip=True)
-        ops += bee_mouth(mouth, cx, fy + 9 + mouth_dy)
-        if brow:
-            ops += brows(brow, cx - 13, fy + _ST["eye_dy"]) + brows(brow, cx + 13, fy + _ST["eye_dy"], flip=True)
-    return ops
-
-
-def _fuzz(cx, cy, rx, ry, a0, a1, n):
-    """보송보송 털: 윗가장자리를 따라 작은 동그라미 (녹이지 않아 몽글몽글한 테두리)."""
-    return [C(x, y, 2.6) for x, y in arc(cx, cy, rx - 1.3, ry - 1.3, a0, a1, n)]
-
-
-def bee_side_parts(sp, cx, cy, rx, ry, face, legs="dangle", leg_sw=0.0, stinger=True):
-    """옆모습 몸 Part들: 몸(줄무늬·얼굴 무늬, 털) → 다리 → 침. legs: dangle (떠서 대롱) | stand | None."""
-    b = _bee()
-    mark_head(cx + rx * 0.2, cy - ry * 0.84, rx * 1.1, tilt=8)
-    xs = {1: [-0.4], 2: [-0.52, -0.16], 3: [-0.62, -0.34, -0.06]}[b["n"]]
-    stripes = [L(arc(cx + k * rx + 10, cy, 10, ry + 6, 90, 270, 16), b["w"]) for k in xs]
-    spikes = _fuzz(cx, cy, rx, ry, 200, 300, 6) + (tuft(cx + rx * 0.2, cy - ry) if _ST["tuft"] else [])
-    parts = [Part([E(cx - rx, cy - ry, cx + rx, cy + ry)], sp.base, [(stripes, _bee_stripe(sp))] + face, grow=1, spikes=spikes)]
-    if legs:
-        ln = 7 if legs == "dangle" else 4.5
-        fns = []
-        for k, x in enumerate((cx - 9, cx + 3, cx + 14)):
-            top = cy + ry * math.sqrt(max(0.0, 1 - ((x - cx) / rx) ** 2)) - 3
-            with xf(rot=leg_sw * (1 if k % 2 else -1), pivot=(x, top)):
-                fns.append(E(x - 2.6, top, x + 2.6, top + ln + 3))
-        parts.append(Part(fns, sp.stripe, sharp=True, grow=0))
-    if stinger:
-        k = 0.7 if _ST["lvl"] == 0 else 1.0
-        x0 = cx - rx + 1.5
-        parts.append(Part([T((x0, cy + 1), (x0 - 10 * k, cy + 5.5), (x0, cy + 10))], sp.stripe, sharp=True, grow=0))
-    return parts
-
-
-def bee_front_parts(sp, cx, cy, rx, ry, face, legs=True):
-    b = _bee()
-    mark_head(cx, cy - ry * 0.84, rx * 1.15)
-    ys = {1: [0.52], 2: [0.46, 0.76], 3: [0.4, 0.63, 0.86]}[b["n"]]
-    stripes = [L(arc(cx, cy + k * ry - 8, rx + 6, 8, 15, 165, 16), b["w"]) for k in ys]
-    spikes = _fuzz(cx, cy, rx, ry, 205, 335, 7) + (tuft(cx, cy - ry) if _ST["tuft"] else [])
-    parts = [Part([E(cx - rx, cy - ry, cx + rx, cy + ry)], sp.base, [(stripes, _bee_stripe(sp))] + face, grow=1, spikes=spikes)]
-    if legs:
-        fns = [E(x - 3, cy + ry - 4, x + 3, cy + ry + 6) for x in (cx - 9, cx + 9)]
-        parts.append(Part(fns, sp.stripe, sharp=True, grow=0))
-    return parts
-
-
-def bee_arm(sp, cx, cy, rx, ry, side, ang=None, tip=None):
-    """작은 팔 (자기 외곽선). ang: 아래(0)에서 바깥쪽으로 벌린 각도 · tip: 손끝 위치 (프레임 좌표)."""
-    sh = (cx + side * (rx - 4.5), cy + ry * 0.38)
-    if tip is None:
-        a = math.radians(ang)
-        tip = (sh[0] + side * math.sin(a) * 10, sh[1] + math.cos(a) * 10)
-    return Part([L([sh, tip], 8)], sp.base, outline=True)
-
-
-def bee_compose(parts, ops, fx=(), back_w=(), front_w=(), circle=None):
-    """몸(compose) 앞뒤로 반투명 날개 층을 alpha_composite. circle: (cx, cy, r) 밖은 지운다 (roll)."""
-    body = compose(parts, ops, fx)
-    out = Image.new("RGBA", (out_px(), out_px()), (0, 0, 0, 0))
-    for w in back_w:
-        out.alpha_composite(w)
-    out.alpha_composite(body)
-    for w in front_w:
-        out.alpha_composite(w)
-    if circle:
-        cx, cy, r = circle
-        m = Image.new("L", (S, S), 0)
-        ImageDraw.Draw(m).ellipse(((cx - r) * K, (cy - r) * K, (cx + r) * K, (cy + r) * K), fill=255)
-        out.putalpha(ImageChops.multiply(out.getchannel("A"), m.resize((out_px(), out_px()), Image.LANCZOS)))
-    drop_faint(out)
-    return out
-
-
-def _bee_side(sp, *, c=None, ground=None, sq=(1.0, 1.0), rot=0.0, wings="flap", phase=0, eyes="dot", mouth=None, brow=None,
-              legs="dangle", leg_sw=0.0, ant="up", sway=0.0, fx=()):
-    """옆모습 꿀벌 (오른쪽을 본다). c: 몸 중심 · ground: 몸 아래끝 y (내려앉음, c의 y 대신) · sq: 몸 바닥 기준 찌그러짐."""
-    rx, ry = _bee()["side"]
-    cx, cy = c or BEE_SIDE_C
-    if ground is not None:
-        cy = ground - ry
-    with xf(rot=rot, pivot=(cx, cy)):
-        with xf(sx=sq[0], sy=sq[1], pivot=(cx, cy + ry)):
-            face = bee_face_side(cx, cy, rx, ry, eyes, mouth, brow)
-            parts = bee_side_parts(sp, cx, cy, rx, ry, face, legs, leg_sw)
-            ops = bee_antennae_side(sp, cx, cy, rx, ry, ant, sway)
-            back_w, front_w = bee_wings_side(cx, cy, rx, ry, wings, phase)
-    return bee_compose(parts, ops, fx, back_w, front_w)
-
-
-def _bee_front(sp, *, c=None, ground=None, sq=(1.0, 1.0), rot=0.0, wings="flap", phase=0, eyes="dot", mouth=None, brow=None,
-               legs=True, ant="up", sway=0.0, arms=((-1, 40), (1, 40)), held=(), props=(), fx=(), ops=(), mouth_dy=0.0,
-               after=None):
-    """앞모습 꿀벌 (정면으로 떠 있음). arms: (side, 각도 | (x, y) 손끝). held: 몸과 팔 사이 Part 함수 ·
-    props: 맨 앞 소품 Part 함수 (프레임 좌표) · after(cx, cy, rx, ry): 몸 앞에 붙는 Part 함수 (침 등)."""
-    rx, ry = _bee()["front"]
-    cx, cy = c or BEE_FRONT_C
-    if ground is not None:
-        cy = ground - ry
-    with xf(rot=rot, pivot=(cx, cy)):
-        with xf(sx=sq[0], sy=sq[1], pivot=(cx, cy + ry)):
-            face = bee_face_front(cx, cy, ry, eyes, mouth, brow, mouth_dy)
-            parts = bee_front_parts(sp, cx, cy, rx, ry, face, legs)
-            if after:
-                parts += after(cx, cy, rx, ry)
-            parts += [h() for h in held]
-            for side, a in arms:
-                parts.append(bee_arm(sp, cx, cy, rx, ry, side, *((a, None) if isinstance(a, (int, float)) else (None, a))))
-            aops = bee_antennae_front(sp, cx, cy, ry, ant, sway)
-            back_w, front_w = bee_wings_front(cx, cy, rx, ry, wings, phase)
-    parts += [p() for p in props]
-    return bee_compose(parts, aops + list(ops), fx, back_w, front_w)
-
-
 def speed_fx(x0, ys, ln, shift=0.0):
     return [([L([(x0 + shift, y), (x0 + ln + shift, y)], 1.8)], SPEED, 0) for y in ys]
-
-
-def buzz_fx(cx, cy, s=1):
-    """붕붕 지그재그 (날개 옆)."""
-    return ([L([(cx, cy), (cx + 3 * s, cy - 3), (cx + 6 * s, cy), (cx + 9 * s, cy - 3)], 1.6)], SPEED, 0)
-
-
-def exclaim_fx(cx, cy, k=1.0):
-    return ([L([(cx, cy - 8 * k), (cx, cy + 1.5 * k)], 3.0 * k), C(cx, cy + 6.5 * k, 1.9 * k)], ANGER, 1.3)
 
 
 def sweat_fx(x, y):
     drop = lambda g: [C(x, y, 3.0 + g), T((x - 2.7 - g, y - 1), (x, y - 7.5 - 1.4 * g), (x + 2.7 + g, y - 1))]
     return [(drop(1.2), SWEAT_LINE, 0), (drop(0), SWEAT, 0), ([C(x - 1.0, y - 0.5, 0.9)], WHITE, 0)]
-
-
-def flower_bubble_fx(cx, cy, r=12.5):
-    """생각 풍선 안에 꽃 한 송이 (꿀벌의 배고픔)."""
-    fx = []
-    for x, y, rr in [(cx - r - 7, cy + r + 8, 2.0), (cx - r - 1, cy + r + 1, 3.2), (cx, cy, r)]:
-        fx += [([C(x, y, rr + 1.5)], LINE, 1.0), ([C(x, y, rr)], WHITE, 0)]
-    pet = [(cx + 4.6 * math.cos(math.radians(a)), cy + 4.6 * math.sin(math.radians(a))) for a in range(-90, 270, 72)]
-    fx += [([C(x, y, 4.6) for x, y in pet], LINE, 0), ([C(x, y, 3.4) for x, y in pet], PETAL, 0),
-           ([C(cx, cy, 3.4)], LINE, 0), ([C(cx, cy, 2.3)], PETAL_IN, 0)]
-    return fx
-
-
-# ---- 꿀벌 옆모습 ----
-def bee_walk(sp, i):
-    """둥실 날기: 날갯짓 4단계, 몸 2px 오르내림, 다리 대롱."""
-    return _bee_side(sp, c=(60, BEE_SIDE_C[1] - [0, 1, 2, 1][i]), phase=i, leg_sw=[4, 0, -4, 0][i])
-
-
-def bee_run(sp, i):
-    """쌩 날기: 앞으로 기울고 날개는 잔상, 뒤로 속도선."""
-    return _bee_side(sp, c=(64, BEE_SIDE_C[1] - [0, 1, 0, 1][i]), rot=9, wings="blur", mouth="open" if i % 2 else None,
-                     legs="dangle", leg_sw=-14, ant="back", fx=speed_fx(4, (62, 78, 94), 14, [0, -3, 0, -3][i]))
-
-
-def bee_idle(sp, i):
-    return _bee_side(sp, c=(60, BEE_SIDE_C[1] - i), phase=[0, 2][i])
-
-
-def bee_look(sp, i):
-    return _bee_side(sp, rot=[-9, 0, 9, 0][i], phase=i, eyes="closed" if i == 3 else "dot", sway=[-2, 0, 2, 0][i])
-
-
-def bee_lookup(sp, i):
-    """떠 있는 채 몸째 살짝 젖혀 위를 본다 (더듬이는 뒤로 살랑)."""
-    return _bee_side(sp, rot=lookup_tilt(i, 0.6), phase=i, eyes="up", sway=-2, fx=lookup_fx(i, 112, 18))
-
-
-def bee_sleep(sp, i):
-    """내려앉아 쿨쿨: 납작 엎드려 날개 접고 더듬이 축, z."""
-    zs = [z_fx(102, 70, 3.4), z_fx(113, 59, 2.6)] if i == 0 else [z_fx(104, 67, 3.6), z_fx(116, 55, 2.8)]
-    return _bee_side(sp, ground=124.5, sq=(1.08, 0.8 + 0.012 * i), wings="fold", eyes="closed", legs=None, ant="droop", fx=zs)
-
-
-def bee_annoyed(sp, i):
-    """내려앉아 뾰로통: 실눈, 삐죽 입, 날개 접고 더듬이 뒤로, 💢."""
-    return _bee_side(sp, ground=124.5, sq=(1.04, 0.9), wings="fold", eyes="squint", mouth="pout", legs=None,
-                     ant="back", sway=i, fx=[anger_fx(102, 44 - i, 7.0)])
-
-
-def bee_hop(sp, i):
-    """휙 솟구치기: 0 웅크림 → 1 위로 쭉 (아래 속도선) → 2 높이 떠서 ^^ (한 번)."""
-    if i == 0:
-        return _bee_side(sp, c=(60, 86), sq=(1.1, 0.86), phase=0, eyes="tight", legs="dangle", leg_sw=10)
-    if i == 1:
-        lines = [([L([(x, 112), (x, 124)], 1.8)], SPEED, 0) for x in (48, 60, 72)]
-        return _bee_side(sp, c=(62, 66), sq=(0.9, 1.1), wings="blur", eyes="happy", mouth="open", leg_sw=-10, ant="back", fx=lines)
-    return _bee_side(sp, c=(62, 62), phase=1, eyes="happy", mouth="open")
-
-
-def bee_fall(sp, i):
-    """어질어질 데굴: 몸이 기울어 뒹굴고, 소용돌이 눈, 물결 입, 머리 위 별."""
-    stars = [(100, 22, 3.6), (26, 30, 3.0)] if i == 0 else [(30, 20, 3.6), (104, 32, 3.0)]
-    fx = [f for x, y, r in stars for f in sparkle_fx(x, y, r)]
-    return _bee_side(sp, c=(62, 74), rot=[-26, 26][i], phase=[2, 0][i], eyes="spiral", mouth="wavy", leg_sw=[20, -20][i], fx=fx)
-
-
-def bee_dragged(sp, i):
-    """잡혀서 버둥: 몸이 살짝 늘어나고 날개는 붕붕 잔상, > < 눈, 땀."""
-    s = [-1, 1][i]
-    fx = [buzz_fx(18, 40 + 4 * i, -1), buzz_fx(100, 30 - 2 * i, 1)] + sweat_fx(98, 54)
-    return _bee_side(sp, c=(62, 64), sq=(0.94, 1.08), rot=4 * s, wings="blur", eyes="tight", mouth="open", leg_sw=18 * s,
-                     ant="back", fx=fx)
-
-
-def bee_land(sp, i):
-    """사뿐 착지: 0 찌그러짐 (날개 위로) → 1 다리로 섬 (한 번)."""
-    if i == 0:
-        return _bee_side(sp, ground=120.5, sq=(1.12, 0.84), phase=0, eyes="tight", legs="stand")
-    return _bee_side(sp, ground=120.5, phase=2, legs="stand")
-
-
-def bee_roll(sp, i):
-    """빙글 공중제비: 몸을 공처럼 말고 날개·더듬이는 작게 붙임. 웹뷰가 (64, 88) 기준으로 돌린다 — 원 안에만."""
-    cx, cy = ROLL_CENTER
-    r = 26.5
-    with view(scale=1.0, lift=0):
-        with xf(rot=[-6, 6][i], pivot=(cx, cy)):
-            face = bee_face_front(cx, cy + 3, r, "happy", "open" if i else None)
-            parts = bee_front_parts(sp, cx, cy + 3, r, r, face, legs=False)
-            ops = bee_antennae_front(sp, cx, cy + 3, r, "droop", k=0.62)
-            back_w, _ = bee_wings_front(cx, cy + 3, r, r, "flap", [0, 2][i], k=0.55)
-        if i == 1:
-            ops += [([E(36, 90, 48, 97), E(80, 90, 92, 97)], BLUSH)]
-    return bee_compose(parts, ops, (), back_w, (), circle=(cx, cy, ROLL_RADIUS - 0.6))
-
-
-
-# ---- 꿀벌 앞모습 ----
-def bee_sit_front(sp, i):
-    return _bee_front(sp, c=(64, BEE_FRONT_C[1] - [0, 1, 2, 1][i]), phase=i, eyes="closed" if i == 3 else "dot")
-
-
-def bee_wave(sp, i):
-    return _bee_front(sp, phase=i, arms=((-1, 24), (1, [128, 160, 128, 160][i])), rot=[-2, -1, -2, -1][i])
-
-
-def bee_tilt(sp, i):
-    return _bee_front(sp, rot=_swing([8, 12, 12][i]), phase=i, sway=2, fx=[question_fx(18, 26 + [2, 0, -2][i])])
-
-
-def bee_belly(sp, i):
-    """발라당: 바닥에 등을 대고 누워 노란 배를 보이고 작은 다리 꼬물, 얼굴은 정면 ^o^, 날개는 몸 밑에 납작."""
-    wig = [0, 2, 0, -2][i]
-    b = _bee()
-    rx, ry = b["side"][0] * 1.08, b["side"][1] * 0.72
-    cx, cy = 60, 124.5 - ry
-    legs = []
-    for k, x in enumerate((cx - 14, cx - 3, cx + 8, cx + 19)):
-        dy = wig if k % 2 == 0 else -wig
-        top = cy - ry * math.sqrt(max(0.0, 1 - ((x - cx) / rx) ** 2))
-        legs.append(E(x - 2.8, top - 9 + dy, x + 2.8, top + 3))
-    xs = {1: [-0.4], 2: [-0.5, -0.14], 3: [-0.6, -0.32, -0.04]}[b["n"]]
-    stripes = [L(arc(cx + k * rx + 8, cy, 8, ry + 6, 90, 270, 16), b["w"]) for k in xs]
-    fcx, fcy = cx + rx * 0.5, cy - 2
-    fs = _ST["head"] ** 0.6
-    mark_head(fcx, cy - ry * 0.82, rx * 0.75, tilt=10)
-    with xf(sx=fs, sy=fs, pivot=(fcx, fcy)):
-        bd = 2 if _ST["sparkle"] else 0
-        face = (blush(fcx - 13, fcy + 8 + bd) + blush(fcx + 14, fcy + 8 + bd) + stage_eye("happy", fcx - 8, fcy - 2)
-                + stage_eye("happy", fcx + 9, fcy - 2, flip=True) + bee_mouth("open", fcx + 0.5, fcy + 6))
-    body = Part([E(cx - rx, cy - ry, cx + rx, cy + ry)], sp.base,
-                [([E(cx - rx * 0.8, cy - ry * 1.1, cx + rx * 0.3, cy + ry * 0.2)], sp.belly), (stripes, _bee_stripe(sp))] + face,
-                grow=1, spikes=_fuzz(cx, cy, rx, ry, 150, 210, 3))
-    parts = [body, Part(legs, sp.stripe, sharp=True, grow=0),
-             Part([T((cx - rx + 1.5, cy + 1), (cx - rx - 9, cy + 4), (cx - rx + 1.5, cy + 8))], sp.stripe, sharp=True, grow=0)]
-    ops = []
-    for s, x0 in ((-1, fcx + 4), (1, fcx + 14)):
-        y0 = cy - ry * math.sqrt(max(0.0, 1 - ((x0 - cx) / rx) ** 2)) + 2
-        ops += antenna((x0, y0), (x0 + 8 + 5 * (s + 1), y0 - 12 + 3 * s), (2, -3), 3.6, sp.stripe)
-    ws = b["wing"]
-    wings = [_wing((cx - rx * 0.5, cy + ry * 0.4), -112, 30 * ws, 15 * ws)]
-    return bee_compose(parts, ops, (), wings, ())
-
-
-def bee_stretch(sp, i):
-    """기지개: 0 두 팔 번쩍 쭉 → 1 하품 → 2 제자리 (한 번)."""
-    if i == 0:
-        return _bee_front(sp, sq=(0.93, 1.08), eyes="tight", arms=((-1, 168), (1, 168)), phase=0)
-    if i == 1:
-        return _bee_front(sp, eyes="tight", mouth="yawn", arms=((-1, 70), (1, 70)), phase=2, rot=-3)
-    return _bee_front(sp, phase=1)
-
-
-def bee_heart(sp, i):
-    cx, cy = BEE_FRONT_C
-    held = lambda: Part([C(57.2, 95, 7.4), C(70.8, 95, 7.4), T((50.2, 97), (77.8, 97), (64, 111))], HEART,
-                        [([E(53.5, 90.5, 57.5, 94)], WHITE)], outline=True)
-    hs = [heart_fx(111, 40 - 6 * i, 4.6 + 0.6 * i), heart_fx(17, 46 - 6 * i, 4 + 0.5 * i)]
-    if i:
-        hs.append(heart_fx(114, 18 - 3 * i, 2.6 + 0.6 * i))
-    return _bee_front(sp, c=(cx, cy - 6), eyes="happy", phase=i, held=[held], arms=((-1, (50, 100)), (1, (78, 100))), fx=hs)
-
-
-def bee_tickle(sp, i):
-    return _bee_front(sp, rot=_swing([-7, 7, 0][i]), eyes="happy", mouth="open", phase=[0, 2, 1][i],
-                      arms=((-1, [60, 100, 80][i]), (1, [100, 60, 80][i])), sway=[-3, 3, 0][i])
-
-
-def bee_hungry(sp, i):
-    """배고파 시무룩: 처진 눈썹 ︶ 눈, 작은 입, 한 손으로 배 문지름, 꽃 생각 풍선. 날개도 힘없이 천천히."""
-    dx, dy = [(-2, 0), (0, 2), (2, 0)][i]
-    rx, ry = _bee()["front"]
-    return _bee_front(sp, c=(60, 78), rot=-4, eyes="closed", mouth="frown", brow="sad", phase=[1, 2, 1][i], ant="droop",
-                      arms=((-1, 20), (1, (60 + dx, 78 + ry * 0.55 + dy))), fx=flower_bubble_fx(106, 18))
-
-
-def bee_eat(sp, i):
-    """꽃꿀 쪼옥: 앞에 피어난 꽃(앱 소품, 꽃술 FLOWER_HEART)에 낮게 내려앉아 두 팔로 꽃잎을 잡고, 굵은 빨대 입(주둥이)을
-    아래로 꽂아 쪼옥 — 꽃은 그리지 않는다. 입은 꽃잎 바로 위, 빨대는 아기 크기에서도 보이게 굵게 (짙은 테 + 꿀색 속)."""
-    sip = i % 2 == 0
-    rx, ry = _bee()["front"]
-    fs = _ST["head"] ** 0.6
-    mx, my = _frame_to_pre(64, 80 + [0, 1, 0, 1][i])
-    cy = my - 9 * fs + ry * 0.14  # 앞모습 얼굴: 입 = 몸 중심 - ry·0.14 + 9·fs
-    w = 1.3 if _ST["lvl"] <= 1 else 1.0  # 아기·유아는 빨대를 더 굵게
-    hx, hy = FLOWER_HEART
-    with view(scale=1.0, lift=0):
-        mouth = (64, 80 + [0, 1, 0, 1][i])
-        path = [mouth, (66.5, mouth[1] + 7), (hx, hy - 2)]
-        straw = [([L(path, 4.4 * w)], LINE), ([L(path, 2.2 * w)], STRAW_HONEY if sip else mix(STRAW_HONEY, LINE, 0.15))]
-        drops = [[(104, 88)], [(106, 80), (24, 90)], [(108, 72), (22, 82)], [(110, 64), (20, 74)]][i]  # 꽃에서 꿀방울이 반짝
-        fx = []
-        for x, y in drops:
-            fx += [([C(x, y, 3.0), T((x - 2.6, y - 1), (x, y - 6.4), (x + 2.6, y - 1))], (232, 160, 56), 1.0),
-                   ([C(x, y, 1.9)], (255, 214, 96), 0)]
-    arms = ((-1, _frame_to_pre(51, 94)), (1, _frame_to_pre(77, 94)))  # 꽃잎을 양손으로 (꽃 창 뒤로 반쯤 가려짐)
-    return _bee_front(sp, c=(64, cy), eyes="closed" if sip else "happy", mouth="sip", phase=i, arms=arms,
-                      ops=straw, fx=fx)
-
-
-def bee_level_up(sp, i):
-    fx = level_up_stars(i, LEVEL_STARS_NEAR)
-    up = [150, 165, 175][i]
-    return _bee_front(sp, c=(64, BEE_FRONT_C[1] - 2 * i), eyes="happy", mouth="big", arms=((-1, up), (1, up)), phase=i, fx=fx)
-
-
-def bee_sting(sp, i):
-    """콕! (꿀벌 전용, 앞모습): 화난 눈썹 + ❗, 꽁무니를 앞으로 말아 침을 화면 쪽으로 — 0 노려봄 → 1 뒤로 젖혀 힘 모음 →
-    2 앞으로 확 다가오며 커다란 침이 화면(보는 사람) 쪽으로 콕."""
-    def stinger(size, dx=0.0):
-        def f(cx, cy, rx, ry):
-            y0 = cy + ry - 6
-            tip = (cx + dx, y0 + 10 + 16 * size)
-            w = 5 + 6 * size
-            return [Part([T((cx - w, y0), (cx + w, y0), tip)], sp.stripe,
-                         [([L([(cx - w * 0.35, y0 + 3), (tip[0] - 1, tip[1] - 6)], 1.4)], mix(sp.stripe, WHITE, 0.5))],
-                         sharp=True, grow=0)]
-        return f
-    if i == 0:
-        return _bee_front(sp, c=(64, 62), eyes="dot", mouth="pout", brow="angry", ant="back", phase=0,
-                          arms=((-1, 60), (1, 60)), after=stinger(0.0), fx=[exclaim_fx(104, 24)])
-    if i == 1:
-        return _bee_front(sp, c=(64, 58), sq=(0.94, 0.94), rot=-7, eyes="squint", mouth="pout", brow="angry", ant="back",
-                          wings="blur", arms=((-1, 120), (1, 120)), after=stinger(0.3, -2), fx=[exclaim_fx(106, 22, 1.15)])
-    lines = [([L([(64 + math.cos(math.radians(a)) * 20, 112 + math.sin(math.radians(a)) * 9),
-                  (64 + math.cos(math.radians(a)) * 28, 112 + math.sin(math.radians(a)) * 13)], 1.8)], SPEED, 0)
-             for a in (150, 180, 0, 30)]
-    return _bee_front(sp, c=(64, 58), sq=(1.06, 1.06), eyes="dot", mouth="open", brow="angry", ant="back", wings="blur",
-                      arms=((-1, 40), (1, 40)), after=stinger(1.0), fx=lines + [exclaim_fx(106, 20, 1.3)])
-
-
-BEE_POSES = {"walk": bee_walk, "run": bee_run, "roll": bee_roll, "idle": bee_idle, "look": bee_look, "sleep": bee_sleep,
-             "hop": bee_hop, "fall": bee_fall, "dragged": bee_dragged, "land": bee_land, "sit_front": bee_sit_front,
-             "wave": bee_wave, "tilt": bee_tilt, "belly": bee_belly, "stretch": bee_stretch, "heart": bee_heart,
-             "tickle": bee_tickle, "annoyed": bee_annoyed, "hungry": bee_hungry, "eat": bee_eat, "level_up": bee_level_up,
-             "sting": bee_sting, "lookup": bee_lookup}
-
-BEE = Species(
-    id="bee", name="꿀벌", walk_speed=62, scale=0.94, base=BEE_Y, back=BEE_Y, belly=BEE_CREAM, nose=NOSE, mouth="w",
-    front_ears=[], front_ear_pivots=(), front_ear_marks=[], front_head_marks=[], front_body_marks=[],
-    front_tail=[], front_tail_root=(64, 112), front_tail_color=BEE_ST, side_ears=[], ears_over=False,
-    side_head_marks=[], side_torso_marks=[], side_tail=[], tail_root=(20, 84), tail_color=BEE_ST,
-    specials=["sting", "lookup"], stage_size=dict.fromkeys(STAGES, 0.8), stripe=BEE_ST, poses=BEE_POSES,
-)
-SPECIES[BEE.id] = BEE
-
-
-# ---- 화면 효과: 콕! (ui/effects/sting.png) ----
-CRACK, CRACK_EDGE, BURST = (255, 255, 255), (150, 160, 176), (255, 244, 184)
-
-
-def sting_effect():
-    """화면 유리에 콕 박힌 침: 가운데 짙은 침 끝, 바깥으로 뻗은 가는 금 6줄, 글자 없는 작은 터짐 별. 투명 배경 128×128."""
-    cx, cy = 64, 64
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    with view(scale=1.0, lift=0):
-        cracks = []
-        for k, (ang, ln) in enumerate([(-96, 44), (-30, 48), (22, 40), (88, 46), (152, 42), (212, 47)]):
-            a, kink = math.radians(ang), math.radians(ang + (14 if k % 2 else -14))
-            p0 = (cx + math.cos(a) * 9, cy + math.sin(a) * 9)
-            p1 = (cx + math.cos(kink) * ln * 0.5, cy + math.sin(kink) * ln * 0.5)
-            p2 = (cx + math.cos(a) * ln, cy + math.sin(a) * ln)
-            cracks.append([p0, p1, p2])
-            if k % 2 == 0:  # 곁가지
-                b = math.radians(ang + 40)
-                cracks.append([p1, (p1[0] + math.cos(b) * ln * 0.3, p1[1] + math.sin(b) * ln * 0.3)])
-        paint(img, aa(shapes([L(c, 3.0) for c in cracks])), CRACK_EDGE)
-        paint(img, aa(shapes([L(c, 1.3) for c in cracks])), CRACK)
-        star = [(cx + (17 if k % 2 == 0 else 8) * math.cos(math.radians(k * 30 - 90)),
-                 cy + (17 if k % 2 == 0 else 8) * math.sin(math.radians(k * 30 - 90))) for k in range(12)]
-        m = shapes([T(*star)])
-        paint(img, aa(grow(m, 1.6)), (236, 158, 64))
-        paint(img, aa(m), BURST)
-        # 가늘고 뾰족한 침: 끝이 가운데 (화면에 박힘), 뿌리는 왼쪽 위 — 뿌리에 동그란 마디
-        sting = shapes([T((cx + 1.2, cy + 1.2), (cx - 24, cy - 17), (cx - 17, cy - 24)), C(cx - 21, cy - 21, 4.8)])
-        paint(img, aa(grow(sting, 1.6)), LINE)
-        paint(img, aa(sting), BEE_ST)
-        paint(img, aa(shapes([C(cx - 21, cy - 21, 2.6)])), BEE_Y)
-        paint(img, aa(shapes([L([(cx - 17.5, cy - 20.5), (cx - 3.5, cy - 5)], 1.2)])), mix(BEE_ST, WHITE, 0.55))
-    out = img.resize((FRAME, FRAME), Image.LANCZOS)
-    drop_faint(out)
-    return out
 
 
 # =====================================================================
@@ -2273,7 +1662,7 @@ _NECKS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json ne
 _HEADS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json head  # (종, 단계) → {동작: [프레임]} — 한 프로세스에서 여러 번 build해도 한 번만 그린다
 
 
-_KEEP = {LINE, EYE, DARK_NOSE, BEAR_NOSE, BEAR_LINE}  # 파스텔로 바꾸지 않는 색 (외곽선·눈·코)
+_KEEP = {LINE, EYE}  # 파스텔로 바꾸지 않는 색 (외곽선·눈·코)
 
 
 def _pale(v, t):
@@ -2428,7 +1817,7 @@ def preview_poses(bands, names, path, zoom=("sit_front",), label=70, gap=24, bg=
 def preview_stages(by_stage, sp, path, bg=(255, 255, 255)):
     """한 동물의 5단계 × 대표 동작 (첫 프레임) + 오른쪽에 화면 표시 크기(STAGE_SCALE)로 줄인 sit_front."""
     from PIL import ImageFont
-    names = STAGE_PREVIEW_ANIMS + [a for a in ("climb", "sting") if a in sp.specials]
+    names = STAGE_PREVIEW_ANIMS + [a for a in ("climb",) if a in sp.specials]
     cell, label = FRAME + 4, 70
     W = label + len(names) * cell + 24 + cell
     H = 24 + len(STAGES) * cell
@@ -2497,13 +1886,8 @@ def main():
         preview_stages(all_frames[pid], sp, pv / f"stages_{pid}.png")
         if "climb" in sp.specials:
             preview_back(all_frames[pid], pv / f"climb_{pid}.png")
-    fx_dir = root / "ui" / "effects"
-    fx_dir.mkdir(exist_ok=True)
-    sting = sting_effect()
-    sting.save(fx_dir / "sting.png")
-    preview_sting(sting, all_frames["bee"], pv / "sting_effect.png")
-    preview_eat_with_props(all_frames, fx_dir, pv / "eat_with_props.png")
-    print("ok:", ", ".join(SPECIES), "+ effects/sting.png")
+    preview_eat_with_props(all_frames, root / "ui" / "effects", pv / "eat_with_props.png")
+    print("ok:", ", ".join(SPECIES))
 
 
 COOKIE_RISE = 0.3  # Rust food::COOKIE_RISE — 쿠키 소품 아래끝은 발에서 몸 크기의 30% 위
@@ -2511,16 +1895,16 @@ COOKIE_RISE = 0.3  # Rust food::COOKIE_RISE — 쿠키 소품 아래끝은 발�
 
 def preview_eat_with_props(all_frames, fx_dir, path):
     """먹기 프레임 + 앱이 띄우는 진짜 소품 (같은 몸 배율이라 프레임 좌표로 겹친다: 소품 아래 가운데 = (64, 128),
-    쿠키는 128 - 128·COOKIE_RISE). 열: eat 0 + 밥그릇(꿀벌은 꽃) · eat 1 + 밥그릇 · eat 2 + 물그릇 · eat 3 + 쿠키. 줄: 종 × 단계."""
+    쿠키는 128 - 128·COOKIE_RISE). 열: eat 0 + 밥그릇 · eat 1 + 밥그릇 · eat 2 + 물그릇 · eat 3 + 쿠키. 줄: 종 × 단계."""
     from PIL import ImageFont
-    props = {k: Image.open(fx_dir / f"{k}.png").convert("RGBA") for k in ("bowl_food", "bowl_water", "cookie", "flower")}
+    props = {k: Image.open(fx_dir / f"{k}.png").convert("RGBA") for k in ("bowl_food", "bowl_water", "cookie")}
     stages = ("baby", "teenager", "adult")
     cell, label = FRAME + 4, 90
     img = Image.new("RGBA", (label + 4 * cell, len(all_frames) * len(stages) * cell), (255, 255, 255, 255))
     d = ImageDraw.Draw(img)
     for r, (pid, st) in enumerate((pid, st) for pid in all_frames for st in stages):
         d.text((4, r * cell + FRAME // 2), f"{pid} {st}", fill=(60, 60, 60), font=ImageFont.load_default())
-        meal = "flower" if pid == "bee" else "bowl_food"
+        meal = "bowl_food"
         for c, (prop, bottom) in enumerate([(meal, FRAME), (meal, FRAME), ("bowl_water", FRAME),
                                             ("cookie", FRAME - round(FRAME * COOKIE_RISE))]):
             tile = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
@@ -2528,20 +1912,6 @@ def preview_eat_with_props(all_frames, fx_dir, path):
             p = props[prop]
             tile.alpha_composite(p, (FRAME // 2 - p.width // 2, bottom - p.height))
             img.alpha_composite(tile, (label + c * cell, r * cell))
-    img.save(path)
-
-
-def preview_sting(effect, bee_by_stage, path):
-    """콕! 효과 (밝은·어두운 바탕, 2배) + teenager 꿀벌 sting 3장."""
-    cell = 2 * FRAME + 8
-    img = Image.new("RGBA", (2 * cell + 3 * (FRAME + 4), cell), (255, 255, 255, 255))
-    big = effect.resize((2 * FRAME, 2 * FRAME), Image.LANCZOS)
-    for k, bg in enumerate([(236, 240, 246), (40, 44, 52)]):
-        tile = Image.new("RGBA", (2 * FRAME, 2 * FRAME), bg + (255,))
-        tile.alpha_composite(big)
-        img.alpha_composite(tile, (k * cell + 4, 4))
-    for c, im in enumerate(bee_by_stage["teenager"]["sting"]):
-        img.alpha_composite(im, (2 * cell + c * (FRAME + 4), cell - FRAME - 4))
     img.save(path)
 
 
@@ -2554,6 +1924,7 @@ import draw_christmas  # noqa: E402,F401
 import draw_dino  # noqa: E402,F401  (공룡 셋)
 import draw_snowman  # noqa: E402,F401  (눈사람)
 import draw_bird  # noqa: E402,F401  (새)
+import draw_penguin  # noqa: E402,F401  (펭귄)
 
 if __name__ == "__main__":
     main()

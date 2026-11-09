@@ -412,9 +412,9 @@ fn guest_windows(app: &AppHandle) -> Vec<WebviewWindow> {
     app.webview_windows().into_iter().filter(|(label, _)| slots::is_guest_label(label)).map(|(_, w)| w).collect()
 }
 
-/// 밥그릇·꽃·쿠키(prop-), 손에 든 음식(hand-), 침 자국(sting-) 창
+/// 밥그릇·쿠키(prop-), 손에 든 음식(hand-), 물건(object-) 창
 fn effect_windows(app: &AppHandle) -> Vec<WebviewWindow> {
-    const PREFIXES: [&str; 4] = ["prop-", "hand-", "sting-", "object-"];
+    const PREFIXES: [&str; 3] = ["prop-", "hand-", "object-"];
     app.webview_windows().into_iter().filter(|(label, _)| PREFIXES.iter().any(|p| label.starts_with(p))).map(|(_, w)| w).collect()
 }
 
@@ -461,7 +461,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     }
     // 밥·좋아하는 음식·특식은 많이, 간식은 조금 자라게 한다. 간식·물은 언제든 (배불러도) 받는다
     // 방법을 고르고 음식을 고르는 걸 한 번에 (메뉴는 누르면 닫히므로): 손으로 주기 ▸ 음식 / 그릇에 주기 ▸ 음식.
-    // 손으로: 음식이 커서 끝에 붙어 동물 입에 갖다 대면 먹는다. 그릇에: 그릇(꿀벌은 꽃)이 놓인다. 물은 늘 물그릇
+    // 손으로: 음식이 커서 끝에 붙어 동물 입에 갖다 대면 먹는다. 그릇에: 그릇이 놓인다. 물은 늘 물그릇
     let mut favs = Vec::new();
     let mut by_mode = Vec::new();
     for (mode, tag) in [(FeedMode::Hand, "hand"), (FeedMode::Auto, "auto")] {

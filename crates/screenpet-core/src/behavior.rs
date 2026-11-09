@@ -91,8 +91,6 @@ pub const CLICK_TRICK_SECS: f64 = 2.0;
 pub enum Special {
     /// 고양이 하악질 — 등 휘고 꼬리 펑
     Arch,
-    /// 강아지 — 혀 내밀고 꼬리 흔들기
-    Wag,
     /// 기린 — 구르는 대신 멈춰 서서 목을 평소의 두 배로 쭉 늘였다 줄인다 (쉬거나 간질일 땐 하지 않는다)
     NeckStretch,
     /// 공룡 — 입에서 작은 불꽃을 퐁 (아무것도 태우지 않는다)
@@ -127,7 +125,6 @@ impl Special {
     pub fn rest_chance(self) -> f64 {
         match self {
             Special::Arch => 0.08,
-            Special::Wag => 0.12,
             Special::NeckStretch => 0.0,
             // 공룡: 쉬는 박자의 18%는 셋 중 하나 (pick_dino)
             Special::Fire | Special::Roar | Special::Stomp => 0.18,
@@ -137,7 +134,6 @@ impl Special {
     pub fn tickle_chance(self) -> f64 {
         match self {
             Special::Arch => 0.25,
-            Special::Wag => 0.30,
             Special::NeckStretch => 0.0,
             Special::Fire | Special::Roar | Special::Stomp => 0.30,
         }
@@ -146,7 +142,6 @@ impl Special {
     pub fn secs(self) -> (f64, f64) {
         match self {
             Special::Arch => (2.0, 3.0),
-            Special::Wag => (2.0, 4.0),
             Special::NeckStretch => (NECK_STRETCH_SECS, NECK_STRETCH_SECS),
             // 불 뿜기 그림은 한 번 (1초) 뒤 흐뭇한 얼굴로 머문다
             Special::Fire => (1.8, 2.4),
@@ -159,7 +154,6 @@ impl Special {
     pub fn anim_name(self) -> &'static str {
         match self {
             Special::Arch => "arch",
-            Special::Wag => "wag",
             Special::NeckStretch => "neckstretch",
             Special::Fire => "fire",
             Special::Roar => "roar",
@@ -179,7 +173,7 @@ impl Special {
 
     /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾는다
     pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special> {
-        [Special::Arch, Special::Wag, Special::NeckStretch, Special::Fire, Special::Roar, Special::Stomp]
+        [Special::Arch, Special::NeckStretch, Special::Fire, Special::Roar, Special::Stomp]
             .into_iter()
             .find(|s| has_anim(s.anim_name()))
     }
@@ -446,14 +440,13 @@ mod tests {
     #[test]
     fn special_numbers_and_lookup() {
         assert_eq!((Special::Arch.rest_chance(), Special::Arch.tickle_chance(), Special::Arch.secs()), (0.08, 0.25, (2.0, 3.0)));
-        assert_eq!((Special::Wag.rest_chance(), Special::Wag.tickle_chance(), Special::Wag.secs()), (0.12, 0.30, (2.0, 4.0)));
         assert_eq!(Special::from_manifest(|n| n == "arch"), Some(Special::Arch));
-        assert_eq!(Special::from_manifest(|n| n == "wag"), Some(Special::Wag));
+        assert_eq!(Special::from_manifest(|n| n == "wag"), None, "the dog's wag went with the dog (v0.5.5)");
         assert_eq!(Special::from_manifest(|_| false), None);
-        assert_eq!((Special::Arch.anim_name(), Special::Wag.anim_name()), ("arch", "wag"));
+        assert_eq!(Special::Arch.anim_name(), "arch");
         assert_eq!(Special::from_manifest(|n| n == "neckstretch"), Some(Special::NeckStretch));
         assert_eq!((Special::NeckStretch.anim_name(), Special::NeckStretch.secs()), ("neckstretch", (NECK_STRETCH_SECS, NECK_STRETCH_SECS)));
-        assert!(Special::NeckStretch.replaces_roll() && !Special::Arch.replaces_roll() && !Special::Wag.replaces_roll());
+        assert!(Special::NeckStretch.replaces_roll() && !Special::Arch.replaces_roll());
     }
 
     #[test]

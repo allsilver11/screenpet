@@ -29,7 +29,7 @@ def test_ids_match_the_core_catalog():
 
 
 def test_every_list_has_six_items():
-    assert len(draw_gifts.LINES) == 15
+    assert len(draw_gifts.LINES) == 13  # 곰·꿀벌·강아지는 v0.5.5에서 빠졌다, 펭귄이 왔다
     assert all(len(names) == 6 for names in draw_gifts.LINES.values())
 
 

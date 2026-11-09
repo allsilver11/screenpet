@@ -1,7 +1,7 @@
 """픽셀 스타일의 세계 그림 — 동물 시트(tools/draw_pixel.py)가 아닌 것 전부. 변환이 아니라 칸을 직접 찍는다.
 
-    python tools/draw_pixel_world.py   → ui/house_pixel/  {house,hive,haunted,xmas}_<stage>{.png,_front.png,.json} + xmas_smoke.png
-                                         ui/effects_pixel/ 소품·손 음식·눈덩이(4)·눈사람·눈구름·침·모자·목도리·효과
+    python tools/draw_pixel_world.py   → ui/house_pixel/  {house,haunted,xmas}_<stage>{.png,_front.png,.json} + xmas_smoke.png
+                                         ui/effects_pixel/ 소품·손 음식·눈덩이(4)·눈사람·눈구름·모자·목도리·효과
                                          ui/gifts_pixel/   선물 전부 + _shiny
                                          ui/objects_pixel/ 물건 8 + 똥 3 + 포스트잇
                                          tools/preview/pixel_world_*.png
@@ -10,7 +10,7 @@
   - 동물: 전 종 같은 표시 크기 72/84/96/96/108 px (칸 3 — 코어 style.rs, 동글 stage_size는 곱하지 않는다). 공룡만 칸 수가 적어 60/72/84/84/96 px (pet.json frame_sizes).
   - 집: 그 단계 동물과 같은 칸. 문은 그 단계 시트 한 칸 전체(frame n칸)가 들어가는 넓이 (n+2)×(n+1)라서
     어느 동물이든 줄이지 않고 그대로 앉는다 — 그래서 집은 동글보다 크다 (114/126/144/144/162 px, 동글 70/87/105/128/143).
-  - 밥그릇·꽃·쿠키: 그 단계 칸. 손 음식·선물·물건·눈사람·침: 같은 칸 3 (동글도 크기가 고정이다).
+  - 밥그릇·쿠키: 그 단계 칸. 손 음식·선물·물건·눈사람: 같은 칸 3 (동글도 크기가 고정이다).
 """
 
 import hashlib
@@ -34,10 +34,10 @@ PREVIEW = ROOT / "tools" / "preview"
 STAGE_GRID = {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 3), "adult": (36, 3)}
 # 집 그림 한 변 (칸)
 HOUSE_DOTS = {"baby": 38, "kinder": 42, "child": 48, "teenager": 48, "adult": 54}
-KINDS = ("house", "hive", "haunted", "xmas")
+KINDS = ("house", "haunted", "xmas")
 # 그 집에 사는 동물 (문 크기 확인용)
-RESIDENTS = {"hive": ("bee",), "haunted": ("pumpkin", "ghost"), "xmas": ("rudolph", "santa", "snowman"),
-             "house": ("cat", "persian", "dog", "rabbit", "bear", "frog", "duck", "giraffe", "dino_yellow", "dino_green", "dino_purple", "bird")}
+RESIDENTS = {"haunted": ("pumpkin", "ghost"), "xmas": ("rudolph", "santa", "snowman"),
+             "house": ("cat", "persian", "rabbit", "frog", "duck", "giraffe", "dino_yellow", "dino_green", "dino_purple", "bird", "penguin")}
 GIFT_DOTS = 12
 HAND_DOTS = 12
 PROP_DOTS = (14, 12)
@@ -169,7 +169,6 @@ H_INSIDE, H_FLOOR, H_SHADE = (66, 52, 84), (92, 72, 102), (50, 40, 66)
 GLOW, GLOW_CORE = (255, 186, 84), (255, 234, 150)
 NIGHT = (104, 112, 160)
 STRAW, STRAW_DARK, STRAW_LIGHT = (240, 198, 112), (196, 150, 76), (250, 224, 160)
-HIVE_INSIDE, HIVE_FLOOR, HIVE_SHADE = (102, 68, 46), (140, 96, 50), (82, 54, 38)
 
 
 def door_of(stage, x):
@@ -337,58 +336,6 @@ def draw_house(stage):
     return back, front, d, None
 
 
-# ---------------------------------------------------------------- 벌통
-COMB = ["..YY..YY.", ".YyyYYyyY", ".YyyYYyyY", "..YYYYYY.", "...YyyY..", "...YyyY..", "....YY...", ".....y..."]
-
-
-def draw_hive(stage):
-    H = HOUSE_DOTS[stage]
-    back, front = Dots(H), Dots(H)
-    d = door_of(stage, (H - STAGE_GRID[stage][0] - 2) // 2)
-    cx = H / 2 - 0.5
-    base = H - 3
-    top = 2
-    half = H / 2 - 0.5
-    band = max(3, round((base - top) / ({"baby": 5, "kinder": 6, "child": 7, "teenager": 7, "adult": 8}[stage])))
-    L = Dots(H)
-    L.rect(round(cx) - 2, 1, round(cx) + 2, 3, STRAW)
-    for y in range(top, base + 1):
-        t = (base - y) / (base - top)
-        w = half * (1 - t ** 2.2) ** 0.55
-        x0, x1 = math.floor(cx - w), math.ceil(cx + w)
-        L.rect(x0, y, x1, y, STRAW)
-        row = (y - top) % band
-        if row == band - 1:
-            L.rect(x0, y, x1, y, STRAW_DARK)
-        elif row == 0:
-            L.rect(x0 + 1, y, x1 - 6, y, STRAW_LIGHT)
-        else:
-            offset = (y - top) // band * 3
-            for x in range(x0 + 2 + offset % 7, x1, 7):
-                L.px(x, y, STRAW_DARK)
-    back.add(L)
-    # 받침
-    P = Dots(H)
-    P.rect(0, H - 3, H - 1, H - 1, WOOD)
-    P.rect(1, H - 3, H - 2, H - 3, WOOD_LIGHT)
-    back.add(P)
-    inside(back, d, HIVE_INSIDE, HIVE_FLOOR, HIVE_SHADE)
-    comb = Dots(H)
-    comb.stamp(COMB[:6 if stage in ("baby", "kinder") else 8], round(cx) + 3, max(1, d["y"] - 9))
-    if d["y"] > 8:
-        back.add(comb)
-    # 짚과 이어지는 문틀 (옅은 외곽선) + 크게 둥근 위 모서리 — 네모 차고처럼 보이지 않게. 꿀벌은 날개가 가운데로 모여 모서리에 걸리지 않는다
-    arch = (7, 5, 4, 3, 2, 1, 1)
-    door_front(front, d, frame=STRAW, light=STRAW_LIGHT, sill=WOOD_LIGHT, corner=arch, ink=STRAW_DARK)
-    bands = Dots(H)
-    x0, x1 = d["x"] - 2, d["x"] + d["w"] + 1
-    for y in range(d["y"], d["y"] + d["h"], band):  # 띠가 문틀 위로도 이어진다
-        bands.rect(x0, y, x0 + 1, y, STRAW_DARK)
-        bands.rect(x1 - 1, y, x1, y, STRAW_DARK)
-    front.over(bands)
-    return back, front, d, None
-
-
 # ---------------------------------------------------------------- 귀신의 집
 JACK = [".....g.", "..oooGoo", ".oOooOooo", ".oyOoOyoo", ".oooOoooo", ".oyoyoyoo", "..ooyyoo."]
 BAT = ["V.......V", "VV.V.V.VV", "VVVVVVVVV", ".VVwVwVV.", "...VVV..."]
@@ -542,7 +489,7 @@ def draw_xmas(stage):
     return back, front, d, smoke
 
 
-DRAW = {"house": draw_house, "hive": draw_hive, "haunted": draw_haunted, "xmas": draw_xmas}
+DRAW = {"house": draw_house, "haunted": draw_haunted, "xmas": draw_xmas}
 
 
 def smoke_strip():
@@ -677,9 +624,6 @@ def build_effects():
         save(c, out / (f"snowball_{i}.png" if i < 3 else "snowball.png"))
     save(icon(icons.SNOWMAN, *SNOWMAN_DOTS, bottom=True), out / "snowman.png")
     save(icon(icons.SNOW_CLOUD, *CLOUD_DOTS, ink=(150, 170, 200)), out / "snow_cloud.png")
-    s = Dots(32)
-    s.stamp(icons.art(icons.STING), 0, 0)
-    save(s, out / "sting.png")
 
 
 def build_objects():
@@ -770,7 +714,7 @@ def build_previews():
     grid_preview([scaled(Image.open(p).convert("RGBA"), 4) for p in shiny_list[:24]], 12, (48, 48), PREVIEW / "pixel_world_shiny.png", pad=6)
     e = UI / "effects_pixel"
     props = [scaled(Image.open(e / f"{n}.png").convert("RGBA"), 4) for n in
-             ("bowl_food", "bowl_water", "cookie", "flower", "snowball_0", "snowball_1", "snowball_2", "snowball", "snowman", "snow_cloud", "sting")]
+             ("bowl_food", "bowl_water", "cookie", "snowball_0", "snowball_1", "snowball_2", "snowball", "snowman", "snow_cloud")]
     grid_preview(props, 6, (128, 128), PREVIEW / "pixel_world_props.png")
     hand = sorted(e.glob("hand_*.png"))
     grid_preview([scaled(Image.open(p).convert("RGBA"), 8) for p in hand], 10, (96, 96), PREVIEW / "pixel_world_hand.png")
@@ -817,7 +761,7 @@ def doors_preview():
     """모든 입주자 × 작은·큰 단계 (앉은 모습), 모자·목도리를 쓴 모습."""
     tiles = [scaled(house_with_pet(k, s, pet_cell(pid, s, "sit_front")[2]), STAGE_GRID[s][1]) for k in KINDS for pid in RESIDENTS[k] for s in ("baby", "teenager")]
     grid_preview(tiles, 8, (192, 192), PREVIEW / "pixel_world_doors.png")
-    wear = [scaled(worn(pid, s, a), STAGE_GRID[s][1]) for pid in ("cat", "frog", "bear", "giraffe", "santa") for s in ("baby", "teenager") for a in ("idle",)]
+    wear = [scaled(worn(pid, s, a), STAGE_GRID[s][1]) for pid in ("cat", "frog", "rabbit", "giraffe", "santa") for s in ("baby", "teenager") for a in ("idle",)]
     grid_preview(wear, 5, (224, 224), PREVIEW / "pixel_world_wear.png")
 
 

@@ -4,7 +4,7 @@ use super::control_moves::{ControlInput, CONTROL_IDLE_SECS, JUMP_BODIES, REMOTE_
 use super::tests::{place, sim_cfg, win, world};
 use super::*;
 use crate::test_util::{DT, LoopLimit, idle};
-use super::tests::{sim_bee as bee, sim_frog as frog};
+use super::tests::{sim_flyer as flyer, sim_frog as frog};
 
 
 fn keys(f: impl FnOnce(&mut ControlInput)) -> ControlInput {
@@ -263,7 +263,7 @@ fn non_climbers_jump_at_a_wall_instead_of_climbing() {
 
 #[test]
 fn flyers_move_in_two_dimensions_without_gravity() {
-    let b = bee();
+    let b = flyer();
     let w = world(vec![]);
     let mut p = Pet::new(b, 900.0, 500.0, 5);
     p.state = idle();
@@ -310,7 +310,7 @@ fn driving_into_a_linked_edge_walks_off_and_an_unlinked_one_stops() {
     assert_eq!(gone, Some(Side::Right));
     // 날아다니는 동물도
     let w = world(vec![]);
-    let mut p = Pet::new(bee(), 1700.0, 500.0, 5);
+    let mut p = Pet::new(flyer(), 1700.0, 500.0, 5);
     p.state = idle();
     p.set_control(true);
     p.set_exit_edges(true, false);

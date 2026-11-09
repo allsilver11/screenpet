@@ -3,7 +3,7 @@
 // 대개 sit_front, 가끔(20–40초마다) 10–20초 sleep, 집을 누르면 2초 wave.
 // 먹기·성장 축하·갸웃·하트는 백엔드(pet-render)가 정한 대로 보인다. 집 안에서 자라면 집이 작게 폴짝 뛴다 (말풍선 "I grew up!!"은 백엔드 pet-say,
 // 집 크기는 백엔드가 곧이어 house-state로 바꾼다 — 새 그림을 미리 받아 두었다가 한 번에 바꿔 깜빡이지 않는다).
-// 집은 동물의 단계에 맞는 그림(house/<kind>_<stage>.png — pet.json house: 보통 house, 꿀벌 hive, 호박·유령 haunted,
+// 집은 동물의 단계에 맞는 그림(house/<kind>_<stage>.png — pet.json house: 보통 house, 호박·유령 haunted,
 // 루돌프·산타 xmas — 굴뚝에서 연기가 피어오른다)을
 // 128 × HOUSE_SCALE[stage] 크기로 창 오른쪽 아래에 그린다 (창 크기는 src-tauri/src/house.rs가 같은 배율로 맞춘다).
 const { invoke } = window.__TAURI__.core;
@@ -36,7 +36,7 @@ const FEET_PAD_RATIO = 0.1;
 // 문턱 뒤로 발을 숨기는 깊이 (그림 px, tools/draw_house.py SILL_HIDE와 같은 6)
 const SILL_HIDE = 6;
 
-// 지금 그림 이름 (house_<stage> | hive_<stage> | haunted_<stage> | xmas_<stage>)과 그 문 사각형 (그림 좌표)
+// 지금 그림 이름 (house_<stage> | haunted_<stage> | xmas_<stage>)과 그 문 사각형 (그림 좌표)
 let art = null;
 let door = { x: 30, y: 60, w: 52, h: 62 };
 // 픽셀 집 (house_pixel/, 좌표는 칸): 집 그림 한 변의 칸 수 — 동글이면 0
@@ -68,7 +68,7 @@ function artUnit() {
 }
 
 // 집 종류를 고르는 기준 (src-tauri/src/house.rs house_kind, core manifest house_kind와 같다)
-const HOUSE_KINDS = new Set(["house", "hive", "haunted", "xmas"]);
+const HOUSE_KINDS = new Set(["house", "haunted", "xmas"]);
 
 // pet.json house가 있으면 그 집, 없으면 보통 집
 function houseKind(m) {

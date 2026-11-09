@@ -37,7 +37,7 @@ fn wait_for_play(p: &mut Pet, w: &World, cursor: (f64, f64)) -> bool {
 
 /// 시뮬레이션 설정 + 그 동물의 몸놀림 (pet.json locomotion에 맞춘다)
 fn species_pet(id: &str, seed: u64) -> (Pet, World) {
-    let c = PetConfig { flies: matches!(id, "bee" | "ghost" | "bird"), swift: id == "bird", hops: id == "frog", ..cfg() };
+    let c = PetConfig { flies: matches!(id, "ghost" | "bird"), swift: id == "bird", hops: id == "frog", ..cfg() };
     let (mut p, w) = ready_pet(c, seed);
     p.set_cursor_species(id);
     (p, w)
@@ -224,7 +224,7 @@ fn walkers_stay_on_their_surface_while_approaching() {
     let mut p = Pet::new(cfg(), 800.0, 400.0, 8);
     place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.cursor_mood.ready_at = 0.0;
-    p.set_cursor_species("dog");
+    p.set_cursor_species("duck");
     let cursor = (1250.0, 200.0);
     assert!(wait_for_play(&mut p, &w, cursor));
     let mut limit = LoopLimit::new();
@@ -253,7 +253,7 @@ fn hoppers_bounce_on_the_way_and_flyers_leave_their_perch() {
     }
     assert!(lifted);
 
-    let (mut p, w) = species_pet("bee", 10);
+    let (mut p, w) = species_pet("ghost", 10);
     let cursor = (1000.0, 700.0);
     assert!(wait_for_play(&mut p, &w, cursor));
     assert_eq!(p.standing, None);

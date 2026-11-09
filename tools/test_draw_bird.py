@@ -57,9 +57,9 @@ def test_manifest_is_a_swift_flyer_that_loves_seeds(out):
     assert m["locomotion"] == "fly" and m["swift"] is True
     assert "sting" not in m["animations"] and "house" not in m
     assert {"chirp!", "whoosh!"} <= set(m["speech"]["chatter"])
-    # 꿀벌(62)보다 훨씬 빠르다 — 나는 동물 중 가장 빠름 (코어 brain_swift_tests도 본다)
-    bee = json.loads((ROOT / "ui" / "pets" / "bee" / "pet.json").read_text(encoding="utf-8"))
-    assert m["walk_speed"] >= 1.5 * bee["walk_speed"]
+    # 유령(둥실 떠다니는 나는 동물)보다 훨씬 빠르다 — 나는 동물 중 가장 빠름 (코어 brain_swift_tests도 본다)
+    ghost = json.loads((ROOT / "ui" / "pets" / "ghost" / "pet.json").read_text(encoding="utf-8"))
+    assert m["walk_speed"] >= 1.5 * ghost["walk_speed"]
     assert set(m["stage_size"].values()) == {0.8}
 
 

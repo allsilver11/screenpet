@@ -1,4 +1,4 @@
-//! 밥그릇·물그릇·꽃·쿠키 창 (phase 3 먹이 바꾸기) — 내 동물이 먹을 때 그 앞 바닥에 놓이는 작은 투명 창 하나 (`prop`, prop.html).
+//! 밥그릇·물그릇·쿠키 창 (phase 3 먹이 바꾸기) — 내 동물이 먹을 때 그 앞 바닥에 놓이는 작은 투명 창 하나 (`prop`, prop.html).
 //! 침 자국 창처럼 마우스는 통과하고 항상 위에 있다. 게임 루프가 Pet::take_prop의 PropEvent대로 부른다:
 //! Show = 그 자리에 새로 띄운다 (있던 것은 닫는다), Hide = 흐려지게 한 뒤 닫는다.
 
@@ -22,7 +22,6 @@ fn image(prop: Prop) -> &'static str {
         Prop::FoodBowl => "bowl_food",
         Prop::WaterBowl => "bowl_water",
         Prop::Cookie => "cookie",
-        Prop::Flower => "flower",
     }
 }
 

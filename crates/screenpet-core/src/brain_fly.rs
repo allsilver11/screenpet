@@ -1,15 +1,11 @@
-//! 날아다니는 동물(꿀벌·유령·새, spec 2B §10)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
-//! 비행 수치·경로 계산은 flight.rs, 쏘기 판정은 sting.rs.
+//! 날아다니는 동물(유령·새, spec 2B §10)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 비행 수치·경로 계산은 flight.rs.
 //!
 //! 나는 동물은 `standing`이 None인 채로 날거나 떠 있고(State::Move = 날기, 그 밖의 쉬기·애교 = 제자리에 떠서),
 //! 내려앉았을 때(`standing` = Some)만 디딤판 위 동작(update_ground)을 쓴다. 중력은 받지 않는다.
 
 use super::*;
 use crate::flight::{self, Goal, Loop, Style};
-use crate::sting;
-
-/// 쏘기 시작 때 나는 범위 밖이면 이 속도(1/초)로 범위 안으로 미끄러져 들어온다 ("!" 0.5초 안에 거의 다)
-const STING_EASE: f64 = 12.0;
 
 impl Pet {
     /// 머리 위 여유 (발에서): 바깥은 말풍선 띠까지, 창 안은 몸만
@@ -69,9 +65,6 @@ impl Pet {
             _ => {
                 self.pause_for_hover();
                 self.react_to_tickle();
-                if matches!(self.state, State::Sting { .. }) {
-                    return;
-                }
                 self.update_chatter(dt);
                 if self.standing.is_some() {
                     self.update_perched(dt, world);
@@ -218,7 +211,7 @@ impl Pet {
             return match flight::nearest_perch(world, inside, x, y, self.cfg.half_w, self.fly_head()) {
                 Some(p) => {
                     let (ax, _) = world.anchor(p.owner).expect("surface owner has anchor");
-                    let prop = self.meal_spot.map_or(Prop::for_food(Food::Meal, self.cfg.stings), |s| s.2);
+                    let prop = self.meal_spot.map_or(Prop::for_food(Food::Meal), |s| s.2);
                     self.meal_spot = Some((p.owner, p.x - ax, prop));
                     self.show_prop_on(prop, p.owner, p.x - ax, world);
                     self.start_flight(Goal::Perch { owner: p.owner, rel_x: p.x - ax }, Move::Walk);
@@ -531,7 +524,7 @@ impl Pet {
         self.flight = None;
         self.hover_at = None;
         let b = self.fly_limits(world);
-        let (tx, ty) = flight::clamp(&b, fx, fy + sting::FACE_HEIGHT * self.cfg.size);
+        let (tx, ty) = flight::clamp(&b, fx, fy + food::FLY_MOUTH_HEIGHT * self.cfg.size);
         let (dx, dy) = (tx - self.body.x, ty - self.body.y);
         let dist = dx.hypot(dy);
         if (fx - self.body.x).abs() > 1.0 {
@@ -545,14 +538,13 @@ impl Pet {
     }
 
     /// 받은 먹이의 자리를 정한다: 내려앉아 있으면 바라보는 쪽 앞, 떠 있으면 가장 가까운 자리.
-    /// 그 자리에 꽃(꿀벌만 — 다른 나는 동물은 밥그릇, 물은 물그릇)이 피고, 거기로 날아가 내려앉아 먹는다. 앉을 곳이 없으면 떠서 먹는다
+    /// 그 자리에 밥그릇(물은 물그릇)이 놓이고, 거기로 날아가 내려앉아 먹는다. 앉을 곳이 없으면 떠서 먹는다
     fn fly_to_food(&mut self, world: &World) {
         let Some(trip) = self.food.take() else {
             self.state = self.idle_state();
             return;
         };
-        // 꽃은 꿀벌(쏘는 동물)만 — 유령은 보통 밥그릇
-        let prop = Prop::for_food(trip.food, self.cfg.stings);
+        let prop = Prop::for_food(trip.food);
         let spot = match self.standing {
             Some(st) => world.anchor(st.owner).zip(world.piece_at(st.owner, self.body.x).copied()).map(|((ax, ay), piece)| {
                 let (lo, hi) = (piece.x_start + self.cfg.half_w, piece.x_end - self.cfg.half_w);
@@ -577,79 +569,5 @@ impl Pet {
             self.take_off();
         }
         self.start_flight(Goal::Perch { owner, rel_x }, Move::Walk);
-    }
-
-    /// 지금 쏠 수 있는지: 쏘는 동물, 쿨다운 끝, 하우스·집 가는 길·화면 드나들기 아님
-    pub(super) fn can_sting_now(&self) -> bool {
-        self.cfg.stings
-            && self.clock >= self.sting_ready_at
-            && !self.housed
-            && self.home_trip.is_none()
-            && !self.in_transit()
-            && !matches!(self.state, State::Sting { .. })
-    }
-
-    /// 화나서 쏘기 시작 (들려 있었으면 손에서 빠져나온다)
-    pub(super) fn start_sting(&mut self) {
-        self.sting_ready_at = self.clock + sting::COOLDOWN_SECS;
-        self.pacing.after_beat = None;
-        self.before_press = None;
-        self.flight = None;
-        self.hover_at = None;
-        self.drop_check = false;
-        self.shake.clear();
-        self.pester.clear();
-        self.clear_hover();
-        self.body.vx = 0.0;
-        self.body.vy = 0.0;
-        self.state = State::Sting { phase: StingPhase::Alert, remaining: StingPhase::Alert.secs() };
-    }
-
-    /// 쏘기: 제자리에서 (앉아 있으면 앉은 자리를 따라가며) 국면을 넘긴다. 돌진이 끝나는 순간 콕! — 얼굴 위치를 앱에 알린다
-    pub(super) fn update_sting(&mut self, dt: f64, world: &World, phase: StingPhase, remaining: f64) {
-        if self.standing.is_some() && !self.follow_anchor(world) {
-            self.standing = None;
-        }
-        if self.standing.is_none() {
-            // 떠 있으면 살랑이지 않고 그 자리에 멈춰 노려본다. 나는 범위 밖(흔들다 놓친 자리)이면 부드럽게 들어온다
-            let b = self.fly_limits(world);
-            let (tx, ty) = flight::clamp(&b, self.body.x, self.body.y);
-            let k = 1.0 - (-STING_EASE * dt).exp();
-            let ease = |from: f64, to: f64| if (to - from).abs() < 0.5 { to } else { from + (to - from) * k };
-            self.body = Body { x: ease(self.body.x, tx), y: ease(self.body.y, ty), vx: 0.0, vy: 0.0 };
-        }
-        let remaining = remaining - dt;
-        if remaining > 0.0 {
-            self.state = State::Sting { phase, remaining };
-            return;
-        }
-        match phase.next() {
-            Some(next) => {
-                match phase {
-                    StingPhase::Dash => {
-                        self.sting_at = Some(sting::face_point(self.body.x, self.body.y, self.cfg.size));
-                        self.speech = Some(Speech::Sting);
-                    }
-                    StingPhase::Stuck => self.speech = Some(Speech::Grumpy),
-                    _ => {}
-                }
-                self.state = State::Sting { phase: next, remaining: next.secs() };
-            }
-            None => {
-                self.hover_at = None;
-                self.state = self.move_state(true, world);
-            }
-        }
-    }
-
-    /// 들고 흔드는 중: 1초 안에 600px 넘게 흔들리면 쏘면서 손에서 빠져나온다
-    pub(super) fn shake_check(&mut self, cx: f64, cy: f64) {
-        if !self.cfg.stings {
-            return;
-        }
-        self.shake.push(self.clock, cx, cy);
-        if self.shake.shaken() && self.can_sting_now() {
-            self.start_sting();
-        }
     }
 }

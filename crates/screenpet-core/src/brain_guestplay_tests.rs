@@ -246,7 +246,7 @@ fn grabbing_the_runner_ends_the_run() {
 #[test]
 fn flying_guest_flies_away_within_its_limits() {
     let w = world(vec![]);
-    let cfg = PetConfig { flies: true, stings: true, walk_speed: 70.0, ..sim_cfg() };
+    let cfg = PetConfig { flies: true, walk_speed: 70.0, ..sim_cfg() };
     let mut p = None;
     for seed in 1..200 {
         let mut q = Pet::new(cfg.clone(), 0.0, 0.0, seed);

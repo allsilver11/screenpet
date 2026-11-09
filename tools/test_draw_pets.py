@@ -10,20 +10,19 @@ from sprite_spec import ANIMS, FRAME, HIRES_TEENAGER, NO_SPIN, OPTIONAL_ANIMS, R
 
 STANDING = {"walk", "run", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
             "hungry", "eat", "level_up", "huff", "lookup"}
-SPECIES_IDS = ("cat", "dog", "rabbit", "bear", "bee")
-# 꿀벌은 날아다녀서 떠 있는 동작이 많다 — 바닥에 내려앉는 동작만 발이 닿는지 본다
-BEE_GROUNDED = {"sleep", "annoyed", "land"}  # eat: 꽃(앱 소품) 위에 낮게 떠서 마신다
+SPECIES_IDS = ("cat", "rabbit")
+GONE = ("bear", "bee", "dog")  # v0.5.5에서 빠진 동물
 
 
 def grounded(pid, anim):
-    return anim in (BEE_GROUNDED if pid == "bee" else STANDING)
+    return anim in STANDING
 # 전체 검사는 대표 단계만 (5단계 모두는 너무 오래 걸린다) — 다른 단계는 test_stage_sheets_and_manifest가 파일 존재를 본다
 CHECK_STAGES = ("baby", "teenager", "adult")
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory):
-    """한 파일이 한 번만, 이 파일이 보는 다섯 종만 그린다 (한 종에 1분쯤 걸린다, 나머지는 test_draw_<종>.py가 그린다). 테스트는 읽기만 한다."""
+    """한 파일이 한 번만, 이 파일이 보는 종만 그린다 (한 종에 1분쯤 걸린다, 나머지는 test_draw_<종>.py가 그린다). 테스트는 읽기만 한다."""
     root = tmp_path_factory.mktemp("pets")
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(draw_pets, "SPECIES", {pid: draw_pets.SPECIES[pid] for pid in SPECIES_IDS})
@@ -46,7 +45,7 @@ def test_every_species_every_animation(built):
     for pid in SPECIES_IDS:
         for st in CHECK_STAGES:
             sheet = sheet_128(built / pid / f"sheet_{st}.png")
-            # 필수 21행 + 그 종의 선택 동작 행 (고양이 arch·huff·climb·slide, 강아지 wag, 곰 climb·slide)
+            # 필수 21행 + 그 종의 선택 동작 행 (고양이 arch·huff·climb·slide)
             rows = list(ANIMS) + [o for o in OPTIONAL_ANIMS if o[0] in draw_pets.SPECIES[pid].specials]
             assert sheet.height == FRAME * len(rows)
             for row, (anim, n, *_) in enumerate(rows):
@@ -60,17 +59,28 @@ def test_every_species_every_animation(built):
                         assert bbox[3] >= 118, f"{pid} {st} {anim} {col} floats (bottom {bbox[3]})"
 
 
-def test_only_cat_has_arch_and_huff_and_only_dog_has_wag(built):
+def test_bear_bee_and_dog_are_gone():
+    """곰·꿀벌·강아지는 v0.5.5에서 빠졌다: 그리지 않고, 대사·성격·좋아하는 음식·움직임·집 표에도 없고, 시트도 들어 있지 않다.
+    그 동물만 쓰던 동작(wag 살랑, sting 쏘기)도 없다."""
+    import sprite_spec
+    root = Path(__file__).resolve().parent.parent / "ui"
+    for pid in GONE:
+        assert pid not in draw_pets.SPECIES, pid
+        for table in (sprite_spec.SPEECH, sprite_spec.PERSONALITY, sprite_spec.FAVORITE_FOOD, sprite_spec.LOCOMOTION, sprite_spec.HOUSE):
+            assert pid not in table, pid
+        assert not (root / "pets" / pid).exists() and not (root / "pets_pixel" / pid).exists(), pid
+    assert not {"wag", "sting"} & {a for a, *_ in OPTIONAL_ANIMS}
+    for sp in draw_pets.SPECIES.values():
+        assert not {"wag", "sting"} & set(sp.specials), sp.id
+
+
+def test_only_cat_has_arch_and_huff(built):
     import json
     for pid in SPECIES_IDS:
         m = json.loads((built / pid / "pet.json").read_text(encoding="utf-8"))
         assert ("arch" in m["animations"]) == (pid == "cat"), pid
         assert ("huff" in m["animations"]) == (pid == "cat"), pid
-        assert ("wag" in m["animations"]) == (pid == "dog"), pid
-        assert m.get("personality") == {"cat": "aloof", "bee": "friendly"}.get(pid), pid
-    m = json.loads((built / "dog" / "pet.json").read_text(encoding="utf-8"))
-    assert m["animations"]["wag"]["row"] == len(ANIMS)
-    assert m["animations"]["wag"]["front"] is True
+        assert m.get("personality") == {"cat": "aloof"}.get(pid), pid
     m = json.loads((built / "cat" / "pet.json").read_text(encoding="utf-8"))
     assert m["animations"]["arch"]["row"] == len(ANIMS)
     assert m["animations"]["huff"] == {"row": len(ANIMS) + 1, "frames": 3, "fps": 4, "front": True}
@@ -109,8 +119,7 @@ def test_stage_sheets_and_manifest(built):
         assert list(m["stage_size"]) == STAGES, pid
         assert m.get("hop_share") == (0.5 if pid == "rabbit" else None), pid
     size = {pid: json.loads((built / pid / "pet.json").read_text(encoding="utf-8"))["stage_size"] for pid in SPECIES_IDS}
-    # "동물이 너무 크다"는 피드백: 예전 곰 단계별 배율(더 크게 요청)과 v0.3.10의 꿀벌 1.1을 되돌렸다
-    want = {"bear": 0.89, "rabbit": 0.85, "cat": 0.91, "dog": 0.94, "bee": 0.8}
+    want = {"rabbit": 0.85, "cat": 0.91}
     for pid, v in want.items():
         assert all(x == v for x in size[pid].values()), pid
 
@@ -126,9 +135,9 @@ def test_rabbit_manifest_keeps_hop_share():
 
 
 def test_manifest_house_kind():
-    """꿀벌은 벌통, 호박·유령은 귀신의 집 (pet.json house) — 다시 그려도 칸이 남고, 들어 있는 pet.json과 같다. 보통 집은 적지 않는다."""
+    """호박·유령은 귀신의 집 (pet.json house) — 다시 그려도 칸이 남고, 들어 있는 pet.json과 같다. 보통 집은 적지 않는다."""
     import json
-    want = {"bee": "hive", "pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
+    want = {"pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
     pets = Path(__file__).resolve().parent.parent / "ui" / "pets"
     for d in sorted(p for p in pets.iterdir() if (p / "pet.json").is_file()):
         assert draw_pets.species_fields(d.name, {}).get("house") == want.get(d.name), d.name
@@ -152,22 +161,20 @@ def test_baby_head_is_relatively_bigger_than_adult(built):
     assert head_ratio("baby") > head_ratio("teenager") > head_ratio("adult")
 
 
-def test_only_cat_and_bear_have_climb_and_slide(built):
+def test_only_cat_has_climb_and_slide(built):
     import json
     for pid in SPECIES_IDS:
         m = json.loads((built / pid / "pet.json").read_text(encoding="utf-8"))
         for anim in ("climb", "slide"):
-            assert (anim in m["animations"]) == (pid in ("cat", "bear")), (pid, anim)
+            assert (anim in m["animations"]) == (pid == "cat"), (pid, anim)
     cat = json.loads((built / "cat" / "pet.json").read_text(encoding="utf-8"))["animations"]
-    bear = json.loads((built / "bear" / "pet.json").read_text(encoding="utf-8"))["animations"]
     assert cat["climb"] == {"row": len(ANIMS) + 2, "frames": 4, "fps": 6}  # 뒷모습: front 아님 (앱은 반전하지 않음 — Task 4b)
     assert cat["slide"] == {"row": len(ANIMS) + 3, "frames": 2, "fps": 8}
-    assert bear["climb"]["row"] == len(ANIMS) and bear["slide"]["row"] == len(ANIMS) + 1
 
 
 def test_climb_and_slide_fit_cell_in_every_stage(built):
     from sprite_spec import STAGES
-    for pid in ("cat", "bear"):
+    for pid in ("cat",):
         names = [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES[pid])]
         for st in STAGES:
             sheet = sheet_128(built / pid / f"sheet_{st}.png")
@@ -199,67 +206,17 @@ def test_baby_eyes_are_relatively_bigger_than_adult(built):
         assert eye_ratio(pid, "baby") > 1.5 * eye_ratio(pid, "adult"), pid
 
 
-def test_bee_flies_and_only_bee_has_sting(built):
-    import json
-    for pid in SPECIES_IDS:
-        m = json.loads((built / pid / "pet.json").read_text(encoding="utf-8"))
-        assert ("sting" in m["animations"]) == (pid == "bee"), pid
-        assert m.get("locomotion") == ("fly" if pid == "bee" else None), pid
-    m = json.loads((built / "bee" / "pet.json").read_text(encoding="utf-8"))
-    assert m["name"] == "꿀벌" and m["walk_speed"] == 62
-    assert m["animations"]["sting"] == {"row": len(ANIMS), "frames": 3, "fps": 8, "loop": False, "front": True}
-    assert all(a in m["animations"] for a, *_ in ANIMS)
-    assert m["speech"]["chatter"] == ["bzz~", "♪"] and "sting" not in m["speech"]
-    assert m["favorite_food"] == {"emoji": "🌸", "name": "꽃꿀"}
-    sheet = sheet_128(built / "bee" / "sheet_teenager.png")
-    assert sheet.height == FRAME * (len(ANIMS) + 2)  # sting, lookup
-
-
-def test_bee_hovers_above_the_ground_when_flying(built):
-    """떠 있는 꿀벌: walk·idle·sit_front는 바닥(y 127)에서 떨어져 있다 (날고 있는 게 보인다)."""
-    names = [a for a, *_ in draw_pets.rows_for(draw_pets.SPECIES["bee"])]
-    sheet = sheet_128(built / "bee" / "sheet_teenager.png")
-    for anim in ("walk", "idle", "sit_front"):
-        row = names.index(anim)
-        bbox = sheet.crop((0, row * FRAME, FRAME, (row + 1) * FRAME)).getchannel("A").getbbox()
-        assert bbox[3] <= 116, (anim, bbox)
-
-
-def test_bee_wings_are_translucent(built):
-    """날개는 반투명 층: walk 첫 장에 반투명(알파 60~200) 픽셀이 많다."""
-    cell = sheet_128(built / "bee" / "sheet_teenager.png").crop((0, 0, FRAME, FRAME))
-    semi = sum(cell.getchannel("A").histogram()[60:201])
-    assert semi > 150, semi
-
-
-def test_sting_effect_is_a_centered_stinger_with_cracks():
-    img = draw_pets.sting_effect()
-    assert img.size == (FRAME, FRAME) and img.mode == "RGBA"
-    a = img.getchannel("A")
-    for p in ((0, 0), (FRAME - 1, 0), (0, FRAME - 1), (FRAME - 1, FRAME - 1)):
-        assert a.getpixel(p) == 0
-    bbox = a.getbbox()
-    assert bbox[0] >= 1 and bbox[1] >= 1 and bbox[2] <= FRAME - 1 and bbox[3] <= FRAME - 1, bbox
-    # 가운데 근처에 짙은 침 끝
-    px = img.load()
-    dark = [(x, y) for y in range(54, 70) for x in range(50, 68) if px[x, y][3] > 200 and sum(px[x, y][:3]) < 330]
-    assert len(dark) > 15, len(dark)
-    # 가운데에서 먼 곳(반지름 30 밖)까지 뻗은 금
-    far = sum(1 for y in range(FRAME) for x in range(FRAME) if px[x, y][3] > 100 and (x - 64) ** 2 + (y - 64) ** 2 > 30 ** 2)
-    assert far > 60, far
-
-
 def test_back_view_paws_are_drawn_behind_the_head(monkeypatch):
     """뒷모습 climb·slide: 앞발은 벽 쪽 — 머리·몸보다 먼저(뒤에) 그려서 발끝만 머리 옆·위로 빼꼼 보인다."""
     from sprite_spec import STAGES
     orders = record_draw_order(monkeypatch, [(draw_pets, "back_arm", "arm"), (draw_pets, "back_head", "head")])
-    for pid in ("cat", "bear"):
+    for pid in ("cat",):
         sp = draw_pets.SPECIES[pid]
         for st in (STAGES[0], STAGES[-1]):
             with draw_pets.stage(st, sp.stage_tweak.get(st)):
                 draw_pets.frames(draw_pets.staged_species(sp), "climb", 1)
                 draw_pets.frames(draw_pets.staged_species(sp), "slide", 1)
-    assert len(orders) == 8
+    assert len(orders) == 4
     for order in orders:
         assert order.count("arm") == 2 and order.index("head") > max(i for i, t in enumerate(order) if t == "arm"), order
 
@@ -268,13 +225,13 @@ def test_back_view_feet_are_drawn_behind_the_body(monkeypatch):
     """뒷모습은 벽을 보고 있다: 다리·발은 몸보다 먼저(뒤에) 그려서 엉덩이를 가리지 않는다. 꼬리는 몸 위."""
     from sprite_spec import STAGES
     orders = record_draw_order(monkeypatch, [(draw_pets, "back_leg", "leg"), (draw_pets, "back_body", "body"), (draw_pets, "back_tail", "tail")])
-    for pid in ("cat", "bear"):
+    for pid in ("cat",):
         sp = draw_pets.SPECIES[pid]
         for st in STAGES:
             with draw_pets.stage(st, sp.stage_tweak.get(st)):
                 draw_pets.frames(draw_pets.staged_species(sp), "climb", 4)
                 draw_pets.frames(draw_pets.staged_species(sp), "slide", 2)
-    assert len(orders) == 2 * len(STAGES) * 6
+    assert len(orders) == len(STAGES) * 6
     for order in orders:
         assert order.count("leg") == 2 and max(i for i, t in enumerate(order) if t == "leg") < order.index("body") < order.index("tail"), order
 
@@ -286,7 +243,7 @@ def _near(px, c, tol=40):
 def test_back_view_shows_no_soles_on_the_rump():
     """시각 의도: 엉덩이 위에 발바닥 젤리가 없다 (아래쪽 절반에 분홍 픽셀이 거의 없다)."""
     from sprite_spec import STAGES
-    for pid in ("cat", "bear"):
+    for pid in ("cat",):
         sp = draw_pets.SPECIES[pid]
         for st in STAGES:
             with draw_pets.stage(st, sp.stage_tweak.get(st)):
@@ -298,15 +255,8 @@ def test_back_view_shows_no_soles_on_the_rump():
 
 def test_climb_feet_only_peek_and_take_turns(monkeypatch):
     from sprite_spec import STAGES
-    for pid in ("cat", "bear"):
+    for pid in ("cat",):
         assert_feet_only_peek(monkeypatch, draw_pets.SPECIES[pid], draw_pets, "back_leg", lambda s, *a, **k: draw_pets.Part([], s.base), STAGES)
-
-
-def test_bear_is_a_deeper_brown_with_bigger_ears():
-    assert sum(draw_pets.BEAR.base) < sum((190, 132, 90))
-    assert draw_pets.BEAR.outline is not None and sum(draw_pets.BEAR.outline) < sum(draw_pets.BEAR.base)
-    for st in ("baby", "teenager", "adult"):
-        assert draw_pets.BEAR.stage_tweak[st]["ear"] > draw_pets.STAGE_PROPS[st]["ear"] * 1.1
 
 
 def _eat_cell(tmp_path, pid, st, col):
@@ -318,7 +268,7 @@ def _eat_cell(tmp_path, pid, st, col):
 def test_eat_mouth_meets_the_real_bowl(built):
     """그릇은 앱의 소품 창 (프레임 x 36–92, 밥 더미 위 y ≈ 82): 먹는 입(벌린 입 속 색)이 그 바로 위 가운데에 온다 — 모든 단계."""
     from sprite_spec import STAGES
-    for pid in ("cat", "dog", "rabbit", "bear"):
+    for pid in SPECIES_IDS:
         for st in STAGES:
             px = _eat_cell(built, pid, st, 0).load()
             mr, mg, mb = draw_pets.MOUTH_IN
@@ -330,8 +280,8 @@ def test_eat_mouth_meets_the_real_bowl(built):
             assert 54 <= min(xs) and max(xs) <= 74, (pid, st, min(xs), max(xs))
 
 
-def test_eat_draws_no_bowl_or_flower(built):
-    """그릇·꽃은 앱이 따로 띄운다 — 먹는 프레임에 초록 줄기·잎이나 그릇 테두리 색이 없다.
+def test_eat_draws_no_bowl(built):
+    """그릇은 앱이 따로 띄운다 — 먹는 프레임에 초록 줄기·잎이나 그릇 테두리 색이 없다.
     개구리는 몸이 초록이라 여기서 빼고 test_draw_frog.py(eat에 밥그릇 없음)가 따로 본다."""
     assert "frog" in draw_pets.SPECIES
     for pid in (p for p in SPECIES_IDS if p != "frog"):
@@ -341,18 +291,7 @@ def test_eat_draws_no_bowl_or_flower(built):
                 green = sum(1 for y in range(FRAME) for x in range(FRAME)
                             if px[x, y][3] > 200 and px[x, y][1] > px[x, y][0] + 30 and px[x, y][1] > px[x, y][2] + 30)
                 assert green == 0, (pid, st, col, green)
-            assert_eat_has_no_bowl(built / pid / f"sheet_{st}.png", draw_pets.SPECIES[pid], most=(60 if pid == "bee" else 25))
-
-
-def test_bee_sips_with_a_thick_straw_into_the_flower(built):
-    """꿀벌 eat: 입에서 꽃술(64, 100) 쪽으로 내려가는 꿀색 빨대가 아기 크기에서도 굵게 보인다."""
-    for st in ("baby", "teenager"):
-        px = _eat_cell(built, "bee", st, 0).load()
-        straw = [(x, y) for y in range(84, 99) for x in range(58, 72)
-                 if px[x, y][3] > 200 and px[x, y][0] > 200 and 120 <= px[x, y][1] <= 165 and px[x, y][2] < 90]
-        assert len(straw) >= 18, (st, len(straw))
-        rows = {y for _, y in straw}
-        assert max(rows) - min(rows) >= 8, (st, sorted(rows))
+            assert_eat_has_no_bowl(built / pid / f"sheet_{st}.png", draw_pets.SPECIES[pid], most=25)
 
 
 def test_every_species_looks_up():
@@ -360,12 +299,12 @@ def test_every_species_looks_up():
     마지막 장에만 ✧ (프레임 위쪽 오른편에 노란 별)."""
     from sprite_spec import manifest
     names = [o[0] for o in OPTIONAL_ANIMS]
-    assert names[:9] == ["arch", "wag", "huff", "climb", "slide", "sting", "bigjump", "neckstretch", "lookup"]  # = Rust manifest::OPTIONAL_ANIMS
-    assert OPTIONAL_ANIMS[8][1:] == (3, 3, True, False)
+    assert names[:7] == ["arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup"]  # = Rust manifest::OPTIONAL_ANIMS
+    assert OPTIONAL_ANIMS[6][1:] == (3, 3, True, False)
     for pid, sp in draw_pets.SPECIES.items():
         assert "lookup" in sp.specials, pid
         rows = draw_pets.rows_for(sp)
-        assert [a for a, *_ in rows if a in names[:9]][-1] == "lookup", pid  # 지금까지의 선택 동작 중 맨 뒤 (뒤에 더한 동작은 그 뒤)
+        assert [a for a, *_ in rows if a in names[:7]][-1] == "lookup", pid  # 지금까지의 선택 동작 중 맨 뒤 (뒤에 더한 동작은 그 뒤)
         fr = draw_pets.render_species(sp, "teenager")
         assert len(fr["lookup"]) == 3, pid
         for im in fr["lookup"]:
@@ -394,7 +333,7 @@ def _shipped():
 def test_hires_stages_follow_the_on_screen_size():
     """청소년 때 이미 128보다 크게 보이는 동물(stage_size >= 1)만 청소년도 2배, 어른은 모두 2배."""
     shipped = _shipped()
-    assert len(shipped) == 18
+    assert len(shipped) == 16  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1
     assert {pid for pid, m, _ in shipped if m["stage_size"]["teenager"] >= 1} == HIRES_TEENAGER
     for pid, m, _ in shipped:
         assert m["frame_size"] == FRAME

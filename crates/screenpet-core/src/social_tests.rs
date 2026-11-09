@@ -19,8 +19,8 @@ fn friendly() -> PetConfig {
     cfg(Personality::Friendly)
 }
 
-fn bee() -> PetConfig {
-    PetConfig { flies: true, stings: true, ..friendly() }
+fn flyer() -> PetConfig {
+    PetConfig { flies: true, ..friendly() }
 }
 
 fn frog() -> PetConfig {
@@ -48,7 +48,7 @@ fn pet_on(w: &World, c: PetConfig, owner: Owner, x: f64, seed: u64) -> Pet {
 
 /// 떠 있는 꿀벌
 fn bee_at(x: f64, y: f64, seed: u64) -> Pet {
-    let mut p = Pet::new(bee(), x, y, seed);
+    let mut p = Pet::new(flyer(), x, y, seed);
     p.standing = None;
     p.body = Body { x, y, vx: 0.0, vy: 0.0 };
     p.state = idle();

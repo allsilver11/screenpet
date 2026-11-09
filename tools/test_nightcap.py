@@ -212,7 +212,7 @@ def harness(pid, st="teenager"):
 
 
 @needs_node
-@pytest.mark.parametrize("pid", ["dino_green", "cat", "bee", "snowman"])
+@pytest.mark.parametrize("pid", ["dino_green", "cat", "bird", "snowman"])
 def test_cap_moves_as_one_with_the_body(pid):
     r = harness(pid)
     base = r["base"]

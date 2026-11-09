@@ -21,7 +21,6 @@ pub(crate) fn pet_cfg() -> PetConfig {
         personality: Personality::Friendly,
         can_climb: false,
         flies: false,
-        stings: false,
         swift: false,
         hops: false,
         hop_share: 0.0,
@@ -31,9 +30,9 @@ pub(crate) fn pet_cfg() -> PetConfig {
     }
 }
 
-/// 나는 꿀벌
-pub(crate) fn bee() -> PetConfig {
-    PetConfig { flies: true, stings: true, ..pet_cfg() }
+/// 나는 동물 (테스트 설정)
+pub(crate) fn flyer() -> PetConfig {
+    PetConfig { flies: true, ..pet_cfg() }
 }
 
 /// 한참 쉬는 중

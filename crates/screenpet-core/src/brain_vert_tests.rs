@@ -4,7 +4,7 @@ use super::tests::{cfg, place, w1, world, thrown_at};
 use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::visit::Fling;
-use crate::test_util::{DT, bee, idle};
+use crate::test_util::{DT, flyer, idle};
 
 
 fn frog() -> PetConfig {
@@ -145,7 +145,7 @@ fn dive_hops_whees_and_sinks_out_of_the_bottom() {
 fn flyers_fly_straight_up_or_down_and_out() {
     let w = world(vec![]);
     for (side, seed) in [(Side::Up, 1), (Side::Down, 2)] {
-        let mut b = Pet::new(bee(), 900.0, 500.0, seed);
+        let mut b = Pet::new(flyer(), 900.0, 500.0, seed);
         b.state = b.vertical_exit(side);
         let (out, lo, hi) = exit_within(&mut b, &w, 600);
         assert_eq!(out, Some(side));
@@ -199,7 +199,7 @@ fn thrown_flyers_cross_up_and_down_too() {
     let w = world(vec![]);
     // 공기 저항으로 금방 느려지니 (던진 속도 / DRAG 만큼 간다) 끝 가까이에서
     for (y, vy, side) in [(500.0, -1500.0, Side::Up), (800.0, 1500.0, Side::Down)] {
-        let mut b = Pet::new(bee(), 900.0, y, 1);
+        let mut b = Pet::new(flyer(), 900.0, y, 1);
         b.state = State::Air { anim: Anim::Fall };
         b.body = Body { x: 900.0, y, vx: 0.0, vy };
         b.thrown = true;
@@ -263,7 +263,7 @@ fn arriving_from_below_pops_up_with_a_boing_and_lands() {
 fn flyers_drift_in_from_above_or_below() {
     let w = world(vec![]);
     for side in [Side::Up, Side::Down] {
-        let mut b = Pet::new_entering(bee(), &w, side, 7);
+        let mut b = Pet::new_entering(flyer(), &w, side, 7);
         for _ in 0..600 {
             b.update(DT, &w);
             if !matches!(b.state, State::Enter { .. }) {
@@ -557,7 +557,7 @@ fn arriving_after_a_throw_does_not_count_as_a_throw_down_again() {
 fn thrown_flyers_cross_down_by_aim_though_drag_slows_them() {
     let w = world(vec![]);
     let fly = |x: f64, y: f64, v: (f64, f64)| {
-        let mut b = Pet::new(bee(), x, y, 1);
+        let mut b = Pet::new(flyer(), x, y, 1);
         b.state = State::Air { anim: Anim::Fall };
         b.body.x = x;
         b.body.y = y;
@@ -583,7 +583,7 @@ fn thrown_flyers_cross_down_by_aim_though_drag_slows_them() {
     assert_eq!(fly(300.0, 940.0, (1500.0, 0.0)), None);
     // 작업표시줄 있는 모니터 바닥도 (합친 화면 바닥보다 위)
     let dual = taskbar_and_bare();
-    let mut b = thrown_at(bee(), 900.0, 900.0, 0.0, 1500.0);
+    let mut b = thrown_at(flyer(), 900.0, 900.0, 0.0, 1500.0);
     b.set_vertical_edges(false, true);
     assert_eq!(exit_within(&mut b, &dual, 120).0, Some(Side::Down));
 }

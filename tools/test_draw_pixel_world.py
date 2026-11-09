@@ -116,7 +116,7 @@ def round_names(folder):
 
 def test_every_round_gift_has_a_pixel_gift_and_shiny():
     names = round_names("gifts")
-    assert len(names) == 180
+    assert len(names) == 156  # v0.5.5: 곰·꿀벌·강아지 선물 −36, 펭귄 +12
     assert round_names("gifts_pixel") == names
     for n in names:
         p = UI / "gifts_pixel" / f"{n}.png"
@@ -148,8 +148,8 @@ def test_every_round_effect_has_a_pixel_effect():
         assert (UI / "effects_pixel" / f"{n}.png").is_file(), n
 
 
-@pytest.mark.parametrize("name,size", [("bowl_food", w.PROP_DOTS), ("flower", w.PROP_DOTS), ("hand_special", (12, 12)),
-                                       ("snowman", w.SNOWMAN_DOTS), ("snowball", w.SNOWBALL_DOTS), ("snow_cloud", w.CLOUD_DOTS), ("sting", (32, 32))])
+@pytest.mark.parametrize("name,size", [("bowl_food", w.PROP_DOTS), ("cookie", w.PROP_DOTS), ("hand_special", (12, 12)),
+                                       ("snowman", w.SNOWMAN_DOTS), ("snowball", w.SNOWBALL_DOTS), ("snow_cloud", w.CLOUD_DOTS)])
 def test_effect_sizes_are_the_round_window_at_four_px_a_dot(name, size):
     assert Image.open(UI / "effects_pixel" / f"{name}.png").size == tuple(size)
 
@@ -174,7 +174,7 @@ def test_every_outlined_icon_leaves_room_for_its_outline(name, text, cw, ch, bot
     assert x >= 1 and x + aw <= cw - 1 and y >= 1 and y + len(rows) <= ch - 1, (x, y, aw, len(rows))
 
 
-@pytest.mark.parametrize("name,ink", [("snowman", w.INK), ("flower", w.INK), ("snow_cloud", (150, 170, 200))])
+@pytest.mark.parametrize("name,ink", [("snowman", w.INK), ("snow_cloud", (150, 170, 200))])
 def test_the_shipped_icon_has_a_closed_top_outline(name, ink):
     a = np.asarray(Image.open(UI / "effects_pixel" / f"{name}.png").convert("RGBA"))
     ys, xs = np.nonzero(a[..., 3])
@@ -241,7 +241,6 @@ def test_ui_wires_every_pixel_folder_and_keeps_round_paths():
     assert "gifts_pixel" in (UI / "book.js").read_text(encoding="utf-8")
     assert "objects_pixel" in (UI / "object.js").read_text(encoding="utf-8")
     assert "effects_pixel" in (UI / "prop.js").read_text(encoding="utf-8")
-    assert "effects_pixel" in (UI / "sting.js").read_text(encoding="utf-8")
     assert "effects_pixel" in (UI / "style.css").read_text(encoding="utf-8")
     assert "art-style" in (UI / "weather.js").read_text(encoding="utf-8")
     for f in ("prop.html", "gift.html", "object.html"):
@@ -261,7 +260,7 @@ def main_in_pixel_mode(pid, stage="teenager"):
     return node_json(tools / "nightcap_harness.js", pid, stage, "pixel")
 
 
-@pytest.mark.parametrize("pid", ["cat", "bear"])
+@pytest.mark.parametrize("pid", ["cat", "frog"])
 def test_main_window_wears_the_pixel_cap_on_whole_dots(pid):
     r = main_in_pixel_mode(pid)
     assert r["base"]["capHidden"] and not r["base"]["capPxHidden"], "SVG 대신 칸 모자"
@@ -411,7 +410,7 @@ def _worst_fit(table_name):
 
 
 def test_every_species_has_a_pixel_sheet_now():
-    assert len(_pixel_ids()) == 18
+    assert len(_pixel_ids()) == 16  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1
 
 
 def test_nightcap_table_fits_every_pixel_frame():

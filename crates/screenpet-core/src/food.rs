@@ -21,18 +21,14 @@ pub enum Prop {
     WaterBowl,
     /// 간식 — 입가에 잠깐
     Cookie,
-    /// 꿀벌의 밥 — 바닥에 피어난 작은 꽃
-    Flower,
 }
 
 impl Prop {
-    /// 이 음식을 먹을 때 놓이는 소품 (꿀벌은 밥 대신 꽃 — `flower`는 꿀벌만: PetConfig::stings.
-    /// 유령처럼 날기만 하는 동물은 보통 밥그릇)
-    pub fn for_food(food: Food, flower: bool) -> Prop {
+    /// 이 음식을 먹을 때 놓이는 소품 (나는 동물도 보통 밥그릇)
+    pub fn for_food(food: Food) -> Prop {
         match food {
             Food::Snack => Prop::Cookie,
             Food::Water => Prop::WaterBowl,
-            Food::Meal | Food::Favorite | Food::Special if flower => Prop::Flower,
             Food::Meal | Food::Favorite | Food::Special => Prop::FoodBowl,
         }
     }
@@ -54,7 +50,7 @@ pub enum FeedMode {
     /// 직접 주기 — 커서 끝의 음식을 동물 입에 갖다 댄다
     #[default]
     Hand,
-    /// 자동 주기 — 그릇(꿀벌은 꽃)이 놓이고 동물이 가서 먹는다
+    /// 자동 주기 — 그릇이 놓이고 동물이 가서 먹는다
     Auto,
 }
 
@@ -67,8 +63,10 @@ impl FeedMode {
 
 /// 손에 든 음식이 이만큼(몸 크기 비율) 입 가까이 오면 받아먹는다
 pub const HAND_REACH: f64 = 0.35;
-/// 입 높이 (발에서 몸 크기의 이 비율 위) — 걷는 동물 (나는 동물은 sting::FACE_HEIGHT)
+/// 입 높이 (발에서 몸 크기의 이 비율 위) — 걷는 동물 (나는 동물은 FLY_MOUTH_HEIGHT)
 pub const MOUTH_HEIGHT: f64 = 0.45;
+/// 나는 동물의 입(얼굴) 높이 — 떠 있는 몸은 발 위로 더 높다
+pub const FLY_MOUTH_HEIGHT: f64 = 0.55;
 /// 손에 든 음식을 이 시간(초)이 지나면 저절로 거둔다
 pub const HAND_TIMEOUT_SECS: f64 = 30.0;
 /// 음식 그림 가운데가 커서 끝에서 오른쪽 아래로 이만큼 (논리 px) — 손에 쥔 것처럼
@@ -84,10 +82,7 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
         Food::Favorite => match pet_id {
             "cat" => "hand_fish",
             "persian" => "hand_milk",
-            "dog" => "hand_bone",
             "rabbit" => "hand_carrot",
-            "bear" => "hand_honey",
-            "bee" => "hand_nectar",
             "frog" => "hand_fly",
             "pumpkin" => "hand_candy",
             "ghost" => "hand_lollipop",
@@ -96,6 +91,7 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "duck" => "hand_bread",
             "giraffe" => "hand_leaf",
             "bird" => "hand_seeds",
+            "penguin" => "hand_shrimp",
             "dino_yellow" => "hand_watermelon",
             "dino_green" => "hand_broccoli",
             "dino_purple" => "hand_grapes",
@@ -172,15 +168,11 @@ mod tests {
 
     #[test]
     fn props_per_food() {
-        assert_eq!(Prop::for_food(Food::Meal, false), Prop::FoodBowl);
-        assert_eq!(Prop::for_food(Food::Favorite, false), Prop::FoodBowl);
-        assert_eq!(Prop::for_food(Food::Meal, true), Prop::Flower);
-        assert_eq!(Prop::for_food(Food::Favorite, true), Prop::Flower);
-        assert_eq!(Prop::for_food(Food::Special, false), Prop::FoodBowl);
-        assert_eq!(Prop::for_food(Food::Special, true), Prop::Flower);
-        assert_eq!(Prop::for_food(Food::Water, false), Prop::WaterBowl);
-        assert_eq!(Prop::for_food(Food::Water, true), Prop::WaterBowl);
-        assert_eq!(Prop::for_food(Food::Snack, true), Prop::Cookie);
+        assert_eq!(Prop::for_food(Food::Meal), Prop::FoodBowl);
+        assert_eq!(Prop::for_food(Food::Favorite), Prop::FoodBowl);
+        assert_eq!(Prop::for_food(Food::Special), Prop::FoodBowl);
+        assert_eq!(Prop::for_food(Food::Water), Prop::WaterBowl);
+        assert_eq!(Prop::for_food(Food::Snack), Prop::Cookie);
     }
 
     #[test]
@@ -197,9 +189,13 @@ mod tests {
     #[test]
     fn hand_icons_per_food_and_species() {
         assert_eq!(hand_icon(Food::Meal, "cat"), "hand_meal");
-        assert_eq!(hand_icon(Food::Snack, "dog"), "hand_cookie");
-        let favs: Vec<_> = ["cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
-        assert_eq!(favs, ["hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly", "hand_candy", "hand_lollipop", "hand_meal"]);
+        assert_eq!(hand_icon(Food::Snack, "rabbit"), "hand_cookie");
+        let favs: Vec<_> = ["cat", "rabbit", "frog", "pumpkin", "ghost", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
+        assert_eq!(favs, ["hand_fish", "hand_carrot", "hand_fly", "hand_candy", "hand_lollipop", "hand_meal"]);
+        // 곰·꿀벌·강아지는 빠졌다 (v0.5.5): 예전 친구가 보낸 동물이어도 그냥 밥 — 없는 그림(뼈다귀·꿀·꽃꿀)을 찾지 않는다
+        for gone in ["bear", "bee", "dog"] {
+            assert_eq!(hand_icon(Food::Favorite, gone), "hand_meal", "{gone}");
+        }
         // 할로윈 동물도 밥·간식은 다른 동물과 같다
         assert_eq!(hand_icon(Food::Meal, "ghost"), "hand_meal");
         assert_eq!(hand_icon(Food::Snack, "pumpkin"), "hand_cookie");
@@ -209,6 +205,8 @@ mod tests {
         assert_eq!((hand_icon(Food::Favorite, "duck"), hand_icon(Food::Favorite, "giraffe")), ("hand_bread", "hand_leaf"));
         // 새는 모이(씨앗)를 콕콕
         assert_eq!((hand_icon(Food::Favorite, "bird"), hand_icon(Food::Meal, "bird")), ("hand_seeds", "hand_meal"));
+        // 펭귄은 새우를 냠냠
+        assert_eq!((hand_icon(Food::Favorite, "penguin"), hand_icon(Food::Snack, "penguin")), ("hand_shrimp", "hand_cookie"));
         assert_eq!(hand_icon(Food::Meal, "giraffe"), "hand_meal");
         assert_eq!(hand_icon(Food::Favorite, "persian"), "hand_milk");
         assert_eq!(
@@ -218,7 +216,7 @@ mod tests {
         assert_eq!(hand_icon(Food::Snack, "dino_green"), "hand_cookie");
         assert_eq!(hand_icon(Food::Favorite, "snowman"), "hand_shaved_ice");
         assert_eq!(hand_icon(Food::Meal, "snowman"), "hand_meal");
-        for id in ["cat", "bee", "snowman", "unknown"] {
+        for id in ["cat", "bird", "snowman", "unknown"] {
             assert_eq!(hand_icon(Food::Special, id), "hand_special");
             assert!(FeedMode::Hand.by_hand(Food::Special) && !FeedMode::Auto.by_hand(Food::Special));
         }

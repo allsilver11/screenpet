@@ -2,8 +2,8 @@
 //! - ← / → 걷기 (Shift = 달리기), 놓으면 멈춰 마지막 방향을 보고 쉰다.
 //! - Space (걷는 동물은 ↑도) = 진짜 점프 (몸 JUMP_BODIES배 높이, 개구리는 더 높이) — 창 윗면에도 내려선다. 공중에서 ←/→로 조금 방향을 튼다.
 //! - ↓ 누르는 동안 앞모습으로 앉기. 창 윗면에서 ↓ 두 번 빠르게 = 창에서 뛰어내리기.
-//! - 벽을 타는 동물(고양이·곰·개구리)은 화면 끝 벽 쪽 + ↑ = 기어오르기, ↑로 계속 오르고 놓으면 매달려 있고, ↓ = 미끄러져 내려온다.
-//! - 나는 동물(꿀벌·유령)은 방향키로 위아래 좌우 (중력 없음, Shift = 빠르게).
+//! - 벽을 타는 동물(고양이·개구리·산타 등)은 화면 끝 벽 쪽 + ↑ = 기어오르기, ↑로 계속 오르고 놓으면 매달려 있고, ↓ = 미끄러져 내려온다.
+//! - 나는 동물(유령·새)은 방향키로 위아래 좌우 (중력 없음, Shift = 빠르게).
 //! - 친구가 연결된 화면 끝으로 몰고 가면 평소 규칙대로 걸어(날아) 나간다.
 //!
 //! 먹이·직접 주기·누르기·하우스·"집에 와"·손님의 집 그리움·보내기는 조작보다 먼저다 — 그동안은 평소 동작을 그대로 쓰고,
@@ -369,7 +369,6 @@ impl Pet {
             State::Annoyed { remaining, tickled_for } => countdown(remaining, dt, |remaining| State::Annoyed { remaining, tickled_for }),
             State::Hungry { remaining } => countdown(remaining, dt, |remaining| State::Hungry { remaining }),
             State::Land { remaining } => countdown(remaining, dt, |remaining| State::Land { remaining }),
-            State::Sting { .. } => self.state,
             State::Idle { look, .. } => State::Idle { remaining: 1.0, look },
             _ => CONTROL_IDLE,
         };
@@ -485,9 +484,6 @@ impl Pet {
                 self.hover_in_place(world);
             }
             self.react_to_tickle();
-            if matches!(self.state, State::Sting { .. }) {
-                return;
-            }
             self.update_chatter(dt);
             self.state = match self.state {
                 State::Trick { kind, remaining } => countdown(remaining, dt, |remaining| State::Trick { kind, remaining }),

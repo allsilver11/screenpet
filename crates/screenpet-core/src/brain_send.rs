@@ -133,7 +133,7 @@ impl Pet {
         let grounded = self.standing.is_some() || self.cfg.flies;
         let busy = matches!(
             self.state,
-            State::Eating { .. } | State::LevelUp { .. } | State::Enter { .. } | State::Leap { .. } | State::Meet { .. } | State::Sting { .. } | State::ToFood { .. } | State::WantFood { .. }
+            State::Eating { .. } | State::LevelUp { .. } | State::Enter { .. } | State::Leap { .. } | State::Meet { .. } | State::ToFood { .. } | State::WantFood { .. }
         );
         if !grounded || self.is_held() || self.inside.is_some() || busy {
             return;

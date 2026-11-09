@@ -204,7 +204,7 @@ fn busy_pets_ignore_the_food_until_free() {
 #[test]
 fn bee_flies_to_the_food() {
     let w = world(vec![w1()]);
-    let mut p = Pet::new(PetConfig { flies: true, stings: true, ..cfg() }, 800.0, 250.0, 1);
+    let mut p = Pet::new(PetConfig { flies: true, ..cfg() }, 800.0, 250.0, 1);
     p.state = idle();
     let food_at = (1200.0, 500.0);
     assert!(offer_until(&mut p, &w, 60 * 10, |_| food_at), "{:?} {:?}", p.state, p.body);

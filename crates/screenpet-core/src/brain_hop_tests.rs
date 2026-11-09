@@ -181,7 +181,7 @@ fn every_walker_leaps_onto_a_window_in_reach_and_flyers_never_do() {
         let (w, x) = reachable(&c);
         let share = leap_share(c, &w, x);
         match id.as_str() {
-            "bee" | "ghost" | "bird" => assert_eq!(share, 0.0, "{id} flies"),
+            "ghost" | "bird" => assert_eq!(share, 0.0, "{id} flies"),
             "frog" => {}
             _ => assert!((0.04..=0.08).contains(&share), "{id}: about half the frog's chance, got {share}"),
         }

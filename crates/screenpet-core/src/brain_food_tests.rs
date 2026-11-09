@@ -5,7 +5,7 @@ use super::tests::{cfg, place, run, w1, world};
 use super::*;
 use crate::care::{FeedResult, Food};
 use crate::food::{Prop, PropEvent, FOOD_TIMEOUT_SECS};
-use crate::test_util::{DT, bee, idle, run_until};
+use crate::test_util::{DT, flyer, idle, run_until};
 
 const ATE: FeedResult = FeedResult::Ate { leveled_up: false };
 /// 집 문 x (기본 화면 바닥 Ground(0) 위)
@@ -248,14 +248,14 @@ fn arriving_home_remembers_the_door() {
 }
 
 #[test]
-fn hovering_bee_gets_a_flower_below_and_sips_on_it() {
+fn hovering_flyer_gets_a_bowl_below_and_eats_perched_on_it() {
     let w = world(vec![w1()]);
-    let mut p = Pet::new(bee(), 800.0, 250.0, 1);
+    let mut p = Pet::new(flyer(), 800.0, 250.0, 1);
     p.state = idle();
     assert!(p.feed_result(ATE, Food::Meal));
     assert!(p.is_eating());
     p.update(DT, &w);
-    assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::Flower, x: 800.0, y: 400.0 }));
+    assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::FoodBowl, x: 800.0, y: 400.0 }));
     assert!(run_until(&mut p, &w, 60 * 20, eating), "{:?}", p.state);
     assert_eq!((p.body.x, p.body.y), (800.0, 400.0));
     assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
@@ -264,36 +264,36 @@ fn hovering_bee_gets_a_flower_below_and_sips_on_it() {
 }
 
 #[test]
-fn perched_bee_flies_to_a_flower_in_front_and_perches_there() {
+fn perched_flyer_flies_to_a_bowl_in_front_and_perches_there() {
     let w = world(vec![w1()]);
-    let mut p = Pet::new(bee(), 0.0, 0.0, 1);
+    let mut p = Pet::new(flyer(), 0.0, 0.0, 1);
     place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.facing = -1.0;
     assert!(p.feed_result(FeedResult::Ate { leveled_up: true }, Food::Favorite));
     p.update(DT, &w);
-    assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::Flower, x: 725.0, y: 400.0 }));
+    assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::FoodBowl, x: 725.0, y: 400.0 }));
     assert!(run_until(&mut p, &w, 60 * 20, eating), "{:?}", p.state);
     assert_eq!((p.body.x, p.body.y), (725.0, 400.0));
     assert!(matches!(p.state, State::Eating { favorite: true, level_up: true, .. }));
 }
 
 #[test]
-fn housed_bee_comes_out_to_a_flower_by_the_hive() {
+fn housed_flyer_comes_out_to_a_bowl_by_the_house() {
     let w = world(vec![]);
-    let mut p = housed_with_door(&w, bee());
+    let mut p = housed_with_door(&w, flyer());
     assert!(p.feed_result(ATE, Food::Meal));
     p.update(DT, &w);
     assert!(!p.is_housed());
-    assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::Flower, x: DOOR - 75.0, y: 1040.0 }));
+    assert_eq!(p.take_prop(), Some(PropEvent::Show { prop: Prop::FoodBowl, x: DOOR - 75.0, y: 1040.0 }));
     assert!(run_until(&mut p, &w, 60 * 20, eating), "{:?}", p.state);
     assert_eq!(p.body.x, DOOR - 75.0);
     assert!(run_until(&mut p, &w, 60 * 30, |p| p.is_housed()), "{:?}", p.state);
 }
 
-// ---- 유령: 날지만 쏘지 않는다 — 꽃은 꿀벌만, 유령은 보통 밥그릇 ----
+// ---- 유령: 둥실 나는 동물도 보통 밥그릇 ----
 
 fn ghost() -> PetConfig {
-    PetConfig { flies: true, stings: false, walk_speed: 40.0, ..cfg() }
+    PetConfig { flies: true, walk_speed: 40.0, ..cfg() }
 }
 
 #[test]
@@ -629,7 +629,7 @@ fn moving_the_house_retargets_the_trip_without_interrupting() {
 #[test]
 fn moving_the_house_while_a_bee_flies_home_keeps_its_flight() {
     let w = world(vec![]);
-    let mut p = Pet::new(PetConfig { flies: true, stings: true, ..cfg() }, 600.0, 500.0, 2);
+    let mut p = Pet::new(PetConfig { flies: true, ..cfg() }, 600.0, 500.0, 2);
     p.state = idle();
     p.go_home(HOME, DOOR);
     run(&mut p, &w, 20);

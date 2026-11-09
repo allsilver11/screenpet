@@ -153,26 +153,6 @@ function drawNeck(elapsed) {
   return true;
 }
 
-// 꿀벌 쏘기: 스프라이트를 1 → 1.2 → 1로 키웠다 줄여 화면 쪽으로 다가오는 것처럼 보인다.
-// 부풀기는 돌진 그림(sting의 마지막 프레임, pet.json frames/fps)이 보이는 동안, 백엔드 돌진 국면
-// (sting::ALERT_SECS 0.5초 뒤 DASH_SECS 0.3초, 끝나는 순간 콕!)과 겹치는 때 한다. 1.2배면 128px 창 안에 남는다.
-const STING_ALERT_MS = 500;
-const STING_DASH_MS = 300;
-const STING_DASH_SCALE = 0.2;
-
-function stingPulse(anim, spec, elapsedMs) {
-  if (anim !== "sting" || !spec?.fps) return 1;
-  // 돌진 그림이 처음 보이는 때 — 백엔드 돌진보다 늦으면 그때부터, 콕!(돌진 끝)까지
-  const lungeMs = ((spec.frames - 1) / spec.fps) * 1000;
-  const start = Math.max(lungeMs, STING_ALERT_MS);
-  // 그림이 백엔드보다 한참 늦게 바뀌는 시트여도 짧게나마 부푼다
-  const end = Math.max(STING_ALERT_MS + STING_DASH_MS, start + STING_DASH_MS / 2);
-  const dur = end - start;
-  const t = (elapsedMs - start) / dur;
-  if (t <= 0 || t >= 1) return 1;
-  return 1 + STING_DASH_SCALE * Math.sin(Math.PI * t);
-}
-
 // 공룡 쿵쾅 (v0.3.6): 쿵! 하는 그림(stomp 1·3장)마다 몸이 덜덜, 쿵쾅에 흔들린 친구(백엔드 render.wobble, 0.4초)도 덜덜 —
 // 스프라이트만 살짝 옮긴다 (창은 그대로)
 function jitter(f, now) {
@@ -220,7 +200,7 @@ function headgearLayout(entry, k, capOn, flip) {
   return { cap, ring };
 }
 // 앞모습 동작 (코어 Anim::is_front) — 머리가 가운데다. 옆모습은 시트에서 오른쪽을 본다
-const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "wag", "hungry", "eat", "level_up", "huff", "sting"]);
+const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "hungry", "eat", "level_up", "huff"]);
 // 목도리 SVG(ui/index.html #scarf)의 기준점과 너비 (viewBox 좌표)
 const SCARF_ANCHOR_X = 26;
 const SCARF_ANCHOR_Y = 8;
@@ -562,9 +542,6 @@ function draw(now) {
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
     if (spec.spin && !pixelMode) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
-    const pulse = stingPulse(render.anim, spec, elapsed);
-    // 픽셀은 부풀지 않는다 (돌진 그림만)
-    if (pulse !== 1 && !pixelMode) parts.push(`scale(${pulse})`);
     writePet("transform", parts.length ? parts.join(" ") : "none");
   }
   requestAnimationFrame(draw);
@@ -842,10 +819,7 @@ const EXTRA_SPEECH = {
 const CURSOR_LINES = {
   cat: ["mrrow...", "*wiggle wiggle*"],
   persian: ["...mrr?", "*streeetch*"],
-  dog: ["woof woof!", "ooh! ooh!"],
   rabbit: ["hop hop!"],
-  bear: ["grr-paw!"],
-  bee: ["bzzz!"],
   frog: ["ribbit!"],
   pumpkin: ["bounce!"],
   ghost: ["boo~"],
@@ -858,6 +832,7 @@ const CURSOR_LINES = {
   dino_green: ["rawr!"],
   dino_purple: ["rawr~"],
   bird: ["chirp chirp!", "tweet?"],
+  penguin: ["wheee~!", "slide slide!"],
 };
 const speech = setupSpeech({
   bubbleEl,

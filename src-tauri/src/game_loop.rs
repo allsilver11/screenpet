@@ -21,7 +21,6 @@ use screenpet_core::visit::Side;
 use screenpet_core::world::World;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::decal::Decals;
 use crate::gifts::Gifts;
 use crate::house::{self, HouseState};
 use crate::network::{NetInput, Network};
@@ -304,9 +303,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut last_save = last;
     // 먹고 한 단계 컸지만 아직 먹는 중 — 먹기가 끝나면(축하 시작 또는 중단) 크기를 바꾼다
     let mut pending_stage = false;
-    // 꿀벌이 쏜 침 자국 창들
-    let mut decals = Decals::default();
-    // 내 동물이 먹을 때 앞에 놓이는 밥그릇·물그릇·꽃·쿠키 창
+    // 내 동물이 먹을 때 앞에 놓이는 밥그릇·물그릇·쿠키 창
     let mut props = Props::default();
     // 직접 주기: 커서 끝에 붙은 음식과 그 그림 창
     let mut hand: Option<HandFeed> = None;
@@ -898,11 +895,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 let target = if s.is_own() { speech_target(&s.pet) } else { s.label.as_str() };
                 let _ = app.emit_to(target, "pet-say", speech);
             }
-            // 꿀벌이 화면을 쐈다 — 그 자리에 침 자국
-            if let Some((x, y)) = s.pet.take_sting() {
-                decals.spawn(&app, x, y, s.dpi);
-            }
-            // 밥그릇·꽃 놓기·거두기 (손님은 먹이를 받지 않는다)
+            // 밥그릇 놓기·거두기 (손님은 먹이를 받지 않는다)
             if let Some(ev) = s.pet.take_prop() {
                 if s.is_own() {
                     props.apply(&app, ev, s.dpi, s.shown.scale, s.pixel_dot());
@@ -941,7 +934,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
         }
         objects.tick(&app, &slots[OWN].world, dt, now, (cx, cy), left_down, presence.is_away(), source.as_mut(), &network, &config);
-        decals.tick(now);
         props.tick(now);
         hand_win.tick(now);
         broom_win.tick(now);

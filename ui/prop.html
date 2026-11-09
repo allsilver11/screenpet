@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <!-- 밥그릇·물그릇·꽃·쿠키 (phase 3 먹이 바꾸기): 동물이 먹을 때 그 앞 바닥에 놓이는 소품.
+    <!-- 밥그릇·물그릇·쿠키 (phase 3 먹이 바꾸기): 동물이 먹을 때 그 앞 바닥에 놓이는 소품.
          그림 이름은 앱(prop.rs)이 window.PROP_IMAGE로 넣어 준다 (effects/<name>.png). 톡 나타났다가,
          다 먹으면 앱이 body에 .hide를 붙여 0.6초 동안 흐려지고 창이 닫힌다. 창은 마우스를 통과시킨다.
          window.PROP_MODE = "hand" (직접 주기): 커서 끝에 붙은 음식 (effects/hand_*.png, 가운데 정렬, 살짝 흔들흔들).
@@ -47,11 +47,6 @@
 
       #prop.snowman {
         animation: bloom 500ms ease-out both;
-      }
-
-      /* 꽃은 아래에서 피어오른다 */
-      #prop.flower {
-        animation: bloom 700ms ease-out both;
       }
 
       body.hand #prop {
@@ -147,7 +142,6 @@
 
       /* 픽셀 스타일: 칸을 그대로, 확대·회전 없이 칸 단위 계단만 */
       body.pixel #prop,
-      body.pixel #prop.flower,
       body.pixel #prop.snowman,
       body.pixel #prop.snowball {
         object-fit: fill;

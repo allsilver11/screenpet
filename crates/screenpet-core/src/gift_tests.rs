@@ -33,6 +33,8 @@ fn every_species_has_about_six_gifts_and_only_dinos_share() {
     assert_ne!(list_for("pumpkin").map(|l| l.key), list_for("ghost").map(|l| l.key));
     assert_eq!(list_for("bird").map(|l| (l.key, l.emoji)), Some(("bird", "🐦")));
     assert!(list_for("bird").unwrap().items.iter().any(|i| i.id == "bird_gourdseed")); // 흥부네 제비의 박씨
+    assert_eq!(list_for("penguin").map(|l| (l.key, l.emoji)), Some(("penguin", "🐧")));
+    assert!(list_for("penguin").unwrap().items.iter().any(|i| i.id == "penguin_pebble")); // 펭귄이 고백할 때 건네는 조약돌
     assert!(list_for("dragon").is_none());
 }
 
@@ -88,13 +90,19 @@ fn wire_form_roundtrips_for_every_gift() {
 
 #[test]
 fn a_visiting_pet_carries_only_its_own_kind_of_gift() {
-    assert!(accept_visit_gift(Some("dog_ball"), "dog").is_some());
-    assert!(accept_visit_gift(Some("dog_ball_shiny"), "dog").is_some());
+    assert!(accept_visit_gift(Some("rabbit_carrot"), "rabbit").is_some());
+    assert!(accept_visit_gift(Some("rabbit_carrot_shiny"), "rabbit").is_some());
     assert!(accept_visit_gift(Some("dino_fossil"), "dino_purple").is_some());
-    assert!(accept_visit_gift(Some("dog_ball"), "cat").is_none(), "another species' gift");
-    assert!(accept_visit_gift(Some("dog_ball"), "dragon").is_none(), "unknown species");
-    assert!(accept_visit_gift(Some("unknown_item"), "dog").is_none());
-    assert!(accept_visit_gift(None, "dog").is_none());
+    assert!(accept_visit_gift(Some("rabbit_carrot"), "cat").is_none(), "another species' gift");
+    assert!(accept_visit_gift(Some("rabbit_carrot"), "dragon").is_none(), "unknown species");
+    assert!(accept_visit_gift(Some("unknown_item"), "rabbit").is_none());
+    assert!(accept_visit_gift(None, "rabbit").is_none());
+    // 곰·꿀벌·강아지는 v0.5.5에서 빠졌다: 예전 버전 친구의 그 동물이 들고 온 선물은 받지 않는다 (그림이 없다)
+    for (gift, species) in [("dog_ball", "dog"), ("bear_honey", "bear"), ("bee_flower_shiny", "bee")] {
+        assert!(Gift::parse(gift).is_none(), "{gift}");
+        assert!(accept_visit_gift(Some(gift), species).is_none(), "{gift}");
+        assert!(list_for(species).is_none() && Gift::roll(species, &mut fastrand::Rng::with_seed(1)).is_none(), "{species}");
+    }
 }
 
 // ---- 고르기 ----
@@ -247,7 +255,7 @@ fn gift_falls_when_a_window_covers_its_spot() {
 fn gift_from_a_flying_pet_falls_to_the_first_surface() {
     let w = world_with(vec![window(1, 100.0, 500.0, 900.0, 900.0)]);
     let mut f = GiftField::default();
-    let t = f.add(gift("bee_flower"), None, 300.0, 200.0).unwrap();
+    let t = f.add(gift("bird_feather"), None, 300.0, 200.0).unwrap();
     f.tick(0.016, &w);
     assert!(f.get(t).unwrap().y < 500.0, "still falling");
     for _ in 0..200 {
@@ -306,9 +314,9 @@ fn collecting_takes_the_gift_once() {
 fn screen_holds_a_limited_number_of_gifts_and_friends_cannot_fill_it() {
     let mut f = GiftField::default();
     for i in 0..MAX_FRIEND_GIFTS {
-        assert!(f.add(gift("dog_ball"), Some("친구".into()), i as f64, 100.0).is_some());
+        assert!(f.add(gift("rabbit_carrot"), Some("친구".into()), i as f64, 100.0).is_some());
     }
-    assert!(f.add(gift("dog_ball"), Some("친구".into()), 0.0, 100.0).is_none(), "friend cap");
+    assert!(f.add(gift("rabbit_carrot"), Some("친구".into()), 0.0, 100.0).is_none(), "friend cap");
     for i in MAX_FRIEND_GIFTS..MAX_GIFTS {
         assert!(f.add(gift("cat_yarn"), None, i as f64, 100.0).is_some(), "own gifts still fit");
     }
@@ -334,7 +342,7 @@ fn book_counts_shiny_and_notes_who_gave_it() {
     // 내 동물이 준 건 친구 이름을 지우지 않는다
     b.add(gift("cat_yarn"), None);
     assert_eq!(b.entry("cat_yarn").unwrap().from.as_deref(), Some("달이"));
-    assert!(b.entry("dog_ball").is_none());
+    assert!(b.entry("rabbit_carrot").is_none());
 }
 
 #[test]
@@ -384,7 +392,7 @@ fn book_roundtrips_and_is_not_written_while_empty() {
     let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
     assert!(old.gifts.is_empty());
     let mut c = Config::default();
-    c.gifts.add(gift("dog_ball_shiny"), Some("달이"));
+    c.gifts.add(gift("rabbit_carrot_shiny"), Some("달이"));
     let back: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
     assert_eq!(back, c);
 }
@@ -392,13 +400,13 @@ fn book_roundtrips_and_is_not_written_while_empty() {
 #[test]
 fn one_bad_book_entry_or_a_bad_book_does_not_lose_the_config() {
     use crate::config::Config;
-    let c: Config = serde_json::from_str(r#"{"pet":"cat","gifts":{"cat_yarn":{"n":3},"dog_ball":"oops","cat_feather":{"n":-1}}}"#).unwrap();
+    let c: Config = serde_json::from_str(r#"{"pet":"cat","gifts":{"cat_yarn":{"n":3},"rabbit_carrot":"oops","cat_feather":{"n":-1}}}"#).unwrap();
     assert_eq!(c.pet.as_deref(), Some("cat"));
     assert_eq!(c.gifts.entry("cat_yarn").map(|e| e.n), Some(3));
-    assert!(c.gifts.entry("dog_ball").is_none());
+    assert!(c.gifts.entry("rabbit_carrot").is_none());
     assert!(c.gifts.entry("cat_feather").is_none());
-    let c: Config = serde_json::from_str(r#"{"pet":"dog","gifts":[1,2,3]}"#).unwrap();
-    assert_eq!(c.pet.as_deref(), Some("dog"));
+    let c: Config = serde_json::from_str(r#"{"pet":"rabbit","gifts":[1,2,3]}"#).unwrap();
+    assert_eq!(c.pet.as_deref(), Some("rabbit"));
     assert!(c.gifts.is_empty());
 }
 
@@ -408,7 +416,7 @@ fn gifts_wait_for_a_calm_moment() {
     for a in [Anim::Walk, Anim::Idle, Anim::SitFront, Anim::Hop] {
         assert!(calm_anim(a), "{a:?}");
     }
-    for a in [Anim::Sleep, Anim::Fall, Anim::Dragged, Anim::Eat, Anim::Climb, Anim::Sting, Anim::LevelUp, Anim::Roll] {
+    for a in [Anim::Sleep, Anim::Fall, Anim::Dragged, Anim::Eat, Anim::Climb, Anim::LevelUp, Anim::Roll] {
         assert!(!calm_anim(a), "{a:?}");
     }
 }

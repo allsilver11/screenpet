@@ -17,7 +17,7 @@ from preview_nightcap import path_points
 from sprite_spec import FRAME, STAGES, frame_px
 
 ROOT = Path(__file__).resolve().parent.parent
-FRONT_ANIMS = {"sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "wag", "hungry", "eat", "level_up", "huff", "sting"}
+FRONT_ANIMS = {"sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "hungry", "eat", "level_up", "huff"}
 SHOWCASE = [("sleep", 0), ("sleep", 1), ("idle", 0), ("walk", 0), ("walk", 2), ("sit_front", 0), ("wave", 0), ("eat", 1), ("heart", 0), ("hungry", 1), ("tilt", 1),
             ("belly", 0), ("level_up", 2), ("lookup", 2), ("hop", 1), ("fall", 0), ("dragged", 0), ("climb", 0), ("climb", 2), ("slide", 0), ("roll", 0), ("roll", 1)]
 

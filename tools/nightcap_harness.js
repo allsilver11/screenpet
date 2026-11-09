@@ -161,7 +161,6 @@ const flushTimers = () => {
   show("roll", { anim: "roll" });
   now += 300;
   show("roll2", { anim: "roll" });
-  show("sting", { anim: "sting" });
   show("stomp", { anim: "stomp" });
   show("hop", { anim: "hop" });
   show("bigjump", { anim: "bigjump" });

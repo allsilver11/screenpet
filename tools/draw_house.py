@@ -1,9 +1,9 @@
 """카와이 펫 집 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 128px 집, 단계마다 하나씩
-+ 꿀벌 벌통 + 호박·유령의 귀신의 집 + 루돌프·산타의 크리스마스 벽돌집 (pet.json "house").
++ 호박·유령의 귀신의 집 + 루돌프·산타의 크리스마스 벽돌집 (pet.json "house").
 
-    python tools/draw_house.py  → ui/house/{house,hive,haunted,xmas}_<stage>{.png,_front.png,.json} + ui/house/xmas_smoke.png
+    python tools/draw_house.py  → ui/house/{house,haunted,xmas}_<stage>{.png,_front.png,.json} + ui/house/xmas_smoke.png
                                   + ui/house/{house.png, house_front.png, house.json} (teenager 집 별칭)
-                                  + tools/preview/house.png (teenager 집), tools/preview/houses.png (모든 단계 × 집·벌통)
+                                  + tools/preview/house.png (teenager 집), tools/preview/houses.png (모든 단계 × 집)
                                   + tools/preview/haunted.png (모든 단계 × 귀신의 집 + 호박·유령)
                                   + tools/preview/xmas_house.png (모든 단계 × 크리스마스 벽돌집 + 루돌프·산타)
     python tools/draw_house.py xmas → 크리스마스 벽돌집만
@@ -33,7 +33,6 @@ OUT_DIR = ROOT / "ui" / "house"
 PREVIEW = ROOT / "tools" / "preview" / "house.png"
 PREVIEW_ALL = ROOT / "tools" / "preview" / "houses.png"
 PREVIEW_HAUNTED = ROOT / "tools" / "preview" / "haunted.png"
-PREVIEW_HIVE = ROOT / "tools" / "preview" / "hive.png"
 PREVIEW_XMAS = ROOT / "tools" / "preview" / "xmas_house.png"
 
 # 단계별 하우스 창 배율 (src-tauri/src/house.rs house_scale, ui/house.js HOUSE_SCALE와 같다)
@@ -43,7 +42,7 @@ DOOR_PET = (52 - 2) / 0.7
 # 문간 펫 발 숨김: 문 바닥 아래로 SILL_HIDE + 스프라이트 × FEET_PAD (ui/house.js와 같다)
 SILL_HIDE = 6
 FEET_PAD = 0.1
-KINDS = ("house", "hive", "haunted", "xmas")
+KINDS = ("house", "haunted", "xmas")
 
 # ---- 색 ----
 WALL = (255, 238, 212)
@@ -73,14 +72,6 @@ ROOF_BLUE = (132, 170, 214)
 ROOF_GREEN = (124, 170, 128)
 FLAG = (246, 196, 92)
 FLOWERS = [(246, 128, 150), (250, 206, 96), (166, 150, 230)]
-# 벌통
-STRAW = (240, 198, 112)
-STRAW_DARK = mix(STRAW, LINE, 0.32)
-STRAW_LIGHT = mix(STRAW, WHITE, 0.35)
-HONEY = (247, 178, 52)
-HONEY_DARK = mix(HONEY, LINE, 0.3)
-HONEY_LIGHT = mix(HONEY, WHITE, 0.45)
-HIVE_INSIDE = (102, 68, 46)
 # 귀신의 집 — 무섭지 않은 파스텔 보라·회청 + 따뜻한 주황 불빛
 H_WALL = (184, 168, 222)
 H_TURRET = (156, 172, 214)
@@ -110,16 +101,10 @@ def _door(cx, w, h):
 # 문 사각형 (128 프레임 좌표). 위는 반원 아치, 아래는 집 바닥.
 # 너비·높이 = teenager(52×62) × STAGE_SCALE / HOUSE_SCALE (펫이 문을 같은 비율로 채운다)
 DOOR_SIZE = {"baby": (42, 51), "kinder": (46, 55), "child": (50, 59), "teenager": (52, 62), "adult": (54, 64)}
-# 꿀벌은 프레임 안에서 몸이 고양이보다 좁고(sit_front 몸 폭 66–80 vs 94–102) 몸 배율도 0.8이라, 같은 비율로 채우려면
-# 벌통 입구가 집 문의 (꿀벌 몸 폭 × 0.8 / 고양이 몸 폭)배 — 단계별 0.52 / 0.58 / 0.62 / 0.67 / 0.65 — 작은 둥근 구멍이 된다
-# (v0.3.10에 꿀벌을 1.1로 키우며 넓혔다가, "동물이 너무 크다"는 피드백으로 크기와 함께 되돌렸다)
-HIVE_FILL = {"baby": 0.52, "kinder": 0.58, "child": 0.62, "teenager": 0.67, "adult": 0.65}
-HIVE_DOOR_SIZE = {s: (round(w * HIVE_FILL[s]), round(w * HIVE_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
 DOORS = {
     "house": {"baby": _door(64, *DOOR_SIZE["baby"]), "kinder": _door(49, *DOOR_SIZE["kinder"]),
               "child": _door(55, *DOOR_SIZE["child"]), "teenager": dict(x=30, y=60, w=52, h=62),
               "adult": _door(46, *DOOR_SIZE["adult"])},
-    "hive": {s: _door(64, *HIVE_DOOR_SIZE[s]) for s in STAGES},
 }
 # 호박(몸 배율 0.9)·유령(0.85)도 고양이보다 좁아서, 같은 방법으로 잰 두 몸 폭의 평균 — 단계별
 # 호박 0.60 / 0.68 / 0.75 / 0.84 / 0.82, 유령 0.58 / 0.63 / 0.66 / 0.71 / 0.71 (v0.3.10에 넓혔다가 크기와 함께 되돌렸다)
@@ -147,12 +132,6 @@ def rrect(x0, y0, x1, y1, r):
     return [E(x0, y0, x0 + 2 * r, y0 + 2 * r), E(x1 - 2 * r, y0, x1, y0 + 2 * r), E(x0, y1 - 2 * r, x0 + 2 * r, y1),
             E(x1 - 2 * r, y1 - 2 * r, x1, y1), T((x0 + r, y0), (x1 - r, y0), (x1 - r, y1), (x0 + r, y1)),
             T((x0, y0 + r), (x1, y0 + r), (x1, y1 - r), (x0, y1 - r))]
-
-
-def hexagon(cx, cy, r):
-    """뾰족한 쪽이 위아래인 육각형."""
-    return T(*[(cx + r * math.cos(math.radians(30 + 60 * i)), cy + r * math.sin(math.radians(30 + 60 * i)))
-               for i in range(6)])
 
 
 def blob(img, fns, color, r=2.4, line=1.0, line_color=LINE, marks=()):
@@ -452,72 +431,6 @@ def draw_house_adult():
         sill = door_sill(img, d)
         grass_row(img, [tuft(9, 125, 8, -1), tuft(119, 125, 8, 1), tuft(84, 126, 6.5), tuft(96, 126, 7)])
         flower(img, 108, 114, 4.4, FLOWERS[2], stem=7)
-    return img, opening, sill
-
-
-# =====================================================================
-# 벌통 — 짚을 둥글게 감아 올린 옛날 벌통(skep)
-# =====================================================================
-# 단계별: (돔 반너비, 돔 꼭대기 y, 띠 수, 벌집 칸 수, 꽃 수)
-HIVE = {"baby": (50, 18, 4, 3, 1), "kinder": (54, 14, 5, 4, 1), "child": (56, 12, 5, 5, 1),
-        "teenager": (58, 9, 6, 6, 2), "adult": (59, 6, 7, 7, 2)}
-
-
-def draw_hive(stage):
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = DOORS["hive"][stage]
-    half, top, coils, cells, flowers = HIVE[stage]
-    cx, base = 64, 118
-    with view(scale=1.0, lift=0):
-        # 받침 나무판
-        blob(img, rrect(cx - half - 1, 114, cx + half + 1, 124, 3), WOOD, r=0, line=0.9,
-             marks=[([L([(cx - half + 2, 117), (cx + half - 2, 117)], 1.0)], WOOD_LIGHT)])
-        # 짚 띠: 아래부터 위로 좁아진다 (종 모양). 위 띠부터 그려 아래 띠가 앞에 온다
-        h = (base - top) / (coils + 0.6)
-        bands = []
-        for i in range(coils):
-            y1 = base - i * h
-            y0 = y1 - h - 1.5
-            t = (i + 0.5) / (coils + 0.6)
-            w = half * (1 - t ** 2.4) ** 0.55
-            bands.append((y0, y1, w))
-        dome = blank()
-        knob_y = base - coils * h
-        blob(img, [E(cx - h * 0.9, knob_y - h * 0.7, cx + h * 0.9, knob_y + h * 0.6)], STRAW, r=0.5, line=0.9,
-             marks=[([L([(cx - h * 0.3, knob_y - h * 0.3), (cx + h * 0.1, knob_y - h * 0.45)], 1.2)], STRAW_LIGHT)])
-        for y0, y1, w in reversed(bands):
-            r = (y1 - y0) / 2
-            band = rrect(cx - w, y0, cx + w, y1, r)
-            straws = [L([(x, y0 + 2), (x + 3, y1 - 2)], 1.0) for x in range(int(cx - w) + 6, int(cx + w) - 3, 7)]
-            m = blob(img, band, STRAW, r=0.4, line=0.9,
-                     marks=[(straws, STRAW_DARK), ([L([(cx - w * 0.6, y0 + 2.6), (cx - w * 0.2, y0 + 2.2)], 1.3)],
-                                                   STRAW_LIGHT)])
-            dome = ImageChops.lighter(dome, m)
-        # 벌집 무늬 (오른쪽 옆구리)
-        hx, hy, hr = cx + half * 0.45, top + (base - top) * 0.24, 5.2
-        spots = [(0, 0), (1, 0), (0.5, 1), (-0.5, 1), (1.5, 1), (0, 2), (1, 2)][:cells]
-        hexes = [hexagon(hx + sx * hr * 1.73, hy + sy * hr * 1.5, hr) for sx, sy in spots]
-        hm = shapes(hexes)
-        paint(img, aa(grow(hm, 1.0)), HONEY_DARK, clip=dome)
-        inner = shapes([hexagon(hx + sx * hr * 1.73, hy + sy * hr * 1.5, hr - 1.3) for sx, sy in spots])
-        paint(img, aa(inner), HONEY, clip=dome)
-        paint(img, aa(shapes([C(hx + sx * hr * 1.73 - 1.4, hy + sy * hr * 1.5 - 1.6, 1.1) for sx, sy in spots])),
-              HONEY_LIGHT, clip=dome)
-        # 꿀 방울: 벌집 아래 끝에서 똑
-        low = max(sy for _, sy in spots)
-        dx = hx + min(sx for sx, sy in spots if sy == low) * hr * 1.73
-        dy = hy + low * hr * 1.5 + hr * 0.6
-        blob(img, [L([(dx, dy - 2), (dx, dy + 5)], 2.6), C(dx, dy + 6.5, 2.9)], HONEY, r=0.5, line=0.8,
-             marks=[([C(dx - 0.9, dy + 5.6, 0.9)], HONEY_LIGHT)])
-        # 입구: 짚 테두리 아치 → 어두운 안쪽
-        opening = doorway(img, d, frame=STRAW_DARK, frame_light=STRAW, inside=HIVE_INSIDE,
-                          floor=mix(HIVE_INSIDE, HONEY, 0.25), frame_pad=4.0)
-        sill = door_sill(img, d, color=WOOD_LIGHT)
-        # 작은 꽃 (받침 옆)
-        flower(img, 14, 104, 5.0, FLOWERS[0], stem=12)
-        if flowers > 1:
-            flower(img, 116, 107, 4.4, FLOWERS[2], stem=9)
-        grass_row(img, [tuft(11, 125, 7, -1), tuft(21, 126, 5.5), tuft(117, 125, 7, 1)])
     return img, opening, sill
 
 
@@ -991,7 +904,7 @@ def draw(kind="house", stage="teenager"):
         return HAUNTED_DRAW[stage]()
     if kind == "xmas":
         return draw_xmas(stage)
-    return HOUSE_DRAW[stage]() if kind == "house" else draw_hive(stage)
+    return HOUSE_DRAW[stage]()
 
 
 def front_layer(img, opening, sill, door=DOOR):
@@ -1028,7 +941,7 @@ def pet_in_door(pet, door=DOOR, size=DOOR_PET):
 
 
 def build(out_dir=OUT_DIR, kinds=KINDS):
-    """모든 단계의 집·벌통·귀신의 집·크리스마스 벽돌집을 그려 저장한다. {(kind, stage): (그림, 앞 레이어)}를 돌려준다.
+    """모든 단계의 집·귀신의 집·크리스마스 벽돌집을 그려 저장한다. {(kind, stage): (그림, 앞 레이어)}를 돌려준다.
     kinds: 이 종류만 다시 그린다 (예: python tools/draw_house.py xmas)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1124,15 +1037,11 @@ def _house_rows_preview(arts, rows, path, under=None):
 
 
 def preview_all(arts, path=PREVIEW_ALL):
-    _house_rows_preview(arts, [("house", "cat"), ("hive", "bee")], path)
+    _house_rows_preview(arts, [("house", "cat")], path)
 
 
 def preview_haunted(arts, path=PREVIEW_HAUNTED):
     _house_rows_preview(arts, [("haunted", "pumpkin"), ("haunted", "ghost")], path)
-
-
-def preview_hive(arts, path=PREVIEW_HIVE):
-    _house_rows_preview(arts, [("hive", "bee")], path)
 
 
 def preview_xmas(arts, path=PREVIEW_XMAS):
@@ -1154,18 +1063,16 @@ def main():
         preview_xmas(build(kinds=("xmas",)))
         print("ok: xmas houses")
         return
-    if sys.argv[1:] == ["hive", "haunted"]:  # 벌통·귀신의 집만 다시 그린다 (몸 배율이 바뀌어 문을 넓혔을 때)
-        arts = build(kinds=("hive", "haunted"))
-        preview_haunted(arts)
-        preview_hive(arts)
-        print("ok: hives + haunted houses")
+    if sys.argv[1:] == ["haunted"]:  # 귀신의 집만 다시 그린다 (몸 배율이 바뀌어 문을 넓혔을 때)
+        preview_haunted(build(kinds=("haunted",)))
+        print("ok: haunted houses")
         return
     arts = build()
     preview(arts)
     preview_all(arts)
     preview_haunted(arts)
     preview_xmas(arts)
-    print("ok: houses + hives + haunted houses + xmas houses")
+    print("ok: houses + haunted houses + xmas houses")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ from sprite_spec import FRAME, STAGE_SCALE, STAGES, frame_px  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PETS = ROOT / "ui" / "pets"
-SPECIES = ["cat", "dog", "rabbit", "bear", "bee", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "snowman",
+SPECIES = ["cat", "rabbit", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "snowman",
            "dino_yellow", "dino_green", "dino_purple"]
 # 대표 칸 (동작, 프레임) — 모자가 가장 자주 보이는 자세부터
 SHOWCASE = [("sleep", 0), ("sleep", 1), ("idle", 0), ("walk", 1), ("sit_front", 0), ("tilt", 1), ("look", 1), ("lookup", 2), ("hop", 1),
@@ -319,9 +319,9 @@ def hang_page(path):
 
 
 def scenarios(path, zoom=1):
-    """몸과 한 덩어리로 움직이는지: 매달림 · 구르기 회전 · 덜덜 · 반전 · 쏘기 · 뿅 · 목 늘이기 (모자 자식에 몸 변환을 그대로 건 그림)."""
-    pets = [("cat", "teenager"), ("dino_green", "adult"), ("santa", "child"), ("bee", "teenager"), ("frog", "teenager"), ("giraffe", "teenager")]
-    cols = ["hang >", "hang <", "roll 0", "roll 90", "roll 180", "roll 270", "wobble", "flip", "poof", "sting", "neck 50%", "neck 100%"]
+    """몸과 한 덩어리로 움직이는지: 매달림 · 구르기 회전 · 덜덜 · 반전 · 뿅 · 목 늘이기 (모자 자식에 몸 변환을 그대로 건 그림)."""
+    pets = [("cat", "teenager"), ("dino_green", "adult"), ("santa", "child"), ("bird", "teenager"), ("frog", "teenager"), ("giraffe", "teenager")]
+    cols = ["hang >", "hang <", "roll 0", "roll 90", "roll 180", "roll 270", "wobble", "flip", "poof", "neck 50%", "neck 100%"]
     cell = (FRAME + 120) * zoom
     img = Image.new("RGBA", (70 + len(cols) * cell, 16 + len(pets) * cell), (236, 240, 246, 255))
     d = ImageDraw.Draw(img)
@@ -342,9 +342,6 @@ def scenarios(path, zoom=1):
         }
         for deg in (0, 90, 180, 270):
             sheets[f"roll {deg}"] = _css(roll, pad, zoom, ROLL_ORIGIN, [("rotate", deg if spin else 0)])
-        if "sting" in man["animations"]:
-            t, _ = _pet_tile(pid, st, "sting", 2, zoom)
-            sheets["sting"] = _css(t, pad, zoom, ROLL_ORIGIN, [("scale", 1.2)])
         if "neck_stretch" in man:
             sheets["neck 50%"] = _neck_tile(pid, st, 0, 0.5, zoom)
             sheets["neck 100%"] = _neck_tile(pid, st, 2, 1.0, zoom)

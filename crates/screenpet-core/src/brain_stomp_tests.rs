@@ -44,9 +44,9 @@ fn a_dino_special_is_fire_roar_or_stomp_with_its_own_speech() {
 /// 다른 동물의 특별 동작은 그대로 (고르기 없음, 쿵쾅 알림 없음)
 #[test]
 fn other_specials_are_not_reshuffled() {
-    let mut p = Pet::new(PetConfig { special: Some(Special::Wag), ..cfg() }, 0.0, 0.0, 3);
-    p.start_special(Special::Wag);
-    assert!(matches!(p.state, State::Special { kind: Special::Wag, .. }));
+    let mut p = Pet::new(PetConfig { special: Some(Special::Arch), ..cfg() }, 0.0, 0.0, 3);
+    p.start_special(Special::Arch);
+    assert!(matches!(p.state, State::Special { kind: Special::Arch, .. }));
     assert!(!p.take_stomp());
 }
 

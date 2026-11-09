@@ -489,7 +489,7 @@ fn window_rich_ten_minutes_smoke() {
             .collect();
         let mut inside_ticks = 0usize;
         for seed in 0..8 {
-            let cfg = PetConfig { special: Some(Special::Wag), ..sized(size, seed % 2 == 0) };
+            let cfg = PetConfig { special: Some(Special::Arch), ..sized(size, seed % 2 == 0) };
             let mut p = Pet::new(cfg, 960.0, size, seed);
             let mut rng = fastrand::Rng::with_seed(seed + 100);
             for t in 0..(60 * 600) {

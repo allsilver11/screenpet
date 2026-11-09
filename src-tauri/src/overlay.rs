@@ -179,7 +179,7 @@ pub fn place_on_primary(app: &AppHandle, window: &WebviewWindow, inner: (f64, f6
 
 /// 테두리 없이 화면 위에 떠 있는 창 (나머지 창은 제목 표시줄이 있고 닫으면 숨거나 정말 닫힌다)
 pub fn is_floating(label: &str) -> bool {
-    const PREFIXES: [&str; 6] = ["guest-", "prop-", "hand-", "sting-", "object-", "weather-"];
+    const PREFIXES: [&str; 5] = ["guest-", "prop-", "hand-", "object-", "weather-"];
     label == crate::slots::OWN_LABEL || label == crate::house::LABEL || PREFIXES.iter().any(|p| label.starts_with(p))
 }
 

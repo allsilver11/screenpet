@@ -87,21 +87,6 @@ pub const CATALOG: &[GiftList] = &[
         ],
     },
     GiftList {
-        key: "dog",
-        title: "강아지",
-        emoji: "🐶",
-        species: &["dog"],
-        speech: "woof! for you!",
-        items: &[
-            item("dog_bone", "뼈다귀"),
-            item("dog_ball", "테니스공"),
-            item("dog_stick", "나뭇가지"),
-            item("dog_frisbee", "원반"),
-            item("dog_slipper", "슬리퍼"),
-            item("dog_sock", "낡은 양말"),
-        ],
-    },
-    GiftList {
         key: "rabbit",
         title: "토끼",
         emoji: "🐰",
@@ -114,36 +99,6 @@ pub const CATALOG: &[GiftList] = &[
             item("rabbit_radish", "무"),
             item("rabbit_daisy", "데이지"),
             item("rabbit_strawberry", "딸기"),
-        ],
-    },
-    GiftList {
-        key: "bear",
-        title: "곰",
-        emoji: "🐻",
-        species: &["bear"],
-        speech: "found this!",
-        items: &[
-            item("bear_honey", "꿀단지"),
-            item("bear_acorn", "도토리"),
-            item("bear_salmon", "연어"),
-            item("bear_berry", "산딸기"),
-            item("bear_pinecone", "솔방울"),
-            item("bear_mushroom", "버섯"),
-        ],
-    },
-    GiftList {
-        key: "bee",
-        title: "꿀벌",
-        emoji: "🐝",
-        species: &["bee"],
-        speech: "bzz! for you!",
-        items: &[
-            item("bee_flower", "꽃"),
-            item("bee_honeycomb", "벌집 조각"),
-            item("bee_pollen", "꽃가루 공"),
-            item("bee_dew", "이슬방울"),
-            item("bee_tulip", "튤립"),
-            item("bee_honeydrop", "꿀 방울"),
         ],
     },
     GiftList {
@@ -219,6 +174,21 @@ pub const CATALOG: &[GiftList] = &[
             item("bird_berry", "빨간 열매"),
             item("bird_egg", "하늘색 알"),
             item("bird_dandelion", "민들레 홀씨"),
+        ],
+    },
+    GiftList {
+        key: "penguin",
+        title: "펭귄",
+        emoji: "🐧",
+        species: &["penguin"],
+        speech: "pip! for you!",
+        items: &[
+            item("penguin_pebble", "반들반들 조약돌"),
+            item("penguin_ice", "얼음 조각"),
+            item("penguin_fish", "은빛 멸치"),
+            item("penguin_snowflake", "눈송이"),
+            item("penguin_down", "아기 솜털"),
+            item("penguin_shell", "소라 껍데기"),
         ],
     },
     GiftList {
@@ -546,7 +516,7 @@ impl LiveGift {
 
 /// 선물을 떨어뜨려도 되는 몸짓: 걷거나 쉬는 중 (먹기·잠·끌려가기·벽 타기·장난 도중엔 기다린다)
 pub fn calm_anim(anim: Anim) -> bool {
-    matches!(anim, Anim::Walk | Anim::Run | Anim::Idle | Anim::Look | Anim::SitFront | Anim::Wag | Anim::Stretch | Anim::Tilt | Anim::Hop | Anim::LookUp)
+    matches!(anim, Anim::Walk | Anim::Run | Anim::Idle | Anim::Look | Anim::SitFront | Anim::Stretch | Anim::Tilt | Anim::Hop | Anim::LookUp)
 }
 
 /// 몸 크기에 대해 선물이 놓이는 앞쪽 거리

@@ -78,73 +78,6 @@ GIFTS = {
         ..pppppp.P
         ........PP
         """,
-    # ---- 강아지
-    "dog_ball": """
-        ..llllll..
-        .llWllllg.
-        lllWWllggl
-        llllWWgllg
-        lllllWWlll
-        lWlllWWlll
-        lWWllllWll
-        .lWWllllW.
-        ..llllll..
-        """,
-    "dog_bone": """
-        ..........
-        .WW....WW.
-        WWWW..WWWW
-        WWWWWWWWWW
-        WWWWWWWsWW
-        WWWW..WWWW
-        .WW....WW.
-        """,
-    "dog_frisbee": """
-        ..........
-        ...rrrr...
-        .rrrrrrrr.
-        rrrRffRrrr
-        rrfRffRfrr
-        rrrRRRRrrr
-        RrrrrrrrrR
-        .RRRRRRRR.
-        ..........
-        """,
-    "dog_slipper": """
-        ..........
-        ..........
-        ...bbbb...
-        ..bcbcbb..
-        .bbbcbcbb.
-        bbbbbbbbbb
-        BBBBBBBBBB
-        TTTTTTTTTT
-        tttttttttt
-        """,
-    "dog_sock": """
-        ..WWWWW...
-        ..rrrrr...
-        ..WWWWW...
-        ..rrrrr...
-        ..WWWWW...
-        ..WWWWWW..
-        ..WsWWWWW.
-        ..WWWWpppp
-        ..WWWWpppp
-        ...WWWppp.
-        """,
-    "dog_stick": """
-        .......g..
-        ......gl..
-        ...n..gg..
-        ...nn.n...
-        ....nnn...
-        ...nnnn...
-        ..Nnnn....
-        .NNnn.....
-        NNnn......
-        Nn........
-        """,
     # ---- 토끼
     "rabbit_carrot": """
         ....gGg...
@@ -214,146 +147,6 @@ GIFTS = {
         .rrrrrrrr.
         ..rryrrr..
         ....rr....
-        """,
-    # ---- 곰
-    "bear_acorn": """
-        ....N.....
-        ..NNNNNN..
-        .NnNnNnNN.
-        NNNNNNNNNN
-        .TttttttT.
-        .tttttttO.
-        .tttttttO.
-        ..tttttO..
-        ...ttOO...
-        ....tO....
-        """,
-    "bear_berry": """
-        ...gg.gg..
-        ....gGg...
-        ..RR.RR...
-        .RrrRrrRR.
-        .RrrRrrRrR
-        RRRRRRRRrR
-        RrrRrrRRR.
-        .RRRrrRR..
-        ...RRRR...
-        ....RR....
-        """,
-    "bear_honey": """
-        ..yyyyyy..
-        .YYyyyyYY.
-        .nYnYYnYn.
-        nnnnYnnnnn
-        nnnnnnnnnn
-        nnknnnknnn
-        nnnnffnnnn
-        nnnnffnnnn
-        .nnnnnnnn.
-        ..NNNNNN..
-        """,
-    "bear_mushroom": """
-        ...rrrr...
-        .rrWWrrrr.
-        rrrWWrrWrr
-        rWrrrrrrrr
-        rrrrWWrrrW
-        RRRRRRRRRR
-        ...TTTT...
-        ...TTTT...
-        ...TTTt...
-        """,
-    "bear_pinecone": """
-        .....g....
-        ....Ng....
-        ...NnNN...
-        ..NnNnNn..
-        ..nNnNnN..
-        .NnNnNnNn.
-        .nNnNnNnN.
-        ..NnNnNn..
-        ...NnNn...
-        ....Nn....
-        """,
-    "bear_salmon": """
-        ..........
-        ...pp.....
-        ..pppppp.P
-        .kppppppPP
-        ppppppppPP
-        fffffffpPP
-        .ffffffp.P
-        ...ff.....
-        """,
-    # ---- 꿀벌
-    "bee_dew": """
-        ....b.....
-        ....c.....
-        ...bcb....
-        ..bwcbb...
-        ..bwccb...
-        ..bcccb...
-        ...bbb....
-        ggggggggg.
-        lllllllll.
-        """,
-    "bee_flower": """
-        ...PP.....
-        ..PppP....
-        .PPppPPP..
-        PppyypppP.
-        PppyYpppP.
-        .PPppPPP..
-        ..PppP....
-        ...PP.G...
-        ....GG.gg.
-        ....G.gg..
-        """,
-    "bee_honeycomb": """
-        ..YY......
-        .YyyY.YY..
-        .YyyYYyyY.
-        ..YYYYyyY.
-        .YY.YYYY..
-        YyyYYyyY..
-        YyyYYyyYY.
-        .YYYYYYyyY
-        .....YyyyY
-        ......YYY.
-        """,
-    "bee_honeydrop": """
-        ....Y.....
-        ...YY.....
-        ...YyY....
-        ..YyyyY...
-        .YywyyyY..
-        .YwyyyyY..
-        .YyyyyyY..
-        .YyyyyYY..
-        ..YYYYY...
-        """,
-    "bee_pollen": """
-        ...yyyy...
-        .yyYyyyyy.
-        .yyyyYyyy.
-        yYyyyyyyYy
-        yyyyYyyyyy
-        yyYyyyyYyy
-        yyyyyyyyyy
-        YYyYYYYyYY
-        .YYYYYYYY.
-        """,
-    "bee_tulip": """
-        ..r.rr.r..
-        ..rrrrrr..
-        ..rRrrRr..
-        ..rrRRrr..
-        ...rrrr...
-        ....G.....
-        g...G...g.
-        gg..G..gg.
-        .gg.G.gg..
-        ..ggGgg...
         """,
     # ---- 개구리
     "frog_dragonfly": """
@@ -632,6 +425,75 @@ GIFTS = {
         ...WWgW...
         .....g....
         ....gg....
+        """,
+    # ---- 펭귄
+    "penguin_pebble": """
+        ..........
+        ...ssss...
+        ..swwssss.
+        .swssssss.
+        .sspPspPs.
+        .ssPPPPPs.
+        .sssPPPss.
+        ..SssPsSS.
+        ...SSSSS..
+        """,
+    "penguin_ice": """
+        ...wwww...
+        .wwwwwwcc.
+        wwwwwwcccc
+        cwwwwccccc
+        cccwcccccb
+        ccckcckccb
+        cccccccccb
+        ccccccccbb
+        .bbcccbbb.
+        ...bbbb...
+        """,
+    "penguin_fish": """
+        ..........
+        ..........
+        ...cccc..b
+        .cccccccbb
+        ckwcbbcccb
+        cccccccccb
+        .wwwwwwwbb
+        ..wwww...b
+        ..........
+        """,
+    "penguin_snowflake": """
+        ....c.....
+        .c..c..c..
+        ..c.c.c...
+        ...wwww...
+        cccwkkwccc
+        ...wwww...
+        ..c.c.c...
+        .c..c..c..
+        ....c.....
+        """,
+    "penguin_down": """
+        ....S.S...
+        ...s.s....
+        ..ssssss..
+        .swwsssss.
+        sswssssss.
+        sssssssssS
+        ssssssssss
+        .sssssssS.
+        ..SSssSS..
+        """,
+    "penguin_shell": """
+        ........T.
+        ......TTt.
+        ....TTTtT.
+        ..TTtTTTt.
+        .TTTTtTt..
+        TTpTTTt...
+        TppTTt....
+        TppPTt....
+        .tPPtt....
+        ..ttt.....
         """,
     # ---- 오리
     "duck_bread": """
@@ -1075,15 +937,6 @@ HAND = {
         .rrrrrrRR.
         ..rrRrRR..
         """,
-    "bone": """
-        ..........
-        .WW....WW.
-        WWWW..WWWW
-        WWWWWWWWWW
-        WWWWWWWsWW
-        WWWW..WWWW
-        .WW....WW.
-        """,
     "bread": """
         ..tttttt..
         .tTTTTTTt.
@@ -1170,18 +1023,6 @@ HAND = {
         ...vvvv...
         ....vv....
         """,
-    "honey": """
-        ..yyyyyy..
-        .YYyyyyYY.
-        .nYnYYnYn.
-        nnnnYnnnnn
-        nnnnnnnnnn
-        nnknnnknnn
-        nnnnffnnnn
-        nnnnffnnnn
-        .nnnnnnnn.
-        ..NNNNNN..
-        """,
     "leaf": """
         ....gg....
         ...gllg...
@@ -1229,18 +1070,6 @@ HAND = {
         WWWWWnttn.
         ......nn..
         """,
-    "nectar": """
-        ..PP..PP..
-        .PppPPppP.
-        .PpppppppP
-        ..PpyypP..
-        .PPpyypPP.
-        PppppppppP
-        .PpP..PpP.
-        ..P.GG.P.Y
-        ....GG..YY
-        ..gggggg..
-        """,
     "shaved_ice": """
         ....PP....
         ...PPpp...
@@ -1276,6 +1105,30 @@ HAND = {
         WWWWWWWWWW
         gggggggggg
         GGGGGGGGGG
+        """,
+    "shrimo": """
+        .O..O.....
+        ..OO.ooo..
+        ..oooooOo.
+        .okooOooOo
+        .oooOooOoo
+        ..oo..oOoo
+        .OO..oOoo.
+        OOOoooOo..
+        .OOOooo...
+        ..........
+        """,
+    "shrimp": """
+        .O..O.....
+        ..OO.ooo..
+        ..oooooOo.
+        .okooOooOo
+        .oooOooOoo
+        ..oo..oOoo
+        .OO..oOoo.
+        OOOoooOo..
+        .OOOooo...
+        ..........
         """,
     "seeds": """
         .......yY.
@@ -1327,18 +1180,6 @@ PROPS = {
         tNttttttttNt
         .ttttNttttt.
         ...tttttt...
-        """,
-    "flower": """
-        ....pp..pp..
-        ...pPPppPPp.
-        ...pPPyyPPp.
-        ....pyYYyp..
-        ...pPPyyPPp.
-        ...pPPppPPp.
-        ....pp.Gpp..
-        .glgg..G.gg.
-        ..gggG.Gggl.
-        .....GGGgg..
         """,
 }
 
@@ -1402,41 +1243,6 @@ SNOW_CLOUD = """
     .cccccccccc.
 """
 
-# 침 자국 32×32칸 (화면 128 @4) — 가운데 별 + 박힌 침 + 금
-STING = """
-    ................................
-    .......s..............s.........
-    ........s............s..........
-    .........s..........s...........
-    ..........s........s............
-    ...........s......s.............
-    ................................
-    ................................
-    ..........................kk....
-    ........................kkNk....
-    ......................kkNNk.....
-    ....................kkNNk.......
-    ..................kkNNk.........
-    ................kkNNk...........
-    ...............yyNk.............
-    ..ss..........yyyy..............
-    ....ssss...yyyywyyyyy..ssss.....
-    ............yyywwyyy.......ss...
-    .............yyyyyy.............
-    ............yyyyyyy.............
-    ...........yy.....yy............
-    ..........y.........y...........
-    ................................
-    .........s..........s...........
-    ........s............s..........
-    .......s..............s.........
-    ......s................ss.......
-    .....s..................ss......
-    ................................
-    ................................
-    ................................
-    ................................
-"""
 
 # 물건 24×24칸 (화면 96 @4). 모양은 코어 tumble.rs의 표(128칸 좌표 ÷ 5.33)와 같은 자리를 채운다. 얼굴은 없다
 OBJECTS = {

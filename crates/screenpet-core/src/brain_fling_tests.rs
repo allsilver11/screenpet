@@ -4,7 +4,7 @@ use super::tests::{cfg, place, thrown_at, world};
 use super::*;
 use crate::geom::Rect;
 use crate::visit::Fling;
-use crate::test_util::{DT, bee, idle};
+use crate::test_util::{DT, flyer, idle};
 
 
 /// 땅에 선 동물을 손으로 집어 (cx, cy)까지 끌고 와서, 이후 vx 픽셀/s로 끌다가 놓는다 (vx = 0이면 멈췄다가 그냥 놓는다)
@@ -170,7 +170,7 @@ fn garbage_fling_from_above_or_below_falls_back_to_walking_in() {
 #[test]
 fn bee_drifts_in_and_settles() {
     let w = world(vec![]);
-    let mut b = Pet::new(bee(), 0.0, 0.0, 1);
+    let mut b = Pet::new(flyer(), 0.0, 0.0, 1);
     b.enter_flung(&w, Side::Right, Fling { height: 0.3, vx: 600.0, vy: 0.0 });
     assert_eq!(b.state, State::Air { anim: Anim::Fall });
     let x0 = b.body.x;
@@ -184,7 +184,7 @@ fn bee_drifts_in_and_settles() {
 #[test]
 fn thrown_bee_crosses_a_linked_edge() {
     let w = world(vec![]);
-    let mut b = thrown_at(bee(), 1750.0, 500.0, 1200.0, 0.0);
+    let mut b = thrown_at(flyer(), 1750.0, 500.0, 1200.0, 0.0);
     b.set_exit_edges(false, true);
     assert_eq!(exit_within(&mut b, &w, 60), Some(Side::Right));
     assert!(b.take_fling().is_some());

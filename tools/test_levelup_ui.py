@@ -34,9 +34,9 @@ def test_every_pet_says_i_grew_up():
 
 
 def test_size_table_after_the_too_big_feedback():
-    """피드백 "동물이 너무 크다": 작던 동물은 v0.3.10 이전 크기로, 큰 동물은 토끼쯤으로 — 곰·기린의 단계별 배율도 없앴다. 산타와 공룡은 사용자 요청으로 그대로."""
-    want = {"dino_green": 1.2, "dino_yellow": 1.2, "dino_purple": 1.2, "santa": 1.65, "bee": 0.8, "duck": 0.9, "ghost": 0.85, "pumpkin": 0.9, "frog": 0.85,
-            "rabbit": 0.85, "cat": 0.91, "persian": 0.92, "dog": 0.94, "bear": 0.89, "giraffe": 1.06, "rudolph": 0.84, "snowman": 0.9, "bird": 0.8}
+    """피드백 "동물이 너무 크다": 작던 동물은 v0.3.10 이전 크기로, 큰 동물은 토끼쯤으로 — 기린의 단계별 배율도 없앴다. 산타와 공룡은 사용자 요청으로 그대로."""
+    want = {"dino_green": 1.2, "dino_yellow": 1.2, "dino_purple": 1.2, "santa": 1.65, "duck": 0.9, "ghost": 0.85, "pumpkin": 0.9, "frog": 0.85,
+            "rabbit": 0.85, "cat": 0.91, "persian": 0.92, "giraffe": 1.06, "rudolph": 0.84, "snowman": 0.9, "bird": 0.8, "penguin": 0.85}
     assert set(want) == set(dict(manifests()))
     for pid, v in want.items():
         m = dict(manifests())[pid]
@@ -50,7 +50,7 @@ def test_bundled_manifests_match_the_generators():
         assert m["speech"] == dp.SPEECH[pid], pid
 
 
-@pytest.mark.parametrize("pid", ["cat", "dog", "bear", "giraffe", "rudolph", "snowman"])
+@pytest.mark.parametrize("pid", ["cat", "giraffe", "rudolph", "snowman"])
 def test_big_pets_shrank_to_about_the_rabbits_long_side(pid):
     from draw_house import sit_frame
 

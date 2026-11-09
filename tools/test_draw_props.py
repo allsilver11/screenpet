@@ -7,7 +7,7 @@ import draw_props
 from conftest import assert_folder_matches_shipped
 
 ROOT = Path(__file__).resolve().parent.parent
-NAMES = ("bowl_food", "bowl_water", "cookie", "flower")
+NAMES = ("bowl_food", "bowl_water", "cookie")
 
 
 @pytest.fixture(scope="module")
@@ -52,7 +52,7 @@ def test_transparent_background_and_sits_on_the_bottom(built, name):
     assert abs((x0 + x1) / 2 - 28) <= 3
 
 
-@pytest.mark.parametrize("name,lo,hi", [("bowl_food", 40, 56), ("bowl_water", 40, 56), ("cookie", 20, 40), ("flower", 22, 40)])
+@pytest.mark.parametrize("name,lo,hi", [("bowl_food", 40, 56), ("bowl_water", 40, 56), ("cookie", 20, 40)])
 def test_reads_next_to_a_128px_pet(built, name, lo, hi):
     _, arts = built
     x0, y0, x1, y1 = arts[name].getchannel("A").getbbox()
@@ -83,13 +83,14 @@ def test_bowls_differ_by_contents(built):
 
 
 # ---- 직접 주기: 커서 끝에 붙는 음식 (48×48, 가운데) ----
-HAND = ("hand_meal", "hand_cookie", "hand_fish", "hand_bone", "hand_carrot", "hand_honey", "hand_nectar", "hand_fly",
+HAND = ("hand_meal", "hand_cookie", "hand_fish", "hand_carrot", "hand_fly",
         "hand_candy", "hand_lollipop")
 HAND += ("hand_apple", "hand_milk")  # 크리스마스
 HAND += ("hand_bread", "hand_leaf")  # 농장
 HAND += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡
 HAND += ("hand_shaved_ice",)  # 눈사람
 HAND += ("hand_seeds",)  # 새
+HAND += ("hand_shrimp",)  # 펭귄
 HAND += ("hand_special",)  # 특식 🍱
 HAND += ("hand_broom",)  # 🧹 빗자루
 

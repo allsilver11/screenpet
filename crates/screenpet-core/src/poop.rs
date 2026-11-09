@@ -122,7 +122,7 @@ mod tests {
     fn poops_are_sixty_brown_thirty_pink_ten_rainbow() {
         let mut n = std::collections::HashMap::new();
         for i in 0..1000 {
-            *n.entry(pick_kind("dog", (i as f64 + 0.5) / 1000.0)).or_insert(0) += 1;
+            *n.entry(pick_kind("cat", (i as f64 + 0.5) / 1000.0)).or_insert(0) += 1;
         }
         assert_eq!((n[&ObjectKind::Poop], n[&ObjectKind::Pink], n[&ObjectKind::Rainbow]), (600, 300, 100));
         // 토끼는 갈색 자리에 알갱이
@@ -134,7 +134,8 @@ mod tests {
     #[test]
     fn rabbits_get_pellets_little_pets_a_small_swirl_and_everyone_else_the_big_one() {
         assert_eq!(kind_for("rabbit"), ObjectKind::Pellets);
-        for s in ["frog", "duck", "bee", "ghost", "cat", "dog", "bear", "giraffe", "dino_green", "santa", "unknown"] {
+        // 곰·꿀벌·강아지는 v0.5.5에서 빠졌지만 예전 버전 친구가 보낸 똥도 보통 똥이 된다 (모르는 동물과 같다)
+        for s in ["frog", "duck", "bird", "ghost", "cat", "giraffe", "dino_green", "santa", "bear", "bee", "dog", "unknown"] {
             assert_eq!(kind_for(s), ObjectKind::Poop, "{s}");
         }
         for k in [ObjectKind::Poop, ObjectKind::Pink, ObjectKind::Rainbow, ObjectKind::Pellets] {

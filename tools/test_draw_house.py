@@ -78,8 +78,8 @@ def test_front_layer_transparent_inside_door(built):
     assert front.getpixel((door["x"] + door["w"] - 2, door["y"] + 1)) > 200
 
 
-# ---- 단계별 집 + 벌통 + 귀신의 집 ----
-ARTS = [(kind, stage) for kind in ("house", "hive", "haunted", "xmas") for stage in STAGES]
+# ---- 단계별 집 + 귀신의 집 + 크리스마스 집 ----
+ARTS = [(kind, stage) for kind in ("house", "haunted", "xmas") for stage in STAGES]
 
 
 def _door(out, kind, stage):
@@ -133,9 +133,8 @@ def test_pet_fills_door_like_teenager(built, kind, stage):
     teen = _door(built, "house", "teenager")
     teen_fill = draw_house.door_pet_size("teenager") / teen["w"]
     door = _door(built, kind, stage)
-    # 벌통 입구는 꿀벌 몸 폭(프레임 안 몸 폭 × 몸 배율 0.8, 고양이 대비)에 맞춘 둥근 구멍,
     # 귀신의 집 문은 호박·유령 몸 폭(평균)에 맞춘다
-    body = {"hive": draw_house.HIVE_FILL, "haunted": draw_house.HAUNTED_FILL, "xmas": draw_house.XMAS_FILL}.get(kind, {}).get(stage, 1.0)
+    body = {"haunted": draw_house.HAUNTED_FILL, "xmas": draw_house.XMAS_FILL}.get(kind, {}).get(stage, 1.0)
     fill = draw_house.door_pet_size(stage) * body / door["w"]
     assert abs(fill / teen_fill - 1) < 0.04, (kind, stage, fill, teen_fill)
     assert abs(door["h"] / door["w"] - teen["h"] / teen["w"]) < 0.06
@@ -170,7 +169,7 @@ def _design_cat_fill(built, stage):
 
 
 def test_kinds_include_haunted():
-    assert draw_house.KINDS == ("house", "hive", "haunted", "xmas")
+    assert draw_house.KINDS == ("house", "haunted", "xmas")  # 벌통은 꿀벌과 함께 v0.5.5에서 빠졌다
     assert set(draw_house.DOORS) == set(draw_house.KINDS)
 
 
@@ -187,23 +186,15 @@ def test_haunted_door_fits_pumpkin_and_ghost(built, pet, stage):
     assert abs(fill / cat_fill - 1) < 0.15, (pet, stage, fill, cat_fill, teen_fill)
 
 
-@pytest.mark.parametrize("stage", STAGES)
-def test_hive_door_fits_the_bee(built, stage):
-    """꿀벌(몸 배율 0.8)이 벌통 입구를 고양이가 문 채우듯 (±12 %) 채운다 — 잘리지도 헐렁하지도 않다."""
-    door = _door(built, "hive", stage)
-    fill = draw_house.door_pet_size(stage) * _body_width("bee", stage) / door["w"]
-    cat_fill = _design_cat_fill(built, stage)
-    assert abs(fill / cat_fill - 1) < 0.12, (stage, fill, cat_fill)
-
-
 @pytest.mark.parametrize("pet", ["dino_green", "duck", "frog"])
 @pytest.mark.parametrize("stage", STAGES)
 def test_grown_pets_still_fit_the_plain_house_door(built, pet, stage):
-    """보통 집 동물 (공룡은 1.2 그대로, 오리·개구리는 되돌렸다): 문은 그대로 — 강아지(가장 넓은 몸)보다 넓지 않다."""
+    """보통 집 동물 (공룡은 1.2 그대로, 오리·개구리는 되돌렸다): 문은 그대로 — 문을 잰 기준 고양이보다 20 % 넘게 넓지 않다
+    (예전 기준이던 강아지 — 가장 넓은 몸 — 가 기준 고양이의 1.1배 안쪽이었다)."""
     door = _door(built, "house", stage)
     fill = draw_house.door_pet_size(stage) * _body_width(pet, stage) / door["w"]
-    dog = draw_house.door_pet_size(stage) * _body_width("dog", stage) / door["w"]
-    assert fill <= dog * 1.1, (pet, stage, fill, dog)
+    cat_fill = _design_cat_fill(built, stage)
+    assert fill <= cat_fill * 1.2, (pet, stage, fill, cat_fill)
 
 
 def test_haunted_house_is_purple_with_warm_glow(built):
@@ -262,5 +253,5 @@ def test_xmas_smoke_point_sits_on_the_chimney(built):
         art = Image.open(built / f"xmas_{stage}.png").getchannel("A")
         assert 4 <= sy <= 60 and 60 <= sx <= 120, (stage, sx, sy)
         assert art.getpixel((round(sx), round(sy) + 6)) == 255  # 바로 아래가 굴뚝
-    for kind in ("house", "hive", "haunted"):
+    for kind in ("house", "haunted"):
         assert "smoke" not in json.loads((built / f"{kind}_teenager.json").read_text())

@@ -96,12 +96,6 @@ def test_bubble_text_lives_in_a_clippable_span():
     assert run("bubbleText") == {"tag": "span", "text": "off to 아주아주아주긴이름's~ brb!", "hidden": False}
 
 
-@pytest.mark.parametrize("style,src", [("round", "effects/sting.png"), ("pixel", "effects_pixel/sting.png")])
-def test_sting_shows_the_drawn_mark_when_its_picture_fails(style, src):
-    r = run("stingFallback", style)
-    assert r == {"src": src, "fallbackHidden": True, "markHidden": True, "fallbackHiddenAfter": False}
-
-
 # ---- CSS: 브라우저 없이는 규칙이 있는지만 본다 (보이는 모습은 실제 앱에서) ----
 def css_rule(text, selector):
     start = text.index(selector + " {")
@@ -135,10 +129,6 @@ def test_long_names_end_in_an_ellipsis_inside_the_window():
 
 # ---- 지운 대체 경로가 다시 필요해지지 않게: 웹뷰가 믿는 그림 자료 ----
 def test_pet_data_the_windows_rely_on():
-    for d in (ROOT / "ui" / "pets").iterdir():
-        m = json.loads((d / "pet.json").read_text(encoding="utf-8"))
-        if m["animations"].get("sting"):
-            assert m.get("house"), f"{d.name}: 쏘는 동물은 집을 적어 둔다 (house.js)"
     for d in (ROOT / "ui" / "pets_pixel").iterdir():
         sizes = json.loads((d / "pet.json").read_text(encoding="utf-8"))["frame_sizes"]
         assert set(sizes) >= {"baby", "kinder", "child", "teenager", "adult"}, d.name

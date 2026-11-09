@@ -275,25 +275,25 @@ mod tests {
     #[test]
     fn shared_care_is_clamped_like_a_fed_pet_and_nonsense_is_dropped() {
         use crate::care::Stage;
-        assert_eq!(clean_care(&sc("dog", "child", 12.0, 0.3, true)), Some(Care { stage: Stage::Child, stamina: 12.0, fullness: 0.3, locked: true }));
+        assert_eq!(clean_care(&sc("rabbit", "child", 12.0, 0.3, true)), Some(Care { stage: Stage::Child, stamina: 12.0, fullness: 0.3, locked: true }));
         // 범위 밖: 포만감 0~1, 체력 0~그 단계에 필요한 만큼
-        assert_eq!(clean_care(&sc("dog", "baby", 1e9, 7.0, false)), Some(Care { stage: Stage::Baby, stamina: 30.0, fullness: 1.0, locked: false }));
-        assert_eq!(clean_care(&sc("dog", "kinder", -5.0, -1.0, false)), Some(Care { stage: Stage::Kinder, stamina: 0.0, fullness: 0.0, locked: false }));
-        assert_eq!(clean_care(&sc("dog", "adult", 40.0, 0.5, false)).map(|c| c.stamina), Some(0.0), "an adult has nothing left to grow");
-        assert_eq!(clean_care(&sc("dog", "giant", 1.0, 0.5, false)), None, "unknown stage");
-        assert_eq!(clean_care(&sc("dog", "baby", f64::NAN, 0.5, false)), None);
-        assert_eq!(clean_care(&sc("dog", "baby", 1.0, f64::INFINITY, false)), None);
+        assert_eq!(clean_care(&sc("rabbit", "baby", 1e9, 7.0, false)), Some(Care { stage: Stage::Baby, stamina: 30.0, fullness: 1.0, locked: false }));
+        assert_eq!(clean_care(&sc("rabbit", "kinder", -5.0, -1.0, false)), Some(Care { stage: Stage::Kinder, stamina: 0.0, fullness: 0.0, locked: false }));
+        assert_eq!(clean_care(&sc("rabbit", "adult", 40.0, 0.5, false)).map(|c| c.stamina), Some(0.0), "an adult has nothing left to grow");
+        assert_eq!(clean_care(&sc("rabbit", "giant", 1.0, 0.5, false)), None, "unknown stage");
+        assert_eq!(clean_care(&sc("rabbit", "baby", f64::NAN, 0.5, false)), None);
+        assert_eq!(clean_care(&sc("rabbit", "baby", 1.0, f64::INFINITY, false)), None);
     }
 
     #[test]
     fn my_care_goes_out_sorted_and_bounded() {
         use crate::care::Stage;
         let mut care = HashMap::new();
-        care.insert("dog".to_string(), Care { stage: Stage::Adult, ..Care::default() });
+        care.insert("rabbit".to_string(), Care { stage: Stage::Adult, ..Care::default() });
         care.insert("cat".to_string(), Care::default());
         let out = shared_care(&care);
-        assert_eq!(out.iter().map(|c| c.pet.as_str()).collect::<Vec<_>>(), ["cat", "dog"], "same order every time");
-        assert_eq!(out[1], sc("dog", "adult", 0.0, 1.0, false));
+        assert_eq!(out.iter().map(|c| c.pet.as_str()).collect::<Vec<_>>(), ["cat", "rabbit"], "same order every time");
+        assert_eq!(out[1], sc("rabbit", "adult", 0.0, 1.0, false));
         let many: HashMap<String, Care> = (0..200).map(|i| (format!("p{i:03}"), Care::default())).collect();
         assert_eq!(shared_care(&many).len(), MAX_SHARED_PETS);
     }
@@ -301,17 +301,17 @@ mod tests {
     #[test]
     fn adopting_shared_state_overwrites_known_pets_keeps_the_rest_and_switches_only_to_a_known_pet() {
         use crate::care::Stage;
-        let known = |p: &str| ["cat", "dog", "bird"].contains(&p);
+        let known = |p: &str| ["cat", "rabbit", "bird"].contains(&p);
         let mut care = HashMap::new();
         care.insert("cat".to_string(), Care::default());
         care.insert("bird".to_string(), Care { stage: Stage::Teenager, ..Care::default() });
-        let shared = [sc("cat", "child", 3.0, 0.2, false), sc("unicorn", "adult", 0.0, 1.0, false), sc("dog", "giant", 0.0, 1.0, false), sc("cat", "adult", 0.0, 1.0, false)];
-        let got = adopt_shared(&mut care, "cat", Some("dog"), &shared, known);
-        assert_eq!(got, Adopted { switch_to: Some("dog".into()), changed: true });
+        let shared = [sc("cat", "child", 3.0, 0.2, false), sc("unicorn", "adult", 0.0, 1.0, false), sc("rabbit", "giant", 0.0, 1.0, false), sc("cat", "adult", 0.0, 1.0, false)];
+        let got = adopt_shared(&mut care, "cat", Some("rabbit"), &shared, known);
+        assert_eq!(got, Adopted { switch_to: Some("rabbit".into()), changed: true });
         assert_eq!(care["cat"], Care { stage: Stage::Child, stamina: 3.0, fullness: 0.2, locked: false }, "the first entry for a pet wins");
         assert_eq!(care["bird"].stage, Stage::Teenager, "pets the other computer did not send stay");
         assert!(!care.contains_key("unicorn"), "a species this build doesn't know is left out");
-        assert!(!care.contains_key("dog"), "a broken entry is left out");
+        assert!(!care.contains_key("rabbit"), "a broken entry is left out");
         // 같은 동물이면 바꾸지 않는다, 모르는 동물로도 바꾸지 않는다
         assert_eq!(adopt_shared(&mut care, "cat", Some("cat"), &[], known), Adopted { switch_to: None, changed: false });
         assert_eq!(adopt_shared(&mut care, "cat", Some("unicorn"), &[], known), Adopted { switch_to: None, changed: false });

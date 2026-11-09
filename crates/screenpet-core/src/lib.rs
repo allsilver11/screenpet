@@ -22,7 +22,6 @@ pub mod poop;
 pub mod presence;
 pub mod sleigh;
 pub mod social;
-pub mod sting;
 pub mod style;
 pub mod surfaces;
 pub mod timeline;

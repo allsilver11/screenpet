@@ -37,7 +37,7 @@ fn a_pixel_walker_never_rolls_but_still_walks_and_runs() {
 
 #[test]
 fn a_pixel_flier_skips_its_somersault() {
-    assert_never_rolls(PetConfig { flies: true, stings: true, ..pixel() }, 5, 2);
+    assert_never_rolls(PetConfig { flies: true, ..pixel() }, 5, 2);
 }
 
 /// 픽셀 기린이 목 늘이기 층을 갖고 있으면 그대로 늘인다

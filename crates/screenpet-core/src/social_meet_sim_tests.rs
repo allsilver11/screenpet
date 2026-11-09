@@ -160,8 +160,8 @@ fn walking_into_each_other_often_ends_in_a_head_stomp_over() {
     let window = WindowInfo { id: 1, rect: Rect::new(400.0, 500.0, 1300.0, 1000.0) };
     let desk = World::new(vec![window], vec![Rect::new(0.0, 0.0, 1920.0, GROUND)], 128.0);
     let runs = [
-        (&floor, Owner::Ground(0), "cat", "dog", (0.0, 1920.0)),
-        (&floor, Owner::Ground(0), "rabbit", "bear", (0.0, 1920.0)),
+        (&floor, Owner::Ground(0), "cat", "rudolph", (0.0, 1920.0)),
+        (&floor, Owner::Ground(0), "rabbit", "santa", (0.0, 1920.0)),
         (&floor, Owner::Ground(0), "dino_green", "duck", (0.0, 1920.0)),
         (&desk, Owner::Window(1), "frog", "persian", (400.0, 1300.0)),
     ];
@@ -294,8 +294,8 @@ fn approaches(run: bool, how: Other) -> Vec<Trial> {
     let window = WindowInfo { id: 1, rect: Rect::new(400.0, 500.0, 1300.0, 1000.0) };
     let desk = World::new(vec![window], vec![Rect::new(0.0, 0.0, 1920.0, GROUND)], 128.0);
     let pairs = [
-        (&floor, Owner::Ground(0), "cat", "dog", (0.0, 1920.0)),
-        (&floor, Owner::Ground(0), "bear", "rabbit", (0.0, 1920.0)),
+        (&floor, Owner::Ground(0), "cat", "rudolph", (0.0, 1920.0)),
+        (&floor, Owner::Ground(0), "santa", "rabbit", (0.0, 1920.0)),
         (&floor, Owner::Ground(0), "dino_green", if how == Other::Standing { "bird" } else { "duck" }, (0.0, 1920.0)),
         (&desk, Owner::Window(1), "frog", "persian", (400.0, 1300.0)),
     ];

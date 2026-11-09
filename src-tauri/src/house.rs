@@ -39,7 +39,7 @@ pub fn house_scale(stage: Stage) -> f64 {
     }
 }
 
-/// 이 동물이 사는 집 그림 — pet.json `house` (없으면 sting이 있는 꿀벌은 벌통, 나머지는 보통 집; ui/house.js와 같은 기준)
+/// 이 동물이 사는 집 그림 — pet.json `house` (없으면 보통 집; ui/house.js와 같은 기준)
 fn house_kind(app: &AppHandle, pet: &str) -> HouseKind {
     app.state::<AppState>().pets.iter().find(|p| p.id == pet).map_or(HouseKind::House, |p| p.manifest.house_kind())
 }
@@ -66,7 +66,7 @@ pub fn window_size(stage: Stage, style: PetStyle, dpi: f64) -> (f64, f64) {
     (side.max(MIN_WIDTH), side + BUBBLE_SPACE)
 }
 
-/// 집 그림(128×128) 안의 문 사각형 (그림 좌표) — ui/house/<house|hive|haunted|xmas>_<stage>.json `door` {x, y, w, h}.
+/// 집 그림(128×128) 안의 문 사각형 (그림 좌표) — ui/house/<house|haunted|xmas>_<stage>.json `door` {x, y, w, h}.
 /// 앱은 문 가운데 x만 쓴다 (문간 그리기는 house.js가 json을 직접 읽는다).
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Door {
@@ -92,12 +92,11 @@ macro_rules! door_of_stage {
     };
 }
 
-/// 집·벌통·귀신의 집·크리스마스 벽돌집의 문 json
+/// 집·귀신의 집·크리스마스 벽돌집의 문 json
 macro_rules! door_of_kind {
     ($dir:literal, $kind:expr, $stage:expr) => {
         match $kind {
             HouseKind::House => door_of_stage!($dir, "house", $stage),
-            HouseKind::Hive => door_of_stage!($dir, "hive", $stage),
             HouseKind::Haunted => door_of_stage!($dir, "haunted", $stage),
             HouseKind::Xmas => door_of_stage!($dir, "xmas", $stage),
         }

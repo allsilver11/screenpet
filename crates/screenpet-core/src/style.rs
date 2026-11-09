@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn bundled_pixel_houses_match_the_table_and_fit_a_whole_frame() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/house_pixel");
-        for kind in ["house", "hive", "haunted", "xmas"] {
+        for kind in ["house", "haunted", "xmas"] {
             for stage in Stage::ALL {
                 let path = dir.join(format!("{kind}_{}.json", stage.name()));
                 let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();

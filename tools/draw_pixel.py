@@ -5,7 +5,7 @@
   - 눈·입·볼·효과는 "찾아내는" 게 아니라 코드가 넘겨준 자리(현재 변환 적용)에 도장(Stamp)으로 찍는다.
   - 색은 칸 평균이 아니라 부품 순서대로 설정 색을 그대로 칠하므로 탁해지지 않는다.
   - 외곽선은 채운 칸 바깥 1칸. 가는 줄무늬·발가락은 칸에 맞춘 1칸 선, 작은 점(젤리)은 1칸 점으로 남긴다.
-  - 반투명·번짐이 없다: 꿀벌 날개는 불투명 막, 유령은 불투명 우유빛, 호박 불빛은 노란 칸, 루돌프 코는 빨간 칸 + 반짝 칸.
+  - 반투명·번짐이 없다: 유령은 불투명 우유빛, 호박 불빛은 노란 칸, 루돌프 코는 빨간 칸 + 반짝 칸.
   - 프레임 하나의 크기로 칸 크기를 정하고, 높이 뛴 프레임은 창을 정수 칸만큼 옮긴다 (_fit_shift).
 
     python tools/draw_pixel.py [묶음…] [--no-preview]
@@ -36,6 +36,7 @@ import draw_frog as df  # noqa: E402
 import draw_halloween as dh  # noqa: E402
 import draw_snowman as ds  # noqa: E402
 import draw_bird as dbird  # noqa: E402
+import draw_penguin as dpeng  # noqa: E402
 
 K = dp.K
 OUT_ROOT = Path(__file__).resolve().parent.parent / "ui" / "pets_pixel"
@@ -99,7 +100,7 @@ class Grid:
 _PX = {"grid": None, "collect": None, "last_dx": 0}  # pixel_mode 상태
 _OWNERS = {  # 바꿔 끼우는 이름 → 원래 있는 모듈
     dp: ("compose", "stage_eye", "blush", "open_mouth", "front_mouth", "side_mouth", "brows", "z_fx", "heart_fx", "question_fx", "anger_fx",
-         "sparkle_fx", "thought_fx", "E", "L", "WHISKERS", "back_arm", "wing_layer", "bee_compose", "flower_bubble_fx", "front_paw", "back_tail", "_bee_stripe", "bee_front_parts", "_bee", "bee_arm"),
+         "sparkle_fx", "thought_fx", "E", "L", "WHISKERS", "back_arm", "front_paw", "back_tail"),
     dh: ("_finish", "pk_face", "_heart_items", "candy_bubble_fx", "lolly_bubble_fx"),
     dc: ("_nose_glow", "_apple_bubble", "milk_bubble_fx", "_beard_fns", "_mitt_arm"),
     df: ("fly_bubble_fx",),
@@ -107,6 +108,7 @@ _OWNERS = {  # 바꿔 끼우는 이름 → 원래 있는 모듈
     dd: ("melon_bubble_fx", "broc_bubble_fx", "grape_bubble_fx", "FOOD_BUBBLE", "wave_fx", "dust_fx", "impact_fx"),
     ds: ("ice_bubble_fx",),
     dbird: ("seeds_bubble_fx",),
+    dpeng: ("shrimp_bubble_fx",),
 }
 _ORIG = {name: getattr(mod, name) for mod, names in _OWNERS.items() for name in names}
 _ORIG_E, _ORIG_L = _ORIG["E"], _ORIG["L"]
@@ -140,7 +142,7 @@ def _stamp(x, y, rows, pal, **kw):
 EYE_PAL = {"#": EYE_COL, "o": SHINE, "i": IRIS, "l": dp.LINE, "w": SHINE}
 
 
-DARK_EYE_PAL = dict(EYE_PAL, **{"#": (30, 18, 20)})  # 짙은 털 (곰): 눈이 털에 묻히지 않게 더 까맣게
+DARK_EYE_PAL = dict(EYE_PAL, **{"#": (30, 18, 20)})  # 짙은 외곽선 동물: 눈이 털에 묻히지 않게 더 까맣게
 DARK_INK = 190
 
 
@@ -504,42 +506,6 @@ def _place_out(st, img, occ, n):
 
 
 # ---------------------------------------------------------------- 도트 compose
-@dataclass
-class _Wing:
-    """날개 한 장: 칸에 맞춘 불투명 막 + 외곽선. 몸 앞뒤로 겹친다 (반투명 없음). ghost: 날갯짓 잔상 (옅은 색, 외곽선 없음)."""
-    fns: list
-    hl: list
-    alpha: float = 1.0
-
-
-WING_FILL, WING_EDGE, WING_GHOST = (226, 240, 255), (128, 164, 204), (240, 248, 255)
-
-
-def wing_layer(fns, alpha=1.0, hl=()):
-    return _Wing(list(fns), list(hl), alpha)
-
-
-def _paint_wings(wings, img, keep, grid):
-    """wings를 칠한다. keep: 칠하지 말 칸 (몸 뒤 날개면 몸). 반환: 칠한 칸."""
-    n = grid.n
-    used = np.zeros((n, n), bool)
-    for w in wings:
-        m = grid.down(dp.shapes(w.fns)) >= 110
-        m = _clean(m)
-        if not m.any():
-            continue
-        edge = _dilate(m) & ~m
-        fill = WING_FILL if w.alpha >= 0.6 else WING_GHOST
-        line = WING_EDGE if w.alpha >= 0.6 else (168, 196, 228)
-        img[edge & ~keep & ~used] = line + (255,)
-        img[m & ~keep] = fill + (255,)
-        if w.hl and n >= 28 and w.alpha >= 0.6:
-            h = _fns_dots(w.hl, grid) & m
-            img[h & ~keep] = SHINE + (255,)
-        used |= (m | edge) & ~keep
-    return used
-
-
 def _fit_shift(grid, box):
     """프레임 하나가 격자 밖으로 나가면 (높이 뛴 깡총·앞으로 뻗은 다리) 정수 칸만큼 창을 옮긴다: (옮긴 격자, dx, dy칸). 1칸 외곽선 자리를 남긴다."""
     n, c = grid.n, grid.c
@@ -568,7 +534,7 @@ def _shift_stamps(lists, dx, dy):
 HELD_HEART = {0: [".ll.ll.", "lrrlrrl", "lrwrrrl", "lrrrrrl", ".lrrrl.", "..lrl.."], 1: [".l.l.", "lrlrl", "lrrrl", ".lrl.", "..l.."], 2: ["r.r", "rrr", ".r."]}
 
 
-def compose(parts, ops=(), fx=(), clip=None, under=(), over=(), noshift=False):
+def compose(parts, ops=(), fx=(), clip=None, noshift=False):
     raw = [dp.shapes(p.shapes) for p in parts]
     spk = [dp.shapes(p.spikes) if p.spikes else None for p in parts]
     soft, sharp = dp.blank(), dp.blank()
@@ -580,8 +546,7 @@ def compose(parts, ops=(), fx=(), clip=None, under=(), over=(), noshift=False):
         if k is not None:
             sharp = ImageChops.lighter(sharp, k)
     soft = dp.melt(soft)
-    boxes = [ImageChops.lighter(soft, sharp).getbbox()] + [dp.shapes(w.fns).getbbox() for w in tuple(under) + tuple(over)]
-    boxes = [b for b in boxes if b]
+    boxes = [b for b in [ImageChops.lighter(soft, sharp).getbbox()] if b]
     box = (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
     if _PX["collect"] is not None:
         _PX["collect"].append(box)
@@ -601,7 +566,6 @@ def compose(parts, ops=(), fx=(), clip=None, under=(), over=(), noshift=False):
     img[sil] = base + (255,)
     outer = _dilate(sil) & ~sil
     img[outer] = _ink(base) + (255,)
-    used = _paint_wings(under, img, sil | outer, grid)
     sil_full = ImageChops.lighter(soft, sharp)
     late = []
     for p, m, k in zip(parts, raw, spk):
@@ -634,13 +598,12 @@ def compose(parts, ops=(), fx=(), clip=None, under=(), over=(), noshift=False):
         for fns, color, *_ in p.marks:
             if small and color == dp._INK["line"]:  # 작은 앞발의 발가락 선은 칸이 모자라 얼룩이 된다
                 continue
-            stamps = [f for f in fns if isinstance(f, Stamp)]  # 꿀벌: 얼굴이 몸 무늬로 들어온다 → 위에 찍는 층으로
+            stamps = [f for f in fns if isinstance(f, Stamp)]  # 몸 무늬로 들어온 도장(얼굴 등) → 위에 찍는 층으로
             if stamps:
                 late.append((stamps, color))
                 continue
             img[_fns_dots(fns, grid) & region] = tuple(color) + (255,)
-    occ = sil | outer | used
-    occ |= _paint_wings(over, img, np.zeros((n, n), bool), grid)
+    occ = sil | outer
     face = np.zeros((n, n), bool)
     for fns, color, *rest_ in late + list(ops):
         opts = rest_[0] if rest_ else {}
@@ -666,48 +629,6 @@ def compose(parts, ops=(), fx=(), clip=None, under=(), over=(), noshift=False):
             img[d] = tuple(color) + (255,)
             occ |= d
     return Image.fromarray(img)
-
-
-def bee_compose(parts, ops, fx=(), back_w=(), front_w=(), circle=None):
-    """반투명 날개 층 대신 불투명 도트 날개를 몸 앞뒤로 (잔상은 한 장만)."""
-    return compose(parts, ops, fx, under=_one_ghost(back_w), over=_one_ghost(front_w))
-
-
-def _one_ghost(wings):
-    """잔상(반투명) 여러 장 → 처음과 끝 두 장: 옅은 막만 (뭉개지 않게)."""
-    wings = list(wings)
-    ghosts = [w for w in wings if w.alpha < 0.6]
-    return [w for w in wings if w.alpha >= 0.6] + ghosts[:1] + ghosts[-1:] if ghosts else wings
-
-
-def _bee_stripe(sp):
-    return sp.stripe  # 아기도 진한 줄 (흐리면 24칸에서 꿀벌로 안 보인다)
-
-
-def _bee():
-    """줄무늬는 아기도 두 줄."""
-    b = _ORIG["_bee"]()
-    return dict(b, n=max(b["n"], 2))
-
-
-def bee_front_parts(sp, cx, cy, rx, ry, face, legs=True):
-    """앞모습: 줄무늬 호가 붙으면 턱수염이 된다 → 한 칸 두께 두 줄, 배 위쪽에 넉넉히."""
-    dp.mark_head(cx, cy - ry * 0.84, rx * 1.15)
-    cell = _PX["grid"].cell
-    w = cell * (1.7 if _wide() else 1.0)
-    stripes = [dp.L(dp.arc(cx, cy + k * ry - 8, rx + 6, 8, 15, 165, 16), w) for k in (0.34, 0.72)]
-    spikes = dp._fuzz(cx, cy, rx, ry, 205, 335, 7) + (dp.tuft(cx, cy - ry) if dp._ST["tuft"] else [])
-    parts = [dp.Part([dp.E(cx - rx, cy - ry, cx + rx, cy + ry)], sp.base, [(stripes, dp._bee_stripe(sp))] + face, grow=1, spikes=spikes)]
-    if legs:
-        fns = [dp.E(x - 3, cy + ry - 4, x + 3, cy + ry + 6) for x in (cx - 9, cx + 9)]
-        parts.append(dp.Part(fns, sp.stripe, sharp=True, grow=0))
-    return parts
-
-
-def bee_arm(sp, cx, cy, rx, ry, side, ang=None, tip=None):
-    """팔: 몸 색이면 몸이 종 모양으로 번진다 → 줄무늬 색 짧은 팔."""
-    part = _ORIG["bee_arm"](sp, cx, cy, rx, ry, side, ang, tip)
-    return part if tip is not None else dp.Part(part.shapes, sp.stripe, sharp=True, grow=0)  # 품에 안는 팔은 몸 색 (줄무늬 색이면 턱수염이 된다)
 
 
 # ---------------------------------------------------------------- 산타: 얼굴 칸을 남긴다
@@ -857,7 +778,6 @@ ICON_PALS = dict(k=(52, 62, 58), w=(244, 246, 250), g=(118, 186, 96), G=(84, 148
                  n=(150, 104, 62), B=(120, 170, 230), m=(150, 156, 170))
 ICONS = {  # 넓은 격자, 좁은 격자
     "rice": (["..w..", ".www.", "wwwww", "kkkkk"], [".m.", "mwm", "kkk"]),
-    "flower": ([".p.p.", "ppppp", ".pyp.", "ppppp", ".p.p."], [".p.", "pyp", ".p."]),
     "fly": (["ss.ss", ".kkk.", "kkkkk", ".k.k."], ["s.s", ".k.", "k.k"]),
     "candy": (["v.ooo.v", "vvooovv", "v.ooo.v"], ["vov"]),
     "lolly": ([".ppp.", "ppwpp", ".ppp.", "..n..", "..n.."], ["ppp", "ppp", ".n."]),
@@ -869,6 +789,7 @@ ICONS = {  # 넓은 격자, 좁은 격자
     "broc": ([".ggg.", "gGgGg", ".ggg.", "..n.."], ["ggg", ".n."]),
     "grape": (["..g..", "PP.PP", ".PPP.", "..P.."], ["P.P", ".P."]),
     "ice": ([".www.", "wwwww", "BBBBB", ".BBB."], ["sss", "BBB"]),
+    "shrimp": ([".oo..", "o..o.", "o.oo.", ".oo.."], ["oo.", "o.o", ".o."]),
     "seeds": (["..t..", ".tbt.", "t.t.t", ".tbt."], [".t.", "tbt"]),
 }
 
@@ -940,17 +861,17 @@ def _nose_glow(im, i, lit=1.0):
 _PATCH = dict(compose=compose, stage_eye=stage_eye, blush=blush, open_mouth=open_mouth, front_mouth=front_mouth, side_mouth=side_mouth,
               brows=brows, z_fx=z_fx, heart_fx=heart_fx, question_fx=question_fx, anger_fx=anger_fx, sparkle_fx=sparkle_fx,
               thought_fx=thought_fx, back_arm=back_arm, E=_Ellipse, L=_Line, WHISKERS=[[(21, 61), (11, 59)], [(21, 67), (11, 69)]],
-              front_paw=front_paw, back_tail=back_tail, _bee_stripe=_bee_stripe, bee_front_parts=bee_front_parts, _bee=_bee, wing_layer=wing_layer, bee_compose=bee_compose, _finish=_finish, pk_face=pk_face, _heart_items=_heart_items,
-              _nose_glow=_nose_glow, flower_bubble_fx=_bubble_fn("flower"), candy_bubble_fx=_bubble_fn("candy"), lolly_bubble_fx=_bubble_fn("lolly"),
+              front_paw=front_paw, back_tail=back_tail, _finish=_finish, pk_face=pk_face, _heart_items=_heart_items,
+              _nose_glow=_nose_glow, candy_bubble_fx=_bubble_fn("candy"), lolly_bubble_fx=_bubble_fn("lolly"),
               _apple_bubble=_bubble_fn("apple"), milk_bubble_fx=_bubble_fn("milk"), fly_bubble_fx=_bubble_fn("fly"), bread_bubble_fx=_bubble_fn("bread"),
               leaf_bubble_fx=_bubble_fn("leaf"), melon_bubble_fx=_bubble_fn("melon"), broc_bubble_fx=_bubble_fn("broc"), grape_bubble_fx=_bubble_fn("grape"),
-              ice_bubble_fx=_bubble_fn("ice"), bee_arm=bee_arm, _beard_fns=_beard_fns, _mitt_arm=_mitt_arm, duck_bill=duck_bill, GF_STAGE=GF_STAGE,
-              wave_fx=wave_fx, dust_fx=dust_fx, impact_fx=impact_fx, seeds_bubble_fx=_bubble_fn("seeds"),
+              ice_bubble_fx=_bubble_fn("ice"), _beard_fns=_beard_fns, _mitt_arm=_mitt_arm, duck_bill=duck_bill, GF_STAGE=GF_STAGE,
+              wave_fx=wave_fx, dust_fx=dust_fx, impact_fx=impact_fx, seeds_bubble_fx=_bubble_fn("seeds"), shrimp_bubble_fx=_bubble_fn("shrimp"),
               FOOD_BUBBLE={"dino_yellow": _bubble_fn("melon"), "dino_green": _bubble_fn("broc"), "dino_purple": _bubble_fn("grape")})
 
 
 def _modules():
-    return [dp, dc, dd, dfarm, df, dh, ds, dbird]
+    return [dp, dc, dd, dfarm, df, dh, ds, dbird, dpeng]
 
 
 @contextmanager
@@ -1048,8 +969,6 @@ def _unfit(fn):
 
 def pixel_species(sp):
     """그림 코드에 넘길 종 설정: 포즈의 _fit을 벗겼다."""
-    if sp.id == "dog":  # 귀 안쪽 선은 얼굴 옆 괄호처럼 보인다
-        sp = replace(sp, front_ear_marks=[m for m in sp.front_ear_marks if m[1] != dp.LINE])
     return replace(sp, poses={k: _unfit(v) for k, v in sp.poses.items()}) if sp.poses else sp
 
 
@@ -1058,8 +977,7 @@ PIXEL_TWEAK = {"baby": dict(ear=1.0, tail=0.62, pale=0.2), "kinder": dict(ear=1.
                "adult": dict(calm=False, ear=1.05)}
 
 
-SPECIES_TWEAK = {"dog": {"baby": dict(ear=0.78, tuft=False), "kinder": dict(ear=0.86)},  # 처진 귀는 크면 버섯 머리가 된다
-                 "bear": {st: dict(ear=1.3) for st in dp.STAGES}}  # 옆모습에서 귀가 보여야 곰이다
+SPECIES_TWEAK = {}  # {종: {단계: 덮어쓰기}} — 도트에서만 다르게 할 종별 단계 특징
 
 
 def _stage_ctx(sp, stage):
@@ -1186,12 +1104,12 @@ def write_species(sp, out_root=OUT_ROOT):
 
 # ---------------------------------------------------------------- 미리보기 (tools/preview/pixel_<묶음>.png)
 LIGHT, DARK = (240, 240, 244), (44, 46, 58)
-GROUPS = {"animals": ["cat", "dog", "rabbit", "bear", "persian"], "bee_frog": ["bee", "frog"], "halloween": ["pumpkin", "ghost"],
+GROUPS = {"animals": ["cat", "rabbit", "persian"], "frog": ["frog"], "halloween": ["pumpkin", "ghost"],
           "farm": ["duck", "giraffe"], "christmas": ["rudolph", "santa", "snowman"], "dinos": ["dino_yellow", "dino_green", "dino_purple"],
-          "birds": ["bird"]}
+          "birds": ["bird"], "penguin": ["penguin"]}
 KEY_FRAMES = [("walk", 0), ("run", 1), ("sit_front", 0), ("sleep", 0), ("hungry", 1), ("heart", 2), ("tilt", 1), ("fall", 0), ("wave", 1),
               ("eat", 0), ("level_up", 2), ("lookup", 2)]
-EXTRA_KEYS = [("climb", 0), ("climb", 2), ("slide", 1), ("sting", 2), ("bigjump", 1), ("neckstretch", 2), ("wag", 1), ("arch", 2), ("huff", 1),
+EXTRA_KEYS = [("climb", 0), ("climb", 2), ("slide", 1), ("bigjump", 1), ("neckstretch", 2), ("arch", 2), ("huff", 1),
               ("fire", 2), ("roar", 1), ("stomp", 1)]
 KEY_COUNT = 16
 PREVIEW_LIMIT = 8000

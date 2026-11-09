@@ -4,7 +4,7 @@
 use super::tests::{place, run, sim_cfg, w1, world};
 use super::*;
 use crate::flight::{self, Goal};
-use crate::test_util::{DT, bee, idle, run_until};
+use crate::test_util::{DT, flyer, idle, run_until};
 
 /// 새: 날고, 빠르다 (쏘지 않는다)
 fn bird() -> PetConfig {
@@ -41,14 +41,14 @@ fn exit_decision(cfg: PetConfig, from_x: f64, seed: u64) -> Option<(Pet, Option<
 }
 
 #[test]
-fn bundled_bird_is_a_swift_flyer_faster_than_the_bee() {
+fn bundled_bird_is_a_swift_flyer_faster_than_the_ghost() {
     let all = crate::test_util::bundled();
     let get = |id: &str| all.iter().find(|(s, _)| s == id).map(|(_, c)| *c).unwrap_or_else(|| panic!("no {id}"));
-    let (bird, bee, ghost) = (get("bird"), get("bee"), get("ghost"));
-    assert!(bird.flies && bird.swift && !bird.stings, "{bird:?}");
-    assert!(!bee.swift && !ghost.swift);
+    let (bird, ghost) = (get("bird"), get("ghost"));
+    assert!(bird.flies && bird.swift, "{bird:?}");
+    assert!(!ghost.swift);
     // 나는 동물 중 가장 빠르다 (화면 속도 = pet.json walk_speed × √몸 배율)
-    assert!(bird.walk_speed > 1.5 * bee.walk_speed, "bird {} bee {}", bird.walk_speed, bee.walk_speed);
+    assert!(bird.walk_speed > 1.5 * ghost.walk_speed, "bird {} ghost {}", bird.walk_speed, ghost.walk_speed);
     assert!(all.iter().filter(|(id, c)| c.flies && id != "bird").all(|(_, c)| c.walk_speed < bird.walk_speed));
 }
 
@@ -86,7 +86,7 @@ fn hovering_bird_flutters_and_a_perched_bird_sits() {
     assert!(p.standing.is_some() && matches!(p.state, State::Idle { .. }), "{:?}", p.state);
     assert_eq!(p.render().anim, Anim::Idle);
     // 꿀벌은 그대로 (떠 있는 그림이 idle)
-    let mut b = hovering(bee(), 800.0, 300.0, 1);
+    let mut b = hovering(flyer(), 800.0, 300.0, 1);
     b.update(DT, &w);
     assert_eq!(b.render().anim, Anim::Idle);
 }
@@ -134,8 +134,8 @@ fn bird_decides_to_leave_from_farther_away_and_dashes_out_with_a_whoosh() {
 }
 
 #[test]
-fn bee_still_decides_near_the_edge_and_flies_out_at_its_usual_pace() {
-    let exits: Vec<(Pet, Option<Speech>)> = (0..200).filter_map(|seed| exit_decision(super::tests::sim_bee(), 700.0, seed)).collect();
+fn a_plain_flyer_still_decides_near_the_edge_and_flies_out_at_its_usual_pace() {
+    let exits: Vec<(Pet, Option<Speech>)> = (0..200).filter_map(|seed| exit_decision(super::tests::sim_flyer(), 700.0, seed)).collect();
     assert!(!exits.is_empty());
     let w = world(vec![]);
     for (p, said) in &exits {
@@ -161,7 +161,7 @@ fn bird_dashes_in_from_a_friends_screen_with_a_whoosh() {
     assert!(run_until(&mut p, &w, 60 * 5, |p| !matches!(p.state, State::Enter { .. })));
     assert!(p.body.x + p.cfg.half_w <= 1920.0);
     // 꿀벌은 그대로 천천히, 말없이
-    let mut b = Pet::new_entering(bee(), &w, Side::Right, 3);
+    let mut b = Pet::new_entering(flyer(), &w, Side::Right, 3);
     assert_eq!(b.take_speech(), None);
     assert_eq!(b.render().anim, Anim::Walk);
 }

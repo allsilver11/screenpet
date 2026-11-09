@@ -5,7 +5,7 @@ use super::send_moves::{SEND_POOF_SECS, SEND_WAVE_SECS};
 use super::tests::{cfg, place, sim_cfg, w1, world};
 use super::*;
 use crate::test_util::{DT, LoopLimit, idle};
-use super::tests::{sim_bee as bee, sim_frog as frog};
+use super::tests::{sim_flyer as flyer, sim_frog as frog};
 
 
 /// 사라질 때까지 돌린다 (최대 secs초). 사라진 쪽과 걸린 시간. 그동안 한 번도 화면 끝으로 걸어 나가지 않는다
@@ -158,7 +158,7 @@ fn sent_pet_on_a_window_top_waves_from_there() {
 fn bee_and_frog_wave_and_poof_too() {
     let w = world(vec![w1()]);
     for seed in 1..=8 {
-        let mut b = Pet::new(bee(), 900.0, 500.0, seed);
+        let mut b = Pet::new(flyer(), 900.0, 500.0, seed);
         b.state = idle();
         b.send_to(Side::Right, false);
         assert_eq!(run_until_gone(&mut b, &w, 5.0).map(|r| r.0), Some(Side::Right), "bee seed {seed}");

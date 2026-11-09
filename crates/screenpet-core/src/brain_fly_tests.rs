@@ -1,20 +1,19 @@
-//! 꿀벌 (spec 2B §10) — 날기·내려앉기·쏘기 brain 동작 테스트. brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 나는 동물 (spec 2B §10) — 날기·내려앉기 brain 동작 테스트. brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{cfg, place, run, sim_cfg, w1, win, world};
 use super::*;
 use crate::care::{FeedResult, Food};
 use crate::flight::{self, Goal};
-use crate::sting::StingPhase;
-use crate::test_util::{DT, LoopLimit, bee, idle, run_until};
+use crate::test_util::{DT, LoopLimit, flyer, idle, run_until};
 
 
-fn sim_bee() -> PetConfig {
-    PetConfig { flies: true, stings: true, walk_speed: 70.0, ..sim_cfg() }
+fn sim_flyer() -> PetConfig {
+    PetConfig { flies: true, walk_speed: 70.0, ..sim_cfg() }
 }
 
 /// (x, y)에 떠 있는 벌
 fn hovering(x: f64, y: f64, state: State, seed: u64) -> Pet {
-    let mut p = Pet::new(bee(), x, y, seed);
+    let mut p = Pet::new(flyer(), x, y, seed);
     p.state = state;
     p
 }
@@ -24,33 +23,13 @@ fn limits(p: &Pet, w: &World) -> Rect {
     flight::fly_bounds(&w.bounds, p.cfg.half_w, p.cfg.size * (1.0 + flight::TOP_SPACE))
 }
 
-/// 커서를 40px씩 좌우로 흔들며 몸 위를 간질인다 — 쏘기가 시작되면 멈춘다
-fn tickle_until_sting(p: &mut Pet, w: &World, ticks: usize) -> bool {
-    for i in 0..ticks {
-        let (x, y) = (p.body.x, p.body.y - 60.0);
-        p.hover(x + if i % 2 == 0 { 0.0 } else { 40.0 }, y, true);
-        p.update(DT, w);
-        if matches!(p.state, State::Sting { .. }) {
-            return true;
-        }
-    }
-    false
-}
-
-fn click(p: &mut Pet, w: &World) {
-    let (x, y) = (p.body.x, p.body.y - 60.0);
-    p.pointer_down(x, y);
-    p.update(DT, w);
-    p.pointer_up(x, y);
-}
-
 /// 10분 — 늘 화면 안, 대개 날고, 가끔 내려앉아 쉬고, 잠은 내려앉았을 때만. 걷기·화면 타기·뛰어들기 없음
 #[test]
 fn bee_ten_minutes_flies_within_bounds_perches_and_sleeps_only_perched() {
     let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0), win(2, 1300.0, 350.0, 1800.0, 700.0)]);
     let (mut flying, mut perched, mut sleeping, mut rolls, mut landings, mut total) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
     for seed in 0..8 {
-        let mut p = Pet::new(sim_bee(), 960.0, 128.0, seed);
+        let mut p = Pet::new(sim_flyer(), 960.0, 128.0, seed);
         let b = limits(&p, &w);
         let mut was_perched = false;
         for tick in 0..(60 * 600) {
@@ -174,12 +153,12 @@ fn perch_target_follows_a_moving_window() {
 #[test]
 fn perched_bee_takes_off_to_move_and_when_its_perch_goes() {
     let w = world(vec![w1()]);
-    let mut p = Pet::new(bee(), 0.0, 0.0, 1);
+    let mut p = Pet::new(flyer(), 0.0, 0.0, 1);
     place(&mut p, &w, Owner::Window(1), 800.0, State::Move { kind: Move::Walk, remaining: 10.0 });
     p.update(DT, &w);
     assert!(p.standing.is_none() && p.flight.is_some(), "{:?}", p.state);
     // 자다가 창이 사라지면 떨어지지 않고 떠오른다
-    let mut p = Pet::new(bee(), 0.0, 0.0, 1);
+    let mut p = Pet::new(flyer(), 0.0, 0.0, 1);
     place(&mut p, &w, Owner::Window(1), 800.0, State::Sleep { remaining: 10.0 });
     p.update(DT, &world(vec![]));
     assert!(p.standing.is_none());
@@ -211,7 +190,7 @@ fn perched_bee_rests_with_tricks_and_sometimes_sleeps() {
     let w = world(vec![w1()]);
     let (mut tricks, mut sleeps) = (0, 0);
     for seed in 0..400 {
-        let mut p = Pet::new(bee(), 0.0, 0.0, seed);
+        let mut p = Pet::new(flyer(), 0.0, 0.0, seed);
         place(&mut p, &w, Owner::Window(1), 800.0, idle());
         tricks += matches!(p.rest_state(&w), State::Trick { .. }) as usize;
         sleeps += matches!(p.sleep_or_move(&w), State::Sleep { .. }) as usize;
@@ -301,7 +280,7 @@ fn bee_dragged_on_the_way_home_flies_home_from_where_it_was_dropped() {
 #[test]
 fn perched_bee_goes_home_by_air_too() {
     let w = world(vec![w1()]);
-    let mut p = Pet::new(bee(), 0.0, 0.0, 1);
+    let mut p = Pet::new(flyer(), 0.0, 0.0, 1);
     place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.go_home(Owner::Ground(0), 1500.0);
     assert!(run_until(&mut p, &w, 60 * 20, |p| p.is_housed()));
@@ -355,7 +334,7 @@ fn exiting_bee_flies_off_the_screen_and_reports_once() {
 #[test]
 fn guest_bee_flies_in_from_the_edge() {
     let w = world(vec![w1()]);
-    let mut p = Pet::new_entering(bee(), &w, Side::Right, 3);
+    let mut p = Pet::new_entering(flyer(), &w, Side::Right, 3);
     assert!(matches!(p.state, State::Enter { .. }));
     assert!(p.body.x - p.cfg.half_w >= 1920.0 && p.standing.is_none());
     assert!(p.body.y < 1040.0 - 200.0);
@@ -376,7 +355,7 @@ fn guest_bee_flies_in_from_the_edge() {
 fn homesick_guest_bee_flies_home() {
     let w = world(vec![w1()]);
     for seed in 0..10 {
-        let mut p = Pet::new_entering(bee(), &w, Side::Left, seed);
+        let mut p = Pet::new_entering(flyer(), &w, Side::Left, seed);
         p.set_guest(Side::Left, 3.0);
         assert!(run_until(&mut p, &w, 60 * 90, |p| p.is_away()), "seed {seed}: {:?} {:?}", p.state, p.body);
         assert_eq!(p.take_exit(), Some(Side::Left));
@@ -458,287 +437,6 @@ fn hovered_flying_bee_stops_and_looks_at_the_cursor() {
 
 // ---- 쏘기 ----
 
-/// 쏘기를 끝까지 돌리며 (콕! 틱, 쏜 지점, 들린 말풍선들)
-fn run_sting(p: &mut Pet, w: &World) -> (usize, (f64, f64), Vec<Speech>) {
-    let (mut hit, mut at, mut said) = (None, None, Vec::new());
-    for tick in 0..(60 * 3) {
-        p.update(DT, w);
-        if let Some(s) = p.take_speech() {
-            said.push(s);
-        }
-        if let Some(point) = p.take_sting() {
-            assert!(hit.is_none(), "stung twice");
-            hit = Some(tick);
-            at = Some(point);
-        }
-        if !matches!(p.state, State::Sting { .. }) {
-            break;
-        }
-    }
-    (hit.expect("never hit"), at.unwrap(), said)
-}
-
-#[test]
-fn tickled_bee_gets_angry_and_stings_the_screen() {
-    let w = world(vec![]);
-    let mut p = hovering(800.0, 500.0, idle(), 1);
-    assert!(tickle_until_sting(&mut p, &w, 60));
-    assert_eq!(p.state, State::Sting { phase: StingPhase::Alert, remaining: StingPhase::Alert.secs() });
-    assert_eq!(p.render(), RenderState { anim: Anim::Sting, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
-    let (x, y) = (p.body.x, p.body.y);
-    let (hit, at, said) = run_sting(&mut p, &w);
-    // "!" 0.5초 + 돌진 0.3초 뒤 콕!
-    assert!((47..=49).contains(&hit), "hit at tick {hit}");
-    assert!((at.0 - x).abs() < 1e-6 && (at.1 - (y - 0.55 * 128.0)).abs() < 6.0, "{at:?}");
-    assert_eq!(said, vec![Speech::Sting, Speech::Grumpy]);
-    assert!(p.take_sting().is_none());
-    assert!(!matches!(p.state, State::Sting { .. }));
-}
-
-#[test]
-fn recoil_looks_grumpy_and_the_bee_flies_on_after_1_5_s() {
-    let w = world(vec![]);
-    let mut p = hovering(800.0, 500.0, idle(), 1);
-    p.start_sting();
-    assert!(run_until(&mut p, &w, 60, |p| p.sting_at.is_some()));
-    assert!(p.take_sting().is_some());
-    let mut ticks = 0;
-    let mut limit = LoopLimit::new();
-    while matches!(p.state, State::Sting { .. }) {
-        limit.step();
-        if let State::Sting { phase: StingPhase::Recoil, .. } = p.state {
-            assert_eq!(p.render().anim, Anim::Annoyed);
-        }
-        p.update(DT, &w);
-        ticks += 1;
-    }
-    assert!((88..=92).contains(&ticks), "{ticks}");
-    // 사이 박자(떠서) 뒤 다시 난다
-    assert!(run_until(&mut p, &w, 120, |p| matches!(p.state, State::Move { .. })), "{:?}", p.state);
-}
-
-#[test]
-fn bee_stings_at_most_every_8_seconds() {
-    let w = world(vec![]);
-    let mut p = hovering(800.0, 500.0, idle(), 1);
-    assert!(tickle_until_sting(&mut p, &w, 60));
-    let started = p.clock;
-    run_sting(&mut p, &w);
-    // 쿨다운 중엔 8초가 되기 직전까지 계속 간질여도 투덜대기만 한다
-    let until_cooled = (60.0 * (started + 7.95 - p.clock)) as usize;
-    assert!(!tickle_until_sting(&mut p, &w, until_cooled), "stung again after {}", p.clock - started);
-    assert!(matches!(p.state, State::Tickled { .. }), "{:?}", p.state);
-    // 쿨다운이 끝나면 다시 쏜다 (8초에서 멀지 않게)
-    assert!(tickle_until_sting(&mut p, &w, 60 * 2));
-    let again = p.clock - started;
-    assert!((8.0..10.0).contains(&again), "{again}");
-}
-
-#[test]
-fn cooldown_tickle_grumbles_instead_of_giggling() {
-    let w = world(vec![]);
-    let mut p = hovering(800.0, 500.0, idle(), 1);
-    p.sting_ready_at = 100.0;
-    for i in 0..30 {
-        p.hover(p.body.x + if i % 2 == 0 { 0.0 } else { 40.0 }, p.body.y - 60.0, true);
-        p.update(DT, &w);
-        if matches!(p.state, State::Tickled { .. }) {
-            break;
-        }
-    }
-    assert!(matches!(p.state, State::Tickled { .. }));
-    assert_eq!(p.take_speech(), Some(Speech::Grumpy));
-}
-
-#[test]
-fn shaking_a_held_bee_makes_it_sting_and_escape() {
-    let w = world(vec![]);
-    let mut p = hovering(800.0, 500.0, idle(), 1);
-    p.pointer_down(800.0, 450.0);
-    let mut stung = false;
-    for i in 1..=60 {
-        p.update(DT, &w);
-        p.pointer_move(800.0 + if i % 2 == 0 { 0.0 } else { 15.0 }, 450.0);
-        if matches!(p.state, State::Sting { .. }) {
-            stung = true;
-            // 600px ÷ 15px = 40번째 움직임 근처
-            assert!((38..=42).contains(&i), "stung at {i}");
-            break;
-        }
-    }
-    assert!(stung);
-    assert!(!p.is_held());
-    let (_, at, _) = run_sting(&mut p, &w);
-    assert!((at.0 - p.body.x).abs() < 20.0);
-}
-
-#[test]
-fn flinging_a_bee_across_the_screen_is_not_shaking() {
-    let w = world(vec![]);
-    let mut p = hovering(300.0, 500.0, idle(), 1);
-    p.pointer_down(300.0, 450.0);
-    for i in 1..=30 {
-        p.update(DT, &w);
-        p.pointer_move(300.0 + 40.0 * i as f64, 450.0);
-        assert_eq!(p.state, State::Dragged);
-    }
-    p.pointer_up(1500.0, 450.0);
-    assert_eq!(p.state, State::Air { anim: Anim::Fall });
-}
-
-#[test]
-fn slow_dragging_does_not_sting() {
-    let w = world(vec![]);
-    let mut p = hovering(800.0, 500.0, idle(), 1);
-    p.pointer_down(800.0, 450.0);
-    for i in 1..=180 {
-        p.update(DT, &w);
-        p.pointer_move(800.0 + 5.0 * i as f64, 450.0);
-        assert_eq!(p.state, State::Dragged);
-    }
-}
-
-#[test]
-fn three_quick_clicks_make_a_bee_sting_but_slow_clicks_do_not() {
-    let w = world(vec![]);
-    let mut p = hovering(800.0, 500.0, idle(), 1);
-    click(&mut p, &w);
-    run(&mut p, &w, 20);
-    click(&mut p, &w);
-    run(&mut p, &w, 20);
-    click(&mut p, &w);
-    assert!(matches!(p.state, State::Sting { .. }), "{:?}", p.state);
-
-    let mut slow = hovering(800.0, 500.0, idle(), 1);
-    for _ in 0..4 {
-        click(&mut slow, &w);
-        assert!(!matches!(slow.state, State::Sting { .. }));
-        run(&mut slow, &w, 70);
-    }
-}
-
-#[test]
-fn perched_bee_stings_where_it_sits() {
-    let w = world(vec![w1()]);
-    let mut p = Pet::new(bee(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Window(1), 800.0, idle());
-    assert!(tickle_until_sting(&mut p, &w, 60));
-    let (_, at, _) = run_sting(&mut p, &w);
-    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
-    assert!((at.0 - 800.0).abs() < 1e-9 && (at.1 - (400.0 - 0.55 * 128.0)).abs() < 1e-9);
-}
-
-#[test]
-fn walkers_never_sting() {
-    let w = world(vec![w1()]);
-    let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Window(1), 800.0, idle());
-    assert!(!tickle_until_sting(&mut p, &w, 60));
-    assert!(matches!(p.state, State::Tickled { .. }));
-    let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
-    place(&mut p, &w, Owner::Window(1), 800.0, idle());
-    for _ in 0..3 {
-        click(&mut p, &w);
-        run(&mut p, &w, 10);
-        if matches!(p.state, State::Air { .. }) {
-            run(&mut p, &w, 60);
-        }
-        assert!(!matches!(p.state, State::Sting { .. }));
-    }
-    p.pointer_down(p.body.x, p.body.y - 60.0);
-    for i in 1..=60 {
-        p.update(DT, &w);
-        p.pointer_move(800.0 + if i % 2 == 0 { 0.0 } else { 30.0 }, 300.0);
-    }
-    assert_eq!(p.state, State::Dragged);
-    assert!(p.take_sting().is_none());
-    // 벌인데 쏘지 않는 동물(sting 동작 없음)도 쏘지 않는다
-    let mut fly_only = hovering(800.0, 300.0, idle(), 1);
-    fly_only.cfg.stings = false;
-    assert!(!tickle_until_sting(&mut fly_only, &w, 60));
-}
-
-#[test]
-fn bee_does_not_sting_on_the_way_home() {
-    let w = world(vec![]);
-    let mut p = hovering(800.0, 500.0, idle(), 1);
-    p.go_home(Owner::Ground(0), 1500.0);
-    assert!(!tickle_until_sting(&mut p, &w, 60));
-    assert_eq!(p.state, State::GoHome);
-}
-
-#[test]
-fn bee_switching_to_a_walker_falls_and_a_walker_switching_to_a_bee_takes_off() {
-    let w = world(vec![w1()]);
-    let mut p = hovering(200.0, 300.0, idle(), 1);
-    p.cfg = cfg();
-    assert!(run_until(&mut p, &w, 120, |p| p.standing.is_some()));
-    assert_eq!(p.body.y, 1040.0);
-    p.cfg = bee();
-    p.state = State::Move { kind: Move::Walk, remaining: 5.0 };
-    p.update(DT, &w);
-    assert!(p.standing.is_none());
-}
-
-// ---- fix round 1 ----
-
-#[test]
-fn clicks_during_the_sting_wind_up_cannot_cancel_it() {
-    let w = world(vec![w1()]);
-    let mut p = hovering(800.0, 250.0, idle(), 1);
-    p.start_sting();
-    let mut hits = 0;
-    // 0.5초 동안 다섯 번 빠르게 누른다 (누른 채 끌기도 한 번)
-    for i in 0..5 {
-        let (x, y) = (p.body.x, p.body.y - 60.0);
-        p.pointer_down(x, y);
-        assert!(!p.is_held(), "click {i}: {:?}", p.state);
-        if i == 2 {
-            p.pointer_move(x + 50.0, y + 50.0);
-        }
-        for _ in 0..6 {
-            p.update(DT, &w);
-            hits += p.take_sting().iter().count();
-        }
-        p.pointer_up(x, y);
-    }
-    for _ in 0..(60 * 3) {
-        p.update(DT, &w);
-        hits += p.take_sting().iter().count();
-    }
-    assert_eq!(hits, 1);
-}
-
-#[test]
-fn hungry_bee_clicked_for_food_does_not_sting() {
-    let w = world(vec![w1()]);
-    let mut p = hovering(800.0, 250.0, idle(), 1);
-    p.set_hungry(true);
-    for _ in 0..4 {
-        click(&mut p, &w);
-        assert!(!matches!(p.state, State::Sting { .. }), "{:?}", p.state);
-        for _ in 0..6 {
-            p.update(DT, &w);
-        }
-    }
-    assert!(p.take_food_request());
-    assert!(p.take_sting().is_none());
-}
-
-#[test]
-fn sting_started_above_the_flying_area_eases_back_instead_of_jumping() {
-    let w = world(vec![w1()]);
-    let mut p = hovering(800.0, 250.0, idle(), 1);
-    let top = limits(&p, &w).top;
-    p.body.y = top - 200.0;
-    p.start_sting();
-    p.update(DT, &w);
-    let jump = p.body.y - (top - 200.0);
-    assert!(jump > 0.0 && jump < 60.0, "jump {jump}");
-    run(&mut p, &w, 30);
-    assert!((p.body.y - top).abs() < 1.0, "{} vs {top}", p.body.y);
-}
-
 #[test]
 fn switching_a_fed_bee_to_a_walker_keeps_the_meal_but_drops_flight_state() {
     let w = world(vec![w1()]);
@@ -794,7 +492,7 @@ fn real_screen(dpi: f64) -> (World, PetConfig) {
         win(3, 0.55 * sw, 0.3 * sh, 0.95 * sw, 0.95 * sh),
     ];
     let w = World::new(wins, vec![Rect::new(0.0, 0.0, sw, sh)], 128.0 * dpi);
-    let cfg = PetConfig { size: 128.0 * dpi, half_w: 38.0 * dpi, walk_speed: 50.0 * dpi, dpi, ..bee() };
+    let cfg = PetConfig { size: 128.0 * dpi, half_w: 38.0 * dpi, walk_speed: 50.0 * dpi, dpi, ..flyer() };
     (w, cfg)
 }
 
