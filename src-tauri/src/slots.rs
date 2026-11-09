@@ -26,6 +26,12 @@ pub const NOTE_WIDTH: f64 = 232.0;
 /// 기린이 목을 늘이는 동안(Anim::NeckStretch, 코어 behavior::NECK_STRETCH_SECS) 창 위에 더하는 자리 (몸 배율 1 기준 논리 px).
 /// 머리가 그림 칸 위로 pet.json neck_stretch.ext(≤ 48 그림 px)만큼 솟는다 — 말풍선 자리(BUBBLE_SPACE)와 합쳐 넉넉히 들어간다
 pub const STRETCH_SPACE: f64 = 52.0;
+/// 루돌프 코·호박 빛이 몸 아래로 번지는 자리 (논리 px): 빛나는 동안만 창 아래를 이만큼 늘린다
+/// (늘 비워 두면 그 투명한 띠가 바닥 밑 작업 표시줄의 클릭을 막는다)
+pub const GLOW_SPACE: f64 = 24.0;
+/// 누르면 빛나는 동물과 빛이 이어지는 시간 (ui/main.js PET_FX, style.css 애니메이션 2.2초 안팎)
+const GLOW_PETS: [&str; 2] = ["rudolph", "pumpkin"];
+const GLOW_SECS: f64 = 2.6;
 
 /// 손님 창 라벨. visit_id는 Tauri 창 라벨 글자(영숫자와 - / : _)만 — 아니면 None
 pub fn guest_label(visit_id: &str) -> Option<String> {
@@ -153,6 +159,9 @@ pub struct Slot {
     note_open: bool,
     /// 기린이 목을 늘이는 중이라 창이 위로 커져 있음 (늘이는 동안만 — 끝나면 바로 줄인다)
     stretch_open: bool,
+    /// 빛나는 동안 창 아래를 늘렸다 / 언제까지
+    glow_open: bool,
+    glow_until: Option<std::time::Instant>,
     /// 커서에 매달리느라 창이 마우스를 통과시키고 있음 (그동안 클릭은 사용자 것)
     click_through: bool,
     /// 크기 조절 창의 펫 크기 배율
@@ -184,6 +193,8 @@ impl Slot {
             last_render: None,
             note_open: false,
             stretch_open: false,
+            glow_open: false,
+            glow_until: None,
             click_through: false,
             size,
             #[cfg(windows)]
@@ -289,6 +300,7 @@ impl Slot {
     /// 지금 창 크기 (논리 px) — 편지를 펼친 동안은 위로 높고 넓다
     fn logical_size(&self, body_scale: f64) -> (f64, f64) {
         let (w, h) = if self.note_open { note_window_logical_size(body_scale) } else { window_logical_size(body_scale) };
+        let h = h + self.glow_pad();
         if self.stretch_open {
             (w, h + STRETCH_SPACE * body_scale)
         } else {
@@ -297,6 +309,38 @@ impl Slot {
     }
 
     /// 기린 목 늘이기가 시작·끝나면 창을 위로 키우거나 줄인다 (몸은 창 아래 가운데 그대로 — 바로 다음 place가 옮긴다)
+    /// 눌렸다: 빛나는 동물이면 그동안 창 아래에 빛 번질 자리를 낸다
+    pub fn start_glow(&mut self) {
+        if GLOW_PETS.contains(&self.entry.id.as_str()) {
+            self.glow_until = Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(GLOW_SECS));
+        }
+    }
+
+    /// 아래 빛 자리 (논리 px)
+    fn glow_pad(&self) -> f64 {
+        if self.glow_open {
+            GLOW_SPACE
+        } else {
+            0.0
+        }
+    }
+
+    /// 빛이 시작·끝나면 창을 아래로 늘리거나 줄이고, 웹뷰가 펫을 그만큼 올려 그린다 (`pet-pad`)
+    fn sync_glow(&mut self) {
+        let on = self.glow_until.is_some_and(|t| std::time::Instant::now() < t);
+        if on == self.glow_open {
+            return;
+        }
+        self.glow_open = on;
+        if !on {
+            self.glow_until = None;
+        }
+        let (w, h) = self.logical_size(self.shown.scale);
+        self.resize_window(w, h);
+        self.last_pos = None;
+        let _ = self.window.emit_to(self.label.as_str(), "pet-pad", self.glow_pad());
+    }
+
     fn sync_stretch(&mut self) {
         let stretch = self.pet.render().anim == Anim::NeckStretch;
         if stretch == self.stretch_open {
@@ -345,7 +389,8 @@ impl Slot {
     fn window_target(&self) -> (i32, i32) {
         let (_, sy) = self.pet.window_pos();
         let (w, h) = self.logical_size(self.shown.scale);
-        let top = h - PET_LOGICAL_SIZE * self.shown.scale;
+        // 몸 아래 빛 자리는 창이 바닥 쪽으로 늘어난 만큼 (몸은 그대로)
+        let top = h - PET_LOGICAL_SIZE * self.shown.scale - self.glow_pad();
         ((self.pet.body.x - w * self.dpi / 2.0).round() as i32, (sy - top * self.dpi).round() as i32)
     }
 
@@ -408,6 +453,7 @@ impl Slot {
     /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보인다. hidden = 사용자가 트레이로 모두 숨겨 둠 (그동안은 보이지 않는다)
     pub fn place(&mut self, hidden: bool) {
         self.sync_stretch();
+        self.sync_glow();
         self.sync_click_through();
         let pos = self.window_target();
         if self.last_pos != Some(pos) {

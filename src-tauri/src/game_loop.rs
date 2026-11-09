@@ -352,6 +352,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     if let Some(i) = slots::find(&slots, &label) {
                         let (cx, cy) = source.cursor();
                         slots[i].pet.pointer_down(cx, cy);
+                        slots[i].start_glow();
                     }
                 }
                 Input::SetPet { entry: next, remote } => {

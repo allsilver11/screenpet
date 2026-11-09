@@ -142,3 +142,13 @@ def test_pet_data_the_windows_rely_on():
     for d in (ROOT / "ui" / "pets_pixel").iterdir():
         sizes = json.loads((d / "pet.json").read_text(encoding="utf-8"))["frame_sizes"]
         assert set(sizes) >= {"baby", "kinder", "child", "teenager", "adult"}, d.name
+
+
+def test_pet_glow_gets_room_below_only_while_it_shines():
+    """루돌프 코·호박 빛은 몸 둘레로 번진다: 빛나는 동안만 창 아래를 늘려 아래 번짐이 잘리지 않게 (늘 비워 두면 작업 표시줄 클릭을 막는다)."""
+    slots = (ROOT / "src-tauri" / "src" / "slots.rs").read_text(encoding="utf-8")
+    loop = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    js = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
+    assert "pub const GLOW_SPACE: f64" in slots and "pub fn start_glow(" in slots and '"pet-pad"' in slots
+    assert ".start_glow();" in loop[loop.index("Input::PointerDown { label }") :][:800]
+    assert 'listen("pet-pad"' in js and "stageEl.style.bottom" in js

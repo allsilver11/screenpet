@@ -672,6 +672,10 @@ function levelUpBurst() {
 
 // 첫 pet-render는 이 웹뷰가 듣기 전에 지나갔을 수 있다 — 첫 로드 땐 slot_info의 render를 쓴다 (이벤트가 먼저 왔으면 그쪽이 새것)
 let gotRender = false;
+// 루돌프 코·호박 빛이 나는 동안 앱이 창을 아래로 늘린다: 펫과 머리 위 띠를 그만큼 올려 그린다
+listen("pet-pad", (e) => {
+  stageEl.style.bottom = `${Number(e.payload) || 0}px`;
+});
 const listeningRender = listen("pet-render", (e) => {
   gotRender = true;
   if (e.payload.anim !== render.anim) animStart = performance.now();
