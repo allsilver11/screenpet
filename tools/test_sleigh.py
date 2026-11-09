@@ -60,3 +60,14 @@ def test_the_game_loop_freezes_and_parks_the_riders():
 
 def test_help_and_notes_tell_about_it():
     assert "🛷" in (ROOT / "ui" / "help.html").read_text(encoding="utf-8")
+
+
+def test_the_sleigh_is_lifted_off_the_window_bottom_so_a_tilt_does_not_clip():
+    rs = (APP / "sleigh.rs").read_text(encoding="utf-8")
+    js = (ROOT / "ui" / "sleigh.js").read_text(encoding="utf-8")
+    assert "sleigh::window_box(unit)" in rs and "(h - self.below) * dpi" in rs
+    assert "bottom: `${setup.below || 0}px`" in js
+    # 그림 상자 크기는 코어와 같다
+    core = (ROOT / "crates" / "screenpet-core" / "src" / "sleigh.rs").read_text(encoding="utf-8")
+    assert "pub const RIDE_BOX: (f64, f64) = (2.5, 1.25);" in core
+    assert "const W = u * 2.5;" in js and "const H = u * 1.25;" in js

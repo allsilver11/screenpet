@@ -13,6 +13,33 @@ pub const RIDE_SECS: f64 = 9.0;
 pub const COOLDOWN_SECS: f64 = 600.0;
 /// 뜨는 데, 내려앉는 데 쓰는 몫
 const TAKEOFF: f64 = 0.12;
+/// 앞이 들리고 숙는 가장 큰 각도 (도)
+pub const MAX_TILT: f64 = 35.0;
+/// 썰매·산타·루돌프가 차지하는 상자 (큰 동물 한 변의 배수: 너비, 높이) — ui/sleigh.js와 같다
+pub const RIDE_BOX: (f64, f64) = (2.5, 1.25);
+/// 처음 몇 초 산타 위에 뜨는 말풍선 자리 (한 변의 배수)
+pub const BUBBLE: f64 = 0.35;
+
+/// 썰매 창 (논리 px): 썰매 아래 가운데(도는 축)에서 MAX_TILT까지 기울어도 상자가 다 들어간다.
+/// below = 축 아래로 남기는 높이 (기울면 한쪽 끝이 축보다 내려간다)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowBox {
+    pub width: f64,
+    pub height: f64,
+    pub below: f64,
+}
+
+pub fn window_box(unit: f64) -> WindowBox {
+    let (w, h) = (RIDE_BOX.0 * unit, (RIDE_BOX.1 + BUBBLE) * unit);
+    let (sin, cos) = MAX_TILT.to_radians().sin_cos();
+    let margin = unit * 0.1;
+    // 가장 많이 기울었을 때의 모서리: 옆으로 w/2·cos + h·sin, 위로 w/2·sin + h·cos, 아래로 w/2·sin
+    WindowBox {
+        width: 2.0 * (w / 2.0 * cos + h * sin) + 2.0 * margin,
+        height: (w / 2.0 * sin + h * cos) + w / 2.0 * sin + 2.0 * margin,
+        below: w / 2.0 * sin + margin,
+    }
+}
 
 /// 썰매에 탈 수 있다: 디딤판 위에서 걷거나 쉬는 중이고, 들리거나 탑에 있거나 조작·하우스·외출 중이 아니다
 pub fn ready(p: &Pet) -> bool {
@@ -79,7 +106,7 @@ impl Lap {
         if dx.abs() > 0.01 {
             self.facing = dx.signum();
         }
-        let tilt = if dx.abs() + dy.abs() < 1e-9 { 0.0 } else { (-dy).atan2(dx.abs()).to_degrees().clamp(-35.0, 35.0) };
+        let tilt = if dx.abs() + dy.abs() < 1e-9 { 0.0 } else { (-dy).atan2(dx.abs()).to_degrees().clamp(-MAX_TILT, MAX_TILT) };
         Pose { x, y, facing: self.facing, tilt }
     }
 
@@ -111,6 +138,23 @@ impl Lap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tilted_sleigh_always_fits_its_window() {
+        for unit in [64.0, 128.0, 200.0] {
+            let b = window_box(unit);
+            let (w, h) = (RIDE_BOX.0 * unit, (RIDE_BOX.1 + BUBBLE) * unit);
+            for deg in (-35..=35).map(f64::from) {
+                let (sin, cos) = deg.to_radians().sin_cos();
+                // 썰매 아래 가운데를 축으로 돈 네 모서리 (y는 위로 +)
+                for (x, y) in [(-w / 2.0, 0.0), (w / 2.0, 0.0), (-w / 2.0, h), (w / 2.0, h)] {
+                    let (rx, ry) = (x * cos - y * sin, x * sin + y * cos);
+                    assert!(rx.abs() <= b.width / 2.0, "{unit} {deg}: x {rx} > {}", b.width / 2.0);
+                    assert!(ry >= -b.below && ry <= b.height - b.below, "{unit} {deg}: y {ry} outside -{}..{}", b.below, b.height - b.below);
+                }
+            }
+        }
+    }
 
     fn area() -> Rect {
         Rect::new(0.0, 0.0, 1920.0, 1040.0)

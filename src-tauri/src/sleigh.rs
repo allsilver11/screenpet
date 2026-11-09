@@ -13,9 +13,6 @@ use tauri::{AppHandle, Emitter, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 use crate::slots::Slot;
 
 const LABEL: &str = "sleigh";
-/// 썰매 창 한 변 = 둘 중 큰 동물 한 변(논리 px)의 몇 배
-const WIDE: f64 = 2.7;
-const TALL: f64 = 1.6;
 
 /// 썰매에 탄 동물 하나 (웹뷰가 시트에서 그린다)
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +31,8 @@ struct Setup {
     /// 큰 동물 한 변 (논리 px)
     unit: f64,
     pixel: bool,
+    /// 썰매 아래 가운데(도는 축)가 창 아래에서 떨어진 높이 (논리 px) — 기울어도 안 잘리게
+    below: f64,
 }
 
 /// 웹뷰에 보내는 모습 (`sleigh-pose`)
@@ -50,6 +49,8 @@ struct Ride {
     hwnd: Option<isize>,
     /// 창 크기 (논리 px)
     size: (f64, f64),
+    /// 축이 창 아래에서 떨어진 높이 (논리 px)
+    below: f64,
     last_pose: Option<PosePayload>,
 }
 
@@ -103,8 +104,9 @@ impl SleighFx {
         };
         let (puller, rider) = (rider(&slots[i]), rider(&slots[j]));
         let unit = puller.side.max(rider.side);
-        let size = (unit * WIDE, unit * TALL);
-        let setup = Setup { pixel: puller.pixel && rider.pixel, puller, rider, unit };
+        let b = sleigh::window_box(unit);
+        let size = (b.width, b.height);
+        let setup = Setup { pixel: puller.pixel && rider.pixel, puller, rider, unit, below: b.below };
         let Some(window) = build_window(app, &setup, size) else { return };
         self.cooldown.insert(labels.clone(), now + Duration::from_secs_f64(COOLDOWN_SECS));
         for k in [i, j] {
@@ -112,7 +114,7 @@ impl SleighFx {
         }
         eprintln!("sleigh: {} and {} take off", labels.0, labels.1);
         let hwnd = crate::overlay::hwnd_of(&window);
-        let mut ride = Ride { labels, lap: Lap::new(start, area), window, hwnd, size, last_pose: None };
+        let mut ride = Ride { labels, lap: Lap::new(start, area), window, hwnd, size, below: setup.below, last_pose: None };
         ride.place();
         self.ride = Some(ride);
     }
@@ -141,7 +143,8 @@ impl Ride {
         let dpi = self.window.scale_factor().unwrap_or(1.0);
         let (w, h) = self.size;
         let x = (pose.x - w * dpi / 2.0).round() as i32;
-        let y = (pose.y - h * dpi).round() as i32;
+        // 축(썰매 아래 가운데)이 창 아래에서 below만큼 위에 있다
+        let y = (pose.y - (h - self.below) * dpi).round() as i32;
         crate::overlay::move_quietly(&self.window, self.hwnd, x, y);
         let payload = PosePayload { facing: pose.facing, tilt: (pose.tilt * 2.0).round() / 2.0 };
         if self.last_pose != Some(payload) {

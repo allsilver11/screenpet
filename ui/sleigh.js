@@ -7,6 +7,7 @@ const setup = window.SLEIGH || {
   rider: { id: "santa", stage: "teenager", pixel: false, side: 128 },
   unit: 128,
   pixel: false,
+  below: 80,
 };
 const ride = document.getElementById("ride");
 const els = { puller: document.getElementById("puller"), rider: document.getElementById("rider") };
@@ -22,7 +23,8 @@ sleighEl.src = setup.pixel ? "sleigh/sleigh_pixel.png" : "sleigh/sleigh.png";
 // 썰매 그림: 동글은 정사각 칸(아래쪽에 썰매), 픽셀은 32×16칸
 const sleighW = u * 1.35;
 const sleighH = setup.pixel ? sleighW / 2 : sleighW;
-Object.assign(ride.style, { width: `${W}px`, height: `${H}px`, marginLeft: `${-W / 2}px` });
+// 썰매 아래 가운데(도는 축)를 창 아래에서 below만큼 띄운다: 기울면 한쪽 끝이 축보다 내려가도 안 잘린다
+Object.assign(ride.style, { width: `${W}px`, height: `${H}px`, marginLeft: `${-W / 2}px`, bottom: `${setup.below || 0}px` });
 Object.assign(sleighEl.style, { left: "0px", width: `${sleighW}px`, height: `${sleighH}px` });
 // 산타는 썰매 안 (다리는 썰매 앞판에 가린다), 루돌프는 앞에서 끈다
 const riderSide = setup.rider.side;
