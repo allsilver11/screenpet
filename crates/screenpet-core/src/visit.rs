@@ -329,8 +329,8 @@ pub fn fully_inside(bounds: &Rect, side: Side, x: f64, half_w: f64) -> bool {
 // ---- 위/아래 친구 화면 (v0.3.6) ----
 
 /// 위/아래로 나가기: 이동을 정할 때마다 (걸어 나가기 확률 × 이만큼)으로 높이 뛰어 위로 / 바닥 밑으로 쏙 나간다.
-/// 바닥 끝까지 걸어가 닿는 일이 이동 열 번에 한 번쯤이라 옆으로 걸어 나가는 것과 비슷한 빈도
-pub const VERTICAL_DECISION_SCALE: f64 = 0.1;
+/// 바닥 끝까지 걸어가 닿는 일이 이동 열 번에 한 번쯤이라 0.1이면 옆으로 걸어 나가는 것과 비슷한 빈도 — 위/아래 친구에게도 더 자주 가게 그 두 배
+pub const VERTICAL_DECISION_SCALE: f64 = 0.2;
 /// 개구리는 위로 뛰어 나가기를 이만큼 더 자주
 pub const FROG_SKY_JUMP_MULT: f64 = 2.0;
 /// 높이 뛰기 전에 웅크리는 시간 (초)
