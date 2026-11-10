@@ -54,7 +54,7 @@ SHRIMP, SHRIMP_DARK = (255, 140, 110), (222, 96, 80)
 #               chub: 동글 공 몸 (가로, 세로) 배율 — 공통 torso(아기 길쭉)를 쓰지 않고 모든 단계 포동포동 (머리 큰 아기는 몸을 더 넓게)
 PG_STAGE = {
     0: dict(chick=True, fluff=3, fuzz=True, flip=0.78, tie=False, chub=(1.3, 1.0)),
-    1: dict(chick=True, fluff=1, fuzz=False, flip=0.86, tie=False, chub=(1.2, 1.02)),  # 등 솜털 세모는 아기만 (사용자: 등이 뾰족뾰족)
+    1: dict(chick=True, fluff=1, fuzz=False, flip=0.86, tie=False, chub=(1.25, 1.02)),  # 등 솜털 세모는 아기만 (사용자: 등이 뾰족뾰족)
     2: dict(chick=False, fluff=1, fuzz=False, flip=0.94, tie=False, chub=(1.17, 0.97)),
     3: dict(chick=False, fluff=0, fuzz=False, flip=1.0, tie=False, chub=(1.0, 1.0)),
     4: dict(chick=False, fluff=0, fuzz=False, flip=1.04, tie=True, chub=(0.98, 0.97)),
