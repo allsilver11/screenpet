@@ -51,30 +51,17 @@ _LENS_SHAPES = []  # 지금 그리는 프레임의 렌즈 원들 (그린 변환 
 SHRIMP, SHRIMP_DARK = (255, 140, 110), (222, 96, 80)
 
 # 단계(lvl)별 — chick: 회색 솜털 몸 · fluff: 정수리 솜털 가닥 · fuzz: 몸 옆 솜털 삐죽 · flip: 지느러미 길이 · tie: 나비넥타이
-#               chub: 동글 공 몸 (가로, 세로) 배율 — 공통 torso(아기 길쭉)를 쓰지 않고 모든 단계 포동포동 (머리 큰 아기는 몸을 더 넓게)
 PG_STAGE = {
-    0: dict(chick=True, fluff=3, fuzz=True, flip=0.78, tie=False, chub=(1.3, 1.0)),
-    1: dict(chick=True, fluff=1, fuzz=False, flip=0.86, tie=False, chub=(1.2, 1.02)),  # 등 솜털 세모는 아기만 (사용자: 등이 뾰족뾰족)
-    2: dict(chick=False, fluff=1, fuzz=False, flip=0.94, tie=False, chub=(1.17, 0.97)),
-    3: dict(chick=False, fluff=0, fuzz=False, flip=1.0, tie=False, chub=(1.0, 1.0)),
-    4: dict(chick=False, fluff=0, fuzz=False, flip=1.04, tie=True, chub=(0.98, 0.97)),
+    0: dict(chick=True, fluff=3, fuzz=True, flip=0.78, tie=False),
+    1: dict(chick=True, fluff=1, fuzz=False, flip=0.86, tie=False),  # 등 솜털 세모는 아기만 (사용자: 등이 뾰족뾰족)
+    2: dict(chick=False, fluff=1, fuzz=False, flip=0.94, tie=False),
+    3: dict(chick=False, fluff=0, fuzz=False, flip=1.0, tie=False),
+    4: dict(chick=False, fluff=0, fuzz=False, flip=1.04, tie=True),
 }
 
 
 def _pg():
     return PG_STAGE[_ST["lvl"]]
-
-
-def body_dims(side=True):
-    """포동포동 몸 (가로 반지름, 세로 반지름, 머리 반지름): 키보다 넓은 동글 공 몸에 머리가 목 없이 파묻힌다."""
-    cx_, cy_ = _pg()["chub"]
-    bk = _ST["body"]
-    return (27.0 if side else 28.5) * bk * cx_, 21.5 * bk * cy_, (16.5 if side else 18.0) * _ST["head"]
-
-
-def front_head_y(by, ry, hr):
-    """앞모습 머리 가운데 높이 (몸 위쪽에 반쯤 파묻힘)."""
-    return by - ry * 0.58 - hr * 0.34
 
 
 def back_color(stage=None):
@@ -198,7 +185,7 @@ def beak(bx, by, kind, side, k=1.0):
     parts, ops = [], []
     gap = {"open": 3.0, "big": 4.5, "yawn": 5.0, "chirp": 3.2}.get(kind, 0.0)
     if side:
-        ln = 10.0 * k
+        ln = 9.0 * k
         if gap:
             up = [T((bx, by - 3.0 * k), (bx + ln, by - 0.4), (bx, by + 0.8))]
             lo = [T((bx, by + 0.8), (bx + ln * 0.8, by + gap), (bx, by + 3.0 * k + gap * 0.4))]
@@ -252,9 +239,8 @@ def side_head(hx, hy, hr, eyes, mouth, brow, head_rot=0.0):
 
 
 def penguin(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes="dot", mouth=None, brow=None, flips=None,
-            feet=((0.0, 0.0), (0.0, 0.0)), head=(0.0, 0.0), head_rot=0.0, fx=(), held=(), props=(), belly=False, rock=0.0):
+            feet=((0.0, 0.0), (0.0, 0.0)), head=(0.0, 0.0), head_rot=0.0, fx=(), held=(), props=(), belly=False):
     """펭귄 한 장. side: 오른쪽을 보는 옆모습 · bottom: 몸 아래끝 (발 위, 없으면 바닥에 섬) · rot: 발밑을 축으로 기우뚱 ·
-    rock: 기우뚱 축 높이 (몸 세로 반지름 배수, 0 = 발밑 — 동글 공 몸은 가운데를 축으로 흔들어야 위아래가 엇갈려 뒤뚱이 보인다) ·
     flips: 옆모습 [(near|far, 각도)] (None = 가까운 쪽을 옆구리에 붙임) · 앞모습 (왼쪽 각도, 오른쪽 각도) ·
     feet: 옆모습 (뒤, 앞) / 앞모습 (왼, 오른) 발 (dx, 들기) 또는 None · head: 머리 (dx, dy) · belly: 발라당 (앞모습, 발이 위로)."""
     st = _pg()
@@ -264,35 +250,34 @@ def penguin(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes
     hk, bk = _ST["head"], _ST["body"]
     fk = bk ** 0.5
     parts, ops, late = [], [], []
-    rx, ry, hr = body_dims(side)
+    rx, ry = 22 * bk * _ST["torso"][0], 24 * bk * _ST["torso"][1]
+    hr = (18.5 if side else 20.0) * hk
     bottom = FLOOR - 3 if bottom is None else bottom
-    bx = cx - (2 if side else 0)
+    if not side:
+        rx *= _ST["fbody"][0]
+    bx = cx - (3 if side else 0)
     by = bottom - ry
     pivot = (bx, bottom)
-    ln = 16 * st["flip"] * bk  # 동글 몸에 짧고 작은 지느러미
-    with xf(rot=rot, pivot=(bx, bottom - ry * rock)):
+    ln = 21 * st["flip"] * bk
+    with xf(rot=rot, pivot=pivot):
         with xf(sx=sq[0], sy=sq[1], pivot=pivot):
             if side:
-                hx, hy = bx + rx * 0.26 + head[0], by - ry * 0.62 - hr * 0.28 + head[1]
-                sh = (bx - rx * 0.02, by - ry * 0.3)
+                hx, hy = bx + rx * 0.22 + head[0], by - ry * 0.7 - hr * 0.42 + head[1]
+                sh = (bx + rx * 0.05, by - ry * 0.42)
                 for which, a in (flips or []):
                     if which == "far":
                         parts.append(flipper((sh[0] + 4, sh[1] - 1), ln * 0.92, a, k=fk))
                 if feet:
-                    for j, (dx, lift) in enumerate(feet):  # 동글 몸 아래로 짧은 발이 쏙
-                        parts.append(side_foot(bx - rx * 0.36 + rx * 0.62 * j + dx, lift, k=fk * 1.12, y=bottom + 3.0))
-                # 볼록 배: 몸 앞쪽 아래로 불룩 튀어나온 공 (무게중심이 아래)
-                bulge = E(bx - rx * 0.3, by - ry * 0.5, bx + rx * 1.1, by + ry)
-                belly_m = [([E(bx - rx * 0.42, by - ry * 0.6, bx + rx * 1.3, by + ry * 1.12)], bcol)]
+                    for j, (dx, lift) in enumerate(feet):
+                        parts.append(side_foot(bx - 6 + 11 * j + dx, lift, k=fk, y=bottom + 2.5))
+                tail = T((bx - rx * 0.62, by + ry * 0.42), (bx - rx - 7 * bk, by + ry * 0.98), (bx - rx * 0.2, by + ry * 0.92))
+                belly_m = [([E(bx - rx * 0.2, by - ry * 0.62, bx + rx * 1.06, by + ry * 1.08)], bcol)]
                 spikes = fuzz(bx, by, rx, ry, (200, 165, 135)) if st["fuzz"] else []
-                # 등은 덜 내민다 (사용자: 등이 옆으로 누운 산처럼 튀어나왔다) — 몸 공의 뒤쪽 반만 좁힌다
-                back = BACK_SHRINK * rx
-                tail = T((bx - back * 0.7, by + ry * 0.4), (bx - back - 6 * bk, by + ry * 0.96), (bx - back * 0.3, by + ry * 0.92))
-                parts.append(Part([E(bx - back, by - ry, bx + rx, by + ry), bulge, tail], col, belly_m, grow=1, spikes=spikes))
+                parts.append(Part([E(bx - rx, by - ry, bx + rx, by + ry), tail], col, belly_m, grow=1, spikes=spikes))
                 hpart, bp, face = side_head(hx, hy, hr, eyes, mouth, brow, head_rot)
                 parts.append(hpart)
                 if st["tie"]:
-                    tx, ty = hx + hr * 0.66 + head[0] * 0.2, hy + hr * 0.98 + head[1] * 0.2
+                    tx, ty = hx + hr * 0.62 + head[0] * 0.2, hy + hr * 1.02 + head[1] * 0.2
                     parts.append(bow_tie(tx, ty, True, k=bk))
                 near = [a for w, a in (flips or [("near", 8)]) if w == "near"]
                 for a in near:
@@ -301,18 +286,16 @@ def penguin(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes
                 ops += face
             else:
                 fcx = bx
-                hx, hy = fcx + head[0], front_head_y(by, ry, hr) + head[1]
+                hx, hy = fcx + head[0], by - ry * 0.62 - hr * 0.5 + head[1]
                 if feet and not belly:
                     for s, (dx, lift) in zip((-1, 1), feet):
-                        parts.append(front_foot(fcx + s * 11 * bk + dx, s, lift, k=fk, y=bottom + 2.5))
-                # 아래가 더 넓은 동글 공 몸 (무게중심이 아래) + 몸 너비 대부분을 차지하는 동그란 흰 배
-                hips = E(fcx - rx * 1.04, by - ry * 0.2, fcx + rx * 1.04, by + ry)
-                belly_m = [([E(fcx - rx * 0.8, by - ry * 0.56, fcx + rx * 0.8, by + ry * 1.06)], bcol)]
+                        parts.append(front_foot(fcx + s * 9 * bk + dx, s, lift, k=fk, y=bottom + 2.5))
+                belly_m = [([E(fcx - rx * 0.7, by - ry * 0.62, fcx + rx * 0.7, by + ry * 1.04)], bcol)]
                 spikes = fuzz(fcx, by, rx, ry, (205, 160, 20, -25)) if st["fuzz"] else []
-                parts.append(Part([E(fcx - rx, by - ry, fcx + rx, by + ry), hips], col, belly_m, grow=1, spikes=spikes))
+                parts.append(Part([E(fcx - rx, by - ry, fcx + rx, by + ry)], col, belly_m, grow=1, spikes=spikes))
                 if belly and feet:  # 발라당: 발이 위로 버둥 (몸 앞)
                     for s, (dx, lift) in zip((-1, 1), feet):
-                        late.append(front_foot(fcx + s * 11 * bk + dx, s, lift, k=fk, y=by - ry * 0.05))
+                        late.append(front_foot(fcx + s * 9 * bk + dx, s, lift, k=fk, y=by - ry * 0.05))
                 with xf(rot=head_rot, pivot=(hx, hy + hr * 0.9)):
                     face_col = WHITE_BELLY if st["chick"] else bcol
                     m = 0.62 if st["chick"] else 0.5  # 아기·유아는 흰 얼굴이 더 넓다
@@ -331,9 +314,9 @@ def penguin(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes
                 parts += late
                 fl, fr = flips or (12, 12)
                 for s, a in ((-1, fl), (1, fr)):
-                    parts.append(flipper((fcx + s * rx * 0.9, by - ry * 0.34), ln, a, side=False, s=s, k=fk))
+                    parts.append(flipper((fcx + s * rx * 0.84, by - ry * 0.46), ln, a, side=False, s=s, k=fk))
                 if st["tie"]:
-                    parts.append(bow_tie(hx, hy + hr * 0.98, False, k=bk))
+                    parts.append(bow_tie(hx + head_rot * 0.0, hy + hr * 1.02, False, k=bk))
                 with xf(rot=head_rot, pivot=(hx, hy + hr * 0.9)):
                     parts += bp
                 ops += face + bo
@@ -362,16 +345,15 @@ def ice_puffs(items):
 # =====================================================================
 # 포즈
 # =====================================================================
-BACK_SHRINK = 0.78  # 옆모습 등 쪽 몸 반지름 배율
-WADDLE = [-8, 0, 10, 0]  # 뒤뚱: 기우뚱 각도 (사용자: 너무 뒤뚱거린다 — 반으로 줄임)
+WADDLE = [-10, 0, 10, 0]  # 뒤뚱: 기우뚱 각도
 
 
 def pg_walk(sp, i):
     """뒤뚱뒤뚱: 몸이 좌우로 기우뚱 (발밑이 축), 기운 쪽 반대 발을 살짝 들고, 지느러미를 벌려 균형."""
     t = WADDLE[i]
     up = [0, 1.2, 0, 1.2][i]
-    feet = [((0, 0), (0, -3)), ((0, 0), (0, 0)), ((0, -3), (0, 0)), ((0, 0), (0, 0))][i]
-    return penguin(sp, bottom=FLOOR - 3 - up, rot=t, rock=1.3, head_rot=-t * 0.3, feet=feet, flips=[("near", [30, 20, 30, 20][i])])
+    feet = [((0, -3), (0, 0)), ((0, 0), (0, 0)), ((0, 0), (0, -3)), ((0, 0), (0, 0))][i]
+    return penguin(sp, bottom=FLOOR - 3 - up, rot=t, head_rot=-t * 0.3, feet=feet, flips=[("near", [30, 20, 30, 20][i])])
 
 
 def pg_run(sp, i):
@@ -389,9 +371,8 @@ def slide(sp, i):
     col, bcol = back_color(), belly_color()
     hk, bk = _ST["head"], _ST["body"]
     fk = bk ** 0.5
-    cx_, cy_ = st["chub"]
-    lx, ly = 26 * bk * cx_, 18.5 * bk * cy_  # 누운 동글 몸 (길이, 두께) — 통통한 배가 바닥에 볼록
-    hr = 16.5 * hk
+    lx, ly = 24 * bk * _ST["torso"][1] * 1.05, 22 * bk * _ST["torso"][0] * 0.74  # 누운 몸 (길이, 두께)
+    hr = 18.5 * hk
     bx, by = 56 - (hk - 1) * 10, FLOOR - 1.5 - ly
     parts = []
     # 뒤로 뻗은 발 (몸 뒤)
@@ -399,15 +380,15 @@ def slide(sp, i):
         x, y = bx - lx * 0.82 - 3 * j, by + ly * 0.35 + 3 * j + dy
         parts.append(Part([E(x - 11 * fk, y - 2.6 * fk, x + 2, y + 2.6 * fk)], FEET, grow=0, outline=True))
     tail = T((bx - lx * 0.8, by - ly * 0.5), (bx - lx - 7 * bk, by - ly * 0.95), (bx - lx * 0.75, by + ly * 0.1))
-    belly_m = [([E(bx - lx * 1.1, by - ly * 0.1, bx + lx * 1.1, by + ly * 1.6)], bcol)]
+    belly_m = [([E(bx - lx * 1.1, by + ly * 0.05, bx + lx * 1.1, by + ly * 1.6)], bcol)]
     spikes = fuzz(bx, by, lx, ly, (-120, -90, -60)) if st["fuzz"] else []
     parts.append(Part([E(bx - lx, by - ly, bx + lx, by + ly), tail], col, belly_m, grow=1, spikes=spikes))
-    hx, hy = bx + lx * 0.78, by - ly * 0.4 - hr * 0.2
+    hx, hy = bx + lx * 0.8, by - ly * 0.45 - hr * 0.2
     hpart, bp, face = side_head(hx, hy, hr, "happy", "open", None, -6)
     parts.append(hpart)
     if st["tie"]:
         parts.append(bow_tie(hx + hr * 0.5, hy + hr * 1.0, True, k=bk))
-    parts.append(flipper((bx + lx * 0.15, by - ly * 0.4), 16 * st["flip"] * bk, [104, 96][i], k=fk))
+    parts.append(flipper((bx + lx * 0.2, by - ly * 0.35), 21 * st["flip"] * bk, [104, 96][i], k=fk))
     parts += bp
     puffs = ice_puffs([[(118, FLOOR - 3, 3.4), (111, FLOOR - 1.5, 2.4), (122, FLOOR - 10, 2.2)],
                        [(120, FLOOR - 4, 3.0), (113, FLOOR - 1.5, 2.8), (116, FLOOR - 12, 2.4)]][i])
@@ -501,7 +482,7 @@ def pg_stretch(sp, i):
 
 def pg_heart(sp, i):
     hs = dp.heart_burst(i)
-    hy = FLOOR - 3 - body_dims(side=False)[1] * 0.8
+    hy = FLOOR - 3 - 24 * _ST["body"] * 0.7
     held = [lambda: dp.held_heart(hy)]
     return penguin(sp, side=False, eyes="happy", flips=(55, 55), held=held, fx=hs)
 
@@ -517,17 +498,18 @@ def pg_hungry(sp, i):
 
 
 def pg_eat(sp, i):
-    """콕콕 (그릇 없음): 0·2 = 고개를 숙여 부리 끝이 그릇 밥 더미 (프레임 (64, 84))에 콕, 1·3 = 그보다 고개를 쏙 들고 ^^
-    (포동포동 몸이라 머리가 낮다 — 든 고개도 콕 자리에서 잰다)."""
+    """콕콕 (그릇 없음): 0·2 = 고개를 푹 숙여 부리 끝이 그릇 밥 더미 (프레임 (64, 84))에 콕, 1·3 = 고개를 쏙 들고 ^^."""
     peck = i % 2 == 0
     k = _ST["head"] ** 0.5
     mx, my = dp._frame_to_pre(64, 86)
     st_b = FLOOR - 3
-    _, ry, hr = body_dims(side=False)  # penguin() 앞모습과 같은 몸·머리
-    hy0 = front_head_y(st_b - ry, ry, hr)
+    ry = 24 * _ST["body"] * _ST["torso"][1]
+    hr = 20.0 * _ST["head"]  # penguin() 앞모습 머리 반지름
+    by = st_b - ry
+    hy0 = by - ry * 0.62 - hr * 0.5
     want = my - hr * 0.3 - 7.0 * k  # 부리 끝 = 머리 가운데 + 0.3 hr + 부리 길이
     fx = dp.eat_crumbs(i, SHRIMP)
-    return penguin(sp, side=False, bottom=st_b, head=(0, want - hy0 - (0 if peck else 12 * _ST["head"])), eyes="closed" if peck else "happy",
+    return penguin(sp, side=False, bottom=st_b, head=(0, want - hy0 if peck else -14 * _ST["head"]), eyes="closed" if peck else "happy",
                    mouth=None if peck else "chew", flips=(34, 34), sq=(1.0, 0.97 if peck else 1.0), fx=fx)
 
 
