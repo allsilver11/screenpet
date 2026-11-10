@@ -450,8 +450,31 @@ pub fn fully_inside_v(bounds: &Rect, side: Side, y: f64, height: f64) -> bool {
 pub const BOOST_STEP: f64 = 1.15;
 /// 가장 큰 크기: 같은 단계의 산타 크기 (산타 stage_size)
 pub const BOOST_LARGEST_SIZE: f64 = 1.65;
-/// 집에 돌아오고 이만큼 뒤 원래 크기로 (초)
-pub const BOOST_HOME_SECS: u64 = 600;
+/// 집에 처음 돌아오고 이만큼 뒤 원래 크기로 (초) — 그 뒤 친구 집을 오가도 시계는 다시 감기지 않는다 (boost_home_deadline)
+pub const BOOST_HOME_SECS: u64 = 120;
+
+/// 집에 돌아왔을 때 원래 크기로 돌아갈 때: 처음 돌아왔거나(current 없음) 친구가 또 밥을 줘서 더 커졌으면(fed)
+/// fresh(= 지금 + BOOST_HOME_SECS), 아니면 정해 둔 그대로 (던지고 돌아오기를 되풀이해도 미뤄지지 않는다)
+pub fn boost_home_deadline<T>(current: Option<T>, fed: bool, fresh: T) -> T {
+    match current {
+        Some(t) if !fed => t,
+        _ => fresh,
+    }
+}
+
+/// 친구 동물에게 밥을 줘서 키울 수 있는지: 주인이 성장 멈추기를 켰으면(Visit no_grow) 밥 주기 메뉴를 막는다 (옛 앱은 안 보내니 키울 수 있다)
+pub fn guest_can_grow(no_grow: Option<bool>) -> bool {
+    no_grow != Some(true)
+}
+
+/// 집에 돌아온 내 동물의 배율: 친구가 보낸 값을 다듬되, 성장 멈추기 중이면 커지지 않는다 (옛 친구 앱이 밥을 줬어도)
+pub fn returned_boost(sent: Option<f64>, cap: f64, growth_locked: bool) -> f64 {
+    if growth_locked {
+        1.0
+    } else {
+        sanitize_boost(sent, cap)
+    }
+}
 
 /// 이 동물의 최대 배율 (stage_size = pet.json의 동물별 배율)
 pub fn boost_cap(stage_size: f64) -> f64 {
@@ -1053,5 +1076,26 @@ mod tests {
         assert!(!fully_inside(&b, Side::Left, 37.0, 38.0));
         assert!(fully_inside(&b, Side::Right, 1882.0, 38.0));
         assert!(!fully_inside(&b, Side::Right, 1883.0, 38.0));
+    }
+
+    #[test]
+    fn a_fed_pet_shrinks_back_two_minutes_after_it_first_comes_home() {
+        assert_eq!(BOOST_HOME_SECS, 120);
+        // 처음 돌아오면 그때부터 2분
+        assert_eq!(boost_home_deadline(None, false, 130.0), 130.0);
+        // 그 뒤로 던지고 돌아오기를 되풀이해도 시계는 다시 감기지 않는다
+        assert_eq!(boost_home_deadline(Some(130.0), false, 180.0), 130.0);
+        // 친구가 또 밥을 줘서 더 커졌으면 이번에 돌아온 때부터 다시 2분
+        assert_eq!(boost_home_deadline(Some(130.0), true, 180.0), 180.0);
+    }
+
+    #[test]
+    fn growth_paused_pets_do_not_grow_from_friends_food() {
+        assert!(guest_can_grow(None) && guest_can_grow(Some(false)));
+        assert!(!guest_can_grow(Some(true)));
+        // 집에 돌아올 때: 성장 멈추기면 (옛 친구 앱이 밥을 줬어도) 커지지 않는다
+        assert_eq!(returned_boost(Some(1.3), 1.5, true), 1.0);
+        assert_eq!(returned_boost(Some(1.3), 1.5, false), 1.3);
+        assert_eq!(returned_boost(Some(9.0), 1.5, false), 1.5);
     }
 }

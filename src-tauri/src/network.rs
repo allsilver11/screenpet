@@ -306,6 +306,8 @@ struct Arrival {
     note: Option<String>,
     /// 다른 친구가 밥을 줘서 커진 배율 (아직 다듬지 않은 값)
     boost: Option<f64>,
+    /// 주인이 성장 멈추기를 켰다 — 밥 주기로 키우지 않는다
+    no_grow: Option<bool>,
     /// 주인이 보여 주는 스타일 (이쪽에 그 그림이 없으면 동글)
     style: PetStyle,
 }
@@ -370,8 +372,12 @@ pub struct Network {
     last_decline_log: HashMap<String, Instant>,
     /// 꽉 찬 것 같은 친구 화면 → 이때까지는 보내지 않는다 (걸어 나가기·던져 넘기기)
     full_until: HashMap<String, Instant>,
-    /// 내 동물의 일시 확대가 끝나는 때
+    /// 내 동물의 일시 확대가 끝나는 때 (집에 처음 돌아온 때부터 — visit::boost_home_deadline)
     boost_until: Option<Instant>,
+    /// 이번에 돌아오는 길에 친구가 밥을 줘서 더 커졌다 (come_back이 끝나는 때를 새로 정한다)
+    boost_fed: bool,
+    /// 내 펫이 성장 멈추기 중 (게임 루프가 매 틱 맞춘다): 친구에게 키우지 말라고 알리고, 돌아올 때 커지지 않는다
+    pub growth_locked: bool,
     /// "<친구>에게 보내기"로 보낸 손님: visit_id → (그 친구, 그 친구가 연결된 끝)
     guest_sends: HashMap<String, (String, Side)>,
     /// 친구별 마지막으로 받아들인 "펫 데리고 오기" 부탁 시각 (60초에 한 번)
@@ -526,6 +532,8 @@ impl Network {
             last_decline_log: HashMap::new(),
             full_until: HashMap::new(),
             boost_until: None,
+            boost_fed: false,
+            growth_locked: false,
             guest_sends: HashMap::new(),
             invite_accepted: HashMap::new(),
             invite_accepted_any: None,
@@ -889,6 +897,7 @@ impl Network {
                 gift,
                 style: own.shown.style.to_wire(),
                 boost: (own.boost > 1.0).then_some(own.boost),
+                no_grow: self.growth_locked.then_some(true),
                 of: None,
             },
         );
@@ -958,6 +967,7 @@ impl Network {
             gift: None,
             style: slot.shown.style.to_wire(),
             boost,
+            no_grow: None,
             of: Some(guest.owner_id.clone()),
         };
         net.send(next, visit.clone());
@@ -1018,10 +1028,13 @@ impl Network {
     /// 내 동물이 돌아온다: enter = 들어올 끝 (친구 화면에서 나간 끝의 반대편, 모르면 나갔던 끝)
     fn come_back(&mut self, own: &mut Slot, fling: Option<visit::Fling>, enter: Option<Side>) {
         if let Some(a) = self.away.take() {
-            // 집에 돌아오고 한참 뒤 원래 크기로 (게임 루프가 tick_boost를 부른다) — 어떻게 돌아왔든
+            // 집에 처음 돌아오고 2분 뒤 원래 크기로 (게임 루프가 tick_boost를 부른다) — 어떻게 돌아왔든.
+            // 던지고 돌아오기를 되풀이해도 미뤄지지 않고, 친구가 또 밥을 줬을 때만 다시 센다
             if own.boost > 1.0 {
-                self.boost_until = Some(Instant::now() + Duration::from_secs(visit::BOOST_HOME_SECS));
+                let fresh = Instant::now() + Duration::from_secs(visit::BOOST_HOME_SECS);
+                self.boost_until = Some(visit::boost_home_deadline(self.boost_until, self.boost_fed, fresh));
             }
+            self.boost_fed = false;
             let side = enter.unwrap_or(a.side);
             match fling {
                 // 친구 화면에서 던져져 날아 돌아온다
@@ -1489,7 +1502,7 @@ impl Network {
 
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, boost, of, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, boost, no_grow, of, .. } => {
                 // 📱 친구가 데려온 그 친구의 다른 컴퓨터 펫이면 그 컴퓨터의 손님 (한 사람 — 이름표도 같다). 대답은 링크(from)로
                 let link = from;
                 let from = of.as_deref().filter(|o| config.same_person(o, link)).unwrap_or(link);
@@ -1516,7 +1529,7 @@ impl Network {
                     return;
                 }
                 let note = note.as_deref().and_then(visit::sanitize_note);
-                let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()), boost };
+                let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()), boost, no_grow };
                 let result = self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival);
                 match result {
                     Ok(()) => {
@@ -1549,10 +1562,11 @@ impl Network {
                 let reply = visit::accept_reply(self.away.as_ref().map(|a| (a.friend.as_str(), a.visit_id)), from, visit_id, next.is_none(), note.as_deref());
                 let Some(a) = self.away.as_ref().filter(|a| a.friend == from && a.visit_id == visit_id) else { return };
                 let fling = fling.map(from_net_fling);
-                // 친구가 밥을 줘서 커졌다 (다듬어서, 더 작아지지는 않는다). 다음 친구에게 가도 그 크기다
-                let grown = visit::sanitize_boost(boost, slots[0].boost_cap());
+                // 친구가 밥을 줘서 커졌다 (다듬어서, 더 작아지지는 않는다 — 성장 멈추기면 안 커진다). 다음 친구에게 가도 그 크기다
+                let grown = visit::returned_boost(boost, slots[0].boost_cap(), self.growth_locked);
                 if grown > slots[0].boost {
                     slots[0].set_boost(app, grown);
+                    self.boost_fed = true;
                 }
                 // 보내자마자 그냥 돌아왔다 — 그 친구 화면이 꽉 찼다고 보고 잠깐 보내지 않는다
                 if visit::return_means_full(next.is_some(), fling.is_some(), a.come_home_by.is_some(), side.is_some(), a.since.elapsed().as_secs_f64()) {
@@ -1618,7 +1632,7 @@ impl Network {
         // 📱 친구의 다른 컴퓨터에서 온 동물도 그 친구 이름표 (한 사람)
         let owner_name = config.person_name(from).map(str::to_string).unwrap_or_else(|| clamp(owner));
         // 편지는 그 동물의 주인(인증된 친구 링크 from)이 실은 것만 — Visit은 주인만 보낸다
-        let guest = GuestInfo { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name, note: arrival.note.clone() };
+        let guest = GuestInfo { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name, note: arrival.note.clone(), can_grow: visit::guest_can_grow(arrival.no_grow) };
         // 화면을 떠날 땐 그 화면 주인의 설정을 따르고, 받는 쪽은 나간 끝의 반대편으로 받는다 (내 설정은 쓰지 않는다).
         // 그래서 들어오는 끝은 보낸 쪽이 정한 그대로이고, 집으로 갈 때 나갈 끝은 이 화면에서 주인이 연결된 끝이다. 그리움 시간은 이어서 센다
         let hop = arrival.via.as_deref().filter(|v| *v != from);

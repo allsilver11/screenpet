@@ -80,6 +80,8 @@ pub struct GuestInfo {
     pub owner_name: String,
     /// 주인이 들려 보낸 편지 (다듬은 글자 — 없으면 봉투도 없다)
     pub note: Option<String>,
+    /// 밥을 줘서 잠깐 키울 수 있다 (주인이 성장 멈추기를 켰으면 false)
+    pub can_grow: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -105,17 +107,20 @@ pub struct SlotInfo {
     pub owner_id: Option<String>,
     /// 손님이 들고 온 편지 (머리 위 💌, 누르면 "💌 <owner>: <note>" — 웹뷰는 textContent로만 쓴다)
     pub note: Option<String>,
+    /// 손님에게 밥을 줘서 키울 수 있다 (우클릭 메뉴 — 웹뷰에는 보내지 않는다)
+    #[serde(skip)]
+    pub can_grow: bool,
     /// 마지막으로 보낸 모습 — 첫 `pet-render`가 웹뷰가 듣기 전에 지나갔을 수 있어 첫 로드 때 같이 준다
     pub render: Option<RenderState>,
 }
 
 impl SlotInfo {
     pub fn new(shown: &StagePayload, role: &Role, render: Option<RenderState>) -> Self {
-        let (role, owner, owner_id, note) = match role {
-            Role::Own => ("own", None, None, None),
-            Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone()), g.note.clone()),
+        let (role, owner, owner_id, note, can_grow) = match role {
+            Role::Own => ("own", None, None, None, false),
+            Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone()), g.note.clone(), g.can_grow),
         };
-        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, style: shown.style, role, owner, owner_id, note, render }
+        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, style: shown.style, role, owner, owner_id, note, can_grow, render }
     }
 }
 

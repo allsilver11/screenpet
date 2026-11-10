@@ -229,6 +229,10 @@ pub enum Visit {
         /// receiver limits it; older versions ignore it.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         boost: Option<f64>,
+        /// The owner paused this pet's growth: the receiver does not offer
+        /// feeding it bigger. Older versions ignore it.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        no_grow: Option<bool>,
         /// 📱 The pet belongs to the sender's other computer (this install id),
         /// which may be on standby: the sender carries it (only to
         /// `DEVICES_MIN_VERSION` peers). The receiver takes it only if it knows
@@ -541,6 +545,7 @@ mod tests {
                 gift: None,
                 style: None,
                 boost: None,
+                no_grow: None,
                 of: None,
             };
             #[allow(unused_variables)]
@@ -932,6 +937,17 @@ mod tests {
         assert_eq!(boost, Some(1.5));
         let Some(Message::Visit(Visit::Leave { boost, visit_id, .. })) = Message::parse(br#"{"type":"leave","visit_id":7,"boost":"huge"}"#) else { panic!() };
         assert_eq!((boost, visit_id), (None, 7));
+    }
+
+    #[test]
+    fn no_grow_is_optional_and_old_visits_still_parse() {
+        let base = r#"{"type":"visit","visit_id":7,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left""#;
+        let Some(Message::Visit(Visit::Visit { no_grow, .. })) = Message::parse(format!("{base}}}").as_bytes()) else { panic!() };
+        assert_eq!(no_grow, None);
+        let Some(Message::Visit(Visit::Visit { no_grow, .. })) = Message::parse(format!(r#"{base},"no_grow":true}}"#).as_bytes()) else { panic!() };
+        assert_eq!(no_grow, Some(true));
+        let Some(Message::Visit(Visit::Visit { no_grow, visit_id, .. })) = Message::parse(format!(r#"{base},"no_grow":"yes"}}"#).as_bytes()) else { panic!() };
+        assert_eq!((no_grow, visit_id), (None, 7));
     }
 
     #[test]

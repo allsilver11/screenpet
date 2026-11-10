@@ -237,7 +237,7 @@ fn spawn_debug_guest(app: &AppHandle, slots: &mut Vec<Slot>) {
     let Some(entry) = state.pets.iter().find(|p| &p.id != own_id).or(state.pets.first()).cloned() else { return };
     let stage = Stage::Teenager;
     let scale = stage.scale() * entry.manifest.size_mult(stage);
-    let guest = GuestInfo { visit_id: "debug".into(), owner_id: "debug".into(), owner_name: "디버그 친구".into(), note: None };
+    let guest = GuestInfo { visit_id: "debug".into(), owner_id: "debug".into(), owner_name: "디버그 친구".into(), note: None, can_grow: true };
     match slots::spawn_guest(app, guest, entry, stage, scale, slots[OWN].shown.wanted, slots[OWN].dpi, Side::Right, &slots[OWN].world, seed_now(), slots[OWN].size()) {
         Ok(slot) => slots.push(slot),
         Err(e) => eprintln!("failed to create debug guest window: {e}"),
@@ -567,7 +567,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     }
                 }
                 Input::FeedGuest { label } => {
-                    if let Some(i) = slots::find(&slots, &label).filter(|&i| !slots[i].is_own()) {
+                    // 성장 멈추기 친구 동물은 키우지 않는다 (메뉴도 막혀 있다)
+                    if let Some(i) = slots::find(&slots, &label).filter(|&i| matches!(&slots[i].role, Role::Guest(g) if g.can_grow)) {
                         let slot = &mut slots[i];
                         // 친구 동물은 내 Care를 건드리지 않는다. 못 먹는 때(공중·떠나는 중)면 그대로
                         if slot.pet.feed_result(FeedResult::Ate { leveled_up: false }, Food::Meal) {
@@ -937,6 +938,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         props.tick(now);
         hand_win.tick(now);
         broom_win.tick(now);
+        network.growth_locked = care.locked;
         network.tick_boost(&app, &mut slots[OWN], now);
         weather.tick(&app, now, !config.weather_on, presence.is_away(), &mut slots);
         for g in network.take_guest_gifts() {

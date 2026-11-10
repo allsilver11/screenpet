@@ -382,10 +382,12 @@ pub fn favorite_label(f: &FavoriteFood) -> String {
 
 /// 손님을 우클릭하면 뜨는 메뉴: "<주인>에게 돌려보내기" (누르면 손 흔들고 집으로), "편지 써서 돌려보내기…" (답장 창), 그리고 연결된 내 친구마다
 /// "<친구>에게 보내기" (targets = 주인을 뺀 (id, 이름)). 메뉴 이벤트는 앱 전체용 처리기(트레이의 on_menu_event)로 온다
-pub fn guest_menu(app: &AppHandle, label: &str, owner: &str, targets: &[(String, String)]) -> tauri::Result<Menu<Wry>> {
+pub fn guest_menu(app: &AppHandle, label: &str, owner: &str, can_grow: bool, targets: &[(String, String)]) -> tauri::Result<Menu<Wry>> {
     let item = MenuItem::with_id(app, format!("{SEND_HOME_PREFIX}{label}"), format!("{}에게 돌려보내기", menu_text(owner)), true, None::<&str>)?;
     let reply = MenuItem::with_id(app, format!("{REPLY_PREFIX}{label}"), "편지 써서 돌려보내기…", true, None::<&str>)?;
-    let feed = MenuItem::with_id(app, format!("{FEED_GUEST_PREFIX}{label}"), "🍚 밥 주기 (잠깐 커져요)", true, None::<&str>)?;
+    // 주인이 성장 멈추기를 켠 동물은 밥 주기로 키우지 않는다 (흐리게, 이유를 적어서)
+    let feed_text = if can_grow { "🍚 밥 주기 (잠깐 커져요)" } else { "🍚 밥 주기 (🔒 성장 멈춤 중이에요)" };
+    let feed = MenuItem::with_id(app, format!("{FEED_GUEST_PREFIX}{label}"), feed_text, can_grow, None::<&str>)?;
     let menu = Menu::with_items(app, &[&feed, &item, &reply])?;
     if !targets.is_empty() {
         menu.append(&PredefinedMenuItem::separator(app)?)?;
