@@ -23,6 +23,7 @@
 mod devices;
 mod discovery;
 pub mod ladder;
+pub mod letter;
 mod noise;
 mod peers;
 mod protocol;
