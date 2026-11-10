@@ -22,8 +22,8 @@ def out(tmp_path_factory):
 
 def test_registered_with_dino_anims_after_every_other_optional_anim():
     optional = [a for a, *_ in OPTIONAL_ANIMS]
-    # 공룡 동작은 선택 동작 목록 맨 끝 (Rust manifest::OPTIONAL_ANIMS와 같은 순서)
-    assert optional[-3:] == ["fire", "roar", "stomp"]
+    # 공룡 동작은 다른 선택 동작 뒤, 레서판다 깜짝(v0.5.5) 앞 (Rust manifest::OPTIONAL_ANIMS와 같은 순서)
+    assert optional[-4:] == ["fire", "roar", "stomp", "surprise"]
     for pid in IDS:
         sp = draw_pets.SPECIES[pid]
         assert sp in draw_dino.DINOS
