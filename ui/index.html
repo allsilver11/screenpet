@@ -5,6 +5,36 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- 펭귄 "안경 번쩍" (style.css #pet.glasses-flash): 렌즈만 하얗게 덮는다. 시험 tools/test_draw_penguin.py
+         #lens-flash (동글): 그림이 렌즈 둥근 자리(눈 포함)의 알파를 254로 표시해 둔다 (draw_penguin.lens_key) → 알파 254만 골라 (외톨이 점은 열림으로 지움) 흰색
+         #lens-flash-px (도트, 반투명이 없다): 렌즈 전용 색 (196, 222, 250) 칸만 골라 (채널마다 64칸 표에서 1) 닫힘(dilate → erode)으로 눈 구멍을 메워 흰색 -->
+    <svg id="pet-filters" width="0" height="0" aria-hidden="true" focusable="false" style="position: absolute">
+      <filter id="lens-flash" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB">
+        <feComponentTransfer in="SourceGraphic" result="key">
+          <feFuncA type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0" />
+        </feComponentTransfer>
+        <!-- 열림(erode → dilate 1px): 축소 보간으로 외곽선에 우연히 생긴 254 점은 지우고 렌즈 덩어리만 남긴다 -->
+        <feMorphology in="key" operator="erode" radius="1" result="core" />
+        <feMorphology in="core" operator="dilate" radius="1" result="mask" />
+        <feFlood flood-color="#ffffff" />
+        <feComposite in2="mask" operator="in" result="white" />
+        <feMerge><feMergeNode in="SourceGraphic" /><feMergeNode in="white" /></feMerge>
+      </filter>
+      <filter id="lens-flash-px" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB">
+        <feComponentTransfer in="SourceGraphic" result="key">
+          <feFuncR type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0" />
+          <feFuncG type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 0 0 0 0 0" />
+          <feFuncB type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1" />
+        </feComponentTransfer>
+        <feColorMatrix in="key" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 1 1 0 -2" result="lens" />
+        <feMorphology in="lens" operator="dilate" radius="10" result="grown" />
+        <feMorphology in="grown" operator="erode" radius="10" result="closed" />
+        <feComposite in="closed" in2="SourceAlpha" operator="in" result="mask" />
+        <feFlood flood-color="#ffffff" />
+        <feComposite in2="mask" operator="in" result="white" />
+        <feMerge><feMergeNode in="SourceGraphic" /><feMergeNode in="white" /></feMerge>
+      </filter>
+    </svg>
     <!-- 펫과 머리 위 띠 (창 아래쪽에 붙어 있어 손님 편지 말풍선으로 창이 위로 커져도 그대로) -->
     <div id="stage">
       <div id="bubble" hidden></div>

@@ -144,7 +144,7 @@ fn whatever_it_was_doing_stops_for_sleep() {
         State::Land { remaining: 50.0 },
         State::Glare { remaining: 50.0 },
         State::Tumble { remaining: 50.0, dir: 1.0 },
-        State::Climb { target_y: 100.0, hang: 1.0 },
+        State::Climb { target_y: 100.0, hang: 1.0, over: false },
         State::Slide,
         State::CursorHang { remaining: 50.0 },
         State::GoHome,

@@ -702,3 +702,65 @@ fn thrown_down_from_a_window_it_falls_past_window_tops_to_the_friend_below() {
     assert_eq!(throw(300.0, (0.0, 0.0), true), (None, Some(Owner::Window(1))));
     assert_eq!(throw(250.0, (300.0, -800.0), true), (None, Some(Owner::Window(1))));
 }
+
+#[test]
+fn a_window_behind_the_pet_does_not_stop_the_sky_jump() {
+    // 최대화한 창 앞 바닥(작업표시줄 위)에 서 있다 — 창 윗변은 화면 맨 위라 머리 위가 빈 것이다
+    let w = world(vec![WindowInfo { id: 1, rect: Rect::new(0.0, 0.0, 1920.0, 1040.0) }]);
+    let p = on_ground(cfg(), &w, 900.0, 1);
+    assert!(p.can_go_vertical(&w, Side::Up));
+}
+
+/// 위 친구만 연결된 채 화면을 기어오르기 시작한 고양이가 seed마다 어떻게 끝나는지: (위로 넘어감, 미끄러져 내려옴)
+fn climbs_to(over: bool, up: bool, seeds: u64) -> (usize, usize) {
+    let w = world(vec![WindowInfo { id: 1, rect: Rect::new(0.0, 0.0, 1920.0, 1040.0) }]);
+    let (mut gone, mut slid) = (0, 0);
+    for seed in 0..seeds {
+        let mut p = on_ground(PetConfig { can_climb: true, ..cfg() }, &w, 900.0, seed);
+        p.set_vertical_edges(up, false);
+        p.standing = None;
+        p.state = State::Climb { target_y: 500.0, hang: behavior::CLIMB_HANG_SECS, over };
+        for _ in 0..(60 * 30) {
+            p.update(DT, &w);
+            if p.take_exit() == Some(Side::Up) {
+                gone += 1;
+                break;
+            }
+            if matches!(p.state, State::Slide) {
+                slid += 1;
+                break;
+            }
+            assert!(matches!(p.state, State::Climb { .. }), "{:?}", p.state);
+            assert_eq!(p.render().anim, Anim::Climb);
+        }
+    }
+    (gone, slid)
+}
+
+#[test]
+fn a_climber_heading_over_climbs_off_the_top_to_the_friend_above() {
+    assert_eq!(climbs_to(true, true, 5), (5, 0));
+    // 위 친구가 그새 사라졌으면 보통처럼 매달렸다 미끄러진다
+    assert_eq!(climbs_to(true, false, 5).0, 0);
+    assert_eq!(climbs_to(false, true, 5), (0, 5));
+}
+
+#[test]
+fn climbing_cats_sometimes_go_over_the_top_when_a_friend_is_above() {
+    // 이동을 정할 때 기어오르기를 고르면, 위 친구가 있을 때 그 일부는 끝까지 올라 넘어간다
+    let w = world(vec![WindowInfo { id: 1, rect: Rect::new(0.0, 0.0, 1920.0, 1040.0) }]);
+    let (mut over, mut plain) = (0, 0);
+    for seed in 0..400 {
+        let mut p = on_ground(PetConfig { can_climb: true, ..cfg() }, &w, 900.0, seed);
+        p.set_vertical_edges(true, false);
+        p.rng = fastrand::Rng::with_seed(seed);
+        if let State::Climb { over: o, .. } = p.climb_state(&w).unwrap() {
+            if o { over += 1 } else { plain += 1 }
+        }
+    }
+    let share = over as f64 / (over + plain) as f64;
+    assert!((0.2..=0.4).contains(&share), "{over} over, {plain} plain");
+    // 위 친구가 없으면 넘어가지 않는다
+    let mut p = on_ground(PetConfig { can_climb: true, ..cfg() }, &w, 900.0, 1);
+    assert!((0..200).all(|_| !matches!(p.climb_state(&w), Some(State::Climb { over: true, .. }))));
+}

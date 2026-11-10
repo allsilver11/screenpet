@@ -26,7 +26,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, SPEECH, STAGE_SCALE,  # noqa: E402
+from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
                          STAGES, SWIFT, frame_px, manifest)
 
 # =====================================================================
@@ -584,6 +584,7 @@ class Species:
     side_head: list = field(default_factory=lambda: [("E", 52, 12, 124, 78)])  # 옆모습 머리 도형
     fur_tufts: tuple = ((), ())  # 머리 가장자리 삐죽 털 (앞모습, 옆모습) — 녹이지 않는 삼각형 (긴 털 갈기)
     front_tail_marks: list = field(default_factory=list)  # 앞모습 꼬리 무늬 (레서판다 고리) — 꼬리와 함께 돌고 커진다
+    front_head_scale: float = 1.0  # 앞모습 머리(귀·얼굴·모자 자리 포함)만 턱 기준으로 더 줄이는 배율 (페르시안: 네모 얼굴이 너무 커 보여서)
 
 
 def _stripe(pts, w=2.8):
@@ -683,7 +684,7 @@ _per_ear_in = [("T", (21, 33), (22.5, 23), (31, 28.5))]
 _per_ruff = _puffs([(14, 62), (12, 72), (17, 81), (26, 87), (37, 90), (50, 92), (64, 93)], 8.5)  # 왼쪽 볼 → 턱 아래 갈기
 PERSIAN = Species(
     id="persian", name="페르시안 고양이", walk_speed=50, scale=0.94, base=PER_G, back=PER_G, belly=PER_C, nose=(232, 150, 156),
-    mouth="flat", stage_size=dict.fromkeys(STAGES, 0.92),
+    mouth="flat", stage_size=dict.fromkeys(STAGES, 0.92), front_head_scale=0.85,  # 앞모습 네모 얼굴 15% 작게 (사용자: 머리가 너무 커 보임)
     front_head=[("E", 12, 16, 86, 84), ("E", 42, 16, 116, 84)] + _per_ruff + [("E", 128 - x1, y0, 128 - x0, y1) for _, x0, y0, x1, y1 in _per_ruff],
     front_ears=_per_ear + [("T", *_mirror(_per_ear[0][1:]))],
     front_ear_pivots=((26, 34), (102, 34)),
@@ -703,7 +704,7 @@ PERSIAN = Species(
     side_tail=[("L", [(26, 80), (13, 68), (9, 52), (14, 40)], 17)] + _puffs([(8, 58), (9, 46), (17, 37)], 9), tail_root=(26, 80),
     tail_color=PER_G,
     fur_tufts=(_tufts(64, 72, 59, 27, [160, 140, 118, 62, 40, 20], ln=7.5),  # 볼·턱 갈기 끝
-               _tufts(76, 66, 30, 18, [150, 172], ln=7.5)),
+               _tufts(86, 68, 24, 15, [55, 80, 105], ln=7)),  # 옆모습: 턱 아래·가슴 앞 갈기 끝만 (목 뒤로는 안 삐져나오게)
     specials=["huff", "lookup"],
     # 모든 단계: 졸린 반눈 · 어린이도 웃지 않는 무표정 · 수염·볼 지그재그 털 없음 (갈기가 대신)
     stage_tweak={st: dict(sleepy=True, smile=False, cheek_fluff=False, **{"baby": dict(ear=0.85), "kinder": dict(ear=0.9)}.get(st, {}))
@@ -777,7 +778,8 @@ WHISKERS = [[(27, 61), (9, 58)], [(27, 64.5), (8, 65.5)], [(28, 68), (10, 72.5)]
 def front_head(sp, eyes="dot", mouth=None, tongue_dy=0, outline=False, cheeks=False, brow=None, face=(0, 0)):
     """앞모습 머리(귀 포함) Part와 얼굴 ops. 머리 좌표: 중심 (64, 50). 단계 머리 배율은 턱 (64, 84) 기준.
     cheeks: 볼 빵빵 (True 양쪽 · "left"/"right" 한쪽) · brow: 눈썹 ("sad" | "angry") · face: 얼굴만 옮김 (고개 돌림 흉내)."""
-    with xf(sx=_ST["head"], sy=_ST["head"], pivot=(64, 84)):
+    hk = _ST["head"] * sp.front_head_scale
+    with xf(sx=hk, sy=hk, pivot=(64, 84)):
         lc, rc = cheeks in (True, "left"), cheeks in (True, "right")
         puff = ([shape(("E", 10, 50, 40, 82))] if lc else []) + ([shape(("E", 88, 50, 118, 82))] if rc else [])
         snout = [shape(("E", 44, 56, 84, 84 + 2 * _ST["snout"]))] if _ST["snout"] else []
@@ -1749,6 +1751,8 @@ def species_fields(pid, m):
         m["animations"]["roll"].pop("spin", None)
     if pid in SNOW_CLOUD:
         m["snow_cloud"] = True
+    if pid in GLASSES_FLASH:
+        m["glasses_flash"] = True
     if pid in SWIFT:
         m["swift"] = True
     return m

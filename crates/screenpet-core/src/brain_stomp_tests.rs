@@ -194,7 +194,7 @@ fn busy_pets_do_not_feel_the_stomp() {
     let w = world(vec![]);
     for state in [State::Dragged, State::Pressed { start_cx: 0.0, start_cy: 0.0, grounded: true, was_sleeping: false },
         State::Eating { remaining: 3.0, favorite: false, level_up: false }, State::Away, State::Air { anim: Anim::Fall },
-        State::Climb { target_y: 300.0, hang: 0.0 }] {
+        State::Climb { target_y: 300.0, hang: 0.0, over: false }] {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 800.0, state);
         assert!(!p.feel_stomp(700.0, true), "{state:?}");

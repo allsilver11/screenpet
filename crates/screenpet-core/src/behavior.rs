@@ -292,6 +292,22 @@ pub fn pick_move(rng: &mut fastrand::Rng) -> Move {
     }
 }
 
+/// 쉴 때 따로 기지개를 켜는 몫 (고양이·페르시안 — 성격과 상관없이 먼저 굴린다)
+pub const STRETCHY_REST_CHANCE: f64 = 0.2;
+
+/// 기지개를 자주 켜는 동물 (고양이 둘)
+pub fn stretchy_species(species: &str) -> bool {
+    matches!(species, "cat" | "persian")
+}
+
+/// pick_rest + 기지개 잘 켜는 동물이면 먼저 기지개 몫을 굴린다
+pub fn pick_rest_for(rng: &mut fastrand::Rng, trick_chance: f64, stretchy: bool) -> Rest {
+    if stretchy && rng.f64() < STRETCHY_REST_CHANCE {
+        return Rest::Trick(Trick::Stretch);
+    }
+    pick_rest(rng, trick_chance)
+}
+
 pub fn pick_rest(rng: &mut fastrand::Rng, trick_chance: f64) -> Rest {
     if rng.f64() < trick_chance {
         Rest::Trick(pick_trick(rng))
@@ -340,6 +356,23 @@ mod tests {
         let p = Personality::Friendly.trick_chance(false);
         let tricks = (0..n).filter(|_| matches!(pick_rest(&mut rng, p), Rest::Trick(_))).count() as f64 / n as f64;
         assert!((0.52..=0.58).contains(&tricks), "{tricks}");
+    }
+
+    #[test]
+    fn stretchy_cats_stretch_far_more_often_when_they_rest() {
+        let stretch = |chance: f64, stretchy: bool| {
+            let mut rng = fastrand::Rng::with_seed(5);
+            let n = 20_000;
+            (0..n).filter(|_| pick_rest_for(&mut rng, chance, stretchy) == Rest::Trick(Trick::Stretch)).count() as f64 / n as f64
+        };
+        let (cat, aloof) = (Personality::Friendly.trick_chance(false), Personality::Aloof.trick_chance(false));
+        // 보통 동물: 애교 6개 중 하나 (친근 ~9%, 새침 ~2%)
+        assert!((0.07..=0.11).contains(&stretch(cat, false)));
+        // 고양이·페르시안: 쉴 때 따로 기지개 몫이 있다 — 새침한 페르시안도 자주
+        assert!((0.24..=0.30).contains(&stretch(cat, true)), "{}", stretch(cat, true));
+        assert!((0.18..=0.24).contains(&stretch(aloof, true)), "{}", stretch(aloof, true));
+        assert!(stretchy_species("cat") && stretchy_species("persian"));
+        assert!(!["penguin", "squirrel", "rabbit", "giraffe", "unknown"].iter().any(|s| stretchy_species(s)));
     }
 
     #[test]

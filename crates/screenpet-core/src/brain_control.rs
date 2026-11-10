@@ -458,7 +458,7 @@ impl Pet {
         self.standing = None;
         self.body.vx = 0.0;
         self.body.vy = 0.0;
-        self.state = State::Climb { target_y: wa.top + self.cfg.size, hang: behavior::CLIMB_HANG_SECS };
+        self.state = State::Climb { target_y: wa.top + self.cfg.size, hang: behavior::CLIMB_HANG_SECS, over: false };
     }
 
     /// 벽 타기: ↑ 오르기, 키 없음 매달리기, ↓ 미끄러져 내려오기, Space 벽에서 뛰어내리기

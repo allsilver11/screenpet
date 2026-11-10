@@ -647,6 +647,43 @@ body.pixel #pet.flare-beat {
   45% { filter: drop-shadow(0 0 6px #ffb3c8) drop-shadow(0 0 12px rgba(255, 190, 80, 0.6)) brightness(1.08); }
   100% { filter: none; }
 }
+/* 펭귄 "안경 번쩍" (main.js petFx): 렌즈만 새하얗게 (index.html #lens-flash — 그림이 표시해 둔 렌즈 자리만 덮는다) 1.5초쯤,
+   한 번 깜빡 다시 번쩍 + 머리 옆 ✦. 몸 둘레로 번지지 않아 창을 늘리지 않는다 (slots.rs GLOW_PETS에 없음) */
+#pet.glasses-flash { animation: glasses-flash 1.6s step-end; }
+@keyframes glasses-flash {
+  0% { filter: url(#lens-flash); }
+  42% { filter: none; }
+  50% { filter: url(#lens-flash); }
+  94%, 100% { filter: none; }
+}
+/* 도트: 반투명 알파가 없어 렌즈 색으로 고르는 필터 */
+body.pixel #pet.glasses-flash { animation-name: glasses-flash-px; }
+@keyframes glasses-flash-px {
+  0% { filter: url(#lens-flash-px); }
+  42% { filter: none; }
+  50% { filter: url(#lens-flash-px); }
+  94%, 100% { filter: none; }
+}
+#pet.glasses-flash::before {
+  content: "✦";
+  position: absolute;
+  left: 14%;
+  top: 22%;
+  font-size: 18px;
+  line-height: 1;
+  color: #fffbe8;
+  text-shadow: 0 0 3px #fff, 0 0 6px #ffe9a8;
+  pointer-events: none;
+  opacity: 0;
+  animation: glasses-sparkle 1.3s ease-out both;
+}
+@keyframes glasses-sparkle {
+  0% { opacity: 0; scale: 0.2; rotate: -20deg; }
+  20% { opacity: 1; scale: 1.2; rotate: 0deg; }
+  60% { opacity: 1; scale: 0.9; }
+  100% { opacity: 0; scale: 0.6; rotate: 15deg; }
+}
+
 /* ---- 픽셀 세계 (phase C): 칸 그림, 흐림 없는 계단. --dot = 칸 한 변 (main.js·house.js) ---- */
 body.pixel #house,
 body.pixel-house #house,
@@ -811,7 +848,8 @@ body.pixel #pet.nose-twinkle { animation-name: glow-pixel-fast; }
 body.pixel #pet.flare-sparkle::before,
 body.pixel #pet.flare-sparkle::after,
 body.pixel #pet.nose-twinkle::before,
-body.pixel #pet.nose-twinkle::after {
+body.pixel #pet.nose-twinkle::after,
+body.pixel #pet.glasses-flash::before {
   content: "";
   width: calc(var(--dot) * 5);
   height: calc(var(--dot) * 5);

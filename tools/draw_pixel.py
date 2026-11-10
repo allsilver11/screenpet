@@ -56,7 +56,9 @@ def dropped_anims(sp):
 STAGE_GRID = {"baby": (24, 3), "kinder": (28, 3), "child": (32, 3), "teenager": (32, 3), "adult": (36, 3)}
 # 종마다 다른 칸 수 (칸 크기는 그대로라 점이 고르다): 공룡은 픽셀에서만 조금 작다 — 60/72/84/84/96 px. 앱은 pet.json frame_sizes를 따른다
 _DINO_DOTS = {"baby": 20, "kinder": 24, "child": 28, "teenager": 28, "adult": 32}
-SPECIES_DOTS = {"dino_yellow": _DINO_DOTS, "dino_green": _DINO_DOTS, "dino_purple": _DINO_DOTS}
+# 아기 다람쥐·아기 펭귄은 너무 작아 보여 (사용자 요청) 아기만 칸 수를 늘려 1.1배쯤 — 26칸 × 3 = 78 px (동글은 Species.stage_size baby)
+_BIG_BABY_DOTS = {"baby": 26}
+SPECIES_DOTS = {"dino_yellow": _DINO_DOTS, "dino_green": _DINO_DOTS, "dino_purple": _DINO_DOTS, "squirrel": _BIG_BABY_DOTS, "penguin": _BIG_BABY_DOTS}
 
 
 def stage_dots(pid, stage):
@@ -119,7 +121,7 @@ _OWNERS = {  # 바꿔 끼우는 이름 → 원래 있는 모듈
     dd: ("melon_bubble_fx", "broc_bubble_fx", "grape_bubble_fx", "FOOD_BUBBLE", "wave_fx", "dust_fx", "impact_fx"),
     ds: ("ice_bubble_fx",),
     dbird: ("seeds_bubble_fx",),
-    dpeng: ("shrimp_bubble_fx",),
+    dpeng: ("shrimp_bubble_fx", "GLASS"),
     dsq: ("acorn_bubble_fx",),
     dred: ("bamboo_bubble_fx",),
 }
@@ -970,6 +972,8 @@ def pixel_mode(grid, collect=None):
 
 _PATCH["neck_geometry"] = neck_geometry
 _PATCH["acorn_bubble_fx"] = _bubble_fn("acorn")  # 다람쥐 🌰
+# 펭귄 안경: 칸이 적어 테가 눈에 붙으면 까만 덩어리가 된다 → 렌즈를 키워 눈과 테 사이에 렌즈 칸을 남기고, 앞모습 다리는 빼고, 반짝은 한 칸 점
+_PATCH["GLASS"] = dict(dpeng.GLASS, r=0.54, dx=0.52, arms=False, glint="dot", alpha_key=False)  # 반투명 없음: 번쩍은 렌즈 색으로 고른다
 
 
 def _anims(sp):
@@ -1015,6 +1019,11 @@ def _load_cache():
     return {}
 
 
+# 격자 크기를 잴 때만 쓰는 종 설정: 페르시안은 앞모습 머리를 15% 줄였지만 (가장 넓던 프레임) 도트 크기는 예전 그대로 —
+# 줄인 머리로 재면 칸이 작아져 옆모습이 커지고 앞모습 머리도 거의 안 작아 보인다
+GRID_FIT_SPECIES = {"persian": lambda sp: dp.replace(sp, front_head_scale=1.0)}
+
+
 def stage_grid(sp, stage):
     """모든 프레임의 실루엣 경계에 맞춘 격자 (단계마다 고정 — 프레임마다 바꾸면 크기가 튄다)."""
     key = (sp.id, stage)
@@ -1029,7 +1038,7 @@ def stage_grid(sp, stage):
     boxes = []
     dummy = Grid(n, 12, 0, 0)
     with _stage_ctx(sp, stage), pixel_mode(dummy, collect=boxes):
-        ssp = pixel_species(dp.staged_species(sp))
+        ssp = pixel_species(dp.staged_species(GRID_FIT_SPECIES.get(sp.id, lambda x: x)(sp)))
         for anim, cnt in _anims(sp):
             dp.frames(ssp, anim, cnt)
     # 칸 크기는 프레임 하나하나의 크기로 정한다 (높이 뛴 프레임은 _fit_shift가 창을 옮긴다) — 깡총 때문에 몸이 작아지지 않게

@@ -70,7 +70,8 @@ def test_manifest_is_a_quick_curious_climber_that_loves_acorns(out):
     assert "locomotion" not in m and "house" not in m
     assert "spin" in m["animations"]["roll"], "꼬리로 몸을 감싼 공이 데굴데굴 구른다"
     assert m["speech"]["chatter"] and all(s.isascii() for s in m["speech"]["chatter"])
-    assert set(m["stage_size"].values()) == {draw_squirrel.SQUIRREL.stage_size["teenager"]}
+    # 아기만 1.1배쯤 크게 (사용자 요청 — 아기 다람쥐가 너무 작아 보였다)
+    assert m["stage_size"] == dict(dict.fromkeys(STAGES, 0.82), baby=0.9)
 
 
 def test_the_build_reproduces_the_committed_squirrel(out):

@@ -555,12 +555,15 @@ const PET_FX = {
   pumpkin: { on: "click", cls: ["flare-pulse", "flare-flicker", "flare-bloom", "flare-sparkle", "flare-beat"] },
   // 루돌프: 누르면 빨간 코가 환하게 — 따뜻한 빨간 빛이 번지거나, 반짝이와 함께 깜빡깜빡
   rudolph: { on: "click", cls: ["nose-glow", "nose-twinkle"] },
+  // 펭귄: 누르면(잡을 때도), 그리고 장난칠 때 (백엔드 render.flash — 커서에 닿음·친구와 놀기·가끔, brain_flash.rs) "안경 번쩍" —
+  // 렌즈만 하얗게 번쩍 + ✦ (index.html #lens-flash 필터가 그림이 표시해 둔 렌즈 자리만 고른다)
+  penguin: { on: ["click", "play"], cls: "glasses-flash" },
 };
 const FX_CLASSES = Object.values(PET_FX).flatMap((fx) => [].concat(fx.cls));
 let lastFx = null;
 function petFx(trigger) {
   const fx = PET_FX[stage.pet];
-  if (!fx || fx.on !== trigger) return;
+  if (!fx || ![].concat(fx.on).includes(trigger)) return;
   const pool = [].concat(fx.cls);
   const pick = pool.length > 1 ? pool.filter((c) => c !== lastFx) : pool;
   const cls = pick[Math.floor(Math.random() * pick.length)];
@@ -664,6 +667,7 @@ const listeningRender = listen("pet-render", (e) => {
   // 트레이에서 먹였거나 다른 길로 먹기 시작하면 고르기 버튼은 필요 없다
   if (e.payload.anim === "eat") speech.hidePicker();
   if (e.payload.anim === "tickle" && render.anim !== "tickle") petFx("tickle");
+  if (e.payload.flash && !render.flash) petFx("play");
   // 하우스 안이면 하우스 창이 대신 축하한다 (ui/house.js 집 폴짝)
   if (e.payload.anim === "level_up" && render.anim !== "level_up" && !e.payload.housed) levelUpBurst();
   // 뿅은 손 흔들기 끝에서만 시작한다 (걸어 나가 사라진 Away도 poof지만 그건 그림 없이)

@@ -180,7 +180,7 @@ fn busy_pets_are_ignored() {
         Box::new(|p: &mut Pet| p.state = State::Eating { remaining: 100.0, favorite: false, level_up: false }),
         Box::new(|p: &mut Pet| p.pointer_down(p.body.x, p.body.y - 20.0)),
         Box::new(|p: &mut Pet| p.enter_house()),
-        Box::new(|p: &mut Pet| p.state = State::Climb { target_y: 300.0, hang: 1.0 }),
+        Box::new(|p: &mut Pet| p.state = State::Climb { target_y: 300.0, hang: 1.0, over: false }),
         Box::new(|p: &mut Pet| p.state = State::LevelUp { remaining: 100.0 }),
         Box::new(|p: &mut Pet| p.state = State::Air { anim: Anim::Fall }),
     ];

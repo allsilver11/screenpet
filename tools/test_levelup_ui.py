@@ -38,10 +38,13 @@ def test_size_table_after_the_too_big_feedback():
     want = {"squirrel": 0.82, "dino_green": 1.2, "dino_yellow": 1.2, "dino_purple": 1.2, "santa": 1.65, "duck": 0.9, "ghost": 0.85, "pumpkin": 0.9, "frog": 0.85,
             "rabbit": 0.85, "cat": 0.91, "persian": 0.92, "giraffe": 1.06, "rudolph": 0.84, "snowman": 0.9, "bird": 0.8, "penguin": 0.85,
             "redpanda": 0.88}
+    baby = {"squirrel": 0.9, "penguin": 0.935}  # 아기 다람쥐·아기 펭귄은 너무 작아 보여 아기만 1.1배 (사용자 요청, v0.5.7)
     assert set(want) == set(dict(manifests()))
     for pid, v in want.items():
         m = dict(manifests())[pid]
-        assert set(m["stage_size"].values()) == {v} and list(m["stage_size"]) == STAGES, pid
+        assert m["stage_size"] == dict(dict.fromkeys(STAGES, v), baby=baby.get(pid, v)) and list(m["stage_size"]) == STAGES, pid
+    for pid, b in baby.items():
+        assert abs(b / want[pid] - 1.1) < 0.01, pid
 
 
 def test_bundled_manifests_match_the_generators():

@@ -318,9 +318,10 @@ impl CursorMood {
 }
 
 impl Pet {
-    /// 이 동물의 놀이를 정한다 (동물 교체·손님이 올 때)
+    /// 이 동물의 놀이를 정한다 (동물 교체·손님이 올 때): 커서 놀이 방식 + 기지개 잘 켜는지 (고양이 둘)
     pub fn set_cursor_species(&mut self, species: &str) {
         self.cursor_mood.style = CursorStyle::of(species);
+        self.stretchy = behavior::stretchy_species(species);
     }
 
     /// 매 틱 update 전에 (앱): 왼쪽 버튼, 지금 시작하면 안 되는지, 메뉴 설정
@@ -574,6 +575,7 @@ impl Pet {
             return;
         }
         if self.cursor_in_reach(style) {
+            self.glasses_flash(); // 닿았다! (펭귄 안경 번쩍 — brain_flash.rs)
             match style.arrive {
                 Some((_, secs)) => self.state = State::CursorPlay { phase: PlayPhase::Reach, remaining: secs },
                 None => self.start_cursor_leap(),

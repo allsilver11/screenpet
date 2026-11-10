@@ -668,7 +668,7 @@ SQUIRREL_POSES = {k: (v if k == "roll" else _fit(v)) for k, v in SQUIRREL_POSES.
 
 SQUIRREL = Species(
     id="squirrel", name="다람쥐", walk_speed=100, scale=0.94, base=FUR, back=FUR, belly=CREAM, nose=NOSE, mouth="w",
-    front_tail_color=TAIL, tail_color=TAIL, stage_size=dict.fromkeys(STAGES, 0.82), stripe=TAIL_LIGHT, outline=SQ_LINE,
+    front_tail_color=TAIL, tail_color=TAIL, stage_size=dict(dict.fromkeys(STAGES, 0.82), baby=0.9), stripe=TAIL_LIGHT, outline=SQ_LINE,
     # 털 색은 단계 표(fur_color)가 정한다 — 공통 파스텔은 끈다. 외곽선도 모든 단계 같은 짙은 밤색
     stage_tweak={"baby": dict(pale=0.0, soft=0.0, fit=0.88), "kinder": dict(pale=0.0, soft=0.0, fit=0.92),
                  "child": dict(pale=0.0), "adult": dict(fit=0.93)},

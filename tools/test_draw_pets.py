@@ -420,7 +420,7 @@ def test_persian_face_is_wide_and_square_with_a_ruff(st):
         widest = max(w[top:top + 48])
         return widest, w[top + 6] / widest
     (pw, pt), (cw, ct) = head("persian"), head("cat")
-    assert pw > cw * 1.06, (st, pw, cw)
+    assert pw >= cw, (st, pw, cw)  # 15% 줄인 뒤에도 (볼 갈기 덕에) 고양이 머리만큼은 넓다
     if st != "baby":
         assert pt > ct + 0.2, (st, pt, ct)
 
@@ -436,6 +436,50 @@ def test_persian_resting_eyes_are_half_closed(anim):
               and (x < 64 if anim == "sit_front" else True)]
         return max(ys) - min(ys) + 1
     assert eye_h("persian") < 0.7 * eye_h("cat"), (eye_h("persian"), eye_h("cat"))
+
+
+# 사용자: "옆모습 머리와 다리 사이 목 뒤에 뭔가 볼록 튀어나와 있다" → 옆모습 갈기 털 끝은 목 뒤 윤곽 밖으로 나오지 않는다
+_PER_SIDE = [a for a, _n, _f, _l, front in draw_pets.rows_for(draw_pets.PERSIAN) if not front and a != "roll"]
+
+
+def _frames_of(sp, anim, st):
+    with draw_pets.stage(st, sp.stage_tweak.get(st)), draw_pets.output(1):
+        n = next(n for a, n, *_ in draw_pets.rows_for(sp) if a == anim)
+        return draw_pets.frames(draw_pets.staged_species(sp), anim, n)
+
+
+@pytest.mark.parametrize("st", ["baby", "child", "adult"])
+def test_persian_side_ruff_tufts_stay_inside_the_back_of_the_neck(st):
+    """옆모습 삐죽 털(fur_tufts[1])을 빼고 그린 것과 비교: 어느 줄에서도 실루엣 왼쪽(등·목 뒤) 끝이 더 나가지 않는다.
+    털은 그대로 있다 (복슬 갈기는 볼·가슴 앞쪽에)."""
+    sp = draw_pets.PERSIAN
+    assert sp.fur_tufts[1], "옆모습 갈기 털 끝은 남겨 둔다"
+    bare = draw_pets.replace(sp, fur_tufts=(sp.fur_tufts[0], ()))
+
+    def left(im):
+        a = im.getchannel("A").load()
+        return [next((x for x in range(FRAME) if a[x, y] > 128), FRAME) for y in range(FRAME)]
+    bad = []
+    for anim in _PER_SIDE:
+        for i, (im, im0) in enumerate(zip(_frames_of(sp, anim, st), _frames_of(bare, anim, st))):
+            out = [(y, l0 - l) for y, (l, l0) in enumerate(zip(left(im), left(im0))) if l < l0 - 1]
+            if out:
+                bad.append((anim, i, out[:3]))
+    assert not bad, bad
+
+
+# 사용자: "앞모습 네모 복슬 얼굴은 좋은데 머리가 너무 크다" → 머리를 15%쯤 줄인다 (가장 넓은 줄이 예전의 0.88배 이하)
+# 줄이기 전 sit_front 첫 장 (128 칸): 가장 넓은 줄 (머리 + 볼 갈기) — 아기·유아는 예전엔 칸 끝까지 꽉 찼다
+_PER_OLD_HEAD_W = {"baby": 128, "kinder": 128, "child": 126, "teenager": 122, "adult": 106}
+
+
+@pytest.mark.parametrize("st", list(_PER_OLD_HEAD_W))
+def test_persian_front_head_is_a_smaller_square(st):
+    w = _widths(_one("persian", "sit_front", st))
+    bot = max(y for y, v in enumerate(w) if v)
+    head, body = max(w), w[bot - 8]
+    assert head <= 0.88 * _PER_OLD_HEAD_W[st], (st, head, round(head / _PER_OLD_HEAD_W[st], 3))
+    assert head > 1.15 * body, (st, head, body)  # 그래도 몸보다 넓은 복슬 네모 얼굴
 
 
 def test_persian_tail_is_bushier_than_the_cats():

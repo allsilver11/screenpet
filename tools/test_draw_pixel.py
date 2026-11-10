@@ -73,6 +73,8 @@ def test_dinos_alone_have_fewer_dots_at_the_same_dot_size():
         if pid.startswith("dino_"):
             assert m["frame_sizes"] == want, pid
             assert {st: n * 3 for st, n in want.items()} == {"baby": 60, "kinder": 72, "child": 84, "teenager": 84, "adult": 96}
+        elif pid in ("squirrel", "penguin"):  # 아기만 1.1배쯤: 26칸 × 3 = 78 px (사용자 요청, 동글은 stage_size baby)
+            assert m["frame_sizes"] == {**{st: n for st, (n, _) in px.STAGE_GRID.items()}, "baby": 26}, pid
         else:
             assert m["frame_sizes"] == {st: n for st, (n, _) in px.STAGE_GRID.items()}, pid
 

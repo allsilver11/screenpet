@@ -277,8 +277,9 @@ pub enum State {
     LevelUp { remaining: f64 },
     /// 새침하게 흥! (클릭 반응)
     Huff { remaining: f64 },
-    /// 화면을 기어오르는 중 (디딤판 없음). 목표에 닿으면 hang초 매달렸다가 Slide
-    Climb { target_y: f64, hang: f64 },
+    /// 화면을 기어오르는 중 (디딤판 없음). 목표에 닿으면 hang초 매달렸다가 Slide.
+    /// over면 위 친구 화면으로 넘어가는 길: 그 줄 맨 위 끝 너머까지 올라가 사라진다 (brain_vert.rs)
+    Climb { target_y: f64, hang: f64, over: bool },
     /// 화면을 따라 일정한 속도로 미끄러져 내려오는 중 — 지나치는 창 윗면이나 바닥에 내려선다
     Slide,
     /// 던져져 창 옆면에 달라붙어 기어오르는 중. rel_y = 발 높이 − 창 윗면
@@ -441,6 +442,8 @@ pub struct PetConfig {
     pub looks_up: bool,
     /// 가끔 머리 위에 작은 눈구름을 부른다 (pet.json `snow_cloud` — 눈사람, brain_cloud.rs)
     pub snow_cloud: bool,
+    /// 장난칠 때 안경이 번쩍 (pet.json `glasses_flash` — 펭귄, brain_flash.rs)
+    pub glasses_flash: bool,
     /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
     pub dpi: f64,
     /// 커서에 매달릴 때 커서 끝이 닿는 머리 꼭대기 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율. pet.json head의 dragged)
@@ -472,6 +475,7 @@ impl PetConfig {
             hop_share: m.hop_share(),
             looks_up: m.can_look_up(),
             snow_cloud: m.snow_cloud,
+            glasses_flash: m.glasses_flash,
             dpi,
             hang_grip: m.hang_grip(stage),
             no_roll: m.no_roll(),
@@ -496,6 +500,8 @@ pub struct RenderState {
     pub cloud: bool,
     /// 하우스 안 — 성장 축하를 펫 창(하트·별 터짐) 대신 하우스 창(집 폴짝)이 보여 준다
     pub housed: bool,
+    /// 안경 번쩍 — 켜지는 순간 웹뷰가 렌즈를 하얗게 번쩍인다 (brain_flash.rs, 펭귄)
+    pub flash: bool,
 }
 
 pub struct Pet {
@@ -605,10 +611,14 @@ pub struct Pet {
     hit_calm_until: f64,
     /// 커서 장난·창 흔들림의 기억 (brain_cursor.rs)
     cursor_mood: cursor_moves::CursorMood,
+    /// 쉴 때 기지개를 자주 켠다 (고양이·페르시안 — set_cursor_species가 정한다)
+    stretchy: bool,
     /// 눈이 쌓임·벚꽃잎 날림·방금 만든 눈사람 (brain_snow.rs)
     snow: snow_moves::SnowMood,
     /// 눈사람의 작은 눈구름 (brain_cloud.rs)
     cloud: cloud_moves::SnowCloud,
+    /// 펭귄의 안경 번쩍 (brain_flash.rs)
+    flash: flash_moves::GlassesFlash,
     /// 자리 비움·졸린 시간·집중 (brain_presence.rs)
     presence: presence_moves::PresenceMood,
     /// 똥: 다시 쌀 수 있는 때, 지나친 똥의 기억 (brain_poop.rs)
@@ -695,8 +705,10 @@ impl Pet {
             stomp_calm_until: 0.0,
             hit_calm_until: 0.0,
             cursor_mood: cursor_moves::CursorMood::new(),
+            stretchy: false,
             snow: Default::default(),
             cloud: Default::default(),
+            flash: Default::default(),
             presence: Default::default(),
             poop: Default::default(),
             meet: None,
@@ -737,6 +749,7 @@ impl Pet {
         self.notice_hand();
         self.tick_send();
         self.tick_snow_cloud(dt);
+        self.tick_glasses_flash(dt);
         if self.housed && self.food.is_some_and(|f| f.from_house) {
             self.come_out_for_food(world);
         }
@@ -833,7 +846,7 @@ impl Pet {
                 }
             }
             State::Air { .. } => self.update_air(dt, world),
-            State::Climb { target_y, hang } => self.update_climb(dt, target_y, hang),
+            State::Climb { target_y, hang, over } => self.update_climb(dt, world, target_y, hang, over),
             State::Slide => self.update_slide(dt, world),
             State::WallClimb { window, side, rel_y } => self.update_wall_climb(dt, world, window, side, rel_y),
             State::InnerClimb { window, rel_x, rel_y } => self.update_inner_climb(dt, world, window, rel_x, rel_y),
@@ -911,7 +924,7 @@ impl Pet {
             _ => anim,
         };
         let hang = self.hang_side();
-        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang, cloud: self.snow_cloud_on(), housed: self.housed }
+        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang, cloud: self.snow_cloud_on(), housed: self.housed, flash: self.glasses_flash_on() }
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
@@ -2556,7 +2569,7 @@ impl Pet {
     }
 
     /// 크기 128 기준 속도를 지금 크기에 맞춘다
-    fn scaled(&self, speed: f64) -> f64 {
+    pub(super) fn scaled(&self, speed: f64) -> f64 {
         speed * self.cfg.size / 128.0
     }
 
@@ -2569,7 +2582,7 @@ impl Pet {
     }
 
     /// 화면 타기 목표 발 높이 — 발밑 모니터 작업 영역 기준. 이미 그보다 높이 서 있으면 None
-    fn climb_target(&mut self, world: &World) -> Option<f64> {
+    pub(super) fn climb_target(&mut self, world: &World) -> Option<f64> {
         let wa = world.work_area_at(self.body.x, self.body.y);
         let target_y = behavior::climb_target(&mut self.rng, wa.bottom, wa.top + self.cfg.size);
         (self.body.y > target_y).then_some(target_y)
@@ -2580,7 +2593,7 @@ impl Pet {
     pub(crate) fn start_climb(&mut self, world: &World) -> bool {
         let Some(target_y) = self.climb_target(world) else { return false };
         self.pacing.after_beat = None;
-        self.state = State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS };
+        self.state = State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS, over: false };
         self.on_started();
         true
     }
@@ -2598,13 +2611,16 @@ impl Pet {
         }
     }
 
-    fn update_climb(&mut self, dt: f64, target_y: f64, hang: f64) {
+    fn update_climb(&mut self, dt: f64, world: &World, target_y: f64, hang: f64, over: bool) {
+        if over {
+            return self.update_climb_over(dt, world, hang);
+        }
         if self.body.y > target_y {
             self.body.y = (self.body.y - self.scaled(behavior::CLIMB_SPEED) * self.climb_pace(dt) * dt).max(target_y);
             return;
         }
         let hang = hang - dt;
-        self.state = if hang > 0.0 { State::Climb { target_y, hang } } else { State::Slide };
+        self.state = if hang > 0.0 { State::Climb { target_y, hang, over: false } } else { State::Slide };
     }
 
     fn update_slide(&mut self, dt: f64, world: &World) {
@@ -2761,8 +2777,8 @@ impl Pet {
         let homesick = self.is_heading_out();
         // 조작 모드 중엔 저절로 기어오르지 않는다 (먹고 난 뒤 등 잠깐 제 마음대로일 때도)
         if !homesick && self.control.is_none() && self.cfg.can_climb && self.standing.is_some() && self.inside.is_none() && self.rng.f64() < behavior::CLIMB_CHANCE {
-            if let Some(target_y) = self.climb_target(world) {
-                return self.next_after_beat(State::Climb { target_y, hang: behavior::CLIMB_HANG_SECS });
+            if let Some(climb) = self.climb_state(world) {
+                return self.next_after_beat(climb);
             }
         }
         if let Some(leap) = self.big_jump_state(world) {
@@ -2825,7 +2841,7 @@ impl Pet {
                 return self.state;
             }
         }
-        match behavior::pick_rest(&mut self.rng, self.cfg.personality.trick_chance(self.hungry)) {
+        match behavior::pick_rest_for(&mut self.rng, self.cfg.personality.trick_chance(self.hungry), self.stretchy) {
             // 박자에 이어 조금 더 앉아 있다가 잠/이동을 정한다
             Rest::Idle => self.idle_state(),
             Rest::Trick(kind) => State::Trick { kind, remaining: behavior::range(&mut self.rng, behavior::TRICK_SECS) },
@@ -3186,6 +3202,9 @@ mod stomp_tests;
 pub mod snow_moves;
 #[path = "brain_cloud.rs"]
 pub mod cloud_moves;
+/// 펭귄의 안경 번쩍
+#[path = "brain_flash.rs"]
+pub mod flash_moves;
 
 #[cfg(test)]
 #[path = "brain_snow_tests.rs"]
@@ -3193,6 +3212,9 @@ mod snow_tests;
 #[cfg(test)]
 #[path = "brain_cloud_tests.rs"]
 mod cloud_tests;
+#[cfg(test)]
+#[path = "brain_flash_tests.rs"]
+mod flash_tests;
 
 /// 친구 동물과 놀아 주기 — 클릭하면 애교 또는 "잡아 봐!"
 #[path = "brain_guestplay.rs"]
@@ -3598,7 +3620,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -3689,7 +3711,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -3708,7 +3730,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false });
     }
 
     #[test]
@@ -4821,7 +4843,7 @@ mod climb_tests {
     #[test]
     fn losing_climbing_drops_a_climbing_pet() {
         let w = world(vec![]);
-        for state in [State::Climb { target_y: 400.0, hang: 0.4 }, State::Slide, State::WallClimb { window: 1, side: Side::Left, rel_y: 50.0 }] {
+        for state in [State::Climb { target_y: 400.0, hang: 0.4, over: false }, State::Slide, State::WallClimb { window: 1, side: Side::Left, rel_y: 50.0 }] {
             let mut p = Pet::new(climber(), 0.0, 0.0, 1);
             place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
             p.standing = None;
@@ -4845,7 +4867,7 @@ mod climb_tests {
         let mut p = Pet::new(climber(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
         // 화면 타기를 막 고른 첫 틱 — 아직 디딤판 기록이 남아 있다
-        p.state = State::Climb { target_y: 400.0, hang: 0.4 };
+        p.state = State::Climb { target_y: 400.0, hang: 0.4, over: false };
         assert!(p.standing.is_some());
         assert!(!p.feed_result(FeedResult::Ate { leveled_up: false }, Food::Meal));
         for state in [State::Slide, State::WallClimb { window: 1, side: Side::Left, rel_y: 50.0 }] {
@@ -4911,7 +4933,7 @@ mod climb_tests {
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
         assert!(p.start_climb(&w));
         // 창 윗면(600)보다 높이 오르게 한다 — 오르는 동안엔 창 윗면에 걸리지 않는다
-        p.state = State::Climb { target_y: 400.0, hang: behavior::CLIMB_HANG_SECS };
+        p.state = State::Climb { target_y: 400.0, hang: behavior::CLIMB_HANG_SECS, over: false };
         run_while(&mut p, &w, 60 * 30, |s| matches!(s, State::Climb { .. } | State::Slide));
         assert!(matches!(p.state, State::Land { .. }), "{:?}", p.state);
         assert_eq!(p.standing.unwrap().owner, Owner::Window(1));
@@ -5007,12 +5029,12 @@ mod climb_tests {
         let mut p = Pet::new(climber(), 0.0, 0.0, 1);
         p.facing = -1.0;
         for (state, anim) in [
-            (State::Climb { target_y: 100.0, hang: 0.4 }, Anim::Climb),
+            (State::Climb { target_y: 100.0, hang: 0.4, over: false }, Anim::Climb),
             (State::Slide, Anim::Slide),
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -5021,7 +5043,7 @@ mod climb_tests {
     #[test]
     fn climbing_pet_can_be_grabbed_and_dragged() {
         let w = world(vec![]);
-        for state in [State::Climb { target_y: 300.0, hang: 0.4 }, State::Slide] {
+        for state in [State::Climb { target_y: 300.0, hang: 0.4, over: false }, State::Slide] {
             let mut p = Pet::new(climber(), 0.0, 0.0, 1);
             place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 10.0, look: false });
             assert!(p.start_climb(&w));
@@ -5568,7 +5590,7 @@ mod house_tests {
         place(&mut p, &w, HOME, 300.0, idle());
         p.standing = None;
         p.body.y = 700.0;
-        p.state = State::Climb { target_y: 400.0, hang: 0.4 };
+        p.state = State::Climb { target_y: 400.0, hang: 0.4, over: false };
         p.go_home(HOME, DOOR);
         assert_eq!(p.state, State::Air { anim: Anim::Fall });
         run_until_housed(&mut p, &w, 720);
@@ -5830,7 +5852,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false });
             }
             last_x = p.body.x;
         }

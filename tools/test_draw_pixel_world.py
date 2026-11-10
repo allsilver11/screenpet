@@ -87,7 +87,8 @@ def test_every_resident_sheet_on_disk_fits_the_door(kind, stage):
         sheet = p / f"sheet_{stage}.png"
         m = json.loads((p / "pet.json").read_text(encoding="utf-8"))
         n = m["frame_sizes"][stage]
-        assert n <= w.STAGE_GRID[stage][0], "공룡만 칸 수가 더 적다"
+        # 공룡만 칸 수가 더 적고, 아기 다람쥐·펭귄만 아기 칸이 조금 크다 (26칸 — 문 너비 안, 아래에서 실제로 잰다)
+        assert n <= w.STAGE_GRID[stage][0] or (pid in ("squirrel", "penguin") and stage == "baby" and n <= door["w"]), pid
         s = m["animations"]["sit_front"]
         im = Image.open(sheet).convert("RGBA")
         for f in range(s["frames"]):

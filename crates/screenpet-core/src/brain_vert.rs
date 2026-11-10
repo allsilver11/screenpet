@@ -53,7 +53,8 @@ impl Pet {
             Side::Up => {
                 let (hw, top) = (self.cfg.half_w, y - visit::SKY_HEADROOM_SIZES * self.cfg.size);
                 let own_top = world.work_area_at(x, y).top;
-                (own_top - col.top).abs() <= 2.0 && !world.windows.iter().any(|w| w.rect.left < x + hw && x - hw < w.rect.right && w.rect.top < y - 1.0 && w.rect.bottom > top)
+                // 머리 바로 위에 창 윗변이 있으면 안 뛴다 — 뒤에 있는 큰 창(최대화 창 등)은 막지 않는다
+                (own_top - col.top).abs() <= 2.0 && !world.windows.iter().any(|w| w.rect.left < x + hw && x - hw < w.rect.right && w.rect.top < y - 1.0 && w.rect.top > top)
             }
             Side::Down => {
                 matches!(self.standing, Some(Standing { owner: Owner::Ground(_), .. })) && (y - col.bottom).abs() <= 2.0
@@ -74,6 +75,38 @@ impl Pet {
             State::Exit { remaining: visit::VERTICAL_MAX_SECS, side }
         } else {
             State::Exit { remaining: visit::VERTICAL_CROUCH_SECS, side }
+        }
+    }
+
+    /// 화면 기어오르기를 시작할 상태 (목표가 발보다 낮으면 None). 위 친구가 있고 그 줄 맨 위 모니터면
+    /// 걸어 나가기 확률(visit::exit_chance)만큼은 끝까지 올라 위 친구 화면으로 넘어간다
+    pub(super) fn climb_state(&mut self, world: &World) -> Option<State> {
+        let hang = behavior::CLIMB_HANG_SECS;
+        let chance = visit::exit_chance(Side::Up, self.exit_edges, self.guest);
+        if chance > 0.0 && self.climb_top_is_outer(world) && self.rng.f64() < chance {
+            return Some(State::Climb { target_y: f64::NEG_INFINITY, hang, over: true });
+        }
+        let target_y = self.climb_target(world)?;
+        Some(State::Climb { target_y, hang, over: false })
+    }
+
+    /// 지금 자리 모니터의 위가 그 줄의 맨 위 끝이다 (위에 다른 모니터가 없다)
+    fn climb_top_is_outer(&self, world: &World) -> bool {
+        let (x, y) = (self.body.x, self.body.y);
+        visit::column_bounds(world, x).is_some_and(|col| (world.work_area_at(x, y).top - col.top).abs() <= 2.0)
+    }
+
+    /// 위로 넘어가는 기어오르기 한 틱: 끝 너머로 몸이 다 빠지면 사라진다. 그새 위 친구가 사라졌으면 보통 기어오르기로
+    pub(super) fn update_climb_over(&mut self, dt: f64, world: &World, hang: f64) {
+        if !self.exit_edges.up || !self.climb_top_is_outer(world) {
+            let target_y = self.climb_target(world).unwrap_or(self.body.y);
+            self.state = State::Climb { target_y, hang, over: false };
+            return;
+        }
+        self.body.y -= self.scaled(behavior::CLIMB_SPEED) * self.climb_pace(dt) * dt;
+        let b = visit::column_bounds(world, self.body.x).unwrap_or(world.bounds);
+        if visit::fully_outside_v(&b, Side::Up, self.body.y, self.cfg.size) {
+            self.vanish(Side::Up);
         }
     }
 

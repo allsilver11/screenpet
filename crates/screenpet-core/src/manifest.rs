@@ -98,6 +98,9 @@ pub struct PetManifest {
     /// 가끔 머리 위에 작은 눈구름을 부른다 (눈사람)
     #[serde(default)]
     pub snow_cloud: bool,
+    /// 장난칠 때 안경이 번쩍 (펭귄 — brain_flash.rs, 웹뷰 render.flash)
+    #[serde(default)]
+    pub glasses_flash: bool,
     /// 빠른 나는 동물 (새) — locomotion fly일 때만 뜻이 있다. 모르는 칸이라 옛 앱은 그냥 무시한다
     #[serde(default)]
     pub swift: bool,
@@ -513,6 +516,15 @@ mod tests {
         assert_eq!(snowman.hop_share(), 0.5);
         assert_eq!(snowman.animations["roll"].spin, 0.0);
         assert_eq!(snowman.favorite_food.as_ref().map(|f| f.name.as_str()), Some("빙수"));
+    }
+
+    /// 번들 펭귄만 장난칠 때 안경이 번쩍한다 (brain_flash.rs)
+    #[test]
+    fn bundled_penguin_flashes_its_glasses() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
+        assert!(load("penguin").glasses_flash);
+        assert!(!load("cat").glasses_flash && !load("snowman").glasses_flash);
     }
 
     /// 번들 다람쥐는 고양이처럼 벽을 타고, 걷다가 가끔 깡총거리고, 도토리를 좋아한다

@@ -129,6 +129,7 @@ impl Pet {
         let (look, anim) = match kind {
             GreetKind::Hello => {
                 self.heart_timer = HEART_SECS;
+                self.maybe_glasses_flash();
                 self.say(Speech::Greet);
                 (look, if self.rng.bool() { Anim::Wave } else { Anim::Tilt })
             }
@@ -142,6 +143,7 @@ impl Pet {
             }
             GreetKind::Caught { speak } => {
                 self.heart_timer = HEART_SECS.max(secs);
+                self.maybe_glasses_flash();
                 if speak {
                     self.say(Speech::Tickle);
                 }
@@ -157,6 +159,7 @@ impl Pet {
         self.play_target = Some(at);
         self.face_x(at.0);
         self.say(Speech::Play);
+        self.maybe_glasses_flash();
         self.state = State::Chase { remaining: secs + SAFETY_SECS };
     }
 

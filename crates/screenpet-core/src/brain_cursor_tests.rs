@@ -884,3 +884,28 @@ fn control_turned_on_during_the_fall_cancels_the_glare_waiting_for_the_landing()
         assert!(!matches!(p.state, State::Glare { .. }), "{:?}", p.state);
     }
 }
+
+/// 넓은 바닥에서 secs초 사는 동안 기지개(Trick::Stretch)를 시작한 횟수
+fn stretches(species: &str, personality: Personality, seed: u64, secs: f64) -> usize {
+    let w = world(vec![win(1, 0.0, 400.0, 1920.0, 900.0)]);
+    let mut p = Pet::new(PetConfig { personality, ..sim_cfg() }, 960.0, 300.0, seed);
+    p.set_cursor_species(species);
+    let (mut n, mut was, mut t) = (0, false, 0.0);
+    while t < secs {
+        p.update(DT, &w);
+        let on = matches!(p.state, State::Trick { kind: Trick::Stretch, .. });
+        n += usize::from(on && !was);
+        was = on;
+        t += DT;
+    }
+    n
+}
+
+#[test]
+fn the_two_cats_stretch_more_often_than_other_pets() {
+    let total = |sp: &str, per: Personality| (0..3).map(|seed| stretches(sp, per, seed, 1800.0)).sum::<usize>();
+    let (cat, rabbit) = (total("cat", Personality::Friendly), total("rabbit", Personality::Friendly));
+    let (persian, aloof_other) = (total("persian", Personality::Aloof), total("squirrel", Personality::Aloof));
+    assert!(cat >= rabbit * 2 && cat > 0, "cat {cat} vs rabbit {rabbit}");
+    assert!(persian >= aloof_other * 4 && persian > 0, "persian {persian} vs {aloof_other}");
+}

@@ -126,6 +126,9 @@ NO_SPIN = {"santa", "snowman", "giraffe", "penguin"}
 # 가끔 머리 위에 작은 눈구름을 부르는 동물 (pet.json snow_cloud)
 SNOW_CLOUD = {"snowman"}
 
+# 장난칠 때 안경이 번쩍하는 동물 (pet.json glasses_flash — 앱이 커서 장난·친구 놀이·가끔 render.flash를 켠다)
+GLASSES_FLASH = {"penguin"}
+
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {
     "cat": {"emoji": "🐟", "name": "생선"},
