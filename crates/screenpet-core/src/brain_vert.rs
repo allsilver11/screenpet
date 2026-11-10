@@ -82,7 +82,7 @@ impl Pet {
     /// 걸어 나가기 확률(visit::exit_chance)만큼은 끝까지 올라 위 친구 화면으로 넘어간다
     pub(super) fn climb_state(&mut self, world: &World) -> Option<State> {
         let hang = behavior::CLIMB_HANG_SECS;
-        let chance = visit::exit_chance(Side::Up, self.exit_edges, self.guest);
+        let chance = visit::exit_chance(Side::Up, self.exit_edges, self.guest) * visit::CLIMB_OVER_SCALE;
         if chance > 0.0 && self.climb_top_is_outer(world) && self.rng.f64() < chance {
             return Some(State::Climb { target_y: f64::NEG_INFINITY, hang, over: true });
         }

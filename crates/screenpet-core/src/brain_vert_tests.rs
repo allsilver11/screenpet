@@ -69,12 +69,12 @@ fn linked_up_and_down_friends_get_occasional_sky_jumps_and_dives() {
     let n = 4000;
     let (up, down) = vertical_decisions(cfg(), n, |p| p.set_vertical_edges(true, false));
     assert_eq!(down, 0);
-    // 이동을 정할 때마다 6% 쯤 (사용자: 위/아래 친구에게도 더 자주)
+    // 이동을 정할 때마다 0.75% 쯤 — 옆 친구에게 걸어가 넘어가는 것과 비슷한 빈도 (사용자: 방향마다 비슷하게)
     let rate = up as f64 / n as f64;
-    assert!((0.045..0.075).contains(&rate), "up rate {rate}");
+    assert!((0.003..0.013).contains(&rate), "up rate {rate}");
     let (up, down) = vertical_decisions(cfg(), n, |p| p.set_vertical_edges(false, true));
     assert_eq!(up, 0);
-    assert!((0.045..0.075).contains(&(down as f64 / n as f64)), "down {down}");
+    assert!((0.003..0.013).contains(&(down as f64 / n as f64)), "down {down}");
     // 개구리는 위로 더 자주
     let (frog_up, _) = vertical_decisions(frog(), n, |p| p.set_vertical_edges(true, false));
     assert!(frog_up as f64 > 1.5 * up as f64, "frog {frog_up} vs {up}");
@@ -759,8 +759,47 @@ fn climbing_cats_sometimes_go_over_the_top_when_a_friend_is_above() {
         }
     }
     let share = over as f64 / (over + plain) as f64;
-    assert!((0.2..=0.4).contains(&share), "{over} over, {plain} plain");
+    assert!((0.01..=0.06).contains(&share), "{over} over, {plain} plain");
     // 위 친구가 없으면 넘어가지 않는다
     let mut p = on_ground(PetConfig { can_climb: true, ..cfg() }, &w, 900.0, 1);
     assert!((0..200).all(|_| !matches!(p.climb_state(&w), Some(State::Climb { over: true, .. }))));
+}
+
+/// 빈 바탕화면에서 그 방향에만 친구가 있을 때 넘어가기까지 걸린 시간들 (분)
+fn minutes_to_leave(climb: bool, right: bool, up: bool, down: bool, seeds: u64) -> Vec<f64> {
+    let w = world(vec![]);
+    (0..seeds)
+        .map(|seed| {
+            let mut p = on_ground(PetConfig { can_climb: climb, ..cfg() }, &w, 900.0, seed);
+            p.set_exit_edges(false, right);
+            p.set_vertical_edges(up, down);
+            let mut t = 0.0;
+            while t < 3600.0 {
+                p.update(DT, &w);
+                t += DT;
+                if p.take_exit().is_some() {
+                    break;
+                }
+            }
+            t / 60.0
+        })
+        .collect()
+}
+
+fn median(mut v: Vec<f64>) -> f64 {
+    v.sort_by(f64::total_cmp);
+    v[v.len() / 2]
+}
+
+#[test]
+fn friends_on_every_side_get_visits_about_as_often() {
+    // 사용자: 계속 위로만 엄청 자주 간다 — 위·아래·옆 모두 넘어가기까지 비슷한 시간 (중간값이 서로 두 배 안쪽)
+    let side = median(minutes_to_leave(false, true, false, false, 24));
+    for (what, m) in [
+        ("up", median(minutes_to_leave(false, false, true, false, 24))),
+        ("down", median(minutes_to_leave(false, false, false, true, 24))),
+        ("up, a climber", median(minutes_to_leave(true, false, true, false, 24))),
+    ] {
+        assert!(m >= side / 2.0 && m <= side * 2.0, "{what}: {m:.1} min vs sideways {side:.1} min");
+    }
 }
