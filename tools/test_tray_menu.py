@@ -12,7 +12,9 @@ def test_top_level_order():
     build = build[: build.index("let pet_items")]
     items = re.findall(r"menu\.append\(&(?:PredefinedMenuItem::(separator)\(app\)\?|([a-z_]+))\)", build)
     names = [sep or name for sep, name in items]
-    assert names == ["easter_egg", "separator", "my_pet", "feed", "house", "separator", "friends", "separator", "play", "focus", "separator", "settings", "toggle", "help", "quit"]
+    assert names == ["easter_egg", "separator", "my_pet", "feed", "house", "separator", "friends", "separator", "play", "focus", "separator", "settings", "toggle", "feedback", "help", "quit"]
+    # 📬 편지함은 개발자 컴퓨터에서만, 건의하기 바로 밑
+    assert "menu.append(&feedback)?;\n    if let Some(m) = &mailbox {\n        menu.append(m)?;" in build
 
 
 def test_submenus_hold_what_was_decided():

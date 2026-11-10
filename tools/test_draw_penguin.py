@@ -469,7 +469,8 @@ def test_glaring_lenses_stay_white_while_the_app_says_so():
     동글은 #lens-flash, 도트는 #lens-flash-px 필터. 번쩍 애니메이션이 끝나면 반사로 돌아간다 (애니메이션은 forwards가 아니다)."""
     js = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
     css = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
-    assert 'petEl.classList.toggle("glasses-glare", !!e.payload.glare)' in js
+    assert 'if (e.payload.glare) petEl.classList.add("glasses-glare");' in js
+    assert 'else petEl.classList.remove("glasses-glare");' in js
     assert "#pet.glasses-glare { filter: url(#lens-flash); }" in css
     assert "body.pixel #pet.glasses-glare { filter: url(#lens-flash-px); }" in css
     flash = css[css.index("#pet.glasses-flash {"):]
