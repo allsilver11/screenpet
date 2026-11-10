@@ -3,6 +3,7 @@
 mod art;
 mod dodge;
 mod feedback;
+mod mailbox;
 mod game_loop;
 mod gifts;
 mod help;
@@ -157,6 +158,11 @@ async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<
     }
     let info = state.slots.lock().unwrap().get(&label).cloned();
     let Some(info) = info else { return Ok(()) };
+    // 📬 편지를 든 펫 (로컬 손님): "편지 읽기"만
+    if label.starts_with("guest-letter-") {
+        let menu = tray::letter_guest_menu(window.app_handle()).map_err(|e| e.to_string())?;
+        return window.popup_menu(&menu).map_err(|e| e.to_string());
+    }
     let can_grow = info.can_grow;
     let Some((owner, owner_id)) = info.owner.zip(info.owner_id) else { return Ok(()) };
     let targets = network::send_on_targets(&owner_id);
@@ -243,7 +249,7 @@ fn main() {
 
             art::set(cfg.style);
             let (tx, rx) = mpsc::channel();
-            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.style)?;
+            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.style, cfg.dev_secret().is_some())?;
             // 화면 배율은 게임 루프가 창에서 읽어 다시 맞춘다
             let stage = slots::stage_payload(&entry, care.stage, cfg.style, 1.0, cfg.pet_size());
             let house_state = HouseState {
@@ -302,6 +308,11 @@ fn main() {
             network::letter_close,
             feedback::feedback_submit,
             feedback::feedback_close,
+            mailbox::mailbox_state,
+            mailbox::mailbox_read,
+            mailbox::mailbox_delete,
+            mailbox::mailbox_block,
+            mailbox::mailbox_close,
             ladder::ladder_state,
             ladder::ladder_host,
             ladder::ladder_begin,

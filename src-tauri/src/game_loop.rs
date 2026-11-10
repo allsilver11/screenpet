@@ -99,6 +99,8 @@ pub enum Input {
     ShowHelp,
     /// 💌 개발자에게 건의하기 창
     ShowFeedback,
+    /// 📬 개발자 편지함 창
+    ShowMailbox,
     /// 메뉴 "🎁 선물 도감" (창 만들기는 게임 루프 스레드에서)
     ShowGiftBook,
     /// 메뉴 "💩 똥피하기"
@@ -683,6 +685,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::ShowHelp => crate::help::show(&app),
                 Input::ShowFeedback => crate::feedback::show(&app),
+                Input::ShowMailbox => crate::mailbox::show(&app),
                 Input::ShowGiftBook => crate::gifts::show_book(&app),
                 Input::ShowDodge => {
                     // 조작 모드는 게임이 대신한다
@@ -933,6 +936,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             network.own_exited(&config, &mut slots[OWN], side);
         }
         network.tick(&app, now, &config, &mut slots[OWN]);
+        network.tick_mailbox(&app, &mut slots, now);
         timeline.tick(&app, real_dt, &slots[OWN], network.away_friend(), &config);
         if dodge.tick(&app, dt, &mut slots[OWN], &mut config, &network) {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);

@@ -45,6 +45,9 @@ pub struct Config {
     /// 친구들에게 보이는 내 이름 (친구 화면의 내 동물 이름표). 없으면 컴퓨터 사용자 이름
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_name: Option<String>,
+    /// 📬 개발자 비밀키 (hex) — 개발자 컴퓨터에만 손으로 넣는다. 있으면 편지함 메뉴가 생기고 건의 편지를 연다 (spec 2026-11-10)
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub dev_key: Option<String>,
     /// 🌨️ 날씨 효과를 메뉴에서 켰다 (기본은 꺼짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub weather_on: bool,
@@ -353,6 +356,19 @@ impl Config {
     }
 
     /// 친구들에게 보일 내 이름: 정한 이름, 없으면 "친구" (컴퓨터 사용자 이름은 같은 망에 알리지 않는다)
+    /// 개발자 비밀키 (32바이트 hex가 아니면 None — 편지함 없음)
+    pub fn dev_secret(&self) -> Option<[u8; 32]> {
+        let hex = self.dev_key.as_deref()?.trim();
+        if hex.len() != 64 {
+            return None;
+        }
+        let mut out = [0u8; 32];
+        for (i, b) in out.iter_mut().enumerate() {
+            *b = u8::from_str_radix(hex.get(2 * i..2 * i + 2)?, 16).ok()?;
+        }
+        Some(out)
+    }
+
     pub fn my_name(&self) -> String {
         self.owner_name.as_deref().and_then(sanitize_name).unwrap_or_else(|| DEFAULT_OWNER_NAME.to_string())
     }
@@ -737,6 +753,20 @@ fn private_file(path: &Path) -> std::io::Result<std::fs::File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_developer_key_is_only_read_when_it_is_a_valid_secret() {
+        let key = "ab".repeat(32);
+        let c: Config = serde_json::from_str(&format!(r#"{{"dev_key": " {key} "}}"#)).unwrap();
+        assert_eq!(c.dev_secret(), Some([0xab; 32]));
+        let back: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.dev_secret(), Some([0xab; 32]), "kept when saved");
+        for bad in [r#"{"dev_key": "nope"}"#, r#"{"dev_key": 5}"#, "{}"] {
+            let c: Config = serde_json::from_str(bad).unwrap();
+            assert_eq!(c.dev_secret(), None, "{bad}");
+        }
+        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("dev_key"), "absent for everyone else");
+    }
 
     #[test]
     fn sizes_default_to_100_percent_and_stay_in_range() {

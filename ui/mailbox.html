@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="form.css" />
+    <style>
+      body { align-items: stretch; }
+      #list { width: 440px; max-height: 450px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+      .letter { border: 1px solid #ddd; border-radius: 8px; padding: 8px 10px; background: #fff; }
+      .letter.unread { border-color: #e88; background: #fff8f8; }
+      .letter.unread .who { font-weight: bold; }
+      .meta { display: flex; justify-content: space-between; font-size: 11px; color: #888; gap: 6px; }
+      .who { font-size: 13px; color: #333; }
+      .text { white-space: pre-wrap; word-break: break-word; font-size: 13px; margin: 6px 0; color: #222; }
+      .row { display: flex; gap: 6px; justify-content: flex-end; }
+      .row button { font-size: 11px; padding: 2px 8px; }
+      #empty { color: #888; font-size: 13px; text-align: center; padding: 40px 0; }
+    </style>
+  </head>
+  <body>
+    <div id="title">📬 편지함</div>
+    <div id="empty">아직 편지가 없어요</div>
+    <div id="list"></div>
+    <div id="buttons">
+      <button id="close">닫기</button>
+    </div>
+    <script src="common.js"></script>
+    <script src="mailbox.js"></script>
+  </body>
+</html>

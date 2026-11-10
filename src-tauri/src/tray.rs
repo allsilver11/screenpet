@@ -79,6 +79,8 @@ const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift, Esc로
 /// macOS: 키가 늘 안 눌림으로 읽힐 때 한 번 — 말풍선은 줄바꿈 없이 창(128px)에 잘리니 한 줄로 짧게 (어디서 켜는지는 ui/help.html)
 /// 💌 개발자에게 건의하기 (feedback.rs)
 const FEEDBACK_ID: &str = "feedback";
+/// 📬 개발자 편지함 (mailbox.rs) — 개발자 비밀키가 있을 때만
+const MAILBOX_ID: &str = "mailbox";
 pub const KEY_PERMISSION_HINT: &str = "키 권한 필요해요";
 const SHOW_CODE_ID: &str = "net:show-code";
 /// 🎲 사다리타기 (설정 화면 / 진행 중인 판), 초대 받기 체크, 지난 결과
@@ -171,6 +173,8 @@ pub struct TrayMenu {
     /// 🐾 내 펫 ▸ 스타일 ▸ 동글동글 / 픽셀
     pub style_round: CheckMenuItem<Wry>,
     pub style_pixel: CheckMenuItem<Wry>,
+    /// 📬 편지함 (개발자 컴퓨터만 — 안 읽은 수를 글자에 붙인다)
+    pub mailbox: Option<MenuItem<Wry>>,
     /// `👫 친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
     pub friends: Submenu<Wry>,
     /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 메뉴에 있다 — 하우스 아래)
@@ -382,6 +386,12 @@ pub fn favorite_label(f: &FavoriteFood) -> String {
     format!("{} {}", f.name, f.emoji)
 }
 
+/// 📬 편지를 든 펫(로컬 손님)을 우클릭하면: 편지함 열기
+pub fn letter_guest_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    let read = MenuItem::with_id(app, MAILBOX_ID, "📬 편지 읽기", true, None::<&str>)?;
+    Menu::with_items(app, &[&read])
+}
+
 /// 손님을 우클릭하면 뜨는 메뉴: "<주인>에게 돌려보내기" (누르면 손 흔들고 집으로), "편지 써서 돌려보내기…" (답장 창), 그리고 연결된 내 친구마다
 /// "<친구>에게 보내기" (targets = 주인을 뺀 (id, 이름)). 메뉴 이벤트는 앱 전체용 처리기(트레이의 on_menu_event)로 온다
 pub fn guest_menu(app: &AppHandle, label: &str, owner: &str, can_grow: bool, targets: &[(String, String)]) -> tauri::Result<Menu<Wry>> {
@@ -455,7 +465,7 @@ fn send(app: &AppHandle, input: Input) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode, style: PetStyle) -> tauri::Result<TrayMenu> {
+pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode, style: PetStyle, dev: bool) -> tauri::Result<TrayMenu> {
     let mut checks: Vec<(CheckMenuItem<Wry>, String)> = Vec::new();
     let pets_menu = Submenu::new(app, pets_label(pets.iter().find(|p| p.id == current).map(|p| p.manifest.name.as_str())), true)?;
     for p in pets {
@@ -506,6 +516,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
     let help = MenuItem::with_id(app, "help", "도움말 ❓", true, None::<&str>)?;
     let feedback = MenuItem::with_id(app, FEEDBACK_ID, "💌 개발자에게 건의하기…", true, None::<&str>)?;
+    let mailbox = if dev { Some(MenuItem::with_id(app, MAILBOX_ID, "📬 편지함", true, None::<&str>)?) } else { None };
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
     let style_round = CheckMenuItem::with_id(app, STYLE_ROUND_ID, "동글동글", true, style == PetStyle::Round, None::<&str>)?;
@@ -533,6 +544,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&settings)?;
     menu.append(&toggle)?;
     menu.append(&feedback)?;
+    if let Some(m) = &mailbox {
+        menu.append(m)?;
+    }
     menu.append(&help)?;
     menu.append(&quit)?;
 
@@ -553,6 +567,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "toggle" => toggle_windows(app),
             "help" => send(app, Input::ShowHelp),
             FEEDBACK_ID => send(app, Input::ShowFeedback),
+            MAILBOX_ID => send(app, Input::ShowMailbox),
             GIFT_BOOK_ID => send(app, Input::ShowGiftBook),
             TIMELINE_ID => send(app, Input::ShowTimeline),
             DODGE_ID => send(app, Input::ShowDodge),
@@ -637,5 +652,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, mailbox, friends, come_home, hand_mode, auto_mode })
 }
