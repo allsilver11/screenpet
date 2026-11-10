@@ -76,6 +76,37 @@ enum ClientMsg<'a> {
     Close { ch: u32 },
     NewCode,
     Ping,
+    Letter { r#box: String },
+    Letters,
+    LetterRead { id: u64 },
+    LetterDelete { id: u64 },
+    LetterBlock { from: &'a str },
+}
+
+/// A stored feedback letter as the relay lists it (mailbox readers only).
+#[derive(Debug, Clone, Deserialize)]
+struct WireLetter {
+    id: u64,
+    at: u64,
+    from: String,
+    #[serde(default)]
+    read: bool,
+    r#box: String,
+}
+
+impl WireLetter {
+    fn item(self) -> Option<crate::letter::MailItem> {
+        let sealed = noise::hex_vec(&self.r#box)?;
+        Some(crate::letter::MailItem { id: self.id, at: self.at, from: self.from, read: self.read, sealed })
+    }
+}
+
+/// A mailbox change a reader asks for.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum MailboxEdit {
+    Read(u64),
+    Delete(u64),
+    Block(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,6 +131,11 @@ enum ServerMsg {
     Close { ch: u32 },
     Pong,
     Error { reason: String },
+    LetterOk,
+    LetterRefused { reason: String },
+    Letters { items: Vec<WireLetter> },
+    LetterNew { item: WireLetter },
+    LettersChanged,
 }
 
 fn json(m: &ClientMsg) -> String {
@@ -162,6 +198,8 @@ struct Inner {
     wait: HashMap<String, Instant>,
     /// Friend list last sent to the relay.
     sent_friends: Vec<String>,
+    /// A feedback letter waiting for the relay's answer (since when).
+    letter: Option<Instant>,
 }
 
 /// Relay connection state shared by the IO thread and the relay links.
@@ -338,6 +376,45 @@ pub(crate) fn redeem(shared: &Arc<Shared>, code: &str, pet: &str) {
         client.inner().redeem = None;
         fail("offline");
     }
+}
+
+/// Send a sealed feedback letter; the answer arrives as `NetEvent::LetterSent`
+/// (also right away when it can't go: `offline`, `busy`).
+pub(crate) fn send_letter(shared: &Shared, client: &RelayClient, sealed: &[u8]) -> bool {
+    let fail = |reason: &str| {
+        shared.emit(NetEvent::LetterSent { result: Err(reason.into()) });
+        false
+    };
+    {
+        let mut inner = client.inner();
+        if !inner.connected {
+            return fail("offline");
+        }
+        if inner.letter.is_some() {
+            return fail("busy");
+        }
+        inner.letter = Some(Instant::now());
+    }
+    if !client.send(None, Out::Text(json(&ClientMsg::Letter { r#box: noise::to_hex(sealed) }))) {
+        client.inner().letter = None;
+        return fail("offline");
+    }
+    true
+}
+
+/// Ask for the whole mailbox (answered as `NetEvent::Mailbox` if we are a reader).
+pub(crate) fn mailbox_list(client: &RelayClient) -> bool {
+    client.send(None, Out::Text(json(&ClientMsg::Letters)))
+}
+
+/// Mark read / delete / block (readers only; every reader then re-lists).
+pub(crate) fn mailbox_edit(client: &RelayClient, edit: MailboxEdit) -> bool {
+    let m = match &edit {
+        MailboxEdit::Read(id) => ClientMsg::LetterRead { id: *id },
+        MailboxEdit::Delete(id) => ClientMsg::LetterDelete { id: *id },
+        MailboxEdit::Block(from) => ClientMsg::LetterBlock { from },
+    };
+    client.send(None, Out::Text(json(&m)))
 }
 
 /// Ask the relay for a fresh friend code (the old one stops working).
@@ -648,6 +725,9 @@ fn disconnected(shared: &Shared, client: &RelayClient) {
         inner.wait.clear();
         inner.sent_friends.clear();
         let pending: Vec<String> = inner.pending.drain().map(|(_, p)| p.peer_id).collect();
+        if inner.letter.take().is_some() {
+            shared.emit(NetEvent::LetterSent { result: Err("offline".into()) });
+        }
         (was, pending, inner.redeem.take())
     };
     for id in pending {
@@ -818,6 +898,9 @@ fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
         } else {
             None
         };
+        if inner.letter.take_if(|t| now.duration_since(*t) > REQUEST_TIMEOUT).is_some() {
+            shared.emit(NetEvent::LetterSent { result: Err("timeout".into()) });
+        }
         (expired, redeem)
     };
     for id in expired {
@@ -930,6 +1013,28 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
             }
         }
         ServerMsg::Close { ch } => client.drop_channel(ch),
+        ServerMsg::LetterOk => {
+            if client.inner().letter.take().is_some() {
+                shared.emit(NetEvent::LetterSent { result: Ok(()) });
+            }
+        }
+        ServerMsg::LetterRefused { reason } => {
+            if client.inner().letter.take().is_some() {
+                shared.emit(NetEvent::LetterSent { result: Err(reason.chars().take(16).collect()) });
+            }
+        }
+        ServerMsg::Letters { items } => {
+            let letters = items.into_iter().filter_map(WireLetter::item).collect();
+            shared.emit(NetEvent::Mailbox { letters });
+        }
+        ServerMsg::LetterNew { item } => {
+            if let Some(item) = item.item() {
+                shared.emit(NetEvent::LetterArrived { item });
+            }
+        }
+        ServerMsg::LettersChanged => {
+            mailbox_list(client);
+        }
         ServerMsg::Challenge { .. } | ServerMsg::Welcome { .. } | ServerMsg::Pong | ServerMsg::Error { .. } => {}
     }
 }
@@ -1017,6 +1122,79 @@ mod tests {
         assert!(matches!(rx.try_recv(), Ok(Out::Text(t)) if t.contains("friends")));
         sync_friends(&net.shared, &client, 1);
         assert!(rx.try_recv().is_err(), "unchanged: nothing more to send");
+    }
+
+    /// A net with no friends, its events, and a connected relay client whose outbox we read.
+    fn letter_rig() -> (crate::Net, std::sync::mpsc::Receiver<NetEvent>, Arc<RelayClient>, std::sync::mpsc::Receiver<Out>) {
+        let mut cfg = crate::NetConfig::new("solo", "Solo", crate::Net::generate_static_key(), vec![]);
+        cfg.discovery_port = 0;
+        cfg.broadcast_to = std::net::SocketAddr::from(([127, 0, 0, 1], 9));
+        let (net, events) = crate::Net::start(cfg).unwrap();
+        let client = RelayClient::new("ws://relay.test/ws".into(), None);
+        let (tx, rx) = sync_channel(16);
+        *client.outbox.lock().unwrap() = Some((1, tx));
+        client.inner().connected = true;
+        (net, events, client, rx)
+    }
+
+    fn sent_text(rx: &std::sync::mpsc::Receiver<Out>) -> Vec<String> {
+        rx.try_iter().filter_map(|o| if let Out::Text(t) = o { Some(t) } else { None }).collect()
+    }
+
+    fn letter_events(events: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<NetEvent> {
+        std::thread::sleep(Duration::from_millis(20));
+        events.try_iter().filter(|e| matches!(e, NetEvent::LetterSent { .. } | NetEvent::Mailbox { .. } | NetEvent::LetterArrived { .. })).collect()
+    }
+
+    #[test]
+    fn a_letter_goes_out_once_and_the_relay_answer_comes_back() {
+        let (net, events, client, out) = letter_rig();
+        assert!(send_letter(&net.shared, &client, &[1, 2, 255]));
+        assert_eq!(sent_text(&out), vec![r#"{"t":"letter","box":"0102ff"}"#.to_string()]);
+        assert!(!send_letter(&net.shared, &client, &[1]), "one at a time");
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "busy"));
+        on_message(&net.shared, &client, 1, ServerMsg::LetterOk);
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Ok(()) }]));
+        assert!(send_letter(&net.shared, &client, &[3]));
+        on_message(&net.shared, &client, 1, ServerMsg::LetterRefused { reason: "daily".into() });
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "daily"));
+        on_message(&net.shared, &client, 1, ServerMsg::LetterOk);
+        assert!(letter_events(&events).is_empty(), "an answer nobody waits for is dropped");
+    }
+
+    #[test]
+    fn an_unanswered_letter_times_out_and_a_lost_connection_fails_it() {
+        let (net, events, client, _out) = letter_rig();
+        assert!(send_letter(&net.shared, &client, &[1]));
+        client.inner().letter = Some(Instant::now() - REQUEST_TIMEOUT - Duration::from_secs(1));
+        housekeep(&net.shared, &client, 1);
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "timeout"));
+        assert!(send_letter(&net.shared, &client, &[1]));
+        disconnected(&net.shared, &client);
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "offline"));
+        assert!(!send_letter(&net.shared, &client, &[1]), "offline");
+        assert!(matches!(&letter_events(&events)[..], [NetEvent::LetterSent { result: Err(r) }] if r == "offline"));
+    }
+
+    #[test]
+    fn the_mailbox_lists_arrives_and_refreshes_when_it_changes() {
+        let (net, events, client, out) = letter_rig();
+        let item = |id, read| WireLetter { id, at: 100 + id, from: "ab".repeat(32), read, r#box: "0a0b".into() };
+        on_message(&net.shared, &client, 1, ServerMsg::LetterNew { item: item(7, false) });
+        match &letter_events(&events)[..] {
+            [NetEvent::LetterArrived { item }] => assert_eq!((item.id, item.at, item.read, item.sealed.clone()), (7, 107, false, vec![10, 11])),
+            other => panic!("{other:?}"),
+        }
+        on_message(&net.shared, &client, 1, ServerMsg::Letters { items: vec![item(7, true), WireLetter { r#box: "zz".into(), ..item(8, false) }] });
+        match &letter_events(&events)[..] {
+            [NetEvent::Mailbox { letters }] => assert_eq!(letters.iter().map(|l| l.id).collect::<Vec<_>>(), vec![7], "bad hex dropped"),
+            other => panic!("{other:?}"),
+        }
+        on_message(&net.shared, &client, 1, ServerMsg::LettersChanged);
+        assert_eq!(sent_text(&out), vec![r#"{"t":"letters"}"#.to_string()]);
+        assert!(mailbox_edit(&client, MailboxEdit::Read(7)));
+        assert!(mailbox_edit(&client, MailboxEdit::Block("cd".repeat(32))));
+        assert_eq!(sent_text(&out), vec![r#"{"t":"letter_read","id":7}"#.to_string(), format!(r#"{{"t":"letter_block","from":"{}"}}"#, "cd".repeat(32))]);
     }
 
     #[test]

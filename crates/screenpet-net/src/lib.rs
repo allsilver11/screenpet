@@ -278,6 +278,15 @@ pub enum NetEvent {
     /// friend, across reconnects). The app must validate `kind`, `fling` and `note`.
     Tossed { from: String, toss: Toss },
     Disconnected { id: String },
+    /// The relay's answer to [`Net::send_letter`]: `Err` holds its reason
+    /// (`daily`, `ip`, `new`, `global`, `full`, `size`, `blocked`) or
+    /// `offline`, `busy`, `timeout`.
+    LetterSent { result: Result<(), String> },
+    /// The whole developer mailbox (only for installs the relay lists as
+    /// mailbox readers), newest first.
+    Mailbox { letters: Vec<letter::MailItem> },
+    /// A new letter reached the developer mailbox while we are a reader online.
+    LetterArrived { item: letter::MailItem },
     Received { from: String, msg: Visit },
     /// A ladder game message from a connected friend (validated by `ladder`).
     Ladder { from: String, msg: LadderMsg },
@@ -1034,6 +1043,39 @@ impl Net {
     /// too widely). `false` if not connected. Expect `FriendCode`.
     pub fn new_friend_code(&self) -> bool {
         relay::new_code(&self.shared)
+    }
+
+    /// 💌 Send a sealed feedback letter ([`letter::seal`]) to the developer
+    /// mailbox on the relay. The answer comes as [`NetEvent::LetterSent`].
+    pub fn send_letter(&self, sealed: &[u8]) -> bool {
+        match &self.shared.relay {
+            Some(c) => relay::send_letter(&self.shared, c, sealed),
+            None => {
+                self.shared.emit(NetEvent::LetterSent { result: Err("offline".into()) });
+                false
+            }
+        }
+    }
+
+    /// 📬 Ask for the developer mailbox (answered as [`NetEvent::Mailbox`]
+    /// only if the relay lists this install as a reader).
+    pub fn mailbox_list(&self) -> bool {
+        self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_list(c))
+    }
+
+    /// 📬 Mark a letter read.
+    pub fn mailbox_read(&self, id: u64) -> bool {
+        self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Read(id)))
+    }
+
+    /// 📬 Delete a letter.
+    pub fn mailbox_delete(&self, id: u64) -> bool {
+        self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Delete(id)))
+    }
+
+    /// 📬 Refuse letters from this sender key and delete theirs.
+    pub fn mailbox_block(&self, from: &str) -> bool {
+        self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Block(from.to_string())))
     }
 
     /// Our current relay friend code, once connected.

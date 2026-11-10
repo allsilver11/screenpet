@@ -166,6 +166,24 @@ fn bad_codes_are_reported() {
 }
 
 #[test]
+fn a_letter_reaches_the_real_relay_and_a_brand_new_install_is_told_to_wait() {
+    // 💌 끝에서 끝까지: 봉한 편지 → 실제 릴레이 → 처음 본 설치라 "new"로 거절 (한도는 모두 릴레이가 센다)
+    let relay = start_relay("127.0.0.1:0".parse().unwrap());
+    let (a, arx) = start_net("aaaa", Net::generate_static_key(), free_udp_port(), free_udp_port(), vec![], &url(&relay));
+    code_of(&arx); // 연결됨
+    let dev = screenpet_net::letter::dev_key().unwrap();
+    let sealed = screenpet_net::letter::seal(&screenpet_net::letter::Letter { text: "안녕하세요".into(), ..Default::default() }, &dev).unwrap();
+    assert!(a.send_letter(&sealed));
+    match wait_for(&arx, 5.0, |e| matches!(e, NetEvent::LetterSent { .. })) {
+        Some(NetEvent::LetterSent { result }) => assert_eq!(result, Err("new".to_string())),
+        other => panic!("no answer: {other:?}"),
+    }
+    // 편지함은 읽는 설치로 등록된 것만 — 아니면 대답이 없다
+    assert!(a.mailbox_list());
+    assert!(wait_for(&arx, 1.0, |e| matches!(e, NetEvent::Mailbox { .. })).is_none());
+}
+
+#[test]
 fn friends_reconnect_through_the_relay_and_after_it_restarts() {
     // Restarted on its port below: one the OS could hand to another test meanwhile won't do
     let relay = start_relay(SocketAddr::from(([127, 0, 0, 1], free_tcp_port())));

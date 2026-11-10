@@ -23,6 +23,19 @@ pub const MAX_SEALED: usize = 8192;
 const PATTERN: &str = "Noise_N_25519_ChaChaPoly_BLAKE2s";
 const PROLOGUE: &[u8] = b"screenpet-letter/1";
 
+/// A letter in the developer's mailbox as the relay lists it (still sealed —
+/// the app opens it with its own `dev_key`, the net layer never sees it).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MailItem {
+    pub id: u64,
+    /// Unix seconds when the relay took it.
+    pub at: u64,
+    /// The sender's install key (hex) — for blocking.
+    pub from: String,
+    pub read: bool,
+    pub sealed: Vec<u8>,
+}
+
 /// What the developer reads. Nothing else about the sender is sent (no
 /// address, no email, no friends).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

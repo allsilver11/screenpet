@@ -15,6 +15,14 @@
 pub use screenpet_crypto::{hex32, to_hex};
 pub(crate) use screenpet_crypto::{blake2s, hex_array, public_key, random32};
 
+/// Hex of any length to bytes (`None` if malformed).
+pub(crate) fn hex_vec(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return None;
+    }
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
+}
+
 use crate::protocol::MAX_FRAME;
 use crate::transport::{FrameLink, FrameReader, Recv};
 use std::sync::atomic::{AtomicBool, Ordering};
