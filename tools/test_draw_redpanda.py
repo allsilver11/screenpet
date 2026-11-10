@@ -128,22 +128,33 @@ def test_long_bushy_tail_with_darker_rings(out, st, anim):
     assert tail.sum() > 40, (st, anim)
 
 
+def top_band_dark(im, st):
+    """위 1/4 (귀 높이)의 짙은 팔다리 색 화소 수 — 팔이 귀까지 뻗으면 귓속보다 훨씬 많아진다."""
+    ys = np.nonzero(alpha(im))[0]
+    top, h = ys.min(), ys.max() - ys.min()
+    return int(near(im, rp.fur("limb", st), 26)[top: top + int(h * 0.25)].sum())
+
+
 def height(im):
     ys = np.nonzero(alpha(im))[0]
     return int(ys.max() - ys.min())
 
 
 @pytest.mark.parametrize("st", STAGES)
-def test_surprise_stands_up_tall_with_both_arms_raised(out, st):
-    """깜짝: 앞모습, 뒷발로 서서 앉은 모습(idle·sit_front)보다 크고, 두 팔(짙은 색)이 머리 높이 위쪽 양옆에 번쩍."""
+def test_surprise_stands_up_tall_with_short_stubby_arms_up(out, st):
+    """깜짝: 앞모습, 뒷발로 서서 앉은 모습(idle·sit_front)보다 크고, 짤뚱한 두 팔(짙은 색)을 볼 옆으로 번쩍 —
+    손은 얼굴 양옆에 있고, 귀 끝까지 길게 뻗지 않는다 (위 1/4의 짙은 색은 앉은 앞모습의 귓속 정도뿐)."""
     idle, sit = frame(out, st, "idle", 0), frame(out, st, "sit_front", 0)
+    ear_dark = top_band_dark(sit, st)
     for i in (1, 2):
         im = frame(out, st, "surprise", i)
         assert height(im) >= height(idle) + 8 and height(im) >= height(sit) + 6, (st, i, height(im), height(idle), height(sit))
         ys = np.nonzero(alpha(im))[0]
-        top = ys.min()
-        limb = near(im, rp.fur("limb", st), 26)[top: top + 22]
-        assert limb[:, :52].sum() > 12 and limb[:, 76:].sum() > 12, (st, i, int(limb[:, :52].sum()), int(limb[:, 76:].sum()))
+        top, h = ys.min(), ys.max() - ys.min()
+        limb = near(im, rp.fur("limb", st), 26)
+        assert top_band_dark(im, st) <= ear_dark + 12, (st, i, top_band_dark(im, st), ear_dark)
+        cheeks = limb[top + int(h * 0.25): top + int(h * 0.6)]
+        assert cheeks[:, :44].sum() > 12 and cheeks[:, 84:].sum() > 12, (st, i, int(cheeks[:, :44].sum()), int(cheeks[:, 84:].sum()))
     assert frame(out, st, "surprise", 0).tobytes() != frame(out, st, "surprise", 1).tobytes()
 
 
@@ -152,8 +163,11 @@ def test_picked_up_it_throws_both_arms_up_too(out, st):
     for i in (0, 1):
         im = frame(out, st, "dragged", i)
         ys = np.nonzero(alpha(im))[0]
-        limb = near(im, rp.fur("limb", st), 26)[ys.min(): ys.min() + 22]
-        assert limb[:, :52].sum() > 8 and limb[:, 76:].sum() > 8, (st, i)
+        top, h = ys.min(), ys.max() - ys.min()
+        limb = near(im, rp.fur("limb", st), 26)
+        assert top_band_dark(im, st) <= top_band_dark(frame(out, st, "sit_front", 0), st) + 12, (st, i)
+        side = limb[top + int(h * 0.2): top + int(h * 0.6)]
+        assert side[:, :44].sum() > 8 and side[:, 84:].sum() > 8, (st, i)
 
 
 def test_baby_is_paler_and_fluffier(out):

@@ -9,7 +9,7 @@
           바탕(base)이 짙은 다리 색이고, 머리·몸·등은 무늬로 주황빨강을 덮는다 (다리·발·팔은 저절로 짙은 색).
 단계: 아기 = 크림빛으로 바랜 복슬 아기 (고리 둘, 정수리 털) → 유아 고리 셋·눈물 줄 → 어린이부터 고리 넷과 짙은 꼬리 끝
       → 어른 볼 털 + 귀 옆에 대나무잎 핀.
-깜짝 (surprise, 앞모습 한 번): 놀라면 뒷발로 벌떡 서서 두 팔을 머리 위로 번쩍 — 0 움찔(팔 반쯤) · 1 쭉 (!) · 2 쭉 (!!).
+깜짝 (surprise, 앞모습 한 번): 놀라면 뒷발로 벌떡 서서 짤뚱한 두 팔을 볼 옆으로 번쩍 — 0 움찔(팔 반쯤) · 1 쭉 (!) · 2 쭉 (!!).
       클릭·살짝 부딪힘에 (코어 Special::Surprise). 들어 올리면(dragged)도 두 팔 번쩍, 다리는 대롱대롱.
 """
 
@@ -161,18 +161,18 @@ def hungry(sp, i):
 
 
 def up_arm(sp, side, reach, spread):
-    """머리 위로 번쩍 든 팔 한 짝 (머리 좌표 — 머리와 함께 움직인다): 턱 아래 어깨 → 귀 옆 바깥으로 손.
-    reach: 0 귀 아래 옆으로 … 1 귀 높이 위로 · spread: 바깥으로 벌림. 머리 뒤에 그려서 머리 밖으로 나온 팔과 손만 보인다."""
+    """번쩍 든 짤뚱한 팔 한 짝 (머리 좌표 — 머리와 함께 움직인다): 어깨에서 짧게 올라와 볼 옆 바깥으로 손.
+    reach: 0 볼 높이 … 1 눈 높이 조금 위 (귀까지는 안 간다) · spread: 바깥으로 벌림. 머리 뒤에 그려서 머리 밖으로 나온 팔과 손만 보인다."""
     s, h = side, _ST["head"]
-    sx, sy = 64 + 24 * s, 96
-    hx = 64 + s * (42 * h + 9 + 5 * spread)
-    hy = 84 - (50 + 22 * reach) * h
-    elbow = (64 + s * (44 * h + 8 + 3 * spread), (sy + hy) / 2 + 8)
-    arm = L([(sx, sy), elbow, (hx, hy)], 13)
+    sx, sy = 64 + 26 * s, 98
+    hx = 64 + s * (40 * h + 10 + 4 * spread)
+    hy = 84 - (20 + 14 * reach) * h
+    elbow = (64 + s * (38 * h + 12 + 2 * spread), (sy + hy) / 2 + 4)
+    arm = L([(sx, sy), elbow, (hx, hy)], 14)
     paw = E(hx - 8, hy - 7.5, hx + 8, hy + 7.5)
     toes = [C(hx + d, hy - 6.2, 2.6) for d in (-4.6, 0, 4.6)]
     beans = ([E(hx - 3.2, hy - 1.2, hx + 3.2, hy + 4)], dp.PINK)
-    return Part([arm, paw] + toes, sp.base, [beans], grow=0, outline=True)
+    return Part([arm, paw] + toes, sp.base, [beans])  # 외곽선 없이 몸에 녹인다 — 겨드랑이 이음새가 따로 떠 보이지 않게
 
 
 def bang_fx(i, top):
