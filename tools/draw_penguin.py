@@ -54,7 +54,7 @@ SHRIMP, SHRIMP_DARK = (255, 140, 110), (222, 96, 80)
 #               chub: 동글 공 몸 (가로, 세로) 배율 — 공통 torso(아기 길쭉)를 쓰지 않고 모든 단계 포동포동 (머리 큰 아기는 몸을 더 넓게)
 PG_STAGE = {
     0: dict(chick=True, fluff=3, fuzz=True, flip=0.78, tie=False, chub=(1.3, 1.0)),
-    1: dict(chick=True, fluff=1, fuzz=False, flip=0.86, tie=False, chub=(1.25, 1.02)),  # 등 솜털 세모는 아기만 (사용자: 등이 뾰족뾰족)
+    1: dict(chick=True, fluff=1, fuzz=False, flip=0.86, tie=False, chub=(1.2, 1.02)),  # 등 솜털 세모는 아기만 (사용자: 등이 뾰족뾰족)
     2: dict(chick=False, fluff=1, fuzz=False, flip=0.94, tie=False, chub=(1.17, 0.97)),
     3: dict(chick=False, fluff=0, fuzz=False, flip=1.0, tie=False, chub=(1.0, 1.0)),
     4: dict(chick=False, fluff=0, fuzz=False, flip=1.04, tie=True, chub=(0.98, 0.97)),
@@ -281,12 +281,14 @@ def penguin(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes
                 if feet:
                     for j, (dx, lift) in enumerate(feet):  # 동글 몸 아래로 짧은 발이 쏙
                         parts.append(side_foot(bx - rx * 0.36 + rx * 0.62 * j + dx, lift, k=fk * 1.12, y=bottom + 3.0))
-                tail = T((bx - rx * 0.7, by + ry * 0.4), (bx - rx - 6 * bk, by + ry * 0.96), (bx - rx * 0.3, by + ry * 0.92))
                 # 볼록 배: 몸 앞쪽 아래로 불룩 튀어나온 공 (무게중심이 아래)
                 bulge = E(bx - rx * 0.3, by - ry * 0.5, bx + rx * 1.1, by + ry)
                 belly_m = [([E(bx - rx * 0.42, by - ry * 0.6, bx + rx * 1.3, by + ry * 1.12)], bcol)]
                 spikes = fuzz(bx, by, rx, ry, (200, 165, 135)) if st["fuzz"] else []
-                parts.append(Part([E(bx - rx, by - ry, bx + rx, by + ry), bulge, tail], col, belly_m, grow=1, spikes=spikes))
+                # 등은 덜 내민다 (사용자: 등이 옆으로 누운 산처럼 튀어나왔다) — 몸 공의 뒤쪽 반만 좁힌다
+                back = BACK_SHRINK * rx
+                tail = T((bx - back * 0.7, by + ry * 0.4), (bx - back - 6 * bk, by + ry * 0.96), (bx - back * 0.3, by + ry * 0.92))
+                parts.append(Part([E(bx - back, by - ry, bx + rx, by + ry), bulge, tail], col, belly_m, grow=1, spikes=spikes))
                 hpart, bp, face = side_head(hx, hy, hr, eyes, mouth, brow, head_rot)
                 parts.append(hpart)
                 if st["tie"]:
@@ -360,7 +362,8 @@ def ice_puffs(items):
 # =====================================================================
 # 포즈
 # =====================================================================
-WADDLE = [-16, 0, 20, 0]  # 뒤뚱: 기우뚱 각도 (동글 몸 가운데가 축이라 크게 기울여야 뒤뚱이 보인다)
+BACK_SHRINK = 0.78  # 옆모습 등 쪽 몸 반지름 배율
+WADDLE = [-8, 0, 10, 0]  # 뒤뚱: 기우뚱 각도 (사용자: 너무 뒤뚱거린다 — 반으로 줄임)
 
 
 def pg_walk(sp, i):

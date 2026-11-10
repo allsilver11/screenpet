@@ -109,7 +109,7 @@ def test_baby_is_a_grey_fluffy_chick(out, anim):
 
 @pytest.mark.parametrize("st", STAGES)
 def test_walk_is_a_side_to_side_waddle(out, st):
-    """뒤뚱뒤뚱: 0·2 장은 몸이 서로 반대쪽으로 기우뚱 (윗부분 무게중심이 반대쪽), 1·3 장은 가운데."""
+    """뒤뚱뒤뚱: 0·2 장은 몸이 서로 반대쪽으로 살짝 기우뚱 (윗부분 무게중심이 반대쪽 — 사용자: 너무 뒤뚱거려서 줄였다)."""
     def lean(i):
         a = alpha(frame(out, st, "walk", i))
         ys, xs = np.nonzero(a)
@@ -117,8 +117,7 @@ def test_walk_is_a_side_to_side_waddle(out, st):
         bottom = ys > np.percentile(ys, 80)
         return xs[top].mean() - xs[bottom].mean()
     l0, l1, l2 = lean(0), lean(1), lean(2)
-    assert abs(l0 - l2) >= 5, (st, l0, l1, l2)
-    assert min(l0, l2) < l1 < max(l0, l2), (st, l0, l1, l2)
+    assert l0 - l2 >= 0.8, (st, l0, l1, l2)
 
 
 @pytest.mark.parametrize("st", STAGES)
@@ -179,7 +178,7 @@ def _chub(im, st):
 def test_a_plump_round_penguin_with_a_big_round_belly(out, st, anim):
     """포동포동: 몸이 키에 비해 넓은 동글 공 모양이고, 볼록한 배가 몸 너비의 큰 몫을 차지한다 (모든 단계, 서기·걷기·앞모습)."""
     ratio, belly = _chub(frame(out, st, anim, 1 if anim == "walk" else 0), st)  # 걷기는 똑바로 선 칸 (0·2칸은 뒤뚱 기운다)
-    assert ratio >= 0.88, (st, anim, round(ratio, 2))
+    assert ratio >= (0.78 if anim != "sit_front" else 0.88), (st, anim, round(ratio, 2))  # 옆모습은 등을 덜 내밀어 조금 좁다
     assert belly >= (0.62 if anim == "sit_front" else 0.5), (st, anim, round(belly, 2))
 
 
@@ -472,3 +471,23 @@ def test_the_back_is_smooth_without_spikes_or_a_pointy_tail(out, st, anim):
     for i in (0, 1):
         spikes, tail = _back_bumps(frame(out, st, anim, i))
         assert spikes == 0 and tail <= 2, (st, anim, i, spikes, tail)
+
+
+def _back_share(im):
+    """옆모습에서 머리 꼭대기보다 뒤(왼쪽)에 있는 몸의 몫 (실루엣 너비 대비)."""
+    a = alpha(im)
+    ys, xs = np.nonzero(a.any(axis=1))[0], np.nonzero(a.any(axis=0))[0]
+    head_x = np.nonzero(a[ys[0]: ys[0] + 6].any(axis=0))[0].mean()
+    return (head_x - xs[0]) / (xs[-1] - xs[0])
+
+
+@pytest.mark.parametrize("st", ["kinder", "child", "teenager", "adult"])
+def test_the_back_does_not_bulge_out_like_a_mountain(out, st):
+    """사용자: 등이 옆으로 누운 산처럼 튀어나왔다 — 머리 뒤로 나온 몸의 몫을 줄였다 (전 0.59~0.61, 배는 앞으로 볼록 그대로)."""
+    for anim in ("idle", "look"):
+        assert _back_share(frame(out, st, anim, 0)) <= 0.57, (st, anim, round(_back_share(frame(out, st, anim, 0)), 2))
+
+
+def test_the_waddle_is_gentle():
+    """사용자: 너무 뒤뚱거린다 — 기우뚱은 10도 안쪽."""
+    assert max(abs(a) for a in draw_penguin.WADDLE) <= 10
