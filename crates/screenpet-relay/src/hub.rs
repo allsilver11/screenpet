@@ -568,6 +568,9 @@ pub struct Hub {
     relay_off: AtomicBool,
     next_conn: AtomicU64,
     threads: Mutex<Vec<JoinHandle<()>>>,
+    /// Held across taking a mailbox snapshot and writing it, so two
+    /// connection threads can't write an older snapshot over a newer one.
+    mailbox_save: Mutex<()>,
 }
 
 impl Hub {
@@ -606,6 +609,7 @@ impl Hub {
             counters: Counters::default(),
             next_conn: AtomicU64::new(1),
             threads: Mutex::new(Vec::new()),
+            mailbox_save: Mutex::new(()),
         }
     }
 
@@ -1093,8 +1097,11 @@ impl Hub {
         }
     }
 
-    /// Write `letters.json` if it changed (snapshot under the lock, write outside).
+    /// Write `letters.json` if it changed. The save lock spans the snapshot
+    /// and the write (snapshots and writes stay in order); the state lock is
+    /// only held for the snapshot, so connections never wait on the disk.
     fn save_mailbox(&self) {
+        let _order = self.mailbox_save.lock().unwrap_or_else(|e| e.into_inner());
         let snap = self.state().mailbox.snapshot();
         if let (Some(bytes), Some(dir)) = (snap, self.data_dir.as_deref()) {
             if let Err(e) = crate::mailbox::Mailbox::save(dir, &bytes) {
