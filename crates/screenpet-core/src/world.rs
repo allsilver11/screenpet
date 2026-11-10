@@ -9,6 +9,8 @@ pub struct World {
     pub surfaces: Vec<Surface>,
     /// 펫 스프라이트 높이 (디딤판·옆면 판정용)
     pub pet_height: f64,
+    /// 창 안쪽 바닥을 만든다 (데스크톱). 웹 버전은 요소 윗변과 바닥만 (World::without_insides)
+    insides: bool,
 }
 
 /// 창의 어느 옆면인지 (Left/Right만), 또는 친구 화면이 붙은 내 화면의 어느 끝인지 (visit — 위/아래도)
@@ -38,7 +40,21 @@ impl World {
         }
         let bounds = work_areas.iter().copied().reduce(|a, b| a.union(&b)).unwrap();
         let surfaces = compute_surfaces(&windows, &work_areas, pet_height);
-        Self { windows, work_areas, bounds, surfaces, pet_height }
+        Self { windows, work_areas, bounds, surfaces, pet_height, insides: true }
+    }
+
+    /// 창 안쪽 바닥 없이 (웹 버전: 페이지 요소 윗변과 화면 바닥만 디딤판)
+    pub fn without_insides(windows: Vec<WindowInfo>, work_areas: Vec<Rect>, pet_height: f64) -> Self {
+        let mut w = Self::new(windows, work_areas, pet_height);
+        w.insides = false;
+        w.drop_insides();
+        w
+    }
+
+    fn drop_insides(&mut self) {
+        if !self.insides {
+            self.surfaces.retain(|s| !matches!(s.owner, crate::surfaces::Owner::Inside(_)));
+        }
     }
 
     /// x가 속한 작업 영역 (없으면 가장 가까운 것)
@@ -102,6 +118,7 @@ impl World {
         }
         if changed {
             self.surfaces = compute_surfaces(&self.windows, &self.work_areas, self.pet_height);
+            self.drop_insides();
         }
         changed
     }
@@ -192,6 +209,19 @@ mod tests {
         // 그대로면 아무것도 하지 않는다
         assert!(!w.patch_windows(&[(1, moved)]));
         assert!(!w.patch_windows(&[]));
+    }
+
+    #[test]
+    fn a_world_without_insides_has_no_inner_floors_even_after_windows_move() {
+        // 웹 버전: 요소 안쪽 바닥(창 안으로 들어가기)은 쓰지 않는다 — 윗변과 바닥만
+        let wins = vec![WindowInfo { id: 1, rect: Rect::new(500.0, 400.0, 1100.0, 900.0) }];
+        let mut w = World::without_insides(wins.clone(), vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+        assert!(w.surfaces.iter().all(|s| !matches!(s.owner, Owner::Inside(_))));
+        assert!(w.surfaces.iter().any(|s| s.owner == Owner::Window(1)));
+        assert!(w.patch_windows(&[(1, Rect::new(520.0, 380.0, 1120.0, 880.0))]));
+        assert!(w.surfaces.iter().all(|s| !matches!(s.owner, Owner::Inside(_))), "still none after a move");
+        let full = World::new(wins, vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+        assert!(full.surfaces.iter().any(|s| matches!(s.owner, Owner::Inside(_))), "the desktop keeps them");
     }
 
     #[test]
