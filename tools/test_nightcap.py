@@ -405,3 +405,11 @@ def test_preview_has_no_old_head_finder():
     """고치기 전 계산(before 모드)과 그 scipy 의존은 없어졌다 — CI에 없는 패키지를 부르지 않는다."""
     src = Path(pn.__file__).read_text(encoding="utf-8")
     assert "scipy" not in src and "old_head_top" not in src
+
+
+def test_no_tool_or_test_imports_scipy():
+    """CI는 requirements.txt(numpy·pillow·pytest)만 깐다 — scipy를 부르면 로컬에선 되고 CI에선 깨진다 (v0.5.7)."""
+    tools = Path(__file__).resolve().parent
+    bad = [f.name for f in tools.glob("*.py") if f.name != Path(__file__).name
+           and any(ln.strip().startswith(("import scipy", "from scipy")) for ln in f.read_text(encoding="utf-8").splitlines())]
+    assert bad == []

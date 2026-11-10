@@ -183,6 +183,73 @@ def test_a_plump_round_penguin_with_a_big_round_belly(out, st, anim):
     assert belly >= (0.62 if anim == "sit_front" else 0.5), (st, anim, round(belly, 2))
 
 
+# ---- 작은 형태 연산 (numpy만 — CI에는 scipy가 없다, requirements.txt) ----
+_CROSS = ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1))
+_SQUARE = tuple((dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+
+
+def _shift(m, dy, dx):
+    """m을 (dy, dx)만큼 민 것 (밖은 False)."""
+    out = np.zeros_like(m)
+    h, w = m.shape
+    out[max(dy, 0): h + min(dy, 0), max(dx, 0): w + min(dx, 0)] = m[max(-dy, 0): h + min(-dy, 0), max(-dx, 0): w + min(-dx, 0)]
+    return out
+
+
+def dilate(m, iterations=1, offsets=_CROSS):
+    """이진 팽창 (기본: 4-이웃 십자 — scipy binary_dilation 기본값과 같다)."""
+    m = np.asarray(m, dtype=bool)
+    for _ in range(iterations):
+        m = np.logical_or.reduce([_shift(m, dy, dx) for dy, dx in offsets])
+    return m
+
+
+def erode(m, offsets=_CROSS):
+    """이진 침식 (밖은 False로 본다)."""
+    m = np.asarray(m, dtype=bool)
+    return np.logical_and.reduce([_shift(m, -dy, -dx) for dy, dx in offsets])
+
+
+def open3(m):
+    """3×3 네모로 열기 (침식 뒤 팽창)."""
+    return dilate(erode(m, _SQUARE), 1, _SQUARE)
+
+
+def label(m):
+    """4-이웃으로 이어진 덩어리에 1..n 번호: (번호 배열, n)."""
+    m = np.asarray(m, dtype=bool)
+    lab = np.zeros(m.shape, dtype=int)
+    n = 0
+    for y, x in zip(*np.nonzero(m)):
+        if lab[y, x]:
+            continue
+        n += 1
+        lab[y, x] = n
+        stack = [(y, x)]
+        while stack:
+            cy, cx = stack.pop()
+            for dy, dx in _CROSS[1:]:
+                ny, nx = cy + dy, cx + dx
+                if 0 <= ny < m.shape[0] and 0 <= nx < m.shape[1] and m[ny, nx] and not lab[ny, nx]:
+                    lab[ny, nx] = n
+                    stack.append((ny, nx))
+    return lab, n
+
+
+def test_morphology_helpers():
+    m = np.zeros((7, 7), dtype=bool)
+    m[3, 3] = True
+    assert dilate(m).sum() == 5 and dilate(m, 2).sum() == 13
+    sq = np.zeros((7, 7), dtype=bool)
+    sq[1:4, 1:4] = True
+    sq[5, 5] = True
+    want = np.zeros((7, 7), dtype=bool)
+    want[1:4, 1:4] = True
+    assert (open3(sq) == want).all()
+    lab, n = label(sq)
+    assert n == 2 and lab[5, 5] != lab[1, 1]
+
+
 # ---- 동글 안경 + "안경 번쩍" ----
 PIXEL = ROOT / "ui" / "pets_pixel" / "penguin"
 
@@ -196,12 +263,11 @@ def pixel_frame(st, anim, i):
 
 def lens_and_rim(im):
     """(렌즈 색 칸 수, 렌즈 둘레(렌즈에서 3칸 안)의 짙은 테 칸 수, 렌즈 가운데 y / 실루엣 높이)."""
-    from scipy import ndimage
     a = np.asarray(im.convert("RGBA")).astype(int)
     op = a[..., 3] > 200
     lens = (np.abs(a[..., :3] - np.array(draw_penguin.LENS)).max(axis=2) <= 6) & op
     rim = (a[..., :3].mean(axis=2) < 120) & op
-    near = ndimage.binary_dilation(lens, iterations=3) & ~lens
+    near = dilate(lens, 3) & ~lens
     ys = np.nonzero(op.any(axis=1))[0]
     ly = np.nonzero(lens)[0].mean() if lens.any() else 999
     return int(lens.sum()), int((rim & near).sum()), (ly - ys[0]) / (ys[-1] - ys[0] + 1)
@@ -262,7 +328,6 @@ def _keyed(tabs, rgb):
 
 def test_round_lens_flash_keys_the_marked_lens_alpha(out):
     """동글 그림: 렌즈 둥근 자리(안의 눈까지)만 알파 254로 표시돼 있고, #lens-flash 필터는 알파 254만 골라 하얗게 덮는다."""
-    from scipy import ndimage
     f, tabs = _flash_tables("A", "lens-flash")
     assert f.index('operator="erode" radius="1"') < f.index('operator="dilate" radius="1"')
     assert [k for k, v in enumerate(tabs["A"]) if v == 1] == [draw_penguin.LENS_ALPHA] and len(tabs["A"]) == 256
@@ -275,7 +340,7 @@ def test_round_lens_flash_keys_the_marked_lens_alpha(out):
             im = frame(out, st, anim, 0)
             a = np.asarray(im.convert("RGBA")).astype(int)
             # 필터처럼 열림(1px)으로 외톨이 점을 지운다 (어른 256칸 시트를 128로 줄이면 외곽선에 254가 생길 수 있다)
-            key = ndimage.binary_opening(a[..., 3] == draw_penguin.LENS_ALPHA, structure=np.ones((3, 3)))
+            key = open3(a[..., 3] == draw_penguin.LENS_ALPHA)
             lens = (np.abs(a[..., :3] - np.array(draw_penguin.LENS)).max(axis=2) <= 6) & (a[..., 3] > 200)
             assert key.sum() >= lens.sum() + 10, (st, anim)  # 렌즈 색 칸 + 눈·반짝까지
             dark = key & (a[..., :3].mean(axis=2) < 90)
@@ -287,7 +352,7 @@ def test_round_lens_flash_keys_the_marked_lens_alpha(out):
         for anim in ("walk", "roll", "belly", "heart", "level_up", "sleep"):
             for c in range(2):
                 a = np.asarray(frame(out, st, anim, c).convert("RGBA")).astype(int)
-                lab, n = ndimage.label(a[..., 3] == draw_penguin.LENS_ALPHA)
+                lab, n = label(a[..., 3] == draw_penguin.LENS_ALPHA)
                 sizes = [int((lab == j).sum()) for j in range(1, n + 1)]
                 assert 1 <= n <= 3 and min(sizes) >= 20, (st, anim, c, sizes)
 
@@ -306,7 +371,6 @@ def test_lens_flash_filter_keys_only_the_lens_colour():
 @pytest.mark.parametrize("st", STAGES)
 def test_only_the_glasses_wear_the_lens_colour(out, st):
     """도트 필터가 렌즈 말고는 하얗게 만들지 않게: 필터 표에 걸리는 칸은 렌즈 덩어리 바로 곁뿐 (배·발·얼음 가루·외곽선 섞인 칸은 몇 점 이하)."""
-    from scipy import ndimage
     _, tabs = _flash_tables()
     keyed = {}
     for anim in ("sit_front", "walk", "roll", "belly", "eat", "sleep", "heart"):
@@ -319,7 +383,7 @@ def test_only_the_glasses_wear_the_lens_colour(out, st):
                 t = np.array(tabs["RGB"[ch]])
                 hit &= t[np.minimum(len(t) - 1, (rgb[..., ch] / 255 * len(t)).astype(int))] == 1
             core = (np.abs(rgb - np.array(draw_penguin.LENS)).max(axis=2) <= 6) & op
-            stray = hit & ~ndimage.binary_dilation(core, iterations=2)
+            stray = hit & ~dilate(core, 2)
             assert hit.sum() >= 3, (kind, st, anim)
             keyed[(kind, anim)] = int(stray.sum())
     assert max(keyed.values()) <= 4, keyed
@@ -367,3 +431,44 @@ console.log(JSON.stringify(added));
 """ % (fx, line.strip())
     out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout
     assert json.loads(out) == ["glasses-flash", "glasses-flash", "glasses-flash"]
+
+
+# ---- 매끈한 등 (사용자: 2단계부터 등에 털인지 뿔인지 뾰족뾰족) ----
+
+def test_only_the_baby_keeps_the_spiky_down_on_its_body():
+    """2단계(유아) 등은 매끈하게 (사용자: 등에 털인지 뿔인지 뾰족뾰족) — 삐죽 솜털은 아기 병아리만."""
+    assert [lvl for lvl, st in draw_penguin.PG_STAGE.items() if st["fuzz"]] == [0]
+
+
+@pytest.mark.parametrize("st", STAGES)
+@pytest.mark.parametrize("anim", ["idle", "walk", "look", "sit_front"])  # 잠(sleep)은 머리 위에 z가 있다
+def test_pixel_head_has_no_horn(st, anim):
+    """도트 그림: 정수리 솜털 한 가닥이 작은 칸에선 뾰족한 뿔(끝에 주황 점)이 된다 → 도트엔 정수리 솜털이 없다.
+    머리 꼭대기 줄이 한두 칸짜리 뾰족 끝이 아니고, 위 1/5에 부리·발 주황이 없다."""
+    for i in (0, 1):
+        im = pixel_frame(st, anim, i)
+        a = alpha(im)
+        ys = np.nonzero(a.any(axis=1))[0]
+        # 뾰족 뿔이면 위 세 줄이 한두 칸씩 (동그란 머리는 위 셋째 줄이 넓다)
+        assert a[ys[0] + 2].sum() >= 5, (st, anim, i, [int(a[ys[0] + k].sum()) for k in range(3)])
+        band = im.crop((0, ys[0], im.width, ys[0] + (ys[-1] - ys[0]) // 5))
+        assert count_near(band, [draw_penguin.FEET], 30) == 0, (st, anim, i)
+
+
+def _back_bumps(im):
+    """옆모습 등 쪽(왼쪽) 윤곽: 줄마다 가장 왼쪽 칸 x. 위에서 아래로 그 x가 앞뒤 줄보다 2칸 넘게 튀어나온(작은) 곳 수 + 아래 1/4이 몸통보다 왼쪽으로 튀어나온 칸 수."""
+    a = alpha(im)
+    rows = [np.nonzero(r)[0].min() for r in a if r.any()]
+    n = len(rows)
+    spikes = sum(1 for i in range(1, n - 1) if rows[i] < min(rows[i - 1], rows[i + 1]) - 2)
+    mid = min(rows[int(n * 0.35): int(n * 0.75)])
+    tail = max(0, mid - min(rows[int(n * 0.75):]))
+    return spikes, tail
+
+
+@pytest.mark.parametrize("st", ["kinder", "child", "teenager", "adult"])
+@pytest.mark.parametrize("anim", ["idle", "walk", "look"])
+def test_the_back_is_smooth_without_spikes_or_a_pointy_tail(out, st, anim):
+    for i in (0, 1):
+        spikes, tail = _back_bumps(frame(out, st, anim, i))
+        assert spikes == 0 and tail <= 2, (st, anim, i, spikes, tail)

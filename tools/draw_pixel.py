@@ -121,7 +121,7 @@ _OWNERS = {  # 바꿔 끼우는 이름 → 원래 있는 모듈
     dd: ("melon_bubble_fx", "broc_bubble_fx", "grape_bubble_fx", "FOOD_BUBBLE", "wave_fx", "dust_fx", "impact_fx"),
     ds: ("ice_bubble_fx",),
     dbird: ("seeds_bubble_fx",),
-    dpeng: ("shrimp_bubble_fx", "GLASS"),
+    dpeng: ("shrimp_bubble_fx", "GLASS", "PG_STAGE"),
     dsq: ("acorn_bubble_fx",),
     dred: ("bamboo_bubble_fx",),
 }
@@ -974,6 +974,8 @@ _PATCH["neck_geometry"] = neck_geometry
 _PATCH["acorn_bubble_fx"] = _bubble_fn("acorn")  # 다람쥐 🌰
 # 펭귄 안경: 칸이 적어 테가 눈에 붙으면 까만 덩어리가 된다 → 렌즈를 키워 눈과 테 사이에 렌즈 칸을 남기고, 앞모습 다리는 빼고, 반짝은 한 칸 점
 _PATCH["GLASS"] = dict(dpeng.GLASS, r=0.54, dx=0.52, arms=False, glint="dot", alpha_key=False)  # 반투명 없음: 번쩍은 렌즈 색으로 고른다
+# 펭귄 정수리 솜털: 가는 가닥이 작은 칸에선 뾰족한 뿔(끝에 주황 점)이 된다 → 도트엔 정수리 솜털 없이 동그란 머리
+_PATCH["PG_STAGE"] = {lvl: dict(st, fluff=0) for lvl, st in dpeng.PG_STAGE.items()}
 
 
 def _anims(sp):
