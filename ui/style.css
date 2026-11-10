@@ -664,6 +664,10 @@ body.pixel #pet.glasses-flash { animation-name: glasses-flash-px; }
   50% { filter: url(#lens-flash-px); }
   94%, 100% { filter: none; }
 }
+/* 펭귄 "안경 반사" (render.glare, brain_flash.rs): 켜져 있는 동안 렌즈가 하얗게 차서 눈이 안 보인다 (페이커처럼).
+   번쩍(위)은 애니메이션이라 그동안은 번쩍이 이기고, 끝나면 다시 반사 */
+#pet.glasses-glare { filter: url(#lens-flash); }
+body.pixel #pet.glasses-glare { filter: url(#lens-flash-px); }
 #pet.glasses-flash::before {
   content: "✦";
   position: absolute;

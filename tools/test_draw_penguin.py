@@ -462,3 +462,15 @@ def test_the_back_is_smooth_without_spikes_or_a_pointy_tail(out, st, anim):
 
 
 
+
+
+def test_glaring_lenses_stay_white_while_the_app_says_so():
+    """안경 반사 (render.glare, brain_flash.rs): 켜져 있는 동안 렌즈가 하얗게 차 있다 — 번쩍(✦ 애니메이션)과 달리 그대로 머문다.
+    동글은 #lens-flash, 도트는 #lens-flash-px 필터. 번쩍 애니메이션이 끝나면 반사로 돌아간다 (애니메이션은 forwards가 아니다)."""
+    js = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
+    css = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
+    assert 'petEl.classList.toggle("glasses-glare", !!e.payload.glare)' in js
+    assert "#pet.glasses-glare { filter: url(#lens-flash); }" in css
+    assert "body.pixel #pet.glasses-glare { filter: url(#lens-flash-px); }" in css
+    flash = css[css.index("#pet.glasses-flash {"):]
+    assert "forwards" not in flash[: flash.index("}")]

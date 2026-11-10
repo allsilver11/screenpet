@@ -668,6 +668,8 @@ const listeningRender = listen("pet-render", (e) => {
   if (e.payload.anim === "eat") speech.hidePicker();
   if (e.payload.anim === "tickle" && render.anim !== "tickle") petFx("tickle");
   if (e.payload.flash && !render.flash) petFx("play");
+  // 펭귄 안경 반사: 켜져 있는 동안 렌즈가 하얗게 (style.css #pet.glasses-glare)
+  petEl.classList.toggle("glasses-glare", !!e.payload.glare);
   // 하우스 안이면 하우스 창이 대신 축하한다 (ui/house.js 집 폴짝)
   if (e.payload.anim === "level_up" && render.anim !== "level_up" && !e.payload.housed) levelUpBurst();
   // 뿅은 손 흔들기 끝에서만 시작한다 (걸어 나가 사라진 Away도 poof지만 그건 그림 없이)

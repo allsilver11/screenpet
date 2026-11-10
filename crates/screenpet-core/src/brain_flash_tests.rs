@@ -1,6 +1,6 @@
 //! 펭귄의 안경 번쩍 (brain_flash.rs): 커서에 닿은 순간 · 친구와 놀 때 가끔 · 깨어 있을 때 몇 분에 한 번. 잘 때·잡힌 동안엔 없다.
 
-use super::flash_moves::{FLASH_CALM_SECS, FLASH_PULSE_SECS};
+use super::flash_moves::{FLASH_CALM_SECS, FLASH_PULSE_SECS, GLARE_SECS};
 use super::social_moves::GreetKind;
 use super::tests::{cfg, place, sim_cfg, win, world};
 use super::*;
@@ -147,4 +147,58 @@ fn reaching_the_cursor_flashes_the_glasses() {
     }
     let (f, r) = (flash_at.expect("flashed"), reached.expect("reached the cursor"));
     assert_eq!(f, r, "flash on the arrival tick");
+}
+
+/// 넓은 바닥에서 secs초 사는 동안 (안경 반사 render.glare가 켜진 틱 수, 깨어 있던 틱 수, 반사가 이어진 길이들 초)
+fn glare_time(c: PetConfig, seed: u64, secs: f64) -> (usize, usize, Vec<f64>) {
+    let w = world(vec![win(1, 0.0, 400.0, 1920.0, 900.0)]);
+    let mut p = Pet::new(c, 960.0, 300.0, seed);
+    let (mut on, mut awake, mut runs, mut run, mut t) = (0, 0, Vec::new(), 0.0, 0.0);
+    while t < secs {
+        p.update(DT, &w);
+        let r = p.render();
+        if matches!(p.state, State::Sleep { .. }) {
+            assert!(!r.glare, "no glare while asleep");
+        } else {
+            awake += 1;
+        }
+        if r.glare {
+            on += 1;
+            run += DT;
+        } else if run > 0.0 {
+            runs.push(run);
+            run = 0.0;
+        }
+        t += DT;
+    }
+    (on, awake, runs)
+}
+
+#[test]
+fn an_awake_penguin_wears_glaring_white_lenses_about_half_the_time() {
+    // 사용자: 페이커처럼 — 평소 움직임의 절반쯤은 렌즈가 하얗게 차서 눈이 안 보인 채로 다닌다 (순간 번쩍이 아니라)
+    for seed in 0..3 {
+        let (on, awake, runs) = glare_time(penguin(), seed, 3600.0);
+        let share = on as f64 / awake as f64;
+        assert!((0.35..=0.65).contains(&share), "seed {seed}: glare {share:.2} of awake time");
+        let mut sorted = runs.clone();
+        sorted.sort_by(f64::total_cmp);
+        let median = sorted[sorted.len() / 2];
+        assert!((10.0..=45.5).contains(&median), "glare spells last a while: median {median:.1}s");
+        assert!(runs.iter().all(|r| *r <= GLARE_SECS.1 + 0.1), "{runs:?}");
+    }
+}
+
+#[test]
+fn no_glare_for_pets_without_glasses_or_while_held() {
+    let (on, _, _) = glare_time(sim_cfg(), 1, 600.0);
+    assert_eq!(on, 0);
+    let w = world(vec![]);
+    let mut p = Pet::new(penguin(), 800.0, 1040.0, 1);
+    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
+    p.flash.force_glare();
+    assert!(p.render().glare);
+    p.pointer_down(p.body.x, p.body.y - 40.0);
+    assert!(p.is_held());
+    assert!(!p.render().glare, "held: eyes show");
 }

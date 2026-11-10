@@ -20,6 +20,10 @@ pub const FLASH_FIRST_WAIT_SECS: (f64, f64) = (90.0, 240.0);
 pub const FLASH_WAIT_SECS: (f64, f64) = (150.0, 330.0);
 /// 친구와 놀 때 번쩍할 확률 (인사·쫓기·잡기 한 번마다)
 pub const FLASH_SOCIAL_CHANCE: f64 = 0.4;
+/// 안경 반사 (render.glare — 렌즈가 하얗게 차서 눈이 안 보인다, 페이커처럼): 한 번 이만큼 이어지고 (초)
+pub const GLARE_SECS: (f64, f64) = (15.0, 45.0);
+/// 반사가 걷힌 뒤 다시 반사까지 (초) — 둘이 같아서 깨어 있는 시간의 절반쯤 반사
+pub const CLEAR_SECS: (f64, f64) = (15.0, 45.0);
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct GlassesFlash {
@@ -29,6 +33,10 @@ pub(super) struct GlassesFlash {
     calm: f64,
     /// 다음 혼자 번쩍까지 (None: 아직 주사위를 굴리지 않음)
     wait: Option<f64>,
+    /// 지금 렌즈가 반사 중이다 (눈이 안 보인다)
+    glare: bool,
+    /// 반사가 켜지거나 꺼질 때까지 (None: 아직 주사위를 굴리지 않음)
+    glare_left: Option<f64>,
 }
 
 #[cfg(test)]
@@ -36,6 +44,12 @@ impl GlassesFlash {
     /// 시험용: 혼자 번쩍을 한참 미룬다
     pub(super) fn hold_off(&mut self) {
         self.wait = Some(1e9);
+    }
+
+    /// 시험용: 지금부터 한참 반사
+    pub(super) fn force_glare(&mut self) {
+        self.glare = true;
+        self.glare_left = Some(1e9);
     }
 }
 
@@ -53,6 +67,11 @@ impl Pet {
     /// 지금 안경이 번쩍 (웹뷰 render.flash — 켜지는 순간 한 번 번쩍)
     pub(super) fn glasses_flash_on(&self) -> bool {
         self.flash.left > 0.0 && !self.flash_hidden()
+    }
+
+    /// 지금 렌즈가 하얗게 반사 중 (웹뷰 render.glare — 켜져 있는 동안 렌즈를 하얗게 채운다)
+    pub(super) fn glasses_glare_on(&self) -> bool {
+        self.cfg.glasses_flash && self.flash.glare && !self.flash_hidden()
     }
 
     /// 장난스러운 순간: 안경 번쩍 (플래그 없는 동물·숨는 때·방금 번쩍했으면 그냥 지나간다)
@@ -76,6 +95,17 @@ impl Pet {
         }
         self.flash.left = (self.flash.left - dt).max(0.0);
         self.flash.calm = (self.flash.calm - dt).max(0.0);
+        // 반사는 시간으로만 켜고 끈다 (자는 동안·잡힌 동안은 보이지 않을 뿐 시계는 간다)
+        let left = match self.flash.glare_left {
+            Some(l) => l - dt,
+            None => behavior::range(&mut self.rng, CLEAR_SECS),
+        };
+        self.flash.glare_left = Some(if left > 0.0 {
+            left
+        } else {
+            self.flash.glare = !self.flash.glare;
+            behavior::range(&mut self.rng, if self.flash.glare { GLARE_SECS } else { CLEAR_SECS })
+        });
         let wait = match self.flash.wait {
             Some(w) => (w - dt).max(0.0),
             None => behavior::range(&mut self.rng, FLASH_FIRST_WAIT_SECS),
