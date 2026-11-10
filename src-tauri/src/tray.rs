@@ -77,6 +77,8 @@ const FOCUS_SHORT_ID: &str = "focus:short";
 const FOCUS_LONG_ID: &str = "focus:long";
 const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift, Esc로 끝)";
 /// macOS: 키가 늘 안 눌림으로 읽힐 때 한 번 — 말풍선은 줄바꿈 없이 창(128px)에 잘리니 한 줄로 짧게 (어디서 켜는지는 ui/help.html)
+/// 💌 개발자에게 건의하기 (feedback.rs)
+const FEEDBACK_ID: &str = "feedback";
 pub const KEY_PERMISSION_HINT: &str = "키 권한 필요해요";
 const SHOW_CODE_ID: &str = "net:show-code";
 /// 🎲 사다리타기 (설정 화면 / 진행 중인 판), 초대 받기 체크, 지난 결과
@@ -503,6 +505,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let friends = Submenu::with_items(app, "👫 친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
     let help = MenuItem::with_id(app, "help", "도움말 ❓", true, None::<&str>)?;
+    let feedback = MenuItem::with_id(app, FEEDBACK_ID, "💌 개발자에게 건의하기…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
     let style_round = CheckMenuItem::with_id(app, STYLE_ROUND_ID, "동글동글", true, style == PetStyle::Round, None::<&str>)?;
@@ -529,6 +532,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&settings)?;
     menu.append(&toggle)?;
+    menu.append(&feedback)?;
     menu.append(&help)?;
     menu.append(&quit)?;
 
@@ -548,6 +552,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
             "toggle" => toggle_windows(app),
             "help" => send(app, Input::ShowHelp),
+            FEEDBACK_ID => send(app, Input::ShowFeedback),
             GIFT_BOOK_ID => send(app, Input::ShowGiftBook),
             TIMELINE_ID => send(app, Input::ShowTimeline),
             DODGE_ID => send(app, Input::ShowDodge),

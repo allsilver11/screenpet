@@ -2,6 +2,7 @@
 
 mod art;
 mod dodge;
+mod feedback;
 mod game_loop;
 mod gifts;
 mod help;
@@ -299,6 +300,8 @@ fn main() {
             network::letter_state,
             network::letter_submit,
             network::letter_close,
+            feedback::feedback_submit,
+            feedback::feedback_close,
             ladder::ladder_state,
             ladder::ladder_host,
             ladder::ladder_begin,

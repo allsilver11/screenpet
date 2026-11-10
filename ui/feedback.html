@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="form.css" />
+    <style>
+      #input { font-size: 13px; width: 330px; height: 150px; box-sizing: border-box; resize: none; font-family: inherit; }
+      #count { font-size: 11px; color: #777; text-align: right; width: 330px; }
+      #note { min-height: 1.4em; }
+    </style>
+  </head>
+  <body>
+    <div id="title">💌 개발자에게 건의하기</div>
+    <div id="hint">내 펫이 편지를 들고 개발자에게 가요. 하루에 한 통 보낼 수 있어요.</div>
+    <textarea id="input" maxlength="1000" spellcheck="false" placeholder="바랐으면 하는 것, 불편한 것, 하고 싶은 말을 적어 주세요"></textarea>
+    <div id="count">0/1000자</div>
+    <div id="note"></div>
+    <div id="buttons">
+      <button id="ok" class="primary">보내기</button>
+      <button id="cancel">닫기</button>
+    </div>
+    <script src="common.js"></script>
+    <script src="feedback.js"></script>
+  </body>
+</html>

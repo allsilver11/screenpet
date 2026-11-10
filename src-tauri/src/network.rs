@@ -119,6 +119,8 @@ pub enum NetInput {
     /// 편지 창 "보내기": "놀러 보내기"처럼 보내고 Visit에 편지를 싣는다. 누구에게인지는 창을 연 쪽(Network::lettering)이 안다.
     /// 답장 창이었으면(Network::replying) 그 손님이 답장을 들고 집으로 간다
     SubmitLetter(String),
+    /// 💌 개발자에게 건의하기 창의 "보내기" (feedback.rs)
+    SendFeedback(String),
     /// 손님 우클릭 "편지 써서 돌려보내기…": 그 손님(창 label) 주인에게 보낼 답장 쓰기 창 (같은 편지 창)
     EditReply(String),
     /// 손님 우클릭 "<친구>에게 보내기": 손님(창 label)을 내 친구(friend) 화면으로 더 보낸다 (주인이 그 친구를 알면 이어 간다)
@@ -1134,6 +1136,17 @@ impl Network {
             }
             // 게임 루프가 하우스에서 꺼낸 뒤 send_to를 직접 부른다 (여기 오지 않는다)
             NetInput::SendTo(_) | NetInput::SubmitLetter(_) => {}
+            NetInput::SendFeedback(text) => {
+                // 개발자 열쇠로 봉해 릴레이 편지함에 맡긴다 — 결과는 NetEvent::LetterSent로 (못 보내면 바로 알린다)
+                let letter = crate::feedback::letter_for(&text, &self.name, &slots[0]);
+                match (&self.net, crate::feedback::seal(&letter)) {
+                    (_, None) => crate::feedback::result(app, Err("size".into())),
+                    (None, _) => crate::feedback::result(app, Err("offline".into())),
+                    (Some(net), Some(sealed)) => {
+                        net.send_letter(&sealed);
+                    }
+                }
+            }
             NetInput::EditLetter(id) => {
                 let Some(f) = config.friend(&id) else { return false };
                 let view = LetterView { name: config.person_name(&id).unwrap_or(f.shown_name()).to_string(), max: visit::MAX_NOTE_CHARS, reply: false };
@@ -1254,6 +1267,15 @@ impl Network {
             // 던져 넘어온 물건은 게임 루프가 objects.rs로 바로 보낸다 (여기 오지 않는다)
             NetEvent::Tossed { .. } => {}
             // 사다리타기: 판이 끝나 결과가 나오면 설정에 남긴다 (메뉴 "지난 결과")
+            // 📬 개발자 편지함 (readers만 받는다) — mailbox.rs가 연다
+            NetEvent::Mailbox { .. } | NetEvent::LetterArrived { .. } => {}
+            NetEvent::LetterSent { result } => {
+                // 보냈으면 내 펫이 만세 (하던 일이 있으면 건너뛴다)
+                if result.is_ok() {
+                    slots[0].pet.react_to_result(true);
+                }
+                crate::feedback::result(app, result);
+            }
             NetEvent::Ladder { from, msg } => {
                 let last = self.ladder.on_message(app, &ladder_ctx!(self, config), &slots[0], &from, msg);
                 if let Some(last) = last {

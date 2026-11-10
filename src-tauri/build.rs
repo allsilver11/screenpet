@@ -79,6 +79,8 @@ fn main() {
         "letter_state",
         "letter_submit",
         "letter_close",
+        "feedback_submit",
+        "feedback_close",
         "ladder_state",
         "ladder_host",
         "ladder_begin",
