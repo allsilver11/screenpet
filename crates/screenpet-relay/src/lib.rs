@@ -21,6 +21,7 @@
 pub mod admin;
 mod conn;
 pub mod control;
+pub(crate) mod mailbox;
 mod http;
 // The admin commands live here but are only reachable over a Unix socket.
 #[cfg_attr(not(unix), allow(dead_code))]
