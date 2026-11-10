@@ -29,6 +29,9 @@ commands:
   purge-idle <days> [--yes]     forget offline installs unseen for that long
   purge-islands <min> [--yes]   forget friend groups of at least <min> installs
                                 with no one online and no friend outside
+  mailbox                       feedback letters (count, unread) and mailbox readers
+  mailbox-reader add|remove <id-or-key-prefix>
+                                allow / stop an install listing the feedback letters
 Without --yes the purge-* commands only list what they would remove.";
 
 pub(crate) fn socket_path(dir: &Path) -> PathBuf {
@@ -102,6 +105,8 @@ fn run(hub: &Hub, words: &[String]) -> Result<String, String> {
         ["ban-ip", ip] => hub.admin_ban_ip(ip),
         ["unban", who] => hub.admin_unban(who),
         ["bans"] => Ok(hub.admin_bans()),
+        ["mailbox"] => Ok(hub.admin_mailbox()),
+        ["mailbox-reader", op, who] => hub.admin_mailbox_reader(op, who),
         ["registration", v] => hub.admin_registration(on_off(v)?),
         ["friendcode", v] => hub.admin_friendcode(on_off(v)?),
         ["relay", v] => hub.admin_relay(on_off(v)?),

@@ -22,6 +22,8 @@ const POLL_IDLE: Duration = Duration::from_millis(100);
 const ACTIVE_FOR: Duration = Duration::from_secs(2);
 /// Most redeem attempts per connection per minute.
 const REDEEMS_PER_CONN_PER_MIN: usize = 10;
+/// Feedback letters tried per connection per minute (the mailbox keeps the real per-day limits).
+const LETTERS_PER_CONN_PER_MIN: usize = 3;
 /// Most "new code" requests per connection.
 const NEW_CODES_PER_CONN: usize = 5;
 /// `friends` updates per connection: the apps send one when the list changes
@@ -69,6 +71,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
     let mut msgs = Bucket::new(lim.conn_msgs_per_sec, lim.conn_msgs_burst);
     let mut bytes = Bucket::new(lim.conn_bytes_per_sec, lim.conn_bytes_burst);
     let mut redeems: std::collections::VecDeque<Instant> = Default::default();
+    let mut letters_sent: std::collections::VecDeque<Instant> = Default::default();
     let mut new_codes = 0usize;
     let mut friend_updates = Bucket::new(FRIENDS_PER_SEC, FRIENDS_BURST);
     'conn: loop {
@@ -224,6 +227,32 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                     }
                                 }
                                 ClientMsg::Ping => Some(ServerMsg::Pong),
+                                ClientMsg::Letter { r#box } => {
+                                    // A few tries a minute per connection; the real limits are in the mailbox
+                                    let now = Instant::now();
+                                    while letters_sent.front().is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(60)) {
+                                        letters_sent.pop_front();
+                                    }
+                                    if letters_sent.len() >= LETTERS_PER_CONN_PER_MIN {
+                                        Some(ServerMsg::LetterRefused { reason: "daily".into() })
+                                    } else {
+                                        letters_sent.push_back(now);
+                                        hub.letter(&a.key, a.conn, &ip, &r#box)
+                                    }
+                                }
+                                ClientMsg::Letters => hub.letters(&a.key, a.conn),
+                                ClientMsg::LetterRead { id } => {
+                                    hub.letter_read(&a.key, a.conn, id);
+                                    None
+                                }
+                                ClientMsg::LetterDelete { id } => {
+                                    hub.letter_delete(&a.key, a.conn, id);
+                                    None
+                                }
+                                ClientMsg::LetterBlock { from } => {
+                                    hub.letter_block(&a.key, a.conn, &from);
+                                    None
+                                }
                                 ClientMsg::Auth { .. } => unreachable!("matched above"),
                             };
                             if let Some(r) = reply {

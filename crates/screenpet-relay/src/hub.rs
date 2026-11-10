@@ -257,6 +257,8 @@ struct State {
     /// Whole relay: new installs in the last hour, redeems in the last minute.
     global_registrations: VecDeque<Instant>,
     global_redeems: VecDeque<Instant>,
+    /// Feedback letters to the developer (`letters.json`).
+    mailbox: crate::mailbox::Mailbox,
 }
 
 impl State {
@@ -360,6 +362,14 @@ const NET_QUEUE_SHARE: usize = 64;
 
 /// `key`'s bucket in a table of at most `max_keys`. When full, buckets that
 /// have refilled go first, then the fullest one.
+/// Lowercase or uppercase hex to bytes (`None` if malformed).
+fn decode_hex(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return None;
+    }
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
+}
+
 fn bucket_in<'a>(table: &'a mut HashMap<String, Bucket>, key: &str, rate: f64, burst: f64, max_keys: usize) -> &'a mut Bucket {
     if !table.contains_key(key) && table.len() >= max_keys {
         table.retain(|_, b| !b.is_full());
@@ -578,7 +588,15 @@ impl Hub {
             trusted_proxies,
             private_key,
             public_key: proto::public_key(&private_key),
-            state: Mutex::new(State { store: Some(store), next_ch: 1, global_bytes, global_bytes_hard, control, ..State::default() }),
+            state: Mutex::new(State {
+                store: Some(store),
+                next_ch: 1,
+                global_bytes,
+                global_bytes_hard,
+                control,
+                mailbox: data_dir.as_deref().map(crate::mailbox::Mailbox::load).unwrap_or_default(),
+                ..State::default()
+            }),
             data_dir,
             relay_off: AtomicBool::new(relay_off),
             stop: AtomicBool::new(false),
@@ -1060,6 +1078,125 @@ impl Hub {
     }
 
     /// Issue a fresh code now (user asked for a new one).
+    // ---- feedback letters (mailbox.rs) ----
+
+    fn is_reader(st: &State, key: &str) -> bool {
+        st.control.mailbox_readers.contains(key)
+    }
+
+    /// Send `m` to every mailbox reader online.
+    fn tell_readers(st: &State, m: &ServerMsg) {
+        for (k, p) in &st.peers {
+            if Self::is_reader(st, k) {
+                p.send(m.clone());
+            }
+        }
+    }
+
+    /// Write `letters.json` if it changed (snapshot under the lock, write outside).
+    fn save_mailbox(&self) {
+        let snap = self.state().mailbox.snapshot();
+        if let (Some(bytes), Some(dir)) = (snap, self.data_dir.as_deref()) {
+            if let Err(e) = crate::mailbox::Mailbox::save(dir, &bytes) {
+                eprintln!("screenpet-relay: cannot save letters: {e}");
+                self.state().mailbox.mark_dirty();
+            }
+        }
+    }
+
+    /// A sealed feedback letter (hex) from `key` at address bucket `ip`.
+    pub(crate) fn letter(&self, key: &str, conn: u64, ip: &str, hex: &str) -> Option<ServerMsg> {
+        let reply = {
+            let mut st = self.state();
+            if !Self::is_current(&st, key, conn) {
+                return None;
+            }
+            let sealed = decode_hex(hex);
+            let seen_days = st.store_ref().get(key).map_or(0, |i| i.seen_days);
+            let result = match sealed {
+                Some(b) => st.mailbox.submit(key, ip, seen_days, &b, unix_now()),
+                None => Err(crate::mailbox::Refuse::Size),
+            };
+            match result {
+                Ok(item) => {
+                    Self::tell_readers(&st, &ServerMsg::LetterNew { item });
+                    ServerMsg::LetterOk
+                }
+                Err(r) => ServerMsg::LetterRefused { reason: r.as_str().into() },
+            }
+        };
+        self.save_mailbox();
+        Some(reply)
+    }
+
+    /// The whole mailbox, for readers only (others: nothing).
+    pub(crate) fn letters(&self, key: &str, conn: u64) -> Option<ServerMsg> {
+        let st = self.state();
+        (Self::is_current(&st, key, conn) && Self::is_reader(&st, key)).then(|| ServerMsg::Letters { items: st.mailbox.list() })
+    }
+
+    /// A reader changes the mailbox: every reader online hears `letters_changed`.
+    fn reader_edit(&self, key: &str, conn: u64, edit: impl FnOnce(&mut crate::mailbox::Mailbox) -> bool) {
+        {
+            let mut st = self.state();
+            if !Self::is_current(&st, key, conn) || !Self::is_reader(&st, key) {
+                return;
+            }
+            if !edit(&mut st.mailbox) {
+                return;
+            }
+            Self::tell_readers(&st, &ServerMsg::LettersChanged);
+        }
+        self.save_mailbox();
+    }
+
+    pub(crate) fn letter_read(&self, key: &str, conn: u64, id: u64) {
+        self.reader_edit(key, conn, |m| m.mark_read(id));
+    }
+
+    pub(crate) fn letter_delete(&self, key: &str, conn: u64, id: u64) {
+        self.reader_edit(key, conn, |m| m.delete(id));
+    }
+
+    pub(crate) fn letter_block(&self, key: &str, conn: u64, from: &str) {
+        let Some(from) = proto::norm_key(from) else { return };
+        self.reader_edit(key, conn, |m| {
+            m.block(&from);
+            true
+        });
+    }
+
+    /// `admin mailbox-reader add|remove <key>`.
+    pub(crate) fn admin_mailbox_reader(&self, op: &str, who: &str) -> Result<String, String> {
+        let key = match proto::norm_key(who) {
+            Some(k) => k,
+            None => self.state().resolve(who)?,
+        };
+        let mut next = self.control();
+        let msg = match op {
+            "add" => {
+                next.mailbox_readers.insert(key.clone());
+                format!("mailbox reader added: {key}")
+            }
+            "remove" => {
+                if !next.mailbox_readers.remove(&key) {
+                    return Err(format!("not a mailbox reader: {key}"));
+                }
+                format!("mailbox reader removed: {key}")
+            }
+            _ => return Err("expected add or remove".into()),
+        };
+        drop(self.commit_control(next)?);
+        Ok(msg)
+    }
+
+    /// `admin mailbox-readers` and `admin letters`.
+    pub(crate) fn admin_mailbox(&self) -> String {
+        let st = self.state();
+        let readers: Vec<&String> = st.control.mailbox_readers.iter().collect();
+        format!("letters: {} (unread {})\nmailbox readers: {}", st.mailbox.list().len(), st.mailbox.unread(), if readers.is_empty() { "none".to_string() } else { readers.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", ") })
+    }
+
     pub(crate) fn new_code(&self, key: &str, conn: u64) -> Option<ServerMsg> {
         let mut st = self.state();
         if !Self::is_current(&st, key, conn) {
@@ -1359,6 +1496,67 @@ mod tests {
 
     fn hub(limits: Limits) -> Hub {
         Hub::new(limits, Vec::new(), proto::random32(), Store::memory(), Control::default(), None)
+    }
+
+    /// Every text message queued for a peer so far, parsed.
+    fn texts(rx: &Receiver<Out>) -> Vec<ServerMsg> {
+        rx.try_iter().filter_map(|o| if let Out::Text(t) = o { serde_json::from_str(&t).ok() } else { None }).collect()
+    }
+
+    /// A reader (install 1) and a known sender (install 2, seen on 3 days).
+    fn mailbox_hub() -> (Hub, (String, u64, Receiver<Out>), (String, u64, Receiver<Out>)) {
+        let hub = hub(Limits::default());
+        let (reader, rconn, _rl, rrx) = peer_at(&hub, "198.51.100.5", 1, &[], 64);
+        hub.admin_mailbox_reader("add", &reader).unwrap();
+        let (sender, sconn, _sl, srx) = peer_at(&hub, "198.51.100.6", 2, &[], 64);
+        hub.state().store().set_seen_days(&sender, 3);
+        texts(&rrx);
+        (hub, (reader, rconn, rrx), (sender, sconn, srx))
+    }
+
+    #[test]
+    fn a_letter_is_stored_pushed_to_online_readers_and_listed_only_for_them() {
+        let (hub, (reader, rconn, rrx), (sender, sconn, _srx)) = mailbox_hub();
+        assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "abcd"), Some(ServerMsg::LetterOk));
+        let pushed = texts(&rrx);
+        assert!(matches!(&pushed[..], [ServerMsg::LetterNew { item }] if item.r#box == "abcd" && item.from == sender), "{pushed:?}");
+        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items }) if items.len() == 1));
+        assert_eq!(hub.letters(&sender, sconn), None, "not a reader: ignored");
+        assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "abcd"), Some(ServerMsg::LetterRefused { reason: "daily".into() }));
+        assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "zz"), Some(ServerMsg::LetterRefused { reason: "size".into() }));
+    }
+
+    #[test]
+    fn a_brand_new_install_cannot_send() {
+        let hub = hub(Limits::default());
+        let (k, c, _l, _rx) = peer_at(&hub, "198.51.100.7", 3, &[], 8);
+        assert_eq!(hub.letter(&k, c, "198.51.100.7", "abcd"), Some(ServerMsg::LetterRefused { reason: "new".into() }));
+    }
+
+    #[test]
+    fn readers_mark_read_delete_and_block_and_every_reader_hears_it() {
+        let (hub, (reader, rconn, rrx), (sender, sconn, _srx)) = mailbox_hub();
+        let (reader2, r2conn, _l2, r2rx) = peer_at(&hub, "198.51.100.8", 4, &[], 64);
+        hub.admin_mailbox_reader("add", &reader2).unwrap();
+        hub.letter(&sender, sconn, "198.51.100.6", "abcd");
+        texts(&rrx);
+        texts(&r2rx);
+        let Some(ServerMsg::Letters { items }) = hub.letters(&reader, rconn) else { panic!() };
+        let id = items[0].id;
+        hub.letter_read(&reader, rconn, id);
+        assert_eq!(texts(&r2rx), vec![ServerMsg::LettersChanged]);
+        assert_eq!(texts(&rrx), vec![ServerMsg::LettersChanged], "the reader who changed it hears it too");
+        assert!(matches!(hub.letters(&reader2, r2conn), Some(ServerMsg::Letters { items }) if items[0].read));
+        hub.letter_block(&reader2, r2conn, &sender);
+        assert_eq!(texts(&rrx), vec![ServerMsg::LettersChanged]);
+        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items }) if items.is_empty()));
+        // a non-reader can't delete or block
+        hub.letter_block(&sender, sconn, &reader);
+        assert!(texts(&rrx).is_empty());
+        assert_eq!(hub.admin_mailbox_reader("remove", &reader2).unwrap(), format!("mailbox reader removed: {reader2}"));
+        assert_eq!(hub.letters(&reader2, r2conn), None);
+        let _ = id;
+        hub.letter_delete(&reader, rconn, 12345);
     }
 
     /// Join install `n`, friends with `friends`, on a queue nobody drains.

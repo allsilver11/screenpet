@@ -22,6 +22,13 @@
 //! client -> relay   open {req, to}            -> opened {req, ch} | open_failed {req, reason}
 //! relay  -> client  incoming {ch, from, id}
 //! both              close {ch}
+//! client -> relay   letter {box: hex}          -> letter_ok | letter_refused {reason}
+//!                   (a feedback letter sealed to the developer key; reasons:
+//!                   daily, ip, new, global, full, size, blocked)
+//! client -> relay   letters                    -> letters {items}       (mailbox readers only)
+//! client -> relay   letter_read {id} | letter_delete {id} | letter_block {from}
+//!                                              (readers only) -> letters_changed to every reader
+//! relay  -> client  letter_new {item}          (to readers online when a letter arrives)
 //! client -> relay   ping                      -> pong
 //! relay  -> client  error {reason}            (then the connection closes)
 //!                   apps only log the reason. While `admin friendcode off`:
@@ -67,6 +74,19 @@ pub enum ClientMsg {
     },
     NewCode,
     Ping,
+    Letter {
+        r#box: String,
+    },
+    Letters,
+    LetterRead {
+        id: u64,
+    },
+    LetterDelete {
+        id: u64,
+    },
+    LetterBlock {
+        from: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,6 +111,11 @@ pub enum ServerMsg {
     Close { ch: u32 },
     Pong,
     Error { reason: String },
+    LetterOk,
+    LetterRefused { reason: String },
+    Letters { items: Vec<crate::mailbox::StoredLetter> },
+    LetterNew { item: crate::mailbox::StoredLetter },
+    LettersChanged,
 }
 
 impl ServerMsg {

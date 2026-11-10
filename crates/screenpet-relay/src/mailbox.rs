@@ -163,6 +163,7 @@ impl Mailbox {
         before - self.data.letters.len()
     }
 
+    #[cfg(test)]
     pub fn is_blocked(&self, key: &str) -> bool {
         self.data.blocked.contains(key)
     }

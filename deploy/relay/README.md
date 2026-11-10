@@ -203,3 +203,31 @@ know, and retry with increasing delay.
 - **Rate tables** keep at most 8192 keys and at most 16 per network (IPv4
   /24, IPv6 /48; past that a network's newcomers share one key). When full,
   stale keys go first, then the least recently active one.
+
+## Feedback letters (💌 건의하기, v0.6.0)
+
+Any install can leave one sealed letter for the developer. The app seals it to
+the developer's public key (Noise `N`), so the relay stores bytes it can't read
+in `letters.json` (0600, previous version kept as `letters.json.bak`; both torn
+means an empty mailbox, the relay still starts). Limits are enforced here,
+never in the app:
+
+- 1 per install key per 24 h
+- 3 per address (IPv4 / IPv6 /64) per 24 h
+- the install must have been seen on 2+ days
+- 50 per 24 h in total
+- 200 letters kept; when full, new ones are refused (old ones are never dropped)
+- 8 KiB per sealed letter
+- keys a reader blocked are refused
+
+Only installs listed as mailbox readers (the developer's computers, kept in
+`control.json`) can list, mark read, delete and block:
+
+```sh
+screenpet-relay admin mailbox-reader add <id-or-key-prefix>
+screenpet-relay admin mailbox-reader remove <id-or-key-prefix>
+screenpet-relay admin mailbox          # letters, unread, readers
+```
+
+Deploy the relay before an app that sends letters: older relays answer an
+unknown message by disconnecting.

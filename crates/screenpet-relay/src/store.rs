@@ -148,6 +148,13 @@ impl Store {
         self.data.installs.get(key)
     }
 
+    #[cfg(test)]
+    pub fn set_seen_days(&mut self, key: &str, days: u32) {
+        if let Some(i) = self.data.installs.get_mut(key) {
+            i.seen_days = days;
+        }
+    }
+
     pub fn count(&self) -> usize {
         self.data.installs.len()
     }

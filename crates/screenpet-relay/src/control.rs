@@ -25,11 +25,14 @@ pub struct Control {
     pub banned_keys: BTreeSet<String>,
     /// Address keys (IPv4 address, IPv6 /64) that may not connect.
     pub banned_ips: BTreeSet<String>,
+    /// Install keys that may list and manage the feedback letters (the
+    /// developer's computers).
+    pub mailbox_readers: BTreeSet<String>,
 }
 
 impl Default for Control {
     fn default() -> Control {
-        Control { registration: true, friendcode: true, relay: true, banned_keys: BTreeSet::new(), banned_ips: BTreeSet::new() }
+        Control { registration: true, friendcode: true, relay: true, banned_keys: BTreeSet::new(), banned_ips: BTreeSet::new(), mailbox_readers: BTreeSet::new() }
     }
 }
 
