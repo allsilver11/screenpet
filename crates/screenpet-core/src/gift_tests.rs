@@ -39,6 +39,7 @@ fn every_species_has_about_six_gifts_and_only_dinos_share() {
     assert!(list_for("penguin").unwrap().items.iter().any(|i| i.id == "penguin_pebble")); // 펭귄이 고백할 때 건네는 조약돌
     assert_eq!(list_for("redpanda").map(|l| (l.key, l.emoji, l.title)), Some(("redpanda", "🐾", "레서판다")));
     assert!(list_for("redpanda").unwrap().items.iter().any(|i| i.id == "redpanda_bamboo"));
+    assert_eq!(list_for("heumul").map(|l| (l.key, l.emoji, l.title)), Some(("heumul", "🤸", "흐물이")));
     assert!(list_for("dragon").is_none());
 }
 

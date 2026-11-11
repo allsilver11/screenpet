@@ -568,6 +568,73 @@ GIFTS = {
         .tPPtt....
         ..ttt.....
         """,
+    # ---- 흐물이
+    "heumul_plane": """
+        ..........
+        .........w
+        .......wwW
+        .....wwwsW
+        ...wwwwsW.
+        .wwwwwsW..
+        ...ssssW..
+        .....sW...
+        ......W...
+        """,
+    "heumul_spring": """
+        ..ssssss..
+        .s......S.
+        ..SSSSSS..
+        .s......S.
+        ..SSSSSS..
+        .s......S.
+        ..SSSSSS..
+        .s......S.
+        ..SSSSSS..
+        """,
+    "heumul_rubber": """
+        ..........
+        ...oooo...
+        .oo....oo.
+        o........o
+        o.........
+        .o.......o
+        ..oo..ooo.
+        ....oo....
+        """,
+    "heumul_pencil": """
+        ..........
+        ........k.
+        .......tt.
+        ......tYt.
+        .....yYy..
+        ....yYy...
+        ...yYy....
+        ..sYy.....
+        .Pss......
+        .PP.......
+        """,
+    "heumul_button": """
+        ...bbbb...
+        ..bccccb..
+        .bcBccBcb.
+        .bccwwccb.
+        .bccwwccb.
+        .bcBccBcb.
+        ..bccccb..
+        ...bbbb...
+        """,
+    "heumul_balloon": """
+        ...rrrr...
+        ..rwrrrr..
+        .rwrrrrRr.
+        .rrrrrrRr.
+        .rrrrrRRr.
+        ..rrrRRr..
+        ...rRRr...
+        ....RR....
+        .....k....
+        ....k.....
+        """,
     # ---- 레서판다
     "redpanda_bamboo": """
         ........g.

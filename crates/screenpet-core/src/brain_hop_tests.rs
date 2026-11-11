@@ -183,6 +183,8 @@ fn every_walker_leaps_onto_a_window_in_reach_and_flyers_never_do() {
         match id.as_str() {
             "ghost" | "bird" => assert_eq!(share, 0.0, "{id} flies"),
             "frog" => {}
+            // 기운 넘치는 흐물이(energetic)는 두 배 — 개구리만큼
+            "heumul" => assert!((0.09..=0.15).contains(&share), "{id}: energetic, about the frog's chance, got {share}"),
             _ => assert!((0.04..=0.08).contains(&share), "{id}: about half the frog's chance, got {share}"),
         }
     }

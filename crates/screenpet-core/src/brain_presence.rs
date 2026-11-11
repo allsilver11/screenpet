@@ -210,6 +210,7 @@ impl Pet {
             State::Climb { .. }
             | State::Slide
             | State::WallClimb { .. }
+                | State::Rig { .. }
             | State::InnerClimb { .. }
             | State::Leap { .. }
             | State::Meet { .. }
@@ -480,6 +481,7 @@ impl Pet {
                 | State::Climb { .. }
                 | State::Slide
                 | State::WallClimb { .. }
+                | State::Rig { .. }
                 | State::InnerClimb { .. }
         );
         if !movable {

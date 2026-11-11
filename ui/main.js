@@ -849,6 +849,7 @@ const CURSOR_LINES = {
   bird: ["chirp chirp!", "tweet?"],
   penguin: ["wheee~!", "slide slide!"],
   redpanda: ["pounce~!", "kyu kyu!"],
+  heumul: ["zoom zoom!", "hup hup!"],
 };
 const speech = setupSpeech({
   bubbleEl,

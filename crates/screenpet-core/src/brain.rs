@@ -128,6 +128,12 @@ pub enum Anim {
     Stomp,
     /// 레서판다 깜짝 — 뒷발로 벌떡 서서 두 팔을 번쩍 (앞모습, 한 번)
     Surprise,
+    /// 흐물이 줄행랑 — 등을 돌려 두 팔 번쩍(만세) 들고 달아난다 (옆모습, brain_heumul.rs)
+    Panic,
+    /// 흐물이 — 창 옆면에 한 손으로 매달려 다른 팔로 손 흔들기 (옆모습, 창 쪽을 본다)
+    Hang,
+    /// 흐물이 — 밧줄 타듯 손을 번갈아 창 옆면을 오르내린다 (옆모습, 창 쪽을 본다)
+    Rope,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -338,6 +344,10 @@ pub enum State {
     Slip { remaining: f64, dir: f64 },
     /// 마주 오던 친구를 밟거나 뛰어넘는 중, 또는 밟히는 중 — 길은 Pet의 meet (brain_meet.rs)
     Meet { phase: meet_moves::MeetPhase, remaining: f64 },
+    /// 겁먹어 dir 쪽으로 만세 줄행랑 (brain_heumul.rs)
+    Panic { remaining: f64, dir: f64 },
+    /// 창 옆면에 매달려 있다 — rel_y = 발 높이 − 창 윗면, turns = 남은 오르내리기 (brain_heumul.rs)
+    Rig { window: u64, side: Side, rel_y: f64, phase: heumul_moves::RigPhase, remaining: f64, turns: u8 },
     /// 친구 머리 위에 서 있다 — 자리는 social이 옮긴다. remaining: 내려올 때까지, age: 올라선 뒤 지난 시간 (brain_tower.rs)
     OnHead { remaining: f64, age: f64 },
 }
@@ -448,6 +458,12 @@ pub struct PetConfig {
     pub snow_cloud: bool,
     /// 장난칠 때 안경이 번쩍 (pet.json `glasses_flash` — 펭귄, brain_flash.rs)
     pub glasses_flash: bool,
+    /// 겁쟁이: 다른 동물과 마주치면 반쯤 만세 줄행랑 (pet.json `timid` + panic 그림 — 흐물이, brain_heumul.rs)
+    pub timid: bool,
+    /// 기운 넘침: 더 자주 달리고 더 자주 크게 뛴다 (pet.json `energetic` — 흐물이)
+    pub energetic: bool,
+    /// 창 옆면에 매달려 손 흔들고 오르내린다 (pet.json `rigging` + hang·rope 그림 — 흐물이)
+    pub rigging: bool,
     /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
     pub dpi: f64,
     /// 커서에 매달릴 때 커서 끝이 닿는 머리 꼭대기 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율. pet.json head의 dragged)
@@ -480,6 +496,9 @@ impl PetConfig {
             looks_up: m.can_look_up(),
             snow_cloud: m.snow_cloud,
             glasses_flash: m.glasses_flash,
+            timid: m.timid(),
+            energetic: m.energetic,
+            rigging: m.rigs(),
             dpi,
             hang_grip: m.hang_grip(stage),
             no_roll: m.no_roll(),
@@ -863,6 +882,8 @@ impl Pet {
             State::WallClimb { window, side, rel_y } => self.update_wall_climb(dt, world, window, side, rel_y),
             State::InnerClimb { window, rel_x, rel_y } => self.update_inner_climb(dt, world, window, rel_x, rel_y),
             State::Tumble { remaining, dir } => self.update_tumble(dt, world, remaining, dir),
+            State::Panic { remaining, dir } => self.update_panic(dt, world, remaining, dir),
+            State::Rig { window, side, rel_y, phase, remaining, turns } => self.update_rig(dt, world, window, side, rel_y, phase, remaining, turns),
             State::Slip { remaining, dir } => self.update_slip(dt, world, remaining, dir),
             State::Meet { phase, remaining } => self.update_meet(dt, world, phase, remaining),
             State::Snowman { phase, remaining, dir } => self.update_snowman(dt, world, phase, remaining, dir),
@@ -910,6 +931,8 @@ impl Pet {
             State::Sleep { .. } => Anim::Sleep,
             // 데굴 넘어짐 — 구르기 그림 (앱이 돌린다)
             State::Tumble { .. } => Anim::Roll,
+            State::Panic { .. } => Anim::Panic,
+            State::Rig { phase, .. } => Pet::rig_anim(phase),
             State::Slip { remaining, .. } => self.slip_anim(remaining),
             State::Meet { phase, remaining } => self.meet_anim(phase, remaining),
             State::OnHead { .. } => Anim::Idle,
@@ -1081,7 +1104,7 @@ impl Pet {
         match self.state {
             // 들어오는 중이면 다 들어온 뒤에 간다
             State::Pressed { .. } | State::Dragged | State::Air { .. } | State::HomeLeap { .. } | State::Enter { .. } => {}
-            State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } => self.start_fall(),
+            State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } | State::Rig { .. } => self.start_fall(),
             // 창 안이면 update_inside가 먼저 뛰어나가게 한다. 나는 동물은 어디서든 날아간다
             _ if self.standing.is_some() || self.cfg.flies => self.state = State::GoHome,
             _ => self.start_fall(),
@@ -1551,6 +1574,7 @@ impl Pet {
                 | State::Climb { .. }
                 | State::Slide
                 | State::WallClimb { .. }
+                | State::Rig { .. }
                 | State::InnerClimb { .. }
                 | State::HomeLeap { .. }
                 | State::Leap { .. }
@@ -2525,6 +2549,8 @@ impl Pet {
             | State::Slip { .. }
             | State::Meet { .. }
             | State::OnHead { .. }
+            | State::Panic { .. }
+            | State::Rig { .. }
             | State::Move { .. } => {}
         }
     }
@@ -2805,6 +2831,9 @@ impl Pet {
         if let Some(leap) = self.big_jump_state(world) {
             return leap;
         }
+        if self.maybe_rig(world) {
+            return self.state;
+        }
         if let Some(side) = self.heading().filter(|s| !visit::is_vertical(*s)) {
             if may_flip {
                 self.facing = visit::dir(side);
@@ -2814,6 +2843,10 @@ impl Pet {
         }
         let after_front = self.state.family() == Some(Family::Front);
         let mut kind = behavior::pick_next_move(&mut self.rng, self.pacing.last_move, after_front);
+        // 기운 넘치는 동물(흐물이)은 걷기 대신 자주 달린다 — 다른 동물은 주사위를 더 굴리지 않는다
+        if kind == Move::Walk && self.cfg.energetic && self.rng.f64() < heumul_moves::ENERGETIC_RUN_CHANCE {
+            kind = Move::Run;
+        }
         if kind == Move::Roll && self.cfg.special.is_some_and(Special::replaces_roll) {
             // 기린은 구르지 않는다: 멈춰 서서 목을 쭉 — 방금 늘였거나 집에 가는 길이면 그냥 걷는다
             let just_stretched = matches!(self.state, State::Special { kind: Special::NeckStretch, .. });
@@ -3265,6 +3298,13 @@ pub mod cursor_moves;
 mod cursor_tests;
 
 /// 곁에 있기와 하루 리듬 — 자리 비움·돌아옴, 졸린 시간, 집중 (언제 할지는 presence.rs)
+#[path = "brain_heumul.rs"]
+pub mod heumul_moves;
+
+#[cfg(test)]
+#[path = "brain_heumul_tests.rs"]
+mod heumul_tests;
+
 #[path = "brain_presence.rs"]
 mod presence_moves;
 
@@ -3769,7 +3809,7 @@ mod tests {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise, Anim::Panic, Anim::Hang, Anim::Rope];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

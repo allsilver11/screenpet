@@ -27,6 +27,9 @@ pub(crate) fn pet_cfg() -> PetConfig {
         looks_up: false,
         snow_cloud: false,
         glasses_flash: false,
+        timid: false,
+        energetic: false,
+        rigging: false,
         dpi: 1.0,
     }
 }

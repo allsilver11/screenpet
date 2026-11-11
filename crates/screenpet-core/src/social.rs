@@ -53,6 +53,11 @@ pub const STOMP_BODIES: f64 = 5.0;
 /// 쿵쾅에 흔들린 걷는 친구가 데굴 넘어질 확률 (나머지는 흔들리기만)
 pub const TUMBLE_CHANCE: f64 = 0.35;
 
+/// 겁쟁이(흐물이, pet.json timid)가 다른 동물과 마주치면 깜짝 놀라 줄행랑칠 확률 (한 번 마주칠 때 한 번만 굴린다)
+pub const SCARE_CHANCE: f64 = 0.5;
+/// 그 짝을 다시 무서워할 수 있기까지 (초) — 놀랐든 안 놀랐든
+pub const SCARE_COOLDOWN: (f64, f64) = (20.0, 40.0);
+
 /// 마주 오던 둘이 만났다고 보는 거리 (인사 거리와 같아서 인사보다 먼저 본다, 이보다 가까우면 이미 지나치는 중)
 pub const MEET_BODIES: f64 = GREET_BODIES;
 pub const MEET_MIN_BODIES: f64 = 0.4;
@@ -131,6 +136,8 @@ struct Snap {
     riding: bool,
     /// 달리는 중이면 뛰어 내릴 때 더 가는 거리 (아니면 0)
     run_carry: f64,
+    /// 겁쟁이 (흐물이)
+    timid: bool,
 }
 
 impl Snap {
@@ -157,6 +164,7 @@ impl Snap {
             carrying: p.has_rider(),
             riding: p.is_on_head(),
             run_carry: p.run_carry(),
+            timid: p.cfg.timid,
         }
     }
 
@@ -304,6 +312,12 @@ pub struct Social {
     tower_chance: f64,
     /// (물건 번호, 동물) → 다시 부딪힐 수 있는 시각
     object_cooldown: HashMap<(u64, u64), f64>,
+    /// 겁쟁이 주사위는 따로 굴린다 (다른 동물의 인사·놀이·만남 주사위는 그대로)
+    scare_rng: fastrand::Rng,
+    /// 겁쟁이가 놀랄 확률 (테스트에서 바꾼다)
+    scare_chance: f64,
+    /// 짝 → 겁쟁이가 다시 무서워할 수 있는 시각 (clock)
+    scare_cooldown: HashMap<(u64, u64), f64>,
 }
 
 fn pair(a: u64, b: u64) -> (u64, u64) {
@@ -312,7 +326,7 @@ fn pair(a: u64, b: u64) -> (u64, u64) {
 
 impl Social {
     pub fn new(seed: u64) -> Self {
-        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, one_way_chance: ONE_WAY_MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new() }
+        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, one_way_chance: ONE_WAY_MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new(), scare_rng: fastrand::Rng::with_seed(seed ^ 0x6565_6b21), scare_chance: SCARE_CHANCE, scare_cooldown: HashMap::new() }
     }
 
     /// 지금 놀이 중인 짝 수 (테스트용)
@@ -334,6 +348,7 @@ impl Social {
         self.thrown_hits(dt, pets);
         self.step_meets(pets);
         self.step_links(dt, pets);
+        self.scares(pets);
         self.find_head_ons(pets);
         self.tower_bumps(pets);
         self.find_new(dt, pets);
@@ -401,6 +416,32 @@ impl Social {
                     // 내리자마자 인사하지 않는다
                     let greet = behavior::range(&mut self.meet_rng, GREET_COOLDOWN);
                     self.cooldown.insert(key, now + greet);
+                }
+            }
+        }
+    }
+
+    /// 겁쟁이(흐물이)가 다른 동물과 인사 거리에서 처음 마주쳤다: 한 번 굴려 SCARE_CHANCE면 등을 돌려 줄행랑 (Pet::start_panic),
+    /// 아니면 그대로 (곧 평소 만남·인사). 겁쟁이끼리는 무서워하지 않는다. 겁쟁이가 없는 짝은 아무것도 굴리지 않는다
+    fn scares<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T]) {
+        let n = self.snap.len();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let (a, b) = (self.snap[i], self.snap[j]);
+                if a.timid == b.timid || a.engaged || b.engaged || b.asleep || a.asleep {
+                    continue;
+                }
+                let (it, other) = if a.timid { (i, b) } else { (j, a) };
+                let me = self.snap[it];
+                let key = pair(a.key, b.key);
+                if !me.free || cooling(&self.scare_cooldown, &key, self.clock) || !near(&me, &other, GREET_BODIES) {
+                    continue;
+                }
+                let wait = behavior::range(&mut self.scare_rng, SCARE_COOLDOWN);
+                cool(&mut self.scare_cooldown, key, self.clock, wait);
+                if self.scare_rng.f64() < self.scare_chance && pets[it].as_mut().start_panic(other.x) {
+                    self.snap[it].engaged = true;
+                    self.snap[it].free = false;
                 }
             }
         }
@@ -758,3 +799,7 @@ mod meet_tests;
 #[cfg(test)]
 #[path = "social_meet_sim_tests.rs"]
 mod meet_sim_tests;
+
+#[cfg(test)]
+#[path = "social_panic_tests.rs"]
+mod panic_tests;

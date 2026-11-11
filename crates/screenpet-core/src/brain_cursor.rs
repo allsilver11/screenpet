@@ -238,6 +238,8 @@ impl CursorStyle {
             "penguin" => CursorStyle { gait: Anim::Roll, speed: 1.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
             // 레서판다는 총총 달려와서는 커서에 깜짝 놀라 두 팔을 번쩍
             "redpanda" => CursorStyle { gait: Anim::Run, speed: 2.2, arrive: Some((Anim::Surprise, 0.9)), chatty: true, ..b },
+            // 흐물이는 다다다 신나게 달려와 흐물흐물 손 흔들기
+            "heumul" => CursorStyle { gait: Anim::Run, speed: 2.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
             _ => return None,
         })
     }

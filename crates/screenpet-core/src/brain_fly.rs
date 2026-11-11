@@ -58,7 +58,7 @@ impl Pet {
             State::ToFood { .. } => self.fly_to_food(world),
             State::WantFood { .. } => self.update_fly_want_food(dt, world),
             // 걷는 동물에서 바뀐 경우 등 — 나는 동물은 벽을 타거나 뛰지 않는다
-            State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. } | State::HomeLeap { .. } => {
+            State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::Rig { .. } | State::InnerClimb { .. } | State::HomeLeap { .. } => {
                 self.standing = None;
                 self.state = self.idle_state();
             }

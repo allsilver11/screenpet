@@ -100,6 +100,7 @@ impl Pet {
         let st = self.standing?;
         let targets = hop::jump_targets(&world.surfaces, st.owner, self.body.x, self.body.y, self.leap_size(), self.cfg.half_w);
         let chance = if self.cfg.hops { hop::BIG_JUMP_CHANCE } else { hop::WALKER_BIG_JUMP_CHANCE };
+        let chance = if self.cfg.energetic { chance * super::heumul_moves::ENERGETIC_JUMP_MULT } else { chance };
         if targets.is_empty() || self.rng.f64() >= chance {
             return None;
         }

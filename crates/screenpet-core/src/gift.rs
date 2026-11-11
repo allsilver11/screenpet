@@ -222,6 +222,21 @@ pub const CATALOG: &[GiftList] = &[
         ],
     },
     GiftList {
+        key: "heumul",
+        title: "흐물이",
+        emoji: "🤸",
+        species: &["heumul"],
+        speech: "hup! for you!",
+        items: &[
+            item("heumul_plane", "종이비행기"),
+            item("heumul_spring", "용수철"),
+            item("heumul_rubber", "고무줄"),
+            item("heumul_pencil", "몽당연필"),
+            item("heumul_button", "단추"),
+            item("heumul_balloon", "빨간 풍선"),
+        ],
+    },
+    GiftList {
         key: "giraffe",
         title: "기린",
         emoji: "🦒",

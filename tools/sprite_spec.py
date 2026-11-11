@@ -73,6 +73,11 @@ OPTIONAL_ANIMS = [
     ("stomp", 4, 6, True, False),
     # 레서판다: 깜짝! 뒷발로 벌떡 서서 두 팔 번쩍 (앞모습, 한 번 — 마지막 칸으로 잠깐 굳는다)
     ("surprise", 3, 8, False, True),
+    # 흐물이: 으악! 등을 돌려 두 팔 번쩍(만세) 들고 줄행랑 (옆모습, 반복 — 코어 State::Panic, 친구 동물과 마주치면 반쯤)
+    ("panic", 4, 12, True, False),
+    # 흐물이: 창 옆면에 한 손으로 매달려 다른 팔로 흐물흐물 손 흔들기 · 밧줄 타듯 손을 번갈아 오르내리기 (옆모습, 창은 오른쪽 — 코어 State::Rig)
+    ("hang", 4, 6, True, False),
+    ("rope", 4, 8, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -98,13 +103,14 @@ SPEECH = {
     "penguin": {"chatter": ["waddle~", "wheee!", "pip pip!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "redpanda": {"chatter": ["kyu kyu~", "peekaboo!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "surprise": ["!!", "eep!"],
                  **_CARE_SPEECH},
+    "heumul": {"chatter": ["wheee!", "zoom zoom!", "hup!"], "tickle": ["hehehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "persian": "aloof", "squirrel": "playful", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
-               "duck": "playful", "giraffe": "friendly", "bird": "playful", "penguin": "playful", "redpanda": "playful",
+               "duck": "playful", "giraffe": "friendly", "bird": "playful", "penguin": "playful", "redpanda": "playful", "heumul": "playful",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
 
@@ -118,7 +124,7 @@ SWIFT = {"bird"}
 HOUSE = {"pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
 
 # 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (개구리는 locomotion hop이라 늘 폴짝)
-HOP_SHARE = {"rabbit": 0.5, "squirrel": 0.35, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5}
+HOP_SHARE = {"rabbit": 0.5, "squirrel": 0.35, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5, "heumul": 0.5}
 
 # roll을 돌리지 않는 동물 (pet.json roll에 spin 없음) — 산타는 구르는 대신 썰매를 타고, 눈사람은 배로 미끄러지고, 기린은 목을 늘이고, 펭귄은 배로 쭉 미끄러진다
 NO_SPIN = {"santa", "snowman", "giraffe", "penguin"}
@@ -128,6 +134,15 @@ SNOW_CLOUD = {"snowman"}
 
 # 장난칠 때 안경이 번쩍하는 동물 (pet.json glasses_flash — 앱이 커서 장난·친구 놀이·가끔 render.flash를 켠다)
 GLASSES_FLASH = {"penguin"}
+
+# 다른 동물과 마주치면 반쯤 깜짝 놀라 줄행랑치는 겁쟁이 (pet.json timid — 코어 State::Panic, 그림은 panic)
+TIMID = {"heumul"}
+
+# 기운이 넘치는 동물 (pet.json energetic — 걷기 대신 달리기를 더 자주, 창 위로 크게 뛰기도 더 자주)
+ENERGETIC = {"heumul"}
+
+# 창 옆면에 뱃사람처럼 매달려 손 흔들고 오르내리는 동물 (pet.json rigging — 코어 State::Rig, 그림은 hang·rope)
+RIGGING = {"heumul"}
 
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {
@@ -149,6 +164,7 @@ FAVORITE_FOOD = {
     "bird": {"emoji": "🌾", "name": "모이"},
     "penguin": {"emoji": "🦐", "name": "새우"},
     "redpanda": {"emoji": "🎋", "name": "대나무잎"},
+    "heumul": {"emoji": "🍭", "name": "막대사탕"},
 }
 
 

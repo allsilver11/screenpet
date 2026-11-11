@@ -7,7 +7,7 @@ const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 const listEl = document.getElementById("list");
 const emptyEl = document.getElementById("empty");
 
-const PET_EMOJI = { cat: "🐱", persian: "🐱", rabbit: "🐰", frog: "🐸", duck: "🦆", bird: "🐦", penguin: "🐧", squirrel: "🐿️", redpanda: "🐾", giraffe: "🦒", pumpkin: "🎃", ghost: "👻", santa: "🎅", rudolph: "🦌", snowman: "⛄" };
+const PET_EMOJI = { cat: "🐱", persian: "🐱", rabbit: "🐰", frog: "🐸", duck: "🦆", bird: "🐦", penguin: "🐧", squirrel: "🐿️", redpanda: "🐾", heumul: "🤸", giraffe: "🦒", pumpkin: "🎃", ghost: "👻", santa: "🎅", rudolph: "🦌", snowman: "⛄" };
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);

@@ -15,7 +15,9 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// 기린 neckstretch — 있으면 구르는 대신 목을 늘인다, 올려다보기 lookup — 없으면 그냥 쳐다본다(look)).
 /// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같다
 /// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔든다).
-pub const OPTIONAL_ANIMS: [&str; 11] = ["arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise"];
+/// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기).
+pub const OPTIONAL_ANIMS: [&str; 14] =
+    ["arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise", "panic", "hang", "rope"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -104,6 +106,15 @@ pub struct PetManifest {
     /// 빠른 나는 동물 (새) — locomotion fly일 때만 뜻이 있다. 모르는 칸이라 옛 앱은 그냥 무시한다
     #[serde(default)]
     pub swift: bool,
+    /// 겁쟁이 — 다른 동물과 마주치면 반쯤 만세 줄행랑 (흐물이, panic 그림이 있을 때만 — timid())
+    #[serde(default)]
+    pub timid: bool,
+    /// 기운 넘침 — 더 자주 달리고 더 자주 크게 뛴다 (흐물이)
+    #[serde(default)]
+    pub energetic: bool,
+    /// 창 옆면에 매달리기 (흐물이, hang·rope 그림이 있을 때만 — rigs())
+    #[serde(default)]
+    pub rigging: bool,
     /// 칸마다 머리 꼭대기 (단계 → 동작 → 칸별 [x, y, 너비, 기울기] 칸 px — 그림 생성기가 적는다)
     #[serde(default)]
     pub head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
@@ -237,6 +248,16 @@ impl PetManifest {
     /// 위를 올려다본다 (pet.json에 lookup이 있으면 — 없으면 그냥 쳐다본다)
     pub fn can_look_up(&self) -> bool {
         self.has_anim("lookup")
+    }
+
+    /// 겁쟁이 (panic 그림이 있어야 한다)
+    pub fn timid(&self) -> bool {
+        self.timid && self.has_anim("panic")
+    }
+
+    /// 창 옆면 매달리기 (hang·rope 그림이 있어야 한다)
+    pub fn rigs(&self) -> bool {
+        self.rigging && self.has_anim("hang") && self.has_anim("rope")
     }
 
     /// 사는 집 그림: pet.json `house`, 없으면 보통 집
@@ -525,6 +546,24 @@ mod tests {
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         assert!(load("penguin").glasses_flash);
         assert!(!load("cat").glasses_flash && !load("snowman").glasses_flash);
+    }
+
+    /// 번들 흐물이만 겁쟁이(만세 줄행랑)·기운 넘침·창 옆면 매달리기 — 셋 다 그림(panic·hang·rope)이 있다
+    #[test]
+    fn bundled_heumul_is_timid_energetic_and_rigs_window_sides() {
+        assert_eq!(&OPTIONAL_ANIMS[11..], &["panic", "hang", "rope"]);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
+        let h = load("heumul");
+        assert!(h.timid() && h.energetic && h.rigs());
+        assert_eq!(h.name, "흐물이");
+        assert_eq!(h.personality, Personality::Playful);
+        assert!(h.hop_share() >= 0.5 && h.walk_speed >= 100.0);
+        assert_eq!(h.favorite_food.as_ref().map(|f| f.emoji.as_str()), Some("🍭"));
+        for id in crate::test_util::species().into_iter().filter(|id| id != "heumul") {
+            let m = load(&id);
+            assert!(!m.timid() && !m.energetic && !m.rigs(), "{id}");
+        }
     }
 
     /// 번들 다람쥐는 고양이처럼 벽을 타고, 걷다가 가끔 깡총거리고, 도토리를 좋아한다

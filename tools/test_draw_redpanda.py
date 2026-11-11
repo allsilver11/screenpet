@@ -64,7 +64,7 @@ def blobs(mask):
 
 def test_registered_with_surprise_climb_and_lookup():
     assert draw_pets.SPECIES["redpanda"] is rp.RED_PANDA
-    assert OPTIONAL_ANIMS[-1] == ("surprise", 3, 8, False, True)  # = Rust manifest::OPTIONAL_ANIMS 맨 끝, 앞모습 한 번
+    assert OPTIONAL_ANIMS[10] == ("surprise", 3, 8, False, True)  # = Rust manifest::OPTIONAL_ANIMS[10] (그 뒤는 흐물이), 앞모습 한 번
     assert names(rp.RED_PANDA) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup", "surprise"]
 
 

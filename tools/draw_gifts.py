@@ -35,6 +35,7 @@ LINES = {
     "bird": ("gourdseed", "feather", "twig", "berry", "egg", "dandelion"),
     "penguin": ("pebble", "ice", "fish", "snowflake", "down", "shell"),
     "redpanda": ("bamboo", "berry", "stick", "maple", "fluff", "flower"),
+    "heumul": ("plane", "spring", "rubber", "pencil", "button", "balloon"),
     "giraffe": ("acacia", "pod", "mango", "cloud", "nest", "scarf"),
     "rudolph": ("bell", "bulb", "snowflake", "star", "moss", "ribbon"),
     "santa": ("giftbox", "candycane", "mitten", "cookie", "stocking", "coal"),
@@ -907,6 +908,60 @@ def dino_footprint(i):
     bl(i, [E(44, 50, 84, 87)], stone, r=0.4, marks=[([E(49, 78, 80, 92)], mix(stone, LINE, 0.25)), ([E(50, 53, 60, 57)], mix(stone, WHITE, 0.5))])
     print_ = mix(stone, LINE, 0.55)
     paint(i, aa(shapes([E(56, 66, 72, 81), L([(60, 70), (53, 57)], 4.2), L([(64, 68), (64, 54)], 4.6), L([(68, 70), (75, 57)], 4.2)])), print_)
+
+
+# ---- 흐물이 (선으로 된 꼬마 사람 — 말랑말랑·통통 튀는 것들)
+def heumul_plane(i):
+    """하얀 종이비행기 (접힌 날개 그늘 + 가운데 접은 선)."""
+    tip, tail_up, tail_lo, fold = (88, 52), (40, 62), (50, 84), (58, 70)
+    bl(i, [T(tip, tail_up, fold), T(tip, fold, tail_lo)], (252, 252, 248), r=0.2,
+       marks=[([T(tip, fold, (54, 76))], (214, 222, 236))])
+    strokes(i, [[tip, fold]], (150, 160, 184), 1.1)
+
+
+def arc_pts(cx, cy, rx, ry, a0=0, a1=360, n=24):
+    """비스듬한 고리 (타원을 조금 기울인 점들)."""
+    out = []
+    for t in range(n + 1):
+        a = math.radians(a0 + (a1 - a0) * t / n)
+        out.append((cx + rx * math.cos(a), cy + ry * math.sin(a) - 0.35 * rx * math.cos(a)))
+    return out
+
+
+def heumul_spring(i):
+    """은빛 용수철 (비스듬히 감긴 고리 다섯)."""
+    loops = [L(arc_pts(64, 54 + 7 * k, 13, 4.2), 3.0) for k in range(5)]
+    bl(i, loops, GRAY_LIGHT, r=0.0, line=0.6, marks=[([L(arc_pts(64, 53 + 7 * k, 11, 3.0, 200, 340), 1.0) for k in range(5)], WHITE)])
+
+
+def heumul_rubber(i):
+    """말랑한 주황 고무줄 한 가닥 (흐물흐물 꼬인 고리)."""
+    pts = [(64 + 17 * math.cos(math.radians(a)) + 2.5 * math.sin(math.radians(3 * a)), 70 + 11 * math.sin(math.radians(a)) + 2.0 * math.cos(math.radians(2 * a)))
+           for a in range(0, 361, 10)]
+    bl(i, [L(pts, 4.2)], ORANGE, r=0.0, line=0.6, marks=[([L(pts[2:9], 1.2)], mix(ORANGE, WHITE, 0.5))])
+
+
+def heumul_pencil(i):
+    """몽당연필 (노란 몸 + 깎은 나무 + 까만 심 + 분홍 지우개)."""
+    a, b = (44, 80), (76, 56)
+    bl(i, [L([a, b], 11)], GOLD, r=0.0, line=0.6,
+       marks=[([L([(44, 77), (76, 53)], 2.2)], GOLD_LIGHT), ([L([(36, 86), (46, 78.5)], 13)], PINK), ([L([(46, 78.5), (49, 76)], 13)], GRAY)])
+    tip = (88, 47)
+    bl(i, [T((74, 51.5), (80.5, 60), tip)], TAN, r=0.0, line=0.6, marks=[([T((84, 50), (86, 52.5), tip)], INK)])
+
+
+def heumul_button(i):
+    """동글 단추 (구멍 넷 + 실 십자)."""
+    bl(i, [C(64, 68, 15)], (124, 176, 236), r=0.0, marks=[([C(64, 68, 11)], mix((124, 176, 236), WHITE, 0.25)), ([E(54, 57, 62, 61)], WHITE)])
+    holes = [(60, 64), (68, 64), (60, 72), (68, 72)]
+    dots(i, holes, (70, 96, 150), 1.8)
+    strokes(i, [[(60, 64), (68, 72)], [(68, 64), (60, 72)]], (250, 246, 236), 1.0)
+
+
+def heumul_balloon(i):
+    """빨간 풍선 (반짝 + 매듭 + 꼬불 끈)."""
+    bl(i, [E(48, 38, 80, 76), T((61, 75), (67, 75), (64, 81))], RED, r=0.4, marks=[([E(54, 45, 61, 54)], RED_LIGHT)])
+    strokes(i, [curve((64, 81), (56, 88), (66, 94)), curve((66, 94), (74, 99), (62, 104))], INK, 1.1)
 
 
 DRAW = {name: globals()[name] for name in IDS}

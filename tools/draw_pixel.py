@@ -39,6 +39,7 @@ import draw_bird as dbird  # noqa: E402
 import draw_penguin as dpeng  # noqa: E402
 import draw_squirrel as dsq  # noqa: E402
 import draw_redpanda as dred  # noqa: E402
+import draw_heumul as dheu  # noqa: E402
 
 K = dp.K
 OUT_ROOT = Path(__file__).resolve().parent.parent / "ui" / "pets_pixel"
@@ -124,6 +125,7 @@ _OWNERS = {  # 바꿔 끼우는 이름 → 원래 있는 모듈
     dpeng: ("shrimp_bubble_fx", "GLASS", "PG_STAGE"),
     dsq: ("acorn_bubble_fx",),
     dred: ("bamboo_bubble_fx",),
+    dheu: ("HM_PIXEL",),
 }
 _ORIG = {name: getattr(mod, name) for mod, names in _OWNERS.items() for name in names}
 _ORIG_E, _ORIG_L = _ORIG["E"], _ORIG["L"]
@@ -894,7 +896,7 @@ _PATCH = dict(compose=compose, stage_eye=stage_eye, blush=blush, open_mouth=open
 
 
 def _modules():
-    return [dp, dc, dd, dfarm, df, dh, ds, dbird, dpeng, dred, dsq]
+    return [dp, dc, dd, dfarm, df, dh, ds, dbird, dpeng, dred, dsq, dheu]
 
 
 @contextmanager
@@ -982,6 +984,8 @@ _PATCH["acorn_bubble_fx"] = _bubble_fn("acorn")  # 다람쥐 🌰
 _PATCH["GLASS"] = dict(dpeng.GLASS, r=0.54, dx=0.52, arms=False, glint="dot", alpha_key=False)  # 반투명 없음: 번쩍은 렌즈 색으로 고른다
 # 펭귄 정수리 솜털: 가는 가닥이 작은 칸에선 뾰족한 뿔(끝에 주황 점)이 된다 → 도트엔 정수리 솜털 없이 동그란 머리
 _PATCH["PG_STAGE"] = {lvl: dict(st, fluff=0) for lvl, st in dpeng.PG_STAGE.items()}
+# 흐물이: 팔다리는 실루엣(외곽선을 두르면 3칸 굵기)이 아니라 1칸 선으로 찍는다
+_PATCH["HM_PIXEL"] = {"on": True}
 
 
 def _anims(sp):
@@ -1141,6 +1145,7 @@ GROUPS = {"animals": ["cat", "rabbit", "persian"], "frog": ["frog"], "halloween"
           "farm": ["duck", "giraffe"], "christmas": ["rudolph", "santa", "snowman"], "dinos": ["dino_yellow", "dino_green", "dino_purple"],
           "birds": ["bird"], "penguin": ["penguin"], "redpanda": ["redpanda"]}
 GROUPS["squirrel"] = ["squirrel"]
+GROUPS["heumul"] = ["heumul"]
 KEY_FRAMES = [("walk", 0), ("run", 1), ("sit_front", 0), ("sleep", 0), ("hungry", 1), ("heart", 2), ("tilt", 1), ("fall", 0), ("wave", 1),
               ("eat", 0), ("level_up", 2), ("lookup", 2)]
 EXTRA_KEYS = [("climb", 0), ("climb", 2), ("slide", 1), ("bigjump", 1), ("neckstretch", 2), ("arch", 2), ("huff", 1),
