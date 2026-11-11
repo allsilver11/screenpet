@@ -101,6 +101,23 @@ impl Shape {
         (self.pivot.0 * CELL_TO_LOGICAL, self.pivot.1 * CELL_TO_LOGICAL)
     }
 
+    /// 그림 칸 좌표 (x, y)가 볼록 껍질 안이다 (경계 포함) — 거대한 물건의 투명한 곳을 클릭이 지나가게 할 때
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        let n = self.hull.len();
+        if n < 3 {
+            return false;
+        }
+        let (mut pos, mut neg) = (false, false);
+        for i in 0..n {
+            let (ax, ay) = self.hull[i];
+            let (bx, by) = self.hull[(i + 1) % n];
+            let cross = (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+            pos |= cross > 0.0;
+            neg |= cross < 0.0;
+        }
+        !(pos && neg)
+    }
+
     /// 칸 가운데에서 축까지 가로 거리 (논리 px)
     pub fn pivot_offset_x(&self) -> f64 {
         (self.pivot.0 - CELL / 2.0) * CELL_TO_LOGICAL

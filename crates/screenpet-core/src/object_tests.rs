@@ -1501,3 +1501,95 @@ fn a_giant_window_grows_with_its_drawing() {
         assert!(s.window_side_at(scale * 0.5) < side);
     }
 }
+
+// ---- 거대한 물건: 투명한 곳의 클릭은 아래로 지나간다 ----
+
+#[test]
+fn a_shape_contains_points_inside_its_hull_only() {
+    let s = crate::tumble::shape_of(ObjectKind::GiantStone);
+    assert!(s.contains(s.pivot.0, s.pivot.1));
+    // 칸 모서리는 비어 있다
+    for (x, y) in [(1.0, 1.0), (127.0, 1.0), (1.0, 127.0), (127.0, 127.0), (64.0, 2.0)] {
+        assert!(!s.contains(x, y), "{x} {y}");
+    }
+    for &(x, y) in s.hull {
+        // 꼭짓점 살짝 안쪽은 안, 바깥쪽은 밖
+        let (dx, dy) = (x - s.pivot.0, y - s.pivot.1);
+        assert!(s.contains(x - dx * 0.05, y - dy * 0.05), "{x} {y}");
+        assert!(!s.contains(x + dx * 0.08, y + dy * 0.08), "{x} {y}");
+    }
+}
+
+/// 그림 칸 좌표 (cx, cy)가 지금 화면 어디에 그려지나 (웹뷰처럼 축을 중심으로 시계 방향으로 돌린다)
+fn on_screen(o: &Object, (cx, cy): (f64, f64)) -> (f64, f64) {
+    let s = crate::tumble::shape_of(o.kind);
+    let k = (96.0 / 128.0) * o.scale() * o.dpi();
+    let (dx, dy) = ((cx - s.pivot.0) * k, (cy - s.pivot.1) * k);
+    let (sin, cos) = o.angle().to_radians().sin_cos();
+    let (px, py) = o.pivot();
+    (px + dx * cos - dy * sin, py + dx * sin + dy * cos)
+}
+
+#[test]
+fn clicks_pass_through_a_giant_only_where_nothing_is_drawn() {
+    let w = floor();
+    for k in ObjectKind::GIANTS {
+        let mut o = giant(k, 900.0, 1000.0);
+        o.set_dpi(1.0);
+        run(&mut o, &w, 4.0);
+        assert!(o.is_asleep());
+        let s = crate::tumble::shape_of(k);
+        // 무게중심(그림 한가운데)은 잡히고, 칸 위 구석(투명)은 지나간다
+        let (px, py) = o.pivot();
+        assert!(!o.passes_clicks_at(px, py), "{k:?}");
+        let (x, y) = on_screen(&o, (4.0, 4.0));
+        assert!(o.passes_clicks_at(x, y), "{k:?}");
+        // 가장 오른쪽 끝: 4칸 안쪽은 잡히고 4칸 바깥은 지나간다
+        let &(rx, ry) = s.hull.iter().max_by(|a, b| a.0.total_cmp(&b.0)).unwrap();
+        let (x, y) = on_screen(&o, (rx + 4.0, ry));
+        assert!(o.passes_clicks_at(x, y), "{k:?}");
+        let (x, y) = on_screen(&o, (rx - 4.0, ry));
+        assert!(!o.passes_clicks_at(x, y), "{k:?}");
+        // 들고 있는 동안엔 절대 지나가지 않는다 (놓칠 수 있으니)
+        o.pointer_down(px, py);
+        let (x, y) = on_screen(&o, (4.0, 4.0));
+        assert!(!o.passes_clicks_at(x, y), "{k:?}");
+    }
+}
+
+#[test]
+fn the_click_through_follows_the_turned_drawing() {
+    let w = floor();
+    let mut o = giant(ObjectKind::GiantStone, 900.0, 300.0);
+    o.set_dpi(1.5);
+    // 던져서 돌고 있는 중에도 그린 자리 그대로
+    fling(&mut o, &w, (900.0, 260.0), (1800.0, -900.0));
+    let s = crate::tumble::shape_of(o.kind);
+    let mut checked = 0;
+    for _ in 0..80 {
+        o.tick(DT, &w, NONE, false);
+        if o.angle().abs() < 10.0 {
+            continue;
+        }
+        for &(x, y) in s.hull {
+            let (dx, dy) = (x - s.pivot.0, y - s.pivot.1);
+            let inside = on_screen(&o, (x - dx * 0.1, y - dy * 0.1));
+            let outside = on_screen(&o, (x + dx * 0.15, y + dy * 0.15));
+            assert!(!o.passes_clicks_at(inside.0, inside.1), "angle {}", o.angle());
+            assert!(o.passes_clicks_at(outside.0, outside.1), "angle {}", o.angle());
+        }
+        checked += 1;
+    }
+    assert!(checked > 5, "it should have turned");
+}
+
+#[test]
+fn small_objects_never_pass_clicks_through() {
+    let w = floor();
+    for k in ObjectKind::ALL.into_iter().filter(|k| !k.is_giant()) {
+        let mut o = Object::new(k, 900.0, 1000.0, 1.0, 3);
+        run(&mut o, &w, 4.0);
+        let (x, y) = on_screen(&o, (2.0, 2.0));
+        assert!(!o.passes_clicks_at(x, y), "{k:?}");
+    }
+}

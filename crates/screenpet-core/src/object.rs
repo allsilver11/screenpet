@@ -476,6 +476,27 @@ impl Object {
         (self.body.x + shape.pivot_offset_x() * self.scale * self.dpi, self.body.y - shape.drop_at(self.angle) * self.scale * self.dpi)
     }
 
+    /// 화면 점 (x, y) (물리 px)에 그림이 그려져 있다: 축을 중심으로 돌린 그림을 되돌려 칸 좌표로 보고 볼록 껍질 안인지 본다
+    pub fn covers(&self, x: f64, y: f64) -> bool {
+        let shape = shape_of(self.kind);
+        let k = OBJECT_LOGICAL_SIZE / 128.0 * self.scale * self.dpi;
+        if k <= 0.0 || !k.is_finite() {
+            return false;
+        }
+        let (px, py) = self.pivot();
+        let (dx, dy) = (x - px, y - py);
+        // 웹뷰는 시계 방향으로 angle만큼 돌려 그린다 — 거꾸로 돌린다
+        let (sin, cos) = self.angle.to_radians().sin_cos();
+        let (ux, uy) = (dx * cos + dy * sin, -dx * sin + dy * cos);
+        shape.contains(shape.pivot.0 + ux / k, shape.pivot.1 + uy / k)
+    }
+
+    /// 창이 (x, y)의 클릭을 아래(바탕·다른 앱)로 보내야 한다: 거대한 물건의 투명한 곳만 — 창이 화면을 크게 덮으니까.
+    /// 들고 있는 동안은 아니다. 작은 물건은 늘 받는다
+    pub fn passes_clicks_at(&self, x: f64, y: f64) -> bool {
+        self.kind.is_giant() && !self.is_held() && !self.covers(x, y)
+    }
+
     /// 다음 바람이나 세계 변화까지 할 일이 없다 (창도 웹뷰도 건드리지 않는다)
     pub fn is_asleep(&self) -> bool {
         self.phase == Phase::Rest && self.postit != Postit::Reading

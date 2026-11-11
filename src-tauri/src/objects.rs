@@ -4,6 +4,7 @@
 //! 받은 물건은 인증된 친구 링크에서 온 것만, 종류·움직임·글자를 코어가 다듬은 뒤에 쓴다 (글자는 웹뷰에서 textContent로만).
 //! 💩 똥도 물건이다 (끌기·던지기·치우기·친구에게 넘기기·집중 중 되돌리기가 그대로): 메뉴로 못 꺼내고, 수는 따로 10개까지, 30분이면 스르륵 사라지고, 빗자루에 쓸린다.
 //! 🪨💩 거대한 돌·똥은 메뉴로 꺼내는 쓰레기다 (내 물건 10개에 들어간다): 아기 동물의 15배 — 놓이는 화면 높이의 80%까지 — 로 그리고, 바람에 안 구르고, 포스트잇이 없다.
+//! 거대한 물건 창은 그림 밖(투명한 곳)의 클릭을 아래로 보낸다 (커서를 틱마다 코어의 돌린 볼록 껍질에 대 본다).
 //! 친구에게는 보통 돌·똥 이름에 look "giant"를 붙여 던진다 (옛 버전 친구는 보통 크기로 받는다). 거대한 똥은 빗자루에 쓸리지만 저절로 사라지지 않는다.
 
 use std::collections::{HashMap, VecDeque};
@@ -114,6 +115,8 @@ struct Live {
     note_open: bool,
     /// Windows 창 핸들 (포커스를 뺏지 않고 옮기려고)
     hwnd: Option<isize>,
+    /// 창이 마우스를 통과시키는 중 (거대한 물건의 투명한 곳 위에 커서가 있다)
+    click_through: bool,
 }
 
 impl Live {
@@ -163,6 +166,19 @@ impl Live {
         self.last_pos = None;
         let side = shape_of(self.object.kind).window_side_at(scale);
         let _ = app.emit_to(self.label.as_str(), "object-scale", ScalePayload { scale, side });
+    }
+
+    /// 거대한 물건: 커서가 그림 밖(투명한 곳)이면 클릭이 아래로 지나가게 한다 — 창이 화면을 크게 덮으니까.
+    /// 판정은 코어(돌린 그림의 볼록 껍질), 바뀔 때만 OS에 알린다 (slots.rs sync_click_through처럼). 작은 물건은 그대로
+    fn sync_click_through(&mut self, cursor: (f64, f64)) {
+        if !self.object.kind.is_giant() {
+            return;
+        }
+        let through = self.object.passes_clicks_at(cursor.0, cursor.1);
+        if through != self.click_through {
+            self.click_through = through;
+            let _ = self.window.set_ignore_cursor_events(through);
+        }
     }
 
     fn set_note_open(&mut self, open: bool) {
@@ -471,6 +487,7 @@ impl Objects {
             last_pose: PosePayload { angle: 0.0, dx: 0.0 },
             note_open: false,
             hwnd,
+            click_through: false,
         });
     }
 
@@ -602,6 +619,8 @@ impl Objects {
             let asleep = l.object.is_asleep();
             // 잠든 물건은 창이 제자리에 있으면 아무것도 하지 않는다 (reseat가 옮겼으면 last_pos와 달라진다)
             l.place(world);
+            // 커서는 잠든 물건 위로도 움직인다 (거대한 것만 — 바뀔 때만 OS에 알린다)
+            l.sync_click_through(cursor);
             if asleep && was_asleep && l.last_pose == l.pose() {
                 continue;
             }
