@@ -920,3 +920,39 @@ body.pixel #ctltag {
   background: url(effects_pixel/fx_pad.png) 0 0 / 100% 100% no-repeat;
   image-rendering: pixelated;
 }
+
+/* 콰당! (render.thud, brain.rs THUD_SECS 1.2초): 몸은 그리기 루프가 transform(반전·흔들기)을 쓰므로 찌그러짐은 따로 쓰는 scale 속성으로,
+   발밑을 축으로 납작 → 살짝 위로 늘었다가 → 제자리. 머리 위엔 별 셋이 빙글 (#dizzy) */
+#pet.thud {
+  animation: thud-squash 0.55s ease-out;
+  transform-origin: 50% 100%;
+}
+@keyframes thud-squash {
+  0% { scale: 1.3 0.62; }
+  35% { scale: 0.9 1.12; }
+  65% { scale: 1.06 0.95; }
+  100% { scale: 1 1; }
+}
+#dizzy {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--pet-h, 128px) * 0.78);
+  width: calc(var(--pet-h, 128px) * 0.5);
+  height: calc(var(--pet-h, 128px) * 0.18);
+  margin-left: calc(var(--pet-h, 128px) * -0.25);
+  pointer-events: none;
+  animation: dizzy-spin 0.9s linear infinite;
+}
+#dizzy i {
+  position: absolute;
+  font-style: normal;
+  font-size: max(12px, calc(var(--pet-h, 128px) * 0.13));
+  line-height: 1;
+}
+#dizzy i:nth-child(1) { left: 0; top: 30%; }
+#dizzy i:nth-child(2) { left: 42%; top: 0; }
+#dizzy i:nth-child(3) { right: 0; top: 30%; }
+@keyframes dizzy-spin {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
+}

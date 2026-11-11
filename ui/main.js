@@ -7,6 +7,7 @@ const listen = (event, handler) => here.listen(event, handler);
 
 const petEl = document.getElementById("pet");
 const heartEl = document.getElementById("heart");
+const dizzyEl = document.getElementById("dizzy");
 const bubbleEl = document.getElementById("bubble");
 const pickerEl = document.getElementById("picker");
 const favBtn = document.getElementById("fav");
@@ -668,6 +669,10 @@ const listeningRender = listen("pet-render", (e) => {
   if (e.payload.anim === "eat") speech.hidePicker();
   if (e.payload.anim === "tickle" && render.anim !== "tickle") petFx("tickle");
   if (e.payload.flash && !render.flash) petFx("play");
+  // 콰당! 몸이 발밑을 축으로 납작 찌그러졌다 튕기고 (style.css #pet.thud), 머리 위에 💫이 돈다
+  if (e.payload.thud) petEl.classList.add("thud");
+  else petEl.classList.remove("thud");
+  dizzyEl.hidden = !e.payload.thud;
   // 펭귄 안경 반사: 켜져 있는 동안 렌즈가 하얗게 (style.css #pet.glasses-glare)
   if (e.payload.glare) petEl.classList.add("glasses-glare");
   else petEl.classList.remove("glasses-glare");
