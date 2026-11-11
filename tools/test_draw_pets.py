@@ -438,6 +438,19 @@ def test_persian_resting_eyes_are_half_closed(anim):
     assert eye_h("persian") < 0.7 * eye_h("cat"), (eye_h("persian"), eye_h("cat"))
 
 
+@pytest.mark.parametrize("anim", ["idle", "sit_front"])
+def test_grey_persian_has_copper_eyes(anim):
+    """사용자: 하늘색 말고 회색, 눈은 구릿빛 — 회색 털 + 졸린 반눈 안에 구릿빛 홍채와 짙은 동공. 고양이 눈엔 구릿빛이 없다."""
+    def near(pid, col, tol=40):
+        px = _one(pid, anim).load()
+        return sum(1 for y in range(FRAME) for x in range(FRAME)
+                   if px[x, y][3] > 200 and sum(abs(px[x, y][i] - col[i]) for i in range(3)) < tol)
+    assert near("persian", draw_pets.PER_EYE, 60) >= 6, near("persian", draw_pets.PER_EYE, 60)
+    assert near("cat", draw_pets.PER_EYE) == 0
+    r, g, b = draw_pets.PER_G
+    assert abs(r - g) <= 6 and abs(g - b) <= 8, "a neutral grey, not sky blue"
+
+
 # 사용자: "옆모습 머리와 다리 사이 목 뒤에 뭔가 볼록 튀어나와 있다" → 옆모습 갈기 털 끝은 목 뒤 윤곽 밖으로 나오지 않는다
 _PER_SIDE = [a for a, _n, _f, _l, front in draw_pets.rows_for(draw_pets.PERSIAN) if not front and a != "roll"]
 

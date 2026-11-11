@@ -173,6 +173,10 @@ def _eye_rows(kind, flip=False):
     n = _PX["grid"].n
     wide = _wide()
     if kind == "dot" and _ST_get("sleepy"):  # 반쯤 감은 졸린 눈 (페르시안): 넓은 눈꺼풀 한 줄 아래 반쪽 눈
+        if _ST_get("iris"):  # 구릿빛 홍채(c) + 짙은 동공(#) + 반짝(o)
+            if _ST_get("sparkle"):
+                return ["####", "c#oc", ".cc."] if n >= 28 else ["###", "c#c"]
+            return ["####", "c#oc"] if wide else ["###", "c#c"]
         if _ST_get("sparkle"):
             return ["####", "o##.", ".#i."] if n >= 28 else ["###", "o#i"]
         return ["####", ".o#."] if wide else ["###", ".#."]
@@ -209,6 +213,8 @@ def stage_eye(kind, cx, cy, flip=False):
     if kind == "up":
         cy -= 2.0
     pal = DARK_EYE_PAL if sum(dp._INK["line"]) < DARK_INK else EYE_PAL
+    if _ST_get("iris"):
+        pal = dict(pal, c=_ST_get("iris"))
     return [([_stamp(cx, cy, _eye_rows(kind, flip), pal)], None)]
 
 

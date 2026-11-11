@@ -140,7 +140,7 @@ STAGE_PROPS = {
                   pale=0.0, lvl=4, eye=0.92, eye_dy=0.5, sparkle=False, calm=True, smile=False, blush=(0.95, 0.9), ear=1.0,
                   tuft=False, tail=1.0, tail_w=1.22, cheek_fluff=True),
 }
-STAGE_FLAGS = dict(whiskers=False, snout=0.0, chest_fluff=False, sleepy=False)  # 종 특징 기본값 (Species.stage_tweak로 덮어씀)
+STAGE_FLAGS = dict(whiskers=False, snout=0.0, chest_fluff=False, sleepy=False, iris=None)  # 종 특징 기본값 (Species.stage_tweak로 덮어씀)
 _ST = dict(STAGE_PROPS["teenager"], **STAGE_FLAGS)
 
 
@@ -434,8 +434,14 @@ def sleepy_eye(cx, cy, es, flip=False):
     y_in, y_out = cy - ry * lid, cy - ry * lid + 1.4 * es  # 안쪽 끝 · 바깥 끝 (처진 눈꺼풀)
     lid_y = lambda x: y_in + (y_out - y_in) * ((x - cx) * s / rx + 1) / 2
     ball = [(x, max(y, lid_y(x))) for x, y in arc(cx, cy, rx, ry, 0, 360, 48)]
-    ops = [([T(*ball)], EYE)]
-    if _ST["sparkle"]:
+    iris = _ST.get("iris")
+    if iris:
+        # 구릿빛 홍채 + 가운데 짙은 동공 (눈꺼풀 아래로만 — 공과 같은 방법으로 잘라 낸다)
+        ops = [([T(*ball)], EYE), ([T(*[(x, max(y, lid_y(x))) for x, y in arc(cx, cy + 0.2, rx * 0.9, ry * 0.92, 0, 360, 40)])], iris)]
+        ops.append(([T(*[(x, max(y, lid_y(x))) for x, y in arc(cx, cy + ry * 0.2, rx * 0.2, ry * 0.62, 0, 360, 28)])], EYE))  # 가는 세로 동공
+    else:
+        ops = [([T(*ball)], EYE)]
+    if _ST["sparkle"] and not iris:
         ops.append(([E(cx - rx * 0.7, cy + ry * 0.3, cx + rx * 0.7, cy + ry * 0.9)], EYE_LIGHT))
     hx = cx - s * rx * 0.3
     ops.append(([C(hx, lid_y(hx) + 1.8 * es, (0.95 if _ST["sparkle"] else 0.75) * es)], WHITE))
@@ -656,10 +662,11 @@ CAT = Species(
     ],
 )
 
-# 페르시안 고양이: 푸른빛 도는 연회색 긴 털 + 크림색 볼 털·갈기·가슴·발. 넓적한 네모 얼굴(동글 두 개를 겹친 납작한 윗머리),
+# 페르시안 고양이: 회색 긴 털 (사용자: 하늘색 말고 회색) + 밝은 회백색 볼 털·갈기·가슴·발. 넓적한 네모 얼굴(동글 두 개를 겹친 납작한 윗머리),
 # 볼과 턱 아래를 감싼 복슬 갈기(작은 동그라미를 이어 붙여 녹이면 몽글몽글한 가장자리), 털에 반쯤 묻힌 낮고 작은 귀,
 # 눈 사이 높은 작은 코 + 무표정 일자 입(mouth "flat"), 반쯤 감은 졸린 눈(sleepy), 아주 복슬한 꼬리. 느릿느릿 걷는다.
-PER_G, PER_C, PER_IN, PER_LINE = (198, 204, 224), (255, 248, 236), (244, 190, 196), (116, 106, 124)
+PER_G, PER_C, PER_IN, PER_LINE = (166, 166, 170), (236, 234, 232), (244, 190, 196), (92, 90, 96)
+PER_EYE = (222, 132, 46)  # 구릿빛 눈 (회색 페르시안 — 사용자: 눈은 구릿빛으로)
 
 
 def _puffs(pts, r):
@@ -707,7 +714,7 @@ PERSIAN = Species(
                _tufts(86, 68, 24, 15, [55, 80, 105], ln=7)),  # 옆모습: 턱 아래·가슴 앞 갈기 끝만 (목 뒤로는 안 삐져나오게)
     specials=["huff", "lookup"],
     # 모든 단계: 졸린 반눈 · 어린이도 웃지 않는 무표정 · 수염·볼 지그재그 털 없음 (갈기가 대신)
-    stage_tweak={st: dict(sleepy=True, smile=False, cheek_fluff=False, **{"baby": dict(ear=0.85), "kinder": dict(ear=0.9)}.get(st, {}))
+    stage_tweak={st: dict(sleepy=True, iris=PER_EYE, smile=False, cheek_fluff=False, **{"baby": dict(ear=0.85), "kinder": dict(ear=0.9)}.get(st, {}))
                  for st in STAGES},
     outline=PER_LINE,
 )
@@ -1665,7 +1672,7 @@ _NECKS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json ne
 _HEADS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json head  # (종, 단계) → {동작: [프레임]} — 한 프로세스에서 여러 번 build해도 한 번만 그린다
 
 
-_KEEP = {LINE, EYE}  # 파스텔로 바꾸지 않는 색 (외곽선·눈·코)
+_KEEP = {LINE, EYE, PER_EYE}  # 파스텔로 바꾸지 않는 색 (외곽선·눈·코, 페르시안 구릿빛 눈)
 
 
 def _pale(v, t):
