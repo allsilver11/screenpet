@@ -25,6 +25,27 @@ pub const MAX_POOPS: usize = 10;
 pub const NOTE_READ_SECS: f64 = 10.0;
 /// 바람이 부는 간격 (초, 물건마다 따로)
 pub const GUST_EVERY_SECS: (f64, f64) = (30.0, 90.0);
+/// 🪨💩 거대한 물건은 아기 동물의 이만큼 배 (한 변)
+pub const GIANT_TIMES: f64 = 15.0;
+/// 아기 고양이의 종 배율 (ui/pets/cat/pet.json stage_size.baby — tools/test_draw_objects.py가 맞춰 본다)
+pub const BABY_CAT_STAGE_SIZE: f64 = 0.91;
+/// 거대한 물건은 작업 영역 높이의 이만큼을 넘지 않는다
+pub const GIANT_MAX_SCREEN: f64 = 0.8;
+
+/// 거대한 물건 칸의 한 변 (논리 px): 아기 고양이 한 변(128 × 아기 배율 × stage_size ≈ 52.4)의 15배 ≈ 786
+pub fn giant_side() -> f64 {
+    GIANT_TIMES * crate::brain::PET_LOGICAL_SIZE * crate::care::Stage::Baby.scale() * BABY_CAT_STAGE_SIZE
+}
+
+/// 거대한 물건의 그림 배율: 15배, 단 작업 영역 높이(논리 px)의 80%까지. 높이를 모르면 그냥 15배
+pub fn giant_scale(work_area_height: f64) -> f64 {
+    let side = if work_area_height.is_finite() && work_area_height > 0.0 {
+        giant_side().min(GIANT_MAX_SCREEN * work_area_height)
+    } else {
+        giant_side()
+    };
+    side / OBJECT_LOGICAL_SIZE
+}
 
 /// 몸 폭 절반 / 창 크기
 const HALF_WIDTH_RATIO: f64 = 0.3;
@@ -52,10 +73,14 @@ pub enum ObjectKind {
     Pink,
     Rainbow,
     Pellets,
+    /// 🪨 거대한 돌 — 메뉴로 꺼낸다. 아기 동물의 15배 (화면 높이의 80%까지), 바람에 꿈쩍 않고 포스트잇을 못 붙인다
+    GiantStone,
+    /// 💩 거대한 똥 — 메뉴로 꺼낸다. 동물이 싼 게 아니라 쓰레기처럼 치울 때까지 남고, 빗자루에 쓸린다
+    GiantPoop,
 }
 
 impl ObjectKind {
-    pub const ALL: [ObjectKind; 12] = [
+    pub const ALL: [ObjectKind; 14] = [
         ObjectKind::Can,
         ObjectKind::Paper,
         ObjectKind::Stone,
@@ -68,8 +93,10 @@ impl ObjectKind {
         ObjectKind::Pink,
         ObjectKind::Rainbow,
         ObjectKind::Pellets,
+        ObjectKind::GiantStone,
+        ObjectKind::GiantPoop,
     ];
-    /// `물건 ▸` 메뉴로 꺼내는 쓰레기
+    /// `물건 ▸` 메뉴로 꺼내는 쓰레기 (친구에게 10개씩 던지는 것도 이 중에서)
     pub const TRASH: [ObjectKind; 8] = [
         ObjectKind::Can,
         ObjectKind::Paper,
@@ -80,18 +107,62 @@ impl ObjectKind {
         ObjectKind::Shirt,
         ObjectKind::Umbrella,
     ];
+    /// 🪨💩 거대한 물건 (메뉴에서 쓰레기 다음)
+    pub const GIANTS: [ObjectKind; 2] = [ObjectKind::GiantStone, ObjectKind::GiantPoop];
+    /// `물건 ▸` 메뉴 순서: 쓰레기, 거대한 물건
+    pub const MENU: [ObjectKind; 10] = [
+        ObjectKind::Can,
+        ObjectKind::Paper,
+        ObjectKind::Stone,
+        ObjectKind::Glasses,
+        ObjectKind::Computer,
+        ObjectKind::Milk,
+        ObjectKind::Shirt,
+        ObjectKind::Umbrella,
+        ObjectKind::GiantStone,
+        ObjectKind::GiantPoop,
+    ];
+
+    /// 거대한 돌·똥
+    pub fn is_giant(self) -> bool {
+        matches!(self, ObjectKind::GiantStone | ObjectKind::GiantPoop)
+    }
+
+    /// 빗자루에 쓸린다: 똥과 거대한 똥
+    pub fn is_sweepable(self) -> bool {
+        self.is_poop() || self == ObjectKind::GiantPoop
+    }
+
+    /// 포스트잇을 붙일 수 있다: 쓰레기만 (똥은 사라지고, 거대한 것은 쪽지 창이 그림을 덮는다)
+    pub fn takes_postit(self) -> bool {
+        !self.is_poop() && !self.is_giant()
+    }
 
     /// 똥이다: 수를 따로 세고, 저절로 사라지고, 바람에 구르지 않고, 빗자루에 쓸린다
     pub fn is_poop(self) -> bool {
         matches!(self, ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets)
     }
 
-    /// 그림 크기 배율: 쓰레기는 96 논리 px 칸의 절반 (똥은 싼 동물을 따라 set_scale로 정한다)
+    /// 그림 크기 배율: 쓰레기는 96 논리 px 칸의 절반 (똥은 싼 동물을 따라 set_scale로 정한다), 거대한 것은 15배 (화면을 알면 scale_on)
     pub fn base_scale(self) -> f64 {
-        if self.is_poop() {
+        if self.is_giant() {
+            giant_scale(f64::NAN)
+        } else if self.is_poop() {
             1.0
         } else {
             0.5
+        }
+    }
+
+    /// 화면에 놓을 때의 배율: size = 크기 조절 창의 쓰레기 배율, work_area_height = 놓일 작업 영역 높이 (논리 px).
+    /// 쓰레기만 size를 따르고, 거대한 것은 화면 높이에 맞춘다
+    pub fn scale_on(self, size: f64, work_area_height: f64) -> f64 {
+        if self.is_giant() {
+            giant_scale(work_area_height)
+        } else if self.is_poop() {
+            self.base_scale()
+        } else {
+            self.base_scale() * size
         }
     }
 
@@ -110,6 +181,8 @@ impl ObjectKind {
             ObjectKind::Pink => "pink",
             ObjectKind::Rainbow => "rainbow",
             ObjectKind::Pellets => "pellets",
+            ObjectKind::GiantStone => "giant_stone",
+            ObjectKind::GiantPoop => "giant_poop",
         }
     }
 
@@ -125,6 +198,8 @@ impl ObjectKind {
             ObjectKind::Shirt => "👕 누더기 티셔츠",
             ObjectKind::Umbrella => "☂️ 부러진 우산",
             ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets => "💩 똥",
+            ObjectKind::GiantStone => "🪨 거대한 돌",
+            ObjectKind::GiantPoop => "💩 거대한 똥",
         }
     }
 
@@ -142,24 +217,29 @@ impl ObjectKind {
         match (ObjectKind::from_id(id)?, look) {
             (ObjectKind::Poop, Some("pink")) => Some(ObjectKind::Pink),
             (ObjectKind::Poop, Some("rainbow")) => Some(ObjectKind::Rainbow),
+            (ObjectKind::Poop, Some("giant")) => Some(ObjectKind::GiantPoop),
+            (ObjectKind::Stone, Some("giant")) => Some(ObjectKind::GiantStone),
             (kind, _) => Some(kind),
         }
     }
 
-    /// 똥 색 (Toss::look으로 보낸다 — 옛 버전 친구는 몰라서 갈색 똥으로 받는다)
+    /// 똥 색과 거대함 (Toss::look으로 보낸다 — 옛 버전 친구는 몰라서 갈색 똥·보통 돌로 받는다)
     pub fn look(self) -> Option<&'static str> {
         match self {
             ObjectKind::Pink => Some("pink"),
             ObjectKind::Rainbow => Some("rainbow"),
+            ObjectKind::GiantStone | ObjectKind::GiantPoop => Some("giant"),
             _ => None,
         }
     }
 
     /// 친구에게 던질 때의 이름: 티셔츠는 양말 자리를 물려받아, 옛 버전 친구는 양말로 받는다
     pub fn wire_id(self) -> &'static str {
-        // 옛 버전 친구는 무지개를 몰라 그냥 똥으로 받는다 (Toss::rainbow로 알린다)
+        // 옛 버전 친구는 무지개·거대함을 몰라 그냥 똥·돌로 받는다 (Toss::look으로 알린다)
         if self == ObjectKind::Shirt {
             "sock"
+        } else if self == ObjectKind::GiantStone {
+            "stone"
         } else if self.look().is_some() {
             "poop"
         } else {
@@ -180,6 +260,8 @@ impl ObjectKind {
             ObjectKind::Computer => (6.0, 18.0),
             // 바닥에 붙어 있다 (start_gust가 막는다)
             ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets => (0.0, 0.0),
+            // 너무 무겁다 (start_gust가 막는다)
+            ObjectKind::GiantStone | ObjectKind::GiantPoop => (0.0, 0.0),
         }
     }
 }
@@ -195,7 +277,7 @@ pub enum Postit {
     Unread,
     /// 읽는 중 — 글자는 이미 웹뷰로 갔고 여기엔 남아 있지 않다
     Reading,
-    /// 똥: 포스트잇을 붙일 수 없다 (저절로 사라지면 받은 글자도 사라지니까)
+    /// 똥·거대한 물건: 포스트잇을 붙일 수 없다 (똥은 저절로 사라지면 받은 글자도 사라지니까, 거대한 것은 쪽지 창이 그림을 덮으니까)
     Never,
 }
 
@@ -289,7 +371,7 @@ impl Object {
             moved: 0.0,
             grabbed_from: (x, y),
             samples: Vec::new(),
-            postit: if kind.is_poop() { Postit::Never } else { Postit::None },
+            postit: if kind.takes_postit() { Postit::None } else { Postit::Never },
             note: None,
             read_left: 0.0,
             note_ended: false,
@@ -419,7 +501,7 @@ impl Object {
     /// 빗자루(vx, vy = 빗자루 속도, 물리 px/s)가 바닥의 똥을 쓸었다: 그 쪽으로 던진 것과 같다 — 친구가 연결된 화면 끝을 넘으면 평소처럼 날아간다.
     /// 살살 쓸어도 조금은 밀리고 살짝 뜬다. 날아가는 중이거나 들려 있으면 그대로 (내려앉아야 다시 쓸린다). 쓸렸으면 true
     pub fn sweep(&mut self, vx: f64, vy: f64) -> bool {
-        if !self.kind.is_poop() || !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) || (vx == 0.0 && vy == 0.0) {
+        if !self.kind.is_sweepable() || !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) || (vx == 0.0 && vy == 0.0) {
             return false;
         }
         let (mut vx, mut vy) = throw_velocity(vx, vy, self.dpi, THROW_LIFT);
@@ -525,7 +607,7 @@ impl Object {
 
     /// 바람이 분다 (dir = ±1). 잠들어 있을 때만. 던졌을 때와 같은 구르기를 살살
     pub fn start_gust(&mut self, dir: f64) {
-        if self.phase != Phase::Rest || self.kind.is_poop() {
+        if self.phase != Phase::Rest || self.kind.gust_reach().1 <= 0.0 {
             return;
         }
         let heft = heft_of(self.kind);
@@ -852,8 +934,8 @@ pub fn accept_toss(kind: &str, fling: Option<Fling>, note: Option<&str>) -> Opti
     let kind = ObjectKind::from_id(kind)?;
     let fling = fling.and_then(Fling::sanitized).unwrap_or(DEFAULT_FLING);
     let (vx, vy) = clamp_speed(fling.vx, fling.vy, visit::MAX_FLING_SPEED);
-    // 똥엔 포스트잇이 없다 (옛 버전·고친 앱이 보내도)
-    let note = note.filter(|_| !kind.is_poop()).and_then(visit::sanitize_note);
+    // 똥·거대한 것엔 포스트잇이 없다 (옛 버전·고친 앱이 보내도)
+    let note = note.filter(|_| kind.takes_postit()).and_then(visit::sanitize_note);
     Some(AcceptedToss { kind, fling: Fling { height: fling.height, vx, vy }, note })
 }
 

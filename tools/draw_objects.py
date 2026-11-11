@@ -1,6 +1,7 @@
 """물건 (쓰레기 장난감) — draw_pets.py 엔진으로 그린 128 칸 그림과 노란 포스트잇.
 
     python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,shirt,umbrella,poop,pink,rainbow,pellets}.png (128×128)
+                                    + ui/objects/{giant_stone,giant_poop}.png (1024×1024 — 화면 높이의 80%까지 커지니 크게 그린다)
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
@@ -15,6 +16,8 @@ CSS로 돌린다 (ui/object.js) — 그래서 그림 한 장이면 된다.
 
 import random
 import sys
+from contextlib import contextmanager
+from functools import lru_cache
 from math import ceil, hypot
 from pathlib import Path
 
@@ -22,8 +25,10 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import draw_house  # noqa: E402
+import draw_pets  # noqa: E402
 from draw_house import blob, finish  # noqa: E402
-from draw_pets import LINE, WHITE, C, E, L, T, aa, mix, paint, shapes, view  # noqa: E402
+from draw_pets import LINE, WHITE, C, E, L, T, aa, drop_faint, mix, paint, shapes, view  # noqa: E402
 from draw_props import new_canvas  # noqa: E402
 from sprite_spec import FRAME  # noqa: E402
 
@@ -39,7 +44,16 @@ POSTIT_REACH = 20
 HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
-NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "pink", "rainbow", "pellets")
+NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "pink", "rainbow", "pellets", "giant_stone", "giant_poop")
+# 🪨💩 거대한 물건 → 같은 모양의 작은 것. 아기 동물의 15배(화면 높이의 80%까지)로 보이니 GIANT_PX로 직접 그린다 (128을 키우면 흐릿하다)
+GIANTS = {"giant_stone": "stone", "giant_poop": "poop"}
+GIANT_PX = 1024
+# 칸 안에서 작은 것보다 이만큼 크게 (바닥 가운데 기준) — 아기 동물이 제 칸을 채우는 만큼. 픽셀 그림은 24칸 중 20칸을 잘라 같은 비율 (draw_pixel_world GIANT_CROP)
+GIANT_GROW = 1.2
+# 거대한 그림의 외곽선 굵기 배율: 128 그림 그대로면 화면에서 14 px나 되는 굵은 테가 된다
+GIANT_LINE = 0.45
+# 거대한 돌에만 보이는 잔 결 (128 칸 좌표의 반지름)
+GIANT_GRAIN = 260
 # 포스트잇 가운데 자리 (128 칸 좌표) — 그림 위에 얹힌다. 똥(poop, pink, rainbow, pellets)엔 포스트잇을 붙이지 않는다
 POSTIT_AT = {
     "can": (76, 80),
@@ -276,7 +290,71 @@ DRAW = {
 }
 
 
+def draw_giant_stone(img):
+    """거대한 돌: 돌멩이 그대로 + 크게 봐야 보이는 잔 결 (밝은 알갱이·어두운 구멍)과 가는 금."""
+    draw_stone(img)
+    grains = random.Random(23)
+    # 돌 안쪽 (외곽선에서 조금 떨어진) 타원 안에만
+    def inside():
+        while True:
+            x, y = grains.uniform(32, 100), grains.uniform(64, 124)
+            if ((x - 66) / 34) ** 2 + ((y - 94) / 30) ** 2 < 1:
+                return x, y
+    light = [C(*inside(), grains.uniform(0.25, 0.6)) for _ in range(GIANT_GRAIN)]
+    pits = [C(*inside(), grains.uniform(0.3, 0.7)) for _ in range(GIANT_GRAIN // 2)]
+    paint(img, aa(shapes(light)), mix(STONE, WHITE, 0.25))
+    paint(img, aa(shapes(pits)), mix(STONE_DARK, STONE_CRACK, 0.5))
+    paint(img, aa(shapes([L([(84, 70), (88, 78), (86, 84)], 0.35), L([(40, 112), (48, 116), (52, 114)], 0.35),
+                          L([(92, 104), (88, 110)], 0.3)])), STONE_CRACK)
+
+
+def draw_giant_poop(img):
+    """거대한 똥: 똥 그대로 (크게 그려 또렷하다)."""
+    draw_poop(img)
+
+
+DRAW["giant_stone"] = draw_giant_stone
+DRAW["giant_poop"] = draw_giant_poop
+
+
+def art_px(name):
+    """그림 한 변 (px)"""
+    return GIANT_PX if name in GIANTS else FRAME
+
+
+def cell128(art):
+    """128 칸 좌표로 재는 검사·모양 표용 (거대한 그림은 줄여서)"""
+    return art if art.size == (FRAME, FRAME) else art.resize((FRAME, FRAME), Image.LANCZOS)
+
+
+@contextmanager
+def hires(px):
+    """draw_pets 엔진을 px 칸으로 (슈퍼샘플 2배): 좌표는 그대로 128, 캔버스·번짐·외곽선만 커진다."""
+    k = 2 * px // FRAME
+    old = (draw_pets.K, draw_pets.S, draw_house.OUTLINE)
+    draw_pets.K, draw_pets.S = k, FRAME * k
+    draw_house.OUTLINE = old[2] * GIANT_LINE
+    try:
+        with draw_pets.output(px // FRAME):
+            yield
+    finally:
+        draw_pets.K, draw_pets.S, draw_house.OUTLINE = old
+
+
+@lru_cache(maxsize=None)
+def _giant(name):
+    with hires(GIANT_PX):
+        img = Image.new("RGBA", (draw_pets.S, draw_pets.S), (0, 0, 0, 0))
+        with view(scale=GIANT_GROW, lift=0):
+            DRAW[name](img)
+    out = img.resize((GIANT_PX, GIANT_PX), Image.LANCZOS)
+    drop_faint(out)
+    return out
+
+
 def draw_object(name):
+    if name in GIANTS:
+        return _giant(name).copy()
     img = new_canvas()
     with view(scale=1.0, lift=0):
         DRAW[name](img)
@@ -390,9 +468,10 @@ def shape_table():
     """tumble.rs shape_of의 몸 (이 글자 그대로 붙여 넣는다)"""
     lines = []
     for name in NAMES:
-        s = shape_of(name, draw_object(name))
+        s = shape_of(name, cell128(draw_object(name)))
         hull = ", ".join(f"({x}.0, {y}.0)" for x, y in s["hull"])
-        lines.append(f"        ObjectKind::{name.capitalize()} => Shape {{ pivot: ({s['pivot'][0]}.0, {s['pivot'][1]}.0), reach: {s['reach']}.0, hull: &[{hull}] }},")
+        kind = "".join(part.capitalize() for part in name.split("_"))
+        lines.append(f"        ObjectKind::{kind} => Shape {{ pivot: ({s['pivot'][0]}.0, {s['pivot'][1]}.0), reach: {s['reach']}.0, hull: &[{hull}] }},")
     return "\n".join(lines)
 
 

@@ -3,7 +3,7 @@
     python tools/draw_pixel_world.py   → ui/house_pixel/  {house,haunted,xmas}_<stage>{.png,_front.png,.json} + xmas_smoke.png
                                          ui/effects_pixel/ 소품·손 음식·눈덩이(4)·눈사람·눈구름·모자·목도리·효과
                                          ui/gifts_pixel/   선물 전부 + _shiny
-                                         ui/objects_pixel/ 물건 8 + 똥 3 + 포스트잇
+                                         ui/objects_pixel/ 물건 8 + 똥 3 + 거대한 돌·똥 + 포스트잇
                                          tools/preview/pixel_world_*.png
 
 한 칸 크기 (어디서나 화면 3px — 동물·세계 그림이 고르다):
@@ -46,6 +46,10 @@ SNOWMAN_DOTS = (16, 20)
 SNOWBALL_DOTS = (10, 10)
 CLOUD_DOTS = (14, 9)
 OBJECT_DOTS = 24
+# 거대한 돌·똥 = 보통 돌·똥의 칸을 20칸 칸으로 잘라 낸 것 (칸 안을 1.2배 채운다 — 동글 거대 그림과 같은 비율, tools/draw_objects.py GIANT_GROW).
+# 웹뷰가 칸을 또렷하게(pixelated) 키우니 칸을 더 찍을 필요가 없다
+GIANT_OBJECTS = {"giant_stone": "stone", "giant_poop": "poop"}
+GIANT_CROP = (2, 4, 22, 24)
 POSTIT_DOTS = 6
 # 모자·목도리 띠 (한 칸 = 머리 너비 하나): ui/main.js와 같다
 CAP_CELL = (40, 30)
@@ -636,6 +640,9 @@ def build_objects():
         c = Dots(OBJECT_DOTS)
         c.stamp(icons.art(text), 0, 0)
         save(c.outlined(), out / f"{name}.png")
+        for giant, small in GIANT_OBJECTS.items():
+            if small == name:
+                save(c.outlined().image().crop(GIANT_CROP), out / f"{giant}.png")
     save(icon(icons.POSTIT, POSTIT_DOTS, ink=(190, 150, 60)), out / "postit.png")
 
 

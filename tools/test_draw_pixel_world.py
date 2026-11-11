@@ -231,6 +231,19 @@ def test_objects_sit_where_the_tumble_shape_says():
     assert (UI / "objects_pixel" / "postit.png").is_file()
 
 
+def test_giant_pixel_objects_are_their_small_selves_on_fewer_dots():
+    """거대한 돌·똥 픽셀 그림 = 보통 돌·똥의 칸을 그대로 (20칸 칸에 꽉 차게 — 동글 거대 그림이 1.2배 큰 것과 같다). 칸은 CSS가 또렷하게 키운다."""
+    for giant, small in w.GIANT_OBJECTS.items():
+        big = np.asarray(Image.open(UI / "objects_pixel" / f"{giant}.png").convert("RGBA"))
+        base = np.asarray(Image.open(UI / "objects_pixel" / f"{small}.png").convert("RGBA"))
+        x0, y0, x1, y1 = w.GIANT_CROP
+        assert big.shape[:2] == (y1 - y0, x1 - x0)
+        assert (big == base[y0:y1, x0:x1]).all(), giant
+        # 잘라 낸 칸 밖엔 아무것도 없었다
+        assert base[..., 3].sum() == big[..., 3].sum(), giant
+        assert alpha_is_hard(UI / "objects_pixel" / f"{giant}.png")
+
+
 def node_run(marker_file, start, end, tail):
     src = (UI / marker_file).read_text(encoding="utf-8")
     body = src[src.index(start): src.index(end)]
@@ -379,6 +392,7 @@ def test_object_layout_scales_the_pivot_with_the_dots():
       for (let x = 0; x < 20; x++) for (let y = 0; y < 8; y++) cells.push([x + 0.5, y + 0.5]);
       console.log(JSON.stringify({
         at: [1, 1.1, 1.2, 1.5, 2].map((dpr) => ({ dpr, ...pixelMetrics(dpr, [48, 72]) })),
+        giant: [1, 1.25, 1.5, 2].map((dpr) => ({ dpr, ...pixelMetrics(dpr, [48, 72], 8, 20) })),
         same: pixelPose(cells, [10, 4], 40),
         scaled: pixelPose(cells, [10, 4], 40, 1.1),
         flat: pixelPose(cells, [10, 4], 0, 1.1),
@@ -390,6 +404,14 @@ def test_object_layout_scales_the_pivot_with_the_dots():
         assert m["side"] == pytest.approx(24 * m["dot"])
         assert (m["dot"] * dpr) == pytest.approx(round(m["dot"] * dpr)), "칸이 물리 px의 정수배"
         # 축은 그림 안 같은 자리에 (물리 px로 맞추느라 반 물리 px까지 어긋난다)
+        assert abs(m["pivotX"] - 48 * m["side"] / 96) * dpr <= 0.5 + 1e-9, dpr
+        assert abs(m["pivotY"] - 72 * m["side"] / 96) * dpr <= 0.5 + 1e-9, dpr
+    # 거대한 물건: 20칸 그림이 24칸 그림과 같은 넓이 (72 × 배율), 칸은 물리 px 정수배, 축도 같은 비율
+    for m in r["giant"]:
+        dpr = m["dpr"]
+        assert m["side"] == pytest.approx(20 * m["dot"])
+        assert (m["dot"] * dpr) == pytest.approx(round(m["dot"] * dpr))
+        assert abs(m["side"] - 72 * 8) <= 20 / dpr, m
         assert abs(m["pivotX"] - 48 * m["side"] / 96) * dpr <= 0.5 + 1e-9, dpr
         assert abs(m["pivotY"] - 72 * m["side"] / 96) * dpr <= 0.5 + 1e-9, dpr
     # 칸 3 논리 px: 그림 한 변 72 — 100%·200%는 칸이 정확히 3

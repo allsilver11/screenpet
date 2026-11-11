@@ -52,7 +52,7 @@ fn kinds_round_trip_and_unknown_ids_are_rejected() {
         assert_eq!(ObjectKind::from_id(k.id()), Some(k));
         assert!(!k.label().is_empty());
         // 창 라벨·파일 이름에 그대로 쓰는 글자만
-        assert!(k.id().chars().all(|c| c.is_ascii_lowercase()));
+        assert!(k.id().chars().all(|c| c.is_ascii_lowercase() || c == '_'));
     }
     // "banana": 없앤 종류 — 옛 버전 친구가 아직 보낼 수 있다
     for bad in ["", "CAN", "../can", "cat", "can\n", "<img>", "banana"] {
@@ -988,7 +988,7 @@ fn poop_on_floor(kind: ObjectKind) -> (Object, World) {
 
 #[test]
 fn poops_are_foreign_validated_but_not_offered_in_the_menu() {
-    assert_eq!(ObjectKind::TRASH.len() + POOPS.len(), ObjectKind::ALL.len());
+    assert_eq!(ObjectKind::TRASH.len() + POOPS.len() + ObjectKind::GIANTS.len(), ObjectKind::ALL.len());
     for k in POOPS {
         assert!(k.is_poop());
         assert!(!ObjectKind::TRASH.contains(&k), "{k:?}");
@@ -1356,5 +1356,148 @@ fn pink_poop_travels_as_poop_with_its_colour() {
     assert_eq!(ObjectKind::Poop.look(), None);
     for k in ObjectKind::ALL {
         assert_eq!(ObjectKind::wire_kind(k.wire_id(), k.look()), Some(k), "{k:?}");
+    }
+}
+
+// ---- 🪨💩 거대한 돌·똥 ----
+
+/// 1920×1040 작업 영역의 바닥
+fn giant(kind: ObjectKind, x: f64, y: f64) -> Object {
+    let mut o = Object::new(kind, x, y, 1.0, 7);
+    o.set_scale(kind.scale_on(1.0, 1040.0));
+    o
+}
+
+#[test]
+fn giants_follow_the_trash_in_the_menu_but_never_fly_in_a_volley() {
+    assert_eq!(ObjectKind::GIANTS, [ObjectKind::GiantStone, ObjectKind::GiantPoop]);
+    let menu: Vec<ObjectKind> = ObjectKind::MENU.to_vec();
+    let want: Vec<ObjectKind> = ObjectKind::TRASH.iter().chain(ObjectKind::GIANTS.iter()).copied().collect();
+    assert_eq!(menu, want);
+    assert_eq!(ObjectKind::GiantStone.label(), "🪨 거대한 돌");
+    assert_eq!(ObjectKind::GiantPoop.label(), "💩 거대한 똥");
+    for k in ObjectKind::GIANTS {
+        assert!(k.is_giant() && !k.is_poop(), "{k:?}");
+        assert_eq!(ObjectKind::from_id(k.id()), Some(k));
+    }
+    assert!(ObjectKind::ALL.iter().filter(|k| k.is_giant()).count() == 2);
+    let mut rng = fastrand::Rng::with_seed(4);
+    for _ in 0..500 {
+        assert!(!volley_piece(&mut rng).0.is_giant());
+    }
+}
+
+#[test]
+fn a_giant_is_fifteen_baby_cats_but_at_most_80_percent_of_the_screen_height() {
+    // 아기 고양이 한 변 = 128 × 아기 배율 0.45 × 고양이 stage_size 0.91 = 52.416 논리 px
+    let baby_cat = crate::brain::PET_LOGICAL_SIZE * crate::care::Stage::Baby.scale() * BABY_CAT_STAGE_SIZE;
+    assert!((baby_cat - 52.416).abs() < 1e-9, "{baby_cat}");
+    assert!((giant_side() - 15.0 * baby_cat).abs() < 1e-9);
+    // 1080p 화면 (작업 영역 1040): 786 논리 px < 832 (80%)
+    assert!((giant_scale(1040.0) * OBJECT_LOGICAL_SIZE - 786.24).abs() < 1e-6);
+    // 낮은 화면은 80%로 줄인다
+    assert!((giant_scale(700.0) * OBJECT_LOGICAL_SIZE - 560.0).abs() < 1e-6);
+    for h in [300.0, 500.0, 768.0, 1040.0, 1400.0, 2100.0] {
+        assert!(giant_scale(h) * OBJECT_LOGICAL_SIZE <= 0.8 * h + 1e-9, "{h}");
+    }
+    // 모르는 높이면 그냥 15배
+    for bad in [0.0, -5.0, f64::NAN, f64::INFINITY] {
+        assert!((giant_scale(bad) * OBJECT_LOGICAL_SIZE - giant_side()).abs() < 1e-9, "{bad}");
+    }
+    // 크기 조절 창의 쓰레기 배율은 거대한 물건에 듣지 않는다 (똥은 싼 동물을 따른다)
+    assert_eq!(ObjectKind::GiantStone.scale_on(1.5, 1040.0), giant_scale(1040.0));
+    assert_eq!(ObjectKind::GiantPoop.scale_on(0.5, 700.0), giant_scale(700.0));
+    assert_eq!(ObjectKind::Stone.scale_on(1.5, 1040.0), 0.75);
+    assert_eq!(ObjectKind::Poop.scale_on(1.5, 1040.0), 1.0);
+    // 처음 만들 때(화면을 알기 전)는 15배
+    assert!((Object::new(ObjectKind::GiantStone, 0.0, 0.0, 1.0, 1).scale() * OBJECT_LOGICAL_SIZE - giant_side()).abs() < 1e-9);
+}
+
+#[test]
+fn giants_are_too_heavy_for_the_wind_and_take_no_post_it() {
+    let w = floor();
+    for k in ObjectKind::GIANTS {
+        let mut o = giant(k, 900.0, 1000.0);
+        run(&mut o, &w, 4.0);
+        assert!(o.is_asleep(), "{k:?}");
+        assert_eq!(o.body.y, 1040.0);
+        let x = o.body.x;
+        o.start_gust(1.0);
+        assert!(o.is_asleep(), "{k:?} moved by the wind");
+        // 바람 시계가 몇 번 돌아도 그대로
+        for _ in 0..(200.0 / DT) as usize {
+            o.tick(DT, &w, NONE, true);
+        }
+        assert_eq!(o.body.x, x, "{k:?}");
+        assert_eq!(o.postit(), Postit::Never, "{k:?}");
+        assert!(!o.attach_note("hi"));
+        // 쓰레기처럼 치울 때까지 남는다 (똥처럼 마르지 않는다)
+        for _ in 0..((crate::poop::LIFE_SECS + 60.0) / 1.0) as usize {
+            o.tick(1.0, &w, NONE, false);
+        }
+        assert!(!o.expired(), "{k:?}");
+        assert!(o.poop_spot(1).is_none(), "{k:?}: pets don't sniff at it");
+        // 받아도 포스트잇은 버린다
+        assert_eq!(accept_toss(k.id(), None, Some("hello")).unwrap().note, None);
+    }
+}
+
+#[test]
+fn the_broom_sweeps_the_giant_poop_but_not_the_giant_stone() {
+    let w = wide();
+    let mut poop = giant(ObjectKind::GiantPoop, 3000.0, 1000.0);
+    run(&mut poop, &w, 4.0);
+    assert!(poop.sweep(600.0, 0.0));
+    let mut stone = giant(ObjectKind::GiantStone, 3000.0, 1000.0);
+    run(&mut stone, &w, 4.0);
+    assert!(!stone.sweep(600.0, 0.0));
+}
+
+#[test]
+fn a_thrown_giant_tumbles_lands_on_the_floor_inside_the_screen_and_sleeps() {
+    let w = floor();
+    for k in ObjectKind::GIANTS {
+        for v in [(1500.0, -500.0), (-900.0, -100.0), (300.0, -900.0)] {
+            let mut o = giant(k, 960.0, 800.0);
+            fling(&mut o, &w, (960.0, 760.0), v);
+            tumble(&mut o, &w);
+            assert!(o.is_asleep(), "{k:?}");
+            assert_eq!(o.body.y, 1040.0, "{k:?}");
+            assert!(o.body.x - o.half_w() >= -1e-6 && o.body.x + o.half_w() <= 1920.0 + 1e-6, "{k:?} {}", o.body.x);
+        }
+        // 창 위에도 앉는다
+        let ww = World::new(vec![WindowInfo { id: 1, rect: Rect::new(200.0, 600.0, 1700.0, 1000.0) }], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 96.0);
+        let mut o = giant(k, 950.0, 100.0);
+        run(&mut o, &ww, 5.0);
+        assert!(resting_on(&o, Owner::Window(1)), "{k:?} {:?}", o.owner());
+    }
+}
+
+#[test]
+fn a_giant_travels_as_a_plain_stone_or_poop_with_a_giant_look() {
+    assert_eq!(ObjectKind::GiantStone.id(), "giant_stone");
+    assert_eq!(ObjectKind::GiantPoop.id(), "giant_poop");
+    // 옛 버전 친구는 이름만 보고 보통 돌·똥으로 받는다
+    assert_eq!((ObjectKind::GiantStone.wire_id(), ObjectKind::GiantStone.look()), ("stone", Some("giant")));
+    assert_eq!((ObjectKind::GiantPoop.wire_id(), ObjectKind::GiantPoop.look()), ("poop", Some("giant")));
+    assert_eq!(ObjectKind::from_id("stone"), Some(ObjectKind::Stone));
+    assert_eq!(ObjectKind::from_id("poop"), Some(ObjectKind::Poop));
+    // 새 버전 친구는 거대하게 받는다
+    assert_eq!(ObjectKind::wire_kind("stone", Some("giant")), Some(ObjectKind::GiantStone));
+    assert_eq!(ObjectKind::wire_kind("poop", Some("giant")), Some(ObjectKind::GiantPoop));
+    // 다른 것에 붙은 giant 표시는 무시한다
+    assert_eq!(ObjectKind::wire_kind("can", Some("giant")), Some(ObjectKind::Can));
+    assert_eq!(ObjectKind::wire_kind("stone", Some("pink")), Some(ObjectKind::Stone));
+}
+
+#[test]
+fn a_giant_window_grows_with_its_drawing() {
+    for k in ObjectKind::GIANTS {
+        let s = crate::tumble::shape_of(k);
+        let scale = giant_scale(1040.0);
+        let side = s.window_side_at(scale);
+        assert!(s.reach * (96.0 / 128.0) * scale < side / 2.0, "{k:?}");
+        assert!(side > s.window_side() * 5.0, "{k:?} {side}");
+        assert!(s.window_side_at(scale * 0.5) < side);
     }
 }

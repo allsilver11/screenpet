@@ -3,6 +3,8 @@
 //! 창 목록이 그대로면 세계도 다시 만들지 않고, 창 크기·화면 배율도 깨어 있는 물건만 다시 읽는다.
 //! 받은 물건은 인증된 친구 링크에서 온 것만, 종류·움직임·글자를 코어가 다듬은 뒤에 쓴다 (글자는 웹뷰에서 textContent로만).
 //! 💩 똥도 물건이다 (끌기·던지기·치우기·친구에게 넘기기·집중 중 되돌리기가 그대로): 메뉴로 못 꺼내고, 수는 따로 10개까지, 30분이면 스르륵 사라지고, 빗자루에 쓸린다.
+//! 🪨💩 거대한 돌·똥은 메뉴로 꺼내는 쓰레기다 (내 물건 10개에 들어간다): 아기 동물의 15배 — 놓이는 화면 높이의 80%까지 — 로 그리고, 바람에 안 구르고, 포스트잇이 없다.
+//! 친구에게는 보통 돌·똥 이름에 look "giant"를 붙여 던진다 (옛 버전 친구는 보통 크기로 받는다). 거대한 똥은 빗자루에 쓸리지만 저절로 사라지지 않는다.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
@@ -289,9 +291,16 @@ impl Objects {
         self.sync_menu();
     }
 
-    /// 쓰레기의 그림 크기 배율 (똥은 싼 동물을 따라 따로 정한다)
-    fn scale_of(&self, kind: ObjectKind) -> f64 {
-        kind.base_scale() * self.size
+    /// (x, y)에 놓을 그림 크기 배율: 쓰레기는 크기 조절 창을 따르고 (똥은 싼 동물을 따라 따로 정한다),
+    /// 거대한 것은 그 자리 작업 영역 높이에 맞춘다 — 창을 만들기 전이라 화면 배율은 그 자리 모니터에서 읽는다
+    fn scale_at(&self, app: &AppHandle, kind: ObjectKind, base: &World, x: f64, y: f64) -> f64 {
+        let height = if kind.is_giant() {
+            let dpi = app.monitor_from_point(x, y).ok().flatten().map_or(1.0, |m| m.scale_factor());
+            base.work_area_at(x, y).height() / dpi
+        } else {
+            f64::NAN
+        };
+        kind.scale_on(self.size, height)
     }
 
     /// 크기 조절 창: 화면 위 쓰레기까지 바로 바꾼다
@@ -300,7 +309,7 @@ impl Objects {
             return;
         }
         self.size = size;
-        for l in self.live.iter_mut().filter(|l| !l.object.kind.is_poop()) {
+        for l in self.live.iter_mut().filter(|l| !l.object.kind.is_poop() && !l.object.kind.is_giant()) {
             l.set_scale(app, l.object.kind.base_scale() * size);
         }
     }
@@ -308,12 +317,13 @@ impl Objects {
     /// 메뉴에서 만들기: 커서 근처(트레이에서 눌렀으면 그 위)에서 떨어진다. 넘치면 가장 오래된 내 물건이 뿅
     fn spawn_own(&mut self, app: &AppHandle, kind: ObjectKind, base: &World, cursor: (f64, f64)) {
         let id = self.next_id();
-        let scale = self.scale_of(kind);
+        let scale = self.scale_at(app, kind, base, cursor.0, cursor.1);
         let Some(window) = build_window(app, id, kind, false, scale) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let b = world.bounds;
-        let size = OBJECT_LOGICAL_SIZE * dpi;
+        // 거대한 것은 몸 전체가 화면 안에서 떨어지기 시작한다
+        let size = OBJECT_LOGICAL_SIZE * dpi * scale.max(1.0);
         let x = cursor.0.clamp(b.left + size / 2.0, (b.right - size / 2.0).max(b.left + size / 2.0));
         let y = (cursor.1 - size / 2.0).clamp(b.top + size, b.bottom.max(b.top + size));
         let mut object = Object::new(kind, x, y, dpi, fastrand::u64(..));
@@ -342,7 +352,7 @@ impl Objects {
     /// 🧹 빗자루가 지나간 똥은 빗자루 쪽으로 밀려 날아간다 (평소의 던지기 — 친구가 연결된 끝을 넘으면 tick이 친구에게 보낸다)
     pub fn sweep_poops(&mut self, broom: &Broom) {
         let (vx, vy) = broom.velocity();
-        for l in self.live.iter_mut().filter(|l| l.object.kind.is_poop()) {
+        for l in self.live.iter_mut().filter(|l| l.object.kind.is_sweepable()) {
             if broom.passes_over(l.object.body.x, l.object.body.y, l.object.dpi()) {
                 l.object.sweep(vx, vy);
             }
@@ -395,7 +405,8 @@ impl Objects {
         }
         let Some((accepted, side)) = self.inbox.pop() else { return };
         let id = self.next_id();
-        let scale = self.scale_of(accepted.kind);
+        let (x, y) = entry_point(base, side);
+        let scale = self.scale_at(app, accepted.kind, base, x, y);
         let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), scale) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
@@ -660,6 +671,16 @@ impl Objects {
     }
 }
 
+/// 친구가 던진 물건이 들어올 화면 끝 언저리 (거대한 물건의 크기를 그 화면에 맞춘다)
+fn entry_point(world: &World, side: Side) -> (f64, f64) {
+    let b = world.bounds;
+    match side {
+        Side::Left => (b.left + 1.0, b.bottom - 1.0),
+        Side::Right => (b.right - 1.0, b.bottom - 1.0),
+        _ => ((b.left + b.right) / 2.0, b.bottom - 1.0),
+    }
+}
+
 /// 던지고 이만큼 안에 되돌아온 물건만 내 것으로 본다
 const BOUNCE_WINDOW: Duration = Duration::from_secs(30);
 
@@ -697,8 +718,11 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale
 /// `물건 ▸` 하위 메뉴 (tray::build가 부른다)
 pub fn build_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     let sub = Submenu::new(app, menu_label(0), true)?;
-    // 똥은 메뉴로 꺼내지 않는다 (동물이 싼다)
-    for kind in ObjectKind::TRASH {
+    // 똥은 메뉴로 꺼내지 않는다 (동물이 싼다). 거대한 돌·똥은 쓰레기 다음에 줄을 긋고
+    for kind in ObjectKind::MENU {
+        if kind == ObjectKind::GIANTS[0] {
+            sub.append(&PredefinedMenuItem::separator(app)?)?;
+        }
         sub.append(&MenuItem::with_id(app, format!("{MENU_SPAWN}{}", kind.id()), kind.label(), true, None::<&str>)?)?;
     }
     sub.append(&PredefinedMenuItem::separator(app)?)?;

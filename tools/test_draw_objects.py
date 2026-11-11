@@ -20,7 +20,7 @@ def built(tmp_path_factory):
 
 def test_names_match_the_core_kinds():
     rs = (ROOT / "crates" / "screenpet-core" / "src" / "object.rs").read_text(encoding="utf-8")
-    assert tuple(re.findall(r'ObjectKind::\w+ => "([a-z]+)",', rs)) == d.NAMES
+    assert tuple(re.findall(r'ObjectKind::\w+ => "([a-z_]+)",', rs)) == d.NAMES
 
 
 def test_postit_spots_match_the_webview():
@@ -33,9 +33,10 @@ def test_postit_spots_match_the_webview():
 def test_sprite_fits_the_cell_and_sits_on_the_bottom(built, name):
     out, arts = built
     im = arts[name]
-    assert im.size == (128, 128) and im.mode == "RGBA"
-    assert Image.open(out / f"{name}.png").size == (128, 128)
-    a = im.getchannel("A")
+    px = d.art_px(name)
+    assert im.size == (px, px) and im.mode == "RGBA"
+    assert Image.open(out / f"{name}.png").size == (px, px)
+    a = d.cell128(im).getchannel("A")
     for corner in ((0, 0), (127, 0)):
         assert a.getpixel(corner) == 0, corner
     left, top, right, bottom = a.getbbox()
@@ -87,7 +88,7 @@ def core_shapes():
         r"ObjectKind::(\w+) => Shape \{ pivot: \(([\d.]+), ([\d.]+)\), reach: ([\d.]+), hull: &\[(.*?)\] \}", rs
     ):
         pts = [(float(x), float(y)) for x, y in re.findall(r"\(([\d.]+), ([\d.]+)\)", hull)]
-        table[kind.lower()] = {"pivot": (float(px), float(py)), "reach": float(reach), "hull": pts}
+        table[re.sub(r"(?<!^)([A-Z])", r"_\1", kind).lower()] = {"pivot": (float(px), float(py)), "reach": float(reach), "hull": pts}
     return table
 
 
@@ -105,7 +106,7 @@ def test_turning_sprite_touches_where_the_core_thinks_and_is_not_clipped(built, 
     (px, py), reach = s["pivot"], s["reach"]
     rad = math.radians(deg)
     lowest = max((x - px) * math.sin(rad) + (y - py) * math.cos(rad) for x, y in s["hull"])
-    a = np_alpha(arts[name])
+    a = np_alpha(d.cell128(arts[name]))
     ys, xs = a.nonzero()
     xs, ys = xs + 0.5 - px, ys + 0.5 - py
     assert (xs ** 2 + ys ** 2).max() <= reach ** 2
@@ -191,7 +192,7 @@ POOPS = ("poop", "pink", "rainbow", "pellets")
 
 
 def test_only_trash_takes_post_its():
-    assert set(d.POSTIT_AT) == set(d.NAMES) - set(POOPS)
+    assert set(d.POSTIT_AT) == set(d.NAMES) - set(POOPS) - set(d.GIANTS)
 
 
 @pytest.mark.parametrize("name", ["poop", "pink", "rainbow"])
@@ -306,3 +307,70 @@ def test_pink_poop_is_pink_and_the_same_swirl(built):
     assert r > g + 40 and b > g, (r, g, b)
     area = lambda n: (np.asarray(arts[n].getchannel("A")) >= 128).sum()
     assert abs(area("pink") - area("poop")) < area("poop") * 0.05
+
+
+# ---- 🪨💩 거대한 돌·똥: 화면 높이의 80%까지 커지므로 1024로 그린다 ----
+
+
+def test_giants_are_named_like_the_core():
+    assert d.GIANTS == {"giant_stone": "stone", "giant_poop": "poop"}
+    assert all(name in d.NAMES for name in d.GIANTS)
+    rs = (ROOT / "crates" / "screenpet-core" / "src" / "object.rs").read_text(encoding="utf-8")
+    assert '"🪨 거대한 돌"' in rs and '"💩 거대한 똥"' in rs
+
+
+def test_the_baby_cat_size_in_the_core_is_the_cat_pet_json():
+    import json
+
+    rs = (ROOT / "crates" / "screenpet-core" / "src" / "object.rs").read_text(encoding="utf-8")
+    core = float(re.search(r"pub const BABY_CAT_STAGE_SIZE: f64 = ([\d.]+);", rs).group(1))
+    pet = json.loads((ROOT / "ui" / "pets" / "cat" / "pet.json").read_text(encoding="utf-8"))
+    assert core == pet["stage_size"]["baby"]
+
+
+def _partial(im):
+    a = np.asarray(im.getchannel("A")).astype(int)
+    return int(((a > 10) & (a < 245)).sum()), int((a >= 245).sum())
+
+
+@pytest.mark.parametrize("name", sorted(d.GIANTS))
+def test_giants_are_drawn_sharp_at_1024_not_upscaled(built, name):
+    """1024 칸에 직접 그렸다: 가장자리 번짐이 128 그림을 키운 것보다 훨씬 얇다."""
+    _, arts = built
+    big = arts[name]
+    assert big.size == (1024, 1024)
+    blurry = arts[d.GIANTS[name]].resize((1024, 1024), Image.LANCZOS)
+    (edge, solid), (edge_up, solid_up) = _partial(big), _partial(blurry)
+    # 넓이로 맞춘 가장자리 띠 두께
+    assert edge / solid ** 0.5 < 0.35 * edge_up / solid_up ** 0.5, (edge, solid, edge_up, solid_up)
+
+
+@pytest.mark.parametrize("name", sorted(d.GIANTS))
+def test_giants_look_like_their_small_selves_only_bigger_in_the_cell(built, name):
+    _, arts = built
+    small, big = arts[d.GIANTS[name]], d.cell128(arts[name])
+    sb, bb = small.getchannel("A").getbbox(), big.getchannel("A").getbbox()
+    grow = (bb[2] - bb[0]) / (sb[2] - sb[0])
+    assert 1.12 <= grow <= 1.3, (sb, bb)
+    assert bb[3] >= 124 and bb[1] > 0, bb
+    want, got = _opaque(small).mean(axis=0), _opaque(arts[name]).mean(axis=0)
+    assert np.abs(want - got).max() < 25, (want, got)
+
+
+def test_giant_poop_is_a_brown_swirl(built):
+    _, arts = built
+    r, g, b = _opaque(arts["giant_poop"]).mean(axis=0)
+    assert r > g > b, (r, g, b)
+    a = np.asarray(d.cell128(arts["giant_poop"]).getchannel("A")) >= 128
+    ys, xs = a.nonzero()
+    widths = a.sum(axis=1)[ys.min(): ys.max() + 1]
+    h = ys.max() - ys.min() + 1
+    assert widths.argmax() >= h * 2 // 3 and widths[: h // 6].max() < (xs.max() - xs.min() + 1) * 0.45
+
+
+def test_the_webview_draws_giants_from_the_big_art_and_knows_their_pixel_dots():
+    js = (ROOT / "ui" / "object.js").read_text(encoding="utf-8")
+    dots = dict((k, int(v)) for k, v in re.findall(r"(giant_\w+): (\d+)", js))
+    assert dots == {name: 20 for name in d.GIANTS}
+    for name in d.GIANTS:
+        assert Image.open(ROOT / "ui" / "objects_pixel" / f"{name}.png").size == (dots[name], dots[name])

@@ -117,8 +117,9 @@ pub struct Toss {
     /// receiver limits it; older versions ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub scale: Option<f64>,
-    /// A coloured poop ("pink", "rainbow"), sent as kind "poop" so older
-    /// versions get a plain one. The receiver's app checks the name.
+    /// A coloured poop ("pink", "rainbow") or a giant stone or poop
+    /// ("giant"), sent as kind "poop" / "stone" so older versions get a plain
+    /// one. The receiver's app checks the name.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub look: Option<String>,
 }
@@ -873,6 +874,18 @@ mod tests {
         let odd = Message::parse(br#"{"type":"ping","toss":{"kind":"poop","look":7}}"#);
         assert!(matches!(odd, Some(Message::Control(Control::Ping { toss: Some(Toss { look: None, .. }), .. }))));
         assert!(matches!(Message::parse(br#"{"type":"ping","toss":{"kind":"can"}}"#), Some(Message::Control(Control::Ping { toss: Some(Toss { side: Side::Left, .. }), .. }))));
+    }
+
+    #[test]
+    fn a_giant_toss_reads_as_a_plain_stone_to_anyone_who_skips_the_look() {
+        let t = Toss { kind: "stone".into(), side: Side::Right, vside: None, fling: None, note: None, bounced: false, scale: None, look: Some("giant".into()) };
+        let json = serde_json::to_string(&t).unwrap();
+        // 크기는 받는 쪽이 제 화면에 맞춘다: scale은 싣지 않는다
+        assert!(json.contains(r#""look":"giant""#) && json.contains(r#""kind":"stone""#) && !json.contains("scale"), "{json}");
+        let msg = Message::parse(format!(r#"{{"type":"ping","toss":{json}}}"#).as_bytes());
+        assert!(matches!(&msg, Some(Message::Control(Control::Ping { toss: Some(Toss { kind, look: Some(l), scale: None, .. }), .. })) if kind == "stone" && l == "giant"));
+        // look을 모르는 옛 모양의 메시지도 그대로 읽힌다
+        assert!(matches!(Message::parse(br#"{"type":"ping","toss":{"kind":"stone"}}"#), Some(Message::Control(Control::Ping { toss: Some(Toss { look: None, .. }), .. }))));
     }
 
     #[test]
