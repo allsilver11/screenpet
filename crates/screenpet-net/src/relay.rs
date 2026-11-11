@@ -81,6 +81,7 @@ enum ClientMsg<'a> {
     LetterRead { id: u64 },
     LetterDelete { id: u64 },
     LetterBlock { from: &'a str },
+    LetterDone { id: u64, done: bool },
 }
 
 /// A stored feedback letter as the relay lists it (mailbox readers only).
@@ -91,13 +92,16 @@ struct WireLetter {
     from: String,
     #[serde(default)]
     read: bool,
+    /// 개발자가 "반영함"으로 체크했다 (옛 릴레이는 보내지 않는다)
+    #[serde(default)]
+    done: bool,
     r#box: String,
 }
 
 impl WireLetter {
     fn item(self) -> Option<crate::letter::MailItem> {
         let sealed = noise::hex_vec(&self.r#box)?;
-        Some(crate::letter::MailItem { id: self.id, at: self.at, from: self.from, read: self.read, sealed })
+        Some(crate::letter::MailItem { id: self.id, at: self.at, from: self.from, read: self.read, done: self.done, sealed })
     }
 }
 
@@ -107,6 +111,7 @@ pub(crate) enum MailboxEdit {
     Read(u64),
     Delete(u64),
     Block(String),
+    Done(u64, bool),
 }
 
 #[derive(Debug, Deserialize)]
@@ -413,6 +418,7 @@ pub(crate) fn mailbox_edit(client: &RelayClient, edit: MailboxEdit) -> bool {
         MailboxEdit::Read(id) => ClientMsg::LetterRead { id: *id },
         MailboxEdit::Delete(id) => ClientMsg::LetterDelete { id: *id },
         MailboxEdit::Block(from) => ClientMsg::LetterBlock { from },
+        MailboxEdit::Done(id, done) => ClientMsg::LetterDone { id: *id, done: *done },
     };
     client.send(None, Out::Text(json(&m)))
 }
@@ -1179,7 +1185,7 @@ mod tests {
     #[test]
     fn the_mailbox_lists_arrives_and_refreshes_when_it_changes() {
         let (net, events, client, out) = letter_rig();
-        let item = |id, read| WireLetter { id, at: 100 + id, from: "ab".repeat(32), read, r#box: "0a0b".into() };
+        let item = |id, read| WireLetter { id, at: 100 + id, from: "ab".repeat(32), read, done: id == 7, r#box: "0a0b".into() };
         on_message(&net.shared, &client, 1, ServerMsg::LetterNew { item: item(7, false) });
         match &letter_events(&events)[..] {
             [NetEvent::LetterArrived { item }] => assert_eq!((item.id, item.at, item.read, item.sealed.clone()), (7, 107, false, vec![10, 11])),
@@ -1187,14 +1193,21 @@ mod tests {
         }
         on_message(&net.shared, &client, 1, ServerMsg::Letters { items: vec![item(7, true), WireLetter { r#box: "zz".into(), ..item(8, false) }] });
         match &letter_events(&events)[..] {
-            [NetEvent::Mailbox { letters }] => assert_eq!(letters.iter().map(|l| l.id).collect::<Vec<_>>(), vec![7], "bad hex dropped"),
+            [NetEvent::Mailbox { letters }] => {
+                assert_eq!(letters.iter().map(|l| l.id).collect::<Vec<_>>(), vec![7], "bad hex dropped");
+                assert!(letters[0].done);
+            }
             other => panic!("{other:?}"),
         }
         on_message(&net.shared, &client, 1, ServerMsg::LettersChanged);
         assert_eq!(sent_text(&out), vec![r#"{"t":"letters"}"#.to_string()]);
         assert!(mailbox_edit(&client, MailboxEdit::Read(7)));
         assert!(mailbox_edit(&client, MailboxEdit::Block("cd".repeat(32))));
-        assert_eq!(sent_text(&out), vec![r#"{"t":"letter_read","id":7}"#.to_string(), format!(r#"{{"t":"letter_block","from":"{}"}}"#, "cd".repeat(32))]);
+        assert!(mailbox_edit(&client, MailboxEdit::Done(7, true)));
+        assert_eq!(
+            sent_text(&out),
+            vec![r#"{"t":"letter_read","id":7}"#.to_string(), format!(r#"{{"t":"letter_block","from":"{}"}}"#, "cd".repeat(32)), r#"{"t":"letter_done","id":7,"done":true}"#.to_string()]
+        );
     }
 
     #[test]

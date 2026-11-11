@@ -33,6 +33,9 @@ pub struct StoredLetter {
     /// Sender install key (hex).
     pub from: String,
     pub read: bool,
+    /// The developer ticked it as acted on (반영함). Older files lack it.
+    #[serde(default)]
+    pub done: bool,
     /// The sealed letter, hex.
     pub r#box: String,
 }
@@ -117,7 +120,7 @@ impl Mailbox {
         }
         self.data.sent.push(Sent { key: from.to_string(), ip: ip.to_string(), at: now });
         self.data.next_id += 1;
-        let letter = StoredLetter { id: self.data.next_id, at: now, from: from.to_string(), read: false, r#box: proto::to_hex(sealed) };
+        let letter = StoredLetter { id: self.data.next_id, at: now, from: from.to_string(), read: false, done: false, r#box: proto::to_hex(sealed) };
         self.data.letters.push(letter.clone());
         self.dirty = true;
         Ok(letter)
@@ -142,6 +145,20 @@ impl Mailbox {
                 true
             }
             Some(_) => true,
+            None => false,
+        }
+    }
+
+    /// Tick (or untick) a letter as acted on; false if there is no such letter.
+    pub fn mark_done(&mut self, id: u64, done: bool) -> bool {
+        match self.data.letters.iter_mut().find(|l| l.id == id) {
+            Some(l) => {
+                if l.done != done {
+                    l.done = done;
+                    self.dirty = true;
+                }
+                true
+            }
             None => false,
         }
     }
@@ -286,6 +303,25 @@ mod tests {
         assert!(m.list().iter().find(|l| l.id == a).unwrap().read);
         assert_eq!(m.list().iter().find(|l| l.id == b).unwrap().r#box, "6262");
         assert_eq!(m.unread(), 1);
+    }
+
+    #[test]
+    fn the_developer_can_tick_a_letter_as_done_and_it_is_kept() {
+        let dir = tmp_dir("done");
+        let mut m = mb();
+        let id = m.submit("a", "1.0.0.1", 2, b"x", T).unwrap().id;
+        assert!(!m.list()[0].done);
+        assert!(m.mark_done(id, true) && !m.mark_done(999, true));
+        assert!(m.list()[0].done);
+        Mailbox::save(&dir, &m.snapshot().unwrap()).unwrap();
+        assert!(Mailbox::load(&dir).list()[0].done, "survives a restart");
+        assert!(m.mark_done(id, false));
+        assert!(!m.list()[0].done);
+        // 옛 파일(done 칸 없음)도 읽힌다
+        let old = br#"{"next_id":1,"letters":[{"id":1,"at":5,"from":"a","read":true,"box":"00"}]}"#;
+        std::fs::write(dir.join(LETTERS_FILE), old).unwrap();
+        assert!(!Mailbox::load(&dir).list()[0].done);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -123,6 +123,7 @@ pub enum NetInput {
     SendFeedback(String),
     /// 📬 편지함 창: 읽음 · 지우기 · 보낸 사람 막기 (mailbox.rs)
     MailboxRead(u64),
+    MailboxDone(u64, bool),
     MailboxDelete(u64),
     MailboxBlock(String),
     /// 손님 우클릭 "편지 써서 돌려보내기…": 그 손님(창 label) 주인에게 보낼 답장 쓰기 창 (같은 편지 창)
@@ -1152,6 +1153,12 @@ impl Network {
                 if let (Some(net), true) = (&self.net, self.mailbox.enabled()) {
                     net.mailbox_read(id);
                     self.mailbox.read_local(app, id);
+                }
+            }
+            NetInput::MailboxDone(id, done) => {
+                if let (Some(net), true) = (&self.net, self.mailbox.enabled()) {
+                    net.mailbox_done(id, done);
+                    self.mailbox.done_local(app, id, done);
                 }
             }
             NetInput::MailboxDelete(id) => {

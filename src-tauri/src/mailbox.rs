@@ -38,6 +38,8 @@ pub struct LetterView {
     pub at: u64,
     pub from: String,
     pub read: bool,
+    /// 반영함 (개발자가 체크 — 나만 보는 용도, 릴레이에 저장돼 두 컴퓨터가 같다)
+    pub done: bool,
     pub ok: bool,
     pub text: String,
     pub name: String,
@@ -58,6 +60,7 @@ pub fn view_of(item: &MailItem, secret: [u8; 32]) -> LetterView {
         at: item.at,
         from: item.from.clone(),
         read: item.read,
+        done: item.done,
         ok: opened.is_some(),
         text: if opened.is_some() { l.text } else { "(열 수 없는 편지)".into() },
         name: l.name,
@@ -129,6 +132,13 @@ impl Mailbox {
         }
         for v in self.visits.iter_mut().filter(|v| v.0 == id) {
             v.2 = Instant::now();
+        }
+        self.publish(app);
+    }
+
+    pub fn done_local(&mut self, app: &AppHandle, id: u64, done: bool) {
+        if let Some(l) = self.letters.iter_mut().find(|l| l.id == id) {
+            l.done = done;
         }
         self.publish(app);
     }
@@ -236,6 +246,14 @@ pub fn mailbox_read(window: WebviewWindow, state: tauri::State<AppState>, id: u6
     }
 }
 
+/// 반영함 체크 (NetInput::MailboxDone(id, done))
+#[tauri::command]
+pub fn mailbox_done(window: WebviewWindow, state: tauri::State<AppState>, id: u64, done: bool) {
+    if mine(&window) {
+        state.send(Input::Net(NetInput::MailboxDone(id, done)));
+    }
+}
+
 #[tauri::command]
 pub fn mailbox_delete(window: WebviewWindow, state: tauri::State<AppState>, id: u64) {
     if mine(&window) {
@@ -267,7 +285,7 @@ mod tests {
         let secret = screenpet_net::letter::secret_from_hex(&secret_hex).unwrap();
         let public: [u8; 32] = (0..32).map(|i| u8::from_str_radix(&public_hex[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<_>>().try_into().unwrap();
         let sealed = letter::seal(&letter::Letter { text: "안녕".into(), name: "단니".into(), ..Default::default() }, &public).unwrap();
-        let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, sealed };
+        let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, done: false, sealed };
         let v = view_of(&item, secret);
         assert!(v.ok);
         assert_eq!((v.text.as_str(), v.name.as_str()), ("안녕", "단니"));

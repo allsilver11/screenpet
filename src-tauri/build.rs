@@ -83,6 +83,7 @@ fn main() {
         "feedback_close",
         "mailbox_state",
         "mailbox_read",
+        "mailbox_done",
         "mailbox_delete",
         "mailbox_block",
         "mailbox_close",

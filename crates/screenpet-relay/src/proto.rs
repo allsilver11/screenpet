@@ -26,7 +26,7 @@
 //!                   (a feedback letter sealed to the developer key; reasons:
 //!                   daily, ip, new, global, full, size, blocked)
 //! client -> relay   letters                    -> letters {items}       (mailbox readers only)
-//! client -> relay   letter_read {id} | letter_delete {id} | letter_block {from}
+//! client -> relay   letter_read {id} | letter_delete {id} | letter_block {from} | letter_done {id, done}
 //!                                              (readers only) -> letters_changed to every reader
 //! relay  -> client  letter_new {item}          (to readers online when a letter arrives)
 //! client -> relay   ping                      -> pong
@@ -83,6 +83,10 @@ pub enum ClientMsg {
     },
     LetterDelete {
         id: u64,
+    },
+    LetterDone {
+        id: u64,
+        done: bool,
     },
     LetterBlock {
         from: String,

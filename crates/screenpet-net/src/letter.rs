@@ -33,6 +33,8 @@ pub struct MailItem {
     /// The sender's install key (hex) — for blocking.
     pub from: String,
     pub read: bool,
+    /// 개발자가 "반영함"으로 체크했다
+    pub done: bool,
     pub sealed: Vec<u8>,
 }
 

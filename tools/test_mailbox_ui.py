@@ -16,7 +16,7 @@ NET = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
 BUILD = (ROOT / "src-tauri" / "build.rs").read_text(encoding="utf-8")
 CAPS = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text(encoding="utf-8"))
 
-COMMANDS = ("mailbox_state", "mailbox_read", "mailbox_delete", "mailbox_block", "mailbox_close")
+COMMANDS = ("mailbox_state", "mailbox_read", "mailbox_delete", "mailbox_block", "mailbox_done", "mailbox_close")
 
 
 def test_the_mailbox_menu_exists_only_with_a_developer_key():
@@ -58,3 +58,11 @@ def test_letter_pets_visit_but_never_touch_the_network():
     assert 'format!("letter-{}"' in RS
     assert "LETTER_VISIT_SECS: u64 = 60" in RS and "LETTER_GAP_SECS: u64 = 30" in RS and "LETTERS_ON_START: usize = 3" in RS
     assert "refuses_arrivals()" in RS
+
+
+def test_the_developer_can_tick_letters_as_done():
+    """반영/미반영 (나만 보는 용도): 편지마다 체크칸, 반영한 편지는 흐리게. 상태는 릴레이에 (두 컴퓨터가 같게)"""
+    assert 'type = "checkbox"' in JS and "✅ 반영함" in JS
+    assert 'invoke("mailbox_done", { id: l.id, done: box.checked })' in JS or 'invoke("mailbox_done", { id: l.id, done: check.checked })' in JS
+    assert ".letter.done" in HTML, "acted-on letters are dimmed"
+    assert "pub done: bool" in RS and "NetInput::MailboxDone(id, done)" in RS

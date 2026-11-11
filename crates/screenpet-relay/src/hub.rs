@@ -1161,6 +1161,10 @@ impl Hub {
         self.reader_edit(key, conn, |m| m.mark_read(id));
     }
 
+    pub(crate) fn letter_done(&self, key: &str, conn: u64, id: u64, done: bool) {
+        self.reader_edit(key, conn, |m| m.mark_done(id, done));
+    }
+
     pub(crate) fn letter_delete(&self, key: &str, conn: u64, id: u64) {
         self.reader_edit(key, conn, |m| m.delete(id));
     }
@@ -1554,6 +1558,11 @@ mod tests {
         assert_eq!(texts(&r2rx), vec![ServerMsg::LettersChanged]);
         assert_eq!(texts(&rrx), vec![ServerMsg::LettersChanged], "the reader who changed it hears it too");
         assert!(matches!(hub.letters(&reader2, r2conn), Some(ServerMsg::Letters { items }) if items[0].read));
+        hub.letter_done(&reader2, r2conn, id, true);
+        assert_eq!(texts(&rrx), vec![ServerMsg::LettersChanged]);
+        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items }) if items[0].done));
+        hub.letter_done(&sender, sconn, id, false);
+        assert!(texts(&rrx).is_empty(), "a non-reader can't tick it");
         hub.letter_block(&reader2, r2conn, &sender);
         assert_eq!(texts(&rrx), vec![ServerMsg::LettersChanged]);
         assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items }) if items.is_empty()));

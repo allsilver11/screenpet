@@ -310,6 +310,7 @@ fn main() {
             feedback::feedback_close,
             mailbox::mailbox_state,
             mailbox::mailbox_read,
+            mailbox::mailbox_done,
             mailbox::mailbox_delete,
             mailbox::mailbox_block,
             mailbox::mailbox_close,

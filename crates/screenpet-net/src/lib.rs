@@ -1068,6 +1068,11 @@ impl Net {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Read(id)))
     }
 
+    /// 📬 Tick a letter as acted on (반영함), or untick it.
+    pub fn mailbox_done(&self, id: u64, done: bool) -> bool {
+        self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Done(id, done)))
+    }
+
     /// 📬 Delete a letter.
     pub fn mailbox_delete(&self, id: u64) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Delete(id)))

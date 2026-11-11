@@ -26,7 +26,7 @@ function render(letters) {
   listEl.replaceChildren();
   emptyEl.style.display = letters.length ? "none" : "block";
   for (const l of letters) {
-    const box = el("div", l.read ? "letter" : "letter unread");
+    const box = el("div", ["letter", l.read ? "" : "unread", l.done ? "done" : ""].filter(Boolean).join(" "));
     const meta = el("div", "meta");
     const who = `${PET_EMOJI[l.species] || "💌"} ${l.name || "누군가"}`;
     meta.append(el("span", "who", who), el("span", "", `${when(l.at)} · v${l.version || "?"} · ${l.os || "?"}`));
@@ -53,7 +53,16 @@ function render(letters) {
         block.textContent = "이 사람 막기";
       }, 3000);
     });
-    row.append(del, block);
+    // 반영함 체크 (나만 보는 용도 — 릴레이에 저장돼 두 컴퓨터가 같다)
+    const label = el("label");
+    const check = el("input");
+    check.type = "checkbox";
+    check.checked = !!l.done;
+    check.addEventListener("click", (e) => e.stopPropagation());
+    check.addEventListener("change", () => invoke("mailbox_done", { id: l.id, done: check.checked }));
+    label.append(check, el("span", "", "✅ 반영함"));
+    label.addEventListener("click", (e) => e.stopPropagation());
+    row.append(label, del, block);
     box.append(meta, text, row);
     // 열어 보면 읽음 (안 읽은 편지만)
     if (!l.read) box.addEventListener("click", () => invoke("mailbox_read", { id: l.id }), { once: true });

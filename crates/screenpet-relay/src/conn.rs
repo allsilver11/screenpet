@@ -245,6 +245,10 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                     hub.letter_read(&a.key, a.conn, id);
                                     None
                                 }
+                                ClientMsg::LetterDone { id, done } => {
+                                    hub.letter_done(&a.key, a.conn, id, done);
+                                    None
+                                }
                                 ClientMsg::LetterDelete { id } => {
                                     hub.letter_delete(&a.key, a.conn, id);
                                     None
