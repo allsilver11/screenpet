@@ -34,7 +34,7 @@ mod tcp;
 mod transport;
 
 pub use noise::{hex32, to_hex, SAS_EMOJI};
-pub use protocol::{Carry, Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WireCare, WirePlayer, WireResult, CARRY_MIN_VERSION, DEVICES_MIN_VERSION, LADDER_MIN_VERSION, MAX_DEVICES, MAX_FRIENDS, MAX_NOTE, PROTOCOL_VERSION};
+pub use protocol::{Carry, Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WireCare, WirePlayer, WireResult, CARRY_MIN_VERSION, DEVICES_MIN_VERSION, LADDER_MIN_VERSION, MAX_DEVICES, MAX_FRIENDS, MAX_NOTE, MAX_RALLY, PROTOCOL_VERSION};
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};

@@ -215,7 +215,7 @@ pub struct Objects {
     live: Vec<Live>,
     roster: Roster,
     /// 받았지만 아직 창을 만들지 않은 물건 (틱마다 하나씩)
-    inbox: TossInbox<(AcceptedToss, Side)>,
+    inbox: TossInbox<(AcceptedToss, Side, u32)>,
     poop_queue: VecDeque<WaitingPoop>,
     fading: crate::overlay::Fading,
     /// 물건이 있을 때만 맞춘다 (물건 키에 맞춘 세계)
@@ -584,7 +584,7 @@ impl Objects {
             self.queue_poop(WaitingPoop::Tossed(accepted, side, screenpet_core::poop::sanitize_size(toss.scale)));
             return;
         }
-        if let Some(old) = self.inbox.push((accepted, side), &mut self.roster) {
+        if let Some(old) = self.inbox.push((accepted, side, toss.rally.unwrap_or(0)), &mut self.roster) {
             if let Some(i) = self.live.iter().position(|l| l.id == old) {
                 let l = self.live.remove(i);
                 self.poof(l);
@@ -603,7 +603,7 @@ impl Objects {
             self.admit_poop(app, base, poop);
             return;
         }
-        let Some((accepted, side)) = self.inbox.pop() else { return };
+        let Some((accepted, side, rally)) = self.inbox.pop() else { return };
         let id = self.next_id();
         let (x, y) = entry_point(base, side);
         let scale = self.scale_at(app, accepted.kind, base, x, y);
@@ -611,6 +611,8 @@ impl Objects {
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
+        // ⚾ 친구가 보낸 캐치볼 랠리 (흐물이가 받아 되던지면 코어가 하나 올린다)
+        object.set_rally(rally);
         object.set_scale(scale);
         object.receive_note(accepted.note);
         self.admit(id, window, object, Origin::Foreign);
@@ -867,7 +869,7 @@ impl Objects {
             let mut rng = fastrand::Rng::new();
             for _ in 0..count {
                 let (kind, fling) = volley_piece(&mut rng);
-                network.toss_to(id, Toss { kind: kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None, look: None });
+                network.toss_to(id, Toss { kind: kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None, look: None, rally: None });
             }
             !volley.is_done()
         });
@@ -890,7 +892,7 @@ impl Objects {
         self.budgets.entry(friend.clone()).or_default().spend(secs);
         self.threw_at.insert(friend.clone(), Instant::now());
         let (side, vside) = to_net_side(visit::opposite(exit.side));
-        let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()), look: l.object.kind.look().map(str::to_string) };
+        let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()), look: l.object.kind.look().map(str::to_string), rally: (l.object.rally() > 0).then(|| l.object.rally()) };
         eprintln!("threw a {} to {friend}{}", l.object.kind.id(), if toss.note.is_some() { " with a post-it" } else { "" });
         network.toss_to(&friend, toss);
     }

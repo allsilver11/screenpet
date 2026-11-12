@@ -794,11 +794,11 @@ fn flooded_steers_are_rate_limited() {
 #[test]
 fn tosses_reach_connected_friends_with_kind_fling_and_note() {
     let p = connected_pair();
-    let toss = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Up), fling: Some(Fling { height: 0.5, vx: -300.0, vy: 20.0 }), note: Some("hi".into()), bounced: false, scale: None, look: None };
+    let toss = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Up), fling: Some(Fling { height: 0.5, vx: -300.0, vy: 20.0 }), note: Some("hi".into()), bounced: false, scale: None, look: None, rally: Some(3) };
     p.a.toss("bbbb", toss.clone());
     assert_eq!(wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Tossed { .. })), Some(NetEvent::Tossed { from: "aaaa".into(), toss }));
     // 모르는 상대에게는 보내지 않는다
-    p.a.toss("zzzz", Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None });
+    p.a.toss("zzzz", Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None, rally: None });
     p.a.shutdown();
     p.b.shutdown();
 }

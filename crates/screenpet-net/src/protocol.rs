@@ -127,6 +127,20 @@ pub struct Toss {
     /// one. The receiver's app checks the name.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub look: Option<String>,
+    /// ⚾ Catch-ball: how many times the ball has gone back and forth between
+    /// friends. The receiver's 흐물이 lobs it back with one more, up to
+    /// `MAX_RALLY`. Clamped on receive; older versions ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_rally")]
+    pub rally: Option<u32>,
+}
+
+/// ⚾ Longest catch-ball rally; a received count above it reads as this.
+pub const MAX_RALLY: u32 = 20;
+
+/// A rally count: a whole number ≥ 0, clamped to `MAX_RALLY`; anything else is dropped.
+fn lenient_rally<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.and_then(|v| v.as_u64()).map(|n| n.min(MAX_RALLY as u64) as u32))
 }
 
 /// 🤹 An object (trash toy or poop) a visiting pet carries above its head and
@@ -918,7 +932,7 @@ mod tests {
 
     #[test]
     fn ping_can_carry_a_toss_that_old_peers_ignore() {
-        let t = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Down), fling: Some(Fling { height: 0.5, vx: 300.0, vy: -20.0 }), note: Some("붙였어!".into()), bounced: false, scale: None, look: None };
+        let t = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Down), fling: Some(Fling { height: 0.5, vx: 300.0, vy: -20.0 }), note: Some("붙였어!".into()), bounced: false, scale: None, look: None, rally: None };
         let m = Message::Control(Control::Ping { ask: None, steer: None, toss: Some(t) });
         let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!((j["type"].as_str(), j["toss"]["kind"].as_str(), j["toss"]["side"].as_str(), j["toss"]["vside"].as_str(), j["toss"]["note"].as_str()), (Some("ping"), Some("can"), Some("right"), Some("down"), Some("붙였어!")));
@@ -943,7 +957,7 @@ mod tests {
         let odd = br#"{"type":"ping","toss":{"kind":"can","side":"north","vside":3,"fling":{"height":"x"},"note":[1]}}"#;
         assert_eq!(
             Message::parse(odd),
-            Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None }) }))
+            Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None, rally: None }) }))
         );
         // side가 없어도 왼쪽
         // 똥 색 표시: 없으면 None, 있으면 그대로 (옛 버전은 모르는 필드를 무시한다). 글자가 아니면 버린다
@@ -956,7 +970,7 @@ mod tests {
 
     #[test]
     fn a_giant_toss_reads_as_a_plain_stone_to_anyone_who_skips_the_look() {
-        let t = Toss { kind: "stone".into(), side: Side::Right, vside: None, fling: None, note: None, bounced: false, scale: None, look: Some("giant".into()) };
+        let t = Toss { kind: "stone".into(), side: Side::Right, vside: None, fling: None, note: None, bounced: false, scale: None, look: Some("giant".into()), rally: None };
         let json = serde_json::to_string(&t).unwrap();
         // 크기는 받는 쪽이 제 화면에 맞춘다: scale은 싣지 않는다
         assert!(json.contains(r#""look":"giant""#) && json.contains(r#""kind":"stone""#) && !json.contains("scale"), "{json}");
@@ -964,6 +978,41 @@ mod tests {
         assert!(matches!(&msg, Some(Message::Control(Control::Ping { toss: Some(Toss { kind, look: Some(l), scale: None, .. }), .. })) if kind == "stone" && l == "giant"));
         // look을 모르는 옛 모양의 메시지도 그대로 읽힌다
         assert!(matches!(Message::parse(br#"{"type":"ping","toss":{"kind":"stone"}}"#), Some(Message::Control(Control::Ping { toss: Some(Toss { look: None, .. }), .. }))));
+    }
+
+    #[test]
+    fn a_toss_carries_the_catch_ball_rally_that_old_peers_skip() {
+        let t = Toss { kind: "ball".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None, rally: Some(7) };
+        let json = serde_json::to_string(&t).unwrap();
+        assert!(json.contains(r#""rally":7"#), "{json}");
+        assert_eq!(serde_json::from_str::<Toss>(&json).unwrap(), t);
+        // 랠리가 없으면 싣지 않는다 (예전 판과 같은 모양)
+        let plain = Toss { rally: None, ..t.clone() };
+        assert!(!serde_json::to_string(&plain).unwrap().contains("rally"));
+        // 예전 판의 메시지(랠리 없음)는 그대로 읽힌다
+        assert!(matches!(Message::parse(br#"{"type":"ping","toss":{"kind":"ball"}}"#), Some(Message::Control(Control::Ping { toss: Some(Toss { rally: None, .. }), .. }))));
+        // 예전 판의 Toss는 rally를 모르고 그냥 넘긴다
+        #[derive(Debug, Deserialize)]
+        struct OldToss {
+            kind: String,
+            #[serde(default)]
+            note: Option<String>,
+        }
+        let old: OldToss = serde_json::from_str(&json).unwrap();
+        assert_eq!((old.kind.as_str(), old.note), ("ball", None));
+    }
+
+    #[test]
+    fn a_received_rally_is_clamped_and_junk_is_dropped() {
+        let rally = |raw: &str| serde_json::from_str::<Toss>(&format!(r#"{{"kind":"ball","rally":{raw}}}"#)).unwrap().rally;
+        assert_eq!(rally("0"), Some(0));
+        assert_eq!(rally("20"), Some(MAX_RALLY));
+        assert_eq!(rally("21"), Some(MAX_RALLY));
+        assert_eq!(rally("99999999999"), Some(MAX_RALLY));
+        assert_eq!(MAX_RALLY, 20);
+        for junk in ["-1", "3.5", "\"x\"", "null", "[1]"] {
+            assert_eq!(rally(junk), None, "{junk}");
+        }
     }
 
     #[test]
