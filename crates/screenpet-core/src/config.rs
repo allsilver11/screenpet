@@ -74,6 +74,9 @@ pub struct Config {
     /// 🐾 커서 장난을 메뉴에서 껐다 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cursor_play_off: bool,
+    /// ⌨️ 타자 응원을 메뉴에서 껐다 (기본은 켜짐). 꺼져 있으면 키 누름 수도 읽지 않는다
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub typing_cheer_off: bool,
     /// 💩 똥 싸기를 메뉴에서 껐다 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub poop_off: bool,
@@ -1614,6 +1617,16 @@ mod tests {
         let off = Config { cursor_play_off: true, ..Config::default() };
         let back: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
         assert!(back.cursor_play_off);
+    }
+
+    #[test]
+    fn typing_cheer_is_on_unless_turned_off() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert!(!old.typing_cheer_off);
+        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("typing_cheer_off"));
+        let off = Config { typing_cheer_off: true, ..Config::default() };
+        let back: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
+        assert!(back.typing_cheer_off);
     }
 
     #[test]

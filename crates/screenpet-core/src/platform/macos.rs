@@ -24,11 +24,16 @@ use super::WindowSource;
 use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
 use crate::icon::{self, IconImage};
+use crate::typing;
 
 /// 이보다 작은 창 (물리 px)은 디딤판이 아니다 — Windows와 같은 값
 const MIN_SIZE: f64 = 50.0;
 
-pub struct MacSource;
+/// 창·화면·커서는 상태 없이 읽는다. 상태는 ⌨️ 타자 응원의 지난 키 누름 카운터 값뿐
+#[derive(Default)]
+pub struct MacSource {
+    last_keys: Option<u32>,
+}
 
 impl WindowSource for MacSource {
     fn windows(&mut self) -> Vec<WindowInfo> {
@@ -92,6 +97,17 @@ impl WindowSource for MacSource {
             run: down(KVK_SHIFT) || down(KVK_RIGHT_SHIFT),
         }
     }
+
+    // ---- ⌨️ typing sensor: 개수만 센다 (crate::typing)
+    /// 시스템의 키 누름 카운터 (CGEventSourceCounterForEventType, HID 시스템 상태) 하나만 읽는다 — 어떤 키인지는 없다.
+    /// 이벤트 탭이 아니라서 권한 창을 띄우지 않는다. "입력 모니터링" 권한이 없어 카운터가 오르지 않으면 응원이 없을 뿐이다
+    fn key_presses(&mut self) -> Option<u32> {
+        let now = CGEventSource::counter_for_event_type(CGEventSourceStateID::HIDSystemState, CGEventType::KeyDown);
+        let presses = typing::counter_delta(self.last_keys, now);
+        self.last_keys = Some(now);
+        Some(presses)
+    }
+    // ---- end typing sensor
 
     /// 권한 없이 읽힌다
     fn idle_seconds(&mut self) -> Option<f64> {

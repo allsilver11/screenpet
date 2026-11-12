@@ -73,6 +73,8 @@ pub enum Input {
     ToggleControl,
     /// 🐾 커서 장난 켜기 / 끄기 (설정에 남는다)
     ToggleCursorPlay,
+    /// ⌨️ 타자 응원 켜기·끄기
+    ToggleTypingCheer,
     /// 💩 똥 싸기 켜기 / 끄기 (설정에 남는다)
     TogglePoop,
     /// 🚀 컴퓨터 켜면 자동 실행 켜기 / 끄기 (설정에 남는다, 바로 OS에 적용)
@@ -151,6 +153,11 @@ pub fn spawn(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Confi
 /// 📱 내 펫·돌보기 상태가 바뀌었다: 내 다른 컴퓨터와 나눈다 (edit = 사용자가 바꿈 — 쉬는 중이면 이 컴퓨터로 논다)
 fn share_care(network: &Network, config: &Config, own: &Slot, care: &Care, edit: bool) {
     network.share_state(config, &own.entry.id, care, edit);
+}
+
+/// ⌨️ 타자 응원을 받는 동물: 내 흐물이 (손님 흐물이는 아니다)
+fn is_own_heumul(s: &Slot) -> bool {
+    s.is_own() && s.entry.id == "heumul"
 }
 
 /// 설정 저장 — 게임 루프만 설정을 쓴다 (단일 작성자). 하우스 여부는 config.housed에 직접 적어 둔다
@@ -302,6 +309,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     }
     sync_menu(&app, &slots[OWN].entry, &care, config.housed);
     let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
+    let _ = app.state::<AppState>().menu.typing_cheer.set_checked(!config.typing_cheer_off);
     let _ = app.state::<AppState>().menu.poop.set_checked(!config.poop_off);
     // 🚀 이 버전을 처음 켜면 자동 실행을 켜고 적어 둔다. 그 뒤로는 고른 대로 OS에 다시 맞춘다
     if crate::autostart::apply_at_start(&app, &mut config) {
@@ -344,6 +352,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     crate::tray::sync_weather_kind(&app.state::<AppState>().menu, config.weather_source, config.weather_place);
     // 🌈 무지개 구름 자국 (무지개 동물이 달릴 때만 창이 생긴다)
     let mut trail = crate::trail::TrailFx::new();
+    // ⌨️ 타자 응원: 최근 2초의 키 누름 *개수* (어떤 키인지는 읽지 않는다)
+    let mut typing_meter = screenpet_core::typing::TypingMeter::new();
     // 🎁 선물 (없으면 1초에 한 번 시계만 본다)
     let mut gifts = Gifts::new(&config.gifts, seed_now());
     // 자리 비움·돌아옴, 하루 일과, ⏱️ 집중 친구 (1초에 한 번)
@@ -603,6 +613,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     config.cursor_play_off = !config.cursor_play_off;
                     // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춘다
                     let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                }
+                Input::ToggleTypingCheer => {
+                    config.typing_cheer_off = !config.typing_cheer_off;
+                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춘다
+                    let _ = app.state::<AppState>().menu.typing_cheer.set_checked(!config.typing_cheer_off);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
                 Input::TogglePoop => {
@@ -949,6 +965,18 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             }
         }
         let play_busy = held.is_some() || hand.is_some() || objects.is_held() || crate::windows_hidden(&app);
+        // ⌨️ 타자 응원: 켜져 있고 내 흐물이가 있을 때만 키 누름 *개수*를 읽는다 (어떤 키인지는 읽지도 남기지도 않는다 —
+        // screenpet_core::typing). 꺼져 있으면 센서를 부르지 않는다. 손님에게는 넘기지 않는다
+        let typing_rate = if !config.typing_cheer_off && slots.iter().any(is_own_heumul) {
+            typing_meter.add(now, source.key_presses().unwrap_or(0));
+            typing_meter.rate(now)
+        } else {
+            typing_meter.clear();
+            0.0
+        };
+        for s in slots.iter_mut().filter(|s| is_own_heumul(s)) {
+            s.pet.set_typing_rate(typing_rate);
+        }
         for (i, s) in slots.iter_mut().enumerate() {
             s.pet.cursor_input(left_down, play_busy || s.note_is_open(), !config.cursor_play_off);
             if Some(i) == held {

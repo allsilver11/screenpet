@@ -80,6 +80,9 @@ const BROOM_ID: &str = "broom";
 const CURSOR_PLAY_ID: &str = "cursor-play";
 const SIZES_ID: &str = "sizes";
 const CURSOR_PLAY_LABEL: &str = "🐾 커서 장난";
+/// ⌨️ 타자 응원 체크 항목 (설정에 남는다 — 끄면 키 누름 수도 읽지 않는다)
+const TYPING_CHEER_ID: &str = "typing-cheer";
+const TYPING_CHEER_LABEL: &str = "⌨️ 타자 응원";
 const POOP_ID: &str = "poop";
 const POOP_LABEL: &str = "💩 펫이 똥 싸기";
 /// ⏱️ 집중 친구 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남는다)
@@ -173,6 +176,8 @@ pub struct TrayMenu {
     pub control: CheckMenuItem<Wry>,
     /// 🐾 커서 장난 (게임 루프가 실제 설정으로 다시 맞춘다)
     pub cursor_play: CheckMenuItem<Wry>,
+    /// ⌨️ 타자 응원 (게임 루프가 실제 설정으로 다시 맞춘다)
+    pub typing_cheer: CheckMenuItem<Wry>,
     /// 💩 똥 싸기 (게임 루프가 실제 설정으로 다시 맞춘다)
     pub poop: CheckMenuItem<Wry>,
     /// 🌨️ 날씨 효과 (11~3월)
@@ -597,6 +602,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let broom = CheckMenuItem::with_id(app, BROOM_ID, "🧹 빗자루", true, false, None::<&str>)?;
     let cursor_play = CheckMenuItem::with_id(app, CURSOR_PLAY_ID, CURSOR_PLAY_LABEL, true, true, None::<&str>)?;
     let poop = CheckMenuItem::with_id(app, POOP_ID, POOP_LABEL, true, true, None::<&str>)?;
+    let typing_cheer = CheckMenuItem::with_id(app, TYPING_CHEER_ID, TYPING_CHEER_LABEL, true, true, None::<&str>)?;
     let focus_toggle = CheckMenuItem::with_id(app, FOCUS_TOGGLE_ID, "집중 시작", true, false, None::<&str>)?;
     let focus_short = CheckMenuItem::with_id(app, FOCUS_SHORT_ID, "25분 집중 · 5분 쉬기", true, true, None::<&str>)?;
     let focus_long = CheckMenuItem::with_id(app, FOCUS_LONG_ID, "50분 집중 · 10분 쉬기", true, false, None::<&str>)?;
@@ -624,7 +630,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let sizes = MenuItem::with_id(app, SIZES_ID, "📏 크기 조절…", true, None::<&str>)?;
     // 처음엔 켜져 있다 — 게임 루프가 설정(처음이면 켜기)으로 다시 맞춘다
     let autostart = CheckMenuItem::with_id(app, AUTOSTART_ID, "🚀 컴퓨터 켜면 자동 실행", true, true, None::<&str>)?;
-    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &sizes, &autostart])?;
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &autostart])?;
 
     // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어든다 (COME_HOME_POSITION)
     let menu = Menu::new(app)?;
@@ -678,6 +684,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "house" => send(app, Input::ToggleHouse),
             CONTROL_ID => send(app, Input::ToggleControl),
             CURSOR_PLAY_ID => send(app, Input::ToggleCursorPlay),
+            TYPING_CHEER_ID => send(app, Input::ToggleTypingCheer),
             SIZES_ID => send(app, Input::ShowSizes),
             POOP_ID => send(app, Input::TogglePoop),
             WEATHER_ID => send(app, Input::ToggleWeather),
@@ -758,5 +765,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, weather_real, weather_season, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, poop, weather, weather_real, weather_season, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
 }

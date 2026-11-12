@@ -49,6 +49,11 @@ pub trait WindowSource: Send {
     fn app_icon(&mut self, _window: u64, _px: u32) -> Option<IconImage> {
         None
     }
+    /// ⌨️ 타자 응원: 지난번 부른 뒤 새로 눌린 키 *개수*만 (crate::typing). 어떤 키인지는 읽지도 남기지도 않는다.
+    /// 권한을 묻지 않는다. 게임 루프는 타자 응원이 켜져 있고 내 흐물이가 있을 때만 매 틱 부른다. None = 셀 수 없는 OS
+    fn key_presses(&mut self) -> Option<u32> {
+        None
+    }
 }
 
 /// 이 OS에서 앱 아이콘을 읽을 수 있다 (아니면 작업표시줄 놀이를 하지 않는다)
@@ -77,9 +82,9 @@ impl WindowSource for NullSource {
 
 pub fn default_source() -> Box<dyn WindowSource> {
     #[cfg(windows)]
-    return Box::new(Win32Source);
+    return Box::new(Win32Source::default());
     #[cfg(target_os = "macos")]
-    return Box::new(MacSource);
+    return Box::new(MacSource::default());
     #[cfg(not(any(windows, target_os = "macos")))]
     return Box::new(NullSource);
 }
@@ -98,5 +103,6 @@ mod tests {
         assert!(!s.control_keys().any());
         assert_eq!(s.idle_seconds(), None);
         assert_eq!(s.app_icon(1, 64), None);
+        assert_eq!(s.key_presses(), None);
     }
 }

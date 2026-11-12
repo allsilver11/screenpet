@@ -33,6 +33,7 @@ pub mod timeline;
 pub mod tint;
 pub mod trail;
 pub mod tumble;
+pub mod typing;
 pub mod update;
 pub mod visit;
 pub mod weather;

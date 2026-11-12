@@ -25,12 +25,18 @@ use super::WindowSource;
 use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
 use crate::icon::{self, IconImage};
+use crate::typing::{KeyEdges, MAX_PER_POLL};
 
 /// 디딤판이 되면 안 되는 셸 창 클래스
 const SHELL_CLASSES: [&str; 4] = ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"];
 const MIN_SIZE: f64 = 50.0;
 
-pub struct Win32Source;
+/// 창·화면·커서는 상태 없이 읽는다. 상태는 ⌨️ 타자 응원의 올라감 판단 (지난 읽기 때 눌려 있던 키 비트)과 마지막 입력 시각뿐
+#[derive(Default)]
+pub struct Win32Source {
+    keys: KeyEdges,
+    last_input: Option<u32>,
+}
 
 impl WindowSource for Win32Source {
     fn windows(&mut self) -> Vec<WindowInfo> {
@@ -100,6 +106,36 @@ impl WindowSource for Win32Source {
             run: key_down(VK_SHIFT.0),
         }
     }
+
+    // ---- ⌨️ typing sensor: 개수만 센다 (crate::typing). 키 번호는 이 읽기의 올라감 판단에만 쓰고 남기지 않는다
+    /// 타자 키 ~70개의 눌림을 읽어 새로 눌린 수만 돌려준다. GetAsyncKeyState는 상태를 읽기만 한다 (키는 앞 앱에 그대로 간다,
+    /// 훅을 걸지 않는다, 권한이 필요 없다). 마지막 입력 시각 (GetLastInputInfo)이 그대로면 키를 읽지도 않는다 —
+    /// 손이 쉬면 틱마다 가벼운 호출 하나, 키보드·마우스를 쓰는 동안만 ~70번
+    fn key_presses(&mut self) -> Option<u32> {
+        /// 글자·숫자·기호·공백·지우기·엔터·탭·숫자판 (Ctrl·Alt·Shift·화살표·F키는 타자로 치지 않는다)
+        const TYPING_KEYS: [(u8, u8); 10] =
+            [(0x08, 0x09), (0x0D, 0x0D), (0x20, 0x20), (0x2E, 0x2E), (0x30, 0x39), (0x41, 0x5A), (0x60, 0x6F), (0xBA, 0xC0), (0xDB, 0xDF), (0xE2, 0xE2)];
+        let mut info = LASTINPUTINFO { cbSize: size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+        let input_at = unsafe { GetLastInputInfo(&mut info).as_bool() }.then_some(info.dwTime);
+        let first = self.last_input.is_none();
+        if input_at.is_some() && input_at == self.last_input {
+            return Some(0);
+        }
+        self.last_input = input_at.or(Some(0));
+        let mut presses = 0u32;
+        for (from, to) in TYPING_KEYS {
+            for vk in from..=to {
+                // 높은 비트 = 지금 눌림, 낮은 비트 = 지난 읽기 뒤 눌린 적 있음 (빨리 친 키)
+                let state = unsafe { GetAsyncKeyState(vk as i32) } as u16;
+                if self.keys.press(vk, state & 0x8000 != 0, state & 1 != 0) {
+                    presses += 1;
+                }
+            }
+        }
+        // 처음 읽기는 예전에 눌린 흔적까지 섞여 있어 세지 않는다
+        Some(if first { 0 } else { presses.min(MAX_PER_POLL) })
+    }
+    // ---- end typing sensor
 
     /// 틱 수는 49.7일마다 한 바퀴 돈다 — wrapping_sub면 그때도 맞다
     fn idle_seconds(&mut self) -> Option<f64> {
