@@ -454,7 +454,7 @@ impl HostGame {
     /// 친구 `from`이 보낸 사다리 메시지를 처리하고 보낼 것을 돌려줌
     pub fn on_message(&mut self, from: &str, msg: LadderMsg, now: Instant) -> Out {
         let gid = self.game_id();
-        // 늦은 참가 (초대 30초가 지났거나, 이미 잠갔거나 끝난 판): 답이 없으면 그 친구는 "기다리는 중"에 갇힌다 — 초대가 끝났다고 알린다
+        // 늦은 참가 (초대 30초가 지났거나, 이미 잠갔거나 끝난 판): 답이 없으면 그 친구는 "기다리는 중"에 갇힘 — 초대가 끝났다고 알림
         if let LadderMsg::LadderJoin { game_id, .. } = &msg {
             let late = *game_id == gid
                 && self.invitees.iter().any(|i| i.id == from && !matches!(i.answer, Answer::Joined))
@@ -506,7 +506,7 @@ impl HostGame {
                 Vec::new()
             }
             LadderMsg::LadderReveal { game_id, nonce } if game_id == gid => self.on_reveal(from, &nonce),
-            // 참가자가 잠그기·공개를 거부했다 (내 커밋이 바뀜 등) — 끊김이 아니라 "정보가 맞지 않음"으로 모두에게 알린다
+            // 참가자가 잠그기·공개를 거부했음 (내 커밋이 바뀜 등) — 끊김이 아니라 "정보가 맞지 않음"으로 모두에게 알림
             LadderMsg::LadderCancel { game_id, reason, .. } if game_id == gid && reason == CancelReason::Invalid.wire() && self.phase == Phase::Locked => {
                 let who = self.locked.as_ref().and_then(|l| l.ids.iter().position(|i| i.as_deref() == Some(from)).map(|seat| l.players[seat].token));
                 match who {
@@ -896,7 +896,7 @@ impl GuestGame {
                 self.phase = Phase::Cancelled { reason: CancelReason::Timeout, who: None };
                 m
             }
-            // 방장에게도 알린다 — 그래야 방장이 나간 사람을 빼고 잠근다 (안 알리면 잠근 뒤 공개 15초가 지나 판 전체가 취소된다)
+            // 방장에게도 알림 — 그래야 방장이 나간 사람을 빼고 잠금 (안 알리면 잠근 뒤 공개 15초가 지나 판 전체가 취소됨)
             Phase::Joined if waited >= LOCK_WAIT => {
                 self.phase = Phase::Cancelled { reason: CancelReason::Timeout, who: Some(self.host_name.clone()) };
                 Some(LadderMsg::LadderCancel { game_id: self.game_id(), reason: CancelReason::Left.wire().to_string(), who: None })
@@ -1016,12 +1016,12 @@ mod tests {
         g.join_one(1, "둘");
         assert_eq!(g.host.answers()[0].1, Answer::Declined(DeclineReason::Busy));
         assert!(!g.host.all_answered());
-        // 셋째는 답이 없다 — 30초 뒤 불참
+        // 셋째는 답이 없음 — 30초 뒤 불참
         g.now += INVITE_TIMEOUT;
         g.host.tick(g.now);
         assert_eq!(g.host.answers()[2].1, Answer::TimedOut);
         assert!(g.host.all_answered());
-        // 결과 칸 수는 참가자 수(방장 + 1)와 같아야 잠긴다
+        // 결과 칸 수는 참가자 수(방장 + 1)와 같아야 잠김
         assert!(g.host.start(&results(&[("a", "good"), ("b", "bad"), ("c", "none")]), g.now).is_none());
         let out = g.host.start(&results(&[("a", "good"), ("b", "bad")]), g.now).expect("two players");
         g.route(out);
@@ -1052,7 +1052,7 @@ mod tests {
         let n = g.host.joined() + 1;
         let r: Vec<LockedResult> = (0..n).map(|i| LockedResult { text: format!("칸{i}"), mood: "none".into() }).collect();
         g.host.start(&r, g.now).unwrap();
-        // 첫 손님 대신 다른 난수를 공개한다
+        // 첫 손님 대신 다른 난수를 공개함
         let gid = g.host.game_id();
         let out = g.host.on_message("friend0", LadderMsg::LadderReveal { game_id: gid, nonce: to_hex(&random32()) }, g.now);
         assert!(matches!(g.host.phase(), Phase::Cancelled { reason: CancelReason::Invalid, who: Some(name) } if name == "손님0"));
@@ -1101,7 +1101,7 @@ mod tests {
 
     #[test]
     fn a_player_rejects_reveals_that_do_not_open_the_commitments() {
-        // 공개 목록은 자리 순서대로 약속을 열어야 한다: 한 칸을 바꿈 · 하나 빠뜨림 · 전부 바꿈
+        // 공개 목록은 자리 순서대로 약속을 열어야 함: 한 칸을 바꿈 · 하나 빠뜨림 · 전부 바꿈
         type Tamper = fn(Vec<String>) -> Vec<String>;
         let tamper: [Tamper; 3] = [
             |n| vec![n[0].clone(), to_hex(&random32())],
@@ -1120,7 +1120,7 @@ mod tests {
 
     #[test]
     fn a_host_showing_different_lists_is_caught_by_the_print() {
-        // 방장이 두 손님에게 결과 칸 글자가 다른 잠그기를 보낸다 — 각자는 끝나지만 지문이 달라진다
+        // 방장이 두 손님에게 결과 칸 글자가 다른 잠그기를 보냄 — 각자는 끝나지만 지문이 달라짐
         let mut g = Game::invite(2);
         g.join_all();
         let out = g.host.start(&results(&[("a", "good"), ("b", "bad"), ("c", "none")]), g.now).unwrap();
@@ -1147,7 +1147,7 @@ mod tests {
     fn missing_reveals_time_out_with_a_name() {
         let mut g = Game::invite(2);
         g.join_all();
-        // 손님1의 공개만 보내지 않는다 (잠그기를 직접 나눠 준다)
+        // 손님1의 공개만 보내지 않음 (잠그기를 직접 나눠 줌)
         let out = g.host.start(&results(&[("a", "good"), ("b", "bad"), ("c", "none")]), g.now).unwrap();
         for (to, m) in out {
             if to == "friend0" {
@@ -1208,7 +1208,7 @@ mod tests {
         };
         let now = Instant::now();
         let cancel = |g: &GuestGame| LadderMsg::LadderCancel { game_id: g.game_id(), reason: "host".into(), who: None };
-        // 아직 답을 기다리는 초대는 그대로 보인다
+        // 아직 답을 기다리는 초대는 그대로 보임
         let mut g = invite(now);
         assert!(!g.ended_unanswered());
         // 방장이 닫음 · 방장이 끊김 · 시간 초과
@@ -1221,7 +1221,7 @@ mod tests {
         let mut g = invite(now);
         g.tick(now + INVITE_TIMEOUT);
         assert!(g.ended_unanswered());
-        // 참가한 뒤의 취소는 안내해야 한다
+        // 참가한 뒤의 취소는 안내해야 함
         let mut g = invite(now);
         g.join(seat("일"), now).unwrap();
         assert!(!g.ended_unanswered());
@@ -1260,9 +1260,9 @@ mod tests {
             let out = host.start(&results(slots), now).unwrap();
             let lock = out[0].1.clone();
             assert_eq!(guest.lock_changed_results(&lock), Some(results(slots)));
-            // 묻는 동안 아직 아무것도 공개하지 않았고, 물은 것 자체는 상태를 바꾸지 않는다
+            // 묻는 동안 아직 아무것도 공개하지 않았고, 물은 것 자체는 상태를 바꾸지 않음
             assert_eq!(*guest.phase(), Phase::Joined);
-            // 계속하면 평소처럼 공개한다
+            // 계속하면 평소처럼 공개함
             assert!(matches!(guest.on_message(lock, now), Some(LadderMsg::LadderReveal { .. })));
             assert_eq!(*guest.phase(), Phase::Locked);
         }
@@ -1277,7 +1277,7 @@ mod tests {
         assert!(matches!(guest.phase(), Phase::Cancelled { reason: CancelReason::Invalid, .. }));
         host.on_message("friend0", reply, now);
         assert!(matches!(host.phase(), Phase::Cancelled { reason: CancelReason::Invalid, who: Some(n) } if n == "일"), "{:?}", host.phase());
-        // 이미 끝났으면 다시 알리지 않는다
+        // 이미 끝났으면 다시 알리지 않음
         assert_eq!(guest.refuse_lock(), None);
     }
 
@@ -1289,12 +1289,12 @@ mod tests {
         // 다른 판의 잠그기
         let other = LadderMsg::LadderLock { game_id: to_hex(&[9; 16]), host: seat, players: players.clone(), results: slots.clone() };
         assert_eq!(guest.lock_changed_results(&other), None);
-        // 형식이 틀린 잠그기는 묻지 않고 평소대로 거부한다 (글자가 화면에 나오지 않는다)
+        // 형식이 틀린 잠그기는 묻지 않고 평소대로 거부함 (글자가 화면에 나오지 않음)
         let mut long = slots.clone();
         long[0].text = "너무 길어서 칸에 들어가지 않는 글자".into();
         let malformed = LadderMsg::LadderLock { game_id: game_id.clone(), host: seat, players: players.clone(), results: long };
         assert_eq!(guest.lock_changed_results(&malformed), None);
-        // 이미 잠긴 뒤에는 묻지 않는다
+        // 이미 잠긴 뒤에는 묻지 않음
         let lock = LadderMsg::LadderLock { game_id, host: seat, players, results: slots };
         guest.on_message(lock.clone(), now).unwrap();
         assert_eq!(guest.lock_changed_results(&lock), None);
@@ -1306,7 +1306,7 @@ mod tests {
         g.join_all();
         let out = g.host.start(&results(&[("a", "good"), ("b", "bad"), ("c", "none")]), g.now).unwrap();
         let gid = g.host.game_id();
-        // friend0이 조작된 잠그기를 잡았다
+        // friend0이 조작된 잠그기를 잡았음
         let out2 = g.host.on_message("friend0", LadderMsg::LadderCancel { game_id: gid, reason: "invalid".into(), who: None }, g.now);
         assert!(matches!(g.host.phase(), Phase::Cancelled { reason: CancelReason::Invalid, who: Some(n) } if n == "손님0"), "{:?}", g.host.phase());
         assert!(out2.iter().all(|(_, m)| matches!(m, LadderMsg::LadderCancel { reason, .. } if reason == "invalid")));
@@ -1327,7 +1327,7 @@ mod tests {
         assert_eq!(*g.host.phase(), Phase::Inviting);
         g.host.tick(g.now + INVITE_TIMEOUT);
         assert!(matches!(g.host.phase(), Phase::Cancelled { reason: CancelReason::Nobody, .. }));
-        // 한 명이라도 참가했으면 끝내지 않는다
+        // 한 명이라도 참가했으면 끝내지 않음
         let mut g = Game::invite(2);
         g.join_one(0, "일");
         g.host.tick(g.now + INVITE_TIMEOUT);
@@ -1360,7 +1360,7 @@ mod tests {
         assert!(matches!(&reply[..], [(to, LadderMsg::LadderCancel { reason, .. })] if to == "friend0" && reason == "host"), "{reply:?}");
         late.on_message(reply[0].1.clone(), now);
         assert!(matches!(late.phase(), Phase::Cancelled { reason: CancelReason::Host, .. }));
-        // 잠근 뒤·끝난 뒤의 늦은 참가도 같다
+        // 잠근 뒤·끝난 뒤의 늦은 참가도 같음
         host.start(&results(&[("a", "good"), ("b", "bad")]), now).unwrap();
         assert_eq!(host.on_message("friend0", join.clone(), now).len(), 1);
         host.abort();
@@ -1377,7 +1377,7 @@ mod tests {
         let mut b = GuestGame::on_invite("host", out[1].1.clone(), now).unwrap();
         host.on_message("friend0", a.join(seat("일"), now).unwrap(), now);
         host.on_message("friend1", b.join(seat("둘"), now).unwrap(), now);
-        // 방장이 칸을 고치느라 2분 넘게 잠그지 않았다 — a가 포기하고 알린다
+        // 방장이 칸을 고치느라 2분 넘게 잠그지 않았음 — a가 포기하고 알림
         let bye = a.tick(now + LOCK_WAIT).expect("tells the host");
         host.on_message("friend0", bye, now + LOCK_WAIT);
         assert_eq!(host.answers()[0].1, Answer::Left);
@@ -1394,7 +1394,7 @@ mod tests {
         assert!(HostGame::new(seat("방장"), &results(&[(" a", "good")]), &ids(1), now).is_none());
         let bad = LadderMsg::LadderInvite { game_id: "zz".into(), host: "A".into(), results: vec![], invited: 1 };
         assert!(GuestGame::on_invite("h", bad, now).is_none());
-        // 이상한 참가 신청은 그 사람만 빠진다
+        // 이상한 참가 신청은 그 사람만 빠짐
         let mut g = Game::invite(2);
         let gid = g.host.game_id();
         let out = g.host.on_message("friend0", LadderMsg::LadderJoin { game_id: gid.clone(), token: "nothex".into(), commit: "c".into(), name: "x".into(), pet: "cat".into(), style: None }, g.now);
@@ -1453,7 +1453,7 @@ mod tests {
 
     #[test]
     fn hidden_characters_in_a_name_stay_in_the_hash() {
-        // 화면에는 지워서 보이지만, 해시는 받은 글자 그대로 — 지우면 빌드마다 시드가 달라질 수 있다
+        // 화면에는 지워서 보이지만, 해시는 받은 글자 그대로 — 지우면 빌드마다 시드가 달라질 수 있음
         assert!(valid_name("나\u{200B}비"));
         let gid = [7u8; 16];
         let p = |name: &str| LockedPlayer { token: [1; 16], commit: [2; 32], name: name.into(), pet: "cat".into(), style: String::new() };

@@ -609,7 +609,7 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&up.to_json()).unwrap();
         assert_eq!((v["enter_side"].as_str(), v["vside"].as_str()), (Some("left"), Some("down")));
         assert_eq!(Message::parse(&up.to_json()), Some(up.clone()));
-        // 예전 판은 vside를 모르고 왼쪽에서 들어오는 보통 방문으로 읽는다
+        // 예전 판은 vside를 모르고 왼쪽에서 들어오는 보통 방문으로 읽음
         #[derive(Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
         enum OldVisit {
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn unknown_edge_values_never_drop_the_message() {
-        // 모르는 vside는 버리고 side를 쓴다, 모르는 enter_side는 왼쪽, 모르는 leave side는 없음
+        // 모르는 vside는 버리고 side를 씀, 모르는 enter_side는 왼쪽, 모르는 leave side는 없음
         let odd = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"diagonal","vside":"sideways"}"#;
         let Some(Message::Visit(Visit::Visit { enter_side, vside, .. })) = Message::parse(odd) else { panic!("odd visit must parse") };
         assert_eq!((enter_side, vside), (Side::Left, None));
@@ -685,7 +685,7 @@ mod tests {
         let v: serde_json::Value =
             serde_json::from_slice(&Message::Ladder(LadderMsg::LadderReveal { game_id: "g".into(), nonce: "n".into() }).to_json()).unwrap();
         assert_eq!(v["type"], "ladder_reveal");
-        // 모르는 type은 여전히 어느 쪽으로도 읽히지 않는다 (예전 판이 연결을 끊는 이유)
+        // 모르는 type은 여전히 어느 쪽으로도 읽히지 않음 (예전 판이 연결을 끊는 이유)
         assert_eq!(Message::parse(br#"{"type":"ladder_dance","game_id":"g"}"#), None);
     }
 
@@ -719,7 +719,7 @@ mod tests {
         assert_eq!((via, homesick_in), (None, None));
         let hop = visit!(visit_id: 2, enter_side: Side::Right, via: Some("bb".into()), homesick_in: Some(10.0));
         assert_eq!(Message::parse(&hop.to_json()), Some(hop));
-        // 새 필드를 모르는 받는 쪽도 읽을 수 있다 (모르는 필드는 무시)
+        // 새 필드를 모르는 받는 쪽도 읽을 수 있음 (모르는 필드는 무시)
         assert!(Message::parse(br#"{"type":"leave","visit_id":3,"next":"x","future":1}"#).is_some());
     }
 
@@ -732,13 +732,13 @@ mod tests {
         assert_eq!(Message::parse(&v.to_json()), Some(v));
         let back = Message::Visit(Visit::Leave { visit_id: 5, next: None, side: Some(Side::Left), vside: None, homesick_in: None, fling: Some(f), note: None, boost: None, carry: None });
         assert_eq!(Message::parse(&back.to_json()), Some(back));
-        // 던지기를 모르는 예전 판: 필드가 없으면 None (평소처럼 걸어 들어온다)
+        // 던지기를 모르는 예전 판: 필드가 없으면 None (평소처럼 걸어 들어옴)
         let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
         let Some(Message::Visit(Visit::Visit { fling, .. })) = Message::parse(old) else { panic!() };
         assert_eq!(fling, None);
         // 던지지 않은 방문·떠남은 예전 판과 같은 모양 (fling 필드 없음)
         assert!(!String::from_utf8(Message::Visit(Visit::leave(3)).to_json()).unwrap().contains("fling"));
-        // 깨진 fling 하나 때문에 방문 전체를 버리지 않는다
+        // 깨진 fling 하나 때문에 방문 전체를 버리지 않음
         let bad = br#"{"type":"leave","visit_id":3,"fling":{"height":"x"}}"#;
         assert_eq!(Message::parse(bad), Some(Message::Visit(Visit::leave(3))));
     }
@@ -749,7 +749,7 @@ mod tests {
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!(j["gift"], "cat_yarn_shiny");
         assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
-        // 예전 판은 모르는 필드를 건너뛰고 방문으로 받는다
+        // 예전 판은 모르는 필드를 건너뛰고 방문으로 받음
         #[derive(serde::Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
         enum OldVisit {
@@ -762,7 +762,7 @@ mod tests {
         let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
         let Some(Message::Visit(Visit::Visit { gift, .. })) = Message::parse(old) else { panic!() };
         assert_eq!(gift, None);
-        // 글자가 아닌 선물 하나 때문에 방문 전체를 버리지 않는다
+        // 글자가 아닌 선물 하나 때문에 방문 전체를 버리지 않음
         let bad = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","gift":{"x":1}}"#;
         let Some(Message::Visit(Visit::Visit { gift, .. })) = Message::parse(bad) else { panic!("bad gift must not drop the visit") };
         assert_eq!(gift, None);
@@ -775,7 +775,7 @@ mod tests {
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!(j["carry"], serde_json::json!({"kind": "poop", "look": "rainbow", "scale": 0.8}));
         assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
-        // 예전 판은 모르는 필드를 건너뛰고 방문으로 받는다
+        // 예전 판은 모르는 필드를 건너뛰고 방문으로 받음
         #[derive(serde::Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
         enum OldVisit {
@@ -788,17 +788,17 @@ mod tests {
         let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
         let Some(Message::Visit(Visit::Visit { carry, .. })) = Message::parse(old) else { panic!() };
         assert_eq!(carry, None);
-        // 이상한 값 하나 때문에 방문 전체를 버리지 않는다 (그 값만 버린다)
+        // 이상한 값 하나 때문에 방문 전체를 버리지 않음 (그 값만 버림)
         for bad in [r#""carry":"can""#, r#""carry":{"kind":7}"#, r#""carry":[1]"#, r#""carry":{"look":"pink"}"#] {
             let msg = format!(r#"{{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left",{bad}}}"#);
             let Some(Message::Visit(Visit::Visit { carry, visit_id, .. })) = Message::parse(msg.as_bytes()) else { panic!("{bad} must not drop the visit") };
             assert_eq!((carry, visit_id), (None, 1), "{bad}");
         }
-        // 이상한 색·크기는 그 칸만 버린다
+        // 이상한 색·크기는 그 칸만 버림
         let odd = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","carry":{"kind":"can","look":5,"scale":"big"}}"#;
         let Some(Message::Visit(Visit::Visit { carry, .. })) = Message::parse(odd) else { panic!() };
         assert_eq!(carry, Some(Carry { kind: "can".into(), look: None, scale: None }));
-        // 못 들어가 돌려보내는 Leave에 실려 돌아온다 (예전 판의 Leave에는 없다)
+        // 못 들어가 돌려보내는 Leave에 실려 돌아옴 (예전 판의 Leave에는 없음)
         let back = Message::Visit(Visit::Leave { visit_id: 3, next: None, side: None, vside: None, homesick_in: None, fling: None, note: None, boost: None, carry: Some(carry_can()) });
         assert_eq!(Message::parse(&back.to_json()), Some(back.clone()));
         assert_eq!(Message::parse(br#"{"type":"leave","visit_id":3,"carry":true}"#), Some(Message::Visit(Visit::leave(3))));
@@ -825,7 +825,7 @@ mod tests {
         // 편지를 모르는 예전 판이 보낸 방문: note 없음
         let old = br#"{"type":"visit","visit_id":8,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
         assert_eq!(Message::parse(old), Some(visit_with_note(None)));
-        // 예전 판(note를 모르는 Visit)도 편지가 실린 방문을 그냥 방문으로 읽는다
+        // 예전 판(note를 모르는 Visit)도 편지가 실린 방문을 그냥 방문으로 읽음
         #[derive(Debug, Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
         enum OldVisit {
@@ -833,7 +833,7 @@ mod tests {
         }
         let OldVisit::Visit { visit_id, owner } = serde_json::from_slice::<OldVisit>(&visit_with_note(Some("hi")).to_json()).unwrap();
         assert_eq!((visit_id, owner.as_str()), (8, "A"));
-        // 글자가 아닌 note 하나 때문에 방문 전체를 버리지 않는다
+        // 글자가 아닌 note 하나 때문에 방문 전체를 버리지 않음
         let bad = br#"{"type":"visit","visit_id":8,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","note":{"x":1}}"#;
         assert_eq!(Message::parse(bad), Some(visit_with_note(None)));
         let num = br#"{"type":"visit","visit_id":8,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","note":5}"#;
@@ -849,7 +849,7 @@ mod tests {
         assert_eq!(Message::parse(&m.to_json()), Some(m.clone()));
         // 답장 없는 귀환은 예전 판과 같은 모양
         assert_eq!(reply(None).to_json(), br#"{"type":"leave","visit_id":4}"#.to_vec());
-        // 답장을 모르는 예전 주인도 그냥 귀환으로 읽는다
+        // 답장을 모르는 예전 주인도 그냥 귀환으로 읽음
         #[derive(Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
         enum OldVisit {
@@ -857,7 +857,7 @@ mod tests {
         }
         let OldVisit::Leave { visit_id, next } = serde_json::from_slice::<OldVisit>(&m.to_json()).unwrap();
         assert_eq!((visit_id, next), (4, None));
-        // 글자가 아닌 note 하나 때문에 귀환을 버리지 않는다
+        // 글자가 아닌 note 하나 때문에 귀환을 버리지 않음
         assert_eq!(Message::parse(br#"{"type":"leave","visit_id":4,"note":[1,2]}"#), Some(reply(None)));
         assert_eq!(Message::parse(br#"{"type":"leave","visit_id":4,"note":null}"#), Some(reply(None)));
     }
@@ -870,7 +870,7 @@ mod tests {
         // 평소 ping은 예전 판과 같은 모양
         assert_eq!(Message::Control(Control::Ping { ask: None, steer: None, toss: None }).to_json(), br#"{"type":"ping"}"#.to_vec());
         assert_eq!(Message::parse(br#"{"type":"ping"}"#), Some(Message::Control(Control::Ping { ask: None, steer: None, toss: None })));
-        // 예전 판의 Control(Ping은 필드 없는 변형)도 ask가 붙은 ping을 그냥 ping으로 읽는다 (연결을 끊지 않는다)
+        // 예전 판의 Control(Ping은 필드 없는 변형)도 ask가 붙은 ping을 그냥 ping으로 읽음 (연결을 끊지 않음)
         #[derive(Debug, PartialEq, Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
         enum OldControl {
@@ -887,12 +887,12 @@ mod tests {
         let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!((j["type"].as_str(), j["steer"]["visit_id"].as_u64(), j["steer"]["on"].as_bool(), j["steer"]["keys"].as_u64()), (Some("ping"), Some(42), Some(true), Some(34)));
         assert_eq!(Message::parse(&m.to_json()), Some(m.clone()));
-        // ask와 함께 실려도 된다
+        // ask와 함께 실려도 됨
         let both = Message::Control(Control::Ping { ask: Some("invite".into()), steer: Some(st), toss: None });
         assert_eq!(Message::parse(&both.to_json()), Some(both));
         // 조작 없는 ping은 예전 판과 같은 모양
         assert!(!String::from_utf8(Message::Control(Control::Ping { ask: None, steer: None, toss: None }).to_json()).unwrap().contains("steer"));
-        // 예전 판의 Control도 steer가 붙은 ping을 그냥 ping으로 읽는다 (연결을 끊지 않는다)
+        // 예전 판의 Control도 steer가 붙은 ping을 그냥 ping으로 읽음 (연결을 끊지 않음)
         #[derive(Debug, PartialEq, Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
         enum OldControl {
@@ -902,7 +902,7 @@ mod tests {
             },
         }
         assert_eq!(serde_json::from_slice::<OldControl>(&m.to_json()).unwrap(), OldControl::Ping { ask: None });
-        // 깨진 steer 하나 때문에 ping을 버리지 않는다 (steer만 버린다)
+        // 깨진 steer 하나 때문에 ping을 버리지 않음 (steer만 버림)
         for bad in [
             &br#"{"type":"ping","steer":{"visit_id":"x"}}"#[..],
             br#"{"type":"ping","steer":{"visit_id":1,"keys":300}}"#,
@@ -926,7 +926,7 @@ mod tests {
         assert_eq!(Message::parse(&m.to_json()), Some(m.clone()));
         // 던지는 것 없는 ping은 예전 판과 같은 모양
         assert_eq!(Message::Control(Control::Ping { ask: None, steer: None, toss: None }).to_json(), br#"{"type":"ping"}"#.to_vec());
-        // 예전 판의 Control도 toss가 붙은 ping을 그냥 ping으로 읽는다 (연결을 끊지 않는다)
+        // 예전 판의 Control도 toss가 붙은 ping을 그냥 ping으로 읽음 (연결을 끊지 않음)
         #[derive(Debug, PartialEq, Deserialize)]
         #[serde(tag = "type", rename_all = "snake_case")]
         enum OldControl {
@@ -936,18 +936,18 @@ mod tests {
             },
         }
         assert_eq!(serde_json::from_slice::<OldControl>(&m.to_json()).unwrap(), OldControl::Ping { ask: None });
-        // 깨진 toss 하나 때문에 ping을 버리지 않는다
+        // 깨진 toss 하나 때문에 ping을 버리지 않음
         for bad in [&br#"{"type":"ping","toss":5}"#[..], br#"{"type":"ping","toss":{"side":"left"}}"#, br#"{"type":"ping","toss":{"kind":7}}"#] {
             assert_eq!(Message::parse(bad), Some(Message::Control(Control::Ping { ask: None, steer: None, toss: None })), "{}", String::from_utf8_lossy(bad));
         }
-        // 안쪽 필드가 이상해도 물건은 살린다: 모르는 끝은 왼쪽, 깨진 fling·note는 없음
+        // 안쪽 필드가 이상해도 물건은 살림: 모르는 끝은 왼쪽, 깨진 fling·note는 없음
         let odd = br#"{"type":"ping","toss":{"kind":"can","side":"north","vside":3,"fling":{"height":"x"},"note":[1]}}"#;
         assert_eq!(
             Message::parse(odd),
             Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None, rally: None }) }))
         );
         // side가 없어도 왼쪽
-        // 똥 색 표시: 없으면 None, 있으면 그대로 (옛 버전은 모르는 필드를 무시한다). 글자가 아니면 버린다
+        // 똥 색 표시: 없으면 None, 있으면 그대로 (옛 버전은 모르는 필드를 무시함). 글자가 아니면 버림
         let pink = Message::parse(br#"{"type":"ping","toss":{"kind":"poop","look":"pink"}}"#);
         assert!(matches!(&pink, Some(Message::Control(Control::Ping { toss: Some(Toss { look: Some(l), .. }), .. })) if l == "pink"));
         let odd = Message::parse(br#"{"type":"ping","toss":{"kind":"poop","look":7}}"#);
@@ -959,11 +959,11 @@ mod tests {
     fn a_giant_toss_reads_as_a_plain_stone_to_anyone_who_skips_the_look() {
         let t = Toss { kind: "stone".into(), side: Side::Right, vside: None, fling: None, note: None, bounced: false, scale: None, look: Some("giant".into()), rally: None };
         let json = serde_json::to_string(&t).unwrap();
-        // 크기는 받는 쪽이 제 화면에 맞춘다: scale은 싣지 않는다
+        // 크기는 받는 쪽이 제 화면에 맞춤: scale은 싣지 않음
         assert!(json.contains(r#""look":"giant""#) && json.contains(r#""kind":"stone""#) && !json.contains("scale"), "{json}");
         let msg = Message::parse(format!(r#"{{"type":"ping","toss":{json}}}"#).as_bytes());
         assert!(matches!(&msg, Some(Message::Control(Control::Ping { toss: Some(Toss { kind, look: Some(l), scale: None, .. }), .. })) if kind == "stone" && l == "giant"));
-        // look을 모르는 옛 모양의 메시지도 그대로 읽힌다
+        // look을 모르는 옛 모양의 메시지도 그대로 읽힘
         assert!(matches!(Message::parse(br#"{"type":"ping","toss":{"kind":"stone"}}"#), Some(Message::Control(Control::Ping { toss: Some(Toss { look: None, .. }), .. }))));
     }
 
@@ -973,12 +973,12 @@ mod tests {
         let json = serde_json::to_string(&t).unwrap();
         assert!(json.contains(r#""rally":7"#), "{json}");
         assert_eq!(serde_json::from_str::<Toss>(&json).unwrap(), t);
-        // 랠리가 없으면 싣지 않는다 (예전 판과 같은 모양)
+        // 랠리가 없으면 싣지 않음 (예전 판과 같은 모양)
         let plain = Toss { rally: None, ..t.clone() };
         assert!(!serde_json::to_string(&plain).unwrap().contains("rally"));
-        // 예전 판의 메시지(랠리 없음)는 그대로 읽힌다
+        // 예전 판의 메시지(랠리 없음)는 그대로 읽힘
         assert!(matches!(Message::parse(br#"{"type":"ping","toss":{"kind":"ball"}}"#), Some(Message::Control(Control::Ping { toss: Some(Toss { rally: None, .. }), .. }))));
-        // 예전 판의 Toss는 rally를 모르고 그냥 넘긴다
+        // 예전 판의 Toss는 rally를 모르고 그냥 넘김
         #[derive(Debug, Deserialize)]
         struct OldToss {
             kind: String,
@@ -1160,7 +1160,7 @@ mod tests {
             r#"{"type":"device_state","pet":"cat","care":[{"pet":"cat","stage":"child","stamina":3.0,"fullness":0.5,"locked":true}]}"#
         );
         assert!(shape(Control::DeviceState { pet: None, care: vec![], handover: true }).ends_with(r#""care":[],"handover":true}"#));
-        // 깨진 항목은 그 항목만 버린다
+        // 깨진 항목은 그 항목만 버림
         let Some(Message::Control(Control::DeviceState { pet, care, handover })) =
             Message::parse(br#"{"type":"device_state","pet":7,"care":[{"pet":"cat","stage":"baby","stamina":1,"fullness":1},{"pet":"dog"},5],"handover":"yes"}"#)
         else {

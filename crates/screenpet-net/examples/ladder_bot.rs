@@ -121,7 +121,7 @@ fn load(dir: &Path) -> State {
 fn save(dir: &Path, st: &State) {
     use std::io::Write;
     let path = dir.join("bot.json");
-    // 이미 있는 파일은 mode가 듣지 않으므로 쓰기 전에 잠근다
+    // 이미 있는 파일은 mode가 듣지 않으므로 쓰기 전에 잠금
     if path.exists() {
         lock_state(&path).expect("lock state");
     }
@@ -329,7 +329,7 @@ fn main() {
         }
         if let Some((h, w)) = host.as_mut() {
             send_all(&net, h.tick(now));
-            // 모두 답하면 저절로 시작 (미리 채운 칸이라 인원에 맞춰 다시 만든다)
+            // 모두 답하면 저절로 시작 (미리 채운 칸이라 인원에 맞춰 다시 만듦)
             if !started && h.all_answered() && h.joined() > 0 && *h.phase() == Phase::Inviting {
                 if let Some(out) = h.start(&preset(h.joined() + 1, *w), now) {
                     send_all(&net, out);
@@ -338,7 +338,7 @@ fn main() {
             }
             if shown.as_ref() != Some(h.phase()) {
                 report(h.phase());
-                // 끝나면 참가자에게 진행 시작 신호 (앱과 같다)
+                // 끝나면 참가자에게 진행 시작 신호 (앱과 같음)
                 if let Phase::Done(o) = h.phase() {
                     let msg = LadderMsg::LadderStart { game_id: h.game_id(), mode: "one_by_one".into() };
                     for p in &o.players {
@@ -421,7 +421,7 @@ mod tests {
         let mode = |d: &Path| std::fs::metadata(d.join("bot.json")).unwrap().permissions().mode() & 0o777;
         let st = load(&d);
         assert_eq!(mode(&d), 0o600, "created private");
-        // 예전 봇이 남이 읽을 수 있게 만든 파일도 다시 저장하거나 읽을 때 잠근다
+        // 예전 봇이 남이 읽을 수 있게 만든 파일도 다시 저장하거나 읽을 때 잠금
         std::fs::set_permissions(d.join("bot.json"), std::fs::Permissions::from_mode(0o644)).unwrap();
         assert_eq!(load(&d).key, st.key);
         assert_eq!(mode(&d), 0o600, "locked on load");

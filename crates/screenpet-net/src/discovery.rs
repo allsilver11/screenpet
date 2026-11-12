@@ -53,7 +53,7 @@ pub(crate) fn run(shared: Arc<Shared>, udp: Option<UdpSocket>, broadcast_to: Soc
     let mut buf = [0u8; 2048];
     while !shared.stopping() {
         if Instant::now() >= next_announce {
-            // 이름은 바뀔 수 있다 (Net::set_name) — 알릴 때마다 만든다
+            // 이름은 바뀔 수 있음 (Net::set_name) — 알릴 때마다 만듦
             let announce = serde_json::to_vec(&Announce::new(&shared.id, &shared.name(), shared.tcp_port)).expect("announce serializes");
             let _ = udp.send_to(&announce, broadcast_to);
             next_announce = Instant::now() + shared.timing.announce_interval;
@@ -410,7 +410,7 @@ mod tests {
         let mut st = two_sources();
         let now = Instant::now();
         while note_dial(&mut st, "x", lan(1), now, true) {}
-        // 예산이 바닥난 후보가 차례를 붙들고 있으면 다른 후보는 영영 불리지 않는다
+        // 예산이 바닥난 후보가 차례를 붙들고 있으면 다른 후보는 영영 불리지 않음
         let t = now + Duration::from_millis(1);
         st.seen.get_mut("x").unwrap().tried.insert(lan(2), now);
         assert!(!note_dial(&mut st, "x", lan(1), t, true));

@@ -469,7 +469,7 @@ mod tests {
         assert!(Mailbox::load(&dir).list()[0].done, "survives a restart");
         assert!(m.mark_done(id, false));
         assert!(!m.list()[0].done);
-        // 옛 파일(done 칸 없음)도 읽힌다
+        // 옛 파일(done 칸 없음)도 읽힘
         let old = br#"{"next_id":1,"letters":[{"id":1,"at":5,"from":"a","read":true,"box":"00"}]}"#;
         std::fs::write(dir.join(LETTERS_FILE), old).unwrap();
         assert!(!Mailbox::load(&dir).list()[0].done);

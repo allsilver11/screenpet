@@ -141,7 +141,7 @@ fn a_player_dropping_after_the_lock_cancels_with_its_name() {
     let mut started = false;
     while Instant::now() < deadline {
         step_host(&t.host.0, &t.host.1, &mut host);
-        // b는 잠근 뒤로 읽지 않는다 (공개가 늦는다). c는 잠그기를 받은 것을 확인하고 공개 전에 꺼진다 (아래)
+        // b는 잠근 뒤로 읽지 않음 (공개가 늦음). c는 잠그기를 받은 것을 확인하고 공개 전에 꺼짐 (아래)
         if !started {
             step_player(&t.b.0, &t.b.1, &mut gb, "비");
         }
@@ -161,7 +161,7 @@ fn a_player_dropping_after_the_lock_cancels_with_its_name() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(matches!(host.phase(), Phase::Cancelled { reason: CancelReason::Left, who: Some(n) } if n == "씨"), "{:?}", host.phase());
-    // b에게도 취소가 간다
+    // b에게도 취소가 감
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline && !gb.as_ref().unwrap().phase().is_over() {
         step_player(&t.b.0, &t.b.1, &mut gb, "비");

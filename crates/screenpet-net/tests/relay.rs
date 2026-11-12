@@ -166,7 +166,7 @@ fn bad_codes_are_reported() {
 
 #[test]
 fn a_letter_reaches_the_real_relay_and_a_brand_new_install_is_told_to_wait() {
-    // 💌 끝에서 끝까지: 봉한 편지 → 실제 릴레이 → 처음 본 설치라 "new"로 거절 (한도는 모두 릴레이가 센다)
+    // 💌 끝에서 끝까지: 봉한 편지 → 실제 릴레이 → 처음 본 설치라 "new"로 거절 (한도는 모두 릴레이가 셈)
     let relay = start_relay("127.0.0.1:0".parse().unwrap());
     let (a, arx) = start_net("aaaa", Net::generate_static_key(), free_udp_port(), free_udp_port(), vec![], &url(&relay));
     code_of(&arx); // 연결됨
@@ -177,14 +177,14 @@ fn a_letter_reaches_the_real_relay_and_a_brand_new_install_is_told_to_wait() {
         Some(NetEvent::LetterSent { result }) => assert_eq!(result, Err("new".to_string())),
         other => panic!("no answer: {other:?}"),
     }
-    // 편지함은 읽는 설치로 등록된 것만 — 아니면 대답이 없다
+    // 편지함은 읽는 설치로 등록된 것만 — 아니면 대답이 없음
     assert!(a.mailbox_list());
     assert!(wait_for(&arx, 1.0, |e| matches!(e, NetEvent::Mailbox { .. })).is_none());
 }
 
 #[test]
 fn the_public_board_pages_from_the_real_relay() {
-    // 📮 v3 릴레이: 누구나 한 쪽씩 본다 (빈 건의함은 1/1쪽)
+    // 📮 v3 릴레이: 누구나 한 쪽씩 봄 (빈 건의함은 1/1쪽)
     let relay = start_relay("127.0.0.1:0".parse().unwrap());
     let (a, arx) = start_net("aaaa", Net::generate_static_key(), free_udp_port(), free_udp_port(), vec![], &url(&relay));
     code_of(&arx); // 연결됨
@@ -193,7 +193,7 @@ fn the_public_board_pages_from_the_real_relay() {
         Some(NetEvent::Board { result }) => assert_eq!(result, Ok(screenpet_net::board::BoardPage { items: vec![], page: 1, pages: 1, total: 0 })),
         other => panic!("no page: {other:?}"),
     }
-    // 읽는 설치가 아니면 올려도 무시된다 (연결은 그대로)
+    // 읽는 설치가 아니면 올려도 무시됨 (연결은 그대로)
     let d = screenpet_net::board::Digest { id: 1, name: "*".into(), line: "x".into() };
     assert!(a.board_put(&[d]));
     a.board_list(1);
@@ -378,13 +378,13 @@ fn a_taken_discovery_port_leaves_the_relay_working() {
     let port = holder.local_addr().unwrap().port();
     let (ka, kb) = (Net::generate_static_key(), Net::generate_static_key());
     let (fa, fb) = friends_of(&ka, &kb);
-    // 다른 프로그램이 발견 포트를 쓰고 있어도 인터넷 친구는 만난다
+    // 다른 프로그램이 발견 포트를 쓰고 있어도 인터넷 친구는 만남
     let (a, arx) = start_net("aaaa", ka, port, free_udp_port(), fa, &u);
     let (_b, brx) = start_net("bbbb", kb, free_udp_port(), free_udp_port(), fb, &u);
     assert_eq!(a.discovery_port(), port);
     assert!(wait_for(&arx, 8.0, is_connected).is_some(), "linked through the relay");
     assert!(wait_for(&brx, 8.0, is_connected).is_some());
-    // 끊긴 친구 알림(유예 뒤 Disconnected)도 그대로 돈다
+    // 끊긴 친구 알림(유예 뒤 Disconnected)도 그대로 돎
     drop(_b);
     assert!(wait_for(&arx, 8.0, |e| matches!(e, NetEvent::Disconnected { .. })).is_some());
 }
@@ -590,7 +590,7 @@ fn relay_status_with(proof: Proof) -> Option<NetEvent> {
 
 #[test]
 fn a_relay_with_the_right_public_key_but_no_secret_is_refused() {
-    // 진짜 증명은 통과한다 (이 가짜 릴레이가 프로토콜을 제대로 말한다는 뜻)
+    // 진짜 증명은 통과함 (이 가짜 릴레이가 프로토콜을 제대로 말한다는 뜻)
     assert!(relay_status_with(Proof::Real).is_some(), "the fake relay works when it can prove its key");
     assert_eq!(relay_status_with(Proof::Forged), None, "a guessed proof is refused");
     assert_eq!(relay_status_with(Proof::Missing), None, "no proof is refused");
@@ -621,7 +621,7 @@ fn relay_attacker_cannot_inject_or_replay() {
     a.send("bbbb", visit(1));
     assert!(received(&brx, 1), "the channel carries a real visit");
 
-    // 릴레이는 암호문만 본다: 친구 사이의 어떤 프레임에도 평문이 없다
+    // 릴레이는 암호문만 봄: 친구 사이의 어떤 프레임에도 평문이 없음
     let sent: Vec<Carried> = relay.seen.lock().unwrap().frames.clone();
     assert!(sent.len() >= 4, "{} frames", sent.len());
     for (_, _, f) in &sent {
@@ -638,16 +638,16 @@ fn relay_attacker_cannot_inject_or_replay() {
     };
     let last_a_to_b = || relay.seen.lock().unwrap().frames.iter().rev().find(|(_, k, _)| *k == key_a).cloned().expect("a frame from A");
 
-    // 1. 지나간 프레임을 다시 보낸다 (A의 hello): 복호화에 실패하고 전달되지 않는다
+    // 1. 지나간 프레임을 다시 보냄 (A의 hello): 복호화에 실패하고 전달되지 않음
     let (ch, _, _) = last_a_to_b();
     let replay = relay.seen.lock().unwrap().frames.iter().filter(|(c, k, _)| *c == ch && *k == key_a).nth(2).expect("A's hello").2.clone();
     attack(replay, ch);
     assert!(wait_for(&brx, 0.3, |e| matches!(e, NetEvent::Received { .. })).is_none(), "a replay is never delivered");
 
-    // 끊긴 링크는 다시 맺어진다 (새 채널로)
+    // 끊긴 링크는 다시 맺어짐 (새 채널로)
     assert!(wait_until(10.0, || relay.seen.lock().unwrap().frames.iter().any(|(c, k, _)| *c > ch && *k == key_a) && a.peer_version("bbbb").is_some() && b.peer_version("aaaa").is_some()), "linked again");
 
-    // 2. 평문으로 방문 메시지를 끼워 넣는다
+    // 2. 평문으로 방문 메시지를 끼워 넣음
     let (ch2, _, _) = last_a_to_b();
     assert!(ch2 > ch);
     let forged = serde_json::to_vec(&json!({"type": "leave", "visit_id": 66})).unwrap();

@@ -1423,7 +1423,7 @@ mod budget_tests {
         // 다른 친구의 몫은 따로, 다른 종류의 몫도 따로
         assert!(st.budget("b", now).tosses.take(now));
         assert!(st.budget("a", now).visits.take(now));
-        // 시간이 지나면 다시 찬다
+        // 시간이 지나면 다시 참
         assert!(st.budget("a", now).tosses.take(now + TOSS_EVERY));
         st.remove_friend("a");
         assert!(!st.budgets.contains_key("a"));
@@ -1455,11 +1455,11 @@ mod inbound_tests {
         let link = || -> Arc<dyn transport::FrameLink> { Arc::new(NoLink) };
         let mut held: Vec<_> = (0..MAX_HANDSHAKES).map(|_| net.shared.admit_inbound(link()).expect("under the cap")).collect();
         assert!(net.shared.admit_inbound(link()).is_none(), "the cap is reached");
-        // 하나가 끝나면 자리가 난다
+        // 하나가 끝나면 자리가 남
         held.pop();
         let again = net.shared.admit_inbound(link()).expect("a slot came free");
         assert!(net.shared.admit_inbound(link()).is_none());
-        // hello까지 온 링크는 세지 않는다 (끝날 때 두 번 빼지도 않는다)
+        // hello까지 온 링크는 세지 않음 (끝날 때 두 번 빼지도 않음)
         again.handshake_done();
         let next = net.shared.admit_inbound(link()).expect("hello frees the slot");
         drop(again);
@@ -1491,7 +1491,7 @@ mod inbound_tests {
     fn a_stranger_flood_never_refuses_a_trusted_or_relay_link() {
         let net = solo_net(vec![]);
         net.shared.state().trust_ip("friend", "10.0.0.9", Instant::now());
-        // LAN의 낯선 주소들이 핸드셰이크 자리를 다 채운다
+        // LAN의 낯선 주소들이 핸드셰이크 자리를 다 채움
         let flood: Vec<_> = (0..MAX_HANDSHAKES).map(|i| net.shared.admit_inbound(at(&format!("10.1.0.{i}"))).expect("under the cap")).collect();
         assert!(net.shared.admit_inbound(at("10.1.1.1")).is_none(), "strangers are at their cap");
         assert!(net.shared.admit_inbound(at("10.0.0.9")).is_some(), "a friend's address has its own");
@@ -1518,7 +1518,7 @@ mod inbound_tests {
         let held: Vec<_> = (0..MAX_HANDSHAKES).map(|i| net.shared.admit_inbound(at(&format!("10.2.0.{i}"))).expect("under the cap")).collect();
         assert!(net.shared.admit_inbound(at("10.2.0.40")).is_none(), "trusted links are bounded as well");
         drop(held);
-        // 풀에도 신뢰 주소 전체의 상한이 있다 (오래된 것이 밀려난다)
+        // 풀에도 신뢰 주소 전체의 상한이 있음 (오래된 것이 밀려남)
         let mut held = Vec::new();
         for i in 0..MAX_TRUSTED_IPS {
             let g = net.shared.admit_inbound(at(&format!("10.2.0.{i}"))).expect("slot");

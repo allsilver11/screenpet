@@ -1230,7 +1230,7 @@ mod tests {
     fn a_friend_list_that_could_not_be_queued_is_sent_again() {
         let net = crate::solo_net(vec![crate::Friend { id: "ff".into(), public_key: [7; 32] }]);
         let client = RelayClient::new("ws://relay.test/ws".into(), None);
-        // 연결이 없어(또는 큐가 차서) 못 보냈다: 보낸 것으로 치지 않는다
+        // 연결이 없어(또는 큐가 차서) 못 보냈음: 보낸 것으로 치지 않음
         sync_friends(&net.shared, &client, 1);
         assert!(client.inner().sent_friends.is_empty());
         let (tx, rx) = sync_channel(4);
@@ -1519,7 +1519,7 @@ RoiK+gDhY9cS6gsFC9oTEA3h5HGh+huoFghmkruTSR4bcG8kPm0B4kv0\n\
         let (port, server) = tls_server(rustls::ALL_VERSIONS);
         let url = format!("wss://localhost:{port}/ws");
         let err = connect(&url, &AtomicBool::new(false)).err().expect("an untrusted relay must not connect");
-        // 다른 이유(연결 실패, 시간 초과)로 실패한 것을 통과로 치지 않는다
+        // 다른 이유(연결 실패, 시간 초과)로 실패한 것을 통과로 치지 않음
         assert!(err.to_string().contains("UnknownIssuer"), "{err}");
         let _ = server.join().unwrap();
     }
@@ -1531,7 +1531,7 @@ RoiK+gDhY9cS6gsFC9oTEA3h5HGh+huoFghmkruTSR4bcG8kPm0B4kv0\n\
             (&rustls::version::TLS13, rustls::ProtocolVersion::TLSv1_3),
             (&rustls::version::TLS12, rustls::ProtocolVersion::TLSv1_2),
         ] {
-            // 서버가 한 판만 받으니 클라이언트는 앱처럼 둘 다 내놓아야 한다
+            // 서버가 한 판만 받으니 클라이언트는 앱처럼 둘 다 내놓아야 함
             let (port, server) = tls_server(&[version]);
             let mut roots = rustls::RootCertStore::empty();
             roots.add(test_cert()).unwrap();
