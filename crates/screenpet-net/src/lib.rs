@@ -925,7 +925,7 @@ impl Net {
         let udp = match discovery_socket(cfg.discovery_port) {
             Ok(u) => Some(u),
             Err(e) if cfg.relay_url.as_deref().is_some_and(|u| !u.is_empty()) => {
-                eprintln!("screenpet discovery off (port {}): {e}; relay only", cfg.discovery_port);
+                screenpet_log::log!(Warn, "net", "discovery_off", "port" => cfg.discovery_port, "err" => e);
                 None
             }
             Err(e) => return Err(e),

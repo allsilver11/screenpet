@@ -723,8 +723,8 @@ const NETWORK_FILE: &str = "network.log";
 /// 연결 기록이 이보다 커지면 처음부터 다시 씀
 const NETWORK_LOG_MAX: u64 = 256 * 1024;
 
-/// 서버(릴레이)·친구 연결이 붙고 끊긴 기록을 config 폴더의 `network.log`에 덧붙임 — 인터넷이 불안정할 때 원인을 보려고.
-/// 페이지 내용·메시지는 적지 않음 (시각, 무엇이 붙었는지/끊겼는지만). 실패는 무시함
+/// 구조화 로그 한 줄(`screenpet-log` 형식: 릴레이·친구 연결, 업데이트, 놀러 가기, 던지기)을 config 폴더의 `network.log`에 덧붙임.
+/// 내용·메시지·이름은 적지 않음 (docs/architecture/logging.md). 실패는 무시함
 pub fn append_network_log(dir: &Path, text: &str) {
     append_small_log(dir, NETWORK_FILE, NETWORK_LOG_MAX, text);
 }

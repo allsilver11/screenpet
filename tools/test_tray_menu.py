@@ -133,7 +133,7 @@ def test_friend_submenu_links_my_other_computer_with_a_code():
     # 비밀은 설정에만 (로그에 찍지 않는다)
     assert "set_friend_device_secret(" in network and "linked_device()" in network
     for line in network.splitlines():
-        if "eprintln!" in line:
+        if "eprintln!" in line or "log!(" in line:
             assert "secret" not in line, line
     assert "📱 내 다른 컴퓨터" in HELP and "코드" in HELP[HELP.index("📱 내 다른 컴퓨터") :][:600]
 
@@ -247,7 +247,7 @@ def test_a_short_drop_does_not_flip_friends_offline_or_redraw_the_menu():
     net = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
     assert "self.flicker.down(&id, now);" in net and "self.flicker.up(&id);" in net
     assert "for id in self.flicker.expired(secs) {" in net
-    assert 'self.net_log(&format!("friend {} disconnected", short_id(&id)));' in net
+    assert 'log!(Info, "net", "friend_down", "friend" => short_id(&id));' in net
 
 
 def test_heumul_color_menu_sits_under_the_style_only_for_tintable_pets():

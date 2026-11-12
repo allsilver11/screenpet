@@ -11,8 +11,9 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use screenpet_log::log;
 use screenpet_core::update::{self, Check, MenuState, Platform, Release, UpdateError, Version};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
@@ -53,7 +54,7 @@ pub fn on_click(app: &AppHandle) {
     let app = app.clone();
     thread::spawn(move || {
         if let Err(e) = run(&app) {
-            eprintln!("update failed: {e:?}");
+            log!(Error, "update", "update_fail", "err" => format!("{e:?}"));
             show(&app, MenuState::Failed(e), true);
         }
         BUSY.store(false, Ordering::SeqCst);
@@ -76,6 +77,7 @@ fn run(app: &AppHandle) -> Result<(), UpdateError> {
     show(app, MenuState::Downloading(release.version), true);
     let file = download(&release)?;
     show(app, MenuState::Installing(release.version), true);
+    log!(Info, "update", "install_start", "version" => release.version);
     match platform {
         Platform::Windows => install_windows(app, &file),
         Platform::MacOs => install_macos(app, &file),
@@ -91,11 +93,12 @@ pub fn start_quiet_checks(app: &AppHandle) {
         loop {
             match fetch_latest(platform) {
                 Ok(Check::Newer(r)) => {
+                    log!(Info, "update", "available", "version" => r.version);
                     show_quietly(&app, MenuState::Available(r.version));
                     announce(&app, r.version);
                 }
                 Ok(Check::UpToDate(_)) => {}
-                Err(e) => eprintln!("update check: {e:?}"),
+                Err(e) => log!(Warn, "update", "check_fail", "err" => format!("{e:?}")),
             }
             thread::sleep(update::CHECK_EVERY);
         }
@@ -156,7 +159,7 @@ fn get(agent: &ureq::Agent, url: &str, accept: &str) -> Result<ureq::http::Respo
     let mut url = url.to_string();
     for _ in 0..=update::MAX_REDIRECTS {
         let resp = agent.get(&url).header("Accept", accept).call().map_err(|e| {
-            eprintln!("update: GET failed: {e}");
+            log!(Warn, "update", "get_fail", "err" => e);
             UpdateError::Network
         })?;
         let status = resp.status();
@@ -166,7 +169,7 @@ fn get(agent: &ureq::Agent, url: &str, accept: &str) -> Result<ureq::http::Respo
             continue;
         }
         if !status.is_success() {
-            eprintln!("update: HTTP {status}");
+            log!(Warn, "update", "http_status", "status" => status.as_u16());
             return Err(update::status_error(status.as_u16()));
         }
         return Ok(resp);
@@ -193,7 +196,7 @@ fn fetch_latest(platform: Platform) -> Result<Check, UpdateError> {
 fn fetch_signed(agent: &ureq::Agent) -> Result<Vec<u8>, UpdateError> {
     let json = fetch_bytes(agent, update::LATEST_URL, "application/json", LATEST_BODY_LIMIT)?;
     let sig = fetch_bytes(agent, update::LATEST_SIG_URL, "text/plain", SIG_BODY_LIMIT)?;
-    update::verify_latest(&json, &sig).inspect_err(|_| eprintln!("update: latest.json signature does not match"))?;
+    update::verify_latest(&json, &sig).inspect_err(|_| log!(Error, "update", "bad_signature"))?;
     Ok(json)
 }
 
@@ -201,7 +204,8 @@ fn fetch_signed(agent: &ureq::Agent) -> Result<Vec<u8>, UpdateError> {
 fn fetch_bytes(agent: &ureq::Agent, url: &str, accept: &str, limit: u64) -> Result<Vec<u8>, UpdateError> {
     let mut resp = get(agent, url, accept)?;
     resp.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| {
-        eprintln!("update: reading {url} failed: {e}");
+        let file = url.rsplit('/').next().unwrap_or("");
+        log!(Warn, "update", "read_fail", "file" => file, "err" => e);
         UpdateError::Network
     })
 }
@@ -211,9 +215,16 @@ fn download(release: &Release) -> Result<PathBuf, UpdateError> {
     let dir = std::env::temp_dir().join(WORK_DIR);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).map_err(|_| UpdateError::Disk)?;
+    let started = Instant::now();
+    log!(Info, "update", "download_start", "version" => release.version, "bytes" => release.asset.size);
     let result = download_into(&dir, release);
-    if result.is_err() {
-        let _ = fs::remove_dir_all(&dir);
+    let took_ms = started.elapsed().as_millis();
+    match &result {
+        Ok(_) => log!(Info, "update", "download_ok", "version" => release.version, "bytes" => release.asset.size, "took_ms" => took_ms),
+        Err(e) => {
+            log!(Error, "update", "download_fail", "version" => release.version, "took_ms" => took_ms, "err" => format!("{e:?}"));
+            let _ = fs::remove_dir_all(&dir);
+        }
     }
     result
 }
@@ -238,7 +249,7 @@ fn download_into(dir: &Path, release: &Release) -> Result<PathBuf, UpdateError> 
             Ok(n) => n,
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Err(e) => {
-                eprintln!("update: download failed: {e}");
+                log!(Warn, "update", "read_fail", "file" => release.asset.name.as_str(), "err" => e);
                 return Err(UpdateError::Network);
             }
         };
@@ -274,7 +285,7 @@ fn quit_app(app: &AppHandle) {
 fn install_windows(app: &AppHandle, installer: &Path) -> Result<(), UpdateError> {
     let installer = installer.to_path_buf();
     Command::new(&installer).args(update::NSIS_ARGS).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e| {
-        eprintln!("update: installer failed to start: {e}");
+        log!(Error, "update", "install_fail", "err" => e);
         UpdateError::Install("설치 프로그램을 열지 못했어요")
     })?;
     quit_app(app);
@@ -328,7 +339,7 @@ fn install_macos(app: &AppHandle, dmg: &Path) -> Result<(), UpdateError> {
         .process_group(0)
         .spawn();
     if let Err(e) = helper {
-        eprintln!("update: helper failed to start: {e}");
+        log!(Error, "update", "install_fail", "err" => e);
         detach(&mnt, &dir);
         return Err(UpdateError::Install("새 버전으로 바꾸지 못했어요"));
     }

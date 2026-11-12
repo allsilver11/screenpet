@@ -18,6 +18,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use screenpet_core::config::Config;
+use screenpet_log::{log, short};
 use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::icon::{self, IconImage};
 use screenpet_core::taskbar::{Toys, CAPTURE_BACKOFF_SECS, TOY_ICON_PX};
@@ -626,9 +627,11 @@ impl Objects {
         let fling = toss.fling.map(from_net_fling);
         let kind = ObjectKind::wire_kind(&toss.kind, toss.look.as_deref()).map_or(toss.kind.clone(), |k| k.id().to_string());
         let Some(accepted) = accept_toss(&kind, fling, toss.note.as_deref()) else {
-            eprintln!("ignored a thrown object of unknown kind from {from}");
+            log!(Warn, "toss", "toss_unknown", "friend" => short(from));
             return;
         };
+        // 포스트잇 글은 안 적음 (있었는지만)
+        log!(Info, "toss", "toss_in", "friend" => short(from), "kind" => kind, "with_note" => u8::from(toss.note.is_some()));
         let side = from_net_side(toss.side, toss.vside);
         if accepted.kind.is_poop() {
             // 메뉴로 꺼도 친구가 던진 똥은 받음 (끄는 건 동물이 싸는 것뿐, 받기 싫으면 집중·하우스)
@@ -919,7 +922,7 @@ impl Objects {
             let count = volley.release(budgets.entry(id.clone()).or_default(), secs);
             if count > 0 {
                 threw_at.insert(id.clone(), Instant::now());
-                eprintln!("threw {count} objects to {id}");
+                log!(Info, "toss", "toss_volley", "friend" => short(id), "n" => count);
             }
             let (side, vside) = to_net_side(visit::opposite(friend.side));
             let mut rng = fastrand::Rng::new();
@@ -949,7 +952,7 @@ impl Objects {
         self.threw_at.insert(friend.clone(), Instant::now());
         let (side, vside) = to_net_side(visit::opposite(exit.side));
         let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()), look: l.object.kind.look().map(str::to_string), rally: (l.object.rally() > 0).then(|| l.object.rally()) };
-        eprintln!("threw a {} to {friend}{}", l.object.kind.id(), if toss.note.is_some() { " with a post-it" } else { "" });
+        log!(Info, "toss", "toss_out", "friend" => short(&friend), "kind" => l.object.kind.id(), "with_note" => u8::from(toss.note.is_some()));
         network.toss_to(&friend, toss);
     }
 }

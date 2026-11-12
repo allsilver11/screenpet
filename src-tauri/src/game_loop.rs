@@ -1129,7 +1129,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             // 던져서 넘어갔으면 그 움직임 (주인 화면이나 다음 친구 화면으로 날아감)
             let fling = slot.pet.take_fling();
             if let Role::Guest(g) = &slot.role {
-                eprintln!("guest {} ({}) left", g.visit_id, g.owner_id);
+                screenpet_log::log!(Info, "visit", "guest_left", "visit" => g.visit_id, "owner" => screenpet_log::short(&g.owner_id));
                 network.guest_left(&config, &slot, g, side, slot.pet.guest(), fling);
             }
             slots::close(&app, slot);

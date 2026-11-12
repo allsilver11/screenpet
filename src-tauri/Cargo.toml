@@ -22,6 +22,8 @@ fastrand = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 screenpet-core = { path = "../crates/screenpet-core" }
 screenpet-net = { path = "../crates/screenpet-net" }
+# 구조화 로그 한 줄 (릴레이와 같은 형식, network.log로 씀)
+screenpet-log = { path = "../crates/screenpet-log" }
 
 # 떠 있는 창의 NSWindow collectionBehavior (overlay.rs). tao 0.37과 같은 objc2-app-kit 0.3
 [target.'cfg(target_os = "macos")'.dependencies]

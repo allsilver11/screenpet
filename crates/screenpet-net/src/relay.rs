@@ -15,6 +15,7 @@ use crate::protocol::{MAX_FRAME, MAX_FRIENDS, MAX_ID};
 use crate::transport::{Candidate, FrameLink, FrameReader, Recv};
 use crate::noise;
 use screenpet_crypto::{auth_mac, welcome_proof};
+use screenpet_log::{log, short};
 use crate::{Backoff, NetEvent, Shared, TICK};
 use screenpet_proto::relay::{ClientMsg, Letter as WireLetter, ServerMsg};
 use std::collections::{HashMap, HashSet};
@@ -766,8 +767,9 @@ pub(crate) fn run(shared: Arc<Shared>, client: Arc<RelayClient>) {
         let served = match connect(&client.url, &shared.stop) {
             Ok(ws) => serve(&shared, &client, ws),
             Err(e) => {
+                // 다시 해 보는 동안 첫 실패만 적음 (주소는 안 적음)
                 if !logged {
-                    eprintln!("screenpet relay {}: {e}", client.url);
+                    log!(Warn, "relay", "connect_fail", "err" => e);
                     logged = true;
                 }
                 false
@@ -814,17 +816,19 @@ fn disconnected(shared: &Shared, client: &RelayClient) {
         shared.emit(NetEvent::CodeFailed { code: r.code, reason: "offline".into() });
     }
     if was {
+        log!(Info, "relay", "disconnected", "peer" => short(&noise::to_hex(&shared.public_key)));
         shared.emit(NetEvent::RelayStatus { connected: false });
     }
 }
 
 /// 연결 하나를 인증하고 섬김. `welcome`을 넘겼으면 `true`
 fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
-    let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
+    let started = Instant::now();
+    let deadline = started + HANDSHAKE_TIMEOUT;
     let Some(ServerMsg::Challenge { relay, nonce, v: relay_v }) = read_server(&mut ws, deadline, &shared.stop) else { return false };
     let (Some(relay_pub), Some(nonce)) = (noise::hex32(&relay), noise::hex32(&nonce)) else { return false };
     if client.pinned.is_some_and(|k| k != relay_pub) {
-        eprintln!("screenpet relay {}: unexpected relay key {relay}; refusing", client.url);
+        log!(Error, "relay", "key_mismatch");
         return false;
     }
     let own_pub = shared.public_key;
@@ -850,13 +854,13 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
             // Only the holder of the relay key can compute this.
             let expected = welcome_proof(&shared_secret, &cnonce, &nonce, &own_pub);
             if proof.as_deref().and_then(noise::hex32) != Some(expected) {
-                eprintln!("screenpet relay {}: relay did not prove its key; refusing", client.url);
+                log!(Error, "relay", "no_proof");
                 return false;
             }
             (code, online)
         }
         Some(ServerMsg::Error { reason }) => {
-            eprintln!("screenpet relay refused us: {reason}");
+            log!(Warn, "relay", "refused", "peer" => short(&noise::to_hex(&own_pub)), "reason" => reason);
             return false;
         }
         _ => return false,
@@ -865,6 +869,12 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
         return false;
     }
     let online = friends_among(shared, &online);
+    // 내 키 앞 8자 = 릴레이 로그의 `peer=`: 친구의 network.log와 릴레이 journald를 이것으로 맞춤
+    log!(
+        Info, "relay", "login",
+        "peer" => short(&noise::to_hex(&own_pub)), "v" => relay_v, "friends" => friends.len(), "online" => online.len(),
+        "took_ms" => started.elapsed().as_millis(),
+    );
     let gen = client.generation.fetch_add(1, Ordering::SeqCst) + 1;
     let (tx, rx) = sync_channel(OUTBOX);
     *client.outbox.lock().unwrap_or_else(|e| e.into_inner()) = Some((gen, tx));
@@ -911,7 +921,7 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
                 last_recv = Instant::now();
                 match serde_json::from_str::<ServerMsg>(t.as_str()) {
                     Ok(ServerMsg::Error { reason }) => {
-                        eprintln!("screenpet relay closed the connection: {reason}");
+                        log!(Warn, "relay", "closed", "peer" => short(&noise::to_hex(&shared.public_key)), "reason" => reason);
                         break;
                     }
                     Ok(m) => on_message(shared, client, gen, m),

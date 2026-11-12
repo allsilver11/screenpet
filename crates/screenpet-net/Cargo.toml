@@ -10,6 +10,8 @@ serde_json = "1"
 screenpet-crypto = { path = "../screenpet-crypto" }
 # 릴레이와 같이 쓰는 와이어 메시지·버전·한도
 screenpet-proto = { path = "../screenpet-proto" }
+# 구조화 로그 한 줄 (릴레이와 같은 형식: 앱에선 network.log로 감)
+screenpet-log = { path = "../screenpet-log" }
 snow = { version = "0.10", default-features = false, features = ["use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
 curve25519-dalek = { version = "4.1", default-features = false }
 blake2 = { version = "0.10", default-features = false }
