@@ -1,32 +1,35 @@
-//! 💩 똥피하기 — 화면 위에서 똥이 떨어지고, 방향키로 내 동물을 움직여 피한다. 한 번 맞으면 끝, 점수 = 바닥까지 떨어진 똥 수.
+//! 💩 똥피하기 — 화면 위에서 똥이 떨어지고, 방향키로 내 동물을 움직여 피함. 한 번 맞으면 끝, 점수 = 바닥까지 떨어진 똥 수.
 //!
-//! - 판은 한 모니터의 작업 영역 (물리 px). 동물은 조작 모드로 움직인다 (걷기·점프·창 위에 오르기 그대로).
-//! - 시간이 갈수록 똥이 빨라지고 자주 떨어진다. 몇 개에 하나는 동물 머리 위를 노린다 (가만히 서 있으면 맞는다).
-//! - 동물이 판 밖(다른 모니터·친구 화면)으로 나가면 그 자리에서 끝난다.
-//! - 친구 랭킹: 최고 기록만 친구 링크의 "부탁"(`dodge:<점수>`)으로 주고받는다. 예전 판은 모르는 부탁을 무시한다.
+//! - 판은 한 모니터의 작업 영역 (물리 px). 동물은 조작 모드로 움직임 (걷기·점프·창 위에 오르기 그대로).
+//! - 시간이 갈수록 똥이 빨라지고 자주 떨어짐. 몇 개에 하나는 동물 머리 위를 노림 (가만히 서 있으면 맞음).
+//! - 동물이 판 밖(다른 모니터·친구 화면)으로 나가면 그 자리에서 끝남
+//! - 친구 랭킹: 최고 기록만 친구 링크의 "부탁"(`dodge:<점수>`)으로 주고받음. 예전 판은 모르는 부탁을 무시함
 //!
-//! 시간은 `tick`이 받는 dt(초)만 더한다.
+//! 시간은 `tick`이 받는 dt(초)만 더함
 
 use crate::brain::Pet;
 use crate::geom::Rect;
 
 /// 똥 반지름 (논리 px)
 pub const POOP_R: f64 = 17.0;
-/// 처음 떨어지는 속도 (논리 px/s), 1초마다 이만큼 빨라진다, 가장 빠른 속도
+/// 처음 떨어지는 속도 (논리 px/s), 1초마다 이만큼 빨라짐, 가장 빠른 속도
 pub const FALL_START: f64 = 240.0;
+/// 1초마다 빨라지는 양 (논리 px/s)
 pub const FALL_GAIN: f64 = 9.0;
+/// 가장 빠른 속도 (논리 px/s)
 pub const FALL_MAX: f64 = 950.0;
 /// 속도 흔들림 (배, ±)
 const FALL_JITTER: f64 = 0.2;
 /// 처음 떨어지는 간격 (초, 판 폭 SPAWN_WIDTH 기준), 1초마다 줄어드는 양, 가장 짧은 간격
 pub const SPAWN_START: f64 = 0.8;
 const SPAWN_GAIN: f64 = 0.011;
+/// 가장 짧은 간격 (초)
 pub const SPAWN_MIN: f64 = 0.14;
-/// 이 폭(논리 px)일 때 위 간격 그대로 — 넓은 화면엔 더 자주 떨어진다 (폭 비율, 0.5~2배)
+/// 이 폭(논리 px)일 때 위 간격 그대로 — 넓은 화면엔 더 자주 떨어짐 (폭 비율, 0.5~2배)
 const SPAWN_WIDTH: f64 = 1600.0;
-/// 시작하고 이만큼은 떨어지지 않는다 (초)
+/// 시작하고 이만큼은 떨어지지 않음 (초)
 pub const GRACE_SECS: f64 = 1.0;
-/// 이 확률로 동물 머리 위를 노린다 (가만히 서 있지 못하게), 노릴 때 흩어지는 폭 (동물 반 폭 배)
+/// 이 확률로 동물 머리 위를 노림 (가만히 서 있지 못하게), 노릴 때 흩어지는 폭 (동물 반 폭 배)
 const AIM_CHANCE: f64 = 0.3;
 const AIM_SPREAD: f64 = 2.0;
 /// 맞음 판정은 그림보다 조금 작게 (똥 반지름 배, 동물 반 폭 배)
@@ -34,7 +37,7 @@ const HIT_POOP: f64 = 0.6;
 const HIT_PET: f64 = 0.75;
 /// 동물 머리 높이 (몸 크기 배 — 그림의 머리 끝)
 const PET_HEIGHT: f64 = 0.8;
-/// 한 판의 똥 수 상한 (메모리가 끝없이 늘지 않게 — 넘으면 새로 떨어뜨리지 않는다)
+/// 한 판의 똥 수 상한 (메모리가 끝없이 늘지 않게 — 넘으면 새로 떨어뜨리지 않음)
 const MAX_POOPS: usize = 200;
 /// 점수·기록 상한
 pub const MAX_SCORE: u32 = 999_999;
@@ -44,13 +47,18 @@ pub const ASK_PREFIX: &str = "dodge:";
 /// 맞을 몸: 발 가운데 (x, y), 반 폭, 높이 (물리 px)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetBox {
+    /// 발 가운데 x (물리 px)
     pub x: f64,
+    /// 발 y (물리 px)
     pub y: f64,
+    /// 몸 반 폭 (물리 px)
     pub half_w: f64,
+    /// 머리까지 높이 (물리 px)
     pub height: f64,
 }
 
 impl PetBox {
+    /// 동물의 맞을 몸
     pub fn of(pet: &Pet) -> PetBox {
         PetBox { x: pet.body.x, y: pet.body.y, half_w: pet.cfg.half_w, height: pet.cfg.size * PET_HEIGHT }
     }
@@ -59,14 +67,19 @@ impl PetBox {
 /// 떨어지는 똥 하나 (가운데, 물리 px)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Poop {
+    /// 똥 id
     pub id: u64,
+    /// 가운데 x (물리 px)
     pub x: f64,
+    /// 가운데 y (물리 px)
     pub y: f64,
+    /// 반지름 (물리 px)
     pub r: f64,
     /// 떨어지는 속도 (물리 px/s)
     pub vy: f64,
 }
 
+/// 한 판의 단계
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
     /// 시작 전 (시작 카드)
@@ -79,11 +92,13 @@ pub enum Phase {
 /// 끝난 판
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Over {
+    /// 점수 (바닥까지 떨어진 똥 수)
     pub score: u32,
-    /// 맞았다 (아니면 판 밖으로 나갔다)
+    /// 맞았음 (아니면 판 밖으로 나갔음)
     pub hit: bool,
 }
 
+/// 똥피하기 한 판
 pub struct Dodge {
     area: Rect,
     dpi: f64,
@@ -103,14 +118,17 @@ impl Dodge {
         Dodge { area, dpi: dpi.max(0.1), phase: Phase::Ready, t: 0.0, spawn_in: GRACE_SECS, poops: Vec::new(), dodged: 0, next_id: 0, rng: fastrand::Rng::with_seed(seed) }
     }
 
+    /// 판 (작업 영역, 물리 px)
     pub fn area(&self) -> Rect {
         self.area
     }
 
+    /// 지금 단계
     pub fn phase(&self) -> Phase {
         self.phase
     }
 
+    /// 떨어지는 똥들
     pub fn poops(&self) -> &[Poop] {
         &self.poops
     }
@@ -177,6 +195,7 @@ impl Dodge {
         None
     }
 
+    /// 똥 하나를 떨어뜨림 (몇 개에 하나는 동물 머리 위를 노림, MAX_POOPS까지)
     fn spawn(&mut self, pet: &PetBox) {
         if self.poops.len() >= MAX_POOPS {
             return;
@@ -193,13 +212,14 @@ impl Dodge {
         self.next_id += 1;
     }
 
+    /// 판을 끝냄
     fn finish(&mut self, hit: bool) -> Over {
         self.phase = Phase::Over;
         Over { score: self.dodged, hit }
     }
 }
 
-/// 똥이 from에서 p.y까지 떨어지는 동안 동물 몸에 닿았다
+/// 똥이 from에서 p.y까지 떨어지는 동안 동물 몸에 닿았음
 fn touches(p: &Poop, from: f64, pet: &PetBox) -> bool {
     let r = p.r * HIT_POOP;
     let near_x = (p.x - pet.x).abs() < pet.half_w * HIT_PET + r;
@@ -224,7 +244,9 @@ pub fn parse_score_ask(ask: &str) -> Option<u32> {
 /// 랭킹 한 줄
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Rank {
+    /// 친구 이름
     pub name: String,
+    /// 최고 기록
     pub score: u32,
     /// 나
     pub me: bool,

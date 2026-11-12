@@ -1,3 +1,4 @@
+//! gift.rs 테스트 — 선물 목록·떨어뜨리기 시계·친구 제한·화면 위 선물·도감
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -444,7 +445,7 @@ fn pet_cfg(flies: bool) -> crate::brain::PetConfig {
     crate::brain::PetConfig { flies, ..crate::test_util::pet_cfg() }
 }
 
-/// 선물을 떨어뜨려도 되는 때가 올 때까지 돌린다
+/// 선물을 떨어뜨려도 되는 때가 올 때까지 돌림
 fn run_until_calm(p: &mut crate::brain::Pet, w: &World) {
     for _ in 0..3600 {
         p.update(1.0 / 60.0, w);

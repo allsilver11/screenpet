@@ -1,7 +1,7 @@
 //! 🌈 무지개 구름 자국: 몸 색이 무지개인 동물(🎨 흐물이 색, 손님도 주인이 고른 색)이 달리거나 구르거나 던져져 날아가면
-//! 발 뒤로 작은 무지개 구름이 퐁퐁 남는다. 구름은 화면에 남아 있어야 해서 펫 창이 아니라 모니터를 덮는 마우스 통과 창
-//! (`trail-<n>`, ui/trail.js)이 그린다 — 여기서는 언제·어디에·무슨 색으로 하나 남길지만 정한다 (빗자루 broom.rs의 퐁처럼 간격을 둔다).
-//! 걷기는 남기지 않는다. 숨기기·자리 비움·전체 화면·하우스 안·친구 화면에 가 있을 땐 앱이 `visible = false`를 준다.
+//! 발 뒤로 작은 무지개 구름이 퐁퐁 남음. 구름은 화면에 남아 있어야 해서 펫 창이 아니라 모니터를 덮는 마우스 통과 창
+//! (`trail-<n>`, ui/trail.js)이 그림 — 여기서는 언제·어디에·무슨 색으로 하나 남길지만 정함 (빗자루 broom.rs의 퐁처럼 간격을 둠).
+//! 걷기는 남기지 않음. 숨기기·자리 비움·전체 화면·하우스 안·친구 화면에 가 있을 땐 앱이 `visible = false`를 줌
 
 use serde::Serialize;
 
@@ -10,10 +10,11 @@ use crate::tint::BodyTint;
 
 /// 구름 사이 최소 시간 (초)
 pub const PUFF_EVERY: f64 = 0.08;
-/// 지난 구름에서 이만큼(몸 크기 배)은 움직여야 다음 구름 — 제자리 달리기는 남기지 않는다
+/// 지난 구름에서 이만큼(몸 크기 배)은 움직여야 다음 구름 — 제자리 달리기는 남기지 않음
 pub const MIN_STEP: f64 = 0.12;
 /// 빨리 날아갈 때 구름 사이를 메우는 간격 (몸 크기 배)과 한 틱에 최대 개수
 pub const GAP: f64 = 0.32;
+/// 한 틱에 남기는 구름 최대 수
 pub const MAX_PER_TICK: usize = 3;
 /// 무지개 색 수 (빨강·주황·노랑·초록·하늘·파랑·보라 — ui/trail.js RAINBOW)
 pub const COLORS: u8 = 7;
@@ -42,7 +43,7 @@ impl Dash {
         }
     }
 
-    /// 지금 이 동물이 구름을 남길 만큼 빠르게 움직이는가. 하우스 안·친구 화면·들린 동안은 아니다
+    /// 지금 이 동물이 구름을 남길 만큼 빠르게 움직이는가. 하우스 안·친구 화면·들린 동안은 아님
     pub fn of(pet: &Pet) -> Option<Dash> {
         if pet.is_housed() || pet.is_away() || pet.is_held() {
             return None;
@@ -68,6 +69,7 @@ pub fn rainbow(tint: BodyTint, paints: bool) -> bool {
 /// 이번 틱의 동물 모습 (물리 px)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Runner {
+    /// 빨리 움직이는 중 (없으면 구름 없음)
     pub dash: Option<Dash>,
     /// 발 (가운데 아래)
     pub feet: (f64, f64),
@@ -80,6 +82,7 @@ pub struct Runner {
 }
 
 impl Runner {
+    /// 동물의 이번 틱 모습
     pub fn of(pet: &Pet, pixel: bool) -> Self {
         Runner { dash: Dash::of(pet), feet: (pet.body.x, pet.body.y), facing: pet.facing, size: pet.cfg.size, pixel }
     }
@@ -97,12 +100,15 @@ impl Runner {
 /// 구름 하나 (물리 px, 화면 좌표)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Puff {
+    /// 가운데 x (물리 px)
     pub x: f64,
+    /// 가운데 y (물리 px)
     pub y: f64,
     /// 지름 (물리 px)
     pub size: f64,
     /// 무지개 몇 번째 색 (0 = 빨강 … 6 = 보라)
     pub color: u8,
+    /// 픽셀 스타일 칸 구름
     pub pixel: bool,
     /// 흘러가는 쪽 (-1 왼쪽, +1 오른쪽, 0 제자리)
     pub dir: f64,
@@ -117,11 +123,12 @@ pub struct Trail {
 }
 
 impl Trail {
+    /// 빈 꼬리
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 매 틱. 남길 구름을 out에 더한다 (visible: 무지개이고 이 동물과 그 모니터가 보이는 중)
+    /// 매 틱. 남길 구름을 out에 더함 (visible: 무지개이고 이 동물과 그 모니터가 보이는 중)
     pub fn tick(&mut self, dt: f64, visible: bool, r: &Runner, out: &mut Vec<Puff>) {
         self.wait = (self.wait - dt).max(0.0);
         let Some(dash) = r.dash.filter(|_| visible && r.size > 0.0) else {
@@ -151,6 +158,7 @@ impl Trail {
         }
     }
 
+    /// 구름 하나를 남기고 다음 색으로 넘어감
     fn push(&mut self, (x, y): (f64, f64), size: f64, pixel: bool, dir: f64, out: &mut Vec<Puff>) {
         out.push(Puff { x, y, size, color: self.color, pixel, dir });
         self.color = (self.color + 1) % COLORS;
@@ -168,11 +176,12 @@ mod tests {
     use crate::surfaces::Owner;
     use crate::test_util::{DT, idle, pet_cfg};
 
+    /// 테스트: 바닥 y 1000의 x에서 facing을 보는 동물 모습
     fn runner(dash: Option<Dash>, x: f64, facing: f64) -> Runner {
         Runner { dash, feet: (x, 1000.0), facing, size: 128.0, pixel: false }
     }
 
-    /// 달리기 속도(약 300 px/s)로 secs초 달린다: 남긴 구름
+    /// 달리기 속도(약 300 px/s)로 secs초 달림: 남긴 구름
     fn run_for(t: &mut Trail, secs: f64, facing: f64, visible: bool) -> Vec<Puff> {
         let mut out = Vec::new();
         let mut x = 500.0;
@@ -183,6 +192,7 @@ mod tests {
         out
     }
 
+    /// 테스트: 바닥에 state로 서 있는 동물
     fn ground_pet(state: State) -> Pet {
         let mut p = Pet::new(pet_cfg(), 500.0, 1000.0, 1);
         p.standing = Some(Standing { owner: Owner::Ground(0), rel_x: 500.0 });

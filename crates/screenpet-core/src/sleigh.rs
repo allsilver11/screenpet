@@ -1,34 +1,39 @@
 //! 🛷 썰매 세리머니 (순수 계산): 한 화면에서 루돌프와 산타가 만나면 썰매로 합쳐 화면을 한 바퀴 날고
-//! 처음 자리에 내려앉아 다시 둘로 돌아간다. 창은 src-tauri/src/sleigh.rs.
+//! 처음 자리에 내려앉아 다시 둘로 돌아감. 창은 src-tauri/src/sleigh.rs.
 
 use crate::brain::Pet;
 use crate::geom::Rect;
 
 /// 썰매를 끄는 동물과 타는 동물 (동물 폴더 이름)
 pub const PULLER: &str = "rudolph";
+/// 썰매에 타는 동물 (산타)
 pub const RIDER: &str = "santa";
 /// 한 바퀴에 걸리는 초 (뜨기·내려앉기 포함)
 pub const RIDE_SECS: f64 = 9.0;
-/// 한 번 날고 나면 같은 짝은 이만큼(초) 지나야 다시 난다
+/// 한 번 날고 나면 같은 짝은 이만큼(초) 지나야 다시 남
 pub const COOLDOWN_SECS: f64 = 600.0;
 /// 뜨는 데, 내려앉는 데 쓰는 몫
 const TAKEOFF: f64 = 0.12;
 /// 앞이 들리고 숙는 가장 큰 각도 (도)
 pub const MAX_TILT: f64 = 35.0;
-/// 썰매·산타·루돌프가 차지하는 상자 (큰 동물 한 변의 배수: 너비, 높이) — ui/sleigh.js와 같다
+/// 썰매·산타·루돌프가 차지하는 상자 (큰 동물 한 변의 배수: 너비, 높이) — ui/sleigh.js와 같음
 pub const RIDE_BOX: (f64, f64) = (2.5, 1.25);
 /// 처음 몇 초 산타 위에 뜨는 말풍선 자리 (한 변의 배수)
 pub const BUBBLE: f64 = 0.35;
 
-/// 썰매 창 (논리 px): 썰매 아래 가운데(도는 축)에서 MAX_TILT까지 기울어도 상자가 다 들어간다.
-/// below = 축 아래로 남기는 높이 (기울면 한쪽 끝이 축보다 내려간다)
+/// 썰매 창 (논리 px): 썰매 아래 가운데(도는 축)에서 MAX_TILT까지 기울어도 상자가 다 들어감
+/// below = 축 아래로 남기는 높이 (기울면 한쪽 끝이 축보다 내려감)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WindowBox {
+    /// 창 너비 (논리 px)
     pub width: f64,
+    /// 창 높이 (논리 px)
     pub height: f64,
+    /// 축 아래로 남기는 높이 (논리 px)
     pub below: f64,
 }
 
+/// 썰매 창 크기 (unit = 큰 동물 한 변, 논리 px)
 pub fn window_box(unit: f64) -> WindowBox {
     let (w, h) = (RIDE_BOX.0 * unit, (RIDE_BOX.1 + BUBBLE) * unit);
     let (sin, cos) = MAX_TILT.to_radians().sin_cos();
@@ -41,7 +46,7 @@ pub fn window_box(unit: f64) -> WindowBox {
     }
 }
 
-/// 썰매에 탈 수 있다: 디딤판 위에서 걷거나 쉬는 중이고, 들리거나 탑에 있거나 조작·하우스·외출 중이 아니다
+/// 썰매에 탈 수 있음: 디딤판 위에서 걷거나 쉬는 중이고, 들리거나 탑에 있거나 조작·하우스·외출 중이 아님
 pub fn ready(p: &Pet) -> bool {
     p.social_free()
         && p.standing.is_some()
@@ -54,7 +59,7 @@ pub fn ready(p: &Pet) -> bool {
         && !p.is_controlled()
 }
 
-/// 둘이 만났다: 같은 높이에서 몸이 거의 닿는다. (x, y, 몸 크기) — 물리 px
+/// 둘이 만났음: 같은 높이에서 몸이 거의 닿음. (x, y, 몸 크기) — 물리 px
 pub fn met(a: (f64, f64, f64), b: (f64, f64, f64)) -> bool {
     (a.0 - b.0).abs() < (a.2 + b.2) * 0.4 && (a.1 - b.1).abs() < a.2.min(b.2) * 0.3
 }
@@ -64,6 +69,7 @@ pub fn met(a: (f64, f64, f64), b: (f64, f64, f64)) -> bool {
 pub struct Pose {
     /// 썰매 가운데 아래 (물리 px)
     pub x: f64,
+    /// 썰매 가운데 아래 y (물리 px)
     pub y: f64,
     /// 오른쪽이 +1, 왼쪽이 -1
     pub facing: f64,
@@ -81,11 +87,12 @@ pub struct Lap {
 }
 
 impl Lap {
+    /// start에서 출발해 area 안을 도는 한 바퀴
     pub fn new(start: (f64, f64), area: Rect) -> Self {
         Lap { start, area, t: 0.0, facing: 1.0 }
     }
 
-    /// 시간을 보낸다. 다 돌았으면 true
+    /// 시간을 보냄. 다 돌았으면 true
     pub fn tick(&mut self, dt: f64) -> bool {
         if dt.is_finite() && dt > 0.0 {
             self.t = (self.t + dt).min(RIDE_SECS);
@@ -98,6 +105,7 @@ impl Lap {
         self.t / RIDE_SECS
     }
 
+    /// 지금 모습 (자리·방향·기울기)
     pub fn pose(&mut self) -> Pose {
         let u = self.progress();
         let (x, y) = self.at(u);
@@ -110,6 +118,7 @@ impl Lap {
         Pose { x, y, facing: self.facing, tilt }
     }
 
+    /// 타원 위 theta 자리 (작업 영역 안, 아래쪽 가운데가 출발점)
     fn ellipse(&self, theta: f64) -> (f64, f64) {
         let a = &self.area;
         let (cx, cy) = ((a.left + a.right) / 2.0, a.top + a.height() * 0.5);
@@ -156,10 +165,12 @@ mod tests {
         }
     }
 
+    /// 테스트: 1920×1040 작업 영역
     fn area() -> Rect {
         Rect::new(0.0, 0.0, 1920.0, 1040.0)
     }
 
+    /// 테스트: 한 바퀴 동안의 모습들
     fn fly(start: (f64, f64)) -> Vec<Pose> {
         let mut lap = Lap::new(start, area());
         let mut poses = vec![lap.pose()];

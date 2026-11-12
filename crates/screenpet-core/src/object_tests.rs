@@ -1,3 +1,4 @@
+//! object.rs 테스트 — 물건의 떨어지기·구르기·던지기·화면 끝 넘기·포스트잇·로스터·던지기 예산
 use super::*;
 use crate::geom::{Rect, WindowInfo};
 use crate::visit::{ExitEdges, Fling, Side};
@@ -30,7 +31,7 @@ fn run(o: &mut Object, w: &World, secs: f64) -> Option<Exit> {
     None
 }
 
-/// 커서를 (vx, vy) 물리 px/s로 끌다가 놓는다
+/// 커서를 (vx, vy) 물리 px/s로 끌다가 놓음
 fn fling(o: &mut Object, w: &World, from: (f64, f64), v: (f64, f64)) {
     o.pointer_down(from.0, from.1);
     for i in 1..=8 {
@@ -570,7 +571,7 @@ fn queued_and_live_foreign_objects_share_the_twenty_and_the_live_ones_go_first()
 
 // ---- 구르기 ----
 
-/// 던져서 멈출 때까지 지켜본다: (간 거리, 돈 각도 합, 멈춘 때까지 초)
+/// 던져서 멈출 때까지 지켜봄: (간 거리, 돈 각도 합, 멈춘 때까지 초)
 fn tumble(o: &mut Object, w: &World) -> (f64, f64, f64) {
     let start = o.body.x;
     let (mut turned, mut t) = (0.0f64, 0.0f64);
@@ -1521,7 +1522,7 @@ fn a_shape_contains_points_inside_its_hull_only() {
     }
 }
 
-/// 그림 칸 좌표 (cx, cy)가 지금 화면 어디에 그려지나 (웹뷰처럼 축을 중심으로 시계 방향으로 돌린다)
+/// 그림 칸 좌표 (cx, cy)가 지금 화면 어디에 그려지나 (웹뷰처럼 축을 중심으로 시계 방향으로 돌림)
 fn on_screen(o: &Object, (cx, cy): (f64, f64)) -> (f64, f64) {
     let s = crate::tumble::shape_of(o.kind);
     let k = (96.0 / 128.0) * o.scale() * o.dpi();

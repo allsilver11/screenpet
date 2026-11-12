@@ -1,5 +1,5 @@
 //! 밥그릇·물그릇·꽃·쿠키 (phase 3 먹이 바꾸기) — 먹을 때 동물 앞 바닥에 잠깐 놓이는 작은 소품.
-//! 앱은 Pet::take_prop이 돌려주는 PropEvent대로 작은 투명 창(ui/prop.html)을 띄우고 거둔다.
+//! 앱은 Pet::take_prop이 돌려주는 PropEvent대로 작은 투명 창(ui/prop.html)을 띄우고 거둠
 
 use serde::{Deserialize, Serialize};
 
@@ -7,11 +7,12 @@ use crate::care::Food;
 
 /// 그릇이 놓이는 거리: 몸 중심에서 바라보는 쪽으로 (크기 128 기준 px)
 pub const BOWL_GAP: f64 = 75.0;
-/// 그릇까지 이 시간(초) 안에 못 가면 그 자리에서 먹는다
+/// 그릇까지 이 시간(초) 안에 못 가면 그 자리에서 먹음
 pub const FOOD_TIMEOUT_SECS: f64 = 8.0;
 /// 쿠키는 입 높이에: 발에서 몸 크기의 이 비율만큼 위
 pub const COOKIE_RISE: f64 = 0.3;
 
+/// 화면에 띄우는 소품 그림 (음식·그릇 등)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Prop {
@@ -39,18 +40,18 @@ impl Prop {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PropEvent {
     Show { prop: Prop, x: f64, y: f64 },
-    /// 다 먹었다 — 흐려지며 사라진다
+    /// 다 먹었음 — 흐려지며 사라짐
     Hide,
 }
 
-/// 먹이 주는 방법 (트레이·우클릭 "밥 주기"에서 고른다, 설정에 저장)
+/// 먹이 주는 방법 (트레이·우클릭 "밥 주기"에서 고름, 설정에 저장)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FeedMode {
-    /// 직접 주기 — 커서 끝의 음식을 동물 입에 갖다 댄다
+    /// 직접 주기 — 커서 끝의 음식을 동물 입에 갖다 댐
     #[default]
     Hand,
-    /// 자동 주기 — 그릇이 놓이고 동물이 가서 먹는다
+    /// 자동 주기 — 그릇이 놓이고 동물이 가서 먹음
     Auto,
 }
 
@@ -61,17 +62,17 @@ impl FeedMode {
     }
 }
 
-/// 손에 든 음식이 이만큼(몸 크기 비율) 입 가까이 오면 받아먹는다
+/// 손에 든 음식이 이만큼(몸 크기 비율) 입 가까이 오면 받아먹음
 pub const HAND_REACH: f64 = 0.35;
 /// 입 높이 (발에서 몸 크기의 이 비율 위) — 걷는 동물 (나는 동물은 FLY_MOUTH_HEIGHT)
 pub const MOUTH_HEIGHT: f64 = 0.45;
-/// 나는 동물의 입(얼굴) 높이 — 떠 있는 몸은 발 위로 더 높다
+/// 나는 동물의 입(얼굴) 높이 — 떠 있는 몸은 발 위로 더 높음
 pub const FLY_MOUTH_HEIGHT: f64 = 0.55;
-/// 손에 든 음식을 이 시간(초)이 지나면 저절로 거둔다
+/// 손에 든 음식을 이 시간(초)이 지나면 저절로 거둠
 pub const HAND_TIMEOUT_SECS: f64 = 30.0;
 /// 음식 그림 가운데가 커서 끝에서 오른쪽 아래로 이만큼 (논리 px) — 손에 쥔 것처럼
 pub const HAND_OFFSET: f64 = 14.0;
-/// 🧹 빗자루 그림 (음식처럼 커서를 따라다닌다)
+/// 🧹 빗자루 그림 (음식처럼 커서를 따라다님)
 pub const BROOM_ICON: &str = "hand_broom";
 
 /// 손에 든 음식 그림 (ui/effects/<name>.png, tools/draw_props.py). 좋아하는 음식은 동물마다
@@ -115,25 +116,29 @@ pub fn in_reach(mouth: (f64, f64), food: (f64, f64), size: f64) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandInput {
     None,
-    /// 왼쪽 버튼을 새로 눌렀다 (닿아 있으면 주기, 빈 곳이면 거두기)
+    /// 왼쪽 버튼을 새로 눌렀음 (닿아 있으면 주기, 빈 곳이면 거두기)
     Click,
-    /// 오른쪽 버튼·Esc·30초 — 거둔다 (먹지 않음)
+    /// 오른쪽 버튼·Esc·30초 — 거둠 (먹지 않음)
     Cancel,
 }
 
+/// 손에 든 음식 주기 (메뉴로 고른 음식을 커서 끝에 들고 있음)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HandFeed {
+    /// 든 음식
     pub food: Food,
     elapsed: f64,
-    /// 지난 틱의 왼쪽·오른쪽 버튼·Esc (처음엔 눌린 것으로 쳐서, 메뉴를 고른 그 누름은 세지 않는다)
+    /// 지난 틱의 왼쪽·오른쪽 버튼·Esc (처음엔 눌린 것으로 쳐서, 메뉴를 고른 그 누름은 세지 않음)
     was: (bool, bool, bool),
 }
 
 impl HandFeed {
+    /// 막 고른 음식을 듦 (고른 그 누름은 세지 않음)
     pub fn new(food: Food) -> Self {
         Self { food, elapsed: 0.0, was: (true, true, true) }
     }
 
+    /// 한 틱: 새로 누른 버튼과 시간으로 할 일을 돌려줌
     pub fn tick(&mut self, dt: f64, left: bool, right: bool, esc: bool) -> HandInput {
         self.elapsed += dt;
         let pressed = (left && !self.was.0, right && !self.was.1, esc && !self.was.2);

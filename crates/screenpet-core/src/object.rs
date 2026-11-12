@@ -1,8 +1,8 @@
 //! 물건 (쓰레기 장난감, phase 3): 뇌도 성장도 없는 물리 덩어리.
-//! 스스로 움직이지 않고 — 가끔 부는 바람에만 조금 구른다 — 잡아 끌고 던질 수 있고, 친구가 연결된 화면 끝으로 세게 던지면 그 화면으로 날아간다.
-//! 던지면 제 모양 그대로 빙글빙글 돌며 날아가고, 떨어진 뒤에도 굴러가다 마찰로 멈춰 가까운 면으로 눕는다 (모양과 무게는 tumble.rs).
-//! 던지기 전에 포스트잇을 붙일 수 있다: 받는 사람이 누르면 10초 보이고 영영 사라진다.
-//! 대부분의 시간엔 잠들어 있다 (`is_asleep`): 앱은 창도 웹뷰도 건드리지 않는다.
+//! 스스로 움직이지 않고 — 가끔 부는 바람에만 조금 구름 — 잡아 끌고 던질 수 있고, 친구가 연결된 화면 끝으로 세게 던지면 그 화면으로 날아감
+//! 던지면 제 모양 그대로 빙글빙글 돌며 날아가고, 떨어진 뒤에도 굴러가다 마찰로 멈춰 가까운 면으로 누움 (모양과 무게는 tumble.rs).
+//! 던지기 전에 포스트잇을 붙일 수 있음: 받는 사람이 누르면 10초 보이고 영영 사라짐
+//! 대부분의 시간엔 잠들어 있음 (`is_asleep`): 앱은 창도 웹뷰도 건드리지 않음
 
 use std::collections::VecDeque;
 
@@ -13,33 +13,33 @@ use crate::visit::{self, ExitEdges, Fling, Side};
 use crate::surfaces::Owner;
 use crate::world::World;
 
-/// 물건 창 한 변 (논리 px). 그림은 128 칸에 그려 이 크기로 줄인다 (tools/draw_objects.py)
+/// 물건 창 한 변 (논리 px). 그림은 128 칸에 그려 이 크기로 줄임 (tools/draw_objects.py)
 pub const OBJECT_LOGICAL_SIZE: f64 = 96.0;
-/// 한 사람이 만들어 둘 수 있는 물건 수 — 넘치면 가장 오래된 것이 뿅 사라진다
+/// 한 사람이 만들어 둘 수 있는 물건 수 — 넘치면 가장 오래된 것이 뿅 사라짐
 pub const MAX_OWN_OBJECTS: usize = 10;
 /// 친구에게서 받아 화면에 있을 수 있는 물건 수 — 넘치면 가장 오래된 것부터
 pub const MAX_FOREIGN_OBJECTS: usize = 20;
-/// 🪨💩 거대한 것은 화면에 이만큼만 (내 것·받은 것 합쳐) — 화면만 한 창이 쌓이면 앱이 느려진다
+/// 🪨💩 거대한 것은 화면에 이만큼만 (내 것·받은 것 합쳐) — 화면만 한 창이 쌓이면 앱이 느려짐
 pub const MAX_GIANTS: usize = 3;
 
 /// 친구에게서 들어온 거대한 것이 솟을 수 있는 높이: 머리 위 남은 자리의 이만큼까지
 const GIANT_ARRIVAL_HEADROOM: f64 = 0.8;
 
-/// 거대한 것이 하나 더 들어온다: 지금 있는 거대한 것들(오래된 순)에서 뿅 사라질 하나
+/// 거대한 것이 하나 더 들어옴: 지금 있는 거대한 것들(오래된 순)에서 뿅 사라질 하나
 pub fn giant_to_drop(giants_oldest_first: &[u64]) -> Option<u64> {
     (giants_oldest_first.len() >= MAX_GIANTS).then(|| giants_oldest_first[0])
 }
-/// 화면에 있을 수 있는 똥 수 (내 동물·손님·친구가 던진 것 모두) — 넘치면 가장 오래된 똥이 사라진다. 쓰레기 수와 따로 센다
+/// 화면에 있을 수 있는 똥 수 (내 동물·손님·친구가 던진 것 모두) — 넘치면 가장 오래된 똥이 사라짐. 쓰레기 수와 따로 셈
 pub const MAX_POOPS: usize = 10;
-/// 포스트잇을 눌러 읽는 시간 (초). 그 뒤엔 다시 볼 수 없다
+/// 포스트잇을 눌러 읽는 시간 (초). 그 뒤엔 다시 볼 수 없음
 pub const NOTE_READ_SECS: f64 = 10.0;
 /// 바람이 부는 간격 (초, 물건마다 따로)
 pub const GUST_EVERY_SECS: (f64, f64) = (30.0, 90.0);
 /// 🪨💩 거대한 물건은 아기 동물의 이만큼 배 (한 변)
 pub const GIANT_TIMES: f64 = 15.0;
-/// 아기 고양이의 종 배율 (ui/pets/cat/pet.json stage_size.baby — tools/test_draw_objects.py가 맞춰 본다)
+/// 아기 고양이의 종 배율 (ui/pets/cat/pet.json stage_size.baby — tools/test_draw_objects.py가 맞춰 봄)
 pub const BABY_CAT_STAGE_SIZE: f64 = 0.91;
-/// 거대한 물건은 작업 영역 높이의 이만큼을 넘지 않는다
+/// 거대한 물건은 작업 영역 높이의 이만큼을 넘지 않음
 pub const GIANT_MAX_SCREEN: f64 = 0.8;
 
 /// 거대한 물건 칸의 한 변 (논리 px): 아기 고양이 한 변(128 × 아기 배율 × stage_size ≈ 52.4)의 15배 ≈ 786
@@ -59,7 +59,7 @@ pub fn giant_scale(work_area_height: f64) -> f64 {
 
 /// 몸 폭 절반 / 창 크기
 const HALF_WIDTH_RATIO: f64 = 0.3;
-/// 이보다 세게 떨어지면 살짝 튀어 오른다 (논리 px/s)
+/// 이보다 세게 떨어지면 살짝 튀어 오름 (논리 px/s)
 const BOUNCE_MIN_VY: f64 = 350.0;
 /// 빗자루에 쓸린 똥의 최소 가로 속도와 뜨는 속도 (논리 px/s)
 const SWEEP_MIN_VX: f64 = 240.0;
@@ -68,6 +68,7 @@ const SWEEP_POP: f64 = 160.0;
 const CLICK_SLOP: f64 = 6.0;
 const CLICK_SECS: f64 = 0.5;
 
+/// 물건 종류 (그림 이름과 같음)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ObjectKind {
     Can,
@@ -78,30 +79,31 @@ pub enum ObjectKind {
     Milk,
     Shirt,
     Umbrella,
-    /// 💩 동물이 싼 똥 (poop.rs): 둘둘 쌓인 큰 똥, 작은 똥, 토끼의 알갱이. 메뉴에 없고 포스트잇을 못 붙인다
+    /// 💩 동물이 싼 똥 (poop.rs): 둘둘 쌓인 큰 똥, 작은 똥, 토끼의 알갱이. 메뉴에 없고 포스트잇을 못 붙임
     Poop,
     Pink,
     Rainbow,
     Pellets,
-    /// 🪨 거대한 돌 — 메뉴로 꺼낸다. 아기 동물의 15배 (화면 높이의 80%까지), 바람에 꿈쩍 않고 포스트잇을 못 붙인다
+    /// 🪨 거대한 돌 — 메뉴로 꺼냄. 아기 동물의 15배 (화면 높이의 80%까지), 바람에 꿈쩍 않고 포스트잇을 못 붙임
     GiantStone,
-    /// 💩 거대한 똥 — 메뉴로 꺼낸다. 동물이 싼 게 아니라 쓰레기처럼 치울 때까지 남고, 빗자루에 쓸린다
+    /// 💩 거대한 똥 — 메뉴로 꺼냄. 동물이 싼 게 아니라 쓰레기처럼 치울 때까지 남고, 빗자루에 쓸림
     GiantPoop,
-    /// 💩 거대한 핑크 똥·무지개 똥: 메뉴의 "거대한 똥"이 갈색·핑크·무지개 중 하나로 나온다 (menu_pick)
+    /// 💩 거대한 핑크 똥·무지개 똥: 메뉴의 "거대한 똥"이 갈색·핑크·무지개 중 하나로 나옴 (menu_pick)
     GiantPink,
     GiantRainbow,
-    /// 📌 흐물이가 작업표시줄(Dock)에서 끌어낸 앱 아이콘 장난감 (taskbar.rs): 그림은 열린 앱 하나의 아이콘을 베낀 것 (앱이 창에 넣는다 — 그림 파일이 없다).
-    /// 이 컴퓨터를 떠나지 않는다 — ALL에 없어 친구가 그 이름을 보내도 받지 않고, 던져도 화면 끝을 넘지 않는다. 메뉴에 없고 포스트잇을 못 붙인다.
-    /// 한 번에 하나, TOY_LIFE_SECS 뒤 저절로 사라진다
+    /// 📌 흐물이가 작업표시줄(Dock)에서 끌어낸 앱 아이콘 장난감 (taskbar.rs): 그림은 열린 앱 하나의 아이콘을 베낀 것 (앱이 창에 넣음 — 그림 파일이 없음).
+    /// 이 컴퓨터를 떠나지 않음 — ALL에 없어 친구가 그 이름을 보내도 받지 않고, 던져도 화면 끝을 넘지 않음. 메뉴에 없고 포스트잇을 못 붙임
+    /// 한 번에 하나, TOY_LIFE_SECS 뒤 저절로 사라짐
     AppIcon,
 }
 
-/// 📌 장난감의 이름 (창 스크립트·웹뷰만 — 통신에 쓰지 않는다, 그림 파일 목록 tools/draw_objects.py NAMES에도 없다)
+/// 📌 장난감의 이름 (창 스크립트·웹뷰만 — 통신에 쓰지 않음, 그림 파일 목록 tools/draw_objects.py NAMES에도 없음)
 pub const TOY_ID: &str = "app_icon";
 /// 화면에 있을 수 있는 장난감 수
 pub const MAX_TOYS: usize = 1;
 
 impl ObjectKind {
+    /// 모든 물건 종류 (메뉴·그림 순서)
     pub const ALL: [ObjectKind; 16] = [
         ObjectKind::Can,
         ObjectKind::Paper,
@@ -147,7 +149,7 @@ impl ObjectKind {
         ObjectKind::GiantPoop,
     ];
 
-    /// 📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 — 이 컴퓨터를 떠나지 않는다
+    /// 📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 — 이 컴퓨터를 떠나지 않음
     pub fn is_toy(self) -> bool {
         self == ObjectKind::AppIcon
     }
@@ -171,22 +173,22 @@ impl ObjectKind {
         matches!(self, ObjectKind::GiantPoop | ObjectKind::GiantPink | ObjectKind::GiantRainbow)
     }
 
-    /// 빗자루에 쓸린다: 똥과 거대한 똥
+    /// 빗자루에 쓸림: 똥과 거대한 똥
     pub fn is_sweepable(self) -> bool {
         self.is_poop() || self.is_giant_poop()
     }
 
-    /// 포스트잇을 붙일 수 있다: 쓰레기만 (똥은 사라지고, 거대한 것은 쪽지 창이 그림을 덮는다)
+    /// 포스트잇을 붙일 수 있음: 쓰레기만 (똥은 사라지고, 거대한 것은 쪽지 창이 그림을 덮음)
     pub fn takes_postit(self) -> bool {
         !self.is_poop() && !self.is_giant() && !self.is_toy()
     }
 
-    /// 똥이다: 수를 따로 세고, 저절로 사라지고, 바람에 구르지 않고, 빗자루에 쓸린다
+    /// 똥임: 수를 따로 세고, 저절로 사라지고, 바람에 구르지 않고, 빗자루에 쓸림
     pub fn is_poop(self) -> bool {
         matches!(self, ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets)
     }
 
-    /// 그림 크기 배율: 쓰레기는 96 논리 px 칸의 절반 (똥은 싼 동물을 따라 set_scale로 정한다), 거대한 것은 15배 (화면을 알면 scale_on)
+    /// 그림 크기 배율: 쓰레기는 96 논리 px 칸의 절반 (똥은 싼 동물을 따라 set_scale로 정함), 거대한 것은 15배 (화면을 알면 scale_on)
     pub fn base_scale(self) -> f64 {
         if self.is_giant() {
             giant_scale(f64::NAN)
@@ -198,7 +200,7 @@ impl ObjectKind {
     }
 
     /// 화면에 놓을 때의 배율: size = 크기 조절 창의 쓰레기 배율, work_area_height = 놓일 작업 영역 높이 (논리 px).
-    /// 쓰레기만 size를 따르고, 거대한 것은 화면 높이에 맞춘다
+    /// 쓰레기만 size를 따르고, 거대한 것은 화면 높이에 맞춤
     pub fn scale_on(self, size: f64, work_area_height: f64) -> f64 {
         if self.is_giant() {
             giant_scale(work_area_height)
@@ -252,7 +254,7 @@ impl ObjectKind {
         }
     }
 
-    /// 아는 이름만 (친구가 보낸 글자 — 그대로 파일 이름·창 스크립트에 쓰이므로 목록과 정확히 같아야 한다)
+    /// 아는 이름만 (친구가 보낸 글자 — 그대로 파일 이름·창 스크립트에 쓰이므로 목록과 정확히 같아야 함)
     pub fn from_id(id: &str) -> Option<ObjectKind> {
         if id == "dropping" {
             // 예전의 초록 똥 (옛 버전 친구가 보낸다)
@@ -274,7 +276,7 @@ impl ObjectKind {
         }
     }
 
-    /// 똥 색과 거대함 (Toss::look으로 보낸다 — 옛 버전 친구는 몰라서 갈색 똥·보통 돌로 받는다)
+    /// 똥 색과 거대함 (Toss::look으로 보냄 — 옛 버전 친구는 몰라서 갈색 똥·보통 돌로 받음)
     pub fn look(self) -> Option<&'static str> {
         match self {
             ObjectKind::Pink => Some("pink"),
@@ -287,7 +289,7 @@ impl ObjectKind {
         }
     }
 
-    /// 친구에게 던질 때의 이름: 티셔츠는 양말 자리를 물려받아, 옛 버전 친구는 양말로 받는다
+    /// 친구에게 던질 때의 이름: 티셔츠는 양말 자리를 물려받아, 옛 버전 친구는 양말로 받음
     pub fn wire_id(self) -> &'static str {
         // 옛 버전 친구는 무지개·거대함을 몰라 그냥 똥·돌로 받는다 (Toss::look으로 알린다)
         if self == ObjectKind::Shirt {
@@ -301,7 +303,7 @@ impl ObjectKind {
         }
     }
 
-    /// 한 번의 바람에 가는 거리 (논리 px, 최소·최대) — 무거운 것은 거의 안 간다
+    /// 한 번의 바람에 가는 거리 (논리 px, 최소·최대) — 무거운 것은 거의 안 감
     fn gust_reach(self) -> (f64, f64) {
         match self {
             ObjectKind::Can => (80.0, 180.0),
@@ -327,13 +329,13 @@ impl ObjectKind {
 pub enum Postit {
     #[default]
     None,
-    /// 내가 붙였다 — 눌러도 읽히지 않고, 떼거나 던져 보낼 수 있다
+    /// 내가 붙였음 — 눌러도 읽히지 않고, 떼거나 던져 보낼 수 있음
     Mine,
-    /// 받았다, 아직 안 읽음 — 누르면 읽는다
+    /// 받았음, 아직 안 읽음 — 누르면 읽음
     Unread,
-    /// 읽는 중 — 글자는 이미 웹뷰로 갔고 여기엔 남아 있지 않다
+    /// 읽는 중 — 글자는 이미 웹뷰로 갔고 여기엔 남아 있지 않음
     Reading,
-    /// 똥·거대한 물건: 포스트잇을 붙일 수 없다 (똥은 저절로 사라지면 받은 글자도 사라지니까, 거대한 것은 쪽지 창이 그림을 덮으니까)
+    /// 똥·거대한 물건: 포스트잇을 붙일 수 없음 (똥은 저절로 사라지면 받은 글자도 사라지니까, 거대한 것은 쪽지 창이 그림을 덮으니까)
     Never,
 }
 
@@ -344,10 +346,12 @@ pub enum Release {
     Throw,
 }
 
-/// 던져서 화면 끝을 넘어갔다 (이 물건은 이 화면에서 끝난다)
+/// 던져서 화면 끝을 넘어갔음 (이 물건은 이 화면에서 끝남)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Exit {
+    /// 넘어간 화면 끝
     pub side: Side,
+    /// 날아가던 모양 (받는 화면이 이어서 날림)
     pub fling: Fling,
 }
 
@@ -359,18 +363,21 @@ enum Phase {
     Ground { friction: f64, settle: Option<f64> },
     /// 잠듦 — 다음 바람이나 세계 변화까지 할 일 없음
     Rest,
-    /// 🤹 동물(흐물이)이 머리 위에 들고 있다 — 자리는 앱이 틱마다 carry_at으로 옮긴다 (물리 없음)
+    /// 🤹 동물(흐물이)이 머리 위에 들고 있음 — 자리는 앱이 틱마다 carry_at으로 옮김 (물리 없음)
     Carried,
 }
 
-/// 든 물건 바닥이 손 자리보다 이만큼 (그림 높이 배) 아래 — 두 손이 물건 아랫부분을 감싼다. 거대한 것은 이 px까지만 (논리 px)
+/// 든 물건 바닥이 손 자리보다 이만큼 (그림 높이 배) 아래 — 두 손이 물건 아랫부분을 감쌈. 거대한 것은 이 px까지만 (논리 px)
 const CARRY_SINK: f64 = 0.2;
+/// 든 물건이 손 아래로 내려가는 최대 거리 (논리 px)
 pub const CARRY_SINK_MAX: f64 = 10.0;
 
+/// 화면 위 물건 하나 (쓰레기·똥·장난감)
 #[derive(Debug, Clone)]
 pub struct Object {
     /// 그림 크기 배율 (1 = 96 논리 px 칸)
     scale: f64,
+    /// 물건 종류
     pub kind: ObjectKind,
     /// x = 바닥 중심, y = 바닥 (화면 아래로 +)
     pub body: Body,
@@ -378,12 +385,12 @@ pub struct Object {
     phase: Phase,
     /// 디딘 곳과 기준점에서 떨어진 거리
     standing: Option<(Owner, f64)>,
-    /// 그림 각도 (도, 시계 방향이 +)와 회전 (도/s). 잠들 때 각도를 한 바퀴 안으로 접는다
+    /// 그림 각도 (도, 시계 방향이 +)와 회전 (도/s). 잠들 때 각도를 한 바퀴 안으로 접음
     angle: f64,
     spin: f64,
-    /// 던진 비행 — 이때만 화면 끝을 넘어간다 (바람·낙하는 넘어가지 않는다)
+    /// 던진 비행 — 이때만 화면 끝을 넘어감 (바람·낙하는 넘어가지 않음)
     thrown: bool,
-    /// 놓는 순간 아래로 던졌다 (visit::aimed_down) — 바닥에 닿으면 넘어간다
+    /// 놓는 순간 아래로 던졌음 (visit::aimed_down) — 바닥에 닿으면 넘어감
     thrown_down: bool,
     gust_in: f64,
     rng: fastrand::Rng,
@@ -398,25 +405,26 @@ pub struct Object {
     note: Option<String>,
     read_left: f64,
     note_ended: bool,
-    /// ⚾ 캐치볼로 주고받은 횟수 (처음 던진 것 = 0 — 친구에게 보내는 Toss에 실린다)
+    /// ⚾ 캐치볼로 주고받은 횟수 (처음 던진 것 = 0 — 친구에게 보내는 Toss에 실림)
     rally: u32,
-    /// ⚾ 친구 화면 끝에서 날아 들어왔다 (그 끝) — 흐물이가 받으면 이쪽으로 되던진다
+    /// ⚾ 친구 화면 끝에서 날아 들어왔음 (그 끝) — 흐물이가 받으면 이쪽으로 되던짐
     from: Option<Side>,
-    /// 🐱 고양이가 툭 밀어 미끄러지는 중 — 끝을 넘어 떨어지면 던진 것처럼 동물에 맞는다 (nudge)
+    /// 🐱 고양이가 툭 밀어 미끄러지는 중 — 끝을 넘어 떨어지면 던진 것처럼 동물에 맞음 (nudge)
     knocked: bool,
 }
 
 impl Object {
-    /// (x, y)에서 떨어지기 시작한다
-    /// 그림 크기 배율 (똥은 싼 동물 크기를 따른다, 웹뷰도 같은 값으로 그린다)
+    /// 그림 크기 배율 (똥은 싼 동물 크기를 따름, 웹뷰도 같은 값으로 그림)
     pub fn set_scale(&mut self, scale: f64) {
         self.scale = scale;
     }
 
+    /// 그림 크기 배율
     pub fn scale(&self) -> f64 {
         self.scale
     }
 
+    /// (x, y)에서 떨어지기 시작함. seed로 바람 시계를 정함
     pub fn new(kind: ObjectKind, x: f64, y: f64, dpi: f64, seed: u64) -> Object {
         let mut rng = fastrand::Rng::with_seed(seed);
         let gust_in = next_gust(&mut rng);
@@ -449,11 +457,12 @@ impl Object {
         }
     }
 
-    /// ⚾ 캐치볼로 주고받은 횟수 (처음 던진 것 = 0). 받는 앱이 Toss의 값을 적고, 흐물이가 되던질 때 앱이 하나 늘려 적는다
+    /// ⚾ 캐치볼로 주고받은 횟수 (처음 던진 것 = 0). 받는 앱이 Toss의 값을 적고, 흐물이가 되던질 때 앱이 하나 늘려 적음
     pub fn set_rally(&mut self, n: u32) {
         self.rally = n.min(crate::juggle::MAX_RALLY);
     }
 
+    /// ⚾ 주고받은 횟수 (처음 던진 것 = 0)
     pub fn rally(&self) -> u32 {
         self.rally
     }
@@ -467,7 +476,7 @@ impl Object {
         Some(crate::juggle::Incoming { id, x: self.body.x, y: self.body.y, vx: self.body.vx, vy: self.body.vy, rally: self.rally, from, giant: self.kind.is_giant() })
     }
 
-    /// 친구 화면에서 던져져 side 끝으로 날아 들어온다 (높이·속도를 이어 받는다). fling은 다듬어져 있어야 한다 (accept_toss)
+    /// 친구 화면에서 던져져 side 끝으로 날아 들어옴 (높이·속도를 이어 받음). fling은 다듬어져 있어야 함 (accept_toss)
     pub fn flown_in(kind: ObjectKind, world: &World, side: Side, fling: Fling, dpi: f64, seed: u64) -> Object {
         let mut o = Object::new(kind, 0.0, 0.0, dpi, seed);
         let (size, hw, dpi) = (o.size(), o.half_w(), o.dpi);
@@ -511,18 +520,22 @@ impl Object {
         throw_spin(self.kind, self.body.vx / self.dpi, self.body.vy / self.dpi, dir)
     }
 
+    /// 그림 한 변 (물리 px)
     fn size(&self) -> f64 {
         OBJECT_LOGICAL_SIZE * self.dpi * self.scale
     }
 
+    /// 몸 폭 절반 (물리 px)
     pub fn half_w(&self) -> f64 {
         self.size() * HALF_WIDTH_RATIO
     }
 
+    /// 화면 배율을 바꿈 (모니터를 옮겼음 — 0.01 아래로는 내리지 않음)
     pub fn set_dpi(&mut self, dpi: f64) {
         self.dpi = dpi.max(0.01);
     }
 
+    /// 화면 배율
     pub fn dpi(&self) -> f64 {
         self.dpi
     }
@@ -537,6 +550,7 @@ impl Object {
         self.spin
     }
 
+    /// 잡혀 있음
     pub fn is_held(&self) -> bool {
         self.phase == Phase::Held
     }
@@ -547,18 +561,18 @@ impl Object {
         matches!(self.phase, Phase::Ground { settle: None, .. })
     }
 
-    /// 던져져 날아가는 중 (동물에 부딪힐 수 있다). 떨어지거나 구르거나 들린 것은 아니다
+    /// 던져져 날아가는 중 (동물에 부딪힐 수 있음). 떨어지거나 구르거나 들린 것은 아님
     pub fn in_flight(&self) -> bool {
         self.phase == Phase::Air && self.thrown
     }
 
-    /// 그려진 크기의 부딪힘 상자 (반 폭, 높이, 물리 px) — 똥은 작게 그려진다
+    /// 그려진 크기의 부딪힘 상자 (반 폭, 높이, 물리 px) — 똥은 작게 그려짐
     pub fn hit_box(&self) -> (f64, f64) {
         let hw = self.half_w();
         (hw, 2.0 * hw)
     }
 
-    /// 동물에 부딪혀 되튄다 (away = 맞은 몸에서 멀어지는 쪽). 비행은 이어지지만 아래 친구를 노린 것은 잊는다
+    /// 동물에 부딪혀 되튐 (away = 맞은 몸에서 멀어지는 쪽). 비행은 이어지지만 아래 친구를 노린 것은 잊음
     pub fn bounce_off(&mut self, face: Face, away: f64) {
         let (vx, vy) = rebound(face, self.body.vx, self.body.vy, away, self.dpi);
         self.body.vx = vx;
@@ -567,13 +581,13 @@ impl Object {
         self.spin *= -tumble::WALL_SPIN_KEEP;
     }
 
-    /// 그림이 도는 축의 화면 자리 (물리 px): 창은 이곳을 가운데로 놓는다. 가장 낮은 점이 언제나 body.y에 온다
+    /// 그림이 도는 축의 화면 자리 (물리 px): 창은 이곳을 가운데로 놓음. 가장 낮은 점이 언제나 body.y에 옴
     pub fn pivot(&self) -> (f64, f64) {
         let shape = shape_of(self.kind);
         (self.body.x + shape.pivot_offset_x() * self.scale * self.dpi, self.body.y - shape.drop_at(self.angle) * self.scale * self.dpi)
     }
 
-    /// 화면 점 (x, y) (물리 px)에 그림이 그려져 있다: 축을 중심으로 돌린 그림을 되돌려 칸 좌표로 보고 볼록 껍질 안인지 본다
+    /// 화면 점 (x, y) (물리 px)에 그림이 그려져 있음: 축을 중심으로 돌린 그림을 되돌려 칸 좌표로 보고 볼록 껍질 안인지 봄
     pub fn covers(&self, x: f64, y: f64) -> bool {
         let shape = shape_of(self.kind);
         let k = OBJECT_LOGICAL_SIZE / 128.0 * self.scale * self.dpi;
@@ -588,8 +602,8 @@ impl Object {
         shape.contains(shape.pivot.0 + ux / k, shape.pivot.1 + uy / k)
     }
 
-    /// 창이 (x, y)의 클릭을 아래(바탕·다른 앱)로 보내야 한다: 거대한 물건의 투명한 곳만 — 창이 화면을 크게 덮으니까.
-    /// 들고 있는 동안은 아니다. 작은 물건은 늘 받는다
+    /// 창이 (x, y)의 클릭을 아래(바탕·다른 앱)로 보내야 함: 거대한 물건의 투명한 곳만 — 창이 화면을 크게 덮으니까.
+    /// 들고 있는 동안은 아님. 작은 물건은 늘 받음
     /// 📌 장난감도: 바닥(작업표시줄 바로 위)에 놓일 때 창 아래쪽 투명한 곳이 작업표시줄을 막지 않게
     pub fn passes_clicks_at(&self, x: f64, y: f64) -> bool {
         // 날아가는 거대한 것은 모든 클릭을 보낸다: 모양이 커서 밑을 계속 지나가 클릭 통과가 깜빡거리지 않게 (Windows는 바꿀 때마다 창을 다시 그린다)
@@ -597,12 +611,12 @@ impl Object {
         (self.kind.is_giant() || self.kind.is_toy()) && !self.is_held() && (flying || !self.covers(x, y))
     }
 
-    /// 🤹 동물이 들고 있다
+    /// 🤹 동물이 들고 있음
     pub fn is_carried(&self) -> bool {
         self.phase == Phase::Carried
     }
 
-    /// 동물이 주울 수 있게 바닥에 놓여 있다 (굴러가는 중이어도) — 들렸거나 날거나 누가 들고 있으면 None
+    /// 동물이 주울 수 있게 바닥에 놓여 있음 (굴러가는 중이어도) — 들렸거나 날거나 누가 들고 있으면 None
     pub fn spot(&self, id: u64) -> Option<crate::juggle::ObjectSpot> {
         if !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) {
             return None;
@@ -610,7 +624,7 @@ impl Object {
         Some(crate::juggle::ObjectSpot { id, x: self.body.x, y: self.body.y, owner: self.owner()?, half_w: self.half_w(), giant: self.kind.is_giant(), local: self.kind.is_toy() })
     }
 
-    /// 동물 손에 들려 (hx, hy)에 손이 있다: 바닥이 손 조금 아래 (똑바로 세워 든다). 사용자가 잡고 있으면 그대로
+    /// 동물 손에 들려 (hx, hy)에 손이 있음: 바닥이 손 조금 아래 (똑바로 세워 듦). 사용자가 잡고 있으면 그대로
     pub fn carry_at(&mut self, hx: f64, hy: f64) {
         if self.is_held() {
             return;
@@ -626,7 +640,7 @@ impl Object {
         self.body = Body { x: hx, y: hy + (CARRY_SINK * height).min(CARRY_SINK_MAX * self.dpi), vx: 0.0, vy: 0.0 };
     }
 
-    /// 들고 있던 동물이 (vx, vy)로 던졌다 (물리 px/s) — 그 뒤는 사람이 던진 것과 같다 (화면 끝을 넘으면 친구에게, 동물에 맞으면 콩)
+    /// 들고 있던 동물이 (vx, vy)로 던졌음 (물리 px/s) — 그 뒤는 사람이 던진 것과 같음 (화면 끝을 넘으면 친구에게, 동물에 맞으면 콩)
     pub fn launch(&mut self, vx: f64, vy: f64) {
         if self.is_held() {
             return;
@@ -641,8 +655,8 @@ impl Object {
         self.spin = self.spin_of_throw();
     }
 
-    /// 🐱 바닥에 놓인 것을 dir(±1) 쪽으로 툭 민다: 바닥을 따라 reach(물리 px)쯤 미끄러지고, 디딤판 끝을 넘으면 떨어진다 —
-    /// 떨어지는 동안은 던진 것처럼 동물에 맞는다 (친구 화면으로는 넘어가지 않는다). 바닥에 있지 않으면 false
+    /// 🐱 바닥에 놓인 것을 dir(±1) 쪽으로 툭 밂: 바닥을 따라 reach(물리 px)쯤 미끄러지고, 디딤판 끝을 넘으면 떨어짐 —
+    /// 떨어지는 동안은 던진 것처럼 동물에 맞음 (친구 화면으로는 넘어가지 않음). 바닥에 있지 않으면 false
     pub fn nudge(&mut self, dir: f64, reach: f64) -> bool {
         if !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) || reach <= 0.0 {
             return false;
@@ -655,7 +669,7 @@ impl Object {
         true
     }
 
-    /// 🦖 쿵! 에 바닥에 놓인 것이 vy(논리 px/s, 위로)로 톡 튀어 올랐다가 그 자리에 내려앉는다 (던진 것이 아니다). 바닥에 있지 않으면 false
+    /// 🦖 쿵! 에 바닥에 놓인 것이 vy(논리 px/s, 위로)로 톡 튀어 올랐다가 그 자리에 내려앉음 (던진 것이 아님). 바닥에 있지 않으면 false
     pub fn pop(&mut self, vy: f64) -> bool {
         if !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) {
             return false;
@@ -671,24 +685,25 @@ impl Object {
         true
     }
 
-    /// 들고 있던 동물이 놓쳤다 (잡혔거나 다른 일로): 그 자리에서 떨어진다
+    /// 들고 있던 동물이 놓쳤음 (잡혔거나 다른 일로): 그 자리에서 떨어짐
     pub fn let_fall(&mut self) {
         if self.phase == Phase::Carried {
             self.start_fall();
         }
     }
 
-    /// 다음 바람이나 세계 변화까지 할 일이 없다 (창도 웹뷰도 건드리지 않는다)
+    /// 다음 바람이나 세계 변화까지 할 일이 없음 (창도 웹뷰도 건드리지 않음)
     pub fn is_asleep(&self) -> bool {
         self.phase == Phase::Rest && self.postit != Postit::Reading
     }
 
+    /// 놓인 디딤판 (공중이면 None)
     pub fn owner(&self) -> Option<Owner> {
         self.standing.map(|(o, _)| o)
     }
 
-    /// 똥이 다 말라 사라질 때다 (들고 있는 동안은 기다린다)
-    /// 📌 장난감도 TOY_LIFE_SECS 뒤 저절로 사라진다 (흐물이가 도로 넣지 못했으면 — 쌓이지 않게)
+    /// 똥이 다 말라 사라질 때임 (들고 있는 동안은 기다림)
+    /// 📌 장난감도 TOY_LIFE_SECS 뒤 저절로 사라짐 (흐물이가 도로 넣지 못했으면 — 쌓이지 않게)
     pub fn expired(&self) -> bool {
         let life = if self.kind.is_poop() {
             crate::poop::LIFE_SECS
@@ -700,7 +715,7 @@ impl Object {
         self.clock >= life && !self.is_held() && !self.is_carried()
     }
 
-    /// 바닥에 놓인 똥의 자리 (동물이 알아챈다). 들렸거나 날아가는 중이면 None
+    /// 바닥에 놓인 똥의 자리 (동물이 알아챔). 들렸거나 날아가는 중이면 None
     pub fn poop_spot(&self, id: u64) -> Option<crate::poop::PoopSpot> {
         if !self.kind.is_poop() || !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) {
             return None;
@@ -708,8 +723,8 @@ impl Object {
         Some(crate::poop::PoopSpot { id, x: self.body.x, y: self.body.y, owner: self.owner()? })
     }
 
-    /// 빗자루(vx, vy = 빗자루 속도, 물리 px/s)가 바닥의 똥을 쓸었다: 그 쪽으로 던진 것과 같다 — 친구가 연결된 화면 끝을 넘으면 평소처럼 날아간다.
-    /// 살살 쓸어도 조금은 밀리고 살짝 뜬다. 날아가는 중이거나 들려 있으면 그대로 (내려앉아야 다시 쓸린다). 쓸렸으면 true
+    /// 빗자루(vx, vy = 빗자루 속도, 물리 px/s)가 바닥의 똥을 쓸었음: 그 쪽으로 던진 것과 같음 — 친구가 연결된 화면 끝을 넘으면 평소처럼 날아감
+    /// 살살 쓸어도 조금은 밀리고 살짝 뜸. 날아가는 중이거나 들려 있으면 그대로 (내려앉아야 다시 쓸림). 쓸렸으면 true
     pub fn sweep(&mut self, vx: f64, vy: f64) -> bool {
         if !self.kind.is_sweepable() || !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) || (vx == 0.0 && vy == 0.0) {
             return false;
@@ -741,7 +756,7 @@ impl Object {
 
     // ---- 포인터 ----
 
-    /// 잡았다 (cx, cy = 커서)
+    /// 잡았음 (cx, cy = 커서)
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
         self.from = None;
         self.rally = 0;
@@ -759,6 +774,7 @@ impl Object {
         self.samples.push((self.clock, cx, cy));
     }
 
+    /// 끄는 중 커서 움직임: 잡은 자리를 따라 옮기고 던지는 속도를 기록함
     pub fn pointer_move(&mut self, cx: f64, cy: f64) {
         if !self.is_held() {
             return;
@@ -771,7 +787,7 @@ impl Object {
         self.samples.retain(|s| s.0 >= keep_from);
     }
 
-    /// 놓았다: 거의 안 움직이고 금방 놓으면 클릭(그 자리에 내려앉는다), 아니면 던지기
+    /// 놓았음: 거의 안 움직이고 금방 놓으면 클릭(그 자리에 내려앉음), 아니면 던지기
     pub fn pointer_up(&mut self) -> Release {
         if !self.is_held() {
             return Release::Throw;
@@ -792,7 +808,7 @@ impl Object {
 
     // ---- 매 틱 ----
 
-    /// gusts_ok = 바람이 불어도 된다 (object::gusts_ok). 던져서 화면 끝을 넘어가면 Exit
+    /// gusts_ok = 바람이 불어도 됨 (object::gusts_ok). 던져서 화면 끝을 넘어가면 Exit
     pub fn tick(&mut self, dt: f64, world: &World, edges: ExitEdges, gusts_ok: bool) -> Option<Exit> {
         self.clock += dt;
         // 📌 장난감은 친구가 연결된 끝도 넘지 않는다 — 안 받아 준 끝처럼 벽에 튕겨 돌아온다
@@ -819,7 +835,7 @@ impl Object {
         }
     }
 
-    /// 바람이 분다 (dir = ±1). 잠들어 있을 때만. 던졌을 때와 같은 구르기를 살살
+    /// 바람이 붊 (dir = ±1). 잠들어 있을 때만. 던졌을 때와 같은 구르기를 살살
     pub fn start_gust(&mut self, dir: f64) {
         if self.phase != Phase::Rest || self.kind.gust_reach().1 <= 0.0 {
             return;
@@ -833,6 +849,7 @@ impl Object {
         self.phase = Phase::Ground { friction, settle: None };
     }
 
+    /// 떨어지기 시작함 (디딤판을 놓음)
     fn start_fall(&mut self) {
         self.standing = None;
         self.body.vy = 0.0;
@@ -840,6 +857,7 @@ impl Object {
         self.phase = Phase::Air;
     }
 
+    /// 디딤판 위 한 틱: 구르다 마찰로 멈추고 settle 각도로 누움
     fn tick_ground(&mut self, dt: f64, world: &World, friction: f64, mut settle: Option<f64>) {
         let anchor = self.standing.and_then(|(owner, rel_x)| world.anchor(owner).map(|(ax, _)| (owner, rel_x, ax)));
         let Some((owner, rel_x, ax)) = anchor else {
@@ -890,7 +908,7 @@ impl Object {
         }
     }
 
-    /// 굴러가는 한 틱: 땅이 회전을 구르는 빠르기로 맞추고, 모서리를 넘을 땐 느려졌다 넘어가며 빨라진다
+    /// 굴러가는 한 틱: 땅이 회전을 구르는 빠르기로 맞추고, 모서리를 넘을 땐 느려졌다 넘어가며 빨라짐
     fn roll(&mut self, dt: f64) {
         let heft = heft_of(self.kind);
         let rolling = heft.rolling_spin(self.body.vx / self.dpi);
@@ -899,7 +917,7 @@ impl Object {
         self.angle += self.spin * dt;
     }
 
-    /// 눕는 한 틱: 면 쪽으로 넘어가 바닥에 부딪히고, 살짝 되튀다 멈춘다 (바닥을 뚫고 지나가지 않는다). 다 누웠으면 true
+    /// 눕는 한 틱: 면 쪽으로 넘어가 바닥에 부딪히고, 살짝 되튀다 멈춤 (바닥을 뚫고 지나가지 않음). 다 누웠으면 true
     fn flop_toward(&mut self, dt: f64, target: f64) -> bool {
         let off = self.angle - target;
         if off.abs() < 0.2 && self.spin.abs() < tumble::TINY_SPIN {
@@ -923,6 +941,7 @@ impl Object {
         false
     }
 
+    /// 공중 한 틱: 날다가 화면 끝을 넘으면 Exit, 디딤판에 닿으면 착지
     fn tick_air(&mut self, dt: f64, world: &World, edges: ExitEdges) -> Option<Exit> {
         if let Some(exit) = self.fling_out(dt, world, edges) {
             return Some(exit);
@@ -969,7 +988,7 @@ impl Object {
         None
     }
 
-    /// 바닥을 치고 튀어 오른다: 도는 물건이면 회전이 구르는 쪽으로 쏠리고, 가벼운 것은 제멋대로 튄다
+    /// 바닥을 치고 튀어 오름: 도는 물건이면 회전이 구르는 쪽으로 쏠리고, 가벼운 것은 제멋대로 튐
     fn bounce(&mut self) {
         let heft = heft_of(self.kind);
         self.body.vy *= -heft.bounce;
@@ -985,7 +1004,7 @@ impl Object {
         }
     }
 
-    /// 던진 비행이 친구가 연결된 화면 끝을 넘으면 그대로 넘어간다 (동물과 같은 규칙, brain_fling.rs)
+    /// 던진 비행이 친구가 연결된 화면 끝을 넘으면 그대로 넘어감 (동물과 같은 규칙, brain_fling.rs)
     fn fling_out(&mut self, dt: f64, world: &World, edges: ExitEdges) -> Option<Exit> {
         if !self.thrown {
             return None;
@@ -1014,7 +1033,7 @@ impl Object {
         Some(Exit { side, fling })
     }
 
-    /// 세계가 바뀌었다 (창이 움직임·사라짐 등): 앉은 창을 따라가거나 떨어지기 시작한다. 잠든 물건에만 일이 있다. 움직였으면 true
+    /// 세계가 바뀌었음 (창이 움직임·사라짐 등): 앉은 창을 따라가거나 떨어지기 시작함. 잠든 물건에만 일이 있음. 움직였으면 true
     pub fn reseat(&mut self, world: &World) -> bool {
         if self.phase != Phase::Rest {
             return false;
@@ -1041,16 +1060,17 @@ impl Object {
 
     // ---- 포스트잇 ----
 
+    /// 포스트잇 상태
     pub fn postit(&self) -> Postit {
         self.postit
     }
 
-    /// 물건에 노란 쪽지 그림이 붙어 있다
+    /// 물건에 노란 쪽지 그림이 붙어 있음
     pub fn has_sticker(&self) -> bool {
         matches!(self.postit, Postit::Mine | Postit::Unread)
     }
 
-    /// 내가 쓴 포스트잇을 붙인다 (다듬은 글자가 비었거나 친구 것이 붙어 있으면 false)
+    /// 내가 쓴 포스트잇을 붙임 (다듬은 글자가 비었거나 친구 것이 붙어 있으면 false)
     pub fn attach_note(&mut self, raw: &str) -> bool {
         if !matches!(self.postit, Postit::None | Postit::Mine) {
             return false;
@@ -1061,7 +1081,7 @@ impl Object {
         true
     }
 
-    /// 내가 붙인 포스트잇을 뗀다
+    /// 내가 붙인 포스트잇을 뗌
     pub fn peel_note(&mut self) -> bool {
         if self.postit != Postit::Mine {
             return false;
@@ -1080,7 +1100,7 @@ impl Object {
         self.note = note;
     }
 
-    /// 눌렀다: 받은 포스트잇이면 글자를 딱 한 번 내주고 10초를 재기 시작한다. 글자는 여기서 지운다 — 다시 읽을 수 없다
+    /// 눌렀음: 받은 포스트잇이면 글자를 딱 한 번 내주고 10초를 재기 시작함. 글자는 여기서 지움 — 다시 읽을 수 없음
     pub fn read_note(&mut self) -> Option<String> {
         if self.postit != Postit::Unread {
             return None;
@@ -1090,7 +1110,7 @@ impl Object {
         self.note.take()
     }
 
-    /// 던져 보낼 때 같이 갈 글자 (읽기 시작한 포스트잇은 따라가지 않는다)
+    /// 던져 보낼 때 같이 갈 글자 (읽기 시작한 포스트잇은 따라가지 않음)
     pub fn note_to_send(&self) -> Option<String> {
         if self.has_sticker() {
             self.note.clone()
@@ -1099,6 +1119,7 @@ impl Object {
         }
     }
 
+    /// 포스트잇을 읽는 중이면 남은 시간을 줄이고, 다 되면 영영 지움
     fn tick_note(&mut self, dt: f64) {
         if self.postit != Postit::Reading {
             return;
@@ -1110,7 +1131,7 @@ impl Object {
         }
     }
 
-    /// 읽는 10초가 끝났다 (한 번만 참)
+    /// 읽는 10초가 끝났음 (한 번만 참)
     pub fn take_note_ended(&mut self) -> bool {
         std::mem::take(&mut self.note_ended)
     }
@@ -1118,7 +1139,7 @@ impl Object {
 
 #[cfg(test)]
 impl Object {
-    /// 테스트: 지금 자리에서 (vx, vy)로 던져져 날아간다
+    /// 테스트: 지금 자리에서 (vx, vy)로 던져져 날아감
     pub(crate) fn force_throw(&mut self, vx: f64, vy: f64) {
         self.body.vx = vx;
         self.body.vy = vy;
@@ -1128,11 +1149,12 @@ impl Object {
     }
 }
 
-/// 바람이 불어도 되는 때: 모두 숨겨 두지 않았고 사용자가 자리에 있다
+/// 바람이 불어도 되는 때: 모두 숨겨 두지 않았고 사용자가 자리에 있음
 pub fn gusts_ok(hidden: bool, away: bool) -> bool {
     !hidden && !away
 }
 
+/// 다음 바람까지 시간을 뽑음 (GUST_EVERY_SECS 사이)
 fn next_gust(rng: &mut fastrand::Rng) -> f64 {
     GUST_EVERY_SECS.0 + rng.f64() * (GUST_EVERY_SECS.1 - GUST_EVERY_SECS.0)
 }
@@ -1140,15 +1162,18 @@ fn next_gust(rng: &mut fastrand::Rng) -> f64 {
 /// 친구가 던져 보낸 물건을 다듬은 것
 #[derive(Debug, Clone, PartialEq)]
 pub struct AcceptedToss {
+    /// 물건 종류
     pub kind: ObjectKind,
+    /// 날아 들어오는 모양
     pub fling: Fling,
+    /// 포스트잇 글 (다듬은 것)
     pub note: Option<String>,
 }
 
-/// fling이 없거나 이상할 때: 옆에서 살짝 포물선으로 들어온다
+/// fling이 없거나 이상할 때: 옆에서 살짝 포물선으로 들어옴
 const DEFAULT_FLING: Fling = Fling { height: 0.4, vx: 400.0, vy: -200.0 };
 
-/// 친구가 보낸 것을 다듬는다: 모르는 종류는 버리고, 움직임은 범위 안으로, 글자는 편지처럼 (보이지 않는 글자 없이 80자까지)
+/// 친구가 보낸 것을 다듬음: 모르는 종류는 버리고, 움직임은 범위 안으로, 글자는 편지처럼 (보이지 않는 글자 없이 80자까지)
 pub fn accept_toss(kind: &str, fling: Option<Fling>, note: Option<&str>) -> Option<AcceptedToss> {
     let kind = ObjectKind::from_id(kind)?;
     let fling = fling.and_then(Fling::sanitized).unwrap_or(DEFAULT_FLING);
@@ -1158,7 +1183,7 @@ pub fn accept_toss(kind: &str, fling: Option<Fling>, note: Option<&str>) -> Opti
     Some(AcceptedToss { kind, fling: Fling { height: fling.height, vx, vy }, note })
 }
 
-/// 🤹 친구의 흐물이가 들고 온 물건 (Visit.carry): 던진 것처럼 이름·색을 확인한다. 거대한 것은 들고 오지 않는다 (고친 앱이 보내도 버린다)
+/// 🤹 친구의 흐물이가 들고 온 물건 (Visit.carry): 던진 것처럼 이름·색을 확인함. 거대한 것은 들고 오지 않음 (고친 앱이 보내도 버림)
 pub fn accept_carry(kind: &str, look: Option<&str>) -> Option<ObjectKind> {
     ObjectKind::wire_kind(kind, look).filter(|k| !k.is_giant())
 }
@@ -1166,17 +1191,17 @@ pub fn accept_carry(kind: &str, look: Option<&str>) -> Option<ObjectKind> {
 /// 물건이 어디서 왔나
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
-    /// 내가 만들었다 (최대 MAX_OWN_OBJECTS개)
+    /// 내가 만들었음 (최대 MAX_OWN_OBJECTS개)
     Own,
-    /// 친구에게서 날아왔다 (최대 20개)
+    /// 친구에게서 날아왔음 (최대 20개)
     Foreign,
     /// 똥: 어디서 왔든 최대 MAX_POOPS개
     Poop,
-    /// 📌 작업표시줄에서 꺼낸 장난감: 최대 MAX_TOYS개 (쓰레기 수에 들지 않는다)
+    /// 📌 작업표시줄에서 꺼낸 장난감: 최대 MAX_TOYS개 (쓰레기 수에 들지 않음)
     Toy,
 }
 
-/// 화면 위 물건 수 지키기: 넘치면 그 쪽에서 가장 오래된 것을 내보낸다
+/// 화면 위 물건 수 지키기: 넘치면 그 쪽에서 가장 오래된 것을 내보냄
 #[derive(Debug, Default)]
 pub struct Roster {
     own: VecDeque<u64>,
@@ -1186,7 +1211,7 @@ pub struct Roster {
 }
 
 impl Roster {
-    /// id를 더한다. 넘쳐서 치워야 할 물건이 있으면 돌려준다
+    /// id를 더함. 넘쳐서 치워야 할 물건이 있으면 돌려줌
     pub fn add(&mut self, id: u64, origin: Origin) -> Option<u64> {
         let (list, max) = match origin {
             Origin::Own => (&mut self.own, MAX_OWN_OBJECTS),
@@ -1202,6 +1227,7 @@ impl Roster {
         }
     }
 
+    /// id를 뺌. 있었으면 true
     pub fn remove(&mut self, id: u64) -> bool {
         for list in [&mut self.own, &mut self.foreign, &mut self.poops, &mut self.toys] {
             if let Some(i) = list.iter().position(|&x| x == id) {
@@ -1212,19 +1238,23 @@ impl Roster {
         false
     }
 
+    /// 내 물건 수
     pub fn own_count(&self) -> usize {
         self.own.len()
     }
 
+    /// 친구가 보낸 물건 수
     pub fn foreign_count(&self) -> usize {
         self.foreign.len()
     }
 
+    /// 테스트: 똥 수
     #[cfg(test)]
     pub fn poop_count(&self) -> usize {
         self.poops.len()
     }
 
+    /// 모두 비움
     pub fn clear(&mut self) {
         self.own.clear();
         self.foreign.clear();
@@ -1233,21 +1263,22 @@ impl Roster {
     }
 }
 
-/// 받았지만 아직 창을 만들지 않은 물건 — 앱이 틱마다 하나씩 꺼낸다 (창 만들기는 메인 스레드를 기다려서, 한꺼번에 오면 모든 동물이 멈춘다).
-/// 기다리는 것까지 합쳐 받은 물건 20개다: 넘치면 가장 오래된 것이 먼저 — 이미 화면에 있는 물건, 없으면 가장 오래 기다린 것
+/// 받았지만 아직 창을 만들지 않은 물건 — 앱이 틱마다 하나씩 꺼냄 (창 만들기는 메인 스레드를 기다려서, 한꺼번에 오면 모든 동물이 멈춤).
+/// 기다리는 것까지 합쳐 받은 물건 20개임: 넘치면 가장 오래된 것이 먼저 — 이미 화면에 있는 물건, 없으면 가장 오래 기다린 것
 #[derive(Debug)]
 pub struct TossInbox<T> {
     queue: VecDeque<T>,
 }
 
 impl<T> Default for TossInbox<T> {
+    /// 빈 줄
     fn default() -> Self {
         Self { queue: VecDeque::new() }
     }
 }
 
 impl<T> TossInbox<T> {
-    /// 줄에 세운다. 화면의 물건을 치워야 하면 그 id를 돌려준다 (로스터에서는 이미 뺐다)
+    /// 줄에 세움. 화면의 물건을 치워야 하면 그 id를 돌려줌 (로스터에서는 이미 뺐음)
     pub fn push(&mut self, item: T, roster: &mut Roster) -> Option<u64> {
         let mut evicted = None;
         if roster.foreign_count() + self.queue.len() >= MAX_FOREIGN_OBJECTS {
@@ -1260,24 +1291,28 @@ impl<T> TossInbox<T> {
         evicted
     }
 
+    /// 맨 앞 것을 꺼냄
     pub fn pop(&mut self) -> Option<T> {
         self.queue.pop_front()
     }
 
+    /// 기다리는 수
     pub fn len(&self) -> usize {
         self.queue.len()
     }
 
+    /// 기다리는 것이 없음
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
     }
 
+    /// 모두 버림
     pub fn clear(&mut self) {
         self.queue.clear();
     }
 }
 
-/// 친구 한 명에게 던져 보내는 예산: 10개까지 한 번에, 그 뒤엔 6초에 하나 (받는 쪽 net의 제한과 같다 — 넘치면 받는 쪽이 버리므로 미리 튕긴다)
+/// 친구 한 명에게 던져 보내는 예산: 10개까지 한 번에, 그 뒤엔 6초에 하나 (받는 쪽 net의 제한과 같음 — 넘치면 받는 쪽이 버리므로 미리 튕김)
 #[derive(Debug, Clone, Copy)]
 pub struct TossBudget {
     tokens: f64,
@@ -1288,20 +1323,24 @@ const TOSS_BURST: f64 = 50.0;
 const TOSS_EVERY_SECS: f64 = 1.2;
 
 impl Default for TossBudget {
+    /// 처음엔 가득 참 (TOSS_BURST개)
     fn default() -> Self {
         TossBudget { tokens: TOSS_BURST, at: 0.0 }
     }
 }
 
 impl TossBudget {
+    /// now까지 다시 찬 예산 (TOSS_EVERY_SECS에 하나, TOSS_BURST까지)
     fn refilled(&self, now: f64) -> f64 {
         (self.tokens + (now - self.at).max(0.0) / TOSS_EVERY_SECS).min(TOSS_BURST)
     }
 
+    /// 하나 던질 예산이 있음
     pub fn can_spend(&self, now: f64) -> bool {
         self.refilled(now) >= 1.0
     }
 
+    /// 예산 하나를 씀
     pub fn spend(&mut self, now: f64) {
         self.tokens = (self.refilled(now) - 1.0).max(0.0);
         self.at = now;
@@ -1313,19 +1352,19 @@ const VOLLEY_SIZE: u32 = 10;
 /// 연달아 눌러 쌓을 수 있는 횟수
 const MAX_VOLLEYS: u32 = 5;
 
-/// 친구 한 명에게 "물건 10개 던지기"로 기다리는 수: 다시 눌러도 10개까지만 기다린다
+/// 친구 한 명에게 "물건 10개 던지기"로 기다리는 수: 다시 눌러도 10개까지만 기다림
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Volley {
     left: u32,
 }
 
 impl Volley {
-    /// 누를 때마다 10개씩, 다섯 번까지 쌓인다
+    /// 누를 때마다 10개씩, 다섯 번까지 쌓임
     pub fn request(&mut self) {
         self.left = (self.left + VOLLEY_SIZE).min(VOLLEY_SIZE * MAX_VOLLEYS);
     }
 
-    /// 예산이 되는 만큼 예산을 쓰고, 지금 던질 수를 돌려준다
+    /// 예산이 되는 만큼 예산을 쓰고, 지금 던질 수를 돌려줌
     pub fn release(&mut self, budget: &mut TossBudget, now: f64) -> u32 {
         let mut sent = 0;
         while self.left > 0 && budget.can_spend(now) {
@@ -1336,6 +1375,7 @@ impl Volley {
         sent
     }
 
+    /// 기다리는 것을 다 던졌음
     pub fn is_done(&self) -> bool {
         self.left == 0
     }

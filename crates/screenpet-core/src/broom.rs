@@ -1,6 +1,6 @@
-//! 🧹 빗자루: 메뉴로 켜면 커서를 따라다니고, 움직이는 것만으로 지나가는 더미(눈·꽃잎·낙엽)를 쓴다. 클릭은 그 아래로 간다.
-//! 왼쪽·오른쪽 버튼·Esc·20초 동안 안 움직이면 내려놓는다.
-//! 쓴 것을 들고 친구가 연결된 화면 끝으로 계속 밀면 친구 화면에 흩날린다 (물건 던지기 통로로 보낸다, weather::flurry_kind).
+//! 🧹 빗자루: 메뉴로 켜면 커서를 따라다니고, 움직이는 것만으로 지나가는 더미(눈·꽃잎·낙엽)를 씀. 클릭은 그 아래로 감
+//! 왼쪽·오른쪽 버튼·Esc·20초 동안 안 움직이면 내려놓음
+//! 쓴 것을 들고 친구가 연결된 화면 끝으로 계속 밀면 친구 화면에 흩날림 (물건 던지기 통로로 보냄, weather::flurry_kind).
 
 use crate::geom::Rect;
 use crate::visit::{edge_fraction, Fling, Side};
@@ -11,25 +11,26 @@ pub const IDLE_SECS: f64 = 20.0;
 const REACH_X: f64 = 36.0;
 /// 쓸리는 높이: 더미 윗면에서 위아래로 (논리 px)
 const REACH_Y: f64 = 40.0;
-/// 쓴 양이 이만큼 있어야 친구에게 넘어간다 (더미 높이의 합, 논리 px)
+/// 쓴 양이 이만큼 있어야 친구에게 넘어감 (더미 높이의 합, 논리 px)
 const MIN_CARRY: f32 = 4.0;
-/// 들고 있는 양이 반으로 주는 시간 (초): 방금 쓴 것만 밀고 갈 수 있다
+/// 들고 있는 양이 반으로 주는 시간 (초): 방금 쓴 것만 밀고 갈 수 있음
 const CARRY_HALF_LIFE: f64 = 3.0;
-/// 화면 끝에서 이만큼 안쪽부터 넘어간다 (논리 px, 커서는 화면 끝에서 멈추므로 닿기 전에)
+/// 화면 끝에서 이만큼 안쪽부터 넘어감 (논리 px, 커서는 화면 끝에서 멈추므로 닿기 전에)
 const EDGE_ZONE: f64 = 48.0;
-/// 끝으로 이 속도 이상 밀어야 넘어간다 (논리 px/s)
+/// 끝으로 이 속도 이상 밀어야 넘어감 (논리 px/s)
 const PUSH_SPEED: f64 = 120.0;
 /// 쓸 때 날리는 알갱이: 간격(초), 한 번에 최대
 const PUFF_EVERY: f64 = 0.1;
 const PUFF_MAX: u32 = 8;
 
+/// 커서를 따라다니는 빗자루 하나
 #[derive(Debug, Clone)]
 pub struct Broom {
     at: (f64, f64),
     from_x: f64,
     velocity: (f64, f64),
     idle: f64,
-    /// 켤 때 누르고 있던 버튼은 내려놓기가 아니다 (메뉴를 누른 손)
+    /// 켤 때 누르고 있던 버튼은 내려놓기가 아님 (메뉴를 누른 손)
     left_was: bool,
     right_was: bool,
     carried: f32,
@@ -38,11 +39,12 @@ pub struct Broom {
 }
 
 impl Broom {
+    /// 커서 자리에서 빗자루를 듦 (켤 때 누르고 있던 버튼은 세지 않음)
     pub fn new(cursor: (f64, f64)) -> Self {
         Self { at: cursor, from_x: cursor.0, velocity: (0.0, 0.0), idle: 0.0, left_was: true, right_was: true, carried: 0.0, puff: 0.0, puff_wait: 0.0 }
     }
 
-    /// 매 틱. true면 내려놓는다
+    /// 매 틱. true면 내려놓음
     pub fn tick(&mut self, dt: f64, cursor: (f64, f64), left: bool, right: bool, escape: bool) -> bool {
         let clicked = (left && !self.left_was) || (right && !self.right_was);
         self.left_was = left;
@@ -65,21 +67,23 @@ impl Broom {
         (self.at.0.min(self.from_x) - r, self.at.0.max(self.from_x) + r)
     }
 
+    /// 쓸리는 높이 (물리 px)
     pub fn reach_y(dpi: f64) -> f64 {
         REACH_Y * dpi
     }
 
-    /// 이번 틱에 (x, y)의 바닥에 놓인 것 위를 지나갔다 (움직이는 중일 때만)
+    /// 이번 틱에 (x, y)의 바닥에 놓인 것 위를 지나갔음 (움직이는 중일 때만)
     pub fn passes_over(&self, x: f64, y: f64, dpi: f64) -> bool {
         let (x0, x1) = self.span(dpi);
         self.velocity != (0.0, 0.0) && x0 <= x && x <= x1 && (self.at.1 - y).abs() <= Self::reach_y(dpi)
     }
 
+    /// 빗자루 속도 (물리 px/s)
     pub fn velocity(&self) -> (f64, f64) {
         self.velocity
     }
 
-    /// 쓴 양을 든다. 알갱이를 날릴 때가 됐으면 그 수
+    /// 쓴 양을 듦. 알갱이를 날릴 때가 됐으면 그 수
     pub fn swept(&mut self, amount: f32) -> Option<u32> {
         self.carried += amount;
         self.puff += amount;
@@ -92,8 +96,8 @@ impl Broom {
         Some(count)
     }
 
-    /// 쓴 것을 들고 edges의 끝으로 밀고 있으면 그 끝 (open: 그 끝에 연결된 친구가 있다). 넘겼으니 든 것은 비운다.
-    /// 세로 끝은 edges에 그 줄의 끝을 준다 (visit::column_bounds)
+    /// 쓴 것을 들고 edges의 끝으로 밀고 있으면 그 끝 (open: 그 끝에 연결된 친구가 있음). 넘겼으니 든 것은 비움
+    /// 세로 끝은 edges에 그 줄의 끝을 줌 (visit::column_bounds)
     pub fn crossing(&mut self, edges: &Rect, dpi: f64, open: impl Fn(Side) -> bool) -> Option<Side> {
         if self.carried < MIN_CARRY {
             return None;
@@ -141,6 +145,7 @@ mod tests {
     const DT: f64 = 1.0 / 60.0;
     const SCREEN: Rect = Rect { left: 0.0, top: 0.0, right: 1920.0, bottom: 1040.0 };
 
+    /// 테스트: 한 틱 움직여도 내려놓지 않음
     fn moving(b: &mut Broom, to: (f64, f64)) {
         assert!(!b.tick(DT, to, false, false, false));
     }

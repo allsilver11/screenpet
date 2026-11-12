@@ -1,3 +1,4 @@
+//! dodge.rs 테스트 — 똥피하기 판의 떨어지기·맞음·점수·랭킹 부탁
 use super::*;
 
 const AREA: Rect = Rect { left: 0.0, top: 0.0, right: 1600.0, bottom: 900.0 };
@@ -12,7 +13,7 @@ fn playing(seed: u64) -> Dodge {
     d
 }
 
-/// 동물을 늘 똥이 없는 쪽으로 옮기며 secs초 돌린다 (끝나면 그 결과)
+/// 동물을 늘 똥이 없는 쪽으로 옮기며 secs초 돌림 (끝나면 그 결과)
 fn run_dodging(d: &mut Dodge, secs: f64) -> Option<Over> {
     let dt = 1.0 / 60.0;
     for _ in 0..(secs / dt) as usize {

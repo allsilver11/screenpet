@@ -1,6 +1,6 @@
 //! 물건이 구르는 모양 (순수 계산): 그림 모양과 종류별 무게.
-//! 그림은 제 모양 그대로 무게중심을 축으로 돈다 — 동물의 구르기처럼 공이 되지 않는다.
-//! 볼록 껍질로 "이 각도에서 어느 점이 바닥에 닿나"를 알아서, 어떤 각도로 굴러도 그림이 바닥에 정확히 닿고, 납작한 면으로 자연스럽게 눕는다.
+//! 그림은 제 모양 그대로 무게중심을 축으로 돎 — 동물의 구르기처럼 공이 되지 않음
+//! 볼록 껍질로 "이 각도에서 어느 점이 바닥에 닿나"를 알아서, 어떤 각도로 굴러도 그림이 바닥에 정확히 닿고, 납작한 면으로 자연스럽게 누움
 
 use crate::object::{ObjectKind, OBJECT_LOGICAL_SIZE};
 
@@ -13,21 +13,21 @@ const WINDOW_MARGIN: f64 = 2.0;
 const SCALED_WINDOW_SLACK: f64 = 8.0;
 const MIN_WINDOW_SIDE: f64 = 56.0;
 
-/// 이보다 느리게 놓으면(논리 px/s) 돌지 않는다 — 살며시 내려놓기
+/// 이보다 느리게 놓으면(논리 px/s) 돌지 않음 — 살며시 내려놓기
 pub const GENTLE_SPEED: f64 = 220.0;
-/// 땅에서 이보다 느려지면(도/s) 가까운 면으로 눕는다
+/// 땅에서 이보다 느려지면(도/s) 가까운 면으로 누움
 pub const SETTLE_SPIN: f64 = 90.0;
 /// 눕는 동안 그림을 끌어내리는 힘 (도/s²)
 pub const FLOP: f64 = 2000.0;
 /// 면이 바닥에 부딪혀 되튀는 비율
 pub const REBOUND: f64 = 0.3;
-/// 이보다 느리게 부딪히면(도/s) 멈춘다
+/// 이보다 느리게 부딪히면(도/s) 멈춤
 pub const STOP_SPIN: f64 = 40.0;
-/// 이보다 느리면(도/s) 면에 닿아 있을 때 그냥 멈춘 것으로 친다
+/// 이보다 느리면(도/s) 면에 닿아 있을 때 그냥 멈춘 것으로 침
 pub const TINY_SPIN: f64 = 5.0;
 /// 구르는 동안 모서리를 넘느라 느려지고 넘어가며 빨라지는 정도 (도/s² ÷ 논리 px/라디안)
 pub const CLUNK: f64 = 30.0;
-/// 바람은 던지기보다 마찰을 이만큼만 받는다 — 천천히 굴러간다
+/// 바람은 던지기보다 마찰을 이만큼만 받음 — 천천히 굴러감
 pub const GUST_EASE: f64 = 0.3;
 /// 벽에 부딪히면 반대로 돌며 남는 회전
 pub const WALL_SPIN_KEEP: f64 = 0.6;
@@ -35,30 +35,31 @@ pub const WALL_SPIN_KEEP: f64 = 0.6;
 const WOBBLE_PER_SPEED: f64 = 0.25;
 const WOBBLE_MAX: f64 = 110.0;
 
-/// 그림 모양 (128 칸 좌표). `python tools/draw_objects.py --shapes`가 그림에서 찍은 표다
+/// 그림 모양 (128 칸 좌표). `python tools/draw_objects.py --shapes`가 그림에서 찍은 표임
 #[derive(Debug, Clone, Copy)]
 pub struct Shape {
     /// 무게중심 = 도는 축
     pub pivot: (f64, f64),
     /// 축에서 그림(과 포스트잇) 끝까지의 거리
     pub reach: f64,
+    /// 그림 테두리 다각형 (128 칸 좌표)
     pub hull: &'static [(f64, f64)],
 }
 
 impl Shape {
-    /// angle(도, 시계 방향)일 때 축에서 가장 낮은 점까지 (논리 px) — 바닥에 닿은 점 위로 축이 이만큼 떠 있다
+    /// angle(도, 시계 방향)일 때 축에서 가장 낮은 점까지 (논리 px) — 바닥에 닿은 점 위로 축이 이만큼 떠 있음
     pub fn drop_at(&self, angle: f64) -> f64 {
         let (sin, cos) = angle.to_radians().sin_cos();
         let lowest = self.hull.iter().map(|&(x, y)| (x - self.pivot.0) * sin + (y - self.pivot.1) * cos).fold(f64::MIN, f64::max);
         lowest * CELL_TO_LOGICAL
     }
 
-    /// 돌 때 축 높이가 변하는 기울기 (논리 px/라디안). 양수면 시계 방향으로 돌수록 축이 올라간다
+    /// 돌 때 축 높이가 변하는 기울기 (논리 px/라디안). 양수면 시계 방향으로 돌수록 축이 올라감
     pub fn slope_at(&self, angle: f64) -> f64 {
         (self.drop_at(angle + 1.0) - self.drop_at(angle - 1.0)) / 2f64.to_radians()
     }
 
-    /// angle에서 내리막으로 굴러 닿는 가장 가까운 안정된 각도 (같은 바퀴 수를 유지한다)
+    /// angle에서 내리막으로 굴러 닿는 가장 가까운 안정된 각도 (같은 바퀴 수를 유지함)
     pub fn rest_angle(&self, angle: f64) -> f64 {
         let mut at = angle;
         for step in [1.0, 0.1] {
@@ -79,13 +80,13 @@ impl Shape {
         at
     }
 
-    /// 창 한 변 (논리 px): 어떤 각도로 돌아도 축 둘레로 그림이 잘리지 않는다
+    /// 창 한 변 (논리 px): 어떤 각도로 돌아도 축 둘레로 그림이 잘리지 않음
     pub fn window_side(&self) -> f64 {
         (2.0 * self.reach * CELL_TO_LOGICAL + 2.0 * WINDOW_MARGIN).ceil()
     }
 
-    /// scale배로 그릴 때의 창 한 변 (논리 px): 픽셀 그림은 칸이 정수라 조금 클 수 있어 여유를 둔다.
-    /// 지금까지 쓰던 가장 작은 창보다 줄이지 않는다. 1배보다 크면 (거대한 물건) 그림만큼 키운다
+    /// scale배로 그릴 때의 창 한 변 (논리 px): 픽셀 그림은 칸이 정수라 조금 클 수 있어 여유를 둠
+    /// 지금까지 쓰던 가장 작은 창보다 줄이지 않음. 1배보다 크면 (거대한 물건) 그림만큼 키움
     pub fn window_side_at(&self, scale: f64) -> f64 {
         if scale > 1.0 {
             return (2.0 * self.reach * CELL_TO_LOGICAL * scale + 2.0 * WINDOW_MARGIN).ceil() + SCALED_WINDOW_SLACK;
@@ -101,7 +102,7 @@ impl Shape {
         (self.pivot.0 * CELL_TO_LOGICAL, self.pivot.1 * CELL_TO_LOGICAL)
     }
 
-    /// 그림 칸 좌표 (x, y)가 볼록 껍질 안이다 (경계 포함) — 거대한 물건의 투명한 곳을 클릭이 지나가게 할 때
+    /// 그림 칸 좌표 (x, y)가 볼록 껍질 안임 (경계 포함) — 거대한 물건의 투명한 곳을 클릭이 지나가게 할 때
     pub fn contains(&self, x: f64, y: f64) -> bool {
         let n = self.hull.len();
         if n < 3 {
@@ -124,6 +125,7 @@ impl Shape {
     }
 }
 
+/// 물건 종류의 그림 모양
 pub fn shape_of(kind: ObjectKind) -> Shape {
     match kind {
         ObjectKind::Can => Shape { pivot: (64.0, 93.0), reach: 40.0, hull: &[(40.0, 66.0), (43.0, 61.0), (54.0, 58.0), (74.0, 58.0), (85.0, 61.0), (88.0, 66.0), (88.0, 119.0), (85.0, 126.0), (80.0, 128.0), (48.0, 128.0), (41.0, 123.0), (40.0, 116.0)] },
@@ -154,9 +156,9 @@ pub struct Heft {
     pub air_spin: f64,
     /// 회전 상한 (도/s)
     pub max_spin: f64,
-    /// 땅에서 받는 마찰 (논리 px/s²) — 작을수록 멀리 간다
+    /// 땅에서 받는 마찰 (논리 px/s²) — 작을수록 멀리 감
     pub friction: f64,
-    /// 구를 때의 반지름 (논리 px) — 클수록 같은 거리에 덜 돈다
+    /// 구를 때의 반지름 (논리 px) — 클수록 같은 거리에 덜 돎
     pub roll_radius: f64,
     /// 땅이 회전을 구르는 빠르기로 맞추는 힘 (1/s)
     pub grip: f64,
@@ -170,6 +172,7 @@ pub struct Heft {
     pub jitter: f64,
 }
 
+/// 물건 종류의 무게감 (돌기·구르기·튀기)
 pub fn heft_of(kind: ObjectKind) -> Heft {
     let h = |air_spin, max_spin, friction, roll_radius, grip, bounce, bounce_vx, bounce_spin, jitter| Heft { air_spin, max_spin, friction, roll_radius, grip, bounce, bounce_vx, bounce_spin, jitter };
     match kind {

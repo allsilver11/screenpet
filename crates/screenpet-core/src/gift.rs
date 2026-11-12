@@ -1,9 +1,9 @@
 //! 선물과 🎁 선물 도감 (v0.3.7) — 창도 웹뷰도 모르는 규칙만 (앱 쪽은 src-tauri/src/gifts.rs).
 //!
-//! 내 동물은 깨어 있는 시간 20~60분마다(배부르면 더 자주) 자기 종의 선물 하나를 서 있는 곳에 떨어뜨린다. 놀러 간 동물은
-//! 주인이 방문에 실어 보낸 선물(Visit의 `gift`)을 친구 화면에 두고 온다. 받은 id는 목록에 있는 그대로일 때만 받고
-//! (`Gift::parse`, 파일 이름·창 스크립트에 그대로 쓰이는 값이다), 친구마다 횟수(`FriendLimit`)와 화면 위 개수(`GiftField`)를 제한한다.
-//! 주운 선물만 설정에 남는다 (`GiftBook`) — 화면 위 선물은 30분 뒤 사라지고 앱을 끄면 없어진다.
+//! 내 동물은 깨어 있는 시간 20~60분마다(배부르면 더 자주) 자기 종의 선물 하나를 서 있는 곳에 떨어뜨림. 놀러 간 동물은
+//! 주인이 방문에 실어 보낸 선물(Visit의 `gift`)을 친구 화면에 두고 옴. 받은 id는 목록에 있는 그대로일 때만 받고
+//! (`Gift::parse`, 파일 이름·창 스크립트에 그대로 쓰이는 값임), 친구마다 횟수(`FriendLimit`)와 화면 위 개수(`GiftField`)를 제한함
+//! 주운 선물만 설정에 남음 (`GiftBook`) — 화면 위 선물은 30분 뒤 사라지고 앱을 끄면 없어짐
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
@@ -21,15 +21,15 @@ pub const SHINY_SUFFIX: &str = "_shiny";
 pub const SHINY_CHANCE: f64 = 0.05;
 /// 내 동물을 친구에게 보낼 때 선물을 들려 보낼 확률
 pub const VISIT_GIFT_CHANCE: f64 = 0.35;
-/// 내 쪽에서 선물을 들려 보내는 최소 간격 (친구 쪽 제한 FRIEND_GIFT_EVERY보다 길어 보통은 거절될 일이 없다)
+/// 내 쪽에서 선물을 들려 보내는 최소 간격 (친구 쪽 제한 FRIEND_GIFT_EVERY보다 길어 보통은 거절될 일이 없음)
 pub const VISIT_GIFT_EVERY: Duration = Duration::from_secs(10 * 60);
 /// 한 친구(링크)에게서 선물을 받는 최소 간격
 pub const FRIEND_GIFT_EVERY: Duration = Duration::from_secs(5 * 60);
 /// 줍지 않은 선물이 사라질 때까지
 pub const LIFE_SECS: f64 = 30.0 * 60.0;
-/// 화면 위 선물 수 (창 하나씩이다)
+/// 화면 위 선물 수 (창 하나씩임)
 pub const MAX_GIFTS: usize = 6;
-/// 그중 친구가 두고 간 선물 수 — 친구가 자리를 다 차지하지 못한다
+/// 그중 친구가 두고 간 선물 수 — 친구가 자리를 다 차지하지 못함
 pub const MAX_FRIEND_GIFTS: usize = 3;
 /// 깨어 있는 시간 기준 선물 간격 (초)
 const INTERVAL_SECS: (f64, f64) = (20.0 * 60.0, 60.0 * 60.0);
@@ -46,30 +46,38 @@ pub const SHINY_SPEECH: &str = "✨ look, shiny!";
 /// 주웠을 때 내 동물의 말
 pub const COLLECT_SPEECH: &str = "yay!";
 
+/// 선물 하나의 정의
 #[derive(Debug, PartialEq, Eq)]
 pub struct GiftItem {
     /// 그림 파일 이름이자 전송 값 (ui/gifts/<id>.png, tools/draw_gifts.py)
     pub id: &'static str,
+    /// 도감에 보일 이름 (영어)
     pub name: &'static str,
 }
 
+/// 동물 종별 선물 목록 (도감의 한 칸)
 #[derive(Debug)]
 pub struct GiftList {
+    /// 목록 키 (도감 칸 id)
     pub key: &'static str,
     /// 도감의 칸 제목
     pub title: &'static str,
+    /// 도감 칸 이모지
     pub emoji: &'static str,
     /// 이 목록을 쓰는 동물
     pub species: &'static [&'static str],
     /// 떨어뜨릴 때 말 (영어)
     pub speech: &'static str,
+    /// 이 목록의 선물들
     pub items: &'static [GiftItem],
 }
 
+/// 목록 표를 짧게 쓰는 도우미
 const fn item(id: &'static str, name: &'static str) -> GiftItem {
     GiftItem { id, name }
 }
 
+/// 모든 선물 목록 (도감 순서)
 pub const CATALOG: &[GiftList] = &[
     GiftList {
         key: "cat",
@@ -318,19 +326,22 @@ pub fn list_for(species: &str) -> Option<&'static GiftList> {
     CATALOG.iter().find(|l| l.species.contains(&species))
 }
 
+/// 목록에 있는 선물 (id가 같은 것)
 fn known_item(id: &str) -> Option<&'static GiftItem> {
     CATALOG.iter().flat_map(|l| l.items).find(|i| i.id == id)
 }
 
-/// 선물 하나 — 언제나 목록에 있는 id다 (`id`가 &'static이라 받은 글자를 그대로 들고 있을 수 없다)
+/// 선물 하나 — 언제나 목록에 있는 id임 (`id`가 &'static이라 받은 글자를 그대로 들고 있을 수 없음)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Gift {
+    /// 목록에 있는 선물 id
     pub id: &'static str,
+    /// 반짝이 선물임
     pub shiny: bool,
 }
 
 impl Gift {
-    /// 전송 값·그림 이름을 선물로. 목록에 정확히 있는 값만 받는다
+    /// 전송 값·그림 이름을 선물로. 목록에 정확히 있는 값만 받음
     pub fn parse(raw: &str) -> Option<Gift> {
         if let Some(i) = known_item(raw) {
             return Some(Gift { id: i.id, shiny: false });
@@ -339,7 +350,7 @@ impl Gift {
         known_item(base).map(|i| Gift { id: i.id, shiny: true })
     }
 
-    /// 그 동물의 목록에서 하나 고른다 (가끔 반짝이)
+    /// 그 동물의 목록에서 하나 고름 (가끔 반짝이)
     pub fn roll(species: &str, rng: &mut fastrand::Rng) -> Option<Gift> {
         let list = list_for(species)?;
         let item = &list.items[rng.usize(..list.items.len())];
@@ -368,13 +379,14 @@ pub fn accept_visit_gift(raw: Option<&str>, species: &str) -> Option<Gift> {
     list_for(species)?.items.iter().any(|i| i.id == gift.id).then_some(gift)
 }
 
-/// 친구 하나당 받는 횟수 제한. 거절한 시도는 기다리는 시간을 늘리지 않는다 (친구 수만큼만 자란다 — 인증된 친구만 부른다)
+/// 친구 하나당 받는 횟수 제한. 거절한 시도는 기다리는 시간을 늘리지 않음 (친구 수만큼만 자람 — 인증된 친구만 부름)
 #[derive(Debug, Default)]
 pub struct FriendLimit {
     last: HashMap<String, Instant>,
 }
 
 impl FriendLimit {
+    /// 이 친구의 선물을 지금 받아도 됨 (FRIEND_GIFT_EVERY에 하나). 받으면 시각을 적음
     pub fn allow(&mut self, friend: &str, now: Instant) -> bool {
         if self.last.get(friend).is_some_and(|t| now.duration_since(*t) < FRIEND_GIFT_EVERY) {
             return false;
@@ -401,21 +413,24 @@ pub fn mood_rate(fullness: f64) -> f64 {
     }
 }
 
+/// 다음 선물까지 시간을 뽑음 (fast면 FAST_INTERVAL_SECS)
 fn roll_interval(rng: &mut fastrand::Rng, fast: bool) -> f64 {
     let (lo, hi) = if fast { FAST_INTERVAL_SECS } else { INTERVAL_SECS };
     lo + rng.f64() * (hi - lo)
 }
 
 impl GiftTimer {
+    /// 첫 선물 시계를 맞춤
     pub fn new(rng: &mut fastrand::Rng, fast: bool) -> Self {
         Self { remaining: roll_interval(rng, fast) }
     }
 
+    /// 다음 선물까지 남은 시간 (초)
     pub fn remaining(&self) -> f64 {
         self.remaining
     }
 
-    /// 깨어 있으면 시계를 돌린다. 때가 됐으면 (떨어뜨리고 rearm할 때까지 계속) true
+    /// 깨어 있으면 시계를 돌림. 때가 됐으면 (떨어뜨리고 rearm할 때까지 계속) true
     pub fn tick(&mut self, dt: f64, awake: bool, rate: f64) -> bool {
         if awake {
             self.remaining -= dt * rate;
@@ -423,6 +438,7 @@ impl GiftTimer {
         self.remaining <= 0.0
     }
 
+    /// 떨어뜨린 뒤 시계를 다시 맞춤
     pub fn rearm(&mut self, rng: &mut fastrand::Rng, fast: bool) {
         self.remaining = roll_interval(rng, fast);
     }
@@ -431,11 +447,15 @@ impl GiftTimer {
 /// 화면 위 선물 하나. (x, y) = 아래 가운데 (물리 px)
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveGift {
+    /// 화면 위 선물을 가리키는 번호 (앱·웹뷰가 씀)
     pub token: u64,
+    /// 선물
     pub gift: Gift,
     /// 두고 간 친구의 이름 (내 동물이 떨어뜨린 건 None)
     pub from: Option<String>,
+    /// 아래 가운데 x (물리 px)
     pub x: f64,
+    /// 바닥 y (물리 px)
     pub y: f64,
     vy: f64,
     /// 앉아 있는 곳과, 그 왼쪽 끝에서의 거리
@@ -443,7 +463,7 @@ pub struct LiveGift {
     age: f64,
 }
 
-/// 화면 위 선물들: 떨어지고, 앉은 창을 따라가고, 창이 사라지거나 가려지면 다시 떨어진다
+/// 화면 위 선물들: 떨어지고, 앉은 창을 따라가고, 창이 사라지거나 가려지면 다시 떨어짐
 #[derive(Debug, Default)]
 pub struct GiftField {
     gifts: Vec<LiveGift>,
@@ -451,22 +471,27 @@ pub struct GiftField {
 }
 
 impl GiftField {
+    /// 화면 위 선물이 없음
     pub fn is_empty(&self) -> bool {
         self.gifts.is_empty()
     }
 
+    /// 화면 위 선물 수
     pub fn len(&self) -> usize {
         self.gifts.len()
     }
 
+    /// 하나 더 둘 자리가 있음 (MAX_GIFTS 미만)
     pub fn has_room(&self) -> bool {
         self.gifts.len() < MAX_GIFTS
     }
 
+    /// token인 선물
     pub fn get(&self, token: u64) -> Option<&LiveGift> {
         self.gifts.iter().find(|g| g.token == token)
     }
 
+    /// 화면 위 선물들
     pub fn iter(&self) -> impl Iterator<Item = &LiveGift> {
         self.gifts.iter()
     }
@@ -479,7 +504,7 @@ impl GiftField {
         })
     }
 
-    /// (x, y)에서 떨어지기 시작한다. 자리가 없으면 None
+    /// (x, y)에서 떨어지기 시작함. 자리가 없으면 None
     pub fn add(&mut self, gift: Gift, from: Option<String>, x: f64, y: f64) -> Option<u64> {
         let friends = self.gifts.iter().filter(|g| g.from.is_some()).count();
         if !self.has_room() || (from.is_some() && friends >= MAX_FRIEND_GIFTS) {
@@ -490,13 +515,14 @@ impl GiftField {
         Some(self.last_token)
     }
 
+    /// 주움: 화면에서 빼고 선물과 두고 간 친구를 돌려줌
     pub fn collect(&mut self, token: u64) -> Option<(Gift, Option<String>)> {
         let i = self.gifts.iter().position(|g| g.token == token)?;
         let g = self.gifts.remove(i);
         Some((g.gift, g.from))
     }
 
-    /// 매 틱. 시간이 다 되어 사라진 선물의 token을 돌려준다
+    /// 매 틱. 시간이 다 되어 사라진 선물의 token을 돌려줌
     pub fn tick(&mut self, dt: f64, world: &World) -> Vec<u64> {
         let mut gone = Vec::new();
         self.gifts.retain_mut(|g| {
@@ -513,6 +539,7 @@ impl GiftField {
 }
 
 impl LiveGift {
+    /// 한 틱: 앉은 디딤판을 따라가거나, 디딤판이 사라졌으면 떨어짐
     fn step(&mut self, dt: f64, world: &World) {
         if let Some((owner, dx)) = self.on {
             if let Some((ax, ay)) = world.anchor(owner) {
@@ -549,7 +576,7 @@ impl LiveGift {
         }
     }
 
-    /// 어느 디딤판도 못 만나고 화면 아래로 빠졌다 — 가장 가까운 작업 영역 바닥에 앉는다
+    /// 어느 디딤판도 못 만나고 화면 아래로 빠졌음 — 가장 가까운 작업 영역 바닥에 앉음
     fn rest_on_nearest_ground(&mut self, world: &World) {
         let wa = world.work_area_at(self.x, self.y);
         let i = world.work_areas.iter().position(|r| *r == wa).unwrap_or(0);
@@ -559,7 +586,7 @@ impl LiveGift {
     }
 }
 
-/// 선물을 떨어뜨려도 되는 몸짓: 걷거나 쉬는 중 (먹기·잠·끌려가기·벽 타기·장난 도중엔 기다린다)
+/// 선물을 떨어뜨려도 되는 몸짓: 걷거나 쉬는 중 (먹기·잠·끌려가기·벽 타기·장난 도중엔 기다림)
 pub fn calm_anim(anim: Anim) -> bool {
     matches!(anim, Anim::Walk | Anim::Run | Anim::Idle | Anim::Look | Anim::SitFront | Anim::Stretch | Anim::Tilt | Anim::Hop | Anim::LookUp)
 }
@@ -567,7 +594,7 @@ pub fn calm_anim(anim: Anim) -> bool {
 /// 몸 크기에 대해 선물이 놓이는 앞쪽 거리
 const DROP_REACH: f64 = 0.4;
 
-/// 이 동물이 지금 선물을 떨어뜨릴 자리 (아래 가운데, 물리 px). 서 있으면 몸 앞 그 바닥, 나는 동물은 몸 아래 (떨어진다).
+/// 이 동물이 지금 선물을 떨어뜨릴 자리 (아래 가운데, 물리 px). 서 있으면 몸 앞 그 바닥, 나는 동물은 몸 아래 (떨어짐).
 /// 들려 있거나·하우스·친구 화면·조작 모드·집중 중·자리 비움·창 안쪽이거나 하던 일이 있으면 None
 pub fn drop_spot(pet: &Pet, world: &World) -> Option<(f64, f64)> {
     if pet.is_held() || pet.is_housed() || pet.is_away() || pet.is_controlled() || pet.is_focusing() || pet.is_user_away() || !calm_anim(pet.render().anim) {
@@ -600,33 +627,38 @@ pub struct BookEntry {
     pub from: Option<String>,
 }
 
+/// serde: 0이면 적지 않음
 fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
-/// 🎁 모은 선물 (설정에 남는다). 잘못된 줄 하나, 또는 통째로 잘못돼도 설정 나머지는 살아남는다
+/// 🎁 모은 선물 (설정에 남음). 잘못된 줄 하나, 또는 통째로 잘못돼도 설정 나머지는 살아남음
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct GiftBook {
+    /// 선물 id → 모은 기록
     #[serde(deserialize_with = "lenient_items")]
     pub(crate) items: BTreeMap<String, BookEntry>,
 }
 
+/// serde: 잘못된 줄은 버리고, 통째로 잘못됐으면 빈 도감으로 읽음
 fn lenient_items<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, BookEntry>, D::Error> {
     let serde_json::Value::Object(map) = serde_json::Value::deserialize(d)? else { return Ok(BTreeMap::new()) };
     Ok(map.into_iter().filter_map(|(id, v)| Some((id, serde_json::from_value(v).ok()?))).collect())
 }
 
 impl GiftBook {
+    /// 모은 것이 없음
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
+    /// id 선물의 기록
     pub fn entry(&self, id: &str) -> Option<&BookEntry> {
         self.items.get(id)
     }
 
-    /// 주운 선물을 적는다. from = 두고 간 친구 (다른 사람이 정한 이름이라 다듬는다)
+    /// 주운 선물을 적음. from = 두고 간 친구 (다른 사람이 정한 이름이라 다듬음)
     pub fn add(&mut self, gift: Gift, from: Option<&str>) {
         let e = self.items.entry(gift.id.to_string()).or_default();
         let count = if gift.shiny { &mut e.shiny } else { &mut e.n };
@@ -637,37 +669,52 @@ impl GiftBook {
     }
 }
 
+/// 도감 한 칸의 선물
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BookItem {
+    /// 선물 id
     pub id: &'static str,
+    /// 이름
     pub name: &'static str,
+    /// 모은 수 (반짝이 빼고)
     pub count: u32,
+    /// 모은 반짝이 수
     pub shiny: u32,
+    /// 마지막으로 두고 간 친구
     pub from: Option<String>,
-    /// 보일 그림 (ui/gifts/<image>.png) — 못 모은 것은 웹뷰가 실루엣으로 칠한다
+    /// 보일 그림 (ui/gifts/<image>.png) — 못 모은 것은 웹뷰가 실루엣으로 칠함
     pub image: String,
 }
 
+/// 도감 한 칸 (선물 목록 하나)
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BookSection {
+    /// 목록 키
     pub key: &'static str,
+    /// 칸 제목
     pub title: &'static str,
+    /// 칸 이모지
     pub emoji: &'static str,
+    /// 하나라도 모은 선물 수
     pub collected: usize,
+    /// 선물들
     pub items: Vec<BookItem>,
 }
 
 /// 도감 창에 보낼 것 (`book_state` 커맨드, `book-state` 이벤트)
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BookView {
+    /// 칸들 (CATALOG 순서)
     pub sections: Vec<BookSection>,
     /// 하나라도 모은 선물 수
     pub collected: usize,
+    /// 모든 선물 수
     pub total: usize,
     /// 반짝이를 모은 선물 수
     pub shiny: usize,
 }
 
+/// 도감 창에 보낼 것을 만듦
 pub fn book_view(book: &GiftBook) -> BookView {
     let sections: Vec<BookSection> = CATALOG
         .iter()
@@ -692,7 +739,7 @@ pub fn book_view(book: &GiftBook) -> BookView {
     BookView { sections, collected, total, shiny }
 }
 
-/// 주웠을 때 내 동물의 말: 친구가 두고 간 것이면 누가 줬는지 (웹뷰는 textContent로만 쓴다)
+/// 주웠을 때 내 동물의 말: 친구가 두고 간 것이면 누가 줬는지 (웹뷰는 textContent로만 씀)
 pub fn collect_speech(from: Option<&str>) -> String {
     match from.map(|f| clean_text(f, MAX_NAME_CHARS)).filter(|f| !f.is_empty()) {
         Some(name) => format!("from {name}!"),

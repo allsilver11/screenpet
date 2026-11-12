@@ -1,9 +1,9 @@
-//! 💩 똥 (순수 계산): 왼쪽 버튼을 새로 누른 순간(눌렀다는 사실만 — 자리도 대상도 모른다)마다 화면 위 동물이 낮은 확률로 싼다.
-//! 똥은 물건(object.rs)이다: 끌고 던지고 치우고 친구 화면으로 넘길 수 있다. 메뉴로 꺼내지는 못하고, 물건 수와 따로 센다.
+//! 💩 똥 (순수 계산): 왼쪽 버튼을 새로 누른 순간(눌렀다는 사실만 — 자리도 대상도 모름)마다 화면 위 동물이 낮은 확률로 쌈
+//! 똥은 물건(object.rs)임: 끌고 던지고 치우고 친구 화면으로 넘길 수 있음. 메뉴로 꺼내지는 못하고, 물건 수와 따로 셈
 //! 동물의 동작은 brain_poop.rs.
 //!
 //! 확률 계산: 부지런히 쓸 때 1분에 10번쯤 누른다고 보면 (쉬는 시간 뺀) 평균 대기는 1 / (0.04 × 10) = 2.5분,
-//! 여기에 싼 뒤 쉬는 10~20분(평균 15분)을 더해 한 마리당 약 17.5분에 한 번이다. 1분에 3번이면 약 23분, 30번이면 약 16분.
+//! 여기에 싼 뒤 쉬는 10~20분(평균 15분)을 더해 한 마리당 약 17.5분에 한 번임. 1분에 3번이면 약 23분, 30번이면 약 16분.
 
 use crate::object::ObjectKind;
 use crate::surfaces::Owner;
@@ -16,43 +16,47 @@ pub const COOLDOWN_SECS: (f64, f64) = (600.0, 1200.0);
 pub const LIFE_SECS: f64 = 1800.0;
 /// 걷다가 똥을 알아채는 앞쪽 거리 (몸 크기 배)
 pub const LOOK_AHEAD: f64 = 0.9;
-/// 이만큼(몸 크기 배) 앞까지 오면 밟았다
+/// 이만큼(몸 크기 배) 앞까지 오면 밟았음
 pub const STEP_REACH: f64 = 0.12;
-/// 못 보고 밟아 미끄러질 확률 (나머지는 "ew!" 하고 피한다)
+/// 못 보고 밟아 미끄러질 확률 (나머지는 "ew!" 하고 피함)
 pub const SLIP_CHANCE: f64 = 0.2;
-/// 피할 때 뛰어넘을 확률 (뛸 자리가 있을 때, 나머지는 돌아선다)
+/// 피할 때 뛰어넘을 확률 (뛸 자리가 있을 때, 나머지는 돌아섬)
 pub const HOP_OVER_CHANCE: f64 = 0.5;
 /// 같은 똥에 다시 반응하기까지 (초)
 pub const SAME_POOP_SECS: f64 = 90.0;
-/// 어떤 똥이든 다시 반응하기까지 (초) — 똥이 모여 있어도 말풍선이 줄줄이 나오지 않는다
+/// 어떤 똥이든 다시 반응하기까지 (초) — 똥이 모여 있어도 말풍선이 줄줄이 나오지 않음
 pub const CALM_SECS: f64 = 6.0;
 /// 같은 디딤판으로 보는 높이 차 (px)
 pub const SAME_LEVEL_PX: f64 = 4.0;
-/// 뛰어넘을 때 똥 너머로 더 가는 거리 (몸 크기 배, 몸 반 폭에 더한다)
+/// 뛰어넘을 때 똥 너머로 더 가는 거리 (몸 크기 배, 몸 반 폭에 더함)
 pub const HOP_CLEAR: f64 = 0.3;
 
-/// 바닥에 놓인 똥 하나 (앱이 매 틱 Pet::notice_poops로 넘긴다)
+/// 바닥에 놓인 똥 하나 (앱이 매 틱 Pet::notice_poops로 넘김)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PoopSpot {
+    /// 똥 물건 id
     pub id: u64,
+    /// 바닥 가운데 x (물리 px)
     pub x: f64,
+    /// 바닥 y (물리 px)
     pub y: f64,
+    /// 놓인 디딤판
     pub owner: Owner,
 }
 
-/// 앱 쪽 조건: 메뉴에서 켜 뒀고, 모두 숨겨 두지 않았고, 집중 중이 아니다 (손님도 집중을 방해하지 않는다).
-/// 자리 비움·전체 화면은 동물이 있는 모니터마다 weather::overlay_paused로 본다
+/// 앱 쪽 조건: 메뉴에서 켜 뒀고, 모두 숨겨 두지 않았고, 집중 중이 아님 (손님도 집중을 방해하지 않음).
+/// 자리 비움·전체 화면은 동물이 있는 모니터마다 weather::overlay_paused로 봄
 pub fn may_poop(off: bool, hidden: bool, focusing: bool) -> bool {
     !off && !hidden && !focusing
 }
 
-/// 똥 그림 크기 범위 (96 논리 px 칸에 곱한다), 친구가 크기를 안 보냈을 때
+/// 똥 그림 크기 범위 (96 논리 px 칸에 곱함), 친구가 크기를 안 보냈을 때
 const SIZE_RANGE: (f64, f64) = (0.2, 0.9);
 const SIZE_UNKNOWN: f64 = 0.5;
-/// 몸 크기 배율에 곱한다: 몸의 4분의 1쯤 되는 똥
+/// 몸 크기 배율에 곱함: 몸의 4분의 1쯤 되는 똥
 const SIZE_PER_BODY: f64 = 0.5;
 
-/// 몸 크기 배율(단계 × 동물별, 일시 확대까지) → 똥 크기: 어린 동물일수록 작다
+/// 몸 크기 배율(단계 × 동물별, 일시 확대까지) → 똥 크기: 어린 동물일수록 작음
 pub fn size_for(body_scale: f64) -> f64 {
     if body_scale.is_finite() {
         (body_scale * SIZE_PER_BODY).clamp(SIZE_RANGE.0, SIZE_RANGE.1)
@@ -61,7 +65,7 @@ pub fn size_for(body_scale: f64) -> f64 {
     }
 }
 
-/// 친구가 보낸 똥 크기를 다듬는다
+/// 친구가 보낸 똥 크기를 다듬음
 pub fn sanitize_size(sent: Option<f64>) -> f64 {
     match sent {
         Some(s) if s.is_finite() => s.clamp(SIZE_RANGE.0, SIZE_RANGE.1),
@@ -69,7 +73,7 @@ pub fn sanitize_size(sent: Option<f64>) -> f64 {
     }
 }
 
-/// 동물 종류 → 똥 그림: 토끼는 알갱이, 나머지는 똥 (크기는 몸을 따른다)
+/// 동물 종류 → 똥 그림: 토끼는 알갱이, 나머지는 똥 (크기는 몸을 따름)
 pub fn kind_for(species: &str) -> ObjectKind {
     match species {
         "rabbit" => ObjectKind::Pellets,
@@ -79,6 +83,7 @@ pub fn kind_for(species: &str) -> ObjectKind {
 
 /// 똥 색 비율: 무지개 10%, 핑크 30%, 나머지 60%는 그 동물의 똥 (토끼는 알갱이)
 pub const RAINBOW_CHANCE: f64 = 0.10;
+/// 핑크 똥 비율
 pub const PINK_CHANCE: f64 = 0.30;
 
 /// 싼 똥의 종류: roll = 0..1 난수

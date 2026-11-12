@@ -1,18 +1,18 @@
 //! 날다가 부딪히기 (순수 계산): 던진 동물·물건이 다른 동물에 닿는 순간과 되튀는 속도.
 //! 누가 부딪힐 수 있는지와 쿨다운은 social.rs, 맞은 동물의 반응은 brain_hit.rs.
 //!
-//! - 닿는 순간만 본다: 지난 틱엔 밖이고 이번 틱에 안이거나 지나쳤을 때. 이미 겹친 채 놓으면 (살며시 내려놓기) 빠져나갈 때까지 아무 일도 없다.
-//! - 속도는 논리 px/s로 잰다 (화면 배율과 상관없이 같은 느낌).
+//! - 닿는 순간만 봄: 지난 틱엔 밖이고 이번 틱에 안이거나 지나쳤을 때. 이미 겹친 채 놓으면 (살며시 내려놓기) 빠져나갈 때까지 아무 일도 없음
+//! - 속도는 논리 px/s로 잼 (화면 배율과 상관없이 같은 느낌).
 
-/// 이보다 느리면(논리 px/s) 닿아도 아무 일도 없다 — 던진 중력으로 몸 절반쯤(47 px) 떨어지면 나오는 빠르기
+/// 이보다 느리면(논리 px/s) 닿아도 아무 일도 없음 — 던진 중력으로 몸 절반쯤(47 px) 떨어지면 나오는 빠르기
 pub const HIT_MIN_SPEED: f64 = 400.0;
-/// 이보다 빠르면(논리 px/s) 맞은 동물이 데굴 넘어진다 — 아니면 움찔. 던진 속도 상한은 1600
+/// 이보다 빠르면(논리 px/s) 맞은 동물이 데굴 넘어짐 — 아니면 움찔. 던진 속도 상한은 1600
 pub const HIT_FAST_SPEED: f64 = 900.0;
 /// 같은 짝이 다시 부딪히기까지 (초)
 pub const HIT_PAIR_COOLDOWN: f64 = 1.5;
 /// 맞은 동물이 다시 맞기까지 (초)
 pub const HIT_CALM_SECS: f64 = 1.0;
-/// 옆에서 부딪혀 되튈 때: 속도의 이만큼으로 맞은 쪽 반대로, 세로는 남은 만큼에 살짝 띄운다
+/// 옆에서 부딪혀 되튈 때: 속도의 이만큼으로 맞은 쪽 반대로, 세로는 남은 만큼에 살짝 띄움
 const SIDE_BACK: f64 = 0.45;
 const SIDE_KEEP_VY: f64 = 0.3;
 const SIDE_POP: f64 = 0.15;
@@ -26,31 +26,33 @@ const SLIDE_OFF: f64 = 120.0;
 /// 맞은 몸의 어느 쪽으로 들어왔나
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Face {
-    /// 머리 위에서 내려왔다
+    /// 머리 위에서 내려왔음
     Top,
     Side,
-    /// 아래에서 올라왔다
+    /// 아래에서 올라왔음
     Bottom,
 }
 
 /// 맞은 동물에게 알리는 것
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hit {
+    /// 부딪힌 면
     pub face: Face,
     /// 부딪힌 것의 속도 (물리 px/s)
     pub vx: f64,
+    /// 세로 속도 (물리 px/s)
     pub vy: f64,
     /// 맞은 동물이 밀려나는 쪽 (±1)
     pub dir: f64,
-    /// HIT_FAST_SPEED보다 빠르다
+    /// HIT_FAST_SPEED보다 빠름
     pub fast: bool,
-    /// 똥에 맞았다
+    /// 똥에 맞았음
     pub poop: bool,
 }
 
 /// 움직이는 몸이 다른 몸에 이번 틱에 처음 닿았으면 들어온 쪽.
 /// prev·now는 맞을 몸에 대한 상대 자리 (발 기준), half_x = 두 몸 반 폭의 합, above = 맞을 몸 높이, below = 움직이는 몸 높이.
-/// 빠르거나 틱이 길어 한 틱에 뚫고 지나가도 잡는다
+/// 빠르거나 틱이 길어 한 틱에 뚫고 지나가도 잡음
 pub fn entry(prev: (f64, f64), now: (f64, f64), half_x: f64, above: f64, below: f64) -> Option<Face> {
     let inside = |p: (f64, f64)| p.0.abs() < half_x && -above < p.1 && p.1 < below;
     if inside(prev) {
@@ -79,7 +81,7 @@ pub fn entry(prev: (f64, f64), now: (f64, f64), half_x: f64, above: f64, below: 
     })
 }
 
-/// 부딪힌 뒤의 속도 (물리 px/s): 언제나 전보다 느리고, 빠를수록 세게 튄다. away = 맞은 몸에서 멀어지는 쪽 (±1)
+/// 부딪힌 뒤의 속도 (물리 px/s): 언제나 전보다 느리고, 빠를수록 세게 튐. away = 맞은 몸에서 멀어지는 쪽 (±1)
 pub fn rebound(face: Face, vx: f64, vy: f64, away: f64, dpi: f64) -> (f64, f64) {
     let speed = vx.hypot(vy);
     match face {
@@ -89,7 +91,7 @@ pub fn rebound(face: Face, vx: f64, vy: f64, away: f64, dpi: f64) -> (f64, f64) 
     }
 }
 
-/// 몸에서 멀어지는 쪽: 맞은 몸에 대한 상대 x로 정하고, 거의 한가운데면 오던 쪽으로 되돌아간다 (위아래로 튈 땐 가던 쪽으로 미끄러진다)
+/// 몸에서 멀어지는 쪽: 맞은 몸에 대한 상대 x로 정하고, 거의 한가운데면 오던 쪽으로 되돌아감 (위아래로 튈 땐 가던 쪽으로 미끄러짐)
 pub fn away_from(rel_x: f64, vx: f64, face: Face) -> f64 {
     if rel_x.abs() > 1.0 {
         return rel_x.signum();
