@@ -501,11 +501,14 @@ def thought_fx(cx, cy, r=12.5):
     return fx
 
 
-def blush(cx, cy):
+def blush(cx, cy, k=1.0):
+    """볼터치 (k: 크기 배율 — 펭귄은 작게)"""
     bx, by = _ST["blush"]
+    bx, by = bx * k, by * k
     ops = [([E(cx - 7.5 * bx, cy - 5 * by, cx + 7.5 * bx, cy + 5 * by)], BLUSH)]
     for dx in (-3, 2):
-        ops.append(([L([(cx + dx, cy + 2), (cx + dx + 2.4, cy - 2)], 1.2)], BLUSH_LINE))
+        dx *= k
+        ops.append(([L([(cx + dx, cy + 2 * k), (cx + dx + 2.4 * k, cy - 2 * k)], 1.2 * min(1.0, k + 0.2))], BLUSH_LINE))
     return ops
 
 

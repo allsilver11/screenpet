@@ -59,6 +59,9 @@ PG_STAGE = {
     4: dict(chick=False, fluff=0, fuzz=False, flip=1.04, tie=True),
 }
 
+# 볼터치 크기 (사용자: 부끄럼 볼터치가 너무 커서 줄임)
+PENGUIN_BLUSH = 0.6
+
 
 def _pg():
     return PG_STAGE[_ST["lvl"]]
@@ -234,7 +237,7 @@ def side_head(hx, hy, hr, eyes, mouth, brow, head_rot=0.0):
         face = rims + glint + list(dp.stage_eye(eyes, ex, ey))
         if brow:
             face += dp.brows(brow, ex, ey + _ST["eye_dy"], flip=True)
-        face += dp.blush(hx + hr * 0.26, hy + hr * 0.64)  # 볼은 렌즈 아래
+        face += dp.blush(hx + hr * 0.26, hy + hr * 0.64, PENGUIN_BLUSH)  # 볼은 렌즈 아래
     return hpart, bp, face + bo
 
 
@@ -310,7 +313,7 @@ def penguin(sp, *, side=True, bottom=None, cx=64.0, sq=(1.0, 1.0), rot=0.0, eyes
                         face += dp.stage_eye(eyes, ex, hy + hr * 0.06, flip)
                         if brow:
                             face += dp.brows(brow, ex, hy + hr * 0.06 + _ST["eye_dy"], flip=flip)
-                    face += dp.blush(hx - hr * 0.68, hy + hr * 0.64) + dp.blush(hx + hr * 0.68, hy + hr * 0.64)  # 볼은 렌즈 아래
+                    face += dp.blush(hx - hr * 0.68, hy + hr * 0.64, PENGUIN_BLUSH) + dp.blush(hx + hr * 0.68, hy + hr * 0.64, PENGUIN_BLUSH)  # 볼은 렌즈 아래
                 parts += late
                 fl, fr = flips or (12, 12)
                 for s, a in ((-1, fl), (1, fr)):

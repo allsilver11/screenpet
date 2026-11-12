@@ -220,9 +220,10 @@ def stage_eye(kind, cx, cy, flip=False):
     return [([_stamp(cx, cy, _eye_rows(kind, flip), pal)], None)]
 
 
-def blush(cx, cy):
+def blush(cx, cy, k=1.0):
     n = _PX["grid"].n
-    rows = ["bbb"] if n >= 28 else ["bb"]
+    small = k < 0.8
+    rows = (["bb"] if small else ["bbb"]) if n >= 28 else (["b"] if small else ["bb"])
     return [([_stamp(cx, cy, rows, {"b": BLUSH_COL})], None)]
 
 
