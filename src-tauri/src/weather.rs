@@ -11,7 +11,7 @@ use screenpet_core::geom::Rect;
 use screenpet_core::visit::Side;
 use screenpet_core::weather::{self, OverlayRetry, PileField, Scene, Weather};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::slots::Slot;
 use crate::AppState;
@@ -342,7 +342,7 @@ impl WeatherFx {
             }
             let label = format!("{PREFIX}{}", self.next_label);
             self.next_label += 1;
-            match spawn_overlay(app, &label, wa) {
+            match crate::overlay::screen_cover(app, &label, "weather.html", "ScreenPet Weather", wa) {
                 Some((window, scale)) => self.overlays.push(Overlay { window, label, wa: *wa, scale, paused: false, born: now, resent: now, last: None }),
                 None => failed = true,
             }
@@ -385,38 +385,4 @@ fn on_area(wa: &Rect, x: f64) -> bool {
 
 fn bottom_center(x: f64, y: f64, (w, h): (f64, f64), dpi: f64) -> (i32, i32) {
     ((x - w * dpi / 2.0).round() as i32, (y - h * dpi).round() as i32)
-}
-
-/// 이 작업 영역이 있는 모니터의 배율
-pub(crate) fn scale_of(app: &AppHandle, wa: &Rect) -> f64 {
-    let (cx, cy) = ((wa.left + wa.right) / 2.0, (wa.top + wa.bottom) / 2.0);
-    let monitors = app.available_monitors().unwrap_or_default();
-    let found = monitors.iter().find(|m| {
-        let (p, s) = (m.position(), m.size());
-        cx >= p.x as f64 && cx < p.x as f64 + s.width as f64 && cy >= p.y as f64 && cy < p.y as f64 + s.height as f64
-    });
-    found.map_or(1.0, |m| m.scale_factor())
-}
-
-/// 작업 영역을 꼭 덮는 투명 창. 클릭·드래그는 그 아래(동물·다른 앱)로 간다
-fn spawn_overlay(app: &AppHandle, label: &str, wa: &Rect) -> Option<(WebviewWindow, f64)> {
-    let scale = scale_of(app, wa);
-    let built = crate::overlay::finish(
-        WebviewWindowBuilder::new(app, label, WebviewUrl::App("weather.html".into()))
-            .title("ScreenPet Weather")
-            .initialization_script(crate::art::style_script())
-            .inner_size(wa.width() / scale, wa.height() / scale),
-    );
-    let window = match built {
-        Ok(w) => w,
-        Err(e) => {
-            eprintln!("failed to create weather overlay: {e}");
-            return None;
-        }
-    };
-    let _ = window.set_position(PhysicalPosition::new(wa.left.round() as i32, wa.top.round() as i32));
-    let _ = window.set_size(PhysicalSize::new(wa.width().round() as u32, wa.height().round() as u32));
-    let _ = window.set_ignore_cursor_events(true);
-    let _ = window.show();
-    Some((window, scale))
 }

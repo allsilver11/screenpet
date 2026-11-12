@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- 🌈 무지개 구름 자국 (src-tauri/src/trail.rs, ui/trail.js): 모니터 하나를 덮는 마우스 통과 투명 창.
+         무지개 동물이 달릴 때만 있고, 구름이 다 사라지면 그림도 멈춘다. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+        pointer-events: none;
+      }
+
+      canvas {
+        position: absolute;
+        left: 0;
+        top: 0;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="trail"></canvas>
+    <script src="trail.js"></script>
+  </body>
+</html>

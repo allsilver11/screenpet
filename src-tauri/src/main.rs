@@ -22,6 +22,7 @@ mod slots;
 mod timeline;
 mod tray;
 mod update;
+mod trail;
 mod weather;
 
 use std::collections::HashMap;

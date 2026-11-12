@@ -23,6 +23,7 @@ PAGES = {
     "letter": "letter.html",
     "ladder": "ladder.html",
     "weather-1": "weather.html",
+    "trail-1": "trail.html",
     "prop-gift-1": "gift.html",
     "book": "book.html",
     "timeline": "timeline.html",

@@ -329,6 +329,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     // 계절 날씨 (철이 아니거나 꺼 두면 창도 일도 없다)
     let mut weather = WeatherFx::new(seed_now());
     let _ = app.state::<AppState>().menu.weather.set_checked(config.weather_on);
+    // 🌈 무지개 구름 자국 (무지개 동물이 달릴 때만 창이 생긴다)
+    let mut trail = crate::trail::TrailFx::new();
     // 🎁 선물 (없으면 1초에 한 번 시계만 본다)
     let mut gifts = Gifts::new(&config.gifts, seed_now());
     // 자리 비움·돌아옴, 하루 일과, ⏱️ 집중 친구 (1초에 한 번)
@@ -1022,6 +1024,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         network.growth_locked = care.locked;
         network.tick_boost(&app, &mut slots[OWN], now);
         weather.tick(&app, now, !config.weather_on, presence.is_away(), &mut slots);
+        trail.tick(&app, now, dt, presence.is_away(), &slots);
         for g in network.take_guest_gifts() {
             gifts.guest_arrived(g, now);
         }

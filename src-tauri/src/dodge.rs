@@ -86,7 +86,7 @@ impl DodgeFx {
             return;
         }
         let area = own.world.work_area_at(own.pet.body.x, own.pet.body.y);
-        let scale = crate::weather::scale_of(app, &area);
+        let scale = crate::overlay::scale_of(app, &area);
         let Some(window) = spawn(app, &area, scale) else { return };
         let game = Dodge::new(area, scale, fastrand::u64(..));
         self.board = Some(Board { game, window, scale, keys: ControlInput::default(), new_best: false, last: None });

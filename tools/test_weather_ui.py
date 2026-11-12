@@ -28,8 +28,12 @@ def test_frame_rate_and_particle_budget():
 
 
 def test_the_overlay_never_takes_a_click():
-    assert RS.count("set_ignore_cursor_events(true)") == 2  # 날씨 창, 눈덩이·눈사람 창
-    assert RS.count("overlay::finish(") == 2
+    assert RS.count("set_ignore_cursor_events(true)") == 1  # 눈덩이·눈사람 창 (날씨 창은 overlay::screen_cover)
+    assert RS.count("overlay::finish(") == 1
+    overlay = (ROOT / "src-tauri" / "src" / "overlay.rs").read_text(encoding="utf-8")
+    cover = overlay[overlay.index("pub fn screen_cover("):]
+    assert "set_ignore_cursor_events(true)" in cover[: cover.index("\n}\n")]
+    assert 'overlay::screen_cover(app, &label, "weather.html"' in RS
     assert ".focused(false)" in (ROOT / "src-tauri" / "src" / "overlay.rs").read_text(encoding="utf-8")
     assert "pointer-events: none" in (ROOT / "ui" / "weather.html").read_text(encoding="utf-8")
 

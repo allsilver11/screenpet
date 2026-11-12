@@ -3,6 +3,7 @@
 
 use std::time::Instant;
 
+use screenpet_core::geom::Rect;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry};
 
 /// 사라지는 모습을 보여 주는 동안 기다렸다 닫을 창들
@@ -94,6 +95,41 @@ pub fn resize_quietly(window: &WebviewWindow, hwnd: Option<isize>, w: u32, h: u3
     let _ = window.set_size(tauri::PhysicalSize::new(w, h));
 }
 
+/// 이 작업 영역이 있는 모니터의 배율
+pub fn scale_of(app: &AppHandle, wa: &Rect) -> f64 {
+    let (cx, cy) = ((wa.left + wa.right) / 2.0, (wa.top + wa.bottom) / 2.0);
+    let monitors = app.available_monitors().unwrap_or_default();
+    let found = monitors.iter().find(|m| {
+        let (p, s) = (m.position(), m.size());
+        cx >= p.x as f64 && cx < p.x as f64 + s.width as f64 && cy >= p.y as f64 && cy < p.y as f64 + s.height as f64
+    });
+    found.map_or(1.0, |m| m.scale_factor())
+}
+
+/// 작업 영역을 꼭 덮는 투명 창 (날씨 `weather-<n>`, 무지개 구름 `trail-<n>`). 클릭·드래그는 그 아래(동물·다른 앱)로 간다.
+/// 작업표시줄·Alt-Tab에 나오지 않고 포커스도 받지 않는다 (finish). 배율은 그 모니터 것
+pub fn screen_cover(app: &AppHandle, label: &str, page: &str, title: &str, wa: &Rect) -> Option<(WebviewWindow, f64)> {
+    let scale = scale_of(app, wa);
+    let built = finish(
+        WebviewWindowBuilder::new(app, label, WebviewUrl::App(page.into()))
+            .title(title)
+            .initialization_script(crate::art::style_script())
+            .inner_size(wa.width() / scale, wa.height() / scale),
+    );
+    let window = match built {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("failed to create {page} overlay: {e}");
+            return None;
+        }
+    };
+    let _ = window.set_position(tauri::PhysicalPosition::new(wa.left.round() as i32, wa.top.round() as i32));
+    let _ = window.set_size(tauri::PhysicalSize::new(wa.width().round() as u32, wa.height().round() as u32));
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = window.show();
+    Some((window, scale))
+}
+
 /// 이미 있는 창을 앞으로 가져온다. 없으면 false (도움말·도감처럼 정말 닫히는 창)
 pub fn focus_existing(app: &AppHandle, label: &str) -> bool {
     let Some(window) = app.get_webview_window(label) else { return false };
@@ -179,7 +215,7 @@ pub fn place_on_primary(app: &AppHandle, window: &WebviewWindow, inner: (f64, f6
 
 /// 테두리 없이 화면 위에 떠 있는 창 (나머지 창은 제목 표시줄이 있고 닫으면 숨거나 정말 닫힌다)
 pub fn is_floating(label: &str) -> bool {
-    const PREFIXES: [&str; 5] = ["guest-", "prop-", "hand-", "object-", "weather-"];
+    const PREFIXES: [&str; 6] = ["guest-", "prop-", "hand-", "object-", "weather-", "trail-"];
     label == crate::slots::OWN_LABEL || label == crate::house::LABEL || PREFIXES.iter().any(|p| label.starts_with(p))
 }
 
