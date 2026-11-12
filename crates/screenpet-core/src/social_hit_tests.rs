@@ -1,4 +1,4 @@
-//! 날다가 부딪히기 (social.rs thrown_hits·object_hits + brain_hit.rs) — social_tests의 자식 모듈 (도우미를 같이 쓴다)
+//! 날다가 부딪히기 (social.rs thrown_hits·object_hits + brain_hit.rs) — social_tests의 자식 모듈 (도우미를 같이 씀)
 
 use super::*;
 use crate::behavior::Move;
@@ -440,7 +440,7 @@ fn a_real_throw_counts_too() {
     assert!(o.in_flight());
 }
 
-/// 게임 루프 순서 그대로: 손으로 던진 물건이 Object::tick으로 날아가 Social::object_hits로 동물을 맞힌다
+/// 게임 루프 순서 그대로: 손으로 던진 물건이 Object::tick으로 날아가 Social::object_hits로 동물을 맞힘
 #[test]
 fn a_hand_thrown_object_flies_by_its_own_physics_and_hits_the_pet() {
     let w = world(vec![]);
@@ -583,7 +583,7 @@ fn busy_pets_are_not_hit_by_objects() {
     assert!(!hit(true));
 }
 
-/// 🤹 흐물이가 던진 물건은 던진 동물 자신을 잠깐 맞히지 않는다 (손에서 막 떠난 물건이 제 몸과 겹친다)
+/// 🤹 흐물이가 던진 물건은 던진 동물 자신을 잠깐 맞히지 않음 (손에서 막 떠난 물건이 제 몸과 겹침)
 #[test]
 fn a_juggled_object_spares_its_thrower_for_a_moment() {
     let w = world(vec![]);

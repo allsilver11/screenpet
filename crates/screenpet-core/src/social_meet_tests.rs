@@ -29,7 +29,7 @@ fn walker(w: &World, c: PetConfig, owner: Owner, x: f64, facing: f64, seed: u64)
     p
 }
 
-/// 서로 마주 보고 걷는 둘 (한 틱 걸어 걷는 조각을 안다)
+/// 서로 마주 보고 걷는 둘 (한 틱 걸어 걷는 조각을 앎)
 fn head_on_pair(w: &World, gap: f64, seed: u64) -> Vec<Pet> {
     let mut pets = vec![walker(w, cfg(), Owner::Ground(0), 800.0, 1.0, seed), walker(w, cfg(), Owner::Ground(0), 800.0 + gap, -1.0, seed + 1000)];
     for p in &mut pets {
@@ -209,7 +209,7 @@ fn they_only_meet_walking_at_each_other_on_the_same_stretch() {
     }
 }
 
-/// 바쁜 일은 그대로 둔 채, 겉모습만 x에서 왼쪽으로 걷는 동물로 돌려놓는다 (만날 수 있는 자리·자세)
+/// 바쁜 일은 그대로 둔 채, 겉모습만 x에서 왼쪽으로 걷는 동물로 돌려놓음 (만날 수 있는 자리·자세)
 fn back_to_walking_at(p: &mut Pet, x: f64, w: &World) {
     let (ax, _) = w.anchor(Owner::Ground(0)).unwrap();
     p.standing = Some(crate::brain::Standing { owner: Owner::Ground(0), rel_x: x - ax });

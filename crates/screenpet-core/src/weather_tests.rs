@@ -1,3 +1,4 @@
+//! weather.rs 테스트 — 계절·실제 날씨 고르기, 더미 쌓이기·녹기, 장면 만들기, 창 만들기 재시도
 use super::*;
 use crate::surfaces::Owner;
 use crate::world::World;

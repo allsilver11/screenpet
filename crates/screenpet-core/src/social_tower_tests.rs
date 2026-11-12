@@ -1,4 +1,4 @@
-//! 탑 쌓기 (social_tower.rs + brain_tower.rs) — social_tests의 자식 모듈 (도우미를 같이 쓴다)
+//! 탑 쌓기 (social_tower.rs + brain_tower.rs) — social_tests의 자식 모듈 (도우미를 같이 씀)
 
 use super::tower::{MAX_TOWER, TOWER_CLIMB_CHANCE};
 use super::*;
@@ -15,7 +15,7 @@ fn walking(p: &mut Pet, facing: f64, kind: Move) {
     p.facing = facing;
 }
 
-/// 땅 위에서 마주 오는 짝: 0번(x 800)은 kind로, 1번(x 1000)은 걸어서. 한 틱 걸어 걷는 조각을 안다
+/// 땅 위에서 마주 오는 짝: 0번(x 800)은 kind로, 1번(x 1000)은 걸어서. 한 틱 걸어 걷는 조각을 앎
 fn head_on_pair(w: &World, seed_a: u64, seed_b: u64, kind: Move) -> Vec<Pet> {
     let mut a = ground(w, friendly(), 800.0, seed_a);
     let mut b = ground(w, friendly(), 1000.0, seed_b);
@@ -38,7 +38,7 @@ fn tower(s: &mut Social, w: &World, n: usize, x: f64) -> Vec<Pet> {
     pets
 }
 
-/// 쓰러지지 않게 잠깐 돌리고 진짜 디딤판에 섰는지 본다
+/// 쓰러지지 않게 잠깐 돌리고 진짜 디딤판에 섰는지 봄
 fn all_land(s: &mut Social, pets: &mut [Pet], w: &World, secs: f64) {
     for _ in 0..(secs / DT) as usize {
         step(s, pets, w);
@@ -168,7 +168,7 @@ fn no_pet_stays_up_past_the_hard_limit_even_under_another() {
     assert!(pets.iter().all(|p| on_real_surface(p, &w)));
 }
 
-/// 맨 아래가 빠지는 모든 경우: 위층은 다 떨어져 진짜 디딤판에 선다
+/// 맨 아래가 빠지는 모든 경우: 위층은 다 떨어져 진짜 디딤판에 섬
 #[test]
 fn every_way_the_lower_pet_leaves_drops_the_riders() {
     let windowed = world(vec![w1()]);
@@ -841,7 +841,7 @@ fn all_land_held(s: &mut Social, pets: &mut [Pet], w: &World, secs: f64, held: u
     }
 }
 
-/// 많이 놀려도: 높이 제한을 지키고, 아무도 상한을 넘겨 머리 위에 있지 않고, 그만 놀게 하면 모두 땅에 선다
+/// 많이 놀려도: 높이 제한을 지키고, 아무도 상한을 넘겨 머리 위에 있지 않고, 그만 놀게 하면 모두 땅에 섬
 #[test]
 fn soak_towers_form_stay_bounded_and_always_come_down() {
     let w = world(vec![w1()]);

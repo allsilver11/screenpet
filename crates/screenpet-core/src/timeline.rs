@@ -1,13 +1,13 @@
 //! 내 동물 타임라인 — 최근 한 시간 동안 어디에 얼마나 있었는지, 무엇을 먹었는지.
 //!
-//! 메모리에만 둔다: 저장하지 않고 친구에게 보내지도 않는다.
-//! 시간은 `tick`이 받는 dt(초)만 더한다 — 벽시계는 웹뷰가 "몇 초 전"에서 계산한다.
+//! 메모리에만 둠: 저장하지 않고 친구에게 보내지도 않음
+//! 시간은 `tick`이 받는 dt(초)만 더함 — 벽시계는 웹뷰가 "몇 초 전"에서 계산함
 //!
-//! - 자리는 셋뿐이다: 집에서 놀기(내 화면) / 하우스 / 친구네. 한 번 바뀌면 몇 분씩 머무는 것들이라 바뀌는 순간 새 칸이 된다.
-//! - 자리를 모를 때(`None` — 친구 화면으로 넘어가는 사이)는 앞 칸이 이어진다.
-//! - 친구가 받지 않아(바쁨·꽉 참) 곧바로 팅겨 돌아온 방문(`visit::QUICK_DECLINE_SECS` 안)은 지우고 앞 칸에 붙인다.
-//! - 틱 사이가 길어도(메뉴가 열려 게임 루프가 멈춤·컴퓨터 잠자기) 그 시간은 지금 자리에 그대로 쌓는다 — 같은 자리는 쪼개지 않는다.
-//! - 먹은 것은 시간이 아니라 횟수로 센다 (먹기는 몇 초뿐이다).
+//! - 자리는 셋뿐임: 집에서 놀기(내 화면) / 하우스 / 친구네. 한 번 바뀌면 몇 분씩 머무는 것들이라 바뀌는 순간 새 칸이 됨
+//! - 자리를 모를 때(`None` — 친구 화면으로 넘어가는 사이)는 앞 칸이 이어짐
+//! - 친구가 받지 않아(바쁨·꽉 참) 곧바로 팅겨 돌아온 방문(`visit::QUICK_DECLINE_SECS` 안)은 지우고 앞 칸에 붙임
+//! - 틱 사이가 길어도(메뉴가 열려 게임 루프가 멈춤·컴퓨터 잠자기) 그 시간은 지금 자리에 그대로 쌓음 — 같은 자리는 쪼개지 않음
+//! - 먹은 것은 시간이 아니라 횟수로 셈 (먹기는 몇 초뿐임).
 
 use std::collections::VecDeque;
 
@@ -19,7 +19,7 @@ use crate::visit::QUICK_DECLINE_SECS;
 
 /// 보여 주는 기간 (초)
 pub const WINDOW_SECS: f64 = 3600.0;
-/// 칸·먹은 것 수 상한 (오래된 것부터 버린다 — 메모리가 끝없이 늘지 않게)
+/// 칸·먹은 것 수 상한 (오래된 것부터 버림 — 메모리가 끝없이 늘지 않게)
 pub const MAX_ENTRIES: usize = 400;
 
 /// 내 동물이 있던 곳
@@ -57,7 +57,7 @@ impl Place {
     }
 }
 
-/// 내 동물 상태 → 자리. away_friend = 내 동물이 가 있는 친구 id (화면을 떠났는데 아직 모르면 None — 앞 자리로 센다)
+/// 내 동물 상태 → 자리. away_friend = 내 동물이 가 있는 친구 id (화면을 떠났는데 아직 모르면 None — 앞 자리로 셈)
 pub fn place_of(housed: bool, away: bool, away_friend: Option<&str>) -> Option<Place> {
     if housed {
         Some(Place::House)
@@ -68,7 +68,7 @@ pub fn place_of(housed: bool, away: bool, away_friend: Option<&str>) -> Option<P
     }
 }
 
-/// 먹은 것 한 가지의 이모지·이름 (메뉴 글자와 같다). 좋아하는 음식은 그때 동물의 것
+/// 먹은 것 한 가지의 이모지·이름 (메뉴 글자와 같음). 좋아하는 음식은 그때 동물의 것
 fn food_name(food: Food, favorite: &FavoriteFood) -> (String, String) {
     let (e, n) = match food {
         Food::Meal => ("🍚", "밥"),
@@ -94,8 +94,11 @@ fn food_rank(food: Food) -> u8 {
 /// 한 칸: 타임라인 시계(초)로 [start, end)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Segment {
+    /// 자리
     pub place: Place,
+    /// 시작 (타임라인 시계 초)
     pub start: f64,
+    /// 끝 (타임라인 시계 초)
     pub end: f64,
 }
 
@@ -108,6 +111,7 @@ struct Meal {
     name: String,
 }
 
+/// 동물이 어디에 머물렀는지와 먹은 때를 기록하는 타임라인
 #[derive(Debug, Clone, Default)]
 pub struct Timeline {
     /// 타임라인 시계 (초, 처음 0)
@@ -117,11 +121,12 @@ pub struct Timeline {
 }
 
 impl Timeline {
+    /// 빈 타임라인
     pub fn new() -> Timeline {
         Timeline::default()
     }
 
-    /// dt초 지났고 지금 자리는 place (모르면 None — 앞 칸이 이어진다)
+    /// dt초 지났고 지금 자리는 place (모르면 None — 앞 칸이 이어짐)
     pub fn tick(&mut self, place: Option<Place>, dt: f64) {
         if !dt.is_finite() || dt <= 0.0 {
             return;
@@ -148,21 +153,21 @@ impl Timeline {
         self.prune();
     }
 
-    /// 내 동물이 먹었다 (배불러 안 먹은 것은 부르지 않는다)
+    /// 내 동물이 먹었음 (배불러 안 먹은 것은 부르지 않음)
     pub fn ate(&mut self, food: Food, favorite: &FavoriteFood) {
         let (emoji, name) = food_name(food, favorite);
         self.meals.push_back(Meal { at: self.now, rank: food_rank(food), emoji, name });
         self.prune();
     }
 
-    /// 마지막 칸을 지금까지 늘린다
+    /// 마지막 칸을 지금까지 늘림
     fn extend(&mut self) {
         if let Some(last) = self.segments.back_mut() {
             last.end = self.now;
         }
     }
 
-    /// 기간 밖·상한 넘는 것을 버린다
+    /// 기간 밖·상한 넘는 것을 버림
     fn prune(&mut self) {
         let cut = self.now - WINDOW_SECS;
         while self.segments.front().is_some_and(|s| s.end <= cut) || self.segments.len() > MAX_ENTRIES {
@@ -173,7 +178,7 @@ impl Timeline {
         }
     }
 
-    /// 최근 WINDOW_SECS 안의 칸들 (오래된 것부터). 첫 칸은 기간 시작에서 잘린다
+    /// 최근 WINDOW_SECS 안의 칸들 (오래된 것부터). 첫 칸은 기간 시작에서 잘림
     pub fn spans(&self) -> Vec<Span> {
         let cut = self.now - WINDOW_SECS;
         self.segments
@@ -227,8 +232,11 @@ impl Timeline {
 /// 보여 줄 한 칸: 지금으로부터 몇 초 전에 시작해 몇 초 전에 끝났는지 (지금 칸이면 ago_end = 0)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
+    /// 자리
     pub place: Place,
+    /// 몇 초 전에 시작
     pub ago_start: f64,
+    /// 몇 초 전에 끝남
     pub ago_end: f64,
 }
 
@@ -249,33 +257,45 @@ pub struct TimelineView {
     pub meals: Vec<MealView>,
 }
 
+/// 자리 한 줄
 #[derive(Debug, Clone, Serialize)]
 pub struct Row {
+    /// 자리 이모지
     pub emoji: &'static str,
+    /// 자리 이름
     pub label: String,
     /// 머문 시간 (초)
     pub secs: f64,
 }
 
+/// 보여 줄 칸 하나
 #[derive(Debug, Clone, Serialize)]
 pub struct SpanView {
     /// rows 순번
     pub row: usize,
     /// 지금으로부터 몇 초 전 시작 / 끝
     pub ago_start: f64,
+    /// 몇 초 전 끝 (지금 칸이면 0)
     pub ago_end: f64,
 }
 
+/// 먹은 것 한 종류의 횟수
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FoodCount {
+    /// 이모지
     pub emoji: String,
+    /// 이름
     pub name: String,
+    /// 횟수
     pub count: u32,
 }
 
+/// 먹은 때 하나
 #[derive(Debug, Clone, Serialize)]
 pub struct MealView {
+    /// 이모지
     pub emoji: String,
+    /// 이름
     pub name: String,
     /// 몇 초 전
     pub ago: f64,

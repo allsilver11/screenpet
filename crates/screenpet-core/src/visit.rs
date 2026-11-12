@@ -1,4 +1,4 @@
-//! 친구 화면 놀러 가기 규칙 (spec phase 3 §3) — 확률·시간 수치와 화면 끝 판정. brain.rs가 쓴다.
+//! 친구 화면 놀러 가기 규칙 (spec phase 3 §3) — 확률·시간 수치와 화면 끝 판정. brain.rs가 씀
 
 use crate::behavior;
 use crate::geom::Rect;
@@ -11,18 +11,19 @@ use crate::world::World;
 pub const EXIT_CHANCE: f64 = 0.3;
 /// 손님이 집 방향 끝에 닿았을 때 걸어 나갈 확률 (그리움 전)
 pub const GUEST_EXIT_CHANCE: f64 = 0.5;
-/// 나가기·들어오기 최소 시간 — 몸이 화면 밖으로 다 빠져나갈(안으로 다 들어올) 때까지 이어 간다
+/// 나가기·들어오기 최소 시간 — 몸이 화면 밖으로 다 빠져나갈(안으로 다 들어올) 때까지 이어 감
 pub const EXIT_SECS: f64 = 1.0;
+/// 들어오기 최소 시간 (초)
 pub const ENTER_SECS: f64 = 1.0;
 /// 집에 와: 손 흔들고 사라지기까지
 pub const FAREWELL_SECS: f64 = 1.0;
-/// 방문 뒤 이만큼(초) 지나면 집이 그리워진다
+/// 방문 뒤 이만큼(초) 지나면 집이 그리워짐
 pub const HOMESICK_SECS: (f64, f64) = (180.0, 360.0);
-/// 조작 중인 손님도 그리워진 뒤 이만큼 지나면 집으로 간다 (초)
+/// 조작 중인 손님도 그리워진 뒤 이만큼 지나면 집으로 감 (초)
 pub const CONTROLLED_HOMESICK_LIMIT_SECS: f64 = 600.0;
 /// 손님이 (집 쪽이 아닌) 다른 친구가 연결된 끝에 닿았을 때 그 친구에게 더 놀러 갈 확률 (그리우면 0)
 pub const ROAM_CHANCE: f64 = 0.7;
-/// 한 화면에 동시에 받는 손님 수 — 넘치면 오는 손님은 바로 집으로 돌아간다
+/// 한 화면에 동시에 받는 손님 수 — 넘치면 오는 손님은 바로 집으로 돌아감
 pub const MAX_GUESTS: usize = 10;
 /// 그리워진 뒤 이만큼(초) 지나도 집에 못 갔으면 그 자리에서 손 흔들고 집으로
 pub const HOMESICK_HARD_CAP_SECS: f64 = 180.0;
@@ -34,15 +35,18 @@ const EDGE_TOLERANCE: f64 = 2.0;
 /// 친구가 연결된 내 화면 끝
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ExitEdges {
+    /// 왼쪽 끝
     pub left: bool,
+    /// 오른쪽 끝
     pub right: bool,
-    /// 위 (친구 화면이 내 화면 위에 있음 — 높이 뛰어 나가거나 위로 던지면 넘어간다)
+    /// 위 (친구 화면이 내 화면 위에 있음 — 높이 뛰어 나가거나 위로 던지면 넘어감)
     pub up: bool,
-    /// 아래 (바닥 밑으로 쏙 빠져나가거나 아래로 던지면 넘어간다)
+    /// 아래 (바닥 밑으로 쏙 빠져나가거나 아래로 던지면 넘어감)
     pub down: bool,
 }
 
 impl ExitEdges {
+    /// 그 끝에 친구가 연결돼 있음
     fn has(self, side: Side) -> bool {
         match side {
             Side::Left => self.left,
@@ -56,16 +60,19 @@ impl ExitEdges {
 /// 손님으로 와 있는 동물: 집으로 가는 끝과 그리워지기까지 남은 시간
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Guest {
+    /// 집이 있는 끝 (돌아갈 쪽)
     pub home: Side,
+    /// 그리워지기까지 남은 시간 (초, 음수 = 그리움)
     pub homesick_in: f64,
 }
 
 impl Guest {
+    /// 집이 그리워졌음
     pub fn is_homesick(&self) -> bool {
         self.homesick_in <= 0.0
     }
 
-    /// 그리워진 지 HOMESICK_HARD_CAP_SECS가 지났다 — 더 기다리지 않고 집으로
+    /// 그리워진 지 HOMESICK_HARD_CAP_SECS가 지났음 — 더 기다리지 않고 집으로
     pub fn is_overdue(&self) -> bool {
         self.homesick_in <= -HOMESICK_HARD_CAP_SECS
     }
@@ -76,7 +83,7 @@ pub fn pick_homesick_after(rng: &mut fastrand::Rng) -> f64 {
     behavior::range(rng, HOMESICK_SECS)
 }
 
-/// 다른 친구 화면에서 건너온 손님의 남은 그리움 시간 (건너도 다시 세지 않는다).
+/// 다른 친구 화면에서 건너온 손님의 남은 그리움 시간 (건너도 다시 세지 않음).
 /// 보낸 값이 없거나 이상하면 새로 고르고, 범위 밖이면 0..=최대로
 pub fn carried_homesick(sent: Option<f64>, rng: &mut fastrand::Rng) -> f64 {
     match sent {
@@ -85,6 +92,7 @@ pub fn carried_homesick(sent: Option<f64>, rng: &mut fastrand::Rng) -> f64 {
     }
 }
 
+/// 반대쪽 끝
 pub fn opposite(side: Side) -> Side {
     match side {
         Side::Left => Side::Right,
@@ -101,7 +109,7 @@ pub fn is_vertical(side: Side) -> bool {
 
 /// 화면 끝 edge에 닿았을 때 걸어 나갈 확률.
 /// 내 동물: 친구가 연결된 끝(exits)에서 30%. 손님: 집 방향 끝에서 50%(그리우면 반드시),
-/// 다른 끝은 거기 다른 친구가 연결돼 있으면(exits — 주인은 뺀다) 70% 더 놀러 감, 아니면(또는 그리우면) 뒤돈다
+/// 다른 끝은 거기 다른 친구가 연결돼 있으면(exits — 주인은 뺌) 70% 더 놀러 감, 아니면(또는 그리우면) 뒤돎
 pub fn exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>) -> f64 {
     match guest {
         Some(g) if g.home == edge && g.is_homesick() => 1.0,
@@ -118,16 +126,19 @@ pub fn exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>) -> f64 {
 /// height = 넘어간 순간 발 높이 (그 작업 영역 위 0 … 아래 1), vx·vy = 논리 px/s (화면 배율과 무관)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fling {
+    /// 넘어간 순간 발 높이 (작업 영역 위 0 … 아래 1)
     pub height: f64,
+    /// 가로 속도 (논리 px/s)
     pub vx: f64,
+    /// 세로 속도 (논리 px/s, 아래로 +)
     pub vy: f64,
 }
 
-/// 넘어가는 속도 상한 (논리 px/s) — 던진 속도 상한과 같다
+/// 넘어가는 속도 상한 (논리 px/s) — 던진 속도 상한과 같음
 pub const MAX_FLING_SPEED: f64 = crate::physics::MAX_THROW_SPEED_LOGICAL;
 
 impl Fling {
-    /// 받은 값을 다듬는다: 숫자가 아니면 None, 높이는 0..=1, 속도는 MAX_FLING_SPEED까지
+    /// 받은 값을 다듬음: 숫자가 아니면 None, 높이는 0..=1, 속도는 MAX_FLING_SPEED까지
     pub fn sanitized(self) -> Option<Fling> {
         if !(self.height.is_finite() && self.vx.is_finite() && self.vy.is_finite()) {
             return None;
@@ -153,7 +164,7 @@ pub fn fling_across(world: &World, side: Side, body: &Body, dpi: f64) -> Option<
     Fling { height, vx: body.vx / dpi, vy: body.vy / dpi }.sanitized()
 }
 
-/// 손님이 exited 끝으로 떠났을 때 이어 갈 친구 (Leave의 next — 주인이 자기 친구일 때만 이어 보낸다).
+/// 손님이 exited 끝으로 떠났을 때 이어 갈 친구 (Leave의 next — 주인이 자기 친구일 때만 이어 보냄).
 /// sent = 이 화면 주인이 "<친구>에게 보내기"로 보낸 친구와 그 끝: 그 끝으로 나갔고 그 친구가 아직 open이면 그 친구.
 /// 아니면 돌아다니기: 집 쪽이 아닌 끝이고 그립지 않으면 그 끝의 open 친구 중 하나(pick), 아니면 None (집으로)
 pub fn next_host<'a>(sent: Option<(&'a str, Side)>, exited: Side, guest: Option<Guest>, open: &[&'a str], pick: impl FnOnce(usize) -> usize) -> Option<&'a str> {
@@ -166,7 +177,7 @@ pub fn next_host<'a>(sent: Option<(&'a str, Side)>, exited: Side, guest: Option<
     (roaming && !open.is_empty()).then(|| open[pick(open.len()).min(open.len() - 1)])
 }
 
-/// "<친구> 펫 데리고 오기"를 받아들인 뒤 같은 친구의 다음 부탁까지 (초) — 그 사이 부탁은 바쁘다고 답한다
+/// "<친구> 펫 데리고 오기"를 받아들인 뒤 같은 친구의 다음 부탁까지 (초) — 그 사이 부탁은 바쁘다고 답함
 pub const INVITE_COOLDOWN_SECS: f64 = 60.0;
 /// 누구의 부탁이든 하나를 받아들인 뒤 다음 부탁까지 (초)
 pub const GLOBAL_INVITE_COOLDOWN_SECS: f64 = 120.0;
@@ -174,9 +185,9 @@ pub const GLOBAL_INVITE_COOLDOWN_SECS: f64 = 120.0;
 /// 친구가 내 동물을 데려오고 싶어 할 때의 답
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InviteAnswer {
-    /// 말풍선을 띄우고 그 친구 쪽 끝으로 간다 ("놀러 보내기"와 같은 길)
+    /// 말풍선을 띄우고 그 친구 쪽 끝으로 감 ("놀러 보내기"와 같은 길)
     Go,
-    /// 지금은 못 간다 (부드럽게 거절)
+    /// 지금은 못 감 (부드럽게 거절)
     Busy,
 }
 
@@ -199,11 +210,11 @@ pub fn invite_bubble(name: &str) -> String {
     }
 }
 
-/// 동물에 들려 보내는 편지 최대 글자 수 (net의 MAX_NOTE와 같다)
+/// 동물에 들려 보내는 편지 최대 글자 수 (net의 MAX_NOTE와 같음)
 pub const MAX_NOTE_CHARS: usize = 80;
 
 /// 편지 글자 (내가 쓴 것 / 친구가 보낸 것): 보이지 않는 글자(제어·방향·폭 없는 글자)를 빼고 앞뒤 공백을 지운 뒤
-/// 80자(바이트 아님)까지. 비면 None (편지 없음 — 봉투도 없다)
+/// 80자(바이트 아님)까지. 비면 None (편지 없음 — 봉투도 없음)
 pub fn sanitize_note(raw: &str) -> Option<String> {
     let note = crate::config::clean_text(raw, MAX_NOTE_CHARS);
     (!note.is_empty()).then_some(note)
@@ -211,7 +222,7 @@ pub fn sanitize_note(raw: &str) -> Option<String> {
 
 /// 친구 화면에 가 있던 내 동물이 돌아오며 들고 온 답장 (Leave의 note): away = 내 동물이 가 있는 (친구 id, visit_id).
 /// 그 친구의 인증된 링크(from)에서, 그 방문의 집으로 오는 Leave(homecoming — 다음 친구로 이어 가지 않음)일 때만 다듬어서.
-/// 아니면 None (동물은 그래도 규칙대로 돌아온다)
+/// 아니면 None (동물은 그래도 규칙대로 돌아옴)
 pub fn accept_reply(away: Option<(&str, u64)>, from: &str, visit_id: u64, homecoming: bool, note: Option<&str>) -> Option<String> {
     let (friend, id) = away?;
     if friend != from || id != visit_id || !homecoming {
@@ -225,7 +236,7 @@ pub fn accept_reply(away: Option<(&str, u64)>, from: &str, visit_id: u64, homeco
 pub struct Replies(std::collections::HashMap<String, String>);
 
 impl Replies {
-    /// 이 방문의 첫 답장만 받는다 (다듬어서 비면 없음). 받았으면 true
+    /// 이 방문의 첫 답장만 받음 (다듬어서 비면 없음). 받았으면 true
     pub fn write(&mut self, visit_id: &str, raw: &str) -> bool {
         if self.has(visit_id) {
             return false;
@@ -235,16 +246,17 @@ impl Replies {
         true
     }
 
+    /// 이 방문의 쪽지를 이미 받았음
     pub fn has(&self, visit_id: &str) -> bool {
         self.0.contains_key(visit_id)
     }
 
-    /// 손님이 떠날 때 한 번 꺼낸다
+    /// 손님이 떠날 때 한 번 꺼냄
     pub fn take(&mut self, visit_id: &str) -> Option<String> {
         self.0.remove(visit_id)
     }
 
-    /// Leave 없이 사라진 손님의 답장을 버린다 (keep(방문 id) = 그 손님이 아직 있음)
+    /// Leave 없이 사라진 손님의 답장을 버림 (keep(방문 id) = 그 손님이 아직 있음)
     pub fn retain(&mut self, mut keep: impl FnMut(&str) -> bool) {
         self.0.retain(|id, _| keep(id));
     }
@@ -262,7 +274,7 @@ pub fn guest_scale(sent: f64, local: f64) -> f64 {
     }
 }
 
-/// +1 오른쪽, -1 왼쪽 (위/아래는 0 — 옆으로 가지 않는다)
+/// +1 오른쪽, -1 왼쪽 (위/아래는 0 — 옆으로 가지 않음)
 pub fn dir(side: Side) -> f64 {
     match side {
         Side::Left => -1.0,
@@ -328,7 +340,7 @@ pub fn fully_inside(bounds: &Rect, side: Side, x: f64, half_w: f64) -> bool {
 
 // ---- 위/아래 친구 화면 (v0.3.6) ----
 
-/// 위/아래로 나가기: 이동을 정할 때마다 (걸어 나가기 확률 × 이만큼)으로 높이 뛰어 위로 / 바닥 밑으로 쏙 나간다.
+/// 위/아래로 나가기: 이동을 정할 때마다 (걸어 나가기 확률 × 이만큼)으로 높이 뛰어 위로 / 바닥 밑으로 쏙 나감
 /// 옆 친구에게는 화면 끝까지 걸어가야 넘어가므로, 위/아래도 그만큼 드물게 (빈 화면 시뮬레이션에서 셋 다 10분쯤 — 사용자: 방향마다 비슷하게)
 pub const VERTICAL_DECISION_SCALE: f64 = 0.025;
 /// 벽 타는 동물이 기어오르다 꼭대기 너머 위 친구에게 넘어가는 몫 = 걸어 나가기 확률 × 이만큼 (높이 뛰기와 합쳐도 옆과 비슷하게)
@@ -337,22 +349,23 @@ pub const CLIMB_OVER_SCALE: f64 = 0.1;
 pub const FROG_SKY_JUMP_MULT: f64 = 2.0;
 /// 높이 뛰기 전에 웅크리는 시간 (초)
 pub const VERTICAL_CROUCH_SECS: f64 = 0.35;
-/// 위/아래로 나가거나 들어오는 길의 안전 시한 (초) — 넘으면 그냥 다 나간(들어온) 것으로 친다
+/// 위/아래로 나가거나 들어오는 길의 안전 시한 (초) — 넘으면 그냥 다 나간(들어온) 것으로 침
 pub const VERTICAL_MAX_SECS: f64 = 4.0;
-/// 바닥 밑으로 쏙 빠지기 전 폴짝 (몸 높이의 이 배만큼 뛰어오른다)
+/// 바닥 밑으로 쏙 빠지기 전 폴짝 (몸 높이의 이 배만큼 뛰어오름)
 pub const DIVE_HOP_SIZES: f64 = 0.6;
-/// 아래에서 튀어 올라올 때 바닥 위로 이 배(몸 높이)만큼 솟는다
+/// 아래에서 튀어 올라올 때 바닥 위로 이 배(몸 높이)만큼 솟음
 pub const POP_UP_SIZES: f64 = 2.0;
 /// 위로 뛰어 나갈 때 머리 위에 창이 없어야 하는 높이 (몸 높이의 배)
 pub const SKY_HEADROOM_SIZES: f64 = 2.0;
 /// 아래로 던졌는지 (놓는 순간의 던진 속도, THROW_FEEL·THROW_LIFT를 거친 값): 아래로 이 속도(논리 px/s) 이상이고
-/// 가로 속도의 FLING_DOWN_AIM_RATIO배 이상이면 바닥에 닿을 때 얼마나 빠르든 넘어간다. 커서로는 아래로 450 px/s쯤, 옆보다 아래가 더 빠른 휙
+/// 가로 속도의 FLING_DOWN_AIM_RATIO배 이상이면 바닥에 닿을 때 얼마나 빠르든 넘어감. 커서로는 아래로 450 px/s쯤, 옆보다 아래가 더 빠른 휙
 pub const FLING_DOWN_AIM_SPEED: f64 = 250.0;
+/// 아래로 던졌다고 보는 세로/가로 속도 비율
 pub const FLING_DOWN_AIM_RATIO: f64 = 0.5;
-/// 아래로 던지지 않았어도(옆·위로 던져 떨어지는 중) 바닥에 닿을 때 이 속도(논리 px/s) 이상이면 넘어간다
-/// (던진 비행의 중력으로 화면 절반쯤 떨어지면 1300쯤 — 그냥 떨어뜨리거나 살살 던지면 바닥에 내려선다)
+/// 아래로 던지지 않았어도(옆·위로 던져 떨어지는 중) 바닥에 닿을 때 이 속도(논리 px/s) 이상이면 넘어감
+/// (던진 비행의 중력으로 화면 절반쯤 떨어지면 1300쯤 — 그냥 떨어뜨리거나 살살 던지면 바닥에 내려섬)
 pub const FLING_DOWN_MIN_SPEED: f64 = 1400.0;
-/// 나는 동물은 공기 저항으로 금방 느려지므로 이 속도면 아래 끝으로 넘어간다
+/// 나는 동물은 공기 저항으로 금방 느려지므로 이 속도면 아래 끝으로 넘어감
 pub const FLY_FLING_DOWN_MIN_SPEED: f64 = 400.0;
 
 /// 놓는 순간의 던진 속도(물리 px/s)가 아래로 던진 것인지 (화면 배율과 무관)
@@ -361,8 +374,8 @@ pub fn aimed_down(vx: f64, vy: f64, dpi: f64) -> bool {
 }
 
 /// 던진 것이 바닥을 뚫고 아래 친구에게 넘어갈지: 내가 일부러 아래로 던졌고(aimed) 아직 내려가는 중일 때만.
-/// 빠르기만 해서는 넘어가지 않는다 — 친구가 던져 넘어온 것이나 위·옆으로 던졌다 세게 떨어지는 것은 이 화면에 착지한다
-/// (사용자: 아래 화면 친구에게 너무 자주 넘어간다). min_speed·dpi는 예전 규칙의 자리 — 쓰지 않는다
+/// 빠르기만 해서는 넘어가지 않음 — 친구가 던져 넘어온 것이나 위·옆으로 던졌다 세게 떨어지는 것은 이 화면에 착지함
+/// (사용자: 아래 화면 친구에게 너무 자주 넘어감). min_speed·dpi는 예전 규칙의 자리 — 쓰지 않음
 /// 친구가 던져 넘어온 것이 바닥을 향해 떨어지는 중일 때, 아래 친구 화면까지 계속 갈 확률 (사용자 요청: 약 10%)
 pub const ARRIVAL_DIVE_CHANCE: f64 = 0.1;
 
@@ -371,6 +384,7 @@ pub fn arrival_dives(vy: f64, roll: f64) -> bool {
     vy > 0.0 && roll < ARRIVAL_DIVE_CHANCE
 }
 
+/// 던진 것이 바닥을 뚫고 아래 친구에게 넘어감: 일부러 아래로 던졌고(aimed) 내려가는 중일 때만
 pub fn falls_through(aimed: bool, vy: f64, min_speed: f64, dpi: f64) -> bool {
     let _ = (min_speed, dpi);
     vy > 0.0 && aimed
@@ -391,8 +405,8 @@ pub fn vertical_exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>, 
 }
 
 /// x 줄의 위/아래 끝: top = 그 줄 가장 위 작업 영역의 위, bottom = 가장 아래 작업 영역의 바닥 (왼쪽/오른쪽은 합친 화면 그대로).
-/// 이 끝으로 위/아래 친구 화면에 넘어간다. 합친 화면의 끝과 맞을 필요는 없다 — 작업표시줄 있는 모니터 옆에 없는 모니터가 있거나
-/// 크기가 달라도, 그 줄 위아래로 다른 모니터가 없으면 그 모니터의 끝이 바깥이다. 쌓인 모니터 사이(작업표시줄만큼 틈이 있어도)는 끝이 아니다.
+/// 이 끝으로 위/아래 친구 화면에 넘어감. 합친 화면의 끝과 맞을 필요는 없음 — 작업표시줄 있는 모니터 옆에 없는 모니터가 있거나
+/// 크기가 달라도, 그 줄 위아래로 다른 모니터가 없으면 그 모니터의 끝이 바깥임. 쌓인 모니터 사이(작업표시줄만큼 틈이 있어도)는 끝이 아님
 /// x 줄에 작업 영역이 없으면 None
 pub fn column_bounds(world: &World, x: f64) -> Option<Rect> {
     let b = world.bounds;
@@ -404,7 +418,7 @@ pub fn column_bounds(world: &World, x: f64) -> Option<Rect> {
         .reduce(|a, c| a.union(&c))
 }
 
-/// 위/아래 끝 어디쯤인지 (합친 화면 폭의 0 왼쪽 … 1 오른쪽) — 던져 넘길 때 Fling.height에 싣는다
+/// 위/아래 끝 어디쯤인지 (합친 화면 폭의 0 왼쪽 … 1 오른쪽) — 던져 넘길 때 Fling.height에 실음
 pub fn edge_fraction(bounds: &Rect, x: f64) -> f64 {
     if bounds.width() > 0.0 {
         ((x - bounds.left) / bounds.width()).clamp(0.0, 1.0)
@@ -413,7 +427,7 @@ pub fn edge_fraction(bounds: &Rect, x: f64) -> f64 {
     }
 }
 
-/// 위/아래 끝(side)으로 들어올 x (들어올 때는 합친 화면의 끝으로 — 그 끝에 닿은 모니터가 꼭 있다): 폭 비율 frac(없으면 rng로 아무 데나) 자리에서 가장 가까운, 그 끝에 닿은 작업 영역 안 (몸 반폭만큼 안쪽)
+/// 위/아래 끝(side)으로 들어올 x (들어올 때는 합친 화면의 끝으로 — 그 끝에 닿은 모니터가 꼭 있음): 폭 비율 frac(없으면 rng로 아무 데나) 자리에서 가장 가까운, 그 끝에 닿은 작업 영역 안 (몸 반폭만큼 안쪽)
 pub fn vertical_entry_x(world: &World, side: Side, frac: Option<f64>, half_w: f64, rng: &mut fastrand::Rng) -> f64 {
     let b = world.bounds;
     let frac = frac.filter(|f| f.is_finite()).unwrap_or_else(|| rng.f64()).clamp(0.0, 1.0);
@@ -463,11 +477,11 @@ pub fn fully_inside_v(bounds: &Rect, side: Side, y: f64, height: f64) -> bool {
 pub const BOOST_STEP: f64 = 1.15;
 /// 가장 큰 크기: 같은 단계의 산타 크기 (산타 stage_size)
 pub const BOOST_LARGEST_SIZE: f64 = 1.65;
-/// 집에 처음 돌아오고 이만큼 뒤 원래 크기로 (초) — 그 뒤 친구 집을 오가도 시계는 다시 감기지 않는다 (boost_home_deadline)
+/// 집에 처음 돌아오고 이만큼 뒤 원래 크기로 (초) — 그 뒤 친구 집을 오가도 시계는 다시 감기지 않음 (boost_home_deadline)
 pub const BOOST_HOME_SECS: u64 = 120;
 
 /// 집에 돌아왔을 때 원래 크기로 돌아갈 때: 처음 돌아왔거나(current 없음) 친구가 또 밥을 줘서 더 커졌으면(fed)
-/// fresh(= 지금 + BOOST_HOME_SECS), 아니면 정해 둔 그대로 (던지고 돌아오기를 되풀이해도 미뤄지지 않는다)
+/// fresh(= 지금 + BOOST_HOME_SECS), 아니면 정해 둔 그대로 (던지고 돌아오기를 되풀이해도 미뤄지지 않음)
 pub fn boost_home_deadline<T>(current: Option<T>, fed: bool, fresh: T) -> T {
     match current {
         Some(t) if !fed => t,
@@ -475,12 +489,12 @@ pub fn boost_home_deadline<T>(current: Option<T>, fed: bool, fresh: T) -> T {
     }
 }
 
-/// 친구 동물에게 밥을 줘서 키울 수 있는지: 주인이 성장 멈추기를 켰으면(Visit no_grow) 밥 주기 메뉴를 막는다 (옛 앱은 안 보내니 키울 수 있다)
+/// 친구 동물에게 밥을 줘서 키울 수 있는지: 주인이 성장 멈추기를 켰으면(Visit no_grow) 밥 주기 메뉴를 막음 (옛 앱은 안 보내니 키울 수 있음)
 pub fn guest_can_grow(no_grow: Option<bool>) -> bool {
     no_grow != Some(true)
 }
 
-/// 집에 돌아온 내 동물의 배율: 친구가 보낸 값을 다듬되, 성장 멈추기 중이면 커지지 않는다 (옛 친구 앱이 밥을 줬어도)
+/// 집에 돌아온 내 동물의 배율: 친구가 보낸 값을 다듬되, 성장 멈추기 중이면 커지지 않음 (옛 친구 앱이 밥을 줬어도)
 pub fn returned_boost(sent: Option<f64>, cap: f64, growth_locked: bool) -> f64 {
     if growth_locked {
         1.0
@@ -503,7 +517,7 @@ pub fn next_boost(now: f64, cap: f64) -> f64 {
     (now * BOOST_STEP).min(cap).max(1.0)
 }
 
-/// 받은 배율을 다듬는다: 숫자가 아니거나 1 아래면 1, cap까지 (친구가 작게 만들거나 끝없이 키우지 못한다)
+/// 받은 배율을 다듬음: 숫자가 아니거나 1 아래면 1, cap까지 (친구가 작게 만들거나 끝없이 키우지 못함)
 pub fn sanitize_boost(sent: Option<f64>, cap: f64) -> f64 {
     match sent {
         Some(b) if b.is_finite() => b.clamp(1.0, cap.max(1.0)),
@@ -511,14 +525,14 @@ pub fn sanitize_boost(sent: Option<f64>, cap: f64) -> f64 {
     }
 }
 
-/// 동글 몸 크기 scale에 곱하는 실제 배율: 곱한 값이 그 단계의 가장 큰 크기를 넘지 않는다
-/// (친구가 보낸 scale이 범위 안에서 크더라도 배율로 더 키우지 못한다)
+/// 동글 몸 크기 scale에 곱하는 실제 배율: 곱한 값이 그 단계의 가장 큰 크기를 넘지 않음
+/// (친구가 보낸 scale이 범위 안에서 크더라도 배율로 더 키우지 못함)
 pub fn round_boost(scale: f64, stage_scale: f64, boost: f64) -> f64 {
     let room = if scale > 0.0 { stage_scale * BOOST_LARGEST_SIZE / scale } else { 1.0 };
     boost.min(room).max(1.0)
 }
 
-/// 픽셀 칸 dot(물리 px)을 boost배 할 때의 실제 배율: 칸이 정수 물리 px로 남고 boost를 넘지 않는다
+/// 픽셀 칸 dot(물리 px)을 boost배 할 때의 실제 배율: 칸이 정수 물리 px로 남고 boost를 넘지 않음
 pub fn pixel_boost(dot: u32, boost: f64) -> f64 {
     let dot = f64::from(dot.max(1));
     (dot * boost + 1e-9).floor().max(dot) / dot
@@ -528,14 +542,14 @@ pub fn pixel_boost(dot: u32, boost: f64) -> f64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TossAnswer {
     Take,
-    /// 집중·하우스 중이라 받지 않는다: 던진 친구에게 되돌린다
+    /// 집중·하우스 중이라 받지 않음: 던진 친구에게 되돌림
     SendBack,
-    /// 내가 던진 적 없는데 "되돌아왔다"고 한다: 막혀 있는 동안은 버린다
+    /// 내가 던진 적 없는데 "되돌아왔다"고 함: 막혀 있는 동안은 버림
     Drop,
 }
 
-/// refusing = 지금 받지 않는다 (Pet::refuses_arrivals), bounced = 상대가 되돌린 물건이라고 한다,
-/// threw_lately = 방금 내가 그 친구에게 던졌다. 되돌아온 물건은 다시 되돌리지 않는다 (둘 다 집중 중이어도 오가지 않게)
+/// refusing = 지금 받지 않음 (Pet::refuses_arrivals), bounced = 상대가 되돌린 물건이라고 함,
+/// threw_lately = 방금 내가 그 친구에게 던졌음. 되돌아온 물건은 다시 되돌리지 않음 (둘 다 집중 중이어도 오가지 않게)
 pub fn toss_answer(refusing: bool, bounced: bool, threw_lately: bool) -> TossAnswer {
     match (refusing, bounced) {
         (false, _) => TossAnswer::Take,
@@ -548,42 +562,42 @@ pub fn toss_answer(refusing: bool, bounced: bool, threw_lately: bool) -> TossAns
 /// "지금은 못 받아요"가 잇따르는 동안(초) 말풍선은 처음 한 번만
 pub const NOT_NOW_QUIET_SECS: f64 = 10.0;
 
-/// 이번 "지금은 못 받아요"를 보여 줄까: 지난번(보여 줬든 아니든)에서 조용히 지난 초로 정한다
+/// 이번 "지금은 못 받아요"를 보여 줄까: 지난번(보여 줬든 아니든)에서 조용히 지난 초로 정함
 pub fn not_now_is_news(secs_since_last: Option<f64>) -> bool {
     secs_since_last.is_none_or(|s| s >= NOT_NOW_QUIET_SECS)
 }
 
-/// 보낸 방문이 이만큼(초) 안에 돌아오면 그 친구 화면이 꽉 찼을 수 있다
+/// 보낸 방문이 이만큼(초) 안에 돌아오면 그 친구 화면이 꽉 찼을 수 있음
 pub const QUICK_DECLINE_SECS: f64 = 3.0;
 
 /// 돌아온 방문이 "꽉 찼어요"라는 뜻인가: 이어 가지도, 던져지지도, 불러서 온 것도 아닌데 곧바로 돌아왔고
-/// 나간 끝도 알려 주지 않았다. 잠깐 사이 또 왔다고 돌려보낼 땐 끝을 실어 주므로 꽉 찬 것으로 치지 않는다
+/// 나간 끝도 알려 주지 않았음. 잠깐 사이 또 왔다고 돌려보낼 땐 끝을 실어 주므로 꽉 찬 것으로 치지 않음
 pub fn return_means_full(went_on: bool, flung: bool, called_home: bool, side_told: bool, secs_away: f64) -> bool {
     !went_on && !flung && !called_home && !side_told && secs_away < QUICK_DECLINE_SECS
 }
 
-/// 친구 화면에 간 내 동물이 이만큼(초) 소식이 없으면 집으로 부른다. 한 화면에 가장 오래 머무는 경우
-/// (가장 늦게 그리워지고 + 조작 중이라 더 머무는 상한)의 두 배 — 게임 루프가 느린 컴퓨터에서도 멀쩡한 방문을 끊지 않는다
+/// 친구 화면에 간 내 동물이 이만큼(초) 소식이 없으면 집으로 부름. 한 화면에 가장 오래 머무는 경우
+/// (가장 늦게 그리워지고 + 조작 중이라 더 머무는 상한)의 두 배 — 게임 루프가 느린 컴퓨터에서도 멀쩡한 방문을 끊지 않음
 pub const AWAY_SILENCE_LIMIT_SECS: f64 = 2.0 * (HOMESICK_SECS.1 + CONTROLLED_HOMESICK_LIMIT_SECS);
 
 /// 받은 친구 신청 창을 지금 띄워도 되나: 확인을 기다리는 중이고, 집중·전체 화면을 방해하지 않을 때만.
-/// 신청은 net의 시간 제한으로 끝나므로 못 띄운 채 끝나면 조용히 거절된다
+/// 신청은 net의 시간 제한으로 끝나므로 못 띄운 채 끝나면 조용히 거절됨
 pub fn incoming_pair_may_show(confirming: bool, quiet: bool) -> bool {
     confirming && !quiet
 }
 
-/// 메뉴에 보일 친구 아닌 사람의 수 — 가짜 알림을 쏟아도 메뉴가 넘치지 않는다
+/// 메뉴에 보일 친구 아닌 사람의 수 — 가짜 알림을 쏟아도 메뉴가 넘치지 않음
 pub const MAX_MENU_STRANGERS: usize = 8;
 
 /// 같은 망에서 발견한 사람 (id, 이름), 처음 본 순서로. 메뉴가 앞에서부터 자르므로 id 순서로 두면
-/// 낮은 id를 골라 보낸 가짜 알림이 이미 있던 사람을 밀어낸다. 크기는 net의 MAX_SEEN이 막는다
+/// 낮은 id를 골라 보낸 가짜 알림이 이미 있던 사람을 밀어냄. 크기는 net의 MAX_SEEN이 막음
 #[derive(Debug, Default)]
 pub struct SeenPeers {
     list: Vec<(String, String)>,
 }
 
 impl SeenPeers {
-    /// 알림을 적는다: 아는 사람이면 자리는 그대로 이름만 바꾼다
+    /// 알림을 적음: 아는 사람이면 자리는 그대로 이름만 바꿈
     pub fn note(&mut self, id: String, name: String) {
         match self.list.iter_mut().find(|(known, _)| *known == id) {
             Some(entry) => entry.1 = name,
@@ -591,10 +605,12 @@ impl SeenPeers {
         }
     }
 
+    /// 사람을 잊음
     pub fn forget(&mut self, id: &str) {
         self.list.retain(|(known, _)| known != id);
     }
 
+    /// 아는 사람의 이름
     pub fn name(&self, id: &str) -> Option<&str> {
         self.list.iter().find(|(known, _)| known == id).map(|(_, name)| name.as_str())
     }
@@ -733,6 +749,7 @@ mod tests {
     use crate::surfaces::{EndKind, Owner};
     use crate::world::World;
 
+    /// 테스트: i번 작업 영역 바닥 조각
     fn ground(w: &World, i: usize) -> Surface {
         *w.surfaces.iter().find(|s| s.owner == Owner::Ground(i)).unwrap()
     }

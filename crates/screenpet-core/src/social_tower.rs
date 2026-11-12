@@ -1,10 +1,10 @@
 //! 탑 쌓기 코디네이터 (social.rs의 자식 모듈) — 움직임은 brain_tower.rs.
 //!
-//! - 올라가는 길: 마주 오다 만났을 때 (MeetKind::Climb), 걷거나 달리다 탑 밑동으로 들어왔을 때 (TOWER_CLIMB_CHANCE), 위에서 살며시 떨어졌을 때 (HIT_MIN_SPEED 아래 — 그 이상은 collide의 부딪힘이라 둘이 함께 일어나지 않는다).
-//! - 언제나 맨 위 동물 위에만 선다. 나는 동물은 끼지 않는다. 최대 MAX_TOWER층, 탑 꼭대기가 작업 영역 위로 나가면 안 된다 (실제 몸 크기로 잰다).
-//! - rides는 언제나 아래에서 위 순서다 (태운 쪽의 짝이 먼저 들어간다): 한 번 훑으면 무너짐이 위까지 번지고, carry가 한 틱 늦음 없이 탑 전체를 옮긴다.
-//! - 어느 층이 빠지면 (잡힘·던짐·데굴·떠남·집·창 닫힘·크기 바뀜·내려옴) 그 위가 전부 평소처럼 떨어지고, 그 아래는 그대로다.
-//! - 손님도 이 화면 주인의 코디네이터가 움직인다 — 통신할 것이 없다.
+//! - 올라가는 길: 마주 오다 만났을 때 (MeetKind::Climb), 걷거나 달리다 탑 밑동으로 들어왔을 때 (TOWER_CLIMB_CHANCE), 위에서 살며시 떨어졌을 때 (HIT_MIN_SPEED 아래 — 그 이상은 collide의 부딪힘이라 둘이 함께 일어나지 않음).
+//! - 언제나 맨 위 동물 위에만 섬. 나는 동물은 끼지 않음. 최대 MAX_TOWER층, 탑 꼭대기가 작업 영역 위로 나가면 안 됨 (실제 몸 크기로 잼).
+//! - rides는 언제나 아래에서 위 순서임 (태운 쪽의 짝이 먼저 들어감): 한 번 훑으면 무너짐이 위까지 번지고, carry가 한 틱 늦음 없이 탑 전체를 옮김
+//! - 어느 층이 빠지면 (잡힘·던짐·데굴·떠남·집·창 닫힘·크기 바뀜·내려옴) 그 위가 전부 평소처럼 떨어지고, 그 아래는 그대로임
+//! - 손님도 이 화면 주인의 코디네이터가 움직임 — 통신할 것이 없음
 
 use super::*;
 
@@ -12,10 +12,10 @@ use super::*;
 pub const MAX_TOWER: usize = 5;
 /// 걷거나 달리다 탑 밑동으로 들어온 동물이 올라갈 확률 (한 번 마주칠 때마다 한 번, 안 하면 MEET_PASS_COOLDOWN 뒤에 다시)
 pub const TOWER_CLIMB_CHANCE: f64 = 0.75;
-/// 놓자마자 발이 이만큼(몸 크기 배) 머리 속에 있어도 머리에 내려놓은 것으로 친다
+/// 놓자마자 발이 이만큼(몸 크기 배) 머리 속에 있어도 머리에 내려놓은 것으로 침
 const HEAD_DROP_ZONE: f64 = 0.25;
 
-/// 머리 위에 서 있는 짝. 크기가 바뀌면 끝난다
+/// 머리 위에 서 있는 짝. 크기가 바뀌면 끝남
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Ride {
     rider: u64,
@@ -24,12 +24,13 @@ pub(super) struct Ride {
     carrier_size: f64,
 }
 
+/// 키인 동물의 순번
 fn position<T: AsRef<Pet>>(pets: &[T], key: u64) -> Option<usize> {
     pets.iter().position(|p| p.as_ref().social_key() == key)
 }
 
 impl Social {
-    /// 탑을 살핀다 (매 틱 맨 먼저): 빠진 층 위를 떨어뜨린다. 아래에서 위로 한 번 훑으면 위까지 번진다
+    /// 탑을 살핌 (매 틱 맨 먼저): 빠진 층 위를 떨어뜨림. 아래에서 위로 한 번 훑으면 위까지 번짐
     pub(super) fn step_rides<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T]) {
         let mut i = 0;
         while i < self.rides.len() {
@@ -65,7 +66,7 @@ impl Social {
         }
     }
 
-    /// 동물 update 뒤에 부른다: 탑을 아래에서 위로 옮긴다 (창을 옮기기 전 — 층마다 한 틱씩 밀리지 않는다)
+    /// 동물 update 뒤에 부름: 탑을 아래에서 위로 옮김 (창을 옮기기 전 — 층마다 한 틱씩 밀리지 않음)
     pub fn carry<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T]) {
         for ride in &self.rides {
             let (Some(ir), Some(ic)) = (position(pets, ride.rider), position(pets, ride.carrier)) else { continue };
@@ -101,13 +102,13 @@ impl Social {
         self.levels(self.top_of(key))
     }
 
-    /// host 머리 위에 몸 크기 rider_size가 설 수 있다: 맨 위이고, 층 수와 높이 제한 안
+    /// host 머리 위에 몸 크기 rider_size가 설 수 있음: 맨 위이고, 층 수와 높이 제한 안
     pub(super) fn can_host<T: AsRef<Pet>>(&self, pets: &[T], host: usize, rider_size: f64) -> bool {
         let p = pets[host].as_ref();
         p.can_carry() && !p.has_rider() && self.levels(p.social_key()) < MAX_TOWER && p.head_top().1 - rider_size >= p.ceiling()
     }
 
-    /// 올라섰다
+    /// 올라섰음
     fn board<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T], rider: usize, host: usize) {
         pets[host].as_mut().feel_rider();
         pets[rider].as_mut().begin_ride();
@@ -122,7 +123,7 @@ impl Social {
         }
     }
 
-    /// 머리로 뛰어오르는 길을 맨 위 머리에 맞추고, 닿으면 올라서거나 (자리가 없어졌으면) 그대로 떨어진다
+    /// 머리로 뛰어오르는 길을 맨 위 머리에 맞추고, 닿으면 올라서거나 (자리가 없어졌으면) 그대로 떨어짐
     pub(super) fn step_climbs<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T]) {
         let mut i = 0;
         while i < self.climbs.len() {
@@ -155,7 +156,7 @@ impl Social {
         }
     }
 
-    /// 머리로 뛰어오르기 시작한다 (base = 탑 밑동 또는 혼자인 친구). 자리가 없으면 false
+    /// 머리로 뛰어오르기 시작함 (base = 탑 밑동 또는 혼자인 친구). 자리가 없으면 false
     pub(super) fn start_climb<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T], jumper: usize, base: usize, crouch: f64) -> bool {
         let size = self.snap[jumper].size;
         let Some(top) = self.index(self.top_of(self.snap[base].key)) else { return false };
@@ -169,7 +170,7 @@ impl Social {
         true
     }
 
-    /// 걷거나 달리는 동물이 탑 밑동으로 들어왔다: 맨 위로 뛰어오른다 (한 번 마주칠 때 한 번 정한다)
+    /// 걷거나 달리는 동물이 탑 밑동으로 들어왔음: 맨 위로 뛰어오름 (한 번 마주칠 때 한 번 정함)
     pub(super) fn tower_bumps<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T]) {
         if self.rides.is_empty() {
             return;
@@ -208,9 +209,9 @@ impl Social {
         }
     }
 
-    /// 떨어지던 동물의 발이 맨 위 동물 머리에 살며시 닿았으면 올라선다 (자는 친구는 그대로 잔다).
-    /// 그냥 놓은 동물은 높은 데서 떨어져 빨라졌어도 올라선다. 던진 것이 HIT_MIN_SPEED 이상이면 여기서 보지 않는다 — thrown_hits가 튕겨 낸다. 탑 가운데 층은 맨 위가 아니라서 그냥 지나가거나 부딪힌다.
-    /// 나는 동물은 끼지 않는다
+    /// 떨어지던 동물의 발이 맨 위 동물 머리에 살며시 닿았으면 올라섬 (자는 친구는 그대로 잠).
+    /// 그냥 놓은 동물은 높은 데서 떨어져 빨라졌어도 올라섬. 던진 것이 HIT_MIN_SPEED 이상이면 여기서 보지 않음 — thrown_hits가 튕겨 냄. 탑 가운데 층은 맨 위가 아니라서 그냥 지나가거나 부딪힘
+    /// 나는 동물은 끼지 않음
     pub(super) fn perches<T: AsRef<Pet> + AsMut<Pet>>(&mut self, dt: f64, pets: &mut [T]) {
         for i in 0..self.snap.len() {
             let a = self.snap[i];
@@ -246,7 +247,7 @@ impl Social {
         }
     }
 
-    /// 테스트: 바로 올라선다
+    /// 테스트: 바로 올라섬
     #[cfg(test)]
     pub(crate) fn force_board<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T], rider: usize, host: usize) {
         self.board(pets, rider, host);

@@ -19,8 +19,8 @@ fn stomp_like(k: MeetKind) -> bool {
     matches!(k, MeetKind::Stomp | MeetKind::BounceBack)
 }
 
-/// a가 스스로 걷거나 달려 b 바로 앞에 왔다: 같은 디딤판(같은 높이), 둘 다 한가함, a가 b 쪽을 보고 만나는 거리 안
-/// (b는 서 있든, 마주 오든, 앞서 가든 상관없다 — 판정은 social.rs와 따로 여기서 한다)
+/// a가 스스로 걷거나 달려 b 바로 앞에 왔음: 같은 디딤판(같은 높이), 둘 다 한가함, a가 b 쪽을 보고 만나는 거리 안
+/// (b는 서 있든, 마주 오든, 앞서 가든 상관없음 — 판정은 social.rs와 따로 여기서 함)
 fn walks_into(a: &Pet, b: &Pet) -> bool {
     let (Some(sa), Some(sb)) = (a.standing, b.standing) else { return false };
     let dx = b.body.x - a.body.x;
@@ -37,7 +37,7 @@ fn walks_into(a: &Pet, b: &Pet) -> bool {
         && dx * a.facing > 0.0
 }
 
-/// 만남이 끝났을 때 한 몸이 다른 몸 안에 남아 있다 (머리 위에 선 것은 빼고)
+/// 만남이 끝났을 때 한 몸이 다른 몸 안에 남아 있음 (머리 위에 선 것은 빼고)
 fn left_inside(a: &Pet, b: &Pet) -> bool {
     let both_down = a.standing.is_some() && b.standing.is_some() && a.standing.map(|s| s.owner) == b.standing.map(|s| s.owner);
     both_down && !a.is_on_head() && !b.is_on_head() && (a.body.x - b.body.x).abs() < 0.6 * (a.cfg.half_w + b.cfg.half_w)
@@ -51,7 +51,7 @@ fn species(id: &str) -> PetConfig {
     PetConfig::from_manifest(&m, 1.0, m.size_mult(crate::care::Stage::Teenager), crate::care::Stage::Teenager.name())
 }
 
-/// owner 위 x에 막 내려선 동물 — 그다음은 스스로 정한다
+/// owner 위 x에 막 내려선 동물 — 그다음은 스스로 정함
 fn settle(w: &World, c: PetConfig, owner: Owner, x: f64, seed: u64) -> Pet {
     let (ax, ay) = w.anchor(owner).unwrap();
     let mut p = Pet::new(c, x, ay, seed);
@@ -81,7 +81,7 @@ struct Tally {
     inside: usize,
 }
 
-/// 두 동물(b는 아직 집 생각이 없는 손님)을 secs초 동안 앱처럼 돌린다: 틱마다 Social::tick 뒤 각자 update
+/// 두 동물(b는 아직 집 생각이 없는 손님)을 secs초 동안 앱처럼 돌림: 틱마다 Social::tick 뒤 각자 update
 fn simulate(w: &World, owner: Owner, a: &str, b: &str, (lo, hi): (f64, f64), secs: f64, seed: u64) -> Tally {
     // 손님은 오른쪽 친구 화면에서 왔다. 집 쪽 끝에서 돌아가면 곧 다시 놀러 온다 (새 방문 = 새 동물)
     let guest = |n: u64| {
@@ -205,9 +205,9 @@ fn walking_into_each_other_often_ends_in_a_head_stomp_over() {
 enum Other {
     /// 서서 쉬는 중
     Standing,
-    /// 마주 걸어온다
+    /// 마주 걸어옴
     Toward,
-    /// 같은 쪽으로 앞서 걷는다
+    /// 같은 쪽으로 앞서 걸음
     Away,
 }
 
@@ -218,17 +218,17 @@ struct Trial {
     kind: Option<MeetKind>,
     /// 뛴 쪽이 누구였나 (다가간 쪽이면 true)
     mover_jumped: bool,
-    /// 밟힌 쪽이 납작해졌다
+    /// 밟힌 쪽이 납작해졌음
     squashed: bool,
     /// 밟힌 쪽이 (내려앉은) 나는 동물
     flyer_squashed: bool,
-    /// 만남이 끝났을 때 한 몸이 다른 몸 안에 남았다
+    /// 만남이 끝났을 때 한 몸이 다른 몸 안에 남았음
     inside: bool,
-    /// 만남이 4초 안에 끝나지 않았다
+    /// 만남이 4초 안에 끝나지 않았음
     stuck: bool,
 }
 
-/// owner 위에서 mover(걷기 또는 달리기)가 오른쪽의 친구에게 다가간다. guest_moves면 다가가는 쪽이 손님이다
+/// owner 위에서 mover(걷기 또는 달리기)가 오른쪽의 친구에게 다가감. guest_moves면 다가가는 쪽이 손님임
 #[allow(clippy::too_many_arguments)]
 fn approach(w: &World, owner: Owner, (lo, hi): (f64, f64), mover: &str, other: &str, run: bool, how: Other, guest_moves: bool, seed: u64) -> Trial {
     let x = lo + 0.25 * (hi - lo);
@@ -288,7 +288,7 @@ fn approach(w: &World, owner: Owner, (lo, hi): (f64, f64), mover: &str, other: &
 }
 
 /// 걷거나 달리던 동물이 친구 앞에 닿는 장면 여럿: 내 동물·손님이 번갈아 다가가고, 바닥과 창 위.
-/// 서 있는 친구에는 내려앉은 새도 끼운다 (새는 걷지 않으니 걷는 친구 자리에는 오리)
+/// 서 있는 친구에는 내려앉은 새도 끼움 (새는 걷지 않으니 걷는 친구 자리에는 오리)
 fn approaches(run: bool, how: Other) -> Vec<Trial> {
     let floor = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, GROUND)], 128.0);
     let window = WindowInfo { id: 1, rect: Rect::new(400.0, 500.0, 1300.0, 1000.0) };
@@ -308,7 +308,7 @@ fn approaches(run: bool, how: Other) -> Vec<Trial> {
     out
 }
 
-/// 다가간 번마다 밟기가 적당히 자주 나오고, 밟힌 쪽은 납작해지고, 아무도 끼거나 멈추지 않는다
+/// 다가간 번마다 밟기가 적당히 자주 나오고, 밟힌 쪽은 납작해지고, 아무도 끼거나 멈추지 않음
 fn check_approaches(name: &str, trials: &[Trial]) {
     let contacts = trials.iter().filter(|t| t.contact).count();
     let stomps: Vec<&Trial> = trials.iter().filter(|t| t.contact && t.kind.is_some_and(stomp_like)).collect();

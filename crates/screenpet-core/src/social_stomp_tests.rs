@@ -1,4 +1,4 @@
-//! 공룡 쿵쾅이 같은 바닥의 친구들을 흔든다 (social.rs stomps + brain_stomp.rs) — social_tests의 자식 모듈 (도우미를 같이 쓴다)
+//! 공룡 쿵쾅이 같은 바닥의 친구들을 흔듦 (social.rs stomps + brain_stomp.rs) — social_tests의 자식 모듈 (도우미를 같이 씀)
 
 use super::*;
 use crate::behavior::Special;
@@ -12,7 +12,7 @@ fn tumbling(p: &Pet) -> bool {
     matches!(p.state, State::Tumble { .. })
 }
 
-/// 같은 바닥 몸 5개 안의 친구만 흔들린다 — 다른 디딤판·멀리 있는 친구는 그대로
+/// 같은 바닥 몸 5개 안의 친구만 흔들림 — 다른 디딤판·멀리 있는 친구는 그대로
 #[test]
 fn only_friends_on_the_same_surface_nearby_feel_the_stomp() {
     let w = world(vec![w1()]);
@@ -56,7 +56,7 @@ fn about_a_third_tumble_away_and_flyers_only_wobble() {
     assert!((share - TUMBLE_CHANCE).abs() < 0.05, "{share}");
 }
 
-/// 어느 쪽에 있든 공룡 반대쪽으로 구른다
+/// 어느 쪽에 있든 공룡 반대쪽으로 구름
 #[test]
 fn a_tumble_rolls_away_from_the_dino_on_either_side() {
     let w = world(vec![]);
@@ -74,7 +74,7 @@ fn a_tumble_rolls_away_from_the_dino_on_either_side() {
     }
 }
 
-/// 날아서 떠 있는 공룡의 쿵쾅은 바닥을 흔들지 않는다 (거리만 보면 가까운 땅의 친구까지 닿는다)
+/// 날아서 떠 있는 공룡의 쿵쾅은 바닥을 흔들지 않음 (거리만 보면 가까운 땅의 친구까지 닿음)
 #[test]
 fn a_dino_in_the_air_shakes_nobody() {
     let w = world(vec![]);
@@ -90,7 +90,7 @@ fn a_dino_in_the_air_shakes_nobody() {
     assert!(!pets[0].take_stomp(), "the stomp is used up");
 }
 
-/// 자던 친구는 투덜 깨고, 들려 있거나 먹는 친구는 그대로, 한 번 흔들리면 10초 동안은 다시 흔들리지 않는다
+/// 자던 친구는 투덜 깨고, 들려 있거나 먹는 친구는 그대로, 한 번 흔들리면 10초 동안은 다시 흔들리지 않음
 #[test]
 fn sleepers_wake_grumpy_busy_pets_are_skipped_and_there_is_a_cooldown() {
     let w = world(vec![]);
@@ -112,7 +112,7 @@ fn sleepers_wake_grumpy_busy_pets_are_skipped_and_there_is_a_cooldown() {
     assert_eq!(pets[1].state, idle());
 }
 
-/// 데굴 넘어진 친구는 이번 틱에 인사·놀이를 시작하지 않고, 놀던 짝은 풀린다
+/// 데굴 넘어진 친구는 이번 틱에 인사·놀이를 시작하지 않고, 놀던 짝은 풀림
 #[test]
 fn a_tumble_interrupts_greeting() {
     let w = world(vec![]);

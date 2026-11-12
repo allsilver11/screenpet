@@ -1,9 +1,9 @@
-//! ⌨️ 타자 응원 — 얼마나 빨리 치는지만 센다 (초당 키 수). *어떤* 키인지, 무슨 글자인지는 읽지도 남기지도 않는다.
+//! ⌨️ 타자 응원 — 얼마나 빨리 치는지만 셈 (초당 키 수). *어떤* 키인지, 무슨 글자인지는 읽지도 남기지도 않음
 //!
-//! 플랫폼 쪽 (`WindowSource::key_presses`)은 "지난번 뒤로 새로 눌린 키 수" 하나만 돌려준다. Windows는 타자 키들의
-//! 눌림 상태를 매 틱 읽어 올라가는 순간만 세고 (`KeyEdges` — 지난 틱의 눌림 여부 비트 256개가 전부다),
-//! macOS는 시스템의 키 누름 카운터를 읽는다. 여기 `TypingMeter`는 그 수를 최근 2초 창으로 모아 초당 키 수로 바꾼다.
-//! 저장·로그·네트워크로 가는 것은 없다 — 게임 루프가 그 순간의 속도를 흐물이 뇌에 넘길 뿐이다.
+//! 플랫폼 쪽 (`WindowSource::key_presses`)은 "지난번 뒤로 새로 눌린 키 수" 하나만 돌려줌. Windows는 타자 키들의
+//! 눌림 상태를 매 틱 읽어 올라가는 순간만 세고 (`KeyEdges` — 지난 틱의 눌림 여부 비트 256개가 전부임),
+//! macOS는 시스템의 키 누름 카운터를 읽음. 여기 `TypingMeter`는 그 수를 최근 2초 창으로 모아 초당 키 수로 바꿈
+//! 저장·로그·네트워크로 가는 것은 없음 — 게임 루프가 그 순간의 속도를 흐물이 뇌에 넘길 뿐임
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -16,14 +16,14 @@ pub const MAX_PER_POLL: u32 = 12;
 pub const MAX_RATE: f64 = 25.0;
 
 /// 키마다 지난 읽기 때 눌려 있었는지 (비트 하나씩, 가상 키 코드 0..256). 올라가는 순간을 찾는 데만 쓰고,
-/// 어떤 키였는지는 어디에도 남기지 않는다 — 결과는 개수뿐이다
+/// 어떤 키였는지는 어디에도 남기지 않음 — 결과는 개수뿐임
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct KeyEdges {
     down: [u64; 4],
 }
 
 impl KeyEdges {
-    /// 키 하나의 지금 상태를 넣고, 새로 눌렸으면 true. `tapped` = 지난 읽기 뒤 눌렸다 뗀 적이 있다 (빨리 친 키를 놓치지 않게)
+    /// 키 하나의 지금 상태를 넣고, 새로 눌렸으면 true. `tapped` = 지난 읽기 뒤 눌렸다 뗀 적이 있음 (빨리 친 키를 놓치지 않게)
     pub fn press(&mut self, key: u8, down: bool, tapped: bool) -> bool {
         let (word, bit) = ((key >> 6) as usize, 1u64 << (key & 63));
         let was = self.down[word] & bit != 0;
@@ -35,19 +35,20 @@ impl KeyEdges {
         !was && (down || tapped)
     }
 
-    /// 지금 눌린 것으로 기억하는 키가 있다
+    /// 지금 눌린 것으로 기억하는 키가 있음
     pub fn any_down(&self) -> bool {
         self.down.iter().any(|w| *w != 0)
     }
 }
 
-/// 최근 2초 동안의 누름 수 → 초당 키 수. 누름이 있던 틱만 (시각, 수)로 남는다 — 키 이름은 없다
+/// 최근 2초 동안의 누름 수 → 초당 키 수. 누름이 있던 틱만 (시각, 수)로 남음 — 키 이름은 없음
 #[derive(Debug, Default)]
 pub struct TypingMeter {
     recent: VecDeque<(Instant, u32)>,
 }
 
 impl TypingMeter {
+    /// 빈 측정기
     pub fn new() -> Self {
         Self::default()
     }
@@ -67,11 +68,12 @@ impl TypingMeter {
         (total as f64 / WINDOW.as_secs_f64()).min(MAX_RATE)
     }
 
-    /// 다 잊는다 (타자 응원을 껐을 때)
+    /// 다 잊음 (타자 응원을 껐을 때)
     pub fn clear(&mut self) {
         self.recent.clear();
     }
 
+    /// WINDOW보다 오래된 누름을 버림
     fn forget(&mut self, now: Instant) {
         while self.recent.front().is_some_and(|(at, _)| now.saturating_duration_since(*at) >= WINDOW) {
             self.recent.pop_front();
@@ -87,34 +89,35 @@ pub fn counter_delta(last: Option<u32>, now: u32) -> u32 {
     }
 }
 
-/// 🍎 macOS "입력 모니터링" 권한 묻기 — 키 누름 카운터는 이 권한이 있어야 오른다. 앱이 직접 묻는다 (사람들이 설정을 못 찾는다):
+/// 🍎 macOS "입력 모니터링" 권한 묻기 — 키 누름 카운터는 이 권한이 있어야 오름. 앱이 직접 물음 (사람들이 설정을 못 찾음):
 /// 타자 응원이 켜져 있고 권한이 없을 때만, 앱 버전마다 한 번 (켤 때 ASK_DELAY 뒤), 그리고 메뉴에서 끈 걸 다시 켤 때.
-/// 묻기 전에 펫이 왜 묻는지 말풍선으로 먼저 말한다 (Explain → REQUEST_AFTER 뒤 Request).
-/// 실행 중에 권한이 생기면 한 번 "다시 켜면 시작돼요" (RestartHint — macOS는 보통 앱을 다시 켜야 적용된다)
+/// 묻기 전에 펫이 왜 묻는지 말풍선으로 먼저 말함 (Explain → REQUEST_AFTER 뒤 Request).
+/// 실행 중에 권한이 생기면 한 번 "다시 켜면 시작돼요" (RestartHint — macOS는 보통 앱을 다시 켜야 적용됨)
 pub const ASK_DELAY: Duration = Duration::from_secs(10);
 /// 메뉴에서 켠 뒤 말풍선까지
 pub const TOGGLE_DELAY: Duration = Duration::from_millis(400);
 /// 말풍선 뒤 시스템 창까지
 pub const REQUEST_AFTER: Duration = Duration::from_millis(2500);
 
-/// 이번 실행을 시작할 때 물을까: 켜져 있고, 권한이 없다고 확실하고 (None = 권한이 없는 OS), 이 버전에서 아직 안 물었다
-/// (ad-hoc 서명이라 업데이트마다 권한이 풀릴 수 있다 — 버전마다 한 번이면 그때 다시 묻는다)
+/// 이번 실행을 시작할 때 물을까: 켜져 있고, 권한이 없다고 확실하고 (None = 권한이 없는 OS), 이 버전에서 아직 안 물었음
+/// (ad-hoc 서명이라 업데이트마다 권한이 풀릴 수 있음 — 버전마다 한 번이면 그때 다시 물음)
 pub fn ask_at_start(cheer_on: bool, granted: Option<bool>, asked_version: Option<&str>, version: &str) -> bool {
     cheer_on && granted == Some(false) && asked_version != Some(version)
 }
 
-/// 메뉴에서 켰을 때 물을까 (끌 때는 절대 묻지 않는다)
+/// 메뉴에서 켰을 때 물을까 (끌 때는 절대 묻지 않음)
 pub fn ask_on_toggle(now_on: bool, granted: Option<bool>) -> bool {
     now_on && granted == Some(false)
 }
 
+/// 권한 묻기 단계
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AskStep {
-    /// 펫이 왜 묻는지 말한다
+    /// 펫이 왜 묻는지 말함
     Explain,
-    /// 시스템 권한 창을 띄운다 (부른 쪽이 이 버전을 물었다고 적어 둔다)
+    /// 시스템 권한 창을 띄움 (부른 쪽이 이 버전을 물었다고 적어 둠)
     Request,
-    /// 실행 중에 권한이 생겼다: 다시 켜면 시작된다고 한 번 말한다
+    /// 실행 중에 권한이 생겼음: 다시 켜면 시작된다고 한 번 말함
     RestartHint,
 }
 
@@ -128,12 +131,13 @@ pub struct PermissionAsk {
 }
 
 impl PermissionAsk {
+    /// 앱 시작 때 권한 묻기 순서를 만듦: 물을 때면(ask_at_start) ASK_DELAY 뒤에 설명함
     pub fn start(now: Instant, cheer_on: bool, granted: Option<bool>, asked_version: Option<&str>, version: &str) -> Self {
         let explain_at = ask_at_start(cheer_on, granted, asked_version, version).then_some(now + ASK_DELAY);
         PermissionAsk { explain_at, request_at: None, last: granted, restart_hinted: false }
     }
 
-    /// 메뉴에서 타자 응원을 켜거나 껐다
+    /// 메뉴에서 타자 응원을 켜거나 껐음
     pub fn toggled(&mut self, now: Instant, now_on: bool, granted: Option<bool>) {
         self.request_at = None;
         self.explain_at = ask_on_toggle(now_on, granted).then_some(now + TOGGLE_DELAY);
@@ -310,7 +314,7 @@ mod tests {
         assert_eq!(counter_delta(Some(0), 10_000), MAX_PER_POLL);
     }
 
-    /// 개인정보: 플랫폼의 센서 코드는 개수만 다룬다 — 키 코드를 모으거나 (Vec·push·문자열) 찍거나 (로그) 하지 않는다
+    /// 개인정보: 플랫폼의 센서 코드는 개수만 다룸 — 키 코드를 모으거나 (Vec·push·문자열) 찍거나 (로그) 하지 않음
     #[test]
     fn the_sensor_code_keeps_no_keys() {
         for (file, src) in [("win32.rs", include_str!("platform/win32.rs")), ("macos.rs", include_str!("platform/macos.rs"))] {

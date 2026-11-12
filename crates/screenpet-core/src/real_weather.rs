@@ -1,15 +1,15 @@
-//! ☀️ 실제 날씨 (v0.6.3) — 고른 도시(기본 용인)의 지금 날씨를 계절 날씨 대신 보여 준다.
+//! ☀️ 실제 날씨 (v0.6.3) — 고른 도시(기본 용인)의 지금 날씨를 계절 날씨 대신 보여 줌
 //!
-//! 앱은 날씨 서비스를 직접 부르지 않는다: 앱은 도시 id("yongin")만 중계 서버에 알리고, 서버가 같은 목록
+//! 앱은 날씨 서비스를 직접 부르지 않음: 앱은 도시 id("yongin")만 중계 서버에 알리고, 서버가 같은 목록
 //! (screenpet_proto::weather::PLACES — 앱과 같은 표)에서 좌표를 찾아 도시마다 30분에 한 번 Open-Meteo에서
-//! WMO 날씨 코드를 받아 와 나눠 준다 (`weather` 메시지). 여기는 그 코드를 그림(Weather)으로 바꾸는
-//! 순수한 계산뿐이다. 받은 값이 없거나 3시간보다 오래됐으면 예전처럼 달력 날씨(`weather::weather_at`)로 돌아간다.
+//! WMO 날씨 코드를 받아 와 나눠 줌 (`weather` 메시지). 여기는 그 코드를 그림(Weather)으로 바꾸는
+//! 순수한 계산뿐임. 받은 값이 없거나 3시간보다 오래됐으면 예전처럼 달력 날씨(`weather::weather_at`)로 돌아감
 
 use serde::{Deserialize, Serialize};
 
 use crate::weather::{self, Weather};
 
-/// 받은 날씨가 이보다 오래되면 (초) 달력 날씨로 돌아간다
+/// 받은 날씨가 이보다 오래되면 (초) 달력 날씨로 돌아감
 pub const STALE_SECS: i64 = 3 * 3600;
 
 /// ⚙️ 설정 ▸ 날씨: 실제 날씨 / 계절 날씨. 모르는 값이면 실제 날씨
@@ -22,6 +22,7 @@ pub enum WeatherSource {
 }
 
 impl WeatherSource {
+    /// 실제 날씨를 씀
     pub fn is_real(&self) -> bool {
         *self == WeatherSource::Real
     }
@@ -76,6 +77,7 @@ impl Place {
         Place::Pohang,
     ];
 
+    /// 기본 자리(용인)임
     pub fn is_default(&self) -> bool {
         *self == Place::Yongin
     }
@@ -102,6 +104,7 @@ impl Place {
         (p.id, p.name, p.lat, p.lon)
     }
 
+    /// id로 자리를 찾음
     pub fn from_id(raw: &str) -> Option<Place> {
         Place::ALL.into_iter().find(|p| p.id() == raw)
     }
@@ -110,12 +113,14 @@ impl Place {
 /// 중계 서버가 나눠 준 날씨 하나: WMO 코드와 서버가 받아 온 시각 (유닉스 초)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reading {
+    /// WMO 날씨 코드
     pub code: u16,
+    /// 서버가 받아 온 시각 (유닉스 초)
     pub at: i64,
 }
 
 impl Reading {
-    /// 지금(now, 유닉스 초) 믿을 만한가: 3시간 안 (시계가 조금 어긋나 앞날 값이어도 3시간까지는 받는다)
+    /// 지금(now, 유닉스 초) 믿을 만한가: 3시간 안 (시계가 조금 어긋나 앞날 값이어도 3시간까지는 받음)
     pub fn fresh(&self, now: i64) -> bool {
         (now - self.at).abs() <= STALE_SECS
     }
@@ -133,7 +138,7 @@ pub fn precipitation(code: u16) -> Option<Weather> {
     }
 }
 
-/// 아무것도 안 내릴 때 남기는 계절 장식: 3·4월 벚꽃잎, 9~11월 낙엽 (가짜 소나기·달력 눈은 없다)
+/// 아무것도 안 내릴 때 남기는 계절 장식: 3·4월 벚꽃잎, 9~11월 낙엽 (가짜 소나기·달력 눈은 없음)
 pub fn dry_season(month: u32) -> Option<Weather> {
     match month {
         3 | 4 => Some(Weather::Petals),

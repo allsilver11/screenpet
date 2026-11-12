@@ -81,7 +81,7 @@ fn is_greet(p: &Pet) -> bool {
     p.social_role() == Some(SocialRole::Greet)
 }
 
-/// 놀이 밖이면 제자리에 다시 앉힌다 (돌아다니지 않게 — 쿨다운만 본다)
+/// 놀이 밖이면 제자리에 다시 앉힘 (돌아다니지 않게 — 쿨다운만 봄)
 fn pin(p: &mut Pet, w: &World, x: f64) {
     if p.social_role().is_none() {
         let fresh = ground(w, friendly(), x, 1);
@@ -457,7 +457,7 @@ fn many_pets_pair_up_one_game_each() {
 
 // ---- 인사 없이 바로 술래 놀이 · 술래 바꾸기 · 놀이 뒤 쿨다운 ----
 
-/// 몸 3개쯤 떨어진 짝은 (인사 거리 밖) 드물게 바로 술래 놀이를 시작한다: 1초에 PLAY_RATE × 더 놀고 싶은 쪽의 eagerness
+/// 몸 3개쯤 떨어진 짝은 (인사 거리 밖) 드물게 바로 술래 놀이를 시작함: 1초에 PLAY_RATE × 더 놀고 싶은 쪽의 eagerness
 #[test]
 fn a_pair_in_play_range_sometimes_starts_a_chase_without_greeting_at_the_promised_rate() {
     let w = world(vec![]);
@@ -494,7 +494,7 @@ fn a_pair_in_play_range_sometimes_starts_a_chase_without_greeting_at_the_promise
     assert_eq!(s.active(), 0);
 }
 
-/// 코앞의 짝: 시작하자마자 잡는다. 하트 뒤 SWAP_CHANCE로 잡혔던 쪽이 술래가 되고, 한 번만 바꾼다
+/// 코앞의 짝: 시작하자마자 잡음. 하트 뒤 SWAP_CHANCE로 잡혔던 쪽이 술래가 되고, 한 번만 바꿈
 #[test]
 fn after_a_catch_the_caught_one_sometimes_becomes_the_chaser_but_only_once() {
     let w = world(vec![]);
@@ -625,7 +625,7 @@ fn a_frog_hops_while_playing() {
     assert!(pets[0].body.x > 900.0);
 }
 
-/// 깡총거리는 토끼(hop_share)도 술래 놀이는 그냥 달린다 — 쫓아가 놀이가 끝난다
+/// 깡총거리는 토끼(hop_share)도 술래 놀이는 그냥 달림 — 쫓아가 놀이가 끝남
 #[test]
 fn a_rabbit_runs_while_playing_chase() {
     let w = world(vec![]);

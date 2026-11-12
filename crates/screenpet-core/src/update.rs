@@ -1,38 +1,43 @@
 //! 🔄 업데이트: 우리 서버(pet.danni.day/downloads)의 latest.json을 읽어 이 컴퓨터용 설치 파일을 고르고 확인하는 순수한 부분
-//! (내려받기·설치는 앱의 update.rs — 여기는 네트워크·파일 없이 시험한다)
+//! (내려받기·설치는 앱의 update.rs — 여기는 네트워크·파일 없이 시험함)
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// 업데이트 파일이 있는 곳 (릴레이 서버가 내준다 — deploy/publish-release.sh가 올린다).
-/// 사용자가 바꿀 수 있는 릴레이 주소와는 상관없이 늘 여기다
+/// 업데이트 파일이 있는 곳 (릴레이 서버가 내줌 — deploy/publish-release.sh가 올림).
+/// 사용자가 바꿀 수 있는 릴레이 주소와는 상관없이 늘 여김
 pub const DOWNLOAD_BASE: &str = "https://pet.danni.day/downloads/";
 /// 최신 버전 정보 ({"version":"X.Y.Z","files":{"windows":{name,sha256,size},"macos":{…}}})
 pub const LATEST_URL: &str = "https://pet.danni.day/downloads/latest.json";
-/// latest.json의 Ed25519 서명 (16진수 128글자). deploy/publish-release.sh가 서버 밖의 비밀 키로 만든다
+/// latest.json의 Ed25519 서명 (16진수 128글자). deploy/publish-release.sh가 서버 밖의 비밀 키로 만듦
 pub const LATEST_SIG_URL: &str = "https://pet.danni.day/downloads/latest.json.sig";
-/// 업데이트 서명 공개 키. 비밀 키는 릴레이 서버(프로세스)에 두지 않는다 — 서버를 가진 사람도 이 키 없이는 설치 파일을 바꿔 끼울 수 없다
+/// 업데이트 서명 공개 키. 비밀 키는 릴레이 서버(프로세스)에 두지 않음 — 서버를 가진 사람도 이 키 없이는 설치 파일을 바꿔 끼울 수 없음
 /// (87b6329f…ce8c — 비밀 키는 개발자 서버의 ~/personal/screenpet-update-key.txt, deploy/relay/README.md)
 pub const UPDATE_PUBLIC_KEY: [u8; 32] = [
     0x87, 0xb6, 0x32, 0x9f, 0x09, 0xa4, 0x39, 0x60, 0xa3, 0xc7, 0xe9, 0xb7, 0xe6, 0xde, 0x30, 0x81, 0xfc, 0xe7, 0x46, 0xbc, 0x1a, 0xa9, 0x54, 0x37, 0x38, 0x32, 0x14, 0x89, 0x13, 0x40, 0xce, 0x8c,
 ];
-/// 받을 수 있는 곳은 이 호스트 하나 (https만). 넘겨주기도 이 호스트 안에서만 따라간다
+/// 받을 수 있는 곳은 이 호스트 하나 (https만). 넘겨주기도 이 호스트 안에서만 따라감
 pub const ALLOWED_HOST: &str = "pet.danni.day";
 /// 설치 파일 크기 상한 (지금 dmg가 100MB쯤)
 pub const MAX_DOWNLOAD: u64 = 300 * 1024 * 1024;
 /// 넘겨주기(3xx) 횟수 상한
 pub const MAX_REDIRECTS: usize = 5;
-/// 앱이 켜진 뒤 첫 조용한 확인, 그 뒤 간격 (새 버전이 있으면 메뉴 글자만 바꾼다 — 누르기 전엔 설치하지 않는다)
+/// 앱이 켜진 뒤 첫 조용한 확인, 그 뒤 간격 (새 버전이 있으면 메뉴 글자만 바꿈 — 누르기 전엔 설치하지 않음)
 pub const FIRST_CHECK_AFTER: Duration = Duration::from_secs(60);
+/// 그 뒤 확인 간격 (2시간)
 pub const CHECK_EVERY: Duration = Duration::from_secs(2 * 60 * 60);
-/// Windows NSIS 설치 파일 (Tauri v2 installer.nsi): /P 진행 막대만 (묻지 않고, 켜져 있는 앱은 닫는다),
-/// /R 다 깔면 앱을 다시 켠다 (/P·/S에서만 본다), /UPDATE 지우고 다시 깔지 않고 덮어쓴다 (바로가기·WebView2 설치 건너뜀)
+/// Windows NSIS 설치 파일 (Tauri v2 installer.nsi): /P 진행 막대만 (묻지 않고, 켜져 있는 앱은 닫음),
+/// /R 다 깔면 앱을 다시 켬 (/P·/S에서만 봄), /UPDATE 지우고 다시 깔지 않고 덮어씀 (바로가기·WebView2 설치 건너뜀)
 pub const NSIS_ARGS: [&str; 3] = ["/P", "/R", "/UPDATE"];
 
+/// 버전 (major.minor.patch)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
+    /// 큰 번호
     pub major: u32,
+    /// 중간 번호
     pub minor: u32,
+    /// 작은 번호
     pub patch: u32,
 }
 
@@ -54,11 +59,13 @@ impl Version {
 }
 
 impl fmt::Display for Version {
+    /// "0.6.3"처럼 씀
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 
+/// 업데이트를 받는 운영체제
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
     Windows,
@@ -66,6 +73,7 @@ pub enum Platform {
 }
 
 impl Platform {
+    /// 지금 운영체제 (Windows·macOS 말고는 None)
     pub fn current() -> Option<Platform> {
         if cfg!(windows) {
             Some(Platform::Windows)
@@ -84,7 +92,7 @@ impl Platform {
         }
     }
 
-    /// .github/workflows/build.yml이 올리는 이름 그대로 (서버에도 이 이름으로 둔다)
+    /// .github/workflows/build.yml이 올리는 이름 그대로 (서버에도 이 이름으로 둠)
     pub fn asset_name(self, v: Version) -> String {
         match self {
             Platform::Windows => format!("ScreenPet_{v}_x64-setup.exe"),
@@ -93,39 +101,49 @@ impl Platform {
     }
 }
 
+/// 내려받을 설치 파일
 #[derive(Debug, Clone, PartialEq)]
 pub struct Asset {
+    /// 파일 이름
     pub name: String,
+    /// 내려받을 주소 (ALLOWED_HOST만)
     pub url: String,
+    /// 바이트 수
     pub size: u64,
+    /// SHA-256 (latest.json에 적힌 값)
     pub sha256: [u8; 32],
 }
 
+/// 새 릴리즈: 버전과 이 운영체제의 설치 파일
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
+    /// 버전
     pub version: Version,
+    /// 설치 파일
     pub asset: Asset,
 }
 
+/// 확인 결과: 최신임 / 더 새 버전 있음
 #[derive(Debug, Clone, PartialEq)]
 pub enum Check {
     UpToDate(Version),
     Newer(Release),
 }
 
+/// 업데이트 실패 이유 (메뉴에 한국어로 보임)
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateError {
-    /// 이 운영체제는 업데이트를 받지 않는다
+    /// 이 운영체제는 업데이트를 받지 않음
     Unsupported,
     /// 인터넷 (자세한 건 로그에만)
     Network,
-    /// 서버에 아직 올린 릴리즈가 없다 (latest.json 404) — 업데이트할 게 없는 것이다 (missing_is_up_to_date)
+    /// 서버에 아직 올린 릴리즈가 없음 (latest.json 404) — 업데이트할 게 없는 것임 (missing_is_up_to_date)
     NotPublished,
     BadResponse,
     NoAsset(Version),
-    /// latest.json의 서명이 없거나 맞지 않다 — 서버가 바뀌었을 수 있으니 아무것도 믿지 않는다
+    /// latest.json의 서명이 없거나 맞지 않음 — 서버가 바뀌었을 수 있으니 아무것도 믿지 않음
     BadSignature,
-    /// latest.json에 올바른 SHA-256이 없다 — 확인할 수 없는 파일은 깔지 않는다
+    /// latest.json에 올바른 SHA-256이 없음 — 확인할 수 없는 파일은 깔지 않음
     NoDigest,
     TooBig,
     BadUrl,
@@ -136,6 +154,7 @@ pub enum UpdateError {
 }
 
 impl fmt::Display for UpdateError {
+    /// 메뉴에 보일 한국어 설명
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             UpdateError::Unsupported => write!(f, "이 컴퓨터에서는 쓸 수 없어요"),
@@ -180,7 +199,7 @@ pub fn parse_signature(text: &[u8]) -> Option<[u8; 64]> {
     Some(out)
 }
 
-/// latest.json 바이트 그대로에 대한 서명을 `key`로 확인한다 (strict: 약한 키·변형 서명도 거절)
+/// latest.json 바이트 그대로에 대한 서명을 `key`로 확인함 (strict: 약한 키·변형 서명도 거절)
 pub fn verify_latest_with(key: &[u8; 32], json: &[u8], sig: &[u8]) -> Result<(), UpdateError> {
     use ed25519_dalek::{Signature, VerifyingKey};
     let sig = parse_signature(sig).ok_or(UpdateError::BadSignature)?;
@@ -188,12 +207,12 @@ pub fn verify_latest_with(key: &[u8; 32], json: &[u8], sig: &[u8]) -> Result<(),
     key.verify_strict(json, &Signature::from_bytes(&sig)).map_err(|_| UpdateError::BadSignature)
 }
 
-/// 앱이 쓰는 것: UPDATE_PUBLIC_KEY로 확인. 맞아야만 latest.json을 읽는다 (check는 그다음)
+/// 앱이 쓰는 것: UPDATE_PUBLIC_KEY로 확인. 맞아야만 latest.json을 읽음 (check는 그다음)
 pub fn verify_latest(json: &[u8], sig: &[u8]) -> Result<(), UpdateError> {
     verify_latest_with(&UPDATE_PUBLIC_KEY, json, sig)
 }
 
-/// 비밀 키(32바이트 시드)로 서명 — 16진수 128글자 (bin/screenpet-update-sign이 쓴다, 앱은 쓰지 않는다)
+/// 비밀 키(32바이트 시드)로 서명 — 16진수 128글자 (bin/screenpet-update-sign이 씀, 앱은 쓰지 않음)
 pub fn sign_latest(seed: &[u8; 32], json: &[u8]) -> String {
     use ed25519_dalek::{Signer, SigningKey};
     to_hex(&SigningKey::from_bytes(seed).sign(json).to_bytes())
@@ -204,6 +223,7 @@ pub fn public_key_of(seed: &[u8; 32]) -> [u8; 32] {
     ed25519_dalek::SigningKey::from_bytes(seed).verifying_key().to_bytes()
 }
 
+/// 바이트를 소문자 16진 글자로
 pub fn to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -223,7 +243,7 @@ pub fn allowed_url(url: &str) -> bool {
     host.eq_ignore_ascii_case(ALLOWED_HOST)
 }
 
-/// 넘겨주기(Location)를 따라갈 주소: 같은 호스트의 https 절대 주소, 또는 "/"로 시작하면 지금 주소의 호스트에 붙인다. 다른 곳은 None
+/// 넘겨주기(Location)를 따라갈 주소: 같은 호스트의 https 절대 주소, 또는 "/"로 시작하면 지금 주소의 호스트에 붙임. 다른 곳은 None
 pub fn redirect_target(from: &str, location: &str) -> Option<String> {
     let next = if location.starts_with("https://") {
         location.to_string()
@@ -237,7 +257,7 @@ pub fn redirect_target(from: &str, location: &str) -> Option<String> {
     allowed_url(&next).then_some(next)
 }
 
-/// latest.json을 읽어 지금 버전과 견준다. 새 버전이면 이 컴퓨터용 파일의 이름·SHA-256·크기를 꼼꼼히 확인한다:
+/// latest.json을 읽어 지금 버전과 견줌. 새 버전이면 이 컴퓨터용 파일의 이름·SHA-256·크기를 꼼꼼히 확인함:
 /// version은 "X.Y.Z" (v 없이), 이름은 그 버전의 이 컴퓨터용 이름 그대로, sha256은 16진수 64글자, 크기는 1..=MAX_DOWNLOAD
 pub fn check(json: &str, current: Version, platform: Platform) -> Result<Check, UpdateError> {
     let v: serde_json::Value = serde_json::from_str(json).map_err(|_| UpdateError::BadResponse)?;
@@ -282,8 +302,8 @@ pub fn pick_app(names: &[String]) -> Option<String> {
 }
 
 /// macOS: 앱이 끝나기를 기다렸다가 번들을 새것으로 바꾸고 다시 켜는 도우미.
-/// `/bin/sh -c MAC_SWAP_SCRIPT sh <pid> <마운트 지점> <새 .app> <지금 .app> <임시 폴더>` — 경로는 인자로만 받는다 (글자에 끼워 넣지 않는다).
-/// 새 번들을 옆에 다 복사한 뒤 이름만 바꿔 끼운다 (실패하면 옛 번들을 되돌린다). 그다음 이미지를 떼고 임시 폴더를 지우고 연다
+/// `/bin/sh -c MAC_SWAP_SCRIPT sh <pid> <마운트 지점> <새 .app> <지금 .app> <임시 폴더>` — 경로는 인자로만 받음 (글자에 끼워 넣지 않음).
+/// 새 번들을 옆에 다 복사한 뒤 이름만 바꿔 끼움 (실패하면 옛 번들을 되돌림). 그다음 이미지를 떼고 임시 폴더를 지우고 엶
 pub const MAC_SWAP_SCRIPT: &str = r#"pid="$1"; mnt="$2"; src="$3"; dst="$4"; tmp="$5"
 n=0
 while kill -0 "$pid" 2>/dev/null; do
@@ -307,11 +327,11 @@ rm -rf "$tmp"
 /usr/bin/open "$dst"
 "#;
 
-/// 🔄 새 버전을 찾으면 내 동물들이 "new version!!" 하고 이만큼 신나게 뛴다 (Pet::cheer)
+/// 🔄 새 버전을 찾으면 내 동물들이 "new version!!" 하고 이만큼 신나게 뜀 (Pet::cheer)
 pub const CHEER_SECS: f64 = 10.0;
 
-/// 새 버전 응원은 앱이 켜져 있는 동안 버전마다 한 번. 창을 숨겨 둔 동안엔 미뤘다가 다시 보이면 한다
-/// (자리 비움은 동물 쪽이 미룬다 — Pet::cheer)
+/// 새 버전 응원은 앱이 켜져 있는 동안 버전마다 한 번. 창을 숨겨 둔 동안엔 미뤘다가 다시 보이면 함
+/// (자리 비움은 동물 쪽이 미룸 — Pet::cheer)
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct CheerGate {
     cheered: Option<Version>,
@@ -319,7 +339,7 @@ pub struct CheerGate {
 }
 
 impl CheerGate {
-    /// 업데이트 확인(조용히든 눌러서든)이 새 버전을 찾았다
+    /// 업데이트 확인(조용히든 눌러서든)이 새 버전을 찾았음
     pub fn found(&mut self, v: Version) {
         if self.cheered.is_none_or(|c| v > c) && self.waiting.is_none_or(|w| v > w) {
             self.waiting = Some(v);
@@ -348,13 +368,14 @@ pub enum MenuState {
     Checking,
     Downloading(Version),
     Installing(Version),
-    /// 조용한 확인에서 찾았다 (아직 받지 않았다)
+    /// 조용한 확인에서 찾았음 (아직 받지 않았음)
     Available(Version),
     UpToDate(Version),
     Failed(UpdateError),
 }
 
 impl MenuState {
+    /// 트레이 메뉴 글자
     pub fn label(&self) -> String {
         match self {
             MenuState::Idle => "🔄 업데이트".into(),
@@ -367,7 +388,7 @@ impl MenuState {
         }
     }
 
-    /// 확인·받기·설치 중에는 누를 수 없다
+    /// 확인·받기·설치 중에는 누를 수 없음
     pub fn enabled(&self) -> bool {
         !matches!(self, MenuState::Checking | MenuState::Downloading(_) | MenuState::Installing(_))
     }
@@ -393,7 +414,7 @@ pub fn status_error(code: u16) -> UpdateError {
     }
 }
 
-/// 업데이트 확인 결과: 서버에 릴리즈가 없으면(NotPublished) 실패가 아니라 지금 버전이 최신이다
+/// 업데이트 확인 결과: 서버에 릴리즈가 없으면(NotPublished) 실패가 아니라 지금 버전이 최신임
 pub fn missing_is_up_to_date(r: Result<Check, UpdateError>, current: Version) -> Result<Check, UpdateError> {
     match r {
         Err(UpdateError::NotPublished) => Ok(Check::UpToDate(current)),
@@ -407,10 +428,12 @@ mod tests {
 
     const HEX: &str = "07bc8daa58a56cad67885795ab01f57cd5d12b5839c2ef7abd5cfbae823c1e95";
 
+    /// 테스트: 버전 글자를 읽음
     fn v(s: &str) -> Version {
         Version::parse(s).unwrap()
     }
 
+    /// 테스트: 두 운영체제 파일이 든 latest.json
     fn latest_json(version: &str, sha: &str) -> String {
         format!(
             r#"{{"version":"{version}","files":{{
@@ -453,6 +476,7 @@ mod tests {
         assert_eq!(parse_sha256(""), None);
     }
 
+    /// 테스트: n으로 채운 서명 키 씨앗
     fn test_seed(n: u8) -> [u8; 32] {
         [n; 32]
     }
@@ -657,7 +681,7 @@ mod tests {
         assert_eq!(NSIS_ARGS, ["/P", "/R", "/UPDATE"]);
     }
 
-    /// 도우미를 /usr/bin 대신 가짜 도구로 돌려 본다: 앱이 끝나면 번들을 바꾸고, 이미지를 떼고, 임시 폴더를 지우고, 연다
+    /// 도우미를 /usr/bin 대신 가짜 도구로 돌려 봄: 앱이 끝나면 번들을 바꾸고, 이미지를 떼고, 임시 폴더를 지우고, 엶
     #[cfg(unix)]
     #[test]
     fn mac_swap_script_replaces_the_bundle_after_the_app_exits() {
