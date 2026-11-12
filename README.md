@@ -5,7 +5,7 @@
 ## 설치 (Windows)
 1. GitHub → **Actions** → 최신 `build` 실행 → **Artifacts**의 `screenpet-windows` 다운로드
    (태그 `v*`를 푸시하면 **Releases**에도 올라감)
-2. `.exe`(NSIS) 또는 `.msi` 실행
+2. `.exe` 설치 파일 실행
 3. "Windows의 PC 보호" 경고가 뜨면 **추가 정보 → 실행** (코드 서명 안 된 앱이라 그래요)
 
 ## 설치 (macOS 11+, Apple Silicon·Intel 공용)

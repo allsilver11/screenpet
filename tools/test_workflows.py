@@ -234,8 +234,18 @@ def test_release_publishes_notes_and_every_installer_or_fails():
     assert step["with"]["body_path"] == "docs/releases/${{ github.ref_name }}.md"
     assert step["with"]["fail_on_unmatched_files"] is True
     files = step["with"]["files"]
-    for ext in ("msi", "exe", "dmg"):
+    for ext in ("exe", "dmg"):
         assert f"dist/**/*.{ext}" in files
+    # msi는 만들지 않는다 (사용자: 헷갈린다 — 필요하면 다시). Windows는 NSIS exe 하나
+    assert "msi" not in files
+
+
+def test_windows_builds_only_the_nsis_installer():
+    import json
+    conf = json.loads((Path(__file__).resolve().parent.parent / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
+    assert conf["bundle"]["targets"] == ["nsis"]
+    win = next(r for r in build()["jobs"]["build"]["strategy"]["matrix"]["include"] if r["os"].startswith("windows"))
+    assert "msi" not in win["installers"]
 
 
 def test_release_downloads_what_the_builds_upload():
