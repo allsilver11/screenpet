@@ -48,8 +48,8 @@ def test_windows_exist_only_while_clouds_are_coming():
     # 하우스·친구 화면·전체 화면이면 구름이 나지 않는다
     assert "s.on_screen()" in tick and "overlay_paused(" in tick
     # 손님도 (slots 전부)
-    assert "for s in slots {" in tick
-    assert "trail.tick(&app, now, dt, presence.is_away(), &slots);" in LOOP
+    assert "for s in slots.iter() {" in tick
+    assert "trail.tick(&app, now, dt, presence.is_away(), &mut slots);" in LOOP
 
 
 def test_puffs_wait_for_a_new_webview_and_keep_their_age():

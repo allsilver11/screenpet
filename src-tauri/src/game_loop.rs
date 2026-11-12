@@ -1088,7 +1088,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         network.growth_locked = care.locked;
         network.tick_boost(&app, &mut slots[OWN], now);
         weather.tick(&app, now, !config.weather_on, presence.is_away(), &mut slots);
-        trail.tick(&app, now, dt, presence.is_away(), &slots);
+        trail.tick(&app, now, dt, presence.is_away(), &mut slots);
         for g in network.take_guest_gifts() {
             gifts.guest_arrived(g, now);
         }

@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <!-- 🌈 무지개 구름 자국 (src-tauri/src/trail.rs, ui/trail.js): 모니터 하나를 덮는 마우스 통과 투명 창.
-         무지개 동물이 달릴 때만 있고, 구름이 다 사라지면 그림도 멈춘다. -->
+         무지개 동물이 달릴 때만 있고, 구름이 다 사라지면 그림도 멈춘다.
+         🖍️ 흐물이의 분필 낙서 (ui/doodle.js)도 같은 창 아래 캔버스에 그린다. -->
     <style>
       html,
       body {
@@ -25,7 +26,9 @@
     </style>
   </head>
   <body>
+    <canvas id="doodle"></canvas>
     <canvas id="trail"></canvas>
     <script src="trail.js"></script>
+    <script src="doodle.js"></script>
   </body>
 </html>
