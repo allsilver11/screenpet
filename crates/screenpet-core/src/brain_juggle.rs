@@ -28,6 +28,8 @@ pub enum JugglePhase {
     Wander { secs: f64 },
     /// 배달 장난: 친구 쪽 끝으로 들고 간다
     CarryOff { side: Side },
+    /// 🎯 모니터 너머로 던지러 친구 쪽 끝 가까이 들고 간다
+    LobOff { side: Side },
     /// 젖혔다가 휙 (released = 이미 놓았다)
     Throw { released: bool },
     /// 앞을 보고 번쩍 든 채 섰다가 휙 떨군다 (배달 도착)
@@ -46,6 +48,8 @@ pub(super) enum Plan {
     Throw,
     Wander,
     Prank(Side),
+    /// 🎯 그 끝 너머 친구 화면으로 던진다
+    Lob(Side),
     /// 📌 장난감: 바닥을 조금 걷다가 도로 밀어 넣는다
     Stuff,
 }
@@ -73,6 +77,10 @@ pub struct JuggleMood {
     /// 배달 장난을 해도 되는 끝 (새 버전 친구가 연결됨 — 앱이 정한다)
     pub(super) prank: (bool, bool),
     pub(super) event: Option<JuggleEvent>,
+    /// 바닥의 물건들 (notice_objects가 채운다 — 놀러 갈 때 들고 갈 것을 고른다)
+    pub(super) spots: Vec<ObjectSpot>,
+    /// 놀러 가기로 하고 들고 갈 것을 주우러 가는 중: 들면 이 끝으로 들고 간다
+    pub(super) leave_to: Option<Side>,
 }
 
 impl JuggleMood {
@@ -89,6 +97,8 @@ impl JuggleMood {
             targets: Vec::new(),
             prank: (false, false),
             event: None,
+            spots: Vec::new(),
+            leave_to: None,
         }
     }
 }
@@ -144,7 +154,7 @@ impl Pet {
             State::Juggle { phase, t } => match phase {
                 JugglePhase::Lift => g.lift.at(t),
                 JugglePhase::Hold { .. } => g.hold.at(t),
-                JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. } => g.carry.at(t),
+                JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. } | JugglePhase::LobOff { .. } => g.carry.at(t),
                 JugglePhase::Throw { .. } => g.throw.at(t),
                 JugglePhase::Present { .. } => g.present.at(t),
                 JugglePhase::Yank => g.yank.at(t),
@@ -172,6 +182,7 @@ impl Pet {
                     | JugglePhase::Hold { .. }
                     | JugglePhase::Wander { .. }
                     | JugglePhase::CarryOff { .. }
+                    | JugglePhase::LobOff { .. }
                     | JugglePhase::Throw { released: false }
                     | JugglePhase::Present { released: false }
                     | JugglePhase::Yank
@@ -212,6 +223,8 @@ impl Pet {
         }
         self.juggle.targets.clear();
         self.juggle.targets.extend_from_slice(targets);
+        self.juggle.spots.clear();
+        self.juggle.spots.extend_from_slice(spots);
         if self.juggle.carry.is_some() && !self.carry_ok() {
             self.juggle.carry = None;
             self.juggle.present_pending = false;
@@ -232,6 +245,14 @@ impl Pet {
             }
             return;
         }
+        // 🪨💩 같은 바닥의 거대한 것엔 무조건 한 번 달려가 들어 본다 (쉬는 때·거리·주사위 없이 — 드느냐는 GIANT_LIFT_CHANCE대로)
+        if self.free_hands() {
+            if let Some((spot, to)) = self.untried_giant(spots, world) {
+                self.juggle.seen.push((spot.id, f64::INFINITY));
+                self.start_approach(&spot, to);
+                return;
+            }
+        }
         if !self.may_pick_up() {
             return;
         }
@@ -249,6 +270,37 @@ impl Pet {
         }
         let Some(to) = self.approach_x(&spot, world) else { return };
         self.start_approach(&spot, to);
+    }
+
+    /// 아직 들어 보지 않은, 걸어갈 수 있는 거대한 것 (가장 가까운 것)
+    fn untried_giant(&self, spots: &[ObjectSpot], world: &World) -> Option<(ObjectSpot, f64)> {
+        let st = self.standing?;
+        let x = self.body.x;
+        spots
+            .iter()
+            .filter(|s| s.giant && s.owner == st.owner && !self.juggle.seen.iter().any(|&(id, _)| id == s.id))
+            .filter_map(|s| self.approach_x(s, world).map(|to| (*s, to)))
+            .min_by(|a, b| (a.0.x - x).abs().total_cmp(&(b.0.x - x).abs()))
+    }
+
+    /// 친구에게 놀러 가기로 했다 (side 끝): 들고 갈 물건이 같은 바닥에 있으면 주우러 가서 들고 간다 (true). 없으면 false (그냥 간다)
+    pub fn leave_with_something(&mut self, side: Side, world: &World) -> bool {
+        if !self.cfg.juggler || self.guest.is_some() || visit::is_vertical(side) || self.juggle.carry.is_some() || self.inside.is_some() || self.housed {
+            return false;
+        }
+        let Some(st) = self.standing else { return false };
+        let x = self.body.x;
+        let pick = self
+            .juggle
+            .spots
+            .iter()
+            .filter(|s| !s.giant && !s.local && s.owner == st.owner)
+            .filter_map(|s| self.approach_x(s, world).map(|to| (*s, to)))
+            .min_by(|a, b| (a.0.x - x).abs().total_cmp(&(b.0.x - x).abs()));
+        let Some((spot, to)) = pick else { return false };
+        self.juggle.leave_to = Some(side);
+        self.start_approach(&spot, to);
+        true
     }
 
     /// 물건 옆(to)으로 다가가기 시작한다
@@ -301,6 +353,7 @@ impl Pet {
 
     pub(super) fn end_juggle(&mut self) {
         self.juggle.carry = None;
+        self.juggle.leave_to = None;
         self.juggle.calm_until = self.clock + behavior::range(&mut self.juggle.rng, juggle::CALM_SECS);
         self.state = self.rest_beat();
     }
@@ -320,8 +373,14 @@ impl Pet {
             sides.push(Side::Right);
         }
         // 📌 이 컴퓨터를 떠나지 않는 것(장난감)은 친구에게 들고 가지 않는다 (주사위도 굴리지 않는다)
-        if !sides.is_empty() && !self.juggle.local && self.juggle.rng.f64() < juggle::PRANK_CHANCE {
-            return Plan::Prank(sides[self.juggle.rng.usize(..sides.len())]);
+        if !sides.is_empty() && !self.juggle.local {
+            let roll = self.juggle.rng.f64();
+            if roll < juggle::PRANK_CHANCE {
+                return Plan::Prank(sides[self.juggle.rng.usize(..sides.len())]);
+            }
+            if roll < juggle::PRANK_CHANCE + juggle::LOB_CHANCE {
+                return Plan::Lob(sides[self.juggle.rng.usize(..sides.len())]);
+            }
         }
         if self.juggle.rng.f64() < juggle::WANDER_CHANCE {
             Plan::Wander
@@ -333,9 +392,11 @@ impl Pet {
     pub(super) fn start_lift(&mut self, id: u64, giant: bool, world: &World) {
         self.juggle.carry = Some(id);
         self.juggle.giant = giant;
-        self.juggle.plan = match self.toy_pickup_plan(id) {
-            Some(plan) => plan,
-            None => self.pick_plan(giant, world),
+        self.juggle.plan = match (self.toy_pickup_plan(id), self.juggle.leave_to.take()) {
+            (Some(plan), _) => plan,
+            // 놀러 가는 길에 주웠다: 들고 간다
+            (None, Some(side)) if !giant && !self.juggle.local => Plan::Prank(side),
+            _ => self.pick_plan(giant, world),
         };
         if !giant {
             self.speech = Some(Speech::Hup);
@@ -371,7 +432,7 @@ impl Pet {
     /// 들고 던지기 한 틱
     pub(super) fn update_juggle(&mut self, dt: f64, world: &World, phase: JugglePhase, t: f64) {
         let t = t + dt;
-        let holding = matches!(phase, JugglePhase::Lift | JugglePhase::Hold { .. } | JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. })
+        let holding = matches!(phase, JugglePhase::Lift | JugglePhase::Hold { .. } | JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. } | JugglePhase::LobOff { .. })
             || matches!(phase, JugglePhase::Throw { released: false } | JugglePhase::Present { released: false } | JugglePhase::Stuff { released: false });
         if holding && self.juggle.carry.is_none() {
             // 손에서 놓쳤다 (눌렸다 놓였거나 앱이 물건을 못 찾았다)
@@ -467,6 +528,7 @@ impl Pet {
                         self.state = State::Juggle { phase: JugglePhase::Wander { secs }, t: 0.0 };
                     }
                     Plan::Prank(side) => self.state = State::Juggle { phase: JugglePhase::CarryOff { side }, t: 0.0 },
+                    Plan::Lob(side) => self.state = State::Juggle { phase: JugglePhase::LobOff { side }, t: 0.0 },
                     Plan::Stuff => {
                         let secs = behavior::range(&mut self.toy.rng, crate::taskbar::STUFF_WALK_SECS);
                         self.state = State::Juggle { phase: JugglePhase::Wander { secs }, t: 0.0 };
@@ -486,6 +548,22 @@ impl Pet {
                     self.start_stuff();
                 } else {
                     self.start_throw();
+                }
+            }
+            JugglePhase::LobOff { side } => {
+                let dir = visit::dir(side);
+                self.facing = dir;
+                let edge_x = if dir > 0.0 { world.bounds.right } else { world.bounds.left };
+                let close = (edge_x - self.body.x).abs() <= juggle::LOB_DIST * self.cfg.size;
+                if close {
+                    self.start_throw();
+                    return;
+                }
+                let Some(blocked) = self.juggle_walk(world, dir, self.walk_speed() * dt) else { return };
+                if blocked {
+                    self.start_throw();
+                } else {
+                    self.state = next(phase);
                 }
             }
             JugglePhase::CarryOff { side } => {
@@ -516,7 +594,15 @@ impl Pet {
                 }
                 if !released && t >= juggle::THROW_RELEASE {
                     let from = self.carry_point().unwrap_or((self.body.x, self.body.y - self.cfg.size));
-                    let (vx, vy, facing) = juggle::throw_velocity(&mut self.juggle.rng, from, self.facing, self.cfg.size, self.cfg.dpi, self.juggle.giant, &self.juggle.targets);
+                    let (vx, vy, facing) = match self.juggle.plan {
+                        // 🎯 모니터 너머로: 그 끝을 넉넉히 넘게
+                        Plan::Lob(side) if !self.juggle.giant => {
+                            let edge_x = if visit::dir(side) > 0.0 { world.bounds.right } else { world.bounds.left };
+                            let (vx, vy) = juggle::lob_velocity(from.0, edge_x, self.cfg.dpi);
+                            (vx, vy, visit::dir(side))
+                        }
+                        _ => juggle::throw_velocity(&mut self.juggle.rng, from, self.facing, self.cfg.size, self.cfg.dpi, self.juggle.giant, &self.juggle.targets),
+                    };
                     self.facing = facing;
                     if !self.juggle.giant {
                         self.speech = Some(Speech::Yeet);
@@ -556,7 +642,7 @@ impl Pet {
             JugglePhase::Strain { .. } => Anim::Strain,
             JugglePhase::Lift => Anim::Lift,
             JugglePhase::Hold { .. } => Anim::Hold,
-            JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. } => Anim::Carry,
+            JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. } | JugglePhase::LobOff { .. } => Anim::Carry,
             JugglePhase::Throw { .. } => Anim::Throw,
             JugglePhase::Present { .. } => Anim::Present,
             JugglePhase::Slump => Anim::Slump,

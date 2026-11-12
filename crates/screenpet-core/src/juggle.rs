@@ -37,7 +37,23 @@ pub const WANDER_SECS: (f64, f64) = (4.0, 10.0);
 /// 들고 돌아다니는 빠르기 (걷기 배)
 pub const WANDER_PACE: f64 = 1.3;
 /// 배달 장난: 새 버전 친구가 연결된 끝까지 걸어갈 수 있을 때 주운 것을 들고 놀러 갈 확률
-pub const PRANK_CHANCE: f64 = 0.35;
+pub const PRANK_CHANCE: f64 = 0.45;
+/// 🎯 모니터 너머로 던지기: 친구 끝이 있을 때 주운 것을 그 끝 쪽으로 걸어가 친구 화면으로 휙 던질 확률 (배달 장난 다음 주사위)
+pub const LOB_CHANCE: f64 = 0.3;
+/// 던지기 전에 화면 끝에서 이만큼 (몸 크기 배) 안으로 다가간다
+pub const LOB_DIST: f64 = 5.0;
+/// 모니터 너머로 던질 때 위로 솟는 속도 (논리 px/s)
+pub const LOB_VY: f64 = 900.0;
+
+/// 🎯 (fx)에서 화면 끝 edge_x 너머로 떨어지게 던지는 속도 (물리 px/s): 높이 솟아 같은 높이로 돌아올 때까지 끝을 넉넉히 넘는다
+pub fn lob_velocity(fx: f64, edge_x: f64, dpi: f64) -> (f64, f64) {
+    let g = crate::physics::THROW_GRAVITY_LOGICAL * dpi;
+    let vy = LOB_VY * dpi;
+    let air = 2.0 * vy / g;
+    let d = (edge_x - fx).abs();
+    let vx = (d * 1.3 / air).max(300.0 * dpi).min(crate::physics::MAX_THROW_SPEED_LOGICAL * dpi * 0.9);
+    (vx * (edge_x - fx).signum(), -vy)
+}
 /// 거대한 것에 "끙차" 힘주는 시간
 pub const STRAIN_SECS: f64 = 1.6;
 /// 거대한 것을 끝내 들어 올릴 확률 (아니면 털썩 주저앉는다)

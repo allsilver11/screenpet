@@ -2456,6 +2456,8 @@ impl Pet {
                         }
                         // 화면 가장 바깥 끝: 친구 화면으로 걸어 나가거나 뒤돈다
                         (EndKind::Wall, Move::Walk | Move::Run) => match self.wants_exit(world, &piece) {
+                            // 🤹 흐물이는 들고 갈 물건이 있으면 주워서 들고 간다
+                            Some(side) if self.leave_with_something(side, world) => {}
                             Some(side) => self.start_exit(side),
                             None => self.state = State::Turn { remaining: TURN_PAUSE },
                         },

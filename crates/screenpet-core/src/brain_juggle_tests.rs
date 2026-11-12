@@ -244,6 +244,7 @@ fn prank_odds_need_a_new_friend_edge_it_can_walk_to_and_never_happen_for_giants(
             }
             Plan::Wander => wander += 1,
             Plan::Throw => throw += 1,
+            Plan::Lob(_) => {}
             Plan::Stuff => panic!("도로 넣기는 📌 장난감만"),
         }
         assert_eq!(p.pick_plan(true, &w), Plan::Throw, "거대한 것은 던지기만");
@@ -477,4 +478,105 @@ fn the_bundled_heumul_juggles_with_grip_tables_and_no_one_else_does() {
             assert!(cfg.grip.lift.at(0.0).1 > 0.6, "{:?}", cfg.grip.lift);
         }
     }
+}
+
+// ---- v0.6.3: 친구에게 들고 가기·모니터 너머로 던지기·거대한 것엔 무조건 ----
+
+#[test]
+fn heading_off_to_a_friend_it_always_takes_something_along_if_it_can() {
+    // 사용자: 친구 화면에 놀러 가기로 했을 때 들고 갈 물건이 있으면 무조건 들고 간다
+    let w = world(vec![]);
+    for seed in 0..20 {
+        let mut p = walking(juggler(), 1500.0, seed, &w);
+        p.set_exit_edges(false, true);
+        let spots = [spot(7, 1200.0, &w)];
+        p.notice_objects(&spots, &[], &w);
+        assert!(p.leave_with_something(Side::Right, &w), "{seed}");
+        let mut exited = None;
+        for _ in 0..(60 * 30) {
+            let _ = tick(&mut p, &w, &spots, &[]);
+            if let Some(side) = p.take_exit() {
+                exited = Some(side);
+                break;
+            }
+        }
+        assert_eq!(exited, Some(Side::Right), "{seed}: {:?}", p.state);
+        assert_eq!(p.carried_object(), Some(7), "{seed}: 들고 나갔다");
+    }
+    // 들고 갈 게 없거나(거대한 것·📌 장난감뿐) 친구 쪽이 아니면 그냥 간다
+    let mut p = walking(juggler(), 1500.0, 1, &w);
+    p.notice_objects(&[giant(8, 1000.0, &w), ObjectSpot { local: true, ..spot(9, 1300.0, &w) }], &[], &w);
+    assert!(!p.leave_with_something(Side::Right, &w));
+    // 흐물이가 아니면 아무것도
+    let mut cat = walking(PetConfig { juggler: false, ..juggler() }, 1500.0, 1, &w);
+    cat.notice_objects(&[spot(7, 1200.0, &w)], &[], &w);
+    assert!(!cat.leave_with_something(Side::Right, &w));
+}
+
+#[test]
+fn now_and_then_it_lobs_the_object_over_the_monitor_to_a_friend() {
+    // 사용자: 내 화면 안에서만 던지지 말고 친구 화면으로도 — 모니터 너머로 던지기
+    let w = world(vec![]);
+    let n = 2000;
+    let mut lobs = 0;
+    for seed in 0..n {
+        let mut p = walking(juggler(), 900.0, seed, &w);
+        p.set_prank_edges(false, true);
+        if let Plan::Lob(side) = p.pick_plan(false, &w) {
+            assert_eq!(side, Side::Right);
+            lobs += 1;
+        }
+        p.set_prank_edges(false, false);
+        assert!(!matches!(p.pick_plan(false, &w), Plan::Lob(_)), "친구 끝이 없으면 안 던진다");
+        assert!(!matches!(p.pick_plan(true, &w), Plan::Lob(_)), "거대한 것은 아니다");
+    }
+    let share = lobs as f64 / n as f64;
+    assert!((share - juggle::LOB_CHANCE).abs() < 0.04, "lob {share}");
+    // 던진 물건은 실제로 그 끝을 넘어간다
+    let edges = crate::visit::ExitEdges { right: true, ..Default::default() };
+    for (seed, x) in [(1, 300.0), (2, 900.0), (3, 1700.0)] {
+        let mut p = walking(juggler(), x, seed, &w);
+        p.set_exit_edges(false, true);
+        p.set_prank_edges(false, true);
+        holding(&mut p, Plan::Lob(Side::Right), &w);
+        let mut thrown = None;
+        let mut from = (0.0, 0.0);
+        for _ in 0..(60 * 20) {
+            if let Some(c) = p.carry_point() {
+                from = c;
+            }
+            if let Some(JuggleEvent::Release { vx, vy, .. }) = tick(&mut p, &w, &[], &[]) {
+                thrown = Some((vx, vy, from));
+                break;
+            }
+        }
+        let (vx, vy, from) = thrown.expect("threw");
+        assert!(vx > 0.0, "친구 쪽으로");
+        let mut o = Object::new(ObjectKind::Can, from.0, from.1, 1.0, seed);
+        o.launch(vx, vy);
+        let left = (0..600).find_map(|_| o.tick(DT, &w, edges, false)).map(|e| e.side);
+        assert_eq!(left, Some(Side::Right), "from x={x}");
+    }
+}
+
+#[test]
+fn a_giant_on_its_floor_always_gets_one_try() {
+    // 사용자: 흐물이 화면에 거대 똥·돌이 생기면 무조건 달려가서 한번 들어 본다 (드느냐는 지금 확률대로)
+    let w = world(vec![]);
+    for seed in 0..50 {
+        let mut p = walking(juggler(), 200.0, seed, &w);
+        p.juggle.calm_until = p.clock + 100.0;
+        let spots = [giant(5, 1600.0, &w)];
+        p.notice_objects(&spots, &[], &w);
+        assert!(matches!(juggling(&p), Some(JugglePhase::Approach { id: 5, giant: true, .. })), "{seed}: {:?}", p.state);
+    }
+    // 한 번 해 봤으면 같은 것에 또 달려가지 않는다
+    let mut p = walking(juggler(), 200.0, 3, &w);
+    let spots = [giant(5, 1600.0, &w)];
+    p.notice_objects(&spots, &[], &w);
+    p.end_juggle();
+    p.juggle.calm_until = 0.0;
+    place(&mut p, &w, Owner::Ground(0), 200.0, State::Move { kind: Move::Walk, remaining: 100.0 });
+    p.notice_objects(&spots, &[], &w);
+    assert!(juggling(&p).is_none());
 }
