@@ -31,6 +31,9 @@
 //!                   (items carry `done` and, from v3, `rejected`; `letter_done false` clears both)
 //! relay  -> client  letter_new {item}          (to readers online when a letter arrives)
 //! client -> relay   letter_reject {id, rejected} (v3, readers only) 🙅 반려 — clears 반영; -> letters_changed
+//! client -> relay   letter_private {id, private} (v3, readers only) 🔒 비공개: off the public
+//!                   board (items, total, pages) until turned off; -> letters_changed
+//!                   (letters carry `private`)
 //! client -> relay   board_put {items: [{id, name, line}]}
 //!                   (v3, readers only, ≤ 20 a message) 📮 public digest of a
 //!                   letter: masked name (`김**`) and its first line; checked
@@ -119,6 +122,10 @@ pub enum ClientMsg {
     LetterReject {
         id: u64,
         rejected: bool,
+    },
+    LetterPrivate {
+        id: u64,
+        private: bool,
     },
     BoardPut {
         items: Vec<BoardIn>,
@@ -292,6 +299,8 @@ mod tests {
         assert_eq!(m, ClientMsg::BoardPut { items: vec![BoardIn { id: 3, name: "김**".into(), line: "펭귄".into() }] });
         let m: ClientMsg = serde_json::from_str(r#"{"t":"letter_reject","id":4,"rejected":true}"#).unwrap();
         assert_eq!(m, ClientMsg::LetterReject { id: 4, rejected: true });
+        let m: ClientMsg = serde_json::from_str(r#"{"t":"letter_private","id":4,"private":true}"#).unwrap();
+        assert_eq!(m, ClientMsg::LetterPrivate { id: 4, private: true });
         let item = crate::board::Item { id: 3, name: "김**".into(), line: "펭귄".into(), at: 9, status: crate::board::Status::Rejected };
         let s = ServerMsg::BoardPage { items: vec![item], page: 1, pages: 1, total: 1 }.to_json();
         assert_eq!(s, r#"{"t":"board_page","items":[{"id":3,"name":"김**","line":"펭귄","at":9,"status":"rejected"}],"page":1,"pages":1,"total":1}"#);

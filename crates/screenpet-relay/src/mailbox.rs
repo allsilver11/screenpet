@@ -42,6 +42,10 @@ pub struct StoredLetter {
     /// older files and older apps know only `done`.
     #[serde(default)]
     pub rejected: bool,
+    /// 🔒 The developer keeps it off the public board (비공개). Older files
+    /// lack it: public.
+    #[serde(default)]
+    pub private: bool,
     /// The sealed letter, hex.
     pub r#box: String,
 }
@@ -151,7 +155,7 @@ impl Mailbox {
         }
         self.data.sent.push(Sent { key: from.to_string(), ip: ip.to_string(), at: now });
         self.data.next_id += 1;
-        let letter = StoredLetter { id: self.data.next_id, at: now, from: from.to_string(), read: false, done: false, rejected: false, r#box: proto::to_hex(sealed) };
+        let letter = StoredLetter { id: self.data.next_id, at: now, from: from.to_string(), read: false, done: false, rejected: false, private: false, r#box: proto::to_hex(sealed) };
         self.data.letters.push(letter.clone());
         self.dirty = true;
         Ok(letter)
@@ -208,6 +212,21 @@ impl Mailbox {
         self.set_status(id, if rejected { Status::Rejected } else { Status::None })
     }
 
+    /// 🔒 Hide a letter from the public board (or show it again). Its digest
+    /// is kept, so the developer's app doesn't publish it again.
+    pub fn mark_private(&mut self, id: u64, private: bool) -> bool {
+        match self.data.letters.iter_mut().find(|l| l.id == id) {
+            Some(l) => {
+                if l.private != private {
+                    l.private = private;
+                    self.dirty = true;
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Board entries whose letter is gone go too.
     fn prune_board(&mut self) {
         let ids: BTreeSet<u64> = self.data.letters.iter().map(|l| l.id).collect();
@@ -260,12 +279,13 @@ impl Mailbox {
         self.data.board.keys().copied().collect()
     }
 
-    /// 📮 Page `want` (1-based) of the board, newest letter first:
-    /// (items, page, pages, total).
+    /// 📮 Page `want` (1-based) of the board, newest letter first, without
+    /// 🔒 private letters (not in items, total or pages): (items, page, pages, total).
     pub fn board_page(&self, want: u32) -> (Vec<Item>, u32, u32, u32) {
         let all: Vec<Item> = self
             .list()
             .into_iter()
+            .filter(|l| !l.private)
             .filter_map(|l| self.data.board.get(&l.id).map(|e| Item { id: l.id, name: e.name.clone(), line: e.line.clone(), at: l.at, status: l.status() }))
             .collect();
         let (start, end, page, pages) = board::page_range(all.len(), want);
@@ -556,5 +576,34 @@ mod tests {
         }
         assert_eq!(m.board_ids().len(), MAX_LETTERS);
         assert_eq!(m.board_page(u32::MAX).2, (MAX_LETTERS / board::PER_PAGE) as u32);
+    }
+
+    #[test]
+    fn private_letters_are_off_the_board_and_stay_off() {
+        let dir = tmp_dir("private");
+        let mut m = mb();
+        let mut ids = Vec::new();
+        for i in 0..6u64 {
+            let id = m.submit(&format!("k{i}"), &format!("10.0.0.{i}"), 2, b"x", T + i).unwrap().id;
+            m.board_put(id, "*", &format!("줄 {i}")).unwrap();
+            ids.push(id);
+        }
+        assert_eq!(m.board_page(1).2, 2);
+        assert!(m.mark_private(ids[5], true) && !m.mark_private(999, true));
+        let (items, _, pages, total) = m.board_page(1);
+        assert_eq!((pages, total), (1, 5), "not in total or pages");
+        assert!(items.iter().all(|x| x.id != ids[5]));
+        assert_eq!(m.board_put(ids[5], "*", "다시 올림"), Ok(true), "taken, but…");
+        assert!(m.board_page(1).0.iter().all(|x| x.id != ids[5]), "…a new digest doesn't make it public");
+        assert!(m.board_ids().contains(&ids[5]), "the app knows it's published and won't send it again");
+        assert!(m.list()[0].private, "readers see the flag");
+        Mailbox::save(&dir, &m.snapshot().unwrap()).unwrap();
+        let mut back = Mailbox::load(&dir);
+        assert_eq!(back.board_page(1).3, 5, "survives a restart");
+        assert!(back.mark_private(ids[5], false));
+        assert_eq!(back.board_page(1).3, 6, "public again");
+        let old: StoredLetter = serde_json::from_str(r#"{"id":1,"at":5,"from":"a","read":true,"box":"00"}"#).unwrap();
+        assert!(!old.private, "old letters are public");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

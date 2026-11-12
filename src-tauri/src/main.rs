@@ -320,6 +320,7 @@ fn main() {
             mailbox::mailbox_read,
             mailbox::mailbox_done,
             mailbox::mailbox_reject,
+            mailbox::mailbox_private,
             mailbox::mailbox_delete,
             mailbox::mailbox_block,
             mailbox::mailbox_close,

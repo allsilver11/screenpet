@@ -1,6 +1,6 @@
 // 📮 개발자 건의함 (개발자 비밀키가 있는 컴퓨터만 — spec 2026-11-10-feedback-mailbox §5, 예전 "📬 편지함").
-// 목록은 `mailbox-state`([{id, at, from, read, done, rejected, ok, text, name, species, stage, style, version, os}], 최신순)로 온다.
-// 보낸 사람이 쓴 글은 모두 textContent로만 넣는다 (HTML로 해석하지 않는다). 열면 읽음, ✅ 반영함 / 🙅 반려 (하나만), 지우기, 이 사람 막기.
+// 목록은 `mailbox-state`([{id, at, from, read, done, rejected, private, ok, text, name, species, stage, style, version, os}], 최신순)로 온다.
+// 보낸 사람이 쓴 글은 모두 textContent로만 넣는다 (HTML로 해석하지 않는다). 열면 읽음, ✅ 반영함 / 🙅 반려 (하나만), 🔒 비공개 (공개 건의함에서 숨기기 — 여기선 그대로 보이고 표시만), 지우기, 이 사람 막기.
 // 공개 건의함(board.js)과 같은 쪽 넘기기 (pager.js, 5개씩): 읽거나 지우거나 막아도 보던 쪽에 남고, 그 쪽이 비면 한 쪽 앞으로.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
@@ -41,10 +41,14 @@ function render() {
   emptyEl.style.display = letters.length ? "none" : "block";
   pager.set(page, pageCount(letters.length), letters.length > 0);
   for (const l of pageSlice(letters, page)) {
-    const box = el("div", ["letter", l.read ? "" : "unread", l.done ? "done" : "", l.rejected ? "rejected" : ""].filter(Boolean).join(" "));
+    const box = el("div", ["letter", l.read ? "" : "unread", l.done ? "done" : "", l.rejected ? "rejected" : "", l.private ? "private" : ""].filter(Boolean).join(" "));
     const meta = el("div", "meta");
     const who = `${PET_EMOJI[l.species] || "💌"} ${l.name || "누군가"}`;
-    meta.append(el("span", "who", who), el("span", "", `${when(l.at)} · v${l.version || "?"} · ${l.os || "?"}`));
+    const info = el("span", "");
+    // 🔒 비공개 표시 (개발자에게는 그대로 보인다)
+    if (l.private) info.append(el("span", "badge private", "🔒 비공개"), " ");
+    info.append(`${when(l.at)} · v${l.version || "?"} · ${l.os || "?"}`);
+    meta.append(el("span", "who", who), info);
     const text = el("div", "text", l.text);
     const row = el("div", "row");
     const del = el("button", "", "지우기");
@@ -84,6 +88,9 @@ function render() {
     };
     const check = checkbox("✅ 반영함", l.done);
     const reject = checkbox("🙅 반려", l.rejected && !l.done);
+    // 🔒 비공개: 다른 사람의 📮 건의함에서 숨긴다 (반영·반려와 따로)
+    const hide = checkbox("🔒 비공개", l.private);
+    hide.addEventListener("change", () => invoke("mailbox_private", { id: l.id, private: hide.checked }));
     check.addEventListener("change", () => {
       if (check.checked) reject.checked = false;
       invoke("mailbox_done", { id: l.id, done: check.checked });

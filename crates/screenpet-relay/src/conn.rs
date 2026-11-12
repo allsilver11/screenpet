@@ -265,6 +265,10 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                     hub.letter_reject(&a.key, a.conn, id, rejected);
                                     None
                                 }
+                                ClientMsg::LetterPrivate { id, private } => {
+                                    hub.letter_private(&a.key, a.conn, id, private);
+                                    None
+                                }
                                 ClientMsg::BoardPut { items } => {
                                     hub.board_put(&a.key, a.conn, &items);
                                     None

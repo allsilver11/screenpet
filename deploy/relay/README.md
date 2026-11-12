@@ -301,11 +301,14 @@ and bidi characters are dropped; the letter must exist.
   pages, total}`: 5 a page, newest first, each with the letter's date and
   status (`none`, `done` ✅ 반영됨, `rejected` 🙅 반려됨); one request per
   0.5 s per connection, faster ones get no answer
+- `letter_private {id, private}` (readers): 🔒 비공개 — the letter stays in the
+  mailbox but is left out of `board_page` (items, total, pages) until turned
+  off; a later `board_put` doesn't show it again. Old letters are public
 - `letter_reject {id, rejected}` (readers): 🙅 반려. A letter is either done or
   rejected; older developer apps' `letter_done false` clears both. Old
   `letters.json` files load as they are (`done: true` stays done)
 
-Apps send `board_put`, `board_list` and `letter_reject` only to relays whose
+Apps send `board_put`, `board_list`, `letter_reject` and `letter_private` only to relays whose
 challenge says `v >= 3`; older apps never send them. Nothing else to set up:
 deploy the new binary, existing letters get published the next time the
 developer's app connects.

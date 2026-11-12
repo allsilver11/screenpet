@@ -140,7 +140,13 @@ const snap = () => ({ cards: cards().map((c) => c.textContent), classes: cards()
     reject.checked = false;
     reject.fire("change");
     out.statusOff = { invoked: invoked.slice(), done: check.checked, rejected: reject.checked };
-    send([letter(1, { rejected: true }), letter(2, { done: true })]);
+    // 🔒 비공개: 반영·반려와 따로, 표시가 붙는다
+    const hide = cards()[0].all((e) => e.tag === "input")[2];
+    invoked.length = 0;
+    hide.checked = true;
+    hide.fire("change");
+    out.private = { invoked: invoked.slice(), labels: cards()[0].all((e) => e.tag === "label").map((x) => x.textContent) };
+    send([letter(1, { rejected: true, private: true }), letter(2, { done: true })]);
     out.marked = snap();
     send([]);
     out.none = snap();

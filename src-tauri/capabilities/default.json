@@ -44,7 +44,7 @@
     {
       "identifier": "mailbox-window",
       "windows": ["mailbox"],
-      "permissions": ["allow-mailbox-state", "allow-mailbox-read", "allow-mailbox-done", "allow-mailbox-reject", "allow-mailbox-delete", "allow-mailbox-block", "allow-mailbox-close"]
+      "permissions": ["allow-mailbox-state", "allow-mailbox-read", "allow-mailbox-done", "allow-mailbox-reject", "allow-mailbox-private", "allow-mailbox-delete", "allow-mailbox-block", "allow-mailbox-close"]
     },
     {
       "identifier": "board-window",

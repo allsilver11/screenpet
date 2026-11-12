@@ -85,6 +85,7 @@ fn main() {
         "mailbox_read",
         "mailbox_done",
         "mailbox_reject",
+        "mailbox_private",
         "mailbox_delete",
         "mailbox_block",
         "mailbox_close",

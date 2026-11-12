@@ -16,7 +16,7 @@ NET = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
 BUILD = (ROOT / "src-tauri" / "build.rs").read_text(encoding="utf-8")
 CAPS = json.loads((ROOT / "src-tauri" / "capabilities" / "default.json").read_text(encoding="utf-8"))
 
-COMMANDS = ("mailbox_state", "mailbox_read", "mailbox_delete", "mailbox_block", "mailbox_done", "mailbox_reject", "mailbox_close")
+COMMANDS = ("mailbox_state", "mailbox_read", "mailbox_delete", "mailbox_block", "mailbox_done", "mailbox_reject", "mailbox_private", "mailbox_close")
 
 
 def test_the_mailbox_opens_from_the_board_item_only_with_a_developer_key():
@@ -68,6 +68,15 @@ def test_the_developer_can_reject_a_letter_instead():
     assert ".letter.rejected" in HTML
     assert "pub rejected: bool" in RS and "NetInput::MailboxReject(id, rejected)" in RS
     assert "net.mailbox_reject(id, rejected)" in NET
+
+
+def test_the_developer_can_keep_a_letter_off_the_public_board():
+    """🔒 비공개: 개발자 창에만 (공개 board.js에는 없다), 표시가 붙고, 다시 올려도 풀리지 않는다"""
+    assert "🔒 비공개" in JS and 'invoke("mailbox_private", { id: l.id, private: hide.checked })' in JS
+    assert ".badge.private" in HTML
+    assert "pub private: bool" in RS and "NetInput::MailboxPrivate(id, private)" in RS
+    assert "!l.private && !published.contains(&l.id)" in RS, "private letters are never published"
+    assert "net.mailbox_private(id, private)" in NET
 
 
 def test_the_developer_can_tick_letters_as_done():

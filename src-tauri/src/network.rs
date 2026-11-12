@@ -127,6 +127,8 @@ pub enum NetInput {
     MailboxRead(u64),
     MailboxDone(u64, bool),
     MailboxReject(u64, bool),
+    /// 🔒 비공개: 공개 건의함에서 숨기기 / 다시 보이기
+    MailboxPrivate(u64, bool),
     /// 📮 건의함 보기 창 (누구나, board.rs): 이 쪽(1부터)을 릴레이에 묻는다
     BoardList(u32),
     MailboxDelete(u64),
@@ -1248,6 +1250,17 @@ impl Network {
                     // 옛 릴레이(v3 전)는 반려를 모른다: 체크칸만 되돌린다
                     if net.mailbox_reject(id, rejected) {
                         self.mailbox.reject_local(app, id, rejected);
+                    } else {
+                        self.mailbox.publish(app);
+                    }
+                }
+            }
+            NetInput::MailboxPrivate(id, private) => {
+                if let (Some(net), true) = (&self.net, self.mailbox.enabled()) {
+                    // 옛 릴레이(v3 전)는 비공개를 모른다: 체크칸만 되돌린다
+                    if net.mailbox_private(id, private) {
+                        let digests = self.mailbox.private_local(app, id, private);
+                        self.publish_board(&digests);
                     } else {
                         self.mailbox.publish(app);
                     }

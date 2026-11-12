@@ -1099,6 +1099,12 @@ impl Net {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Reject(id, rejected)))
     }
 
+    /// 🔒 Keep a letter off the public board (비공개), or show it again. Only
+    /// v3 relays (`false` otherwise).
+    pub fn mailbox_private(&self, id: u64, private: bool) -> bool {
+        self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Private(id, private)))
+    }
+
     /// 📮 Publish public digests ([`board::digest`]) of letters this
     /// developer app opened. Only v3 relays, only for mailbox readers.
     pub fn board_put(&self, items: &[board::Digest]) -> bool {

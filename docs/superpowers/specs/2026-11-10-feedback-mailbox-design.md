@@ -92,4 +92,5 @@ client -> relay  letter_read {id} / letter_delete {id} / letter_block {from}   -
 - **상태 셋**: 없음 · ✅ 반영됨(done) · 🙅 반려됨(rejected), 하나만. `letter_reject {id, rejected}`(v3), 옛 앱의 `letter_done false`는 둘 다 지운다. 옛 파일의 done:true는 반영됨.
 - **두 창 같은 쪽 넘기기** (`ui/pager.js`, `ui/list.css`): 5개씩, "‹ 이전 n / m 다음 ›". 개발자 건의함은 읽기·지우기·막기 뒤에도 보던 쪽, 비면 한 쪽 앞.
 - **건의는 하루 5통** (보낸 사람 열쇠마다, 24시간 창). 주소당 한도는 10통으로 (한 사람의 5통이 막히지 않게). 6통째: "건의는 하루에 5통까지 보낼 수 있어요".
+- **🔒 비공개** (개발자 창에만): `letter_private {id, private}`(v3, 읽는 설치만). 편지마다 `private` 칸 (옛 파일은 공개). 켜면 `board_list`의 items·total·pages에서 빠지고, 다시 `board_put`해도 안 보인다. 개발자 앱은 비공개 편지의 요약을 아예 보내지 않는다. 개발자 목록엔 "🔒 비공개" 표시.
 - 건의하기 창 안내: "보낸 편지의 첫 줄과 이름 첫 글자는 📮 건의함에서 다른 사용자에게도 보여요."

@@ -86,6 +86,7 @@ enum ClientMsg<'a> {
     WeatherWant { place: &'a str },
     /// 🙅 / 📮 Only to relays at `BOARD_RELAY_VERSION`.
     LetterReject { id: u64, rejected: bool },
+    LetterPrivate { id: u64, private: bool },
     BoardPut { items: &'a [crate::board::Digest] },
     BoardList { page: u32 },
 }
@@ -104,13 +105,16 @@ struct WireLetter {
     /// 🙅 반려 (v3 relays)
     #[serde(default)]
     rejected: bool,
+    /// 🔒 비공개 (v3 relays)
+    #[serde(default)]
+    private: bool,
     r#box: String,
 }
 
 impl WireLetter {
     fn item(self) -> Option<crate::letter::MailItem> {
         let sealed = noise::hex_vec(&self.r#box)?;
-        Some(crate::letter::MailItem { id: self.id, at: self.at, from: self.from, read: self.read, done: self.done, rejected: self.rejected && !self.done, sealed })
+        Some(crate::letter::MailItem { id: self.id, at: self.at, from: self.from, read: self.read, done: self.done, rejected: self.rejected && !self.done, private: self.private, sealed })
     }
 }
 
@@ -123,6 +127,8 @@ pub(crate) enum MailboxEdit {
     Done(u64, bool),
     /// 🙅 반려 — v3 relays only
     Reject(u64, bool),
+    /// 🔒 비공개 — v3 relays only
+    Private(u64, bool),
 }
 
 #[derive(Debug, Deserialize)]
@@ -466,11 +472,12 @@ pub(crate) fn mailbox_list(client: &RelayClient) -> bool {
 /// Mark read / delete / block (readers only; every reader then re-lists).
 /// `Reject` goes only to v3 relays (`false` otherwise).
 pub(crate) fn mailbox_edit(client: &RelayClient, edit: MailboxEdit) -> bool {
-    if matches!(edit, MailboxEdit::Reject(..)) && client.inner().relay_v < BOARD_RELAY_VERSION {
+    if matches!(edit, MailboxEdit::Reject(..) | MailboxEdit::Private(..)) && client.inner().relay_v < BOARD_RELAY_VERSION {
         return false;
     }
     let m = match &edit {
         MailboxEdit::Reject(id, rejected) => ClientMsg::LetterReject { id: *id, rejected: *rejected },
+        MailboxEdit::Private(id, private) => ClientMsg::LetterPrivate { id: *id, private: *private },
         MailboxEdit::Read(id) => ClientMsg::LetterRead { id: *id },
         MailboxEdit::Delete(id) => ClientMsg::LetterDelete { id: *id },
         MailboxEdit::Block(from) => ClientMsg::LetterBlock { from },
@@ -1387,7 +1394,7 @@ mod tests {
     #[test]
     fn the_mailbox_lists_arrives_and_refreshes_when_it_changes() {
         let (net, events, client, out) = letter_rig();
-        let item = |id, read| WireLetter { id, at: 100 + id, from: "ab".repeat(32), read, done: id == 7, rejected: false, r#box: "0a0b".into() };
+        let item = |id, read| WireLetter { id, at: 100 + id, from: "ab".repeat(32), read, done: id == 7, rejected: false, private: id == 7, r#box: "0a0b".into() };
         on_message(&net.shared, &client, 1, ServerMsg::LetterNew { item: item(7, false) });
         match &letter_events(&events)[..] {
             [NetEvent::LetterArrived { item }] => assert_eq!((item.id, item.at, item.read, item.sealed.clone()), (7, 107, false, vec![10, 11])),
@@ -1397,7 +1404,7 @@ mod tests {
         match &letter_events(&events)[..] {
             [NetEvent::Mailbox { letters, board }] => {
                 assert_eq!(letters.iter().map(|l| l.id).collect::<Vec<_>>(), vec![7], "bad hex dropped");
-                assert!(letters[0].done);
+                assert!(letters[0].done && letters[0].private);
                 assert_eq!(board, &vec![7]);
             }
             other => panic!("{other:?}"),
@@ -1427,16 +1434,19 @@ mod tests {
         let d = crate::board::Digest { id: 3, name: "김**".into(), line: "펭귄".into() };
         assert!(!board_put(&client, std::slice::from_ref(&d)));
         assert!(!mailbox_edit(&client, MailboxEdit::Reject(3, true)));
+        assert!(!mailbox_edit(&client, MailboxEdit::Private(3, true)));
         assert!(sent_text(&out).is_empty());
         client.inner().relay_v = 3;
         assert!(board_put(&client, std::slice::from_ref(&d)));
         assert!(mailbox_edit(&client, MailboxEdit::Reject(3, true)));
+        assert!(mailbox_edit(&client, MailboxEdit::Private(3, true)));
         assert!(mailbox_edit(&client, MailboxEdit::Done(3, false)), "letter_done goes to any relay");
         assert_eq!(
             sent_text(&out),
             vec![
                 r#"{"t":"board_put","items":[{"id":3,"name":"김**","line":"펭귄"}]}"#.to_string(),
                 r#"{"t":"letter_reject","id":3,"rejected":true}"#.to_string(),
+                r#"{"t":"letter_private","id":3,"private":true}"#.to_string(),
                 r#"{"t":"letter_done","id":3,"done":false}"#.to_string()
             ]
         );

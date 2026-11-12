@@ -47,6 +47,8 @@ pub struct LetterView {
     pub done: bool,
     /// 🙅 반려함 (done과 함께는 아니다)
     pub rejected: bool,
+    /// 🔒 비공개: 공개 건의함에 안 보인다 (개발자에게는 그대로)
+    pub private: bool,
     pub ok: bool,
     pub text: String,
     pub name: String,
@@ -59,12 +61,13 @@ pub struct LetterView {
 
 static VIEW: Mutex<Vec<LetterView>> = Mutex::new(Vec::new());
 
-/// 📮 아직 건의함에 없는 편지의 공개 요약 (연 편지만, 오래된 것부터)
+/// 📮 아직 건의함에 없는 편지의 공개 요약 (연 편지만, 오래된 것부터). 🔒 비공개 편지는 요약도 보내지 않는다
+/// (릴레이도 비공개 편지는 요약이 있어도 목록에 넣지 않는다)
 pub fn unpublished(letters: &[LetterView], published: &HashSet<u64>) -> Vec<Digest> {
     letters
         .iter()
         .rev()
-        .filter(|l| l.ok && !published.contains(&l.id))
+        .filter(|l| l.ok && !l.private && !published.contains(&l.id))
         .filter_map(|l| board::digest(l.id, &letter::Letter { text: l.text.clone(), name: l.name.clone(), ..Default::default() }))
         .collect()
 }
@@ -79,6 +82,7 @@ pub fn view_of(item: &MailItem, secret: [u8; 32]) -> LetterView {
         read: item.read,
         done: item.done,
         rejected: item.rejected && !item.done,
+        private: item.private,
         ok: opened.is_some(),
         text: if opened.is_some() { l.text } else { "(열 수 없는 편지)".into() },
         name: l.name,
@@ -179,6 +183,16 @@ impl Mailbox {
             set_status(l, false, rejected);
         }
         self.publish(app);
+    }
+
+    /// 🔒 비공개 (끄면 다시 공개 — 아직 안 올린 편지면 돌려주는 요약을 올린다)
+    pub fn private_local(&mut self, app: &AppHandle, id: u64, private: bool) -> Vec<Digest> {
+        if let Some(l) = self.letters.iter_mut().find(|l| l.id == id) {
+            l.private = private;
+        }
+        self.publish(app);
+        let one: Vec<LetterView> = self.letters.iter().filter(|l| l.id == id).cloned().collect();
+        unpublished(&one, &self.published)
     }
 
     /// 지운 편지는 릴레이가 건의함에서도 뺀다
@@ -309,6 +323,14 @@ pub fn mailbox_reject(window: WebviewWindow, state: tauri::State<AppState>, id: 
     }
 }
 
+/// 🔒 비공개 (NetInput::MailboxPrivate(id, private)) — v3 릴레이만
+#[tauri::command]
+pub fn mailbox_private(window: WebviewWindow, state: tauri::State<AppState>, id: u64, private: bool) {
+    if mine(&window) {
+        state.send(Input::Net(NetInput::MailboxPrivate(id, private)));
+    }
+}
+
 #[tauri::command]
 pub fn mailbox_delete(window: WebviewWindow, state: tauri::State<AppState>, id: u64) {
     if mine(&window) {
@@ -340,18 +362,18 @@ mod tests {
         let secret = screenpet_net::letter::secret_from_hex(&secret_hex).unwrap();
         let public: [u8; 32] = (0..32).map(|i| u8::from_str_radix(&public_hex[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<_>>().try_into().unwrap();
         let sealed = letter::seal(&letter::Letter { text: "안녕".into(), name: "단니".into(), ..Default::default() }, &public).unwrap();
-        let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, done: false, rejected: true, sealed };
+        let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, done: false, rejected: true, private: true, sealed };
         let v = view_of(&item, secret);
         assert!(v.ok);
         assert_eq!((v.text.as_str(), v.name.as_str()), ("안녕", "단니"));
         let other = view_of(&item, [7; 32]);
         assert!(!other.ok);
         assert_eq!(other.text, "(열 수 없는 편지)");
-        assert!(v.rejected && !v.done);
+        assert!(v.rejected && !v.done && v.private);
     }
 
     fn view(id: u64, ok: bool, name: &str, text: &str) -> LetterView {
-        LetterView { id, at: id, from: String::new(), read: false, done: false, rejected: false, ok, text: text.into(), name: name.into(), species: "cat".into(), stage: String::new(), style: String::new(), version: "0.6.3".into(), os: "windows".into() }
+        LetterView { id, at: id, from: String::new(), read: false, done: false, rejected: false, private: false, ok, text: text.into(), name: name.into(), species: "cat".into(), stage: String::new(), style: String::new(), version: "0.6.3".into(), os: "windows".into() }
     }
 
     #[test]
@@ -361,6 +383,9 @@ mod tests {
         let digests = unpublished(&letters, &HashSet::new());
         assert_eq!(digests, vec![Digest { id: 1, name: "*".into(), line: "고마워요".into() }, Digest { id: 3, name: "김**".into(), line: "펭귄 더 주세요".into() }], "oldest first, unopened skipped");
         assert_eq!(unpublished(&letters, &HashSet::from([1, 3])), vec![], "already on the board");
+        let mut hidden = letters.clone();
+        hidden[0].private = true;
+        assert_eq!(unpublished(&hidden, &HashSet::new()).iter().map(|d| d.id).collect::<Vec<_>>(), vec![1], "🔒 private: no digest at all");
         let all = serde_json::to_string(&digests).unwrap();
         assert!(!all.contains("비밀") && !all.contains("철수") && !all.contains("cat"), "{all}");
     }

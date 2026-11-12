@@ -62,7 +62,7 @@ def test_the_public_list_has_no_controls_and_never_uses_html():
         assert "textContent" in src
     assert set(re.findall(r'invoke\("([a-z_]+)"', JS)) == {"board_list", "board_close"}
     code = re.sub(r"^\s*//.*$", "", JS, flags=re.M)
-    for word in ("checkbox", "지우기", "막기", "반영함", "읽음", "mailbox_", "<input", "<textarea"):
+    for word in ("checkbox", "지우기", "막기", "반영함", "읽음", "mailbox_", "<input", "<textarea", "비공개", "private"):
         assert word not in code + HTML, word
     assert '<button id="close">닫기</button>' in HTML
 
@@ -95,7 +95,8 @@ def test_the_developer_publishes_digests_and_nothing_else():
 def test_help_and_release_note():
     assert "📮 건의함" in HELP and "김**" in HELP and "🙅 반려됨" in HELP
     assert "하루에 5통" in HELP and "하루에 한 통" not in HELP
-    assert "📮 건의함" in NOTES and "🙅" in NOTES and "5통" in NOTES
+    assert "📮 건의함" in NOTES and "🙅" in NOTES and "5통" in NOTES and "🔒 비공개" in NOTES
+    assert "🔒 비공개로 둔 건의는 목록에 나오지 않아요" in HELP
 
 
 @needs_node
@@ -126,7 +127,10 @@ def test_the_developer_list_pages_by_five_and_stays_on_its_page():
     # ✅ 반영함 / 🙅 반려: 하나만, 끄면 없음
     assert out["status"] == {"invoked": [["mailbox_done", {"id": 7, "done": True}], ["mailbox_reject", {"id": 7, "rejected": True}]], "done": False, "rejected": True}
     assert out["statusOff"] == {"invoked": [["mailbox_reject", {"id": 7, "rejected": False}]], "done": False, "rejected": False}
-    assert out["marked"]["classes"] == ["letter rejected", "letter done"]
+    assert out["private"] == {"invoked": [["mailbox_private", {"id": 7, "private": True}]], "labels": ["✅ 반영함", "🙅 반려", "🔒 비공개"]}
+    assert out["marked"]["classes"] == ["letter rejected private", "letter done"]
+    # 비공개 편지엔 표시 하나 + 체크칸 글자, 아닌 편지엔 체크칸 글자만
+    assert [c.count("🔒 비공개") for c in out["marked"]["cards"]] == [2, 1]
     assert (out["none"]["empty"], out["none"]["pager"]) == ("아직 건의가 없어요", None)
 
 

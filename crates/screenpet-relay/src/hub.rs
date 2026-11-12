@@ -1192,6 +1192,11 @@ impl Hub {
         self.reader_edit(key, conn, |m| m.mark_rejected(id, rejected));
     }
 
+    /// 🔒 비공개: off the public board (or back on) — v3 apps, readers only.
+    pub(crate) fn letter_private(&self, key: &str, conn: u64, id: u64, private: bool) {
+        self.reader_edit(key, conn, |m| m.mark_private(id, private));
+    }
+
     /// 📮 Public digests from a reader (the developer's app). Each is checked
     /// by the mailbox; bad ones are skipped. Nothing is answered.
     pub(crate) fn board_put(&self, key: &str, conn: u64, items: &[proto::BoardIn]) {
@@ -1719,6 +1724,33 @@ mod tests {
         hub.letter_delete(&reader, rconn, id);
         std::thread::sleep(Duration::from_millis(510));
         assert_eq!(board_of(hub.board_list(&sender, sconn, 1)), (vec![], 1, 1, 0));
+    }
+
+    #[test]
+    fn only_readers_make_a_letter_private_and_then_nobody_else_sees_it() {
+        let (hub, (reader, rconn, rrx), (sender, sconn, _srx)) = mailbox_hub();
+        hub.letter(&sender, sconn, "198.51.100.6", "abcd");
+        let Some(ServerMsg::Letters { items, .. }) = hub.letters(&reader, rconn) else { panic!() };
+        let id = items[0].id;
+        hub.board_put(&reader, rconn, &[put(id, "김**", "비밀일 수도")]);
+        texts(&rrx);
+        hub.letter_private(&sender, sconn, id, true);
+        assert!(texts(&rrx).is_empty(), "a non-reader can't hide it");
+        assert_eq!(board_of(hub.board_list(&sender, sconn, 1)).3, 1);
+        hub.letter_private(&reader, rconn, id, true);
+        assert_eq!(texts(&rrx), vec![ServerMsg::LettersChanged]);
+        std::thread::sleep(Duration::from_millis(510));
+        assert_eq!(board_of(hub.board_list(&sender, sconn, 1)), (vec![], 1, 1, 0), "not in items, total or pages");
+        hub.board_put(&reader, rconn, &[put(id, "김**", "다시")]);
+        std::thread::sleep(Duration::from_millis(510));
+        assert_eq!(board_of(hub.board_list(&reader, rconn, 1)).3, 0, "putting again doesn't unhide it, even for a reader's board");
+        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items, .. }) if items[0].private));
+        hub.letter_private(&sender, sconn, id, false);
+        std::thread::sleep(Duration::from_millis(510));
+        assert_eq!(board_of(hub.board_list(&sender, sconn, 1)).3, 0, "a non-reader can't unhide it");
+        hub.letter_private(&reader, rconn, id, false);
+        std::thread::sleep(Duration::from_millis(510));
+        assert_eq!(board_of(hub.board_list(&sender, sconn, 1)).0[0].line, "다시");
     }
 
     #[test]

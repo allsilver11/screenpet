@@ -37,6 +37,8 @@ pub struct MailItem {
     pub done: bool,
     /// 🙅 개발자가 반려했다 (done과 함께는 아니다)
     pub rejected: bool,
+    /// 🔒 공개 건의함에서 숨겼다 (비공개)
+    pub private: bool,
     pub sealed: Vec<u8>,
 }
 
