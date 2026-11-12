@@ -119,6 +119,8 @@ pub enum UpdateError {
     Unsupported,
     /// 인터넷 (자세한 건 로그에만)
     Network,
+    /// 서버에 아직 올린 릴리즈가 없다 (latest.json 404) — 업데이트할 게 없는 것이다 (missing_is_up_to_date)
+    NotPublished,
     BadResponse,
     NoAsset(Version),
     /// latest.json의 서명이 없거나 맞지 않다 — 서버가 바뀌었을 수 있으니 아무것도 믿지 않는다
@@ -138,6 +140,7 @@ impl fmt::Display for UpdateError {
         match self {
             UpdateError::Unsupported => write!(f, "이 컴퓨터에서는 쓸 수 없어요"),
             UpdateError::Network => write!(f, "인터넷 연결을 확인해 주세요"),
+            UpdateError::NotPublished => write!(f, "아직 올라온 업데이트가 없어요"),
             UpdateError::BadResponse => write!(f, "업데이트 정보를 읽지 못했어요"),
             UpdateError::NoAsset(v) => write!(f, "v{v}에 이 컴퓨터용 파일이 없어요"),
             UpdateError::NoDigest => write!(f, "확인용 SHA-256이 없어서 설치하지 않았어요"),
@@ -378,6 +381,23 @@ impl MenuState {
             MenuState::Failed(_) => Some("업데이트 실패 😢"),
             _ => None,
         }
+    }
+}
+
+/// HTTP 오류 상태 → 오류: 404는 "올린 게 없다", 나머지는 인터넷 문제
+pub fn status_error(code: u16) -> UpdateError {
+    if code == 404 {
+        UpdateError::NotPublished
+    } else {
+        UpdateError::Network
+    }
+}
+
+/// 업데이트 확인 결과: 서버에 릴리즈가 없으면(NotPublished) 실패가 아니라 지금 버전이 최신이다
+pub fn missing_is_up_to_date(r: Result<Check, UpdateError>, current: Version) -> Result<Check, UpdateError> {
+    match r {
+        Err(UpdateError::NotPublished) => Ok(Check::UpToDate(current)),
+        other => other,
     }
 }
 
@@ -714,4 +734,17 @@ mod tests {
         assert_eq!(fs::read_to_string(dst.join("v")).unwrap(), "old");
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn no_release_on_the_server_means_you_are_up_to_date_not_a_failure() {
+        // 사용자: 업데이트할 게 없으면 없다고 보여야 한다 (서버에 latest.json이 없을 때 "받지 못했어요"가 떴다)
+        assert_eq!(status_error(404), UpdateError::NotPublished);
+        assert_eq!(status_error(500), UpdateError::Network);
+        assert_eq!(status_error(503), UpdateError::Network);
+        let mine = v("0.6.3");
+        assert_eq!(missing_is_up_to_date(Err(UpdateError::NotPublished), mine), Ok(Check::UpToDate(mine)));
+        assert_eq!(missing_is_up_to_date(Err(UpdateError::Network), mine), Err(UpdateError::Network));
+        assert_eq!(missing_is_up_to_date(Ok(Check::UpToDate(mine)), mine), Ok(Check::UpToDate(mine)));
+    }
+
 }

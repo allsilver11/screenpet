@@ -58,7 +58,8 @@ pub fn on_click(app: &AppHandle) {
 fn run(app: &AppHandle) -> Result<(), UpdateError> {
     let platform = Platform::current().ok_or(UpdateError::Unsupported)?;
     show(app, MenuState::Checking, false);
-    let release = match fetch_latest(platform)? {
+    // 서버에 올린 릴리즈가 없으면 "최신 버전이에요" (실패로 보이지 않게)
+    let release = match update::missing_is_up_to_date(fetch_latest(platform), current_version())? {
         Check::UpToDate(_) => {
             show(app, MenuState::UpToDate(current_version()), true);
             return Ok(());
@@ -158,7 +159,7 @@ fn get(agent: &ureq::Agent, url: &str, accept: &str) -> Result<ureq::http::Respo
         }
         if !status.is_success() {
             eprintln!("update: HTTP {status}");
-            return Err(UpdateError::Network);
+            return Err(update::status_error(status.as_u16()));
         }
         return Ok(resp);
     }
