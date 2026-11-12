@@ -31,6 +31,9 @@ ProtectSystem=strict
 ProtectHome=read-only
 # Must exist before start (the unit fails with 226/NAMESPACE otherwise).
 ReadWritePaths=%h/.local/share/screenpet-relay
+# The update signing key (deploy/publish-release.sh) lives in ~/personal: the
+# relay must never be able to read it. "-": fine if the folder doesn't exist.
+InaccessiblePaths=-%h/personal
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true

@@ -139,7 +139,13 @@ digits, Ed25519 over its exact bytes) matches `UPDATE_PUBLIC_KEY` in
 `crates/screenpet-core/src/update.rs`, so whoever runs this server or the
 relay still can't swap installers. The secret key lives at
 `~/personal/screenpet-update-key.txt` (0600, outside the repo and outside the
-relay's data folder; the relay never reads it). **Back it up offline** (e.g. a
+relay's data folder; the relay never reads it, and its unit sets
+`InaccessiblePaths=-%h/personal` so even a compromised relay can't). When
+deploying this change, copy the unit to
+`~/.config/systemd/user/screenpet-relay.service` again, then
+`systemctl --user daemon-reload && systemctl --user restart screenpet-relay`
+and check it started (the relay only needs `~/.local/bin` and
+`~/.local/share/screenpet-relay`). **Back it up offline** (e.g. a
 password manager or an encrypted USB stick): losing it means a new key, which
 means a new app build that every user installs by hand. If it leaks, make a new
 key the same way and ship a new build. The signer is a separate tool:

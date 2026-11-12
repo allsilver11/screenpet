@@ -274,3 +274,13 @@ def test_the_signing_key_never_reaches_the_relay():
 def test_readme_documents_the_signing_key():
     assert "screenpet-update-key.txt" in README and "back" in README.lower()
     assert "screenpet-update-sign" in README
+
+
+def test_the_relay_unit_cannot_read_the_signing_key_folder():
+    unit = (ROOT / "deploy" / "relay" / "screenpet-relay.service").read_text(encoding="utf-8")
+    lines = [l.strip() for l in unit.splitlines()]
+    assert "InaccessiblePaths=-%h/personal" in lines
+    # 릴레이가 쓰는 곳은 그 밖이다
+    assert "ExecStart=%h/.local/bin/screenpet-relay --bind 0.0.0.0:9411 --data %h/.local/share/screenpet-relay" in lines
+    assert "ReadWritePaths=%h/.local/share/screenpet-relay" in lines
+    assert "~/.config/systemd/user/screenpet-relay.service" in README and "InaccessiblePaths" in README
