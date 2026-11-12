@@ -89,13 +89,9 @@ class Fig:
         self.items.append(("line", pts))
 
     def limb(self, p0, p1, b1, b2=None, end=None):
-        """팔다리 한 짝: 곡선 + 끝에 손(end="hand") / 발(end=±1: 발끝 방향)."""
+        """팔다리 한 짝: 곡선만 (사용자: 손발 점은 빼고 선으로만). end는 예전 손/발 표시 자리 — 그리지 않는다."""
         pts = hose(p0, p1, b1, b2)
         self.items.append(("line", pts))
-        if end == "hand":
-            self.items.append(("dot", (p1, 2.1)))
-        elif end is not None:
-            self.foot(p1, end)
         return pts
 
     def foot(self, p, toward):
@@ -133,20 +129,7 @@ class Fig:
                     ops.append(([L(data, W)], PX_INK))
                 else:
                     parts.append(Part([L(data, W)], INK, grow=0, sharp=True))
-            elif kind == "dot":
-                (x, y), r = data
-                if pixel:
-                    parts.append(Part([L([(x, y), (x, y)], 0.3)], INK, grow=0, sharp=True))
-                    ops.append(([L([(x, y), (x, y)], W)], PX_INK))
-                else:
-                    parts.append(Part([C(x, y, r)], INK, grow=0, sharp=True))
-            elif kind == "foot":
-                a, b = data
-                if pixel:
-                    parts.append(Part([L([a, b], 0.3)], INK, grow=0, sharp=True))
-                    ops.append(([L([a, b], W)], PX_INK))
-                else:
-                    parts.append(Part([L([a, b], 2.6)], INK, grow=0, sharp=True))
+            # 손 점("dot")·발끝("foot")은 그리지 않는다 — 사용자: 팔다리는 선으로만
         parts += [h() for h in held]
         return dp.compose(parts, ops, list(fx))
 
@@ -419,10 +402,12 @@ def hm_land(sp, i):
 # ---- 앞모습 ----
 def _front_sit(f, *, arms, lean=0.0, sbend=0.0, sbend2=None, head_tilt=0.0, knees=1.0, front_arms=None):
     """바닥에 털썩 앉은 앞모습: 엉덩이가 바닥, 무릎을 양옆으로 세운 다리 (발은 바닥)."""
-    hip = (64, FLOOR - 5)
+    hip = (64, FLOOR - 8)
     kk = leg_k()
     for s in (-1, 1):
-        f.limb(hip, (64 + s * 25 * kk, FLOOR - 2), s * 0.95 * knees, s * 0.55 * knees, end=0.5 * s)
+        # 아기·유아는 몸이 작아 발끝 없이 앉으면 폭이 좁다 — 조금 더 벌린다
+        spread = 28 if dp._ST["lvl"] <= 1 else 25
+        f.limb(hip, (64 + s * spread * kk, FLOOR - 0.5), s * 0.95 * knees, s * 0.55 * knees, end=0.5 * s)
     return stand(f, hip=hip, lean=lean, sbend=sbend, sbend2=sbend2, head_tilt=head_tilt, arms=arms, side=False, front_arms=front_arms)
 
 
@@ -589,7 +574,7 @@ def hm_panic(sp, i):
         legs[1] = ((hip[0] - 16 * k, hip[1] + 18 * k), -0.4, 0.3)
     w = wig(i)
     s = hm()
-    r = 1.35 * max(1.0, 1.75 * s["hr"] / s["arm"])  # 큰 머리(아기)도 손이 머리 위로
+    r = 1.45 * max(1.0, 1.75 * s["hr"] / s["arm"])  # 큰 머리(아기)도 팔 끝이 머리 위로 (손 점이 없으니 조금 더 길게)
     arms = [(-155 + 6 * w, r, -100, 0.2 * w), (128 - 6 * w, r, 100, -0.22 * w)]
     stand(f, hip=hip, lean=16, sbend=0.1, sbend2=-0.04, head_tilt=10, arms=arms, legs=legs, front_arms=[])
     fx = dp.speed_fx(2, (74, 88, 102), 12, [0, -3, 0, -3][i]) + dp.sweat_fx([26, 24, 26, 24][i], [46, 42, 46, 42][i])

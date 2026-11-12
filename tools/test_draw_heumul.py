@@ -132,13 +132,13 @@ def head_box(im):
 
 @pytest.mark.parametrize("st", STAGES)
 def test_panic_throws_both_arms_up_above_the_head(out, st):
-    """만세: 머리 꼭대기보다 높은 잉크가 머리 양옆에 (두 손)."""
+    """만세: 머리 꼭대기 쪽 높이에 잉크가 머리 양옆에 (두 팔 끝 — 손 점 없이 선으로만, 사용자 요청)."""
     for i in range(4):
         im = frame(out, st, "panic", i)
         x0, y0, x1, y1 = head_box(im)
         ink = near(im, hm.INK, 40)
         above = ink[: y0 + (y1 - y0) // 3]
-        assert above[:, : (x0 + x1) // 2].sum() > 6 and above[:, (x0 + x1) // 2:].sum() > 6, (st, i)
+        assert above[:, : (x0 + x1) // 2].sum() > 3 and above[:, (x0 + x1) // 2:].sum() > 3, (st, i)
 
 
 def test_baby_has_a_bigger_head_and_the_adult_is_lankier(out):
@@ -179,3 +179,10 @@ def test_pixel_limbs_are_one_dot_lines():
                 run = run + 1 if v else 0
                 runs.append(run)
             assert max(runs) <= 2, (st, y, ink[y].astype(int).tolist())
+
+
+def test_limbs_end_as_plain_lines_without_hand_or_foot_dots():
+    """사용자: 팔다리 끝의 손발 점은 빼고 선으로만 — 그리기 목록에 손 점·발끝이 남아도 그리지 않는다."""
+    src = (Path(__file__).resolve().parent / "draw_heumul.py").read_text(encoding="utf-8")
+    render = src[src.index("    def render(self"):src.index("def stand(")]
+    assert 'kind == "dot"' not in render and 'kind == "foot"' not in render
