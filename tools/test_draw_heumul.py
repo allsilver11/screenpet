@@ -15,10 +15,11 @@ from sprite_spec import ANIMS, OPTIONAL_ANIMS, STAGES, sheet_128
 
 ROOT = Path(__file__).resolve().parent.parent
 SHIPPED = ROOT / "ui" / "pets" / "heumul"
-STANDING = ("walk", "idle", "look", "annoyed", "lookup", "stretch", "heart", "tickle", "sit_front", "wave", "tilt",
+STANDING = ("dance", "draw", "cheer_type", "walk", "idle", "look", "annoyed", "lookup", "stretch", "heart", "tickle", "sit_front", "wave", "tilt",
             "hungry", "eat", "sleep", "belly", "lift", "hold", "carry", "throw", "strain", "present", "slump", "yank", "stuff")
 JUGGLE = ["lift", "hold", "carry", "throw", "strain", "present", "slump"]
 TASKBAR = ["yank", "stuff"]
+ANTICS = ["hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "carry_run"]  # = Rust manifest::ANTICS_ANIMS (v0.6.3)
 
 
 @pytest.fixture(scope="module")
@@ -45,10 +46,11 @@ def near(im, col, tol=30):
 
 def test_registered_with_panic_hang_rope_the_juggle_rows_and_the_taskbar_rows():
     assert draw_pets.SPECIES["heumul"] is hm.HEUMUL
-    assert [o[0] for o in OPTIONAL_ANIMS[-12:-9]] == ["panic", "hang", "rope"]
-    assert [o[0] for o in OPTIONAL_ANIMS[-9:-2]] == JUGGLE  # = Rust manifest::JUGGLE_ANIMS
-    assert [o[0] for o in OPTIONAL_ANIMS[-2:]] == TASKBAR  # = Rust manifest::OPTIONAL_ANIMS 맨 끝 (TASKBAR_ANIMS)
-    assert names(hm.HEUMUL) == [a for a, *_ in ANIMS] + ["lookup", "panic", "hang", "rope"] + JUGGLE + TASKBAR
+    assert [o[0] for o in OPTIONAL_ANIMS[11:14]] == ["panic", "hang", "rope"]
+    assert [o[0] for o in OPTIONAL_ANIMS[14:21]] == JUGGLE  # = Rust manifest::JUGGLE_ANIMS
+    assert [o[0] for o in OPTIONAL_ANIMS[21:23]] == TASKBAR  # = Rust manifest::TASKBAR_ANIMS
+    assert [o[0] for o in OPTIONAL_ANIMS[23:]] == ANTICS  # = Rust manifest::OPTIONAL_ANIMS 맨 끝 (ANTICS_ANIMS)
+    assert names(hm.HEUMUL) == [a for a, *_ in ANIMS] + ["lookup", "panic", "hang", "rope"] + JUGGLE + TASKBAR + ANTICS
 
 
 def test_every_frame_is_drawn_inside_the_cell(out):
@@ -209,10 +211,10 @@ def test_grip_table_puts_the_held_object_above_the_head(out, st):
     m = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))
     g = m["grip"][st]
     fs = m.get("frame_sizes", {}).get(st, m["frame_size"])
-    assert sorted(g) == ["carry", "hold", "lift", "present", "stuff", "throw", "yank"]
+    assert sorted(g) == ["carry", "carry_run", "catch", "hang_cursor", "hold", "lift", "present", "stuff", "throw", "yank"]
     for anim, cells in g.items():
         assert len(cells) == m["animations"][anim]["frames"], anim
-    for anim, idx in (("hold", (0, 1)), ("carry", (0, 1, 2, 3)), ("lift", (3,)), ("throw", (0,)), ("present", (0, 1, 2))):
+    for anim, idx in (("hold", (0, 1)), ("carry", (0, 1, 2, 3)), ("carry_run", (0, 1, 2, 3)), ("lift", (3,)), ("throw", (0,)), ("present", (0, 1, 2))):
         for i in idx:
             x, y = (v * 128 / fs for v in g[anim][i])
             im = frame(out, st, anim, i)
@@ -337,3 +339,87 @@ def test_shipped_pixel_ink_masks_match_the_sheets():
             ma = np.asarray(m.convert("RGBA"))[..., 3]
             dark = (sa[..., 3] > 0) & (sa[..., :3].sum(axis=2) < 300)
             assert (ma[dark] == 255).all() and (ma[~dark] == 0).all(), st
+
+
+# ---- v0.6.3 더 놀기: 🎣 커서 매달리기 · 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 받기 · 🖍️ 낙서 · ⌨️ 타자 응원
+def test_antics_rows_play_like_the_core_expects(out):
+    """코어: hang_cursor·peek·draw는 옆모습 반복, dance·dance2·cheer_type은 앞모습 반복 (Anim::is_front), catch는 옆모습 한 번
+    (4칸 10fps = 코어 juggle::CATCH_SECS 0.4초)."""
+    a = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))["animations"]
+    for anim in ANTICS:
+        assert a[anim]["frames"] == 4, anim
+    assert (a["carry_run"]["fps"], a["carry_run"]["fps"] > a["carry"]["fps"]) == (12, True)  # 들고 달리기는 걷기보다 빠르게
+    for anim in ("hang_cursor", "peek", "draw", "carry_run"):
+        assert "loop" not in a[anim] and "front" not in a[anim], anim
+    for anim in ("dance", "dance2", "cheer_type"):
+        assert "loop" not in a[anim] and a[anim]["front"] is True, anim
+    assert (a["catch"]["fps"], a["catch"].get("loop"), a["catch"].get("front")) == (10, False, None)
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_hang_cursor_holds_the_cursor_tip_with_both_hands_above_the_head(out, st):
+    """🎣 손 자리(grip)는 모든 칸이 같은 머리 위 한 점 (웹뷰가 그 점을 축으로 흔든다), 머리는 그 아래, 몸·다리는 손 아래로 늘어진다."""
+    m = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))
+    fs = m.get("frame_sizes", {}).get(st, m["frame_size"])
+    cells = [tuple(v * 128 / fs for v in c) for c in m["grip"][st]["hang_cursor"]]
+    assert len(cells) == 4 and max(abs(c[0] - cells[0][0]) + abs(c[1] - cells[0][1]) for c in cells) < 1.0, cells
+    gx, gy = cells[0]
+    assert abs(gx - hm.HANG_TIP[0]) < 3 and abs(gy - hm.HANG_TIP[1]) < 3, (gx, gy)
+    for i in range(4):
+        im = frame(out, st, "hang_cursor", i)
+        x0, y0, x1, y1 = head_box(im)
+        assert y0 > gy and x0 < gx < x1, (st, i)
+        ys = np.nonzero(alpha(im).any(axis=1))[0]
+        assert ys.min() <= gy + 1 and ys.max() > y1 + 30, (st, i, ys.min(), ys.max())
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_peek_shows_only_the_head_left_of_the_window_side(out, st):
+    """🫣 창 옆면 (프레임 x = 64 − HIDE_INSET × 128) 오른쪽은 창 뒤 — 아무것도 그리지 않는다. 머리는 다 보인다 (옆면 왼쪽)."""
+    edge = 64 - hm.HIDE_INSET * 128
+    for i in range(4):
+        im = frame(out, st, "peek", i)
+        xs = np.nonzero(alpha(im).any(axis=0))[0]
+        assert xs.max() <= edge + 2, (st, i, xs.max(), edge)
+        x0, _, x1, _ = head_box(im)
+        assert x1 < edge and x0 > 1, (st, i)
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_catch_grip_is_above_the_head_and_draw_reaches_the_floor_in_front(out, st):
+    """⚾ 받는 칸들의 손 자리는 머리 위 · 🖍️ 낙서는 손(분필)이 몸 앞 바닥께에 닿는다."""
+    m = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))
+    fs = m.get("frame_sizes", {}).get(st, m["frame_size"])
+    for i in range(4):
+        x, y = (v * 128 / fs for v in m["grip"][st]["catch"][i])
+        _, y0, _, _ = head_box(frame(out, st, "catch", i))
+        assert y <= y0 + 3 and abs(x - 64) < 16, (st, i, x, y, y0)
+        ink = near(frame(out, st, "draw", i), hm.INK, 40)
+        ys, xs = np.nonzero(ink)
+        assert xs.max() > 80 and ys.max() > 115, (st, i)
+
+
+@pytest.mark.parametrize("st", STAGES)
+@pytest.mark.parametrize("anim", ANTICS)
+def test_antics_frames_have_ink_masks(out, st, anim):
+    """새 칸도 🎨 몸 색 마스크가 있다: 잉크 선 자리를 덮고 크림 머리는 덮지 않는다."""
+    for i in range(4):
+        im, mk = frame(out, st, anim, i), ink_frame(out, st, anim, i)
+        m = np.asarray(mk.getchannel("A")).astype(int)
+        ink = near(im, hm.INK, 12)
+        assert ink.sum() > 40 and (m[ink] > 200).mean() > 0.9, (st, anim, i)
+        assert (m[near(im, hm.HEAD, 12)] <= 12).all(), (st, anim, i)
+
+
+def test_pixel_antics_have_hard_ink_masks():
+    import draw_pixel as px
+    for st in ("baby", "adult"):
+        frames = px.render_pixel(hm.HEUMUL, st, anims=tuple(ANTICS))
+        masks = px.render_ink_masks(hm.HEUMUL, st, anims=tuple(ANTICS))
+        for anim in ANTICS:
+            assert len(frames[anim]) == len(masks[anim]) == 4, anim
+            for im, mk in zip(frames[anim], masks[anim]):
+                a = np.asarray(im.convert("RGBA")).astype(int)
+                m = np.asarray(mk.getchannel("A")).astype(int)
+                dark = (a[..., 3] > 0) & (a[..., :3].sum(axis=2) < 300)
+                assert dark.sum() > 8 and (m[dark] == 255).all() and set(np.unique(m)) <= {0, 255}, (st, anim)

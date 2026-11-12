@@ -858,12 +858,213 @@ def hm_stuff(sp, i):
     return f.render()
 
 
+# ---- 🎣 커서에 매달리기 (코어 brain_swing.rs — 두 손이 커서 끝을 잡는다: 손 자리 mark_grip = 웹뷰가 이 점을 축으로 흔든다) ----
+HANG_DROP = 0.4  # 머리 꼭대기가 손보다 머리 반지름의 이만큼 아래 (팔이 머리 양옆으로 쭉)
+HANG_TIP = (64, 7)  # 두 손이 커서 끝을 꼭 잡은 자리 (프레임 px) — 모든 칸이 같다 (흔드는 축이 흔들리지 않게)
+
+
+def _reach_up(f, shoulder, g, w=0.0, spread=2.5):
+    """두 팔을 머리 양옆으로 둥글게 올려 머리 위 g를 함께 잡는다 (_hold_up처럼 — 몸무게에 팔이 조금 팽팽)."""
+    hr = hm()["hr"]
+    heads = [k for k, (kind, _) in enumerate(f.items) if kind == "head"]
+    at = heads[-1] if heads else len(f.items)
+    for sg in (-1, 1):
+        hand = (g[0] + sg * spread, g[1] + 1.5)
+        c1 = (shoulder[0] + sg * hr * 1.75, shoulder[1] - hr * 0.3)
+        c2 = (hand[0] + sg * hr * (1.15 + w), hand[1] + (shoulder[1] - hand[1]) * 0.3)
+        pts = cubic(shoulder, c1, c2, hand)
+        if sg < 0:
+            f.items.insert(at, ("line", pts))
+        else:
+            f.line(pts)
+
+
+def hm_hang_cursor(sp, i):
+    """커서 끝에 두 손으로 대롱대롱: 몸은 손 아래로 축 늘어지고, 다리는 번갈아 허우적 (흔들림 자체는 웹뷰가 손을 축으로 돌린다)."""
+    f = Fig()
+    s = hm()
+    k = leg_k()
+    g = dp._frame_to_pre(*HANG_TIP)
+    w = wig(i)
+    lean, sb = [3, -2, -3, 2][i], [0.08, -0.05, -0.08, 0.05][i]
+    hip0 = (0.0, 0.0)
+    hx, hy = _head_of(hip0, lean, sb)
+    top = hy - s["hr"]
+    hip = (g[0] - hx + [0.6, -0.4, -0.6, 0.4][i], g[1] + HANG_DROP * s["hr"] - top)
+    legs = [((hip[0] - 4 * k + 3 * w, hip[1] + s["leg"] * 0.84), 0.25 * w, -0.3 * w),
+            ((hip[0] + 5 * k - 4 * w, hip[1] + s["leg"] * [0.84, 0.72, 0.84, 0.72][i]), -0.28 * w, 0.35 * w)]
+    _, sh, _ = stand(f, hip=hip, lean=lean, sbend=sb, sbend2=-0.5 * sb, head_tilt=[-6, 4, 6, -4][i], arms=[], legs=legs)
+    _reach_up(f, sh, g, [0.0, 0.05, 0.0, -0.05][i])
+    dp.mark_grip(*g)
+    return f.render()
+
+
+# ---- 🫣 숨바꼭질 (코어 brain_hide.rs) — 창 뒤에 숨어 머리만 쏙: 창 옆면(프레임 x = 몸 가운데 − 코어 HIDE_INSET 0.15)
+#      오른쪽은 창 뒤라 아무것도 그리지 않는다 (선은 옆면에서 자른다). 웹뷰가 창 위에 그려도 몸이 창에 가린 것처럼 보인다
+HIDE_INSET = 0.15
+
+
+def peek_edge():
+    return dp._frame_to_pre(64 - HIDE_INSET * dp.FRAME, 0)[0]
+
+
+def _clip_left(pts, ex):
+    """선을 옆면 ex 왼쪽만 남긴다 (오른쪽은 창 뒤)."""
+    out = []
+    for a, b in zip(pts, pts[1:]):
+        if a[0] <= ex:
+            out.append(a)
+        if (a[0] - ex) * (b[0] - ex) < 0:
+            t = (ex - a[0]) / (b[0] - a[0])
+            out.append((ex, a[1] + (b[1] - a[1]) * t))
+            if a[0] <= ex:
+                break
+    if pts and pts[-1][0] <= ex and (not out or out[-1] != pts[-1]):
+        out.append(pts[-1])
+    return out
+
+
+def hm_peek(sp, i):
+    """창 옆면 뒤에서 머리만 쏙 내밀고 두리번: 한 손은 옆면을 잡고, 발끝 하나가 바닥에서 살짝 보인다 (몸은 창 뒤)."""
+    f = Fig()
+    s = hm()
+    hr = s["hr"]
+    ex = peek_edge()
+    hip = ground_hip(62, 0.93)
+    _, hy0 = _head_of(hip, 0, 0.05)
+    out = [1.5, 4.0, 4.0, 2.0][i]
+    hc = (ex - hr - out, hy0 + [1.0, 2.5, 2.0, 1.0][i])
+    tilt = [-8, -18, -10, -4][i]
+    neck = polar(hc, 55, hr + 0.5)  # 머리 오른쪽 아래 → 창 뒤 몸으로
+    for pts in (hose(neck, (ex + 14, hc[1] + hr + 14), -0.15),
+                hose((ex + 12, hc[1] + hr + 20), (ex - 5.0, hc[1] + hr + [7, 9, 8, 6][i]), 0.35, -0.1),
+                hose((ex + 9, FLOOR - 16), (ex - 5.5 - [0, 1.5, 1.5, 0][i], FLOOR - 2.5), -0.25)):
+        part = _clip_left(pts, ex - 0.6)
+        if len(part) > 1:
+            f.line(part)
+    f.head(hc[0], hc[1], tilt)
+    return f.render()
+
+
+# ---- 🕺 연타 춤 (코어 brain_dance.rs — 앞모습): dance = 엉덩이 씰룩·팔 번갈아, dance2 = 더 신나게 (폴짝·발차기·반짝) ----
+def hm_dance(sp, i):
+    f = Fig()
+    k = leg_k()
+    hip = ground_hip(64 + [-3, 0, 3, 0][i], [0.86, 0.92, 0.86, 0.8][i], [0, 2, 0, 0][i])
+    legs = [(floor_at(54 - [2, 0, -1, 2][i]), [0.3, 0.15, -0.1, 0.35][i], 0.1), (floor_at(74 + [1, 0, 2, 2][i]), [0.1, -0.15, -0.3, -0.35][i], -0.1)]
+    arms = [[(-128, 1.5, -95, 0.2), (40, 1.0, None, -0.15)],
+            [(-95, 1.15, -90, 0.2), (95, 1.15, 90, -0.2)],
+            [(-40, 1.0, None, 0.15), (128, 1.5, 95, -0.2)],
+            [(-60, 1.0, -95, 0.3), (60, 1.0, 95, -0.3)]][i]
+    stand(f, hip=hip, lean=[-9, 0, 9, 0][i], sbend=[-0.18, 0.05, 0.18, -0.05][i], sbend2=[0.1, 0, -0.1, 0][i],
+          head_tilt=[-10, 0, 10, 0][i], arms=arms, legs=legs, side=False)
+    return f.render()
+
+
+def hm_dance2(sp, i):
+    f = Fig()
+    k = leg_k()
+    if i == 0:
+        hip = ground_hip(64, 0.95, 9)
+        legs = [((54, hip[1] + 24 * k), -0.4, 0.3), ((74, hip[1] + 24 * k), 0.4, -0.3)]
+        arms = [(-130, 1.55, -95, 0.15), (130, 1.55, 95, -0.15)]
+        fx = dp._stars([(16, 30, 4.5), (112, 24, 3.6)])
+    elif i == 1:
+        hip = ground_hip(64, 0.78)
+        legs = [(floor_at(48), 0.45, 0.2), (floor_at(80), -0.45, -0.2)]
+        arms = [(-45, 1.1, -95, 0.2), (135, 1.3, 95, -0.15)]
+        fx = []
+    elif i == 2:
+        hip = ground_hip(62, 0.95, 1)
+        legs = [(floor_at(56), 0.1, 0.05), ((hip[0] + 30 * k, hip[1] + 14 * k), -0.3, 0.2)]
+        arms = [(-128, 1.55, -95, 0.3), (-20, 1.0, 60, -0.2)]
+        fx = dp._stars([(112, 40, 4.5), (20, 22, 3.6)])
+    else:
+        hip = ground_hip(66, 0.85)
+        legs = [(floor_at(52), 0.35, 0.15), (floor_at(78), 0.05, -0.15)]
+        arms = [(-125, 1.5, -95, -0.25), (45, 1.1, 95, 0.25)]
+        fx = []
+    stand(f, hip=hip, lean=[0, 6, -8, -12][i], sbend=[0.05, 0.12, -0.15, 0.25][i], sbend2=[0, -0.08, 0.1, -0.15][i],
+          head_tilt=[0, 10, -8, -14][i], arms=arms, legs=legs, side=False)
+    return f.render(fx=fx)
+
+
+# ---- ⚾ 받기 (코어 brain_juggle.rs JugglePhase::Catch — 물건은 앱의 물건 창: 손 자리 mark_grip) ----
+def hm_catch(sp, i):
+    """날아온 것을 받는다: 두 팔을 머리 위로 쭉 뻗어 → 손에 탁 → 무릎을 굽혀 받아 내고 → 든 채 일어선다 (한 번, 마지막 칸 = hold)."""
+    f = Fig()
+    hip = ground_hip(62, [0.92, 0.8, 0.7, 0.9][i])
+    legs = [(floor_at(53), [0.1, 0.35, 0.5, 0.15][i], 0.06), (floor_at(71), [0.12, 0.38, 0.52, 0.17][i], 0.08)]
+    lean, sb = [-8, -3, 3, 0][i], [-0.1, 0.0, 0.08, 0.04][i]
+    g = _overhead(hip, lean, sb, dx=[4, 2, 1, 1][i], dy=[-2, -1, 1, 0][i])
+    _, sh, _ = stand(f, hip=hip, lean=lean, sbend=sb, head_tilt=[-16, -6, 4, 0][i], arms=[], legs=legs)
+    _hold_up(f, sh, g, [-0.1, 0.06, 0.08, 0.0][i])
+    dp.mark_grip(*g)
+    return f.render()
+
+
+# ---- 🖍️ 바닥에 낙서 (코어 brain_doodle.rs — 낙서 자체는 앱의 덧창이 그린다): 쪼그려 앉아 분필로 바닥을 슥슥 ----
+CHALK = (250, 250, 246)
+
+
+def hm_draw(sp, i):
+    f = Fig()
+    k = leg_k()
+    hip = ground_hip(56, 0.5)
+    legs = [(floor_at(48), 0.62, 0.48), (floor_at(65), 0.66, 0.5)]
+    tip = dp._frame_to_pre([88, 96, 102, 94][i], FLOOR - 4)
+    knee = (hip[0] + 13 * k, hip[1] - 2)
+    stand(f, hip=hip, lean=30, sbend=0.2, head_tilt=[14, 18, 16, 12][i], legs=legs,
+          arms=[(knee, 1, 60, 0.1), ((tip[0] - 1, tip[1] - 1), 1, 70, [-0.15, 0.1, -0.1, 0.15][i])])
+    chalk = [([L([(tip[0] - 2.6, tip[1] - 3.4), (tip[0] + 0.6, tip[1] + 0.8)], 2.0)], CHALK, 0.6)]
+    dust = [([C(tip[0] + [3, -4, 5, -3][i], FLOOR - 3, 0.9)], CHALK, 0)]
+    return f.render(fx=chalk + dust)
+
+
+# ---- ⌨️ 타자 응원 (코어 brain_typing.rs — 앞모습): 화면을 보고 주먹을 번쩍번쩍 / 허공에 다다다 타자 ----
+def hm_cheer_type(sp, i):
+    f = Fig()
+    hip = ground_hip(64, 0.92, [0, 3, 0, 3][i])
+    legs = [(floor_at(55), [-0.08, 0.1, -0.08, 0.1][i]), (floor_at(73), [0.08, -0.1, 0.08, -0.1][i])]
+    hy = hip[1] - hm()["spine"] * 0.55
+    arms = [[(-40, 0.95, -80, 0.2), (128, 1.55, 95, -0.1)],
+            [((54, hy + 6), 1, -110, 0.15), ((74, hy + 3), 1, 110, -0.15)],
+            [(-128, 1.55, -95, 0.1), (40, 0.95, 80, -0.2)],
+            [((54, hy + 3), 1, -110, 0.15), ((74, hy + 6), 1, 110, -0.15)]][i]
+    stand(f, hip=hip, sbend=[0.06, 0.0, -0.06, 0.0][i], head_tilt=[6, 2, -6, -2][i], arms=arms, legs=legs, side=False,
+          front_arms=[0, 1])
+    return f.render()
+
+
+def hm_carry_run(sp, i):
+    """머리 위에 인 채 다다다 달리기: 다리는 달리기처럼 크게 휘젓고 몸은 앞으로 기울지만, 두 팔은 위로 물건을 받친 채 — 속도선."""
+    f = Fig()
+    k = leg_k()
+    up = [1, 5, 1, 5][i]
+    hip = ground_hip(60, 0.84, up)
+    (bx, bl), (fx_, fl) = RUN_FEET[i]
+    legs = [(floor_at(hip[0] + bx * k, bl * k), [-0.25, 0.35, 0.3, 0.38][i], [0.1, 0.3, 0.28, 0.3][i]),
+            (floor_at(hip[0] + fx_ * k, fl * k), [0.3, 0.38, -0.25, 0.35][i], [0.28, 0.3, 0.1, 0.3][i])]
+    if i == 0:
+        legs[0] = ((hip[0] - 17 * k, hip[1] + 18 * k), -0.4, 0.25)
+    if i == 2:
+        legs[1] = ((hip[0] - 17 * k, hip[1] + 18 * k), -0.4, 0.25)
+    lean, sb = 12, [0.1, 0.03, 0.1, 0.03][i]
+    g = _overhead(hip, lean, sb, dx=1.0)
+    _, sh, _ = stand(f, hip=hip, lean=lean, sbend=sb, sbend2=-0.03, head_tilt=6, arms=[], legs=legs)
+    _hold_up(f, sh, g, wig(i, 0.06))
+    dp.mark_grip(*g)
+    return f.render(fx=dp.speed_fx(4, (78, 90, 102), 12, [0, -3, 0, -3][i]))
+
+
 HEUMUL_POSES = {"walk": hm_walk, "run": hm_run, "roll": hm_roll, "idle": hm_idle, "look": hm_look, "sleep": hm_sleep, "hop": hm_hop,
                 "fall": hm_fall, "dragged": hm_dragged, "land": hm_land, "sit_front": hm_sit_front, "wave": hm_wave, "tilt": hm_tilt,
                 "belly": hm_belly, "stretch": hm_stretch, "heart": hm_heart, "tickle": hm_tickle, "annoyed": hm_annoyed,
                 "hungry": hm_hungry, "eat": hm_eat, "level_up": hm_level_up, "lookup": hm_lookup, "panic": hm_panic,
                 "hang": hm_hang, "rope": hm_rope, "lift": hm_lift, "hold": hm_hold, "carry": hm_carry, "throw": hm_throw,
-                "strain": hm_strain, "present": hm_present, "slump": hm_slump, "yank": hm_yank, "stuff": hm_stuff}
+                "strain": hm_strain, "present": hm_present, "slump": hm_slump, "yank": hm_yank, "stuff": hm_stuff,
+                "hang_cursor": hm_hang_cursor, "peek": hm_peek, "dance": hm_dance, "dance2": hm_dance2, "catch": hm_catch,
+                "draw": hm_draw, "cheer_type": hm_cheer_type, "carry_run": hm_carry_run}
 RAW_POSES = dict(HEUMUL_POSES)
 HEUMUL_POSES = {k: _fit(v) for k, v in HEUMUL_POSES.items()}
 
@@ -940,7 +1141,8 @@ HEUMUL = Species(
     id="heumul", name="흐물이", walk_speed=110, scale=1.0, base=INK, back=INK, belly=INK, nose=INK, mouth="w",
     front_tail_color=INK, tail_color=INK, stage_size=dict.fromkeys(STAGES, 0.9), stripe=INK, outline=INK,
     stage_tweak={st: dict(_FLAT) for st in STAGES},
-    specials=["lookup", "panic", "hang", "rope", "lift", "hold", "carry", "throw", "strain", "present", "slump", "yank", "stuff"], poses=HEUMUL_POSES, **dp.NO_COMMON_PARTS,
+    specials=["lookup", "panic", "hang", "rope", "lift", "hold", "carry", "throw", "strain", "present", "slump", "yank", "stuff",
+              "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "carry_run"], poses=HEUMUL_POSES, **dp.NO_COMMON_PARTS,
     write_layers=lambda out_dir: write_ink_round(out_dir),
 )
 

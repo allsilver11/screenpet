@@ -91,6 +91,18 @@ OPTIONAL_ANIMS = [
     # 머리 위의 장난감을 내려 바닥 속으로 꾹 밀어 넣기 (한 번, 넷째 칸 = STUFF_RELEASE 0.5초에 쏙)
     ("yank", 4, 6, True, False),
     ("stuff", 4, 6, False, False),
+    # 흐물이 더 놀기 (v0.6.3): 🎣 커서 끝에 두 손으로 대롱대롱 (손 = grip, 웹뷰가 그 점을 축으로 흔든다) · 🫣 창 옆면 뒤에서 머리만 쏙 (창은 오른쪽,
+    # 옆면 오른쪽은 그리지 않는다) · 🕺 연타 춤 둘 (앞모습 — 둘째는 더 신나게) · ⚾ 날아온 것 받기 (한 번, 손 = grip) · 🖍️ 쪼그려 분필 낙서 ·
+    # ⌨️ 앞을 보고 주먹 번쩍 / 허공 타자 (앞모습)
+    ("hang_cursor", 4, 6, True, False),
+    ("peek", 4, 3, True, False),
+    ("dance", 4, 8, True, True),
+    ("dance2", 4, 10, True, True),
+    ("catch", 4, 10, False, False),
+    ("draw", 4, 6, True, False),
+    ("cheer_type", 4, 10, True, True),
+    # 흐물이: 머리 위에 인 채 다다다 달리기 (친구에게 들고 가는 길·화면 끝을 들고 나가고 들어올 때 — 사용자: 걷지 말고 달려!)
+    ("carry_run", 4, 12, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
