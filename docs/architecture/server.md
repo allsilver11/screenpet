@@ -68,6 +68,7 @@ Relay::start (lib.rs:224)
 | `downloads.rs` | `/downloads/` 정적 파일, 이름 허용 목록, 자리·속도 한도 |
 | `control.rs` | `control.json`: 스위치·차단·편지함 독자 |
 | `admin.rs` | `admin.sock` 서버·클라이언트, `USAGE` |
+| `monitor.rs` | 로그 싱크(stderr → journald), `admin status`의 5분·1시간 창, `admin recent` 고리, 연결 번호 `Cid` (logging.md) |
 
 ---
 
@@ -188,7 +189,8 @@ HTTP는 잠금 밖에서 하고, 결과만 `state` 잠금 안에서 그 지역 �
 
 | 명령 | 효과 |
 |---|---|
-| `status` | 스위치, 합계, 접속 설치(id, 키 앞부분, 시각, 주소 묶음, 친구), 카운터 |
+| `status` | 스위치, 합계, 접속 설치(id, 키 앞부분, 시각, 주소 묶음, 친구), 카운터, 최근 5분 / 1시간 사건 수와 영역별 오류 |
+| `recent [N]` | 최근 WARN/ERROR 로그 N줄 (기본 20, 메모리 고리 200줄). 형식은 [logging.md](logging.md) |
 | `kick <who>` | 끊기 (바로 다시 붙을 수 있음) |
 | `ban <who>` / `ban-ip <ip>` | 끊고 이후 거절 (IPv6는 /64). 루프백·믿는 프록시는 ban-ip 불가 |
 | `unban <who|ip>` / `bans` | 풀기 / 목록 |

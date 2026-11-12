@@ -36,7 +36,7 @@ mkdir -p ~/.config/systemd/user ~/.local/share/screenpet-relay
 cp deploy/relay/screenpet-relay.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now screenpet-relay
-journalctl --user -u screenpet-relay -f      # logs
+journalctl --user -u screenpet-relay -f      # logs (one structured line each; see docs/architecture/logging.md)
 ```
 
 It listens on `0.0.0.0:9411` (plain HTTP/WebSocket; TLS is done by the proxy)
@@ -184,7 +184,8 @@ screenpet-relay admin --data /some/dir status    # another data directory
 
 | Command | What it does |
 | --- | --- |
-| `status` | Switches, totals, each online install (id, key prefix, connected since, address bucket, friends), counters since start |
+| `status` | Switches, totals, each online install (id, key prefix, connected since, address bucket, friends), counters since start, event counts for the last 5 minutes / hour and errors by area |
+| `recent [N]` | The last N warning/error log lines (default 20, ring of 200 in memory), same format as journald |
 | `kick <who>` | Disconnects it. The app comes straight back |
 | `ban <who>` | Disconnects it and refuses that key from now on. A whole 64-digit key can be banned before it is ever seen |
 | `ban-ip <ip>` | Disconnects and refuses an address (IPv6: its /64). Loopback and trusted proxies are refused: everyone can arrive as those |

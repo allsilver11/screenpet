@@ -8,4 +8,4 @@ ScreenPet 코드를 나중에 읽을 때 길잡이로 쓰는 문서 모음임. �
 | [server.md](server.md) | 릴레이 서버: 스레드·잠금, 모듈 지도, 디스크 데이터, 한도, 날씨·다운로드, 관리 명령, 배포·릴리스 |
 | [files.md](files.md) | 저장소 파일 계층: 폴더·파일 설명, 생성물과 다시 만드는 법, 시험 위치와 돌리는 법 |
 | [security.md](security.md) | 보안 정책·기능·코드 위치: 신원·암호, 봉인 편지, 공개 건의함, 업데이트 무결성, 남용 방지, 입력 검사, 웹뷰, 개인정보, 알려진 빈틈 |
-| logging.md | 구조화 로그 (예정) |
+| [logging.md](logging.md) | 구조화 로그: 한 줄 형식(KST), 수준·영역, 사건 목록, 개인정보 규칙, journalctl·`admin status`·`admin recent`로 지켜보기, 증상별 볼 곳, 앱 `network.log`와 릴레이 줄 맞추기 |

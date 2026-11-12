@@ -41,6 +41,8 @@ crates/
 │   └── tests/golden.rs     JSON 글자 그대로 고정
 ├── screenpet-crypto/     앱·릴레이가 같이 쓰는 암호 도우미
 │   └── src/lib.rs          BLAKE2s, X25519 공개키, hex, auth_mac / welcome_proof
+├── screenpet-log/        앱·릴레이 공용 구조화 로그 한 줄 (의존성 없음, logging.md)
+│   └── src/lib.rs          log! 매크로, KST 시각, 따옴표, mask_ip, short, scrub_err, 싱크
 ├── screenpet-net/        앱 네트워크 (std 스레드)
 │   ├── src/lib.rs          Net, NetEvent, Timing, 친구별 버킷, LAN 한도
 │   ├── src/protocol.rs     Control / Visit / LadderMsg, Announce, 버전 상수
@@ -202,7 +204,7 @@ ui/
 | 미리보기 | `preview_nightcap.py`, `preview_scarf.py` |
 | 배포 | `pack_webp.py`, `requirements-pack.txt` |
 | UI 하네스 (node) | `{board,doodle,ladder,levelup,nightcap,trail,weather,window}_harness.js`, `fake_dom.js` |
-| 시험 (pytest) | `test_*.py` (그림 `test_draw_*`, UI `test_*_ui.py`, 정책 `test_csp.py`·`test_capabilities.py`, 배포 `test_publish_release.py`·`test_workflows.py`·`test_update_autostart.py`), `conftest.py` |
+| 시험 (pytest) | `test_*.py` (그림 `test_draw_*`, UI `test_*_ui.py`, 정책 `test_csp.py`·`test_capabilities.py`·`test_logging.py`(로그 개인정보·사건 목록)·`test_no_logs_in_git.py`, 배포 `test_publish_release.py`·`test_workflows.py`·`test_update_autostart.py`), `conftest.py` |
 | 고정 의존성 | `requirements.txt` (해시 고정, Python 3.12) |
 
 ---
@@ -235,6 +237,7 @@ docs/
 | net | `src/*` `mod tests`, `tests/{net,relay,ladder}.rs` | `cargo test -p screenpet-net` |
 | crypto | `src/lib.rs` `mod tests` | `cargo test -p screenpet-crypto` |
 | proto | `tests/golden.rs`, `weather.rs` `mod tests` | `cargo test -p screenpet-proto` |
+| log | `src/lib.rs` `mod tests` (형식·시각·가리기) | `cargo test -p screenpet-log` |
 | relay | `src/hub/tests.rs`, 각 파일 `mod tests`, `tests/{relay,downloads}.rs` | `cargo test -p screenpet-relay` |
 | 실제 릴레이 연기 시험 | `screenpet-net/tests/relay.rs` (`#[ignore]`) | `SCREENPET_LIVE_RELAY=wss://pet.danni.day/ws cargo test -p screenpet-net --test relay -- --ignored live_relay_smoke` |
 | OS 코드 컴파일 | – | `cargo check -p screenpet-core --target x86_64-pc-windows-gnu` / `aarch64-apple-darwin` |
@@ -242,4 +245,4 @@ docs/
 | node 하네스 | `tools/*_harness.js` | 직접 돌리지 않고 `test_*_ui.py`가 `node ...`로 부름. node가 없으면 그 시험은 건너뜀 (CI는 Node 22) |
 
 - 워크스페이스 `default-members`에 `src-tauri`가 없어 `cargo test`만으로는 Tauri를 안 빌드함 (`Cargo.toml`).
-- CI (`.github/workflows/build.yml`): `test` 작업 = core → net → crypto → proto → Win/mac 컴파일 확인 → pytest. `relay` 작업 = relay 시험 → net Windows 확인 → relay Linux 빌드(`screenpet-relay-linux` 아티팩트). 태그 빌드는 그 커밋이 `test`를 통과했는지 확인함.
+- CI (`.github/workflows/build.yml`): `test` 작업 = core → net → crypto → proto → log → Win/mac 컴파일 확인 → pytest. `relay` 작업 = relay 시험 → net Windows 확인 → relay Linux 빌드(`screenpet-relay-linux` 아티팩트). 태그 빌드는 그 커밋이 `test`를 통과했는지 확인함.

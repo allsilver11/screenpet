@@ -168,7 +168,8 @@
 | macOS 입력 모니터링 | 확인은 `CGPreflightListenEventAccess`(창 없음). 묻기는 켜져 있고·권한 없고·**이 버전에서 아직 안 물었을 때만**, 시작 10초 뒤 펫이 먼저 이유를 말하고 2.5초 뒤 시스템 창. 끌 때는 안 물음. 거절했으면 메뉴가 시스템 설정을 엶 | `typing.rs:104` `ask_at_start`, `:126` `PermissionAsk`; `platform/macos.rs` `typing_permission`; `src-tauri/src/tray.rs:90` |
 | 📌 앱 아이콘 장난감 | 그림은 창 스크립트로만, 어디에도 저장·기록 안 함, 친구에게 안 감. 한 번에 1개, 몇 분 뒤 사라짐 | `src-tauri/src/objects.rs:11-13`, `object.rs:95-103` |
 | ☀️ 날씨 | 앱은 Open-Meteo를 직접 부르지 않음 → 사용자 IP가 날씨 서비스에 안 감. 릴레이는 도시 좌표만 보냄 | `crates/screenpet-relay/src/weather.rs:1-4`, `:40` |
-| `network.log` | config 폴더, 시각(유닉스 초) + `relay connected/disconnected`, `friend <id 앞 8자> connected/disconnected`만. 내용·메시지 없음. 256 KiB 넘으면 새로 씀 | `crates/screenpet-core/src/config.rs:722-730`, `src-tauri/src/network.rs:670` `net_log` |
+| `network.log` | config 폴더, 구조화 로그 줄 (KST 시각, 영역 `net`·`relay`·`update`·`visit`·`toss`). 키·id는 앞 8자, 편지·포스트잇·이름·코드 없음 (있었는지만). 256 KiB 넘으면 새로 씀. 규칙은 [logging.md](logging.md) §4 | `crates/screenpet-log/src/lib.rs`, `crates/screenpet-core/src/config.rs` `append_network_log`, `src-tauri/src/network.rs` `install_log_sink` |
+| 릴레이 로그 | journald, 같은 형식. 주소는 가림(`14.33.162.x`), 키 앞 8자, 관리 명령은 낱말만, 경로는 `<path>`. `admin recent` 고리도 같은 줄 | `crates/screenpet-relay/src/monitor.rs`, `tools/test_logging.py` |
 | 🕐 타임라인 | 메모리에만, 저장·전송 없음 | `src-tauri/src/timeline.rs` 모듈 설명 |
 | 릴레이 저장 | 설치 키, 스스로 밝힌 id, 친구 키, 코드, 마지막 본 때. 메시지 내용 없음. `admin status`의 주소는 메모리만 | `crates/screenpet-relay/src/store.rs:1-2`, `hub/mod.rs:100` |
 
@@ -179,7 +180,7 @@
 - `.gitignore`: `screenpet-update-key*.txt`(서명 비밀 키), `tools/preview/`, `target/`, `src-tauri/gen/`, `.claude/` 등.
 - 저장소에 있는 키는 모두 **공개키**: `UPDATE_PUBLIC_KEY`, `DEFAULT_RELAY_KEY`, `letter::DEV_KEY`.
 - 비밀은 저장소 밖: 업데이트 키 `~/personal/`, 릴레이 키·편지 `~/.local/share/screenpet-relay/`(0700/0600, `UMask=0077`), 개발자 편지 키 개발자 `config.json`, 기기 키 `identity.key`.
-- 로그는 저장소에 안 둠: 릴레이는 journald(`journalctl --user -u screenpet-relay`), 앱은 config 폴더.
+- 로그는 저장소에 안 둠: 릴레이는 journald(`journalctl --user -u screenpet-relay`), 앱은 config 폴더. `.gitignore`의 `*.log`·`logs/`, `tools/test_no_logs_in_git.py`가 지킴.
 - CI는 `--locked`, Python 의존성 해시 고정, `persist-credentials: false`, 써드파티 액션 커밋 고정 (`.github/workflows/build.yml`).
 
 ---
