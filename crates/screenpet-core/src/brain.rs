@@ -3351,6 +3351,8 @@ mod tests {
         p.state = State::Air { anim: Anim::Fall };
         p.body = Body { x, y, vx, vy };
         p.thrown = true;
+        // 손으로 던진 것처럼: 아래로 겨눴는지는 던진 속도로 정한다 (visit::aimed_down — 아래로 일부러 던져야 아래 친구에게 넘어간다)
+        p.thrown_down = crate::visit::aimed_down(vx, vy, p.cfg.dpi);
         p
     }
 

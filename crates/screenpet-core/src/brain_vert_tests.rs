@@ -180,6 +180,7 @@ fn thrown_hard_into_a_linked_floor_falls_through_but_a_drop_lands() {
         p.state = State::Air { anim: Anim::Fall };
         p.body = Body { x: 1500.0, y: 900.0, vx: -100.0, vy };
         p.thrown = thrown;
+        p.thrown_down = thrown && crate::visit::aimed_down(-100.0, vy, 1.0);
         p.set_vertical_edges(false, true);
         p
     };
@@ -192,6 +193,12 @@ fn thrown_hard_into_a_linked_floor_falls_through_but_a_drop_lands() {
         assert_eq!(exit_within(&mut q, &w, 120).0, None);
         assert!(q.standing.is_some());
     }
+    // 사용자: 친구가 던져 넘어온 것·위나 옆으로 던졌다 세게 떨어지는 것은 아래 친구에게 넘어가지 말고 착지 —
+    // 아래로 겨누지 않았으면 아무리 빨라도 내려선다
+    let mut hard = thrown(3000.0, true);
+    hard.thrown_down = false;
+    assert_eq!(exit_within(&mut hard, &w, 120).0, None);
+    assert!(hard.standing.is_some());
 }
 
 #[test]
@@ -203,6 +210,7 @@ fn thrown_flyers_cross_up_and_down_too() {
         b.state = State::Air { anim: Anim::Fall };
         b.body = Body { x: 900.0, y, vx: 0.0, vy };
         b.thrown = true;
+        b.thrown_down = crate::visit::aimed_down(0.0, vy, 1.0);
         b.set_vertical_edges(true, true);
         assert_eq!(exit_within(&mut b, &w, 120).0, Some(side));
     }

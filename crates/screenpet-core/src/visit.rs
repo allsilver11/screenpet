@@ -360,9 +360,12 @@ pub fn aimed_down(vx: f64, vy: f64, dpi: f64) -> bool {
     vy >= FLING_DOWN_AIM_SPEED * dpi.max(0.01) && vy >= FLING_DOWN_AIM_RATIO * vx.abs()
 }
 
-/// 던진 것이 지금 속도 vy(물리 px/s)로 바닥을 뚫고 넘어갈 만한지: 아래로 던졌거나, min_speed(논리 px/s) 이상으로 내리꽂히거나
+/// 던진 것이 바닥을 뚫고 아래 친구에게 넘어갈지: 내가 일부러 아래로 던졌고(aimed) 아직 내려가는 중일 때만.
+/// 빠르기만 해서는 넘어가지 않는다 — 친구가 던져 넘어온 것이나 위·옆으로 던졌다 세게 떨어지는 것은 이 화면에 착지한다
+/// (사용자: 아래 화면 친구에게 너무 자주 넘어간다). min_speed·dpi는 예전 규칙의 자리 — 쓰지 않는다
 pub fn falls_through(aimed: bool, vy: f64, min_speed: f64, dpi: f64) -> bool {
-    vy > 0.0 && (aimed || vy >= min_speed * dpi.max(0.01))
+    let _ = (min_speed, dpi);
+    vy > 0.0 && aimed
 }
 
 /// 위/아래로 나갈 확률 (이동을 정할 때마다): visit 규칙(exit_chance) × VERTICAL_DECISION_SCALE, 개구리가 위로면 × 2.
@@ -1009,7 +1012,10 @@ mod tests {
             assert!(falls_through(true, 1.0, FLING_DOWN_MIN_SPEED, dpi));
             assert!(!falls_through(true, -1.0, FLING_DOWN_MIN_SPEED, dpi));
             assert!(!falls_through(false, 1399.0 * dpi, FLING_DOWN_MIN_SPEED, dpi));
-            assert!(falls_through(false, 1400.0 * dpi, FLING_DOWN_MIN_SPEED, dpi));
+            // 사용자: 친구가 던져 넘어온 것·위나 옆으로 던졌다 세게 떨어지는 것은 아래 친구에게 넘어가지 말고 착지 —
+            // 아래로 일부러 던진 것만 바닥을 뚫는다 (빨라도)
+            assert!(!falls_through(false, 1400.0 * dpi, FLING_DOWN_MIN_SPEED, dpi));
+            assert!(!falls_through(false, 99_999.0 * dpi, FLING_DOWN_MIN_SPEED, dpi));
         }
     }
 
