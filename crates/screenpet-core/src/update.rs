@@ -24,7 +24,7 @@ pub const MAX_DOWNLOAD: u64 = 300 * 1024 * 1024;
 pub const MAX_REDIRECTS: usize = 5;
 /// 앱이 켜진 뒤 첫 조용한 확인, 그 뒤 간격 (새 버전이 있으면 메뉴 글자만 바꾼다 — 누르기 전엔 설치하지 않는다)
 pub const FIRST_CHECK_AFTER: Duration = Duration::from_secs(60);
-pub const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+pub const CHECK_EVERY: Duration = Duration::from_secs(2 * 60 * 60);
 /// Windows NSIS 설치 파일 (Tauri v2 installer.nsi): /P 진행 막대만 (묻지 않고, 켜져 있는 앱은 닫는다),
 /// /R 다 깔면 앱을 다시 켠다 (/P·/S에서만 본다), /UPDATE 지우고 다시 깔지 않고 덮어쓴다 (바로가기·WebView2 설치 건너뜀)
 pub const NSIS_ARGS: [&str; 3] = ["/P", "/R", "/UPDATE"];
@@ -641,7 +641,7 @@ mod tests {
         assert!(!g.due(true));
         assert!(g.due(false), "shown again: now");
         assert!(!g.due(false), "only once");
-        // 6시간 뒤 같은 버전을 또 찾아도, 눌러서 또 찾아도 다시 하지 않는다
+        // 2시간 뒤 같은 버전을 또 찾아도, 눌러서 또 찾아도 다시 하지 않는다
         g.found(v("0.6.4"));
         g.found(v("0.6.3"));
         assert!(!g.due(false));
@@ -745,6 +745,14 @@ mod tests {
         assert_eq!(missing_is_up_to_date(Err(UpdateError::NotPublished), mine), Ok(Check::UpToDate(mine)));
         assert_eq!(missing_is_up_to_date(Err(UpdateError::Network), mine), Err(UpdateError::Network));
         assert_eq!(missing_is_up_to_date(Ok(Check::UpToDate(mine)), mine), Ok(Check::UpToDate(mine)));
+    }
+
+
+    #[test]
+    fn it_checks_quietly_every_two_hours() {
+        // 사용자: 새 버전이 올라가면 6시간은 너무 길고, 1시간은 사용자가 많아지면 잦다 — 2시간마다
+        assert_eq!(CHECK_EVERY, Duration::from_secs(2 * 60 * 60));
+        assert_eq!(FIRST_CHECK_AFTER, Duration::from_secs(60));
     }
 
 }

@@ -3,7 +3,7 @@
 //! Tauri 업데이터 플러그인은 쓰지 않는다 — 대신 latest.json에 우리 Ed25519 서명(latest.json.sig, 공개 키는 screenpet_core::update)이 맞아야
 //! 그 안을 믿고, 받은 파일은 latest.json의 sha256·size와 맞아야만 설치한다. 서버(릴레이)를 가진 사람도 비밀 키 없이는 설치 파일을 바꿔 끼울 수 없다.
 //! 버전 견주기·파일 고르기·주소 확인은 screenpet_core::update (Linux에서 시험), 여기는 네트워크·파일·프로세스만.
-//! 켜진 뒤 1분, 그 뒤 6시간마다 조용히 확인해서 새 버전이 있으면 메뉴 글자만 바꾼다 (누르기 전엔 받지도 깔지도 않는다)
+//! 켜진 뒤 1분, 그 뒤 2시간마다 조용히 확인해서 새 버전이 있으면 메뉴 글자만 바꾼다 (누르기 전엔 받지도 깔지도 않는다)
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
@@ -76,7 +76,7 @@ fn run(app: &AppHandle) -> Result<(), UpdateError> {
     }
 }
 
-/// 켜진 뒤 한 번, 그 뒤 6시간마다 조용히 확인한다. 새 버전이면 메뉴 글자만 "🔄 업데이트 (vX 나왔어요!)" — 받거나 깔지 않는다
+/// 켜진 뒤 한 번, 그 뒤 2시간마다 조용히 확인한다. 새 버전이면 메뉴 글자만 "🔄 업데이트 (vX 나왔어요!)" — 받거나 깔지 않는다
 pub fn start_quiet_checks(app: &AppHandle) {
     let Some(platform) = Platform::current() else { return };
     let app = app.clone();
