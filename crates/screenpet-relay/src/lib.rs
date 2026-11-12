@@ -23,6 +23,7 @@ mod conn;
 pub mod control;
 pub(crate) mod board;
 pub(crate) mod mailbox;
+mod downloads;
 mod http;
 // The admin commands live here but are only reachable over a Unix socket.
 #[cfg_attr(not(unix), allow(dead_code))]
@@ -108,6 +109,8 @@ pub struct Limits {
     pub save_every: Duration,
     /// 📮 `board_list` requests closer together than this on one connection are ignored.
     pub board_gap: Duration,
+    /// 🔄 Installers sent at once from `/downloads/` (more: `503 busy`).
+    pub max_downloads: usize,
     /// Forget stale installs this often; the first pass is this long after
     /// start, once clients that were online have had time to come back.
     pub prune_every: Duration,
@@ -153,6 +156,7 @@ impl Default for Limits {
             new_codes_per_network_per_hour: 64,
             save_every: Duration::from_secs(30),
             board_gap: Duration::from_millis(500),
+            max_downloads: 8,
             prune_every: Duration::from_secs(600),
         }
     }
@@ -202,9 +206,10 @@ impl Relay {
         let listener = TcpListener::bind(cfg.bind)?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
+        let downloads = Arc::new(downloads::Downloads::new(cfg.data_dir.as_ref().map(|d| d.join("downloads")), cfg.limits.max_downloads));
         let hub = Arc::new(Hub::new(cfg.limits, cfg.trusted_proxies, key, store, control, cfg.data_dir.clone()));
         let h = hub.clone();
-        let accept = std::thread::Builder::new().name("relay-accept".into()).spawn(move || accept_loop(h, listener))?;
+        let accept = std::thread::Builder::new().name("relay-accept".into()).spawn(move || accept_loop(h, downloads, listener))?;
         let h = hub.clone();
         let upkeep = std::thread::Builder::new().name("relay-upkeep".into()).spawn(move || upkeep_loop(h))?;
         let mut threads = vec![accept, upkeep];
@@ -303,14 +308,14 @@ fn conns_within_fd_limit(max_conns: usize) -> usize {
     max_conns
 }
 
-fn accept_loop(hub: Arc<Hub>, listener: TcpListener) {
+fn accept_loop(hub: Arc<Hub>, downloads: Arc<downloads::Downloads>, listener: TcpListener) {
     let mut last_accept_log = None;
     while !hub.stopping() {
         match listener.accept() {
             Ok((stream, _)) => {
                 let _ = stream.set_nonblocking(false);
-                let h = hub.clone();
-                if !hub.spawn("relay-conn", move || http::handle(h, stream)) {
+                let (h, d) = (hub.clone(), downloads.clone());
+                if !hub.spawn("relay-conn", move || http::handle(h, d, stream)) {
                     hub::bump(&hub.counters.threads_refused);
                 }
             }

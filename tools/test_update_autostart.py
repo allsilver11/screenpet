@@ -1,4 +1,4 @@
-"""🚀 컴퓨터 켜면 자동 실행 + 🔄 업데이트 (GitHub 최신 릴리스를 받아 설치). 순수한 부분은 screenpet-core::update의 Rust 시험이 본다."""
+"""🚀 컴퓨터 켜면 자동 실행 + 🔄 업데이트 (우리 서버 pet.danni.day/downloads의 latest.json을 보고 받아 설치). 순수한 부분은 screenpet-core::update의 Rust 시험이 본다."""
 import json
 import re
 from pathlib import Path
@@ -65,6 +65,22 @@ def test_update_uses_one_tls_stack_and_a_plain_user_agent():
     assert "update::LATEST_URL" in src and "update::check(" in src
     # 넘겨주기는 직접 따라가며 한 번마다 허용된 곳인지 본다
     assert ".max_redirects(0)" in src and "update::redirect_target(" in src and "update::MAX_REDIRECTS" in src
+
+
+def test_updates_come_from_our_server_only_never_github_or_the_relay_setting():
+    src = update_rs()
+    core = (ROOT / "crates" / "screenpet-core" / "src" / "update.rs").read_text(encoding="utf-8")
+    assert 'pub const LATEST_URL: &str = "https://pet.danni.day/downloads/latest.json";' in core
+    assert 'pub const ALLOWED_HOST: &str = "pet.danni.day";' in core
+    for text in (src, core.split("#[cfg(test)]")[0]):
+        assert not re.search(r"github\.com|githubusercontent|X-GitHub|vnd\.github", text, re.I)
+    # 주소는 고정: 사용자가 바꾸는 릴레이 주소(relay_url.txt)에서 가져오지 않는다
+    assert "relay_url" not in src and "network::" not in src
+    # 처음 주소도 넘겨받은 주소도 pet.danni.day https인지 본다
+    get = src[src.index("fn get(") :]
+    get = get[: get.index("\n}\n")]
+    assert get.index("update::allowed_url(") < get.index(".call()")
+    assert '"application/json"' in src
 
 
 def test_download_is_size_capped_and_sha256_verified_before_install():

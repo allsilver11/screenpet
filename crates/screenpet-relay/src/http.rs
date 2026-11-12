@@ -1,5 +1,6 @@
 //! Minimal HTTP front: `GET /healthz` → `200 ok`, `GET /ws` with a WebSocket
-//! upgrade → the relay protocol, anything else → 404.
+//! upgrade → the relay protocol, `GET|HEAD /downloads/…` → app updates
+//! (`downloads`), anything else → 404.
 
 use crate::hub::{Hub, Refused};
 use crate::proto::{HEADER, MAX_FRAME};
@@ -107,13 +108,17 @@ pub(crate) fn ws_config() -> WebSocketConfig {
     WebSocketConfig::default().max_message_size(Some(HEADER + MAX_FRAME)).max_frame_size(Some(HEADER + MAX_FRAME))
 }
 
-pub(crate) fn handle(hub: Arc<Hub>, mut stream: TcpStream) {
+pub(crate) fn handle(hub: Arc<Hub>, downloads: Arc<crate::downloads::Downloads>, mut stream: TcpStream) {
     let Ok(peer) = stream.peer_addr() else { return };
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let Some(req) = read_head(&mut stream) else {
         respond(&mut stream, "400 Bad Request", "bad request\n");
         return;
     };
+    if crate::downloads::is_downloads(&req.path) {
+        crate::downloads::prepare(&stream);
+        return downloads.serve(&req.method, &req.path, &mut stream, &|| hub.stopping());
+    }
     if req.method != "GET" {
         respond(&mut stream, "405 Method Not Allowed", "method not allowed\n");
         return;

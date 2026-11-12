@@ -122,6 +122,30 @@ and, optionally, its public key (64 hex digits) on the second line to pin it;
 write `off` to disable internet friends. Tray: *친구랑 놀기 ▸ 인터넷 연결: 연결됨/끊김*, *내 친구 코드
 보기* (shows the code above the pet; click to copy), *친구 코드 입력…*.
 
+## App updates (🔄 업데이트, v0.6.3)
+
+The app checks `https://pet.danni.day/downloads/latest.json` (fixed address,
+not the relay URL setting) and downloads the installer it names from
+`/downloads/`, verifying size and SHA-256. The relay serves those files from
+`<data dir>/downloads/`: `GET`/`HEAD` only, only `latest.json` and
+`ScreenPet_X.Y.Z_x64-setup.exe` / `ScreenPet_X.Y.Z_universal.dmg` (no listing,
+no other names, no symlinks), at most 8 installers at once (`503 busy` past
+that), `latest.json` with `Cache-Control: no-cache`.
+
+After CI has finished a release, publish it on this server:
+
+```sh
+deploy/publish-release.sh v0.6.3                  # GITHUB_TOKEN=… if the repo is private
+curl -s https://pet.danni.day/downloads/latest.json
+```
+
+It downloads both installers through the GitHub API into a temporary folder
+in `downloads/`, checks them against GitHub's size and SHA-256, renames them
+into place, then atomically replaces `latest.json`, then deletes every other
+`ScreenPet_*` file: **only the new release is kept**. A failed run leaves the
+published files untouched and removes its temporary files (leftovers of a
+killed run are removed by the next run). No relay restart is needed.
+
 ## Admin commands
 
 Run on the server, as the relay's user. They talk to the running relay through
