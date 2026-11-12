@@ -19,6 +19,7 @@ pub(crate) mod board;
 pub(crate) mod mailbox;
 mod downloads;
 mod http;
+mod monitor;
 // The admin commands live here but are only reachable over a Unix socket.
 #[cfg_attr(not(unix), allow(dead_code))]
 mod hub;
@@ -27,6 +28,8 @@ pub mod store;
 pub mod weather;
 
 use hub::Hub;
+use monitor::Cid;
+use screenpet_log::log;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -222,6 +225,8 @@ pub struct Relay {
 impl Relay {
     /// 릴레이를 시작함: 데이터·키를 읽고, 소켓을 열고, accept·upkeep·관리·날씨 스레드를 띄움
     pub fn start(mut cfg: RelayConfig) -> std::io::Result<Relay> {
+        // 로그 줄을 stderr(journald)로 내고 `admin status`·`admin recent`용으로 셈
+        monitor::install();
         cfg.limits.max_conns = conns_within_fd_limit(cfg.limits.max_conns);
         let (key, store, control) = match &cfg.data_dir {
             // A bad control file ends the start here, before anyone connects.
@@ -250,7 +255,7 @@ impl Relay {
                     let h = hub.clone();
                     threads.push(std::thread::Builder::new().name("relay-admin".into()).spawn(move || admin::serve(h, listener))?);
                 }
-                Err(e) => eprintln!("screenpet-relay: no admin socket in {}: {e}", dir.display()),
+                Err(e) => log!(Error, "admin", "socket_fail", "err" => e),
             }
         }
         Ok(Relay { hub, addr, threads, data_dir: cfg.data_dir })
@@ -323,7 +328,7 @@ fn conns_within_fd_limit(max_conns: usize) -> usize {
     }
     let conns = conns_for_fds(max_conns, lim.rlim_cur as u64);
     if conns < max_conns {
-        eprintln!("screenpet-relay: file descriptor limit {} allows only {conns} connections", lim.rlim_cur);
+        log!(Warn, "hub", "fd_limit", "limit" => lim.rlim_cur, "n" => conns);
     }
     conns
 }
@@ -341,9 +346,12 @@ fn accept_loop(hub: Arc<Hub>, downloads: Arc<downloads::Downloads>, listener: Tc
         match listener.accept() {
             Ok((stream, _)) => {
                 let _ = stream.set_nonblocking(false);
+                // 연결 번호는 여기서 줌: accept부터 close까지 모든 줄에 `conn=`으로 붙음
+                let conn = hub.conn_id();
                 let (h, d) = (hub.clone(), downloads.clone());
-                if !hub.spawn("relay-conn", move || http::handle(h, d, stream)) {
+                if !hub.spawn("relay-conn", move || http::handle(h, d, stream, conn)) {
                     hub::bump(&hub.counters.threads_refused);
+                    log!(Warn, "conn", "thread_refused", "conn" => Cid(conn));
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(20)),
@@ -352,7 +360,7 @@ fn accept_loop(hub: Arc<Hub>, downloads: Arc<downloads::Downloads>, listener: Tc
                 hub::bump(&hub.counters.accept_errors);
                 if last_accept_log.is_none_or(|t: Instant| t.elapsed() >= Duration::from_secs(60)) {
                     last_accept_log = Some(Instant::now());
-                    eprintln!("screenpet-relay: cannot accept connections: {e}");
+                    log!(Error, "conn", "accept_fail", "err" => e);
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
@@ -384,11 +392,14 @@ fn upkeep_loop(hub: Arc<Hub>) {
 /// 날씨 스레드가 받아 올 지역을 찾는 주기
 const WEATHER_ROUND: Duration = Duration::from_secs(2);
 
+/// 날씨 받기가 이만큼 잇달아 실패하면 WARN 대신 ERROR로 적음
+const WEATHER_FAILS_ERROR: u32 = 3;
+
 /// ☀️ 때가 된 지역 날씨를 하나씩 따로 스레드에서 받아 옴: 느린 날씨 서비스가 연결을 붙잡지 않음.
-/// 오류는 (최대 10분에 한 번) 로그만 남기고 릴레이를 멈추지 않음
+/// 받을 때마다 `fetch_ok`/`fetch_fail`(took_ms)을 적음. 오류가 나도 릴레이를 멈추지 않음
 fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
     let mut last_round = Instant::now() - WEATHER_ROUND;
-    let mut last_error_log: Option<Instant> = None;
+    let mut fails: std::collections::HashMap<&'static str, u32> = Default::default();
     while !hub.stopping() {
         std::thread::sleep(Duration::from_millis(50));
         if last_round.elapsed() < WEATHER_ROUND {
@@ -402,12 +413,21 @@ fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
                 hub.weather_fetched(place.id, None);
                 break;
             }
+            let started = Instant::now();
             let code = match fetch(place) {
-                Ok(code) => Some(code),
+                Ok(code) => {
+                    fails.remove(place.id);
+                    log!(Info, "weather", "fetch_ok", "place" => place.id, "wmo" => code, "took_ms" => monitor::took_ms(started));
+                    Some(code)
+                }
                 Err(e) => {
-                    if last_error_log.is_none_or(|t| t.elapsed() >= Duration::from_secs(600)) {
-                        last_error_log = Some(Instant::now());
-                        eprintln!("screenpet-relay: weather for {} failed: {e}", place.id);
+                    let n = fails.entry(place.id).or_default();
+                    *n += 1;
+                    let took = monitor::took_ms(started);
+                    if *n >= WEATHER_FAILS_ERROR {
+                        log!(Error, "weather", "fetch_fail", "place" => place.id, "n" => *n, "took_ms" => took, "err" => e);
+                    } else {
+                        log!(Warn, "weather", "fetch_fail", "place" => place.id, "n" => *n, "took_ms" => took, "err" => e);
                     }
                     None
                 }

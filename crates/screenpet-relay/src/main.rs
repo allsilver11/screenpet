@@ -7,6 +7,7 @@
 //!
 //! `screenpet-relay admin [--data DIR] <command>`는 그 데이터 폴더를 쓰는 릴레이에 운영 명령을 돌림 (`admin::USAGE` 참고).
 
+use screenpet_log::log;
 use screenpet_relay::{Relay, RelayConfig, DEFAULT_PORT, DEFAULT_TRUSTED_PROXY};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -120,28 +121,34 @@ fn main() {
     if std::env::var("SCREENPET_RELAY_WEATHER").as_deref() != Ok("off") {
         cfg.weather_fetch = Some(screenpet_relay::weather::open_meteo());
     }
-    let shown: Vec<String> = cfg.trusted_proxies.iter().map(IpAddr::to_string).collect();
-    eprintln!("screenpet-relay: trusting forwarded client addresses from loopback and [{}]", shown.join(", "));
+    // 믿는 프록시도 가린 모양으로 (데이터 폴더 경로는 안 적음: 집 폴더 아래임)
+    let proxies: Vec<String> = cfg.trusted_proxies.iter().map(|p| screenpet_log::mask_ip(&p.to_string())).collect();
+    let proxies = if proxies.is_empty() { "loopback".to_string() } else { format!("loopback,{}", proxies.join(",")) };
+    let weather = if cfg.weather_fetch.is_some() { "on" } else { "off" };
     match Relay::start(cfg) {
         Ok(relay) => {
-            eprintln!(
-                "screenpet-relay listening on {} (data {}), relay key {}",
-                relay.local_addr(),
-                data.display(),
-                screenpet_relay::proto::to_hex(&relay.public_key())
+            // 릴레이 공개키는 비밀이 아니지만 앞 16자만 (앱 설정과 견주기엔 충분)
+            let relay_pub = screenpet_relay::proto::to_hex(&relay.public_key());
+            log!(
+                Info, "hub", "start",
+                "bind" => relay.local_addr(),
+                "v" => screenpet_relay::proto::PROTOCOL_VERSION,
+                "relay_pub" => &relay_pub[..16],
+                "proxies" => proxies,
+                "weather" => weather,
             );
             // Dropping the relay tells clients, ends the threads and saves.
             #[cfg(unix)]
             {
                 signals::wait(&stop_signals);
-                eprintln!("screenpet-relay: stopping");
+                log!(Info, "hub", "stop");
                 drop(relay);
             }
             #[cfg(not(unix))]
             relay.wait();
         }
         Err(e) => {
-            eprintln!("screenpet-relay: cannot start: {e}");
+            log!(Error, "hub", "start_fail", "err" => e);
             std::process::exit(1);
         }
     }

@@ -98,7 +98,8 @@ fn read_data(path: &Path) -> Option<Data> {
     match serde_json::from_slice(&bytes) {
         Ok(d) => Some(d),
         Err(e) => {
-            eprintln!("screenpet-relay: {} is unreadable ({e})", path.display());
+            let file = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+            screenpet_log::log!(Error, "store", "load_fail", "file" => file, "err" => e);
             None
         }
     }
@@ -130,12 +131,12 @@ impl Store {
             Some(d) => d,
             None => match read_data(&bak) {
                 Some(d) => {
-                    eprintln!("screenpet-relay: using {}", bak.display());
+                    screenpet_log::log!(Warn, "store", "load_backup", "file" => format!("{DATA_FILE}.bak"));
                     d
                 }
                 None => {
                     if main.exists() || bak.exists() {
-                        eprintln!("screenpet-relay: no readable data file; starting with an empty store");
+                        screenpet_log::log!(Error, "store", "load_empty");
                     }
                     Data::default()
                 }

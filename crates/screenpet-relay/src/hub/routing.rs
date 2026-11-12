@@ -8,8 +8,21 @@ pub(super) const NET_BYTES_SHARE: f64 = 1.0 / 16.0;
 pub(super) const NET_QUEUE_SHARE: usize = 64;
 
 impl Hub {
-    /// `key`에서 `to`로 채널을 엶. 서로 친구이거나 코드로 받은 허가가 있어야 함 (허가는 여기서 씀)
+    /// `key`에서 `to`로 채널을 엶. 서로 친구이거나 코드로 받은 허가가 있어야 함 (허가는 여기서 씀). `channel_open`·`channel_fail`을 적음
     pub(crate) fn open(&self, key: &str, conn: u64, req: u32, to: &str) -> Option<ServerMsg> {
+        let reply = self.open_inner(key, conn, req, to);
+        let to = proto::norm_key(to);
+        let to = to.as_deref().map_or("-", short);
+        match &reply {
+            Some(ServerMsg::Opened { ch, .. }) => log!(Info, "route", "channel_open", "conn" => Cid(conn), "peer" => short(key), "to" => to, "ch" => ch),
+            Some(ServerMsg::OpenFailed { reason, .. }) => log!(Warn, "route", "channel_fail", "conn" => Cid(conn), "peer" => short(key), "to" => to, "reason" => reason),
+            _ => {}
+        }
+        reply
+    }
+
+    /// `open`의 본체
+    fn open_inner(&self, key: &str, conn: u64, req: u32, to: &str) -> Option<ServerMsg> {
         let fail = |reason: &str| Some(ServerMsg::OpenFailed { req, reason: reason.into() });
         let mut st = self.state();
         if !Self::is_current(&st, key, conn) {
@@ -83,6 +96,7 @@ impl Hub {
         let other = c.ends[1 - side].0.clone();
         if !rate_ok || !self.bandwidth_allows(st, ip, len as f64) {
             bump(&self.counters.channels_closed_rate);
+            log!(Warn, "route", "channel_cut", "conn" => Cid(conn), "peer" => short(key), "ch" => ch, "reason" => "rate");
             st.close_channel(ch, None);
             return;
         }
@@ -92,6 +106,7 @@ impl Hub {
             self.counters.bytes_forwarded.fetch_add(len as u64, Ordering::Relaxed);
         } else {
             bump(&self.counters.channels_closed_queue);
+            log!(Warn, "route", "channel_cut", "conn" => Cid(conn), "peer" => short(key), "ch" => ch, "reason" => "queue");
             st.close_channel(ch, None);
         }
     }

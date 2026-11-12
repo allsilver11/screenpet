@@ -9,7 +9,9 @@
 //! 느린 클라이언트가 자리를 못 잡게 함. 파일은 `deploy/publish-release.sh`가 놓고, `latest.json.sig`는 그 서명임
 //! (릴레이는 서명 키를 갖지 않음). `http::handle`이 부름.
 
+use crate::monitor::{took_ms, Cid};
 use crate::Limits;
+use screenpet_log::{log, mask_ip};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
@@ -141,16 +143,23 @@ impl Downloads {
     }
 
     /// `elapsed` 동안 `sent`바이트를 보낸 전송을 멈춰야 하는지 봄
+    #[cfg(test)]
     fn too_slow(&self, sent: u64, elapsed: Duration) -> bool {
-        if elapsed >= self.deadline {
-            return true;
-        }
-        elapsed >= self.grace && (sent as f64) < self.min_rate as f64 * elapsed.as_secs_f64()
+        self.cut_reason(sent, elapsed).is_some()
     }
 
-    /// 클라이언트 주소 `ip`(릴레이의 주소별 묶음)에서 온 다운로드 경로 요청 하나에 답함.
-    /// `stopping`이 참이 되면(릴레이 종료) 전송을 일찍 끝냄
-    pub(crate) fn serve<W: Write>(&self, method: &str, path: &str, ip: &str, out: &mut W, stopping: &dyn Fn() -> bool) {
+    /// 전송을 멈출 까닭: 전체 마감을 넘으면 `deadline`, 유예 뒤 평균이 느리면 `slow`, 아니면 None
+    fn cut_reason(&self, sent: u64, elapsed: Duration) -> Option<&'static str> {
+        if elapsed >= self.deadline {
+            return Some("deadline");
+        }
+        (elapsed >= self.grace && (sent as f64) < self.min_rate as f64 * elapsed.as_secs_f64()).then_some("slow")
+    }
+
+    /// 클라이언트 주소 `ip`(릴레이의 주소별 묶음)에서 온 다운로드 경로 요청 하나에 답함 (`conn` = 연결 번호, 로그용).
+    /// `stopping`이 참이 되면(릴레이 종료) 전송을 일찍 끝냄.
+    /// 로그: 설치 파일은 `download_start` → `download_done`/`download_cut`(took_ms, bytes), 정보 파일은 `meta`
+    pub(crate) fn serve<W: Write>(&self, method: &str, path: &str, ip: &str, conn: u64, out: &mut W, stopping: &dyn Fn() -> bool) {
         let head = match method {
             "GET" => false,
             "HEAD" => true,
@@ -164,13 +173,18 @@ impl Downloads {
         // A regular file only: never a symlink out of the folder.
         let is_file = std::fs::symlink_metadata(&file_path).is_ok_and(|m| m.file_type().is_file());
         if !is_file {
+            // 허락된 이름인데 파일이 없음: 릴리스를 덜 올린 것 (이름은 고정 모양이라 적어도 됨)
+            log!(Warn, "dl", "not_found", "conn" => Cid(conn), "file" => name);
             return status(out, "404 Not Found", "", "not found\n");
         }
         let installer = name != LATEST && name != LATEST_SIG;
         let _slot = if installer {
             match self.slot(ip) {
                 Some(s) => Some(s),
-                None => return status(out, "503 Service Unavailable", "Retry-After: 60\r\n", "busy\n"),
+                None => {
+                    log!(Warn, "dl", "download_busy", "conn" => Cid(conn), "ip" => mask_ip(ip), "file" => name);
+                    return status(out, "503 Service Unavailable", "Retry-After: 60\r\n", "busy\n");
+                }
             }
         } else {
             None
@@ -193,27 +207,57 @@ impl Downloads {
             "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {len}\r\n{extra}X-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
             content_type(name)
         );
+        if !installer {
+            log!(Info, "dl", "meta", "conn" => Cid(conn), "ip" => mask_ip(ip), "file" => name, "head" => u8::from(head), "ok" => u8::from(head_ok.is_ok()));
+        }
         if head_ok.is_err() || head {
             let _ = out.flush();
             return;
         }
+        if installer {
+            log!(Info, "dl", "download_start", "conn" => Cid(conn), "ip" => mask_ip(ip), "file" => name, "bytes" => len);
+        }
         let mut buf = vec![0u8; CHUNK];
         let mut left = len;
         let started = Instant::now();
-        while left > 0 && !stopping() && !self.too_slow(len - left, started.elapsed()) {
+        let mut cut: Option<&'static str> = None;
+        while left > 0 {
+            if stopping() {
+                cut = Some("stopping");
+                break;
+            }
+            if let Some(why) = self.cut_reason(len - left, started.elapsed()) {
+                cut = Some(why);
+                break;
+            }
             let want = (left.min(CHUNK as u64)) as usize;
             let n = match file.read(&mut buf[..want]) {
-                Ok(0) => break,
+                Ok(0) => {
+                    cut = Some("short_file");
+                    break;
+                }
                 Ok(n) => n,
                 Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-                Err(_) => break,
+                Err(_) => {
+                    cut = Some("read_fail");
+                    break;
+                }
             };
             if out.write_all(&buf[..n]).is_err() {
-                return;
+                cut = Some("write_fail");
+                break;
             }
             left -= n as u64;
         }
         let _ = out.flush();
+        if !installer {
+            return;
+        }
+        let (took, sent) = (took_ms(started), len - left);
+        match cut {
+            None => log!(Info, "dl", "download_done", "conn" => Cid(conn), "file" => name, "bytes" => sent, "took_ms" => took),
+            Some(reason) => log!(Warn, "dl", "download_cut", "conn" => Cid(conn), "file" => name, "reason" => reason, "bytes" => sent, "took_ms" => took),
+        }
     }
 }
 
@@ -317,13 +361,17 @@ mod tests {
         // Fast enough, but not forever.
         assert!(!d.too_slow(u64::MAX / 2, s(30 * 60 - 1)));
         assert!(d.too_slow(u64::MAX / 2, s(30 * 60)));
+        // The reason is named for the log.
+        assert_eq!(d.cut_reason(0, s(19)), None);
+        assert_eq!(d.cut_reason(0, s(20)), Some("slow"));
+        assert_eq!(d.cut_reason(u64::MAX / 2, s(30 * 60)), Some("deadline"));
         // A 100 MB installer at the minimum rate fits in the deadline.
         assert!(100 * 1024 * 1024 / Limits::default().download_min_rate < Limits::default().download_deadline.as_secs());
     }
 
     fn answer(d: &Downloads, method: &str, path: &str) -> String {
         let mut out = Vec::new();
-        d.serve(method, path, "127.0.0.1", &mut out, &|| false);
+        d.serve(method, path, "127.0.0.1", 1, &mut out, &|| false);
         String::from_utf8_lossy(&out).into_owned()
     }
 

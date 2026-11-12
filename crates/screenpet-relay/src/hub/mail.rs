@@ -27,22 +27,26 @@ impl Hub {
         }
     }
 
-    /// 편지함이 바뀌었으면 `letters.json`을 씀
+    /// 편지함이 바뀌었으면 `letters.json`을 씀. 걸린 밀리초를 돌려줌 (실패면 `save_fail`을 적음)
     ///
     /// 저장 잠금이 스냅숏과 쓰기를 감싸 순서를 지킴. 편지함 잠금은 스냅숏 동안만 잡고, 상태 잠금은 잡지 않음.
-    pub(super) fn save_mailbox(&self) {
+    pub(super) fn save_mailbox(&self) -> u128 {
+        let started = Instant::now();
         let _order = self.mailbox_save.lock().unwrap_or_else(|e| e.into_inner());
         let snap = self.mail().snapshot();
         if let (Some(bytes), Some(dir)) = (snap, self.data_dir.as_deref()) {
             if let Err(e) = crate::mailbox::Mailbox::save(dir, &bytes) {
-                eprintln!("screenpet-relay: cannot save letters: {e}");
+                log!(Error, "mail", "save_fail", "took_ms" => took_ms(started), "err" => e);
                 self.mail().mark_dirty();
             }
         }
+        took_ms(started)
     }
 
-    /// `key`가 보낸 봉인 편지(hex)를 받음. 독자에게 `letter_new`를 알리고 답을 돌려줌
+    /// `key`가 보낸 봉인 편지(hex)를 받음. 독자에게 `letter_new`를 알리고 답을 돌려줌.
+    /// `letter_in`(번호·크기·저장 took_ms)이나 `letter_refused`를 적음. 내용은 안 적음
     pub(crate) fn letter(&self, key: &str, conn: u64, ip: &str, hex: &str) -> Option<ServerMsg> {
+        let mut stored: Option<u64> = None;
         let reply = {
             let st = self.state();
             if !Self::is_current(&st, key, conn) {
@@ -56,13 +60,20 @@ impl Hub {
             };
             match result {
                 Ok(item) => {
+                    stored = Some(item.id);
                     Self::tell_readers(&st, &ServerMsg::LetterNew { item: item.into() });
                     ServerMsg::LetterOk
                 }
-                Err(r) => ServerMsg::LetterRefused { reason: r.as_str().into() },
+                Err(r) => {
+                    log!(Warn, "mail", "letter_refused", "conn" => Cid(conn), "peer" => short(key), "reason" => r.as_str());
+                    ServerMsg::LetterRefused { reason: r.as_str().into() }
+                }
             }
         };
-        self.save_mailbox();
+        let took = self.save_mailbox();
+        if let Some(id) = stored {
+            log!(Info, "mail", "letter_in", "conn" => Cid(conn), "peer" => short(key), "id" => id, "bytes" => hex.len() / 2, "took_ms" => took);
+        }
         Some(reply)
     }
 
@@ -71,12 +82,14 @@ impl Hub {
         let st = self.state();
         (Self::is_current(&st, key, conn) && Self::is_reader(&st, key)).then(|| {
             let mail = self.mail();
-            ServerMsg::Letters { items: mail.list().into_iter().map(Into::into).collect(), board: mail.board_ids() }
+            let items: Vec<_> = mail.list().into_iter().map(Into::into).collect();
+            log!(Info, "mail", "letters_list", "conn" => Cid(conn), "peer" => short(key), "n" => items.len());
+            ServerMsg::Letters { items, board: mail.board_ids() }
         })
     }
 
-    /// 독자가 편지함을 고침. 바뀌면 접속 중인 독자 모두가 `letters_changed`를 받음
-    pub(super) fn reader_edit(&self, key: &str, conn: u64, edit: impl FnOnce(&mut crate::mailbox::Mailbox) -> bool) {
+    /// 독자가 편지함을 고침. 바뀌면 접속 중인 독자 모두가 `letters_changed`를 받음 (`mail_edit op= id=`를 적음, 차단은 id 0)
+    pub(super) fn reader_edit(&self, key: &str, conn: u64, op: &'static str, id: u64, edit: impl FnOnce(&mut crate::mailbox::Mailbox) -> bool) {
         {
             let st = self.state();
             if !Self::is_current(&st, key, conn) || !Self::is_reader(&st, key) {
@@ -87,27 +100,28 @@ impl Hub {
             }
             Self::tell_readers(&st, &ServerMsg::LettersChanged);
         }
-        self.save_mailbox();
+        let took = self.save_mailbox();
+        log!(Info, "mail", "mail_edit", "conn" => Cid(conn), "peer" => short(key), "op" => op, "id" => id, "took_ms" => took);
     }
 
     /// 읽음 표시
     pub(crate) fn letter_read(&self, key: &str, conn: u64, id: u64) {
-        self.reader_edit(key, conn, |m| m.mark_read(id));
+        self.reader_edit(key, conn, "read", id, |m| m.mark_read(id));
     }
 
     /// ✅ 반영 표시를 켜거나 끔
     pub(crate) fn letter_done(&self, key: &str, conn: u64, id: u64, done: bool) {
-        self.reader_edit(key, conn, |m| m.mark_done(id, done));
+        self.reader_edit(key, conn, "done", id, |m| m.mark_done(id, done));
     }
 
     /// 🙅 반려를 켜거나 끔 (v3 앱. 옛 앱은 `letter_done`만 씀)
     pub(crate) fn letter_reject(&self, key: &str, conn: u64, id: u64, rejected: bool) {
-        self.reader_edit(key, conn, |m| m.mark_rejected(id, rejected));
+        self.reader_edit(key, conn, "reject", id, |m| m.mark_rejected(id, rejected));
     }
 
     /// 🔒 비공개를 켜거나 끔 (v3 앱, 독자만)
     pub(crate) fn letter_private(&self, key: &str, conn: u64, id: u64, private: bool) {
-        self.reader_edit(key, conn, |m| m.mark_private(id, private));
+        self.reader_edit(key, conn, "private", id, |m| m.mark_private(id, private));
     }
 
     /// 📮 독자(개발자 앱)가 올린 공개 요약을 받음. 편지함이 하나씩 검사하고 나쁜 것은 건너뜀. 답은 없음
@@ -125,6 +139,8 @@ impl Hub {
             for i in items {
                 changed |= mail.board_put(i.id, &i.name, &i.line) == Ok(true);
             }
+            // 이름·한 줄은 안 적음 (개수만)
+            log!(Info, "board", "board_put", "conn" => Cid(conn), "peer" => short(key), "n" => items.len(), "changed" => u8::from(changed));
             if !changed {
                 return;
             }
@@ -145,18 +161,19 @@ impl Hub {
         }
         peer.board_at = Some(now);
         let (items, page, pages, total) = self.mail().board_page(page);
+        log!(Info, "board", "board_list", "conn" => Cid(conn), "peer" => short(key), "page" => page, "n" => items.len());
         Some(ServerMsg::BoardPage { items, page, pages, total })
     }
 
     /// 편지를 지움
     pub(crate) fn letter_delete(&self, key: &str, conn: u64, id: u64) {
-        self.reader_edit(key, conn, |m| m.delete(id));
+        self.reader_edit(key, conn, "delete", id, |m| m.delete(id));
     }
 
     /// 보낸 설치를 막음 (그 편지와 요약도 같이 사라짐)
     pub(crate) fn letter_block(&self, key: &str, conn: u64, from: &str) {
         let Some(from) = proto::norm_key(from) else { return };
-        self.reader_edit(key, conn, |m| {
+        self.reader_edit(key, conn, "block", 0, |m| {
             m.block(&from);
             true
         });

@@ -2,12 +2,21 @@
 
 use super::*;
 
+/// 이보다 오래 걸린 저장은 `save_slow`로 적음
+pub(super) const SLOW_SAVE: Duration = Duration::from_millis(500);
+
 impl Hub {
     /// `ip`에서 온 새 연결을 셈. 한도를 넘으면 Err임
     ///
     /// 인증 전 연결은 공격자에게 공짜라 주소·네트워크·전체마다 작은 풀을 따로 둠.
     /// 풀이 차도 새 연결을 거절하지 않고 가장 오래된 것을 내보냄 (붙잡고 있으려면 왕복마다 다시 열어야 함).
+    #[cfg(test)]
     pub(crate) fn admit_ip(&self, ip: &str) -> Result<Admission, Refused> {
+        self.admit(ip, self.conn_id())
+    }
+
+    /// `admit_ip`와 같지만 accept에서 받은 연결 번호 `conn`을 씀 (로그의 `conn=`이 처음부터 같게)
+    pub(crate) fn admit(&self, ip: &str, conn: u64) -> Result<Admission, Refused> {
         let lim = &self.limits;
         let net = share_bucket(ip);
         let mut guard = self.state();
@@ -46,7 +55,6 @@ impl Hub {
         st.ip_conns.entry(ip.to_string()).or_default().admit();
         st.net_conns.entry(net.clone()).or_default().admit();
         let net_queued = st.net_queued.entry(net.clone()).or_default().clone();
-        let conn = self.conn_id();
         let kill: Arc<OnceLock<&'static str>> = Arc::default();
         st.unauthed.insert(conn, Unauthed { ip: ip.to_string(), net, kill: kill.clone() });
         Ok(Admission { conn, kill, net_queued })
@@ -71,10 +79,8 @@ impl Hub {
     pub fn warn_proxy_without_address(&self) {
         bump(&self.counters.proxy_without_address);
         if !self.proxy_warned.swap(true, Ordering::Relaxed) {
-            eprintln!(
-                "screenpet-relay: a trusted proxy sent no usable X-Real-IP or X-Forwarded-For; \
-                 its clients all share one address's limits (check the proxy config)"
-            );
+            // 프록시 설정을 볼 것: 그 뒤 클라이언트가 모두 한 주소의 한도를 나눠 씀
+            log!(Warn, "hub", "proxy_no_address");
         }
     }
 
@@ -89,7 +95,7 @@ impl Hub {
         out
     }
 
-    /// 인증된 설치가 접속함. 같은 키의 이전 연결은 내보냄. `welcome` 메시지를 돌려줌
+    /// 인증된 설치가 접속함. 같은 키의 이전 연결은 내보냄. `welcome` 메시지를 돌려줌 (`login`·`login_refused`를 적음)
     pub(crate) fn join(
         &self,
         key: &str,
@@ -99,6 +105,29 @@ impl Hub {
         conn: u64,
         link: Link,
     ) -> Result<ServerMsg, &'static str> {
+        let result = self.join_inner(key, id, friends, ip, conn, link);
+        match &result {
+            Ok((ServerMsg::Welcome { online, .. }, new, n)) => log!(
+                Info, "hub", "login",
+                "conn" => Cid(conn), "peer" => short(key), "ip" => mask_ip(ip), "v" => proto::PROTOCOL_VERSION,
+                "new" => u8::from(*new), "friends" => *n, "online" => online.len(),
+            ),
+            Ok(_) => {}
+            Err(reason) => log!(Warn, "hub", "login_refused", "conn" => Cid(conn), "peer" => short(key), "ip" => mask_ip(ip), "reason" => reason),
+        }
+        result.map(|(m, _, _)| m)
+    }
+
+    /// `join`의 본체: (`welcome`, 새 설치인지, 알린 친구 수)
+    fn join_inner(
+        &self,
+        key: &str,
+        id: &str,
+        friends: &[String],
+        ip: &str,
+        conn: u64,
+        link: Link,
+    ) -> Result<(ServerMsg, bool, usize), &'static str> {
         let friends = self.clean_friends(key, friends);
         let now = unix_now();
         let mut st = self.state();
@@ -133,12 +162,16 @@ impl Hub {
         if let Some(old) = st.peers.remove(key) {
             bump(&self.counters.logins_replaced);
             // Two copies of one install fighting over the relay show up here (e.g. a copied identity)
-            eprintln!("screenpet-relay: {} logged in again from {ip} (was {}), old connection replaced", &key[..12.min(key.len())], old.ip);
+            log!(
+                Warn, "hub", "login_replaced",
+                "conn" => Cid(conn), "peer" => short(key), "ip" => mask_ip(ip), "old_conn" => Cid(old.conn), "old_ip" => mask_ip(&old.ip),
+            );
             old.link.kick("replaced");
             for ch in old.channels {
                 st.close_channel(ch, Some(key));
             }
         }
+        let n_friends = friends.len();
         let registered = {
             let st = &mut *st;
             let peers = &st.peers;
@@ -170,7 +203,7 @@ impl Hub {
         for f in &online {
             st.peers[f].send(ServerMsg::Presence { key: key.to_string(), online: true });
         }
-        Ok(ServerMsg::Welcome { code, code_ttl, online, proof: None })
+        Ok((ServerMsg::Welcome { code, code_ttl, online, proof: None }, !known, n_friends))
     }
 
     /// 연결이 끝남 (이미 새 연결로 바뀌었으면 아무것도 안 함)
@@ -181,6 +214,7 @@ impl Hub {
         }
         let online = st.mutual_online(key);
         let peer = st.peers.remove(key).expect("checked");
+        log!(Info, "hub", "logout", "conn" => Cid(conn), "peer" => short(key), "channels" => peer.channels.len());
         for ch in peer.channels {
             st.close_channel(ch, Some(key));
         }
@@ -208,11 +242,24 @@ impl Hub {
                 p.send(ServerMsg::Presence { key: key.to_string(), online: after_set.contains(f) });
             }
         }
+        let n = st.store_ref().get(key).map_or(0, |i| i.friends.len());
+        log!(Info, "presence", "friends", "conn" => Cid(conn), "peer" => short(key), "n" => n, "online" => after.len());
         Some(ServerMsg::Online { keys: after })
     }
 
-    /// 친구 코드를 씀. 성공하면 `key`가 주인에게 `grant_ttl` 동안 채널 하나를 열 수 있음
+    /// 친구 코드를 씀. 성공하면 `key`가 주인에게 `grant_ttl` 동안 채널 하나를 열 수 있음 (코드는 로그에 안 적음)
     pub(crate) fn redeem(&self, key: &str, conn: u64, ip: &str, code: &str) -> Option<ServerMsg> {
+        let reply = self.redeem_inner(key, conn, ip, code);
+        match &reply {
+            Some(ServerMsg::Redeemed { key: target, .. }) => log!(Info, "presence", "redeem_ok", "conn" => Cid(conn), "peer" => short(key), "to" => short(target)),
+            Some(ServerMsg::RedeemFailed { reason, .. }) => log!(Warn, "presence", "redeem_fail", "conn" => Cid(conn), "peer" => short(key), "reason" => reason),
+            _ => {}
+        }
+        reply
+    }
+
+    /// `redeem`의 본체
+    fn redeem_inner(&self, key: &str, conn: u64, ip: &str, code: &str) -> Option<ServerMsg> {
         let fail = |reason: &str| Some(ServerMsg::RedeemFailed { code: code.to_string(), reason: reason.into() });
         let mut st = self.state();
         if !Self::is_current(&st, key, conn) {
@@ -285,6 +332,7 @@ impl Hub {
             return Some(ServerMsg::Code { code: NO_CODE.to_string(), code_ttl: 0 }); // the apps wait for an answer
         }
         let now = unix_now();
+        log!(Info, "presence", "new_code", "conn" => Cid(conn), "peer" => short(key));
         st.store().rotate(key, now);
         let (code, code_ttl, _) = st.store().code(key, now, self.limits.code_ttl.as_secs())?;
         Some(ServerMsg::Code { code, code_ttl })
@@ -317,10 +365,15 @@ impl Hub {
     pub(crate) fn save(&self) {
         let snapshot = self.state().store().snapshot();
         if let Some(snap) = snapshot {
-            if let Err(e) = crate::store::write_snapshot(&snap) {
-                eprintln!("screenpet-relay: cannot save data: {e}");
-                bump(&self.counters.save_errors);
-                self.state().store().mark_dirty();
+            let started = Instant::now();
+            match crate::store::write_snapshot(&snap) {
+                Err(e) => {
+                    log!(Error, "store", "save_fail", "took_ms" => took_ms(started), "err" => e);
+                    bump(&self.counters.save_errors);
+                    self.state().store().mark_dirty();
+                }
+                Ok(()) if started.elapsed() >= SLOW_SAVE => log!(Warn, "store", "save_slow", "took_ms" => took_ms(started)),
+                Ok(()) => {}
             }
         }
     }

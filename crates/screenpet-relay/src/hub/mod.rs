@@ -35,6 +35,8 @@ use limits::*;
 use weather::weather_msg;
 
 use crate::control::Control;
+use crate::monitor::{took_ms, Cid};
+use screenpet_log::{log, mask_ip, short};
 use crate::mailbox::Mailbox;
 use crate::proto::{self, ServerMsg};
 use crate::store::{unix_now, Store};
@@ -279,15 +281,17 @@ impl State {
     /// `pick`이 고른 가장 오래된 인증 전 연결을 내보냄 (진짜 앱은 한 왕복 안에 답하니 가장 오래된 것이 가짜일 가능성이 큼)
     fn evict_unauthed(&mut self, counters: &Counters, pick: impl Fn(&Unauthed) -> bool) {
         let oldest = self.unauthed.iter().find(|(_, u)| pick(u)).map(|(conn, _)| *conn);
-        if let Some(u) = oldest.and_then(|conn| self.no_longer_unauthed(conn)) {
+        if let Some((conn, u)) = oldest.and_then(|conn| Some((conn, self.no_longer_unauthed(conn)?))) {
             let _ = u.kill.set("busy");
             bump(&counters.unauthed_evicted);
+            log!(Warn, "hub", "unauthed_evicted", "conn" => Cid(conn), "ip" => mask_ip(&u.ip));
         }
     }
     /// `key`를 지금 내보냄: `reason`을 알리고 채널을 닫고 친구에게 알림. 접속 중이 아니었으면 false임
     fn drop_peer(&mut self, key: &str, reason: &'static str) -> bool {
         let online = self.mutual_online(key);
         let Some(peer) = self.peers.remove(key) else { return false };
+        log!(Info, "admin", "dropped", "conn" => Cid(peer.conn), "peer" => short(key), "reason" => reason);
         peer.link.kick(reason);
         for ch in peer.channels {
             self.close_channel(ch, Some(key));

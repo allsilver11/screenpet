@@ -3,6 +3,8 @@
 //! 진입점 `handle`은 lib의 accept 루프가 연결마다 부름. 믿는 프록시 뒤의 클라이언트 주소도 여기서 정함.
 
 use crate::hub::{Hub, Refused};
+use crate::monitor::Cid;
+use screenpet_log::{log, mask_ip};
 use crate::proto::{HEADER, MAX_FRAME};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -114,8 +116,8 @@ pub(crate) fn ws_config() -> WebSocketConfig {
     WebSocketConfig::default().max_message_size(Some(HEADER + MAX_FRAME)).max_frame_size(Some(HEADER + MAX_FRAME))
 }
 
-/// 연결 하나를 처리함: 머리를 읽고 경로별로 상태 확인·WebSocket·다운로드·404로 보냄
-pub(crate) fn handle(hub: Arc<Hub>, downloads: Arc<crate::downloads::Downloads>, mut stream: TcpStream) {
+/// 연결 하나를 처리함: 머리를 읽고 경로별로 상태 확인·WebSocket·다운로드·404로 보냄. `conn` = accept에서 받은 연결 번호
+pub(crate) fn handle(hub: Arc<Hub>, downloads: Arc<crate::downloads::Downloads>, mut stream: TcpStream, conn: u64) {
     let Ok(peer) = stream.peer_addr() else { return };
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let Some(req) = read_head(&mut stream) else {
@@ -125,7 +127,7 @@ pub(crate) fn handle(hub: Arc<Hub>, downloads: Arc<crate::downloads::Downloads>,
     if crate::downloads::is_downloads(&req.path) {
         let ip = client_ip(peer.ip(), &req.headers, &hub.trusted_proxies);
         downloads.prepare(&stream);
-        return downloads.serve(&req.method, &req.path, &ip, &mut stream, &|| hub.stopping());
+        return downloads.serve(&req.method, &req.path, &ip, conn, &mut stream, &|| hub.stopping());
     }
     if req.method != "GET" {
         respond(&mut stream, "405 Method Not Allowed", "method not allowed\n");
@@ -145,6 +147,8 @@ pub(crate) fn handle(hub: Arc<Hub>, downloads: Arc<crate::downloads::Downloads>,
             // that would spend visitors' browsers on the relay.
             if req.headers.contains_key("origin") {
                 crate::hub::bump(&hub.counters.conns_refused_origin);
+                let ip = client_ip(peer.ip(), &req.headers, &hub.trusted_proxies);
+                log!(Warn, "conn", "refused", "conn" => Cid(conn), "ip" => mask_ip(&ip), "reason" => "origin");
                 respond(&mut stream, "403 Forbidden", "forbidden\n");
                 return;
             }
@@ -152,12 +156,19 @@ pub(crate) fn handle(hub: Arc<Hub>, downloads: Arc<crate::downloads::Downloads>,
                 hub.warn_proxy_without_address();
             }
             let ip = client_ip(peer.ip(), &req.headers, &hub.trusted_proxies);
-            let admission = match hub.admit_ip(&ip) {
+            let admission = match hub.admit(&ip, conn) {
                 Ok(a) => a,
-                Err(Refused::Busy) => return respond(&mut stream, "503 Service Unavailable", "busy\n"),
-                Err(Refused::Banned) => return respond(&mut stream, "403 Forbidden", "forbidden\n"),
-                Err(Refused::RelayOff) => return respond(&mut stream, "503 Service Unavailable", "off\n"),
+                Err(why) => {
+                    let (status, body, reason) = match why {
+                        Refused::Busy => ("503 Service Unavailable", "busy\n", "busy"),
+                        Refused::Banned => ("403 Forbidden", "forbidden\n", "banned"),
+                        Refused::RelayOff => ("503 Service Unavailable", "off\n", "relay_off"),
+                    };
+                    log!(Warn, "conn", "refused", "conn" => Cid(conn), "ip" => mask_ip(&ip), "reason" => reason);
+                    return respond(&mut stream, status, body);
+                }
             };
+            log!(Info, "conn", "accept", "conn" => Cid(conn), "ip" => mask_ip(&ip));
             let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
             let ok = write!(
                 stream,

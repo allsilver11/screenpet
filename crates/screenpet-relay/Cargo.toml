@@ -18,6 +18,8 @@ serde_json = "1"
 screenpet-crypto = { path = "../screenpet-crypto" }
 # 앱과 같이 쓰는 와이어 메시지·버전·한도·날씨 지역 표
 screenpet-proto = { path = "../screenpet-proto" }
+# 구조화 로그 한 줄 형식 (앱과 같음)
+screenpet-log = { path = "../screenpet-log" }
 curve25519-dalek = { version = "4.1", default-features = false }
 # 📮 건의함: masked names are checked by graphemes, like the app cuts them
 unicode-segmentation = "1"

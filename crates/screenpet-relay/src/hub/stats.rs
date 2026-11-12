@@ -1,4 +1,5 @@
 //! 허브 카운터: `admin status`에 보이는 시작 뒤 누계 (주소·id 없음). 원자 값이라 잠금이 필요 없음.
+//! 최근 5분·1시간 창은 `monitor`가 로그 줄로 셈.
 
 use super::*;
 
@@ -95,6 +96,7 @@ impl Hub {
         for (name, value) in self.counters.all() {
             out += &format!("  {name} {value}\n");
         }
+        out += &crate::monitor::global().status_text(now);
         out
     }
 }

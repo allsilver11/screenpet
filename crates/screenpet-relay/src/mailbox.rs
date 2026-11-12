@@ -347,7 +347,7 @@ impl Mailbox {
                     m.prune_board();
                     return m;
                 }
-                eprintln!("screenpet-relay: {name} is unreadable");
+                screenpet_log::log!(Error, "mail", "load_fail", "file" => name);
             }
         }
         Mailbox::default()

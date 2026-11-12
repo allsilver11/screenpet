@@ -18,7 +18,9 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 /// `admin` 도움말 글
 pub const USAGE: &str = "\
 commands:
-  status                        who is online, totals, switches, counters
+  status                        who is online, totals, switches, counters,
+                                event rates for the last 5 minutes / hour
+  recent [N]                    the last N warning/error log lines (default 20, at most 200)
   kick <id-or-key-prefix>       disconnect (it may come straight back)
   ban <id-or-key-prefix>        disconnect and refuse from now on
   ban-ip <ip>                   the same for an address (IPv6: its /64)
@@ -60,7 +62,7 @@ pub(crate) fn serve(hub: Arc<Hub>, listener: UnixListener) {
         match listener.accept() {
             Ok((stream, _)) => {
                 if let Err(e) = answer(&hub, stream) {
-                    eprintln!("screenpet-relay: admin connection: {e}");
+                    screenpet_log::log!(Warn, "admin", "conn_fail", "err" => e);
                 }
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(100)),
@@ -77,7 +79,12 @@ fn answer(hub: &Hub, mut stream: UnixStream) -> io::Result<()> {
     let mut line = String::new();
     BufReader::new((&stream).take(4096)).read_line(&mut line)?;
     let reply = match serde_json::from_str::<Vec<String>>(&line) {
-        Ok(words) => run(hub, &words),
+        Ok(words) => {
+            let reply = run(hub, &words);
+            // 명령 낱말만 적음: 인자는 키·주소일 수 있음
+            screenpet_log::log!(Info, "admin", "command", "cmd" => command_name(&words), "ok" => u8::from(reply.is_ok()));
+            reply
+        }
         Err(_) => Err("bad request".to_string()),
     };
     let (ok, text) = match reply {
@@ -85,6 +92,22 @@ fn answer(hub: &Hub, mut stream: UnixStream) -> io::Result<()> {
         Err(t) => (false, t),
     };
     writeln!(stream, "{}", json!({"ok": ok, "text": text}))
+}
+
+/// 로그에 적는 명령 이름: 아는 명령 낱말이면 그것, 아니면 `other`
+fn command_name(words: &[String]) -> &'static str {
+    const KNOWN: [&str; 16] = [
+        "status", "recent", "kick", "ban", "ban-ip", "unban", "bans", "mailbox", "mailbox-reader", "registration", "friendcode", "relay", "purge", "purge-idle", "purge-islands", "help",
+    ];
+    words.first().and_then(|w| KNOWN.iter().find(|k| *k == w)).copied().unwrap_or("other")
+}
+
+/// `recent [N]`의 줄 수를 읽음 (없으면 기본값, 최대 `RECENT_MAX`)
+fn recent_count(arg: Option<&str>) -> Result<usize, String> {
+    match arg {
+        None => Ok(crate::monitor::RECENT_DEFAULT),
+        Some(s) => s.parse::<usize>().map(|n| n.min(crate::monitor::RECENT_MAX)).map_err(|_| format!("not a number: {s}")),
+    }
 }
 
 /// `on`/`off`를 bool로 읽음
@@ -107,6 +130,8 @@ fn run(hub: &Hub, words: &[String]) -> Result<String, String> {
     let number = |s: &str| s.parse::<u64>().map_err(|_| format!("not a number: {s}"));
     match words.as_slice() {
         ["status"] => Ok(hub.admin_status()),
+        ["recent"] => Ok(crate::monitor::global().recent_text(recent_count(None)?)),
+        ["recent", n] => Ok(crate::monitor::global().recent_text(recent_count(Some(n))?)),
         ["kick", who] => hub.admin_kick(who),
         ["ban", who] => hub.admin_ban(who),
         ["ban-ip", ip] => hub.admin_ban_ip(ip),
@@ -134,4 +159,28 @@ pub fn request(dir: &Path, words: &[&str]) -> io::Result<(bool, String)> {
     BufReader::new(&stream).read_line(&mut line)?;
     let reply: serde_json::Value = serde_json::from_str(&line).map_err(io::Error::other)?;
     Ok((reply["ok"] == true, reply["text"].as_str().unwrap_or_default().to_string()))
+}
+
+/// 명령 이름·`recent` 인자 시험임
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_command_word_is_logged() {
+        let w = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(command_name(&w(&["kick", "f7da89ae45a0"])), "kick");
+        assert_eq!(command_name(&w(&["ban-ip", "203.0.113.7"])), "ban-ip");
+        assert_eq!(command_name(&w(&["203.0.113.7"])), "other");
+        assert_eq!(command_name(&[]), "other");
+    }
+
+    #[test]
+    fn recent_takes_an_optional_count() {
+        assert_eq!(recent_count(None), Ok(crate::monitor::RECENT_DEFAULT));
+        assert_eq!(recent_count(Some("5")), Ok(5));
+        assert_eq!(recent_count(Some("100000")), Ok(crate::monitor::RECENT_MAX));
+        assert!(recent_count(Some("x")).is_err());
+        assert!(USAGE.contains("recent [N]"));
+    }
 }

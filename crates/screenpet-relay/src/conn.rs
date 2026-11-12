@@ -2,6 +2,8 @@
 //! 연결별 속도 한도와 시간 제한을 둠. `http::handle`이 `serve`를 부르고, 일은 `Hub` 메서드로 넘김.
 
 use crate::hub::{bump, Admission, Bucket, Hub, Link, Out};
+use crate::monitor::Cid;
+use screenpet_log::{log, mask_ip, short};
 use crate::proto::{self, ClientMsg, ServerMsg, HEADER, MAX_FRAME, MAX_ID, PROTOCOL_VERSION};
 use std::io::ErrorKind;
 use std::net::TcpStream;
@@ -56,8 +58,38 @@ fn refuse(ws: &mut WebSocket<TcpStream>, reason: &str) {
     let _ = ws.flush();
 }
 
-/// 연결 하나를 끝날 때까지 섬김: 챌린지·인증 뒤 메시지 루프를 돌리며 큐를 비우고 한도를 지킴
-pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, admission: &Admission) {
+/// 연결 하나를 끝날 때까지 섬김: 챌린지·인증 뒤 메시지 루프를 돌리며 큐를 비우고 한도를 지킴.
+/// 끝나면 `close`(까닭, 붙어 있던 초)를 적음
+pub(crate) fn serve(hub: Arc<Hub>, ws: WebSocket<TcpStream>, ip: String, admission: &Admission) {
+    let started = Instant::now();
+    let mut peer: Option<String> = None;
+    let reason = serve_inner(&hub, ws, &ip, admission, &mut peer);
+    let conn = Cid(admission.conn);
+    let up_s = started.elapsed().as_secs();
+    match &peer {
+        Some(p) => log!(Info, "conn", "close", "conn" => conn, "peer" => short(p), "reason" => reason, "up_s" => up_s),
+        None => log!(Info, "conn", "close", "conn" => conn, "reason" => reason, "up_s" => up_s),
+    }
+}
+
+/// 나쁜 메시지를 적고 그 까닭을 돌려줌 (`bad_message`)
+fn bad(conn: u64, peer: &Option<String>, reason: &'static str) -> String {
+    let peer = peer.as_deref().map_or("-", short);
+    log!(Warn, "conn", "bad_message", "conn" => Cid(conn), "peer" => peer, "reason" => reason);
+    reason.to_string()
+}
+
+/// 속도 한도에 걸린 것을 적음 (`rate_limited`, `what` = 무엇이 넘쳤는지)
+fn limited(conn: u64, peer: &Option<String>, what: &'static str) {
+    let peer = peer.as_deref().map_or("-", short);
+    log!(Warn, "conn", "rate_limited", "conn" => Cid(conn), "peer" => peer, "what" => what);
+}
+
+/// `serve`의 본체. 끝난 까닭을 돌려주고, 인증되면 `peer`에 설치 키를 넣음
+fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission: &Admission, peer: &mut Option<String>) -> String {
+    let hub = hub.clone();
+    let ip = ip.to_string();
+    let cid = admission.conn;
     let lim = hub.limits.clone();
     let _ = ws.get_mut().set_read_timeout(Some(POLL));
     let _ = ws.get_mut().set_write_timeout(Some(Duration::from_secs(5)));
@@ -66,7 +98,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
     let challenge =
         ServerMsg::Challenge { relay: proto::to_hex(&hub.public_key), nonce: proto::to_hex(&nonce), v: PROTOCOL_VERSION };
     if ws.send(Message::text(challenge.to_json())).is_err() {
-        return;
+        return "write_fail".into();
     }
     let (tx, rx) = sync_channel::<Out>(OUTBOX);
     let link = Link::new(tx, admission);
@@ -83,7 +115,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
     let mut new_codes = 0usize;
     let mut friend_updates = Bucket::new(FRIENDS_PER_SEC, FRIENDS_BURST);
     let mut weather_wants = Bucket::new(WEATHER_WANTS_PER_SEC, WEATHER_WANTS_BURST);
-    'conn: loop {
+    let reason: String = 'conn: loop {
         let ending = if hub.stopping() {
             Some("shutdown")
         } else if hub.relay_is_off() {
@@ -96,7 +128,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                 bump(&hub.counters.kicked_slow);
             }
             refuse(&mut ws, reason);
-            break;
+            break reason.to_string();
         }
         let want = poll_for(last_frame.elapsed());
         if want != poll {
@@ -108,19 +140,19 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
             match rx.try_recv() {
                 Ok(Out::Text(s)) => {
                     if ws.write(Message::text(s)).is_err() {
-                        break 'conn;
+                        break 'conn "write_fail".into();
                     }
                 }
                 Ok(Out::Binary(b)) => {
                     hub.dequeued(&link, b.len());
                     last_frame = Instant::now();
                     if ws.write(Message::binary(b)).is_err() {
-                        break 'conn;
+                        break 'conn "write_fail".into();
                     }
                 }
                 Ok(Out::Kick(reason)) => {
                     refuse(&mut ws, &reason);
-                    break 'conn;
+                    break 'conn reason;
                 }
                 Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
             }
@@ -128,7 +160,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
         match ws.flush() {
             Ok(()) => {}
             Err(WsError::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
-            Err(_) => break,
+            Err(_) => break "write_fail".into(),
         }
         // Socket → hub.
         let msg = match ws.read() {
@@ -136,9 +168,9 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
             Err(WsError::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted) => None,
             Err(WsError::Capacity(_)) => {
                 refuse(&mut ws, "too_large");
-                break;
+                break bad(cid, peer, "too_large");
             }
-            Err(_) => break,
+            Err(_) => break "gone".into(),
         };
         if let Some(msg) = msg {
             last_recv = Instant::now();
@@ -149,18 +181,19 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
             };
             if !msgs.take(1.0) || !bytes.take(len as f64) {
                 bump(&hub.counters.kicked_rate);
+                limited(cid, peer, "messages");
                 refuse(&mut ws, "rate");
-                break;
+                break "rate".into();
             }
             match msg {
                 Message::Text(t) => {
                     if t.len() > lim.max_text {
                         refuse(&mut ws, "too_large");
-                        break;
+                        break bad(cid, peer, "too_large");
                     }
                     let Ok(cm) = serde_json::from_str::<ClientMsg>(t.as_str()) else {
                         refuse(&mut ws, "bad_message");
-                        break;
+                        break bad(cid, peer, "bad_json");
                     };
                     match (&authed, cm) {
                         (None, ClientMsg::Auth { id, key, mac, friends, cnonce }) => {
@@ -176,34 +209,38 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                             }
                                             if !text(&mut ws, &welcome) {
                                                 hub.leave(&key, conn);
-                                                break;
+                                                break "write_fail".into();
                                             }
+                                            *peer = Some(key.clone());
                                             authed = Some(Authed { key, conn });
                                         }
                                         Err(reason) => {
                                             refuse(&mut ws, reason);
-                                            break;
+                                            break reason.into();
                                         }
                                     }
                                 }
                                 None => {
                                     bump(&hub.counters.auth_failed);
+                                    // 대는 키는 증명되지 않았으므로 적지 않음
+                                    log!(Warn, "conn", "auth_fail", "conn" => Cid(cid), "ip" => mask_ip(&ip));
                                     refuse(&mut ws, "auth");
-                                    break;
+                                    break "auth".into();
                                 }
                             }
                         }
                         (None, _) | (Some(_), ClientMsg::Auth { .. }) => {
                             refuse(&mut ws, "unexpected");
-                            break;
+                            break bad(cid, peer, "unexpected");
                         }
                         (Some(a), cm) => {
                             let reply = match cm {
                                 ClientMsg::Friends { keys } => {
                                     if !friend_updates.take(1.0) {
                                         bump(&hub.counters.kicked_rate);
+                                        limited(cid, peer, "friends");
                                         refuse(&mut ws, "rate");
-                                        break;
+                                        break "rate".into();
                                     }
                                     hub.set_friends(&a.key, a.conn, &keys)
                                 }
@@ -213,6 +250,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                         redeems.pop_front();
                                     }
                                     if redeems.len() >= REDEEMS_PER_CONN_PER_MIN {
+                                        limited(cid, peer, "redeem");
                                         Some(ServerMsg::RedeemFailed { code, reason: "rate".into() })
                                     } else {
                                         redeems.push_back(now);
@@ -230,6 +268,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                 ClientMsg::NewCode => {
                                     new_codes += 1;
                                     if new_codes > NEW_CODES_PER_CONN {
+                                        limited(cid, peer, "new_code");
                                         None
                                     } else {
                                         hub.new_code(&a.key, a.conn)
@@ -243,6 +282,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                         letters_sent.pop_front();
                                     }
                                     if letters_sent.len() >= LETTERS_PER_CONN_PER_MIN {
+                                        limited(cid, peer, "letter");
                                         Some(ServerMsg::LetterRefused { reason: "daily".into() })
                                     } else {
                                         letters_sent.push_back(now);
@@ -284,6 +324,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                     if weather_wants.take(1.0) {
                                         hub.weather_want(&a.key, a.conn, &place)
                                     } else {
+                                        limited(cid, peer, "weather_want");
                                         None
                                     }
                                 }
@@ -291,7 +332,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                             };
                             if let Some(r) = reply {
                                 if !text(&mut ws, &r) {
-                                    break;
+                                    break "write_fail".into();
                                 }
                             }
                         }
@@ -300,44 +341,45 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                 Message::Binary(b) => {
                     let Some(a) = &authed else {
                         refuse(&mut ws, "unexpected");
-                        break;
+                        break bad(cid, peer, "unexpected");
                     };
                     if b.len() <= HEADER || b.len() > HEADER + MAX_FRAME {
                         refuse(&mut ws, "bad_frame");
-                        break;
+                        break bad(cid, peer, "bad_frame");
                     }
                     last_frame = Instant::now();
                     hub.forward(&a.key, a.conn, &ip, b.to_vec());
                 }
-                Message::Close(_) => break,
+                Message::Close(_) => break "client_close".into(),
                 Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
             }
         }
         let now = Instant::now();
         if authed.is_none() && now.duration_since(started) > lim.auth_timeout {
             refuse(&mut ws, "timeout");
-            break;
+            break "timeout".into();
         }
         if now.duration_since(last_recv) > lim.idle_timeout {
             refuse(&mut ws, "idle");
-            break;
+            break "idle".into();
         }
         if let Some(a) = &authed {
             if now.duration_since(last_code_check) >= Duration::from_secs(5) {
                 last_code_check = now;
                 if let Some(code) = hub.rotated_code(&a.key, a.conn) {
                     if !text(&mut ws, &code) {
-                        break;
+                        break "write_fail".into();
                     }
                 }
             }
         }
-    }
+    };
     if let Some(a) = authed {
         hub.leave(&a.key, a.conn);
     }
     // Nothing can be queued any more: this peer has left the hub.
     hub.dequeued(&link, link.queued.load(Ordering::Relaxed));
+    reason
 }
 
 /// 마지막 친구 프레임 뒤 지난 시간에 맞는 읽기 대기를 고름

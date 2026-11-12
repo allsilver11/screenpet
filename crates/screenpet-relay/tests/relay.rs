@@ -883,8 +883,10 @@ impl Bin {
         let mut lines = std::io::BufReader::new(child.stderr.take().unwrap()).lines();
         let addr = loop {
             let line = lines.next().expect("relay output").unwrap();
-            if let Some(rest) = line.strip_prefix("screenpet-relay listening on ") {
-                break rest.split(' ').next().unwrap().parse().unwrap();
+            // 구조화 시작 줄: `… INFO  hub      start        bind=127.0.0.1:1234 …`
+            if line.contains(" INFO  hub      start ") {
+                let bind = line.split(' ').find_map(|f| f.strip_prefix("bind=")).expect("bind field");
+                break bind.parse().unwrap();
             }
         };
         // Keep the pipe drained so its logging can't block.
@@ -1030,6 +1032,19 @@ mod admin {
         for part in ["relay on, registration on, friendcode on", "online 2", "stored 2", &pubhex(&ka)[..12], "\"first\"", "203.0.113.5", "2001:db8:1:2::/64", "friends 1 (1 mutual)", "conns_admitted 3", "registrations 2"] {
             assert!(text.contains(part), "{part} missing in:\n{text}");
         }
+        // 최근 5분·1시간 창 (로그 줄로 셈; 같은 프로세스의 다른 시험도 더하므로 0보다 큰지만 봄)
+        for part in ["rates (last 5m / 1h):", "  conns_accepted ", "  logins ", "  downloads_cut ", "errors by area (last 5m / 1h):", "  store "] {
+            assert!(text.contains(part), "{part} missing in:\n{text}");
+        }
+        let accepted = text.lines().find(|l| l.starts_with("  conns_accepted ")).unwrap().to_string();
+        assert!(!accepted.starts_with("  conns_accepted 0 /"), "{accepted}");
+        // 최근 WARN/ERROR: 가짜 인증이 같은 형식으로 보이고 키·주소 전체는 없음
+        let recent = ok(&dir, &["recent", "200"]);
+        let line = recent.lines().find(|l| l.contains(" auth_fail ")).unwrap_or_else(|| panic!("no auth_fail in:\n{recent}"));
+        assert!(line.contains("+09:00 WARN  conn     auth_fail"), "{line}");
+        assert!(!recent.contains(&pubhex(&ka)) && !recent.contains("203.0.113.5"), "{recent}");
+        assert!(ok(&dir, &["recent", "1"]).lines().count() == 1);
+        assert!(refused(&dir, &["recent", "x"]).contains("not a number"));
         assert!(refused(&dir, &["nonsense"]).contains("unknown command"));
         drop(relay);
         assert!(!dir.join("admin.sock").exists(), "socket removed at stop");
