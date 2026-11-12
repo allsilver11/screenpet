@@ -10,7 +10,9 @@ pub struct Place {
     pub id: &'static str,
     /// 메뉴 글자
     pub name: &'static str,
+    /// 위도
     pub lat: f64,
+    /// 경도
     pub lon: f64,
 }
 
@@ -49,6 +51,7 @@ pub fn find_place(id: &str) -> Option<&'static Place> {
     PLACES.iter().find(|p| p.id == id)
 }
 
+/// 지역 표 무결성 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

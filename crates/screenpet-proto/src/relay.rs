@@ -121,8 +121,11 @@ pub enum ClientMsg {
 /// 📮 개발자 앱이 올리는 편지 요약 (릴레이가 다시 검사함)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardIn {
+    /// 편지 id
     pub id: u64,
+    /// 가린 보낸이 이름 (`김**`)
     pub name: String,
+    /// 편지 첫 줄 요약
     pub line: String,
 }
 
@@ -225,11 +228,13 @@ pub enum ServerMsg {
 /// 저장된 건의 편지 하나 (편지함 독자에게만 감)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Letter {
+    /// 편지 id (릴레이가 매김)
     pub id: u64,
     /// 유닉스 초
     pub at: u64,
     /// 보낸 설치의 키 (hex)
     pub from: String,
+    /// 읽음 표시
     #[serde(default)]
     pub read: bool,
     /// ✅ 반영함 (옛 릴레이는 보내지 않음)
@@ -249,7 +254,9 @@ pub struct Letter {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BoardStatus {
+    /// ✅ 반영됨
     Done,
+    /// 🙅 반려됨
     Rejected,
     /// (더 새 릴레이가 보내는 모르는 값도 없음으로 읽음)
     #[default]
@@ -260,11 +267,15 @@ pub enum BoardStatus {
 /// 공개 건의함 페이지의 항목 하나 (`at`, `status`는 편지 자체에서 옴)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardItem {
+    /// 편지 id
     pub id: u64,
+    /// 가린 보낸이 이름
     pub name: String,
+    /// 편지 첫 줄 요약
     pub line: String,
     /// 편지가 온 시각 (유닉스 초)
     pub at: u64,
+    /// 개발자 표시 (옛 릴레이는 보내지 않음: 없음)
     #[serde(default)]
     pub status: BoardStatus,
 }
