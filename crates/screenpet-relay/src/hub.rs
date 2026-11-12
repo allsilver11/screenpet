@@ -38,6 +38,7 @@ counters!(
     conns_refused_banned,
     conns_refused_relay_off,
     logins_refused_banned,
+    logins_replaced,
     registrations_refused_closed,
     unauthed_evicted,
     threads_refused,
@@ -791,6 +792,9 @@ impl Hub {
             }
         }
         if let Some(old) = st.peers.remove(key) {
+            bump(&self.counters.logins_replaced);
+            // Two copies of one install fighting over the relay show up here (e.g. a copied identity)
+            eprintln!("screenpet-relay: {} logged in again from {ip} (was {}), old connection replaced", &key[..12.min(key.len())], old.ip);
             old.link.kick("replaced");
             for ch in old.channels {
                 st.close_channel(ch, Some(key));
