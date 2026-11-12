@@ -68,7 +68,11 @@ def test_the_public_list_has_no_controls_and_never_uses_html():
 
 
 def test_the_disclosure_is_in_the_feedback_window():
-    assert "보낸 편지의 첫 줄과 이름 첫 글자는 📮 건의함에서 다른 사용자에게도 보여요." in FEEDBACK_HTML
+    # 사용자: 애매하게 줄바꿈되지 않게 "이름 첫 글자는" 뒤에서 줄을 바꾼다
+    assert "보낸 편지의 첫 줄과 이름 첫 글자는<br>📮 건의함에서 다른 사용자에게도 보여요." in FEEDBACK_HTML
+    # 사용자: "바랐으면 하는 것"은 어색하다
+    assert 'placeholder="추가하고 싶은 기능, 불편한 것, 하고 싶은 말을 적어 주세요"' in FEEDBACK_HTML
+    assert "바랐으면" not in FEEDBACK_HTML
     assert "하루에 5통까지" in FEEDBACK_HTML and "한 통" not in FEEDBACK_HTML
 
 
