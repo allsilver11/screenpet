@@ -14,11 +14,16 @@ struct Fixture {
 
 impl Fixture {
     fn new(tag: &str, max_downloads: usize) -> Fixture {
+        // Held-open test downloads end 2 s after they stop moving (not 10).
+        Fixture::with(tag, Limits { max_downloads, max_downloads_per_ip: max_downloads, download_stall: Duration::from_secs(2), ..Limits::default() })
+    }
+
+    fn with(tag: &str, limits: Limits) -> Fixture {
         let root = std::env::temp_dir().join(format!("screenpet-dl-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("downloads")).unwrap();
         let mut cfg = RelayConfig::new(SocketAddr::from(([127, 0, 0, 1], 0)), Some(root.clone()));
-        cfg.limits = Limits { max_downloads, ..Limits::default() };
+        cfg.limits = limits;
         Fixture { relay: Some(Relay::start(cfg).unwrap()), root }
     }
 
@@ -31,15 +36,25 @@ impl Fixture {
     }
 
     fn send(&self, method: &str, path: &str) -> TcpStream {
+        self.send_from(method, path, None)
+    }
+
+    /// As `send`, appearing (through the trusted loopback proxy header) to come from `ip`.
+    fn send_from(&self, method: &str, path: &str, ip: Option<&str>) -> TcpStream {
         let mut s = TcpStream::connect(self.addr()).unwrap();
-        write!(s, "{method} {path} HTTP/1.1\r\nHost: pet.danni.day\r\n\r\n").unwrap();
+        let fwd = ip.map(|ip| format!("X-Real-IP: {ip}\r\n")).unwrap_or_default();
+        write!(s, "{method} {path} HTTP/1.1\r\nHost: pet.danni.day\r\n{fwd}\r\n").unwrap();
         s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         s
     }
 
     /// Whole response: (head, body).
     fn get(&self, method: &str, path: &str) -> (String, Vec<u8>) {
-        let mut s = self.send(method, path);
+        self.get_from(method, path, None)
+    }
+
+    fn get_from(&self, method: &str, path: &str, ip: Option<&str>) -> (String, Vec<u8>) {
+        let mut s = self.send_from(method, path, ip);
         let mut all = Vec::new();
         s.read_to_end(&mut all).unwrap();
         let end = all.windows(4).position(|w| w == b"\r\n\r\n").expect("head") + 4;
@@ -75,6 +90,12 @@ fn latest_json_is_served_uncached() {
     assert_eq!(header(&head, "cache-control"), Some("no-cache"));
     // A query string (cache buster) is ignored.
     assert_eq!(status(&f.get("GET", "/downloads/latest.json?t=1").0), 200);
+    // Its signature, made by deploy/publish-release.sh.
+    let sig = "ab".repeat(64);
+    std::fs::write(f.file("latest.json.sig"), &sig).unwrap();
+    let (head, body) = f.get("GET", "/downloads/latest.json.sig");
+    assert_eq!((status(&head), body), (200, sig.into_bytes()));
+    assert_eq!(header(&head, "cache-control"), Some("no-cache"));
 }
 
 #[test]
@@ -172,4 +193,83 @@ fn the_names_the_app_asks_for_are_allowed() {
         // And the URL the app builds points here.
         assert_eq!(screenpet_core::update::download_url(&name), format!("https://pet.danni.day/downloads/{name}"));
     }
+}
+
+/// Hold a download open without reading (after its 200 head).
+fn hold(f: &Fixture, path: &str, ip: &str) -> TcpStream {
+    let mut s = f.send_from("GET", path, Some(ip));
+    let mut first = [0u8; 12];
+    s.read_exact(&mut first).unwrap();
+    assert_eq!(&first, b"HTTP/1.1 200");
+    s
+}
+
+#[test]
+fn one_client_address_gets_at_most_two_downloads() {
+    let f = Fixture::with("perip", Limits { download_stall: Duration::from_secs(2), ..Limits::default() });
+    assert_eq!(Limits::default().max_downloads_per_ip, 2);
+    let name = "ScreenPet_0.6.3_x64-setup.exe";
+    std::fs::File::create(f.file(name)).unwrap().set_len(64 * 1024 * 1024).unwrap();
+    let path = format!("/downloads/{name}");
+    let _a = hold(&f, &path, "203.0.113.7");
+    let _b = hold(&f, &path, "203.0.113.7");
+    assert_eq!(status(&f.get_from("GET", &path, Some("203.0.113.7")).0), 503);
+    // Another address still gets one.
+    let _c = hold(&f, &path, "198.51.100.1");
+}
+
+#[test]
+fn a_client_too_slow_to_read_is_cut_off_and_frees_its_slot() {
+    let limits = Limits {
+        max_downloads: 1,
+        download_min_rate: 50 * 1024 * 1024,
+        download_grace: Duration::from_millis(300),
+        download_stall: Duration::from_millis(500),
+        ..Limits::default()
+    };
+    let f = Fixture::with("slow", limits);
+    let name = "ScreenPet_0.6.3_universal.dmg";
+    let size = 64 * 1024 * 1024u64;
+    std::fs::File::create(f.file(name)).unwrap().set_len(size).unwrap();
+    let path = format!("/downloads/{name}");
+    let started = Instant::now();
+    let mut s = f.send("GET", &path);
+    // Trickle: 64 KiB every 10 ms (~6 MB/s), far under the minimum.
+    let mut got = 0u64;
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        match s.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => got += n as u64,
+        }
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(started.elapsed() < Duration::from_secs(20), "never cut off");
+    }
+    assert!(got < size, "the whole file went out");
+    // The slot is free again (busy only while the first transfer ran).
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while status(&f.get("HEAD", &path).0) != 200 {
+        assert!(Instant::now() < deadline, "slot never came back");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn downloads_have_an_overall_deadline() {
+    let limits = Limits { download_deadline: Duration::from_millis(300), download_min_rate: 0, ..Limits::default() };
+    let f = Fixture::with("deadline", limits);
+    let name = "ScreenPet_0.6.3_universal.dmg";
+    let size = 64 * 1024 * 1024u64;
+    std::fs::File::create(f.file(name)).unwrap().set_len(size).unwrap();
+    let mut s = f.send("GET", &format!("/downloads/{name}"));
+    let mut got = 0u64;
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        match s.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => got += n as u64,
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(got < size, "the whole file went out");
 }

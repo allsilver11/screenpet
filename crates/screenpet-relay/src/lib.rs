@@ -111,6 +111,16 @@ pub struct Limits {
     pub board_gap: Duration,
     /// 🔄 Installers sent at once from `/downloads/` (more: `503 busy`).
     pub max_downloads: usize,
+    /// … and from one client address (IPv6: its /64).
+    pub max_downloads_per_ip: usize,
+    /// A download is cut off after this long in all, …
+    pub download_deadline: Duration,
+    /// … or when, after `download_grace`, it has averaged under this many
+    /// bytes per second, …
+    pub download_min_rate: u64,
+    pub download_grace: Duration,
+    /// … or when one write stalls this long (a client that stopped reading).
+    pub download_stall: Duration,
     /// Forget stale installs this often; the first pass is this long after
     /// start, once clients that were online have had time to come back.
     pub prune_every: Duration,
@@ -157,6 +167,12 @@ impl Default for Limits {
             save_every: Duration::from_secs(30),
             board_gap: Duration::from_millis(500),
             max_downloads: 8,
+            max_downloads_per_ip: 2,
+            // 100 MB at the minimum rate takes 26 min.
+            download_deadline: Duration::from_secs(30 * 60),
+            download_min_rate: 64 * 1024,
+            download_grace: Duration::from_secs(20),
+            download_stall: Duration::from_secs(10),
             prune_every: Duration::from_secs(600),
         }
     }
@@ -206,7 +222,7 @@ impl Relay {
         let listener = TcpListener::bind(cfg.bind)?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
-        let downloads = Arc::new(downloads::Downloads::new(cfg.data_dir.as_ref().map(|d| d.join("downloads")), cfg.limits.max_downloads));
+        let downloads = Arc::new(downloads::Downloads::new(cfg.data_dir.as_ref().map(|d| d.join("downloads")), &cfg.limits));
         let hub = Arc::new(Hub::new(cfg.limits, cfg.trusted_proxies, key, store, control, cfg.data_dir.clone()));
         let h = hub.clone();
         let accept = std::thread::Builder::new().name("relay-accept".into()).spawn(move || accept_loop(h, downloads, listener))?;

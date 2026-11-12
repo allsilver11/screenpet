@@ -129,8 +129,10 @@ not the relay URL setting) and downloads the installer it names from
 `/downloads/`, verifying size and SHA-256. The relay serves those files from
 `<data dir>/downloads/`: `GET`/`HEAD` only, only `latest.json` and
 `ScreenPet_X.Y.Z_x64-setup.exe` / `ScreenPet_X.Y.Z_universal.dmg` (no listing,
-no other names, no symlinks), at most 8 installers at once (`503 busy` past
-that), `latest.json` with `Cache-Control: no-cache`.
+no other names, no symlinks), at most 8 installers at once and 2 per client
+address (`503 busy` past that), `latest.json` with `Cache-Control: no-cache`.
+A download is cut off if it averages under 64 KiB/s after 20 s, stalls for
+10 s, or runs past 30 min, so slow clients can't hold the slots.
 
 After CI has finished a release, publish it on this server:
 

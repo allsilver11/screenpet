@@ -116,8 +116,9 @@ pub(crate) fn handle(hub: Arc<Hub>, downloads: Arc<crate::downloads::Downloads>,
         return;
     };
     if crate::downloads::is_downloads(&req.path) {
-        crate::downloads::prepare(&stream);
-        return downloads.serve(&req.method, &req.path, &mut stream, &|| hub.stopping());
+        let ip = client_ip(peer.ip(), &req.headers, &hub.trusted_proxies);
+        downloads.prepare(&stream);
+        return downloads.serve(&req.method, &req.path, &ip, &mut stream, &|| hub.stopping());
     }
     if req.method != "GET" {
         respond(&mut stream, "405 Method Not Allowed", "method not allowed\n");
