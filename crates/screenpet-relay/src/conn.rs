@@ -31,6 +31,9 @@ const NEW_CODES_PER_CONN: usize = 5;
 /// `auth` carries its list, so nothing is lost.
 const FRIENDS_PER_SEC: f64 = 0.5;
 const FRIENDS_BURST: f64 = 30.0;
+/// ☀️ `weather_want`s per connection: one every 10 s, a few at once.
+const WEATHER_WANTS_PER_SEC: f64 = 0.1;
+const WEATHER_WANTS_BURST: f64 = 5.0;
 
 struct Authed {
     key: String,
@@ -74,6 +77,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
     let mut letters_sent: std::collections::VecDeque<Instant> = Default::default();
     let mut new_codes = 0usize;
     let mut friend_updates = Bucket::new(FRIENDS_PER_SEC, FRIENDS_BURST);
+    let mut weather_wants = Bucket::new(WEATHER_WANTS_PER_SEC, WEATHER_WANTS_BURST);
     'conn: loop {
         let ending = if hub.stopping() {
             Some("shutdown")
@@ -256,6 +260,14 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                 ClientMsg::LetterBlock { from } => {
                                     hub.letter_block(&a.key, a.conn, &from);
                                     None
+                                }
+                                ClientMsg::WeatherWant { lat, lon } => {
+                                    // A place changes rarely: past a few a minute, just ignored
+                                    if weather_wants.take(1.0) {
+                                        hub.weather_want(&a.key, a.conn, lat, lon)
+                                    } else {
+                                        None
+                                    }
                                 }
                                 ClientMsg::Auth { .. } => unreachable!("matched above"),
                             };

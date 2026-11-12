@@ -231,3 +231,23 @@ screenpet-relay admin mailbox          # letters, unread, readers
 
 Deploy the relay before an app that sends letters: older relays answer an
 unknown message by disconnecting.
+
+## Real weather (☀️ 실제 날씨, v0.6.3)
+
+The relay fetches the current WMO weather code from
+[Open-Meteo](https://open-meteo.com/) (`api.open-meteo.com`, HTTPS, no key)
+and hands it to the apps, so they never call a weather service themselves.
+What is fetched: the 0.1° cell (rounded latitude/longitude) some connected
+app wants — Yongin (37.2, 127.2) for apps that never say, otherwise the city
+the user picked (`weather_want`). Nothing about the apps goes to Open-Meteo.
+
+- each cell at most every 30 min (5 min after a failure), only while an app
+  on it is connected; a failed fetch keeps the last reading
+- cells nobody wanted for 2 h are forgotten; at most 50 cells
+- 10 s timeout, 16 KiB answer cap, one fetch at a time on its own thread;
+  errors are logged at most every 10 minutes and never stop the relay
+- `SCREENPET_RELAY_WEATHER=off` turns it off (no fetches, no `weather`)
+
+Needs outbound HTTPS (443) and DNS from the server. Apps send `weather_want`
+only to relays whose challenge says `v >= 2` (older relays disconnect on
+unknown messages); older apps ignore `weather`.

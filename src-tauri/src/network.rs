@@ -727,6 +727,14 @@ impl Network {
     }
 
     /// 🧹 쓸어 모은 더미를 그 끝의 친구 한 명에게 흩날려 보낸다 (친구 쪽에서 반대편 끝으로 들어온다)
+    /// ☀️ 이 도시의 실제 날씨를 중계 서버에 달라고 한다 (좌표만 간다 — 서버가 날씨 서비스에 묻는다)
+    pub fn want_weather(&self, place: screenpet_core::real_weather::Place) {
+        if let Some(net) = &self.net {
+            let (lat, lon) = place.coords();
+            net.want_weather(lat, lon);
+        }
+    }
+
     pub fn flurry_to(&self, config: &Config, side: Side, kind: screenpet_core::weather::Weather, fling: visit::Fling) {
         let Some(net) = &self.net else { return };
         let friends = config.friends_at(side, |id| self.is_connected(id));
@@ -1504,6 +1512,8 @@ impl Network {
             }
             // 📱 내 다른 컴퓨터의 펫과 성장은 게임 루프가 바로 받는다 (돌보기 상태는 루프가 가진다)
             NetEvent::DeviceState { .. } => {}
+            // ☀️ 게임 루프가 바로 받는다
+            NetEvent::Weather { .. } => {}
             NetEvent::RelayStatus { connected } => {
                 self.net_log(if connected { "relay connected" } else { "relay disconnected" });
                 if connected {

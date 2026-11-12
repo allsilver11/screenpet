@@ -2,6 +2,7 @@ use screenpet_core::care::{growth_label, Care, Food};
 use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::presence::FocusLength;
+use screenpet_core::real_weather::{Place, WeatherSource};
 use screenpet_core::style::PetStyle;
 use screenpet_core::tint::BodyTint;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -70,6 +71,10 @@ const TINT_MENU_ID: &str = "tint-menu";
 const TINT_POSITION: usize = 4;
 /// 🌨️ 날씨 효과 체크 항목 (게임 루프가 달력과 설정으로 맞춘다 — 철이 아니면 누를 수 없다)
 const WEATHER_ID: &str = "weather";
+/// ⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸ ☀️ 실제 날씨 / 📅 계절 날씨 체크, 📍 날씨 지역 ▸ 도시 체크 (뒤는 Place id — 설정에 남는다)
+const WEATHER_REAL_ID: &str = "weather-src:real";
+const WEATHER_SEASON_ID: &str = "weather-src:season";
+const WEATHER_PLACE_PREFIX: &str = "weather-place:";
 const BROOM_ID: &str = "broom";
 /// 🐾 커서 장난 체크 항목 (설정에 남는다)
 const CURSOR_PLAY_ID: &str = "cursor-play";
@@ -170,6 +175,10 @@ pub struct TrayMenu {
     pub poop: CheckMenuItem<Wry>,
     /// 🌨️ 날씨 효과 (11~3월)
     pub weather: CheckMenuItem<Wry>,
+    /// ☀️ 실제 날씨 (글자에 도시) / 📅 계절 날씨, 📍 날씨 지역의 도시들 (게임 루프가 설정으로 다시 맞춘다)
+    pub weather_real: CheckMenuItem<Wry>,
+    pub weather_season: CheckMenuItem<Wry>,
+    pub places: Vec<(CheckMenuItem<Wry>, Place)>,
     /// 🧹 빗자루 (게임 루프가 들고 있는지에 맞춘다)
     pub broom: CheckMenuItem<Wry>,
     /// ⏱️ 집중 친구 ▸ (켜져 있으면 글자에 ✓)
@@ -207,6 +216,20 @@ pub struct TrayMenu {
 pub fn sync_style(menu: &TrayMenu, style: PetStyle) {
     let _ = menu.style_round.set_checked(style == PetStyle::Round);
     let _ = menu.style_pixel.set_checked(style == PetStyle::Pixel);
+}
+
+fn weather_real_label(place: Place) -> String {
+    format!("☀️ 실제 날씨 ({})", place.label())
+}
+
+/// 🌦️ 날씨 종류 체크와 📍 날씨 지역 체크를 지금 설정에 맞춘다 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다)
+pub fn sync_weather_kind(menu: &TrayMenu, source: WeatherSource, place: Place) {
+    let _ = menu.weather_real.set_checked(source == WeatherSource::Real);
+    let _ = menu.weather_season.set_checked(source == WeatherSource::Season);
+    let _ = menu.weather_real.set_text(weather_real_label(place));
+    for (item, p) in &menu.places {
+        let _ = item.set_checked(*p == place);
+    }
 }
 
 /// 🎨 흐물이 색 체크를 지금 설정에 맞춘다 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다)
@@ -549,6 +572,17 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     // 방향키로 내 동물 움직이기 (친구 화면에 가 있어도). 키는 읽기만 해서 앞에 있는 창에도 그대로 입력된다 — 켤 때 말풍선으로 알린다
     let control = CheckMenuItem::with_id(app, CONTROL_ID, CONTROL_LABEL, true, false, None::<&str>)?;
     let weather = CheckMenuItem::with_id(app, WEATHER_ID, "🌨️ 날씨 효과", true, false, None::<&str>)?;
+    // ☀️ 실제 날씨는 중계 서버가 30분마다 받아 오는 고른 도시의 날씨 (real_weather.rs) — 게임 루프가 설정으로 체크를 맞춘다
+    let weather_real = CheckMenuItem::with_id(app, WEATHER_REAL_ID, weather_real_label(Place::default()), true, true, None::<&str>)?;
+    let weather_season = CheckMenuItem::with_id(app, WEATHER_SEASON_ID, "📅 계절 날씨", true, false, None::<&str>)?;
+    let places_menu = Submenu::new(app, "📍 날씨 지역", true)?;
+    let mut places = Vec::new();
+    for place in Place::ALL {
+        let item = CheckMenuItem::with_id(app, format!("{WEATHER_PLACE_PREFIX}{}", place.id()), place.label(), true, place.is_default(), None::<&str>)?;
+        places_menu.append(&item)?;
+        places.push((item, place));
+    }
+    let weather_kind = Submenu::with_items(app, "🌦️ 날씨 종류", true, &[&weather_real, &weather_season, &PredefinedMenuItem::separator(app)?, &places_menu])?;
     let broom = CheckMenuItem::with_id(app, BROOM_ID, "🧹 빗자루", true, false, None::<&str>)?;
     let cursor_play = CheckMenuItem::with_id(app, CURSOR_PLAY_ID, CURSOR_PLAY_LABEL, true, true, None::<&str>)?;
     let poop = CheckMenuItem::with_id(app, POOP_ID, POOP_LABEL, true, true, None::<&str>)?;
@@ -578,7 +612,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let sizes = MenuItem::with_id(app, SIZES_ID, "📏 크기 조절…", true, None::<&str>)?;
     // 처음엔 켜져 있다 — 게임 루프가 설정(처음이면 켜기)으로 다시 맞춘다
     let autostart = CheckMenuItem::with_id(app, AUTOSTART_ID, "🚀 컴퓨터 켜면 자동 실행", true, true, None::<&str>)?;
-    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play, &sizes, &autostart])?;
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &sizes, &autostart])?;
 
     // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어든다 (COME_HOME_POSITION)
     let menu = Menu::new(app)?;
@@ -636,6 +670,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             SIZES_ID => send(app, Input::ShowSizes),
             POOP_ID => send(app, Input::TogglePoop),
             WEATHER_ID => send(app, Input::ToggleWeather),
+            WEATHER_REAL_ID => send(app, Input::SetWeatherSource(WeatherSource::Real)),
+            WEATHER_SEASON_ID => send(app, Input::SetWeatherSource(WeatherSource::Season)),
             BROOM_ID => send(app, Input::ToggleBroom),
             FOCUS_TOGGLE_ID => send(app, Input::ToggleFocus),
             FOCUS_SHORT_ID => send(app, Input::SetFocusLength(FocusLength::Short)),
@@ -696,6 +732,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     let food = Food::from_name(food).unwrap_or(Food::Snack);
                     send(app, Input::SetFeedMode(mode));
                     send(app, Input::Feed(food));
+                } else if let Some(place) = other.strip_prefix(WEATHER_PLACE_PREFIX).and_then(Place::from_id) {
+                    send(app, Input::SetWeatherPlace(place));
                 } else if let Some(tint) = other.strip_prefix(TINT_PREFIX).and_then(BodyTint::from_id) {
                     send(app, Input::SetTint(tint));
                 } else if let Some(id) = other.strip_prefix("pet:") {
@@ -709,5 +747,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, weather_real, weather_season, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
 }

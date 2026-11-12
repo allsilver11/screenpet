@@ -32,6 +32,7 @@ use crate::prop::{HandWindow, Props};
 use crate::slots::{self, GuestInfo, Role, Slot, OWN_LABEL};
 use crate::timeline::TimelineFx;
 use crate::weather::WeatherFx;
+use screenpet_core::real_weather::Reading;
 use crate::AppState;
 
 const TICK: Duration = Duration::from_millis(16);
@@ -80,6 +81,10 @@ pub enum Input {
     ToggleBroom,
     /// 🌨️ 날씨 효과 켜기 / 끄기 (트레이·우클릭 체크 항목)
     ToggleWeather,
+    /// ☀️ 실제 날씨 / 📅 계절 날씨 (설정에 남는다, 바로 바뀐다)
+    SetWeatherSource(screenpet_core::real_weather::WeatherSource),
+    /// 📍 실제 날씨를 볼 도시 (설정에 남는다 — 중계 서버에 그 도시를 달라고 한다)
+    SetWeatherPlace(screenpet_core::real_weather::Place),
     /// ⏱️ 집중 친구 시작 / 그만 (켜져 있는지는 설정에 남지 않는다)
     ToggleFocus,
     /// ⏱️ 집중 친구 길이 (설정에 남는다, 켜져 있으면 새 길이로 다시 시작)
@@ -309,6 +314,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
     }
     share_care(&network, &config, &slots[OWN], &care, false);
+    // ☀️ 실제 날씨: 중계 서버에 고른 도시를 알린다 (붙을 때마다 다시 — 옛 서버엔 보내지 않는다)
+    network.want_weather(config.weather_place);
     // 내 동물이 친구 화면에 가 있거나 가는 중 (하우스·동물 바꾸기 메뉴를 막는다)
     let mut was_busy = false;
 
@@ -329,6 +336,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     // 계절 날씨 (철이 아니거나 꺼 두면 창도 일도 없다)
     let mut weather = WeatherFx::new(seed_now());
     let _ = app.state::<AppState>().menu.weather.set_checked(config.weather_on);
+    weather.set_source(config.weather_source);
+    crate::tray::sync_weather_kind(&app.state::<AppState>().menu, config.weather_source, config.weather_place);
     // 🌈 무지개 구름 자국 (무지개 동물이 달릴 때만 창이 생긴다)
     let mut trail = crate::trail::TrailFx::new();
     // 🎁 선물 (없으면 1초에 한 번 시계만 본다)
@@ -556,6 +565,26 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     weather.sync_menu(&app, !config.weather_on);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
+                Input::SetWeatherSource(source) => {
+                    crate::tray::sync_weather_kind(&app.state::<AppState>().menu, source, config.weather_place);
+                    if source == config.weather_source {
+                        continue;
+                    }
+                    config.weather_source = source;
+                    weather.set_source(source);
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                }
+                Input::SetWeatherPlace(place) => {
+                    crate::tray::sync_weather_kind(&app.state::<AppState>().menu, config.weather_source, place);
+                    if place == config.weather_place {
+                        continue;
+                    }
+                    config.weather_place = place;
+                    // 예전 도시의 날씨는 버리고 (새 값이 올 때까지 달력 날씨) 서버에 새 도시를 달라고 한다
+                    weather.set_reading(None);
+                    network.want_weather(place);
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                }
                 Input::ToggleFocus => presence.toggle(&app, config.focus_length, &mut slots[OWN].pet),
                 Input::SetFocusLength(length) => {
                     config.focus_length = length;
@@ -682,6 +711,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 // 📱 노는 내 다른 컴퓨터의 펫과 성장 (net이 그 컴퓨터가 놀 때만, 모양을 확인해 넘긴다):
                 // 아는 동물만 다듬어 합치고 (보내지 않은 동물은 그대로), 화면의 내 펫·단계·배고픔도 바로 맞춘다. 다시 보내지 않는다
+                // ☀️ 중계 서버가 준 고른 도시의 지금 날씨 (net이 다른 도시 값은 거른다)
+                Input::Net(NetInput::Event(screenpet_net::NetEvent::Weather { code, at })) => {
+                    weather.set_reading(Some(Reading { code, at }));
+                }
                 Input::Net(NetInput::Event(screenpet_net::NetEvent::DeviceState { from, pet, care: shared })) => {
                     if config.linked_device().map(|(id, _)| id) != Some(from.as_str()) {
                         continue;

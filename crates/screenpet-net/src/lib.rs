@@ -296,6 +296,11 @@ pub enum NetEvent {
     /// the pinned key can cause this; an address that answers for `id` with a
     /// *different* key is just treated as a bad candidate, silently.
     FriendForgotUs { id: String },
+    /// ☀️ The relay's current weather for the place we want
+    /// ([`Net::want_weather`], Yongin until then): a WMO weather code and
+    /// when the relay fetched it (unix seconds). Arrives after connecting
+    /// and every new reading (about every 30 minutes); never from old relays.
+    Weather { code: u16, at: i64 },
     /// The relay connection came up (`true`) or went down (`false`).
     RelayStatus { connected: bool },
     /// Our current friend code from the relay (on connect and on rotation).
@@ -1054,6 +1059,15 @@ impl Net {
                 self.shared.emit(NetEvent::LetterSent { result: Err("offline".into()) });
                 false
             }
+        }
+    }
+
+    /// ☀️ Want the weather at (lat, lon) from now on: the relay is told (now
+    /// and on every reconnect, only if it knows the weather) and answers with
+    /// [`NetEvent::Weather`]. Nothing but the coordinates leaves this computer.
+    pub fn want_weather(&self, lat: f64, lon: f64) {
+        if let Some(c) = &self.shared.relay {
+            relay::want_weather(c, lat, lon);
         }
     }
 

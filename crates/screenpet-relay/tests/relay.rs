@@ -1303,3 +1303,46 @@ mod admin {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// ☀️ A relay with a fake weather service (no network): Yongin snows, every
+/// other cell is clear; the fetched cells are recorded.
+#[test]
+fn weather_comes_after_the_welcome_and_follows_the_place_the_app_wants() {
+    use screenpet_relay::weather::{Cell, Fetch};
+    use std::sync::{Arc, Mutex};
+    let asked: Arc<Mutex<Vec<Cell>>> = Arc::default();
+    let log = asked.clone();
+    let fetch: Fetch = Arc::new(move |cell: Cell| {
+        log.lock().unwrap().push(cell);
+        if cell.lat == 0 {
+            return Err("down".into());
+        }
+        Ok(if cell == screenpet_relay::weather::DEFAULT_CELL { 75 } else { 0 })
+    });
+    let mut cfg = RelayConfig::new(SocketAddr::from(([127, 0, 0, 1], 0)), None);
+    cfg.weather_fetch = Some(fetch);
+    let relay = Relay::start(cfg).unwrap();
+    let (mut a, welcome) = Client::login(&relay, &key(), "a", &[]);
+    assert_eq!(welcome["t"], "welcome");
+    assert_eq!(a.challenge["v"], 2, "apps send weather_want only to v2 relays");
+    let w = a.next_json(5.0).expect("weather for Yongin");
+    assert_eq!((w["t"].as_str(), w["lat"].as_f64(), w["lon"].as_f64(), w["code"].as_u64()), (Some("weather"), Some(37.2), Some(127.2), Some(75)), "{w}");
+    assert!(w["at"].as_u64().unwrap() > 1_700_000_000);
+    a.send(&json!({"t": "weather_want", "lat": 35.1796, "lon": 129.0756}));
+    let w = a.next_json(5.0).expect("weather for Busan");
+    assert_eq!((w["lat"].as_f64(), w["lon"].as_f64(), w["code"].as_u64()), (Some(35.2), Some(129.1), Some(0)), "{w}");
+    // A second app on Yongin gets the known reading without a new fetch
+    let (mut b, _) = Client::login(&relay, &key(), "b", &[]);
+    assert_eq!(b.next_json(2.0).expect("known reading")["code"], 75);
+    assert_eq!(asked.lock().unwrap().len(), 2, "Yongin and Busan once each");
+    // Nonsense places are ignored, and a weather service that is down hurts nobody
+    a.send(&json!({"t": "weather_want", "lat": 99.9, "lon": 0}));
+    a.send(&json!({"t": "weather_want", "lat": 0.01, "lon": 0}));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while asked.lock().unwrap().len() < 3 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(asked.lock().unwrap().len(), 3, "the 0,0 cell was tried");
+    a.send(&json!({"t": "ping"}));
+    assert_eq!(a.next_json(2.0).expect("still connected")["t"], "pong");
+}

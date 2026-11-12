@@ -28,6 +28,7 @@ mod http;
 mod hub;
 pub mod proto;
 pub mod store;
+pub mod weather;
 
 use hub::Hub;
 use std::net::{IpAddr, SocketAddr, TcpListener};
@@ -153,7 +154,7 @@ impl Default for Limits {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RelayConfig {
     pub bind: SocketAddr,
     /// Where `relay.json` and `relay.key` live; `None` = in memory with a
@@ -164,6 +165,9 @@ pub struct RelayConfig {
     /// `X-Forwarded-For` headers are believed; every other peer is limited
     /// by its socket address.
     pub trusted_proxies: Vec<IpAddr>,
+    /// ☀️ Fetches the weather of a cell (`weather::open_meteo` in the real
+    /// relay). `None` = no weather is fetched or sent (tests).
+    pub weather_fetch: Option<weather::Fetch>,
 }
 
 /// The user's Nginx Proxy Manager.
@@ -171,7 +175,7 @@ pub const DEFAULT_TRUSTED_PROXY: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(192
 
 impl RelayConfig {
     pub fn new(bind: SocketAddr, data_dir: Option<PathBuf>) -> RelayConfig {
-        RelayConfig { bind, data_dir, limits: Limits::default(), trusted_proxies: vec![DEFAULT_TRUSTED_PROXY] }
+        RelayConfig { bind, data_dir, limits: Limits::default(), trusted_proxies: vec![DEFAULT_TRUSTED_PROXY], weather_fetch: None }
     }
 }
 
@@ -200,6 +204,10 @@ impl Relay {
         let h = hub.clone();
         let upkeep = std::thread::Builder::new().name("relay-upkeep".into()).spawn(move || upkeep_loop(h))?;
         let mut threads = vec![accept, upkeep];
+        if let Some(fetch) = cfg.weather_fetch.clone() {
+            let h = hub.clone();
+            threads.push(std::thread::Builder::new().name("relay-weather".into()).spawn(move || weather_loop(h, fetch))?);
+        }
         // The relay is worth running even if its admin socket can't be made.
         #[cfg(unix)]
         if let Some(dir) = &cfg.data_dir {
@@ -333,6 +341,47 @@ fn upkeep_loop(hub: Arc<Hub>) {
         if saved.elapsed() >= hub.limits.save_every {
             saved = Instant::now();
             hub.save();
+        }
+    }
+}
+
+/// How often the weather thread looks for cells to fetch.
+const WEATHER_ROUND: Duration = Duration::from_secs(2);
+
+/// ☀️ Fetches due weather cells one at a time, on its own thread: a slow
+/// weather service never holds up connections. Errors are logged (at most
+/// once every 10 minutes) and never stop the relay.
+fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
+    let mut last_round = Instant::now() - WEATHER_ROUND;
+    let mut last_error_log: Option<Instant> = None;
+    while !hub.stopping() {
+        std::thread::sleep(Duration::from_millis(50));
+        if last_round.elapsed() < WEATHER_ROUND {
+            continue;
+        }
+        last_round = Instant::now();
+        let due = hub.weather_due();
+        let mut cells = due.into_iter();
+        for cell in cells.by_ref() {
+            if hub.stopping() {
+                hub.weather_fetched(cell, None);
+                break;
+            }
+            let code = match fetch(cell) {
+                Ok(code) => Some(code),
+                Err(e) => {
+                    if last_error_log.is_none_or(|t| t.elapsed() >= Duration::from_secs(600)) {
+                        last_error_log = Some(Instant::now());
+                        eprintln!("screenpet-relay: weather for {:.1},{:.1} failed: {e}", cell.lat_deg(), cell.lon_deg());
+                    }
+                    None
+                }
+            };
+            hub.weather_fetched(cell, code);
+        }
+        // Left over after a stop: not busy any more (nothing to wait for).
+        for cell in cells {
+            hub.weather_fetched(cell, None);
         }
     }
 }

@@ -29,6 +29,12 @@
 //! client -> relay   letter_read {id} | letter_delete {id} | letter_block {from} | letter_done {id, done}
 //!                                              (readers only) -> letters_changed to every reader
 //! relay  -> client  letter_new {item}          (to readers online when a letter arrives)
+//! client -> relay   weather_want {lat, lon}   (v2 relays only; -> weather if known)
+//! relay  -> client  weather {lat, lon, code, at}
+//!                   ☀️ current WMO weather code of the 0.1° cell (lat, lon),
+//!                   fetched by the relay at `at` (unix s); sent after the
+//!                   welcome (Yongin until the app says what it wants) and on
+//!                   every new reading. Older apps ignore unknown messages.
 //! client -> relay   ping                      -> pong
 //! relay  -> client  error {reason}            (then the connection closes)
 //!                   apps only log the reason. While `admin friendcode off`:
@@ -39,7 +45,9 @@
 pub use screenpet_crypto::{auth_mac, hex32, public_key, random32, to_hex, welcome_proof};
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+/// 2 = takes `weather_want` (v0.6.3). Apps send it only to relays that say
+/// `v >= 2` in the challenge: older relays close on an unknown message.
+pub const PROTOCOL_VERSION: u32 = 2;
 /// Largest opaque frame carried on a channel (same as the LAN transport).
 pub const MAX_FRAME: usize = 65535;
 /// Channel id header in binary messages.
@@ -91,6 +99,10 @@ pub enum ClientMsg {
     LetterBlock {
         from: String,
     },
+    WeatherWant {
+        lat: f64,
+        lon: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -120,6 +132,7 @@ pub enum ServerMsg {
     Letters { items: Vec<crate::mailbox::StoredLetter> },
     LetterNew { item: crate::mailbox::StoredLetter },
     LettersChanged,
+    Weather { lat: f64, lon: f64, code: u16, at: u64 },
 }
 
 impl ServerMsg {

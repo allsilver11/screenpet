@@ -21,7 +21,7 @@ def test_submenus_hold_what_was_decided():
     assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &style_menu, &lock, &reset])' in TRAY
     assert 'Submenu::with_items(app, "스타일", true, &[&style_round, &style_pixel])' in TRAY
     assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &dodge, &gift_book])' in TRAY
-    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play, &sizes, &autostart])' in TRAY
+    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &sizes, &autostart])' in TRAY
     assert 'Submenu::with_items(app, "🎲 사다리타기", true, &[&new_game, &last, &invites])' in TRAY
     assert '"🍚 밥 주기"' in TRAY and '"👫 친구랑 놀기"' in TRAY and '"🏠 하우스"' in TRAY
 
@@ -58,7 +58,7 @@ def test_repair_is_gone():
 
 
 def test_help_uses_the_new_paths():
-    for path in ["🐾 내 펫 ▸ 키우기 ▸", "🐾 내 펫 ▸ 스타일 ▸", "⚙️ 설정 ▸ 🌨️ 날씨 효과", "🎮 놀기 ▸ 🎁 선물 도감", "🎮 놀기 ▸ 🗑️ 쓰레기 꺼내기 ▸", "🎲 사다리타기 ▸ 새 사다리…", "🎲 사다리타기 ▸ 초대 받기", "🎲 사다리타기 ▸ 지난 결과"]:
+    for path in ["🐾 내 펫 ▸ 키우기 ▸", "🐾 내 펫 ▸ 스타일 ▸", "⚙️ 설정 ▸ 🌨️ 날씨 효과", "⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸", "📍 날씨 지역 ▸", "🎮 놀기 ▸ 🎁 선물 도감", "🎮 놀기 ▸ 🗑️ 쓰레기 꺼내기 ▸", "🎲 사다리타기 ▸ 새 사다리…", "🎲 사다리타기 ▸ 초대 받기", "🎲 사다리타기 ▸ 지난 결과"]:
         assert path in HELP, path
     assert "캐릭터 ▸" not in HELP and "내 친구 코드 보기" not in HELP and "사다리 초대 받기" not in HELP
 
@@ -264,3 +264,21 @@ def test_heumul_color_menu_sits_under_the_style_only_for_tintable_pets():
     assert "crate::tray::sync_tint_shown(&state.menu, entry.manifest.tint);" in sync, "동물이 바뀌면 메뉴를 넣고 뺀다"
     assert "Input::SetTint(tint) => {" in game and "own.set_tint(&app, tint);" in game and "config.tint = tint;" in game
     assert "🐾 내 펫 ▸ 🎨 흐물이 색 ▸" in HELP
+
+
+def test_weather_kind_menu_picks_real_or_season_weather_and_the_city():
+    """☀️ 실제 날씨 (용인) / 📅 계절 날씨 체크 둘과 📍 날씨 지역 ▸ (도시마다 체크) — ⚙️ 설정 ▸ 🌨️ 날씨 효과 바로 아래."""
+    assert 'Submenu::with_items(app, "🌦️ 날씨 종류", true, &[&weather_real, &weather_season, &PredefinedMenuItem::separator(app)?, &places_menu])' in TRAY
+    assert 'Submenu::new(app, "📍 날씨 지역", true)?' in TRAY
+    assert "for place in Place::ALL" in TRAY and 'format!("{WEATHER_PLACE_PREFIX}{}", place.id())' in TRAY
+    assert 'const WEATHER_PLACE_PREFIX: &str = "weather-place:";' in TRAY
+    assert ".strip_prefix(WEATHER_PLACE_PREFIX).and_then(Place::from_id)" in TRAY and "Input::SetWeatherPlace(place)" in TRAY
+    assert "WEATHER_REAL_ID => send(app, Input::SetWeatherSource(WeatherSource::Real))" in TRAY
+    assert "WEATHER_SEASON_ID => send(app, Input::SetWeatherSource(WeatherSource::Season))" in TRAY
+    # 실제 날씨 글자에 고른 도시가 보인다
+    assert 'format!("☀️ 실제 날씨 ({})", place.label())' in TRAY
+    game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    assert "Input::SetWeatherSource(source) => {" in game and "config.weather_source = source;" in game and "weather.set_source(source);" in game
+    assert "Input::SetWeatherPlace(place) => {" in game and "config.weather_place = place;" in game and "network.want_weather(place);" in game
+    # 체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다 (시작할 때도)
+    assert game.count("crate::tray::sync_weather_kind(") >= 3

@@ -7,6 +7,7 @@ use crate::care::Care;
 use crate::food::FeedMode;
 use crate::gift::GiftBook;
 use crate::presence::{DailyMarks, FocusLength};
+use crate::real_weather::{Place, WeatherSource};
 use crate::style::PetStyle;
 use crate::tint::BodyTint;
 use crate::visit::{ExitEdges, Side};
@@ -52,6 +53,12 @@ pub struct Config {
     /// 🌨️ 날씨 효과를 메뉴에서 켰다 (기본은 꺼짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub weather_on: bool,
+    /// ☀️ 실제 날씨 / 📅 계절 날씨. 모르는 값이면 실제 날씨
+    #[serde(default, skip_serializing_if = "WeatherSource::is_real", deserialize_with = "lenient")]
+    pub weather_source: WeatherSource,
+    /// 📍 실제 날씨를 볼 도시. 모르는 값이면 용인
+    #[serde(default, skip_serializing_if = "Place::is_default", deserialize_with = "lenient")]
+    pub weather_place: Place,
     /// 🎁 주운 선물 (도감). 잘못된 줄은 건너뛴다
     #[serde(default, skip_serializing_if = "GiftBook::is_empty")]
     pub gifts: GiftBook,
@@ -1348,6 +1355,23 @@ mod tests {
         let on = Config { weather_on: true, ..Default::default() };
         let back: Config = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
         assert!(back.weather_on);
+    }
+
+    #[test]
+    fn weather_source_and_place_default_to_real_yongin_and_odd_values_read_as_default() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert_eq!((old.weather_source, old.weather_place), (WeatherSource::Real, Place::Yongin));
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("weather_source") && !text.contains("weather_place"), "not written while default: {text}");
+        let c = Config { weather_source: WeatherSource::Season, weather_place: Place::Busan, ..Config::default() };
+        let text = serde_json::to_string(&c).unwrap();
+        assert!(text.contains(r#""weather_source":"season""#) && text.contains(r#""weather_place":"busan""#), "{text}");
+        let back: Config = serde_json::from_str(&text).unwrap();
+        assert_eq!((back.weather_source, back.weather_place), (WeatherSource::Season, Place::Busan));
+        for bad in [r#""satellite""#, "3", "null", "[]"] {
+            let odd: Config = serde_json::from_str(&format!(r#"{{"pet":"cat","weather_source":{bad},"weather_place":{bad}}}"#)).unwrap();
+            assert_eq!((odd.pet.as_deref(), odd.weather_source, odd.weather_place), (Some("cat"), WeatherSource::Real, Place::Yongin), "{bad}");
+        }
     }
 
     #[test]

@@ -4,7 +4,8 @@
 //! (or `~/.local/share/screenpet-relay`), trusted proxy `192.168.0.52` (the
 //! Nginx Proxy Manager; loopback is always trusted). Environment:
 //! `SCREENPET_RELAY_BIND`, `SCREENPET_RELAY_DATA`,
-//! `SCREENPET_RELAY_TRUSTED_PROXIES` (comma-separated; empty = loopback only).
+//! `SCREENPET_RELAY_TRUSTED_PROXIES` (comma-separated; empty = loopback only),
+//! `SCREENPET_RELAY_WEATHER=off` (no Open-Meteo fetches).
 //! Health check: `GET /healthz`; WebSocket: `/ws`.
 //!
 //! `screenpet-relay admin [--data DIR] <command>` runs an operator command on
@@ -114,6 +115,10 @@ fn main() {
     }
     let mut cfg = RelayConfig::new(bind, Some(data.clone()));
     cfg.trusted_proxies = proxies.unwrap_or_else(|| vec![DEFAULT_TRUSTED_PROXY]);
+    // ☀️ Real weather for the apps (SCREENPET_RELAY_WEATHER=off turns it off)
+    if std::env::var("SCREENPET_RELAY_WEATHER").as_deref() != Ok("off") {
+        cfg.weather_fetch = Some(screenpet_relay::weather::open_meteo());
+    }
     let shown: Vec<String> = cfg.trusted_proxies.iter().map(IpAddr::to_string).collect();
     eprintln!("screenpet-relay: trusting forwarded client addresses from loopback and [{}]", shown.join(", "));
     match Relay::start(cfg) {

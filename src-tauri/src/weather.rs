@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use chrono::{Datelike, Timelike};
 use screenpet_core::geom::Rect;
 use screenpet_core::visit::Side;
+use screenpet_core::real_weather::{self, Reading, WeatherSource};
 use screenpet_core::weather::{self, OverlayRetry, PileField, Scene, Weather};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -78,6 +79,10 @@ struct Snowman {
 pub struct WeatherFx {
     preview: Option<Option<Weather>>,
     season: Option<Weather>,
+    /// ☀️ 실제 날씨 / 📅 계절 날씨 (설정)
+    source: WeatherSource,
+    /// ☀️ 중계 서버가 마지막으로 준 고른 도시의 날씨 (3시간이 지나면 달력으로)
+    reading: Option<Reading>,
     active: Option<Weather>,
     next_season: Instant,
     next_scene: Instant,
@@ -102,6 +107,8 @@ impl WeatherFx {
         Self {
             preview,
             season: None,
+            source: WeatherSource::default(),
+            reading: None,
             active: None,
             next_season: now,
             next_scene: now + START_DELAY,
@@ -125,6 +132,20 @@ impl WeatherFx {
         self.next_scene = Instant::now().min(self.next_scene);
     }
 
+    /// ☀️ 실제 날씨 / 📅 계절 날씨를 바꿨다: 바로 다시 본다
+    pub fn set_source(&mut self, source: WeatherSource) {
+        self.source = source;
+        self.next_season = Instant::now();
+        self.next_scene = Instant::now().min(self.next_scene);
+    }
+
+    /// ☀️ 중계 서버가 새 날씨를 줬다 (None = 도시를 바꿔 예전 값을 버린다): 바로 다시 본다
+    pub fn set_reading(&mut self, reading: Option<Reading>) {
+        self.reading = reading;
+        self.next_season = Instant::now();
+        self.next_scene = Instant::now().min(self.next_scene);
+    }
+
     /// 게임 루프 스레드에서 매 틱 (창 만들기가 메인 스레드를 기다린다)
     pub fn tick(&mut self, app: &AppHandle, now: Instant, menu_off: bool, away: bool, slots: &mut [Slot]) {
         if self.active.is_some() {
@@ -138,7 +159,8 @@ impl WeatherFx {
         if now >= self.next_season {
             self.next_season = now + SEASON_EVERY;
             let today = chrono::Local::now();
-            self.season = weather::weather_at(today.year(), today.month(), today.day(), today.num_seconds_from_midnight());
+            // 달력 날씨 (weather::weather_at)는 실제 날씨가 없거나 오래됐을 때만 — core가 고른다
+            self.season = real_weather::weather_now(self.source, self.reading, today.timestamp(), today.year(), today.month(), today.day(), today.num_seconds_from_midnight());
         }
         let want = weather::wanted(self.season, self.preview, menu_off, crate::windows_hidden(app));
         if want.is_none() {

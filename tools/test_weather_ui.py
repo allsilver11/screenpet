@@ -65,11 +65,26 @@ def test_the_menu_is_open_all_year():
 
 
 def test_the_app_follows_the_clock_and_shuts_the_overlay_between_showers():
-    # 달력은 1분에 한 번 weather_at으로 — 맑을 때 None이면 tick이 창을 모두 닫는다 (tear_down)
-    assert "weather::weather_at(" in RS and "num_seconds_from_midnight()" in RS
+    # 달력·실제 날씨는 1분에 한 번 (실제 날씨가 없거나 오래면 core가 weather_at으로) — 맑을 때 None이면 tick이 창을 모두 닫는다 (tear_down)
+    assert "real_weather::weather_now(" in RS and "num_seconds_from_midnight()" in RS
     assert "const SEASON_EVERY: Duration = Duration::from_secs(60);" in RS
     tick = RS[RS.index("pub fn tick("):RS.index("/// 날씨가 켜진 동안 5 Hz")]
     assert "self.tear_down(slots)" in tick and "self.next_scene = now + IDLE_EVERY" in tick
+
+
+def test_real_weather_comes_from_the_relay_and_falls_back_to_the_calendar():
+    # ☀️ 앱은 날씨 서비스를 부르지 않는다: 중계 서버가 준 값(NetEvent::Weather)을 core가 그림으로 바꾼다
+    assert "real_weather::weather_now(self.source, self.reading," in RS
+    assert "ureq" not in RS and "open-meteo" not in RS.lower()
+    game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    assert "NetEvent::Weather { code, at }" in game and "weather.set_reading(Some(Reading { code, at }))" in game
+    net = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+    assert "net.want_weather(lat, lon)" in net
+    # 새 값·설정이 오면 1분을 기다리지 않고 바로 다시 본다
+    for fn in ("pub fn set_source(", "pub fn set_reading("):
+        body = RS[RS.index(fn):]
+        body = body[: body.index("\n    }\n")]
+        assert "self.next_season = Instant::now()" in body, fn
 
 
 def test_pets_look_up_at_whatever_the_core_says():
@@ -81,6 +96,9 @@ def test_help_tells_the_whole_year():
     line = next(l for l in help_text.splitlines() if "날씨 효과" in l)
     for word in ["벚꽃잎", "소나기", "낙엽", "눈", "비"]:
         assert word in line
+    real = next(l for l in help_text.splitlines() if "실제 날씨" in l)
+    for word in ["용인", "📍 날씨 지역", "📅 계절 날씨", "3시간"]:
+        assert word in real, word
 
 
 # ---- ui/weather.js를 가짜 캔버스로 돌려 보기 (tools/weather_harness.js) — 호출 수만, 실제 렌더링 비용은 아니다 ----

@@ -23,6 +23,7 @@ pub mod physics;
 pub mod platform;
 pub mod poop;
 pub mod presence;
+pub mod real_weather;
 pub mod sleigh;
 pub mod social;
 pub mod style;
