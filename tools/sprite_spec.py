@@ -103,6 +103,12 @@ OPTIONAL_ANIMS = [
     ("cheer_type", 4, 10, True, True),
     # 흐물이: 머리 위에 인 채 다다다 달리기 (친구에게 들고 가는 길·화면 끝을 들고 나가고 들어올 때 — 사용자: 걷지 말고 달려!)
     ("carry_run", 4, 12, True, False),
+    # 🐱 고양이·페르시안 툭툭 (v0.6.3, 코어 brain_knock.rs): 고개 숙여 앞발을 들었다가 앞으로 툭 (한 번 = 0.5초, 셋째 칸에 민다)
+    ("paw", 4, 8, False, False),
+    # 🐿️ 다람쥐 볼 빵빵 (v0.6.3, 코어 brain_stash.rs): 볼이 빵빵한 채 총총 걷기 · 앉기, 땅을 파고 묻기 (흙이 튄다)
+    ("cheeks_walk", 4, 8, True, False),
+    ("cheeks_idle", 2, 2, True, False),
+    ("dig", 4, 8, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -174,6 +180,15 @@ JUGGLER = {"heumul"}
 
 # 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는 동물 (pet.json taskbar_play — 코어 brain_taskbar.rs, 그림은 yank·stuff)
 TASKBAR_PLAY = {"heumul"}
+
+# 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨리는 동물 (pet.json knocker — 코어 brain_knock.rs, 그림은 paw)
+KNOCKER = {"cat", "persian"}
+
+# 🐿️ 바닥의 작은 물건을 볼에 넣어 묻는 동물 (pet.json stasher — 코어 brain_stash.rs, 그림은 cheeks_walk·cheeks_idle·dig)
+STASHER = {"squirrel"}
+
+# 🦆 바닥에서 친구들을 줄줄이 데리고 걷는 동물 (pet.json train_leader — 코어 brain_train.rs, 새 그림 없음)
+TRAIN_LEADER = {"duck"}
 
 # 🎨 몸 색을 고를 수 있는 동물 (pet.json tint + ink_<stage>.png 잉크 자리 — 앱이 그 자리만 고른 색으로 덮는다, ui/main.js)
 TINTABLE = {"heumul"}

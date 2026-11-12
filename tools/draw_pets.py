@@ -27,7 +27,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
-                         STAGES, SWIFT, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, frame_px, manifest)
+                         STAGES, SWIFT, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, TRAIN_LEADER, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -655,7 +655,7 @@ CAT = Species(
     ],
     side_tail=[("L", _cat_tail_line, 10)], tail_root=(26, 78), tail_color=CAT_G,
     tail_marks=[([_stripe([(9, 58), (17, 58)]), _stripe([(10, 47), (18, 48)])], CAT_ST, 2)],
-    specials=["arch", "huff", "climb", "slide", "lookup"],
+    specials=["arch", "huff", "climb", "slide", "lookup", "paw"],
     stage_tweak={"adult": dict(whiskers=True)},
     stripe=CAT_ST,
     back_head_marks=[
@@ -721,7 +721,7 @@ PERSIAN = Species(
     tail_color=PER_G,
     fur_tufts=(_tufts(64, 72, 59, 27, [160, 140, 118, 62, 40, 20], ln=7.5),  # 볼·턱 갈기 끝
                _tufts(86, 68, 24, 15, [55, 80, 105], ln=7)),  # 옆모습: 턱 아래·가슴 앞 갈기 끝만 (목 뒤로는 안 삐져나오게)
-    specials=["huff", "lookup"],
+    specials=["huff", "lookup", "paw"],
     # 모든 단계: 졸린 반눈 · 어린이도 웃지 않는 무표정 · 수염·볼 지그재그 털 없음 (갈기가 대신)
     stage_tweak={st: dict(sleepy=True, iris=PER_EYE, smile=False, cheek_fluff=False, **{"baby": dict(ear=0.85), "kinder": dict(ear=0.9)}.get(st, {}))
                  for st in STAGES},
@@ -1606,11 +1606,42 @@ def slide(sp, i):
     return _back(sp, (1.0, 1.0), ("low", "low"), tail_rot=[-3, 3][i], body_sy=0.93, dy=[0, 1][i], scratch=i, sweat=i)
 
 
+# 🐱 툭 (고양이 툭툭, v0.6.3 — 코어 brain_knock.rs): 앞쪽으로 고개를 숙여 바닥의 물건을 보며 엉덩이는 살짝 들고,
+#     가까운 앞발을 들었다가 앞으로 툭 (0 살짝 들기 · 1 높이 쳐들기 · 2 앞으로 쭉 툭 + 작은 툭 선 · 3 거두기). 다른 다리는 그대로 서 있다
+PAW_LEG = [(40, 112), (95, 116), (50, 127), (16, 122)]  # (앞으로 드는 각도, 발끝 y) — 뿌리 (90, 92)
+
+
+def _tap_fx(i):
+    """툭 선: 앞발 끝 앞에 짧은 선 셋 (셋째 칸만)."""
+    if i != 2:
+        return []
+    return [([L([(x0, y0), (x1, y1)], 1.8)], SPEED, 0) for x0, y0, x1, y1 in ((116, 113, 121, 109), (118, 119, 123, 119), (116, 125, 121, 127))]
+
+
+def paw(sp, i):
+    ang, bot = PAW_LEG[i]
+    lg = [(37, 96, 124, 0, 18), (54, 98, 125, 0, 16), (78, 98, 125, 0, 16)]
+    # 드는 앞발은 가슴 앞에 따로 (자기 외곽선) — 몸 뒤에 그리면 가슴에 묻힌다
+    # 페르시안은 발이 크림색 털 (가슴·발 무늬와 같다), 늘 졸린 눈 그대로 — 무심하게 툭
+    with xf(dx=-2):  # whole dx와 같이 (몸 앞쪽이 칸 오른쪽 끝에 닿지 않게)
+        raised = legs(replace(sp, base=sp.belly) if sp.id == "persian" else sp, [(90, 92, bot, ang, 15)], outline=True)
+    eyes = "dot" if _ST["sleepy"] or i >= 2 else "round"
+    # 쳐든 앞발의 분홍 젤리 (0·1칸 — 발바닥이 앞을 본다): 흰 발이 흰 가슴 앞에서도 (픽셀에서도) 보이게
+    pad = []
+    if i < 2:
+        fx_, fy = _apply(_xf_matrix(rot=-ang, pivot=(90, 96)), (90, bot - 3.5))
+        fx_ -= 2  # whole dx와 같이
+        pad = [([E(fx_ - 3.6, fy - 3.0, fx_ + 3.6, fy + 3.0)], PINK, 0)]
+    return _side(sp, whole=dict(dx=-2), head=dict(rot=9, pivot=(82, 72), dy=3, dx=1), torso=dict(rot=5, pivot=(58, 96), dy=1),
+                 tail=dict(at=(sp.tail_root[0], sp.tail_root[1] - 2), rot=[-2, 0, 3, 0][i] + (10 if sp.id == "persian" else 0)),  # 페르시안의 복슬 꼬리는 칸 왼쪽 끝에 닿지 않게 세운다
+                 leg_specs=lg, head_kw=dict(eyes=eyes), after=[raised], fx=pad + _tap_fx(i))
+
+
 POSES = {"walk": walk, "run": run, "roll": roll, "idle": idle, "look": look, "sleep": sleep, "hop": hop, "fall": fall,
          "dragged": dragged, "land": land, "sit_front": sit_front, "wave": wave, "tilt": tilt, "belly": belly,
          "stretch": stretch, "heart": heart, "tickle": tickle, "annoyed": annoyed, "arch": arch,
          "hungry": hungry, "eat": eat, "level_up": level_up, "huff": huff,
-         "climb": climb, "slide": slide, "lookup": lookup}
+         "climb": climb, "slide": slide, "lookup": lookup, "paw": paw}
 
 
 def frames(sp, anim, n):
@@ -1792,6 +1823,12 @@ def species_fields(pid, m):
         m["taskbar_play"] = True
     if pid in TINTABLE:
         m["tint"] = True
+    if pid in KNOCKER:
+        m["knocker"] = True
+    if pid in STASHER:
+        m["stasher"] = True
+    if pid in TRAIN_LEADER:
+        m["train_leader"] = True
     return m
 
 

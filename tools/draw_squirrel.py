@@ -235,7 +235,9 @@ def side_head(hx, hy, hr, eyes, mouth, brow, head_rot=0.0, cheeks=False):
         parts.append(ear(hx - hr * 0.3, hy - hr * 0.76, k, rot=-14, tuft=st["tuft"]))
         shp = [C(hx, hy, hr), C(hx + hr * 0.72, hy + hr * 0.26, hr * 0.46)]
         if cheeks:
-            shp.append(C(hx + hr * 0.42, hy + hr * 0.5, hr * 0.42))
+            # 2 = 🐿️ 볼에 물건을 넣어 더 빵빵 (cheeks_walk·cheeks_idle)
+            puff = 0.6 if cheeks == 2 else 0.42
+            shp.append(C(hx + hr * (0.42 if cheeks != 2 else 0.5), hy + hr * (0.5 if cheeks != 2 else 0.66), hr * puff))
         marks = [([E(hx - hr * 0.08, hy + hr * 0.1, hx + hr * 1.34, hy + hr * 1.22)], CREAM)]
         parts.append(Part(shp, fur_color(), marks, grow=1, outline=True, spikes=dp.tuft(hx - 3, hy - hr + 1) if st["fuzz"] else []))
         dp.mark_head(hx - 1, hy - hr * 0.84, hr * 1.25)
@@ -658,10 +660,43 @@ def sq_slide(sp, i):
     return back((1.0, 1.0), ("low", "low"), sq=(1.03, 0.94), dy=[0, 1][i], tail_rot=[-20, -14][i], scratch=i, sweat=i)
 
 
+# 🐿️ 볼 빵빵 (v0.6.3, 코어 brain_stash.rs): 물건을 볼에 넣은 채 총총 걷기·앉기 (볼이 더 빵빵), 땅을 파고 묻기
+DIRT, DIRT_DARK = (168, 120, 84), (128, 88, 60)
+
+
+def sq_cheeks_walk(sp, i):
+    """볼 빵빵 총총: 걷기와 같은 걸음, 볼이 불룩."""
+    return side(bottom=FLOOR - 1.5 - [0, 1.5, 0, 1.5][i], legs=WALK_LEGS[i], tail_rot=[-3, 0, 3, 0][i], head=(0, [0, -0.6, 0, -0.6][i]), cheeks=2)
+
+
+def sq_cheeks_idle(sp, i):
+    """볼 빵빵 앉기: 뿌듯하게 눈을 감고 (둘째 칸) 볼이 불룩."""
+    return side(sq=(1.0, 1.0 + 0.02 * i), head=(0, -0.8 * i), tail_rot=[0, -3][i], eyes="happy" if i else "dot", cheeks=2)
+
+
+DIG_DIRT = [[(20, 104, 3.2), (30, 96, 2.4)], [(14, 96, 2.8), (26, 90, 3.4), (34, 108, 2.2)], [(10, 88, 2.4), (22, 100, 3.0)],
+            [(16, 92, 3.0), (30, 102, 2.6), (8, 104, 2.0)]]
+
+
+def dig_fx(i):
+    """흙 무더기 (앞발 밑) + 뒤로 튀는 흙 알갱이."""
+    mound = [([E(84, 119, 112, 131)], DIRT_DARK, 0), ([E(86, 121, 110, 131)], DIRT, 0)]
+    bits = [([C(x, y, r + 0.9)], DIRT_DARK, 0) for x, y, r in DIG_DIRT[i]] + [([C(x, y, r)], DIRT, 0) for x, y, r in DIG_DIRT[i]]
+    return mound + bits
+
+
+def sq_dig(sp, i):
+    """땅 파기: 몸을 숙여 앞발로 번갈아 흙을 긁고 (볼은 빵빵), 꼬리는 바짝, 흙이 뒤로 튄다."""
+    legs = [[(0, 0), (6, 3), (0, 0), (-3, 0)], [(0, 0), (-2, 0), (0, 0), (7, 4)], [(0, 0), (7, 4), (0, 0), (-2, 0)], [(0, 0), (-3, 0), (0, 0), (6, 3)]][i]
+    return side(crouch=3, rot=9, head=(1, 4), head_rot=14, eyes="tight" if i % 2 else "dot", legs=legs, tail_rot=[-4, 2, -4, 2][i],
+                cheeks=2, fx=dig_fx(i))
+
+
 SQUIRREL_POSES = {"walk": sq_walk, "run": sq_run, "roll": sq_roll, "idle": sq_idle, "look": sq_look, "sleep": sq_sleep, "hop": sq_hop,
                   "fall": sq_fall, "dragged": sq_dragged, "land": sq_land, "sit_front": sq_sit_front, "wave": sq_wave, "tilt": sq_tilt,
                   "belly": sq_belly, "stretch": sq_stretch, "heart": sq_heart, "tickle": sq_tickle, "annoyed": sq_annoyed,
-                  "hungry": sq_hungry, "eat": sq_eat, "level_up": sq_level_up, "lookup": sq_lookup, "climb": sq_climb, "slide": sq_slide}
+                  "hungry": sq_hungry, "eat": sq_eat, "level_up": sq_level_up, "lookup": sq_lookup, "climb": sq_climb, "slide": sq_slide,
+                  "cheeks_walk": sq_cheeks_walk, "cheeks_idle": sq_cheeks_idle, "dig": sq_dig}
 RAW_POSES = dict(SQUIRREL_POSES)
 SQUIRREL_POSES = {k: (v if k == "roll" else _fit(v)) for k, v in SQUIRREL_POSES.items()}
 
@@ -672,7 +707,7 @@ SQUIRREL = Species(
     # 털 색은 단계 표(fur_color)가 정한다 — 공통 파스텔은 끈다. 외곽선도 모든 단계 같은 짙은 밤색
     stage_tweak={"baby": dict(pale=0.0, soft=0.0, fit=0.88), "kinder": dict(pale=0.0, soft=0.0, fit=0.92),
                  "child": dict(pale=0.0), "adult": dict(fit=0.93)},
-    specials=["climb", "slide", "lookup"], poses=SQUIRREL_POSES, **dp.NO_COMMON_PARTS,
+    specials=["climb", "slide", "lookup", "cheeks_walk", "cheeks_idle", "dig"], poses=SQUIRREL_POSES, **dp.NO_COMMON_PARTS,
 )
 
 

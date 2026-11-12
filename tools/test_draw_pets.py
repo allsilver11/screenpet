@@ -9,7 +9,7 @@ from conftest import assert_eat_has_no_bowl, assert_feet_only_peek, record_draw_
 from sprite_spec import ANIMS, FRAME, HIRES_TEENAGER, NO_SPIN, OPTIONAL_ANIMS, ROLL_CENTER, ROLL_RADIUS, STAGES as STAGE_NAMES, frame_px, sheet_128
 
 STANDING = {"walk", "run", "idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
-            "hungry", "eat", "level_up", "huff", "lookup"}
+            "hungry", "eat", "level_up", "huff", "lookup", "paw"}
 SPECIES_IDS = ("cat", "rabbit")
 GONE = ("bear", "bee", "dog")  # v0.5.5에서 빠진 동물
 
@@ -88,7 +88,7 @@ def test_only_cat_has_arch_and_huff(built):
     assert m["speech"]["ignore"] == ["..."]
     assert m["personality"] == "aloof"
     sheet = sheet_128(built / "cat" / "sheet_teenager.png")
-    assert sheet.height == FRAME * (len(ANIMS) + 5)  # arch, huff, climb, slide, lookup
+    assert sheet.height == FRAME * (len(ANIMS) + 6)  # arch, huff, climb, slide, lookup, paw
 
 
 def test_roll_ball_fits_rotation_circle(built):
@@ -498,3 +498,29 @@ def test_persian_front_head_is_a_smaller_square(st):
 def test_persian_tail_is_bushier_than_the_cats():
     w = lambda sp: max(d[2] for d in sp.side_tail if d[0] == "L")
     assert w(draw_pets.SPECIES["persian"]) > 1.4 * w(draw_pets.CAT)
+
+
+# ---- 🐱 고양이 툭툭 (v0.6.3, 코어 brain_knock.rs) ----
+
+def test_only_cats_paw_and_knock(built):
+    for pid in SPECIES_IDS:
+        m = json.loads((built / pid / "pet.json").read_text(encoding="utf-8"))
+        assert ("paw" in m["animations"]) == (pid == "cat"), pid
+        assert m.get("knocker", False) == (pid == "cat"), pid
+    m = json.loads((built / "cat" / "pet.json").read_text(encoding="utf-8"))
+    rows = [a for a, *_ in ANIMS] + [o[0] for o in OPTIONAL_ANIMS if o[0] in draw_pets.SPECIES["cat"].specials]
+    assert m["animations"]["paw"] == {"row": rows.index("paw"), "frames": 4, "fps": 8, "loop": False}
+    assert "paw" in draw_pets.PERSIAN.specials and draw_pets.species_fields("persian", {}).get("knocker") is True
+
+
+@pytest.mark.parametrize("st", CHECK_STAGES)
+def test_paw_lifts_a_front_paw_then_taps_forward(built, st):
+    """툭: 둘째 칸은 앞발을 가슴 앞으로 쳐든다 (선 앞발보다 높이), 셋째 칸은 앞으로 쭉 뻗어 바닥 가까이 — 가장 앞(오른쪽)까지 닿는다."""
+    import numpy as np
+    sheet = sheet_128(built / "cat" / f"sheet_{st}.png")
+    rows = [a for a, *_ in ANIMS] + [o[0] for o in OPTIONAL_ANIMS if o[0] in draw_pets.SPECIES["cat"].specials]
+    r = rows.index("paw")
+    cells = [np.asarray(sheet.crop((c * FRAME, r * FRAME, (c + 1) * FRAME, (r + 1) * FRAME)).getchannel("A")) > 128 for c in range(4)]
+    right = [np.nonzero(c.any(axis=0))[0].max() for c in cells]
+    assert right[2] == max(right), right
+    assert len({c.tobytes() for c in cells}) == 4

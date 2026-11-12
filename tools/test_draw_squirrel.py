@@ -14,7 +14,7 @@ from sprite_spec import ANIMS, STAGES, sheet_128
 ROOT = Path(__file__).resolve().parent.parent
 SHIPPED = ROOT / "ui" / "pets" / "squirrel"
 CAT = ROOT / "ui" / "pets" / "cat"
-STANDING = ("walk", "idle", "look", "sleep", "annoyed", "lookup", "sit_front", "wave", "tilt", "eat", "hungry", "heart")
+STANDING = ("walk", "idle", "look", "sleep", "annoyed", "lookup", "sit_front", "wave", "tilt", "eat", "hungry", "heart", "cheeks_walk", "cheeks_idle", "dig")
 
 
 @pytest.fixture(scope="module")
@@ -46,7 +46,7 @@ def mask(im, col, tol=20):
 
 def test_registered_with_its_own_poses_and_climbs():
     assert draw_pets.SPECIES["squirrel"] is draw_squirrel.SQUIRREL
-    assert names(draw_squirrel.SQUIRREL) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"]
+    assert names(draw_squirrel.SQUIRREL) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup", "cheeks_walk", "cheeks_idle", "dig"]
     assert all(a in draw_squirrel.SQUIRREL.poses for a in names(draw_squirrel.SQUIRREL))
 
 
@@ -173,3 +173,31 @@ def test_acorn_cap_hat_only_on_the_adult(out):
     for anim in ("sit_front", "idle", "walk"):
         assert count(frame(out, "adult", anim, 0), draw_squirrel.CAP, 12) > 12, anim
         assert count(frame(out, "teenager", anim, 0), draw_squirrel.CAP, 12) < 4, anim  # 외곽선 섞인 점 몇 개뿐
+
+
+# ---- 🐿️ 볼 빵빵 (v0.6.3, 코어 brain_stash.rs) ----
+
+def test_stash_rows_frame_counts_and_flag(out):
+    m = json.loads((out / "squirrel" / "pet.json").read_text(encoding="utf-8"))
+    assert m["stasher"] is True
+    rows = names(draw_squirrel.SQUIRREL)
+    assert m["animations"]["cheeks_walk"] == {"row": rows.index("cheeks_walk"), "frames": 4, "fps": 8}
+    assert m["animations"]["cheeks_idle"] == {"row": rows.index("cheeks_idle"), "frames": 2, "fps": 2}
+    assert m["animations"]["dig"] == {"row": rows.index("dig"), "frames": 4, "fps": 8}
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_puffed_cheeks_bulge_below_the_plain_face(out, st):
+    """볼 빵빵 걷기·앉기는 그냥 걷기·앉기보다 얼굴 아래쪽이 불룩하다 (몸 앞쪽 아래 칸이 더 찬다), 걸음은 같다."""
+    for plain, puffed in (("walk", "cheeks_walk"), ("idle", "cheeks_idle")):
+        a, b = alpha(frame(out, st, plain, 0)), alpha(frame(out, st, puffed, 0))
+        assert b.sum() > a.sum(), (st, puffed)
+        assert (b & ~a).sum() > 20, (st, puffed)
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_dig_kicks_dirt_and_moves_the_paws(out, st):
+    frames = [frame(out, st, "dig", i) for i in range(4)]
+    for im in frames:
+        assert count(im, draw_squirrel.DIRT, 12) > 10, st
+    assert len({im.tobytes() for im in frames}) == 4, "앞발이 번갈아 긁는다"
