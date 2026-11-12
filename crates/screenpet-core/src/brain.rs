@@ -3,7 +3,6 @@
 //! 앱(src-tauri)이 동물마다 Pet 하나를 들고 틱마다 update(dt, world)를 부르고 render()로 그릴 것을 받음
 //! 클릭·끌기·던지기(pointer_*), 먹이·하우스·친구 방문 등 바깥 일은 Pet의 pub 메서드로 들어옴
 //! 장난·놀이별 동작은 자식 모듈 brain_*.rs에 나뉘어 있음 (같은 Pet의 비공개 필드를 씀)
-
 use std::collections::VecDeque;
 
 use serde::Serialize;
@@ -3051,7 +3050,7 @@ impl Pet {
     }
 
     /// 몸 앞쪽이 옆 모니터 경계(Seam)를 넘는 중. 이웃 바닥 높이에 따라 그대로 걸어 넘어가거나(true — 서 있을 곳과
-    /// x를 이미 옮겼음), 뛰어내리거나 뛰어오르거나 굴러떨어지거나 돌아선다(false).
+    /// x를 이미 옮겼음), 뛰어내리거나 뛰어오르거나 굴러떨어지거나 돌아섬(false).
     /// center_past = 발 중심이 이 바닥 끝을 넘었는지
     fn at_seam(&mut self, world: &World, to: usize, kind: Move, speed: f64, new_x: f64, center_past: bool) -> bool {
         let (Some(st), Some(wa)) = (self.standing, world.work_areas.get(to).copied()) else {
