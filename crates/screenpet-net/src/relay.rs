@@ -23,7 +23,7 @@ use crate::transport::{Candidate, FrameLink, FrameReader, Recv};
 use crate::noise;
 use screenpet_crypto::{auth_mac, welcome_proof};
 use crate::{Backoff, NetEvent, Shared, TICK};
-use serde::{Deserialize, Serialize};
+use screenpet_proto::relay::{ClientMsg, Letter as WireLetter, ServerMsg};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, ErrorKind, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -66,56 +66,10 @@ const OUTBOX: usize = 1024;
 const CHANNEL_QUEUE: usize = 256;
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-#[derive(Debug, Serialize)]
-#[serde(tag = "t", rename_all = "snake_case")]
-enum ClientMsg<'a> {
-    Auth { id: &'a str, key: String, mac: String, friends: Vec<String>, cnonce: String },
-    Friends { keys: Vec<String> },
-    Redeem { code: &'a str },
-    Open { req: u32, to: String },
-    Close { ch: u32 },
-    NewCode,
-    Ping,
-    Letter { r#box: String },
-    Letters,
-    LetterRead { id: u64 },
-    LetterDelete { id: u64 },
-    LetterBlock { from: &'a str },
-    LetterDone { id: u64, done: bool },
-    /// ☀️ Only to relays at `WEATHER_RELAY_VERSION` (older ones close on it).
-    WeatherWant { place: &'a str },
-    /// 🙅 / 📮 Only to relays at `BOARD_RELAY_VERSION`.
-    LetterReject { id: u64, rejected: bool },
-    LetterPrivate { id: u64, private: bool },
-    BoardPut { items: &'a [crate::board::Digest] },
-    BoardList { page: u32 },
-}
-
-/// A stored feedback letter as the relay lists it (mailbox readers only).
-#[derive(Debug, Clone, Deserialize)]
-struct WireLetter {
-    id: u64,
-    at: u64,
-    from: String,
-    #[serde(default)]
-    read: bool,
-    /// 개발자가 "반영함"으로 체크했다 (옛 릴레이는 보내지 않는다)
-    #[serde(default)]
-    done: bool,
-    /// 🙅 반려 (v3 relays)
-    #[serde(default)]
-    rejected: bool,
-    /// 🔒 비공개 (v3 relays)
-    #[serde(default)]
-    private: bool,
-    r#box: String,
-}
-
-impl WireLetter {
-    fn item(self) -> Option<crate::letter::MailItem> {
-        let sealed = noise::hex_vec(&self.r#box)?;
-        Some(crate::letter::MailItem { id: self.id, at: self.at, from: self.from, read: self.read, done: self.done, rejected: self.rejected && !self.done, private: self.private, sealed })
-    }
+/// 와이어 편지를 편지함 항목으로 바꿈. 봉인 hex가 깨졌으면 None임
+fn mail_item(l: WireLetter) -> Option<crate::letter::MailItem> {
+    let sealed = noise::hex_vec(&l.r#box)?;
+    Some(crate::letter::MailItem { id: l.id, at: l.at, from: l.from, read: l.read, done: l.done, rejected: l.rejected && !l.done, private: l.private, sealed })
 }
 
 /// A mailbox change a reader asks for.
@@ -131,60 +85,14 @@ pub(crate) enum MailboxEdit {
     Private(u64, bool),
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "t", rename_all = "snake_case")]
-enum ServerMsg {
-    Challenge {
-        relay: String,
-        nonce: String,
-        /// The relay's protocol version (1 before the weather).
-        #[serde(default)]
-        v: u32,
-    },
-    Welcome {
-        code: String,
-        #[serde(default)]
-        online: Vec<String>,
-        #[serde(default)]
-        proof: Option<String>,
-    },
-    Online { keys: Vec<String> },
-    Presence { key: String, online: bool },
-    Code { code: String },
-    Redeemed { code: String, key: String, id: String },
-    RedeemFailed { code: String, reason: String },
-    Opened { req: u32, ch: u32 },
-    OpenFailed { req: u32 },
-    Incoming { ch: u32, from: String },
-    Close { ch: u32 },
-    Pong,
-    Error { reason: String },
-    LetterOk,
-    LetterRefused { reason: String },
-    Letters {
-        items: Vec<WireLetter>,
-        /// 📮 Letters already on the public board (v3 relays).
-        #[serde(default)]
-        board: Vec<u64>,
-    },
-    LetterNew { item: WireLetter },
-    LettersChanged,
-    /// ☀️ Current WMO weather code of a built-in place (a city id like
-    /// "yongin"), fetched by the relay at `at` (unix s).
-    Weather { place: String, code: u16, at: i64 },
-    /// 📮 A page of the public board.
-    BoardPage { items: Vec<crate::board::BoardItem>, page: u32, pages: u32, total: u32 },
-}
+/// ☀️ 지역을 말하지 않은 앱에 릴레이가 주는 지역 (용인)
+const DEFAULT_WEATHER_PLACE: &str = screenpet_proto::weather::DEFAULT_PLACE;
 
-/// ☀️ The relay's place for apps that never said (Yongin).
-const DEFAULT_WEATHER_PLACE: &str = "yongin";
+/// ☀️ `weather_want`를 받는 가장 낮은 릴레이 버전
+const WEATHER_RELAY_VERSION: u32 = screenpet_proto::WEATHER_MIN_VERSION;
 
-/// ☀️ Lowest relay protocol version that takes `weather_want`.
-const WEATHER_RELAY_VERSION: u32 = 2;
-
-/// 📮 Lowest relay protocol version that takes `board_put`, `board_list`
-/// and `letter_reject`.
-pub(crate) const BOARD_RELAY_VERSION: u32 = 3;
+/// 📮 `board_put`·`board_list`·`letter_reject`를 받는 가장 낮은 릴레이 버전
+pub(crate) const BOARD_RELAY_VERSION: u32 = screenpet_proto::BOARD_MIN_VERSION;
 
 /// 📮 Board pages asked at most this often (the relay ignores faster ones).
 const BOARD_GAP: Duration = Duration::from_millis(600);
@@ -434,7 +342,7 @@ pub(crate) fn redeem(shared: &Arc<Shared>, code: &str, pet: &str) {
         }
         inner.redeem = Some(Redeem { code: norm.clone(), pet: pet.to_string(), since: Instant::now() });
     }
-    if !client.send(None, Out::Text(json(&ClientMsg::Redeem { code: &norm }))) {
+    if !client.send(None, Out::Text(json(&ClientMsg::Redeem { code: norm.clone() }))) {
         client.inner().redeem = None;
         fail("offline");
     }
@@ -480,7 +388,7 @@ pub(crate) fn mailbox_edit(client: &RelayClient, edit: MailboxEdit) -> bool {
         MailboxEdit::Private(id, private) => ClientMsg::LetterPrivate { id: *id, private: *private },
         MailboxEdit::Read(id) => ClientMsg::LetterRead { id: *id },
         MailboxEdit::Delete(id) => ClientMsg::LetterDelete { id: *id },
-        MailboxEdit::Block(from) => ClientMsg::LetterBlock { from },
+        MailboxEdit::Block(from) => ClientMsg::LetterBlock { from: from.clone() },
         MailboxEdit::Done(id, done) => ClientMsg::LetterDone { id: *id, done: *done },
     };
     client.send(None, Out::Text(json(&m)))
@@ -495,7 +403,7 @@ pub(crate) fn board_put(client: &RelayClient, items: &[crate::board::Digest]) ->
             return false;
         }
     }
-    items.chunks(crate::board::PUT_CHUNK).all(|c| client.send(None, Out::Text(json(&ClientMsg::BoardPut { items: c }))))
+    items.chunks(crate::board::PUT_CHUNK).all(|c| client.send(None, Out::Text(json(&ClientMsg::BoardPut { items: c.to_vec() }))))
 }
 
 /// 📮 Ask for page `page` of the public board. The answer (or `offline`,
@@ -883,17 +791,17 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
     let friends = friend_keys(shared);
     let cnonce = noise::random32();
     let auth = ClientMsg::Auth {
-        id: &shared.id,
+        id: shared.id.clone(),
         key: noise::to_hex(&own_pub),
         mac: noise::to_hex(&mac),
         friends: friends.clone(),
-        cnonce: noise::to_hex(&cnonce),
+        cnonce: Some(noise::to_hex(&cnonce)),
     };
     if ws.send(Message::text(json(&auth))).is_err() {
         return false;
     }
     let (code, online) = match read_server(&mut ws, deadline, &shared.stop) {
-        Some(ServerMsg::Welcome { code, online, proof }) => {
+        Some(ServerMsg::Welcome { code, online, proof, .. }) => {
             // Only the holder of the relay key can compute this.
             let expected = welcome_proof(&shared_secret, &cnonce, &nonce, &own_pub);
             if proof.as_deref().and_then(noise::hex32) != Some(expected) {
@@ -1021,7 +929,7 @@ fn sync_weather(client: &RelayClient, gen: u64) {
             _ => return,
         }
     };
-    if client.send(Some(gen), Out::Text(json(&ClientMsg::WeatherWant { place: &want }))) {
+    if client.send(Some(gen), Out::Text(json(&ClientMsg::WeatherWant { place: want.clone() }))) {
         client.inner().sent_want = Some(want);
     }
 }
@@ -1081,7 +989,7 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
                 client.inner().online.extend(friends);
             }
         }
-        ServerMsg::Code { code } => {
+        ServerMsg::Code { code, .. } => {
             client.inner().code = Some(code.clone());
             shared.emit(NetEvent::FriendCode { code });
         }
@@ -1135,14 +1043,14 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
                 dial_failed(shared, &p.peer_id);
             }
         }
-        ServerMsg::OpenFailed { req } => {
+        ServerMsg::OpenFailed { req, .. } => {
             let p = client.inner().pending.remove(&req);
             if let Some(p) = p {
                 dial_failed(shared, &p.peer_id);
                 dial_done(shared, client, &p.peer_id, DialOutcome::Failed);
             }
         }
-        ServerMsg::Incoming { ch, from } => {
+        ServerMsg::Incoming { ch, from, .. } => {
             let Some(key) = noise::hex32(&from) else {
                 client.send(Some(gen), Out::Text(json(&ClientMsg::Close { ch })));
                 return;
@@ -1176,7 +1084,7 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
             }
         }
         ServerMsg::Letters { items, board } => {
-            let letters = items.into_iter().filter_map(WireLetter::item).collect();
+            let letters = items.into_iter().filter_map(mail_item).collect();
             shared.emit(NetEvent::Mailbox { letters, board });
         }
         ServerMsg::BoardPage { items, page, pages, total } => {
@@ -1186,7 +1094,7 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
             }
         }
         ServerMsg::LetterNew { item } => {
-            if let Some(item) = item.item() {
+            if let Some(item) = mail_item(item) {
                 shared.emit(NetEvent::LetterArrived { item });
             }
         }

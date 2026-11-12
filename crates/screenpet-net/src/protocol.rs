@@ -23,16 +23,16 @@ pub const CARRY_MIN_VERSION: u32 = 4;
 pub const MAX_DEVICES: usize = 1;
 /// App tag carried in announcements so unrelated UDP traffic is ignored.
 pub const APP_TAG: &str = "screenpet";
-/// Largest frame on a link (a Noise message is at most 65535 bytes).
-pub const MAX_FRAME: usize = 65535;
+/// Largest frame on a link (a Noise message is at most 65535 bytes), relay channels included.
+pub use screenpet_proto::MAX_FRAME;
 /// Largest JSON message (Noise frame minus the 16-byte AEAD tag).
 pub const MAX_MESSAGE: usize = MAX_FRAME - 16;
-/// Longest accepted install id (bytes).
-pub const MAX_ID: usize = 128;
+/// Longest accepted install id (bytes), same as the relay's.
+pub use screenpet_proto::MAX_ID;
 /// Display names and pet labels are clamped to this many characters.
 pub const MAX_NAME: usize = 64;
 /// Most friends one install keeps; pairing is refused (both directions) once full.
-pub const MAX_FRIENDS: usize = 50;
+pub use screenpet_proto::MAX_FRIENDS;
 
 /// Which screen edge a visiting pet walks in from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,8 +134,8 @@ pub struct Toss {
     pub rally: Option<u32>,
 }
 
-/// ⚾ Longest catch-ball rally; a received count above it reads as this.
-pub const MAX_RALLY: u32 = 20;
+/// ⚾ Longest catch-ball rally; a received count above it reads as this (core uses the same).
+pub use screenpet_proto::MAX_RALLY;
 
 /// A rally count: a whole number ≥ 0, clamped to `MAX_RALLY`; anything else is dropped.
 fn lenient_rally<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {

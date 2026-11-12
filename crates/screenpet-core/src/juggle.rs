@@ -120,8 +120,8 @@ pub enum JuggleEvent {
     Catch { id: u64 },
 }
 
-/// ⚾ 캐치볼: 이만큼 주고받으면 끝 ("끝!")
-pub const MAX_RALLY: u32 = 20;
+/// ⚾ 캐치볼: 이만큼 주고받으면 끝 ("끝!"). P2P 메시지와 같은 값임
+pub use screenpet_proto::MAX_RALLY;
 /// ⚾ 받는 그림 catch (4칸 10fps 한 번)
 pub const CATCH_SECS: f64 = 0.4;
 /// ⚾ 받으러 달려가다 이만큼 지나도 못 받으면 그만둔다

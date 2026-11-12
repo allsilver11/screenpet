@@ -1,7 +1,7 @@
 //! ☀️ 실제 날씨 (v0.6.3) — 고른 도시(기본 용인)의 지금 날씨를 계절 날씨 대신 보여 준다.
 //!
 //! 앱은 날씨 서비스를 직접 부르지 않는다: 앱은 도시 id("yongin")만 중계 서버에 알리고, 서버가 같은 목록
-//! (screenpet-relay weather::PLACES — 테스트가 같은지 본다)에서 좌표를 찾아 도시마다 30분에 한 번 Open-Meteo에서
+//! (screenpet_proto::weather::PLACES — 앱과 같은 표)에서 좌표를 찾아 도시마다 30분에 한 번 Open-Meteo에서
 //! WMO 날씨 코드를 받아 와 나눠 준다 (`weather` 메시지). 여기는 그 코드를 그림(Weather)으로 바꾸는
 //! 순수한 계산뿐이다. 받은 값이 없거나 3시간보다 오래됐으면 예전처럼 달력 날씨(`weather::weather_at`)로 돌아간다.
 
@@ -28,7 +28,7 @@ impl WeatherSource {
 }
 
 /// 📍 날씨 지역: 고를 수 있는 도시 (좌표는 시청 근처). 모르는 값이면 용인.
-/// 바꾸면 screenpet-relay의 weather::PLACES도 같이 바꾼다 (중계 서버가 이 목록 밖의 id는 무시한다)
+/// 이름·좌표는 screenpet_proto::weather::PLACES에 있음 (같은 순서). 중계 서버는 그 표 밖의 id는 무시함
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Place {
@@ -96,27 +96,10 @@ impl Place {
         (lat, lon)
     }
 
+    /// 공유 지역 표의 같은 줄 (enum 순서 = 표 순서)
     fn info(self) -> (&'static str, &'static str, f64, f64) {
-        match self {
-            Place::Seoul => ("seoul", "서울", 37.5665, 126.9780),
-            Place::Yongin => ("yongin", "용인", 37.2411, 127.1776),
-            Place::Suwon => ("suwon", "수원", 37.2636, 127.0286),
-            Place::Seongnam => ("seongnam", "성남", 37.4200, 127.1265),
-            Place::Incheon => ("incheon", "인천", 37.4563, 126.7052),
-            Place::Daejeon => ("daejeon", "대전", 36.3504, 127.3845),
-            Place::Daegu => ("daegu", "대구", 35.8714, 128.6014),
-            Place::Gwangju => ("gwangju", "광주", 35.1595, 126.8526),
-            Place::Busan => ("busan", "부산", 35.1796, 129.0756),
-            Place::Ulsan => ("ulsan", "울산", 35.5384, 129.3114),
-            Place::Sejong => ("sejong", "세종", 36.4800, 127.2890),
-            Place::Jeju => ("jeju", "제주", 33.4996, 126.5312),
-            Place::Gangneung => ("gangneung", "강릉", 37.7519, 128.8761),
-            Place::Chuncheon => ("chuncheon", "춘천", 37.8813, 127.7298),
-            Place::Jeonju => ("jeonju", "전주", 35.8242, 127.1480),
-            Place::Cheongju => ("cheongju", "청주", 36.6424, 127.4890),
-            Place::Changwon => ("changwon", "창원", 35.2280, 128.6811),
-            Place::Pohang => ("pohang", "포항", 36.0190, 129.3435),
-        }
+        let p = &screenpet_proto::weather::PLACES[self as usize];
+        (p.id, p.name, p.lat, p.lon)
     }
 
     pub fn from_id(raw: &str) -> Option<Place> {
@@ -248,5 +231,15 @@ mod tests {
             assert!((33.0..39.0).contains(&lat) && (126.0..130.0).contains(&lon), "{p:?} in Korea");
         }
         assert_eq!(Place::from_id("tokyo"), None);
+    }
+
+    /// enum 순서가 공유 표 순서와 같아야 함 (info가 번호로 찾음)
+    #[test]
+    fn the_enum_follows_the_shared_table() {
+        assert_eq!(Place::ALL.len(), screenpet_proto::weather::PLACES.len());
+        for (i, p) in Place::ALL.into_iter().enumerate() {
+            assert_eq!(p as usize, i);
+        }
+        assert_eq!(Place::default().id(), screenpet_proto::weather::DEFAULT_PLACE);
     }
 }

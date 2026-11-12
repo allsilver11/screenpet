@@ -18,7 +18,7 @@ pub const MAX_NAME: usize = 64;
 /// Longest pet / app id fields.
 const MAX_ID: usize = 32;
 /// Largest sealed letter (the relay refuses bigger ones).
-pub const MAX_SEALED: usize = 8192;
+pub use screenpet_proto::MAX_SEALED;
 
 const PATTERN: &str = "Noise_N_25519_ChaChaPoly_BLAKE2s";
 const PROLOGUE: &[u8] = b"screenpet-letter/1";

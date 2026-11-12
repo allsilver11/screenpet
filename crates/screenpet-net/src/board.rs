@@ -6,19 +6,21 @@
 //! the text, cut short — and publishes it to the relay. The body never leaves
 //! the developer's computer. The relay checks both again.
 
-use serde::Serialize;
 use unicode_segmentation::UnicodeSegmentation;
 
-/// Longest masked name (characters, the relay refuses longer).
-pub const MAX_NAME: usize = 16;
+/// 가린 이름 최대 길이, 페이지 크기 (릴레이와 같은 값)
+pub use screenpet_proto::board::{MAX_NAME, PER_PAGE};
+/// `board_put` 하나에 담는 요약 수 (릴레이가 받는 한도)
+pub use screenpet_proto::board::PUT_MAX as PUT_CHUNK;
+/// 페이지 항목과 편지 표시: 와이어 타입 그대로임
+pub use screenpet_proto::relay::{BoardItem, BoardStatus as Status};
+/// 첫 그래핌이 이보다 길면 (결합 문자 더미) 첫 문자만 보임
+use screenpet_proto::board::MAX_FIRST;
+
 /// The first line keeps at most this many characters before "…".
 pub const LINE_CHARS: usize = 60;
-/// A first grapheme longer than this (a pile of combining marks) shows only its first character.
-const MAX_FIRST: usize = 8;
-/// Entries per page (the relay pages the same way).
-pub const PER_PAGE: usize = 5;
-/// Digests per `board_put` message.
-pub const PUT_CHUNK: usize = 20;
+// "…"까지 붙여도 릴레이가 받는 길이 안이어야 함
+const _: () = assert!(LINE_CHARS + 1 <= screenpet_proto::board::MAX_LINE);
 
 fn hidden(c: char) -> bool {
     c.is_control()
@@ -59,13 +61,8 @@ pub fn first_line(text: &str) -> String {
     out
 }
 
-/// What the developer's app publishes for one letter.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Digest {
-    pub id: u64,
-    pub name: String,
-    pub line: String,
-}
+/// 개발자 앱이 편지 하나마다 올리는 요약: 와이어 `board_put` 항목 그대로임
+pub type Digest = screenpet_proto::relay::BoardIn;
 
 /// The public digest of an opened letter (`None` if nothing is left to show).
 pub fn digest(id: u64, letter: &crate::letter::Letter) -> Option<Digest> {
@@ -73,32 +70,8 @@ pub fn digest(id: u64, letter: &crate::letter::Letter) -> Option<Digest> {
     (!line.is_empty()).then(|| Digest { id, name: mask_name(&letter.name), line })
 }
 
-/// The developer's mark on a letter: ✅ 반영됨, 🙅 반려됨 or nothing.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Status {
-    Done,
-    Rejected,
-    /// (also anything a newer relay may say)
-    #[default]
-    #[serde(other)]
-    None,
-}
-
-/// One entry of a board page, as the relay lists it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
-pub struct BoardItem {
-    pub id: u64,
-    pub name: String,
-    pub line: String,
-    /// When the letter arrived (unix s).
-    pub at: u64,
-    #[serde(default)]
-    pub status: Status,
-}
-
 /// A page of the board: `page` is 1-based, `pages` at least 1.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BoardPage {
     pub items: Vec<BoardItem>,
     pub page: u32,
