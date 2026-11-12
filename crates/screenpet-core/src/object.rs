@@ -402,6 +402,8 @@ pub struct Object {
     rally: u32,
     /// ⚾ 친구 화면 끝에서 날아 들어왔다 (그 끝) — 흐물이가 받으면 이쪽으로 되던진다
     from: Option<Side>,
+    /// 🐱 고양이가 툭 밀어 미끄러지는 중 — 끝을 넘어 떨어지면 던진 것처럼 동물에 맞는다 (nudge)
+    knocked: bool,
 }
 
 impl Object {
@@ -443,6 +445,7 @@ impl Object {
             note_ended: false,
             rally: 0,
             from: None,
+            knocked: false,
         }
     }
 
@@ -638,6 +641,36 @@ impl Object {
         self.spin = self.spin_of_throw();
     }
 
+    /// 🐱 바닥에 놓인 것을 dir(±1) 쪽으로 툭 민다: 바닥을 따라 reach(물리 px)쯤 미끄러지고, 디딤판 끝을 넘으면 떨어진다 —
+    /// 떨어지는 동안은 던진 것처럼 동물에 맞는다 (친구 화면으로는 넘어가지 않는다). 바닥에 있지 않으면 false
+    pub fn nudge(&mut self, dir: f64, reach: f64) -> bool {
+        if !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) || reach <= 0.0 {
+            return false;
+        }
+        let friction = heft_of(self.kind).friction * self.dpi;
+        self.body.vx = dir.signum() * (2.0 * friction * reach).sqrt();
+        self.spin = heft_of(self.kind).rolling_spin(self.body.vx / self.dpi);
+        self.knocked = true;
+        self.phase = Phase::Ground { friction, settle: None };
+        true
+    }
+
+    /// 🦖 쿵! 에 바닥에 놓인 것이 vy(논리 px/s, 위로)로 톡 튀어 올랐다가 그 자리에 내려앉는다 (던진 것이 아니다). 바닥에 있지 않으면 false
+    pub fn pop(&mut self, vy: f64) -> bool {
+        if !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) {
+            return false;
+        }
+        self.standing = None;
+        self.thrown = false;
+        self.knocked = false;
+        self.body.vx = 0.0;
+        self.body.vy = -vy.abs() * self.dpi;
+        let dir = if self.rng.bool() { 1.0 } else { -1.0 };
+        self.spin = dir * wobble_spin(vy.abs());
+        self.phase = Phase::Air;
+        true
+    }
+
     /// 들고 있던 동물이 놓쳤다 (잡혔거나 다른 일로): 그 자리에서 떨어진다
     pub fn let_fall(&mut self) {
         if self.phase == Phase::Carried {
@@ -829,6 +862,8 @@ impl Object {
         let Some(piece) = world.piece_at(owner, x).copied() else {
             // 디딤판 끝을 지나 돌면서 떨어진다 (바람 때문이어도 — 화면 끝은 위에서 막았다)
             self.start_fall();
+            // 🐱 고양이가 밀어 떨어뜨렸다: 떨어지며 아래 동물에 맞을 수 있다
+            self.thrown = std::mem::take(&mut self.knocked);
             return;
         };
         self.body.y = piece.y;
@@ -843,6 +878,9 @@ impl Object {
             }
             Some(target) => self.flop_toward(dt, target),
         };
+        if v == 0.0 {
+            self.knocked = false;
+        }
         if v == 0.0 && lying {
             self.angle = (self.angle + 180.0).rem_euclid(360.0) - 180.0;
             self.spin = 0.0;

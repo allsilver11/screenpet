@@ -17,12 +17,17 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔든다).
 /// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기) · lift·hold·carry·throw·strain·present·slump (물건 들어 던지기)
 /// · yank·stuff (📌 작업표시줄에서 장난감 끌어내기·도로 밀어 넣기)
-/// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS).
-pub const OPTIONAL_ANIMS: [&str; 31] = [
+/// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS)
+/// · paw (🐱 고양이 툭툭 — KNOCK_ANIMS) · cheeks_walk·cheeks_idle·dig (🐿️ 다람쥐 볼 빵빵 — STASH_ANIMS, v0.6.3).
+pub const OPTIONAL_ANIMS: [&str; 35] = [
     "arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type",
-    "carry_run",
+    "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig",
 ];
+/// 🐱 툭툭 그림 (pet.json `knocker`가 있어도 이게 있어야 한다 — knocks())
+pub const KNOCK_ANIMS: [&str; 1] = ["paw"];
+/// 🐿️ 볼 빵빵 그림 (pet.json `stasher`가 있어도 이게 다 있어야 한다 — stashes())
+pub const STASH_ANIMS: [&str; 3] = ["cheeks_walk", "cheeks_idle", "dig"];
 /// 물건 들어 던지기 그림 (pet.json `juggler`가 있어도 이게 다 있어야 한다)
 pub const JUGGLE_ANIMS: [&str; 7] = ["lift", "hold", "carry", "throw", "strain", "present", "slump"];
 /// 📌 작업표시줄 놀이 그림 (pet.json `taskbar_play`가 있어도 이게 다 있어야 하고, 들고 던지기도 해야 한다)
@@ -132,6 +137,15 @@ pub struct PetManifest {
     /// 📌 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는다 (흐물이, 들고 던지기 + TASKBAR_ANIMS가 있을 때만 — plays_taskbar())
     #[serde(default)]
     pub taskbar_play: bool,
+    /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨린다 (고양이·페르시안, paw 그림이 있을 때만 — knocks())
+    #[serde(default)]
+    pub knocker: bool,
+    /// 🐿️ 바닥의 작은 물건을 볼에 넣어 묻는다 (다람쥐, STASH_ANIMS가 다 있을 때만 — stashes())
+    #[serde(default)]
+    pub stasher: bool,
+    /// 🦆 바닥에서 친구들을 줄줄이 데리고 걷는다 (오리 — 새 그림 없이 걷기 그림으로)
+    #[serde(default)]
+    pub train_leader: bool,
     /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있다 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮는다, core::tint)
     #[serde(default)]
     pub tint: bool,
@@ -293,6 +307,16 @@ impl PetManifest {
     /// 📌 작업표시줄 놀이 (들고 던지기를 하고 TASKBAR_ANIMS 그림이 다 있어야 한다)
     pub fn plays_taskbar(&self) -> bool {
         self.taskbar_play && self.juggles() && TASKBAR_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 🐱 툭툭 (KNOCK_ANIMS 그림이 있어야 한다)
+    pub fn knocks(&self) -> bool {
+        self.knocker && KNOCK_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 🐿️ 볼 빵빵 (STASH_ANIMS 그림이 다 있어야 한다)
+    pub fn stashes(&self) -> bool {
+        self.stasher && STASH_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
     /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 한다)
@@ -610,7 +634,9 @@ mod tests {
         assert_eq!(&OPTIONAL_ANIMS[11..14], &["panic", "hang", "rope"]);
         assert_eq!(&OPTIONAL_ANIMS[14..21], &JUGGLE_ANIMS, "물건 들어 던지기 (v0.6.2)");
         assert_eq!(&OPTIONAL_ANIMS[21..23], &TASKBAR_ANIMS, "📌 작업표시줄 놀이 (v0.6.2)");
-        assert_eq!(&OPTIONAL_ANIMS[23..], &ANTICS_ANIMS, "흐물이 더 놀기 (v0.6.3) — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[23..31], &ANTICS_ANIMS, "흐물이 더 놀기 (v0.6.3)");
+        assert_eq!(&OPTIONAL_ANIMS[31..32], &KNOCK_ANIMS, "🐱 툭툭 (v0.6.3)");
+        assert_eq!(&OPTIONAL_ANIMS[32..], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3) — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
@@ -622,6 +648,22 @@ mod tests {
         for id in crate::test_util::species().into_iter().filter(|id| id != "heumul") {
             let m = load(&id);
             assert!(!m.timid() && !m.energetic && !m.rigs() && !m.juggler && !m.juggles() && !m.taskbar_play && !m.plays_taskbar() && !m.antics(), "{id}");
+        }
+    }
+
+    /// 🐱 툭툭은 고양이·페르시안, 🐿️ 볼 빵빵은 다람쥐, 🦆 기차는 오리만 (v0.6.3) — 동글·픽셀 모두
+    #[test]
+    fn bundled_cats_knock_the_squirrel_stashes_and_the_duck_leads_trains() {
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |root: &str, id: &str| std::fs::read_to_string(ui.join(root).join(id).join("pet.json")).unwrap();
+        for root in ["pets", "pets_pixel"] {
+            for id in crate::test_util::species() {
+                let base = parse_manifest(&read("pets", &id)).unwrap();
+                let m = if root == "pets" { base } else { parse_pixel_manifest(&read(root, &id), &base).unwrap() };
+                assert_eq!(m.knocks(), id == "cat" || id == "persian", "{root} {id}");
+                assert_eq!(m.stashes(), id == "squirrel", "{root} {id}");
+                assert_eq!(m.train_leader, id == "duck", "{root} {id}");
+            }
         }
     }
 

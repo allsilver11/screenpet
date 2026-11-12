@@ -20,6 +20,7 @@ pub mod manifest;
 pub mod object;
 pub mod pacing;
 pub mod physics;
+pub mod play;
 pub mod platform;
 pub mod poop;
 pub mod presence;

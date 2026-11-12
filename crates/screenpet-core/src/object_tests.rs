@@ -1884,3 +1884,63 @@ fn a_giant_poop_from_the_menu_comes_out_brown_pink_or_rainbow() {
     assert_eq!((GiantPink.id(), GiantRainbow.id()), ("giant_pink", "giant_rainbow"));
     assert_eq!(ObjectKind::wire_kind("poop", Some("giant")), Some(GiantPoop));
 }
+
+// ---- 🐱 툭 밀기 · 🦖 쿵에 톡 튀기 (v0.6.3, play.rs) ----
+
+#[test]
+fn a_nudge_slides_a_resting_object_about_that_far() {
+    let w = world();
+    let mut o = Object::new(ObjectKind::Can, 700.0, 400.0, 1.0, 7);
+    run(&mut o, &w, 1.0);
+    assert!(resting_on(&o, Owner::Window(1)));
+    assert!(o.nudge(1.0, 60.0));
+    run(&mut o, &w, 4.0);
+    assert!(resting_on(&o, Owner::Window(1)), "작게 밀면 윗면에 남는다");
+    assert!((o.body.x - 760.0).abs() < 8.0, "{}", o.body.x);
+}
+
+#[test]
+fn a_hard_nudge_pushes_it_off_the_window_edge_and_the_fall_can_bonk_a_pet() {
+    let w = world();
+    let mut o = Object::new(ObjectKind::Can, 1000.0, 400.0, 1.0, 8);
+    run(&mut o, &w, 1.0);
+    assert!(o.nudge(1.0, 100.0 + 20.0));
+    let mut flew = false;
+    let mut t = 0.0;
+    while t < 4.0 {
+        o.tick(DT, &w, NONE, false);
+        flew |= o.in_flight();
+        t += DT;
+    }
+    assert!(flew, "떨어지는 동안은 던진 것처럼 동물에 맞는다");
+    assert!(resting_on(&o, Owner::Ground(0)), "{:?}", o.owner());
+}
+
+#[test]
+fn a_held_or_flying_object_is_not_nudged_or_popped() {
+    let w = world();
+    let mut o = Object::new(ObjectKind::Can, 700.0, 100.0, 1.0, 9);
+    assert!(!o.nudge(1.0, 50.0), "아직 날고 있다");
+    assert!(!o.pop(200.0));
+    run(&mut o, &w, 1.0);
+    o.pointer_down(700.0, 380.0);
+    assert!(!o.nudge(1.0, 50.0) && !o.pop(200.0));
+}
+
+#[test]
+fn a_pop_hops_it_up_and_it_lands_back_without_crossing_to_friends() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Can, 1900.0, 1000.0, 1.0, 10);
+    run(&mut o, &w, 2.0);
+    assert!(o.pop(260.0));
+    assert!(o.body.vy < 0.0 && !o.in_flight(), "그냥 톡 — 던진 게 아니다");
+    let mut top = o.body.y;
+    let mut t = 0.0;
+    while t < 3.0 {
+        assert!(o.tick(DT, &w, ALL, false).is_none(), "친구 끝을 넘지 않는다");
+        top = top.min(o.body.y);
+        t += DT;
+    }
+    assert!(1040.0 - top > 10.0, "{top}");
+    assert!(resting_on(&o, Owner::Ground(0)));
+}

@@ -318,6 +318,8 @@ pub struct Social {
     scare_chance: f64,
     /// 짝 → 겁쟁이가 다시 무서워할 수 있는 시각 (clock)
     scare_cooldown: HashMap<(u64, u64), f64>,
+    /// 🦆 기차·🙌 하이파이브 (social_play.rs — 주사위도 따로)
+    play: fun::SocialPlay,
 }
 
 fn pair(a: u64, b: u64) -> (u64, u64) {
@@ -326,7 +328,7 @@ fn pair(a: u64, b: u64) -> (u64, u64) {
 
 impl Social {
     pub fn new(seed: u64) -> Self {
-        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, one_way_chance: ONE_WAY_MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new(), scare_rng: fastrand::Rng::with_seed(seed ^ 0x6565_6b21), scare_chance: SCARE_CHANCE, scare_cooldown: HashMap::new() }
+        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, one_way_chance: ONE_WAY_MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new(), scare_rng: fastrand::Rng::with_seed(seed ^ 0x6565_6b21), scare_chance: SCARE_CHANCE, scare_cooldown: HashMap::new(), play: fun::SocialPlay::new(seed) }
     }
 
     /// 지금 놀이 중인 짝 수 (테스트용)
@@ -345,6 +347,7 @@ impl Social {
         self.step_climbs(pets);
         self.perches(dt, pets);
         self.stomps(pets);
+        self.step_play(pets);
         self.thrown_hits(dt, pets);
         self.step_meets(pets);
         self.step_links(dt, pets);
@@ -389,6 +392,10 @@ impl Social {
             for j in (i + 1)..n {
                 let (a, b) = (self.snap[i], self.snap[j]);
                 let key = pair(a.key, b.key);
+                // 🙌 가끔은 밟고 넘는 대신 하이파이브 (social_play.rs)
+                if !a.engaged && !b.engaged && self.try_high_five(pets, i, j) {
+                    continue;
+                }
                 if a.engaged || b.engaged || cooling(&self.meet_cooldown, &key, self.clock) {
                     continue;
                 }
@@ -520,13 +527,21 @@ impl Social {
             if dino.owner.is_none() {
                 continue;
             }
+            // 🦖 큰 쿵 (brain_quake.rs): 더 멀리, 친구들은 깜짝 폴짝 (데굴 주사위는 굴리지 않는다)
+            let big = pets[i].as_ref().stomp_is_big();
+            let reach = if big { crate::play::QUAKE_BODIES } else { STOMP_BODIES };
             for j in 0..self.snap.len() {
                 let other = self.snap[j];
-                if j == i || !near(&dino, &other, STOMP_BODIES) {
+                if j == i || !near(&dino, &other, reach) {
                     continue;
                 }
-                let tumble = !other.flying && self.rng.f64() < TUMBLE_CHANCE;
-                if pets[j].as_mut().feel_stomp(dino.x, tumble) {
+                let felt = if big {
+                    pets[j].as_mut().feel_big_stomp(dino.x)
+                } else {
+                    let tumble = !other.flying && self.rng.f64() < TUMBLE_CHANCE;
+                    pets[j].as_mut().feel_stomp(dino.x, tumble)
+                };
+                if felt {
                     self.snap[j] = Snap { engaged: true, ..Snap::of(pets[j].as_ref()) };
                 }
             }
@@ -792,6 +807,13 @@ impl Social {
 
 #[path = "social_tower.rs"]
 pub mod tower;
+
+#[path = "social_play.rs"]
+mod fun;
+
+#[cfg(test)]
+#[path = "social_play_tests.rs"]
+mod play_tests;
 
 #[cfg(test)]
 #[path = "social_tests.rs"]

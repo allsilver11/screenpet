@@ -40,6 +40,8 @@ fn head_on_pair(w: &World, gap: f64, seed: u64) -> Vec<Pet> {
 
 fn always(kind: Option<MeetKind>, seed: u64) -> Social {
     let mut s = Social::new(seed);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     s.meet_chance = 1.0;
     s.meet_only = kind;
     s
@@ -370,6 +372,8 @@ fn it_happens_about_as_often_as_promised_and_every_kind_shows_up() {
     for seed in 0..n {
         let mut pets = head_on_pair(&w, 200.0, seed);
         let mut s = Social::new(seed);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         s.tick(DT, &mut pets);
         if pets.iter().any(|p| phase(p).is_some()) {
             met += 1;

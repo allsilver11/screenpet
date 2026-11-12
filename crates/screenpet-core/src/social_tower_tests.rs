@@ -61,6 +61,8 @@ fn on_real_surface(p: &Pet, w: &World) -> bool {
 fn the_whole_tower_is_carried_without_lag() {
     let w = world(vec![]);
     let mut s = Social::new(1);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 5, 300.0);
     walking(&mut pets[0], 1.0, Move::Walk);
     pets[0].update(DT, &w);
@@ -87,6 +89,8 @@ fn real_sizes_set_the_height_of_each_level() {
     let big = PetConfig { size: 256.0, half_w: 76.8, ..friendly() };
     let mut pets = vec![ground(&w, big, 500.0, 1), ground(&w, friendly(), 500.0, 2), ground(&w, friendly(), 500.0, 3)];
     let mut s = Social::new(1);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     s.force_board(&mut pets, 1, 0);
     s.force_board(&mut pets, 2, 1);
     step(&mut s, &mut pets, &w);
@@ -98,6 +102,8 @@ fn real_sizes_set_the_height_of_each_level() {
 fn only_the_top_hops_down_on_its_timer_and_everyone_ends_on_the_ground_in_turn() {
     let w = world(vec![]);
     let mut s = Social::new(3);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 3, 900.0);
     pets[1].expire_ride();
     for _ in 0..30 {
@@ -122,6 +128,8 @@ fn only_the_top_hops_down_on_its_timer_and_everyone_ends_on_the_ground_in_turn()
 fn a_rider_comes_down_by_itself_within_its_few_seconds() {
     let w = world(vec![]);
     let mut s = Social::new(4);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 2, 900.0);
     let mut t = 0.0;
     let mut limit = LoopLimit::new();
@@ -139,6 +147,8 @@ fn a_rider_comes_down_by_itself_within_its_few_seconds() {
 fn no_pet_stays_up_past_the_hard_limit_even_under_another() {
     let w = world(vec![]);
     let mut s = Social::new(5);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 3, 900.0);
     let mut t = 0.0;
     let mut limit = LoopLimit::new();
@@ -177,6 +187,8 @@ fn every_way_the_lower_pet_leaves_drops_the_riders() {
     ];
     for (name, leave) in cases {
         let mut s = Social::new(6);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         let mut pets = tower(&mut s, &windowed, 3, 300.0);
         step(&mut s, &mut pets, &windowed);
         leave(&mut pets[0]);
@@ -206,6 +218,8 @@ fn a_closed_window_drops_the_whole_tower_to_the_ground() {
     let with = world(vec![w1()]);
     let gone = world(vec![]);
     let mut s = Social::new(7);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets: Vec<Pet> = (0..3).map(|i| pet_on(&with, friendly(), Owner::Window(1), 800.0, i)).collect();
     s.force_board(&mut pets, 1, 0);
     s.force_board(&mut pets, 2, 1);
@@ -222,6 +236,8 @@ fn a_closed_window_drops_the_whole_tower_to_the_ground() {
 fn a_rider_that_changes_size_comes_off_and_a_removed_carrier_too() {
     let w = world(vec![]);
     let mut s = Social::new(8);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 2, 800.0);
     step(&mut s, &mut pets, &w);
     assert!(pets[1].is_on_head() && pets[0].has_rider());
@@ -230,6 +246,8 @@ fn a_rider_that_changes_size_comes_off_and_a_removed_carrier_too() {
     assert!(!pets[1].is_on_head() && !pets[0].has_rider());
     // 태운 쪽이 화면에서 사라지면 (떠나거나 친구가 끊겼다) 위에 있던 쪽은 내려온다
     let mut s = Social::new(8);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 2, 800.0);
     step(&mut s, &mut pets, &w);
     assert!(pets[1].is_on_head());
@@ -243,6 +261,8 @@ fn a_rider_that_changes_size_comes_off_and_a_removed_carrier_too() {
 fn a_five_high_tower_collapses_from_the_middle() {
     let w = world(vec![]);
     let mut s = Social::new(9);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 5, 800.0);
     step(&mut s, &mut pets, &w);
     let (bottom, one) = (pets[0].social_key(), pets[1].social_key());
@@ -277,6 +297,8 @@ fn a_five_high_tower_collapses_from_the_middle() {
 fn removing_the_bottom_of_a_five_high_tower_drops_everyone_to_a_surface() {
     let w = world(vec![]);
     let mut s = Social::new(10);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 5, 800.0);
     step(&mut s, &mut pets, &w);
     pets.remove(0);
@@ -290,6 +312,8 @@ fn removing_the_bottom_of_a_five_high_tower_drops_everyone_to_a_surface() {
 fn a_rider_grabbed_behaves_as_usual_and_a_throw_ignores_its_carrier() {
     let w = world(vec![]);
     let mut s = Social::new(11);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 3, 800.0);
     step(&mut s, &mut pets, &w);
     let (x, y) = (pets[1].body.x, pets[1].body.y);
@@ -310,6 +334,8 @@ fn a_rider_grabbed_behaves_as_usual_and_a_throw_ignores_its_carrier() {
     assert!(matches!(pets[0].state, State::Idle { .. }), "{:?}", pets[0].state);
     // 그냥 클릭: 평소처럼 떨어져 내려선다
     let mut s = Social::new(12);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 2, 800.0);
     step(&mut s, &mut pets, &w);
     let (x, y) = (pets[1].body.x, pets[1].body.y);
@@ -323,6 +349,8 @@ fn a_rider_grabbed_behaves_as_usual_and_a_throw_ignores_its_carrier() {
 fn a_control_key_makes_the_rider_hop_off() {
     let w = world(vec![]);
     let mut s = Social::new(13);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 3, 800.0);
     pets[1].set_control(true);
     for _ in 0..10 {
@@ -346,6 +374,8 @@ fn food_home_guests_and_the_user_going_away_end_the_ride() {
     ];
     for (name, f) in cases {
         let mut s = Social::new(14);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         let mut pets = tower(&mut s, &w, 2, 800.0);
         step(&mut s, &mut pets, &w);
         f(&mut pets[1]);
@@ -354,6 +384,8 @@ fn food_home_guests_and_the_user_going_away_end_the_ride() {
     }
     // 손님에게 "집에 와": 내려선 뒤 손 흔든다
     let mut s = Social::new(15);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 2, 800.0);
     pets[1].set_guest(Side::Left, 300.0);
     step(&mut s, &mut pets, &w);
@@ -373,6 +405,8 @@ fn a_rider_does_not_poop_notice_poop_or_socialise() {
     let w = world(vec![]);
     for seed in 0..50 {
         let mut s = Social::new(seed);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         let mut pets = tower(&mut s, &w, 2, 800.0);
         pets.push(ground(&w, friendly(), 860.0, seed + 500));
         step(&mut s, &mut pets, &w);
@@ -395,6 +429,8 @@ fn fliers_take_no_part() {
     a.force_throw(0.0, 0.0);
     let mut pets = vec![a, bee_at(800.0, 600.0, 2)];
     let mut s = Social::new(1);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     for _ in 0..20 {
         step(&mut s, &mut pets, &w);
         assert!(!pets[0].is_on_head());
@@ -405,6 +441,8 @@ fn fliers_take_no_part() {
     assert!(!b.can_perch());
     let mut pets = vec![b, ground(&w, friendly(), 800.0, 4)];
     let mut s = Social::new(2);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     for _ in 0..20 {
         step(&mut s, &mut pets, &w);
         assert!(!pets[0].is_on_head());
@@ -435,6 +473,8 @@ fn a_drop_from_high_up_still_stacks_when_it_lines_up_but_not_when_it_misses() {
         p.update(DT, &w);
         let mut pets = vec![p, ground(&w, friendly(), 800.0, 2)];
         let mut s = Social::new(1);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         s.tick(DT, &mut pets);
         pets[0].pointer_up(cx, cy);
         let (mut stacked, mut fastest) = (false, 0.0f64);
@@ -460,6 +500,8 @@ fn a_gentle_drop_stacks_and_ends_on_a_real_surface() {
     p.update(DT, &w);
     let mut pets = vec![p, ground(&w, friendly(), 800.0, 2)];
     let mut s = Social::new(1);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     s.tick(DT, &mut pets);
     pets[0].pointer_up(cx, cy);
     assert!(pets[0].is_flung());
@@ -488,6 +530,8 @@ fn setting_a_pet_down_with_its_feet_in_the_top_of_the_head_also_stacks() {
     p.update(DT, &w);
     let mut pets = vec![p, ground(&w, friendly(), 800.0, 2)];
     let mut s = Social::new(1);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     s.tick(DT, &mut pets);
     pets[0].pointer_up(cx, cy);
     step(&mut s, &mut pets, &w);
@@ -503,6 +547,8 @@ fn a_sleeping_pet_stays_asleep_when_something_lands_on_it() {
     b.state = State::Sleep { remaining: 100.0 };
     let mut pets = vec![a, b];
     let mut s = Social::new(1);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     for _ in 0..20 {
         step(&mut s, &mut pets, &w);
     }
@@ -519,6 +565,8 @@ fn a_fast_throw_bounces_off_the_head_instead() {
     a.force_throw(0.0, 900.0);
     let mut pets = vec![a, ground(&w, friendly(), 800.0, 2)];
     let mut s = Social::new(1);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     s.tick(DT, &mut pets);
     let mut boing = false;
     for _ in 0..15 {
@@ -533,6 +581,8 @@ fn a_fast_throw_bounces_off_the_head_instead() {
 fn a_fast_throw_onto_a_tower_top_bounces_and_the_top_stays() {
     let w = world(vec![]);
     let mut s = Social::new(2);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, 3, 800.0);
     let top = GROUND - 3.0 * HEAD;
     let mut a = Pet::new(friendly(), 800.0, top - 60.0, 1);
@@ -554,6 +604,8 @@ fn a_fast_throw_onto_a_tower_top_bounces_and_the_top_stays() {
 fn a_drop_on_a_full_tower_does_not_stack_and_lands_on_the_ground() {
     let w = world(vec![]);
     let mut s = Social::new(3);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     let mut pets = tower(&mut s, &w, MAX_TOWER, 800.0);
     let mut a = Pet::new(friendly(), 800.0, GROUND - MAX_TOWER as f64 * HEAD - 15.0, 1);
     a.force_throw(0.0, 0.0);
@@ -574,6 +626,8 @@ fn a_drop_past_the_top_onto_the_middle_only_passes() {
     let little = PetConfig { size: 64.0, half_w: 19.2, ..friendly() };
     let mut pets = vec![ground(&w, friendly(), 800.0, 1), ground(&w, friendly(), 800.0, 2), ground(&w, little, 800.0, 3)];
     let mut s = Social::new(4);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     s.force_board(&mut pets, 1, 0);
     s.force_board(&mut pets, 2, 1);
     s.carry(&mut pets);
@@ -596,6 +650,8 @@ fn the_work_area_top_limits_the_height() {
     let w = World::new(vec![], vec![Rect::new(0.0, 640.0, 1920.0, GROUND)], 128.0);
     let mut pets = vec![ground(&w, friendly(), 800.0, 1), ground(&w, friendly(), 800.0, 2), ground(&w, friendly(), 800.0, 3), ground(&w, friendly(), 800.0, 4)];
     let mut s = Social::new(5);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     for p in &mut pets {
         p.update(DT, &w);
         p.state = idle();
@@ -621,6 +677,8 @@ fn a_meet_can_end_standing_on_the_head_while_the_other_walks_on() {
     for seed in 0..8 {
         let mut pets = head_on_pair(&w, seed, seed + 40, Move::Walk);
         let mut s = Social::new(seed);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         s.meet_chance = 1.0;
         s.meet_only = Some(MeetKind::Climb);
         let mut rider = None;
@@ -652,6 +710,8 @@ fn climbing_takes_its_share_of_the_meet_outcomes() {
     for seed in 0..n {
         let mut pets = head_on_pair(&w, seed, seed + 5000, Move::Walk);
         let mut s = Social::new(seed);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         s.meet_chance = 1.0;
         s.tick(DT, &mut pets);
         climbs += usize::from(!s.climbs.is_empty());
@@ -666,6 +726,8 @@ fn a_walker_or_runner_climbs_a_tower_it_walks_into() {
     let w = world(vec![]);
     for kind in [Move::Walk, Move::Run] {
         let mut s = Social::new(1);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         s.tower_chance = 1.0;
         let mut pets = tower(&mut s, &w, 3, 800.0);
         let mut a = ground(&w, friendly(), 620.0, 9);
@@ -699,6 +761,8 @@ fn walking_into_a_tower_climbs_it_at_the_stated_chance_and_a_full_one_never() {
     let (mut started, n) = (0, 600);
     for seed in 0..n {
         let mut s = Social::new(seed);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         let mut pets = tower(&mut s, &w, 2, 800.0);
         let mut a = ground(&w, friendly(), 650.0, seed + 9000);
         walking(&mut a, 1.0, Move::Walk);
@@ -711,6 +775,10 @@ fn walking_into_a_tower_climbs_it_at_the_stated_chance_and_a_full_one_never() {
     assert!((share - TOWER_CLIMB_CHANCE).abs() < 0.06, "{share}");
 
     let mut s = Social::new(1);
+
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+
+    s.set_high_five_chance(0.0);
     s.tower_chance = 1.0;
     let mut pets = tower(&mut s, &w, MAX_TOWER, 800.0);
     let mut a = ground(&w, friendly(), 650.0, 9);
@@ -725,6 +793,8 @@ fn walking_into_a_tower_climbs_it_at_the_stated_chance_and_a_full_one_never() {
 fn a_pet_with_a_rider_is_not_vaulted_or_stomped() {
     let w = world(vec![]);
     let mut s = Social::new(1);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     s.meet_chance = 1.0;
     s.meet_only = Some(MeetKind::Stomp);
     s.tower_chance = 0.0;
@@ -751,6 +821,8 @@ fn a_climb_whose_target_left_just_falls_to_a_surface() {
         p.update(DT, &w);
     }
     let mut s = Social::new(1);
+    // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+    s.set_high_five_chance(0.0);
     s.meet_chance = 1.0;
     s.meet_only = Some(MeetKind::Climb);
     s.tick(DT, &mut pets);
@@ -777,6 +849,8 @@ fn soak_towers_form_stay_bounded_and_always_come_down() {
     for seed in 0..6 {
         let mut pets: Vec<Pet> = (0..11).map(|i| ground(&w, friendly(), 200.0 + 150.0 * i as f64, seed * 100 + i)).collect();
         let mut s = Social::new(seed);
+        // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+        s.set_high_five_chance(0.0);
         s.meet_chance = 1.0;
         s.tower_chance = 1.0;
         s.meet_only = Some(MeetKind::Climb);
@@ -817,6 +891,8 @@ fn a_running_jumper_lands_farther_and_leaves_sooner_than_a_walking_one() {
         for seed in 0..40 {
             let mut pets = head_on_pair(&w, seed, seed + 40, if run { Move::Run } else { Move::Walk });
             let mut s = Social::new(seed);
+            // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
+            s.set_high_five_chance(0.0);
             s.meet_chance = 1.0;
             s.meet_only = Some(MeetKind::Stomp);
             let (mut at, mut other, mut crouch) = (None, 0.0, 0);
