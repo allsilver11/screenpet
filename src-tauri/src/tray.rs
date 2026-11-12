@@ -81,6 +81,10 @@ const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift, Esc로
 const FEEDBACK_ID: &str = "feedback";
 /// 📬 개발자 편지함 (mailbox.rs) — 개발자 비밀키가 있을 때만
 const MAILBOX_ID: &str = "mailbox";
+/// 🚀 컴퓨터 켜면 자동 실행 (⚙️ 설정 체크 항목, 설정에 남는다 — autostart.rs)
+const AUTOSTART_ID: &str = "autostart";
+/// 🔄 업데이트 (update.rs — 글자가 상태에 따라 바뀐다)
+const UPDATE_ID: &str = "update";
 pub const KEY_PERMISSION_HINT: &str = "키 권한 필요해요";
 const SHOW_CODE_ID: &str = "net:show-code";
 /// 🎲 사다리타기 (설정 화면 / 진행 중인 판), 초대 받기 체크, 지난 결과
@@ -175,6 +179,10 @@ pub struct TrayMenu {
     pub style_pixel: CheckMenuItem<Wry>,
     /// 📬 편지함 (개발자 컴퓨터만 — 안 읽은 수를 글자에 붙인다)
     pub mailbox: Option<MenuItem<Wry>>,
+    /// 🚀 컴퓨터 켜면 자동 실행 (게임 루프가 설정으로 다시 맞춘다)
+    pub autostart: CheckMenuItem<Wry>,
+    /// 🔄 업데이트 (update.rs가 글자와 누를 수 있는지를 바꾼다)
+    pub update: MenuItem<Wry>,
     /// `👫 친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채운다)
     pub friends: Submenu<Wry>,
     /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 메뉴에 있다 — 하우스 아래)
@@ -517,6 +525,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let help = MenuItem::with_id(app, "help", "도움말 ❓", true, None::<&str>)?;
     let feedback = MenuItem::with_id(app, FEEDBACK_ID, "💌 개발자에게 건의하기…", true, None::<&str>)?;
     let mailbox = if dev { Some(MenuItem::with_id(app, MAILBOX_ID, "📬 편지함", true, None::<&str>)?) } else { None };
+    let update = MenuItem::with_id(app, UPDATE_ID, "🔄 업데이트", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
     let style_round = CheckMenuItem::with_id(app, STYLE_ROUND_ID, "동글동글", true, style == PetStyle::Round, None::<&str>)?;
@@ -526,7 +535,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let objects_menu = crate::objects::build_menu(app)?;
     let play = Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &dodge, &gift_book])?;
     let sizes = MenuItem::with_id(app, SIZES_ID, "📏 크기 조절…", true, None::<&str>)?;
-    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play, &sizes])?;
+    // 처음엔 켜져 있다 — 게임 루프가 설정(처음이면 켜기)으로 다시 맞춘다
+    let autostart = CheckMenuItem::with_id(app, AUTOSTART_ID, "🚀 컴퓨터 켜면 자동 실행", true, true, None::<&str>)?;
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play, &sizes, &autostart])?;
 
     // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어든다 (COME_HOME_POSITION)
     let menu = Menu::new(app)?;
@@ -548,6 +559,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         menu.append(m)?;
     }
     menu.append(&help)?;
+    menu.append(&update)?;
     menu.append(&quit)?;
 
     let pet_items = checks.clone();
@@ -568,6 +580,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "help" => send(app, Input::ShowHelp),
             FEEDBACK_ID => send(app, Input::ShowFeedback),
             MAILBOX_ID => send(app, Input::ShowMailbox),
+            AUTOSTART_ID => send(app, Input::ToggleAutostart),
+            UPDATE_ID => crate::update::on_click(app),
             GIFT_BOOK_ID => send(app, Input::ShowGiftBook),
             TIMELINE_ID => send(app, Input::ShowTimeline),
             DODGE_ID => send(app, Input::ShowDodge),
@@ -652,5 +666,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, mailbox, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
 }

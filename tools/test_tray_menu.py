@@ -12,7 +12,7 @@ def test_top_level_order():
     build = build[: build.index("let pet_items")]
     items = re.findall(r"menu\.append\(&(?:PredefinedMenuItem::(separator)\(app\)\?|([a-z_]+))\)", build)
     names = [sep or name for sep, name in items]
-    assert names == ["easter_egg", "separator", "my_pet", "feed", "house", "separator", "friends", "separator", "play", "focus", "separator", "settings", "toggle", "feedback", "help", "quit"]
+    assert names == ["easter_egg", "separator", "my_pet", "feed", "house", "separator", "friends", "separator", "play", "focus", "separator", "settings", "toggle", "feedback", "help", "update", "quit"]
     # 📬 편지함은 개발자 컴퓨터에서만, 건의하기 바로 밑
     assert "menu.append(&feedback)?;\n    if let Some(m) = &mailbox {\n        menu.append(m)?;" in build
 
@@ -21,7 +21,7 @@ def test_submenus_hold_what_was_decided():
     assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &style_menu, &lock, &reset])' in TRAY
     assert 'Submenu::with_items(app, "스타일", true, &[&style_round, &style_pixel])' in TRAY
     assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &dodge, &gift_book])' in TRAY
-    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play, &sizes])' in TRAY
+    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &poop, &cursor_play, &sizes, &autostart])' in TRAY
     assert 'Submenu::with_items(app, "🎲 사다리타기", true, &[&new_game, &last, &invites])' in TRAY
     assert '"🍚 밥 주기"' in TRAY and '"👫 친구랑 놀기"' in TRAY and '"🏠 하우스"' in TRAY
 

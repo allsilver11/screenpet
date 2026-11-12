@@ -84,6 +84,9 @@ pub struct Config {
     /// 가장 최근 사다리타기 한 판의 결과 표 (메뉴 "지난 사다리 결과"). 망가진 값이면 없는 것으로
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub last_ladder: Option<LastLadder>,
+    /// 🚀 컴퓨터 켜면 자동 실행: None = 아직 정한 적 없음 (이 버전을 처음 켜면 켜고 Some(true)로 적는다), 그 뒤로는 사용자가 고른 것
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub autostart: Option<bool>,
 }
 
 /// 지난 사다리타기 결과 (보여 주기만 한다 — 이름은 그때 화면에 보인 이름)
@@ -234,6 +237,17 @@ fn further_grown(a: &Care, b: &Care) -> bool {
 }
 
 impl Config {
+    /// 🚀 자동 실행을 켤지: 정한 적이 없으면 켜고 그렇게 적는다. (켤지, 설정이 바뀌어 저장해야 하는지)
+    pub fn settle_autostart(&mut self) -> (bool, bool) {
+        match self.autostart {
+            Some(on) => (on, false),
+            None => {
+                self.autostart = Some(true);
+                (true, true)
+            }
+        }
+    }
+
     /// 이름이 바뀌었거나 없어진 동물을 지금 동물로 옮긴다 (`load`가 부른다). 없어진 동물이 골라져 있으면 고양이로 바꾸고,
     /// 그 동물들의 기록 중 가장 많이 큰 것을 (고양이 기록보다 더 컸을 때만) 고양이에게 넘긴다 — 키운 만큼은 잃지 않는다.
     pub fn retire_pets(&mut self) {
@@ -1557,6 +1571,22 @@ mod tests {
         let off = Config { cursor_play_off: true, ..Config::default() };
         let back: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
         assert!(back.cursor_play_off);
+    }
+
+    #[test]
+    fn autostart_turns_on_once_then_keeps_the_users_choice() {
+        let mut old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert_eq!(old.autostart, None);
+        assert_eq!(old.settle_autostart(), (true, true));
+        assert_eq!(old.settle_autostart(), (true, false));
+        let saved = serde_json::to_string(&old).unwrap();
+        assert!(saved.contains(r#""autostart":true"#));
+        let mut off: Config = serde_json::from_str(r#"{"pet":"cat","autostart":false}"#).unwrap();
+        assert_eq!(off.settle_autostart(), (false, false));
+        assert!(serde_json::to_string(&off).unwrap().contains(r#""autostart":false"#));
+        let torn: Config = serde_json::from_str(r#"{"pet":"cat","autostart":"yes"}"#).unwrap();
+        assert_eq!(torn.autostart, None);
+        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("autostart"));
     }
 
     #[test]

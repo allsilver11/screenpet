@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod art;
+mod autostart;
 mod dodge;
 mod feedback;
 mod mailbox;
@@ -20,6 +21,7 @@ mod sleigh;
 mod slots;
 mod timeline;
 mod tray;
+mod update;
 mod weather;
 
 use std::collections::HashMap;
@@ -224,6 +226,8 @@ fn main() {
                 }
             }
         }))
+        // 🚀 컴퓨터 켜면 자동 실행 (켜고 끄기는 Rust에서만 — 창에 권한을 주지 않는다). 자동 실행으로 두 번째로 뜨면 위의 single-instance가 받는다
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         // Alt+F4 등으로 떠 있는 창(펫·하우스·손님·소품)이 닫히면 되살릴 길이 없다. 이 앱의 코드는 destroy로 닫으므로 여기 걸리지 않는다
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -277,6 +281,8 @@ fn main() {
             // 숨긴 채로 만들어 두고, 하우스에 들어갈 때 구석에 놓아 보인다
             house::create(app.handle())?;
             game_loop::spawn(app.handle().clone(), rx, entry, cfg);
+            // 🔄 새 버전이 있는지 조용히 (메뉴 글자만 바꾼다)
+            update::start_quiet_checks(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

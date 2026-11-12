@@ -30,6 +30,7 @@ pub mod surfaces;
 pub mod taskbar;
 pub mod timeline;
 pub mod tumble;
+pub mod update;
 pub mod visit;
 pub mod weather;
 pub mod world;

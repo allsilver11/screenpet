@@ -71,6 +71,8 @@ pub enum Input {
     ToggleCursorPlay,
     /// 💩 똥 싸기 켜기 / 끄기 (설정에 남는다)
     TogglePoop,
+    /// 🚀 컴퓨터 켜면 자동 실행 켜기 / 끄기 (설정에 남는다, 바로 OS에 적용)
+    ToggleAutostart,
     /// 🧹 빗자루 들기 / 내려놓기 (트레이·우클릭 체크 항목)
     ToggleBroom,
     /// 🌨️ 날씨 효과 켜기 / 끄기 (트레이·우클릭 체크 항목)
@@ -286,6 +288,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     sync_menu(&app, &slots[OWN].entry, &care, config.housed);
     let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
     let _ = app.state::<AppState>().menu.poop.set_checked(!config.poop_off);
+    // 🚀 이 버전을 처음 켜면 자동 실행을 켜고 적어 둔다. 그 뒤로는 고른 대로 OS에 다시 맞춘다
+    if crate::autostart::apply_at_start(&app, &mut config) {
+        save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+    }
     let mut was_housed = slots[OWN].pet.is_housed();
     let mut was_away = false;
     let mut last_house: Option<HouseState> = None;
@@ -547,6 +553,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     config.poop_off = !config.poop_off;
                     // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춘다
                     let _ = app.state::<AppState>().menu.poop.set_checked(!config.poop_off);
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                }
+                Input::ToggleAutostart => {
+                    crate::autostart::toggle(&app, &mut config);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
                 Input::CollectGift { label } => {
