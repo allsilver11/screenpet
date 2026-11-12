@@ -1,5 +1,6 @@
 use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
+use crate::icon::IconImage;
 
 #[cfg(windows)]
 mod win32;
@@ -43,7 +44,15 @@ pub trait WindowSource: Send {
     fn idle_seconds(&mut self) -> Option<f64> {
         None
     }
+    /// 📌 창(windows()의 id)을 띄운 앱의 아이콘을 한 변 px의 RGBA로 (작업표시줄 장난감 — taskbar.rs). 못 읽으면 None — 그러면 장난감이 생기지 않을 뿐이다.
+    /// 그림 칸만 읽는다 (앱 이름·창 제목·경로는 돌려주지도 남기지도 않는다). 권한을 새로 묻지 않는다. 느릴 수 있어 게임 루프 밖 스레드에서 부른다
+    fn app_icon(&mut self, _window: u64, _px: u32) -> Option<IconImage> {
+        None
+    }
 }
+
+/// 이 OS에서 앱 아이콘을 읽을 수 있다 (아니면 작업표시줄 놀이를 하지 않는다)
+pub const APP_ICONS: bool = cfg!(any(windows, target_os = "macos"));
 
 /// 지원하지 않는 OS용. 바닥(기본 화면)만 있는 세계가 된다.
 pub struct NullSource;
@@ -88,5 +97,6 @@ mod tests {
         assert_eq!(s.rect_of(1), None);
         assert!(!s.control_keys().any());
         assert_eq!(s.idle_seconds(), None);
+        assert_eq!(s.app_icon(1, 64), None);
     }
 }

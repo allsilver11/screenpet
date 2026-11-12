@@ -16,8 +16,9 @@ from sprite_spec import ANIMS, OPTIONAL_ANIMS, STAGES, sheet_128
 ROOT = Path(__file__).resolve().parent.parent
 SHIPPED = ROOT / "ui" / "pets" / "heumul"
 STANDING = ("walk", "idle", "look", "annoyed", "lookup", "stretch", "heart", "tickle", "sit_front", "wave", "tilt",
-            "hungry", "eat", "sleep", "belly", "lift", "hold", "carry", "throw", "strain", "present", "slump")
+            "hungry", "eat", "sleep", "belly", "lift", "hold", "carry", "throw", "strain", "present", "slump", "yank", "stuff")
 JUGGLE = ["lift", "hold", "carry", "throw", "strain", "present", "slump"]
+TASKBAR = ["yank", "stuff"]
 
 
 @pytest.fixture(scope="module")
@@ -42,11 +43,12 @@ def near(im, col, tol=30):
     return (np.abs(a[..., :3] - np.array(col)).sum(axis=2) < tol) & (a[..., 3] > 200)
 
 
-def test_registered_with_panic_hang_rope_and_the_juggle_rows():
+def test_registered_with_panic_hang_rope_the_juggle_rows_and_the_taskbar_rows():
     assert draw_pets.SPECIES["heumul"] is hm.HEUMUL
-    assert [o[0] for o in OPTIONAL_ANIMS[-10:-7]] == ["panic", "hang", "rope"]
-    assert [o[0] for o in OPTIONAL_ANIMS[-7:]] == JUGGLE  # = Rust manifest::OPTIONAL_ANIMS 맨 끝 (JUGGLE_ANIMS)
-    assert names(hm.HEUMUL) == [a for a, *_ in ANIMS] + ["lookup", "panic", "hang", "rope"] + JUGGLE
+    assert [o[0] for o in OPTIONAL_ANIMS[-12:-9]] == ["panic", "hang", "rope"]
+    assert [o[0] for o in OPTIONAL_ANIMS[-9:-2]] == JUGGLE  # = Rust manifest::JUGGLE_ANIMS
+    assert [o[0] for o in OPTIONAL_ANIMS[-2:]] == TASKBAR  # = Rust manifest::OPTIONAL_ANIMS 맨 끝 (TASKBAR_ANIMS)
+    assert names(hm.HEUMUL) == [a for a, *_ in ANIMS] + ["lookup", "panic", "hang", "rope"] + JUGGLE + TASKBAR
 
 
 def test_every_frame_is_drawn_inside_the_cell(out):
@@ -61,7 +63,7 @@ def test_manifest_is_a_timid_energetic_rigger_that_loves_lollipops(out):
     assert m["name"] == "흐물이"
     assert m["favorite_food"] == {"emoji": "🍭", "name": "막대사탕"}
     assert m["personality"] == "playful"
-    assert (m["timid"], m["energetic"], m["rigging"], m["juggler"]) == (True, True, True, True)
+    assert (m["timid"], m["energetic"], m["rigging"], m["juggler"], m["taskbar_play"]) == (True, True, True, True, True)
     assert m["hop_share"] == 0.5 and m["walk_speed"] >= 100
     assert m["animations"]["panic"] == {"row": len(ANIMS) + 1, "frames": 4, "fps": 12}
     assert "front" not in m["animations"]["hang"] and "front" not in m["animations"]["rope"]
@@ -207,7 +209,7 @@ def test_grip_table_puts_the_held_object_above_the_head(out, st):
     m = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))
     g = m["grip"][st]
     fs = m.get("frame_sizes", {}).get(st, m["frame_size"])
-    assert sorted(g) == ["carry", "hold", "lift", "present", "throw"]
+    assert sorted(g) == ["carry", "hold", "lift", "present", "stuff", "throw", "yank"]
     for anim, cells in g.items():
         assert len(cells) == m["animations"][anim]["frames"], anim
     for anim, idx in (("hold", (0, 1)), ("carry", (0, 1, 2, 3)), ("lift", (3,)), ("throw", (0,)), ("present", (0, 1, 2))):
@@ -232,3 +234,26 @@ def test_strain_pushes_forward_and_slump_sits_on_the_floor(out, st):
     for i in range(2):
         low = head_box(frame(out, st, "slump", i))[3]  # 머리 아래 끝 (땀방울의 흰 반짝임은 위에 있다)
         assert low > stand_low + 12, (st, i, low, stand_low)
+
+
+def test_taskbar_rows_play_like_the_core_expects(out):
+    """코어 taskbar.rs: yank 4칸 6fps 반복 (YANK_MIN_SECS 1초 남짓 한 바퀴), stuff 4칸 6fps 한 번 (넷째 칸 = STUFF_RELEASE 0.5초에 쏙)."""
+    a = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))["animations"]
+    assert (a["yank"]["frames"], a["yank"]["fps"], a["yank"].get("loop"), a["yank"].get("front")) == (4, 6, None, None)
+    assert (a["stuff"]["frames"], a["stuff"]["fps"], a["stuff"].get("loop"), a["stuff"].get("front")) == (4, 6, False, None)
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_yank_and_stuff_grip_the_floor_in_front(out, st):
+    """끌어내기 칸은 모두, 밀어 넣기는 셋째·넷째 칸에서 두 손이 몸 앞 바닥께 (프레임 YANK_HANDS) — 장난감이 바닥에서 나오고 바닥으로 들어간다.
+    밀어 넣기 첫 칸은 머리 위 (hold처럼)."""
+    m = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))
+    g = m["grip"][st]
+    fs = m.get("frame_sizes", {}).get(st, m["frame_size"])
+    for anim, idx in (("yank", (0, 1, 2, 3)), ("stuff", (2, 3))):
+        for i in idx:
+            x, y = (v * 128 / fs for v in g[anim][i])
+            assert abs(x - hm.YANK_HANDS[0]) < 6 and abs(y - hm.YANK_HANDS[1]) < 7 and y < 121, (st, anim, i, x, y)
+    x, y = (v * 128 / fs for v in g["stuff"][0])
+    _, y0, _, _ = head_box(frame(out, st, "stuff", 0))
+    assert y <= y0 + 3 and abs(x - 64) < 14, (st, x, y, y0)

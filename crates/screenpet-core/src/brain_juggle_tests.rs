@@ -17,7 +17,7 @@ fn ground_y(w: &World) -> f64 {
 }
 
 fn spot(id: u64, x: f64, w: &World) -> ObjectSpot {
-    ObjectSpot { id, x, y: ground_y(w), owner: Owner::Ground(0), half_w: 14.4, giant: false }
+    ObjectSpot { id, x, y: ground_y(w), owner: Owner::Ground(0), half_w: 14.4, giant: false, local: false }
 }
 
 fn giant(id: u64, x: f64, w: &World) -> ObjectSpot {
@@ -244,6 +244,7 @@ fn prank_odds_need_a_new_friend_edge_it_can_walk_to_and_never_happen_for_giants(
             }
             Plan::Wander => wander += 1,
             Plan::Throw => throw += 1,
+            Plan::Stuff => panic!("도로 넣기는 📌 장난감만"),
         }
         assert_eq!(p.pick_plan(true, &w), Plan::Throw, "거대한 것은 던지기만");
         p.set_prank_edges(false, false);

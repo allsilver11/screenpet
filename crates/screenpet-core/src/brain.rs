@@ -148,6 +148,10 @@ pub enum Anim {
     Present,
     /// 흐물이 — 너무 무거워 털썩 주저앉음 (옆모습)
     Slump,
+    /// 흐물이 — 쪼그려 앉아 바닥(작업표시줄 쪽)을 두 손으로 잡고 뒤로 젖히며 끙차 당긴다 (옆모습, 📌 brain_taskbar.rs)
+    Yank,
+    /// 흐물이 — 머리 위의 장난감을 내려 쪼그려 앉으며 바닥 속으로 꾹 밀어 넣는다 (옆모습, 한 번)
+    Stuff,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -234,6 +238,10 @@ pub enum Speech {
     Tada,
     /// 너무 무거워 털썩 ("phew...")
     Phew,
+    /// 📌 작업표시줄에서 장난감이 쑥 빠졌다 ("pop!", brain_taskbar.rs)
+    Pop,
+    /// 📌 장난감을 도로 밀어 넣는다 ("back you go!")
+    Stow,
 }
 
 impl Anim {
@@ -494,6 +502,8 @@ pub struct PetConfig {
     pub juggler: bool,
     /// 물건을 든 동작들의 칸별 손 자리 (pet.json grip)
     pub grip: crate::juggle::GripTable,
+    /// 📌 작업표시줄에서 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는다 (pet.json `taskbar_play` + yank·stuff 그림, 들고 던지기도 — 흐물이, brain_taskbar.rs)
+    pub taskbar_play: bool,
     /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
     pub dpi: f64,
     /// 커서에 매달릴 때 커서 끝이 닿는 머리 꼭대기 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율. pet.json head의 dragged)
@@ -531,6 +541,7 @@ impl PetConfig {
             rigging: m.rigs(),
             juggler: m.juggles(),
             grip: m.grip_table(stage),
+            taskbar_play: m.plays_taskbar(),
             dpi,
             hang_grip: m.hang_grip(stage),
             no_roll: m.no_roll(),
@@ -702,6 +713,8 @@ pub struct Pet {
     ceiling: f64,
     /// 물건 들어 던지기 (brain_juggle.rs)
     juggle: juggle_moves::JuggleMood,
+    /// 📌 작업표시줄 장난감 (brain_taskbar.rs)
+    toy: taskbar_moves::ToyMood,
     rng: fastrand::Rng,
 }
 
@@ -784,6 +797,7 @@ impl Pet {
             gentle_drop: false,
             ceiling: f64::NEG_INFINITY,
             juggle: juggle_moves::JuggleMood::new(seed),
+            toy: taskbar_moves::ToyMood::new(seed),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -3353,6 +3367,14 @@ pub mod juggle_moves;
 #[path = "brain_juggle_tests.rs"]
 mod juggle_tests;
 
+/// 📌 작업표시줄(Dock)에서 앱 아이콘 장난감 끌어내기·갖고 놀기·도로 밀어 넣기 (흐물이, 숫자는 taskbar.rs)
+#[path = "brain_taskbar.rs"]
+pub mod taskbar_moves;
+
+#[cfg(test)]
+#[path = "brain_taskbar_tests.rs"]
+mod taskbar_tests;
+
 #[path = "brain_presence.rs"]
 mod presence_moves;
 
@@ -3860,7 +3882,7 @@ mod tests {
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
             Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise, Anim::Panic, Anim::Hang, Anim::Rope,
-            Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump];
+            Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump, Anim::Yank, Anim::Stuff];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

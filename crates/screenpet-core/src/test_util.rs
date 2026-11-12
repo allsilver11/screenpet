@@ -32,6 +32,7 @@ pub(crate) fn pet_cfg() -> PetConfig {
         rigging: false,
         juggler: false,
         grip: Default::default(),
+        taskbar_play: false,
         dpi: 1.0,
     }
 }

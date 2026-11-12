@@ -905,6 +905,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         let mut left = Vec::new();
         objects.poop_spots(&mut poop_spots);
         objects.object_spots(&mut object_spots);
+        // 📌 작업표시줄 장난감을 지금 만들 수 있나 (내 흐물이만 본다)
+        let toys = objects.toys(&app);
         pet_targets.clear();
         pet_targets.extend(slots.iter().map(|s| {
             (!s.pet.is_away() && s.pet.hit_feels()).then(|| screenpet_core::juggle::Target { x: s.pet.body.x, y: s.pet.body.y, size: s.pet.cfg.size })
@@ -919,6 +921,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     s.pet.notice_objects(&object_spots, &juggle_targets, &s.world);
                 }
                 s.pet.notice_poops(&poop_spots, &s.world);
+                // 📌 흐물이: 가끔 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내고, 갖고 놀다 도로 넣는다 (손님은 하지 않는다)
+                if s.pet.cfg.taskbar_play && s.is_own() {
+                    s.pet.notice_taskbar(&object_spots, toys, &s.world);
+                }
                 s.pet.update(dt, &s.world);
             }
             if let Some(speech) = s.pet.take_speech() {
@@ -956,6 +962,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
 
         // 🤹 흐물이가 든 물건을 손 자리로 옮기고, 놓은 것은 던진다
         objects.sync_carries(&mut social, &mut slots);
+        // 📌 읽은 앱 아이콘이 왔으면 장난감을 만들어 내 흐물이 손에 쥐여 준다
+        {
+            let own = &mut slots[OWN];
+            objects.deliver_toy(&app, &own.world, &mut own.pet);
+        }
         if let Some(side) = own_exit {
             // 내 동물이 화면 끝으로 다 나갔다 — 그 끝의 친구에게 놀러 간다 (물건을 들고 나갔으면 새 버전 친구에게 싣는다)
             let carried = slots[OWN].pet.carried_object();

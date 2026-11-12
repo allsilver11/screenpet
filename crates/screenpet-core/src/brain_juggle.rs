@@ -34,6 +34,10 @@ pub enum JugglePhase {
     Present { released: bool },
     /// 너무 무거워 털썩 주저앉음
     Slump,
+    /// 📌 쪼그려 앉아 바닥(작업표시줄 쪽)을 잡고 끙차 — 앱이 장난감을 쥐여 주면 번쩍 (brain_taskbar.rs)
+    Yank,
+    /// 📌 장난감을 바닥 속으로 도로 밀어 넣는다 (released = 이미 넣었다)
+    Stuff { released: bool },
 }
 
 /// 들어 올린 뒤 할 일 (줍는 순간 정한다)
@@ -42,6 +46,8 @@ pub(super) enum Plan {
     Throw,
     Wander,
     Prank(Side),
+    /// 📌 장난감: 바닥을 조금 걷다가 도로 밀어 넣는다
+    Stuff,
 }
 
 /// 들고 던지기의 기억
@@ -53,6 +59,8 @@ pub struct JuggleMood {
     pub(super) carry: Option<u64>,
     /// 든 것이 거대한 것
     pub(super) giant: bool,
+    /// 다가가거나 든 것이 이 컴퓨터를 떠나지 않는 것 (📌 장난감 — ObjectSpot.local): 친구에게 들고 가지 않는다
+    pub(super) local: bool,
     /// 들고 들어와 서면 앞을 보고 떨군다 (배달 도착·돌아옴)
     pub(super) present_pending: bool,
     pub(super) plan: Plan,
@@ -73,6 +81,7 @@ impl JuggleMood {
             rng: fastrand::Rng::with_seed(seed ^ 0x6a75_6767),
             carry: None,
             giant: false,
+            local: false,
             present_pending: false,
             plan: Plan::Throw,
             calm_until: 0.0,
@@ -122,6 +131,7 @@ impl Pet {
     pub fn hold_object(&mut self, id: u64) {
         self.juggle.carry = Some(id);
         self.juggle.giant = false;
+        self.juggle.local = false;
         self.juggle.present_pending = true;
         self.juggle.calm_until = self.clock + behavior::range(&mut self.juggle.rng, juggle::CALM_SECS);
     }
@@ -137,6 +147,8 @@ impl Pet {
                 JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. } => g.carry.at(t),
                 JugglePhase::Throw { .. } => g.throw.at(t),
                 JugglePhase::Present { .. } => g.present.at(t),
+                JugglePhase::Yank => g.yank.at(t),
+                JugglePhase::Stuff { .. } => g.stuff.at(t),
                 _ => g.hold.at(0.0),
             },
             State::Move { .. } | State::Exit { .. } | State::Enter { .. } => g.carry.at(self.clock),
@@ -145,7 +157,10 @@ impl Pet {
         let front = self.render().anim.is_front();
         let gx = if self.facing < 0.0 && !front { -gx } else { gx };
         let (_, top) = self.window_pos();
-        Some((self.body.x + gx * self.cfg.size, top + gy * self.cfg.size))
+        let y = top + gy * self.cfg.size;
+        // 📌 장난감은 바닥(작업 영역 아래 끝) 밑으로 내려가지 않는다 — 끌어내고 밀어 넣을 때도 작업표시줄을 덮지 않는다
+        let y = if self.juggle.local && self.standing.is_some() { y.min(self.body.y - crate::object::CARRY_SINK_MAX * self.cfg.dpi) } else { y };
+        Some((self.body.x + gx * self.cfg.size, y))
     }
 
     /// 손에 들고 있을 수 있는 때
@@ -159,6 +174,8 @@ impl Pet {
                     | JugglePhase::CarryOff { .. }
                     | JugglePhase::Throw { released: false }
                     | JugglePhase::Present { released: false }
+                    | JugglePhase::Yank
+                    | JugglePhase::Stuff { released: false }
             ),
             State::Exit { side, .. } | State::Enter { side, .. } => !visit::is_vertical(side),
             State::Away => true,
@@ -167,8 +184,13 @@ impl Pet {
         }
     }
 
-    /// 새 물건을 주우러 갈 수 있는 때: 스스로 걷거나 쉬는 중, 볼일 없음
-    fn may_pick_up(&self) -> bool {
+    /// 새 물건을 주우러 갈 수 있는 때: 스스로 걷거나 쉬는 중, 볼일 없음, 한 번 던진 뒤 쉬는 때가 지났다
+    pub(super) fn may_pick_up(&self) -> bool {
+        self.free_hands() && self.clock >= self.juggle.calm_until
+    }
+
+    /// 스스로 걷거나 쉬는 중이고 볼일도 든 것도 없다 (📌 장난감을 도로 넣으러 갈 땐 쉬는 때를 기다리지 않는다)
+    pub(super) fn free_hands(&self) -> bool {
         matches!(self.state, State::Move { kind: Move::Walk | Move::Run, .. } | State::Idle { .. } | State::Turn { .. })
             && self.standing.is_some()
             && !self.cfg.flies
@@ -181,7 +203,6 @@ impl Pet {
             && self.hover_since.is_none()
             && !self.thrown
             && self.juggle.carry.is_none()
-            && self.clock >= self.juggle.calm_until
     }
 
     /// 매 틱 update 전에: 바닥의 물건과 같은 화면의 다른 동물 (주우러 가는 동물만 일이 있다)
@@ -202,7 +223,10 @@ impl Pet {
         if let State::Juggle { phase: JugglePhase::Approach { id, giant, .. }, t } = self.state {
             let spot = spots.iter().find(|s| s.id == id && self.standing.is_some_and(|st| st.owner == s.owner)).copied();
             match spot.and_then(|s| self.approach_x(&s, world).map(|x| (x, s))) {
-                Some((x, s)) => self.state = State::Juggle { phase: JugglePhase::Approach { id, x, obj_x: s.x, giant }, t },
+                Some((x, s)) => {
+                    self.juggle.local = s.local;
+                    self.state = State::Juggle { phase: JugglePhase::Approach { id, x, obj_x: s.x, giant }, t };
+                }
                 // 누가 치웠거나 던졌다
                 None => self.end_juggle(),
             }
@@ -224,14 +248,20 @@ impl Pet {
             return;
         }
         let Some(to) = self.approach_x(&spot, world) else { return };
+        self.start_approach(&spot, to);
+    }
+
+    /// 물건 옆(to)으로 다가가기 시작한다
+    pub(super) fn start_approach(&mut self, spot: &ObjectSpot, to: f64) {
         self.pacing.after_beat = None;
         self.clear_hover();
         self.poop.stepping_off();
+        self.juggle.local = spot.local;
         self.state = State::Juggle { phase: JugglePhase::Approach { id: spot.id, x: to, obj_x: spot.x, giant: spot.giant }, t: 0.0 };
     }
 
     /// 물건을 들 자리: 작은 것은 손이 닿는 바로 앞, 거대한 것은 몸을 붙인 옆. 같은 조각 위에 설 수 없으면 None
-    fn approach_x(&self, spot: &ObjectSpot, world: &World) -> Option<f64> {
+    pub(super) fn approach_x(&self, spot: &ObjectSpot, world: &World) -> Option<f64> {
         let st = self.standing?;
         let piece = world.piece_at(st.owner, self.body.x)?;
         if !(piece.x_start..=piece.x_end).contains(&spot.x) {
@@ -249,7 +279,7 @@ impl Pet {
     }
 
     /// 디딤판을 따라 dir 쪽으로 speed만큼. 발밑이 사라졌으면 None (떨어진다), 조각 끝에 막혔으면 Some(true)
-    fn juggle_walk(&mut self, world: &World, dir: f64, step: f64) -> Option<bool> {
+    pub(super) fn juggle_walk(&mut self, world: &World, dir: f64, step: f64) -> Option<bool> {
         if !self.follow_anchor(world) {
             self.start_fall();
             return None;
@@ -269,7 +299,7 @@ impl Pet {
         Some(new_x != want)
     }
 
-    fn end_juggle(&mut self) {
+    pub(super) fn end_juggle(&mut self) {
         self.juggle.carry = None;
         self.juggle.calm_until = self.clock + behavior::range(&mut self.juggle.rng, juggle::CALM_SECS);
         self.state = self.rest_beat();
@@ -289,7 +319,8 @@ impl Pet {
         if self.juggle.prank.1 && reach(Side::Right, 1.0) {
             sides.push(Side::Right);
         }
-        if !sides.is_empty() && self.juggle.rng.f64() < juggle::PRANK_CHANCE {
+        // 📌 이 컴퓨터를 떠나지 않는 것(장난감)은 친구에게 들고 가지 않는다 (주사위도 굴리지 않는다)
+        if !sides.is_empty() && !self.juggle.local && self.juggle.rng.f64() < juggle::PRANK_CHANCE {
             return Plan::Prank(sides[self.juggle.rng.usize(..sides.len())]);
         }
         if self.juggle.rng.f64() < juggle::WANDER_CHANCE {
@@ -299,17 +330,20 @@ impl Pet {
         }
     }
 
-    fn start_lift(&mut self, id: u64, giant: bool, world: &World) {
+    pub(super) fn start_lift(&mut self, id: u64, giant: bool, world: &World) {
         self.juggle.carry = Some(id);
         self.juggle.giant = giant;
-        self.juggle.plan = self.pick_plan(giant, world);
+        self.juggle.plan = match self.toy_pickup_plan(id) {
+            Some(plan) => plan,
+            None => self.pick_plan(giant, world),
+        };
         if !giant {
             self.speech = Some(Speech::Hup);
         }
         self.state = State::Juggle { phase: JugglePhase::Lift, t: 0.0 };
     }
 
-    fn start_throw(&mut self) {
+    pub(super) fn start_throw(&mut self) {
         // 노릴 동물이 있으면 그쪽을 본다
         let from = self.carry_point().unwrap_or((self.body.x, self.body.y - self.cfg.size));
         if !self.juggle.giant {
@@ -338,7 +372,7 @@ impl Pet {
     pub(super) fn update_juggle(&mut self, dt: f64, world: &World, phase: JugglePhase, t: f64) {
         let t = t + dt;
         let holding = matches!(phase, JugglePhase::Lift | JugglePhase::Hold { .. } | JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. })
-            || matches!(phase, JugglePhase::Throw { released: false } | JugglePhase::Present { released: false });
+            || matches!(phase, JugglePhase::Throw { released: false } | JugglePhase::Present { released: false } | JugglePhase::Stuff { released: false });
         if holding && self.juggle.carry.is_none() {
             // 손에서 놓쳤다 (눌렸다 놓였거나 앱이 물건을 못 찾았다)
             self.end_juggle();
@@ -433,6 +467,10 @@ impl Pet {
                         self.state = State::Juggle { phase: JugglePhase::Wander { secs }, t: 0.0 };
                     }
                     Plan::Prank(side) => self.state = State::Juggle { phase: JugglePhase::CarryOff { side }, t: 0.0 },
+                    Plan::Stuff => {
+                        let secs = behavior::range(&mut self.toy.rng, crate::taskbar::STUFF_WALK_SECS);
+                        self.state = State::Juggle { phase: JugglePhase::Wander { secs }, t: 0.0 };
+                    }
                 }
             }
             JugglePhase::Wander { secs } => {
@@ -444,6 +482,8 @@ impl Pet {
                 }
                 if t < secs {
                     self.state = next(phase);
+                } else if self.juggle.plan == Plan::Stuff {
+                    self.start_stuff();
                 } else {
                     self.start_throw();
                 }
@@ -489,6 +529,8 @@ impl Pet {
                     self.state = next(phase);
                 }
             }
+            JugglePhase::Yank => self.update_yank(world, t),
+            JugglePhase::Stuff { released } => self.update_stuff(world, released, t),
             JugglePhase::Present { released } => {
                 if !self.follow_anchor(world) {
                     self.start_fall();
@@ -518,6 +560,8 @@ impl Pet {
             JugglePhase::Throw { .. } => Anim::Throw,
             JugglePhase::Present { .. } => Anim::Present,
             JugglePhase::Slump => Anim::Slump,
+            JugglePhase::Yank => Anim::Yank,
+            JugglePhase::Stuff { .. } => Anim::Stuff,
         }
     }
 

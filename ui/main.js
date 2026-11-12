@@ -834,6 +834,9 @@ const EXTRA_SPEECH = {
   yeet: ["yeet!", "catch!"],
   tada: ["ta-da!", "special delivery!"],
   phew: ["phew...", "too heavy..."],
+  // 📌 흐물이가 작업표시줄에서 장난감이 쑥 빠졌다 / 도로 밀어 넣는다 (코어 brain_taskbar.rs)
+  pop: ["pop!", "got one!"],
+  stow: ["back you go!", "in you go!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {

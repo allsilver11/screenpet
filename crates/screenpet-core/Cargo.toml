@@ -14,6 +14,7 @@ windows = { version = "0.58", features = [
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_System_SystemInformation",
+    "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
@@ -22,7 +23,8 @@ windows = { version = "0.58", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSGeometry"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen", "objc2-core-foundation"] }
+# NSRunningApplication·NSImage·NSGraphicsContext·NSImageRep·objc2-core-graphics: 📌 작업표시줄 장난감 — 앱 아이콘 읽기 (권한 없이)
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen", "objc2-core-foundation", "NSRunningApplication", "NSImage", "NSGraphicsContext", "NSImageRep", "objc2-core-graphics", "libc"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = [
     "std",
@@ -34,5 +36,9 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = [
     "CGGeometry",
     "CGRemoteOperation",
     "CGWindow",
+    "CGImage",
+    "CGContext",
+    "CGBitmapContext",
+    "CGColorSpace",
 ] }
 dispatch2 = { version = "0.3", default-features = false, features = ["std", "block2", "objc2"] }

@@ -8,13 +8,19 @@
 //! 친구에게는 보통 돌·똥 이름에 look "giant"를 붙여 던진다 (옛 버전 친구는 보통 크기로 받는다). 거대한 똥은 빗자루에 쓸리지만 저절로 사라지지 않는다.
 //! 🤹 흐물이가 주워 든 물건은 틱마다 그 손 자리로 옮기고 (코어가 정한 자리), 놓으면 코어가 준 속도로 던진다 — 그 뒤는 손으로 던진 것과 같다.
 //! 아무도 들고 있지 않게 된 물건은 그 자리에서 떨어진다. 친구에게 들고 간 물건은 이 화면에서 치우고 Visit에 실린다 (network.rs).
+//! 📌 흐물이가 작업표시줄에서 끌어내는 앱 아이콘 장난감 (코어 taskbar.rs): Pull이면 열린 창 몇 개의 앱 아이콘을 다른 스레드에서 읽어 (platform app_icon)
+//! 하나로 장난감 창을 만들어 흐물이 손에 쥐여 주고, Stow면 뿅 치운다. 한 번에 하나, 몇 분 뒤 저절로 사라진다. 그림은 창의 초기화 스크립트로만 가고
+//! (웹뷰가 canvas에 그린다 — CSP 그대로) 어디에도 저장·기록하지 않는다. 친구에게 던지지도 들려 보내지도 않는다 (코어가 막고, 여기서도 한 번 더 막는다).
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use screenpet_core::config::Config;
 use screenpet_core::geom::{Rect, WindowInfo};
+use screenpet_core::icon::{self, IconImage};
+use screenpet_core::taskbar::{Toys, CAPTURE_BACKOFF_SECS, TOY_ICON_PX};
 use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE, Volley, volley_piece};
 use screenpet_core::brain::Pet;
 use screenpet_core::juggle::{JuggleEvent, ObjectSpot};
@@ -171,10 +177,10 @@ impl Live {
         let _ = app.emit_to(self.label.as_str(), "object-scale", ScalePayload { scale, side });
     }
 
-    /// 거대한 물건: 커서가 그림 밖(투명한 곳)이면 클릭이 아래로 지나가게 한다 — 창이 화면을 크게 덮으니까.
+    /// 거대한 물건·📌 장난감: 커서가 그림 밖(투명한 곳)이면 클릭이 아래로 지나가게 한다 — 창이 화면을 크게 덮거나 작업표시줄 위에 걸치니까.
     /// 판정은 코어(돌린 그림의 볼록 껍질), 바뀔 때만 OS에 알린다 (slots.rs sync_click_through처럼). 작은 물건은 그대로
     fn sync_click_through(&mut self, cursor: (f64, f64)) {
-        if !self.object.kind.is_giant() {
+        if !self.object.kind.is_giant() && !self.object.kind.is_toy() {
             return;
         }
         let through = self.object.passes_clicks_at(cursor.0, cursor.1);
@@ -228,6 +234,12 @@ pub struct Objects {
     /// 포스트잇 창이 다루는 물건
     posting: Option<String>,
     shown_own: usize,
+    /// 📌 창 목록의 창 id (장난감 아이콘을 고를 후보 — refresh가 채운다)
+    window_ids: Vec<u64>,
+    /// 📌 다른 스레드에서 읽는 중인 장난감 아이콘
+    capture: Option<Receiver<Option<IconImage>>>,
+    /// 📌 아이콘을 못 읽었으면 이때까지 다시 묻지 않는다
+    capture_backoff: Instant,
 }
 
 impl Objects {
@@ -250,6 +262,9 @@ impl Objects {
             frame: 0,
             posting: None,
             shown_own: 0,
+            window_ids: Vec::new(),
+            capture: None,
+            capture_backoff: now,
         }
     }
 
@@ -328,7 +343,7 @@ impl Objects {
             return;
         }
         self.size = size;
-        for l in self.live.iter_mut().filter(|l| !l.object.kind.is_poop() && !l.object.kind.is_giant()) {
+        for l in self.live.iter_mut().filter(|l| !l.object.kind.is_poop() && !l.object.kind.is_giant() && !l.object.kind.is_toy()) {
             l.set_scale(app, l.object.kind.base_scale() * size);
         }
     }
@@ -337,7 +352,7 @@ impl Objects {
     fn spawn_own(&mut self, app: &AppHandle, kind: ObjectKind, base: &World, cursor: (f64, f64)) {
         let id = self.next_id();
         let scale = self.scale_at(app, kind, base, cursor.0, cursor.1);
-        let Some(window) = build_window(app, id, kind, false, scale) else { return };
+        let Some(window) = build_window(app, id, kind, false, scale, None) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let b = world.bounds;
@@ -379,11 +394,17 @@ impl Objects {
     pub fn sync_carries<T: AsRef<Pet> + AsMut<Pet>>(&mut self, social: &mut Social, pets: &mut [T]) {
         for p in pets.iter_mut() {
             let pet = p.as_mut();
-            if let Some(JuggleEvent::Release { id, vx, vy }) = pet.take_juggle() {
-                if let Some(l) = self.live.iter_mut().find(|l| l.id == id) {
-                    l.object.launch(vx, vy);
-                    social.spare(id, pet.social_key(), THROWER_SPARED_SECS);
+            match pet.take_juggle() {
+                Some(JuggleEvent::Release { id, vx, vy }) => {
+                    if let Some(l) = self.live.iter_mut().find(|l| l.id == id) {
+                        l.object.launch(vx, vy);
+                        social.spare(id, pet.social_key(), THROWER_SPARED_SECS);
+                    }
                 }
+                // 📌 장난감 아이콘을 읽기 시작한다 (내 동물만 — 손님은 하지 않는다)
+                Some(JuggleEvent::Pull) => self.request_toy(),
+                Some(JuggleEvent::Stow { id }) => self.stow(id),
+                None => {}
             }
             let Some(id) = pet.carried_object() else { continue };
             match self.live.iter_mut().find(|l| l.id == id) {
@@ -407,7 +428,8 @@ impl Objects {
     pub fn carry_wire(&self, id: u64) -> Option<screenpet_net::Carry> {
         let l = self.live.iter().find(|l| l.id == id)?;
         let kind = l.object.kind;
-        (!kind.is_giant()).then(|| screenpet_net::Carry { kind: kind.wire_id().to_string(), look: kind.look().map(str::to_string), scale: kind.is_poop().then(|| l.object.scale()) })
+        // 📌 장난감은 이 컴퓨터를 떠나지 않는다 (코어도 배달을 막는다)
+        (!kind.is_giant() && !kind.is_toy()).then(|| screenpet_net::Carry { kind: kind.wire_id().to_string(), look: kind.look().map(str::to_string), scale: kind.is_poop().then(|| l.object.scale()) })
     }
 
     /// 🤹 친구에게 들고 갔다: 이 화면에서는 치운다 (뿅 없이 — 동물 손에 들려 화면 밖으로 나갔다)
@@ -429,7 +451,7 @@ impl Objects {
             Some(s) => s,
             None => self.scale_at(app, kind, base, at.0, at.1),
         };
-        let window = build_window(app, id, kind, false, scale)?;
+        let window = build_window(app, id, kind, false, scale, None)?;
         let dpi = window.scale_factor().unwrap_or(1.0);
         self.world_for(base, dpi);
         let mut object = Object::new(kind, at.0, at.1, dpi, fastrand::u64(..));
@@ -445,6 +467,72 @@ impl Objects {
         self.admit(id, window, object, origin);
         self.sync_menu();
         Some(id)
+    }
+
+    /// 📌 지금 장난감 사정 (내 흐물이가 매 틱 본다): 아이콘을 읽는 OS이고, 화면에 장난감이 없고, 읽는 중이 아니고, 모두 숨기지 않았을 때만 만들 수 있다
+    pub fn toys(&self, app: &AppHandle) -> Toys {
+        let live = self.live.iter().find(|l| l.object.kind.is_toy()).map(|l| l.id);
+        let ready = screenpet_core::platform::APP_ICONS && live.is_none() && self.capture.is_none() && Instant::now() >= self.capture_backoff && !self.window_ids.is_empty() && !crate::windows_hidden(app);
+        Toys { ready, live }
+    }
+
+    /// 📌 열린 창 몇 개를 골라 다른 스레드에서 앱 아이콘을 읽는다 (게임 루프를 막지 않는다 — Windows는 창에 묻는 데 100 ms까지 걸릴 수 있다)
+    fn request_toy(&mut self) {
+        if self.capture.is_some() || self.live.iter().any(|l| l.object.kind.is_toy()) {
+            return;
+        }
+        let mut ids = self.window_ids.clone();
+        fastrand::shuffle(&mut ids);
+        ids.truncate(TOY_CANDIDATES);
+        let (tx, rx) = mpsc::channel();
+        let started = std::thread::Builder::new().name("toy-icon".into()).spawn(move || {
+            let mut source = screenpet_core::platform::default_source();
+            let _ = tx.send(ids.into_iter().find_map(|id| source.app_icon(id, TOY_ICON_PX)));
+        });
+        if started.is_ok() {
+            self.capture = Some(rx);
+        }
+    }
+
+    /// 📌 읽은 아이콘이 왔으면: 흐물이가 아직 끙차 당기고 있으면 그 손에 장난감 창을 만들어 쥐여 준다. 못 읽었으면 한동안 묻지 않는다 (조용히 — 아무것도 띄우지 않는다)
+    pub fn deliver_toy(&mut self, app: &AppHandle, base: &World, pet: &mut Pet) {
+        let Some(rx) = &self.capture else { return };
+        let icon = match rx.try_recv() {
+            Ok(icon) => icon,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => None,
+        };
+        self.capture = None;
+        let Some(icon) = icon else {
+            self.capture_backoff = Instant::now() + Duration::from_secs_f64(CAPTURE_BACKOFF_SECS);
+            return;
+        };
+        if !pet.wants_toy() {
+            return;
+        }
+        let at = pet.carry_point().unwrap_or((pet.body.x, pet.body.y - pet.cfg.size));
+        let kind = ObjectKind::AppIcon;
+        let id = self.next_id();
+        let scale = kind.base_scale();
+        let Some(window) = build_window(app, id, kind, false, scale, Some(&icon)) else { return };
+        let dpi = window.scale_factor().unwrap_or(1.0);
+        self.world_for(base, dpi);
+        let mut object = Object::new(kind, at.0, at.1, dpi, fastrand::u64(..));
+        object.set_scale(scale);
+        object.carry_at(at.0, at.1);
+        self.admit(id, window, object, Origin::Toy);
+        if !pet.hold_toy(id) {
+            self.stow(id);
+        }
+    }
+
+    /// 📌 장난감을 작업표시줄에 도로 넣었다: 뿅
+    fn stow(&mut self, id: u64) {
+        if let Some(i) = self.live.iter().position(|l| l.id == id && l.object.kind.is_toy()) {
+            let l = self.live.remove(i);
+            self.roster.remove(l.id);
+            self.poof(l);
+        }
     }
 
     /// 🧹 빗자루가 지나간 똥은 빗자루 쪽으로 밀려 날아간다 (평소의 던지기 — 친구가 연결된 끝을 넘으면 tick이 친구에게 보낸다)
@@ -505,7 +593,7 @@ impl Objects {
         let id = self.next_id();
         let (x, y) = entry_point(base, side);
         let scale = self.scale_at(app, accepted.kind, base, x, y);
-        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), scale) else { return };
+        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), scale, None) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
@@ -523,7 +611,7 @@ impl Objects {
         let scale = match &poop {
             WaitingPoop::Dropped { scale, .. } | WaitingPoop::Tossed(_, _, scale) => *scale,
         };
-        let Some(window) = build_window(app, id, kind, false, scale) else { return };
+        let Some(window) = build_window(app, id, kind, false, scale, None) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let object = match poop {
@@ -605,6 +693,8 @@ impl Objects {
 
     /// 창 목록을 새로 읽었을 때 (100 ms마다). 달라진 게 없으면 할 일이 없다 — 물건은 계속 잔다
     pub fn refresh(&mut self, windows: &[WindowInfo], work_areas: &[Rect], now: Instant) {
+        self.window_ids.clear();
+        self.window_ids.extend(windows.iter().map(|w| w.id));
         if self.live.is_empty() {
             self.world = None;
             return;
@@ -755,6 +845,10 @@ impl Objects {
 
     /// 물건이 side 끝을 넘어갔다: 그 끝의 연결된 친구 하나에게 날려 보낸다 (친구 쪽에서 반대편 끝으로 들어온다). 돌아오지 않는다
     fn toss_away(&mut self, l: &Live, exit: Exit, secs: f64, network: &Network, config: &Config) {
+        // 📌 장난감은 이 컴퓨터를 떠나지 않는다 (코어가 화면 끝을 넘기지 않는다 — 한 번 더)
+        if l.object.kind.is_toy() {
+            return;
+        }
         let friends = {
             let budgets = &self.budgets;
             config.friends_at(exit.side, |id| network.is_connected(id) && budgets.get(id).is_none_or(|b| b.can_spend(secs)))
@@ -785,19 +879,24 @@ fn entry_point(world: &World, side: Side) -> (f64, f64) {
 /// 🤹 흐물이가 던진 물건은 이만큼 그 흐물이를 맞히지 않는다 (손에서 막 떠난 물건이 제 몸과 겹친다)
 const THROWER_SPARED_SECS: f64 = 1.0;
 
+/// 📌 장난감 아이콘을 읽어 볼 창 수 (앞에서부터 읽히는 것 하나)
+const TOY_CANDIDATES: usize = 8;
+
 /// 던지고 이만큼 안에 되돌아온 물건만 내 것으로 본다
 const BOUNCE_WINDOW: Duration = Duration::from_secs(30);
 
-fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale: f64) -> Option<WebviewWindow> {
+/// icon = 📌 장난감에 그릴 앱 아이콘 (그 창의 초기화 스크립트에만 들어간다 — base64 글자뿐이라 JS 문자열에 그대로 넣는다)
+fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale: f64, icon: Option<&IconImage>) -> Option<WebviewWindow> {
     let label = format!("{PREFIX}{id}");
     let shape = shape_of(kind);
     let (w, h) = (shape.window_side_at(scale), shape.window_side_at(scale));
     let (px, py) = shape.pivot_logical();
     // kind.id()와 숫자는 코어 목록의 값뿐이다 (친구가 보낸 글자가 아니다)
+    let icon = icon.map_or("null".to_string(), |i| format!("{{ size: {}, rgba: \"{}\" }}", i.size, icon::base64(&i.rgba)));
     let built = crate::overlay::finish_quiet(
         WebviewWindowBuilder::new(app, &label, WebviewUrl::App("object.html".into()))
             .title("ScreenPet Object")
-            .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}], scale: {scale} }}; {}", kind.id(), crate::art::style_script()))
+            .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}], scale: {scale}, icon: {icon} }}; {}", kind.id(), crate::art::style_script()))
             .inner_size(w, h)
             .accept_first_mouse(true),
     );

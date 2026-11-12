@@ -50,7 +50,7 @@ def test_the_window_rides_quietly_and_shows_both_pets():
 def test_the_game_loop_freezes_and_parks_the_riders():
     gl = (APP / "game_loop.rs").read_text(encoding="utf-8")
     assert "sleigh.tick(" in gl
-    loop = gl[gl.index("s.pet.notice_poops(") - 400 : gl.index("s.pet.notice_poops(")]
+    loop = gl[gl.index("s.pet.notice_poops(") - 900 : gl.index("s.pet.notice_poops(")]
     assert "!sleigh.is_riding(&s.label)" in loop, "riders don't walk while flying"
     place = gl[gl.index("s.place(hidden);") - 300 : gl.index("s.place(hidden);")]
     assert "sleigh.is_riding(&s.label)" in place, "rider windows stay parked"

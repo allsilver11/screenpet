@@ -27,7 +27,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
-                         STAGES, SWIFT, TIMID, ENERGETIC, RIGGING, JUGGLER, frame_px, manifest)
+                         STAGES, SWIFT, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -1788,6 +1788,8 @@ def species_fields(pid, m):
         m["rigging"] = True
     if pid in JUGGLER:
         m["juggler"] = True
+    if pid in TASKBAR_PLAY:
+        m["taskbar_play"] = True
     return m
 
 

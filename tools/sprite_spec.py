@@ -87,6 +87,10 @@ OPTIONAL_ANIMS = [
     ("strain", 4, 12, True, False),
     ("present", 4, 3, False, True),
     ("slump", 2, 2, True, False),
+    # 흐물이 📌 작업표시줄 놀이 (코어 brain_taskbar.rs — 장난감은 앱의 물건 창, 손 자리는 pet.json grip): 쪼그려 앞 바닥을 잡고 끙차 당기기 (반복) ·
+    # 머리 위의 장난감을 내려 바닥 속으로 꾹 밀어 넣기 (한 번, 넷째 칸 = STUFF_RELEASE 0.5초에 쏙)
+    ("yank", 4, 6, True, False),
+    ("stuff", 4, 6, False, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -155,6 +159,9 @@ RIGGING = {"heumul"}
 
 # 바닥의 물건·똥을 주워 머리 위로 들고 던지는 동물 (pet.json juggler — 코어 State::Juggle, 그림은 lift·hold·carry·throw·strain·present·slump)
 JUGGLER = {"heumul"}
+
+# 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는 동물 (pet.json taskbar_play — 코어 brain_taskbar.rs, 그림은 yank·stuff)
+TASKBAR_PLAY = {"heumul"}
 
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {

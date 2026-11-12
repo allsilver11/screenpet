@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 
 use dispatch2::DispatchQueue;
 use objc2::MainThreadMarker;
-use objc2_app_kit::NSScreen;
-use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFRetained, CFString, CFType, CGRect};
+use objc2_app_kit::{NSRunningApplication, NSScreen};
+use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFRetained, CFString, CFType, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
+    CGBitmapContextCreate, CGColorSpace, CGContext, CGImageAlphaInfo,
     kCGNullWindowID, kCGWindowAlpha, kCGWindowBounds, kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerPID,
     CGDirectDisplayID, CGDisplayBounds, CGDisplayCopyDisplayMode, CGDisplayMode, CGError, CGEvent, CGEventSource,
     CGEventSourceStateID, CGEventType, CGGetActiveDisplayList, CGMouseButton, CGRectMakeWithDictionaryRepresentation,
@@ -22,6 +23,7 @@ use super::mac_coords::{self, RefreshGate, Screen};
 use super::WindowSource;
 use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
+use crate::icon::{self, IconImage};
 
 /// 이보다 작은 창 (물리 px)은 디딤판이 아니다 — Windows와 같은 값
 const MIN_SIZE: f64 = 50.0;
@@ -96,6 +98,46 @@ impl WindowSource for MacSource {
         let secs = CGEventSource::seconds_since_last_event_type(CGEventSourceStateID::CombinedSessionState, ANY_INPUT_EVENT);
         secs.is_finite().then_some(secs.max(0.0))
     }
+
+    /// 📌 그 창을 띄운 앱의 아이콘 (NSRunningApplication.icon — 손쉬운 사용·화면 기록 권한이 필요 없다)을 px × px RGBA로.
+    /// 창 번호로 주인 pid만 다시 묻는다 (CGWindowList — 제목은 읽지 않는다). 앱 이름·번들 id는 읽지 않는다
+    fn app_icon(&mut self, window: u64, px: u32) -> Option<IconImage> {
+        if px == 0 || px > 512 {
+            return None;
+        }
+        let pid = owner_pid(window)?;
+        if pid == std::process::id() as i64 {
+            return None;
+        }
+        objc2::rc::autoreleasepool(|_| {
+            let app = NSRunningApplication::runningApplicationWithProcessIdentifier(i32::try_from(pid).ok()?)?;
+            let image = app.icon()?;
+            let side = px as usize;
+            let mut rect = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(side as f64, side as f64));
+            // SAFETY: rect는 살아 있는 지역 변수, 문맥·힌트는 없다
+            let cg = unsafe { image.CGImageForProposedRect_context_hints(&mut rect, None, None) }?;
+            let mut cells = vec![0u8; side * side * 4];
+            let space = CGColorSpace::new_device_rgb()?;
+            // SAFETY: cells는 side × side × 4 바이트이고 문맥보다 오래 산다 (문맥은 이 블록 안에서 놓는다)
+            let ctx = unsafe { CGBitmapContextCreate(cells.as_mut_ptr().cast(), side, side, 8, side * 4, Some(&space), CGImageAlphaInfo::PremultipliedLast.0) }?;
+            CGContext::draw_image(Some(&ctx), CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(side as f64, side as f64)), Some(&cg));
+            drop(ctx);
+            icon::from_premultiplied(px, cells)
+        })
+    }
+}
+
+/// 창 번호 → 그 창을 띄운 프로세스 id (보통 앱 창 레이어만)
+fn owner_pid(window: u64) -> Option<i64> {
+    let id = u32::try_from(window).ok()?;
+    let list = CGWindowListCopyWindowInfo(CGWindowListOption::OptionIncludingWindow, id)?;
+    // SAFETY: windows()와 같다 — CFDictionary(CFString → 값)들의 배열
+    let list: CFRetained<CFArray<CFDictionary<CFString, CFType>>> = unsafe { CFRetained::cast_unchecked(list) };
+    let info = list.iter().find(|info| number(info, unsafe { kCGWindowNumber }).and_then(|n| n.as_i64()) == Some(i64::from(id)))?;
+    if number(&info, unsafe { kCGWindowLayer })?.as_i64()? != 0 {
+        return None;
+    }
+    number(&info, unsafe { kCGWindowOwnerPID })?.as_i64()
 }
 
 /// 창 정보 사전 하나 → 디딤판 후보 창 (보통 앱 창 레이어, 다른 프로세스, 보이는 것, 충분히 큰 것만)

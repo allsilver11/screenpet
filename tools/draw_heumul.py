@@ -802,12 +802,63 @@ def hm_slump(sp, i):
     return f.render(fx=dp.sweat_fx(88, [30, 32][i]))
 
 
+# ---- 📌 작업표시줄(Dock)에서 장난감 끌어내기·도로 넣기 (코어 brain_taskbar.rs — 장난감은 앱의 물건 창: 손 자리만 mark_grip) ----
+YANK_HANDS = (88, 113)  # 두 손이 잡는 앞 바닥 (프레임 px) — 장난감 바닥이 화면 아래 끝(작업표시줄 위)에 오게 코어가 손 자리를 바닥 위로 맞춘다
+
+
+def _crouch_grab(f, g, hip, lean, sbend, tilt, legs, wob=0.0):
+    """쪼그려 앞 바닥의 g를 두 손으로 잡은 몸 (lift 첫 칸과 같은 자세)."""
+    stand(f, hip=hip, lean=lean, sbend=sbend, head_tilt=tilt, legs=legs,
+          arms=[((g[0] - 4, g[1] + 2), 1, 64, 0.1 + wob), ((g[0] + 4, g[1] + 2), 1, 74, -0.1 - wob)])
+
+
+def hm_yank(sp, i):
+    """끙차! 화면 아래 끝(작업표시줄)에서 끌어내기: 쪼그려 두 손으로 앞 바닥을 꽉 잡고, 엉덩이를 빼며 몸을 뒤로 젖혀 당겼다가
+    다시 숙인다 (반복) — 팔은 고무호스처럼 팽팽히 늘어나고, 당길 때 땀방울."""
+    f = Fig()
+    g = dp._frame_to_pre(*YANK_HANDS)
+    g = (g[0], g[1] - [0, 1.0, 2.0, 1.0][i])
+    hip = ground_hip([58, 54, 51, 55][i], [0.5, 0.56, 0.62, 0.55][i])
+    legs = [(floor_at(46), [0.62, 0.66, 0.7, 0.64][i], 0.46), (floor_at(68), [0.66, 0.7, 0.74, 0.68][i], 0.5)]
+    _crouch_grab(f, g, hip, [30, 12, 0, 16][i], [0.2, 0.06, -0.06, 0.1][i], [8, -6, -12, 0][i], legs, wob=[0.0, -0.06, -0.1, -0.04][i])
+    dp.mark_grip(*g)
+    hx, hy = _head_of(hip, [30, 12, 0, 16][i], [0.2, 0.06, -0.06, 0.1][i])
+    fx = dp.sweat_fx(hx - hm()["hr"] - 2, hy - hm()["hr"] * 0.6) if i in (1, 2) else []
+    return f.render(fx=fx)
+
+
+def hm_stuff(sp, i):
+    """도로 쏙: 머리 위의 장난감을 → 가슴께로 내리며 → 쪼그려 앞 바닥(화면 아래 끝)에 대고 → 꾹 밀어 넣는다 (한 번 — 넷째 칸에 쏙 들어간다)."""
+    f = Fig()
+    k = leg_k()
+    if i == 0:
+        hip = ground_hip(62, 0.88)
+        legs = [(floor_at(54), 0.14, 0.06), (floor_at(71), 0.16, 0.08)]
+        g = _overhead(hip, 4, 0.05)
+        _, sh, _ = stand(f, hip=hip, lean=4, sbend=0.05, head_tilt=2, arms=[], legs=legs)
+        _hold_up(f, sh, g)
+    elif i == 1:
+        hip = ground_hip(61, 0.7)
+        legs = [(floor_at(53), 0.42, 0.3), (floor_at(70), 0.44, 0.32)]
+        hx, hy = _head_of(hip, 16, 0.12)
+        g = (hx + 14 * k + 4, hy + hm()["hr"] + 4)
+        stand(f, hip=hip, lean=16, sbend=0.12, head_tilt=4, legs=legs, arms=[((g[0] - 4, g[1] + 2), 1, 40, 0.12), ((g[0] + 4, g[1] + 2), 1, 50, -0.12)])
+    else:
+        j = i - 2
+        g = dp._frame_to_pre(YANK_HANDS[0], YANK_HANDS[1] + [0, 4][j])
+        hip = ground_hip([60, 61][j], [0.5, 0.44][j])
+        legs = [(floor_at(52), [0.62, 0.7][j], 0.48), (floor_at(69), [0.66, 0.74][j], 0.52)]
+        _crouch_grab(f, g, hip, [34, 38][j], [0.22, 0.24][j], [10, 14][j], legs)
+    dp.mark_grip(*g)
+    return f.render()
+
+
 HEUMUL_POSES = {"walk": hm_walk, "run": hm_run, "roll": hm_roll, "idle": hm_idle, "look": hm_look, "sleep": hm_sleep, "hop": hm_hop,
                 "fall": hm_fall, "dragged": hm_dragged, "land": hm_land, "sit_front": hm_sit_front, "wave": hm_wave, "tilt": hm_tilt,
                 "belly": hm_belly, "stretch": hm_stretch, "heart": hm_heart, "tickle": hm_tickle, "annoyed": hm_annoyed,
                 "hungry": hm_hungry, "eat": hm_eat, "level_up": hm_level_up, "lookup": hm_lookup, "panic": hm_panic,
                 "hang": hm_hang, "rope": hm_rope, "lift": hm_lift, "hold": hm_hold, "carry": hm_carry, "throw": hm_throw,
-                "strain": hm_strain, "present": hm_present, "slump": hm_slump}
+                "strain": hm_strain, "present": hm_present, "slump": hm_slump, "yank": hm_yank, "stuff": hm_stuff}
 RAW_POSES = dict(HEUMUL_POSES)
 HEUMUL_POSES = {k: _fit(v) for k, v in HEUMUL_POSES.items()}
 
@@ -816,7 +867,7 @@ HEUMUL = Species(
     id="heumul", name="흐물이", walk_speed=110, scale=1.0, base=INK, back=INK, belly=INK, nose=INK, mouth="w",
     front_tail_color=INK, tail_color=INK, stage_size=dict.fromkeys(STAGES, 0.9), stripe=INK, outline=INK,
     stage_tweak={st: dict(_FLAT) for st in STAGES},
-    specials=["lookup", "panic", "hang", "rope", "lift", "hold", "carry", "throw", "strain", "present", "slump"], poses=HEUMUL_POSES, **dp.NO_COMMON_PARTS,
+    specials=["lookup", "panic", "hang", "rope", "lift", "hold", "carry", "throw", "strain", "present", "slump", "yank", "stuff"], poses=HEUMUL_POSES, **dp.NO_COMMON_PARTS,
 )
 
 

@@ -1,14 +1,21 @@
 use std::ffi::c_void;
 use std::mem::size_of;
 
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT, TRUE};
+use windows::core::PWSTR;
+use windows::Win32::Foundation::{CloseHandle, BOOL, FALSE, HANDLE, HWND, LPARAM, POINT, RECT, TRUE, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
-use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO};
+use windows::Win32::Graphics::Gdi::{
+    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, EnumDisplayMonitors, GdiFlush, GetMonitorInfoW, SelectObject, BITMAPINFO, BITMAPINFOHEADER,
+    BI_RGB, DIB_RGB_COLORS, HBRUSH, HDC, HGDIOBJ, HMONITOR, MONITORINFO,
+};
+use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_DOWN, VK_ESCAPE, VK_LBUTTON, VK_LEFT, VK_RBUTTON, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
+    DestroyIcon, DrawIconEx, GetClassLongPtrW, PrivateExtractIconsW, SendMessageTimeoutW, DI_NORMAL, GCLP_HICON, GCLP_HICONSM, HICON, ICON_BIG, ICON_SMALL2,
+    SMTO_ABORTIFHUNG, WM_GETICON,
     EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
     IsIconic, IsWindow, IsWindowVisible, SetWindowPos, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SWP_NOZORDER, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
@@ -17,6 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use super::WindowSource;
 use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
+use crate::icon::{self, IconImage};
 
 /// 디딤판이 되면 안 되는 셸 창 클래스
 const SHELL_CLASSES: [&str; 4] = ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"];
@@ -103,6 +111,115 @@ impl WindowSource for Win32Source {
             Some(GetTickCount().wrapping_sub(info.dwTime) as f64 / 1000.0)
         }
     }
+
+    /// 📌 그 창 프로세스의 실행 파일 아이콘을 px 크기로 (PrivateExtractIconsW — 큰 아이콘을 골라 줄인다), 안 되면 창의 아이콘
+    /// (WM_GETICON — 멈춘 창은 기다리지 않는다 · 창 클래스 아이콘). 검은 바탕·흰 바탕에 한 번씩 그려 투명함을 얻는다 (icon::from_black_white).
+    /// 경로는 아이콘을 꺼내는 데만 쓰고 버린다
+    fn app_icon(&mut self, window: u64, px: u32) -> Option<IconImage> {
+        let h = HWND(window as usize as *mut c_void);
+        if px == 0 || px > 256 {
+            return None;
+        }
+        unsafe {
+            if !IsWindow(h).as_bool() {
+                return None;
+            }
+            if let Some(hicon) = exe_icon(h, px) {
+                let img = render_icon(hicon, px);
+                let _ = DestroyIcon(hicon);
+                if img.is_some() {
+                    return img;
+                }
+            }
+            // 창이 가진 아이콘 (빌린 것 — 지우지 않는다)
+            window_icons(h).into_iter().find_map(|hicon| render_icon(hicon, px))
+        }
+    }
+}
+
+/// 창 프로세스의 실행 파일에서 px 크기 아이콘을 꺼낸다 (DestroyIcon은 부른 쪽이)
+unsafe fn exe_icon(h: HWND, px: u32) -> Option<HICON> {
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(h, Some(&mut pid as *mut u32));
+    if pid == 0 || pid == std::process::id() {
+        return None;
+    }
+    let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid).ok()?;
+    let mut path = [0u16; 260];
+    let mut len = path.len() as u32;
+    let ok = QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, PWSTR(path.as_mut_ptr()), &mut len).is_ok();
+    let _ = CloseHandle(process);
+    // 끝의 0까지 들어가야 한다 (더 긴 경로는 건너뛴다)
+    if !ok || len as usize >= path.len() {
+        return None;
+    }
+    let mut icons = [HICON::default(); 1];
+    let n = PrivateExtractIconsW(&path, 0, px as i32, px as i32, Some(&mut icons), None, 0);
+    (n == 1 && !icons[0].0.is_null()).then_some(icons[0])
+}
+
+/// 창이 가진 아이콘들: 큰 것부터 (빌린 핸들)
+unsafe fn window_icons(h: HWND) -> Vec<HICON> {
+    let mut out = Vec::new();
+    for kind in [ICON_BIG, ICON_SMALL2] {
+        let mut got = 0usize;
+        let sent = SendMessageTimeoutW(h, WM_GETICON, WPARAM(kind as usize), LPARAM(0), SMTO_ABORTIFHUNG, 100, Some(&mut got as *mut usize));
+        if sent.0 != 0 && got != 0 {
+            out.push(HICON(got as *mut c_void));
+        }
+    }
+    for index in [GCLP_HICON, GCLP_HICONSM] {
+        let v = GetClassLongPtrW(h, index);
+        if v != 0 {
+            out.push(HICON(v as *mut c_void));
+        }
+    }
+    out
+}
+
+/// 아이콘을 px × px 32비트 DIB에 검은 바탕·흰 바탕으로 한 번씩 그려 RGBA로
+unsafe fn render_icon(hicon: HICON, px: u32) -> Option<IconImage> {
+    let dc = CreateCompatibleDC(HDC::default());
+    if dc.0.is_null() {
+        return None;
+    }
+    let side = px as i32;
+    let bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: side,
+            // 음수 = 위→아래 줄
+            biHeight: -side,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut bits: *mut c_void = std::ptr::null_mut();
+    let Ok(bmp) = CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &mut bits, HANDLE::default(), 0) else {
+        let _ = DeleteDC(dc);
+        return None;
+    };
+    let old = SelectObject(dc, HGDIOBJ(bmp.0));
+    let n = (px * px * 4) as usize;
+    let draw = |fill: u8| -> Option<Vec<u8>> {
+        if bits.is_null() {
+            return None;
+        }
+        let cells = std::slice::from_raw_parts_mut(bits as *mut u8, n);
+        cells.fill(fill);
+        DrawIconEx(dc, 0, 0, hicon, side, side, 0, HBRUSH::default(), DI_NORMAL).ok()?;
+        let _ = GdiFlush();
+        Some(cells.to_vec())
+    };
+    let black = draw(0);
+    let white = draw(255);
+    SelectObject(dc, old);
+    let _ = DeleteObject(HGDIOBJ(bmp.0));
+    let _ = DeleteDC(dc);
+    icon::from_black_white(px, &black?, &white?)
 }
 
 fn key_down(vk: u16) -> bool {

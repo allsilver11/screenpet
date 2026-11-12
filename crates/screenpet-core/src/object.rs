@@ -77,7 +77,16 @@ pub enum ObjectKind {
     GiantStone,
     /// 💩 거대한 똥 — 메뉴로 꺼낸다. 동물이 싼 게 아니라 쓰레기처럼 치울 때까지 남고, 빗자루에 쓸린다
     GiantPoop,
+    /// 📌 흐물이가 작업표시줄(Dock)에서 끌어낸 앱 아이콘 장난감 (taskbar.rs): 그림은 열린 앱 하나의 아이콘을 베낀 것 (앱이 창에 넣는다 — 그림 파일이 없다).
+    /// 이 컴퓨터를 떠나지 않는다 — ALL에 없어 친구가 그 이름을 보내도 받지 않고, 던져도 화면 끝을 넘지 않는다. 메뉴에 없고 포스트잇을 못 붙인다.
+    /// 한 번에 하나, TOY_LIFE_SECS 뒤 저절로 사라진다
+    AppIcon,
 }
+
+/// 📌 장난감의 이름 (창 스크립트·웹뷰만 — 통신에 쓰지 않는다, 그림 파일 목록 tools/draw_objects.py NAMES에도 없다)
+pub const TOY_ID: &str = "app_icon";
+/// 화면에 있을 수 있는 장난감 수
+pub const MAX_TOYS: usize = 1;
 
 impl ObjectKind {
     pub const ALL: [ObjectKind; 14] = [
@@ -123,6 +132,11 @@ impl ObjectKind {
         ObjectKind::GiantPoop,
     ];
 
+    /// 📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 — 이 컴퓨터를 떠나지 않는다
+    pub fn is_toy(self) -> bool {
+        self == ObjectKind::AppIcon
+    }
+
     /// 거대한 돌·똥
     pub fn is_giant(self) -> bool {
         matches!(self, ObjectKind::GiantStone | ObjectKind::GiantPoop)
@@ -135,7 +149,7 @@ impl ObjectKind {
 
     /// 포스트잇을 붙일 수 있다: 쓰레기만 (똥은 사라지고, 거대한 것은 쪽지 창이 그림을 덮는다)
     pub fn takes_postit(self) -> bool {
-        !self.is_poop() && !self.is_giant()
+        !self.is_poop() && !self.is_giant() && !self.is_toy()
     }
 
     /// 똥이다: 수를 따로 세고, 저절로 사라지고, 바람에 구르지 않고, 빗자루에 쓸린다
@@ -147,7 +161,7 @@ impl ObjectKind {
     pub fn base_scale(self) -> f64 {
         if self.is_giant() {
             giant_scale(f64::NAN)
-        } else if self.is_poop() {
+        } else if self.is_poop() || self.is_toy() {
             1.0
         } else {
             0.5
@@ -159,7 +173,7 @@ impl ObjectKind {
     pub fn scale_on(self, size: f64, work_area_height: f64) -> f64 {
         if self.is_giant() {
             giant_scale(work_area_height)
-        } else if self.is_poop() {
+        } else if self.is_poop() || self.is_toy() {
             self.base_scale()
         } else {
             self.base_scale() * size
@@ -183,6 +197,7 @@ impl ObjectKind {
             ObjectKind::Pellets => "pellets",
             ObjectKind::GiantStone => "giant_stone",
             ObjectKind::GiantPoop => "giant_poop",
+            ObjectKind::AppIcon => TOY_ID,
         }
     }
 
@@ -200,6 +215,7 @@ impl ObjectKind {
             ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets => "💩 똥",
             ObjectKind::GiantStone => "🪨 거대한 돌",
             ObjectKind::GiantPoop => "💩 거대한 똥",
+            ObjectKind::AppIcon => "📌 앱 아이콘 장난감",
         }
     }
 
@@ -262,6 +278,8 @@ impl ObjectKind {
             ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets => (0.0, 0.0),
             // 너무 무겁다 (start_gust가 막는다)
             ObjectKind::GiantStone | ObjectKind::GiantPoop => (0.0, 0.0),
+            // 납작한 네모: 캔보다 덜 구른다
+            ObjectKind::AppIcon => (20.0, 60.0),
         }
     }
 }
@@ -309,7 +327,7 @@ enum Phase {
 
 /// 든 물건 바닥이 손 자리보다 이만큼 (그림 높이 배) 아래 — 두 손이 물건 아랫부분을 감싼다. 거대한 것은 이 px까지만 (논리 px)
 const CARRY_SINK: f64 = 0.2;
-const CARRY_SINK_MAX: f64 = 10.0;
+pub const CARRY_SINK_MAX: f64 = 10.0;
 
 #[derive(Debug, Clone)]
 pub struct Object {
@@ -500,8 +518,9 @@ impl Object {
 
     /// 창이 (x, y)의 클릭을 아래(바탕·다른 앱)로 보내야 한다: 거대한 물건의 투명한 곳만 — 창이 화면을 크게 덮으니까.
     /// 들고 있는 동안은 아니다. 작은 물건은 늘 받는다
+    /// 📌 장난감도: 바닥(작업표시줄 바로 위)에 놓일 때 창 아래쪽 투명한 곳이 작업표시줄을 막지 않게
     pub fn passes_clicks_at(&self, x: f64, y: f64) -> bool {
-        self.kind.is_giant() && !self.is_held() && !self.covers(x, y)
+        (self.kind.is_giant() || self.kind.is_toy()) && !self.is_held() && !self.covers(x, y)
     }
 
     /// 🤹 동물이 들고 있다
@@ -514,7 +533,7 @@ impl Object {
         if !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) {
             return None;
         }
-        Some(crate::juggle::ObjectSpot { id, x: self.body.x, y: self.body.y, owner: self.owner()?, half_w: self.half_w(), giant: self.kind.is_giant() })
+        Some(crate::juggle::ObjectSpot { id, x: self.body.x, y: self.body.y, owner: self.owner()?, half_w: self.half_w(), giant: self.kind.is_giant(), local: self.kind.is_toy() })
     }
 
     /// 동물 손에 들려 (hx, hy)에 손이 있다: 바닥이 손 조금 아래 (똑바로 세워 든다). 사용자가 잡고 있으면 그대로
@@ -563,8 +582,16 @@ impl Object {
     }
 
     /// 똥이 다 말라 사라질 때다 (들고 있는 동안은 기다린다)
+    /// 📌 장난감도 TOY_LIFE_SECS 뒤 저절로 사라진다 (흐물이가 도로 넣지 못했으면 — 쌓이지 않게)
     pub fn expired(&self) -> bool {
-        self.kind.is_poop() && self.clock >= crate::poop::LIFE_SECS && !self.is_held() && !self.is_carried()
+        let life = if self.kind.is_poop() {
+            crate::poop::LIFE_SECS
+        } else if self.kind.is_toy() {
+            crate::taskbar::TOY_LIFE_SECS
+        } else {
+            return false;
+        };
+        self.clock >= life && !self.is_held() && !self.is_carried()
     }
 
     /// 바닥에 놓인 똥의 자리 (동물이 알아챈다). 들렸거나 날아가는 중이면 None
@@ -660,6 +687,8 @@ impl Object {
     /// gusts_ok = 바람이 불어도 된다 (object::gusts_ok). 던져서 화면 끝을 넘어가면 Exit
     pub fn tick(&mut self, dt: f64, world: &World, edges: ExitEdges, gusts_ok: bool) -> Option<Exit> {
         self.clock += dt;
+        // 📌 장난감은 친구가 연결된 끝도 넘지 않는다 — 안 받아 준 끝처럼 벽에 튕겨 돌아온다
+        let edges = if self.kind.is_toy() { ExitEdges::default() } else { edges };
         self.tick_note(dt);
         match self.phase {
             Phase::Held | Phase::Carried => None,
@@ -1030,6 +1059,8 @@ pub enum Origin {
     Foreign,
     /// 똥: 어디서 왔든 최대 MAX_POOPS개
     Poop,
+    /// 📌 작업표시줄에서 꺼낸 장난감: 최대 MAX_TOYS개 (쓰레기 수에 들지 않는다)
+    Toy,
 }
 
 /// 화면 위 물건 수 지키기: 넘치면 그 쪽에서 가장 오래된 것을 내보낸다
@@ -1038,6 +1069,7 @@ pub struct Roster {
     own: VecDeque<u64>,
     foreign: VecDeque<u64>,
     poops: VecDeque<u64>,
+    toys: VecDeque<u64>,
 }
 
 impl Roster {
@@ -1047,6 +1079,7 @@ impl Roster {
             Origin::Own => (&mut self.own, MAX_OWN_OBJECTS),
             Origin::Foreign => (&mut self.foreign, MAX_FOREIGN_OBJECTS),
             Origin::Poop => (&mut self.poops, MAX_POOPS),
+            Origin::Toy => (&mut self.toys, MAX_TOYS),
         };
         list.push_back(id);
         if list.len() > max {
@@ -1057,7 +1090,7 @@ impl Roster {
     }
 
     pub fn remove(&mut self, id: u64) -> bool {
-        for list in [&mut self.own, &mut self.foreign, &mut self.poops] {
+        for list in [&mut self.own, &mut self.foreign, &mut self.poops, &mut self.toys] {
             if let Some(i) = list.iter().position(|&x| x == id) {
                 list.remove(i);
                 return true;
@@ -1083,6 +1116,7 @@ impl Roster {
         self.own.clear();
         self.foreign.clear();
         self.poops.clear();
+        self.toys.clear();
     }
 }
 

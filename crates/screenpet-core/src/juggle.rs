@@ -79,6 +79,8 @@ pub struct ObjectSpot {
     pub half_w: f64,
     /// 🪨💩 거대한 것
     pub giant: bool,
+    /// 이 컴퓨터 밖으로 나가지 않는 것 (📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 — taskbar.rs): 친구에게 들고 가지 않는다
+    pub local: bool,
 }
 
 /// 같은 화면의 다른 동물 (발 x, 발 y, 그림 한 변 — 물리 px). 맞을 수 있는 동물만 넘긴다
@@ -94,6 +96,10 @@ pub struct Target {
 pub enum JuggleEvent {
     /// 손에서 놓았다: 이 속도로 날아간다 (물리 px/s) — 그 뒤는 사람이 던진 것과 같다
     Release { id: u64, vx: f64, vy: f64 },
+    /// 📌 작업표시줄에서 장난감을 끌어내는 중: 앱이 열린 앱 아이콘 하나로 장난감을 만들어 `hold_toy`로 쥐여 준다 (못 만들면 그만이다 — taskbar.rs)
+    Pull,
+    /// 📌 장난감을 작업표시줄에 도로 밀어 넣었다: 앱이 이 물건을 뿅 치운다
+    Stow { id: u64 },
 }
 
 /// 그림 한 동작의 칸별 손 자리 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율)
@@ -134,6 +140,9 @@ pub struct GripTable {
     pub carry: GripAnim,
     pub throw: GripAnim,
     pub present: GripAnim,
+    /// 📌 작업표시줄에서 끌어내기 (손이 바닥께) · 도로 밀어 넣기
+    pub yank: GripAnim,
+    pub stuff: GripAnim,
 }
 
 /// 가장 가까운 노릴 동물: 가로 AIM_RANGE, 높이 AIM_RISE (내 몸 크기 배) 안에서

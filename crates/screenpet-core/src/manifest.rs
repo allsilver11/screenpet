@@ -15,13 +15,16 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// 기린 neckstretch — 있으면 구르는 대신 목을 늘인다, 올려다보기 lookup — 없으면 그냥 쳐다본다(look)).
 /// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같다
 /// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔든다).
-/// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기) · lift·hold·carry·throw·strain·present·slump (물건 들어 던지기).
-pub const OPTIONAL_ANIMS: [&str; 21] = [
+/// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기) · lift·hold·carry·throw·strain·present·slump (물건 들어 던지기)
+/// · yank·stuff (📌 작업표시줄에서 장난감 끌어내기·도로 밀어 넣기).
+pub const OPTIONAL_ANIMS: [&str; 23] = [
     "arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise", "panic", "hang", "rope", "lift", "hold",
-    "carry", "throw", "strain", "present", "slump",
+    "carry", "throw", "strain", "present", "slump", "yank", "stuff",
 ];
 /// 물건 들어 던지기 그림 (pet.json `juggler`가 있어도 이게 다 있어야 한다)
 pub const JUGGLE_ANIMS: [&str; 7] = ["lift", "hold", "carry", "throw", "strain", "present", "slump"];
+/// 📌 작업표시줄 놀이 그림 (pet.json `taskbar_play`가 있어도 이게 다 있어야 하고, 들고 던지기도 해야 한다)
+pub const TASKBAR_ANIMS: [&str; 2] = ["yank", "stuff"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -122,6 +125,9 @@ pub struct PetManifest {
     /// 바닥의 물건·똥을 주워 머리 위로 들고 던진다 (흐물이, JUGGLE_ANIMS가 다 있을 때만 — juggles())
     #[serde(default)]
     pub juggler: bool,
+    /// 📌 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는다 (흐물이, 들고 던지기 + TASKBAR_ANIMS가 있을 때만 — plays_taskbar())
+    #[serde(default)]
+    pub taskbar_play: bool,
     /// 물건을 든 동작의 칸별 손 자리 (단계 → 동작 → 칸별 [x, y] 칸 px — 그림 생성기가 적는다). 든 물건의 바닥이 여기 온다
     #[serde(default)]
     pub grip: HashMap<String, HashMap<String, Vec<[f64; 2]>>>,
@@ -277,6 +283,11 @@ impl PetManifest {
         self.juggler && JUGGLE_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
+    /// 📌 작업표시줄 놀이 (들고 던지기를 하고 TASKBAR_ANIMS 그림이 다 있어야 한다)
+    pub fn plays_taskbar(&self) -> bool {
+        self.taskbar_play && self.juggles() && TASKBAR_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
     /// 이 단계의 손 자리 표 (칸 px → 한 변에 대한 비율: 그림 가운데에서 오른쪽, 윗변에서 아래). 없는 동작은 머리 위 (juggle::DEFAULT_GRIP)
     pub fn grip_table(&self, stage: &str) -> crate::juggle::GripTable {
         let size = f64::from(self.frame_size_at(stage));
@@ -290,7 +301,7 @@ impl PetManifest {
             }
             g
         };
-        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present") }
+        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present"), yank: anim("yank"), stuff: anim("stuff") }
     }
 
     /// 사는 집 그림: pet.json `house`, 없으면 보통 집
@@ -585,18 +596,19 @@ mod tests {
     #[test]
     fn bundled_heumul_is_timid_energetic_and_rigs_window_sides() {
         assert_eq!(&OPTIONAL_ANIMS[11..14], &["panic", "hang", "rope"]);
-        assert_eq!(&OPTIONAL_ANIMS[14..], &JUGGLE_ANIMS, "물건 들어 던지기 (v0.6.2) — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[14..21], &JUGGLE_ANIMS, "물건 들어 던지기 (v0.6.2)");
+        assert_eq!(&OPTIONAL_ANIMS[21..], &TASKBAR_ANIMS, "📌 작업표시줄 놀이 (v0.6.2) — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
-        assert!(h.timid() && h.energetic && h.rigs() && h.juggles());
+        assert!(h.timid() && h.energetic && h.rigs() && h.juggles() && h.plays_taskbar());
         assert_eq!(h.name, "흐물이");
         assert_eq!(h.personality, Personality::Playful);
         assert!(h.hop_share() >= 0.5 && h.walk_speed >= 100.0);
         assert_eq!(h.favorite_food.as_ref().map(|f| f.emoji.as_str()), Some("🍭"));
         for id in crate::test_util::species().into_iter().filter(|id| id != "heumul") {
             let m = load(&id);
-            assert!(!m.timid() && !m.energetic && !m.rigs() && !m.juggler && !m.juggles(), "{id}");
+            assert!(!m.timid() && !m.energetic && !m.rigs() && !m.juggler && !m.juggles() && !m.taskbar_play && !m.plays_taskbar(), "{id}");
         }
     }
 

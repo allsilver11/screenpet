@@ -1697,3 +1697,106 @@ fn about_one_in_ten_of_a_friends_downward_throws_drops_on_to_the_friend_below() 
     }
     assert_eq!(dives(Side::Right, -500.0), 0);
 }
+
+// ---- 📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 (taskbar.rs) ----
+
+#[test]
+fn app_icon_toys_are_not_on_the_wire_the_menu_or_the_volley_list() {
+    let toy = ObjectKind::AppIcon;
+    assert!(toy.is_toy() && !toy.is_poop() && !toy.is_giant() && !toy.is_sweepable() && !toy.takes_postit());
+    assert!(!ObjectKind::ALL.contains(&toy) && !ObjectKind::TRASH.contains(&toy) && !ObjectKind::MENU.contains(&toy));
+    assert!(ObjectKind::ALL.iter().all(|k| !k.is_toy()));
+    // 친구가 그 이름을 보내도 받지 않는다 (던지기·배달 모두)
+    for look in [None, Some("giant"), Some("pink")] {
+        assert_eq!(ObjectKind::wire_kind(toy.id(), look), None);
+        assert_eq!(accept_carry(toy.id(), look), None);
+    }
+    assert_eq!(ObjectKind::from_id(toy.id()), None);
+    assert_eq!(accept_toss(toy.id(), None, None), None);
+    // 크기 조절 창을 따르지 않는다
+    assert_eq!(toy.scale_on(2.0, 1000.0), toy.base_scale());
+    assert_eq!(Object::new(toy, 0.0, 0.0, 1.0, 1).postit(), Postit::Never);
+}
+
+#[test]
+fn a_thrown_app_icon_toy_never_leaves_through_a_friend_edge_and_bounces_back() {
+    let w = floor();
+    for (vx, vy) in [(-3000.0, -400.0), (3000.0, -400.0), (0.0, -4000.0), (200.0, 3000.0)] {
+        let mut o = Object::new(ObjectKind::AppIcon, 960.0, 600.0, 1.0, 3);
+        o.launch(vx, vy);
+        let mut t = 0.0;
+        while t < 8.0 {
+            assert!(o.tick(DT, &w, ALL, false).is_none(), "({vx}, {vy}) 친구에게 날아가지 않는다");
+            assert!(o.body.x >= 0.0 && o.body.x <= 1920.0);
+            t += DT;
+        }
+        assert!(o.owner().is_some(), "화면 안 바닥에 내려앉는다");
+    }
+    // 같은 던지기라도 보통 물건은 넘어간다 (연결된 끝)
+    let mut can = Object::new(ObjectKind::Can, 960.0, 600.0, 1.0, 3);
+    can.launch(-3000.0, -400.0);
+    assert!(run_edges(&mut can, &w, ALL, 3.0).is_some());
+}
+
+fn run_edges(o: &mut Object, w: &World, edges: ExitEdges, secs: f64) -> Option<Exit> {
+    let mut t = 0.0;
+    while t < secs {
+        if let Some(e) = o.tick(DT, w, edges, false) {
+            return Some(e);
+        }
+        t += DT;
+    }
+    None
+}
+
+#[test]
+fn app_icon_toys_fade_by_themselves_after_a_few_minutes_but_not_in_a_hand() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::AppIcon, 960.0, 1040.0, 1.0, 1);
+    let mut can = Object::new(ObjectKind::Can, 960.0, 1040.0, 1.0, 1);
+    let mut t = 0.0;
+    while t < crate::taskbar::TOY_LIFE_SECS - 1.0 {
+        o.tick(1.0, &w, NONE, false);
+        can.tick(1.0, &w, NONE, false);
+        t += 1.0;
+    }
+    assert!(!o.expired());
+    o.carry_at(900.0, 800.0);
+    o.tick(5.0, &w, NONE, false);
+    assert!(!o.expired(), "흐물이가 들고 있는 동안은 기다린다");
+    o.let_fall();
+    assert!(o.expired());
+    assert!(!can.expired(), "쓰레기는 저절로 사라지지 않는다");
+    // 바닥에 놓이면 흐물이가 알아챈다 — 이 컴퓨터 것이라는 표시와 함께
+    let mut toy = Object::new(ObjectKind::AppIcon, 960.0, 900.0, 1.0, 1);
+    run(&mut toy, &w, 3.0);
+    assert!(toy.spot(4).is_some_and(|s| s.local && !s.giant));
+    let mut can = Object::new(ObjectKind::Can, 960.0, 900.0, 1.0, 1);
+    run(&mut can, &w, 3.0);
+    assert!(can.spot(5).is_some_and(|s| !s.local));
+}
+
+#[test]
+fn only_one_toy_is_kept_and_it_is_not_counted_as_trash() {
+    let mut r = Roster::default();
+    assert_eq!(r.add(1, Origin::Toy), None);
+    assert_eq!(r.add(2, Origin::Toy), Some(1), "한 번에 하나");
+    assert_eq!(r.own_count(), 0);
+    assert!(r.remove(2));
+    assert!(!r.remove(2));
+}
+
+#[test]
+fn clicks_pass_through_the_clear_parts_of_a_toy_window_to_the_taskbar() {
+    let w = floor();
+    let mut toy = Object::new(ObjectKind::AppIcon, 960.0, 900.0, 1.0, 1);
+    run(&mut toy, &w, 3.0);
+    assert!(toy.is_asleep());
+    let (px, py) = toy.pivot();
+    assert!(!toy.passes_clicks_at(px, py), "아이콘 위는 잡힌다");
+    // 바닥 바로 밑 (작업표시줄 자리) — 창은 아직 덮고 있지만 클릭은 지나간다
+    assert!(toy.passes_clicks_at(px, toy.body.y + 4.0));
+    let mut can = Object::new(ObjectKind::Can, 960.0, 900.0, 1.0, 1);
+    run(&mut can, &w, 3.0);
+    assert!(!can.passes_clicks_at(can.pivot().0, can.body.y + 4.0), "작은 쓰레기는 그대로");
+}

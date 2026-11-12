@@ -30,6 +30,12 @@
         pointer-events: none;
       }
 
+      /* 📌 앱 아이콘 장난감: 자리는 object.js TOY_BOX */
+      #toy {
+        position: absolute;
+        pointer-events: none;
+      }
+
       /* 물건에 붙은 노란 포스트잇: 자리는 object.js POSTIT_AT */
       #sticker {
         position: absolute;
@@ -112,6 +118,7 @@
 
       /* 픽셀 스타일: 90도 계단으로만 돈다 (object.js), 칸을 그대로 */
       body.pixel #art,
+      body.pixel #toy,
       body.pixel #sticker {
         image-rendering: pixelated;
       }

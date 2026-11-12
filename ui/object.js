@@ -1,6 +1,8 @@
 // 물건 창: 그림 한 장 + 포스트잇. 물리는 앱(코어 object.rs)이 하고 여기는 받은 각도만 CSS로 돌린다.
 // 그림은 제 무게중심(코어 tumble.rs)을 축으로 돌고, 창은 그 축을 가운데에 둔 채 움직인다 — 그래서 어떤 각도에서도 잘리지 않는다.
 // 포스트잇 글자는 받는 사람이 누른 순간에만 `object-note`로 온다 — 그 전엔 이 창에 없고, `object-note-end`면 지운다.
+// 📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 (app_icon)은 그림 파일 대신 앱이 초기화 스크립트에 넣어 준 아이콘 칸(base64 RGBA)을 canvas에 그린다 —
+// 그림은 이 창 안에만 있다 (주소로 만들지도, 어디로 보내지도 않는다).
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
@@ -31,6 +33,17 @@ const IS_POOP = ["poop", "pink", "rainbow", "pellets"].includes(info.kind);
 const PIXEL_DOTS = { giant_stone: 20, giant_poop: 20 };
 const DOTS = PIXEL_DOTS[info.kind] || 24;
 const IS_GIANT = info.kind in PIXEL_DOTS;
+// 📌 장난감: 아이콘을 그릴 칸 (128 칸 좌표: 왼쪽, 위, 한 변 — 코어 tumble.rs AppIcon 모양과 같다), 픽셀 스타일에서 줄여 그릴 칸 수
+const IS_TOY = info.kind === "app_icon";
+const TOY_BOX = [30, 60, 68];
+const TOY_DOTS = 14;
+let toy = null;
+if (IS_TOY) {
+  toy = document.createElement("canvas");
+  toy.id = "toy";
+  art.style.display = "none";
+  thing.insertBefore(toy, art);
+}
 // 픽셀 똥은 칸이 정수라 동글보다 조금 크게 잡아야 단계 차이가 난다
 const PIXEL_POOP_DOT = 1.2;
 // 축을 아래쪽 정사각형(한 변 side)의 가운데에 놓는다 (창이 쪽지로 넓어져도 그대로, objects.rs logical_size)
@@ -89,6 +102,16 @@ function layout() {
   sticker.style.height = `${postit}px`;
   sticker.style.left = `${px - postit / 2}px`;
   sticker.style.top = `${py - postit / 2}px`;
+  if (toy) {
+    const k = m.side / 128;
+    const cell = pixelArt ? m.side / 24 : 0;
+    // 픽셀 스타일은 칸에 맞춘다
+    const snap = (v) => (pixelArt ? Math.round(v / cell) * cell : v);
+    toy.style.left = `${snap(TOY_BOX[0] * k)}px`;
+    toy.style.top = `${snap(TOY_BOX[1] * k)}px`;
+    toy.style.width = `${snap(TOY_BOX[2] * k)}px`;
+    toy.style.height = `${snap(TOY_BOX[2] * k)}px`;
+  }
   thing.style.transformOrigin = `${pivotX}px ${pivotY}px`;
   thing.style.left = `calc(50% - ${pivotX}px)`;
   thing.style.bottom = `${side / 2 - (m.side - pivotY)}px`;
@@ -132,16 +155,51 @@ function readSolid() {
   applyPose(lastPose);
 }
 
+// 📌 장난감 아이콘 칸을 canvas에 (픽셀 스타일은 TOY_DOTS 칸으로 줄여 각지게)
+function drawToy(pixel) {
+  const icon = info.icon;
+  if (!toy || !icon || !icon.size) return;
+  const n = icon.size;
+  const raw = atob(icon.rgba);
+  const cells = new Uint8ClampedArray(n * n * 4);
+  for (let i = 0; i < cells.length && i < raw.length; i++) cells[i] = raw.charCodeAt(i);
+  const full = document.createElement("canvas");
+  full.width = full.height = n;
+  full.getContext("2d").putImageData(new ImageData(cells, n, n), 0, 0);
+  const side = pixel ? TOY_DOTS : n;
+  toy.width = toy.height = side;
+  const g = toy.getContext("2d");
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  g.clearRect(0, 0, side, side);
+  g.drawImage(full, 0, 0, side, side);
+  if (pixel) {
+    // 반투명 가장자리를 칸 단위로 딱 자른다
+    const img = g.getImageData(0, 0, side, side);
+    for (let i = 3; i < img.data.length; i += 4) img.data[i] = img.data[i] >= 110 ? 255 : 0;
+    g.putImageData(img, 0, 0);
+  }
+  // 픽셀 계단 보정용 불투명 칸 (24칸 그림 좌표): 네모의 네 귀퉁이면 된다
+  const [x0, y0, w] = TOY_BOX.map((v) => (v * 24) / 128);
+  solid = [[x0, y0], [x0 + w, y0], [x0, y0 + w], [x0 + w, y0 + w]];
+}
+
 function applyArt(pixel) {
   pixelArt = pixel;
   document.body.classList.toggle("pixel", pixel);
+  if (IS_TOY) {
+    drawToy(pixel);
+    layout();
+    applyPose(lastPose);
+    return;
+  }
   art.src = `${pixel ? "objects_pixel" : "objects"}/${info.kind}.png`;
   sticker.src = `${pixel ? "objects_pixel" : "objects"}/postit.png`;
   layout();
   applyPose(lastPose);
 }
 art.addEventListener("load", () => {
-  if (pixelArt) readSolid();
+  if (pixelArt && !IS_TOY) readSolid();
 });
 window.addEventListener("resize", () => {
   if (pixelArt) {
