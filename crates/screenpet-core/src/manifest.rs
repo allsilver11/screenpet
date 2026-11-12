@@ -17,11 +17,11 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔든다).
 /// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기) · lift·hold·carry·throw·strain·present·slump (물건 들어 던지기)
 /// · yank·stuff (📌 작업표시줄에서 장난감 끌어내기·도로 밀어 넣기)
-/// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS)
+/// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type·type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS, type = ⌨️ 키보드 v0.6.4)
 /// · paw (🐱 고양이 툭툭 — KNOCK_ANIMS) · cheeks_walk·cheeks_idle·dig (🐿️ 다람쥐 볼 빵빵 — STASH_ANIMS, v0.6.3).
-pub const OPTIONAL_ANIMS: [&str; 35] = [
+pub const OPTIONAL_ANIMS: [&str; 36] = [
     "arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise", "panic", "hang", "rope", "lift", "hold",
-    "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type",
+    "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig",
 ];
 /// 🐱 툭툭 그림 (pet.json `knocker`가 있어도 이게 있어야 한다 — knocks())
@@ -32,8 +32,9 @@ pub const STASH_ANIMS: [&str; 3] = ["cheeks_walk", "cheeks_idle", "dig"];
 pub const JUGGLE_ANIMS: [&str; 7] = ["lift", "hold", "carry", "throw", "strain", "present", "slump"];
 /// 📌 작업표시줄 놀이 그림 (pet.json `taskbar_play`가 있어도 이게 다 있어야 하고, 들고 던지기도 해야 한다)
 pub const TASKBAR_ANIMS: [&str; 2] = ["yank", "stuff"];
-/// 흐물이 더 놀기 그림 (v0.6.3): 🎣 커서 매달리기 · 🫣 숨바꼭질 · 🕺 연타 춤 둘 · ⚾ 받기 · 🖍️ 낙서 · ⌨️ 타자 응원 — 들고 던지기를 하고 이게 다 있어야 한다 (antics())
-pub const ANTICS_ANIMS: [&str; 8] = ["hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "carry_run"];
+/// 흐물이 더 놀기 그림 (v0.6.3): 🎣 커서 매달리기 · 🫣 숨바꼭질 · 🕺 연타 춤 둘 · ⚾ 받기 · 🖍️ 낙서 · ⌨️ 타자 응원 (만세 · 키보드 타자 v0.6.4)
+/// — 들고 던지기를 하고 이게 다 있어야 한다 (antics())
+pub const ANTICS_ANIMS: [&str; 9] = ["hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type", "carry_run"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -634,9 +635,9 @@ mod tests {
         assert_eq!(&OPTIONAL_ANIMS[11..14], &["panic", "hang", "rope"]);
         assert_eq!(&OPTIONAL_ANIMS[14..21], &JUGGLE_ANIMS, "물건 들어 던지기 (v0.6.2)");
         assert_eq!(&OPTIONAL_ANIMS[21..23], &TASKBAR_ANIMS, "📌 작업표시줄 놀이 (v0.6.2)");
-        assert_eq!(&OPTIONAL_ANIMS[23..31], &ANTICS_ANIMS, "흐물이 더 놀기 (v0.6.3)");
-        assert_eq!(&OPTIONAL_ANIMS[31..32], &KNOCK_ANIMS, "🐱 툭툭 (v0.6.3)");
-        assert_eq!(&OPTIONAL_ANIMS[32..], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3) — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[23..32], &ANTICS_ANIMS, "흐물이 더 놀기 (v0.6.3, ⌨️ type v0.6.4)");
+        assert_eq!(&OPTIONAL_ANIMS[32..33], &KNOCK_ANIMS, "🐱 툭툭 (v0.6.3)");
+        assert_eq!(&OPTIONAL_ANIMS[33..], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3) — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");

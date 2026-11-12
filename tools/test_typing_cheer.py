@@ -100,3 +100,33 @@ def test_help_says_mac_asks_and_may_ask_again_after_updates():
     text = HELP[i : i + 900]
     assert "입력 모니터링" in text and "Mac 권한 켜기" in text
     assert "업데이트" in text and "다시" in text
+
+
+# ---- v0.6.4: 내 타자에 맞춰 톡 (키보드 앞) ----
+MAIN = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
+NOTES = (ROOT / "docs" / "releases" / "v0.6.4.md").read_text(encoding="utf-8")
+
+
+def test_the_loop_hands_the_same_press_count_to_the_meter_and_to_heumul():
+    """키 누름 수는 한 번만 읽어 속도계와 흐물이 손(typing_keys)에 같이 — 개수뿐이다. 꺼져 있으면 0."""
+    i = LOOP.index("source.key_presses()")
+    block = LOOP[i - 900 : i + 900]
+    assert re.search(r"let presses = source\.key_presses\(\)\.unwrap_or\(0\);", block)
+    assert "typing_meter.add(now, presses);" in block
+    assert "s.pet.typing_keys(typing_presses);" in block
+    assert "s.pet.set_typing_rate(typing_rate);" in block
+
+
+def test_the_webview_picks_the_type_frame_from_render_tap():
+    """type 칸은 시간으로 넘기지 않고 코어가 고른 손으로: 0 쉼 · -1 화면 왼쪽 손 · +1 오른쪽 손 = 칸 0 · 1 · 2."""
+    assert 'render.anim === "type"' in MAIN
+    assert "TYPE_FRAME" in MAIN and re.search(r"TYPE_FRAME = \{ \"-1\": 1, 0: 0, 1: 2 \}|TYPE_FRAME = \{ 0: 0, \"-1\": 1, 1: 2 \}", MAIN)
+
+
+def test_help_and_notes_tell_about_the_keyboard_and_the_lines():
+    i = HELP.index("⌨️ 타자 응원")
+    text = HELP[i : i + 1400]
+    assert "키보드" in text
+    for line in ("Type type!", "So fast!", "Keep going! ⌨️", "Tap tap tap!", "🔥 Speedy!"):
+        assert line in text, line
+    assert "⌨️" in NOTES and "키보드" in NOTES

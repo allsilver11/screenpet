@@ -24,7 +24,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
 import draw_halloween as dh  # noqa: E402
-from draw_pets import C, L, Part, Species, _ST, _fit  # noqa: E402
+from draw_pets import C, L, T, Part, Species, _ST, _fit  # noqa: E402
 from sprite_spec import STAGES  # noqa: E402
 
 FLOOR = 125.0
@@ -1038,19 +1038,151 @@ def hm_draw(sp, i):
     return f.render(fx=chalk + dust)
 
 
-# ---- ⌨️ 타자 응원 (코어 brain_typing.rs — 앞모습): 화면을 보고 주먹을 번쩍번쩍 / 허공에 다다다 타자 ----
-def hm_cheer_type(sp, i):
+# ---- ⌨️ 타자 응원 (코어 brain_typing.rs — 앞모습): 바닥의 작은 키보드 뒤에 무릎 꿇고 앉아 같이 친다 ----
+# 사용자: 그냥 응원이 아니라 *내 타자*를 응원하는 게 보이게 → 키보드 + 내가 칠 때마다 손이 톡 (코어 render.tap이 칸을 고른다).
+# 키보드는 몸 색(🎨 잉크 마스크)을 받지 않는다: 잉크가 아닌 제 색으로만 그린다 (도트에서 짙은 칸이 되지 않게 모두 밝게).
+KB_BODY = (204, 208, 222)  # 키보드 윗면
+KB_EDGE = (150, 156, 178)  # 앞면·테두리
+KB_KEY = (252, 252, 255)  # 키
+KB_HIT = (255, 214, 120)  # 방금 눌린 키
+KB_TICK = (255, 170, 60)  # 톡! 짧은 선
+KB_TOP, KB_FRONT, KB_BOTTOM = 110.0, 119.5, 123.5  # 윗면 뒷변 · 앞변 · 앞면 아래 (바닥 FLOOR 바로 위)
+
+
+def kb_half():
+    """키보드 반 너비 (앞변) — 몸에 맞춰: 아기는 좁게, 어른은 넓게."""
+    return 19.0 + 7.0 * leg_k()
+
+
+def _px_cell():
+    """도트 그림 칸 한 변 (그림 좌표) — 동글이면 None."""
+    if not HM_PIXEL["on"]:
+        return None
+    px = sys.modules.get("draw_pixel") or sys.modules["__main__"]  # python tools/draw_pixel.py로 돌리면 __main__
+    grid = px._PX["grid"]
+    return grid.cell / dp._VIEW["scale"] if grid else None
+
+
+def kb_key(side):
+    """톡 하는 손 밑의 키 가운데 — side: -1 화면 왼쪽 손 · +1 오른쪽."""
+    return dict(type_hands(side))[side]
+
+
+def keyboard_fx(hit=0):
+    """바닥에 놓인 작은 키보드 (살짝 내려다본 앞모습: 윗면 사다리꼴 + 앞면 띠) · 키 줄 · 스페이스 — hit: 눌린 쪽 키 (-1·+1)."""
+    hw = kb_half()
+    back = hw - 3.0
+    cell = _px_cell()
+    top = [(64 - back, KB_TOP), (64 + back, KB_TOP), (64 + hw, KB_FRONT), (64 - hw, KB_FRONT)]
+    front = [(64 - hw, KB_FRONT), (64 + hw, KB_FRONT), (64 + hw - 1, KB_BOTTOM), (64 - hw + 1, KB_BOTTOM)]
+    out = [([T(*front)], KB_EDGE, 0), ([T(*top)], KB_BODY, 0)]
+    keys = []
+    if cell:
+        # 도트: 키는 한 칸 점 — 두 칸마다 (붙으면 흰 띠가 된다)
+        step = 2 * cell
+        for row in (0, 1):
+            y = KB_TOP + (KB_FRONT - KB_TOP) * (0.3 + 0.42 * row)
+            n = int((hw * 1.5) // step)
+            for k in range(n + 1):
+                x = 64 + (k - n / 2) * step
+                keys.append(dp.E(x - 0.3, y - 0.3, x + 0.3, y + 0.3))
+    else:
+        for row in range(3):
+            y = KB_TOP + (KB_FRONT - KB_TOP) * (0.25 + 0.27 * row)
+            wrow = back + (hw - back) * (0.25 + 0.27 * row)
+            n = 7 if row < 2 else 1
+            if row == 2:
+                keys.append(dp.E(64 - wrow * 0.42, y - 1.0, 64 + wrow * 0.42, y + 1.0))  # 스페이스
+                continue
+            pitch = wrow * 1.7 / n
+            for k in range(n):
+                x = 64 - wrow * 0.85 + pitch * (k + 0.5)
+                keys.append(dp.E(x - pitch * 0.36, y - 1.0, x + pitch * 0.36, y + 1.0))
+    out.append((keys, KB_KEY, 0))
+    if hit:
+        # 눌린 키는 손끝 바로 앞 (손에 가리지 않게)
+        x, y = kb_key(hit)
+        y += max(2.6, 1.2 * cell) if cell else 2.6
+        r = (0.3, 0.3) if cell else (3.0, 1.3)
+        out.append(([dp.E(x - r[0], y - r[1], x + r[0], y + r[1])], KB_HIT, 0))
+    return out
+
+
+def tick_fx(hit, hand):
+    """톡! 누르는 손 바깥 위로 짧은 선 셋 (부챗살)."""
+    hx, hy = hand
+    ox = hx + hit * 4.0
+    lines = [L([(ox + hit * 1.0 * dx, hy - 3.0 - 1.0 * dy), (ox + hit * 5.5 * dx, hy - 3.0 - 5.5 * dy)], 1.7)
+             for dx, dy in ((1.0, 0.0), (0.75, 0.75), (0.0, 1.0))]
+    return [(lines, KB_TICK, 0)]
+
+
+def _type_body(f, arms, b=0.0, tilt=0.0, hands=()):
+    """키보드 뒤에 무릎 꿇고 앉은 몸 (엉덩이 아래는 키보드 뒤에 가린다) — 어깨가 키보드보다 높아 두 팔이 보인다.
+    arms: 보통 팔 (만세) · hands: 키보드 위 손 자리 [(side, 손)] — 팔꿈치를 옆으로 둥글게 벌렸다가 손이 안쪽 키로 (W자).
+    돌려준다: 키보드 위 손 쪽 선들 (효과로 키보드 위에 다시 그린다)."""
+    k = leg_k()
+    hip = (64, min(FLOOR - 2 - hm()["leg"] * 0.4, KB_TOP + 2))
+    legs = [((64 - 7 * k, FLOOR - 3), -0.12, -0.05), ((64 + 7 * k, FLOOR - 3), 0.12, 0.05)]
+    _, sh, _ = stand(f, hip=hip, sbend=b, sbend2=-b * 0.5, head_tilt=tilt, arms=arms, legs=legs, side=False, front_arms=list(range(len(arms))))
+    tails = []
+    for side, hand in hands:
+        pts = type_arm_pts(sh, side, hand)
+        f.line(pts)
+        tails.append(pts[len(pts) * 3 // 5:])
+    return tails
+
+
+def type_arm_pts(sh, side, hand):
+    """어깨 → 옆으로 벌린 팔꿈치 → 안쪽 키 위의 손 (3차 곡선 하나)."""
+    a = hm()["arm"]
+    c1 = (sh[0] + side * 0.55 * a, sh[1] + 0.05 * a)
+    c2 = (hand[0] + side * 0.5 * a, hand[1] - 0.1 * a)
+    return cubic(sh, c1, c2, hand)
+
+
+def _hands_over(tails):
+    """손끝은 키보드 위에 — 키보드(효과)를 다 그린 뒤 손 쪽 끝을 잉크로 다시 그린다 (잉크라 🎨 몸 색 마스크에 든다)."""
+    w = W if HM_PIXEL["on"] else W + 2 * dp.OUTLINE * dp._ST["line"] * 0.95
+    return [([L(t, w) for t in tails], INK if not HM_PIXEL["on"] else PX_INK, 0)] if tails else []
+
+
+def type_hands(tap):
+    """두 손: 쉼 = 키보드 뒷변에 살짝 얹었다, 톡 하는 손 = 키에 콕 (아래로), 그동안 다른 손은 조금 든다."""
+    out = []
+    for side in (-1, 1):
+        x = 64 + side * kb_half() * 0.42
+        if tap == side:
+            out.append((side, (x - side * 0.5, KB_TOP + 5.0)))
+        else:
+            out.append((side, (x, KB_TOP - (4.0 if tap else 0.5))))
+    return out
+
+
+def hm_type(sp, i):
+    """⌨️ 키보드 앞 타자 — 0 두 손 쉼 · 1 화면 왼쪽 손 톡 · 2 오른쪽 손 톡 (코어 render.tap -1 / +1이 칸을 고른다)."""
     f = Fig()
-    hip = ground_hip(64, 0.92, [0, 3, 0, 3][i])
-    legs = [(floor_at(55), [-0.08, 0.1, -0.08, 0.1][i]), (floor_at(73), [0.08, -0.1, 0.08, -0.1][i])]
-    hy = hip[1] - hm()["spine"] * 0.55
-    arms = [[(-40, 0.95, -80, 0.2), (128, 1.55, 95, -0.1)],
-            [((54, hy + 6), 1, -110, 0.15), ((74, hy + 3), 1, 110, -0.15)],
-            [(-128, 1.55, -95, 0.1), (40, 0.95, 80, -0.2)],
-            [((54, hy + 3), 1, -110, 0.15), ((74, hy + 6), 1, 110, -0.15)]][i]
-    stand(f, hip=hip, sbend=[0.06, 0.0, -0.06, 0.0][i], head_tilt=[6, 2, -6, -2][i], arms=arms, legs=legs, side=False,
-          front_arms=[0, 1])
-    return f.render()
+    tap = [0, -1, 1][i]
+    hands = type_hands(tap)
+    tails = _type_body(f, [], b=[0.0, 0.04, -0.04][i], tilt=[0, -3, 3][i], hands=hands)
+    fx = keyboard_fx(tap) + _hands_over(tails)
+    if tap:
+        fx += tick_fx(tap, dict(hands)[tap])
+    return f.render(fx=fx)
+
+
+def hm_cheer_type(sp, i):
+    """⌨️ 타자 응원 중 가끔 만세: 키보드 앞에 앉은 채 주먹 번쩍 — 한 팔씩 · 두 팔 다 (반짝)."""
+    f = Fig()
+    up_left, up_right = (-128, 1.45, -95, 0.12), (128, 1.45, 95, -0.12)  # 화면 왼쪽 · 오른쪽 팔 번쩍
+    rest = dict(type_hands(0))
+    arms, hands = [([up_left], [(1, rest[1])]), ([up_left, up_right], []), ([up_right], [(-1, rest[-1])]),
+                   ([(-140, 1.5, -95, 0.18), (140, 1.5, 95, -0.18)], [])][i]
+    tails = _type_body(f, arms, b=[0.06, 0.0, -0.06, 0.0][i], tilt=[-6, 0, 6, 0][i], hands=hands)
+    fx = keyboard_fx() + _hands_over(tails)
+    if i % 2:
+        fx += dp._stars([(22, 34 + 4 * (i // 2), 4.0), (106, 30 - 4 * (i // 2), 3.4)])
+    return f.render(fx=fx)
 
 
 def hm_carry_run(sp, i):
@@ -1081,7 +1213,7 @@ HEUMUL_POSES = {"walk": hm_walk, "run": hm_run, "roll": hm_roll, "idle": hm_idle
                 "hang": hm_hang, "rope": hm_rope, "lift": hm_lift, "hold": hm_hold, "carry": hm_carry, "throw": hm_throw,
                 "strain": hm_strain, "present": hm_present, "slump": hm_slump, "yank": hm_yank, "stuff": hm_stuff,
                 "hang_cursor": hm_hang_cursor, "peek": hm_peek, "dance": hm_dance, "dance2": hm_dance2, "catch": hm_catch,
-                "draw": hm_draw, "cheer_type": hm_cheer_type, "carry_run": hm_carry_run}
+                "draw": hm_draw, "cheer_type": hm_cheer_type, "type": hm_type, "carry_run": hm_carry_run}
 RAW_POSES = dict(HEUMUL_POSES)
 HEUMUL_POSES = {k: _fit(v) for k, v in HEUMUL_POSES.items()}
 
@@ -1159,7 +1291,7 @@ HEUMUL = Species(
     front_tail_color=INK, tail_color=INK, stage_size=dict.fromkeys(STAGES, 0.9), stripe=INK, outline=INK,
     stage_tweak={st: dict(_FLAT) for st in STAGES},
     specials=["lookup", "panic", "hang", "rope", "lift", "hold", "carry", "throw", "strain", "present", "slump", "yank", "stuff",
-              "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "carry_run"], poses=HEUMUL_POSES, **dp.NO_COMMON_PARTS,
+              "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type", "carry_run"], poses=HEUMUL_POSES, **dp.NO_COMMON_PARTS,
     write_layers=lambda out_dir: write_ink_round(out_dir),
 )
 

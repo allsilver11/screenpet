@@ -1006,15 +1006,18 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             }
             None => {}
         }
-        let typing_rate = if !config.typing_cheer_off && typing_permission != Some(false) && slots.iter().any(is_own_heumul) {
-            typing_meter.add(now, source.key_presses().unwrap_or(0));
-            typing_meter.rate(now)
+        // 새로 눌린 수 (개수뿐)는 속도계와 흐물이 손(⌨️ 키보드 앞에서 같이 톡) 둘 다에
+        let (typing_rate, typing_presses) = if !config.typing_cheer_off && typing_permission != Some(false) && slots.iter().any(is_own_heumul) {
+            let presses = source.key_presses().unwrap_or(0);
+            typing_meter.add(now, presses);
+            (typing_meter.rate(now), presses)
         } else {
             typing_meter.clear();
-            0.0
+            (0.0, 0)
         };
         for s in slots.iter_mut().filter(|s| is_own_heumul(s)) {
             s.pet.set_typing_rate(typing_rate);
+            s.pet.typing_keys(typing_presses);
         }
         for (i, s) in slots.iter_mut().enumerate() {
             s.pet.cursor_input(left_down, play_busy || s.note_is_open(), !config.cursor_play_off);

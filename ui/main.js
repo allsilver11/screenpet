@@ -584,6 +584,8 @@ listen("pet-presence", (e) => {
 });
 
 const writePet = styleWriter(petEl);
+// ⌨️ render.tap → type 칸: 0 두 손 쉼 · -1 화면 왼쪽 손 톡 · +1 오른쪽 손 톡 (tools/draw_heumul.py hm_type)
+const TYPE_FRAME = { 0: 0, "-1": 1, 1: 2 };
 
 function draw(now) {
   if (manifest) {
@@ -593,7 +595,8 @@ function draw(now) {
     const spec = hopLeap ? manifest.animations.hop : (manifest.animations[render.anim] ?? manifest.animations.idle);
     const elapsed = Math.max(0, now - animStart);
     const neckOn = drawNeck(elapsed);
-    const f = hopLeap ? hopLeapFrame(spec, elapsed) : frameIndex(spec, elapsed);
+    // ⌨️ 흐물이 타자 응원: type 칸은 시간이 아니라 코어가 고른 손으로 (render.tap — 내가 키를 누를 때마다 바뀐다)
+    const f = hopLeap ? hopLeapFrame(spec, elapsed) : render.anim === "type" ? Math.min(TYPE_FRAME[render.tap] ?? 0, spec.frames - 1) : frameIndex(spec, elapsed);
     const framePos = `${-f * display}px ${-spec.row * display}px`;
     writePet("backgroundPosition", framePos);
     drawTint(framePos, now);
@@ -922,14 +925,13 @@ const EXTRA_SPEECH = {
   stow: ["back you go!", "in you go!"],
   // 🔄 업데이트 확인이 새 버전을 찾았다 — 10초쯤 신나게 뛴다 (코어 brain_cheer.rs)
   new_version: ["new version!!"],
-  // 흐물이 더 놀기 (v0.6.3): 🎣 커서에 매달려 흔들흔들 / 세게 흔들면 / 🙆 들려서 버둥 / 🫣 들켰다 / 못 찾아서 나옴 / 🕺 춤 / ⌨️ 타자 응원 / ⚾ 캐치볼 20번
+  // 흐물이 더 놀기 (v0.6.3): 🎣 커서에 매달려 흔들흔들 / 세게 흔들면 / 🙆 들려서 버둥 / 🫣 들켰다 / 못 찾아서 나옴 / 🕺 춤 / ⚾ 캐치볼 20번 (⌨️ 타자 응원 대사는 코어가 글자 그대로 — brain_typing.rs TYPING_LINES)
   swing: ["Wheee~", "Wheeee!"],
   more: ["More!", "Again!"],
   put_me_down: ["Put me down!", "Hey!"],
   found: ["Found me!"],
   peekaboo: ["Peekaboo~"],
   dance: ["♪", "♪♪"],
-  fighting: ["Cheer up!", "You got this!"],
   rally_end: ["Done!"],
   // 다른 동물들도 더 놀기 (v0.6.3): 🐱 고양이 툭툭 / 밀어 떨어뜨림 · 🦆 오리 기차 / 따라가며 · 🦖 큰 쿵 · 🐿️ 볼에 쏙 · 🙌 하이파이브
   tap: ["Tap… tap…"],

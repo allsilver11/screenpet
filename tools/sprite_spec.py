@@ -93,7 +93,7 @@ OPTIONAL_ANIMS = [
     ("stuff", 4, 6, False, False),
     # 흐물이 더 놀기 (v0.6.3): 🎣 커서 끝에 두 손으로 대롱대롱 (손 = grip, 웹뷰가 그 점을 축으로 흔든다) · 🫣 창 옆면 뒤에서 머리만 쏙 (창은 오른쪽,
     # 옆면 오른쪽은 그리지 않는다) · 🕺 연타 춤 둘 (앞모습 — 둘째는 더 신나게) · ⚾ 날아온 것 받기 (한 번, 손 = grip) · 🖍️ 쪼그려 분필 낙서 ·
-    # ⌨️ 앞을 보고 주먹 번쩍 / 허공 타자 (앞모습)
+    # ⌨️ 바닥의 작은 키보드 앞에 앉아 가끔 만세 (cheer_type) · 같이 타자 (type — 쉼 · 왼손 톡 · 오른손 톡, 칸은 코어 render.tap이 고른다)
     ("hang_cursor", 4, 6, True, False),
     ("peek", 4, 3, True, False),
     ("dance", 4, 8, True, True),
@@ -101,6 +101,7 @@ OPTIONAL_ANIMS = [
     ("catch", 4, 10, False, False),
     ("draw", 4, 6, True, False),
     ("cheer_type", 4, 10, True, True),
+    ("type", 3, 6, True, True),
     # 흐물이: 머리 위에 인 채 다다다 달리기 (친구에게 들고 가는 길·화면 끝을 들고 나가고 들어올 때 — 사용자: 걷지 말고 달려!)
     ("carry_run", 4, 12, True, False),
     # 🐱 고양이·페르시안 툭툭 (v0.6.3, 코어 brain_knock.rs): 고개 숙여 앞발을 들었다가 앞으로 툭 (한 번 = 0.5초, 셋째 칸에 민다)

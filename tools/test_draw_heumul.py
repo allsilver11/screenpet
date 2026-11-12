@@ -15,11 +15,11 @@ from sprite_spec import ANIMS, OPTIONAL_ANIMS, STAGES, sheet_128
 
 ROOT = Path(__file__).resolve().parent.parent
 SHIPPED = ROOT / "ui" / "pets" / "heumul"
-STANDING = ("dance", "draw", "cheer_type", "walk", "idle", "look", "annoyed", "lookup", "stretch", "heart", "tickle", "sit_front", "wave", "tilt",
+STANDING = ("dance", "draw", "cheer_type", "type", "walk", "idle", "look", "annoyed", "lookup", "stretch", "heart", "tickle", "sit_front", "wave", "tilt",
             "hungry", "eat", "sleep", "belly", "lift", "hold", "carry", "throw", "strain", "present", "slump", "yank", "stuff")
 JUGGLE = ["lift", "hold", "carry", "throw", "strain", "present", "slump"]
 TASKBAR = ["yank", "stuff"]
-ANTICS = ["hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "carry_run"]  # = Rust manifest::ANTICS_ANIMS (v0.6.3)
+ANTICS = ["hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type", "carry_run"]  # = Rust manifest::ANTICS_ANIMS (v0.6.3, ⌨️ type v0.6.4)
 
 
 @pytest.fixture(scope="module")
@@ -49,7 +49,7 @@ def test_registered_with_panic_hang_rope_the_juggle_rows_and_the_taskbar_rows():
     assert [o[0] for o in OPTIONAL_ANIMS[11:14]] == ["panic", "hang", "rope"]
     assert [o[0] for o in OPTIONAL_ANIMS[14:21]] == JUGGLE  # = Rust manifest::JUGGLE_ANIMS
     assert [o[0] for o in OPTIONAL_ANIMS[21:23]] == TASKBAR  # = Rust manifest::TASKBAR_ANIMS
-    assert [o[0] for o in OPTIONAL_ANIMS[23:31]] == ANTICS  # = Rust manifest::ANTICS_ANIMS (v0.6.3)
+    assert [o[0] for o in OPTIONAL_ANIMS[23:32]] == ANTICS  # = Rust manifest::ANTICS_ANIMS (v0.6.3)
     assert names(hm.HEUMUL) == [a for a, *_ in ANIMS] + ["lookup", "panic", "hang", "rope"] + JUGGLE + TASKBAR + ANTICS
 
 
@@ -347,11 +347,11 @@ def test_antics_rows_play_like_the_core_expects(out):
     (4칸 10fps = 코어 juggle::CATCH_SECS 0.4초)."""
     a = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))["animations"]
     for anim in ANTICS:
-        assert a[anim]["frames"] == 4, anim
+        assert a[anim]["frames"] == (3 if anim == "type" else 4), anim
     assert (a["carry_run"]["fps"], a["carry_run"]["fps"] > a["carry"]["fps"]) == (12, True)  # 들고 달리기는 걷기보다 빠르게
     for anim in ("hang_cursor", "peek", "draw", "carry_run"):
         assert "loop" not in a[anim] and "front" not in a[anim], anim
-    for anim in ("dance", "dance2", "cheer_type"):
+    for anim in ("dance", "dance2", "cheer_type", "type"):
         assert "loop" not in a[anim] and a[anim]["front"] is True, anim
     assert (a["catch"]["fps"], a["catch"].get("loop"), a["catch"].get("front")) == (10, False, None)
 
@@ -404,7 +404,7 @@ def test_catch_grip_is_above_the_head_and_draw_reaches_the_floor_in_front(out, s
 @pytest.mark.parametrize("anim", ANTICS)
 def test_antics_frames_have_ink_masks(out, st, anim):
     """새 칸도 🎨 몸 색 마스크가 있다: 잉크 선 자리를 덮고 크림 머리는 덮지 않는다."""
-    for i in range(4):
+    for i in range(3 if anim == "type" else 4):
         im, mk = frame(out, st, anim, i), ink_frame(out, st, anim, i)
         m = np.asarray(mk.getchannel("A")).astype(int)
         ink = near(im, hm.INK, 12)
@@ -418,7 +418,7 @@ def test_pixel_antics_have_hard_ink_masks():
         frames = px.render_pixel(hm.HEUMUL, st, anims=tuple(ANTICS))
         masks = px.render_ink_masks(hm.HEUMUL, st, anims=tuple(ANTICS))
         for anim in ANTICS:
-            assert len(frames[anim]) == len(masks[anim]) == 4, anim
+            assert len(frames[anim]) == len(masks[anim]) == (3 if anim == "type" else 4), anim
             for im, mk in zip(frames[anim], masks[anim]):
                 a = np.asarray(im.convert("RGBA")).astype(int)
                 m = np.asarray(mk.getchannel("A")).astype(int)
@@ -448,3 +448,101 @@ def test_raised_arms_go_up_past_the_tilted_back_head_without_crossing_the_face(o
         gx, gy = (v * 128 / fs for v in m["grip"][st]["hang_cursor"][0])
         x0, y0, x1, _ = head_box(frame(out, st, anim, 0))
         assert gy < y0 and gx > x1, (st, gx, gy, x0, y0, x1, "손 자리(흔드는 축)는 두 손이 모인 머리 위 앞")
+
+
+# ---- ⌨️ v0.6.4 타자 응원: 작은 키보드 앞에서 같이 친다 (type: 쉼 · 화면 왼쪽 손 톡 · 오른쪽 손 톡 — 코어 render.tap이 칸을 고른다)
+KB_COLS = (hm.KB_BODY, hm.KB_EDGE, hm.KB_KEY)
+
+
+def keyboard_px(im, tol=12):
+    out = np.zeros(np.asarray(im).shape[:2], bool)
+    for col in KB_COLS:
+        out |= near(im, col, tol)
+    return out
+
+
+@pytest.mark.parametrize("st", STAGES)
+@pytest.mark.parametrize("anim", ["type", "cheer_type"])
+def test_typing_frames_have_a_keyboard_on_the_floor_that_takes_no_tint(out, st, anim):
+    """키보드: 몸 앞 바닥께에 넓게 (몸 가운데), 🎨 몸 색 마스크는 키보드 칸을 덮지 않는다 (잉크로 그린 손이 올라간 곳 빼고)."""
+    for i in range(3 if anim == "type" else 4):
+        im, mk = frame(out, st, anim, i), ink_frame(out, st, anim, i)
+        kb = keyboard_px(im)
+        ys, xs = np.nonzero(kb)
+        assert kb.sum() > 150, (st, anim, i, int(kb.sum()))
+        assert ys.min() > 95 and ys.max() > 118 and xs.max() - xs.min() > 34 and abs((xs.max() + xs.min()) / 2 - 64) < 4, (st, anim, i)
+        m = np.asarray(mk.getchannel("A")).astype(int)
+        # 손(잉크)이 올라간 테두리 1px은 섞인 색이라 뺀다 — 나머지 키보드는 0 (동글 축소 번짐만 조금)
+        ink = near(im, hm.INK, 120) | (m > 64)
+        edge = np.zeros_like(ink)
+        ys_, xs_ = np.nonzero(ink)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                edge[np.clip(ys_ + dy, 0, ink.shape[0] - 1), np.clip(xs_ + dx, 0, ink.shape[1] - 1)] = True
+        far = kb & ~edge
+        assert far.sum() > 120 and (m[far] <= 12).mean() > 0.97 and (m[far] <= 40).all(), (st, anim, i, int((m[far] > 12).sum()), int(m[far].max()))
+        # 머리는 키보드 위에 (키보드 뒤에 앉았다)
+        hys = np.nonzero(near(im, hm.HEAD, 10))[0]
+        assert len(hys) > 100 and (hys < ys.min()).mean() > 0.95, (st, anim, i, ys.min())
+
+
+def _ink_on_keyboard(im):
+    """키보드 윗면 줄들 위에 올라간 잉크 (손) — 화면 왼쪽 반 · 오른쪽 반."""
+    kb = keyboard_px(im)
+    ys, xs = np.nonzero(kb)
+    top = ys.min()
+    ink = near(im, hm.INK, 60)
+    band = np.zeros_like(ink)
+    band[top + 3: top + 12, xs.min(): xs.max() + 1] = True
+    on = ink & band
+    return on[:, :64].sum(), on[:, 64:].sum()
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_typing_taps_one_hand_at_a_time(out, st):
+    """쉼: 두 손은 키보드 뒷변께 · 1칸: 화면 왼쪽 손만 키 위로 콕 (눌린 키·톡 선) · 2칸: 오른쪽 손만."""
+    rest_l, rest_r = _ink_on_keyboard(frame(out, st, "type", 0))
+    l1, r1 = _ink_on_keyboard(frame(out, st, "type", 1))
+    l2, r2 = _ink_on_keyboard(frame(out, st, "type", 2))
+    assert l1 > rest_l + 4 and r2 > rest_r + 4, (st, rest_l, rest_r, l1, r2)
+    assert l1 > r1 and r2 > l2, (st, l1, r1, l2, r2)
+    tick = [near(frame(out, st, "type", i), hm.KB_TICK, 40) for i in range(3)]
+    assert tick[0].sum() == 0 and tick[1][:, :64].sum() >= 3 and tick[2][:, 64:].sum() >= 3, st
+    assert tick[1][:, 64:].sum() == 0 and tick[2][:, :64].sum() == 0, st
+
+
+def test_the_yay_raises_arms_high():
+    """가끔 만세 (cheer_type): 두 칸은 두 팔 다 번쩍 (1·3), 나머지 칸은 한 팔만 — 다른 손은 키보드 위."""
+    for i, both in ((1, True), (3, True), (0, False), (2, False)):
+        tips = [p[-1] for p in lines_of("cheer_type", i) if len(p) > 2]
+        high = [t for t in tips if t[1] < 78]
+        assert len(high) == (2 if both else 1), (i, tips)
+
+
+def test_pixel_keyboard_is_drawn_in_its_own_light_colours_and_not_tinted():
+    """도트: 키보드는 제 색 그대로 (짙은 칸이 없어 잉크로 오해받지 않는다), 마스크 0. 톡 하는 쪽에 눌린 키."""
+    import draw_pixel as px
+    for st in ("baby", "child", "adult"):
+        frames = px.render_pixel(hm.HEUMUL, st, anims=("type", "cheer_type"))
+        masks = px.render_ink_masks(hm.HEUMUL, st, anims=("type", "cheer_type"))
+        assert len(frames["type"]) == 3 and len(frames["cheer_type"]) == 4
+        for anim in ("type", "cheer_type"):
+            for i, (im, mk) in enumerate(zip(frames[anim], masks[anim])):
+                a = np.asarray(im.convert("RGBA")).astype(int)
+                m = np.asarray(mk.getchannel("A")).astype(int)
+                kb = np.zeros(a.shape[:2], bool)
+                for col in KB_COLS + (hm.KB_HIT,):
+                    kb |= (np.abs(a[..., :3] - np.array(col)).sum(axis=2) == 0) & (a[..., 3] == 255)
+                assert kb.sum() >= 12 and (m[kb] == 0).all(), (st, anim, i)
+                assert all(sum(c) >= 300 for c in KB_COLS + (hm.KB_HIT, hm.KB_TICK)), "도트 시험: 짙은 칸 = 잉크"
+                xs = np.nonzero(kb)[1]
+                assert xs.max() - xs.min() >= a.shape[1] * 0.3, (st, anim, i)
+        n = frames["type"][0].width
+        for i, side in ((0, 0), (1, -1), (2, 1)):
+            a = np.asarray(frames["type"][i].convert("RGBA")).astype(int)
+            hit = (np.abs(a[..., :3] - np.array(hm.KB_HIT)).sum(axis=2) == 0) & (a[..., 3] == 255)
+            if side == 0:
+                assert hit.sum() == 0, st
+            else:
+                xs = np.nonzero(hit)[1]
+                assert len(xs) and ((xs.mean() < n / 2) == (side < 0)), (st, i)

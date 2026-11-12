@@ -15,7 +15,7 @@ def test_every_new_speech_has_a_line():
     enum = BRAIN[BRAIN.index("pub enum Speech {"):]
     enum = enum[:enum.index("\n}")]
     variants = re.findall(r"^\s{4}([A-Z]\w*),", enum, re.M)
-    for v in ("Swing", "More", "PutMeDown", "Found", "Peekaboo", "Dance", "Fighting", "RallyEnd"):
+    for v in ("Swing", "More", "PutMeDown", "Found", "Peekaboo", "Dance", "RallyEnd"):
         assert v in variants
         assert re.search(rf"\b{snake(v)}: \[", MAIN), v
 

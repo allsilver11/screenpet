@@ -25,7 +25,7 @@ fn dancing(p: &Pet) -> bool {
 
 #[test]
 fn dance_animations_are_front_views() {
-    for (a, name) in [(Anim::Dance, "dance"), (Anim::Dance2, "dance2"), (Anim::CheerType, "cheer_type")] {
+    for (a, name) in [(Anim::Dance, "dance"), (Anim::Dance2, "dance2"), (Anim::CheerType, "cheer_type"), (Anim::Type, "type")] {
         assert_eq!(serde_json::to_string(&a).unwrap(), format!("\"{name}\""));
         assert!(a.is_front() && crate::manifest::ANTICS_ANIMS.contains(&name));
     }
