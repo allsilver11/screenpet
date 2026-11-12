@@ -1,30 +1,29 @@
-//! ☀️ Real weather for the apps (v0.6.3): the relay asks Open-Meteo for the
-//! current WMO weather code of each built-in *place* (a Korean city, `PLACES`)
-//! some connected app wants, at most every 30 minutes per place, and hands it
-//! out as `weather {place, code, at}`. Apps never call the weather service
-//! themselves and send no coordinates: only a place id from the fixed list
-//! (an unknown id is ignored). Open-Meteo sees only the city's coordinates.
+//! ☀️ 앱용 진짜 날씨임 (v0.6.3): 릴레이가 접속한 앱이 원하는 기본 *지역*(한국 도시, `PLACES`)마다 Open-Meteo에
+//! 지금 WMO 날씨 코드를 지역당 최대 30분마다 묻고 `weather {place, code, at}`로 나눠 줌.
+//! 앱은 날씨 서비스를 직접 부르지 않고 좌표도 안 보냄: 고정 목록의 지역 id만 보냄 (모르는 id는 무시).
+//! Open-Meteo는 도시 좌표만 봄.
 //!
-//! An app that never says what it wants gets Yongin (`DEFAULT_PLACE`).
-//! Places nobody has wanted for 2 h are forgotten, so at most `PLACES.len()`
-//! are ever kept. A failed fetch keeps the last good reading and tries again
-//! in 5 minutes.
+//! 원하는 것을 말하지 않은 앱은 용인(`DEFAULT_PLACE`)을 받음. 2시간 동안 아무도 원하지 않은 지역은 잊으므로
+//! 최대 `PLACES.len()`개만 둠. 받아 오기에 실패하면 마지막 좋은 값을 두고 5분 뒤 다시 해 봄.
+//! 받아 오기는 lib의 `weather_loop`가 잠금 밖에서 하고, 앱별 지역은 `hub::weather`가 다룸.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// A place is fetched again this long after a good reading.
+/// 좋은 값을 받은 뒤 이만큼 지나면 다시 받아 옴
 pub const POLL_EVERY: Duration = Duration::from_secs(30 * 60);
-/// … and this long after a failed fetch.
+/// … 받아 오기에 실패한 뒤엔 이만큼 뒤에
 pub const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
-/// A place no connected app wants is forgotten after this.
+/// 접속한 앱 누구도 원하지 않는 지역은 이만큼 뒤 잊음
 pub const FORGET_AFTER: Duration = Duration::from_secs(2 * 3600);
-/// Most places fetched in one round (the rest wait for the next one).
+/// 한 바퀴에 받아 오는 지역 수 상한 (나머지는 다음 바퀴를 기다림)
 pub const FETCHES_PER_ROUND: usize = 10;
-/// Largest Open-Meteo answer read (the real one is well under 1 KiB).
+/// 읽는 Open-Meteo 답의 최대 크기 (진짜 답은 1 KiB보다 훨씬 작음)
 pub const BODY_LIMIT: u64 = 16 * 1024;
+/// 연결 시간 제한
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// 받아 오기 전체 시간 제한
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// 기본 지역 표: 앱 메뉴와 같은 `screenpet_proto::weather`를 그대로 씀
@@ -37,6 +36,7 @@ pub trait OpenMeteoUrl {
 }
 
 impl OpenMeteoUrl for Place {
+    /// 도시 좌표와 `current=weather_code`만 담은 Open-Meteo 주소를 만듦
     fn url(&self) -> String {
         format!(
             "https://api.open-meteo.com/v1/forecast?latitude={:.4}&longitude={:.4}&current=weather_code&timezone=GMT",
@@ -45,7 +45,7 @@ impl OpenMeteoUrl for Place {
     }
 }
 
-/// `current.weather_code` of an Open-Meteo forecast answer (a WMO code, 0–99).
+/// Open-Meteo 예보 답의 `current.weather_code`(WMO 코드, 0–99)를 읽음. 없거나 범위 밖이면 None임
 pub fn parse_open_meteo(body: &str) -> Option<u16> {
     let v: serde_json::Value = serde_json::from_str(body).ok()?;
     let code = v.get("current")?.get("weather_code")?;
@@ -54,10 +54,10 @@ pub fn parse_open_meteo(body: &str) -> Option<u16> {
     (code <= 99).then_some(code as u16)
 }
 
-/// Fetches the weather code of a place (blocking, bounded by timeouts).
+/// 지역 하나의 날씨 코드를 받아 오는 함수임 (막힘, 시간 제한으로 묶임)
 pub type Fetch = Arc<dyn Fn(&Place) -> Result<u16, String> + Send + Sync>;
 
-/// The real fetcher: HTTPS GET to Open-Meteo through rustls.
+/// 진짜 받아 오기임: rustls로 Open-Meteo에 HTTPS GET을 함
 pub fn open_meteo() -> Fetch {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .https_only(true)
@@ -78,51 +78,54 @@ pub fn open_meteo() -> Fetch {
     })
 }
 
-/// A reading: WMO code and when the relay got it (unix seconds).
+/// 받은 값 하나임: WMO 코드와 릴레이가 받은 때 (유닉스 초)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reading {
+    /// WMO 날씨 코드
     pub code: u16,
+    /// 받은 때 (유닉스 초)
     pub at: u64,
 }
 
+/// 지역 하나의 상태임
 #[derive(Debug)]
 struct Entry {
+    /// 마지막 좋은 값
     reading: Option<Reading>,
-    /// Fetch again at (`None` = as soon as it is in use).
+    /// 다음에 받아 올 때 (None = 쓰이자마자)
     next: Option<Instant>,
-    /// Last time a connected app wanted it.
+    /// 접속한 앱이 마지막으로 원한 때
     wanted: Instant,
-    /// Being fetched right now.
+    /// 지금 받아 오는 중
     busy: bool,
 }
 
-/// The wanted places (by id) and their last readings. Only built-in places
-/// get in, so this never holds more than `PLACES.len()`.
+/// 원하는 지역(id별)과 마지막 값임. 기본 지역만 들어오므로 `PLACES.len()`개를 넘지 않음
 #[derive(Debug, Default)]
 pub struct Weathers {
     places: HashMap<&'static str, Entry>,
 }
 
 impl Weathers {
+    /// 기억하는 지역 수를 돌려줌
     pub fn len(&self) -> usize {
         self.places.len()
     }
 
-    /// An app wants the place `id` now: its canonical id, or `None` (and
-    /// nothing kept) if it is not a built-in place.
+    /// 앱이 지금 지역 `id`를 원함: 표준 id를 돌려주고, 기본 지역이 아니면 None임 (아무것도 안 둠)
     pub fn want(&mut self, id: &str, now: Instant) -> Option<&'static str> {
         let id = find_place(id)?.id;
         self.places.entry(id).and_modify(|e| e.wanted = now).or_insert(Entry { reading: None, next: None, wanted: now, busy: false });
         Some(id)
     }
 
+    /// 지역의 마지막 값을 돌려줌
     pub fn reading(&self, id: &str) -> Option<Reading> {
         self.places.get(id).and_then(|e| e.reading)
     }
 
-    /// Places to fetch now (at most `FETCHES_PER_ROUND`, marked busy), given
-    /// the places connected apps want; forgets places nobody wanted for
-    /// `FORGET_AFTER`.
+    /// 지금 받아 올 지역들을 돌려줌 (최대 `FETCHES_PER_ROUND`개, 받는 중으로 표시). `in_use`는 접속한 앱들이 원하는 지역이고,
+    /// `FORGET_AFTER` 동안 아무도 원하지 않은 지역은 잊음
     pub fn due(&mut self, now: Instant, in_use: &HashSet<&'static str>) -> Vec<&'static Place> {
         for (id, e) in self.places.iter_mut() {
             if in_use.contains(id) {
@@ -142,8 +145,7 @@ impl Weathers {
         due.into_iter().filter_map(find_place).collect()
     }
 
-    /// A fetch finished. A good code becomes the reading (returned); a
-    /// failure keeps the old one and tries again sooner.
+    /// 받아 오기가 끝남. 좋은 코드는 새 값이 되어 돌려주고, 실패면 옛 값을 두고 더 빨리 다시 해 봄
     pub fn fetched(&mut self, id: &str, code: Option<u16>, now: Instant, unix: u64) -> Option<Reading> {
         let e = self.places.get_mut(id)?;
         e.busy = false;
@@ -154,6 +156,7 @@ impl Weathers {
     }
 }
 
+/// 답 읽기·주소·지역 고르기·주기 시험임
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,7 +250,7 @@ mod tests {
         assert_eq!(w.due(t0, &all).len(), 0);
     }
 
-    /// Real network: `cargo test -p screenpet-relay -- --ignored live_open_meteo`
+    /// 실제 망 시험임: `cargo test -p screenpet-relay -- --ignored live_open_meteo`
     #[test]
     #[ignore]
     fn live_open_meteo() {

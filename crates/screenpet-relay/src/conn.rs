@@ -1,6 +1,5 @@
-//! One client connection (after the WebSocket upgrade): challenge →
-//! authentication → control messages and frame forwarding, with per
-//! connection rate limits and timeouts.
+//! 클라이언트 연결 하나임 (WebSocket 업그레이드 뒤): 챌린지 → 인증 → 제어 메시지와 프레임 넘기기.
+//! 연결별 속도 한도와 시간 제한을 둠. `http::handle`이 `serve`를 부르고, 일은 `Hub` 메서드로 넘김.
 
 use crate::hub::{bump, Admission, Bucket, Hub, Link, Out};
 use crate::proto::{self, ClientMsg, ServerMsg, HEADER, MAX_FRAME, MAX_ID, PROTOCOL_VERSION};
@@ -12,46 +11,52 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tungstenite::{Error as WsError, Message, WebSocket};
 
-/// Messages queued to one connection before it counts as stuck.
+/// 연결 하나에 쌓아 두는 메시지 수. 넘으면 막힌 것으로 봄
 const OUTBOX: usize = 512;
-/// How long a read waits before the loop checks its queue and timers, while
-/// friend frames are flowing and once they have stopped for `ACTIVE_FOR`: a
-/// connection that only pings shouldn't wake 66 times a second.
+/// 루프가 큐와 타이머를 보기 전 읽기가 기다리는 시간임. 친구 프레임이 흐르는 동안은 이것,
+/// `ACTIVE_FOR` 동안 멈춘 뒤엔 `POLL_IDLE`: ping만 하는 연결이 초당 66번 깨면 안 됨
 const POLL: Duration = Duration::from_millis(15);
+/// 쉬는 연결의 읽기 대기
 const POLL_IDLE: Duration = Duration::from_millis(100);
+/// 마지막 프레임 뒤 이만큼은 바쁜 연결로 봄
 const ACTIVE_FOR: Duration = Duration::from_secs(2);
-/// Most redeem attempts per connection per minute.
+/// 연결당 분당 코드 사용 시도 수 상한
 const REDEEMS_PER_CONN_PER_MIN: usize = 10;
-/// Feedback letters tried per connection per minute (the mailbox keeps the real per-day limits).
+/// 연결당 분당 건의 편지 시도 수 (진짜 하루 한도는 편지함이 지킴)
 const LETTERS_PER_CONN_PER_MIN: usize = 3;
-/// Most "new code" requests per connection.
+/// 연결당 "새 코드" 요청 수 상한
 const NEW_CODES_PER_CONN: usize = 5;
-/// `friends` updates per connection: the apps send one when the list changes
-/// and they rewrite stored data. Past this a client is disconnected: its next
-/// `auth` carries its list, so nothing is lost.
+/// 연결당 `friends` 갱신 속도임: 앱은 목록이 바뀔 때 하나 보내고 저장 데이터를 다시 씀.
+/// 넘으면 끊음: 다음 `auth`에 목록이 실리므로 잃는 것 없음
 const FRIENDS_PER_SEC: f64 = 0.5;
+/// `friends` 갱신 한 번에 몰아 받는 수
 const FRIENDS_BURST: f64 = 30.0;
-/// ☀️ `weather_want`s per connection: one every 10 s, a few at once.
+/// ☀️ 연결당 `weather_want` 속도: 10초에 하나, 한 번에 몇 개
 const WEATHER_WANTS_PER_SEC: f64 = 0.1;
+/// `weather_want` 한 번에 몰아 받는 수
 const WEATHER_WANTS_BURST: f64 = 5.0;
 
+/// 인증을 마친 연결의 신원임
 struct Authed {
+    /// 표준 설치 키 (hex)
     key: String,
+    /// 허브의 연결 번호
     conn: u64,
 }
 
+/// 제어 메시지 하나를 텍스트 프레임으로 씀. 실패면 false임
 fn text(ws: &mut WebSocket<TcpStream>, m: &ServerMsg) -> bool {
     ws.write(Message::text(m.to_json())).is_ok()
 }
 
-/// Send `error{reason}` and close.
+/// `error{reason}`을 보내고 닫음
 fn refuse(ws: &mut WebSocket<TcpStream>, reason: &str) {
     let _ = ws.write(Message::text(ServerMsg::Error { reason: reason.into() }.to_json()));
     let _ = ws.close(None);
     let _ = ws.flush();
 }
 
-/// Serve one connection until it ends.
+/// 연결 하나를 끝날 때까지 섬김: 챌린지·인증 뒤 메시지 루프를 돌리며 큐를 비우고 한도를 지킴
 pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, admission: &Admission) {
     let lim = hub.limits.clone();
     let _ = ws.get_mut().set_read_timeout(Some(POLL));
@@ -335,6 +340,7 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
     hub.dequeued(&link, link.queued.load(Ordering::Relaxed));
 }
 
+/// 마지막 친구 프레임 뒤 지난 시간에 맞는 읽기 대기를 고름
 fn poll_for(since_last_frame: Duration) -> Duration {
     if since_last_frame < ACTIVE_FOR {
         POLL
@@ -343,8 +349,7 @@ fn poll_for(since_last_frame: Duration) -> Duration {
     }
 }
 
-/// Check `auth`: the MAC proves the client holds the private key for `key`.
-/// Returns the canonical key, the key bytes and the shared secret.
+/// `auth`를 확인함: MAC이 클라이언트가 `key`의 개인키를 가졌음을 증명함. 표준 키, 키 바이트, 공유 비밀을 돌려줌
 fn authenticate(hub: &Hub, nonce: &[u8; 32], id: &str, key: &str, mac: &str) -> Option<(String, [u8; 32], [u8; 32])> {
     if id.is_empty() || id.len() > MAX_ID || id.chars().any(char::is_control) {
         return None;
@@ -356,6 +361,7 @@ fn authenticate(hub: &Hub, nonce: &[u8; 32], id: &str, key: &str, mac: &str) -> 
     proto::ct_eq(&mac, &expected).then(|| (proto::to_hex(&client_pub), client_pub, shared))
 }
 
+/// 폴링 주기 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

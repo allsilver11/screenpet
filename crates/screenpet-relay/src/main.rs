@@ -1,20 +1,17 @@
-//! `screenpet-relay [--bind ADDR] [--data DIR] [--trusted-proxy IP]...`
+//! 릴레이 실행 파일임: `screenpet-relay [--bind ADDR] [--data DIR] [--trusted-proxy IP]...`
 //!
-//! Defaults: `--bind 0.0.0.0:9411`, `--data $XDG_DATA_HOME/screenpet-relay`
-//! (or `~/.local/share/screenpet-relay`), trusted proxy `192.168.0.52` (the
-//! Nginx Proxy Manager; loopback is always trusted). Environment:
-//! `SCREENPET_RELAY_BIND`, `SCREENPET_RELAY_DATA`,
-//! `SCREENPET_RELAY_TRUSTED_PROXIES` (comma-separated; empty = loopback only),
-//! `SCREENPET_RELAY_WEATHER=off` (no Open-Meteo fetches).
-//! Health check: `GET /healthz`; WebSocket: `/ws`.
+//! 기본값: `--bind 0.0.0.0:9411`, `--data $XDG_DATA_HOME/screenpet-relay`(또는 `~/.local/share/screenpet-relay`),
+//! 믿는 프록시 `192.168.0.52`(Nginx Proxy Manager, 루프백은 늘 믿음).
+//! 환경 변수: `SCREENPET_RELAY_BIND`, `SCREENPET_RELAY_DATA`, `SCREENPET_RELAY_TRUSTED_PROXIES`(쉼표 구분, 빈 값 = 루프백만),
+//! `SCREENPET_RELAY_WEATHER=off`(Open-Meteo 받아 오기 안 함). 상태 확인: `GET /healthz`, WebSocket: `/ws`.
 //!
-//! `screenpet-relay admin [--data DIR] <command>` runs an operator command on
-//! the relay using that data directory (see `admin::USAGE`).
+//! `screenpet-relay admin [--data DIR] <command>`는 그 데이터 폴더를 쓰는 릴레이에 운영 명령을 돌림 (`admin::USAGE` 참고).
 
 use screenpet_relay::{Relay, RelayConfig, DEFAULT_PORT, DEFAULT_TRUSTED_PROXY};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
+/// 기본 데이터 폴더를 돌려줌 (`$XDG_DATA_HOME`, 없으면 `~/.local/share` 아래)
 fn default_data_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("XDG_DATA_HOME").filter(|d| !d.is_empty()) {
         return PathBuf::from(d).join("screenpet-relay");
@@ -23,16 +20,17 @@ fn default_data_dir() -> PathBuf {
     home.join(".local/share/screenpet-relay")
 }
 
+/// 사용법을 찍고 끝냄
 fn usage() -> ! {
     eprintln!("usage: screenpet-relay [--bind ADDR:PORT] [--data DIR] [--trusted-proxy IP]...");
     eprintln!("       screenpet-relay admin [--data DIR] <command>   (admin --help lists them)");
     std::process::exit(2);
 }
 
-/// SIGTERM and SIGINT, blocked in every thread and collected by `wait`: no
-/// signal handler to get wrong, and shutting down is ordinary code.
+/// SIGTERM·SIGINT를 모든 스레드에서 막고 `wait`가 모음: 틀릴 시그널 핸들러가 없고 종료는 평범한 코드임
 #[cfg(unix)]
 mod signals {
+    /// 두 시그널을 막고 그 집합을 돌려줌 (스레드를 띄우기 전에 부를 것)
     pub fn block() -> libc::sigset_t {
         // SAFETY: the set is initialized by sigemptyset before use.
         unsafe {
@@ -45,6 +43,7 @@ mod signals {
         }
     }
 
+    /// 두 시그널 중 하나가 올 때까지 기다림
     pub fn wait(set: &libc::sigset_t) {
         let mut sig = 0;
         // SAFETY: both pointers are valid for the call.
@@ -52,6 +51,7 @@ mod signals {
     }
 }
 
+/// `admin` 하위 명령을 돌리고 결과로 끝냄
 #[cfg(unix)]
 fn run_admin(mut data: PathBuf, mut words: Vec<String>) -> ! {
     if words.first().is_some_and(|w| w == "--data") && words.len() >= 2 {
@@ -79,6 +79,7 @@ fn run_admin(mut data: PathBuf, mut words: Vec<String>) -> ! {
     }
 }
 
+/// 인자·환경 변수를 읽고 릴레이를 띄운 뒤 시그널이 오면 멈춤
 fn main() {
     // Before any thread starts, so all of them inherit the mask.
     #[cfg(unix)]

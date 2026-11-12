@@ -1,7 +1,6 @@
-//! Persistent relay data (`relay.json` in the data directory): per install
-//! (keyed by its static public key) the self-declared install id, the friend
-//! keys it wants to reach, and its current friend code. No message content is
-//! ever stored. Also the relay's own static key (`relay.key`).
+//! 릴레이의 저장 데이터임 (데이터 폴더의 `relay.json`): 설치(정적 공개키가 키)마다 스스로 밝힌 설치 id,
+//! 닿고 싶은 친구 키들, 지금 친구 코드. 메시지 내용은 절대 저장하지 않음. 릴레이 자신의 정적 키(`relay.key`)도 다룸.
+//! 허브가 `State::store`로 들고, 쓰기는 잠금 밖 `write_snapshot`으로 함.
 
 use crate::proto::{self, new_code};
 use serde::{Deserialize, Serialize};
@@ -10,79 +9,90 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// 데이터 파일 이름
 const DATA_FILE: &str = "relay.json";
+/// 릴레이 키 파일 이름
 const KEY_FILE: &str = "relay.key";
-/// Installs not seen for this long are forgotten.
+/// 이만큼 안 보인 설치는 잊음
 const FORGET_AFTER_SECS: u64 = 180 * 24 * 3600;
-/// Installs that never listed a friend nor took part in a code redeem are
-/// forgotten after this long unseen (so registrations can't fill the store
-/// for good).
+/// 친구를 둔 적도 코드 사용에 낀 적도 없는 설치는 이만큼 안 보이면 잊음 (등록으로 저장소를 영영 못 채우게)
 pub const IDLE_FORGET_SECS: u64 = 24 * 3600;
-/// Befriended installs seen on fewer than `ESTABLISHED_DAYS` days are
-/// forgotten after this long unseen: keys that only befriend each other can't
-/// buy half a year. Being forgotten costs a real install little, its next
-/// login registers it again with the same friend list.
+/// `ESTABLISHED_DAYS`일보다 적게 보인 친구 있는 설치는 이만큼 안 보이면 잊음: 서로만 친구 맺은 키가 반년을 못 삼.
+/// 잊혀도 진짜 설치는 손해가 적음: 다음 로그인 때 같은 친구 목록으로 다시 등록됨
 const NEW_FRIEND_FORGET_SECS: u64 = 14 * 24 * 3600;
+/// 이만큼 서로 다른 날에 보이면 자리 잡은 설치로 봄
 const ESTABLISHED_DAYS: u32 = 7;
+/// 하루 (초)
 const DAY_SECS: u64 = 24 * 3600;
-/// `last_seen` alone makes the store dirty at most this often per install.
+/// `last_seen`만으로는 설치당 최대 이 주기로만 저장소를 더럽힘
 const TOUCH_EVERY_SECS: u64 = 600;
-/// Default hard cap on stored installs.
+/// 저장하는 설치 수 기본 상한
 pub const MAX_INSTALLS: usize = 20_000;
 
+/// 지금 유닉스 초를 돌려줌 (시계가 이상하면 0)
 pub fn unix_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
+/// 옛 파일의 `seen_days` 기본값: 자리 잡은 것으로 시작함
 fn established_days() -> u32 {
     ESTABLISHED_DAYS
 }
 
+/// 저장된 설치 하나임
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Install {
+    /// 스스로 밝힌 설치 id 라벨
     pub id: String,
+    /// 닿고 싶은 친구 키들
     #[serde(default)]
     pub friends: Vec<String>,
+    /// 지금 친구 코드
     pub code: String,
-    /// When `code` was issued (unix seconds).
+    /// `code`를 준 때 (유닉스 초)
     pub code_at: u64,
+    /// 마지막으로 본 때 (유닉스 초)
     #[serde(default)]
     pub last_seen: u64,
-    /// Redeemed a code or had its code redeemed (kept like an install with a
-    /// mutual friend).
+    /// 코드를 썼거나 자기 코드가 쓰였음 (서로 친구 있는 설치처럼 둠)
     #[serde(default)]
     pub active: bool,
-    /// Distinct days this install has been seen on. Files from before this
-    /// count was kept hold real installs: they start out established.
+    /// 이 설치가 보인 서로 다른 날 수. 이 수를 세기 전 파일은 진짜 설치를 담았으므로 자리 잡은 것으로 시작함
     #[serde(default = "established_days")]
     pub seen_days: u32,
 }
 
 
 
+/// `relay.json` 내용임
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Data {
+    /// 설치 키 → 설치
     #[serde(default)]
     installs: HashMap<String, Install>,
 }
 
-/// A copy of the data to write outside the hub lock (see [`write_snapshot`]).
+/// 허브 잠금 밖에서 쓸 데이터 사본임 ([`write_snapshot`] 참고)
 pub struct Snapshot {
     dir: PathBuf,
     data: Data,
 }
 
+/// 설치 저장소임: 데이터, 코드 색인, 저장할 게 있는지
 pub struct Store {
+    /// 데이터 폴더 (None이면 메모리만)
     dir: Option<PathBuf>,
+    /// 데이터
     data: Data,
-    /// code → install key
+    /// 코드 → 설치 키
     by_code: HashMap<String, String>,
+    /// 저장할 게 있음
     dirty: bool,
-    /// Hard cap on stored installs (new keys are refused when full).
+    /// 저장하는 설치 수 딱딱한 상한 (차면 새 키를 거절함)
     pub max_installs: usize,
 }
 
-/// Parse a data file; `None` if missing or torn.
+/// 데이터 파일을 읽음. 없거나 찢어졌으면 None임
 fn read_data(path: &Path) -> Option<Data> {
     let bytes = std::fs::read(path).ok()?;
     match serde_json::from_slice(&bytes) {
@@ -94,7 +104,7 @@ fn read_data(path: &Path) -> Option<Data> {
     }
 }
 
-/// Create `dir` (0700 on unix).
+/// `dir`을 만듦 (unix면 0700)
 fn private_dir(dir: &Path) -> io::Result<()> {
     std::fs::create_dir_all(dir)?;
     #[cfg(unix)]
@@ -106,13 +116,12 @@ fn private_dir(dir: &Path) -> io::Result<()> {
 }
 
 impl Store {
-    /// In-memory only (tests).
+    /// 메모리에만 있는 저장소를 만듦 (시험)
     pub fn memory() -> Store {
         Store { dir: None, data: Data::default(), by_code: HashMap::new(), dirty: false, max_installs: MAX_INSTALLS }
     }
 
-    /// Load `relay.json`, else its backup `relay.json.bak`, else start empty
-    /// (logged) — a torn file never stops the relay from starting.
+    /// `relay.json`, 없으면 백업 `relay.json.bak`, 없으면 빈 것으로 시작함 (로그 남김). 찢어진 파일이 릴레이 시작을 막지 않음
     pub fn open(dir: &Path) -> io::Result<Store> {
         private_dir(dir)?;
         let main = dir.join(DATA_FILE);
@@ -144,10 +153,12 @@ impl Store {
         Ok(store)
     }
 
+    /// 설치 하나를 돌려줌
     pub fn get(&self, key: &str) -> Option<&Install> {
         self.data.installs.get(key)
     }
 
+    /// 본 날 수를 정함 (시험용)
     #[cfg(test)]
     pub fn set_seen_days(&mut self, key: &str, days: u32) {
         if let Some(i) = self.data.installs.get_mut(key) {
@@ -155,27 +166,28 @@ impl Store {
         }
     }
 
+    /// 저장된 설치 수
     pub fn count(&self) -> usize {
         self.data.installs.len()
     }
 
+    /// 모든 설치를 돌려줌
     pub fn installs(&self) -> impl Iterator<Item = (&String, &Install)> {
         self.data.installs.iter()
     }
 
-    /// Mutual friends of `key`.
+    /// `key`의 서로 친구 수
     pub fn mutual_count(&self, key: &str) -> usize {
         self.get(key).map_or(0, |i| i.friends.iter().filter(|f| self.mutual(key, f)).count())
     }
 
-    /// Offline installs not seen for `secs`.
+    /// `secs` 동안 안 보인 오프라인 설치들
     pub fn idle(&self, now: u64, secs: u64, online: &dyn Fn(&str) -> bool) -> Vec<String> {
         self.installs().filter(|(k, i)| !online(k) && now.saturating_sub(i.last_seen) >= secs).map(|(k, _)| k.clone()).collect()
     }
 
-    /// Groups joined by mutual friendship with at least `min` members, none of
-    /// them `online`: what keys befriending only each other look like. (So does
-    /// a real group of friends who are all away, which is why it takes `min`.)
+    /// 서로 친구로 이어진 `min`명 이상의 무리 중 아무도 `online`이 아닌 것들: 서로만 친구 맺은 키들의 모습임.
+    /// (모두 자리를 비운 진짜 친구 무리도 그렇게 보여서 `min`을 받음)
     pub fn islands(&self, min: usize, online: &dyn Fn(&str) -> bool) -> Vec<Vec<String>> {
         let mut seen = std::collections::HashSet::new();
         let mut groups = Vec::new();
@@ -201,10 +213,12 @@ impl Store {
         groups
     }
 
+    /// 저장소가 찼는지 봄
     pub fn is_full(&self) -> bool {
         self.data.installs.len() >= self.max_installs
     }
 
+    /// `key`에 새 코드를 주고 색인을 고침 (겹치지 않을 때까지 다시 뽑음)
     fn issue_code(&mut self, key: &str, now: u64) {
         let code = loop {
             let c = new_code();
@@ -223,16 +237,13 @@ impl Store {
         }
     }
 
-    /// A fresh code for `key` right now (user asked for a new one).
+    /// 지금 `key`에 새 코드를 줌 (사용자가 새 코드를 원함)
     pub fn rotate(&mut self, key: &str, now: u64) {
         self.issue_code(key, now);
     }
 
-    /// Record a successful authentication. Creates the install (with a code)
-    /// if new — `false` if the store is full; updates its id label and
-    /// friend list (written only if something changed). When full, first
-    /// evicts the least recently seen install that has no friends and is not
-    /// `online`.
+    /// 성공한 인증을 기록함. 새 설치면 (코드와 함께) 만들고, 저장소가 차 있으면 `false`. id 라벨과 친구 목록을 고침
+    /// (바뀐 게 있을 때만 씀). 차 있으면 먼저 친구 없고 `online`이 아닌 가장 오래 안 보인 설치를 내보냄
     pub fn register_with(&mut self, key: &str, id: &str, friends: Vec<String>, now: u64, online: &dyn Fn(&str) -> bool) -> bool {
         if self.is_full() && !self.data.installs.contains_key(key) {
             let stalest = |keep: &dyn Fn(&str, &Install) -> bool| {
@@ -267,6 +278,7 @@ impl Store {
         }
     }
 
+    /// 친구 목록을 바꿈 (바뀌었을 때만 저장소를 더럽힘)
     pub fn set_friends(&mut self, key: &str, friends: Vec<String>) {
         if let Some(inst) = self.data.installs.get_mut(key) {
             if inst.friends != friends {
@@ -276,7 +288,7 @@ impl Store {
         }
     }
 
-    /// The install took part in a code redeem: keep it like a befriended one.
+    /// 이 설치가 코드 사용에 낌: 친구 있는 설치처럼 둠
     pub fn mark_active(&mut self, key: &str) {
         if let Some(inst) = self.data.installs.get_mut(key) {
             if !inst.active {
@@ -286,7 +298,7 @@ impl Store {
         }
     }
 
-    /// Note activity; only dirties the store every `TOUCH_EVERY_SECS`.
+    /// 활동을 적음. 저장소는 `TOUCH_EVERY_SECS`마다만 더럽힘
     pub fn touch(&mut self, key: &str, now: u64) {
         if let Some(inst) = self.data.installs.get_mut(key) {
             if now.saturating_sub(inst.last_seen) >= TOUCH_EVERY_SECS {
@@ -299,8 +311,7 @@ impl Store {
         }
     }
 
-    /// The install's current code and its remaining lifetime (seconds),
-    /// rotating it first if it is `ttl` old. `rotated` = a new code was issued.
+    /// 설치의 지금 코드와 남은 수명(초)을 돌려줌. `ttl`만큼 지났으면 먼저 바꿈. `rotated` = 새 코드를 줬음
     pub fn code(&mut self, key: &str, now: u64, ttl: u64) -> Option<(String, u64, bool)> {
         let due = self.data.installs.get(key).map(|i| now >= i.code_at.saturating_add(ttl))?;
         if due {
@@ -311,26 +322,25 @@ impl Store {
         Some((inst.code.clone(), left, due))
     }
 
-    /// Install key for a (normalized) code, if it is current.
+    /// (맞춘) 코드의 설치 키를 돌려줌. 지금 코드일 때만
     pub fn by_code(&self, code: &str, now: u64, ttl: u64) -> Option<&str> {
         let key = self.by_code.get(code)?;
         let inst = self.data.installs.get(key)?;
         (inst.code == code && now < inst.code_at.saturating_add(ttl)).then_some(key.as_str())
     }
 
-    /// Worth keeping: took part in a redeem, or has at least one *mutual*
-    /// friend (a one-sided, self-declared list doesn't count).
+    /// 둘 가치가 있는지 봄: 코드 사용에 꼈거나 *서로* 친구가 하나라도 있음 (한쪽만 밝힌 목록은 안 셈)
     pub fn befriended(&self, key: &str) -> bool {
         self.data.installs.get(key).is_some_and(|i| i.active || i.friends.iter().any(|f| self.mutual(key, f)))
     }
 
-    /// Does `a` list `b` and `b` list `a`?
+    /// `a`가 `b`를, `b`가 `a`를 목록에 두었는지 봄
     pub fn mutual(&self, a: &str, b: &str) -> bool {
         let wants = |x: &str, y: &str| self.data.installs.get(x).is_some_and(|i| i.friends.iter().any(|f| f == y));
         wants(a, b) && wants(b, a)
     }
 
-    /// Forget an install (operator clean-up).
+    /// 설치를 잊음 (운영자 정리)
     pub fn remove(&mut self, key: &str) -> bool {
         match self.data.installs.remove(key) {
             Some(i) => {
@@ -342,13 +352,12 @@ impl Store {
         }
     }
 
-    /// Worth keeping as someone's friend: `befriended`, or established with a
-    /// friend list, which stays so when a friend happens to be forgotten.
+    /// 누군가의 친구로 둘 가치가 있는지 봄: `befriended`, 또는 친구 목록이 있는 자리 잡은 설치 (친구가 잊혀도 그대로임)
     fn has_friends(&self, key: &str, inst: &Install) -> bool {
         self.befriended(key) || (inst.seen_days >= ESTABLISHED_DAYS && !inst.friends.is_empty())
     }
 
-    /// How long `key` is kept unseen.
+    /// `key`를 안 보인 채로 얼마나 두는지 돌려줌
     fn keep_for(&self, key: &str, inst: &Install) -> u64 {
         if !self.has_friends(key, inst) {
             IDLE_FORGET_SECS
@@ -359,9 +368,8 @@ impl Store {
         }
     }
 
-    /// Forget installs unseen for longer than `keep_for` says; never an
-    /// `online` one. Friendships are only looked at for installs at least
-    /// `IDLE_FORGET_SECS` unseen, so the usual pass is a plain scan.
+    /// `keep_for`보다 오래 안 보인 설치를 잊음. `online`인 것은 절대 안 잊음.
+    /// 친구 관계는 `IDLE_FORGET_SECS` 넘게 안 보인 설치만 보므로 보통은 단순 훑기임
     pub fn prune_with(&mut self, now: u64, online: &dyn Fn(&str) -> bool) {
         let expired: Vec<String> = self
             .data
@@ -378,13 +386,13 @@ impl Store {
         }
     }
 
+    /// 마지막으로 본 때를 정함 (시험용)
     #[cfg(test)]
     pub(crate) fn touch_at_for_test(&mut self, key: &str, when: u64) {
         self.data.installs.get_mut(key).unwrap().last_seen = when;
     }
 
-    /// If anything changed, a copy to write (marks the store clean; call
-    /// [`Store::mark_dirty`] if the write fails).
+    /// 바뀐 게 있으면 쓸 사본을 돌려줌 (저장소를 깨끗하게 표시함. 쓰기에 실패하면 [`Store::mark_dirty`]를 부를 것)
     pub fn snapshot(&mut self) -> Option<Snapshot> {
         if !self.dirty {
             return None;
@@ -394,14 +402,14 @@ impl Store {
         Some(Snapshot { dir, data: self.data.clone() })
     }
 
+    /// 쓰기에 실패했을 때 다시 저장하게 표시함
     pub fn mark_dirty(&mut self) {
         self.dirty = true;
     }
 
 }
 
-/// Write a snapshot: private temp file, fsync, keep the old file as
-/// `relay.json.bak`, rename into place, fsync the directory (best effort).
+/// 사본을 씀: 비공개 임시 파일, fsync, 옛 파일은 `relay.json.bak`으로 두고 이름 바꾸기, 폴더 fsync (되는 만큼)
 pub fn write_snapshot(snap: &Snapshot) -> io::Result<()> {
     let main = snap.dir.join(DATA_FILE);
     let tmp = snap.dir.join(format!("{DATA_FILE}.tmp"));
@@ -417,8 +425,7 @@ pub fn write_snapshot(snap: &Snapshot) -> io::Result<()> {
     Ok(())
 }
 
-/// The relay's long-term X25519 private key from `relay.key` (hex), created
-/// on first start.
+/// `relay.key`(hex)에서 릴레이의 장기 X25519 개인키를 읽음. 처음 시작이면 만듦
 pub fn load_or_create_key(dir: &Path) -> io::Result<[u8; 32]> {
     private_dir(dir)?;
     let path = dir.join(KEY_FILE);
@@ -442,7 +449,7 @@ pub fn load_or_create_key(dir: &Path) -> io::Result<[u8; 32]> {
     }
 }
 
-/// Write `bytes` to a new 0600 file (unix) and fsync it.
+/// `bytes`를 새 0600 파일(unix)에 쓰고 fsync함
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
@@ -461,6 +468,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     f.sync_all()
 }
 
+/// 코드·친구·정리·저장·용량 시험임
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -697,7 +705,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The fields of a real relay.json from before `seen_days`.
+    /// `seen_days` 전 실제 relay.json의 필드들임
     #[test]
     fn friends_from_an_older_file_keep_their_long_retention() {
         let dir = tmpdir("legacy");

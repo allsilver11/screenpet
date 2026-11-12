@@ -1,16 +1,13 @@
-//! 🔄 App updates: read-only static files from `<data dir>/downloads/`.
+//! 🔄 앱 업데이트임: `<data dir>/downloads/`의 읽기 전용 정적 파일을 내줌.
 //!
-//! `GET|HEAD /downloads/latest.json` and `/downloads/<installer>`, where the
-//! installer name must be exactly `ScreenPet_X.Y.Z_x64-setup.exe` or
-//! `ScreenPet_X.Y.Z_universal.dmg`. Nothing else is served: no listing, no
-//! other names (so no path tricks), no symlinks, no other methods. Files are
-//! streamed from disk in small chunks; at most `Limits::max_downloads`
-//! installers go out at once and `max_downloads_per_ip` to one client
-//! address, the rest get `503 busy`. A download that is too slow (under
-//! `download_min_rate` on average after `download_grace`), stalls, or runs
-//! past `download_deadline` is cut off, so slow clients can't hold the slots.
-//! The files are put there by `deploy/publish-release.sh`; `latest.json.sig`
-//! is its signature (the relay never has the signing key).
+//! `GET|HEAD /downloads/latest.json`과 `/downloads/<installer>`만 받고, 설치 파일 이름은 정확히
+//! `ScreenPet_X.Y.Z_x64-setup.exe`나 `ScreenPet_X.Y.Z_universal.dmg`여야 함. 그 밖엔 안 내줌:
+//! 목록 없음, 다른 이름 없음(경로 장난 불가), 심볼릭 링크 없음, 다른 메서드 없음.
+//! 파일은 디스크에서 작은 조각으로 흘려보냄. 설치 파일은 동시에 최대 `Limits::max_downloads`개,
+//! 클라이언트 주소 하나에 `max_downloads_per_ip`개까지 나가고 나머지는 `503 busy`를 받음.
+//! 너무 느리거나(`download_grace` 뒤 평균 `download_min_rate` 미만) 멈추거나 `download_deadline`을 넘는 다운로드는 끊어
+//! 느린 클라이언트가 자리를 못 잡게 함. 파일은 `deploy/publish-release.sh`가 놓고, `latest.json.sig`는 그 서명임
+//! (릴레이는 서명 키를 갖지 않음). `http::handle`이 부름.
 
 use crate::Limits;
 use std::collections::HashMap;
@@ -20,18 +17,21 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// The URL prefix this module answers.
+/// 이 모듈이 답하는 URL 접두어
 pub(crate) const PREFIX: &str = "/downloads/";
+/// 업데이트 정보 파일 이름
 const LATEST: &str = "latest.json";
+/// 업데이트 정보 서명 파일 이름
 const LATEST_SIG: &str = "latest.json.sig";
+/// 한 번에 흘려보내는 조각 크기
 const CHUNK: usize = 64 * 1024;
 
-/// Does `path` belong to the download routes (`/downloads` or below)?
+/// `path`가 다운로드 경로(`/downloads`나 그 아래)인지 봄
 pub(crate) fn is_downloads(path: &str) -> bool {
     path == "/downloads" || path.starts_with(PREFIX)
 }
 
-/// `latest.json`, `latest.json.sig`, or `ScreenPet_<d+>.<d+>.<d+>_(x64-setup.exe|universal.dmg)`.
+/// `latest.json`, `latest.json.sig`, 또는 `ScreenPet_<d+>.<d+>.<d+>_(x64-setup.exe|universal.dmg)`만 받음
 pub(crate) fn allowed_name(name: &str) -> bool {
     if name == LATEST || name == LATEST_SIG {
         return true;
@@ -43,6 +43,7 @@ pub(crate) fn allowed_name(name: &str) -> bool {
     numeric && (kind == "x64-setup.exe" || kind == "universal.dmg")
 }
 
+/// 파일 이름에 맞는 Content-Type을 돌려줌
 fn content_type(name: &str) -> &'static str {
     if name.ends_with(".json") {
         "application/json"
@@ -55,25 +56,36 @@ fn content_type(name: &str) -> &'static str {
     }
 }
 
+/// 다운로드 경로 처리기임: 폴더, 한도, 진행 중인 다운로드 수
 pub(crate) struct Downloads {
+    /// 파일 폴더 (None이면 모두 404)
     dir: Option<PathBuf>,
+    /// 동시 설치 파일 다운로드 상한
     max: usize,
+    /// 주소당 동시 다운로드 상한
     max_per_ip: usize,
+    /// 다운로드 하나의 최대 시간
     deadline: Duration,
+    /// 유예 뒤 최소 평균 속도 (바이트/초)
     min_rate: u64,
+    /// 속도를 보기 전 유예
     grace: Duration,
+    /// 쓰기가 이만큼 못 움직이면 끊음
     stall: Duration,
-    /// Installers going out: in all, and per client address.
+    /// 나가는 설치 파일 수: 전체, 그리고 클라이언트 주소별
     active: Mutex<(usize, HashMap<String, usize>)>,
 }
 
-/// One download slot (in all and for its address), given back on drop.
+/// 다운로드 자리 하나임 (전체와 그 주소 몫). 버리면 돌려줌
 struct Slot<'a> {
+    /// 자리를 준 처리기
     owner: &'a Downloads,
+    /// 클라이언트 주소
     ip: String,
 }
 
 impl Drop for Slot<'_> {
+    /// 자리를 전체와 주소 몫에 돌려줌
     fn drop(&mut self) {
         let mut a = self.owner.active.lock().unwrap_or_else(|e| e.into_inner());
         a.0 -= 1;
@@ -86,6 +98,7 @@ impl Drop for Slot<'_> {
     }
 }
 
+/// 짧은 글 본문으로 상태 응답을 씀
 fn status<W: Write>(out: &mut W, status: &str, extra: &str, body: &str) {
     let _ = write!(
         out,
@@ -96,7 +109,7 @@ fn status<W: Write>(out: &mut W, status: &str, extra: &str, body: &str) {
 }
 
 impl Downloads {
-    /// `dir` = `<data dir>/downloads` (`None`: every name is 404).
+    /// 처리기를 만듦. `dir` = `<data dir>/downloads` (None이면 모든 이름이 404)
     pub(crate) fn new(dir: Option<PathBuf>, limits: &Limits) -> Downloads {
         Downloads {
             dir,
@@ -110,6 +123,7 @@ impl Downloads {
         }
     }
 
+    /// 전체·주소 한도 안이면 자리를 하나 줌
     fn slot(&self, ip: &str) -> Option<Slot<'_>> {
         let mut a = self.active.lock().unwrap_or_else(|e| e.into_inner());
         let mine = a.1.get(ip).copied().unwrap_or(0);
@@ -121,13 +135,12 @@ impl Downloads {
         Some(Slot { owner: self, ip: ip.to_string() })
     }
 
-    /// Socket settings for a download: a write that can't move for
-    /// `download_stall` ends it.
+    /// 다운로드용 소켓 설정임: `download_stall` 동안 못 움직이는 쓰기는 끝냄
     pub(crate) fn prepare(&self, stream: &std::net::TcpStream) {
         let _ = stream.set_write_timeout(Some(self.stall));
     }
 
-    /// Should a transfer that has sent `sent` bytes in `elapsed` stop?
+    /// `elapsed` 동안 `sent`바이트를 보낸 전송을 멈춰야 하는지 봄
     fn too_slow(&self, sent: u64, elapsed: Duration) -> bool {
         if elapsed >= self.deadline {
             return true;
@@ -135,9 +148,8 @@ impl Downloads {
         elapsed >= self.grace && (sent as f64) < self.min_rate as f64 * elapsed.as_secs_f64()
     }
 
-    /// Answer one request on a download route from client address `ip`
-    /// (the relay's per-address bucket). `stopping` ends a transfer early
-    /// when the relay shuts down.
+    /// 클라이언트 주소 `ip`(릴레이의 주소별 묶음)에서 온 다운로드 경로 요청 하나에 답함.
+    /// `stopping`이 참이 되면(릴레이 종료) 전송을 일찍 끝냄
     pub(crate) fn serve<W: Write>(&self, method: &str, path: &str, ip: &str, out: &mut W, stopping: &dyn Fn() -> bool) {
         let head = match method {
             "GET" => false,
@@ -205,6 +217,7 @@ impl Downloads {
     }
 }
 
+/// 이름·경로·자리 한도·느린 전송·심볼릭 링크 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

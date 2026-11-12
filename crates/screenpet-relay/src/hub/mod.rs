@@ -48,24 +48,27 @@ use std::path::PathBuf;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-/// Something for a connection thread to send.
+/// 연결 스레드가 보낼 것임
 pub(crate) enum Out {
+    /// 텍스트(JSON) 메시지
     Text(String),
+    /// 친구 프레임
     Binary(Vec<u8>),
-    /// Send `error{reason}` and disconnect.
+    /// `error{reason}`을 보내고 끊음
     Kick(String),
 }
 
-/// The hub's handle on a connection thread.
+/// 연결 스레드에 대한 허브의 손잡이임
 #[derive(Clone)]
 pub(crate) struct Link {
+    /// 연결 스레드의 큐
     pub out: SyncSender<Out>,
-    /// Once set, the thread sends this as `error{reason}` and disconnects.
+    /// 한 번 세워지면 스레드가 이것을 `error{reason}`으로 보내고 끊음
     pub kill: Arc<OnceLock<&'static str>>,
-    /// Bytes of friend frames waiting in `out`, and in the queues of its network.
+    /// `out`에서 기다리는 친구 프레임 바이트, 그리고 그 네트워크 큐의 바이트
     pub queued: Arc<AtomicUsize>,
     net_queued: Arc<AtomicUsize>,
-    /// When `out` last made progress (ms since the hub started).
+    /// `out`이 마지막으로 움직인 때 (허브 시작 뒤 ms)
     drained_at: Arc<AtomicU64>,
 }
 
@@ -88,17 +91,23 @@ impl Link {
     }
 }
 
+/// 접속한 설치 하나임
 struct Peer {
+    /// 지금 연결 번호
     conn: u64,
+    /// 설치 id 라벨
     id: String,
-    /// Address key and connect time: only for `admin status`, never stored.
+    /// 주소 키와 접속 시각: `admin status`용일 뿐 저장 안 함
     ip: String,
+    /// 접속 시각 (유닉스 초)
     since: u64,
+    /// 연결 스레드 손잡이
     link: Link,
+    /// 이 설치가 낀 채널들
     channels: HashSet<u32>,
-    /// ☀️ The built-in place whose weather this app wants (Yongin until it says otherwise).
+    /// ☀️ 이 앱이 원하는 기본 지역 (말하기 전엔 용인)
     weather: &'static str,
-    /// 📮 When this connection last got a board page.
+    /// 📮 이 연결이 마지막으로 건의함 페이지를 받은 때
     board_at: Option<Instant>,
 }
 
@@ -111,49 +120,63 @@ impl Peer {
     }
 }
 
+/// 두 설치 사이의 열린 채널임
 struct Channel {
-    /// (install key, connection) of the opener and of the other side.
+    /// 연 쪽과 다른 쪽의 (설치 키, 연결)
     ends: [(String, u64); 2],
-    /// Frames per second from each end.
+    /// 각 끝에서 오는 초당 프레임
     buckets: [Bucket; 2],
 }
 
-/// A redeemed friend code: `from` may open one channel to `to` until `until`.
+/// 쓴 친구 코드임: `from`이 `until`까지 `to`에게 채널 하나를 열 수 있음
 struct Grant {
+    /// 코드를 쓴 설치 키
     from: String,
+    /// 코드 주인 설치 키
     to: String,
+    /// 허가 만료
     until: Instant,
 }
 
-/// A connection let in by `admit_ip`.
+/// `admit_ip`가 들인 연결임
 pub(crate) struct Admission {
+    /// 연결 번호
     pub conn: u64,
+    /// 세우면 연결을 끊는 깃발
     pub kill: Arc<OnceLock<&'static str>>,
+    /// 이 연결 네트워크의 큐 바이트
     net_queued: Arc<AtomicUsize>,
 }
 
-/// Why `admit_ip` said no.
+/// `admit_ip`가 거절한 까닭임
 pub(crate) enum Refused {
+    /// 한도가 참
     Busy,
+    /// 차단된 주소
     Banned,
+    /// `admin relay off`
     RelayOff,
 }
 
-/// What `welcome` and `code` carry while friend codes are off. The apps
-/// require the field and show it, so it should read as "no code".
+/// 친구 코드가 꺼진 동안 `welcome`과 `code`에 싣는 값임. 앱은 그 필드가 꼭 있어야 하고 보여 주므로 "코드 없음"으로 읽혀야 함
 pub(crate) const NO_CODE: &str = "----";
 
-/// A connection that has not authenticated yet.
+/// 아직 인증하지 않은 연결임
 struct Unauthed {
+    /// 주소 키
     ip: String,
+    /// 네트워크 키
     net: String,
+    /// 내보낼 때 세우는 깃발
     kill: Arc<OnceLock<&'static str>>,
 }
 
-/// Connections, and how many of them have not authenticated yet.
+/// 연결 수와 그중 아직 인증하지 않은 수임
 #[derive(Default, Clone, Copy)]
 struct Conns {
+    /// 전체 연결 수
     total: usize,
+    /// 인증 전 연결 수
     unauthed: usize,
 }
 
@@ -174,47 +197,56 @@ impl Conns {
     }
 }
 
+/// 허브의 잠긴 상태임 (모듈 설명의 `state` 잠금)
 #[derive(Default)]
 struct State {
+    /// 설치 저장소
     store: Option<Store>,
+    /// 설치 키 → 접속한 설치
     peers: HashMap<String, Peer>,
+    /// 채널 번호 → 채널
     channels: HashMap<u32, Channel>,
+    /// 다음 채널 번호
     next_ch: u32,
+    /// 쓴 코드로 받은 허가들
     grants: Vec<Grant>,
-    /// Connections per address key, per network (IPv4 /24, IPv6 /48), in all.
+    /// 주소 키별 연결
     ip_conns: HashMap<String, Conns>,
+    /// 네트워크(IPv4 /24, IPv6 /48)별 연결
     net_conns: HashMap<String, Conns>,
+    /// 전체 연결
     all_conns: Conns,
+    /// 운영자 스위치와 차단
     control: Control,
-    /// Not authenticated yet, oldest first (keyed by connection id).
+    /// 아직 인증하지 않은 연결, 오래된 것 먼저 (연결 번호가 키)
     unauthed: BTreeMap<u64, Unauthed>,
-    /// Bytes of friend frames queued per network, while it has connections.
+    /// 네트워크별 기다리는 친구 프레임 바이트 (연결이 있는 동안)
     net_queued: HashMap<String, Arc<AtomicUsize>>,
-    /// Forwarded bytes per address key (a hard cap) and per network (a fair
-    /// share kept inside the global budget). These outlive connections, so
-    /// reconnecting doesn't refill them; `maintain` drops them once refilled.
+    /// 주소 키별 넘긴 바이트 (딱딱한 상한). 연결보다 오래 살아 재연결해도 다시 안 참. 다 차면 `maintain`이 버림
     ip_bytes: HashMap<String, Bucket>,
+    /// 네트워크별 넘긴 바이트 (전체 예산 안의 공정 몫)
     net_bytes: HashMap<String, Bucket>,
-    /// Whole relay: the budget (past it only fair shares pass), and the
-    /// ceiling for everyone at twice that.
+    /// 릴레이 전체 예산 (넘으면 공정 몫만 통과)
     global_bytes: Bucket,
+    /// 모두에게 걸리는 천장 (예산의 두 배)
     global_bytes_hard: Bucket,
+    /// 주소별 최근 코드 사용
     ip_redeems: HashMap<String, VecDeque<Instant>>,
+    /// 주소별 최근 새 설치
     ip_registrations: HashMap<String, VecDeque<Instant>>,
-    /// Per "target-key code": recent distinct requesters (cap per code, so
-    /// a new code starts fresh and one requester retrying counts once).
+    /// "대상 키 코드"마다 최근 서로 다른 요청자들 (코드마다 상한이라 새 코드는 새로 시작하고, 다시 해 보는 요청자는 한 번만 셈)
     target_redeems: HashMap<String, VecDeque<(Instant, String)>>,
-    /// New codes in `target_redeems` per network: one network can't fill that
-    /// fail-closed table and so block pairing for everyone.
+    /// 네트워크별 `target_redeems`의 새 코드: 한 네트워크가 실패-닫힘 표를 채워 모두의 짝짓기를 막지 못하게 함
     net_new_codes: HashMap<String, VecDeque<Instant>>,
-    /// New installs per network (IPv4 /24, IPv6 /48) in the last day.
+    /// 네트워크(IPv4 /24, IPv6 /48)별 지난 하루의 새 설치
     net_registrations: HashMap<String, VecDeque<Instant>>,
-    /// Well-formed redeems per source address (fair share of the global budget).
+    /// 출처 주소별 올바른 모양의 코드 사용 (전체 예산의 공정 몫)
     ip_wellformed: HashMap<String, VecDeque<Instant>>,
-    /// Whole relay: new installs in the last hour, redeems in the last minute.
+    /// 릴레이 전체: 지난 한 시간의 새 설치
     global_registrations: VecDeque<Instant>,
+    /// 릴레이 전체: 지난 일 분의 코드 사용
     global_redeems: VecDeque<Instant>,
-    /// ☀️ Weather places and their last readings.
+    /// ☀️ 날씨 지역과 마지막 값
     weathers: Weathers,
 }
 
@@ -307,31 +339,42 @@ impl State {
     }
 }
 
-/// Shortest prefix `admin` accepts for a key or id.
+/// `admin`이 키나 id로 받는 가장 짧은 앞부분
 pub(super) const MIN_PREFIX: usize = 4;
 
+/// 릴레이 허브임: 모든 연결 스레드가 같이 씀
 pub struct Hub {
+    /// 한도
     pub limits: Limits,
-    /// Reverse proxies whose X-Real-IP / X-Forwarded-For are believed.
+    /// X-Real-IP / X-Forwarded-For를 믿는 리버스 프록시들
     pub trusted_proxies: Vec<std::net::IpAddr>,
+    /// 릴레이 정적 개인키
     pub private_key: [u8; 32],
+    /// 릴레이 정적 공개키
     pub public_key: [u8; 32],
+    /// 상태 잠금
     state: Mutex<State>,
+    /// 멈춤 깃발
     stop: AtomicBool,
+    /// 프록시 주소 없음 경고를 이미 함
     proxy_warned: AtomicBool,
-    /// Bytes of friend frames in all connection queues.
+    /// 모든 연결 큐의 친구 프레임 바이트
     queued_total: AtomicUsize,
+    /// 허브 시작 시각
     started: Instant,
+    /// 누계 카운터
     pub counters: Counters,
+    /// 데이터 폴더
     data_dir: Option<PathBuf>,
-    /// Mirrors `control.relay` for connection threads, which don't lock to check.
+    /// 연결 스레드용 `control.relay` 거울 (확인할 때 잠그지 않음)
     relay_off: AtomicBool,
+    /// 다음 연결 번호
     next_conn: AtomicU64,
+    /// 띄운 스레드들
     threads: Mutex<Vec<JoinHandle<()>>>,
     /// 📮 개발자에게 온 건의 편지 (`letters.json`). 잎 잠금임 (모듈 설명 참고)
     mail: Mutex<Mailbox>,
-    /// Held across taking a mailbox snapshot and writing it, so two
-    /// connection threads can't write an older snapshot over a newer one.
+    /// 편지함 스냅숏을 뜨고 쓰는 동안 잡음: 두 연결 스레드가 새 스냅숏 위에 옛것을 쓰지 못하게 함
     mailbox_save: Mutex<()>,
 }
 
@@ -446,5 +489,6 @@ impl Hub {
     }
 }
 
+/// 허브 단위 시험 모음임 (`tests.rs`)
 #[cfg(test)]
 mod tests;

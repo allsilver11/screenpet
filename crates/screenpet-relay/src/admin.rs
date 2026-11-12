@@ -1,7 +1,6 @@
-//! Server-only commands: `screenpet-relay admin <command>` talks to the running
-//! relay over the Unix socket `admin.sock` in the 0700 data directory, so only
-//! the relay's own user can reach it. One JSON array of words per connection,
-//! answered with `{"ok": bool, "text": string}`. Commands run one at a time.
+//! 서버 전용 명령임: `screenpet-relay admin <command>`가 0700 데이터 폴더의 Unix 소켓 `admin.sock`으로
+//! 돌고 있는 릴레이와 말하므로 릴레이 자신의 사용자만 닿음. 연결마다 낱말 JSON 배열 하나를 보내고
+//! `{"ok": bool, "text": string}`로 답받음. 명령은 하나씩 돎. 명령 처리는 `Hub`의 `admin_*`가 함.
 
 use crate::hub::Hub;
 use serde_json::json;
@@ -11,9 +10,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// 데이터 폴더 안 소켓 이름
 const SOCKET: &str = "admin.sock";
+/// 소켓 읽기·쓰기 시간 제한
 const TIMEOUT: Duration = Duration::from_secs(5);
 
+/// `admin` 도움말 글
 pub const USAGE: &str = "\
 commands:
   status                        who is online, totals, switches, counters
@@ -34,11 +36,12 @@ commands:
                                 allow / stop an install listing the feedback letters
 Without --yes the purge-* commands only list what they would remove.";
 
+/// 데이터 폴더 안 관리 소켓 경로를 돌려줌
 pub(crate) fn socket_path(dir: &Path) -> PathBuf {
     dir.join(SOCKET)
 }
 
-/// Listen on the socket, replacing one left by an earlier run.
+/// 소켓을 엶. 예전 실행이 남긴 소켓은 바꿈
 pub(crate) fn bind(dir: &Path) -> io::Result<UnixListener> {
     use std::os::unix::fs::{FileTypeExt, PermissionsExt};
     let path = socket_path(dir);
@@ -51,6 +54,7 @@ pub(crate) fn bind(dir: &Path) -> io::Result<UnixListener> {
     Ok(listener)
 }
 
+/// 종료까지 관리 연결을 하나씩 받아 처리함
 pub(crate) fn serve(hub: Arc<Hub>, listener: UnixListener) {
     while !hub.stopping() {
         match listener.accept() {
@@ -65,6 +69,7 @@ pub(crate) fn serve(hub: Arc<Hub>, listener: UnixListener) {
     }
 }
 
+/// 연결 하나의 명령을 읽고 답을 씀
 fn answer(hub: &Hub, mut stream: UnixStream) -> io::Result<()> {
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(TIMEOUT))?;
@@ -82,6 +87,7 @@ fn answer(hub: &Hub, mut stream: UnixStream) -> io::Result<()> {
     writeln!(stream, "{}", json!({"ok": ok, "text": text}))
 }
 
+/// `on`/`off`를 bool로 읽음
 fn on_off(word: &str) -> Result<bool, String> {
     match word {
         "on" => Ok(true),
@@ -90,6 +96,7 @@ fn on_off(word: &str) -> Result<bool, String> {
     }
 }
 
+/// 명령 낱말을 해석해 허브에서 돌림. 성공이면 `Ok(글)`, 실패면 `Err(글)`
 fn run(hub: &Hub, words: &[String]) -> Result<String, String> {
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     let yes = |flag: &[&str]| match flag {
@@ -117,7 +124,7 @@ fn run(hub: &Hub, words: &[String]) -> Result<String, String> {
     }
 }
 
-/// Run a command on the relay using `dir`: `(succeeded, text)`.
+/// `dir`을 쓰는 릴레이에 명령을 돌림: `(성공 여부, 글)`
 pub fn request(dir: &Path, words: &[&str]) -> io::Result<(bool, String)> {
     let mut stream = UnixStream::connect(socket_path(dir))?;
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;

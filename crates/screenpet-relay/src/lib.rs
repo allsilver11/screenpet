@@ -1,21 +1,15 @@
-//! ScreenPet relay server (spec phase 3 §1b).
+//! ScreenPet 릴레이 서버임 (스펙 phase 3 §1b).
 //!
-//! An untrusted pipe between friends who are not on the same network. Each
-//! install keeps one WebSocket to the relay and authenticates with its Noise
-//! static key (challenge + X25519-derived MAC, see [`proto`]), so nobody can
-//! take over another install's mailbox. Installs are addressed by their
-//! static public key. The relay connects two installs with a *channel* only
-//! if both list each other as friends, or once after one redeemed the other's
-//! friend code (for pairing). Channel frames are opaque: the friends run their
-//! Noise XX session end to end through the relay, so it sees only ciphertext
-//! and cannot forge friend traffic; pairing is confirmed by the 6-emoji SAS
-//! on both screens, never by the relay.
+//! 같은 네트워크에 없는 친구 사이의 믿지 않는 통로임. 설치마다 릴레이로 WebSocket 하나를 두고 Noise 정적 키로
+//! 인증하므로(챌린지 + X25519 유도 MAC, [`proto`] 참고) 아무도 남의 우편함을 가로챌 수 없음. 설치는 정적 공개키로 가리킴.
+//! 릴레이는 두 설치가 서로를 친구로 둘 때만, 또는 한쪽이 상대 친구 코드를 쓴 뒤 한 번(짝짓기용) *채널*로 이어 줌.
+//! 채널 프레임은 불투명함: 친구들이 릴레이를 거쳐 끝에서 끝으로 Noise XX 세션을 돌리므로 릴레이는 암호문만 보고
+//! 친구 트래픽을 위조할 수 없음. 짝짓기는 릴레이가 아니라 양쪽 화면의 이모지 6개 SAS로 확인함.
 //!
-//! Stored (`relay.json`): per install key the id label, its friend key list
-//! and its current friend code. Nothing else, no message content.
+//! 저장(`relay.json`): 설치 키마다 id 라벨, 친구 키 목록, 지금 친구 코드. 그 밖엔 없고 메시지 내용도 없음.
 //!
-//! Plain std threads and synchronous `tungstenite`; TLS terminates at the
-//! reverse proxy (Nginx Proxy Manager) in front of it.
+//! 평범한 std 스레드와 동기 `tungstenite`를 씀. TLS는 앞단 리버스 프록시(Nginx Proxy Manager)에서 끝남.
+//! 진입점: [`Relay::start`]. accept·upkeep·weather 스레드를 띄우고 연결마다 `http::handle`로 넘김.
 
 #[cfg(unix)]
 pub mod admin;
@@ -39,94 +33,104 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-/// Default listening port.
+/// 기본 대기 포트
 pub const DEFAULT_PORT: u16 = 9411;
 
-/// Limits (spec §1b defaults via `Default`; tests use smaller ones).
+/// 한도 모음임 (스펙 §1b 기본값은 `Default`, 시험은 더 작은 값을 씀)
 #[derive(Debug, Clone)]
 pub struct Limits {
-    /// Largest control (text) message.
+    /// 가장 큰 제어(텍스트) 메시지
     pub max_text: usize,
-    /// Messages per second per connection (all kinds) and burst.
+    /// 연결당 초당 메시지 수 (모든 종류)
     pub conn_msgs_per_sec: f64,
+    /// 연결당 메시지 몰아 받기
     pub conn_msgs_burst: f64,
-    /// Bytes per second per connection and burst.
+    /// 연결당 초당 바이트
     pub conn_bytes_per_sec: f64,
+    /// 연결당 바이트 몰아 받기
     pub conn_bytes_burst: f64,
-    /// Frames per second per channel direction (spec: 20/s) and burst.
+    /// 채널 방향당 초당 프레임 수 (스펙: 20/s)
     pub chan_msgs_per_sec: f64,
+    /// 채널 방향당 프레임 몰아 받기
     pub chan_msgs_burst: f64,
-    /// Friend keys per install (spec: 50).
+    /// 설치당 친구 키 수 (스펙: 50)
     pub max_friends: usize,
-    /// Open channels per connection, and between one pair of installs.
+    /// 연결당 열린 채널 수
     pub max_channels: usize,
+    /// 설치 한 쌍 사이의 열린 채널 수
     pub max_channels_per_pair: usize,
-    /// Nothing received for this long → disconnect (clients ping every 20 s).
+    /// 이만큼 아무것도 안 받으면 끊음 (클라이언트는 20초마다 ping함)
     pub idle_timeout: Duration,
-    /// Authentication must finish within this.
+    /// 인증은 이 안에 끝나야 함
     pub auth_timeout: Duration,
-    /// Friend code lifetime (spec: 24 h).
+    /// 친구 코드 수명 (스펙: 24시간)
     pub code_ttl: Duration,
-    /// A redeemed code allows one channel within this time.
+    /// 쓴 코드는 이 시간 안에 채널 하나를 열게 해 줌
     pub grant_ttl: Duration,
+    /// 주소당 분당 코드 사용 수
     pub redeems_per_ip_per_min: usize,
-    /// All redeems per minute (whole relay).
+    /// 분당 코드 사용 수 (릴레이 전체)
     pub redeems_per_min: usize,
-    /// Successful redeems of one install's codes per hour.
+    /// 설치 하나의 코드가 시간당 성공적으로 쓰이는 수
     pub redeems_per_target_per_hour: usize,
-    /// New installs per hour (whole relay, a loose backstop), and stored
-    /// installs at most (friendless offline installs are evicted first).
+    /// 시간당 새 설치 수 (릴레이 전체, 느슨한 뒷받침)
     pub registrations_per_hour: usize,
+    /// 저장하는 설치 수 상한 (친구 없는 오프라인 설치부터 내보냄)
     pub max_installs: usize,
+    /// 전체 연결 수 상한
     pub max_conns: usize,
+    /// 주소당 연결 수 상한
     pub max_conns_per_ip: usize,
-    /// Connections per network (IPv4 /24, IPv6 /48).
+    /// 네트워크당 연결 수 (IPv4 /24, IPv6 /48)
     pub max_conns_per_network: usize,
-    /// Connections that have not authenticated yet: in all, per address, per
-    /// network.
+    /// 아직 인증하지 않은 연결 수: 전체
     pub max_unauthed: usize,
+    /// 아직 인증하지 않은 연결 수: 주소당
     pub max_unauthed_per_ip: usize,
+    /// 아직 인증하지 않은 연결 수: 네트워크당
     pub max_unauthed_per_network: usize,
-    /// Bytes of friend frames forwarded per second, per address and in all.
+    /// 주소당 초당 넘기는 친구 프레임 바이트
     pub ip_bytes_per_sec: f64,
+    /// 주소당 바이트 몰아 받기
     pub ip_bytes_burst: f64,
+    /// 전체 초당 넘기는 친구 프레임 바이트
     pub global_bytes_per_sec: f64,
+    /// 전체 바이트 몰아 받기
     pub global_bytes_burst: f64,
-    /// Bytes of friend frames waiting for one connection and for all of them
-    /// (over: the channel is closed).
+    /// 연결 하나에 기다리는 친구 프레임 바이트 상한 (넘으면 채널을 닫음)
     pub max_outbox_bytes: usize,
+    /// 모든 연결에 기다리는 친구 프레임 바이트 상한
     pub max_total_outbox_bytes: usize,
-    /// A connection whose queue is over `max_outbox_bytes` and hasn't moved
-    /// for this long is disconnected as `slow`.
+    /// 큐가 `max_outbox_bytes`를 넘고 이만큼 안 움직인 연결은 `slow`로 끊음
     pub slow_after: Duration,
-    /// New installs per hour per network (IPv4 /24, IPv6 /64).
+    /// 네트워크(IPv4 /24, IPv6 /64)당 시간당 새 설치 수
     pub registrations_per_ip_per_hour: usize,
-    /// New installs per day per wider network (IPv4 /24, IPv6 /48).
+    /// 더 넓은 네트워크(IPv4 /24, IPv6 /48)당 하루 새 설치 수
     pub registrations_per_network_per_day: usize,
-    /// Different friend codes redeemed per hour per network (IPv4 /24, IPv6 /48).
+    /// 네트워크(IPv4 /24, IPv6 /48)당 시간당 쓰인 서로 다른 친구 코드 수
     pub new_codes_per_network_per_hour: usize,
-    /// Write changed data this often (and at shutdown).
+    /// 바뀐 데이터를 쓰는 주기 (종료 때도 씀)
     pub save_every: Duration,
-    /// 📮 `board_list` requests closer together than this on one connection are ignored.
+    /// 📮 한 연결에서 이보다 가깝게 온 `board_list`는 무시함
     pub board_gap: Duration,
-    /// 🔄 Installers sent at once from `/downloads/` (more: `503 busy`).
+    /// 🔄 `/downloads/`에서 동시에 보내는 설치 파일 수 (넘으면 `503 busy`)
     pub max_downloads: usize,
-    /// … and from one client address (IPv6: its /64).
+    /// … 그리고 클라이언트 주소 하나에 (IPv6는 그 /64)
     pub max_downloads_per_ip: usize,
-    /// A download is cut off after this long in all, …
+    /// 다운로드는 전체 이만큼 지나면 끊음, …
     pub download_deadline: Duration,
-    /// … or when, after `download_grace`, it has averaged under this many
-    /// bytes per second, …
+    /// … 또는 `download_grace` 뒤 평균이 초당 이 바이트보다 느리면, …
     pub download_min_rate: u64,
+    /// 속도를 보기 전 유예
     pub download_grace: Duration,
-    /// … or when one write stalls this long (a client that stopped reading).
+    /// … 또는 쓰기 하나가 이만큼 멈추면 (읽기를 멈춘 클라이언트)
     pub download_stall: Duration,
-    /// Forget stale installs this often; the first pass is this long after
-    /// start, once clients that were online have had time to come back.
+    /// 오래된 설치를 잊는 주기. 첫 정리는 시작 뒤 이만큼 뒤에 함 (접속해 있던 클라이언트가 돌아올 시간을 줌)
     pub prune_every: Duration,
 }
 
 impl Default for Limits {
+    /// 스펙 기본 한도를 돌려줌
     fn default() -> Limits {
         Limits {
             max_text: 16 * 1024,
@@ -178,40 +182,45 @@ impl Default for Limits {
     }
 }
 
+/// [`Relay::start`]에 넘기는 설정임
 #[derive(Clone)]
 pub struct RelayConfig {
+    /// 대기 주소
     pub bind: SocketAddr,
-    /// Where `relay.json` and `relay.key` live; `None` = in memory with a
-    /// random relay key (tests).
+    /// `relay.json`과 `relay.key`가 사는 곳. None이면 메모리에서 무작위 릴레이 키로 돎 (시험)
     pub data_dir: Option<PathBuf>,
+    /// 한도
     pub limits: Limits,
-    /// Reverse proxies (besides loopback) whose `X-Real-IP` /
-    /// `X-Forwarded-For` headers are believed; every other peer is limited
-    /// by its socket address.
+    /// `X-Real-IP` / `X-Forwarded-For` 머리를 믿는 리버스 프록시들 (루프백 말고). 다른 상대는 소켓 주소로 제한함
     pub trusted_proxies: Vec<IpAddr>,
-    /// ☀️ Fetches the weather of a place (`weather::open_meteo` in the real
-    /// relay). `None` = no weather is fetched or sent (tests).
+    /// ☀️ 지역 날씨를 받아 오는 함수 (실제 릴레이는 `weather::open_meteo`). None이면 날씨를 안 받고 안 보냄 (시험)
     pub weather_fetch: Option<weather::Fetch>,
 }
 
-/// The user's Nginx Proxy Manager.
+/// 사용자의 Nginx Proxy Manager임
 pub const DEFAULT_TRUSTED_PROXY: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 0, 52));
 
 impl RelayConfig {
+    /// 기본 한도·프록시로 설정을 만듦 (날씨 없음)
     pub fn new(bind: SocketAddr, data_dir: Option<PathBuf>) -> RelayConfig {
         RelayConfig { bind, data_dir, limits: Limits::default(), trusted_proxies: vec![DEFAULT_TRUSTED_PROXY], weather_fetch: None }
     }
 }
 
-/// A running relay. Dropping it stops all threads.
+/// 돌고 있는 릴레이임. 버리면 모든 스레드를 멈춤
 pub struct Relay {
+    /// 공유 허브
     hub: Arc<Hub>,
+    /// 실제로 묶인 주소
     addr: SocketAddr,
+    /// 띄운 주 스레드들
     threads: Vec<JoinHandle<()>>,
+    /// 데이터 폴더 (종료 때 저장용)
     data_dir: Option<PathBuf>,
 }
 
 impl Relay {
+    /// 릴레이를 시작함: 데이터·키를 읽고, 소켓을 열고, accept·upkeep·관리·날씨 스레드를 띄움
     pub fn start(mut cfg: RelayConfig) -> std::io::Result<Relay> {
         cfg.limits.max_conns = conns_within_fd_limit(cfg.limits.max_conns);
         let (key, store, control) = match &cfg.data_dir {
@@ -247,20 +256,22 @@ impl Relay {
         Ok(Relay { hub, addr, threads, data_dir: cfg.data_dir })
     }
 
+    /// 실제로 묶인 주소를 돌려줌
     pub fn local_addr(&self) -> SocketAddr {
         self.addr
     }
 
-    /// The relay's static public key (clients learn it from the challenge).
+    /// 릴레이 정적 공개키를 돌려줌 (클라이언트는 챌린지에서 앎)
     pub fn public_key(&self) -> [u8; 32] {
         self.hub.public_key
     }
 
+    /// 접속 중인 설치 수를 돌려줌
     pub fn online_count(&self) -> usize {
         self.hub.online_count()
     }
 
-    /// Block until the process is killed.
+    /// 프로세스가 죽을 때까지 기다림
     pub fn wait(mut self) {
         for t in self.threads.drain(..) {
             let _ = t.join();
@@ -269,6 +280,7 @@ impl Relay {
 }
 
 impl Drop for Relay {
+    /// 멈추라고 알리고 스레드를 기다린 뒤 데이터를 저장함
     fn drop(&mut self) {
         self.hub.stop();
         for t in self.threads.drain(..) {
@@ -283,19 +295,16 @@ impl Drop for Relay {
     }
 }
 
-/// File descriptors kept for everything but connections (the listener, data
-/// files, the connection threads over `max_conns` that are about to refuse).
+/// 연결 말고 다른 것(리스너, 데이터 파일, `max_conns`를 넘어 곧 거절할 연결 스레드)에 남겨 두는 파일 기술자 수
 const FDS_RESERVED: usize = 64;
 
-/// What fits in a file descriptor limit of `soft`.
+/// 파일 기술자 한도 `soft` 안에 들어가는 연결 수를 돌려줌
 fn conns_for_fds(max_conns: usize, soft: u64) -> usize {
     max_conns.min(usize::try_from(soft).unwrap_or(usize::MAX).saturating_sub(FDS_RESERVED))
 }
 
-/// Raise the soft file descriptor limit as far as `max_conns` needs and the
-/// hard limit allows (the usual soft default is 1024); if that isn't enough,
-/// fewer connections are admitted, so running out shows up as `busy` and not
-/// as `accept` failing for everyone.
+/// 부드러운 파일 기술자 한도를 `max_conns`가 필요하고 딱딱한 한도가 허락하는 만큼 올림 (보통 기본값은 1024).
+/// 그래도 모자라면 연결을 더 적게 받아, 바닥나는 일이 모두의 `accept` 실패가 아니라 `busy`로 보이게 함
 #[cfg(unix)]
 fn conns_within_fd_limit(max_conns: usize) -> usize {
     let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
@@ -319,11 +328,13 @@ fn conns_within_fd_limit(max_conns: usize) -> usize {
     conns
 }
 
+/// Unix 밖에서는 그대로 돌려줌
 #[cfg(not(unix))]
 fn conns_within_fd_limit(max_conns: usize) -> usize {
     max_conns
 }
 
+/// 종료까지 연결을 받아 연결마다 스레드를 띄움 (accept 오류 로그는 가끔만)
 fn accept_loop(hub: Arc<Hub>, downloads: Arc<downloads::Downloads>, listener: TcpListener) {
     let mut last_accept_log = None;
     while !hub.stopping() {
@@ -349,7 +360,7 @@ fn accept_loop(hub: Arc<Hub>, downloads: Arc<downloads::Downloads>, listener: Tc
     }
 }
 
-/// Timed work, on its own thread so a slow disk never holds up `accept`.
+/// 시간에 맞춰 하는 일을 따로 스레드에서 돌림 (느린 디스크가 `accept`를 붙잡지 않게): 정리, 저장, 오래된 설치 잊기
 fn upkeep_loop(hub: Arc<Hub>) {
     const MAINTAIN_EVERY: Duration = Duration::from_secs(60);
     let (mut maintained, mut pruned, mut saved) = (Instant::now(), Instant::now(), Instant::now());
@@ -370,12 +381,11 @@ fn upkeep_loop(hub: Arc<Hub>) {
     }
 }
 
-/// How often the weather thread looks for places to fetch.
+/// 날씨 스레드가 받아 올 지역을 찾는 주기
 const WEATHER_ROUND: Duration = Duration::from_secs(2);
 
-/// ☀️ Fetches due weather places one at a time, on its own thread: a slow
-/// weather service never holds up connections. Errors are logged (at most
-/// once every 10 minutes) and never stop the relay.
+/// ☀️ 때가 된 지역 날씨를 하나씩 따로 스레드에서 받아 옴: 느린 날씨 서비스가 연결을 붙잡지 않음.
+/// 오류는 (최대 10분에 한 번) 로그만 남기고 릴레이를 멈추지 않음
 fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
     let mut last_round = Instant::now() - WEATHER_ROUND;
     let mut last_error_log: Option<Instant> = None;
@@ -411,6 +421,7 @@ fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
     }
 }
 
+/// 파일 기술자 한도 계산 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

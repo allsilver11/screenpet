@@ -7,9 +7,13 @@ use super::*;
 /// 토큰 버킷: 초마다 `rate`, 최대 `burst`
 #[derive(Debug, Clone)]
 pub(crate) struct Bucket {
+    /// 지금 토큰 수
     tokens: f64,
+    /// 초당 차는 양
     rate: f64,
+    /// 최대 토큰 수
     burst: f64,
+    /// 마지막으로 채운 때
     last: Instant,
 }
 
@@ -213,8 +217,11 @@ pub(super) fn network_bucket(ip: &str) -> String {
     }
 }
 
+/// 한 시간
 pub(super) const HOUR: Duration = Duration::from_secs(3600);
+/// 일 분
 pub(super) const MINUTE: Duration = Duration::from_secs(60);
+/// 하루
 pub(super) const DAY: Duration = Duration::from_secs(24 * 3600);
 
 impl Hub {

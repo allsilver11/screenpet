@@ -1,12 +1,9 @@
-//! 📮 The public suggestion board (v0.6.3): what every app may see of a letter.
+//! 📮 공개 건의함 (v0.6.3): 편지 중 모든 앱이 봐도 되는 부분임.
 //!
-//! Only the developer's app can open letters, so it publishes a digest of
-//! each — the sender's name with all but the first grapheme masked (`김**`,
-//! one-grapheme names `*`) and the letter's first line. Entries live in
-//! `letters.json` next to the letter they belong to and go with it (delete,
-//! block). The app can be modified, so everything is checked again here: the
-//! mask must really be a mask, lengths are capped, control and bidi
-//! characters are dropped.
+//! 편지를 열 수 있는 건 개발자 앱뿐이라 그 앱이 편지마다 요약을 올림: 첫 그래핌만 남기고 가린 보낸이 이름
+//! (`김**`, 한 그래핌 이름은 `*`)과 편지 첫 줄. 항목은 `letters.json`에 그 편지 옆에 살고 편지와 함께 사라짐 (지우기, 차단).
+//! 앱은 고쳐질 수 있으므로 여기서 모두 다시 검사함: 가림이 진짜 가림이어야 하고, 길이는 자르고, 제어·방향 문자는 버림.
+//! `hub::mail`이 씀.
 
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -18,27 +15,29 @@ pub use screenpet_proto::relay::{BoardItem as Item, BoardStatus as Status};
 /// 이름 첫 그래핌의 최대 문자 수
 use screenpet_proto::board::MAX_FIRST;
 
-/// One letter's public digest as stored.
+/// 편지 하나의 저장된 공개 요약임
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
+    /// 가린 보낸이 이름
     pub name: String,
+    /// 첫 줄
     pub line: String,
 }
 
-/// Invisible, control and direction-changing characters (the zero-width
-/// joiner inside an emoji is kept).
+/// 보이지 않는·제어·방향 바꾸는 문자인지 봄 (이모지 안의 폭 없는 결합자는 남김)
 fn hidden(c: char) -> bool {
     c.is_control()
         || matches!(c, '\u{200B}'..='\u{200C}' | '\u{200E}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}' | '\u{061C}' | '\u{180E}' | '\u{00AD}' | '\u{3164}' | '\u{115F}' | '\u{1160}' | '\u{FFA0}' | '\u{2800}' | '\u{E0000}'..='\u{E007F}' | '\u{2028}' | '\u{2029}')
 }
 
+/// 숨은 문자를 빼고 앞뒤 공백을 다듬음
 fn strip(s: &str) -> String {
     let t: String = s.chars().filter(|&c| !hidden(c)).collect();
     t.trim().to_string()
 }
 
-/// A masked name, cleaned: empty, or one grapheme followed only by `*`
-/// (`김**`, `*`). `None` if it shows more than its first grapheme or is too long.
+/// 가린 이름을 다듬어 검사함: 빈 이름, 또는 그래핌 하나 뒤에 `*`만 (`김**`, `*`).
+/// 첫 그래핌보다 더 보이거나 너무 길면 None임
 pub fn check_name(raw: &str) -> Option<String> {
     let name = strip(raw);
     if name.chars().count() > MAX_NAME {
@@ -53,14 +52,13 @@ pub fn check_name(raw: &str) -> Option<String> {
     g.all(|x| x == "*").then_some(name)
 }
 
-/// A first line, cleaned: not empty, one line, at most [`MAX_LINE`] characters.
+/// 첫 줄을 다듬어 검사함: 비어 있지 않고, 한 줄이고, 최대 [`MAX_LINE`]글자
 pub fn check_line(raw: &str) -> Option<String> {
     let line = strip(raw);
     (!line.is_empty() && line.chars().count() <= MAX_LINE).then_some(line)
 }
 
-/// Page `want` (1-based, clamped) of `total` entries: (first index, end, page, pages).
-/// `pages` is at least 1, so an empty board is page 1 of 1.
+/// `total`개 중 `want`쪽(1부터, 범위로 자름)의 (첫 번호, 끝, 쪽, 전체 쪽)을 돌려줌. 쪽 수는 최소 1이라 빈 건의함은 1쪽 중 1쪽임
 pub fn page_range(total: usize, want: u32) -> (usize, usize, u32, u32) {
     let pages = total.div_ceil(PER_PAGE).max(1) as u32;
     let page = want.clamp(1, pages);
@@ -68,6 +66,7 @@ pub fn page_range(total: usize, want: u32) -> (usize, usize, u32, u32) {
     (start.min(total), (start + PER_PAGE).min(total), page, pages)
 }
 
+/// 가림 검사·첫 줄·쪽 계산 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

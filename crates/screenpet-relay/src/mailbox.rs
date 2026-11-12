@@ -1,6 +1,6 @@
-//! Feedback letters to the developer (`letters.json`). The relay keeps the
-//! sealed boxes it can't read and enforces every sending limit itself — an
-//! app can be modified, the relay can't.
+//! 개발자에게 오는 건의 편지함임 (`letters.json`). 릴레이는 읽지 못하는 봉인 상자를 두고
+//! 모든 보내기 한도를 스스로 지킴: 앱은 고쳐질 수 있지만 릴레이는 아님.
+//! 📮 공개 건의함 요약도 편지 옆에 둠. `hub::mail`이 `Hub::mail` 잠금 안에서 씀.
 
 use crate::board::{self, Entry, Item, Status};
 use crate::proto;
@@ -10,65 +10,76 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::Path;
 
+/// 데이터 폴더 안 편지함 파일 이름
 pub const LETTERS_FILE: &str = "letters.json";
-/// Largest sealed letter (1000 characters of Korean text and a little JSON
-/// fit well under this).
+/// 가장 큰 봉인 편지 (한국어 1000자와 약간의 JSON이 넉넉히 들어감)
 pub const MAX_BOX: usize = screenpet_proto::MAX_SEALED;
-/// Letters kept; past this new letters are refused, old ones are never
-/// dropped (a flood can't push out real letters).
+/// 두는 편지 수. 넘으면 새 편지를 거절하고 옛 편지는 절대 안 버림 (폭주가 진짜 편지를 밀어내지 못함)
 pub const MAX_LETTERS: usize = 200;
-/// Per rolling day: one install key (5 letters since v0.6.3), one address
-/// bucket (room for a sender's 5 and a housemate's), the whole relay.
+/// 하루(미닫이)당 설치 키 하나의 편지 수 (v0.6.3부터 5통)
 pub const PER_KEY: usize = 5;
+/// 하루당 주소 묶음 하나의 편지 수 (보낸이 5통과 같이 사는 이 몫까지)
 pub const PER_IP: usize = 10;
+/// 하루당 릴레이 전체 편지 수
 pub const GLOBAL: usize = 50;
-/// An install must have been seen on this many distinct days (a key made a
-/// minute ago can't send).
+/// 설치가 이만큼 서로 다른 날에 보였어야 보낼 수 있음 (방금 만든 키는 못 보냄)
 pub const MIN_SEEN_DAYS: u32 = 2;
+/// 하루 한도를 세는 창 (초)
 pub const WINDOW_SECS: u64 = 24 * 3600;
 
+/// 저장된 편지 하나임
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StoredLetter {
+    /// 편지 id
     pub id: u64,
-    /// Unix seconds.
+    /// 받은 때 (유닉스 초)
     pub at: u64,
-    /// Sender install key (hex).
+    /// 보낸 설치 키 (hex)
     pub from: String,
+    /// 읽음 표시
     pub read: bool,
-    /// The developer ticked it as acted on (반영함). Older files lack it.
+    /// 개발자가 반영함으로 체크했음. 옛 파일엔 없음
     #[serde(default)]
     pub done: bool,
-    /// 🙅 The developer turned it down (반려). Never together with `done`;
-    /// older files and older apps know only `done`.
+    /// 🙅 개발자가 반려했음. `done`과 함께는 아님. 옛 파일·옛 앱은 `done`만 앎
     #[serde(default)]
     pub rejected: bool,
-    /// 🔒 The developer keeps it off the public board (비공개). Older files
-    /// lack it: public.
+    /// 🔒 개발자가 공개 건의함에서 숨겼음 (비공개). 옛 파일엔 없음: 공개
     #[serde(default)]
     pub private: bool,
-    /// The sealed letter, hex.
+    /// 봉인된 편지, hex
     pub r#box: String,
 }
 
 /// 디스크 편지를 와이어 편지로 바꿈 (필드가 같아 JSON도 같음)
 impl From<StoredLetter> for screenpet_proto::relay::Letter {
+    /// 필드를 그대로 옮김
     fn from(l: StoredLetter) -> Self {
         screenpet_proto::relay::Letter { id: l.id, at: l.at, from: l.from, read: l.read, done: l.done, rejected: l.rejected, private: l.private, r#box: l.r#box }
     }
 }
 
+/// 편지를 거절한 까닭임 (와이어 `letter_refused`의 reason)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refuse {
+    /// 이 키의 하루 한도
     Daily,
+    /// 이 주소의 하루 한도
     Ip,
+    /// 너무 새 설치
     New,
+    /// 릴레이 전체 하루 한도
     Global,
+    /// 편지함이 참
     Full,
+    /// 크기가 틀림
     Size,
+    /// 막힌 보낸이
     Blocked,
 }
 
 impl Refuse {
+    /// 와이어 이유 글을 돌려줌
     pub fn as_str(&self) -> &'static str {
         match self {
             Refuse::Daily => "daily",
@@ -82,25 +93,35 @@ impl Refuse {
     }
 }
 
+/// 하루 한도를 세려고 남기는 보낸 기록임
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Sent {
+    /// 보낸 설치 키
     key: String,
+    /// 보낸 주소 묶음
     ip: String,
+    /// 보낸 때 (유닉스 초)
     at: u64,
 }
 
+/// `letters.json`에 쓰는 내용임
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 struct Data {
+    /// 다음 편지 id
     next_id: u64,
+    /// 편지들
     letters: Vec<StoredLetter>,
+    /// 하루 한도용 보낸 기록
     sent: Vec<Sent>,
+    /// 막힌 보낸이 키
     blocked: BTreeSet<String>,
-    /// 📮 Public digests by letter id (only for letters still here).
+    /// 📮 편지 id별 공개 요약 (아직 있는 편지만)
     board: BTreeMap<u64, Entry>,
 }
 
 impl StoredLetter {
+    /// 편지의 표시(없음·✅·🙅)를 돌려줌
     pub fn status(&self) -> Status {
         if self.done {
             Status::Done
@@ -112,17 +133,18 @@ impl StoredLetter {
     }
 }
 
-/// Why a board digest was not taken.
+/// 건의함 요약을 받지 않은 까닭임
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoardRefuse {
-    /// No such letter (deleted, blocked, never was).
+    /// 그런 편지 없음 (지움, 차단, 처음부터 없음)
     NoLetter,
-    /// The name is not a mask (`김**`) or too long.
+    /// 이름이 가림(`김**`)이 아니거나 너무 김
     Name,
-    /// The line is empty or too long.
+    /// 줄이 비었거나 너무 김
     Line,
 }
 
+/// 편지함임: 내용과 저장할 게 있는지
 #[derive(Debug, Default)]
 pub struct Mailbox {
     data: Data,
@@ -130,8 +152,7 @@ pub struct Mailbox {
 }
 
 impl Mailbox {
-    /// Store a sealed letter from `from` (authenticated key) at address
-    /// bucket `ip`, or say why not. `seen_days` comes from the install store.
+    /// `from`(인증된 키)이 주소 묶음 `ip`에서 보낸 봉인 편지를 저장하거나 안 되는 까닭을 말함. `seen_days`는 설치 저장소에서 옴
     pub fn submit(&mut self, from: &str, ip: &str, seen_days: u32, sealed: &[u8], now: u64) -> Result<StoredLetter, Refuse> {
         if sealed.is_empty() || sealed.len() > MAX_BOX {
             return Err(Refuse::Size);
@@ -168,17 +189,19 @@ impl Mailbox {
         Ok(letter)
     }
 
-    /// All letters, newest first.
+    /// 모든 편지를 최신 먼저 돌려줌
     pub fn list(&self) -> Vec<StoredLetter> {
         let mut v = self.data.letters.clone();
         v.sort_by(|a, b| b.at.cmp(&a.at).then(b.id.cmp(&a.id)));
         v
     }
 
+    /// 안 읽은 편지 수
     pub fn unread(&self) -> usize {
         self.data.letters.iter().filter(|l| !l.read).count()
     }
 
+    /// 읽음으로 표시함. 그런 편지가 없으면 false임
     pub fn mark_read(&mut self, id: u64) -> bool {
         match self.data.letters.iter_mut().find(|l| l.id == id) {
             Some(l) if !l.read => {
@@ -191,8 +214,7 @@ impl Mailbox {
         }
     }
 
-    /// Set a letter's mark (none, ✅ done, 🙅 rejected — one at a time);
-    /// false if there is no such letter.
+    /// 편지 표시(없음, ✅ 반영, 🙅 반려 중 하나)를 정함. 그런 편지가 없으면 false임
     pub fn set_status(&mut self, id: u64, status: Status) -> bool {
         match self.data.letters.iter_mut().find(|l| l.id == id) {
             Some(l) => {
@@ -208,19 +230,17 @@ impl Mailbox {
         }
     }
 
-    /// Tick (or untick) a letter as acted on (`letter_done`, also from older
-    /// apps): unticking clears a 반려 too. False if there is no such letter.
+    /// 반영 체크를 하거나 풂 (`letter_done`, 옛 앱도 씀): 풀면 반려도 지움. 그런 편지가 없으면 false임
     pub fn mark_done(&mut self, id: u64, done: bool) -> bool {
         self.set_status(id, if done { Status::Done } else { Status::None })
     }
 
-    /// 🙅 Turn a letter down (or clear its mark).
+    /// 🙅 편지를 반려하거나 표시를 지움
     pub fn mark_rejected(&mut self, id: u64, rejected: bool) -> bool {
         self.set_status(id, if rejected { Status::Rejected } else { Status::None })
     }
 
-    /// 🔒 Hide a letter from the public board (or show it again). Its digest
-    /// is kept, so the developer's app doesn't publish it again.
+    /// 🔒 편지를 공개 건의함에서 숨기거나 다시 보임. 요약은 남겨 두어 개발자 앱이 다시 올리지 않게 함
     pub fn mark_private(&mut self, id: u64, private: bool) -> bool {
         match self.data.letters.iter_mut().find(|l| l.id == id) {
             Some(l) => {
@@ -234,7 +254,7 @@ impl Mailbox {
         }
     }
 
-    /// Board entries whose letter is gone go too.
+    /// 편지가 사라진 건의함 항목도 지움
     fn prune_board(&mut self) {
         let ids: BTreeSet<u64> = self.data.letters.iter().map(|l| l.id).collect();
         let before = self.data.board.len();
@@ -242,6 +262,7 @@ impl Mailbox {
         self.dirty |= self.data.board.len() != before;
     }
 
+    /// 편지를 지움 (요약도 같이). 없었으면 false임
     pub fn delete(&mut self, id: u64) -> bool {
         let before = self.data.letters.len();
         self.data.letters.retain(|l| l.id != id);
@@ -251,7 +272,7 @@ impl Mailbox {
         gone
     }
 
-    /// Refuse `key` from now on and delete its letters (returns how many).
+    /// 이제부터 `key`를 거절하고 그 편지를 지움 (지운 수를 돌려줌)
     pub fn block(&mut self, key: &str) -> usize {
         let before = self.data.letters.len();
         self.data.letters.retain(|l| l.from != key);
@@ -261,8 +282,7 @@ impl Mailbox {
         before - self.data.letters.len()
     }
 
-    /// 📮 Store the public digest of letter `id` (checked again: a real mask,
-    /// one short line). `Ok(true)` if it changed anything.
+    /// 📮 편지 `id`의 공개 요약을 저장함 (다시 검사: 진짜 가림, 짧은 한 줄). 바뀐 게 있으면 `Ok(true)`
     pub fn board_put(&mut self, id: u64, name: &str, line: &str) -> Result<bool, BoardRefuse> {
         if !self.data.letters.iter().any(|l| l.id == id) {
             return Err(BoardRefuse::NoLetter);
@@ -281,13 +301,12 @@ impl Mailbox {
         Ok(true)
     }
 
-    /// Ids of the letters on the board (the developer's app publishes the rest).
+    /// 건의함에 있는 편지 id들 (나머지는 개발자 앱이 올림)
     pub fn board_ids(&self) -> Vec<u64> {
         self.data.board.keys().copied().collect()
     }
 
-    /// 📮 Page `want` (1-based) of the board, newest letter first, without
-    /// 🔒 private letters (not in items, total or pages): (items, page, pages, total).
+    /// 📮 건의함 `want`쪽(1부터)을 최신 편지 먼저, 🔒 비공개 편지 없이(항목·전체·쪽 수 모두에서) 줌: (항목, 쪽, 전체 쪽, 전체)
     pub fn board_page(&self, want: u32) -> (Vec<Item>, u32, u32, u32) {
         let all: Vec<Item> = self
             .list()
@@ -299,12 +318,13 @@ impl Mailbox {
         (all[start..end].to_vec(), page, pages, all.len() as u32)
     }
 
+    /// `key`가 막혔는지 봄 (시험용)
     #[cfg(test)]
     pub fn is_blocked(&self, key: &str) -> bool {
         self.data.blocked.contains(key)
     }
 
-    /// The file bytes if anything changed since the last snapshot.
+    /// 지난 스냅숏 뒤 바뀐 게 있으면 파일 바이트를 돌려줌
     pub fn snapshot(&mut self) -> Option<Vec<u8>> {
         if !self.dirty {
             return None;
@@ -313,12 +333,12 @@ impl Mailbox {
         serde_json::to_vec(&self.data).ok()
     }
 
+    /// 쓰기에 실패했을 때 다시 저장하게 표시함
     pub fn mark_dirty(&mut self) {
         self.dirty = true;
     }
 
-    /// `letters.json`, else its `.bak`, else an empty mailbox (letters may be
-    /// lost, the relay still starts).
+    /// `letters.json`, 없으면 `.bak`, 없으면 빈 편지함을 읽음 (편지를 잃을 수는 있어도 릴레이는 시작함)
     pub fn load(dir: &Path) -> Mailbox {
         for name in [LETTERS_FILE.to_string(), format!("{LETTERS_FILE}.bak")] {
             if let Ok(bytes) = std::fs::read(dir.join(&name)) {
@@ -333,7 +353,7 @@ impl Mailbox {
         Mailbox::default()
     }
 
-    /// Write like `relay.json`: private temp file, keep the old one as `.bak`, rename.
+    /// `relay.json`처럼 씀: 비공개 임시 파일, 옛 파일은 `.bak`으로 두고 이름 바꾸기
     pub fn save(dir: &Path, bytes: &[u8]) -> io::Result<()> {
         let main = dir.join(LETTERS_FILE);
         let tmp = dir.join(format!("{LETTERS_FILE}.tmp"));
@@ -349,6 +369,7 @@ impl Mailbox {
     }
 }
 
+/// 보내기 한도·표시·건의함·저장 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

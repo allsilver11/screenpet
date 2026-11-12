@@ -2,6 +2,7 @@
 
 use super::*;
 
+/// 카운터 이름 목록으로 `Counters` 구조체와 `all`을 만드는 매크로임
 macro_rules! counters {
     ($($name:ident),* $(,)?) => {
         /// 시작 뒤 누계 (`admin status`용). 주소·id 없음

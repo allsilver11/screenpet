@@ -1,25 +1,22 @@
-//! 릴레이 와이어 프로토콜: 메시지·버전·한도는 `screenpet_proto`에 있음 (앱과 같은 것).
-//! 여기서는 그것을 다시 내보내고, 릴레이의 암호·친구 코드 도우미를 더함.
+//! 릴레이 와이어 프로토콜임: 메시지·버전·한도는 `screenpet_proto`에 있음 (앱과 같은 것).
+//! 여기서는 그것을 다시 내보내고 릴레이의 암호·친구 코드 도우미를 더함.
 //!
-//! Control messages are text frames holding JSON tagged by `t` (see
-//! `screenpet_proto::relay` for every message). Friend traffic is binary
-//! frames: a 4-byte big-endian channel id followed by one opaque frame (at
-//! most 65535 bytes) — Noise messages between the two friends, which the
-//! relay can neither read nor forge. While `admin friendcode off`: welcome
-//! and code carry code "----", redeem_failed says `disabled`.
+//! 제어 메시지는 `t`로 꼬리표를 단 JSON 텍스트 프레임임 (모든 메시지는 `screenpet_proto::relay` 참고).
+//! 친구 사이 트래픽은 바이너리 프레임임: 4바이트 빅엔디언 채널 id + 불투명 프레임 하나(최대 65535바이트).
+//! 두 친구 사이의 Noise 메시지라 릴레이는 읽지도 위조하지도 못함.
+//! `admin friendcode off`인 동안: welcome과 code는 코드 "----"를 싣고, redeem_failed는 `disabled`라고 함.
 
 pub use screenpet_crypto::{auth_mac, hex32, public_key, random32, to_hex, welcome_proof};
 pub use screenpet_proto::relay::{BoardIn, ClientMsg, ServerMsg};
 pub use screenpet_proto::{MAX_FRAME, MAX_ID};
 
-/// 2 = takes `weather_want` (v0.6.3). 3 = 📮 `board_put`, `board_list`,
-/// `letter_reject` (v0.6.3). Apps send each only to relays that say a high
-/// enough `v` in the challenge: older relays close on an unknown message.
+/// 2 = `weather_want`를 받음 (v0.6.3). 3 = 📮 `board_put`, `board_list`, `letter_reject` (v0.6.3).
+/// 앱은 챌린지에서 `v`가 충분히 높은 릴레이에만 각각을 보냄: 옛 릴레이는 모르는 메시지에 연결을 닫음
 pub const PROTOCOL_VERSION: u32 = screenpet_proto::RELAY_PROTOCOL_VERSION;
 /// 바이너리 메시지의 채널 id 머리 크기
 pub const HEADER: usize = 4;
 
-/// X25519(private, public). `None` for a low-order public key (all-zero result).
+/// X25519(private, public)를 계산함. 낮은 차수 공개키(결과가 모두 0)면 None임
 pub fn dh(private: &[u8; 32], public: &[u8; 32]) -> Option<[u8; 32]> {
     let shared = curve25519_dalek::MontgomeryPoint(*public).mul_clamped(*private).to_bytes();
     if shared.iter().all(|b| *b == 0) {
@@ -29,21 +26,20 @@ pub fn dh(private: &[u8; 32], public: &[u8; 32]) -> Option<[u8; 32]> {
     }
 }
 
-/// Equality without an early exit.
+/// 일찍 빠져나가지 않고 같은지 봄
 pub fn ct_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// Canonical (lowercase) hex of a 32-byte key, or `None` if malformed.
+/// 32바이트 키의 표준(소문자) hex를 돌려줌. 모양이 틀리면 None임
 pub fn norm_key(s: &str) -> Option<String> {
     hex32(s).map(|k| to_hex(&k))
 }
 
-/// Crockford base32 alphabet (no I, L, O, U).
+/// Crockford base32 기호 (I, L, O, U 없음)
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/// A fresh friend code: 8 Crockford base32 characters (40 random bits)
-/// formatted `ABCD-1234`.
+/// 새 친구 코드를 만듦: Crockford base32 8자(난수 40비트)를 `ABCD-1234` 모양으로
 pub fn new_code() -> String {
     let r = random32();
     let bits = r[..5].iter().fold(0u64, |acc, b| (acc << 8) | u64::from(*b));
@@ -51,8 +47,7 @@ pub fn new_code() -> String {
     format!("{}-{}", &chars[..4], &chars[4..])
 }
 
-/// Normalize user input to `ABCD-1234`: case-insensitive, separators
-/// ignored, Crockford look-alikes mapped (O→0, I/L→1). `None` if not a code.
+/// 사용자 입력을 `ABCD-1234`로 맞춤: 대소문자 무관, 구분자 무시, 헷갈리는 글자 바꿈(O→0, I/L→1). 코드가 아니면 None임
 pub fn normalize_code(input: &str) -> Option<String> {
     let mut chars = String::new();
     for c in input.chars() {
@@ -75,6 +70,7 @@ pub fn normalize_code(input: &str) -> Option<String> {
     (chars.len() == 8).then(|| format!("{}-{}", &chars[..4], &chars[4..]))
 }
 
+/// 코드·MAC·메시지 왕복 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,4 @@
-//! In-process relay tests: a real relay on a localhost port and hand-rolled
-//! WebSocket clients speaking the relay protocol.
+//! 프로세스 안 릴레이 시험임: localhost 포트의 실제 릴레이와 손으로 짠 WebSocket 클라이언트가 릴레이 프로토콜로 말함.
 
 use screenpet_relay::proto::{self, HEADER, MAX_FRAME};
 use screenpet_relay::{Limits, Relay, RelayConfig};
@@ -9,7 +8,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 use tungstenite::{Error as WsError, Message, WebSocket};
 
-/// A place to connect to: an in-process relay or a spawned binary.
+/// 연결할 곳임: 프로세스 안 릴레이나 띄운 바이너리
 trait Target {
     fn addr(&self) -> SocketAddr;
 }
@@ -44,18 +43,17 @@ struct Client {
 }
 
 impl Client {
-    /// Connect and read the challenge (not yet authenticated).
+    /// 연결하고 챌린지를 읽음 (아직 인증 전)
     fn raw(relay: &impl Target) -> Client {
         Client::raw_as(relay, None)
     }
 
-    /// As `raw`, appearing (via the trusted loopback proxy header) to come
-    /// from `ip`.
+    /// `raw`처럼 하되 (믿는 루프백 프록시 머리로) `ip`에서 온 것처럼 보임
     fn raw_as(relay: &impl Target, ip: Option<&str>) -> Client {
         Client::try_raw(relay, ip, None).expect("upgrade")
     }
 
-    /// As `raw_as`; `Err(HTTP status)` if the relay refused the upgrade.
+    /// `raw_as`처럼 함. 릴레이가 업그레이드를 거절하면 `Err(HTTP 상태)`
     fn try_raw(relay: &impl Target, ip: Option<&str>, origin: Option<&str>) -> Result<Client, u16> {
         use tungstenite::client::IntoClientRequest;
         let addr = relay.addr();
@@ -96,12 +94,12 @@ impl Client {
         v
     }
 
-    /// Connect and authenticate; returns the client and its `welcome`.
+    /// 연결하고 인증함. 클라이언트와 그 `welcome`을 돌려줌
     fn login(relay: &impl Target, priv_key: &[u8; 32], id: &str, friends: &[String]) -> (Client, Value) {
         Client::login_as(relay, None, priv_key, id, friends).expect("welcome")
     }
 
-    /// Log in from `ip`; `Err(reason)` if refused.
+    /// `ip`에서 로그인함. 거절되면 `Err(reason)`
     fn login_as(relay: &impl Target, ip: Option<&str>, priv_key: &[u8; 32], id: &str, friends: &[String]) -> Result<(Client, Value), String> {
         let mut c = Client::raw_as(relay, ip);
         let auth = c.auth_msg(priv_key, id, friends);
@@ -124,7 +122,7 @@ impl Client {
         let _ = self.ws.send(Message::binary(b));
     }
 
-    /// Next message of any kind; `Err` once the connection is closed.
+    /// 아무 종류의 다음 메시지. 연결이 닫히면 `Err`
     fn next(&mut self, secs: f64) -> Result<Option<Message>, ()> {
         let deadline = Instant::now() + Duration::from_secs_f64(secs);
         while Instant::now() < deadline {
@@ -146,7 +144,7 @@ impl Client {
         }
     }
 
-    /// Wait for a text message of type `t` (skipping others).
+    /// `t` 종류 텍스트 메시지를 기다림 (다른 것은 건너뜀)
     fn expect(&mut self, t: &str, secs: f64) -> Value {
         self.wait(t, secs).unwrap_or_else(|| panic!("no {t} message"))
     }
@@ -168,7 +166,7 @@ impl Client {
         }
     }
 
-    /// Next binary message as (channel, payload), skipping text.
+    /// 다음 바이너리 메시지를 (채널, 내용)으로 읽음 (텍스트는 건너뜀)
     fn recv_bin(&mut self, secs: f64) -> Option<(u32, Vec<u8>)> {
         let deadline = Instant::now() + Duration::from_secs_f64(secs);
         loop {
@@ -183,8 +181,7 @@ impl Client {
         }
     }
 
-    /// The relay closed (or refused) this connection within `secs`; returns
-    /// the `error` reason if one was sent.
+    /// 릴레이가 `secs` 안에 이 연결을 닫았거나 거절했는지 봄. `error` 이유가 왔으면 그것을 돌려줌
     fn closed(&mut self, secs: f64) -> Option<Option<String>> {
         let deadline = Instant::now() + Duration::from_secs_f64(secs);
         let mut reason = None;
@@ -204,7 +201,7 @@ impl Client {
         }
     }
 
-    /// Redeem `code` and open a channel to its owner. Returns the channel.
+    /// `code`를 쓰고 그 주인에게 채널을 엶. 채널을 돌려줌
     fn pair_open(&mut self, code: &str, req: u32) -> (u32, Value) {
         self.send(&json!({"t": "redeem", "code": code}));
         let r = self.expect("redeemed", 2.0);
@@ -663,7 +660,7 @@ fn web_pages_are_refused_apps_send_no_origin() {
     assert!(Client::try_raw(&relay, None, None).is_ok());
 }
 
-/// Log in `n` installs from `ip`; how many were let in. Keeps them connected.
+/// `ip`에서 설치 `n`개를 로그인시키고 들어간 수를 돌려줌. 연결은 유지함
 fn fill(relay: &Relay, ip: &str, n: usize, held: &mut Vec<Client>) -> usize {
     let mut admitted = 0;
     for _ in 0..n {
@@ -722,7 +719,7 @@ fn a_full_challenge_pool_drops_its_oldest_not_the_newcomer() {
     drop(late);
 }
 
-/// `a` and `b`, mutual through a redeemed code, with a channel open.
+/// 쓴 코드로 서로 이어진 `a`와 `b`, 그리고 열린 채널을 만듦
 fn linked(relay: &Relay, ip_a: Option<&str>, ip_b: Option<&str>) -> (Client, Client, u32) {
     let (mut a, _) = Client::login_as(relay, ip_a, &key(), "aaaa", &[]).unwrap();
     let (mut b, wb) = Client::login_as(relay, ip_b, &key(), "bbbb", &[]).unwrap();
@@ -763,7 +760,7 @@ fn bandwidth_over_the_global_cap_closes_the_channel() {
     assert_eq!(a.expect("close", 2.0)["ch"], ch);
 }
 
-/// A fresh data directory (short path: it holds a Unix socket).
+/// 새 데이터 폴더를 만듦 (짧은 경로: Unix 소켓을 담음)
 fn data_dir(tag: &str) -> std::path::PathBuf {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{tag}-{}", proto::to_hex(&key()[..4])));
     std::fs::create_dir_all(&dir).unwrap();
@@ -866,7 +863,7 @@ fn a_restart_does_not_forget_installs_that_were_online() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The real binary on a free port.
+/// 빈 포트에서 돌리는 실제 바이너리임
 #[cfg(unix)]
 struct Bin {
     child: std::process::Child,
@@ -935,7 +932,7 @@ fn sigterm_tells_clients_and_saves() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The default connection cap can't run into a low soft descriptor limit.
+/// 기본 연결 상한이 낮은 부드러운 기술자 한도에 걸리지 않아야 함
 #[cfg(target_os = "linux")]
 #[test]
 fn the_binary_raises_its_file_descriptor_limit() {
@@ -1304,8 +1301,7 @@ mod admin {
     }
 }
 
-/// ☀️ A relay with a fake weather service (no network): Yongin snows, Busan
-/// is clear, Jeju's service is down; the fetched places are recorded.
+/// ☀️ 가짜 날씨 서비스(망 없음)를 단 릴레이: 용인은 눈, 부산은 맑음, 제주 서비스는 고장. 받아 온 지역을 기록함
 #[test]
 fn weather_comes_after_the_welcome_and_follows_the_place_the_app_wants() {
     use screenpet_relay::weather::{Fetch, Place};
@@ -1353,8 +1349,7 @@ fn weather_comes_after_the_welcome_and_follows_the_place_the_app_wants() {
     assert_eq!(c.next_json(2.0).map(|e| e["reason"].clone()), Some(json!("bad_message")));
 }
 
-/// 📮 The public board over the wire: a v3 relay, anyone can page it, too
-/// fast is ignored (not disconnected), and a non-reader's `board_put` is ignored.
+/// 📮 와이어 위 공개 건의함: v3 릴레이, 누구나 넘겨 볼 수 있고, 너무 빠른 것은 (끊지 않고) 무시하며, 독자 아닌 이의 `board_put`은 무시함
 #[test]
 fn anyone_can_page_the_board_on_a_v3_relay() {
     let mut cfg = RelayConfig::new(SocketAddr::from(([127, 0, 0, 1], 0)), None);

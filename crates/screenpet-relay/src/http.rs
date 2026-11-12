@@ -1,6 +1,6 @@
-//! Minimal HTTP front: `GET /healthz` → `200 ok`, `GET /ws` with a WebSocket
-//! upgrade → the relay protocol, `GET|HEAD /downloads/…` → app updates
-//! (`downloads`), anything else → 404.
+//! 최소 HTTP 앞단임: `GET /healthz` → `200 ok`, WebSocket 업그레이드가 붙은 `GET /ws` → 릴레이 프로토콜(`conn`),
+//! `GET|HEAD /downloads/…` → 앱 업데이트(`downloads`), 그 밖 → 404.
+//! 진입점 `handle`은 lib의 accept 루프가 연결마다 부름. 믿는 프록시 뒤의 클라이언트 주소도 여기서 정함.
 
 use crate::hub::{Hub, Refused};
 use crate::proto::{HEADER, MAX_FRAME};
@@ -12,18 +12,24 @@ use std::time::{Duration, Instant};
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::WebSocket;
 
-/// Largest request head accepted.
+/// 받아 주는 가장 큰 요청 머리
 const MAX_HEAD: usize = 8 * 1024;
+/// 요청 머리를 다 받는 마감
 const HEAD_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// 읽은 요청 머리임
 struct Request {
+    /// HTTP 메서드
     method: String,
+    /// 요청 경로
     path: String,
+    /// 소문자 이름 → 값
     headers: HashMap<String, String>,
-    /// Bytes read past the head (normally none).
+    /// 머리 다음까지 읽힌 바이트 (보통 없음)
     rest: Vec<u8>,
 }
 
+/// 요청 머리를 읽음. 너무 크거나 늦거나 깨졌으면 None임
 fn read_head(stream: &mut TcpStream) -> Option<Request> {
     stream.set_read_timeout(Some(Duration::from_millis(500))).ok()?;
     let deadline = Instant::now() + HEAD_TIMEOUT;
@@ -56,6 +62,7 @@ fn read_head(stream: &mut TcpStream) -> Option<Request> {
     Some(Request { method, path, headers, rest: buf[end + 4..].to_vec() })
 }
 
+/// 짧은 글 본문으로 HTTP 응답을 쓰고 닫음
 fn respond(stream: &mut TcpStream, status: &str, body: &str) {
     let _ = write!(
         stream,
@@ -65,12 +72,12 @@ fn respond(stream: &mut TcpStream, status: &str, body: &str) {
     let _ = stream.flush();
 }
 
+/// 머리 `name`의 쉼표 목록에 `token`이 (대소문자 무관) 있는지 봄
 fn header_has(req: &Request, name: &str, token: &str) -> bool {
     req.headers.get(name).is_some_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case(token)))
 }
 
-/// Address key for per-address limits: IPv4 as is, IPv6 by its /64 (one
-/// home or VM usually owns a whole /64).
+/// 주소별 한도용 주소 키임: IPv4는 그대로, IPv6은 /64로 묶음 (집이나 VM 하나가 보통 /64 전체를 가짐)
 pub(crate) fn bucket(ip: IpAddr) -> String {
     match ip {
         IpAddr::V4(v4) => v4.to_string(),
@@ -84,10 +91,8 @@ pub(crate) fn bucket(ip: IpAddr) -> String {
     }
 }
 
-/// Client address for limits. Forwarded headers are believed only from a
-/// trusted proxy (or loopback): `X-Real-IP`, else the *rightmost*
-/// `X-Forwarded-For` entry (the one the proxy itself appended). Any other
-/// peer is limited by its socket address.
+/// 한도용 클라이언트 주소를 정함. 전달 머리는 믿는 프록시(또는 루프백)에서 왔을 때만 믿음:
+/// `X-Real-IP`, 없으면 `X-Forwarded-For`의 *가장 오른쪽* 항목 (프록시가 직접 붙인 것). 다른 상대는 소켓 주소로 제한함
 fn client_ip(peer: IpAddr, headers: &HashMap<String, String>, trusted: &[IpAddr]) -> String {
     let peer = peer.to_canonical();
     if peer.is_loopback() || trusted.contains(&peer) {
@@ -98,16 +103,18 @@ fn client_ip(peer: IpAddr, headers: &HashMap<String, String>, trusted: &[IpAddr]
     bucket(peer)
 }
 
-/// `X-Real-IP`, else the rightmost `X-Forwarded-For` entry, if it parses.
+/// `X-Real-IP`, 없으면 가장 오른쪽 `X-Forwarded-For` 항목을 읽음 (읽히면)
 fn forwarded_ip(headers: &HashMap<String, String>) -> Option<IpAddr> {
     let value = headers.get("x-real-ip").map(String::as_str).or_else(|| headers.get("x-forwarded-for").and_then(|s| s.rsplit(',').next()))?;
     value.trim().parse::<IpAddr>().ok().map(|ip| ip.to_canonical())
 }
 
+/// 릴레이 WebSocket 설정임: 메시지·프레임 크기를 채널 머리 + `MAX_FRAME`으로 제한함
 pub(crate) fn ws_config() -> WebSocketConfig {
     WebSocketConfig::default().max_message_size(Some(HEADER + MAX_FRAME)).max_frame_size(Some(HEADER + MAX_FRAME))
 }
 
+/// 연결 하나를 처리함: 머리를 읽고 경로별로 상태 확인·WebSocket·다운로드·404로 보냄
 pub(crate) fn handle(hub: Arc<Hub>, downloads: Arc<crate::downloads::Downloads>, mut stream: TcpStream) {
     let Ok(peer) = stream.peer_addr() else { return };
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
@@ -167,10 +174,12 @@ pub(crate) fn handle(hub: Arc<Hub>, downloads: Arc<crate::downloads::Downloads>,
     }
 }
 
+/// 전달 머리 믿기와 IPv6 묶기 시험임
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// 시험용 머리 표를 만듦
     fn h(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
     }

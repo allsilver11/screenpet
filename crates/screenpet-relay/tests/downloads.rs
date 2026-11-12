@@ -1,5 +1,4 @@
-//! 🔄 `/downloads/…` on a real relay over TCP: the installers and latest.json
-//! the app updates from.
+//! 🔄 TCP 위 실제 릴레이의 `/downloads/…` 시험임: 앱이 업데이트를 받는 설치 파일과 latest.json.
 
 use screenpet_relay::{Limits, Relay, RelayConfig};
 use std::io::{Read, Write};
@@ -39,7 +38,7 @@ impl Fixture {
         self.send_from(method, path, None)
     }
 
-    /// As `send`, appearing (through the trusted loopback proxy header) to come from `ip`.
+    /// `send`처럼 하되 (믿는 루프백 프록시 머리로) `ip`에서 온 것처럼 보냄
     fn send_from(&self, method: &str, path: &str, ip: Option<&str>) -> TcpStream {
         let mut s = TcpStream::connect(self.addr()).unwrap();
         let fwd = ip.map(|ip| format!("X-Real-IP: {ip}\r\n")).unwrap_or_default();
@@ -48,7 +47,7 @@ impl Fixture {
         s
     }
 
-    /// Whole response: (head, body).
+    /// 응답 전체를 읽음: (머리, 본문)
     fn get(&self, method: &str, path: &str) -> (String, Vec<u8>) {
         self.get_from(method, path, None)
     }
@@ -195,7 +194,7 @@ fn the_names_the_app_asks_for_are_allowed() {
     }
 }
 
-/// Hold a download open without reading (after its 200 head).
+/// 읽지 않고 다운로드를 열어 둠 (200 머리 뒤)
 fn hold(f: &Fixture, path: &str, ip: &str) -> TcpStream {
     let mut s = f.send_from("GET", path, Some(ip));
     let mut first = [0u8; 12];

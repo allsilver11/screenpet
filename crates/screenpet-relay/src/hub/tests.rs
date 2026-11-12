@@ -1,4 +1,5 @@
-//! 허브 단위 시험: 예전 hub.rs의 시험을 그대로 옮김.
+//! 허브 단위 시험임: 예전 hub.rs의 시험을 그대로 옮김.
+//! 접속·채널·코드·한도·편지함·건의함을 소켓 없이 큐로 확인함.
 
 use super::*;
 use std::sync::mpsc::{sync_channel, Receiver};
@@ -7,12 +8,12 @@ fn hub(limits: Limits) -> Hub {
     Hub::new(limits, Vec::new(), proto::random32(), Store::memory(), Control::default(), None)
 }
 
-/// Every text message queued for a peer so far, parsed.
+/// 한 설치에 지금까지 쌓인 텍스트 메시지를 모두 읽음
 fn texts(rx: &Receiver<Out>) -> Vec<ServerMsg> {
     rx.try_iter().filter_map(|o| if let Out::Text(t) = o { serde_json::from_str(&t).ok() } else { None }).collect()
 }
 
-/// A reader (install 1) and a known sender (install 2, seen on 3 days).
+/// 독자(설치 1)와 알려진 보낸이(설치 2, 3일 동안 보임)를 둔 허브를 만듦
 fn mailbox_hub() -> (Hub, (String, u64, Receiver<Out>), (String, u64, Receiver<Out>)) {
     let hub = hub(Limits::default());
     let (reader, rconn, _rl, rrx) = peer_at(&hub, "198.51.100.5", 1, &[], 64);
@@ -177,7 +178,7 @@ fn blocking_a_sender_takes_their_board_entries_away() {
     assert_eq!(board_of(hub.board_list(&reader, rconn, 1)).3, 0);
 }
 
-/// Join install `n`, friends with `friends`, on a queue nobody drains.
+/// 설치 `n`을 `friends`와 친구로 접속시킴. 아무도 비우지 않는 큐를 씀
 fn peer(hub: &Hub, n: u8, friends: &[u8], cap: usize) -> (String, u64, Link, Receiver<Out>) {
     peer_at(hub, "203.0.113.1", n, friends, cap)
 }
@@ -192,7 +193,7 @@ fn peer_at(hub: &Hub, ip: &str, n: u8, friends: &[u8], cap: usize) -> (String, u
     (key, admission.conn, link, rx)
 }
 
-/// Two mutual friends and a channel between them, `b` never reading.
+/// 서로 친구 둘과 그 사이 채널을 만듦. `b`는 읽지 않음
 fn stuck_pair(hub: &Hub) -> (String, u64, Link, Link, u32, Receiver<Out>, Receiver<Out>) {
     let (ka, ca, la, ra) = peer(hub, 1, &[2], 512);
     let (kb, _, lb, rb) = peer(hub, 2, &[1], 512);
