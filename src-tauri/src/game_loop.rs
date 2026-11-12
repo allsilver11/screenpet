@@ -1047,6 +1047,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         // 📌 작업표시줄 장난감을 지금 만들 수 있나 (내 흐물이만 본다)
         let toys = objects.toys(&app);
         objects.incoming(&mut incoming);
+        let all_hidden = crate::windows_hidden(&app);
         // 🙆 흐물이에게 같은 화면의 다른 동물을 보여 준다 (번쩍 들러 간다)
         screenpet_core::brain::hoist_moves::notice_pets(&mut slots);
         pet_targets.clear();
@@ -1064,6 +1065,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     s.pet.notice_incoming(&incoming, &s.world);
                 }
                 s.pet.notice_poops(&poop_spots, &s.world);
+                // 🐱 고양이 툭툭 · 🐿️ 다람쥐 볼 빵빵 (v0.6.3): 바닥의 물건 — 모두 숨겨 둔 동안엔 보여 주지 않는다
+                s.pet.notice_play_objects(if all_hidden { &[] } else { &object_spots }, &s.world);
                 // 📌 흐물이: 가끔 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내고, 갖고 놀다 도로 넣는다 (손님은 하지 않는다)
                 if s.pet.cfg.taskbar_play && s.is_own() {
                     s.pet.notice_taskbar(&object_spots, toys, &s.world);
@@ -1122,6 +1125,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
 
         // 🤹 흐물이가 든 물건을 손 자리로 옮기고, 놓은 것은 던진다
         objects.sync_carries(&mut social, &mut slots);
+        // 🐱 툭 밀기 · 🐿️ 뿅 · 🦖 큰 쿵에 톡 (v0.6.3)
+        objects.play_with(&mut slots);
         // 📌 읽은 앱 아이콘이 왔으면 장난감을 만들어 내 흐물이 손에 쥐여 준다
         {
             let own = &mut slots[OWN];

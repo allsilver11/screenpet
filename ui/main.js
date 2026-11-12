@@ -494,6 +494,21 @@ function spark(i, bottom, dx, dy, marginLeft) {
   s.addEventListener("animationend", () => s.remove());
 }
 
+// 🙌 하이파이브 짝! (v0.6.3, 백엔드 render.clap이 켜지는 순간): 몸 앞쪽 위(맞댄 손)에서 반짝이가 작게 터진다 —
+// 마주 본 짝도 제 앞에 터뜨려 둘의 반짝이가 손 사이에서 만난다. 오른쪽을 보면 앞 = 오른쪽 (flip이면 왼쪽)
+const CLAP_SPARKS = 5;
+function clapBurst(flip) {
+  if (document.visibilityState === "hidden") return;
+  const front = display * 0.3 * (flip ? -1 : 1);
+  const bottom = display * 0.62;
+  for (let i = 0; i < CLAP_SPARKS; i++) {
+    const a = (i / CLAP_SPARKS) * Math.PI * 2 + Math.random() * 0.4;
+    const r = display * (0.12 + Math.random() * 0.08);
+    if (pixelMode) pixelBit(i % 2 ? "fx_spark" : "fx_spark2", i % 2 ? 5 : 3, front, bottom, Math.cos(a) * r, -Math.sin(a) * r, 0, 500);
+    else spark(i, bottom, Math.cos(a) * r, -Math.sin(a) * r, front);
+  }
+}
+
 // CSS 효과가 끝나지 않아도(창이 숨겨짐 등) 모자는 반드시 사라진다
 const CAP_POOF_MS = 450;
 const CAP_POOF_SPARKS = 5;
@@ -735,6 +750,8 @@ const listeningRender = listen("pet-render", (e) => {
   if (e.payload.anim === "eat") speech.hidePicker();
   if (e.payload.anim === "tickle" && render.anim !== "tickle") petFx("tickle");
   if (e.payload.flash && !render.flash) petFx("play");
+  // 🙌 하이파이브 짝! (코어 brain_highfive.rs render.clap)
+  if (e.payload.clap && !render.clap) clapBurst(e.payload.flip);
   // 콰당! 몸이 발밑을 축으로 납작 찌그러졌다 튕기고 (style.css #pet.thud), 머리 위에 💫이 돈다
   if (e.payload.thud) petEl.classList.add("thud");
   else petEl.classList.remove("thud");
@@ -914,6 +931,14 @@ const EXTRA_SPEECH = {
   dance: ["♪", "♪♪"],
   fighting: ["Cheer up!", "You got this!"],
   rally_end: ["Done!"],
+  // 다른 동물들도 더 놀기 (v0.6.3): 🐱 고양이 툭툭 / 밀어 떨어뜨림 · 🦆 오리 기차 / 따라가며 · 🦖 큰 쿵 · 🐿️ 볼에 쏙 · 🙌 하이파이브
+  tap: ["Tap… tap…"],
+  oops: ["Oops~"],
+  follow_me: ["Quack! Follow me!"],
+  choo: ["Choo choo!", "Yay!"],
+  big_stomp: ["STOMP!"],
+  nom: ["Nom nom~"],
+  high_five: ["High five!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {

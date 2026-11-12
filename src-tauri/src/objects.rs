@@ -24,6 +24,7 @@ use screenpet_core::taskbar::{Toys, CAPTURE_BACKOFF_SECS, TOY_ICON_PX};
 use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE, Volley, volley_piece};
 use screenpet_core::brain::Pet;
 use screenpet_core::juggle::{JuggleEvent, ObjectSpot};
+use screenpet_core::play::ObjectPlay;
 use screenpet_core::broom::Broom;
 use screenpet_core::social::Social;
 use screenpet_core::poop::PoopSpot;
@@ -434,6 +435,38 @@ impl Objects {
         for l in self.live.iter_mut().filter(|l| l.object.is_carried()) {
             if !pets.iter().any(|p| p.as_ref().carried_object() == Some(l.id)) {
                 l.object.let_fall();
+            }
+        }
+    }
+
+    /// 🐱🐿️🦖 다른 동물들의 물건 놀이 (v0.6.3 — 코어 play.rs): 고양이가 툭 밀고, 다람쥐가 볼에 넣어 뿅 치우고, 공룡의 큰 쿵에
+    /// 같은 바닥의 물건이 톡 튄다. 동물 update 뒤, tick 전에
+    pub fn play_with<T: AsMut<Pet>>(&mut self, pets: &mut [T]) {
+        for p in pets.iter_mut() {
+            match p.as_mut().take_object_play() {
+                Some(ObjectPlay::Nudge { id, dir, reach }) => {
+                    if let Some(l) = self.live.iter_mut().find(|l| l.id == id) {
+                        l.object.nudge(dir, reach);
+                    }
+                }
+                Some(ObjectPlay::Gulp { id }) => {
+                    // 📌 장난감·거대한 것은 코어가 고르지 않는다 — 혹시 와도 치우지 않는다
+                    if let Some(i) = self.live.iter().position(|l| l.id == id && !l.object.kind.is_toy() && !l.object.kind.is_giant()) {
+                        let l = self.live.remove(i);
+                        self.roster.remove(l.id);
+                        self.poof(l);
+                        self.sync_menu();
+                    }
+                }
+                Some(ObjectPlay::Quake { x, y, owner, reach }) => {
+                    for l in self.live.iter_mut() {
+                        let near = l.object.spot(l.id).is_some_and(|s| s.owner == owner && (s.y - y).abs() <= screenpet_core::juggle::SAME_LEVEL_PX && (s.x - x).abs() <= reach);
+                        if near {
+                            l.object.pop(screenpet_core::play::QUAKE_POP_VY);
+                        }
+                    }
+                }
+                None => {}
             }
         }
     }
