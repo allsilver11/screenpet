@@ -1370,9 +1370,10 @@ fn giant(kind: ObjectKind, x: f64, y: f64) -> Object {
 
 #[test]
 fn giants_follow_the_trash_in_the_menu_but_never_fly_in_a_volley() {
-    assert_eq!(ObjectKind::GIANTS, [ObjectKind::GiantStone, ObjectKind::GiantPoop]);
+    assert_eq!(ObjectKind::GIANTS, [ObjectKind::GiantStone, ObjectKind::GiantPoop, ObjectKind::GiantPink, ObjectKind::GiantRainbow]);
+    // 메뉴엔 거대한 돌·똥 둘만 (똥은 꺼낼 때 갈색·핑크·무지개 중 하나 — menu_pick)
     let menu: Vec<ObjectKind> = ObjectKind::MENU.to_vec();
-    let want: Vec<ObjectKind> = ObjectKind::TRASH.iter().chain(ObjectKind::GIANTS.iter()).copied().collect();
+    let want: Vec<ObjectKind> = ObjectKind::TRASH.iter().chain([ObjectKind::GiantStone, ObjectKind::GiantPoop].iter()).copied().collect();
     assert_eq!(menu, want);
     assert_eq!(ObjectKind::GiantStone.label(), "🪨 거대한 돌");
     assert_eq!(ObjectKind::GiantPoop.label(), "💩 거대한 똥");
@@ -1380,7 +1381,7 @@ fn giants_follow_the_trash_in_the_menu_but_never_fly_in_a_volley() {
         assert!(k.is_giant() && !k.is_poop(), "{k:?}");
         assert_eq!(ObjectKind::from_id(k.id()), Some(k));
     }
-    assert!(ObjectKind::ALL.iter().filter(|k| k.is_giant()).count() == 2);
+    assert!(ObjectKind::ALL.iter().filter(|k| k.is_giant()).count() == 4);
     let mut rng = fastrand::Rng::with_seed(4);
     for _ in 0..500 {
         assert!(!volley_piece(&mut rng).0.is_giant());
@@ -1861,4 +1862,25 @@ fn small_things_from_below_still_pop_up_as_before() {
     let g = THROW_GRAVITY_LOGICAL;
     let size = OBJECT_LOGICAL_SIZE * o.scale();
     assert!((o.body.vy + (2.0 * g * 2.5 * size).sqrt()).abs() < 1e-6, "{}", o.body.vy);
+}
+
+#[test]
+fn a_giant_poop_from_the_menu_comes_out_brown_pink_or_rainbow() {
+    // 사용자: 거대 똥 꺼낼 때 랜덤하게 무지개똥/핑크똥/갈색똥
+    use ObjectKind::*;
+    assert_eq!(GiantPoop.menu_pick(0.1), GiantPoop);
+    assert_eq!(GiantPoop.menu_pick(0.5), GiantPink);
+    assert_eq!(GiantPoop.menu_pick(0.9), GiantRainbow);
+    assert_eq!(GiantStone.menu_pick(0.9), GiantStone, "others come out as they are");
+    assert_eq!(Can.menu_pick(0.5), Can);
+    for k in [GiantPink, GiantRainbow] {
+        assert!(k.is_giant() && k.is_sweepable() && !k.takes_postit(), "{k:?}");
+        assert!(ObjectKind::ALL.contains(&k) && !ObjectKind::MENU.contains(&k), "{k:?}");
+        assert_eq!(ObjectKind::from_id(k.id()), Some(k));
+        // 친구에게: 똥으로 보내고 look으로 색과 거대함을 알린다 (옛 버전은 그냥 똥)
+        assert_eq!(k.wire_id(), "poop");
+        assert_eq!(ObjectKind::wire_kind(k.wire_id(), k.look()), Some(k));
+    }
+    assert_eq!((GiantPink.id(), GiantRainbow.id()), ("giant_pink", "giant_rainbow"));
+    assert_eq!(ObjectKind::wire_kind("poop", Some("giant")), Some(GiantPoop));
 }

@@ -313,7 +313,7 @@ def test_pink_poop_is_pink_and_the_same_swirl(built):
 
 
 def test_giants_are_named_like_the_core():
-    assert d.GIANTS == {"giant_stone": "stone", "giant_poop": "poop"}
+    assert d.GIANTS == {"giant_stone": "stone", "giant_poop": "poop", "giant_pink": "pink", "giant_rainbow": "rainbow"}
     assert all(name in d.NAMES for name in d.GIANTS)
     rs = (ROOT / "crates" / "screenpet-core" / "src" / "object.rs").read_text(encoding="utf-8")
     assert '"🪨 거대한 돌"' in rs and '"💩 거대한 똥"' in rs

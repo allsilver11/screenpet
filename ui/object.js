@@ -30,7 +30,7 @@ const SCALE = 96 / 128;
 let DRAW_SCALE = info.scale || 1;
 const IS_POOP = ["poop", "pink", "rainbow", "pellets"].includes(info.kind);
 // 거대한 돌·똥: 동글 그림은 1024 px로 크게, 픽셀 그림은 칸 수가 적다 (24칸 중 20칸을 잘라 칸 안을 1.2배 채운다 — tools/draw_pixel_world.py GIANT_CROP)
-const PIXEL_DOTS = { giant_stone: 20, giant_poop: 20 };
+const PIXEL_DOTS = { giant_stone: 20, giant_poop: 20, giant_pink: 20, giant_rainbow: 20 };
 const DOTS = PIXEL_DOTS[info.kind] || 24;
 const IS_GIANT = info.kind in PIXEL_DOTS;
 // 📌 장난감: 아이콘을 그릴 칸 (128 칸 좌표: 왼쪽, 위, 한 변 — 코어 tumble.rs AppIcon 모양과 같다), 픽셀 스타일에서 줄여 그릴 칸 수

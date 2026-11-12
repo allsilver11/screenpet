@@ -350,6 +350,8 @@ impl Objects {
 
     /// 메뉴에서 만들기: 커서 근처(트레이에서 눌렀으면 그 위)에서 떨어진다. 넘치면 가장 오래된 내 물건이 뿅
     fn spawn_own(&mut self, app: &AppHandle, kind: ObjectKind, base: &World, cursor: (f64, f64)) {
+        // 💩 "거대한 똥"은 갈색·핑크·무지개 중 하나로 나온다
+        let kind = kind.menu_pick(fastrand::f64());
         let id = self.next_id();
         let scale = self.scale_at(app, kind, base, cursor.0, cursor.1);
         let Some(window) = build_window(app, id, kind, false, scale, None) else { return };

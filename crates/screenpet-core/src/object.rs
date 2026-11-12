@@ -87,6 +87,9 @@ pub enum ObjectKind {
     GiantStone,
     /// 💩 거대한 똥 — 메뉴로 꺼낸다. 동물이 싼 게 아니라 쓰레기처럼 치울 때까지 남고, 빗자루에 쓸린다
     GiantPoop,
+    /// 💩 거대한 핑크 똥·무지개 똥: 메뉴의 "거대한 똥"이 갈색·핑크·무지개 중 하나로 나온다 (menu_pick)
+    GiantPink,
+    GiantRainbow,
     /// 📌 흐물이가 작업표시줄(Dock)에서 끌어낸 앱 아이콘 장난감 (taskbar.rs): 그림은 열린 앱 하나의 아이콘을 베낀 것 (앱이 창에 넣는다 — 그림 파일이 없다).
     /// 이 컴퓨터를 떠나지 않는다 — ALL에 없어 친구가 그 이름을 보내도 받지 않고, 던져도 화면 끝을 넘지 않는다. 메뉴에 없고 포스트잇을 못 붙인다.
     /// 한 번에 하나, TOY_LIFE_SECS 뒤 저절로 사라진다
@@ -99,7 +102,7 @@ pub const TOY_ID: &str = "app_icon";
 pub const MAX_TOYS: usize = 1;
 
 impl ObjectKind {
-    pub const ALL: [ObjectKind; 14] = [
+    pub const ALL: [ObjectKind; 16] = [
         ObjectKind::Can,
         ObjectKind::Paper,
         ObjectKind::Stone,
@@ -114,6 +117,8 @@ impl ObjectKind {
         ObjectKind::Pellets,
         ObjectKind::GiantStone,
         ObjectKind::GiantPoop,
+        ObjectKind::GiantPink,
+        ObjectKind::GiantRainbow,
     ];
     /// `물건 ▸` 메뉴로 꺼내는 쓰레기 (친구에게 10개씩 던지는 것도 이 중에서)
     pub const TRASH: [ObjectKind; 8] = [
@@ -127,7 +132,7 @@ impl ObjectKind {
         ObjectKind::Umbrella,
     ];
     /// 🪨💩 거대한 물건 (메뉴에서 쓰레기 다음)
-    pub const GIANTS: [ObjectKind; 2] = [ObjectKind::GiantStone, ObjectKind::GiantPoop];
+    pub const GIANTS: [ObjectKind; 4] = [ObjectKind::GiantStone, ObjectKind::GiantPoop, ObjectKind::GiantPink, ObjectKind::GiantRainbow];
     /// `물건 ▸` 메뉴 순서: 쓰레기, 거대한 물건
     pub const MENU: [ObjectKind; 10] = [
         ObjectKind::Can,
@@ -149,12 +154,26 @@ impl ObjectKind {
 
     /// 거대한 돌·똥
     pub fn is_giant(self) -> bool {
-        matches!(self, ObjectKind::GiantStone | ObjectKind::GiantPoop)
+        matches!(self, ObjectKind::GiantStone | ObjectKind::GiantPoop | ObjectKind::GiantPink | ObjectKind::GiantRainbow)
+    }
+
+    /// 메뉴에서 꺼낼 때 실제로 나오는 것 (roll: 0..1): "거대한 똥"은 갈색·핑크·무지개가 1/3씩. 나머지는 그대로
+    pub fn menu_pick(self, roll: f64) -> ObjectKind {
+        match self {
+            ObjectKind::GiantPoop if roll >= 2.0 / 3.0 => ObjectKind::GiantRainbow,
+            ObjectKind::GiantPoop if roll >= 1.0 / 3.0 => ObjectKind::GiantPink,
+            kind => kind,
+        }
+    }
+
+    /// 거대한 똥 (갈색·핑크·무지개)
+    pub fn is_giant_poop(self) -> bool {
+        matches!(self, ObjectKind::GiantPoop | ObjectKind::GiantPink | ObjectKind::GiantRainbow)
     }
 
     /// 빗자루에 쓸린다: 똥과 거대한 똥
     pub fn is_sweepable(self) -> bool {
-        self.is_poop() || self == ObjectKind::GiantPoop
+        self.is_poop() || self.is_giant_poop()
     }
 
     /// 포스트잇을 붙일 수 있다: 쓰레기만 (똥은 사라지고, 거대한 것은 쪽지 창이 그림을 덮는다)
@@ -207,6 +226,8 @@ impl ObjectKind {
             ObjectKind::Pellets => "pellets",
             ObjectKind::GiantStone => "giant_stone",
             ObjectKind::GiantPoop => "giant_poop",
+            ObjectKind::GiantPink => "giant_pink",
+            ObjectKind::GiantRainbow => "giant_rainbow",
             ObjectKind::AppIcon => TOY_ID,
         }
     }
@@ -225,6 +246,8 @@ impl ObjectKind {
             ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets => "💩 똥",
             ObjectKind::GiantStone => "🪨 거대한 돌",
             ObjectKind::GiantPoop => "💩 거대한 똥",
+            ObjectKind::GiantPink => "💩 거대한 핑크 똥",
+            ObjectKind::GiantRainbow => "💩 거대한 무지개 똥",
             ObjectKind::AppIcon => "📌 앱 아이콘 장난감",
         }
     }
@@ -244,6 +267,8 @@ impl ObjectKind {
             (ObjectKind::Poop, Some("pink")) => Some(ObjectKind::Pink),
             (ObjectKind::Poop, Some("rainbow")) => Some(ObjectKind::Rainbow),
             (ObjectKind::Poop, Some("giant")) => Some(ObjectKind::GiantPoop),
+            (ObjectKind::Poop, Some("giant_pink")) => Some(ObjectKind::GiantPink),
+            (ObjectKind::Poop, Some("giant_rainbow")) => Some(ObjectKind::GiantRainbow),
             (ObjectKind::Stone, Some("giant")) => Some(ObjectKind::GiantStone),
             (kind, _) => Some(kind),
         }
@@ -255,6 +280,9 @@ impl ObjectKind {
             ObjectKind::Pink => Some("pink"),
             ObjectKind::Rainbow => Some("rainbow"),
             ObjectKind::GiantStone | ObjectKind::GiantPoop => Some("giant"),
+            // 옛 버전(0.6.2까지) 친구는 이 색을 몰라 보통 갈색 똥으로 받는다
+            ObjectKind::GiantPink => Some("giant_pink"),
+            ObjectKind::GiantRainbow => Some("giant_rainbow"),
             _ => None,
         }
     }
@@ -287,7 +315,7 @@ impl ObjectKind {
             // 바닥에 붙어 있다 (start_gust가 막는다)
             ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets => (0.0, 0.0),
             // 너무 무겁다 (start_gust가 막는다)
-            ObjectKind::GiantStone | ObjectKind::GiantPoop => (0.0, 0.0),
+            ObjectKind::GiantStone | ObjectKind::GiantPoop | ObjectKind::GiantPink | ObjectKind::GiantRainbow => (0.0, 0.0),
             // 납작한 네모: 캔보다 덜 구른다
             ObjectKind::AppIcon => (20.0, 60.0),
         }

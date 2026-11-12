@@ -1,7 +1,7 @@
 """물건 (쓰레기 장난감) — draw_pets.py 엔진으로 그린 128 칸 그림과 노란 포스트잇.
 
     python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,shirt,umbrella,poop,pink,rainbow,pellets}.png (128×128)
-                                    + ui/objects/{giant_stone,giant_poop}.png (1024×1024 — 화면 높이의 80%까지 커지니 크게 그린다)
+                                    + ui/objects/{giant_stone,giant_poop,giant_pink,giant_rainbow}.png (1024×1024 — 화면 높이의 80%까지 커지니 크게 그린다)
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
 
@@ -44,9 +44,9 @@ POSTIT_REACH = 20
 HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
-NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "pink", "rainbow", "pellets", "giant_stone", "giant_poop")
+NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "pink", "rainbow", "pellets", "giant_stone", "giant_poop", "giant_pink", "giant_rainbow")
 # 🪨💩 거대한 물건 → 같은 모양의 작은 것. 아기 동물의 15배(화면 높이의 80%까지)로 보이니 GIANT_PX로 직접 그린다 (128을 키우면 흐릿하다)
-GIANTS = {"giant_stone": "stone", "giant_poop": "poop"}
+GIANTS = {"giant_stone": "stone", "giant_poop": "poop", "giant_pink": "pink", "giant_rainbow": "rainbow"}
 GIANT_PX = 1024
 # 칸 안에서 작은 것보다 이만큼 크게 (바닥 가운데 기준) — 아기 동물이 제 칸을 채우는 만큼. 픽셀 그림은 24칸 중 20칸을 잘라 같은 비율 (draw_pixel_world GIANT_CROP)
 GIANT_GROW = 1.2
@@ -315,6 +315,9 @@ def draw_giant_poop(img):
 
 DRAW["giant_stone"] = draw_giant_stone
 DRAW["giant_poop"] = draw_giant_poop
+# 거대한 핑크·무지개 똥: 작은 것 그대로 크게 (메뉴의 "거대한 똥"이 셋 중 하나로 나온다)
+DRAW["giant_pink"] = draw_pink
+DRAW["giant_rainbow"] = draw_rainbow
 
 
 def art_px(name):

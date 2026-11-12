@@ -48,7 +48,7 @@ CLOUD_DOTS = (14, 9)
 OBJECT_DOTS = 24
 # 거대한 돌·똥 = 보통 돌·똥의 칸을 20칸 칸으로 잘라 낸 것 (칸 안을 1.2배 채운다 — 동글 거대 그림과 같은 비율, tools/draw_objects.py GIANT_GROW).
 # 웹뷰가 칸을 또렷하게(pixelated) 키우니 칸을 더 찍을 필요가 없다
-GIANT_OBJECTS = {"giant_stone": "stone", "giant_poop": "poop"}
+GIANT_OBJECTS = {"giant_stone": "stone", "giant_poop": "poop", "giant_pink": "pink", "giant_rainbow": "rainbow"}
 GIANT_CROP = (2, 4, 22, 24)
 POSTIT_DOTS = 6
 # 모자·목도리 띠 (한 칸 = 머리 너비 하나): ui/main.js와 같다
