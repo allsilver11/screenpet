@@ -49,7 +49,7 @@ def test_registered_with_panic_hang_rope_the_juggle_rows_and_the_taskbar_rows():
     assert [o[0] for o in OPTIONAL_ANIMS[11:14]] == ["panic", "hang", "rope"]
     assert [o[0] for o in OPTIONAL_ANIMS[14:21]] == JUGGLE  # = Rust manifest::JUGGLE_ANIMS
     assert [o[0] for o in OPTIONAL_ANIMS[21:23]] == TASKBAR  # = Rust manifest::TASKBAR_ANIMS
-    assert [o[0] for o in OPTIONAL_ANIMS[23:]] == ANTICS  # = Rust manifest::OPTIONAL_ANIMS 맨 끝 (ANTICS_ANIMS)
+    assert [o[0] for o in OPTIONAL_ANIMS[23:31]] == ANTICS  # = Rust manifest::ANTICS_ANIMS (v0.6.3)
     assert names(hm.HEUMUL) == [a for a, *_ in ANIMS] + ["lookup", "panic", "hang", "rope"] + JUGGLE + TASKBAR + ANTICS
 
 
@@ -368,7 +368,7 @@ def test_hang_cursor_holds_the_cursor_tip_with_both_hands_above_the_head(out, st
     for i in range(4):
         im = frame(out, st, "hang_cursor", i)
         x0, y0, x1, y1 = head_box(im)
-        assert y0 > gy and x0 < gx < x1, (st, i)
+        assert y0 > gy and gx > (x0 + x1) / 2, (st, i)
         ys = np.nonzero(alpha(im).any(axis=1))[0]
         assert ys.min() <= gy + 1 and ys.max() > y1 + 30, (st, i, ys.min(), ys.max())
 
@@ -387,13 +387,14 @@ def test_peek_shows_only_the_head_left_of_the_window_side(out, st):
 
 @pytest.mark.parametrize("st", STAGES)
 def test_catch_grip_is_above_the_head_and_draw_reaches_the_floor_in_front(out, st):
-    """⚾ 받는 칸들의 손 자리는 머리 위 · 🖍️ 낙서는 손(분필)이 몸 앞 바닥께에 닿는다."""
+    """⚾ 받는 칸들의 손 자리는 젖힌 머리 앞 위 · 🖍️ 낙서는 손(분필)이 몸 앞 바닥께에 닿는다."""
     m = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))
     fs = m.get("frame_sizes", {}).get(st, m["frame_size"])
     for i in range(4):
         x, y = (v * 128 / fs for v in m["grip"][st]["catch"][i])
         _, y0, _, _ = head_box(frame(out, st, "catch", i))
-        assert y <= y0 + 3 and abs(x - 64) < 16, (st, i, x, y, y0)
+        x0, _, x1, _ = head_box(frame(out, st, "catch", i))
+        assert y <= y0 + 3 and x1 - 4 < x < 64 + 28, (st, i, x, y, y0, x1)  # 젖힌 머리 앞 위 (팔이 머리 앞을 지나 올라간다)
         ink = near(frame(out, st, "draw", i), hm.INK, 40)
         ys, xs = np.nonzero(ink)
         assert xs.max() > 80 and ys.max() > 115, (st, i)
@@ -423,3 +424,27 @@ def test_pixel_antics_have_hard_ink_masks():
                 m = np.asarray(mk.getchannel("A")).astype(int)
                 dark = (a[..., 3] > 0) & (a[..., :3].sum(axis=2) < 300)
                 assert dark.sum() > 8 and (m[dark] == 255).all() and set(np.unique(m)) <= {0, 255}, (st, anim)
+
+
+@pytest.mark.parametrize("st", STAGES)
+@pytest.mark.parametrize("anim", ["hang_cursor", "catch"])
+def test_raised_arms_go_up_past_the_tilted_back_head_without_crossing_the_face(out, st, anim):
+    """매달린 사람처럼 머리를 뒤로 젖히고 두 팔은 머리 앞(오른쪽)을 지나 곧게 위로 — 손은 머리 꼭대기 위,
+    머리 가운데 높이에서 팔은 머리 오른쪽 바깥, 머리 속(얼굴) 가운데엔 잉크가 없다."""
+    for i in range(4):
+        im = frame(out, st, anim, i)
+        x0, y0, x1, y1 = head_box(im)
+        ink = near(im, hm.INK, 40)
+        assert ink[: max(y0 - 1, 0)].sum() > 3, (st, anim, i, "손이 머리 꼭대기 위")
+        cy = (y0 + y1) // 2
+        assert ink[cy - 2: cy + 3, x1 + 2:].sum() > 2, (st, anim, i, "팔이 머리 옆을 지나 올라간다")
+        r = (x1 - x0) / 2 * 0.65
+        yy, xx = np.ogrid[: ink.shape[0], : ink.shape[1]]
+        face = ((xx - (x0 + x1) / 2) ** 2 + (yy - cy) ** 2) <= r * r
+        assert (ink & face).sum() <= 4, (st, anim, i, int((ink & face).sum()))
+    if anim == "hang_cursor":
+        m = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))
+        fs = m.get("frame_sizes", {}).get(st, m["frame_size"])
+        gx, gy = (v * 128 / fs for v in m["grip"][st]["hang_cursor"][0])
+        x0, y0, x1, _ = head_box(frame(out, st, anim, 0))
+        assert gy < y0 and gx > x1, (st, gx, gy, x0, y0, x1, "손 자리(흔드는 축)는 두 손이 모인 머리 위 앞")

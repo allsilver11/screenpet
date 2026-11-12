@@ -673,6 +673,30 @@ def _hold_up(f, shoulder, g, w=0.0, front=False):
             f.line(pts)
 
 
+def _shoulder_of(hip, lean=0.0, sbend=0.0, sbend2=None):
+    """stand가 쓸 옆모습 어깨 자리 (몸 휨까지 같은 식)."""
+    s = hm()
+    neck = polar(hip, 180 - lean, s["spine"])
+    spine = hose(hip, neck, sbend, sbend2)
+    return spine[int(len(spine) * 0.72)]
+
+
+def _reach(f, shoulder, g, spread, bow=-0.08, ax=None):
+    """두 팔을 어깨에서 앞으로 조금 내밀었다가 (머리 아래라 머리를 지나지 않는다) 팔 선 ax에서 곧게 위로 g 양옆(손)까지 —
+    머리는 뒤로 젖혀 팔 선 뒤에 있으니 얼굴을 가로지르지 않는다. 머리 다음에 그린다 (팔이 앞). bow < 0 = 앞(+x)으로 살짝 휜다."""
+    ax = g[0] if ax is None else ax
+    for sg in (-1, 1):
+        hand = (g[0] + sg * spread, g[1] + 1.5)
+        elbow = (ax + sg * spread * 0.6, shoulder[1] - 3.0)
+        f.line(hose(shoulder, elbow, 0.2) + hose(elbow, hand, bow + 0.03 * sg)[1:])
+
+
+def _arm_line_x(hip, lean, sb, sb2, gap):
+    """팔이 머리를 비켜 가는 x: 어깨보다 조금 앞, 그리고 젖힌 머리 앞 가장자리보다 gap 앞."""
+    hx, _ = _head_of(hip, lean, sb, sb2)
+    return max(_shoulder_of(hip, lean, sb, sb2)[0] + 1.0, hx + hm()["hr"] + gap + 2.0)
+
+
 def hm_lift(sp, i):
     """쪼그려 앉아 앞에 놓인 물건을 두 손으로 잡고 → 일어나며 가슴께로 → 머리 위로 번쩍 (한 번, 마지막 칸 = hold)."""
     f = Fig()
@@ -859,42 +883,31 @@ def hm_stuff(sp, i):
 
 
 # ---- 🎣 커서에 매달리기 (코어 brain_swing.rs — 두 손이 커서 끝을 잡는다: 손 자리 mark_grip = 웹뷰가 이 점을 축으로 흔든다) ----
-HANG_DROP = 0.4  # 머리 꼭대기가 손보다 머리 반지름의 이만큼 아래 (팔이 머리 양옆으로 쭉)
+HANG_ARM_GAP = 2.5  # 팔 선이 젖힌 머리 앞 가장자리보다 이만큼 앞 (팔이 얼굴을 가로지르지 않는다)
+HANG_DROP = 0.45  # 머리 꼭대기가 손보다 머리 반지름의 이만큼 아래 (팔이 머리 양옆으로 쭉)
 HANG_TIP = (64, 7)  # 두 손이 커서 끝을 꼭 잡은 자리 (프레임 px) — 모든 칸이 같다 (흔드는 축이 흔들리지 않게)
 
 
-def _reach_up(f, shoulder, g, w=0.0, spread=2.5):
-    """두 팔을 머리 양옆으로 둥글게 올려 머리 위 g를 함께 잡는다 (_hold_up처럼 — 몸무게에 팔이 조금 팽팽)."""
-    hr = hm()["hr"]
-    heads = [k for k, (kind, _) in enumerate(f.items) if kind == "head"]
-    at = heads[-1] if heads else len(f.items)
-    for sg in (-1, 1):
-        hand = (g[0] + sg * spread, g[1] + 1.5)
-        c1 = (shoulder[0] + sg * hr * 1.75, shoulder[1] - hr * 0.3)
-        c2 = (hand[0] + sg * hr * (1.15 + w), hand[1] + (shoulder[1] - hand[1]) * 0.3)
-        pts = cubic(shoulder, c1, c2, hand)
-        if sg < 0:
-            f.items.insert(at, ("line", pts))
-        else:
-            f.line(pts)
-
-
 def hm_hang_cursor(sp, i):
-    """커서 끝에 두 손으로 대롱대롱: 몸은 손 아래로 축 늘어지고, 다리는 번갈아 허우적 (흔들림 자체는 웹뷰가 손을 축으로 돌린다)."""
+    """높은 데 매달린 사람처럼: 두 팔은 어깨에서 곧게 위로 커서 끝(손이 모인 자리)까지, 머리는 뒤로 젖혀 손을 올려다보며
+    팔 선 뒤에 있고 (팔이 얼굴을 가로지르지 않는다), 몸과 다리는 아래로 대롱대롱 (흔들림 자체는 웹뷰가 손을 축으로 돌린다)."""
     f = Fig()
     s = hm()
     k = leg_k()
     g = dp._frame_to_pre(*HANG_TIP)
     w = wig(i)
-    lean, sb = [3, -2, -3, 2][i], [0.08, -0.05, -0.08, 0.05][i]
+    lean, sb, sb2 = [-22, -20, -24, -21][i], -0.08, [0.3, 0.26, 0.32, 0.28][i]
     hip0 = (0.0, 0.0)
-    hx, hy = _head_of(hip0, lean, sb)
-    top = hy - s["hr"]
-    hip = (g[0] - hx + [0.6, -0.4, -0.6, 0.4][i], g[1] + HANG_DROP * s["hr"] - top)
-    legs = [((hip[0] - 4 * k + 3 * w, hip[1] + s["leg"] * 0.84), 0.25 * w, -0.3 * w),
-            ((hip[0] + 5 * k - 4 * w, hip[1] + s["leg"] * [0.84, 0.72, 0.84, 0.72][i]), -0.28 * w, 0.35 * w)]
-    _, sh, _ = stand(f, hip=hip, lean=lean, sbend=sb, sbend2=-0.5 * sb, head_tilt=[-6, 4, 6, -4][i], arms=[], legs=legs)
-    _reach_up(f, sh, g, [0.0, 0.05, 0.0, -0.05][i])
+    _, hy = _head_of(hip0, lean, sb, sb2)
+    sh = _shoulder_of(hip0, lean, sb, sb2)
+    ax = _arm_line_x(hip0, lean, sb, sb2, HANG_ARM_GAP)
+    # 손은 머리 꼭대기보다 HANG_DROP × 반지름 위, 팔 길이만큼은 어깨 위
+    top = min(hy - s["hr"] * (1.0 + HANG_DROP), sh[1] - s["arm"] * 0.95)
+    hip = (g[0] - ax + [0.5, -0.4, -0.5, 0.4][i], g[1] - top)
+    legs = [((hip[0] - 3 * k + 3 * w, hip[1] + s["leg"] * 0.66), 0.3 * w, -0.35 * w),
+            ((hip[0] + 6 * k - 4 * w, hip[1] + s["leg"] * [0.66, 0.56, 0.66, 0.56][i]), -0.32 * w, 0.4 * w)]
+    _, shoulder, _ = stand(f, hip=hip, lean=lean, sbend=sb, sbend2=sb2, head_tilt=[-32, -28, -34, -30][i], arms=[], legs=legs)
+    _reach(f, shoulder, g, 1.5, [-0.03, -0.02, -0.04, -0.02][i])
     dp.mark_grip(*g)
     return f.render()
 
@@ -991,14 +1004,18 @@ def hm_dance2(sp, i):
 
 # ---- ⚾ 받기 (코어 brain_juggle.rs JugglePhase::Catch — 물건은 앱의 물건 창: 손 자리 mark_grip) ----
 def hm_catch(sp, i):
-    """날아온 것을 받는다: 두 팔을 머리 위로 쭉 뻗어 → 손에 탁 → 무릎을 굽혀 받아 내고 → 든 채 일어선다 (한 번, 마지막 칸 = hold)."""
+    """날아온 것을 받는다: 고개를 살짝 젖혀 올려다보며 두 팔을 위로 쭉 → 손에 탁 → 무릎을 굽혀 받아 내고 → 든 채 일어선다
+    (한 번, 마지막 칸 = hold). 팔은 젖힌 머리 앞을 지나 올라가 얼굴을 가로지르지 않는다."""
     f = Fig()
+    s = hm()
     hip = ground_hip(62, [0.92, 0.8, 0.7, 0.9][i])
     legs = [(floor_at(53), [0.1, 0.35, 0.5, 0.15][i], 0.06), (floor_at(71), [0.12, 0.38, 0.52, 0.17][i], 0.08)]
-    lean, sb = [-8, -3, 3, 0][i], [-0.1, 0.0, 0.08, 0.04][i]
-    g = _overhead(hip, lean, sb, dx=[4, 2, 1, 1][i], dy=[-2, -1, 1, 0][i])
-    _, sh, _ = stand(f, hip=hip, lean=lean, sbend=sb, head_tilt=[-16, -6, 4, 0][i], arms=[], legs=legs)
-    _hold_up(f, sh, g, [-0.1, 0.06, 0.08, 0.0][i])
+    lean, sb, sb2 = [-12, -8, -4, -6][i], -0.06, [0.24, 0.2, 0.16, 0.18][i]
+    hx, hy = _head_of(hip, lean, sb, sb2)
+    ax = _arm_line_x(hip, lean, sb, sb2, 1.0) + HAND_SPREAD * 0.5
+    g = (ax, hy - s["hr"] - HOLD_GAP - [5, 3, 1, 2][i])
+    _, sh, _ = stand(f, hip=hip, lean=lean, sbend=sb, sbend2=sb2, head_tilt=[-22, -16, -10, -12][i], arms=[], legs=legs)
+    _reach(f, sh, g, HAND_SPREAD * 0.75, [-0.04, -0.03, -0.02, -0.03][i], ax=ax - HAND_SPREAD * 0.5)
     dp.mark_grip(*g)
     return f.render()
 
