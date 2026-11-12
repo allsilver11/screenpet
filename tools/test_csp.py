@@ -52,7 +52,7 @@ POLICY = {
 }
 
 
-@pytest.mark.parametrize("page", ["pair.html", "code.html", "name.html", "letter.html", "postit.html"])
+@pytest.mark.parametrize("page", ["pair.html", "code.html", "name.html", "letter.html", "postit.html", "board.html", "mailbox.html", "feedback.html"])
 def test_form_windows_share_form_css(page):
     assert '<link rel="stylesheet" href="form.css" />' in (UI / page).read_text(encoding="utf-8")
 

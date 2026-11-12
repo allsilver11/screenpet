@@ -3200,6 +3200,7 @@ dependencies = [
  "snow",
  "socket2",
  "tungstenite",
+ "unicode-segmentation",
  "webpki-roots",
 ]
 
@@ -3214,6 +3215,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tungstenite",
+ "unicode-segmentation",
  "ureq",
 ]
 

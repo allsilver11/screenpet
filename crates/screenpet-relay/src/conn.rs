@@ -261,6 +261,15 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                     hub.letter_block(&a.key, a.conn, &from);
                                     None
                                 }
+                                ClientMsg::LetterReject { id, rejected } => {
+                                    hub.letter_reject(&a.key, a.conn, id, rejected);
+                                    None
+                                }
+                                ClientMsg::BoardPut { items } => {
+                                    hub.board_put(&a.key, a.conn, &items);
+                                    None
+                                }
+                                ClientMsg::BoardList { page } => hub.board_list(&a.key, a.conn, page),
                                 ClientMsg::WeatherWant { place } => {
                                     // A place changes rarely: past a few a minute, just ignored
                                     if weather_wants.take(1.0) {

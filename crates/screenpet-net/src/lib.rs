@@ -23,6 +23,7 @@
 mod devices;
 mod discovery;
 pub mod ladder;
+pub mod board;
 pub mod letter;
 mod noise;
 mod peers;
@@ -283,8 +284,12 @@ pub enum NetEvent {
     /// `offline`, `busy`, `timeout`.
     LetterSent { result: Result<(), String> },
     /// The whole developer mailbox (only for installs the relay lists as
-    /// mailbox readers), newest first.
-    Mailbox { letters: Vec<letter::MailItem> },
+    /// mailbox readers), newest first, and the ids of the letters already on
+    /// the 📮 public board (empty from relays before v3).
+    Mailbox { letters: Vec<letter::MailItem>, board: Vec<u64> },
+    /// 📮 The answer to [`Net::board_list`]: a page of the public board, or
+    /// why not (`offline`, `old` = the relay is older than v3, `timeout`).
+    Board { result: Result<board::BoardPage, String> },
     /// A new letter reached the developer mailbox while we are a reader online.
     LetterArrived { item: letter::MailItem },
     Received { from: String, msg: Visit },
@@ -1087,6 +1092,26 @@ impl Net {
     /// 📬 Tick a letter as acted on (반영함), or untick it.
     pub fn mailbox_done(&self, id: u64, done: bool) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Done(id, done)))
+    }
+
+    /// 🙅 Turn a letter down (반려), or clear it. Only v3 relays (`false` otherwise).
+    pub fn mailbox_reject(&self, id: u64, rejected: bool) -> bool {
+        self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Reject(id, rejected)))
+    }
+
+    /// 📮 Publish public digests ([`board::digest`]) of letters this
+    /// developer app opened. Only v3 relays, only for mailbox readers.
+    pub fn board_put(&self, items: &[board::Digest]) -> bool {
+        self.shared.relay.as_ref().is_some_and(|c| relay::board_put(c, items))
+    }
+
+    /// 📮 Ask for page `page` (1-based) of the public board; the answer comes
+    /// as [`NetEvent::Board`] (right away if it can't be asked).
+    pub fn board_list(&self, page: u32) {
+        match &self.shared.relay {
+            Some(c) => relay::board_list(&self.shared, c, page),
+            None => self.shared.emit(NetEvent::Board { result: Err("offline".into()) }),
+        }
     }
 
     /// 📬 Delete a letter.

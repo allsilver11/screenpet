@@ -28,7 +28,18 @@
 //! client -> relay   letters                    -> letters {items}       (mailbox readers only)
 //! client -> relay   letter_read {id} | letter_delete {id} | letter_block {from} | letter_done {id, done}
 //!                                              (readers only) -> letters_changed to every reader
+//!                   (items carry `done` and, from v3, `rejected`; `letter_done false` clears both)
 //! relay  -> client  letter_new {item}          (to readers online when a letter arrives)
+//! client -> relay   letter_reject {id, rejected} (v3, readers only) 🙅 반려 — clears 반영; -> letters_changed
+//! client -> relay   board_put {items: [{id, name, line}]}
+//!                   (v3, readers only, ≤ 20 a message) 📮 public digest of a
+//!                   letter: masked name (`김**`) and its first line; checked
+//!                   again here, kept with the letter. `letters` answers
+//!                   carry `board: [id]`, the letters already on the board.
+//! client -> relay   board_list {page}          (v3, anyone, ≥ 0.5 s apart; faster ones are ignored)
+//!                   -> board_page {items: [{id, name, line, at, status}], page, pages, total}
+//!                   5 a page, newest first, page 1-based and clamped,
+//!                   status none | done | rejected
 //! client -> relay   weather_want {place}      (v2 relays only; -> weather if known)
 //!                   place = a built-in city id ("yongin", "seoul", …,
 //!                   `weather::PLACES`); unknown ids are ignored
@@ -47,9 +58,10 @@
 pub use screenpet_crypto::{auth_mac, hex32, public_key, random32, to_hex, welcome_proof};
 use serde::{Deserialize, Serialize};
 
-/// 2 = takes `weather_want` (v0.6.3). Apps send it only to relays that say
-/// `v >= 2` in the challenge: older relays close on an unknown message.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// 2 = takes `weather_want` (v0.6.3). 3 = 📮 `board_put`, `board_list`,
+/// `letter_reject` (v0.6.3). Apps send each only to relays that say a high
+/// enough `v` in the challenge: older relays close on an unknown message.
+pub const PROTOCOL_VERSION: u32 = 3;
 /// Largest opaque frame carried on a channel (same as the LAN transport).
 pub const MAX_FRAME: usize = 65535;
 /// Channel id header in binary messages.
@@ -104,6 +116,25 @@ pub enum ClientMsg {
     WeatherWant {
         place: String,
     },
+    LetterReject {
+        id: u64,
+        rejected: bool,
+    },
+    BoardPut {
+        items: Vec<BoardIn>,
+    },
+    BoardList {
+        #[serde(default)]
+        page: u32,
+    },
+}
+
+/// 📮 A digest the developer's app publishes (checked again by the mailbox).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BoardIn {
+    pub id: u64,
+    pub name: String,
+    pub line: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -130,10 +161,15 @@ pub enum ServerMsg {
     Error { reason: String },
     LetterOk,
     LetterRefused { reason: String },
-    Letters { items: Vec<crate::mailbox::StoredLetter> },
+    Letters {
+        items: Vec<crate::mailbox::StoredLetter>,
+        /// 📮 Ids of the letters already on the board.
+        board: Vec<u64>,
+    },
     LetterNew { item: crate::mailbox::StoredLetter },
     LettersChanged,
     Weather { place: String, code: u16, at: u64 },
+    BoardPage { items: Vec<crate::board::Item>, page: u32, pages: u32, total: u32 },
 }
 
 impl ServerMsg {
@@ -245,5 +281,21 @@ mod tests {
         assert!(serde_json::from_str::<ClientMsg>(r#"{"t":"bogus"}"#).is_err());
         let s = ServerMsg::Presence { key: "k".into(), online: true }.to_json();
         assert_eq!(s, r#"{"t":"presence","key":"k","online":true}"#);
+    }
+
+    #[test]
+    fn board_messages_round_trip() {
+        assert_eq!(PROTOCOL_VERSION, 3);
+        let m: ClientMsg = serde_json::from_str(r#"{"t":"board_list","page":2}"#).unwrap();
+        assert_eq!(m, ClientMsg::BoardList { page: 2 });
+        let m: ClientMsg = serde_json::from_str(r#"{"t":"board_put","items":[{"id":3,"name":"김**","line":"펭귄"}]}"#).unwrap();
+        assert_eq!(m, ClientMsg::BoardPut { items: vec![BoardIn { id: 3, name: "김**".into(), line: "펭귄".into() }] });
+        let m: ClientMsg = serde_json::from_str(r#"{"t":"letter_reject","id":4,"rejected":true}"#).unwrap();
+        assert_eq!(m, ClientMsg::LetterReject { id: 4, rejected: true });
+        let item = crate::board::Item { id: 3, name: "김**".into(), line: "펭귄".into(), at: 9, status: crate::board::Status::Rejected };
+        let s = ServerMsg::BoardPage { items: vec![item], page: 1, pages: 1, total: 1 }.to_json();
+        assert_eq!(s, r#"{"t":"board_page","items":[{"id":3,"name":"김**","line":"펭귄","at":9,"status":"rejected"}],"page":1,"pages":1,"total":1}"#);
+        let s = ServerMsg::Letters { items: vec![], board: vec![3] }.to_json();
+        assert_eq!(s, r#"{"t":"letters","items":[],"board":[3]}"#);
     }
 }

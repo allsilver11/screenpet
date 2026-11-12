@@ -1,6 +1,6 @@
 //! 💌 개발자에게 건의하기 (spec 2026-11-10-feedback-mailbox §4): 누구나 쓰는 편지 창.
 //! 편지는 개발자 공개키(`letter::DEV_KEY`)로 봉해 릴레이 편지함에 맡긴다 — 릴레이도 읽지 못한다.
-//! 하루 한 통·글자 수 같은 제한은 릴레이가 센다 (앱을 고쳐도 풀 수 없게). 결과는 창에 한 줄로.
+//! 하루 5통·글자 수 같은 제한은 릴레이가 센다 (앱을 고쳐도 풀 수 없게). 결과는 창에 한 줄로.
 
 use screenpet_net::letter::{self, Letter};
 use serde::Serialize;
@@ -13,7 +13,7 @@ use crate::slots::Slot;
 use crate::AppState;
 
 pub const FEEDBACK_LABEL: &str = "feedback";
-const FEEDBACK_FORM: Form = Form { label: FEEDBACK_LABEL, page: "feedback.html", title: "ScreenPet 건의하기", size: (370.0, 320.0) };
+const FEEDBACK_FORM: Form = Form { label: FEEDBACK_LABEL, page: "feedback.html", title: "ScreenPet 건의하기", size: (370.0, 345.0) };
 
 /// 창이 받는 결과 (`feedback-result`)
 #[derive(Debug, Clone, Serialize, PartialEq)]

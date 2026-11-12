@@ -109,8 +109,10 @@ pub enum Input {
     ShowHelp,
     /// 💌 개발자에게 건의하기 창
     ShowFeedback,
-    /// 📬 개발자 편지함 창
+    /// 📮 개발자 건의함 창 (개발자 컴퓨터의 트레이 "📮 건의함", 편지를 든 펫 우클릭)
     ShowMailbox,
+    /// 📮 건의함 보기 창 (다른 모든 컴퓨터의 트레이 "📮 건의함" — 읽기 전용 공개 목록)
+    ShowBoard,
     /// 메뉴 "🎁 선물 도감" (창 만들기는 게임 루프 스레드에서)
     ShowGiftBook,
     /// 메뉴 "💩 똥피하기"
@@ -760,6 +762,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 Input::ShowHelp => crate::help::show(&app),
                 Input::ShowFeedback => crate::feedback::show(&app),
                 Input::ShowMailbox => crate::mailbox::show(&app),
+                Input::ShowBoard => crate::board::show(&app),
                 Input::ShowGiftBook => crate::gifts::show_book(&app),
                 Input::ShowDodge => {
                     // 조작 모드는 게임이 대신한다

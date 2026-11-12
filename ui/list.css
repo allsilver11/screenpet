@@ -1,0 +1,14 @@
+/* 📮 건의함 두 창 (mailbox.html 개발자 건의함 · board.html 공개 건의함) 공통: 편지 카드와 쪽 넘기기 */
+body { align-items: stretch; }
+#list { width: 440px; display: flex; flex-direction: column; gap: 8px; }
+.letter { border: 1px solid #ddd; border-radius: 8px; padding: 8px 10px; background: #fff; text-align: left; }
+.meta { display: flex; justify-content: space-between; font-size: 11px; color: #888; gap: 6px; }
+.who { font-size: 13px; color: #333; }
+.text { white-space: pre-wrap; word-break: break-word; font-size: 13px; margin: 6px 0; color: #222; }
+.badge { font-size: 11px; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+.badge.done { background: #e6f6e6; color: #2f6b2f; }
+.badge.rejected { background: #f3eeee; color: #7a4a4a; }
+#empty { color: #888; font-size: 13px; text-align: center; padding: 40px 0; }
+#pager { display: flex; gap: 10px; justify-content: center; align-items: center; font-size: 12px; }
+#pager .pages { min-width: 48px; text-align: center; color: #6b5a47; }
+#pager button:disabled { opacity: 0.4; cursor: default; }

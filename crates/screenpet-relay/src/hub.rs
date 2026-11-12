@@ -150,6 +150,8 @@ struct Peer {
     channels: HashSet<u32>,
     /// ☀️ The built-in place whose weather this app wants (Yongin until it says otherwise).
     weather: &'static str,
+    /// 📮 When this connection last got a board page.
+    board_at: Option<Instant>,
 }
 
 impl Peer {
@@ -829,7 +831,7 @@ impl Hub {
         };
         let place = st.weathers.want(DEFAULT_PLACE, Instant::now()).expect("built-in");
         let weather = st.weathers.reading(place);
-        let peer = Peer { conn, id: id.to_string(), ip: ip.to_string(), since: now, link, channels: HashSet::new(), weather: place };
+        let peer = Peer { conn, id: id.to_string(), ip: ip.to_string(), since: now, link, channels: HashSet::new(), weather: place, board_at: None };
         // Queued now, written after the welcome (old apps ignore it)
         if let Some(r) = weather {
             peer.send(weather_msg(place, r));
@@ -1159,7 +1161,7 @@ impl Hub {
     /// The whole mailbox, for readers only (others: nothing).
     pub(crate) fn letters(&self, key: &str, conn: u64) -> Option<ServerMsg> {
         let st = self.state();
-        (Self::is_current(&st, key, conn) && Self::is_reader(&st, key)).then(|| ServerMsg::Letters { items: st.mailbox.list() })
+        (Self::is_current(&st, key, conn) && Self::is_reader(&st, key)).then(|| ServerMsg::Letters { items: st.mailbox.list(), board: st.mailbox.board_ids() })
     }
 
     /// A reader changes the mailbox: every reader online hears `letters_changed`.
@@ -1183,6 +1185,50 @@ impl Hub {
 
     pub(crate) fn letter_done(&self, key: &str, conn: u64, id: u64, done: bool) {
         self.reader_edit(key, conn, |m| m.mark_done(id, done));
+    }
+
+    /// 🙅 반려 (or clear it) — v3 apps; `letter_done` stays for older ones.
+    pub(crate) fn letter_reject(&self, key: &str, conn: u64, id: u64, rejected: bool) {
+        self.reader_edit(key, conn, |m| m.mark_rejected(id, rejected));
+    }
+
+    /// 📮 Public digests from a reader (the developer's app). Each is checked
+    /// by the mailbox; bad ones are skipped. Nothing is answered.
+    pub(crate) fn board_put(&self, key: &str, conn: u64, items: &[proto::BoardIn]) {
+        if items.len() > crate::board::PUT_MAX {
+            return;
+        }
+        {
+            let mut st = self.state();
+            if !Self::is_current(&st, key, conn) || !Self::is_reader(&st, key) {
+                return;
+            }
+            let mut changed = false;
+            for i in items {
+                changed |= st.mailbox.board_put(i.id, &i.name, &i.line) == Ok(true);
+            }
+            if !changed {
+                return;
+            }
+        }
+        self.save_mailbox();
+    }
+
+    /// 📮 A page of the public board, for anyone logged in — at most one
+    /// every `board_gap` per connection (faster ones get nothing).
+    pub(crate) fn board_list(&self, key: &str, conn: u64, page: u32) -> Option<ServerMsg> {
+        let mut st = self.state();
+        if !Self::is_current(&st, key, conn) {
+            return None;
+        }
+        let now = Instant::now();
+        let peer = st.peers.get_mut(key).expect("current");
+        if peer.board_at.is_some_and(|t| now.duration_since(t) < self.limits.board_gap) {
+            return None;
+        }
+        peer.board_at = Some(now);
+        let (items, page, pages, total) = st.mailbox.board_page(page);
+        Some(ServerMsg::BoardPage { items, page, pages, total })
     }
 
     pub(crate) fn letter_delete(&self, key: &str, conn: u64, id: u64) {
@@ -1581,9 +1627,13 @@ mod tests {
         assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "abcd"), Some(ServerMsg::LetterOk));
         let pushed = texts(&rrx);
         assert!(matches!(&pushed[..], [ServerMsg::LetterNew { item }] if item.r#box == "abcd" && item.from == sender), "{pushed:?}");
-        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items }) if items.len() == 1));
+        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items, .. }) if items.len() == 1));
         assert_eq!(hub.letters(&sender, sconn), None, "not a reader: ignored");
-        assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "abcd"), Some(ServerMsg::LetterRefused { reason: "daily".into() }));
+        for _ in 1..crate::mailbox::PER_KEY {
+            assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "abcd"), Some(ServerMsg::LetterOk));
+        }
+        texts(&rrx);
+        assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "abcd"), Some(ServerMsg::LetterRefused { reason: "daily".into() }), "the 6th in a day");
         assert_eq!(hub.letter(&sender, sconn, "198.51.100.6", "zz"), Some(ServerMsg::LetterRefused { reason: "size".into() }));
     }
 
@@ -1602,20 +1652,20 @@ mod tests {
         hub.letter(&sender, sconn, "198.51.100.6", "abcd");
         texts(&rrx);
         texts(&r2rx);
-        let Some(ServerMsg::Letters { items }) = hub.letters(&reader, rconn) else { panic!() };
+        let Some(ServerMsg::Letters { items, .. }) = hub.letters(&reader, rconn) else { panic!() };
         let id = items[0].id;
         hub.letter_read(&reader, rconn, id);
         assert_eq!(texts(&r2rx), vec![ServerMsg::LettersChanged]);
         assert_eq!(texts(&rrx), vec![ServerMsg::LettersChanged], "the reader who changed it hears it too");
-        assert!(matches!(hub.letters(&reader2, r2conn), Some(ServerMsg::Letters { items }) if items[0].read));
+        assert!(matches!(hub.letters(&reader2, r2conn), Some(ServerMsg::Letters { items, .. }) if items[0].read));
         hub.letter_done(&reader2, r2conn, id, true);
         assert_eq!(texts(&rrx), vec![ServerMsg::LettersChanged]);
-        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items }) if items[0].done));
+        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items, .. }) if items[0].done));
         hub.letter_done(&sender, sconn, id, false);
         assert!(texts(&rrx).is_empty(), "a non-reader can't tick it");
         hub.letter_block(&reader2, r2conn, &sender);
         assert_eq!(texts(&rrx), vec![ServerMsg::LettersChanged]);
-        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items }) if items.is_empty()));
+        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { items, .. }) if items.is_empty()));
         // a non-reader can't delete or block
         hub.letter_block(&sender, sconn, &reader);
         assert!(texts(&rrx).is_empty());
@@ -1623,6 +1673,79 @@ mod tests {
         assert_eq!(hub.letters(&reader2, r2conn), None);
         let _ = id;
         hub.letter_delete(&reader, rconn, 12345);
+    }
+
+    fn put(id: u64, name: &str, line: &str) -> proto::BoardIn {
+        proto::BoardIn { id, name: name.into(), line: line.into() }
+    }
+
+    fn board_of(m: Option<ServerMsg>) -> (Vec<crate::board::Item>, u32, u32, u32) {
+        match m {
+            Some(ServerMsg::BoardPage { items, page, pages, total }) => (items, page, pages, total),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_mailbox_readers_put_on_the_board_and_anyone_can_read_it() {
+        let (hub, (reader, rconn, _rrx), (sender, sconn, _srx)) = mailbox_hub();
+        hub.letter(&sender, sconn, "198.51.100.6", "abcd");
+        let Some(ServerMsg::Letters { items, board }) = hub.letters(&reader, rconn) else { panic!() };
+        assert!(board.is_empty());
+        let id = items[0].id;
+        hub.board_put(&sender, sconn, &[put(id, "*", "가짜")]);
+        assert!(board_of(hub.board_list(&sender, sconn, 1)).0.is_empty(), "a sender can't put");
+        hub.board_put(&reader, rconn, &[put(id, "김철수", "안 가려진 이름"), put(id + 1, "*", "없는 편지")]);
+        std::thread::sleep(Duration::from_millis(510));
+        assert!(board_of(hub.board_list(&sender, sconn, 1)).0.is_empty(), "bad masks and unknown letters are refused");
+        hub.board_put(&reader, rconn, &[put(id, "김**", "펭귄 더 주세요")]);
+        let (items, page, pages, total) = board_of(hub.board_list(&reader, rconn, 1));
+        assert_eq!((page, pages, total, items[0].name.as_str(), items[0].line.as_str()), (1, 1, 1, "김**", "펭귄 더 주세요"));
+        assert!(matches!(hub.letters(&reader, rconn), Some(ServerMsg::Letters { board, .. }) if board == vec![id]));
+        // too many at once: all ignored
+        let many: Vec<_> = (0..=crate::board::PUT_MAX as u64).map(|i| put(id, "*", &format!("{i}"))).collect();
+        hub.board_put(&reader, rconn, &many);
+        std::thread::sleep(Duration::from_millis(510));
+        assert_eq!(board_of(hub.board_list(&reader, rconn, 1)).0[0].line, "펭귄 더 주세요");
+        // 반려 / 반영 show on the board
+        hub.letter_reject(&reader, rconn, id, true);
+        std::thread::sleep(Duration::from_millis(510));
+        assert_eq!(board_of(hub.board_list(&sender, sconn, 1)).0[0].status, crate::board::Status::Rejected);
+        hub.letter_reject(&sender, sconn, id, false);
+        hub.letter_done(&reader, rconn, id, true);
+        std::thread::sleep(Duration::from_millis(510));
+        assert_eq!(board_of(hub.board_list(&sender, sconn, 1)).0[0].status, crate::board::Status::Done, "a non-reader can't clear it; 반영 replaces 반려");
+        // deleting the letter takes its entry away
+        hub.letter_delete(&reader, rconn, id);
+        std::thread::sleep(Duration::from_millis(510));
+        assert_eq!(board_of(hub.board_list(&sender, sconn, 1)), (vec![], 1, 1, 0));
+    }
+
+    #[test]
+    fn board_pages_are_rate_limited_per_connection() {
+        let hub = hub(Limits { board_gap: Duration::from_millis(200), ..Limits::default() });
+        let (a, ac, _al, _arx) = peer(&hub, 1, &[], 8);
+        let (b, bc, _bl, _brx) = peer(&hub, 2, &[], 8);
+        assert!(hub.board_list(&a, ac, 1).is_some());
+        assert_eq!(hub.board_list(&a, ac, 1), None, "too soon: ignored");
+        assert!(hub.board_list(&b, bc, 1).is_some(), "another connection has its own");
+        std::thread::sleep(Duration::from_millis(210));
+        assert!(hub.board_list(&a, ac, 2).is_some());
+        assert_eq!(hub.board_list(&a, ac + 999, 1), None, "not this connection");
+    }
+
+    #[test]
+    fn blocking_a_sender_takes_their_board_entries_away() {
+        let (hub, (reader, rconn, _rrx), (sender, sconn, _srx)) = mailbox_hub();
+        hub.letter(&sender, sconn, "198.51.100.6", "abcd");
+        hub.letter(&sender, sconn, "198.51.100.6", "abce");
+        let Some(ServerMsg::Letters { items, .. }) = hub.letters(&reader, rconn) else { panic!() };
+        assert_eq!(items.len(), 2);
+        hub.board_put(&reader, rconn, &items.iter().map(|l| put(l.id, "*", "x")).collect::<Vec<_>>());
+        assert_eq!(board_of(hub.board_list(&reader, rconn, 1)).3, 2);
+        hub.letter_block(&reader, rconn, &sender);
+        std::thread::sleep(Duration::from_millis(510));
+        assert_eq!(board_of(hub.board_list(&reader, rconn, 1)).3, 0);
     }
 
     /// Join install `n`, friends with `friends`, on a queue nobody drains.

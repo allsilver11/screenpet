@@ -16,6 +16,8 @@ blake2 = { version = "0.10", default-features = false }
 tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
+# 📮 건의함: names and first lines are cut by graphemes (one emoji or Hangul syllable = one)
+unicode-segmentation = "1"
 
 [dev-dependencies]
 socket2 = "0.6"

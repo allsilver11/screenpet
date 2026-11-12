@@ -184,6 +184,27 @@ fn a_letter_reaches_the_real_relay_and_a_brand_new_install_is_told_to_wait() {
 }
 
 #[test]
+fn the_public_board_pages_from_the_real_relay() {
+    // 📮 v3 릴레이: 누구나 한 쪽씩 본다 (빈 건의함은 1/1쪽)
+    let relay = start_relay("127.0.0.1:0".parse().unwrap());
+    let (a, arx) = start_net("aaaa", Net::generate_static_key(), free_udp_port(), free_udp_port(), vec![], &url(&relay));
+    code_of(&arx); // 연결됨
+    a.board_list(1);
+    match wait_for(&arx, 5.0, |e| matches!(e, NetEvent::Board { .. })) {
+        Some(NetEvent::Board { result }) => assert_eq!(result, Ok(screenpet_net::board::BoardPage { items: vec![], page: 1, pages: 1, total: 0 })),
+        other => panic!("no page: {other:?}"),
+    }
+    // 읽는 설치가 아니면 올려도 무시된다 (연결은 그대로)
+    let d = screenpet_net::board::Digest { id: 1, name: "*".into(), line: "x".into() };
+    assert!(a.board_put(&[d]));
+    a.board_list(1);
+    match wait_for(&arx, 5.0, |e| matches!(e, NetEvent::Board { .. })) {
+        Some(NetEvent::Board { result }) => assert_eq!(result.map(|p| p.total), Ok(0)),
+        other => panic!("no page: {other:?}"),
+    }
+}
+
+#[test]
 fn friends_reconnect_through_the_relay_and_after_it_restarts() {
     // Restarted on its port below: one the OS could hand to another test meanwhile won't do
     let relay = start_relay(SocketAddr::from(([127, 0, 0, 1], free_tcp_port())));

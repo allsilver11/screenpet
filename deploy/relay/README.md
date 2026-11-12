@@ -212,8 +212,8 @@ in `letters.json` (0600, previous version kept as `letters.json.bak`; both torn
 means an empty mailbox, the relay still starts). Limits are enforced here,
 never in the app:
 
-- 1 per install key per 24 h
-- 3 per address (IPv4 / IPv6 /64) per 24 h
+- 5 per install key per 24 h (1 before v0.6.3)
+- 10 per address (IPv4 / IPv6 /64) per 24 h (3 before v0.6.3)
 - the install must have been seen on 2+ days
 - 50 per 24 h in total
 - 200 letters kept; when full, new ones are refused (old ones are never dropped)
@@ -231,6 +231,34 @@ screenpet-relay admin mailbox          # letters, unread, readers
 
 Deploy the relay before an app that sends letters: older relays answer an
 unknown message by disconnecting.
+
+## Public suggestion board (📮 건의함, v0.6.3, protocol v3)
+
+The relay can't read letters, so the developer's app (a mailbox reader)
+publishes a digest of each letter it opens: `board_put {items: [{id, name,
+line}]}` — the sender's name with every grapheme but the first replaced by
+`*` (`김철수` → `김**`, one-grapheme names `*`) and the letter's first line
+(≤ 60 characters + "…"). The body never leaves the developer's computer. The
+relay takes digests only from mailbox readers, at most 20 a message, and
+checks them again: the name must be a real mask (≤ 16 characters, everything
+after the first grapheme `*`), the line one line of 1–80 characters; control
+and bidi characters are dropped; the letter must exist.
+
+- digests live in `letters.json` with their letter (same `.bak` and save
+  lock) and go when it is deleted or its sender blocked; never more than the
+  200 letters
+- `board_list {page}` from any logged-in app → `board_page {items, page,
+  pages, total}`: 5 a page, newest first, each with the letter's date and
+  status (`none`, `done` ✅ 반영됨, `rejected` 🙅 반려됨); one request per
+  0.5 s per connection, faster ones get no answer
+- `letter_reject {id, rejected}` (readers): 🙅 반려. A letter is either done or
+  rejected; older developer apps' `letter_done false` clears both. Old
+  `letters.json` files load as they are (`done: true` stays done)
+
+Apps send `board_put`, `board_list` and `letter_reject` only to relays whose
+challenge says `v >= 3`; older apps never send them. Nothing else to set up:
+deploy the new binary, existing letters get published the next time the
+developer's app connects.
 
 ## Real weather (☀️ 실제 날씨, v0.6.3)
 

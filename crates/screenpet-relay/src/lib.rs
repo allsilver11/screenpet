@@ -21,6 +21,7 @@
 pub mod admin;
 mod conn;
 pub mod control;
+pub(crate) mod board;
 pub(crate) mod mailbox;
 mod http;
 // The admin commands live here but are only reachable over a Unix socket.
@@ -105,6 +106,8 @@ pub struct Limits {
     pub new_codes_per_network_per_hour: usize,
     /// Write changed data this often (and at shutdown).
     pub save_every: Duration,
+    /// 📮 `board_list` requests closer together than this on one connection are ignored.
+    pub board_gap: Duration,
     /// Forget stale installs this often; the first pass is this long after
     /// start, once clients that were online have had time to come back.
     pub prune_every: Duration,
@@ -149,6 +152,7 @@ impl Default for Limits {
             registrations_per_network_per_day: 100,
             new_codes_per_network_per_hour: 64,
             save_every: Duration::from_secs(30),
+            board_gap: Duration::from_millis(500),
             prune_every: Duration::from_secs(600),
         }
     }

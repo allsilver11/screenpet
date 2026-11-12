@@ -1,5 +1,5 @@
 // 💌 건의하기 창 (트레이 "💌 개발자에게 건의하기…"): 편지를 쓰고 "보내기" → 백엔드가 개발자 열쇠로 봉해 릴레이 편지함에 맡긴다
-// (spec 2026-11-10-feedback-mailbox §4). 하루 한 통·글자 수 같은 제한은 릴레이가 센다 — 여기서는 결과를 한 줄로 보여 줄 뿐.
+// (spec 2026-11-10-feedback-mailbox §4). 하루 5통·글자 수 같은 제한은 릴레이가 센다 — 여기서는 결과를 한 줄로 보여 줄 뿐.
 // 결과는 `feedback-result`({ok, reason}) 이벤트로 온다. 보냈으면 2초 뒤 창이 닫히고, 못 보냈으면 쓴 글이 그대로 남는다.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
@@ -16,14 +16,14 @@ let sending = false;
 function reasonText(reason) {
   switch (reason) {
     case "daily":
-      return "오늘은 이미 보냈어요 — 내일 또 보내 주세요";
+      return "건의는 하루에 5통까지 보낼 수 있어요 — 내일 또 보내 주세요";
     case "new":
       return "앱을 쓴 지 하루가 지나야 보낼 수 있어요";
     case "ip":
     case "global":
       return "오늘은 편지가 많이 왔어요 — 내일 보내 주세요";
     case "full":
-      return "편지함이 꽉 찼어요 — 나중에 보내 주세요";
+      return "건의함이 꽉 찼어요 — 나중에 보내 주세요";
     case "size":
       return "너무 길어요";
     default:

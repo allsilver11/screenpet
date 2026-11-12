@@ -3,6 +3,7 @@
 mod art;
 mod autostart;
 mod dodge;
+mod board;
 mod feedback;
 mod mailbox;
 mod game_loop;
@@ -318,9 +319,12 @@ fn main() {
             mailbox::mailbox_state,
             mailbox::mailbox_read,
             mailbox::mailbox_done,
+            mailbox::mailbox_reject,
             mailbox::mailbox_delete,
             mailbox::mailbox_block,
             mailbox::mailbox_close,
+            board::board_list,
+            board::board_close,
             ladder::ladder_state,
             ladder::ladder_host,
             ladder::ladder_begin,

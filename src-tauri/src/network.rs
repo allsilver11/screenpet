@@ -123,9 +123,12 @@ pub enum NetInput {
     SubmitLetter(String),
     /// 💌 개발자에게 건의하기 창의 "보내기" (feedback.rs)
     SendFeedback(String),
-    /// 📬 편지함 창: 읽음 · 지우기 · 보낸 사람 막기 (mailbox.rs)
+    /// 📮 개발자 건의함 창: 읽음 · 반영 · 반려 · 지우기 · 보낸 사람 막기 (mailbox.rs)
     MailboxRead(u64),
     MailboxDone(u64, bool),
+    MailboxReject(u64, bool),
+    /// 📮 건의함 보기 창 (누구나, board.rs): 이 쪽(1부터)을 릴레이에 묻는다
+    BoardList(u32),
     MailboxDelete(u64),
     MailboxBlock(String),
     /// 손님 우클릭 "편지 써서 돌려보내기…": 그 손님(창 label) 주인에게 보낼 답장 쓰기 창 (같은 편지 창)
@@ -451,7 +454,7 @@ pub struct Network {
     claim_watch: ClaimWatch,
     /// 📱 친구 화면으로 데려다준 내 다른 컴퓨터의 펫: visit_id →
     carried: HashMap<u64, Carried>,
-    /// 📬 개발자 편지함 (개발자 비밀키가 있을 때만 — mailbox.rs)
+    /// 📮 개발자 건의함 (개발자 비밀키가 있을 때만 — mailbox.rs)
     mailbox: crate::mailbox::Mailbox,
 }
 
@@ -643,6 +646,15 @@ impl Network {
     }
 
     /// 📬 편지를 든 펫을 들이고 보낸다 (개발자 컴퓨터만)
+    /// 📮 공개 건의함에 요약을 올린다 (보냈으면 다시 보내지 않는다)
+    fn publish_board(&mut self, digests: &[screenpet_net::board::Digest]) {
+        if let (false, Some(net)) = (digests.is_empty(), &self.net) {
+            if net.board_put(digests) {
+                self.mailbox.published(digests);
+            }
+        }
+    }
+
     pub fn tick_mailbox(&mut self, app: &AppHandle, slots: &mut Vec<Slot>, now: Instant) {
         self.mailbox.tick(app, slots, now);
     }
@@ -1231,6 +1243,20 @@ impl Network {
                     self.mailbox.done_local(app, id, done);
                 }
             }
+            NetInput::MailboxReject(id, rejected) => {
+                if let (Some(net), true) = (&self.net, self.mailbox.enabled()) {
+                    // 옛 릴레이(v3 전)는 반려를 모른다: 체크칸만 되돌린다
+                    if net.mailbox_reject(id, rejected) {
+                        self.mailbox.reject_local(app, id, rejected);
+                    } else {
+                        self.mailbox.publish(app);
+                    }
+                }
+            }
+            NetInput::BoardList(page) => match &self.net {
+                Some(net) => net.board_list(page),
+                None => crate::board::result(app, Err("offline".into())),
+            },
             NetInput::MailboxDelete(id) => {
                 if let (Some(net), true) = (&self.net, self.mailbox.enabled()) {
                     net.mailbox_delete(id);
@@ -1381,9 +1407,18 @@ impl Network {
             // 던져 넘어온 물건은 게임 루프가 objects.rs로 바로 보낸다 (여기 오지 않는다)
             NetEvent::Tossed { .. } => {}
             // 사다리타기: 판이 끝나 결과가 나오면 설정에 남긴다 (메뉴 "지난 결과")
-            // 📬 개발자 편지함 (릴레이가 읽는 설치로 아는 컴퓨터만 받는다) — mailbox.rs가 dev_key로 연다
-            NetEvent::Mailbox { letters } => self.mailbox.on_list(app, letters),
-            NetEvent::LetterArrived { item } => self.mailbox.on_arrived(app, item),
+            // 📮 개발자 건의함 (릴레이가 읽는 설치로 아는 컴퓨터만 받는다) — mailbox.rs가 dev_key로 열고,
+            // 아직 공개 건의함에 없는 편지는 가린 이름과 첫 줄만 올린다 (v3 릴레이만 — 아니면 다음 목록 때 다시)
+            NetEvent::Mailbox { letters, board } => {
+                let digests = self.mailbox.on_list(app, letters, board);
+                self.publish_board(&digests);
+            }
+            NetEvent::LetterArrived { item } => {
+                let digests = self.mailbox.on_arrived(app, item);
+                self.publish_board(&digests);
+            }
+            // 📮 건의함 보기 창의 한 쪽 (또는 못 받은 이유)
+            NetEvent::Board { result } => crate::board::result(app, result),
             NetEvent::LetterSent { result } => {
                 // 보냈으면 내 펫이 만세 (하던 일이 있으면 건너뛴다)
                 if result.is_ok() {
@@ -1523,7 +1558,7 @@ impl Network {
                 }
                 self.relay_connected = connected;
                 self.update_code_view(app);
-                // 📬 개발자 컴퓨터는 붙을 때마다 편지함을 받아 온다
+                // 📮 개발자 컴퓨터는 붙을 때마다 건의함을 받아 온다 (그때 공개 건의함에도 올린다)
                 if let (true, true, Some(net)) = (connected, self.mailbox.enabled(), &self.net) {
                     net.mailbox_list();
                 }

@@ -90,8 +90,10 @@ const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift, Esc로
 /// macOS: 키가 늘 안 눌림으로 읽힐 때 한 번 — 말풍선은 줄바꿈 없이 창(128px)에 잘리니 한 줄로 짧게 (어디서 켜는지는 ui/help.html)
 /// 💌 개발자에게 건의하기 (feedback.rs)
 const FEEDBACK_ID: &str = "feedback";
-/// 📬 개발자 편지함 (mailbox.rs) — 개발자 비밀키가 있을 때만
+/// 📮 개발자 건의함 (mailbox.rs) — 편지를 든 펫 우클릭 "📬 편지 읽기"
 const MAILBOX_ID: &str = "mailbox";
+/// 📮 건의함: 누구나 한 항목. 개발자 컴퓨터(비밀키)에서는 개발자 건의함, 다른 컴퓨터에서는 읽기 전용 공개 목록 (board.rs)
+const BOARD_ID: &str = "board";
 /// 🚀 컴퓨터 켜면 자동 실행 (⚙️ 설정 체크 항목, 설정에 남는다 — autostart.rs)
 const AUTOSTART_ID: &str = "autostart";
 /// 🔄 업데이트 (update.rs — 글자가 상태에 따라 바뀐다)
@@ -197,7 +199,7 @@ pub struct TrayMenu {
     /// 🎨 흐물이 색 ▸ (잉크 선 동물일 때만 내 펫 안에 있다) 과 색마다 체크 항목
     pub tint_menu: Submenu<Wry>,
     pub tints: Vec<(CheckMenuItem<Wry>, BodyTint)>,
-    /// 📬 편지함 (개발자 컴퓨터만 — 안 읽은 수를 글자에 붙인다)
+    /// 📮 건의함 항목 (개발자 컴퓨터만 들고 있다 — 안 읽은 수를 글자에 붙인다)
     pub mailbox: Option<MenuItem<Wry>>,
     /// 🚀 컴퓨터 켜면 자동 실행 (게임 루프가 설정으로 다시 맞춘다)
     pub autostart: CheckMenuItem<Wry>,
@@ -450,7 +452,16 @@ pub fn favorite_label(f: &FavoriteFood) -> String {
     format!("{} {}", f.name, f.emoji)
 }
 
-/// 📬 편지를 든 펫(로컬 손님)을 우클릭하면: 편지함 열기
+/// 📮 트레이 "📮 건의함" 글자 (개발자 컴퓨터는 안 읽은 수를 붙인다)
+pub fn board_label(unread: usize) -> String {
+    if unread == 0 {
+        "📮 건의함".to_string()
+    } else {
+        format!("📮 건의함 ({unread})")
+    }
+}
+
+/// 📬 편지를 든 펫(로컬 손님)을 우클릭하면: 개발자 건의함 열기
 pub fn letter_guest_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let read = MenuItem::with_id(app, MAILBOX_ID, "📬 편지 읽기", true, None::<&str>)?;
     Menu::with_items(app, &[&read])
@@ -599,7 +610,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
     let help = MenuItem::with_id(app, "help", "도움말 ❓", true, None::<&str>)?;
     let feedback = MenuItem::with_id(app, FEEDBACK_ID, "💌 개발자에게 건의하기…", true, None::<&str>)?;
-    let mailbox = if dev { Some(MenuItem::with_id(app, MAILBOX_ID, "📬 편지함", true, None::<&str>)?) } else { None };
+    let board = MenuItem::with_id(app, BOARD_ID, board_label(0), true, None::<&str>)?;
+    let mailbox = dev.then(|| board.clone());
     let update = MenuItem::with_id(app, UPDATE_ID, "🔄 업데이트", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
@@ -630,9 +642,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&settings)?;
     menu.append(&toggle)?;
     menu.append(&feedback)?;
-    if let Some(m) = &mailbox {
-        menu.append(m)?;
-    }
+    menu.append(&board)?;
     menu.append(&help)?;
     menu.append(&update)?;
     menu.append(&quit)?;
@@ -655,6 +665,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             "help" => send(app, Input::ShowHelp),
             FEEDBACK_ID => send(app, Input::ShowFeedback),
             MAILBOX_ID => send(app, Input::ShowMailbox),
+            BOARD_ID => send(app, if dev { Input::ShowMailbox } else { Input::ShowBoard }),
             AUTOSTART_ID => send(app, Input::ToggleAutostart),
             UPDATE_ID => crate::update::on_click(app),
             GIFT_BOOK_ID => send(app, Input::ShowGiftBook),

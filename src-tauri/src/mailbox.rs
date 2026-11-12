@@ -1,9 +1,12 @@
-//! 📬 개발자 편지함 (spec 2026-11-10-feedback-mailbox §5): config.json에 개발자 비밀키(dev_key)가 있을 때만.
+//! 📮 개발자 건의함 (spec 2026-11-10-feedback-mailbox §5, 예전 이름 📬 편지함): config.json에 개발자 비밀키(dev_key)가 있을 때만.
 //! 릴레이가 이 설치를 "편지함 읽는 설치"로 알면 봉한 편지 목록을 주고, 여기서 비밀키로 연다.
+//! 연 편지마다 공개 요약(이름 첫 글자 + *, 첫 줄 — screenpet_net::board::digest)을 만들어 릴레이 📮 건의함(v3)에 올린다:
+//! 목록을 받을 때마다 아직 안 올라간 것만. 본문은 이 컴퓨터를 떠나지 않는다 (누구나 보는 목록은 board.rs).
+//! 트레이 "📮 건의함"은 개발자 컴퓨터에서 이 창을, 다른 컴퓨터에서는 공개 목록을 연다.
 //! 새 편지가 오면 (그리고 앱을 켤 때 안 읽은 편지 몇 통은) 보낸 사람 펫이 💌을 들고 걸어 들어온다 —
 //! 네트워크와 상관없는 로컬 손님 (visit_id "letter-<id>", guest_left는 숫자 visit_id만 친구에게 알린다).
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -11,6 +14,7 @@ use screenpet_core::care::Stage;
 use screenpet_core::style::PetStyle;
 use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
+use screenpet_net::board::{self, Digest};
 use screenpet_net::letter::{self, MailItem};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
@@ -22,17 +26,17 @@ use crate::slots::{self, GuestInfo, Role, Slot};
 use crate::AppState;
 
 pub const MAILBOX_LABEL: &str = "mailbox";
-const MAILBOX_FORM: Form = Form { label: MAILBOX_LABEL, page: "mailbox.html", title: "ScreenPet 편지함", size: (480.0, 560.0) };
+const MAILBOX_FORM: Form = Form { label: MAILBOX_LABEL, page: "mailbox.html", title: "ScreenPet 건의함", size: (480.0, 560.0) };
 /// 편지를 든 펫이 머무는 시간 (초) — 지나거나 그 편지를 읽으면 손 흔들고 간다
 pub const LETTER_VISIT_SECS: u64 = 60;
 /// 편지를 든 펫이 차례로 들어오는 간격 (초)
 pub const LETTER_GAP_SECS: u64 = 30;
-/// 앱을 켤 때 들어오는 안 읽은 편지 펫 수 (나머지는 편지함에만)
+/// 앱을 켤 때 들어오는 안 읽은 편지 펫 수 (나머지는 건의함에만)
 pub const LETTERS_ON_START: usize = 3;
-/// 손님 머리 위 💌에 보이는 앞부분 (편지 전문은 편지함 창에서)
+/// 손님 머리 위 💌에 보이는 앞부분 (편지 전문은 건의함 창에서)
 const NOTE_CHARS: usize = 80;
 
-/// 편지함 창이 보는 편지 한 통 (열지 못한 편지는 ok: false)
+/// 건의함 창이 보는 편지 한 통 (열지 못한 편지는 ok: false)
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct LetterView {
     pub id: u64,
@@ -41,6 +45,8 @@ pub struct LetterView {
     pub read: bool,
     /// 반영함 (개발자가 체크 — 나만 보는 용도, 릴레이에 저장돼 두 컴퓨터가 같다)
     pub done: bool,
+    /// 🙅 반려함 (done과 함께는 아니다)
+    pub rejected: bool,
     pub ok: bool,
     pub text: String,
     pub name: String,
@@ -53,6 +59,16 @@ pub struct LetterView {
 
 static VIEW: Mutex<Vec<LetterView>> = Mutex::new(Vec::new());
 
+/// 📮 아직 건의함에 없는 편지의 공개 요약 (연 편지만, 오래된 것부터)
+pub fn unpublished(letters: &[LetterView], published: &HashSet<u64>) -> Vec<Digest> {
+    letters
+        .iter()
+        .rev()
+        .filter(|l| l.ok && !published.contains(&l.id))
+        .filter_map(|l| board::digest(l.id, &letter::Letter { text: l.text.clone(), name: l.name.clone(), ..Default::default() }))
+        .collect()
+}
+
 pub fn view_of(item: &MailItem, secret: [u8; 32]) -> LetterView {
     let opened = letter::open(&item.sealed, &secret);
     let l = opened.clone().unwrap_or_default();
@@ -62,6 +78,7 @@ pub fn view_of(item: &MailItem, secret: [u8; 32]) -> LetterView {
         from: item.from.clone(),
         read: item.read,
         done: item.done,
+        rejected: item.rejected && !item.done,
         ok: opened.is_some(),
         text: if opened.is_some() { l.text } else { "(열 수 없는 편지)".into() },
         name: l.name,
@@ -84,6 +101,8 @@ pub struct Mailbox {
     next_visit: Option<Instant>,
     /// 와 있는 편지 펫: (편지 id, 창 라벨, 떠날 때)
     visits: Vec<(u64, String, Instant)>,
+    /// 📮 건의함에 올라간 (또는 방금 올린) 편지 id
+    published: HashSet<u64>,
 }
 
 impl Mailbox {
@@ -100,23 +119,31 @@ impl Mailbox {
         self.letters.iter().filter(|l| !l.read).count()
     }
 
-    /// 릴레이가 준 전체 목록 (최신순)
-    pub fn on_list(&mut self, app: &AppHandle, items: Vec<MailItem>) {
-        let Some(secret) = self.secret else { return };
+    /// 릴레이가 준 전체 목록 (최신순)과 이미 건의함에 있는 편지 id. 돌려주는 것은 건의함에 올릴 요약
+    /// (보내고 나면 `published`로 알린다)
+    pub fn on_list(&mut self, app: &AppHandle, items: Vec<MailItem>, on_board: Vec<u64>) -> Vec<Digest> {
+        let Some(secret) = self.secret else { return Vec::new() };
         self.letters = items.iter().map(|i| view_of(i, secret)).collect();
+        self.published = on_board.into_iter().collect();
         if !self.listed {
             self.listed = true;
             let unread: Vec<u64> = self.letters.iter().filter(|l| !l.read && l.ok).take(LETTERS_ON_START).map(|l| l.id).collect();
             self.queue.extend(unread.into_iter().rev()); // 오래된 것부터
         }
         self.publish(app);
+        unpublished(&self.letters, &self.published)
     }
 
-    /// 켜져 있는 동안 새 편지
-    pub fn on_arrived(&mut self, app: &AppHandle, item: MailItem) {
-        let Some(secret) = self.secret else { return };
+    /// 📮 이 요약들을 릴레이에 보냈다
+    pub fn published(&mut self, digests: &[Digest]) {
+        self.published.extend(digests.iter().map(|d| d.id));
+    }
+
+    /// 켜져 있는 동안 새 편지 — 돌려주는 것은 건의함에 올릴 요약
+    pub fn on_arrived(&mut self, app: &AppHandle, item: MailItem) -> Vec<Digest> {
+        let Some(secret) = self.secret else { return Vec::new() };
         if self.letters.iter().any(|l| l.id == item.id) {
-            return;
+            return Vec::new();
         }
         let v = view_of(&item, secret);
         if v.ok {
@@ -124,6 +151,7 @@ impl Mailbox {
         }
         self.letters.insert(0, v);
         self.publish(app);
+        unpublished(&self.letters[..1], &self.published)
     }
 
     /// 읽음 (릴레이에도 알렸다) — 그 편지를 든 펫은 이제 간다
@@ -137,16 +165,27 @@ impl Mailbox {
         self.publish(app);
     }
 
+    /// ✅ 반영함 (끄면 반려도 같이 지운다 — 릴레이와 같다)
     pub fn done_local(&mut self, app: &AppHandle, id: u64, done: bool) {
         if let Some(l) = self.letters.iter_mut().find(|l| l.id == id) {
-            l.done = done;
+            set_status(l, done, false);
         }
         self.publish(app);
     }
 
+    /// 🙅 반려함 (켜면 반영함이 꺼진다)
+    pub fn reject_local(&mut self, app: &AppHandle, id: u64, rejected: bool) {
+        if let Some(l) = self.letters.iter_mut().find(|l| l.id == id) {
+            set_status(l, false, rejected);
+        }
+        self.publish(app);
+    }
+
+    /// 지운 편지는 릴레이가 건의함에서도 뺀다
     pub fn delete_local(&mut self, app: &AppHandle, id: u64) {
         self.letters.retain(|l| l.id != id);
         self.queue.retain(|q| *q != id);
+        self.published.remove(&id);
         self.publish(app);
     }
 
@@ -154,16 +193,17 @@ impl Mailbox {
         let gone: Vec<u64> = self.letters.iter().filter(|l| l.from == from).map(|l| l.id).collect();
         self.letters.retain(|l| l.from != from);
         self.queue.retain(|q| !gone.contains(q));
+        self.published.retain(|p| !gone.contains(p));
         self.publish(app);
     }
 
-    /// 창·트레이에 알린다
-    fn publish(&self, app: &AppHandle) {
+    /// 창·트레이에 알린다 (바뀐 게 없어도 — 체크칸을 릴레이 상태로 되돌린다)
+    pub fn publish(&self, app: &AppHandle) {
         *VIEW.lock().unwrap() = self.letters.clone();
         let _ = app.emit_to(MAILBOX_LABEL, "mailbox-state", &self.letters);
         let n = self.unread();
         if let Some(item) = &app.state::<AppState>().menu.mailbox {
-            let _ = item.set_text(if n == 0 { "📬 편지함".to_string() } else { format!("📬 편지함 ({n})") });
+            let _ = item.set_text(crate::tray::board_label(n));
         }
     }
 
@@ -183,7 +223,7 @@ impl Mailbox {
         if self.queue.is_empty() || self.next_visit.is_some_and(|t| now < t) {
             return;
         }
-        // 집중·하우스 중엔 손님이 오지 않는다 — 편지함 숫자만 오르고, 나중에 들어온다
+        // 집중·하우스 중엔 손님이 오지 않는다 — 건의함 숫자만 오르고, 나중에 들어온다
         let guests = slots.iter().filter(|s| matches!(s.role, Role::Guest(_))).count();
         if slots[0].pet.refuses_arrivals() || guests >= MAX_GUESTS {
             return;
@@ -195,6 +235,12 @@ impl Mailbox {
             self.visits.push((id, label, now + Duration::from_secs(LETTER_VISIT_SECS)));
         }
     }
+}
+
+/// 반영·반려는 하나만 (둘 다 끄면 없음)
+fn set_status(l: &mut LetterView, done: bool, rejected: bool) {
+    l.done = done;
+    l.rejected = rejected && !done;
 }
 
 /// 보낸 사람 펫을 로컬 손님으로 들인다 (모르는 동물은 고양이)
@@ -255,6 +301,14 @@ pub fn mailbox_done(window: WebviewWindow, state: tauri::State<AppState>, id: u6
     }
 }
 
+/// 🙅 반려 (NetInput::MailboxReject(id, rejected)) — v3 릴레이만
+#[tauri::command]
+pub fn mailbox_reject(window: WebviewWindow, state: tauri::State<AppState>, id: u64, rejected: bool) {
+    if mine(&window) {
+        state.send(Input::Net(NetInput::MailboxReject(id, rejected)));
+    }
+}
+
 #[tauri::command]
 pub fn mailbox_delete(window: WebviewWindow, state: tauri::State<AppState>, id: u64) {
     if mine(&window) {
@@ -286,12 +340,39 @@ mod tests {
         let secret = screenpet_net::letter::secret_from_hex(&secret_hex).unwrap();
         let public: [u8; 32] = (0..32).map(|i| u8::from_str_radix(&public_hex[2 * i..2 * i + 2], 16).unwrap()).collect::<Vec<_>>().try_into().unwrap();
         let sealed = letter::seal(&letter::Letter { text: "안녕".into(), name: "단니".into(), ..Default::default() }, &public).unwrap();
-        let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, done: false, sealed };
+        let item = MailItem { id: 3, at: 9, from: "ab".repeat(32), read: false, done: false, rejected: true, sealed };
         let v = view_of(&item, secret);
         assert!(v.ok);
         assert_eq!((v.text.as_str(), v.name.as_str()), ("안녕", "단니"));
         let other = view_of(&item, [7; 32]);
         assert!(!other.ok);
         assert_eq!(other.text, "(열 수 없는 편지)");
+        assert!(v.rejected && !v.done);
+    }
+
+    fn view(id: u64, ok: bool, name: &str, text: &str) -> LetterView {
+        LetterView { id, at: id, from: String::new(), read: false, done: false, rejected: false, ok, text: text.into(), name: name.into(), species: "cat".into(), stage: String::new(), style: String::new(), version: "0.6.3".into(), os: "windows".into() }
+    }
+
+    #[test]
+    fn only_opened_letters_not_yet_on_the_board_are_published_masked_and_cut() {
+        // 최신순 목록
+        let letters = vec![view(3, true, "김철수", "펭귄 더 주세요\n비밀 이야기"), view(2, false, "", "(열 수 없는 편지)"), view(1, true, "단", "고마워요")];
+        let digests = unpublished(&letters, &HashSet::new());
+        assert_eq!(digests, vec![Digest { id: 1, name: "*".into(), line: "고마워요".into() }, Digest { id: 3, name: "김**".into(), line: "펭귄 더 주세요".into() }], "oldest first, unopened skipped");
+        assert_eq!(unpublished(&letters, &HashSet::from([1, 3])), vec![], "already on the board");
+        let all = serde_json::to_string(&digests).unwrap();
+        assert!(!all.contains("비밀") && !all.contains("철수") && !all.contains("cat"), "{all}");
+    }
+
+    #[test]
+    fn done_and_rejected_are_one_status() {
+        let mut l = view(1, true, "", "x");
+        set_status(&mut l, true, false);
+        assert!(l.done && !l.rejected);
+        set_status(&mut l, false, true);
+        assert!(!l.done && l.rejected);
+        set_status(&mut l, false, false);
+        assert!(!l.done && !l.rejected);
     }
 }

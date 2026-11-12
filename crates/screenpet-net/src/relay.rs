@@ -84,6 +84,10 @@ enum ClientMsg<'a> {
     LetterDone { id: u64, done: bool },
     /// ☀️ Only to relays at `WEATHER_RELAY_VERSION` (older ones close on it).
     WeatherWant { place: &'a str },
+    /// 🙅 / 📮 Only to relays at `BOARD_RELAY_VERSION`.
+    LetterReject { id: u64, rejected: bool },
+    BoardPut { items: &'a [crate::board::Digest] },
+    BoardList { page: u32 },
 }
 
 /// A stored feedback letter as the relay lists it (mailbox readers only).
@@ -97,13 +101,16 @@ struct WireLetter {
     /// 개발자가 "반영함"으로 체크했다 (옛 릴레이는 보내지 않는다)
     #[serde(default)]
     done: bool,
+    /// 🙅 반려 (v3 relays)
+    #[serde(default)]
+    rejected: bool,
     r#box: String,
 }
 
 impl WireLetter {
     fn item(self) -> Option<crate::letter::MailItem> {
         let sealed = noise::hex_vec(&self.r#box)?;
-        Some(crate::letter::MailItem { id: self.id, at: self.at, from: self.from, read: self.read, done: self.done, sealed })
+        Some(crate::letter::MailItem { id: self.id, at: self.at, from: self.from, read: self.read, done: self.done, rejected: self.rejected && !self.done, sealed })
     }
 }
 
@@ -114,6 +121,8 @@ pub(crate) enum MailboxEdit {
     Delete(u64),
     Block(String),
     Done(u64, bool),
+    /// 🙅 반려 — v3 relays only
+    Reject(u64, bool),
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,12 +155,19 @@ enum ServerMsg {
     Error { reason: String },
     LetterOk,
     LetterRefused { reason: String },
-    Letters { items: Vec<WireLetter> },
+    Letters {
+        items: Vec<WireLetter>,
+        /// 📮 Letters already on the public board (v3 relays).
+        #[serde(default)]
+        board: Vec<u64>,
+    },
     LetterNew { item: WireLetter },
     LettersChanged,
     /// ☀️ Current WMO weather code of a built-in place (a city id like
     /// "yongin"), fetched by the relay at `at` (unix s).
     Weather { place: String, code: u16, at: i64 },
+    /// 📮 A page of the public board.
+    BoardPage { items: Vec<crate::board::BoardItem>, page: u32, pages: u32, total: u32 },
 }
 
 /// ☀️ The relay's place for apps that never said (Yongin).
@@ -159,6 +175,13 @@ const DEFAULT_WEATHER_PLACE: &str = "yongin";
 
 /// ☀️ Lowest relay protocol version that takes `weather_want`.
 const WEATHER_RELAY_VERSION: u32 = 2;
+
+/// 📮 Lowest relay protocol version that takes `board_put`, `board_list`
+/// and `letter_reject`.
+pub(crate) const BOARD_RELAY_VERSION: u32 = 3;
+
+/// 📮 Board pages asked at most this often (the relay ignores faster ones).
+const BOARD_GAP: Duration = Duration::from_millis(600);
 
 fn json(m: &ClientMsg) -> String {
     serde_json::to_string(m).expect("relay message serializes")
@@ -228,6 +251,11 @@ struct Inner {
     /// Yongin), and what was sent on this connection.
     weather_want: Option<String>,
     sent_want: Option<String>,
+    /// 📮 A board page to ask for once `BOARD_GAP` has passed, when the last
+    /// one was asked, and since when we wait for an answer.
+    board_want: Option<u32>,
+    board_asked: Option<Instant>,
+    board_wait: Option<Instant>,
 }
 
 /// Relay connection state shared by the IO thread and the relay links.
@@ -436,14 +464,71 @@ pub(crate) fn mailbox_list(client: &RelayClient) -> bool {
 }
 
 /// Mark read / delete / block (readers only; every reader then re-lists).
+/// `Reject` goes only to v3 relays (`false` otherwise).
 pub(crate) fn mailbox_edit(client: &RelayClient, edit: MailboxEdit) -> bool {
+    if matches!(edit, MailboxEdit::Reject(..)) && client.inner().relay_v < BOARD_RELAY_VERSION {
+        return false;
+    }
     let m = match &edit {
+        MailboxEdit::Reject(id, rejected) => ClientMsg::LetterReject { id: *id, rejected: *rejected },
         MailboxEdit::Read(id) => ClientMsg::LetterRead { id: *id },
         MailboxEdit::Delete(id) => ClientMsg::LetterDelete { id: *id },
         MailboxEdit::Block(from) => ClientMsg::LetterBlock { from },
         MailboxEdit::Done(id, done) => ClientMsg::LetterDone { id: *id, done: *done },
     };
     client.send(None, Out::Text(json(&m)))
+}
+
+/// 📮 Publish digests of letters to the public board (v3 relays, readers
+/// only — others are ignored there). `false` if it can't go now.
+pub(crate) fn board_put(client: &RelayClient, items: &[crate::board::Digest]) -> bool {
+    {
+        let inner = client.inner();
+        if !inner.connected || inner.relay_v < BOARD_RELAY_VERSION {
+            return false;
+        }
+    }
+    items.chunks(crate::board::PUT_CHUNK).all(|c| client.send(None, Out::Text(json(&ClientMsg::BoardPut { items: c }))))
+}
+
+/// 📮 Ask for page `page` of the public board. The answer (or `offline`,
+/// `old` for a relay before v3, `timeout`) comes as `NetEvent::Board`.
+pub(crate) fn board_list(shared: &Shared, client: &RelayClient, page: u32) {
+    let fail = {
+        let mut inner = client.inner();
+        if !inner.connected {
+            Some("offline")
+        } else if inner.relay_v < BOARD_RELAY_VERSION {
+            Some("old")
+        } else {
+            inner.board_want = Some(page);
+            None
+        }
+    };
+    match fail {
+        Some(reason) => shared.emit(NetEvent::Board { result: Err(reason.into()) }),
+        None => sync_board(client, None),
+    }
+}
+
+/// 📮 Send the wanted board page once `BOARD_GAP` has passed since the last.
+fn sync_board(client: &RelayClient, gen: Option<u64>) {
+    let page = {
+        let mut inner = client.inner();
+        let now = Instant::now();
+        if inner.board_asked.is_some_and(|t| now.duration_since(t) < BOARD_GAP) {
+            return;
+        }
+        let Some(page) = inner.board_want.take() else { return };
+        inner.board_asked = Some(now);
+        inner.board_wait = Some(now);
+        page
+    };
+    if !client.send(gen, Out::Text(json(&ClientMsg::BoardList { page }))) {
+        let mut inner = client.inner();
+        inner.board_want = Some(page);
+        inner.board_wait = None;
+    }
 }
 
 /// Ask the relay for a fresh friend code (the old one stops working).
@@ -757,6 +842,9 @@ fn disconnected(shared: &Shared, client: &RelayClient) {
         if inner.letter.take().is_some() {
             shared.emit(NetEvent::LetterSent { result: Err("offline".into()) });
         }
+        if inner.board_wait.take().is_some() | inner.board_want.take().is_some() {
+            shared.emit(NetEvent::Board { result: Err("offline".into()) });
+        }
         (was, pending, inner.redeem.take())
     };
     for id in pending {
@@ -940,6 +1028,7 @@ pub(crate) fn want_weather(client: &RelayClient, place: &str) {
 fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
     sync_friends(shared, client, gen);
     sync_weather(client, gen);
+    sync_board(client, Some(gen));
     let now = Instant::now();
     let (expired, redeem) = {
         let mut inner = client.inner();
@@ -953,6 +1042,9 @@ fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
         };
         if inner.letter.take_if(|t| now.duration_since(*t) > REQUEST_TIMEOUT).is_some() {
             shared.emit(NetEvent::LetterSent { result: Err("timeout".into()) });
+        }
+        if inner.board_wait.take_if(|t| now.duration_since(*t) > REQUEST_TIMEOUT).is_some() {
+            shared.emit(NetEvent::Board { result: Err("timeout".into()) });
         }
         (expired, redeem)
     };
@@ -1076,9 +1168,15 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
                 shared.emit(NetEvent::LetterSent { result: Err(reason.chars().take(16).collect()) });
             }
         }
-        ServerMsg::Letters { items } => {
+        ServerMsg::Letters { items, board } => {
             let letters = items.into_iter().filter_map(WireLetter::item).collect();
-            shared.emit(NetEvent::Mailbox { letters });
+            shared.emit(NetEvent::Mailbox { letters, board });
+        }
+        ServerMsg::BoardPage { items, page, pages, total } => {
+            if client.inner().board_wait.take().is_some() {
+                let page = crate::board::BoardPage { items, page, pages: pages.max(1), total };
+                shared.emit(NetEvent::Board { result: Ok(page) });
+            }
         }
         ServerMsg::LetterNew { item } => {
             if let Some(item) = item.item() {
@@ -1289,17 +1387,18 @@ mod tests {
     #[test]
     fn the_mailbox_lists_arrives_and_refreshes_when_it_changes() {
         let (net, events, client, out) = letter_rig();
-        let item = |id, read| WireLetter { id, at: 100 + id, from: "ab".repeat(32), read, done: id == 7, r#box: "0a0b".into() };
+        let item = |id, read| WireLetter { id, at: 100 + id, from: "ab".repeat(32), read, done: id == 7, rejected: false, r#box: "0a0b".into() };
         on_message(&net.shared, &client, 1, ServerMsg::LetterNew { item: item(7, false) });
         match &letter_events(&events)[..] {
             [NetEvent::LetterArrived { item }] => assert_eq!((item.id, item.at, item.read, item.sealed.clone()), (7, 107, false, vec![10, 11])),
             other => panic!("{other:?}"),
         }
-        on_message(&net.shared, &client, 1, ServerMsg::Letters { items: vec![item(7, true), WireLetter { r#box: "zz".into(), ..item(8, false) }] });
+        on_message(&net.shared, &client, 1, ServerMsg::Letters { items: vec![item(7, true), WireLetter { r#box: "zz".into(), ..item(8, false) }], board: vec![7] });
         match &letter_events(&events)[..] {
-            [NetEvent::Mailbox { letters }] => {
+            [NetEvent::Mailbox { letters, board }] => {
                 assert_eq!(letters.iter().map(|l| l.id).collect::<Vec<_>>(), vec![7], "bad hex dropped");
                 assert!(letters[0].done);
+                assert_eq!(board, &vec![7]);
             }
             other => panic!("{other:?}"),
         }
@@ -1312,6 +1411,74 @@ mod tests {
             sent_text(&out),
             vec![r#"{"t":"letter_read","id":7}"#.to_string(), format!(r#"{{"t":"letter_block","from":"{}"}}"#, "cd".repeat(32)), r#"{"t":"letter_done","id":7,"done":true}"#.to_string()]
         );
+    }
+
+    fn board_events(events: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<Result<crate::board::BoardPage, String>> {
+        std::thread::sleep(Duration::from_millis(20));
+        events.try_iter().filter_map(|e| if let NetEvent::Board { result } = e { Some(result) } else { None }).collect()
+    }
+
+    #[test]
+    fn board_messages_go_only_to_v3_relays() {
+        let (net, events, client, out) = letter_rig();
+        client.inner().relay_v = 2;
+        board_list(&net.shared, &client, 1);
+        assert_eq!(board_events(&events), vec![Err("old".to_string())], "a v2 relay would close the connection on board_list");
+        let d = crate::board::Digest { id: 3, name: "김**".into(), line: "펭귄".into() };
+        assert!(!board_put(&client, std::slice::from_ref(&d)));
+        assert!(!mailbox_edit(&client, MailboxEdit::Reject(3, true)));
+        assert!(sent_text(&out).is_empty());
+        client.inner().relay_v = 3;
+        assert!(board_put(&client, std::slice::from_ref(&d)));
+        assert!(mailbox_edit(&client, MailboxEdit::Reject(3, true)));
+        assert!(mailbox_edit(&client, MailboxEdit::Done(3, false)), "letter_done goes to any relay");
+        assert_eq!(
+            sent_text(&out),
+            vec![
+                r#"{"t":"board_put","items":[{"id":3,"name":"김**","line":"펭귄"}]}"#.to_string(),
+                r#"{"t":"letter_reject","id":3,"rejected":true}"#.to_string(),
+                r#"{"t":"letter_done","id":3,"done":false}"#.to_string()
+            ]
+        );
+        // many digests go in chunks
+        let many: Vec<_> = (0..45).map(|i| crate::board::Digest { id: i, name: "*".into(), line: "x".into() }).collect();
+        assert!(board_put(&client, &many));
+        assert_eq!(sent_text(&out).len(), 3);
+        client.inner().connected = false;
+        board_list(&net.shared, &client, 1);
+        assert_eq!(board_events(&events), vec![Err("offline".to_string())]);
+    }
+
+    #[test]
+    fn board_pages_are_asked_at_most_every_gap_and_answers_come_back() {
+        let (net, events, client, out) = letter_rig();
+        client.inner().relay_v = 3;
+        board_list(&net.shared, &client, 1);
+        assert_eq!(sent_text(&out), vec![r#"{"t":"board_list","page":1}"#.to_string()]);
+        board_list(&net.shared, &client, 2);
+        board_list(&net.shared, &client, 3);
+        assert!(sent_text(&out).is_empty(), "too soon: waits");
+        client.inner().board_asked = Some(Instant::now() - BOARD_GAP);
+        sync_board(&client, Some(1));
+        assert_eq!(sent_text(&out), vec![r#"{"t":"board_list","page":3}"#.to_string()], "only the latest page wanted");
+        let item = crate::board::BoardItem { id: 9, name: "김**".into(), line: "펭귄".into(), at: 5, status: crate::board::Status::Rejected };
+        on_message(&net.shared, &client, 1, ServerMsg::BoardPage { items: vec![item.clone()], page: 1, pages: 1, total: 1 });
+        assert_eq!(board_events(&events), vec![Ok(crate::board::BoardPage { items: vec![item.clone()], page: 1, pages: 1, total: 1 })]);
+        on_message(&net.shared, &client, 1, ServerMsg::BoardPage { items: vec![], page: 1, pages: 1, total: 0 });
+        assert!(board_events(&events).is_empty(), "an answer nobody waits for is dropped");
+        // unanswered: timeout; a lost connection fails what waits
+        client.inner().board_wait = Some(Instant::now() - REQUEST_TIMEOUT - Duration::from_secs(1));
+        housekeep(&net.shared, &client, 1);
+        assert_eq!(board_events(&events), vec![Err("timeout".to_string())]);
+        client.inner().board_want = Some(1);
+        client.inner().board_asked = Some(Instant::now());
+        disconnected(&net.shared, &client);
+        assert_eq!(board_events(&events), vec![Err("offline".to_string())]);
+        let parsed: ServerMsg = serde_json::from_str(r#"{"t":"board_page","items":[{"id":1,"name":"*","line":"a","at":2,"status":"done"},{"id":2,"name":"*","line":"b","at":1,"status":"someday"}],"page":1,"pages":1,"total":2}"#).unwrap();
+        let ServerMsg::BoardPage { items, .. } = parsed else { panic!() };
+        assert_eq!((items[0].status, items[1].status), (crate::board::Status::Done, crate::board::Status::None), "an unknown status reads as none");
+        let old: ServerMsg = serde_json::from_str(r#"{"t":"letters","items":[]}"#).unwrap();
+        assert!(matches!(old, ServerMsg::Letters { board, .. } if board.is_empty()), "a v2 relay's list has no board");
     }
 
     #[test]

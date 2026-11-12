@@ -35,6 +35,8 @@ pub struct MailItem {
     pub read: bool,
     /// 개발자가 "반영함"으로 체크했다
     pub done: bool,
+    /// 🙅 개발자가 반려했다 (done과 함께는 아니다)
+    pub rejected: bool,
     pub sealed: Vec<u8>,
 }
 

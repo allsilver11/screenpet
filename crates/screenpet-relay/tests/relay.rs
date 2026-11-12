@@ -1325,7 +1325,7 @@ fn weather_comes_after_the_welcome_and_follows_the_place_the_app_wants() {
     let relay = Relay::start(cfg).unwrap();
     let (mut a, welcome) = Client::login(&relay, &key(), "a", &[]);
     assert_eq!(welcome["t"], "welcome");
-    assert_eq!(a.challenge["v"], 2, "apps send weather_want only to v2 relays");
+    assert!(a.challenge["v"].as_u64() >= Some(2), "apps send weather_want only to v2 relays");
     let w = a.next_json(5.0).expect("weather for Yongin");
     assert_eq!((w["t"].as_str(), w["place"].as_str(), w["code"].as_u64()), (Some("weather"), Some("yongin"), Some(75)), "{w}");
     assert!(w["at"].as_u64().unwrap() > 1_700_000_000);
@@ -1351,4 +1351,25 @@ fn weather_comes_after_the_welcome_and_follows_the_place_the_app_wants() {
     let _ = c.next_json(2.0);
     c.send(&json!({"t": "weather_want", "lat": 37.2, "lon": 127.2}));
     assert_eq!(c.next_json(2.0).map(|e| e["reason"].clone()), Some(json!("bad_message")));
+}
+
+/// 📮 The public board over the wire: a v3 relay, anyone can page it, too
+/// fast is ignored (not disconnected), and a non-reader's `board_put` is ignored.
+#[test]
+fn anyone_can_page_the_board_on_a_v3_relay() {
+    let mut cfg = RelayConfig::new(SocketAddr::from(([127, 0, 0, 1], 0)), None);
+    cfg.weather_fetch = Some(std::sync::Arc::new(|_: &screenpet_relay::weather::Place| Err("off".into())));
+    let relay = Relay::start(cfg).unwrap();
+    let (mut a, _) = Client::login(&relay, &key(), "a", &[]);
+    assert_eq!(a.challenge["v"], 3, "apps send board messages only to v3 relays");
+    a.send(&json!({"t": "board_put", "items": [{"id": 1, "name": "김철수", "line": "x"}]}));
+    a.send(&json!({"t": "board_list", "page": 1}));
+    let p = a.next_json(5.0).expect("a page");
+    assert_eq!(p, json!({"t": "board_page", "items": [], "page": 1, "pages": 1, "total": 0}));
+    a.send(&json!({"t": "board_list", "page": 2}));
+    a.send(&json!({"t": "ping"}));
+    assert_eq!(a.next_json(2.0).expect("still connected")["t"], "pong", "a page asked too soon gets nothing");
+    std::thread::sleep(Duration::from_millis(550));
+    a.send(&json!({"t": "board_list"}));
+    assert_eq!(a.next_json(5.0).expect("a page")["t"], "board_page");
 }
