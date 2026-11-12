@@ -33,6 +33,8 @@ jobs:
         run: cargo test --locked -p screenpet-net
       - name: Crypto helper tests
         run: cargo test --locked -p screenpet-crypto
+      - name: Relay wire protocol tests
+        run: cargo test --locked -p screenpet-proto
       - name: Check Win32 code compiles
         run: cargo check --locked -p screenpet-core --target x86_64-pc-windows-gnu
       - name: Check macOS code compiles
