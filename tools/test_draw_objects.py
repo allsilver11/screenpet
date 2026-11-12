@@ -374,3 +374,13 @@ def test_the_webview_draws_giants_from_the_big_art_and_knows_their_pixel_dots():
     assert dots == {name: 20 for name in d.GIANTS}
     for name in d.GIANTS:
         assert Image.open(ROOT / "ui" / "objects_pixel" / f"{name}.png").size == (dots[name], dots[name])
+
+
+def test_giant_windows_start_click_through_and_are_capped():
+    """거대한 돌·똥 깜빡임·렉 (v0.6.3): 창을 들일 때 클릭 통과를 미리 켜고 (화면 밖에서), 화면엔 MAX_GIANTS개까지"""
+    src = (Path(__file__).resolve().parent.parent / "src-tauri" / "src" / "objects.rs").read_text(encoding="utf-8")
+    admit = src[src.index("fn admit(&mut self"):]
+    admit = admit[: admit.index("\n    fn ", 10)]
+    assert "giant_to_drop(" in admit
+    assert "set_ignore_cursor_events(true)" in admit
+    assert "click_through," in admit and "click_through: false" not in admit

@@ -1531,6 +1531,33 @@ fn on_screen(o: &Object, (cx, cy): (f64, f64)) -> (f64, f64) {
 }
 
 #[test]
+fn a_flying_giant_lets_every_click_through_so_its_window_does_not_flicker() {
+    // 사용자: 거대한 돌·똥이 친구 화면에 나타났다 깜빡 사라졌다 다시 나타난다 — Windows에서 클릭 통과를 바꿀 때마다
+    // 창 스타일(layered)이 바뀌고 창 전체를 다시 그린다. 날아가는 동안은 바꾸지 않는다 (모양이 커서 밑을 계속 지나간다)
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    for k in ObjectKind::GIANTS {
+        let mut o = Object::flown_in(k, &w, Side::Right, Fling { height: 0.3, vx: 600.0, vy: -300.0 }, 1.0, 1);
+        o.set_scale(k.scale_on(1.0, 1040.0));
+        o.tick(DT, &w, NONE, false);
+        let (px, py) = o.pivot();
+        assert!(o.passes_clicks_at(px, py), "{k:?} in the air");
+        // 내려앉으면 다시 그림 위 클릭은 잡힌다
+        run(&mut o, &w, 8.0);
+        let (px, py) = o.pivot();
+        assert!(!o.passes_clicks_at(px, py), "{k:?} on the ground");
+    }
+}
+
+#[test]
+fn only_a_few_giants_stay_on_screen_at_once() {
+    // 친구 여럿이 거대한 것을 던지면 화면만 한 창이 쌓여 앱이 느려진다: MAX_GIANTS를 넘으면 가장 오래된 것이 뿅
+    assert_eq!(MAX_GIANTS, 3);
+    assert_eq!(giant_to_drop(&[]), None);
+    assert_eq!(giant_to_drop(&[7, 9]), None);
+    assert_eq!(giant_to_drop(&[7, 9, 11]), Some(7), "a 4th is coming: the oldest goes");
+}
+
+#[test]
 fn clicks_pass_through_a_giant_only_where_nothing_is_drawn() {
     let w = floor();
     for k in ObjectKind::GIANTS {

@@ -639,6 +639,22 @@ impl Objects {
 
     /// 물건 수를 지키며 들인다: 넘치면 그 쪽(내 것 10 / 받은 것 20 / 똥 10)의 가장 오래된 것이 뿅 사라진다
     fn admit(&mut self, id: u64, window: WebviewWindow, object: Object, origin: Origin) {
+        // 🪨💩 거대한 것은 MAX_GIANTS개까지: 넘치면 가장 오래된 거대한 것이 뿅 (화면만 한 창이 쌓이면 앱이 느려진다)
+        if object.kind.is_giant() {
+            let giants: Vec<u64> = self.live.iter().filter(|l| l.object.kind.is_giant()).map(|l| l.id).collect();
+            if let Some(old) = screenpet_core::object::giant_to_drop(&giants) {
+                if let Some(i) = self.live.iter().position(|l| l.id == old) {
+                    let l = self.live.remove(i);
+                    self.roster.remove(l.id);
+                    self.poof(l);
+                }
+            }
+        }
+        // 거대한 것·📌 장난감은 처음부터 클릭이 지나간다 (아직 화면 밖일 때 정한다) — 나중에 바꾸면 Windows가 창을 통째로 다시 그려 깜빡인다
+        let click_through = object.kind.is_giant() || object.kind.is_toy();
+        if click_through {
+            let _ = window.set_ignore_cursor_events(true);
+        }
         if let Some(old) = self.roster.add(id, origin) {
             if let Some(i) = self.live.iter().position(|l| l.id == old) {
                 let l = self.live.remove(i);
@@ -657,7 +673,7 @@ impl Objects {
             last_pose: PosePayload { angle: 0.0, dx: 0.0 },
             note_open: false,
             hwnd,
-            click_through: false,
+            click_through,
         });
     }
 

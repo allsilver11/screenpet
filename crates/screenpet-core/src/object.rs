@@ -19,6 +19,13 @@ pub const OBJECT_LOGICAL_SIZE: f64 = 96.0;
 pub const MAX_OWN_OBJECTS: usize = 10;
 /// 친구에게서 받아 화면에 있을 수 있는 물건 수 — 넘치면 가장 오래된 것부터
 pub const MAX_FOREIGN_OBJECTS: usize = 20;
+/// 🪨💩 거대한 것은 화면에 이만큼만 (내 것·받은 것 합쳐) — 화면만 한 창이 쌓이면 앱이 느려진다
+pub const MAX_GIANTS: usize = 3;
+
+/// 거대한 것이 하나 더 들어온다: 지금 있는 거대한 것들(오래된 순)에서 뿅 사라질 하나
+pub fn giant_to_drop(giants_oldest_first: &[u64]) -> Option<u64> {
+    (giants_oldest_first.len() >= MAX_GIANTS).then(|| giants_oldest_first[0])
+}
 /// 화면에 있을 수 있는 똥 수 (내 동물·손님·친구가 던진 것 모두) — 넘치면 가장 오래된 똥이 사라진다. 쓰레기 수와 따로 센다
 pub const MAX_POOPS: usize = 10;
 /// 포스트잇을 눌러 읽는 시간 (초). 그 뒤엔 다시 볼 수 없다
@@ -520,7 +527,9 @@ impl Object {
     /// 들고 있는 동안은 아니다. 작은 물건은 늘 받는다
     /// 📌 장난감도: 바닥(작업표시줄 바로 위)에 놓일 때 창 아래쪽 투명한 곳이 작업표시줄을 막지 않게
     pub fn passes_clicks_at(&self, x: f64, y: f64) -> bool {
-        (self.kind.is_giant() || self.kind.is_toy()) && !self.is_held() && !self.covers(x, y)
+        // 날아가는 거대한 것은 모든 클릭을 보낸다: 모양이 커서 밑을 계속 지나가 클릭 통과가 깜빡거리지 않게 (Windows는 바꿀 때마다 창을 다시 그린다)
+        let flying = self.kind.is_giant() && self.phase == Phase::Air;
+        (self.kind.is_giant() || self.kind.is_toy()) && !self.is_held() && (flying || !self.covers(x, y))
     }
 
     /// 🤹 동물이 들고 있다
