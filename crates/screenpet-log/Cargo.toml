@@ -1,0 +1,8 @@
+[package]
+name = "screenpet-log"
+version = "0.1.0"
+edition = "2021"
+description = "ScreenPet structured log lines (KST time, level, area, event, key=value) shared by the relay and the app"
+
+# 의존성 없음: 릴레이·net·앱이 모두 가볍게 씀
+[dependencies]

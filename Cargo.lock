@@ -3254,6 +3254,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "screenpet-log"
+version = "0.1.0"
+
+[[package]]
 name = "screenpet-net"
 version = "0.1.0"
 dependencies = [
