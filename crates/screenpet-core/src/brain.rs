@@ -152,6 +152,21 @@ pub enum Anim {
     Yank,
     /// 흐물이 — 머리 위의 장난감을 내려 쪼그려 앉으며 바닥 속으로 꾹 밀어 넣는다 (옆모습, 한 번)
     Stuff,
+    /// 흐물이 🎣 — 커서 끝에 두 손으로 대롱대롱 (옆모습 — 웹뷰가 손 자리를 축으로 render.swing만큼 돌린다, brain_swing.rs)
+    HangCursor,
+    /// 흐물이 🫣 — 창 옆면 뒤에서 머리만 쏙 (옆모습, 창은 오른쪽 — brain_hide.rs)
+    Peek,
+    /// 흐물이 🕺 — 연타 춤 (앞모습, brain_dance.rs) · 더 신나는 춤
+    Dance,
+    Dance2,
+    /// 흐물이 ⚾ — 날아온 것을 머리 위로 받는다 (옆모습, 한 번 — brain_rally.rs)
+    Catch,
+    /// 흐물이 🖍️ — 쪼그려 앉아 바닥에 분필 낙서 (옆모습, brain_doodle.rs)
+    Draw,
+    /// 흐물이 ⌨️ — 앞을 보고 주먹 번쩍 / 허공 타자 (앞모습, brain_typing.rs)
+    CheerType,
+    /// 흐물이 — 머리 위에 인 채 다다다 달린다 (옆모습 — 친구에게 들고 가는 길·화면 끝을 들고 나가고 들어올 때)
+    CarryRun,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -244,6 +259,22 @@ pub enum Speech {
     Stow,
     /// 🔄 새 버전이 나왔다 ("new version!!", brain_cheer.rs)
     NewVersion,
+    /// 🎣 커서에 매달려 흔들흔들 ("와아~", brain_swing.rs)
+    Swing,
+    /// 🎣 세게 흔들수록 신난다 ("더 더!")
+    More,
+    /// 🙆 흐물이가 번쩍 들어 올린 동물 ("놔줘!", brain_hoist.rs)
+    PutMeDown,
+    /// 🫣 숨어 있다가 들켰다 ("들켰다!", brain_hide.rs)
+    Found,
+    /// 🫣 아무도 못 찾아서 나온다 ("여기 있지롱")
+    Peekaboo,
+    /// 🕺 연타 춤 ("♪", brain_dance.rs)
+    Dance,
+    /// ⌨️ 타자 응원 ("화이팅!", brain_typing.rs)
+    Fighting,
+    /// ⚾ 캐치볼이 20번에 닿았다 ("끝!", brain_rally.rs) — 받은 횟수("3!")는 글자 그대로 (take_speech_text)
+    RallyEnd,
 }
 
 impl Anim {
@@ -254,7 +285,25 @@ impl Anim {
 
     /// 앞모습 동작 — 좌우 반전하지 않는다.
     pub fn is_front(self) -> bool {
-        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Hungry | Anim::Eat | Anim::LevelUp | Anim::Huff | Anim::Surprise | Anim::Present)
+        matches!(
+            self,
+            Anim::SitFront
+                | Anim::Wave
+                | Anim::Tilt
+                | Anim::Belly
+                | Anim::Stretch
+                | Anim::Heart
+                | Anim::Tickle
+                | Anim::Hungry
+                | Anim::Eat
+                | Anim::LevelUp
+                | Anim::Huff
+                | Anim::Surprise
+                | Anim::Present
+                | Anim::Dance
+                | Anim::Dance2
+                | Anim::CheerType
+        )
     }
 }
 
@@ -386,6 +435,20 @@ pub enum State {
     Juggle { phase: juggle_moves::JugglePhase, t: f64 },
     /// 친구 머리 위에 서 있다 — 자리는 social이 옮긴다. remaining: 내려올 때까지, age: 올라선 뒤 지난 시간 (brain_tower.rs)
     OnHead { remaining: f64, age: f64 },
+    /// 🎣 커서 끝으로 뛰어올라 매달려 흔들흔들 — 흔들림은 Pet의 swing (brain_swing.rs)
+    Swing { phase: swing_moves::SwingPhase, remaining: f64 },
+    /// 🙆 다른 동물을 들어 올려 내려놓거나 친구에게 데려간다 — t = 이 단계에 들어선 뒤 흐른 시간 (brain_hoist.rs)
+    Hoist { phase: hoist_moves::HoistPhase, t: f64 },
+    /// 🙆 흐물이(by = 그 동물의 social_key)에게 들려 있다 — 자리는 lift::sync가 옮긴다 (brain_hoist.rs)
+    Lifted { by: u64 },
+    /// 🫣 창 옆면 뒤에 숨기 (brain_hide.rs)
+    Hide { phase: hide_moves::HidePhase, remaining: f64 },
+    /// 🕺 연타 춤 — 마지막 클릭 뒤 remaining초 (brain_dance.rs)
+    Dance { remaining: f64 },
+    /// 🖍️ 바닥에 낙서 (brain_doodle.rs)
+    Doodle { remaining: f64 },
+    /// ⌨️ 타자 응원 — remaining = 타자가 느려진 뒤 남은 시간 (brain_typing.rs)
+    TypeCheer { remaining: f64 },
 }
 
 impl State {
@@ -512,6 +575,9 @@ pub struct PetConfig {
     pub hang_grip: (f64, f64),
     /// 구르기 그림이 없다 (픽셀 그림, pet.json에 roll 없음) — 구르기를 고르지 않고, 대신 하는 동작도 없다
     pub no_roll: bool,
+    /// 흐물이 더 놀기 (v0.6.3 — pet.json에 ANTICS_ANIMS 그림이 다 있고 들고 던지기를 한다): 🎣 커서 매달리기 · 🙆 동물 들기 ·
+    /// 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 캐치볼 · 🖍️ 낙서 · ⌨️ 타자 응원
+    pub antics: bool,
 }
 
 /// teenager(배율 1.0) 스프라이트 한 변 (논리 px)
@@ -547,6 +613,7 @@ impl PetConfig {
             dpi,
             hang_grip: m.hang_grip(stage),
             no_roll: m.no_roll(),
+            antics: m.antics(),
         }
     }
 }
@@ -574,6 +641,10 @@ pub struct RenderState {
     pub glare: bool,
     /// 콰당! 엎어져 어지러워하는 중 — 웹뷰가 몸을 찌그러뜨리고 머리 위에 💫 (THUD_SECS)
     pub thud: bool,
+    /// 🎣 커서에 매달려 흔들리는 각도 (도, 시계 방향 + — 0이면 안 흔들림). 웹뷰가 hang_cursor 손 자리(grip)를 축으로 돌린다 (brain_swing.rs)
+    pub swing: f64,
+    /// 🕺 신나는 춤 — 웹뷰가 반짝이를 뿌린다 (brain_dance.rs)
+    pub sparkle: bool,
 }
 
 pub struct Pet {
@@ -719,6 +790,16 @@ pub struct Pet {
     toy: taskbar_moves::ToyMood,
     /// 🔄 새 버전 응원 (brain_cheer.rs)
     cheer: cheer_moves::CheerMood,
+    /// 흐물이 더 놀기 (v0.6.3): 🎣 커서 매달리기 · 🙆 동물 들기 · 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 캐치볼 · 🖍️ 낙서 · ⌨️ 타자 응원
+    swing: swing_moves::SwingMood,
+    hoist: hoist_moves::HoistMood,
+    hide: hide_moves::HideMood,
+    dance: dance_moves::DanceMood,
+    rally: rally_moves::RallyMood,
+    doodle: doodle_moves::DoodleMood,
+    typing: typing_moves::TypingMood,
+    /// 글자 그대로 띄울 말 (⚾ "3!" — take_speech_text로 한 번 꺼낸다, 앱은 pet-say-text로)
+    speech_text: Option<String>,
     rng: fastrand::Rng,
 }
 
@@ -803,6 +884,14 @@ impl Pet {
             juggle: juggle_moves::JuggleMood::new(seed),
             toy: taskbar_moves::ToyMood::new(seed),
             cheer: Default::default(),
+            swing: swing_moves::SwingMood::new(seed),
+            hoist: hoist_moves::HoistMood::new(seed),
+            hide: hide_moves::HideMood::new(seed),
+            dance: Default::default(),
+            rally: Default::default(),
+            doodle: doodle_moves::DoodleMood::new(seed),
+            typing: Default::default(),
+            speech_text: None,
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -879,6 +968,11 @@ impl Pet {
         self.tick_guest(dt);
         self.update_cheer(dt, world);
         if self.update_user_away(dt, world) {
+            self.on_started();
+            return;
+        }
+        // 흐물이 더 놀기 — 매달리기·들기·숨기·춤·낙서·타자 응원 (들려 있는 동물은 누구나)
+        if self.update_antics(dt, world) {
             self.on_started();
             return;
         }
@@ -995,6 +1089,13 @@ impl Pet {
             State::Meet { phase, remaining } => self.meet_anim(phase, remaining),
             State::OnHead { .. } => Anim::Idle,
             State::CursorPlay { .. } | State::CursorLeap { .. } | State::CursorHang { .. } | State::EdgeCling { .. } | State::Glare { .. } => self.cursor_anim(),
+            State::Swing { phase, .. } => self.swing_anim(phase),
+            State::Hoist { phase, .. } => self.hoist_anim(phase),
+            State::Lifted { .. } => Anim::Dragged,
+            State::Hide { phase, .. } => self.hide_anim(phase),
+            State::Dance { .. } => self.dance_anim(),
+            State::Doodle { .. } => Anim::Draw,
+            State::TypeCheer { .. } => Anim::CheerType,
             State::Snowman { phase, .. } => self.snowman_anim(phase),
             State::PresenceTrip => self.trip_anim(),
             State::Land { .. } => Anim::Land,
@@ -1018,7 +1119,24 @@ impl Pet {
         };
         let anim = self.carrying_anim(anim);
         let hang = self.hang_side();
-        RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang, cloud: self.snow_cloud_on(), housed: self.housed, flash: self.glasses_flash_on(), glare: self.glasses_glare_on(), thud: self.thud > 0.0 && matches!(self.state, State::Land { .. }) }
+        let swing = self.swing_degrees();
+        let swinging = matches!(self.state, State::Swing { .. });
+        RenderState {
+            anim,
+            flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0 && !swinging,
+            heart: self.heart_timer > 0.0,
+            poof: self.poofing(),
+            ctl: self.is_controlled(),
+            wobble: self.wobble_timer > 0.0 || matches!(self.state, State::Lifted { .. }),
+            hang,
+            cloud: self.snow_cloud_on(),
+            housed: self.housed,
+            flash: self.glasses_flash_on(),
+            glare: self.glasses_glare_on(),
+            thud: self.thud > 0.0 && matches!(self.state, State::Land { .. }),
+            swing,
+            sparkle: self.dance_sparkle(),
+        }
     }
 
     pub fn window_pos(&self) -> (f64, f64) {
@@ -1490,6 +1608,15 @@ impl Pet {
         self.leaving() || matches!(self.state, State::Enter { .. })
     }
 
+    /// 화면 끝을 나가고 들어오는 빠르기: 보통은 걷기, 흐물이가 물건·동물을 들고 있으면 달리기 (사용자 요청)
+    fn transit_speed(&self) -> f64 {
+        if self.cfg.antics && (self.carried_object().is_some() || self.hoisting().is_some()) {
+            self.carry_run_speed()
+        } else {
+            self.walk_speed()
+        }
+    }
+
     /// 걷기 속도 (px/s)
     fn walk_speed(&self) -> f64 {
         self.cfg.walk_speed * Move::Walk.speed_mult()
@@ -1550,7 +1677,7 @@ impl Pet {
 
     fn update_exit(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         self.facing = visit::dir(side);
-        self.walk_by(self.facing * self.walk_speed() * dt, world);
+        self.walk_by(self.facing * self.transit_speed() * dt, world);
         let remaining = remaining - dt;
         if remaining <= 0.0 && visit::fully_outside(&world.bounds, side, self.body.x, self.cfg.half_w) {
             self.vanish(side);
@@ -1565,7 +1692,7 @@ impl Pet {
             self.start_fall();
             return;
         }
-        self.walk_by(self.facing * self.walk_speed() * dt, world);
+        self.walk_by(self.facing * self.transit_speed() * dt, world);
         if self.standing.is_none() {
             self.start_fall();
             return;
@@ -1594,6 +1721,7 @@ impl Pet {
     /// 화면에서 사라진다 (side 쪽으로)
     fn vanish(&mut self, side: Side) {
         self.exited = Some(side);
+        self.hoist_vanished(side);
         self.standing = None;
         self.inside = None;
         self.body.vx = 0.0;
@@ -1645,6 +1773,8 @@ impl Pet {
                 | State::CursorHang { .. }
                 | State::EdgeCling { .. }
                 | State::OnHead { .. }
+                | State::Swing { .. }
+                | State::Lifted { .. }
         ) || matches!(self.state, State::Meet { phase, .. } if phase.airborne())
     }
 
@@ -1711,6 +1841,11 @@ impl Pet {
     /// 이번 틱에 띄울 말풍선 (한 번 꺼내면 None)
     pub fn take_speech(&mut self) -> Option<Speech> {
         self.speech.take()
+    }
+
+    /// 글자 그대로 띄울 말 (⚾ 받은 횟수 "3!") — 앱은 pet-say-text로 보낸다. 한 번 꺼내면 None
+    pub fn take_speech_text(&mut self) -> Option<String> {
+        self.speech_text.take()
     }
 
     /// 동물 교체 시 특별 동작을 바꾼다. 진행 중이던 Special은 (새 동물에 없을 수 있으니) 끝낸다.
@@ -2207,6 +2342,10 @@ impl Pet {
                     self.state = State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
                     return;
                 }
+                // 🕺 흐물이 연타 춤 (끌기가 아닌 클릭만 센다 — brain_dance.rs)
+                if self.dance_click(true) {
+                    return;
+                }
                 // 친구 동물: 반반 애교 / 잡아 봐! (brain_guestplay.rs)
                 if self.guest.is_some() {
                     self.guest_click();
@@ -2256,7 +2395,11 @@ impl Pet {
                     self.speech = Some(Speech::Chatter);
                 }
             }
-            State::Pressed { .. } => self.start_fall(),
+            State::Pressed { .. } => {
+                // 🕺 폴짝 중의 클릭도 센다 — 내려서면 춘다
+                self.dance_click(false);
+                self.start_fall();
+            }
             State::Dragged => {
                 if let Some(trip) = self.home_trip.as_mut() {
                     // 옮겨 놓은 자리부터 진척을 다시 잰다
@@ -2614,6 +2757,13 @@ impl Pet {
             | State::Slip { .. }
             | State::Meet { .. }
             | State::OnHead { .. }
+            | State::Swing { .. }
+            | State::Hoist { .. }
+            | State::Lifted { .. }
+            | State::Hide { .. }
+            | State::Dance { .. }
+            | State::Doodle { .. }
+            | State::TypeCheer { .. }
             | State::Panic { .. }
             | State::Rig { .. }
             | State::Juggle { .. }
@@ -3393,6 +3543,46 @@ mod presence_moves;
 #[path = "brain_cheer.rs"]
 mod cheer_moves;
 
+#[path = "brain_antics.rs"]
+mod antics_moves;
+#[path = "brain_swing.rs"]
+pub mod swing_moves;
+#[cfg(test)]
+#[path = "brain_swing_tests.rs"]
+mod swing_tests;
+#[path = "brain_hoist.rs"]
+pub mod hoist_moves;
+#[cfg(test)]
+#[path = "brain_hoist_tests.rs"]
+mod hoist_tests;
+#[path = "brain_hide.rs"]
+pub mod hide_moves;
+#[cfg(test)]
+#[path = "brain_hide_tests.rs"]
+mod hide_tests;
+#[path = "brain_dance.rs"]
+pub mod dance_moves;
+#[cfg(test)]
+#[path = "brain_dance_tests.rs"]
+mod dance_tests;
+#[path = "brain_rally.rs"]
+pub mod rally_moves;
+#[cfg(test)]
+#[path = "brain_rally_tests.rs"]
+mod rally_tests;
+#[path = "brain_doodle.rs"]
+pub mod doodle_moves;
+#[cfg(test)]
+#[path = "brain_doodle_tests.rs"]
+mod doodle_tests;
+#[path = "brain_typing.rs"]
+pub mod typing_moves;
+#[cfg(test)]
+#[path = "brain_typing_tests.rs"]
+mod typing_tests;
+
+pub use doodle_moves::{Doodle, DoodleKind, DOODLE_SECS};
+
 #[cfg(test)]
 #[path = "brain_cheer_tests.rs"]
 mod cheer_tests;
@@ -3775,7 +3965,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -3866,7 +4056,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -3885,7 +4075,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false });
     }
 
     #[test]
@@ -3901,7 +4091,8 @@ mod tests {
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
             Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise, Anim::Panic, Anim::Hang, Anim::Rope,
-            Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump, Anim::Yank, Anim::Stuff];
+            Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump, Anim::Yank, Anim::Stuff,
+            Anim::HangCursor, Anim::Peek, Anim::Dance, Anim::Dance2, Anim::Catch, Anim::Draw, Anim::CheerType, Anim::CarryRun];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);
@@ -5190,7 +5381,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -6008,7 +6199,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false });
             }
             last_x = p.body.x;
         }

@@ -116,6 +116,46 @@ pub enum JuggleEvent {
     Pull,
     /// 📌 장난감을 작업표시줄에 도로 밀어 넣었다: 앱이 이 물건을 뿅 치운다
     Stow { id: u64 },
+    /// ⚾ 친구 화면에서 날아온 것을 받았다 (brain_rally.rs): 앱은 날던 이 물건을 손에 쥐여 준다 (그 뒤는 carried_object로 손 자리를 따라간다)
+    Catch { id: u64 },
+}
+
+/// ⚾ 캐치볼: 이만큼 주고받으면 끝 ("끝!")
+pub const MAX_RALLY: u32 = 20;
+/// ⚾ 받는 그림 catch (4칸 10fps 한 번)
+pub const CATCH_SECS: f64 = 0.4;
+/// ⚾ 받으러 달려가다 이만큼 지나도 못 받으면 그만둔다
+pub const CHASE_SECS: f64 = 4.0;
+/// ⚾ 손(머리 위)에서 물건 바닥이 몸 이만큼 안이면 받는다
+pub const CATCH_REACH: f64 = 0.6;
+
+/// ⚾ 친구 화면 끝에서 던져져 날아 들어오는 물건 (앱이 틱마다 넘긴다 — notice_incoming)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Incoming {
+    pub id: u64,
+    /// 물건 바닥 가운데 (물리 px)와 속도 (물리 px/s)
+    pub x: f64,
+    pub y: f64,
+    pub vx: f64,
+    pub vy: f64,
+    /// 주고받은 횟수 (처음 던진 것 = 0)
+    pub rally: u32,
+    /// 날아 들어온 끝 (되던질 쪽)
+    pub from: crate::world::Side,
+    pub giant: bool,
+}
+
+/// (x, y)에서 (vx, vy)로 던져진 것이 내려오며 높이 y_at에 닿는 x (던진 비행 중력 — 물리 px). 그 높이에 닿지 않으면 None
+pub fn descent_x(x: f64, y: f64, vx: f64, vy: f64, y_at: f64, dpi: f64) -> Option<(f64, f64)> {
+    let g = THROW_GRAVITY_LOGICAL * dpi;
+    // y + vy t + g t²/2 = y_at → 큰 근
+    let (a, b, c) = (0.5 * g, vy, y - y_at);
+    let disc = b * b - 4.0 * a * c;
+    if disc < 0.0 || a <= 0.0 {
+        return None;
+    }
+    let t = (-b + disc.sqrt()) / (2.0 * a);
+    (t > 0.0).then_some((x + vx * t, t))
 }
 
 /// 그림 한 동작의 칸별 손 자리 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율)
@@ -159,6 +199,11 @@ pub struct GripTable {
     /// 📌 작업표시줄에서 끌어내기 (손이 바닥께) · 도로 밀어 넣기
     pub yank: GripAnim,
     pub stuff: GripAnim,
+    /// ⚾ 날아온 것 받기 (머리 위) · 🎣 커서 끝을 잡은 두 손 (모든 칸이 같은 점 — 흔드는 축)
+    pub catch: GripAnim,
+    pub hang_cursor: GripAnim,
+    /// 들고 달리기 (친구에게 들고 가는 길)
+    pub carry_run: GripAnim,
 }
 
 /// 가장 가까운 노릴 동물: 가로 AIM_RANGE, 높이 AIM_RISE (내 몸 크기 배) 안에서

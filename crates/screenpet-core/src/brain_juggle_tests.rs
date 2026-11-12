@@ -320,6 +320,59 @@ fn delivery_prank_carries_the_object_off_through_the_friend_edge() {
 }
 
 #[test]
+fn heumul_runs_not_walks_when_it_carries_something_off_to_a_friend() {
+    // 사용자: 친구에게 들고 갈 땐 걷지 말고 달려 — 들고 달리는 그림(carry_run), 달리기 빠르기, 화면 끝을 나가고 들어올 때도
+    let w = world(vec![]);
+    let c = PetConfig { antics: true, ..juggler() };
+    let run = c.walk_speed * Move::Run.speed_mult();
+    let mut p = walking(c, 1000.0, 4, &w);
+    p.set_exit_edges(false, true);
+    holding(&mut p, Plan::Prank(Side::Right), &w);
+    let (mut carried_off, mut exiting) = (false, false);
+    for _ in 0..(60 * 15) {
+        let x = p.body.x;
+        let was_exiting = matches!(p.state, State::Exit { .. });
+        tick(&mut p, &w, &[], &[]);
+        if p.take_exit().is_some() {
+            break;
+        }
+        match p.state {
+            State::Juggle { phase: JugglePhase::CarryOff { .. }, t } if t > DT => {
+                carried_off = true;
+                assert_eq!(p.render().anim, Anim::CarryRun);
+                assert!((p.body.x - x - run * DT).abs() < 1e-6, "달리기 빠르기: {}", (p.body.x - x) / DT);
+            }
+            State::Exit { .. } if was_exiting => {
+                exiting = true;
+                assert_eq!(p.render().anim, Anim::CarryRun);
+                assert!((p.body.x - x - run * DT).abs() < 1e-6, "나갈 때도 달린다");
+            }
+            _ => {}
+        }
+    }
+    assert!(carried_off && exiting);
+    // 🎯 모니터 너머로 던지러 갈 때도 달린다
+    let mut p = walking(PetConfig { antics: true, ..juggler() }, 300.0, 5, &w);
+    holding(&mut p, Plan::Lob(Side::Right), &w);
+    let mut lobbing = false;
+    for _ in 0..120 {
+        tick(&mut p, &w, &[], &[]);
+        if let State::Juggle { phase: JugglePhase::LobOff { .. }, .. } = p.state {
+            lobbing = true;
+            assert_eq!(p.render().anim, Anim::CarryRun);
+        }
+    }
+    assert!(lobbing);
+    // 친구 화면에 들고 들어올 때도
+    let mut p = Pet::new_entering(PetConfig { antics: true, ..juggler() }, &w, Side::Left, 3);
+    p.hold_object(42);
+    p.notice_objects(&[], &[], &w);
+    p.update(DT, &w);
+    assert!(matches!(p.state, State::Enter { .. }));
+    assert_eq!(p.render().anim, Anim::CarryRun);
+}
+
+#[test]
 fn a_bounced_prank_comes_home_holding_it_and_drops_it_there() {
     let w = world(vec![]);
     let mut p = walking(juggler(), 1500.0, 4, &w);

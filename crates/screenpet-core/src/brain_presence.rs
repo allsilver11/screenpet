@@ -205,7 +205,8 @@ impl Pet {
             | State::Farewell { .. }
             | State::Away
             | State::Eating { .. }
-            | State::LevelUp { .. } => return false,
+            | State::LevelUp { .. }
+            | State::Lifted { .. } => return false,
             // 벽·커서·창 모서리에 매달려 있었거나 뛰던 중: 떨어져 내린 뒤에 잔다 (나는 동물은 떠서)
             State::Climb { .. }
             | State::Slide
@@ -218,6 +219,7 @@ impl Pet {
             | State::CursorLeap { .. }
             | State::CursorHang { .. }
             | State::EdgeCling { .. }
+            | State::Swing { .. }
             | State::PresenceTrip => {
                 self.settle_for_sleep();
                 if !self.cfg.flies {

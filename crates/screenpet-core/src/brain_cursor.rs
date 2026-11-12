@@ -338,7 +338,17 @@ impl Pet {
     pub fn cursor_through(&self) -> bool {
         // 나는 동물은 다가오는 동안 이미 커서 쪽으로 곧장 날아 창이 커서를 덮는다
         let gliding = self.cfg.flies && matches!(self.state, State::CursorPlay { phase: PlayPhase::Approach, .. });
-        gliding || self.cursor_mood.through_after > 0.0 || matches!(self.state, State::CursorLeap { .. } | State::CursorHang { .. })
+        gliding || self.cursor_mood.through_after > 0.0 || matches!(self.state, State::CursorLeap { .. } | State::CursorHang { .. } | State::Swing { .. })
+    }
+
+    /// 🎣 놓은 뒤 잠깐 더 마우스를 통과시킨다 (떨어져 커서에서 벗어나거나 내려설 때까지 — brain_swing.rs)
+    pub(super) fn keep_click_through(&mut self) {
+        self.cursor_mood.through_after = LET_GO_THROUGH_SECS;
+    }
+
+    /// 🐾 앱이 알려 준 커서 놀이 입력: (켜 둠, 지금 바쁨, 왼쪽 버튼) — brain_swing.rs
+    pub(super) fn cursor_play_input(&self) -> (bool, bool, bool) {
+        (self.cursor_mood.enabled, self.cursor_mood.busy, self.cursor_mood.left_down)
     }
 
     /// 1 = 커서에 매달림, 0 = 아님 — 웹뷰가 커서 끝(머리 꼭대기)을 축으로 흔든다

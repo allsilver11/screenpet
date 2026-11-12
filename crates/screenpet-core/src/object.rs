@@ -398,6 +398,10 @@ pub struct Object {
     note: Option<String>,
     read_left: f64,
     note_ended: bool,
+    /// ⚾ 캐치볼로 주고받은 횟수 (처음 던진 것 = 0 — 친구에게 보내는 Toss에 실린다)
+    rally: u32,
+    /// ⚾ 친구 화면 끝에서 날아 들어왔다 (그 끝) — 흐물이가 받으면 이쪽으로 되던진다
+    from: Option<Side>,
 }
 
 impl Object {
@@ -437,7 +441,27 @@ impl Object {
             note: None,
             read_left: 0.0,
             note_ended: false,
+            rally: 0,
+            from: None,
         }
+    }
+
+    /// ⚾ 캐치볼로 주고받은 횟수 (처음 던진 것 = 0). 받는 앱이 Toss의 값을 적고, 흐물이가 되던질 때 앱이 하나 늘려 적는다
+    pub fn set_rally(&mut self, n: u32) {
+        self.rally = n.min(crate::juggle::MAX_RALLY);
+    }
+
+    pub fn rally(&self) -> u32 {
+        self.rally
+    }
+
+    /// ⚾ 친구 화면 끝에서 던져져 날아 들어오는 중이면 흐물이가 받을 수 있게 (id = 앱의 물건 id)
+    pub fn incoming(&self, id: u64) -> Option<crate::juggle::Incoming> {
+        let from = self.from.filter(|s| !visit::is_vertical(*s))?;
+        if !self.in_flight() {
+            return None;
+        }
+        Some(crate::juggle::Incoming { id, x: self.body.x, y: self.body.y, vx: self.body.vx, vy: self.body.vy, rally: self.rally, from, giant: self.kind.is_giant() })
     }
 
     /// 친구 화면에서 던져져 side 끝으로 날아 들어온다 (높이·속도를 이어 받는다). fling은 다듬어져 있어야 한다 (accept_toss)
@@ -471,6 +495,7 @@ impl Object {
             o.body.vy = o.body.vy.max(-(2.0 * g * room).sqrt());
         }
         o.thrown = true;
+        o.from = Some(side);
         o.thrown_down = o.body.vy > 0.0 && visit::arrival_dives(o.body.vy, o.rng.f64());
         // 회전은 통신으로 오지 않는다: 들어오는 속도로 새로 돈다
         o.spin = o.spin_of_throw();
@@ -590,6 +615,7 @@ impl Object {
         let (_, height) = self.hit_box();
         self.phase = Phase::Carried;
         self.standing = None;
+        self.from = None;
         self.thrown = false;
         self.thrown_down = false;
         self.angle = 0.0;
@@ -602,6 +628,7 @@ impl Object {
         if self.is_held() {
             return;
         }
+        self.from = None;
         self.body.vx = vx;
         self.body.vy = vy;
         self.standing = None;
@@ -683,6 +710,8 @@ impl Object {
 
     /// 잡았다 (cx, cy = 커서)
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
+        self.from = None;
+        self.rally = 0;
         self.phase = Phase::Held;
         self.standing = None;
         self.thrown = false;

@@ -97,6 +97,7 @@ impl FakeApp {
                 self.spot = None;
                 self.stows += 1;
             }
+            Some(JuggleEvent::Catch { .. }) => panic!("날아온 것이 없다"),
             None => {}
         }
         if self.pending.is_some_and(|at| p.clock >= at) {

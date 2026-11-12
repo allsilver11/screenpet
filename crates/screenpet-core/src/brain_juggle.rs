@@ -40,6 +40,10 @@ pub enum JugglePhase {
     Yank,
     /// 📌 장난감을 바닥 속으로 도로 밀어 넣는다 (released = 이미 넣었다)
     Stuff { released: bool },
+    /// ⚾ 날아오는 물건(id)이 내려올 자리(x) 밑으로 달려간다 (brain_rally.rs)
+    Chase { id: u64, x: f64 },
+    /// ⚾ 머리 위로 받았다 (catch 그림 한 번) — 그 뒤 Hold
+    Catch,
 }
 
 /// 들어 올린 뒤 할 일 (줍는 순간 정한다)
@@ -154,14 +158,17 @@ impl Pet {
             State::Juggle { phase, t } => match phase {
                 JugglePhase::Lift => g.lift.at(t),
                 JugglePhase::Hold { .. } => g.hold.at(t),
-                JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. } | JugglePhase::LobOff { .. } => g.carry.at(t),
+                JugglePhase::Wander { .. } => g.carry.at(t),
+                JugglePhase::CarryOff { .. } | JugglePhase::LobOff { .. } => self.carry_run_grip(t),
                 JugglePhase::Throw { .. } => g.throw.at(t),
                 JugglePhase::Present { .. } => g.present.at(t),
                 JugglePhase::Yank => g.yank.at(t),
                 JugglePhase::Stuff { .. } => g.stuff.at(t),
+                JugglePhase::Catch => g.catch.at(t),
                 _ => g.hold.at(0.0),
             },
-            State::Move { .. } | State::Exit { .. } | State::Enter { .. } => g.carry.at(self.clock),
+            State::Exit { .. } | State::Enter { .. } => self.carry_run_grip(self.clock),
+            State::Move { .. } => g.carry.at(self.clock),
             _ => g.hold.at(0.0),
         };
         let front = self.render().anim.is_front();
@@ -187,6 +194,7 @@ impl Pet {
                     | JugglePhase::Present { released: false }
                     | JugglePhase::Yank
                     | JugglePhase::Stuff { released: false }
+                    | JugglePhase::Catch
             ),
             State::Exit { side, .. } | State::Enter { side, .. } => !visit::is_vertical(side),
             State::Away => true,
@@ -426,6 +434,30 @@ impl Pet {
     fn release(&mut self, vx: f64, vy: f64) {
         if let Some(id) = self.juggle.carry.take() {
             self.juggle.event = Some(JuggleEvent::Release { id, vx, vy });
+            self.rally_released(id);
+        }
+    }
+
+    /// 들고 친구에게 달려가는 빠르기 (달리기와 같다)
+    pub(super) fn carry_run_speed(&self) -> f64 {
+        self.cfg.walk_speed * Move::Run.speed_mult()
+    }
+
+    /// 들고 달리는 그림 (carry_run이 없는 옛 그림은 carry)
+    pub(super) fn carry_run_anim(&self) -> Anim {
+        if self.cfg.antics {
+            Anim::CarryRun
+        } else {
+            Anim::Carry
+        }
+    }
+
+    fn carry_run_grip(&self, t: f64) -> (f64, f64) {
+        let g = &self.cfg.grip;
+        if self.cfg.antics && g.carry_run.n > 0 {
+            g.carry_run.at(t)
+        } else {
+            g.carry.at(t)
         }
     }
 
@@ -433,7 +465,7 @@ impl Pet {
     pub(super) fn update_juggle(&mut self, dt: f64, world: &World, phase: JugglePhase, t: f64) {
         let t = t + dt;
         let holding = matches!(phase, JugglePhase::Lift | JugglePhase::Hold { .. } | JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. } | JugglePhase::LobOff { .. })
-            || matches!(phase, JugglePhase::Throw { released: false } | JugglePhase::Present { released: false } | JugglePhase::Stuff { released: false });
+            || matches!(phase, JugglePhase::Throw { released: false } | JugglePhase::Present { released: false } | JugglePhase::Stuff { released: false } | JugglePhase::Catch);
         if holding && self.juggle.carry.is_none() {
             // 손에서 놓쳤다 (눌렸다 놓였거나 앱이 물건을 못 찾았다)
             self.end_juggle();
@@ -559,7 +591,7 @@ impl Pet {
                     self.start_throw();
                     return;
                 }
-                let Some(blocked) = self.juggle_walk(world, dir, self.walk_speed() * dt) else { return };
+                let Some(blocked) = self.juggle_walk(world, dir, self.carry_run_speed() * dt) else { return };
                 if blocked {
                     self.start_throw();
                 } else {
@@ -569,7 +601,7 @@ impl Pet {
             JugglePhase::CarryOff { side } => {
                 let dir = visit::dir(side);
                 self.facing = dir;
-                let Some(blocked) = self.juggle_walk(world, dir, self.walk_speed() * dt) else { return };
+                let Some(blocked) = self.juggle_walk(world, dir, self.carry_run_speed() * dt) else { return };
                 if !blocked {
                     self.state = next(phase);
                     return;
@@ -615,6 +647,18 @@ impl Pet {
                     self.state = next(phase);
                 }
             }
+            JugglePhase::Chase { id, x } => self.update_chase(dt, world, id, x, t),
+            JugglePhase::Catch => {
+                if !self.follow_anchor(world) {
+                    self.start_fall();
+                    return;
+                }
+                self.state = if t < juggle::CATCH_SECS {
+                    next(phase)
+                } else {
+                    State::Juggle { phase: JugglePhase::Hold { secs: behavior::range(&mut self.juggle.rng, juggle::HOLD_SECS) }, t: 0.0 }
+                };
+            }
             JugglePhase::Yank => self.update_yank(world, t),
             JugglePhase::Stuff { released } => self.update_stuff(world, released, t),
             JugglePhase::Present { released } => {
@@ -642,21 +686,27 @@ impl Pet {
             JugglePhase::Strain { .. } => Anim::Strain,
             JugglePhase::Lift => Anim::Lift,
             JugglePhase::Hold { .. } => Anim::Hold,
-            JugglePhase::Wander { .. } | JugglePhase::CarryOff { .. } | JugglePhase::LobOff { .. } => Anim::Carry,
+            JugglePhase::Wander { .. } => Anim::Carry,
+            // 친구에게 들고 갈 땐 다다다 달린다 (사용자 요청)
+            JugglePhase::CarryOff { .. } | JugglePhase::LobOff { .. } => self.carry_run_anim(),
             JugglePhase::Throw { .. } => Anim::Throw,
             JugglePhase::Present { .. } => Anim::Present,
             JugglePhase::Slump => Anim::Slump,
             JugglePhase::Yank => Anim::Yank,
             JugglePhase::Stuff { .. } => Anim::Stuff,
+            JugglePhase::Chase { .. } => Anim::Run,
+            JugglePhase::Catch => Anim::Catch,
         }
     }
 
     /// 물건을 든 채 걸어 나가거나 들어오는 동안·도착해 서기 전엔 머리 위에 인 그림
     pub(super) fn carrying_anim(&self, anim: Anim) -> Anim {
-        if self.carried_object().is_none() || matches!(self.state, State::Juggle { .. }) {
+        if (self.carried_object().is_none() && self.hoisting().is_none()) || matches!(self.state, State::Juggle { .. } | State::Hoist { .. }) {
             return anim;
         }
         match anim {
+            // 친구 화면으로 들고 나가고 들어올 땐 달린다
+            Anim::Walk | Anim::Run if matches!(self.state, State::Exit { .. } | State::Enter { .. }) => self.carry_run_anim(),
             Anim::Walk | Anim::Run => Anim::Carry,
             Anim::Idle | Anim::Look | Anim::LookUp => Anim::Hold,
             a => a,

@@ -14,6 +14,7 @@ pub(crate) fn pet_cfg() -> PetConfig {
     PetConfig {
         hang_grip: (0.0, 0.06),
         no_roll: false,
+        antics: false,
         size: 128.0,
         half_w: 38.0,
         walk_speed: 60.0,
