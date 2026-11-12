@@ -1,5 +1,5 @@
-// 친구 코드 창: 내 코드(복사 버튼) + 친구의 코드 입력 → "친구 신청" (짝맞추기 창이 이어 받는다).
-// 백엔드가 상태를 `code-state`({code, connected, enabled})로 보내고, 신청은 `code_submit`으로 한다.
+// 친구 코드 창: 내 코드(복사 버튼) + 친구의 코드 입력 → "친구 신청" (짝맞추기 창이 이어 받음).
+// 백엔드가 상태를 `code-state`({code, connected, enabled})로 보내고, 신청은 `code_submit`으로 함.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
@@ -14,6 +14,7 @@ const cancelBtn = document.getElementById("cancel");
 
 let state = { code: null, connected: false, enabled: false };
 
+// 백엔드가 보낸 코드 상태를 창에 보임
 function show(v) {
   state = v;
   codeEl.textContent = v.code ?? "—";
@@ -33,6 +34,7 @@ function looksLikeCode(s) {
   return /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$/.test(t);
 }
 
+// 입력한 코드로 친구 신청을 보냄 (코드 모양이 아니면 안내만)
 async function submit() {
   const code = inputEl.value;
   if (!looksLikeCode(code)) {
@@ -55,8 +57,8 @@ copyBtn.addEventListener("click", async () => {
   copyBtn.textContent = ok ? "복사했어요" : "복사 실패";
   setTimeout(() => (copyBtn.textContent = "복사"), 1500);
 });
-// 새 친구 코드 (코드를 너무 널리 알렸을 때) — 새 코드는 code-state로 온다
-// 한 번 더 눌러야 바뀐다 (지금 코드는 더 이상 쓸 수 없게 된다)
+// 새 친구 코드 (코드를 너무 널리 알렸을 때) — 새 코드는 code-state로 옴
+// 한 번 더 눌러야 바뀜 (지금 코드는 더 이상 쓸 수 없게 됨)
 let renewArmed = null;
 renewBtn.addEventListener("click", () => {
   if (!state.connected) return;
@@ -72,7 +74,7 @@ renewBtn.addEventListener("click", () => {
   renewArmed = null;
   renewBtn.textContent = "새 코드";
   invoke("code_renew");
-  // 옛 코드는 이제 못 쓴다 — 새 코드가 올 때까지 복사하지 않는다
+  // 옛 코드는 이제 못 씀 — 새 코드가 올 때까지 복사하지 않음
   state = { ...state, code: null };
   copyBtn.disabled = true;
   codeEl.textContent = "…";
@@ -84,7 +86,7 @@ inputEl.addEventListener("input", () => (noteEl.textContent = ""));
 setupFormKeys({ submit, close: () => invoke("code_close") });
 
 (async () => {
-  // 듣기 시작한 뒤에 지금 상태를 묻는다
+  // 듣기 시작한 뒤에 지금 상태를 물음
   await here.listen("code-state", (e) => {
     show(e.payload);
     inputEl.focus();

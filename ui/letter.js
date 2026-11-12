@@ -1,6 +1,6 @@
 // 편지 쓰기 창 ("친구랑 놀기 → <친구> → 편지 들려 보내기…"): 한 줄 편지를 쓰고 "보내기"(또는 Enter)면
-// "놀러 보내기"처럼 내 동물이 그 친구에게 가고, 방문에 편지가 실린다. 받는 친구 이름은 `letter-state`({name, max})로 온다.
-// 다듬기(보이지 않는 글자 빼기·80자 자르기)는 백엔드가 다시 한다. 비워서 보내면 편지 없이 그냥 놀러 간다.
+// "놀러 보내기"처럼 내 동물이 그 친구에게 가고, 방문에 편지가 실림. 받는 친구 이름은 `letter-state`({name, max})로 옴.
+// 다듬기(보이지 않는 글자 빼기·80자 자르기)는 백엔드가 다시 함. 비워서 보내면 편지 없이 그냥 놀러 감.
 // 손님 우클릭 "편지 써서 돌려보내기…"로 열리면 답장 창 (reply: true) — 보내면 손님이 답장을 들고 집으로 (비우면 그냥 돌려보내기)
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
@@ -15,12 +15,14 @@ const field = noteField(inputEl, (n, max) => {
   noteEl.textContent = `${n}/${max}자 · Enter로 보내기`;
 });
 
+// 받는 친구와 최대 글자 수를 창에 보임
 function show(v) {
-  // 답장: 와 있는 손님이 들고 주인에게 돌아간다
+  // 답장: 와 있는 손님이 들고 주인에게 돌아감
   titleEl.textContent = v.reply ? `💌 ${v.name}에게 답장` : `💌 ${v.name}에게 펫과 함께 보낼 편지`;
   field.open(v.max);
 }
 
+// 편지를 백엔드에 넘김
 function submit() {
   invoke("letter_submit", { text: inputEl.value });
 }
@@ -30,7 +32,7 @@ cancelBtn.addEventListener("click", () => invoke("letter_close"));
 
 setupFormKeys({ submit, close: () => invoke("letter_close") });
 
-// 못 보냈다: 창과 쓴 글은 그대로 두고 알린다 (글자를 고치면 평소 글자 수로 돌아온다)
+// 못 보냈음: 창과 쓴 글은 그대로 두고 알림 (글자를 고치면 평소 글자 수로 돌아옴)
 function failed() {
   noteEl.textContent = "지금은 보낼 수 없어요. 친구 연결을 확인하고 다시 눌러 주세요.";
 }

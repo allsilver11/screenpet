@@ -1,8 +1,9 @@
-// 🎁 선물 도감 창: 백엔드가 만든 내용(`book_state` 커맨드, 주울 때마다 `book-state` 이벤트 — screenpet_core::gift::BookView)을 그린다.
-// 친구 이름이 들어 있으니 글자는 textContent로만 넣는다.
+// 🎁 선물 도감 창: 백엔드가 만든 내용(`book_state` 커맨드, 주울 때마다 `book-state` 이벤트 — screenpet_core::gift::BookView)을 그림.
+// 친구 이름이 들어 있으니 글자는 textContent로만 넣음.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
+// 클래스와 글자를 넣은 요소를 만듦
 function el(tag, className, text) {
   const e = document.createElement(tag);
   if (className) e.className = className;
@@ -10,18 +11,21 @@ function el(tag, className, text) {
   return e;
 }
 
-// 그림 폴더: 픽셀 스타일이면 칸 그림 — 칸(12칸 그림)이 물리 px의 정수배가 되게 크기도 맞춘다
+// 그림 폴더: 픽셀 스타일이면 칸 그림 — 칸(12칸 그림)이 물리 px의 정수배가 되게 크기도 맞춤
 let pixelArt = window.ART_STYLE === "pixel";
 let lastView = null;
+// 지금 스타일의 선물 그림 폴더
 function artDir() {
   return pixelArt ? "gifts_pixel" : "gifts";
 }
+// 픽셀이면 픽셀 클래스와 칸 크기를 맞춤
 function applyArt() {
   document.body.classList[pixelArt ? "add" : "remove"]("pixel");
   const dpr = window.devicePixelRatio || 1;
   document.body.style.setProperty("--gift-side", `${(12 * Math.max(1, Math.round(4 * dpr))) / dpr}px`);
 }
 
+// 도감 칸 하나를 만듦 (없는 선물은 흐리게, 반짝이는 것은 표시)
 function cell(item) {
   const have = item.count > 0 || item.shiny > 0;
   const c = el("div", `cell${have ? "" : " missing"}${item.shiny > 0 ? " shiny" : ""}`);
@@ -45,6 +49,7 @@ function cell(item) {
   return c;
 }
 
+// 도감 내용 전체를 그림
 function show(view) {
   lastView = view;
   document.getElementById("sum").textContent = `모은 선물 ${view.collected} / ${view.total} · ✨ 반짝이 ${view.shiny}`;

@@ -1,8 +1,8 @@
-// 🌈 무지개 구름 자국 그리기. 앱(src-tauri/src/trail.rs)이 `trail-puffs`로 새 구름들을 보낸다
+// 🌈 무지개 구름 자국 그리기. 앱(src-tauri/src/trail.rs)이 `trail-puffs`로 새 구름들을 보냄
 // (논리 px, 이 창 왼쪽 위가 0,0 — x·y는 구름 가운데, size는 폭, color는 RAINBOW 순서, age는 이미 지난 초).
-// 구름은 놓인 자리에서 살짝 떠오르며 부풀고 LIFE초 동안 흐려진다. CPU를 아끼는 규칙: 구름 MAX_PUFFS개까지,
-// 색마다 미리 그린 그림을 찍기, 지난 프레임에 그린 자리만 지우기, 구름이 없으면 requestAnimationFrame도 걸지 않는다.
-// 브라우저에서 trail.html?preview=1 (&pixel=1, &light=1)로 앱 없이 볼 수 있다.
+// 구름은 놓인 자리에서 살짝 떠오르며 부풀고 LIFE초 동안 흐려짐. CPU를 아끼는 규칙: 구름 MAX_PUFFS개까지,
+// 색마다 미리 그린 그림을 찍기, 지난 프레임에 그린 자리만 지우기, 구름이 없으면 requestAnimationFrame도 걸지 않음.
+// 브라우저에서 trail.html?preview=1 (&pixel=1, &light=1)로 앱 없이 볼 수 있음.
 
 const LIFE = 1.0;
 const MAX_PUFFS = 60;
@@ -19,7 +19,7 @@ const BLOBS = [
   [0.02, 0.14, 0.22],
 ];
 const ROUND_BOX = 64;
-// 픽셀 구름: 글자 표 (h 밝은 윗면, b 몸, s 아랫 그늘). 테두리는 그릴 때 둘레에 칸을 더한다
+// 픽셀 구름: 글자 표 (h 밝은 윗면, b 몸, s 아랫 그늘). 테두리는 그릴 때 둘레에 칸을 더함
 const PX_CLOUD = [
   "...hhh......",
   "..hbbbh.hh..",
@@ -35,15 +35,17 @@ const roundSprites = new Map();
 const pixelSprites = new Map();
 let puffs = [];
 let frameRequest = 0;
-// 지난 프레임에 그린 자리 (그 자리만 지운다)
+// 지난 프레임에 그린 자리 (그 자리만 지움)
 let dirty = null;
 
+// 색 hex를 to(0 검정·255 흰색) 쪽으로 k만큼 섞음
 function mix(hex, to, k) {
   const n = parseInt(hex.slice(1), 16);
   const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v + (to - v) * k));
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
+// w×h 캔버스에 draw로 그린 스프라이트를 만듦
 function makeSprite(w, h, draw) {
   const c = document.createElement("canvas");
   c.width = w;
@@ -52,6 +54,7 @@ function makeSprite(w, h, draw) {
   return c;
 }
 
+// 둥근 구름 덩어리 모양을 grow만큼 부풀려 칠함
 function blobs(g, grow, s) {
   g.beginPath();
   for (const [x, y, r] of BLOBS) {
@@ -82,7 +85,7 @@ function roundSprite(color) {
   return s;
 }
 
-// 픽셀: 한 칸 = 1px로 그려 두고 정수 배로 늘려 찍는다 (테두리 한 칸 포함)
+// 픽셀: 한 칸 = 1px로 그려 두고 정수 배로 늘려 찍음 (테두리 한 칸 포함)
 function pixelSprite(color) {
   let s = pixelSprites.get(color);
   if (s) return s;
@@ -112,6 +115,7 @@ function pixelSprite(color) {
   return s;
 }
 
+// 새 구름들을 받아 그리기 시작함
 function addPuffs(list) {
   const now = performance.now();
   for (const p of list || []) {
@@ -122,6 +126,7 @@ function addPuffs(list) {
   if (puffs.length && !frameRequest) frameRequest = requestAnimationFrame(frame);
 }
 
+// 매 프레임 구름을 그림. 다 사라지면 멈춤
 function frame(now) {
   frameRequest = 0;
   if (dirty) ctx.clearRect(dirty[0], dirty[1], dirty[2] - dirty[0], dirty[3] - dirty[1]);
@@ -161,6 +166,7 @@ function frame(now) {
   if (puffs.length) frameRequest = requestAnimationFrame(frame);
 }
 
+// 캔버스를 창 크기에 맞춤
 function fitCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -172,13 +178,13 @@ window.addEventListener("contextmenu", (e) => e.preventDefault());
 fitCanvas();
 
 if (window.__TAURI__) {
-  // 이 창으로 온 구름만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받는다)
+  // 이 창으로 온 구름만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("trail-puffs", (e) => addPuffs(e.payload));
 } else if (new URLSearchParams(location.search).get("preview")) {
   devPreview();
 }
 
-// 앱 없이 브라우저에서 보기 (개발용): 무지개 동물이 화면을 가로질러 달린다
+// 앱 없이 브라우저에서 보기 (개발용): 무지개 동물이 화면을 가로질러 달림
 function devPreview() {
   const q = new URLSearchParams(location.search);
   const pixel = !!q.get("pixel");

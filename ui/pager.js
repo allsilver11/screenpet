@@ -1,5 +1,5 @@
 // 📮 건의함 두 창 (개발자 건의함 mailbox.js · 공개 건의함 board.js)이 같이 쓰는 쪽 넘기기와 날짜.
-// 한 쪽에 5개, "‹ 이전  n / m  다음 ›". 글자는 textContent로만 넣는다.
+// 한 쪽에 5개, "‹ 이전  n / m  다음 ›". 글자는 textContent로만 넣음.
 const PER_PAGE = 5;
 
 // 쪽 수 (비어 있어도 1쪽)
@@ -25,7 +25,7 @@ function ymd(at) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-// root 안에 이전·쪽·다음을 만든다. 누르면 onGo(가고 싶은 쪽)
+// root 안에 이전·쪽·다음을 만듦. 누르면 onGo(가고 싶은 쪽)
 function makePager(root, onGo) {
   const prev = document.createElement("button");
   prev.textContent = "‹ 이전";
@@ -39,7 +39,7 @@ function makePager(root, onGo) {
   prev.addEventListener("click", () => cur > 1 && onGo(cur - 1));
   next.addEventListener("click", () => cur < pages && onGo(cur + 1));
   return {
-    // shown: 목록이 비었으면 숨긴다. busy: 받아 오는 중엔 누르지 못한다
+    // shown: 목록이 비었으면 숨김. busy: 받아 오는 중엔 누르지 못함
     set(page, count, shown = true, busy = false) {
       cur = page;
       pages = count;

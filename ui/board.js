@@ -1,7 +1,7 @@
 // 📮 건의함 보기 (누구나, 읽기 전용): 개발자에게 온 건의의 공개 목록. 이름은 첫 글자만 (김**), 내용은 첫 줄만,
-// 날짜와 ✅ 반영됨 / 🙅 반려됨. 읽음·지우기·막기·반영 같은 버튼은 없다. 가린 이름과 첫 줄은 개발자 앱이 만들어
-// 릴레이에 올린 것 — 여기서는 textContent로만 넣는다 (HTML로 해석하지 않는다).
-// 쪽은 릴레이가 나눠 준다: board_list({page}) → `board-page` {ok, reason, items, page, pages, total}.
+// 날짜와 ✅ 반영됨 / 🙅 반려됨. 읽음·지우기·막기·반영 같은 버튼은 없음. 가린 이름과 첫 줄은 개발자 앱이 만들어
+// 릴레이에 올린 것 — 여기서는 textContent로만 넣음 (HTML로 해석하지 않음).
+// 쪽은 릴레이가 나눠 줌: board_list({page}) → `board-page` {ok, reason, items, page, pages, total}.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
@@ -23,12 +23,14 @@ function reasonText(reason) {
   }
 }
 
+// 편지 표시(반영·반려)를 배지 요소로 만듦. 표시가 없으면 null임
 function statusBadge(status) {
   if (status === "done") return el("span", "badge done", "✅ 반영됨");
   if (status === "rejected") return el("span", "badge rejected", "🙅 반려됨");
   return null;
 }
 
+// 클래스와 글자를 넣은 요소를 만듦
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -36,12 +38,14 @@ function el(tag, cls, text) {
   return e;
 }
 
+// 목록을 비우고 안내 한 줄만 보임
 function say(text) {
   listEl.replaceChildren();
   emptyEl.textContent = text;
   emptyEl.style.display = "block";
 }
 
+// p쪽을 백엔드에 청함 (대답은 `board-page`로 옴)
 function ask(p) {
   page = p;
   emptyEl.textContent = "불러오는 중…";
@@ -50,6 +54,7 @@ function ask(p) {
   invoke("board_list", { page: p });
 }
 
+// 받은 한 쪽을 그림. 못 받았으면 까닭을 보임
 function render(v) {
   if (!v.ok) {
     pager.set(1, 1, false);

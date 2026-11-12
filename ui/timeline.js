@@ -1,11 +1,12 @@
-// 🕐 최근 한 시간 창: 백엔드가 만든 내용(`timeline_state` 커맨드, 1초마다 `timeline-state` 이벤트 — screenpet_core::timeline::TimelineView)을 그린다.
-// 친구 이름·음식 이름이 들어 있으니 글자는 textContent로만 넣는다. 시각은 받은 때의 시계에서 "몇 초 전"을 빼서 만든다.
+// 🕐 최근 한 시간 창: 백엔드가 만든 내용(`timeline_state` 커맨드, 1초마다 `timeline-state` 이벤트 — screenpet_core::timeline::TimelineView)을 그림.
+// 친구 이름·음식 이름이 들어 있으니 글자는 textContent로만 넣음. 시각은 받은 때의 시계에서 "몇 초 전"을 빼서 만듦.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
-// 자리 색 (rows 순번 — 많이 있던 곳부터). 넘치면 돌려 쓴다. 순서대로 목록의 점이 막대 색을 알려 준다
+// 자리 색 (rows 순번 — 많이 있던 곳부터). 넘치면 돌려 씀. 순서대로 목록의 점이 막대 색을 알려 줌
 const PLACE_COLORS = ["#f0a860", "#7cb8e0", "#9ccf7a", "#e58fb0", "#b49ae0", "#e6c35c", "#6fc7b8", "#d99a7a"];
 
+// 클래스와 글자를 넣은 요소를 만듦
 function el(tag, className, text) {
   const e = document.createElement(tag);
   if (className) e.className = className;
@@ -13,6 +14,7 @@ function el(tag, className, text) {
   return e;
 }
 
+// 줄(장소) 번호의 색
 function colorOf(row) {
   return PLACE_COLORS[row % PLACE_COLORS.length];
 }
@@ -23,8 +25,9 @@ function duration(secs) {
   return secs < 60 ? null : `${Math.floor(secs / 60)}분`;
 }
 
-// 창 높이를 내용에 맞춘다 (바뀔 때만 — 백엔드가 화면 크기 안으로 자른다)
+// 창 높이를 내용에 맞춤 (바뀔 때만 — 백엔드가 화면 크기 안으로 자름)
 let fitted = 0;
+// 창 높이를 내용에 맞춰 달라고 백엔드에 알림 (바뀌었을 때만)
 function fit() {
   const h = Math.ceil(document.body.getBoundingClientRect().height);
   if (h && h !== fitted) {
@@ -33,6 +36,7 @@ function fit() {
   }
 }
 
+// ms 시각을 `HH:MM`으로 바꿈
 function clock(ms) {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -43,6 +47,7 @@ function leftOf(ago, W) {
   return (100 * (W - ago)) / W;
 }
 
+// 최근 한 시간 막대와 먹은 것을 그림
 function show(view, nowMs = Date.now()) {
   const W = view.window_secs || 3600;
   const rows = view.rows || [];
@@ -89,7 +94,7 @@ function show(view, nowMs = Date.now()) {
   }
   document.getElementById("food-box").hidden = !foods.length;
 
-  // 순서대로 (최근 것부터): 자리 칸과 먹은 때를 섞는다
+  // 순서대로 (최근 것부터): 자리 칸과 먹은 때를 섞음
   const log = document.getElementById("log");
   log.textContent = "";
   const items = [

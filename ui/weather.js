@@ -1,6 +1,6 @@
-// 계절 날씨 그리기. 앱(src-tauri/src/weather.rs)이 `weather-scene`으로 내려앉을 곳(tops)과 더미(piles)를 보낸다 (논리 px, 이 창 왼쪽 위가 0,0).
+// 계절 날씨 그리기. 앱(src-tauri/src/weather.rs)이 `weather-scene`으로 내려앉을 곳(tops)과 더미(piles)를 보냄 (논리 px, 이 창 왼쪽 위가 0,0).
 // CPU를 아끼는 규칙: 24 fps 이하, 알갱이 80개 이하, 미리 그린 그림을 정수 자리에 찍기, 알갱이 자리만 지우기, 더미는 바뀔 때만.
-// 멈춰 있으면(paused) 타이머도 돌지 않는다. 브라우저에서 weather.html?preview=snow (light_snow·rain·shower·petals·leaves)로 앱 없이 볼 수 있다.
+// 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·rain·shower·petals·leaves)로 앱 없이 볼 수 있음.
 
 const FPS = 24;
 const FRAME_MS = 1000 / FPS;
@@ -25,8 +25,8 @@ const LEAF_TONES = [
   ["#f2c230", "rgba(150,110,16,0.85)"],
 ];
 
-// 픽셀 스타일 (window.ART_STYLE, 앱의 art-style 이벤트): 칸(PX_DOT px)으로만 그린다 — 안티에일리어싱 없음, 자리도 칸에 맞춘다, 더미는 칸 계단.
-// 그림은 글자 표 (글자 → 색), 도는 낙엽·꽃잎은 90도 네 장을 번갈아 (frames 수는 같게 맞춘다)
+// 픽셀 스타일 (window.ART_STYLE, 앱의 art-style 이벤트): 칸(PX_DOT px)으로만 그림 — 안티에일리어싱 없음, 자리도 칸에 맞춤, 더미는 칸 계단.
+// 그림은 글자 표 (글자 → 색), 도는 낙엽·꽃잎은 90도 네 장을 번갈아 (frames 수는 같게 맞춤)
 const PX_DOT = 3;
 const PX_COLORS = {
   w: "#ffffff", c: "#b4cdeb", b: "#6491d2", B: "#4a70b0",
@@ -40,6 +40,7 @@ const PX_PETAL = ["pp.", "Ppp", ".pP"];
 const PX_LEAF = [".LL.", "LLLF", "FLLL", ".FF."];
 const PX_BOX = { light_snow: 9, snow: 9, rain: 12, shower: 12, petals: 9, leaves: 12 };
 
+// 픽셀 그림 줄들을 시계 방향으로 turns번 90도 돌림
 function pxRotate(rows, turns) {
   let out = rows;
   for (let t = 0; t < turns; t++) {
@@ -89,6 +90,7 @@ let n = 0;
 // 알갱이: 자리, 지난 자리, 속도, 흔들림 위상, 내려앉을 높이, 머문 시간(>0이면 내려앉음), 그림
 let px, py, oldX, oldY, vy, vx, phase, land, rest, look;
 
+// size×size 캔버스에 draw로 그린 스프라이트를 만듦
 function makeSprite(size, draw) {
   const c = document.createElement("canvas");
   c.width = c.height = size;
@@ -96,6 +98,7 @@ function makeSprite(size, draw) {
   return c;
 }
 
+// 반지름 radius의 눈송이 그리기 함수를 돌려줌
 function flake(radius) {
   return (g, s) => {
     g.beginPath();
@@ -109,6 +112,7 @@ function flake(radius) {
   };
 }
 
+// angle만큼 돌린 꽃잎 그리기 함수를 돌려줌
 function petal(angle) {
   return (g, s) => {
     g.translate(s / 2, s / 2);
@@ -127,7 +131,7 @@ function petal(angle) {
   };
 }
 
-// 도는 낙엽: 납작해졌다 펴지며 뒤집히는 것처럼 보인다 (a/8 바퀴)
+// 도는 낙엽: 납작해졌다 펴지며 뒤집히는 것처럼 보임 (a/8 바퀴)
 function leaf([fill, line], a) {
   const angle = (a * Math.PI) / 4;
   return (g, s) => {
@@ -151,12 +155,12 @@ function leaf([fill, line], a) {
   };
 }
 
-// 떨어질 때도 더미에서도 같은 그림 (한 번만 만든다). 낙엽은 색마다 frames장: [색0 각도0..7, 색1 각도0..7, ...]
+// 떨어질 때도 더미에서도 같은 그림 (한 번만 만듦). 낙엽은 색마다 frames장: [색0 각도0..7, 색1 각도0..7, ...]
 const tumblers = {
   petals: () => [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map((k) => makeSprite(KINDS.petals.box, petal(k * 0.8))),
   leaves: () => LEAF_TONES.flatMap((tone) => Array.from({ length: KINDS.leaves.frames }, (_, a) => makeSprite(KINDS.leaves.box, leaf(tone, a)))),
 };
-// 픽셀: 같은 장 수, 90도씩만 돈다
+// 픽셀: 같은 장 수, 90도씩만 돎
 const pxTumblers = {
   petals: () => Array.from({ length: KINDS.petals.frames }, (_, a) => pxSprite(pxRotate(PX_PETAL, a % 4), PX_BOX.petals)),
   leaves: () =>
@@ -165,12 +169,14 @@ const pxTumblers = {
     ),
 };
 const tumblerCache = {};
+// 굴러가는 알갱이(꽃잎·잎) k의 스프라이트들 (스타일별로 한 번만 만듦)
 function tumblerSprites(k) {
   const key = `${pixelArt}:${k}`;
   if (!tumblerCache[key]) tumblerCache[key] = (pixelArt ? pxTumblers : tumblers)[k]();
   return tumblerCache[key];
 }
 
+// 지금 종류·스타일의 떨어지는 알갱이 스프라이트를 만듦
 function buildSprites() {
   splash = null;
   if (pixelArt) {
@@ -219,10 +225,12 @@ function buildSprites() {
   }
 }
 
+// [a, b) 사이 난수
 function between([a, b]) {
   return a + Math.random() * (b - a);
 }
 
+// (x, y) 바닥의 더미 높이 (없으면 0)
 function pileHeightAt(x, y) {
   for (const p of piles) {
     if (p.y !== y) continue;
@@ -234,7 +242,7 @@ function pileHeightAt(x, y) {
 
 // x에서 y 아래 가장 먼저 만나는 디딤판 (더미 꼭대기). 없으면 화면 밑
 function landAt(rawX, y) {
-  // 화면 옆으로 살짝 나간 알갱이도 끝자리의 디딤판을 본다 (다시 들어올 때 뚫고 지나가지 않게)
+  // 화면 옆으로 살짝 나간 알갱이도 끝자리의 디딤판을 봄 (다시 들어올 때 뚫고 지나가지 않게)
   const x = Math.min(Math.max(rawX, 0), width);
   let best = Infinity;
   for (const t of tops) {
@@ -243,8 +251,9 @@ function landAt(rawX, y) {
   return best === Infinity ? height + spec.box : best - pileHeightAt(x, best);
 }
 
+// 알갱이 i를 위에서 다시 떨어뜨림 (first면 화면 곳곳에서 시작)
 function respawn(i, first) {
-  // 바람에 밀려 오는 만큼 옆 여유를 두고 위에서 떨어진다
+  // 바람에 밀려 오는 만큼 옆 여유를 두고 위에서 떨어짐
   px[i] = Math.random() * width;
   py[i] = first ? -Math.random() * height : -spec.box - Math.random() * height * 0.2;
   vy[i] = between(spec.fall);
@@ -255,6 +264,7 @@ function respawn(i, first) {
   land[i] = landAt(px[i], py[i]);
 }
 
+// 날씨 종류를 바꾸고 알갱이를 새로 만듦
 function startKind(next) {
   kind = next;
   spec = KINDS[kind] || KINDS.snow;
@@ -272,7 +282,7 @@ function startKind(next) {
   }
 }
 
-// 이 알갱이의 지금 그림: 내려앉은 빗방울은 튀는 그림, 꽃잎·낙엽은 제 색 그대로 각도만 돈다
+// 이 알갱이의 지금 그림: 내려앉은 빗방울은 튀는 그림, 꽃잎·낙엽은 제 색 그대로 각도만 돎
 function spriteFor(i) {
   if (splash && rest[i] > 0) return splash;
   const frames = spec.frames;
@@ -282,7 +292,7 @@ function spriteFor(i) {
 }
 
 // ---- 🧹 흩날리는 알갱이 (빗자루로 쓴 것, 친구가 쓸어 보낸 것) ----
-// 받은 속도로 날아가다 공기에 느려지며 천천히 떨어져 사라진다. 없으면 일도 없다
+// 받은 속도로 날아가다 공기에 느려지며 천천히 떨어져 사라짐. 없으면 일도 없음
 const MAX_FLURRY = 120;
 const FLURRY_DRAG = 1.8;
 const FLURRY_GRAVITY = 90;
@@ -291,10 +301,12 @@ const FLURRY_MAX_SPEED = 900;
 const FLURRY_LIFE = [1.8, 3.6];
 let flurry = [];
 
+// 날아 들어오는 알갱이 칸 크기
 function flurryBox(k) {
   return pixelArt ? PX_BOX[k] ?? PX_BOX.snow : (KINDS[k] || KINDS.snow).box;
 }
 
+// 날아 들어오는 알갱이 k의 스프라이트들
 function flurrySprites(k) {
   if (tumblers[k]) return tumblerSprites(k);
   const key = `${pixelArt}:flake`;
@@ -305,6 +317,7 @@ function flurrySprites(k) {
   return tumblerCache[key];
 }
 
+// 친구가 쓸어 보낸 알갱이 뭉치를 더함 (속도·수 상한 있음)
 function addFlurry(f) {
   if (!running || !KINDS[f.kind]) return;
   const speed = Math.hypot(f.vx, f.vy);
@@ -313,7 +326,7 @@ function addFlurry(f) {
   const look = flurrySprites(f.kind);
   const box = flurryBox(f.kind);
   const tumbling = !!tumblers[f.kind];
-  // 넘치면 가장 오래된 것부터 (지울 자리는 이번 프레임에 함께 지운다)
+  // 넘치면 가장 오래된 것부터 (지울 자리는 이번 프레임에 함께 지움)
   const over = flurry.length + count - MAX_FLURRY;
   if (over > 0) {
     for (const p of flurry.splice(0, over)) fallCtx.clearRect(p.oldX, p.oldY, p.box, p.box);
@@ -337,10 +350,12 @@ function addFlurry(f) {
   }
 }
 
+// 날아 들어오는 알갱이의 지난 자리를 지움
 function clearFlurry() {
   for (const p of flurry) fallCtx.clearRect(p.oldX, p.oldY, p.box, p.box);
 }
 
+// 날아 들어오는 알갱이를 dt만큼 움직이고 다 된 것은 뺌
 function stepFlurry(dt) {
   const drag = Math.max(0, 1 - FLURRY_DRAG * dt);
   let kept = 0;
@@ -352,7 +367,7 @@ function stepFlurry(dt) {
     p.y += p.vy * dt;
     if (p.age >= p.life || p.x < -p.box || p.x > width + p.box || p.y > height + p.box) continue;
     flurry[kept++] = p;
-    // 도는 그림은 같은 색 8장 안에서 돈다
+    // 도는 그림은 같은 색 8장 안에서 돎
     const sprite = p.tumbling ? p.look[p.first - (p.first % 8) + ((p.first % 8) + Math.floor(p.age * 9)) % 8] : p.look[p.first];
     const x = pixelArt ? Math.floor((p.x - p.box / 2) / PX_DOT) * PX_DOT : (p.x - p.box / 2) | 0;
     const y = pixelArt ? Math.floor((p.y - p.box / 2) / PX_DOT) * PX_DOT : (p.y - p.box / 2) | 0;
@@ -363,6 +378,7 @@ function stepFlurry(dt) {
   flurry.length = kept;
 }
 
+// 매 프레임 알갱이를 움직여 그림
 function frame(now) {
   if (!running) return;
   const dt = Math.min((now - lastT) / 1000, 0.1);
@@ -397,8 +413,8 @@ function frame(now) {
       continue;
     }
     const sprite = spriteFor(i);
-    // 그림 아래쪽이 내려앉는 높이에 닿는다
-    // 픽셀: 자리도 칸에 맞춘다
+    // 그림 아래쪽이 내려앉는 높이에 닿음
+    // 픽셀: 자리도 칸에 맞춤
     const x = pixelArt ? Math.floor((px[i] - half) / PX_DOT) * PX_DOT : (px[i] - half) | 0;
     const y = pixelArt ? Math.floor((py[i] - box + 2) / PX_DOT) * PX_DOT : (py[i] - box + 2) | 0;
     fallCtx.drawImage(sprite, x, y);
@@ -409,13 +425,14 @@ function frame(now) {
   schedule();
 }
 
-// rAF는 창이 가려지면 쉬고, 타이머가 24 fps 아래로 묶어 둔다 (rAF만 쓰면 화면 주사율마다 깨어난다)
+// rAF는 창이 가려지면 쉬고, 타이머가 24 fps 아래로 묶어 둠 (rAF만 쓰면 화면 주사율마다 깨어남)
 function schedule() {
   timer = setTimeout(() => {
     frameRequest = requestAnimationFrame(frame);
   }, FRAME_MS);
 }
 
+// 그리기를 시작함
 function start() {
   if (running || !spec) return;
   running = true;
@@ -423,10 +440,11 @@ function start() {
   schedule();
 }
 
+// 그리기를 멈추고 캔버스를 비움
 function stop() {
   running = false;
   clearTimeout(timer);
-  // 타이머가 이미 지나 rAF를 기다리는 중일 수 있다 (가려진 창은 오래 기다린다) — 안 끊으면 다시 켤 때 고리가 둘이 된다
+  // 타이머가 이미 지나 rAF를 기다리는 중일 수 있음 (가려진 창은 오래 기다림) — 안 끊으면 다시 켤 때 고리가 둘이 됨
   cancelAnimationFrame(frameRequest);
   fallCtx.clearRect(0, 0, width, height);
   pilesCtx.clearRect(0, 0, width, height);
@@ -434,11 +452,13 @@ function stop() {
   flurry = [];
 }
 
+// (a, b)로 정해지는 0~1 의사 난수
 function hash(a, b) {
   const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
   return v - Math.floor(v);
 }
 
+// 눈 더미 하나를 매끈한 언덕으로 그림
 function drawSnowPile(p) {
   const y = p.y;
   const g = pilesCtx;
@@ -462,7 +482,7 @@ function drawSnowPile(p) {
   g.stroke();
 }
 
-// 픽셀 눈 더미: 칸 너비 기둥을 칸 높이로 끊어 쌓는다 (곡선 없음). 맨 위 칸은 옅은 파랑 — 흰 창 위에서도 보이게
+// 픽셀 눈 더미: 칸 너비 기둥을 칸 높이로 끊어 쌓음 (곡선 없음). 맨 위 칸은 옅은 파랑 — 흰 창 위에서도 보이게
 function drawSnowPilePixel(p) {
   const g = pilesCtx;
   const n = p.h.length;
@@ -484,6 +504,7 @@ function drawSnowPilePixel(p) {
   }
 }
 
+// 꽃잎·잎 더미 하나를 스프라이트로 그림
 function drawSpritePile(p) {
   const g = pilesCtx;
   const look = tumblerSprites(pileKind);
@@ -516,6 +537,7 @@ function drawPiles() {
   }
 }
 
+// 받은 장면(멈춤, 종류, 더미)을 적용함
 function applyScene(s) {
   if (s.paused) {
     stop();
@@ -538,19 +560,20 @@ function applyScene(s) {
   start();
 }
 
+// 캔버스를 창 크기에 맞춤
 function fitCanvas() {
   width = window.innerWidth;
   height = window.innerHeight;
   pilesCanvas.width = fallCanvas.width = width;
   pilesCanvas.height = fallCanvas.height = height;
-  // 동글은 예전 그대로 (캔버스 스타일을 건드리지 않는다)
+  // 동글은 예전 그대로 (캔버스 스타일을 건드리지 않음)
   if (pixelArt || pilesCanvas.style?.imageRendering) pilesCanvas.style.imageRendering = fallCanvas.style.imageRendering = pixelArt ? "pixelated" : "";
   if (kind) {
     const k = kind;
     kind = null;
     startKind(k);
   }
-  // 크기를 바꾸면 캔버스가 지워진다 — 장면이 다시 오길 기다리지 않는다 (멈춘 동안은 빈 채로, 그때 lastPiles도 비어 있다)
+  // 크기를 바꾸면 캔버스가 지워짐 — 장면이 다시 오길 기다리지 않음 (멈춘 동안은 빈 채로, 그때 lastPiles도 비어 있음)
   if (running) drawPiles();
 }
 
@@ -566,7 +589,7 @@ window.addEventListener("contextmenu", (e) => e.preventDefault());
 fitCanvas();
 
 if (window.__TAURI__) {
-  // 이 창으로 온 장면만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받는다)
+  // 이 창으로 온 장면만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("art-style", (e) => setPixelArt(e.payload === "pixel"));
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("weather-flurry", (e) => addFlurry(e.payload));
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("weather-scene", (e) => applyScene(e.payload));

@@ -1,8 +1,8 @@
-// 📱 내 다른 컴퓨터 연결 창: 이 컴의 연결 코드를 크게 보이고, 저쪽 컴퓨터가 보여 주는 코드를 받는다.
-// 백엔드가 `link-state`({name, code, phase, note})로 상태를 알리고, 코드는 `link_submit`으로 보낸다 (꼴 확인도 백엔드가 한다).
+// 📱 내 다른 컴퓨터 연결 창: 이 컴의 연결 코드를 크게 보이고, 저쪽 컴퓨터가 보여 주는 코드를 받음.
+// 백엔드가 `link-state`({name, code, phase, note})로 상태를 알리고, 코드는 `link_submit`으로 보냄 (꼴 확인도 백엔드가 함).
 // phase: "ready" | "waiting" | "done" | "failed" | "blocked" (이미 다른 컴퓨터와 연결됨)
-//        | "confirm" (코드가 맞았다: "본인의 PC가 맞습니까?" 확인/취소) | "confirmed" (확인함, 저쪽을 기다림) | "cancelled"
-// 확인/취소는 `link_confirm`({yes}), 창 닫기(Esc·X)는 `link_close` — 확인 단계면 백엔드가 취소한다
+//        | "confirm" (코드가 맞았음: "본인의 PC가 맞습니까?" 확인/취소) | "confirmed" (확인함, 저쪽을 기다림) | "cancelled"
+// 확인/취소는 `link_confirm`({yes}), 창 닫기(Esc·X)는 `link_close` — 확인 단계면 백엔드가 취소함
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
@@ -19,10 +19,12 @@ const cancelBtn = document.getElementById("cancel");
 
 let view = { name: "", code: "", phase: "ready", note: "" };
 
+// 저쪽 컴퓨터가 "본인의 PC가 맞습니까?"를 묻는 중인지 봄
 function asking() {
   return view.phase === "confirm" || view.phase === "confirmed";
 }
 
+// 백엔드가 보낸 연결 상태를 창에 보임
 function show(v) {
   view = v || view;
   const phase = view.phase;
@@ -48,6 +50,7 @@ function show(v) {
   if (typing && phase !== "waiting") inputEl.focus();
 }
 
+// 입력한 코드를 백엔드에 넘김 (기다리는 중·확인 중이면 무시)
 function submit() {
   if (view.phase === "waiting" || inputEl.hidden || asking()) return;
   const code = inputEl.value.trim();
@@ -60,7 +63,7 @@ function submit() {
 
 okBtn.addEventListener("click", () => {
   if (view.phase === "confirm") {
-    // 한 번만: 백엔드가 "confirmed"로 바꿀 때까지도 다시 누르지 않는다
+    // 한 번만: 백엔드가 "confirmed"로 바꿀 때까지도 다시 누르지 않음
     okBtn.disabled = true;
     invoke("link_confirm", { yes: true });
   } else if (!asking()) submit();
@@ -70,7 +73,7 @@ cancelBtn.addEventListener("click", () => (asking() ? invoke("link_confirm", { y
 setupFormKeys({ submit, close: () => invoke("link_close") });
 
 (async () => {
-  // 듣기 시작한 뒤에 지금 상태를 묻는다
+  // 듣기 시작한 뒤에 지금 상태를 물음
   await here.listen("link-state", (e) => show(e.payload));
   show(await invoke("link_state"));
 })();

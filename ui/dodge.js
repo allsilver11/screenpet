@@ -1,5 +1,5 @@
 // 💩 똥피하기 창: 백엔드(src-tauri/src/dodge.rs)가 보낸 판(`dodge_state` 커맨드, 매 틱 `dodge-state` 이벤트)을 그리고,
-// 이 창이 받은 키를 `dodge_keys`로 보낸다 (게임 동안 키는 이 창에만 — 다른 앱에 가지 않는다). 친구 이름은 textContent로만.
+// 이 창이 받은 키를 `dodge_keys`로 보냄 (게임 동안 키는 이 창에만 — 다른 앱에 가지 않음). 친구 이름은 textContent로만.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
@@ -12,11 +12,13 @@ const KEY_BITS = { ArrowLeft: 1, ArrowRight: 2, ArrowUp: 4, ArrowDown: 8, " ": 1
 
 if (PIXEL) document.body.classList.add("pixel");
 
+// id로 요소를 찾음
 const $ = (id) => document.getElementById(id);
 const shown = new Map(); // 똥 id → img
 let phase = "";
 let held = 0;
 
+// 클래스와 글자를 넣은 요소를 만듦
 function el(tag, className, text) {
   const e = document.createElement(tag);
   if (className) e.className = className;
@@ -24,6 +26,7 @@ function el(tag, className, text) {
   return e;
 }
 
+// 똥 그림들을 받은 자리로 옮기고, 사라진 똥은 지움
 function drawPoops(poops) {
   const keep = new Set();
   for (const [id, x, y, r] of poops) {
@@ -49,6 +52,7 @@ function drawPoops(poops) {
   }
 }
 
+// 기록 순위표를 그림
 function drawRanks(ranking) {
   const list = $("ranks");
   list.textContent = "";
@@ -59,10 +63,11 @@ function drawRanks(ranking) {
   });
 }
 
+// 판 상태(준비·놀이·끝)를 창에 그림
 function show(view) {
   phase = view.phase || "ready";
   const playing = phase === "play";
-  // 끝난 판은 마지막 자리 그대로 둔다 (어디서 맞았는지 보이게), 새 판이면 비운다
+  // 끝난 판은 마지막 자리 그대로 둠 (어디서 맞았는지 보이게), 새 판이면 비움
   drawPoops(view.poops || []);
   $("hud").hidden = !playing;
   $("hud").textContent = `💩 ${view.dodged || 0}`;
@@ -77,16 +82,19 @@ function show(view) {
   drawRanks(view.ranking || []);
 }
 
+// 누른 키 비트가 바뀌었으면 백엔드에 보냄
 function sendKeys(bits) {
   if (bits === held) return;
   held = bits;
   invoke("dodge_keys", { bits }).catch(() => {});
 }
 
+// 판을 시작함 (놀고 있지 않을 때만)
 function start() {
   if (phase !== "play") invoke("dodge_start").catch(() => {});
 }
 
+// 창을 닫음
 function close() {
   invoke("dodge_close").catch(() => {});
 }

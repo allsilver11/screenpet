@@ -1,6 +1,6 @@
 // 이름 바꾸기 창: 친구들에게 보일 내 이름 / 친구에게 붙인 별명.
-// 백엔드가 `name-state`({target, current, fallback, max})로 무엇을 고치는지 알려 주고, 저장은 `name_submit`으로 한다.
-// 비워서 저장하면 기본 이름("친구" / 친구가 정한 이름)으로 돌아간다. 다듬기·길이 제한은 백엔드가 다시 한다.
+// 백엔드가 `name-state`({target, current, fallback, max})로 무엇을 고치는지 알려 주고, 저장은 `name_submit`으로 함.
+// 비워서 저장하면 기본 이름("친구" / 친구가 정한 이름)으로 돌아감. 다듬기·길이 제한은 백엔드가 다시 함.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
@@ -12,6 +12,7 @@ const cancelBtn = document.getElementById("cancel");
 
 let view = { target: "me", current: "", fallback: "", max: 20 };
 
+// 무엇을 고치는지와 지금 이름을 창에 보임
 function show(v) {
   view = v;
   const max = v.max || 20;
@@ -24,6 +25,7 @@ function show(v) {
   inputEl.select();
 }
 
+// 새 이름을 백엔드에 넘김
 function submit() {
   invoke("name_submit", { name: inputEl.value });
 }
@@ -34,7 +36,7 @@ cancelBtn.addEventListener("click", () => invoke("name_close"));
 setupFormKeys({ submit, close: () => invoke("name_close") });
 
 (async () => {
-  // 듣기 시작한 뒤에 지금 상태를 묻는다
+  // 듣기 시작한 뒤에 지금 상태를 물음
   await here.listen("name-state", (e) => show(e.payload));
   show(await invoke("name_state"));
 })();

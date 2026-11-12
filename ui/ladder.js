@@ -1,14 +1,14 @@
 // 사다리타기 창 (spec docs/superpowers/specs/2026-11-04-screenpet-ladder-design.md).
-// 백엔드(게임 루프의 src-tauri/src/ladder.rs)가 화면 상태를 `ladder-state`로 보내고, 버튼은 ladder_* 커맨드로 답한다.
-// 결과(순열·가로줄·길)는 백엔드가 시드에서 이미 만들어 보낸다 — 여기서는 그리고 움직이기만 한다.
-// 맨 위 LADDER는 DOM 없는 계산만 모은 것 (tools/ladder_harness.js가 node로 불러 시험한다).
-// 일반 스크립트라 common.js의 최상위 이름(copyText, frameIndex …)과 겹치지 않게 LADDER와 즉시 실행 함수 안에만 둔다.
+// 백엔드(게임 루프의 src-tauri/src/ladder.rs)가 화면 상태를 `ladder-state`로 보내고, 버튼은 ladder_* 커맨드로 답함.
+// 결과(순열·가로줄·길)는 백엔드가 시드에서 이미 만들어 보냄 — 여기서는 그리고 움직이기만 함.
+// 맨 위 LADDER는 DOM 없는 계산만 모은 것 (tools/ladder_harness.js가 node로 불러 시험함).
+// 일반 스크립트라 common.js의 최상위 이름(copyText, frameIndex …)과 겹치지 않게 LADDER와 즉시 실행 함수 안에만 둠.
 
 const LADDER = (() => {
   const MAX_PLAYERS = 10;
   const RESULT_MAX_CHARS = 12;
   const NAME_CHARS = 6;
-  // 이름표: 11px 글꼴에서 한글 한 자 ≈ 11px, 좌우 여백·테두리 ≈ 12px. 홀짝 칸이 두 줄로 엇갈려 한 이름표가 두 칸 폭까지 쓴다
+  // 이름표: 11px 글꼴에서 한글 한 자 ≈ 11px, 좌우 여백·테두리 ≈ 12px. 홀짝 칸이 두 줄로 엇갈려 한 이름표가 두 칸 폭까지 씀
   const TAG_CHAR_PX = 11;
   const TAG_PAD_PX = 12;
   const TAG_ROW_PX = 18;
@@ -18,26 +18,26 @@ const LADDER = (() => {
   // 참가자별 길 색 (10명)
   const PALETTE = ["#e8735a", "#4f9de0", "#5fb86a", "#c77dd8", "#e0a02f", "#3fb7b0", "#e06a9c", "#8a8fe8", "#9aa63a", "#b5835a"];
 
-  // 글자 수(코드 포인트)로 자른다
+  // 글자 수(코드 포인트)로 자름
   function ellipsize(s, max) {
     const chars = Array.from(s ?? "");
     return chars.length <= max ? chars.join("") : chars.slice(0, max).join("") + "…";
   }
 
-  // 결과 칸 글자: 앞뒤 공백 없이, 제어 문자 없이, 12자까지 (코어 ladder::clean_result와 같다) — 안 맞으면 null
+  // 결과 칸 글자: 앞뒤 공백 없이, 제어 문자 없이, 12자까지 (코어 ladder::clean_result와 같음) — 안 맞으면 null
   function cleanText(raw) {
     const s = (raw ?? "").trim();
     if (!s || /[\u0000-\u001f\u007f-\u009f]/.test(s) || Array.from(s).length > RESULT_MAX_CHARS) return null;
     return s;
   }
 
-  // 미리 채우기: 당첨 k개 + 꽝 나머지 (당첨 수는 인원을 넘지 않는다)
+  // 미리 채우기: 당첨 k개 + 꽝 나머지 (당첨 수는 인원을 넘지 않음)
   function presetSlots(count, winners) {
     const w = Math.max(0, Math.min(count, Math.floor(winners) || 0));
     return Array.from({ length: count }, (_, i) => (i < w ? { text: "당첨", mood: "good" } : { text: "꽝", mood: "bad" }));
   }
 
-  // 직접 적은 칸을 인원에 맞춘다: 모자라면 빈 칸을 덧붙이고, 남으면 **지우지 않는다** (방장이 고른다 — spec §1-3)
+  // 직접 적은 칸을 인원에 맞춤: 모자라면 빈 칸을 덧붙이고, 남으면 **지우지 않는다** (방장이 고름 — spec §1-3)
   function growSlots(slots, count) {
     const out = slots.map((s) => ({ ...s }));
     while (out.length < count) out.push({ text: "", mood: "none" });
@@ -53,7 +53,7 @@ const LADDER = (() => {
   }
 
   // 초대 중 직접 적은 칸. 칸 수가 "지금 시작 인원(참가 + 방장)"과 "기다리는 사람까지 다 온 인원" 사이면 아직 문제가 아니지만,
-  // 지금 시작하려면 칸을 맞출 수 있어야 하므로 참가자가 있으면 ✕를 보인다
+  // 지금 시작하려면 칸을 맞출 수 있어야 하므로 참가자가 있으면 ✕를 보임
   function invitingSlots(slots, joined, waiting) {
     const start = joined + 1;
     const most = start + waiting;
@@ -65,6 +65,7 @@ const LADDER = (() => {
     return { deletable: slots.length > most || (joined > 0 && slots.length > start), canStart: joined > 0 && !slotProblem(slots, start), warning };
   }
 
+  // 결과 칸 문제(p)를 안내 글로 바꿈 (문제 없으면 "")
   function slotWarning(p) {
     if (!p) return "";
     if (p.extra) return `칸이 ${p.extra}개 많아요 — 지울 칸을 골라 주세요 (✕)`;
@@ -72,15 +73,17 @@ const LADDER = (() => {
     return "빈 칸이 있어요 (12자까지)";
   }
 
-  // 친구가 보낸 기분 글자는 표의 열쇠로 그대로 쓰지 않는다 ("constructor" 같은 이름이 객체 안의 다른 것을 꺼내지 않게). 모르는 값은 없음
+  // 친구가 보낸 기분 글자는 표의 열쇠로 그대로 쓰지 않음 ("constructor" 같은 이름이 객체 안의 다른 것을 꺼내지 않게). 모르는 값은 없음
   function own(table, key) {
     return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
   }
 
+  // 분위기의 이모지 (모르면 없음 이모지)
   function moodEmoji(m) {
     return own(MOOD_EMOJI, m) ?? MOOD_EMOJI.none;
   }
 
+  // 눌렀을 때 넘어갈 다음 분위기
   function nextMood(m) {
     return MOODS[(MOODS.indexOf(m) + 1) % MOODS.length];
   }
@@ -101,11 +104,12 @@ const LADDER = (() => {
     timeout: ["답 없음", "out"],
     left: ["나감", "out"],
   };
+  // 초대 답의 [글, 클래스] (모르면 빈 값)
   function answerLabel(a) {
     return own(ANSWERS, a) ?? ["", ""];
   }
 
-  // 취소 안내 (누가 일부러 그랬다고 탓하지 않는다 — spec §3.4)
+  // 취소 안내 (누가 일부러 그랬다고 탓하지 않음 — spec §3.4)
   function cancelText(c) {
     const who = c?.who;
     switch (c?.reason) {
@@ -122,12 +126,12 @@ const LADDER = (() => {
     }
   }
 
-  // 칸 너비에 들어가는 이름표 글자 수 (2~6자, 줄이면 붙는 "…" 한 자 몫을 뺀다)
+  // 칸 너비에 들어가는 이름표 글자 수 (2~6자, 줄이면 붙는 "…" 한 자 몫을 뺌)
   function nameChars(col) {
     return Math.max(2, Math.min(NAME_CHARS, Math.floor((2 * col - 2 - TAG_PAD_PX) / TAG_CHAR_PX) - 1));
   }
 
-  // 이름표 글자: 같은 이름을 가르는 번호(" ②")는 줄여도 남긴다 — 번호까지 지우면 누가 누군지 모른다 (전체가 max + 1자 안에 든다)
+  // 이름표 글자: 같은 이름을 가르는 번호(" ②")는 줄여도 남김 — 번호까지 지우면 누가 누군지 모름 (전체가 max + 1자 안에 듦)
   function tagText(name, max) {
     const chars = Array.from(name ?? "");
     if (chars.length <= max) return chars.join("");
@@ -167,7 +171,7 @@ const LADDER = (() => {
   // 위 칸 i의 길: 꼭짓점 목록 { x, y } (세로 → 가로 → 세로 …, 마지막은 사다리 아래)
   function route(game, lay, i) {
     const path = game.paths[i];
-    // 펫이 앉아 있던 자리에서 출발한다 (사다리 꼭대기로 미끄러져 내려간다)
+    // 펫이 앉아 있던 자리에서 출발함 (사다리 꼭대기로 미끄러져 내려감)
     const pts = [{ x: lay.xs[path[0]], y: lay.petTop + lay.pet / 2 }, { x: lay.xs[path[0]], y: lay.top }];
     lay.rowYs.forEach((y, r) => {
       pts.push({ x: lay.xs[path[r]], y });
@@ -177,6 +181,7 @@ const LADDER = (() => {
     return pts;
   }
 
+  // 꺾은선 전체 길이
   function length(pts) {
     let d = 0;
     for (let i = 1; i < pts.length; i++) d += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
@@ -214,7 +219,7 @@ const LADDER = (() => {
     });
   }
 
-  // 결과 복사 글자 (채팅방에 붙여 넣으면 지문도 같이 비교된다)
+  // 결과 복사 글자 (채팅방에 붙여 넣으면 지문도 같이 비교됨)
   function copyLines(host, print, rows) {
     const head = `🎲 ${host}의 사다리타기 · 지문 ${print}`;
     return [head, ...rows.map((r) => `${r.name} → ${r.result}${r.mood === "good" ? " 😀" : r.mood === "bad" ? " 😢" : ""}`)].join("\n");
@@ -222,12 +227,12 @@ const LADDER = (() => {
 
   const PRESS_KEYS = ["Enter", " ", "Spacebar"];
 
-  // 초대·확인 화면은 키로 답하지 않는다 (포커스를 안 가져가는 창이지만, 혹시 키가 와도)
+  // 초대·확인 화면은 키로 답하지 않음 (포커스를 안 가져가는 창이지만, 혹시 키가 와도)
   function ignoreKey(view, key) {
     return (view === "invite" || view === "confirm") && PRESS_KEYS.includes(key);
   }
 
-  // 웹뷰 기본 동작(새로 고침 등)을 막을 키인가: 글자 칸과 Tab, 단추를 누르는 Enter·Space는 둔다
+  // 웹뷰 기본 동작(새로 고침 등)을 막을 키인가: 글자 칸과 Tab, 단추를 누르는 Enter·Space는 둠
   function blockDefault(tagName, key) {
     if (tagName === "INPUT" || key === "Tab") return false;
     return !(tagName === "BUTTON" && PRESS_KEYS.includes(key));
@@ -246,16 +251,18 @@ if (typeof window !== "undefined" && window.__TAURI__) {
   (() => {
     const { invoke } = window.__TAURI__.core;
     const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
+    // id로 요소를 찾음
     const $ = (id) => document.getElementById(id);
     const views = { setup: $("v-setup"), invite: $("v-invite"), small: $("v-small"), game: $("v-game") };
     const SPEED = 150; // 펫이 사다리를 따라가는 속도 (px/s)
     const START_AFTER_MS = 1500; // 방장 신호가 안 와도 이만큼 뒤 시작
 
     let state = null; // 백엔드가 보낸 화면
-    // 방장 편집 상태 (설정 → 초대 중까지 이어진다)
-    // begunFor = 시작을 요청한 참가 인원 (인원이 바뀌면 다시 시작해 본다 — 백엔드가 칸 수가 안 맞아 거절했을 수 있다)
+    // 방장 편집 상태 (설정 → 초대 중까지 이어짐)
+    // begunFor = 시작을 요청한 참가 인원 (인원이 바뀌면 다시 시작해 봄 — 백엔드가 칸 수가 안 맞아 거절했을 수 있음)
     const host = { selected: new Set(), mode: "preset", winners: 1, slots: [], begunFor: null };
 
+    // 속성과 자식을 넣은 요소를 만듦
     function el(tag, props = {}, ...kids) {
       const e = document.createElement(tag);
       Object.assign(e, props);
@@ -263,10 +270,12 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       return e;
     }
 
+    // 이름의 화면만 보이고 나머지는 숨김
     function showOnly(name) {
       for (const [k, v] of Object.entries(views)) v.hidden = k !== name;
     }
 
+    // SVG 요소에 속성들을 넣음
     function setAttrs(node, attrs) {
       for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
     }
@@ -285,22 +294,24 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       return maybe + 1;
     }
 
-    // 초대 중 직접 적은 칸의 상태 (기다리는 사람은 시작하면 빠진다)
+    // 초대 중 직접 적은 칸의 상태 (기다리는 사람은 시작하면 빠짐)
     function invitingCustom() {
       if (state?.view !== "inviting" || host.mode !== "custom") return null;
       return LADDER.invitingSlots(host.slots, state.joined, slotCount() - state.joined - 1);
     }
 
+    // 결과 칸 수를 인원(count)에 맞춤 (정해 둔 모양이면 다시 만듦)
     function syncSlots(count) {
       if (host.mode === "preset") host.slots = LADDER.presetSlots(count, host.winners);
-      // 초대 중에는 지금 시작 인원까지만 채운다 — 기다리는 사람 몫까지 채우면 ✕로 지운 칸이 도로 생긴다
+      // 초대 중에는 지금 시작 인원까지만 채움 — 기다리는 사람 몫까지 채우면 ✕로 지운 칸이 도로 생김
       else host.slots = LADDER.growSlots(host.slots, state?.view === "inviting" ? state.joined + 1 : count);
     }
 
+    // 결과 칸 입력 목록을 그림 (입력 중이면 그대로 둠)
     function renderSlots(listEl, count) {
       syncSlots(count);
-      // 직접 적는 중에 친구 답이 와도 글자 칸을 다시 만들지 않는다 (쓰던 글자·커서가 날아가지 않게).
-      // 단 ✕가 보이거나 사라져야 하면 다시 그린다
+      // 직접 적는 중에 친구 답이 와도 글자 칸을 다시 만들지 않음 (쓰던 글자·커서가 날아가지 않게).
+      // 단 ✕가 보이거나 사라져야 하면 다시 그림
       const extra = invitingCustom()?.deletable ?? host.slots.length > count;
       const typing = listEl.contains(document.activeElement) && listEl.children.length === host.slots.length;
       if (typing && listEl.dataset.extra === String(extra)) return;
@@ -330,6 +341,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       });
     }
 
+    // 칸 문제 안내와 초대·시작 버튼 상태를 맞춤
     function updateWarn() {
       if (!state || (state.view !== "setup" && state.view !== "inviting")) return;
       const btn = $("invite");
@@ -339,7 +351,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
         warn.textContent = custom.warning;
         btn.disabled = !custom.canStart;
       } else if (state.view === "inviting") {
-        // 미리 채운 칸은 시작할 때 인원에 맞춰 다시 만든다
+        // 미리 채운 칸은 시작할 때 인원에 맞춰 다시 만듦
         warn.textContent = "";
         btn.disabled = state.joined === 0;
       } else {
@@ -349,10 +361,11 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       }
     }
 
+    // 설정·초대 중 화면을 그림
     function renderSetup() {
       showOnly("setup");
       const inviting = state.view === "inviting";
-      // 골라 둔 친구가 끊겼거나 초대할 수 없게 됐으면 고른 목록에서도 뺀다 (안 보이는 친구가 칸 수·인원 제한을 차지하지 않게)
+      // 골라 둔 친구가 끊겼거나 초대할 수 없게 됐으면 고른 목록에서도 뺌 (안 보이는 친구가 칸 수·인원 제한을 차지하지 않게)
       if (!inviting) {
         const can = new Set(state.friends.filter((f) => f.can_invite).map((f) => f.id));
         for (const id of [...host.selected]) if (!can.has(id)) host.selected.delete(id);
@@ -382,7 +395,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
           });
           li.append(box, name);
         } else {
-          // 예전 판 친구: 사다리 메시지를 받으면 연결이 끊기므로 초대할 수 없다
+          // 예전 판 친구: 사다리 메시지를 받으면 연결이 끊기므로 초대할 수 없음
           li.className = "dim";
           li.title = "친구가 ScreenPet을 새 버전으로 업데이트하면 같이 할 수 있어요";
           li.append(el("input", { type: "checkbox", disabled: true }), name, el("span", { className: "tag", textContent: "업데이트 필요" }));
@@ -403,7 +416,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
         invalid: "초대할 수 없어요 — 내 이름을 확인해 주세요",
       }[state.notice];
       if (notice && !inviting) $("setup-warn").textContent = notice;
-      // 모두 답했고 칸이 맞으면 저절로 시작 (칸이 안 맞으면 방장이 고칠 때까지 기다린다)
+      // 모두 답했고 칸이 맞으면 저절로 시작 (칸이 안 맞으면 방장이 고칠 때까지 기다림)
       if (inviting && state.all_answered && state.joined > 0 && host.begunFor !== state.joined) {
         const count = state.joined + 1;
         if (host.mode === "preset") host.slots = LADDER.presetSlots(count, host.winners);
@@ -411,6 +424,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       }
     }
 
+    // 지금 참가한 인원으로 결과 칸을 확정해 게임을 시작함
     function begin() {
       const count = state.joined + 1;
       const slots = host.mode === "preset" ? LADDER.presetSlots(count, host.winners) : host.slots;
@@ -422,12 +436,12 @@ if (typeof window !== "undefined" && window.__TAURI__) {
     for (const r of document.querySelectorAll('input[name="mode"]')) {
       r.addEventListener("change", () => {
         if (!r.checked) return;
-        // 직접 적기로 바꾸면 미리 채운 칸에서 시작한다
+        // 직접 적기로 바꾸면 미리 채운 칸에서 시작함
         host.mode = r.value;
         render();
       });
     }
-    // 숫자를 지우고 새로 칠 수 있게: 칠 때마다 다시 그리지 않고, 다 치면(change) 반영한다
+    // 숫자를 지우고 새로 칠 수 있게: 칠 때마다 다시 그리지 않고, 다 치면(change) 반영함
     $("winners").addEventListener("change", () => {
       host.winners = Math.max(1, Math.min(9, parseInt($("winners").value, 10) || 1));
       render();
@@ -476,6 +490,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
     let game = null; // { view, lay, runners, order, started, finished }
     const sheets = new Map(); // "pet|style" → loadPetSheet 결과
 
+    // 펫·스타일의 시트를 읽음 (한 번만, 같은 것은 나눠 씀)
     async function sheetFor(pet, style) {
       const key = `${pet}|${style}`;
       if (!sheets.has(key)) {
@@ -488,11 +503,13 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       return sheets.get(key);
     }
 
+    // 시트의 애니메이션 (없으면 idle)
     function animFor(sheet, name) {
       const a = sheet.manifest.animations;
       return a[name] ?? a.idle;
     }
 
+    // 달리는 펫의 지금 프레임을 그림
     function paintRunner(r, now) {
       const { sheet, side } = r;
       if (!sheet) return;
@@ -505,6 +522,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       r.tag.style.top = `${r.p.y - side / 2 - LADDER.TAG_ROW_PX - (r.phase === "wait" ? LADDER.tagLift(r.i) : 0)}px`;
     }
 
+    // 달리는 펫의 애니메이션을 바꿈 (바뀌면 처음부터)
     function setAnim(r, name, now) {
       if (r.anim !== name) {
         r.anim = name;
@@ -512,11 +530,13 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       }
     }
 
+    // 판 그림(펫·이름표·칸·선)을 지움
     function clearBoard() {
       $("board").querySelectorAll(".runner, .nametag, .slot").forEach((e) => e.remove());
       $("lines").replaceChildren();
     }
 
+    // 게임 화면을 새로 그림 (같은 판을 다시 받으면 그대로 둠)
     async function renderGame() {
       const g = state.game;
       if (game?.view.game_id === g.game_id) return; // 같은 판을 다시 받으면 그대로 둔다
@@ -575,6 +595,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       requestAnimationFrame(tick);
     }
 
+    // 지나온 자국 선을 그림
     function drawTrail(r, pts) {
       r.trail.setAttribute("points", pts.map((q) => `${q.x},${q.y}`).join(" "));
     }
@@ -584,8 +605,8 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       return { x: game.lay.xs[LADDER.endColumn(game.view, r.i)], y: game.lay.slotTop - r.side / 2 - 2 };
     }
 
-    // 판 배치를 지금 창 크기에 맞춘다. 게임 화면이 뜰 때 창은 아직 이전 화면(초대·대기) 크기일 수 있다 —
-    // 백엔드가 창을 키우면 resize가 오고, 내려가던 펫은 진행한 비율 그대로 새 판에서 이어 간다
+    // 판 배치를 지금 창 크기에 맞춤. 게임 화면이 뜰 때 창은 아직 이전 화면(초대·대기) 크기일 수 있음 —
+    // 백엔드가 창을 키우면 resize가 오고, 내려가던 펫은 진행한 비율 그대로 새 판에서 이어 감
     function placeBoard() {
       const g = game.view;
       const W = window.innerWidth;
@@ -629,9 +650,10 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       if (game && !views.game.hidden) placeBoard();
     });
 
-    // 방장 신호가 게임 화면보다 먼저 오면 기억했다가 화면이 뜨면 바로 시작한다
+    // 방장 신호가 게임 화면보다 먼저 오면 기억했다가 화면이 뜨면 바로 시작함
     let startPending = false;
 
+    // 내려가기를 시작함 (판이 아직 없으면 미뤄 둠)
     function startRun() {
       if (!game) {
         startPending = true;
@@ -642,6 +664,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       launchNext();
     }
 
+    // 기다리는 다음 펫을 출발시킴
     function launchNext() {
       const r = game.runners.find((x) => x.phase === "wait");
       if (!r) return;
@@ -663,6 +686,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       $("all").hidden = true;
     });
 
+    // 매 프레임 달리는 펫을 사다리 위로 옮기고 다 왔으면 도착 처리함
     function tick(now) {
       if (!game || views.game.hidden) return;
       for (const r of game.runners) {
@@ -681,6 +705,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       requestAnimationFrame(tick);
     }
 
+    // 펫이 결과 칸에 닿음: 칸 옆에 세우고 결과에 맞는 몸짓을 함
     function arrive(r, now) {
       r.phase = "done";
       const g = game.view;
@@ -693,7 +718,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       game.finished += 1;
       if (game.finished === game.runners.length) {
         $("all").hidden = true;
-        // 그사이 창을 닫았거나 다른 판으로 바뀌었으면 보이지 않는다
+        // 그사이 창을 닫았거나 다른 판으로 바뀌었으면 보이지 않음
         const id = game.view.game_id;
         setTimeout(() => {
           if (game?.view.game_id === id && !views.game.hidden) showTable();
@@ -703,6 +728,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       }
     }
 
+    // 결과 표를 보임 (지난 결과면 넘겨받은 값을 씀)
     function showTable(rows, hostName, print) {
       const g = game?.view;
       rows = Array.isArray(rows) ? rows : LADDER.resultRows(g);
@@ -726,6 +752,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
     }
     $("game-close").addEventListener("click", () => invoke("ladder_close"));
 
+    // 지난 결과 화면을 그림
     function renderLast() {
       showOnly("game");
       game = null;
@@ -768,6 +795,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
       }
     }
 
+    // 백엔드가 보낸 화면 상태를 적용함
     function apply(v) {
       if (!v) return;
       // 새 판의 설정 화면이면 방장 편집 상태를 처음부터
@@ -778,7 +806,7 @@ if (typeof window !== "undefined" && window.__TAURI__) {
         host.slots = [];
         host.begunFor = null;
       }
-      // 진행 화면으로 가는 길(잠김·게임)이 아니면 앞 판의 늦은 시작 신호를 버린다
+      // 진행 화면으로 가는 길(잠김·게임)이 아니면 앞 판의 늦은 시작 신호를 버림
       if (v.view !== "locked" && v.view !== "game") startPending = false;
       state = v;
       render();

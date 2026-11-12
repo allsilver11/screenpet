@@ -1,6 +1,6 @@
 // 📮 개발자 건의함 (개발자 비밀키가 있는 컴퓨터만 — spec 2026-11-10-feedback-mailbox §5, 예전 "📬 편지함").
-// 목록은 `mailbox-state`([{id, at, from, read, done, rejected, private, ok, text, name, species, stage, style, version, os}], 최신순)로 온다.
-// 보낸 사람이 쓴 글은 모두 textContent로만 넣는다 (HTML로 해석하지 않는다). 열면 읽음, ✅ 반영함 / 🙅 반려 (하나만), 🔒 비공개 (공개 건의함에서 숨기기 — 여기선 그대로 보이고 표시만), 지우기, 이 사람 막기.
+// 목록은 `mailbox-state`([{id, at, from, read, done, rejected, private, ok, text, name, species, stage, style, version, os}], 최신순)로 옴.
+// 보낸 사람이 쓴 글은 모두 textContent로만 넣음 (HTML로 해석하지 않음). 열면 읽음, ✅ 반영함 / 🙅 반려 (하나만), 🔒 비공개 (공개 건의함에서 숨기기 — 여기선 그대로 보이고 표시만), 지우기, 이 사람 막기.
 // 공개 건의함(board.js)과 같은 쪽 넘기기 (pager.js, 5개씩): 읽거나 지우거나 막아도 보던 쪽에 남고, 그 쪽이 비면 한 쪽 앞으로.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
@@ -16,6 +16,7 @@ const pager = makePager(document.getElementById("pager"), (p) => {
 
 const PET_EMOJI = { cat: "🐱", persian: "🐱", rabbit: "🐰", frog: "🐸", duck: "🦆", bird: "🐦", penguin: "🐧", squirrel: "🐿️", redpanda: "🐾", heumul: "🤸", giraffe: "🦒", pumpkin: "🎃", ghost: "👻", santa: "🎅", rudolph: "🦌", snowman: "⛄" };
 
+// 클래스와 글자를 넣은 요소를 만듦
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -23,6 +24,7 @@ function el(tag, cls, text) {
   return e;
 }
 
+// 유닉스 초를 `YYYY.MM.DD HH:MM`으로 바꿈
 function when(at) {
   const d = new Date(at * 1000);
   const p = (n) => String(n).padStart(2, "0");
@@ -35,6 +37,7 @@ function update(next) {
   render();
 }
 
+// 지금 쪽의 편지 목록을 그림
 function render() {
   page = clampPage(page, letters.length);
   listEl.replaceChildren();
@@ -45,7 +48,7 @@ function render() {
     const meta = el("div", "meta");
     const who = `${PET_EMOJI[l.species] || "💌"} ${l.name || "누군가"}`;
     const info = el("span", "");
-    // 🔒 비공개 표시 (개발자에게는 그대로 보인다)
+    // 🔒 비공개 표시 (개발자에게는 그대로 보임)
     if (l.private) info.append(el("span", "badge private", "🔒 비공개"), " ");
     info.append(`${when(l.at)} · v${l.version || "?"} · ${l.os || "?"}`);
     meta.append(el("span", "who", who), info);
@@ -57,7 +60,7 @@ function render() {
       invoke("mailbox_delete", { id: l.id });
     });
     const block = el("button", "", "이 사람 막기");
-    // 두 번 눌러야 막는다 (맥 웹뷰는 confirm 창을 띄우지 않을 수 있다): 처음엔 "정말 막을까요?"로 바뀌고 3초 안에 한 번 더
+    // 두 번 눌러야 막음 (맥 웹뷰는 confirm 창을 띄우지 않을 수 있음): 처음엔 "정말 막을까요?"로 바뀌고 3초 안에 한 번 더
     let armed = null;
     block.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -72,8 +75,8 @@ function render() {
         block.textContent = "이 사람 막기";
       }, 3000);
     });
-    // ✅ 반영함 / 🙅 반려: 하나만 (하나를 켜면 다른 하나가 꺼지고, 켠 것을 끄면 아무것도 아니다).
-    // 릴레이에 저장돼 두 컴퓨터가 같고, 📮 공개 건의함에도 ✅ 반영됨 / 🙅 반려됨으로 보인다
+    // ✅ 반영함 / 🙅 반려: 하나만 (하나를 켜면 다른 하나가 꺼지고, 켠 것을 끄면 아무것도 아님).
+    // 릴레이에 저장돼 두 컴퓨터가 같고, 📮 공개 건의함에도 ✅ 반영됨 / 🙅 반려됨으로 보임
     const status = el("span", "status");
     const checkbox = (text, on) => {
       const label = el("label");
@@ -88,7 +91,7 @@ function render() {
     };
     const check = checkbox("✅ 반영함", l.done);
     const reject = checkbox("🙅 반려", l.rejected && !l.done);
-    // 🔒 비공개: 다른 사람의 📮 건의함에서 숨긴다 (반영·반려와 따로)
+    // 🔒 비공개: 다른 사람의 📮 건의함에서 숨김 (반영·반려와 따로)
     const hide = checkbox("🔒 비공개", l.private);
     hide.addEventListener("change", () => invoke("mailbox_private", { id: l.id, private: hide.checked }));
     check.addEventListener("change", () => {

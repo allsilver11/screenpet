@@ -1,5 +1,5 @@
 // 짝맞추기 창: 상대 이름, 이모지 6개, "상대 화면에도 똑같은 그림이 보이나요?" + 버튼.
-// 백엔드(게임 루프)가 상태를 `pair-state`로 보내고, 버튼은 `pair_answer`로 답한다 (어느 짝맞추기인지는 백엔드가 안다).
+// 백엔드(게임 루프)가 상태를 `pair-state`로 보내고, 버튼은 `pair_answer`로 답함 (어느 짝맞추기인지는 백엔드가 앎).
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
@@ -30,6 +30,7 @@ const FAILED = {
   disabled: "지금은 친구 코드를 쓸 수 없어요",
 };
 
+// 짝맞추기 상태(이름, 이모지, 단계)를 창에 보임
 function show(v) {
   const name = v.name || "친구";
   titleEl.textContent = v.incoming
@@ -75,7 +76,7 @@ window.addEventListener("keydown", (e) => {
 });
 
 (async () => {
-  // 듣기 시작한 뒤에 지금 상태를 묻는다
+  // 듣기 시작한 뒤에 지금 상태를 물음
   await here.listen("pair-state", (e) => show(e.payload));
   show(await invoke("pair_state"));
 })();

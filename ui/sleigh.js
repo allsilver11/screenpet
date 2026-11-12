@@ -1,7 +1,7 @@
 // 🛷 썰매 세리머니: 앱이 창을 화면 한 바퀴 옮기고 (src-tauri/src/sleigh.rs), 여기선 썰매 위 산타·앞에서 끄는 루돌프를
-// 동물 시트에서 그린다. 앱이 보내는 건 방향·기울기뿐 (`sleigh-pose`).
+// 동물 시트에서 그림. 앱이 보내는 건 방향·기울기뿐 (`sleigh-pose`).
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
-// 앱이 창을 만들 때 넣는다 (없으면 기본 짝 — 창 시험용)
+// 앱이 창을 만들 때 넣음 (없으면 기본 짝 — 창 시험용)
 const setup = window.SLEIGH || {
   puller: { id: "rudolph", stage: "teenager", pixel: false, side: 128 },
   rider: { id: "santa", stage: "teenager", pixel: false, side: 128 },
@@ -23,10 +23,10 @@ sleighEl.src = setup.pixel ? "sleigh/sleigh_pixel.png" : "sleigh/sleigh.png";
 // 썰매 그림: 동글은 정사각 칸(아래쪽에 썰매), 픽셀은 32×16칸
 const sleighW = u * 1.35;
 const sleighH = setup.pixel ? sleighW / 2 : sleighW;
-// 썰매 아래 가운데(도는 축)를 창 아래에서 below만큼 띄운다: 기울면 한쪽 끝이 축보다 내려가도 안 잘린다
+// 썰매 아래 가운데(도는 축)를 창 아래에서 below만큼 띄움: 기울면 한쪽 끝이 축보다 내려가도 안 잘림
 Object.assign(ride.style, { width: `${W}px`, height: `${H}px`, marginLeft: `${-W / 2}px`, bottom: `${setup.below || 0}px` });
 Object.assign(sleighEl.style, { left: "0px", width: `${sleighW}px`, height: `${sleighH}px` });
-// 산타는 썰매 안 (다리는 썰매 앞판에 가린다), 루돌프는 앞에서 끈다
+// 산타는 썰매 안 (다리는 썰매 앞판에 가림), 루돌프는 앞에서 끔
 const riderSide = setup.rider.side;
 const pullerSide = setup.puller.side;
 Object.assign(els.rider.style, { left: `${sleighW * 0.12}px`, bottom: `${sleighW * 0.28}px`, width: `${riderSide}px`, height: `${riderSide}px` });
@@ -40,9 +40,10 @@ Object.assign(ho.style, { left: `${sleighW * 0.05}px`, bottom: `${sleighW * 0.28
 });
 setTimeout(() => (ho.style.display = "none"), 3200);
 
-// 끄는 쪽은 달리고, 타는 쪽은 손을 흔든다 (그 줄이 없으면 걷기·쉬기)
+// 끄는 쪽은 달리고, 타는 쪽은 손을 흔듦 (그 줄이 없으면 걷기·쉬기)
 const ANIMS = { puller: ["run", "walk"], rider: ["wave", "idle"] };
 const sheets = {};
+// 동물(끄는 쪽·타는 쪽) 시트를 읽음
 async function load(key) {
   const p = setup[key];
   const sheet = await loadPetSheet(p.id, p.stage, p.pixel ? "pixel" : "round");
@@ -57,6 +58,7 @@ async function load(key) {
 }
 
 const started = performance.now();
+// 매 프레임 두 동물의 그림 칸을 바꿈
 function frame(now) {
   for (const s of Object.values(sheets)) {
     const i = frameIndex(s.spec, now - started);
@@ -66,8 +68,9 @@ function frame(now) {
 }
 
 let pose = { facing: 1, tilt: 0 };
+// 썰매 방향과 기울기를 입힘
 function applyPose() {
-  // 오른쪽이 기본 (시트는 오른쪽을 본다). 왼쪽으로 갈 땐 통째로 뒤집고, 기울기는 앞이 위로
+  // 오른쪽이 기본 (시트는 오른쪽을 봄). 왼쪽으로 갈 땐 통째로 뒤집고, 기울기는 앞이 위로
   ride.style.transform = `scaleX(${pose.facing < 0 ? -1 : 1}) rotate(${-pose.tilt}deg)`;
   ho.style.transform = pose.facing < 0 ? "scaleX(-1)" : "none";
 }

@@ -1,8 +1,10 @@
-// 동글 펫 그림 확장자: 배포 파일을 만들 때 tools/pack_webp.py가 "webp"로 바꾼다 (저장소에는 PNG)
+// 여러 창이 같이 쓰는 도우미 모음임 (펫·하우스·손님 창 등이 다른 스크립트보다 먼저 읽음).
+// 시트 읽기(decodeSheet), 프레임 계산(frameIndex·hopLeapFrame), 말풍선·음식 고르기(setupSpeech), 글 칸(noteField), 창 키 처리.
+// 동글 펫 그림 확장자: 배포 파일을 만들 때 tools/pack_webp.py가 "webp"로 바꿈 (저장소에는 PNG)
 const PET_ART_EXT = "png";
 
 // 창들이 같이 쓰는 것: 시트 읽기, 프레임 계산, 말풍선, 음식 고르기 (펫·하우스 창), 글 쓰는 창의 키.
-// 일반 스크립트끼리는 최상위 const가 겹치면 안 되므로 window.__TAURI__는 함수 안에서만 꺼낸다.
+// 일반 스크립트끼리는 최상위 const가 겹치면 안 되므로 window.__TAURI__는 함수 안에서만 꺼냄.
 
 async function decodeSheet(url) {
   const img = new Image();
@@ -11,7 +13,7 @@ async function decodeSheet(url) {
   return img;
 }
 
-// 픽셀 몸 한 변 (CSS px): 칸 한 변이 물리 px의 정수배가 되도록 맞춘다 (코어 style::pixel_body_scale로 이미 맞춰 온 값을 지금 창의 배율로 한 번 더).
+// 픽셀 몸 한 변 (CSS px): 칸 한 변이 물리 px의 정수배가 되도록 맞춤 (코어 style::pixel_body_scale로 이미 맞춰 온 값을 지금 창의 배율로 한 번 더).
 // fit = "floor"면 내림 (문간처럼 넘치면 잘리는 자리)
 function snapPixelSide(side, dots, fit = "round") {
   const dpr = window.devicePixelRatio || 1;
@@ -19,7 +21,7 @@ function snapPixelSide(side, dots, fit = "round") {
   return (dots * Math.max(1, dot)) / dpr;
 }
 
-// 칸 크기 (논리 px, 전 종·전 단계 같다 — 동글 stage_size를 곱하지 않는다. 코어 style::pixel_grid, tools/draw_pixel_world.py STAGE_GRID와 같다)
+// 칸 크기 (논리 px, 전 종·전 단계 같음 — 동글 stage_size를 곱하지 않음. 코어 style::pixel_grid, tools/draw_pixel_world.py STAGE_GRID와 같음)
 const PIXEL_DOT = 3;
 
 // 논리 칸 크기 → 물리 px의 정수배가 되는 CSS px (코어 style::dot_physical과 같은 계산)
@@ -33,7 +35,7 @@ function setPixelBody(on) {
   document.body.classList[on ? "add" : "remove"]("pixel");
 }
 
-// 픽셀 그림 (pets_pixel/<id>/pet.json + sheet_<stage>.png)을 동글 pet.json 위에 얹는다: 시트 칸·동작 표·머리·목 표만 그림 것, 대사·이름·집은 그대로
+// 픽셀 그림 (pets_pixel/<id>/pet.json + sheet_<stage>.png)을 동글 pet.json 위에 얹음: 시트 칸·동작 표·머리·목 표만 그림 것, 대사·이름·집은 그대로
 async function loadPixelSheet(id, stageName, round) {
   const px = await (await fetch(`pets_pixel/${id}/pet.json`)).json();
   const url = `pets_pixel/${id}/sheet_${stageName}.png`;
@@ -43,7 +45,7 @@ async function loadPixelSheet(id, stageName, round) {
 }
 
 // 동물 id의 pet.json과 단계별 시트 sheet_<stage>.png → { manifest, url, img, style, dir }.
-// style "pixel"인데 그림을 못 읽으면 동글로. 돌려주는 manifest.frame_size는 이 단계 시트의 칸 크기다
+// style "pixel"인데 그림을 못 읽으면 동글로. 돌려주는 manifest.frame_size는 이 단계 시트의 칸 크기임
 async function loadPetSheet(id, stageName, style = "round") {
   const manifest = await (await fetch(`pets/${id}/pet.json`)).json();
   if (style === "pixel") {
@@ -54,29 +56,31 @@ async function loadPetSheet(id, stageName, style = "round") {
     }
   }
   const url = `pets/${id}/sheet_${stageName}.${PET_ART_EXT}`;
-  // 크게 보이는 단계는 시트 칸이 2배다 (frame_sizes, tools/sprite_spec.py frame_px). 표시 크기는 칸과 상관없다 — head·neck·neck_stretch 표도 이 칸의 px
+  // 크게 보이는 단계는 시트 칸이 2배임 (frame_sizes, tools/sprite_spec.py frame_px). 표시 크기는 칸과 상관없음 — head·neck·neck_stretch 표도 이 칸의 px
   const frameSize = manifest.frame_sizes?.[stageName] ?? manifest.frame_size;
   const img = await decodeSheet(url);
   return { manifest: { ...manifest, frame_size: frameSize }, url, img, style: "round", dir: `pets/${id}/` };
 }
 
+// 지난 시간(ms)에 맞는 프레임 번호를 돌려줌 (loop: false면 마지막 프레임에서 멈춤)
 function frameIndex(spec, elapsedMs) {
-  // 이벤트가 이번 프레임 시각 뒤에 와서 animStart가 더 늦을 수 있다 — 음수 칸은 없다
+  // 이벤트가 이번 프레임 시각 뒤에 와서 animStart가 더 늦을 수 있음 — 음수 칸은 없음
   const n = Math.max(0, Math.floor((elapsedMs / 1000) * spec.fps));
   return spec.loop === false ? Math.min(n, spec.frames - 1) : n % spec.frames;
 }
 
-// 큰 점프(백엔드 anim "bigjump") 그림이 없는 동물은 hop 줄로 대신한다: hop을 그냥 틀면 땅 위에서 미리 떠 버리니까,
+// 큰 점프(백엔드 anim "bigjump") 그림이 없는 동물은 hop 줄로 대신함: hop을 그냥 틀면 땅 위에서 미리 떠 버리니까,
 // 웅크림(hop 0)을 코어 hop::BIG_JUMP_CROUCH_SECS 동안 버티다가 뜨는 순간 hop 1, 그다음 hop 2로 내려설 때까지
 const LEAP_CROUCH_MS = 500;
+// 점프 애니메이션 프레임: 웅크리는 동안은 0, 그 뒤로 fps대로 감
 function hopLeapFrame(spec, elapsedMs) {
   if (elapsedMs < LEAP_CROUCH_MS) return 0;
   const n = Math.floor(((elapsedMs - LEAP_CROUCH_MS) / 1000) * spec.fps);
   return Math.min(1 + n, spec.frames - 1);
 }
 
-// 값이 그대로면 쓰지 않는 스타일 쓰기 (rAF는 화면 주사율마다 돈다 — 칸이 그대로인 프레임은 아무것도 건드리지 않는다).
-// 이 요소의 그 속성은 이 함수로만 쓴다
+// 값이 그대로면 쓰지 않는 스타일 쓰기 (rAF는 화면 주사율마다 돎 — 칸이 그대로인 프레임은 아무것도 건드리지 않음).
+// 이 요소의 그 속성은 이 함수로만 씀
 function styleWriter(el) {
   const shown = {};
   return (prop, value) => {
@@ -86,11 +90,11 @@ function styleWriter(el) {
   };
 }
 
-// 말풍선(`pet-say`)과 음식 고르기(`food-picker`). 백엔드는 지금 동물이 있는 창에만(emit_to) 보낸다.
-// getManifest() = 지금 동물의 pet.json (대사 목록). 돌려주는 hidePicker는 먹기 시작하면 부른다.
-// isQuiet() = 참이면 다른 말풍선·음식 고르기를 띄우지 않는다 (손님 편지를 말풍선에 보이는 동안 — 무엇도 덮지 않게, 그냥 버린다).
-// hideBubble은 편지를 띄우기 전에 부른다 (남은 숨김 타이머도 끈다)
-// 곁에 있기·하루 일과·집중 친구의 말 (코어 brain_presence.rs) — 펫 창과 하우스 창이 같이 쓴다. pet.json에 있으면 그쪽이 먼저
+// 말풍선(`pet-say`)과 음식 고르기(`food-picker`). 백엔드는 지금 동물이 있는 창에만(emit_to) 보냄.
+// getManifest() = 지금 동물의 pet.json (대사 목록). 돌려주는 hidePicker는 먹기 시작하면 부름.
+// isQuiet() = 참이면 다른 말풍선·음식 고르기를 띄우지 않음 (손님 편지를 말풍선에 보이는 동안 — 무엇도 덮지 않게, 그냥 버림).
+// hideBubble은 편지를 띄우기 전에 부름 (남은 숨김 타이머도 끔)
+// 곁에 있기·하루 일과·집중 친구의 말 (코어 brain_presence.rs) — 펫 창과 하우스 창이 같이 씀. pet.json에 있으면 그쪽이 먼저
 const RHYTHM_SPEECH = {
   welcome_back: ["you're back!!"],
   good_morning: ["good morning!"],
@@ -101,19 +105,23 @@ const RHYTHM_SPEECH = {
   focus: ["focus!"],
 };
 
+// 말풍선과 음식 고르기를 창에 붙임. 백엔드 이벤트를 듣고 버튼을 백엔드에 알림
 function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => false }) {
   const { invoke } = window.__TAURI__.core;
-  // 전역 event.listen은 다른 창 앞으로 보낸(emit_to) 이벤트까지 받는다 — 이 창 앞으로 온 것만 듣는다
+  // 전역 event.listen은 다른 창 앞으로 보낸(emit_to) 이벤트까지 받음 — 이 창 앞으로 온 것만 들음
   const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
+  // 이 창 앞으로 온 이벤트만 들음
   const listen = (event, handler) => here.listen(event, handler);
   let bubbleTimer = null;
   let pickerTimer = null;
 
+  // 음식 고르기를 숨김
   function hidePicker() {
     pickerEl.hidden = true;
     clearTimeout(pickerTimer);
   }
 
+  // 말풍선에 글을 ms 동안 보임
   function showBubble(text, ms) {
     const span = document.createElement("span");
     span.textContent = text;
@@ -126,7 +134,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
   }
 
   // 백엔드가 고른 상황(chatter/tickle/grumpy/hiss/hungry/full/level_up/ignore)에 맞는 대사를
-  // pet.json speech에서 랜덤으로 띄운다. 그 동물에 없는 상황이면 말풍선 없음.
+  // pet.json speech에서 랜덤으로 띄움. 그 동물에 없는 상황이면 말풍선 없음.
   listen("pet-say", (e) => {
     const lines = getManifest()?.speech?.[e.payload] ?? RHYTHM_SPEECH[e.payload] ?? [];
     if (!lines.length || !pickerEl.hidden || isQuiet()) return; // 음식 고르기 버튼·편지 쪽지가 우선
@@ -150,11 +158,11 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
     pickerTimer = setTimeout(hidePicker, 6000);
   });
 
-  // 하우스로 가기 시작하면 펫 창의 음식 고르기는 닫는다
+  // 하우스로 가기 시작하면 펫 창의 음식 고르기는 닫음
   listen("hide-picker", hidePicker);
 
   for (const btn of pickerEl.querySelectorAll("button")) {
-    // 버튼을 누르는 게 펫 잡기(하우스 클릭)로 이어지지 않게 한다
+    // 버튼을 누르는 게 펫 잡기(하우스 클릭)로 이어지지 않게 함
     btn.addEventListener("mousedown", (e) => e.stopPropagation());
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -163,6 +171,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
     });
   }
 
+  // 말풍선을 숨김
   function hideBubble() {
     bubbleEl.hidden = true;
     clearTimeout(bubbleTimer);
@@ -182,9 +191,10 @@ function setupFormKeys({ submit, close } = {}) {
   });
 }
 
-// 한 줄 글 칸 (편지·포스트잇): 쓴 글을 max자에서 자르고, 글자 수가 바뀌면 showCount(글자 수, max)를 부른다. open(max)로 비우고 포커스
+// 한 줄 글 칸 (편지·포스트잇): 쓴 글을 max자에서 자르고, 글자 수가 바뀌면 showCount(글자 수, max)를 부름. open(max)로 비우고 포커스
 function noteField(inputEl, showCount) {
   let max = 80;
+  // 글자 수를 다시 셈
   const count = () => showCount([...inputEl.value].length, max);
   inputEl.addEventListener("input", () => {
     const chars = [...inputEl.value];
@@ -192,6 +202,7 @@ function noteField(inputEl, showCount) {
     count();
   });
   return {
+    // 칸을 비우고 최대 n자로 맞춘 뒤 포커스함
     open(n) {
       max = n || 80;
       inputEl.maxLength = max * 2; // maxlength는 UTF-16 단위 — 이모지도 들어가게 넉넉히, 글자 수는 위에서 자른다
@@ -202,13 +213,13 @@ function noteField(inputEl, showCount) {
   };
 }
 
-// 키보드 UI가 없는 창: 웹뷰 기본 동작(우클릭 메뉴, F5, Ctrl+R, Alt+F4 등)을 막는다.
+// 키보드 UI가 없는 창: 웹뷰 기본 동작(우클릭 메뉴, F5, Ctrl+R, Alt+F4 등)을 막음.
 function blockWebviewDefaults() {
   window.addEventListener("contextmenu", (e) => e.preventDefault());
   window.addEventListener("keydown", (e) => e.preventDefault());
 }
 
-// 글자를 클립보드에 (펫 머리 위 친구 코드 띠, 코드 창). 클릭 처리기 안에서 부른다. 성공하면 true
+// 글자를 클립보드에 (펫 머리 위 친구 코드 띠, 코드 창). 클릭 처리기 안에서 부름. 성공하면 true
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);

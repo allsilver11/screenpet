@@ -1,6 +1,6 @@
-// 💌 건의하기 창 (트레이 "💌 개발자에게 건의하기…"): 편지를 쓰고 "보내기" → 백엔드가 개발자 열쇠로 봉해 릴레이 편지함에 맡긴다
-// (spec 2026-11-10-feedback-mailbox §4). 하루 5통·글자 수 같은 제한은 릴레이가 센다 — 여기서는 결과를 한 줄로 보여 줄 뿐.
-// 결과는 `feedback-result`({ok, reason}) 이벤트로 온다. 보냈으면 2초 뒤 창이 닫히고, 못 보냈으면 쓴 글이 그대로 남는다.
+// 💌 건의하기 창 (트레이 "💌 개발자에게 건의하기…"): 편지를 쓰고 "보내기" → 백엔드가 개발자 열쇠로 봉해 릴레이 편지함에 맡김
+// (spec 2026-11-10-feedback-mailbox §4). 하루 5통·글자 수 같은 제한은 릴레이가 셈 — 여기서는 결과를 한 줄로 보여 줄 뿐.
+// 결과는 `feedback-result`({ok, reason}) 이벤트로 옴. 보냈으면 2초 뒤 창이 닫히고, 못 보냈으면 쓴 글이 그대로 남음.
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
@@ -31,10 +31,12 @@ function reasonText(reason) {
   }
 }
 
+// 글자 수를 보임
 function count() {
   countEl.textContent = `${[...inputEl.value].length}/${MAX_CHARS}자`;
 }
 
+// 편지를 보냄 (보내는 중이면 무시)
 function submit() {
   const text = inputEl.value.trim();
   if (!text || sending) return;
@@ -44,6 +46,7 @@ function submit() {
   invoke("feedback_submit", { text: inputEl.value });
 }
 
+// 보낸 결과를 한 줄로 보이고 버튼을 다시 켬
 function result({ ok, reason }) {
   sending = false;
   okBtn.disabled = false;

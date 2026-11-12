@@ -1,10 +1,10 @@
 // 🖍️ 분필 낙서 그리기. 흐물이가 바닥에 그린 하트·웃는 얼굴·별·이름을 🌈 무지개 구름과 같은 창 (trail.html)의
-// 아래 캔버스에 그린다. 앱(src-tauri/src/trail.rs)이 `trail-doodle`로 새 낙서들을 보낸다 (논리 px, 이 창 왼쪽 위가 0,0 —
+// 아래 캔버스에 그림. 앱(src-tauri/src/trail.rs)이 `trail-doodle`로 새 낙서들을 보냄 (논리 px, 이 창 왼쪽 위가 0,0 —
 // x는 가운데, y는 바닥 줄, size는 높이, kind는 heart·smile·star·name, name은 펫 이름, facing은 바라보는 쪽, age는 이미 지난 초).
-// draw초 (앱이 흐물이 그리기 동작 길이 DOODLE_SECS를 보낸다, 없으면 DRAW) 동안 분필로 그려지고, HOLD초 그대로 있다가, FADE초 동안 흐려진다. CPU를 아끼는 규칙: 낙서 MAX_DOODLES개까지,
+// draw초 (앱이 흐물이 그리기 동작 길이 DOODLE_SECS를 보냄, 없으면 DRAW) 동안 분필로 그려지고, HOLD초 그대로 있다가, FADE초 동안 흐려짐. CPU를 아끼는 규칙: 낙서 MAX_DOODLES개까지,
 // 분필 가루는 낙서마다 따로 그림에 한 번만 찍기, 그리거나 흐려지는 동안만 requestAnimationFrame, 가만히 있는 동안은 타이머 하나.
-// 이름은 캔버스 fillText로만 넣는다 (HTML로 넣지 않는다), MAX_NAME글자까지.
-// 브라우저에서 trail.html?doodle=1 (&pixel=1, &light=1)로 앱 없이 볼 수 있다.
+// 이름은 캔버스 fillText로만 넣음 (HTML로 넣지 않음), MAX_NAME글자까지.
+// 브라우저에서 trail.html?doodle=1 (&pixel=1, &light=1)로 앱 없이 볼 수 있음.
 
 const DRAW = 2.0;
 // 받아들이는 그리기 시간 (초) — 밖이면 DRAW
@@ -96,6 +96,7 @@ function walk(lines, w, h, flip, step) {
   return out;
 }
 
+// w×h 캔버스를 만듦 (최소 1px)
 function newCanvas(w, h) {
   const c = document.createElement("canvas");
   c.width = Math.max(1, Math.ceil(w));
@@ -103,7 +104,7 @@ function newCanvas(w, h) {
   return c;
 }
 
-// 이름을 분필 글자로 (동글: 글자 위를 가루로 깎는다, 픽셀: 작게 써서 칸으로 끊는다)
+// 이름을 분필 글자로 (동글: 글자 위를 가루로 깎음, 픽셀: 작게 써서 칸으로 끊음)
 function nameSprite(d) {
   const text = Array.from(String(d.name || "")).slice(0, MAX_NAME).join("");
   const px = d.pixel ? 11 : Math.max(12, d.size * 0.5);
@@ -140,7 +141,7 @@ function nameSprite(d) {
     g.strokeText(text, px / 2 + 0.5, c.height / 2 + 1);
     g.fillStyle = CHALK.name;
     g.fillText(text, px / 2, c.height / 2);
-    // 분필 결: 글자 곳곳을 작게 지운다
+    // 분필 결: 글자 곳곳을 작게 지움
     const rnd = seeded(d.seed);
     g.globalCompositeOperation = "destination-out";
     const holes = Math.round((c.width * c.height) / 18);
@@ -154,6 +155,7 @@ function nameSprite(d) {
   return c;
 }
 
+// 낙서 하나를 그릴 준비를 함 (이름이면 글자 그림을 만듦)
 function prepare(d) {
   if (d.kind === "name") {
     const text = nameSprite(d);
@@ -164,7 +166,7 @@ function prepare(d) {
     d.dot = dot;
     return;
   }
-  // 동글: 실제 크기로, 픽셀: 한 칸 = 1px로 그려 두고 정수 배로 늘린다
+  // 동글: 실제 크기로, 픽셀: 한 칸 = 1px로 그려 두고 정수 배로 늘림
   const dot = d.pixel ? Math.max(2, Math.round(d.size / 18)) : 1;
   const h = d.size / dot;
   const w = h;
@@ -180,7 +182,7 @@ function prepare(d) {
   d.rnd = seeded(d.seed);
 }
 
-// 분필 가루를 points[d.drawn..upto]에 찍는다 (한 번 찍은 자리는 다시 찍지 않는다)
+// 분필 가루를 points[d.drawn..upto]에 찍음 (한 번 찍은 자리는 다시 찍지 않음)
 function stamp(d, upto) {
   if (!d.points) return;
   const c = d.chalk.getContext("2d");
@@ -214,6 +216,7 @@ function stamp(d, upto) {
   d.drawn = Math.max(d.drawn, upto);
 }
 
+// 새 낙서들을 받아 그리기 시작함
 function addDoodles(list) {
   const now = performance.now();
   for (const p of list || []) {
@@ -228,12 +231,14 @@ function addDoodles(list) {
   wake();
 }
 
+// 그리기 타이머를 지우고 다음 프레임을 바로 그리게 함
 function wake() {
   if (doodleTimer) clearTimeout(doodleTimer);
   doodleTimer = 0;
   if (doodles.length && !doodleFrame) doodleFrame = requestAnimationFrame(drawDoodles);
 }
 
+// 낙서들을 그림. 다 사라지면 멈춤
 function drawDoodles(now) {
   doodleFrame = 0;
   if (doodleDirty) dctx.clearRect(doodleDirty[0], doodleDirty[1], doodleDirty[2] - doodleDirty[0], doodleDirty[3] - doodleDirty[1]);
@@ -255,7 +260,7 @@ function drawDoodles(now) {
     dctx.imageSmoothingEnabled = !d.pixel;
     dctx.globalAlpha = alpha;
     if (d.text) {
-      // 글자는 왼쪽부터 써 나간다
+      // 글자는 왼쪽부터 써 나감
       const sw = Math.max(1, Math.round(d.text.width * drawn));
       dctx.drawImage(d.text, 0, 0, sw, d.text.height, left, top, sw * d.dot, d.h);
     } else {
@@ -271,7 +276,7 @@ function drawDoodles(now) {
   if (moving || !doodles.length) {
     doodleFrame = requestAnimationFrame(drawDoodles);
   } else {
-    // 다 그려져 가만히 있다: 다음 흐려지기까지 잔다
+    // 다 그려져 가만히 있음: 다음 흐려지기까지 잠
     doodleTimer = setTimeout(() => {
       doodleTimer = 0;
       wake();
@@ -279,6 +284,7 @@ function drawDoodles(now) {
   }
 }
 
+// 낙서 캔버스를 창 크기에 맞춤
 function fitDoodleCanvas() {
   doodleCanvas.width = window.innerWidth;
   doodleCanvas.height = window.innerHeight;
@@ -290,7 +296,7 @@ window.addEventListener("resize", fitDoodleCanvas);
 fitDoodleCanvas();
 
 if (window.__TAURI__) {
-  // 이 창으로 온 낙서만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받는다)
+  // 이 창으로 온 낙서만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("trail-doodle", (e) => addDoodles(e.payload));
 } else if (new URLSearchParams(location.search).get("doodle")) {
   doodlePreview();
