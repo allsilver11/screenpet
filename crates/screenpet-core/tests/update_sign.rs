@@ -1,10 +1,11 @@
-//! 🔄 bin/screenpet-update-sign (what deploy/publish-release.sh calls) makes signatures the app's check accepts.
+//! 🔄 bin/screenpet-update-sign (deploy/publish-release.sh가 부름)이 만든 서명을 앱의 확인이 받아들이는지 봄
 use screenpet_core::update;
 use std::path::PathBuf;
 use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_screenpet-update-sign");
 
+/// 테스트: 비어 있는 임시 폴더
 fn tmp(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("screenpet-sign-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
@@ -12,6 +13,7 @@ fn tmp(tag: &str) -> PathBuf {
     d
 }
 
+/// 테스트: hex 64자를 32바이트로
 fn hex32(s: &str) -> [u8; 32] {
     let s = s.trim();
     assert_eq!(s.len(), 64, "{s}");
@@ -22,6 +24,7 @@ fn hex32(s: &str) -> [u8; 32] {
     out
 }
 
+/// 테스트: 서명 도구를 args로 실행함
 fn run(args: &[&std::ffi::OsStr]) -> std::process::Output {
     Command::new(BIN).args(args).output().unwrap()
 }

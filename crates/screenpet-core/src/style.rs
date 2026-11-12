@@ -1,17 +1,18 @@
-//! 캐릭터 스타일 (동글동글 / 픽셀) — 그림만 다르다. 자라기·돌보기·친구·행동은 모두 같다 (구르기만 픽셀 그림에 없어 고르지 않는다).
+//! 캐릭터 스타일 (동글동글 / 픽셀) — 그림만 다름. 자라기·돌보기·친구·행동은 모두 같음 (구르기만 픽셀 그림에 없어 고르지 않음).
 //!
-//! 픽셀 표시 크기 규칙: 한 칸은 언제나 **물리 px의 정수배**라서 어느 배율 모니터에서나 칸이 고르고 또렷하다.
-//!   1) 칸은 언제나 논리 3 px — 전 종, 전 단계 같다 ("동물이 너무 크다"는 피드백으로 teenager·adult ×4를 ×3으로 내렸다). 픽셀 시트는 종마다 실루엣에 맞춰
-//!      캔버스를 채우므로 동글 `stage_size`를 곱하지 않는다 (곱하면 칸 크기가 들쭉날쭉해진다). 표시 크기는 72 / 84 / 96 / 96 / 108,
-//!      공룡만 칸 수가 적어 60 / 72 / 84 / 84 / 96 (pet.json `frame_sizes`가 정한다, 칸 크기는 같아 점이 고르다)
+//! 픽셀 표시 크기 규칙: 한 칸은 언제나 **물리 px의 정수배**라서 어느 배율 모니터에서나 칸이 고르고 또렷함
+//!   1) 칸은 언제나 논리 3 px — 전 종, 전 단계 같음 ("동물이 너무 크다"는 피드백으로 teenager·adult ×4를 ×3으로 내렸음). 픽셀 시트는 종마다 실루엣에 맞춰
+//!      캔버스를 채우므로 동글 `stage_size`를 곱하지 않음 (곱하면 칸 크기가 들쭉날쭉해짐). 표시 크기는 72 / 84 / 96 / 96 / 108,
+//!      공룡만 칸 수가 적어 60 / 72 / 84 / 84 / 96 (pet.json `frame_sizes`가 정함, 칸 크기는 같아 점이 고름)
 //!   2) 거기에 화면 배율(dpi)을 곱해 가까운 정수 물리 px로 — 125%: 3.75 → 4 / 150%: 4.5 → 5 / 200%: 6
-//!   3) 몸 한 변 = 칸 수 × 칸 물리 px. 논리 크기는 그 값 / dpi (분수일 수 있다 — 물리 px에서는 정확한 정수)
+//!   3) 몸 한 변 = 칸 수 × 칸 물리 px. 논리 크기는 그 값 / dpi (분수일 수 있음 — 물리 px에서는 정확한 정수)
 //! 동글 동물은 지금까지처럼 `단계 배율 × stage_size` 그대로.
 
 use serde::{Deserialize, Serialize};
 
 use crate::care::Stage;
 
+/// 캐릭터 스타일
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PetStyle {
@@ -23,6 +24,7 @@ pub enum PetStyle {
 }
 
 impl PetStyle {
+    /// 동글동글임
     pub fn is_round(&self) -> bool {
         *self == PetStyle::Round
     }
@@ -36,7 +38,7 @@ impl PetStyle {
         }
     }
 
-    /// 친구에게 보낼 값: 동글은 싣지 않는다 (예전 버전과 메시지가 똑같다)
+    /// 친구에게 보낼 값: 동글은 싣지 않음 (예전 버전과 메시지가 똑같음)
     pub fn to_wire(self) -> Option<String> {
         match self {
             PetStyle::Round => None,
@@ -45,10 +47,10 @@ impl PetStyle {
     }
 }
 
-/// teenager(배율 1.0) 스프라이트 한 변 (논리 px) — src-tauri/src/slots.rs PET_LOGICAL_SIZE와 같다
+/// teenager(배율 1.0) 스프라이트 한 변 (논리 px) — src-tauri/src/slots.rs PET_LOGICAL_SIZE와 같음
 const BASE_SIDE: f64 = 128.0;
 
-/// 단계 → (한 칸의 칸 수, 기본 칸 크기 논리 px): 24×3 = 72, 28×3 = 84, 32×3 = 96, 32×3 = 96, 36×3 = 108 (tools/draw_pixel.py STAGE_GRID, ui/common.js와 같다)
+/// 단계 → (한 칸의 칸 수, 기본 칸 크기 논리 px): 24×3 = 72, 28×3 = 84, 32×3 = 96, 32×3 = 96, 36×3 = 108 (tools/draw_pixel.py STAGE_GRID, ui/common.js와 같음)
 pub fn pixel_grid(stage: Stage) -> (u32, u32) {
     match stage {
         Stage::Baby => (24, 3),
@@ -59,7 +61,7 @@ pub fn pixel_grid(stage: Stage) -> (u32, u32) {
     }
 }
 
-/// 칸 한 변 (논리 px, 정수): 단계 기본 배율 — 동물과 상관없다
+/// 칸 한 변 (논리 px, 정수): 단계 기본 배율 — 동물과 상관없음
 pub fn dot_logical(stage: Stage) -> u32 {
     pixel_grid(stage).1
 }
@@ -70,10 +72,10 @@ pub fn dot_physical(stage: Stage, dpi: f64) -> u32 {
     ((f64::from(dot_logical(stage)) * dpi).round() as u32).max(1)
 }
 
-/// 동물 크기와 상관없이 같은 칸(동물과 같은 3 논리 px)으로 그리는 세계 그림 (손 음식·선물·물건·눈사람·침 — 동글도 크기가 고정이다)
+/// 동물 크기와 상관없이 같은 칸(동물과 같은 3 논리 px)으로 그리는 세계 그림 (손 음식·선물·물건·눈사람·침 — 동글도 크기가 고정임)
 pub const WORLD_DOT: u32 = 3;
 
-/// 세계 그림 창 크기를 적는 단위: 호출하는 쪽의 한 변은 "칸 수 × 4" (12칸 = 48 — 동글 창 크기와 같은 숫자로 적는다)
+/// 세계 그림 창 크기를 적는 단위: 호출하는 쪽의 한 변은 "칸 수 × 4" (12칸 = 48 — 동글 창 크기와 같은 숫자로 적음)
 const WORLD_SIDE_PER_DOT: f64 = 4.0;
 
 /// 세계 그림 칸 한 변 (물리 px, 정수)
@@ -88,7 +90,7 @@ pub fn world_side(side: f64, dpi: f64) -> f64 {
     (side / WORLD_SIDE_PER_DOT).round() * f64::from(world_dot_physical(dpi)) / dpi
 }
 
-/// 픽셀 집 그림 한 변 (칸) — 칸 크기는 그 단계 기본 칸(`pixel_grid`). 문은 시트 한 칸 전체가 들어가 동물을 줄이지 않는다 (tools/draw_pixel_world.py HOUSE_DOTS)
+/// 픽셀 집 그림 한 변 (칸) — 칸 크기는 그 단계 기본 칸(`pixel_grid`). 문은 시트 한 칸 전체가 들어가 동물을 줄이지 않음 (tools/draw_pixel_world.py HOUSE_DOTS)
 pub fn pixel_house_dots(stage: Stage) -> u32 {
     match stage {
         Stage::Baby => 38,
@@ -111,7 +113,7 @@ pub fn pixel_body_scale(frame_dots: u32, stage: Stage, dpi: f64) -> f64 {
     f64::from(frame_dots * dot_physical(stage, dpi)) / dpi / BASE_SIDE
 }
 
-/// 사용자가 정한 크기(size배)의 칸 한 변 (물리 px): 칸이 정수라 크기는 계단으로 변한다
+/// 사용자가 정한 크기(size배)의 칸 한 변 (물리 px): 칸이 정수라 크기는 계단으로 변함
 pub fn dot_physical_at(stage: Stage, dpi: f64, size: f64) -> u32 {
     let size = if size.is_finite() && size > 0.0 { size } else { 1.0 };
     ((f64::from(dot_physical(stage, dpi)) * size).round() as u32).max(1)
@@ -147,7 +149,7 @@ mod tests {
         assert_eq!(sides, [72.0, 84.0, 96.0, 96.0, 108.0]);
     }
 
-    /// 전 종 같은 칸: 표에 동물별 크기가 끼어들 자리가 없다 (동글 산타 1.65도 teenager 칸 3, 몸 96)
+    /// 전 종 같은 칸: 표에 동물별 크기가 끼어들 자리가 없음 (동글 산타 1.65도 teenager 칸 3, 몸 96)
     #[test]
     fn every_species_gets_the_same_dot_for_its_stage() {
         assert_eq!(Stage::ALL.map(dot_logical), [3, 3, 3, 3, 3]);
@@ -194,7 +196,7 @@ mod tests {
         assert_eq!(Stage::ALL.map(|s| pixel_house_side(s, 1.0)), [114.0, 126.0, 144.0, 144.0, 162.0]);
     }
 
-    /// 번들 집 그림의 칸 수가 표와 같고, 문에 그 단계 시트 한 칸이 그대로 들어간다
+    /// 번들 집 그림의 칸 수가 표와 같고, 문에 그 단계 시트 한 칸이 그대로 들어감
     #[test]
     fn bundled_pixel_houses_match_the_table_and_fit_a_whole_frame() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/house_pixel");
@@ -210,7 +212,7 @@ mod tests {
         }
     }
 
-    /// 공룡 픽셀 시트는 칸 수만 적다 (pet.json frame_sizes): 칸은 그대로 3이고 몸은 60/72/84/84/96 px, 집 문에도 그대로 들어간다
+    /// 공룡 픽셀 시트는 칸 수만 적음 (pet.json frame_sizes): 칸은 그대로 3이고 몸은 60/72/84/84/96 px, 집 문에도 그대로 들어감
     #[test]
     fn bundled_dinos_are_smaller_by_dots_not_by_dot_size() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets_pixel");
@@ -221,7 +223,7 @@ mod tests {
         }
     }
 
-    /// 시트 칸 수가 표와 달라도 (pet.json이 정한다) 칸은 정수 물리 px
+    /// 시트 칸 수가 표와 달라도 (pet.json이 정함) 칸은 정수 물리 px
     #[test]
     fn body_scale_follows_the_sheets_own_frame_size() {
         assert_eq!(pixel_body_scale(40, Stage::Adult, 1.0) * 128.0, 120.0);

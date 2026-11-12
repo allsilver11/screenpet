@@ -1,25 +1,28 @@
-//! 🔄 Update signing for `deploy/publish-release.sh` (runs on the server, never inside the relay).
+//! 🔄 업데이트 서명 도구 — `deploy/publish-release.sh`가 서버에서 부름 (중계 서버 안에서는 돌지 않음)
 //!
 //! ```text
-//! screenpet-update-sign keygen <secret-file>     new key: secret (hex seed) written 0600, public key printed
-//! screenpet-update-sign public <secret-file>     print the public key of a secret
-//! screenpet-update-sign sign <secret-file> <file>  print the signature (128 hex) of the file's exact bytes
-//! screenpet-update-sign verify <file> <sig-file>   check against the key built into the app (exit 1 if not)
+//! screenpet-update-sign keygen <secret-file>     새 키: 비밀(hex 씨앗)을 0600으로 쓰고 공개키를 찍음
+//! screenpet-update-sign public <secret-file>     비밀의 공개키를 찍음
+//! screenpet-update-sign sign <secret-file> <file>  파일 바이트 그대로의 서명(hex 128자)을 찍음
+//! screenpet-update-sign verify <file> <sig-file>   앱에 든 키로 확인함 (아니면 exit 1)
 //! ```
-//! The secret is never printed.
+//! 비밀은 절대 찍지 않음
 use screenpet_core::update;
 use std::process::exit;
 
+/// 쓰는 법을 찍고 끝냄 (exit 2)
 fn usage() -> ! {
     eprintln!("usage: screenpet-update-sign keygen <secret-file> | public <secret-file> | sign <secret-file> <file> | verify <file> <sig-file>");
     exit(2);
 }
 
+/// 오류를 찍고 끝냄 (exit 1)
 fn fail(msg: &str) -> ! {
     eprintln!("screenpet-update-sign: {msg}");
     exit(1);
 }
 
+/// 비밀 키 파일(hex 64자)을 읽음
 fn read_secret(path: &str) -> [u8; 32] {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| fail(&format!("cannot read the secret key {path}: {e}")));
     let hex = text.trim();
@@ -33,6 +36,7 @@ fn read_secret(path: &str) -> [u8; 32] {
     seed
 }
 
+/// 새 비밀을 /dev/urandom에서 만들어 0600 파일로 쓰고 공개키를 찍음 (파일이 이미 있으면 실패)
 fn keygen(path: &str) {
     use std::io::{Read, Write};
     let mut seed = [0u8; 32];
@@ -48,6 +52,7 @@ fn keygen(path: &str) {
     println!("{}", update::to_hex(&update::public_key_of(&seed)));
 }
 
+/// 하위 명령을 골라 실행함
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();

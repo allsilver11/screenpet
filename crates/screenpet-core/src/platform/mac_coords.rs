@@ -1,4 +1,4 @@
-//! macOS 좌표 변환 (순수 함수 — 리눅스에서도 테스트가 돈다).
+//! macOS 좌표 변환 (순수 함수 — 리눅스에서도 테스트가 돎).
 //!
 //! 좌표계 세 가지:
 //! - **Cocoa** (NSScreen.frame/visibleFrame, NSWindow.frame): 포인트, 원점은 주 화면 왼쪽 *아래*, y는 위로.
@@ -6,12 +6,12 @@
 //!   원점은 주 화면 왼쪽 *위*, y는 아래로.
 //! - **게임 세계 = tao/Tauri의 "물리 px"**: tao는 macOS에서 창 위치를 `CG 전역 포인트 × 그 창이 있는 화면의
 //!   backingScaleFactor`로 내주고 (`outer_position`), `set_position(PhysicalPosition)`은 같은 배율로 나눠
-//!   포인트로 되돌린다. 모니터 위치도 `CGDisplayBounds 원점 × 그 모니터 배율`이다.
+//!   포인트로 되돌림. 모니터 위치도 `CGDisplayBounds 원점 × 그 모니터 배율`임
 //!
-//! 그래서 이 모듈은 모든 사각형·점을 **그것이 놓인 화면의 배율**로 곱한다. 배율이 모두 같은 구성
-//! (모두 Retina 2×, 또는 모두 1×)에서는 이 공간이 연속이라 Windows의 물리 px처럼 쓸 수 있다.
+//! 그래서 이 모듈은 모든 사각형·점을 **그것이 놓인 화면의 배율**로 곱함. 배율이 모두 같은 구성
+//! (모두 Retina 2×, 또는 모두 1×)에서는 이 공간이 연속이라 Windows의 물리 px처럼 쓸 수 있음
 //! 배율이 섞인 다중 모니터에서는 tao 자신의 물리 좌표도 화면 경계에서 끊기므로 (틈·겹침) 여기서도
-//! 그대로 따라간다 — 화면 경계를 걸치는 창은 중심이 있는 화면의 배율을 쓴다.
+//! 그대로 따라감 — 화면 경계를 걸치는 창은 중심이 있는 화면의 배율을 씀
 
 use crate::geom::Rect;
 
@@ -33,13 +33,14 @@ pub fn cocoa_to_top_left(x: f64, y: f64, w: f64, h: f64, primary_height: f64) ->
     Rect::new(x, top, x + w, top + h)
 }
 
-/// 화면 목록을 다시 읽을 때를 잰다 (매 틱 메인 스레드로 보내지 않는다)
+/// 화면 목록을 다시 읽을 때를 잼 (매 틱 메인 스레드로 보내지 않음)
 #[derive(Debug, Default)]
 pub struct RefreshGate {
     last: Option<std::time::Instant>,
 }
 
 impl RefreshGate {
+    /// every가 지났으면 true를 돌려주고 시각을 적음
     pub fn due(&mut self, now: std::time::Instant, every: std::time::Duration) -> bool {
         if self.last.is_some_and(|t| now.duration_since(t) < every) {
             return false;
@@ -49,10 +50,12 @@ impl RefreshGate {
     }
 }
 
+/// (x, y)가 r 안에 있음 (왼쪽·위 포함)
 fn contains(r: &Rect, x: f64, y: f64) -> bool {
     r.left <= x && x < r.right && r.top <= y && y < r.bottom
 }
 
+/// r까지 거리의 제곱 (안이면 0)
 fn distance_sq(r: &Rect, x: f64, y: f64) -> f64 {
     let dx = (r.left - x).max(x - r.right).max(0.0);
     let dy = (r.top - y).max(y - r.bottom).max(0.0);
@@ -76,7 +79,7 @@ pub fn point_to_physical(screens: &[Screen], x: f64, y: f64) -> (f64, f64) {
     (x * k, y * k)
 }
 
-/// CG 전역 포인트 사각형 → 게임 세계. 중심이 있는 화면의 배율을 쓴다.
+/// CG 전역 포인트 사각형 → 게임 세계. 중심이 있는 화면의 배율을 씀
 pub fn rect_to_physical(screens: &[Screen], r: Rect) -> Rect {
     let k = scale_at(screens, (r.left + r.right) / 2.0, (r.top + r.bottom) / 2.0);
     Rect::new(r.left * k, r.top * k, r.right * k, r.bottom * k)
@@ -123,6 +126,7 @@ mod tests {
         assert_eq!(r, Rect::new(1440.0, -780.0, 3360.0, 300.0));
     }
 
+    /// 테스트: 나란히 놓인 두 화면
     fn two_screens() -> Vec<Screen> {
         let a = Rect::new(0.0, 0.0, 1440.0, 900.0);
         let b = Rect::new(1440.0, 0.0, 3360.0, 1080.0);

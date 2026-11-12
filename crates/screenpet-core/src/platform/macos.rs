@@ -1,7 +1,7 @@
-//! macOS 창·화면·커서 읽기. 좌표계와 배율 처리는 `mac_coords` 문서를 본다 —
+//! macOS 창·화면·커서 읽기. 좌표계와 배율 처리는 `mac_coords` 문서를 봄 —
 //! 게임 세계는 tao/Tauri의 "물리 px" (= CG 전역 포인트 × 그 화면의 backingScaleFactor).
 //!
-//! 창 *제목*은 읽지 않는다 (제목만 화면 기록 권한이 필요하다). 경계·레이어·pid·알파는 권한 없이 읽힌다.
+//! 창 *제목*은 읽지 않음 (제목만 화면 기록 권한이 필요함). 경계·레이어·pid·알파는 권한 없이 읽힘
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -26,16 +26,17 @@ use crate::geom::{Rect, WindowInfo};
 use crate::icon::{self, IconImage};
 use crate::typing;
 
-/// 이보다 작은 창 (물리 px)은 디딤판이 아니다 — Windows와 같은 값
+/// 이보다 작은 창 (물리 px)은 디딤판이 아님 — Windows와 같은 값
 const MIN_SIZE: f64 = 50.0;
 
-/// 창·화면·커서는 상태 없이 읽는다. 상태는 ⌨️ 타자 응원의 지난 키 누름 카운터 값뿐
+/// 창·화면·커서는 상태 없이 읽음. 상태는 ⌨️ 타자 응원의 지난 키 누름 카운터 값뿐
 #[derive(Default)]
 pub struct MacSource {
     last_keys: Option<u32>,
 }
 
 impl WindowSource for MacSource {
+    /// 보이는 창 목록 (CGWindowList, 앞 → 뒤, 내 앱 창 빼고)
     fn windows(&mut self) -> Vec<WindowInfo> {
         let screens = screens();
         let own_pid = std::process::id() as i64;
@@ -49,11 +50,12 @@ impl WindowSource for MacSource {
         list.iter().filter_map(|info| window_info(&info, &screens, own_pid)).collect()
     }
 
+    /// 화면별 작업 영역 (메뉴 막대·Dock 뺌, 물리 px)
     fn work_areas(&mut self) -> Vec<Rect> {
         mac_coords::work_areas_physical(&screens())
     }
 
-    /// 창 하나만 묻는다 (kCGWindowListOptionIncludingWindow) — 전체 목록보다 훨씬 싸다
+    /// 창 하나만 물음 (kCGWindowListOptionIncludingWindow) — 전체 목록보다 훨씬 싸임
     fn rect_of(&mut self, id: u64) -> Option<Rect> {
         let id = u32::try_from(id).ok()?;
         let list = CGWindowListCopyWindowInfo(CGWindowListOption::OptionIncludingWindow, id)?;
@@ -64,28 +66,31 @@ impl WindowSource for MacSource {
         list.iter().filter_map(|info| window_info(&info, &screens, own_pid)).find(|w| w.id == id as u64).map(|w| w.rect)
     }
 
+    /// 커서 자리 (물리 px)
     fn cursor(&mut self) -> (f64, f64) {
         let Some(ev) = CGEvent::new(None) else { return (0.0, 0.0) };
         let p = CGEvent::location(Some(&ev));
         mac_coords::point_to_physical(&screens(), p.x, p.y)
     }
 
+    /// 왼쪽 버튼이 눌려 있음
     fn left_button_down(&mut self) -> bool {
         CGEventSource::button_state(CGEventSourceStateID::CombinedSessionState, CGMouseButton::Left)
     }
 
+    /// 오른쪽 버튼이 눌려 있음
     fn right_button_down(&mut self) -> bool {
         CGEventSource::button_state(CGEventSourceStateID::CombinedSessionState, CGMouseButton::Right)
     }
 
-    /// 다른 앱이 앞에 있을 때 일반 키 상태는 macOS 10.15+에서 "입력 모니터링" 권한이 없으면 항상 false일 수 있다
-    /// (권한을 요청하지는 않는다 — 오른쪽 버튼으로도 거둘 수 있다).
+    /// 다른 앱이 앞에 있을 때 일반 키 상태는 macOS 10.15+에서 "입력 모니터링" 권한이 없으면 항상 false일 수 있음
+    /// (권한을 요청하지는 않음 — 오른쪽 버튼으로도 거둘 수 있음).
     fn escape_down(&mut self) -> bool {
         CGEventSource::key_state(CGEventSourceStateID::CombinedSessionState, KVK_ESCAPE)
     }
 
-    /// 조작 모드 키 — 읽기만 한다. "입력 모니터링" 권한이 없으면 다른 앱이 앞에 있을 때 늘 안 눌림으로 읽힐 수 있다
-    /// (게임 루프가 한 번 권한 안내 말풍선을 띄운다)
+    /// 조작 모드 키 — 읽기만 함. "입력 모니터링" 권한이 없으면 다른 앱이 앞에 있을 때 늘 안 눌림으로 읽힐 수 있음
+    /// (게임 루프가 한 번 권한 안내 말풍선을 띄움)
     fn control_keys(&mut self) -> ControlInput {
         let down = |key: u16| CGEventSource::key_state(CGEventSourceStateID::CombinedSessionState, key);
         ControlInput {
@@ -99,8 +104,8 @@ impl WindowSource for MacSource {
     }
 
     // ---- ⌨️ typing sensor: 개수만 센다 (crate::typing)
-    /// 시스템의 키 누름 카운터 (CGEventSourceCounterForEventType, HID 시스템 상태) 하나만 읽는다 — 어떤 키인지는 없다.
-    /// 이벤트 탭이 아니고 권한 창도 띄우지 않는다 (권한은 게임 루프가 이유를 말한 뒤 따로 묻는다 — request_typing_permission). "입력 모니터링" 권한이 없으면 게임 루프는 이것을 부르지 않는다
+    /// 시스템의 키 누름 카운터 (CGEventSourceCounterForEventType, HID 시스템 상태) 하나만 읽음 — 어떤 키인지는 없음
+    /// 이벤트 탭이 아니고 권한 창도 띄우지 않음 (권한은 게임 루프가 이유를 말한 뒤 따로 물음 — request_typing_permission). "입력 모니터링" 권한이 없으면 게임 루프는 이것을 부르지 않음
     fn key_presses(&mut self) -> Option<u32> {
         let now = CGEventSource::counter_for_event_type(CGEventSourceStateID::HIDSystemState, CGEventType::KeyDown);
         let presses = typing::counter_delta(self.last_keys, now);
@@ -109,25 +114,25 @@ impl WindowSource for MacSource {
     }
     // ---- end typing sensor
 
-    /// 키 누름 카운터는 "입력 모니터링" 권한이 있어야 오른다. 확인만 한다 (창을 띄우지 않는다)
+    /// 키 누름 카운터는 "입력 모니터링" 권한이 있어야 오름. 확인만 함 (창을 띄우지 않음)
     fn typing_permission(&mut self) -> Option<bool> {
         Some(CGPreflightListenEventAccess())
     }
 
-    /// 시스템의 "키 입력 받기" 창을 띄운다 (권한을 정한 적 없을 때만 — 거절했으면 조용하다. 그때는 메뉴의
-    /// "⌨️ 타자 응원 — Mac 권한 켜기…"가 시스템 설정을 연다). 게임 루프가 말풍선으로 먼저 이유를 말한 뒤에만 부른다
+    /// 시스템의 "키 입력 받기" 창을 띄움 (권한을 정한 적 없을 때만 — 거절했으면 조용함. 그때는 메뉴의
+    /// "⌨️ 타자 응원 — Mac 권한 켜기…"가 시스템 설정을 엶). 게임 루프가 말풍선으로 먼저 이유를 말한 뒤에만 부름
     fn request_typing_permission(&mut self) {
         let _ = CGRequestListenEventAccess();
     }
 
-    /// 권한 없이 읽힌다
+    /// 권한 없이 읽힘
     fn idle_seconds(&mut self) -> Option<f64> {
         let secs = CGEventSource::seconds_since_last_event_type(CGEventSourceStateID::CombinedSessionState, ANY_INPUT_EVENT);
         secs.is_finite().then_some(secs.max(0.0))
     }
 
-    /// 📌 그 창을 띄운 앱의 아이콘 (NSRunningApplication.icon — 손쉬운 사용·화면 기록 권한이 필요 없다)을 px × px RGBA로.
-    /// 창 번호로 주인 pid만 다시 묻는다 (CGWindowList — 제목은 읽지 않는다). 앱 이름·번들 id는 읽지 않는다
+    /// 📌 그 창을 띄운 앱의 아이콘 (NSRunningApplication.icon — 손쉬운 사용·화면 기록 권한이 필요 없음)을 px × px RGBA로.
+    /// 창 번호로 주인 pid만 다시 물음 (CGWindowList — 제목은 읽지 않음). 앱 이름·번들 id는 읽지 않음
     fn app_icon(&mut self, window: u64, px: u32) -> Option<IconImage> {
         if px == 0 || px > 512 {
             return None;
@@ -191,7 +196,7 @@ fn window_info(info: &CFDictionary<CFString, CFType>, screens: &[Screen], own_pi
     (rect.width() >= MIN_SIZE && rect.height() >= MIN_SIZE).then_some(WindowInfo { id, rect })
 }
 
-/// kCGAnyInputEventType (~0) — 바인딩에 이름이 없다
+/// kCGAnyInputEventType (~0) — 바인딩에 이름이 없음
 const ANY_INPUT_EVENT: CGEventType = CGEventType(u32::MAX);
 /// Carbon kVK_Escape
 const KVK_ESCAPE: u16 = 0x35;
@@ -204,6 +209,7 @@ const KVK_SPACE: u16 = 0x31;
 const KVK_SHIFT: u16 = 0x38;
 const KVK_RIGHT_SHIFT: u16 = 0x3C;
 
+/// 창 정보 사전에서 숫자 값을 꺼냄
 fn number(info: &CFDictionary<CFString, CFType>, key: &CFString) -> Option<CFRetained<CFNumber>> {
     info.get(key)?.downcast::<CFNumber>().ok()
 }
@@ -218,18 +224,21 @@ fn number(info: &CFDictionary<CFString, CFType>, key: &CFString) -> Option<CFRet
 static CACHE: OnceLock<Mutex<Option<Vec<Screen>>>> = OnceLock::new();
 static REFRESHING: AtomicBool = AtomicBool::new(false);
 
-/// 화면 목록을 다시 읽는 간격 (모니터를 꽂거나 뽑으면 이만큼 뒤에 안다)
+/// 화면 목록을 다시 읽는 간격 (모니터를 꽂거나 뽑으면 이만큼 뒤에 앎)
 const SCREEN_REFRESH: Duration = Duration::from_secs(1);
 
+/// 화면 다시 읽기 박자기 (전역 하나)
 fn gate() -> &'static Mutex<RefreshGate> {
     static GATE: OnceLock<Mutex<RefreshGate>> = OnceLock::new();
     GATE.get_or_init(|| Mutex::new(RefreshGate::default()))
 }
 
+/// 마지막으로 읽은 화면 목록 (전역 하나)
 fn cache() -> &'static Mutex<Option<Vec<Screen>>> {
     CACHE.get_or_init(|| Mutex::new(None))
 }
 
+/// 화면 목록: 메인 스레드면 바로 읽고, 아니면 저장된 것을 쓰고 가끔 메인 큐에 다시 읽기를 걺
 fn screens() -> Vec<Screen> {
     if let Some(mtm) = MainThreadMarker::new() {
         let list = read_ns_screens(mtm);
@@ -253,6 +262,7 @@ fn screens() -> Vec<Screen> {
     cg_screens()
 }
 
+/// NSScreen 목록을 읽어 CG 전역 포인트 화면들로 바꿈 (메인 스레드에서만)
 fn read_ns_screens(mtm: MainThreadMarker) -> Vec<Screen> {
     let all = NSScreen::screens(mtm);
     // Cocoa 원점은 screens[0] (메뉴 막대가 있는 주 화면)의 왼쪽 아래
@@ -270,7 +280,7 @@ fn read_ns_screens(mtm: MainThreadMarker) -> Vec<Screen> {
         .collect()
 }
 
-/// 아무 스레드에서나 읽히는 대체 목록 — CGDisplayBounds는 이미 왼쪽 위 원점 포인트다.
+/// 아무 스레드에서나 읽히는 대체 목록 — CGDisplayBounds는 이미 왼쪽 위 원점 포인트임
 /// 배율은 디스플레이 모드의 픽셀 너비 / 포인트 너비.
 fn cg_screens() -> Vec<Screen> {
     let mut ids = [0 as CGDirectDisplayID; 16];

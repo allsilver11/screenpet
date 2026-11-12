@@ -1,3 +1,5 @@
+//! 🖥️ OS에서 창·작업 영역·커서·키를 읽는 층 (WindowSource) — Windows는 win32.rs, macOS는 macos.rs
+//! 게임 루프가 default_source()로 이 OS의 것을 받아 매 틱 읽음. 지원하지 않는 OS는 NullSource (바닥만 있는 세계)
 use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
 use crate::icon::IconImage;
@@ -14,18 +16,20 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::MacSource;
 
+/// OS에서 세계를 읽는 것 (게임 루프 스레드에서 씀)
 pub trait WindowSource: Send {
     /// 다른 프로세스의 보이는 최상위 창, 앞→뒤(Z-order) 순.
     fn windows(&mut self) -> Vec<WindowInfo>;
     /// 모니터별 작업 영역 (작업표시줄 제외).
     fn work_areas(&mut self) -> Vec<Rect>;
     /// 창 하나의 지금 경계 (사라졌거나 숨었거나 최소화됐으면 None). 매 틱 동물이 기대고 있는 창에만 부르므로
-    /// 싸야 한다 — 기본 구현은 전체 목록에서 찾는다
+    /// 싸야 함 — 기본 구현은 전체 목록에서 찾음
     fn rect_of(&mut self, id: u64) -> Option<Rect> {
         self.windows().into_iter().find(|w| w.id == id).map(|w| w.rect)
     }
     /// 전역 커서 위치 (물리 px — macOS는 CG 포인트 × 그 화면 배율, tao와 같은 공간).
     fn cursor(&mut self) -> (f64, f64);
+    /// 왼쪽 버튼이 눌려 있음
     fn left_button_down(&mut self) -> bool;
     /// 오른쪽 버튼 (직접 주기 거두기)
     fn right_button_down(&mut self) -> bool {
@@ -35,59 +39,64 @@ pub trait WindowSource: Send {
     fn escape_down(&mut self) -> bool {
         false
     }
-    /// 조작 모드 키 (방향키·Space·Shift). 읽기만 한다 — 키는 앞에 있는 다른 앱에도 그대로 간다.
-    /// 게임 루프는 조작 모드 동안만 부른다. 기본: 아무것도 안 눌림
+    /// 조작 모드 키 (방향키·Space·Shift). 읽기만 함 — 키는 앞에 있는 다른 앱에도 그대로 감
+    /// 게임 루프는 조작 모드 동안만 부름. 기본: 아무것도 안 눌림
     fn control_keys(&mut self) -> ControlInput {
         ControlInput::default()
     }
-    /// 마지막 사용자 입력(키보드·마우스) 뒤 지난 초. 알 수 없으면 None — 자리를 비웠다고 보지 않는다 (presence.rs)
+    /// 마지막 사용자 입력(키보드·마우스) 뒤 지난 초. 알 수 없으면 None — 자리를 비웠다고 보지 않음 (presence.rs)
     fn idle_seconds(&mut self) -> Option<f64> {
         None
     }
-    /// 📌 창(windows()의 id)을 띄운 앱의 아이콘을 한 변 px의 RGBA로 (작업표시줄 장난감 — taskbar.rs). 못 읽으면 None — 그러면 장난감이 생기지 않을 뿐이다.
-    /// 그림 칸만 읽는다 (앱 이름·창 제목·경로는 돌려주지도 남기지도 않는다). 권한을 새로 묻지 않는다. 느릴 수 있어 게임 루프 밖 스레드에서 부른다
+    /// 📌 창(windows()의 id)을 띄운 앱의 아이콘을 한 변 px의 RGBA로 (작업표시줄 장난감 — taskbar.rs). 못 읽으면 None — 그러면 장난감이 생기지 않을 뿐임
+    /// 그림 칸만 읽음 (앱 이름·창 제목·경로는 돌려주지도 남기지도 않음). 권한을 새로 묻지 않음. 느릴 수 있어 게임 루프 밖 스레드에서 부름
     fn app_icon(&mut self, _window: u64, _px: u32) -> Option<IconImage> {
         None
     }
-    /// ⌨️ 타자 응원: 지난번 부른 뒤 새로 눌린 키 *개수*만 (crate::typing). 어떤 키인지는 읽지도 남기지도 않는다.
-    /// 권한을 묻지 않는다. 게임 루프는 타자 응원이 켜져 있고 내 흐물이가 있을 때만 매 틱 부른다. None = 셀 수 없는 OS
+    /// ⌨️ 타자 응원: 지난번 부른 뒤 새로 눌린 키 *개수*만 (crate::typing). 어떤 키인지는 읽지도 남기지도 않음
+    /// 권한을 묻지 않음. 게임 루프는 타자 응원이 켜져 있고 내 흐물이가 있을 때만 매 틱 부름. None = 셀 수 없는 OS
     fn key_presses(&mut self) -> Option<u32> {
         None
     }
     /// ⌨️ 타자 응원에 OS 권한이 있나: None = 권한이 필요 없는 OS (Windows), Some(있음?) = macOS "입력 모니터링".
-    /// 묻지 않고 확인만 한다 (싸다 — 몇 초에 한 번 불러도 된다)
+    /// 묻지 않고 확인만 함 (싸임 — 몇 초에 한 번 불러도 됨)
     fn typing_permission(&mut self) -> Option<bool> {
         None
     }
-    /// 그 권한을 시스템 창으로 묻는다 (macOS: 처음 한 번만 창이 뜬다 — 이미 거절했으면 조용하다).
-    /// 게임 루프가 정한 때에만 부른다 (crate::typing::PermissionAsk). 기본: 아무것도 안 한다
+    /// 그 권한을 시스템 창으로 물음 (macOS: 처음 한 번만 창이 뜸 — 이미 거절했으면 조용함).
+    /// 게임 루프가 정한 때에만 부름 (crate::typing::PermissionAsk). 기본: 아무것도 안 함
     fn request_typing_permission(&mut self) {}
 }
 
-/// 이 OS에서 앱 아이콘을 읽을 수 있다 (아니면 작업표시줄 놀이를 하지 않는다)
+/// 이 OS에서 앱 아이콘을 읽을 수 있음 (아니면 작업표시줄 놀이를 하지 않음)
 pub const APP_ICONS: bool = cfg!(any(windows, target_os = "macos"));
 
-/// 지원하지 않는 OS용. 바닥(기본 화면)만 있는 세계가 된다.
+/// 지원하지 않는 OS용. 바닥(기본 화면)만 있는 세계가 됨
 pub struct NullSource;
 
 impl WindowSource for NullSource {
+    /// 창 없음
     fn windows(&mut self) -> Vec<WindowInfo> {
         Vec::new()
     }
 
+    /// 작업 영역 없음 (World가 기본 화면을 씀)
     fn work_areas(&mut self) -> Vec<Rect> {
         Vec::new()
     }
 
+    /// 커서는 늘 (0, 0)
     fn cursor(&mut self) -> (f64, f64) {
         (0.0, 0.0)
     }
 
+    /// 버튼은 늘 안 눌림
     fn left_button_down(&mut self) -> bool {
         false
     }
 }
 
+/// 이 OS의 WindowSource
 pub fn default_source() -> Box<dyn WindowSource> {
     #[cfg(windows)]
     return Box::new(Win32Source::default());

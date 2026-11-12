@@ -1,3 +1,6 @@
+//! ⚙️ 사용자 설정 (config.json) — 고른 동물·돌보기·친구 목록·크기·날씨·선물 도감 등 앱이 남기는 모든 것
+//! 쓰기는 임시 파일(config.json.tmp)에 쓰고 바꿔 끼우며 예전 것은 .bak으로 둠. 읽다 깨지면 기본값으로 돌고 덮어쓰지 않음
+//! 친구 이름 다듬기(clean_text·sanitize_name), 작은 로그 파일, 하우스 자리(HouseSpot)도 여기 있음
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -19,9 +22,10 @@ const FILE: &str = "config.json";
 const TMP_FILE: &str = "config.json.tmp";
 const BAK_FILE: &str = "config.json.bak";
 
+/// config.json 한 장 (필드마다 serde 기본값이 있어 예전 파일도 읽힘)
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    /// 파일을 읽지 못해 기본값으로 돈다 — 이 실행은 파일을 덮어쓰지 않는다 (친구 목록을 지키려고)
+    /// 파일을 읽지 못해 기본값으로 돎 — 이 실행은 파일을 덮어쓰지 않음 (친구 목록을 지키려고)
     #[serde(skip)]
     pub keep_file: bool,
     /// 마지막으로 고른 동물 폴더 이름
@@ -32,10 +36,10 @@ pub struct Config {
     /// 하우스 안에 있음 (동물이 아니라 설치마다 하나) — 다음 실행도 하우스 안에서 시작
     #[serde(default)]
     pub housed: bool,
-    /// 이 설치의 고유 id (친구 찾기 알림·친구 목록의 이름표). 처음 실행 때 만든다
+    /// 이 설치의 고유 id (친구 찾기 알림·친구 목록의 이름표). 처음 실행 때 만듦
     #[serde(default)]
     pub install_id: Option<String>,
-    /// 친구 목록 (짝맞추기로 고정한 공개키와 연결된 화면 끝). 잘못된 항목 하나는 건너뛴다
+    /// 친구 목록 (짝맞추기로 고정한 공개키와 연결된 화면 끝). 잘못된 항목 하나는 건너뜀
     #[serde(default, deserialize_with = "lenient_friends")]
     pub friends: Vec<Friend>,
     /// 하우스를 끌어다 놓은 자리. 없으면 (또는 그 모니터가 없어졌으면) 주 모니터 오른쪽 아래 구석
@@ -47,10 +51,10 @@ pub struct Config {
     /// 친구들에게 보이는 내 이름 (친구 화면의 내 동물 이름표). 없으면 컴퓨터 사용자 이름
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_name: Option<String>,
-    /// 📬 개발자 비밀키 (hex) — 개발자 컴퓨터에만 손으로 넣는다. 있으면 편지함 메뉴가 생기고 건의 편지를 연다 (spec 2026-11-10)
+    /// 📬 개발자 비밀키 (hex) — 개발자 컴퓨터에만 손으로 넣음. 있으면 편지함 메뉴가 생기고 건의 편지를 엶 (spec 2026-11-10)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub dev_key: Option<String>,
-    /// 🌨️ 날씨 효과를 메뉴에서 켰다 (기본은 꺼짐)
+    /// 🌨️ 날씨 효과를 메뉴에서 켰음 (기본은 꺼짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub weather_on: bool,
     /// ☀️ 실제 날씨 / 📅 계절 날씨. 모르는 값이면 실제 날씨
@@ -59,7 +63,7 @@ pub struct Config {
     /// 📍 실제 날씨를 볼 도시. 모르는 값이면 용인
     #[serde(default, skip_serializing_if = "Place::is_default", deserialize_with = "lenient")]
     pub weather_place: Place,
-    /// 🎁 주운 선물 (도감). 잘못된 줄은 건너뛴다
+    /// 🎁 주운 선물 (도감). 잘못된 줄은 건너뜀
     #[serde(default, skip_serializing_if = "GiftBook::is_empty")]
     pub gifts: GiftBook,
     /// 💩 똥피하기 내 최고 기록 (피한 똥 수). 모르는 값이면 0
@@ -71,42 +75,42 @@ pub struct Config {
     /// 📏 물건 크기 (%). 없으면 100
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     object_size_pct: Option<u32>,
-    /// 🐾 커서 장난을 메뉴에서 껐다 (기본은 켜짐)
+    /// 🐾 커서 장난을 메뉴에서 껐음 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cursor_play_off: bool,
-    /// ⌨️ 타자 응원을 메뉴에서 껐다 (기본은 켜짐). 꺼져 있으면 키 누름 수도 읽지 않는다
+    /// ⌨️ 타자 응원을 메뉴에서 껐음 (기본은 켜짐). 꺼져 있으면 키 누름 수도 읽지 않음
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub typing_cheer_off: bool,
-    /// 🍎 ⌨️ 타자 응원용 macOS 입력 모니터링 권한을 물어본 앱 버전 (버전마다 한 번만 — ad-hoc 서명이라 업데이트하면 권한이 풀릴 수 있다)
+    /// 🍎 ⌨️ 타자 응원용 macOS 입력 모니터링 권한을 물어본 앱 버전 (버전마다 한 번만 — ad-hoc 서명이라 업데이트하면 권한이 풀릴 수 있음)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub input_monitoring_asked: Option<String>,
-    /// 💩 똥 싸기를 메뉴에서 껐다 (기본은 켜짐)
+    /// 💩 똥 싸기를 메뉴에서 껐음 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub poop_off: bool,
-    /// ⏱️ 집중 친구 길이 (켜져 있는지는 남기지 않는다). 모르는 값이면 25/5
+    /// ⏱️ 집중 친구 길이 (켜져 있는지는 남기지 않음). 모르는 값이면 25/5
     #[serde(default, skip_serializing_if = "FocusLength::is_short", deserialize_with = "lenient")]
     pub focus_length: FocusLength,
     /// 오늘의 아침·점심 인사를 했는지 (앱을 다시 켜도 하루 한 번)
     #[serde(default, skip_serializing_if = "DailyMarks::is_empty")]
     pub daily: DailyMarks,
-    /// 캐릭터 스타일 (동글동글 / 픽셀, 그림만 다르다). 모르는 값이면 동글동글
+    /// 캐릭터 스타일 (동글동글 / 픽셀, 그림만 다름). 모르는 값이면 동글동글
     #[serde(default, skip_serializing_if = "PetStyle::is_round", deserialize_with = "lenient")]
     pub style: PetStyle,
-    /// 🎨 흐물이 몸 색 (잉크 선 동물만 칠한다 — pet.json tint). 모르는 값이면 기본
+    /// 🎨 흐물이 몸 색 (잉크 선 동물만 칠함 — pet.json tint). 모르는 값이면 기본
     #[serde(default, skip_serializing_if = "BodyTint::is_default", deserialize_with = "lenient")]
     pub tint: BodyTint,
-    /// 메뉴 "사다리 초대 받기"를 껐다 (끄면 초대 창 없이 자동으로 거절)
+    /// 메뉴 "사다리 초대 받기"를 껐음 (끄면 초대 창 없이 자동으로 거절)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ladder_invites_off: bool,
     /// 가장 최근 사다리타기 한 판의 결과 표 (메뉴 "지난 사다리 결과"). 망가진 값이면 없는 것으로
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub last_ladder: Option<LastLadder>,
-    /// 🚀 컴퓨터 켜면 자동 실행: None = 아직 정한 적 없음 (이 버전을 처음 켜면 켜고 Some(true)로 적는다), 그 뒤로는 사용자가 고른 것
+    /// 🚀 컴퓨터 켜면 자동 실행: None = 아직 정한 적 없음 (이 버전을 처음 켜면 켜고 Some(true)로 적음), 그 뒤로는 사용자가 고른 것
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub autostart: Option<bool>,
 }
 
-/// 지난 사다리타기 결과 (보여 주기만 한다 — 이름은 그때 화면에 보인 이름)
+/// 지난 사다리타기 결과 (보여 주기만 함 — 이름은 그때 화면에 보인 이름)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LastLadder {
     /// 방장 이름 (내가 방장이면 내 이름)
@@ -115,15 +119,20 @@ pub struct LastLadder {
     pub at: i64,
     /// 공정성 지문 이모지 4개
     pub print: String,
+    /// 줄마다 이름과 결과
     pub rows: Vec<LastLadderRow>,
 }
 
+/// 지난 사다리 한 줄
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LastLadderRow {
+    /// 참가자 이름
     pub name: String,
+    /// 받은 결과
     pub result: String,
     /// "good" | "bad" | "none"
     pub mood: String,
+    /// 내 줄임
     #[serde(default)]
     pub me: bool,
 }
@@ -153,15 +162,17 @@ pub fn sanitize_name(raw: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
-/// 값이 깨졌으면 기본값으로 — 설정 전체를 버리지 않는다
+/// 값이 깨졌으면 기본값으로 — 설정 전체를 버리지 않음
 fn lenient<'de, T: serde::de::DeserializeOwned + Default, D: serde::Deserializer<'de>>(d: D) -> Result<T, D::Error> {
     Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
 }
 
 /// 📏 크기 조절 슬라이더의 범위와 기본값 (%)
 pub const SIZE_PCT_RANGE: (u32, u32) = (50, 150);
+/// 크기 기본값 (%)
 pub const SIZE_PCT_DEFAULT: u32 = 100;
 
+/// 크기 %를 SIZE_PCT_RANGE 안으로 (없으면 기본값)
 fn clean_size_pct(pct: Option<u32>) -> u32 {
     pct.unwrap_or(SIZE_PCT_DEFAULT).clamp(SIZE_PCT_RANGE.0, SIZE_PCT_RANGE.1)
 }
@@ -169,10 +180,14 @@ fn clean_size_pct(pct: Option<u32>) -> u32 {
 /// 친구: id(이름표) + 고정된 정적 공개키(신원) + 표시 이름 + 내 화면의 어느 끝에 연결됐는지
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Friend {
+    /// 친구 id (이름표)
     pub id: String,
+    /// 친구가 정한 이름
     pub name: String,
+    /// 고정된 정적 공개키 (신원)
     #[serde(with = "hex32")]
     pub public_key: [u8; 32],
+    /// 내 화면의 어느 끝에 연결됐는지
     #[serde(with = "SideDef")]
     pub side: Side,
     /// 내가 붙인 별명 (그 친구 동물의 이름표·메뉴에 이름 대신). 없으면 친구가 정한 이름
@@ -181,31 +196,33 @@ pub struct Friend {
     /// 💩 똥피하기 그 친구의 최고 기록 (친구가 알려 준 것 — 받은 적 없으면 None)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub dodge_best: Option<u32>,
-    /// 📱 내 다른 컴퓨터: 연결 코드가 맞아 둘이 나눠 가진 비밀. 연결될 때마다 서로 이 비밀을 증명해야 친구 목록을 나눈다.
-    /// 컴퓨터는 둘까지라 이 값이 있는 친구는 하나뿐이다 (net이 정한다). 깨진 값은 연결 없음으로 읽는다
+    /// 📱 내 다른 컴퓨터: 연결 코드가 맞아 둘이 나눠 가진 비밀. 연결될 때마다 서로 이 비밀을 증명해야 친구 목록을 나눔
+    /// 컴퓨터는 둘까지라 이 값이 있는 친구는 하나뿐임 (net이 정함). 깨진 값은 연결 없음으로 읽음
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub device_secret: Option<DeviceSecret>,
-    /// 이 친구 id가 자기 다른 컴퓨터라고 소개했다 (그 친구를 지우면 같이 지워진다)
+    /// 이 친구 id가 자기 다른 컴퓨터라고 소개했음 (그 친구를 지우면 같이 지워짐)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub via: Option<String>,
-    /// 짝맞추기 없이 (내 다른 컴퓨터나 친구의 소개로) 들어왔고, 아직 상대가 나를 아는지 못 봤다
+    /// 짝맞추기 없이 (내 다른 컴퓨터나 친구의 소개로) 들어왔고, 아직 상대가 나를 아는지 못 봤음
     #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient")]
     pub pending: bool,
-    /// 확인 못 한 채로 들어온 때 (유닉스 초) — 일주일이 지나도 확인 못 하면 net이 지운다. 껐다 켜도 이어 센다
+    /// 확인 못 한 채로 들어온 때 (유닉스 초) — 일주일이 지나도 확인 못 하면 net이 지움. 껐다 켜도 이어 셈
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub pending_since: Option<u64>,
 }
 
-/// 📱 내 다른 컴퓨터와 나눈 비밀 (파일에는 hex 64자). Debug로 찍어도 값은 나오지 않는다
+/// 📱 내 다른 컴퓨터와 나눈 비밀 (파일에는 hex 64자). Debug로 찍어도 값은 나오지 않음
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceSecret(#[serde(with = "hex32")] pub [u8; 32]);
 
 impl std::fmt::Debug for DeviceSecret {
+    /// 비밀 값은 찍지 않음
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("DeviceSecret(..)")
     }
 }
 
+/// serde: 0이면 적지 않음
 fn is_zero(n: &u32) -> bool {
     *n == 0
 }
@@ -217,7 +234,7 @@ impl Friend {
     }
 }
 
-/// 친구 목록을 읽되 잘못된 항목은 (로그만 남기고) 건너뛴다 — 하나 때문에 설정 전체를 버리지 않는다
+/// 친구 목록을 읽되 잘못된 항목은 (로그만 남기고) 건너뜀 — 하나 때문에 설정 전체를 버리지 않음
 fn lenient_friends<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Friend>, D::Error> {
     let items = Vec::<serde_json::Value>::deserialize(d)?;
     Ok(items
@@ -241,10 +258,11 @@ enum SideDef {
     Down,
 }
 
-/// 이름이 바뀐 동물 (예전 이름, 지금 이름) — 불러올 때 옮긴다 (retire_pets)
+/// 이름이 바뀐 동물 (예전 이름, 지금 이름) — 불러올 때 옮김 (retire_pets)
 pub const RENAMED_PETS: [(&str, &str); 1] = [("beaver", "bear")];
-/// 더 이상 없는 동물 (v0.5.5: 곰·꿀벌·강아지) — 고른 동물이면 RETIRED_TO로 바꾸고, 키운 기록은 RETIRED_TO에 넘긴다
+/// 더 이상 없는 동물 (v0.5.5: 곰·꿀벌·강아지) — 고른 동물이면 RETIRED_TO로 바꾸고, 키운 기록은 RETIRED_TO에 넘김
 pub const RETIRED_PETS: [&str; 3] = ["bear", "bee", "dog"];
+/// 없어진 동물 대신 고르는 동물
 pub const RETIRED_TO: &str = "cat";
 
 /// 돌보기 기록 중 더 많이 큰 쪽 (단계, 같으면 체력)
@@ -254,7 +272,7 @@ fn further_grown(a: &Care, b: &Care) -> bool {
 }
 
 impl Config {
-    /// 🚀 자동 실행을 켤지: 정한 적이 없으면 켜고 그렇게 적는다. (켤지, 설정이 바뀌어 저장해야 하는지)
+    /// 🚀 자동 실행을 켤지: 정한 적이 없으면 켜고 그렇게 적음. (켤지, 설정이 바뀌어 저장해야 하는지)
     pub fn settle_autostart(&mut self) -> (bool, bool) {
         match self.autostart {
             Some(on) => (on, false),
@@ -265,8 +283,8 @@ impl Config {
         }
     }
 
-    /// 이름이 바뀌었거나 없어진 동물을 지금 동물로 옮긴다 (`load`가 부른다). 없어진 동물이 골라져 있으면 고양이로 바꾸고,
-    /// 그 동물들의 기록 중 가장 많이 큰 것을 (고양이 기록보다 더 컸을 때만) 고양이에게 넘긴다 — 키운 만큼은 잃지 않는다.
+    /// 이름이 바뀌었거나 없어진 동물을 지금 동물로 옮김 (`load`가 부름). 없어진 동물이 골라져 있으면 고양이로 바꾸고,
+    /// 그 동물들의 기록 중 가장 많이 큰 것을 (고양이 기록보다 더 컸을 때만) 고양이에게 넘김 — 키운 만큼은 잃지 않음
     pub fn retire_pets(&mut self) {
         for (from, to) in RENAMED_PETS {
             self.rename_pet(from, to);
@@ -286,7 +304,7 @@ impl Config {
         }
     }
 
-    /// 없어진 동물을 다른 동물로 옮긴다 (선택과 돌보기 상태). 대상에 이미 기록이 있으면 그쪽을 남긴다.
+    /// 없어진 동물을 다른 동물로 옮김 (선택과 돌보기 상태). 대상에 이미 기록이 있으면 그쪽을 남김
     pub fn rename_pet(&mut self, from: &str, to: &str) {
         if self.pet.as_deref() == Some(from) {
             self.pet = Some(to.to_string());
@@ -296,7 +314,7 @@ impl Config {
         }
     }
 
-    /// 설치 id가 없으면 만든다. 바뀌었으면 true (저장해야 한다)
+    /// 설치 id가 없으면 만듦. 바뀌었으면 true (저장해야 함)
     pub fn ensure_install_id(&mut self, new_id: impl FnOnce() -> String) -> bool {
         if self.install_id.as_deref().is_some_and(|id| !id.is_empty()) {
             return false;
@@ -305,6 +323,7 @@ impl Config {
         true
     }
 
+    /// id인 친구
     pub fn friend(&self, id: &str) -> Option<&Friend> {
         self.friends.iter().find(|f| f.id == id)
     }
@@ -319,7 +338,7 @@ impl Config {
         }
     }
 
-    /// 친구를 더하거나 이름·키를 고친다 (끝은 그대로). 같은 키를 가진 다른 id는 지운다. 바뀌었으면 true
+    /// 친구를 더하거나 이름·키를 고침 (끝은 그대로). 같은 키를 가진 다른 id는 지움. 바뀌었으면 true
     pub fn upsert_friend(&mut self, id: &str, name: &str, public_key: [u8; 32]) -> bool {
         let before = self.friends.len();
         self.friends.retain(|f| f.id == id || f.public_key != public_key);
@@ -341,7 +360,7 @@ impl Config {
         changed
     }
 
-    /// 친구에게 별명을 붙인다 (비면 지운다 — 친구가 정한 이름으로). 바뀌었으면 true
+    /// 친구에게 별명을 붙임 (비면 지움 — 친구가 정한 이름으로). 바뀌었으면 true
     pub fn set_friend_nickname(&mut self, id: &str, raw: &str) -> bool {
         let nickname = sanitize_name(raw);
         match self.friends.iter_mut().find(|f| f.id == id) {
@@ -353,7 +372,7 @@ impl Config {
         }
     }
 
-    /// 친구들에게 보일 내 이름을 정한다 (비면 지운다 — 컴퓨터 사용자 이름으로). 바뀌었으면 true
+    /// 친구들에게 보일 내 이름을 정함 (비면 지움 — 컴퓨터 사용자 이름으로). 바뀌었으면 true
     pub fn set_owner_name(&mut self, raw: &str) -> bool {
         let name = sanitize_name(raw);
         let changed = self.owner_name != name;
@@ -361,10 +380,12 @@ impl Config {
         changed
     }
 
+    /// 동물 크기 % (범위 안으로)
     pub fn pet_size_pct(&self) -> u32 {
         clean_size_pct(self.pet_size_pct)
     }
 
+    /// 물건 크기 % (범위 안으로)
     pub fn object_size_pct(&self) -> u32 {
         clean_size_pct(self.object_size_pct)
     }
@@ -379,14 +400,14 @@ impl Config {
         f64::from(self.object_size_pct()) / 100.0
     }
 
-    /// 크기 조절 창의 값을 넣는다 (범위 밖은 안으로, 기본값은 파일에 안 남긴다)
+    /// 크기 조절 창의 값을 넣음 (범위 밖은 안으로, 기본값은 파일에 안 남김)
     pub fn set_sizes(&mut self, pet: u32, object: u32) {
         let keep = |pct: u32| Some(clean_size_pct(Some(pct))).filter(|&p| p != SIZE_PCT_DEFAULT);
         self.pet_size_pct = keep(pet);
         self.object_size_pct = keep(object);
     }
 
-    /// 친구들에게 보일 내 이름: 정한 이름, 없으면 "친구" (컴퓨터 사용자 이름은 같은 망에 알리지 않는다)
+    /// 친구들에게 보일 내 이름: 정한 이름, 없으면 "친구" (컴퓨터 사용자 이름은 같은 망에 알리지 않음)
     /// 개발자 비밀키 (32바이트 hex가 아니면 None — 편지함 없음)
     pub fn dev_secret(&self) -> Option<[u8; 32]> {
         let hex = self.dev_key.as_deref()?.trim();
@@ -400,6 +421,7 @@ impl Config {
         Some(out)
     }
 
+    /// 친구들에게 보이는 내 이름 (없거나 이상하면 DEFAULT_OWNER_NAME)
     pub fn my_name(&self) -> String {
         self.owner_name.as_deref().and_then(sanitize_name).unwrap_or_else(|| DEFAULT_OWNER_NAME.to_string())
     }
@@ -426,7 +448,7 @@ impl Config {
         }
     }
 
-    /// 📱 친구가 어디서 왔는지(소개한 친구, 확인 전)를 맞춘다 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
+    /// 📱 친구가 어디서 왔는지(소개한 친구, 확인 전)를 맞춤 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
     pub fn set_friend_links(&mut self, id: &str, via: Option<&str>, pending: bool) -> bool {
         let changed = match self.friends.iter_mut().find(|f| f.id == id) {
             Some(f) if (f.via.as_deref(), f.pending) != (via, pending) => {
@@ -458,18 +480,18 @@ impl Config {
         self.friend(self.person_id(id)).map(Friend::shown_name)
     }
 
-    /// 📱 친구를 사람으로 묶는다 (메뉴 한 줄씩). connected = 연결된 때 (None = 연결 안 됨)
+    /// 📱 친구를 사람으로 묶음 (메뉴 한 줄씩). connected = 연결된 때 (None = 연결 안 됨)
     pub fn people(&self, connected: impl Fn(&str) -> Option<f64>) -> Vec<crate::linked::Person> {
         crate::linked::group(&self.members(connected))
     }
 
-    /// 📱 a와 b는 한 사람의 서로 다른 컴퓨터다
+    /// 📱 a와 b는 한 사람의 서로 다른 컴퓨터임
     pub fn same_person(&self, a: &str, b: &str) -> bool {
         a != b && self.friend(a).is_some() && self.friend(b).is_some() && self.person_id(a) == self.person_id(b)
     }
 
     /// 📱 친구 id의 동물에게 보낼 말을 실을 링크: 그 id가 연결돼 있으면 그대로, 아니면 그 사람의 연결된 다른 컴퓨터
-    /// (대기 중인 컴퓨터의 동물은 노는 컴퓨터를 거쳐 왔다). 아무도 없으면 그 id
+    /// (대기 중인 컴퓨터의 동물은 노는 컴퓨터를 거쳐 왔음). 아무도 없으면 그 id
     pub fn reach<'a>(&'a self, id: &'a str, connected: impl Fn(&str) -> bool) -> &'a str {
         if connected(id) {
             return id;
@@ -489,7 +511,7 @@ impl Config {
             .collect()
     }
 
-    /// 📱 내 다른 컴퓨터와 나눈 비밀을 맞춘다 (net이 아는 대로, None = 연결 안 됨). 바뀌었으면 true (모르는 친구는 무시)
+    /// 📱 내 다른 컴퓨터와 나눈 비밀을 맞춤 (net이 아는 대로, None = 연결 안 됨). 바뀌었으면 true (모르는 친구는 무시)
     pub fn set_friend_device_secret(&mut self, id: &str, secret: Option<[u8; 32]>) -> bool {
         let secret = secret.map(DeviceSecret);
         match self.friends.iter_mut().find(|f| f.id == id) {
@@ -506,7 +528,7 @@ impl Config {
         self.friends.iter().find_map(|f| Some((f.id.as_str(), f.device_secret?.0)))
     }
 
-    /// 확인 못 한 친구가 들어온 때를 맞춘다 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
+    /// 확인 못 한 친구가 들어온 때를 맞춤 (net이 아는 대로). 바뀌었으면 true (모르는 친구는 무시)
     pub fn set_friend_pending_since(&mut self, id: &str, since: Option<u64>) -> bool {
         match self.friends.iter_mut().find(|f| f.id == id) {
             Some(f) if f.pending_since != since => {
@@ -517,6 +539,7 @@ impl Config {
         }
     }
 
+    /// 친구를 지움. 있었으면 true
     pub fn remove_friend(&mut self, id: &str) -> bool {
         let before = self.friends.len();
         self.friends.retain(|f| f.id != id);
@@ -562,14 +585,14 @@ pub struct HouseSpot {
     /// OS가 주는 모니터 이름 (없으면 빈 문자열)
     #[serde(default)]
     pub monitor: String,
-    /// 그 모니터의 왼쪽 위 (물리 px) — 이름이 바뀌었을 때 찾는다
+    /// 그 모니터의 왼쪽 위 (물리 px) — 이름이 바뀌었을 때 찾음
     pub monitor_pos: (i32, i32),
     /// 하우스 창 왼쪽 = 그 작업 영역 왼쪽 + offset (물리 px)
     pub offset: f64,
 }
 
 impl HouseSpot {
-    /// 저장된 모니터를 monitors (이름, 왼쪽 위) 중에서 찾는다: 이름·자리가 모두 맞는 것, 이름이 맞는 것, 자리가 맞는 것 순
+    /// 저장된 모니터를 monitors (이름, 왼쪽 위) 중에서 찾음: 이름·자리가 모두 맞는 것, 이름이 맞는 것, 자리가 맞는 것 순
     pub fn pick(&self, monitors: &[(&str, (i32, i32))]) -> Option<usize> {
         let named = |name: &str| !self.monitor.is_empty() && name == self.monitor;
         monitors
@@ -579,18 +602,18 @@ impl HouseSpot {
             .or_else(|| monitors.iter().position(|&(_, p)| p == self.monitor_pos))
     }
 
-    /// 작업 영역 [wa_left, wa_right) 위의 하우스 창 왼쪽 (창 너비 width, 모두 물리 px) — 영역 밖으로 나가지 않는다
+    /// 작업 영역 [wa_left, wa_right) 위의 하우스 창 왼쪽 (창 너비 width, 모두 물리 px) — 영역 밖으로 나가지 않음
     pub fn left_in(&self, wa_left: f64, wa_right: f64, width: f64) -> f64 {
         clamp_house_left(wa_left + self.offset, width, wa_left, wa_right)
     }
 }
 
-/// 하우스 창 왼쪽을 작업 영역 안으로 (창이 영역보다 넓으면 왼쪽에 붙인다)
+/// 하우스 창 왼쪽을 작업 영역 안으로 (창이 영역보다 넓으면 왼쪽에 붙임)
 pub fn clamp_house_left(left: f64, width: f64, wa_left: f64, wa_right: f64) -> f64 {
     left.min(wa_right - width).max(wa_left)
 }
 
-/// 하우스 자리가 깨졌으면 (로그만 남기고) 구석으로 — 설정 전체를 버리지 않는다
+/// 하우스 자리가 깨졌으면 (로그만 남기고) 구석으로 — 설정 전체를 버리지 않음
 fn lenient_house_spot<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<HouseSpot>, D::Error> {
     let v = Option::<serde_json::Value>::deserialize(d)?;
     Ok(v.and_then(|v| match serde_json::from_value::<HouseSpot>(v) {
@@ -606,10 +629,12 @@ fn lenient_house_spot<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<H
 mod hex32 {
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
+    /// 소문자 hex 64자로
     pub fn encode(k: &[u8; 32]) -> String {
         k.iter().map(|b| format!("{b:02x}")).collect()
     }
 
+    /// hex 64자를 읽음 (아니면 None)
     pub fn decode(s: &str) -> Option<[u8; 32]> {
         if s.len() != 64 || !s.is_ascii() {
             return None;
@@ -621,17 +646,19 @@ mod hex32 {
         Some(k)
     }
 
+    /// serde: hex 64자로 씀
     pub fn serialize<S: Serializer>(k: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(&encode(k))
     }
 
+    /// serde: hex 64자를 읽음
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
         let s = String::deserialize(d)?;
         decode(&s).ok_or_else(|| D::Error::custom("expected 64 hex digits"))
     }
 }
 
-/// 설정을 읽는다. 없으면 기본값. 깨진 파일은 `config.json.bak`으로 남겨 두고 기본값으로 시작한다.
+/// 설정을 읽음. 없으면 기본값. 깨진 파일은 `config.json.bak`으로 남겨 두고 기본값으로 시작함
 pub fn load(dir: &Path) -> Config {
     let path = dir.join(FILE);
     let parsed = match std::fs::read_to_string(&path) {
@@ -666,7 +693,7 @@ pub fn load(dir: &Path) -> Config {
     }
 }
 
-/// 임시 파일에 다 쓴 뒤 이름을 바꿔 덮어쓴다 — 쓰다 꺼져도 이전 설정이 남는다
+/// 임시 파일에 다 쓴 뒤 이름을 바꿔 덮어씀 — 쓰다 꺼져도 이전 설정이 남음
 pub fn save(dir: &Path, c: &Config) -> std::io::Result<()> {
     if c.keep_file {
         return Err(std::io::Error::other("the config file could not be read at start; not overwriting it"));
@@ -684,24 +711,25 @@ pub fn save(dir: &Path, c: &Config) -> std::io::Result<()> {
 }
 
 const CRASH_FILE: &str = "crash.log";
-/// 충돌 기록이 이보다 커지면 처음부터 다시 쓴다
+/// 충돌 기록이 이보다 커지면 처음부터 다시 씀
 const CRASH_LOG_MAX: u64 = 64 * 1024;
 
-/// 충돌 내용을 config 폴더의 `crash.log`에 덧붙인다 (배포판에는 콘솔이 없다). 실패는 무시한다 — 이미 죽어 가는 중이다
+/// 충돌 내용을 config 폴더의 `crash.log`에 덧붙임 (배포판에는 콘솔이 없음). 실패는 무시함 — 이미 죽어 가는 중임
 pub fn append_crash_log(dir: &Path, text: &str) {
     append_small_log(dir, CRASH_FILE, CRASH_LOG_MAX, text);
 }
 
 const NETWORK_FILE: &str = "network.log";
-/// 연결 기록이 이보다 커지면 처음부터 다시 쓴다
+/// 연결 기록이 이보다 커지면 처음부터 다시 씀
 const NETWORK_LOG_MAX: u64 = 256 * 1024;
 
-/// 서버(릴레이)·친구 연결이 붙고 끊긴 기록을 config 폴더의 `network.log`에 덧붙인다 — 인터넷이 불안정할 때 원인을 보려고.
-/// 페이지 내용·메시지는 적지 않는다 (시각, 무엇이 붙었는지/끊겼는지만). 실패는 무시한다
+/// 서버(릴레이)·친구 연결이 붙고 끊긴 기록을 config 폴더의 `network.log`에 덧붙임 — 인터넷이 불안정할 때 원인을 보려고.
+/// 페이지 내용·메시지는 적지 않음 (시각, 무엇이 붙었는지/끊겼는지만). 실패는 무시함
 pub fn append_network_log(dir: &Path, text: &str) {
     append_small_log(dir, NETWORK_FILE, NETWORK_LOG_MAX, text);
 }
 
+/// dir/name 끝에 한 줄을 더함. max 바이트를 넘었으면 비우고 새로 씀. 실패는 무시함
 fn append_small_log(dir: &Path, name: &str, max: u64, text: &str) {
     use std::io::Write;
     let path = dir.join(name);
@@ -713,17 +741,17 @@ fn append_small_log(dir: &Path, name: &str, max: u64, text: &str) {
     }
 }
 
-/// 장기 X25519 비밀키 파일 (config.json과 따로 — 설정 파일은 비밀이 아닌 것만 갖는다)
+/// 장기 X25519 비밀키 파일 (config.json과 따로 — 설정 파일은 비밀이 아닌 것만 가짐)
 const KEY_FILE: &str = "identity.key";
 const KEY_TMP_FILE: &str = "identity.key.tmp";
 const KEY_BAK_FILE: &str = "identity.key.bak";
 
-/// 이 설치의 비밀키(친구들이 고정한 신원)를 config 폴더의 `identity.key`(hex 64자)에서 읽는다.
-/// 없거나 내용이 깨졌으면 new_key()로 만들어 저장한다 (깨진 파일은 `identity.key.bak`으로 남기고 — 못 남기면 Err — 새로 쓴다. 그러면 친구들과 다시 짝맞추기가 필요하다).
-/// 그 밖의 읽기 에러(권한 등)는 그대로 Err — 멀쩡할 수 있는 키를 덮어쓰지 않는다 (그 실행에서는 친구 기능을 끈다).
+/// 이 설치의 비밀키(친구들이 고정한 신원)를 config 폴더의 `identity.key`(hex 64자)에서 읽음
+/// 없거나 내용이 깨졌으면 new_key()로 만들어 저장함 (깨진 파일은 `identity.key.bak`으로 남기고 — 못 남기면 Err — 새로 씀. 그러면 친구들과 다시 짝맞추기가 필요함).
+/// 그 밖의 읽기 에러(권한 등)는 그대로 Err — 멀쩡할 수 있는 키를 덮어쓰지 않음 (그 실행에서는 친구 기능을 끔).
 ///
-/// 권한: Unix에서는 폴더를 0o700, 파일을 0o600으로 만든다. Windows에서는 config 폴더(%APPDATA% 아래)가
-/// 기본으로 그 사용자 전용 ACL을 가지므로 보통 방식으로 만든다.
+/// 권한: Unix에서는 폴더를 0o700, 파일을 0o600으로 만듦. Windows에서는 config 폴더(%APPDATA% 아래)가
+/// 기본으로 그 사용자 전용 ACL을 가지므로 보통 방식으로 만듦
 pub fn load_or_create_identity_key(dir: &Path, new_key: impl FnOnce() -> [u8; 32]) -> std::io::Result<[u8; 32]> {
     let path = dir.join(KEY_FILE);
     match std::fs::read(&path) {
@@ -754,7 +782,7 @@ pub fn load_or_create_identity_key(dir: &Path, new_key: impl FnOnce() -> [u8; 32
     Ok(key)
 }
 
-/// 복사나 백업으로 남도 읽을 수 있게 된 비밀키는 읽을 때 다시 잠근다. 못 잠가도 키는 쓴다 (친구를 잃는 것보다 낫다)
+/// 복사나 백업으로 남도 읽을 수 있게 된 비밀키는 읽을 때 다시 잠금. 못 잠가도 키는 씀 (친구를 잃는 것보다 나음)
 #[cfg(unix)]
 fn lock_down(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
@@ -766,10 +794,11 @@ fn lock_down(path: &Path) {
     }
 }
 
-/// Windows: %APPDATA% 아래 파일은 그 사용자 전용 ACL을 물려받는다
+/// Windows: %APPDATA% 아래 파일은 그 사용자 전용 ACL을 물려받음
 #[cfg(not(unix))]
 fn lock_down(_path: &Path) {}
 
+/// 남이 못 읽는 폴더를 만듦 (0700)
 #[cfg(unix)]
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -777,18 +806,21 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }
 
+/// 폴더를 만듦 (Windows는 사용자 전용 ACL을 물려받음)
 #[cfg(not(unix))]
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     // Windows: %APPDATA% 아래 폴더는 기본으로 그 사용자 전용 ACL을 물려받는다
     std::fs::create_dir_all(dir)
 }
 
+/// 남이 못 읽는 새 파일을 만듦 (0600, 이미 있으면 실패)
 #[cfg(unix)]
 fn private_file(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)
 }
 
+/// 새 파일을 만듦 (이미 있으면 실패, Windows는 폴더의 ACL을 물려받음)
 #[cfg(not(unix))]
 fn private_file(path: &Path) -> std::io::Result<std::fs::File> {
     // Windows: 사용자 전용 ACL을 가진 config 폴더 안에 보통 방식으로 만든다
@@ -844,6 +876,7 @@ mod tests {
         assert_eq!(c.object_size_pct(), SIZE_PCT_RANGE.1);
     }
 
+    /// 테스트: 비어 있는 임시 폴더 경로
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("screenpet-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
@@ -885,6 +918,7 @@ mod tests {
 
     // ---- 없어진 동물 (곰·꿀벌·강아지) → 고양이, 키운 만큼은 그대로 ----
 
+    /// 테스트: pet을 고르고 care 기록을 넣은 설정
     fn cfg_with(pet: &str, care: &[(&str, crate::care::Care)]) -> Config {
         let mut c = Config { pet: Some(pet.into()), owner_name: Some("민지".into()), ..Config::default() };
         c.care.extend(care.iter().map(|(id, cr)| (id.to_string(), cr.clone())));
@@ -1004,6 +1038,7 @@ mod tests {
         assert!(load(&d).housed);
     }
 
+    /// 테스트: b로 채운 키
     fn key(b: u8) -> [u8; 32] {
         [b; 32]
     }
@@ -1255,7 +1290,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(d.join("config.json.bak")).unwrap(), "not json");
     }
 
-    /// 읽기 권한 없는 파일로 읽기 실패를 만든다 (root로 돌면 읽히므로 건너뛴다)
+    /// 읽기 권한 없는 파일로 읽기 실패를 만듦 (root로 돌면 읽히므로 건너뜀)
     #[cfg(unix)]
     fn unreadable(d: &Path, name: &str, text: &str) -> bool {
         use std::os::unix::fs::PermissionsExt;
@@ -1349,6 +1384,7 @@ mod tests {
 
     // ---- 하우스 자리 (끌어서 옮긴 집) ----
 
+    /// 테스트: 하우스 자리 하나
     fn spot(monitor: &str, pos: (i32, i32), offset: f64) -> HouseSpot {
         HouseSpot { monitor: monitor.into(), monitor_pos: pos, offset }
     }

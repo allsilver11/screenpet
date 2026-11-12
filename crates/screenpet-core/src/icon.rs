@@ -1,15 +1,17 @@
-//! 📌 장난감 아이콘 그림 다루기 (순수 계산 — OS마다 읽어 온 칸을 같은 RGBA로 맞춘다. 읽기는 platform).
-//! 그림은 이 컴퓨터 안에서만 쓴다: 물건 창의 초기화 스크립트에 base64로 넣어 웹뷰가 canvas에 그린다 (CSP img-src 'self' 그대로 — data: URL을 쓰지 않는다).
+//! 📌 장난감 아이콘 그림 다루기 (순수 계산 — OS마다 읽어 온 칸을 같은 RGBA로 맞춤. 읽기는 platform).
+//! 그림은 이 컴퓨터 안에서만 씀: 물건 창의 초기화 스크립트에 base64로 넣어 웹뷰가 canvas에 그림 (CSP img-src 'self' 그대로 — data: URL을 쓰지 않음).
 
 /// 정사각형 RGBA 그림 (곧은 알파, 위→아래 줄)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IconImage {
+    /// 한 변 (px)
     pub size: u32,
+    /// RGBA 바이트 (size × size × 4)
     pub rgba: Vec<u8>,
 }
 
 impl IconImage {
-    /// 거의 다 투명하면 (빈 아이콘) 장난감으로 쓰지 않는다
+    /// 거의 다 투명하면 (빈 아이콘) 장난감으로 쓰지 않음
     pub fn is_blank(&self) -> bool {
         let seen = self.rgba.chunks_exact(4).filter(|p| p[3] >= 32).count();
         seen * 20 < (self.size * self.size) as usize
@@ -17,7 +19,7 @@ impl IconImage {
 }
 
 /// Windows: 같은 아이콘을 검은 바탕과 흰 바탕에 그린 BGRA 칸 (DrawIconEx) → 곧은 알파 RGBA.
-/// 바탕이 비치는 만큼이 투명함이다 (마스크 아이콘·알파 아이콘 모두): a = 255 − (흰 − 검), 색 = 검 ÷ a
+/// 바탕이 비치는 만큼이 투명함임 (마스크 아이콘·알파 아이콘 모두): a = 255 − (흰 − 검), 색 = 검 ÷ a
 pub fn from_black_white(size: u32, black: &[u8], white: &[u8]) -> Option<IconImage> {
     let n = (size as usize) * (size as usize) * 4;
     if size == 0 || black.len() < n || white.len() < n {
@@ -62,7 +64,7 @@ pub fn from_premultiplied(size: u32, mut rgba: Vec<u8>) -> Option<IconImage> {
     (!icon.is_blank()).then_some(icon)
 }
 
-/// 표준 base64 (초기화 스크립트의 JS 문자열에 그대로 넣는다 — 글자는 A–Z a–z 0–9 + / = 뿐)
+/// 표준 base64 (초기화 스크립트의 JS 문자열에 그대로 넣음 — 글자는 A–Z a–z 0–9 + / = 뿐)
 pub fn base64(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);

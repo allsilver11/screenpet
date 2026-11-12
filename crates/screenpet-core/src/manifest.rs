@@ -1,3 +1,5 @@
+//! 📜 동물 정의 (pet.json) — 그림 시트의 동작별 줄·칸·fps, 성격, 걷기 속도, 특기 등을 읽고 검사함
+//! parse_manifest로 읽어 PetManifest를 만들고, 앱이 이것으로 brain의 PetConfig를 채움
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -6,15 +8,16 @@ pub use crate::behavior::Personality;
 use crate::care::Stage;
 use crate::style;
 
+/// 모든 동물이 반드시 가져야 하는 동작
 pub const REQUIRED_ANIMS: [&str; 21] = [
     "walk", "run", "roll", "idle", "look", "sleep", "hop", "fall", "dragged", "land", "sit_front", "wave", "tilt", "belly", "stretch", "heart",
     "tickle", "annoyed", "hungry", "eat", "level_up",
 ];
 
-/// 특정 동물만 가진 동작 — 있으면 검증한다 (behavior::Special::anim_name, 벽 타기 climb/slide, 개구리 bigjump,
-/// 기린 neckstretch — 있으면 구르는 대신 목을 늘인다, 올려다보기 lookup — 없으면 그냥 쳐다본다(look)).
-/// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같다
-/// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔든다).
+/// 특정 동물만 가진 동작 — 있으면 검증함 (behavior::Special::anim_name, 벽 타기 climb/slide, 개구리 bigjump,
+/// 기린 neckstretch — 있으면 구르는 대신 목을 늘임, 올려다보기 lookup — 없으면 그냥 쳐다봄(look)).
+/// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있음. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같음
+/// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔듦).
 /// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기) · lift·hold·carry·throw·strain·present·slump (물건 들어 던지기)
 /// · yank·stuff (📌 작업표시줄에서 장난감 끌어내기·도로 밀어 넣기)
 /// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type·type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS, type = ⌨️ 키보드 v0.6.4)
@@ -24,28 +27,28 @@ pub const OPTIONAL_ANIMS: [&str; 36] = [
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig",
 ];
-/// 🐱 툭툭 그림 (pet.json `knocker`가 있어도 이게 있어야 한다 — knocks())
+/// 🐱 툭툭 그림 (pet.json `knocker`가 있어도 이게 있어야 함 — knocks())
 pub const KNOCK_ANIMS: [&str; 1] = ["paw"];
-/// 🐿️ 볼 빵빵 그림 (pet.json `stasher`가 있어도 이게 다 있어야 한다 — stashes())
+/// 🐿️ 볼 빵빵 그림 (pet.json `stasher`가 있어도 이게 다 있어야 함 — stashes())
 pub const STASH_ANIMS: [&str; 3] = ["cheeks_walk", "cheeks_idle", "dig"];
-/// 물건 들어 던지기 그림 (pet.json `juggler`가 있어도 이게 다 있어야 한다)
+/// 물건 들어 던지기 그림 (pet.json `juggler`가 있어도 이게 다 있어야 함)
 pub const JUGGLE_ANIMS: [&str; 7] = ["lift", "hold", "carry", "throw", "strain", "present", "slump"];
-/// 📌 작업표시줄 놀이 그림 (pet.json `taskbar_play`가 있어도 이게 다 있어야 하고, 들고 던지기도 해야 한다)
+/// 📌 작업표시줄 놀이 그림 (pet.json `taskbar_play`가 있어도 이게 다 있어야 하고, 들고 던지기도 해야 함)
 pub const TASKBAR_ANIMS: [&str; 2] = ["yank", "stuff"];
 /// 흐물이 더 놀기 그림 (v0.6.3): 🎣 커서 매달리기 · 🫣 숨바꼭질 · 🕺 연타 춤 둘 · ⚾ 받기 · 🖍️ 낙서 · ⌨️ 타자 응원 (만세 · 키보드 타자 v0.6.4)
-/// — 들고 던지기를 하고 이게 다 있어야 한다 (antics())
+/// — 들고 던지기를 하고 이게 다 있어야 함 (antics())
 pub const ANTICS_ANIMS: [&str; 9] = ["hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type", "carry_run"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Locomotion {
-    /// 디딤판 위를 걷는다
+    /// 디딤판 위를 걸음
     #[default]
     Walk,
-    /// 날아다닌다 (유령·새) — 쉴 때 가끔 창 윗면·바닥에 내려앉는다
+    /// 날아다님 (유령·새) — 쉴 때 가끔 창 윗면·바닥에 내려앉음
     Fly,
-    /// 폴짝폴짝 뛰어다닌다 (개구리) — 가끔 크게 뛰어 창 위로, 벽은 폴짝폴짝 오른다 (hop.rs)
+    /// 폴짝폴짝 뛰어다님 (개구리) — 가끔 크게 뛰어 창 위로, 벽은 폴짝폴짝 오름 (hop.rs)
     Hop,
 }
 
@@ -57,18 +60,23 @@ pub enum HouseKind {
     House,
     /// 호박·유령의 귀신의 집 (ui/house/haunted_<stage>)
     Haunted,
-    /// 루돌프·산타의 눈 덮인 크리스마스 벽돌집 (ui/house/xmas_<stage>, 굴뚝 연기는 ui/house.js가 피운다)
+    /// 루돌프·산타의 눈 덮인 크리스마스 벽돌집 (ui/house/xmas_<stage>, 굴뚝 연기는 ui/house.js가 피움)
     Xmas,
 }
 
+/// 그림 시트의 동작 하나
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnimSpec {
+    /// 시트의 줄 번호
     pub row: u32,
+    /// 칸 수
     pub frames: u32,
+    /// 초당 칸 수
     pub fps: f64,
+    /// 되풀이함 (기본 true)
     #[serde(rename = "loop", default = "yes")]
     pub looping: bool,
-    /// 앞모습 동작 — 웹뷰는 좌우 반전하지 않는다
+    /// 앞모습 동작 — 웹뷰는 좌우 반전하지 않음
     #[serde(default)]
     pub front: bool,
     /// 초당 회전 각도 (roll 전용, 0이면 회전 없음)
@@ -76,25 +84,33 @@ pub struct AnimSpec {
     pub spin: f64,
 }
 
+/// serde 기본값: true
 fn yes() -> bool {
     true
 }
 
-/// 동물별 좋아하는 음식 (음식 고르기 버튼·트레이 메뉴에 쓴다)
+/// 동물별 좋아하는 음식 (음식 고르기 버튼·트레이 메뉴에 씀)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FavoriteFood {
+    /// 이모지
     pub emoji: String,
+    /// 이름
     pub name: String,
 }
 
+/// pet.json 한 장
 #[derive(Debug, Clone, Deserialize)]
 pub struct PetManifest {
+    /// 동물 이름
     pub name: String,
+    /// 칸 한 변 (px)
     pub frame_size: u32,
     /// 단계마다 칸 크기가 다른 시트 (단계 이름 → 칸 px, 없는 단계는 frame_size) — 픽셀 그림은 24·28·32·32·36
     #[serde(default)]
     pub frame_sizes: HashMap<String, u32>,
+    /// 걷기 속도 (논리 px/s)
     pub walk_speed: f64,
+    /// 동작 이름 → 그림 시트 자리
     pub animations: HashMap<String, AnimSpec>,
     /// 성격 (없으면 friendly)
     #[serde(default)]
@@ -114,49 +130,49 @@ pub struct PetManifest {
     /// 사는 집 (없으면 보통 집)
     #[serde(default)]
     pub house: Option<HouseKind>,
-    /// 가끔 머리 위에 작은 눈구름을 부른다 (눈사람)
+    /// 가끔 머리 위에 작은 눈구름을 부름 (눈사람)
     #[serde(default)]
     pub snow_cloud: bool,
     /// 장난칠 때 안경이 번쩍 (펭귄 — brain_flash.rs, 웹뷰 render.flash)
     #[serde(default)]
     pub glasses_flash: bool,
-    /// 빠른 나는 동물 (새) — locomotion fly일 때만 뜻이 있다. 모르는 칸이라 옛 앱은 그냥 무시한다
+    /// 빠른 나는 동물 (새) — locomotion fly일 때만 뜻이 있음. 모르는 칸이라 옛 앱은 그냥 무시함
     #[serde(default)]
     pub swift: bool,
     /// 겁쟁이 — 다른 동물과 마주치면 반쯤 만세 줄행랑 (흐물이, panic 그림이 있을 때만 — timid())
     #[serde(default)]
     pub timid: bool,
-    /// 기운 넘침 — 더 자주 달리고 더 자주 크게 뛴다 (흐물이)
+    /// 기운 넘침 — 더 자주 달리고 더 자주 크게 뜀 (흐물이)
     #[serde(default)]
     pub energetic: bool,
     /// 창 옆면에 매달리기 (흐물이, hang·rope 그림이 있을 때만 — rigs())
     #[serde(default)]
     pub rigging: bool,
-    /// 바닥의 물건·똥을 주워 머리 위로 들고 던진다 (흐물이, JUGGLE_ANIMS가 다 있을 때만 — juggles())
+    /// 바닥의 물건·똥을 주워 머리 위로 들고 던짐 (흐물이, JUGGLE_ANIMS가 다 있을 때만 — juggles())
     #[serde(default)]
     pub juggler: bool,
-    /// 📌 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는다 (흐물이, 들고 던지기 + TASKBAR_ANIMS가 있을 때만 — plays_taskbar())
+    /// 📌 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣음 (흐물이, 들고 던지기 + TASKBAR_ANIMS가 있을 때만 — plays_taskbar())
     #[serde(default)]
     pub taskbar_play: bool,
-    /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨린다 (고양이·페르시안, paw 그림이 있을 때만 — knocks())
+    /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨림 (고양이·페르시안, paw 그림이 있을 때만 — knocks())
     #[serde(default)]
     pub knocker: bool,
-    /// 🐿️ 바닥의 작은 물건을 볼에 넣어 묻는다 (다람쥐, STASH_ANIMS가 다 있을 때만 — stashes())
+    /// 🐿️ 바닥의 작은 물건을 볼에 넣어 물음 (다람쥐, STASH_ANIMS가 다 있을 때만 — stashes())
     #[serde(default)]
     pub stasher: bool,
-    /// 🦆 바닥에서 친구들을 줄줄이 데리고 걷는다 (오리 — 새 그림 없이 걷기 그림으로)
+    /// 🦆 바닥에서 친구들을 줄줄이 데리고 걸음 (오리 — 새 그림 없이 걷기 그림으로)
     #[serde(default)]
     pub train_leader: bool,
-    /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있다 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮는다, core::tint)
+    /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있음 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮음, core::tint)
     #[serde(default)]
     pub tint: bool,
-    /// 물건을 든 동작의 칸별 손 자리 (단계 → 동작 → 칸별 [x, y] 칸 px — 그림 생성기가 적는다). 든 물건의 바닥이 여기 온다
+    /// 물건을 든 동작의 칸별 손 자리 (단계 → 동작 → 칸별 [x, y] 칸 px — 그림 생성기가 적음). 든 물건의 바닥이 여기 옴
     #[serde(default)]
     pub grip: HashMap<String, HashMap<String, Vec<[f64; 2]>>>,
-    /// 칸마다 머리 꼭대기 (단계 → 동작 → 칸별 [x, y, 너비, 기울기] 칸 px — 그림 생성기가 적는다)
+    /// 칸마다 머리 꼭대기 (단계 → 동작 → 칸별 [x, y, 너비, 기울기] 칸 px — 그림 생성기가 적음)
     #[serde(default)]
     pub head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
-    /// 기린 목 늘이기 층 (단계 → {cut, tile, ext} — 그리는 건 ui/main.js). 코어는 있는지만 본다
+    /// 기린 목 늘이기 층 (단계 → {cut, tile, ext} — 그리는 건 ui/main.js). 코어는 있는지만 봄
     #[serde(default)]
     pub neck_stretch: Option<serde_json::Value>,
 }
@@ -168,7 +184,7 @@ const HEAD_TOP_ABOVE_BRIM: f64 = 0.15;
 
 impl PetManifest {
     /// 커서에 매달린 그림(dragged 칸들의 평균)에서 커서 끝이 닿을 머리 꼭대기: (그림 가운데에서 오른쪽, 그림 윗변에서 아래) — 한 변에 대한 비율.
-    /// 표의 y는 모자 입구라 머리 위쪽으로 조금 올린다. ui/main.js hangOrigin과 같은 계산
+    /// 표의 y는 모자 입구라 머리 위쪽으로 조금 올림. ui/main.js hangOrigin과 같은 계산
     pub fn hang_grip(&self, stage: &str) -> (f64, f64) {
         let size = f64::from(self.frame_size_at(stage));
         let Some(cells) = self.head.get(stage).and_then(|anims| anims.get("dragged")).filter(|c| !c.is_empty()) else {
@@ -180,6 +196,7 @@ impl PetManifest {
     }
 }
 
+/// pet.json을 읽고 검사함 (필수 동작·칸 크기 등). 틀리면 이유를 글로 돌려줌
 pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
     let m: PetManifest = serde_json::from_str(json).map_err(|e| e.to_string())?;
     if m.frame_size == 0 {
@@ -201,7 +218,7 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
     Ok(m)
 }
 
-/// 픽셀 그림의 pet.json (ui/pets_pixel/<id>/pet.json): 그림에 관한 것만 읽는다
+/// 픽셀 그림의 pet.json (ui/pets_pixel/<id>/pet.json): 그림에 관한 것만 읽음
 #[derive(Deserialize)]
 struct PixelJson {
     #[serde(default)]
@@ -215,7 +232,7 @@ struct PixelJson {
     neck_stretch: Option<serde_json::Value>,
 }
 
-/// required는 있어야 하고, 있는 동작(required·optional)은 칸 수와 속도가 0보다 커야 한다
+/// required는 있어야 하고, 있는 동작(required·optional)은 칸 수와 속도가 0보다 커야 함
 fn check_anims(animations: &HashMap<String, AnimSpec>, required: &[&str], optional: &[&str]) -> Result<(), String> {
     for &name in required.iter().chain(optional) {
         match animations.get(name) {
@@ -227,8 +244,8 @@ fn check_anims(animations: &HashMap<String, AnimSpec>, required: &[&str], option
     Ok(())
 }
 
-/// 픽셀 그림의 pet.json을 동글 동물(base) 위에 얹는다: 시트 칸·동작 표·머리 표만 그림 것이고 이름·속도·성격·크기·먹이·집은 모두 base 그대로 (스타일은 겉모습뿐).
-/// 칸 크기는 frame_sizes, 없는 단계는 기본 표(style::pixel_grid). roll은 없어도 된다 (없으면 no_roll)
+/// 픽셀 그림의 pet.json을 동글 동물(base) 위에 얹음: 시트 칸·동작 표·머리 표만 그림 것이고 이름·속도·성격·크기·먹이·집은 모두 base 그대로 (스타일은 겉모습뿐).
+/// 칸 크기는 frame_sizes, 없는 단계는 기본 표(style::pixel_grid). roll은 없어도 됨 (없으면 no_roll)
 pub fn parse_pixel_manifest(json: &str, base: &PetManifest) -> Result<PetManifest, String> {
     let p: PixelJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let mut frame_sizes = HashMap::new();
@@ -247,6 +264,7 @@ pub fn parse_pixel_manifest(json: &str, base: &PetManifest) -> Result<PetManifes
 }
 
 impl PetManifest {
+    /// 이 동작 그림이 있음
     pub fn has_anim(&self, name: &str) -> bool {
         self.animations.contains_key(name)
     }
@@ -256,71 +274,73 @@ impl PetManifest {
         self.frame_sizes.get(stage).copied().unwrap_or(self.frame_size)
     }
 
-    /// 구르기 그림이 없다 (픽셀 그림) — 구르기를 고르지 않는다
+    /// 구르기 그림이 없음 (픽셀 그림) — 구르기를 고르지 않음
     pub fn no_roll(&self) -> bool {
         !self.has_anim("roll")
     }
 
-    /// 이 동물의 특별 동작. 구르기가 없는 그림에서 목 늘이기는 층 그림(neck_stretch)이 있을 때만 — 없으면 기린도 그냥 안 한다
+    /// 이 동물의 특별 동작. 구르기가 없는 그림에서 목 늘이기는 층 그림(neck_stretch)이 있을 때만 — 없으면 기린도 그냥 안 함
     pub fn special(&self) -> Option<crate::behavior::Special> {
         let special = crate::behavior::Special::from_manifest(|n| self.has_anim(n));
         special.filter(|s| !(s.replaces_roll() && self.no_roll() && self.neck_stretch.is_none()))
     }
 
-    /// 벽 타기 (뒷모습 climb + slide 둘 다 있어야 한다)
+    /// 벽 타기 (뒷모습 climb + slide 둘 다 있어야 함)
     pub fn can_climb(&self) -> bool {
         self.has_anim("climb") && self.has_anim("slide")
     }
 
+    /// 나는 동물임
     pub fn flies(&self) -> bool {
         self.locomotion == Locomotion::Fly
     }
 
+    /// 폴짝 뛰는 동물임
     pub fn hops(&self) -> bool {
         self.locomotion == Locomotion::Hop
     }
 
-    /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 개구리는 늘 폴짝, 유령·새는 난다)
+    /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 개구리는 늘 폴짝, 유령·새는 남)
     pub fn hop_share(&self) -> f64 {
         if self.locomotion == Locomotion::Walk { self.hop_share } else { 0.0 }
     }
 
-    /// 위를 올려다본다 (pet.json에 lookup이 있으면 — 없으면 그냥 쳐다본다)
+    /// 위를 올려다봄 (pet.json에 lookup이 있으면 — 없으면 그냥 쳐다봄)
     pub fn can_look_up(&self) -> bool {
         self.has_anim("lookup")
     }
 
-    /// 겁쟁이 (panic 그림이 있어야 한다)
+    /// 겁쟁이 (panic 그림이 있어야 함)
     pub fn timid(&self) -> bool {
         self.timid && self.has_anim("panic")
     }
 
-    /// 창 옆면 매달리기 (hang·rope 그림이 있어야 한다)
+    /// 창 옆면 매달리기 (hang·rope 그림이 있어야 함)
     pub fn rigs(&self) -> bool {
         self.rigging && self.has_anim("hang") && self.has_anim("rope")
     }
 
-    /// 물건 들어 던지기 (JUGGLE_ANIMS 그림이 다 있어야 한다)
+    /// 물건 들어 던지기 (JUGGLE_ANIMS 그림이 다 있어야 함)
     pub fn juggles(&self) -> bool {
         self.juggler && JUGGLE_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
-    /// 📌 작업표시줄 놀이 (들고 던지기를 하고 TASKBAR_ANIMS 그림이 다 있어야 한다)
+    /// 📌 작업표시줄 놀이 (들고 던지기를 하고 TASKBAR_ANIMS 그림이 다 있어야 함)
     pub fn plays_taskbar(&self) -> bool {
         self.taskbar_play && self.juggles() && TASKBAR_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
-    /// 🐱 툭툭 (KNOCK_ANIMS 그림이 있어야 한다)
+    /// 🐱 툭툭 (KNOCK_ANIMS 그림이 있어야 함)
     pub fn knocks(&self) -> bool {
         self.knocker && KNOCK_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
-    /// 🐿️ 볼 빵빵 (STASH_ANIMS 그림이 다 있어야 한다)
+    /// 🐿️ 볼 빵빵 (STASH_ANIMS 그림이 다 있어야 함)
     pub fn stashes(&self) -> bool {
         self.stasher && STASH_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
-    /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 한다)
+    /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 함)
     pub fn antics(&self) -> bool {
         self.juggles() && ANTICS_ANIMS.iter().all(|a| self.has_anim(a))
     }
@@ -346,7 +366,7 @@ impl PetManifest {
         self.house.unwrap_or(HouseKind::House)
     }
 
-    /// 이 동물의 단계별 크기 배율 (care::Stage::scale에 곱한다)
+    /// 이 동물의 단계별 크기 배율 (care::Stage::scale에 곱함)
     pub fn size_mult(&self, stage: Stage) -> f64 {
         self.stage_size.get(stage.name()).copied().unwrap_or(1.0)
     }
@@ -365,7 +385,7 @@ mod tests {
         assert_eq!(m.hang_grip("adult"), super::DEFAULT_HANG_GRIP, "no table for this stage");
     }
 
-    /// 2배 칸 단계 (frame_sizes): 표도 칸 px로 2배라 비율로 재는 값은 128 칸일 때와 같다 — 표시 크기는 칸과 상관없다
+    /// 2배 칸 단계 (frame_sizes): 표도 칸 px로 2배라 비율로 재는 값은 128 칸일 때와 같음 — 표시 크기는 칸과 상관없음
     #[test]
     fn a_doubled_stage_sheet_keeps_the_same_hang_grip() {
         let json = r#"{"name":"t","frame_size":128,"frame_sizes":{"adult":256},"walk_speed":60,"animations":{},
@@ -377,6 +397,7 @@ mod tests {
 
     use super::*;
 
+    /// 테스트: 필수 동작이 다 든 pet.json
     fn full_json() -> String {
         let anims: Vec<String> = REQUIRED_ANIMS
             .iter()
@@ -503,7 +524,7 @@ mod tests {
         }
     }
 
-    /// 새: swift는 나는 동물에게만 뜻이 있다 (걷는 동물에 적혀 있어도 PetConfig::swift는 꺼진다). 없으면 false
+    /// 새: swift는 나는 동물에게만 뜻이 있음 (걷는 동물에 적혀 있어도 PetConfig::swift는 꺼짐). 없으면 false
     #[test]
     fn swift_defaults_off_and_only_counts_for_flyers() {
         assert!(!parse_manifest(&full_json()).unwrap().swift);
@@ -547,7 +568,7 @@ mod tests {
         assert!(parse_manifest(&bad).is_err());
     }
 
-    /// 올려다보기: 선택 동작의 맨 끝 — 있으면 can_look_up, 없으면 그냥 쳐다본다
+    /// 올려다보기: 선택 동작의 맨 끝 — 있으면 can_look_up, 없으면 그냥 쳐다봄
     #[test]
     fn parses_lookup_as_the_last_optional_anim() {
         assert_eq!(OPTIONAL_ANIMS[6], "lookup");
@@ -559,7 +580,7 @@ mod tests {
         assert!(parse_manifest(&bad).is_err());
     }
 
-    /// 번들 pet.json: 모든 동물이 올려다본다
+    /// 번들 pet.json: 모든 동물이 올려다봄
     #[test]
     fn bundled_pets_look_up() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
@@ -569,7 +590,7 @@ mod tests {
         }
     }
 
-    /// 공룡: lookup 뒤의 fire·roar·stomp → 공룡 특별 동작 (셋 중 하나를 고른다)
+    /// 공룡: lookup 뒤의 fire·roar·stomp → 공룡 특별 동작 (셋 중 하나를 고름)
     #[test]
     fn parses_dino_anims_as_the_dino_special() {
         assert_eq!(OPTIONAL_ANIMS[7..10], ["fire", "roar", "stomp"]);
@@ -584,7 +605,7 @@ mod tests {
         assert!(parse_manifest(&bad).is_err());
     }
 
-    /// 번들 호박은 벽을 타고, 같은 할로윈 유령은 난다 (벽 없음)
+    /// 번들 호박은 벽을 타고, 같은 할로윈 유령은 남 (벽 없음)
     #[test]
     fn bundled_pumpkin_climbs_and_the_ghost_does_not() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
@@ -593,7 +614,7 @@ mod tests {
         assert!(!load("ghost").can_climb());
     }
 
-    /// 번들 공룡 셋: 걷고, 벽을 타고, 공룡 동작을 모두 갖고, 좋아하는 음식이 저마다 다르다
+    /// 번들 공룡 셋: 걷고, 벽을 타고, 공룡 동작을 모두 갖고, 좋아하는 음식이 저마다 다름
     #[test]
     fn bundled_dinos() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
@@ -607,7 +628,7 @@ mod tests {
         }
     }
 
-    /// 번들 산타·눈사람은 고양이처럼 벽을 탄다. 눈사람만 구름을 부르고, 둘 다 구르지 않는다 (썰매 · 배 미끄럼)
+    /// 번들 산타·눈사람은 고양이처럼 벽을 탐. 눈사람만 구름을 부르고, 둘 다 구르지 않음 (썰매 · 배 미끄럼)
     #[test]
     fn bundled_santa_and_snowman_climb() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
@@ -620,7 +641,7 @@ mod tests {
         assert_eq!(snowman.favorite_food.as_ref().map(|f| f.name.as_str()), Some("빙수"));
     }
 
-    /// 번들 펭귄만 장난칠 때 안경이 번쩍한다 (brain_flash.rs)
+    /// 번들 펭귄만 장난칠 때 안경이 번쩍함 (brain_flash.rs)
     #[test]
     fn bundled_penguin_flashes_its_glasses() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
@@ -629,7 +650,7 @@ mod tests {
         assert!(!load("cat").glasses_flash && !load("snowman").glasses_flash);
     }
 
-    /// 번들 흐물이만 겁쟁이(만세 줄행랑)·기운 넘침·창 옆면 매달리기 — 셋 다 그림(panic·hang·rope)이 있다
+    /// 번들 흐물이만 겁쟁이(만세 줄행랑)·기운 넘침·창 옆면 매달리기 — 셋 다 그림(panic·hang·rope)이 있음
     #[test]
     fn bundled_heumul_is_timid_energetic_and_rigs_window_sides() {
         assert_eq!(&OPTIONAL_ANIMS[11..14], &["panic", "hang", "rope"]);
@@ -668,7 +689,7 @@ mod tests {
         }
     }
 
-    /// 🎨 몸 색은 잉크 선으로 그린 흐물이만 (pet.json tint + ink_<stage>.png) — 메뉴 "🎨 흐물이 색"도 그때만 보인다
+    /// 🎨 몸 색은 잉크 선으로 그린 흐물이만 (pet.json tint + ink_<stage>.png) — 메뉴 "🎨 흐물이 색"도 그때만 보임
     #[test]
     fn only_bundled_heumul_can_be_tinted() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
@@ -679,7 +700,7 @@ mod tests {
         }
     }
 
-    /// 번들 다람쥐는 고양이처럼 벽을 타고, 걷다가 가끔 깡총거리고, 도토리를 좋아한다
+    /// 번들 다람쥐는 고양이처럼 벽을 타고, 걷다가 가끔 깡총거리고, 도토리를 좋아함
     #[test]
     fn bundled_squirrel_climbs_and_hops_now_and_then() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets/squirrel/pet.json");
@@ -689,7 +710,7 @@ mod tests {
         assert_eq!(m.favorite_food.as_ref().map(|f| f.name.as_str()), Some("도토리"));
     }
 
-    /// 개구리 (아트 에이전트가 ui/pets/frog를 만들면 그대로 읽힌다 — 없으면 건너뛴다)
+    /// 개구리 (아트 에이전트가 ui/pets/frog를 만들면 그대로 읽힘 — 없으면 건너뜀)
     #[test]
     fn bundled_frog_hops_and_climbs_if_present() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets/frog/pet.json");
@@ -710,7 +731,7 @@ mod tests {
         assert_eq!(parse_manifest(&frog).unwrap().hop_share(), 0.0);
     }
 
-    /// 토끼는 걷는 시간의 절반쯤 깡총거린다
+    /// 토끼는 걷는 시간의 절반쯤 깡총거림
     #[test]
     fn bundled_rabbit_hops_half_the_time() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets/rabbit/pet.json");
@@ -720,7 +741,7 @@ mod tests {
         assert!(!m.hops() && !m.has_anim("bigjump"));
     }
 
-    /// 곰·꿀벌·강아지는 v0.5.5에서 빠졌다 — 번들에 없고, 그들만 쓰던 동작(wag 살랑·sting 쏘기)도 선택 동작이 아니다
+    /// 곰·꿀벌·강아지는 v0.5.5에서 빠졌음 — 번들에 없고, 그들만 쓰던 동작(wag 살랑·sting 쏘기)도 선택 동작이 아님
     #[test]
     fn bear_bee_and_dog_are_no_longer_bundled() {
         let pets = crate::test_util::species();
@@ -737,7 +758,7 @@ mod tests {
         assert!(!m.flies() && !m.hops() && !m.has_anim("bigjump"));
     }
 
-    /// 할로윈 유령: 둥실 날아다닌다 (locomotion fly), 벽은 타지 않는다
+    /// 할로윈 유령: 둥실 날아다님 (locomotion fly), 벽은 타지 않음
     fn check_ghost(m: &PetManifest) {
         assert_eq!(m.locomotion, Locomotion::Fly);
         assert!(m.flies() && !m.can_climb());
@@ -756,7 +777,7 @@ mod tests {
         assert_eq!(m.size_mult(Stage::Adult), 0.85);
     }
 
-    /// 호박·유령 (아트 에이전트가 ui/pets/{pumpkin,ghost}를 만들면 그대로 읽힌다 — 없으면 건너뛴다)
+    /// 호박·유령 (아트 에이전트가 ui/pets/{pumpkin,ghost}를 만들면 그대로 읽힘 — 없으면 건너뜀)
     #[test]
     fn bundled_halloween_pets_if_present() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
@@ -835,7 +856,7 @@ mod tests {
         assert!(m.no_roll() && !m.has_anim("roll"));
     }
 
-    /// 배로 미끄러지는 동물: 픽셀 pet.json에 roll이 있으면 구른다 (spin은 픽셀 pet.json에 없다 — 돌지 않는다)
+    /// 배로 미끄러지는 동물: 픽셀 pet.json에 roll이 있으면 구름 (spin은 픽셀 pet.json에 없음 — 돌지 않음)
     #[test]
     fn a_pixel_belly_slide_keeps_its_roll_without_spin() {
         let base = parse_manifest(&full_json()).unwrap();
@@ -877,7 +898,7 @@ mod tests {
         assert!(x.abs() < 1e-9, "{x}");
     }
 
-    /// 기린: 목 늘이기 층이 있으면 픽셀에서도 늘이고, 없으면 그 동작은 없다. 구르기는 어느 쪽도 없다
+    /// 기린: 목 늘이기 층이 있으면 픽셀에서도 늘이고, 없으면 그 동작은 없음. 구르기는 어느 쪽도 없음
     #[test]
     fn pixel_giraffe_keeps_its_neck_stretch_only_with_layers() {
         use crate::behavior::Special;
@@ -895,7 +916,7 @@ mod tests {
         (u32::from_be_bytes([b[16], b[17], b[18], b[19]]), u32::from_be_bytes([b[20], b[21], b[22], b[23]]))
     }
 
-    /// 번들 픽셀 그림 (ui/pets_pixel — 있는 동물만): 동글 동물 위에 올라가고, 구르기가 없고, 다섯 단계 시트가 칸 표에 맞는다
+    /// 번들 픽셀 그림 (ui/pets_pixel — 있는 동물만): 동글 동물 위에 올라가고, 구르기가 없고, 다섯 단계 시트가 칸 표에 맞음
     #[test]
     fn bundled_pixel_pets_fit_their_sheets() {
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");

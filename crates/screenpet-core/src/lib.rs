@@ -1,3 +1,5 @@
+//! 🐾 ScreenPet 핵심 크레이트 — 창도 웹뷰도 모르는 순수 규칙 (동물 두뇌, 물리, 디딤판, 설정, 날씨, 친구 방문 등)
+//! 앱(src-tauri)과 screenpet-net·screenpet-relay가 씀. OS에 닿는 것은 platform 모듈뿐임
 pub mod behavior;
 pub mod brain;
 pub mod broom;

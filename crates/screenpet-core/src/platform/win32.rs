@@ -1,3 +1,5 @@
+//! 🪟 Windows 창·모니터·커서·키 읽기 (Win32 API) — WindowSource 구현과 창 옮기기·크기 바꾸기
+//! 디딤판이 될 창만 고름: 보이고, 최소화되지 않았고, 내 앱·셸·도구 창·제목 없는 창이 아니고, MIN_SIZE 이상
 use std::ffi::c_void;
 use std::mem::size_of;
 
@@ -29,9 +31,10 @@ use crate::typing::{KeyEdges, MAX_PER_POLL};
 
 /// 디딤판이 되면 안 되는 셸 창 클래스
 const SHELL_CLASSES: [&str; 4] = ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"];
+/// 이보다 작은 창 (물리 px)은 디딤판이 아님
 const MIN_SIZE: f64 = 50.0;
 
-/// 창·화면·커서는 상태 없이 읽는다. 상태는 ⌨️ 타자 응원의 올라감 판단 (지난 읽기 때 눌려 있던 키 비트)과 마지막 입력 시각뿐
+/// 창·화면·커서는 상태 없이 읽음. 상태는 ⌨️ 타자 응원의 올라감 판단 (지난 읽기 때 눌려 있던 키 비트)과 마지막 입력 시각뿐
 #[derive(Default)]
 pub struct Win32Source {
     keys: KeyEdges,
@@ -39,6 +42,7 @@ pub struct Win32Source {
 }
 
 impl WindowSource for Win32Source {
+    /// 보이는 최상위 창 목록 (EnumWindows, 앞 → 뒤, DWM 테두리 기준)
     fn windows(&mut self) -> Vec<WindowInfo> {
         let mut hwnds: Vec<HWND> = Vec::new();
         unsafe {
@@ -56,6 +60,7 @@ impl WindowSource for Win32Source {
             .collect()
     }
 
+    /// 모니터별 작업 영역 (작업표시줄 뺌)
     fn work_areas(&mut self) -> Vec<Rect> {
         let mut list: Vec<Rect> = Vec::new();
         unsafe {
@@ -75,6 +80,7 @@ impl WindowSource for Win32Source {
         frame_rect(h)
     }
 
+    /// 커서 자리 (물리 px)
     fn cursor(&mut self) -> (f64, f64) {
         let mut p = POINT::default();
         unsafe {
@@ -83,19 +89,22 @@ impl WindowSource for Win32Source {
         (p.x as f64, p.y as f64)
     }
 
+    /// 왼쪽 버튼이 눌려 있음
     fn left_button_down(&mut self) -> bool {
         key_down(VK_LBUTTON.0)
     }
 
+    /// 오른쪽 버튼이 눌려 있음
     fn right_button_down(&mut self) -> bool {
         key_down(VK_RBUTTON.0)
     }
 
+    /// Esc가 눌려 있음
     fn escape_down(&mut self) -> bool {
         key_down(VK_ESCAPE.0)
     }
 
-    /// GetAsyncKeyState는 상태를 읽기만 한다 (키는 앞에 있는 앱에도 그대로 간다). 권한이 필요 없다
+    /// GetAsyncKeyState는 상태를 읽기만 함 (키는 앞에 있는 앱에도 그대로 감). 권한이 필요 없음
     fn control_keys(&mut self) -> ControlInput {
         ControlInput {
             left: key_down(VK_LEFT.0),
@@ -108,11 +117,11 @@ impl WindowSource for Win32Source {
     }
 
     // ---- ⌨️ typing sensor: 개수만 센다 (crate::typing). 키 번호는 이 읽기의 올라감 판단에만 쓰고 남기지 않는다
-    /// 타자 키 ~70개의 눌림을 읽어 새로 눌린 수만 돌려준다. GetAsyncKeyState는 상태를 읽기만 한다 (키는 앞 앱에 그대로 간다,
-    /// 훅을 걸지 않는다, 권한이 필요 없다). 마지막 입력 시각 (GetLastInputInfo)이 그대로면 키를 읽지도 않는다 —
+    /// 타자 키 ~70개의 눌림을 읽어 새로 눌린 수만 돌려줌. GetAsyncKeyState는 상태를 읽기만 함 (키는 앞 앱에 그대로 감,
+    /// 훅을 걸지 않음, 권한이 필요 없음). 마지막 입력 시각 (GetLastInputInfo)이 그대로면 키를 읽지도 않음 —
     /// 손이 쉬면 틱마다 가벼운 호출 하나, 키보드·마우스를 쓰는 동안만 ~70번
     fn key_presses(&mut self) -> Option<u32> {
-        /// 글자·숫자·기호·공백·지우기·엔터·탭·숫자판 (Ctrl·Alt·Shift·화살표·F키는 타자로 치지 않는다)
+        /// 글자·숫자·기호·공백·지우기·엔터·탭·숫자판 (Ctrl·Alt·Shift·화살표·F키는 타자로 치지 않음)
         const TYPING_KEYS: [(u8, u8); 10] =
             [(0x08, 0x09), (0x0D, 0x0D), (0x20, 0x20), (0x2E, 0x2E), (0x30, 0x39), (0x41, 0x5A), (0x60, 0x6F), (0xBA, 0xC0), (0xDB, 0xDF), (0xE2, 0xE2)];
         let mut info = LASTINPUTINFO { cbSize: size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
@@ -137,7 +146,7 @@ impl WindowSource for Win32Source {
     }
     // ---- end typing sensor
 
-    /// 틱 수는 49.7일마다 한 바퀴 돈다 — wrapping_sub면 그때도 맞다
+    /// 틱 수는 49.7일마다 한 바퀴 돎 — wrapping_sub면 그때도 맞음
     fn idle_seconds(&mut self) -> Option<f64> {
         let mut info = LASTINPUTINFO { cbSize: size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
         unsafe {
@@ -148,9 +157,9 @@ impl WindowSource for Win32Source {
         }
     }
 
-    /// 📌 그 창 프로세스의 실행 파일 아이콘을 px 크기로 (PrivateExtractIconsW — 큰 아이콘을 골라 줄인다), 안 되면 창의 아이콘
-    /// (WM_GETICON — 멈춘 창은 기다리지 않는다 · 창 클래스 아이콘). 검은 바탕·흰 바탕에 한 번씩 그려 투명함을 얻는다 (icon::from_black_white).
-    /// 경로는 아이콘을 꺼내는 데만 쓰고 버린다
+    /// 📌 그 창 프로세스의 실행 파일 아이콘을 px 크기로 (PrivateExtractIconsW — 큰 아이콘을 골라 줄임), 안 되면 창의 아이콘
+    /// (WM_GETICON — 멈춘 창은 기다리지 않음 · 창 클래스 아이콘). 검은 바탕·흰 바탕에 한 번씩 그려 투명함을 얻음 (icon::from_black_white).
+    /// 경로는 아이콘을 꺼내는 데만 쓰고 버림
     fn app_icon(&mut self, window: u64, px: u32) -> Option<IconImage> {
         let h = HWND(window as usize as *mut c_void);
         if px == 0 || px > 256 {
@@ -173,7 +182,7 @@ impl WindowSource for Win32Source {
     }
 }
 
-/// 창 프로세스의 실행 파일에서 px 크기 아이콘을 꺼낸다 (DestroyIcon은 부른 쪽이)
+/// 창 프로세스의 실행 파일에서 px 크기 아이콘을 꺼냄 (DestroyIcon은 부른 쪽이)
 unsafe fn exe_icon(h: HWND, px: u32) -> Option<HICON> {
     let mut pid = 0u32;
     GetWindowThreadProcessId(h, Some(&mut pid as *mut u32));
@@ -258,16 +267,19 @@ unsafe fn render_icon(hicon: HICON, px: u32) -> Option<IconImage> {
     icon::from_black_white(px, &black?, &white?)
 }
 
+/// 가상 키가 지금 눌려 있음 (GetAsyncKeyState)
 fn key_down(vk: u16) -> bool {
     unsafe { (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0 }
 }
 
+/// EnumWindows 콜백: 창 핸들을 목록에 모음
 unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let list = &mut *(lparam.0 as *mut Vec<HWND>);
     list.push(hwnd);
     TRUE
 }
 
+/// EnumDisplayMonitors 콜백: 모니터 작업 영역을 목록에 모음
 unsafe extern "system" fn collect_monitor(hmon: HMONITOR, _hdc: HDC, _clip: *mut RECT, lparam: LPARAM) -> BOOL {
     let list = &mut *(lparam.0 as *mut Vec<Rect>);
     let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
@@ -277,10 +289,12 @@ unsafe extern "system" fn collect_monitor(hmon: HMONITOR, _hdc: HDC, _clip: *mut
     TRUE
 }
 
+/// Win32 RECT → Rect
 fn to_rect(r: RECT) -> Rect {
     Rect::new(r.left as f64, r.top as f64, r.right as f64, r.bottom as f64)
 }
 
+/// 디딤판 후보 창임 (보임·최소화 아님·내 앱 아님·도구/투명 창 아님·제목 있음 등)
 fn is_candidate(hwnd: HWND, own_pid: u32) -> bool {
     unsafe {
         if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
@@ -321,14 +335,14 @@ fn frame_rect(hwnd: HWND) -> Option<Rect> {
     Some(to_rect(r))
 }
 
-/// 우리 창(hwnd) 크기를 물리 px로 바꾼다 — 자리·Z 순서·포커스는 그대로 (Tauri set_size는 창을 활성화한다)
+/// 우리 창(hwnd) 크기를 물리 px로 바꿈 — 자리·Z 순서·포커스는 그대로 (Tauri set_size는 창을 활성화함)
 pub fn resize_window(hwnd: isize, w: i32, h: i32) -> bool {
     let h_ = HWND(hwnd as *mut c_void);
     unsafe { SetWindowPos(h_, HWND::default(), 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS).is_ok() }
 }
 
-/// 우리 창(hwnd)을 물리 px (x, y)로 바로 옮긴다 — Tauri set_position은 이벤트 루프를 한 번 거쳐 늦고 들쭉날쭉하다.
-/// 크기·Z 순서·포커스는 그대로, 창 스레드를 기다리지 않는다 (SWP_ASYNCWINDOWPOS). 실패하면 false
+/// 우리 창(hwnd)을 물리 px (x, y)로 바로 옮김 — Tauri set_position은 이벤트 루프를 한 번 거쳐 늦고 들쭉날쭉함
+/// 크기·Z 순서·포커스는 그대로, 창 스레드를 기다리지 않음 (SWP_ASYNCWINDOWPOS). 실패하면 false
 pub fn move_window(hwnd: isize, x: i32, y: i32) -> bool {
     let h = HWND(hwnd as *mut c_void);
     unsafe { SetWindowPos(h, HWND::default(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS).is_ok() }
