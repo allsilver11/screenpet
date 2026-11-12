@@ -1,68 +1,80 @@
 //! ☀️ Real weather for the apps (v0.6.3): the relay asks Open-Meteo for the
-//! current WMO weather code of each *cell* (latitude/longitude rounded to
-//! 0.1°) some connected app wants, at most every 30 minutes per cell, and
-//! hands it out as `weather {lat, lon, code, at}`. Apps never call the
-//! weather service themselves, and nothing about them is sent there: only
-//! the cell's coordinates.
+//! current WMO weather code of each built-in *place* (a Korean city, `PLACES`)
+//! some connected app wants, at most every 30 minutes per place, and hands it
+//! out as `weather {place, code, at}`. Apps never call the weather service
+//! themselves and send no coordinates: only a place id from the fixed list
+//! (an unknown id is ignored). Open-Meteo sees only the city's coordinates.
 //!
-//! An app that never says what it wants gets the Yongin cell
-//! (`DEFAULT_CELL`). Cells nobody has wanted for 2 h are forgotten; at most
-//! `MAX_CELLS` are kept (a new cell past that is not served until one is
-//! forgotten). A failed fetch keeps the last good reading and tries again in
-//! 5 minutes.
+//! An app that never says what it wants gets Yongin (`DEFAULT_PLACE`).
+//! Places nobody has wanted for 2 h are forgotten, so at most `PLACES.len()`
+//! are ever kept. A failed fetch keeps the last good reading and tries again
+//! in 5 minutes.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// A cell is fetched again this long after a good reading.
+/// A place is fetched again this long after a good reading.
 pub const POLL_EVERY: Duration = Duration::from_secs(30 * 60);
 /// … and this long after a failed fetch.
 pub const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
-/// A cell no connected app wants is forgotten after this.
+/// A place no connected app wants is forgotten after this.
 pub const FORGET_AFTER: Duration = Duration::from_secs(2 * 3600);
-/// Most cells kept.
-pub const MAX_CELLS: usize = 50;
-/// Most cells fetched in one round (the rest wait for the next one).
+/// Most places fetched in one round (the rest wait for the next one).
 pub const FETCHES_PER_ROUND: usize = 10;
 /// Largest Open-Meteo answer read (the real one is well under 1 KiB).
 pub const BODY_LIMIT: u64 = 16 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Latitude and longitude in tenths of a degree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Cell {
-    pub lat: i32,
-    pub lon: i32,
+/// A built-in place: id (as the app sends it), latitude, longitude.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Place {
+    pub id: &'static str,
+    pub lat: f64,
+    pub lon: f64,
 }
 
-/// Yongin-si, Gyeonggi-do (37.2411, 127.1776).
-pub const DEFAULT_CELL: Cell = Cell { lat: 372, lon: 1272 };
+const fn place(id: &'static str, lat: f64, lon: f64) -> Place {
+    Place { id, lat, lon }
+}
 
-impl Cell {
-    /// The cell of a place an app asked for; `None` unless both are real
-    /// coordinates.
-    pub fn from_degrees(lat: f64, lon: f64) -> Option<Cell> {
-        if !lat.is_finite() || !lon.is_finite() || lat.abs() > 90.0 || lon.abs() > 180.0 {
-            return None;
-        }
-        Some(Cell { lat: (lat * 10.0).round() as i32, lon: (lon * 10.0).round() as i32 })
-    }
+/// The places the relay serves — the same list as the app's
+/// `screenpet_core::real_weather::Place` (a test checks they match).
+pub const PLACES: [Place; 18] = [
+    place("seoul", 37.5665, 126.9780),
+    place("yongin", 37.2411, 127.1776),
+    place("suwon", 37.2636, 127.0286),
+    place("seongnam", 37.4200, 127.1265),
+    place("incheon", 37.4563, 126.7052),
+    place("daejeon", 36.3504, 127.3845),
+    place("daegu", 35.8714, 128.6014),
+    place("gwangju", 35.1595, 126.8526),
+    place("busan", 35.1796, 129.0756),
+    place("ulsan", 35.5384, 129.3114),
+    place("sejong", 36.4800, 127.2890),
+    place("jeju", 33.4996, 126.5312),
+    place("gangneung", 37.7519, 128.8761),
+    place("chuncheon", 37.8813, 127.7298),
+    place("jeonju", 35.8242, 127.1480),
+    place("cheongju", 36.6424, 127.4890),
+    place("changwon", 35.2280, 128.6811),
+    place("pohang", 36.0190, 129.3435),
+];
 
-    pub fn lat_deg(self) -> f64 {
-        f64::from(self.lat) / 10.0
-    }
+/// Yongin-si, Gyeonggi-do.
+pub const DEFAULT_PLACE: &str = "yongin";
 
-    pub fn lon_deg(self) -> f64 {
-        f64::from(self.lon) / 10.0
-    }
+/// The built-in place with this id; `None` for anything else.
+pub fn find_place(id: &str) -> Option<&'static Place> {
+    PLACES.iter().find(|p| p.id == id)
+}
 
-    pub fn url(self) -> String {
+impl Place {
+    pub fn url(&self) -> String {
         format!(
-            "https://api.open-meteo.com/v1/forecast?latitude={:.1}&longitude={:.1}&current=weather_code&timezone=GMT",
-            self.lat_deg(),
-            self.lon_deg()
+            "https://api.open-meteo.com/v1/forecast?latitude={:.4}&longitude={:.4}&current=weather_code&timezone=GMT",
+            self.lat, self.lon
         )
     }
 }
@@ -76,8 +88,8 @@ pub fn parse_open_meteo(body: &str) -> Option<u16> {
     (code <= 99).then_some(code as u16)
 }
 
-/// Fetches the weather code of a cell (blocking, bounded by timeouts).
-pub type Fetch = Arc<dyn Fn(Cell) -> Result<u16, String> + Send + Sync>;
+/// Fetches the weather code of a place (blocking, bounded by timeouts).
+pub type Fetch = Arc<dyn Fn(&Place) -> Result<u16, String> + Send + Sync>;
 
 /// The real fetcher: HTTPS GET to Open-Meteo through rustls.
 pub fn open_meteo() -> Fetch {
@@ -90,8 +102,8 @@ pub fn open_meteo() -> Fetch {
         .timeout_global(Some(FETCH_TIMEOUT))
         .build()
         .into();
-    Arc::new(move |cell: Cell| {
-        let mut resp = agent.get(&cell.url()).call().map_err(|e| e.to_string())?;
+    Arc::new(move |place: &Place| {
+        let mut resp = agent.get(&place.url()).call().map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
             return Err(format!("HTTP {}", resp.status()));
         }
@@ -118,65 +130,56 @@ struct Entry {
     busy: bool,
 }
 
-/// The cells and their last readings.
+/// The wanted places (by id) and their last readings. Only built-in places
+/// get in, so this never holds more than `PLACES.len()`.
 #[derive(Debug, Default)]
 pub struct Weathers {
-    cells: HashMap<Cell, Entry>,
+    places: HashMap<&'static str, Entry>,
 }
 
 impl Weathers {
     pub fn len(&self) -> usize {
-        self.cells.len()
+        self.places.len()
     }
 
-    /// An app wants `cell` now. `false` if it is new and there is no room
-    /// (the default cell always has room).
-    pub fn want(&mut self, cell: Cell, now: Instant) -> bool {
-        if let Some(e) = self.cells.get_mut(&cell) {
-            e.wanted = now;
-            return true;
-        }
-        if cell != DEFAULT_CELL && self.cells.keys().filter(|c| **c != DEFAULT_CELL).count() >= MAX_CELLS - 1 {
-            return false;
-        }
-        self.cells.insert(cell, Entry { reading: None, next: None, wanted: now, busy: false });
-        true
+    /// An app wants the place `id` now: its canonical id, or `None` (and
+    /// nothing kept) if it is not a built-in place.
+    pub fn want(&mut self, id: &str, now: Instant) -> Option<&'static str> {
+        let id = find_place(id)?.id;
+        self.places.entry(id).and_modify(|e| e.wanted = now).or_insert(Entry { reading: None, next: None, wanted: now, busy: false });
+        Some(id)
     }
 
-    pub fn reading(&self, cell: Cell) -> Option<Reading> {
-        self.cells.get(&cell).and_then(|e| e.reading)
+    pub fn reading(&self, id: &str) -> Option<Reading> {
+        self.places.get(id).and_then(|e| e.reading)
     }
 
-    /// Cells to fetch now (at most `FETCHES_PER_ROUND`, marked busy), given
-    /// the cells connected apps want; forgets cells nobody wanted for
+    /// Places to fetch now (at most `FETCHES_PER_ROUND`, marked busy), given
+    /// the places connected apps want; forgets places nobody wanted for
     /// `FORGET_AFTER`.
-    pub fn due(&mut self, now: Instant, in_use: &HashSet<Cell>) -> Vec<Cell> {
-        for (cell, e) in self.cells.iter_mut() {
-            if in_use.contains(cell) {
+    pub fn due(&mut self, now: Instant, in_use: &HashSet<&'static str>) -> Vec<&'static Place> {
+        for (id, e) in self.places.iter_mut() {
+            if in_use.contains(id) {
                 e.wanted = now;
             }
         }
-        self.cells.retain(|_, e| e.busy || now.duration_since(e.wanted) < FORGET_AFTER);
-        let mut due: Vec<Cell> = self
-            .cells
-            .iter()
-            .filter(|(cell, e)| in_use.contains(*cell) && !e.busy && e.next.is_none_or(|t| now >= t))
-            .map(|(cell, _)| *cell)
-            .collect();
-        due.sort_by_key(|c| (self.cells[c].next, c.lat, c.lon));
+        self.places.retain(|_, e| e.busy || now.duration_since(e.wanted) < FORGET_AFTER);
+        let mut due: Vec<&'static str> =
+            self.places.iter().filter(|(id, e)| in_use.contains(*id) && !e.busy && e.next.is_none_or(|t| now >= t)).map(|(id, _)| *id).collect();
+        due.sort_by_key(|id| (self.places[id].next, *id));
         due.truncate(FETCHES_PER_ROUND);
-        for c in &due {
-            if let Some(e) = self.cells.get_mut(c) {
+        for id in &due {
+            if let Some(e) = self.places.get_mut(id) {
                 e.busy = true;
             }
         }
-        due
+        due.into_iter().filter_map(find_place).collect()
     }
 
     /// A fetch finished. A good code becomes the reading (returned); a
     /// failure keeps the old one and tries again sooner.
-    pub fn fetched(&mut self, cell: Cell, code: Option<u16>, now: Instant, unix: u64) -> Option<Reading> {
-        let e = self.cells.get_mut(&cell)?;
+    pub fn fetched(&mut self, id: &str, code: Option<u16>, now: Instant, unix: u64) -> Option<Reading> {
+        let e = self.places.get_mut(id)?;
         e.busy = false;
         e.next = Some(now + if code.is_some() { POLL_EVERY } else { RETRY_AFTER });
         let code = code?;
@@ -190,8 +193,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_places_are_exactly_the_apps_list() {
+        use screenpet_core::real_weather::Place as AppPlace;
+        assert_eq!(PLACES.len(), AppPlace::ALL.len());
+        for (relay, app) in PLACES.iter().zip(AppPlace::ALL) {
+            assert_eq!((relay.id, relay.lat, relay.lon), (app.id(), app.coords().0, app.coords().1));
+        }
+        assert_eq!(DEFAULT_PLACE, AppPlace::default().id());
+    }
+
+    #[test]
     fn parses_the_open_meteo_answer() {
-        // A real answer (2026-11-12, Yongin cell)
+        // A real answer (2026-11-12, Yongin)
         let real = r#"{"latitude":37.2,"longitude":127.1875,"generationtime_ms":0.0865,"utc_offset_seconds":0,"timezone":"GMT","timezone_abbreviation":"GMT","elevation":148.0,"current_units":{"time":"iso8601","interval":"seconds","weather_code":"wmo code"},"current":{"time":"2026-11-12T09:45","interval":900,"weather_code":61}}"#;
         assert_eq!(parse_open_meteo(real), Some(61));
         assert_eq!(parse_open_meteo(r#"{"current":{"weather_code":3.0}}"#), Some(3));
@@ -210,75 +223,79 @@ mod tests {
     }
 
     #[test]
-    fn cells_round_to_a_tenth_of_a_degree_and_reject_nonsense() {
-        assert_eq!(Cell::from_degrees(37.2411, 127.1776), Some(DEFAULT_CELL));
-        assert_eq!(Cell::from_degrees(-33.86, 151.21), Some(Cell { lat: -339, lon: 1512 }));
-        for (lat, lon) in [(f64::NAN, 0.0), (0.0, f64::INFINITY), (90.1, 0.0), (0.0, -180.5)] {
-            assert_eq!(Cell::from_degrees(lat, lon), None);
-        }
+    fn urls_carry_only_the_citys_coordinates() {
         assert_eq!(
-            DEFAULT_CELL.url(),
-            "https://api.open-meteo.com/v1/forecast?latitude=37.2&longitude=127.2&current=weather_code&timezone=GMT"
+            find_place(DEFAULT_PLACE).unwrap().url(),
+            "https://api.open-meteo.com/v1/forecast?latitude=37.2411&longitude=127.1776&current=weather_code&timezone=GMT"
         );
-        assert_eq!(Cell { lat: -5, lon: 0 }.url(), "https://api.open-meteo.com/v1/forecast?latitude=-0.5&longitude=0.0&current=weather_code&timezone=GMT");
     }
 
     #[test]
-    fn only_wanted_cells_are_fetched_every_half_hour_and_failures_retry_sooner() {
+    fn unknown_or_garbage_places_are_ignored_and_add_nothing() {
         let t0 = Instant::now();
         let mut w = Weathers::default();
-        let seoul = Cell { lat: 376, lon: 1270 };
-        assert!(w.want(DEFAULT_CELL, t0) && w.want(seoul, t0));
-        let in_use: HashSet<Cell> = [DEFAULT_CELL].into();
-        assert_eq!(w.due(t0, &in_use), vec![DEFAULT_CELL], "Seoul is not in use");
-        assert_eq!(w.due(t0, &in_use), Vec::<Cell>::new(), "busy");
-        assert_eq!(w.fetched(DEFAULT_CELL, Some(71), t0, 1000), Some(Reading { code: 71, at: 1000 }));
-        assert_eq!(w.due(t0 + POLL_EVERY - Duration::from_secs(1), &in_use), Vec::<Cell>::new());
-        assert_eq!(w.due(t0 + POLL_EVERY, &in_use), vec![DEFAULT_CELL]);
+        for bad in ["", "tokyo", "YONGIN", " yongin", "37.2,127.2", "yongin\0", &"x".repeat(10_000)] {
+            assert_eq!(w.want(bad, t0), None, "{bad:?}");
+        }
+        assert_eq!(w.len(), 0);
+        for p in PLACES {
+            assert_eq!(w.want(p.id, t0), Some(p.id));
+            assert_eq!(w.want(p.id, t0), Some(p.id));
+        }
+        assert_eq!(w.len(), PLACES.len(), "never more than the built-in places");
+    }
+
+    #[test]
+    fn only_wanted_places_are_fetched_every_half_hour_and_failures_retry_sooner() {
+        let t0 = Instant::now();
+        let mut w = Weathers::default();
+        w.want(DEFAULT_PLACE, t0);
+        w.want("seoul", t0);
+        let in_use: HashSet<&'static str> = [DEFAULT_PLACE].into();
+        let ids = |v: Vec<&'static Place>| v.iter().map(|p| p.id).collect::<Vec<_>>();
+        assert_eq!(ids(w.due(t0, &in_use)), vec![DEFAULT_PLACE], "Seoul is not in use");
+        assert!(w.due(t0, &in_use).is_empty(), "busy");
+        assert_eq!(w.fetched(DEFAULT_PLACE, Some(71), t0, 1000), Some(Reading { code: 71, at: 1000 }));
+        assert!(w.due(t0 + POLL_EVERY - Duration::from_secs(1), &in_use).is_empty());
+        assert_eq!(ids(w.due(t0 + POLL_EVERY, &in_use)), vec![DEFAULT_PLACE]);
         let t1 = t0 + POLL_EVERY;
-        assert_eq!(w.fetched(DEFAULT_CELL, None, t1, 2000), None);
-        assert_eq!(w.reading(DEFAULT_CELL), Some(Reading { code: 71, at: 1000 }), "the last good reading stays");
-        assert_eq!(w.due(t1 + RETRY_AFTER, &in_use), vec![DEFAULT_CELL]);
+        assert_eq!(w.fetched(DEFAULT_PLACE, None, t1, 2000), None);
+        assert_eq!(w.reading(DEFAULT_PLACE), Some(Reading { code: 71, at: 1000 }), "the last good reading stays");
+        assert_eq!(ids(w.due(t1 + RETRY_AFTER, &in_use)), vec![DEFAULT_PLACE]);
     }
 
     #[test]
-    fn unwanted_cells_are_forgotten_and_the_cap_holds() {
+    fn unwanted_places_are_forgotten() {
         let t0 = Instant::now();
         let mut w = Weathers::default();
-        let none = HashSet::new();
-        for i in 0..MAX_CELLS as i32 - 1 {
-            assert!(w.want(Cell { lat: i, lon: 0 }, t0), "{i}");
+        for p in PLACES {
+            w.want(p.id, t0);
         }
-        assert!(!w.want(Cell { lat: 999, lon: 0 }, t0), "full");
-        assert!(w.want(DEFAULT_CELL, t0), "the default always fits");
-        assert_eq!(w.len(), MAX_CELLS);
-        let kept: HashSet<Cell> = [Cell { lat: 0, lon: 0 }].into();
+        let kept: HashSet<&'static str> = ["busan"].into();
         w.due(t0 + FORGET_AFTER - Duration::from_secs(1), &kept);
-        assert_eq!(w.len(), MAX_CELLS);
-        w.due(t0 + FORGET_AFTER, &none);
-        assert_eq!(w.len(), 1, "only the cell still wanted lately is left");
-        assert!(w.want(Cell { lat: 999, lon: 0 }, t0 + FORGET_AFTER));
+        assert_eq!(w.len(), PLACES.len());
+        w.due(t0 + FORGET_AFTER, &HashSet::new());
+        assert_eq!(w.len(), 1, "only the place still wanted lately is left");
     }
 
     #[test]
-    fn a_round_fetches_a_bounded_number_of_cells() {
+    fn a_round_fetches_a_bounded_number_of_places() {
         let t0 = Instant::now();
         let mut w = Weathers::default();
-        let cells: HashSet<Cell> = (0..30).map(|i| Cell { lat: i, lon: 0 }).collect();
-        for c in &cells {
-            w.want(*c, t0);
+        let all: HashSet<&'static str> = PLACES.iter().map(|p| p.id).collect();
+        for p in PLACES {
+            w.want(p.id, t0);
         }
-        assert_eq!(w.due(t0, &cells).len(), FETCHES_PER_ROUND);
-        assert_eq!(w.due(t0, &cells).len(), FETCHES_PER_ROUND);
-        assert_eq!(w.due(t0, &cells).len(), 10);
-        assert_eq!(w.due(t0, &cells).len(), 0);
+        assert_eq!(w.due(t0, &all).len(), FETCHES_PER_ROUND);
+        assert_eq!(w.due(t0, &all).len(), PLACES.len() - FETCHES_PER_ROUND);
+        assert_eq!(w.due(t0, &all).len(), 0);
     }
 
     /// Real network: `cargo test -p screenpet-relay -- --ignored live_open_meteo`
     #[test]
     #[ignore]
     fn live_open_meteo() {
-        let code = open_meteo()(DEFAULT_CELL).expect("Open-Meteo answers");
+        let code = open_meteo()(find_place(DEFAULT_PLACE).unwrap()).expect("Open-Meteo answers");
         println!("Yongin weather code {code}");
         assert!(code <= 99);
     }

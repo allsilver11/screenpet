@@ -20,5 +20,9 @@ curve25519-dalek = { version = "4.1", default-features = false }
 # ☀️ Open-Meteo over HTTPS: the same ureq + rustls (ring) + webpki-roots the app uses. ring's build script compiles C.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
+[dev-dependencies]
+# Only for the test that the relay's weather places match the app's list
+screenpet-core = { path = "../screenpet-core" }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

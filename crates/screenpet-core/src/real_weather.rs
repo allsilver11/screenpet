@@ -1,7 +1,8 @@
 //! ☀️ 실제 날씨 (v0.6.3) — 고른 도시(기본 용인)의 지금 날씨를 계절 날씨 대신 보여 준다.
 //!
-//! 앱은 날씨 서비스를 직접 부르지 않는다: 중계 서버가 도시 칸(위도·경도 0.1°)마다 30분에 한 번 Open-Meteo에서
-//! WMO 날씨 코드를 받아 와 접속한 앱에 나눠 준다 (`weather` 메시지). 여기는 그 코드를 그림(Weather)으로 바꾸는
+//! 앱은 날씨 서비스를 직접 부르지 않는다: 앱은 도시 id("yongin")만 중계 서버에 알리고, 서버가 같은 목록
+//! (screenpet-relay weather::PLACES — 테스트가 같은지 본다)에서 좌표를 찾아 도시마다 30분에 한 번 Open-Meteo에서
+//! WMO 날씨 코드를 받아 와 나눠 준다 (`weather` 메시지). 여기는 그 코드를 그림(Weather)으로 바꾸는
 //! 순수한 계산뿐이다. 받은 값이 없거나 3시간보다 오래됐으면 예전처럼 달력 날씨(`weather::weather_at`)로 돌아간다.
 
 use serde::{Deserialize, Serialize};
@@ -26,7 +27,8 @@ impl WeatherSource {
     }
 }
 
-/// 📍 날씨 지역: 고를 수 있는 도시 (좌표는 시청 근처). 모르는 값이면 용인
+/// 📍 날씨 지역: 고를 수 있는 도시 (좌표는 시청 근처). 모르는 값이면 용인.
+/// 바꾸면 screenpet-relay의 weather::PLACES도 같이 바꾼다 (중계 서버가 이 목록 밖의 id는 무시한다)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Place {
@@ -166,11 +168,6 @@ pub fn weather_now(source: WeatherSource, reading: Option<Reading>, now: i64, ye
     }
 }
 
-/// 중계 서버가 쓰는 칸: 위도·경도를 0.1° 단위 정수로 (같은 칸이면 같은 날씨)
-pub fn cell(lat: f64, lon: f64) -> (i32, i32) {
-    ((lat * 10.0).round() as i32, (lon * 10.0).round() as i32)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,7 +236,6 @@ mod tests {
     fn places_are_the_built_in_korean_cities_with_yongin_first_by_default() {
         assert_eq!(Place::default(), Place::Yongin);
         assert_eq!(Place::Yongin.coords(), (37.2411, 127.1776));
-        assert_eq!(cell(37.2411, 127.1776), (372, 1272));
         let labels: Vec<&str> = Place::ALL.iter().map(|p| p.label()).collect();
         assert_eq!(
             labels,

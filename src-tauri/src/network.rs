@@ -727,11 +727,10 @@ impl Network {
     }
 
     /// 🧹 쓸어 모은 더미를 그 끝의 친구 한 명에게 흩날려 보낸다 (친구 쪽에서 반대편 끝으로 들어온다)
-    /// ☀️ 이 도시의 실제 날씨를 중계 서버에 달라고 한다 (좌표만 간다 — 서버가 날씨 서비스에 묻는다)
+    /// ☀️ 이 도시의 실제 날씨를 중계 서버에 달라고 한다 (도시 id만 간다 — 서버가 정해진 목록에서 찾아 날씨 서비스에 묻는다)
     pub fn want_weather(&self, place: screenpet_core::real_weather::Place) {
         if let Some(net) = &self.net {
-            let (lat, lon) = place.coords();
-            net.want_weather(lat, lon);
+            net.want_weather(place.id());
         }
     }
 

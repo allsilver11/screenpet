@@ -261,10 +261,10 @@ pub(crate) fn serve(hub: Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: String, adm
                                     hub.letter_block(&a.key, a.conn, &from);
                                     None
                                 }
-                                ClientMsg::WeatherWant { lat, lon } => {
+                                ClientMsg::WeatherWant { place } => {
                                     // A place changes rarely: past a few a minute, just ignored
                                     if weather_wants.take(1.0) {
-                                        hub.weather_want(&a.key, a.conn, lat, lon)
+                                        hub.weather_want(&a.key, a.conn, &place)
                                     } else {
                                         None
                                     }

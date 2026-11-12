@@ -83,7 +83,7 @@ enum ClientMsg<'a> {
     LetterBlock { from: &'a str },
     LetterDone { id: u64, done: bool },
     /// ☀️ Only to relays at `WEATHER_RELAY_VERSION` (older ones close on it).
-    WeatherWant { lat: f64, lon: f64 },
+    WeatherWant { place: &'a str },
 }
 
 /// A stored feedback letter as the relay lists it (mailbox readers only).
@@ -149,21 +149,16 @@ enum ServerMsg {
     Letters { items: Vec<WireLetter> },
     LetterNew { item: WireLetter },
     LettersChanged,
-    /// ☀️ Current WMO weather code of the 0.1° cell (lat, lon), fetched by
-    /// the relay at `at` (unix s).
-    Weather { lat: f64, lon: f64, code: u16, at: i64 },
+    /// ☀️ Current WMO weather code of a built-in place (a city id like
+    /// "yongin"), fetched by the relay at `at` (unix s).
+    Weather { place: String, code: u16, at: i64 },
 }
 
-/// ☀️ Where the relay's weather is for apps that never said (Yongin).
-const DEFAULT_WEATHER_PLACE: (f64, f64) = (37.2411, 127.1776);
+/// ☀️ The relay's place for apps that never said (Yongin).
+const DEFAULT_WEATHER_PLACE: &str = "yongin";
 
 /// ☀️ Lowest relay protocol version that takes `weather_want`.
 const WEATHER_RELAY_VERSION: u32 = 2;
-
-/// The relay's 0.1° weather cell of a place.
-fn weather_cell(lat: f64, lon: f64) -> (i64, i64) {
-    ((lat * 10.0).round() as i64, (lon * 10.0).round() as i64)
-}
 
 fn json(m: &ClientMsg) -> String {
     serde_json::to_string(m).expect("relay message serializes")
@@ -229,10 +224,10 @@ struct Inner {
     letter: Option<Instant>,
     /// The relay's protocol version on this connection.
     relay_v: u32,
-    /// ☀️ The place whose weather we want (`None` = the relay's default,
-    /// Yongin), and whether it was sent on this connection.
-    weather_want: Option<(f64, f64)>,
-    sent_want: Option<(f64, f64)>,
+    /// ☀️ The place id whose weather we want (`None` = the relay's default,
+    /// Yongin), and what was sent on this connection.
+    weather_want: Option<String>,
+    sent_want: Option<String>,
 }
 
 /// Relay connection state shared by the IO thread and the relay links.
@@ -926,20 +921,20 @@ fn sync_friends(shared: &Shared, client: &RelayClient, gen: u64) {
 fn sync_weather(client: &RelayClient, gen: u64) {
     let want = {
         let inner = client.inner();
-        match inner.weather_want {
-            Some(w) if inner.relay_v >= WEATHER_RELAY_VERSION && inner.sent_want != Some(w) => w,
+        match &inner.weather_want {
+            Some(w) if inner.relay_v >= WEATHER_RELAY_VERSION && inner.sent_want.as_ref() != Some(w) => w.clone(),
             _ => return,
         }
     };
-    if client.send(Some(gen), Out::Text(json(&ClientMsg::WeatherWant { lat: want.0, lon: want.1 }))) {
+    if client.send(Some(gen), Out::Text(json(&ClientMsg::WeatherWant { place: &want }))) {
         client.inner().sent_want = Some(want);
     }
 }
 
-/// ☀️ Want the weather at (lat, lon) from now on (sent at the next
-/// housekeeping, and again on every new connection).
-pub(crate) fn want_weather(client: &RelayClient, lat: f64, lon: f64) {
-    client.inner().weather_want = Some((lat, lon));
+/// ☀️ Want the weather of the built-in place `place` (a city id) from now on
+/// (sent at the next housekeeping, and again on every new connection).
+pub(crate) fn want_weather(client: &RelayClient, place: &str) {
+    client.inner().weather_want = Some(place.to_string());
 }
 
 fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
@@ -1093,10 +1088,10 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
         ServerMsg::LettersChanged => {
             mailbox_list(client);
         }
-        ServerMsg::Weather { lat, lon, code, at } => {
+        ServerMsg::Weather { place, code, at } => {
             // Only the place we want (the relay may still say Yongin's right after the welcome)
-            let want = client.inner().weather_want.unwrap_or(DEFAULT_WEATHER_PLACE);
-            if weather_cell(lat, lon) == weather_cell(want.0, want.1) {
+            let ours = client.inner().weather_want.as_deref().unwrap_or(DEFAULT_WEATHER_PLACE) == place;
+            if ours {
                 shared.emit(NetEvent::Weather { code, at });
             }
         }
@@ -1219,16 +1214,16 @@ mod tests {
     #[test]
     fn the_wanted_place_goes_only_to_relays_that_know_the_weather_and_once_per_connection() {
         let (net, _events, client, out) = letter_rig();
-        want_weather(&client, 35.1796, 129.0756);
+        want_weather(&client, "busan");
         sync_weather(&client, 1);
         assert!(sent_text(&out).is_empty(), "a v1 relay would close the connection on weather_want");
         client.inner().relay_v = 2;
         sync_weather(&client, 1);
         sync_weather(&client, 1);
-        assert_eq!(sent_text(&out), vec![r#"{"t":"weather_want","lat":35.1796,"lon":129.0756}"#.to_string()]);
-        want_weather(&client, 37.5665, 126.978);
+        assert_eq!(sent_text(&out), vec![r#"{"t":"weather_want","place":"busan"}"#.to_string()]);
+        want_weather(&client, "seoul");
         sync_weather(&client, 1);
-        assert_eq!(sent_text(&out), vec![r#"{"t":"weather_want","lat":37.5665,"lon":126.978}"#.to_string()]);
+        assert_eq!(sent_text(&out), vec![r#"{"t":"weather_want","place":"seoul"}"#.to_string()]);
         // A new connection (sent_want reset in serve) tells it again
         client.inner().sent_want = None;
         sync_weather(&client, 1);
@@ -1237,14 +1232,14 @@ mod tests {
     }
 
     #[test]
-    fn weather_for_another_cell_is_not_ours() {
+    fn weather_for_another_place_is_not_ours() {
         let (net, events, client, _out) = letter_rig();
-        let say = |lat: f64, lon: f64, code: u16| on_message(&net.shared, &client, 1, ServerMsg::Weather { lat, lon, code, at: 1_800_000_000 });
-        say(37.2, 127.2, 71);
+        let say = |place: &str, code: u16| on_message(&net.shared, &client, 1, ServerMsg::Weather { place: place.into(), code, at: 1_800_000_000 });
+        say("yongin", 71);
         assert_eq!(weather_events(&events), vec![(71, 1_800_000_000)], "Yongin until we ask");
-        want_weather(&client, 35.1796, 129.0756);
-        say(37.2, 127.2, 71);
-        say(35.2, 129.1, 63);
+        want_weather(&client, "busan");
+        say("yongin", 71);
+        say("busan", 63);
         assert_eq!(weather_events(&events), vec![(63, 1_800_000_000)]);
     }
 
@@ -1254,11 +1249,11 @@ mod tests {
         assert!(matches!(old, ServerMsg::Challenge { v: 0, .. }), "a relay before v1 said no version");
         let new: ServerMsg = serde_json::from_str(r#"{"t":"challenge","relay":"ab","nonce":"cd","v":2}"#).unwrap();
         assert!(matches!(new, ServerMsg::Challenge { v: 2, .. }));
-        let w: ServerMsg = serde_json::from_str(r#"{"t":"weather","lat":37.2,"lon":127.2,"code":75,"at":1800000000}"#).unwrap();
+        let w: ServerMsg = serde_json::from_str(r#"{"t":"weather","place":"yongin","code":75,"at":1800000000}"#).unwrap();
         assert!(matches!(w, ServerMsg::Weather { code: 75, at: 1_800_000_000, .. }));
         // A newer relay's unknown message or a malformed weather fails to parse and is skipped by serve()
         assert!(serde_json::from_str::<ServerMsg>(r#"{"t":"aurora"}"#).is_err());
-        assert!(serde_json::from_str::<ServerMsg>(r#"{"t":"weather","lat":37.2,"lon":127.2,"code":-1,"at":1}"#).is_err());
+        assert!(serde_json::from_str::<ServerMsg>(r#"{"t":"weather","place":"yongin","code":-1,"at":1}"#).is_err());
     }
 
     #[test]

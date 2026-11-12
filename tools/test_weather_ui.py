@@ -79,7 +79,7 @@ def test_real_weather_comes_from_the_relay_and_falls_back_to_the_calendar():
     game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
     assert "NetEvent::Weather { code, at }" in game and "weather.set_reading(Some(Reading { code, at }))" in game
     net = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
-    assert "net.want_weather(lat, lon)" in net
+    assert "net.want_weather(place.id())" in net
     # 새 값·설정이 오면 1분을 기다리지 않고 바로 다시 본다
     for fn in ("pub fn set_source(", "pub fn set_reading("):
         body = RS[RS.index(fn):]

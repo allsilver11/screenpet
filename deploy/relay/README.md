@@ -237,13 +237,15 @@ unknown message by disconnecting.
 The relay fetches the current WMO weather code from
 [Open-Meteo](https://open-meteo.com/) (`api.open-meteo.com`, HTTPS, no key)
 and hands it to the apps, so they never call a weather service themselves.
-What is fetched: the 0.1° cell (rounded latitude/longitude) some connected
-app wants — Yongin (37.2, 127.2) for apps that never say, otherwise the city
-the user picked (`weather_want`). Nothing about the apps goes to Open-Meteo.
+Apps send only a place id from a fixed list of 18 Korean cities
+(`weather::PLACES`, the same list as the app's) — `weather_want {place}`;
+unknown ids are ignored, apps that never say get Yongin. No coordinates or
+anything about the apps go over the wire or to Open-Meteo (only the city's
+coordinates).
 
-- each cell at most every 30 min (5 min after a failure), only while an app
+- each place at most every 30 min (5 min after a failure), only while an app
   on it is connected; a failed fetch keeps the last reading
-- cells nobody wanted for 2 h are forgotten; at most 50 cells
+- places nobody wanted for 2 h are forgotten (at most the 18 built-in ones)
 - 10 s timeout, 16 KiB answer cap, one fetch at a time on its own thread;
   errors are logged at most every 10 minutes and never stop the relay
 - `SCREENPET_RELAY_WEATHER=off` turns it off (no fetches, no `weather`)

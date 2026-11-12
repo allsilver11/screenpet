@@ -6,7 +6,7 @@
 use crate::control::Control;
 use crate::proto::{self, ServerMsg};
 use crate::store::{unix_now, Store};
-use crate::weather::{Cell, Reading, Weathers, DEFAULT_CELL};
+use crate::weather::{Reading, Weathers, DEFAULT_PLACE};
 use crate::Limits;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -148,8 +148,8 @@ struct Peer {
     since: u64,
     link: Link,
     channels: HashSet<u32>,
-    /// ☀️ The weather cell this app wants (Yongin until it says otherwise).
-    weather: Cell,
+    /// ☀️ The built-in place whose weather this app wants (Yongin until it says otherwise).
+    weather: &'static str,
 }
 
 impl Peer {
@@ -263,7 +263,7 @@ struct State {
     global_redeems: VecDeque<Instant>,
     /// Feedback letters to the developer (`letters.json`).
     mailbox: crate::mailbox::Mailbox,
-    /// ☀️ Weather cells and their last readings.
+    /// ☀️ Weather places and their last readings.
     weathers: Weathers,
 }
 
@@ -369,8 +369,8 @@ const NET_QUEUE_SHARE: usize = 64;
 /// `key`'s bucket in a table of at most `max_keys`. When full, buckets that
 /// have refilled go first, then the fullest one.
 /// Lowercase or uppercase hex to bytes (`None` if malformed).
-fn weather_msg(cell: Cell, r: Reading) -> ServerMsg {
-    ServerMsg::Weather { lat: cell.lat_deg(), lon: cell.lon_deg(), code: r.code, at: r.at }
+fn weather_msg(place: &str, r: Reading) -> ServerMsg {
+    ServerMsg::Weather { place: place.to_string(), code: r.code, at: r.at }
 }
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
@@ -827,12 +827,12 @@ impl Hub {
         } else {
             (NO_CODE.to_string(), 0)
         };
-        st.weathers.want(DEFAULT_CELL, Instant::now());
-        let weather = st.weathers.reading(DEFAULT_CELL);
-        let peer = Peer { conn, id: id.to_string(), ip: ip.to_string(), since: now, link, channels: HashSet::new(), weather: DEFAULT_CELL };
+        let place = st.weathers.want(DEFAULT_PLACE, Instant::now()).expect("built-in");
+        let weather = st.weathers.reading(place);
+        let peer = Peer { conn, id: id.to_string(), ip: ip.to_string(), since: now, link, channels: HashSet::new(), weather: place };
         // Queued now, written after the welcome (old apps ignore it)
         if let Some(r) = weather {
-            peer.send(weather_msg(DEFAULT_CELL, r));
+            peer.send(weather_msg(place, r));
         }
         st.peers.insert(key.to_string(), peer);
         st.no_longer_unauthed(conn);
@@ -1514,32 +1514,32 @@ impl Hub {
         format!("purged {} installs:\n{list}", keys.len())
     }
 
-    /// ☀️ The app wants the weather at (lat, lon): its cell from now on. The
-    /// reading if there is one (otherwise it comes once fetched). Nonsense
-    /// coordinates, or a new cell when all are taken, change nothing.
-    pub(crate) fn weather_want(&self, key: &str, conn: u64, lat: f64, lon: f64) -> Option<ServerMsg> {
-        let cell = Cell::from_degrees(lat, lon)?;
+    /// ☀️ The app wants the weather of the built-in place `place` (an id
+    /// like "yongin") from now on. The reading if there is one (otherwise it
+    /// comes once fetched). An unknown id changes nothing.
+    pub(crate) fn weather_want(&self, key: &str, conn: u64, place: &str) -> Option<ServerMsg> {
         let mut st = self.state();
-        if !Self::is_current(&st, key, conn) || !st.weathers.want(cell, Instant::now()) {
+        if !Self::is_current(&st, key, conn) {
             return None;
         }
-        st.peers.get_mut(key).expect("current").weather = cell;
-        st.weathers.reading(cell).map(|r| weather_msg(cell, r))
+        let place = st.weathers.want(place, Instant::now())?;
+        st.peers.get_mut(key).expect("current").weather = place;
+        st.weathers.reading(place).map(|r| weather_msg(place, r))
     }
 
-    /// ☀️ Cells to fetch now (see `Weathers::due`).
-    pub(crate) fn weather_due(&self) -> Vec<Cell> {
+    /// ☀️ Places to fetch now (see `Weathers::due`).
+    pub(crate) fn weather_due(&self) -> Vec<&'static crate::weather::Place> {
         let mut st = self.state();
-        let in_use: HashSet<Cell> = st.peers.values().map(|p| p.weather).collect();
+        let in_use: HashSet<&'static str> = st.peers.values().map(|p| p.weather).collect();
         st.weathers.due(Instant::now(), &in_use)
     }
 
-    /// ☀️ A fetch finished: a new reading goes to every app on that cell.
-    pub(crate) fn weather_fetched(&self, cell: Cell, code: Option<u16>) {
+    /// ☀️ A fetch finished: a new reading goes to every app on that place.
+    pub(crate) fn weather_fetched(&self, place: &str, code: Option<u16>) {
         let mut st = self.state();
-        let Some(r) = st.weathers.fetched(cell, code, Instant::now(), unix_now()) else { return };
-        let m = weather_msg(cell, r);
-        for p in st.peers.values().filter(|p| p.weather == cell) {
+        let Some(r) = st.weathers.fetched(place, code, Instant::now(), unix_now()) else { return };
+        let m = weather_msg(place, r);
+        for p in st.peers.values().filter(|p| p.weather == place) {
             p.send(m.clone());
         }
     }
@@ -1866,52 +1866,54 @@ mod tests {
         texts(rx).into_iter().filter(|m| matches!(m, ServerMsg::Weather { .. })).collect()
     }
 
-    const SEOUL: (f64, f64) = (37.5665, 126.9780);
+    fn due_ids(hub: &Hub) -> Vec<&'static str> {
+        let mut ids: Vec<&'static str> = hub.weather_due().iter().map(|p| p.id).collect();
+        ids.sort();
+        ids
+    }
 
     #[test]
     fn apps_get_yongin_weather_until_they_ask_for_another_place() {
         let hub = hub(Limits::default());
         let (_a, _, _la, ra) = peer(&hub, 1, &[], 64);
-        assert_eq!(hub.weather_due(), vec![DEFAULT_CELL], "a connected app wants Yongin");
+        assert_eq!(due_ids(&hub), vec!["yongin"], "a connected app wants Yongin");
         assert!(weathers(&ra).is_empty(), "nothing known yet");
-        hub.weather_fetched(DEFAULT_CELL, Some(73));
+        hub.weather_fetched("yongin", Some(73));
         let got = weathers(&ra);
-        assert!(matches!(got[..], [ServerMsg::Weather { lat, lon, code: 73, at }] if lat == 37.2 && lon == 127.2 && at > 0), "{got:?}");
+        assert!(matches!(&got[..], [ServerMsg::Weather { place, code: 73, at }] if place == "yongin" && *at > 0), "{got:?}");
         // The next app gets the known reading right after its welcome
         let (_b, _, _lb, rb) = peer(&hub, 2, &[], 64);
         assert!(matches!(weathers(&rb)[..], [ServerMsg::Weather { code: 73, .. }]));
-        assert_eq!(hub.weather_due(), Vec::<Cell>::new(), "fetched half an hour ago");
+        assert!(due_ids(&hub).is_empty(), "fetched half an hour ago");
     }
 
     #[test]
-    fn an_app_can_switch_to_another_cell_and_gets_only_that_cells_weather() {
+    fn an_app_can_switch_to_another_place_and_gets_only_that_places_weather() {
         let hub = hub(Limits::default());
         let (a, ca, _la, ra) = peer(&hub, 1, &[], 64);
         let (_b, _, _lb, rb) = peer(&hub, 2, &[], 64);
-        assert_eq!(hub.weather_want(&a, ca, SEOUL.0, SEOUL.1), None, "not fetched yet");
-        let seoul = Cell { lat: 376, lon: 1270 };
-        let mut due = hub.weather_due();
-        due.sort_by_key(|c| c.lat);
-        assert_eq!(due, vec![DEFAULT_CELL, seoul]);
-        hub.weather_fetched(seoul, Some(0));
-        hub.weather_fetched(DEFAULT_CELL, Some(61));
-        assert!(matches!(weathers(&ra)[..], [ServerMsg::Weather { code: 0, lat, .. }] if lat == 37.6));
+        assert_eq!(hub.weather_want(&a, ca, "seoul"), None, "not fetched yet");
+        assert_eq!(due_ids(&hub), vec!["seoul", "yongin"]);
+        hub.weather_fetched("seoul", Some(0));
+        hub.weather_fetched("yongin", Some(61));
+        assert!(matches!(&weathers(&ra)[..], [ServerMsg::Weather { code: 0, place, .. }] if place == "seoul"));
         assert!(matches!(weathers(&rb)[..], [ServerMsg::Weather { code: 61, .. }]));
         // Back to Yongin: the known reading at once
-        assert!(matches!(hub.weather_want(&a, ca, 37.2411, 127.1776), Some(ServerMsg::Weather { code: 61, .. })));
+        assert!(matches!(hub.weather_want(&a, ca, "yongin"), Some(ServerMsg::Weather { code: 61, .. })));
         // A failed fetch keeps the last reading and tells nobody
-        hub.weather_fetched(seoul, None);
+        hub.weather_fetched("seoul", None);
         assert!(weathers(&ra).is_empty() && weathers(&rb).is_empty());
     }
 
     #[test]
-    fn nonsense_places_and_other_connections_change_nothing() {
+    fn unknown_places_and_other_connections_change_nothing() {
         let hub = hub(Limits::default());
         let (a, ca, _la, _ra) = peer(&hub, 1, &[], 64);
-        for (lat, lon) in [(f64::NAN, 1.0), (91.0, 0.0), (0.0, 200.0)] {
-            assert_eq!(hub.weather_want(&a, ca, lat, lon), None);
+        for bad in ["", "tokyo", "37.5,127.0", "Seoul", &"z".repeat(5000)] {
+            assert_eq!(hub.weather_want(&a, ca, bad), None, "{bad:?}");
         }
-        assert_eq!(hub.weather_want(&a, ca + 100, SEOUL.0, SEOUL.1), None, "an old connection");
-        assert_eq!(hub.weather_due(), vec![DEFAULT_CELL]);
+        assert_eq!(hub.weather_want(&a, ca + 100, "seoul"), None, "an old connection");
+        assert_eq!(due_ids(&hub), vec!["yongin"], "still on Yongin, no new place");
+        assert_eq!(hub.state().weathers.len(), 1);
     }
 }

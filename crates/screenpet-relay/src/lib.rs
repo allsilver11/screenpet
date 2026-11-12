@@ -165,7 +165,7 @@ pub struct RelayConfig {
     /// `X-Forwarded-For` headers are believed; every other peer is limited
     /// by its socket address.
     pub trusted_proxies: Vec<IpAddr>,
-    /// ☀️ Fetches the weather of a cell (`weather::open_meteo` in the real
+    /// ☀️ Fetches the weather of a place (`weather::open_meteo` in the real
     /// relay). `None` = no weather is fetched or sent (tests).
     pub weather_fetch: Option<weather::Fetch>,
 }
@@ -345,10 +345,10 @@ fn upkeep_loop(hub: Arc<Hub>) {
     }
 }
 
-/// How often the weather thread looks for cells to fetch.
+/// How often the weather thread looks for places to fetch.
 const WEATHER_ROUND: Duration = Duration::from_secs(2);
 
-/// ☀️ Fetches due weather cells one at a time, on its own thread: a slow
+/// ☀️ Fetches due weather places one at a time, on its own thread: a slow
 /// weather service never holds up connections. Errors are logged (at most
 /// once every 10 minutes) and never stop the relay.
 fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
@@ -361,27 +361,27 @@ fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
         }
         last_round = Instant::now();
         let due = hub.weather_due();
-        let mut cells = due.into_iter();
-        for cell in cells.by_ref() {
+        let mut places = due.into_iter();
+        for place in places.by_ref() {
             if hub.stopping() {
-                hub.weather_fetched(cell, None);
+                hub.weather_fetched(place.id, None);
                 break;
             }
-            let code = match fetch(cell) {
+            let code = match fetch(place) {
                 Ok(code) => Some(code),
                 Err(e) => {
                     if last_error_log.is_none_or(|t| t.elapsed() >= Duration::from_secs(600)) {
                         last_error_log = Some(Instant::now());
-                        eprintln!("screenpet-relay: weather for {:.1},{:.1} failed: {e}", cell.lat_deg(), cell.lon_deg());
+                        eprintln!("screenpet-relay: weather for {} failed: {e}", place.id);
                     }
                     None
                 }
             };
-            hub.weather_fetched(cell, code);
+            hub.weather_fetched(place.id, code);
         }
         // Left over after a stop: not busy any more (nothing to wait for).
-        for cell in cells {
-            hub.weather_fetched(cell, None);
+        for place in places {
+            hub.weather_fetched(place.id, None);
         }
     }
 }

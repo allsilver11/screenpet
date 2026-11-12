@@ -1062,12 +1062,14 @@ impl Net {
         }
     }
 
-    /// ☀️ Want the weather at (lat, lon) from now on: the relay is told (now
-    /// and on every reconnect, only if it knows the weather) and answers with
-    /// [`NetEvent::Weather`]. Nothing but the coordinates leaves this computer.
-    pub fn want_weather(&self, lat: f64, lon: f64) {
+    /// ☀️ Want the weather of a built-in place (a city id like "yongin",
+    /// `screenpet_core::real_weather::Place::id`) from now on: the relay is
+    /// told (now and on every reconnect, only if it knows the weather) and
+    /// answers with [`NetEvent::Weather`]. Nothing but the id leaves this
+    /// computer; the relay ignores ids it does not know.
+    pub fn want_weather(&self, place: &str) {
         if let Some(c) = &self.shared.relay {
-            relay::want_weather(c, lat, lon);
+            relay::want_weather(c, place);
         }
     }
 
