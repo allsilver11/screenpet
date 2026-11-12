@@ -815,12 +815,17 @@ impl Network {
         // 🤹 배달 장난: 놀러 갈 수 있는 끝에 새 버전 친구가 있을 때만 (손님은 하지 않는다)
         let prank = |s: Side, open: bool| open && !config.friends_at(s, |id| self.is_open(id) && self.takes_carry(id)).is_empty();
         own.pet.set_prank_edges(prank(Side::Left, edges.left), prank(Side::Right, edges.right));
+        own.pet.set_lift_edges(false, false);
+        // 🙆 손님 흐물이가 이 화면 주인의 동물을 데려갈 수 있는 끝: 주인 아닌 새 버전 친구가 있고, 내 동물이 놀러 갈 수 있을 때
+        let own_free = !blocked && self.own_free(own) && !own.pet.is_held();
         for s in guests {
             s.pet.set_prank_edges(false, false);
             let Role::Guest(g) = &s.role else { continue };
             let edges = if self.net.is_none() { Default::default() } else { config.exit_edges(|id| id != g.owner_id && self.is_open(id)) };
             s.pet.set_exit_edges(edges.left, edges.right);
             s.pet.set_vertical_edges(edges.up, edges.down);
+            let lift = |side: Side, open: bool| own_free && open && !config.friends_at(side, |id| id != g.owner_id && self.is_open(id) && self.takes_carry(id)).is_empty();
+            s.pet.set_lift_edges(lift(Side::Left, edges.left), lift(Side::Right, edges.right));
         }
     }
 
@@ -961,6 +966,19 @@ impl Network {
         self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None, since: Instant::now(), note });
         self.menu_dirty = true;
         carried
+    }
+
+    /// 🙆 손님 흐물이가 이 화면 주인의 동물을 들고 side 끝으로 나갔다: 그 끝의 (손님 주인 아닌) 새 버전 친구 하나를 골라
+    /// 손님은 그 친구에게 이어 가고 (guest_sends — guest_left가 Leave{next}로), 내 동물도 같은 친구에게 놀러 간다 (own_exited가 sending으로)
+    pub fn pair_lift(&mut self, config: &Config, guest: &GuestInfo, side: Side) {
+        let friends = config.friends_at(side, |id| id != guest.owner_id && self.is_open(id) && self.takes_carry(id));
+        if friends.is_empty() {
+            return;
+        }
+        let friend = friends[fastrand::usize(..friends.len())].id.clone();
+        eprintln!("guest {} carried our pet off to {friend}", guest.visit_id);
+        self.guest_sends.insert(guest.visit_id.clone(), (friend.clone(), side));
+        self.sending = Some((friend, side));
     }
 
     /// 🤹 이 친구는 들고 온 물건을 받는다 (새 버전 — 옛 버전은 Visit.carry를 몰라 물건이 사라진다)

@@ -264,6 +264,14 @@ function scarfView(anim, f) {
 }
 // 매달린 몸이 흔들리는 축 = 커서 끝이 닿는 머리 꼭대기 (코어 PetManifest::hang_grip과 같은 계산: dragged 칸들의 평균, 모자 입구보다 조금 위)
 const HEAD_TOP_ABOVE_BRIM = 0.15;
+// 🎣 hang_cursor 손 자리 (칸 px [x, y]) → transform-origin
+function gripOrigin(cell) {
+  const size = manifest.frame_sizes?.[stage.stage] ?? manifest.frame_size;
+  return `${((cell[0] / size) * 100).toFixed(2)}% ${((cell[1] / size) * 100).toFixed(2)}%`;
+}
+// 🕺 춤 반짝이 간격
+const SPARKLE_MS = 220;
+let lastSparkle = 0;
 function hangOrigin(cells, frameSize) {
   if (!cells?.length) return "50% 6%";
   const mean = (i) => cells.reduce((a, c) => a + c[i], 0) / cells.length;
@@ -584,9 +592,20 @@ function draw(now) {
     const shake = jitter(f, now);
     if (shake) parts.push(shake);
     // 커서에 매달림 (백엔드 render.hang): 창은 머리 꼭대기가 커서 끝에 닿는 자리에 있다 (코어 hang_spot) — 커서 끝을 축으로 살랑살랑
-    writePet("transformOrigin", render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : "");
+    // 🎣 흐물이가 두 손으로 매달려 흔들흔들 (render.swing 도): 두 손(pet.json grip hang_cursor) = 커서 끝을 축으로 돌린다
+    const swingGrip = render.anim === "hang_cursor" ? manifest.grip?.[stage.stage]?.hang_cursor?.[f] : null;
+    writePet("transformOrigin", swingGrip ? gripOrigin(swingGrip) : render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : "");
     // 픽셀은 돌리지 않고 한 칸씩 좌우로 (6도 회전은 칸을 무너뜨린다)
     if (render.hang) parts.push(pixelMode ? `translateX(${Math.round(Math.sin(now / 430) * 1.4) * dot}px)` : `rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
+    if (swingGrip && render.swing) parts.push(pixelMode ? `translateX(${Math.round((-Math.sin((render.swing * Math.PI) / 180) * display * 0.5) / dot) * dot}px)` : `rotate(${render.swing.toFixed(2)}deg)`);
+    // 🕺 가장 신나는 춤 (render.sparkle): 반짝이가 퐁퐁
+    if (render.sparkle && now - lastSparkle > SPARKLE_MS) {
+      lastSparkle = now;
+      const a = Math.random() * Math.PI * 2;
+      const r = display * (0.3 + Math.random() * 0.15);
+      if (pixelMode) pixelBit(Math.random() < 0.5 ? "fx_spark" : "fx_spark2", 3, 0, display * 0.5, Math.cos(a) * r, -Math.sin(a) * r, 0, 600);
+      else spark(Math.floor(Math.random() * 2), display * 0.5, Math.cos(a) * r, -Math.sin(a) * r);
+    }
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
     if (spec.spin && !pixelMode) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
@@ -886,6 +905,15 @@ const EXTRA_SPEECH = {
   stow: ["back you go!", "in you go!"],
   // 🔄 업데이트 확인이 새 버전을 찾았다 — 10초쯤 신나게 뛴다 (코어 brain_cheer.rs)
   new_version: ["new version!!"],
+  // 흐물이 더 놀기 (v0.6.3): 🎣 커서에 매달려 흔들흔들 / 세게 흔들면 / 🙆 들려서 버둥 / 🫣 들켰다 / 못 찾아서 나옴 / 🕺 춤 / ⌨️ 타자 응원 / ⚾ 캐치볼 20번
+  swing: ["와아~", "와아아~"],
+  more: ["더 더!", "와아아!!"],
+  put_me_down: ["놔줘!", "내려 줘~"],
+  found: ["들켰다!"],
+  peekaboo: ["여기 있지롱"],
+  dance: ["♪", "♪♪"],
+  fighting: ["화이팅!"],
+  rally_end: ["끝!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {

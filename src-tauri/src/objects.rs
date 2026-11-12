@@ -391,6 +391,12 @@ impl Objects {
         out.extend(self.live.iter().filter_map(|l| l.object.spot(l.id)));
     }
 
+    /// ⚾ 친구 화면 끝에서 던져져 날아 들어오는 물건들 (흐물이가 받으러 간다 — notice_incoming)
+    pub fn incoming(&self, out: &mut Vec<screenpet_core::juggle::Incoming>) {
+        out.clear();
+        out.extend(self.live.iter().filter_map(|l| l.object.incoming(l.id)));
+    }
+
     /// 🤹 동물이 든 물건: 놓았으면 그 속도로 던지고 (던진 동물은 잠깐 맞히지 않는다), 들고 있으면 손 자리로 옮기고,
     /// 사라졌거나 사용자가 잡고 있으면 동물에게 알린다. 아무도 들고 있지 않은 물건은 떨어진다. 동물 update 뒤, tick 전에
     pub fn sync_carries<T: AsRef<Pet> + AsMut<Pet>>(&mut self, social: &mut Social, pets: &mut [T]) {
@@ -401,8 +407,14 @@ impl Objects {
                     if let Some(l) = self.live.iter_mut().find(|l| l.id == id) {
                         l.object.launch(vx, vy);
                         social.spare(id, pet.social_key(), THROWER_SPARED_SECS);
+                        // ⚾ 캐치볼로 되던졌다: 주고받은 횟수를 적는다 (친구에게 보내는 Toss.rally — toss_away)
+                        if let Some((_, n)) = pet.take_rally().filter(|(got, _)| *got == id) {
+                            l.object.set_rally(n);
+                        }
                     }
                 }
+                // ⚾ 날아온 것을 받았다 — 아래에서 손 자리로 옮긴다 (carry_at이 날던 물건도 손에 쥐여 준다)
+                Some(JuggleEvent::Catch { .. }) => {}
                 // 📌 장난감 아이콘을 읽기 시작한다 (내 동물만 — 손님은 하지 않는다)
                 Some(JuggleEvent::Pull) => self.request_toy(),
                 Some(JuggleEvent::Stow { id }) => self.stow(id),

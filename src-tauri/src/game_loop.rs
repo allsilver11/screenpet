@@ -364,6 +364,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut object_spots = Vec::new();
     let mut pet_targets: Vec<Option<screenpet_core::juggle::Target>> = Vec::new();
     let mut juggle_targets = Vec::new();
+    // ⚾ 친구 화면에서 날아 들어오는 물건 (흐물이가 받으러 간다)
+    let mut incoming = Vec::new();
     // 한 화면의 동물끼리(내 동물 + 손님) 인사·술래 놀이
     let mut social = Social::new(seed_now());
     // 🎮 조작 모드: 켜진 동안만 키를 읽는다 (읽기만 — 앞에 있는 창에도 그대로 간다)
@@ -977,6 +979,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         objects.object_spots(&mut object_spots);
         // 📌 작업표시줄 장난감을 지금 만들 수 있나 (내 흐물이만 본다)
         let toys = objects.toys(&app);
+        objects.incoming(&mut incoming);
+        // 🙆 흐물이에게 같은 화면의 다른 동물을 보여 준다 (번쩍 들러 간다)
+        screenpet_core::brain::hoist_moves::notice_pets(&mut slots);
         pet_targets.clear();
         pet_targets.extend(slots.iter().map(|s| {
             (!s.pet.is_away() && s.pet.hit_feels()).then(|| screenpet_core::juggle::Target { x: s.pet.body.x, y: s.pet.body.y, size: s.pet.cfg.size })
@@ -989,6 +994,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     juggle_targets.clear();
                     juggle_targets.extend(pet_targets.iter().enumerate().filter(|(j, _)| *j != i).filter_map(|(_, t)| *t));
                     s.pet.notice_objects(&object_spots, &juggle_targets, &s.world);
+                    s.pet.notice_incoming(&incoming, &s.world);
                 }
                 s.pet.notice_poops(&poop_spots, &s.world);
                 // 📌 흐물이: 가끔 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내고, 갖고 놀다 도로 넣는다 (손님은 하지 않는다)
@@ -1000,6 +1006,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             if let Some(speech) = s.pet.take_speech() {
                 let target = if s.is_own() { speech_target(&s.pet) } else { s.label.as_str() };
                 let _ = app.emit_to(target, "pet-say", speech);
+            }
+            // ⚾ 받은 횟수 ("3!") 같은 글자 그대로의 말
+            if let Some(text) = s.pet.take_speech_text() {
+                let target = if s.is_own() { speech_target(&s.pet) } else { s.label.as_str() };
+                let _ = app.emit_to(target, "pet-say-text", text);
             }
             // 밥그릇 놓기·거두기 (손님은 먹이를 받지 않는다)
             if let Some(ev) = s.pet.take_prop() {
@@ -1015,6 +1026,18 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     left.push((i, side));
                 }
             }
+        }
+        // 🙆 흐물이가 든 동물을 손 자리로 옮기고, 내려놓고, 함께 나간 것을 맞춘다 (손님을 닫기 전에)
+        for (lifter, carried, side) in screenpet_core::brain::hoist_moves::sync_lifts(&mut slots) {
+            // 손님 흐물이가 이 화면 주인의 동물을 들고 친구 쪽 끝으로 나갔다: 둘 다 같은 친구에게 가게 한다
+            if carried == OWN {
+                if let Role::Guest(g) = &slots[lifter].role {
+                    network.pair_lift(&config, g, side);
+                }
+            }
+        }
+        if own_exit.is_none() {
+            own_exit = slots[OWN].pet.take_exit();
         }
         // 머리 위에 선 동물은 아래 친구를 따라간다 (창을 옮기기 전, 아래층부터)
         social.carry(&mut slots);
