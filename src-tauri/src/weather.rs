@@ -1,8 +1,8 @@
 //! 계절 날씨 (v0.3.7) — 모니터마다 마우스가 통과하는 투명 창 하나 (`weather-<n>`, weather.html)와, 눈덩이·눈사람 작은 창.
 //! 게임 루프가 매 틱 tick을 부르지만, 날씨가 없으면 (여름 소나기 사이·메뉴로 껐거나·모두 숨겼으면) 창이 하나도 없고
-//! 1초에 한 번 플래그만 본다 (달력과 시계는 1분에 한 번). 켜져 있어도 창 목록을 따로 읽지 않는다 — 내 동물 세계의 디딤판을
-//! 5 Hz로 맞춰 보고, 장면이 바뀐 모니터에만 보낸다. 더미는 1초에 한 번 (screenpet_core::weather).
-//! 그 모니터의 앞 창이 전체 화면이거나 사용자가 자리를 비웠으면 창을 숨기고 웹뷰도 그림을 멈춘다 (돌아오면 다시 그린다).
+//! 1초에 한 번 플래그만 봄 (달력과 시계는 1분에 한 번). 켜져 있어도 창 목록을 따로 읽지 않음 — 내 동물 세계의 디딤판을
+//! 5 Hz로 맞춰 보고, 장면이 바뀐 모니터에만 보냄. 더미는 1초에 한 번 (screenpet_core::weather).
+//! 그 모니터의 앞 창이 전체 화면이거나 사용자가 자리를 비웠으면 창을 숨기고 웹뷰도 그림을 멈춤 (돌아오면 다시 그림).
 
 use std::time::{Duration, Instant};
 
@@ -17,23 +17,27 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewU
 use crate::slots::Slot;
 use crate::AppState;
 
+/// 날씨 덮개 창 라벨 앞부분
 const PREFIX: &str = "weather-";
-/// 개발용 숨은 미리 보기: snow·light_snow·rain·shower·petals·leaves·off (screenpet_core::weather::parse_preview). 메뉴에는 없다
+/// 개발용 숨은 미리 보기: snow·light_snow·rain·shower·petals·leaves·off (screenpet_core::weather::parse_preview). 메뉴에는 없음
 const PREVIEW_ENV: &str = "SCREENPET_WEATHER";
-/// 미리 보기에선 더미가 이 배로 빨리 쌓인다
+/// 미리 보기에선 더미가 이 배로 빨리 쌓임
 const PREVIEW_GROW: f32 = 10.0;
 /// 앱이 뜨고 이만큼 뒤부터 (시작을 방해하지 않게)
 const START_DELAY: Duration = Duration::from_secs(2);
+/// 계절(날씨 종류)을 다시 보는 간격
 const SEASON_EVERY: Duration = Duration::from_secs(60);
 /// 날씨가 없을 때 메뉴·숨기기 플래그를 보는 간격
 const IDLE_EVERY: Duration = Duration::from_secs(1);
 /// 창 목록을 웹뷰에 맞추는 간격 (5 Hz)
 const SCENE_EVERY: Duration = Duration::from_millis(200);
+/// 쌓인 더미를 웹뷰에 보내는 간격
 const PILES_EVERY: Duration = Duration::from_secs(1);
-/// 새 창은 이 시간 동안 1초마다 장면을 다시 보낸다 (첫 장면은 웹뷰가 듣기 전에 지나갈 수 있다)
+/// 새 창은 이 시간 동안 1초마다 장면을 다시 보냄 (첫 장면은 웹뷰가 듣기 전에 지나갈 수 있음)
 const FRESH: Duration = Duration::from_secs(5);
 /// 소품 창 크기 (논리 px, tools/draw_props.py). 아래 가운데가 자리
 const SNOWMAN_SIZE: (f64, f64) = (64.0, 80.0);
+/// 눈덩이 창 크기 (논리 px)
 const SNOWBALL_SIZE: (f64, f64) = (40.0, 40.0);
 
 /// 흩날리는 알갱이 한 뭉치 (논리 px, 이 창 왼쪽 위가 (0, 0))
@@ -49,8 +53,10 @@ struct Flurry {
 
 /// 친구가 쓸어 보낸 알갱이 수, 날아 들어오는 속도 (논리 px/s)
 const FLURRY_COUNT: u32 = 40;
+/// 날아 들어오는 속도 (논리 px/s)
 const FLURRY_SPEED: f64 = 420.0;
 
+/// 덮개 창에 보내는 장면임
 #[derive(Serialize, PartialEq)]
 struct Payload {
     paused: bool,
@@ -58,6 +64,7 @@ struct Payload {
     scene: Scene,
 }
 
+/// 모니터 하나를 덮는 날씨 창임
 struct Overlay {
     window: WebviewWindow,
     label: String,
@@ -69,6 +76,7 @@ struct Overlay {
     last: Option<Payload>,
 }
 
+/// 바닥에 세운 눈사람 창임
 struct Snowman {
     window: WebviewWindow,
     born: Instant,
@@ -76,6 +84,7 @@ struct Snowman {
     y: f64,
 }
 
+/// ☀️ 날씨 효과 상태임 (게임 루프가 가짐): 덮개 창, 더미, 눈사람
 pub struct WeatherFx {
     preview: Option<Option<Weather>>,
     season: Option<Weather>,
@@ -91,7 +100,7 @@ pub struct WeatherFx {
     overlays: Vec<Overlay>,
     /// fit_overlays가 마지막으로 맞춘 작업 영역
     fitted: Vec<Rect>,
-    /// 날씨 창 만들기가 실패한 뒤 다음 시도까지 기다린다
+    /// 날씨 창 만들기가 실패한 뒤 다음 시도까지 기다림
     retry: OverlayRetry,
     field: PileField,
     seed: u64,
@@ -101,6 +110,7 @@ pub struct WeatherFx {
 }
 
 impl WeatherFx {
+    /// 새로 만듦. `SCREENPET_WEATHER`가 있으면 미리 보기로 둠
     pub fn new(seed: u64) -> Self {
         let preview = std::env::var(PREVIEW_ENV).ok().and_then(|v| weather::parse_preview(&v));
         let now = Instant::now();
@@ -125,28 +135,28 @@ impl WeatherFx {
         }
     }
 
-    /// 메뉴 체크를 지금 상태에 맞춘다
+    /// 메뉴 체크를 지금 상태에 맞춤
     pub fn sync_menu(&mut self, app: &AppHandle, menu_off: bool) {
         let _ = app.state::<AppState>().menu.weather.set_checked(!menu_off);
-        // 다음 틱에 바로 반영한다
+        // 다음 틱에 바로 반영함
         self.next_scene = Instant::now().min(self.next_scene);
     }
 
-    /// ☀️ 실제 날씨 / 📅 계절 날씨를 바꿨다: 바로 다시 본다
+    /// ☀️ 실제 날씨 / 📅 계절 날씨를 바꿨음: 바로 다시 봄
     pub fn set_source(&mut self, source: WeatherSource) {
         self.source = source;
         self.next_season = Instant::now();
         self.next_scene = Instant::now().min(self.next_scene);
     }
 
-    /// ☀️ 중계 서버가 새 날씨를 줬다 (None = 도시를 바꿔 예전 값을 버린다): 바로 다시 본다
+    /// ☀️ 중계 서버가 새 날씨를 줬음 (None = 도시를 바꿔 예전 값을 버림): 바로 다시 봄
     pub fn set_reading(&mut self, reading: Option<Reading>) {
         self.reading = reading;
         self.next_season = Instant::now();
         self.next_scene = Instant::now().min(self.next_scene);
     }
 
-    /// 게임 루프 스레드에서 매 틱 (창 만들기가 메인 스레드를 기다린다)
+    /// 게임 루프 스레드에서 매 틱 (창 만들기가 메인 스레드를 기다림)
     pub fn tick(&mut self, app: &AppHandle, now: Instant, menu_off: bool, away: bool, slots: &mut [Slot]) {
         if self.active.is_some() {
             if let Some(own) = slots.first_mut() {
@@ -159,7 +169,7 @@ impl WeatherFx {
         if now >= self.next_season {
             self.next_season = now + SEASON_EVERY;
             let today = chrono::Local::now();
-            // 달력 날씨 (weather::weather_at)는 실제 날씨가 없거나 오래됐을 때만 — core가 고른다
+            // 달력 날씨 (weather::weather_at)는 실제 날씨가 없거나 오래됐을 때만 — core가 고름
             self.season = real_weather::weather_now(self.source, self.reading, today.timestamp(), today.year(), today.month(), today.day(), today.num_seconds_from_midnight());
         }
         let want = weather::wanted(self.season, self.preview, menu_off, crate::windows_hidden(app));
@@ -184,7 +194,7 @@ impl WeatherFx {
             self.next_piles = now + PILES_EVERY;
             let dt = now.duration_since(self.last_piles).as_secs_f64().min(5.0);
             self.last_piles = now;
-            // 자리를 비운 동안엔 더미도 자라지 않는다 (돌아왔을 때 한꺼번에 쌓여 있지 않게)
+            // 자리를 비운 동안엔 더미도 자라지 않음 (돌아왔을 때 한꺼번에 쌓여 있지 않게)
             if !away {
                 self.field.tick(dt, kind);
             }
@@ -223,21 +233,21 @@ impl WeatherFx {
         }
     }
 
-    /// 🧹 빗자루가 지나갔다: 쓴 양과 더미 그림 (날씨가 없으면 None). 장면은 다음 5 Hz에 나간다
+    /// 🧹 빗자루가 지나갔음: 쓴 양과 더미 그림 (날씨가 없으면 None). 장면은 다음 5 Hz에 나감
     pub fn sweep(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64) -> Option<(f32, Weather)> {
         self.active?;
         let kind = self.field.pile_kind()?;
         Some((self.field.sweep(x0, x1, y, reach_y), kind))
     }
 
-    /// 빗자루 끝에서 알갱이가 날린다 (x, y: 물리 px, 속도: 물리 px/s)
+    /// 빗자루 끝에서 알갱이가 날림 (x, y: 물리 px, 속도: 물리 px/s)
     pub fn puff(&self, app: &AppHandle, kind: Weather, (x, y): (f64, f64), (vx, vy): (f64, f64), count: u32) {
         let Some(o) = self.overlays.iter().find(|o| on_area(&o.wa, x) && y >= o.wa.top && y <= o.wa.bottom + 80.0) else { return };
         let flurry = Flurry { kind, x: (x - o.wa.left) / o.scale, y: (y - o.wa.top) / o.scale, vx: vx / o.scale, vy: vy / o.scale, count };
         let _ = app.emit_to(o.label.as_str(), "weather-flurry", &flurry);
     }
 
-    /// 친구가 쓸어 보낸 더미가 side 끝에서 흩날려 들어온다 (at: 끝을 따라 어디쯤). 날씨 창이 없으면(꺼 뒀거나 맑음) 보이지 않는다
+    /// 친구가 쓸어 보낸 더미가 side 끝에서 흩날려 들어옴 (at: 끝을 따라 어디쯤). 날씨 창이 없으면(꺼 뒀거나 맑음) 보이지 않음
     pub fn receive_flurry(&self, app: &AppHandle, kind: Weather, side: Side, at: f64) {
         let at = if at.is_finite() { at.clamp(0.0, 1.0) } else { 0.5 };
         let areas = || self.overlays.iter();
@@ -265,7 +275,7 @@ impl WeatherFx {
         let _ = app.emit_to(o.label.as_str(), "weather-flurry", &Flurry { kind, x, y, vx, vy, count: FLURRY_COUNT });
     }
 
-    /// 굴리는 눈덩이를 내 동물 앞에 놓고, 다 쌓으면 눈사람을 세운다 (날씨가 켜진 동안 매 틱)
+    /// 굴리는 눈덩이를 내 동물 앞에 놓고, 다 쌓으면 눈사람을 세움 (날씨가 켜진 동안 매 틱)
     fn track_own(&mut self, app: &AppHandle, now: Instant, own: &mut Slot) {
         let ball_at = own.pet.snowball_at();
         match (ball_at, &mut self.ball) {
@@ -298,8 +308,8 @@ impl WeatherFx {
         }
     }
 
-    /// 스타일이 바뀌었다: 눈덩이·눈사람 창을 새 그림·크기로 (창 그림은 만들 때 정해진다).
-    /// 눈덩이는 닫아 두면 다음 track_own이 만든다. 눈사람은 같은 자리에, 사는 시간은 그대로
+    /// 스타일이 바뀌었음: 눈덩이·눈사람 창을 새 그림·크기로 (창 그림은 만들 때 정해짐).
+    /// 눈덩이는 닫아 두면 다음 track_own이 만듦. 눈사람은 같은 자리에, 사는 시간은 그대로
     pub fn restyle(&mut self, app: &AppHandle, dpi: f64) {
         if let Some((window, _)) = self.ball.take() {
             let _ = window.destroy();
@@ -308,13 +318,13 @@ impl WeatherFx {
         let _ = old.window.destroy();
         self.next_label += 1;
         self.snowman = self.sprite(app, "snowman", crate::art::fit(SNOWMAN_SIZE, dpi), old.x, old.y, dpi).map(|window| Snowman { window, ..old });
-        // 그 모니터 날씨가 쉬는 동안(전체 화면 등) 눈사람도 숨어 있다
+        // 그 모니터 날씨가 쉬는 동안(전체 화면 등) 눈사람도 숨어 있음
         if let Some(s) = self.snowman.as_ref().filter(|s| self.overlays.iter().any(|o| o.paused && on_area(&o.wa, s.x))) {
             let _ = s.window.hide();
         }
     }
 
-    /// 눈덩이·눈사람 작은 창 — 침 자국·밥그릇처럼 마우스가 통과한다 (prop- 창이라 트레이 숨기기/보이기도 따른다)
+    /// 눈덩이·눈사람 작은 창 — 침 자국·밥그릇처럼 마우스가 통과함 (prop- 창이라 트레이 숨기기/보이기도 따름)
     fn sprite(&self, app: &AppHandle, image: &str, (w, h): (f64, f64), x: f64, y: f64, dpi: f64) -> Option<WebviewWindow> {
         let label = format!("prop-snow-{}", self.next_label);
         let built = crate::overlay::finish(
@@ -340,8 +350,8 @@ impl WeatherFx {
         Some(window)
     }
 
-    /// 모니터마다 창 하나 — 작업 영역이 바뀌면 그 창만 다시 만든다 (모니터 연결·해상도·작업표시줄).
-    /// 만들기가 실패하면 있는 창은 그대로 두고 빠진 창만 시간을 두고 다시 해 본다 (OverlayRetry)
+    /// 모니터마다 창 하나 — 작업 영역이 바뀌면 그 창만 다시 만듦 (모니터 연결·해상도·작업표시줄).
+    /// 만들기가 실패하면 있는 창은 그대로 두고 빠진 창만 시간을 두고 다시 해 봄 (OverlayRetry)
     fn fit_overlays(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect]) {
         if self.fitted != work_areas {
             self.fitted = work_areas.to_vec();
@@ -376,7 +386,7 @@ impl WeatherFx {
         }
     }
 
-    /// 날씨가 꺼졌다: 창을 모두 닫고 더미도 잊는다 — 이제부터 일이 없다
+    /// 날씨가 꺼졌음: 창을 모두 닫고 더미도 잊음 — 이제부터 일이 없음
     fn tear_down(&mut self, slots: &mut [Slot]) {
         for o in self.overlays.drain(..) {
             let _ = o.window.destroy();
@@ -397,14 +407,17 @@ impl WeatherFx {
     }
 }
 
+/// 더미 밭을 새로 만듦 (미리 보기면 빨리 쌓임)
 fn new_field(seed: u64, preview: Option<Option<Weather>>) -> PileField {
     PileField::new(seed, if preview.is_some() { PREVIEW_GROW } else { 1.0 })
 }
 
+/// x가 이 작업 영역 안인지 봄
 fn on_area(wa: &Rect, x: f64) -> bool {
     x >= wa.left && x < wa.right
 }
 
+/// 아래 가운데 (x, y)에 놓을 창의 왼쪽 위 물리 좌표를 돌려줌
 fn bottom_center(x: f64, y: f64, (w, h): (f64, f64), dpi: f64) -> (i32, i32) {
     ((x - w * dpi / 2.0).round() as i32, (y - h * dpi).round() as i32)
 }

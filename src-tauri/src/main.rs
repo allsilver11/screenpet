@@ -1,3 +1,6 @@
+//! ScreenPet 데스크톱 앱 진입점임 (Tauri 2).
+//! `main`이 설정·동물 목록을 읽고 창·트레이·게임 루프 스레드를 띄우며, 웹뷰가 부르는 `#[tauri::command]`들을 등록함.
+//! 웹뷰 → 앱 입력은 [`AppState::send`]로 게임 루프(`game_loop`)에 넘기고, 앱 → 웹뷰는 각 모듈이 이벤트로 보냄.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod art;
@@ -45,9 +48,13 @@ use tauri::{AppHandle, Manager, State, WebviewWindow};
 /// 설정이 없을 때 처음 데려오는 동물
 const DEFAULT_PET: &str = "cat";
 
+/// 모든 커맨드가 같이 쓰는 앱 상태임 (Tauri `manage`)
 pub struct AppState {
+    /// 게임 루프로 입력을 보내는 통로
     pub tx: Mutex<Sender<Input>>,
+    /// 고를 수 있는 동물들
     pub pets: Vec<PetEntry>,
+    /// 설정 폴더
     pub config_dir: PathBuf,
     /// 창 라벨별 동물과 크기 — 게임 루프가 단계 변경·손님 생성/제거 때 갱신 (웹뷰 첫 로드용 `slot_info`)
     pub slots: Mutex<HashMap<String, SlotInfo>>,
@@ -57,7 +64,7 @@ pub struct AppState {
     pub house: Mutex<HouseState>,
     /// 동물이 하우스 안에 있음 — 게임 루프가 갱신 (트레이 숨기기/보이기가 어느 창을 다룰지)
     pub housed: AtomicBool,
-    /// 내 동물이 친구 화면에 가 있음 — 게임 루프가 갱신 (그동안 펫 창은 숨긴 채로 둔다)
+    /// 내 동물이 친구 화면에 가 있음 — 게임 루프가 갱신 (그동안 펫 창은 숨긴 채로 둠)
     pub away: AtomicBool,
     /// 짝맞추기 창에 보이는 상태 — 게임 루프가 갱신 (짝맞추기 웹뷰 첫 로드용)
     pub pair: Mutex<PairView>,
@@ -68,7 +75,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// 게임 루프로 보낸다 (루프가 끝났으면 버려진다)
+    /// 게임 루프로 보냄 (루프가 끝났으면 버려짐)
     pub fn send(&self, input: Input) {
         let _ = self.tx.lock().unwrap().send(input);
     }
@@ -84,7 +91,7 @@ fn is_pet_window(label: &str) -> bool {
     label == OWN_LABEL || slots::is_guest_label(label)
 }
 
-/// 창의 동물을 눌렀다 — 부른 창의 라벨로 어느 동물인지 찾는다
+/// 창의 동물을 눌렀음 — 부른 창의 라벨로 어느 동물인지 찾음
 #[tauri::command]
 fn pointer_down(window: WebviewWindow, state: State<AppState>) {
     if is_pet_window(window.label()) {
@@ -92,7 +99,7 @@ fn pointer_down(window: WebviewWindow, state: State<AppState>) {
     }
 }
 
-/// 펫 창이 편지 말풍선을 펼친다(open) / 접는다 — 게임 루프가 창을 위로 키우거나 줄인다
+/// 펫 창이 편지 말풍선을 펼침(open) / 접음 — 게임 루프가 창을 위로 키우거나 줄임
 /// (손님이 들고 온 편지 / 돌아온 내 동물이 들고 온 답장)
 #[tauri::command]
 fn note_space(window: WebviewWindow, state: State<AppState>, open: bool) {
@@ -102,14 +109,15 @@ fn note_space(window: WebviewWindow, state: State<AppState>, open: bool) {
     }
 }
 
-/// 부른 창의 동물·단계·크기·역할·지금 모습 (웹뷰 첫 로드용 — 첫 pet-render는 웹뷰가 듣기 전에 지나갔을 수 있다).
-/// 하우스 창만 다른 창을 묻는다: label "pet" = 내 동물의 지금 모습
+/// 부른 창의 동물·단계·크기·역할·지금 모습 (웹뷰 첫 로드용 — 첫 pet-render는 웹뷰가 듣기 전에 지나갔을 수 있음).
+/// 하우스 창만 다른 창을 물음: label "pet" = 내 동물의 지금 모습
 #[tauri::command]
 fn slot_info(window: WebviewWindow, state: State<AppState>, label: Option<String>) -> Result<SlotInfo, String> {
     let label = if window.label() == house::LABEL { label.filter(|l| l == OWN_LABEL).unwrap_or_else(|| window.label().to_string()) } else { window.label().to_string() };
     state.slots.lock().unwrap().get(&label).cloned().ok_or_else(|| format!("no pet for window {label}"))
 }
 
+/// 하우스 창의 지금 상태 (웹뷰 첫 로드용)
 #[tauri::command]
 fn house_state(window: WebviewWindow, state: State<AppState>) -> Result<HouseState, String> {
     if window.label() != house::LABEL {
@@ -118,7 +126,7 @@ fn house_state(window: WebviewWindow, state: State<AppState>) -> Result<HouseSta
     Ok(state.house.lock().unwrap().clone())
 }
 
-/// 하우스 창에서 집을 끌기 시작했다 — 하우스 창이 부른 것만 받는다
+/// 하우스 창에서 집을 끌기 시작했음 — 하우스 창이 부른 것만 받음
 #[tauri::command]
 fn house_drag_start(window: WebviewWindow) {
     if window.label() == house::LABEL {
@@ -126,7 +134,7 @@ fn house_drag_start(window: WebviewWindow) {
     }
 }
 
-/// 하우스 창을 눌렀다 — 배고프면 음식 고르기, 아니면 문간에서 손 흔들기
+/// 하우스 창을 눌렀음 — 배고프면 음식 고르기, 아니면 문간에서 손 흔들기
 #[tauri::command]
 fn house_click(window: WebviewWindow, state: State<AppState>) {
     if window.label() == house::LABEL {
@@ -134,7 +142,7 @@ fn house_click(window: WebviewWindow, state: State<AppState>) {
     }
 }
 
-/// 음식 고르기 버튼 — 내 동물(펫 창·하우스 창)만 먹는다. 손님은 밥을 먹지 않는다
+/// 음식 고르기 버튼 — 내 동물(펫 창·하우스 창)만 먹음. 손님은 밥을 먹지 않음
 #[tauri::command]
 fn feed(window: WebviewWindow, state: State<AppState>, food: String) {
     if window.label() != OWN_LABEL && window.label() != house::LABEL {
@@ -144,16 +152,16 @@ fn feed(window: WebviewWindow, state: State<AppState>, food: String) {
     state.send(Input::Feed(food));
 }
 
-/// 펫을 우클릭하면 트레이와 같은 메뉴를, 손님을 우클릭하면 "<주인>에게 돌려보내기"만 커서 위치에 띄운다.
-/// async라 IPC 콜백 밖(작업 스레드)에서 돌고, popup_menu는 메인 스레드에 맡겨진다 —
-/// 동기 커맨드면 모달 메뉴 루프가 WebView2 IPC 콜백 안에서 돌아 멈출 수 있다.
+/// 펫을 우클릭하면 트레이와 같은 메뉴를, 손님을 우클릭하면 "<주인>에게 돌려보내기"만 커서 위치에 띄움.
+/// async라 IPC 콜백 밖(작업 스레드)에서 돌고, popup_menu는 메인 스레드에 맡겨짐 —
+/// 동기 커맨드면 모달 메뉴 루프가 WebView2 IPC 콜백 안에서 돌아 멈출 수 있음.
 #[tauri::command]
 async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
     let label = window.label().to_string();
     if !is_pet_window(&label) && label != house::LABEL {
         return Ok(());
     }
-    // 직접 주기 중의 우클릭은 음식을 거두는 것 (게임 루프가 전역 버튼으로 읽는다) — 메뉴는 띄우지 않는다
+    // 직접 주기 중의 우클릭은 음식을 거두는 것 (게임 루프가 전역 버튼으로 읽음) — 메뉴는 띄우지 않음
     if !slots::is_guest_label(&label) && state.hand_feeding.load(Ordering::Relaxed) {
         return Ok(());
     }
@@ -184,7 +192,7 @@ fn pair_state(window: WebviewWindow, state: State<AppState>) -> Result<PairView,
 }
 
 /// 짝맞추기 창 버튼: true = 똑같아요, 친구 맺기 / false = 달라요·취소.
-/// 어느 짝맞추기에 답하는지는 게임 루프가 안다 (창은 지금 보이는 것에만 답한다)
+/// 어느 짝맞추기에 답하는지는 게임 루프가 앎 (창은 지금 보이는 것에만 답함)
 #[tauri::command]
 fn pair_answer(window: WebviewWindow, state: State<AppState>, accept: bool) {
     if window.label() != network::PAIR_LABEL {
@@ -193,14 +201,14 @@ fn pair_answer(window: WebviewWindow, state: State<AppState>, accept: bool) {
     state.send(Input::Net(NetInput::PairAnswer(accept)));
 }
 
-/// 트레이에서 동물을 바꿨을 때. 저장·크기·웹뷰 시트 교체는 게임 루프가 한다 (설정은 루프만 쓴다).
+/// 트레이에서 동물을 바꿨을 때. 저장·크기·웹뷰 시트 교체는 게임 루프가 함 (설정은 루프만 씀).
 pub fn select_pet(app: &AppHandle, id: &str) {
     let state = app.state::<AppState>();
     let Some(entry) = state.pets.iter().find(|p| p.id == id) else { return };
     state.send(Input::SetPet { entry: entry.clone(), remote: false });
 }
 
-/// 패닉을 config 폴더의 `crash.log`에 남긴다 (배포판은 콘솔이 없어 그냥 사라진다)
+/// 패닉을 config 폴더의 `crash.log`에 남김 (배포판은 콘솔이 없어 그냥 사라짐)
 fn install_panic_log(dir: PathBuf) {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -209,17 +217,18 @@ fn install_panic_log(dir: PathBuf) {
     }));
 }
 
-/// 앱이 끝날 때 게임 루프가 저장할 시간 (로그오프·종료는 오래 기다려 주지 않는다)
+/// 앱이 끝날 때 게임 루프가 저장할 시간 (로그오프·종료는 오래 기다려 주지 않음)
 const EXIT_SAVE_WAIT: Duration = Duration::from_secs(2);
 
+/// 앱을 시작함: 동물·설정을 읽고 Tauri 앱을 짜서 돌림
 fn main() {
     let pets = pets::load_pets();
     assert!(!pets.is_empty(), "no valid pets bundled");
 
     tauri::Builder::default()
-        // 가장 먼저 등록: 두 번째 실행은 새 앱을 띄우지 않고 이미 있는 펫 창을 보여 준다
+        // 가장 먼저 등록: 두 번째 실행은 새 앱을 띄우지 않고 이미 있는 펫 창을 보여 줌
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 숨겨 둔 창을 모두 다시 보인다 (하우스 안이면 하우스를 구석에, 친구 화면에 가 있으면 손님만)
+            // 숨겨 둔 창을 모두 다시 보임 (하우스 안이면 하우스를 구석에, 친구 화면에 가 있으면 손님만)
             tray::show_all(app);
             let state = app.state::<AppState>();
             if !state.housed.load(Ordering::Relaxed) && !state.away.load(Ordering::Relaxed) {
@@ -228,9 +237,9 @@ fn main() {
                 }
             }
         }))
-        // 🚀 컴퓨터 켜면 자동 실행 (켜고 끄기는 Rust에서만 — 창에 권한을 주지 않는다). 자동 실행으로 두 번째로 뜨면 위의 single-instance가 받는다
+        // 🚀 컴퓨터 켜면 자동 실행 (켜고 끄기는 Rust에서만 — 창에 권한을 주지 않음). 자동 실행으로 두 번째로 뜨면 위의 single-instance가 받음
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
-        // Alt+F4 등으로 떠 있는 창(펫·하우스·손님·소품)이 닫히면 되살릴 길이 없다. 이 앱의 코드는 destroy로 닫으므로 여기 걸리지 않는다
+        // Alt+F4 등으로 떠 있는 창(펫·하우스·손님·소품)이 닫히면 되살릴 길이 없음. 이 앱의 코드는 destroy로 닫으므로 여기 걸리지 않음
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if overlay::is_floating(window.label()) {
@@ -239,14 +248,14 @@ fn main() {
             }
         })
         .setup(move |app| {
-            // macOS: 메뉴 막대 앱처럼 Dock 아이콘 없이 돈다 (트레이 아이콘이 메뉴 막대에 있다)
+            // macOS: 메뉴 막대 앱처럼 Dock 아이콘 없이 돎 (트레이 아이콘이 메뉴 막대에 있음)
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             if let Some(window) = app.get_webview_window(OWN_LABEL) {
                 overlay::float_everywhere(&window);
             }
             let config_dir = app.path().app_config_dir()?;
-            // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이)은 load가 옮긴다 (Config::retire_pets)
+            // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이)은 load가 옮김 (Config::retire_pets)
             let cfg = config::load(&config_dir);
             let fallback = if pets.iter().any(|p| p.id == DEFAULT_PET) { DEFAULT_PET.to_string() } else { pets[0].id.clone() };
             let current = cfg.pet.clone().filter(|id| pets.iter().any(|p| &p.id == id)).unwrap_or(fallback);
@@ -256,7 +265,7 @@ fn main() {
             art::set(cfg.style);
             let (tx, rx) = mpsc::channel();
             let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.style, cfg.dev_secret().is_some())?;
-            // 화면 배율은 게임 루프가 창에서 읽어 다시 맞춘다
+            // 화면 배율은 게임 루프가 창에서 읽어 다시 맞춤
             let stage = slots::stage_payload(&entry, care.stage, cfg.style, 1.0, cfg.pet_size());
             let house_state = HouseState {
                 pet: stage.pet.clone(),
@@ -280,10 +289,10 @@ fn main() {
                 hand_feeding: AtomicBool::new(false),
                 hidden: AtomicBool::new(false),
             });
-            // 숨긴 채로 만들어 두고, 하우스에 들어갈 때 구석에 놓아 보인다
+            // 숨긴 채로 만들어 두고, 하우스에 들어갈 때 구석에 놓아 보임
             house::create(app.handle())?;
             game_loop::spawn(app.handle().clone(), rx, entry, cfg);
-            // 🔄 새 버전이 있는지 조용히 (메뉴 글자만 바꾼다)
+            // 🔄 새 버전이 있는지 조용히 (메뉴 글자만 바꿈)
             update::start_quiet_checks(app.handle());
             Ok(())
         })
@@ -350,7 +359,7 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building ScreenPet")
         .run(|app, event| {
-            // 메뉴 "종료"가 아닌 길로 끝나도 (로그오프·시스템 종료) 게임 루프가 저장한다. 이미 끝났으면 send가 실패한다
+            // 메뉴 "종료"가 아닌 길로 끝나도 (로그오프·시스템 종료) 게임 루프가 저장함. 이미 끝났으면 send가 실패함
             if let tauri::RunEvent::Exit = event {
                 let (done, wait) = mpsc::channel();
                 if app.state::<AppState>().tx.lock().unwrap().send(Input::SaveAndStop(done)).is_ok() {

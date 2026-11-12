@@ -1,6 +1,6 @@
 //! 화면 위 동물 한 마리 = 슬롯 하나 = 투명 창 하나.
-//! 내 동물은 "pet" 창(tauri.conf.json), 친구 동물(손님)은 "guest-<visit_id>" 창을 그때그때 만든다.
-//! 웹뷰는 자기 창 라벨로 `slot_info`를 불러 자기 동물을 알고, 이벤트는 창별로(emit_to) 받는다.
+//! 내 동물은 "pet" 창(tauri.conf.json), 친구 동물(손님)은 "guest-<visit_id>" 창을 그때그때 만듦.
+//! 웹뷰는 자기 창 라벨로 `slot_info`를 불러 자기 동물을 알고, 이벤트는 창별로(emit_to) 받음.
 
 use screenpet_core::brain::{Anim, Pet, PetConfig, RenderState};
 use screenpet_core::care::Stage;
@@ -17,21 +17,24 @@ use crate::AppState;
 
 /// 내 동물 창
 pub const OWN_LABEL: &str = "pet";
+/// 손님 창 라벨 앞부분
 const GUEST_PREFIX: &str = "guest-";
 pub use screenpet_core::brain::PET_LOGICAL_SIZE;
 /// 스프라이트 위 말풍선·음식 버튼·이름표 자리 (논리 px)
 pub const BUBBLE_SPACE: f64 = 36.0;
-/// 손님 편지(💌)를 펼친 동안 창 위에 더하는 자리와 최소 창 너비 (논리 px) — 편지 말풍선(평소 말풍선, 여러 줄)이 5줄까지 들어간다
+/// 손님 편지(💌)를 펼친 동안 창 위에 더하는 자리와 최소 창 너비 (논리 px) — 편지 말풍선(평소 말풍선, 여러 줄)이 5줄까지 들어감
 pub const NOTE_SPACE: f64 = 60.0;
+/// 편지를 펼친 동안의 최소 창 너비 (논리 px)
 pub const NOTE_WIDTH: f64 = 232.0;
 /// 기린이 목을 늘이는 동안(Anim::NeckStretch, 코어 behavior::NECK_STRETCH_SECS) 창 위에 더하는 자리 (몸 배율 1 기준 논리 px).
-/// 머리가 그림 칸 위로 pet.json neck_stretch.ext(≤ 48 그림 px)만큼 솟는다 — 말풍선 자리(BUBBLE_SPACE)와 합쳐 넉넉히 들어간다
+/// 머리가 그림 칸 위로 pet.json neck_stretch.ext(≤ 48 그림 px)만큼 솟음 — 말풍선 자리(BUBBLE_SPACE)와 합쳐 넉넉히 들어감
 pub const STRETCH_SPACE: f64 = 52.0;
-/// 루돌프 코·호박 빛이 몸 아래로 번지는 자리 (논리 px): 들어 올린 채 빛나는 동안만 창 아래를 이만큼 늘린다
-/// (바닥에 서 있을 땐 늘리지 않는다 — 그 투명한 띠가 바닥 밑 작업 표시줄의 클릭을 막는다)
+/// 루돌프 코·호박 빛이 몸 아래로 번지는 자리 (논리 px): 들어 올린 채 빛나는 동안만 창 아래를 이만큼 늘림
+/// (바닥에 서 있을 땐 늘리지 않음 — 그 투명한 띠가 바닥 밑 작업 표시줄의 클릭을 막음)
 pub const GLOW_SPACE: f64 = 24.0;
 /// 누르면 빛나는 동물과 빛이 이어지는 시간 (ui/main.js PET_FX, style.css 애니메이션 2.2초 안팎)
 const GLOW_PETS: [&str; 2] = ["rudolph", "pumpkin"];
+/// 빛이 이어지는 시간 (초)
 const GLOW_SECS: f64 = 2.6;
 
 /// 손님 창 라벨. visit_id는 Tauri 창 라벨 글자(영숫자와 - / : _)만 — 아니면 None
@@ -40,28 +43,30 @@ pub fn guest_label(visit_id: &str) -> Option<String> {
     valid.then(|| format!("{GUEST_PREFIX}{visit_id}"))
 }
 
+/// 손님 창 라벨인지 봄
 pub fn is_guest_label(label: &str) -> bool {
     label.starts_with(GUEST_PREFIX)
 }
 
-/// 지금 보이는 시트와 몸 크기 배율 (성장 직후 먹는 동안엔 돌보기 단계보다 한 단계 늦다)
+/// 지금 보이는 시트와 몸 크기 배율 (성장 직후 먹는 동안엔 돌보기 단계보다 한 단계 늦음)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagePayload {
+    /// 동물 id
     pub pet: String,
     /// 시트 이름 (`sheet_<stage>.png`)
     pub stage: Stage,
     /// 몸 크기 배율: 동글은 단계 배율 × 동물별 배율, 픽셀은 시트 칸 수(pet.json frame_sizes) × 칸, 칸이 정수 물리 px (style::pixel_body_scale)
     pub scale: f64,
-    /// 동글일 때의 몸 크기 배율 — 친구에게 보내는 값 (예전 버전은 동글로 그린다), 하우스 문간
+    /// 동글일 때의 몸 크기 배율 — 친구에게 보내는 값 (예전 버전은 동글로 그림), 하우스 문간
     pub base: f64,
     /// 지금 보이는 스타일
     pub style: PetStyle,
-    /// 고른 스타일 (그림이 없는 동물은 style이 동글이어도 픽셀일 수 있다)
+    /// 고른 스타일 (그림이 없는 동물은 style이 동글이어도 픽셀일 수 있음)
     pub wanted: PetStyle,
 }
 
-/// stage 단계의 시트·크기. dpi는 픽셀 칸을 물리 px에 맞추는 데만 쓴다
-/// size = 크기 조절 창의 펫 크기 배율 (친구에게 보내는 base에는 들어가지 않는다 — 내 화면에만)
+/// stage 단계의 시트·크기. dpi는 픽셀 칸을 물리 px에 맞추는 데만 씀
+/// size = 크기 조절 창의 펫 크기 배율 (친구에게 보내는 base에는 들어가지 않음 — 내 화면에만)
 pub fn stage_payload(entry: &PetEntry, stage: Stage, wanted: PetStyle, dpi: f64, size: f64) -> StagePayload {
     let mult = entry.manifest.size_mult(stage);
     let base = stage.scale() * mult;
@@ -76,17 +81,21 @@ pub fn stage_payload(entry: &PetEntry, stage: Stage, wanted: PetStyle, dpi: f64,
 /// 놀러 온 친구 동물
 #[derive(Debug, Clone)]
 pub struct GuestInfo {
+    /// 방문 id
     pub visit_id: String,
+    /// 주인 친구 id
     pub owner_id: String,
+    /// 주인 이름
     pub owner_name: String,
-    /// 주인이 들려 보낸 편지 (다듬은 글자 — 없으면 봉투도 없다)
+    /// 주인이 들려 보낸 편지 (다듬은 글자 — 없으면 봉투도 없음)
     pub note: Option<String>,
-    /// 밥을 줘서 잠깐 키울 수 있다 (주인이 성장 멈추기를 켰으면 false)
+    /// 밥을 줘서 잠깐 키울 수 있음 (주인이 성장 멈추기를 켰으면 false)
     pub can_grow: bool,
     /// 🎨 주인이 고른 몸 색 (Visit.tint를 확인한 것 — 친구 화면에서도 같은 색)
     pub tint: BodyTint,
 }
 
+/// 창에 든 동물이 누구 것인지임
 #[derive(Debug, Clone)]
 pub enum Role {
     Own,
@@ -96,8 +105,11 @@ pub enum Role {
 /// 웹뷰가 아는 자기 동물 (`slot_info` 커맨드, `pet-stage` 이벤트)
 #[derive(Debug, Clone, Serialize)]
 pub struct SlotInfo {
+    /// 동물 id
     pub pet: String,
+    /// 시트 단계
     pub stage: Stage,
+    /// 몸 크기 배율
     pub scale: f64,
     /// "round" | "pixel" — 웹뷰가 읽을 그림 폴더
     pub style: PetStyle,
@@ -105,21 +117,22 @@ pub struct SlotInfo {
     pub role: &'static str,
     /// 손님이면 주인 이름 (이름표 "🏠 <owner>")
     pub owner: Option<String>,
-    /// 손님이면 주인 id (우클릭 "<친구>에게 보내기"에서 주인을 뺀다 — 웹뷰에는 보내지 않는다)
+    /// 손님이면 주인 id (우클릭 "<친구>에게 보내기"에서 주인을 뺌 — 웹뷰에는 보내지 않음)
     #[serde(skip)]
     pub owner_id: Option<String>,
-    /// 손님이 들고 온 편지 (머리 위 💌, 누르면 "💌 <owner>: <note>" — 웹뷰는 textContent로만 쓴다)
+    /// 손님이 들고 온 편지 (머리 위 💌, 누르면 "💌 <owner>: <note>" — 웹뷰는 textContent로만 씀)
     pub note: Option<String>,
-    /// 손님에게 밥을 줘서 키울 수 있다 (우클릭 메뉴 — 웹뷰에는 보내지 않는다)
+    /// 손님에게 밥을 줘서 키울 수 있음 (우클릭 메뉴 — 웹뷰에는 보내지 않음)
     #[serde(skip)]
     pub can_grow: bool,
-    /// 마지막으로 보낸 모습 — 첫 `pet-render`가 웹뷰가 듣기 전에 지나갔을 수 있어 첫 로드 때 같이 준다
+    /// 마지막으로 보낸 모습 — 첫 `pet-render`가 웹뷰가 듣기 전에 지나갔을 수 있어 첫 로드 때 같이 줌
     pub render: Option<RenderState>,
-    /// 🎨 몸 색 id (잉크 선 동물만 칠한다 — ui/main.js setupTint)
+    /// 🎨 몸 색 id (잉크 선 동물만 칠함 — ui/main.js setupTint)
     pub tint: BodyTint,
 }
 
 impl SlotInfo {
+    /// 지금 모습과 역할로 웹뷰용 정보를 만듦
     pub fn new(shown: &StagePayload, role: &Role, render: Option<RenderState>) -> Self {
         let (role, owner, owner_id, note, can_grow, tint) = match role {
             Role::Own => ("own", None, None, None, false, BodyTint::Default),
@@ -140,36 +153,43 @@ pub fn note_window_logical_size(body_scale: f64) -> (f64, f64) {
     (w.max(NOTE_WIDTH), h + NOTE_SPACE)
 }
 
-/// style = 지금 보이는 스타일. 그림에 달린 것(칸 크기·머리 표·있는 동작)만 다르고 나머지는 같다 (PetEntry::art).
-/// 몸 폭은 픽셀도 같은 비율: 시트에서 재 보면 앉은 몸 폭의 절반이 동글 0.38, 픽셀 0.33~0.39로 거의 같다
+/// style = 지금 보이는 스타일. 그림에 달린 것(칸 크기·머리 표·있는 동작)만 다르고 나머지는 같음 (PetEntry::art).
+/// 몸 폭은 픽셀도 같은 비율: 시트에서 재 보면 앉은 몸 폭의 절반이 동글 0.38, 픽셀 0.33~0.39로 거의 같음
 pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64, stage: Stage, style: PetStyle) -> PetConfig {
     PetConfig::from_manifest(entry.art(style), dpi, body_scale, stage.name())
 }
 
+/// 동물 창 하나임: 동물 두뇌, 창, 크기·배율, 창 맞추기 상태
 pub struct Slot {
     /// 친구가 밥을 줘서 일시적으로 커진 배율 (1 = 평소)
     pub boost: f64,
-    /// 지금 몸 크기에 실제로 곱해진 값 (되돌릴 때 나눈다)
+    /// 지금 몸 크기에 실제로 곱해진 값 (되돌릴 때 나눔)
     boost_applied: f64,
+    /// 창 라벨
     pub label: String,
+    /// 내 동물인지 손님인지
     pub role: Role,
+    /// 동물 종류
     pub entry: PetEntry,
+    /// 동물 두뇌 (코어)
     pub pet: Pet,
+    /// 동물 창
     pub window: WebviewWindow,
-    /// 이 동물 키에 맞춘 세계 (디딤판은 몸 크기에 따라 다르다)
+    /// 이 동물 키에 맞춘 세계 (디딤판은 몸 크기에 따라 다름)
     pub world: World,
+    /// 창이 있는 모니터 배율
     pub dpi: f64,
     /// 화면에 적용된 시트·몸 배율
     pub shown: StagePayload,
-    /// 창은 visible:false로 만들고, 위치를 잡은 뒤에야 보인다 (OS 기본 위치 깜빡임 방지)
+    /// 창은 visible:false로 만들고, 위치를 잡은 뒤에야 보임 (OS 기본 위치 깜빡임 방지)
     pub need_show: bool,
     last_pos: Option<(i32, i32)>,
     last_render: Option<RenderState>,
     /// 편지 말풍선을 띄워 창이 커져 있음 (웹뷰 `note_space` — 손님이 들고 온 편지 / 돌아온 내 동물의 답장)
     note_open: bool,
-    /// 기린이 목을 늘이는 중이라 창이 위로 커져 있음 (늘이는 동안만 — 끝나면 바로 줄인다)
+    /// 기린이 목을 늘이는 중이라 창이 위로 커져 있음 (늘이는 동안만 — 끝나면 바로 줄임)
     stretch_open: bool,
-    /// 빛나는 동안 창 아래를 늘렸다 / 언제까지
+    /// 빛나는 동안 창 아래를 늘렸음 / 언제까지
     glow_open: bool,
     glow_until: Option<std::time::Instant>,
     /// 커서에 매달리느라 창이 마우스를 통과시키고 있음 (그동안 클릭은 사용자 것)
@@ -178,12 +198,13 @@ pub struct Slot {
     size: f64,
     /// 🎨 몸 색 (내 동물은 설정, 손님은 주인이 보낸 것)
     pub tint: BodyTint,
-    /// Windows: 창 핸들 (만들 때 한 번 읽어 둔다 — hwnd()는 메인 스레드에 물어본다). 매 틱 SetWindowPos로 바로 옮긴다
+    /// Windows: 창 핸들 (만들 때 한 번 읽어 둠 — hwnd()는 메인 스레드에 물어봄). 매 틱 SetWindowPos로 바로 옮김
     #[cfg(windows)]
     hwnd: Option<isize>,
 }
 
 impl Slot {
+    /// 새 동물 창 슬롯을 만듦 (커서 종류·크기를 맞춤)
     #[allow(clippy::too_many_arguments)]
     pub fn new(label: String, role: Role, entry: PetEntry, mut pet: Pet, window: WebviewWindow, world: World, dpi: f64, shown: StagePayload, size: f64) -> Self {
         pet.set_cursor_species(&entry.id);
@@ -215,7 +236,7 @@ impl Slot {
         }
     }
 
-    /// 창을 물리 px (x, y)로. Windows는 이벤트 루프를 거치지 않고 바로 (창을 따라갈 때 덜 끊긴다), 실패하거나 다른 OS면 Tauri로
+    /// 창을 물리 px (x, y)로. Windows는 이벤트 루프를 거치지 않고 바로 (창을 따라갈 때 덜 끊김), 실패하거나 다른 OS면 Tauri로
     fn move_window(&self, x: i32, y: i32) {
         #[cfg(windows)]
         {
@@ -226,15 +247,17 @@ impl Slot {
         let _ = self.window.set_position(PhysicalPosition::new(x, y));
     }
 
+    /// 내 동물인지 봄
     pub fn is_own(&self) -> bool {
         matches!(self.role, Role::Own)
     }
 
+    /// 웹뷰용 정보를 지금 값으로 만듦
     pub fn info(&self) -> SlotInfo {
         SlotInfo { tint: self.tint, ..SlotInfo::new(&self.shown, &self.role, self.last_render) }
     }
 
-    /// 🎨 몸 색을 바꾼다: 웹뷰가 pet-stage로 다시 읽는다 (같은 색이면 아무것도 안 한다)
+    /// 🎨 몸 색을 바꿈: 웹뷰가 pet-stage로 다시 읽음 (같은 색이면 아무것도 안 함)
     pub fn set_tint(&mut self, app: &AppHandle, tint: BodyTint) {
         if self.tint == tint {
             return;
@@ -247,7 +270,7 @@ impl Slot {
         let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
     }
 
-    /// 단계(또는 동물)가 바뀌었다: 창 크기, 펫 크기, 웹뷰 시트
+    /// 단계(또는 동물)가 바뀌었음: 창 크기, 펫 크기, 웹뷰 시트
     pub fn set_stage(&mut self, app: &AppHandle, mut shown: StagePayload) {
         // 친구가 밥을 줘서 일시적으로 커졌으면 어떤 그림·단계든 그만큼 크게
         self.boost_applied = self.boost_factor(&shown);
@@ -262,7 +285,7 @@ impl Slot {
         let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
     }
 
-    /// 창 크기를 바꾼다 (논리 px). 포커스를 뺏지 않는다 — 슬라이더를 끄는 동안에도 불린다
+    /// 창 크기를 바꿈 (논리 px). 포커스를 뺏지 않음 — 슬라이더를 끄는 동안에도 불림
     fn resize_window(&self, w: f64, h: f64) {
         #[cfg(windows)]
         let hwnd = self.hwnd;
@@ -271,7 +294,7 @@ impl Slot {
         crate::overlay::resize_quietly(&self.window, hwnd, (w * self.dpi).round() as u32, (h * self.dpi).round() as u32);
     }
 
-    /// 크기 조절 창: 펫 크기 배율을 바꾼다. 일시 확대는 그대로 두고 그 아래만 바꾼다
+    /// 크기 조절 창: 펫 크기 배율을 바꿈. 일시 확대는 그대로 두고 그 아래만 바꿈
     pub fn set_size(&mut self, app: &AppHandle, size: f64) {
         if size == self.size {
             return;
@@ -285,6 +308,7 @@ impl Slot {
         self.set_stage(app, plain);
     }
 
+    /// 지금 몸 크기 (논리 px)
     pub fn size(&self) -> f64 {
         self.size
     }
@@ -302,7 +326,7 @@ impl Slot {
         visit::boost_cap(self.entry.manifest.size_mult(self.shown.stage))
     }
 
-    /// 일시 확대 배율을 바꾼다: 창 크기·몸 크기·웹뷰 그림 (성장과 상관없다, 저장하지 않는다)
+    /// 일시 확대 배율을 바꿈: 창 크기·몸 크기·웹뷰 그림 (성장과 상관없음, 저장하지 않음)
     pub fn set_boost(&mut self, app: &AppHandle, boost: f64) {
         let mut plain = self.shown.clone();
         plain.scale /= self.boost_applied;
@@ -310,12 +334,12 @@ impl Slot {
         self.set_stage(app, plain);
     }
 
-    /// 픽셀 동물이면 칸 한 변 (물리 px) — 밥그릇이 같은 칸으로 놓인다
+    /// 픽셀 동물이면 칸 한 변 (물리 px) — 밥그릇이 같은 칸으로 놓임
     pub fn pixel_dot(&self) -> Option<u32> {
         (self.shown.style == PetStyle::Pixel).then(|| style::dot_physical_at(self.shown.stage, self.dpi, self.size))
     }
 
-    /// 스타일을 바꾼다 (지금 단계·동물 그대로): 창 크기·펫 크기·웹뷰 시트. 그림마다 있는 동작이 다를 수 있으니 진행 중인 특별 동작·벽 타기도 다시 맞춘다
+    /// 스타일을 바꿈 (지금 단계·동물 그대로): 창 크기·펫 크기·웹뷰 시트. 그림마다 있는 동작이 다를 수 있으니 진행 중인 특별 동작·벽 타기도 다시 맞춤
     pub fn restyle(&mut self, app: &AppHandle, wanted: PetStyle) {
         let shown = stage_payload(&self.entry, self.shown.stage, wanted, self.dpi, self.size);
         self.set_stage(app, shown);
@@ -323,7 +347,7 @@ impl Slot {
         self.pet.set_can_climb(self.pet.cfg.can_climb);
     }
 
-    /// 지금 창 크기 (논리 px) — 편지를 펼친 동안은 위로 높고 넓다
+    /// 지금 창 크기 (논리 px) — 편지를 펼친 동안은 위로 높고 넓음
     fn logical_size(&self, body_scale: f64) -> (f64, f64) {
         let (w, h) = if self.note_open { note_window_logical_size(body_scale) } else { window_logical_size(body_scale) };
         let h = h + self.glow_pad();
@@ -334,8 +358,8 @@ impl Slot {
         }
     }
 
-    /// 기린 목 늘이기가 시작·끝나면 창을 위로 키우거나 줄인다 (몸은 창 아래 가운데 그대로 — 바로 다음 place가 옮긴다)
-    /// 눌렸다: 빛나는 동물이면 그동안 창 아래에 빛 번질 자리를 낸다
+    /// 기린 목 늘이기가 시작·끝나면 창을 위로 키우거나 줄임 (몸은 창 아래 가운데 그대로 — 바로 다음 place가 옮김)
+    /// 눌렸음: 빛나는 동물이면 그동안 창 아래에 빛 번질 자리를 냄
     pub fn start_glow(&mut self) {
         if GLOW_PETS.contains(&self.entry.id.as_str()) {
             self.glow_until = Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(GLOW_SECS));
@@ -351,7 +375,7 @@ impl Slot {
         }
     }
 
-    /// 들어 올린 채 빛나기 시작·끝나면 창을 아래로 늘리거나 줄이고, 웹뷰가 펫을 그만큼 올려 그린다 (`pet-pad`)
+    /// 들어 올린 채 빛나기 시작·끝나면 창을 아래로 늘리거나 줄이고, 웹뷰가 펫을 그만큼 올려 그림 (`pet-pad`)
     fn sync_glow(&mut self) {
         let on = self.pet.is_held() && self.glow_until.is_some_and(|t| std::time::Instant::now() < t);
         if on == self.glow_open {
@@ -367,6 +391,7 @@ impl Slot {
         let _ = self.window.emit_to(self.label.as_str(), "pet-pad", self.glow_pad());
     }
 
+    /// 목 늘이기가 시작·끝나면 창 높이를 맞춤
     fn sync_stretch(&mut self) {
         let stretch = self.pet.render().anim == Anim::NeckStretch;
         if stretch == self.stretch_open {
@@ -378,8 +403,8 @@ impl Slot {
         self.last_pos = None;
     }
 
-    /// 커서로 뛰어오르고 매달리고 떨어지는 동안 창이 마우스를 통과시킨다 — 몸이 커서 끝 바로 아래라 창이 커서를 덮는다 (코어 hang_spot).
-    /// place에서 창을 옮기기 전에 불러 첫 틱부터 클릭을 뺏지 않는다. 바뀔 때만 OS에 알린다
+    /// 커서로 뛰어오르고 매달리고 떨어지는 동안 창이 마우스를 통과시킴 — 몸이 커서 끝 바로 아래라 창이 커서를 덮음 (코어 hang_spot).
+    /// place에서 창을 옮기기 전에 불러 첫 틱부터 클릭을 뺏지 않음. 바뀔 때만 OS에 알림
     fn sync_click_through(&mut self) {
         let through = self.pet.cursor_through();
         if through != self.click_through {
@@ -388,13 +413,13 @@ impl Slot {
         }
     }
 
-    /// 편지 말풍선이 펼쳐져 있음 (창이 넓어져 커서 장난은 쉰다)
+    /// 편지 말풍선이 펼쳐져 있음 (창이 넓어져 커서 장난은 쉼)
     pub fn note_is_open(&self) -> bool {
         self.note_open
     }
 
-    /// 편지 말풍선을 띄운다 / 접는다: 창을 키우거나 줄이고, 몸이 그 자리에 있도록 바로 다시 놓는다.
-    /// 손님은 편지를 들고 왔을 때만, 내 동물은 답장을 들고 돌아왔을 때 (`pet-mail` — 언제 왔는지는 웹뷰가 안다)
+    /// 편지 말풍선을 띄움 / 접음: 창을 키우거나 줄이고, 몸이 그 자리에 있도록 바로 다시 놓음.
+    /// 손님은 편지를 들고 왔을 때만, 내 동물은 답장을 들고 돌아왔을 때 (`pet-mail` — 언제 왔는지는 웹뷰가 앎)
     pub fn set_note_open(&mut self, open: bool) {
         let has_note = match &self.role {
             Role::Guest(g) => g.note.is_some(),
@@ -420,7 +445,7 @@ impl Slot {
         ((self.pet.body.x - w * self.dpi / 2.0).round() as i32, (sy - top * self.dpi).round() as i32)
     }
 
-    /// 손님 이름표의 주인 이름을 바꾼다 (친구가 이름을 바꿨거나 내가 별명을 붙임). 달라졌을 때만 웹뷰에 알린다
+    /// 손님 이름표의 주인 이름을 바꿈 (친구가 이름을 바꿨거나 내가 별명을 붙임). 달라졌을 때만 웹뷰에 알림
     pub fn set_owner_name(&mut self, app: &AppHandle, name: String) {
         let Role::Guest(g) = &mut self.role else { return };
         if g.owner_name == name {
@@ -431,16 +456,16 @@ impl Slot {
         if let Some(stored) = app.state::<AppState>().slots.lock().unwrap().get_mut(&self.label) {
             stored.owner = info.owner.clone();
         }
-        // pet-stage는 이름표(applyRole)도 다시 그린다
+        // pet-stage는 이름표(applyRole)도 다시 그림
         let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
     }
 
-    /// 화면 배율과 세계를 다시 읽는다 (WORLD_REFRESH마다)
+    /// 화면 배율과 세계를 다시 읽음 (WORLD_REFRESH마다)
     pub fn refresh(&mut self, windows: &[WindowInfo], work_areas: &[Rect]) {
         let dpi = self.window.scale_factor().unwrap_or(self.dpi);
         if dpi != self.dpi {
             self.dpi = dpi;
-            // 픽셀: 다른 배율의 모니터로 옮기면 칸 물리 px가 달라진다 — 창·시트까지 다시 맞춘다
+            // 픽셀: 다른 배율의 모니터로 옮기면 칸 물리 px가 달라짐 — 창·시트까지 다시 맞춤
             if self.shown.style == PetStyle::Pixel {
                 let (app, shown) = (self.window.app_handle().clone(), stage_payload(&self.entry, self.shown.stage, self.shown.wanted, dpi, self.size));
                 self.set_stage(&app, shown);
@@ -451,7 +476,7 @@ impl Slot {
         self.world = World::new(windows.to_vec(), work_areas.to_vec(), self.pet.cfg.size);
     }
 
-    /// 커서가 스프라이트 위에 있음. 걷는 펫이 커서 밑에서 빠져나가지 않도록 사방 20% 여유를 둔다
+    /// 커서가 스프라이트 위에 있음. 걷는 펫이 커서 밑에서 빠져나가지 않도록 사방 20% 여유를 둠
     pub fn cursor_inside(&self, cx: f64, cy: f64) -> bool {
         let (sx, sy) = self.pet.window_pos();
         let side = self.pet.cfg.size;
@@ -459,24 +484,25 @@ impl Slot {
         cx >= sx - pad && cx < sx + side + pad && cy >= sy - pad && cy < sy + side + pad
     }
 
-    /// 화면 위에 있어야 하는 동물 (하우스 안이거나 친구 화면에 가 있으면 아니다)
+    /// 화면 위에 있어야 하는 동물 (하우스 안이거나 친구 화면에 가 있으면 아님)
     pub fn on_screen(&self) -> bool {
         !self.pet.is_housed() && !self.pet.is_away()
     }
 
-    /// 🛷 썰매에 탔다: 창을 화면 밖으로 치워 둔다 (보이기·숨기기 없이 — 포커스를 뺏지 않는다)
+    /// 🛷 썰매에 탔음: 창을 화면 밖으로 치워 둠 (보이기·숨기기 없이 — 포커스를 뺏지 않음)
     pub fn park(&mut self) {
+        /// 화면 밖 좌표
         const AWAY: i32 = -32000;
         self.move_window(AWAY, AWAY);
         self.last_pos = Some((AWAY, AWAY));
     }
 
-    /// 썰매에서 내렸다: 다음 place가 몸 자리로 되돌린다
+    /// 썰매에서 내렸음: 다음 place가 몸 자리로 되돌림
     pub fn unpark(&mut self) {
         self.last_pos = None;
     }
 
-    /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보인다. hidden = 사용자가 트레이로 모두 숨겨 둠 (그동안은 보이지 않는다)
+    /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보임. hidden = 사용자가 트레이로 모두 숨겨 둠 (그동안은 보이지 않음)
     pub fn place(&mut self, hidden: bool) {
         self.sync_stretch();
         self.sync_glow();
@@ -492,7 +518,7 @@ impl Slot {
         }
     }
 
-    /// 지난번과 달라졌으면 지금 그릴 모습. 새로 뜬 웹뷰(`slot_info`)를 위해 AppState에도 적어 둔다 — emit보다 먼저
+    /// 지난번과 달라졌으면 지금 그릴 모습. 새로 뜬 웹뷰(`slot_info`)를 위해 AppState에도 적어 둠 — emit보다 먼저
     pub fn take_render(&mut self, app: &AppHandle) -> Option<RenderState> {
         let render = self.pet.render();
         if self.last_render == Some(render) {
@@ -506,14 +532,16 @@ impl Slot {
     }
 }
 
-// 어울림 코디네이터(social.rs)가 슬롯 목록을 그대로 받는다
+// 어울림 코디네이터(social.rs)가 슬롯 목록을 그대로 받음
 impl AsRef<Pet> for Slot {
+    /// 동물 두뇌를 빌려줌
     fn as_ref(&self) -> &Pet {
         &self.pet
     }
 }
 
 impl AsMut<Pet> for Slot {
+    /// 동물 두뇌를 빌려줌 (바꿀 수 있게)
     fn as_mut(&mut self) -> &mut Pet {
         &mut self.pet
     }
@@ -530,9 +558,9 @@ fn build_guest_window(app: &AppHandle, label: &str, body_scale: f64) -> tauri::R
     )
 }
 
-/// 친구 동물이 화면 끝(side)에서 걸어 들어온다. 집(주인 화면)은 들어온 쪽이다.
-/// scale = 주인 쪽에서 정한 몸 배율 (단계 × 동물별, 동글일 때). style = 주인이 고른 스타일 — 이쪽에 그 그림이 없으면 동글, 있으면 크기는 이쪽 화면 배율로 다시 계산한다
-/// (dpi_hint = 지금 화면 배율 — 창이 다른 모니터에 뜨면 다음 refresh가 고친다). base = 지금 세계 (창·작업 영역만 쓴다). 게임 루프 스레드에서만 부른다 (창 만들기가 메인 스레드를 기다린다)
+/// 친구 동물이 화면 끝(side)에서 걸어 들어옴. 집(주인 화면)은 들어온 쪽임.
+/// scale = 주인 쪽에서 정한 몸 배율 (단계 × 동물별, 동글일 때). style = 주인이 고른 스타일 — 이쪽에 그 그림이 없으면 동글, 있으면 크기는 이쪽 화면 배율로 다시 계산함
+/// (dpi_hint = 지금 화면 배율 — 창이 다른 모니터에 뜨면 다음 refresh가 고침). base = 지금 세계 (창·작업 영역만 씀). 게임 루프 스레드에서만 부름 (창 만들기가 메인 스레드를 기다림)
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_guest(
     app: &AppHandle,
@@ -554,7 +582,7 @@ pub fn spawn_guest(
     if shown.style == PetStyle::Round {
         shown.scale = scale * size;
     }
-    // 웹뷰가 뜨자마자 slot_info를 부르므로 창보다 먼저 적어 둔다. 같은 라벨이 이미 있으면 (같은 방문이 두 번) 거절
+    // 웹뷰가 뜨자마자 slot_info를 부르므로 창보다 먼저 적어 둠. 같은 라벨이 이미 있으면 (같은 방문이 두 번) 거절
     let state = app.state::<AppState>();
     {
         let mut infos = state.slots.lock().unwrap();
@@ -566,12 +594,12 @@ pub fn spawn_guest(
     let window = match build_guest_window(app, &label, shown.scale) {
         Ok(w) => w,
         Err(e) => {
-            // 위에서 우리가 넣은 것만 지운다 (같은 라벨은 없다고 확인했다)
+            // 위에서 우리가 넣은 것만 지움 (같은 라벨은 없다고 확인했음)
             state.slots.lock().unwrap().remove(&label);
             return Err(e.to_string());
         }
     };
-    // 픽셀은 dpi_hint로 잰 크기라 그 값으로 두고 다음 refresh에 맞춘다 (같은 모니터면 할 일 없음)
+    // 픽셀은 dpi_hint로 잰 크기라 그 값으로 두고 다음 refresh에 맞춤 (같은 모니터면 할 일 없음)
     let dpi = if shown.style == PetStyle::Pixel { dpi_hint } else { window.scale_factor().unwrap_or(1.0) };
     let cfg = pet_config(dpi, &entry, shown.scale, shown.stage, shown.style);
     let world = World::new(base.windows.clone(), base.work_areas.clone(), cfg.size);
@@ -583,17 +611,18 @@ pub fn spawn_guest(
     Ok(slot)
 }
 
-/// 손님이 떠났다 — 창을 닫는다
+/// 손님이 떠났음 — 창을 닫음
 pub fn close(app: &AppHandle, slot: Slot) {
     app.state::<AppState>().slots.lock().unwrap().remove(&slot.label);
     let _ = slot.window.destroy();
 }
 
+/// 라벨로 슬롯 번호를 찾음
 pub fn find(slots: &[Slot], label: &str) -> Option<usize> {
     slots.iter().position(|s| s.label == label)
 }
 
-/// 커서 아래 있는 맨 위 슬롯 — 나중에 만든 창이 위에 있으므로 뒤에서부터 찾는다
+/// 커서 아래 있는 맨 위 슬롯 — 나중에 만든 창이 위에 있으므로 뒤에서부터 찾음
 pub fn hover_target(slots: &[Slot], cx: f64, cy: f64) -> Option<usize> {
     slots.iter().rposition(|s| s.on_screen() && s.cursor_inside(cx, cy))
 }

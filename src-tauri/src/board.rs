@@ -1,7 +1,7 @@
 //! 📮 건의함 보기 (누구나): 개발자가 받은 건의의 공개 목록 — 이름 첫 글자(나머지는 *)와 첫 줄, 날짜, ✅ 반영됨 / 🙅 반려됨.
-//! 읽기 전용: 읽음·지우기·막기·반영 같은 것은 없다. 편지는 개발자만 열 수 있어서, 개발자 앱이 가린 이름과 첫 줄만
-//! 릴레이에 올린다 (mailbox.rs) — 본문은 개발자 컴퓨터를 떠나지 않는다. 한 쪽에 5개, 릴레이(v3)가 쪽을 나눠 준다.
-//! 개발자 컴퓨터에서는 트레이 "📮 건의함"이 이 창 대신 개발자 건의함(mailbox.rs)을 연다.
+//! 읽기 전용: 읽음·지우기·막기·반영 같은 것은 없음. 편지는 개발자만 열 수 있어서, 개발자 앱이 가린 이름과 첫 줄만
+//! 릴레이에 올림 (mailbox.rs) — 본문은 개발자 컴퓨터를 떠나지 않음. 한 쪽에 5개, 릴레이(v3)가 쪽을 나눠 줌.
+//! 개발자 컴퓨터에서는 트레이 "📮 건의함"이 이 창 대신 개발자 건의함(mailbox.rs)을 엶.
 
 use screenpet_net::board::{BoardItem, BoardPage};
 use serde::Serialize;
@@ -12,20 +12,29 @@ use crate::network::NetInput;
 use crate::overlay::Form;
 use crate::AppState;
 
+/// 건의함 창 라벨
 pub const BOARD_LABEL: &str = "board";
+/// 건의함 창 모양
 const BOARD_FORM: Form = Form { label: BOARD_LABEL, page: "board.html", title: "ScreenPet 건의함", size: (480.0, 520.0) };
 
 /// 창이 받는 한 쪽 (`board-page`). 못 받았으면 ok: false와 이유 (offline · old · timeout)
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct BoardView {
+    /// 한 쪽을 받았음
     pub ok: bool,
+    /// 못 받은 까닭 (offline · old · timeout)
     pub reason: String,
+    /// 이 쪽의 항목들
     pub items: Vec<BoardItem>,
+    /// 지금 쪽 (1부터)
     pub page: u32,
+    /// 전체 쪽 수
     pub pages: u32,
+    /// 전체 항목 수
     pub total: u32,
 }
 
+/// 릴레이 대답을 창에 보낼 모양으로 바꿈
 pub fn view_of(result: Result<BoardPage, String>) -> BoardView {
     match result {
         Ok(p) => BoardView { ok: true, reason: String::new(), items: p.items, page: p.page.max(1), pages: p.pages.max(1), total: p.total },
@@ -33,23 +42,24 @@ pub fn view_of(result: Result<BoardPage, String>) -> BoardView {
     }
 }
 
-/// 트레이 메뉴: 창을 연다 (열 때마다 첫 쪽을 새로 받는다 — 창이 `board-open`을 듣고 board_list(1))
+/// 트레이 메뉴: 창을 엶 (열 때마다 첫 쪽을 새로 받음 — 창이 `board-open`을 듣고 board_list(1))
 pub fn show(app: &AppHandle) {
     crate::overlay::show_form(app, &BOARD_FORM, crate::overlay::place_on_primary, |_| {
         let _ = app.emit_to(BOARD_LABEL, "board-open", ());
     });
 }
 
-/// 릴레이의 대답을 창에 알린다
+/// 릴레이의 대답을 창에 알림
 pub fn result(app: &AppHandle, result: Result<BoardPage, String>) {
     let _ = app.emit_to(BOARD_LABEL, "board-page", view_of(result));
 }
 
+/// 이 창이 건의함 창인지 봄
 fn mine(window: &WebviewWindow) -> bool {
     window.label() == BOARD_LABEL
 }
 
-/// 창이 page쪽(1부터)을 달라고 한다 — 대답은 `board-page`로
+/// 창이 page쪽(1부터)을 달라고 함 — 대답은 `board-page`로
 #[tauri::command]
 pub fn board_list(window: WebviewWindow, state: tauri::State<AppState>, page: u32) {
     if mine(&window) {
@@ -57,6 +67,7 @@ pub fn board_list(window: WebviewWindow, state: tauri::State<AppState>, page: u3
     }
 }
 
+/// 창의 "닫기"
 #[tauri::command]
 pub fn board_close(window: WebviewWindow) {
     if mine(&window) {
@@ -64,6 +75,7 @@ pub fn board_close(window: WebviewWindow) {
     }
 }
 
+/// 릴레이 대답 → 창 모양 변환 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

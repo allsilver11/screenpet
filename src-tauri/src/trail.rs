@@ -1,10 +1,10 @@
-//! 🌈 무지개 구름 자국 — 몸 색이 무지개인 동물(내 흐물이, 무지개 손님)이 달리면 발 뒤로 작은 무지개 구름이 퐁퐁 남는다.
+//! 🌈 무지개 구름 자국 — 몸 색이 무지개인 동물(내 흐물이, 무지개 손님)이 달리면 발 뒤로 작은 무지개 구름이 퐁퐁 남음.
 //! 언제·어디에 남길지는 screenpet_core::trail이 정하고, 그림은 모니터마다 마우스가 통과하는 투명 창 (`trail-<n>`, trail.html)이
-//! 그린다 (날씨 창과 같은 overlay::screen_cover). 창은 첫 구름이 나올 때 만들고, 구름이 IDLE_CLOSE 동안 없으면 닫는다 —
-//! 무지개가 아니거나 달리지 않으면 창도 일도 없다. 숨기기·자리 비움이면 바로 닫고, 그 모니터 앞 창이 전체 화면이면 숨긴다.
+//! 그림 (날씨 창과 같은 overlay::screen_cover). 창은 첫 구름이 나올 때 만들고, 구름이 IDLE_CLOSE 동안 없으면 닫음 —
+//! 무지개가 아니거나 달리지 않으면 창도 일도 없음. 숨기기·자리 비움이면 바로 닫고, 그 모니터 앞 창이 전체 화면이면 숨김.
 //!
-//! 🖍️ 흐물이의 분필 낙서 (`Pet::take_doodle`)도 같은 창이 그린다 (`trail-doodle`, ui/doodle.js — 구름 아래 캔버스).
-//! 낙서가 남아 있는 동안 (DOODLE_LIFE)은 창을 닫지 않는다. 손님 흐물이의 낙서도 그린다.
+//! 🖍️ 흐물이의 분필 낙서 (`Pet::take_doodle`)도 같은 창이 그림 (`trail-doodle`, ui/doodle.js — 구름 아래 캔버스).
+//! 낙서가 남아 있는 동안 (DOODLE_LIFE)은 창을 닫지 않음. 손님 흐물이의 낙서도 그림.
 
 use std::time::{Duration, Instant};
 
@@ -18,21 +18,22 @@ use tauri::{AppHandle, Emitter, WebviewWindow};
 
 use crate::slots::Slot;
 
+/// 구름 덮개 창 라벨 앞부분
 const PREFIX: &str = "trail-";
-/// 마지막 구름 뒤 이만큼 지나면 창을 닫는다
+/// 마지막 구름 뒤 이만큼 지나면 창을 닫음
 const IDLE_CLOSE: Duration = Duration::from_secs(8);
-/// 새 창의 웹뷰가 듣기 시작할 때까지 구름을 모아 둔다 (웹뷰는 이벤트를 보낼 수 없어서 시간으로 기다린다).
-/// 모아 둔 구름은 나이(age)와 함께 보내 웹뷰가 그만큼 흐려진 데서 시작한다
+/// 새 창의 웹뷰가 듣기 시작할 때까지 구름을 모아 둠 (웹뷰는 이벤트를 보낼 수 없어서 시간으로 기다림).
+/// 모아 둔 구름은 나이(age)와 함께 보내 웹뷰가 그만큼 흐려진 데서 시작함
 const WARMUP: Duration = Duration::from_millis(900);
-/// 모아 두는 구름 상한 (웹뷰도 MAX_PUFFS까지만 그린다)
+/// 모아 두는 구름 상한 (웹뷰도 MAX_PUFFS까지만 그림)
 const PENDING_MAX: usize = 60;
 /// 전체 화면 여부를 보는 간격
 const PAUSE_EVERY: Duration = Duration::from_millis(250);
-/// 🖍️ 낙서가 화면에 있는 시간 (doodle.js: 그리기 DOODLE_SECS + 그대로 20초 + 흐려지기 3초) — 이 동안 창을 닫지 않는다
+/// 🖍️ 낙서가 화면에 있는 시간 (doodle.js: 그리기 DOODLE_SECS + 그대로 20초 + 흐려지기 3초) — 이 동안 창을 닫지 않음
 const DOODLE_LIFE: Duration = Duration::from_millis((DOODLE_SECS * 1000.0) as u64 + 23_000);
 /// 낙서 높이 = 동물 크기(128 기준 물리 px × scale)의 이만큼
 const DOODLE_HEIGHT: f64 = 0.5;
-/// 이름 낙서는 이만큼 글자까지 (doodle.js MAX_NAME과 같다)
+/// 이름 낙서는 이만큼 글자까지 (doodle.js MAX_NAME과 같음)
 const MAX_NAME: usize = 12;
 
 /// 웹뷰로 가는 낙서 (논리 px, 이 창 왼쪽 위가 0,0 — x는 가운데, y는 바닥 줄, size는 높이)
@@ -41,17 +42,18 @@ struct DoodleWire {
     x: f64,
     y: f64,
     kind: &'static str,
-    /// kind가 name일 때 쓰는 펫 이름 (MAX_NAME글자까지 — 웹뷰는 캔버스 글자로만 그린다)
+    /// kind가 name일 때 쓰는 펫 이름 (MAX_NAME글자까지 — 웹뷰는 캔버스 글자로만 그림)
     name: String,
     facing: f64,
     size: f64,
     pixel: bool,
-    /// 분필이 그려지는 시간 (초) = 흐물이 그리기 동작 길이 (그림이 흐물이가 일어설 때 다 그려진다)
+    /// 분필이 그려지는 시간 (초) = 흐물이 그리기 동작 길이 (그림이 흐물이가 일어설 때 다 그려짐)
     draw: f64,
     /// 이미 지난 시간 (초)
     age: f64,
 }
 
+/// 낙서 종류의 웹뷰 이름
 fn kind_name(kind: DoodleKind) -> &'static str {
     match kind {
         DoodleKind::Heart => "heart",
@@ -74,6 +76,7 @@ struct Wire {
     age: f64,
 }
 
+/// 모니터 하나를 덮는 투명 창임 (구름·낙서를 그림)
 struct Overlay {
     window: WebviewWindow,
     label: String,
@@ -85,6 +88,7 @@ struct Overlay {
     doodles: Vec<(Instant, DoodleWire)>,
 }
 
+/// ☁️ 발자국 구름과 낙서 상태임 (게임 루프가 가짐)
 #[derive(Default)]
 pub struct TrailFx {
     /// 동물 창 라벨마다 구름 내보내기
@@ -95,19 +99,20 @@ pub struct TrailFx {
     retry: OverlayRetry,
     next_label: u64,
     puffs: Vec<Puff>,
-    /// 마지막 낙서가 사라지는 때 (그때까지 창을 닫지 않는다)
+    /// 마지막 낙서가 사라지는 때 (그때까지 창을 닫지 않음)
     doodles_until: Option<Instant>,
 }
 
 impl TrailFx {
+    /// 빈 상태로 만듦
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 게임 루프 스레드에서 매 틱 (창 만들기가 메인 스레드를 기다린다)
+    /// 게임 루프 스레드에서 매 틱 (창 만들기가 메인 스레드를 기다림)
     pub fn tick(&mut self, app: &AppHandle, now: Instant, dt: f64, away: bool, slots: &mut [Slot]) {
         if away || crate::windows_hidden(app) {
-            // 숨기거나 자리를 비운 동안 그린 낙서는 버린다
+            // 숨기거나 자리를 비운 동안 그린 낙서는 버림
             for s in slots.iter_mut() {
                 let _ = s.pet.take_doodle();
             }
@@ -134,7 +139,7 @@ impl TrailFx {
                 }
             };
             let runner = Runner::of(&s.pet, s.shown.style == PetStyle::Pixel);
-            // 전체 화면 앞 창은 달릴 때만 본다 (구름이 날 때만 일한다)
+            // 전체 화면 앞 창은 달릴 때만 봄 (구름이 날 때만 일함)
             let visible = s.on_screen() && runner.dash.is_some() && !weather::overlay_paused(false, &own.world.windows, &s.world.work_area_at(runner.feet.0, runner.feet.1));
             self.trails[i].1.tick(dt, visible, &runner, &mut self.puffs);
         }
@@ -147,7 +152,7 @@ impl TrailFx {
         self.housekeep(now, own);
     }
 
-    /// 🖍️ 동물마다 새 낙서를 받아 그 자리 모니터의 창으로 (손님 것도). 화면 위에 있지 않거나 그 모니터 앞 창이 전체 화면이면 버린다
+    /// 🖍️ 동물마다 새 낙서를 받아 그 자리 모니터의 창으로 (손님 것도). 화면 위에 있지 않거나 그 모니터 앞 창이 전체 화면이면 버림
     fn doodles(&mut self, app: &AppHandle, now: Instant, slots: &mut [Slot]) {
         for i in 0..slots.len() {
             let Some(d) = slots[i].pet.take_doodle() else { continue };
@@ -162,8 +167,9 @@ impl TrailFx {
         }
     }
 
+    /// 낙서 하나를 그 자리 모니터의 덮개 창에 보냄 (창이 없으면 만듦)
     fn place_doodle(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], d: &Doodle, name: String, pixel: bool) {
-        // 바닥 줄이 작업 영역 아래 끝이면 그 모니터 안에 들도록 1px 위로 본다
+        // 바닥 줄이 작업 영역 아래 끝이면 그 모니터 안에 들도록 1px 위로 봄
         let Some(i) = self.overlay_at(app, now, work_areas, d.x, d.y - 1.0) else { return };
         self.doodles_until = Some(now + DOODLE_LIFE);
         let o = &mut self.overlays[i];
@@ -175,7 +181,7 @@ impl TrailFx {
         o.doodles.push((now, wire));
     }
 
-    /// 그 자리 모니터의 창 (없으면 만든다)
+    /// 그 자리 모니터의 창 (없으면 만듦)
     fn overlay_at(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], x: f64, y: f64) -> Option<usize> {
         let wa = work_areas.iter().find(|r| r.left <= x && x < r.right && r.top <= y && y < r.bottom).copied()?;
         if let Some(i) = self.overlays.iter().position(|o| o.wa == wa) {
@@ -195,7 +201,7 @@ impl TrailFx {
         Some(self.overlays.len() - 1)
     }
 
-    /// 구름 하나를 그 자리 모니터의 창으로 (창이 없으면 만든다)
+    /// 구름 하나를 그 자리 모니터의 창으로 (창이 없으면 만듦)
     fn place(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], p: &Puff) {
         let Some(i) = self.overlay_at(app, now, work_areas, p.x, p.y) else { return };
         self.last_puff = Some(now);
@@ -207,7 +213,7 @@ impl TrailFx {
         o.pending.push((now, wire));
     }
 
-    /// 듣기 시작했을 창에 모인 구름을 한 번에 보낸다
+    /// 듣기 시작했을 창에 모인 구름을 한 번에 보냄
     fn flush(&mut self, app: &AppHandle, now: Instant) {
         for o in &mut self.overlays {
             if o.pending.is_empty() || now.duration_since(o.born) < WARMUP {
@@ -227,7 +233,7 @@ impl TrailFx {
         }
     }
 
-    /// 오래 조용하면 창을 닫고, 모니터가 바뀌면 그 창을 닫고, 전체 화면이면 숨긴다
+    /// 오래 조용하면 창을 닫고, 모니터가 바뀌면 그 창을 닫고, 전체 화면이면 숨김
     fn housekeep(&mut self, now: Instant, own: &Slot) {
         if self.overlays.is_empty() {
             return;
@@ -259,6 +265,7 @@ impl TrailFx {
         }
     }
 
+    /// 덮개 창을 모두 닫음
     fn tear_down(&mut self) {
         for o in self.overlays.drain(..) {
             let _ = o.window.destroy();

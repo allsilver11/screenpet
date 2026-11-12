@@ -1,5 +1,5 @@
 //! 🕐 최근 한 시간 — 내 동물이 어디에(집에서 놀기·하우스·친구네) 얼마나 있었는지, 무엇을 먹었는지
-//! (규칙은 screenpet_core::timeline, 여기는 창). 기록은 메모리에만 있다: 저장하지 않고 친구에게 보내지 않는다.
+//! (규칙은 screenpet_core::timeline, 여기는 창). 기록은 메모리에만 있음: 저장하지 않고 친구에게 보내지 않음.
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -11,19 +11,21 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindo
 
 use crate::slots::Slot;
 
+/// 타임라인 창 라벨
 pub const LABEL: &str = "timeline";
-/// 처음 크기 (논리 px). 높이는 웹뷰가 내용을 재서 `timeline_fit`으로 맞춘다
+/// 처음 크기 (논리 px). 높이는 웹뷰가 내용을 재서 `timeline_fit`으로 맞춤
 const SIZE: (f64, f64) = (380.0, 320.0);
 /// 내용에 맞출 때 높이 범위 (논리 px) — 넘치면 창 안에서 스크롤
 const FIT_HEIGHT: (f64, f64) = (160.0, 760.0);
 /// 화면(작업 영역) 위아래로 남길 틈 (논리 px)
 const SCREEN_MARGIN: f64 = 24.0;
-/// 창이 열려 있으면 이만큼마다 새 내용을 보낸다
+/// 창이 열려 있으면 이만큼마다 새 내용을 보냄
 const PUBLISH_EVERY: Duration = Duration::from_secs(1);
 
 /// 창이 처음 열릴 때 읽는 지금 내용 (그 뒤로는 `timeline-state` 이벤트)
 static VIEW: Mutex<Option<TimelineView>> = Mutex::new(None);
 
+/// 최근 한 시간 기록과 창 보내기 상태임 (게임 루프가 가짐)
 #[derive(Default)]
 pub struct TimelineFx {
     timeline: Timeline,
@@ -31,13 +33,14 @@ pub struct TimelineFx {
 }
 
 impl TimelineFx {
+    /// 빈 기록으로 만듦
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 매 틱. real_dt = 지난 틱부터 실제로 흐른 초 (게임 루프의 dt처럼 자르지 않는다 — 컴퓨터가 잠들었던 긴 틈도 지금 자리에 더한다)
+    /// 매 틱. real_dt = 지난 틱부터 실제로 흐른 초 (게임 루프의 dt처럼 자르지 않음 — 컴퓨터가 잠들었던 긴 틈도 지금 자리에 더함)
     pub fn tick(&mut self, app: &AppHandle, real_dt: f64, own: &Slot, away_friend: Option<&str>, config: &Config) {
-        // 하우스에서 나와 문 앞에서 먹고 다시 들어갈 참이면 하우스로 센다 (잠깐 나온 걸 놀기로 쪼개지 않는다)
+        // 하우스에서 나와 문 앞에서 먹고 다시 들어갈 참이면 하우스로 셈 (잠깐 나온 걸 놀기로 쪼개지 않음)
         let housed = own.pet.is_housed() || own.pet.returns_home();
         self.timeline.tick(timeline::place_of(housed, own.pet.is_away(), away_friend), real_dt);
         let now = Instant::now();
@@ -50,7 +53,7 @@ impl TimelineFx {
         }
     }
 
-    /// 내 동물이 먹었다 — 바로 창에 보인다
+    /// 내 동물이 먹었음 — 바로 창에 보임
     pub fn ate(&mut self, app: &AppHandle, food: Food, favorite: &FavoriteFood, config: &Config) {
         self.timeline.ate(food, favorite);
         if app.get_webview_window(LABEL).is_some() {
@@ -58,14 +61,14 @@ impl TimelineFx {
         }
     }
 
-    /// 지금 내용을 창에 보낸다 (창이 없으면 첫 로드용으로 남기기만)
+    /// 지금 내용을 창에 보냄 (창이 없으면 첫 로드용으로 남기기만)
     fn publish(&self, app: &AppHandle, config: &Config) {
         let view = self.timeline.view(&|id| config.person_name(id).map(str::to_string));
         *VIEW.lock().unwrap() = Some(view.clone());
         let _ = app.emit_to(LABEL, "timeline-state", view);
     }
 
-    /// 메뉴 "🕐 최근 한 시간". 이미 열려 있으면 앞으로 가져온다
+    /// 메뉴 "🕐 최근 한 시간". 이미 열려 있으면 앞으로 가져옴
     pub fn show(&self, app: &AppHandle, config: &Config) {
         self.publish(app, config);
         if crate::overlay::focus_existing(app, LABEL) {
@@ -97,7 +100,7 @@ pub fn timeline_state(window: WebviewWindow) -> Result<TimelineView, String> {
     Ok(VIEW.lock().unwrap().clone().unwrap_or_default())
 }
 
-/// 타임라인 창 높이를 내용(논리 px)에 맞춘다. 너비는 그대로, 화면 밖으로 나가면 위로 올린다
+/// 타임라인 창 높이를 내용(논리 px)에 맞춤. 너비는 그대로, 화면 밖으로 나가면 위로 올림
 #[tauri::command]
 pub fn timeline_fit(window: WebviewWindow, height: f64) {
     if window.label() != LABEL || !height.is_finite() {
@@ -113,13 +116,13 @@ pub fn timeline_fit(window: WebviewWindow, height: f64) {
     if (h - inner.height as f64 / dpi).abs() < 1.0 {
         return;
     }
-    // Windows: tao의 set_size·set_position은 보이는 창을 다시 활성화한다 (다른 앱에서 치던 글이 끊긴다)
+    // Windows: tao의 set_size·set_position은 보이는 창을 다시 활성화함 (다른 앱에서 치던 글이 끊김)
     let hwnd = crate::overlay::hwnd_of(&window);
     #[cfg(windows)]
     crate::overlay::resize_quietly(&window, hwnd, outer.width, ((h + frame) * dpi).round() as u32);
     #[cfg(not(windows))]
     let _ = window.set_size(tauri::LogicalSize::new(inner.width as f64 / dpi, h));
-    // 커져서 아래가 작업 영역 밖이면 위로 (위쪽 끝보다 위로는 안 간다)
+    // 커져서 아래가 작업 영역 밖이면 위로 (위쪽 끝보다 위로는 안 감)
     if let (Some(a), Ok(pos)) = (area, window.outer_position()) {
         let bottom = (a.position.y + a.size.height as i32) as f64 - SCREEN_MARGIN * dpi;
         let over = pos.y as f64 + (h + frame) * dpi - bottom;

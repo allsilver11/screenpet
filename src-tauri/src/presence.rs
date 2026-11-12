@@ -1,5 +1,5 @@
 //! 곁에 있기와 하루 리듬의 앱 쪽 (v0.3.7): 1초에 한 번 지역 시각과 유휴 시간을 읽어 코어(screenpet_core::presence)에 넘기고,
-//! 수면 모자·집중 고리를 웹뷰에 알린다. 게임 루프는 매 틱 tick을 부르지만 그 사이엔 시각 비교 한 번뿐이다.
+//! 수면 모자·집중 고리를 웹뷰에 알림. 게임 루프는 매 틱 tick을 부르지만 그 사이엔 시각 비교 한 번뿐임.
 
 use std::time::{Duration, Instant};
 
@@ -14,28 +14,31 @@ use crate::house;
 use crate::slots::{Slot, OWN_LABEL};
 use crate::AppState;
 
+/// 지역 시각과 유휴 시간을 읽는 주기
 const EVERY: Duration = Duration::from_secs(1);
-/// 첫 알림은 웹뷰가 듣기 전에 지나갔을 수 있다 — 달라지지 않아도 이따금 다시 보낸다
+/// 첫 알림은 웹뷰가 듣기 전에 지나갔을 수 있음 — 달라지지 않아도 이따금 다시 보냄
 const RESEND_EVERY: Duration = Duration::from_secs(10);
 
+/// 곁에 있기·하루 리듬 상태임 (게임 루프가 가짐)
 pub struct Presence {
     rhythm: Rhythm,
     start: Instant,
     next: Instant,
     last: Option<Overlay>,
     last_sent: Instant,
-    /// 📱 방금 읽은 (초, 유휴 시간) — 게임 루프가 꺼내 네트워크에 넘긴다 (어느 컴퓨터로 놀지)
+    /// 📱 방금 읽은 (초, 유휴 시간) — 게임 루프가 꺼내 네트워크에 넘김 (어느 컴퓨터로 놀지)
     sample: Option<(f64, Option<f64>)>,
 }
 
 impl Presence {
+    /// 집중 메뉴를 꺼진 상태로 맞추고 새로 만듦
     pub fn new(app: &AppHandle, length: FocusLength) -> Self {
         crate::tray::sync_focus(&app.state::<AppState>().menu, false, length);
         let now = Instant::now();
         Self { rhythm: Rhythm::default(), start: now, next: now, last: None, last_sent: now, sample: None }
     }
 
-    /// 사용자가 자리를 비웠다 (1초에 한 번 tick이 유휴 시간을 본 결과)
+    /// 사용자가 자리를 비웠음 (1초에 한 번 tick이 유휴 시간을 본 결과)
     pub fn is_away(&self) -> bool {
         self.rhythm.is_away()
     }
@@ -45,13 +48,15 @@ impl Presence {
         self.sample.take()
     }
 
+    /// 시작 뒤 지난 초
     fn secs(&self) -> f64 {
         self.start.elapsed().as_secs_f64()
     }
 
+    /// 집중 상태를 트레이 메뉴에 맞추고 다음 틱에 고리를 바로 다시 보내게 함
     fn after_menu(&mut self, app: &AppHandle, length: FocusLength) {
         crate::tray::sync_focus(&app.state::<AppState>().menu, self.rhythm.focus().is_some(), length);
-        // 고리를 바로 보이거나 치운다
+        // 고리를 바로 보이거나 치움
         self.next = Instant::now();
     }
 

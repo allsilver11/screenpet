@@ -1,7 +1,7 @@
 //! 선물과 🎁 선물 도감 (v0.3.7) — 규칙은 screenpet_core::gift, 여기는 창과 말풍선.
-//! 선물 하나 = 작은 투명 창 하나 (`prop-gift-<n>`, gift.html). 창이 그림 크기라 그 칸만 누를 수 있고 나머지 화면은 그대로 통과한다.
-//! prop- 창이라 트레이 숨기기/보이기도 따른다. 선물이 없으면 1초에 한 번 시계만 본다 — 웹뷰 안에도 멈춰 있을 때 도는 애니메이션이 없다.
-//! 주운 선물은 게임 루프만 설정에 적는다 (Input::CollectGift). 도감 창(`book`, book.html)은 그 복사본을 읽기만 한다.
+//! 선물 하나 = 작은 투명 창 하나 (`prop-gift-<n>`, gift.html). 창이 그림 크기라 그 칸만 누를 수 있고 나머지 화면은 그대로 통과함.
+//! prop- 창이라 트레이 숨기기/보이기도 따름. 선물이 없으면 1초에 한 번 시계만 봄 — 웹뷰 안에도 멈춰 있을 때 도는 애니메이션이 없음.
+//! 주운 선물은 게임 루프만 설정에 적음 (Input::CollectGift). 도감 창(`book`, book.html)은 그 복사본을 읽기만 함.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -16,44 +16,53 @@ use crate::overlay::Fading;
 use crate::slots::{Role, Slot, OWN_LABEL};
 use crate::AppState;
 
+/// 선물 창 라벨 앞부분
 const PREFIX: &str = "prop-gift-";
+/// 도감 창 라벨
 const BOOK_LABEL: &str = "book";
+/// 도감 창 크기 (논리 px)
 const BOOK_SIZE: (f64, f64) = (470.0, 600.0);
-/// 선물 창 한 변 (논리 px) — 그림(ui/gifts/*.png, tools/draw_gifts.py)과 같다
+/// 선물 창 한 변 (논리 px) — 그림(ui/gifts/*.png, tools/draw_gifts.py)과 같음
 const SIZE: f64 = 40.0;
-/// 픽셀 선물 창 한 변 (12칸 × 4로 적는다 — 칸이 정수 물리 px가 되게 art::fit이 실제 크기로 맞춘다, 100%에서 36 px)
+/// 픽셀 선물 창 한 변 (12칸 × 4로 적음 — 칸이 정수 물리 px가 되게 art::fit이 실제 크기로 맞춤, 100%에서 36 px)
 const PIXEL_SIZE: f64 = 48.0;
-/// gift.html의 줍기(0.55초)·사라지기(0.6초)가 끝난 뒤 닫는다
+/// gift.html의 줍기(0.55초)·사라지기(0.6초)가 끝난 뒤 닫음
 const CLOSE_AFTER: Duration = Duration::from_millis(700);
 /// 시계·손님 선물을 보는 간격
 const CHECK_EVERY: Duration = Duration::from_secs(1);
-/// 앱이 멈췄다 돌아와도 시계는 이만큼만 더 간다
+/// 앱이 멈췄다 돌아와도 시계는 이만큼만 더 감
 const MAX_ELAPSED: f64 = 5.0;
 /// 친구 동물이 들어온 뒤 선물을 두고 가기까지 (초)
 const GUEST_DROP_SECS: (f64, f64) = (12.0, 40.0);
-/// 개발용 숨은 미리 보기: "fast"면 선물이 20초쯤마다 떨어진다. 메뉴에는 없다
+/// 개발용 숨은 미리 보기: "fast"면 선물이 20초쯤마다 떨어짐. 메뉴에는 없음
 const PREVIEW_ENV: &str = "SCREENPET_GIFTS";
 
-/// 도감 창이 읽는 복사본 (커맨드는 게임 루프 밖에서 불린다). 쓰는 건 게임 루프뿐이다
+/// 도감 창이 읽는 복사본 (커맨드는 게임 루프 밖에서 불림). 쓰는 건 게임 루프뿐임
 static BOOK: Mutex<Option<GiftBook>> = Mutex::new(None);
 
-/// 친구 동물이 들고 온 선물 (인증된 친구 링크에서, 목록 확인과 횟수 제한을 지났다 — network.rs)
+/// 친구 동물이 들고 온 선물 (인증된 친구 링크에서, 목록 확인과 횟수 제한을 지났음 — network.rs)
 pub struct GuestGift {
+    /// 방문 id
     pub visit_id: String,
+    /// 주인 친구 id
     pub owner_id: String,
+    /// 주인 이름
     pub owner_name: String,
+    /// 들고 온 선물
     pub gift: Gift,
 }
 
+/// 화면에 놓인 선물 창 하나임
 struct LiveWindow {
     token: u64,
     label: String,
     window: WebviewWindow,
     pos: (i32, i32),
-    /// 창이 놓인 모니터의 배율 (내 동물이 다른 배율의 모니터에 있을 수 있다)
+    /// 창이 놓인 모니터의 배율 (내 동물이 다른 배율의 모니터에 있을 수 있음)
     dpi: f64,
 }
 
+/// 🎁 바닥의 선물과 도감 상태임 (게임 루프가 가짐)
 pub struct Gifts {
     field: GiftField,
     windows: Vec<LiveWindow>,
@@ -68,7 +77,7 @@ pub struct Gifts {
 }
 
 impl Gifts {
-    /// 스타일이 바뀌었다: 떠 있는 선물 창을 새 크기로 (아래 가운데는 그대로). 그림은 창이 `art-style`을 듣고 바꾼다
+    /// 스타일이 바뀌었음: 떠 있는 선물 창을 새 크기로 (아래 가운데는 그대로). 그림은 창이 `art-style`을 듣고 바꿈
     pub fn restyle(&mut self) {
         for w in &mut self.windows {
             let dpi = w.window.scale_factor().unwrap_or(1.0);
@@ -81,6 +90,7 @@ impl Gifts {
         }
     }
 
+    /// 도감을 창용 복사본에 적고 빈 바닥으로 만듦
     pub fn new(book: &GiftBook, seed: u64) -> Self {
         publish(book);
         let mut rng = fastrand::Rng::with_seed(seed);
@@ -90,19 +100,19 @@ impl Gifts {
         Self { field: GiftField::default(), windows: Vec::new(), closing: Fading::default(), timer, fast, rng, pending: Vec::new(), next_check: now + CHECK_EVERY, last_check: now, next_label: 0 }
     }
 
-    /// 선물이 앉아 있는 창들 — 사이 틱에도 경계를 읽어 부드럽게 따라간다
+    /// 선물이 앉아 있는 창들 — 사이 틱에도 경계를 읽어 부드럽게 따라감
     pub fn ridden_windows(&self) -> impl Iterator<Item = u64> + '_ {
         self.field.ridden_windows()
     }
 
-    /// 친구 동물이 선물을 들고 왔다 — 조금 놀다가 두고 간다 (그 전에 떠나면 없던 일)
+    /// 친구 동물이 선물을 들고 왔음 — 조금 놀다가 두고 감 (그 전에 떠나면 없던 일)
     pub fn guest_arrived(&mut self, gift: GuestGift, now: Instant) {
         let (lo, hi) = GUEST_DROP_SECS;
         let due = now + Duration::from_secs_f64(lo + self.rng.f64() * (hi - lo));
         self.pending.push((gift, due));
     }
 
-    /// 매 틱 (게임 루프 스레드 — 창 만들기가 메인 스레드를 기다린다)
+    /// 매 틱 (게임 루프 스레드 — 창 만들기가 메인 스레드를 기다림)
     pub fn tick(&mut self, app: &AppHandle, now: Instant, dt: f64, slots: &[Slot], care: &Care) {
         self.closing.tick(now);
         let Some(own) = slots.first() else { return };
@@ -125,7 +135,7 @@ impl Gifts {
         self.guest_drops(app, now, slots);
     }
 
-    /// 깨어 있는 시간이 찼으면 내 동물이 떨어뜨린다 (자리가 나고 하던 일이 끝날 때까지 기다린다)
+    /// 깨어 있는 시간이 찼으면 내 동물이 떨어뜨림 (자리가 나고 하던 일이 끝날 때까지 기다림)
     fn own_drop(&mut self, app: &AppHandle, own: &Slot, elapsed: f64, care: &Care) {
         let awake = own.on_screen() && own.pet.render().anim != Anim::Sleep;
         if !self.timer.tick(elapsed, awake, gift::mood_rate(care.fullness)) || !self.field.has_room() {
@@ -140,7 +150,7 @@ impl Gifts {
         self.timer.rearm(&mut self.rng, self.fast);
     }
 
-    /// 때가 된 친구 동물이 선물을 두고 간다
+    /// 때가 된 친구 동물이 선물을 두고 감
     fn guest_drops(&mut self, app: &AppHandle, now: Instant, slots: &[Slot]) {
         if self.pending.is_empty() {
             return;
@@ -161,7 +171,7 @@ impl Gifts {
         }
     }
 
-    /// 화면에 놓는다 (자리가 없으면 false)
+    /// 화면에 놓음 (자리가 없으면 false)
     fn place(&mut self, app: &AppHandle, gift: Gift, from: Option<String>, (x, y): (f64, f64), dpi: f64) -> bool {
         let Some(token) = self.field.add(gift, from, x, y) else { return false };
         self.next_label += 1;
@@ -181,6 +191,7 @@ impl Gifts {
         }
     }
 
+    /// 선물 창을 선물 위치로 옮김 (움직였을 때만)
     fn move_windows(&mut self) {
         for w in &mut self.windows {
             let Some(g) = self.field.get(w.token) else { continue };
@@ -188,12 +199,13 @@ impl Gifts {
             if pos != w.pos {
                 let _ = w.window.set_position(PhysicalPosition::new(pos.0, pos.1));
                 w.pos = pos;
-                // 다른 모니터로 넘어갔을 수 있다 (움직일 때만 묻는다)
+                // 다른 모니터로 넘어갔을 수 있음 (움직일 때만 물음)
                 w.dpi = w.window.scale_factor().unwrap_or(w.dpi);
             }
         }
     }
 
+    /// 선물 창 하나를 흐리게 하고 곧 닫음
     fn fade_out(&mut self, token: u64, now: Instant) {
         if let Some(i) = self.windows.iter().position(|w| w.token == token) {
             let w = self.windows.remove(i);
@@ -201,8 +213,8 @@ impl Gifts {
         }
     }
 
-    /// 선물 창을 눌렀다: 반짝이며 도감에 들어간다. 적었으면 true (부른 쪽이 설정을 저장한다).
-    /// 두 번 눌러도 한 번만 센다
+    /// 선물 창을 눌렀음: 반짝이며 도감에 들어감. 적었으면 true (부른 쪽이 설정을 저장함).
+    /// 두 번 눌러도 한 번만 셈
     pub fn collect(&mut self, app: &AppHandle, label: &str, book: &mut GiftBook, own: &Slot) -> bool {
         let Some(i) = self.windows.iter().position(|w| w.label == label) else { return false };
         let w = self.windows.remove(i);
@@ -219,6 +231,7 @@ impl Gifts {
     }
 }
 
+/// 도감 창이 읽을 복사본을 새로 적음
 fn publish(book: &GiftBook) {
     *BOOK.lock().unwrap() = Some(book.clone());
 }
@@ -232,12 +245,13 @@ fn size(dpi: f64) -> f64 {
     }
 }
 
+/// 선물 아래 가운데 (x, y)에 맞는 창 왼쪽 위 물리 좌표를 돌려줌
 fn bottom_center(x: f64, y: f64, dpi: f64) -> (i32, i32) {
     let side = size(dpi);
     ((x - side * dpi / 2.0).round() as i32, (y - side * dpi).round() as i32)
 }
 
-/// image는 Gift::wire — 목록에 있는 id뿐이다 (친구가 보낸 글자는 Gift::parse를 지나면 이 목록의 값으로 바뀐다)
+/// image는 Gift::wire — 목록에 있는 id뿐임 (친구가 보낸 글자는 Gift::parse를 지나면 이 목록의 값으로 바뀜)
 fn spawn_window(app: &AppHandle, label: &str, image: &str, pos: (i32, i32), dpi: f64) -> Option<WebviewWindow> {
     let side = size(dpi);
     let built = crate::overlay::finish(
@@ -262,7 +276,7 @@ fn spawn_window(app: &AppHandle, label: &str, image: &str, pos: (i32, i32), dpi:
     Some(window)
 }
 
-/// 선물 창을 눌렀다 — 선물 창이 부른 것만 받는다
+/// 선물 창을 눌렀음 — 선물 창이 부른 것만 받음
 #[tauri::command]
 pub fn gift_collect(window: WebviewWindow, state: State<AppState>) {
     let label = window.label();
@@ -280,7 +294,7 @@ pub fn book_state(window: WebviewWindow) -> Result<BookView, String> {
     Ok(gift::book_view(&BOOK.lock().unwrap().clone().unwrap_or_default()))
 }
 
-/// 메뉴 "🎁 선물 도감". 이미 열려 있으면 앞으로 가져온다
+/// 메뉴 "🎁 선물 도감". 이미 열려 있으면 앞으로 가져옴
 pub fn show_book(app: &AppHandle) {
     if crate::overlay::focus_existing(app, BOOK_LABEL) {
         return;

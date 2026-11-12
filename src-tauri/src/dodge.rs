@@ -1,6 +1,6 @@
-//! 💩 똥피하기 — 내 동물이 있는 모니터를 덮는 투명 창(`dodge`, dodge.html)에 똥이 떨어진다 (규칙은 screenpet_core::dodge).
-//! 게임 동안 이 창이 키보드를 받아 (다른 앱에 키가 가지 않는다) 내 동물을 조작 모드로 움직이고, Esc·닫기면 원래대로.
-//! 최고 기록은 설정에 남기고, 새 기록이면 연결된 친구들에게 알린다 (network.rs).
+//! 💩 똥피하기 — 내 동물이 있는 모니터를 덮는 투명 창(`dodge`, dodge.html)에 똥이 떨어짐 (규칙은 screenpet_core::dodge).
+//! 게임 동안 이 창이 키보드를 받아 (다른 앱에 키가 가지 않음) 내 동물을 조작 모드로 움직이고, Esc·닫기면 원래대로.
+//! 최고 기록은 설정에 남기고, 새 기록이면 연결된 친구들에게 알림 (network.rs).
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -16,10 +16,11 @@ use crate::network::Network;
 use crate::slots::Slot;
 use crate::AppState;
 
+/// 똥 피하기 창 라벨
 pub const LABEL: &str = "dodge";
 /// 게임을 할 수 없을 때 내 동물 말풍선
 const NOT_NOW: &str = "지금은 못 해요";
-/// 새 기록은 마지막 판 뒤 이만큼 지나 한 번만 알린다 (친구의 부탁 예산을 이름·초대와 같이 쓴다)
+/// 새 기록은 마지막 판 뒤 이만큼 지나 한 번만 알림 (친구의 부탁 예산을 이름·초대와 같이 씀)
 const SHARE_AFTER: Duration = Duration::from_secs(10);
 
 /// 웹뷰 → 게임 루프
@@ -34,7 +35,7 @@ pub enum DodgeInput {
 /// 창에 보낼 내용 (좌표는 이 창 왼쪽 위 기준 논리 px)
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct DodgeView {
-    /// "ready" | "play" | "over"
+    /// 단계: "ready" | "play" | "over"
     phase: &'static str,
     /// [id, x, y, 반지름]
     poops: Vec<[f64; 4]>,
@@ -48,6 +49,7 @@ pub struct DodgeView {
 /// 창이 처음 열릴 때 읽는 지금 내용 (그 뒤로는 `dodge-state` 이벤트)
 static VIEW: Mutex<Option<DodgeView>> = Mutex::new(None);
 
+/// 열려 있는 똥 피하기 판임
 struct Board {
     game: Dodge,
     window: WebviewWindow,
@@ -58,19 +60,21 @@ struct Board {
     last: Option<DodgeView>,
 }
 
+/// 💩 똥 피하기 상태임 (게임 루프가 가짐)
 #[derive(Default)]
 pub struct DodgeFx {
     board: Option<Board>,
-    /// 친구들에게 알릴 새 기록이 있다: 이때 알린다
+    /// 친구들에게 알릴 새 기록이 있음: 이때 알림
     share_at: Option<Instant>,
 }
 
 impl DodgeFx {
+    /// 빈 상태로 만듦
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 판이 열려 있다 (시작 전·끝난 뒤 포함)
+    /// 판이 열려 있음 (시작 전·끝난 뒤 포함)
     pub fn is_open(&self) -> bool {
         self.board.is_some()
     }
@@ -93,13 +97,13 @@ impl DodgeFx {
         self.publish(app, config);
     }
 
-    /// 창에서 온 것 (기록은 tick에서 남긴다)
+    /// 창에서 온 것 (기록은 tick에서 남김)
     pub fn handle(&mut self, app: &AppHandle, input: DodgeInput, own: &mut Slot, config: &Config) {
         let Some(b) = self.board.as_mut() else { return };
         match input {
             DodgeInput::Keys(bits) => b.keys = ControlInput::from_bits(bits),
             DodgeInput::Start => {
-                // 그사이 판 밖(다른 모니터)으로 갔거나 하우스에 들어갔으면 시작하지 않는다
+                // 그사이 판 밖(다른 모니터)으로 갔거나 하우스에 들어갔으면 시작하지 않음
                 let area = b.game.area();
                 let inside = own.pet.body.x >= area.left && own.pet.body.x < area.right;
                 if !(can_play(own) && inside) {
@@ -118,7 +122,7 @@ impl DodgeFx {
         self.publish(app, config);
     }
 
-    /// 창을 닫는다 (하던 판은 기록 없이 끝)
+    /// 창을 닫음 (하던 판은 기록 없이 끝)
     pub fn close(&mut self, own: &mut Slot) {
         let Some(b) = self.board.take() else { return };
         if b.game.phase() == Phase::Play {
@@ -128,7 +132,7 @@ impl DodgeFx {
         *VIEW.lock().unwrap() = None;
     }
 
-    /// 게임 동안 키를 내 동물에게 (게임 루프가 동물 update 전에). 조작 모드가 저절로 끝났으면 다시 켠다
+    /// 게임 동안 키를 내 동물에게 (게임 루프가 동물 update 전에). 조작 모드가 저절로 끝났으면 다시 켬
     pub fn steer(&mut self, own: &mut Slot, dt: f64) {
         let Some(b) = self.board.as_ref().filter(|b| b.game.phase() == Phase::Play) else { return };
         if !own.pet.is_controlled() {
@@ -144,12 +148,12 @@ impl DodgeFx {
             network.share_dodge_best(config.dodge_best);
         }
         let Some(b) = self.board.as_mut() else { return false };
-        // 창이 닫혔다 (Alt+F4 등)
+        // 창이 닫혔음 (Alt+F4 등)
         if app.get_webview_window(LABEL).is_none() {
             self.close(own);
             return false;
         }
-        // 게임 중 하우스에 들어갔거나 친구에게 갔다: 기록 없이 닫는다
+        // 게임 중 하우스에 들어갔거나 친구에게 갔음: 기록 없이 닫음
         if b.game.phase() == Phase::Play && !can_play(own) {
             self.close(own);
             return false;
@@ -172,7 +176,7 @@ impl DodgeFx {
         dirty
     }
 
-    /// 바뀐 내용만 창에 보낸다
+    /// 바뀐 내용만 창에 보냄
     fn publish(&mut self, app: &AppHandle, config: &Config) {
         let Some(b) = self.board.as_mut() else { return };
         let area = b.game.area();
@@ -198,7 +202,7 @@ impl DodgeFx {
     }
 }
 
-/// 내 동물이 화면에 있다 (친구 화면에 가 있거나 하우스 안·가는 중이면 못 한다)
+/// 내 동물이 화면에 있음 (친구 화면에 가 있거나 하우스 안·가는 중이면 못 함)
 fn can_play(own: &Slot) -> bool {
     own.on_screen() && !own.pet.is_away() && !own.pet.is_housed() && !own.pet.is_going_home()
 }
@@ -210,7 +214,7 @@ fn ranking(config: &Config) -> Vec<Rank> {
     dodge::ranking(&config.my_name(), config.dodge_best, &friends)
 }
 
-/// 작업 영역을 꼭 덮는 투명 창 — 마우스·키를 받는다 (게임 동안 다른 앱에 가지 않게)
+/// 작업 영역을 꼭 덮는 투명 창 — 마우스·키를 받음 (게임 동안 다른 앱에 가지 않게)
 fn spawn(app: &AppHandle, wa: &Rect, scale: f64) -> Option<WebviewWindow> {
     let built = crate::overlay::finish(
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("dodge.html".into()))
@@ -232,6 +236,7 @@ fn spawn(app: &AppHandle, wa: &Rect, scale: f64) -> Option<WebviewWindow> {
     Some(window)
 }
 
+/// 이 창이 똥 피하기 창인지 봄
 fn from_dodge_window(window: &WebviewWindow) -> bool {
     window.label() == LABEL
 }
@@ -245,7 +250,7 @@ pub fn dodge_state(window: WebviewWindow) -> Result<DodgeView, String> {
     Ok(VIEW.lock().unwrap().clone().unwrap_or_default())
 }
 
-/// 눌린 키가 바뀌었다 (←1 →2 ↑4 ↓8 Space16 Shift32)
+/// 눌린 키가 바뀌었음 (←1 →2 ↑4 ↓8 Space16 Shift32)
 #[tauri::command]
 pub fn dodge_keys(window: WebviewWindow, state: tauri::State<AppState>, bits: u8) {
     if from_dodge_window(&window) {

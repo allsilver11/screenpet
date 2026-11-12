@@ -1,19 +1,21 @@
 //! 밥그릇·물그릇·쿠키 창 (phase 3 먹이 바꾸기) — 내 동물이 먹을 때 그 앞 바닥에 놓이는 작은 투명 창 하나 (`prop`, prop.html).
-//! 침 자국 창처럼 마우스는 통과하고 항상 위에 있다. 게임 루프가 Pet::take_prop의 PropEvent대로 부른다:
-//! Show = 그 자리에 새로 띄운다 (있던 것은 닫는다), Hide = 흐려지게 한 뒤 닫는다.
+//! 침 자국 창처럼 마우스는 통과하고 항상 위에 있음. 게임 루프가 Pet::take_prop의 PropEvent대로 부름:
+//! Show = 그 자리에 새로 띄움 (있던 것은 닫음), Hide = 흐려지게 한 뒤 닫음.
 
 use std::time::{Duration, Instant};
 
 use screenpet_core::food::{Prop, PropEvent};
 use tauri::{AppHandle, LogicalSize, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+/// 소품 창 라벨 앞부분
 const PREFIX: &str = "prop-";
-/// 소품 창 크기 (논리 px, teenager 몸 배율 1 기준) — 128px 동물 옆에서 읽히는 크기. 그림은 아래 가운데에 붙는다
+/// 소품 창 크기 (논리 px, teenager 몸 배율 1 기준) — 128px 동물 옆에서 읽히는 크기. 그림은 아래 가운데에 붙음
 const WIDTH: f64 = 56.0;
+/// 소품 창 높이 (논리 px, teenager 몸 배율 1 기준)
 const HEIGHT: f64 = 48.0;
 /// 픽셀 소품 그림 칸 수 (tools/draw_pixel_world.py PROP_DOTS)
 const PIXEL_DOTS: (f64, f64) = (14.0, 12.0);
-/// prop.html의 흐려지기(0.6초)가 끝난 뒤 닫는다
+/// prop.html의 흐려지기(0.6초)가 끝난 뒤 닫음
 const FADE: Duration = Duration::from_millis(700);
 
 /// 그림 파일 이름 (ui/effects/<name>.png, tools/draw_props.py)
@@ -25,7 +27,7 @@ fn image(prop: Prop) -> &'static str {
     }
 }
 
-/// 지금 놓인 소품 — 스타일이 바뀌면 같은 자리에 다시 만든다
+/// 지금 놓인 소품 — 스타일이 바뀌면 같은 자리에 다시 만듦
 struct Placed {
     window: WebviewWindow,
     prop: Prop,
@@ -33,6 +35,7 @@ struct Placed {
     y: f64,
 }
 
+/// 동물 옆 소품 창들임 (지금 하나와 흐려지는 것들)
 #[derive(Default)]
 pub struct Props {
     next: u64,
@@ -42,8 +45,8 @@ pub struct Props {
 }
 
 impl Props {
-    /// ev를 반영한다. dpi = 동물 창의 화면 배율, scale = 동물 몸 배율 (단계 × 동물별), pixel_dot = 픽셀 동물이면 칸 한 변 (물리 px).
-    /// 게임 루프 스레드에서만 부른다 (창 만들기가 메인 스레드를 기다린다)
+    /// ev를 반영함. dpi = 동물 창의 화면 배율, scale = 동물 몸 배율 (단계 × 동물별), pixel_dot = 픽셀 동물이면 칸 한 변 (물리 px).
+    /// 게임 루프 스레드에서만 부름 (창 만들기가 메인 스레드를 기다림)
     pub fn apply(&mut self, app: &AppHandle, ev: PropEvent, dpi: f64, scale: f64, pixel_dot: Option<u32>) {
         match ev {
             PropEvent::Show { prop, x, y } => {
@@ -60,13 +63,14 @@ impl Props {
         }
     }
 
-    /// 스타일이 바뀌었다: 놓인 소품을 같은 자리에 새 그림·크기로 (창 그림은 만들 때 정해진다). 흐려지는 중인 것은 곧 닫히니 그대로 둔다
+    /// 스타일이 바뀌었음: 놓인 소품을 같은 자리에 새 그림·크기로 (창 그림은 만들 때 정해짐). 흐려지는 중인 것은 곧 닫히니 그대로 둠
     pub fn restyle(&mut self, app: &AppHandle, dpi: f64, scale: f64, pixel_dot: Option<u32>) {
         if let Some(Placed { prop, x, y, .. }) = self.live {
             self.apply(app, PropEvent::Show { prop, x, y }, dpi, scale, pixel_dot);
         }
     }
 
+    /// 소품 창 하나를 동물 옆 (x, y)에 띄움
     #[allow(clippy::too_many_arguments)]
     fn spawn(&mut self, app: &AppHandle, prop: Prop, x: f64, y: f64, dpi: f64, scale: f64, pixel_dot: Option<u32>) -> Option<WebviewWindow> {
         let label = format!("{PREFIX}{}", self.next);
@@ -89,10 +93,10 @@ impl Props {
                 return None;
             }
         };
-        // 다른 배율의 모니터에서도 논리 크기를 맞춘다
+        // 다른 배율의 모니터에서도 논리 크기를 맞춤
         let _ = window.set_size(LogicalSize::new(w, h));
         let _ = window.set_position(PhysicalPosition::new((x - w * dpi / 2.0).round() as i32, (y - h * dpi).round() as i32));
-        // 클릭·드래그는 그릇을 지나 그 아래(동물·다른 앱)로 간다
+        // 클릭·드래그는 그릇을 지나 그 아래(동물·다른 앱)로 감
         let _ = window.set_ignore_cursor_events(true);
         if !crate::windows_hidden(app) {
             let _ = window.show();
@@ -100,7 +104,7 @@ impl Props {
         Some(window)
     }
 
-    /// 다 흐려진 창을 닫는다 (매 틱)
+    /// 다 흐려진 창을 닫음 (매 틱)
     pub fn tick(&mut self, now: Instant) {
         self.fading.tick(now);
     }
@@ -113,7 +117,7 @@ const BITE: Duration = Duration::from_millis(900);
 /// 거두기(툭 떨어지며 흐려짐) 뒤 닫기까지 — prop.html drop 0.4초
 const DROP: Duration = Duration::from_millis(500);
 
-/// 직접 주기: 커서 끝을 따라다니는 음식 그림 창 하나 (`hand-<n>`, prop.html의 hand 모드). 마우스는 통과한다
+/// 직접 주기: 커서 끝을 따라다니는 음식 그림 창 하나 (`hand-<n>`, prop.html의 hand 모드). 마우스는 통과함
 #[derive(Default)]
 pub struct HandWindow {
     next: u64,
@@ -123,7 +127,7 @@ pub struct HandWindow {
 }
 
 impl HandWindow {
-    /// (x, y) = 음식 가운데 (물리 px). 게임 루프 스레드에서만 부른다
+    /// (x, y) = 음식 가운데 (물리 px). 게임 루프 스레드에서만 부름
     pub fn show(&mut self, app: &AppHandle, icon: &str, at: (f64, f64), dpi: f64) {
         if let Some(old) = self.live.take() {
             let _ = old.destroy();
@@ -145,7 +149,7 @@ impl HandWindow {
             }
         };
         let _ = window.set_size(LogicalSize::new(side.0, side.1));
-        // 클릭은 음식을 지나 그 아래(동물·다른 앱)로 간다 — 누름은 게임 루프가 전역으로 읽는다
+        // 클릭은 음식을 지나 그 아래(동물·다른 앱)로 감 — 누름은 게임 루프가 전역으로 읽음
         let _ = window.set_ignore_cursor_events(true);
         self.last_pos = None;
         self.live = Some(window);
@@ -166,22 +170,24 @@ impl HandWindow {
         }
     }
 
-    /// 받아먹었다 — 냠냠 베어 먹히며 사라진다
+    /// 받아먹었음 — 냠냠 베어 먹히며 사라짐
     pub fn bite(&mut self) {
         self.finish("bite", BITE);
     }
 
-    /// 거뒀다 — 먹지 않고 툭 사라진다
+    /// 거뒀음 — 먹지 않고 툭 사라짐
     pub fn drop_back(&mut self) {
         self.finish("drop", DROP);
     }
 
+    /// 지금 소품을 `class`로 흐리게 하고 `after` 뒤 닫음
     fn finish(&mut self, class: &str, after: Duration) {
         if let Some(w) = self.live.take() {
             self.fading.start(w, class, Instant::now() + after);
         }
     }
 
+    /// 다 흐려진 창을 닫음
     pub fn tick(&mut self, now: Instant) {
         self.fading.tick(now);
     }

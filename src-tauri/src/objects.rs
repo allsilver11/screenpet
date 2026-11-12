@@ -1,16 +1,16 @@
 //! 물건 창 (`object-<n>`, object.html) — 물리와 규칙은 코어(screenpet_core::object), 여기는 창·메뉴·친구에게 던지기.
-//! 물건은 대부분 잠들어 있다: 잠든 물건은 창도 웹뷰도 건드리지 않는다 (틱마다 바람 시계만 줄어든다).
-//! 창 목록이 그대로면 세계도 다시 만들지 않고, 창 크기·화면 배율도 깨어 있는 물건만 다시 읽는다.
-//! 받은 물건은 인증된 친구 링크에서 온 것만, 종류·움직임·글자를 코어가 다듬은 뒤에 쓴다 (글자는 웹뷰에서 textContent로만).
-//! 💩 똥도 물건이다 (끌기·던지기·치우기·친구에게 넘기기·집중 중 되돌리기가 그대로): 메뉴로 못 꺼내고, 수는 따로 10개까지, 30분이면 스르륵 사라지고, 빗자루에 쓸린다.
-//! 🪨💩 거대한 돌·똥은 메뉴로 꺼내는 쓰레기다 (내 물건 10개에 들어간다): 아기 동물의 15배 — 놓이는 화면 높이의 80%까지 — 로 그리고, 바람에 안 구르고, 포스트잇이 없다.
-//! 거대한 물건 창은 그림 밖(투명한 곳)의 클릭을 아래로 보낸다 (커서를 틱마다 코어의 돌린 볼록 껍질에 대 본다).
-//! 친구에게는 보통 돌·똥 이름에 look "giant"를 붙여 던진다 (옛 버전 친구는 보통 크기로 받는다). 거대한 똥은 빗자루에 쓸리지만 저절로 사라지지 않는다.
-//! 🤹 흐물이가 주워 든 물건은 틱마다 그 손 자리로 옮기고 (코어가 정한 자리), 놓으면 코어가 준 속도로 던진다 — 그 뒤는 손으로 던진 것과 같다.
-//! 아무도 들고 있지 않게 된 물건은 그 자리에서 떨어진다. 친구에게 들고 간 물건은 이 화면에서 치우고 Visit에 실린다 (network.rs).
+//! 물건은 대부분 잠들어 있음: 잠든 물건은 창도 웹뷰도 건드리지 않음 (틱마다 바람 시계만 줄어듦).
+//! 창 목록이 그대로면 세계도 다시 만들지 않고, 창 크기·화면 배율도 깨어 있는 물건만 다시 읽음.
+//! 받은 물건은 인증된 친구 링크에서 온 것만, 종류·움직임·글자를 코어가 다듬은 뒤에 씀 (글자는 웹뷰에서 textContent로만).
+//! 💩 똥도 물건임 (끌기·던지기·치우기·친구에게 넘기기·집중 중 되돌리기가 그대로): 메뉴로 못 꺼내고, 수는 따로 10개까지, 30분이면 스르륵 사라지고, 빗자루에 쓸림.
+//! 🪨💩 거대한 돌·똥은 메뉴로 꺼내는 쓰레기임 (내 물건 10개에 들어감): 아기 동물의 15배 — 놓이는 화면 높이의 80%까지 — 로 그리고, 바람에 안 구르고, 포스트잇이 없음.
+//! 거대한 물건 창은 그림 밖(투명한 곳)의 클릭을 아래로 보냄 (커서를 틱마다 코어의 돌린 볼록 껍질에 대 봄).
+//! 친구에게는 보통 돌·똥 이름에 look "giant"를 붙여 던짐 (옛 버전 친구는 보통 크기로 받음). 거대한 똥은 빗자루에 쓸리지만 저절로 사라지지 않음.
+//! 🤹 흐물이가 주워 든 물건은 틱마다 그 손 자리로 옮기고 (코어가 정한 자리), 놓으면 코어가 준 속도로 던짐 — 그 뒤는 손으로 던진 것과 같음.
+//! 아무도 들고 있지 않게 된 물건은 그 자리에서 떨어짐. 친구에게 들고 간 물건은 이 화면에서 치우고 Visit에 실림 (network.rs).
 //! 📌 흐물이가 작업표시줄에서 끌어내는 앱 아이콘 장난감 (코어 taskbar.rs): Pull이면 열린 창 몇 개의 앱 아이콘을 다른 스레드에서 읽어 (platform app_icon)
-//! 하나로 장난감 창을 만들어 흐물이 손에 쥐여 주고, Stow면 뿅 치운다. 한 번에 하나, 몇 분 뒤 저절로 사라진다. 그림은 창의 초기화 스크립트로만 가고
-//! (웹뷰가 canvas에 그린다 — CSP 그대로) 어디에도 저장·기록하지 않는다. 친구에게 던지지도 들려 보내지도 않는다 (코어가 막고, 여기서도 한 번 더 막는다).
+//! 하나로 장난감 창을 만들어 흐물이 손에 쥐여 주고, Stow면 뿅 치움. 한 번에 하나, 몇 분 뒤 저절로 사라짐. 그림은 창의 초기화 스크립트로만 가고
+//! (웹뷰가 canvas에 그림 — CSP 그대로) 어디에도 저장·기록하지 않음. 친구에게 던지지도 들려 보내지도 않음 (코어가 막고, 여기서도 한 번 더 막음).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -41,31 +41,40 @@ use crate::game_loop::Input;
 use crate::network::{from_net_fling, from_net_side, to_net_fling, to_net_side, Network};
 use crate::AppState;
 
+/// 물건 창 라벨 앞부분
 const PREFIX: &str = "object-";
 /// 포스트잇 쓰기 창 라벨
 pub const POSTIT_LABEL: &str = "postit";
+/// 포스트잇 쓰기 창 모양
 const POSTIT_FORM: crate::overlay::Form = crate::overlay::Form { label: POSTIT_LABEL, page: "postit.html", title: "ScreenPet 포스트잇", size: (300.0, 176.0) };
 /// 포스트잇을 읽는 동안의 창: 너비, 위로 더하는 자리 (논리 px)
 const NOTE_WIDTH: f64 = 232.0;
+/// 포스트잇을 읽는 동안 위로 더하는 자리 (논리 px)
 const NOTE_SPACE: f64 = 84.0;
-/// 뿅 사라지는 동안 기다렸다 닫는다 (object.html poof 0.3초)
+/// 뿅 사라지는 동안 기다렸다 닫음 (object.html poof 0.3초)
 const POOF: Duration = Duration::from_millis(400);
-/// 똥이 스르륵 사라지는 동안 기다렸다 닫는다 (object.html fade 1.5초)
+/// 똥이 스르륵 사라지는 동안 기다렸다 닫음 (object.html fade 1.5초)
 const FADE: Duration = Duration::from_millis(1600);
-/// 앉은 창이 움직인 뒤 이만큼은 매 틱 따라간다 (사이엔 창 목록을 100 ms마다 읽을 때만 본다)
+/// 앉은 창이 움직인 뒤 이만큼은 매 틱 따라감 (사이엔 창 목록을 100 ms마다 읽을 때만 봄)
 const RIDE_FOLLOW: Duration = Duration::from_secs(1);
 
+/// 메뉴 id: 물건 꺼내기 (뒤에 종류)
 const MENU_SPAWN: &str = "object:spawn:";
+/// 메뉴 id: 모두 치우기
 const MENU_CLEAR: &str = "object:clear";
+/// 메뉴 id: 포스트잇 쓰기 (뒤에 창 라벨)
 const MENU_NOTE: &str = "object:note:";
+/// 메뉴 id: 포스트잇 떼기
 const MENU_PEEL: &str = "object:peel:";
+/// 메뉴 id: 물건 치우기
 const MENU_REMOVE: &str = "object:remove:";
 
 /// `물건 ▸` 하위 메뉴 (글자에 내 물건 수)
 static MENU: OnceLock<Submenu<Wry>> = OnceLock::new();
-/// 창 라벨 → 포스트잇 상태 (우클릭 메뉴는 게임 루프 밖에서 만든다). 글자는 없다
+/// 창 라벨 → 포스트잇 상태 (우클릭 메뉴는 게임 루프 밖에서 만듦). 글자는 없음
 static POSTITS: Mutex<Option<HashMap<String, Postit>>> = Mutex::new(None);
 
+/// 우클릭 메뉴가 읽을 포스트잇 상태를 적거나 지움
 fn set_postit_state(label: &str, postit: Option<Postit>) {
     let mut map = POSTITS.lock().unwrap();
     let map = map.get_or_insert_with(HashMap::new);
@@ -79,6 +88,7 @@ fn set_postit_state(label: &str, postit: Option<Postit>) {
     }
 }
 
+/// `물건 ▸` 메뉴 글자 (내 물건 수)
 fn menu_label(own: usize) -> String {
     format!("🗑️ 쓰레기 꺼내기 ({own}/{MAX_OWN_OBJECTS})")
 }
@@ -87,7 +97,7 @@ fn menu_label(own: usize) -> String {
 pub enum ObjectInput {
     Spawn(ObjectKind),
     ClearAll,
-    /// 창의 물건을 눌렀다
+    /// 창의 물건을 눌렀음
     Down { label: String },
     Remove { label: String },
     /// 우클릭 "포스트잇 붙이기…"
@@ -115,6 +125,7 @@ struct PosePayload {
     dx: f64,
 }
 
+/// 화면에 있는 물건 창 하나임
 struct Live {
     id: u64,
     label: String,
@@ -125,13 +136,13 @@ struct Live {
     note_open: bool,
     /// Windows 창 핸들 (포커스를 뺏지 않고 옮기려고)
     hwnd: Option<isize>,
-    /// 창이 마우스를 통과시키는 중 (거대한 물건의 투명한 곳 위에 커서가 있다)
+    /// 창이 마우스를 통과시키는 중 (거대한 물건의 투명한 곳 위에 커서가 있음)
     click_through: bool,
 }
 
 impl Live {
-    /// 창은 도는 축을 가운데에 두는 정사각형 (어떤 각도로 돌아도 그림이 잘리지 않는다, 종류마다 크기가 다르다).
-    /// 쪽지를 읽는 동안엔 넓어지고 위로 자리가 더 생긴다 — 축은 아래쪽 정사각형의 가운데 그대로
+    /// 창은 도는 축을 가운데에 두는 정사각형 (어떤 각도로 돌아도 그림이 잘리지 않음, 종류마다 크기가 다름).
+    /// 쪽지를 읽는 동안엔 넓어지고 위로 자리가 더 생김 — 축은 아래쪽 정사각형의 가운데 그대로
     fn logical_size(&self) -> (f64, f64) {
         let side = shape_of(self.object.kind).window_side_at(self.object.scale());
         if self.note_open {
@@ -141,14 +152,14 @@ impl Live {
         }
     }
 
-    /// 창을 몸 자리로, 처음이면 보인다. 달라졌을 때만 OS에 알린다
+    /// 창을 몸 자리로, 처음이면 보임. 달라졌을 때만 OS에 알림
     fn place(&mut self, world: &World) {
         let dpi = self.object.dpi();
         let (w, h) = self.logical_size();
         let (cx, cy) = self.object.pivot();
         let mut x = cx - w * dpi / 2.0;
         if self.note_open {
-            // 읽는 동안: 쪽지가 화면 밖으로 잘리지 않게 창만 안쪽으로 민다
+            // 읽는 동안: 쪽지가 화면 밖으로 잘리지 않게 창만 안쪽으로 밂
             let wa = world.work_area_at(cx, self.object.body.y);
             x = x.clamp(wa.left, (wa.right - w * dpi).max(wa.left));
         }
@@ -160,6 +171,7 @@ impl Live {
         }
     }
 
+    /// 웹뷰에 보낼 기울기와 그림 옮김
     fn pose(&self) -> PosePayload {
         let dpi = self.object.dpi();
         let (w, _) = self.logical_size();
@@ -168,6 +180,7 @@ impl Live {
         PosePayload { angle: self.object.angle(), dx }
     }
 
+    /// 크기 배율을 바꾸고 창 크기를 맞춤
     fn set_scale(&mut self, app: &AppHandle, scale: f64) {
         self.object.set_scale(scale);
         let (w, h) = self.logical_size();
@@ -178,8 +191,8 @@ impl Live {
         let _ = app.emit_to(self.label.as_str(), "object-scale", ScalePayload { scale, side });
     }
 
-    /// 거대한 물건·📌 장난감: 커서가 그림 밖(투명한 곳)이면 클릭이 아래로 지나가게 한다 — 창이 화면을 크게 덮거나 작업표시줄 위에 걸치니까.
-    /// 판정은 코어(돌린 그림의 볼록 껍질), 바뀔 때만 OS에 알린다 (slots.rs sync_click_through처럼). 작은 물건은 그대로
+    /// 거대한 물건·📌 장난감: 커서가 그림 밖(투명한 곳)이면 클릭이 아래로 지나가게 함 — 창이 화면을 크게 덮거나 작업표시줄 위에 걸치니까.
+    /// 판정은 코어(돌린 그림의 볼록 껍질), 바뀔 때만 OS에 알림 (slots.rs sync_click_through처럼). 작은 물건은 그대로
     fn sync_click_through(&mut self, cursor: (f64, f64)) {
         if !self.object.kind.is_giant() && !self.object.kind.is_toy() {
             return;
@@ -191,6 +204,7 @@ impl Live {
         }
     }
 
+    /// 포스트잇 읽기를 열거나 닫고 창 크기를 맞춤
     fn set_note_open(&mut self, open: bool) {
         if self.note_open == open {
             return;
@@ -203,14 +217,15 @@ impl Live {
     }
 }
 
-/// 창을 기다리는 똥 (틱마다 하나씩 — 창 만들기는 메인 스레드를 기다린다). 받은 쓰레기 줄과 따로 세어 서로 밀어내지 않는다
+/// 창을 기다리는 똥 (틱마다 하나씩 — 창 만들기는 메인 스레드를 기다림). 받은 쓰레기 줄과 따로 세어 서로 밀어내지 않음
 enum WaitingPoop {
-    /// 동물이 쌌다
+    /// 동물이 쌌음
     Dropped { kind: ObjectKind, x: f64, y: f64, scale: f64 },
-    /// 친구가 던졌다
+    /// 친구가 던졌음
     Tossed(AcceptedToss, Side, f64),
 }
 
+/// 🗑️ 물건 상태임 (게임 루프가 가짐): 살아 있는 창, 받은 것, 똥 대기열, 던지기 예산
 pub struct Objects {
     next: u64,
     live: Vec<Live>,
@@ -219,15 +234,15 @@ pub struct Objects {
     inbox: TossInbox<(AcceptedToss, Side, u32)>,
     poop_queue: VecDeque<WaitingPoop>,
     fading: crate::overlay::Fading,
-    /// 물건이 있을 때만 맞춘다 (물건 키에 맞춘 세계)
+    /// 물건이 있을 때만 맞춤 (물건 키에 맞춘 세계)
     world: Option<World>,
-    /// 친구별 던지기 예산 (받는 쪽 net의 친구별 제한과 같다 — 넘치면 받는 쪽이 버리므로 미리 튕긴다)
+    /// 친구별 던지기 예산 (받는 쪽 net의 친구별 제한과 같음 — 넘치면 받는 쪽이 버리므로 미리 튕김)
     budgets: HashMap<String, TossBudget>,
     /// "물건 10개 던지기"에서 아직 못 던진 것 (친구별)
     volleys: HashMap<String, Volley>,
     /// 크기 조절 창의 물건 크기 배율
     size: f64,
-    /// 친구별 마지막으로 던진 때 (되돌아온 물건이 정말 내 것인지 본다)
+    /// 친구별 마지막으로 던진 때 (되돌아온 물건이 정말 내 것인지 봄)
     threw_at: HashMap<String, Instant>,
     started: Instant,
     ride_until: Instant,
@@ -235,15 +250,16 @@ pub struct Objects {
     /// 포스트잇 창이 다루는 물건
     posting: Option<String>,
     shown_own: usize,
-    /// 📌 창 목록의 창 id (장난감 아이콘을 고를 후보 — refresh가 채운다)
+    /// 📌 창 목록의 창 id (장난감 아이콘을 고를 후보 — refresh가 채움)
     window_ids: Vec<u64>,
     /// 📌 다른 스레드에서 읽는 중인 장난감 아이콘
     capture: Option<Receiver<Option<IconImage>>>,
-    /// 📌 아이콘을 못 읽었으면 이때까지 다시 묻지 않는다
+    /// 📌 아이콘을 못 읽었으면 이때까지 다시 묻지 않음
     capture_backoff: Instant,
 }
 
 impl Objects {
+    /// 빈 상태로 만듦
     pub fn new() -> Objects {
         let now = Instant::now();
         Objects {
@@ -269,11 +285,12 @@ impl Objects {
         }
     }
 
-    /// 끌고 있는 물건이 있다 (동물을 동시에 잡거나 간질이지 않는다)
+    /// 끌고 있는 물건이 있음 (동물을 동시에 잡거나 간질이지 않음)
     pub fn is_held(&self) -> bool {
         self.live.iter().any(|l| l.object.is_held())
     }
 
+    /// 라벨로 물건을 찾음
     fn find(&mut self, label: &str) -> Option<&mut Live> {
         self.live.iter_mut().find(|l| l.label == label)
     }
@@ -326,8 +343,8 @@ impl Objects {
         self.sync_menu();
     }
 
-    /// (x, y)에 놓을 그림 크기 배율: 쓰레기는 크기 조절 창을 따르고 (똥은 싼 동물을 따라 따로 정한다),
-    /// 거대한 것은 그 자리 작업 영역 높이에 맞춘다 — 창을 만들기 전이라 화면 배율은 그 자리 모니터에서 읽는다
+    /// (x, y)에 놓을 그림 크기 배율: 쓰레기는 크기 조절 창을 따르고 (똥은 싼 동물을 따라 따로 정함),
+    /// 거대한 것은 그 자리 작업 영역 높이에 맞춤 — 창을 만들기 전이라 화면 배율은 그 자리 모니터에서 읽음
     fn scale_at(&self, app: &AppHandle, kind: ObjectKind, base: &World, x: f64, y: f64) -> f64 {
         let height = if kind.is_giant() {
             let dpi = app.monitor_from_point(x, y).ok().flatten().map_or(1.0, |m| m.scale_factor());
@@ -338,7 +355,7 @@ impl Objects {
         kind.scale_on(self.size, height)
     }
 
-    /// 크기 조절 창: 화면 위 쓰레기까지 바로 바꾼다
+    /// 크기 조절 창: 화면 위 쓰레기까지 바로 바꿈
     pub fn set_size(&mut self, app: &AppHandle, size: f64) {
         if size == self.size {
             return;
@@ -349,9 +366,9 @@ impl Objects {
         }
     }
 
-    /// 메뉴에서 만들기: 커서 근처(트레이에서 눌렀으면 그 위)에서 떨어진다. 넘치면 가장 오래된 내 물건이 뿅
+    /// 메뉴에서 만들기: 커서 근처(트레이에서 눌렀으면 그 위)에서 떨어짐. 넘치면 가장 오래된 내 물건이 뿅
     fn spawn_own(&mut self, app: &AppHandle, kind: ObjectKind, base: &World, cursor: (f64, f64)) {
-        // 💩 "거대한 똥"은 갈색·핑크·무지개 중 하나로 나온다
+        // 💩 "거대한 똥"은 갈색·핑크·무지개 중 하나로 나옴
         let kind = kind.menu_pick(fastrand::f64());
         let id = self.next_id();
         let scale = self.scale_at(app, kind, base, cursor.0, cursor.1);
@@ -359,7 +376,7 @@ impl Objects {
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let b = world.bounds;
-        // 거대한 것은 몸 전체가 화면 안에서 떨어지기 시작한다
+        // 거대한 것은 몸 전체가 화면 안에서 떨어지기 시작함
         let size = OBJECT_LOGICAL_SIZE * dpi * scale.max(1.0);
         let x = cursor.0.clamp(b.left + size / 2.0, (b.right - size / 2.0).max(b.left + size / 2.0));
         let y = (cursor.1 - size / 2.0).clamp(b.top + size, b.bottom.max(b.top + size));
@@ -368,11 +385,12 @@ impl Objects {
         self.admit(id, window, object, Origin::Own);
     }
 
-    /// 동물이 쌌다: (x, y)에서 떨어지기 시작한다. 창은 tick이 만든다
+    /// 동물이 쌌음: (x, y)에서 떨어지기 시작함. 창은 tick이 만듦
     pub fn drop_poop(&mut self, kind: ObjectKind, x: f64, y: f64, scale: f64) {
         self.queue_poop(WaitingPoop::Dropped { kind, x, y, scale });
     }
 
+    /// 똥을 대기열에 넣음 (넘치면 가장 오래된 것을 버림)
     fn queue_poop(&mut self, poop: WaitingPoop) {
         if self.poop_queue.len() >= MAX_POOPS {
             self.poop_queue.pop_front();
@@ -380,26 +398,26 @@ impl Objects {
         self.poop_queue.push_back(poop);
     }
 
-    /// 바닥에 놓인 똥 자리를 out에 다시 채운다 (동물이 알아챈다, 틱마다 할당하지 않는다)
+    /// 바닥에 놓인 똥 자리를 out에 다시 채움 (동물이 알아챔, 틱마다 할당하지 않음)
     pub fn poop_spots(&self, out: &mut Vec<PoopSpot>) {
         out.clear();
         out.extend(self.live.iter().filter_map(|l| l.object.poop_spot(l.id)));
     }
 
-    /// 🤹 바닥에 놓인 물건 자리를 out에 다시 채운다 (흐물이가 주우러 간다)
+    /// 🤹 바닥에 놓인 물건 자리를 out에 다시 채움 (흐물이가 주우러 감)
     pub fn object_spots(&self, out: &mut Vec<ObjectSpot>) {
         out.clear();
         out.extend(self.live.iter().filter_map(|l| l.object.spot(l.id)));
     }
 
-    /// ⚾ 친구 화면 끝에서 던져져 날아 들어오는 물건들 (흐물이가 받으러 간다 — notice_incoming)
+    /// ⚾ 친구 화면 끝에서 던져져 날아 들어오는 물건들 (흐물이가 받으러 감 — notice_incoming)
     pub fn incoming(&self, out: &mut Vec<screenpet_core::juggle::Incoming>) {
         out.clear();
         out.extend(self.live.iter().filter_map(|l| l.object.incoming(l.id)));
     }
 
-    /// 🤹 동물이 든 물건: 놓았으면 그 속도로 던지고 (던진 동물은 잠깐 맞히지 않는다), 들고 있으면 손 자리로 옮기고,
-    /// 사라졌거나 사용자가 잡고 있으면 동물에게 알린다. 아무도 들고 있지 않은 물건은 떨어진다. 동물 update 뒤, tick 전에
+    /// 🤹 동물이 든 물건: 놓았으면 그 속도로 던지고 (던진 동물은 잠깐 맞히지 않음), 들고 있으면 손 자리로 옮기고,
+    /// 사라졌거나 사용자가 잡고 있으면 동물에게 알림. 아무도 들고 있지 않은 물건은 떨어짐. 동물 update 뒤, tick 전에
     pub fn sync_carries<T: AsRef<Pet> + AsMut<Pet>>(&mut self, social: &mut Social, pets: &mut [T]) {
         for p in pets.iter_mut() {
             let pet = p.as_mut();
@@ -408,15 +426,15 @@ impl Objects {
                     if let Some(l) = self.live.iter_mut().find(|l| l.id == id) {
                         l.object.launch(vx, vy);
                         social.spare(id, pet.social_key(), THROWER_SPARED_SECS);
-                        // ⚾ 캐치볼로 되던졌다: 주고받은 횟수를 적는다 (친구에게 보내는 Toss.rally — toss_away)
+                        // ⚾ 캐치볼로 되던졌음: 주고받은 횟수를 적음 (친구에게 보내는 Toss.rally — toss_away)
                         if let Some((_, n)) = pet.take_rally().filter(|(got, _)| *got == id) {
                             l.object.set_rally(n);
                         }
                     }
                 }
-                // ⚾ 날아온 것을 받았다 — 아래에서 손 자리로 옮긴다 (carry_at이 날던 물건도 손에 쥐여 준다)
+                // ⚾ 날아온 것을 받았음 — 아래에서 손 자리로 옮김 (carry_at이 날던 물건도 손에 쥐여 줌)
                 Some(JuggleEvent::Catch { .. }) => {}
-                // 📌 장난감 아이콘을 읽기 시작한다 (내 동물만 — 손님은 하지 않는다)
+                // 📌 장난감 아이콘을 읽기 시작함 (내 동물만 — 손님은 하지 않음)
                 Some(JuggleEvent::Pull) => self.request_toy(),
                 Some(JuggleEvent::Stow { id }) => self.stow(id),
                 None => {}
@@ -428,7 +446,7 @@ impl Objects {
                         l.object.carry_at(x, y);
                     }
                 }
-                // 사용자가 낚아챘거나 치웠다
+                // 사용자가 낚아챘거나 치웠음
                 _ => pet.lose_carry(),
             }
         }
@@ -440,7 +458,7 @@ impl Objects {
     }
 
     /// 🐱🐿️🦖 다른 동물들의 물건 놀이 (v0.6.3 — 코어 play.rs): 고양이가 툭 밀고, 다람쥐가 볼에 넣어 뿅 치우고, 공룡의 큰 쿵에
-    /// 같은 바닥의 물건이 톡 튄다. 동물 update 뒤, tick 전에
+    /// 같은 바닥의 물건이 톡 튐. 동물 update 뒤, tick 전에
     pub fn play_with<T: AsMut<Pet>>(&mut self, pets: &mut [T]) {
         for p in pets.iter_mut() {
             match p.as_mut().take_object_play() {
@@ -450,7 +468,7 @@ impl Objects {
                     }
                 }
                 Some(ObjectPlay::Gulp { id }) => {
-                    // 📌 장난감·거대한 것은 코어가 고르지 않는다 — 혹시 와도 치우지 않는다
+                    // 📌 장난감·거대한 것은 코어가 고르지 않음 — 혹시 와도 치우지 않음
                     if let Some(i) = self.live.iter().position(|l| l.id == id && !l.object.kind.is_toy() && !l.object.kind.is_giant()) {
                         let l = self.live.remove(i);
                         self.roster.remove(l.id);
@@ -471,15 +489,15 @@ impl Objects {
         }
     }
 
-    /// 🤹 친구에게 들고 갈 물건의 이름 (Toss와 같은 이름·색·크기). 거대한 것은 들고 가지 않는다
+    /// 🤹 친구에게 들고 갈 물건의 이름 (Toss와 같은 이름·색·크기). 거대한 것은 들고 가지 않음
     pub fn carry_wire(&self, id: u64) -> Option<screenpet_net::Carry> {
         let l = self.live.iter().find(|l| l.id == id)?;
         let kind = l.object.kind;
-        // 📌 장난감은 이 컴퓨터를 떠나지 않는다 (코어도 배달을 막는다)
+        // 📌 장난감은 이 컴퓨터를 떠나지 않음 (코어도 배달을 막음)
         (!kind.is_giant() && !kind.is_toy()).then(|| screenpet_net::Carry { kind: kind.wire_id().to_string(), look: kind.look().map(str::to_string), scale: kind.is_poop().then(|| l.object.scale()) })
     }
 
-    /// 🤹 친구에게 들고 갔다: 이 화면에서는 치운다 (뿅 없이 — 동물 손에 들려 화면 밖으로 나갔다)
+    /// 🤹 친구에게 들고 갔음: 이 화면에서는 치움 (뿅 없이 — 동물 손에 들려 화면 밖으로 나갔음)
     pub fn hand_over(&mut self, id: u64) {
         if let Some(i) = self.live.iter().position(|l| l.id == id) {
             let l = self.live.remove(i);
@@ -490,8 +508,8 @@ impl Objects {
         self.sync_menu();
     }
 
-    /// 🤹 동물 손에 쥐여 줄 물건 창을 at(머리 위 언저리)에 만든다: 친구의 흐물이가 들고 왔으면 받은 물건, 못 들어가 들고 돌아왔으면 내 물건.
-    /// 똥은 똥 수에 들어간다 (scale = 다듬은 크기). 만들었으면 그 id — 동물의 hold_object에 준다
+    /// 🤹 동물 손에 쥐여 줄 물건 창을 at(머리 위 언저리)에 만듦: 친구의 흐물이가 들고 왔으면 받은 물건, 못 들어가 들고 돌아왔으면 내 물건.
+    /// 똥은 똥 수에 들어감 (scale = 다듬은 크기). 만들었으면 그 id — 동물의 hold_object에 줌
     pub fn spawn_carried(&mut self, app: &AppHandle, base: &World, kind: ObjectKind, scale: Option<f64>, own: bool, at: (f64, f64)) -> Option<u64> {
         let id = self.next_id();
         let scale = match scale.filter(|_| kind.is_poop()) {
@@ -516,14 +534,14 @@ impl Objects {
         Some(id)
     }
 
-    /// 📌 지금 장난감 사정 (내 흐물이가 매 틱 본다): 아이콘을 읽는 OS이고, 화면에 장난감이 없고, 읽는 중이 아니고, 모두 숨기지 않았을 때만 만들 수 있다
+    /// 📌 지금 장난감 사정 (내 흐물이가 매 틱 봄): 아이콘을 읽는 OS이고, 화면에 장난감이 없고, 읽는 중이 아니고, 모두 숨기지 않았을 때만 만들 수 있음
     pub fn toys(&self, app: &AppHandle) -> Toys {
         let live = self.live.iter().find(|l| l.object.kind.is_toy()).map(|l| l.id);
         let ready = screenpet_core::platform::APP_ICONS && live.is_none() && self.capture.is_none() && Instant::now() >= self.capture_backoff && !self.window_ids.is_empty() && !crate::windows_hidden(app);
         Toys { ready, live }
     }
 
-    /// 📌 열린 창 몇 개를 골라 다른 스레드에서 앱 아이콘을 읽는다 (게임 루프를 막지 않는다 — Windows는 창에 묻는 데 100 ms까지 걸릴 수 있다)
+    /// 📌 열린 창 몇 개를 골라 다른 스레드에서 앱 아이콘을 읽음 (게임 루프를 막지 않음 — Windows는 창에 묻는 데 100 ms까지 걸릴 수 있음)
     fn request_toy(&mut self) {
         if self.capture.is_some() || self.live.iter().any(|l| l.object.kind.is_toy()) {
             return;
@@ -541,7 +559,7 @@ impl Objects {
         }
     }
 
-    /// 📌 읽은 아이콘이 왔으면: 흐물이가 아직 끙차 당기고 있으면 그 손에 장난감 창을 만들어 쥐여 준다. 못 읽었으면 한동안 묻지 않는다 (조용히 — 아무것도 띄우지 않는다)
+    /// 📌 읽은 아이콘이 왔으면: 흐물이가 아직 끙차 당기고 있으면 그 손에 장난감 창을 만들어 쥐여 줌. 못 읽었으면 한동안 묻지 않음 (조용히 — 아무것도 띄우지 않음)
     pub fn deliver_toy(&mut self, app: &AppHandle, base: &World, pet: &mut Pet) {
         let Some(rx) = &self.capture else { return };
         let icon = match rx.try_recv() {
@@ -573,7 +591,7 @@ impl Objects {
         }
     }
 
-    /// 📌 장난감을 작업표시줄에 도로 넣었다: 뿅
+    /// 📌 장난감을 작업표시줄에 도로 넣었음: 뿅
     fn stow(&mut self, id: u64) {
         if let Some(i) = self.live.iter().position(|l| l.id == id && l.object.kind.is_toy()) {
             let l = self.live.remove(i);
@@ -582,7 +600,7 @@ impl Objects {
         }
     }
 
-    /// 🧹 빗자루가 지나간 똥은 빗자루 쪽으로 밀려 날아간다 (평소의 던지기 — 친구가 연결된 끝을 넘으면 tick이 친구에게 보낸다)
+    /// 🧹 빗자루가 지나간 똥은 빗자루 쪽으로 밀려 날아감 (평소의 던지기 — 친구가 연결된 끝을 넘으면 tick이 친구에게 보냄)
     pub fn sweep_poops(&mut self, broom: &Broom) {
         let (vx, vy) = broom.velocity();
         for l in self.live.iter_mut().filter(|l| l.object.kind.is_sweepable()) {
@@ -592,15 +610,15 @@ impl Objects {
         }
     }
 
-    /// 던져서 날아가는 물건이 동물에 부딪힌다 (같은 화면만 — 판정과 쿨다운은 코어 social.rs, 통신할 것이 없다)
+    /// 던져서 날아가는 물건이 동물에 부딪힘 (같은 화면만 — 판정과 쿨다운은 코어 social.rs, 통신할 것이 없음)
     pub fn hit_pets<T: AsRef<Pet> + AsMut<Pet>>(&mut self, social: &mut Social, dt: f64, pets: &mut [T]) {
         for l in &mut self.live {
             social.object_hits(l.id, &mut l.object, dt, pets);
         }
     }
 
-    /// 친구가 던진 물건 (인증된 친구 링크 — net이 확인 — 에서 온 내 친구의 것만). 받은 물건은 기다리는 것까지 20개, 넘치면 가장 오래된 것부터 치운다.
-    /// 여기서는 줄만 세운다 — 창은 tick이 하나씩 만든다 (한꺼번에 오면 게임 루프가 멈추지 않게)
+    /// 친구가 던진 물건 (인증된 친구 링크 — net이 확인 — 에서 온 내 친구의 것만). 받은 물건은 기다리는 것까지 20개, 넘치면 가장 오래된 것부터 치움.
+    /// 여기서는 줄만 세움 — 창은 tick이 하나씩 만듦 (한꺼번에 오면 게임 루프가 멈추지 않게)
     pub fn receive(&mut self, config: &Config, from: &str, toss: Toss) {
         if config.friend(from).is_none() {
             return;
@@ -613,7 +631,7 @@ impl Objects {
         };
         let side = from_net_side(toss.side, toss.vside);
         if accepted.kind.is_poop() {
-            // 메뉴로 꺼도 친구가 던진 똥은 받는다 (끄는 건 동물이 싸는 것뿐, 받기 싫으면 집중·하우스)
+            // 메뉴로 꺼도 친구가 던진 똥은 받음 (끄는 건 동물이 싸는 것뿐, 받기 싫으면 집중·하우스)
             self.queue_poop(WaitingPoop::Tossed(accepted, side, screenpet_core::poop::sanitize_size(toss.scale)));
             return;
         }
@@ -625,12 +643,12 @@ impl Objects {
         }
     }
 
-    /// 방금 그 친구에게 물건을 던졌다
+    /// 방금 그 친구에게 물건을 던졌음
     pub fn threw_lately(&self, friend: &str) -> bool {
         self.threw_at.get(friend).is_some_and(|t| t.elapsed() < BOUNCE_WINDOW)
     }
 
-    /// 줄의 맨 앞 물건 하나의 창을 만든다 (틱마다)
+    /// 줄의 맨 앞 물건 하나의 창을 만듦 (틱마다)
     fn admit_next_toss(&mut self, app: &AppHandle, base: &World) {
         if let Some(poop) = self.poop_queue.pop_front() {
             self.admit_poop(app, base, poop);
@@ -644,13 +662,14 @@ impl Objects {
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
-        // ⚾ 친구가 보낸 캐치볼 랠리 (흐물이가 받아 되던지면 코어가 하나 올린다)
+        // ⚾ 친구가 보낸 캐치볼 랠리 (흐물이가 받아 되던지면 코어가 하나 올림)
         object.set_rally(rally);
         object.set_scale(scale);
         object.receive_note(accepted.note);
         self.admit(id, window, object, Origin::Foreign);
     }
 
+    /// 기다리던 똥 하나에 창을 만들어 들임
     fn admit_poop(&mut self, app: &AppHandle, base: &World, poop: WaitingPoop) {
         let id = self.next_id();
         let kind = match &poop {
@@ -676,19 +695,21 @@ impl Objects {
         self.admit(id, window, object, Origin::Poop);
     }
 
+    /// 새 물건 번호를 줌
     fn next_id(&mut self) -> u64 {
         let id = self.next;
         self.next += 1;
         id
     }
 
+    /// 물건 키에 맞춘 세계 (없으면 만듦)
     fn world_for(&mut self, base: &World, dpi: f64) -> &World {
         self.world.get_or_insert_with(|| World::new(base.windows.clone(), base.work_areas.clone(), OBJECT_LOGICAL_SIZE * dpi))
     }
 
-    /// 물건 수를 지키며 들인다: 넘치면 그 쪽(내 것 10 / 받은 것 20 / 똥 10)의 가장 오래된 것이 뿅 사라진다
+    /// 물건 수를 지키며 들임: 넘치면 그 쪽(내 것 10 / 받은 것 20 / 똥 10)의 가장 오래된 것이 뿅 사라짐
     fn admit(&mut self, id: u64, window: WebviewWindow, object: Object, origin: Origin) {
-        // 🪨💩 거대한 것은 MAX_GIANTS개까지: 넘치면 가장 오래된 거대한 것이 뿅 (화면만 한 창이 쌓이면 앱이 느려진다)
+        // 🪨💩 거대한 것은 MAX_GIANTS개까지: 넘치면 가장 오래된 거대한 것이 뿅 (화면만 한 창이 쌓이면 앱이 느려짐)
         if object.kind.is_giant() {
             let giants: Vec<u64> = self.live.iter().filter(|l| l.object.kind.is_giant()).map(|l| l.id).collect();
             if let Some(old) = screenpet_core::object::giant_to_drop(&giants) {
@@ -699,7 +720,7 @@ impl Objects {
                 }
             }
         }
-        // 거대한 것·📌 장난감은 처음부터 클릭이 지나간다 (아직 화면 밖일 때 정한다) — 나중에 바꾸면 Windows가 창을 통째로 다시 그려 깜빡인다
+        // 거대한 것·📌 장난감은 처음부터 클릭이 지나감 (아직 화면 밖일 때 정함) — 나중에 바꾸면 Windows가 창을 통째로 다시 그려 깜빡임
         let click_through = object.kind.is_giant() || object.kind.is_toy();
         if click_through {
             let _ = window.set_ignore_cursor_events(true);
@@ -726,6 +747,7 @@ impl Objects {
         });
     }
 
+    /// 물건 하나를 치움 (뿅)
     fn remove(&mut self, label: &str) {
         if let Some(i) = self.live.iter().position(|l| l.label == label) {
             let l = self.live.remove(i);
@@ -734,12 +756,13 @@ impl Objects {
         }
     }
 
+    /// 창을 뿅 사라지게 하고 곧 닫음
     fn poof(&mut self, l: Live) {
         set_postit_state(&l.label, None);
         self.fading.start(l.window, "poof", Instant::now() + POOF);
     }
 
-    /// 다 된 똥이 스르륵 사라진다
+    /// 다 된 똥이 스르륵 사라짐
     fn fade(&mut self, l: Live) {
         set_postit_state(&l.label, None);
         self.fading.start(l.window, "fade", Instant::now() + FADE);
@@ -756,7 +779,7 @@ impl Objects {
         }
     }
 
-    /// 창 목록을 새로 읽었을 때 (100 ms마다). 달라진 게 없으면 할 일이 없다 — 물건은 계속 잔다
+    /// 창 목록을 새로 읽었을 때 (100 ms마다). 달라진 게 없으면 할 일이 없음 — 물건은 계속 잠
     pub fn refresh(&mut self, windows: &[WindowInfo], work_areas: &[Rect], now: Instant) {
         self.window_ids.clear();
         self.window_ids.extend(windows.iter().map(|w| w.id));
@@ -764,7 +787,7 @@ impl Objects {
             self.world = None;
             return;
         }
-        // 깨어 있는 물건만 화면 배율을 다시 읽는다 (창에 묻는 일은 메인 스레드를 거친다)
+        // 깨어 있는 물건만 화면 배율을 다시 읽음 (창에 묻는 일은 메인 스레드를 거침)
         for l in self.live.iter_mut().filter(|l| !l.object.is_asleep()) {
             if let Ok(dpi) = l.window.scale_factor() {
                 l.object.set_dpi(dpi);
@@ -779,7 +802,7 @@ impl Objects {
         self.reseat_all(now);
     }
 
-    /// 세계가 바뀌었다: 앉은 창을 따라가거나 떨어지기 시작한다. 창을 따라 움직였으면 잠시 매 틱 따라간다
+    /// 세계가 바뀌었음: 앉은 창을 따라가거나 떨어지기 시작함. 창을 따라 움직였으면 잠시 매 틱 따라감
     fn reseat_all(&mut self, now: Instant) {
         let Some(world) = self.world.as_ref() else { return };
         for l in &mut self.live {
@@ -789,7 +812,7 @@ impl Objects {
         }
     }
 
-    /// 앉은 창이 움직이는 중이면 그 창의 경계만 새로 읽는다 (창을 끌어 옮길 때 100 ms 계단이 아니게)
+    /// 앉은 창이 움직이는 중이면 그 창의 경계만 새로 읽음 (창을 끌어 옮길 때 100 ms 계단이 아니게)
     fn follow_rides(&mut self, source: &mut dyn WindowSource, now: Instant) {
         if now >= self.ride_until {
             return;
@@ -822,7 +845,7 @@ impl Objects {
             if left_down {
                 l.object.pointer_move(cursor.0, cursor.1);
             } else if l.object.pointer_up() == Release::Click {
-                // 받은 포스트잇을 눌렀다: 글자는 이때 처음 웹뷰로 가고, 코어에서는 지워진다
+                // 받은 포스트잇을 눌렀음: 글자는 이때 처음 웹뷰로 가고, 코어에서는 지워짐
                 if let Some(text) = l.object.read_note() {
                     l.set_note_open(true);
                     set_postit_state(&l.label, Some(l.object.postit()));
@@ -832,7 +855,7 @@ impl Objects {
             }
         }
 
-        // 던져 넘길 수 있는 끝은 날아가는 물건이 있을 때만 계산한다
+        // 던져 넘길 수 있는 끝은 날아가는 물건이 있을 때만 계산함
         let open = {
             let budgets = &self.budgets;
             move |id: &str| network.is_connected(id) && budgets.get(id).is_none_or(|b| b.can_spend(secs))
@@ -848,20 +871,20 @@ impl Objects {
                 continue;
             }
             if l.object.take_note_ended() {
-                // 10초 끝: 글자를 지우고 창을 줄인다 — 다시 볼 수 없다
+                // 10초 끝: 글자를 지우고 창을 줄임 — 다시 볼 수 없음
                 let _ = app.emit_to(l.label.as_str(), "object-note-end", ());
                 l.set_note_open(false);
                 set_postit_state(&l.label, Some(l.object.postit()));
             }
             let asleep = l.object.is_asleep();
-            // 잠든 물건은 창이 제자리에 있으면 아무것도 하지 않는다 (reseat가 옮겼으면 last_pos와 달라진다)
+            // 잠든 물건은 창이 제자리에 있으면 아무것도 하지 않음 (reseat가 옮겼으면 last_pos와 달라짐)
             l.place(world);
-            // 커서는 잠든 물건 위로도 움직인다 (거대한 것만 — 바뀔 때만 OS에 알린다)
+            // 커서는 잠든 물건 위로도 움직임 (거대한 것만 — 바뀔 때만 OS에 알림)
             l.sync_click_through(cursor);
             if asleep && was_asleep && l.last_pose == l.pose() {
                 continue;
             }
-            // 모습은 30 Hz면 충분하다 (잠들 때의 마지막 모습은 꼭 보낸다)
+            // 모습은 30 Hz면 충분함 (잠들 때의 마지막 모습은 꼭 보냄)
             let pose = l.pose();
             if pose != l.last_pose && (self.frame % 2 == 0 || asleep) {
                 l.last_pose = pose;
@@ -888,7 +911,7 @@ impl Objects {
         self.sync_menu();
     }
 
-    /// "물건 10개 던지기": 예산이 되는 만큼 던진다. 그 사이 연결이 끊기거나 친구가 지워지면 남은 것은 버린다
+    /// "물건 10개 던지기": 예산이 되는 만큼 던짐. 그 사이 연결이 끊기거나 친구가 지워지면 남은 것은 버림
     fn release_volleys(&mut self, secs: f64, network: &Network, config: &Config) {
         let (budgets, threw_at) = (&mut self.budgets, &mut self.threw_at);
         self.volleys.retain(|id, volley| {
@@ -908,9 +931,9 @@ impl Objects {
         });
     }
 
-    /// 물건이 side 끝을 넘어갔다: 그 끝의 연결된 친구 하나에게 날려 보낸다 (친구 쪽에서 반대편 끝으로 들어온다). 돌아오지 않는다
+    /// 물건이 side 끝을 넘어갔음: 그 끝의 연결된 친구 하나에게 날려 보냄 (친구 쪽에서 반대편 끝으로 들어옴). 돌아오지 않음
     fn toss_away(&mut self, l: &Live, exit: Exit, secs: f64, network: &Network, config: &Config) {
-        // 📌 장난감은 이 컴퓨터를 떠나지 않는다 (코어가 화면 끝을 넘기지 않는다 — 한 번 더)
+        // 📌 장난감은 이 컴퓨터를 떠나지 않음 (코어가 화면 끝을 넘기지 않음 — 한 번 더)
         if l.object.kind.is_toy() {
             return;
         }
@@ -931,7 +954,7 @@ impl Objects {
     }
 }
 
-/// 친구가 던진 물건이 들어올 화면 끝 언저리 (거대한 물건의 크기를 그 화면에 맞춘다)
+/// 친구가 던진 물건이 들어올 화면 끝 언저리 (거대한 물건의 크기를 그 화면에 맞춤)
 fn entry_point(world: &World, side: Side) -> (f64, f64) {
     let b = world.bounds;
     match side {
@@ -941,22 +964,22 @@ fn entry_point(world: &World, side: Side) -> (f64, f64) {
     }
 }
 
-/// 🤹 흐물이가 던진 물건은 이만큼 그 흐물이를 맞히지 않는다 (손에서 막 떠난 물건이 제 몸과 겹친다)
+/// 🤹 흐물이가 던진 물건은 이만큼 그 흐물이를 맞히지 않음 (손에서 막 떠난 물건이 제 몸과 겹침)
 const THROWER_SPARED_SECS: f64 = 1.0;
 
 /// 📌 장난감 아이콘을 읽어 볼 창 수 (앞에서부터 읽히는 것 하나)
 const TOY_CANDIDATES: usize = 8;
 
-/// 던지고 이만큼 안에 되돌아온 물건만 내 것으로 본다
+/// 던지고 이만큼 안에 되돌아온 물건만 내 것으로 봄
 const BOUNCE_WINDOW: Duration = Duration::from_secs(30);
 
-/// icon = 📌 장난감에 그릴 앱 아이콘 (그 창의 초기화 스크립트에만 들어간다 — base64 글자뿐이라 JS 문자열에 그대로 넣는다)
+/// icon = 📌 장난감에 그릴 앱 아이콘 (그 창의 초기화 스크립트에만 들어감 — base64 글자뿐이라 JS 문자열에 그대로 넣음)
 fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale: f64, icon: Option<&IconImage>) -> Option<WebviewWindow> {
     let label = format!("{PREFIX}{id}");
     let shape = shape_of(kind);
     let (w, h) = (shape.window_side_at(scale), shape.window_side_at(scale));
     let (px, py) = shape.pivot_logical();
-    // kind.id()와 숫자는 코어 목록의 값뿐이다 (친구가 보낸 글자가 아니다)
+    // kind.id()와 숫자는 코어 목록의 값뿐임 (친구가 보낸 글자가 아님)
     let icon = icon.map_or("null".to_string(), |i| format!("{{ size: {}, rgba: \"{}\" }}", i.size, icon::base64(&i.rgba)));
     let built = crate::overlay::finish_quiet(
         WebviewWindowBuilder::new(app, &label, WebviewUrl::App("object.html".into()))
@@ -967,10 +990,10 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale
     );
     match built {
         Ok(window) => {
-            // 다른 배율의 모니터에서도 논리 크기를 맞춘다
+            // 다른 배율의 모니터에서도 논리 크기를 맞춤
             let dpi = window.scale_factor().unwrap_or(1.0);
             crate::overlay::resize_quietly(&window, crate::overlay::hwnd_of(&window), (w * dpi).round() as u32, (h * dpi).round() as u32);
-            // 모두 숨긴 동안 온 물건은 "보이기"가 함께 보인다
+            // 모두 숨긴 동안 온 물건은 "보이기"가 함께 보임
             if crate::windows_hidden(app) {
                 let _ = window.hide();
             }
@@ -983,10 +1006,10 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale
     }
 }
 
-/// `물건 ▸` 하위 메뉴 (tray::build가 부른다)
+/// `물건 ▸` 하위 메뉴 (tray::build가 부름)
 pub fn build_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     let sub = Submenu::new(app, menu_label(0), true)?;
-    // 똥은 메뉴로 꺼내지 않는다 (동물이 싼다). 거대한 돌·똥은 쓰레기 다음에 줄을 긋고
+    // 똥은 메뉴로 꺼내지 않음 (동물이 쌈). 거대한 돌·똥은 쓰레기 다음에 줄을 긋고
     for kind in ObjectKind::MENU {
         if kind == ObjectKind::GIANTS[0] {
             sub.append(&PredefinedMenuItem::separator(app)?)?;
@@ -999,7 +1022,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
     Ok(sub)
 }
 
-/// 물건 메뉴 항목이면 처리하고 true (트레이의 메뉴 처리기에서 먼저 부른다)
+/// 물건 메뉴 항목이면 처리하고 true (트레이의 메뉴 처리기에서 먼저 부름)
 pub fn handle_menu(app: &AppHandle, id: &str) -> bool {
     let input = if id == MENU_CLEAR {
         ObjectInput::ClearAll
@@ -1019,11 +1042,12 @@ pub fn handle_menu(app: &AppHandle, id: &str) -> bool {
     true
 }
 
+/// 물건 창 라벨인지 봄
 fn is_object_label(label: &str) -> bool {
     label.starts_with(PREFIX)
 }
 
-/// 물건을 눌렀다 (왼쪽 버튼) — 부른 창의 라벨로 어느 물건인지 찾는다
+/// 물건을 눌렀음 (왼쪽 버튼) — 부른 창의 라벨로 어느 물건인지 찾음
 #[tauri::command]
 pub fn object_down(window: WebviewWindow, state: State<AppState>) {
     if is_object_label(window.label()) {
@@ -1042,10 +1066,10 @@ pub async fn object_menu(window: tauri::Window) -> Result<(), String> {
     let app = window.app_handle().clone();
     let build = || -> tauri::Result<Menu<Wry>> {
         let note = match postit {
-            // 똥엔 포스트잇이 없다
+            // 똥엔 포스트잇이 없음
             Postit::Never => None,
             Postit::Mine => Some(MenuItem::with_id(&app, format!("{MENU_PEEL}{label}"), "📝 포스트잇 떼기", true, None::<&str>)?),
-            // 친구가 붙인 포스트잇은 덮어쓰거나 뗄 수 없다 (읽는 중에도)
+            // 친구가 붙인 포스트잇은 덮어쓰거나 뗄 수 없음 (읽는 중에도)
             other => Some(MenuItem::with_id(&app, format!("{MENU_NOTE}{label}"), "📝 포스트잇 붙이기…", other == Postit::None, None::<&str>)?),
         };
         let remove = MenuItem::with_id(&app, format!("{MENU_REMOVE}{label}"), "🗑️ 이것만 치우기", true, None::<&str>)?;
@@ -1078,7 +1102,7 @@ pub fn postit_max(window: WebviewWindow) -> Result<usize, String> {
     Ok(MAX_NOTE_CHARS)
 }
 
-/// 포스트잇 창 "붙이기": 게임 루프로 보내고 창을 숨긴다 (다듬기·80자 제한은 코어가 한다)
+/// 포스트잇 창 "붙이기": 게임 루프로 보내고 창을 숨김 (다듬기·80자 제한은 코어가 함)
 #[tauri::command]
 pub fn postit_submit(window: WebviewWindow, state: State<AppState>, text: String) {
     if window.label() != POSTIT_LABEL {
