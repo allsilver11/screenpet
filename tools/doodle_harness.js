@@ -87,7 +87,7 @@ function load() {
   return h;
 }
 
-const doodle = (kind, extra = {}) => ({ x: 400, y: 800, kind, name: "흐물이", facing: 1, size: 60, pixel: false, age: 0, ...extra });
+const doodle = (kind, extra = {}) => ({ x: 400, y: 800, kind, name: "흐물이", facing: 1, size: 60, pixel: false, age: 0, draw: 2, ...extra });
 const out = {};
 
 // 낙서가 오기 전엔 아무것도 돌지 않는다
@@ -110,6 +110,16 @@ while (h.rafs() && frames < 1000) {
   frames++;
 }
 out.draw_frames = frames;
+for (const [key, draw] of [["draw_frames_1s", 1], ["draw_frames_junk", 999]]) {
+  const g = load();
+  g.send([doodle("star", { draw })]);
+  let n = 0;
+  while (g.rafs() && n < 1000) {
+    g.frame();
+    n++;
+  }
+  out[key] = n;
+}
 out.hold_timers = h.timers();
 out.hold_rafs = h.rafs();
 h.skip(21000);

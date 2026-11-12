@@ -28,7 +28,11 @@ def test_doodles_share_the_trail_window():
 
 def test_timing_and_budget():
     nums = {k: float(v) for k, v in re.findall(r"const (DRAW|HOLD|FADE|MAX_DOODLES|MAX_NAME) = ([\d.]+);", JS)}
-    assert 1.2 <= nums["DRAW"] <= 1.8 and 18 <= nums["HOLD"] <= 22 and 2.5 <= nums["FADE"] <= 3.5
+    # 그리기 시간은 흐물이 그리기 동작과 같다: 앱이 screenpet_core::brain::DOODLE_SECS(2초)를 낙서마다 보내고, 기본값도 같다
+    assert nums["DRAW"] == 2.0 and 18 <= nums["HOLD"] <= 22 and 2.5 <= nums["FADE"] <= 3.5
+    assert "draw: DOODLE_SECS" in RS and "DOODLE_SECS" in RS[RS.index("const DOODLE_LIFE") :][:200]
+    core = (ROOT / "crates" / "screenpet-core" / "src" / "brain_doodle.rs").read_text(encoding="utf-8")
+    assert "pub const DOODLE_SECS: f64 = 2.0;" in core
     assert nums["MAX_DOODLES"] == 6 and nums["MAX_NAME"] == 12
     assert "setInterval" not in JS
 
@@ -72,8 +76,11 @@ def test_doodles_are_capped_and_checked(run):
 
 
 def test_frames_only_while_drawing_and_fading(run):
-    # 1.5초쯤 그리는 동안 (60fps면 ~95프레임), 가만히 있는 동안은 타이머 하나
-    assert 60 <= run["draw_frames"] <= 130
+    # 보낸 그리기 시간(2초)만큼 그린다 (60fps면 ~125프레임), 가만히 있는 동안은 타이머 하나
+    assert 115 <= run["draw_frames"] <= 135
+    # 다른 그리기 시간도 따른다 (1초 → ~63프레임), 엉뚱한 값은 막는다
+    assert 55 <= run["draw_frames_1s"] <= 70
+    assert 115 <= run["draw_frames_junk"] <= 135
     assert run["hold_rafs"] == 0 and run["hold_timers"] == 1
     assert 120 <= run["fade_frames"] <= 260
     assert run["alive_end"] == 0 and run["end_rafs"] == 0 and run["cleared_last"]

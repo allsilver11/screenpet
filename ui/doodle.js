@@ -1,12 +1,14 @@
 // 🖍️ 분필 낙서 그리기. 흐물이가 바닥에 그린 하트·웃는 얼굴·별·이름을 🌈 무지개 구름과 같은 창 (trail.html)의
 // 아래 캔버스에 그린다. 앱(src-tauri/src/trail.rs)이 `trail-doodle`로 새 낙서들을 보낸다 (논리 px, 이 창 왼쪽 위가 0,0 —
 // x는 가운데, y는 바닥 줄, size는 높이, kind는 heart·smile·star·name, name은 펫 이름, facing은 바라보는 쪽, age는 이미 지난 초).
-// DRAW초 동안 분필로 그려지고, HOLD초 그대로 있다가, FADE초 동안 흐려진다. CPU를 아끼는 규칙: 낙서 MAX_DOODLES개까지,
+// draw초 (앱이 흐물이 그리기 동작 길이 DOODLE_SECS를 보낸다, 없으면 DRAW) 동안 분필로 그려지고, HOLD초 그대로 있다가, FADE초 동안 흐려진다. CPU를 아끼는 규칙: 낙서 MAX_DOODLES개까지,
 // 분필 가루는 낙서마다 따로 그림에 한 번만 찍기, 그리거나 흐려지는 동안만 requestAnimationFrame, 가만히 있는 동안은 타이머 하나.
 // 이름은 캔버스 fillText로만 넣는다 (HTML로 넣지 않는다), MAX_NAME글자까지.
 // 브라우저에서 trail.html?doodle=1 (&pixel=1, &light=1)로 앱 없이 볼 수 있다.
 
-const DRAW = 1.5;
+const DRAW = 2.0;
+// 받아들이는 그리기 시간 (초) — 밖이면 DRAW
+const DRAW_RANGE = [0.3, 5];
 const HOLD = 20;
 const FADE = 3;
 const MAX_DOODLES = 6;
@@ -215,9 +217,10 @@ function stamp(d, upto) {
 function addDoodles(list) {
   const now = performance.now();
   for (const p of list || []) {
-    if (!KINDS.includes(p.kind) || !(p.age >= 0 && p.age < DRAW + HOLD + FADE) || !(p.size > 0 && p.size < 2000)) continue;
+    const draw = p.draw >= DRAW_RANGE[0] && p.draw <= DRAW_RANGE[1] ? p.draw : DRAW;
+    if (!KINDS.includes(p.kind) || !(p.age >= 0 && p.age < draw + HOLD + FADE) || !(p.size > 0 && p.size < 2000)) continue;
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-    const d = { x: p.x, y: p.y, kind: p.kind, name: p.name, facing: p.facing < 0 ? -1 : 1, size: p.size, pixel: !!p.pixel, born: now - p.age * 1000, seed: (Math.random() * 4294967296) >>> 0 };
+    const d = { x: p.x, y: p.y, kind: p.kind, name: p.name, facing: p.facing < 0 ? -1 : 1, size: p.size, pixel: !!p.pixel, draw, born: now - p.age * 1000, seed: (Math.random() * 4294967296) >>> 0 };
     prepare(d);
     doodles.push(d);
   }
@@ -235,15 +238,15 @@ function drawDoodles(now) {
   doodleFrame = 0;
   if (doodleDirty) dctx.clearRect(doodleDirty[0], doodleDirty[1], doodleDirty[2] - doodleDirty[0], doodleDirty[3] - doodleDirty[1]);
   doodleDirty = null;
-  doodles = doodles.filter((d) => now - d.born < (DRAW + HOLD + FADE) * 1000);
+  doodles = doodles.filter((d) => now - d.born < (d.draw + HOLD + FADE) * 1000);
   let moving = false;
   let next = Infinity;
   for (const d of doodles) {
     const t = (now - d.born) / 1000;
-    const drawn = Math.min(1, t / DRAW);
-    let alpha = t < DRAW + HOLD ? 1 : Math.max(0, 1 - (t - DRAW - HOLD) / FADE);
-    if (drawn < 1 || t >= DRAW + HOLD) moving = true;
-    else next = Math.min(next, DRAW + HOLD - t);
+    const drawn = Math.min(1, t / d.draw);
+    let alpha = t < d.draw + HOLD ? 1 : Math.max(0, 1 - (t - d.draw - HOLD) / FADE);
+    if (drawn < 1 || t >= d.draw + HOLD) moving = true;
+    else next = Math.min(next, d.draw + HOLD - t);
     if (d.pixel) alpha = Math.ceil(alpha * 4) / 4;
     if (alpha <= 0) continue;
     // 바닥 줄 위에, x가 가운데

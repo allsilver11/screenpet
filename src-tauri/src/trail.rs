@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use screenpet_core::brain::{Doodle, DoodleKind};
+use screenpet_core::brain::{Doodle, DoodleKind, DOODLE_SECS};
 use screenpet_core::geom::Rect;
 use screenpet_core::style::PetStyle;
 use screenpet_core::trail::{self, Puff, Runner, Trail};
@@ -28,8 +28,8 @@ const WARMUP: Duration = Duration::from_millis(900);
 const PENDING_MAX: usize = 60;
 /// 전체 화면 여부를 보는 간격
 const PAUSE_EVERY: Duration = Duration::from_millis(250);
-/// 🖍️ 낙서가 화면에 있는 시간 (doodle.js: 그리기 1.5초 + 그대로 20초 + 흐려지기 3초) — 이 동안 창을 닫지 않는다
-const DOODLE_LIFE: Duration = Duration::from_millis(24_500);
+/// 🖍️ 낙서가 화면에 있는 시간 (doodle.js: 그리기 DOODLE_SECS + 그대로 20초 + 흐려지기 3초) — 이 동안 창을 닫지 않는다
+const DOODLE_LIFE: Duration = Duration::from_millis((DOODLE_SECS * 1000.0) as u64 + 23_000);
 /// 낙서 높이 = 동물 크기(128 기준 물리 px × scale)의 이만큼
 const DOODLE_HEIGHT: f64 = 0.5;
 /// 이름 낙서는 이만큼 글자까지 (doodle.js MAX_NAME과 같다)
@@ -46,6 +46,8 @@ struct DoodleWire {
     facing: f64,
     size: f64,
     pixel: bool,
+    /// 분필이 그려지는 시간 (초) = 흐물이 그리기 동작 길이 (그림이 흐물이가 일어설 때 다 그려진다)
+    draw: f64,
     /// 이미 지난 시간 (초)
     age: f64,
 }
@@ -169,7 +171,7 @@ impl TrailFx {
         if !(size.is_finite() && size > 0.0) {
             return;
         }
-        let wire = DoodleWire { x: (d.x - o.wa.left) / o.scale, y: (d.y - o.wa.top) / o.scale, kind: kind_name(d.kind), name, facing: d.facing.signum(), size, pixel, age: 0.0 };
+        let wire = DoodleWire { x: (d.x - o.wa.left) / o.scale, y: (d.y - o.wa.top) / o.scale, kind: kind_name(d.kind), name, facing: d.facing.signum(), size, pixel, draw: DOODLE_SECS, age: 0.0 };
         o.doodles.push((now, wire));
     }
 
