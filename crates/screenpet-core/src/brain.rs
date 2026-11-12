@@ -242,6 +242,8 @@ pub enum Speech {
     Pop,
     /// 📌 장난감을 도로 밀어 넣는다 ("back you go!")
     Stow,
+    /// 🔄 새 버전이 나왔다 ("new version!!", brain_cheer.rs)
+    NewVersion,
 }
 
 impl Anim {
@@ -715,6 +717,8 @@ pub struct Pet {
     juggle: juggle_moves::JuggleMood,
     /// 📌 작업표시줄 장난감 (brain_taskbar.rs)
     toy: taskbar_moves::ToyMood,
+    /// 🔄 새 버전 응원 (brain_cheer.rs)
+    cheer: cheer_moves::CheerMood,
     rng: fastrand::Rng,
 }
 
@@ -798,6 +802,7 @@ impl Pet {
             ceiling: f64::NEG_INFINITY,
             juggle: juggle_moves::JuggleMood::new(seed),
             toy: taskbar_moves::ToyMood::new(seed),
+            cheer: Default::default(),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -872,6 +877,7 @@ impl Pet {
             return;
         }
         self.tick_guest(dt);
+        self.update_cheer(dt, world);
         if self.update_user_away(dt, world) {
             self.on_started();
             return;
@@ -1511,6 +1517,10 @@ impl Pet {
     fn wants_exit(&mut self, world: &World, piece: &Surface) -> Option<Side> {
         // 커서에 음식을 들고 있는 동안엔 스스로 화면을 떠나지 않는다 (보내기는 사용자가 시킨 것)
         if self.hand.is_some() && self.send.is_none() {
+            return None;
+        }
+        // 🔄 새 버전 응원 중엔 이 화면 안에서만 뛴다
+        if self.cheering() && self.send.is_none() {
             return None;
         }
         let side = visit::screen_edge(world, piece, self.facing)?;
@@ -3379,6 +3389,13 @@ mod taskbar_tests;
 
 #[path = "brain_presence.rs"]
 mod presence_moves;
+
+#[path = "brain_cheer.rs"]
+mod cheer_moves;
+
+#[cfg(test)]
+#[path = "brain_cheer_tests.rs"]
+mod cheer_tests;
 
 #[cfg(test)]
 #[path = "brain_presence_tests.rs"]

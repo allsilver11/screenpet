@@ -139,3 +139,39 @@ def test_help_and_release_notes_mention_both():
     assert "🚀 컴퓨터 켜면 자동 실행" in HELP and "🔄 업데이트" in HELP
     notes = (ROOT / "docs" / "releases" / "v0.6.3.md").read_text(encoding="utf-8")
     assert "🚀" in notes and "🔄" in notes
+
+
+def test_new_version_makes_own_pets_cheer_once_per_version():
+    """🔄 새 버전을 찾으면 (조용히든 눌러서든) 게임 루프에 알리고, 게임 루프는 버전마다 한 번 내 동물들만 응원시킨다."""
+    src = update_rs()
+    quiet = src[src.index("pub fn start_quiet_checks") :]
+    quiet = quiet[: quiet.index("\n}\n")]
+    assert "announce(&app, r.version)" in quiet
+    run = src[src.index("fn run(app: &AppHandle)") :]
+    run = run[: run.index("\n}\n")]
+    assert run.index("announce(app, release.version)") < run.index("download(&release)")
+    assert "Input::NewVersion(v)" in src
+    assert "NewVersion(screenpet_core::update::Version)," in LOOP
+    assert "Input::NewVersion(v) => cheer_gate.found(v)," in LOOP
+    gate = LOOP[LOOP.index("if cheer_gate.due(crate::windows_hidden(&app))") :]
+    gate = gate[: gate.index("\n        }\n")]
+    assert ".filter(|s| s.is_own())" in gate and "s.pet.cheer(screenpet_core::update::CHEER_SECS)" in gate
+
+
+def test_new_version_speech_key_matches_the_core():
+    js = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
+    assert js.count("new_version:") == 1
+    assert 'new_version: ["new version!!"],' in js
+    brain = (ROOT / "crates" / "screenpet-core" / "src" / "brain.rs").read_text(encoding="utf-8")
+    enum = brain[brain.index("pub enum Speech {") :]
+    enum = enum[: enum.index("\n}\n")]
+    assert enum.count("NewVersion,") == 1
+    # 응원은 기존 달리기를 그대로 쓴다 (새 그림 없음)
+    cheer = (ROOT / "crates" / "screenpet-core" / "src" / "brain_cheer.rs").read_text(encoding="utf-8")
+    assert "Move::Run" in cheer and "Speech::NewVersion" in cheer
+
+
+def test_help_and_notes_mention_the_new_version_cheer():
+    assert "new version!!" in HELP
+    notes = (ROOT / "docs" / "releases" / "v0.6.3.md").read_text(encoding="utf-8")
+    assert "new version!!" in notes

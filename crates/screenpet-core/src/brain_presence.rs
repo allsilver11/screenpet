@@ -148,9 +148,9 @@ impl Pet {
         self.speech = Some(Speech::Focus);
     }
 
-    /// 자리 비움·집중 중 — 커서 장난·친구 놀이를 시작하지 않는다
+    /// 자리 비움·집중 중, 🔄 새 버전 응원 중 — 커서 장난·친구 놀이를 시작하지 않는다
     pub(super) fn presence_quiet(&self) -> bool {
-        self.presence.user_away || self.presence.focus
+        self.presence.user_away || self.presence.focus || self.cheering()
     }
 
     /// ⏱️ 집중 중인가 (그동안 선물을 떨어뜨리지 않는다, gift.rs)

@@ -304,6 +304,40 @@ rm -rf "$tmp"
 /usr/bin/open "$dst"
 "#;
 
+/// 🔄 새 버전을 찾으면 내 동물들이 "new version!!" 하고 이만큼 신나게 뛴다 (Pet::cheer)
+pub const CHEER_SECS: f64 = 10.0;
+
+/// 새 버전 응원은 앱이 켜져 있는 동안 버전마다 한 번. 창을 숨겨 둔 동안엔 미뤘다가 다시 보이면 한다
+/// (자리 비움은 동물 쪽이 미룬다 — Pet::cheer)
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CheerGate {
+    cheered: Option<Version>,
+    waiting: Option<Version>,
+}
+
+impl CheerGate {
+    /// 업데이트 확인(조용히든 눌러서든)이 새 버전을 찾았다
+    pub fn found(&mut self, v: Version) {
+        if self.cheered.is_none_or(|c| v > c) && self.waiting.is_none_or(|w| v > w) {
+            self.waiting = Some(v);
+        }
+    }
+
+    /// 매 틱: 지금 응원할 때인가 (참이면 한 번만)
+    pub fn due(&mut self, hidden: bool) -> bool {
+        if hidden {
+            return false;
+        }
+        match self.waiting.take() {
+            Some(v) => {
+                self.cheered = Some(v);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
 /// 트레이 "🔄 업데이트" 항목의 상태
 #[derive(Debug, Clone, PartialEq)]
 pub enum MenuState {
@@ -576,6 +610,26 @@ mod tests {
         for s in [MenuState::Downloading(v("1.0.0")), MenuState::UpToDate(v("1.0.0")), MenuState::Failed(UpdateError::Disk)] {
             assert!(s.bubble().unwrap().chars().count() <= 12, "{s:?}");
         }
+    }
+
+    #[test]
+    fn cheer_once_per_version_and_not_while_hidden() {
+        let mut g = CheerGate::default();
+        assert!(!g.due(false));
+        g.found(v("0.6.4"));
+        assert!(!g.due(true), "hidden: later");
+        assert!(!g.due(true));
+        assert!(g.due(false), "shown again: now");
+        assert!(!g.due(false), "only once");
+        // 6시간 뒤 같은 버전을 또 찾아도, 눌러서 또 찾아도 다시 하지 않는다
+        g.found(v("0.6.4"));
+        g.found(v("0.6.3"));
+        assert!(!g.due(false));
+        // 그사이 더 새 버전이 나왔으면 한 번 더
+        g.found(v("0.6.5"));
+        assert!(g.due(false));
+        assert!(!g.due(false));
+        assert_eq!(CHEER_SECS, 10.0);
     }
 
     #[test]

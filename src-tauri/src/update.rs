@@ -65,6 +65,7 @@ fn run(app: &AppHandle) -> Result<(), UpdateError> {
         }
         Check::Newer(release) => release,
     };
+    announce(app, release.version);
     show(app, MenuState::Downloading(release.version), true);
     let file = download(&release)?;
     show(app, MenuState::Installing(release.version), true);
@@ -82,13 +83,21 @@ pub fn start_quiet_checks(app: &AppHandle) {
         thread::sleep(update::FIRST_CHECK_AFTER);
         loop {
             match fetch_latest(platform) {
-                Ok(Check::Newer(r)) => show_quietly(&app, MenuState::Available(r.version)),
+                Ok(Check::Newer(r)) => {
+                    show_quietly(&app, MenuState::Available(r.version));
+                    announce(&app, r.version);
+                }
                 Ok(Check::UpToDate(_)) => {}
                 Err(e) => eprintln!("update check: {e:?}"),
             }
             thread::sleep(update::CHECK_EVERY);
         }
     });
+}
+
+/// 새 버전을 찾았다고 게임 루프에 알린다: 내 동물들이 "new version!!" 하고 뛴다 (버전마다 한 번은 게임 루프가 지킨다)
+fn announce(app: &AppHandle, v: Version) {
+    let _ = app.state::<AppState>().tx.lock().unwrap().send(Input::NewVersion(v));
 }
 
 /// 메뉴 글자 (+ 눌러서 시작한 것이면 펫 말풍선 한 줄)

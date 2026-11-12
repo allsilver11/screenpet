@@ -125,6 +125,8 @@ pub enum Input {
     SetSizes { pet: u32, object: u32, save: bool },
     /// 메뉴 "🕐 최근 한 시간" (기록은 게임 루프가 가진다)
     ShowTimeline,
+    /// 🔄 업데이트 확인이 새 버전을 찾았다 (update.rs) — 내 동물들이 "new version!!" 하고 뛴다
+    NewVersion(screenpet_core::update::Version),
     /// 저장하고 앱 종료
     Quit,
     /// 앱이 끝나는 중 (창이 닫힘·로그오프 등): 저장만 하고 알린 뒤 루프를 끝낸다
@@ -353,6 +355,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     objects.set_size(&app, config.object_size());
     // 🕐 최근 한 시간 (메모리에만)
     let mut timeline = TimelineFx::new();
+    // 🔄 새 버전 응원 (버전마다 한 번)
+    let mut cheer_gate = screenpet_core::update::CheerGate::default();
     // 💩 왼쪽 버튼을 새로 누른 순간만 쓴다 (어디를 무엇을 눌렀는지는 보지도 남기지도 않는다)
     let mut was_left_down = false;
     let mut poop_spots = Vec::new();
@@ -790,6 +794,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     }
                 }
                 Input::ShowTimeline => timeline.show(&app, &config),
+                Input::NewVersion(v) => cheer_gate.found(v),
                 Input::Quit => {
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     app.exit(0);
@@ -1076,6 +1081,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         // 손님도 이 화면 주인이 자리를 비운 동안엔 잠만 잔다
         for s in &mut slots[OWN + 1..] {
             s.pet.set_user_away(presence.is_away());
+        }
+        // 🔄 새 버전: 내 동물들이 "new version!!" 하고 10초쯤 뛴다 — 손님은 아니다. 창을 숨겨 둔 동안엔 다시 보일 때,
+        // 자리 비움이면 돌아왔을 때 (동물 쪽이 미룬다)
+        if cheer_gate.due(crate::windows_hidden(&app)) {
+            for s in slots.iter_mut().filter(|s| s.is_own()) {
+                s.pet.cheer(screenpet_core::update::CHEER_SECS);
+            }
         }
         let own = &mut slots[OWN];
         let busy = network.own_busy(own);
