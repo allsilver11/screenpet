@@ -5,6 +5,7 @@ pub mod care;
 pub mod collide;
 pub mod config;
 pub mod dodge;
+pub mod flicker;
 pub mod flight;
 pub mod food;
 pub mod geom;

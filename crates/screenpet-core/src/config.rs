@@ -658,9 +658,23 @@ const CRASH_LOG_MAX: u64 = 64 * 1024;
 
 /// 충돌 내용을 config 폴더의 `crash.log`에 덧붙인다 (배포판에는 콘솔이 없다). 실패는 무시한다 — 이미 죽어 가는 중이다
 pub fn append_crash_log(dir: &Path, text: &str) {
+    append_small_log(dir, CRASH_FILE, CRASH_LOG_MAX, text);
+}
+
+const NETWORK_FILE: &str = "network.log";
+/// 연결 기록이 이보다 커지면 처음부터 다시 쓴다
+const NETWORK_LOG_MAX: u64 = 256 * 1024;
+
+/// 서버(릴레이)·친구 연결이 붙고 끊긴 기록을 config 폴더의 `network.log`에 덧붙인다 — 인터넷이 불안정할 때 원인을 보려고.
+/// 페이지 내용·메시지는 적지 않는다 (시각, 무엇이 붙었는지/끊겼는지만). 실패는 무시한다
+pub fn append_network_log(dir: &Path, text: &str) {
+    append_small_log(dir, NETWORK_FILE, NETWORK_LOG_MAX, text);
+}
+
+fn append_small_log(dir: &Path, name: &str, max: u64, text: &str) {
     use std::io::Write;
-    let path = dir.join(CRASH_FILE);
-    let keep = std::fs::metadata(&path).is_ok_and(|m| m.len() < CRASH_LOG_MAX);
+    let path = dir.join(name);
+    let keep = std::fs::metadata(&path).is_ok_and(|m| m.len() < max);
     let _ = std::fs::create_dir_all(dir);
     let file = std::fs::OpenOptions::new().create(true).write(true).append(keep).truncate(!keep).open(&path);
     if let Ok(mut f) = file {
@@ -1246,6 +1260,18 @@ mod tests {
         std::fs::write(d.join("crash.log"), "x".repeat(CRASH_LOG_MAX as usize)).unwrap();
         append_crash_log(&d, "three");
         assert_eq!(std::fs::read_to_string(d.join("crash.log")).unwrap(), "three\n");
+    }
+
+    #[test]
+    fn network_events_go_to_their_own_small_log() {
+        let d = temp_dir("netlog");
+        append_network_log(&d, "relay up");
+        append_network_log(&d, "friend ab down");
+        assert_eq!(std::fs::read_to_string(d.join("network.log")).unwrap(), "relay up\nfriend ab down\n");
+        std::fs::write(d.join("network.log"), "x".repeat(NETWORK_LOG_MAX as usize)).unwrap();
+        append_network_log(&d, "again");
+        assert_eq!(std::fs::read_to_string(d.join("network.log")).unwrap(), "again\n");
+        assert!(!d.join("crash.log").exists());
     }
 
     #[test]

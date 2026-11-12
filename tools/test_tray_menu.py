@@ -39,7 +39,9 @@ def test_relay_status_line_is_shown_in_the_friends_menu():
     for line in ("인터넷 연결: 연결됨", "인터넷 연결: 끊김", "인터넷 연결: 꺼짐"):
         assert line in TRAY
     assert "pub relay: Option<bool>," in TRAY
-    assert "self.relay_enabled.then_some(self.relay_connected)" in (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+    # 잠깐 끊긴 건 30초 동안 "연결됨" 그대로 (회사 망처럼 끊겼다 붙었다 하면 줄이 깜빡이고 열린 메뉴가 닫혔다 — screenpet_core::flicker)
+    net = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+    assert "self.relay_enabled.then_some(self.flicker.shown(RELAY_FLICKER, self.relay_connected, now))" in net
 
 
 def test_help_item_label():
@@ -238,3 +240,11 @@ def test_help_says_what_my_two_computers_share():
     assert "펫·성장·선물·기록은 컴마다 따로" not in one
     assert "고른 펫과 성장" in one and "그사이 다른 컴에서 키운 건 덮어써질 수 있어요" in one
     assert "선물 도감" in one and "따로" in one
+
+
+def test_a_short_drop_does_not_flip_friends_offline_or_redraw_the_menu():
+    """친구·릴레이가 잠깐 끊겼다 붙으면 메뉴 모델이 바뀌지 않는다 (OFFLINE_GRACE_SECS 유예), 유예가 끝나면 그때 한 번 다시 그린다."""
+    net = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+    assert "self.flicker.down(&id, now);" in net and "self.flicker.up(&id);" in net
+    assert "for id in self.flicker.expired(secs) {" in net
+    assert 'self.net_log(&format!("friend {} disconnected", short_id(&id)));' in net

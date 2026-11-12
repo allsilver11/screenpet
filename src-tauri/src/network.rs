@@ -424,6 +424,10 @@ pub struct Network {
     /// 친구별 연결된 때 (한 사람의 두 컴퓨터가 다 연결돼 있으면 나중 것이 보낼 곳)
     connected_at: HashMap<String, Instant>,
     started: Instant,
+    /// 잠깐 끊긴 친구·릴레이는 OFFLINE_GRACE_SECS 동안 메뉴에 그대로 (깜빡임·메뉴 닫힘 방지, screenpet_core::flicker)
+    flicker: screenpet_core::flicker::Flicker,
+    /// network.log를 쓰는 config 폴더
+    log_dir: std::path::PathBuf,
     /// 📱 이 컴퓨터는 대기 중 (내 다른 컴퓨터에서 논다): 친구와 연결하지 않는다
     standby: bool,
     /// 📱 대기 중인 내 다른 컴퓨터 (이 컴퓨터가 논다) — 내 펫·물건을 그리로 보내지 않는다
@@ -485,6 +489,13 @@ pub(crate) fn from_net_side(s: screenpet_net::Side, v: Option<VSide>) -> Side {
 }
 
 use visit::opposite;
+
+/// flicker에서 릴레이 연결을 가리키는 이름 (친구 id와 겹치지 않는다)
+const RELAY_FLICKER: &str = "#relay";
+
+fn short_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
+}
 
 pub(crate) fn to_net_fling(f: visit::Fling) -> screenpet_net::Fling {
     screenpet_net::Fling { height: f.height, vx: f.vx, vy: f.vy }
@@ -565,6 +576,8 @@ impl Network {
             linking: None,
             connected_at: HashMap::new(),
             started: Instant::now(),
+            flicker: Default::default(),
+            log_dir: app.state::<AppState>().config_dir.clone(),
             standby: false,
             device_standby: None,
             claim_watch: ClaimWatch::default(),
@@ -615,6 +628,17 @@ impl Network {
     /// 📬 편지를 든 펫을 들이고 보낸다 (개발자 컴퓨터만)
     pub fn tick_mailbox(&mut self, app: &AppHandle, slots: &mut Vec<Slot>, now: Instant) {
         self.mailbox.tick(app, slots, now);
+    }
+
+    /// 앱 시작부터 지난 초 (flicker 시계)
+    fn secs(&self) -> f64 {
+        self.started.elapsed().as_secs_f64()
+    }
+
+    /// network.log 한 줄 (시각 + 무엇이 붙었는지/끊겼는지 — 친구 id는 앞 8자만)
+    fn net_log(&self, what: &str) {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        screenpet_core::config::append_network_log(&self.log_dir, &format!("{t} {what}"));
     }
 
     /// 💩 똥피하기 새 최고 기록을 연결된 친구들에게 알린다
@@ -1262,8 +1286,15 @@ impl Network {
             NetEvent::InviteSent { to, sas, pairing } => self.on_invite_sent(app, &to, &sas, pairing),
             NetEvent::InviteAnswered { from: _, accepted, pairing } => self.on_invite_answered(app, accepted, pairing),
             NetEvent::Connected { id, name } => {
+                self.net_log(&format!("friend {} connected", short_id(&id)));
+                // 잠깐 끊겼다 다시 붙었으면 메뉴의 "연결된 때"는 그대로 (순서가 흔들리지 않게)
+                if self.flicker.shown(&id, false, self.secs()) {
+                    self.connected_at.entry(id.clone()).or_insert_with(Instant::now);
+                } else {
+                    self.connected_at.insert(id.clone(), Instant::now());
+                }
+                self.flicker.up(&id);
                 self.connected.insert(id.clone());
-                self.connected_at.insert(id.clone(), Instant::now());
                 // 고정된 키를 증명한 링크의 이름 (방금 끝난 짝맞추기도 그 링크에서 Connected가 온다)
                 self.note_name(&id, &name);
                 // 💩 똥피하기 최고 기록을 알린다 (예전 판은 모르는 부탁을 무시한다)
@@ -1322,8 +1353,11 @@ impl Network {
                 }
             }
             NetEvent::Disconnected { id } => {
+                self.net_log(&format!("friend {} disconnected", short_id(&id)));
                 self.connected.remove(&id);
-                self.connected_at.remove(&id);
+                // 메뉴에선 잠깐 그대로 (유예가 끝나면 tick이 지운다)
+                let now = self.secs();
+                self.flicker.down(&id, now);
                 // 📱 그 친구에게 데려다준 내 다른 컴퓨터의 펫은 그 컴퓨터로 돌아간다 (그 컴퓨터가 끊겼으면 잊는다)
                 let gone: Vec<u64> = self.carried.iter().filter(|(_, c)| c.host == id || c.owner == id).map(|(v, _)| *v).collect();
                 for v in gone {
@@ -1432,6 +1466,13 @@ impl Network {
             // 📱 내 다른 컴퓨터의 펫과 성장은 게임 루프가 바로 받는다 (돌보기 상태는 루프가 가진다)
             NetEvent::DeviceState { .. } => {}
             NetEvent::RelayStatus { connected } => {
+                self.net_log(if connected { "relay connected" } else { "relay disconnected" });
+                if connected {
+                    self.flicker.up(RELAY_FLICKER);
+                } else {
+                    let now = self.secs();
+                    self.flicker.down(RELAY_FLICKER, now);
+                }
                 self.relay_connected = connected;
                 self.update_code_view(app);
                 // 📬 개발자 컴퓨터는 붙을 때마다 편지함을 받아 온다
@@ -2064,6 +2105,14 @@ impl Network {
 
     /// 매 틱: 짝맞추기 시간, "집에 와" 대비, 트레이 `친구랑 놀기` 메뉴
     pub fn tick(&mut self, app: &AppHandle, now: Instant, config: &Config, own: &mut Slot) {
+        // 잠깐 끊김 유예가 끝난 친구·릴레이: 이제 정말 오프라인 — 메뉴를 다시 그린다
+        let secs = self.secs();
+        for id in self.flicker.expired(secs) {
+            if !self.connected.contains(&id) {
+                self.connected_at.remove(&id);
+            }
+            self.menu_dirty = true;
+        }
         self.quiet = own.pet.is_focusing() || screenpet_core::weather::any_fullscreen(&own.world.windows, &own.world.work_areas);
         self.tick_pairing(app, now);
         // 📱 코드를 넣었는데 저쪽이 대답하지 않는다
@@ -2136,12 +2185,15 @@ impl Network {
     fn menu_model(&self, config: &Config) -> FriendsMenu {
         let strangers = self.seen.menu_strangers(|id| config.friend(id).is_some());
         // 📱 사람마다 한 줄: 친구와 그 친구가 소개한 그 친구의 다른 컴퓨터는 하나 (지금 노는 컴퓨터로 보낸다)
-        let at = |id: &str| self.connected_at.get(id).filter(|_| self.link_up(id)).map(|t| t.duration_since(self.started).as_secs_f64());
+        let now = self.secs();
+        let shown = |id: &str| self.flicker.shown(id, self.link_up(id), now);
+        let at = |id: &str| self.connected_at.get(id).filter(|_| shown(id)).map(|t| t.duration_since(self.started).as_secs_f64());
         let friends = config.people(at)
             .into_iter()
             .filter_map(|p| {
                 let f = config.friend(&p.id)?;
-                let playable = self.is_connected(&p.target);
+                // 잠깐 끊긴 동안도 메뉴는 그대로 (보내기는 다시 붙으면 된다 — 못 보내면 보내는 쪽이 알아서 그만둔다)
+                let playable = linked::playable(&p.target, shown(&p.target), self.device_standby.as_deref());
                 Some(FriendItem {
                     id: p.id.clone(),
                     name: f.shown_name().to_string(),
@@ -2157,7 +2209,7 @@ impl Network {
         // 손님 우클릭 "<친구>에게 보내기" 목록
         *ONLINE_FRIENDS.lock().unwrap() =
             config.friends.iter().filter(|f| self.is_open(&f.id)).map(|f| (f.id.clone(), config.person_name(&f.id).unwrap_or(f.shown_name()).to_string())).collect();
-        let relay = self.relay_enabled.then_some(self.relay_connected);
+        let relay = self.relay_enabled.then_some(self.flicker.shown(RELAY_FLICKER, self.relay_connected, now));
         let room = self.guests < MAX_GUESTS;
         // 사다리타기: 판이 있으면 언제든 그 창을, 없으면 사다리를 아는 친구가 연결돼 있고 내가 바쁘지 않을 때
         let ladder_friend = self.net.as_ref().is_some_and(|n| {
