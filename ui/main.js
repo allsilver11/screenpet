@@ -906,14 +906,14 @@ const EXTRA_SPEECH = {
   // 🔄 업데이트 확인이 새 버전을 찾았다 — 10초쯤 신나게 뛴다 (코어 brain_cheer.rs)
   new_version: ["new version!!"],
   // 흐물이 더 놀기 (v0.6.3): 🎣 커서에 매달려 흔들흔들 / 세게 흔들면 / 🙆 들려서 버둥 / 🫣 들켰다 / 못 찾아서 나옴 / 🕺 춤 / ⌨️ 타자 응원 / ⚾ 캐치볼 20번
-  swing: ["와아~", "와아아~"],
-  more: ["더 더!", "와아아!!"],
-  put_me_down: ["놔줘!", "내려 줘~"],
-  found: ["들켰다!"],
-  peekaboo: ["여기 있지롱"],
+  swing: ["Wheee~", "Wheeee!"],
+  more: ["More!", "Again!"],
+  put_me_down: ["Put me down!", "Hey!"],
+  found: ["Found me!"],
+  peekaboo: ["Peekaboo~"],
   dance: ["♪", "♪♪"],
-  fighting: ["화이팅!"],
-  rally_end: ["끝!"],
+  fighting: ["Cheer up!", "You got this!"],
+  rally_end: ["Done!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {

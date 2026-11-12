@@ -2,7 +2,7 @@
 //!
 //! 앱이 매 틱 set_typing_rate(초당 키 수)를 알려 준다 (센서는 앱 — 어떤 키인지는 보지도 남기지도 않는다).
 //! 초당 TYPING_KPS(4)타 넘게 TYPING_HOLD_SECS(2초) 이어지고 흐물이가 화면에서 쉬거나 걷고 있으면 화면 쪽(앞)을 보고 응원한다
-//! (cheer_type — 주먹 번쩍 / 허공 타자), 가끔 "화이팅!". 빠른 타자가 이어지는 동안 + AFTER_SECS(2초).
+//! (cheer_type — 주먹 번쩍 / 허공 타자), 가끔 "Cheer up!" / "You got this!". 빠른 타자가 이어지는 동안 + AFTER_SECS(2초).
 //! 하루 종일은 아니게: BUDGET_WINDOW_SECS(3분)마다 모두 BUDGET_SECS(20초)까지만.
 
 use super::*;
@@ -12,7 +12,7 @@ pub const TYPING_HOLD_SECS: f64 = 2.0;
 pub const AFTER_SECS: f64 = 2.0;
 pub const BUDGET_SECS: f64 = 20.0;
 pub const BUDGET_WINDOW_SECS: f64 = 180.0;
-/// "화이팅!" 간격
+/// "Cheer up!" 간격
 const FIGHTING_SECS: (f64, f64) = (4.0, 7.0);
 
 #[derive(Debug, Clone, Default)]

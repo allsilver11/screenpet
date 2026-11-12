@@ -101,7 +101,7 @@ fn the_twentieth_catch_ends_the_rally() {
     let mut p = resting(heumul(), 1350.0, 3, &w);
     let r = play(&mut p, &w, ball(MAX_RALLY - 1), 20.0);
     assert!(r.caught);
-    assert!(r.speech.contains(&Speech::RallyEnd) && r.said.is_empty(), "끝!");
+    assert!(r.speech.contains(&Speech::RallyEnd) && r.said.is_empty(), "Done!");
     assert_eq!(r.rally, None, "되던지지 않는다");
 }
 

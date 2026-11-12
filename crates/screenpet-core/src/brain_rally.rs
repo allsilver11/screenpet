@@ -4,7 +4,7 @@
 //! 그것이 머리 위 높이로 내려올 자리를 셈해 달려가 (JugglePhase::Chase) 머리 위로 받는다 (Catch — JuggleEvent::Catch로 앱이 손에 쥐여 준다).
 //! 몇 번째인지 외친다 ("3!" — take_speech_text). 그리고 날아온 끝으로 되던진다 (Plan::Lob — 그 끝 가까이 달려가 모니터 너머로):
 //! 놓을 때 take_rally가 (id, 주고받은 횟수 + 1)을 한 번 돌려준다 — 앱은 그 물건에 set_rally로 적어 친구에게 보내는 Toss에 싣는다.
-//! MAX_RALLY(20)에 닿으면 "끝!" 하고 되던지지 않는다 (그 자리에서 휙). 거대한 것은 받지 않는다. 늦어서 못 받으면 그냥 그만둔다.
+//! MAX_RALLY(20)에 닿으면 "Done!" 하고 되던지지 않는다 (그 자리에서 휙). 거대한 것은 받지 않는다. 늦어서 못 받으면 그냥 그만둔다.
 
 use super::*;
 use crate::juggle::{self, Incoming, JuggleEvent};

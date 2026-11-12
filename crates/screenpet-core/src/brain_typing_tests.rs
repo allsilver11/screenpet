@@ -33,7 +33,7 @@ fn fast_typing_for_two_seconds_makes_it_face_the_screen_and_cheer() {
     assert_eq!(p.render().anim, Anim::CheerType);
     assert!(Anim::CheerType.is_front(), "앞(화면)을 본다");
     assert!(said.contains(&Speech::Fighting));
-    // 빠른 타자가 이어지는 동안 계속, "화이팅!"은 가끔 또
+    // 빠른 타자가 이어지는 동안 계속, "Cheer up!"는 가끔 또
     let said = run(&mut p, &w, 12.0, 6.0);
     assert!(cheering(&p) && said.iter().filter(|s| **s == Speech::Fighting).count() >= 1);
     // 느려지면 2초 뒤 끝

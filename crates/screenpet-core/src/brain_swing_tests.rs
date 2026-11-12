@@ -197,7 +197,7 @@ fn it_says_wheee_and_a_fast_swing_makes_it_happy() {
             break;
         }
     }
-    assert!(hearts && more, "흔들수록 신난다 (하트, 더 더!)");
+    assert!(hearts && more, "흔들수록 신난다 (하트, More!)");
 }
 
 #[test]

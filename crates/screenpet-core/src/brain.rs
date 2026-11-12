@@ -259,21 +259,21 @@ pub enum Speech {
     Stow,
     /// 🔄 새 버전이 나왔다 ("new version!!", brain_cheer.rs)
     NewVersion,
-    /// 🎣 커서에 매달려 흔들흔들 ("와아~", brain_swing.rs)
+    /// 🎣 커서에 매달려 흔들흔들 ("Wheee~", brain_swing.rs)
     Swing,
-    /// 🎣 세게 흔들수록 신난다 ("더 더!")
+    /// 🎣 세게 흔들수록 신난다 ("More!")
     More,
-    /// 🙆 흐물이가 번쩍 들어 올린 동물 ("놔줘!", brain_hoist.rs)
+    /// 🙆 흐물이가 번쩍 들어 올린 동물 ("Put me down!", brain_hoist.rs)
     PutMeDown,
-    /// 🫣 숨어 있다가 들켰다 ("들켰다!", brain_hide.rs)
+    /// 🫣 숨어 있다가 들켰다 ("Found me!", brain_hide.rs)
     Found,
-    /// 🫣 아무도 못 찾아서 나온다 ("여기 있지롱")
+    /// 🫣 아무도 못 찾아서 나온다 ("Peekaboo~")
     Peekaboo,
     /// 🕺 연타 춤 ("♪", brain_dance.rs)
     Dance,
-    /// ⌨️ 타자 응원 ("화이팅!", brain_typing.rs)
+    /// ⌨️ 타자 응원 ("Cheer up!" / "You got this!", brain_typing.rs)
     Fighting,
-    /// ⚾ 캐치볼이 20번에 닿았다 ("끝!", brain_rally.rs) — 받은 횟수("3!")는 글자 그대로 (take_speech_text)
+    /// ⚾ 캐치볼이 20번에 닿았다 ("Done!", brain_rally.rs) — 받은 횟수("3!")는 글자 그대로 (take_speech_text)
     RallyEnd,
 }
 

@@ -1,7 +1,7 @@
 //! 🙆 다른 동물 번쩍 들기 (흐물이, v0.6.3) — brain.rs의 자식 모듈. 같은 화면 동물들 사이의 일은 notice_pets·sync_lifts (앱이 틱마다).
 //!
 //! - 같은 바닥에서 쉬거나 걷는 다른 동물 (내 동물·손님 모두)을 처음 알아채면 LIFT_CHANCE로 다가가 쪼그려 머리 위로 번쩍 (lift → hold).
-//!   들린 동물은 State::Lifted — 잡힌 그림(dragged)으로 버둥버둥 (render.wobble) "놔줘!". 흐물이는 조금 들고 다니다가
+//!   들린 동물은 State::Lifted — 잡힌 그림(dragged)으로 버둥버둥 (render.wobble) "Put me down!". 흐물이는 조금 들고 다니다가
 //!   살며시 내려놓는다 (stuff 그림 — 던지지 않는다, 들린 동물은 사뿐 떨어져 선다).
 //! - 친구에게 데려가기: 앱이 set_lift_edges로 알려 준 끝(그 끝 친구가 새 버전이고, 들린 동물이 이 화면 주인의 동물일 때만 — 손님은 절대
 //!   남의 동물을 데려가지 않는다)까지 같은 바닥으로 갈 수 있으면 CARRY_CHANCE로 그 끝으로 달려가 들고 나간다. 다 나가면 sync_lifts가
@@ -35,7 +35,7 @@ pub const PUT_SECS: f64 = 0.7;
 pub const PUT_RELEASE: f64 = 0.5;
 /// 흐물이가 이만큼 오래 옮겨 주지 않으면 들린 동물은 그냥 떨어진다
 const LIFT_STALE_SECS: f64 = 0.5;
-/// 들린 동물이 "놔줘!" 하는 간격
+/// 들린 동물이 "Put me down!" 하는 간격
 const PLEAD_SECS: f64 = 2.5;
 
 /// 같은 화면의 다른 동물 (notice_pets가 채운다)
@@ -98,7 +98,7 @@ pub struct HoistMood {
     /// 방금 들어 올렸다 / 내려놓았다 — sync_lifts가 한 번 꺼낸다
     lifted_now: Option<u64>,
     put_now: Option<u64>,
-    /// 들린 동물: 마지막으로 옮겨진 시각, 다음 "놔줘!"
+    /// 들린 동물: 마지막으로 옮겨진 시각, 다음 "Put me down!"
     lifted_seen: f64,
     plead_in: f64,
 }
