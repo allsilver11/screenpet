@@ -134,6 +134,20 @@ pub enum Anim {
     Hang,
     /// 흐물이 — 밧줄 타듯 손을 번갈아 창 옆면을 오르내린다 (옆모습, 창 쪽을 본다)
     Rope,
+    /// 흐물이 — 쪼그려 앉아 물건을 잡고 머리 위로 번쩍 (옆모습, 한 번 — brain_juggle.rs)
+    Lift,
+    /// 흐물이 — 물건을 머리 위에 든 채 서 있다 (옆모습)
+    Hold,
+    /// 흐물이 — 물건을 머리 위에 인 채 걷는다 (옆모습)
+    Carry,
+    /// 흐물이 — 뒤로 젖혔다가 휙 던진다 (옆모습, 한 번)
+    Throw,
+    /// 흐물이 — 거대한 것에 "끙차" 힘주기, 팔이 덜덜 (옆모습)
+    Strain,
+    /// 흐물이 — 앞을 보고 번쩍 든 채 섰다가 휙 떨군다 (앞모습, 한 번 — 배달 도착)
+    Present,
+    /// 흐물이 — 너무 무거워 털썩 주저앉음 (옆모습)
+    Slump,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -210,6 +224,16 @@ pub enum Speech {
     Whoosh,
     /// 깜짝 놀라 벌떡 ("!!", 레서판다 Special::Surprise)
     Surprise,
+    /// 물건을 번쩍 든다 ("hup!", brain_juggle.rs)
+    Hup,
+    /// 거대한 것에 힘을 준다 ("hnngh!")
+    Strain,
+    /// 휙 던진다 ("yeet!")
+    Yeet,
+    /// 배달 도착 — 앞을 보고 번쩍 ("ta-da!")
+    Tada,
+    /// 너무 무거워 털썩 ("phew...")
+    Phew,
 }
 
 impl Anim {
@@ -220,7 +244,7 @@ impl Anim {
 
     /// 앞모습 동작 — 좌우 반전하지 않는다.
     pub fn is_front(self) -> bool {
-        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Hungry | Anim::Eat | Anim::LevelUp | Anim::Huff | Anim::Surprise)
+        matches!(self, Anim::SitFront | Anim::Wave | Anim::Tilt | Anim::Belly | Anim::Stretch | Anim::Heart | Anim::Tickle | Anim::Hungry | Anim::Eat | Anim::LevelUp | Anim::Huff | Anim::Surprise | Anim::Present)
     }
 }
 
@@ -348,6 +372,8 @@ pub enum State {
     Panic { remaining: f64, dir: f64 },
     /// 창 옆면에 매달려 있다 — rel_y = 발 높이 − 창 윗면, turns = 남은 오르내리기 (brain_heumul.rs)
     Rig { window: u64, side: Side, rel_y: f64, phase: heumul_moves::RigPhase, remaining: f64, turns: u8 },
+    /// 물건을 주워 들고 던지기·돌아다니기·배달·주저앉기 — t = 이 단계에 들어선 뒤 흐른 시간 (brain_juggle.rs)
+    Juggle { phase: juggle_moves::JugglePhase, t: f64 },
     /// 친구 머리 위에 서 있다 — 자리는 social이 옮긴다. remaining: 내려올 때까지, age: 올라선 뒤 지난 시간 (brain_tower.rs)
     OnHead { remaining: f64, age: f64 },
 }
@@ -464,6 +490,10 @@ pub struct PetConfig {
     pub energetic: bool,
     /// 창 옆면에 매달려 손 흔들고 오르내린다 (pet.json `rigging` + hang·rope 그림 — 흐물이)
     pub rigging: bool,
+    /// 바닥의 물건·똥을 주워 머리 위로 들고 던진다 (pet.json `juggler` + lift·hold·carry·throw·strain·present·slump 그림 — 흐물이, brain_juggle.rs)
+    pub juggler: bool,
+    /// 물건을 든 동작들의 칸별 손 자리 (pet.json grip)
+    pub grip: crate::juggle::GripTable,
     /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
     pub dpi: f64,
     /// 커서에 매달릴 때 커서 끝이 닿는 머리 꼭대기 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율. pet.json head의 dragged)
@@ -499,6 +529,8 @@ impl PetConfig {
             timid: m.timid(),
             energetic: m.energetic,
             rigging: m.rigs(),
+            juggler: m.juggles(),
+            grip: m.grip_table(stage),
             dpi,
             hang_grip: m.hang_grip(stage),
             no_roll: m.no_roll(),
@@ -668,6 +700,8 @@ pub struct Pet {
     gentle_drop: bool,
     /// 발밑 모니터 작업 영역의 위 끝 (탑 높이 제한)
     ceiling: f64,
+    /// 물건 들어 던지기 (brain_juggle.rs)
+    juggle: juggle_moves::JuggleMood,
     rng: fastrand::Rng,
 }
 
@@ -749,6 +783,7 @@ impl Pet {
             no_perch: false,
             gentle_drop: false,
             ceiling: f64::NEG_INFINITY,
+            juggle: juggle_moves::JuggleMood::new(seed),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -884,6 +919,7 @@ impl Pet {
             State::Tumble { remaining, dir } => self.update_tumble(dt, world, remaining, dir),
             State::Panic { remaining, dir } => self.update_panic(dt, world, remaining, dir),
             State::Rig { window, side, rel_y, phase, remaining, turns } => self.update_rig(dt, world, window, side, rel_y, phase, remaining, turns),
+            State::Juggle { phase, t } => self.update_juggle(dt, world, phase, t),
             State::Slip { remaining, dir } => self.update_slip(dt, world, remaining, dir),
             State::Meet { phase, remaining } => self.update_meet(dt, world, phase, remaining),
             State::Snowman { phase, remaining, dir } => self.update_snowman(dt, world, phase, remaining, dir),
@@ -933,6 +969,7 @@ impl Pet {
             State::Tumble { .. } => Anim::Roll,
             State::Panic { .. } => Anim::Panic,
             State::Rig { phase, .. } => Pet::rig_anim(phase),
+            State::Juggle { phase, .. } => self.juggle_anim(phase),
             State::Slip { remaining, .. } => self.slip_anim(remaining),
             State::Meet { phase, remaining } => self.meet_anim(phase, remaining),
             State::OnHead { .. } => Anim::Idle,
@@ -958,6 +995,7 @@ impl Pet {
             (Anim::Roll, _) if self.cfg.no_roll => Anim::Walk,
             _ => anim,
         };
+        let anim = self.carrying_anim(anim);
         let hang = self.hang_side();
         RenderState { anim, flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0, heart: self.heart_timer > 0.0, poof: self.poofing(), ctl: self.is_controlled(), wobble: self.wobble_timer > 0.0, hang, cloud: self.snow_cloud_on(), housed: self.housed, flash: self.glasses_flash_on(), glare: self.glasses_glare_on(), thud: self.thud > 0.0 && matches!(self.state, State::Land { .. }) }
     }
@@ -2551,6 +2589,7 @@ impl Pet {
             | State::OnHead { .. }
             | State::Panic { .. }
             | State::Rig { .. }
+            | State::Juggle { .. }
             | State::Move { .. } => {}
         }
     }
@@ -3305,6 +3344,14 @@ pub mod heumul_moves;
 #[path = "brain_heumul_tests.rs"]
 mod heumul_tests;
 
+/// 물건 주워 머리 위로 들고 던지기·들고 돌아다니기·친구에게 배달·거대한 것에 끙차 (흐물이, 숫자는 juggle.rs)
+#[path = "brain_juggle.rs"]
+pub mod juggle_moves;
+
+#[cfg(test)]
+#[path = "brain_juggle_tests.rs"]
+mod juggle_tests;
+
 #[path = "brain_presence.rs"]
 mod presence_moves;
 
@@ -3811,7 +3858,8 @@ mod tests {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise, Anim::Panic, Anim::Hang, Anim::Rope];
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise, Anim::Panic, Anim::Hang, Anim::Rope,
+            Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

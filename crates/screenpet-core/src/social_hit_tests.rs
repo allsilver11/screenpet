@@ -582,3 +582,16 @@ fn busy_pets_are_not_hit_by_objects() {
     assert!(hit(false), "the same throw hits a free pet");
     assert!(!hit(true));
 }
+
+/// 🤹 흐물이가 던진 물건은 던진 동물 자신을 잠깐 맞히지 않는다 (손에서 막 떠난 물건이 제 몸과 겹친다)
+#[test]
+fn a_juggled_object_spares_its_thrower_for_a_moment() {
+    let w = world(vec![]);
+    let mut pets = vec![ground(&w, friendly(), 800.0, 2)];
+    let key = pets[0].social_key();
+    let mut s = Social::new(1);
+    let mut o = thrown_object(ObjectKind::Can, 600.0, GROUND - 20.0, 1200.0, 0.0);
+    s.spare(7, key, 2.0);
+    assert!(!fly_object(&mut s, &mut o, &mut pets, 30), "던진 동물은 맞지 않는다");
+    assert!(!pets[0].wobbling());
+}

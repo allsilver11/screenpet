@@ -30,6 +30,8 @@ pub(crate) fn pet_cfg() -> PetConfig {
         timid: false,
         energetic: false,
         rigging: false,
+        juggler: false,
+        grip: Default::default(),
         dpi: 1.0,
     }
 }

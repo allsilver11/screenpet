@@ -85,7 +85,7 @@ fn sample_visit() -> Visit {
         fling: None,
         note: None,
         gift: None,
-        style: None, boost: None, no_grow: None, of: None }
+        style: None, boost: None, no_grow: None, of: None, carry: None }
 }
 
 /// Start a Net "mmmm" (discovery on an OS-chosen port) that "broadcasts" to
@@ -597,7 +597,7 @@ fn visit_messages_round_trip() {
         Some(NetEvent::Received { from: "bbbb".into(), msg: Visit::leave(42) })
     );
     // 다른 친구에게 더 놀러 가는 손님
-    let hop = Visit::Leave { visit_id: 42, next: Some("cccc".into()), side: Some(Side::Right), vside: None, homesick_in: Some(77.0), fling: None, note: None, boost: None };
+    let hop = Visit::Leave { visit_id: 42, next: Some("cccc".into()), side: Some(Side::Right), vside: None, homesick_in: Some(77.0), fling: None, note: None, boost: None, carry: None };
     p.b.send("aaaa", hop.clone());
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
@@ -606,7 +606,7 @@ fn visit_messages_round_trip() {
     // 편지를 들려 보낸 방문, 그리고 주인이 다음 친구에게 이어 보낼 때도 같은 편지를 다시 싣는다 (via)
     for via in [None, Some("cccc".to_string())] {
         let Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, homesick_in, fling, .. } = sample_visit() else { unreachable!() };
-        let letter = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via, homesick_in, fling, note: Some("놀러 왔어 💌".into()), gift: None, style: None, boost: None, no_grow: None, of: None };
+        let letter = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via, homesick_in, fling, note: Some("놀러 왔어 💌".into()), gift: None, style: None, boost: None, no_grow: None, of: None, carry: None };
         p.a.send("bbbb", letter.clone());
         assert_eq!(
             wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
@@ -614,7 +614,7 @@ fn visit_messages_round_trip() {
         );
     }
     // 친구가 답장을 써서 돌려보낸 귀환
-    let reply = Visit::Leave { visit_id: 42, next: None, side: None, vside: None, homesick_in: None, fling: None, note: Some("또 와 💌".into()), boost: None };
+    let reply = Visit::Leave { visit_id: 42, next: None, side: None, vside: None, homesick_in: None, fling: None, note: Some("또 와 💌".into()), boost: None, carry: None };
     p.b.send("aaaa", reply.clone());
     assert_eq!(
         wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
@@ -1376,7 +1376,7 @@ fn the_largest_message_passes_and_the_largest_frame_of_garbage_only_ends_its_lin
 fn a_message_too_big_for_a_frame_is_dropped_and_the_link_stays() {
     let p = connected_pair();
     let Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, .. } = sample_visit() else { unreachable!() };
-    let huge = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via: None, homesick_in: None, fling: None, note: Some("x".repeat(70_000)), gift: None, style: None, boost: None, no_grow: None, of: None };
+    let huge = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via: None, homesick_in: None, fling: None, note: Some("x".repeat(70_000)), gift: None, style: None, boost: None, no_grow: None, of: None, carry: None };
     p.a.send("bbbb", huge);
     p.a.send("bbbb", sample_visit());
     assert_eq!(
@@ -2584,7 +2584,7 @@ fn two_computers_link_with_a_code_share_friends_and_prove_it_again_after_a_resta
     let (b, brx) = Net::start(cb.clone()).unwrap();
     wait_for(&arx, 5.0, is_connected).unwrap();
     wait_for(&brx, 5.0, is_connected).unwrap();
-    assert_eq!(a.peer_version(&b_id), Some(3));
+    assert_eq!(a.peer_version(&b_id), Some(screenpet_net::PROTOCOL_VERSION));
     // 서로 친구일 뿐: 친구 목록은 가지 않는다
     assert!(!a.send_device_friends(&b_id, false, |_| ("Fred".into(), None)));
     // A가 코드를 보여 주고 B에서 그 코드를 넣는다

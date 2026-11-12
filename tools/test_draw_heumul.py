@@ -16,7 +16,8 @@ from sprite_spec import ANIMS, OPTIONAL_ANIMS, STAGES, sheet_128
 ROOT = Path(__file__).resolve().parent.parent
 SHIPPED = ROOT / "ui" / "pets" / "heumul"
 STANDING = ("walk", "idle", "look", "annoyed", "lookup", "stretch", "heart", "tickle", "sit_front", "wave", "tilt",
-            "hungry", "eat", "sleep", "belly")
+            "hungry", "eat", "sleep", "belly", "lift", "hold", "carry", "throw", "strain", "present", "slump")
+JUGGLE = ["lift", "hold", "carry", "throw", "strain", "present", "slump"]
 
 
 @pytest.fixture(scope="module")
@@ -41,10 +42,11 @@ def near(im, col, tol=30):
     return (np.abs(a[..., :3] - np.array(col)).sum(axis=2) < tol) & (a[..., 3] > 200)
 
 
-def test_registered_with_panic_hang_and_rope():
+def test_registered_with_panic_hang_rope_and_the_juggle_rows():
     assert draw_pets.SPECIES["heumul"] is hm.HEUMUL
-    assert [o[0] for o in OPTIONAL_ANIMS[-3:]] == ["panic", "hang", "rope"]  # = Rust manifest::OPTIONAL_ANIMS 맨 끝
-    assert names(hm.HEUMUL) == [a for a, *_ in ANIMS] + ["lookup", "panic", "hang", "rope"]
+    assert [o[0] for o in OPTIONAL_ANIMS[-10:-7]] == ["panic", "hang", "rope"]
+    assert [o[0] for o in OPTIONAL_ANIMS[-7:]] == JUGGLE  # = Rust manifest::OPTIONAL_ANIMS 맨 끝 (JUGGLE_ANIMS)
+    assert names(hm.HEUMUL) == [a for a, *_ in ANIMS] + ["lookup", "panic", "hang", "rope"] + JUGGLE
 
 
 def test_every_frame_is_drawn_inside_the_cell(out):
@@ -59,7 +61,7 @@ def test_manifest_is_a_timid_energetic_rigger_that_loves_lollipops(out):
     assert m["name"] == "흐물이"
     assert m["favorite_food"] == {"emoji": "🍭", "name": "막대사탕"}
     assert m["personality"] == "playful"
-    assert (m["timid"], m["energetic"], m["rigging"]) == (True, True, True)
+    assert (m["timid"], m["energetic"], m["rigging"], m["juggler"]) == (True, True, True, True)
     assert m["hop_share"] == 0.5 and m["walk_speed"] >= 100
     assert m["animations"]["panic"] == {"row": len(ANIMS) + 1, "frames": 4, "fps": 12}
     assert "front" not in m["animations"]["hang"] and "front" not in m["animations"]["rope"]
@@ -186,3 +188,47 @@ def test_limbs_end_as_plain_lines_without_hand_or_foot_dots():
     src = (Path(__file__).resolve().parent / "draw_heumul.py").read_text(encoding="utf-8")
     render = src[src.index("    def render(self"):src.index("def stand(")]
     assert 'kind == "dot"' not in render and 'kind == "foot"' not in render
+
+
+def test_juggle_rows_play_like_the_core_expects(out):
+    """코어 juggle.rs: lift 4칸 8fps 한 번 (LIFT_SECS 0.6), throw 4칸 10fps 한 번 (셋째 칸 = THROW_RELEASE 0.2초에 놓는다),
+    present 앞모습 4칸 3fps 한 번 (넷째 칸 = PRESENT_RELEASE 1초에 떨군다)."""
+    a = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))["animations"]
+    assert (a["lift"]["frames"], a["lift"]["fps"], a["lift"].get("loop")) == (4, 8, False)
+    assert (a["throw"]["frames"], a["throw"]["fps"], a["throw"].get("loop")) == (4, 10, False)
+    assert (a["present"]["frames"], a["present"]["fps"], a["present"].get("loop"), a["present"].get("front")) == (4, 3, False, True)
+    for anim in ("hold", "carry", "strain", "slump"):
+        assert "loop" not in a[anim] and "front" not in a[anim], anim
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_grip_table_puts_the_held_object_above_the_head(out, st):
+    """pet.json grip (칸 px): 든 동작에서 물건 바닥(손)은 머리 꼭대기 바로 위, 몸 가운데 언저리. 쪼그린 첫 칸은 바닥 근처 앞쪽."""
+    m = json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))
+    g = m["grip"][st]
+    fs = m.get("frame_sizes", {}).get(st, m["frame_size"])
+    assert sorted(g) == ["carry", "hold", "lift", "present", "throw"]
+    for anim, cells in g.items():
+        assert len(cells) == m["animations"][anim]["frames"], anim
+    for anim, idx in (("hold", (0, 1)), ("carry", (0, 1, 2, 3)), ("lift", (3,)), ("throw", (0,)), ("present", (0, 1, 2))):
+        for i in idx:
+            x, y = (v * 128 / fs for v in g[anim][i])
+            im = frame(out, st, anim, i)
+            _, y0, _, _ = head_box(im)
+            assert y <= y0 + 3 and y >= y0 - 10, (st, anim, i, y, y0)
+            assert abs(x - 64) < 14, (st, anim, i, x)
+    x, y = (v * 128 / fs for v in g["lift"][0])
+    assert y > 110 and x > 80, (st, x, y)
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_strain_pushes_forward_and_slump_sits_on_the_floor(out, st):
+    """끙차: 손이 몸 앞 거대한 것 옆면 (프레임 x ≈ STRAIN_HANDS_X)까지 · 털썩: 머리가 서 있을 때보다 한참 낮다."""
+    for i in range(4):
+        ink = near(frame(out, st, "strain", i), hm.INK, 40)
+        xs = np.nonzero(ink.any(axis=0))[0]
+        assert abs(xs.max() - hm.STRAIN_HANDS_X) <= 6, (st, i, xs.max())
+    stand_low = head_box(frame(out, st, "idle", 0))[3]
+    for i in range(2):
+        low = head_box(frame(out, st, "slump", i))[3]  # 머리 아래 끝 (땀방울의 흰 반짝임은 위에 있다)
+        assert low > stand_low + 12, (st, i, low, stand_low)

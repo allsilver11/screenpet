@@ -23,9 +23,10 @@ use screenpet_core::config::{Config, MAX_NAME_CHARS};
 use screenpet_core::dodge;
 use screenpet_core::gift::{self, FriendLimit};
 use screenpet_core::linked::{self, ClaimWatch};
+use screenpet_core::object::ObjectKind;
 use screenpet_core::style::PetStyle;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
-use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, MAX_FRIENDS};
+use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, MAX_FRIENDS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
 
@@ -319,6 +320,13 @@ struct Arrival {
     style: PetStyle,
 }
 
+/// 🤹 동물 손에 쥐여 줄 물건 (Visit.carry를 확인한 것): 그 동물 창 라벨, 종류, 똥이면 크기
+pub struct CarryArrival {
+    pub label: String,
+    pub kind: ObjectKind,
+    pub scale: Option<f64>,
+}
+
 /// 📱 내 다른 컴퓨터의 펫(손님)을 이 컴퓨터가 친구 화면으로 데려다줬다 (그 컴퓨터는 대기 중이라 친구와 연결이 없을 수 있다).
 /// 친구가 돌려보내면 그 컴퓨터에 그대로 전한다
 struct Carried {
@@ -410,6 +418,10 @@ pub struct Network {
     gift_sent: Option<Instant>,
     /// 방금 들어온 손님이 들고 온 선물 (게임 루프가 꺼내 간다)
     guest_gifts: Vec<GuestGift>,
+    /// 🤹 손에 쥐여 줄 물건: 들고 온 손님, 못 들어가 들고 돌아온 내 동물 (게임 루프가 꺼내 물건 창을 만든다)
+    carry_arrivals: Vec<CarryArrival>,
+    /// 🤹 내 동물이 물건을 들고 간 방문 (돌려보내지면 Leave에 실려 온다)
+    carry_out: Option<u64>,
     /// 사다리타기 (판 하나와 창)
     ladder: crate::ladder::Ladders,
     /// (내 펫이 지금 손님을 받지 않음 — 집중 중·하우스 안, 사다리 판이 있음) — 바뀌면 메뉴의 사다리 항목을 다시 맞춘다
@@ -568,6 +580,8 @@ impl Network {
             gift_limit: FriendLimit::default(),
             gift_sent: None,
             guest_gifts: Vec::new(),
+            carry_arrivals: Vec::new(),
+            carry_out: None,
             ladder: crate::ladder::Ladders::default(),
             own_refuses: (false, false),
             quiet: false,
@@ -774,7 +788,11 @@ impl Network {
         let edges = if blocked { Default::default() } else { config.exit_edges(|id| self.is_open(id)) };
         own.pet.set_exit_edges(edges.left, edges.right);
         own.pet.set_vertical_edges(edges.up, edges.down);
+        // 🤹 배달 장난: 놀러 갈 수 있는 끝에 새 버전 친구가 있을 때만 (손님은 하지 않는다)
+        let prank = |s: Side, open: bool| open && !config.friends_at(s, |id| self.is_open(id) && self.takes_carry(id)).is_empty();
+        own.pet.set_prank_edges(prank(Side::Left, edges.left), prank(Side::Right, edges.right));
         for s in guests {
+            s.pet.set_prank_edges(false, false);
             let Role::Guest(g) = &s.role else { continue };
             let edges = if self.net.is_none() { Default::default() } else { config.exit_edges(|id| id != g.owner_id && self.is_open(id)) };
             s.pet.set_exit_edges(edges.left, edges.right);
@@ -887,34 +905,48 @@ impl Network {
 
     /// 내 동물이 side 끝으로 다 나갔다: 그 끝의 연결된 친구 하나에게 Visit ("놀러 보내기"였으면 그 친구에게).
     /// 아무도 없으면(그새 끊김) 바로 다시 들어온다
-    pub fn own_exited(&mut self, config: &Config, own: &mut Slot, side: Side) {
+    /// carry = 🤹 들고 나간 물건 (배달 장난) — 그 끝의 새 버전 친구에게만 싣는다. 실었으면 true (이 화면의 물건은 앱이 치운다)
+    pub fn own_exited(&mut self, config: &Config, own: &mut Slot, side: Side, carry: Option<screenpet_net::Carry>) -> bool {
         let chosen = self.sending.take().filter(|(id, s)| *s == side && self.is_connected(id)).map(|(id, _)| id);
         // 편지는 그 친구에게 가는 길에만 싣는다
         let note = self.send_note.take().filter(|_| chosen.is_some());
         // 던져서 넘어갔으면 그 움직임을 실어 보낸다
         let fling = own.pet.take_fling();
-        let friends = config.friends_at(side, |id| self.is_open(id));
+        let mut friends = config.friends_at(side, |id| self.is_open(id));
+        // 들고 나갔으면 받을 수 있는 친구에게 먼저
+        if carry.is_some() && friends.iter().any(|f| self.takes_carry(&f.id)) {
+            friends.retain(|f| self.takes_carry(&f.id));
+        }
         let (Some(net), false) = (&self.net, friends.is_empty() && chosen.is_none()) else {
             own.pet.enter(&own.world, side);
-            return;
+            return false;
         };
         let friend = chosen.unwrap_or_else(|| friends[fastrand::usize(..friends.len())].id.clone());
+        let carry = carry.filter(|_| self.takes_carry(&friend));
         // 가끔 선물을 들려 보낸다 (이어 가는 방문에는 다시 싣지 않는다)
         let now = Instant::now();
         let ready = !self.gift_sent.is_some_and(|t| now.duration_since(t) < gift::VISIT_GIFT_EVERY);
         let gift = if ready { gift::roll_visit_gift(&own.entry.id, &mut fastrand::Rng::new()) } else { None };
-        let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None, fling, note.clone(), gift.map(|g| g.wire()));
+        let carried = carry.is_some();
+        let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None, fling, note.clone(), gift.map(|g| g.wire()), carry);
         if gift.is_some() {
             self.gift_sent = Some(now);
         }
-        eprintln!("own pet went to visit {friend} (visit {visit_id})");
+        eprintln!("own pet went to visit {friend} (visit {visit_id}){}", if carried { " carrying an object" } else { "" });
+        self.carry_out = carried.then_some(visit_id);
         self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None, since: Instant::now(), note });
         self.menu_dirty = true;
+        carried
+    }
+
+    /// 🤹 이 친구는 들고 온 물건을 받는다 (새 버전 — 옛 버전은 Visit.carry를 몰라 물건이 사라진다)
+    fn takes_carry(&self, id: &str) -> bool {
+        self.net.as_ref().and_then(|n| n.peer_version(id)).is_some_and(|v| v >= CARRY_MIN_VERSION)
     }
 
     /// 내 동물을 friend 화면으로 보낸다 (enter_side 끝에서 들어온다). via = 바로 전에 있던 친구 화면. 새 visit_id를 돌려준다
     #[allow(clippy::too_many_arguments)]
-    fn send_visit(&self, net: &Net, own: &Slot, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>, note: Option<String>, gift: Option<String>) -> u64 {
+    fn send_visit(&self, net: &Net, own: &Slot, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>, note: Option<String>, gift: Option<String>, carry: Option<screenpet_net::Carry>) -> u64 {
         let visit_id = fastrand::u64(..);
         let (enter_side, vside) = to_net_side(enter_side);
         net.send(
@@ -938,6 +970,7 @@ impl Network {
                 boost: (own.boost > 1.0).then_some(own.boost),
                 no_grow: self.growth_locked.then_some(true),
                 of: None,
+                carry,
             },
         );
         visit_id
@@ -966,13 +999,13 @@ impl Network {
             Some(next) => {
                 eprintln!("guest {visit_id} ({}) walks on to {next}", guest.owner_id);
                 let (side, vside) = to_net_side(side);
-                Visit::Leave { visit_id, next: Some(next), side: Some(side), vside, homesick_in: state.map(|g| g.homesick_in), fling: fling.map(to_net_fling), note: None, boost }
+                Visit::Leave { visit_id, next: Some(next), side: Some(side), vside, homesick_in: state.map(|g| g.homesick_in), fling: fling.map(to_net_fling), note: None, boost, carry: None }
             }
             // 집으로 (던져졌으면 그 움직임 그대로 주인 화면으로 날아간다)
             // 나간 끝을 실어 주인이 반대편으로 받게 한다 (예전 주인은 무시하고 나갔던 끝으로 받는다)
             None => {
                 let (side, vside) = to_net_side(side);
-                Visit::Leave { visit_id, next: None, side: Some(side), vside, homesick_in: None, fling: fling.map(to_net_fling), note: reply, boost }
+                Visit::Leave { visit_id, next: None, side: Some(side), vside, homesick_in: None, fling: fling.map(to_net_fling), note: reply, boost, carry: None }
             }
         };
         // 주인의 다른 컴퓨터가 데려온 손님이면 그 컴퓨터로 (📱 한 사람)
@@ -1008,6 +1041,7 @@ impl Network {
             boost,
             no_grow: None,
             of: Some(guest.owner_id.clone()),
+            carry: None,
         };
         net.send(next, visit.clone());
         eprintln!("carrying my other computer's pet {visit_id} on to {next}");
@@ -1039,7 +1073,7 @@ impl Network {
             return true;
         }
         eprintln!("my other computer's pet {visit_id} goes home from {from}");
-        net.send(&c.owner, Visit::Leave { visit_id, next: None, side, vside, homesick_in: None, fling, note, boost });
+        net.send(&c.owner, Visit::Leave { visit_id, next: None, side, vside, homesick_in: None, fling, note, boost, carry: None });
         true
     }
 
@@ -1056,7 +1090,7 @@ impl Network {
         let homesick_in = homesick_in.filter(|t| t.is_finite());
         // 들려 보낸 편지는 다음 친구에게도 그대로 (주인인 내가 다시 싣는다 — 중간 친구가 고친 것이 아니다)
         let note = a.note.clone();
-        let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone(), None);
+        let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone(), None, None);
         eprintln!("own pet walks on from {} to {next} (visit {visit_id})", a.friend);
         // 돌아올 땐 내 화면에서 그 친구가 연결된 끝에서 들어온다
         self.away = Some(AwayVisit { friend: next.to_string(), visit_id, side: f.side, come_home_by: None, since: Instant::now(), note });
@@ -1607,7 +1641,7 @@ impl Network {
 
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, boost, no_grow, of, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, boost, no_grow, of, carry, .. } => {
                 // 📱 친구가 데려온 그 친구의 다른 컴퓨터 펫이면 그 컴퓨터의 손님 (한 사람 — 이름표도 같다). 대답은 링크(from)로
                 let link = from;
                 let from = of.as_deref().filter(|o| config.same_person(o, link)).unwrap_or(link);
@@ -1616,7 +1650,7 @@ impl Network {
                 if slots[0].pet.refuses_arrivals() {
                     eprintln!("sent back visit {visit_id} from {from}");
                     if let Some(net) = &self.net {
-                        net.send(link, Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling, note: None, boost: None });
+                        net.send(link, Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling, note: None, boost: None, carry: carry.clone() });
                         net.ask(link, ASK_NOT_NOW);
                     }
                     return;
@@ -1629,7 +1663,7 @@ impl Network {
                         self.last_decline_log.insert(from.to_string(), now);
                     }
                     if let Some(net) = &self.net {
-                        net.send(link, Visit::Leave { visit_id, next: None, side: Some(enter_side), vside, homesick_in: None, fling, note: None, boost: None });
+                        net.send(link, Visit::Leave { visit_id, next: None, side: Some(enter_side), vside, homesick_in: None, fling, note: None, boost: None, carry: carry.clone() });
                     }
                     return;
                 }
@@ -1637,8 +1671,12 @@ impl Network {
                 let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()), boost, no_grow };
                 let result = self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival);
                 match result {
-                    Ok(()) => {
+                    Ok(label) => {
                         self.last_visit.insert(from.to_string(), now);
+                        // 🤹 들고 온 물건: 게임 루프가 손에 쥐여 주고, 들어와 서면 앞을 보고 휙 떨군다
+                        if let Some(c) = &carry {
+                            self.queue_carry(&label, c);
+                        }
                         // 인증된 친구 링크의 Visit에 실린, 목록에 있는 그 동물 종의 선물만 (친구마다 횟수 제한)
                         if let Some(friend) = config.friend(from) {
                             if let Some(gift) = gift::accept_visit_gift(gift.as_deref(), &species).filter(|_| self.gift_limit.allow(from, now)) {
@@ -1653,12 +1691,13 @@ impl Network {
                             self.last_decline_log.insert(from.to_string(), now);
                         }
                         if let Some(net) = &self.net {
-                            net.send(link, Visit::leave(visit_id));
+                            // 들고 온 물건도 그대로 들고 돌아간다
+                            net.send(link, Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling: None, note: None, boost: None, carry });
                         }
                     }
                 }
             }
-            Visit::Leave { visit_id, next, side, vside, homesick_in, fling, note, boost } => {
+            Visit::Leave { visit_id, next, side, vside, homesick_in, fling, note, boost, carry } => {
                 // 📱 데려다준 내 다른 컴퓨터의 펫
                 if self.carried_left(from, visit_id, next.clone(), side, vside, homesick_in, fling, note.clone(), boost) {
                     return;
@@ -1680,6 +1719,11 @@ impl Network {
                 let forwarded = next.is_some_and(|n| self.forward_visit(config, &slots[0], &n, side.map(|s| from_net_side(s, vside)), homesick_in, fling));
                 if !forwarded {
                     self.come_back(&mut slots[0], fling, side.map(|s| opposite(from_net_side(s, vside))));
+                    // 🤹 못 들어가 들고 돌아왔다: 들고 간 그 방문에서만 (게임 루프가 손에 쥐여 주고, 들어와 서면 집에 떨군다)
+                    if let Some(c) = carry.filter(|_| self.carry_out == Some(visit_id)) {
+                        self.queue_carry(OWN_LABEL, &c);
+                    }
+                    self.carry_out = None;
                     if let Some(note) = reply {
                         // 돌아온 내 동물 머리 옆에 💌 — 누르면 "💌 <친구>: <답장>" (웹뷰는 textContent로만)
                         let from_name = config.person_name(from).map(str::to_string).unwrap_or_else(|| DEFAULT_NAME.to_string());
@@ -1722,7 +1766,7 @@ impl Network {
         scale: f64,
         owner: &str,
         arrival: Arrival,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let state = app.state::<AppState>();
         let entry = state.pets.iter().find(|p| p.id == species).cloned().ok_or_else(|| format!("unknown species {species:?}"))?;
         let stage = Stage::from_name(stage).ok_or_else(|| format!("unknown stage {stage:?}"))?;
@@ -1758,8 +1802,9 @@ impl Network {
             slot.pet.enter_flung(&slot.world, side, f);
         }
         eprintln!("guest {visit_id} from {from} arrived{}{}", if arrival.note.is_some() { " with a note" } else { "" }, hop.map(|v| format!(" (via {v})")).unwrap_or_default());
+        let label = slot.label.clone();
         slots.push(slot);
-        Ok(())
+        Ok(label)
     }
 
     // ---- 짝맞추기 ----
@@ -2096,6 +2141,22 @@ impl Network {
         if self.steer_pacer.should_send(a.visit_id, on, bits, now, STEER_KEEPALIVE) {
             net.steer(&a.friend, Steer { visit_id: a.visit_id, on, keys: bits });
         }
+    }
+
+    /// 🤹 손에 쥐여 줄 물건들 (게임 루프가 물건 창을 만들어 그 동물 손에 준다)
+    pub fn take_carry_arrivals(&mut self) -> Vec<CarryArrival> {
+        std::mem::take(&mut self.carry_arrivals)
+    }
+
+    /// 친구가 보낸 물건 이름을 확인해 줄에 세운다 (모르는 것·거대한 것은 버린다). 방문 하나에 하나뿐이다
+    fn queue_carry(&mut self, label: &str, c: &screenpet_net::Carry) {
+        let Some(kind) = screenpet_core::object::accept_carry(&c.kind, c.look.as_deref()) else {
+            eprintln!("ignored a carried object of unknown kind");
+            return;
+        };
+        let scale = kind.is_poop().then(|| screenpet_core::poop::sanitize_size(c.scale));
+        self.carry_arrivals.retain(|a| a.label != label);
+        self.carry_arrivals.push(CarryArrival { label: label.to_string(), kind, scale });
     }
 
     /// 방금 들어온 손님이 들고 온 선물들 (게임 루프가 Gifts로 넘긴다)

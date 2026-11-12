@@ -27,7 +27,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
-                         STAGES, SWIFT, TIMID, ENERGETIC, RIGGING, frame_px, manifest)
+                         STAGES, SWIFT, TIMID, ENERGETIC, RIGGING, JUGGLER, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -188,6 +188,7 @@ def _pt(x, y):
 _HEAD = {}  # 지금 칸의 표시
 _HEAD_LOG = {}  # 지금 단계의 {동작: [칸별 표시]}
 _NECK_LOG = {}  # 지금 단계의 {동작: [칸별 목 표시]} — 밤 목도리를 두르는 동물만 (산타)
+_GRIP_LOG = {}  # 지금 단계의 {동작: [칸별 손 표시]} — 물건을 머리 위로 드는 동물만 (흐물이, pet.json grip)
 
 
 def _mark(x, y, w, tilt):
@@ -211,9 +212,14 @@ def mark_neck(x, y, w, tilt=0.0):
     _HEAD["neck"] = _mark(x, y, w, tilt)
 
 
+def mark_grip(x, y):
+    """🤹 든 물건의 바닥이 올 두 손 자리 (mark_head와 같은 식 — 앱이 물건 창을 여기에 둔다, pet.json grip)."""
+    _HEAD["grip"] = _mark(x, y, 0, 0)
+
+
 def shift_head(dx, dy):
     """다 그린 프레임을 통째로 민 경우 (_fit, 루돌프 코 후광) 표시도 같이 민다."""
-    for key in ("at", "neck"):
+    for key in ("at", "neck", "grip"):
         if key in _HEAD:
             _HEAD[key][0] = round(_HEAD[key][0] + dx, 1)
             _HEAD[key][1] = round(_HEAD[key][1] + dy, 1)
@@ -1609,7 +1615,7 @@ def frames(sp, anim, n):
     _INK["line"] = sp.outline or LINE
     try:
         with view(scale=sp.scale * _ST["fit"], lift=LIFT + 1.7 * OUTLINE * (_ST["line"] - 1)):  # 굵은 외곽선만큼 더 올린다
-            out, heads, necks = [], [], []
+            out, heads, necks, grips = [], [], [], []
             for i in range(n):
                 _HEAD.clear()
                 out.append(((sp.poses or {}).get(anim) or POSES[anim])(sp, i))
@@ -1618,9 +1624,15 @@ def frames(sp, anim, n):
                 heads.append(_HEAD["at"])
                 if "neck" in _HEAD:
                     necks.append(_HEAD["neck"])
+                if "grip" in _HEAD:
+                    grips.append(_HEAD["grip"])
             _HEAD_LOG[anim] = heads
             if necks:
                 _NECK_LOG[anim] = necks
+            if grips:
+                if len(grips) != n:
+                    raise ValueError(f"{sp.id} {anim}: 손 표시(mark_grip)가 칸마다 있어야 합니다")
+                _GRIP_LOG[anim] = grips
             return out
     finally:
         _INK["line"] = old_ink
@@ -1669,6 +1681,7 @@ def rows_for(sp):
 
 _RENDERED = {}
 _NECKS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json neck (산타만)
+_GRIPS = {}  # (종, 단계) → {동작: [칸별 [x, y]]} — pet.json grip (흐물이만)
 _HEADS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json head  # (종, 단계) → {동작: [프레임]} — 한 프로세스에서 여러 번 build해도 한 번만 그린다
 
 
@@ -1701,9 +1714,11 @@ def render_species(sp, stage_name="teenager"):
             ssp = staged_species(sp)
             _HEAD_LOG.clear()
             _NECK_LOG.clear()
+            _GRIP_LOG.clear()
             _RENDERED[key] = {anim: frames(ssp, anim, n) for anim, n, *_ in rows_for(sp)}
             _HEADS[key] = _table_at(_HEAD_LOG, sp.id, stage_name)
             _NECKS[key] = _table_at(_NECK_LOG, sp.id, stage_name)
+            _GRIPS[key] = {a: [c[:2] for c in cells] for a, cells in _table_at(_GRIP_LOG, sp.id, stage_name).items()}
     return _RENDERED[key]
 
 
@@ -1768,6 +1783,8 @@ def species_fields(pid, m):
         m["energetic"] = True
     if pid in RIGGING:
         m["rigging"] = True
+    if pid in JUGGLER:
+        m["juggler"] = True
     return m
 
 
@@ -1784,6 +1801,8 @@ def write_species(sp, out_dir):
     m["head"] = {st: _HEADS[(sp.id, st)] for st in STAGES}
     if _NECKS[(sp.id, STAGES[0])]:  # 밤에 수면 모자 대신 목도리 (산타, ui/main.js)
         m["neck"] = {st: _NECKS[(sp.id, st)] for st in STAGES}
+    if _GRIPS[(sp.id, STAGES[0])]:  # 🤹 든 물건이 올 손 자리 (흐물이 — 코어 PetManifest::grip_table)
+        m["grip"] = {st: _GRIPS[(sp.id, st)] for st in STAGES}
     if sp.write_layers:
         m.update(sp.write_layers(out_dir))
     (out_dir / "pet.json").write_text(_manifest_text(m), encoding="utf-8")

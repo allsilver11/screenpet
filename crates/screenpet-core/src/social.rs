@@ -584,6 +584,11 @@ impl Social {
         Some((face, collide::away_from(rel_prev.0, vx, face), speed >= HIT_FAST_SPEED))
     }
 
+    /// 🤹 동물(pet_key)이 방금 손에서 던진 물건(id)은 secs초 동안 그 동물을 맞히지 않는다 (brain_juggle.rs — 막 떠난 물건이 제 몸과 겹친다)
+    pub fn spare(&mut self, id: u64, pet_key: u64, secs: f64) {
+        cool(&mut self.object_cooldown, (id, pet_key), self.clock, secs);
+    }
+
     /// 던진 물건이 이번 틱에 동물에 처음 닿았으면 되튀고, 맞은 쪽이 반응한다 (똥이면 "ew!"). 게임 루프가 tick 바로 뒤에 물건마다 부른다 (날아가는 물건이 없으면 할 일이 없다)
     pub fn object_hits<T: AsRef<Pet> + AsMut<Pet>>(&mut self, id: u64, object: &mut Object, dt: f64, pets: &mut [T]) {
         if !object.in_flight() {

@@ -78,6 +78,15 @@ OPTIONAL_ANIMS = [
     # 흐물이: 창 옆면에 한 손으로 매달려 다른 팔로 흐물흐물 손 흔들기 · 밧줄 타듯 손을 번갈아 오르내리기 (옆모습, 창은 오른쪽 — 코어 State::Rig)
     ("hang", 4, 6, True, False),
     ("rope", 4, 8, True, False),
+    # 흐물이 🤹 물건 들어 던지기 (코어 State::Juggle — 물건은 앱의 물건 창, 손 자리는 pet.json grip): 쪼그려 잡아 머리 위로 번쩍 (한 번) ·
+    # 든 채 서 있기 · 인 채 걷기 · 젖혔다가 휙 (한 번, 셋째 칸에 놓는다) · 거대한 것에 끙차 (덜덜) · 배달 도착 앞모습 짠 → 휙 떨굼 (한 번) · 털썩 주저앉기
+    ("lift", 4, 8, False, False),
+    ("hold", 2, 3, True, False),
+    ("carry", 4, 8, True, False),
+    ("throw", 4, 10, False, False),
+    ("strain", 4, 12, True, False),
+    ("present", 4, 3, False, True),
+    ("slump", 2, 2, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -143,6 +152,9 @@ ENERGETIC = {"heumul"}
 
 # 창 옆면에 뱃사람처럼 매달려 손 흔들고 오르내리는 동물 (pet.json rigging — 코어 State::Rig, 그림은 hang·rope)
 RIGGING = {"heumul"}
+
+# 바닥의 물건·똥을 주워 머리 위로 들고 던지는 동물 (pet.json juggler — 코어 State::Juggle, 그림은 lift·hold·carry·throw·strain·present·slump)
+JUGGLER = {"heumul"}
 
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {

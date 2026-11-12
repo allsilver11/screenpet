@@ -15,9 +15,13 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// 기린 neckstretch — 있으면 구르는 대신 목을 늘인다, 올려다보기 lookup — 없으면 그냥 쳐다본다(look)).
 /// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있다. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같다
 /// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔든다).
-/// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기).
-pub const OPTIONAL_ANIMS: [&str; 14] =
-    ["arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise", "panic", "hang", "rope"];
+/// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기) · lift·hold·carry·throw·strain·present·slump (물건 들어 던지기).
+pub const OPTIONAL_ANIMS: [&str; 21] = [
+    "arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise", "panic", "hang", "rope", "lift", "hold",
+    "carry", "throw", "strain", "present", "slump",
+];
+/// 물건 들어 던지기 그림 (pet.json `juggler`가 있어도 이게 다 있어야 한다)
+pub const JUGGLE_ANIMS: [&str; 7] = ["lift", "hold", "carry", "throw", "strain", "present", "slump"];
 
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -115,6 +119,12 @@ pub struct PetManifest {
     /// 창 옆면에 매달리기 (흐물이, hang·rope 그림이 있을 때만 — rigs())
     #[serde(default)]
     pub rigging: bool,
+    /// 바닥의 물건·똥을 주워 머리 위로 들고 던진다 (흐물이, JUGGLE_ANIMS가 다 있을 때만 — juggles())
+    #[serde(default)]
+    pub juggler: bool,
+    /// 물건을 든 동작의 칸별 손 자리 (단계 → 동작 → 칸별 [x, y] 칸 px — 그림 생성기가 적는다). 든 물건의 바닥이 여기 온다
+    #[serde(default)]
+    pub grip: HashMap<String, HashMap<String, Vec<[f64; 2]>>>,
     /// 칸마다 머리 꼭대기 (단계 → 동작 → 칸별 [x, y, 너비, 기울기] 칸 px — 그림 생성기가 적는다)
     #[serde(default)]
     pub head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
@@ -172,6 +182,8 @@ struct PixelJson {
     #[serde(default)]
     head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
     #[serde(default)]
+    grip: HashMap<String, HashMap<String, Vec<[f64; 2]>>>,
+    #[serde(default)]
     neck_stretch: Option<serde_json::Value>,
 }
 
@@ -203,7 +215,7 @@ pub fn parse_pixel_manifest(json: &str, base: &PetManifest) -> Result<PetManifes
     let required: Vec<&str> = REQUIRED_ANIMS.into_iter().filter(|a| *a != "roll").collect();
     check_anims(&p.animations, &required, &["roll"])?;
     check_anims(&p.animations, &[], &OPTIONAL_ANIMS)?;
-    Ok(PetManifest { frame_sizes, animations: p.animations, head: p.head, neck_stretch: p.neck_stretch, ..base.clone() })
+    Ok(PetManifest { frame_sizes, animations: p.animations, head: p.head, grip: p.grip, neck_stretch: p.neck_stretch, ..base.clone() })
 }
 
 impl PetManifest {
@@ -258,6 +270,27 @@ impl PetManifest {
     /// 창 옆면 매달리기 (hang·rope 그림이 있어야 한다)
     pub fn rigs(&self) -> bool {
         self.rigging && self.has_anim("hang") && self.has_anim("rope")
+    }
+
+    /// 물건 들어 던지기 (JUGGLE_ANIMS 그림이 다 있어야 한다)
+    pub fn juggles(&self) -> bool {
+        self.juggler && JUGGLE_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 이 단계의 손 자리 표 (칸 px → 한 변에 대한 비율: 그림 가운데에서 오른쪽, 윗변에서 아래). 없는 동작은 머리 위 (juggle::DEFAULT_GRIP)
+    pub fn grip_table(&self, stage: &str) -> crate::juggle::GripTable {
+        let size = f64::from(self.frame_size_at(stage));
+        let anim = |name: &str| {
+            let (Some(cells), Some(spec)) = (self.grip.get(stage).and_then(|a| a.get(name)).filter(|c| !c.is_empty()), self.animations.get(name)) else {
+                return crate::juggle::GripAnim::default();
+            };
+            let mut g = crate::juggle::GripAnim { n: cells.len().min(4), fps: spec.fps, looping: spec.looping, ..Default::default() };
+            for (i, c) in cells.iter().take(4).enumerate() {
+                g.pts[i] = (c[0] / size - 0.5, c[1] / size);
+            }
+            g
+        };
+        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present") }
     }
 
     /// 사는 집 그림: pet.json `house`, 없으면 보통 집
@@ -551,18 +584,19 @@ mod tests {
     /// 번들 흐물이만 겁쟁이(만세 줄행랑)·기운 넘침·창 옆면 매달리기 — 셋 다 그림(panic·hang·rope)이 있다
     #[test]
     fn bundled_heumul_is_timid_energetic_and_rigs_window_sides() {
-        assert_eq!(&OPTIONAL_ANIMS[11..], &["panic", "hang", "rope"]);
+        assert_eq!(&OPTIONAL_ANIMS[11..14], &["panic", "hang", "rope"]);
+        assert_eq!(&OPTIONAL_ANIMS[14..], &JUGGLE_ANIMS, "물건 들어 던지기 (v0.6.2) — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
-        assert!(h.timid() && h.energetic && h.rigs());
+        assert!(h.timid() && h.energetic && h.rigs() && h.juggles());
         assert_eq!(h.name, "흐물이");
         assert_eq!(h.personality, Personality::Playful);
         assert!(h.hop_share() >= 0.5 && h.walk_speed >= 100.0);
         assert_eq!(h.favorite_food.as_ref().map(|f| f.emoji.as_str()), Some("🍭"));
         for id in crate::test_util::species().into_iter().filter(|id| id != "heumul") {
             let m = load(&id);
-            assert!(!m.timid() && !m.energetic && !m.rigs(), "{id}");
+            assert!(!m.timid() && !m.energetic && !m.rigs() && !m.juggler && !m.juggles(), "{id}");
         }
     }
 

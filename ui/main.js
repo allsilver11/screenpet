@@ -828,6 +828,12 @@ const EXTRA_SPEECH = {
   whoosh: ["whoosh!", "whoosh~"],
   // 깜짝 놀라 벌떡 (레서판다, pet.json에 없으면 이 말)
   surprise: ["!!"],
+  // 🤹 흐물이가 물건을 번쩍 / 거대한 것에 끙차 / 휙 던짐 / 친구 화면에 배달 도착 / 너무 무거워 털썩 (코어 brain_juggle.rs)
+  hup: ["hup!", "heave-ho!"],
+  strain: ["hnngh!", "heave~!"],
+  yeet: ["yeet!", "catch!"],
+  tada: ["ta-da!", "special delivery!"],
+  phew: ["phew...", "too heavy..."],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {

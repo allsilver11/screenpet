@@ -13,6 +13,7 @@ pub mod gift;
 pub mod hop;
 pub mod linked;
 pub mod inside;
+pub mod juggle;
 pub mod ladder;
 pub mod manifest;
 pub mod object;

@@ -303,7 +303,13 @@ enum Phase {
     Ground { friction: f64, settle: Option<f64> },
     /// 잠듦 — 다음 바람이나 세계 변화까지 할 일 없음
     Rest,
+    /// 🤹 동물(흐물이)이 머리 위에 들고 있다 — 자리는 앱이 틱마다 carry_at으로 옮긴다 (물리 없음)
+    Carried,
 }
+
+/// 든 물건 바닥이 손 자리보다 이만큼 (그림 높이 배) 아래 — 두 손이 물건 아랫부분을 감싼다. 거대한 것은 이 px까지만 (논리 px)
+const CARRY_SINK: f64 = 0.2;
+const CARRY_SINK_MAX: f64 = 10.0;
 
 #[derive(Debug, Clone)]
 pub struct Object {
@@ -497,6 +503,55 @@ impl Object {
         self.kind.is_giant() && !self.is_held() && !self.covers(x, y)
     }
 
+    /// 🤹 동물이 들고 있다
+    pub fn is_carried(&self) -> bool {
+        self.phase == Phase::Carried
+    }
+
+    /// 동물이 주울 수 있게 바닥에 놓여 있다 (굴러가는 중이어도) — 들렸거나 날거나 누가 들고 있으면 None
+    pub fn spot(&self, id: u64) -> Option<crate::juggle::ObjectSpot> {
+        if !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) {
+            return None;
+        }
+        Some(crate::juggle::ObjectSpot { id, x: self.body.x, y: self.body.y, owner: self.owner()?, half_w: self.half_w(), giant: self.kind.is_giant() })
+    }
+
+    /// 동물 손에 들려 (hx, hy)에 손이 있다: 바닥이 손 조금 아래 (똑바로 세워 든다). 사용자가 잡고 있으면 그대로
+    pub fn carry_at(&mut self, hx: f64, hy: f64) {
+        if self.is_held() {
+            return;
+        }
+        let (_, height) = self.hit_box();
+        self.phase = Phase::Carried;
+        self.standing = None;
+        self.thrown = false;
+        self.thrown_down = false;
+        self.angle = 0.0;
+        self.spin = 0.0;
+        self.body = Body { x: hx, y: hy + (CARRY_SINK * height).min(CARRY_SINK_MAX * self.dpi), vx: 0.0, vy: 0.0 };
+    }
+
+    /// 들고 있던 동물이 (vx, vy)로 던졌다 (물리 px/s) — 그 뒤는 사람이 던진 것과 같다 (화면 끝을 넘으면 친구에게, 동물에 맞으면 콩)
+    pub fn launch(&mut self, vx: f64, vy: f64) {
+        if self.is_held() {
+            return;
+        }
+        self.body.vx = vx;
+        self.body.vy = vy;
+        self.standing = None;
+        self.phase = Phase::Air;
+        self.thrown = true;
+        self.thrown_down = visit::aimed_down(vx, vy, self.dpi);
+        self.spin = self.spin_of_throw();
+    }
+
+    /// 들고 있던 동물이 놓쳤다 (잡혔거나 다른 일로): 그 자리에서 떨어진다
+    pub fn let_fall(&mut self) {
+        if self.phase == Phase::Carried {
+            self.start_fall();
+        }
+    }
+
     /// 다음 바람이나 세계 변화까지 할 일이 없다 (창도 웹뷰도 건드리지 않는다)
     pub fn is_asleep(&self) -> bool {
         self.phase == Phase::Rest && self.postit != Postit::Reading
@@ -508,7 +563,7 @@ impl Object {
 
     /// 똥이 다 말라 사라질 때다 (들고 있는 동안은 기다린다)
     pub fn expired(&self) -> bool {
-        self.kind.is_poop() && self.clock >= crate::poop::LIFE_SECS && !self.is_held()
+        self.kind.is_poop() && self.clock >= crate::poop::LIFE_SECS && !self.is_held() && !self.is_carried()
     }
 
     /// 바닥에 놓인 똥의 자리 (동물이 알아챈다). 들렸거나 날아가는 중이면 None
@@ -606,7 +661,7 @@ impl Object {
         self.clock += dt;
         self.tick_note(dt);
         match self.phase {
-            Phase::Held => None,
+            Phase::Held | Phase::Carried => None,
             Phase::Air => self.tick_air(dt, world, edges),
             Phase::Ground { friction, settle } => {
                 self.tick_ground(dt, world, friction, settle);
@@ -958,6 +1013,11 @@ pub fn accept_toss(kind: &str, fling: Option<Fling>, note: Option<&str>) -> Opti
     // 똥·거대한 것엔 포스트잇이 없다 (옛 버전·고친 앱이 보내도)
     let note = note.filter(|_| kind.takes_postit()).and_then(visit::sanitize_note);
     Some(AcceptedToss { kind, fling: Fling { height: fling.height, vx, vy }, note })
+}
+
+/// 🤹 친구의 흐물이가 들고 온 물건 (Visit.carry): 던진 것처럼 이름·색을 확인한다. 거대한 것은 들고 오지 않는다 (고친 앱이 보내도 버린다)
+pub fn accept_carry(kind: &str, look: Option<&str>) -> Option<ObjectKind> {
+    ObjectKind::wire_kind(kind, look).filter(|k| !k.is_giant())
 }
 
 /// 물건이 어디서 왔나

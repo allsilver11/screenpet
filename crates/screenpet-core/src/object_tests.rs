@@ -1593,3 +1593,87 @@ fn small_objects_never_pass_clicks_through() {
         assert!(!o.passes_clicks_at(x, y), "{k:?}");
     }
 }
+
+// ---- 🤹 동물이 들고 던지기 (brain_juggle.rs) ----
+
+#[test]
+fn a_resting_object_is_a_spot_to_pick_up_but_not_while_held_flying_or_carried() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Can, 300.0, 900.0, 1.0, 1);
+    assert_eq!(o.spot(4), None, "still falling");
+    run(&mut o, &w, 3.0);
+    let s = o.spot(4).expect("lying on the floor");
+    assert_eq!((s.id, s.x, s.y, s.owner, s.giant), (4, o.body.x, 1040.0, Owner::Ground(0), false));
+    assert_eq!(s.half_w, o.half_w());
+    let mut g = Object::new(ObjectKind::GiantStone, 900.0, 1000.0, 1.0, 1);
+    run(&mut g, &w, 3.0);
+    assert!(g.spot(5).unwrap().giant);
+    o.carry_at(500.0, 700.0);
+    assert!(o.is_carried() && !o.is_asleep() && !o.in_flight());
+    assert_eq!(o.spot(4), None);
+    o.pointer_down(500.0, 690.0);
+    assert_eq!(o.spot(4), None, "held");
+}
+
+#[test]
+fn a_carried_object_rides_upright_in_the_hands_without_physics_and_never_dries_up() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Poop, 300.0, 900.0, 1.0, 1);
+    run(&mut o, &w, 3.0);
+    o.carry_at(600.0, 700.0);
+    let (_, h) = o.hit_box();
+    assert_eq!(o.body.x, 600.0);
+    assert!(o.body.y > 700.0 && o.body.y - 700.0 <= 0.2 * h + 1e-9, "두 손이 아랫부분을 감싼다: {}", o.body.y);
+    assert_eq!(o.angle(), 0.0);
+    let at = o.body;
+    run(&mut o, &w, crate::poop::LIFE_SECS + 5.0);
+    assert_eq!(o.body.x, at.x);
+    assert_eq!(o.body.y, at.y, "들고 있는 동안엔 떨어지지 않는다");
+    assert!(!o.expired(), "들고 있는 동안엔 말라 사라지지 않는다");
+    // 거대한 것도 손이 바닥 근처를 받친다 (몇 px만 아래)
+    let mut g = Object::new(ObjectKind::GiantPoop, 900.0, 1000.0, 1.0, 1);
+    g.carry_at(900.0, 600.0);
+    assert!(g.body.y - 600.0 <= 10.0 + 1e-9);
+}
+
+#[test]
+fn a_launched_object_flies_like_a_thrown_one_and_crosses_a_friend_edge() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Can, 1800.0, 900.0, 1.0, 1);
+    o.carry_at(1800.0, 800.0);
+    o.launch(900.0, -500.0);
+    assert!(o.in_flight() && !o.is_carried());
+    assert!(o.spin() != 0.0, "던진 것처럼 돈다");
+    let mut exit = None;
+    for _ in 0..200 {
+        if let Some(e) = o.tick(DT, &w, ALL, false) {
+            exit = Some(e);
+            break;
+        }
+    }
+    assert_eq!(exit.map(|e| e.side), Some(Side::Right));
+    // 놓친 것은 그냥 떨어진다 (던진 것이 아니라 화면 끝을 넘지 않는다)
+    let mut o = Object::new(ObjectKind::Can, 400.0, 900.0, 1.0, 1);
+    o.carry_at(400.0, 800.0);
+    o.let_fall();
+    assert!(!o.is_carried() && !o.in_flight());
+    run(&mut o, &w, 3.0);
+    assert_eq!(o.owner(), Some(Owner::Ground(0)));
+    // 사용자가 잡고 있는 물건은 동물 손으로 가지 않는다
+    let mut o = Object::new(ObjectKind::Can, 400.0, 900.0, 1.0, 1);
+    o.pointer_down(400.0, 890.0);
+    o.carry_at(100.0, 100.0);
+    o.launch(100.0, -100.0);
+    assert!(o.is_held() && o.body.x == 400.0);
+}
+
+#[test]
+fn a_delivered_object_is_checked_like_a_toss_and_never_a_giant() {
+    assert_eq!(accept_carry("can", None), Some(ObjectKind::Can));
+    assert_eq!(accept_carry("sock", None), Some(ObjectKind::Shirt));
+    assert_eq!(accept_carry("poop", Some("rainbow")), Some(ObjectKind::Rainbow));
+    assert_eq!(accept_carry("poop", Some("weird")), Some(ObjectKind::Poop));
+    for (kind, look) in [("stone", Some("giant")), ("poop", Some("giant")), ("giant_stone", None), ("giant_poop", None), ("cat", None), ("", None), ("../x", None)] {
+        assert_eq!(accept_carry(kind, look), None, "{kind} {look:?}");
+    }
+}

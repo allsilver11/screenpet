@@ -6,6 +6,8 @@
 //! 🪨💩 거대한 돌·똥은 메뉴로 꺼내는 쓰레기다 (내 물건 10개에 들어간다): 아기 동물의 15배 — 놓이는 화면 높이의 80%까지 — 로 그리고, 바람에 안 구르고, 포스트잇이 없다.
 //! 거대한 물건 창은 그림 밖(투명한 곳)의 클릭을 아래로 보낸다 (커서를 틱마다 코어의 돌린 볼록 껍질에 대 본다).
 //! 친구에게는 보통 돌·똥 이름에 look "giant"를 붙여 던진다 (옛 버전 친구는 보통 크기로 받는다). 거대한 똥은 빗자루에 쓸리지만 저절로 사라지지 않는다.
+//! 🤹 흐물이가 주워 든 물건은 틱마다 그 손 자리로 옮기고 (코어가 정한 자리), 놓으면 코어가 준 속도로 던진다 — 그 뒤는 손으로 던진 것과 같다.
+//! 아무도 들고 있지 않게 된 물건은 그 자리에서 떨어진다. 친구에게 들고 간 물건은 이 화면에서 치우고 Visit에 실린다 (network.rs).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
@@ -15,6 +17,7 @@ use screenpet_core::config::Config;
 use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE, Volley, volley_piece};
 use screenpet_core::brain::Pet;
+use screenpet_core::juggle::{JuggleEvent, ObjectSpot};
 use screenpet_core::broom::Broom;
 use screenpet_core::social::Social;
 use screenpet_core::poop::PoopSpot;
@@ -365,6 +368,85 @@ impl Objects {
         out.extend(self.live.iter().filter_map(|l| l.object.poop_spot(l.id)));
     }
 
+    /// 🤹 바닥에 놓인 물건 자리를 out에 다시 채운다 (흐물이가 주우러 간다)
+    pub fn object_spots(&self, out: &mut Vec<ObjectSpot>) {
+        out.clear();
+        out.extend(self.live.iter().filter_map(|l| l.object.spot(l.id)));
+    }
+
+    /// 🤹 동물이 든 물건: 놓았으면 그 속도로 던지고 (던진 동물은 잠깐 맞히지 않는다), 들고 있으면 손 자리로 옮기고,
+    /// 사라졌거나 사용자가 잡고 있으면 동물에게 알린다. 아무도 들고 있지 않은 물건은 떨어진다. 동물 update 뒤, tick 전에
+    pub fn sync_carries<T: AsRef<Pet> + AsMut<Pet>>(&mut self, social: &mut Social, pets: &mut [T]) {
+        for p in pets.iter_mut() {
+            let pet = p.as_mut();
+            if let Some(JuggleEvent::Release { id, vx, vy }) = pet.take_juggle() {
+                if let Some(l) = self.live.iter_mut().find(|l| l.id == id) {
+                    l.object.launch(vx, vy);
+                    social.spare(id, pet.social_key(), THROWER_SPARED_SECS);
+                }
+            }
+            let Some(id) = pet.carried_object() else { continue };
+            match self.live.iter_mut().find(|l| l.id == id) {
+                Some(l) if !l.object.is_held() => {
+                    if let Some((x, y)) = pet.carry_point() {
+                        l.object.carry_at(x, y);
+                    }
+                }
+                // 사용자가 낚아챘거나 치웠다
+                _ => pet.lose_carry(),
+            }
+        }
+        for l in self.live.iter_mut().filter(|l| l.object.is_carried()) {
+            if !pets.iter().any(|p| p.as_ref().carried_object() == Some(l.id)) {
+                l.object.let_fall();
+            }
+        }
+    }
+
+    /// 🤹 친구에게 들고 갈 물건의 이름 (Toss와 같은 이름·색·크기). 거대한 것은 들고 가지 않는다
+    pub fn carry_wire(&self, id: u64) -> Option<screenpet_net::Carry> {
+        let l = self.live.iter().find(|l| l.id == id)?;
+        let kind = l.object.kind;
+        (!kind.is_giant()).then(|| screenpet_net::Carry { kind: kind.wire_id().to_string(), look: kind.look().map(str::to_string), scale: kind.is_poop().then(|| l.object.scale()) })
+    }
+
+    /// 🤹 친구에게 들고 갔다: 이 화면에서는 치운다 (뿅 없이 — 동물 손에 들려 화면 밖으로 나갔다)
+    pub fn hand_over(&mut self, id: u64) {
+        if let Some(i) = self.live.iter().position(|l| l.id == id) {
+            let l = self.live.remove(i);
+            self.roster.remove(l.id);
+            set_postit_state(&l.label, None);
+            let _ = l.window.destroy();
+        }
+        self.sync_menu();
+    }
+
+    /// 🤹 동물 손에 쥐여 줄 물건 창을 at(머리 위 언저리)에 만든다: 친구의 흐물이가 들고 왔으면 받은 물건, 못 들어가 들고 돌아왔으면 내 물건.
+    /// 똥은 똥 수에 들어간다 (scale = 다듬은 크기). 만들었으면 그 id — 동물의 hold_object에 준다
+    pub fn spawn_carried(&mut self, app: &AppHandle, base: &World, kind: ObjectKind, scale: Option<f64>, own: bool, at: (f64, f64)) -> Option<u64> {
+        let id = self.next_id();
+        let scale = match scale.filter(|_| kind.is_poop()) {
+            Some(s) => s,
+            None => self.scale_at(app, kind, base, at.0, at.1),
+        };
+        let window = build_window(app, id, kind, false, scale)?;
+        let dpi = window.scale_factor().unwrap_or(1.0);
+        self.world_for(base, dpi);
+        let mut object = Object::new(kind, at.0, at.1, dpi, fastrand::u64(..));
+        object.set_scale(scale);
+        object.carry_at(at.0, at.1);
+        let origin = if kind.is_poop() {
+            Origin::Poop
+        } else if own {
+            Origin::Own
+        } else {
+            Origin::Foreign
+        };
+        self.admit(id, window, object, origin);
+        self.sync_menu();
+        Some(id)
+    }
+
     /// 🧹 빗자루가 지나간 똥은 빗자루 쪽으로 밀려 날아간다 (평소의 던지기 — 친구가 연결된 끝을 넘으면 tick이 친구에게 보낸다)
     pub fn sweep_poops(&mut self, broom: &Broom) {
         let (vx, vy) = broom.velocity();
@@ -699,6 +781,9 @@ fn entry_point(world: &World, side: Side) -> (f64, f64) {
         _ => ((b.left + b.right) / 2.0, b.bottom - 1.0),
     }
 }
+
+/// 🤹 흐물이가 던진 물건은 이만큼 그 흐물이를 맞히지 않는다 (손에서 막 떠난 물건이 제 몸과 겹친다)
+const THROWER_SPARED_SECS: f64 = 1.0;
 
 /// 던지고 이만큼 안에 되돌아온 물건만 내 것으로 본다
 const BOUNCE_WINDOW: Duration = Duration::from_secs(30);

@@ -331,6 +331,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     // 💩 왼쪽 버튼을 새로 누른 순간만 쓴다 (어디를 무엇을 눌렀는지는 보지도 남기지도 않는다)
     let mut was_left_down = false;
     let mut poop_spots = Vec::new();
+    // 🤹 흐물이가 주울 물건 자리, 노릴 동물 자리 (틱마다 다시 채운다)
+    let mut object_spots = Vec::new();
+    let mut pet_targets: Vec<Option<screenpet_core::juggle::Target>> = Vec::new();
+    let mut juggle_targets = Vec::new();
     // 한 화면의 동물끼리(내 동물 + 손님) 인사·술래 놀이
     let mut social = Social::new(seed_now());
     // 🎮 조작 모드: 켜진 동안만 키를 읽는다 (읽기만 — 앞에 있는 창에도 그대로 간다)
@@ -682,6 +686,14 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     if network.handle(&app, input, &mut config, &mut slots) {
                         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     }
+                    // 🤹 흐물이가 들고 온 물건 (손님), 못 들어가 들고 돌아온 물건 (내 동물): 그 손에 쥐여 준다
+                    for c in network.take_carry_arrivals() {
+                        let Some(s) = slots.iter_mut().find(|s| s.label == c.label) else { continue };
+                        let at = (s.pet.body.x, s.pet.body.y - s.pet.cfg.size);
+                        if let Some(id) = objects.spawn_carried(&app, &s.world, c.kind, c.scale, s.is_own(), at) {
+                            s.pet.hold_object(id);
+                        }
+                    }
                 }
                 Input::ShowHelp => crate::help::show(&app),
                 Input::ShowFeedback => crate::feedback::show(&app),
@@ -892,9 +904,20 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         let mut own_exit = None;
         let mut left = Vec::new();
         objects.poop_spots(&mut poop_spots);
+        objects.object_spots(&mut object_spots);
+        pet_targets.clear();
+        pet_targets.extend(slots.iter().map(|s| {
+            (!s.pet.is_away() && s.pet.hit_feels()).then(|| screenpet_core::juggle::Target { x: s.pet.body.x, y: s.pet.body.y, size: s.pet.cfg.size })
+        }));
         for (i, s) in slots.iter_mut().enumerate() {
             // 친구 화면에 가 있거나 🛷 썰매에 탄 동안엔 물리·행동이 멈춘다
             if !s.pet.is_away() && !sleigh.is_riding(&s.label) {
+                // 🤹 흐물이: 바닥의 물건을 주우러 가고, 같은 화면의 다른 동물을 노린다 (다른 동물은 할 일이 없다)
+                if s.pet.cfg.juggler {
+                    juggle_targets.clear();
+                    juggle_targets.extend(pet_targets.iter().enumerate().filter(|(j, _)| *j != i).filter_map(|(_, t)| *t));
+                    s.pet.notice_objects(&object_spots, &juggle_targets, &s.world);
+                }
                 s.pet.notice_poops(&poop_spots, &s.world);
                 s.pet.update(dt, &s.world);
             }
@@ -931,9 +954,22 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
         network.forget_gone_replies(&slots);
 
+        // 🤹 흐물이가 든 물건을 손 자리로 옮기고, 놓은 것은 던진다
+        objects.sync_carries(&mut social, &mut slots);
         if let Some(side) = own_exit {
-            // 내 동물이 화면 끝으로 다 나갔다 — 그 끝의 친구에게 놀러 간다
-            network.own_exited(&config, &mut slots[OWN], side);
+            // 내 동물이 화면 끝으로 다 나갔다 — 그 끝의 친구에게 놀러 간다 (물건을 들고 나갔으면 새 버전 친구에게 싣는다)
+            let carried = slots[OWN].pet.carried_object();
+            let carry = carried.and_then(|id| objects.carry_wire(id));
+            let took = network.own_exited(&config, &mut slots[OWN], side, carry);
+            if let Some(id) = carried {
+                if took {
+                    objects.hand_over(id);
+                }
+                // 못 실었으면 이 화면 끝에 떨어진다 (다시 들어오는 중이면 그대로 들고 온다)
+                if took || slots[OWN].pet.is_away() {
+                    slots[OWN].pet.carry_handed_over();
+                }
+            }
         }
         network.tick(&app, now, &config, &mut slots[OWN]);
         network.tick_mailbox(&app, &mut slots, now);

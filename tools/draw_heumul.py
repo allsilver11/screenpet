@@ -629,11 +629,185 @@ def hm_rope(sp, i):
     return f.render()
 
 
+# ---- 🤹 물건 들어 던지기 (코어 State::Juggle — 물건은 앱의 물건 창이 그린다: 손 자리만 mark_grip으로 적는다) ----
+def _head_of(hip, lean=0.0, sbend=0.0, sbend2=None):
+    """stand가 그릴 머리 가운데 (몸 휨까지 같은 식)."""
+    s = hm()
+    neck = polar(hip, 180 - lean, s["spine"])
+    spine = hose(hip, neck, sbend, sbend2)
+    tx, ty = spine[-1][0] - spine[-3][0], spine[-1][1] - spine[-3][1]
+    tl = math.hypot(tx, ty) or 1.0
+    return (neck[0] + tx / tl * (s["hr"] + 0.5), neck[1] + ty / tl * (s["hr"] + 0.5))
+
+
+HOLD_GAP = 1.5  # 든 물건 바닥이 머리 꼭대기보다 이만큼 위
+HAND_SPREAD = 8.0  # 두 손이 물건 바닥 양쪽을 받친다
+
+
+def _overhead(hip, lean=0.0, sbend=0.0, sbend2=None, dx=2.0, dy=0.0):
+    """머리 위 물건 바닥 자리 (손 자리) — 옆모습은 조금 앞."""
+    hx, hy = _head_of(hip, lean, sbend, sbend2)
+    return (hx + dx, hy - hm()["hr"] - HOLD_GAP + dy)
+
+
+def _hold_up(f, shoulder, g, w=0.0, front=False):
+    """두 손으로 머리 위 g(물건 바닥) 양쪽을 받친 팔: 어깨에서 머리 양옆으로 둥글게 크게 휘어 올라간다 (머리를 감싸지 않는다).
+    옆모습은 뒤 팔이 머리 뒤 (머리보다 먼저 그린다), 앞 팔은 앞. stand(arms=[])로 몸을 그린 뒤 부른다."""
+    hr = hm()["hr"]
+    heads = [k for k, (kind, _) in enumerate(f.items) if kind == "head"]
+    at = heads[-1] if heads else len(f.items)
+    for sg in (-1, 1):
+        wide = (1.7 if front else (1.9 if sg > 0 else 1.5)) * hr
+        hand = (g[0] + sg * HAND_SPREAD, g[1] + 2)
+        c1 = (shoulder[0] + sg * wide * 0.9, shoulder[1] - hr * 0.3)
+        c2 = (hand[0] + sg * wide * (0.75 + w), hand[1] + hr * 0.7)
+        pts = cubic(shoulder, c1, c2, hand)
+        if sg < 0 and not front:
+            f.items.insert(at, ("line", pts))
+        else:
+            f.line(pts)
+
+
+def hm_lift(sp, i):
+    """쪼그려 앉아 앞에 놓인 물건을 두 손으로 잡고 → 일어나며 가슴께로 → 머리 위로 번쩍 (한 번, 마지막 칸 = hold)."""
+    f = Fig()
+    k = leg_k()
+    if i == 0:
+        hip = ground_hip(60, 0.5)
+        legs = [(floor_at(52), 0.62, 0.48), (floor_at(69), 0.66, 0.5)]
+        g = dp._frame_to_pre(89, 119)
+        stand(f, hip=hip, lean=34, sbend=0.22, head_tilt=10, arms=[((g[0] - 4, g[1] + 2), 1, 60, 0.1), ((g[0] + 4, g[1] + 2), 1, 70, -0.1)], legs=legs)
+    elif i == 1:
+        hip = ground_hip(61, 0.72)
+        legs = [(floor_at(53), 0.4, 0.3), (floor_at(70), 0.42, 0.3)]
+        hx, hy = _head_of(hip, 14, 0.12)
+        g = (hx + 14 * k + 4, hy + hm()["hr"] + 6)
+        stand(f, hip=hip, lean=14, sbend=0.12, head_tilt=4, arms=[((g[0] - 4, g[1] + 2), 1, 40, 0.12), ((g[0] + 4, g[1] + 2), 1, 50, -0.12)], legs=legs)
+    else:
+        hip = ground_hip(62, [0.85, 0.93][i - 2])
+        legs = [(floor_at(54), [0.2, 0.1][i - 2], 0.06), (floor_at(71), [0.22, 0.12][i - 2], 0.08)]
+        lean, sb = [4, 0][i - 2], [0.06, 0.03][i - 2]
+        g = _overhead(hip, lean, sb, dy=[2, 0][i - 2])
+        _, sh, _ = stand(f, hip=hip, lean=lean, sbend=sb, head_tilt=[2, 0][i - 2], arms=[], legs=legs)
+        _hold_up(f, sh, g)
+    dp.mark_grip(*g)
+    return f.render()
+
+
+def hm_hold(sp, i):
+    """머리 위에 든 채 서 있다: 숨 쉬듯 살짝 내려앉고, 두 팔이 흐물흐물."""
+    f = Fig()
+    hip = ground_hip(62, [0.93, 0.9][i])
+    legs = [(floor_at(54), [0.1, 0.15][i], 0.04), (floor_at(71), [0.12, 0.17][i], 0.06)]
+    g = _overhead(hip, 0, [0.03, 0.06][i])
+    _, sh, _ = stand(f, hip=hip, sbend=[0.03, 0.06][i], arms=[], legs=legs)
+    _hold_up(f, sh, g, [0.0, 0.06][i])
+    dp.mark_grip(*g)
+    return f.render()
+
+
+def hm_carry(sp, i):
+    """머리 위에 인 채 통통 걷기: 다리는 걷기처럼, 두 팔은 위로 물건을 받친 채 몸과 함께 통통."""
+    f = Fig()
+    k = leg_k()
+    up = [0, 3, 0, 3][i]
+    hip = ground_hip(62, 0.92, up)
+    (bx, bl), (fx_, fl) = WALK_FEET[i]
+    legs = [(floor_at(hip[0] + bx * k, bl), [0.1, 0.22, 0.2, 0.32][i], [-0.05, 0.12, 0.08, 0.2][i]),
+            (floor_at(hip[0] + fx_ * k, fl), [0.2, 0.32, 0.1, 0.22][i], [0.08, 0.2, -0.05, 0.12][i])]
+    lean, sb = [4, 2, 4, 2][i], [0.08, -0.04, 0.08, -0.04][i]
+    g = _overhead(hip, lean, sb)
+    _, sh, _ = stand(f, hip=hip, lean=lean, sbend=sb, sbend2=[0.0, 0.05, 0.0, 0.05][i], head_tilt=[2, -2, 2, -2][i], arms=[], legs=legs)
+    _hold_up(f, sh, g, wig(i, 0.06))
+    dp.mark_grip(*g)
+    return f.render()
+
+
+def hm_throw(sp, i):
+    """젖혔다가 휙: 0 = 든 채 · 1 = 몸을 뒤로 활처럼 젖혀 물건을 머리 뒤로 · 2 = 앞으로 확 휘두르며 놓는다 · 3 = 팔을 앞으로 뻗은 채 마무리 (한 번)."""
+    f = Fig()
+    k = leg_k()
+    legs = [(floor_at(50), 0.18, 0.08), (floor_at(74), [0.15, 0.22, 0.3, 0.28][i], 0.1)]
+    hip = ground_hip(62, [0.92, 0.88, 0.86, 0.88][i])
+    lean, sb = [-4, -16, 18, 22][i], [-0.04, -0.2, 0.18, 0.12][i]
+    hx, hy = _head_of(hip, lean, sb)
+    hr = hm()["hr"]
+    if i == 0:
+        g = _overhead(hip, lean, sb, dx=0)
+        arms = []
+    elif i == 1:
+        g = (hx - hr - 7, hy - hr * 1.05)
+        arms = [((g[0] - 3, g[1] + 3), 1, -150, 0.25), ((g[0] + 4, g[1] + 2), 1, -170, 0.3)]
+    elif i == 2:
+        g = (hx + hr + 14 * k + 6, hy - hr * 0.3)
+        arms = [((g[0] - 3, g[1] + 1), 1, 120, 0.12), ((g[0] + 3, g[1] + 2), 1, 110, -0.15)]
+    else:
+        g = (hx + hr + 10 * k + 4, hy + hr * 0.6)
+        arms = [((g[0] - 2, g[1] + 1), 1, 100, 0.2), ((g[0] + 3, g[1] + 2), 1, 95, -0.2)]
+    _, sh, _ = stand(f, hip=hip, lean=lean, sbend=sb, head_tilt=[0, -10, 10, 12][i], arms=arms, legs=legs, front_arms=[] if i == 1 else [1])
+    if i == 0:
+        _hold_up(f, sh, g)
+    dp.mark_grip(*g)
+    fx = dp.speed_fx(4, (40, 52, 64), 12) if i == 2 else []
+    return f.render(fx=fx)
+
+
+STRAIN_HANDS_X = 100  # 손바닥이 거대한 것 옆면에: 몸 가운데 + 코어 juggle 거대한 것 앞 간격(몸 크기 0.28) — 프레임 x
+
+
+def hm_strain(sp, i):
+    """끙차! 거대한 것 앞에서 다리를 벌리고 쪼그려 버티며 두 손으로 밀어 올리려 힘준다 — 팔다리가 덜덜, 땀방울."""
+    f = Fig()
+    k = leg_k()
+    sh = [0.0, 1.2, -0.6, 0.8][i]  # 덜덜
+    hip = ground_hip(54 + sh * 0.4, 0.62, [0, 0.8, 0.2, 0.6][i])
+    legs = [(floor_at(38), 0.55, 0.4), (floor_at(68), 0.6, 0.42)]
+    hx, hy = _head_of(hip, 12, 0.12)
+    tip = dp._frame_to_pre(STRAIN_HANDS_X, 0)[0]
+    arms = [((tip - 1 + sh, hy - 4 + sh), 1, 120, 0.2 * wig(i)), ((tip + sh, hy + 9 - sh), 1, 100, -0.2 * wig(i))]
+    stand(f, hip=hip, lean=12, sbend=0.12, sbend2=[0.0, 0.05, -0.03, 0.04][i], head_tilt=[8, 10, 7, 9][i], arms=arms, legs=legs)
+    fx = dp.sweat_fx(30 + [0, 1, 0, 1][i], [28, 26, 29, 27][i])
+    return f.render(fx=fx)
+
+
+def hm_present(sp, i):
+    """짠! 배달 도착 (앞모습): 두 팔로 물건을 머리 위로 번쩍 든 채 섰다가 (흔들흔들) → 마지막 칸에 휙 떨군다 — 두 팔이 앞아래로 (한 번)."""
+    f = Fig()
+    legs = [(floor_at(55), -0.08), (floor_at(73), 0.08)]
+    if i < 3:
+        hip = ground_hip(64, [0.93, 0.95, 0.93][i], [0, 1, 0][i])
+        sb = [0.0, 0.05, -0.05][i]
+        g = _overhead(hip, 0, sb, dx=0)
+        _, sh, _ = stand(f, hip=hip, sbend=sb, head_tilt=[0, 4, -4][i], arms=[], legs=legs, side=False)
+        _hold_up(f, sh, g, [0.0, 0.05, -0.03][i], front=True)
+        dp.mark_grip(*g)
+        return f.render()
+    hip = ground_hip(64, 0.9)
+    stand(f, hip=hip, lean=0, sbend=0.06, head_tilt=6, arms=[(-40, 1.05, -80, 0.25), (40, 1.05, 80, -0.25)], legs=legs, side=False)
+    hx, hy = _head_of(hip, 0, 0.06)
+    dp.mark_grip(hx, hy - hm()["hr"] - HOLD_GAP)
+    return f.render()
+
+
+def hm_slump(sp, i):
+    """털썩 (너무 무거워): 바닥에 주저앉아 다리를 앞으로 쭉, 몸은 앞으로 축 처지고 고개를 푹, 팔은 바닥에 늘어진다 — 땀방울, 숨 고르기."""
+    f = Fig()
+    s = hm()
+    kl = s["leg"]
+    hip = (64 - kl * 0.45, FLOOR - 6 + [0, -0.6][i])
+    legs = [((hip[0] + kl * 1.0, FLOOR - 2.5), 0.1, 0.04), ((hip[0] + kl * 0.9, FLOOR - 1.5), 0.16, 0.06)]
+    k = leg_k()
+    arms = [((hip[0] - 12 * k, FLOOR - 2), 1, -60, 0.12), ((hip[0] - 7 * k, FLOOR - 2), 1, -50, -0.12)]
+    stand(f, hip=hip, lean=[-16, -19][i], sbend=-0.14, sbend2=0.06, head_tilt=[-22, -26][i], arms=arms, legs=legs, front_arms=[])
+    return f.render(fx=dp.sweat_fx(88, [30, 32][i]))
+
+
 HEUMUL_POSES = {"walk": hm_walk, "run": hm_run, "roll": hm_roll, "idle": hm_idle, "look": hm_look, "sleep": hm_sleep, "hop": hm_hop,
                 "fall": hm_fall, "dragged": hm_dragged, "land": hm_land, "sit_front": hm_sit_front, "wave": hm_wave, "tilt": hm_tilt,
                 "belly": hm_belly, "stretch": hm_stretch, "heart": hm_heart, "tickle": hm_tickle, "annoyed": hm_annoyed,
                 "hungry": hm_hungry, "eat": hm_eat, "level_up": hm_level_up, "lookup": hm_lookup, "panic": hm_panic,
-                "hang": hm_hang, "rope": hm_rope}
+                "hang": hm_hang, "rope": hm_rope, "lift": hm_lift, "hold": hm_hold, "carry": hm_carry, "throw": hm_throw,
+                "strain": hm_strain, "present": hm_present, "slump": hm_slump}
 RAW_POSES = dict(HEUMUL_POSES)
 HEUMUL_POSES = {k: _fit(v) for k, v in HEUMUL_POSES.items()}
 
@@ -642,7 +816,7 @@ HEUMUL = Species(
     id="heumul", name="흐물이", walk_speed=110, scale=1.0, base=INK, back=INK, belly=INK, nose=INK, mouth="w",
     front_tail_color=INK, tail_color=INK, stage_size=dict.fromkeys(STAGES, 0.9), stripe=INK, outline=INK,
     stage_tweak={st: dict(_FLAT) for st in STAGES},
-    specials=["lookup", "panic", "hang", "rope"], poses=HEUMUL_POSES, **dp.NO_COMMON_PARTS,
+    specials=["lookup", "panic", "hang", "rope", "lift", "hold", "carry", "throw", "strain", "present", "slump"], poses=HEUMUL_POSES, **dp.NO_COMMON_PARTS,
 )
 
 

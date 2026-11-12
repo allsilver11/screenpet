@@ -1084,14 +1084,17 @@ def _to_dots(entry, grid):
     return [round(grid.to_dot_x(x), 2), round(grid.to_dot_y(y), 2), round(w / grid.cell, 2), r]
 
 
-def render_with_marks(sp, stage):
-    """(프레임, head 표, neck 표 — 칸 좌표)."""
+def render_with_marks(sp, stage, grips=None):
+    """(프레임, head 표, neck 표 — 칸 좌표). grips: 🤹 손 표시 표를 채울 dict (흐물이만 — 칸 좌표 [x, y])."""
     dp._HEAD_LOG.clear()
     dp._NECK_LOG.clear()
+    dp._GRIP_LOG.clear()
     rendered = render_pixel(sp, stage)
     grid = stage_grid(sp, stage)
     head = {a: [_to_dots(e, grid) for e in v] for a, v in dp._HEAD_LOG.items()}
     neck = {a: [_to_dots(e, grid) for e in v] for a, v in dp._NECK_LOG.items()}
+    if grips is not None:
+        grips.update({a: [_to_dots(e, grid)[:2] for e in v] for a, v in dp._GRIP_LOG.items()})
     return rendered, head, neck
 
 
@@ -1104,7 +1107,7 @@ def write_sheet(sp, rendered, path):
     dp.sheet_image(pixel_rows(sp), rendered).save(path, optimize=True)
 
 
-def manifest_for(sp, heads, necks, neck_stretch=None):
+def manifest_for(sp, heads, necks, neck_stretch=None, grips=None):
     """픽셀 pet.json: 그림 정보만 (속도·성격·크기·집·대사는 앱이 동글 pet.json에서 읽는다). head·neck·neck_stretch는 그 단계의 칸 좌표."""
     animations = {}
     for row, (anim, cnt, fps, loop, front) in enumerate(pixel_rows(sp)):
@@ -1119,6 +1122,8 @@ def manifest_for(sp, heads, necks, neck_stretch=None):
         m["neck"] = necks
     if neck_stretch:
         m["neck_stretch"] = neck_stretch
+    if grips and any(grips.values()):
+        m["grip"] = grips
     return m
 
 
@@ -1126,15 +1131,16 @@ def write_species(sp, out_root=OUT_ROOT):
     """ui/pets_pixel/<id>/{sheet_<stage>.png ×5, pet.json} (기린은 neck_<stage>.png, neck_tile_<stage>.png도). {stage: {anim: [frames]}} 반환."""
     out = Path(out_root) / sp.id
     out.mkdir(parents=True, exist_ok=True)
-    by_stage, heads, necks, stretch = {}, {}, {}, {}
+    by_stage, heads, necks, stretch, grips = {}, {}, {}, {}, {}
     for st in dp.STAGES:
-        by_stage[st], heads[st], necks[st] = render_with_marks(sp, st)
+        grips[st] = {}
+        by_stage[st], heads[st], necks[st] = render_with_marks(sp, st, grips[st])
         write_sheet(sp, by_stage[st], out / f"sheet_{st}.png")
         if "neckstretch" in by_stage[st]:
             strip, tile, stretch[st] = neck_layers_pixel(sp, st)
             strip.save(out / f"neck_{st}.png", optimize=True)
             tile.save(out / f"neck_tile_{st}.png", optimize=True)
-    m = manifest_for(sp, heads, necks, stretch)
+    m = manifest_for(sp, heads, necks, stretch, grips)
     (out / "pet.json").write_text(dp._manifest_text(m), encoding="utf-8")
     return by_stage
 
