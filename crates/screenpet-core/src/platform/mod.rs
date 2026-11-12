@@ -54,6 +54,14 @@ pub trait WindowSource: Send {
     fn key_presses(&mut self) -> Option<u32> {
         None
     }
+    /// ⌨️ 타자 응원에 OS 권한이 있나: None = 권한이 필요 없는 OS (Windows), Some(있음?) = macOS "입력 모니터링".
+    /// 묻지 않고 확인만 한다 (싸다 — 몇 초에 한 번 불러도 된다)
+    fn typing_permission(&mut self) -> Option<bool> {
+        None
+    }
+    /// 그 권한을 시스템 창으로 묻는다 (macOS: 처음 한 번만 창이 뜬다 — 이미 거절했으면 조용하다).
+    /// 게임 루프가 정한 때에만 부른다 (crate::typing::PermissionAsk). 기본: 아무것도 안 한다
+    fn request_typing_permission(&mut self) {}
 }
 
 /// 이 OS에서 앱 아이콘을 읽을 수 있다 (아니면 작업표시줄 놀이를 하지 않는다)
@@ -104,5 +112,7 @@ mod tests {
         assert_eq!(s.idle_seconds(), None);
         assert_eq!(s.app_icon(1, 64), None);
         assert_eq!(s.key_presses(), None);
+        assert_eq!(s.typing_permission(), None);
+        s.request_typing_permission();
     }
 }

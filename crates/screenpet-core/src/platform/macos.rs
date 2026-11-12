@@ -15,7 +15,7 @@ use objc2_core_graphics::{
     CGBitmapContextCreate, CGColorSpace, CGContext, CGImageAlphaInfo,
     kCGNullWindowID, kCGWindowAlpha, kCGWindowBounds, kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerPID,
     CGDirectDisplayID, CGDisplayBounds, CGDisplayCopyDisplayMode, CGDisplayMode, CGError, CGEvent, CGEventSource,
-    CGEventSourceStateID, CGEventType, CGGetActiveDisplayList, CGMouseButton, CGRectMakeWithDictionaryRepresentation,
+    CGEventSourceStateID, CGEventType, CGGetActiveDisplayList, CGPreflightListenEventAccess, CGRequestListenEventAccess, CGMouseButton, CGRectMakeWithDictionaryRepresentation,
     CGWindowListCopyWindowInfo, CGWindowListOption,
 };
 
@@ -100,7 +100,7 @@ impl WindowSource for MacSource {
 
     // ---- ⌨️ typing sensor: 개수만 센다 (crate::typing)
     /// 시스템의 키 누름 카운터 (CGEventSourceCounterForEventType, HID 시스템 상태) 하나만 읽는다 — 어떤 키인지는 없다.
-    /// 이벤트 탭이 아니라서 권한 창을 띄우지 않는다. "입력 모니터링" 권한이 없어 카운터가 오르지 않으면 응원이 없을 뿐이다
+    /// 이벤트 탭이 아니고 권한 창도 띄우지 않는다 (권한은 게임 루프가 이유를 말한 뒤 따로 묻는다 — request_typing_permission). "입력 모니터링" 권한이 없으면 게임 루프는 이것을 부르지 않는다
     fn key_presses(&mut self) -> Option<u32> {
         let now = CGEventSource::counter_for_event_type(CGEventSourceStateID::HIDSystemState, CGEventType::KeyDown);
         let presses = typing::counter_delta(self.last_keys, now);
@@ -108,6 +108,17 @@ impl WindowSource for MacSource {
         Some(presses)
     }
     // ---- end typing sensor
+
+    /// 키 누름 카운터는 "입력 모니터링" 권한이 있어야 오른다. 확인만 한다 (창을 띄우지 않는다)
+    fn typing_permission(&mut self) -> Option<bool> {
+        Some(CGPreflightListenEventAccess())
+    }
+
+    /// 시스템의 "키 입력 받기" 창을 띄운다 (권한을 정한 적 없을 때만 — 거절했으면 조용하다. 그때는 메뉴의
+    /// "⌨️ 타자 응원 — Mac 권한 켜기…"가 시스템 설정을 연다). 게임 루프가 말풍선으로 먼저 이유를 말한 뒤에만 부른다
+    fn request_typing_permission(&mut self) {
+        let _ = CGRequestListenEventAccess();
+    }
 
     /// 권한 없이 읽힌다
     fn idle_seconds(&mut self) -> Option<f64> {

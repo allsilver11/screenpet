@@ -13,6 +13,7 @@ use screenpet_core::geom::Rect;
 use screenpet_core::linked;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::style::PetStyle;
+use screenpet_core::typing::{AskStep, PermissionAsk};
 use screenpet_core::tint::BodyTint;
 use screenpet_core::pacing::Pacer;
 use screenpet_core::platform::{default_source, WindowSource};
@@ -46,6 +47,8 @@ const MAX_INPUTS_PER_TICK: usize = 64;
 const OWN: usize = 0;
 /// macOS: 조작 모드를 켠 뒤 이만큼 동안 키가 한 번도 눌린 것으로 읽히지 않으면 입력 모니터링 권한 안내 (실행마다 한 번)
 const KEY_PERMISSION_HINT_AFTER: Duration = Duration::from_secs(12);
+/// 🍎 ⌨️ 타자 응원 권한(macOS 입력 모니터링)이 생겼는지 보는 간격 (켜져 있고 권한이 없을 때만 일한다)
+const TYPING_PERMISSION_CHECK: Duration = Duration::from_secs(2);
 /// 이 환경 변수가 있으면 시작할 때 번들 동물 하나를 손님으로 들인다 (네트워크 없이 여러 창 확인용)
 const DEBUG_GUEST_ENV: &str = "SCREENPET_DEBUG_GUEST";
 
@@ -354,6 +357,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut trail = crate::trail::TrailFx::new();
     // ⌨️ 타자 응원: 최근 2초의 키 누름 *개수* (어떤 키인지는 읽지 않는다)
     let mut typing_meter = screenpet_core::typing::TypingMeter::new();
+    // 🍎 macOS 입력 모니터링 권한 (Windows는 None — 묻지도 않는다). 없으면 이유를 말한 뒤 버전마다 한 번 묻는다
+    let mut typing_permission = source.typing_permission();
+    let mut typing_ask = PermissionAsk::start(Instant::now(), !config.typing_cheer_off, typing_permission, config.input_monitoring_asked.as_deref(), env!("CARGO_PKG_VERSION"));
+    let mut next_permission_check = Instant::now() + TYPING_PERMISSION_CHECK;
+    crate::tray::sync_typing_permission(&app.state::<AppState>().menu, !config.typing_cheer_off && typing_permission == Some(false));
     // 🎁 선물 (없으면 1초에 한 번 시계만 본다)
     let mut gifts = Gifts::new(&config.gifts, seed_now());
     // 자리 비움·돌아옴, 하루 일과, ⏱️ 집중 친구 (1초에 한 번)
@@ -619,6 +627,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     config.typing_cheer_off = !config.typing_cheer_off;
                     // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춘다
                     let _ = app.state::<AppState>().menu.typing_cheer.set_checked(!config.typing_cheer_off);
+                    // 🍎 다시 켜면 (권한이 없을 때) 또 묻는다, 끄면 기다리던 묻기도 취소
+                    typing_permission = source.typing_permission();
+                    typing_ask.toggled(Instant::now(), !config.typing_cheer_off, typing_permission);
+                    crate::tray::sync_typing_permission(&app.state::<AppState>().menu, !config.typing_cheer_off && typing_permission == Some(false));
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
                 Input::TogglePoop => {
@@ -967,7 +979,34 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         let play_busy = held.is_some() || hand.is_some() || objects.is_held() || crate::windows_hidden(&app);
         // ⌨️ 타자 응원: 켜져 있고 내 흐물이가 있을 때만 키 누름 *개수*를 읽는다 (어떤 키인지는 읽지도 남기지도 않는다 —
         // screenpet_core::typing). 꺼져 있으면 센서를 부르지 않는다. 손님에게는 넘기지 않는다
-        let typing_rate = if !config.typing_cheer_off && slots.iter().any(is_own_heumul) {
+        // 🍎 권한이 없으면 세지 않는다 (몇 초마다 확인만 — 생기면 바로 센다)
+        if typing_permission == Some(false) && !config.typing_cheer_off && now >= next_permission_check {
+            next_permission_check = now + TYPING_PERMISSION_CHECK;
+            let now_permission = source.typing_permission();
+            if now_permission != typing_permission {
+                crate::tray::sync_typing_permission(&app.state::<AppState>().menu, now_permission == Some(false));
+            }
+            typing_permission = now_permission;
+        }
+        match typing_ask.tick(now, !config.typing_cheer_off, typing_permission) {
+            Some(AskStep::Explain) => {
+                if slots[OWN].on_screen() {
+                    let _ = app.emit_to(speech_target(&slots[OWN].pet), "pet-say-text", crate::tray::TYPING_PERMISSION_EXPLAIN);
+                }
+            }
+            Some(AskStep::Request) => {
+                config.input_monitoring_asked = Some(env!("CARGO_PKG_VERSION").to_string());
+                save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                source.request_typing_permission();
+            }
+            Some(AskStep::RestartHint) => {
+                if slots[OWN].on_screen() {
+                    let _ = app.emit_to(speech_target(&slots[OWN].pet), "pet-say-text", crate::tray::TYPING_RESTART_HINT);
+                }
+            }
+            None => {}
+        }
+        let typing_rate = if !config.typing_cheer_off && typing_permission != Some(false) && slots.iter().any(is_own_heumul) {
             typing_meter.add(now, source.key_presses().unwrap_or(0));
             typing_meter.rate(now)
         } else {

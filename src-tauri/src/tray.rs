@@ -83,6 +83,17 @@ const CURSOR_PLAY_LABEL: &str = "🐾 커서 장난";
 /// ⌨️ 타자 응원 체크 항목 (설정에 남는다 — 끄면 키 누름 수도 읽지 않는다)
 const TYPING_CHEER_ID: &str = "typing-cheer";
 const TYPING_CHEER_LABEL: &str = "⌨️ 타자 응원";
+/// 🍎 macOS: 타자 응원이 켜져 있는데 입력 모니터링 권한이 없을 때만 ⚙️ 설정의 타자 응원 바로 아래에 끼는 항목 — 시스템 설정을 연다
+const TYPING_PERMISSION_ID: &str = "typing-permission";
+const TYPING_PERMISSION_LABEL: &str = "⌨️ 타자 응원 — Mac 권한 켜기…";
+/// 시스템 설정 ▸ 개인정보 보호 및 보안 ▸ 입력 모니터링
+const INPUT_MONITORING_URL: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent";
+/// ⚙️ 설정 안에서 그 항목이 들어가는 자리 (날씨 효과, 날씨 종류, 똥, 커서 장난, 타자 응원 다음)
+const TYPING_PERMISSION_POSITION: usize = 5;
+/// 권한 창을 띄우기 전에 펫이 먼저 하는 말 (한 줄로 짧게)
+pub const TYPING_PERMISSION_EXPLAIN: &str = "타자 속도만 세요 — 무엇을 치는지는 안 봐요";
+/// 실행 중에 권한이 생겼을 때 (macOS는 보통 앱을 다시 켜야 적용된다)
+pub const TYPING_RESTART_HINT: &str = "앱을 다시 켜면 타자 응원이 시작돼요";
 const POOP_ID: &str = "poop";
 const POOP_LABEL: &str = "💩 펫이 똥 싸기";
 /// ⏱️ 집중 친구 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남는다)
@@ -178,6 +189,10 @@ pub struct TrayMenu {
     pub cursor_play: CheckMenuItem<Wry>,
     /// ⌨️ 타자 응원 (게임 루프가 실제 설정으로 다시 맞춘다)
     pub typing_cheer: CheckMenuItem<Wry>,
+    /// 🍎 ⌨️ 타자 응원 — Mac 권한 켜기… (권한이 없을 때만 ⚙️ 설정에 있다 — sync_typing_permission)
+    pub typing_permission: MenuItem<Wry>,
+    /// ⚙️ 설정 ▸
+    pub settings: Submenu<Wry>,
     /// 💩 똥 싸기 (게임 루프가 실제 설정으로 다시 맞춘다)
     pub poop: CheckMenuItem<Wry>,
     /// 🌨️ 날씨 효과 (11~3월)
@@ -316,6 +331,28 @@ pub fn fill_friends(app: &AppHandle, model: &FriendsMenu) {
     }
     if let Err(e) = sync_come_home(app, model.away) {
         eprintln!("failed to update the come-home item: {e}");
+    }
+}
+
+/// 🍎 "⌨️ 타자 응원 — Mac 권한 켜기…"는 타자 응원이 켜져 있고 입력 모니터링 권한이 없을 때만 ⚙️ 설정에 있다
+pub fn sync_typing_permission(menu: &TrayMenu, needed: bool) {
+    let shown = menu.settings.get(TYPING_PERMISSION_ID).is_some();
+    let _ = if needed && !shown {
+        menu.settings.insert(&menu.typing_permission, TYPING_PERMISSION_POSITION)
+    } else if !needed && shown {
+        menu.settings.remove(&menu.typing_permission)
+    } else {
+        Ok(())
+    };
+}
+
+/// 시스템 설정의 입력 모니터링 화면을 연다 (macOS만 — 다른 OS에는 그 항목이 생기지 않는다)
+fn open_input_monitoring() {
+    if cfg!(target_os = "macos") {
+        // open이 끝나기를 기다려 거둔다 (메뉴 스레드는 막지 않는다)
+        std::thread::spawn(|| {
+            let _ = std::process::Command::new("/usr/bin/open").arg(INPUT_MONITORING_URL).status();
+        });
     }
 }
 
@@ -603,6 +640,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let cursor_play = CheckMenuItem::with_id(app, CURSOR_PLAY_ID, CURSOR_PLAY_LABEL, true, true, None::<&str>)?;
     let poop = CheckMenuItem::with_id(app, POOP_ID, POOP_LABEL, true, true, None::<&str>)?;
     let typing_cheer = CheckMenuItem::with_id(app, TYPING_CHEER_ID, TYPING_CHEER_LABEL, true, true, None::<&str>)?;
+    let typing_permission = MenuItem::with_id(app, TYPING_PERMISSION_ID, TYPING_PERMISSION_LABEL, true, None::<&str>)?;
     let focus_toggle = CheckMenuItem::with_id(app, FOCUS_TOGGLE_ID, "집중 시작", true, false, None::<&str>)?;
     let focus_short = CheckMenuItem::with_id(app, FOCUS_SHORT_ID, "25분 집중 · 5분 쉬기", true, true, None::<&str>)?;
     let focus_long = CheckMenuItem::with_id(app, FOCUS_LONG_ID, "50분 집중 · 10분 쉬기", true, false, None::<&str>)?;
@@ -685,6 +723,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             CONTROL_ID => send(app, Input::ToggleControl),
             CURSOR_PLAY_ID => send(app, Input::ToggleCursorPlay),
             TYPING_CHEER_ID => send(app, Input::ToggleTypingCheer),
+            TYPING_PERMISSION_ID => open_input_monitoring(),
             SIZES_ID => send(app, Input::ShowSizes),
             POOP_ID => send(app, Input::TogglePoop),
             WEATHER_ID => send(app, Input::ToggleWeather),
@@ -765,5 +804,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, poop, weather, weather_real, weather_season, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, weather, weather_real, weather_season, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
 }

@@ -77,6 +77,9 @@ pub struct Config {
     /// ⌨️ 타자 응원을 메뉴에서 껐다 (기본은 켜짐). 꺼져 있으면 키 누름 수도 읽지 않는다
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub typing_cheer_off: bool,
+    /// 🍎 ⌨️ 타자 응원용 macOS 입력 모니터링 권한을 물어본 앱 버전 (버전마다 한 번만 — ad-hoc 서명이라 업데이트하면 권한이 풀릴 수 있다)
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub input_monitoring_asked: Option<String>,
     /// 💩 똥 싸기를 메뉴에서 껐다 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub poop_off: bool,
@@ -1627,6 +1630,18 @@ mod tests {
         let off = Config { typing_cheer_off: true, ..Config::default() };
         let back: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
         assert!(back.typing_cheer_off);
+    }
+
+    #[test]
+    fn input_monitoring_ask_is_remembered_per_version() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert_eq!(old.input_monitoring_asked, None);
+        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("input_monitoring_asked"));
+        let asked = Config { input_monitoring_asked: Some("0.6.3".into()), ..Config::default() };
+        let back: Config = serde_json::from_str(&serde_json::to_string(&asked).unwrap()).unwrap();
+        assert_eq!(back.input_monitoring_asked.as_deref(), Some("0.6.3"));
+        let junk: Config = serde_json::from_str(r#"{"pet":"cat","input_monitoring_asked":7}"#).unwrap();
+        assert_eq!(junk.input_monitoring_asked, None);
     }
 
     #[test]
