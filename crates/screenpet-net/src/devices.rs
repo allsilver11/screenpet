@@ -1,57 +1,35 @@
-//! Linked devices (📱 내 다른 컴퓨터): one person's two computers each keep
-//! their own identity but share their friend lists.
+//! 연결된 기기(📱 내 다른 컴퓨터)임: 한 사람의 두 컴퓨터가 각자 신원은 지키면서 친구 목록을 나눔.
 //!
-//! - **At most two computers.** An install links at most one other computer
-//!   (`State::device`); linking another is refused until it is unlinked.
-//! - **Linking takes a code.** Over an authenticated friend link, computer A
-//!   shows a fresh random code for friend B (`CODE_LEN` symbols, valid
-//!   `CODE_TTL`, single use, cancelled after `CODE_TRIES` wrong tries); the
-//!   user types it on B. The code never goes on the wire: B proves it knows
-//!   K = BLAKE2s(label || code) over both nonces and both static keys, and
-//!   only then does A prove it back (A never answers a wrong guess with
-//!   anything that could test another guess offline). Both then store the
-//!   same long-term secret S = BLAKE2s(label || K || keys || nonces).
-//! - **Both users confirm.** A matched code only asks each user "본인의 PC가
-//!   맞습니까?" (`NetEvent::DeviceConfirm`); S stays on that link alone
-//!   (`DevLink::confirming`) — not stored, nothing shared — until both pressed
-//!   확인 (`device_confirm` each way). A no, closing the window, no answer
-//!   within `Timing::device_confirm_timeout`, or losing the link cancels on
-//!   both sides (`device_unlink`, `NetEvent::DeviceLinkCancelled`) and S is
-//!   gone; a restart finds nothing.
-//! - **Every later link proves S again** (fresh nonces from both sides, each
-//!   side checks the other's proof). Until it checks out the link is just a
-//!   friend: `device_friends` is neither sent nor taken. A wrong proof, or a
-//!   peer that holds no secret for us, unlinks both (`device_unlink`).
-//! - **One of the two plays.** On each proven link both send `device_active`
-//!   (who plays as (term, id), and how long ago their user last used them);
-//!   the highest (term, id) plays, the computer used last claims on meeting,
-//!   and `Net::claim_active` claims at any time. The other is on standby: no
-//!   friend links (none dialed, friends' keys closed before hello, open ones
-//!   closed after `Timing::standby_grace`). Out of reach = both play.
-//! - **The pet and its growth follow the computer that plays.** It sends
-//!   `device_state` (selected pet, every pet's care) on the proven link right
-//!   after both met, when it starts playing, on a change (coalesced to one per
-//!   `Timing::device_state_every`) and every `Timing::device_state_refresh`;
-//!   the one on standby takes it from the computer that plays only. A claim
-//!   (`Net::claim_active`) waits up to `device_state_every` for the other's
-//!   last state (`handover`), taken unless the claimer changed its own since
-//!   it last took one. The claim that settles who plays as the two meet again
-//!   (`meet`) hands nothing over: the computer used last wins.
-//! - `device_friends` (my friends) only ever adds friends I do not know.
-//! - `my_devices` (my other computer, at most `MAX_DEVICES`) goes to my other
-//!   friends; they add it as a friend that remembers who introduced it
-//!   (`via`) and leaves together with that friend. Never an id I see on the
-//!   LAN, invite or am pairing with; and a real pairing with an introduced id
-//!   replaces the introduced key.
+//! - **컴퓨터는 최대 둘.** 설치 하나는 다른 컴퓨터 하나까지만 연결함 (`State::device`). 끊기 전엔 또 연결 못 함.
+//! - **연결은 코드로.** 인증된 친구 링크 위에서 A가 친구 B용 새 난수 코드를 보여 줌
+//!   (`CODE_LEN`기호, `CODE_TTL` 동안 유효, 한 번만, `CODE_TRIES`번 틀리면 취소). 사용자가 B에 입력함.
+//!   코드는 선에 실리지 않음: B가 두 nonce와 두 정적 키에 대해 K = BLAKE2s(label || code)를 안다고 증명해야
+//!   A가 그다음 증명함 (A는 틀린 추측에 오프라인으로 다른 추측을 시험할 만한 답을 주지 않음).
+//!   그 뒤 둘 다 같은 장기 비밀 S = BLAKE2s(label || K || keys || nonces)를 저장함.
+//! - **두 사용자가 확인함.** 코드가 맞으면 각 사용자에게 "본인의 PC가 맞습니까?"(`NetEvent::DeviceConfirm`)만 물음.
+//!   둘 다 확인(`device_confirm` 양방향)할 때까지 S는 그 링크에만 있음(`DevLink::confirming`, 저장·공유 없음).
+//!   아니오·창 닫기·`Timing::device_confirm_timeout` 안에 답 없음·링크 끊김이면 양쪽 다 취소하고
+//!   (`device_unlink`, `NetEvent::DeviceLinkCancelled`) S는 사라짐. 재시작해도 남은 게 없음.
+//! - **이후 링크마다 S를 다시 증명함** (양쪽 새 nonce, 서로 상대 증명을 확인). 통과 전엔 그냥 친구임:
+//!   `device_friends`를 주지도 받지도 않음. 틀린 증명이나 우리 비밀이 없는 상대면 둘 다 끊음(`device_unlink`).
+//! - **둘 중 하나만 놂.** 증명된 링크마다 둘 다 `device_active`(누가 (term, id)로 노는지, 사용자가 마지막으로
+//!   쓴 지 얼마인지)를 보냄. 가장 높은 (term, id)가 놀고, 만나면 마지막에 쓴 컴퓨터가 차지하며,
+//!   `Net::claim_active`로 언제든 차지할 수 있음. 다른 쪽은 대기: 친구 링크 없음(다이얼 안 함, hello 전에
+//!   친구 키는 닫고, 열린 링크는 `Timing::standby_grace` 뒤 닫음). 서로 닿지 않으면 둘 다 놂.
+//! - **펫과 성장은 노는 컴퓨터를 따라감.** 노는 쪽이 `device_state`(고른 펫, 모든 펫의 돌봄)를 증명된 링크로 보냄:
+//!   둘이 만난 직후, 놀기 시작할 때, 바뀔 때(`Timing::device_state_every`당 하나로 모음),
+//!   `Timing::device_state_refresh`마다. 대기 쪽은 노는 컴퓨터에서만 받음. 차지(`Net::claim_active`)는
+//!   상대의 마지막 상태를 `device_state_every`까지 기다려(`handover`) 받음. 단 차지한 쪽이 마지막으로 받은 뒤
+//!   자기 것을 바꿨으면 안 받음. 다시 만나 누가 놀지 정하는 차지(`meet`)는 아무것도 넘기지 않음: 마지막에 쓴 쪽이 이김.
+//! - `device_friends`(내 친구들)는 내가 모르는 친구만 더함.
+//! - `my_devices`(내 다른 컴퓨터, 최대 `MAX_DEVICES`)는 내 다른 친구들에게 감. 그들은 소개한 친구(`via`)를 기억하는
+//!   친구로 더하고 그 친구와 함께 뺌. LAN에서 보이거나 초대·짝짓기 중인 id는 안 받고,
+//!   소개된 id와 진짜 짝짓기를 하면 소개된 키를 바꿈.
 //!
-//! Everything received is checked here: install-id format, 32-byte key, never
-//! my own id or key, never an id or key already pinned (no key is ever
-//! replaced), `MAX_FRIENDS` in all. Friends added this way are *unconfirmed*
-//! (`State::pending`) until they prove on a link that they pinned us too; until
-//! then a hello saying "I don't know you" only backs off instead of removing
-//! them (their introduction to us may simply not have arrived yet). One that
-//! stays unconfirmed for `PENDING_DAYS`, or says so `PENDING_STRIKES` times,
-//! is dropped.
+//! 받은 것은 모두 여기서 검사함: 설치 id 형식, 32바이트 키, 내 id·키 아님, 이미 고정된 id·키 아님(키는 절대 안 바꿈),
+//! 전체 `MAX_FRIENDS`. 이렇게 더한 친구는 링크에서 우리도 고정했음을 증명할 때까지 *미확인*(`State::pending`)임.
+//! 그동안 "너 모름" hello는 지우지 않고 물러나기만 함(우리 소개가 아직 안 갔을 수 있음).
+//! `PENDING_DAYS` 동안 미확인이거나 그렇게 `PENDING_STRIKES`번 말하면 뺌.
 
 use crate::noise::{self, blake2s, hex32, random32, to_hex};
 use crate::protocol::{clamp_name, Control, WireCare, WireFriend, MAX_DEVICES, MAX_FRIENDS};
@@ -60,21 +38,27 @@ use crate::{NetEvent, Shared, State};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// A link code lives this long …
+/// 연결 코드는 이만큼 살고 …
 pub(crate) const CODE_TTL: Duration = Duration::from_secs(10 * 60);
-/// … and is cancelled after this many wrong tries.
+/// … 이만큼 틀리면 취소됨
 pub(crate) const CODE_TRIES: u32 = 5;
-/// Code symbols: no I, L, O, 0 or 1 (easy to mix up when typing).
+/// 코드 기호임: I, L, O, 0, 1은 뺌 (입력할 때 헷갈림)
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+/// 코드 기호 수
 pub(crate) const CODE_LEN: usize = 8;
 
+/// 코드 키 라벨
 const L_CODE: &[u8] = b"screenpet-device/1 code";
+/// 코드 증명 라벨
 const L_CODE_PROOF: &[u8] = b"screenpet-device/1 code proof";
+/// 장기 비밀 유도 라벨
 const L_SECRET: &[u8] = b"screenpet-device/1 secret";
+/// 장기 비밀 증명 라벨
 const L_PROOF: &[u8] = b"screenpet-device/1 proof";
 
-/// The code this computer shows for one friend (one at a time).
+/// 이 컴퓨터가 친구 한 명에게 보여 주는 코드임 (한 번에 하나)
 pub(crate) struct LinkCode {
+    /// 코드를 받을 친구 id
     pub friend: String,
     key: [u8; 32],
     expires: Instant,
@@ -82,48 +66,49 @@ pub(crate) struct LinkCode {
 }
 
 impl LinkCode {
+    /// 이 친구에게 아직 유효한 코드인지 봄
     fn live_for(&self, id: &str, now: Instant) -> bool {
         self.friend == id && now < self.expires
     }
 }
 
-/// Typed a code for the peer of this link: K, my nonce, its nonce once it came.
+/// 이 링크 상대에게 코드를 입력한 상태임: K, 내 nonce, 온 뒤의 상대 nonce
 struct Entering {
     key: [u8; 32],
     nb: [u8; 32],
     na: Option<[u8; 32]>,
 }
 
-/// A matched code waiting for both users' 확인 (gone with the link).
+/// 코드가 맞아 두 사용자의 확인을 기다리는 상태임 (링크와 함께 사라짐)
 pub(crate) struct Confirming {
     secret: [u8; 32],
-    /// I pressed 확인 (and sent `device_confirm`).
+    /// 내가 확인을 눌렀음 (`device_confirm`도 보냄)
     mine: bool,
-    /// The other computer sent `device_confirm`.
+    /// 다른 컴퓨터가 `device_confirm`을 보냈음
     theirs: bool,
     until: Instant,
 }
 
-/// Device-link state of one friend link (gone with the link).
+/// 친구 링크 하나의 기기 연결 상태임 (링크와 함께 사라짐)
 #[derive(Default)]
 pub(crate) struct DevLink {
-    /// My nonce for proving the stored secret on this link (sent on connect).
+    /// 이 링크에서 저장된 비밀을 증명할 내 nonce (연결 때 보냄)
     pub mine: Option<[u8; 32]>,
     theirs: Option<[u8; 32]>,
-    /// The peer proved our stored secret on this link, or we just linked on it.
+    /// 상대가 이 링크에서 저장된 비밀을 증명했거나 방금 여기서 연결했음
     pub proven: bool,
     entering: Option<Entering>,
-    /// I hold a code for the peer and sent my nonce: (nb, na).
+    /// 상대용 코드를 쥐고 내 nonce를 보냈음: (nb, na)
     holding: Option<([u8; 32], [u8; 32])>,
-    /// The code matched on this link; waiting for both users' 확인.
+    /// 이 링크에서 코드가 맞았음. 두 사용자의 확인을 기다림
     pub confirming: Option<Confirming>,
-    /// 📱 I told my state (who plays, my idle time) on this proven link.
+    /// 📱 이 증명된 링크에 내 상태(누가 노는지, 내 쉰 시간)를 알렸음
     active_sent: bool,
-    /// The other computer's state came on this link (and I answered it).
+    /// 이 링크로 다른 컴퓨터의 상태가 왔음 (그리고 답했음)
     active_heard: bool,
 }
 
-/// A fresh code as shown to the user, `ABCD-EFGH`, and its key.
+/// 사용자에게 보일 새 코드(`ABCD-EFGH`)와 그 키를 만듦
 pub(crate) fn new_code(friend: &str) -> (String, LinkCode) {
     let mut code = String::new();
     while code.len() < CODE_LEN {
@@ -140,59 +125,65 @@ pub(crate) fn new_code(friend: &str) -> (String, LinkCode) {
     (shown, LinkCode { friend: friend.to_string(), key, expires: Instant::now() + CODE_TTL, wrong: 0 })
 }
 
-/// A typed code (any case, spaces and dashes ignored) → its key, if it is one.
+/// 입력한 코드(대소문자 무관, 공백·대시 무시)를 키로 바꿈. 코드가 아니면 None임
 pub(crate) fn typed_code_key(typed: &str) -> Option<[u8; 32]> {
     let code: String = typed.chars().filter(|c| !c.is_whitespace() && *c != '-').map(|c| c.to_ascii_uppercase()).collect();
     (code.len() == CODE_LEN && code.bytes().all(|b| CODE_ALPHABET.contains(&b))).then(|| code_key(&code))
 }
 
+/// 코드에서 K를 만듦
 fn code_key(code: &str) -> [u8; 32] {
     blake2s(&[L_CODE, code.as_bytes()])
 }
 
+/// 코드를 입력한 쪽의 증명임
 fn enter_proof(k: &[u8; 32], nb: &[u8; 32], na: &[u8; 32], enterer: &[u8; 32], holder: &[u8; 32]) -> [u8; 32] {
     blake2s(&[L_CODE_PROOF, b"enter", k, nb, na, enterer, holder])
 }
 
+/// 코드를 쥔 쪽의 증명임
 fn hold_proof(k: &[u8; 32], nb: &[u8; 32], na: &[u8; 32], holder: &[u8; 32], enterer: &[u8; 32]) -> [u8; 32] {
     blake2s(&[L_CODE_PROOF, b"hold", k, nb, na, holder, enterer])
 }
 
+/// 두 nonce와 두 키로 장기 비밀 S를 유도함
 fn derive_secret(k: &[u8; 32], holder: &[u8; 32], enterer: &[u8; 32], na: &[u8; 32], nb: &[u8; 32]) -> [u8; 32] {
     blake2s(&[L_SECRET, k, holder, enterer, na, nb])
 }
 
+/// 저장된 비밀 S를 아는지 보이는 증명임
 fn secret_proof(s: &[u8; 32], prover: &[u8; 32], verifier: &[u8; 32], n_verifier: &[u8; 32], n_prover: &[u8; 32]) -> [u8; 32] {
     blake2s(&[L_PROOF, s, prover, verifier, n_verifier, n_prover])
 }
 
-/// Compare proofs without an early exit.
+/// 일찍 빠져나가지 않고 증명을 비교함 (시간 공격 방지)
 fn same(a: &[u8; 32], b: Option<[u8; 32]>) -> bool {
     b.is_some_and(|b| a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0)
 }
 
-/// Start typing `key` (a code friend link `token` holds for us): my nonce goes out.
+/// `key`(친구 링크 `token`이 우리용으로 쥔 코드) 입력을 시작함: 내 nonce를 보낼 메시지를 돌려줌
 pub(crate) fn start_entering(st: &mut State, token: u64, key: [u8; 32]) -> Option<Control> {
     let nb = random32();
     st.conns.get_mut(&token)?.dev.entering = Some(Entering { key, nb, na: None });
     Some(Control::DeviceCode { nonce: to_hex(&nb) })
 }
 
-/// A fresh nonce for proving the stored secret on a new link to my linked computer.
+/// 내 연결된 컴퓨터로의 새 링크에서 저장된 비밀을 증명할 새 nonce를 만듦
 pub(crate) fn link_nonce() -> [u8; 32] {
     random32()
 }
 
+/// `device_no` 거절 메시지를 만듦
 fn no(reason: &str, left: Option<u32>) -> Control {
     Control::DeviceNo { reason: reason.to_string(), left }
 }
 
+/// 링크 `token`의 기기 상태를 빌려줌
 fn dev(st: &mut State, token: u64) -> Option<&mut DevLink> {
     st.conns.get_mut(&token).map(|c| &mut c.dev)
 }
 
-/// The code matched with `id` on link `token` (secret `s`): ask the user,
-/// keep `s` on this link only until both confirm.
+/// `token` 링크에서 `id`와 코드가 맞았음(비밀 `s`): 사용자에게 묻고, 둘 다 확인할 때까지 `s`는 이 링크에만 둠
 fn ask(shared: &Shared, st: &mut State, token: u64, id: &str, s: [u8; 32]) {
     st.link_code = None; // single use
     let until = Instant::now() + shared.timing.device_confirm_timeout;
@@ -203,8 +194,8 @@ fn ask(shared: &Shared, st: &mut State, token: u64, id: &str, s: [u8; 32]) {
     shared.emit(NetEvent::DeviceConfirm { id: id.to_string() });
 }
 
-/// Both confirmed on link `token`: linked to `id`, proven on that link.
-/// `false` (nothing linked) if I got linked to another computer meanwhile.
+/// `token` 링크에서 둘 다 확인함: `id`와 연결하고 그 링크를 증명됨으로 둠.
+/// 그사이 다른 컴퓨터와 연결됐으면 `false`(아무것도 안 함)임
 fn link(shared: &Shared, st: &mut State, token: u64, id: &str) -> bool {
     let Some(s) = dev(st, token).and_then(|d| d.confirming.take()).map(|c| c.secret) else { return false };
     if linked_elsewhere(st, id) {
@@ -224,8 +215,8 @@ fn link(shared: &Shared, st: &mut State, token: u64, id: &str) -> bool {
     true
 }
 
-/// The user's answer for friend `id` (see `Net::confirm_device`): the link to
-/// tell and what to tell it, or `None` if nothing waits for an answer.
+/// 친구 `id`에 대한 사용자 답을 처리함 (`Net::confirm_device` 참고).
+/// 알릴 링크와 메시지를 돌려주고, 답을 기다리는 게 없으면 None임
 pub(crate) fn answer(shared: &Shared, st: &mut State, id: &str, yes: bool) -> Option<(Arc<SecureLink>, Control)> {
     let token = *st.friend_links.get(id)?;
     let conn = st.conns.get_mut(&token)?;
@@ -246,7 +237,7 @@ pub(crate) fn answer(shared: &Shared, st: &mut State, id: &str, yes: bool) -> Op
     Some((to, Control::DeviceConfirm))
 }
 
-/// Cancel the confirms nobody answered in time (called every tick).
+/// 시간 안에 아무도 답하지 않은 확인을 취소함 (틱마다 불림)
 pub(crate) fn expire_confirms(shared: &Shared) {
     let now = Instant::now();
     let mut gone = Vec::new();
@@ -265,12 +256,13 @@ pub(crate) fn expire_confirms(shared: &Shared) {
     }
 }
 
+/// 이미 `id` 아닌 다른 컴퓨터와 연결됐는지 봄
 fn linked_elsewhere(st: &State, id: &str) -> bool {
     st.device.as_ref().is_some_and(|(d, _)| d != id)
 }
 
-/// A `device_*` message on friend link `token` from `id` (authenticated,
-/// version-checked and budgeted by the caller). Returns the replies to send.
+/// 친구 링크 `token`에서 `id`가 보낸 `device_*` 메시지를 처리함
+/// (인증·버전 확인·예산은 호출자가 함). 보낼 답들을 돌려줌
 pub(crate) fn on_link_message(shared: &Shared, st: &mut State, token: u64, id: &str, msg: Control) -> Vec<Control> {
     let now = Instant::now();
     let me = shared.public_key;
@@ -457,19 +449,18 @@ pub(crate) fn on_link_message(shared: &Shared, st: &mut State, token: u64, id: &
     }
 }
 
-/// Terms beyond this are nonsense (JSON numbers stay exact up to 2^53).
+/// 이보다 큰 term은 말이 안 됨 (JSON 숫자는 2^53까지 정확함)
 const MAX_TERM: u64 = 1 << 53;
 
-/// Claim the play in `st` (my id `me`): the claim to send. `meet` = it
-/// settles who plays as we meet again (nothing is handed over).
+/// `st`에서 놀기를 차지함(내 id `me`): 보낼 차지 메시지를 돌려줌.
+/// `meet`이면 다시 만나 누가 놀지 정하는 차지임 (아무것도 안 넘김)
 fn claim_in(st: &mut State, me: &str, meet: bool) -> Control {
     st.active = ((st.active.0 + 1).min(MAX_TERM), me.to_string());
     Control::DeviceActive { term: Some(st.active.0), you: false, idle: None, meet }
 }
 
-/// 📱 The user plays on this computer: the claim and the proven link to my
-/// linked computer to send it on (`None` if there is no such link; the
-/// claim still counts here).
+/// 📱 사용자가 이 컴퓨터에서 놂: 차지 메시지와 그걸 보낼 증명된 링크를 돌려줌.
+/// 그런 링크가 없으면 None이지만 차지는 여기서 유효함
 pub(crate) fn claim(shared: &Shared) -> Option<(Arc<SecureLink>, Control)> {
     let mut st = shared.state();
     let now = Instant::now();
@@ -484,16 +475,15 @@ pub(crate) fn claim(shared: &Shared) -> Option<(Arc<SecureLink>, Control)> {
     Some((link, msg))
 }
 
-/// The link to my linked computer, if it is up, proven and knows `device_active`.
+/// 내 연결된 컴퓨터로의 링크가 살아 있고 증명됐고 `device_active`를 알면 돌려줌
 fn proven_device_link(st: &State) -> Option<Arc<SecureLink>> {
     let (d, _) = st.device.as_ref()?;
     st.friend_conn(d).filter(|c| matches!(c.kind, crate::Kind::Friend) && c.dev.proven && c.v >= crate::protocol::DEVICES_MIN_VERSION).map(|c| c.link.clone())
 }
 
-/// Who plays now (my linked computer out of reach for `conn_timeout` = both):
-/// updates `State::standby` / `device_standby` and reports a change. Called
-/// every tick and at once when who plays changes, so `Net::standby` is right
-/// as soon as a claim is made or heard. Returns whether this one is on standby.
+/// 지금 누가 노는지 정함 (연결된 컴퓨터가 `conn_timeout` 동안 안 닿으면 둘 다 놂).
+/// `State::standby`·`device_standby`를 고치고 바뀌면 알림. 틱마다, 그리고 바뀔 때 바로 불려
+/// 차지 직후에도 `Net::standby`가 맞음. 이 컴퓨터가 대기인지 돌려줌
 fn decide(shared: &Shared, st: &mut State, now: Instant) -> bool {
     let device = st.device.as_ref().map(|(d, _)| d.clone());
     let reachable = device.is_some() && st.device_seen.is_some_and(|t| now.duration_since(t) <= shared.timing.conn_timeout);
@@ -510,10 +500,8 @@ fn decide(shared: &Shared, st: &mut State, now: Instant) -> bool {
     standby
 }
 
-/// 📱 Every tick: tell my linked computer my state on each new proven link,
-/// work out who plays, report changes, and on standby close friend links
-/// once the grace is over. My linked computer out of reach for `conn_timeout`
-/// = both play.
+/// 📱 틱마다 부름: 새 증명 링크마다 내 상태를 알리고, 누가 놀지 정하고, 바뀌면 알리고,
+/// 대기 중이면 유예 뒤 친구 링크를 닫음. 연결된 컴퓨터가 `conn_timeout` 동안 안 닿으면 둘 다 놂
 pub(crate) fn tick_active(shared: &Shared) {
     let now = Instant::now();
     let mut send = Vec::new();
@@ -557,26 +545,29 @@ pub(crate) fn tick_active(shared: &Shared) {
     }
 }
 
-/// 📱 Most pets in one `device_state` (both ways), …
+/// 📱 `device_state` 하나에 담는 펫 수 상한 (양방향) …
 pub(crate) const MAX_CARE: usize = 64;
-/// … pet ids (folder names: a-z, 0-9, _) and stage names this long at most.
+/// … 펫 id(폴더 이름: a-z, 0-9, _)와 단계 이름은 최대 이 길이임
 const MAX_PET_ID: usize = 32;
+/// 단계 이름 최대 길이
 const MAX_STAGE: usize = 16;
 
-/// 📱 A selected pet and every pet's care, shape-checked (`clean_state`).
+/// 📱 고른 펫과 모든 펫의 돌봄임. 모양 검사를 거침 (`clean_state`)
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SharedState {
+    /// 고른 펫 id
     pub pet: Option<String>,
+    /// 펫별 돌봄 값
     pub care: Vec<WireCare>,
 }
 
+/// 소문자·숫자·`_`로만 된 `max`자 이하 낱말인지 봄
 fn is_word(s: &str, max: usize) -> bool {
     !s.is_empty() && s.len() <= max && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
-/// Keep what looks like a pet: pet ids and stages as words, finite numbers,
-/// one entry per pet (the first), at most `MAX_CARE`. Species and value
-/// ranges are the app's to check.
+/// 펫처럼 보이는 것만 남김: id와 단계는 낱말, 숫자는 유한, 펫당 하나(첫 것), 최대 `MAX_CARE`개.
+/// 종과 값 범위는 앱이 검사함
 pub(crate) fn clean_state(pet: Option<String>, care: Vec<WireCare>) -> SharedState {
     let mut kept: Vec<WireCare> = Vec::new();
     for c in care {
@@ -591,7 +582,7 @@ pub(crate) fn clean_state(pet: Option<String>, care: Vec<WireCare>) -> SharedSta
     SharedState { pet: pet.filter(|p| is_word(p, MAX_PET_ID)), care: kept }
 }
 
-/// My pet or care changed (`Net::share_state`): it goes out while I play.
+/// 내 펫이나 돌봄이 바뀜 (`Net::share_state`): 내가 노는 동안 내보냄
 pub(crate) fn share(st: &mut State, pet: &str, care: Vec<WireCare>) {
     let s = clean_state(Some(pet.to_string()), care);
     if st.dstate.as_ref() != Some(&s) {
@@ -601,10 +592,9 @@ pub(crate) fn share(st: &mut State, pet: &str, care: Vec<WireCare>) {
     }
 }
 
-/// 📱 My state for my linked computer, if it is due: I play, it is on
-/// standby on a proven link where both states met, no handover is awaited;
-/// and this link or my turn to play is new, or it changed and the last one
-/// went out `device_state_every` ago, or `device_state_refresh` passed.
+/// 📱 연결된 컴퓨터에 보낼 내 상태가 있으면 돌려줌: 내가 놀고, 상대가 두 상태가 만난 증명 링크에서 대기 중이고,
+/// 넘겨받기를 기다리지 않을 때. 그리고 링크나 내 차례가 새것이거나, 바뀌었고 지난 것이 `device_state_every` 전이거나,
+/// `device_state_refresh`가 지났을 때임
 fn state_due(shared: &Shared, st: &mut State, now: Instant) -> Option<(Arc<SecureLink>, Control)> {
     if !(st.device_standby && st.active.1 == shared.id) {
         return None;
@@ -630,22 +620,22 @@ fn state_due(shared: &Shared, st: &mut State, now: Instant) -> Option<(Arc<Secur
     Some((link, Control::DeviceState { pet: s.pet, care: s.care, handover: false }))
 }
 
-/// An unconfirmed friend is dropped after this many days.
+/// 미확인 친구는 이만큼 날이 지나면 뺌
 const PENDING_DAYS: u64 = 7;
-/// … or after this many authenticated hellos saying it doesn't know us.
+/// … 또는 "너 모름"이라 말하는 인증된 hello가 이만큼 오면 뺌
 pub(crate) const PENDING_STRIKES: u32 = 3;
 
+/// 지금 유닉스 초를 돌려줌 (시계가 이상하면 0)
 pub(crate) fn unix_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-/// An install id as `new_install_id` makes them: 32 lowercase hex digits.
+/// `new_install_id`가 만드는 모양의 설치 id인지 봄: 소문자 hex 32자리
 pub(crate) fn is_install_id(s: &str) -> bool {
     s.len() == 32 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// Pin a friend that came from another computer of mine or from a friend's
-/// introduction, if it is new in every way. Returns whether it was added.
+/// 내 다른 컴퓨터나 친구 소개로 온 친구를 모든 면에서 새것일 때만 고정함. 더했는지 돌려줌
 fn adopt(shared: &Shared, st: &mut State, id: &str, key: &str) -> bool {
     let Some(key) = noise::hex32(key) else { return false };
     let ok = is_install_id(id)
@@ -662,8 +652,7 @@ fn adopt(shared: &Shared, st: &mut State, id: &str, key: &str) -> bool {
     ok
 }
 
-/// `device_friends` from friend `from` (already authenticated, budgeted, and
-/// on a link where it proved our stored secret).
+/// 친구 `from`이 보낸 `device_friends`를 처리함 (인증·예산·저장 비밀 증명을 거친 링크에서만)
 pub(crate) fn on_device_friends(shared: &Shared, st: &mut State, from: &str, friends: Vec<WireFriend>, want: bool) {
     if !st.device.as_ref().is_some_and(|(d, _)| d == from) {
         return; // only from my linked computer
@@ -677,7 +666,7 @@ pub(crate) fn on_device_friends(shared: &Shared, st: &mut State, from: &str, fri
     shared.emit(NetEvent::DeviceSynced { from: from.to_string(), want });
 }
 
-/// `my_devices` from friend `from` (already authenticated and budgeted).
+/// 친구 `from`이 보낸 `my_devices`를 처리함 (인증·예산을 거친 것)
 pub(crate) fn on_my_devices(shared: &Shared, st: &mut State, from: &str, devices: Vec<crate::protocol::WireDevice>) {
     if st.device.as_ref().is_some_and(|(d, _)| d == from) {
         return; // my own computer's friends come as `device_friends` instead
@@ -699,9 +688,8 @@ pub(crate) fn on_my_devices(shared: &Shared, st: &mut State, from: &str, devices
     }
 }
 
-/// Friend `gone` was removed: remove the devices it introduced (and theirs).
-/// Returns their friend links, to be told `unfriend` and closed by the caller
-/// once the state lock is released.
+/// 친구 `gone`이 빠짐: 그가 소개한 기기(와 그들이 소개한 것)를 뺌.
+/// 그들의 친구 링크를 돌려주고, 호출자가 상태 잠금을 푼 뒤 `unfriend`를 알리고 닫음
 pub(crate) fn drop_introduced(shared: &Shared, st: &mut State, gone: &str) -> Vec<Arc<SecureLink>> {
     let mut links = Vec::new();
     let mut todo = vec![gone.to_string()];
@@ -720,8 +708,7 @@ pub(crate) fn drop_introduced(shared: &Shared, st: &mut State, gone: &str) -> Ve
     links
 }
 
-/// Forget unconfirmed friend `id` (and whoever it introduced). Returns links
-/// for `close_dropped`, like `drop_introduced`.
+/// 미확인 친구 `id`(와 그가 소개한 것)를 잊음. `drop_introduced`처럼 `close_dropped`용 링크를 돌려줌
 pub(crate) fn drop_pending(shared: &Shared, st: &mut State, id: &str) -> Vec<Arc<SecureLink>> {
     st.remove_friend(id);
     st.invites_out.remove(id);
@@ -731,7 +718,7 @@ pub(crate) fn drop_pending(shared: &Shared, st: &mut State, id: &str) -> Vec<Arc
     links
 }
 
-/// Drop the friends unconfirmed for `PENDING_DAYS` (called every tick).
+/// `PENDING_DAYS` 동안 미확인인 친구를 뺌 (틱마다 불림)
 pub(crate) fn expire_pending(shared: &Shared) {
     let now = unix_now();
     let mut st = shared.state();
@@ -744,7 +731,7 @@ pub(crate) fn expire_pending(shared: &Shared) {
     close_dropped(links);
 }
 
-/// Tell the dropped devices' links we are no longer friends, and close them.
+/// 뺀 기기 링크에 더는 친구가 아님을 알리고 닫음
 pub(crate) fn close_dropped(links: Vec<Arc<SecureLink>>) {
     for l in links {
         l.send(&crate::protocol::Message::Control(crate::protocol::Control::Unfriend));
@@ -752,6 +739,7 @@ pub(crate) fn close_dropped(links: Vec<Arc<SecureLink>>) {
     }
 }
 
+/// 연결 코드와 설치 id 형식 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

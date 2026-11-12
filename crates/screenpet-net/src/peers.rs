@@ -1,17 +1,14 @@
-//! Per-link session driver, transport-independent (frames in, frames out).
+//! 링크 하나의 세션 구동기임. 전송과 무관함 (프레임 들어오고 프레임 나감).
 //!
-//! 1. Noise XX handshake (dialer = initiator) → peer's static public key.
-//! 2. Encrypted `hello{id, name, friend}`. The link is a *friend* link iff a
-//!    friend with that id is pinned to exactly that key and the peer also has
-//!    our key pinned (`friend: true`). An id with a different key, or a
-//!    pinned key under a different id, is rejected. On an outgoing link the
-//!    id must equal the id we dialed. Handshake + hello share one deadline.
-//! 3. Otherwise it is a *stranger* link (several may claim the same id; they
-//!    never block each other or a friend), which may only pair, and only on
-//!    the link the inviter dialed: `invite{commit}` → `pair_random` →
-//!    `pair_reveal` → both sides show the same 6-emoji SAS → both users
-//!    confirm with `invite_reply{accepted}` before the deadline → both pin
-//!    each other's key. A refused or timed-out pairing is terminal.
+//! 1. Noise XX 핸드셰이크 (다이얼한 쪽 = initiator) → 상대 정적 공개키.
+//! 2. 암호화된 `hello{id, name, friend}`. 그 id의 친구가 정확히 그 키로 고정돼 있고 상대도 우리 키를
+//!    고정했으면(`friend: true`) *친구* 링크임. 키가 다른 id나 다른 id 밑의 고정 키는 거절함.
+//!    나가는 링크면 id가 다이얼한 id와 같아야 함. 핸드셰이크 + hello는 마감 하나를 같이 씀.
+//! 3. 아니면 *낯선* 링크임 (여럿이 같은 id를 주장해도 서로나 친구를 막지 않음). 짝짓기만 할 수 있고
+//!    초대자가 다이얼한 링크에서만 됨: `invite{commit}` → `pair_random` → `pair_reveal` → 양쪽에 같은 이모지 6개 SAS →
+//!    마감 전에 두 사용자가 `invite_reply{accepted}`로 확인 → 서로 키를 고정함. 거절·시간 초과는 끝임.
+//!
+//! 진입점: `run_session`(tcp·relay 전송이 부름), `invite`/`invite_at`/`answer_invite`(lib의 `Net`이 부름).
 
 use crate::discovery::{note_dial, pick_candidate};
 use crate::noise::{self, Established};
@@ -26,54 +23,57 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-/// How a dial ended, for candidate bookkeeping.
+/// 다이얼이 어떻게 끝났는지임 (후보 기록용)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DialOutcome {
-    /// The dialed identity answered (link kept, or a duplicate of one).
+    /// 다이얼한 신원이 답함 (링크를 남겼거나 남긴 것의 중복)
     Proven,
-    /// The dialed friend id answered with a different static key.
+    /// 다이얼한 친구 id가 다른 정적 키로 답함
     WrongKey,
-    /// Anything else (no connection, handshake failure, rejected).
+    /// 그 밖 (연결 없음, 핸드셰이크 실패, 거절)
     Failed,
 }
 
-/// Result of classifying a link after hello.
+/// hello 뒤 링크를 분류한 결과임
 enum Reg {
+    /// 받아들임
     Ok,
-    /// A friend link that loses the duplicate tie-break.
+    /// 중복 동점 깨기에서 진 친구 링크
     Duplicate,
+    /// 친구 id인데 키가 다름
     WrongKey,
-    /// Our pinned friend (right key) does not have us pinned.
+    /// 고정한 친구(키 맞음)가 우리를 고정하지 않았음
     NotMutual,
+    /// 그 밖에 거절함
     Reject,
 }
 
+/// 제어 메시지를 `Message`로 감쌈
 fn ctl(c: Control) -> Message {
     Message::Control(c)
 }
 
+/// 이 링크에서 짝짓기가 진행 중인지 봄 (실패로 끝난 것은 아님)
 fn pairing_active(c: &Conn) -> bool {
     matches!(&c.kind, Kind::Stranger(Some(p)) if !matches!(p.stage, PairStage::Failed))
 }
 
-/// Is any pairing (either direction) with `id` in progress?
+/// `id`와의 짝짓기(어느 방향이든)가 진행 중인지 봄
 pub(crate) fn pairing_with(st: &State, id: &str) -> bool {
     st.conns.values().any(|c| c.peer_id == id && pairing_active(c))
 }
 
-/// Is one of *our own* outgoing pairings to `id` in progress? (Inbound links
-/// merely claiming `id` never block an invite we start.)
+/// *우리가* 건 `id`로의 짝짓기가 진행 중인지 봄 (`id`를 주장만 하는 들어온 링크는 우리 초대를 막지 않음)
 fn outbound_pairing(st: &State, id: &str) -> bool {
     st.conns.values().any(|c| c.outgoing && c.peer_id == id && pairing_active(c))
 }
 
-/// Active inbound pairings from one source address (limited per address,
-/// not per claimed id, so a squatter cannot block someone else's id).
+/// 한 출처 주소에서 들어온 진행 중 짝짓기 수임 (주장한 id가 아니라 주소당 제한이라 무단 점유자가 남의 id를 막지 못함)
 fn inbound_pairings_from(st: &State, addr: &str) -> usize {
     st.conns.values().filter(|c| !c.outgoing && c.peer_addr == addr && pairing_active(c)).count()
 }
 
-/// Per-session facts established by the handshake.
+/// 핸드셰이크로 정해진 세션별 사실들임
 struct Ctx {
     token: u64,
     link: Arc<SecureLink>,
@@ -85,8 +85,8 @@ struct Ctx {
     surfaced: Arc<AtomicBool>,
 }
 
-/// Drive one link until it closes, times out, misbehaves or we shut down.
-/// `dialed` is the peer id we connected to (outgoing), `None` if accepted.
+/// 링크 하나를 닫히거나·시간 초과·잘못 행동하거나·종료될 때까지 구동함.
+/// `dialed`는 우리가 연결한 상대 id(나가는 링크)이고 받은 링크면 None임
 pub(crate) fn run_session(
     shared: Arc<Shared>,
     frames: Arc<dyn FrameLink>,
@@ -201,7 +201,7 @@ pub(crate) fn run_session(
     outcome
 }
 
-/// Classify the link after the peer's hello and record it.
+/// 상대 hello 뒤 링크를 분류하고 기록함
 fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bool, v: u32) -> Reg {
     if id.is_empty() || id.len() > MAX_ID || id == shared.id {
         return Reg::Reject;
@@ -353,10 +353,9 @@ fn register(shared: &Shared, ctx: &Ctx, id: &str, name: &str, peer_pinned_us: bo
     Reg::Ok
 }
 
-/// Pin the peer of pairing link `token` (both users confirmed in time).
-/// Returns other stranger links claiming the same id, to be closed. The friend
-/// list can have filled up since the invite (pairings run side by side): then
-/// this pairing ends in a refusal instead.
+/// 짝짓기 링크 `token`의 상대를 고정함 (두 사용자가 시간 안에 확인함).
+/// 같은 id를 주장하는 다른 낯선 링크들을 돌려줘 닫게 함. 초대 뒤 친구 목록이 찼으면
+/// (짝짓기는 나란히 돌 수 있음) 이 짝짓기는 거절로 끝남
 fn pin(shared: &Shared, st: &mut State, token: u64) -> Vec<Arc<SecureLink>> {
     let Some(id) = st.conns.get(&token).map(|c| c.peer_id.clone()) else { return Vec::new() };
     let full = st.friends.len() >= MAX_FRIENDS && !st.is_friend(&id);
@@ -388,7 +387,7 @@ fn pin(shared: &Shared, st: &mut State, token: u64) -> Vec<Arc<SecureLink>> {
     st.conns.iter().filter(|(t, c)| **t != token && c.peer_id == id).map(|(_, c)| c.link.clone()).collect()
 }
 
-/// Mark a pairing failed (terminal); report it once unless already reported.
+/// 짝짓기를 실패(끝)로 표시함. 이미 알리지 않았으면 한 번 알림
 fn fail(shared: &Shared, p: &mut Pairing, id: &str, token: u64) {
     p.stage = PairStage::Failed;
     if !p.failure_reported {
@@ -399,17 +398,18 @@ fn fail(shared: &Shared, p: &mut Pairing, id: &str, token: u64) {
     }
 }
 
+/// 짝짓기 마감(`invite_timeout`)이 지났는지 봄
 fn expired(shared: &Shared, p: &Pairing, now: Instant) -> bool {
     now.duration_since(p.since) > shared.timing.invite_timeout
 }
 
-/// The inviter answers our random by itself, at once; only the SAS waits for
-/// people. One that stays silent shouldn't hold a pairing slot all that time.
+/// 초대자는 우리 난수에 바로 스스로 답함. SAS만 사람을 기다림.
+/// 조용한 상대가 짝짓기 자리를 그 내내 차지하면 안 되므로 늦었는지 봄
 fn reveal_overdue(shared: &Shared, p: &Pairing, now: Instant) -> bool {
     matches!(p.stage, PairStage::AwaitReveal { .. }) && now.duration_since(p.since) > shared.timing.conn_timeout.min(PRE_AUTH_MAX)
 }
 
-/// Record an incoming pairing attempt; `true` if it is within all limits.
+/// 들어온 짝짓기 시도를 기록함. 모든 한도 안이면 `true`임
 fn admit_invite(st: &mut State, addr: &str, now: Instant) -> bool {
     st.invited_log.retain(|t| now.duration_since(*t) < INVITED_WINDOW);
     if st.pair_attempts.len() >= 256 && !st.pair_attempts.contains_key(addr) {
@@ -431,7 +431,7 @@ fn admit_invite(st: &mut State, addr: &str, now: Instant) -> bool {
     addr_ok && pairing < MAX_INVITES_IN && st.invited_log.len() < MAX_INVITED_PER_WINDOW
 }
 
-/// Handle one message on a registered link. `false` = drop the link.
+/// 등록된 링크의 메시지 하나를 처리함. `false`면 링크를 끊음
 fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> bool {
     let now = Instant::now();
     let mut st = shared.state();
@@ -644,7 +644,7 @@ fn handle(shared: &Shared, ctx: &Ctx, id: &str, name: &str, msg: Message) -> boo
     }
 }
 
-/// Pairing deadline and idle-stranger check. `false` = drop the link.
+/// 짝짓기 마감과 놀고 있는 낯선 링크를 확인함. `false`면 링크를 끊음
 fn timers(shared: &Shared, ctx: &Ctx) -> bool {
     let now = Instant::now();
     let mut st = shared.state();
@@ -667,8 +667,7 @@ fn timers(shared: &Shared, ctx: &Ctx) -> bool {
     }
 }
 
-/// Session teardown. Dial bookkeeping always uses the dialed id, never the
-/// id the peer claimed.
+/// 세션 정리임. 다이얼 기록은 상대가 주장한 id가 아니라 늘 다이얼한 id를 씀
 fn cleanup(shared: &Shared, token: Option<u64>, dialed: Option<&str>) {
     let mut st = shared.state();
     if let Some(d) = dialed {
@@ -703,7 +702,7 @@ fn cleanup(shared: &Shared, token: Option<u64>, dialed: Option<&str>) {
     }
 }
 
-/// Emit the `Disconnected` events whose grace ran out (called every tick).
+/// 유예가 끝난 `Disconnected` 이벤트를 내보냄 (틱마다 불림)
 pub(crate) fn flush_gone(shared: &Shared) {
     let now = Instant::now();
     let mut st = shared.state();
@@ -719,16 +718,15 @@ pub(crate) fn flush_gone(shared: &Shared) {
     }
 }
 
-/// A dial to `id` could not even start or connect.
+/// `id`로의 다이얼이 시작도 연결도 못 함
 pub(crate) fn dial_failed(shared: &Shared, id: &str) {
     let mut st = shared.state();
     st.dialing.remove(id);
     st.invites_out.remove(id);
 }
 
-/// May we start a pairing with `peer_id` now? Always on a fresh outgoing link;
-/// inbound links claiming this id (possibly squatters, even mid-pairing)
-/// neither block it nor get reused.
+/// 지금 `peer_id`와 짝짓기를 시작해도 되는지 봄. 늘 새 나가는 링크에서 함.
+/// 이 id를 주장하는 들어온 링크(무단 점유자일 수 있음, 짝짓기 중이어도)는 막지도 재사용되지도 않음
 fn can_invite(shared: &Shared, st: &State, peer_id: &str) -> bool {
     peer_id != shared.id
         && !st.invites_out.contains_key(peer_id)
@@ -738,6 +736,7 @@ fn can_invite(shared: &Shared, st: &State, peer_id: &str) -> bool {
         && !outbound_pairing(st, peer_id)
 }
 
+/// 알려진 후보 하나로 `peer_id`에게 짝짓기 초대를 시작함 (못 하거나 후보가 없으면 아무것도 안 함)
 pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
     let mut st = shared.state();
     if !can_invite(shared, &st, peer_id) {
@@ -751,9 +750,8 @@ pub(crate) fn invite(shared: &Arc<Shared>, peer_id: &str, pet: &str) {
     invite_at(shared, peer_id, pet, target);
 }
 
-/// Start a pairing with `peer_id` on a fresh outgoing link to `target`
-/// (a LAN candidate, or the relay after a friend code was redeemed).
-/// `false` if not possible now (us, already a friend, or one in progress).
+/// `target`(LAN 후보, 또는 친구 코드를 쓴 뒤의 릴레이)으로 새 나가는 링크를 열어 `peer_id`와 짝짓기를 시작함.
+/// 지금 안 되면(나, 이미 친구, 진행 중) `false`임
 pub(crate) fn invite_at(shared: &Arc<Shared>, peer_id: &str, pet: &str, target: transport::Candidate) -> bool {
     let mut st = shared.state();
     if !can_invite(shared, &st, peer_id) {
@@ -766,7 +764,7 @@ pub(crate) fn invite_at(shared: &Arc<Shared>, peer_id: &str, pet: &str, target: 
     true
 }
 
-/// Answer exactly the pairing the user saw (`pairing` from its event).
+/// 사용자가 본 바로 그 짝짓기(`pairing`, 이벤트에서 옴)에 답함
 pub(crate) fn answer_invite(shared: &Shared, pairing: u64, accept: bool) {
     let now = Instant::now();
     let mut st = shared.state();

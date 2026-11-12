@@ -1,21 +1,14 @@
-//! Relay transport: friends outside the LAN, through `screenpet-relay`
-//! (spec phase 3 §1b).
+//! 릴레이 전송임: LAN 밖 친구를 `screenpet-relay`로 이음 (스펙 phase 3 §1b).
 //!
-//! One WebSocket (`wss://` with rustls, or `ws://` for tests) to the relay
-//! carries every relay link. The relay is an untrusted pipe: it authenticates
-//! this install by its Noise static key (challenge + X25519-derived MAC) so
-//! nobody else can use our mailbox, routes by static public key, and joins
-//! two installs with a *channel* only if both list each other as friends (or
-//! once, after one redeemed the other's friend code). Each channel is a
-//! `FrameLink`/`FrameReader` pair handed to `peers::run_session`, exactly like
-//! a LAN TCP link, so the Noise XX handshake, friend pinning and SAS pairing
-//! all run end to end and the relay sees only ciphertext.
+//! 릴레이로 가는 WebSocket 하나(`wss://`는 rustls, 시험용 `ws://`)가 모든 릴레이 링크를 나름. 릴레이는 믿지 않는 통로임:
+//! 이 설치를 Noise 정적 키(챌린지 + X25519 유도 MAC)로 인증해 남이 우리 우편함을 못 쓰게 하고, 정적 공개키로 길을 찾고,
+//! 두 설치가 서로를 친구로 둘 때만(또는 한쪽이 상대 친구 코드를 쓴 뒤 한 번) *채널*로 이어 줌. 채널마다
+//! `FrameLink`/`FrameReader` 쌍이 되어 LAN TCP 링크처럼 `peers::run_session`에 넘어가므로 Noise XX·친구 고정·SAS 짝짓기가
+//! 끝에서 끝까지 돌고 릴레이는 암호문만 봄.
 //!
-//! Reconnects to the relay with exponential backoff (`Timing::relay_retry`
-//! doubling up to 60 s). Friends the relay reports online are dialed through
-//! it only while there is no friend link; a friend also announced on the LAN
-//! gets a grace period first, and a relay link is later upgraded to LAN by
-//! the smaller id (see `discovery`).
+//! 릴레이 재연결은 지수 대기(`Timing::relay_retry`에서 60초까지 두 배). 릴레이가 온라인이라 알린 친구는 친구 링크가
+//! 없을 때만 릴레이로 다이얼하고, LAN에도 알린 친구는 먼저 유예를 줌. 릴레이 링크는 나중에 작은 id 쪽이 LAN으로 올림 (`discovery`).
+//! 건의 편지함·📮 공개 건의함·☀️ 날씨 메시지도 이 연결로 오감.
 
 use crate::peers::{self, dial_failed, run_session, DialOutcome};
 use crate::protocol::{MAX_FRAME, MAX_FRIENDS, MAX_ID};
@@ -34,36 +27,39 @@ use std::time::{Duration, Instant};
 use tungstenite::handshake::HandshakeError;
 use tungstenite::{Error as WsError, Message, WebSocket};
 
-/// Default relay (TLS terminates at the user's Nginx Proxy Manager).
+/// 기본 릴레이임 (TLS는 사용자의 Nginx Proxy Manager에서 끝남)
 pub const DEFAULT_RELAY_URL: &str = "wss://pet.danni.day/ws";
-/// Static public key of the relay deployed at [`DEFAULT_RELAY_URL`]
-/// (hex). Pinned: a relay answering with another key is refused. Use
-/// [`parse_relay_key`] to get the bytes.
+/// [`DEFAULT_RELAY_URL`]에 배포된 릴레이의 정적 공개키(hex)임. 고정됨: 다른 키로 답하는 릴레이는 거절함.
+/// 바이트는 [`parse_relay_key`]로 얻음
 pub const DEFAULT_RELAY_KEY: &str = "298487e73c11af7c1030ad16689942587707baa158e084aad6c388fedea8de30";
 
-/// 32-byte relay key from 64 hex digits.
+/// hex 64자리를 32바이트 릴레이 키로 바꿈 (앞뒤 공백 무시)
 pub fn parse_relay_key(hex: &str) -> Option<[u8; 32]> {
     noise::hex32(hex.trim())
 }
-/// `peer_addr` prefix of relay links (followed by the hex key the relay named).
+/// 릴레이 링크의 `peer_addr` 접두어 (뒤에 릴레이가 알린 hex 키가 붙음)
 pub(crate) const ADDR_PREFIX: &str = "relay:";
-/// Longest wait between reconnect attempts.
+/// 재연결 시도 사이 가장 긴 대기
 pub(crate) const MAX_RETRY: Duration = Duration::from_secs(60);
-/// Read poll while connected: bounds the latency of queued sends.
+/// 연결 중 읽기 폴링 주기: 큐에 쌓인 보내기의 지연을 묶음
 const POLL: Duration = Duration::from_millis(20);
+/// 연결·TLS·WebSocket·인증 핸드셰이크 마감
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-/// Read timeout while connecting: how often the handshake checks for shutdown.
+/// 연결하는 동안 읽기 시간 제한: 핸드셰이크가 종료를 확인하는 주기
 const HANDSHAKE_POLL: Duration = Duration::from_millis(200);
+/// 릴레이에 ping을 보내는 주기
 const PING_EVERY: Duration = Duration::from_secs(20);
-/// Nothing from the relay this long (it answers pings) → reconnect.
+/// 릴레이에서 이만큼 아무것도 없으면(ping에 답함) 재연결함
 const DEAD_AFTER: Duration = Duration::from_secs(60);
-/// An `open` or `redeem` unanswered this long fails.
+/// 이만큼 답이 없는 `open`·`redeem`은 실패함
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
-/// Housekeeping period (friend list sync, auto-dial, timeouts).
+/// 잡일 주기 (친구 목록 맞추기, 자동 다이얼, 시간 초과)
 const HOUSEKEEP: Duration = Duration::from_millis(200);
+/// 릴레이로 나가는 큐 크기
 const OUTBOX: usize = 1024;
-/// Frames queued per channel before it counts as stuck.
+/// 채널당 쌓아 두는 프레임 수. 넘으면 막힌 것으로 봄
 const CHANNEL_QUEUE: usize = 256;
+/// 친구 코드 기호 (Crockford base32)
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /// 와이어 편지를 편지함 항목으로 바꿈. 봉인 hex가 깨졌으면 None임
@@ -72,16 +68,20 @@ fn mail_item(l: WireLetter) -> Option<crate::letter::MailItem> {
     Some(crate::letter::MailItem { id: l.id, at: l.at, from: l.from, read: l.read, done: l.done, rejected: l.rejected && !l.done, private: l.private, sealed })
 }
 
-/// A mailbox change a reader asks for.
+/// 독자가 청하는 편지함 변경임
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum MailboxEdit {
+    /// 읽음 표시
     Read(u64),
+    /// 지우기
     Delete(u64),
+    /// 보낸이 차단
     Block(String),
+    /// ✅ 반영함 체크·풀기
     Done(u64, bool),
-    /// 🙅 반려 — v3 relays only
+    /// 🙅 반려, v3 릴레이만
     Reject(u64, bool),
-    /// 🔒 비공개 — v3 relays only
+    /// 🔒 비공개, v3 릴레이만
     Private(u64, bool),
 }
 
@@ -94,16 +94,16 @@ const WEATHER_RELAY_VERSION: u32 = screenpet_proto::WEATHER_MIN_VERSION;
 /// 📮 `board_put`·`board_list`·`letter_reject`를 받는 가장 낮은 릴레이 버전
 pub(crate) const BOARD_RELAY_VERSION: u32 = screenpet_proto::BOARD_MIN_VERSION;
 
-/// 📮 Board pages asked at most this often (the relay ignores faster ones).
+/// 📮 건의함 페이지는 최대 이 주기로만 청함 (릴레이가 더 빠른 것은 무시함)
 const BOARD_GAP: Duration = Duration::from_millis(600);
 
+/// 앱→릴레이 메시지를 JSON 텍스트로 바꿈
 fn json(m: &ClientMsg) -> String {
     serde_json::to_string(m).expect("relay message serializes")
 }
 
-/// Normalize a friend code typed by a user to `ABCD-1234`: case-insensitive,
-/// spaces and dashes ignored, O→0 and I/L→1 (Crockford base32). `None` if
-/// it cannot be a code.
+/// 사용자가 입력한 친구 코드를 `ABCD-1234`로 맞춤: 대소문자 무관, 공백·대시 무시, O→0, I/L→1 (Crockford base32).
+/// 코드가 될 수 없으면 None임
 pub fn normalize_code(input: &str) -> Option<String> {
     let mut chars = String::new();
     for c in input.chars() {
@@ -123,69 +123,91 @@ pub fn normalize_code(input: &str) -> Option<String> {
     (chars.len() == 8).then(|| format!("{}-{}", &chars[..4], &chars[4..]))
 }
 
+/// IO 스레드가 릴레이로 내보낼 일감임
 enum Out {
+    /// 텍스트(JSON) 프레임
     Text(String),
+    /// 바이너리 프레임 (채널 id + 불투명 프레임)
     Binary(Vec<u8>),
-    /// Send `close{ch}`, then end the local reader (after frames already queued).
+    /// `close{ch}`를 보낸 뒤 (이미 쌓인 프레임 다음에) 로컬 reader를 끝냄
     Close(u32),
 }
 
+/// 답을 기다리는 `open` 요청임
 struct Pending {
+    /// 다이얼한 친구 id
     peer_id: String,
+    /// 다이얼한 정적 키
     key: [u8; 32],
+    /// 보낸 때
     since: Instant,
 }
 
+/// 답을 기다리는 친구 코드 사용임
 struct Redeem {
+    /// 쓴 코드
     code: String,
+    /// 짝짓기에 데려갈 펫
     pet: String,
+    /// 보낸 때
     since: Instant,
 }
 
+/// 릴레이 연결 상태 (잠금 하나)임
 #[derive(Default)]
 struct Inner {
+    /// 지금 연결돼 인증까지 마쳤음
     connected: bool,
-    /// Mutual friends the relay reports online.
+    /// 릴레이가 온라인이라 알린 서로 친구들
     online: HashSet<[u8; 32]>,
+    /// 요청 id → 답을 기다리는 `open`
     pending: HashMap<u32, Pending>,
+    /// 다음 요청 id
     next_req: u32,
+    /// 답을 기다리는 코드 사용 (하나만)
     redeem: Option<Redeem>,
+    /// 지금 친구 코드
     code: Option<String>,
-    /// Relay redial backoff per friend id: (not before, current delay).
+    /// 친구 id별 릴레이 재다이얼 대기: (이전엔 안 함, 지금 지연)
     retry: HashMap<String, (Instant, Duration)>,
-    /// Friend id → since when it has been online on the relay without a link.
+    /// 친구 id → 링크 없이 릴레이에 온라인이 된 지 언제부터인지
     wait: HashMap<String, Instant>,
-    /// Friend list last sent to the relay.
+    /// 마지막으로 릴레이에 보낸 친구 목록
     sent_friends: Vec<String>,
-    /// A feedback letter waiting for the relay's answer (since when).
+    /// 릴레이 답을 기다리는 건의 편지 (언제부터)
     letter: Option<Instant>,
-    /// The relay's protocol version on this connection.
+    /// 이 연결에서 릴레이의 프로토콜 버전
     relay_v: u32,
-    /// ☀️ The place id whose weather we want (`None` = the relay's default,
-    /// Yongin), and what was sent on this connection.
+    /// ☀️ 날씨를 원하는 지역 id (None = 릴레이 기본, 용인)
     weather_want: Option<String>,
+    /// ☀️ 이 연결에서 보낸 지역 id
     sent_want: Option<String>,
-    /// 📮 A board page to ask for once `BOARD_GAP` has passed, when the last
-    /// one was asked, and since when we wait for an answer.
+    /// 📮 `BOARD_GAP`이 지나면 청할 건의함 페이지
     board_want: Option<u32>,
+    /// 📮 마지막으로 청한 때
     board_asked: Option<Instant>,
+    /// 📮 답을 기다리기 시작한 때
     board_wait: Option<Instant>,
 }
 
-/// Relay connection state shared by the IO thread and the relay links.
+/// IO 스레드와 릴레이 링크들이 같이 쓰는 릴레이 연결 상태임
 pub(crate) struct RelayClient {
+    /// 릴레이 주소
     url: String,
-    /// Expected relay static key (`None` = accept whatever key it proves).
+    /// 기대하는 릴레이 정적 키 (None = 무엇이든 증명한 키를 받음)
     pinned: Option<[u8; 32]>,
-    /// Connection generation: links from an earlier connection never send
-    /// on a later one (channel ids are per connection).
+    /// 연결 세대임: 예전 연결의 링크는 나중 연결로 절대 안 보냄 (채널 id는 연결마다 다름)
     generation: AtomicU64,
+    /// 지금 연결의 (세대, 나가는 큐)
     outbox: Mutex<Option<(u64, SyncSender<Out>)>>,
+    /// 채널 id → 그 채널 reader로 가는 큐
     channels: Mutex<HashMap<u32, SyncSender<Vec<u8>>>>,
+    /// 나머지 상태
     inner: Mutex<Inner>,
 }
 
 impl RelayClient {
+    /// 아직 연결 안 된 클라이언트를 만듦
     pub fn new(url: String, pinned: Option<[u8; 32]>) -> Arc<RelayClient> {
         Arc::new(RelayClient {
             url,
@@ -197,16 +219,17 @@ impl RelayClient {
         })
     }
 
+    /// 상태 잠금을 잡음
     fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// 채널 표 잠금을 잡음
     fn channels(&self) -> MutexGuard<'_, HashMap<u32, SyncSender<Vec<u8>>>> {
         self.channels.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Queue for the current connection (`gen` = the caller's generation, or
-    /// `None` for "whatever is current"). `false` if not connected or full.
+    /// 지금 연결의 큐에 넣음 (`gen` = 호출자의 세대, None이면 "지금 것 아무거나"). 미접속이거나 꽉 차면 `false`
     fn send(&self, gen: Option<u64>, m: Out) -> bool {
         let out = self.outbox.lock().unwrap_or_else(|e| e.into_inner());
         match &*out {
@@ -215,14 +238,17 @@ impl RelayClient {
         }
     }
 
+    /// 채널을 표에서 빼 그 reader가 `Closed`를 보게 함
     fn drop_channel(&self, ch: u32) {
         self.channels().remove(&ch);
     }
 
+    /// 릴레이에 연결돼 있는지 봄
     pub fn connected(&self) -> bool {
         self.inner().connected
     }
 
+    /// 지금 친구 코드를 돌려줌
     pub fn code(&self) -> Option<String> {
         self.inner().code.clone()
     }
@@ -230,15 +256,22 @@ impl RelayClient {
 
 // ---- links -----------------------------------------------------------------
 
+/// 릴레이 채널 하나의 보내는 쪽임
 struct RelayLink {
+    /// 공유 클라이언트
     client: Arc<RelayClient>,
+    /// 이 채널을 연 연결 세대
     gen: u64,
+    /// 채널 id
     ch: u32,
+    /// `relay:` + 상대 키 hex
     peer: String,
+    /// 닫혔음
     done: AtomicBool,
 }
 
 impl FrameLink for RelayLink {
+    /// 채널 id를 붙여 바이너리 프레임으로 큐에 넣음. 닫혔거나 크기가 틀리면 `false`
     fn send_frame(&self, frame: &[u8]) -> bool {
         if self.done.load(Ordering::SeqCst) || frame.is_empty() || frame.len() > MAX_FRAME {
             return false;
@@ -253,6 +286,7 @@ impl FrameLink for RelayLink {
             false
         }
     }
+    /// 릴레이에 `close`를 보내고 채널을 닫음
     fn finish(&self) {
         // Frames already queued go first; the IO thread then closes the
         // channel and ends our reader.
@@ -260,20 +294,24 @@ impl FrameLink for RelayLink {
             self.client.drop_channel(self.ch);
         }
     }
+    /// 채널을 바로 닫음 (`close`를 보내 봄)
     fn close(&self) {
         if !self.done.swap(true, Ordering::SeqCst) {
             self.client.send(Some(self.gen), Out::Close(self.ch));
         }
         self.client.drop_channel(self.ch);
     }
+    /// `relay:` 주소를 돌려줌
     fn peer_addr(&self) -> String {
         self.peer.clone()
     }
 }
 
+/// 릴레이 채널 하나의 받는 쪽임
 struct RelayReader(Receiver<Vec<u8>>);
 
 impl FrameReader for RelayReader {
+    /// 틱 하나만큼 채널 큐를 기다림
     fn recv(&mut self) -> Recv {
         match self.0.recv_timeout(TICK) {
             Ok(f) => Recv::Frame(f),
@@ -283,6 +321,7 @@ impl FrameReader for RelayReader {
     }
 }
 
+/// 채널 `ch`의 링크 두 반쪽을 만들고 채널 표에 등록함
 fn new_channel(client: &Arc<RelayClient>, gen: u64, ch: u32, key: &[u8; 32]) -> (Arc<dyn FrameLink>, Box<dyn FrameReader>) {
     let (tx, rx) = sync_channel(CHANNEL_QUEUE);
     client.channels().insert(ch, tx);
@@ -298,7 +337,7 @@ fn new_channel(client: &Arc<RelayClient>, gen: u64, ch: u32, key: &[u8; 32]) -> 
 
 // ---- dialing ---------------------------------------------------------------
 
-/// Open a relay channel to `key` for `peer_id` (already in `State::dialing`).
+/// `peer_id`(이미 `State::dialing`에 있음)용으로 `key`에게 릴레이 채널을 엶
 pub(crate) fn dial(shared: &Arc<Shared>, peer_id: String, key: [u8; 32]) {
     let Some(client) = shared.relay.clone() else {
         dial_failed(shared, &peer_id);
@@ -322,7 +361,7 @@ pub(crate) fn dial(shared: &Arc<Shared>, peer_id: String, key: [u8; 32]) {
     }
 }
 
-/// Ask the relay who owns `code`; on success pairing starts with them.
+/// 릴레이에 `code` 주인을 물음. 되면 그와 짝짓기를 시작함
 pub(crate) fn redeem(shared: &Arc<Shared>, code: &str, pet: &str) {
     let fail = |reason: &str| shared.emit(NetEvent::CodeFailed { code: code.to_string(), reason: reason.to_string() });
     let Some(norm) = normalize_code(code) else { return fail("invalid") };
@@ -348,8 +387,7 @@ pub(crate) fn redeem(shared: &Arc<Shared>, code: &str, pet: &str) {
     }
 }
 
-/// Send a sealed feedback letter; the answer arrives as `NetEvent::LetterSent`
-/// (also right away when it can't go: `offline`, `busy`).
+/// 봉인된 건의 편지를 보냄. 답은 `NetEvent::LetterSent`로 옴 (못 보내면 바로: `offline`, `busy`)
 pub(crate) fn send_letter(shared: &Shared, client: &RelayClient, sealed: &[u8]) -> bool {
     let fail = |reason: &str| {
         shared.emit(NetEvent::LetterSent { result: Err(reason.into()) });
@@ -372,13 +410,12 @@ pub(crate) fn send_letter(shared: &Shared, client: &RelayClient, sealed: &[u8]) 
     true
 }
 
-/// Ask for the whole mailbox (answered as `NetEvent::Mailbox` if we are a reader).
+/// 편지함 전체를 청함 (독자면 `NetEvent::Mailbox`로 답이 옴)
 pub(crate) fn mailbox_list(client: &RelayClient) -> bool {
     client.send(None, Out::Text(json(&ClientMsg::Letters)))
 }
 
-/// Mark read / delete / block (readers only; every reader then re-lists).
-/// `Reject` goes only to v3 relays (`false` otherwise).
+/// 읽음·지우기·차단 등을 청함 (독자만, 그 뒤 모든 독자가 다시 받음). `Reject`·`Private`는 v3 릴레이에만 감 (아니면 `false`)
 pub(crate) fn mailbox_edit(client: &RelayClient, edit: MailboxEdit) -> bool {
     if matches!(edit, MailboxEdit::Reject(..) | MailboxEdit::Private(..)) && client.inner().relay_v < BOARD_RELAY_VERSION {
         return false;
@@ -394,8 +431,7 @@ pub(crate) fn mailbox_edit(client: &RelayClient, edit: MailboxEdit) -> bool {
     client.send(None, Out::Text(json(&m)))
 }
 
-/// 📮 Publish digests of letters to the public board (v3 relays, readers
-/// only — others are ignored there). `false` if it can't go now.
+/// 📮 편지 요약을 공개 건의함에 올림 (v3 릴레이, 독자만. 다른 이 것은 무시됨). 지금 못 보내면 `false`
 pub(crate) fn board_put(client: &RelayClient, items: &[crate::board::Digest]) -> bool {
     {
         let inner = client.inner();
@@ -406,8 +442,7 @@ pub(crate) fn board_put(client: &RelayClient, items: &[crate::board::Digest]) ->
     items.chunks(crate::board::PUT_CHUNK).all(|c| client.send(None, Out::Text(json(&ClientMsg::BoardPut { items: c.to_vec() }))))
 }
 
-/// 📮 Ask for page `page` of the public board. The answer (or `offline`,
-/// `old` for a relay before v3, `timeout`) comes as `NetEvent::Board`.
+/// 📮 공개 건의함 `page`쪽을 청함. 답(또는 `offline`, v3 전 릴레이면 `old`, `timeout`)은 `NetEvent::Board`로 옴
 pub(crate) fn board_list(shared: &Shared, client: &RelayClient, page: u32) {
     let fail = {
         let mut inner = client.inner();
@@ -426,7 +461,7 @@ pub(crate) fn board_list(shared: &Shared, client: &RelayClient, page: u32) {
     }
 }
 
-/// 📮 Send the wanted board page once `BOARD_GAP` has passed since the last.
+/// 📮 지난번부터 `BOARD_GAP`이 지났으면 원하는 건의함 페이지를 보냄
 fn sync_board(client: &RelayClient, gen: Option<u64>) {
     let page = {
         let mut inner = client.inner();
@@ -446,13 +481,12 @@ fn sync_board(client: &RelayClient, gen: Option<u64>) {
     }
 }
 
-/// Ask the relay for a fresh friend code (the old one stops working).
-/// The new code arrives as `NetEvent::FriendCode`.
+/// 릴레이에 새 친구 코드를 청함 (옛 코드는 안 통함). 새 코드는 `NetEvent::FriendCode`로 옴
 pub(crate) fn new_code(shared: &Shared) -> bool {
     shared.relay.as_ref().is_some_and(|c| c.send(None, Out::Text(json(&ClientMsg::NewCode))))
 }
 
-/// Bookkeeping after a relay dial ended.
+/// 릴레이 다이얼이 끝난 뒤 기록을 정리함
 fn dial_done(shared: &Shared, client: &RelayClient, peer_id: &str, outcome: DialOutcome) {
     let mut inner = client.inner();
     if outcome == DialOutcome::Proven {
@@ -464,7 +498,7 @@ fn dial_done(shared: &Shared, client: &RelayClient, peer_id: &str, outcome: Dial
     }
 }
 
-/// Dial friends that are online on the relay and have no link.
+/// 릴레이에 온라인인데 링크가 없는 친구에게 다이얼함
 fn auto_dial(shared: &Arc<Shared>, client: &Arc<RelayClient>) {
     let now = Instant::now();
     let grace = shared.timing.announce_interval * 3;
@@ -510,14 +544,19 @@ fn auto_dial(shared: &Arc<Shared>, client: &Arc<RelayClient>) {
 
 // ---- connection --------------------------------------------------------------
 
+/// 릴레이 WebSocket 타입
 type Ws = WebSocket<Polled<Stream>>;
 
+/// 평문이나 TLS TCP 스트림임
 enum Stream {
+    /// `ws://` (시험용)
     Plain(TcpStream),
+    /// `wss://`
     Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
 }
 
 impl Stream {
+    /// 밑의 TCP 소켓을 돌려줌
     fn tcp(&self) -> &TcpStream {
         match self {
             Stream::Plain(s) => s,
@@ -527,6 +566,7 @@ impl Stream {
 }
 
 impl Read for Stream {
+    /// 밑 스트림에서 읽음
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             Stream::Plain(s) => s.read(buf),
@@ -536,12 +576,14 @@ impl Read for Stream {
 }
 
 impl Write for Stream {
+    /// 밑 스트림에 씀
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
             Stream::Plain(s) => s.write(buf),
             Stream::Tls(s) => s.write(buf),
         }
     }
+    /// 밑 스트림을 비움
     fn flush(&mut self) -> io::Result<()> {
         match self {
             Stream::Plain(s) => s.flush(),
@@ -550,6 +592,7 @@ impl Write for Stream {
     }
 }
 
+/// webpki 루트를 믿는 rustls 클라이언트 설정을 한 번만 만들어 돌려줌
 fn tls_config() -> Arc<rustls::ClientConfig> {
     static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
     CONFIG
@@ -565,31 +608,34 @@ fn tls_config() -> Arc<rustls::ClientConfig> {
         .clone()
 }
 
-/// A socket whose read and write timeouts are only polls. Windows reports an
-/// expired timeout as `TimedOut`, Unix as `WouldBlock`; tungstenite's handshake
-/// resumes only on `WouldBlock`, so this makes them the same everywhere.
+/// 읽기·쓰기 시간 제한이 폴링일 뿐인 소켓임. Windows는 만료를 `TimedOut`, Unix는 `WouldBlock`으로 알리는데
+/// tungstenite 핸드셰이크는 `WouldBlock`에서만 이어가므로 어디서나 같게 맞춤
 struct Polled<S>(S);
 
+/// `TimedOut`을 `WouldBlock`으로 바꿈
 fn polled<T>(r: io::Result<T>) -> io::Result<T> {
     r.map_err(|e| if e.kind() == ErrorKind::TimedOut { io::Error::new(ErrorKind::WouldBlock, e) } else { e })
 }
 
 impl<S: Read> Read for Polled<S> {
+    /// 읽고 시간 초과를 `WouldBlock`으로 바꿈
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         polled(self.0.read(buf))
     }
 }
 
 impl<S: Write> Write for Polled<S> {
+    /// 쓰고 시간 초과를 `WouldBlock`으로 바꿈
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         polled(self.0.write(buf))
     }
+    /// 비우고 시간 초과를 `WouldBlock`으로 바꿈
     fn flush(&mut self) -> io::Result<()> {
         polled(self.0.flush())
     }
 }
 
-/// `(tls, host, port)` of a `ws://` / `wss://` URL.
+/// `ws://` / `wss://` 주소의 `(tls, host, port)`를 돌려줌
 fn parse_url(url: &str) -> Option<(bool, String, u16)> {
     let (tls, rest) = if let Some(r) = url.strip_prefix("wss://") {
         (true, r)
@@ -614,9 +660,8 @@ fn parse_url(url: &str) -> Option<(bool, String, u16)> {
     (!host.is_empty()).then(|| (tls, host.to_string(), port))
 }
 
-/// Run a call that can block for long (name lookup: tens of seconds on a bad
-/// network, and it cannot be interrupted) on its own thread, so `Net::drop`
-/// is not held up. Given up on at shutdown, that thread ends by itself.
+/// 오래 막힐 수 있는 호출(이름 찾기: 나쁜 망에서 수십 초, 끊을 수 없음)을 따로 스레드에서 돌려 `Net::drop`을 붙잡지 않게 함.
+/// 종료 때 포기하면 그 스레드는 스스로 끝남
 fn unless_stopped<T: Send + 'static>(stop: &AtomicBool, f: impl FnOnce() -> io::Result<T> + Send + 'static) -> io::Result<T> {
     let (tx, rx) = sync_channel(1);
     std::thread::Builder::new().name("screenpet-relay-connect".into()).spawn(move || {
@@ -634,8 +679,7 @@ fn unless_stopped<T: Send + 'static>(stop: &AtomicBool, f: impl FnOnce() -> io::
     }
 }
 
-/// Connect, TLS and WebSocket handshakes; gives up at shutdown or after
-/// `HANDSHAKE_TIMEOUT` (reads poll so `Net::drop` is not held up).
+/// 연결, TLS, WebSocket 핸드셰이크를 함. 종료 때나 `HANDSHAKE_TIMEOUT` 뒤 포기함 (읽기가 폴링이라 `Net::drop`을 안 붙잡음)
 fn connect(url: &str, stop: &AtomicBool) -> io::Result<Ws> {
     let bad = |m: &str| io::Error::new(ErrorKind::InvalidInput, m.to_string());
     let (tls, host, port) = parse_url(url).ok_or_else(|| bad("bad relay url"))?;
@@ -663,7 +707,7 @@ fn connect(url: &str, stop: &AtomicBool) -> io::Result<Ws> {
     ws_handshake(url, Polled(stream), stop, HANDSHAKE_TIMEOUT)
 }
 
-/// The WebSocket upgrade over a polling socket: keeps going while reads time out.
+/// 폴링 소켓 위의 WebSocket 업그레이드임: 읽기가 시간 초과돼도 계속함
 fn ws_handshake<S: Read + Write>(url: &str, stream: S, stop: &AtomicBool, limit: Duration) -> io::Result<WebSocket<S>> {
     let cfg = tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(MAX_FRAME + 4))
@@ -684,11 +728,12 @@ fn ws_handshake<S: Read + Write>(url: &str, stream: S, stop: &AtomicBool, limit:
     }
 }
 
+/// 오류가 "아직 없음"(WouldBlock·TimedOut)인지 봄
 fn would_block(e: &WsError) -> bool {
     matches!(e, WsError::Io(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted))
 }
 
-/// Next control message before `deadline` or shutdown (handshake phase).
+/// `deadline`이나 종료 전까지 다음 제어 메시지를 읽음 (핸드셰이크 단계)
 fn read_server(ws: &mut Ws, deadline: Instant, stop: &AtomicBool) -> Option<ServerMsg> {
     while Instant::now() < deadline && !stop.load(Ordering::SeqCst) {
         match ws.read() {
@@ -702,18 +747,18 @@ fn read_server(ws: &mut Ws, deadline: Instant, stop: &AtomicBool) -> Option<Serv
     None
 }
 
+/// 릴레이에 알릴 친구 정적 키들 (hex, 최대 `MAX_FRIENDS`)
 fn friend_keys(shared: &Shared) -> Vec<String> {
     shared.state().friends.iter().take(MAX_FRIENDS).map(|f| noise::to_hex(&f.public_key)).collect()
 }
 
-/// The keys among `keys` that are friends'. The relay is untrusted: nothing it
-/// names beyond them is worth remembering.
+/// `keys` 중 친구 것만 돌려줌. 릴레이는 믿지 않으므로 그 밖에 그가 대는 것은 기억할 가치가 없음
 fn friends_among(shared: &Shared, keys: &[String]) -> HashSet<[u8; 32]> {
     let st = shared.state();
     keys.iter().filter_map(|k| noise::hex32(k)).filter(|k| st.friends.iter().any(|f| f.public_key == *k)).collect()
 }
 
-/// The relay IO thread: connect, serve, reconnect with backoff until shutdown.
+/// 릴레이 IO 스레드임: 연결하고 섬기고 종료까지 대기를 두고 재연결함
 pub(crate) fn run(shared: Arc<Shared>, client: Arc<RelayClient>) {
     let mut delay = shared.timing.relay_retry;
     let mut logged = false;
@@ -743,7 +788,7 @@ pub(crate) fn run(shared: Arc<Shared>, client: Arc<RelayClient>) {
     }
 }
 
-/// Forget everything tied to the ended connection.
+/// 끝난 연결에 묶인 것을 모두 잊음
 fn disconnected(shared: &Shared, client: &RelayClient) {
     *client.outbox.lock().unwrap_or_else(|e| e.into_inner()) = None;
     client.channels().clear(); // readers end → sessions close
@@ -773,7 +818,7 @@ fn disconnected(shared: &Shared, client: &RelayClient) {
     }
 }
 
-/// Authenticate and serve one connection. `true` if it got past `welcome`.
+/// 연결 하나를 인증하고 섬김. `welcome`을 넘겼으면 `true`
 fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
     let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
     let Some(ServerMsg::Challenge { relay, nonce, v: relay_v }) = read_server(&mut ws, deadline, &shared.stop) else { return false };
@@ -910,8 +955,7 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
     true
 }
 
-/// Tell the relay a changed friend list. Counts as sent only once it is
-/// queued: otherwise the next housekeeping tries again.
+/// 바뀐 친구 목록을 릴레이에 알림. 큐에 들어가야 보낸 것으로 침: 아니면 다음 잡일에서 다시 함
 fn sync_friends(shared: &Shared, client: &RelayClient, gen: u64) {
     let keys = friend_keys(shared);
     if client.inner().sent_friends != keys && client.send(Some(gen), Out::Text(json(&ClientMsg::Friends { keys: keys.clone() }))) {
@@ -919,8 +963,7 @@ fn sync_friends(shared: &Shared, client: &RelayClient, gen: u64) {
     }
 }
 
-/// ☀️ Tell a relay that knows the weather which place we want, once per
-/// connection and after every change (older relays are never told).
+/// ☀️ 날씨를 아는 릴레이에 원하는 지역을 알림. 연결마다 한 번과 바뀔 때마다 (옛 릴레이에는 안 알림)
 fn sync_weather(client: &RelayClient, gen: u64) {
     let want = {
         let inner = client.inner();
@@ -934,12 +977,12 @@ fn sync_weather(client: &RelayClient, gen: u64) {
     }
 }
 
-/// ☀️ Want the weather of the built-in place `place` (a city id) from now on
-/// (sent at the next housekeeping, and again on every new connection).
+/// ☀️ 이제부터 기본 지역 `place`(도시 id)의 날씨를 원함 (다음 잡일에, 그리고 새 연결마다 다시 보냄)
 pub(crate) fn want_weather(client: &RelayClient, place: &str) {
     client.inner().weather_want = Some(place.to_string());
 }
 
+/// 주기 잡일: 친구 목록·날씨·건의함 맞추기, 시간 초과된 요청 정리, 자동 다이얼
 fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
     sync_friends(shared, client, gen);
     sync_weather(client, gen);
@@ -973,6 +1016,7 @@ fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
     auto_dial(shared, client);
 }
 
+/// 릴레이가 보낸 제어 메시지 하나를 처리함
 fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: ServerMsg) {
     match m {
         ServerMsg::Online { keys } => {
@@ -1112,12 +1156,12 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
     }
 }
 
+/// 업그레이드 폴링, 친구만 기억하기, 편지·날씨·건의함 메시지, TLS 시험임
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A relay on a slow line: every read first times out `timeouts` times, the
-    /// way a Windows socket with a 200 ms read timeout does, then answers the upgrade.
+    /// 느린 선 위의 릴레이: 읽기마다 먼저 `timeouts`번 시간 초과되고(읽기 제한 200ms인 Windows 소켓처럼) 그 뒤 업그레이드에 답함
     struct SlowRelay {
         timeouts: usize,
         request: Vec<u8>,
@@ -1197,7 +1241,7 @@ mod tests {
         assert!(rx.try_recv().is_err(), "unchanged: nothing more to send");
     }
 
-    /// A net with no friends, its events, and a connected relay client whose outbox we read.
+    /// 친구 없는 net과 그 이벤트, 그리고 나가는 큐를 읽을 수 있는 연결된 릴레이 클라이언트를 만듦
     fn letter_rig() -> (crate::Net, std::sync::mpsc::Receiver<NetEvent>, Arc<RelayClient>, std::sync::mpsc::Receiver<Out>) {
         let mut cfg = crate::NetConfig::new("solo", "Solo", crate::Net::generate_static_key(), vec![]);
         cfg.discovery_port = 0;
@@ -1210,15 +1254,18 @@ mod tests {
         (net, events, client, rx)
     }
 
+    /// 나가는 큐의 텍스트 메시지들을 꺼냄
     fn sent_text(rx: &std::sync::mpsc::Receiver<Out>) -> Vec<String> {
         rx.try_iter().filter_map(|o| if let Out::Text(t) = o { Some(t) } else { None }).collect()
     }
 
+    /// 잠깐 기다린 뒤 편지 관련 이벤트를 모음
     fn letter_events(events: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<NetEvent> {
         std::thread::sleep(Duration::from_millis(20));
         events.try_iter().filter(|e| matches!(e, NetEvent::LetterSent { .. } | NetEvent::Mailbox { .. } | NetEvent::LetterArrived { .. })).collect()
     }
 
+    /// 잠깐 기다린 뒤 날씨 이벤트를 모음
     fn weather_events(events: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<(u16, i64)> {
         std::thread::sleep(Duration::from_millis(20));
         events.try_iter().filter_map(|e| if let NetEvent::Weather { code, at } = e { Some((code, at)) } else { None }).collect()
@@ -1328,6 +1375,7 @@ mod tests {
         );
     }
 
+    /// 잠깐 기다린 뒤 건의함 이벤트를 모음
     fn board_events(events: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<Result<crate::board::BoardPage, String>> {
         std::thread::sleep(Duration::from_millis(20));
         events.try_iter().filter_map(|e| if let NetEvent::Board { result } = e { Some(result) } else { None }).collect()
@@ -1417,7 +1465,7 @@ mod tests {
         assert_eq!(unless_stopped(&AtomicBool::new(false), || Ok(2)).unwrap(), 2);
     }
 
-    /// 어떤 루트에도 없는 자체 서명 인증서 (localhost, 2126년까지). 시험 전용 키라 비밀이 아니다.
+    /// 어떤 루트에도 없는 자체 서명 인증서임 (localhost, 2126년까지). 시험 전용 키라 비밀이 아님
     const TEST_CERT: &str = "-----BEGIN CERTIFICATE-----\n\
 MIIBsTCCAVagAwIBAgIUHLZ0vPs7S8i3qXDbZxx+ONL2+DAwCgYIKoZIzj0EAwIw\n\
 IzEhMB8GA1UEAwwYc2NyZWVucGV0IHVudHJ1c3RlZCB0ZXN0MCAXDTI2MTEwNDE5\n\
@@ -1436,12 +1484,13 @@ q7r589NxUGjSbyak2ry2O74rNYehRANCAAQ0sk9q8y54/vaszmxM8KjkMLgLIsCz\n\
 RoiK+gDhY9cS6gsFC9oTEA3h5HGh+huoFghmkruTSR4bcG8kPm0B4kv0\n\
 -----END PRIVATE KEY-----";
 
+    /// 시험 인증서를 DER로 읽음
     fn test_cert() -> rustls::pki_types::CertificateDer<'static> {
         use rustls::pki_types::pem::PemObject;
         rustls::pki_types::CertificateDer::from_pem_slice(TEST_CERT.as_bytes()).unwrap()
     }
 
-    /// 앱과 같은 암호 제공자로 TLS 서버를 한 번 받는다: (포트, 핸드셰이크 결과)
+    /// 앱과 같은 암호 제공자로 TLS 서버를 한 번 받음: (포트, 핸드셰이크 결과)
     fn tls_server(versions: &[&'static rustls::SupportedProtocolVersion]) -> (u16, std::thread::JoinHandle<io::Result<()>>) {
         use rustls::pki_types::pem::PemObject;
         let key = rustls::pki_types::PrivateKeyDer::from_pem_slice(TEST_KEY.as_bytes()).unwrap();
@@ -1475,7 +1524,7 @@ RoiK+gDhY9cS6gsFC9oTEA3h5HGh+huoFghmkruTSR4bcG8kPm0B4kv0\n\
         let _ = server.join().unwrap();
     }
 
-    /// 위 거부가 인증서 탓임을 보이는 대조군이자, 망 없이 도는 TLS 1.2/1.3 왕복이다.
+    /// 위 거부가 인증서 탓임을 보이는 대조군이자 망 없이 도는 TLS 1.2/1.3 왕복임
     #[test]
     fn the_provider_completes_tls_12_and_13_with_a_trusted_certificate() {
         for (version, expected) in [
@@ -1503,7 +1552,7 @@ RoiK+gDhY9cS6gsFC9oTEA3h5HGh+huoFghmkruTSR4bcG8kPm0B4kv0\n\
         }
     }
 
-    /// 실제 릴레이에 TLS와 WebSocket만 잇고 챌린지를 받으면 끊는다 (등록 없음, 키를 보내지 않음).
+    /// 실제 릴레이에 TLS와 WebSocket만 잇고 챌린지를 받으면 끊음 (등록 없음, 키를 보내지 않음).
     /// `cargo test -p screenpet-net --lib live_relay_gives_a_challenge_over_tls -- --ignored`
     #[test]
     #[ignore]

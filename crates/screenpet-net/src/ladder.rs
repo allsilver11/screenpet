@@ -1,18 +1,14 @@
-//! Ladder games: the commit–reveal seed and the host / player state machines
-//! (spec `2026-11-04-screenpet-ladder-design.md` §3–§6).
+//! 사다리 게임임: commit–reveal 시드와 방장·참가자 상태 기계 (스펙 `2026-11-04-screenpet-ladder-design.md` §3–§6).
 //!
-//! Links are 1:1, so a game is a star: the host collects and relays. Fairness:
-//! every player (the host too) commits to a secret nonce before anyone reveals,
-//! and the seed hashes all nonces plus a fixed binary encoding of the locked
-//! game, so no one can pick the outcome in advance as long as one player is
-//! honest. A host that shows players different lists is caught by the 4-emoji
-//! print. A modified host still collects the reveals first, so it can see the
-//! result, cancel and start over; and the `who` in a cancel is only its claim.
-//! That cannot be prevented, only made visible: the game is cancelled.
+//! 링크는 1:1이라 게임은 별 모양임: 방장이 모으고 전달함. 공정성: 모든 참가자(방장 포함)가 누구든 밝히기 전에
+//! 비밀 nonce를 커밋하고, 시드는 모든 nonce와 잠긴 게임의 고정 바이너리 인코딩을 해시하므로 한 명만 정직해도
+//! 아무도 결과를 미리 고를 수 없음. 참가자마다 다른 목록을 보인 방장은 이모지 4개 지문으로 들킴.
+//! 고친 방장은 그래도 밝힌 값을 먼저 모아 결과를 보고 취소한 뒤 다시 할 수 있고, 취소의 `who`도 그의 주장일 뿐임.
+//! 막을 수는 없고 드러낼 수만 있음: 게임이 취소됨.
 //!
-//! The machines do no I/O: they take `Instant`s and return the messages to
-//! send, so all of this is tested on Linux. Strings from the wire are
-//! validated, never trimmed or clamped (every build must hash the same bytes).
+//! 기계는 I/O를 안 함: `Instant`를 받고 보낼 메시지를 돌려주므로 모두 Linux에서 시험함.
+//! 와이어 문자열은 검사만 하고 다듬거나 자르지 않음 (모든 빌드가 같은 바이트를 해시해야 함).
+//! 진입점: `HostGame`(방장), `GuestGame`(참가자). src-tauri의 `ladder.rs`가 부름.
 
 use std::time::{Duration, Instant};
 
@@ -21,62 +17,72 @@ use blake2::{Blake2s256, Digest};
 use crate::noise::{blake2s, hex32, hex_array, random32, to_hex};
 use crate::protocol::{LadderMsg, WirePlayer, WireResult, MAX_NAME};
 
-/// 한 판의 인원 (방장 포함). core `screenpet_core::ladder`와 같은 값이어야 한다 — net은 core에 의존하지 않아 따로 두고,
-/// `tests/ladder.rs`가 둘이 같은지 확인한다
+/// 한 판의 인원 (방장 포함). core `screenpet_core::ladder`와 같은 값이어야 함. net은 core에 의존하지 않아 따로 두고,
+/// `tests/ladder.rs`가 둘이 같은지 확인함
 pub const MIN_PLAYERS: usize = 2;
+/// 한 판의 최대 인원 (방장 포함)
 pub const MAX_PLAYERS: usize = 10;
-/// 결과 칸 글자 수 상한 (core와 같다)
+/// 결과 칸 글자 수 상한 (core와 같음)
 pub const RESULT_MAX_CHARS: usize = 12;
-/// Pet ids and styles on the wire are short ASCII labels.
+/// 와이어의 펫 id와 스타일은 짧은 ASCII 라벨임
 const MAX_LABEL: usize = 32;
-/// An invite unanswered this long counts as "no".
+/// 이만큼 답이 없는 초대는 "아니오"로 침
 pub const INVITE_TIMEOUT: Duration = Duration::from_secs(30);
-/// After the lock, every nonce must be in within this.
+/// 잠근 뒤 모든 nonce가 이 안에 와야 함
 pub const REVEAL_TIMEOUT: Duration = Duration::from_secs(15);
-/// A joined player gives up on a host that never locks (invite window + editing time).
+/// 참가한 이가 끝내 잠그지 않는 방장을 포기하는 시간 (초대 창 + 편집 시간)
 pub const LOCK_WAIT: Duration = Duration::from_secs(120);
-/// A locked player waits this long for the host's reveals (its own deadline plus slack).
+/// 잠긴 참가자가 방장의 밝힌 값들을 기다리는 시간 (자기 마감 + 여유)
 const REVEALS_WAIT: Duration = Duration::from_secs(20);
 
-/// 해시마다 앞에 붙이는 용도 표시 (같은 바이트가 다른 용도의 해시로 쓰이지 않게). 바꾸면 판끼리 결과가 달라진다
+/// 해시마다 앞에 붙이는 용도 표시임 (같은 바이트가 다른 용도의 해시로 쓰이지 않게). 바꾸면 판끼리 결과가 달라짐
 const COMMIT_TAG: &[u8] = b"screenpet-ladder-commit-v1";
+/// 잠금 해시 용도 표시
 const LOCK_TAG: &[u8] = b"screenpet-ladder-lock-v1";
+/// 시드 해시 용도 표시
 const SEED_TAG: &[u8] = b"screenpet-ladder-seed-v1";
+/// 지문 해시 용도 표시
 const PRINT_TAG: &[u8] = b"screenpet-ladder-print-v1";
 
 // ---- crypto -------------------------------------------------------------------
 
+/// 참가자 nonce의 커밋을 만듦 (게임 id와 토큰에 묶음)
 pub fn commit(game_id: &[u8; 16], token: &[u8; 16], nonce: &[u8; 32]) -> [u8; 32] {
     blake2s(&[COMMIT_TAG, game_id, token, nonce])
 }
 
-/// A player as locked by the host (wire strings kept exactly as received).
+/// 방장이 잠근 참가자임 (와이어 문자열을 받은 그대로 둠)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockedPlayer {
+    /// 게임별 참가자 토큰
     pub token: [u8; 16],
+    /// nonce 커밋
     pub commit: [u8; 32],
+    /// 표시 이름
     pub name: String,
+    /// 펫 종류
     pub pet: String,
-    /// "" = round (absent on the wire)
+    /// "" = 둥근 그림 (와이어에서 빠짐)
     pub style: String,
 }
 
-/// A result slot as locked by the host. `mood` is the raw wire label
-/// ("good" | "bad" | "none" | something newer, shown as none).
+/// 방장이 잠근 결과 칸임. `mood`는 와이어 라벨 그대로임 ("good" | "bad" | "none" | 더 새것은 none으로 보임)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockedResult {
+    /// 결과 글
     pub text: String,
+    /// 분위기 라벨
     pub mood: String,
 }
 
+/// 길이(u32 LE)를 앞에 붙여 문자열 바이트를 버퍼에 씀
 fn push_str(buf: &mut Vec<u8>, s: &str) {
     let b = s.as_bytes();
     buf.extend_from_slice(&(b.len() as u16).to_le_bytes());
     buf.extend_from_slice(b);
 }
 
-/// Fixed binary encoding of the locked game (never JSON bytes: field order,
-/// spacing and number formatting could differ between builds).
+/// 잠긴 게임의 고정 바이너리 인코딩을 해시함 (JSON 바이트는 안 씀: 필드 순서·공백·숫자 모양이 빌드마다 다를 수 있음)
 pub fn lock_hash(game_id: &[u8; 16], host: u8, players: &[LockedPlayer], results: &[LockedResult]) -> [u8; 32] {
     let mut buf = Vec::with_capacity(64 + players.len() * 96 + results.len() * 24);
     buf.extend_from_slice(LOCK_TAG);
@@ -97,6 +103,7 @@ pub fn lock_hash(game_id: &[u8; 16], host: u8, players: &[LockedPlayer], results
     blake2s(&[&buf])
 }
 
+/// 잠금 해시와 모든 nonce(자리 순)로 시드를 만듦
 pub fn seed(lock_hash: &[u8; 32], nonces: &[[u8; 32]]) -> [u8; 32] {
     let mut h = Blake2s256::new();
     h.update(SEED_TAG);
@@ -107,7 +114,7 @@ pub fn seed(lock_hash: &[u8; 32], nonces: &[[u8; 32]]) -> [u8; 32] {
     h.finalize().into()
 }
 
-/// u32s from BLAKE2s(seed ‖ counter u32 LE) blocks, little endian, in order.
+/// BLAKE2s(seed ‖ counter u32 LE) 블록에서 차례로 꺼내는 리틀 엔디언 u32 흐름임
 pub struct Stream {
     seed: [u8; 32],
     counter: u32,
@@ -116,10 +123,12 @@ pub struct Stream {
 }
 
 impl Stream {
+    /// 시드에서 새 흐름을 만듦
     pub fn new(seed: [u8; 32]) -> Stream {
         Stream { seed, counter: 0, block: [0; 32], at: 32 }
     }
 
+    /// 다음 u32를 꺼냄 (블록이 떨어지면 다음 블록을 만듦)
     pub fn next_u32(&mut self) -> u32 {
         if self.at == 32 {
             self.block = blake2s(&[&self.seed, &self.counter.to_le_bytes()]);
@@ -132,7 +141,7 @@ impl Stream {
     }
 }
 
-/// The first 24 bits of BLAKE2s(tag ‖ seed): four 6-bit emoji indices.
+/// BLAKE2s(tag ‖ seed)의 앞 24비트임: 6비트 이모지 번호 넷
 pub fn print_bits(seed: &[u8; 32]) -> u32 {
     let d = blake2s(&[PRINT_TAG, seed]);
     (u32::from(d[0]) << 16) | (u32::from(d[1]) << 8) | u32::from(d[2])
@@ -140,63 +149,77 @@ pub fn print_bits(seed: &[u8; 32]) -> u32 {
 
 // ---- validation ---------------------------------------------------------------------
 
+/// 16바이트 hex를 읽음
 fn hex16(s: &str) -> Option<[u8; 16]> {
     hex_array::<16>(s)
 }
 
+/// 16바이트 난수를 만듦
 fn random16() -> [u8; 16] {
     random32()[..16].try_into().expect("16 bytes")
 }
 
-/// A result text as the host must send it: non-empty, no surrounding spaces,
-/// no control characters, at most 12 characters.
+/// 방장이 보내야 하는 결과 글인지 봄: 비어 있지 않고, 앞뒤 공백·제어 문자 없고, 최대 12글자
 pub fn valid_result_text(s: &str) -> bool {
     !s.is_empty() && s.trim() == s && !s.chars().any(char::is_control) && s.chars().count() <= RESULT_MAX_CHARS
 }
 
+/// 표시 이름이 올바른지 봄: 공백만이 아니고, 제어 문자 없고, `MAX_NAME`글자 이하
 fn valid_name(s: &str) -> bool {
     !s.trim().is_empty() && !s.chars().any(char::is_control) && s.chars().count() <= MAX_NAME
 }
 
+/// 라벨이 영숫자·`_`·`-`로만 된 `MAX_LABEL`자 이하인지 봄
 fn valid_label(s: &str) -> bool {
     s.len() <= MAX_LABEL && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
 }
 
+/// 결과 칸 목록이 1..=`MAX_PLAYERS`개이고 모두 올바른지 봄
 fn valid_results(results: &[WireResult]) -> bool {
     (1..=MAX_PLAYERS).contains(&results.len()) && results.iter().all(|r| valid_result_text(&r.text) && valid_label(&r.mood))
 }
 
+/// 와이어 결과를 잠긴 결과로 바꿈
 fn locked_results(results: &[WireResult]) -> Vec<LockedResult> {
     results.iter().map(|r| LockedResult { text: r.text.clone(), mood: r.mood.clone() }).collect()
 }
 
+/// 잠긴 결과를 와이어 결과로 바꿈
 fn wire_results(results: &[LockedResult]) -> Vec<WireResult> {
     results.iter().map(|r| WireResult { text: r.text.clone(), mood: r.mood.clone() }).collect()
 }
 
+/// 빈 스타일은 와이어에서 뺌
 fn wire_style(style: &str) -> Option<String> {
     (!style.is_empty()).then(|| style.to_string())
 }
 
 // ---- shared state ----------------------------------------------------------------------
 
-/// What this install brings to a game.
+/// 이 설치가 게임에 들고 오는 것임
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Seat {
+    /// 표시 이름
     pub name: String,
+    /// 펫 종류
     pub pet: String,
-    /// "" = round
+    /// "" = 둥근 그림
     pub style: String,
 }
 
+/// 초대를 거절한 까닭임
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeclineReason {
+    /// 싫다고 함
     No,
+    /// 바쁨
     Busy,
+    /// 이미 다른 판 중임
     Playing,
 }
 
 impl DeclineReason {
+    /// 와이어 라벨을 돌려줌
     pub fn wire(self) -> &'static str {
         match self {
             DeclineReason::No => "no",
@@ -205,6 +228,7 @@ impl DeclineReason {
         }
     }
 
+    /// 와이어 라벨을 읽음 (모르면 `No`)
     fn from_wire(s: &str) -> DeclineReason {
         match s {
             "busy" => DeclineReason::Busy,
@@ -214,30 +238,38 @@ impl DeclineReason {
     }
 }
 
-/// An invitee's state as the host sees it.
+/// 방장이 보는 초대받은 이의 상태임
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Answer {
+    /// 답 기다림
     Waiting,
+    /// 참가함
     Joined,
+    /// 거절함
     Declined(DeclineReason),
+    /// 시간 안에 답 없음
     TimedOut,
+    /// 나감
     Left,
 }
 
+/// 게임이 취소된 까닭임
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CancelReason {
-    /// The host stopped the game (or closed the invitation).
+    /// 방장이 게임을 멈춤 (또는 초대를 닫음)
     Host,
-    /// Someone disconnected or quit.
+    /// 누군가 끊기거나 나감
     Left,
+    /// 마감이 지남
     Timeout,
-    /// A malformed or inconsistent message (or a failed commitment check).
+    /// 잘못됐거나 앞뒤가 안 맞는 메시지 (또는 커밋 확인 실패)
     Invalid,
-    /// Host only, never sent: every invitee declined, timed out or left.
+    /// 방장 전용, 안 보냄: 초대받은 모두가 거절·시간 초과·나감
     Nobody,
 }
 
 impl CancelReason {
+    /// 와이어 라벨을 돌려줌
     pub fn wire(self) -> &'static str {
         match self {
             CancelReason::Host => "host",
@@ -248,6 +280,7 @@ impl CancelReason {
         }
     }
 
+    /// 와이어 라벨을 읽음 (모르면 `Invalid`)
     fn from_wire(s: &str) -> CancelReason {
         match s {
             "host" => CancelReason::Host,
@@ -259,45 +292,55 @@ impl CancelReason {
     }
 }
 
-/// A finished game: same on every honest screen given the same lock.
+/// 끝난 게임임: 같은 잠금이면 정직한 모든 화면에서 같음
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
+    /// 시드
     pub seed: [u8; 32],
+    /// 이모지 지문 비트
     pub print: u32,
+    /// `players` 안의 방장 자리
     pub host: usize,
+    /// 잠긴 참가자들 (토큰 순)
     pub players: Vec<LockedPlayer>,
+    /// 잠긴 결과 칸들
     pub results: Vec<LockedResult>,
-    /// This install's seat in `players`.
+    /// `players` 안의 이 설치 자리
     pub me: usize,
 }
 
 impl Outcome {
+    /// 이 게임 시드의 u32 흐름을 새로 만듦
     pub fn stream(&self) -> Stream {
         Stream::new(self.seed)
     }
 }
 
+/// 게임 단계임
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Phase {
-    /// Host: invites out, collecting answers.
+    /// 방장: 초대를 보내고 답을 모음
     Inviting,
-    /// Player: invite shown, not answered yet.
+    /// 참가자: 초대를 보였고 아직 안 답함
     Invited,
-    /// Player: joined, waiting for the lock.
+    /// 참가자: 참가했고 잠금을 기다림
     Joined,
-    /// Locked, waiting for the reveals.
+    /// 잠겼고 밝힌 값들을 기다림
     Locked,
+    /// 끝남
     Done(Outcome),
-    /// `who` = display name of the player it was about (if any).
+    /// 취소됨. `who` = 관련된 참가자의 표시 이름 (있으면)
     Cancelled { reason: CancelReason, who: Option<String> },
 }
 
 impl Phase {
+    /// 끝났거나 취소됐는지 봄
     pub fn is_over(&self) -> bool {
         matches!(self, Phase::Done(_) | Phase::Cancelled { .. })
     }
 }
 
+/// 잠금과 nonce들로 끝난 게임을 만듦
 fn outcome(game_id: [u8; 16], host: usize, players: Vec<LockedPlayer>, results: Vec<LockedResult>, nonces: &[[u8; 32]], me: usize) -> Outcome {
     let l = lock_hash(&game_id, host as u8, &players, &results);
     let seed = seed(&l, nonces);
@@ -306,24 +349,26 @@ fn outcome(game_id: [u8; 16], host: usize, players: Vec<LockedPlayer>, results: 
 
 // ---- host ---------------------------------------------------------------------------------
 
+/// 방장이 보는 초대받은 친구 하나임
 struct Invitee {
     id: String,
     answer: Answer,
     joined: Option<LockedPlayer>,
 }
 
+/// 방장이 잠근 뒤의 상태임
 struct Locked {
     host: usize,
     players: Vec<LockedPlayer>,
     results: Vec<LockedResult>,
-    /// Friend id per seat (`None` = the host)
+    /// 자리별 친구 id (None = 방장)
     ids: Vec<Option<String>>,
+    /// 자리별 받은 nonce
     nonces: Vec<Option<[u8; 32]>>,
     since: Instant,
 }
 
-/// The host's side of one game. Every method returns the messages to send as
-/// `(friend id, message)`.
+/// 한 게임의 방장 쪽임. 모든 메서드는 보낼 메시지를 `(친구 id, 메시지)`로 돌려줌
 pub struct HostGame {
     game_id: [u8; 16],
     me: LockedPlayer,
@@ -334,13 +379,12 @@ pub struct HostGame {
     phase: Phase,
 }
 
+/// 방장이 보낼 메시지 목록: `(친구 id, 메시지)`
 pub type Out = Vec<(String, LadderMsg)>;
 
 impl HostGame {
-    /// Start a game: invite `invitees` (1..=9 distinct friend ids). `draft` =
-    /// the result slots as planned now, shown in the invite; the final ones
-    /// are given to `start` (who joins decides how many). `None` if the
-    /// arguments are out of range.
+    /// 게임을 시작함: `invitees`(서로 다른 친구 id 1..=9개)를 초대함. `draft` = 지금 계획한 결과 칸으로 초대에 보임.
+    /// 최종 칸은 `start`에 줌 (몇 칸인지는 누가 참가하느냐로 정해짐). 인자가 범위 밖이면 None임
     pub fn new(me: Seat, draft: &[LockedResult], invitees: &[String], now: Instant) -> Option<(HostGame, Out)> {
         let mut ids = invitees.to_vec();
         ids.sort();
@@ -359,19 +403,22 @@ impl HostGame {
         Some((HostGame { game_id, me, nonce, invitees, since: now, locked: None, phase: Phase::Inviting }, out))
     }
 
+    /// 게임 id(hex)를 돌려줌
     pub fn game_id(&self) -> String {
         to_hex(&self.game_id)
     }
 
+    /// 지금 단계를 돌려줌
     pub fn phase(&self) -> &Phase {
         &self.phase
     }
 
+    /// 초대받은 이마다의 답을 돌려줌
     pub fn answers(&self) -> Vec<(String, Answer)> {
         self.invitees.iter().map(|i| (i.id.clone(), i.answer.clone())).collect()
     }
 
-    /// 답의 종류별 수 (대기, 참가, 거절, 바쁨, 다른 판, 시간 초과, 나감) — 틱마다 바뀌었는지 볼 때 (복사 없음)
+    /// 답의 종류별 수 (대기, 참가, 거절, 바쁨, 다른 판, 시간 초과, 나감)임. 틱마다 바뀌었는지 볼 때 씀 (복사 없음)
     pub fn answer_counts(&self) -> [u8; 7] {
         let mut c = [0u8; 7];
         for i in &self.invitees {
@@ -389,20 +436,22 @@ impl HostGame {
         c
     }
 
-    /// Invitees who joined (lockable now)
+    /// 참가한 초대받은 이 수 (지금 잠글 수 있는 수)
     pub fn joined(&self) -> usize {
         self.invitees.iter().filter(|i| i.answer == Answer::Joined).count()
     }
 
+    /// 모든 초대받은 이가 답했는지 봄
     pub fn all_answered(&self) -> bool {
         self.invitees.iter().all(|i| i.answer != Answer::Waiting)
     }
 
-    /// Friend id behind a player token (the host's own screen can use friend nicknames).
+    /// 참가자 토큰 뒤의 친구 id를 돌려줌 (방장 화면은 친구 별명을 쓸 수 있음)
     pub fn friend_of(&self, token: &[u8; 16]) -> Option<String> {
         self.invitees.iter().find(|i| i.joined.as_ref().is_some_and(|p| &p.token == token)).map(|i| i.id.clone())
     }
 
+    /// 친구 `from`이 보낸 사다리 메시지를 처리하고 보낼 것을 돌려줌
     pub fn on_message(&mut self, from: &str, msg: LadderMsg, now: Instant) -> Out {
         let gid = self.game_id();
         // 늦은 참가 (초대 30초가 지났거나, 이미 잠갔거나 끝난 판): 답이 없으면 그 친구는 "기다리는 중"에 갇힌다 — 초대가 끝났다고 알린다
@@ -422,13 +471,14 @@ impl HostGame {
         out
     }
 
-    /// 모두 거절했거나 답이 없거나 나갔다 (참가 0명) — 기다리는 화면에 갇히지 않게 판을 끝낸다
+    /// 모두 거절했거나 답이 없거나 나갔음(참가 0명): 기다리는 화면에 갇히지 않게 판을 끝냄
     fn check_nobody(&mut self) {
         if self.phase == Phase::Inviting && self.all_answered() && self.joined() == 0 {
             self.phase = Phase::Cancelled { reason: CancelReason::Nobody, who: None };
         }
     }
 
+    /// 이 게임 메시지를 종류별로 나눠 처리함
     fn handle(&mut self, from: &str, msg: LadderMsg, gid: &str, now: Instant) -> Out {
         let gid = gid.to_string();
         match msg {
@@ -469,6 +519,7 @@ impl HostGame {
         }
     }
 
+    /// 참가자의 밝힌 nonce를 커밋과 맞춰 보고, 다 모이면 모두에게 돌리고 끝냄
     fn on_reveal(&mut self, from: &str, nonce: &str) -> Out {
         let Some(l) = self.locked.as_mut() else { return Vec::new() };
         let Some(seat) = l.ids.iter().position(|i| i.as_deref() == Some(from)) else { return Vec::new() };
@@ -494,6 +545,7 @@ impl HostGame {
         out
     }
 
+    /// 참가자가 나감: 잠근 뒤면 게임을 취소하고, 전이면 그 답만 나감으로 둠
     fn player_left(&mut self, id: &str, _now: Instant) -> Out {
         if let Some(l) = &self.locked {
             if self.phase == Phase::Locked {
@@ -511,7 +563,7 @@ impl HostGame {
         Vec::new()
     }
 
-    /// The friend's link dropped.
+    /// 친구 링크가 끊김
     pub fn on_disconnected(&mut self, id: &str, now: Instant) -> Out {
         if self.phase.is_over() {
             return Vec::new();
@@ -521,9 +573,8 @@ impl HostGame {
         out
     }
 
-    /// Lock the game with the final result slots (one per player: joined + the
-    /// host). Invitees still waiting are told the invitation closed. `None` =
-    /// not lockable (wrong phase, nobody joined, wrong slot count or text).
+    /// 최종 결과 칸(참가자 + 방장마다 하나)으로 게임을 잠금. 아직 기다리는 초대받은 이에게는 초대가 닫혔다고 알림.
+    /// 잠글 수 없으면(단계가 틀림, 참가 0명, 칸 수·글이 틀림) None임
     pub fn start(&mut self, results: &[LockedResult], now: Instant) -> Option<Out> {
         let wire = wire_results(results);
         let joined: Vec<(String, LockedPlayer)> =
@@ -559,7 +610,7 @@ impl HostGame {
         Some(out)
     }
 
-    /// The host gives up (window closed, app quitting).
+    /// 방장이 포기함 (창 닫음, 앱 끝남)
     pub fn abort(&mut self) -> Out {
         if self.phase.is_over() {
             return Vec::new();
@@ -567,7 +618,7 @@ impl HostGame {
         self.cancel(CancelReason::Host, None)
     }
 
-    /// Deadlines: unanswered invites after 30 s, missing reveals 15 s after the lock.
+    /// 마감을 봄: 30초 지난 답 없는 초대, 잠근 뒤 15초 지나도 안 온 밝힌 값
     pub fn tick(&mut self, now: Instant) -> Out {
         match &self.phase {
             Phase::Inviting if now.duration_since(self.since) >= INVITE_TIMEOUT => {
@@ -589,11 +640,12 @@ impl HostGame {
         }
     }
 
+    /// 취소 메시지를 만듦
     fn cancel_msg(&self, reason: CancelReason, who: Option<[u8; 16]>) -> LadderMsg {
         LadderMsg::LadderCancel { game_id: self.game_id(), reason: reason.wire().to_string(), who: who.map(|t| to_hex(&t)) }
     }
 
-    /// End the game for everyone still in it.
+    /// 아직 게임에 있는 모두에게 게임을 끝냄
     fn cancel(&mut self, reason: CancelReason, who: Option<[u8; 16]>) -> Out {
         let msg = self.cancel_msg(reason, who);
         let who_name = who.and_then(|t| self.name_of(&t));
@@ -605,6 +657,7 @@ impl HostGame {
         to.into_iter().map(|id| (id, msg.clone())).collect()
     }
 
+    /// 토큰의 표시 이름을 돌려줌
     fn name_of(&self, token: &[u8; 16]) -> Option<String> {
         if let Some(l) = &self.locked {
             return l.players.iter().find(|p| &p.token == token).map(|p| p.name.clone());
@@ -613,19 +666,21 @@ impl HostGame {
     }
 }
 
+/// 자리 정보(이름, 펫, 스타일)가 올바른지 봄
 fn valid_seat(me: &Seat) -> bool {
     valid_name(&me.name) && valid_label(&me.pet) && valid_label(&me.style)
 }
 
 // ---- player ---------------------------------------------------------------------------------
 
+/// 참가자 자신의 토큰·nonce·커밋임
 struct Mine {
     token: [u8; 16],
     nonce: [u8; 32],
     commit: [u8; 32],
 }
 
-/// A player's side of one game (messages from the host only — the app routes them).
+/// 한 게임의 참가자 쪽임 (방장 메시지만 받음, 앱이 길을 찾아 줌)
 pub struct GuestGame {
     host_id: String,
     game_id: [u8; 16],
@@ -639,7 +694,7 @@ pub struct GuestGame {
 }
 
 impl GuestGame {
-    /// A well-formed invite from friend `from`; `None` otherwise (ignore it).
+    /// 친구 `from`의 올바른 초대면 게임을 만듦. 아니면 None임 (무시할 것)
     pub fn on_invite(from: &str, msg: LadderMsg, now: Instant) -> Option<GuestGame> {
         let LadderMsg::LadderInvite { game_id, host, results, invited } = msg else { return None };
         let game_id = hex16(&game_id)?;
@@ -659,39 +714,42 @@ impl GuestGame {
         })
     }
 
+    /// 방장 친구 id를 돌려줌
     pub fn host_id(&self) -> &str {
         &self.host_id
     }
 
+    /// 방장 표시 이름을 돌려줌
     pub fn host_name(&self) -> &str {
         &self.host_name
     }
 
+    /// 게임 id(hex)를 돌려줌
     pub fn game_id(&self) -> String {
         to_hex(&self.game_id)
     }
 
-    /// The result slots shown in the invite (final ones come with the lock).
+    /// 초대에 보인 결과 칸을 돌려줌 (최종 칸은 잠금과 함께 옴)
     pub fn draft(&self) -> &[LockedResult] {
         &self.draft
     }
 
-    /// How many friends the host invited (the host not counted).
+    /// 방장이 초대한 친구 수를 돌려줌 (방장 빼고)
     pub fn invited(&self) -> u8 {
         self.invited
     }
 
+    /// 지금 단계를 돌려줌
     pub fn phase(&self) -> &Phase {
         &self.phase
     }
 
-    /// The invite ended (closed by the host, host gone, timed out) before we
-    /// joined: nothing to report, the invite just goes away.
+    /// 참가하기 전에 초대가 끝났는지 봄 (방장이 닫음, 방장 떠남, 시간 초과): 알릴 것 없이 초대만 사라짐
     pub fn ended_unanswered(&self) -> bool {
         self.phase.is_over() && self.mine.is_none()
     }
 
-    /// Join with a fresh token and committed nonce. `None` if already answered.
+    /// 새 토큰과 커밋한 nonce로 참가함. 이미 답했으면 None임
     pub fn join(&mut self, me: Seat, now: Instant) -> Option<LadderMsg> {
         if self.phase != Phase::Invited || !valid_seat(&me) {
             return None;
@@ -705,7 +763,7 @@ impl GuestGame {
         Some(LadderMsg::LadderJoin { game_id: self.game_id(), token: to_hex(&token), commit: to_hex(&c), name: me.name, pet: me.pet, style: wire_style(&me.style) })
     }
 
-    /// Say no (or busy / already playing). `None` if already answered.
+    /// 거절함 (또는 바쁨·이미 다른 판). 이미 답했으면 None임
     pub fn decline(&mut self, reason: DeclineReason) -> Option<LadderMsg> {
         if self.phase != Phase::Invited {
             return None;
@@ -714,7 +772,7 @@ impl GuestGame {
         Some(LadderMsg::LadderDecline { game_id: self.game_id(), reason: reason.wire().to_string() })
     }
 
-    /// Leave a game we joined (window closed, app quitting): tell the host.
+    /// 참가한 게임에서 나감 (창 닫음, 앱 끝남): 방장에게 알림
     pub fn quit(&mut self) -> Option<LadderMsg> {
         match self.phase {
             Phase::Invited => self.decline(DeclineReason::No),
@@ -726,10 +784,9 @@ impl GuestGame {
         }
     }
 
-    /// The final slots of a valid lock for this game, if they are not just the
-    /// invite's slots with some removed (fewer players is normal; other text,
-    /// moods or extra copies are not what we joined for). The app asks the player
-    /// before passing such a lock to `on_message`, which would reveal our nonce.
+    /// 이 게임의 올바른 잠금의 최종 칸이, 초대 칸에서 몇 개만 뺀 것이 아니면 돌려줌
+    /// (인원이 줄어드는 건 보통이고, 다른 글·분위기·더 많은 사본은 참가한 이유가 아님).
+    /// 앱은 이런 잠금을 우리 nonce를 밝히는 `on_message`에 넘기기 전에 참가자에게 물음
     pub fn lock_changed_results(&self, msg: &LadderMsg) -> Option<Vec<LockedResult>> {
         let LadderMsg::LadderLock { game_id, host, players, results } = msg else { return None };
         if *game_id != self.game_id() || self.phase != Phase::Joined {
@@ -741,12 +798,12 @@ impl GuestGame {
         (!shrunk).then_some(results)
     }
 
-    /// The player refused a lock with changed slots: no reveal, the game is off.
+    /// 참가자가 칸이 바뀐 잠금을 거절함: 밝히지 않고 게임은 취소됨
     pub fn refuse_lock(&mut self) -> Option<LadderMsg> {
         (self.phase == Phase::Joined).then(|| self.invalid()).flatten()
     }
 
-    /// A message from the host. Returns the reply to send (our reveal after the lock).
+    /// 방장 메시지를 처리함. 보낼 답(잠금 뒤의 우리 밝힌 값)을 돌려줌
     pub fn on_message(&mut self, msg: LadderMsg, now: Instant) -> Option<LadderMsg> {
         if self.phase.is_over() {
             return None;
@@ -786,13 +843,13 @@ impl GuestGame {
         }
     }
 
+    /// 잘못된 메시지로 게임을 취소함 (방장에게 알림)
     fn invalid(&mut self) -> Option<LadderMsg> {
         self.phase = Phase::Cancelled { reason: CancelReason::Invalid, who: None };
         Some(LadderMsg::LadderCancel { game_id: self.game_id(), reason: CancelReason::Invalid.wire().to_string(), who: None })
     }
 
-    /// The lock must hold our own token and commitment unchanged, distinct
-    /// tokens in ascending order, 2..=10 players, one result per player.
+    /// 잠금은 우리 토큰과 커밋을 그대로, 서로 다른 토큰을 오름차순으로, 2..=10명, 참가자마다 결과 하나를 담아야 함
     fn check_lock(&self, host: u8, players: &[WirePlayer], results: &[WireResult]) -> Option<(usize, Vec<LockedPlayer>, Vec<LockedResult>)> {
         let mine = self.mine.as_ref()?;
         let n = players.len();
@@ -817,11 +874,12 @@ impl GuestGame {
         Some((host as usize, locked, locked_results(results)))
     }
 
+    /// 토큰의 표시 이름을 돌려줌
     fn name_of(&self, token: &[u8; 16]) -> Option<String> {
         self.locked.as_ref().and_then(|(_, players, _)| players.iter().find(|p| &p.token == token).map(|p| p.name.clone()))
     }
 
-    /// The host's link dropped: over unless already done.
+    /// 방장 링크가 끊김: 이미 끝나지 않았으면 끝남
     pub fn on_host_disconnected(&mut self) {
         if !self.phase.is_over() {
             let who = Some(self.host_name.clone());
@@ -829,8 +887,7 @@ impl GuestGame {
         }
     }
 
-    /// Deadlines. Returns a message for the host when we give up: an
-    /// unanswered invite (an automatic "no") or a lock that never came ("left").
+    /// 마감을 봄. 포기할 때 방장에게 보낼 메시지를 돌려줌: 답 없는 초대(자동 "아니오")나 끝내 안 온 잠금("나감")
     pub fn tick(&mut self, now: Instant) -> Option<LadderMsg> {
         let waited = now.duration_since(self.since);
         match self.phase {
@@ -853,6 +910,7 @@ impl GuestGame {
     }
 }
 
+/// 방장·참가자 상태 기계와 고정 벡터 시험임
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -869,7 +927,7 @@ mod tests {
         (0..n).map(|i| format!("friend{i}")).collect()
     }
 
-    /// The host and `n` players wired by hand: every message goes straight to its peer.
+    /// 손으로 이은 방장과 참가자 `n`명: 모든 메시지가 바로 상대에게 감
     struct Game {
         host: HostGame,
         guests: Vec<(String, GuestGame)>,
@@ -1173,7 +1231,7 @@ mod tests {
         assert!(!g.ended_unanswered());
     }
 
-    /// 초대에 "당첨 1 + 꽝 2" (3칸)를 보여 주고 친구 둘을 초대해, 첫 친구가 참가한 상태
+    /// 초대에 "당첨 1 + 꽝 2" (3칸)를 보여 주고 친구 둘을 초대해 첫 친구가 참가한 상태를 만듦
     fn joined_to_a_draft() -> (HostGame, GuestGame, Instant) {
         let now = Instant::now();
         let draft = results(&[("당첨", "good"), ("꽝", "bad"), ("꽝", "bad")]);
@@ -1403,8 +1461,7 @@ mod tests {
         assert_ne!(lock_hash(&gid, 0, &[p("나비")], &r), lock_hash(&gid, 0, &[p("나\u{200B}비")], &r));
     }
 
-    /// Every build must derive the same seed, stream and print from the same
-    /// game. If this changes, the protocol changed.
+    /// 모든 빌드는 같은 게임에서 같은 시드·흐름·지문을 끌어내야 함. 이것이 바뀌면 프로토콜이 바뀐 것임
     #[test]
     fn fixed_vectors() {
         let gid: [u8; 16] = core::array::from_fn(|i| i as u8);

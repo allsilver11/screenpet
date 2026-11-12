@@ -1,4 +1,5 @@
-//! Shared by the integration tests (each test binary uses only part of it).
+//! 통합 시험들이 같이 쓰는 도우미임 (시험 바이너리마다 일부만 씀).
+//! 빠른 시간 상수, 안 겹치는 포트, 이벤트 기다리기, hex·BLAKE2s 도우미를 줌.
 #![allow(dead_code)]
 
 use blake2::{Blake2s256, Digest};
@@ -7,6 +8,7 @@ use std::net::UdpSocket;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
+/// 시험용으로 짧게 줄인 시간 상수를 돌려줌
 pub fn fast() -> Timing {
     Timing {
         announce_interval: Duration::from_millis(150),
@@ -22,26 +24,24 @@ pub fn fast() -> Timing {
     }
 }
 
-/// A UDP port for a Net's discovery that nothing else in this test process
-/// will take: the tests run in parallel and need each other's ports before
-/// starting, so the OS can't pick them (port 0).
+/// 이 시험 프로세스 안에서 아무도 안 가져갈 Net 찾기용 UDP 포트를 줌: 시험이 나란히 돌고 시작 전에 서로의 포트가 필요해서
+/// OS가 고를 수 없음 (포트 0).
 ///
-/// Asking the OS for a free port and closing it again is racy: the OS hands
-/// that same port to the next `bind(…:0)` (another test's Net or socket), and
-/// a test that restarts a Net on its old port loses it the same way. So ports
-/// come from below every OS's ephemeral range (Linux 32768+, Windows/macOS
-/// 49152+), where port-0 binds never land, and each is handed out at most
-/// once per process. A port another program holds is skipped.
+/// OS에 빈 포트를 받고 닫는 방식은 경쟁이 생김: OS가 다음 `bind(…:0)`(다른 시험의 Net이나 소켓)에 같은 포트를 주고,
+/// 옛 포트로 Net을 다시 켜는 시험도 같은 식으로 잃음. 그래서 포트는 모든 OS의 임시 포트 범위
+/// (Linux 32768+, Windows/macOS 49152+) 아래에서 가져와 포트 0 bind가 닿지 않게 하고, 프로세스당 한 번씩만 줌.
+/// 다른 프로그램이 쥔 포트는 건너뜀
 pub fn free_udp_port() -> u16 {
     // The Net binds 0.0.0.0; free there means free on 127.0.0.1 too.
     reserved_port(|port| UdpSocket::bind(("0.0.0.0", port)).is_ok())
 }
 
-/// The same for a TCP listener that is restarted on its old port (a relay).
+/// 옛 포트로 다시 켜는 TCP 리스너(릴레이)용으로 같은 일을 함
 pub fn free_tcp_port() -> u16 {
     reserved_port(|port| std::net::TcpListener::bind(("127.0.0.1", port)).is_ok())
 }
 
+/// 범위 안에서 아직 안 준 포트 중 `free`가 비었다고 하는 첫 포트를 줌
 fn reserved_port(free: impl Fn(u16) -> bool) -> u16 {
     use std::sync::atomic::{AtomicU32, Ordering};
     const FIRST: u32 = 20000;
@@ -58,11 +58,12 @@ fn reserved_port(free: impl Fn(u16) -> bool) -> u16 {
     panic!("no free port in {FIRST}..{}", FIRST + COUNT);
 }
 
+/// 키 `key`의 공개키로 친구 `id`를 만듦
 pub fn friend(id: &str, key: &[u8; 32]) -> Friend {
     Friend { id: id.into(), public_key: Net::public_key(key) }
 }
 
-/// Wait until an event matching `pred` arrives (skipping others).
+/// `pred`에 맞는 이벤트가 올 때까지 기다림 (다른 것은 건너뜀). `secs` 안에 안 오면 None임
 pub fn wait_for(rx: &Receiver<NetEvent>, secs: f64, pred: impl Fn(&NetEvent) -> bool) -> Option<NetEvent> {
     let deadline = Instant::now() + Duration::from_secs_f64(secs);
     loop {
@@ -75,22 +76,27 @@ pub fn wait_for(rx: &Receiver<NetEvent>, secs: f64, pred: impl Fn(&NetEvent) -> 
     }
 }
 
+/// `Connected` 이벤트인지 봄
 pub fn is_connected(e: &NetEvent) -> bool {
     matches!(e, NetEvent::Connected { .. })
 }
 
+/// `Disconnected` 이벤트인지 봄
 pub fn is_disconnected(e: &NetEvent) -> bool {
     matches!(e, NetEvent::Disconnected { .. })
 }
 
+/// 바이트를 hex로 바꿈
 pub fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// hex를 바이트로 바꿈
 pub fn unhex(s: &str) -> Vec<u8> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
 }
 
+/// 조각들의 BLAKE2s-256 해시를 돌려줌
 pub fn blake2s(parts: &[&[u8]]) -> [u8; 32] {
     let mut h = Blake2s256::new();
     for p in parts {

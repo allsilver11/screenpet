@@ -1,6 +1,5 @@
-//! Localhost integration tests: Net instances on distinct discovery ports,
-//! each "broadcasting" (UDP unicast) to the other's port, plus hand-rolled
-//! Noise clients (via `snow`) for the protocol / attack cases.
+//! localhost 통합 시험임: 서로 다른 찾기 포트의 Net들이 상대 포트로 "브로드캐스트"(UDP 유니캐스트)하고,
+//! 프로토콜·공격 사례용으로 손으로 짠 Noise 클라이언트(`snow`)를 씀.
 
 mod common;
 
@@ -53,7 +52,7 @@ struct Pair {
     brx: Receiver<NetEvent>,
 }
 
-/// Two instances "aaaa" < "bbbb" pointed at each other.
+/// 서로를 향한 두 인스턴스 "aaaa" < "bbbb"를 만듦
 fn pair(friends: bool) -> Pair {
     let (pa, pb) = (free_udp_port(), free_udp_port());
     let (ka, kb) = (key(), key());
@@ -88,8 +87,7 @@ fn sample_visit() -> Visit {
         style: None, tint: None, boost: None, no_grow: None, of: None, carry: None }
 }
 
-/// Start a Net "mmmm" (discovery on an OS-chosen port) that "broadcasts" to
-/// a sniffer; returns its TCP port from the announcement.
+/// 스니퍼로 "브로드캐스트"하는 Net "mmmm"(찾기 포트는 OS가 고름)을 켬. 알림에서 읽은 TCP 포트를 돌려줌
 fn start_sniffed(net_key: [u8; 32], friends: Vec<Friend>) -> (Net, Receiver<NetEvent>, u16) {
     let sniffer = UdpSocket::bind("127.0.0.1:0").unwrap();
     sniffer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -110,7 +108,7 @@ fn sniff_port(sniffer: &UdpSocket, id: &str) -> u16 {
     }
 }
 
-/// True once the other side has closed the socket.
+/// 상대가 소켓을 닫았으면 true임
 fn closed_by_peer(s: &mut TcpStream) -> bool {
     s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     let mut buf = [0u8; 4096];
@@ -183,7 +181,7 @@ impl Peer {
         let n = self.t.read_message(&f, &mut buf).map_err(|_| io::Error::other("decrypt"))?;
         Ok(serde_json::from_slice(&buf[..n]).unwrap())
     }
-    /// Next message that is not a ping.
+    /// ping이 아닌 다음 메시지를 읽음
     fn recv_msg(&mut self) -> io::Result<Value> {
         loop {
             let v = self.recv()?;
@@ -198,17 +196,17 @@ fn hello(id: &str, name: &str) -> Value {
     json!({"type": "hello", "id": id, "name": name, "v": 1})
 }
 
-/// Hello from a peer that has the receiver pinned as a friend.
+/// 받는 쪽을 친구로 고정한 상대의 hello를 만듦
 fn friend_hello(id: &str, name: &str) -> Value {
     json!({"type": "hello", "id": id, "name": name, "v": 1, "friend": true})
 }
 
-/// Connect to `port`, handshake with `key`, exchange hellos claiming `id`.
+/// `port`에 연결해 `key`로 핸드셰이크하고 `id`를 주장하는 hello를 주고받음
 fn raw_connect(port: u16, key: &[u8; 32], id: &str) -> Peer {
     raw_connect_as(port, key, hello(id, "Raw"))
 }
 
-/// Like `raw_connect`, as a friend that has the server pinned.
+/// `raw_connect`와 같되 서버를 고정한 친구로서 함
 fn raw_friend_connect(port: u16, key: &[u8; 32], id: &str) -> Peer {
     raw_connect_as(port, key, friend_hello(id, "Raw"))
 }
@@ -221,16 +219,14 @@ fn raw_connect_as(port: u16, key: &[u8; 32], hello_msg: Value) -> Peer {
     p
 }
 
-/// Like `raw_connect`, but does not wait for the server's hello (for links
-/// the server is expected to reject right after our hello).
+/// `raw_connect`와 같되 서버 hello를 안 기다림 (우리 hello 직후 서버가 거절할 링크용)
 fn raw_connect_claiming(port: u16, key: &[u8; 32], id: &str) -> Peer {
     let mut p = handshake(TcpStream::connect(local(port)).unwrap(), key, true).unwrap();
     p.send(hello(id, "Raw")).unwrap();
     p
 }
 
-/// Independent implementation of the documented SAS:
-/// first 36 bits of BLAKE2s(handshake_hash || nonce_i || r_r), 6 bits/symbol.
+/// 문서에 적힌 SAS를 따로 구현함: BLAKE2s(handshake_hash || nonce_i || r_r)의 앞 36비트, 기호당 6비트
 fn expected_sas(hash: &[u8], nonce_i: &[u8], r_r: &[u8]) -> String {
     let d = blake2s(&[hash, nonce_i, r_r]);
     let bits = d[..5].iter().fold(0u64, |a, b| (a << 8) | u64::from(*b));
@@ -335,7 +331,7 @@ fn shutdown_is_prompt_and_frees_discovery_port() {
 
 // ---- pairing --------------------------------------------------------------------
 
-/// A invites B; returns (A's InviteSent, B's Invited).
+/// A가 B를 초대함. (A의 InviteSent, B의 Invited)를 돌려줌
 fn start_pairing(p: &Pair) -> (NetEvent, NetEvent) {
     wait_for(&p.arx, 5.0, |e| matches!(e, NetEvent::PeerSeen { .. })).unwrap();
     p.a.invite("bbbb", "cat");
@@ -855,7 +851,7 @@ fn flooded_tosses_are_rate_limited_without_dropping_the_link() {
     net.shutdown();
 }
 
-/// 한 링크로 물건을 count개 보내고 window 동안 받은 Tossed 수를 센다
+/// 한 링크로 물건을 count개 보내고 window 동안 받은 Tossed 수를 셈
 fn count_tosses(p: &mut Peer, rx: &Receiver<NetEvent>, count: usize, window: Duration) -> usize {
     for _ in 0..count {
         p.send(json!({"type": "ping", "toss": {"kind": "can", "side": "left"}})).unwrap();
@@ -891,7 +887,7 @@ fn reconnecting_does_not_refill_the_toss_budget() {
     net.shutdown();
 }
 
-/// 윈도우 동안 조건에 맞는 이벤트 수와, 끊겼는지
+/// window 동안 조건에 맞는 이벤트 수와 끊겼는지를 돌려줌
 fn tally(rx: &Receiver<NetEvent>, window: Duration, pred: impl Fn(&NetEvent) -> bool) -> (usize, bool) {
     let deadline = Instant::now() + window;
     let (mut events, mut disconnected) = (0, false);
@@ -1152,7 +1148,7 @@ fn silent_friend_times_out() {
 
 // ---- attacks ------------------------------------------------------------------
 
-/// Keep announcing `id` at `tcp_port` to `to` until `stop`.
+/// `stop`까지 `to`로 `id`가 `tcp_port`에 있다고 계속 알림
 fn spoof_announcements(id: &'static str, tcp_port: u16, to: u16, every: Duration, stop: Arc<AtomicBool>) {
     let u = UdpSocket::bind("127.0.0.1:0").unwrap();
     std::thread::spawn(move || {
@@ -1210,7 +1206,7 @@ fn mitm_in_the_middle_of_pairing_gets_different_sas() {
     b.shutdown();
 }
 
-/// The relay version of this is `relay_attacker_cannot_inject_or_replay` in tests/relay.rs.
+/// 릴레이판은 tests/relay.rs의 `relay_attacker_cannot_inject_or_replay`임
 #[test]
 fn lan_proxy_attacker_cannot_inject_or_replay() {
     let stop = Arc::new(AtomicBool::new(false));
@@ -1266,8 +1262,7 @@ fn lan_proxy_attacker_cannot_inject_or_replay() {
 
 // ---- the inviter's side of commit -> random -> reveal ----
 
-/// Net "aaaa" invites a raw "bbbb" (reached by a spoofed announcement); returns
-/// it all up to the moment the invite{commit} has arrived.
+/// Net "aaaa"가 (위조한 알림으로 닿은) 날것 "bbbb"를 초대함. invite{commit}이 온 순간까지의 것을 모두 돌려줌
 fn invited_by_a_net() -> (Net, Receiver<NetEvent>, Peer, Vec<u8>, Arc<AtomicBool>) {
     let stop = Arc::new(AtomicBool::new(false));
     let (net, rx) = Net::start(cfg("aaaa", "Ann", key(), 0, free_udp_port(), vec![])).unwrap();
@@ -1388,7 +1383,7 @@ fn a_message_too_big_for_a_frame_is_dropped_and_the_link_stays() {
     p.b.shutdown();
 }
 
-/// Writes `bytes` one per `every` until the peer closes; how long that took.
+/// 상대가 닫을 때까지 `every`마다 한 바이트씩 `bytes`를 씀. 걸린 시간을 돌려줌
 fn dribble(s: &mut TcpStream, bytes: &[u8], every: Duration) -> Option<Duration> {
     let t = Instant::now();
     s.set_read_timeout(Some(every)).unwrap();
@@ -1484,7 +1479,7 @@ fn a_handshake_flood_does_not_keep_a_friend_out() {
     net.shutdown();
 }
 
-/// A fake peer: accepts TCP connections and answers with garbage / silence.
+/// 가짜 상대임: TCP 연결을 받고 쓰레기를 보내거나 침묵함
 fn fake_listener(stop: Arc<AtomicBool>) -> u16 {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     l.set_nonblocking(true).unwrap();
@@ -1621,8 +1616,7 @@ fn announcement_flood_does_not_block_reconnect() {
 
 // ---- round 3: availability, terminal pairing, squatters, backoff ------------------
 
-/// UDP tee: records each announcement's (id → tcp port) and forwards it to
-/// `to`, so tests learn TCP ports while peers still hear each other.
+/// UDP 티임: 알림마다 (id → tcp 포트)를 기록하고 `to`로 넘겨, 상대끼리 계속 들으면서 시험이 TCP 포트를 알게 함
 fn tee(to: u16, stop: Arc<AtomicBool>) -> (u16, Arc<Mutex<std::collections::HashMap<String, u16>>>) {
     let u = UdpSocket::bind("127.0.0.1:0").unwrap();
     u.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
@@ -1645,7 +1639,7 @@ fn tee(to: u16, stop: Arc<AtomicBool>) -> (u16, Arc<Mutex<std::collections::Hash
     (port, ports)
 }
 
-/// TCP connect to 127.0.0.1:`port` from a chosen loopback source address.
+/// 고른 루프백 출처 주소에서 127.0.0.1:`port`로 TCP 연결함
 fn connect_from(src: [u8; 4], port: u16) -> Option<TcpStream> {
     use socket2::{Domain, Socket, Type};
     let s = Socket::new(Domain::IPV4, Type::STREAM, None).ok()?;
@@ -1772,8 +1766,7 @@ fn friend_announcements_processed_under_spoofed_source_flood() {
     b.shutdown();
 }
 
-/// Raw stranger `id` pairs with Net (Net = invitee) up to the SAS stage.
-/// Returns the link and the Invited event.
+/// 날것 낯선 이 `id`가 Net(초대받는 쪽)과 SAS 단계까지 짝지음. 링크와 Invited 이벤트를 돌려줌
 fn raw_pairing(port: u16, rx: &Receiver<NetEvent>, id: &str) -> (Peer, NetEvent) {
     let mut p = raw_connect(port, &key(), id);
     let n = random32();
@@ -2097,13 +2090,12 @@ fn a_rehello_updates_the_peer_version() {
 
 // ---- linked devices (📱 내 다른 컴퓨터) -------------------------------------------
 
-/// An install id in the real format (32 lowercase hex digits), distinct per `n`.
+/// 진짜 형식(소문자 hex 32자리)의 설치 id를 `n`마다 다르게 만듦
 fn hid(n: u8) -> String {
     format!("{n:02x}").repeat(16)
 }
 
-/// Start `c` on an OS-chosen discovery port, "broadcasting" to a sniffer;
-/// returns its TCP port from the announcement.
+/// OS가 고른 찾기 포트로 `c`를 켜고 스니퍼로 "브로드캐스트"하게 함. 알림에서 읽은 TCP 포트를 돌려줌
 fn sniffed(mut c: NetConfig) -> (Net, Receiver<NetEvent>, u16) {
     let sniffer = UdpSocket::bind("127.0.0.1:0").unwrap();
     sniffer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -2114,12 +2106,12 @@ fn sniffed(mut c: NetConfig) -> (Net, Receiver<NetEvent>, u16) {
     (net, rx, sniff_port(&sniffer, &id))
 }
 
-/// Hello from a current (protocol 3) peer that has the receiver pinned.
+/// 받는 쪽을 고정한 지금(프로토콜 3) 상대의 hello를 만듦
 fn v3_hello(id: &str) -> Value {
     json!({"type": "hello", "id": id, "name": "Raw", "v": 3, "friend": true})
 }
 
-/// Every non-ping message `p` receives within `window`.
+/// `window` 안에 `p`가 받은 ping 아닌 메시지를 모두 돌려줌
 fn messages_within(p: &mut Peer, window: Duration) -> Vec<Value> {
     p.s.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
     let deadline = Instant::now() + window;
@@ -2136,10 +2128,8 @@ fn messages_within(p: &mut Peer, window: Duration) -> Vec<Value> {
     out
 }
 
-/// Messages each of `peers` gets within `window`, read one peer after the
-/// other. All of them ping before each read: a raw peer sends nothing on its
-/// own, and one left silent past `conn_timeout` while the others are read is
-/// dropped as dead, which would make the checks on it pass vacuously.
+/// `peers` 각각이 `window` 안에 받은 메시지를 차례로 읽음. 읽기 전마다 모두 ping함: 날것 상대는 스스로 아무것도 안 보내고,
+/// 다른 것을 읽는 동안 `conn_timeout` 넘게 조용하면 죽은 것으로 끊겨 그에 대한 확인이 헛되이 통과하기 때문임
 fn messages_of_each(peers: &mut [(&mut Peer, &str)], window: Duration) -> Vec<(String, Vec<Value>)> {
     let mut out = Vec::new();
     for i in 0..peers.len() {
@@ -2156,7 +2146,7 @@ fn wire(id: &str, key: &[u8; 32]) -> Value {
     json!({"id": id, "key": hex(key)})
 }
 
-/// Messages other than `device_active` (my state, told on each proven device link).
+/// `device_active`(증명된 기기 링크마다 알리는 내 상태) 말고 나머지 메시지를 돌려줌
 fn but_active(msgs: Vec<Value>) -> Vec<Value> {
     msgs.into_iter().filter(|m| m["type"] != "device_active").collect()
 }
@@ -2165,7 +2155,7 @@ fn added(e: &NetEvent) -> bool {
     matches!(e, NetEvent::FriendAdded { .. })
 }
 
-/// Every `FriendAdded` id within `secs`.
+/// `secs` 안의 모든 `FriendAdded` id를 돌려줌
 fn added_ids(rx: &Receiver<NetEvent>, secs: f64) -> Vec<String> {
     let deadline = Instant::now() + Duration::from_secs_f64(secs);
     let mut ids = Vec::new();
@@ -2189,28 +2179,28 @@ const L_CODE_PROOF: &[u8] = b"screenpet-device/1 code proof";
 const L_SECRET: &[u8] = b"screenpet-device/1 secret";
 const L_PROOF: &[u8] = b"screenpet-device/1 proof";
 
-/// K = BLAKE2s(label || the 8 code symbols, upper case, no dash).
+/// K = BLAKE2s(label || 코드 기호 8개, 대문자, 대시 없음)
 fn code_key(code: &str) -> [u8; 32] {
     let c: String = code.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_uppercase()).collect();
     blake2s(&[L_CODE, c.as_bytes()])
 }
 
-/// The proof of whoever typed the code (sent first; the holder answers only if it is right).
+/// 코드를 입력한 쪽의 증명임 (먼저 보냄. 쥔 쪽은 맞을 때만 답함)
 fn enter_proof(k: &[u8; 32], nb: &[u8; 32], na: &[u8; 32], enterer: &[u8; 32], holder: &[u8; 32]) -> [u8; 32] {
     blake2s(&[L_CODE_PROOF, b"enter", k, nb, na, enterer, holder])
 }
 
-/// The code holder's proof, after it checked the enterer's.
+/// 코드를 쥔 쪽의 증명임 (입력한 쪽 것을 확인한 뒤)
 fn hold_proof(k: &[u8; 32], nb: &[u8; 32], na: &[u8; 32], holder: &[u8; 32], enterer: &[u8; 32]) -> [u8; 32] {
     blake2s(&[L_CODE_PROOF, b"hold", k, nb, na, holder, enterer])
 }
 
-/// The long-term secret both store.
+/// 둘 다 저장하는 장기 비밀임
 fn derive_secret(k: &[u8; 32], holder: &[u8; 32], enterer: &[u8; 32], na: &[u8; 32], nb: &[u8; 32]) -> [u8; 32] {
     blake2s(&[L_SECRET, k, holder, enterer, na, nb])
 }
 
-/// Proof of the stored secret on a later link (to the verifier's fresh nonce).
+/// 나중 링크에서 저장된 비밀을 증명함 (확인하는 쪽의 새 nonce에 대해)
 fn secret_proof(s: &[u8; 32], prover: &[u8; 32], verifier: &[u8; 32], n_verifier: &[u8; 32], n_prover: &[u8; 32]) -> [u8; 32] {
     blake2s(&[L_PROOF, s, prover, verifier, n_verifier, n_prover])
 }
@@ -2227,8 +2217,7 @@ fn proven(e: &NetEvent) -> bool {
     matches!(e, NetEvent::DeviceProven { .. })
 }
 
-/// As the raw linked device `p` (private key `mine`): take the net's
-/// `device_nonce`, send ours, check the net's proof, send ours.
+/// 날것 연결 기기 `p`(개인키 `mine`)로서 net의 `device_nonce`를 받고, 우리 것을 보내고, net 증명을 확인하고, 우리 증명을 보냄
 fn prove_as_device(p: &mut Peer, s: &[u8; 32], mine: &[u8; 32]) {
     let theirs = p.recv_msg().unwrap();
     assert_eq!(theirs["type"], "device_nonce", "{theirs}");
@@ -2242,8 +2231,7 @@ fn prove_as_device(p: &mut Peer, s: &[u8; 32], mine: &[u8; 32]) {
     p.send(json!({"type": "device_proof", "proof": hex(&secret_proof(s, &me, &net, &nn, &nm))})).unwrap();
 }
 
-/// As the raw peer `p` (private key `mine`), type `code` that the net is
-/// holding for us. `Ok(secret)` when linked; `Err(the net's answer)` if not.
+/// 날것 상대 `p`(개인키 `mine`)로서 net이 우리용으로 쥔 `code`를 입력함. 연결되면 `Ok(secret)`, 아니면 `Err(net의 답)`
 fn raw_enter(p: &mut Peer, code: &str, mine: &[u8; 32]) -> Result<[u8; 32], Value> {
     let nb = random32();
     p.send(json!({"type": "device_code", "nonce": hex(&nb)})).unwrap();
@@ -2270,7 +2258,7 @@ fn cancelled(e: &NetEvent) -> bool {
     matches!(e, NetEvent::DeviceLinkCancelled { .. })
 }
 
-/// The code matched with raw peer `p` (friend `id` of `net`): both sides press 확인.
+/// 날것 상대 `p`(`net`의 친구 `id`)와 코드가 맞음: 양쪽이 확인을 누름
 fn confirm_both(net: &Net, rx: &Receiver<NetEvent>, p: &mut Peer, id: &str) {
     assert_eq!(wait_for(rx, 5.0, confirm_ask), Some(NetEvent::DeviceConfirm { id: id.into() }));
     p.send(json!({"type": "device_confirm"})).unwrap();
@@ -2403,7 +2391,7 @@ fn device_friends_are_accepted_only_from_a_proven_device_and_only_add() {
     net.shutdown();
 }
 
-/// A net linked to raw device "zzzz" that proved its secret on this link.
+/// 이 링크에서 비밀을 증명한 날것 기기 "zzzz"와 연결된 net을 만듦
 fn proven_device() -> (Net, Receiver<NetEvent>, Peer) {
     let (kz, s) = (key(), random32());
     let mut c = cfg(&hid(1), "Me", key(), 0, 0, vec![friend("zzzz", &kz)]);
@@ -2657,7 +2645,7 @@ fn unfriending_my_other_computer_unlinks_both() {
 }
 // ---- linked devices: introductions cannot squat someone's id -----------------
 
-/// Announce `id` once on `net`'s discovery port (as a stranger on the LAN).
+/// `net`의 찾기 포트로 `id`를 한 번 알림 (LAN의 낯선 이로서)
 fn announce_to(net: &Net, id: &str) {
     let u = UdpSocket::bind("127.0.0.1:0").unwrap();
     let msg = json!({"app": "screenpet", "v": 3, "id": id, "name": "S", "port": 1}).to_string();
@@ -2864,7 +2852,7 @@ fn failed_ev(e: &NetEvent) -> bool {
     matches!(e, NetEvent::DeviceLinkFailed { .. })
 }
 
-/// Everything in `msgs` as one string, to look for leaks.
+/// `msgs` 전체를 문자열 하나로 만듦 (새는 것 찾기용)
 fn all_text(msgs: &[Value]) -> String {
     msgs.iter().map(Value::to_string).collect::<Vec<_>>().join("\n").to_uppercase()
 }
@@ -3036,7 +3024,7 @@ fn a_peer_with_a_wrong_secret_gets_no_friend_list_and_both_are_unlinked() {
     net.shutdown();
 }
 
-/// Like `prove_as_device`, but with a secret that is not the net's.
+/// `prove_as_device`와 같되 net 것이 아닌 비밀로 함
 fn prove_as_device_badly(p: &mut Peer, mine: &[u8; 32]) {
     let theirs = p.recv_msg().unwrap();
     assert_eq!(theirs["type"], "device_nonce");
@@ -3139,7 +3127,7 @@ fn a_code_made_before_another_link_cannot_add_a_third_computer() {
 
 // ---- linked devices: "본인의 PC가 맞습니까?" on both computers before anything is shared --
 
-/// Two real nets that are friends: A (friend F too) and B. Returns them with A's code entered on B.
+/// 친구인 진짜 net 둘: A(F와도 친구)와 B. B에 A의 코드를 입력한 상태로 돌려줌
 fn two_ready_to_confirm() -> (Net, Receiver<NetEvent>, Net, Receiver<NetEvent>, NetConfig, NetConfig, [String; 3]) {
     let (pa, pb) = (free_udp_port(), free_udp_port());
     let (ka, kb, kf) = (key(), key(), key());
@@ -3153,7 +3141,7 @@ fn two_ready_to_confirm() -> (Net, Receiver<NetEvent>, Net, Receiver<NetEvent>, 
     (a, arx, b, brx, ca, cb, [a_id, b_id, f_id])
 }
 
-/// A shows a code, B types it: both are asked to confirm.
+/// A가 코드를 보이고 B가 입력함: 둘 다 확인 질문을 받음
 fn match_code(a: &Net, arx: &Receiver<NetEvent>, b: &Net, brx: &Receiver<NetEvent>, a_id: &str, b_id: &str) {
     let code = a.new_link_code(b_id).unwrap();
     assert_eq!(b.enter_link_code(a_id, &code), Ok(()));
@@ -3289,7 +3277,7 @@ fn standby_ev(e: &NetEvent) -> bool {
     matches!(e, NetEvent::Standby { .. })
 }
 
-/// Wait until `net.standby()` is `want` (polling; events may have been read elsewhere).
+/// `net.standby()`가 `want`가 될 때까지 기다림 (폴링. 이벤트는 다른 데서 읽었을 수 있음)
 fn standby_becomes(net: &Net, want: bool, secs: f64) -> bool {
     let deadline = Instant::now() + Duration::from_secs_f64(secs);
     while Instant::now() < deadline {
@@ -3301,7 +3289,7 @@ fn standby_becomes(net: &Net, want: bool, secs: f64) -> bool {
     net.standby() == want
 }
 
-/// Like `standby_becomes`, keeping raw peer `p` alive meanwhile (a raw peer sends no pings by itself).
+/// `standby_becomes`와 같되 그동안 날것 상대 `p`를 살려 둠 (날것 상대는 스스로 ping을 안 보냄)
 fn standby_becomes_p(net: &Net, want: bool, secs: f64, p: &mut Peer) -> bool {
     let deadline = Instant::now() + Duration::from_secs_f64(secs);
     loop {
@@ -3313,7 +3301,7 @@ fn standby_becomes_p(net: &Net, want: bool, secs: f64, p: &mut Peer) -> bool {
     }
 }
 
-/// Wait for an event, keeping raw peer `p` alive meanwhile.
+/// 날것 상대 `p`를 살려 두며 이벤트를 기다림
 fn wait_p(rx: &Receiver<NetEvent>, secs: f64, p: &mut Peer, pred: impl Fn(&NetEvent) -> bool) -> Option<NetEvent> {
     let deadline = Instant::now() + Duration::from_secs_f64(secs);
     while Instant::now() < deadline {
@@ -3325,7 +3313,7 @@ fn wait_p(rx: &Receiver<NetEvent>, secs: f64, p: &mut Peer, pred: impl Fn(&NetEv
     None
 }
 
-/// As raw device `p`: my state, once per link (you play, I was used just now).
+/// 날것 기기 `p`로서 링크당 한 번 내 상태를 알림 (네가 놀고, 나는 방금 쓰였음)
 fn raw_sync(p: &mut Peer) {
     p.send(json!({"type": "device_active", "term": 0, "you": true, "idle": 0})).unwrap();
 }
@@ -3338,8 +3326,7 @@ fn disconnected_from(rx: &Receiver<NetEvent>, secs: f64, id: &str) -> bool {
     wait_for(rx, secs, |e| matches!(e, NetEvent::Disconnected { id: i } if i == id)).is_some()
 }
 
-/// A raw proven device "zzzz" claims the play: the net goes standby, tells the
-/// app, and from then on lets no other friend in (closed before any hello).
+/// 날것 증명 기기 "zzzz"가 놀기를 차지함: net은 대기로 가서 앱에 알리고, 그 뒤 다른 친구는 hello 전에 닫음
 #[test]
 fn a_claim_from_my_other_computer_puts_this_one_on_standby_and_keeps_friends_out() {
     let ky = key();
@@ -3473,7 +3460,7 @@ fn device_claim_floods_are_rate_limited_and_keep_the_link() {
     net.shutdown();
 }
 
-/// My computers A and B (linked) and friend F, all real Nets on one machine.
+/// 내 컴퓨터 A와 B(연결됨), 친구 F. 모두 한 기계의 진짜 Net임
 struct Three {
     a: Net,
     arx: Receiver<NetEvent>,
@@ -3607,7 +3594,7 @@ fn state_ev(e: &NetEvent) -> bool {
     matches!(e, NetEvent::DeviceState { .. })
 }
 
-/// The `DeviceState` event's (pet, care), if `e` is one from `from`.
+/// `e`가 `from`의 `DeviceState`면 (펫, 돌봄)을 돌려줌
 fn state_of(e: &NetEvent, from: &str) -> Option<(Option<String>, Vec<WireCare>)> {
     match e {
         NetEvent::DeviceState { from: f, pet, care } if f == from => Some((pet.clone(), care.clone())),
@@ -3615,12 +3602,12 @@ fn state_of(e: &NetEvent, from: &str) -> Option<(Option<String>, Vec<WireCare>)>
     }
 }
 
-/// Wait until `rx` brings my other computer `from`'s state equal to (`pet`, `care`).
+/// `rx`가 내 다른 컴퓨터 `from`의 상태 (`pet`, `care`)를 가져올 때까지 기다림
 fn gets_state(rx: &Receiver<NetEvent>, secs: f64, from: &str, pet: &str, care: &[WireCare]) -> bool {
     wait_for(rx, secs, |e| state_of(e, from).is_some_and(|(p, c)| p.as_deref() == Some(pet) && c == care)).is_some()
 }
 
-/// My two linked computers A and B (real Nets), no friends besides each other.
+/// 서로 말고는 친구 없는 내 연결된 두 컴퓨터 A와 B (진짜 Net)
 struct Two {
     a: Net,
     arx: Receiver<NetEvent>,
@@ -3646,7 +3633,7 @@ fn two(a_idle: u64, b_idle: u64, before: impl Fn(&Net, &Net)) -> Two {
     Two { a, arx, b, brx, ids: [a_id, b_id] }
 }
 
-/// Wait until A plays and B is on standby, and both know it.
+/// A가 놀고 B가 대기이며 둘 다 그걸 알 때까지 기다림
 fn a_plays(t: &Two) {
     let deadline = Instant::now() + Duration::from_secs(8);
     while !(t.b.standby() && !t.a.standby() && t.a.device_standby()) && Instant::now() < deadline {

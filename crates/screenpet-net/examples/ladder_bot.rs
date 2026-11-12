@@ -1,20 +1,20 @@
-//! QA용 헤드리스 사다리 참가자 (spec 2026-11-04 §7). 앱은 한 PC에 하나만 뜨므로(single-instance) 이 봇 여러 개로
-//! 3~10명 판을 시험한다.
+//! QA용 헤드리스 사다리 참가자임 (spec 2026-11-04 §7). 앱은 한 PC에 하나만 뜨므로(single-instance) 이 봇 여러 개로
+//! 3~10명 판을 시험함.
 //!
 //! ```sh
 //! cargo run -p screenpet-net --example ladder_bot -- --dir /tmp/bot1 --name 봇1
 //! cargo run -p screenpet-net --example ladder_bot -- --dir /tmp/bot2 --name 봇2 --relay   # 친구 코드로
 //! ```
 //!
-//! - 상태 폴더(`--dir`)에 id·키·친구를 저장한다 — 다시 켜도 같은 친구.
-//! - 발견 포트는 아무 포트(0)를 열고 공지만 47321로 보낸다: 같은 PC의 앱이 봇을 보고 친구 신청을 걸 수 있다
-//!   (앱이 47321을 쥐고 있어 봇이 그 포트를 열 수 없다). 다른 PC의 앱도 같은 네트워크면 본다.
-//! - 친구 신청은 SAS 이모지를 찍고 자동으로 확인한다. 사다리 초대는 자동으로 참가한다.
+//! - 상태 폴더(`--dir`)에 id·키·친구를 저장함: 다시 켜도 같은 친구.
+//! - 발견 포트는 아무 포트(0)를 열고 공지만 47321로 보냄: 같은 PC의 앱이 봇을 보고 친구 신청을 걸 수 있음
+//!   (앱이 47321을 쥐고 있어 봇이 그 포트를 열 수 없음). 다른 PC의 앱도 같은 네트워크면 봄.
+//! - 친구 신청은 SAS 이모지를 찍고 자동으로 확인함. 사다리 초대는 자동으로 참가함.
 //! - `--decline` 거절, `--busy` 바쁨 거절, `--drop-after-lock` 잠그기를 받으면 공개하지 않고 바로 꺼짐 (끊김 흉내).
-//! - 끝나면 시드·지문 이모지·결과 표를 찍는다 (앱 화면과 맞춰 본다).
+//! - 끝나면 시드·지문 이모지·결과 표를 찍음 (앱 화면과 맞춰 봄).
 //! - **봇이 방장**: 콘솔에 `i` + Enter → 연결된 친구 모두에게 초대 (당첨 1 + 꽝), 모두 답하면 저절로 시작.
 //!   `i 2` = 당첨 2개, `s` = 지금 온 사람만으로 시작, `q` = 그만두기, `f` = 친구 목록, `c` = 내 친구 코드.
-//! - **봇끼리 친구**: 둘 다 `--relay`로 켜고 한쪽 콘솔에 `a <다른 봇의 친구 코드>` (예: `a Z6ES-676D`) — 양쪽 다 자동 확인.
+//! - **봇끼리 친구**: 둘 다 `--relay`로 켜고 한쪽 콘솔에 `a <다른 봇의 친구 코드>` (예: `a Z6ES-676D`): 양쪽 다 자동 확인.
 
 use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
@@ -27,6 +27,7 @@ use screenpet_net::ladder::{DeclineReason, GuestGame, HostGame, LockedResult, Ph
 use screenpet_net::{hex32, new_install_id, normalize_code, parse_relay_key, to_hex, Friend, LadderMsg, Net, NetConfig, NetEvent, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, SAS_EMOJI};
 use serde::{Deserialize, Serialize};
 
+/// 명령줄 옵션임
 #[derive(Default)]
 struct Args {
     dir: Option<PathBuf>,
@@ -38,6 +39,7 @@ struct Args {
     drop_after_lock: bool,
 }
 
+/// 명령줄을 읽음 (모르는 옵션은 무시)
 fn args() -> Args {
     let mut a = Args { name: "봇".into(), pet: "cat".into(), ..Default::default() };
     let mut it = std::env::args().skip(1);
@@ -63,6 +65,7 @@ fn args() -> Args {
     a
 }
 
+/// 상태 폴더의 `bot.json` 내용임: id, 비밀키(hex), 친구 (id, 공개키 hex)
 #[derive(Serialize, Deserialize)]
 struct State {
     id: String,
@@ -70,33 +73,38 @@ struct State {
     friends: Vec<(String, String)>,
 }
 
+/// 저장된 비밀키를 읽음. 깨졌으면 None임
 fn key_of(st: &State) -> Option<[u8; 32]> {
     hex32(&st.key)
 }
 
-/// bot.json에는 비밀키가 들어 있다 — 남이 못 읽게 잠근다 (Windows는 폴더의 ACL을 따른다)
+/// `bot.json`에는 비밀키가 들어 있음: 남이 못 읽게 잠금 (Windows는 폴더의 ACL을 따름)
 #[cfg(unix)]
 fn lock_state(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
 }
 
+/// Unix 밖에서는 아무것도 안 함 (폴더 ACL을 따름)
 #[cfg(not(unix))]
 fn lock_state(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// 주인만 읽을 수 있게 상태 파일을 만듦
 #[cfg(unix)]
 fn open_state(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)
 }
 
+/// 상태 파일을 만듦
 #[cfg(not(unix))]
 fn open_state(path: &Path) -> std::io::Result<std::fs::File> {
     std::fs::File::create(path)
 }
 
+/// 상태를 읽음. 없으면 새 id·키로 만들어 저장함
 fn load(dir: &Path) -> State {
     let path = dir.join("bot.json");
     if let Some(st) = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
@@ -109,6 +117,7 @@ fn load(dir: &Path) -> State {
     st
 }
 
+/// 상태를 저장함
 fn save(dir: &Path, st: &State) {
     use std::io::Write;
     let path = dir.join("bot.json");
@@ -120,16 +129,19 @@ fn save(dir: &Path, st: &State) {
     f.write_all(&serde_json::to_vec_pretty(st).expect("json")).expect("write state");
 }
 
+/// 방장 메시지들을 각 친구에게 보냄
 fn send_all(net: &Net, out: Vec<(String, LadderMsg)>) {
     for (to, m) in out {
         net.send_ladder(&to, m);
     }
 }
 
+/// 지문 비트를 이모지 넷으로 바꿈
 fn emoji(print: u32) -> String {
     print_indices(print).iter().map(|&i| SAS_EMOJI[i]).collect::<Vec<_>>().join("")
 }
 
+/// 봇 본체임: 네트워크를 띄우고 친구 신청·사다리 메시지에 자동으로 답하며 콘솔 명령을 받음
 fn main() {
     let a = args();
     let dir = a.dir.clone().expect("checked");
@@ -357,13 +369,14 @@ fn main() {
     }
 }
 
-/// 당첨 w개 + 꽝 나머지 (당첨은 인원을 넘지 않는다)
+/// 당첨 w개 + 꽝 나머지 결과 칸을 만듦 (당첨은 인원을 넘지 않음)
 fn preset(count: usize, winners: usize) -> Vec<LockedResult> {
     (0..count)
         .map(|i| if i < winners.min(count) { LockedResult { text: "당첨".into(), mood: "good".into() } } else { LockedResult { text: "꽝".into(), mood: "bad".into() } })
         .collect()
 }
 
+/// 게임 단계를 콘솔에 찍음
 fn report(phase: &Phase) {
     match phase {
         Phase::Done(o) => {
@@ -387,10 +400,12 @@ fn report(phase: &Phase) {
     }
 }
 
+/// 상태 파일 권한과 깨진 키 처리 시험임
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// 시험용 빈 임시 폴더를 만듦
     fn temp_dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("screenpet-bot-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);

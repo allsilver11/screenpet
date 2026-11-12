@@ -1,40 +1,38 @@
-//! Wire formats: the UDP discovery announcement and the JSON messages carried
-//! (encrypted) inside Noise transport messages, each tagged by a `type` field.
+//! 와이어 형식임: UDP 찾기 알림과, Noise 전송 메시지 안에 (암호화돼) 실리는 JSON 메시지들.
+//! 메시지마다 `type` 필드로 꼬리표를 닮. 최상위는 [`Message`] (`Control`·`Visit`·`LadderMsg`).
+//! peers·devices·ladder가 만들고 읽으며, 앱은 `NetEvent::Received`로 `Visit`·`LadderMsg`를 받음.
 
 use serde::{Deserialize, Serialize};
 
-/// Protocol version carried in announcements and `hello`. 2 = knows the
-/// `ladder_*` messages (v0.5.0). 3 = knows `device_friends`, `my_devices` and
-/// the `device_*` code-linking messages (linked devices, v0.5.3). 4 = takes
-/// an object a visiting pet carries (`Visit::carry`, v0.6.2). Older versions close a link on any message `type`
-/// they do not know, so features with new message types check the peer's
-/// version first (`Net::peer_version`).
+/// 알림과 `hello`에 싣는 프로토콜 버전임. 2 = `ladder_*` 메시지를 앎 (v0.5.0).
+/// 3 = `device_friends`, `my_devices`, `device_*` 코드 연결 메시지를 앎 (연결된 기기, v0.5.3).
+/// 4 = 놀러 가는 펫이 든 물건(`Visit::carry`)을 받음 (v0.6.2). 옛 버전은 모르는 `type`이 오면
+/// 링크를 닫으므로, 새 메시지 종류를 쓰는 기능은 상대 버전부터 확인함 (`Net::peer_version`)
 pub const PROTOCOL_VERSION: u32 = 4;
-/// Lowest peer version that may be sent `LadderMsg`s.
+/// `LadderMsg`를 보내도 되는 가장 낮은 상대 버전
 pub const LADDER_MIN_VERSION: u32 = 2;
-/// Lowest peer version that may be sent `device_friends`, `my_devices` and `device_*`.
+/// `device_friends`, `my_devices`, `device_*`를 보내도 되는 가장 낮은 상대 버전
 pub const DEVICES_MIN_VERSION: u32 = 3;
-/// Lowest peer version a pet may walk over to carrying an object
-/// (`Visit::carry`): older versions ignore the field, so the object would be
-/// lost on the way.
+/// 물건을 들고 놀러 가도 되는 가장 낮은 상대 버전 (`Visit::carry`).
+/// 옛 버전은 그 필드를 무시해 물건이 가는 길에 사라짐
 pub const CARRY_MIN_VERSION: u32 = 4;
-/// Most devices one friend introduces (`my_devices`), in one message and in
-/// all: a person links at most two computers, so a friend has one other.
+/// 친구 하나가 소개하는 기기 수 상한 (`my_devices`, 메시지 하나와 전체 모두).
+/// 한 사람은 컴퓨터를 둘까지만 연결하므로 친구에게 다른 하나뿐임
 pub const MAX_DEVICES: usize = 1;
-/// App tag carried in announcements so unrelated UDP traffic is ignored.
+/// 알림에 싣는 앱 꼬리표임. 관계없는 UDP 트래픽을 무시하려고 씀
 pub const APP_TAG: &str = "screenpet";
-/// Largest frame on a link (a Noise message is at most 65535 bytes), relay channels included.
+/// 링크의 가장 큰 프레임 (Noise 메시지는 최대 65535바이트), 릴레이 채널 포함
 pub use screenpet_proto::MAX_FRAME;
-/// Largest JSON message (Noise frame minus the 16-byte AEAD tag).
+/// 가장 큰 JSON 메시지 (Noise 프레임에서 AEAD 태그 16바이트를 뺀 것)
 pub const MAX_MESSAGE: usize = MAX_FRAME - 16;
-/// Longest accepted install id (bytes), same as the relay's.
+/// 받아 주는 가장 긴 설치 id (바이트), 릴레이와 같음
 pub use screenpet_proto::MAX_ID;
-/// Display names and pet labels are clamped to this many characters.
+/// 표시 이름과 펫 라벨은 이 글자 수로 자름
 pub const MAX_NAME: usize = 64;
-/// Most friends one install keeps; pairing is refused (both directions) once full.
+/// 설치 하나가 두는 친구 수 상한. 차면 짝짓기를 (양방향) 거절함
 pub use screenpet_proto::MAX_FRIENDS;
 
-/// Which screen edge a visiting pet walks in from.
+/// 놀러 온 펫이 걸어 들어오는 화면 가장자리임
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Side {
@@ -42,9 +40,8 @@ pub enum Side {
     Right,
 }
 
-/// The top or bottom screen edge (friends above / below, v0.3.6). Sent as an
-/// optional `vside` next to a `Side` that older versions understand (they
-/// see a plain left/right entry); when present it wins.
+/// 위·아래 화면 가장자리임 (위·아래 친구, v0.3.6). 옛 버전이 아는 `Side` 옆에 선택 필드 `vside`로 보냄
+/// (옛 버전은 그냥 왼쪽·오른쪽으로 봄). 있으면 이것이 이김
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VSide {
@@ -52,113 +49,112 @@ pub enum VSide {
     Down,
 }
 
-/// A required `enter_side`; an unknown value (a newer edge) reads as `left`
-/// instead of dropping the whole message.
+/// 꼭 있는 `enter_side`를 읽음. 모르는 값(더 새 가장자리)은 메시지를 버리지 않고 `left`로 읽음
 fn lenient_side<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Side, D::Error> {
     let v = serde_json::Value::deserialize(d)?;
     Ok(serde_json::from_value(v).unwrap_or(Side::Left))
 }
 
-/// Any optional field: a value that doesn't fit is dropped, never the whole
-/// message (a newer or older peer may send something else there).
+/// 선택 필드를 너그럽게 읽음: 안 맞는 값은 그 필드만 버리고 메시지 전체는 안 버림
+/// (더 새거나 옛 상대가 다른 것을 보낼 수 있음)
 fn lenient<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>>(d: D) -> Result<Option<T>, D::Error> {
     let v = Option::<serde_json::Value>::deserialize(d)?;
     Ok(v.and_then(|v| serde_json::from_value(v).ok()))
 }
 
-/// A pet thrown across the screen edge (like a second monitor): feet height
-/// as a fraction of the work-area height (0 top … 1 bottom) and velocity in
-/// logical px/s. The receiver sanitizes it; older versions ignore it and
-/// walk the pet in as usual.
+/// 화면 가장자리 너머로 던진 펫임 (두 번째 모니터처럼): 발 높이는 작업 영역 높이의 비율
+/// (0 위 … 1 아래), 속도는 논리 px/s. 받는 쪽이 다듬고, 옛 버전은 무시하고 평소처럼 걸어 들어옴
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Fling {
+    /// 발 높이 비율 (0 위 … 1 아래)
     pub height: f64,
+    /// 가로 속도 (px/s)
     pub vx: f64,
+    /// 세로 속도 (px/s)
     pub vy: f64,
 }
 
-/// Longest note (characters) a visiting pet carries; the receiver sanitizes
-/// and clamps again.
+/// 놀러 가는 펫이 드는 쪽지의 최대 글자 수. 받는 쪽이 다시 다듬고 자름
 pub const MAX_NOTE: usize = 80;
 
-/// The owner of a pet visiting the receiver steers it (control mode): `on` =
-/// control mode is on, `keys` = held keys as bits (left 1, right 2, up 4,
-/// down 8, jump 16, run 32; unknown bits ignored). Carried in a ping so older
-/// versions ignore it. Sent on change plus a 5 Hz keepalive while keys are
-/// held; the receiver applies it only to that friend's own guest with
-/// `visit_id` and releases the keys when updates stop.
+/// 받는 쪽에 놀러 간 펫을 주인이 조종함 (조종 모드): `on` = 조종 모드 켬, `keys` = 누른 키 비트
+/// (왼 1, 오른 2, 위 4, 아래 8, 점프 16, 달리기 32. 모르는 비트는 무시). ping에 실어 옛 버전은 무시함.
+/// 바뀔 때와 키를 누르는 동안 5 Hz로 보냄. 받는 쪽은 `visit_id`인 그 친구의 손님에게만 적용하고
+/// 갱신이 끊기면 키를 놓음
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Steer {
+    /// 조종하는 방문 id
     pub visit_id: u64,
+    /// 조종 모드 켬
     #[serde(default)]
     pub on: bool,
+    /// 누른 키 비트
     #[serde(default)]
     pub keys: u8,
 }
 
-/// A thrown object (trash toy) flying over to the receiver's screen. Objects
-/// have no owner and never go home: the sender forgets it, the receiver keeps
-/// it as one of its objects. Carried in a ping so older versions ignore it
-/// (the object is simply lost there; the link stays). `kind`, `fling` and
-/// `note` are checked by the receiver's app. `side` = the receiver's edge it
-/// flies in through (`vside` wins when present, like `Visit::enter_side`).
+/// 받는 쪽 화면으로 날아가는 던진 물건(쓰레기 장난감)임. 물건은 주인이 없고 집에 안 감:
+/// 보낸 쪽은 잊고 받은 쪽이 자기 물건으로 가짐. ping에 실어 옛 버전은 무시함(물건만 사라지고 링크는 그대로).
+/// `kind`, `fling`, `note`는 받는 앱이 검사함. `side` = 날아 들어오는 받는 쪽 가장자리
+/// (`Visit::enter_side`처럼 `vside`가 있으면 그것이 이김)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Toss {
+    /// 물건 종류
     pub kind: String,
+    /// 들어오는 왼쪽·오른쪽 가장자리
     #[serde(default = "left_side", deserialize_with = "lenient_side")]
     pub side: Side,
+    /// 위·아래 가장자리 (있으면 이김)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub vside: Option<VSide>,
+    /// 날아가는 움직임
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub fling: Option<Fling>,
-    /// The post-it stuck on the object.
+    /// 물건에 붙인 포스트잇
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub note: Option<String>,
-    /// The receiver refused it (focusing or in the house) and threw it back to
-    /// the sender. Never bounced again; older versions ignore the flag.
+    /// 받는 쪽이 거절해(집중 중이거나 집 안) 보낸 쪽에 되던졌음. 다시는 안 튕김. 옛 버전은 무시함
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bounced: bool,
-    /// How big the thing is drawn (a poop goes with the pet's size). The
-    /// receiver limits it; older versions ignore it.
+    /// 그리는 크기 (똥은 펫 크기를 따라감). 받는 쪽이 제한하고 옛 버전은 무시함
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub scale: Option<f64>,
-    /// A coloured poop ("pink", "rainbow") or a giant stone or poop
-    /// ("giant"), sent as kind "poop" / "stone" so older versions get a plain
-    /// one. The receiver's app checks the name.
+    /// 색 똥("pink", "rainbow")이나 거대한 돌·똥("giant")임. kind "poop"·"stone"으로 보내
+    /// 옛 버전은 보통 것을 받음. 받는 앱이 이름을 검사함
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub look: Option<String>,
-    /// ⚾ Catch-ball: how many times the ball has gone back and forth between
-    /// friends. The receiver's 흐물이 lobs it back with one more, up to
-    /// `MAX_RALLY`. Clamped on receive; older versions ignore it.
+    /// ⚾ 캐치볼: 공이 친구 사이를 오간 횟수임. 받는 쪽 흐물이가 하나 더해 `MAX_RALLY`까지 되던짐.
+    /// 받을 때 자르고 옛 버전은 무시함
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_rally")]
     pub rally: Option<u32>,
 }
 
-/// ⚾ Longest catch-ball rally; a received count above it reads as this (core uses the same).
+/// ⚾ 가장 긴 캐치볼 랠리. 받은 수가 넘으면 이 값으로 읽음 (코어도 같은 값을 씀)
 pub use screenpet_proto::MAX_RALLY;
 
-/// A rally count: a whole number ≥ 0, clamped to `MAX_RALLY`; anything else is dropped.
+/// 랠리 수를 읽음: 0 이상 정수면 `MAX_RALLY`로 자르고, 그 밖은 버림
 fn lenient_rally<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {
     let v = Option::<serde_json::Value>::deserialize(d)?;
     Ok(v.and_then(|v| v.as_u64()).map(|n| n.min(MAX_RALLY as u64) as u32))
 }
 
-/// 🤹 An object (trash toy or poop) a visiting pet carries above its head and
-/// drops on the receiver's screen (`Visit::carry`), or brings back home when
-/// it could not get in (`Visit::Leave::carry`). Same names as `Toss` (`kind`,
-/// `look`, `scale`); the receiver's app checks them and drops what it does not
-/// know. Only sent to `CARRY_MIN_VERSION` peers.
+/// 🤹 놀러 가는 펫이 머리 위에 들고 가 받는 쪽 화면에 떨어뜨리는 물건(쓰레기 장난감이나 똥)임 (`Visit::carry`).
+/// 못 들어가면 집으로 도로 가져옴 (`Visit::Leave::carry`). 이름은 `Toss`와 같고(`kind`, `look`, `scale`)
+/// 받는 앱이 검사해 모르는 것은 버림. `CARRY_MIN_VERSION` 상대에게만 보냄
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Carry {
+    /// 물건 종류
     pub kind: String,
+    /// 생김새 (색 똥, 거대 등)
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub look: Option<String>,
+    /// 그리는 크기
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub scale: Option<f64>,
 }
 
-/// A list whose malformed entries are skipped (never the whole message);
-/// anything but an array reads as empty. At most 256 entries are kept.
+/// 잘못된 항목은 건너뛰는 목록을 읽음 (메시지 전체는 안 버림).
+/// 배열이 아니면 빈 목록이고 최대 256개만 남김
 fn lenient_list<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<T>, D::Error> {
     let v = serde_json::Value::deserialize(d)?;
     let items = match v {
@@ -168,57 +164,70 @@ fn lenient_list<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>
     Ok(items.into_iter().take(256).filter_map(|v| serde_json::from_value(v).ok()).collect())
 }
 
-/// A string that may be missing or something else (read as empty).
+/// bool을 너그럽게 읽음: 없거나 다른 것이면 false임
 fn lenient_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
     let v = serde_json::Value::deserialize(d)?;
     Ok(v.as_bool().unwrap_or(false))
 }
 
+/// 문자열을 너그럽게 읽음: 없거나 다른 것이면 빈 문자열임
 fn lenient_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     let v = serde_json::Value::deserialize(d)?;
     Ok(v.as_str().map(str::to_string).unwrap_or_default())
 }
 
-/// One of my friends, as shared with my other computer (`device_friends`).
-/// `key` = the friend's static public key (64 hex digits). `name` and `side`
-/// are only first values for the receiver's list (it checks them).
+/// 내 다른 컴퓨터와 나누는 내 친구 하나임 (`device_friends`).
+/// `key` = 친구 정적 공개키 (hex 64자리). `name`과 `side`는 받는 쪽 목록의 첫값일 뿐임 (받는 쪽이 검사함)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WireFriend {
+    /// 친구 설치 id
     pub id: String,
+    /// 친구 정적 공개키 (hex)
     pub key: String,
+    /// 표시 이름
     #[serde(default, deserialize_with = "lenient_string")]
     pub name: String,
+    /// 친구가 있는 화면 가장자리
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub side: Option<String>,
 }
 
-/// 📱 One pet's care as my two computers share it (`device_state`): the
-/// receiver checks the shape (`devices::clean_state`), the app the values.
+/// 📱 두 컴퓨터가 나누는 펫 하나의 돌봄임 (`device_state`).
+/// 받는 쪽은 모양을(`devices::clean_state`), 앱은 값을 검사함
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WireCare {
+    /// 펫 id
     pub pet: String,
+    /// 성장 단계
     pub stage: String,
+    /// 기운
     pub stamina: f64,
+    /// 배부름
     pub fullness: f64,
+    /// 성장 멈춤
     #[serde(default, deserialize_with = "lenient_bool")]
     pub locked: bool,
 }
 
-/// One of my other computers, as introduced to a friend (`my_devices`).
+/// 친구에게 소개하는 내 다른 컴퓨터 하나임 (`my_devices`)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WireDevice {
+    /// 그 컴퓨터의 설치 id
     pub id: String,
+    /// 그 컴퓨터의 정적 공개키 (hex)
     pub key: String,
 }
 
+/// `side` 기본값임: 왼쪽
 fn left_side() -> Side {
     Side::Left
 }
 
-/// Messages about visiting pets, delivered to the app via `NetEvent::Received`.
+/// 놀러 가는 펫에 관한 메시지임. 앱에는 `NetEvent::Received`로 전해짐
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Visit {
+    /// 펫이 놀러 감
     Visit {
         visit_id: u64,
         species: String,
@@ -228,116 +237,96 @@ pub enum Visit {
         owner: String,
         #[serde(deserialize_with = "lenient_side")]
         enter_side: Side,
-        /// It enters through the receiver's top/bottom edge instead (the
-        /// sender is below/above); `enter_side` then holds a left/right
-        /// fallback for older versions.
+        /// 받는 쪽 위·아래 가장자리로 대신 들어옴 (보낸 쪽이 아래·위에 있음).
+        /// 그때 `enter_side`는 옛 버전용 왼쪽·오른쪽 대체값임
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         vside: Option<VSide>,
-        /// The pet walked over from this friend's screen (owner's friend id);
-        /// the receiver enters it from the edge it links to that friend, if any.
+        /// 이 친구 화면에서 걸어 넘어왔음 (주인의 친구 id). 받는 쪽은 그 친구와 이은 가장자리가 있으면 거기로 들임
         #[serde(default, skip_serializing_if = "Option::is_none")]
         via: Option<String>,
-        /// Seconds left before the pet gets homesick (continues across hops).
+        /// 펫이 집을 그리워하기까지 남은 초 (넘어가도 이어짐)
         #[serde(default, skip_serializing_if = "Option::is_none")]
         homesick_in: Option<f64>,
-        /// The pet was thrown across: it flies in keeping this motion.
+        /// 던져서 넘어왔음: 이 움직임을 이어 날아 들어옴
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         fling: Option<Fling>,
-        /// A short message the owner attached to the pet (shown as a 💌 on the
-        /// receiver's screen). Re-sent unchanged by the owner when the pet roams
-        /// on; older versions ignore it.
+        /// 주인이 펫에 붙인 짧은 쪽지임 (받는 쪽 화면에 💌로 보임).
+        /// 펫이 다른 친구로 넘어가면 주인이 그대로 다시 보냄. 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         note: Option<String>,
-        /// A small gift (catalog id) the pet will leave on the receiver's
-        /// screen. Unknown or foreign ids are dropped by the receiver, which
-        /// also limits how often a friend's gift is accepted; never re-sent
-        /// when the pet roams on; older versions ignore it.
+        /// 펫이 받는 쪽 화면에 두고 갈 작은 선물 (카탈로그 id)임. 모르거나 남의 id는 받는 쪽이 버리고
+        /// 친구 선물을 받는 빈도도 제한함. 넘어갈 때는 다시 안 보냄. 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         gift: Option<String>,
-        /// How the owner shows this pet: "pixel" (absent = round). Purely
-        /// cosmetic; the receiver validates it and shows round when it does not
-        /// know the value or has no such art. Older versions ignore it.
+        /// 주인이 펫을 보이는 방식: "pixel" (없으면 둥근 그림). 꾸미기일 뿐이며
+        /// 받는 쪽이 검사하고 모르거나 그림이 없으면 둥근 그림으로 보임. 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         style: Option<String>,
-        /// 🎨 The owner's body color for an ink-line pet (a color id such as
-        /// "rainbow"; absent = the drawn ink). Purely cosmetic; the receiver
-        /// validates it against the ids it knows and shows the ink otherwise.
-        /// Older versions ignore it.
+        /// 🎨 잉크선 펫의 주인 몸 색 (색 id, 예: "rainbow". 없으면 그린 잉크). 꾸미기일 뿐이며
+        /// 받는 쪽이 아는 id와 대조하고 아니면 잉크로 보임. 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         tint: Option<String>,
-        /// A friend fed this pet and it is temporarily bigger (multiplier). The
-        /// receiver limits it; older versions ignore it.
+        /// 친구가 먹이를 줘 잠깐 커졌음 (배율). 받는 쪽이 제한하고 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         boost: Option<f64>,
-        /// The owner paused this pet's growth: the receiver does not offer
-        /// feeding it bigger. Older versions ignore it.
+        /// 주인이 성장을 멈췄음: 받는 쪽은 크게 먹이기를 내밀지 않음. 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         no_grow: Option<bool>,
-        /// 📱 The pet belongs to the sender's other computer (this install id),
-        /// which may be on standby: the sender carries it (only to
-        /// `DEVICES_MIN_VERSION` peers). The receiver takes it only if it knows
-        /// both ids as one person's computers, and answers through whichever is
-        /// connected.
+        /// 📱 보낸 쪽의 다른 컴퓨터(이 설치 id) 펫임. 그 컴퓨터는 대기 중일 수 있어 보낸 쪽이 대신 데려감
+        /// (`DEVICES_MIN_VERSION` 상대에게만). 받는 쪽은 두 id를 한 사람의 컴퓨터로 알 때만 받고, 연결된 쪽으로 답함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         of: Option<String>,
-        /// 🤹 The pet carries this object over and drops it on the receiver's
-        /// screen (only to `CARRY_MIN_VERSION` peers). A malformed value is
-        /// dropped, never the visit.
+        /// 🤹 펫이 이 물건을 들고 가 받는 쪽 화면에 떨어뜨림 (`CARRY_MIN_VERSION` 상대에게만).
+        /// 잘못된 값은 그 필드만 버리고 방문은 안 버림
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         carry: Option<Carry>,
     },
-    /// The guest left the receiver's friend's screen. `next: None` = it went
-    /// home (also what older versions send). `next: Some(id)` = it walked out
-    /// through the edge linked to friend `id` (through `side`) and wants to
-    /// visit them; the owner forwards a `Visit` there only if `id` is its own
-    /// connected friend, otherwise it brings the pet home.
+    /// 손님이 받는 쪽 친구 화면을 떠남. `next: None` = 집에 감 (옛 버전도 이렇게 보냄).
+    /// `next: Some(id)` = 친구 `id`와 이은 가장자리(`side`)로 나가 그 친구에게 가고 싶음.
+    /// 주인은 `id`가 자기와 연결된 친구일 때만 거기로 `Visit`을 넘기고, 아니면 집으로 데려옴
     Leave {
         visit_id: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         next: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         side: Option<Side>,
-        /// It left through the top/bottom edge instead (`side` then holds a
-        /// left/right fallback for older owners).
+        /// 위·아래 가장자리로 대신 나감 (`side`는 옛 주인용 왼쪽·오른쪽 대체값)
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         vside: Option<VSide>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         homesick_in: Option<f64>,
-        /// The guest was thrown out through that edge (home, or on to `next`).
+        /// 손님이 그 가장자리로 던져져 나감 (집으로, 또는 `next`로)
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         fling: Option<Fling>,
-        /// A reply the host wrote to the owner when sending the pet home (only
-        /// on a homecoming `Leave`, at most once per visit; the owner accepts
-        /// it only for its own away pet on that host's link). Older owners
-        /// ignore it and the pet just comes home.
+        /// 펫을 집에 보내며 호스트가 주인에게 쓴 답장임 (집에 가는 `Leave`에만, 방문당 한 번까지.
+        /// 주인은 그 호스트 링크의 자기 외출 펫에 대해서만 받음). 옛 주인은 무시하고 펫만 돌아옴
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         note: Option<String>,
-        /// The host fed the guest: how much bigger it goes on (the owner limits it).
+        /// 호스트가 손님에게 먹이를 줌: 얼마나 더 커지는지 (주인이 제한함)
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         boost: Option<f64>,
-        /// 🤹 The host sent the pet straight back without letting it in: the
-        /// object it carried (`Visit::carry`) comes home in its hands.
+        /// 🤹 호스트가 들이지 않고 바로 돌려보냄: 들고 간 물건(`Visit::carry`)이 손에 들려 돌아옴
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         carry: Option<Carry>,
     },
+    /// 주인이 펫을 집으로 부름
     ComeHome {
         visit_id: u64,
     },
 }
 
 impl Visit {
-    /// A plain "went home" `Leave` (same wire shape as protocol v1 without roaming).
+    /// 그냥 "집에 감" `Leave`를 만듦 (돌아다니기 없는 프로토콜 v1과 같은 모양)
     pub fn leave(visit_id: u64) -> Visit {
         Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling: None, note: None, boost: None, carry: None }
     }
 }
 
-/// Connection-management messages handled inside the net crate.
+/// net 크레이트 안에서 처리하는 연결 관리 메시지임
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Control {
-    /// First message after the Noise handshake, both directions. `friend` =
-    /// the sender has the receiver's static key pinned as a friend.
+    /// Noise 핸드셰이크 뒤 첫 메시지, 양방향. `friend` = 보낸 쪽이 받는 쪽 정적 키를 친구로 고정했음
     Hello {
         id: String,
         name: String,
@@ -345,91 +334,77 @@ pub enum Control {
         #[serde(default)]
         friend: bool,
     },
-    /// Pairing request (only on a link the inviter dialed). `commit` =
-    /// hex BLAKE2s(nonce_i) for the inviter's secret 32-byte random nonce_i.
+    /// 짝짓기 요청 (초대자가 다이얼한 링크에서만). `commit` = 초대자의 비밀 32바이트 난수 nonce_i의 hex BLAKE2s(nonce_i)
     Invite { pet: String, commit: String },
-    /// Invitee's 32-byte random r_r (hex), sent after seeing only the commit.
+    /// 초대받은 쪽의 32바이트 난수 r_r (hex). 커밋만 본 뒤 보냄
     PairRandom { random: String },
-    /// Inviter reveals nonce_i (hex); the invitee checks it against `commit`.
-    /// SAS = first 36 bits of BLAKE2s(handshake_hash || nonce_i || r_r).
+    /// 초대자가 nonce_i(hex)를 밝힘. 초대받은 쪽이 `commit`과 대조함.
+    /// SAS = BLAKE2s(handshake_hash || nonce_i || r_r)의 앞 36비트
     PairReveal { nonce: String },
-    /// Each side's SAS confirmation (or refusal) for the pairing on this link.
+    /// 이 링크 짝짓기에 대한 각자의 SAS 확인(또는 거절)
     InviteReply { accepted: bool },
+    /// 친구를 끊음
     Unfriend,
-    /// Keep-alive. `ask` = an app request to a friend (e.g. "invite": bring
-    /// your pet over, "busy": not now) — older versions parse a ping with an
-    /// extra field as a plain ping and ignore it (also used for `steer` and `toss`).
+    /// 연결 유지임. `ask` = 친구에게 하는 앱 요청 (예: "invite": 펫 데려와, "busy": 지금은 안 됨).
+    /// 옛 버전은 필드가 더 붙은 ping을 그냥 ping으로 읽고 무시함 (`steer`, `toss`에도 씀)
     Ping {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ask: Option<String>,
-        /// Steering for our pet visiting the receiver (control mode).
+        /// 받는 쪽에 놀러 간 우리 펫 조종 (조종 모드)
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         steer: Option<Steer>,
-        /// An object thrown over to the receiver's screen.
+        /// 받는 쪽 화면으로 던진 물건
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         toss: Option<Toss>,
     },
-    /// My friends, sent to my linked computer once it proved our secret on
-    /// this link (only to `DEVICES_MIN_VERSION` peers). The receiver takes it
-    /// only from a link where the proof checked out, and only adds friends it
-    /// does not know. `want` = please send yours back.
+    /// 내 친구들임. 이 링크에서 우리 비밀을 증명한 내 연결된 컴퓨터에 보냄 (`DEVICES_MIN_VERSION` 상대에게만).
+    /// 받는 쪽은 증명이 통과한 링크에서만 받고 모르는 친구만 더함. `want` = 네 것도 보내 달라는 뜻
     DeviceFriends {
         #[serde(default, deserialize_with = "lenient_list")]
         friends: Vec<WireFriend>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         want: bool,
     },
-    /// My other computer (at most `MAX_DEVICES`), introduced to a friend that
-    /// is not one of them (only to `DEVICES_MIN_VERSION` peers). The friend adds
-    /// them as friends that leave together with me.
+    /// 그 컴퓨터가 아닌 친구에게 소개하는 내 다른 컴퓨터 (최대 `MAX_DEVICES`, `DEVICES_MIN_VERSION` 상대에게만).
+    /// 친구는 나와 함께 빠지는 친구로 더함
     MyDevices {
         #[serde(default, deserialize_with = "lenient_list")]
         devices: Vec<WireDevice>,
     },
-    /// 📱 Linking with a code (all `device_*` messages only to
-    /// `DEVICES_MIN_VERSION` peers). The enterer typed the code the receiver
-    /// is showing for it: `nonce` = its fresh 32-byte nonce nb (hex). The code
-    /// itself never goes on the wire.
+    /// 📱 코드로 연결하기 (모든 `device_*` 메시지는 `DEVICES_MIN_VERSION` 상대에게만).
+    /// 입력한 쪽이 받는 쪽이 보여 주는 코드를 입력함: `nonce` = 새 32바이트 nonce nb (hex). 코드 자체는 선에 안 실림
     DeviceCode { nonce: String },
-    /// The code holder's fresh nonce na, only if it holds an unexpired code
-    /// for the sender (`device_no` otherwise).
+    /// 코드를 쥔 쪽의 새 nonce na. 보낸 쪽용 유효한 코드를 쥐었을 때만 보냄 (아니면 `device_no`)
     DeviceCodeNonce { nonce: String },
-    /// The enterer's proof that it knows the code K = BLAKE2s(label || code):
-    /// BLAKE2s(label || "enter" || K || nb || na || enterer key || holder key).
+    /// 입력한 쪽이 코드 K = BLAKE2s(label || code)를 안다는 증명:
+    /// BLAKE2s(label || "enter" || K || nb || na || enterer key || holder key)
     DeviceCodeProof { proof: String },
-    /// The holder checked that proof and now proves the code too (it never
-    /// proves first, so a wrong guess learns nothing):
+    /// 쥔 쪽이 그 증명을 확인하고 이제 자기도 증명함 (먼저 증명하지 않으므로 틀린 추측은 아무것도 못 얻음):
     /// BLAKE2s(label || "hold" || K || nb || na || holder key || enterer key).
-    /// Both then store S = BLAKE2s(label || K || holder key || enterer key || na || nb).
+    /// 그 뒤 둘 다 S = BLAKE2s(label || K || holder key || enterer key || na || nb)를 저장함
     DeviceCodeOk { proof: String },
-    /// The code did not link: `reason` = "wrong" (`left` tries remain),
-    /// "locked" (too many wrong tries: the code is gone), "none" (no code for
-    /// you, expired or used), "taken" (I am linked to another computer).
+    /// 코드로 연결되지 않음: `reason` = "wrong" (`left`번 남음), "locked" (너무 많이 틀려 코드가 사라짐),
+    /// "none" (너용 코드 없음, 만료나 사용됨), "taken" (다른 컴퓨터와 연결됨)
     DeviceNo {
         #[serde(default, deserialize_with = "lenient_string")]
         reason: String,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         left: Option<u32>,
     },
-    /// On every friend link between two linked computers, each sends a fresh
-    /// nonce, and answers the other's with `device_proof` =
-    /// BLAKE2s(label || S || prover key || verifier key || verifier nonce ||
-    /// prover nonce). Friend lists flow only once that proof checked out.
+    /// 연결된 두 컴퓨터 사이의 친구 링크마다 각자 새 nonce를 보내고, 상대 것에 `device_proof`로 답함 =
+    /// BLAKE2s(label || S || prover key || verifier key || verifier nonce || prover nonce).
+    /// 그 증명이 통과해야 친구 목록이 오감
     DeviceNonce { nonce: String },
+    /// 저장된 비밀 S 증명 (`DeviceNonce` 참고)
     DeviceProof { proof: String },
-    /// Forget our link (the sender unlinked, or holds no secret for us); also
-    /// "cancelled" while confirming a matched code.
+    /// 연결을 잊음 (보낸 쪽이 끊었거나 우리 비밀이 없음). 맞은 코드 확인 중의 "취소"로도 씀
     DeviceUnlink,
-    /// After a matched code, the sender's user pressed 확인 ("본인의 PC가
-    /// 맞습니까?"). Only once both sent it does the link count.
+    /// 코드가 맞은 뒤 보낸 쪽 사용자가 확인("본인의 PC가 맞습니까?")을 누름. 둘 다 보내야 연결로 침
     DeviceConfirm,
-    /// 📱 Which of my two linked computers plays (only on a link where the
-    /// secret was proven both ways, only to `DEVICES_MIN_VERSION` peers; never
-    /// to friends). The one with the highest (`term`, install id) plays; the
-    /// other is on standby (no friend links). `you` = the receiver holds that
-    /// term, else the sender. A claim is the sender's term + 1. `idle` (seconds
-    /// since the sender's user last used it) is only in the first one on each
-    /// proven link: the computer used last then claims.
+    /// 📱 연결된 두 컴퓨터 중 누가 노는지임 (비밀을 양방향으로 증명한 링크에서만, `DEVICES_MIN_VERSION` 상대에게만,
+    /// 친구에게는 절대 안 감). (`term`, 설치 id)가 가장 높은 쪽이 놀고 다른 쪽은 대기(친구 링크 없음).
+    /// `you` = 그 term을 받는 쪽이 쥠, 아니면 보낸 쪽. 차지는 보낸 쪽 term + 1임. `idle`(보낸 쪽 사용자가 마지막으로
+    /// 쓴 뒤의 초)은 증명된 링크마다 첫 메시지에만 있고, 그러면 마지막에 쓴 컴퓨터가 차지함
     DeviceActive {
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         term: Option<u64>,
@@ -437,16 +412,13 @@ pub enum Control {
         you: bool,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         idle: Option<u64>,
-        /// This claim settles who plays as the two meet again (the one used
-        /// last): the receiver hands nothing over (see `device_state`).
+        /// 이 차지는 다시 만나 누가 놀지(마지막에 쓴 쪽)를 정함: 받는 쪽은 아무것도 넘기지 않음 (`device_state` 참고)
         #[serde(default, skip_serializing_if = "std::ops::Not::not", deserialize_with = "lenient_bool")]
         meet: bool,
     },
-    /// 📱 The selected pet and every pet's care, from the computer that plays
-    /// to my other computer (same rules as `device_active`). The one on
-    /// standby takes it from the computer that plays only. `handover` = the
-    /// sender just stopped playing because the receiver claimed: its last
-    /// state, taken unless the receiver changed its own meanwhile.
+    /// 📱 노는 컴퓨터가 내 다른 컴퓨터에 보내는 고른 펫과 모든 펫의 돌봄임 (`device_active`와 같은 규칙).
+    /// 대기 쪽은 노는 컴퓨터에서만 받음. `handover` = 받는 쪽이 차지해서 보낸 쪽이 방금 놀기를 멈춤:
+    /// 그 마지막 상태이며, 받는 쪽이 그사이 자기 것을 바꿨으면 안 받음
     DeviceState {
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         pet: Option<String>,
@@ -457,34 +429,41 @@ pub enum Control {
     },
 }
 
-/// One player of a locked ladder game, as the host relays it. `token` is a
-/// per-game random id (never the install id: players need not be friends of
-/// each other).
+/// 잠긴 사다리 게임의 참가자 한 명임 (호스트가 전달함). `token`은 게임마다의 난수 id임
+/// (설치 id가 아님: 참가자끼리 친구가 아닐 수 있음)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WirePlayer {
+    /// 게임별 참가자 토큰
     pub token: String,
+    /// 표시 이름
     pub name: String,
+    /// 펫 종류
     pub pet: String,
+    /// 펫 그림 스타일
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
+    /// 참가자 nonce 커밋 (hex)
     pub commit: String,
 }
 
-/// One result slot at the bottom of a ladder. `mood`: "good" | "bad" | "none".
+/// 사다리 아래 결과 칸 하나임. `mood`: "good" | "bad" | "none"
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WireResult {
+    /// 결과 글
     pub text: String,
+    /// 분위기
     #[serde(default)]
     pub mood: String,
 }
 
-/// Ladder game messages between the host and each player (friend links only,
-/// and only to peers at `LADDER_MIN_VERSION` or newer). Validation of lengths
-/// and hex is done by `ladder`'s state machines, not here.
+/// 호스트와 참가자 사이의 사다리 게임 메시지임 (친구 링크에서만, `LADDER_MIN_VERSION` 이상 상대에게만).
+/// 길이·hex 검사는 여기가 아니라 `ladder`의 상태 기계가 함
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LadderMsg {
+    /// 호스트가 게임에 초대함
     LadderInvite { game_id: String, host: String, results: Vec<WireResult>, invited: u8 },
+    /// 참가자가 초대에 응함 (자기 nonce 커밋을 실음)
     LadderJoin {
         game_id: String,
         token: String,
@@ -494,16 +473,17 @@ pub enum LadderMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         style: Option<String>,
     },
-    /// `reason`: "no" | "busy" | "playing"
+    /// 초대를 거절함. `reason`: "no" | "busy" | "playing"
     LadderDecline { game_id: String, reason: String },
-    /// `host` = the host's seat in `players` (sorted by token).
+    /// 참가자를 잠금. `host` = `players`(토큰 순 정렬) 안의 호스트 자리
     LadderLock { game_id: String, host: u8, players: Vec<WirePlayer>, results: Vec<WireResult> },
+    /// 참가자가 자기 nonce를 밝힘
     LadderReveal { game_id: String, nonce: String },
-    /// Every player's nonce, in `players` order (the host's included).
+    /// 모든 참가자의 nonce, `players` 순서 (호스트 것 포함)
     LadderReveals { game_id: String, nonces: Vec<String> },
-    /// Show the descent now. `mode`: "one_by_one" | "all". Cosmetic only.
+    /// 지금 내려가기를 보임. `mode`: "one_by_one" | "all". 보이기만 다름
     LadderStart { game_id: String, mode: String },
-    /// `reason`: "host" | "left" | "timeout" | "invalid"; `who` = a player token.
+    /// 게임 취소. `reason`: "host" | "left" | "timeout" | "invalid", `who` = 참가자 토큰
     LadderCancel {
         game_id: String,
         reason: String,
@@ -512,8 +492,7 @@ pub enum LadderMsg {
     },
 }
 
-/// Any message. Untagged at this level: each inner enum carries its own
-/// `type` tag, so an unknown `type` fails to parse as any of them.
+/// 모든 메시지임. 이 단계는 꼬리표가 없음: 안쪽 enum마다 `type` 꼬리표가 있어 모르는 `type`은 어느 것으로도 안 읽힘
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Message {
@@ -523,32 +502,39 @@ pub enum Message {
 }
 
 impl Message {
+    /// JSON 바이트로 바꿈
     pub fn to_json(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("message serializes")
     }
 
-    /// `None` for anything malformed or with an unknown `type`.
+    /// 바이트를 메시지로 읽음. 잘못됐거나 모르는 `type`이면 None임
     pub fn parse(data: &[u8]) -> Option<Message> {
         serde_json::from_slice(data).ok()
     }
 }
 
-/// Clamp a peer-supplied display string to `MAX_NAME` characters.
+/// 상대가 준 표시 문자열을 `MAX_NAME`글자로 자름
 pub fn clamp_name(s: &str) -> String {
     s.chars().take(MAX_NAME).collect()
 }
 
-/// UDP discovery announcement (an unauthenticated hint).
+/// UDP 찾기 알림임 (인증 없는 힌트)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Announce {
+    /// 앱 꼬리표 (`APP_TAG`)
     pub app: String,
+    /// 프로토콜 버전
     pub v: u32,
+    /// 설치 id
     pub id: String,
+    /// 표시 이름
     pub name: String,
+    /// 링크를 받는 TCP 포트
     pub port: u16,
 }
 
 impl Announce {
+    /// 이 설치의 알림을 만듦
     pub fn new(id: &str, name: &str, port: u16) -> Announce {
         Announce {
             app: APP_TAG.to_string(),
@@ -559,7 +545,7 @@ impl Announce {
         }
     }
 
-    /// Parse a datagram; `None` unless it is a well-formed ScreenPet announcement.
+    /// 데이터그램을 읽음. 올바른 ScreenPet 알림이 아니면 None임
     pub fn parse(data: &[u8]) -> Option<Announce> {
         let mut a: Announce = serde_json::from_slice(data).ok()?;
         if a.app != APP_TAG || a.id.is_empty() || a.id.len() > MAX_ID || a.port == 0 {
@@ -570,11 +556,12 @@ impl Announce {
     }
 }
 
+/// 와이어 형식과 옛 버전 호환 시험임
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A `Visit::Visit` message with these fields changed from an ordinary one.
+    /// 보통 `Visit::Visit` 메시지에서 이 필드들만 바꾼 것을 만듦
     macro_rules! visit {
         ($($field:ident: $value:expr),* $(,)?) => {{
             #[allow(unused_mut)]
@@ -1040,7 +1027,7 @@ mod tests {
         assert_eq!(Announce::parse(&serde_json::to_vec(&long_id).unwrap()), None);
     }
 
-    /// A pet shown in pixel style says so; old peers ignore it; anything odd is dropped, never the whole visit.
+    /// 픽셀 스타일 펫은 그렇다고 알림. 옛 상대는 무시하고, 이상한 값은 방문 전체가 아니라 그 필드만 버림
     #[test]
     fn visit_style_is_optional_and_backward_compatible() {
         let v = visit!(style: Some("pixel".into()));
@@ -1063,7 +1050,7 @@ mod tests {
         assert_eq!(style, None);
     }
 
-    /// 🎨 The owner's body color for an ink-line pet travels as an id; old peers ignore it; default sends nothing; anything odd is dropped, never the visit.
+    /// 🎨 잉크선 펫의 주인 몸 색은 id로 감. 옛 상대는 무시하고 기본값은 안 보내며, 이상한 값은 그 필드만 버림
     #[test]
     fn visit_tint_is_optional_and_backward_compatible() {
         let v = visit!(tint: Some("rainbow".into()));

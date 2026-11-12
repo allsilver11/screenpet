@@ -1,11 +1,10 @@
-//! LAN discovery: periodic UDP announcements, peer list with expiry, and
-//! auto-dial of friends (both sides dial; `peers::register` keeps one link).
+//! LAN 찾기임: 주기적 UDP 알림, 만료되는 친구 후보 목록, 친구 자동 다이얼
+//! (양쪽 다 다이얼하고 `peers::register`가 링크 하나만 남김).
 //!
-//! Announcements are unauthenticated hints. Every address announced for an id
-//! is kept as a candidate; a link only counts once the Noise handshake proves
-//! the pinned identity. Bounded everywhere: seen ids, candidates per id and
-//! per source, failure history, datagrams per source IP, and dials to
-//! not-yet-verified candidates.
+//! 알림은 인증 없는 힌트일 뿐임. id마다 알려진 주소는 모두 후보로 두고,
+//! Noise 핸드셰이크가 고정된 신원을 증명해야 링크로 침. 모든 것에 상한이 있음:
+//! 본 id, id·출처별 후보, 실패 기록, 출처 IP별 데이터그램, 미검증 후보로의 다이얼.
+//! 진입점은 `run`(lib의 discovery 스레드)이고 다이얼은 `transport::dial`로 넘김.
 
 use crate::peers::DialOutcome;
 use crate::protocol::Announce;
@@ -18,25 +17,27 @@ use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// Most ids tracked at once (friends are always admitted).
+/// 한 번에 추적하는 id 수 상한 (친구는 늘 받아 줌)
 pub(crate) const MAX_SEEN: usize = 64;
-/// Most candidate addresses per id, and per announcing source IP within it.
+/// id당 후보 주소 수 상한
 const MAX_CANDIDATES: usize = 8;
+/// 한 id 안에서 알린 출처 IP당 후보 수 상한
 const MAX_CANDIDATES_PER_SOURCE: usize = 2;
-/// Most datagrams accepted per source IP per rate window.
+/// 출처 IP당 창 하나에 받는 데이터그램 수
 const MAX_DATAGRAMS_PER_WINDOW: u32 = 50;
-/// Separate budget for announcements claiming a friend id, per (id, source IP).
+/// 친구 id를 주장하는 알림의 따로 둔 예산, (id, 출처 IP)마다
 const MAX_FRIEND_CLAIMS_PER_WINDOW: u32 = 4;
-/// Larger finite budget per (id, source IP) once that friend authenticated
-/// from that IP.
+/// 그 친구가 그 IP에서 인증한 뒤의 더 큰(하지만 유한한) (id, 출처 IP)당 예산
 const MAX_TRUSTED_PER_WINDOW: u32 = 200;
+/// 데이터그램 속도 제한 창
 const RATE_WINDOW: Duration = Duration::from_secs(1);
+/// 미검증 다이얼 상한을 세는 창
 const DIAL_WINDOW: Duration = Duration::from_secs(60);
-/// Bound on the rate tables and the failure history.
+/// 속도 표와 실패 기록의 크기 상한
 const MAX_TRACKED: usize = 256;
 
-/// `udp` = `None`: the port was taken. Nothing is announced or heard, but the
-/// timers still run (they also serve links through the relay).
+/// discovery 스레드 본체임: 알림 보내기·듣기와 만료·자동 다이얼 타이머를 돌림.
+/// `udp`가 None이면 포트를 못 잡은 것이라 알리지도 듣지도 않지만 타이머는 돎 (릴레이 링크에도 씀)
 pub(crate) fn run(shared: Arc<Shared>, udp: Option<UdpSocket>, broadcast_to: SocketAddr) {
     let Some(udp) = udp else {
         while !shared.stopping() {
@@ -78,8 +79,8 @@ pub(crate) fn run(shared: Arc<Shared>, udp: Option<UdpSocket>, broadcast_to: Soc
     }
 }
 
-/// May this source announce at all? Discovery is for one local network: a
-/// datagram from elsewhere (a forwarded port) must not become a dial target.
+/// 이 출처가 알림을 보내도 되는지 봄. 찾기는 한 로컬 네트워크용이라
+/// 바깥(포워딩된 포트)에서 온 데이터그램은 다이얼 대상이 되면 안 됨
 pub(crate) fn local_source(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
@@ -88,12 +89,9 @@ pub(crate) fn local_source(ip: IpAddr) -> bool {
     }
 }
 
-/// Rate limiting for one announcement. Admitted if the source IP is within
-/// its budget, or the claimed id is the friend that previously authenticated
-/// from this IP (a larger but finite per-(id, IP) budget), or (for
-/// an id that is a friend) the (id, source) pair is within its own small
-/// budget — so a flood sharing the friend's IP budget cannot starve the
-/// friend, while a *claimed* friend id alone buys only a few datagrams.
+/// 알림 하나의 속도 제한임. 출처 IP 예산 안이거나, 이 IP에서 인증했던 친구 id면(더 큰 유한 예산),
+/// 또는 친구 id에 대해 (id, 출처) 쌍의 작은 예산 안이면 받음.
+/// 친구 IP 예산을 같이 쓰는 폭주가 친구를 굶기지 못하고, 친구 id를 *주장*만 해서는 몇 개만 통함
 pub(crate) fn admit_announcement(st: &mut State, id: &str, ip: IpAddr, now: Instant) -> bool {
     if rate_allow(&mut st.src_rate, ip, now, MAX_DATAGRAMS_PER_WINDOW) {
         return true;
@@ -106,9 +104,8 @@ pub(crate) fn admit_announcement(st: &mut State, id: &str, ip: IpAddr, now: Inst
     st.is_friend(id) && rate_allow(&mut st.friend_rate, (id.to_string(), ip), now, MAX_FRIEND_CLAIMS_PER_WINDOW)
 }
 
-/// Count one event for `key`; `false` once it exceeds `limit` per window.
-/// The table is bounded: when full of live entries (e.g. spoofed sources) the
-/// oldest entry is evicted rather than refusing every new key.
+/// `key`에 사건 하나를 셈. 창마다 `limit`를 넘으면 `false`임.
+/// 표는 상한이 있어서 살아 있는 항목(예: 위조 출처)으로 꽉 차면 새 키를 막는 대신 가장 오래된 것을 밀어냄
 pub(crate) fn rate_allow<K: Hash + Eq + Clone>(table: &mut HashMap<K, (Instant, u32)>, key: K, now: Instant, limit: u32) -> bool {
     if table.len() >= MAX_TRACKED && !table.contains_key(&key) {
         table.retain(|_, (start, _)| now.duration_since(*start) < RATE_WINDOW);
@@ -127,6 +124,7 @@ pub(crate) fn rate_allow<K: Hash + Eq + Clone>(table: &mut HashMap<K, (Instant, 
     entry.1 <= limit
 }
 
+/// 받은 알림 하나를 처리함: 후보를 기록하고 친구면 다이얼할지 정함
 fn heard(shared: &Arc<Shared>, a: Announce, src: SocketAddr) {
     if a.id == shared.id {
         return;
@@ -208,7 +206,7 @@ fn heard(shared: &Arc<Shared>, a: Announce, src: SocketAddr) {
     }
 }
 
-/// The candidate to dial for a friend now, if its budget allows, marked as being dialed.
+/// 지금 친구에게 다이얼할 후보를 고르고 예산이 허락하면 다이얼 중으로 표시함
 fn next_dial(st: &mut State, id: &str, now: Instant) -> Option<Candidate> {
     let target = pick_candidate(st, id)?;
     note_dial(st, id, target, now, true).then(|| {
@@ -217,8 +215,7 @@ fn next_dial(st: &mut State, id: &str, now: Instant) -> Option<Candidate> {
     })
 }
 
-/// Insert/refresh a candidate within the per-source and per-id caps, never
-/// evicting the verified candidate.
+/// 출처별·id별 상한 안에서 후보를 넣거나 새로 고침. 검증된 후보는 밀어내지 않음
 fn add_candidate(seen: &mut Seen, cand: Candidate, src: IpAddr, now: Instant) {
     if let Some(entry) = seen.candidates.get_mut(&cand) {
         *entry = (now, src);
@@ -251,10 +248,9 @@ fn add_candidate(seen: &mut Seen, cand: Candidate, src: IpAddr, now: Instant) {
     seen.candidates.insert(cand, (now, src));
 }
 
-/// Candidate to dial for `id`: the verified one if it has not failed since;
-/// otherwise round-robin — the candidate dialed least recently (never-dialed
-/// first), so junk candidates cannot monopolize dialing. Candidates in
-/// redial backoff are skipped.
+/// `id`에 다이얼할 후보를 고름: 검증된 것이 그 뒤로 실패하지 않았으면 그것, 아니면 라운드 로빈
+/// (가장 오래전에 다이얼한 것, 안 해 본 것 먼저)이라 쓰레기 후보가 다이얼을 독차지 못함.
+/// 재다이얼 대기 중인 후보는 건너뜀
 pub(crate) fn pick_candidate(st: &State, id: &str) -> Option<Candidate> {
     let now = Instant::now();
     let seen = st.seen.get(id)?;
@@ -272,10 +268,8 @@ pub(crate) fn pick_candidate(st: &State, id: &str) -> Option<Candidate> {
         .map(|(c, _)| *c)
 }
 
-/// Record a dial to `cand` for round-robin. Dials to non-verified candidates
-/// are capped per id, per announcing source, per minute when `capped` (a source
-/// spoofing a friend's id spends only its own budget); returns `false` if over
-/// the cap. Either way the candidate has had its turn, so the next one comes up.
+/// 라운드 로빈용으로 `cand`로의 다이얼을 기록함. `capped`면 미검증 후보 다이얼을 id·알린 출처·분당으로
+/// 제한함(친구 id를 위조한 출처는 자기 예산만 씀). 넘으면 `false`. 어쨌든 차례는 지나가 다음 후보가 나옴
 pub(crate) fn note_dial(st: &mut State, id: &str, cand: Candidate, now: Instant, capped: bool) -> bool {
     let Some(seen) = st.seen.get_mut(id) else { return true };
     seen.tried.insert(cand, now);
@@ -301,7 +295,7 @@ pub(crate) fn note_dial(st: &mut State, id: &str, cand: Candidate, now: Instant,
     true
 }
 
-/// Record the outcome of a dial to `cand` for `id`.
+/// `id`의 `cand`로 한 다이얼 결과를 기록함
 pub(crate) fn mark_candidate(shared: &Shared, id: &str, cand: Candidate, outcome: DialOutcome) {
     let now = Instant::now();
     let mut st = shared.state();
@@ -325,6 +319,7 @@ pub(crate) fn mark_candidate(shared: &Shared, id: &str, cand: Candidate, outcome
     }
 }
 
+/// 오래 안 들린 후보·실패 기록·대기를 지움
 fn expire(shared: &Shared) {
     let timeout = shared.timing.peer_timeout;
     let fail_memory = timeout * 10;
@@ -349,6 +344,7 @@ fn expire(shared: &Shared) {
     }
 }
 
+/// 속도 제한·후보 라운드 로빈·다이얼 예산 시험임
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,7 +379,7 @@ mod tests {
         assert!(!local_source("2001:4860:4860::8888".parse().unwrap()));
     }
 
-    /// One id with candidates announced from different sources (nothing verified).
+    /// 한 id에 서로 다른 출처가 알린 후보들이 있는 상태를 만듦 (검증된 것 없음)
     fn two_sources() -> State {
         let now = Instant::now();
         let mut st = State::default();

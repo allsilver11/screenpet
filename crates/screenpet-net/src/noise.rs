@@ -1,21 +1,16 @@
-//! Noise handshake and the emoji short authentication string (SAS).
+//! Noise 핸드셰이크와 이모지 짧은 인증 문자열(SAS)임.
 //!
-//! Every link runs `Noise_XX_25519_ChaChaPoly_BLAKE2s` (dialer = initiator).
-//! XX transmits both static keys encrypted, so after the handshake each side
-//! knows the peer's static public key: a friend is recognised by comparing it
-//! with the pinned key; a stranger can only pair, and pairing is confirmed by
-//! both users comparing a 6-emoji SAS. A MITM runs two different handshakes,
-//! and the SAS also mixes a committed inviter nonce and an invitee random
-//! (commit -> random -> reveal), so the MITM cannot grind keys to make the
-//! two SAS match: each attempt succeeds with probability 2^-36.
-//! After the handshake every message is a Noise transport message
-//! (ChaCha20-Poly1305 with implicit nonces: no replay, reordering or
-//! injection on the link).
+//! 모든 링크는 `Noise_XX_25519_ChaChaPoly_BLAKE2s`를 돌림 (다이얼하는 쪽 = initiator).
+//! XX는 양쪽 정적 키를 암호화해 보내므로 끝나면 서로의 정적 공개키를 앎: 친구는 고정된 키와 비교해 알아보고,
+//! 낯선 이는 짝짓기만 할 수 있으며 두 사용자가 이모지 6개 SAS를 비교해 확정함.
+//! 중간자는 핸드셰이크 둘을 따로 돌리게 되고, SAS에 초대자 nonce 커밋과 초대받은 쪽 난수를 섞어
+//! (commit -> random -> reveal) 키를 갈아 SAS를 맞출 수 없음: 시도마다 성공 확률 2^-36임.
+//! 핸드셰이크 뒤 모든 메시지는 Noise 전송 메시지임 (ChaCha20-Poly1305, 암묵적 nonce: 재전송·순서 바꾸기·끼워 넣기 불가).
 
 pub use screenpet_crypto::{hex32, to_hex};
 pub(crate) use screenpet_crypto::{blake2s, hex_array, public_key, random32};
 
-/// Hex of any length to bytes (`None` if malformed).
+/// 아무 길이의 hex를 바이트로 바꿈. 모양이 틀리면 None임
 pub(crate) fn hex_vec(s: &str) -> Option<Vec<u8>> {
     if s.len() % 2 != 0 {
         return None;
@@ -28,10 +23,12 @@ use crate::transport::{FrameLink, FrameReader, Recv};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
+/// 모든 링크가 쓰는 Noise 패턴 이름임
 pub(crate) const PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
+/// 핸드셰이크 프롤로그임 (바꾸면 옛 앱과 안 통함)
 pub(crate) const PROLOGUE: &[u8] = b"screenpet-net/1";
 
-/// 64 SAS symbols (6 bits each): animals, food, objects.
+/// SAS 기호 64개 (기호당 6비트): 동물, 음식, 물건
 pub const SAS_EMOJI: [&str; 64] = [
     "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔", //
     "🐧", "🐦", "🐤", "🦆", "🦉", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞", "🐢", "🐍", "🐙", "🦀", //
@@ -39,16 +36,15 @@ pub const SAS_EMOJI: [&str; 64] = [
     "🌽", "🍄", "🥐", "🧀", "🍕", "🍩", "🍪", "🎂", "⭐", "🌙", "🎈", "🎁", "⚽", "🔑", "🎵", "🚗", //
 ];
 
-/// Number of SAS symbols (6 bits each → 36 bits).
+/// SAS 기호 수 (6비트씩 → 36비트)
 pub(crate) const SAS_LEN: usize = 6;
 
-/// Commitment to the inviter's pairing nonce: BLAKE2s(nonce_i).
+/// 초대자 짝짓기 nonce의 커밋임: BLAKE2s(nonce_i)
 pub(crate) fn commit(nonce_i: &[u8; 32]) -> [u8; 32] {
     blake2s(&[nonce_i])
 }
 
-/// SAS: the first 36 bits of BLAKE2s(handshake_hash || nonce_i || r_r) as six
-/// symbols, space-separated.
+/// SAS를 만듦: BLAKE2s(handshake_hash || nonce_i || r_r)의 앞 36비트를 기호 6개로, 공백으로 이음
 pub(crate) fn sas(handshake_hash: &[u8; 32], nonce_i: &[u8; 32], r_r: &[u8; 32]) -> String {
     let d = blake2s(&[handshake_hash, nonce_i, r_r]);
     let bits = d[..5].iter().fold(0u64, |acc, b| (acc << 8) | u64::from(*b)); // 40 bits
@@ -58,19 +54,23 @@ pub(crate) fn sas(handshake_hash: &[u8; 32], nonce_i: &[u8; 32], r_r: &[u8; 32])
         .join(" ")
 }
 
-/// New X25519 private key from the OS CSPRNG.
+/// OS 암호 난수로 새 X25519 개인키를 만듦
 pub(crate) fn generate_static_key() -> [u8; 32] {
     random32()
 }
 
+/// 핸드셰이크가 끝난 결과임
 pub(crate) struct Established {
+    /// 이후 메시지를 암호화·복호화하는 Noise 전송 상태
     pub transport: snow::TransportState,
+    /// 상대의 정적 공개키 (친구 신원)
     pub remote_static: [u8; 32],
+    /// 핸드셰이크 해시 (SAS 계산용)
     pub hash: [u8; 32],
 }
 
-/// Run the XX handshake over a fresh link. `None` on any failure, timeout or
-/// shutdown (the caller drops the link).
+/// 새 링크 위에서 XX 핸드셰이크를 돌림.
+/// 실패·시간 초과·종료 중이면 None이고 호출자가 링크를 버림
 pub(crate) fn handshake(
     static_key: &[u8; 32],
     initiator: bool,
@@ -115,6 +115,7 @@ pub(crate) fn handshake(
     Some(Established { transport, remote_static, hash })
 }
 
+/// SAS 기호표와 커밋·키 생성 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

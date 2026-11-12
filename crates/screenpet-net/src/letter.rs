@@ -1,71 +1,78 @@
-//! 💌 Feedback letters to the developer (spec 2026-11-10-feedback-mailbox).
+//! 💌 개발자에게 보내는 건의 편지임 (스펙 2026-11-10-feedback-mailbox).
 //!
-//! The app seals a [`Letter`] to the developer's public key with a one-message
-//! `Noise_N_25519_ChaChaPoly_BLAKE2s` handshake: only the holder of the
-//! developer secret can open it. The relay stores the sealed bytes and never
-//! sees the text.
+//! 앱이 [`Letter`]를 개발자 공개키에 한 메시지짜리 `Noise_N_25519_ChaChaPoly_BLAKE2s`로 봉인함:
+//! 개발자 비밀키를 가진 사람만 열 수 있음. 릴레이는 봉인된 바이트만 저장하고 글은 못 봄.
+//! 주요 진입점: `seal`, `open`, `clean`. 앱의 `feedback`/`mailbox`가 부름.
 
 use serde::{Deserialize, Serialize};
 
-/// The developer's public key (hex). Its secret lives only in the
-/// developer's `config.json` (`dev_key`); make a new pair with
-/// `cargo run -p screenpet-net --example dev_key`.
+/// 개발자 공개키(hex)임. 비밀키는 개발자의 `config.json`(`dev_key`)에만 있음.
+/// 새 쌍은 `cargo run -p screenpet-net --example dev_key`로 만듦
 pub const DEV_KEY: &str = "0116e5d331acff1d42f3dbee5be0edf72187fa861f44e7bbcf9182012cfa046a";
-/// Longest letter text (characters, after cleaning).
+/// 편지 본문 최대 글자 수 (다듬은 뒤)
 pub const MAX_LETTER_CHARS: usize = 1000;
-/// Longest sender name shown in the mailbox.
+/// 편지함에 보이는 보낸이 이름 최대 길이
 pub const MAX_NAME: usize = 64;
-/// Longest pet / app id fields.
+/// 펫·앱 id 필드 최대 길이
 const MAX_ID: usize = 32;
-/// Largest sealed letter (the relay refuses bigger ones).
+/// 가장 큰 봉인 편지 (릴레이가 더 큰 것은 거절함)
 pub use screenpet_proto::MAX_SEALED;
 
+/// 편지 봉인에 쓰는 Noise 패턴임
 const PATTERN: &str = "Noise_N_25519_ChaChaPoly_BLAKE2s";
+/// 편지 핸드셰이크 프롤로그임
 const PROLOGUE: &[u8] = b"screenpet-letter/1";
 
-/// A letter in the developer's mailbox as the relay lists it (still sealed —
-/// the app opens it with its own `dev_key`, the net layer never sees it).
+/// 릴레이가 나열하는 개발자 편지함의 편지 하나임 (아직 봉인 상태임.
+/// 앱이 자기 `dev_key`로 열고, net 계층은 내용을 못 봄)
 #[derive(Debug, Clone, PartialEq)]
 pub struct MailItem {
+    /// 편지 id
     pub id: u64,
-    /// Unix seconds when the relay took it.
+    /// 릴레이가 받은 유닉스 초
     pub at: u64,
-    /// The sender's install key (hex) — for blocking.
+    /// 보낸 설치의 키(hex), 차단용
     pub from: String,
+    /// 읽음 표시
     pub read: bool,
-    /// 개발자가 "반영함"으로 체크했다
+    /// 개발자가 "반영함"으로 체크했음
     pub done: bool,
-    /// 🙅 개발자가 반려했다 (done과 함께는 아니다)
+    /// 🙅 개발자가 반려했음 (done과 함께는 아님)
     pub rejected: bool,
-    /// 🔒 공개 건의함에서 숨겼다 (비공개)
+    /// 🔒 공개 건의함에서 숨겼음 (비공개)
     pub private: bool,
+    /// 봉인된 바이트
     pub sealed: Vec<u8>,
 }
 
-/// What the developer reads. Nothing else about the sender is sent (no
-/// address, no email, no friends).
+/// 개발자가 읽는 내용임. 보낸이에 대해 이 밖에는 보내지 않음 (주소·이메일·친구 없음)
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Letter {
+    /// 편지 본문
     pub text: String,
-    /// The sender's display name ("" if unset).
+    /// 보낸이 표시 이름 (없으면 "")
     pub name: String,
-    /// The pet that carries the letter.
+    /// 편지를 나르는 펫
     pub species: String,
+    /// 펫 성장 단계
     pub stage: String,
+    /// 펫 스타일
     pub style: String,
-    /// App version and OS (`windows` / `macos`).
+    /// 앱 버전
     pub version: String,
+    /// OS (`windows` / `macos`)
     pub os: String,
 }
 
+/// 버릴 보이지 않는·제어 문자인지 봄 (줄바꿈은 남김)
 fn hidden(c: char) -> bool {
     (c.is_control() && c != '\n')
         || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}' | '\u{061C}' | '\u{180E}' | '\u{00AD}' | '\u{3164}' | '\u{115F}' | '\u{1160}' | '\u{FFA0}' | '\u{2800}' | '\u{E0000}'..='\u{E007F}' | '\u{2028}' | '\u{2029}')
 }
 
-/// Letter text: CRLF → LF, invisible and control characters dropped (newlines
-/// kept), at most one blank line in a row, trimmed, `MAX_LETTER_CHARS` long.
+/// 본문을 다듬음: CRLF → LF, 보이지 않는·제어 문자 제거(줄바꿈은 남김),
+/// 빈 줄은 연속 하나까지, 앞뒤 공백 제거, 최대 `MAX_LETTER_CHARS`글자
 fn clean_body(raw: &str) -> String {
     let raw = raw.replace("\r\n", "\n").replace('\r', "\n");
     let mut out = String::new();
@@ -85,16 +92,18 @@ fn clean_body(raw: &str) -> String {
     t.trim_end().to_string()
 }
 
+/// 한 줄 필드를 다듬음: 숨은 문자·줄바꿈 제거, 앞뒤 공백 제거, 최대 `max`글자
 fn clean_line(raw: &str, max: usize) -> String {
     let t: String = raw.chars().filter(|&c| !hidden(c) && c != '\n').collect();
     t.trim().chars().take(max).collect::<String>().trim_end().to_string()
 }
 
+/// id 필드에 영숫자와 `_-.`만 남기고 `MAX_ID`글자로 자름
 fn clean_id(raw: &str) -> String {
     raw.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')).take(MAX_ID).collect::<String>().to_ascii_lowercase()
 }
 
-/// Every field tidied; `None` if there is no text left.
+/// 모든 필드를 다듬음. 본문이 남지 않으면 None임
 pub fn clean(l: Letter) -> Option<Letter> {
     let text = clean_body(&l.text);
     if text.is_empty() {
@@ -111,8 +120,7 @@ pub fn clean(l: Letter) -> Option<Letter> {
     })
 }
 
-/// Seal `letter` to the public key `to`. `None` if there's nothing to say or
-/// it would be too big.
+/// `letter`를 공개키 `to`에 봉인함. 할 말이 없거나 너무 크면 None임
 pub fn seal(letter: &Letter, to: &[u8; 32]) -> Option<Vec<u8>> {
     let letter = clean(letter.clone())?;
     let payload = serde_json::to_vec(&letter).ok()?;
@@ -123,8 +131,8 @@ pub fn seal(letter: &Letter, to: &[u8; 32]) -> Option<Vec<u8>> {
     (buf.len() <= MAX_SEALED).then_some(buf)
 }
 
-/// Open a sealed letter with the developer secret (`None` if it isn't ours,
-/// was changed, or doesn't read as a letter). The result is cleaned again.
+/// 개발자 비밀키로 봉인 편지를 엶. 우리 것이 아니거나 바뀌었거나 편지로 안 읽히면 None임.
+/// 결과는 다시 다듬음
 pub fn open(sealed: &[u8], secret: &[u8; 32]) -> Option<Letter> {
     if sealed.is_empty() || sealed.len() > MAX_SEALED {
         return None;
@@ -135,22 +143,23 @@ pub fn open(sealed: &[u8], secret: &[u8; 32]) -> Option<Letter> {
     clean(serde_json::from_slice(&buf[..n]).ok()?)
 }
 
-/// The shipped developer public key.
+/// 배포된 개발자 공개키를 돌려줌
 pub fn dev_key() -> Option<[u8; 32]> {
     crate::noise::hex32(DEV_KEY)
 }
 
-/// A developer secret typed into `config.json` (hex, spaces around ignored).
+/// `config.json`에 적힌 개발자 비밀키(hex, 앞뒤 공백 무시)를 읽음
 pub fn secret_from_hex(s: &str) -> Option<[u8; 32]> {
     crate::noise::hex32(s.trim())
 }
 
-/// A fresh (secret, public) pair, both hex.
+/// 새 (비밀키, 공개키) 쌍을 hex로 만듦
 pub fn new_dev_keypair() -> (String, String) {
     let secret = crate::noise::random32();
     (crate::noise::to_hex(&secret), crate::noise::to_hex(&crate::noise::public_key(&secret)))
 }
 
+/// 봉인·열기·다듬기·배포 키 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

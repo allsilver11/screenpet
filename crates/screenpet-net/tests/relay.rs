@@ -1,5 +1,5 @@
-//! End to end through an in-process `screenpet-relay`: Net instances whose
-//! LAN discovery is pointed at nobody, so they can only meet via the relay.
+//! 프로세스 안 `screenpet-relay`를 거친 끝에서 끝 시험임: LAN 찾기를 아무에게도 안 향하게 한
+//! Net들이라 릴레이로만 만날 수 있음.
 
 use screenpet_net::{Friend, Net, NetConfig, NetEvent, Side, Timing, Visit};
 use screenpet_relay::{Relay, RelayConfig};
@@ -24,8 +24,7 @@ fn url(relay: &Relay) -> String {
     format!("ws://{}/ws", relay.local_addr())
 }
 
-/// A Net with discovery on `port` "broadcasting" to `to` (a dead port unless
-/// a test wires it up) and the relay at `relay_url`.
+/// `port`로 찾기를 하고 `to`(시험이 잇지 않으면 죽은 포트)로 "브로드캐스트"하며 `relay_url` 릴레이를 쓰는 Net을 켬
 fn start_net(id: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Friend>, relay_url: &str) -> (Net, Receiver<NetEvent>) {
     start_net_with(id, key, port, to, friends, relay_url, fast(), None)
 }
@@ -59,7 +58,7 @@ fn start_net_with(
     .unwrap()
 }
 
-/// Every event within `secs`.
+/// `secs` 안의 모든 이벤트를 모음
 fn collect(rx: &Receiver<NetEvent>, secs: f64) -> Vec<NetEvent> {
     let deadline = Instant::now() + Duration::from_secs_f64(secs);
     let mut out = Vec::new();
@@ -254,7 +253,7 @@ fn strangers_cannot_link_through_the_relay_without_a_code() {
     assert!(wait_for(&brx, 0.5, |e| matches!(e, NetEvent::Invited { .. } | NetEvent::Connected { .. })).is_none());
 }
 
-/// Forwards datagrams from a local socket to `to` while `on` is set.
+/// `on`이 켜진 동안 로컬 소켓의 데이터그램을 `to`로 넘김
 fn gate(to: u16, on: Arc<AtomicBool>, stop: Arc<AtomicBool>) -> u16 {
     let sock = UdpSocket::bind("127.0.0.1:0").unwrap();
     sock.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
@@ -308,9 +307,8 @@ fn a_relay_link_moves_to_the_lan_when_the_friend_shows_up_there() {
     stop.store(true, Ordering::SeqCst);
 }
 
-/// Against a deployed relay: `SCREENPET_LIVE_RELAY=wss://pet.danni.day/ws
-/// cargo test -p screenpet-net --test relay -- --ignored`. Two throwaway
-/// installs pair with a friend code and exchange a visit.
+/// 배포된 릴레이로 하는 시험임: `SCREENPET_LIVE_RELAY=wss://pet.danni.day/ws cargo test -p screenpet-net --test relay -- --ignored`.
+/// 버릴 설치 둘이 친구 코드로 짝짓고 방문을 주고받음
 #[test]
 #[ignore]
 fn live_relay_smoke() {
@@ -416,31 +414,30 @@ fn the_relay_key_is_pinned() {
 
 // ---- a relay we don't trust --------------------------------------------------
 
-/// What a fake relay answers after `auth`.
+/// 가짜 릴레이가 `auth` 뒤에 답하는 것임
 #[derive(Clone, Copy, PartialEq)]
 enum Proof {
-    /// Computed with the relay's secret key.
+    /// 릴레이 비밀키로 계산함
     Real,
-    /// Has the right public key but not the secret: can only guess.
+    /// 공개키는 맞지만 비밀키가 없음: 찍을 수만 있음
     Forged,
-    /// An old-style `welcome` without any proof.
+    /// 증명 없는 옛 모양 `welcome`
     Missing,
 }
 
-/// A frame the relay carried: channel, sender's key, ciphertext.
+/// 릴레이가 나른 프레임: 채널, 보낸 쪽 키, 암호문
 type Carried = (u32, String, Vec<u8>);
 
 #[derive(Default)]
 struct RelaySeen {
     frames: Vec<Carried>,
-    /// `close{ch}` the relay received: (channel, sender's key).
+    /// 릴레이가 받은 `close{ch}`: (채널, 보낸 쪽 키)
     closes: Vec<(u32, String)>,
-    /// Sent to `.0` as they are (channel + ciphertext).
+    /// `.0`에 그대로 보낼 것 (채널 + 암호문)
     inject: Vec<(String, Vec<u8>)>,
 }
 
-/// A hostile relay that speaks just enough of the protocol: it authenticates,
-/// joins any two clients in a channel, and can read, drop and inject frames.
+/// 프로토콜을 딱 필요한 만큼만 하는 적대적 릴레이임: 인증하고 아무 두 클라이언트를 채널로 잇고 프레임을 읽고·버리고·끼워 넣음
 struct FakeRelay {
     addr: SocketAddr,
     public: [u8; 32],
@@ -474,7 +471,7 @@ fn read_json(ws: &mut WebSocket<TcpStream>) -> Option<Value> {
     }
 }
 
-/// Challenge, `auth`, then `welcome` carrying the chosen proof.
+/// 챌린지, `auth`, 그다음 고른 증명을 담은 `welcome`을 주고받음
 fn relay_greet(stream: TcpStream, secret: &[u8; 32], proof: Proof, online: Vec<String>) -> Option<RelayConn> {
     stream.set_nonblocking(false).ok()?;
     stream.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
@@ -578,7 +575,7 @@ impl FakeRelay {
     }
 }
 
-/// One of these relays, and an install pinning its public key.
+/// 이런 릴레이 하나와 그 공개키를 고정한 설치로 릴레이 상태 이벤트를 받음
 fn relay_status_with(proof: Proof) -> Option<NetEvent> {
     let relay = start_fake_relay(proof);
     let (net, rx) = start_net_with("aaaa", Net::generate_static_key(), free_udp_port(), free_udp_port(), vec![], &relay.url(), fast(), Some(relay.public));

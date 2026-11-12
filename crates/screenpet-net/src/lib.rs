@@ -1,24 +1,17 @@
-//! ScreenPet LAN networking: discovery (UDP broadcast), SAS-confirmed pairing,
-//! and persistent friend links that are encrypted and authenticated end to
-//! end with the Noise protocol.
+//! ScreenPet 네트워크임: LAN 찾기(UDP 브로드캐스트), SAS로 확인하는 짝짓기,
+//! Noise 프로토콜로 끝에서 끝까지 암호화·인증되는 오래 가는 친구 링크.
 //!
-//! Everything runs on plain std threads. The app talks to [`Net`] through its
-//! methods (none of which block on the network) and receives [`NetEvent`]s on
-//! an mpsc channel.
+//! 모두 평범한 std 스레드로 돎. 앱은 [`Net`] 메서드(네트워크를 기다리지 않음)로 말하고
+//! mpsc 채널로 [`NetEvent`]를 받음 (src-tauri의 `network.rs`가 씀).
 //!
-//! Layering:
-//! - `protocol`: JSON messages (`hello`, `invite`, `visit`, ...) and the
-//!   discovery announcement.
-//! - `transport`: the frame-pipe seam (`FrameLink`/`FrameReader`) and
-//!   transport-neutral dialing (`Candidate`). `tcp` is the LAN transport; a
-//!   relay transport can be added beside it.
-//! - `noise`: XX handshake, static keys, emoji SAS.
-//! - `secure`: encrypted, queued message sending after the handshake.
-//! - `peers`: per-link session driver (identity check, pairing, friends,
-//!   ping, timeouts) — transport-independent.
-//! - `discovery`: LAN UDP announcements — only hints (candidate addresses).
-//! - `relay`: the relay transport (`screenpet-relay` over WebSocket) for
-//!   friends outside the LAN, friend codes, LAN-preferred link choice.
+//! 계층:
+//! - `protocol`: JSON 메시지(`hello`, `invite`, `visit`, ...)와 찾기 알림
+//! - `transport`: 프레임 통로 이음매(`FrameLink`/`FrameReader`)와 전송 중립 다이얼(`Candidate`). `tcp`가 LAN 전송임
+//! - `noise`: XX 핸드셰이크, 정적 키, 이모지 SAS
+//! - `secure`: 핸드셰이크 뒤 암호화·큐 방식 메시지 보내기
+//! - `peers`: 링크별 세션 구동기 (신원 확인, 짝짓기, 친구, ping, 시간 초과), 전송과 무관
+//! - `discovery`: LAN UDP 알림 (힌트일 뿐: 후보 주소)
+//! - `relay`: LAN 밖 친구용 릴레이 전송(`screenpet-relay`, WebSocket), 친구 코드, LAN 우선 링크 고르기
 
 mod devices;
 mod discovery;
@@ -48,80 +41,73 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use transport::Candidate;
 
-/// Spec default UDP discovery port.
+/// 스펙 기본 UDP 찾기 포트
 pub const DEFAULT_DISCOVERY_PORT: u16 = 47321;
 
-/// How often worker threads wake up to check timers and the stop flag.
+/// 워커 스레드가 타이머와 멈춤 깃발을 보러 깨는 주기
 pub(crate) const TICK: Duration = Duration::from_millis(50);
-/// Most concurrent inbound links not (yet) authenticated as a friend
-/// (pre-auth and stranger links). When full, the oldest is evicted.
-/// Authenticated friend links are never capped by this.
+/// 친구로 (아직) 인증되지 않은 들어온 링크(인증 전·낯선 링크) 동시 수 상한. 차면 가장 오래된 것을 밀어냄.
+/// 인증된 친구 링크는 여기에 안 셈
 pub(crate) const MAX_UNVERIFIED_INBOUND: usize = 6;
-/// Of those, at most this many from one source address (oldest evicted).
+/// 그중 한 출처 주소에서 온 것 상한 (가장 오래된 것을 밀어냄)
 pub(crate) const MAX_UNVERIFIED_PER_IP: usize = 2;
-/// Pre-auth links from an address that previously authenticated as a friend
-/// are kept out of the stranger pool (reserved capacity), at most this many
-/// per address.
+/// 전에 친구로 인증했던 주소에서 온 인증 전 링크는 낯선 풀 밖에 둠(따로 잡아 둔 자리). 주소당 이만큼까지
 pub(crate) const MAX_TRUSTED_PER_IP: usize = 4;
-/// Addresses remembered as having authenticated as a friend.
+/// 친구로 인증했던 주소로 기억하는 수 상한
 pub(crate) const MAX_TRUSTED_IPS: usize = 64;
-/// New inbound connections per source address per second; past this they are
-/// dropped before any thread or key exchange is spent on them.
+/// 출처 주소당 초당 새 들어오는 연결 수. 넘으면 스레드나 키 교환 전에 버림
 pub(crate) const MAX_CONNS_PER_ADDR: u32 = 20;
-/// The same for an address that previously authenticated as a friend.
+/// 친구로 인증했던 주소의 같은 한도
 pub(crate) const MAX_CONNS_PER_TRUSTED_ADDR: u32 = 100;
-/// Most inbound session threads still before their hello, per class of link
-/// (see `HandshakeClass`). Evicted links end within a tick, so a flood only
-/// reaches this if it outruns even that.
+/// hello 전인 들어온 세션 스레드 수 상한, 링크 등급마다 (`handshake_class` 참고).
+/// 밀려난 링크는 틱 하나 안에 끝나므로 폭주가 그보다 빨라야만 여기에 닿음
 pub(crate) const MAX_HANDSHAKES: usize = 32;
-/// Most unverified links from addresses a friend authenticated from, in all.
+/// 친구가 인증했던 주소에서 온 미검증 링크 전체 상한
 pub(crate) const MAX_TRUSTED_INBOUND: usize = 32;
-/// Handshake + hello must complete within this (or `conn_timeout` if shorter).
+/// 핸드셰이크 + hello는 이 안에 끝나야 함 (`conn_timeout`이 더 짧으면 그것)
 pub(crate) const PRE_AUTH_MAX: Duration = Duration::from_secs(3);
-/// Longest redial backoff for a friend whose identity check keeps failing.
+/// 신원 확인이 계속 실패하는 친구의 가장 긴 재다이얼 대기
 pub(crate) const MAX_BACKOFF: Duration = Duration::from_secs(300);
-/// Most concurrent incoming pairing requests, and per source address.
+/// 동시에 들어오는 짝짓기 요청 수 상한
 pub(crate) const MAX_INVITES_IN: usize = 4;
+/// 출처 주소당 동시에 들어오는 짝짓기 요청 수 상한
 pub(crate) const MAX_INVITES_IN_PER_ADDR: usize = 2;
-/// Dials to not-yet-verified candidates of one id, per announcing source, per minute.
+/// 한 id의 미검증 후보로 하는 다이얼 수, 알린 출처당·분당
 pub(crate) const MAX_UNVERIFIED_DIALS_PER_MIN: usize = 20;
-/// At most this many `Invited` events per `INVITED_WINDOW`.
+/// `INVITED_WINDOW`마다 `Invited` 이벤트 수 상한
 pub(crate) const MAX_INVITED_PER_WINDOW: usize = 10;
+/// `Invited` 이벤트 수를 세는 창
 pub(crate) const INVITED_WINDOW: Duration = Duration::from_secs(60);
-/// At most this many incoming pairing attempts per peer address per window.
+/// 창마다 상대 주소당 들어오는 짝짓기 시도 수 상한
 pub(crate) const MAX_PAIR_ATTEMPTS_PER_ADDR: usize = 3;
 
-/// Timing constants (spec defaults via `Default`; tests use short ones).
+/// 시간 상수 모음임 (스펙 기본값은 `Default`, 시험은 짧은 값을 씀)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Timing {
-    /// Discovery announcement period.
+    /// 찾기 알림 주기
     pub announce_interval: Duration,
-    /// A discovered peer silent this long is reported `PeerGone`.
+    /// 이만큼 조용한 찾은 상대는 `PeerGone`으로 알림
     pub peer_timeout: Duration,
-    /// `ping` period on each link.
+    /// 링크마다 `ping` 주기
     pub ping_interval: Duration,
-    /// A link with nothing received this long is dropped; also the limit for
-    /// completing the handshake + hello.
+    /// 이만큼 아무것도 안 받은 링크는 끊음. 핸드셰이크 + hello 마감이기도 함
     pub conn_timeout: Duration,
-    /// A pairing not confirmed by both users within this time is declined.
+    /// 두 사용자가 이 안에 확인하지 않은 짝짓기는 거절됨
     pub invite_timeout: Duration,
-    /// First wait before reconnecting to the relay (doubles up to 60 s); also
-    /// the first redial delay for a friend whose relay link failed.
+    /// 릴레이 재연결 첫 대기 (60초까지 두 배씩). 릴레이 링크가 실패한 친구의 첫 재다이얼 지연이기도 함
     pub relay_retry: Duration,
-    /// 📱 After a link code matched, both users must press 확인 within this
-    /// time ([`Net::confirm_device`]); otherwise it is cancelled on both.
+    /// 📱 연결 코드가 맞은 뒤 두 사용자가 이 안에 확인을 눌러야 함 ([`Net::confirm_device`]). 아니면 양쪽 다 취소됨
     pub device_confirm_timeout: Duration,
-    /// 📱 A computer that goes on standby keeps its friend links this long
-    /// (so the app can call its pet home) before it closes them.
+    /// 📱 대기로 가는 컴퓨터는 친구 링크를 이만큼 유지한 뒤 닫음 (앱이 펫을 집으로 부를 수 있게)
     pub standby_grace: Duration,
-    /// 📱 The computer that plays shares a changed pet or care at most this
-    /// often (changes in between are coalesced) …
+    /// 📱 노는 컴퓨터는 바뀐 펫·돌봄을 최대 이 주기로 나눔 (그사이 바뀐 것은 모음) …
     pub device_state_every: Duration,
-    /// … and the same state again this often (in case it went missing).
+    /// … 그리고 같은 상태를 이 주기로 다시 보냄 (사라졌을 때 대비)
     pub device_state_refresh: Duration,
 }
 
 impl Default for Timing {
+    /// 스펙 기본 시간 값을 돌려줌
     fn default() -> Timing {
         Timing {
             announce_interval: Duration::from_secs(2),
@@ -138,95 +124,88 @@ impl Default for Timing {
     }
 }
 
-/// A friend: install id (a label) pinned to the friend's Noise static public
-/// key (the identity). The app persists these (e.g. in its config).
+/// 친구임: 설치 id(라벨)를 친구의 Noise 정적 공개키(신원)에 고정한 것. 앱이 (설정 등에) 저장함
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Friend {
+    /// 친구 설치 id
     pub id: String,
+    /// 고정된 정적 공개키
     pub public_key: [u8; 32],
 }
 
+/// [`Net::start`]에 넘기는 설정임
 #[derive(Debug, Clone)]
 pub struct NetConfig {
-    /// This install's id (see [`new_install_id`]).
+    /// 이 설치의 id ([`new_install_id`] 참고)
     pub id: String,
-    /// Display name shown to others (clamped to 64 characters).
+    /// 남에게 보이는 표시 이름 (64자로 자름)
     pub name: String,
-    /// This install's long-term X25519 private key (see
-    /// [`Net::generate_static_key`]); persist it with the config.
+    /// 이 설치의 장기 X25519 개인키 ([`Net::generate_static_key`] 참고). 설정과 함께 저장함
     pub static_key: [u8; 32],
-    /// UDP port to listen on for announcements (0 = any, see
-    /// [`Net::discovery_port`]).
+    /// 알림을 들을 UDP 포트 (0 = 아무거나, [`Net::discovery_port`] 참고)
     pub discovery_port: u16,
-    /// Where announcements are sent (normally `255.255.255.255:47321`).
+    /// 알림을 보낼 곳 (보통 `255.255.255.255:47321`)
     pub broadcast_to: SocketAddr,
-    /// Friends paired earlier, as returned by [`Net::friends`].
+    /// 전에 짝지은 친구들 ([`Net::friends`]가 돌려준 그대로)
     pub friends: Vec<Friend>,
+    /// 시간 상수
     pub timing: Timing,
-    /// Relay for friends outside the LAN (`wss://…` or `ws://…`), normally
-    /// [`DEFAULT_RELAY_URL`]; `None` = LAN only.
+    /// LAN 밖 친구용 릴레이 (`wss://…`나 `ws://…`), 보통 [`DEFAULT_RELAY_URL`]. None이면 LAN만 씀
     pub relay_url: Option<String>,
-    /// The relay's static public key, if pinned (normally
-    /// [`DEFAULT_RELAY_KEY`] with [`DEFAULT_RELAY_URL`]). A relay that
-    /// presents another key is refused. `None` = trust on each connect.
+    /// 고정한 릴레이 정적 공개키 (보통 [`DEFAULT_RELAY_URL`]과 함께 [`DEFAULT_RELAY_KEY`]).
+    /// 다른 키를 내미는 릴레이는 거절함. None이면 연결마다 믿음
     pub relay_key: Option<[u8; 32]>,
-    /// My linked other computer and our stored secret (see
-    /// [`Net::new_link_code`]); persist it with the friend. Ignored if no friend.
+    /// 내 연결된 다른 컴퓨터와 저장된 비밀 ([`Net::new_link_code`] 참고). 친구와 함께 저장함. 친구가 아니면 무시함
     pub device: Option<(String, DeviceSecret)>,
-    /// Friends a friend introduced as its other computers: (device id, the
-    /// introducing friend's id). They leave together with that friend.
+    /// 친구가 자기 다른 컴퓨터로 소개한 친구들: (기기 id, 소개한 친구 id). 그 친구와 함께 빠짐
     pub introduced: Vec<(String, String)>,
-    /// Friends added from another computer or an introduction that have not
-    /// yet shown on a link that they know us (see [`FriendInfo::pending`]).
+    /// 다른 컴퓨터나 소개로 더했지만 아직 링크에서 우리를 안다고 보이지 않은 친구들 ([`FriendInfo::pending`] 참고)
     pub pending: Vec<String>,
-    /// When each of `pending` was added (unix seconds), so a restart doesn't
-    /// restart its clock. One missing here counts from this start.
+    /// `pending` 각각을 더한 때 (유닉스 초). 재시작해도 시계가 다시 안 돌게 함. 여기 없는 것은 이번 시작부터 셈
     pub pending_added: Vec<(String, u64)>,
 }
 
-/// The secret two linked computers share (persist it; never show or log it:
-/// `Debug` prints no bytes).
+/// 연결된 두 컴퓨터가 나누는 비밀임 (저장하되 보이거나 로그에 남기지 말 것: `Debug`는 바이트를 안 찍음)
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct DeviceSecret(pub [u8; 32]);
 
 impl std::fmt::Debug for DeviceSecret {
+    /// 바이트 없이 `DeviceSecret(..)`만 찍음
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("DeviceSecret(..)")
     }
 }
 
-/// Why [`Net::new_link_code`] / [`Net::enter_link_code`] could not start.
+/// [`Net::new_link_code`] / [`Net::enter_link_code`]를 시작하지 못한 까닭임
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkError {
-    /// Not a friend.
+    /// 친구가 아님
     NotFriend,
-    /// Already linked to this other computer (unlink it first): at most two computers.
+    /// 이미 다른 컴퓨터와 연결됨 (먼저 끊을 것): 컴퓨터는 둘까지임
     Taken(String),
-    /// Not a link code.
+    /// 연결 코드가 아님
     Invalid,
-    /// The friend is not connected now.
+    /// 친구가 지금 연결돼 있지 않음
     Offline,
-    /// The friend's build does not know linking.
+    /// 친구 빌드가 연결하기를 모름
     Old,
 }
 
-/// What [`Net::friend_info`] knows about a friend besides its key.
+/// [`Net::friend_info`]가 키 말고 친구에 대해 아는 것임
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FriendInfo {
-    /// It is my linked other computer.
+    /// 내 연결된 다른 컴퓨터임
     pub device: bool,
-    /// It was introduced by this friend as one of its computers.
+    /// 이 친구가 자기 컴퓨터로 소개했음
     pub via: Option<String>,
-    /// Added from another computer or an introduction and not yet seen
-    /// knowing us; not removed when it says it doesn't (yet).
+    /// 다른 컴퓨터나 소개로 더했고 아직 우리를 아는 모습을 못 봄. 모른다고 해도 (아직은) 안 지움
     pub pending: bool,
-    /// When it was added unconfirmed (unix seconds; `None` if confirmed).
+    /// 미확인으로 더한 때 (유닉스 초, 확인됐으면 None)
     pub pending_since: Option<u64>,
 }
 
 impl NetConfig {
-    /// Spec defaults: port 47321, broadcast to 255.255.255.255:47321, spec
-    /// timing, no relay (set `relay_url` to use one).
+    /// 스펙 기본값으로 만듦: 포트 47321, 255.255.255.255:47321로 브로드캐스트, 스펙 시간, 릴레이 없음 (쓰려면 `relay_url`을 설정)
     pub fn new(id: impl Into<String>, name: impl Into<String>, static_key: [u8; 32], friends: Vec<Friend>) -> NetConfig {
         NetConfig {
             id: id.into(),
@@ -246,176 +225,150 @@ impl NetConfig {
     }
 }
 
+/// 네트워크가 앱에 알리는 이벤트임 (mpsc 채널로 감)
 #[derive(Debug, Clone, PartialEq)]
 pub enum NetEvent {
+    /// LAN에서 상대가 보임
     PeerSeen { id: String, name: String },
+    /// 보이던 상대가 조용해짐
     PeerGone { id: String },
-    /// A stranger asks to pair. Show `sas` and ask the user to compare it
-    /// with the inviter's screen; answer with [`Net::answer_invite`] passing
-    /// this `pairing` (it identifies exactly this request).
+    /// 낯선 이가 짝짓기를 청함. `sas`를 보여 초대자 화면과 비교하게 하고,
+    /// 이 `pairing`(정확히 이 요청을 가리킴)을 넘겨 [`Net::answer_invite`]로 답함
     Invited { from: String, name: String, pet: String, sas: String, pairing: u64 },
-    /// Our invite reached `to`. Show `sas`; once the user confirms it matches
-    /// the other screen, call [`Net::answer_invite`] with this `pairing`.
+    /// 우리 초대가 `to`에 닿음. `sas`를 보이고 사용자가 상대 화면과 같다고 확인하면 이 `pairing`으로 [`Net::answer_invite`]를 부름
     InviteSent { to: String, sas: String, pairing: u64 },
-    /// The other side confirmed (`true`) or the pairing ended without
-    /// friendship (`false`: refused, timed out or link lost).
-    /// `pairing` is the token of the `Invited`/`InviteSent` it concludes; no
-    /// outcome is emitted for a pairing that was never surfaced.
+    /// 상대가 확인함(`true`) 또는 짝짓기가 친구 없이 끝남(`false`: 거절, 시간 초과, 링크 끊김).
+    /// `pairing`은 마무리되는 `Invited`/`InviteSent`의 토큰이고, 알린 적 없는 짝짓기는 결과도 안 냄
     InviteAnswered { from: String, accepted: bool, pairing: u64 },
+    /// 친구 링크가 이어짐
     Connected { id: String, name: String },
-    /// Friend `id` changed its display name (a repeated `hello` on its
-    /// authenticated friend link; clamped to 64 characters). Older versions
-    /// ignore a repeated `hello`, so this stays backward compatible.
+    /// 친구 `id`가 표시 이름을 바꿈 (인증된 친구 링크의 반복 `hello`, 64자로 자름).
+    /// 옛 버전은 반복 `hello`를 무시하므로 하위 호환임
     Renamed { id: String, name: String },
-    /// Friend `from` sent an app request with [`Net::ask`] (clamped to 64
-    /// characters; only from authenticated friend links).
+    /// 친구 `from`이 [`Net::ask`]로 앱 요청을 보냄 (64자로 자름, 인증된 친구 링크에서만)
     Asked { from: String, ask: String },
-    /// Friend `from` steers its pet visiting us (control mode, sent with
-    /// [`Net::steer`]; authenticated friend links only, rate limited). The
-    /// app must check that `steer.visit_id` is `from`'s own guest.
+    /// 친구 `from`이 우리에게 놀러 온 자기 펫을 조종함 ([`Net::steer`], 인증된 친구 링크에서만, 속도 제한).
+    /// 앱은 `steer.visit_id`가 `from`의 손님인지 확인해야 함
     Steered { from: String, steer: Steer },
-    /// Friend `from` threw an object onto our screen (sent with [`Net::toss`];
-    /// authenticated friend links only, at most 10 at once then one per 6 s per
-    /// friend, across reconnects). The app must validate `kind`, `fling` and `note`.
+    /// 친구 `from`이 우리 화면에 물건을 던짐 ([`Net::toss`], 인증된 친구 링크에서만, 한 번에 10개 뒤 친구당 6초에 하나,
+    /// 재연결해도 이어짐). 앱은 `kind`, `fling`, `note`를 검사해야 함
     Tossed { from: String, toss: Toss },
+    /// 친구 링크가 끊김 (유예 뒤)
     Disconnected { id: String },
-    /// The relay's answer to [`Net::send_letter`]: `Err` holds its reason
-    /// (`daily`, `ip`, `new`, `global`, `full`, `size`, `blocked`) or
-    /// `offline`, `busy`, `timeout`.
+    /// [`Net::send_letter`]에 대한 릴레이 답임: `Err`는 그 까닭(`daily`, `ip`, `new`, `global`, `full`, `size`, `blocked`)
+    /// 또는 `offline`, `busy`, `timeout`
     LetterSent { result: Result<(), String> },
-    /// The whole developer mailbox (only for installs the relay lists as
-    /// mailbox readers), newest first, and the ids of the letters already on
-    /// the 📮 public board (empty from relays before v3).
+    /// 개발자 편지함 전체 (릴레이가 편지함 독자로 둔 설치에만), 최신 먼저, 그리고 이미 📮 공개 건의함에 올라간 편지 id들
+    /// (v3 전 릴레이면 빈 목록)
     Mailbox { letters: Vec<letter::MailItem>, board: Vec<u64> },
-    /// 📮 The answer to [`Net::board_list`]: a page of the public board, or
-    /// why not (`offline`, `old` = the relay is older than v3, `timeout`).
+    /// 📮 [`Net::board_list`]의 답: 공개 건의함 한 페이지, 또는 안 된 까닭 (`offline`, `old` = 릴레이가 v3보다 옛것, `timeout`)
     Board { result: Result<board::BoardPage, String> },
-    /// A new letter reached the developer mailbox while we are a reader online.
+    /// 우리가 독자로 접속해 있는 동안 개발자 편지함에 새 편지가 옴
     LetterArrived { item: letter::MailItem },
+    /// 친구에게서 놀러 가기 메시지가 옴
     Received { from: String, msg: Visit },
-    /// A ladder game message from a connected friend (validated by `ladder`).
+    /// 연결된 친구에게서 사다리 게임 메시지가 옴 (`ladder`가 검사함)
     Ladder { from: String, msg: LadderMsg },
-    /// Friend `id` proved its pinned key but no longer recognizes us as a
-    /// friend (e.g. pairing finished on one side only, or it removed us), so
-    /// it has been removed here too: [`Net::friends`] no longer lists it. Only
-    /// the pinned key can cause this; an address that answers for `id` with a
-    /// *different* key is just treated as a bad candidate, silently.
+    /// 친구 `id`가 고정된 키를 증명했지만 더는 우리를 친구로 모름 (예: 짝짓기가 한쪽만 끝났거나 우리를 지움).
+    /// 그래서 여기서도 지웠고 [`Net::friends`]에 더는 없음. 고정된 키만 이를 일으킬 수 있고,
+    /// `id`로 *다른* 키를 내미는 주소는 조용히 나쁜 후보로만 다룸
     FriendForgotUs { id: String },
-    /// ☀️ The relay's current weather for the place we want
-    /// ([`Net::want_weather`], Yongin until then): a WMO weather code and
-    /// when the relay fetched it (unix seconds). Arrives after connecting
-    /// and every new reading (about every 30 minutes); never from old relays.
+    /// ☀️ 우리가 원하는 지역의 릴레이 현재 날씨 ([`Net::want_weather`], 그전엔 용인): WMO 날씨 코드와 릴레이가 받아 온 때 (유닉스 초).
+    /// 연결 뒤와 새 값마다(약 30분마다) 옴. 옛 릴레이에서는 안 옴
     Weather { code: u16, at: i64 },
-    /// The relay connection came up (`true`) or went down (`false`).
+    /// 릴레이 연결이 올라옴(`true`) 또는 내려감(`false`)
     RelayStatus { connected: bool },
-    /// Our current friend code from the relay (on connect and on rotation).
+    /// 릴레이에서 받은 지금 친구 코드 (연결 때와 교체 때)
     FriendCode { code: String },
-    /// A code given to [`Net::redeem_code`] belongs to `id`; pairing with them
-    /// has started (expect `InviteSent` / `InviteAnswered` as for `invite`).
+    /// [`Net::redeem_code`]에 준 코드가 `id`의 것임. 짝짓기가 시작됨 (`invite`처럼 `InviteSent` / `InviteAnswered`가 옴)
     CodeRedeemed { code: String, id: String },
-    /// A code could not be used. `reason`: `invalid` (not a code), `unknown`
-    /// (no such code), `offline` (relay or owner not connected), `self`,
-    /// `already_friend`, `busy`, `rate`, `timeout`, `full` (we have `MAX_FRIENDS`),
-    /// `disabled` (the relay has friend codes switched off).
+    /// 코드를 못 씀. `reason`: `invalid` (코드 아님), `unknown` (그런 코드 없음), `offline` (릴레이나 주인 미접속), `self`,
+    /// `already_friend`, `busy`, `rate`, `timeout`, `full` (`MAX_FRIENDS`만큼 있음), `disabled` (릴레이가 친구 코드를 끔)
     CodeFailed { code: String, reason: String },
-    /// A friend was pinned without pairing: from `device_friends` of my
-    /// linked other computer (`via: None`; `name` and `side` are its
-    /// first values, clamped but otherwise unchecked), or introduced by friend
-    /// `via` as one of its computers (`name` empty). [`Net::friends`] lists it.
+    /// 짝짓기 없이 친구를 고정함: 내 연결된 다른 컴퓨터의 `device_friends`에서(`via: None`, `name`과 `side`는 첫값으로
+    /// 자르기만 하고 검사 안 함), 또는 친구 `via`가 자기 컴퓨터로 소개함(`name`은 빈 값). [`Net::friends`]에 나옴
     FriendAdded { id: String, name: String, via: Option<String>, side: Option<String> },
-    /// A friend added without pairing was removed: introduced by a friend
-    /// that is now removed, or never confirmed (a week, or it said three
-    /// times that it doesn't know us).
+    /// 짝짓기 없이 더한 친구를 뺌: 소개한 친구가 빠졌거나, 끝내 확인되지 않음 (일주일, 또는 모른다고 세 번 말함)
     FriendDropped { id: String },
-    /// The link code matched with friend `id`: ask the user "본인의 PC가
-    /// 맞습니까?" and answer with [`Net::confirm_device`]. Nothing is linked,
-    /// stored or shared until both computers confirm (then
-    /// [`NetEvent::DeviceLinked`]); a no, a lost link or
-    /// `Timing::device_confirm_timeout` gives [`NetEvent::DeviceLinkCancelled`]
-    /// on both.
+    /// 친구 `id`와 연결 코드가 맞음: 사용자에게 "본인의 PC가 맞습니까?"를 묻고 [`Net::confirm_device`]로 답함.
+    /// 두 컴퓨터가 다 확인하기 전엔 연결·저장·공유가 없음 (그 뒤 [`NetEvent::DeviceLinked`]).
+    /// 아니오·링크 끊김·`Timing::device_confirm_timeout`이면 양쪽에 [`NetEvent::DeviceLinkCancelled`]가 옴
     DeviceConfirm { id: String },
-    /// Linking with friend `id` was cancelled before both confirmed (one of
-    /// us said no, did not answer in time, or the link was lost). Nothing was
-    /// linked or stored.
+    /// 둘 다 확인하기 전에 친구 `id`와의 연결이 취소됨 (한쪽이 아니오, 시간 안에 답 없음, 링크 끊김). 연결·저장된 것 없음
     DeviceLinkCancelled { id: String },
-    /// Friend `id` is now my linked other computer: a code matched and both
-    /// users confirmed (store [`Net::device_secret`]). Friend lists flow on this link
-    /// now — send it mine ([`Net::send_device_friends`]).
+    /// 친구 `id`가 이제 내 연결된 다른 컴퓨터임: 코드가 맞고 두 사용자가 확인함 ([`Net::device_secret`]을 저장할 것).
+    /// 이제 이 링크로 친구 목록이 오감: 내 것을 보낼 것 ([`Net::send_device_friends`])
     DeviceLinked { id: String },
-    /// Linking with friend `id` by code did not work: `reason` = `wrong`
-    /// (`left` tries remain on the code's side), `locked` (too many wrong
-    /// tries: the code is gone), `none` (no live code for us there),
-    /// `taken` (one of us is linked to another computer).
+    /// 친구 `id`와 코드로 연결하기가 안 됨: `reason` = `wrong` (코드 쪽에 `left`번 남음), `locked` (너무 많이 틀려 코드가 사라짐),
+    /// `none` (거기에 우리용 살아 있는 코드 없음), `taken` (한쪽이 다른 컴퓨터와 연결됨)
     DeviceLinkFailed { id: String, reason: String, left: u32 },
-    /// My linked computer `id` proved our stored secret on its new link:
-    /// friend lists flow now — send it mine ([`Net::send_device_friends`]).
+    /// 내 연결된 컴퓨터 `id`가 새 링크에서 저장된 비밀을 증명함: 이제 친구 목록이 오감, 내 것을 보낼 것 ([`Net::send_device_friends`])
     DeviceProven { id: String },
-    /// Friend `id` is no longer my linked computer (it unlinked, or did not
-    /// hold our secret); still a friend. Forget the stored secret.
+    /// 친구 `id`가 더는 내 연결된 컴퓨터가 아님 (끊었거나 우리 비밀이 없음). 친구로는 남음. 저장된 비밀을 잊을 것
     DeviceUnlinked { id: String },
-    /// My other computer `from` sent its friends (already merged). `want` =
-    /// it asks for mine ([`Net::send_device_friends`]).
+    /// 내 다른 컴퓨터 `from`이 친구들을 보냄 (이미 합침). `want` = 내 것을 달라는 뜻 ([`Net::send_device_friends`])
     DeviceSynced { from: String, want: bool },
-    /// 📱 Which of my two linked computers plays changed. `me` = this one is
-    /// on standby: friend links close after `Timing::standby_grace` (call my
-    /// pet home from friends now) and none open until it plays again.
-    /// `device` = my linked computer is on standby (I play; don't send it my
-    /// pet). Both `false` when the two can't reach each other: each plays.
+    /// 📱 연결된 두 컴퓨터 중 누가 노는지 바뀜. `me` = 이 컴퓨터가 대기: 친구 링크는 `Timing::standby_grace` 뒤 닫히고
+    /// (지금 친구들에게서 펫을 집으로 부를 것) 다시 놀 때까지 안 열림. `device` = 연결된 컴퓨터가 대기 (내가 놂, 내 펫을 보내지 말 것).
+    /// 서로 닿지 않으면 둘 다 `false`: 각자 놂
     Standby { me: bool, device: bool },
-    /// 📱 My linked computer `from`, which plays, shares its selected pet and
-    /// every pet's care (or hands them over as I take over). Shape-checked
-    /// (pet ids, at most `MAX_CARE` entries, one per pet); the app checks
-    /// species and clamps values, then adopts it. Only when it differs from
-    /// the last state shared either way.
+    /// 📱 노는 내 연결된 컴퓨터 `from`이 고른 펫과 모든 펫의 돌봄을 나눔 (또는 내가 차지할 때 넘겨줌).
+    /// 모양은 검사됨(펫 id, 최대 `MAX_CARE`개, 펫당 하나). 앱이 종을 검사하고 값을 자른 뒤 받아들임.
+    /// 어느 쪽으로든 마지막에 나눈 상태와 다를 때만 옴
     DeviceState { from: String, pet: Option<String>, care: Vec<WireCare> },
 }
 
-/// A peer id heard via discovery. Announcements are unauthenticated hints.
+/// 찾기로 들은 상대 id임. 알림은 인증 없는 힌트임
 pub(crate) struct Seen {
-    /// Candidate → (last announced, announcing source IP).
+    /// 후보 → (마지막 알린 때, 알린 출처 IP)
     pub candidates: HashMap<Candidate, (Instant, IpAddr)>,
-    /// Candidate that last passed the identity check, and when.
+    /// 마지막으로 신원 확인을 통과한 후보와 그 때
     pub verified: Option<(Candidate, Instant)>,
-    /// When each candidate was last dialed (round-robin order).
+    /// 후보마다 마지막 다이얼 때 (라운드 로빈 순서)
     pub tried: HashMap<Candidate, Instant>,
-    /// Recent dials to non-verified candidates, per announcing source IP
-    /// (capped per minute).
+    /// 알린 출처 IP별 최근 미검증 후보 다이얼 (분당 상한)
     pub unverified_dials: HashMap<IpAddr, VecDeque<Instant>>,
+    /// 마지막으로 들은 때
     pub last: Instant,
 }
 
-/// Where a pairing is in the commit -> random -> reveal -> confirm exchange.
+/// 짝짓기가 commit -> random -> reveal -> confirm 교환 중 어디인지임
 pub(crate) enum PairStage {
-    /// Inviter: `invite{commit}` sent, waiting for the invitee's random.
+    /// 초대자: `invite{commit}`을 보냈고 초대받은 쪽 난수를 기다림
     AwaitRandom { nonce_i: [u8; 32] },
-    /// Invitee: random sent, waiting for the inviter's reveal.
+    /// 초대받은 쪽: 난수를 보냈고 초대자의 reveal을 기다림
     AwaitReveal { commit: [u8; 32], r_r: [u8; 32], pet: String },
-    /// SAS shown on both sides; waiting for both users' confirmation.
+    /// 양쪽에 SAS를 보임. 두 사용자의 확인을 기다림
     Confirm,
-    /// Refused or timed out. Terminal: nothing on this link can pin.
+    /// 거절됐거나 시간 초과. 끝임: 이 링크에서는 아무것도 고정 못 함
     Failed,
 }
 
-/// An in-progress pairing, bound to the link that carried the invite.
+/// 진행 중인 짝짓기임. 초대를 실은 링크에 묶임
 pub(crate) struct Pairing {
+    /// 진행 단계
     pub stage: PairStage,
+    /// 우리 사용자가 확인함
     pub local_ok: bool,
+    /// 상대 사용자가 확인함
     pub remote_ok: bool,
+    /// 단계가 시작된 때 (마감 계산용)
     pub since: Instant,
-    /// A final `InviteAnswered{accepted:false}` was already emitted.
+    /// 마지막 `InviteAnswered{accepted:false}`를 이미 냈음
     pub failure_reported: bool,
-    /// `Invited`/`InviteSent` was emitted: only then are outcomes reported.
+    /// `Invited`/`InviteSent`를 냈음: 그때만 결과를 알림
     pub surfaced: bool,
 }
 
+/// 링크 종류임
 pub(crate) enum Kind {
-    /// Authenticated: remote static key equals the pinned key.
+    /// 인증됨: 상대 정적 키가 고정된 키와 같음
     Friend,
-    /// Not a friend; may only pair (`None` until an invite is on the link).
+    /// 친구 아님. 짝짓기만 할 수 있음 (링크에 초대가 오기 전엔 None)
     Stranger(Option<Pairing>),
 }
 
-/// A token bucket: `burst` at once, then one per `every`.
+/// 토큰 버킷임: 한 번에 `burst`개, 그 뒤 `every`마다 하나
 pub(crate) struct Bucket {
     tokens: f64,
     at: Instant,
@@ -424,11 +377,12 @@ pub(crate) struct Bucket {
 }
 
 impl Bucket {
+    /// 가득 찬 버킷을 만듦
     fn new(now: Instant, burst: f64, every: Duration) -> Bucket {
         Bucket { tokens: burst, at: now, burst, every }
     }
 
-    /// Spend one token if there is one.
+    /// 토큰이 있으면 하나 씀
     pub fn take(&mut self, now: Instant) -> bool {
         let refill = now.saturating_duration_since(self.at).as_secs_f64() / self.every.as_secs_f64();
         self.tokens = (self.tokens + refill).min(self.burst);
@@ -442,53 +396,62 @@ impl Bucket {
     }
 }
 
-/// Renames and asks: 2 at once, then one per 2 s.
+/// 이름 바꾸기와 요청: 한 번에 2개, 그 뒤 2초에 하나
 const ASK_BURST: f64 = 2.0;
+/// 요청 토큰이 하나 차는 주기
 const ASK_EVERY: Duration = Duration::from_secs(2);
-/// Steering (control mode): up to 30 messages at once, then 30 per second.
+/// 조종(조종 모드): 한 번에 30개, 그 뒤 초당 30개
 const STEER_BURST: f64 = 30.0;
+/// 조종 토큰이 하나 차는 주기
 const STEER_EVERY: Duration = Duration::from_micros(33_334);
-/// Thrown objects: up to 50 at once (five volleys), then 50 per minute.
+/// 던진 물건: 한 번에 50개(다섯 번 던지기), 그 뒤 분당 50개
 const TOSS_BURST: f64 = 50.0;
+/// 던지기 토큰이 하나 차는 주기
 const TOSS_EVERY: Duration = Duration::from_millis(1200);
-/// Visit messages: far more than a pet walking back and forth ever sends.
+/// 놀러 가기 메시지: 펫이 오가며 보내는 것보다 훨씬 넉넉함
 const VISIT_BURST: f64 = 20.0;
+/// 놀러 가기 토큰이 하나 차는 주기
 const VISIT_EVERY: Duration = Duration::from_millis(500);
-/// Ladder messages: a game takes a handful per friend.
+/// 사다리 메시지: 게임 하나에 친구당 몇 개뿐임
 const LADDER_BURST: f64 = 20.0;
+/// 사다리 토큰이 하나 차는 주기
 const LADDER_EVERY: Duration = Duration::from_millis(500);
-/// Friend lists between my computers and introductions: a few on each
-/// connect or change.
+/// 내 컴퓨터끼리의 친구 목록과 소개: 연결이나 변경마다 몇 개
 const LINKS_BURST: f64 = 6.0;
+/// 친구 목록 토큰이 하나 차는 주기
 const LINKS_EVERY: Duration = Duration::from_secs(5);
-/// Linking by code (two messages per try; a code allows `devices::CODE_TRIES`)
-/// and the secret proof on each connect.
+/// 코드로 연결하기(시도당 메시지 둘, 코드 하나에 `devices::CODE_TRIES`번)와 연결마다의 비밀 증명
 const CODES_BURST: f64 = 16.0;
+/// 코드 토큰이 하나 차는 주기
 const CODES_EVERY: Duration = Duration::from_secs(2);
-/// 📱 Shared pet and care: the sender coalesces to one per
-/// `Timing::device_state_every` (plus a claim's handover), so a few at once.
+/// 📱 나눈 펫과 돌봄: 보내는 쪽이 `Timing::device_state_every`마다 하나로 모으므로(차지의 넘겨주기 더함) 한 번에 몇 개
 const STATES_BURST: f64 = 4.0;
+/// 상태 토큰이 하나 차는 주기
 const STATES_EVERY: Duration = Duration::from_secs(1);
 
-/// What one friend may make us process (over budget = dropped, the link stays:
-/// a flooding friend can't spam the app with events). Kept per friend, not per
-/// link: a reconnect continues with the tokens that were left. Each kind has
-/// its own bucket, so a burst of one never starves another.
+/// 친구 하나가 우리에게 처리시킬 수 있는 양임 (넘으면 버리고 링크는 유지: 폭주하는 친구가 앱을 이벤트로 도배 못 함).
+/// 링크가 아니라 친구마다 둠: 재연결해도 남은 토큰으로 이어감. 종류마다 버킷이 따로라 한 종류 폭주가 다른 것을 굶기지 않음
 pub(crate) struct Budget {
+    /// 요청과 이름 바꾸기
     pub asks: Bucket,
+    /// 조종
     pub steers: Bucket,
+    /// 던진 물건
     pub tosses: Bucket,
+    /// 놀러 가기 메시지
     pub visits: Bucket,
+    /// 사다리 메시지
     pub ladder: Bucket,
+    /// 친구 목록과 소개
     pub links: Bucket,
-    /// `device_*` messages (linking by code, proving the stored secret).
+    /// `device_*` 메시지 (코드로 연결하기, 저장된 비밀 증명)
     pub codes: Bucket,
-    /// `device_state` (its own bucket: shared pets never starve a claim).
+    /// `device_state` (버킷이 따로라 나눈 펫이 차지를 굶기지 않음)
     pub states: Bucket,
 }
 
 impl Budget {
-    /// Spend on a `device_*` message (`state` = a `device_state`).
+    /// `device_*` 메시지 하나만큼 씀 (`state` = `device_state`)
     pub fn device(&mut self, state: bool, now: Instant) -> bool {
         if state {
             self.states.take(now)
@@ -497,6 +460,7 @@ impl Budget {
         }
     }
 
+    /// 버킷을 모두 가득 채워 만듦
     fn new(now: Instant) -> Budget {
         Budget {
             asks: Bucket::new(now, ASK_BURST, ASK_EVERY),
@@ -511,157 +475,156 @@ impl Budget {
     }
 }
 
-/// One live link (after hello). Several stranger links may claim the same id;
-/// at most one friend link per id (see `State::friend_links`).
+/// 살아 있는 링크 하나임 (hello 뒤). 낯선 링크는 여럿이 같은 id를 주장할 수 있고,
+/// 친구 링크는 id당 하나뿐임 (`State::friend_links` 참고)
 pub(crate) struct Conn {
+    /// 상대가 말한 id
     pub peer_id: String,
+    /// 암호화된 메시지 통로
     pub link: Arc<secure::SecureLink>,
-    /// Last display name heard on this link (hello, then renames).
+    /// 이 링크에서 마지막으로 들은 표시 이름 (hello, 그 뒤 이름 바꾸기)
     pub name: String,
-    /// Protocol version from the peer's hello (`PROTOCOL_VERSION` of its build).
+    /// 상대 hello의 프로토콜 버전 (그 빌드의 `PROTOCOL_VERSION`)
     pub v: u32,
+    /// 친구인지 낯선 이인지
     pub kind: Kind,
-    /// `Connected` has been emitted for this peer (so `Disconnected` is owed).
+    /// 이 상대에 대해 `Connected`를 냈음 (그래서 `Disconnected`를 내야 함)
     pub announced: bool,
-    /// We opened this link.
+    /// 우리가 연 링크임
     pub outgoing: bool,
-    /// Id of the side that opened the link.
+    /// 링크를 연 쪽의 id
     pub dialer: String,
+    /// 상대 정적 공개키
     pub remote_key: [u8; 32],
-    /// Transport address of the peer (for trust / rate limiting).
+    /// 상대 전송 주소 (신뢰·속도 제한용)
     pub peer_addr: String,
-    /// Noise handshake hash of this link (input to the pairing SAS).
+    /// 이 링크의 Noise 핸드셰이크 해시 (짝짓기 SAS 입력)
     pub hs_hash: [u8; 32],
+    /// 링크가 생긴 때
     pub since: Instant,
-    /// Counts against `MAX_UNVERIFIED_INBOUND` while set.
+    /// 켜져 있는 동안 `MAX_UNVERIFIED_INBOUND`에 셈
     pub unverified: Arc<AtomicBool>,
-    /// Linking by code / proving the stored secret on this link.
+    /// 이 링크에서의 코드 연결·저장된 비밀 증명 상태
     pub dev: devices::DevLink,
 }
 
-/// What a redial backoff applies to.
+/// 재다이얼 대기가 걸리는 대상임
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Backoff {
-    /// The friend (authenticated) said it does not have us as a friend.
+    /// 친구(인증됨)가 우리를 친구로 안 둔다고 말함
     Id(String),
-    /// This address answered for a friend id with the wrong key.
+    /// 이 주소가 친구 id에 틀린 키로 답함
     Cand(Candidate),
 }
 
+/// 네트워크 전체 상태임 (`Shared::state` 잠금 하나로 지킴)
 #[derive(Default)]
 pub(crate) struct State {
+    /// 고정된 친구들
     pub friends: Vec<Friend>,
+    /// 찾기로 들은 id들
     pub seen: HashMap<String, Seen>,
-    /// Failure history per candidate (separate from `seen`, expires).
+    /// 후보별 실패 기록 (`seen`과 따로, 만료됨)
     pub failed: HashMap<Candidate, Instant>,
-    /// Redial backoff: key → (no dial before, current delay).
+    /// 재다이얼 대기: 키 → (이전엔 다이얼 안 함, 지금 지연)
     pub backoff: HashMap<Backoff, (Instant, Duration)>,
-    /// All links, by session token.
+    /// 세션 토큰별 모든 링크
     pub conns: HashMap<u64, Conn>,
-    /// Friend id → token of its authenticated link.
+    /// 친구 id → 인증된 링크의 토큰
     pub friend_links: HashMap<String, u64>,
-    /// When each friend paired in this run was pinned (see `just_paired`).
+    /// 이번 실행에서 짝지은 친구마다 고정한 때 (`just_paired` 참고)
     pub paired_at: HashMap<String, Instant>,
-    /// Friend id → since when it has been heard without a link (the larger
-    /// id only dials after a grace period, so both sides rarely dial at once).
+    /// 친구 id → 링크 없이 들린 지 언제부터인지 (큰 id는 유예 뒤에만 다이얼해서 양쪽이 동시에 거는 일이 드묾)
     pub friend_wait: HashMap<String, Instant>,
+    /// 지금 다이얼 중인 id들
     pub dialing: HashSet<String>,
-    /// Invites waiting for their outgoing link: peer id → pet.
+    /// 나가는 링크를 기다리는 초대: 상대 id → 펫
     pub invites_out: HashMap<String, String>,
-    /// Times of recent `Invited` events (rate limit).
+    /// 최근 `Invited` 이벤트 시각들 (속도 제한)
     pub invited_log: VecDeque<Instant>,
-    /// Discovery datagrams per source IP: (window start, count).
+    /// 출처 IP별 찾기 데이터그램: (창 시작, 수)
     pub src_rate: HashMap<IpAddr, (Instant, u32)>,
-    /// Announcements claiming a friend id, per (id, source IP).
+    /// 친구 id를 주장하는 알림, (id, 출처 IP)별
     pub friend_rate: HashMap<(String, IpAddr), (Instant, u32)>,
-    /// Recent incoming pairing attempts per peer address.
+    /// 상대 주소별 최근 들어온 짝짓기 시도
     pub pair_attempts: HashMap<String, VecDeque<Instant>>,
-    /// Addresses that authenticated as a friend → when (bounded).
-    /// Keyed by (friend id, address).
+    /// 친구로 인증한 주소 → 그 때 (상한 있음). 키는 (친구 id, 주소)
     pub trusted_ips: HashMap<(String, String), Instant>,
-    /// New inbound connections per source address (see `Shared::allow_inbound`).
+    /// 출처 주소별 새 들어오는 연결 (`Shared::allow_inbound` 참고)
     pub conn_rate: HashMap<String, (Instant, u32)>,
-    /// Announcements from a trusted (id, source IP), own finite budget.
+    /// 믿는 (id, 출처 IP)의 알림, 따로 둔 유한 예산
     pub trusted_rate: HashMap<(String, IpAddr), (Instant, u32)>,
-    /// Friend id → last attempt to move its relay link onto the LAN.
+    /// 친구 id → 릴레이 링크를 LAN으로 옮기려 한 마지막 시도
     pub lan_upgrade: HashMap<String, Instant>,
-    /// Friend id → when its owed `Disconnected` is emitted. A friend link
-    /// that ends is reported only after a grace (`conn_timeout`); a new link
-    /// registering in time (e.g. relay ↔ LAN switch, quick restart) takes
-    /// over silently — no Disconnected/Connected pair.
+    /// 친구 id → 내야 할 `Disconnected`를 낼 때. 끝난 친구 링크는 유예(`conn_timeout`) 뒤에만 알림.
+    /// 그 안에 새 링크가 등록되면(예: 릴레이 ↔ LAN 전환, 빠른 재시작) 조용히 이어받음: Disconnected/Connected 쌍이 없음
     pub pending_gone: HashMap<String, Instant>,
-    /// Friend id → what it may still make us process. Only ever holds
-    /// authenticated friends, and leaves with the friend.
+    /// 친구 id → 아직 처리시킬 수 있는 양. 인증된 친구만 들고 친구와 함께 빠짐
     pub budgets: HashMap<String, Budget>,
-    /// My linked other computer and our secret (at most one: two computers).
+    /// 내 연결된 다른 컴퓨터와 비밀 (하나까지: 컴퓨터 둘)
     pub device: Option<(String, [u8; 32])>,
-    /// The link code I am showing (for one friend).
+    /// 내가 보여 주는 연결 코드 (친구 하나용)
     pub link_code: Option<devices::LinkCode>,
-    /// Introduced device id → the friend that introduced it.
+    /// 소개된 기기 id → 소개한 친구
     pub via: HashMap<String, String>,
-    /// Friends added without pairing, not yet seen knowing us → when they
-    /// were added (unix seconds; see `devices::expire_pending`).
+    /// 짝짓기 없이 더했고 아직 우리를 아는 모습을 못 본 친구 → 더한 때 (유닉스 초, `devices::expire_pending` 참고)
     pub pending: HashMap<String, u64>,
-    /// Unconfirmed friend → authenticated hellos saying it doesn't know us.
+    /// 미확인 친구 → 우리를 모른다는 인증된 hello 수
     pub pending_denied: HashMap<String, u32>,
-    /// 📱 Who plays, as far as I know: (term, install id) — the highest wins
-    /// (see `devices::tick_active`). Starts as (0, me).
+    /// 📱 내가 아는 한 누가 노는지: (term, 설치 id), 가장 높은 쪽이 이김 (`devices::tick_active` 참고). (0, 나)로 시작함
     pub active: (u64, String),
-    /// When the user last used this computer (`Net::set_idle`).
+    /// 사용자가 이 컴퓨터를 마지막으로 쓴 때 (`Net::set_idle`)
     pub last_input: Option<Instant>,
-    /// Last time the link to my linked computer was up and proven.
+    /// 연결된 컴퓨터로의 링크가 살아 있고 증명된 마지막 때
     pub device_seen: Option<Instant>,
-    /// As last reported (`NetEvent::Standby`): this computer / my linked one is on standby.
+    /// 마지막으로 알린 대로 (`NetEvent::Standby`): 이 컴퓨터가 대기 중임
     pub standby: bool,
+    /// 마지막으로 알린 대로: 연결된 컴퓨터가 대기 중임
     pub device_standby: bool,
-    /// When this computer went on standby (friend links close after the grace).
+    /// 이 컴퓨터가 대기로 간 때 (유예 뒤 친구 링크를 닫음)
     pub standby_since: Option<Instant>,
-    /// 📱 The latest selected pet and care shared between my two computers:
-    /// mine (`Net::share_state`) or the one my linked computer shared.
+    /// 📱 두 컴퓨터가 나눈 가장 최근의 고른 펫과 돌봄: 내 것(`Net::share_state`)이나 연결된 컴퓨터가 나눈 것
     pub dstate: Option<devices::SharedState>,
-    /// It changed since it was last sent (sent within `Timing::device_state_every`).
+    /// 마지막으로 보낸 뒤 바뀜 (`Timing::device_state_every` 안에 보냄)
     pub dstate_dirty: bool,
-    /// I changed it here since I last took one from my linked computer (a
-    /// handover then does not overwrite it).
+    /// 연결된 컴퓨터에서 마지막으로 받은 뒤 여기서 바꿈 (그러면 넘겨주기가 덮어쓰지 않음)
     pub dstate_edited: bool,
-    /// Last sent: (link token, term I played in, when).
+    /// 마지막으로 보낸 것: (링크 토큰, 놀던 term, 때)
     pub dstate_sent: Option<(u64, u64, Instant)>,
-    /// I just claimed the play: my linked computer's handover may come until then.
+    /// 방금 놀기를 차지함: 그때까지 연결된 컴퓨터의 넘겨주기가 올 수 있음
     pub handover_until: Option<Instant>,
 }
 
 impl State {
-    /// Friend `id`'s budget (only call for an authenticated friend).
+    /// 친구 `id`의 예산을 돌려줌 (인증된 친구에만 부를 것)
     pub fn budget(&mut self, id: &str, now: Instant) -> &mut Budget {
         self.budgets.entry(id.to_string()).or_insert_with(|| Budget::new(now))
     }
 
+    /// `id`가 고정된 친구인지 봄
     pub fn is_friend(&self, id: &str) -> bool {
         self.friends.iter().any(|f| f.id == id)
     }
-    /// Only introduced by a friend and never seen knowing us: its key is that
-    /// friend's word alone, so a real (SAS-confirmed) pairing may replace it.
-    /// Only a friend's introduction vouches for this id's key (confirmed or not:
-    /// whoever holds that key can confirm itself), so a real SAS-confirmed
-    /// pairing may still replace it.
+    /// 이 id의 키를 친구 소개만 보증하는지 봄 (확인 여부 무관: 그 키를 가진 이는 스스로 확인할 수 있음).
+    /// 그렇다면 진짜 SAS 확인 짝짓기가 그 키를 바꿀 수 있음
     pub fn introduced_only(&self, id: &str) -> bool {
         self.via.contains_key(id)
     }
+    /// 친구 `id`의 고정된 키를 돌려줌
     pub fn friend_key(&self, id: &str) -> Option<[u8; 32]> {
         self.friends.iter().find(|f| f.id == id).map(|f| f.public_key)
     }
+    /// 친구를 고정함 (같은 id나 같은 키의 예전 항목은 지움)
     pub fn add_friend(&mut self, id: &str, key: [u8; 32]) {
         self.friends.retain(|f| f.id != id && f.public_key != key);
         self.friends.push(Friend { id: id.to_string(), public_key: key });
     }
-    /// Was this friend pinned so recently that a hello sent before the peer
-    /// pinned us could still arrive? (Hello goes out at session start, and a
-    /// session has PRE_AUTH_MAX to deliver it; both sides pin about together.)
+    /// 이 친구를 너무 최근에 고정해서, 상대가 우리를 고정하기 전에 보낸 hello가 아직 올 수 있는지 봄
+    /// (hello는 세션 시작에 나가고 세션은 PRE_AUTH_MAX 안에 전함. 양쪽이 거의 함께 고정함)
     pub fn just_paired(&self, id: &str, now: Instant) -> bool {
         self.paired_at.get(id).is_some_and(|t| now.duration_since(*t) < PRE_AUTH_MAX * 2)
     }
-    /// Turn the friend link of a no-longer-friend into a plain link, for the
-    /// caller to close (`announced` stays: Disconnected follows).
+    /// 더는 친구가 아닌 이의 친구 링크를 보통 링크로 바꿔 호출자가 닫게 함 (`announced`는 남음: Disconnected가 따라옴)
     pub fn demote_friend_link(&mut self, id: &str) -> Option<Arc<secure::SecureLink>> {
         let token = self.friend_links.remove(id)?;
         self.conns.get_mut(&token).map(|c| {
@@ -669,6 +632,7 @@ impl State {
             c.link.clone()
         })
     }
+    /// 친구와 그에 딸린 기록(예산, 기기 연결, 코드, 소개, 미확인, 신뢰 주소)을 지움
     pub fn remove_friend(&mut self, id: &str) {
         self.friends.retain(|f| f.id != id);
         self.paired_at.remove(id);
@@ -687,21 +651,23 @@ impl State {
         self.trusted_rate.retain(|(friend, _), _| friend != id);
         self.friend_rate.retain(|(friend, _), _| friend != id);
     }
-    /// 📱 On standby, only my linked computer may have a link.
+    /// 📱 대기 중엔 내 연결된 컴퓨터만 링크를 가질 수 있음: `id`가 막히는지 봄
     pub fn standby_blocks(&self, id: &str) -> bool {
         self.standby && !self.device.as_ref().is_some_and(|(d, _)| d == id)
     }
-    /// 📱 On standby, a link from a friend's key (not my linked computer's) is closed before hello.
+    /// 📱 대기 중엔 친구 키(연결된 컴퓨터 것 제외)에서 온 링크를 hello 전에 닫음: `key`가 그런지 봄
     pub fn standby_refuses_key(&self, key: &[u8; 32]) -> bool {
         self.standby && self.friends.iter().any(|f| f.public_key == *key && self.standby_blocks(&f.id))
     }
+    /// 친구 `id`가 이 주소에서 인증한 적 있는지 봄
     pub fn is_trusted(&self, id: &str, ip: &str) -> bool {
         self.trusted_ips.contains_key(&(id.to_string(), ip.to_string()))
     }
-    /// Has any friend authenticated from this address?
+    /// 어떤 친구든 이 주소에서 인증한 적 있는지 봄
     pub fn ip_trusted(&self, ip: &str) -> bool {
         self.trusted_ips.keys().any(|(_, i)| i == ip)
     }
+    /// 친구 `id`가 이 주소에서 인증했음을 기억함 (꽉 차면 가장 오래된 것을 밀어냄)
     pub fn trust_ip(&mut self, id: &str, ip: &str, now: Instant) {
         let key = (id.to_string(), ip.to_string());
         if self.trusted_ips.len() >= MAX_TRUSTED_IPS && !self.trusted_ips.contains_key(&key) {
@@ -712,17 +678,19 @@ impl State {
         }
         self.trusted_ips.insert(key, now);
     }
+    /// 친구 `id`의 인증된 링크를 돌려줌
     pub fn friend_conn(&self, id: &str) -> Option<&Conn> {
         self.friend_links.get(id).and_then(|t| self.conns.get(t))
     }
-    /// Is friend `id` linked only through the relay?
+    /// 친구 `id`가 릴레이로만 이어졌는지 봄
     pub fn relay_linked(&self, id: &str) -> bool {
         self.friend_conn(id).is_some_and(|c| c.peer_addr.starts_with(relay::ADDR_PREFIX))
     }
+    /// `key`가 아직 재다이얼 대기 중인지 봄
     pub fn backed_off(&self, key: &Backoff, now: Instant) -> bool {
         self.backoff.get(key).is_some_and(|(until, _)| now < *until)
     }
-    /// Start or double the backoff for `key` (base `base`, up to `MAX_BACKOFF`).
+    /// `key`의 대기를 시작하거나 두 배로 늘림 (처음 `base`, 최대 `MAX_BACKOFF`)
     pub fn back_off(&mut self, key: Backoff, base: Duration, now: Instant) {
         let delay = match self.backoff.get(&key) {
             Some((_, d)) => (*d * 2).min(MAX_BACKOFF),
@@ -738,31 +706,35 @@ impl State {
     }
 }
 
+/// 모든 스레드가 같이 쓰는 네트워크 몸통임
 pub(crate) struct Shared {
+    /// 이 설치 id
     pub id: String,
-    /// Display name (changes with [`Net::set_name`]).
+    /// 표시 이름 ([`Net::set_name`]으로 바뀜)
     name: Mutex<String>,
+    /// 장기 정적 개인키
     pub static_key: [u8; 32],
-    /// Public half of `static_key`, computed once: deriving it costs a
-    /// scalar multiplication, too slow to repeat per message under the state lock.
+    /// `static_key`의 공개 반쪽, 한 번만 계산함: 스칼라 곱셈이라 상태 잠금 안에서 메시지마다 하기엔 느림
     pub public_key: [u8; 32],
+    /// 시간 상수
     pub timing: Timing,
+    /// LAN 링크를 받는 TCP 포트
     pub tcp_port: u16,
-    /// Relay transport, if configured.
+    /// 설정된 경우의 릴레이 전송
     pub relay: Option<Arc<relay::RelayClient>>,
+    /// 멈춤 깃발
     pub stop: AtomicBool,
+    /// 네트워크 상태 (잠금 하나)
     pub state: Mutex<State>,
     events: Sender<NetEvent>,
     threads: Mutex<Vec<JoinHandle<()>>>,
     next_token: AtomicU64,
     unverified: Mutex<Vec<Unverified>>,
-    /// Inbound session threads before their hello, per `handshake_class`
-    /// (`MAX_HANDSHAKES` each): strangers can only fill their own class.
+    /// hello 전인 들어온 세션 스레드 수, `handshake_class`마다 (각각 `MAX_HANDSHAKES`): 낯선 이는 자기 등급만 채울 수 있음
     handshakes: [AtomicUsize; 3],
 }
 
-/// Which `Shared::handshakes` counter a link counts against: a stranger on the
-/// LAN, a stranger through the relay, or an address a friend authenticated from.
+/// 링크가 어느 `Shared::handshakes` 칸에 세지는지 돌려줌: LAN 낯선 이, 릴레이 낯선 이, 친구가 인증했던 주소
 fn handshake_class(addr: &str, trusted: bool) -> usize {
     match (trusted, addr.starts_with(relay::ADDR_PREFIX)) {
         (true, _) => 2,
@@ -771,34 +743,34 @@ fn handshake_class(addr: &str, trusted: bool) -> usize {
     }
 }
 
-/// An inbound link not (yet) authenticated as a friend.
+/// 친구로 (아직) 인증되지 않은 들어온 링크임
 struct Unverified {
     ip: String,
-    /// From an address that previously authenticated as a friend.
+    /// 전에 친구로 인증했던 주소에서 옴
     trusted: bool,
     since: Instant,
     frames: Arc<dyn transport::FrameLink>,
-    /// Cleared when the link authenticates as a friend or ends.
+    /// 링크가 친구로 인증되거나 끝나면 꺼짐
     active: Arc<AtomicBool>,
-    /// Set while a person is comparing the emoji on this link (see `SessionGuard`).
+    /// 사람이 이 링크에서 이모지를 비교하는 동안 켜짐 (`SessionGuard` 참고)
     surfaced: Arc<AtomicBool>,
 }
 
-/// Holds an unverified-inbound slot (if any) until released or dropped.
+/// 미검증 들어온 링크 자리(있으면)를 풀리거나 버려질 때까지 쥠
 pub(crate) struct SessionGuard {
     shared: Arc<Shared>,
+    /// 켜져 있는 동안 미검증 풀에 셈
     pub unverified: Arc<AtomicBool>,
-    /// The link shows a pairing to the user: not evicted and not counted in
-    /// the pool (those are bounded by `MAX_INVITES_IN`), so a flood can't end a
-    /// pairing while two people compare emoji.
+    /// 링크가 사용자에게 짝짓기를 보임: 밀려나지 않고 풀에도 안 셈 (그쪽은 `MAX_INVITES_IN`으로 제한).
+    /// 그래서 두 사람이 이모지를 비교하는 동안 폭주가 짝짓기를 끝내지 못함
     pub surfaced: Arc<AtomicBool>,
-    /// Counts against `MAX_HANDSHAKES` while set.
+    /// 켜져 있는 동안 `MAX_HANDSHAKES`에 셈
     handshaking: AtomicBool,
     class: usize,
 }
 
 impl SessionGuard {
-    /// The peer's hello arrived: this thread no longer counts as a handshake.
+    /// 상대 hello가 옴: 이 스레드는 더는 핸드셰이크로 안 셈
     pub fn handshake_done(&self) {
         if self.handshaking.swap(false, Ordering::SeqCst) {
             self.shared.handshakes[self.class].fetch_sub(1, Ordering::SeqCst);
@@ -807,6 +779,7 @@ impl SessionGuard {
 }
 
 impl Drop for SessionGuard {
+    /// 핸드셰이크 셈과 미검증 자리를 풂
     fn drop(&mut self) {
         self.handshake_done();
         self.shared.release_unverified(&self.unverified);
@@ -814,24 +787,27 @@ impl Drop for SessionGuard {
 }
 
 impl Shared {
-    /// Current display name (sent in `hello` and announcements).
+    /// 지금 표시 이름을 돌려줌 (`hello`와 알림에 실림)
     pub fn name(&self) -> String {
         self.name.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
+    /// 상태 잠금을 잡음 (독이 든 잠금도 그대로 씀)
     pub fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
+    /// 앱에 이벤트를 보냄 (받는 쪽이 없어도 괜찮음)
     pub fn emit(&self, ev: NetEvent) {
         let _ = self.events.send(ev);
     }
+    /// 멈추는 중인지 봄
     pub fn stopping(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
     }
+    /// 새 세션 토큰을 줌
     pub fn token(&self) -> u64 {
         self.next_token.fetch_add(1, Ordering::Relaxed)
     }
-    /// Spawn a worker thread that `shutdown` will join. `false` (and `f`
-    /// dropped) if the OS refused a thread.
+    /// `shutdown`이 기다릴 워커 스레드를 띄움. OS가 스레드를 거절하면 `false`이고 `f`는 버려짐
     pub fn spawn(&self, f: impl FnOnce() + Send + 'static) -> bool {
         let mut threads = self.threads.lock().unwrap_or_else(|e| e.into_inner());
         threads.retain(|t| !t.is_finished());
@@ -843,24 +819,18 @@ impl Shared {
             Err(_) => false,
         }
     }
-    /// May a new inbound connection from `addr` get a session at all? A flood
-    /// from one address burns its own budget; friends elsewhere are untouched,
-    /// and an address a friend authenticated from has a larger one.
+    /// `addr`에서 온 새 연결이 세션을 받아도 되는지 봄. 한 주소의 폭주는 자기 예산만 태우고 다른 곳 친구는 멀쩡하며,
+    /// 친구가 인증했던 주소는 예산이 더 큼
     pub fn allow_inbound(&self, addr: &str, now: Instant) -> bool {
         let mut st = self.state();
         let limit = if st.ip_trusted(addr) { MAX_CONNS_PER_TRUSTED_ADDR } else { MAX_CONNS_PER_ADDR };
         discovery::rate_allow(&mut st.conn_rate, addr.to_string(), now, limit)
     }
-    /// Admit an inbound link into the unverified pool, evicting the oldest
-    /// unverified link from the same address (if it has `MAX_UNVERIFIED_PER_IP`)
-    /// or overall (if the pool is full), so a flood cannot lock friends out; it
-    /// can only churn other unverified links. `None` only when `MAX_HANDSHAKES`
-    /// threads of the link's own class are already handshaking: the link is
-    /// dropped and the peer retries. A stranger flood on the LAN therefore never
-    /// refuses a link through the relay or from an address a friend used.
-    ///
-    /// Links from an address that previously authenticated as a friend use a
-    /// separate per-address allowance, so strangers can never crowd them out.
+    /// 들어온 링크를 미검증 풀에 들임. 같은 주소에서 온 가장 오래된 미검증 링크(`MAX_UNVERIFIED_PER_IP`만큼 있으면)나
+    /// 전체에서 가장 오래된 것(풀이 차면)을 밀어내므로 폭주는 친구를 못 막고 다른 미검증 링크만 갈아치움.
+    /// 그 링크 등급의 `MAX_HANDSHAKES` 스레드가 이미 핸드셰이크 중일 때만 None이고, 링크는 버려지고 상대가 다시 시도함.
+    /// 그래서 LAN 낯선 이 폭주는 릴레이나 친구가 썼던 주소의 링크를 절대 거절하게 만들지 못함.
+    /// 친구로 인증했던 주소의 링크는 주소당 따로 둔 몫을 써서 낯선 이가 밀어낼 수 없음
     pub fn admit_inbound(self: &Arc<Self>, frames: Arc<dyn transport::FrameLink>) -> Option<SessionGuard> {
         let ip = frames.peer_addr();
         let trusted = self.state().ip_trusted(&ip);
@@ -908,11 +878,11 @@ impl Shared {
         }
         Some(SessionGuard { shared: self.clone(), unverified: active, surfaced, handshaking: AtomicBool::new(true), class })
     }
-    /// Outgoing links hold no unverified slot.
+    /// 나가는 링크용 가드임. 미검증 자리를 쥐지 않음
     pub fn outbound_guard(self: &Arc<Self>) -> SessionGuard {
         SessionGuard { shared: self.clone(), unverified: Arc::new(AtomicBool::new(false)), surfaced: Arc::new(AtomicBool::new(false)), handshaking: AtomicBool::new(false), class: 0 }
     }
-    /// The link proved to be a friend (or ended): free its unverified slot.
+    /// 링크가 친구로 드러남(또는 끝남): 미검증 자리를 풂
     pub fn release_unverified(&self, flag: &AtomicBool) {
         if flag.swap(false, Ordering::SeqCst) {
             let mut pool = self.unverified.lock().unwrap_or_else(|e| e.into_inner());
@@ -921,6 +891,7 @@ impl Shared {
     }
 }
 
+/// 브로드캐스트·읽기 시간 제한을 켠 찾기 UDP 소켓을 엶
 fn discovery_socket(port: u16) -> std::io::Result<UdpSocket> {
     let udp = UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], port)))?;
     udp.set_broadcast(true)?;
@@ -928,8 +899,7 @@ fn discovery_socket(port: u16) -> std::io::Result<UdpSocket> {
     Ok(udp)
 }
 
-/// Handle to the running network. Dropping it (or `shutdown`) stops all
-/// threads and closes all sockets.
+/// 돌고 있는 네트워크의 손잡이임. 버리거나 `shutdown`하면 모든 스레드를 멈추고 소켓을 닫음
 pub struct Net {
     shared: Arc<Shared>,
     main_threads: Vec<JoinHandle<()>>,
@@ -937,17 +907,18 @@ pub struct Net {
 }
 
 impl Net {
-    /// A new long-term static private key from the OS CSPRNG. Generate once
-    /// per install and persist it.
+    /// OS 암호 난수로 새 장기 정적 개인키를 만듦. 설치마다 한 번 만들어 저장할 것
     pub fn generate_static_key() -> [u8; 32] {
         noise::generate_static_key()
     }
 
-    /// The public key for a static private key (what friends pin).
+    /// 정적 개인키의 공개키를 돌려줌 (친구가 고정하는 것)
     pub fn public_key(static_key: &[u8; 32]) -> [u8; 32] {
         noise::public_key(static_key)
     }
 
+    /// 네트워크를 시작함: 찾기·TCP 받기·릴레이 스레드를 띄우고 이벤트 채널을 돌려줌.
+    /// 찾기 포트를 못 잡아도 릴레이가 있으면 릴레이만으로 돎 (없으면 오류)
     pub fn start(cfg: NetConfig) -> std::io::Result<(Net, Receiver<NetEvent>)> {
         // The discovery port can be taken by another program: friends through
         // the relay don't need it. Without a relay nothing could work.
@@ -1026,37 +997,33 @@ impl Net {
         Ok((Net { shared, main_threads, discovery_port }, rx))
     }
 
-    /// The UDP port discovery is bound to.
+    /// 찾기가 묶인 UDP 포트를 돌려줌
     pub fn discovery_port(&self) -> u16 {
         self.discovery_port
     }
 
-    /// Ask a discovered stranger to pair. Expect `InviteSent{sas}` (then
-    /// confirm with `answer_invite`) and `InviteAnswered` from the other side.
+    /// 찾은 낯선 이에게 짝짓기를 청함. `InviteSent{sas}`(그 뒤 `answer_invite`로 확인)와 상대의 `InviteAnswered`가 옴
     pub fn invite(&self, peer_id: &str, pet: &str) {
         peers::invite(&self.shared, peer_id, pet);
     }
 
-    /// Pair with the owner of a relay friend code (e.g. `ABCD-1234`, typed by
-    /// the user). Expect `CodeRedeemed` then the usual `InviteSent` /
-    /// `InviteAnswered`, or `CodeFailed`. Never blocks.
+    /// 릴레이 친구 코드(예: 사용자가 입력한 `ABCD-1234`)의 주인과 짝지음.
+    /// `CodeRedeemed` 뒤 보통의 `InviteSent` / `InviteAnswered`, 또는 `CodeFailed`가 옴. 막지 않음
     pub fn redeem_code(&self, code: &str, pet: &str) {
         relay::redeem(&self.shared, code, pet);
     }
 
-    /// Is the relay connection up?
+    /// 릴레이 연결이 살아 있는지 봄
     pub fn relay_connected(&self) -> bool {
         self.shared.relay.as_ref().is_some_and(|r| r.connected())
     }
 
-    /// Ask the relay for a new friend code (e.g. after sharing the old one
-    /// too widely). `false` if not connected. Expect `FriendCode`.
+    /// 릴레이에 새 친구 코드를 청함 (예: 옛 코드를 너무 널리 나눈 뒤). 미접속이면 `false`. `FriendCode`가 옴
     pub fn new_friend_code(&self) -> bool {
         relay::new_code(&self.shared)
     }
 
-    /// 💌 Send a sealed feedback letter ([`letter::seal`]) to the developer
-    /// mailbox on the relay. The answer comes as [`NetEvent::LetterSent`].
+    /// 💌 봉인된 건의 편지([`letter::seal`])를 릴레이의 개발자 편지함으로 보냄. 답은 [`NetEvent::LetterSent`]로 옴
     pub fn send_letter(&self, sealed: &[u8]) -> bool {
         match &self.shared.relay {
             Some(c) => relay::send_letter(&self.shared, c, sealed),
@@ -1067,52 +1034,46 @@ impl Net {
         }
     }
 
-    /// ☀️ Want the weather of a built-in place (a city id like "yongin",
-    /// `screenpet_core::real_weather::Place::id`) from now on: the relay is
-    /// told (now and on every reconnect, only if it knows the weather) and
-    /// answers with [`NetEvent::Weather`]. Nothing but the id leaves this
-    /// computer; the relay ignores ids it does not know.
+    /// ☀️ 이제부터 기본 지역(도시 id, 예: "yongin", `screenpet_core::real_weather::Place::id`)의 날씨를 원함.
+    /// 릴레이에 알리고(지금과 재연결마다, 날씨를 아는 릴레이에만) [`NetEvent::Weather`]로 답이 옴.
+    /// id 말고는 이 컴퓨터를 떠나지 않고, 릴레이는 모르는 id를 무시함
     pub fn want_weather(&self, place: &str) {
         if let Some(c) = &self.shared.relay {
             relay::want_weather(c, place);
         }
     }
 
-    /// 📬 Ask for the developer mailbox (answered as [`NetEvent::Mailbox`]
-    /// only if the relay lists this install as a reader).
+    /// 📬 개발자 편지함을 청함 (릴레이가 이 설치를 독자로 둘 때만 [`NetEvent::Mailbox`]로 답함)
     pub fn mailbox_list(&self) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_list(c))
     }
 
-    /// 📬 Mark a letter read.
+    /// 📬 편지를 읽음으로 표시함
     pub fn mailbox_read(&self, id: u64) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Read(id)))
     }
 
-    /// 📬 Tick a letter as acted on (반영함), or untick it.
+    /// 편지에 반영함 체크를 하거나 풂
     pub fn mailbox_done(&self, id: u64, done: bool) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Done(id, done)))
     }
 
-    /// 🙅 Turn a letter down (반려), or clear it. Only v3 relays (`false` otherwise).
+    /// 🙅 편지를 반려하거나 풂. v3 릴레이만 (아니면 `false`)
     pub fn mailbox_reject(&self, id: u64, rejected: bool) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Reject(id, rejected)))
     }
 
-    /// 🔒 Keep a letter off the public board (비공개), or show it again. Only
-    /// v3 relays (`false` otherwise).
+    /// 🔒 편지를 공개 건의함에서 숨기거나(비공개) 다시 보임. v3 릴레이만 (아니면 `false`)
     pub fn mailbox_private(&self, id: u64, private: bool) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Private(id, private)))
     }
 
-    /// 📮 Publish public digests ([`board::digest`]) of letters this
-    /// developer app opened. Only v3 relays, only for mailbox readers.
+    /// 📮 이 개발자 앱이 연 편지의 공개 요약([`board::digest`])을 올림. v3 릴레이, 편지함 독자만
     pub fn board_put(&self, items: &[board::Digest]) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::board_put(c, items))
     }
 
-    /// 📮 Ask for page `page` (1-based) of the public board; the answer comes
-    /// as [`NetEvent::Board`] (right away if it can't be asked).
+    /// 📮 공개 건의함 `page`쪽(1부터)을 청함. 답은 [`NetEvent::Board`]로 옴 (청할 수 없으면 바로)
     pub fn board_list(&self, page: u32) {
         match &self.shared.relay {
             Some(c) => relay::board_list(&self.shared, c, page),
@@ -1120,45 +1081,42 @@ impl Net {
         }
     }
 
-    /// 📬 Delete a letter.
+    /// 📬 편지를 지움
     pub fn mailbox_delete(&self, id: u64) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Delete(id)))
     }
 
-    /// 📬 Refuse letters from this sender key and delete theirs.
+    /// 📬 이 보낸이 키의 편지를 거절하고 그 편지들을 지움
     pub fn mailbox_block(&self, from: &str) -> bool {
         self.shared.relay.as_ref().is_some_and(|c| relay::mailbox_edit(c, relay::MailboxEdit::Block(from.to_string())))
     }
 
-    /// Our current relay friend code, once connected.
+    /// 연결된 뒤의 지금 릴레이 친구 코드를 돌려줌
     pub fn friend_code(&self) -> Option<String> {
         self.shared.relay.as_ref().and_then(|r| r.code())
     }
 
-    /// Confirm (`true`, the SAS matched) or refuse the pairing identified by
-    /// `pairing` (from `Invited` / `InviteSent`). Both users must confirm;
-    /// then both sides pin each other's key and `Connected` follows.
+    /// `pairing`(`Invited` / `InviteSent`에서 옴)으로 가리킨 짝짓기를 확인(`true`, SAS가 맞음)하거나 거절함.
+    /// 두 사용자가 다 확인해야 양쪽이 서로 키를 고정하고 `Connected`가 따라옴
     pub fn answer_invite(&self, pairing: u64, accept: bool) {
         peers::answer_invite(&self.shared, pairing, accept);
     }
 
-    /// The link of a connected friend (not a pairing, not someone else).
+    /// 연결된 친구의 링크를 돌려줌 (짝짓기 중이거나 다른 이는 아님)
     fn friend_link(&self, peer_id: &str) -> Option<Arc<secure::SecureLink>> {
         let st = self.shared.state();
         st.friend_conn(peer_id).filter(|c| matches!(c.kind, Kind::Friend)).map(|c| c.link.clone())
     }
 
-    /// Queue a visit message to a connected friend (dropped otherwise).
-    /// Never blocks.
+    /// 연결된 친구에게 놀러 가기 메시지를 큐에 넣음 (아니면 버림). 막지 않음
     pub fn send(&self, peer_id: &str, msg: Visit) {
         if let Some(link) = self.friend_link(peer_id) {
             link.send(&Message::Visit(msg));
         }
     }
 
-    /// Queue a ladder message to a connected friend, only if its build knows
-    /// ladder messages (an older one would drop the link on the unknown
-    /// `type`). `false` = not sent. Never blocks.
+    /// 연결된 친구 빌드가 사다리 메시지를 알 때만 큐에 넣음 (옛 빌드는 모르는 `type`에 링크를 끊음).
+    /// `false`면 안 보냄. 막지 않음
     pub fn send_ladder(&self, peer_id: &str, msg: LadderMsg) -> bool {
         let old = self.peer_version(peer_id).is_none_or(|v| v < LADDER_MIN_VERSION);
         match self.friend_link(peer_id) {
@@ -1167,39 +1125,35 @@ impl Net {
         }
     }
 
-    /// Protocol version of a connected friend's build (`None` if not connected).
+    /// 연결된 친구 빌드의 프로토콜 버전을 돌려줌 (미접속이면 None)
     pub fn peer_version(&self, peer_id: &str) -> Option<u32> {
         let st = self.shared.state();
         st.friend_conn(peer_id).filter(|c| matches!(c.kind, Kind::Friend)).map(|c| c.v)
     }
 
-    /// Send an app request (e.g. "invite", "busy") to a connected friend
-    /// (dropped otherwise). Carried in a ping, which older versions ignore.
-    /// Never blocks.
+    /// 연결된 친구에게 앱 요청(예: "invite", "busy")을 보냄 (아니면 버림). ping에 실어 옛 버전은 무시함. 막지 않음
     pub fn ask(&self, peer_id: &str, ask: &str) {
         self.ping(peer_id, Some(protocol::clamp_name(ask)), None, None);
     }
 
-    /// Steer our pet visiting a connected friend (control mode; dropped
-    /// otherwise). Carried in a ping, which older versions ignore. Never blocks.
+    /// 연결된 친구에게 놀러 간 우리 펫을 조종함 (조종 모드, 아니면 버림). ping에 실어 옛 버전은 무시함. 막지 않음
     pub fn steer(&self, peer_id: &str, steer: Steer) {
         self.ping(peer_id, None, Some(steer), None);
     }
 
-    /// Throw an object onto a connected friend's screen (dropped otherwise).
-    /// Carried in a ping, which older versions ignore. Never blocks.
+    /// 연결된 친구 화면에 물건을 던짐 (아니면 버림). ping에 실어 옛 버전은 무시함. 막지 않음
     pub fn toss(&self, peer_id: &str, toss: Toss) {
         self.ping(peer_id, None, None, Some(toss));
     }
 
+    /// 덧붙일 것을 실은 ping을 친구 링크로 보냄
     fn ping(&self, peer_id: &str, ask: Option<String>, steer: Option<Steer>, toss: Option<Toss>) {
         if let Some(link) = self.friend_link(peer_id) {
             link.send(&Message::Control(Control::Ping { ask, steer, toss }));
         }
     }
 
-    /// Forget a friend, tell them, and disconnect (gracefully). The devices it
-    /// introduced go with it ([`NetEvent::FriendDropped`]). Never blocks.
+    /// 친구를 잊고 알린 뒤 (우아하게) 끊음. 그가 소개한 기기도 함께 빠짐 ([`NetEvent::FriendDropped`]). 막지 않음
     pub fn unfriend(&self, peer_id: &str) {
         let (link, dropped) = {
             let mut st = self.shared.state();
@@ -1215,11 +1169,9 @@ impl Net {
         devices::close_dropped(dropped);
     }
 
-    /// Show a fresh link code for friend `id` (`ABCD-EFGH`; valid 10 minutes,
-    /// single use, gone after 5 wrong tries; replaces any earlier code). The
-    /// user types it on that other computer ([`Net::enter_link_code`]); then
-    /// both get [`NetEvent::DeviceLinked`]. Refused if I am linked to another
-    /// computer (at most two computers).
+    /// 친구 `id`용 새 연결 코드를 보임 (`ABCD-EFGH`, 10분 유효, 한 번만, 5번 틀리면 사라짐, 예전 코드는 바뀜).
+    /// 사용자가 그 다른 컴퓨터에 입력하면([`Net::enter_link_code`]) 둘 다 [`NetEvent::DeviceLinked`]를 받음.
+    /// 이미 다른 컴퓨터와 연결됐으면 거절함 (컴퓨터는 둘까지)
     pub fn new_link_code(&self, id: &str) -> Result<String, LinkError> {
         let mut st = self.shared.state();
         if !st.is_friend(id) {
@@ -1233,9 +1185,8 @@ impl Net {
         Ok(shown)
     }
 
-    /// The user typed the code friend `id`'s computer is showing for us.
-    /// Proves it over the friend link without sending it; expect
-    /// [`NetEvent::DeviceLinked`] or [`NetEvent::DeviceLinkFailed`]. Never blocks.
+    /// 사용자가 친구 `id` 컴퓨터가 우리에게 보여 주는 코드를 입력함. 코드를 보내지 않고 친구 링크에서 증명함.
+    /// [`NetEvent::DeviceLinked`]나 [`NetEvent::DeviceLinkFailed`]가 옴. 막지 않음
     pub fn enter_link_code(&self, id: &str, code: &str) -> Result<(), LinkError> {
         let key = devices::typed_code_key(code).ok_or(LinkError::Invalid)?;
         let mut st = self.shared.state();
@@ -1257,8 +1208,7 @@ impl Net {
         Ok(())
     }
 
-    /// Unlink my other computer `id`: forget our secret and tell it (it
-    /// forgets too). It stays a friend. `false` if it was not linked.
+    /// 내 다른 컴퓨터 `id`와 연결을 끊음: 비밀을 잊고 알림 (그쪽도 잊음). 친구로는 남음. 연결 안 돼 있었으면 `false`
     pub fn unlink_device(&self, id: &str) -> bool {
         {
             let mut st = self.shared.state();
@@ -1276,9 +1226,8 @@ impl Net {
         true
     }
 
-    /// The user's answer to [`NetEvent::DeviceConfirm`] for friend `id`
-    /// (`true` = 확인, `false` = 취소 or the window closed). `false` if
-    /// nothing waits for an answer from that friend.
+    /// 친구 `id`에 대한 [`NetEvent::DeviceConfirm`]의 사용자 답 (`true` = 확인, `false` = 취소나 창 닫음).
+    /// 그 친구에게서 답을 기다리는 게 없으면 `false`
     pub fn confirm_device(&self, id: &str, yes: bool) -> bool {
         let told = devices::answer(&self.shared, &mut self.shared.state(), id, yes);
         let Some((link, msg)) = told else { return false };
@@ -1286,67 +1235,60 @@ impl Net {
         true
     }
 
-    /// 📱 Play on this computer: my linked computer goes on standby (told over
-    /// our proven link). Also counts as the user using this computer. `false`
-    /// if that link is not up (then the two can't reach each other and both
-    /// play anyway; when they meet again the one used last plays).
+    /// 📱 이 컴퓨터에서 놂: 연결된 컴퓨터는 대기로 감 (증명된 링크로 알림). 사용자가 이 컴퓨터를 쓴 것으로도 침.
+    /// 그 링크가 없으면 `false` (그럼 서로 닿지 않아 어차피 둘 다 놀고, 다시 만나면 마지막에 쓴 쪽이 놂)
     pub fn claim_active(&self) -> bool {
         let Some((link, msg)) = devices::claim(&self.shared) else { return false };
         link.send(&Message::Control(msg))
     }
 
-    /// 📱 How long ago the user last used this computer (the app reports it
-    /// regularly). Decides who plays when my two computers meet again.
+    /// 📱 사용자가 이 컴퓨터를 마지막으로 쓴 지 얼마인지 (앱이 주기적으로 알림). 두 컴퓨터가 다시 만날 때 누가 놀지 정함
     pub fn set_idle(&self, idle: Duration) {
         let now = Instant::now();
         self.shared.state().last_input = Some(now.checked_sub(idle).unwrap_or(now));
     }
 
-    /// 📱 My selected pet and every pet's care changed (or the regular
-    /// refresh): shared with my linked computer while this one plays
-    /// (coalesced, `Timing::device_state_every`). Changing it while on
-    /// standby counts as playing here only if the app also claims.
+    /// 📱 고른 펫과 모든 펫의 돌봄이 바뀜 (또는 주기 새로 고침): 이 컴퓨터가 노는 동안 연결된 컴퓨터와 나눔
+    /// (`Timing::device_state_every`로 모음). 대기 중에 바꾸면 앱이 차지도 해야만 여기서 노는 것으로 침
     pub fn share_state(&self, pet: &str, care: Vec<WireCare>) {
         devices::share(&mut self.shared.state(), pet, care);
     }
 
-    /// 📱 This computer is on standby: my other computer plays.
+    /// 📱 이 컴퓨터가 대기 중인지 봄: 다른 컴퓨터가 놂
     pub fn standby(&self) -> bool {
         self.shared.state().standby
     }
 
-    /// 📱 My linked computer is on standby: this one plays (don't send it my pet).
+    /// 📱 연결된 컴퓨터가 대기 중인지 봄: 이 컴퓨터가 놂 (내 펫을 보내지 말 것)
     pub fn device_standby(&self) -> bool {
         self.shared.state().device_standby
     }
 
-    /// My linked other computer, if any.
+    /// 내 연결된 다른 컴퓨터를 돌려줌
     pub fn linked_device(&self) -> Option<String> {
         self.shared.state().device.as_ref().map(|(d, _)| d.clone())
     }
 
-    /// The secret shared with my linked computer `id` (to persist), if linked.
+    /// 연결된 컴퓨터 `id`와 나눈 비밀을 돌려줌 (저장용, 연결됐을 때만)
     pub fn device_secret(&self, id: &str) -> Option<DeviceSecret> {
         self.shared.state().device.as_ref().filter(|(d, _)| d == id).map(|(_, s)| DeviceSecret(*s))
     }
 
-    /// Device marks and origin of friend `id` (`None` if no friend).
+    /// 친구 `id`의 기기 표시와 출처를 돌려줌 (친구가 아니면 None)
     pub fn friend_info(&self, id: &str) -> Option<FriendInfo> {
         let st = self.shared.state();
         st.is_friend(id).then(|| FriendInfo { device: st.device.as_ref().is_some_and(|(d, _)| d == id), via: st.via.get(id).cloned(), pending: st.pending.contains_key(id), pending_since: st.pending.get(id).copied() })
     }
 
-    /// The link of a connected friend whose build knows the device messages.
+    /// 빌드가 기기 메시지를 아는 연결된 친구의 링크를 돌려줌
     fn devices_link(&self, peer_id: &str) -> Option<Arc<secure::SecureLink>> {
         let new = self.peer_version(peer_id).is_some_and(|v| v >= DEVICES_MIN_VERSION);
         self.friend_link(peer_id).filter(|_| new)
     }
 
-    /// Send my friends to `peer_id` if it is my linked computer and proved our
-    /// secret on its current link (otherwise `false`, nothing sent). Introduced and
-    /// unconfirmed friends are left out (they come from their own source), and
-    /// so is the receiver. `describe(id)` gives each friend's name and side
-    /// (first values for the receiver). `want` asks for its list back. Never blocks.
+    /// `peer_id`가 내 연결된 컴퓨터이고 지금 링크에서 비밀을 증명했으면 내 친구들을 보냄 (아니면 `false`, 안 보냄).
+    /// 소개된·미확인 친구와 받는 쪽 자신은 뺌 (그들은 자기 출처에서 옴). `describe(id)`가 친구마다 이름과 가장자리를 줌
+    /// (받는 쪽 첫값). `want`면 상대 목록도 달라고 함. 막지 않음
     pub fn send_device_friends(&self, peer_id: &str, want: bool, describe: impl Fn(&str) -> (String, Option<String>)) -> bool {
         let proven = {
             let st = self.shared.state();
@@ -1375,9 +1317,8 @@ impl Net {
         link.send(&Message::Control(Control::DeviceFriends { friends, want }))
     }
 
-    /// Introduce my linked computer (`MAX_DEVICES`) to friend `peer_id`,
-    /// unless it is one of them or its build does not know the message. `false`
-    /// = nothing sent (also when I have no other computer). Never blocks.
+    /// 친구 `peer_id`에게 내 연결된 컴퓨터를 소개함 (`MAX_DEVICES`). 그가 그 컴퓨터이거나 빌드가 메시지를 모르면 안 함.
+    /// `false` = 안 보냄 (다른 컴퓨터가 없을 때도). 막지 않음
     pub fn send_my_devices(&self, peer_id: &str) -> bool {
         let devices: Vec<protocol::WireDevice> = {
             let st = self.shared.state();
@@ -1401,10 +1342,8 @@ impl Net {
         }
     }
 
-    /// Change our display name: later `hello`s and announcements use it, and
-    /// every connected friend is told now (a repeated `hello` on the friend
-    /// link — friends emit [`NetEvent::Renamed`]; older versions ignore it).
-    /// Never blocks.
+    /// 표시 이름을 바꿈: 이후 `hello`와 알림이 쓰고, 연결된 친구 모두에게 지금 알림
+    /// (친구 링크의 반복 `hello`, 친구 쪽은 [`NetEvent::Renamed`]를 냄, 옛 버전은 무시함). 막지 않음
     pub fn set_name(&self, name: &str) {
         let name = protocol::clamp_name(name);
         *self.shared.name.lock().unwrap_or_else(|e| e.into_inner()) = name.clone();
@@ -1418,18 +1357,19 @@ impl Net {
         }
     }
 
-    /// Current friends (id + pinned public key), including ones added by
-    /// pairing — the app persists these and passes them back in `NetConfig`.
+    /// 지금 친구들 (id + 고정 공개키), 짝짓기로 더한 것 포함. 앱이 저장해 `NetConfig`로 다시 넘김
     pub fn friends(&self) -> Vec<Friend> {
         self.shared.state().friends.clone()
     }
 
+    /// 네트워크를 멈춤 (`Drop`과 같음)
     pub fn shutdown(self) {
         drop(self);
     }
 }
 
 impl Drop for Net {
+    /// 멈춤 깃발을 세우고 링크를 닫은 뒤 모든 스레드를 기다림
     fn drop(&mut self) {
         self.shared.stop.store(true, Ordering::SeqCst);
         let links: Vec<_> = self.shared.state().conns.values().map(|c| c.link.clone()).collect();
@@ -1453,12 +1393,12 @@ impl Drop for Net {
     }
 }
 
-/// Random 128-bit install id as 32 lowercase hex digits.
+/// 무작위 128비트 설치 id를 소문자 hex 32자리로 만듦
 pub fn new_install_id() -> String {
     format!("{:032x}", fastrand::u128(..))
 }
 
-/// A running Net that hears nobody, for unit tests of its parts.
+/// 아무도 안 듣는 돌고 있는 Net임. 부분 단위 시험용
 #[cfg(test)]
 pub(crate) fn solo_net(friends: Vec<Friend>) -> Net {
     let mut cfg = NetConfig::new("solo", "Solo", Net::generate_static_key(), friends);
@@ -1467,6 +1407,7 @@ pub(crate) fn solo_net(friends: Vec<Friend>) -> Net {
     Net::start(cfg).unwrap().0
 }
 
+/// 친구별 예산 시험임
 #[cfg(test)]
 mod budget_tests {
     use super::*;
@@ -1490,10 +1431,12 @@ mod budget_tests {
     }
 }
 
+/// 들어온 링크 제한(핸드셰이크 상한, 미검증 풀, 주소별 예산) 시험임
 #[cfg(test)]
 mod inbound_tests {
     use super::*;
 
+    /// 아무것도 안 하는 가짜 링크
     struct NoLink;
     impl transport::FrameLink for NoLink {
         fn send_frame(&self, _: &[u8]) -> bool {
@@ -1526,6 +1469,7 @@ mod inbound_tests {
         assert_eq!(net.shared.handshakes[0].load(Ordering::SeqCst), 0);
     }
 
+    /// 주소만 가진 가짜 링크
     struct At(String);
     impl transport::FrameLink for At {
         fn send_frame(&self, _: &[u8]) -> bool {
@@ -1538,6 +1482,7 @@ mod inbound_tests {
         }
     }
 
+    /// `addr`에서 온 가짜 링크를 만듦
     fn at(addr: &str) -> Arc<dyn transport::FrameLink> {
         Arc::new(At(addr.to_string()))
     }

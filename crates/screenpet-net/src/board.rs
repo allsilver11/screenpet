@@ -1,10 +1,8 @@
-//! 📮 The public suggestion board: what everyone may see of a letter.
+//! 📮 공개 건의함: 편지 중 누구나 봐도 되는 부분을 만듦.
 //!
-//! Only the developer's app can open letters, so it is the one that makes a
-//! [`Digest`] of each — the sender's name with every grapheme but the first
-//! hidden (`김철수` → `김**`, one-grapheme names → `*`) and the first line of
-//! the text, cut short — and publishes it to the relay. The body never leaves
-//! the developer's computer. The relay checks both again.
+//! 편지를 열 수 있는 건 개발자 앱뿐이라 그 앱이 편지마다 [`Digest`]를 만들어 릴레이에 올림.
+//! 요약 = 첫 그래핌만 남기고 가린 이름(`김철수` → `김**`, 한 글자 이름 → `*`) + 잘린 첫 줄.
+//! 본문은 개발자 컴퓨터를 떠나지 않음. 릴레이가 둘 다 다시 검사함.
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -17,18 +15,19 @@ pub use screenpet_proto::relay::{BoardItem, BoardStatus as Status};
 /// 첫 그래핌이 이보다 길면 (결합 문자 더미) 첫 문자만 보임
 use screenpet_proto::board::MAX_FIRST;
 
-/// The first line keeps at most this many characters before "…".
+/// 첫 줄은 "…" 앞까지 최대 이 글자 수만 남김
 pub const LINE_CHARS: usize = 60;
 // "…"까지 붙여도 릴레이가 받는 길이 안이어야 함
 const _: () = assert!(LINE_CHARS + 1 <= screenpet_proto::board::MAX_LINE);
 
+/// 이름·첫 줄에서 버릴 보이지 않는 문자(제어·폭 없는·방향 바꾸기)인지 봄
 fn hidden(c: char) -> bool {
     c.is_control()
         || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}' | '\u{061C}' | '\u{180E}' | '\u{00AD}' | '\u{3164}' | '\u{115F}' | '\u{1160}' | '\u{FFA0}' | '\u{2800}' | '\u{E0000}'..='\u{E007F}' | '\u{2028}' | '\u{2029}')
 }
 
-/// The name with only its first grapheme showing: `김철수` → `김**`, `A` →
-/// `*`, empty → empty. At most [`MAX_NAME`] characters.
+/// 첫 그래핌만 보이는 이름을 만듦: `김철수` → `김**`, `A` → `*`, 빈 이름 → 빈 문자열.
+/// 최대 [`MAX_NAME`]글자임
 pub fn mask_name(name: &str) -> String {
     let clean: String = name.chars().filter(|&c| !hidden(c) || c == '\u{200D}').collect();
     let clean = clean.trim();
@@ -43,8 +42,7 @@ pub fn mask_name(name: &str) -> String {
     format!("{first}{}", "*".repeat(stars))
 }
 
-/// The first line of `text`, trimmed; past [`LINE_CHARS`] characters it is
-/// cut at a grapheme boundary and ends with "…".
+/// `text`의 첫 줄을 다듬어 돌려줌. [`LINE_CHARS`]글자를 넘으면 그래핌 경계에서 자르고 "…"를 붙임
 pub fn first_line(text: &str) -> String {
     let line = text.split(['\n', '\r']).map(|l| l.chars().filter(|&c| !hidden(c) || c == '\u{200D}').collect::<String>()).find(|l| !l.trim().is_empty()).unwrap_or_default();
     let line = line.trim();
@@ -64,21 +62,26 @@ pub fn first_line(text: &str) -> String {
 /// 개발자 앱이 편지 하나마다 올리는 요약: 와이어 `board_put` 항목 그대로임
 pub type Digest = screenpet_proto::relay::BoardIn;
 
-/// The public digest of an opened letter (`None` if nothing is left to show).
+/// 연 편지의 공개 요약을 만듦. 보일 것이 남지 않으면 None임
 pub fn digest(id: u64, letter: &crate::letter::Letter) -> Option<Digest> {
     let line = first_line(&letter.text);
     (!line.is_empty()).then(|| Digest { id, name: mask_name(&letter.name), line })
 }
 
-/// A page of the board: `page` is 1-based, `pages` at least 1.
+/// 공개 건의함 한 페이지임: `page`는 1부터, `pages`는 최소 1임
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BoardPage {
+    /// 이 페이지의 항목 (최신 먼저)
     pub items: Vec<BoardItem>,
+    /// 지금 페이지 (1부터)
     pub page: u32,
+    /// 전체 페이지 수
     pub pages: u32,
+    /// 전체 항목 수
     pub total: u32,
 }
 
+/// 이름 가리기·첫 줄 자르기·요약 시험임
 #[cfg(test)]
 mod tests {
     use super::*;

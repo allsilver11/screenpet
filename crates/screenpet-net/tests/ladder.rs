@@ -1,6 +1,5 @@
-//! A ladder game over real links: one host and two players on localhost
-//! (spec 2026-11-04 §3, §6). Discovery is unicast: both players announce to
-//! the host's port, so the host ("aaaa", the smallest id) dials them both.
+//! 실제 링크 위의 사다리 게임 시험임: localhost에서 방장 하나와 참가자 둘 (spec 2026-11-04 §3, §6).
+//! 찾기는 유니캐스트임: 두 참가자가 방장 포트로 알리므로 방장("aaaa", 가장 작은 id)이 둘 다 다이얼함.
 
 mod common;
 
@@ -49,14 +48,14 @@ fn draft() -> Vec<LockedResult> {
     ["커피", "통과", "통과"].iter().map(|t| LockedResult { text: t.to_string(), mood: "none".into() }).collect()
 }
 
-/// Messages to a friend who already left are dropped (like the app does).
+/// 메시지를 보냄. 이미 떠난 친구에게 가는 것은 버림 (앱처럼)
 fn send_all(net: &Net, out: Vec<(String, LadderMsg)>) {
     for (to, m) in out {
         net.send_ladder(&to, m);
     }
 }
 
-/// One player's loop step: join invites, answer the host.
+/// 참가자 루프 한 걸음임: 초대에 참가하고 방장에게 답함
 fn step_player(net: &Net, rx: &Receiver<NetEvent>, game: &mut Option<GuestGame>, name: &str) {
     while let Ok(ev) = rx.try_recv() {
         let now = Instant::now();
