@@ -1,14 +1,14 @@
 //! 🖍️ 바닥에 낙서 (흐물이, v0.6.3) — brain.rs의 자식 모듈.
 //!
-//! 바닥에서 쉬거나 걷던 흐물이가 가끔 (DOODLE_RATE, 쿨다운 COOLDOWN_SECS) 멈춰 쪼그려 앉아 DOODLE_SECS(2초) 동안 분필로 바닥에 그린다 (draw).
-//! 그리기 시작하는 순간 take_doodle이 한 번 Doodle을 돌려준다 — 그림 자체(하트·웃는 얼굴·별·이름)는 앱의 덧창이
-//! 그리는 동안 천천히 나타나게 그리고, 잠시 뒤 흐려 지운다.
+//! 바닥에서 쉬거나 걷던 흐물이가 가끔 (DOODLE_RATE, 쿨다운 COOLDOWN_SECS) 멈춰 쪼그려 앉아 DOODLE_SECS(2초) 동안 분필로 바닥에 그림 (draw).
+//! 그리기 시작하는 순간 take_doodle이 한 번 Doodle을 돌려줌 — 그림 자체(하트·웃는 얼굴·별·이름)는 앱의 덧창이
+//! 그리는 동안 천천히 나타나게 그리고, 잠시 뒤 흐려 지움
 
 use serde::Serialize;
 
 use super::*;
 
-/// 그리는 시간 (초) — 덧창은 이 동안 그림이 나타나게 한다
+/// 그리는 시간 (초) — 덧창은 이 동안 그림이 나타나게 함
 pub const DOODLE_SECS: f64 = 2.0;
 /// 바닥에서 쉬거나 걷는 동안 낙서를 시작할 빈도 (초당 확률)
 pub const DOODLE_RATE: f64 = 1.0 / 90.0;
@@ -30,27 +30,32 @@ pub enum DoodleKind {
     Name,
 }
 
-/// 바닥 낙서 하나 (take_doodle로 한 번 꺼낸다)
+/// 바닥 낙서 하나 (take_doodle로 한 번 꺼냄)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Doodle {
-    /// 그림 가운데 x, 바닥 y (물리 px — 그림은 이 선 바로 위에 눕는다)
+    /// 그림 가운데 x, 바닥 y (물리 px — 그림은 이 선 바로 위에 누움)
     pub x: f64,
+    /// 바닥 y (물리 px)
     pub y: f64,
+    /// 낙서 종류
     pub kind: DoodleKind,
-    /// +1 오른쪽을 보고 그렸다, -1 왼쪽
+    /// +1 오른쪽을 보고 그렸음, -1 왼쪽
     pub facing: f64,
     /// 그린 동물의 크기 배율 (몸 한 변 / 128 — 화면 배율까지, 물리 px 기준)
     pub scale: f64,
 }
 
+/// 바닥 낙서의 기억: 난수, 다음 낙서 시각, 꺼내 가지 않은 낙서
 #[derive(Debug, Clone)]
 pub struct DoodleMood {
     rng: fastrand::Rng,
+    /// 이 시각(clock)부터 낙서할 수 있음
     pub(super) ready_at: f64,
     out: Option<Doodle>,
 }
 
 impl DoodleMood {
+    /// 시드로 난수를 따로 둠 (다른 장난의 난수 순서를 흔들지 않음)
     pub(super) fn new(seed: u64) -> Self {
         DoodleMood { rng: fastrand::Rng::with_seed(seed ^ 0x646f_6f64), ready_at: FIRST_READY_SECS, out: None }
     }
@@ -62,6 +67,7 @@ impl Pet {
         self.doodle.out.take()
     }
 
+    /// 한가할 때 DOODLE_RATE 확률로 낙서를 시작함. 시작했으면 true
     pub(super) fn maybe_doodle(&mut self, dt: f64, world: &World) -> bool {
         if self.clock < self.doodle.ready_at || !self.antics_free() || self.doodle.rng.f64() >= DOODLE_RATE * dt {
             return false;
@@ -69,7 +75,7 @@ impl Pet {
         self.start_doodle(world)
     }
 
-    /// 앞 바닥에 그린다 (그릴 자리가 같은 바닥 조각 위가 아니면 돌아서서). 시작했으면 true
+    /// 앞 바닥에 그림 (그릴 자리가 같은 바닥 조각 위가 아니면 돌아서서). 시작했으면 true
     pub(super) fn start_doodle(&mut self, world: &World) -> bool {
         let Some(st) = self.standing else { return false };
         let Some(piece) = world.piece_at(st.owner, self.body.x).copied() else { return false };
@@ -90,6 +96,7 @@ impl Pet {
         true
     }
 
+    /// 낙서하는 한 틱: 방해받거나 디딤판이 사라지면 그만둠
     pub(super) fn update_doodle(&mut self, dt: f64, world: &World, remaining: f64) {
         if self.antics_interrupted() {
             self.state = self.idle_state();

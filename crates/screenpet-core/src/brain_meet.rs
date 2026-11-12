@@ -1,17 +1,17 @@
 //! 두 동물이 만났을 때 (같은 디딤판, 서로 쪽으로 걷거나 한쪽이 다른 쪽 앞에 걸어·달려 옴) — brain.rs의 자식 모듈 (비공개 필드에 접근).
-//! 누가 무엇을 할지와 뛰어 내릴 자리는 social.rs가 정하고, 여기서는 그대로 움직인다:
+//! 누가 무엇을 할지와 뛰어 내릴 자리는 social.rs가 정하고, 여기서는 그대로 움직임:
 //!
-//! - 밟기: 한 마리가 친구 머리로 뛰어 밟고 조금 튀어 친구 너머에 내린다. 밟힌 친구는 잠깐 납작 (Land → Annoyed, "oof!").
-//! - 높이 튀기: 같지만 머리를 밟고 훨씬 높이 솟았다가 너머에 내린다.
-//! - 지나치기: 둘 다 폴짝 — 한 마리는 높이, 한 마리는 낮게, 꼭대기가 같은 때에 오게 해서 닿지 않고 엇갈린다.
-//! - 올라서기: 친구 머리(탑이면 맨 위)로 뛰어올라 그대로 선다 — 그 뒤는 brain_tower.rs.
-//! - 밟고 폴짝 되튀기: 머리를 밟고 돌아서 온 쪽으로 작게 폴짝 내린 뒤 그쪽으로 간다.
-//! - 한쪽만 다가가도 (친구가 서 있거나 앞서 가도) 다가간 쪽이 밟는다. 내려앉은 나는 동물도 밟힐 수 있다 (나는 동물은 뛰지 않는다).
-//! - 달리던 동물은 웅크림이 짧고, 조금 더 멀리서 뛰고, 더 멀리 내린다 (Pet::run_carry).
+//! - 밟기: 한 마리가 친구 머리로 뛰어 밟고 조금 튀어 친구 너머에 내림. 밟힌 친구는 잠깐 납작 (Land → Annoyed, "oof!").
+//! - 높이 튀기: 같지만 머리를 밟고 훨씬 높이 솟았다가 너머에 내림
+//! - 지나치기: 둘 다 폴짝 — 한 마리는 높이, 한 마리는 낮게, 꼭대기가 같은 때에 오게 해서 닿지 않고 엇갈림
+//! - 올라서기: 친구 머리(탑이면 맨 위)로 뛰어올라 그대로 섬 — 그 뒤는 brain_tower.rs.
+//! - 밟고 폴짝 되튀기: 머리를 밟고 돌아서 온 쪽으로 작게 폴짝 내린 뒤 그쪽으로 감
+//! - 한쪽만 다가가도 (친구가 서 있거나 앞서 가도) 다가간 쪽이 밟음. 내려앉은 나는 동물도 밟힐 수 있음 (나는 동물은 뛰지 않음).
+//! - 달리던 동물은 웅크림이 짧고, 조금 더 멀리서 뛰고, 더 멀리 내림 (Pet::run_carry).
 //!
-//! 뛰는 길은 큰 점프와 같은 포물선(hop::leap_arc)과 중력이고, 그림은 Land·Hop·Fall·Look·Annoyed 그대로다.
-//! 내릴 때 디딤판이 그대로면 그 위에, 아니면 그 자리에서 떨어져 진짜 디딤판에 내린다 (land_leap). 내린 뒤엔 가던 쪽으로 계속 걷는다.
-//! 손님도 이 화면 주인의 코디네이터가 움직인다 — 통신할 것이 없다.
+//! 뛰는 길은 큰 점프와 같은 포물선(hop::leap_arc)과 중력이고, 그림은 Land·Hop·Fall·Look·Annoyed 그대로임
+//! 내릴 때 디딤판이 그대로면 그 위에, 아니면 그 자리에서 떨어져 진짜 디딤판에 내림 (land_leap). 내린 뒤엔 가던 쪽으로 계속 걸음
+//! 손님도 이 화면 주인의 코디네이터가 움직임 — 통신할 것이 없음
 
 use super::*;
 use crate::hop;
@@ -20,12 +20,12 @@ use crate::hop;
 pub const CROUCH_SECS: f64 = 0.18;
 /// 내려서는 자세로 있는 시간
 const LANDING_SECS: f64 = 0.2;
-/// 밟히기를 기다리는 시간의 상한 (뛴 친구가 사라져도 스스로 끝낸다)
+/// 밟히기를 기다리는 시간의 상한 (뛴 친구가 사라져도 스스로 끝냄)
 const BRACE_MAX_SECS: f64 = 2.0;
 /// 밟힌 친구: Land (납작) 뒤 Annoyed
 pub(super) const SQUASH_SECS: f64 = 1.0;
 const SQUASH_GRUMPY_FROM: f64 = 0.75;
-/// 머리 꼭대기 높이 (발에서 몸 크기의 이 비율 위, brain.rs HEAD_TOP과 같다)
+/// 머리 꼭대기 높이 (발에서 몸 크기의 이 비율 위, brain.rs HEAD_TOP과 같음)
 pub const HEAD_RISE: f64 = HEAD_TOP;
 /// 머리로 뛸 때, 밟고 튈 때, 높이 튈 때 머리보다 더 솟는 높이 (몸 크기 배)
 const TO_HEAD_RISE: f64 = 0.35;
@@ -35,18 +35,19 @@ const HIGH_BOUNCE_RISE: f64 = 2.4;
 /// 고른 만남
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeetKind {
-    /// 머리를 밟고 친구 너머에 내린다
+    /// 머리를 밟고 친구 너머에 내림
     Stomp,
-    /// 머리를 밟고 훨씬 높이 튀어 너머에 내린다
+    /// 머리를 밟고 훨씬 높이 튀어 너머에 내림
     HighBounce,
-    /// 둘 다 폴짝, 닿지 않고 지나친다
+    /// 둘 다 폴짝, 닿지 않고 지나침
     Pass,
-    /// 친구 머리 위로 뛰어올라 선다 (brain_tower.rs) — 친구는 하던 일을 계속한다
+    /// 친구 머리 위로 뛰어올라 섬 (brain_tower.rs) — 친구는 하던 일을 계속함
     Climb,
-    /// 머리를 밟고 폴짝 되튀어 온 쪽에 내려선 뒤 돌아서 간다
+    /// 머리를 밟고 폴짝 되튀어 온 쪽에 내려선 뒤 돌아서 감
     BounceBack,
 }
 
+/// 친구 머리 밟고 넘기의 단계
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeetPhase {
     Crouch,
@@ -56,13 +57,14 @@ pub enum MeetPhase {
     Final,
     /// 내려서는 자세
     Landing,
-    /// 친구가 머리로 뛰어오는 동안 쳐다본다
+    /// 친구가 머리로 뛰어오는 동안 쳐다봄
     Brace,
-    /// 밟혔다
+    /// 밟혔음
     Squash,
 }
 
 impl MeetPhase {
+    /// 공중에 떠 있는 단계임
     pub fn airborne(self) -> bool {
         matches!(self, MeetPhase::ToHead | MeetPhase::Final)
     }
@@ -83,10 +85,12 @@ pub struct MeetPlan {
 }
 
 impl MeetPlan {
+    /// 기어오르기로 넘어감 (뛰지 않음)
     pub(super) fn is_climb(&self) -> bool {
         self.kind == MeetKind::Climb
     }
 
+    /// 친구 머리 자리를 정함
     pub(super) fn set_head(&mut self, head: (f64, f64)) {
         self.head = Some(head);
     }
@@ -101,7 +105,7 @@ impl Pet {
 }
 
 impl Pet {
-    /// 스스로 걷거나 달리는 걷는 동물 (마주침을 볼 수 있다)
+    /// 스스로 걷거나 달리는 걷는 동물 (마주침을 볼 수 있음)
     pub fn walks_on_surface(&self) -> bool {
         matches!(self.state, State::Move { kind: Move::Walk | Move::Run, .. }) && !self.cfg.flies && self.standing.is_some()
     }
@@ -121,6 +125,7 @@ impl Pet {
         std::mem::take(&mut self.head_bump)
     }
 
+    /// 만남 단계를 시작함: 하던 쉼·호버를 지우고 계획을 둠
     fn begin_meet(&mut self, plan: Option<MeetPlan>, phase: MeetPhase, remaining: f64) {
         self.pacing.after_beat = None;
         self.clear_hover();
@@ -129,7 +134,7 @@ impl Pet {
         self.state = State::Meet { phase, remaining };
     }
 
-    /// 뛰는 쪽: land_x(같은 디딤판)로 간다. head가 있으면 먼저 그 머리를 밟는다. crouch초 웅크린 뒤 뛴다
+    /// 뛰는 쪽: land_x(같은 디딤판)로 감. head가 있으면 먼저 그 머리를 밟음. crouch초 웅크린 뒤 뜀
     pub fn start_vault(&mut self, kind: MeetKind, head: Option<(f64, f64)>, land_x: f64, rise: f64, crouch: f64) {
         let Some(st) = self.standing else { return };
         let rel_x = land_x - (self.body.x - st.rel_x);
@@ -140,12 +145,12 @@ impl Pet {
         }
     }
 
-    /// 밟힐 쪽: 뛰어오는 친구를 쳐다보며 기다린다
+    /// 밟힐 쪽: 뛰어오는 친구를 쳐다보며 기다림
     pub fn start_brace(&mut self) {
         self.begin_meet(None, MeetPhase::Brace, BRACE_MAX_SECS);
     }
 
-    /// 머리를 밟혔다: 납작하게 덜덜 + "oof!" (기다리던 중일 때만)
+    /// 머리를 밟혔음: 납작하게 덜덜 + "oof!" (기다리던 중일 때만)
     pub fn feel_head_stomp(&mut self) {
         if matches!(self.state, State::Meet { phase: MeetPhase::Brace, .. }) {
             self.speech = Some(Speech::Oof);
@@ -154,14 +159,14 @@ impl Pet {
         }
     }
 
-    /// 뛴 친구가 오지 않게 됐다: 기다리던 쪽은 가던 길을 간다
+    /// 뛴 친구가 오지 않게 됐음: 기다리던 쪽은 가던 길을 감
     pub fn end_brace(&mut self) {
         if matches!(self.state, State::Meet { phase: MeetPhase::Brace, .. }) {
             self.carry_on();
         }
     }
 
-    /// 가던 쪽으로 다시 걷는다 (내려앉아 밟힌 나는 동물은 그대로 앉아 있다가 평소대로)
+    /// 가던 쪽으로 다시 걸음 (내려앉아 밟힌 나는 동물은 그대로 앉아 있다가 평소대로)
     fn carry_on(&mut self) {
         self.meet = None;
         self.pacing.after_beat = None;
@@ -173,7 +178,7 @@ impl Pet {
         self.cfg.flies && self.standing.is_some() && matches!(self.state, State::Meet { phase: MeetPhase::Brace | MeetPhase::Squash, .. })
     }
 
-    /// 나는 동물로 바뀌었으면 걷는 동물의 동작은 끝낸다 (나는 동물의 길에는 이 상태들이 없다 — 내려앉아 밟히는 것만 빼고)
+    /// 나는 동물로 바뀌었으면 걷는 동물의 동작은 끝냄 (나는 동물의 길에는 이 상태들이 없음 — 내려앉아 밟히는 것만 빼고)
     pub(super) fn drop_walking_moves(&mut self) {
         if self.cfg.flies && !self.perched_meet() && matches!(self.state, State::Meet { .. } | State::Slip { .. } | State::Leap { .. } | State::Tumble { .. }) {
             self.meet = None;
@@ -181,7 +186,7 @@ impl Pet {
         }
     }
 
-    /// 포물선 하나를 잡아 떠난다
+    /// 포물선 하나를 잡아 떠남
     fn take_arc(&mut self, world: &World, to: (f64, f64), rise: f64, phase: MeetPhase) {
         let top = world.bounds.top + self.cfg.size;
         let arc = hop::leap_arc((self.body.x, self.body.y), to, rise, top);
@@ -191,6 +196,7 @@ impl Pet {
         self.state = State::Meet { phase, remaining: arc.secs };
     }
 
+    /// 만남 한 틱: 웅크림 → 머리로 → 내려섬, 또는 버팀 → 밟힘
     pub(super) fn update_meet(&mut self, dt: f64, world: &World, phase: MeetPhase, remaining: f64) {
         match phase {
             MeetPhase::Crouch | MeetPhase::Brace if self.social_interrupted() => self.carry_on(),
@@ -226,7 +232,7 @@ impl Pet {
         }
     }
 
-    /// 포물선 위 한 틱. 끝에 닿으면 머리를 밟고 튀거나 내려선다
+    /// 포물선 위 한 틱. 끝에 닿으면 머리를 밟고 튀거나 내려섬
     fn fly_arc(&mut self, dt: f64, world: &World, phase: MeetPhase, remaining: f64) {
         self.body.arc_step(dt.min(remaining));
         let remaining = remaining - dt;
@@ -269,6 +275,7 @@ impl Pet {
         }
     }
 
+    /// 만남 단계별 그림
     pub(super) fn meet_anim(&self, phase: MeetPhase, remaining: f64) -> Anim {
         match phase {
             MeetPhase::Crouch | MeetPhase::Landing => Anim::Land,

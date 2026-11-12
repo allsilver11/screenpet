@@ -1,12 +1,12 @@
 //! 새 (빠른 나는 동물, pet.json `swift`) — 꿀벌보다 빠르게 날고, 더 자주 창 위·바닥에 내려앉아 쉬고,
-//! 친구 화면으로 갈 땐 멀리서부터 "whoosh!" 하고 쌩 날아 나간다 (들어올 때도 쌩). brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 친구 화면으로 갈 땐 멀리서부터 "whoosh!" 하고 쌩 날아 나감 (들어올 때도 쌩). brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{place, run, sim_cfg, w1, world};
 use super::*;
 use crate::flight::{self, Goal};
 use crate::test_util::{DT, flyer, idle, run_until};
 
-/// 새: 날고, 빠르다 (쏘지 않는다)
+/// 새: 날고, 빠름 (쏘지 않음)
 fn bird() -> PetConfig {
     PetConfig { flies: true, swift: true, ..crate::test_util::pet_cfg() }
 }

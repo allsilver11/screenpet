@@ -13,7 +13,7 @@ fn guest(cfg: PetConfig, w: &World, owner: Owner, x: f64, seed: u64) -> Pet {
     p
 }
 
-/// 몸 가운데를 클릭 (커서가 올라와 있다가 누르고 뗀다)
+/// 몸 가운데를 클릭 (커서가 올라와 있다가 누르고 뗌)
 fn click(p: &mut Pet) {
     let (x, y) = (p.body.x, p.body.y - 0.5 * p.cfg.size);
     p.hover(x, y, true);
@@ -21,7 +21,7 @@ fn click(p: &mut Pet) {
     p.pointer_up(x, y);
 }
 
-/// 잡아 봐!가 나올 때까지 시드를 바꿔 가며 클릭한다
+/// 잡아 봐!가 나올 때까지 시드를 바꿔 가며 클릭함
 fn running_guest(cfg: PetConfig, w: &World, owner: Owner, x: f64) -> Pet {
     for seed in 1..200 {
         let mut p = guest(cfg.clone(), w, owner, x, seed);
@@ -33,7 +33,7 @@ fn running_guest(cfg: PetConfig, w: &World, owner: Owner, x: f64) -> Pet {
     panic!("never ran away");
 }
 
-/// 몸보다 좁은 디딤판 조각 위에선 달아나지 못하고 제자리다: 밖으로 튕겨 나가거나 패닉하지 않는다
+/// 몸보다 좁은 디딤판 조각 위에선 달아나지 못하고 제자리임: 밖으로 튕겨 나가거나 패닉하지 않음
 #[test]
 fn on_a_piece_narrower_than_the_body_catch_me_stays_put() {
     // 창 1 윗면의 가운데 40px만 앞창 2·3 사이로 드러난다

@@ -1,16 +1,16 @@
 //! 커서 장난 · 창 흔들림 · 창 닫힘 (v0.3.7) — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //!
-//! 커서 장난: 커서가 근처에 가만히(또는 천천히) 있으면 동물이 장난기가 돈다 — 종마다 다르게 다가가서(CursorStyle),
-//! 닿는 높이면 폴짝 뛰어(CursorLeap) 커서 끝에 매달린다(CursorHang). 최대 5초, 마우스를 세게 흔들면 일찍 떨어진다.
-//! 동물별 쿨다운 2~4분. 앱이 매 틱 cursor_input으로 버튼·바쁨·설정을 알려 주어야 시작한다
-//! (누군가 끌고 있을 때·조작 모드·먹이·하우스·떠나는 중엔 하지 않는다).
+//! 커서 장난: 커서가 근처에 가만히(또는 천천히) 있으면 동물이 장난기가 돎 — 종마다 다르게 다가가서(CursorStyle),
+//! 닿는 높이면 폴짝 뛰어(CursorLeap) 커서 끝에 매달린다(CursorHang). 최대 5초, 마우스를 세게 흔들면 일찍 떨어짐
+//! 동물별 쿨다운 2~4분. 앱이 매 틱 cursor_input으로 버튼·바쁨·설정을 알려 주어야 시작함
+//! (누군가 끌고 있을 때·조작 모드·먹이·하우스·떠나는 중엔 하지 않음).
 //!
-//! 매달린 동안 클릭은 언제나 사용자 것이다: 몸은 커서 끝 바로 아래에서 머리로 커서를 문다(hang_spot — 창이 커서를 덮는다).
+//! 매달린 동안 클릭은 언제나 사용자 것임: 몸은 커서 끝 바로 아래에서 머리로 커서를 문다(hang_spot — 창이 커서를 덮음).
 //! 그래서 뛰는 동안부터 떨어져 커서에서 벗어나거나 내려설 때까지 cursor_through가 참이고, 앱이 창을 옮기기 전에
-//! 먼저 마우스가 통과하게 한다 (slots.rs place). 버튼을 눌러도 매달린 채로 둔다.
+//! 먼저 마우스가 통과하게 함 (slots.rs place). 버튼을 눌러도 매달린 채로 둠
 //!
-//! 창 흔들림: 서 있는 창이 0.8초 안에 세 번 넘게 왔다 갔다 하면 "whoa!" — 60% 떨어지고, 40% 모서리에 1.5초 매달렸다가 올라오거나 떨어진다.
-//! 창 닫힘: 서 있는 창이 사라지면 "eek!" 떨어지고, 내려선 뒤 "hmph!" 째려본다. 다른 창에 가려진 건 닫힘이 아니다.
+//! 창 흔들림: 서 있는 창이 0.8초 안에 세 번 넘게 왔다 갔다 하면 "whoa!" — 60% 떨어지고, 40% 모서리에 1.5초 매달렸다가 올라오거나 떨어짐
+//! 창 닫힘: 서 있는 창이 사라지면 "eek!" 떨어지고, 내려선 뒤 "hmph!" 째려봄. 다른 창에 가려진 건 닫힘이 아님
 
 use std::collections::VecDeque;
 
@@ -22,7 +22,7 @@ pub const HANG_SECS: (f64, f64) = (3.5, 5.0);
 pub const COOLDOWN_SECS: (f64, f64) = (120.0, 240.0);
 /// 앱을 켜고 처음 장난치기까지
 const FIRST_READY_SECS: f64 = 30.0;
-/// 커서가 이만큼 가만히(느리게) 있어야 눈에 들어온다
+/// 커서가 이만큼 가만히(느리게) 있어야 눈에 들어옴
 const STILL_SECS: f64 = 1.2;
 /// 이보다 느리면 "가만히" (논리 px/s)
 const SLOW_SPEED: f64 = 240.0;
@@ -33,9 +33,9 @@ const ALOOF_RATE_MULT: f64 = 0.6;
 /// 근처: 옆으로 몸 이만큼 안, 머리 위로 몸 이만큼 안
 const NEAR_BODIES: f64 = 5.0;
 const NEAR_RISE: f64 = 4.0;
-/// 다가가는 동안 커서가 근처의 이 배수 밖으로 가면 그만둔다
+/// 다가가는 동안 커서가 근처의 이 배수 밖으로 가면 그만둠
 const FAR_MULT: f64 = 1.6;
-/// 장난 한 번의 제한 시간 (닿지 못하면 올려다보고 그만둔다)
+/// 장난 한 번의 제한 시간 (닿지 못하면 올려다보고 그만둠)
 const PLAY_DEADLINE_SECS: f64 = 9.0;
 const GIVE_UP_LOOK_SECS: f64 = 1.2;
 /// 뛰는 동안 커서가 몸 이만큼 넘게 달아나면 헛손질
@@ -44,7 +44,7 @@ const MISS_BODIES: f64 = 2.0;
 const LEAP_ARC: f64 = 0.35;
 /// 펫 창의 최소 너비 (논리 px — slots::PET_LOGICAL_SIZE, 창 너비 = 128 × max(1, 몸 배율))
 const WINDOW_MIN_WIDTH: f64 = 128.0;
-/// 놓은 뒤 이만큼(초)까지만 마우스를 통과시킨다 — 나는 동물은 커서 아래에 떠서 멈추기도 하니까
+/// 놓은 뒤 이만큼(초)까지만 마우스를 통과시킴 — 나는 동물은 커서 아래에 떠서 멈추기도 하니까
 const LET_GO_THROUGH_SECS: f64 = 1.0;
 /// 창 위쪽 말풍선 자리 (논리 px — slots::BUBBLE_SPACE)
 const WINDOW_HEADROOM: f64 = 36.0;
@@ -59,16 +59,16 @@ const SHAKE_REVERSALS: usize = 3;
 const QUAKE_SWING: f64 = 8.0;
 const QUAKE_WINDOW: f64 = 0.8;
 const QUAKE_REVERSALS: usize = 3;
-/// 흔들려 떨어질 몫 (나머지는 모서리에 매달린다)
+/// 흔들려 떨어질 몫 (나머지는 모서리에 매달림)
 const QUAKE_FALL_CHANCE: f64 = 0.6;
 /// 모서리에 매달려 있는 시간
 pub const QUAKE_CLING_SECS: f64 = 1.5;
-/// 모서리에 매달렸을 때 발이 창 윗면보다 이만큼(몸 배) 아래 (앞발만 걸친다)
+/// 모서리에 매달렸을 때 발이 창 윗면보다 이만큼(몸 배) 아래 (앞발만 걸침)
 const CLING_DROP: f64 = 0.72;
 const CLIMB_BACK_CHANCE: f64 = 0.5;
 /// 떨어지며 옆으로 밀리는 속도 (크기 128 기준 px/s)
 const QUAKE_TUMBLE_VX: f64 = 70.0;
-/// 윗면 바로 아래에서 떨어지기 시작한다 — 그래야 그 창 앞을 지나 아래로 내려간다 (px)
+/// 윗면 바로 아래에서 떨어지기 시작함 — 그래야 그 창 앞을 지나 아래로 내려감 (px)
 const BELOW_TOP: f64 = 2.0;
 /// 한 번 흔들린 뒤 다시 흔들리기까지
 const QUAKE_CALM_SECS: f64 = 5.0;
@@ -87,6 +87,7 @@ struct Axis {
 }
 
 impl Axis {
+    /// 한 축의 새 자리를 넣음. 극값에서 swing 넘게 되돌아오면 방향 바꿈 하나로 셈
     fn push(&mut self, t: f64, v: f64, swing: f64, window: f64) {
         let Some(extreme) = self.extreme else {
             self.extreme = Some(v);
@@ -121,19 +122,23 @@ pub struct ShakeMeter {
 }
 
 impl ShakeMeter {
+    /// 흔들기 측정기를 만듦 (swing: 되돌아오는 최소 거리, window: 세는 시간 창)
     pub fn new(swing: f64, window: f64) -> Self {
         Self { x: Axis::default(), y: Axis::default(), swing, window }
     }
 
+    /// 커서 자리 하나를 넣음 (x·y 축 따로 셈)
     pub fn push(&mut self, t: f64, x: f64, y: f64) {
         self.x.push(t, x, self.swing, self.window);
         self.y.push(t, y, self.swing, self.window);
     }
 
+    /// 시간 창 안의 방향 바꿈 수 (두 축 중 많은 쪽)
     pub fn reversals(&self) -> usize {
         self.x.flips.len().max(self.y.flips.len())
     }
 
+    /// 센 것을 모두 지움
     pub fn clear(&mut self) {
         self.x = Axis::default();
         self.y = Axis::default();
@@ -145,13 +150,13 @@ impl ShakeMeter {
 pub enum PlayPhase {
     /// 시작 자세 (공룡 크앙, 유령 부~)
     Prep,
-    /// 커서 쪽으로 간다 (걷는 동물은 디딤판 위로만, 나는 동물은 곧장)
+    /// 커서 쪽으로 감 (걷는 동물은 디딤판 위로만, 나는 동물은 곧장)
     Approach,
     /// 닿을 자리에서 한 번 더 (고양이 엉덩이 씰룩, 페르시안 기지개, 기린 목 늘이기)
     Reach,
 }
 
-/// 종마다 다른 놀이 — 그림은 이미 있는 것만 쓴다
+/// 종마다 다른 놀이 — 그림은 이미 있는 것만 씀
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CursorStyle {
     /// 시작 자세 (그림, 초)
@@ -160,24 +165,24 @@ pub struct CursorStyle {
     gait: Anim,
     /// 다가가는 속도 (걷기 속도 배)
     speed: f64,
-    /// 통통 튀는 높이 (몸 배 — 그림만 띄운다)
+    /// 통통 튀는 높이 (몸 배 — 그림만 띄움)
     lift: f64,
     /// 한 번 튀는 시간
     beat: f64,
     /// 닿을 자리에서 한 번 더 (그림, 초)
     arrive: Option<(Anim, f64)>,
-    /// 그동안 몸을 씰룩인다
+    /// 그동안 몸을 씰룩임
     wiggle: bool,
     /// 뛰어오를 때 그림과 시간
     leap: Anim,
     leap_secs: f64,
-    /// 옆으로 몸 이만큼 안이면 뛸 수 있다
+    /// 옆으로 몸 이만큼 안이면 뛸 수 있음
     range: f64,
-    /// 머리 위로 몸 이만큼 안이면 닿는다
+    /// 머리 위로 몸 이만큼 안이면 닿음
     reach: f64,
     /// 나는 동물의 흔들림 (폭: 몸 배, 초당 횟수)
     sway: (f64, f64),
-    /// 가는 길에 또 말한다
+    /// 가는 길에 또 말함
     chatty: bool,
     /// 째려볼 때 그림
     glare: Anim,
@@ -255,7 +260,7 @@ impl CursorStyle {
         }
     }
 
-    /// 이 놀이가 쓰는 그림 (테스트: 그 동물 pet.json에 있어야 한다)
+    /// 이 놀이가 쓰는 그림 (테스트: 그 동물 pet.json에 있어야 함)
     pub fn anims(&self) -> Vec<Anim> {
         let mut v = vec![self.gait, self.leap, self.glare];
         v.extend(self.prep.map(|p| p.0));
@@ -278,9 +283,9 @@ pub struct CursorMood {
     /// 커서 속도 (물리 px/s)
     velocity: (f64, f64),
     still_for: f64,
-    /// 이 시각(clock)부터 장난칠 수 있다
+    /// 이 시각(clock)부터 장난칠 수 있음
     pub(super) ready_at: f64,
-    /// 이 시각(clock)까지 닿지 못하면 그만둔다
+    /// 이 시각(clock)까지 닿지 못하면 그만둠
     deadline: f64,
     /// 뛰기 시작했을 때 커서 자리
     leap_aim: (f64, f64),
@@ -291,11 +296,12 @@ pub struct CursorMood {
     quake: ShakeMeter,
     quake_window: Option<u64>,
     calm_until: f64,
-    /// 내려서면 째려본다
+    /// 내려서면 째려봄
     glare_pending: bool,
 }
 
 impl CursorMood {
+    /// 처음 상태: 꺼져 있고 바쁨으로 시작함 (앱이 알려 줄 때까지 장난치지 않음)
     pub(super) fn new() -> Self {
         Self {
             style: None,
@@ -320,7 +326,7 @@ impl CursorMood {
 }
 
 impl Pet {
-    /// 이 동물의 놀이를 정한다 (동물 교체·손님이 올 때): 커서 놀이 방식 + 기지개 잘 켜는지 (고양이 둘)
+    /// 이 동물의 놀이를 정함 (동물 교체·손님이 올 때): 커서 놀이 방식 + 기지개 잘 켜는지 (고양이 둘)
     pub fn set_cursor_species(&mut self, species: &str) {
         self.cursor_mood.style = CursorStyle::of(species);
         self.stretchy = behavior::stretchy_species(species);
@@ -334,14 +340,14 @@ impl Pet {
         m.enabled = enabled;
     }
 
-    /// 창이 마우스를 통과시켜야 한다 — 뛰어오르는 중과 매달린 동안 (클릭은 사용자 것)
+    /// 창이 마우스를 통과시켜야 함 — 뛰어오르는 중과 매달린 동안 (클릭은 사용자 것)
     pub fn cursor_through(&self) -> bool {
         // 나는 동물은 다가오는 동안 이미 커서 쪽으로 곧장 날아 창이 커서를 덮는다
         let gliding = self.cfg.flies && matches!(self.state, State::CursorPlay { phase: PlayPhase::Approach, .. });
         gliding || self.cursor_mood.through_after > 0.0 || matches!(self.state, State::CursorLeap { .. } | State::CursorHang { .. } | State::Swing { .. })
     }
 
-    /// 🎣 놓은 뒤 잠깐 더 마우스를 통과시킨다 (떨어져 커서에서 벗어나거나 내려설 때까지 — brain_swing.rs)
+    /// 🎣 놓은 뒤 잠깐 더 마우스를 통과시킴 (떨어져 커서에서 벗어나거나 내려설 때까지 — brain_swing.rs)
     pub(super) fn keep_click_through(&mut self) {
         self.cursor_mood.through_after = LET_GO_THROUGH_SECS;
     }
@@ -351,12 +357,12 @@ impl Pet {
         (self.cursor_mood.enabled, self.cursor_mood.busy, self.cursor_mood.left_down)
     }
 
-    /// 1 = 커서에 매달림, 0 = 아님 — 웹뷰가 커서 끝(머리 꼭대기)을 축으로 흔든다
+    /// 1 = 커서에 매달림, 0 = 아님 — 웹뷰가 커서 끝(머리 꼭대기)을 축으로 흔듦
     pub(super) fn hang_side(&self) -> i8 {
         i8::from(matches!(self.state, State::CursorHang { .. }))
     }
 
-    /// 창이 커서 끝을 덮고 있다
+    /// 창이 커서 끝을 덮고 있음
     pub(super) fn window_covers_cursor(&self) -> bool {
         let (cx, cy) = self.cursor;
         let dpi = self.cfg.dpi;
@@ -364,7 +370,7 @@ impl Pet {
         (self.body.x - half..self.body.x + half).contains(&cx) && (self.body.y - self.cfg.size - WINDOW_HEADROOM * dpi..self.body.y).contains(&cy)
     }
 
-    /// 놓은 뒤: 떨어져 커서에서 벗어나거나 다른 상태(내려섬·잡힘)가 되면 다시 클릭을 받는다
+    /// 놓은 뒤: 떨어져 커서에서 벗어나거나 다른 상태(내려섬·잡힘)가 되면 다시 클릭을 받음
     fn settle_let_go_through(&mut self, dt: f64) {
         if self.cursor_mood.through_after <= 0.0 {
             return;
@@ -373,6 +379,7 @@ impl Pet {
         self.cursor_mood.through_after = if falling { (self.cursor_mood.through_after - dt).max(0.0) } else { 0.0 };
     }
 
+    /// 이 동물의 커서 장난 성격. pet.json에 없으면 기본값
     fn cursor_style(&self) -> CursorStyle {
         self.cursor_mood.style.unwrap_or_else(|| CursorStyle::fallback(&self.cfg))
     }
@@ -425,6 +432,7 @@ impl Pet {
         true
     }
 
+    /// 커서 속도·멈춘 시간을 갱신함
     fn track_cursor(&mut self, dt: f64) {
         let cursor = self.cursor;
         let m = &mut self.cursor_mood;
@@ -441,6 +449,7 @@ impl Pet {
         self.body.y - self.cursor.1
     }
 
+    /// 커서가 몸 가까이 (NEAR_BODIES × mult 몸 크기 안) 있음
     fn cursor_near(&self, mult: f64) -> bool {
         let size = self.cfg.size;
         let dx = (self.cursor.0 - self.body.x).abs();
@@ -458,7 +467,7 @@ impl Pet {
         (self.cursor.0 - self.body.x).abs() <= style.range * size && rise >= 0.0 && rise <= (HEAD_TOP + style.reach) * size
     }
 
-    /// 장난을 그만두어야 하는 일 (먹이·집·조작 등이 먼저다)
+    /// 장난을 그만두어야 하는 일 (먹이·집·조작 등이 먼저임)
     fn play_interrupted(&self) -> bool {
         self.housed
             || self.home_trip.is_some()
@@ -474,6 +483,7 @@ impl Pet {
             || self.presence_quiet()
     }
 
+    /// 커서가 충분히 멈춰 있고 한가하면 커서 장난을 시작함
     fn maybe_start_play(&mut self, dt: f64) {
         let m = &self.cursor_mood;
         if !m.enabled || m.busy || m.left_down || self.clock < m.ready_at || m.still_for < STILL_SECS {
@@ -495,6 +505,7 @@ impl Pet {
         self.start_play();
     }
 
+    /// 커서 장난 시작: 쿨다운·마감을 정하고 다가가기로 들어감
     fn start_play(&mut self) {
         let style = self.cursor_style();
         let cooldown = behavior::range(&mut self.rng, COOLDOWN_SECS);
@@ -518,6 +529,7 @@ impl Pet {
         };
     }
 
+    /// 커서 쪽을 봄 (2px 안이면 그대로)
     fn face_cursor(&mut self) {
         let dx = self.cursor.0 - self.body.x;
         if dx.abs() > 2.0 {
@@ -525,18 +537,19 @@ impl Pet {
         }
     }
 
-    /// 그만둔다: 제자리에서 쉬기로 (나는 동물은 뜬 채로)
+    /// 그만둠: 제자리에서 쉬기로 (나는 동물은 뜬 채로)
     fn end_play(&mut self) {
         self.state = self.idle_state();
     }
 
-    /// 닿지 못했다 — 커서를 올려다보고 그만둔다
+    /// 닿지 못했음 — 커서를 올려다보고 그만둠
     fn give_up_play(&mut self) {
         self.face_cursor();
         self.gaze_up = true;
         self.state = State::Idle { remaining: GIVE_UP_LOOK_SECS, look: true };
     }
 
+    /// 커서 장난 한 틱: 바쁨·버튼 누름·방해가 있으면 그만둠
     fn update_play(&mut self, dt: f64, world: &World, phase: PlayPhase, remaining: f64) {
         let m = &self.cursor_mood;
         if m.busy || m.left_down || !m.enabled || self.play_interrupted() {
@@ -568,6 +581,7 @@ impl Pet {
         }
     }
 
+    /// 커서로 다가감. 마감을 넘기면 포기함
     fn update_approach(&mut self, dt: f64, world: &World, style: &CursorStyle) {
         if self.clock >= self.cursor_mood.deadline {
             self.give_up_play();
@@ -624,6 +638,7 @@ impl Pet {
         self.body.y += dy / dist * step + sway;
     }
 
+    /// 커서 끝으로 뛰어오르기 시작함
     fn start_cursor_leap(&mut self) {
         self.cursor_mood.leap_aim = self.cursor;
         self.standing = None;
@@ -632,6 +647,7 @@ impl Pet {
         self.state = State::CursorLeap { from: (self.body.x, self.body.y), elapsed: 0.0 };
     }
 
+    /// 커서로 뛰어오르는 포물선 한 틱. 닿으면 매달림
     fn update_leap_to_cursor(&mut self, dt: f64, world: &World, from: (f64, f64), elapsed: f64) {
         let elapsed = elapsed + dt;
         let t = (elapsed / self.cursor_style().leap_secs).min(1.0);
@@ -656,7 +672,7 @@ impl Pet {
     }
 
     /// 매달릴 자리 (몸 가운데 x, 발 y): 머리 꼭대기(hang_grip)가 커서 끝에 닿게 커서 바로 아래 —
-    /// 화면 끝에서는 잘리지 않게 안쪽으로 민다
+    /// 화면 끝에서는 잘리지 않게 안쪽으로 밂
     fn hang_spot(&self, world: &World) -> (f64, f64) {
         let (cx, cy) = self.cursor;
         let half = self.cfg.size.max(WINDOW_MIN_WIDTH * self.cfg.dpi) / 2.0;
@@ -667,6 +683,7 @@ impl Pet {
         (x, (cy + self.cfg.size * (1.0 - grip_y)).min(b.bottom))
     }
 
+    /// 커서에 매달리기 시작함 ("gotcha!")
     fn start_hang(&mut self, world: &World) {
         let (x, y) = self.hang_spot(world);
         self.body = Body { x, y, vx: 0.0, vy: 0.0 };
@@ -676,6 +693,7 @@ impl Pet {
         self.state = State::CursorHang { remaining: behavior::range(&mut self.rng, HANG_SECS) };
     }
 
+    /// 매달린 한 틱: 커서를 따라가고, 세게 흔들면 떨어짐
     fn update_hang(&mut self, dt: f64, world: &World, remaining: f64) {
         if !self.cursor_mood.enabled || self.play_interrupted() {
             self.let_go(None);
@@ -702,7 +720,7 @@ impl Pet {
         }
     }
 
-    /// 놓고 떨어진다 (평소 물리 — 나는 동물은 떠서 멈춘다). 커서가 움직이던 쪽으로 조금 밀린다
+    /// 놓고 떨어짐 (평소 물리 — 나는 동물은 떠서 멈춤). 커서가 움직이던 쪽으로 조금 밀림
     fn let_go(&mut self, speech: Option<Speech>) {
         if speech.is_some() {
             self.speech = speech;
@@ -719,6 +737,7 @@ impl Pet {
 
     // ── 창 흔들림 ──
 
+    /// 서 있는 창이 흔들리는지 봄 (창이 바뀌면 측정을 새로 함)
     fn sense_quake(&mut self, world: &World) {
         let window = match self.standing.map(|s| s.owner) {
             Some(Owner::Window(id)) => Some(id),
@@ -740,7 +759,7 @@ impl Pet {
         self.feel_quake(window.expect("quake needs a window"));
     }
 
-    /// 조작 모드 중엔 째려보거나 매달리지 않는다 — 키를 빼앗지 않게 (창이 사라져 떨어지는 것만 그대로). 하던 중이었어도 바로 끝낸다
+    /// 조작 모드 중엔 째려보거나 매달리지 않음 — 키를 빼앗지 않게 (창이 사라져 떨어지는 것만 그대로). 하던 중이었어도 바로 끝냄
     fn end_mood_for_control(&mut self) {
         self.cursor_mood.glare_pending = false;
         match self.state {
@@ -780,6 +799,7 @@ impl Pet {
             )
     }
 
+    /// 창이 흔들려 "whoa!" 하며 비틀거림. 나는 동물은 날아오름
     fn feel_quake(&mut self, window: u64) {
         self.speech = Some(Speech::Whoa);
         self.wobble_timer = behavior_wobble();
@@ -809,7 +829,7 @@ impl Pet {
         }
     }
 
-    /// 창 모서리에 매달려 창을 따라간다. 끝나면 올라오거나 떨어진다
+    /// 창 모서리에 매달려 창을 따라감. 끝나면 올라오거나 떨어짐
     fn update_cling(&mut self, dt: f64, world: &World, window: u64, rel_x: f64, remaining: f64) {
         let Some(rect) = world.window(window).map(|w| w.rect) else {
             self.start_fall();
@@ -834,7 +854,7 @@ impl Pet {
 
     // ── 창 닫힘 ──
 
-    /// 서 있던 창이 사라졌다 (가려진 건 아님): "eek!" — 떨어지는 건 평소 그대로 (디딤판을 잃은 상태가 알아서)
+    /// 서 있던 창이 사라졌음 (가려진 건 아님): "eek!" — 떨어지는 건 평소 그대로 (디딤판을 잃은 상태가 알아서)
     fn sense_window_closed(&mut self, world: &World) {
         if self.is_held() || self.home_trip.is_some() {
             self.cursor_mood.glare_pending = false;
@@ -860,11 +880,12 @@ impl Pet {
         self.start_fall();
     }
 
-    /// 내려서면 째려보려던 것을 잊는다 (자리 비움으로 잠들었다)
+    /// 내려서면 째려보려던 것을 잊음 (자리 비움으로 잠들었음)
     pub(super) fn forget_glare(&mut self) {
         self.cursor_mood.glare_pending = false;
     }
 
+    /// 째려보기 시작 ("hmph!")
     fn start_glare(&mut self) {
         self.cursor_mood.glare_pending = false;
         self.speech = Some(Speech::Hmph);
@@ -872,6 +893,7 @@ impl Pet {
         self.state = State::Glare { remaining: GLARE_SECS };
     }
 
+    /// 째려보는 한 틱. 시간이 다 되면 쉬는 박자로 돌아감
     fn update_glare(&mut self, dt: f64, world: &World, remaining: f64) {
         if self.standing.is_some() && !self.follow_anchor(world) {
             self.start_fall();
@@ -882,7 +904,7 @@ impl Pet {
     }
 }
 
-/// 놀라 덜덜 떠는 시간 (쿵쾅에 흔들릴 때와 같다)
+/// 놀라 덜덜 떠는 시간 (쿵쾅에 흔들릴 때와 같음)
 fn behavior_wobble() -> f64 {
     super::stomp_moves::WOBBLE_SECS
 }

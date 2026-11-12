@@ -125,7 +125,7 @@ fn big_jump_falls_if_the_target_window_vanishes_mid_air() {
     assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)));
 }
 
-/// 이동을 정할 때 닿는 창 윗면이 있으면 12% 정도 큰 점프, 없으면 안 한다
+/// 이동을 정할 때 닿는 창 윗면이 있으면 12% 정도 큰 점프, 없으면 안 함
 #[test]
 fn big_jumps_happen_on_about_12_percent_of_move_decisions_when_a_window_is_in_reach() {
     let share = |w: &World, x: f64| {
@@ -163,7 +163,7 @@ fn leap_share(c: PetConfig, w: &World, x: f64) -> f64 {
     leaps as f64 / n as f64
 }
 
-/// 바닥 옆 창 윗면: 몸 크기만큼 위, 옆으로 몸 하나 떨어진 자리 (누구나 닿는다)
+/// 바닥 옆 창 윗면: 몸 크기만큼 위, 옆으로 몸 하나 떨어진 자리 (누구나 닿음)
 fn reachable(c: &PetConfig) -> (World, f64) {
     (world(vec![win(1, 500.0, 1040.0 - c.size, 1200.0, 1040.0)]), 500.0 - c.half_w - 0.5 * c.size)
 }
@@ -218,7 +218,7 @@ fn a_walker_leap_crouches_flies_and_lands_on_the_window_top() {
     }
 }
 
-/// 닿는 높이는 몸 크기에 비례: 작은 몸은 못 닿는 창에 큰 몸은 닿는다
+/// 닿는 높이는 몸 크기에 비례: 작은 몸은 못 닿는 창에 큰 몸은 닿음
 #[test]
 fn leap_reach_scales_with_body_size() {
     let cat = |scale: f64| {
@@ -237,7 +237,7 @@ fn leap_reach_scales_with_body_size() {
     assert!(leap_share(big, &far, x) > 0.03);
 }
 
-/// 큰 몸은 그만큼 더 뛰지 않는다: 산타(1.65배, 청소년 211)도 어른 고양이쯤까지만 닿고 그만큼만 솟는다. 배율(dpi)에는 비례
+/// 큰 몸은 그만큼 더 뛰지 않음: 산타(1.65배, 청소년 211)도 어른 고양이쯤까지만 닿고 그만큼만 솟음. 배율(dpi)에는 비례
 #[test]
 fn big_bodies_do_not_leap_absurdly_high() {
     let santa = |dpi: f64| {
@@ -268,7 +268,7 @@ fn big_bodies_do_not_leap_absurdly_high() {
     assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
 }
 
-/// 조작 모드·창 안·집에 가는 길에는 뛰지 않는다
+/// 조작 모드·창 안·집에 가는 길에는 뛰지 않음
 #[test]
 fn walkers_keep_the_leap_gates() {
     let c = PetConfig { size: 128.0, half_w: 38.0, ..sim_cfg() };
@@ -299,7 +299,7 @@ fn ready_leaps(p: &mut Pet, w: &World) -> bool {
     (0..200).any(|_| p.big_jump_state(w).is_some())
 }
 
-/// 걷는 동물 10분: 늘 화면 안·디딤판 위, 큰 점프는 늘 창 윗면에 내려선다 (나는 동물은 안 뛴다)
+/// 걷는 동물 10분: 늘 화면 안·디딤판 위, 큰 점프는 늘 창 윗면에 내려섬 (나는 동물은 안 뜀)
 #[test]
 fn walkers_ten_minutes_stay_on_surfaces_and_land_their_leaps() {
     let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0), win(2, 1200.0, 600.0, 1700.0, 800.0)]);
@@ -338,7 +338,7 @@ fn walkers_ten_minutes_stay_on_surfaces_and_land_their_leaps() {
     }
 }
 
-/// 화면 타기: 같은 기계(목표까지 오르고 매달렸다가 미끄러져 내려옴)지만 폴짝 오르고 매달리기를 되풀이한다 (뒷모습)
+/// 화면 타기: 같은 기계(목표까지 오르고 매달렸다가 미끄러져 내려옴)지만 폴짝 오르고 매달리기를 되풀이함 (뒷모습)
 #[test]
 fn frog_climbs_the_screen_in_hop_ups_then_slides_down() {
     let w = world(vec![]);
@@ -399,7 +399,7 @@ fn thrown_frog_hop_climbs_a_window_side_and_stands_on_top() {
     assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
 }
 
-/// 개구리 10분: 디딤판을 뚫고 떨어지지 않고, 폴짝은 낮게, 큰 점프가 나오고 늘 창 윗면에 내려선다, 벽도 오른다
+/// 개구리 10분: 디딤판을 뚫고 떨어지지 않고, 폴짝은 낮게, 큰 점프가 나오고 늘 창 윗면에 내려섬, 벽도 오름
 #[test]
 fn frog_ten_minutes() {
     let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0), win(2, 1200.0, 500.0, 1700.0, 800.0)]);
@@ -490,7 +490,7 @@ fn rabbit_hop_segment_is_a_low_quick_hop_at_walking_speed() {
 }
 
 /// 토끼 10분 × 10: 걷기·달리기 시간의 절반쯤(±10%) 깡총, 깡총은 낮고 늘 디딤판 위,
-/// 벽 폴짝 오르기는 없고 (큰 점프는 v0.3.9부터 모두 한다), 깡총 아닌 토막은 예전처럼 평평하게 걷는다
+/// 벽 폴짝 오르기는 없고 (큰 점프는 v0.3.9부터 모두 함), 깡총 아닌 토막은 예전처럼 평평하게 걸음
 #[test]
 fn rabbit_hops_about_half_of_its_walking_time() {
     let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0), win(2, 1200.0, 500.0, 1700.0, 800.0)]);
@@ -536,7 +536,7 @@ fn rabbit_hops_about_half_of_its_walking_time() {
     assert_eq!(switches, 0, "the gait changes only between segments");
 }
 
-/// 다른 걷는 동물(hop_share 0)은 절대 깡총 걸음을 하지 않는다
+/// 다른 걷는 동물(hop_share 0)은 절대 깡총 걸음을 하지 않음
 #[test]
 fn other_walkers_never_hop_walk() {
     let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0)]);
@@ -553,7 +553,7 @@ fn other_walkers_never_hop_walk() {
     }
 }
 
-/// 토끼도 보내기·잡아 봐!는 그대로 된다 (보내면 손 흔들고 그 쪽으로 사라진다)
+/// 토끼도 보내기·잡아 봐!는 그대로 됨 (보내면 손 흔들고 그 쪽으로 사라짐)
 #[test]
 fn rabbit_is_sent_off_and_plays_catch_me() {
     let w = world(vec![]);

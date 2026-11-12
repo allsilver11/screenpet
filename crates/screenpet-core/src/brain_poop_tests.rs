@@ -24,7 +24,7 @@ fn poop_at(id: u64, x: f64) -> PoopSpot {
     PoopSpot { id, x, y: GROUND, owner: FLOOR }
 }
 
-/// 조건을 건드리지 않고 누르기를 n번: 쌌으면 true (앞의 쉬는 시간은 없다)
+/// 조건을 건드리지 않고 누르기를 n번: 쌌으면 true (앞의 쉬는 시간은 없음)
 fn clicks(p: &mut Pet, n: usize) -> bool {
     (0..n).any(|_| p.try_poop().is_some())
 }
@@ -125,13 +125,13 @@ fn fliers_drop_it_from_the_air_but_not_while_thrown_or_leaving() {
     assert!(!clicks(&mut p, 3000));
 }
 
-/// 코드 수준 약속: 누른 자리를 받거나 저장하지 않는다 (시그니처가 곧 증거)
+/// 코드 수준 약속: 누른 자리를 받거나 저장하지 않음 (시그니처가 곧 증거)
 #[test]
 fn trying_takes_nothing_but_the_pet_itself() {
     let _: fn(&mut Pet) -> Option<(f64, f64)> = Pet::try_poop;
 }
 
-/// 걷는 동물을 똥 앞까지 몰아 본다: 무슨 일이 일어났나
+/// 걷는 동물을 똥 앞까지 몰아 봄: 무슨 일이 일어났나
 #[derive(Debug, PartialEq)]
 enum Seen {
     Turned,

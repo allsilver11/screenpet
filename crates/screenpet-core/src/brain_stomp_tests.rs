@@ -11,7 +11,7 @@ fn dino() -> PetConfig {
     PetConfig { special: Some(Special::Fire), ..sim_cfg() }
 }
 
-/// 공룡 동작을 시작하면 셋 중 하나 — 동작마다 말풍선이 다르고, 쿵쾅만 친구들에게 알린다 (한 번)
+/// 공룡 동작을 시작하면 셋 중 하나 — 동작마다 말풍선이 다르고, 쿵쾅만 친구들에게 알림 (한 번)
 #[test]
 fn a_dino_special_is_fire_roar_or_stomp_with_its_own_speech() {
     let w = world(vec![]);
@@ -50,7 +50,7 @@ fn other_specials_are_not_reshuffled() {
     assert!(!p.take_stomp());
 }
 
-/// 10분 × 3 — 쉬다가 불·크앙·쿵쾅이 모두 나온다
+/// 10분 × 3 — 쉬다가 불·크앙·쿵쾅이 모두 나옴
 #[test]
 fn a_dino_breathes_fire_roars_and_stomps_while_idle() {
     let w = world(vec![w1()]);
@@ -99,7 +99,7 @@ fn tickling_a_dino_sometimes_makes_it_puff_fire_or_roar() {
     assert!(fire_or_roar as f64 / special as f64 > 0.75);
 }
 
-/// 데굴: 공룡 반대쪽으로 구르며 미끄러지다 창 윗면 끝에서 멈추고 (떨어지지 않는다), 착지 자세로 일어선다
+/// 데굴: 공룡 반대쪽으로 구르며 미끄러지다 창 윗면 끝에서 멈추고 (떨어지지 않음), 착지 자세로 일어섬
 #[test]
 fn a_tumble_rolls_away_and_stops_at_the_ledge() {
     let w = world(vec![w1()]);
@@ -127,7 +127,7 @@ fn a_tumble_rolls_away_and_stops_at_the_ledge() {
     assert!(!p.render().wobble);
 }
 
-/// 이미 끝을 넘어 서 있으면 그 자리에서 데굴 — 더 나가지 않는다. 가운데서는 몸 반 개쯤 미끄러진다
+/// 이미 끝을 넘어 서 있으면 그 자리에서 데굴 — 더 나가지 않음. 가운데서는 몸 반 개쯤 미끄러짐
 #[test]
 fn a_tumble_never_pushes_a_pet_off_a_ledge() {
     let w = world(vec![w1()]);
@@ -150,7 +150,7 @@ fn a_tumble_never_pushes_a_pet_off_a_ledge() {
     assert!(moved > 20.0 && moved < 110.0, "{moved}");
 }
 
-/// 흔들림만 (데굴 아님): 하던 걸 계속하고 WOBBLE_SECS 뒤 멈춘다. STOMP_CALM_SECS 동안은 다시 흔들리지 않는다
+/// 흔들림만 (데굴 아님): 하던 걸 계속하고 WOBBLE_SECS 뒤 멈춤. STOMP_CALM_SECS 동안은 다시 흔들리지 않음
 #[test]
 fn a_wobble_is_short_and_there_is_a_cooldown() {
     let w = world(vec![]);
@@ -173,7 +173,7 @@ fn a_wobble_is_short_and_there_is_a_cooldown() {
     assert!(p.feel_stomp(700.0, false));
 }
 
-/// 자던 동물은 투덜("...") 깼다가 다시 잠든다
+/// 자던 동물은 투덜("...") 깼다가 다시 잠듦
 #[test]
 fn a_sleeping_pet_wakes_grumpy_then_dozes_off() {
     let w = world(vec![]);
@@ -207,7 +207,7 @@ fn busy_pets_do_not_feel_the_stomp() {
     assert!(!p.feel_stomp(700.0, true));
 }
 
-/// 나는 동물은 떠서도 내려앉아서도 흔들리기만 한다
+/// 나는 동물은 떠서도 내려앉아서도 흔들리기만 함
 #[test]
 fn flyers_only_wobble() {
     let w = world(vec![]);

@@ -1,6 +1,6 @@
 //! 기대고 있는 창 — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //! 전체 창 목록은 100 ms마다만 다시 읽으므로, 게임 루프는 사이 틱마다 이 창의 경계만 새로 읽어
-//! (WindowSource::rect_of → World::patch_windows) 창을 끌어 옮길 때 동물이 매 틱 따라가게 한다.
+//! (WindowSource::rect_of → World::patch_windows) 창을 끌어 옮길 때 동물이 매 틱 따라가게 함
 
 use super::*;
 

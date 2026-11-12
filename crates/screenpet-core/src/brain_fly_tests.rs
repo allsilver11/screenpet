@@ -570,7 +570,7 @@ fn fly_stats(dpi: f64, seeds: u64) -> FlyStats {
     st
 }
 
-/// 실제 화면(1920×1080, 2560×1440@1.5)에서: 곧게 위로만 오르지 않고 꼬불꼬불, 좌우·위아래 고르게, 가끔 원을 그린다
+/// 실제 화면(1920×1080, 2560×1440@1.5)에서: 곧게 위로만 오르지 않고 꼬불꼬불, 좌우·위아래 고르게, 가끔 원을 그림
 #[test]
 fn bee_flies_curvy_balanced_paths_with_circles_on_real_screens() {
     for dpi in [1.0, 1.5] {

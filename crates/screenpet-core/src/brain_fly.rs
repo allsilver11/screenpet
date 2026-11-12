@@ -2,7 +2,7 @@
 //! 비행 수치·경로 계산은 flight.rs.
 //!
 //! 나는 동물은 `standing`이 None인 채로 날거나 떠 있고(State::Move = 날기, 그 밖의 쉬기·애교 = 제자리에 떠서),
-//! 내려앉았을 때(`standing` = Some)만 디딤판 위 동작(update_ground)을 쓴다. 중력은 받지 않는다.
+//! 내려앉았을 때(`standing` = Some)만 디딤판 위 동작(update_ground)을 씀. 중력은 받지 않음
 
 use super::*;
 use crate::flight::{self, Goal, Loop, Style};
@@ -26,6 +26,7 @@ impl Pet {
         flight::fly_bounds(&area, self.cfg.half_w, self.fly_head())
     }
 
+    /// 나는 동물의 움직임 종류별 속도 (걷기 속도 × 배수)
     pub(super) fn fly_speed(&self, kind: Move) -> f64 {
         self.cfg.walk_speed * flight::speed_mult(kind)
     }
@@ -35,6 +36,7 @@ impl Pet {
         if self.cfg.swift { self.cfg.walk_speed * flight::SWIFT_DASH } else { self.fly_speed(Move::Walk) }
     }
 
+    /// 나는 동물의 한 틱: 상태에 맞게 날고, 앉고, 드나듦
     pub(super) fn update_flyer(&mut self, dt: f64, world: &World) {
         // 걷는 동물이 만들던 눈사람 (동물을 바꿨다) — 나는 동물은 만들지 않으니 여기서 끝낸다. 디딘 자리는 그대로 (내려앉은 것과 같다)
         if matches!(self.state, State::Snowman { .. }) {
@@ -75,7 +77,7 @@ impl Pet {
         }
     }
 
-    /// 창 안에 놓였는지 보고(놓은 다음 틱), 창이 사라지거나 머문 시간이 다 되거나 집에 가야 하면 창 밖으로 날아 나간다
+    /// 창 안에 놓였는지 보고(놓은 다음 틱), 창이 사라지거나 머문 시간이 다 되거나 집에 가야 하면 창 밖으로 날아 나감
     fn update_fly_inside(&mut self, dt: f64, world: &World) {
         self.check_dropped_in(world);
         let Some(mut stay) = self.inside else { return };
@@ -106,7 +108,7 @@ impl Pet {
         }
     }
 
-    /// 디딤판을 떠나 제자리에 뜬다 (잠·착지는 떠서 쉬기로)
+    /// 디딤판을 떠나 제자리에 뜸 (잠·착지는 떠서 쉬기로)
     pub(super) fn take_off(&mut self) {
         self.standing = None;
         self.hover_at = None;
@@ -117,7 +119,7 @@ impl Pet {
         }
     }
 
-    /// 내려앉아 있음: 앉은 자리가 사라지면 떠오르고, 이동할 때가 되면 날아오른다. 그 밖엔 디딤판 위 동작 그대로
+    /// 내려앉아 있음: 앉은 자리가 사라지면 떠오르고, 이동할 때가 되면 날아오름. 그 밖엔 디딤판 위 동작 그대로
     pub(super) fn update_perched(&mut self, dt: f64, world: &World) {
         let ok = self.follow_anchor(world)
             && self.standing.is_some_and(|st| world.piece_at(st.owner, self.body.x).is_some_and(|p| p.width() >= 2.0 * self.cfg.half_w));
@@ -143,7 +145,7 @@ impl Pet {
         }
     }
 
-    /// 떠 있음: 날기(Move)는 길을 따라가고, 나머지 활동은 제자리에 떠서 시간만 흘린다
+    /// 떠 있음: 날기(Move)는 길을 따라가고, 나머지 활동은 제자리에 떠서 시간만 흘림
     pub(super) fn update_flying(&mut self, dt: f64, world: &World) {
         // 먹이를 받았으면 가까운 자리로 내려앉으러 간다
         let to_perch = self.flight.is_some_and(|f| matches!(f.goal, Goal::Perch { .. }));
@@ -172,13 +174,13 @@ impl Pet {
         self.body = Body { x, y, vx: 0.0, vy: 0.0 };
     }
 
-    /// 날아갈 길을 정해 날기 시작한다 (facing = 가는 쪽). 지점으로는 굽이굽이, 내려앉으러는 완만하게
+    /// 날아갈 길을 정해 날기 시작함 (facing = 가는 쪽). 지점으로는 굽이굽이, 내려앉으러는 완만하게
     pub(super) fn start_flight(&mut self, goal: Goal, kind: Move) {
         let style = if matches!(goal, Goal::Point(..)) { Style::Wander } else { Style::Gentle };
         self.start_flight_styled(goal, kind, style);
     }
 
-    /// 길 모양(style)을 정해 날기 시작한다 — 곡선 자체는 첫 틱에 범위를 보고 만든다 (fly_step)
+    /// 길 모양(style)을 정해 날기 시작함 — 곡선 자체는 첫 틱에 범위를 보고 만듦 (fly_step)
     fn start_flight_styled(&mut self, goal: Goal, kind: Move, style: Style) {
         let from = (self.body.x, self.body.y);
         let mut f = Flight::new(goal, from, 0.0);
@@ -255,7 +257,7 @@ impl Pet {
         true
     }
 
-    /// 날기 한 틱: 길(또는 공중제비)을 따라가고, 화면 끝에선 나갈지 정하고, 도착하면 떠서 쉬거나 내려앉는다
+    /// 날기 한 틱: 길(또는 공중제비)을 따라가고, 화면 끝에선 나갈지 정하고, 도착하면 떠서 쉬거나 내려앉음
     fn fly_step(&mut self, dt: f64, world: &World, kind: Move) {
         if self.flight.is_none() && !self.plan_flight(world, kind) {
             // 내려앉을 곳이 하나도 없다 — 먹이는 떠서 먹는다
@@ -350,8 +352,8 @@ impl Pet {
         }
     }
 
-    /// 화면 가장 바깥 끝 가까이에서 그쪽으로 날고 있으면 (날기마다 한 번) 친구 화면으로 나갈지 정한다.
-    /// 집이 그리운 손님은 집 쪽 끝 가까이에 오기만 하면 나간다. 나가기 시작했으면 true
+    /// 화면 가장 바깥 끝 가까이에서 그쪽으로 날고 있으면 (날기마다 한 번) 친구 화면으로 나갈지 정함
+    /// 집이 그리운 손님은 집 쪽 끝 가까이에 오기만 하면 나감. 나가기 시작했으면 true
     fn fly_edge_exit(&mut self, world: &World, f: &mut Flight) -> bool {
         if f.edge_checked || self.inside.is_some() || self.meal_pending.is_some() || !matches!(f.goal, Goal::Point(..)) {
             return false;
@@ -376,7 +378,7 @@ impl Pet {
         false
     }
 
-    /// 던져짐: 중력 없이 공기 저항으로 느려지다가 멈추면 그 자리에 뜬다 (떨어지지 않는다)
+    /// 던져짐: 중력 없이 공기 저항으로 느려지다가 멈추면 그 자리에 뜸 (떨어지지 않음)
     fn update_fly_air(&mut self, dt: f64, world: &World) {
         let b = self.fly_limits(world);
         let (mut vx, mut vy) = flight::drift(self.body.vx, self.body.vy, dt);
@@ -406,7 +408,7 @@ impl Pet {
         }
     }
 
-    /// 하우스 문까지 활 모양으로 날아가 들어간다
+    /// 하우스 문까지 활 모양으로 날아가 들어감
     fn update_fly_home(&mut self, dt: f64, world: &World) {
         let Some(trip) = self.home_trip else { return };
         let Some((_, gy)) = world.anchor(trip.owner) else {
@@ -443,7 +445,7 @@ impl Pet {
         }
     }
 
-    /// 화면 끝(side) 밖으로 수평으로 날아 나간다 — 최소 remaining초, 몸이 다 빠져나갈 때까지
+    /// 화면 끝(side) 밖으로 수평으로 날아 나감 — 최소 remaining초, 몸이 다 빠져나갈 때까지
     pub(super) fn update_fly_exit(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         self.facing = visit::dir(side);
         self.standing = None;
@@ -456,7 +458,7 @@ impl Pet {
         }
     }
 
-    /// 화면 끝(side) 바로 바깥 공중에 두고 안쪽으로 날아 들어오게 한다
+    /// 화면 끝(side) 바로 바깥 공중에 두고 안쪽으로 날아 들어오게 함
     pub(super) fn enter_flying(&mut self, world: &World, side: Side) {
         let head = self.cfg.size * (1.0 + flight::TOP_SPACE);
         let (x, y) = flight::entry_point(world, side, self.cfg.half_w, head);
@@ -470,6 +472,7 @@ impl Pet {
         }
     }
 
+    /// 친구 화면에서 날아 들어오는 한 틱. 다 들어오면 평소처럼 남
     fn update_fly_enter(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         self.facing = -visit::dir(side);
         self.standing = None;
@@ -501,7 +504,7 @@ impl Pet {
         self.idle_state()
     }
 
-    /// 다음 날기 (방식만 정하고 길은 날기 시작할 때 정한다)
+    /// 다음 날기 (방식만 정하고 길은 날기 시작할 때 정함)
     pub(super) fn fly_move_state(&mut self) -> State {
         self.flight = None;
         let mut kind = flight::pick_move(&mut self.rng);
@@ -512,7 +515,7 @@ impl Pet {
         self.next_after_beat(State::Move { kind, remaining: flight::MAX_FLIGHT_SECS })
     }
 
-    /// 손에 든 음식으로 날아가 얼굴을 음식에 갖다 댄다 (내려앉아 있었으면 떠오른다)
+    /// 손에 든 음식으로 날아가 얼굴을 음식에 갖다 댐 (내려앉아 있었으면 떠오름)
     fn update_fly_want_food(&mut self, dt: f64, world: &World) {
         let Some((fx, fy)) = self.hand else {
             self.state = self.idle_state();
@@ -537,8 +540,8 @@ impl Pet {
         self.state = State::WantFood { walking };
     }
 
-    /// 받은 먹이의 자리를 정한다: 내려앉아 있으면 바라보는 쪽 앞, 떠 있으면 가장 가까운 자리.
-    /// 그 자리에 밥그릇(물은 물그릇)이 놓이고, 거기로 날아가 내려앉아 먹는다. 앉을 곳이 없으면 떠서 먹는다
+    /// 받은 먹이의 자리를 정함: 내려앉아 있으면 바라보는 쪽 앞, 떠 있으면 가장 가까운 자리.
+    /// 그 자리에 밥그릇(물은 물그릇)이 놓이고, 거기로 날아가 내려앉아 먹음. 앉을 곳이 없으면 떠서 먹음
     fn fly_to_food(&mut self, world: &World) {
         let Some(trip) = self.food.take() else {
             self.state = self.idle_state();

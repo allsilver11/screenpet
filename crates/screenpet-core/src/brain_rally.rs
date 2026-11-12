@@ -1,26 +1,27 @@
 //! ⚾ 캐치볼 (흐물이, v0.6.3) — brain.rs의 자식 모듈. 숫자는 juggle.rs (MAX_RALLY·CATCH_SECS·CHASE_SECS·CATCH_REACH).
 //!
-//! 친구 화면 끝에서 물건이 날아 들어오면 (Object::flown_in — 앱이 틱마다 notice_incoming으로 넘긴다) 바닥에서 손이 빈 흐물이는
-//! 그것이 머리 위 높이로 내려올 자리를 셈해 달려가 (JugglePhase::Chase) 머리 위로 받는다 (Catch — JuggleEvent::Catch로 앱이 손에 쥐여 준다).
-//! 몇 번째인지 외친다 ("3!" — take_speech_text). 그리고 날아온 끝으로 되던진다 (Plan::Lob — 그 끝 가까이 달려가 모니터 너머로):
-//! 놓을 때 take_rally가 (id, 주고받은 횟수 + 1)을 한 번 돌려준다 — 앱은 그 물건에 set_rally로 적어 친구에게 보내는 Toss에 싣는다.
-//! MAX_RALLY(20)에 닿으면 "Done!" 하고 되던지지 않는다 (그 자리에서 휙). 거대한 것은 받지 않는다. 늦어서 못 받으면 그냥 그만둔다.
+//! 친구 화면 끝에서 물건이 날아 들어오면 (Object::flown_in — 앱이 틱마다 notice_incoming으로 넘김) 바닥에서 손이 빈 흐물이는
+//! 그것이 머리 위 높이로 내려올 자리를 셈해 달려가 (JugglePhase::Chase) 머리 위로 받음 (Catch — JuggleEvent::Catch로 앱이 손에 쥐여 줌).
+//! 몇 번째인지 외침 ("3!" — take_speech_text). 그리고 날아온 끝으로 되던짐 (Plan::Lob — 그 끝 가까이 달려가 모니터 너머로):
+//! 놓을 때 take_rally가 (id, 주고받은 횟수 + 1)을 한 번 돌려줌 — 앱은 그 물건에 set_rally로 적어 친구에게 보내는 Toss에 실음
+//! MAX_RALLY(20)에 닿으면 "Done!" 하고 되던지지 않음 (그 자리에서 휙). 거대한 것은 받지 않음. 늦어서 못 받으면 그냥 그만둠
 
 use super::*;
 use crate::juggle::{self, Incoming, JuggleEvent};
 
+/// 받아 던지기 랠리의 기억
 #[derive(Debug, Clone, Default)]
 pub struct RallyMood {
-    /// 받으러 가는 물건의 지금 자리 (notice_incoming이 채운다)
+    /// 받으러 가는 물건의 지금 자리 (notice_incoming이 채움)
     target: Option<Incoming>,
     /// 받았고 되던질 물건과 그때 실을 횟수
     throwing: Option<(u64, u32)>,
-    /// 방금 되던졌다 (take_rally로 한 번)
+    /// 방금 되던졌음 (take_rally로 한 번)
     out: Option<(u64, u32)>,
 }
 
 impl Pet {
-    /// ⚾ 친구 화면에서 날아 들어오는 물건들 (매 틱 update 전에 — 받는 흐물이만 일이 있다)
+    /// ⚾ 친구 화면에서 날아 들어오는 물건들 (매 틱 update 전에 — 받는 흐물이만 일이 있음)
     pub fn notice_incoming(&mut self, incoming: &[Incoming], world: &World) {
         if !self.cfg.antics || !self.cfg.juggler {
             return;
@@ -67,6 +68,7 @@ impl Pet {
         (1.0 - gy) * self.cfg.size
     }
 
+    /// 날아오는 물건을 쫓는 한 틱. 시간이 넘거나 방해받으면 그만둠
     pub(super) fn update_chase(&mut self, dt: f64, world: &World, id: u64, x: f64, t: f64) {
         let Some(o) = self.rally.target.filter(|o| o.id == id) else {
             self.end_juggle();
@@ -100,6 +102,7 @@ impl Pet {
         self.state = State::Juggle { phase: JugglePhase::Chase { id, x }, t };
     }
 
+    /// 날아온 물건을 받아 듦 (랠리 횟수 하나 더)
     fn catch_object(&mut self, o: Incoming) {
         let n = o.rally.saturating_add(1);
         self.rally.target = None;
@@ -120,7 +123,7 @@ impl Pet {
         self.state = State::Juggle { phase: JugglePhase::Catch, t: 0.0 };
     }
 
-    /// 손에서 놓았다 (brain_juggle.rs release): 되던지는 것이었으면 횟수를 실어 보낸다
+    /// 손에서 놓았음 (brain_juggle.rs release): 되던지는 것이었으면 횟수를 실어 보냄
     pub(super) fn rally_released(&mut self, id: u64) {
         match self.rally.throwing.take() {
             Some((got, n)) if got == id => self.rally.out = Some((id, n)),
@@ -128,7 +131,7 @@ impl Pet {
         }
     }
 
-    /// ⚾ 방금 되던진 물건과 실을 주고받은 횟수 (한 번) — 앱이 Object::set_rally로 적는다
+    /// ⚾ 방금 되던진 물건과 실을 주고받은 횟수 (한 번) — 앱이 Object::set_rally로 적음
     pub fn take_rally(&mut self) -> Option<(u64, u32)> {
         self.rally.out.take()
     }

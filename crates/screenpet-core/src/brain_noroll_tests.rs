@@ -1,4 +1,4 @@
-//! 구르기 그림이 없는 동물 (픽셀 그림, PetConfig::no_roll): 구르기를 고르지 않고 대신하는 동작도 없다. 어떤 길로도 `roll` 그림을 보내지 않는다.
+//! 구르기 그림이 없는 동물 (픽셀 그림, PetConfig::no_roll): 구르기를 고르지 않고 대신하는 동작도 없음. 어떤 길로도 `roll` 그림을 보내지 않음
 //! brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{place, sim_cfg, win, world};
@@ -10,7 +10,7 @@ fn pixel() -> PetConfig {
     PetConfig { no_roll: true, ..sim_cfg() }
 }
 
-/// 걷고 나는 동물 몇 분 — 구르는 상태도 그림도 없다
+/// 걷고 나는 동물 몇 분 — 구르는 상태도 그림도 없음
 fn assert_never_rolls(c: PetConfig, minutes: usize, seeds: u64) -> Vec<Anim> {
     let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0), win(2, 1300.0, 350.0, 1800.0, 700.0)]);
     let mut seen = Vec::new();
@@ -40,21 +40,21 @@ fn a_pixel_flier_skips_its_somersault() {
     assert_never_rolls(PetConfig { flies: true, ..pixel() }, 5, 2);
 }
 
-/// 픽셀 기린이 목 늘이기 층을 갖고 있으면 그대로 늘인다
+/// 픽셀 기린이 목 늘이기 층을 갖고 있으면 그대로 늘임
 #[test]
 fn a_pixel_giraffe_with_layers_still_stretches() {
     let seen = assert_never_rolls(PetConfig { special: Some(Special::NeckStretch), ..pixel() }, 5, 3);
     assert!(seen.contains(&Anim::NeckStretch), "{seen:?}");
 }
 
-/// 없으면 그냥 걷는다 (코어에는 special 없이 온다 — manifest::special)
+/// 없으면 그냥 걸음 (코어에는 special 없이 옴 — manifest::special)
 #[test]
 fn no_replacement_animation_is_invented() {
     let seen = assert_never_rolls(PetConfig { special: None, ..pixel() }, 3, 2);
     assert!(!seen.contains(&Anim::NeckStretch), "{seen:?}");
 }
 
-/// 산타의 커서 놀이 썰매(gait Roll)도 없다 — 그림은 걷기
+/// 산타의 커서 놀이 썰매(gait Roll)도 없음 — 그림은 걷기
 #[test]
 fn santas_sled_is_gone_in_cursor_play() {
     let w = world(vec![]);
@@ -79,7 +79,7 @@ fn tumbling_borrows_the_fall_picture() {
     assert_eq!(p.render().anim, Anim::Fall);
 }
 
-/// 픽셀로 바꾸는 순간 구르던 중이어도 (스타일은 언제든 바뀐다) `roll` 그림은 나가지 않는다
+/// 픽셀로 바꾸는 순간 구르던 중이어도 (스타일은 언제든 바뀜) `roll` 그림은 나가지 않음
 #[test]
 fn switching_style_mid_roll_shows_walking() {
     let w = world(vec![]);
@@ -88,7 +88,7 @@ fn switching_style_mid_roll_shows_walking() {
     assert_eq!(p.render().anim, Anim::Walk);
 }
 
-/// 눈사람 만들기의 눈덩이 굴리기: 몸은 걷기 (기린과 같다)
+/// 눈사람 만들기의 눈덩이 굴리기: 몸은 걷기 (기린과 같음)
 #[test]
 fn rolling_a_snowball_walks_instead() {
     let w = world(vec![]);

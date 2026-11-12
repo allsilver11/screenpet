@@ -1,5 +1,5 @@
 //! 레서판다 깜짝 놀라기 (Special::Surprise, pet.json surprise) — 클릭하거나 다른 동물·물건이 살짝 부딪히면
-//! 뒷발로 벌떡 서서 두 팔을 번쩍 든다 ("!!"). 잠깐 그대로 있다가 평소대로 돌아간다.
+//! 뒷발로 벌떡 서서 두 팔을 번쩍 듦 ("!!"). 잠깐 그대로 있다가 평소대로 돌아감
 //! brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{cfg, place, w1, world};
@@ -32,7 +32,7 @@ fn surprised(p: &Pet) -> bool {
     matches!(p.state, State::Special { kind: Special::Surprise, .. })
 }
 
-/// 깜짝 자세: 앞모습 (뒤집지 않는다), 1초 남짓 버티고 끝나면 평소대로
+/// 깜짝 자세: 앞모습 (뒤집지 않음), 1초 남짓 버티고 끝나면 평소대로
 fn holds_then_ends(p: &mut Pet, w: &World) {
     p.facing = -1.0;
     assert_eq!(p.render().anim, Anim::Surprise);

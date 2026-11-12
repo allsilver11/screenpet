@@ -16,7 +16,7 @@ fn scaled_world(dpi: f64, windows: Vec<WindowInfo>) -> World {
     World::new(windows, vec![Rect::new(0.0, 0.0, 1920.0 * dpi, 1040.0 * dpi)], 128.0 * dpi)
 }
 
-/// 바닥에 선 동물을 (x, 바닥 − 40) 에서 잡아 (논리 px/틱) step씩 n틱 움직이고 놓는다. 놓인 커서 자리를 돌려준다
+/// 바닥에 선 동물을 (x, 바닥 − 40) 에서 잡아 (논리 px/틱) step씩 n틱 움직이고 놓음. 놓인 커서 자리를 돌려줌
 fn flick(p: &mut Pet, w: &World, dpi: f64, x: f64, step: (f64, f64), n: usize) -> (f64, f64) {
     place(p, w, Owner::Ground(0), x * dpi, idle());
     let (mut cx, mut cy) = (x * dpi, 1000.0 * dpi);

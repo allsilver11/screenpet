@@ -1,10 +1,10 @@
 //! 🐱 고양이 툭툭 (v0.6.3, pet.json `knocker` + paw 그림 — 고양이·페르시안) — brain.rs의 자식 모듈. 숫자는 play.rs.
 //!
-//! 창 윗면에 선 고양이가 같은 윗면에 놓인 작은 물건(쓰레기·똥 — 거대한 것·📌 장난감은 아니다)을 처음 보면 KNOCK_CHANCE로
-//! 그 물건 뒤(가까운 끝의 반대쪽)로 걸어가 쳐다보고, "Tap… tap…" 앞발로 몇 번 툭 (물건이 조금씩 밀린다), 마지막 툭에 끝 너머로
-//! 밀어 버린다 ("Oops~"). 그러고는 끝까지 걸어가 고개를 내밀고 떨어진 곳을 내려다본다.
-//! 물건은 앱이 민다 (ObjectPlay::Nudge → Object::nudge — 바닥을 따라 미끄러지다 끝을 넘으면 떨어지고, 떨어지며 동물에 맞을 수 있다).
-//! 내 고양이·놀러 온 고양이 모두. 자리 비움·집중·하우스·볼일 중엔 하지 않는다 (숨겨 두면 앱이 물건을 보여 주지 않는다).
+//! 창 윗면에 선 고양이가 같은 윗면에 놓인 작은 물건(쓰레기·똥 — 거대한 것·📌 장난감은 아님)을 처음 보면 KNOCK_CHANCE로
+//! 그 물건 뒤(가까운 끝의 반대쪽)로 걸어가 쳐다보고, "Tap… tap…" 앞발로 몇 번 툭 (물건이 조금씩 밀림), 마지막 툭에 끝 너머로
+//! 밀어 버림 ("Oops~"). 그러고는 끝까지 걸어가 고개를 내밀고 떨어진 곳을 내려다봄
+//! 물건은 앱이 밂 (ObjectPlay::Nudge → Object::nudge — 바닥을 따라 미끄러지다 끝을 넘으면 떨어지고, 떨어지며 동물에 맞을 수 있음).
+//! 내 고양이·놀러 온 고양이 모두. 자리 비움·집중·하우스·볼일 중엔 하지 않음 (숨겨 두면 앱이 물건을 보여 주지 않음).
 
 use super::*;
 use crate::juggle::ObjectSpot;
@@ -13,15 +13,15 @@ use crate::play::{self, ObjectPlay};
 /// 툭툭 단계 (State::Knock — t는 이 단계에 들어선 뒤 흐른 시간). dir = 밀어 떨어뜨릴 쪽
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum KnockPhase {
-    /// 물건 뒤 x로 걸어간다
+    /// 물건 뒤 x로 걸어감
     Approach { id: u64, x: f64, dir: f64 },
-    /// 물건을 빤히 쳐다본다
+    /// 물건을 빤히 쳐다봄
     Look { id: u64, dir: f64 },
     /// 앞발로 툭 (left = 떨어뜨리기 전 남은 툭 수, 이번 것 포함)
     Tap { id: u64, dir: f64, left: u32, done: bool },
     /// 마지막 툭 — 끝 너머로
     Push { id: u64, dir: f64, done: bool },
-    /// 끝까지 걸어가 내려다본다 (looking = 끝에 닿았다)
+    /// 끝까지 걸어가 내려다봄 (looking = 끝에 닿았음)
     Watch { dir: f64, looking: bool },
 }
 
@@ -34,6 +34,7 @@ impl Pet {
         }
     }
 
+    /// 툭툭 칠 물건을 살핌: 하던 것이 사라졌으면 그만, 처음 본 물건이면 주사위를 굴림
     pub(super) fn notice_knock(&mut self, world: &World) {
         // 하던 툭툭: 물건이 아직 그 윗면에 있나 (누가 치웠거나 던졌으면 그만)
         if let Some(id) = self.knocking() {
@@ -63,7 +64,7 @@ impl Pet {
         self.start_knock(&spot, world);
     }
 
-    /// 물건(spot)을 툭툭하러 간다 — 가까운 끝 쪽으로 밀 자리에 설 수 없으면 반대쪽으로, 그것도 안 되면 false
+    /// 물건(spot)을 툭툭하러 감 — 가까운 끝 쪽으로 밀 자리에 설 수 없으면 반대쪽으로, 그것도 안 되면 false
     pub(super) fn start_knock(&mut self, spot: &ObjectSpot, world: &World) -> bool {
         let Some(piece) = world.piece_at(spot.owner, spot.x).copied() else { return false };
         let near = play::push_dir(spot.x, piece.x_start, piece.x_end);
@@ -90,13 +91,14 @@ impl Pet {
         (piece.x_start + self.cfg.half_w <= x && x <= piece.x_end - self.cfg.half_w).then_some(x)
     }
 
-    /// 그만둔다 (did = 떨어뜨렸다 — 쉬는 때를 길게)
+    /// 그만둠 (did = 떨어뜨렸음 — 쉬는 때를 길게)
     fn end_knock(&mut self, did: bool) {
         let calm = if did { behavior::range(&mut self.play.rng, play::KNOCK_CALM_SECS) } else { 10.0 };
         self.play.knock_ready_at = self.clock + calm;
         self.state = self.rest_beat();
     }
 
+    /// 툭툭 한 틱: 다가가 쳐다보고, 톡톡 치다가 밀어 떨어뜨림
     pub(super) fn update_knock(&mut self, dt: f64, world: &World, phase: KnockPhase, t: f64) {
         if self.romp_interrupted() {
             self.end_knock(false);
@@ -208,6 +210,7 @@ impl Pet {
         }
     }
 
+    /// 툭툭 단계별 그림
     pub(super) fn knock_anim(&self, phase: KnockPhase) -> Anim {
         match phase {
             KnockPhase::Approach { .. } | KnockPhase::Watch { looking: false, .. } => Anim::Walk,

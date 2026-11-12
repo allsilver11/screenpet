@@ -1,4 +1,4 @@
-//! 직접 주기 (손으로 먹이 주기) — 커서 끝의 음식을 알아채고 다가와, 입에 닿으면 받아먹는다.
+//! 직접 주기 (손으로 먹이 주기) — 커서 끝의 음식을 알아채고 다가와, 입에 닿으면 받아먹음
 //! brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{cfg, place, w1, world};
@@ -22,7 +22,7 @@ fn at_mouth(p: &Pet) -> (f64, f64) {
     (mx + 5.0, my + 5.0)
 }
 
-/// 매 틱 음식을 내밀며 돌린다 — 닿아서 받을 준비가 되면 true
+/// 매 틱 음식을 내밀며 돌림 — 닿아서 받을 준비가 되면 true
 fn offer_until(p: &mut Pet, w: &World, ticks: usize, at: impl Fn(&Pet) -> (f64, f64)) -> bool {
     for _ in 0..ticks {
         let (x, y) = at(p);

@@ -21,7 +21,7 @@ struct Run {
     rally: Option<(u64, u32)>,
 }
 
-/// 앱처럼: 날아오는 동안 넘기고, 받으면 손에 쥐여 준 것으로 (더 넘기지 않는다), 놓으면 끝
+/// 앱처럼: 날아오는 동안 넘기고, 받으면 손에 쥐여 준 것으로 (더 넘기지 않음), 놓으면 끝
 fn play(p: &mut Pet, w: &World, mut o: Incoming, secs: f64) -> Run {
     let mut r = Run { caught: false, said: Vec::new(), speech: Vec::new(), released: None, rally: None };
     let mut t = 0.0;

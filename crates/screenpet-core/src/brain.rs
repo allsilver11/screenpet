@@ -1,3 +1,9 @@
+//! 🐾 동물 한 마리의 두뇌 — 상태 기계(State), 그림(Anim), 말풍선(Speech), 한 틱 갱신(Pet::update)
+//!
+//! 앱(src-tauri)이 동물마다 Pet 하나를 들고 틱마다 update(dt, world)를 부르고 render()로 그릴 것을 받음
+//! 클릭·끌기·던지기(pointer_*), 먹이·하우스·친구 방문 등 바깥 일은 Pet의 pub 메서드로 들어옴
+//! 장난·놀이별 동작은 자식 모듈 brain_*.rs에 나뉘어 있음 (같은 Pet의 비공개 필드를 씀)
+
 use std::collections::VecDeque;
 
 use serde::Serialize;
@@ -15,17 +21,17 @@ use crate::world::{Side, World};
 
 const TURN_PAUSE: f64 = 0.3;
 const LAND_SECS: f64 = 0.25;
-/// 콰당! 💥 높이(몸 이 배 이상)에서 떨어지거나 세게 던져져 내려서면 바로 일어나지 않고 납작 엎어진다 (사용자: 사뿐 말고 콰당! 아이쿠!)
+/// 콰당! 💥 높이(몸 이 배 이상)에서 떨어지거나 세게 던져져 내려서면 바로 일어나지 않고 납작 엎어짐 (사용자: 사뿐 말고 콰당! 아이쿠!)
 pub const THUD_FALL_SIZES: f64 = 2.0;
 /// 엎어져 어지러워하는 시간 (render.thud — 웹뷰가 찌그러짐·💫)
 pub const THUD_SECS: f64 = 1.2;
-/// 크기 128 기준 (scaled로 크기에 맞춘다)
+/// 크기 128 기준 (scaled로 크기에 맞춤)
 const HOP_VX: f64 = 180.0;
 const HOP_VY: f64 = -650.0;
 const HAPPY_VY: f64 = -500.0;
-/// 옆 모니터 바닥과 높이가 이만큼(px) 이내면 그대로 걸어 넘어간다
+/// 옆 모니터 바닥과 높이가 이만큼(px) 이내면 그대로 걸어 넘어감
 const SEAM_LEVEL_TOLERANCE: f64 = 2.0;
-/// 옆 모니터 바닥이 이만큼(크기 128 기준 px) 높을 때까지는 뛰어오른다
+/// 옆 모니터 바닥이 이만큼(크기 128 기준 px) 높을 때까지는 뛰어오름
 const SEAM_MAX_HOP_UP: f64 = 150.0;
 /// 뛰어오를 때 높이 차 위로 더 솟는 여유 (크기 128 기준 px)
 const SEAM_HOP_MARGIN: f64 = 24.0;
@@ -38,13 +44,13 @@ const HOVER_PAUSE_SECS: f64 = 0.25;
 const HOVER_LOOK_SECS: f64 = 1.5;
 const TICKLE_HOLD: f64 = 1.5;
 /// 올려다보기 (pet.json lookup이 있는 동물만 — 없으면 아래 모두 그냥 쳐다보기/평소대로):
-/// 쉬는 박자 중 이 몫은 문득 위를 올려다본다
+/// 쉬는 박자 중 이 몫은 문득 위를 올려다봄
 const LOOK_UP_CHANCE: f64 = 0.08;
 /// 걷다가 멈춰 올려다보는 빈도 (초당 확률 — 드물게)
 const LOOK_UP_WALK_RATE: f64 = 0.02;
 /// 걷다가 멈춰 올려다보는 시간
 const LOOK_UP_SECS: (f64, f64) = (1.0, 2.0);
-/// 커서가 머리 위에 이만큼(초) 머물면 궁금해서 올려다본다
+/// 커서가 머리 위에 이만큼(초) 머물면 궁금해서 올려다봄
 const LOOK_UP_HOVER_SECS: f64 = 1.0;
 /// 머리 꼭대기 높이 (발에서 몸 크기의 이 비율 위)
 const HEAD_TOP: f64 = 0.8;
@@ -65,21 +71,22 @@ const EAT_SECS: f64 = 2.5;
 const AFTER_FAVORITE_HEART_SECS: f64 = 2.0;
 const LEVEL_UP_SECS: f64 = 2.0;
 const REFUSE_TILT_SECS: f64 = 2.0;
-/// 자는 동물을 이 시간 안에 3번 누르면 깬다
+/// 자는 동물을 이 시간 안에 3번 누르면 깸
 const WAKE_CLICKS: u32 = 3;
 const WAKE_CLICK_WINDOW: f64 = 2.0;
 const SLEEPY_ANNOYED_SECS: f64 = 1.5;
 const WAKE_STRETCH_SECS: f64 = 2.5;
-/// 집으로 가는 길에 진척 없는 시간이 이만큼(초) 쌓이면 문 앞으로 한 번에 뛰어든다
-/// (들려 있는 동안, 하우스 바닥에서 문으로 달리는 동안은 세지 않는다)
+/// 집으로 가는 길에 진척 없는 시간이 이만큼(초) 쌓이면 문 앞으로 한 번에 뛰어듦
+/// (들려 있는 동안, 하우스 바닥에서 문으로 달리는 동안은 세지 않음)
 const HOME_STALL_LIMIT_SECS: f64 = 12.0;
-/// 문까지 x 거리가 지금까지의 최고 기록보다 이만큼(px) 줄어야 진척으로 본다
+/// 문까지 x 거리가 지금까지의 최고 기록보다 이만큼(px) 줄어야 진척으로 봄
 const HOME_PROGRESS_PX: f64 = 20.0;
-/// 마지막 진척 뒤 이 시간(초)이 지나야 진척 없는 시간을 세기 시작한다
+/// 마지막 진척 뒤 이 시간(초)이 지나야 진척 없는 시간을 세기 시작함
 const HOME_PROGRESS_WINDOW_SECS: f64 = 4.0;
 /// 안전 점프가 출발·도착 중 높은 쪽보다 더 솟는 높이 (크기 128 기준 px)
 const HOME_LEAP_RISE: f64 = 200.0;
 
+/// 웹뷰가 고르는 스프라이트 그림 이름 (snake_case로 직렬화)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Anim {
@@ -111,10 +118,10 @@ pub enum Anim {
     Climb,
     /// 벽 타기 — 미끄러져 내려오기 (뒷모습)
     Slide,
-    /// 개구리 큰 점프 — 깊게 웅크렸다가 쭉 뻗어 날아오른다 (옆모습, brain_hop.rs)
+    /// 개구리 큰 점프 — 깊게 웅크렸다가 쭉 뻗어 날아오름 (옆모습, brain_hop.rs)
     #[serde(rename = "bigjump")]
     BigJump,
-    /// 기린 목 늘이기 — 구르는 대신 멈춰 서서 목을 쭉 (옆모습). 늘어나는 목은 앱이 층으로 그린다 (ui/main.js)
+    /// 기린 목 늘이기 — 구르는 대신 멈춰 서서 목을 쭉 (옆모습). 늘어나는 목은 앱이 층으로 그림 (ui/main.js)
     #[serde(rename = "neckstretch")]
     NeckStretch,
     /// 올려다보기 — 머리 위에 든 음식·머무는 커서, 가끔 쉬다가·걷다가 문득 (옆모습, pet.json에 lookup이 있는 동물만)
@@ -124,60 +131,61 @@ pub enum Anim {
     Fire,
     /// 공룡 크앙! (옆모습)
     Roar,
-    /// 공룡 제자리 쿵쾅쿵쾅 (옆모습) — 앱은 몸을 살짝 떨고, 같은 바닥의 친구들이 흔들린다 (brain_stomp.rs)
+    /// 공룡 제자리 쿵쾅쿵쾅 (옆모습) — 앱은 몸을 살짝 떨고, 같은 바닥의 친구들이 흔들림 (brain_stomp.rs)
     Stomp,
     /// 레서판다 깜짝 — 뒷발로 벌떡 서서 두 팔을 번쩍 (앞모습, 한 번)
     Surprise,
-    /// 흐물이 줄행랑 — 등을 돌려 두 팔 번쩍(만세) 들고 달아난다 (옆모습, brain_heumul.rs)
+    /// 흐물이 줄행랑 — 등을 돌려 두 팔 번쩍(만세) 들고 달아남 (옆모습, brain_heumul.rs)
     Panic,
-    /// 흐물이 — 창 옆면에 한 손으로 매달려 다른 팔로 손 흔들기 (옆모습, 창 쪽을 본다)
+    /// 흐물이 — 창 옆면에 한 손으로 매달려 다른 팔로 손 흔들기 (옆모습, 창 쪽을 봄)
     Hang,
-    /// 흐물이 — 밧줄 타듯 손을 번갈아 창 옆면을 오르내린다 (옆모습, 창 쪽을 본다)
+    /// 흐물이 — 밧줄 타듯 손을 번갈아 창 옆면을 오르내림 (옆모습, 창 쪽을 봄)
     Rope,
     /// 흐물이 — 쪼그려 앉아 물건을 잡고 머리 위로 번쩍 (옆모습, 한 번 — brain_juggle.rs)
     Lift,
-    /// 흐물이 — 물건을 머리 위에 든 채 서 있다 (옆모습)
+    /// 흐물이 — 물건을 머리 위에 든 채 서 있음 (옆모습)
     Hold,
-    /// 흐물이 — 물건을 머리 위에 인 채 걷는다 (옆모습)
+    /// 흐물이 — 물건을 머리 위에 인 채 걸음 (옆모습)
     Carry,
-    /// 흐물이 — 뒤로 젖혔다가 휙 던진다 (옆모습, 한 번)
+    /// 흐물이 — 뒤로 젖혔다가 휙 던짐 (옆모습, 한 번)
     Throw,
     /// 흐물이 — 거대한 것에 "끙차" 힘주기, 팔이 덜덜 (옆모습)
     Strain,
-    /// 흐물이 — 앞을 보고 번쩍 든 채 섰다가 휙 떨군다 (앞모습, 한 번 — 배달 도착)
+    /// 흐물이 — 앞을 보고 번쩍 든 채 섰다가 휙 떨굼 (앞모습, 한 번 — 배달 도착)
     Present,
     /// 흐물이 — 너무 무거워 털썩 주저앉음 (옆모습)
     Slump,
-    /// 흐물이 — 쪼그려 앉아 바닥(작업표시줄 쪽)을 두 손으로 잡고 뒤로 젖히며 끙차 당긴다 (옆모습, 📌 brain_taskbar.rs)
+    /// 흐물이 — 쪼그려 앉아 바닥(작업표시줄 쪽)을 두 손으로 잡고 뒤로 젖히며 끙차 당김 (옆모습, 📌 brain_taskbar.rs)
     Yank,
-    /// 흐물이 — 머리 위의 장난감을 내려 쪼그려 앉으며 바닥 속으로 꾹 밀어 넣는다 (옆모습, 한 번)
+    /// 흐물이 — 머리 위의 장난감을 내려 쪼그려 앉으며 바닥 속으로 꾹 밀어 넣음 (옆모습, 한 번)
     Stuff,
-    /// 흐물이 🎣 — 커서 끝에 두 손으로 대롱대롱 (옆모습 — 웹뷰가 손 자리를 축으로 render.swing만큼 돌린다, brain_swing.rs)
+    /// 흐물이 🎣 — 커서 끝에 두 손으로 대롱대롱 (옆모습 — 웹뷰가 손 자리를 축으로 render.swing만큼 돌림, brain_swing.rs)
     HangCursor,
     /// 흐물이 🫣 — 창 옆면 뒤에서 머리만 쏙 (옆모습, 창은 오른쪽 — brain_hide.rs)
     Peek,
     /// 흐물이 🕺 — 연타 춤 (앞모습, brain_dance.rs) · 더 신나는 춤
     Dance,
     Dance2,
-    /// 흐물이 ⚾ — 날아온 것을 머리 위로 받는다 (옆모습, 한 번 — brain_rally.rs)
+    /// 흐물이 ⚾ — 날아온 것을 머리 위로 받음 (옆모습, 한 번 — brain_rally.rs)
     Catch,
     /// 흐물이 🖍️ — 쪼그려 앉아 바닥에 분필 낙서 (옆모습, brain_doodle.rs)
     Draw,
     /// 흐물이 ⌨️ — 키보드 앞에 앉아 두 팔 번쩍 만세 (앞모습, 타자 응원 중 가끔 — brain_typing.rs)
     CheerType,
-    /// 흐물이 ⌨️ — 작은 키보드 앞에 앉아 타자 (앞모습 — 칸은 웹뷰가 render.tap으로 고른다: 쉼 · 왼손 톡 · 오른손 톡)
+    /// 흐물이 ⌨️ — 작은 키보드 앞에 앉아 타자 (앞모습 — 칸은 웹뷰가 render.tap으로 고름: 쉼 · 왼손 톡 · 오른손 톡)
     Type,
-    /// 흐물이 — 머리 위에 인 채 다다다 달린다 (옆모습 — 친구에게 들고 가는 길·화면 끝을 들고 나가고 들어올 때)
+    /// 흐물이 — 머리 위에 인 채 다다다 달림 (옆모습 — 친구에게 들고 가는 길·화면 끝을 들고 나가고 들어올 때)
     CarryRun,
     /// 🐱 고양이 — 앞발로 툭 (옆모습, brain_knock.rs)
     Paw,
     /// 🐿️ 다람쥐 — 볼이 빵빵한 채 걷기 · 앉기 (옆모습, brain_stash.rs)
     CheeksWalk,
     CheeksIdle,
-    /// 🐿️ 다람쥐 — 땅을 파고 묻는다 (옆모습)
+    /// 🐿️ 다람쥐 — 땅을 파고 물음 (옆모습)
     Dig,
 }
 
+/// 머리 위 말풍선 종류 (웹뷰가 글귀를 고름)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Speech {
@@ -190,17 +198,17 @@ pub enum Speech {
     LevelUp,
     /// 클릭 무시 ("...")
     Ignore,
-    /// 배고플 때 손에 든 음식을 봤다 ("냠!?")
+    /// 배고플 때 손에 든 음식을 봤음 ("냠!?")
     Eager,
     /// 다른 동물에게 인사 ("hi!", brain_social.rs)
     Greet,
-    /// 술래가 놀자고 쫓아간다 ("play!")
+    /// 술래가 놀자고 쫓아감 ("play!")
     Play,
     /// 쫓기며 도망 ("catch me!")
     Flee,
-    /// 보내져 손 흔들고 떠난다 — 내 동물("놀러 보내기")이나 다음 친구 화면으로 보낸 손님 ("bye~!", brain_send.rs)
+    /// 보내져 손 흔들고 떠남 — 내 동물("놀러 보내기")이나 다음 친구 화면으로 보낸 손님 ("bye~!", brain_send.rs)
     Bye,
-    /// 편지를 들고 떠난다 ("💌!", brain_send.rs)
+    /// 편지를 들고 떠남 ("💌!", brain_send.rs)
     Letter,
     /// 손님이 이 화면 주인의 답장을 들고 집으로 ("bye~! 💌", brain_send.rs)
     Reply,
@@ -216,17 +224,17 @@ pub enum Speech {
     Boing,
     /// 아래 친구 화면으로 바닥을 뚫고 쏙 ("whee!", brain_vert.rs) / 커서에서 놓고 떨어짐 (brain_cursor.rs)
     Whee,
-    /// 커서를 보고 장난기가 돈다 (종마다 다른 말, brain_cursor.rs)
+    /// 커서를 보고 장난기가 돎 (종마다 다른 말, brain_cursor.rs)
     CursorPlay,
-    /// 커서 끝을 붙잡았다 ("gotcha!", brain_cursor.rs)
+    /// 커서 끝을 붙잡았음 ("gotcha!", brain_cursor.rs)
     Gotcha,
-    /// 서 있던 창이 사라졌다 ("eek!", brain_cursor.rs)
+    /// 서 있던 창이 사라졌음 ("eek!", brain_cursor.rs)
     Eek,
-    /// 내려선 뒤 째려본다 ("hmph!", brain_cursor.rs)
+    /// 내려선 뒤 째려봄 ("hmph!", brain_cursor.rs)
     Hmph,
-    /// 눈사람을 다 만들었다 ("snowman!", brain_snow.rs)
+    /// 눈사람을 다 만들었음 ("snowman!", brain_snow.rs)
     Snowman,
-    /// 자리를 비웠던 사용자가 돌아왔다 ("you're back!!", brain_presence.rs)
+    /// 자리를 비웠던 사용자가 돌아왔음 ("you're back!!", brain_presence.rs)
     WelcomeBack,
     /// 그날 처음 보는 아침 ("good morning!")
     GoodMorning,
@@ -236,11 +244,11 @@ pub enum Speech {
     GoToBed,
     /// 졸린 시간의 하품
     Yawn,
-    /// 집중 시간이 끝났다 ("break time!")
+    /// 집중 시간이 끝났음 ("break time!")
     BreakTime,
     /// 집중 시작 ("focus!")
     Focus,
-    /// 앞에 똥이 있다 ("ew!", brain_poop.rs)
+    /// 앞에 똥이 있음 ("ew!", brain_poop.rs)
     Ew,
     /// 똥을 밟고 꽈당 / 친구에게 머리를 밟힘 / 높이서 떨어져 콰당 ("oof!", brain_poop.rs, brain_meet.rs, land_or_recover)
     Oof,
@@ -252,43 +260,43 @@ pub enum Speech {
     Whoosh,
     /// 깜짝 놀라 벌떡 ("!!", 레서판다 Special::Surprise)
     Surprise,
-    /// 물건을 번쩍 든다 ("hup!", brain_juggle.rs)
+    /// 물건을 번쩍 듦 ("hup!", brain_juggle.rs)
     Hup,
-    /// 거대한 것에 힘을 준다 ("hnngh!")
+    /// 거대한 것에 힘을 줌 ("hnngh!")
     Strain,
-    /// 휙 던진다 ("yeet!")
+    /// 휙 던짐 ("yeet!")
     Yeet,
     /// 배달 도착 — 앞을 보고 번쩍 ("ta-da!")
     Tada,
     /// 너무 무거워 털썩 ("phew...")
     Phew,
-    /// 📌 작업표시줄에서 장난감이 쑥 빠졌다 ("pop!", brain_taskbar.rs)
+    /// 📌 작업표시줄에서 장난감이 쑥 빠졌음 ("pop!", brain_taskbar.rs)
     Pop,
-    /// 📌 장난감을 도로 밀어 넣는다 ("back you go!")
+    /// 📌 장난감을 도로 밀어 넣음 ("back you go!")
     Stow,
-    /// 🔄 새 버전이 나왔다 ("new version!!", brain_cheer.rs)
+    /// 🔄 새 버전이 나왔음 ("new version!!", brain_cheer.rs)
     NewVersion,
     /// 🎣 커서에 매달려 흔들흔들 ("Wheee~", brain_swing.rs)
     Swing,
-    /// 🎣 세게 흔들수록 신난다 ("More!")
+    /// 🎣 세게 흔들수록 신남 ("More!")
     More,
     /// 🙆 흐물이가 번쩍 들어 올린 동물 ("Put me down!", brain_hoist.rs)
     PutMeDown,
-    /// 🫣 숨어 있다가 들켰다 ("Found me!", brain_hide.rs)
+    /// 🫣 숨어 있다가 들켰음 ("Found me!", brain_hide.rs)
     Found,
-    /// 🫣 아무도 못 찾아서 나온다 ("Peekaboo~")
+    /// 🫣 아무도 못 찾아서 나옴 ("Peekaboo~")
     Peekaboo,
     /// 🕺 연타 춤 ("♪", brain_dance.rs)
     Dance,
-    /// ⚾ 캐치볼이 20번에 닿았다 ("Done!", brain_rally.rs) — 받은 횟수("3!")는 글자 그대로 (take_speech_text)
+    /// ⚾ 캐치볼이 20번에 닿았음 ("Done!", brain_rally.rs) — 받은 횟수("3!")는 글자 그대로 (take_speech_text)
     RallyEnd,
     /// 🐱 앞발로 툭툭 ("Tap… tap…", brain_knock.rs)
     Tap,
-    /// 🐱 끝 너머로 밀어 버렸다 ("Oops~")
+    /// 🐱 끝 너머로 밀어 버렸음 ("Oops~")
     Oops,
-    /// 🦆 기차를 부른다 ("Quack! Follow me!", brain_train.rs)
+    /// 🦆 기차를 부름 ("Quack! Follow me!", brain_train.rs)
     FollowMe,
-    /// 🦆 따라가며 신난다 ("Choo choo!" / "Yay!")
+    /// 🦆 따라가며 신남 ("Choo choo!" / "Yay!")
     Choo,
     /// 🦖 큰 쿵 ("STOMP!", brain_quake.rs)
     BigStomp,
@@ -299,12 +307,12 @@ pub enum Speech {
 }
 
 impl Anim {
-    /// 뒷모습 동작 — 좌우 반전하지 않는다.
+    /// 뒷모습 동작 — 좌우 반전하지 않음
     pub fn is_back(self) -> bool {
         matches!(self, Anim::Climb | Anim::Slide)
     }
 
-    /// 앞모습 동작 — 좌우 반전하지 않는다.
+    /// 앞모습 동작 — 좌우 반전하지 않음
     pub fn is_front(self) -> bool {
         matches!(
             self,
@@ -330,6 +338,7 @@ impl Anim {
 }
 
 impl From<Move> for Anim {
+    /// 움직임 종류의 기본 그림
     fn from(m: Move) -> Self {
         match m {
             Move::Walk => Anim::Walk,
@@ -340,6 +349,7 @@ impl From<Move> for Anim {
 }
 
 impl From<Special> for Anim {
+    /// 특별 동작의 그림
     fn from(s: Special) -> Self {
         match s {
             Special::Arch => Anim::Arch,
@@ -353,6 +363,7 @@ impl From<Special> for Anim {
 }
 
 impl From<Trick> for Anim {
+    /// 재주의 그림
     fn from(t: Trick) -> Self {
         match t {
             Trick::SitFront => Anim::SitFront,
@@ -365,6 +376,7 @@ impl From<Trick> for Anim {
     }
 }
 
+/// 동물의 지금 상태 — 틱마다 하나의 상태로 갱신함
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum State {
     Move { kind: Move, remaining: f64 },
@@ -393,43 +405,43 @@ pub enum State {
     /// 새침하게 흥! (클릭 반응)
     Huff { remaining: f64 },
     /// 화면을 기어오르는 중 (디딤판 없음). 목표에 닿으면 hang초 매달렸다가 Slide.
-    /// over면 위 친구 화면으로 넘어가는 길: 그 줄 맨 위 끝 너머까지 올라가 사라진다 (brain_vert.rs)
+    /// over면 위 친구 화면으로 넘어가는 길: 그 줄 맨 위 끝 너머까지 올라가 사라짐 (brain_vert.rs)
     Climb { target_y: f64, hang: f64, over: bool },
-    /// 화면을 따라 일정한 속도로 미끄러져 내려오는 중 — 지나치는 창 윗면이나 바닥에 내려선다
+    /// 화면을 따라 일정한 속도로 미끄러져 내려오는 중 — 지나치는 창 윗면이나 바닥에 내려섬
     Slide,
     /// 던져져 창 옆면에 달라붙어 기어오르는 중. rel_y = 발 높이 − 창 윗면
     WallClimb { window: u64, side: Side, rel_y: f64 },
     /// 하우스로 달려가는 중 (디딤판 위). 문 위치는 Pet의 home_trip
     GoHome,
-    /// 집으로 가는 길이 너무 오래 걸려 문 앞으로 한 번에 뛰어드는 중 — 충돌 없이 포물선을 따라간다
+    /// 집으로 가는 길이 너무 오래 걸려 문 앞으로 한 번에 뛰어드는 중 — 충돌 없이 포물선을 따라감
     HomeLeap { remaining: f64 },
-    /// 하우스 안 (물리·세계 상호작용 없음). 하우스 안에서 먹을 땐 Eating/LevelUp/Trick을 거쳐 돌아온다
+    /// 하우스 안 (물리·세계 상호작용 없음). 하우스 안에서 먹을 땐 Eating/LevelUp/Trick을 거쳐 돌아옴
     Housed,
     /// 화면 끝(side) 밖으로 걸어 나가는 중 — 최소 remaining초, 몸이 다 빠져나갈 때까지. 끝나면 take_exit가 Some(side)
     Exit { remaining: f64, side: Side },
     /// 화면 끝(side) 바깥 바닥에서 안쪽으로 걸어 들어오는 중 — 최소 remaining초, 몸이 다 들어올 때까지
     Enter { remaining: f64, side: Side },
-    /// 손님이 "집에 와"로 손 흔드는 중 (제자리) — 끝나면 걸어 나가지 않고 사라진다
+    /// 손님이 "집에 와"로 손 흔드는 중 (제자리) — 끝나면 걸어 나가지 않고 사라짐
     Farewell { remaining: f64 },
-    /// 화면을 떠남 (친구 화면에 가 있음). 아무것도 하지 않는다
+    /// 화면을 떠남 (친구 화면에 가 있음). 아무것도 하지 않음
     Away,
     /// 창 안쪽 벽을 기어올라 윗면으로 나가는 중 (spec 2B §9). rel_x = 몸 중심 − 창 왼쪽, rel_y = 발 높이 − 창 윗면
     InnerClimb { window: u64, rel_x: f64, rel_y: f64 },
-    /// 먹이를 받아 그릇(나는 동물은 꽃)으로 가는 중 — remaining초 안에 못 닿으면 그 자리에서 먹는다
+    /// 먹이를 받아 그릇(나는 동물은 꽃)으로 가는 중 — remaining초 안에 못 닿으면 그 자리에서 먹음
     ToFood { remaining: f64 },
-    /// 손에 든 음식(직접 주기)을 보고 기다리는 중 — 같은 바닥 가까이면 걸어가고, 나는 동물은 날아간다
+    /// 손에 든 음식(직접 주기)을 보고 기다리는 중 — 같은 바닥 가까이면 걸어가고, 나는 동물은 날아감
     WantFood { walking: bool },
-    /// 개구리 큰 점프 (brain_hop.rs): crouch초 웅크린 뒤 owner 위 rel_x로 포물선을 따라 remaining초 날아간다
+    /// 개구리 큰 점프 (brain_hop.rs): crouch초 웅크린 뒤 owner 위 rel_x로 포물선을 따라 remaining초 날아감
     Leap { crouch: f64, remaining: f64, owner: Owner, rel_x: f64 },
     /// 다른 동물과 마주쳐 인사 (잡힌 뒤 하트도) — look초 친구 쪽을 쳐다본 뒤 anim. 끝은 social.rs가 정하고, remaining은 안전 시한 (brain_social.rs)
     Greet { look: f64, anim: Anim, remaining: f64 },
-    /// 술래 놀이의 술래 — 친구(play_target)를 쫓아 달린다 (brain_social.rs)
+    /// 술래 놀이의 술래 — 친구(play_target)를 쫓아 달림 (brain_social.rs)
     Chase { remaining: f64 },
-    /// 술래 놀이에서 도망 — dir 쪽으로 달리다 디딤판 끝에서 돌아선다 (brain_social.rs)
+    /// 술래 놀이에서 도망 — dir 쪽으로 달리다 디딤판 끝에서 돌아섬 (brain_social.rs)
     Flee { remaining: f64, dir: f64 },
-    /// 손님을 클릭하면 "잡아 봐!" — 커서를 피해 달아난다. commit: 끝에서 돌아선 뒤 그쪽으로 버티는 시간, dodge > 0: 폴짝 피하는 중 (brain_guestplay.rs)
+    /// 손님을 클릭하면 "잡아 봐!" — 커서를 피해 달아남. commit: 끝에서 돌아선 뒤 그쪽으로 버티는 시간, dodge > 0: 폴짝 피하는 중 (brain_guestplay.rs)
     CatchMe { remaining: f64, dir: f64, commit: f64, dodge: f64 },
-    /// 공룡 쿵쾅에 데굴 넘어짐 — dir 쪽(공룡 반대편)으로 조금 미끄러지다 (디딤판 끝에선 멈춘다) 일어선다 (brain_stomp.rs)
+    /// 공룡 쿵쾅에 데굴 넘어짐 — dir 쪽(공룡 반대편)으로 조금 미끄러짐 (디딤판 끝에선 멈춤) 일어섬 (brain_stomp.rs)
     Tumble { remaining: f64, dir: f64 },
     /// 눈사람 만들기 — 눈덩이 굴리기 → 쌓기 → 뿌듯 (brain_snow.rs)
     Snowman { phase: snow_moves::SnowPhase, remaining: f64, dir: f64 },
@@ -437,31 +449,31 @@ pub enum State {
     CursorPlay { phase: cursor_moves::PlayPhase, remaining: f64 },
     /// 커서 끝으로 뛰어오르는 중 — 충돌 없이 (brain_cursor.rs)
     CursorLeap { from: (f64, f64), elapsed: f64 },
-    /// 커서 끝에 매달려 있음 — 몸이 커서를 따라간다 (brain_cursor.rs)
+    /// 커서 끝에 매달려 있음 — 몸이 커서를 따라감 (brain_cursor.rs)
     CursorHang { remaining: f64 },
     /// 창이 흔들려 그 창 모서리에 매달려 있음. rel_x = 몸 중심 − 창 왼쪽 (brain_cursor.rs)
     EdgeCling { window: u64, rel_x: f64, remaining: f64 },
-    /// 창이 닫혀 떨어진 뒤 째려본다 (brain_cursor.rs)
+    /// 창이 닫혀 떨어진 뒤 째려봄 (brain_cursor.rs)
     Glare { remaining: f64 },
     /// 돌아온 사용자를 맞으러, 또는 집중하러 구석으로 가는 중 — 길은 presence.trip (brain_presence.rs)
     PresenceTrip,
-    /// 똥을 밟고 꽈당 — dir 쪽으로 미끄러졌다가 일어나 투덜댄다 (brain_poop.rs)
+    /// 똥을 밟고 꽈당 — dir 쪽으로 미끄러졌다가 일어나 투덜댐 (brain_poop.rs)
     Slip { remaining: f64, dir: f64 },
     /// 마주 오던 친구를 밟거나 뛰어넘는 중, 또는 밟히는 중 — 길은 Pet의 meet (brain_meet.rs)
     Meet { phase: meet_moves::MeetPhase, remaining: f64 },
     /// 겁먹어 dir 쪽으로 만세 줄행랑 (brain_heumul.rs)
     Panic { remaining: f64, dir: f64 },
-    /// 창 옆면에 매달려 있다 — rel_y = 발 높이 − 창 윗면, turns = 남은 오르내리기 (brain_heumul.rs)
+    /// 창 옆면에 매달려 있음 — rel_y = 발 높이 − 창 윗면, turns = 남은 오르내리기 (brain_heumul.rs)
     Rig { window: u64, side: Side, rel_y: f64, phase: heumul_moves::RigPhase, remaining: f64, turns: u8 },
     /// 물건을 주워 들고 던지기·돌아다니기·배달·주저앉기 — t = 이 단계에 들어선 뒤 흐른 시간 (brain_juggle.rs)
     Juggle { phase: juggle_moves::JugglePhase, t: f64 },
-    /// 친구 머리 위에 서 있다 — 자리는 social이 옮긴다. remaining: 내려올 때까지, age: 올라선 뒤 지난 시간 (brain_tower.rs)
+    /// 친구 머리 위에 서 있음 — 자리는 social이 옮김. remaining: 내려올 때까지, age: 올라선 뒤 지난 시간 (brain_tower.rs)
     OnHead { remaining: f64, age: f64 },
     /// 🎣 커서 끝으로 뛰어올라 매달려 흔들흔들 — 흔들림은 Pet의 swing (brain_swing.rs)
     Swing { phase: swing_moves::SwingPhase, remaining: f64 },
-    /// 🙆 다른 동물을 들어 올려 내려놓거나 친구에게 데려간다 — t = 이 단계에 들어선 뒤 흐른 시간 (brain_hoist.rs)
+    /// 🙆 다른 동물을 들어 올려 내려놓거나 친구에게 데려감 — t = 이 단계에 들어선 뒤 흐른 시간 (brain_hoist.rs)
     Hoist { phase: hoist_moves::HoistPhase, t: f64 },
-    /// 🙆 흐물이(by = 그 동물의 social_key)에게 들려 있다 — 자리는 lift::sync가 옮긴다 (brain_hoist.rs)
+    /// 🙆 흐물이(by = 그 동물의 social_key)에게 들려 있음 — 자리는 lift::sync가 옮김 (brain_hoist.rs)
     Lifted { by: u64 },
     /// 🫣 창 옆면 뒤에 숨기 (brain_hide.rs)
     Hide { phase: hide_moves::HidePhase, remaining: f64 },
@@ -471,13 +483,13 @@ pub enum State {
     Doodle { remaining: f64 },
     /// ⌨️ 타자 응원 — remaining = 타자가 느려진 뒤 남은 시간 (brain_typing.rs)
     TypeCheer { remaining: f64 },
-    /// 🐱 창 윗면의 물건을 툭툭 밀어 떨어뜨린다 (brain_knock.rs)
+    /// 🐱 창 윗면의 물건을 툭툭 밀어 떨어뜨림 (brain_knock.rs)
     Knock { phase: knock_moves::KnockPhase, t: f64 },
-    /// 🐿️ 물건을 볼에 넣어 묻는다 (brain_stash.rs)
+    /// 🐿️ 물건을 볼에 넣어 물음 (brain_stash.rs)
     Stash { phase: stash_moves::StashPhase, t: f64 },
     /// 🦆 기차 앞장 (brain_train.rs)
     Lead { remaining: f64 },
-    /// 🦆 기차를 따라간다 — 자리는 코디네이터가 (brain_train.rs, social_play.rs). remaining은 안전 시한
+    /// 🦆 기차를 따라감 — 자리는 코디네이터가 (brain_train.rs, social_play.rs). remaining은 안전 시한
     Follow { remaining: f64 },
     /// 🙌 하이파이브 (brain_highfive.rs)
     HighFive { phase: highfive_moves::HighFivePhase, t: f64 },
@@ -538,12 +550,13 @@ struct HomeTrip {
 }
 
 impl HomeTrip {
+    /// 지금 자리에서 집으로 가는 길을 시작함 (최고 기록은 지금 거리)
     fn new(owner: Owner, door_x: f64, x: f64) -> Self {
         Self { owner, door_x, best: (door_x - x).abs(), since_progress: 0.0, stalled: 0.0 }
     }
 }
 
-/// 받은 먹이 — 그릇으로 가서 먹는다 (phase 3)
+/// 받은 먹이 — 그릇으로 가서 먹음 (phase 3)
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct FoodTrip {
     food: Food,
@@ -552,17 +565,20 @@ struct FoodTrip {
     level_up: bool,
     /// 그릇 자리 (디딤판, 기준점에서의 x) — 아직 안 놓였으면 None
     target: Option<(Owner, f64)>,
-    /// 하우스 안에서 받음 — 다음 update에서 문 앞으로 나온다
+    /// 하우스 안에서 받음 — 다음 update에서 문 앞으로 나옴
     from_house: bool,
 }
 
 /// 서 있는 디딤판과 그 기준점(anchor)으로부터의 x 오프셋.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Standing {
+    /// 디딤판 (창·작업표시줄·바닥 등)
     pub owner: Owner,
+    /// 기준점에서의 x 오프셋 (물리 px)
     pub rel_x: f64,
 }
 
+/// 동물 한 마리의 설정 (pet.json + 사용자 설정에서 앱이 만듦)
 #[derive(Debug, Clone, Copy)]
 pub struct PetConfig {
     /// 스프라이트 한 변 (물리 px)
@@ -577,46 +593,46 @@ pub struct PetConfig {
     pub personality: Personality,
     /// 벽 타기 (pet.json에 climb·slide가 있는 고양이 등)
     pub can_climb: bool,
-    /// 날아다닌다 (pet.json `locomotion: fly` — 유령·새, spec 2B §10)
+    /// 날아다님 (pet.json `locomotion: fly` — 유령·새, spec 2B §10)
     pub flies: bool,
     /// 빠른 나는 동물 (pet.json `swift` — 새): 더 자주 내려앉고, 친구 화면으로는 멀리서부터 "whoosh!" 쌩 (brain_fly.rs)
     pub swift: bool,
-    /// 폴짝폴짝 뛰어다닌다 (pet.json `locomotion: hop` — 개구리, brain_hop.rs)
+    /// 폴짝폴짝 뛰어다님 (pet.json `locomotion: hop` — 개구리, brain_hop.rs)
     pub hops: bool,
     /// 걷기·달리기 토막 중 깡총거리는 몫 (pet.json `hop_share` — 토끼 0.5, brain_hop.rs). 개구리(hops)는 늘 폴짝
     pub hop_share: f64,
-    /// 위를 올려다본다 (pet.json에 lookup이 있으면 — 없으면 그냥 쳐다본다)
+    /// 위를 올려다봄 (pet.json에 lookup이 있으면 — 없으면 그냥 쳐다봄)
     pub looks_up: bool,
-    /// 가끔 머리 위에 작은 눈구름을 부른다 (pet.json `snow_cloud` — 눈사람, brain_cloud.rs)
+    /// 가끔 머리 위에 작은 눈구름을 부름 (pet.json `snow_cloud` — 눈사람, brain_cloud.rs)
     pub snow_cloud: bool,
     /// 장난칠 때 안경이 번쩍 (pet.json `glasses_flash` — 펭귄, brain_flash.rs)
     pub glasses_flash: bool,
     /// 겁쟁이: 다른 동물과 마주치면 반쯤 만세 줄행랑 (pet.json `timid` + panic 그림 — 흐물이, brain_heumul.rs)
     pub timid: bool,
-    /// 기운 넘침: 더 자주 달리고 더 자주 크게 뛴다 (pet.json `energetic` — 흐물이)
+    /// 기운 넘침: 더 자주 달리고 더 자주 크게 뜀 (pet.json `energetic` — 흐물이)
     pub energetic: bool,
-    /// 창 옆면에 매달려 손 흔들고 오르내린다 (pet.json `rigging` + hang·rope 그림 — 흐물이)
+    /// 창 옆면에 매달려 손 흔들고 오르내림 (pet.json `rigging` + hang·rope 그림 — 흐물이)
     pub rigging: bool,
-    /// 바닥의 물건·똥을 주워 머리 위로 들고 던진다 (pet.json `juggler` + lift·hold·carry·throw·strain·present·slump 그림 — 흐물이, brain_juggle.rs)
+    /// 바닥의 물건·똥을 주워 머리 위로 들고 던짐 (pet.json `juggler` + lift·hold·carry·throw·strain·present·slump 그림 — 흐물이, brain_juggle.rs)
     pub juggler: bool,
     /// 물건을 든 동작들의 칸별 손 자리 (pet.json grip)
     pub grip: crate::juggle::GripTable,
-    /// 📌 작업표시줄에서 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는다 (pet.json `taskbar_play` + yank·stuff 그림, 들고 던지기도 — 흐물이, brain_taskbar.rs)
+    /// 📌 작업표시줄에서 앱 아이콘 장난감을 끌어내 놀다가 도로 넣음 (pet.json `taskbar_play` + yank·stuff 그림, 들고 던지기도 — 흐물이, brain_taskbar.rs)
     pub taskbar_play: bool,
-    /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잰다
+    /// 화면 배율 (논리 px 하나가 물리 px 몇 개인가, 기본 1.0) — 던진 비행은 논리 px로 잼
     pub dpi: f64,
     /// 커서에 매달릴 때 커서 끝이 닿는 머리 꼭대기 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율. pet.json head의 dragged)
     pub hang_grip: (f64, f64),
-    /// 구르기 그림이 없다 (픽셀 그림, pet.json에 roll 없음) — 구르기를 고르지 않고, 대신 하는 동작도 없다
+    /// 구르기 그림이 없음 (픽셀 그림, pet.json에 roll 없음) — 구르기를 고르지 않고, 대신 하는 동작도 없음
     pub no_roll: bool,
-    /// 흐물이 더 놀기 (v0.6.3 — pet.json에 ANTICS_ANIMS 그림이 다 있고 들고 던지기를 한다): 🎣 커서 매달리기 · 🙆 동물 들기 ·
+    /// 흐물이 더 놀기 (v0.6.3 — pet.json에 ANTICS_ANIMS 그림이 다 있고 들고 던지기를 함): 🎣 커서 매달리기 · 🙆 동물 들기 ·
     /// 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 캐치볼 · 🖍️ 낙서 · ⌨️ 타자 응원
     pub antics: bool,
-    /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨린다 (pet.json `knocker` + paw 그림 — 고양이·페르시안, brain_knock.rs)
+    /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨림 (pet.json `knocker` + paw 그림 — 고양이·페르시안, brain_knock.rs)
     pub knocks: bool,
-    /// 🐿️ 바닥의 작은 물건을 볼에 넣어 묻는다 (pet.json `stasher` + cheeks_walk·cheeks_idle·dig 그림 — 다람쥐, brain_stash.rs)
+    /// 🐿️ 바닥의 작은 물건을 볼에 넣어 물음 (pet.json `stasher` + cheeks_walk·cheeks_idle·dig 그림 — 다람쥐, brain_stash.rs)
     pub stashes: bool,
-    /// 🦆 바닥에서 친구들을 줄줄이 데리고 걷는다 (pet.json `train_leader` — 오리, brain_train.rs)
+    /// 🦆 바닥에서 친구들을 줄줄이 데리고 걸음 (pet.json `train_leader` — 오리, brain_train.rs)
     pub leads_train: bool,
 }
 
@@ -661,44 +677,53 @@ impl PetConfig {
     }
 }
 
+/// 웹뷰에 넘기는 그릴 것 한 장 (틱마다)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct RenderState {
+    /// 그림
     pub anim: Anim,
+    /// 좌우 뒤집기 (왼쪽을 봄)
     pub flip: bool,
+    /// 하트를 띄움
     pub heart: bool,
     /// 보내져 손 흔든 뒤 "뿅" 사라지는 중 (웹뷰가 작아지며 흐려지고 반짝이 — brain_send.rs)
     pub poof: bool,
     /// 조작 모드 중 — 머리 위에 🎮 (brain_control.rs)
     pub ctl: bool,
-    /// 공룡 쿵쾅에 흔들리는 중 — 웹뷰가 스프라이트를 잠깐 덜덜 떤다 (brain_stomp.rs)
+    /// 공룡 쿵쾅에 흔들리는 중 — 웹뷰가 스프라이트를 잠깐 덜덜 떪 (brain_stomp.rs)
     pub wobble: bool,
-    /// 커서에 매달린 쪽 (+1 커서 오른쪽, -1 왼쪽, 0 = 안 매달림) — 웹뷰가 스프라이트를 커서 쪽으로 붙여 흔든다 (brain_cursor.rs)
+    /// 커서에 매달린 쪽 (+1 커서 오른쪽, -1 왼쪽, 0 = 안 매달림) — 웹뷰가 스프라이트를 커서 쪽으로 붙여 흔듦 (brain_cursor.rs)
     pub hang: i8,
-    /// 머리 위에 작은 눈구름이 떠 있다 — 웹뷰가 머리 위에 띄운다 (brain_cloud.rs)
+    /// 머리 위에 작은 눈구름이 떠 있음 — 웹뷰가 머리 위에 띄움 (brain_cloud.rs)
     pub cloud: bool,
-    /// 하우스 안 — 성장 축하를 펫 창(하트·별 터짐) 대신 하우스 창(집 폴짝)이 보여 준다
+    /// 하우스 안 — 성장 축하를 펫 창(하트·별 터짐) 대신 하우스 창(집 폴짝)이 보여 줌
     pub housed: bool,
-    /// 안경 번쩍 — 켜지는 순간 웹뷰가 렌즈를 하얗게 번쩍인다 (brain_flash.rs, 펭귄)
+    /// 안경 번쩍 — 켜지는 순간 웹뷰가 렌즈를 하얗게 번쩍임 (brain_flash.rs, 펭귄)
     pub flash: bool,
-    /// 안경 반사 — 켜져 있는 동안 렌즈가 하얗게 차서 눈이 안 보인다 (brain_flash.rs, 펭귄)
+    /// 안경 반사 — 켜져 있는 동안 렌즈가 하얗게 차서 눈이 안 보임 (brain_flash.rs, 펭귄)
     pub glare: bool,
     /// 콰당! 엎어져 어지러워하는 중 — 웹뷰가 몸을 찌그러뜨리고 머리 위에 💫 (THUD_SECS)
     pub thud: bool,
-    /// 🎣 커서에 매달려 흔들리는 각도 (도, 시계 방향 + — 0이면 안 흔들림). 웹뷰가 hang_cursor 손 자리(grip)를 축으로 돌린다 (brain_swing.rs)
+    /// 🎣 커서에 매달려 흔들리는 각도 (도, 시계 방향 + — 0이면 안 흔들림). 웹뷰가 hang_cursor 손 자리(grip)를 축으로 돌림 (brain_swing.rs)
     pub swing: f64,
-    /// 🕺 신나는 춤 — 웹뷰가 반짝이를 뿌린다 (brain_dance.rs)
+    /// 🕺 신나는 춤 — 웹뷰가 반짝이를 뿌림 (brain_dance.rs)
     pub sparkle: bool,
-    /// 🙌 하이파이브 짝! — 켜지는 순간 웹뷰가 몸 앞쪽 위에 반짝이를 터뜨린다 (brain_highfive.rs)
+    /// 🙌 하이파이브 짝! — 켜지는 순간 웹뷰가 몸 앞쪽 위에 반짝이를 터뜨림 (brain_highfive.rs)
     pub clap: bool,
-    /// ⌨️ 타자 응원 중 키보드를 톡 하는 손 (0 = 두 손 쉼, -1 화면 왼쪽 손, +1 오른쪽 손) — 웹뷰가 type 칸을 고른다 (brain_typing.rs).
-    /// 사용자가 키를 누를 때마다 바뀐다 — 어떤 키인지는 모른다
+    /// ⌨️ 타자 응원 중 키보드를 톡 하는 손 (0 = 두 손 쉼, -1 화면 왼쪽 손, +1 오른쪽 손) — 웹뷰가 type 칸을 고름 (brain_typing.rs).
+    /// 사용자가 키를 누를 때마다 바뀜 — 어떤 키인지는 모름
     pub tap: i8,
 }
 
+/// 동물 한 마리 — 몸, 상태, 각 장난의 기억을 모두 가짐
 pub struct Pet {
+    /// 설정
     pub cfg: PetConfig,
+    /// 몸 (발 가운데 자리와 속도, 물리 px)
     pub body: Body,
+    /// 지금 상태
     pub state: State,
+    /// 서 있는 디딤판 (공중이면 None)
     pub standing: Option<Standing>,
     /// +1 오른쪽, -1 왼쪽
     pub facing: f64,
@@ -714,17 +739,17 @@ pub struct Pet {
     hover_since: Option<f64>,
     chatter_timer: f64,
     speech: Option<Speech>,
-    /// 콰당! 남은 시간 (Land 상태인 동안만 보인다)
+    /// 콰당! 남은 시간 (Land 상태인 동안만 보임)
     thud: f64,
     hungry: bool,
     food_request: bool,
     /// 활동 사이 박자와 이동 관성
     pacing: Pacing,
-    /// 누르기 직전 상태 — 새침하게 무시하면 되돌린다
+    /// 누르기 직전 상태 — 새침하게 무시하면 되돌림
     before_press: Option<(State, Option<AfterBeat>)>,
     /// 자는 동안 누른 횟수와 첫 클릭 시각
     sleep_clicks: (u32, f64),
-    /// 하우스로 가는 중이면 Some (들려 있거나 공중이어도 유지된다)
+    /// 하우스로 가는 중이면 Some (들려 있거나 공중이어도 유지됨)
     home_trip: Option<HomeTrip>,
     /// 하우스 안에 있음
     housed: bool,
@@ -734,77 +759,77 @@ pub struct Pet {
     guest: Option<Guest>,
     /// 트레이 "놀러 보내기"로 친구가 연결된 끝으로 가는 중 (brain_send.rs)
     send: Option<send_moves::SendTrip>,
-    /// 던져서 친구 화면으로 넘어간 움직임 (take_fling으로 한 번 꺼낸다, brain_fling.rs)
+    /// 던져서 친구 화면으로 넘어간 움직임 (take_fling으로 한 번 꺼냄, brain_fling.rs)
     fling: Option<visit::Fling>,
-    /// 들려 있거나 공중일 때 "집에 와"를 받음 — 놓여서 내려서면 손 흔든다
+    /// 들려 있거나 공중일 때 "집에 와"를 받음 — 놓여서 내려서면 손 흔듦
     farewell_pending: bool,
-    /// 화면을 떠난 쪽 (take_exit로 한 번 꺼낸다)
+    /// 화면을 떠난 쪽 (take_exit로 한 번 꺼냄)
     exited: Option<Side>,
     /// 창 안에서 노는 중이면 Some (spec 2B §9)
     inside: Option<Stay>,
-    /// 방금 드래그해서 놓음 — 다음 update에서 창 안에 놓였는지 본다
+    /// 방금 드래그해서 놓음 — 다음 update에서 창 안에 놓였는지 봄
     drop_check: bool,
     /// 나는 동물이 날아가는 길 (spec 2B §10)
     flight: Option<Flight>,
-    /// 나는 동물이 제자리에 떠 있는 기준점 (위아래로 살랑인다)
+    /// 나는 동물이 제자리에 떠 있는 기준점 (위아래로 살랑임)
     hover_at: Option<(f64, f64)>,
-    /// 마지막 커서 위치 (떠서 쳐다볼 때 그쪽을 본다)
+    /// 마지막 커서 위치 (떠서 쳐다볼 때 그쪽을 봄)
     cursor: (f64, f64),
-    /// 떠 있을 때 먹이를 받음 — 내려앉으면 먹는다 (favorite, level_up)
+    /// 떠 있을 때 먹이를 받음 — 내려앉으면 먹음 (favorite, level_up)
     meal_pending: Option<(bool, bool)>,
     /// 나는 동물이 먹으러 내려앉을 자리와 그 자리의 소품 (디딤판, 기준점에서의 x, 소품)
     meal_spot: Option<(Owner, f64, Prop)>,
     /// 그릇으로 가는 중인 먹이 (걷는 동물, 그리고 꽃 자리를 아직 안 정한 나는 동물)
     food: Option<FoodTrip>,
-    /// 앱에 보낼 소품 변화 (take_prop으로 한 번 꺼낸다)
+    /// 앱에 보낼 소품 변화 (take_prop으로 한 번 꺼냄)
     prop_event: Option<PropEvent>,
     /// 소품이 놓여 있음
     prop_shown: bool,
-    /// 하우스 문 (디딤판, 문 x) — 하우스 안에서 먹이를 받으면 문 앞으로 나와 먹는다
+    /// 하우스 문 (디딤판, 문 x) — 하우스 안에서 먹이를 받으면 문 앞으로 나와 먹음
     house_door: Option<(Owner, f64)>,
-    /// 하우스에서 나와 먹는 중 — 다 먹으면 이 문으로 돌아간다
+    /// 하우스에서 나와 먹는 중 — 다 먹으면 이 문으로 돌아감
     return_home: Option<(Owner, f64)>,
     /// 나중에 먹을 먹이 (음식, 성장함): 공중·들린 채·벽 타는 중에 받은 간식·물, 성장 축하·하트 중에 받은 먹이
     queued_food: Option<(Food, bool)>,
-    /// 손에 든 음식의 자리 (직접 주기 중이면 Some — 앱이 매 틱 offer_hand로 알려 준다)
+    /// 손에 든 음식의 자리 (직접 주기 중이면 Some — 앱이 매 틱 offer_hand로 알려 줌)
     hand: Option<(f64, f64)>,
     /// 이번에 내민 음식을 이미 알아챘음 (배고프면 한 번 "냠!?")
     hand_noticed: bool,
-    /// 배불러 거절한 음식의 자리 — 음식을 옮길 때까지 다시 조르지 않는다
+    /// 배불러 거절한 음식의 자리 — 음식을 옮길 때까지 다시 조르지 않음
     hand_refused: Option<(f64, f64)>,
-    /// 쳐다보는 중(Idle look · 손에 든 음식 보기)에 위를 올려다본다 — cfg.looks_up일 때만 LookUp으로 그린다
+    /// 쳐다보는 중(Idle look · 손에 든 음식 보기)에 위를 올려다봄 — cfg.looks_up일 때만 LookUp으로 그림
     gaze_up: bool,
     /// 커서가 머리 위에 머물기 시작한 시각 (clock 기준)
     above_since: Option<f64>,
-    /// 디딤판에 놓인 소품 (소품, 디딤판, 기준점에서의 x, 마지막으로 보낸 자리) — 창이 움직이면 따라간다
+    /// 디딤판에 놓인 소품 (소품, 디딤판, 기준점에서의 x, 마지막으로 보낸 자리) — 창이 움직이면 따라감
     prop_anchor: Option<(Prop, Owner, f64, (f64, f64))>,
     /// 폴짝 동물의 걸음·벽 오르기 박자 (brain_hop.rs)
     hop_beat: crate::hop::Beat,
     /// 가끔 깡총거리는 동물의 이번 이동 토막 걸음 (brain_hop.rs)
     bunny: crate::hop::Stretch,
-    /// 손에서 던져져 날아가는 중 (State::Air) — 논리 px 기준의 부드러운 중력을 쓴다. 공중을 벗어나면 꺼진다
+    /// 손에서 던져져 날아가는 중 (State::Air) — 논리 px 기준의 부드러운 중력을 씀. 공중을 벗어나면 꺼짐
     thrown: bool,
-    /// 놓는 순간 아래로 던졌다 (visit::aimed_down) — 바닥에 닿으면 속도와 상관없이 넘어간다
+    /// 놓는 순간 아래로 던졌음 (visit::aimed_down) — 바닥에 닿으면 속도와 상관없이 넘어감
     thrown_down: bool,
     /// 다른 동물과 놀 때 구별하는 번호 (프로세스 안에서 유일, social.rs)
     social_key: u64,
-    /// 인사·술래 놀이 중인 친구의 자리 (발 위치) — social.rs가 매 틱 알려 준다
+    /// 인사·술래 놀이 중인 친구의 자리 (발 위치) — social.rs가 매 틱 알려 줌
     play_target: Option<(f64, f64)>,
-    /// 조작 모드 중이면 Some — 키보드(친구 화면에선 친구 링크로 온 키)로 움직인다 (brain_control.rs)
+    /// 조작 모드 중이면 Some — 키보드(친구 화면에선 친구 링크로 온 키)로 움직임 (brain_control.rs)
     control: Option<control_moves::Control>,
-    /// 키 없이 3분이 지나 조작 모드가 저절로 끝났음 (take_control_ended로 한 번 꺼낸다 — 앱이 메뉴 체크를 푼다)
+    /// 키 없이 3분이 지나 조작 모드가 저절로 끝났음 (take_control_ended로 한 번 꺼냄 — 앱이 메뉴 체크를 풂)
     control_ended: bool,
-    /// 공룡이 막 쿵쾅을 시작함 (take_stomp로 한 번 꺼낸다 — social.rs가 같은 바닥의 친구들에게 알린다)
+    /// 공룡이 막 쿵쾅을 시작함 (take_stomp로 한 번 꺼냄 — social.rs가 같은 바닥의 친구들에게 알림)
     stomp_out: bool,
     /// 쿵쾅에 흔들리는 남은 시간 (RenderState.wobble)
     wobble_timer: f64,
-    /// 이 시각(clock)까지는 쿵쾅에 다시 흔들리지 않는다
+    /// 이 시각(clock)까지는 쿵쾅에 다시 흔들리지 않음
     stomp_calm_until: f64,
-    /// 이 시각(clock)까지는 날아온 것에 다시 맞지 않는다 (brain_hit.rs)
+    /// 이 시각(clock)까지는 날아온 것에 다시 맞지 않음 (brain_hit.rs)
     hit_calm_until: f64,
     /// 커서 장난·창 흔들림의 기억 (brain_cursor.rs)
     cursor_mood: cursor_moves::CursorMood,
-    /// 쉴 때 기지개를 자주 켠다 (고양이·페르시안 — set_cursor_species가 정한다)
+    /// 쉴 때 기지개를 자주 켬 (고양이·페르시안 — set_cursor_species가 정함)
     stretchy: bool,
     /// 눈이 쌓임·벚꽃잎 날림·방금 만든 눈사람 (brain_snow.rs)
     snow: snow_moves::SnowMood,
@@ -818,17 +843,17 @@ pub struct Pet {
     poop: poop_moves::PoopMood,
     /// 마주 오던 친구와 만나는 길 (brain_meet.rs)
     meet: Option<meet_moves::MeetPlan>,
-    /// 지금 걷는 디딤판 조각 (왼쪽, 오른쪽) — social.rs가 뛰어 내릴 자리를 본다
+    /// 지금 걷는 디딤판 조각 (왼쪽, 오른쪽) — social.rs가 뛰어 내릴 자리를 봄
     walk_span: Option<(f64, f64)>,
-    /// 방금 친구 머리를 밟았다 (take_head_bump로 한 번 꺼낸다)
+    /// 방금 친구 머리를 밟았음 (take_head_bump로 한 번 꺼냄)
     head_bump: bool,
-    /// 머리 위에 친구가 서 있다 (social이 알려 준다, brain_tower.rs)
+    /// 머리 위에 친구가 서 있음 (social이 알려 줌, brain_tower.rs)
     rider_on: bool,
     /// 코디네이터가 마지막으로 머리 위 자리를 알려 준 때 (clock)
     ride_seen: f64,
-    /// 탑에서 떨어지거나 내려오는 중 — 내려설 때까지 다른 머리에 다시 서지 않는다
+    /// 탑에서 떨어지거나 내려오는 중 — 내려설 때까지 다른 머리에 다시 서지 않음
     no_perch: bool,
-    /// 던지지 않고 그냥 놓았다 (떨어지는 동안 빨라져도 머리 위에 서고, 튕기지 않는다)
+    /// 던지지 않고 그냥 놓았음 (떨어지는 동안 빨라져도 머리 위에 서고, 튕기지 않음)
     gentle_drop: bool,
     /// 발밑 모니터 작업 영역의 위 끝 (탑 높이 제한)
     ceiling: f64,
@@ -848,12 +873,13 @@ pub struct Pet {
     typing: typing_moves::TypingMood,
     /// 다른 동물들도 더 놀기 (v0.6.3): 🐱 툭툭 · 🦆 기차 · 🦖 큰 쿵 · 🐿️ 볼 빵빵 · 🙌 하이파이브 (brain_play.rs)
     play: play_moves::PlayMood,
-    /// 글자 그대로 띄울 말 (⚾ "3!" — take_speech_text로 한 번 꺼낸다, 앱은 pet-say-text로)
+    /// 글자 그대로 띄울 말 (⚾ "3!" — take_speech_text로 한 번 꺼냄, 앱은 pet-say-text로)
     speech_text: Option<String>,
     rng: fastrand::Rng,
 }
 
 impl Pet {
+    /// (x, y)에 떨어지는 상태로 새 동물을 만듦. seed로 난수를 정함
     pub fn new(cfg: PetConfig, x: f64, y: f64, seed: u64) -> Self {
         Self {
             cfg,
@@ -947,6 +973,7 @@ impl Pet {
         }
     }
 
+    /// 한 틱 갱신: 시계를 돌리고, 장난·볼일을 보고, 상태별로 움직임
     pub fn update(&mut self, dt: f64, world: &World) {
         self.clock += dt;
         if !matches!(self.state, State::Idle { look: true, .. } | State::WantFood { walking: false }) {
@@ -1104,6 +1131,7 @@ impl Pet {
         self.on_started();
     }
 
+    /// 이번 틱에 그릴 것을 만듦 (상태 → 그림 + 웹뷰 효과)
     pub fn render(&self) -> RenderState {
         let anim = match self.state {
             // 나는 동물의 공중제비(Roll)는 원을 도는 동안만 — 그 앞뒤는 그냥 난다
@@ -1201,11 +1229,12 @@ impl Pet {
         }
     }
 
+    /// 동물 창의 왼쪽 위 자리 (물리 px — 폴짝·놀이로 솟은 만큼 위로)
     pub fn window_pos(&self) -> (f64, f64) {
         (self.body.x - self.cfg.size / 2.0, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift())
     }
 
-    /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹는다)
+    /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹음)
     pub fn is_eating(&self) -> bool {
         // 나는 동물이 먹이를 받고 내려앉으러 가는 중
         if self.meal_pending.is_some() || self.food.is_some() {
@@ -1219,7 +1248,7 @@ impl Pet {
     }
 
     /// 새 성장 단계(크기·시트·메뉴 줄)를 아직 적용하면 안 됨: 먹는 중이거나, 기억해 둔 먹이
-    /// (공중·들린 채·축하 중에 받은 간식이나 밥)가 성장을 안고 있다. 다 먹고 축하가 시작될 때 적용한다
+    /// (공중·들린 채·축하 중에 받은 간식이나 밥)가 성장을 안고 있음. 다 먹고 축하가 시작될 때 적용함
     pub fn stage_change_waits(&self) -> bool {
         self.is_eating() || self.queued_food.is_some_and(|(_, level_up)| level_up)
     }
@@ -1229,14 +1258,14 @@ impl Pet {
         pending && !self.stage_change_waits()
     }
 
-    /// 하우스 안에 있음 (가는 중은 아님). 하우스에 있는 동안엔 놀러 가지 않는다 (phase 3)
+    /// 하우스 안에 있음 (가는 중은 아님). 하우스에 있는 동안엔 놀러 가지 않음 (phase 3)
     pub fn is_housed(&self) -> bool {
         self.housed
     }
 
-    /// 사다리타기 결과에 한 번 반응한다 (spec 2026-11-04 §1-6): 좋음 = 만세(`level_up`), 나쁨 = 갸웃(`tilt`).
-    /// 바닥(또는 공중에 떠 있는 동물)에서 걷거나 쉬는 중일 때만 — 하우스·놀러 감·손님·들림·공중·먹는 중이면 false (건너뛴다).
-    /// `annoyed`는 끝나면 잠드는 상태라 쓰지 않는다
+    /// 사다리타기 결과에 한 번 반응함 (spec 2026-11-04 §1-6): 좋음 = 만세(`level_up`), 나쁨 = 갸웃(`tilt`).
+    /// 바닥(또는 공중에 떠 있는 동물)에서 걷거나 쉬는 중일 때만 — 하우스·놀러 감·손님·들림·공중·먹는 중이면 false (건너뜀).
+    /// `annoyed`는 끝나면 잠드는 상태라 쓰지 않음
     pub fn react_to_result(&mut self, good: bool) -> bool {
         let settled = (self.standing.is_some() || self.cfg.flies) && !self.off_surface() && !self.is_held() && !self.in_transit();
         let calm = matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. } | State::Trick { .. });
@@ -1255,12 +1284,12 @@ impl Pet {
         self.home_trip.is_some()
     }
 
-    /// 성장해서 먹는 중이거나 성장 축하 중 — 하우스로 가거나 나올 때도 끝까지 한다
+    /// 성장해서 먹는 중이거나 성장 축하 중 — 하우스로 가거나 나올 때도 끝까지 함
     fn celebrating(&self) -> bool {
         matches!(self.state, State::Eating { level_up: true, .. } | State::LevelUp { .. })
     }
 
-    /// 집으로 가는 길의 진척을 잰다. 안전 점프를 할 때가 되면 true
+    /// 집으로 가는 길의 진척을 잼. 안전 점프를 할 때가 되면 true
     fn track_home_progress(&mut self, dt: f64) -> bool {
         let held = self.is_held();
         let celebrating = self.celebrating();
@@ -1290,7 +1319,7 @@ impl Pet {
         trip.stalled >= HOME_STALL_LIMIT_SECS
     }
 
-    /// 바로 하우스 안에 둔다 (앱 시작 시 하우스에 있던 경우, 그리고 도착했을 때)
+    /// 바로 하우스 안에 둠 (앱 시작 시 하우스에 있던 경우, 그리고 도착했을 때)
     pub fn enter_house(&mut self) {
         self.housed = true;
         self.home_trip = None;
@@ -1313,8 +1342,8 @@ impl Pet {
         };
     }
 
-    /// 하우스로 달려간다. door_x = owner(하우스가 있는 작업 영역 바닥) 위의 문 x.
-    /// 들려 있으면 놓인 뒤에, 공중이면 내려선 뒤에 달려가고, 벽·화면을 타는 중이면 바로 떨어진다.
+    /// 하우스로 달려감. door_x = owner(하우스가 있는 작업 영역 바닥) 위의 문 x.
+    /// 들려 있으면 놓인 뒤에, 공중이면 내려선 뒤에 달려가고, 벽·화면을 타는 중이면 바로 떨어짐
     pub fn go_home(&mut self, owner: Owner, door_x: f64) {
         // 손님은 하우스가 없고, 화면을 떠나는 중·떠난 뒤엔 가지 않는다
         if self.housed || self.guest.is_some() || self.leaving() {
@@ -1350,9 +1379,9 @@ impl Pet {
         }
     }
 
-    /// 하우스에서 나온다: owner 바닥의 문 x에 서서 왼쪽으로 걸어 나온다.
-    /// 성장해서 먹는 중·축하 중이었다면 문 앞에서 그걸 마저 한 뒤 평소처럼 움직인다.
-    /// 아직 가는 중이었다면 가던 길만 멈춘다 (그 자리에 그대로).
+    /// 하우스에서 나옴: owner 바닥의 문 x에 서서 왼쪽으로 걸어 나옴
+    /// 성장해서 먹는 중·축하 중이었다면 문 앞에서 그걸 마저 한 뒤 평소처럼 움직임
+    /// 아직 가는 중이었다면 가던 길만 멈춤 (그 자리에 그대로).
     pub fn leave_house(&mut self, world: &World, door_x: f64, owner: Owner) {
         // 나와서 먹고 있었다면 다 먹은 뒤에도 밖에 있는다
         self.return_home = None;
@@ -1383,6 +1412,7 @@ impl Pet {
         self.on_started();
     }
 
+    /// 커서 머무름·간질이기 기록을 지움
     fn clear_hover(&mut self) {
         self.hover_hist.clear();
         self.tickling = false;
@@ -1390,7 +1420,7 @@ impl Pet {
         self.above_since = None;
     }
 
-    /// 지금 위를 올려다보며 그린다 (lookup이 없는 동물은 그냥 쳐다본다)
+    /// 지금 위를 올려다보며 그림 (lookup이 없는 동물은 그냥 쳐다봄)
     fn looking_up(&self) -> bool {
         self.gaze_up && self.cfg.looks_up
     }
@@ -1401,8 +1431,8 @@ impl Pet {
         self.body.y - HEAD_TOP * size - y > LOOK_UP_RISE * size && (x - self.body.x).abs() <= reach * size
     }
 
-    /// 커서가 머리 위에 LOOK_UP_HOVER_SECS 넘게 머물면 멈춰서 (쉬던 중이면 그 자리에서) 궁금한 듯 올려다본다.
-    /// 커서가 머무는 동안엔 계속 올려다본다. 올려다봤으면 true
+    /// 커서가 머리 위에 LOOK_UP_HOVER_SECS 넘게 머물면 멈춰서 (쉬던 중이면 그 자리에서) 궁금한 듯 올려다봄
+    /// 커서가 머무는 동안엔 계속 올려다봄. 올려다봤으면 true
     fn look_up_at_cursor(&mut self) -> bool {
         if !self.cfg.looks_up || !self.above_since.is_some_and(|t| self.clock - t >= LOOK_UP_HOVER_SECS) {
             return false;
@@ -1421,12 +1451,12 @@ impl Pet {
         true
     }
 
-    /// 쉬는 박자를 올려다보기로 바꿀지 (lookup이 있는 동물만 주사위를 굴린다 — 없는 동물의 난수 순서는 그대로)
+    /// 쉬는 박자를 올려다보기로 바꿀지 (lookup이 있는 동물만 주사위를 굴림 — 없는 동물의 난수 순서는 그대로)
     fn roll_look_up(&mut self) -> bool {
         self.cfg.looks_up && self.rng.f64() < LOOK_UP_CHANCE * self.look_up_mult()
     }
 
-    /// 하우스 안: 말풍선 타이머와 하우스 안에서 먹기·성장 축하·갸웃·하트만 흐른다
+    /// 하우스 안: 말풍선 타이머와 하우스 안에서 먹기·성장 축하·갸웃·하트만 흐름
     fn update_housed(&mut self, dt: f64) {
         self.update_chatter(dt);
         self.state = match self.state {
@@ -1460,8 +1490,8 @@ impl Pet {
         self.enter_house();
     }
 
-    /// 집으로 달린다. 하우스 바닥에선 문까지, 다른 디딤판에선 집 쪽 끝까지 가서 반드시 떠난다
-    /// (창 모서리·가려짐·화면 끝은 뛰어내리고, 모니터 경계는 넘어간다 — 돌아서지 않는다).
+    /// 집으로 달림. 하우스 바닥에선 문까지, 다른 디딤판에선 집 쪽 끝까지 가서 반드시 떠남
+    /// (창 모서리·가려짐·화면 끝은 뛰어내리고, 모니터 경계는 넘어감 — 돌아서지 않음).
     fn update_go_home(&mut self, dt: f64, world: &World) {
         let Some(trip) = self.home_trip else { return };
         if !self.follow_anchor(world) {
@@ -1552,6 +1582,7 @@ impl Pet {
         self.state = State::HomeLeap { remaining: t };
     }
 
+    /// 집으로 가는 안전 점프 한 틱. 시간이 다 되면 문 앞에 섬
     fn update_home_leap(&mut self, dt: f64, remaining: f64, world: &World) {
         self.body.arc_step(dt.min(remaining));
         let remaining = remaining - dt;
@@ -1562,13 +1593,13 @@ impl Pet {
         }
     }
 
-    /// 친구가 연결된 화면 끝을 정한다 — 바닥을 걷다 그 끝에 닿으면 가끔 걸어 나간다
+    /// 친구가 연결된 화면 끝을 정함 — 바닥을 걷다 그 끝에 닿으면 가끔 걸어 나감
     pub fn set_exit_edges(&mut self, left: bool, right: bool) {
         self.exit_edges = ExitEdges { left, right, ..self.exit_edges };
     }
 
-    /// 손님 모드: home = 집으로 가는 화면 끝, homesick_after초 뒤 집이 그리워진다 (visit::pick_homesick_after).
-    /// 손님은 배고파하지 않고 하우스로 가지 않는다
+    /// 손님 모드: home = 집으로 가는 화면 끝, homesick_after초 뒤 집이 그리워짐 (visit::pick_homesick_after).
+    /// 손님은 배고파하지 않고 하우스로 가지 않음
     pub fn set_guest(&mut self, home: Side, homesick_after: f64) {
         self.guest = Some(Guest { home, homesick_in: homesick_after });
         self.hungry = false;
@@ -1578,7 +1609,7 @@ impl Pet {
         }
     }
 
-    /// 손님이면 집 쪽 끝과 남은 그리움 시간 (다른 친구 화면으로 건널 때 이어 간다)
+    /// 손님이면 집 쪽 끝과 남은 그리움 시간 (다른 친구 화면으로 건널 때 이어 감)
     pub fn guest(&self) -> Option<Guest> {
         self.guest
     }
@@ -1595,7 +1626,7 @@ impl Pet {
         p
     }
 
-    /// 화면 끝(side) 바깥 바닥에 두고 안쪽으로 걸어 들어오게 한다 (놀러 갔다 돌아올 때도)
+    /// 화면 끝(side) 바깥 바닥에 두고 안쪽으로 걸어 들어오게 함 (놀러 갔다 돌아올 때도)
     pub fn enter(&mut self, world: &World, side: Side) {
         let inward = -visit::dir(side);
         self.exited = None;
@@ -1625,7 +1656,7 @@ impl Pet {
         self.state = State::Enter { remaining: visit::ENTER_SECS, side };
     }
 
-    /// 손님에게 "집에 와" (들려 있거나 공중이면 내려선 뒤): 제자리에서 손 흔든 뒤 걸어 나가지 않고 사라진다 (take_exit = Some(집 쪽))
+    /// 손님에게 "집에 와" (들려 있거나 공중이면 내려선 뒤): 제자리에서 손 흔든 뒤 걸어 나가지 않고 사라짐 (take_exit = Some(집 쪽))
     pub fn go_home_now(&mut self) {
         // 다음 친구에게 보내져 손 흔드는 중이면 그대로 흔들고 집 쪽으로 사라진다
         if self.guest.is_some() && self.waving_goodbye() {
@@ -1650,7 +1681,7 @@ impl Pet {
         self.state = State::Farewell { remaining: visit::FAREWELL_SECS };
     }
 
-    /// 화면을 떠났으면 그 쪽을 한 번 돌려준다
+    /// 화면을 떠났으면 그 쪽을 한 번 돌려줌
     pub fn take_exit(&mut self) -> Option<Side> {
         self.exited.take()
     }
@@ -1660,7 +1691,7 @@ impl Pet {
         self.state == State::Away
     }
 
-    /// 떠나는 중이거나 떠났음 — 잡기·먹이·집 가기를 받지 않는다
+    /// 떠나는 중이거나 떠났음 — 잡기·먹이·집 가기를 받지 않음
     fn leaving(&self) -> bool {
         matches!(self.state, State::Exit { .. } | State::Farewell { .. } | State::Away)
     }
@@ -1684,7 +1715,7 @@ impl Pet {
         self.cfg.walk_speed * Move::Walk.speed_mult()
     }
 
-    /// 손님 그리움 타이머. 그리워지는 순간 집 반대쪽으로 걷고 있었다면 돌아선다
+    /// 손님 그리움 타이머. 그리워지는 순간 집 반대쪽으로 걷고 있었다면 돌아섬
     fn tick_guest(&mut self, dt: f64) {
         let Some(g) = self.guest.as_mut() else { return };
         let was = g.is_homesick();
@@ -1717,13 +1748,14 @@ impl Pet {
         (chance >= 1.0 || chance > 0.0 && self.rng.f64() < chance).then_some(side)
     }
 
+    /// 친구 화면으로 걸어 나가기 시작함
     fn start_exit(&mut self, side: Side) {
         self.pacing.after_beat = None;
         self.clear_hover();
         self.state = State::Exit { remaining: visit::EXIT_SECS, side };
     }
 
-    /// 바닥 높이를 따라 dx만큼 걷는다 (경계 밖이어도). 바닥이 사라졌으면 x만 옮긴다
+    /// 바닥 높이를 따라 dx만큼 걸음 (경계 밖이어도). 바닥이 사라졌으면 x만 옮김
     fn walk_by(&mut self, dx: f64, world: &World) {
         match self.standing {
             Some(st) => {
@@ -1737,6 +1769,7 @@ impl Pet {
         }
     }
 
+    /// 걸어 나가는 한 틱. 화면 밖으로 다 나가면 사라짐 (vanish)
     fn update_exit(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         self.facing = visit::dir(side);
         self.walk_by(self.facing * self.transit_speed() * dt, world);
@@ -1748,6 +1781,7 @@ impl Pet {
         }
     }
 
+    /// 친구 화면에서 걸어 들어오는 한 틱. 디딤판이 없으면 떨어짐
     fn update_enter(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         self.facing = -visit::dir(side);
         if self.standing.is_none() {
@@ -1767,6 +1801,7 @@ impl Pet {
         };
     }
 
+    /// 손 흔들기 한 틱: 끝나면 보낸 친구 쪽(또는 손님의 집 쪽)으로 사라짐
     fn update_farewell(&mut self, dt: f64, remaining: f64) {
         let remaining = remaining - dt;
         // 보내져 손 흔들었으면 그 친구 쪽으로, 손님의 "집에 와"면 집 쪽으로 사라진다
@@ -1780,7 +1815,7 @@ impl Pet {
         }
     }
 
-    /// 화면에서 사라진다 (side 쪽으로)
+    /// 화면에서 사라짐 (side 쪽으로)
     fn vanish(&mut self, side: Side) {
         self.exited = Some(side);
         self.hoist_vanished(side);
@@ -1794,7 +1829,7 @@ impl Pet {
         self.state = State::Away;
     }
 
-    /// 화면을 떠난다: 놓인 그릇·꽃은 거둔다. 안고 있던 성장은 돌아와서 먹고 축하한다
+    /// 화면을 떠남: 놓인 그릇·꽃은 거둠. 안고 있던 성장은 돌아와서 먹고 축하함
     fn drop_meal_on_leaving(&mut self) {
         let level_up = self.food.take().is_some_and(|t| t.level_up) | self.meal_pending.take().is_some_and(|(_, l)| l);
         self.meal_spot = None;
@@ -1804,7 +1839,7 @@ impl Pet {
         }
     }
 
-    /// 먹던 것을 다 먹지 못하게 됐다 (끌려가거나 디딤판을 잃음): 안고 있던 성장은 내려선 뒤 먹고 축하한다
+    /// 먹던 것을 다 먹지 못하게 됐음 (끌려가거나 디딤판을 잃음): 안고 있던 성장은 내려선 뒤 먹고 축하함
     fn keep_growth_of_interrupted_meal(&mut self) {
         let eating = match self.state {
             State::Pressed { .. } | State::Dragged => self.before_press.map(|(s, _)| s),
@@ -1815,6 +1850,7 @@ impl Pet {
         }
     }
 
+    /// 눌리거나 끌리는 중임
     pub fn is_held(&self) -> bool {
         matches!(self.state, State::Pressed { .. } | State::Dragged)
     }
@@ -1873,8 +1909,8 @@ impl Pet {
         self.tickling = inside && path >= TICKLE_DIST * self.cfg.size / 128.0;
     }
 
-    /// 걷거나 달리는 중에 커서가 0.25초 넘게 올라와 있으면 멈춰서 쳐다본다.
-    /// 커서가 머무는 동안엔 계속 쳐다본다 (다시 걷다 멈추며 방향이 바뀌지 않게).
+    /// 걷거나 달리는 중에 커서가 0.25초 넘게 올라와 있으면 멈춰서 쳐다봄
+    /// 커서가 머무는 동안엔 계속 쳐다봄 (다시 걷다 멈추며 방향이 바뀌지 않게).
     fn pause_for_hover(&mut self) {
         if self.look_up_at_cursor() {
             return;
@@ -1905,12 +1941,12 @@ impl Pet {
         self.speech.take()
     }
 
-    /// 글자 그대로 띄울 말 (⚾ 받은 횟수 "3!") — 앱은 pet-say-text로 보낸다. 한 번 꺼내면 None
+    /// 글자 그대로 띄울 말 (⚾ 받은 횟수 "3!") — 앱은 pet-say-text로 보냄. 한 번 꺼내면 None
     pub fn take_speech_text(&mut self) -> Option<String> {
         self.speech_text.take()
     }
 
-    /// 동물 교체 시 특별 동작을 바꾼다. 진행 중이던 Special은 (새 동물에 없을 수 있으니) 끝낸다.
+    /// 동물 교체 시 특별 동작을 바꿈. 진행 중이던 Special은 (새 동물에 없을 수 있으니) 끝냄
     pub fn set_special(&mut self, special: Option<Special>) {
         self.cfg.special = special;
         if matches!(self.state, State::Special { .. }) {
@@ -1918,6 +1954,7 @@ impl Pet {
         }
     }
 
+    /// 마우스 누름: 눌림 상태로 들어감 (하우스 안·드나드는 중엔 잡지 않음)
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
         // 걸어 들어오는 중엔 (몸이 아직 화면 밖일 수 있다) 잡지 않는다
         if self.is_held() || self.housed || self.in_transit() {
@@ -1950,6 +1987,7 @@ impl Pet {
         self.state = State::Pressed { start_cx: cx, start_cy: cy, grounded, was_sleeping };
     }
 
+    /// 마우스 움직임: CLICK_SLOP 넘게 움직이면 끌기로 바뀜
     pub fn pointer_move(&mut self, cx: f64, cy: f64) {
         match self.state {
             State::Pressed { start_cx, start_cy, .. } => {
@@ -1971,7 +2009,7 @@ impl Pet {
         }
     }
 
-    /// 동물 교체 시 벽 타기 가능 여부를 바꾼다. 못 타는 동물로 바뀌었는데 벽에 붙어 있으면 떨어진다.
+    /// 동물 교체 시 벽 타기 가능 여부를 바꿈. 못 타는 동물로 바뀌었는데 벽에 붙어 있으면 떨어짐
     pub fn set_can_climb(&mut self, can_climb: bool) {
         self.cfg.can_climb = can_climb;
         if !can_climb && matches!(self.state, State::Climb { .. } | State::Slide | State::WallClimb { .. } | State::InnerClimb { .. }) {
@@ -1979,6 +2017,7 @@ impl Pet {
         }
     }
 
+    /// 배고픔을 앱이 알려 줌. 손님은 배고파하지 않음
     pub fn set_hungry(&mut self, hungry: bool) {
         // 손님은 배고파하지 않는다 (배고픔은 주인 쪽에만)
         if self.guest.is_some() {
@@ -1990,13 +2029,13 @@ impl Pet {
         }
     }
 
-    /// 짧은 클릭으로 음식 고르기를 원하면 true를 한 번 돌려준다
+    /// 짧은 클릭으로 음식 고르기를 원하면 true를 한 번 돌려줌
     pub fn take_food_request(&mut self) -> bool {
         std::mem::take(&mut self.food_request)
     }
 
     /// 먹이 결과 반영. 공중·드래그 중이면 무시하고 false
-    /// 하우스 안에서도 먹는다 (하우스 창이 문간에서 먹는 모습을 보여 준다). 하우스로 가는 중엔 false
+    /// 하우스 안에서도 먹음 (하우스 창이 문간에서 먹는 모습을 보여 줌). 하우스로 가는 중엔 false
     pub fn feed_result(&mut self, result: FeedResult, food: Food) -> bool {
         let ate = match result {
             FeedResult::Ate { leveled_up } => Some(leveled_up),
@@ -2040,7 +2079,7 @@ impl Pet {
         matches!(self.state, State::LevelUp { .. } | State::Trick { kind: Trick::Heart, .. })
     }
 
-    /// 나중에 먹을 먹이를 기억한다 (여럿이면 끼니가 우선, 어느 쪽이 안겨 준 성장이든 남긴다)
+    /// 나중에 먹을 먹이를 기억함 (여럿이면 끼니가 우선, 어느 쪽이 안겨 준 성장이든 남김)
     fn queue_food(&mut self, food: Food, level_up: bool) {
         self.queued_food = Some(match self.queued_food {
             Some((old, l)) if old.is_meal() && !food.is_meal() => (old, l || level_up),
@@ -2049,7 +2088,7 @@ impl Pet {
         });
     }
 
-    /// 기억해 둔 먹이를 받을 수 있게 되면(내려서거나 축하가 끝나면) 준다
+    /// 기억해 둔 먹이를 받을 수 있게 되면(내려서거나 축하가 끝나면) 줌
     fn serve_queued_food(&mut self) {
         if self.queued_food.is_none() || !self.feedable() || self.celebrating_now() || matches!(self.state, State::Land { .. }) && self.cfg.flies {
             return;
@@ -2060,7 +2099,7 @@ impl Pet {
         }
     }
 
-    /// 디딤판에 놓인 소품이 창과 함께 움직였으면 새 자리를 다시 보낸다
+    /// 디딤판에 놓인 소품이 창과 함께 움직였으면 새 자리를 다시 보냄
     fn track_prop(&mut self, world: &World) {
         if !self.prop_shown {
             self.prop_anchor = None;
@@ -2075,14 +2114,14 @@ impl Pet {
         }
     }
 
-    /// 디딤판(owner) 위 기준점에서 rel_x 자리에 소품을 놓는다 (창이 움직이면 따라간다)
+    /// 디딤판(owner) 위 기준점에서 rel_x 자리에 소품을 놓음 (창이 움직이면 따라감)
     pub(super) fn show_prop_on(&mut self, prop: Prop, owner: Owner, rel_x: f64, world: &World) {
         let Some((ax, ay)) = world.anchor(owner) else { return };
         self.show_prop(prop, ax + rel_x, ay);
         self.prop_anchor = Some((prop, owner, rel_x, (ax + rel_x, ay)));
     }
 
-    /// 나는 동물이 아니게 됐다 (동물 바꾸기): 날기 상태를 버리고, 내려앉아 먹으려던 먹이는 그릇으로 가서 먹는다
+    /// 나는 동물이 아니게 됐음 (동물 바꾸기): 날기 상태를 버리고, 내려앉아 먹으려던 먹이는 그릇으로 가서 먹음
     fn drop_flying_state(&mut self) {
         if self.cfg.flies {
             return;
@@ -2098,9 +2137,9 @@ impl Pet {
         }
     }
 
-    /// 먹이를 받았다. 먹는 중·가는 중이면 그대로 이어 가고 (앞서 정해진 성장 축하·하트는 남긴다),
-    /// 간식은 그 자리에서 쿠키를 오물오물, 밥·좋아하는 음식·특식·물은 그릇(나는 동물은 꽃)으로 가서 먹는다.
-    /// 하우스 안이면 문 앞으로 나와 먹는다 (문을 모르거나 간식이면 하우스 안에서)
+    /// 먹이를 받았음. 먹는 중·가는 중이면 그대로 이어 가고 (앞서 정해진 성장 축하·하트는 남김),
+    /// 간식은 그 자리에서 쿠키를 오물오물, 밥·좋아하는 음식·특식·물은 그릇(나는 동물은 꽃)으로 가서 먹음
+    /// 하우스 안이면 문 앞으로 나와 먹음 (문을 모르거나 간식이면 하우스 안에서)
     pub(super) fn serve(&mut self, food: Food, level_up: bool) {
         let heart = matches!(food, Food::Favorite | Food::Special) || food.is_treat();
         if let State::Eating { favorite, level_up: was, .. } = self.state {
@@ -2132,7 +2171,7 @@ impl Pet {
         }
     }
 
-    /// 입 (손에 든 음식이 여기 닿으면 받아먹는다)
+    /// 입 (손에 든 음식이 여기 닿으면 받아먹음)
     pub fn mouth(&self) -> (f64, f64) {
         if self.cfg.flies {
             (self.body.x, self.body.y - food::FLY_MOUTH_HEIGHT * self.cfg.size)
@@ -2141,14 +2180,14 @@ impl Pet {
         }
     }
 
-    /// 직접 주기: 손에 든 음식이 (x, y)에 있다 (매 틱 부른다). 동물이 음식을 보고 기다리다가 입에 닿았으면 true —
-    /// 그때 앱이 돌보기에 먹이고 eat_from_hand를 부른다
+    /// 직접 주기: 손에 든 음식이 (x, y)에 있음 (매 틱 부름). 동물이 음식을 보고 기다리다가 입에 닿았으면 true —
+    /// 그때 앱이 돌보기에 먹이고 eat_from_hand를 부름
     pub fn offer_hand(&mut self, x: f64, y: f64) -> bool {
         self.hand = Some((x, y));
         matches!(self.state, State::WantFood { .. }) && food::in_reach(self.mouth(), (x, y), self.cfg.size)
     }
 
-    /// 손에 든 음식을 거뒀다 (먹지 않음)
+    /// 손에 든 음식을 거뒀음 (먹지 않음)
     pub fn end_hand(&mut self) {
         self.hand = None;
         self.hand_noticed = false;
@@ -2158,7 +2197,7 @@ impl Pet {
         }
     }
 
-    /// 손에서 받아먹기 (offer_hand가 true일 때): 그릇 없이 그 자리에서 먹고 하트. 배부르면 갸웃 (음식은 손에 남는다)
+    /// 손에서 받아먹기 (offer_hand가 true일 때): 그릇 없이 그 자리에서 먹고 하트. 배부르면 갸웃 (음식은 손에 남음)
     pub fn eat_from_hand(&mut self, result: FeedResult, _food: Food) -> bool {
         if self.hand.is_none() || !matches!(self.state, State::WantFood { .. }) {
             return false;
@@ -2179,7 +2218,7 @@ impl Pet {
         true
     }
 
-    /// 손에 든 음식을 알아챈다: 한가할 때(쉬기·이동·잠 등) 하던 걸 멈추고 음식을 본다
+    /// 손에 든 음식을 알아챔: 한가할 때(쉬기·이동·잠 등) 하던 걸 멈추고 음식을 봄
     fn notice_hand(&mut self) {
         if self.hand.is_none() {
             if matches!(self.state, State::WantFood { .. }) {
@@ -2238,8 +2277,8 @@ impl Pet {
             && self.rng.f64() < LOOK_UP_WALK_RATE * self.look_up_mult() * dt
     }
 
-    /// 손에 든 음식 쪽을 본다. 같은 바닥 가까이(위로 몸 2.5개, 옆으로 4개 안)면 그 아래까지 걸어간다 (바닥 안에서만).
-    /// 음식이 머리 위(옆으로 몸 3개 안)면 걸어가지 않고 멈춰서 올려다본다 (lookup이 있는 동물만)
+    /// 손에 든 음식 쪽을 봄. 같은 바닥 가까이(위로 몸 2.5개, 옆으로 4개 안)면 그 아래까지 걸어감 (바닥 안에서만).
+    /// 음식이 머리 위(옆으로 몸 3개 안)면 걸어가지 않고 멈춰서 올려다봄 (lookup이 있는 동물만)
     fn update_want_food(&mut self, dt: f64, st: Standing, piece: &Surface) {
         let Some((fx, fy)) = self.hand else {
             self.state = self.idle_state();
@@ -2265,13 +2304,13 @@ impl Pet {
         self.state = State::WantFood { walking };
     }
 
-    /// 소품 변화 (한 번 꺼내면 None) — 앱이 그릇·꽃·쿠키 창을 띄우거나 거둔다
+    /// 소품 변화 (한 번 꺼내면 None) — 앱이 그릇·꽃·쿠키 창을 띄우거나 거둠
     pub fn take_prop(&mut self) -> Option<PropEvent> {
         self.prop_event.take()
     }
 
-    /// 하우스 문 자리 (앱이 하우스를 놓을 때·끌어 옮길 때·먹이를 줄 때 알려 준다).
-    /// 집으로 가는 중이거나 나와서 먹는 중이면 새 문으로 간다 — 하던 일(축하·쏘기·날기)은 그대로
+    /// 하우스 문 자리 (앱이 하우스를 놓을 때·끌어 옮길 때·먹이를 줄 때 알려 줌).
+    /// 집으로 가는 중이거나 나와서 먹는 중이면 새 문으로 감 — 하던 일(축하·쏘기·날기)은 그대로
     pub fn set_house_door(&mut self, owner: Owner, door_x: f64) {
         self.house_door = Some((owner, door_x));
         if let Some(back) = self.return_home.as_mut() {
@@ -2290,17 +2329,19 @@ impl Pet {
         }
     }
 
-    /// 하우스에서 나와 먹는 중 (다 먹으면 들어간다)
+    /// 하우스에서 나와 먹는 중 (다 먹으면 들어감)
     pub fn returns_home(&self) -> bool {
         self.return_home.is_some()
     }
 
+    /// 소품(음식 등)을 (x, y)에 띄우라고 앱에 알림
     fn show_prop(&mut self, prop: Prop, x: f64, y: f64) {
         self.prop_anchor = None;
         self.prop_shown = true;
         self.prop_event = Some(PropEvent::Show { prop, x, y });
     }
 
+    /// 띄운 소품을 치우라고 앱에 알림 (띄운 게 없으면 하지 않음)
     fn hide_prop(&mut self) {
         if std::mem::take(&mut self.prop_shown) {
             self.prop_event = Some(PropEvent::Hide);
@@ -2320,7 +2361,7 @@ impl Pet {
         }
     }
 
-    /// 하우스 안에서 먹이를 받았다: 문 앞 바닥으로 나와 그릇으로 간다 (다 먹으면 돌아간다)
+    /// 하우스 안에서 먹이를 받았음: 문 앞 바닥으로 나와 그릇으로 감 (다 먹으면 돌아감)
     fn come_out_for_food(&mut self, world: &World) {
         let (Some((owner, door_x)), Some(mut trip)) = (self.house_door, self.food) else { return };
         self.leave_house(world, door_x, owner);
@@ -2332,7 +2373,7 @@ impl Pet {
         }
     }
 
-    /// 그릇으로 걷는다 (걷는 동물). 그릇은 처음에 바라보는 쪽 앞에 놓이고, 다른 디딤판으로 옮겨졌으면 거기 다시 놓인다
+    /// 그릇으로 걸음 (걷는 동물). 그릇은 처음에 바라보는 쪽 앞에 놓이고, 다른 디딤판으로 옮겨졌으면 거기 다시 놓임
     fn update_to_food(&mut self, dt: f64, world: &World, st: Standing, piece: &Surface, remaining: f64) {
         let Some(mut trip) = self.food else {
             self.state = self.idle_state();
@@ -2373,13 +2414,14 @@ impl Pet {
         }
     }
 
-    /// 그릇 앞에 닿았다 (또는 기다리다 지쳤다): 받은 먹이를 먹기 시작한다
+    /// 그릇 앞에 닿았음 (또는 기다리다 지쳤음): 받은 먹이를 먹기 시작함
     fn start_eating(&mut self) {
         let Some(trip) = self.food.take() else { return };
         self.pacing.after_beat = None;
         self.state = State::Eating { remaining: EAT_SECS, favorite: trip.heart, level_up: trip.level_up };
     }
 
+    /// 마우스 뗌: 클릭이면 클릭 반응, 끌기였으면 던지거나 내려놓음
     pub fn pointer_up(&mut self, cx: f64, cy: f64) {
         // 하우스로 가는 중엔 클릭에 반응하지 않고 계속 간다 (드래그해서 던지면 내려선 뒤 다시 간다)
         if self.home_trip.is_some() && matches!(self.state, State::Pressed { grounded: true, .. }) {
@@ -2488,7 +2530,7 @@ impl Pet {
         }
     }
 
-    /// 자는 동물 클릭: 한 번은 뒤척이고(다시 잠), 2초 안에 세 번이면 기지개 켜며 깬다
+    /// 자는 동물 클릭: 한 번은 뒤척이고(다시 잠), 2초 안에 세 번이면 기지개 켜며 깸
     fn click_sleeper(&mut self) {
         let (count, first) = self.sleep_clicks;
         self.sleep_clicks = if count == 0 || self.clock - first > WAKE_CLICK_WINDOW { (1, self.clock) } else { (count + 1, first) };
@@ -2500,11 +2542,13 @@ impl Pet {
         };
     }
 
+    /// 끌기: 잡은 자리를 유지하며 몸을 커서로 옮김
     fn drag_to(&mut self, cx: f64, cy: f64) {
         self.body.x = cx + self.grab_dx;
         self.body.y = cy + self.grab_dy;
     }
 
+    /// 끄는 커서 자리를 기록함 (던지는 속도 계산용, VELOCITY_WINDOW만큼)
     fn record(&mut self, cx: f64, cy: f64) {
         self.history.push_back((self.clock, cx, cy));
         while self.history.len() > 2 && self.clock - self.history[0].0 > VELOCITY_WINDOW {
@@ -2530,6 +2574,7 @@ impl Pet {
         true
     }
 
+    /// 간질이면 반응함 (특별 동작·먹기·성장 중엔 하지 않음)
     fn react_to_tickle(&mut self) {
         if !self.tickling {
             return;
@@ -2555,7 +2600,7 @@ impl Pet {
         };
     }
 
-    /// 깜짝 놀라 벌떡 선다 (Special::Surprise가 있는 동물만 — 레서판다). 놀랐으면 true
+    /// 깜짝 놀라 벌떡 섬 (Special::Surprise가 있는 동물만 — 레서판다). 놀랐으면 true
     pub(crate) fn startle(&mut self) -> bool {
         if self.cfg.special != Some(Special::Surprise) || self.standing.is_none() {
             return false;
@@ -2565,6 +2610,7 @@ impl Pet {
         true
     }
 
+    /// 특별 동작을 시작함. 공룡은 불·크앙·쿵쾅 중 하나를 고름
     pub(crate) fn start_special(&mut self, kind: Special) {
         // 공룡: 불·크앙·쿵쾅 중 하나 (간질이면 불·크앙이 더 자주)
         let kind = if kind.is_dino() { behavior::pick_dino(&mut self.rng, self.tickling) } else { kind };
@@ -2585,6 +2631,7 @@ impl Pet {
         self.state = State::Special { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
     }
 
+    /// 혼잣말 시계를 돌림 (자리 비움 중엔 하지 않음)
     fn update_chatter(&mut self, dt: f64) {
         if self.is_user_away() {
             return;
@@ -2607,6 +2654,7 @@ impl Pet {
         }
     }
 
+    /// 디딤판 위 한 틱: 디딤판을 따라가고 상태별로 걷고 쉼
     fn update_ground(&mut self, dt: f64, world: &World) {
         if !self.follow_anchor(world) {
             self.start_fall();
@@ -2707,8 +2755,8 @@ impl Pet {
         }
     }
 
-    /// 이동이 아닌 활동(쉬기·애교·잠·먹기 등)의 시간을 흘리고 끝나면 다음 활동을 정한다 —
-    /// 디딤판 위의 동물과 떠 있는 나는 동물이 같이 쓴다
+    /// 이동이 아닌 활동(쉬기·애교·잠·먹기 등)의 시간을 흘리고 끝나면 다음 활동을 정함 —
+    /// 디딤판 위의 동물과 떠 있는 나는 동물이 같이 씀
     fn tick_activity(&mut self, dt: f64, world: &World) {
         match self.state {
             State::Idle { remaining, look } => {
@@ -2843,6 +2891,7 @@ impl Pet {
         }
     }
 
+    /// 공중 한 틱: 떨어지다 디딤판에 닿으면 착지함
     fn update_air(&mut self, dt: f64, world: &World) {
         if let Some(stay) = self.inside {
             self.update_air_inside(dt, world, stay);
@@ -2872,7 +2921,7 @@ impl Pet {
         self.land_or_recover(prev_y, world);
     }
 
-    /// 낙하·미끄러짐 공통: 이번 틱에 지나친 디딤판에 내려서거나, 화면 밖으로 사라졌으면 위에서 다시 떨어뜨린다
+    /// 낙하·미끄러짐 공통: 이번 틱에 지나친 디딤판에 내려서거나, 화면 밖으로 사라졌으면 위에서 다시 떨어뜨림
     fn land_or_recover(&mut self, prev_y: f64, world: &World) {
         // 아래 친구에게 던졌으면 창 윗면을 지나 바닥까지 간다 (brain_vert.rs)
         let to_ground = self.thrown_to_friend_below();
@@ -2903,7 +2952,7 @@ impl Pet {
         }
     }
 
-    /// 크기 128 기준 속도를 지금 크기에 맞춘다
+    /// 크기 128 기준 속도를 지금 크기에 맞춤
     pub(super) fn scaled(&self, speed: f64) -> f64 {
         speed * self.cfg.size / 128.0
     }
@@ -2923,7 +2972,7 @@ impl Pet {
         (self.body.y > target_y).then_some(target_y)
     }
 
-    /// 지금 서 있는 곳에서 화면 타기를 시작한다 (테스트용). 목표가 발보다 낮으면 false
+    /// 지금 서 있는 곳에서 화면 타기를 시작함 (테스트용). 목표가 발보다 낮으면 false
     #[cfg(test)]
     pub(crate) fn start_climb(&mut self, world: &World) -> bool {
         let Some(target_y) = self.climb_target(world) else { return false };
@@ -2933,7 +2982,7 @@ impl Pet {
         true
     }
 
-    /// 새 상태가 시작될 때 공통 처리: 실제로 시작한 이동만 관성으로 기억하고, 화면 타기는 디딤판을 떠난다
+    /// 새 상태가 시작될 때 공통 처리: 실제로 시작한 이동만 관성으로 기억하고, 화면 타기는 디딤판을 떠남
     fn on_started(&mut self) {
         match self.state {
             State::Move { kind, .. } => self.pacing.last_move = Some(kind),
@@ -2946,6 +2995,7 @@ impl Pet {
         }
     }
 
+    /// 화면 기어오르기 한 틱: 목표에 닿으면 hang초 매달렸다가 미끄러짐 (over면 위 친구 화면으로)
     fn update_climb(&mut self, dt: f64, world: &World, target_y: f64, hang: f64, over: bool) {
         if over {
             return self.update_climb_over(dt, world, hang);
@@ -2958,6 +3008,7 @@ impl Pet {
         self.state = if hang > 0.0 { State::Climb { target_y, hang, over: false } } else { State::Slide };
     }
 
+    /// 화면을 따라 미끄러져 내려오는 한 틱
     fn update_slide(&mut self, dt: f64, world: &World) {
         let prev_y = self.body.y;
         self.body.vx = 0.0;
@@ -2966,6 +3017,7 @@ impl Pet {
         self.land_or_recover(prev_y, world);
     }
 
+    /// 창 옆면 벽 타기 한 틱. 창이 사라지면 떨어짐
     fn update_wall_climb(&mut self, dt: f64, world: &World, window: u64, side: Side, rel_y: f64) {
         let Some(rect) = world.windows.iter().find(|w| w.id == window).map(|w| w.rect) else {
             self.start_fall();
@@ -2999,7 +3051,7 @@ impl Pet {
     }
 
     /// 몸 앞쪽이 옆 모니터 경계(Seam)를 넘는 중. 이웃 바닥 높이에 따라 그대로 걸어 넘어가거나(true — 서 있을 곳과
-    /// x를 이미 옮겼다), 뛰어내리거나 뛰어오르거나 굴러떨어지거나 돌아선다(false).
+    /// x를 이미 옮겼음), 뛰어내리거나 뛰어오르거나 굴러떨어지거나 돌아선다(false).
     /// center_past = 발 중심이 이 바닥 끝을 넘었는지
     fn at_seam(&mut self, world: &World, to: usize, kind: Move, speed: f64, new_x: f64, center_past: bool) -> bool {
         let (Some(st), Some(wa)) = (self.standing, world.work_areas.get(to).copied()) else {
@@ -3050,6 +3102,7 @@ impl Pet {
         false
     }
 
+    /// dir 쪽으로 폴짝 뜀 (크기에 비례한 속도)
     pub(crate) fn start_hop(&mut self, dir: f64) {
         self.pacing.after_beat = None;
         self.standing = None;
@@ -3059,6 +3112,7 @@ impl Pet {
         self.state = State::Air { anim: Anim::Hop };
     }
 
+    /// 떨어지기 시작함 (먹던 것은 성장만 남김)
     fn start_fall(&mut self) {
         self.keep_growth_of_interrupted_meal();
         self.pacing.after_beat = None;
@@ -3068,6 +3122,7 @@ impl Pet {
         self.state = State::Air { anim: Anim::Fall };
     }
 
+    /// 쉬는 상태를 뽑음 (쳐다보기·올려다보기 포함)
     fn idle_state(&mut self) -> State {
         let remaining = behavior::range(&mut self.rng, behavior::IDLE_SECS);
         let look = self.rng.bool();
@@ -3075,7 +3130,7 @@ impl Pet {
         State::Idle { remaining, look: look || self.gaze_up }
     }
 
-    /// 활동 사이의 짧은 옆모습 앉기 (lookup이 있는 동물은 가끔 문득 올려다본다)
+    /// 활동 사이의 짧은 옆모습 앉기 (lookup이 있는 동물은 가끔 문득 올려다봄)
     fn beat(&mut self, then: AfterBeat) -> State {
         self.pacing.after_beat = Some(then);
         let remaining = behavior::range(&mut self.rng, behavior::BEAT_SECS);
@@ -3083,7 +3138,7 @@ impl Pet {
         State::Idle { remaining, look: self.gaze_up }
     }
 
-    /// 지금 활동과 묶음이 다르면 먼저 잠깐 앉았다가 next로 간다 (Turn은 직전 이동 방식 기준)
+    /// 지금 활동과 묶음이 다르면 먼저 잠깐 앉았다가 next로 감 (Turn은 직전 이동 방식 기준)
     fn next_after_beat(&mut self, next: State) -> State {
         let current = match self.state {
             State::Turn { .. } => self.pacing.last_move.map(Move::family),
@@ -3095,8 +3150,8 @@ impl Pet {
         }
     }
 
-    /// 이동 시작. may_flip이면 절반 확률로 방향을 바꾼다 (Turn 직후엔 이미 바꿨으므로 false).
-    /// 집이 그리운 손님은 기어오르지 않고, 마음대로 방향을 고를 땐 늘 집 쪽으로 간다 (Turn 직후엔 돌아선 쪽 그대로).
+    /// 이동 시작. may_flip이면 절반 확률로 방향을 바꿈 (Turn 직후엔 이미 바꿨으므로 false).
+    /// 집이 그리운 손님은 기어오르지 않고, 마음대로 방향을 고를 땐 늘 집 쪽으로 감 (Turn 직후엔 돌아선 쪽 그대로).
     fn move_state(&mut self, may_flip: bool, world: &World) -> State {
         // 자리 비움 중에 먹기 등이 끝났다 — 더 움직이지 않는다
         if self.sleeps_for_user() {
@@ -3156,7 +3211,7 @@ impl Pet {
         self.next_after_beat(next)
     }
 
-    /// 이동·착지 뒤엔 항상 잠깐 앉고, 그 뒤에 무엇을 할지 정한다
+    /// 이동·착지 뒤엔 항상 잠깐 앉고, 그 뒤에 무엇을 할지 정함
     fn rest_beat(&mut self) -> State {
         self.beat(AfterBeat::Rest)
     }
@@ -3194,6 +3249,7 @@ impl Pet {
         }
     }
 
+    /// 쉼 다음 할 일: 잘지, 움직일지를 고름
     fn sleep_or_move(&mut self, world: &World) -> State {
         // 나는 동물은 내려앉아 있을 때만 (더 자주) 잔다
         let chance = match (self.cfg.flies, self.standing.is_some()) {
@@ -3217,7 +3273,7 @@ impl Pet {
     }
 
     /// 매 틱 (주 동작 전): 놓인 자리 판정, 창이 사라지면 밖으로, 선 자리가 가려졌거나 집에 가야 하면 뛰어나가기,
-    /// 놓은 다음 틱: 창 안에 놓였는지 본다. 아래 친구에게 던졌으면 창 안에 놓인 게 아니다
+    /// 놓은 다음 틱: 창 안에 놓였는지 봄. 아래 친구에게 던졌으면 창 안에 놓인 게 아님
     pub(super) fn check_dropped_in(&mut self, world: &World) {
         if std::mem::take(&mut self.drop_check) && matches!(self.state, State::Air { .. }) && self.home_trip.is_none() && !self.thrown_to_friend_below() {
             let target = inside::drop_target(world, self.body.x, self.body.y, self.cfg.half_w, self.cfg.size);
@@ -3225,7 +3281,7 @@ impl Pet {
         }
     }
 
-    /// 머문 시간이 다 되면 나가기 (벽 타는 동물은 절반은 안쪽 벽으로 걸어가 기어오른다)
+    /// 머문 시간이 다 되면 나가기 (벽 타는 동물은 절반은 안쪽 벽으로 걸어가 기어오름)
     fn update_inside(&mut self, dt: f64, world: &World) {
         self.check_dropped_in(world);
         let Some(mut stay) = self.inside else { return };
@@ -3269,8 +3325,8 @@ impl Pet {
         }
     }
 
-    /// 창 윗면 위로 크게 뛰어 나간다 (천장 없음, 틱 dt의 적분 손실까지 감안). 두 번 뛰고도 못 나갔으면 벽·천장을 무시하는
-    /// 도약(LeapOut)으로 반드시 나간다. 그 자리 윗면이 없으면(가려졌거나 화면 꼭대기에 붙은 창) 밖으로 떨어진다
+    /// 창 윗면 위로 크게 뛰어 나감 (천장 없음, 틱 dt의 적분 손실까지 감안). 두 번 뛰고도 못 나갔으면 벽·천장을 무시하는
+    /// 도약(LeapOut)으로 반드시 나감. 그 자리 윗면이 없으면(가려졌거나 화면 꼭대기에 붙은 창) 밖으로 떨어짐
     fn hop_out(&mut self, world: &World, rect: &Rect, dt: f64) {
         let Some(stay) = self.inside else { return };
         self.pacing.after_beat = None;
@@ -3290,7 +3346,7 @@ impl Pet {
         }
     }
 
-    /// 창 안 공중: 창 사각형이 경계(옆 = 안쪽 벽, 위 = 천장 — 뛰어들고 뛰어나갈 땐 없음), 안쪽 바닥에만 내려선다
+    /// 창 안 공중: 창 사각형이 경계(옆 = 안쪽 벽, 위 = 천장 — 뛰어들고 뛰어나갈 땐 없음), 안쪽 바닥에만 내려섬
     fn update_air_inside(&mut self, dt: f64, world: &World, stay: Stay) {
         let Some(rect) = world.window(stay.window).map(|w| w.rect) else {
             self.inside = None;
@@ -3348,7 +3404,7 @@ impl Pet {
         }
     }
 
-    /// 기어 나가기로 한 동물이 안쪽 벽(edge_x)에 닿음: 벽을 기어오른다 (그 자리 윗면이 없으면 뛰어나간다). 처리했으면 true
+    /// 기어 나가기로 한 동물이 안쪽 벽(edge_x)에 닿음: 벽을 기어오름 (그 자리 윗면이 없으면 뛰어나감). 처리했으면 true
     fn climb_out_at(&mut self, world: &World, owner: Owner, edge_x: f64, dt: f64) -> bool {
         let (Owner::Inside(id), Some(stay)) = (owner, self.inside) else { return false };
         let Some(rect) = world.window(id).map(|w| w.rect) else { return false };
@@ -3369,8 +3425,8 @@ impl Pet {
         true
     }
 
-    /// 안쪽 벽 타기: 창을 따라 움직이며 기어올라, 발이 윗면에 닿으면 그 자리 윗면에 올라선다 (바깥).
-    /// 창이 사라지거나 붙은 자리가 앞쪽 창에 가려지면 밖으로 떨어진다
+    /// 안쪽 벽 타기: 창을 따라 움직이며 기어올라, 발이 윗면에 닿으면 그 자리 윗면에 올라섬 (바깥).
+    /// 창이 사라지거나 붙은 자리가 앞쪽 창에 가려지면 밖으로 떨어짐
     fn update_inner_climb(&mut self, dt: f64, world: &World, window: u64, rel_x: f64, rel_y: f64) {
         let Some(rect) = world.window(window).map(|w| w.rect) else {
             self.inside = None;
@@ -3401,7 +3457,7 @@ impl Pet {
         self.state = State::InnerClimb { window, rel_x, rel_y };
     }
 
-    /// 쉬기를 정할 때 뛰어들 수 있는 창: 들어갈 만한 창의 윗면에 서 있고, 집에 가는 중·집이 그리운 손님이 아니어야 한다
+    /// 쉬기를 정할 때 뛰어들 수 있는 창: 들어갈 만한 창의 윗면에 서 있고, 집에 가는 중·집이 그리운 손님이 아니어야 함
     fn hop_in_window(&self, world: &World) -> Option<(u64, Rect)> {
         let Some(Standing { owner: Owner::Window(id), .. }) = self.standing else { return None };
         if self.cfg.flies || self.inside.is_some() || self.home_trip.is_some() || self.is_heading_out() {
@@ -3414,7 +3470,7 @@ impl Pet {
         (clear_of_edges && inside::enterable(&rect, self.cfg.half_w, self.cfg.size) && inside::has_floor(world, id)).then_some((id, rect))
     }
 
-    /// 창 윗면에서 안쪽 가운데 쪽으로 살짝 뛰어올라 윗면 선을 지나 떨어진다
+    /// 창 윗면에서 안쪽 가운데 쪽으로 살짝 뛰어올라 윗면 선을 지나 떨어짐
     fn start_hop_in(&mut self, window: u64, rect: &Rect) {
         let dir = if (rect.left + rect.right) / 2.0 >= self.body.x { 1.0 } else { -1.0 };
         self.start_hop(dir);
@@ -3455,7 +3511,7 @@ mod hand_tests;
 #[path = "brain_hop.rs"]
 mod hop_moves;
 
-/// 트레이 "놀러 보내기" — 친구가 연결된 끝으로 곧장 가서 나간다
+/// 트레이 "놀러 보내기" — 친구가 연결된 끝으로 곧장 가서 나감
 #[path = "brain_send.rs"]
 pub(crate) mod send_moves;
 
@@ -3463,7 +3519,7 @@ pub(crate) mod send_moves;
 #[path = "brain_send_tests.rs"]
 mod send_tests;
 
-/// 조작 모드 — 방향키로 움직이기 (친구 화면에 가 있으면 친구 링크로 키가 간다)
+/// 조작 모드 — 방향키로 움직이기 (친구 화면에 가 있으면 친구 링크로 키가 감)
 #[path = "brain_control.rs"]
 pub mod control_moves;
 
@@ -3507,7 +3563,7 @@ mod lookup_tests;
 #[path = "brain_surprise_tests.rs"]
 mod surprise_tests;
 
-/// 기대고 있는 창 (게임 루프가 매 틱 그 창 경계만 다시 읽는다)
+/// 기대고 있는 창 (게임 루프가 매 틱 그 창 경계만 다시 읽음)
 #[path = "brain_ride.rs"]
 mod ride;
 
@@ -3690,18 +3746,20 @@ mod presence_tests;
 mod away_tests;
 
 impl AsRef<Pet> for Pet {
+    /// Pet을 그대로 빌려줌 (테스트 도우미가 Pet·감싼 것을 같이 받게)
     fn as_ref(&self) -> &Pet {
         self
     }
 }
 
 impl AsMut<Pet> for Pet {
+    /// Pet을 그대로 빌려줌 (가변)
     fn as_mut(&mut self) -> &mut Pet {
         self
     }
 }
 
-/// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨린다
+/// 들어올 바닥이 없을 때 (작업 영역이 없는 경우 등): 그 끝 안쪽에서 떨어뜨림
 fn edge_x_fallback(world: &World, side: Side, half_w: f64) -> f64 {
     match side {
         Side::Left => world.bounds.left + half_w,
@@ -3740,6 +3798,7 @@ mod tests {
         PetConfig { size, half_w: 0.3 * size, walk_speed: 83.0, personality: Personality::Playful, can_climb: true, hops: true, ..sim_cfg() }
     }
 
+    /// 테스트: 창 하나를 만듦
     pub(super) fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
         WindowInfo { id, rect: Rect::new(l, t, r, b) }
     }
@@ -3749,10 +3808,12 @@ mod tests {
         World::new(windows, vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0)
     }
 
+    /// 테스트: 기본 창 1
     pub(super) fn w1() -> WindowInfo {
         win(1, 500.0, 400.0, 1100.0, 900.0)
     }
 
+    /// 테스트: owner 디딤판의 x 자리에 state로 세움
     pub(super) fn place(p: &mut Pet, w: &World, owner: Owner, x: f64, state: State) {
         let (ax, ay) = w.anchor(owner).unwrap();
         p.standing = Some(Standing { owner, rel_x: x - ax });
@@ -3760,13 +3821,14 @@ mod tests {
         p.state = state;
     }
 
+    /// 테스트: ticks번 돌림
     pub(super) fn run(p: &mut Pet, w: &World, ticks: usize) {
         for _ in 0..ticks {
             p.update(DT, w);
         }
     }
 
-    /// 착지·쉬는 박자가 끝나 다음 활동이 정해질 때까지 돌린다
+    /// 착지·쉬는 박자가 끝나 다음 활동이 정해질 때까지 돌림
     pub(super) fn run_past_beat(p: &mut Pet, w: &World) {
         for _ in 0..200 {
             p.update(DT, w);
@@ -3958,7 +4020,7 @@ mod tests {
         assert!(beats > 500 && turns > 150, "beats {beats} turns {turns}");
     }
 
-    /// 쉬기 결정이 그냥 앉기면 박자 뒤에 IDLE_SECS 동안 더 앉아 있다가 잠/이동을 정한다
+    /// 쉬기 결정이 그냥 앉기면 박자 뒤에 IDLE_SECS 동안 더 앉아 있다가 잠/이동을 정함
     #[test]
     fn plain_rest_sits_for_idle_secs_after_the_beat() {
         let w = world(vec![]);
@@ -4222,6 +4284,7 @@ mod tests {
         assert!(s <= 0.12, "sleeping {s:.3} (moving {m:.3}, front {f:.3})");
     }
 
+    /// 테스트: 시뮬레이션용 기본 설정
     pub(super) fn sim_cfg() -> PetConfig {
         PetConfig { half_w: 38.4, walk_speed: 90.0, ..cfg() }
     }
@@ -4241,6 +4304,7 @@ mod tests {
         seq
     }
 
+    /// 그림이 속하는 동작 갈래 (분포 비교용)
     fn family(a: Anim) -> Option<behavior::Family> {
         match a {
             Anim::Walk | Anim::Run => Some(behavior::Family::Move),
@@ -4298,6 +4362,7 @@ mod input_tests {
 
     const DT: f64 = 1.0 / 60.0;
 
+    /// 테스트: 오래 쉬는 상태
     fn idle() -> State {
         State::Idle { remaining: 100.0, look: false }
     }
@@ -4382,6 +4447,7 @@ mod input_tests {
         }
     }
 
+    /// 테스트: 새침한 성격
     fn aloof() -> PetConfig {
         PetConfig { personality: Personality::Aloof, ..cfg() }
     }
@@ -4598,7 +4664,7 @@ mod tickle_tests {
 
     const DT: f64 = 1.0 / 60.0;
 
-    /// 커서를 40px씩 좌우로 흔들며 n틱 간질인다
+    /// 커서를 40px씩 좌우로 흔들며 n틱 간질임
     fn tickle(p: &mut Pet, w: &World, ticks: usize) {
         for i in 0..ticks {
             p.hover(800.0 + if i % 2 == 0 { 0.0 } else { 40.0 }, 350.0, true);
@@ -4606,10 +4672,12 @@ mod tickle_tests {
         }
     }
 
+    /// 테스트: 오래 쉬는 상태
     fn idle() -> State {
         State::Idle { remaining: 100.0, look: false }
     }
 
+    /// 테스트: 오래 달리는 상태
     fn running() -> State {
         State::Move { kind: Move::Run, remaining: 100.0 }
     }
@@ -4970,6 +5038,7 @@ mod special_tests {
 
     const DT: f64 = 1.0 / 60.0;
 
+    /// 테스트: 특별 동작만 바꾼 설정
     fn with(special: Option<Special>) -> PetConfig {
         PetConfig { special, ..cfg() }
     }
@@ -5063,6 +5132,7 @@ mod care_tests {
 
     const DT: f64 = 1.0 / 60.0;
 
+    /// 테스트: 창 1 위에 쉬고 있는 동물
     fn grounded(seed: u64) -> (Pet, World) {
         let w = world(vec![w1()]);
         let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
@@ -5070,7 +5140,7 @@ mod care_tests {
         (p, w)
     }
 
-    /// 밥은 그릇으로 걸어가서 먹는다 — 먹기 시작할 때까지 돌린다
+    /// 밥은 그릇으로 걸어가서 먹음 — 먹기 시작할 때까지 돌림
     fn walk_to_bowl(p: &mut Pet, w: &World) {
         for _ in 0..(60 * 5) {
             if matches!(p.state, State::Eating { .. }) {
@@ -5196,6 +5266,7 @@ mod care_tests {
         assert_eq!(serde_json::to_string(&Speech::LevelUp).unwrap(), "\"level_up\"");
     }
 
+    /// 테스트: 새침한 성격
     fn aloof_cfg() -> PetConfig {
         PetConfig { personality: Personality::Aloof, ..cfg() }
     }
@@ -5267,11 +5338,12 @@ mod climb_tests {
 
     const DT: f64 = 1.0 / 60.0;
 
+    /// 테스트: 벽을 타는 동물
     fn climber() -> PetConfig {
         PetConfig { can_climb: true, ..cfg() }
     }
 
-    /// 상태가 바뀔 때까지(최대 ticks) 돌린다
+    /// 상태가 바뀔 때까지(최대 ticks) 돌림
     fn run_while(p: &mut Pet, w: &World, ticks: usize, keep: impl Fn(&State) -> bool) -> usize {
         for i in 0..ticks {
             if !keep(&p.state) {
@@ -5518,10 +5590,12 @@ mod climb_tests {
 
     // --- 창 옆면 타기 ---
 
+    /// 테스트: 옆에 창 하나 있는 세계
     fn side_world() -> World {
         world(vec![win(1, 800.0, 300.0, 1300.0, 900.0)])
     }
 
+    /// 테스트: (x, y)에서 vx로 던져진 동물
     fn thrown(cfg: PetConfig, x: f64, y: f64, vx: f64) -> Pet {
         let mut p = Pet::new(cfg, x, y, 1);
         p.body.vx = vx;
@@ -5608,7 +5682,7 @@ mod climb_tests {
         assert!(ever_sticks(climber(), &side_world(), 600.0));
     }
 
-    /// 벽 타는 동물 10분 — 패닉 없이, 화면 안에서, 벽 타기 동작이 나온다
+    /// 벽 타는 동물 10분 — 패닉 없이, 화면 안에서, 벽 타기 동작이 나옴
     #[test]
     fn climber_ten_minutes_smoke() {
         let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0), win(2, 1300.0, 350.0, 1800.0, 700.0)]);
@@ -5654,7 +5728,7 @@ mod seam_tests {
         p
     }
 
-    /// 새 바닥에 내려설 때까지 돌리며 거친 상태를 모은다
+    /// 새 바닥에 내려설 때까지 돌리며 거친 상태를 모음
     fn run_until_on(p: &mut Pet, w: &World, owner: Owner, ticks: usize) -> Vec<State> {
         let mut seen = Vec::new();
         for _ in 0..ticks {
@@ -5811,11 +5885,12 @@ mod house_tests {
     const DOOR: f64 = 1500.0;
     const HOME: Owner = Owner::Ground(0);
 
+    /// 테스트: 잠깐 쉬는 상태
     fn idle() -> State {
         State::Idle { remaining: 5.0, look: false }
     }
 
-    /// 집에 들어갈 때까지 돌리며 거친 상태를 모은다
+    /// 집에 들어갈 때까지 돌리며 거친 상태를 모음
     fn run_until_housed(p: &mut Pet, w: &World, ticks: usize) -> Vec<State> {
         let mut seen = Vec::new();
         for _ in 0..ticks {
@@ -5828,12 +5903,14 @@ mod house_tests {
         seen
     }
 
+    /// 테스트: 집 문 앞에 들어가 있음을 확인함
     fn assert_at_door(p: &Pet, y: f64) {
         assert!(p.is_housed(), "state {:?}", p.state);
         assert_eq!(p.state, State::Housed);
         assert_eq!((p.body.x, p.body.y), (DOOR, y));
     }
 
+    /// 테스트: 집에 들어가 있는 동물
     fn housed_pet(w: &World) -> Pet {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 3);
         place(&mut p, w, HOME, DOOR, idle());
@@ -6235,7 +6312,7 @@ mod visit_tests {
         (exits, turns)
     }
 
-    /// 나가기를 시작한 펫 (시드를 돌며 찾는다)
+    /// 나가기를 시작한 펫 (시드를 돌며 찾음)
     fn exiting(w: &World) -> Pet {
         for seed in 0..100 {
             let mut p = at_edge(w, seed, 1.0, Move::Walk);
@@ -6385,6 +6462,7 @@ mod visit_tests {
         assert!(p.body.x <= 1920.0 - 38.0);
     }
 
+    /// 테스트: home 쪽에서 온 손님 동물
     fn guest(seed: u64, dir: f64, kind: Move, home: Side, homesick_after: f64) -> Pet {
         let w = world(vec![]);
         let mut p = at_edge(&w, seed, dir, kind);

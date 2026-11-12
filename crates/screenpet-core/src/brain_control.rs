@@ -1,45 +1,49 @@
-//! 조작 모드 (v0.3.6): 트레이 "🎮 조작 모드"를 켜면 내 동물이 저절로 돌아다니지 않고 키보드를 따른다.
-//! - ← / → 걷기 (Shift = 달리기), 놓으면 멈춰 마지막 방향을 보고 쉰다.
-//! - Space (걷는 동물은 ↑도) = 진짜 점프 (몸 JUMP_BODIES배 높이, 개구리는 더 높이) — 창 윗면에도 내려선다. 공중에서 ←/→로 조금 방향을 튼다.
+//! 조작 모드 (v0.3.6): 트레이 "🎮 조작 모드"를 켜면 내 동물이 저절로 돌아다니지 않고 키보드를 따름
+//! - ← / → 걷기 (Shift = 달리기), 놓으면 멈춰 마지막 방향을 보고 쉼
+//! - Space (걷는 동물은 ↑도) = 진짜 점프 (몸 JUMP_BODIES배 높이, 개구리는 더 높이) — 창 윗면에도 내려섬. 공중에서 ←/→로 조금 방향을 틂
 //! - ↓ 누르는 동안 앞모습으로 앉기. 창 윗면에서 ↓ 두 번 빠르게 = 창에서 뛰어내리기.
-//! - 벽을 타는 동물(고양이·개구리·산타 등)은 화면 끝 벽 쪽 + ↑ = 기어오르기, ↑로 계속 오르고 놓으면 매달려 있고, ↓ = 미끄러져 내려온다.
+//! - 벽을 타는 동물(고양이·개구리·산타 등)은 화면 끝 벽 쪽 + ↑ = 기어오르기, ↑로 계속 오르고 놓으면 매달려 있고, ↓ = 미끄러져 내려옴
 //! - 나는 동물(유령·새)은 방향키로 위아래 좌우 (중력 없음, Shift = 빠르게).
-//! - 친구가 연결된 화면 끝으로 몰고 가면 평소 규칙대로 걸어(날아) 나간다.
+//! - 친구가 연결된 화면 끝으로 몰고 가면 평소 규칙대로 걸어(날아) 나감
 //!
-//! 먹이·직접 주기·누르기·하우스·"집에 와"·손님의 집 그리움·보내기는 조작보다 먼저다 — 그동안은 평소 동작을 그대로 쓰고,
-//! 끝나면 다시 조작을 따른다. 키는 읽기만 한다 (다른 앱에도 그대로 간다 — 앱 쪽). 친구 화면에 가 있는 내 동물에겐
-//! 앱이 키를 친구 링크로 보내고, 그 화면에서는 remote_keys로 받는다 (1초 소식이 없으면 키를 다 놓은 것으로 본다).
-//! 키 없이 CONTROL_IDLE_SECS가 지나면 저절로 끝난다. brain.rs의 자식 모듈.
+//! 먹이·직접 주기·누르기·하우스·"집에 와"·손님의 집 그리움·보내기는 조작보다 먼저임 — 그동안은 평소 동작을 그대로 쓰고,
+//! 끝나면 다시 조작을 따름. 키는 읽기만 함 (다른 앱에도 그대로 감 — 앱 쪽). 친구 화면에 가 있는 내 동물에겐
+//! 앱이 키를 친구 링크로 보내고, 그 화면에서는 remote_keys로 받음 (1초 소식이 없으면 키를 다 놓은 것으로 봄).
+//! 키 없이 CONTROL_IDLE_SECS가 지나면 저절로 끝남. brain.rs의 자식 모듈.
 
 use std::time::{Duration, Instant};
 
 use super::*;
 
-/// 키 없이 이만큼 지나면 조작 모드가 끝난다 (초)
+/// 키 없이 이만큼 지나면 조작 모드가 끝남 (초)
 pub const CONTROL_IDLE_SECS: f64 = 180.0;
-/// 친구 링크로 온 키: 이만큼 새 소식이 없으면 다 놓은 것으로 본다 (초)
+/// 친구 링크로 온 키: 이만큼 새 소식이 없으면 다 놓은 것으로 봄 (초)
 pub const REMOTE_STALE_SECS: f64 = 1.0;
-/// 점프 높이 (몸 크기 배 — 크기·화면 배율이 이미 들어 있다)
+/// 점프 높이 (몸 크기 배 — 크기·화면 배율이 이미 들어 있음)
 pub const JUMP_BODIES: f64 = 2.2;
-/// 개구리(폴짝 동물)는 이만큼 더 높이 뛴다
+/// 개구리(폴짝 동물)는 이만큼 더 높이 뜀
 pub const FROG_JUMP_MULT: f64 = 1.5;
 /// 공중에서 방향 틀기 가속 (걷기 속도 배 / 초)
 const AIR_STEER: f64 = 4.0;
 /// ↓ 두 번을 "빠르게"로 보는 간격 (초)
 pub const DOUBLE_TAP_SECS: f64 = 0.35;
-/// ↓로 앉은 자세는 놓은 뒤 이만큼만 더 앉아 있다 (초)
+/// ↓로 앉은 자세는 놓은 뒤 이만큼만 더 앉아 있음 (초)
 const SIT_HOLD_SECS: f64 = 0.15;
 /// 화면 끝 벽에 "닿았다"로 보는 거리 (물리 px)
 const WALL_REACH: f64 = 2.0;
-/// 조작 중 쉬기 (끝나지 않게 매 틱 다시 채운다)
+/// 조작 중 쉬기 (끝나지 않게 매 틱 다시 채움)
 const CONTROL_IDLE: State = State::Idle { remaining: 1.0, look: false };
 
-/// 조작 키 (방향키·Space·Shift) — 앱이 키보드에서 읽거나 친구 링크로 받는다
+/// 조작 키 (방향키·Space·Shift) — 앱이 키보드에서 읽거나 친구 링크로 받음
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ControlInput {
+    /// ←
     pub left: bool,
+    /// →
     pub right: bool,
+    /// ↑
     pub up: bool,
+    /// ↓
     pub down: bool,
     /// Space
     pub jump: bool,
@@ -89,7 +93,7 @@ pub(crate) struct Control {
     input: ControlInput,
     /// 지난 틱에 처리한 키 (막 누른 키 찾기)
     prev: ControlInput,
-    /// 친구 링크로 키가 온다 (이 화면의 손님)
+    /// 친구 링크로 키가 옴 (이 화면의 손님)
     remote: bool,
     /// 마지막으로 키 소식이 온 뒤 (remote)
     stale: f64,
@@ -105,17 +109,17 @@ pub(crate) struct Control {
 pub struct SteerPacer {
     /// (방문, 켜짐, 키, 보낸 시각)
     last: Option<(u64, bool, u8, Instant)>,
-    /// 끝내기를 한 번 더 보내야 한다
+    /// 끝내기를 한 번 더 보내야 함
     repeat_off: bool,
 }
 
 impl SteerPacer {
-    /// 내 동물이 집에 있다 — 다음 방문은 처음부터
+    /// 내 동물이 집에 있음 — 다음 방문은 처음부터
     pub fn reset(&mut self) {
         *self = Self::default();
     }
 
-    /// 지금 보내야 하면 true (보낸 것으로 적어 둔다). 이번 방문에 아직 보낸 적 없으면 켜져 있을 때만 알린다
+    /// 지금 보내야 하면 true (보낸 것으로 적어 둠). 이번 방문에 아직 보낸 적 없으면 켜져 있을 때만 알림
     pub fn should_send(&mut self, visit_id: u64, on: bool, bits: u8, now: Instant, keepalive: Duration) -> bool {
         let (send, repeat) = match self.last {
             Some((id, was_on, was_bits, at)) if id == visit_id => {
@@ -141,10 +145,12 @@ impl SteerPacer {
 }
 
 impl Control {
+    /// 새 조작 상태. remote면 친구 링크로 키가 오는 손님임
     fn new(remote: bool) -> Self {
         Control { input: ControlInput::default(), prev: ControlInput::default(), remote, stale: 0.0, idle: 0.0, last_down: f64::NEG_INFINITY }
     }
 
+    /// 앱이 준 키를 받음. 뭔가 눌렸으면 손 놓은 시간을 0으로 돌림
     fn feed(&mut self, input: ControlInput) {
         self.input = input;
         if input.any() {
@@ -154,7 +160,7 @@ impl Control {
 }
 
 impl Pet {
-    /// 조작 모드 켜기 / 끄기 (트레이, Esc). 끄면 하던 쉬기·앉기는 평소 쉬기로, 벽에 매달려 있었으면 미끄러져 내려온다
+    /// 조작 모드 켜기 / 끄기 (트레이, Esc). 끄면 하던 쉬기·앉기는 평소 쉬기로, 벽에 매달려 있었으면 미끄러져 내려옴
     pub fn set_control(&mut self, on: bool) {
         if on {
             if self.control.is_none() {
@@ -171,7 +177,7 @@ impl Pet {
         self.control.is_some()
     }
 
-    /// 내 동물의 키 (게임 루프가 조작 모드 동안 매 틱 — 친구 화면에 가 있어도). 키 없이 CONTROL_IDLE_SECS가 지나면 끝난다
+    /// 내 동물의 키 (게임 루프가 조작 모드 동안 매 틱 — 친구 화면에 가 있어도). 키 없이 CONTROL_IDLE_SECS가 지나면 끝남
     pub fn control_keys(&mut self, input: ControlInput, dt: f64) {
         let Some(c) = self.control.as_mut() else { return };
         c.feed(input);
@@ -185,7 +191,7 @@ impl Pet {
         }
     }
 
-    /// 친구 링크로 온 키 (이 화면의 손님 — 앱이 그 주인 링크에서 온 것만 넘긴다). on = false면 조작이 끝난다
+    /// 친구 링크로 온 키 (이 화면의 손님 — 앱이 그 주인 링크에서 온 것만 넘김). on = false면 조작이 끝남
     pub fn remote_keys(&mut self, on: bool, input: ControlInput) {
         if !on {
             if self.control.is_some_and(|c| c.remote) {
@@ -204,6 +210,7 @@ impl Pet {
         std::mem::take(&mut self.control_ended)
     }
 
+    /// 조작을 끝냄. 기어오르던 중이면 미끄러져 내려오게 함
     fn release_control(&mut self) {
         if self.control.take().is_none() {
             return;
@@ -222,7 +229,7 @@ impl Pet {
         }
     }
 
-    /// 친구 링크로 온 키의 시간: 1초 소식이 없으면 다 놓은 것으로, 키 없이 CONTROL_IDLE_SECS면 끝 (내 동물은 control_keys가 센다)
+    /// 친구 링크로 온 키의 시간: 1초 소식이 없으면 다 놓은 것으로, 키 없이 CONTROL_IDLE_SECS면 끝 (내 동물은 control_keys가 셈)
     fn tick_remote_control(&mut self, dt: f64) {
         let Some(c) = self.control.as_mut().filter(|c| c.remote) else { return };
         c.stale += dt;
@@ -237,7 +244,7 @@ impl Pet {
         }
     }
 
-    /// 키를 누르고 있다 (창 안에 있으면 나오게 한다, update_inside)
+    /// 키를 누르고 있음 (창 안에 있으면 나오게 함, update_inside)
     pub(super) fn control_pressed(&self) -> bool {
         self.control.is_some_and(|c| c.input.any())
     }
@@ -380,7 +387,7 @@ impl Pet {
         end == EndKind::Wall && (edge_x - (self.body.x + dir * self.cfg.half_w)) * dir <= WALL_REACH
     }
 
-    /// dir 쪽으로 걷거나 달린다. 창 모서리에선 걸어 떨어지고, 화면 끝 벽에선 (친구가 있으면 나가고) 멈춘다
+    /// dir 쪽으로 걷거나 달림. 창 모서리에선 걸어 떨어지고, 화면 끝 벽에선 (친구가 있으면 나가고) 멈춤
     fn control_walk(&mut self, dt: f64, world: &World, st: Standing, piece: &Surface, dir: f64, kind: Move) {
         self.state = State::Move { kind, remaining: 1.0 };
         let speed = self.control_speed(kind, dt);
@@ -442,7 +449,7 @@ impl Pet {
         self.state = State::Air { anim: Anim::Hop };
     }
 
-    /// 공중에서 ←/→로 조금 방향을 튼다 (달리기 속도까지만 — 이미 더 빠르면 늦추기만)
+    /// 공중에서 ←/→로 조금 방향을 틂 (달리기 속도까지만 — 이미 더 빠르면 늦추기만)
     fn steer_air(&mut self, dt: f64, dir: f64) {
         if dir == 0.0 {
             return;
@@ -452,7 +459,7 @@ impl Pet {
         self.body.vx = vx.clamp(-cap, cap);
     }
 
-    /// 화면 끝 벽을 기어오르기 시작한다 (목표 = 그 화면 맨 위)
+    /// 화면 끝 벽을 기어오르기 시작함 (목표 = 그 화면 맨 위)
     fn start_control_climb(&mut self, world: &World) {
         let wa = world.work_area_at(self.body.x, self.body.y);
         self.standing = None;
@@ -472,7 +479,7 @@ impl Pet {
         }
     }
 
-    /// 나는 동물: 방향키로 위아래 좌우 (Shift = 빠르게). 놓으면 그 자리에 떠 있다. 친구가 연결된 끝으로 가면 날아 나간다
+    /// 나는 동물: 방향키로 위아래 좌우 (Shift = 빠르게). 놓으면 그 자리에 떠 있음. 친구가 연결된 끝으로 가면 날아 나감
     fn control_fly(&mut self, dt: f64, world: &World, input: ControlInput) {
         self.flight = None;
         let (dx, dy) = (input.dir(), input.vertical());

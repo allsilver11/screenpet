@@ -1,4 +1,4 @@
-//! 펭귄의 안경 번쩍 (brain_flash.rs): 커서에 닿은 순간 · 친구와 놀 때 가끔 · 깨어 있을 때 몇 분에 한 번. 잘 때·잡힌 동안엔 없다.
+//! 펭귄의 안경 번쩍 (brain_flash.rs): 커서에 닿은 순간 · 친구와 놀 때 가끔 · 깨어 있을 때 몇 분에 한 번. 잘 때·잡힌 동안엔 없음
 
 use super::flash_moves::{FLASH_CALM_SECS, FLASH_PULSE_SECS, GLARE_SECS};
 use super::social_moves::GreetKind;

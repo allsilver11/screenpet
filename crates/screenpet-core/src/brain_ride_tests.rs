@@ -30,7 +30,7 @@ fn ridden_window_is_the_window_the_pet_depends_on() {
     assert_eq!(p.ridden_window(), None);
 }
 
-/// 창이 매 틱 10 px씩 움직여도 (끌어 옮기는 중) 창 위에 선 동물은 같은 자리에 붙어 따라간다 — 한 틱도 늦지 않는다
+/// 창이 매 틱 10 px씩 움직여도 (끌어 옮기는 중) 창 위에 선 동물은 같은 자리에 붙어 따라감 — 한 틱도 늦지 않음
 #[test]
 fn pet_on_a_moving_window_stays_glued_every_tick() {
     let mut w = world(vec![w1(), win(2, 1300.0, 600.0, 1700.0, 900.0)]);

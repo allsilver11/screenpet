@@ -35,7 +35,7 @@ fn wait_for_play(p: &mut Pet, w: &World, cursor: (f64, f64)) -> bool {
     false
 }
 
-/// 시뮬레이션 설정 + 그 동물의 몸놀림 (pet.json locomotion에 맞춘다)
+/// 시뮬레이션 설정 + 그 동물의 몸놀림 (pet.json locomotion에 맞춤)
 fn species_pet(id: &str, seed: u64) -> (Pet, World) {
     let c = PetConfig { flies: matches!(id, "ghost" | "bird"), swift: id == "bird", hops: id == "frog", ..cfg() };
     let (mut p, w) = ready_pet(c, seed);
@@ -198,7 +198,7 @@ fn every_species_has_its_own_style_with_animations_it_really_has() {
     }
 }
 
-/// 다람쥐: 호기심 많고 날쌔다 — 깡충깡충 빠르게 와서 고개를 갸웃
+/// 다람쥐: 호기심 많고 날쌤 — 깡충깡충 빠르게 와서 고개를 갸웃
 #[test]
 fn squirrel_scampers_over_in_quick_hops_and_tilts_its_head() {
     let s = CursorStyle::of("squirrel").expect("squirrel");
@@ -570,7 +570,7 @@ fn the_cooldown_lasts_two_to_four_minutes() {
 
 // ── 창 흔들림 ──
 
-/// 창 1을 좌우로 흔든다 (틱마다 x만 — 앱의 patch_windows처럼)
+/// 창 1을 좌우로 흔듦 (틱마다 x만 — 앱의 patch_windows처럼)
 fn shake_window(p: &mut Pet, w: &mut World, ticks: usize, amp: f64, every: usize) {
     let base = w1().rect;
     for i in 0..ticks {
@@ -670,7 +670,7 @@ fn a_window_closed_while_clinging_drops_the_pet() {
     panic!("nobody clung");
 }
 
-/// 그대로 창 위에 있다: 떨어져 바닥에 서거나 끝에 매달리지 않았고 "으아!"도 없다
+/// 그대로 창 위에 있음: 떨어져 바닥에 서거나 끝에 매달리지 않았고 "으아!"도 없음
 fn assert_stayed_on_window(p: &mut Pet) {
     assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)), "{:?}", p.state);
     assert!(!matches!(p.state, State::EdgeCling { .. } | State::Air { .. }), "{:?}", p.state);

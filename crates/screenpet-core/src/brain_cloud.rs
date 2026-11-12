@@ -1,8 +1,8 @@
 //! 눈사람의 작은 눈구름 ⛄☁️ — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //!
-//! pet.json `snow_cloud`가 있는 동물은 몇 분에 한 번, 쉬는 박자에 머리 위로 작은 구름을 불러 10~20초 눈을 맞으며 행복하게 올려다본다.
-//! 달력·날씨 토글과 상관없다. 구름 그림은 웹뷰가 `render.cloud` 동안 머리 위에 띄운다 — 창과 함께 움직인다.
-//! 집 안·잡힌 동안·떠나는 길·커서에 매달린 동안엔 없다.
+//! pet.json `snow_cloud`가 있는 동물은 몇 분에 한 번, 쉬는 박자에 머리 위로 작은 구름을 불러 10~20초 눈을 맞으며 행복하게 올려다봄
+//! 달력·날씨 토글과 상관없음. 구름 그림은 웹뷰가 `render.cloud` 동안 머리 위에 띄움 — 창과 함께 움직임
+//! 집 안·잡힌 동안·떠나는 길·커서에 매달린 동안엔 없음
 
 use super::*;
 
@@ -15,6 +15,7 @@ pub const CLOUD_SECS: (f64, f64) = (10.0, 20.0);
 /// 구름이 뜰 때 올려다보는 시간
 const CLOUD_LOOK_SECS: (f64, f64) = (2.0, 3.5);
 
+/// 눈구름의 기억: 다음 구름까지 기다림, 떠 있는 남은 시간
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct SnowCloud {
     /// 다음 구름까지 남은 시간 (None: 아직 주사위를 굴리지 않음 — 구름 없는 동물의 난수 순서는 그대로)
@@ -28,16 +29,17 @@ impl Pet {
         self.is_user_away() || self.housed || self.is_held() || self.in_transit() || self.poofing() || self.cursor_through() || matches!(self.state, State::HomeLeap { .. })
     }
 
-    /// 지금 머리 위에 구름이 떠 있다 (웹뷰 render.cloud)
+    /// 지금 머리 위에 구름이 떠 있음 (웹뷰 render.cloud)
     pub(super) fn snow_cloud_on(&self) -> bool {
         self.cloud.left > 0.0 && !self.cloud_hidden()
     }
 
-    /// 구름이 떠 있는 동안엔 더 자주 올려다본다
+    /// 구름이 떠 있는 동안엔 더 자주 올려다봄
     pub(super) fn snow_cloud_up(&self) -> bool {
         self.cloud.left > 0.0
     }
 
+    /// 매 틱 눈구름 시계를 돌림. snow_cloud가 꺼졌으면 모두 지움
     pub(super) fn tick_snow_cloud(&mut self, dt: f64) {
         if !self.cfg.snow_cloud {
             self.cloud = SnowCloud::default();
@@ -72,6 +74,7 @@ impl Pet {
         }
     }
 
+    /// 구름을 걷고 다음 구름까지 기다릴 시간을 새로 뽑음
     fn end_snow_cloud(&mut self) {
         self.cloud.left = 0.0;
         self.cloud.wait = Some(behavior::range(&mut self.rng, CLOUD_WAIT_SECS));

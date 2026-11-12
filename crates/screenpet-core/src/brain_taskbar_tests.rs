@@ -39,12 +39,12 @@ fn phase(p: &Pet) -> Option<JugglePhase> {
 
 const READY: Toys = Toys { ready: true, live: None };
 
-/// 굴릴 때가 됐다 (테스트: 바로 주사위를 굴린다)
+/// 굴릴 때가 됐음 (테스트: 바로 주사위를 굴림)
 fn due(p: &mut Pet) {
     p.toy.next_at = Some(p.clock);
 }
 
-/// 앱 흉내: Pull이면 (deliver면) 조금 뒤 장난감을 만들어 쥐여 주고, 놓으면 몇 뼘 옆 바닥에 내려앉고, Stow면 치운다
+/// 앱 흉내: Pull이면 (deliver면) 조금 뒤 장난감을 만들어 쥐여 주고, 놓으면 몇 뼘 옆 바닥에 내려앉고, Stow면 치움
 struct FakeApp {
     deliver: bool,
     live: Option<u64>,

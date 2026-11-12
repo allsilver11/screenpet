@@ -1,11 +1,11 @@
 //! 날아온 것에 부딪히기 — brain.rs의 자식 모듈 (비공개 필드에 접근). 판정과 쿨다운은 social.rs, 숫자와 되튀는 계산은 collide.rs.
 //!
-//! - 던진 동물: 옆으로 부딪히면 "ting!" 하고 맞은 쪽 반대로 되튀고, 머리에 떨어지면 "boing!" 하고 튀어 오른다. 던진 비행은 이어지지만 (느려져서 화면 끝을 못 넘을 수 있다) 아래 친구를 노린 것은 잊는다.
-//! - 맞은 동물: 빠르면 데굴 (brain_stomp.rs Tumble), 느리면 움찔 + "ow!", 머리를 맞으면 납작 (brain_meet.rs Squash), 나는 동물은 떠밀려 갔다가 멈춘 자리에 뜬다.
+//! - 던진 동물: 옆으로 부딪히면 "ting!" 하고 맞은 쪽 반대로 되튀고, 머리에 떨어지면 "boing!" 하고 튀어 오름. 던진 비행은 이어지지만 (느려져서 화면 끝을 못 넘을 수 있음) 아래 친구를 노린 것은 잊음
+//! - 맞은 동물: 빠르면 데굴 (brain_stomp.rs Tumble), 느리면 움찔 + "ow!", 머리를 맞으면 납작 (brain_meet.rs Squash), 나는 동물은 떠밀려 갔다가 멈춘 자리에 뜸
 //! - 잘 놀라는 동물(레서판다)은 느리게 맞으면 움찔 대신 깜짝 벌떡 (Special::Surprise, "!!").
 //! - 똥에 맞으면 반응은 같고 말만 "ew!".
-//! - 조작 모드: 걷는 동물은 빠르면 데굴만 (납작은 하지 않는다), 나는 동물은 덜덜만 — 잠깐 넘어지는 것 말고 키를 뺏지 않는다.
-//! - 들려 있거나, 집·창 안, 떠나거나 들어오는 길, 먹는 중, 자리 비움·집중, 공중·벽, 뛰어넘는 중은 맞지 않고 그대로 지나간다.
+//! - 조작 모드: 걷는 동물은 빠르면 데굴만 (납작은 하지 않음), 나는 동물은 덜덜만 — 잠깐 넘어지는 것 말고 키를 뺏지 않음
+//! - 들려 있거나, 집·창 안, 떠나거나 들어오는 길, 먹는 중, 자리 비움·집중, 공중·벽, 뛰어넘는 중은 맞지 않고 그대로 지나감
 
 use super::meet_moves::MeetPhase;
 use super::*;
@@ -17,12 +17,12 @@ const FLY_PUSH: f64 = 0.6;
 const KNOCK_OFF: f64 = 0.3;
 
 impl Pet {
-    /// 손에서 던져져 날아가는 중 (창 안에서 노는 중은 빼고): 다른 동물에 부딪힐 수 있다
+    /// 손에서 던져져 날아가는 중 (창 안에서 노는 중은 빼고): 다른 동물에 부딪힐 수 있음
     pub fn is_flung(&self) -> bool {
         self.thrown && matches!(self.state, State::Air { .. }) && self.inside.is_none() && !self.housed
     }
 
-    /// 날아온 것에 맞을 수 있는 때 (아니면 그대로 지나간다)
+    /// 날아온 것에 맞을 수 있는 때 (아니면 그대로 지나감)
     pub fn hit_feels(&self) -> bool {
         if self.clock < self.hit_calm_until
             || self.housed
@@ -60,7 +60,7 @@ impl Pet {
             )
     }
 
-    /// 던진 내가 부딪혔다: 되튄다 (away = 맞은 몸에서 멀어지는 쪽)
+    /// 던진 내가 부딪혔음: 되튐 (away = 맞은 몸에서 멀어지는 쪽)
     pub fn bounce_off(&mut self, face: Face, away: f64) {
         let (vx, vy) = collide::rebound(face, self.body.vx, self.body.vy, away, self.cfg.dpi);
         self.body.vx = vx;
@@ -69,7 +69,7 @@ impl Pet {
         self.speech = Some(if face == Face::Top { Speech::Boing } else { Speech::Ting });
     }
 
-    /// 날아온 것에 맞았다
+    /// 날아온 것에 맞았음
     pub fn feel_hit(&mut self, hit: Hit) {
         self.hit_calm_until = self.clock + HIT_CALM_SECS;
         self.wobble_timer = stomp_moves::WOBBLE_SECS;
@@ -108,7 +108,7 @@ impl Pet {
         self.speech = Some(if hit.poop { Speech::Ew } else { speech });
     }
 
-    /// 떠밀려 간다: 던져진 나는 동물처럼 느려지다 멈춘 자리에 뜬다 (던진 비행이 아니라서 화면 끝을 넘거나 다른 동물을 치지 않는다)
+    /// 떠밀려 감: 던져진 나는 동물처럼 느려지다 멈춘 자리에 뜸 (던진 비행이 아니라서 화면 끝을 넘거나 다른 동물을 치지 않음)
     fn push_flier(&mut self, hit: Hit) {
         self.pacing.after_beat = None;
         self.clear_hover();
@@ -121,6 +121,7 @@ impl Pet {
         self.state = State::Air { anim: Anim::Fall };
     }
 
+    /// 밟혀 납작해짐 (MeetPhase::Squash)
     fn squash(&mut self) {
         self.pacing.after_beat = None;
         self.clear_hover();
@@ -132,7 +133,7 @@ impl Pet {
 
 #[cfg(test)]
 impl Pet {
-    /// 테스트: 지금 자리에서 (vx, vy)로 던져져 날아간다
+    /// 테스트: 지금 자리에서 (vx, vy)로 던져져 날아감
     pub(crate) fn force_throw(&mut self, vx: f64, vy: f64) {
         self.standing = None;
         self.body.vx = vx;
@@ -143,15 +144,18 @@ impl Pet {
         self.gentle_drop = false;
     }
 
+    /// 테스트: 아래 친구를 노려 던짐
     pub(crate) fn force_throw_down(&mut self, vx: f64, vy: f64) {
         self.force_throw(vx, vy);
         self.thrown_down = true;
     }
 
+    /// 테스트: 나갈 수 있는 끝을 정함
     pub(crate) fn exit_edges_test(&mut self, edges: ExitEdges) {
         self.exit_edges = edges;
     }
 
+    /// 테스트: 아래 친구를 노린 던지기임
     pub(crate) fn aims_down(&self) -> bool {
         self.thrown_down
     }

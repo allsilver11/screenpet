@@ -1,5 +1,5 @@
 //! 올려다보기 (Anim::LookUp, pet.json lookup) — 머리 위에 든 음식, 머리 위에 머무는 커서, 가끔 쉬다가·걷다가 문득.
-//! lookup이 없는 동물은 똑같은 때에 그냥 쳐다본다 (예전 그대로).
+//! lookup이 없는 동물은 똑같은 때에 그냥 쳐다봄 (예전 그대로).
 //! brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{cfg, place, sim_cfg, w1, win, world};
@@ -153,7 +153,7 @@ fn without_a_lookup_anim_a_lingering_cursor_overhead_changes_nothing() {
     assert!(matches!(p.state, State::Idle { look: false, .. }), "{:?}", p.state);
 }
 
-/// 10분 × 6: 가끔 올려다보지만 (쉬다가·걷다가) 많지 않다 — 그리고 올려다볼 땐 늘 제자리에 멈춰 있다
+/// 10분 × 6: 가끔 올려다보지만 (쉬다가·걷다가) 많지 않음 — 그리고 올려다볼 땐 늘 제자리에 멈춰 있음
 #[test]
 fn idle_look_ups_happen_now_and_then_but_stay_rare() {
     let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0)]);
@@ -187,7 +187,7 @@ fn idle_look_ups_happen_now_and_then_but_stay_rare() {
     assert!((0.005..=0.06).contains(&share), "looking up {share:.3} of the time ({episodes} look-ups)");
 }
 
-/// lookup이 없는 동물은 한 번도 LookUp을 그리지 않는다 (주사위도 굴리지 않아 난수 순서·하는 일이 예전 그대로)
+/// lookup이 없는 동물은 한 번도 LookUp을 그리지 않음 (주사위도 굴리지 않아 난수 순서·하는 일이 예전 그대로)
 #[test]
 fn pets_without_lookup_never_look_up() {
     let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0)]);

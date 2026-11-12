@@ -12,13 +12,13 @@ fn climber() -> PetConfig {
     PetConfig { can_climb: true, ..cfg() }
 }
 
-/// 창 id 안쪽 바닥 x에 세운다 (머무는 시간 leave_in)
+/// 창 id 안쪽 바닥 x에 세움 (머무는 시간 leave_in)
 fn place_inside(p: &mut Pet, w: &World, id: u64, x: f64, state: State, leave_in: f64) {
     place(p, w, Owner::Inside(id), x, state);
     p.inside = Some(Stay { window: id, mode: Mode::In, leave_in, climb_out: false, hops: 0 });
 }
 
-/// 몸을 잡아 (x, y)로 옮긴 뒤 잠깐 멈췄다 놓는다 (던지는 속도 0)
+/// 몸을 잡아 (x, y)로 옮긴 뒤 잠깐 멈췄다 놓음 (던지는 속도 0)
 fn drop_at(p: &mut Pet, w: &World, x: f64, y: f64) {
     let (gx, gy) = (p.body.x, p.body.y - 40.0);
     p.pointer_down(gx, gy);
@@ -456,8 +456,8 @@ fn sized(size: f64, can_climb: bool) -> PetConfig {
     PetConfig { size, half_w: 0.3 * size, walk_speed: 90.0 * k, can_climb, ..sim_cfg() }
 }
 
-/// 창이 많은 화면 10분 (아기 0.45배·보통·큰 1.5배) — 패닉 없이, 늘 화면 안에서, 창 안에서도 논다.
-/// 창이 가끔 움직이고 닫히고 순서가 바뀐다
+/// 창이 많은 화면 10분 (아기 0.45배·보통·큰 1.5배) — 패닉 없이, 늘 화면 안에서, 창 안에서도 놂
+/// 창이 가끔 움직이고 닫히고 순서가 바뀜
 #[test]
 fn window_rich_ten_minutes_smoke() {
     let screen = vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)];
@@ -655,7 +655,7 @@ fn homesick_guest_hops_out_to_head_home() {
 }
 
 
-/// (바깥) 꼭대기가 화면 위에 붙은 창의 옆면을 기어오르다 머리가 화면 위로 나가기 전에 떨어진다
+/// (바깥) 꼭대기가 화면 위에 붙은 창의 옆면을 기어오르다 머리가 화면 위로 나가기 전에 떨어짐
 #[test]
 fn wall_climb_never_pushes_the_head_off_screen() {
     let w = world(vec![win(6, 1400.0, 90.0, 1800.0, 1040.0)]);

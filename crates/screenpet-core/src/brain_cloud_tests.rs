@@ -1,4 +1,4 @@
-//! 눈사람의 눈구름 (brain_cloud.rs): 몇 분에 한 번, 쉬는 박자에 10~20초 — 날씨와 상관없이, 집·드래그·떠나는 길엔 없다.
+//! 눈사람의 눈구름 (brain_cloud.rs): 몇 분에 한 번, 쉬는 박자에 10~20초 — 날씨와 상관없이, 집·드래그·떠나는 길엔 없음
 
 use super::cloud_moves::{CLOUD_FIRST_WAIT_SECS, CLOUD_SECS, CLOUD_WAIT_SECS};
 use super::tests::{cfg, place, sim_cfg, w1, win, world};
@@ -59,7 +59,7 @@ fn other_pets_never_get_a_cloud_and_their_dice_stay_the_same() {
     assert_eq!(p.rng.clone().u64(..), before.clone().u64(..));
 }
 
-/// 쉬는 중인 눈사람의 구름 시계를 끝까지 돌린다 — 구름이 뜨고 올려다본다
+/// 쉬는 중인 눈사람의 구름 시계를 끝까지 돌림 — 구름이 뜨고 올려다봄
 fn under_cloud() -> (Pet, World) {
     let w = world(vec![w1()]);
     let mut p = Pet::new(snowman(), 0.0, 0.0, 1);

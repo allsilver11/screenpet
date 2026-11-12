@@ -2,28 +2,28 @@
 //!
 //! 손님 동물을 클릭하면(누르고 끌지 않고 뗌) 반반 확률로
 //! - 애교: 앞모습 재주(하트·손 흔들기·갸웃·배 보이기·기지개) + "hehe!"
-//! - 잡아 봐!: 4~7초 동안 커서를 피해 디딤판 위를 달아난다 (State::CatchMe). 끝에선 돌아서고
-//!   (일부러 떨어지지 않는다), 커서가 따라오면 방향을 다시 정하고, 몸 반 안으로 다가오면 폴짝 피한다.
-//!   끝나면 하트, 아니면 커서 쪽을 힐끗 돌아본다.
+//! - 잡아 봐!: 4~7초 동안 커서를 피해 디딤판 위를 달아남 (State::CatchMe). 끝에선 돌아서고
+//!   (일부러 떨어지지 않음), 커서가 따라오면 방향을 다시 정하고, 몸 반 안으로 다가오면 폴짝 피함
+//!   끝나면 하트, 아니면 커서 쪽을 힐끗 돌아봄
 //!
-//! 새침한 고양이는 애교가 적다 (35/65, 도망갈 때 "흥!"도). 내 동물의 클릭 반응은 그대로다.
-//! 집 생각·작별·하우스·먹이·창 안·붙잡기가 놀이보다 먼저다.
+//! 새침한 고양이는 애교가 적음 (35/65, 도망갈 때 "흥!"도). 내 동물의 클릭 반응은 그대로임
+//! 집 생각·작별·하우스·먹이·창 안·붙잡기가 놀이보다 먼저임
 
 use super::*;
 
 /// 손님을 클릭했을 때 애교 부릴 확률 (나머지는 잡아 봐!)
 pub const GUEST_AEGYO_CHANCE: f64 = 0.5;
-/// 새침한 동물은 애교가 적다
+/// 새침한 동물은 애교가 적음
 pub const ALOOF_AEGYO_CHANCE: f64 = 0.35;
 /// 잡아 봐! 시간 (초)
 pub const CATCH_ME_SECS: (f64, f64) = (4.0, 7.0);
-/// 커서가 이 거리(몸 크기 배) 안이면 반대쪽으로 달아난다 — 멀면 하던 방향으로 달리다 끝에서 돌아선다
+/// 커서가 이 거리(몸 크기 배) 안이면 반대쪽으로 달아남 — 멀면 하던 방향으로 달리다 끝에서 돌아섬
 pub const WATCH_BODIES: f64 = 4.0;
-/// 끝에 몰려 돌아서면 이만큼은 그 방향으로 커서 옆을 빠져나간다 (끝에서 떨지 않게)
+/// 끝에 몰려 돌아서면 이만큼은 그 방향으로 커서 옆을 빠져나감 (끝에서 떨지 않게)
 pub const CORNER_COMMIT_SECS: f64 = 0.9;
 /// 끝에 닿았다고 보는 여유 (px)
 const EDGE_EPS: f64 = 2.0;
-/// 커서가 몸 가운데에서 이 거리(몸 크기 배) 안이면 폴짝 피한다
+/// 커서가 몸 가운데에서 이 거리(몸 크기 배) 안이면 폴짝 피함
 pub const DODGE_BODIES: f64 = 0.5;
 /// 폴짝 피하는 시간과 그동안의 속도 배
 pub const DODGE_SECS: f64 = 0.35;
@@ -32,7 +32,7 @@ const DODGE_BOOST: f64 = 1.8;
 const DODGE_COOLDOWN_SECS: f64 = 0.6;
 /// 나는 동물이 달아나는 속도 (걷기 속도 배)
 const FLY_RUN_MULT: f64 = 2.5;
-/// 나는 동물은 커서와 이만큼(몸 크기 배) 높이를 벌린다
+/// 나는 동물은 커서와 이만큼(몸 크기 배) 높이를 벌림
 const FLY_KEEP_AWAY: f64 = 1.2;
 const FLY_SWAY: f64 = 0.25;
 /// 끝나고 커서 쪽을 힐끗 돌아보는 시간
@@ -60,7 +60,7 @@ pub fn pick_guest_click(rng: &mut fastrand::Rng, personality: Personality) -> Gu
 
 /// 달아날 방향 정하기 (순수 함수). x: 몸, cx: 커서, [lo, hi]: 몸이 갈 수 있는 범위, watch: 겁내는 거리.
 /// 돌아선 직후(commit > 0)가 아니고 커서가 watch 안이면 커서 반대쪽으로. 그 방향 끝에 닿아 있으면
-/// 돌아서서 commit초 동안 그쪽으로 빠져나간다. 반환: (방향 ±1, 남은 commit)
+/// 돌아서서 commit초 동안 그쪽으로 빠져나감. 반환: (방향 ±1, 남은 commit)
 pub fn steer_away(x: f64, cx: f64, dir: f64, commit: f64, lo: f64, hi: f64, watch: f64) -> (f64, f64) {
     let (mut dir, mut commit) = (dir, commit);
     let dx = x - cx;
@@ -74,7 +74,7 @@ pub fn steer_away(x: f64, cx: f64, dir: f64, commit: f64, lo: f64, hi: f64, watc
     (dir, commit)
 }
 
-/// 폴짝 피하는 동안은 더 빠르다
+/// 폴짝 피하는 동안은 더 빠름
 fn dodge_boost(dodge: f64) -> f64 {
     if dodge > 0.0 {
         DODGE_BOOST
@@ -84,7 +84,7 @@ fn dodge_boost(dodge: f64) -> f64 {
 }
 
 impl Pet {
-    /// 손님으로 와 있는 동물을 클릭했다 (pointer_up에서, 디딤판 위·깨어 있음·배고프지 않음)
+    /// 손님으로 와 있는 동물을 클릭했음 (pointer_up에서, 디딤판 위·깨어 있음·배고프지 않음)
     pub(super) fn guest_click(&mut self) {
         let click = pick_guest_click(&mut self.rng, self.cfg.personality);
         // 집 생각이 나면 도망 놀이는 하지 않는다 (애교만 잠깐)
@@ -103,7 +103,7 @@ impl Pet {
         self.state = State::Trick { kind, remaining: behavior::CLICK_TRICK_SECS };
     }
 
-    /// 잡아 봐! 시작 — 커서 반대쪽으로 폴짝 뛰어 달아난다
+    /// 잡아 봐! 시작 — 커서 반대쪽으로 폴짝 뛰어 달아남
     pub(super) fn start_catch_me(&mut self) {
         self.pacing.after_beat = None;
         self.flight = None;
@@ -125,7 +125,7 @@ impl Pet {
         matches!(self.state, State::CatchMe { .. })
     }
 
-    /// 도망 놀이를 끊는 일: 하우스·먹이·직접 주기·작별·창 안·집 생각 (붙잡기는 pointer_down이 끊는다)
+    /// 도망 놀이를 끊는 일: 하우스·먹이·직접 주기·작별·창 안·집 생각 (붙잡기는 pointer_down이 끊음)
     fn catch_me_interrupted(&self) -> bool {
         self.housed
             || self.home_trip.is_some()
@@ -168,7 +168,7 @@ impl Pet {
         true
     }
 
-    /// 끝: 반은 하트, 반은 커서 쪽을 힐끗 돌아본다
+    /// 끝: 반은 하트, 반은 커서 쪽을 힐끗 돌아봄
     fn finish_catch_me(&mut self) {
         let dx = self.cursor.0 - self.body.x;
         if dx.abs() > 1.0 {
@@ -183,7 +183,7 @@ impl Pet {
         };
     }
 
-    /// 걷는 동물: 서 있는 디딤판 조각 안에서만 달아난다 (끝에서 돌아선다 — 뛰어내리지 않는다)
+    /// 걷는 동물: 서 있는 디딤판 조각 안에서만 달아남 (끝에서 돌아섬 — 뛰어내리지 않음)
     fn catch_me_ground(&mut self, dt: f64, world: &World) {
         if !self.follow_anchor(world) {
             self.start_fall();
@@ -211,7 +211,7 @@ impl Pet {
         self.state = State::CatchMe { remaining, dir, commit, dodge };
     }
 
-    /// 나는 동물: 나는 범위 안에서 좌우로 달아나고, 높이는 커서와 벌린다 (살랑이며)
+    /// 나는 동물: 나는 범위 안에서 좌우로 달아나고, 높이는 커서와 벌림 (살랑이며)
     fn catch_me_fly(&mut self, dt: f64, world: &World) {
         if self.standing.is_some() {
             self.take_off();

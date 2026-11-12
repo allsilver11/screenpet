@@ -1,6 +1,6 @@
 //! 던져서 친구 화면으로 넘어가기 (phase 3): 던진 동물이 친구가 연결된 화면 가장 바깥 끝에 부딪히면
-//! 튕기지 않고 그대로 넘어간다 — 친구 화면은 옆 모니터처럼 높이(작업 영역 비율)와 속도(논리 px/s)를 이어 받는다.
-//! 넘어갈 수 있는 끝은 걸어 나갈 때와 같다 (exit_odds > 0: 내 동물은 연결된 친구 쪽, 손님은 집 쪽이나 다른 친구 쪽).
+//! 튕기지 않고 그대로 넘어감 — 친구 화면은 옆 모니터처럼 높이(작업 영역 비율)와 속도(논리 px/s)를 이어 받음
+//! 넘어갈 수 있는 끝은 걸어 나갈 때와 같음 (exit_odds > 0: 내 동물은 연결된 친구 쪽, 손님은 집 쪽이나 다른 친구 쪽).
 //! brain.rs의 자식 모듈.
 
 use super::*;
@@ -26,7 +26,7 @@ impl Pet {
         true
     }
 
-    /// 던진 비행이 side 끝을 넘어 사라진다
+    /// 던진 비행이 side 끝을 넘어 사라짐
     pub(super) fn fling_over(&mut self, world: &World, side: Side) {
         let fling = visit::fling_across(world, side, &self.body, self.cfg.dpi);
         self.thrown = false;
@@ -34,13 +34,13 @@ impl Pet {
         self.fling = fling;
     }
 
-    /// 던져서 넘어간 움직임 (take_exit 뒤에 한 번 꺼낸다)
+    /// 던져서 넘어간 움직임 (take_exit 뒤에 한 번 꺼냄)
     pub fn take_fling(&mut self) -> Option<Fling> {
         self.fling.take()
     }
 
-    /// 다른 화면에서 던져져 side 끝으로 날아 들어온다 (높이·속도를 이어 받고, 평소 물리로 떨어져 내려선다 — 나는 동물은 떠서 멈춘다).
-    /// fling이 이상하면 평소처럼 걸어 들어온다
+    /// 다른 화면에서 던져져 side 끝으로 날아 들어옴 (높이·속도를 이어 받고, 평소 물리로 떨어져 내려섬 — 나는 동물은 떠서 멈춤).
+    /// fling이 이상하면 평소처럼 걸어 들어옴
     pub fn enter_flung(&mut self, world: &World, side: Side, fling: Fling) {
         if visit::is_vertical(side) {
             self.enter_flung_vertical(world, side, fling);

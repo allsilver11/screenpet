@@ -1,12 +1,12 @@
 //! 🫣 숨바꼭질 (흐물이, v0.6.3) — brain.rs의 자식 모듈.
 //!
-//! 바닥에서 쉬거나 걷던 흐물이가 가끔 (HIDE_RATE, 쿨다운 COOLDOWN_SECS) 가까운 창의 옆면 뒤로 달려가 숨는다 — 머리만 쏙 (peek).
-//! 진짜로 창 뒤로 가지는 않는다 (펫 창은 늘 맨 앞): 몸 가운데를 옆면 안쪽 HIDE_INSET에 두고, 그림이 옆면 안쪽(창 쪽)은 그리지 않아
-//! 창에 가린 것처럼 보인다. 그래서 숨을 수 있는 곳은 그 창이 몸을 위아래로 다 덮고, 그 자리에서 맨 앞 창인 옆면뿐이다
+//! 바닥에서 쉬거나 걷던 흐물이가 가끔 (HIDE_RATE, 쿨다운 COOLDOWN_SECS) 가까운 창의 옆면 뒤로 달려가 숨음 — 머리만 쏙 (peek).
+//! 진짜로 창 뒤로 가지는 않음 (펫 창은 늘 맨 앞): 몸 가운데를 옆면 안쪽 HIDE_INSET에 두고, 그림이 옆면 안쪽(창 쪽)은 그리지 않아
+//! 창에 가린 것처럼 보임. 그래서 숨을 수 있는 곳은 그 창이 몸을 위아래로 다 덮고, 그 자리에서 맨 앞 창인 옆면뿐임
 //! (같은 바닥 조각 위, HIDE_REACH 안).
 //!
 //! 커서가 머리에서 몸 FOUND_BODIES배 안으로 오면 "Found me!" 하고 커서 반대쪽으로 줄행랑 (panic). 아무도 못 찾으면
-//! HIDE_SECS 뒤 "Peekaboo~" 하고 걸어 나온다. 창이 움직이면 따라가고, 사라지거나 몸을 더 덮지 않으면 그냥 나온다.
+//! HIDE_SECS 뒤 "Peekaboo~" 하고 걸어 나옴. 창이 움직이면 따라가고, 사라지거나 몸을 더 덮지 않으면 그냥 나옴
 
 use super::*;
 
@@ -15,35 +15,38 @@ pub const HIDE_RATE: f64 = 1.0 / 60.0;
 /// 한 번 숨은 뒤 다시 숨기까지
 pub const COOLDOWN_SECS: (f64, f64) = (240.0, 420.0);
 const FIRST_READY_SECS: f64 = 90.0;
-/// 몸 가운데가 옆면 안쪽으로 이만큼 (몸 배) — 그림 peek은 이 옆면 오른쪽을 그리지 않는다 (tools/draw_heumul.py HIDE_INSET)
+/// 몸 가운데가 옆면 안쪽으로 이만큼 (몸 배) — 그림 peek은 이 옆면 오른쪽을 그리지 않음 (tools/draw_heumul.py HIDE_INSET)
 pub const HIDE_INSET: f64 = 0.15;
 /// 숨으러 갈 수 있는 거리 (몸 배)
 pub const HIDE_REACH: f64 = 6.0;
-/// 숨어 있는 시간 (못 찾으면 나온다)
+/// 숨어 있는 시간 (못 찾으면 나옴)
 pub const HIDE_SECS: (f64, f64) = (20.0, 40.0);
-/// 커서가 머리에서 몸 이만큼 안이면 들켰다
+/// 커서가 머리에서 몸 이만큼 안이면 들켰음
 pub const FOUND_BODIES: f64 = 2.0;
-/// 숨을 곳까지 달려가다 이만큼 못 닿으면 그만둔다
+/// 숨을 곳까지 달려가다 이만큼 못 닿으면 그만둠
 const APPROACH_SECS: f64 = 8.0;
 /// 나올 때 걷는 시간
 const COME_OUT_SECS: (f64, f64) = (1.5, 3.0);
 
-/// 숨바꼭질 단계 — window의 side 옆면 (Left = 창 왼쪽 옆면: 창이 몸 오른쪽에 있다)
+/// 숨바꼭질 단계 — window의 side 옆면 (Left = 창 왼쪽 옆면: 창이 몸 오른쪽에 있음)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HidePhase {
-    /// 옆면 뒤 자리로 달려간다 (remaining = 남은 제한 시간)
+    /// 옆면 뒤 자리로 달려감 (remaining = 남은 제한 시간)
     Approach { window: u64, side: Side },
-    /// 머리만 내밀고 숨어 있다 (remaining = 못 찾으면 나올 때까지)
+    /// 머리만 내밀고 숨어 있음 (remaining = 못 찾으면 나올 때까지)
     Peek { window: u64, side: Side },
 }
 
+/// 창 뒤 숨기의 기억: 난수, 다음 숨기 시각
 #[derive(Debug, Clone)]
 pub struct HideMood {
     rng: fastrand::Rng,
+    /// 이 시각(clock)부터 숨을 수 있음
     pub(super) ready_at: f64,
 }
 
 impl HideMood {
+    /// 시드로 난수를 따로 둠
     pub(super) fn new(seed: u64) -> Self {
         HideMood { rng: fastrand::Rng::with_seed(seed ^ 0x6869_6465), ready_at: FIRST_READY_SECS }
     }
@@ -92,11 +95,13 @@ impl Pet {
             .min_by(|a, b| (a.2 - self.body.x).abs().total_cmp(&(b.2 - self.body.x).abs()))
     }
 
+    /// 테스트: 숨을 창과 쪽
     #[cfg(test)]
     pub(super) fn hide_spot_for_test(&self, world: &World) -> Option<(u64, Side)> {
         self.hide_spot(world).map(|(id, side, _)| (id, side))
     }
 
+    /// 한가할 때 HIDE_RATE 확률로 숨기를 시작함. 시작했으면 true
     pub(super) fn maybe_hide(&mut self, dt: f64, world: &World) -> bool {
         if self.clock < self.hide.ready_at || !self.antics_free() || self.hide.rng.f64() >= HIDE_RATE * dt {
             return false;
@@ -104,7 +109,7 @@ impl Pet {
         self.start_hide(world)
     }
 
-    /// 가까운 옆면 뒤로 숨으러 간다 (주사위 없이). 숨을 곳이 없으면 false
+    /// 가까운 옆면 뒤로 숨으러 감 (주사위 없이). 숨을 곳이 없으면 false
     pub(super) fn start_hide(&mut self, world: &World) -> bool {
         let Some((window, side, _)) = self.hide_spot(world) else { return false };
         self.hide.ready_at = self.clock + behavior::range(&mut self.hide.rng, COOLDOWN_SECS);
@@ -115,6 +120,7 @@ impl Pet {
         true
     }
 
+    /// 숨기 한 틱: 창 옆으로 달려가 빼꼼 내다보다가 돌아옴
     pub(super) fn update_hide(&mut self, dt: f64, world: &World, phase: HidePhase, remaining: f64) {
         if self.antics_interrupted() {
             self.state = self.idle_state();
@@ -177,20 +183,21 @@ impl Pet {
         }
     }
 
-    /// 내민 머리 가까이 커서가 왔다
+    /// 내민 머리 가까이 커서가 왔음
     fn cursor_finds_me(&self, side: Side) -> bool {
         let size = self.cfg.size;
         let head = (self.body.x - inward(side) * (HIDE_INSET + 0.15) * size, self.body.y - 0.65 * size);
         (self.cursor.0 - head.0).hypot(self.cursor.1 - head.1) <= FOUND_BODIES * size
     }
 
-    /// 창 바깥쪽으로 걸어 나온다
+    /// 창 바깥쪽으로 걸어 나옴
     fn come_out(&mut self, side: Side) {
         self.facing = -inward(side);
         let secs = behavior::range(&mut self.hide.rng, COME_OUT_SECS);
         self.state = State::Move { kind: Move::Walk, remaining: secs };
     }
 
+    /// 숨기 그림: 다가갈 때 달리기, 숨어서 빼꼼
     pub(super) fn hide_anim(&self, phase: HidePhase) -> Anim {
         match phase {
             HidePhase::Approach { .. } => Anim::Run,

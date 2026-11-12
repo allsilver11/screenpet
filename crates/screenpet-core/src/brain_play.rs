@@ -1,8 +1,8 @@
 //! 다른 동물들도 더 놀기 (v0.6.3) — brain.rs의 자식 모듈. 숫자는 play.rs.
-//! 하는 중인 놀이를 이어 간다: 🐱 툭툭 (brain_knock.rs) · 🐿️ 볼 빵빵 (brain_stash.rs) · 🦆 기차 (brain_train.rs) ·
+//! 하는 중인 놀이를 이어 감: 🐱 툭툭 (brain_knock.rs) · 🐿️ 볼 빵빵 (brain_stash.rs) · 🦆 기차 (brain_train.rs) ·
 //! 🙌 하이파이브 (brain_highfive.rs) · 깜짝 폴짝 (여기 — 🦖 큰 쿵·기차 끝). 🦖 큰 쿵 자체는 brain_quake.rs.
 //!
-//! 주사위는 놀이 주사위(PlayMood.rng)로 굴린다 — 평소 동작(Pet::rng)과 다른 동물의 주사위 순서는 그대로.
+//! 주사위는 놀이 주사위(PlayMood.rng)로 굴림 — 평소 동작(Pet::rng)과 다른 동물의 주사위 순서는 그대로.
 
 use super::*;
 use super::highfive_moves::HighFivePhase;
@@ -17,38 +17,43 @@ const FIRST_READY_SECS: f64 = 60.0;
 pub enum BounceThen {
     /// 잠깐 앉았다가 평소대로
     Rest,
-    /// 🦆 기차 끝: 아무 쪽으로 흩어져 걷는다
+    /// 🦆 기차 끝: 아무 쪽으로 흩어져 걸음
     Disperse,
 }
 
 /// 놀이의 기억
 #[derive(Debug, Clone)]
 pub struct PlayMood {
+    /// 놀이 전용 난수
     pub(super) rng: fastrand::Rng,
-    /// 이 시각(clock)부터 다시 할 수 있다
+    /// 이 시각(clock)부터 다시 할 수 있음
     pub(super) knock_ready_at: f64,
+    /// 다람쥐 숨기기를 다시 할 수 있는 시각
     pub(super) stash_ready_at: f64,
+    /// 오리 기차를 다시 할 수 있는 시각
     pub(super) train_ready_at: f64,
+    /// 쿵쾅을 다시 할 수 있는 시각
     pub(super) quake_ready_at: f64,
     /// 주사위를 굴린 물건과 다시 굴릴 수 있는 시각
     pub(super) seen: Vec<(u64, f64)>,
-    /// 바닥의 물건들 (notice_play_objects가 채운다)
+    /// 바닥의 물건들 (notice_play_objects가 채움)
     pub(super) spots: Vec<ObjectSpot>,
     /// 앱에 알릴 물건 일 (take_object_play로 한 번)
     pub(super) event: Option<ObjectPlay>,
-    /// 🦆 기차를 부르고 싶다 — 이 시각까지 걷기 시작하면 코디네이터가 친구를 모은다
+    /// 🦆 기차를 부르고 싶음 — 이 시각까지 걷기 시작하면 코디네이터가 친구를 모음
     pub(super) train_until: f64,
     /// 🦆 따라갈 자리 (x, 그 자리에서 볼 쪽, 알려 준 시각)
     pub(super) follow: Option<(f64, f64, f64)>,
     /// 🐿️ 볼에 든 물건 수
     pub(super) cheeks: u8,
-    /// 🦖 막 시작한 쿵쾅이 큰 쿵이다
+    /// 🦖 막 시작한 쿵쾅이 큰 쿵임
     pub(super) big_stomp: bool,
     /// 🙌 뛸 때 "High five!" 하는 쪽
     pub(super) speak_five: bool,
 }
 
 impl PlayMood {
+    /// 시드로 난수를 따로 둠. 모든 놀이는 FIRST_READY_SECS 뒤부터
     pub(super) fn new(seed: u64) -> Self {
         PlayMood {
             rng: fastrand::Rng::with_seed(seed ^ 0x706c_6179),
@@ -74,7 +79,7 @@ impl Pet {
         self.play.event.take()
     }
 
-    /// 매 틱 update 전에: 바닥의 물건 (🐱 고양이·🐿️ 다람쥐만 일이 있다). 숨겨 둔 동안엔 앱이 빈 목록을 준다
+    /// 매 틱 update 전에: 바닥의 물건 (🐱 고양이·🐿️ 다람쥐만 일이 있음). 숨겨 둔 동안엔 앱이 빈 목록을 줌
     pub fn notice_play_objects(&mut self, spots: &[ObjectSpot], world: &World) {
         if !self.cfg.knocks && !self.cfg.stashes {
             return;
@@ -89,7 +94,7 @@ impl Pet {
         }
     }
 
-    /// 새 놀이를 시작할 수 있다: 디딤판 위에서 스스로 걷거나 쉬는 중, 볼일·잡힘·조용한 때·떠나는 길·든 것 없음
+    /// 새 놀이를 시작할 수 있음: 디딤판 위에서 스스로 걷거나 쉬는 중, 볼일·잡힘·조용한 때·떠나는 길·든 것 없음
     pub(super) fn play_free(&self) -> bool {
         matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. })
             && self.standing.is_some()
@@ -106,7 +111,7 @@ impl Pet {
             && self.juggle.carry.is_none()
     }
 
-    /// 하던 놀이를 그만둬야 한다 (사용자 볼일·자리 비움·집중·하우스·창 안·떠나는 길)
+    /// 하던 놀이를 그만둬야 함 (사용자 볼일·자리 비움·집중·하우스·창 안·떠나는 길)
     pub(super) fn romp_interrupted(&self) -> bool {
         self.housed || self.has_errand() || self.presence_quiet() || self.inside.is_some() || self.is_heading_out() || self.tickling
     }
@@ -136,13 +141,14 @@ impl Pet {
         true
     }
 
-    /// 제자리에서 폴짝 (rise = 몸 크기 배, 그림만 뜬다 — 디딤판 위에 그대로 있다)
+    /// 제자리에서 폴짝 (rise = 몸 크기 배, 그림만 뜸 — 디딤판 위에 그대로 있음)
     pub(super) fn start_bounce(&mut self, rise: f64, then: BounceThen) {
         self.pacing.after_beat = None;
         self.clear_hover();
         self.state = State::Bounce { t: 0.0, rise, then };
     }
 
+    /// 제자리 통통 튀기 한 틱. 끝나면 then을 함
     fn update_bounce(&mut self, dt: f64, world: &World, t: f64, rise: f64, then: BounceThen) {
         if !self.follow_anchor(world) {
             self.start_fall();
@@ -218,12 +224,12 @@ impl Pet {
 
 #[cfg(test)]
 impl Pet {
-    /// 테스트: 지금 걷고 있으면 기차를 부르고 싶다 (주사위·쉬는 때 없이)
+    /// 테스트: 지금 걷고 있으면 기차를 부르고 싶음 (주사위·쉬는 때 없이)
     pub(crate) fn want_train_now(&mut self) {
         self.play.train_until = self.clock + 4.0;
     }
 
-    /// 테스트: 다음 쿵쾅은 큰 쿵이다 / 쉬는 때가 남았다
+    /// 테스트: 다음 쿵쾅은 큰 쿵임 / 쉬는 때가 남았음
     pub(crate) fn set_quake_ready(&mut self, ready: bool) {
         self.play.quake_ready_at = if ready { f64::NEG_INFINITY } else { f64::INFINITY };
     }
@@ -233,15 +239,17 @@ impl Pet {
         self.play.train_ready_at = at;
     }
 
+    /// 테스트: 오리 기차를 다시 할 수 있는 시각
     pub(crate) fn train_ready_at(&self) -> f64 {
         self.play.train_ready_at
     }
 
+    /// 테스트: 동물 시계
     pub(crate) fn play_clock(&self) -> f64 {
         self.clock
     }
 
-    /// 테스트: 막 시작한 쿵쾅이 큰 쿵이 되게 고른다 (force_stomp 뒤에)
+    /// 테스트: 막 시작한 쿵쾅이 큰 쿵이 되게 고름 (force_stomp 뒤에)
     pub(crate) fn begin_stomp_now(&mut self) {
         self.begin_stomp();
     }

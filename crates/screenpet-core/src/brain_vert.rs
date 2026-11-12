@@ -1,12 +1,12 @@
 //! 위/아래 친구 화면 (v0.3.6): 친구 화면이 내 화면 위나 아래에 붙어 있으면
-//! - 높이 뛰어 나가기: 이동을 정할 때 가끔(visit::vertical_exit_chance) 웅크렸다가 "boing!" 하고 화면 위로 솟구쳐 나간다
-//!   (바닥이나 창 윗면에서, 머리 위가 비었을 때만 — 개구리는 더 자주). 나는 동물은 그냥 위로 날아 나간다.
-//! - 바닥 밑으로 쏙: 가장 아래 바닥(작업표시줄 위)에서 폴짝 뛰었다가 "whee!" 하고 바닥을 뚫고 아래로 빠진다. 나는 동물은 아래로 날아 나간다.
-//! - 던지기: 위 끝으로 세게 던지거나 아래로 던져 바닥에 닿으면 듀얼 모니터처럼 넘어간다 (Fling.height = 폭 비율 0 왼쪽 … 1 오른쪽).
-//!   끝은 그 줄의 끝이다 (visit::column_bounds): 모니터마다 작업표시줄이나 크기가 달라도 위아래에 다른 모니터가 없으면 넘어간다.
-//!   아래로 던진 것은 창 윗면에 내려앉지 않고 바닥까지 간다 (아래 친구가 있을 때만).
-//! - 들어오기: 위에서 오면(위 끝으로 들어옴) 위에서 떨어져 내려서고, 아래에서 오면 바닥 밑에서 "boing!" 튀어 올라 내려선다.
-//!   나는 동물은 위/아래에서 날아 들어온다.
+//! - 높이 뛰어 나가기: 이동을 정할 때 가끔(visit::vertical_exit_chance) 웅크렸다가 "boing!" 하고 화면 위로 솟구쳐 나감
+//!   (바닥이나 창 윗면에서, 머리 위가 비었을 때만 — 개구리는 더 자주). 나는 동물은 그냥 위로 날아 나감
+//! - 바닥 밑으로 쏙: 가장 아래 바닥(작업표시줄 위)에서 폴짝 뛰었다가 "whee!" 하고 바닥을 뚫고 아래로 빠짐. 나는 동물은 아래로 날아 나감
+//! - 던지기: 위 끝으로 세게 던지거나 아래로 던져 바닥에 닿으면 듀얼 모니터처럼 넘어감 (Fling.height = 폭 비율 0 왼쪽 … 1 오른쪽).
+//!   끝은 그 줄의 끝임 (visit::column_bounds): 모니터마다 작업표시줄이나 크기가 달라도 위아래에 다른 모니터가 없으면 넘어감
+//!   아래로 던진 것은 창 윗면에 내려앉지 않고 바닥까지 감 (아래 친구가 있을 때만).
+//! - 들어오기: 위에서 오면(위 끝으로 들어옴) 위에서 떨어져 내려서고, 아래에서 오면 바닥 밑에서 "boing!" 튀어 올라 내려섬
+//!   나는 동물은 위/아래에서 날아 들어옴
 //!
 //! 상태는 State::Exit / State::Enter 그대로 (side가 Up/Down). brain.rs의 자식 모듈.
 
@@ -14,12 +14,12 @@ use super::*;
 use crate::visit::Fling;
 
 impl Pet {
-    /// 친구가 연결된 위/아래 끝을 정한다 (set_exit_edges는 왼쪽/오른쪽)
+    /// 친구가 연결된 위/아래 끝을 정함 (set_exit_edges는 왼쪽/오른쪽)
     pub fn set_vertical_edges(&mut self, up: bool, down: bool) {
         self.exit_edges = ExitEdges { up, down, ..self.exit_edges };
     }
 
-    /// move_state 처음: 위/아래로 나갈지 정한다 (나가면 그 상태). 창 안·집에 가는 길·보내는 중·먹이·손 음식·조작 중엔 안 한다
+    /// move_state 처음: 위/아래로 나갈지 정함 (나가면 그 상태). 창 안·집에 가는 길·보내는 중·먹이·손 음식·조작 중엔 안 함
     pub(super) fn vertical_exit_state(&mut self, world: &World) -> Option<State> {
         if self.control.is_some() || self.inside.is_some() || self.home_trip.is_some() || self.send.is_some() || self.food.is_some() || self.hand.is_some() || self.housed {
             return None;
@@ -40,7 +40,7 @@ impl Pet {
     }
 
     /// 지금 자리에서 side(위/아래) 끝으로 나갈 수 있는지: 그 줄(visit::column_bounds)에 작업 영역이 있어야 하고,
-    /// 걷는 동물은 위로면 머리 위(SKY_HEADROOM_SIZES)에 창이 없고 그 위에 다른 모니터가 없어야, 아래로면 그 줄 가장 아래 바닥에 서 있어야 한다
+    /// 걷는 동물은 위로면 머리 위(SKY_HEADROOM_SIZES)에 창이 없고 그 위에 다른 모니터가 없어야, 아래로면 그 줄 가장 아래 바닥에 서 있어야 함
     pub(super) fn can_go_vertical(&self, world: &World, side: Side) -> bool {
         let (x, y) = (self.body.x, self.body.y);
         let Some(col) = visit::column_bounds(world, x) else {
@@ -63,7 +63,7 @@ impl Pet {
         }
     }
 
-    /// 위/아래로 나가기 시작 — 걷는 동물은 웅크리기부터, 나는 동물은 바로 날아간다
+    /// 위/아래로 나가기 시작 — 걷는 동물은 웅크리기부터, 나는 동물은 바로 날아감
     pub(super) fn vertical_exit(&mut self, side: Side) -> State {
         self.pacing.after_beat = None;
         self.clear_hover();
@@ -79,7 +79,7 @@ impl Pet {
     }
 
     /// 화면 기어오르기를 시작할 상태 (목표가 발보다 낮으면 None). 위 친구가 있고 그 줄 맨 위 모니터면
-    /// 걸어 나가기 확률(visit::exit_chance)만큼은 끝까지 올라 위 친구 화면으로 넘어간다
+    /// 걸어 나가기 확률(visit::exit_chance)만큼은 끝까지 올라 위 친구 화면으로 넘어감
     pub(super) fn climb_state(&mut self, world: &World) -> Option<State> {
         let hang = behavior::CLIMB_HANG_SECS;
         let chance = visit::exit_chance(Side::Up, self.exit_edges, self.guest) * visit::CLIMB_OVER_SCALE;
@@ -90,13 +90,13 @@ impl Pet {
         Some(State::Climb { target_y, hang, over: false })
     }
 
-    /// 지금 자리 모니터의 위가 그 줄의 맨 위 끝이다 (위에 다른 모니터가 없다)
+    /// 지금 자리 모니터의 위가 그 줄의 맨 위 끝임 (위에 다른 모니터가 없음)
     fn climb_top_is_outer(&self, world: &World) -> bool {
         let (x, y) = (self.body.x, self.body.y);
         visit::column_bounds(world, x).is_some_and(|col| (world.work_area_at(x, y).top - col.top).abs() <= 2.0)
     }
 
-    /// 위로 넘어가는 기어오르기 한 틱: 끝 너머로 몸이 다 빠지면 사라진다. 그새 위 친구가 사라졌으면 보통 기어오르기로
+    /// 위로 넘어가는 기어오르기 한 틱: 끝 너머로 몸이 다 빠지면 사라짐. 그새 위 친구가 사라졌으면 보통 기어오르기로
     pub(super) fn update_climb_over(&mut self, dt: f64, world: &World, hang: f64) {
         if !self.exit_edges.up || !self.climb_top_is_outer(world) {
             let target_y = self.climb_target(world).unwrap_or(self.body.y);
@@ -121,12 +121,12 @@ impl Pet {
         }
     }
 
-    /// 나는 동물이 위/아래로 날아 나가거나 들어오는 속도 (px/s) — 화면 높이를 몇 초 안에 지나간다
+    /// 나는 동물이 위/아래로 날아 나가거나 들어오는 속도 (px/s) — 화면 높이를 몇 초 안에 지나감
     fn vertical_fly_speed(&self) -> f64 {
         self.fly_speed(Move::Run).max(self.scaled(450.0))
     }
 
-    /// 걷는 동물: 웅크림(서 있는 동안) → 위로 솟구치거나(Up) 폴짝 뒤 바닥을 뚫고(Down) → 몸이 다 빠져나가면 사라진다
+    /// 걷는 동물: 웅크림(서 있는 동안) → 위로 솟구치거나(Up) 폴짝 뒤 바닥을 뚫고(Down) → 몸이 다 빠져나가면 사라짐
     fn update_vexit(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         let b = visit::column_bounds(world, self.body.x).unwrap_or(world.bounds);
         if self.standing.is_some() {
@@ -161,6 +161,7 @@ impl Pet {
         }
     }
 
+    /// 친구 화면으로 위·아래로 날아 나가는 한 틱
     fn update_fly_vexit(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         self.standing = None;
         let dir = if side == Side::Up { -1.0 } else { 1.0 };
@@ -174,8 +175,8 @@ impl Pet {
         }
     }
 
-    /// 위/아래 끝(side) 바로 바깥에 두고 들어오게 한다 (enter가 부른다). frac = 그 끝 어디쯤 (폭 비율, 없으면 아무 데나).
-    /// 위에서: 몸이 막 화면 위에 있는 자리에서 떨어진다. 아래에서: 바닥 밑에서 "boing!" 튀어 오른다
+    /// 위/아래 끝(side) 바로 바깥에 두고 들어오게 함 (enter가 부름). frac = 그 끝 어디쯤 (폭 비율, 없으면 아무 데나).
+    /// 위에서: 몸이 막 화면 위에 있는 자리에서 떨어짐. 아래에서: 바닥 밑에서 "boing!" 튀어 오름
     pub(super) fn enter_vertical(&mut self, world: &World, side: Side, frac: Option<f64>) {
         let b = world.bounds;
         let size = self.cfg.size;
@@ -194,7 +195,7 @@ impl Pet {
         self.state = State::Enter { remaining: visit::VERTICAL_MAX_SECS, side };
     }
 
-    /// 아래에서 튀어 오르는 처음 속도 (바닥 밑 몸 하나 + POP_UP_SIZES만큼 솟는다)
+    /// 아래에서 튀어 오르는 처음 속도 (바닥 밑 몸 하나 + POP_UP_SIZES만큼 솟음)
     fn pop_up_vy(&self) -> f64 {
         -(2.0 * GRAVITY * (1.0 + visit::POP_UP_SIZES) * self.cfg.size).sqrt()
     }
@@ -254,8 +255,8 @@ impl Pet {
     }
 
     /// 던진 비행의 다음 발 높이(next_y)가 이 줄의 위 끝 + head 위로(올라가는 중) 또는 이 줄 가장 아래 바닥 밑으로(아래로 던졌거나 세게 내리꽂는 중)
-    /// 넘어가면: 그 끝으로 넘어갈 수 있으면 넘어가고 true. 발이 이미 바닥 밑이어도 된다 (작업표시줄 위에서 놓은 경우).
-    /// 그 바닥에 내려서기 전에 불러야 한다 (next_y는 이번 틱의 중력까지 더한 값)
+    /// 넘어가면: 그 끝으로 넘어갈 수 있으면 넘어가고 true. 발이 이미 바닥 밑이어도 됨 (작업표시줄 위에서 놓은 경우).
+    /// 그 바닥에 내려서기 전에 불러야 함 (next_y는 이번 틱의 중력까지 더한 값)
     pub(super) fn fling_out_vertical(&mut self, world: &World, next_y: f64, head: f64) -> bool {
         if !self.thrown || self.home_trip.is_some() || self.inside.is_some() {
             return false;
@@ -279,13 +280,13 @@ impl Pet {
         true
     }
 
-    /// 아래로 던졌고 그 끝으로 넘어갈 수 있다 (바닥까지 창 윗면에 내려앉지 않는다)
+    /// 아래로 던졌고 그 끝으로 넘어갈 수 있음 (바닥까지 창 윗면에 내려앉지 않음)
     pub(super) fn thrown_to_friend_below(&mut self) -> bool {
         self.thrown && self.thrown_down && self.home_trip.is_none() && self.inside.is_none() && self.exit_odds(Side::Down) > 0.0
     }
 
-    /// 다른 화면에서 위/아래로 던져져 들어온다 (enter_flung이 부른다): 그 끝의 폭 비율 자리에서, 가로 속도를 이어 받고
-    /// 위에서면 내려오는 속도, 아래에서면 적어도 튀어 오를 만큼의 속도로. 나는 동물은 평소처럼 날아 들어온다
+    /// 다른 화면에서 위/아래로 던져져 들어옴 (enter_flung이 부름): 그 끝의 폭 비율 자리에서, 가로 속도를 이어 받고
+    /// 위에서면 내려오는 속도, 아래에서면 적어도 튀어 오를 만큼의 속도로. 나는 동물은 평소처럼 날아 들어옴
     pub(super) fn enter_flung_vertical(&mut self, world: &World, side: Side, fling: Fling) {
         self.enter(world, side);
         let Some(f) = fling.sanitized() else { return };

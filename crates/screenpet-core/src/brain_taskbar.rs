@@ -1,10 +1,10 @@
 //! 📌 작업표시줄(Dock)에서 앱 아이콘 장난감 끌어내기 (pet.json `taskbar_play` — 흐물이)의 Pet 동작 — brain.rs의 자식 모듈. 숫자와 까닭은 taskbar.rs.
 //!
-//! - `notice_taskbar`: 앱이 매 틱 (notice_objects 뒤에) 바닥의 물건 자리와 장난감 사정(Toys)을 넘긴다.
+//! - `notice_taskbar`: 앱이 매 틱 (notice_objects 뒤에) 바닥의 물건 자리와 장난감 사정(Toys)을 넘김
 //!   화면 아래 바닥을 걷거나 쉬다가 굴릴 때가 되면 한 번 주사위 → 쪼그려 끙차 (JugglePhase::Yank) + JuggleEvent::Pull.
-//! - 앱이 장난감 창을 만들어 `hold_toy`로 쥐여 주면 번쩍 들어 올린다 — 그 뒤는 들고 던지기와 같다 (brain_juggle.rs, 배달은 빼고).
-//! - 손을 떠난 장난감이 내려앉으면 조금 뒤 가서 주워 바닥을 조금 걷다가 도로 밀어 넣는다 (JugglePhase::Stuff + JuggleEvent::Stow → 앱이 뿅).
-//! - 앱이 장난감이 없어졌다고 하면 (치움·저절로 사라짐) 잊는다.
+//! - 앱이 장난감 창을 만들어 `hold_toy`로 쥐여 주면 번쩍 들어 올림 — 그 뒤는 들고 던지기와 같음 (brain_juggle.rs, 배달은 빼고).
+//! - 손을 떠난 장난감이 내려앉으면 조금 뒤 가서 주워 바닥을 조금 걷다가 도로 밀어 넣음 (JugglePhase::Stuff + JuggleEvent::Stow → 앱이 뿅).
+//! - 앱이 장난감이 없어졌다고 하면 (치움·저절로 사라짐) 잊음
 
 use super::juggle_moves::{JugglePhase, Plan};
 use super::*;
@@ -16,21 +16,23 @@ use crate::taskbar::{self, Toys};
 pub struct ToyMood {
     /// 이 동물만 굴리는 주사위 (다른 동물과 들고 던지기 주사위 순서는 그대로)
     pub(super) rng: fastrand::Rng,
-    /// 다음에 끌어내기 주사위를 굴릴 시각 (clock). 처음 볼 때 정한다
+    /// 다음에 끌어내기 주사위를 굴릴 시각 (clock). 처음 볼 때 정함
     pub(super) next_at: Option<f64>,
     /// 내가 끌어내 화면에 있는 장난감 (물건 id)
     pub(super) toy: Option<u64>,
-    /// 도로 넣으러 갈 시각 — 장난감이 손을 떠나 놓인 것을 본 뒤에 정한다
+    /// 도로 넣으러 갈 시각 — 장난감이 손을 떠나 놓인 것을 본 뒤에 정함
     pub(super) return_at: Option<f64>,
     /// 도로 넣으려고 다가가는 중
     pub(super) returning: bool,
 }
 
 impl ToyMood {
+    /// 시드로 난수를 따로 둠
     pub(super) fn new(seed: u64) -> Self {
         ToyMood { rng: fastrand::Rng::with_seed(seed ^ 0x7461_736b), next_at: None, toy: None, return_at: None, returning: false }
     }
 
+    /// 장난감 기억을 지움
     fn forget(&mut self) {
         self.toy = None;
         self.return_at = None;
@@ -39,12 +41,12 @@ impl ToyMood {
 }
 
 impl Pet {
-    /// 장난감을 기다리며 끙차 당기는 중 (앱: 장난감을 다 만들었을 때 아직 이러면 쥐여 준다)
+    /// 장난감을 기다리며 끙차 당기는 중 (앱: 장난감을 다 만들었을 때 아직 이러면 쥐여 줌)
     pub fn wants_toy(&self) -> bool {
         self.cfg.taskbar_play && matches!(self.state, State::Juggle { phase: JugglePhase::Yank, .. }) && self.juggle.carry.is_none()
     }
 
-    /// 앱이 만든 장난감(id)을 쥐여 준다. 이제 안 기다리면 false (앱은 그 장난감을 만들지 않는다)
+    /// 앱이 만든 장난감(id)을 쥐여 줌. 이제 안 기다리면 false (앱은 그 장난감을 만들지 않음)
     pub fn hold_toy(&mut self, id: u64) -> bool {
         if !self.wants_toy() {
             return false;
@@ -58,12 +60,12 @@ impl Pet {
         true
     }
 
-    /// 화면 아래 바닥(작업표시줄 쪽)에 서 있다 — 작업표시줄이 옆·위에 있거나 숨어 있어도 바닥에서 한다
+    /// 화면 아래 바닥(작업표시줄 쪽)에 서 있음 — 작업표시줄이 옆·위에 있거나 숨어 있어도 바닥에서 함
     fn on_bottom_ground(&self) -> bool {
         self.standing.is_some_and(|s| matches!(s.owner, Owner::Ground(_)))
     }
 
-    /// 매 틱 notice_objects 뒤에: 끌어낼 때인지, 도로 넣으러 갈 때인지 본다 (taskbar_play인 동물만 일이 있다)
+    /// 매 틱 notice_objects 뒤에: 끌어낼 때인지, 도로 넣으러 갈 때인지 봄 (taskbar_play인 동물만 일이 있음)
     pub fn notice_taskbar(&mut self, spots: &[ObjectSpot], toys: Toys, world: &World) {
         if !self.cfg.taskbar_play {
             return;
@@ -95,7 +97,7 @@ impl Pet {
         self.start_yank();
     }
 
-    /// 손을 떠난 장난감이 놓인 것을 보면 도로 넣으러 갈 시각을 정하고, 때가 되면 (같은 바닥에서 닿을 수 있으면) 다가간다
+    /// 손을 떠난 장난감이 놓인 것을 보면 도로 넣으러 갈 시각을 정하고, 때가 되면 (같은 바닥에서 닿을 수 있으면) 다가감
     fn plan_return(&mut self, id: u64, spots: &[ObjectSpot], world: &World) {
         if self.juggle.carry == Some(id) {
             return;
@@ -128,6 +130,7 @@ impl Pet {
         }
     }
 
+    /// 작업표시줄 아이콘을 끌어내기 시작함
     fn start_yank(&mut self) {
         self.pacing.after_beat = None;
         self.clear_hover();
@@ -139,7 +142,7 @@ impl Pet {
         self.state = State::Juggle { phase: JugglePhase::Yank, t: 0.0 };
     }
 
-    /// 끙차 한 틱 (t = 이 단계에 들어선 뒤): 장난감이 왔고 충분히 당겼으면 쑥 빠져 번쩍, 끝내 안 오면 그만둔다
+    /// 끙차 한 틱 (t = 이 단계에 들어선 뒤): 장난감이 왔고 충분히 당겼으면 쑥 빠져 번쩍, 끝내 안 오면 그만둠
     pub(super) fn update_yank(&mut self, world: &World, t: f64) {
         if !self.follow_anchor(world) {
             self.start_fall();
@@ -156,7 +159,7 @@ impl Pet {
         }
     }
 
-    /// 갖고 놀기: 들고 돌아다니다 던지거나 바로 던진다 (친구에게 배달은 하지 않는다)
+    /// 갖고 놀기: 들고 돌아다니다 던지거나 바로 던짐 (친구에게 배달은 하지 않음)
     fn toy_play_plan(&mut self) -> Plan {
         if self.toy.rng.f64() < taskbar::TOY_WANDER_CHANCE {
             Plan::Wander
@@ -165,7 +168,7 @@ impl Pet {
         }
     }
 
-    /// 내 장난감을 주워 들었다 (start_lift): 도로 넣을 때가 됐으면 넣으러, 아니면 또 갖고 논다. 내 장난감이 아니면 None
+    /// 내 장난감을 주워 들었음 (start_lift): 도로 넣을 때가 됐으면 넣으러, 아니면 또 갖고 놂. 내 장난감이 아니면 None
     pub(super) fn toy_pickup_plan(&mut self, id: u64) -> Option<Plan> {
         if self.toy.toy != Some(id) {
             return None;
@@ -177,7 +180,7 @@ impl Pet {
         Some(if due && self.on_bottom_ground() { Plan::Stuff } else { self.toy_play_plan() })
     }
 
-    /// 도로 밀어 넣기 시작 (바닥이 아니면 그냥 던진다)
+    /// 도로 밀어 넣기 시작 (바닥이 아니면 그냥 던짐)
     pub(super) fn start_stuff(&mut self) {
         if !self.on_bottom_ground() {
             self.start_throw();
@@ -187,7 +190,7 @@ impl Pet {
         self.state = State::Juggle { phase: JugglePhase::Stuff { released: false }, t: 0.0 };
     }
 
-    /// 밀어 넣기 한 틱: STUFF_RELEASE에 손을 떠나 바닥 속으로 (앱이 뿅 치운다)
+    /// 밀어 넣기 한 틱: STUFF_RELEASE에 손을 떠나 바닥 속으로 (앱이 뿅 치움)
     pub(super) fn update_stuff(&mut self, world: &World, released: bool, t: f64) {
         if !self.follow_anchor(world) {
             self.start_fall();

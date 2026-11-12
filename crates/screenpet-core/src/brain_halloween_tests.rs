@@ -1,4 +1,4 @@
-//! 할로윈 동물 — 유령(날지만 쏘지 않는다)과 호박(늘 깡총 튀어 다닌다) brain 동작 테스트.
+//! 할로윈 동물 — 유령(날지만 쏘지 않음)과 호박(늘 깡총 튀어 다님) brain 동작 테스트.
 //! brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{sim_cfg, win, world};
@@ -48,14 +48,14 @@ fn ghost_ten_minutes_floats_within_bounds_and_sleeps_only_perched() {
     assert!(sleeping > 0, "never slept");
 }
 
-/// 번들 유령은 나는 동물이다
+/// 번들 유령은 나는 동물임
 #[test]
 fn bundled_ghost_flies() {
     let real = bundled().into_iter().find(|(id, _)| id == "ghost").expect("ghost in ui/pets").1;
     assert!(real.flies);
 }
 
-/// 유령은 느리게 떠다닌다 — 날기 속도는 walk_speed 그대로
+/// 유령은 느리게 떠다님 — 날기 속도는 walk_speed 그대로
 #[test]
 fn ghost_floats_at_its_slow_walk_speed() {
     let w = world(vec![]);
@@ -77,7 +77,7 @@ fn pumpkin() -> PetConfig {
     PetConfig { size, half_w: 0.3 * size, walk_speed: 70.0, hop_share: 1.0, personality: Personality::Playful, ..sim_cfg() }
 }
 
-/// 호박 10분 × 6: 걷기·달리기 시간 내내 통통(첫 틱 빼고), 튀기는 낮고 늘 디딤판 위 (큰 점프·벽 타기는 v0.3.9부터 한다)
+/// 호박 10분 × 6: 걷기·달리기 시간 내내 통통(첫 틱 빼고), 튀기는 낮고 늘 디딤판 위 (큰 점프·벽 타기는 v0.3.9부터 함)
 #[test]
 fn pumpkin_bounces_through_all_of_its_walking() {
     let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0), win(2, 1200.0, 500.0, 1700.0, 800.0)]);

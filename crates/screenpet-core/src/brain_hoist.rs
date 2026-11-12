@@ -2,13 +2,13 @@
 //!
 //! - 같은 바닥에서 쉬거나 걷는 다른 동물 (내 동물·손님 모두)을 처음 알아채면 LIFT_CHANCE로 다가가 쪼그려 머리 위로 번쩍 (lift → hold).
 //!   들린 동물은 State::Lifted — 잡힌 그림(dragged)으로 버둥버둥 (render.wobble) "Put me down!". 흐물이는 조금 들고 다니다가
-//!   살며시 내려놓는다 (stuff 그림 — 던지지 않는다, 들린 동물은 사뿐 떨어져 선다).
+//!   살며시 내려놓음 (stuff 그림 — 던지지 않음, 들린 동물은 사뿐 떨어져 섬).
 //! - 친구에게 데려가기: 앱이 set_lift_edges로 알려 준 끝(그 끝 친구가 새 버전이고, 들린 동물이 이 화면 주인의 동물일 때만 — 손님은 절대
-//!   남의 동물을 데려가지 않는다)까지 같은 바닥으로 갈 수 있으면 CARRY_CHANCE로 그 끝으로 달려가 들고 나간다. 다 나가면 sync_lifts가
-//!   들린 동물도 같은 끝으로 나간 것으로 한다 (그 동물의 take_exit = 같은 끝 — 앱이 그 동물의 방문을 같은 친구에게 보낸다).
+//!   남의 동물을 데려가지 않음)까지 같은 바닥으로 갈 수 있으면 CARRY_CHANCE로 그 끝으로 달려가 들고 나감. 다 나가면 sync_lifts가
+//!   들린 동물도 같은 끝으로 나간 것으로 함 (그 동물의 take_exit = 같은 끝 — 앱이 그 동물의 방문을 같은 친구에게 보냄).
 //! - 들지 않는 동물: 사용자가 잡고 있거나, 하우스 안, 먹는 중, 공중, 날고 있는 새·유령, 무언가 들고 있거나 들고 있는 흐물이,
 //!   떠나고 들어오는 길, 볼일이 있는 동물. 몸이 BIG_RATIO(2)배 넘게 큰 동물은 끙차 하다가 털썩 (strain → slump).
-//! - 쿨다운 COOLDOWN_SECS, 같은 동물은 SAME_PET_SECS 동안 다시 주사위를 굴리지 않는다.
+//! - 쿨다운 COOLDOWN_SECS, 같은 동물은 SAME_PET_SECS 동안 다시 주사위를 굴리지 않음
 
 use super::*;
 use crate::juggle;
@@ -17,7 +17,7 @@ use crate::juggle;
 pub const LIFT_CHANCE: f64 = 0.2;
 /// 알아채는 거리 (몸 배, 같은 바닥)
 pub const NOTICE_REACH: f64 = 4.0;
-/// 같은 동물은 이만큼 다시 주사위를 굴리지 않는다
+/// 같은 동물은 이만큼 다시 주사위를 굴리지 않음
 pub const SAME_PET_SECS: f64 = 60.0;
 /// 한 번 들고(또는 털썩) 나면 다시 들기까지
 pub const COOLDOWN_SECS: (f64, f64) = (120.0, 240.0);
@@ -28,45 +28,49 @@ pub const BIG_RATIO: f64 = 2.0;
 pub const WANDER_SECS: (f64, f64) = (2.0, 5.0);
 /// 친구에게 데려갈 확률 (데려갈 수 있을 때)
 pub const CARRY_CHANCE: f64 = 0.5;
-/// 다가가다 이만큼 못 닿으면 그만둔다
+/// 다가가다 이만큼 못 닿으면 그만둠
 const APPROACH_SECS: f64 = 6.0;
-/// 내려놓기: 쪼그려 내려놓고 (PUT_RELEASE초에 놓는다) PUT_SECS에 끝 (그림 stuff 4칸 6fps)
+/// 내려놓기: 쪼그려 내려놓고 (PUT_RELEASE초에 놓음) PUT_SECS에 끝 (그림 stuff 4칸 6fps)
 pub const PUT_SECS: f64 = 0.7;
+/// 내려놓기에서 손을 놓는 시각 (초)
 pub const PUT_RELEASE: f64 = 0.5;
-/// 흐물이가 이만큼 오래 옮겨 주지 않으면 들린 동물은 그냥 떨어진다
+/// 흐물이가 이만큼 오래 옮겨 주지 않으면 들린 동물은 그냥 떨어짐
 const LIFT_STALE_SECS: f64 = 0.5;
 /// 들린 동물이 "Put me down!" 하는 간격
 const PLEAD_SECS: f64 = 2.5;
 
-/// 같은 화면의 다른 동물 (notice_pets가 채운다)
+/// 같은 화면의 다른 동물 (notice_pets가 채움)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetSpot {
+    /// 동물 키
     pub key: u64,
     /// 발 가운데 (물리 px)
     pub x: f64,
+    /// 발 y (물리 px)
     pub y: f64,
     /// 서 있는 디딤판 (없으면 공중)
     pub owner: Option<Owner>,
+    /// 몸 크기 (물리 px)
     pub size: f64,
-    /// 지금 들 수 있다 (lift_ok)
+    /// 지금 들 수 있음 (lift_ok)
     pub liftable: bool,
-    /// 손님 (다른 사람의 동물 — 친구에게 데려가지 않는다)
+    /// 손님 (다른 사람의 동물 — 친구에게 데려가지 않음)
     pub guest: bool,
 }
 
 /// 들어 올린 뒤 할 일
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HoistPlan {
-    /// 들고 조금 다니다가 근처에 살며시 내려놓는다
+    /// 들고 조금 다니다가 근처에 살며시 내려놓음
     PutDown,
-    /// 그 끝으로 달려가 친구에게 데려간다
+    /// 그 끝으로 달려가 친구에게 데려감
     Carry(Side),
 }
 
 /// 들기 단계 (State::Hoist — t는 이 단계에 들어선 뒤 흐른 시간)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HoistPhase {
-    /// 그 동물 옆(x)으로 다가간다
+    /// 그 동물 옆(x)으로 다가감
     Approach { key: u64, x: f64 },
     /// 너무 큰 동물에 끙차
     Strain { key: u64 },
@@ -74,28 +78,30 @@ pub enum HoistPhase {
     Slump,
     /// 쪼그려 번쩍
     Lift { key: u64 },
-    /// 들고 서 있다가 다닌다
+    /// 들고 서 있다가 다님
     Wander { key: u64, secs: f64 },
-    /// 친구 쪽 끝으로 달려간다
+    /// 친구 쪽 끝으로 달려감
     CarryOff { key: u64, side: Side },
-    /// 살며시 내려놓는다 (released = 이미 놓았다)
+    /// 살며시 내려놓음 (released = 이미 놓았음)
     PutDown { key: u64, released: bool },
 }
 
+/// 흐물이가 친구를 들어 올리는 장난의 기억
 #[derive(Debug, Clone)]
 pub struct HoistMood {
     rng: fastrand::Rng,
+    /// 이 시각(clock)부터 들어 올릴 수 있음
     pub(super) ready_at: f64,
     seen: Vec<(u64, f64)>,
     spots: Vec<PetSpot>,
     plan: HoistPlan,
-    /// 데려갈 수 있는 끝 (앱이 정한다 — 손님 흐물이만)
+    /// 데려갈 수 있는 끝 (앱이 정함 — 손님 흐물이만)
     edges: (bool, bool),
     /// 들고 화면 끝으로 나가는 중인 동물
     out_with: Option<u64>,
-    /// 들고 나갔다 (동물, 끝) — sync_lifts가 한 번 꺼낸다
+    /// 들고 나갔음 (동물, 끝) — sync_lifts가 한 번 꺼냄
     carried_out: Option<(u64, Side)>,
-    /// 방금 들어 올렸다 / 내려놓았다 — sync_lifts가 한 번 꺼낸다
+    /// 방금 들어 올렸음 / 내려놓았음 — sync_lifts가 한 번 꺼냄
     lifted_now: Option<u64>,
     put_now: Option<u64>,
     /// 들린 동물: 마지막으로 옮겨진 시각, 다음 "Put me down!"
@@ -104,6 +110,7 @@ pub struct HoistMood {
 }
 
 impl HoistMood {
+    /// 시드로 난수를 따로 둠
     pub(super) fn new(seed: u64) -> Self {
         HoistMood {
             rng: fastrand::Rng::with_seed(seed ^ 0x686f_6973),
@@ -123,7 +130,7 @@ impl HoistMood {
 }
 
 impl Pet {
-    /// 🙆 이 동물을 지금 들 수 있다 (다른 흐물이가 볼 때)
+    /// 🙆 이 동물을 지금 들 수 있음 (다른 흐물이가 볼 때)
     pub fn lift_ok(&self) -> bool {
         matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. } | State::Sleep { .. })
             && self.standing.is_some()
@@ -176,7 +183,7 @@ impl Pet {
         Some((self.body.x + gx * self.cfg.size, top + gy * self.cfg.size))
     }
 
-    /// 들린 동물: 흐물이(by)에게 번쩍 들렸다
+    /// 들린 동물: 흐물이(by)에게 번쩍 들렸음
     pub fn be_lifted(&mut self, by: u64) -> bool {
         if !self.lift_ok() {
             return false;
@@ -202,7 +209,7 @@ impl Pet {
         }
     }
 
-    /// 들린 동물을 살며시 내려놓았다: 사뿐 떨어져 선다
+    /// 들린 동물을 살며시 내려놓았음: 사뿐 떨어져 섬
     pub fn put_down(&mut self) {
         if !matches!(self.state, State::Lifted { .. }) {
             return;
@@ -215,18 +222,19 @@ impl Pet {
         self.state = State::Air { anim: Anim::Fall };
     }
 
-    /// 들린 채 흐물이와 함께 화면 끝(side)으로 나갔다 — take_exit가 같은 끝을 돌려준다
+    /// 들린 채 흐물이와 함께 화면 끝(side)으로 나갔음 — take_exit가 같은 끝을 돌려줌
     pub fn carried_out(&mut self, side: Side) {
         if matches!(self.state, State::Lifted { .. }) {
             self.vanish(side);
         }
     }
 
-    /// 들려 있다
+    /// 들려 있음
     pub fn is_lifted(&self) -> bool {
         matches!(self.state, State::Lifted { .. })
     }
 
+    /// 들린 동물의 한 틱: 버둥거리고, 흐물이가 오래 옮겨 주지 않으면 떨어짐
     pub(super) fn update_lifted(&mut self, dt: f64, _world: &World, _by: u64) {
         self.wobble_timer = self.wobble_timer.max(2.0 * dt);
         if self.clock - self.hoist.lifted_seen > LIFT_STALE_SECS {
@@ -271,7 +279,7 @@ impl Pet {
         self.start_hoist(&spot, world)
     }
 
-    /// 그 동물 옆으로 다가가기 시작한다 (주사위 없이). 같은 바닥 조각 위에 설 자리가 없으면 false
+    /// 그 동물 옆으로 다가가기 시작함 (주사위 없이). 같은 바닥 조각 위에 설 자리가 없으면 false
     pub fn start_hoist(&mut self, spot: &PetSpot, world: &World) -> bool {
         let Some(to) = self.hoist_x(spot, world) else { return false };
         self.hoist.ready_at = self.clock + behavior::range(&mut self.hoist.rng, COOLDOWN_SECS);
@@ -300,12 +308,13 @@ impl Pet {
         ((x - want).abs() <= 0.3 * self.cfg.size).then_some(x)
     }
 
+    /// 들기를 끝내고 쉬는 박자로 돌아감
     fn end_hoist(&mut self) {
         self.hoist.out_with = None;
         self.state = self.rest_beat();
     }
 
-    /// 들고 있던 동물을 놓쳤다 (사용자가 낚아챘거나 사라졌다): "hmph!"
+    /// 들고 있던 동물을 놓쳤음 (사용자가 낚아챘거나 사라졌음): "hmph!"
     pub fn lose_hoist(&mut self) {
         if self.hoisting().is_none() {
             return;
@@ -317,7 +326,7 @@ impl Pet {
         }
     }
 
-    /// 들어 올린 뒤 할 일: 데려갈 수 있는 끝까지 같은 바닥이고 손님이 아닌 동물이면 CARRY_CHANCE로 데려간다
+    /// 들어 올린 뒤 할 일: 데려갈 수 있는 끝까지 같은 바닥이고 손님이 아닌 동물이면 CARRY_CHANCE로 데려감
     fn hoist_plan(&mut self, key: u64, world: &World) -> HoistPlan {
         let own = self.hoist.spots.iter().find(|s| s.key == key).is_some_and(|s| !s.guest);
         let piece = self.standing.and_then(|st| world.piece_at(st.owner, self.body.x)).copied();
@@ -335,6 +344,7 @@ impl Pet {
         HoistPlan::PutDown
     }
 
+    /// 들어 올리기 한 틱: 다가가 힘주고, 들고 다니다 내려놓음
     pub(super) fn update_hoist(&mut self, dt: f64, world: &World, phase: HoistPhase, t: f64) {
         let t = t + dt;
         if self.antics_interrupted() {
@@ -473,7 +483,7 @@ impl Pet {
         }
     }
 
-    /// 하던 들기를 그만둔다 (들린 동물은 sync_lifts가 내려놓는다)
+    /// 하던 들기를 그만둠 (들린 동물은 sync_lifts가 내려놓음)
     fn lose_hoist_quietly(&mut self) {
         self.hoist.out_with = None;
         if matches!(self.state, State::Hoist { .. }) {
@@ -481,13 +491,14 @@ impl Pet {
         }
     }
 
-    /// 화면 끝으로 다 나갔다 (vanish): 들고 나간 동물을 sync_lifts에 알린다
+    /// 화면 끝으로 다 나갔음 (vanish): 들고 나간 동물을 sync_lifts에 알림
     pub(super) fn hoist_vanished(&mut self, side: Side) {
         if let Some(key) = self.hoist.out_with.take() {
             self.hoist.carried_out = Some((key, side));
         }
     }
 
+    /// 들기 단계별 그림
     pub(super) fn hoist_anim(&self, phase: HoistPhase) -> Anim {
         match phase {
             HoistPhase::Approach { .. } => Anim::Run,
@@ -501,7 +512,7 @@ impl Pet {
     }
 }
 
-/// 같은 화면 동물들의 일 — 앱이 매 틱 동물 update 전에: 흐물이들에게 다른 동물을 보여 준다
+/// 같은 화면 동물들의 일 — 앱이 매 틱 동물 update 전에: 흐물이들에게 다른 동물을 보여 줌
 pub fn notice_pets<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
     if !pets.iter().any(|p| p.as_ref().cfg.antics && p.as_ref().cfg.juggler) {
         return;
@@ -518,8 +529,8 @@ pub fn notice_pets<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
 /// 들고 나간 동물: (흐물이 index, 들린 동물 index, 끝)
 pub type CarriedOut = (usize, usize, Side);
 
-/// 앱이 매 틱 동물 update 뒤에: 들어 올리기·옮기기·내려놓기·놓침·함께 나가기. 함께 나간 짝을 돌려준다
-/// (들린 동물의 take_exit도 같은 끝 — 앱은 그 동물이 흐물이와 같은 친구에게 가게 한다)
+/// 앱이 매 틱 동물 update 뒤에: 들어 올리기·옮기기·내려놓기·놓침·함께 나가기. 함께 나간 짝을 돌려줌
+/// (들린 동물의 take_exit도 같은 끝 — 앱은 그 동물이 흐물이와 같은 친구에게 가게 함)
 pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut> {
     let mut out = Vec::new();
     let find = |pets: &[T], key: u64| pets.iter().position(|p| p.as_ref().social_key == key);

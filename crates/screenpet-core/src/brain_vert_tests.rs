@@ -350,7 +350,7 @@ fn taskbar_and_bare() -> World {
     World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1080.0)], 128.0)
 }
 
-/// 위아래로 쌓인 모니터: 위 모니터는 작업표시줄이 있어 아래 모니터와 틈이 있다
+/// 위아래로 쌓인 모니터: 위 모니터는 작업표시줄이 있어 아래 모니터와 틈이 있음
 fn stacked() -> World {
     World::new(vec![], vec![Rect::new(0.0, -1080.0, 1920.0, -40.0), Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0)
 }
@@ -359,7 +359,7 @@ fn scaled(cfg: PetConfig, dpi: f64) -> PetConfig {
     PetConfig { size: 128.0 * dpi, half_w: 38.0 * dpi, walk_speed: 60.0 * dpi, dpi, ..cfg }
 }
 
-/// 진짜 손놀림: 잡아서 발이 feet_y에 닿을 자리까지 옮겨 잠깐 멈춘 뒤, 커서를 (vx, vy) 물리 px/s로 8틱 끌고 놓는다 (놓는 순간 발이 feet_y)
+/// 진짜 손놀림: 잡아서 발이 feet_y에 닿을 자리까지 옮겨 잠깐 멈춘 뒤, 커서를 (vx, vy) 물리 px/s로 8틱 끌고 놓음 (놓는 순간 발이 feet_y)
 fn throw_by_hand(p: &mut Pet, w: &World, owner: Owner, x: f64, feet_y: f64, v: (f64, f64)) {
     let (_, ay) = w.anchor(owner).unwrap();
     place(p, w, owner, x, idle());
@@ -629,7 +629,7 @@ fn windows_bottom_taskbar_ground_surface_is_the_work_area_bottom() {
     }
 }
 
-/// 둘째 모니터 바닥에 내려서고 그 위를 걷는다 (Ground(1))
+/// 둘째 모니터 바닥에 내려서고 그 위를 걸음 (Ground(1))
 #[test]
 fn a_pet_dropped_on_the_second_monitor_lands_on_its_own_ground() {
     let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1080.0)], 128.0);
@@ -641,7 +641,7 @@ fn a_pet_dropped_on_the_second_monitor_lands_on_its_own_ground() {
     assert_eq!(p.body.y, 1080.0);
 }
 
-/// 진짜 틱 순서: 놓은 뒤 매 틱 update — 넘어가는 틱까지 한 번도 바닥에 내려서지 않는다. 틱 길이와 놓는 높이를 바꿔 가며 (틱이 바닥을 지나는 자리가 다 다르게)
+/// 진짜 틱 순서: 놓은 뒤 매 틱 update — 넘어가는 틱까지 한 번도 바닥에 내려서지 않음. 틱 길이와 놓는 높이를 바꿔 가며 (틱이 바닥을 지나는 자리가 다 다르게)
 #[test]
 fn windows_bottom_taskbar_downward_throw_crosses_before_any_landing_tick_by_tick() {
     for (name, w, x) in windows_bottom_taskbar_setups() {

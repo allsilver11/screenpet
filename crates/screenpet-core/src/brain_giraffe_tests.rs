@@ -1,4 +1,4 @@
-//! 기린 🦒 — 구르지 않고, 구를 차례에 멈춰 서서 목을 쭉 늘린다 (Special::NeckStretch, pet.json에 neckstretch 동작).
+//! 기린 🦒 — 구르지 않고, 구를 차례에 멈춰 서서 목을 쭉 늘림 (Special::NeckStretch, pet.json에 neckstretch 동작).
 //! brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{place, sim_cfg, w1, win, world};
@@ -10,7 +10,7 @@ fn giraffe() -> PetConfig {
     PetConfig { special: Some(Special::NeckStretch), ..sim_cfg() }
 }
 
-/// 기린 10분 × 4 — 한 번도 구르지 않고, 목 늘이기는 여러 번 나온다
+/// 기린 10분 × 4 — 한 번도 구르지 않고, 목 늘이기는 여러 번 나옴
 #[test]
 fn giraffe_never_rolls_but_stretches_its_neck_instead() {
     let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0), win(2, 1300.0, 350.0, 1800.0, 700.0)]);
@@ -33,7 +33,7 @@ fn giraffe_never_rolls_but_stretches_its_neck_instead() {
     assert!(stretches >= 8, "only {stretches} stretches in 40 minutes");
 }
 
-/// 다른 동물은 그대로 구른다 (같은 시뮬레이션에서)
+/// 다른 동물은 그대로 구름 (같은 시뮬레이션에서)
 #[test]
 fn other_pets_still_roll_and_never_neck_stretch() {
     let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0)]);
@@ -75,7 +75,7 @@ fn neck_stretch_stands_still_for_its_fixed_time() {
     assert_ne!(p.render().anim, Anim::NeckStretch);
 }
 
-/// 쉬다가·간질일 때는 목을 늘이지 않는다 (구르기 자리에서만)
+/// 쉬다가·간질일 때는 목을 늘이지 않음 (구르기 자리에서만)
 #[test]
 fn neck_stretch_only_replaces_rolling() {
     assert_eq!((Special::NeckStretch.rest_chance(), Special::NeckStretch.tickle_chance()), (0.0, 0.0));
@@ -91,7 +91,7 @@ fn neck_stretch_only_replaces_rolling() {
     }
 }
 
-/// 목 늘이기가 끝나면 바로 또 늘이지 않고 걷는다
+/// 목 늘이기가 끝나면 바로 또 늘이지 않고 걸음
 #[test]
 fn no_back_to_back_stretches() {
     let w = world(vec![w1()]);

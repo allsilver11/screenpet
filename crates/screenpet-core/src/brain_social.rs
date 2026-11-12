@@ -2,15 +2,15 @@
 //! 누구와 언제 인사하고 누가 술래인지, 언제 끝나는지는 social.rs(코디네이터)가 정하고, 여기서는
 //! 그 결정대로 서서 인사하거나(State::Greet) 쫓거나(State::Chase) 도망간다(State::Flee).
 //!
-//! - 걷는 동물(개구리 포함)은 서 있는 디딤판 조각 안에서만 달린다 — 끝에서 뛰어내리거나 화면 밖으로 나가지 않는다.
-//! - 나는 동물(유령·새)은 나는 범위 안에서 친구를 쫓아가거나 좌우로 오가며 도망간다.
-//! - 사용자 손길(누르기·간질이기·먹이·하우스)과 손님의 집 생각이 놀이보다 먼저다.
+//! - 걷는 동물(개구리 포함)은 서 있는 디딤판 조각 안에서만 달림 — 끝에서 뛰어내리거나 화면 밖으로 나가지 않음
+//! - 나는 동물(유령·새)은 나는 범위 안에서 친구를 쫓아가거나 좌우로 오가며 도망감
+//! - 사용자 손길(누르기·간질이기·먹이·하우스)과 손님의 집 생각이 놀이보다 먼저임
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::*;
 
-/// 놀이 상태의 안전 시한 여유 — 코디네이터가 끝내 주지 못해도(사라짐 등) 그만큼 뒤엔 스스로 끝낸다
+/// 놀이 상태의 안전 시한 여유 — 코디네이터가 끝내 주지 못해도(사라짐 등) 그만큼 뒤엔 스스로 끝냄
 const SAFETY_SECS: f64 = 1.0;
 /// 인사할 때 먼저 친구 쪽을 쳐다보는 시간 (인사 전체의 최대 1/3)
 const GREET_LOOK_SECS: f64 = 0.6;
@@ -21,7 +21,7 @@ const FLY_FLEE_LIFT: f64 = 0.9;
 const FLY_FLEE_SWAY: f64 = 0.35;
 /// 나는 동물이 놀 때 속도 (걷기 속도 배) — 달리는 친구를 따라잡을 만큼
 const FLY_PLAY_MULT: f64 = 3.0;
-/// 도망자는 신나서 조금 느긋하게 달린다 — 대개 잡히며 끝난다
+/// 도망자는 신나서 조금 느긋하게 달림 — 대개 잡히며 끝남
 const FLEE_PACE: f64 = 0.85;
 
 static NEXT_KEY: AtomicU64 = AtomicU64::new(1);
@@ -47,9 +47,9 @@ pub enum GreetKind {
     Hello,
     /// 새침한 고양이: 흥! (하트 없음)
     Hmph,
-    /// 자는 친구를 살짝 쳐다본다 ("...", 깨우지 않는다)
+    /// 자는 친구를 살짝 쳐다봄 ("...", 깨우지 않음)
     Peek,
-    /// 잡혔다/잡았다 — 하트. speak = "hehe!"
+    /// 잡혔다/잡았음 — 하트. speak = "hehe!"
     Caught { speak: bool },
 }
 
@@ -69,7 +69,7 @@ impl Pet {
         }
     }
 
-    /// 놀이를 끊는 일이 생겼다: 사용자 손길·먹이·집 가기·손님의 집 생각·창 안
+    /// 놀이를 끊는 일이 생겼음: 사용자 손길·먹이·집 가기·손님의 집 생각·창 안
     pub(super) fn social_interrupted(&self) -> bool {
         self.tickling
             || self.housed
@@ -94,16 +94,17 @@ impl Pet {
             && !self.presence_quiet()
     }
 
-    /// 디딤판 위에서 자는 중 (친구가 살짝 쳐다보기만 한다)
+    /// 디딤판 위에서 자는 중 (친구가 살짝 쳐다보기만 함)
     pub fn social_asleep(&self) -> bool {
         matches!(self.state, State::Sleep { .. }) && self.standing.is_some() && !self.housed
     }
 
-    /// 친구 자리를 알려 준다 (발 위치)
+    /// 친구 자리를 알려 줌 (발 위치)
     pub fn set_play_target(&mut self, x: f64, y: f64) {
         self.play_target = Some((x, y));
     }
 
+    /// x 쪽을 봄 (1px 안이면 그대로)
     fn face_x(&mut self, x: f64) {
         let dx = x - self.body.x;
         if dx.abs() > 1.0 {
@@ -111,7 +112,7 @@ impl Pet {
         }
     }
 
-    /// 놀이 시작 공통: 하던 길·박자를 잊는다
+    /// 놀이 시작 공통: 하던 길·박자를 잊음
     fn begin_social(&mut self) {
         self.pacing.after_beat = None;
         self.flight = None;
@@ -121,7 +122,7 @@ impl Pet {
         self.body.vy = 0.0;
     }
 
-    /// 친구(x 쪽)를 보고 secs초 인사한다
+    /// 친구(x 쪽)를 보고 secs초 인사함
     pub fn start_greet(&mut self, toward_x: f64, kind: GreetKind, secs: f64) {
         self.begin_social();
         self.face_x(toward_x);
@@ -153,7 +154,7 @@ impl Pet {
         self.state = State::Greet { look, anim, remaining: secs + SAFETY_SECS };
     }
 
-    /// 술래가 되어 친구(at)를 쫓는다
+    /// 술래가 되어 친구(at)를 쫓음
     pub fn start_chase(&mut self, at: (f64, f64), secs: f64) {
         self.begin_social();
         self.play_target = Some(at);
@@ -163,7 +164,7 @@ impl Pet {
         self.state = State::Chase { remaining: secs + SAFETY_SECS };
     }
 
-    /// 술래(from)를 피해 반대쪽으로 도망간다
+    /// 술래(from)를 피해 반대쪽으로 도망감
     pub fn start_flee(&mut self, from: (f64, f64), secs: f64) {
         self.begin_social();
         self.play_target = Some(from);
@@ -185,7 +186,7 @@ impl Pet {
         self.state = self.beat(AfterBeat::Rest);
     }
 
-    /// 말풍선 자리가 비어 있을 때만 말한다
+    /// 말풍선 자리가 비어 있을 때만 말함
     fn say(&mut self, speech: Speech) {
         if self.speech.is_none() {
             self.speech = Some(speech);
@@ -225,7 +226,7 @@ impl Pet {
         true
     }
 
-    /// 인사하는 동안 제자리: 디딤판을 따라가거나 (사라지면 떨어진다) 떠서 살랑
+    /// 인사하는 동안 제자리: 디딤판을 따라가거나 (사라지면 떨어짐) 떠서 살랑
     fn hold_still(&mut self, world: &World) {
         if self.standing.is_some() {
             if !self.follow_anchor(world) {
@@ -242,6 +243,7 @@ impl Pet {
         }
     }
 
+    /// 친구 놀이 달리기: 나는 동물은 날아서, 나머지는 땅에서
     fn play_run(&mut self, dt: f64, world: &World) {
         if self.cfg.flies {
             self.play_fly(dt, world);
@@ -250,7 +252,7 @@ impl Pet {
         }
     }
 
-    /// 걷는 동물: 서 있는 디딤판 조각 안에서만 달린다 (끝에서 술래는 멈추고 도망자는 돌아선다)
+    /// 걷는 동물: 서 있는 디딤판 조각 안에서만 달림 (끝에서 술래는 멈추고 도망자는 돌아섬)
     fn play_ground(&mut self, dt: f64, world: &World) {
         if !self.follow_anchor(world) {
             self.start_fall();
@@ -293,7 +295,7 @@ impl Pet {
         self.body.x = new_x;
     }
 
-    /// 나는 동물: 술래는 친구에게 곧장 날아가고, 도망자는 친구 위에서 좌우로 오가며 살랑인다
+    /// 나는 동물: 술래는 친구에게 곧장 날아가고, 도망자는 친구 위에서 좌우로 오가며 살랑임
     fn play_fly(&mut self, dt: f64, world: &World) {
         if self.standing.is_some() {
             self.take_off();

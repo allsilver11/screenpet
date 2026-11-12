@@ -1,23 +1,24 @@
 //! 🎣 커서 매달리기 (흐물이, v0.6.3) — brain.rs의 자식 모듈.
 //!
-//! 쉬거나 걷는 흐물이의 머리 바로 위에 커서가 NOTICE_SECS(0.6초) 머물면 폴짝 뛰어 두 손으로 커서 끝을 잡는다.
-//! 매달린 동안 몸은 커서 끝(손)을 따라가고, 커서가 움직이면 진자처럼 흔들린다 (render.swing — 웹뷰가 손 자리를 축으로 돌린다).
+//! 쉬거나 걷는 흐물이의 머리 바로 위에 커서가 NOTICE_SECS(0.6초) 머물면 폴짝 뛰어 두 손으로 커서 끝을 잡음
+//! 매달린 동안 몸은 커서 끝(손)을 따라가고, 커서가 움직이면 진자처럼 흔들림 (render.swing — 웹뷰가 손 자리를 축으로 돌림).
 //! "Wheee~", 세게 흔들수록 신나서 하트와 "More!".
 //!
-//! 놓는 때: 커서를 아주 빠르게 휘두르면 (FLING_SPEED) 그 속도로 던져진다 (사람이 던진 것과 같다 — 친구가 연결된 끝을 넘으면 친구에게) ·
+//! 놓는 때: 커서를 아주 빠르게 휘두르면 (FLING_SPEED) 그 속도로 던져짐 (사람이 던진 것과 같음 — 친구가 연결된 끝을 넘으면 친구에게) ·
 //! HANG_SECS가 지나면 · 클릭하면 · 커서가 전체 화면 앱 위나 화면 밖으로 가면 · 커서 장난을 끄거나 바빠지면 (숨김·잡힘·음식) ·
 //! 자리 비움·집중이면. 쿨다운 COOLDOWN_SECS (3분 넘게).
 //!
-//! 클릭은 언제나 사용자 것: 뛰는 동안부터 매달린 동안 cursor_through가 참이고, 놓은 뒤에도 떨어져 커서에서 벗어날 때까지 통과시킨다.
+//! 클릭은 언제나 사용자 것: 뛰는 동안부터 매달린 동안 cursor_through가 참이고, 놓은 뒤에도 떨어져 커서에서 벗어날 때까지 통과시킴
 
 use std::collections::VecDeque;
 
 use super::*;
 
-/// 머리 위에 커서가 이만큼 머물면 잡는다
+/// 머리 위에 커서가 이만큼 머물면 잡음
 pub const NOTICE_SECS: f64 = 0.6;
 /// 머리 위: 옆으로 몸 이만큼 안, 머리 꼭대기 위로 몸 이만큼 안
 pub const ABOVE_REACH: f64 = 0.45;
+/// 머리 꼭대기 위로 이만큼(몸 배) 안이면 머리 위
 pub const ABOVE_RISE: f64 = 0.9;
 /// 매달려 있는 시간
 pub const HANG_SECS: (f64, f64) = (8.0, 20.0);
@@ -33,14 +34,15 @@ const MISS_BODIES: f64 = 2.0;
 /// 진자 길이 (손에서 몸 가운데까지 — 몸 배), 감쇠 (1/s), 그림이 기우는 최대 각도 (도)
 pub const PENDULUM_LEN: f64 = 0.55;
 const DAMPING: f64 = 0.4;
+/// 그림이 기우는 최대 각도 (도)
 pub const MAX_SWING_DEG: f64 = 40.0;
-/// 이보다 빠르게 커서를 휘두르면 그 속도로 던져진다 (논리 px/s)
+/// 이보다 빠르게 커서를 휘두르면 그 속도로 던져짐 (논리 px/s)
 pub const FLING_SPEED: f64 = 1500.0;
 /// 던져질 때 커서 속도를 이어 받는 몫
 const FLING_KEEP: f64 = 0.8;
 /// 커서 속도를 재는 창 (초)
 const VELOCITY_SECS: f64 = 0.08;
-/// 이만큼 (rad/s) 빠르게 흔들리면 신난다 — 하트, 가끔 "더 더!"
+/// 이만큼 (rad/s) 빠르게 흔들리면 신남 — 하트, 가끔 "더 더!"
 pub const HAPPY_OMEGA: f64 = 2.2;
 /// "Wheee~" · "More!" 간격
 const TALK_SECS: (f64, f64) = (2.5, 4.5);
@@ -54,10 +56,11 @@ pub enum SwingPhase {
     Hang,
 }
 
+/// 커서 그네의 기억: 진자 각·각속도, 커서 자리 등
 #[derive(Debug, Clone)]
 pub struct SwingMood {
     rng: fastrand::Rng,
-    /// 이 시각(clock)부터 매달릴 수 있다
+    /// 이 시각(clock)부터 매달릴 수 있음
     pub(super) ready_at: f64,
     /// 커서가 머리 위에 머문 시간
     above_for: f64,
@@ -70,12 +73,13 @@ pub struct SwingMood {
     prev_vel: (f64, f64),
     /// 뛰기 시작했을 때 커서 자리
     aim: (f64, f64),
-    /// 직전 틱에 왼쪽 버튼이 눌려 있었다 (새로 누른 것만 클릭으로 본다)
+    /// 직전 틱에 왼쪽 버튼이 눌려 있었음 (새로 누른 것만 클릭으로 봄)
     was_down: bool,
     talk_in: f64,
 }
 
 impl SwingMood {
+    /// 시드로 난수를 따로 둠
     pub(super) fn new(seed: u64) -> Self {
         SwingMood {
             rng: fastrand::Rng::with_seed(seed ^ 0x7377_696e),
@@ -113,7 +117,7 @@ impl Pet {
         m.above_for = if above { m.above_for + dt } else { 0.0 };
     }
 
-    /// 커서가 머리 바로 위에 있다
+    /// 커서가 머리 바로 위에 있음
     fn cursor_above_head(&self) -> bool {
         let size = self.cfg.size;
         let (cx, cy) = self.cursor;
@@ -121,7 +125,7 @@ impl Pet {
         (cx - self.body.x).abs() <= ABOVE_REACH * size && cy < top && top - cy <= ABOVE_RISE * size
     }
 
-    /// 커서가 화면 밖이거나 전체 화면 앱 위에 있다
+    /// 커서가 화면 밖이거나 전체 화면 앱 위에 있음
     fn cursor_gone(&self, world: &World) -> bool {
         let (cx, cy) = self.cursor;
         let b = world.bounds;
@@ -134,7 +138,7 @@ impl Pet {
         !enabled || busy || self.antics_interrupted() || self.cursor_gone(world)
     }
 
-    /// 머리 위에 커서가 머물면 뛰어올라 잡는다. 시작했으면 true
+    /// 머리 위에 커서가 머물면 뛰어올라 잡음. 시작했으면 true
     pub(super) fn maybe_swing(&mut self, world: &World) -> bool {
         let (_, _, down) = self.cursor_play_input();
         if self.swing.above_for < NOTICE_SECS || self.clock < self.swing.ready_at || down || !self.antics_free() || self.swing_blocked(world) {
@@ -144,6 +148,7 @@ impl Pet {
         true
     }
 
+    /// 커서 끝으로 뛰어오르기 시작함 (매달릴 시간도 뽑음)
     fn start_swing(&mut self) {
         let hang = behavior::range(&mut self.swing.rng, HANG_SECS);
         let m = &mut self.swing;
@@ -161,13 +166,14 @@ impl Pet {
         self.state = State::Swing { phase: SwingPhase::Jump { from: (self.body.x, self.body.y), elapsed: 0.0 }, remaining: hang };
     }
 
-    /// 매달릴 자리 (몸 가운데 x, 발 y): hang_cursor 그림의 손 자리가 커서 끝에 온다
+    /// 매달릴 자리 (몸 가운데 x, 발 y): hang_cursor 그림의 손 자리가 커서 끝에 옴
     pub(super) fn swing_spot(&self) -> (f64, f64) {
         let (cx, cy) = self.cursor;
         let (gx, gy) = self.cfg.grip.hang_cursor.at(0.0);
         (cx - gx * self.cfg.size, cy + (1.0 - gy) * self.cfg.size)
     }
 
+    /// 그네 한 틱: 뛰어올라 매달리고, 흔들고, 클릭하면 놓음
     pub(super) fn update_swing(&mut self, dt: f64, world: &World, phase: SwingPhase, remaining: f64) {
         let (_, _, down) = self.cursor_play_input();
         let clicked = down && !self.swing.was_down;
@@ -232,7 +238,7 @@ impl Pet {
         }
     }
 
-    /// 진자 한 틱: 축(커서 끝)이 가속하면 몸은 반대로 기운다. θ'' = −(g sinθ + aₓ cosθ − a_y sinθ) / L − c θ'
+    /// 진자 한 틱: 축(커서 끝)이 가속하면 몸은 반대로 기욺. θ'' = −(g sinθ + aₓ cosθ − a_y sinθ) / L − c θ'
     fn step_pendulum(&mut self, dt: f64) {
         if dt <= 0.0 {
             return;
@@ -254,7 +260,7 @@ impl Pet {
         }
     }
 
-    /// 지금 흔들리는 각도 (도, 웹뷰가 손을 축으로 시계 방향으로 돌린다 — 몸이 오른쪽이면 반시계라 −)
+    /// 지금 흔들리는 각도 (도, 웹뷰가 손을 축으로 시계 방향으로 돌림 — 몸이 오른쪽이면 반시계라 −)
     pub(super) fn swing_degrees(&self) -> f64 {
         match self.state {
             State::Swing { phase: SwingPhase::Hang, .. } => -self.swing.theta.to_degrees(),
@@ -262,6 +268,7 @@ impl Pet {
         }
     }
 
+    /// 그네 단계별 그림
     pub(super) fn swing_anim(&self, phase: SwingPhase) -> Anim {
         match phase {
             SwingPhase::Jump { .. } => Anim::Hop,
@@ -269,6 +276,7 @@ impl Pet {
         }
     }
 
+    /// 그네 끝 공통: 쿨다운을 정하고 진자를 멈춤
     fn end_swing_common(&mut self) {
         let cooldown = behavior::range(&mut self.swing.rng, COOLDOWN_SECS);
         self.swing.ready_at = self.clock + cooldown;
@@ -278,7 +286,7 @@ impl Pet {
         self.keep_click_through();
     }
 
-    /// 손을 놓고 떨어진다 (흔들리던 쪽으로 살짝)
+    /// 손을 놓고 떨어짐 (흔들리던 쪽으로 살짝)
     fn let_go_swing(&mut self, speech: Option<Speech>) {
         if speech.is_some() {
             self.speech = speech;
@@ -292,7 +300,7 @@ impl Pet {
         self.state = State::Air { anim: Anim::Fall };
     }
 
-    /// 커서를 세게 휘둘렀다: 그 속도로 던져진다 (사람이 던진 것과 같다)
+    /// 커서를 세게 휘둘렀음: 그 속도로 던져짐 (사람이 던진 것과 같음)
     fn fling_from_swing(&mut self, vx: f64, vy: f64) {
         let (vx, vy) = crate::physics::throw_velocity(vx * FLING_KEEP, vy * FLING_KEEP, self.cfg.dpi, 0.0);
         self.speech = Some(Speech::Whee);

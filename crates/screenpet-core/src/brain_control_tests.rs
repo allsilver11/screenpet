@@ -1,4 +1,4 @@
-//! 조작 모드 — 방향키로 내 동물을 움직인다 (brain_control.rs). brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 조작 모드 — 방향키로 내 동물을 움직임 (brain_control.rs). brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::control_moves::{ControlInput, CONTROL_IDLE_SECS, JUMP_BODIES, REMOTE_STALE_SECS};
 use super::tests::{place, sim_cfg, win, world};
@@ -15,7 +15,7 @@ fn keys(f: impl FnOnce(&mut ControlInput)) -> ControlInput {
 
 const NONE: ControlInput = ControlInput { left: false, right: false, up: false, down: false, jump: false, run: false };
 
-/// 내 동물: 키를 누른 채 secs초 (게임 루프처럼 매 틱 키를 먼저 알려 준다)
+/// 내 동물: 키를 누른 채 secs초 (게임 루프처럼 매 틱 키를 먼저 알려 줌)
 fn hold(p: &mut Pet, w: &World, k: ControlInput, secs: f64) {
     let n = (secs / DT).round() as usize;
     for _ in 0..n {
@@ -389,7 +389,7 @@ fn feeding_still_works_while_controlled() {
     assert!(matches!(p.state, State::Idle { .. }), "then rests under control again: {:?}", p.state);
 }
 
-/// 손님 (친구 화면): 키는 친구 링크로 온다
+/// 손님 (친구 화면): 키는 친구 링크로 옴
 fn guest_on_ground(x: f64, homesick_in: f64) -> (Pet, World) {
     let w = world(vec![]);
     let mut p = Pet::new(sim_cfg(), 0.0, 0.0, 9);

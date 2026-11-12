@@ -1,4 +1,4 @@
-//! "놀러 보내기" — 보낸 동물은 화면 끝으로 뛰어가지 않고 제자리에서 손 흔들고("bye~!") 뿅 사라진다 (brain_send.rs).
+//! "놀러 보내기" — 보낸 동물은 화면 끝으로 뛰어가지 않고 제자리에서 손 흔들고("bye~!") 뿅 사라짐 (brain_send.rs).
 //! brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::send_moves::{SEND_POOF_SECS, SEND_WAVE_SECS};
@@ -8,7 +8,7 @@ use crate::test_util::{DT, LoopLimit, idle};
 use super::tests::{sim_flyer as flyer, sim_frog as frog};
 
 
-/// 사라질 때까지 돌린다 (최대 secs초). 사라진 쪽과 걸린 시간. 그동안 한 번도 화면 끝으로 걸어 나가지 않는다
+/// 사라질 때까지 돌림 (최대 secs초). 사라진 쪽과 걸린 시간. 그동안 한 번도 화면 끝으로 걸어 나가지 않음
 fn run_until_gone(p: &mut Pet, w: &World, secs: f64) -> Option<(Side, f64)> {
     let mut t = 0.0;
     while t < secs {

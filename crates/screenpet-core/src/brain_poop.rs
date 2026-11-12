@@ -1,9 +1,9 @@
 //! 💩 똥 싸기와 똥 앞에서의 반응 — brain.rs의 자식 모듈 (비공개 필드에 접근). 숫자와 까닭은 poop.rs.
 //!
-//! - 싸기 (`try_poop`): 앱이 왼쪽 버튼을 새로 누른 틱에만 부른다. 누른 자리는 받지 않는다. 쉬거나 걷는 중에만, 싸고 나면 10~20분 쉰다.
-//! - 반응 (`notice_poops`): 앱이 update 전에 바닥의 똥 자리를 넘긴다. 걷는 동물이 같은 디딤판의 똥에 다가가면 한 번만 정한다:
-//!   대개 "ew!" 하고 돌아서거나 뛰어넘고, 가끔 못 보고 밟아 꽈당 (State::Slip). 같은 똥엔 SAME_POOP_SECS 동안 다시 반응하지 않는다.
-//! - 조작 모드·들림·먹이·집 가기·보내기·잠·집중·집이 그리운 손님은 걷는 State::Move가 아니거나 여기서 걸러진다.
+//! - 싸기 (`try_poop`): 앱이 왼쪽 버튼을 새로 누른 틱에만 부름. 누른 자리는 받지 않음. 쉬거나 걷는 중에만, 싸고 나면 10~20분 쉼
+//! - 반응 (`notice_poops`): 앱이 update 전에 바닥의 똥 자리를 넘김. 걷는 동물이 같은 디딤판의 똥에 다가가면 한 번만 정함:
+//!   대개 "ew!" 하고 돌아서거나 뛰어넘고, 가끔 못 보고 밟아 꽈당 (State::Slip). 같은 똥엔 SAME_POOP_SECS 동안 다시 반응하지 않음
+//! - 조작 모드·들림·먹이·집 가기·보내기·잠·집중·집이 그리운 손님은 걷는 State::Move가 아니거나 여기서 걸러짐
 
 use super::*;
 use crate::poop::{self, PoopSpot};
@@ -12,7 +12,7 @@ use crate::poop::{self, PoopSpot};
 const SLIP_SECS: f64 = 1.7;
 const SLIP_LAND_FROM: f64 = 1.0;
 const SLIP_GRUMPY_FROM: f64 = 0.75;
-/// 미끄러지는 처음 속도 (크기 128 기준 px/s, 점점 느려진다)
+/// 미끄러지는 처음 속도 (크기 128 기준 px/s, 점점 느려짐)
 const SLIP_SPEED: f64 = 170.0;
 /// "ew!" 하고 잠깐 멈췄다가 돌아서는 시간
 const EW_PAUSE_SECS: f64 = 0.5;
@@ -23,9 +23,9 @@ const DROP_BEHIND: f64 = 0.22;
 /// 똥에 관한 기억
 #[derive(Debug, Clone, Default)]
 pub struct PoopMood {
-    /// 이 시각(clock)부터 다시 쌀 수 있다
+    /// 이 시각(clock)부터 다시 쌀 수 있음
     pub(super) ready_at: f64,
-    /// 이 시각까지는 어떤 똥에도 반응하지 않는다
+    /// 이 시각까지는 어떤 똥에도 반응하지 않음
     pub(super) calm_until: f64,
     /// 이미 반응한 똥과 다시 반응할 수 있는 시각
     pub(super) seen: Vec<(u64, f64)>,
@@ -34,14 +34,14 @@ pub struct PoopMood {
 }
 
 impl PoopMood {
-    /// 다른 일을 시작했다: 밟으러 가던 것은 잊는다
+    /// 다른 일을 시작했음: 밟으러 가던 것은 잊음
     pub(super) fn stepping_off(&mut self) {
         self.stepping = None;
     }
 }
 
 impl Pet {
-    /// 지금 쌀 수 있는 모습: 디딤판 위(나는 동물은 떠서도) 쉬거나 걷는 중이고, 볼일·집중·자리 비움이 없다
+    /// 지금 쌀 수 있는 모습: 디딤판 위(나는 동물은 떠서도) 쉬거나 걷는 중이고, 볼일·집중·자리 비움이 없음
     fn can_poop(&self) -> bool {
         matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. } | State::Trick { .. })
             && (self.standing.is_some() || self.cfg.flies)
@@ -55,7 +55,7 @@ impl Pet {
             && !self.farewell_pending
     }
 
-    /// 왼쪽 버튼을 새로 눌렀다 (누른 자리는 모른다). 쌌으면 똥이 떨어지기 시작할 자리 — 나는 동물은 공중에서 떨어뜨린다
+    /// 왼쪽 버튼을 새로 눌렀음 (누른 자리는 모름). 쌌으면 똥이 떨어지기 시작할 자리 — 나는 동물은 공중에서 떨어뜨림
     pub fn try_poop(&mut self) -> Option<(f64, f64)> {
         if self.clock < self.poop.ready_at || !self.can_poop() || self.rng.f64() >= poop::CLICK_CHANCE {
             return None;
@@ -64,7 +64,7 @@ impl Pet {
         Some((self.body.x - self.facing * DROP_BEHIND * self.cfg.size, self.body.y - DROP_RISE * self.cfg.size))
     }
 
-    /// 똥을 알아챌 수 있는 때: 스스로 걷거나 달리는 동물만 — 볼일이 있으면 가던 길을 간다
+    /// 똥을 알아챌 수 있는 때: 스스로 걷거나 달리는 동물만 — 볼일이 있으면 가던 길을 감
     fn walks_past_poop(&self) -> bool {
         matches!(self.state, State::Move { kind: Move::Walk | Move::Run, .. })
             && !self.cfg.flies
@@ -76,7 +76,7 @@ impl Pet {
             && !self.tickling
     }
 
-    /// 매 틱 update 전에: 바닥에 놓인 똥 자리 (없으면 할 일이 없다)
+    /// 매 틱 update 전에: 바닥에 놓인 똥 자리 (없으면 할 일이 없음)
     pub fn notice_poops(&mut self, spots: &[PoopSpot], world: &World) {
         if !self.walks_past_poop() {
             self.poop.stepping = None;
@@ -107,7 +107,7 @@ impl Pet {
         }
     }
 
-    /// 못 봤다: 그대로 밟을 때까지 걷는다 (이번 걷기가 그 전에 끝나지 않게 늘린다)
+    /// 못 봤음: 그대로 밟을 때까지 걸음 (이번 걷기가 그 전에 끝나지 않게 늘림)
     fn keep_walking_onto(&mut self, spot: &PoopSpot) {
         self.poop.stepping = Some(spot.id);
         if let State::Move { kind, remaining } = self.state {
@@ -117,6 +117,7 @@ impl Pet {
         }
     }
 
+    /// 밟을 똥 쪽으로 감. 똥이 사라졌으면 그만둠
     fn step_toward(&mut self, spots: &[PoopSpot], id: u64) {
         let on_surface = |s: &&PoopSpot| s.id == id && self.standing.is_some_and(|st| st.owner == s.owner);
         let Some(spot) = spots.iter().find(on_surface) else {
@@ -133,7 +134,7 @@ impl Pet {
         }
     }
 
-    /// "ew!": 넘어갈 자리가 있으면 가끔 뛰어넘고, 아니면 돌아선다
+    /// "ew!": 넘어갈 자리가 있으면 가끔 뛰어넘고, 아니면 돌아섬
     fn avoid_poop(&mut self, spot: &PoopSpot, world: &World) {
         self.speech = Some(Speech::Ew);
         self.pacing.after_beat = None;
@@ -149,7 +150,7 @@ impl Pet {
         }
     }
 
-    /// 꽈당: 처음엔 미끄러지고 (디딤판 끝에서 멈춘다), 그 뒤 제자리에서 일어나 투덜댄다
+    /// 꽈당: 처음엔 미끄러지고 (디딤판 끝에서 멈춤), 그 뒤 제자리에서 일어나 투덜댐
     pub(super) fn update_slip(&mut self, dt: f64, world: &World, remaining: f64, dir: f64) {
         let fade = ((remaining - SLIP_LAND_FROM) / (SLIP_SECS - SLIP_LAND_FROM)).clamp(0.0, 1.0);
         if !self.skid(dt, world, dir, self.scaled(SLIP_SPEED) * fade) {
@@ -159,6 +160,7 @@ impl Pet {
         self.state = if remaining > 0.0 { State::Slip { remaining, dir } } else { self.rest_beat() };
     }
 
+    /// 미끄러짐 그림: 떨어짐 → 착지 → 투덜
     pub(super) fn slip_anim(&self, remaining: f64) -> Anim {
         if remaining > SLIP_LAND_FROM {
             Anim::Fall

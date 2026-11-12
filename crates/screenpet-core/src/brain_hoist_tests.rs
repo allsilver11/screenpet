@@ -6,7 +6,7 @@ use super::tests::world;
 use super::*;
 use crate::test_util::{flyer, pet_cfg, DT};
 
-/// 앱처럼 한 틱: 보여 주고, 움직이고, 맞춘다
+/// 앱처럼 한 틱: 보여 주고, 움직이고, 맞춤
 fn step(pets: &mut [Pet], w: &World) -> Vec<CarriedOut> {
     notice_pets(pets);
     for p in pets.iter_mut() {

@@ -1,11 +1,11 @@
 //! 콰당! 💥 (brain.rs land_or_recover): 높이(몸 THUD_FALL_SIZES배 이상)에서 떨어지거나 던져져 세게 내려서면 바로 일어나지 않고
-//! 납작 엎어져 THUD_SECS 동안 어지러워한다 (render.thud — 웹뷰가 찌그러짐·💫), 말풍선 "oof!". 살짝 내려앉으면 평소처럼 사뿐.
+//! 납작 엎어져 THUD_SECS 동안 어지러워함 (render.thud — 웹뷰가 찌그러짐·💫), 말풍선 "oof!". 살짝 내려앉으면 평소처럼 사뿐.
 
 use super::tests::{cfg, place, win, world};
 use super::*;
 use crate::test_util::{DT, flyer, idle};
 
-/// 바닥(1040) 위 높이 h에서 놓아 떨어뜨리고, 내려설 때까지 돌린다 → (콰당이었나, 그동안 나온 말)
+/// 바닥(1040) 위 높이 h에서 놓아 떨어뜨리고, 내려설 때까지 돌림 → (콰당이었나, 그동안 나온 말)
 fn drop_from(c: PetConfig, h: f64) -> (Pet, World, bool, Vec<Speech>) {
     let w = world(vec![]);
     let mut p = Pet::new(c, 800.0, 1040.0 - h, 1);

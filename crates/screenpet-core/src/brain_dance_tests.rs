@@ -6,7 +6,7 @@ use super::tests::world;
 use super::*;
 use crate::test_util::{pet_cfg, DT};
 
-/// 몸을 한 번 눌렀다 뗀다 (끌지 않고), 그 뒤 gap초 흐른다
+/// 몸을 한 번 눌렀다 뗌 (끌지 않고), 그 뒤 gap초 흐름
 fn click(p: &mut Pet, w: &World, gap: f64) {
     let (x, y) = (p.body.x, p.body.y - 40.0);
     p.pointer_down(x, y);

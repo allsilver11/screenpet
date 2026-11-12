@@ -1,32 +1,32 @@
-//! 곁에 있기와 하루 리듬의 동작 (v0.3.7) — brain.rs의 자식 모듈 (비공개 필드에 접근). 언제 할지는 presence.rs가 정한다.
+//! 곁에 있기와 하루 리듬의 동작 (v0.3.7) — brain.rs의 자식 모듈 (비공개 필드에 접근). 언제 할지는 presence.rs가 정함
 //!
-//! - 자리 비움: 내 동물도 이 화면의 손님도 하던 일을 그만두고 돌아올 때까지 잠만 잔다 (update_user_away). 말도 놀이도 쿵쾅도 없고, 나는 동물은
-//!   앉은 자리나 떠 있던 자리에서 존다. 떨어지기·창 따라가기 같은 물리만 그대로고, 내려서면 바로 다시 잠든다.
-//!   이기는 것: 사용자 볼일(먹이·하우스·조작 등) — ⏱️ 집중 타이머는 조용히 돌기만 하고 (돌아오면 그때 국면으로), 친구의 "펫 데리고 오기"(손 흔들고 뿅 건너간다, 돌아오면 다시 잠)와
-//!   손님의 그리움 상한·"집에 와", 그리고 주인이 키로 조종 중인 손님 (주인은 자리에 있으니 키를 따르고, 키가 끊기면 다시 잠든다).
+//! - 자리 비움: 내 동물도 이 화면의 손님도 하던 일을 그만두고 돌아올 때까지 잠만 잠 (update_user_away). 말도 놀이도 쿵쾅도 없고, 나는 동물은
+//!   앉은 자리나 떠 있던 자리에서 졺. 떨어지기·창 따라가기 같은 물리만 그대로고, 내려서면 바로 다시 잠듦
+//!   이기는 것: 사용자 볼일(먹이·하우스·조작 등) — ⏱️ 집중 타이머는 조용히 돌기만 하고 (돌아오면 그때 국면으로), 친구의 "펫 데리고 오기"(손 흔들고 뿅 건너감, 돌아오면 다시 잠)와
+//!   손님의 그리움 상한·"집에 와", 그리고 주인이 키로 조종 중인 손님 (주인은 자리에 있으니 키를 따르고, 키가 끊기면 다시 잠듦).
 //!   돌아오면 바로 깨어 커서가 있는 모니터로 달려가 (바닥이 다르면 폴짝, 나는 동물은 날아서) 통통 뛰며 "you're back!!" + 하트.
-//! - 졸린 시간: 하품이 잦고, 더 자주 더 오래 자고, 가끔 "go to bed~". 수면 모자는 웹뷰가 그린다.
-//! - 집중: 지금 모니터의 오른쪽 아래 구석에 앉아 조용히 있는다 (돌아다니기·수다·간질이기·커서 장난·친구 놀이 없음).
-//!   사용자 손길(잡기·먹이·조작·집 가기·보내기)이 먼저고, 끝나면 구석으로 돌아온다.
+//! - 졸린 시간: 하품이 잦고, 더 자주 더 오래 자고, 가끔 "go to bed~". 수면 모자는 웹뷰가 그림
+//! - 집중: 지금 모니터의 오른쪽 아래 구석에 앉아 조용히 있음 (돌아다니기·수다·간질이기·커서 장난·친구 놀이 없음).
+//!   사용자 손길(잡기·먹이·조작·집 가기·보내기)이 먼저고, 끝나면 구석으로 돌아옴
 
 use super::*;
 
-/// 자리 비움: 잠이 끝나지 않게 남은 시간을 매 틱 이만큼으로 채운다 (돌아오면 set_user_away가 바로 깨운다)
+/// 자리 비움: 잠이 끝나지 않게 남은 시간을 매 틱 이만큼으로 채움 (돌아오면 set_user_away가 바로 깨움)
 const NAP_HOLD_SECS: f64 = 60.0;
 /// 돌아온 사용자를 맞는 통통 횟수
 const WELCOME_BOUNCES: u8 = 2;
-/// 통통마다 하트 하나 (뛰는 시간 0.4초보다 짧아야 다음 통통에 새 하트가 뜬다)
+/// 통통마다 하트 하나 (뛰는 시간 0.4초보다 짧아야 다음 통통에 새 하트가 뜸)
 const WELCOME_HEART_SECS: f64 = 0.3;
 /// 뛰지 못하는 때 (나는 동물·창 안·하우스)의 하트
 const WELCOME_HOVER_SECS: f64 = 2.0;
-/// 맞으러 / 구석으로 달리는 최대 시간 — 넓은 화면에선 그만큼 빨리 달린다
+/// 맞으러 / 구석으로 달리는 최대 시간 — 넓은 화면에선 그만큼 빨리 달림
 const WELCOME_RUN_SECS: f64 = 2.5;
 const FOCUS_RUN_SECS: f64 = 5.0;
-/// 커서에서 이 거리(몸 배) 옆에 멈춘다
+/// 커서에서 이 거리(몸 배) 옆에 멈춤
 const WELCOME_REACH: f64 = 0.8;
-/// 나는 동물이 커서 아래 이만큼(몸 배)에 뜬다
+/// 나는 동물이 커서 아래 이만큼(몸 배)에 뜸
 const WELCOME_FLY_DROP: f64 = 0.9;
-/// 이미 이만큼(몸 배) 가까우면 그 자리에서 맞는다
+/// 이미 이만큼(몸 배) 가까우면 그 자리에서 맞음
 const WELCOME_NEAR: f64 = 1.5;
 /// 폴짝 가기: 솟는 높이(몸 배), 속도(크기 128 기준 px/s), 시간 범위
 const LEAP_RISE: f64 = 1.2;
@@ -37,7 +37,7 @@ const GLIDE_MULT: f64 = 3.0;
 const GLIDE_SECS: (f64, f64) = (0.5, 3.0);
 /// 구석에서 몸 중심까지 (몸 배)
 const CORNER_INSET: f64 = 0.75;
-/// 이만큼(px) 안이면 구석에 도착한 것이다
+/// 이만큼(px) 안이면 구석에 도착한 것임
 const ARRIVED_PX: f64 = 4.0;
 /// 아침 기지개, 집중이 끝난 기지개
 const MORNING_STRETCH_SECS: f64 = 3.0;
@@ -59,7 +59,7 @@ enum TripWhy {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TripWay {
-    /// 같은 바닥을 따라 달린다
+    /// 같은 바닥을 따라 달림
     Run,
     /// 충돌 없이 포물선
     Leap,
@@ -73,6 +73,7 @@ enum TripEnd {
     Float(f64, f64),
 }
 
+/// 마중·배웅 길: 왜, 어떻게, 어디서 어디로, 걸린 시간
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Trip {
     why: TripWhy,
@@ -83,6 +84,7 @@ pub(super) struct Trip {
     secs: f64,
 }
 
+/// 자리 비움·졸림·집중·길의 기억
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct PresenceMood {
     user_away: bool,
@@ -112,7 +114,7 @@ impl Pet {
         self.presence.sleepy = sleepy;
     }
 
-    /// 사용자가 자리를 비웠다 / 돌아왔다 — 돌아오면 바로 깬다 (내 동물은 welcome_back도 부른다, 손님은 깨기만)
+    /// 사용자가 자리를 비웠음 / 돌아왔음 — 돌아오면 바로 깸 (내 동물은 welcome_back도 부름, 손님은 깨기만)
     pub fn set_user_away(&mut self, away: bool) {
         let back = self.presence.user_away && !away;
         self.presence.user_away = away;
@@ -121,6 +123,7 @@ impl Pet {
         }
     }
 
+    /// 돌아온 사용자 때문에 깸. 자고 있으면 일어남
     fn wake_for_user(&mut self) {
         if matches!(self.state, State::Sleep { .. }) {
             self.pacing.after_beat = None;
@@ -134,7 +137,7 @@ impl Pet {
         }
     }
 
-    /// 사용자가 자리를 비웠다 — 잠만 잔다
+    /// 사용자가 자리를 비웠음 — 잠만 잠
     pub fn is_user_away(&self) -> bool {
         self.presence.user_away
     }
@@ -144,30 +147,32 @@ impl Pet {
         self.presence.focus = on;
     }
 
+    /// 집중 시작 인사를 함
     pub fn say_focus(&mut self) {
         self.speech = Some(Speech::Focus);
     }
 
-    /// 자리 비움·집중 중, 🔄 새 버전 응원 중 — 커서 장난·친구 놀이를 시작하지 않는다
+    /// 자리 비움·집중 중, 🔄 새 버전 응원 중 — 커서 장난·친구 놀이를 시작하지 않음
     pub(super) fn presence_quiet(&self) -> bool {
         self.presence.user_away || self.presence.focus || self.cheering()
     }
 
-    /// ⏱️ 집중 중인가 (그동안 선물을 떨어뜨리지 않는다, gift.rs)
+    /// ⏱️ 집중 중인가 (그동안 선물을 떨어뜨리지 않음, gift.rs)
     pub fn is_focusing(&self) -> bool {
         self.presence.focus
     }
 
-    /// 집중 중(쉬는 시간 제외)이거나 하우스 안이면 새 손님(걸어오든 던져지든)과 던진 물건을 받지 않는다 (이미 와 있는 손님은 그대로)
+    /// 집중 중(쉬는 시간 제외)이거나 하우스 안이면 새 손님(걸어오든 던져지든)과 던진 물건을 받지 않음 (이미 와 있는 손님은 그대로)
     pub fn refuses_arrivals(&self) -> bool {
         self.presence.focus || self.housed
     }
 
+    /// 집중 중임
     pub(super) fn focusing(&self) -> bool {
         self.presence.focus
     }
 
-    /// 사용자·손님 볼일이 먼저다
+    /// 사용자·손님 볼일이 먼저임
     fn presence_blocked(&self) -> bool {
         self.guest.is_some() || self.has_errand()
     }
@@ -185,13 +190,13 @@ impl Pet {
             || self.farewell_pending
     }
 
-    /// 지금 잠만 자야 한다 (손님도)
+    /// 지금 잠만 자야 함 (손님도)
     pub(super) fn sleeps_for_user(&self) -> bool {
         self.presence.user_away && !self.has_errand()
     }
 
-    /// update에서 (커서 장난 전): 자리 비움이면 잠만 잔다. 이번 틱을 다 처리했으면 true.
-    /// 공중·들림·떠나고 들어오는 길·먹기는 평소 길로 끝나고 (내려서면 다음 틱에 여기로 온다), 나머지는 곧바로 그만둔다
+    /// update에서 (커서 장난 전): 자리 비움이면 잠만 잠. 이번 틱을 다 처리했으면 true.
+    /// 공중·들림·떠나고 들어오는 길·먹기는 평소 길로 끝나고 (내려서면 다음 틱에 여기로 옴), 나머지는 곧바로 그만둠
     pub(super) fn update_user_away(&mut self, dt: f64, world: &World) -> bool {
         if !self.sleeps_for_user() {
             return false;
@@ -241,7 +246,7 @@ impl Pet {
         true
     }
 
-    /// 잠들기 전에 하던 길과 놀이를 잊는다
+    /// 잠들기 전에 하던 길과 놀이를 잊음
     fn settle_for_sleep(&mut self) {
         self.pacing.after_beat = None;
         self.flight = None;
@@ -292,7 +297,7 @@ impl Pet {
 
     // ---- 돌아옴 ----
 
-    /// 돌아왔다: 깨어 커서 쪽으로 가서 통통. 맞이할 수 없는 때(사용자 볼일·집중·친구 화면)면 false.
+    /// 돌아왔음: 깨어 커서 쪽으로 가서 통통. 맞이할 수 없는 때(사용자 볼일·집중·친구 화면)면 false.
     /// 하우스 안이나 공중이면 그 자리에서 말과 하트만
     pub fn welcome_back(&mut self, world: &World) -> bool {
         if self.housed {
@@ -359,6 +364,7 @@ impl Pet {
         self.bounce_once();
     }
 
+    /// 반가워 한 번 통통 뜀 (하트)
     fn bounce_once(&mut self) {
         self.heart_timer = WELCOME_HEART_SECS;
         self.standing = None;
@@ -369,6 +375,7 @@ impl Pet {
 
     // ---- 달려가기 ----
 
+    /// 정한 곳으로 가는 길을 시작함. 거리에 따라 달리기·뛰기·날기를 고름
     fn start_trip(&mut self, why: TripWhy, end: TripEnd, world: &World, max_run_secs: f64) {
         let Some(to) = trip_target(end, world) else { return };
         let dx = to.0 - self.body.x;
@@ -403,6 +410,7 @@ impl Pet {
         self.state = State::PresenceTrip;
     }
 
+    /// 길 한 틱: 목적지로 가다가 닿으면 끝냄
     fn update_trip(&mut self, dt: f64, world: &World) {
         let Some(mut trip) = self.presence.trip else {
             self.end_trip();
@@ -448,7 +456,7 @@ impl Pet {
         }
     }
 
-    /// 가던 길을 그만둔다 (사용자 볼일이 생겼거나 도착할 자리가 사라졌다)
+    /// 가던 길을 그만둠 (사용자 볼일이 생겼거나 도착할 자리가 사라졌음)
     fn end_trip(&mut self) {
         self.presence.trip = None;
         if self.standing.is_some() || self.cfg.flies {
@@ -458,6 +466,7 @@ impl Pet {
         }
     }
 
+    /// 길 그림 (달리기·뛰기·날기)
     pub(super) fn trip_anim(&self) -> Anim {
         match self.presence.trip.map(|t| t.way) {
             Some(TripWay::Run) => Anim::Run,
@@ -469,7 +478,7 @@ impl Pet {
 
     // ---- 집중 ----
 
-    /// 구석으로 가거나 구석에 앉아 있는다. 지금 하는 일을 먼저 끝내야 하면 false
+    /// 구석으로 가거나 구석에 앉아 있음. 지금 하는 일을 먼저 끝내야 하면 false
     fn focus_tick(&mut self, world: &World) -> bool {
         let movable = matches!(
             self.state,
@@ -505,7 +514,7 @@ impl Pet {
         true
     }
 
-    /// 화면 쪽을 보고 앉아 있다 — 이 자세가 끝나지 않게 매 틱 다시 채운다 (집중이 끝나면 곧 평소대로)
+    /// 화면 쪽을 보고 앉아 있음 — 이 자세가 끝나지 않게 매 틱 다시 채움 (집중이 끝나면 곧 평소대로)
     fn sit_in_corner(&mut self) {
         self.pacing.after_beat = None;
         self.gaze_up = false;
@@ -513,7 +522,7 @@ impl Pet {
         self.state = State::Idle { remaining: 1.0, look: false };
     }
 
-    /// 집중이 끝났다: 기지개 + "break time!" + 하트 (하우스 안이나 다른 일 중이면 말과 하트만)
+    /// 집중이 끝났음: 기지개 + "break time!" + 하트 (하우스 안이나 다른 일 중이면 말과 하트만)
     pub fn focus_break(&mut self) {
         if matches!(self.state, State::Away) {
             return;
@@ -569,7 +578,7 @@ impl Pet {
         Some(State::Trick { kind: Trick::Stretch, remaining: YAWN_SECS })
     }
 
-    /// 졸린 시간엔 훨씬 자주 잠든다 (떠 있는 나는 동물도 그 자리에서 꾸벅)
+    /// 졸린 시간엔 훨씬 자주 잠듦 (떠 있는 나는 동물도 그 자리에서 꾸벅)
     pub(super) fn sleep_chance(&self, base: f64) -> f64 {
         if self.presence.sleepy {
             base.max(SLEEPY_SLEEP_CHANCE)
@@ -578,7 +587,7 @@ impl Pet {
         }
     }
 
-    /// 이번 잠의 길이 (졸린 시간엔 훨씬 길다)
+    /// 이번 잠의 길이 (졸린 시간엔 훨씬 긺)
     pub(super) fn sleep_secs(&mut self) -> f64 {
         let secs = behavior::range(&mut self.rng, behavior::SLEEP_SECS);
         if self.presence.sleepy {
@@ -601,6 +610,7 @@ impl Pet {
     }
 }
 
+/// 목적지 디딤판의 기준점 (공중이면 None)
 fn trip_anchor(end: TripEnd, world: &World) -> Option<(f64, f64)> {
     match end {
         TripEnd::On { owner, .. } => world.anchor(owner),
@@ -608,6 +618,7 @@ fn trip_anchor(end: TripEnd, world: &World) -> Option<(f64, f64)> {
     }
 }
 
+/// 목적지 자리 (디딤판이 사라졌으면 None)
 fn trip_target(end: TripEnd, world: &World) -> Option<(f64, f64)> {
     match end {
         TripEnd::On { owner, rel_x } => world.anchor(owner).map(|(ax, ay)| (ax + rel_x, ay)),

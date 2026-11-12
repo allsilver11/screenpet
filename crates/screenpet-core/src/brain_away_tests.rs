@@ -1,4 +1,4 @@
-//! 자리를 비운 동안엔 잠만 잔다 (brain_presence.rs) — 가짜 시계로 두 시간을 돌려 본다.
+//! 자리를 비운 동안엔 잠만 잠 (brain_presence.rs) — 가짜 시계로 두 시간을 돌려 봄
 
 use super::tests::{place, sim_cfg, world};
 use super::*;
@@ -33,7 +33,7 @@ fn window(id: u64, top: f64) -> WindowInfo {
     WindowInfo { id, rect: Rect::new(400.0, top, 1400.0, top + 300.0) }
 }
 
-/// 유혹을 켠 동물: 배고프고, 커서가 코앞에 멈춰 있고, 눈이 쌓였다
+/// 유혹을 켠 동물: 배고프고, 커서가 코앞에 멈춰 있고, 눈이 쌓였음
 fn tempted(c: PetConfig, w: &World) -> Pet {
     let mut p = Pet::new(c, 0.0, 0.0, 11);
     place(&mut p, w, Owner::Ground(0), 800.0, State::Move { kind: Move::Walk, remaining: 100.0 });
@@ -47,7 +47,7 @@ fn tempted(c: PetConfig, w: &World) -> Pet {
     p
 }
 
-/// 자리를 비운다: 다음 Rhythm::tick이 알아챈다 (하던 일은 몇 틱 안에 잠으로)
+/// 자리를 비움: 다음 Rhythm::tick이 알아챔 (하던 일은 몇 틱 안에 잠으로)
 fn walk_away(sim: &mut Sim, p: &mut Pet, w: &World) {
     sim.idle = Some(AWAY_AFTER_SECS);
     sim.second(p, w);
@@ -290,7 +290,7 @@ fn a_housed_pet_stays_quiet_and_is_welcomed_when_you_are_back() {
 
 // ---- 친구 ----
 
-/// 이 화면의 손님: 주인과 별개로 set_user_away만 받는다 (앱이 매 틱 넘겨 준다)
+/// 이 화면의 손님: 주인과 별개로 set_user_away만 받음 (앱이 매 틱 넘겨 줌)
 fn guest_on_screen(c: PetConfig, w: &World, homesick_after: f64) -> Pet {
     let mut p = tempted(c, w);
     p.set_guest(Side::Left, homesick_after);
@@ -508,7 +508,7 @@ fn a_chase_in_progress_ends_when_i_leave() {
     leave_and_settle(&mut social, &mut pets, &w);
 }
 
-/// 놀던 짝이 자리를 비우자 곧 둘 다 잠들고, 짝이 풀리고, 곧장 다시 놀지 않는다
+/// 놀던 짝이 자리를 비우자 곧 둘 다 잠들고, 짝이 풀리고, 곧장 다시 놀지 않음
 fn leave_and_settle(social: &mut Social, pets: &mut [Pet], w: &World) {
     for p in pets.iter_mut() {
         p.set_user_away(true);
@@ -539,7 +539,7 @@ fn no_gifts_while_away() {
 
 // ---- 집중 친구 ----
 
-/// 집중 중에 자리를 비운 동물: 타이머만 조용히 돈다. 자리는 그대로
+/// 집중 중에 자리를 비운 동물: 타이머만 조용히 돎. 자리는 그대로
 fn away_during_focus(c: PetConfig, w: &World) -> (Sim, Pet) {
     let mut sim = Sim::from(15, 0);
     let mut p = Pet::new(c, 0.0, 0.0, 5);

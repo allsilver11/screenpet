@@ -1,10 +1,10 @@
 //! 🐿️ 다람쥐 볼 빵빵 (v0.6.3, pet.json `stasher` + cheeks_walk·cheeks_idle·dig 그림 — 다람쥐) — brain.rs의 자식 모듈. 숫자는 play.rs.
 //!
-//! 내 다람쥐(손님은 아니다)가 같은 디딤판의 작은 물건(쓰레기·똥 — 거대한 것·📌 장난감은 아니다)을 처음 보면 STASH_CHANCE로
-//! 달려가 "Nom nom~" 볼에 쏙 넣는다 (앱이 그 물건을 뿅 치운다 — ObjectPlay::Gulp). 가까이 또 있으면 한 번에 MAX_CHEEKS개까지 더 넣고,
-//! 볼이 빵빵한 채(cheeks_walk·cheeks_idle) 조금 걸어가 땅을 파고(dig) 묻는다 — 그러면 볼이 원래대로.
-//! 볼에 든 채 잡히거나 다른 일이 끼면, 다시 한가해졌을 때 마저 묻으러 간다.
-//! 하우스는 동물이 하우스 안에 있을 때만 화면에 있으므로 (밖에서 노는 동안엔 집이 없다) 늘 땅에 묻는다.
+//! 내 다람쥐(손님은 아님)가 같은 디딤판의 작은 물건(쓰레기·똥 — 거대한 것·📌 장난감은 아님)을 처음 보면 STASH_CHANCE로
+//! 달려가 "Nom nom~" 볼에 쏙 넣음 (앱이 그 물건을 뿅 치움 — ObjectPlay::Gulp). 가까이 또 있으면 한 번에 MAX_CHEEKS개까지 더 넣고,
+//! 볼이 빵빵한 채(cheeks_walk·cheeks_idle) 조금 걸어가 땅을 파고(dig) 물음 — 그러면 볼이 원래대로.
+//! 볼에 든 채 잡히거나 다른 일이 끼면, 다시 한가해졌을 때 마저 묻으러 감
+//! 하우스는 동물이 하우스 안에 있을 때만 화면에 있으므로 (밖에서 노는 동안엔 집이 없음) 늘 땅에 물음
 
 use super::*;
 use crate::juggle::ObjectSpot;
@@ -13,13 +13,13 @@ use crate::play::{self, ObjectPlay};
 /// 볼 빵빵 단계 (State::Stash — t는 이 단계에 들어선 뒤 흐른 시간)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StashPhase {
-    /// 물건 옆 x로 달려간다
+    /// 물건 옆 x로 달려감
     Approach { id: u64, x: f64, obj_x: f64 },
-    /// 냠 — 볼에 쏙 (gulped = 이미 넣었다)
+    /// 냠 — 볼에 쏙 (gulped = 이미 넣었음)
     Stuff { id: u64, gulped: bool },
-    /// 볼이 빵빵한 채 묻을 곳으로 걸어간다
+    /// 볼이 빵빵한 채 묻을 곳으로 걸어감
     Carry { secs: f64 },
-    /// 땅을 파고 묻는다
+    /// 땅을 파고 물음
     Dig,
 }
 
@@ -29,6 +29,7 @@ impl Pet {
         self.play.cheeks
     }
 
+    /// 숨길 물건을 살핌: 다가가던 것이 사라졌으면 그만, 처음 본 물건이면 주사위를 굴림
     pub(super) fn notice_stash(&mut self, world: &World) {
         if let State::Stash { phase: StashPhase::Approach { id, .. }, t } = self.state {
             let owner = self.standing.map(|s| s.owner);
@@ -65,7 +66,7 @@ impl Pet {
             .copied()
     }
 
-    /// 물건(spot)을 볼에 넣으러 달려간다
+    /// 물건(spot)을 볼에 넣으러 달려감
     pub(super) fn start_stash(&mut self, spot: &ObjectSpot, world: &World) -> bool {
         let Some(x) = self.approach_x(spot, world) else { return false };
         self.pacing.after_beat = None;
@@ -75,7 +76,7 @@ impl Pet {
         true
     }
 
-    /// 하나 넣은 뒤 (또는 가던 물건이 사라졌다): 더 넣을 수 있고 가까이 또 있으면 그것을, 볼에 든 게 있으면 묻으러, 아니면 그만
+    /// 하나 넣은 뒤 (또는 가던 물건이 사라졌음): 더 넣을 수 있고 가까이 또 있으면 그것을, 볼에 든 게 있으면 묻으러, 아니면 그만
     fn after_gulp(&mut self, world: &World) {
         if self.play.cheeks < play::MAX_CHEEKS {
             if let Some(spot) = self.stash_pick(world, false) {
@@ -92,6 +93,7 @@ impl Pet {
         }
     }
 
+    /// 묻으러 감: 방향을 고르고 조금 걸어감
     fn start_bury(&mut self) {
         self.pacing.after_beat = None;
         if self.play.rng.bool() {
@@ -101,7 +103,7 @@ impl Pet {
         self.state = State::Stash { phase: StashPhase::Carry { secs }, t: 0.0 };
     }
 
-    /// 볼에 든 채 다른 일이 끼었다가 한가해졌다: 마저 묻으러 간다
+    /// 볼에 든 채 다른 일이 끼었다가 한가해졌음: 마저 묻으러 감
     pub(super) fn resume_stash(&mut self) -> bool {
         if self.play.cheeks == 0 || !self.cfg.stashes || !self.play_free() {
             return false;
@@ -110,6 +112,7 @@ impl Pet {
         true
     }
 
+    /// 숨기기 한 틱: 다가가 볼에 넣고, 걸어가 땅에 묻음
     pub(super) fn update_stash(&mut self, dt: f64, world: &World, phase: StashPhase, t: f64) {
         if self.romp_interrupted() {
             // 볼에 든 것은 그대로 — 나중에 마저 묻는다
@@ -181,6 +184,7 @@ impl Pet {
         }
     }
 
+    /// 숨기기 단계별 그림
     pub(super) fn stash_anim(&self, phase: StashPhase) -> Anim {
         match phase {
             StashPhase::Approach { .. } => Anim::Run,

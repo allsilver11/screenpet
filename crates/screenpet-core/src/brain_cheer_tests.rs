@@ -1,4 +1,4 @@
-//! 🔄 새 버전이 나왔다: "new version!!" 하고 10초쯤 신나게 이리저리 뛴다 (brain_cheer.rs)
+//! 🔄 새 버전이 나왔음: "new version!!" 하고 10초쯤 신나게 이리저리 뜀 (brain_cheer.rs)
 
 use super::tests::{place, sim_cfg, world};
 use super::*;

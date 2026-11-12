@@ -1,7 +1,7 @@
 //! 트레이 "놀러 보내기" / "편지 들려 보내기" / 친구의 "펫 데리고 오기" (phase 3): 보낸 동물은 화면 끝으로 뛰어가지 않고
-//! 그 자리에 멈춰 이쪽을 보고 손 흔든 뒤("bye~!", 편지를 들었으면 "💌!") 뿅 사라진다 — 사라지는 쪽(take_exit)은 그 친구가 연결된 끝.
-//! 손님도 이 화면 주인이 "<친구>에게 보내기"로 보내면 같은 길로 사라진다.
-//! 들려 있거나 공중·창 안·먹는 중이면 그게 끝난 뒤에 손 흔든다. 던지기와 저절로 걸어 나가기는 그대로 (brain.rs). brain.rs의 자식 모듈.
+//! 그 자리에 멈춰 이쪽을 보고 손 흔든 뒤("bye~!", 편지를 들었으면 "💌!") 뿅 사라짐 — 사라지는 쪽(take_exit)은 그 친구가 연결된 끝.
+//! 손님도 이 화면 주인이 "<친구>에게 보내기"로 보내면 같은 길로 사라짐
+//! 들려 있거나 공중·창 안·먹는 중이면 그게 끝난 뒤에 손 흔듦. 던지기와 저절로 걸어 나가기는 그대로 (brain.rs). brain.rs의 자식 모듈.
 
 use super::*;
 
@@ -13,16 +13,18 @@ pub const SEND_POOF_SECS: f64 = 0.4;
 /// 친구 화면으로 보내는 중: 사라질 끝, 편지를 들었는지
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct SendTrip {
+    /// 사라질 화면 끝
     pub side: Side,
+    /// 편지를 들었음
     pub letter: bool,
     /// 손님이 이 화면 주인의 답장을 들고 집으로 ("bye~! 💌")
     pub reply: bool,
-    /// 손 흔들 때 말풍선 없이 (앱이 이미 다른 말풍선을 띄웠다 — "펫 데리고 오기"의 "off to <친구>'s~ brb!")
+    /// 손 흔들 때 말풍선 없이 (앱이 이미 다른 말풍선을 띄웠음 — "펫 데리고 오기"의 "off to <친구>'s~ brb!")
     pub quiet: bool,
 }
 
 impl Pet {
-    /// side 끝(친구가 연결된 끝)으로 보낸다 — 내 동물, 또는 다음 친구에게 보내는 손님. letter = 편지를 들려 보냄 ("💌!").
+    /// side 끝(친구가 연결된 끝)으로 보냄 — 내 동물, 또는 다음 친구에게 보내는 손님. letter = 편지를 들려 보냄 ("💌!").
     /// 하우스 안·들림·떠나는 중(손 흔드는 중 포함)이면 false
     pub fn send_to(&mut self, side: Side, letter: bool) -> bool {
         if self.housed || self.home_trip.is_some() || self.is_held() || self.in_transit() {
@@ -32,7 +34,7 @@ impl Pet {
         true
     }
 
-    /// 손님 우클릭 "편지 써서 돌려보내기": 그 자리에서 손 흔들고("bye~! 💌") 뿅 — 집 쪽으로 사라진다 ("<친구>에게 보내기"보다 먼저).
+    /// 손님 우클릭 "편지 써서 돌려보내기": 그 자리에서 손 흔들고("bye~! 💌") 뿅 — 집 쪽으로 사라짐 ("<친구>에게 보내기"보다 먼저).
     /// 들려 있거나 공중이면 그 뒤에. 이미 다음 친구에게 손 흔드는 중이면 그대로 흔들고 집 쪽으로.
     /// 손님이 아니거나 하우스 안·이미 떠나는 중(집에 와 손 흔들기·걸어 나가기)이면 false
     pub fn send_home_with_reply(&mut self) -> bool {
@@ -52,7 +54,7 @@ impl Pet {
         true
     }
 
-    /// 보낸 동물이 손 흔들 때 "bye~!"를 하지 않는다 (앱이 띄운 말풍선을 덮지 않게)
+    /// 보낸 동물이 손 흔들 때 "bye~!"를 하지 않음 (앱이 띄운 말풍선을 덮지 않게)
     pub fn hush_send(&mut self) {
         if let Some(trip) = self.send.as_mut() {
             trip.quiet = true;
@@ -73,7 +75,7 @@ impl Pet {
             && self.send.is_none()
     }
 
-    /// 보내기를 그만둔다 (그 친구가 끊겼을 때 등). 손 흔들던 중이면 그만 흔들고 그 자리에 남는다
+    /// 보내기를 그만둠 (그 친구가 끊겼을 때 등). 손 흔들던 중이면 그만 흔들고 그 자리에 남음
     pub fn cancel_send(&mut self) {
         if self.send.take().is_some() && matches!(self.state, State::Farewell { .. }) {
             self.state = State::Idle { remaining: behavior::range(&mut self.rng, behavior::IDLE_SECS), look: false };
@@ -85,13 +87,13 @@ impl Pet {
         self.send.map(|s| s.side)
     }
 
-    /// 보내져 손 흔드는 중 (손님의 "집에 와" 손 흔들기는 아니다)
+    /// 보내져 손 흔드는 중 (손님의 "집에 와" 손 흔들기는 아님)
     pub(super) fn waving_goodbye(&self) -> bool {
         self.send.is_some() && matches!(self.state, State::Farewell { .. })
     }
 
-    /// 손 흔들기 마지막 SEND_POOF_SECS: 웹뷰가 "뿅" 하고 사라지는 모습을 그린다.
-    /// 화면을 떠난 뒤(Away)에도 참 — 창이 숨기 전에 사라진 몸이 번쩍 다시 보이지 않게. 그 밖의 모든 상태(취소돼 남음, 돌아옴)는 거짓 → 웹뷰가 바로 다시 보인다
+    /// 손 흔들기 마지막 SEND_POOF_SECS: 웹뷰가 "뿅" 하고 사라지는 모습을 그림
+    /// 화면을 떠난 뒤(Away)에도 참 — 창이 숨기 전에 사라진 몸이 번쩍 다시 보이지 않게. 그 밖의 모든 상태(취소돼 남음, 돌아옴)는 거짓 → 웹뷰가 바로 다시 보임
     pub(super) fn poofing(&self) -> bool {
         match self.state {
             State::Farewell { remaining } => self.send.is_some() && remaining <= SEND_POOF_SECS,
@@ -118,7 +120,7 @@ impl Pet {
         }
     }
 
-    /// 매 틱 (주 동작 전): 끝났으면 지우고, 손 흔들 수 있게 되면(내려서 있고, 들리거나 창 안·먹는 중이 아님) 그 자리에서 손 흔든다
+    /// 매 틱 (주 동작 전): 끝났으면 지우고, 손 흔들 수 있게 되면(내려서 있고, 들리거나 창 안·먹는 중이 아님) 그 자리에서 손 흔듦
     pub(super) fn tick_send(&mut self) {
         let Some(trip) = self.send else { return };
         // 손 흔드는 중 — update_farewell이 끝나면 trip.side로 사라진다

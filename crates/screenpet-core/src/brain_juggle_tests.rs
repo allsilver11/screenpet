@@ -38,14 +38,14 @@ fn juggling(p: &Pet) -> Option<JugglePhase> {
     }
 }
 
-/// 앱처럼 한 틱: 물건을 알아채고, 움직이고, 놓은 것을 꺼낸다
+/// 앱처럼 한 틱: 물건을 알아채고, 움직이고, 놓은 것을 꺼냄
 fn tick(p: &mut Pet, w: &World, spots: &[ObjectSpot], targets: &[Target]) -> Option<JuggleEvent> {
     p.notice_objects(spots, targets, w);
     p.update(DT, w);
     p.take_juggle()
 }
 
-/// 든 채로 이 단계에 둔다 (plan은 Hold가 끝난 뒤 할 일)
+/// 든 채로 이 단계에 둠 (plan은 Hold가 끝난 뒤 할 일)
 fn holding(p: &mut Pet, plan: Plan, w: &World) {
     let x = p.body.x;
     place(p, w, Owner::Ground(0), x, State::Juggle { phase: JugglePhase::Hold { secs: 0.1 }, t: 0.0 });

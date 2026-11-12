@@ -37,8 +37,8 @@ fn pets_in_other_states_skip_the_reaction() {
     }
 }
 
-/// 볼일 때문에 건너뛰는 경우: 걷거나 쉬는 상태(그래서 상태 검사는 통과한다)에서 볼일 하나만 있다.
-/// 끊으면 안 된다 — 머리 위 친구가 있으면 탑이 무너지고, 먹이 길이면 밥을 놓친다
+/// 볼일 때문에 건너뛰는 경우: 걷거나 쉬는 상태(그래서 상태 검사는 통과함)에서 볼일 하나만 있음
+/// 끊으면 안 됨 — 머리 위 친구가 있으면 탑이 무너지고, 먹이 길이면 밥을 놓침
 #[test]
 fn pets_on_an_errand_or_under_a_rider_skip_the_reaction() {
     let cases: [(&str, fn(&mut Pet)); 12] = [
@@ -69,7 +69,7 @@ fn pets_on_an_errand_or_under_a_rider_skip_the_reaction() {
     assert!(!p.react_to_result(true));
 }
 
-/// 볼일이 끝나면 다시 반응한다 (위 검사가 무조건 false라서 통과한 게 아니다)
+/// 볼일이 끝나면 다시 반응함 (위 검사가 무조건 false라서 통과한 게 아님)
 #[test]
 fn a_rider_stepping_off_lets_the_pet_react_again() {
     let (mut p, _) = grounded(State::Idle { remaining: 10.0, look: false });

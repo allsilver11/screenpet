@@ -13,7 +13,7 @@ fn cat() -> PetConfig {
     PetConfig { knocks: true, half_w: 38.4, personality: Personality::Aloof, ..pet_cfg() }
 }
 
-/// 창(500..1100) 윗면 x에서 쉬는 고양이 — 처음 쉬는 때는 지났다
+/// 창(500..1100) 윗면 x에서 쉬는 고양이 — 처음 쉬는 때는 지났음
 fn cat_on_window(c: PetConfig, x: f64, seed: u64, w: &World) -> Pet {
     let mut p = Pet::new(c, x, 0.0, seed);
     place(&mut p, w, Owner::Window(1), x, State::Idle { remaining: 100.0, look: false });

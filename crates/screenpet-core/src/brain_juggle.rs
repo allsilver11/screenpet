@@ -1,60 +1,60 @@
 //! 🤹 물건 들어 던지기 (pet.json `juggler` — 흐물이)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근). 숫자와 까닭은 juggle.rs.
 //!
-//! - `notice_objects`: 앱이 update 전에 바닥의 물건 자리와 같은 화면의 다른 동물 자리를 넘긴다. 처음 본 물건마다 한 번 주사위.
-//! - 들고 있는 물건(`carried_object`)은 앱이 틱마다 손 자리(`carry_point`)로 옮긴다. 잡히거나 다른 일에 끼어들리면 손에서 놓친다
-//!   (앱은 아무도 들고 있지 않은 물건을 떨어뜨린다). 사용자가 물건을 낚아채면 앱이 `lose_carry`를 부른다.
-//! - 놓을 때는 `take_juggle`로 Release (속도) — 앱이 그 속도로 던진다.
-//! - 배달 장난: 들고 친구 쪽 끝으로 걸어 나간다 (Exit 중에도 들고 있다). 앱이 Visit에 실어 보내면 `carry_handed_over`.
-//!   친구 화면에 도착한 손님·못 들어가 돌아온 내 동물은 앱이 손에 쥐여 주고(`hold_object`) 들어와 서면 앞을 보고 휙 떨군다.
+//! - `notice_objects`: 앱이 update 전에 바닥의 물건 자리와 같은 화면의 다른 동물 자리를 넘김. 처음 본 물건마다 한 번 주사위.
+//! - 들고 있는 물건(`carried_object`)은 앱이 틱마다 손 자리(`carry_point`)로 옮김. 잡히거나 다른 일에 끼어들리면 손에서 놓침
+//!   (앱은 아무도 들고 있지 않은 물건을 떨어뜨림). 사용자가 물건을 낚아채면 앱이 `lose_carry`를 부름
+//! - 놓을 때는 `take_juggle`로 Release (속도) — 앱이 그 속도로 던짐
+//! - 배달 장난: 들고 친구 쪽 끝으로 걸어 나감 (Exit 중에도 들고 있음). 앱이 Visit에 실어 보내면 `carry_handed_over`.
+//!   친구 화면에 도착한 손님·못 들어가 돌아온 내 동물은 앱이 손에 쥐여 주고(`hold_object`) 들어와 서면 앞을 보고 휙 떨굼
 
 use super::*;
 use crate::juggle::{self, JuggleEvent, ObjectSpot, Target};
 
-/// 거대한 것 앞에 설 때 몸 가운데에서 그 옆면까지 (몸 크기 배) — 끙차 그림(strain)의 손바닥이 여기 닿는다 (tools/draw_heumul.py STRAIN_HANDS_X)
+/// 거대한 것 앞에 설 때 몸 가운데에서 그 옆면까지 (몸 크기 배) — 끙차 그림(strain)의 손바닥이 여기 닿음 (tools/draw_heumul.py STRAIN_HANDS_X)
 const GIANT_GAP: f64 = 0.28;
 
 /// 들고 던지기 단계 (State::Juggle — t는 이 단계에 들어선 뒤 흐른 시간)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JugglePhase {
-    /// 물건 옆(x)으로 다가간다. obj_x = 물건 가운데
+    /// 물건 옆(x)으로 다가감. obj_x = 물건 가운데
     Approach { id: u64, x: f64, obj_x: f64, giant: bool },
-    /// 🪨💩 거대한 것에 "끙차" — lifts면 끝내 들어 올린다 (시작할 때 정한다)
+    /// 🪨💩 거대한 것에 "끙차" — lifts면 끝내 들어 올림 (시작할 때 정함)
     Strain { id: u64, lifts: bool },
     /// 쪼그려 앉았다가 머리 위로 번쩍
     Lift,
-    /// 든 채 잠깐 서 있다
+    /// 든 채 잠깐 서 있음
     Hold { secs: f64 },
-    /// 머리 위에 인 채 돌아다닌다
+    /// 머리 위에 인 채 돌아다님
     Wander { secs: f64 },
-    /// 배달 장난: 친구 쪽 끝으로 들고 간다
+    /// 배달 장난: 친구 쪽 끝으로 들고 감
     CarryOff { side: Side },
-    /// 🎯 모니터 너머로 던지러 친구 쪽 끝 가까이 들고 간다
+    /// 🎯 모니터 너머로 던지러 친구 쪽 끝 가까이 들고 감
     LobOff { side: Side },
-    /// 젖혔다가 휙 (released = 이미 놓았다)
+    /// 젖혔다가 휙 (released = 이미 놓았음)
     Throw { released: bool },
-    /// 앞을 보고 번쩍 든 채 섰다가 휙 떨군다 (배달 도착)
+    /// 앞을 보고 번쩍 든 채 섰다가 휙 떨굼 (배달 도착)
     Present { released: bool },
     /// 너무 무거워 털썩 주저앉음
     Slump,
     /// 📌 쪼그려 앉아 바닥(작업표시줄 쪽)을 잡고 끙차 — 앱이 장난감을 쥐여 주면 번쩍 (brain_taskbar.rs)
     Yank,
-    /// 📌 장난감을 바닥 속으로 도로 밀어 넣는다 (released = 이미 넣었다)
+    /// 📌 장난감을 바닥 속으로 도로 밀어 넣음 (released = 이미 넣었음)
     Stuff { released: bool },
-    /// ⚾ 날아오는 물건(id)이 내려올 자리(x) 밑으로 달려간다 (brain_rally.rs)
+    /// ⚾ 날아오는 물건(id)이 내려올 자리(x) 밑으로 달려감 (brain_rally.rs)
     Chase { id: u64, x: f64 },
-    /// ⚾ 머리 위로 받았다 (catch 그림 한 번) — 그 뒤 Hold
+    /// ⚾ 머리 위로 받았음 (catch 그림 한 번) — 그 뒤 Hold
     Catch,
 }
 
-/// 들어 올린 뒤 할 일 (줍는 순간 정한다)
+/// 들어 올린 뒤 할 일 (줍는 순간 정함)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Plan {
     Throw,
     Wander,
     Prank(Side),
-    /// 🎯 그 끝 너머 친구 화면으로 던진다
+    /// 🎯 그 끝 너머 친구 화면으로 던짐
     Lob(Side),
-    /// 📌 장난감: 바닥을 조금 걷다가 도로 밀어 넣는다
+    /// 📌 장난감: 바닥을 조금 걷다가 도로 밀어 넣음
     Stuff,
 }
 
@@ -67,27 +67,30 @@ pub struct JuggleMood {
     pub(super) carry: Option<u64>,
     /// 든 것이 거대한 것
     pub(super) giant: bool,
-    /// 다가가거나 든 것이 이 컴퓨터를 떠나지 않는 것 (📌 장난감 — ObjectSpot.local): 친구에게 들고 가지 않는다
+    /// 다가가거나 든 것이 이 컴퓨터를 떠나지 않는 것 (📌 장난감 — ObjectSpot.local): 친구에게 들고 가지 않음
     pub(super) local: bool,
-    /// 들고 들어와 서면 앞을 보고 떨군다 (배달 도착·돌아옴)
+    /// 들고 들어와 서면 앞을 보고 떨굼 (배달 도착·돌아옴)
     pub(super) present_pending: bool,
+    /// 들고 난 뒤 할 일 (던지기·들고 다니기·배달 등)
     pub(super) plan: Plan,
-    /// 이 시각(clock)까지는 새 물건을 줍지 않는다
+    /// 이 시각(clock)까지는 새 물건을 줍지 않음
     pub(super) calm_until: f64,
     /// 주사위를 굴린 물건과 다시 굴릴 수 있는 시각
     pub(super) seen: Vec<(u64, f64)>,
-    /// 같은 화면의 다른 동물 (notice_objects가 채운다)
+    /// 같은 화면의 다른 동물 (notice_objects가 채움)
     pub(super) targets: Vec<Target>,
-    /// 배달 장난을 해도 되는 끝 (새 버전 친구가 연결됨 — 앱이 정한다)
+    /// 배달 장난을 해도 되는 끝 (새 버전 친구가 연결됨 — 앱이 정함)
     pub(super) prank: (bool, bool),
+    /// 앱에 알릴 일 (놓기·던지기 — 앱이 꺼내 감)
     pub(super) event: Option<JuggleEvent>,
-    /// 바닥의 물건들 (notice_objects가 채운다 — 놀러 갈 때 들고 갈 것을 고른다)
+    /// 바닥의 물건들 (notice_objects가 채움 — 놀러 갈 때 들고 갈 것을 고름)
     pub(super) spots: Vec<ObjectSpot>,
-    /// 놀러 가기로 하고 들고 갈 것을 주우러 가는 중: 들면 이 끝으로 들고 간다
+    /// 놀러 가기로 하고 들고 갈 것을 주우러 가는 중: 들면 이 끝으로 들고 감
     pub(super) leave_to: Option<Side>,
 }
 
 impl JuggleMood {
+    /// 시드로 난수를 따로 둠
     pub(super) fn new(seed: u64) -> Self {
         JuggleMood {
             rng: fastrand::Rng::with_seed(seed ^ 0x6a75_6767),
@@ -113,7 +116,7 @@ impl Pet {
         self.juggle.prank = (left, right);
     }
 
-    /// 손에 든 물건 (앱이 틱마다 손 자리로 옮긴다). 손에서 놓쳤으면 None
+    /// 손에 든 물건 (앱이 틱마다 손 자리로 옮김). 손에서 놓쳤으면 None
     pub fn carried_object(&self) -> Option<u64> {
         self.juggle.carry.filter(|_| self.carry_ok())
     }
@@ -123,7 +126,7 @@ impl Pet {
         self.juggle.event.take()
     }
 
-    /// 사용자가 손에 든 물건을 낚아챘거나 물건이 사라졌다: "hmph!" 하고 하던 일을 그만둔다
+    /// 사용자가 손에 든 물건을 낚아챘거나 물건이 사라졌음: "hmph!" 하고 하던 일을 그만둠
     pub fn lose_carry(&mut self) {
         if self.juggle.carry.take().is_none() {
             return;
@@ -135,13 +138,13 @@ impl Pet {
         }
     }
 
-    /// 들고 나간 물건을 친구에게 실어 보냈다 (이 화면에서는 끝)
+    /// 들고 나간 물건을 친구에게 실어 보냈음 (이 화면에서는 끝)
     pub fn carry_handed_over(&mut self) {
         self.juggle.carry = None;
         self.juggle.present_pending = false;
     }
 
-    /// 친구 화면에 들고 온 물건 (또는 못 들어가 들고 돌아온 것): 들어와 서면 앞을 보고 번쩍 든 채 섰다가 휙 떨군다
+    /// 친구 화면에 들고 온 물건 (또는 못 들어가 들고 돌아온 것): 들어와 서면 앞을 보고 번쩍 든 채 섰다가 휙 떨굼
     pub fn hold_object(&mut self, id: u64) {
         self.juggle.carry = Some(id);
         self.juggle.giant = false;
@@ -203,12 +206,12 @@ impl Pet {
         }
     }
 
-    /// 새 물건을 주우러 갈 수 있는 때: 스스로 걷거나 쉬는 중, 볼일 없음, 한 번 던진 뒤 쉬는 때가 지났다
+    /// 새 물건을 주우러 갈 수 있는 때: 스스로 걷거나 쉬는 중, 볼일 없음, 한 번 던진 뒤 쉬는 때가 지났음
     pub(super) fn may_pick_up(&self) -> bool {
         self.free_hands() && self.clock >= self.juggle.calm_until
     }
 
-    /// 스스로 걷거나 쉬는 중이고 볼일도 든 것도 없다 (📌 장난감을 도로 넣으러 갈 땐 쉬는 때를 기다리지 않는다)
+    /// 스스로 걷거나 쉬는 중이고 볼일도 든 것도 없음 (📌 장난감을 도로 넣으러 갈 땐 쉬는 때를 기다리지 않음)
     pub(super) fn free_hands(&self) -> bool {
         matches!(self.state, State::Move { kind: Move::Walk | Move::Run, .. } | State::Idle { .. } | State::Turn { .. })
             && self.standing.is_some()
@@ -224,7 +227,7 @@ impl Pet {
             && self.juggle.carry.is_none()
     }
 
-    /// 매 틱 update 전에: 바닥의 물건과 같은 화면의 다른 동물 (주우러 가는 동물만 일이 있다)
+    /// 매 틱 update 전에: 바닥의 물건과 같은 화면의 다른 동물 (주우러 가는 동물만 일이 있음)
     pub fn notice_objects(&mut self, spots: &[ObjectSpot], targets: &[Target], world: &World) {
         if !self.cfg.juggler {
             return;
@@ -291,7 +294,7 @@ impl Pet {
             .min_by(|a, b| (a.0.x - x).abs().total_cmp(&(b.0.x - x).abs()))
     }
 
-    /// 친구에게 놀러 가기로 했다 (side 끝): 들고 갈 물건이 같은 바닥에 있으면 주우러 가서 들고 간다 (true). 없으면 false (그냥 간다)
+    /// 친구에게 놀러 가기로 했음 (side 끝): 들고 갈 물건이 같은 바닥에 있으면 주우러 가서 들고 감 (true). 없으면 false (그냥 감)
     pub fn leave_with_something(&mut self, side: Side, world: &World) -> bool {
         if !self.cfg.juggler || self.guest.is_some() || visit::is_vertical(side) || self.juggle.carry.is_some() || self.inside.is_some() || self.housed {
             return false;
@@ -311,7 +314,7 @@ impl Pet {
         true
     }
 
-    /// 물건 옆(to)으로 다가가기 시작한다
+    /// 물건 옆(to)으로 다가가기 시작함
     pub(super) fn start_approach(&mut self, spot: &ObjectSpot, to: f64) {
         self.pacing.after_beat = None;
         self.clear_hover();
@@ -338,7 +341,7 @@ impl Pet {
         ((x - want).abs() <= 0.3 * self.cfg.size).then_some(x)
     }
 
-    /// 디딤판을 따라 dir 쪽으로 speed만큼. 발밑이 사라졌으면 None (떨어진다), 조각 끝에 막혔으면 Some(true)
+    /// 디딤판을 따라 dir 쪽으로 speed만큼. 발밑이 사라졌으면 None (떨어짐), 조각 끝에 막혔으면 Some(true)
     pub(super) fn juggle_walk(&mut self, world: &World, dir: f64, step: f64) -> Option<bool> {
         if !self.follow_anchor(world) {
             self.start_fall();
@@ -359,6 +362,7 @@ impl Pet {
         Some(new_x != want)
     }
 
+    /// 들기를 끝냄: 든 것을 잊고 잠시 새 물건을 줍지 않음
     pub(super) fn end_juggle(&mut self) {
         self.juggle.carry = None;
         self.juggle.leave_to = None;
@@ -397,6 +401,7 @@ impl Pet {
         }
     }
 
+    /// 물건을 집어 듦. 할 일은 장난감 계획 → 놀러 가는 길 → 주사위 순으로 정함
     pub(super) fn start_lift(&mut self, id: u64, giant: bool, world: &World) {
         self.juggle.carry = Some(id);
         self.juggle.giant = giant;
@@ -412,6 +417,7 @@ impl Pet {
         self.state = State::Juggle { phase: JugglePhase::Lift, t: 0.0 };
     }
 
+    /// 던지기 시작. 노릴 동물이 있으면 그쪽을 봄
     pub(super) fn start_throw(&mut self) {
         // 노릴 동물이 있으면 그쪽을 본다
         let from = self.carry_point().unwrap_or((self.body.x, self.body.y - self.cfg.size));
@@ -423,6 +429,7 @@ impl Pet {
         self.state = State::Juggle { phase: JugglePhase::Throw { released: false }, t: 0.0 };
     }
 
+    /// 들고 온 물건을 앞을 보고 "tada!" 하며 내밀기 시작함
     fn start_present(&mut self) {
         self.juggle.present_pending = false;
         self.pacing.after_beat = None;
@@ -431,6 +438,7 @@ impl Pet {
         self.state = State::Juggle { phase: JugglePhase::Present { released: false }, t: 0.0 };
     }
 
+    /// 든 것을 (vx, vy)로 놓음 — 앱에 Release 일을 남김
     fn release(&mut self, vx: f64, vy: f64) {
         if let Some(id) = self.juggle.carry.take() {
             self.juggle.event = Some(JuggleEvent::Release { id, vx, vy });
@@ -438,7 +446,7 @@ impl Pet {
         }
     }
 
-    /// 들고 친구에게 달려가는 빠르기 (달리기와 같다)
+    /// 들고 친구에게 달려가는 빠르기 (달리기와 같음)
     pub(super) fn carry_run_speed(&self) -> f64 {
         self.cfg.walk_speed * Move::Run.speed_mult()
     }
@@ -452,6 +460,7 @@ impl Pet {
         }
     }
 
+    /// 들고 달릴 때 손 자리 (carry_run 그림이 없으면 carry 것)
     fn carry_run_grip(&self, t: f64) -> (f64, f64) {
         let g = &self.cfg.grip;
         if self.cfg.antics && g.carry_run.n > 0 {

@@ -105,7 +105,7 @@ fn not_while_away_focused_held_or_sleeping() {
     assert!(!cheering(&p));
 }
 
-/// 매 틱 (초당 키 수, 이번 틱에 새로 눌린 수)를 주고 (틱마다의 모습, 말)을 모은다
+/// 매 틱 (초당 키 수, 이번 틱에 새로 눌린 수)를 주고 (틱마다의 모습, 말)을 모음
 fn run_keys(p: &mut Pet, w: &World, secs: f64, rate: f64, mut keys: impl FnMut(usize) -> u32) -> (Vec<RenderState>, Vec<String>) {
     let (mut shown, mut said) = (Vec::new(), Vec::new());
     let mut k = 0;
@@ -126,7 +126,7 @@ fn run_text(p: &mut Pet, w: &World, secs: f64, rate: f64) -> (Vec<String>, Vec<R
     (said, shown)
 }
 
-/// 응원을 막 시작한 흐물이 (시작 대사는 꺼냈다)
+/// 응원을 막 시작한 흐물이 (시작 대사는 꺼냈음)
 fn cheering_heumul(seed: u64, w: &World) -> Pet {
     let mut p = resting(heumul(), 800.0, seed, w);
     run(&mut p, w, TYPING_HOLD_SECS + 0.1, 6.0);
@@ -249,7 +249,7 @@ fn typing_lines_take_turns_now_and_then_and_speedy_typing_gets_its_own() {
     assert!(said.iter().all(|s| !s.contains("Cheer")));
 }
 
-/// 개인정보: 뇌로 넘어오는 것은 개수뿐 — 키 코드·글자를 받을 자리가 없다
+/// 개인정보: 뇌로 넘어오는 것은 개수뿐 — 키 코드·글자를 받을 자리가 없음
 #[test]
 fn only_counts_cross_into_the_brain() {
     let src = include_str!("brain_typing.rs");

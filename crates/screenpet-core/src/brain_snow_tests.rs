@@ -13,7 +13,7 @@ fn on_ground(c: PetConfig, x: f64) -> (Pet, World) {
     (p, w)
 }
 
-/// 눈사람이 나올 때까지 (또는 secs초) 돌린다
+/// 눈사람이 나올 때까지 (또는 secs초) 돌림
 fn run_until_built(p: &mut Pet, w: &World, secs: f64) -> Option<(f64, f64)> {
     let mut t = 0.0;
     while t < secs {

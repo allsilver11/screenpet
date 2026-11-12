@@ -29,7 +29,7 @@ fn stashing(p: &Pet) -> bool {
     matches!(p.state, State::Stash { .. })
 }
 
-/// 앱처럼: 물건을 보여 주고, 움직이고, 볼에 넣은 것은 치운다. 넣은 물건 id들과 들은 말
+/// 앱처럼: 물건을 보여 주고, 움직이고, 볼에 넣은 것은 치움. 넣은 물건 id들과 들은 말
 fn run(p: &mut Pet, w: &World, spots: &mut Vec<ObjectSpot>, secs: f64, mut each: impl FnMut(&Pet)) -> (Vec<u64>, Vec<Speech>) {
     let (mut gulped, mut said) = (Vec::new(), Vec::new());
     for _ in 0..(secs / DT) as usize {

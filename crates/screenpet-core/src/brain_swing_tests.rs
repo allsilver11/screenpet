@@ -9,7 +9,7 @@ pub(super) fn heumul() -> PetConfig {
     PetConfig { half_w: 38.4, walk_speed: 110.0, personality: Personality::Playful, timid: true, energetic: true, rigging: true, juggler: true, antics: true, ..pet_cfg() }
 }
 
-/// 바닥(x)에 쉬고 있는 흐물이 — 첫 쿨다운은 지났다
+/// 바닥(x)에 쉬고 있는 흐물이 — 첫 쿨다운은 지났음
 pub(super) fn resting(c: PetConfig, x: f64, seed: u64, w: &World) -> Pet {
     let mut p = Pet::new(c, x, 0.0, seed);
     place(&mut p, w, Owner::Ground(0), x, State::Idle { remaining: 100.0, look: false });

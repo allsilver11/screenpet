@@ -1,4 +1,4 @@
-//! 곁에 있기와 하루 리듬 (presence.rs, brain_presence.rs) — 가짜 시계와 유휴 시간으로 끝까지 돌려 본다.
+//! 곁에 있기와 하루 리듬 (presence.rs, brain_presence.rs) — 가짜 시계와 유휴 시간으로 끝까지 돌려 봄
 
 use super::tests::{place, sim_cfg, w1, world};
 use super::*;
@@ -32,7 +32,7 @@ fn count_said(sim: &Sim, s: Speech) -> usize {
     sim.said.iter().filter(|&&x| x == s).count()
 }
 
-/// 10분 넘게 입력이 없으면 잠든다
+/// 10분 넘게 입력이 없으면 잠듦
 fn sim_away(sim: &mut Sim, p: &mut Pet, w: &World) {
     sim.idle = Some(AWAY_AFTER_SECS);
     sim.run(p, w, 3);
@@ -460,7 +460,7 @@ fn start_focus(sim: &mut Sim, p: &mut Pet, length: FocusLength) {
     sim.rhythm.start_focus(length, sim.secs, p);
 }
 
-/// 쉬기 동안에도 사용자는 앞에 있다
+/// 쉬기 동안에도 사용자는 앞에 있음
 fn keep_busy(sim: &mut Sim, p: &mut Pet, w: &World, secs: u32) {
     for _ in 0..secs {
         sim.idle = Some(0.0);

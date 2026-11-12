@@ -1,34 +1,44 @@
 //! ⌨️ 타자 응원 (흐물이, v0.6.3 · v0.6.4 키보드) — brain.rs의 자식 모듈.
 //!
-//! 앱이 매 틱 set_typing_rate(초당 키 수)와 typing_keys(이번 틱에 새로 눌린 수)를 알려 준다
-//! (센서는 앱 — 어떤 키인지는 보지도 남기지도 않는다, 넘어오는 건 개수뿐).
+//! 앱이 매 틱 set_typing_rate(초당 키 수)와 typing_keys(이번 틱에 새로 눌린 수)를 알려 줌
+//! (센서는 앱 — 어떤 키인지는 보지도 남기지도 않음, 넘어오는 건 개수뿐).
 //! 초당 TYPING_KPS(4)타 넘게 TYPING_HOLD_SECS(2초) 이어지고 흐물이가 화면에서 쉬거나 걷고 있으면 화면 쪽(앞)을 보고
-//! 작은 키보드 앞에 앉아 같이 친다 (type — 사용자가 키를 누를 때마다 손이 번갈아 톡, 멈추면 손도 쉰다: render.tap).
+//! 작은 키보드 앞에 앉아 같이 침 (type — 사용자가 키를 누를 때마다 손이 번갈아 톡, 멈추면 손도 쉼: render.tap).
 //! 가끔 (YAY_EVERY_SECS마다 YAY_SECS) 두 팔 번쩍 만세 (cheer_type), 가끔 (4~6초) 타자 대사 — TYPING_LINES 차례로, 아주 빠르면 SPEEDY_LINE.
 //! 빠른 타자가 이어지는 동안 + AFTER_SECS(2초). 하루 종일은 아니게: BUDGET_WINDOW_SECS(3분)마다 모두 BUDGET_SECS(20초)까지만.
 
 use super::*;
 
+/// 초당 이만큼 넘게 치면 빠른 타자임
 pub const TYPING_KPS: f64 = 4.0;
+/// 빠른 타자가 이만큼(초) 이어져야 응원함
 pub const TYPING_HOLD_SECS: f64 = 2.0;
+/// 타자가 멎은 뒤 더 응원하는 시간 (초)
 pub const AFTER_SECS: f64 = 2.0;
+/// BUDGET_WINDOW_SECS마다 응원할 수 있는 시간 (초)
 pub const BUDGET_SECS: f64 = 20.0;
+/// 응원 예산을 세는 시간 창 (초)
 pub const BUDGET_WINDOW_SECS: f64 = 180.0;
 /// 타자 대사 간격
 const TALK_SECS: (f64, f64) = (4.0, 6.0);
 /// 타자 대사 (차례로) · 아주 빠를 때 (초당 SPEEDY_KPS타 이상)
 pub const TYPING_LINES: [&str; 4] = ["Type type!", "So fast!", "Keep going! ⌨️", "Tap tap tap!"];
+/// 아주 빠를 때 대사
 pub const SPEEDY_LINE: &str = "🔥 Speedy!";
+/// 초당 이만큼 넘게 치면 아주 빠름
 pub const SPEEDY_KPS: f64 = 8.0;
 /// 키 한 번에 손 하나가 톡 (이만큼 눌린 그림) — 그림이 보여 줄 수 있는 만큼만: 초당 MAX_TAPS_PER_SEC번까지
 pub const TAP_SECS: f64 = 0.09;
+/// 손이 톡 하는 최대 빈도 (초당)
 pub const MAX_TAPS_PER_SEC: f64 = 12.0;
-/// 밀린 키는 이만큼만 기억한다 (손을 뗐는데 한참 더 치지 않게)
+/// 밀린 키는 이만큼만 기억함 (손을 뗐는데 한참 더 치지 않게)
 const MAX_QUEUED_TAPS: u32 = 2;
 /// 가끔 두 팔 번쩍 만세
 pub const YAY_EVERY_SECS: f64 = 6.0;
+/// 만세 그림 시간 (초)
 pub const YAY_SECS: f64 = 0.6;
 
+/// 타자 응원의 기억
 #[derive(Debug, Clone, Default)]
 pub struct TypingMood {
     /// 앱이 알려 준 초당 키 수
@@ -54,17 +64,18 @@ pub struct TypingMood {
 }
 
 impl Pet {
-    /// ⌨️ 초당 키 수 (앱이 매 틱 update 전에 — 흐물이만 쓴다). 음수·NaN은 0
+    /// ⌨️ 초당 키 수 (앱이 매 틱 update 전에 — 흐물이만 씀). 음수·NaN은 0
     pub fn set_typing_rate(&mut self, keys_per_sec: f64) {
         self.typing.rate = if keys_per_sec.is_finite() { keys_per_sec.max(0.0) } else { 0.0 };
     }
 
-    /// ⌨️ 이번 틱에 새로 눌린 키 수 (앱이 매 틱 update 전에 — 개수뿐). 응원하는 동안만 손이 따라 친다
+    /// ⌨️ 이번 틱에 새로 눌린 키 수 (앱이 매 틱 update 전에 — 개수뿐). 응원하는 동안만 손이 따라 침
     pub fn typing_keys(&mut self, presses: u32) {
         let t = &mut self.typing;
         t.queued = t.queued.saturating_add(presses).min(MAX_QUEUED_TAPS);
     }
 
+    /// 매 틱 타자 속도를 봄: 빠른 시간을 쌓고 응원 중 누른 키를 모음
     pub(super) fn track_typing(&mut self, dt: f64) {
         let cheering = matches!(self.state, State::TypeCheer { .. });
         let t = &mut self.typing;
@@ -96,7 +107,7 @@ impl Pet {
         }
     }
 
-    /// 이번 3분 창에 응원할 시간이 남았다 (창이 지났으면 새로 연다)
+    /// 이번 3분 창에 응원할 시간이 남았음 (창이 지났으면 새로 엶)
     fn typing_budget_left(&mut self) -> bool {
         let clock = self.clock;
         let t = &mut self.typing;
@@ -107,6 +118,7 @@ impl Pet {
         t.used < BUDGET_SECS
     }
 
+    /// 빠른 타자가 이어지고 예산이 남으면 응원을 시작함. 시작했으면 true
     pub(super) fn maybe_type_cheer(&mut self) -> bool {
         if self.typing.fast_for < TYPING_HOLD_SECS || !self.antics_free() || !self.typing_budget_left() {
             return false;
@@ -165,6 +177,7 @@ impl Pet {
         }
     }
 
+    /// 응원 한 틱: 키마다 손을 톡, 가끔 만세, 타자가 멎으면 끝냄
     pub(super) fn update_type_cheer(&mut self, dt: f64, world: &World, remaining: f64) {
         if self.antics_interrupted() {
             self.state = self.idle_state();

@@ -1,7 +1,7 @@
 //! 흐물이 더 놀기 (v0.6.3, pet.json에 ANTICS_ANIMS가 다 있는 흐물이 — PetConfig::antics) — brain.rs의 자식 모듈.
-//! 하는 중인 상태를 이어 가고, 새로 시작할 것을 고른다. 하나하나는 brain_swing·hoist·hide·dance·rally·doodle·typing.rs.
+//! 하는 중인 상태를 이어 가고, 새로 시작할 것을 고름. 하나하나는 brain_swing·hoist·hide·dance·rally·doodle·typing.rs.
 //!
-//! 주사위는 놀이마다 제 주사위로 굴린다 — 평소 동작(Pet::rng)과 다른 동물의 주사위 순서는 그대로.
+//! 주사위는 놀이마다 제 주사위로 굴림 — 평소 동작(Pet::rng)과 다른 동물의 주사위 순서는 그대로.
 
 use super::*;
 
@@ -37,7 +37,7 @@ impl Pet {
         true
     }
 
-    /// 새 놀이를 시작할 수 있다: 디딤판 위에서 스스로 걷거나 쉬는 중, 볼일·잡힘·조용한 때·떠나는 길·든 것 없음
+    /// 새 놀이를 시작할 수 있음: 디딤판 위에서 스스로 걷거나 쉬는 중, 볼일·잡힘·조용한 때·떠나는 길·든 것 없음
     pub(super) fn antics_free(&self) -> bool {
         matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. })
             && self.standing.is_some()
@@ -53,7 +53,7 @@ impl Pet {
             && self.juggle.carry.is_none()
     }
 
-    /// 하던 놀이를 그만둬야 한다 (사용자 볼일·자리 비움·집중·하우스·조작)
+    /// 하던 놀이를 그만둬야 함 (사용자 볼일·자리 비움·집중·하우스·조작)
     pub(super) fn antics_interrupted(&self) -> bool {
         self.housed || self.has_errand() || self.presence_quiet() || self.inside.is_some()
     }

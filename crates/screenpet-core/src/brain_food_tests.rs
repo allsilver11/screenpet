@@ -21,7 +21,7 @@ fn standing_at(x: f64, facing: f64) -> (Pet, World) {
     (p, w)
 }
 
-/// 돌리면서 나온 소품 변화를 모은다
+/// 돌리면서 나온 소품 변화를 모음
 fn run_props(p: &mut Pet, w: &World, ticks: usize) -> Vec<PropEvent> {
     let mut seen = Vec::new();
     for _ in 0..ticks {
@@ -425,7 +425,7 @@ fn food_given_during_a_celebration_waits_until_it_ends() {
 
 const LEVELED: FeedResult = FeedResult::Ate { leveled_up: true };
 
-/// 성장 축하가 시작될 때까지 돌린다
+/// 성장 축하가 시작될 때까지 돌림
 fn run_to_level_up(p: &mut Pet, w: &World, ticks: usize) -> bool {
     run_until(p, w, ticks, |p| matches!(p.state, State::LevelUp { .. }))
 }

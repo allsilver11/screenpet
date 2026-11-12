@@ -1,12 +1,12 @@
 //! 공룡 쿵쾅에 흔들리기 (v0.3.6) — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //! 공룡이 제자리 쿵쾅쿵쾅(Special::Stomp)을 시작하면 take_stomp가 한 번 true — social.rs가 같은 화면의 동물 중
-//! 같은 바닥(같은 디딤판, 같은 높이) 몸 STOMP_BODIES개 안의 친구에게 feel_stomp를 부른다 (나는 동물은 직선 거리).
+//! 같은 바닥(같은 디딤판, 같은 높이) 몸 STOMP_BODIES개 안의 친구에게 feel_stomp를 부름 (나는 동물은 직선 거리).
 //!
 //! - 흔들림: 스프라이트가 WOBBLE_SECS 덜덜 (RenderState.wobble) + "whoa!".
 //! - 데굴 (코디네이터가 TUMBLE_CHANCE로 정함): 디딤판 위 걷는 동물만 — 구르기 그림으로 공룡 반대쪽으로 조금 미끄러졌다가
-//!   (디딤판 끝에선 멈춘다 — 이미 끝을 넘어 있으면 더 나가지 않는다) 착지 자세로 일어선다.
-//! - 나는 동물(유령·새)은 떠서 흔들리기만, 자던 동물은 투덜대며("...") 깼다가 다시 잠든다.
-//! - 들려 있거나·먹는 중·하우스 안·떠나 있음·공중·벽 타기 등은 그대로. 한 번 흔들리면 STOMP_CALM_SECS 동안은 다시 흔들리지 않는다.
+//!   (디딤판 끝에선 멈춤 — 이미 끝을 넘어 있으면 더 나가지 않음) 착지 자세로 일어섬
+//! - 나는 동물(유령·새)은 떠서 흔들리기만, 자던 동물은 투덜대며("...") 깼다가 다시 잠듦
+//! - 들려 있거나·먹는 중·하우스 안·떠나 있음·공중·벽 타기 등은 그대로. 한 번 흔들리면 STOMP_CALM_SECS 동안은 다시 흔들리지 않음
 
 use super::*;
 
@@ -14,11 +14,11 @@ use super::*;
 pub const WOBBLE_SECS: f64 = 0.4;
 /// 데굴 넘어져 있는 시간
 pub const TUMBLE_SECS: (f64, f64) = (0.8, 1.2);
-/// 데굴 넘어지며 미끄러지는 처음 속도 (크기 128 기준 px/s, 점점 느려진다)
+/// 데굴 넘어지며 미끄러지는 처음 속도 (크기 128 기준 px/s, 점점 느려짐)
 pub const TUMBLE_SPEED: f64 = 110.0;
 /// 한 번 흔들린 뒤 다시 흔들리기까지 (초)
 pub const STOMP_CALM_SECS: f64 = 10.0;
-/// 자다 깨어 투덜대는 시간 (그 뒤 다시 잠든다)
+/// 자다 깨어 투덜대는 시간 (그 뒤 다시 잠듦)
 pub(super) const WAKE_GRUMPY_SECS: f64 = 1.5;
 
 impl Pet {
@@ -70,7 +70,7 @@ impl Pet {
             )
     }
 
-    /// 쿵쾅을 느꼈다 (from_x: 공룡 자리). tumble이면 (걷는 동물이 디딤판 위에 있을 때) 데굴 넘어진다. 반응했으면 true
+    /// 쿵쾅을 느꼈음 (from_x: 공룡 자리). tumble이면 (걷는 동물이 디딤판 위에 있을 때) 데굴 넘어짐. 반응했으면 true
     pub fn feel_stomp(&mut self, from_x: f64, tumble: bool) -> bool {
         if !self.stomp_feels() {
             return false;
@@ -97,14 +97,14 @@ impl Pet {
         true
     }
 
-    /// dir 쪽으로 데굴 넘어진다
+    /// dir 쪽으로 데굴 넘어짐
     pub(super) fn start_tumble(&mut self, dir: f64) {
         self.pacing.after_beat = None;
         self.clear_hover();
         self.state = State::Tumble { remaining: behavior::range(&mut self.rng, TUMBLE_SECS), dir };
     }
 
-    /// 데굴: 디딤판을 따라가며 dir 쪽으로 점점 느리게 미끄러진다 — 조각 끝에서 멈춘다. 끝나면 착지 자세로 일어선다
+    /// 데굴: 디딤판을 따라가며 dir 쪽으로 점점 느리게 미끄러짐 — 조각 끝에서 멈춤. 끝나면 착지 자세로 일어섬
     pub(super) fn update_tumble(&mut self, dt: f64, world: &World, remaining: f64, dir: f64) {
         let fade = (remaining / TUMBLE_SECS.1).clamp(0.0, 1.0);
         if !self.skid(dt, world, dir, TUMBLE_SPEED * self.cfg.size / 128.0 * fade) {
@@ -114,7 +114,7 @@ impl Pet {
         self.state = if remaining > 0.0 { State::Tumble { remaining, dir } } else { State::Land { remaining: LAND_SECS } };
     }
 
-    /// 디딤판을 따라가며 dir 쪽으로 미끄러진다 — 조각 끝에서 멈춘다. 디딤판이 사라졌으면 떨어지기 시작하고 false
+    /// 디딤판을 따라가며 dir 쪽으로 미끄러짐 — 조각 끝에서 멈춤. 디딤판이 사라졌으면 떨어지기 시작하고 false
     pub(super) fn skid(&mut self, dt: f64, world: &World, dir: f64, speed: f64) -> bool {
         if !self.follow_anchor(world) {
             self.start_fall();
@@ -136,7 +136,7 @@ impl Pet {
 
 #[cfg(test)]
 impl Pet {
-    /// 테스트: 지금 쿵쾅을 시작한다 (공룡 동작 고르기 없이)
+    /// 테스트: 지금 쿵쾅을 시작함 (공룡 동작 고르기 없이)
     pub(crate) fn force_stomp(&mut self) {
         self.stomp_out = true;
         self.state = State::Special { kind: Special::Stomp, remaining: 2.0 };
