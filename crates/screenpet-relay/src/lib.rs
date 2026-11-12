@@ -136,7 +136,7 @@ impl Default for Limits {
             conn_bytes_burst: 1024.0 * 1024.0,
             chan_msgs_per_sec: 20.0,
             chan_msgs_burst: 40.0,
-            max_friends: 50,
+            max_friends: screenpet_proto::MAX_FRIENDS,
             max_channels: 64,
             max_channels_per_pair: 2,
             idle_timeout: Duration::from_secs(90),

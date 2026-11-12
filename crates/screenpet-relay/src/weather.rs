@@ -27,51 +27,17 @@ pub const BODY_LIMIT: u64 = 16 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// A built-in place: id (as the app sends it), latitude, longitude.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Place {
-    pub id: &'static str,
-    pub lat: f64,
-    pub lon: f64,
+/// 기본 지역 표: 앱 메뉴와 같은 `screenpet_proto::weather`를 그대로 씀
+pub use screenpet_proto::weather::{find_place, Place, DEFAULT_PLACE, PLACES};
+
+/// 지역의 Open-Meteo 주소를 만듦 (`Place`가 다른 크레이트 타입이라 트레이트로 붙임)
+pub trait OpenMeteoUrl {
+    /// 도시 좌표만 담은 현재 날씨 요청 주소임
+    fn url(&self) -> String;
 }
 
-const fn place(id: &'static str, lat: f64, lon: f64) -> Place {
-    Place { id, lat, lon }
-}
-
-/// The places the relay serves — the same list as the app's
-/// `screenpet_core::real_weather::Place` (a test checks they match).
-pub const PLACES: [Place; 18] = [
-    place("seoul", 37.5665, 126.9780),
-    place("yongin", 37.2411, 127.1776),
-    place("suwon", 37.2636, 127.0286),
-    place("seongnam", 37.4200, 127.1265),
-    place("incheon", 37.4563, 126.7052),
-    place("daejeon", 36.3504, 127.3845),
-    place("daegu", 35.8714, 128.6014),
-    place("gwangju", 35.1595, 126.8526),
-    place("busan", 35.1796, 129.0756),
-    place("ulsan", 35.5384, 129.3114),
-    place("sejong", 36.4800, 127.2890),
-    place("jeju", 33.4996, 126.5312),
-    place("gangneung", 37.7519, 128.8761),
-    place("chuncheon", 37.8813, 127.7298),
-    place("jeonju", 35.8242, 127.1480),
-    place("cheongju", 36.6424, 127.4890),
-    place("changwon", 35.2280, 128.6811),
-    place("pohang", 36.0190, 129.3435),
-];
-
-/// Yongin-si, Gyeonggi-do.
-pub const DEFAULT_PLACE: &str = "yongin";
-
-/// The built-in place with this id; `None` for anything else.
-pub fn find_place(id: &str) -> Option<&'static Place> {
-    PLACES.iter().find(|p| p.id == id)
-}
-
-impl Place {
-    pub fn url(&self) -> String {
+impl OpenMeteoUrl for Place {
+    fn url(&self) -> String {
         format!(
             "https://api.open-meteo.com/v1/forecast?latitude={:.4}&longitude={:.4}&current=weather_code&timezone=GMT",
             self.lat, self.lon
@@ -191,16 +157,6 @@ impl Weathers {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_places_are_exactly_the_apps_list() {
-        use screenpet_core::real_weather::Place as AppPlace;
-        assert_eq!(PLACES.len(), AppPlace::ALL.len());
-        for (relay, app) in PLACES.iter().zip(AppPlace::ALL) {
-            assert_eq!((relay.id, relay.lat, relay.lon), (app.id(), app.coords().0, app.coords().1));
-        }
-        assert_eq!(DEFAULT_PLACE, AppPlace::default().id());
-    }
 
     #[test]
     fn parses_the_open_meteo_answer() {

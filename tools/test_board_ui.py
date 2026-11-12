@@ -84,7 +84,9 @@ def test_both_windows_share_the_pager_and_the_look():
         assert '<div id="title">📮 건의함</div>' in html
     assert "const PER_PAGE = 5;" in PAGER
     assert "pub const PER_PAGE: usize = 5;" in (ROOT / "crates" / "screenpet-net" / "src" / "board.rs").read_text(encoding="utf-8")
-    assert "pub const PER_PAGE: usize = 5;" in (ROOT / "crates" / "screenpet-relay" / "src" / "board.rs").read_text(encoding="utf-8")
+    # 릴레이는 앱과 같은 screenpet-proto 값을 씀
+    assert "pub const PER_PAGE: usize = 5;" in (ROOT / "crates" / "screenpet-proto" / "src" / "board.rs").read_text(encoding="utf-8")
+    assert "PER_PAGE" in (ROOT / "crates" / "screenpet-relay" / "src" / "board.rs").read_text(encoding="utf-8").split("pub use screenpet_proto::board::")[1].split(";")[0]
     assert ".letter {" in LIST_CSS and "#pager" in LIST_CSS
 
 

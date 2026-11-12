@@ -1,189 +1,23 @@
-//! Relay wire protocol (WebSocket at `/ws`).
+//! 릴레이 와이어 프로토콜: 메시지·버전·한도는 `screenpet_proto`에 있음 (앱과 같은 것).
+//! 여기서는 그것을 다시 내보내고, 릴레이의 암호·친구 코드 도우미를 더함.
 //!
-//! Control messages are text frames holding JSON tagged by `t`. Friend
-//! traffic is binary frames: a 4-byte big-endian channel id followed by one
-//! opaque frame (at most 65535 bytes) — Noise messages between the two
-//! friends, which the relay can neither read nor forge.
-//!
-//! ```text
-//! relay  -> client  challenge {relay: hex32 relay public key, nonce: hex32, v}
-//! client -> relay   auth {id, key: hex32 static public key, mac: hex32, friends: [hex32]}
-//!                   mac = BLAKE2s(AUTH_LABEL || X25519(client, relay) || nonce
-//!                                 || relay_pub || client_pub || id)
-//!                   (+ cnonce: hex32 client nonce, optional)
-//! relay  -> client  welcome {code, code_ttl, online: [hex32], proof}
-//!                   proof = BLAKE2s(WELCOME_LABEL || X25519 || cnonce || nonce
-//!                                   || client_pub): the relay holds its key
-//! client -> relay   new_code                  -> code {code, code_ttl}
-//! client -> relay   friends {keys}            -> online {keys}
-//! relay  -> client  presence {key, online}    (mutual friends only)
-//! relay  -> client  code {code, code_ttl}     (24 h rotation)
-//! client -> relay   redeem {code}             -> redeemed {code, key, id} | redeem_failed {code, reason}
-//! client -> relay   open {req, to}            -> opened {req, ch} | open_failed {req, reason}
-//! relay  -> client  incoming {ch, from, id}
-//! both              close {ch}
-//! client -> relay   letter {box: hex}          -> letter_ok | letter_refused {reason}
-//!                   (a feedback letter sealed to the developer key; reasons:
-//!                   daily, ip, new, global, full, size, blocked)
-//! client -> relay   letters                    -> letters {items}       (mailbox readers only)
-//! client -> relay   letter_read {id} | letter_delete {id} | letter_block {from} | letter_done {id, done}
-//!                                              (readers only) -> letters_changed to every reader
-//!                   (items carry `done` and, from v3, `rejected`; `letter_done false` clears both)
-//! relay  -> client  letter_new {item}          (to readers online when a letter arrives)
-//! client -> relay   letter_reject {id, rejected} (v3, readers only) 🙅 반려 — clears 반영; -> letters_changed
-//! client -> relay   letter_private {id, private} (v3, readers only) 🔒 비공개: off the public
-//!                   board (items, total, pages) until turned off; -> letters_changed
-//!                   (letters carry `private`)
-//! client -> relay   board_put {items: [{id, name, line}]}
-//!                   (v3, readers only, ≤ 20 a message) 📮 public digest of a
-//!                   letter: masked name (`김**`) and its first line; checked
-//!                   again here, kept with the letter. `letters` answers
-//!                   carry `board: [id]`, the letters already on the board.
-//! client -> relay   board_list {page}          (v3, anyone, ≥ 0.5 s apart; faster ones are ignored)
-//!                   -> board_page {items: [{id, name, line, at, status}], page, pages, total}
-//!                   5 a page, newest first, page 1-based and clamped,
-//!                   status none | done | rejected
-//! client -> relay   weather_want {place}      (v2 relays only; -> weather if known)
-//!                   place = a built-in city id ("yongin", "seoul", …,
-//!                   `weather::PLACES`); unknown ids are ignored
-//! relay  -> client  weather {place, code, at}
-//!                   ☀️ current WMO weather code of that place, fetched by
-//!                   the relay at `at` (unix s); sent after the welcome
-//!                   (Yongin until the app says what it wants) and on every
-//!                   new reading. Older apps ignore unknown messages.
-//! client -> relay   ping                      -> pong
-//! relay  -> client  error {reason}            (then the connection closes)
-//!                   apps only log the reason. While `admin friendcode off`:
-//!                   welcome and code carry code "----", redeem_failed says
-//!                   `disabled`.
-//! ```
+//! Control messages are text frames holding JSON tagged by `t` (see
+//! `screenpet_proto::relay` for every message). Friend traffic is binary
+//! frames: a 4-byte big-endian channel id followed by one opaque frame (at
+//! most 65535 bytes) — Noise messages between the two friends, which the
+//! relay can neither read nor forge. While `admin friendcode off`: welcome
+//! and code carry code "----", redeem_failed says `disabled`.
 
 pub use screenpet_crypto::{auth_mac, hex32, public_key, random32, to_hex, welcome_proof};
-use serde::{Deserialize, Serialize};
+pub use screenpet_proto::relay::{BoardIn, ClientMsg, ServerMsg};
+pub use screenpet_proto::{MAX_FRAME, MAX_ID};
 
 /// 2 = takes `weather_want` (v0.6.3). 3 = 📮 `board_put`, `board_list`,
 /// `letter_reject` (v0.6.3). Apps send each only to relays that say a high
 /// enough `v` in the challenge: older relays close on an unknown message.
-pub const PROTOCOL_VERSION: u32 = 3;
-/// Largest opaque frame carried on a channel (same as the LAN transport).
-pub const MAX_FRAME: usize = 65535;
-/// Channel id header in binary messages.
+pub const PROTOCOL_VERSION: u32 = screenpet_proto::RELAY_PROTOCOL_VERSION;
+/// 바이너리 메시지의 채널 id 머리 크기
 pub const HEADER: usize = 4;
-/// Longest install id accepted.
-pub const MAX_ID: usize = 128;
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "t", rename_all = "snake_case")]
-pub enum ClientMsg {
-    Auth {
-        id: String,
-        key: String,
-        mac: String,
-        #[serde(default)]
-        friends: Vec<String>,
-        #[serde(default)]
-        cnonce: Option<String>,
-    },
-    Friends {
-        keys: Vec<String>,
-    },
-    Redeem {
-        code: String,
-    },
-    Open {
-        req: u32,
-        to: String,
-    },
-    Close {
-        ch: u32,
-    },
-    NewCode,
-    Ping,
-    Letter {
-        r#box: String,
-    },
-    Letters,
-    LetterRead {
-        id: u64,
-    },
-    LetterDelete {
-        id: u64,
-    },
-    LetterDone {
-        id: u64,
-        done: bool,
-    },
-    LetterBlock {
-        from: String,
-    },
-    WeatherWant {
-        place: String,
-    },
-    LetterReject {
-        id: u64,
-        rejected: bool,
-    },
-    LetterPrivate {
-        id: u64,
-        private: bool,
-    },
-    BoardPut {
-        items: Vec<BoardIn>,
-    },
-    BoardList {
-        #[serde(default)]
-        page: u32,
-    },
-}
-
-/// 📮 A digest the developer's app publishes (checked again by the mailbox).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BoardIn {
-    pub id: u64,
-    pub name: String,
-    pub line: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "t", rename_all = "snake_case")]
-pub enum ServerMsg {
-    Challenge { relay: String, nonce: String, v: u32 },
-    Welcome {
-        code: String,
-        code_ttl: u64,
-        online: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        proof: Option<String>,
-    },
-    Online { keys: Vec<String> },
-    Presence { key: String, online: bool },
-    Code { code: String, code_ttl: u64 },
-    Redeemed { code: String, key: String, id: String },
-    RedeemFailed { code: String, reason: String },
-    Opened { req: u32, ch: u32 },
-    OpenFailed { req: u32, reason: String },
-    Incoming { ch: u32, from: String, id: String },
-    Close { ch: u32 },
-    Pong,
-    Error { reason: String },
-    LetterOk,
-    LetterRefused { reason: String },
-    Letters {
-        items: Vec<crate::mailbox::StoredLetter>,
-        /// 📮 Ids of the letters already on the board.
-        board: Vec<u64>,
-    },
-    LetterNew { item: crate::mailbox::StoredLetter },
-    LettersChanged,
-    Weather { place: String, code: u16, at: u64 },
-    BoardPage { items: Vec<crate::board::Item>, page: u32, pages: u32, total: u32 },
-}
-
-impl ServerMsg {
-    pub fn to_json(&self) -> String {
-        serde_json::to_string(self).expect("server message serializes")
-    }
-}
 
 /// X25519(private, public). `None` for a low-order public key (all-zero result).
 pub fn dh(private: &[u8; 32], public: &[u8; 32]) -> Option<[u8; 32]> {

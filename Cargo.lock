@@ -3288,6 +3288,7 @@ dependencies = [
  "libc",
  "screenpet-core",
  "screenpet-crypto",
+ "screenpet-proto",
  "serde",
  "serde_json",
  "tungstenite",

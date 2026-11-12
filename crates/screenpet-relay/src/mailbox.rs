@@ -13,7 +13,7 @@ use std::path::Path;
 pub const LETTERS_FILE: &str = "letters.json";
 /// Largest sealed letter (1000 characters of Korean text and a little JSON
 /// fit well under this).
-pub const MAX_BOX: usize = 8192;
+pub const MAX_BOX: usize = screenpet_proto::MAX_SEALED;
 /// Letters kept; past this new letters are refused, old ones are never
 /// dropped (a flood can't push out real letters).
 pub const MAX_LETTERS: usize = 200;
@@ -48,6 +48,13 @@ pub struct StoredLetter {
     pub private: bool,
     /// The sealed letter, hex.
     pub r#box: String,
+}
+
+/// 디스크 편지를 와이어 편지로 바꿈 (필드가 같아 JSON도 같음)
+impl From<StoredLetter> for screenpet_proto::relay::Letter {
+    fn from(l: StoredLetter) -> Self {
+        screenpet_proto::relay::Letter { id: l.id, at: l.at, from: l.from, read: l.read, done: l.done, rejected: l.rejected, private: l.private, r#box: l.r#box }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

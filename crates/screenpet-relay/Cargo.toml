@@ -16,6 +16,8 @@ tungstenite = { version = "0.27", default-features = false, features = ["handsha
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 screenpet-crypto = { path = "../screenpet-crypto" }
+# 앱과 같이 쓰는 와이어 메시지·버전·한도·날씨 지역 표
+screenpet-proto = { path = "../screenpet-proto" }
 curve25519-dalek = { version = "4.1", default-features = false }
 # 📮 건의함: masked names are checked by graphemes, like the app cuts them
 unicode-segmentation = "1"
@@ -23,7 +25,7 @@ unicode-segmentation = "1"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
-# Only for the test that the relay's weather places match the app's list
+# Only for tests/downloads.rs (the app's update file names and URLs)
 screenpet-core = { path = "../screenpet-core" }
 
 [target.'cfg(unix)'.dependencies]

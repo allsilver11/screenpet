@@ -372,7 +372,7 @@ const NET_QUEUE_SHARE: usize = 64;
 /// have refilled go first, then the fullest one.
 /// Lowercase or uppercase hex to bytes (`None` if malformed).
 fn weather_msg(place: &str, r: Reading) -> ServerMsg {
-    ServerMsg::Weather { place: place.to_string(), code: r.code, at: r.at }
+    ServerMsg::Weather { place: place.to_string(), code: r.code, at: r.at as i64 }
 }
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
@@ -1148,7 +1148,7 @@ impl Hub {
             };
             match result {
                 Ok(item) => {
-                    Self::tell_readers(&st, &ServerMsg::LetterNew { item });
+                    Self::tell_readers(&st, &ServerMsg::LetterNew { item: item.into() });
                     ServerMsg::LetterOk
                 }
                 Err(r) => ServerMsg::LetterRefused { reason: r.as_str().into() },
@@ -1161,7 +1161,7 @@ impl Hub {
     /// The whole mailbox, for readers only (others: nothing).
     pub(crate) fn letters(&self, key: &str, conn: u64) -> Option<ServerMsg> {
         let st = self.state();
-        (Self::is_current(&st, key, conn) && Self::is_reader(&st, key)).then(|| ServerMsg::Letters { items: st.mailbox.list(), board: st.mailbox.board_ids() })
+        (Self::is_current(&st, key, conn) && Self::is_reader(&st, key)).then(|| ServerMsg::Letters { items: st.mailbox.list().into_iter().map(Into::into).collect(), board: st.mailbox.board_ids() })
     }
 
     /// A reader changes the mailbox: every reader online hears `letters_changed`.

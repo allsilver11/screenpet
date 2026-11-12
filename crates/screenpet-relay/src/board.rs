@@ -11,40 +11,18 @@
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
-/// Entries per page.
-pub const PER_PAGE: usize = 5;
-/// Longest masked name and first line (characters, after cleaning).
-pub const MAX_NAME: usize = 16;
-pub const MAX_LINE: usize = 80;
-/// Longest first grapheme of a name (an emoji family is 5–7 characters).
-const MAX_FIRST: usize = 8;
-/// Digests in one `board_put`.
-pub const PUT_MAX: usize = 20;
+/// 페이지 크기, 이름·첫 줄 길이, `board_put` 하나의 요약 수 (앱과 같이 씀)
+pub use screenpet_proto::board::{MAX_LINE, MAX_NAME, PER_PAGE, PUT_MAX};
+/// 페이지 항목과 편지 표시: 와이어 타입 그대로임 (`at`, `status`는 편지에서 옴)
+pub use screenpet_proto::relay::{BoardItem as Item, BoardStatus as Status};
+/// 이름 첫 그래핌의 최대 문자 수
+use screenpet_proto::board::MAX_FIRST;
 
 /// One letter's public digest as stored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub name: String,
     pub line: String,
-}
-
-/// A letter's mark by the developer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Status {
-    None,
-    Done,
-    Rejected,
-}
-
-/// One entry of a page (`at` and `status` come from the letter itself).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Item {
-    pub id: u64,
-    pub name: String,
-    pub line: String,
-    pub at: u64,
-    pub status: Status,
 }
 
 /// Invisible, control and direction-changing characters (the zero-width
