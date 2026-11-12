@@ -134,6 +134,23 @@ address (`503 busy` past that), `latest.json` with `Cache-Control: no-cache`.
 A download is cut off if it averages under 64 KiB/s after 20 s, stalls for
 10 s, or runs past 30 min, so slow clients can't hold the slots.
 
+**Signing.** The app trusts `latest.json` only if `latest.json.sig` (128 hex
+digits, Ed25519 over its exact bytes) matches `UPDATE_PUBLIC_KEY` in
+`crates/screenpet-core/src/update.rs`, so whoever runs this server or the
+relay still can't swap installers. The secret key lives at
+`~/personal/screenpet-update-key.txt` (0600, outside the repo and outside the
+relay's data folder; the relay never reads it). **Back it up offline** (e.g. a
+password manager or an encrypted USB stick): losing it means a new key, which
+means a new app build that every user installs by hand. If it leaks, make a new
+key the same way and ship a new build. The signer is a separate tool:
+
+```sh
+cargo build --release -p screenpet-core --bin screenpet-update-sign
+install -m 755 target/release/screenpet-update-sign ~/.local/bin/
+# only for a new key (refuses to overwrite); prints the public key for update.rs:
+screenpet-update-sign keygen ~/personal/screenpet-update-key.txt
+```
+
 After CI has finished a release, publish it on this server:
 
 ```sh
@@ -143,7 +160,8 @@ curl -s https://pet.danni.day/downloads/latest.json
 
 It downloads both installers through the GitHub API into a temporary folder
 in `downloads/`, checks them against GitHub's size and SHA-256, renames them
-into place, then atomically replaces `latest.json`, then deletes every other
+into place, signs `latest.json` (and checks the signature against the app's
+key), then atomically replaces `latest.json` and `latest.json.sig`, then deletes every other
 `ScreenPet_*` file: **only the new release is kept**. A failed run leaves the
 published files untouched and removes its temporary files (leftovers of a
 killed run are removed by the next run). No relay restart is needed.

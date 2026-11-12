@@ -7,23 +7,32 @@
 # Run on the relay server after CI has finished the release. It downloads the
 # Windows and macOS installers through the GitHub API (with $GITHUB_TOKEN if
 # set, so it keeps working when the repository is private), checks each one
-# against the size and SHA-256 GitHub reports, then:
+# against the size and SHA-256 GitHub reports, signs latest.json with the
+# update key (Ed25519; the apps only trust a latest.json whose
+# latest.json.sig matches the public key built into them), then:
 #   1. downloads to a temporary folder inside the downloads folder,
-#   2. verifies the files,
+#   2. verifies the files and the signature,
 #   3. renames the installers into place,
-#   4. atomically replaces latest.json,
+#   4. atomically replaces latest.json, then latest.json.sig,
 #   5. deletes every other ScreenPet_* installer (only the new release stays).
 # latest.json never names a file that isn't there. A failed run leaves the
 # published files as they were and removes its temporary files.
 #
+# The secret key never goes near the relay: it is read here only, by
+# screenpet-update-sign (crates/screenpet-core/src/bin).
+#
 # Environment: GITHUB_TOKEN (optional), SCREENPET_DOWNLOADS_DIR (default
-# ~/.local/share/screenpet-relay/downloads), GITHUB_API (default
+# ~/.local/share/screenpet-relay/downloads), SCREENPET_UPDATE_KEY (default
+# ~/personal/screenpet-update-key.txt), SCREENPET_UPDATE_SIGN (default
+# screenpet-update-sign on PATH, else ~/.local/bin), GITHUB_API (default
 # https://api.github.com; the tests point it at file://).
 set -euo pipefail
 
 REPO="allsilver11/screenpet"
 API="${GITHUB_API:-https://api.github.com}"
 DEST="${SCREENPET_DOWNLOADS_DIR:-$HOME/.local/share/screenpet-relay/downloads}"
+KEY="${SCREENPET_UPDATE_KEY:-$HOME/personal/screenpet-update-key.txt}"
+SIGN="${SCREENPET_UPDATE_SIGN:-$(command -v screenpet-update-sign || echo "$HOME/.local/bin/screenpet-update-sign")}"
 # The app refuses anything bigger (screenpet_core::update::MAX_DOWNLOAD).
 MAX_SIZE=$((300 * 1024 * 1024))
 
@@ -48,6 +57,8 @@ MAC="ScreenPet_${VERSION}_universal.dmg"
 for tool in curl python3 sha256sum; do
     command -v "$tool" >/dev/null || die "needs $tool"
 done
+[ -x "$SIGN" ] || die "needs screenpet-update-sign (see deploy/relay/README.md): $SIGN"
+[ -r "$KEY" ] || die "no update signing key at $KEY (see deploy/relay/README.md)"
 
 mkdir -p "$DEST"
 chmod 755 "$DEST"
@@ -120,11 +131,17 @@ with open(out, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
 chmod 644 "$WORK/latest.json"
+# Sign the exact bytes, then check against the key built into the app.
+"$SIGN" sign "$KEY" "$WORK/latest.json" >"$WORK/latest.json.sig" || die "signing failed"
+"$SIGN" verify "$WORK/latest.json" "$WORK/latest.json.sig" || die "the signature does not match the app's key"
+chmod 644 "$WORK/latest.json.sig"
 
-# Installers first, then latest.json: it never names a missing file.
+# Installers first, then latest.json: it never names a missing file. The
+# app re-fetches once if it catches latest.json and its .sig mid-swap.
 mv -f "$WORK/$WIN.part" "$DEST/$WIN"
 mv -f "$WORK/$MAC.part" "$DEST/$MAC"
 mv -f "$WORK/latest.json" "$DEST/latest.json"
+mv -f "$WORK/latest.json.sig" "$DEST/latest.json.sig"
 
 # Only the new release stays.
 removed=0
@@ -144,4 +161,5 @@ echo "publish-release: published $TAG to $DEST"
 echo "  $WIN  ${SIZE[$WIN]} bytes  sha256 ${SHA[$WIN]}"
 echo "  $MAC  ${SIZE[$MAC]} bytes  sha256 ${SHA[$MAC]}"
 echo "  removed $removed older file(s)"
+echo "  signed: latest.json.sig"
 echo "  check: curl -s https://pet.danni.day/downloads/latest.json"

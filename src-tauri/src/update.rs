@@ -1,6 +1,7 @@
 //! 🔄 업데이트 (트레이 메뉴): 우리 서버(https://pet.danni.day/downloads/)의 latest.json을 보고 이 컴퓨터용 설치 파일을 받아
 //! 크기·SHA-256을 확인한 뒤 설치하고 앱을 끝낸다. 주소는 고정 (사용자가 바꾸는 릴레이 주소와 상관없다), pet.danni.day https만.
-//! Tauri 업데이터 플러그인은 서명 키가 필요해서 쓰지 않는다 — 대신 latest.json의 sha256·size와 맞아야만 설치한다.
+//! Tauri 업데이터 플러그인은 쓰지 않는다 — 대신 latest.json에 우리 Ed25519 서명(latest.json.sig, 공개 키는 screenpet_core::update)이 맞아야
+//! 그 안을 믿고, 받은 파일은 latest.json의 sha256·size와 맞아야만 설치한다. 서버(릴레이)를 가진 사람도 비밀 키 없이는 설치 파일을 바꿔 끼울 수 없다.
 //! 버전 견주기·파일 고르기·주소 확인은 screenpet_core::update (Linux에서 시험), 여기는 네트워크·파일·프로세스만.
 //! 켜진 뒤 1분, 그 뒤 6시간마다 조용히 확인해서 새 버전이 있으면 메뉴 글자만 바꾼다 (누르기 전엔 받지도 깔지도 않는다)
 use std::fs::{self, File};
@@ -29,6 +30,9 @@ const LATEST_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// latest.json 상한 (보통 수백 바이트)
 const LATEST_BODY_LIMIT: u64 = 64 * 1024;
+/// latest.json.sig는 128글자
+const SIG_BODY_LIMIT: u64 = 1024;
+const SIGNATURE_RETRY_AFTER: Duration = Duration::from_secs(3);
 /// 받은 파일을 두는 곳 (사용자별 임시 폴더). 받을 때마다 비우고 시작한다
 const WORK_DIR: &str = "screenpet-update";
 
@@ -152,14 +156,35 @@ fn get(agent: &ureq::Agent, url: &str, accept: &str) -> Result<ureq::http::Respo
     Err(UpdateError::BadUrl)
 }
 
+/// latest.json과 latest.json.sig를 받아 서명(update::UPDATE_PUBLIC_KEY)부터 확인하고, 맞을 때만 읽는다.
+/// 서버가 둘을 막 바꾸는 순간에 걸렸을 수 있으니 서명이 틀리면 한 번만 잠깐 뒤에 다시 받는다 — 그래도 틀리면 아무것도 믿지 않는다
 fn fetch_latest(platform: Platform) -> Result<Check, UpdateError> {
     let agent = agent(LATEST_TIMEOUT);
-    let mut resp = get(&agent, update::LATEST_URL, "application/json")?;
-    let json = resp.body_mut().with_config().limit(LATEST_BODY_LIMIT).read_to_string().map_err(|e| {
-        eprintln!("update: reading latest.json failed: {e}");
-        UpdateError::Network
-    })?;
+    let json = match fetch_signed(&agent) {
+        Err(UpdateError::BadSignature) => {
+            thread::sleep(SIGNATURE_RETRY_AFTER);
+            fetch_signed(&agent)?
+        }
+        other => other?,
+    };
+    let json = String::from_utf8(json).map_err(|_| UpdateError::BadResponse)?;
     update::check(&json, current_version(), platform)
+}
+
+/// 서명이 맞는 latest.json 바이트 그대로 (확인 전엔 읽지 않는다)
+fn fetch_signed(agent: &ureq::Agent) -> Result<Vec<u8>, UpdateError> {
+    let json = fetch_bytes(agent, update::LATEST_URL, "application/json", LATEST_BODY_LIMIT)?;
+    let sig = fetch_bytes(agent, update::LATEST_SIG_URL, "text/plain", SIG_BODY_LIMIT)?;
+    update::verify_latest(&json, &sig).inspect_err(|_| eprintln!("update: latest.json signature does not match"))?;
+    Ok(json)
+}
+
+fn fetch_bytes(agent: &ureq::Agent, url: &str, accept: &str, limit: u64) -> Result<Vec<u8>, UpdateError> {
+    let mut resp = get(agent, url, accept)?;
+    resp.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| {
+        eprintln!("update: reading {url} failed: {e}");
+        UpdateError::Network
+    })
 }
 
 /// 설치 파일을 임시 폴더에 받는다: 크기는 latest.json이 말한 만큼 (상한 update::MAX_DOWNLOAD), SHA-256이 맞아야 .part를 떼어 준다

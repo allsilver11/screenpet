@@ -9,6 +9,13 @@ use std::time::Duration;
 pub const DOWNLOAD_BASE: &str = "https://pet.danni.day/downloads/";
 /// 최신 버전 정보 ({"version":"X.Y.Z","files":{"windows":{name,sha256,size},"macos":{…}}})
 pub const LATEST_URL: &str = "https://pet.danni.day/downloads/latest.json";
+/// latest.json의 Ed25519 서명 (16진수 128글자). deploy/publish-release.sh가 서버 밖의 비밀 키로 만든다
+pub const LATEST_SIG_URL: &str = "https://pet.danni.day/downloads/latest.json.sig";
+/// 업데이트 서명 공개 키. 비밀 키는 릴레이 서버(프로세스)에 두지 않는다 — 서버를 가진 사람도 이 키 없이는 설치 파일을 바꿔 끼울 수 없다
+/// (87b6329f…ce8c — 비밀 키는 개발자 서버의 ~/personal/screenpet-update-key.txt, deploy/relay/README.md)
+pub const UPDATE_PUBLIC_KEY: [u8; 32] = [
+    0x87, 0xb6, 0x32, 0x9f, 0x09, 0xa4, 0x39, 0x60, 0xa3, 0xc7, 0xe9, 0xb7, 0xe6, 0xde, 0x30, 0x81, 0xfc, 0xe7, 0x46, 0xbc, 0x1a, 0xa9, 0x54, 0x37, 0x38, 0x32, 0x14, 0x89, 0x13, 0x40, 0xce, 0x8c,
+];
 /// 받을 수 있는 곳은 이 호스트 하나 (https만). 넘겨주기도 이 호스트 안에서만 따라간다
 pub const ALLOWED_HOST: &str = "pet.danni.day";
 /// 설치 파일 크기 상한 (지금 dmg가 100MB쯤)
@@ -114,6 +121,8 @@ pub enum UpdateError {
     Network,
     BadResponse,
     NoAsset(Version),
+    /// latest.json의 서명이 없거나 맞지 않다 — 서버가 바뀌었을 수 있으니 아무것도 믿지 않는다
+    BadSignature,
     /// latest.json에 올바른 SHA-256이 없다 — 확인할 수 없는 파일은 깔지 않는다
     NoDigest,
     TooBig,
@@ -132,6 +141,7 @@ impl fmt::Display for UpdateError {
             UpdateError::BadResponse => write!(f, "업데이트 정보를 읽지 못했어요"),
             UpdateError::NoAsset(v) => write!(f, "v{v}에 이 컴퓨터용 파일이 없어요"),
             UpdateError::NoDigest => write!(f, "확인용 SHA-256이 없어서 설치하지 않았어요"),
+            UpdateError::BadSignature => write!(f, "업데이트 정보의 서명이 맞지 않아 설치하지 않았어요"),
             UpdateError::TooBig => write!(f, "파일이 너무 커요"),
             UpdateError::BadUrl => write!(f, "ScreenPet 서버가 아닌 주소라 받지 않았어요"),
             UpdateError::SizeMismatch => write!(f, "파일을 끝까지 받지 못했어요"),
@@ -152,6 +162,47 @@ pub fn parse_sha256(hex: &str) -> Option<[u8; 32]> {
         *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
     }
     Some(out)
+}
+
+/// latest.json.sig: 16진수 128글자 그대로 (빈칸·줄바꿈·접두어 없이)
+pub fn parse_signature(text: &[u8]) -> Option<[u8; 64]> {
+    if text.len() != 128 || !text.iter().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let text = std::str::from_utf8(text).ok()?;
+    let mut out = [0u8; 64];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+/// latest.json 바이트 그대로에 대한 서명을 `key`로 확인한다 (strict: 약한 키·변형 서명도 거절)
+pub fn verify_latest_with(key: &[u8; 32], json: &[u8], sig: &[u8]) -> Result<(), UpdateError> {
+    use ed25519_dalek::{Signature, VerifyingKey};
+    let sig = parse_signature(sig).ok_or(UpdateError::BadSignature)?;
+    let key = VerifyingKey::from_bytes(key).map_err(|_| UpdateError::BadSignature)?;
+    key.verify_strict(json, &Signature::from_bytes(&sig)).map_err(|_| UpdateError::BadSignature)
+}
+
+/// 앱이 쓰는 것: UPDATE_PUBLIC_KEY로 확인. 맞아야만 latest.json을 읽는다 (check는 그다음)
+pub fn verify_latest(json: &[u8], sig: &[u8]) -> Result<(), UpdateError> {
+    verify_latest_with(&UPDATE_PUBLIC_KEY, json, sig)
+}
+
+/// 비밀 키(32바이트 시드)로 서명 — 16진수 128글자 (bin/screenpet-update-sign이 쓴다, 앱은 쓰지 않는다)
+pub fn sign_latest(seed: &[u8; 32], json: &[u8]) -> String {
+    use ed25519_dalek::{Signer, SigningKey};
+    to_hex(&SigningKey::from_bytes(seed).sign(json).to_bytes())
+}
+
+/// 비밀 키(시드)의 공개 키
+pub fn public_key_of(seed: &[u8; 32]) -> [u8; 32] {
+    ed25519_dalek::SigningKey::from_bytes(seed).verifying_key().to_bytes()
+}
+
+pub fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// 설치 파일을 받을 주소 (이름은 check가 이미 확인한 것)
@@ -346,6 +397,50 @@ mod tests {
         assert_eq!(parse_sha256("+7bc8daa58a56cad67885795ab01f57cd5d12b5839c2ef7abd5cfbae823c1e9"), None);
         assert_eq!(parse_sha256(" 7bc8daa58a56cad67885795ab01f57cd5d12b5839c2ef7abd5cfbae823c1e9"), None);
         assert_eq!(parse_sha256(""), None);
+    }
+
+    fn test_seed(n: u8) -> [u8; 32] {
+        [n; 32]
+    }
+
+    #[test]
+    fn a_valid_signature_over_the_exact_bytes_passes() {
+        let seed = test_seed(7);
+        let key = public_key_of(&seed);
+        let json = latest_json("0.6.3", HEX);
+        let sig = sign_latest(&seed, json.as_bytes());
+        assert_eq!(sig.len(), 128);
+        assert_eq!(verify_latest_with(&key, json.as_bytes(), sig.as_bytes()), Ok(()));
+        assert_eq!(verify_latest_with(&key, json.as_bytes(), sig.to_uppercase().as_bytes()), Ok(()));
+    }
+
+    #[test]
+    fn tampered_json_wrong_key_and_bad_signatures_fail() {
+        let seed = test_seed(7);
+        let key = public_key_of(&seed);
+        let json = latest_json("0.6.3", HEX);
+        let sig = sign_latest(&seed, json.as_bytes());
+        let bad = Err(UpdateError::BadSignature);
+        // 한 글자라도 바뀐 json (빈칸 하나 포함)
+        assert_eq!(verify_latest_with(&key, json.replace("51426064", "51426065").as_bytes(), sig.as_bytes()), bad);
+        assert_eq!(verify_latest_with(&key, format!("{json} ").as_bytes(), sig.as_bytes()), bad);
+        // 다른 키
+        assert_eq!(verify_latest_with(&public_key_of(&test_seed(8)), json.as_bytes(), sig.as_bytes()), bad);
+        assert_eq!(verify_latest(json.as_bytes(), sig.as_bytes()), bad, "a test key is not the app's key");
+        // 없거나 망가진 서명
+        let mut flipped = sig.clone().into_bytes();
+        flipped[10] = if flipped[10] == b'0' { b'1' } else { b'0' };
+        for s in [&b""[..], b"garbage", &flipped, format!("{sig}\n").as_bytes(), format!(" {sig}").as_bytes(), &sig.as_bytes()[..126], "zz".repeat(64).as_bytes(), "00".repeat(64).as_bytes()] {
+            assert_eq!(verify_latest_with(&key, json.as_bytes(), s), bad, "{:?}", String::from_utf8_lossy(s));
+        }
+        assert!(UpdateError::BadSignature.to_string().contains("서명"));
+    }
+
+    #[test]
+    fn the_app_key_is_a_real_ed25519_key() {
+        assert!(ed25519_dalek::VerifyingKey::from_bytes(&UPDATE_PUBLIC_KEY).is_ok());
+        assert_ne!(UPDATE_PUBLIC_KEY, [0u8; 32]);
+        assert_eq!(LATEST_SIG_URL, format!("{LATEST_URL}.sig"));
     }
 
     #[test]

@@ -83,6 +83,18 @@ def test_updates_come_from_our_server_only_never_github_or_the_relay_setting():
     assert '"application/json"' in src
 
 
+def test_latest_json_is_trusted_only_after_its_signature_checks_out():
+    src = update_rs()
+    fetch = src[src.index("fn fetch_latest(") :]
+    fetch = fetch[: fetch.index("\n}\n")]
+    signed = src[src.index("fn fetch_signed(") :]
+    signed = signed[: signed.index("\n}\n")]
+    assert "update::LATEST_SIG_URL" in signed and "update::verify_latest(&json, &sig)" in signed
+    # 서명 확인이 끝난 바이트만 check로 간다
+    assert fetch.index("fetch_signed(") < fetch.index("update::check(")
+    assert "update::LATEST_URL" not in fetch
+
+
 def test_download_is_size_capped_and_sha256_verified_before_install():
     src = update_rs()
     assert "Sha256::new()" in src and "release.asset.sha256" in src

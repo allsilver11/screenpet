@@ -40,9 +40,33 @@ def fake_api(root: Path, tag: str, files: dict, digests: dict | None = None) -> 
     return api
 
 
-def run(tmp_path: Path, *args, api: Path | None = None, env_extra=None):
+FAKE_SIG = "5a" * 64
+
+
+def fake_signer(tmp_path: Path, verify_ok: bool = True) -> Path:
+    """screenpet-update-sign 대신: sign은 고정 서명, verify는 정한 대로 (진짜 서명은 Rust 시험 update_sign.rs가 본다)."""
+    p = tmp_path / "fake-sign"
+    p.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> "{tmp_path}/sign.log"\n'
+        'case "$1" in\n'
+        f'  sign) [ -r "$2" ] && [ -r "$3" ] && printf %s {FAKE_SIG} ;;\n'
+        f"  verify) exit {0 if verify_ok else 1} ;;\n"
+        "  *) exit 2 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    p.chmod(0o755)
+    return p
+
+
+def run(tmp_path: Path, *args, api: Path | None = None, env_extra=None, verify_ok=True):
     env = dict(os.environ)
     env.pop("GITHUB_TOKEN", None)
+    key = tmp_path / "update-key.txt"
+    key.write_text("00" * 32 + "\n", encoding="utf-8")
+    env["SCREENPET_UPDATE_KEY"] = str(key)
+    env["SCREENPET_UPDATE_SIGN"] = str(fake_signer(tmp_path, verify_ok))
     env["SCREENPET_DOWNLOADS_DIR"] = str(tmp_path / "downloads")
     env["GITHUB_API"] = (api or tmp_path / "no-api").as_uri()
     env["HOME"] = str(tmp_path / "home")
@@ -73,8 +97,13 @@ def test_order_is_files_then_latest_json_then_delete_old():
     win = body.index('mv -f "$WORK/$WIN.part" "$DEST/$WIN"')
     mac = body.index('mv -f "$WORK/$MAC.part" "$DEST/$MAC"')
     latest = body.index('mv -f "$WORK/latest.json" "$DEST/latest.json"')
+    sig = body.index('mv -f "$WORK/latest.json.sig" "$DEST/latest.json.sig"')
     delete = body.index('rm -rf -- "$old"')
-    assert win < latest and mac < latest < delete
+    assert win < latest and mac < latest < sig < delete
+    # 서명은 옮기기 전에 만들고, 앱에 든 키로 확인한다
+    signing = TEXT.index('"$SIGN" sign "$KEY" "$WORK/latest.json"')
+    checking = TEXT.index('"$SIGN" verify "$WORK/latest.json" "$WORK/latest.json.sig"')
+    assert signing < checking < TEXT.index('mv -f "$WORK/$WIN.part"')
     # 임시 폴더는 DEST 안 (같은 파일 시스템이라 mv가 원자적), 실패해도 지운다
     assert 'mktemp -d "$DEST/.publish-XXXXXX"' in TEXT
     assert "trap 'rm -rf \"$WORK\"' EXIT" in TEXT
@@ -126,7 +155,10 @@ def test_publishes_and_keeps_only_the_new_release(tmp_path):
     for name, data in files.items():
         assert (dl / name).read_bytes() == data
     # 새 릴리스만 남는다 (ScreenPet_* 아닌 파일은 건드리지 않는다), 임시 파일도 없다
-    assert sorted(p.name for p in dl.iterdir()) == sorted([*files, "latest.json", "README.txt"])
+    assert sorted(p.name for p in dl.iterdir()) == sorted([*files, "latest.json", "latest.json.sig", "README.txt"])
+    assert (dl / "latest.json.sig").read_text(encoding="utf-8") == FAKE_SIG
+    log = (tmp_path / "sign.log").read_text(encoding="utf-8")
+    assert "sign " in log and "verify " in log
     assert "removed 4 older file(s)" in r.stdout
     assert "ScreenPet_0.6.3_x64-setup.exe" in r.stdout and "sha256" in r.stdout
     # 릴레이(같은 사용자)가 읽을 수 있게
@@ -136,7 +168,7 @@ def test_publishes_and_keeps_only_the_new_release(tmp_path):
 @needs_tools
 @pytest.mark.parametrize(
     "case",
-    ["bad_digest", "no_digest", "missing_asset", "no_release"],
+    ["bad_digest", "no_digest", "missing_asset", "no_release", "wrong_signing_key"],
 )
 def test_a_failed_run_changes_nothing_and_leaves_no_temp_files(tmp_path, case):
     dl = tmp_path / "downloads"
@@ -154,9 +186,11 @@ def test_a_failed_run_changes_nothing_and_leaves_no_temp_files(tmp_path, case):
         api = fake_api(tmp_path, "v0.6.3", files, {mac: None})
     elif case == "missing_asset":
         api = fake_api(tmp_path, "v0.6.3", {k: v for k, v in files.items() if k != mac})
-    else:
+    elif case == "no_release":
         api = fake_api(tmp_path, "v0.6.2", files)
-    r = run(tmp_path, "v0.6.3", api=api)
+    else:
+        api = fake_api(tmp_path, "v0.6.3", files)
+    r = run(tmp_path, "v0.6.3", api=api, verify_ok=case != "wrong_signing_key")
     assert r.returncode != 0
     assert "publish-release:" in r.stderr
     assert (dl / "latest.json").read_text(encoding="utf-8") == old_latest
@@ -173,7 +207,7 @@ def test_leftovers_of_a_killed_run_are_cleaned(tmp_path):
     files = release_files("0.6.3")
     r = run(tmp_path, "v0.6.3", api=fake_api(tmp_path, "v0.6.3", files))
     assert r.returncode == 0, r.stderr
-    assert sorted(p.name for p in dl.iterdir()) == sorted([*files, "latest.json"])
+    assert sorted(p.name for p in dl.iterdir()) == sorted([*files, "latest.json", "latest.json.sig"])
 
 
 @needs_tools
@@ -184,7 +218,7 @@ def test_republishing_the_same_version_keeps_its_files(tmp_path):
     r = run(tmp_path, "v0.6.3", api=api)
     assert r.returncode == 0, r.stderr
     dl = tmp_path / "downloads"
-    assert sorted(p.name for p in dl.iterdir()) == sorted([*files, "latest.json"])
+    assert sorted(p.name for p in dl.iterdir()) == sorted([*files, "latest.json", "latest.json.sig"])
     assert "removed 0 older file(s)" in r.stdout
 
 
@@ -204,3 +238,39 @@ def test_readme_documents_publishing():
     assert "deploy/publish-release.sh v" in README
     assert "GITHUB_TOKEN" in README
     assert "/downloads/latest.json" in README
+
+
+@needs_tools
+def test_no_signing_key_or_signer_means_nothing_is_published(tmp_path):
+    files = release_files("0.6.3")
+    api = fake_api(tmp_path, "v0.6.3", files)
+    r = run(tmp_path, "v0.6.3", api=api, env_extra={"SCREENPET_UPDATE_KEY": str(tmp_path / "missing-key")})
+    assert r.returncode != 0 and "signing key" in r.stderr
+    r = run(tmp_path, "v0.6.3", api=api, env_extra={"SCREENPET_UPDATE_SIGN": str(tmp_path / "missing-signer")})
+    assert r.returncode != 0 and "screenpet-update-sign" in r.stderr
+    dl = tmp_path / "downloads"
+    assert not dl.exists() or not any(dl.iterdir())
+
+
+def test_the_signing_key_never_reaches_the_relay():
+    """비밀 키는 발행 단계(스크립트 + screenpet-update-sign)만 읽는다: 릴레이 코드는 키 파일·서명 함수를 모른다."""
+    relay = ROOT / "crates" / "screenpet-relay"
+    texts = [p.read_text(encoding="utf-8") for p in relay.rglob("*") if p.is_file() and p.suffix in (".rs", ".toml")]
+    texts.append((ROOT / "deploy" / "relay" / "screenpet-relay.service").read_text(encoding="utf-8"))
+    for t in texts:
+        for word in ("screenpet-update-key", "SCREENPET_UPDATE_KEY", "sign_latest", "SigningKey", "screenpet-update-sign"):
+            assert word not in t, word
+    # 릴레이는 screenpet-core를 시험에서만 쓴다 (서명 도우미가 릴레이 바이너리에 들어가지 않는다)
+    cargo = (relay / "Cargo.toml").read_text(encoding="utf-8")
+    deps = cargo.split("[dependencies]")[1].split("[dev-dependencies]")[0]
+    assert "screenpet-core" not in deps
+    # 키는 저장소 밖에 두고, 혹시 안에 놓여도 올라가지 않게
+    assert "$HOME/personal/screenpet-update-key.txt" in TEXT
+    assert "screenpet-update-key*.txt" in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True).stdout
+    assert "screenpet-update-key" not in tracked
+
+
+def test_readme_documents_the_signing_key():
+    assert "screenpet-update-key.txt" in README and "back" in README.lower()
+    assert "screenpet-update-sign" in README
