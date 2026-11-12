@@ -505,6 +505,13 @@ body.art-pending #house {
   display: none;
 }
 
+/* 🎨 흐물이 몸 색 층 — #pet의 자식 (몸의 변환을 그대로 받는다). 마스크·색·칸은 main.js setupTint·drawTint */
+#tint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
 /* 수면 모자·집중 고리 — #pet의 자식 (기린 목 늘이기 동안만 머리 층 .nk-head의 자식): 몸의 변환을 그대로 받아 한 덩어리로 움직인다.
    칸 안 자리는 main.js placeHeadgear가 pet.json head 표에서 정한다 */
 #nightcap,
@@ -623,6 +630,7 @@ body.art-pending #house {
 
 /* 픽셀 스타일 (<body class="pixel"> — main.js·house.js): 칸을 그대로 키우고, 칸을 흐리는 확대·회전 효과는 계단으로 바꾼다 */
 body.pixel #pet,
+body.pixel #tint,
 body.pixel #neck div,
 body.pixel #door-pet {
   image-rendering: pixelated;

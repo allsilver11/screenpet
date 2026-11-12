@@ -248,3 +248,19 @@ def test_a_short_drop_does_not_flip_friends_offline_or_redraw_the_menu():
     assert "self.flicker.down(&id, now);" in net and "self.flicker.up(&id);" in net
     assert "for id in self.flicker.expired(secs) {" in net
     assert 'self.net_log(&format!("friend {} disconnected", short_id(&id)));' in net
+
+
+def test_heumul_color_menu_sits_under_the_style_only_for_tintable_pets():
+    """🎨 흐물이 색 ▸ (기본·흰색·…·🌈 무지개, 지금 색에 체크): 🐾 내 펫 ▸ 스타일 바로 아래, 잉크 선 동물(pet.json tint)일 때만 끼어든다."""
+    assert 'Submenu::with_id(app, TINT_MENU_ID, "🎨 흐물이 색", true)' in TRAY and "menu.my_pet.get(TINT_MENU_ID).is_some()" in TRAY
+    assert 'const TINT_PREFIX: &str = "tint:";' in TRAY
+    assert "for tint in BodyTint::ALL" in TRAY and "tint.label()" in TRAY and 'format!("{TINT_PREFIX}{}", tint.id())' in TRAY
+    assert ".strip_prefix(TINT_PREFIX).and_then(BodyTint::from_id)" in TRAY and "Input::SetTint(tint)" in TRAY
+    assert "const TINT_POSITION: usize = 4;" in TRAY  # 성장 단계, 최근 한 시간, 키우기, 스타일 다음
+    assert "menu.my_pet.insert(&menu.tint_menu, TINT_POSITION)" in TRAY and "menu.my_pet.remove(&menu.tint_menu)" in TRAY
+    game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    sync = game[game.index("fn sync_menu(") :]
+    sync = sync[: sync.index("\n}\n")]
+    assert "crate::tray::sync_tint_shown(&state.menu, entry.manifest.tint);" in sync, "동물이 바뀌면 메뉴를 넣고 뺀다"
+    assert "Input::SetTint(tint) => {" in game and "own.set_tint(&app, tint);" in game and "config.tint = tint;" in game
+    assert "🐾 내 펫 ▸ 🎨 흐물이 색 ▸" in HELP

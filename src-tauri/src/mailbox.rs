@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use screenpet_core::care::Stage;
 use screenpet_core::style::PetStyle;
+use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
 use screenpet_net::letter::{self, MailItem};
 use serde::Serialize;
@@ -204,7 +205,7 @@ fn spawn_letter_pet(app: &AppHandle, slots: &mut Vec<Slot>, l: &LetterView) -> O
     let scale = stage.scale() * entry.manifest.size_mult(stage);
     let name = if l.name.is_empty() { "누군가".to_string() } else { l.name.clone() };
     let note: String = l.text.chars().take(NOTE_CHARS).collect();
-    let guest = GuestInfo { visit_id: format!("letter-{}", l.id), owner_id: "letter".into(), owner_name: name, note: visit::sanitize_note(&note), can_grow: false };
+    let guest = GuestInfo { visit_id: format!("letter-{}", l.id), owner_id: "letter".into(), owner_name: name, note: visit::sanitize_note(&note), can_grow: false, tint: BodyTint::Default };
     let side = if fastrand::bool() { Side::Left } else { Side::Right };
     let own = &slots[0];
     match slots::spawn_guest(app, guest, entry, stage, scale, PetStyle::from_wire(Some(l.style.as_str())), own.dpi, side, &own.world, fastrand::u64(..), own.size()) {

@@ -52,6 +52,7 @@ async function loadPet() {
   const k = display / manifest.frame_size;
   petEl.style.backgroundImage = `url(${url})`;
   petEl.style.backgroundSize = `${img.width * k}px ${img.height * k}px`;
+  setupTint(m, dir, `${img.width * k}px ${img.height * k}px`);
   setupNeck(m, side, k, dir);
   // 동물이 바뀌면 모자 ↔ 목도리 (pet-presence는 그대로라 다시 오지 않는다)
   if (lastPresence) {
@@ -59,6 +60,50 @@ async function loadPet() {
     applyRing();
   }
   animStart = performance.now();
+}
+
+// 🎨 몸 색 (백엔드 pet-stage `tint` — 코어 tint.rs, 메뉴 "🎨 흐물이 색"): 사용자 — 어두운 바탕화면에서 짙은 잉크 선이 안 보인다.
+// 잉크 선으로 그린 동물(pet.json tint)만: 고른 색을 칠한 #tint 층을 시트의 잉크 자리(ink_<stage>, tools/draw_heumul.py)로 가려 몸 위에 얹는다.
+// 층은 #pet의 자식이라 반전·구르기·매달림·덜덜을 그대로 받고, 마스크 칸은 draw()가 몸 칸과 같이 옮긴다. 모르는 색이면 그림 그대로
+const tintEl = document.getElementById("tint");
+const writeTint = styleWriter(tintEl);
+// 어두운·밝은 바탕 모두에서 보이는 색 (흰색은 크림색 머리와 구별되게 살짝 푸른 회색빛)
+const TINT_COLORS = { white: "#e6ebf4", red: "#ff5b5b", orange: "#ff9838", yellow: "#f7cc2f", green: "#45cc78", sky: "#48c0f5", blue: "#4d7bff", purple: "#a46bff", pink: "#ff76bb" };
+// 🌈 머리부터 발끝까지 (빨주노초하파보) — 천천히 흘러내린다
+const RAINBOW = ["#ff5b5b", "#ff9838", "#f7cc2f", "#45cc78", "#48c0f5", "#4d7bff", "#a46bff"];
+let tintOn = null;
+
+function setupTint(m, dir, size) {
+  const id = stage.tint;
+  tintOn = m.tint && (id === "rainbow" || Object.hasOwn(TINT_COLORS, id)) ? id : null;
+  tintEl.hidden = !tintOn;
+  if (!tintOn) return;
+  const mask = `url(${dir}ink_${stage.stage}.${dir.startsWith("pets_pixel") ? "png" : PET_ART_EXT})`;
+  for (const [prop, value] of [["maskImage", mask], ["maskSize", size], ["maskRepeat", "no-repeat"]]) {
+    writeTint(prop, value);
+    writeTint("webkit" + prop[0].toUpperCase() + prop.slice(1), value);
+  }
+  if (tintOn !== "rainbow") writeTint("background", TINT_COLORS[tintOn]);
+}
+
+// 무지개 한 바퀴 = 몸 높이쯤 (칸의 0.75). 픽셀은 띠·흐름을 칸 단위로 (경계가 칸을 가르지 않게)
+function rainbowFill(now) {
+  const unit = pixelMode ? dot : 1;
+  const band = Math.max(1, Math.round((display * 0.75) / RAINBOW.length / unit)) * unit;
+  const period = band * RAINBOW.length;
+  const shift = (Math.floor(now / (pixelMode ? 400 : 200)) * (pixelMode ? unit : 2)) % period;
+  const at = (i) => `${i * band + shift - period}px`;
+  const stops = pixelMode
+    ? RAINBOW.map((c, i) => `${c} ${at(i)} ${at(i + 1)}`)
+    : [...RAINBOW.map((c, i) => `${c} ${at(i)}`), `${RAINBOW[0]} ${at(RAINBOW.length)}`];
+  return `repeating-linear-gradient(180deg, ${stops.join(", ")})`;
+}
+
+function drawTint(pos, now) {
+  if (!tintOn) return;
+  writeTint("maskPosition", pos);
+  writeTint("webkitMaskPosition", pos);
+  if (tintOn === "rainbow") writeTint("background", rainbowFill(now));
 }
 
 // 몸의 left: 동글은 창 가운데 그대로, 픽셀은 물리 px에 맞춰서 (반 칸 어긋나면 칸이 고르지 않다 — 창 너비가 바뀌면 다시 잰다)
@@ -526,7 +571,9 @@ function draw(now) {
     const elapsed = Math.max(0, now - animStart);
     const neckOn = drawNeck(elapsed);
     const f = hopLeap ? hopLeapFrame(spec, elapsed) : frameIndex(spec, elapsed);
-    writePet("backgroundPosition", `${-f * display}px ${-spec.row * display}px`);
+    const framePos = `${-f * display}px ${-spec.row * display}px`;
+    writePet("backgroundPosition", framePos);
+    drawTint(framePos, now);
     if (lastPresence && (lastPresence.nightcap || typeof lastPresence.ring === "number")) {
       const shown = hopLeap ? "hop" : manifest.animations[render.anim] ? render.anim : "idle";
       placeHeadgear(shown, f, neckOn ? nkHead : petEl);

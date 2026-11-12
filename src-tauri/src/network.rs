@@ -25,6 +25,7 @@ use screenpet_core::gift::{self, FriendLimit};
 use screenpet_core::linked::{self, ClaimWatch};
 use screenpet_core::object::ObjectKind;
 use screenpet_core::style::PetStyle;
+use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
 use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, MAX_FRIENDS};
 use serde::Serialize;
@@ -318,6 +319,8 @@ struct Arrival {
     no_grow: Option<bool>,
     /// 주인이 보여 주는 스타일 (이쪽에 그 그림이 없으면 동글)
     style: PetStyle,
+    /// 🎨 주인이 고른 몸 색 (모르는 값은 기본 — 잉크 선 동물만 칠한다)
+    tint: BodyTint,
 }
 
 /// 🤹 동물 손에 쥐여 줄 물건 (Visit.carry를 확인한 것): 그 동물 창 라벨, 종류, 똥이면 크기
@@ -967,6 +970,7 @@ impl Network {
                 note,
                 gift,
                 style: own.shown.style.to_wire(),
+                tint: own.tint.to_wire(),
                 boost: (own.boost > 1.0).then_some(own.boost),
                 no_grow: self.growth_locked.then_some(true),
                 of: None,
@@ -1038,6 +1042,7 @@ impl Network {
             note: guest.note.clone(),
             gift: None,
             style: slot.shown.style.to_wire(),
+            tint: slot.tint.to_wire(),
             boost,
             no_grow: None,
             of: Some(guest.owner_id.clone()),
@@ -1641,7 +1646,7 @@ impl Network {
 
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, boost, no_grow, of, carry, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, tint, boost, no_grow, of, carry, .. } => {
                 // 📱 친구가 데려온 그 친구의 다른 컴퓨터 펫이면 그 컴퓨터의 손님 (한 사람 — 이름표도 같다). 대답은 링크(from)로
                 let link = from;
                 let from = of.as_deref().filter(|o| config.same_person(o, link)).unwrap_or(link);
@@ -1668,7 +1673,7 @@ impl Network {
                     return;
                 }
                 let note = note.as_deref().and_then(visit::sanitize_note);
-                let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()), boost, no_grow };
+                let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()), tint: BodyTint::from_wire(tint.as_deref()), boost, no_grow };
                 let result = self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival);
                 match result {
                     Ok(label) => {
@@ -1781,7 +1786,7 @@ impl Network {
         // 📱 친구의 다른 컴퓨터에서 온 동물도 그 친구 이름표 (한 사람)
         let owner_name = config.person_name(from).map(str::to_string).unwrap_or_else(|| clamp(owner));
         // 편지는 그 동물의 주인(인증된 친구 링크 from)이 실은 것만 — Visit은 주인만 보낸다
-        let guest = GuestInfo { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name, note: arrival.note.clone(), can_grow: visit::guest_can_grow(arrival.no_grow) };
+        let guest = GuestInfo { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name, note: arrival.note.clone(), can_grow: visit::guest_can_grow(arrival.no_grow), tint: arrival.tint };
         // 화면을 떠날 땐 그 화면 주인의 설정을 따르고, 받는 쪽은 나간 끝의 반대편으로 받는다 (내 설정은 쓰지 않는다).
         // 그래서 들어오는 끝은 보낸 쪽이 정한 그대로이고, 집으로 갈 때 나갈 끝은 이 화면에서 주인이 연결된 끝이다. 그리움 시간은 이어서 센다
         let hop = arrival.via.as_deref().filter(|v| *v != from);

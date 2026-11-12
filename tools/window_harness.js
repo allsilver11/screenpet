@@ -315,6 +315,51 @@ const scenarios = {
     const pos = w.byId("pet").style.backgroundPosition;
     return { hasRoll: !!m.animations.roll, row: Math.round(-parseFloat(pos.split(" ")[1]) / display), rollRow: m.animations.roll?.row ?? null, idleRow: m.animations.idle.row, rotates: transforms.some((t) => t.includes("rotate")) };
   },
+  // 🎨 흐물이 몸 색: #tint가 시트의 잉크 자리(ink_<stage>)로 가려진 색 층 — 칸·크기는 몸과 똑같이, 바뀔 때만 쓴다
+  async tint([style]) {
+    const slot = { pet: "heumul", stage: "teenager", scale: 1, style, tint: "rainbow", render: { anim: "walk", flip: true, heart: false } };
+    const w = openWindow("index.html", { replies: { slot_info: slot } });
+    await tick();
+    const pet = w.byId("pet");
+    const t = w.byId("tint");
+    const look = () => ({
+      hidden: t.hidden,
+      mask: t.style.maskImage ?? null,
+      webkitMask: t.style.webkitMaskImage ?? null,
+      maskSize: t.style.maskSize ?? null,
+      maskPos: t.style.maskPosition ?? null,
+      bg: t.style.background ?? null,
+      petSize: pet.style.backgroundSize,
+      petPos: pet.style.backgroundPosition,
+    });
+    const frames = [];
+    for (let i = 0; i < 12; i++) {
+      w.frame(60);
+      const l = look();
+      frames.push([l.maskPos, l.petPos]);
+    }
+    const rainbow = look();
+    const before = { ...(w.writes.tint ?? {}) };
+    for (let i = 0; i < 5; i++) w.frame(1);
+    const idleWrites = Object.keys(w.writes.tint ?? {}).filter((k) => w.writes.tint[k] !== before[k]);
+    w.emit("pet-stage", { ...slot, tint: "red", stage: "adult" });
+    await tick();
+    w.frame(16);
+    const red = look();
+    w.emit("pet-stage", { ...slot, tint: "magenta" });
+    await tick();
+    w.frame(16);
+    const unknown = look();
+    w.emit("pet-stage", { ...slot, tint: "default" });
+    await tick();
+    w.frame(16);
+    const plain = look();
+    w.emit("pet-stage", { ...slot, pet: "cat", tint: "blue" });
+    await tick();
+    w.frame(16);
+    const cat = look();
+    return { rainbow, frames, idleWrites, red, unknown, plain, cat };
+  },
   async drawWritesHouse() {
     const w = openWindow("house.html", { replies: { slot_info: CAT, house_state: HOUSED } });
     await tick();

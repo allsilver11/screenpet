@@ -6,6 +6,7 @@ use screenpet_core::brain::{Anim, Pet, PetConfig, RenderState};
 use screenpet_core::care::Stage;
 use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::style::{self, PetStyle};
+use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side};
 use screenpet_core::world::World;
 use serde::Serialize;
@@ -82,6 +83,8 @@ pub struct GuestInfo {
     pub note: Option<String>,
     /// 밥을 줘서 잠깐 키울 수 있다 (주인이 성장 멈추기를 켰으면 false)
     pub can_grow: bool,
+    /// 🎨 주인이 고른 몸 색 (Visit.tint를 확인한 것 — 친구 화면에서도 같은 색)
+    pub tint: BodyTint,
 }
 
 #[derive(Debug, Clone)]
@@ -112,15 +115,17 @@ pub struct SlotInfo {
     pub can_grow: bool,
     /// 마지막으로 보낸 모습 — 첫 `pet-render`가 웹뷰가 듣기 전에 지나갔을 수 있어 첫 로드 때 같이 준다
     pub render: Option<RenderState>,
+    /// 🎨 몸 색 id (잉크 선 동물만 칠한다 — ui/main.js setupTint)
+    pub tint: BodyTint,
 }
 
 impl SlotInfo {
     pub fn new(shown: &StagePayload, role: &Role, render: Option<RenderState>) -> Self {
-        let (role, owner, owner_id, note, can_grow) = match role {
-            Role::Own => ("own", None, None, None, false),
-            Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone()), g.note.clone(), g.can_grow),
+        let (role, owner, owner_id, note, can_grow, tint) = match role {
+            Role::Own => ("own", None, None, None, false, BodyTint::Default),
+            Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone()), g.note.clone(), g.can_grow, g.tint),
         };
-        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, style: shown.style, role, owner, owner_id, note, can_grow, render }
+        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, style: shown.style, role, owner, owner_id, note, can_grow, render, tint }
     }
 }
 
@@ -171,6 +176,8 @@ pub struct Slot {
     click_through: bool,
     /// 크기 조절 창의 펫 크기 배율
     size: f64,
+    /// 🎨 몸 색 (내 동물은 설정, 손님은 주인이 보낸 것)
+    pub tint: BodyTint,
     /// Windows: 창 핸들 (만들 때 한 번 읽어 둔다 — hwnd()는 메인 스레드에 물어본다). 매 틱 SetWindowPos로 바로 옮긴다
     #[cfg(windows)]
     hwnd: Option<isize>,
@@ -202,6 +209,7 @@ impl Slot {
             glow_until: None,
             click_through: false,
             size,
+            tint: BodyTint::Default,
             #[cfg(windows)]
             hwnd,
         }
@@ -223,7 +231,20 @@ impl Slot {
     }
 
     pub fn info(&self) -> SlotInfo {
-        SlotInfo::new(&self.shown, &self.role, self.last_render)
+        SlotInfo { tint: self.tint, ..SlotInfo::new(&self.shown, &self.role, self.last_render) }
+    }
+
+    /// 🎨 몸 색을 바꾼다: 웹뷰가 pet-stage로 다시 읽는다 (같은 색이면 아무것도 안 한다)
+    pub fn set_tint(&mut self, app: &AppHandle, tint: BodyTint) {
+        if self.tint == tint {
+            return;
+        }
+        self.tint = tint;
+        let info = self.info();
+        if let Some(stored) = app.state::<AppState>().slots.lock().unwrap().get_mut(&self.label) {
+            stored.tint = tint;
+        }
+        let _ = app.emit_to(self.label.as_str(), "pet-stage", info);
     }
 
     /// 단계(또는 동물)가 바뀌었다: 창 크기, 펫 크기, 웹뷰 시트
@@ -527,6 +548,7 @@ pub fn spawn_guest(
     size: f64,
 ) -> Result<Slot, String> {
     let label = guest_label(&guest.visit_id).ok_or_else(|| format!("invalid visit id {:?}", guest.visit_id))?;
+    let tint = guest.tint;
     let role = Role::Guest(guest);
     let mut shown = stage_payload(&entry, stage, style, dpi_hint, size);
     if shown.style == PetStyle::Round {
@@ -556,7 +578,9 @@ pub fn spawn_guest(
     let mut pet = Pet::new_entering(cfg, &world, side, seed);
     let mut rng = fastrand::Rng::with_seed(seed ^ 0x9e37_79b9_7f4a_7c15);
     pet.set_guest(side, visit::pick_homesick_after(&mut rng));
-    Ok(Slot::new(label, role, entry, pet, window, world, dpi, shown, size))
+    let mut slot = Slot::new(label, role, entry, pet, window, world, dpi, shown, size);
+    slot.tint = tint;
+    Ok(slot)
 }
 
 /// 손님이 떠났다 — 창을 닫는다

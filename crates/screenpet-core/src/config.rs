@@ -8,6 +8,7 @@ use crate::food::FeedMode;
 use crate::gift::GiftBook;
 use crate::presence::{DailyMarks, FocusLength};
 use crate::style::PetStyle;
+use crate::tint::BodyTint;
 use crate::visit::{ExitEdges, Side};
 
 /// 내 이름을 정하지 않았을 때 친구들에게 보이는 이름
@@ -78,6 +79,9 @@ pub struct Config {
     /// 캐릭터 스타일 (동글동글 / 픽셀, 그림만 다르다). 모르는 값이면 동글동글
     #[serde(default, skip_serializing_if = "PetStyle::is_round", deserialize_with = "lenient")]
     pub style: PetStyle,
+    /// 🎨 흐물이 몸 색 (잉크 선 동물만 칠한다 — pet.json tint). 모르는 값이면 기본
+    #[serde(default, skip_serializing_if = "BodyTint::is_default", deserialize_with = "lenient")]
+    pub tint: BodyTint,
     /// 메뉴 "사다리 초대 받기"를 껐다 (끄면 초대 창 없이 자동으로 거절)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ladder_invites_off: bool,
@@ -1538,6 +1542,21 @@ mod tests {
         for bad in [r#""sparkly""#, "3", "null", "{}"] {
             let odd: Config = serde_json::from_str(&format!(r#"{{"pet":"cat","style":{bad}}}"#)).unwrap();
             assert_eq!((odd.pet.as_deref(), odd.style), (Some("cat"), PetStyle::Round), "{bad}");
+        }
+    }
+
+    #[test]
+    fn tint_defaults_to_the_ink_and_old_or_odd_files_still_load() {
+        let old: Config = serde_json::from_str(r#"{"pet":"heumul"}"#).unwrap();
+        assert_eq!(old.tint, BodyTint::Default);
+        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("tint"), "not written while default");
+        let c = Config { tint: BodyTint::Rainbow, ..Config::default() };
+        let text = serde_json::to_string(&c).unwrap();
+        assert!(text.contains(r#""tint":"rainbow""#), "{text}");
+        assert_eq!(serde_json::from_str::<Config>(&text).unwrap(), c);
+        for bad in [r#""magenta""#, "3", "null", "{}"] {
+            let odd: Config = serde_json::from_str(&format!(r#"{{"pet":"heumul","tint":{bad}}}"#)).unwrap();
+            assert_eq!((odd.pet.as_deref(), odd.tint), (Some("heumul"), BodyTint::Default), "{bad}");
         }
     }
 

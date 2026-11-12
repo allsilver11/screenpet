@@ -94,7 +94,7 @@ fn visit(id: u64) -> Visit {
         fling: None,
         note: None,
         gift: None,
-        style: None, boost: None, no_grow: None, of: None, carry: None }
+        style: None, tint: None, boost: None, no_grow: None, of: None, carry: None }
 }
 
 fn received(rx: &Receiver<NetEvent>, id: u64) -> bool {

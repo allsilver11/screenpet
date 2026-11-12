@@ -40,6 +40,7 @@ import draw_penguin as dpeng  # noqa: E402
 import draw_squirrel as dsq  # noqa: E402
 import draw_redpanda as dred  # noqa: E402
 import draw_heumul as dheu  # noqa: E402
+from sprite_spec import TINTABLE  # noqa: E402
 
 K = dp.K
 OUT_ROOT = Path(__file__).resolve().parent.parent / "ui" / "pets_pixel"
@@ -1108,6 +1109,14 @@ def write_sheet(sp, rendered, path):
     dp.sheet_image(pixel_rows(sp), rendered).save(path, optimize=True)
 
 
+def render_ink_masks(sp, stage, anims=None):
+    """🎨 몸 색을 고를 수 있는 동물 (sprite_spec.TINTABLE — 흐물이): {동작: [잉크 자리 마스크]} (0 / 255, draw_heumul.ink_mask)."""
+    if sp.id != dheu.HEUMUL.id:
+        raise ValueError(f"{sp.id}: 잉크 마스크를 그릴 줄 모릅니다")
+    dark, light = dheu.ink_frames(lambda isp: render_pixel(isp, stage, anims))
+    return {anim: [dheu.ink_mask(x, y, hard=True) for x, y in zip(dark[anim], light[anim])] for anim in dark}
+
+
 def manifest_for(sp, heads, necks, neck_stretch=None, grips=None):
     """픽셀 pet.json: 그림 정보만 (속도·성격·크기·집·대사는 앱이 동글 pet.json에서 읽는다). head·neck·neck_stretch는 그 단계의 칸 좌표."""
     animations = {}
@@ -1137,6 +1146,8 @@ def write_species(sp, out_root=OUT_ROOT):
         grips[st] = {}
         by_stage[st], heads[st], necks[st] = render_with_marks(sp, st, grips[st])
         write_sheet(sp, by_stage[st], out / f"sheet_{st}.png")
+        if sp.id in TINTABLE:
+            write_sheet(sp, render_ink_masks(sp, st), out / f"ink_{st}.png")
         if "neckstretch" in by_stage[st]:
             strip, tile, stretch[st] = neck_layers_pixel(sp, st)
             strip.save(out / f"neck_{st}.png", optimize=True)

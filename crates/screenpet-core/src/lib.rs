@@ -29,6 +29,7 @@ pub mod style;
 pub mod surfaces;
 pub mod taskbar;
 pub mod timeline;
+pub mod tint;
 pub mod tumble;
 pub mod update;
 pub mod visit;

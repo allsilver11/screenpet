@@ -42,6 +42,8 @@
       <div id="picker" hidden><button data-food="meal" title="밥">🍚</button><button data-food="favorite" id="fav">🐟</button><button data-food="special" title="특식">🍱</button></div>
       <div id="codetag" hidden title="눌러서 복사"></div>
       <div id="pet">
+        <!-- 🎨 흐물이 몸 색: 고른 색을 시트의 잉크 자리(ink_<stage>.png)로 가린 층 (main.js setupTint·drawTint) — 몸 바로 위, 모자·고리 아래 -->
+        <div id="tint" hidden></div>
         <!-- 졸린 시간의 수면 모자, 집중 진행 고리 (백엔드 pet-presence): #pet 안에 두어 몸의 모든 변환(반전·구르기·매달림·덜덜·뿅)을 그대로 받는다. 자리는 main.js + pet.json head -->
         <svg id="nightcap" hidden viewBox="0 0 34 26" width="34" height="26" aria-hidden="true">
           <g id="nightcap-art">

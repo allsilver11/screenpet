@@ -128,6 +128,9 @@ pub struct PetManifest {
     /// 📌 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는다 (흐물이, 들고 던지기 + TASKBAR_ANIMS가 있을 때만 — plays_taskbar())
     #[serde(default)]
     pub taskbar_play: bool,
+    /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있다 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮는다, core::tint)
+    #[serde(default)]
+    pub tint: bool,
     /// 물건을 든 동작의 칸별 손 자리 (단계 → 동작 → 칸별 [x, y] 칸 px — 그림 생성기가 적는다). 든 물건의 바닥이 여기 온다
     #[serde(default)]
     pub grip: HashMap<String, HashMap<String, Vec<[f64; 2]>>>,
@@ -609,6 +612,17 @@ mod tests {
         for id in crate::test_util::species().into_iter().filter(|id| id != "heumul") {
             let m = load(&id);
             assert!(!m.timid() && !m.energetic && !m.rigs() && !m.juggler && !m.juggles() && !m.taskbar_play && !m.plays_taskbar(), "{id}");
+        }
+    }
+
+    /// 🎨 몸 색은 잉크 선으로 그린 흐물이만 (pet.json tint + ink_<stage>.png) — 메뉴 "🎨 흐물이 색"도 그때만 보인다
+    #[test]
+    fn only_bundled_heumul_can_be_tinted() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
+        assert!(load("heumul").tint);
+        for id in crate::test_util::species().into_iter().filter(|id| id != "heumul") {
+            assert!(!load(&id).tint, "{id}");
         }
     }
 

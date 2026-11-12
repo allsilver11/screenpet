@@ -3,6 +3,7 @@ use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::presence::FocusLength;
 use screenpet_core::style::PetStyle;
+use screenpet_core::tint::BodyTint;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use std::sync::atomic::Ordering;
@@ -62,6 +63,11 @@ const CONTROL_ID: &str = "control";
 /// 🐾 내 펫 ▸ 스타일 ▸ 체크 항목 (설정에 남는다, 그림만 바뀐다)
 const STYLE_ROUND_ID: &str = "style:round";
 const STYLE_PIXEL_ID: &str = "style:pixel";
+/// 🐾 내 펫 ▸ 🎨 흐물이 색 ▸ 체크 항목 (뒤는 BodyTint id — 설정에 남는다, 웹뷰가 잉크 자리만 칠한다)
+const TINT_PREFIX: &str = "tint:";
+const TINT_MENU_ID: &str = "tint-menu";
+/// "🎨 흐물이 색"이 들어가는 자리: 🐾 내 펫 ▸ 성장 단계, 최근 한 시간, 키우기, 스타일 다음 (잉크 선 동물일 때만)
+const TINT_POSITION: usize = 4;
 /// 🌨️ 날씨 효과 체크 항목 (게임 루프가 달력과 설정으로 맞춘다 — 철이 아니면 누를 수 없다)
 const WEATHER_ID: &str = "weather";
 const BROOM_ID: &str = "broom";
@@ -177,6 +183,11 @@ pub struct TrayMenu {
     /// 🐾 내 펫 ▸ 스타일 ▸ 동글동글 / 픽셀
     pub style_round: CheckMenuItem<Wry>,
     pub style_pixel: CheckMenuItem<Wry>,
+    /// 🐾 내 펫 ▸ (🎨 흐물이 색을 넣고 뺀다)
+    pub my_pet: Submenu<Wry>,
+    /// 🎨 흐물이 색 ▸ (잉크 선 동물일 때만 내 펫 안에 있다) 과 색마다 체크 항목
+    pub tint_menu: Submenu<Wry>,
+    pub tints: Vec<(CheckMenuItem<Wry>, BodyTint)>,
     /// 📬 편지함 (개발자 컴퓨터만 — 안 읽은 수를 글자에 붙인다)
     pub mailbox: Option<MenuItem<Wry>>,
     /// 🚀 컴퓨터 켜면 자동 실행 (게임 루프가 설정으로 다시 맞춘다)
@@ -196,6 +207,28 @@ pub struct TrayMenu {
 pub fn sync_style(menu: &TrayMenu, style: PetStyle) {
     let _ = menu.style_round.set_checked(style == PetStyle::Round);
     let _ = menu.style_pixel.set_checked(style == PetStyle::Pixel);
+}
+
+/// 🎨 흐물이 색 체크를 지금 설정에 맞춘다 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다)
+pub fn sync_tint(menu: &TrayMenu, tint: BodyTint) {
+    for (item, t) in &menu.tints {
+        let _ = item.set_checked(*t == tint);
+    }
+}
+
+/// "🎨 흐물이 색"은 몸 색을 고를 수 있는 동물(pet.json tint)일 때만 🐾 내 펫 ▸ 스타일 아래에 있다
+pub fn sync_tint_shown(menu: &TrayMenu, tintable: bool) {
+    let shown = menu.my_pet.get(TINT_MENU_ID).is_some();
+    let res = if tintable && !shown {
+        menu.my_pet.insert(&menu.tint_menu, TINT_POSITION)
+    } else if !tintable && shown {
+        menu.my_pet.remove(&menu.tint_menu)
+    } else {
+        Ok(())
+    };
+    if let Err(e) = res {
+        eprintln!("failed to update the tint menu: {e}");
+    }
 }
 
 /// 밥 주기 방법 체크를 지금 설정에 맞춘다 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다)
@@ -474,6 +507,14 @@ fn send(app: &AppHandle, input: Input) {
 
 #[allow(clippy::too_many_arguments)]
 pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode, style: PetStyle, dev: bool) -> tauri::Result<TrayMenu> {
+    // 🎨 흐물이 색 ▸ — 체크는 게임 루프가 설정으로 맞추고, 내 펫 안에 넣는 것도 게임 루프가 동물을 보고 한다 (sync_tint_shown)
+    let tint_menu = Submenu::with_id(app, TINT_MENU_ID, "🎨 흐물이 색", true)?;
+    let mut tints = Vec::new();
+    for tint in BodyTint::ALL {
+        let item = CheckMenuItem::with_id(app, format!("{TINT_PREFIX}{}", tint.id()), tint.label(), true, tint.is_default(), None::<&str>)?;
+        tint_menu.append(&item)?;
+        tints.push((item, tint));
+    }
     let mut checks: Vec<(CheckMenuItem<Wry>, String)> = Vec::new();
     let pets_menu = Submenu::new(app, pets_label(pets.iter().find(|p| p.id == current).map(|p| p.manifest.name.as_str())), true)?;
     for p in pets {
@@ -655,6 +696,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     let food = Food::from_name(food).unwrap_or(Food::Snack);
                     send(app, Input::SetFeedMode(mode));
                     send(app, Input::Feed(food));
+                } else if let Some(tint) = other.strip_prefix(TINT_PREFIX).and_then(BodyTint::from_id) {
+                    send(app, Input::SetTint(tint));
                 } else if let Some(id) = other.strip_prefix("pet:") {
                     // 체크된 항목을 다시 누르면 체크가 풀리므로 항상 다시 맞춘다
                     for (item, pid) in &checks {
@@ -666,5 +709,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, poop, weather, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
 }

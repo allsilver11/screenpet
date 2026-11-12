@@ -13,6 +13,7 @@ use screenpet_core::geom::Rect;
 use screenpet_core::linked;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::style::PetStyle;
+use screenpet_core::tint::BodyTint;
 use screenpet_core::pacing::Pacer;
 use screenpet_core::platform::{default_source, WindowSource};
 use screenpet_core::presence::FocusLength;
@@ -58,6 +59,8 @@ pub enum Input {
     SetPet { entry: PetEntry, remote: bool },
     /// 캐릭터 스타일 (동글동글 / 픽셀, 설정에 남는다) — 바로 그림이 바뀐다
     SetStyle(PetStyle),
+    /// 🎨 흐물이 몸 색 (설정에 남는다) — 바로 칠해진다
+    SetTint(BodyTint),
     Feed(Food),
     /// 밥 주기 방법 (직접 주기 / 자동 주기)
     SetFeedMode(FeedMode),
@@ -158,6 +161,7 @@ fn sync_menu(app: &AppHandle, entry: &PetEntry, care: &Care, housed: bool) {
     let _ = state.menu.lock.set_checked(care.locked);
     sync_growth(app, care);
     let _ = state.menu.house.set_text(crate::tray::house_label(housed));
+    crate::tray::sync_tint_shown(&state.menu, entry.manifest.tint);
 }
 
 /// 메뉴의 성장 단계 한 줄을 지금 돌보기 상태에 맞춘다 (동물마다 단계가 따로다)
@@ -243,7 +247,7 @@ fn spawn_debug_guest(app: &AppHandle, slots: &mut Vec<Slot>) {
     let Some(entry) = state.pets.iter().find(|p| &p.id != own_id).or(state.pets.first()).cloned() else { return };
     let stage = Stage::Teenager;
     let scale = stage.scale() * entry.manifest.size_mult(stage);
-    let guest = GuestInfo { visit_id: "debug".into(), owner_id: "debug".into(), owner_name: "디버그 친구".into(), note: None, can_grow: true };
+    let guest = GuestInfo { visit_id: "debug".into(), owner_id: "debug".into(), owner_name: "디버그 친구".into(), note: None, can_grow: true, tint: BodyTint::Default };
     match slots::spawn_guest(app, guest, entry, stage, scale, slots[OWN].shown.wanted, slots[OWN].dpi, Side::Right, &slots[OWN].world, seed_now(), slots[OWN].size()) {
         Ok(slot) => slots.push(slot),
         Err(e) => eprintln!("failed to create debug guest window: {e}"),
@@ -268,6 +272,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let b = world.bounds;
     let pet = Pet::new(cfg, b.left + b.width() / 2.0, b.top + cfg.size, seed_now());
     let mut slots = vec![Slot::new(OWN_LABEL.to_string(), Role::Own, entry, pet, window, world, dpi, shown.clone(), config.pet_size())];
+    slots[OWN].tint = config.tint;
+    crate::tray::sync_tint(&app.state::<AppState>().menu, config.tint);
     // 창 크기·웹뷰 시트를 맞춘다
     slots[OWN].set_stage(&app, shown);
     slots[OWN].pet.set_hungry(care.is_hungry());
@@ -402,6 +408,17 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         // 📱 저쪽에서 바꿨다: 트레이 체크도 맞춘다 (누른 항목만 스스로 뒤집힌다)
                         crate::tray::sync_pet_checks(&app.state::<AppState>().menu, &own.entry.id);
                     }
+                }
+                Input::SetTint(tint) => {
+                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 다시 맞춘다
+                    crate::tray::sync_tint(&app.state::<AppState>().menu, tint);
+                    if tint == config.tint {
+                        continue;
+                    }
+                    config.tint = tint;
+                    let own = &mut slots[OWN];
+                    own.set_tint(&app, tint);
+                    save_config(&app, &mut config, &own.entry.id, &care);
                 }
                 Input::SetStyle(style) => {
                     // 체크 항목은 누를 때 스스로 뒤집히므로 항상 다시 맞춘다

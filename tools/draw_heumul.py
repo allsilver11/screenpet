@@ -14,7 +14,12 @@ eat에는 밥그릇이 없다 (앱의 소품 창이 그릇을 띄운다): 앞모
 
 import math
 import sys
+from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
+
+import numpy as np
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
@@ -862,12 +867,81 @@ HEUMUL_POSES = {"walk": hm_walk, "run": hm_run, "roll": hm_roll, "idle": hm_idle
 RAW_POSES = dict(HEUMUL_POSES)
 HEUMUL_POSES = {k: _fit(v) for k, v in HEUMUL_POSES.items()}
 
+# ---------------------------------------------------------------- 🎨 몸 색 (잉크 자리 마스크)
+# 사용자: 어두운 바탕화면에서 짙은 잉크 선이 안 보인다 → 앱이 고른 색으로 잉크 자리만 덮는다 (ui/main.js tint).
+# 잉크 자리 = 잉크 색만 바꿔 같은 칸을 두 번 그렸을 때 달라지는 몫 (선·머리 테·실루엣 외곽선 — 크림 머리 속·효과는 그대로라 0).
+# 두 색 모두 어둡게: 도트 그림은 밝은 조각(PALE_BASE)이면 고리를 옅게 하는 등 색에 따라 모양이 달라질 수 있다
+INK_PROBES = ((0, 0, 0), (120, 120, 120))
+
+
+@contextmanager
+def inked(col):
+    """이 문맥 안에서는 잉크가 col: 그림 코드에 넘길 종 설정을 돌려준다 (나오면 INK·PX_INK를 되돌린다)."""
+    g = globals()
+    old = g["INK"], g["PX_INK"]
+    g["INK"], g["PX_INK"] = col, tuple(int(c * 0.7) for c in col)
+    try:
+        yield replace(HEUMUL, base=col, back=col, belly=col, nose=col, front_tail_color=col, tail_color=col, stripe=col, outline=col)
+    finally:
+        g["INK"], g["PX_INK"] = old
+
+
+def ink_mask(dark, light, hard=False):
+    """INK_PROBES로 그린 같은 칸 둘 → 잉크 마스크 (LA: 흰색, 알파 = 그 칸에서 잉크가 칠한 몫). hard: 도트 (0 / 255)."""
+    a = np.asarray(dark.convert("RGBA")).astype(float)
+    b = np.asarray(light.convert("RGBA")).astype(float)
+    if not np.array_equal(a[..., 3], b[..., 3]):
+        raise ValueError("잉크 색에 따라 모양이 달라졌습니다")
+    alpha = a[..., 3]
+    if hard:
+        m = np.where((np.abs(a[..., :3] - b[..., :3]).max(axis=2) > 0) & (alpha > 0), 255, 0)
+    else:
+        diff = np.abs(a[..., :3] * alpha[..., None] - b[..., :3] * alpha[..., None]).max(axis=2) / 255
+        span = max(abs(x - y) for x, y in zip(*INK_PROBES))
+        m = np.minimum(np.rint(diff * 255 / span), alpha)
+    out = np.zeros(alpha.shape + (2,), np.uint8)
+    out[..., 0] = 255
+    out[..., 1] = m.astype(np.uint8)
+    return Image.fromarray(out, "LA")
+
+
+def ink_frames(render):
+    """render(종 설정) → {동작: [프레임]} 을 INK_PROBES 두 색으로 그린 (어두운 쪽, 밝은 쪽)."""
+    probes = []
+    for col in INK_PROBES:
+        with inked(col) as sp:
+            probes.append(render(sp))
+    return probes
+
+
+def _round_ink(sp, st):
+    """동글: 캐시(_RENDERED)를 건드리지 않고 그 단계를 새로 그린다."""
+    key = (sp.id, st)
+    saved = dp._RENDERED.pop(key, None)
+    try:
+        return dp.render_species(sp, st)
+    finally:
+        dp._RENDERED.pop(key, None)
+        if saved is not None:
+            dp._RENDERED[key] = saved
+
+
+def write_ink_round(out_dir):
+    """ui/pets/heumul/ink_<stage>.png ×5 (시트와 같은 칸 배치). pet.json에 더할 칸은 없다 (tint는 sprite_spec.TINTABLE)."""
+    for st in STAGES:
+        dark, light = ink_frames(lambda sp: _round_ink(sp, st))
+        masks = {anim: [ink_mask(x, y) for x, y in zip(dark[anim], light[anim])] for anim in dark}
+        dp.sheet_image(dp.rows_for(HEUMUL), masks).save(Path(out_dir) / f"ink_{st}.png")
+    return {}
+
+
 _FLAT = dict(pale=0.0, soft=0.0, fit=1.0, line=1.0)
 HEUMUL = Species(
     id="heumul", name="흐물이", walk_speed=110, scale=1.0, base=INK, back=INK, belly=INK, nose=INK, mouth="w",
     front_tail_color=INK, tail_color=INK, stage_size=dict.fromkeys(STAGES, 0.9), stripe=INK, outline=INK,
     stage_tweak={st: dict(_FLAT) for st in STAGES},
     specials=["lookup", "panic", "hang", "rope", "lift", "hold", "carry", "throw", "strain", "present", "slump", "yank", "stuff"], poses=HEUMUL_POSES, **dp.NO_COMMON_PARTS,
+    write_layers=lambda out_dir: write_ink_round(out_dir),
 )
 
 

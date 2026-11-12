@@ -163,6 +163,9 @@ JUGGLER = {"heumul"}
 # 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는 동물 (pet.json taskbar_play — 코어 brain_taskbar.rs, 그림은 yank·stuff)
 TASKBAR_PLAY = {"heumul"}
 
+# 🎨 몸 색을 고를 수 있는 동물 (pet.json tint + ink_<stage>.png 잉크 자리 — 앱이 그 자리만 고른 색으로 덮는다, ui/main.js)
+TINTABLE = {"heumul"}
+
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {
     "cat": {"emoji": "🐟", "name": "생선"},

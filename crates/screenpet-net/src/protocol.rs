@@ -245,6 +245,12 @@ pub enum Visit {
         /// know the value or has no such art. Older versions ignore it.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         style: Option<String>,
+        /// 🎨 The owner's body color for an ink-line pet (a color id such as
+        /// "rainbow"; absent = the drawn ink). Purely cosmetic; the receiver
+        /// validates it against the ids it knows and shows the ink otherwise.
+        /// Older versions ignore it.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        tint: Option<String>,
         /// A friend fed this pet and it is temporarily bigger (multiplier). The
         /// receiver limits it; older versions ignore it.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
@@ -573,6 +579,7 @@ mod tests {
                 note: None,
                 gift: None,
                 style: None,
+                tint: None,
                 boost: None,
                 no_grow: None,
                 of: None,
@@ -1005,6 +1012,27 @@ mod tests {
         let bad = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"baby","scale":1.0,"personality":"aloof","owner":"a","enter_side":"left","style":7}"#;
         let Some(Message::Visit(Visit::Visit { style, .. })) = Message::parse(bad) else { panic!("bad style must not drop the visit") };
         assert_eq!(style, None);
+    }
+
+    /// 🎨 The owner's body color for an ink-line pet travels as an id; old peers ignore it; default sends nothing; anything odd is dropped, never the visit.
+    #[test]
+    fn visit_tint_is_optional_and_backward_compatible() {
+        let v = visit!(tint: Some("rainbow".into()));
+        assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
+        #[derive(Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
+        enum OldVisit {
+            Visit { visit_id: u64 },
+        }
+        let OldVisit::Visit { visit_id } = serde_json::from_slice::<OldVisit>(&v.to_json()).unwrap();
+        assert_eq!(visit_id, 8);
+        assert!(!String::from_utf8(visit_with_note(None).to_json()).unwrap().contains("tint"));
+        let old = br#"{"type":"visit","visit_id":1,"species":"heumul","stage":"baby","scale":1.0,"personality":"playful","owner":"a","enter_side":"left"}"#;
+        let Some(Message::Visit(Visit::Visit { tint, .. })) = Message::parse(old) else { panic!("old visit must parse") };
+        assert_eq!(tint, None);
+        let bad = br#"{"type":"visit","visit_id":1,"species":"heumul","stage":"baby","scale":1.0,"personality":"playful","owner":"a","enter_side":"left","tint":[1]}"#;
+        let Some(Message::Visit(Visit::Visit { tint, .. })) = Message::parse(bad) else { panic!("bad tint must not drop the visit") };
+        assert_eq!(tint, None);
     }
 
     #[test]

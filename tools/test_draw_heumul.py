@@ -257,3 +257,83 @@ def test_yank_and_stuff_grip_the_floor_in_front(out, st):
     x, y = (v * 128 / fs for v in g["stuff"][0])
     _, y0, _, _ = head_box(frame(out, st, "stuff", 0))
     assert y <= y0 + 3 and abs(x - 64) < 14, (st, x, y, y0)
+
+
+# ---- 🎨 몸 색 (사용자: 어두운 바탕화면에서 짙은 잉크 선이 안 보인다) — 앱이 ink_<stage>.png 자리만 고른 색으로 덮는다 (ui/main.js tint)
+def ink_frame(out, st, anim, i, root="pets"):
+    d = out / "heumul" if root == "pets" else out
+    return cell(sheet_128(d / f"ink_{st}.png"), names(hm.HEUMUL).index(anim), i)
+
+
+def test_manifest_says_the_body_can_be_tinted_and_only_heumul_does(out):
+    assert json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))["tint"] is True
+    for d in ("pets", "pets_pixel"):
+        for p in sorted((ROOT / "ui" / d).iterdir()):
+            inks = sorted(f.name for f in p.glob("ink_*.png"))
+            if p.name == "heumul":
+                assert inks == sorted(f"ink_{st}.png" for st in STAGES), (d, inks)
+            else:
+                assert inks == [], (d, p.name)
+                if d == "pets":
+                    assert "tint" not in json.loads((p / "pet.json").read_text(encoding="utf-8")), p.name
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_ink_mask_has_the_sheet_layout(out, st):
+    from PIL import Image
+    with Image.open(out / "heumul" / f"sheet_{st}.png") as s, Image.open(out / "heumul" / f"ink_{st}.png") as m:
+        assert m.size == s.size and "A" in m.getbands(), (st, m.mode)
+
+
+@pytest.mark.parametrize("st", STAGES)
+@pytest.mark.parametrize("anim,i", [("idle", 0), ("walk", 1), ("panic", 0), ("heart", 1), ("hang", 2), ("sleep", 0)])
+def test_ink_mask_covers_the_ink_lines_but_not_the_head_or_the_effects(out, st, anim, i):
+    """잉크 선(몸·팔다리·머리 테)은 마스크가 꽉, 크림 머리 속·효과(땀방울·하트·Z)는 0, 그림이 없는 곳은 0, 그림보다 짙지 않다."""
+    im, mk = frame(out, st, anim, i), ink_frame(out, st, anim, i)
+    m = np.asarray(mk.getchannel("A")).astype(int)
+    a = np.asarray(im.getchannel("A")).astype(int)
+    ink = near(im, hm.INK, 12)
+    assert ink.sum() > 100 and (m[ink] >= a[ink] - 12).mean() > 0.93, (st, anim, i)
+    head = near(im, hm.HEAD, 12)  # 머리 테 바로 안쪽은 잉크가 조금 번져 있다
+    assert head.sum() > 100 and (m[head] <= 12).all() and (m[head] == 0).mean() > 0.7, (st, anim, i)
+    assert (m <= a + 1).all() and (m[a == 0] == 0).all()
+    rgb = np.asarray(im.convert("RGBA")).astype(int)[..., :3]
+    chroma = rgb.max(axis=2) - rgb.min(axis=2)
+    # 땀방울·하트·속도선… (잉크·크림은 무채색에 가깝다). 품에 안은 하트의 테두리는 몸 실루엣 외곽선이라 잉크 — 잉크 옆 2px은 뺀다
+    near_ink = np.zeros_like(ink)
+    ys, xs = np.nonzero(ink)
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            near_ink[np.clip(ys + dy, 0, ink.shape[0] - 1), np.clip(xs + dx, 0, ink.shape[1] - 1)] = True
+    fx = (a > 250) & (chroma > 40) & ~near_ink
+    assert anim not in ("panic", "heart", "sleep") or fx.sum() > 10, (st, anim, i)
+    assert not fx.any() or ((m[fx] <= 64).all() and (m[fx] == 0).mean() > 0.9), (st, anim, i, int((m[fx] > 0).sum()))
+
+
+def test_pixel_ink_mask_is_hard_dots_on_the_ink_only():
+    """도트: 마스크도 반투명 없이 0 / 255, 잉크 칸(선·머리 고리)만 — 크림 머리와 하트는 0."""
+    import draw_pixel as px
+    for st in ("baby", "adult"):
+        frames = px.render_pixel(hm.HEUMUL, st, anims=("idle", "heart"))
+        masks = px.render_ink_masks(hm.HEUMUL, st, anims=("idle", "heart"))
+        for anim in ("idle", "heart"):
+            for im, mk in zip(frames[anim], masks[anim]):
+                a = np.asarray(im.convert("RGBA")).astype(int)
+                m = np.asarray(mk.getchannel("A")).astype(int)
+                assert set(np.unique(m)) <= {0, 255}
+                dark = (a[..., 3] > 0) & (a[..., :3].sum(axis=2) < 300)
+                assert dark.sum() > 20 and (m[dark] == 255).all(), (st, anim)
+                assert (m[(a[..., 3] > 0) & ~dark] == 0).all(), (st, anim)
+                assert (m[a[..., 3] == 0] == 0).all()
+
+
+def test_shipped_pixel_ink_masks_match_the_sheets():
+    from PIL import Image
+    d = ROOT / "ui" / "pets_pixel" / "heumul"
+    for st in STAGES:
+        with Image.open(d / f"sheet_{st}.png") as s, Image.open(d / f"ink_{st}.png") as m:
+            assert m.size == s.size, st
+            sa = np.asarray(s.convert("RGBA")).astype(int)
+            ma = np.asarray(m.convert("RGBA"))[..., 3]
+            dark = (sa[..., 3] > 0) & (sa[..., :3].sum(axis=2) < 300)
+            assert (ma[dark] == 255).all() and (ma[~dark] == 0).all(), st

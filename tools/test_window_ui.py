@@ -110,6 +110,39 @@ def test_bubble_text_lives_in_a_clippable_span():
     assert run("bubbleText") == {"tag": "span", "text": "off to 아주아주아주긴이름's~ brb!", "hidden": False}
 
 
+@pytest.mark.parametrize("style", ["round", "pixel"])
+def test_heumul_tint_layer_follows_the_sprite_and_is_masked_by_the_ink(style):
+    """🎨 사용자: 어두운 바탕화면에서 흐물이가 안 보인다 → 고른 색 층을 잉크 자리(ink_<stage>.png)로 가린다."""
+    r = run("tint", style)
+    folder = "pets_pixel" if style == "pixel" else "pets"
+    ext = "png"
+    rb = r["rainbow"]
+    assert not rb["hidden"]
+    assert rb["mask"] == f"url({folder}/heumul/ink_teenager.{ext})" and rb["webkitMask"] == rb["mask"]
+    assert rb["maskSize"] == rb["petSize"], "마스크 크기 = 시트 크기"
+    assert all(m == p for m, p in r["frames"]), "마스크 칸 = 몸 칸 (프레임마다)"
+    assert len({p for _, p in r["frames"]}) >= 2, "걷는 칸이 넘어갔다"
+    assert "linear-gradient" in rb["bg"] and rb["bg"].count("#") >= 7, rb["bg"]
+    if style == "pixel":
+        assert "repeating-linear-gradient" in rb["bg"]
+    assert r["idleWrites"] == [], "칸이 그대로면 쓰지 않는다"
+    red = r["red"]
+    assert not red["hidden"] and red["mask"] == f"url({folder}/heumul/ink_adult.{ext})" and red["maskSize"] == red["petSize"]
+    assert "gradient" not in red["bg"] and red["bg"].startswith("#")
+    assert r["unknown"]["hidden"] and r["plain"]["hidden"], "모르는 색·기본은 그림 그대로"
+    assert r["cat"]["hidden"], "잉크 마스크가 없는 동물은 칠하지 않는다"
+
+
+def test_tint_layer_css_sits_on_the_body_and_stays_crisp_in_pixel():
+    css = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
+    rule = css_rule(css, "#tint")
+    assert "position: absolute" in rule and "inset: 0" in rule and "pointer-events: none" in rule
+    assert "body.pixel #tint" in css[css.index("/* 픽셀 스타일") :][:400], "픽셀은 마스크도 칸 그대로 (image-rendering: pixelated)"
+    html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+    pet = html[html.index('<div id="pet">') :]
+    assert pet.index('<div id="tint" hidden></div>') < pet.index('<svg id="nightcap"')
+
+
 # ---- CSS: 브라우저 없이는 규칙이 있는지만 본다 (보이는 모습은 실제 앱에서) ----
 def css_rule(text, selector):
     start = text.index(selector + " {")
