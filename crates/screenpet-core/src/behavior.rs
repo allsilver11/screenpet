@@ -1,11 +1,16 @@
-//! 다음 행동 고르기 — 이동 방식, 쉬기/애교, 클릭 반응. 확률·시간 수치는 모두 여기에 둔다.
+//! 다음 행동 고르기 — 이동 방식, 쉬기/애교, 클릭 반응. 확률·시간 수치는 모두 여기에 둠
 
 use serde::Deserialize;
 
+/// 쉬는 시간 (초)
 pub const IDLE_SECS: (f64, f64) = (1.5, 3.0);
+/// 자는 시간 (초)
 pub const SLEEP_SECS: (f64, f64) = (10.0, 20.0);
+/// 쉰 뒤 잘 확률
 pub const SLEEP_CHANCE: f64 = 0.12;
+/// 애교 시간 (초)
 pub const TRICK_SECS: (f64, f64) = (3.0, 5.0);
+/// 다정한 동물이 쉴 때 애교 부릴 확률
 pub const TRICK_CHANCE: f64 = 0.55;
 /// 활동 종류가 바뀔 때 사이에 끼우는 옆모습 앉기 (spec 2B §6)
 pub const BEAT_SECS: (f64, f64) = (0.6, 1.5);
@@ -15,9 +20,11 @@ pub const MOVE_KEEP_CHANCE: f64 = 0.5;
 pub const WALK_AFTER_FRONT_CHANCE: f64 = 0.7;
 /// 새침한 동물의 애교 확률 (평소 / 배고플 때)
 pub const ALOOF_AEGYO_CHANCE: f64 = 0.10;
+/// 새침한 동물이 배고플 때 애교 확률
 pub const ALOOF_HUNGRY_AEGYO_CHANCE: f64 = 0.60;
 /// 새침한 동물이 애교 대신 클릭을 무시할 때 "..." 말풍선을 띄울 확률
 pub const IGNORE_SPEECH_CHANCE: f64 = 0.5;
+/// 흥! 하는 시간 (초)
 pub const HUFF_SECS: f64 = 1.5;
 /// 장난꾸러기(개구리)가 쉴 때 애교 부릴 확률
 pub const PLAYFUL_TRICK_CHANCE: f64 = 0.65;
@@ -31,7 +38,7 @@ pub enum Personality {
     Friendly,
     /// 새침함 (고양이) — 애교가 드물고 클릭에 흥! 하거나 무시
     Aloof,
-    /// 장난꾸러기 (개구리) — 클릭엔 늘 반응하고 쉴 때 애교가 조금 더 많다
+    /// 장난꾸러기 (개구리) — 클릭엔 늘 반응하고 쉴 때 애교가 조금 더 많음
     Playful,
 }
 
@@ -47,7 +54,7 @@ impl Personality {
     }
 }
 
-/// 활동 묶음 — 묶음이 바뀌면 그 사이에 잠깐 앉는다
+/// 활동 묶음 — 묶음이 바뀌면 그 사이에 잠깐 앉음
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
     /// 걷기·달리기
@@ -67,11 +74,13 @@ pub const CLIMB_CHANCE: f64 = 0.06;
 pub const CLIMB_HEIGHT: (f64, f64) = (0.25, 1.0);
 /// 크기 128 기준 px/s (cfg.size / 128 배)
 pub const CLIMB_SPEED: f64 = 70.0;
+/// 미끄러져 내려오는 속도 (크기 128 기준 px/s)
 pub const SLIDE_SPEED: f64 = 250.0;
+/// 창 옆면을 기어오르는 속도 (크기 128 기준 px/s)
 pub const WALL_CLIMB_SPEED: f64 = 90.0;
 /// 목표 높이에 닿은 뒤 매달려 있는 시간
 pub const CLIMB_HANG_SECS: f64 = 0.4;
-/// 이 속도(|vx|)보다 빠르게 던져져야 창 옆면에 달라붙는다
+/// 이 속도(|vx|)보다 빠르게 던져져야 창 옆면에 달라붙음
 pub const WALL_STICK_MIN_VX: f64 = 50.0;
 /// 창 꼭대기에 올라설 때 옆면에서 안쪽으로 몸 절반 + 이만큼
 pub const WALL_TOP_INSET: f64 = 2.0;
@@ -81,9 +90,13 @@ pub fn climb_target(rng: &mut fastrand::Rng, bottom: f64, top_limit: f64) -> f64
     bottom - range(rng, CLIMB_HEIGHT) * (bottom - top_limit)
 }
 
+/// 이동이 끝났을 때 돌아설 확률
 pub const MOVE_END_TURN_CHANCE: f64 = 0.3;
+/// 걷다가 창 끝에 닿으면 폴짝 뛰어내릴 확률
 pub const WALK_EDGE_HOP_CHANCE: f64 = 0.8;
+/// 달리다 끝에서 뛸 때 가로 속도 배
 pub const RUN_LEAP_VX_MULT: f64 = 1.8;
+/// 클릭 애교 시간 (초)
 pub const CLICK_TRICK_SECS: f64 = 2.0;
 /// 잘 놀라는 동물(레서판다, Special::Surprise)이 클릭에 깜짝 벌떡 서는 몫 (나머지는 평소 클릭 반응)
 pub const SURPRISE_CLICK_CHANCE: f64 = 0.6;
@@ -93,13 +106,13 @@ pub const SURPRISE_CLICK_CHANCE: f64 = 0.6;
 pub enum Special {
     /// 고양이 하악질 — 등 휘고 꼬리 펑
     Arch,
-    /// 기린 — 구르는 대신 멈춰 서서 목을 평소의 두 배로 쭉 늘였다 줄인다 (쉬거나 간질일 땐 하지 않는다)
+    /// 기린 — 구르는 대신 멈춰 서서 목을 평소의 두 배로 쭉 늘였다 줄임 (쉬거나 간질일 땐 하지 않음)
     NeckStretch,
-    /// 공룡 — 입에서 작은 불꽃을 퐁 (아무것도 태우지 않는다)
+    /// 공룡 — 입에서 작은 불꽃을 퐁 (아무것도 태우지 않음)
     Fire,
     /// 공룡 — 고개 들고 크앙!
     Roar,
-    /// 공룡 — 제자리 쿵쾅쿵쾅 (같은 바닥의 친구들이 흔들리거나 데굴 넘어진다, social.rs)
+    /// 공룡 — 제자리 쿵쾅쿵쾅 (같은 바닥의 친구들이 흔들리거나 데굴 넘어짐, social.rs)
     Stomp,
     /// 레서판다 — 깜짝! 뒷발로 벌떡 서서 두 팔을 번쩍 (클릭·살짝 부딪힘에만, brain_hit.rs·brain.rs pointer_up)
     Surprise,
@@ -107,6 +120,7 @@ pub enum Special {
 
 /// 공룡의 세 동작 중 하나를 고르는 몫 (불 · 크앙 · 쿵쾅) — 쉴 때 / 간질일 때 (간질이면 쿵쾅보다 불·크앙)
 pub const DINO_REST_SHARE: [f64; 3] = [0.35, 0.35, 0.30];
+/// 간질일 때 몫 (불 · 크앙 · 쿵쾅)
 pub const DINO_TICKLE_SHARE: [f64; 3] = [0.45, 0.40, 0.15];
 
 /// 공룡: 불·크앙·쿵쾅 중 하나 (tickled면 간질 반응 몫)
@@ -122,10 +136,11 @@ pub fn pick_dino(rng: &mut fastrand::Rng, tickled: bool) -> Special {
     }
 }
 
-/// 기린 목 늘이기 길이 (초) — 앱(ui/main.js NECK_*_MS)이 이 시간 안에 늘이고·머물고·줄인다
+/// 기린 목 늘이기 길이 (초) — 앱(ui/main.js NECK_*_MS)이 이 시간 안에 늘이고·머물고·줄임
 pub const NECK_STRETCH_SECS: f64 = 3.4;
 
 impl Special {
+    /// 쉴 때 이 특별 동작을 할 확률
     pub fn rest_chance(self) -> f64 {
         match self {
             Special::Arch => 0.08,
@@ -137,6 +152,7 @@ impl Special {
         }
     }
 
+    /// 간질일 때 이 특별 동작을 할 확률
     pub fn tickle_chance(self) -> f64 {
         match self {
             Special::Arch => 0.25,
@@ -146,6 +162,7 @@ impl Special {
         }
     }
 
+    /// 특별 동작 시간 범위 (초)
     pub fn secs(self) -> (f64, f64) {
         match self {
             Special::Arch => (2.0, 3.0),
@@ -160,6 +177,7 @@ impl Special {
         }
     }
 
+    /// pet.json 그림 이름
     pub fn anim_name(self) -> &'static str {
         match self {
             Special::Arch => "arch",
@@ -176,12 +194,12 @@ impl Special {
         self == Special::NeckStretch
     }
 
-    /// 공룡 동작 — 시작할 때 셋 중 하나를 다시 고른다 (pick_dino)
+    /// 공룡 동작 — 시작할 때 셋 중 하나를 다시 고름 (pick_dino)
     pub fn is_dino(self) -> bool {
         matches!(self, Special::Fire | Special::Roar | Special::Stomp)
     }
 
-    /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾는다
+    /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾음
     pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special> {
         [Special::Arch, Special::NeckStretch, Special::Fire, Special::Roar, Special::Stomp, Special::Surprise]
             .into_iter()
@@ -189,6 +207,7 @@ impl Special {
     }
 }
 
+/// 이동 방식
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Move {
     Walk,
@@ -197,6 +216,7 @@ pub enum Move {
 }
 
 impl Move {
+    /// 동작 갈래
     pub fn family(self) -> Family {
         match self {
             Move::Walk | Move::Run => Family::Move,
@@ -204,6 +224,7 @@ impl Move {
         }
     }
 
+    /// 걷기 속도 대비 빠르기 배
     pub fn speed_mult(self) -> f64 {
         match self {
             Move::Walk => 0.7,
@@ -212,6 +233,7 @@ impl Move {
         }
     }
 
+    /// 이동 시간 범위 (초)
     pub fn secs(self) -> (f64, f64) {
         match self {
             Move::Walk => (4.0, 10.0),
@@ -232,14 +254,17 @@ pub enum Trick {
     Heart,
 }
 
+/// 쉴 때 고르는 애교들
 pub const TRICKS: [Trick; 6] = [Trick::SitFront, Trick::Wave, Trick::Tilt, Trick::Belly, Trick::Stretch, Trick::Heart];
 
+/// 쉬는 박자에 할 일: 그냥 쉬기, 또는 애교
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rest {
     Idle,
     Trick(Trick),
 }
 
+/// 클릭 반응
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClickReaction {
     /// v1의 하트 + 제자리 점프
@@ -251,12 +276,13 @@ pub enum ClickReaction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClickOutcome {
     React(ClickReaction),
-    /// 새침: 하던 일을 계속한다 (speak면 "..." 말풍선)
+    /// 새침: 하던 일을 계속함 (speak면 "..." 말풍선)
     Ignore { speak: bool },
     /// 새침: 흥! 하고 고개 돌리기
     Huff,
 }
 
+/// 클릭 결과를 고름: 새침한 동물은 가끔 무시하거나 흥!
 pub fn pick_click_outcome(rng: &mut fastrand::Rng, personality: Personality, hungry: bool) -> ClickOutcome {
     if personality != Personality::Aloof || rng.f64() < personality.trick_chance(hungry) {
         ClickOutcome::React(pick_click(rng))
@@ -267,7 +293,7 @@ pub fn pick_click_outcome(rng: &mut fastrand::Rng, personality: Personality, hun
     }
 }
 
-/// 다음 이동 방식: 애교 뒤엔 대개 걷기, 아니면 절반은 직전 방식을 이어간다
+/// 다음 이동 방식: 애교 뒤엔 대개 걷기, 아니면 절반은 직전 방식을 이어감
 pub fn pick_next_move(rng: &mut fastrand::Rng, last: Option<Move>, after_front: bool) -> Move {
     if after_front {
         if rng.f64() < WALK_AFTER_FRONT_CHANCE {
@@ -281,6 +307,7 @@ pub fn pick_next_move(rng: &mut fastrand::Rng, last: Option<Move>, after_front: 
     pick_move(rng)
 }
 
+/// 다음 이동 방식을 고름 (걷기 45% …)
 pub fn pick_move(rng: &mut fastrand::Rng) -> Move {
     let r = rng.f64();
     if r < 0.45 {
@@ -292,7 +319,7 @@ pub fn pick_move(rng: &mut fastrand::Rng) -> Move {
     }
 }
 
-/// 쉴 때 따로 기지개를 켜는 몫 (고양이·페르시안 — 성격과 상관없이 먼저 굴린다)
+/// 쉴 때 따로 기지개를 켜는 몫 (고양이·페르시안 — 성격과 상관없이 먼저 굴림)
 pub const STRETCHY_REST_CHANCE: f64 = 0.2;
 
 /// 기지개를 자주 켜는 동물 (고양이 둘)
@@ -300,7 +327,7 @@ pub fn stretchy_species(species: &str) -> bool {
     matches!(species, "cat" | "persian")
 }
 
-/// pick_rest + 기지개 잘 켜는 동물이면 먼저 기지개 몫을 굴린다
+/// pick_rest + 기지개 잘 켜는 동물이면 먼저 기지개 몫을 굴림
 pub fn pick_rest_for(rng: &mut fastrand::Rng, trick_chance: f64, stretchy: bool) -> Rest {
     if stretchy && rng.f64() < STRETCHY_REST_CHANCE {
         return Rest::Trick(Trick::Stretch);
@@ -308,6 +335,7 @@ pub fn pick_rest_for(rng: &mut fastrand::Rng, trick_chance: f64, stretchy: bool)
     pick_rest(rng, trick_chance)
 }
 
+/// 쉬기를 고름: trick_chance로 애교, 아니면 그냥 쉼
 pub fn pick_rest(rng: &mut fastrand::Rng, trick_chance: f64) -> Rest {
     if rng.f64() < trick_chance {
         Rest::Trick(pick_trick(rng))
@@ -316,10 +344,12 @@ pub fn pick_rest(rng: &mut fastrand::Rng, trick_chance: f64) -> Rest {
     }
 }
 
+/// 애교 하나를 고름
 pub fn pick_trick(rng: &mut fastrand::Rng) -> Trick {
     TRICKS[rng.usize(..TRICKS.len())]
 }
 
+/// 클릭 반응을 고름 (폴짝·하트·…)
 pub fn pick_click(rng: &mut fastrand::Rng) -> ClickReaction {
     match rng.usize(..4) {
         0 => ClickReaction::Hop,
@@ -329,6 +359,7 @@ pub fn pick_click(rng: &mut fastrand::Rng) -> ClickReaction {
     }
 }
 
+/// lo..hi에서 고르게 뽑음
 pub fn range(rng: &mut fastrand::Rng, (lo, hi): (f64, f64)) -> f64 {
     lo + rng.f64() * (hi - lo)
 }
@@ -337,6 +368,7 @@ pub fn range(rng: &mut fastrand::Rng, (lo, hi): (f64, f64)) -> f64 {
 mod tests {
     use super::*;
 
+    /// 테스트: n번 뽑아 want가 나온 비율
     fn share<T: PartialEq>(n: usize, mut f: impl FnMut(&mut fastrand::Rng) -> T, want: T) -> f64 {
         let mut rng = fastrand::Rng::with_seed(7);
         (0..n).filter(|_| f(&mut rng) == want).count() as f64 / n as f64
@@ -430,6 +462,7 @@ mod tests {
         assert_eq!((Move::Walk.family(), Move::Run.family(), Move::Roll.family()), (Family::Move, Family::Move, Family::Roll));
     }
 
+    /// 테스트: 다음 이동이 want인 비율
     fn next_share(after_front: bool, last: Option<Move>, want: Move) -> f64 {
         let mut rng = fastrand::Rng::with_seed(9);
         let n = 20_000;

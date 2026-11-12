@@ -1,16 +1,17 @@
 //! 사다리타기 — 그림 쪽 순수 로직 (spec `2026-11-04-screenpet-ladder-design.md` §3.1).
 //!
-//! 결과는 사다리 모양이 아니라 **균등 무작위 순열**에서 나온다: 가로줄을 무작위로 긋는 사다리는 가까운 칸으로 갈 확률이 높아
-//! 공정하지 않다. 그래서 먼저 순열 π(위 칸 i → 결과 칸 π(i))를 뽑고, 홀짝 전치 정렬로 그 순열이 되는 가로줄을 만든 뒤
-//! 결과를 바꾸지 않는 장식 가로줄 쌍을 섞는다.
+//! 결과는 사다리 모양이 아니라 **균등 무작위 순열**에서 나옴: 가로줄을 무작위로 긋는 사다리는 가까운 칸으로 갈 확률이 높아
+//! 공정하지 않음. 그래서 먼저 순열 π(위 칸 i → 결과 칸 π(i))를 뽑고, 홀짝 전치 정렬로 그 순열이 되는 가로줄을 만든 뒤
+//! 결과를 바꾸지 않는 장식 가로줄 쌍을 섞음
 //!
-//! 난수는 `FnMut() -> u32`로 받는다 — core는 해시를 모른다. 참가자끼리 같은 결과를 보려면 같은 수열에서 같은 결과가 나와야 하므로
-//! 여기 알고리즘은 **판을 넘어 고정**이다 (테스트의 고정 벡터가 지킨다). `fastrand`를 쓰지 않는다.
+//! 난수는 `FnMut() -> u32`로 받음 — core는 해시를 모름. 참가자끼리 같은 결과를 보려면 같은 수열에서 같은 결과가 나와야 하므로
+//! 여기 알고리즘은 **판을 넘어 고정**임 (테스트의 고정 벡터가 지킴). `fastrand`를 쓰지 않음
 
 use serde::{Deserialize, Serialize};
 
-/// 한 판의 인원 (방장 포함). net `screenpet_net::ladder`와 같은 값이어야 한다 (net `tests/ladder.rs`가 확인한다)
+/// 한 판의 인원 (방장 포함). net `screenpet_net::ladder`와 같은 값이어야 함 (net `tests/ladder.rs`가 확인함)
 pub const MIN_PLAYERS: usize = 2;
+/// 한 판의 최대 인원
 pub const MAX_PLAYERS: usize = 10;
 /// 사다리 최소 높이 (줄 수)
 pub const MIN_ROWS: usize = 8;
@@ -20,11 +21,11 @@ pub const RESULT_MAX_CHARS: usize = 12;
 const DECOY_TRIES_PER_COLUMN: usize = 2;
 /// 칸 너비 (논리 px) — 기본과 하한
 const COLUMN_WIDTH: f64 = 72.0;
-/// 칸 너비 하한 (논리 px) — 이보다 좁으면 아기 펫·이름표가 겹친다
+/// 칸 너비 하한 (논리 px) — 이보다 좁으면 아기 펫·이름표가 겹침
 const MIN_COLUMN_WIDTH: f64 = 48.0;
-/// 창이 이보다 좁으면 칸을 줄인다 — 적어도 이만큼 칸이 있는 폭으로 잡는다
+/// 창이 이보다 좁으면 칸을 줄임 — 적어도 이만큼 칸이 있는 폭으로 잡음
 const MIN_COLUMNS_WIDE: usize = 4;
-/// 창 좌우 여백 합 (논리 px) — 양 끝 칸의 이름표(두 칸 폭까지 쓴다)가 창 밖으로 나가지 않게 (tools/test_ladder_ui.py가 이 값으로 잰다)
+/// 창 좌우 여백 합 (논리 px) — 양 끝 칸의 이름표(두 칸 폭까지 씀)가 창 밖으로 나가지 않게 (tools/test_ladder_ui.py가 이 값으로 잼)
 pub const WINDOW_MARGIN: f64 = 60.0;
 
 /// 창 안쪽 높이를 정할 때 작업 영역에서 뺄 몫 (제목 표시줄·테두리, 논리 px)
@@ -53,6 +54,7 @@ impl Mood {
         }
     }
 
+    /// 링크로 보내는 글자 ("good" / "bad" / "none")
     pub fn to_wire(self) -> &'static str {
         match self {
             Mood::Good => "good",
@@ -65,11 +67,13 @@ impl Mood {
 /// `rows[r]`에 든 `c` = 그 줄에서 세로줄 `c`와 `c+1`을 잇는 가로줄 (오름차순, 한 줄 안에서 서로 이웃하지 않음)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Ladder {
+    /// 세로줄 수 (= 인원)
     pub columns: usize,
+    /// 줄마다 가로줄이 잇는 세로줄 (`rows[r]`의 `c` = `c`와 `c+1`을 이음)
     pub rows: Vec<Vec<usize>>,
 }
 
-/// `[0, bound)` 균등 정수. 거부 샘플링이라 나머지 연산 치우침이 없다 (`bound`는 1 이상)
+/// `[0, bound)` 균등 정수. 거부 샘플링이라 나머지 연산 치우침이 없음 (`bound`는 1 이상)
 pub fn uniform(next: &mut impl FnMut() -> u32, bound: u32) -> u32 {
     assert!(bound > 0, "bound must be positive");
     // 2^32를 bound로 나눈 나머지만큼 맨 아래 값을 버린다 (u32 범위에서 계산: (2^32 - bound) % bound)
@@ -93,7 +97,7 @@ pub fn permutation(n: usize, next: &mut impl FnMut() -> u32) -> Vec<usize> {
 }
 
 /// `perm`이 되는 사다리. 홀짝 전치 정렬의 교환이 진짜 가로줄이고, 빈 줄과 장식 쌍(같은 자리에 연달아 두 줄 — 서로 상쇄)으로
-/// `MIN_ROWS` 이상 채운다. 장식 위치도 `next`에서만 뽑는다
+/// `MIN_ROWS` 이상 채움. 장식 위치도 `next`에서만 뽑음
 pub fn build(perm: &[usize], next: &mut impl FnMut() -> u32) -> Ladder {
     let n = perm.len();
     let mut rows: Vec<Vec<usize>> = Vec::new();
@@ -132,10 +136,12 @@ pub fn build(perm: &[usize], next: &mut impl FnMut() -> u32) -> Ladder {
     Ladder { columns: n, rows }
 }
 
+/// 이 줄에서 c 자리에 가로줄을 놓아도 이웃과 붙지 않음
 fn free_around(row: &[usize], c: usize) -> bool {
     !row.iter().any(|&x| x + 1 >= c && x <= c + 1)
 }
 
+/// 정렬을 지키며 c를 넣음
 fn insert_sorted(row: &mut Vec<usize>, c: usize) {
     let at = row.partition_point(|&x| x < c);
     row.insert(at, c);
@@ -189,25 +195,25 @@ fn circled(n: usize) -> String {
     }
 }
 
-/// 칸 너비 (논리 px): 기본 72, 작업 영역 폭에 다 안 들어가면 줄인다 (하한 48). 칸이 적어도 4칸 폭은 잡는다
+/// 칸 너비 (논리 px): 기본 72, 작업 영역 폭에 다 안 들어가면 줄임 (하한 48). 칸이 적어도 4칸 폭은 잡음
 pub fn column_width(players: usize, work_width: f64) -> f64 {
     let cols = players.max(MIN_COLUMNS_WIDE) as f64;
     let fit = ((work_width - WINDOW_MARGIN) / cols).floor();
     COLUMN_WIDTH.min(fit).max(MIN_COLUMN_WIDTH)
 }
 
-/// 창 안쪽 높이 (논리 px): 원하는 높이가 작업 영역에 안 들어가면 줄인다 (하한 `MIN_WINDOW_HEIGHT`)
+/// 창 안쪽 높이 (논리 px): 원하는 높이가 작업 영역에 안 들어가면 줄임 (하한 `MIN_WINDOW_HEIGHT`)
 pub fn window_height(wanted: f64, work_height: f64) -> f64 {
     wanted.min((work_height - WINDOW_CHROME).max(MIN_WINDOW_HEIGHT))
 }
 
-/// 한 축에서 창이 작업 영역 안에 들어가는 위치. 들어가면 그대로, 영역보다 크면 시작 쪽에 맞춘다 (제목 표시줄이 보이게)
+/// 한 축에서 창이 작업 영역 안에 들어가는 위치. 들어가면 그대로, 영역보다 크면 시작 쪽에 맞춤 (제목 표시줄이 보이게)
 pub fn keep_on_screen(pos: f64, len: f64, area_start: f64, area_len: f64) -> f64 {
     pos.min(area_start + area_len - len).max(area_start)
 }
 
-/// 친구가 보낸 글자를 화면용으로: 보이지 않는 글자(방향 바꾸기 등)를 뺀다. 남는 글자가 없으면 "?".
-/// 표시에만 쓴다 — 지문과 시드는 받은 글자 그대로 해시한다
+/// 친구가 보낸 글자를 화면용으로: 보이지 않는 글자(방향 바꾸기 등)를 뺌. 남는 글자가 없으면 "?".
+/// 표시에만 씀 — 지문과 시드는 받은 글자 그대로 해시함
 pub fn shown_text(raw: &str, max: usize) -> String {
     let s = crate::config::clean_text(raw, max);
     if s.is_empty() {
@@ -238,6 +244,7 @@ mod tests {
         }
     }
 
+    /// 테스트: 시드로 n명의 순열과 사다리를 만듦
     fn ladder_for(n: usize, seed: u64) -> (Vec<usize>, Ladder) {
         let mut next = seq(seed);
         let perm = permutation(n, &mut next);
@@ -315,7 +322,7 @@ mod tests {
         assert!((0..10_000).all(|_| uniform(&mut next, 7) < 7));
     }
 
-    /// 판을 넘어 같은 수열에서 같은 사다리가 나와야 참가자끼리 결과가 같다. 이 값이 바뀌면 프로토콜이 깨진 것이다
+    /// 판을 넘어 같은 수열에서 같은 사다리가 나와야 참가자끼리 결과가 같음. 이 값이 바뀌면 프로토콜이 깨진 것임
     #[test]
     fn fixed_vector() {
         let mut i = 0u32;

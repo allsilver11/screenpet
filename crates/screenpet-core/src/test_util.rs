@@ -1,4 +1,4 @@
-//! 여러 테스트 파일이 같이 쓰는 도우미 (테스트 빌드에만 들어간다).
+//! 여러 테스트 파일이 같이 쓰는 도우미 (테스트 빌드에만 들어감).
 
 use crate::behavior::Personality;
 use crate::brain::{Pet, PetConfig, Speech, State};
@@ -51,7 +51,7 @@ pub(crate) fn idle() -> State {
     State::Idle { remaining: 100.0, look: false }
 }
 
-/// done이 참이 될 때까지 (최대 ticks틱) 돌린다
+/// done이 참이 될 때까지 (최대 ticks틱) 돌림
 pub(crate) fn run_until(p: &mut Pet, w: &World, ticks: usize, done: impl Fn(&Pet) -> bool) -> bool {
     for _ in 0..ticks {
         p.update(DT, w);
@@ -62,7 +62,7 @@ pub(crate) fn run_until(p: &mut Pet, w: &World, ticks: usize, done: impl Fn(&Pet
     false
 }
 
-/// ui/pets에 있는 동물 전부 (이름순). 새 동물을 더하면 테스트가 저절로 그 동물도 본다 — pet.json이 없는 폴더는 없어야 한다
+/// ui/pets에 있는 동물 전부 (이름순). 새 동물을 더하면 테스트가 저절로 그 동물도 봄 — pet.json이 없는 폴더는 없어야 함
 pub(crate) fn species() -> Vec<String> {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
     let mut out: Vec<String> = std::fs::read_dir(&dir)
@@ -93,15 +93,17 @@ pub(crate) fn bundled() -> Vec<(String, PetConfig)> {
         .collect()
 }
 
-/// `while`·`loop` 테스트의 안전장치: 회귀가 나면 테스트가 멈춰 버리지 않고 실패하게 한다.
-/// 넉넉하게 시뮬레이션 10분(60fps)까지만 돈다.
+/// `while`·`loop` 테스트의 안전장치: 회귀가 나면 테스트가 멈춰 버리지 않고 실패하게 함
+/// 넉넉하게 시뮬레이션 10분(60fps)까지만 돎
 pub(crate) struct LoopLimit(usize);
 
 impl LoopLimit {
+    /// 시뮬레이션 10분(60fps)만큼의 한도
     pub(crate) fn new() -> Self {
         LoopLimit(60 * 600)
     }
 
+    /// 한 걸음 셈. 한도를 넘으면 실패함
     #[track_caller]
     pub(crate) fn step(&mut self) {
         assert!(self.0 > 0, "loop did not finish within the step limit");
@@ -109,26 +111,36 @@ impl LoopLimit {
     }
 }
 
-/// 가짜 세상의 하루: 시각·유휴 시간을 테스트가 정한다. 1초에 한 번 Rhythm::tick, 그 사이 60 틱
+/// 가짜 세상의 하루: 시각·유휴 시간을 테스트가 정함. 1초에 한 번 Rhythm::tick, 그 사이 60 틱
 pub(crate) struct Sim {
+    /// 하루 리듬
     pub(crate) rhythm: Rhythm,
+    /// 돌보기 상태
     pub(crate) care: Care,
+    /// 오늘 한 일 표시
     pub(crate) marks: DailyMarks,
+    /// 흐른 시간 (초)
     pub(crate) secs: f64,
+    /// 날짜 (일)
     pub(crate) day: i32,
-    /// 지금 시각 (시, 분) — clock_runs면 start 분에서 secs만큼 흐른다
+    /// 지금 시각 (시, 분) — clock_runs면 start 분에서 secs만큼 흐름
     pub(crate) time: (u32, u32),
+    /// 시각이 흐름 (아니면 time에 멈춤)
     pub(crate) clock_runs: bool,
+    /// 유휴 시간 (초, 매 초 1씩 늚 — None이면 읽을 수 없음)
     pub(crate) idle: Option<f64>,
+    /// 동물이 보임
     pub(crate) visible: bool,
+    /// 동물이 한 말들
     pub(crate) said: Vec<Speech>,
+    /// 하우스가 손 흔든 횟수
     pub(crate) house_waves: u32,
-    /// 틱마다 커서를 동물 근처로 움직인다
+    /// 틱마다 커서를 동물 근처로 움직임
     pub(crate) hover_near: bool,
 }
 
 impl Sim {
-    /// 멈춘 시계, 오늘 아침 인사는 이미 했다 (따로 시험하는 테스트만 지운다)
+    /// 멈춘 시계, 오늘 아침 인사는 이미 했음 (따로 시험하는 테스트만 지움)
     pub(crate) fn fixed_at(time: (u32, u32)) -> Self {
         Self {
             rhythm: Rhythm::default(),
@@ -146,11 +158,12 @@ impl Sim {
         }
     }
 
-    /// hour:minute부터 흐르는 시계, 하루의 인사도 아직, 커서는 동물 곁을 맴돈다
+    /// hour:minute부터 흐르는 시계, 하루의 인사도 아직, 커서는 동물 곁을 맴돎
     pub(crate) fn from(hour: u32, minute: u32) -> Self {
         Self { marks: DailyMarks::default(), time: (hour, minute), clock_runs: true, hover_near: true, ..Self::fixed_at((hour, minute)) }
     }
 
+    /// 지금 시각·유휴로 리듬 입력을 만듦
     pub(crate) fn input(&self) -> RhythmInput {
         let (h, m) = if self.clock_runs {
             let minute = self.time.0 * 60 + self.time.1 + (self.secs / 60.0) as u32;
@@ -161,13 +174,14 @@ impl Sim {
         RhythmInput { secs: self.secs, moment: LocalMoment::new(self.day, h, m), idle: self.idle, visible: self.visible }
     }
 
+    /// 리듬을 한 번 돌리고 하우스 손 흔들기를 셈
     pub(crate) fn tick_rhythm(&mut self, p: &mut Pet, w: &World) {
         let input = self.input();
         let out = self.rhythm.tick(&input, p, w, &mut self.care, &mut self.marks);
         self.house_waves += out.house_wave as u32;
     }
 
-    /// 1초. each는 틱마다 (세상을 흔들거나 살펴본다)
+    /// 1초. each는 틱마다 (세상을 흔들거나 살펴봄)
     pub(crate) fn second_with(&mut self, p: &mut Pet, w: &World, mut each: impl FnMut(&Pet)) {
         self.tick_rhythm(p, w);
         for _ in 0..60 {
@@ -186,10 +200,12 @@ impl Sim {
         }
     }
 
+    /// 1초 돌림 (리듬 한 번 + 60 틱)
     pub(crate) fn second(&mut self, p: &mut Pet, w: &World) {
         self.second_with(p, w, |_| {});
     }
 
+    /// secs초 돌림
     pub(crate) fn run(&mut self, p: &mut Pet, w: &World, secs: u32) {
         for _ in 0..secs {
             self.second(p, w);

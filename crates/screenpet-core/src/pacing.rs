@@ -1,15 +1,17 @@
-//! 게임 루프 박자: "일한 뒤 16 ms 자기"는 일한 시간만큼 매 틱 늦어지고 들쭉날쭉하다.
-//! 대신 정해진 시각(지난 마감 + 한 주기)까지 잔다 — 늦은 만큼 다음 잠을 줄여 평균 주기를 지킨다.
-//! 한 주기 넘게 밀렸으면 (절전·디버거 등) 몰아서 따라잡지 않고 지금부터 다시 센다.
+//! 게임 루프 박자: "일한 뒤 16 ms 자기"는 일한 시간만큼 매 틱 늦어지고 들쭉날쭉함
+//! 대신 정해진 시각(지난 마감 + 한 주기)까지 잠 — 늦은 만큼 다음 잠을 줄여 평균 주기를 지킴
+//! 한 주기 넘게 밀렸으면 (절전·디버거 등) 몰아서 따라잡지 않고 지금부터 다시 셈
 
 use std::time::{Duration, Instant};
 
+/// 일정한 주기로 깨워 주는 박자기
 pub struct Pacer {
     period: Duration,
     next: Instant,
 }
 
 impl Pacer {
+    /// now부터 period마다
     pub fn new(period: Duration, now: Instant) -> Self {
         Self { period, next: now + period }
     }
@@ -31,6 +33,7 @@ mod tests {
 
     const P: Duration = Duration::from_millis(16);
 
+    /// 테스트: n 밀리초
     fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
     }

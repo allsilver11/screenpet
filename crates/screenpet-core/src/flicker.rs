@@ -1,12 +1,13 @@
 //! 잠깐 끊긴 연결은 바로 "오프라인"으로 보이지 않게 (회사 망처럼 인터넷이 끊겼다 붙었다 하면 친구가 깜빡이고,
-//! 트레이 메뉴가 새로 그려지며 열린 메뉴가 저절로 닫혔다). 끊긴 뒤 OFFLINE_GRACE_SECS 안에 다시 붙으면 바뀐 게 없는 것으로 본다.
+//! 트레이 메뉴가 새로 그려지며 열린 메뉴가 저절로 닫혔음). 끊긴 뒤 OFFLINE_GRACE_SECS 안에 다시 붙으면 바뀐 게 없는 것으로 봄
 //! 시각은 부르는 쪽의 초 (앱 시작부터).
 
 use std::collections::HashMap;
 
-/// 끊겨도 이만큼은 온라인으로 보여 준다 (초)
+/// 끊겨도 이만큼은 온라인으로 보여 줌 (초)
 pub const OFFLINE_GRACE_SECS: f64 = 30.0;
 
+/// 끊긴 친구·중계 서버를 OFFLINE_GRACE_SECS 동안 온라인으로 보여 주는 필터
 #[derive(Debug, Default, Clone)]
 pub struct Flicker {
     /// 끊긴 것(친구 id, 또는 "relay") → 끊긴 시각
@@ -14,22 +15,22 @@ pub struct Flicker {
 }
 
 impl Flicker {
-    /// 끊겼다 (이미 끊겨 있었으면 처음 끊긴 시각 그대로)
+    /// 끊겼음 (이미 끊겨 있었으면 처음 끊긴 시각 그대로)
     pub fn down(&mut self, id: &str, now: f64) {
         self.gone.entry(id.to_string()).or_insert(now);
     }
 
-    /// 다시 붙었다
+    /// 다시 붙었음
     pub fn up(&mut self, id: &str) {
         self.gone.remove(id);
     }
 
-    /// 보여 줄 상태: 살아 있거나, 끊긴 지 OFFLINE_GRACE_SECS가 안 됐다
+    /// 보여 줄 상태: 살아 있거나, 끊긴 지 OFFLINE_GRACE_SECS가 안 됐음
     pub fn shown(&self, id: &str, live: bool, now: f64) -> bool {
         live || self.gone.get(id).is_some_and(|t| now - t < OFFLINE_GRACE_SECS)
     }
 
-    /// 유예가 이번에 끝난 것들 (메뉴를 다시 그려야 한다) — 끝난 것은 잊는다
+    /// 유예가 이번에 끝난 것들 (메뉴를 다시 그려야 함) — 끝난 것은 잊음
     pub fn expired(&mut self, now: f64) -> Vec<String> {
         let done: Vec<String> = self.gone.iter().filter(|(_, t)| now - **t >= OFFLINE_GRACE_SECS).map(|(k, _)| k.clone()).collect();
         for k in &done {

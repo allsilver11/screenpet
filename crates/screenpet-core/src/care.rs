@@ -1,4 +1,4 @@
-//! 돌보기 — 포만감, 숨겨진 체력, 성장 단계, 음식 (spec 2B §1). 시간은 앱이 켜져 있을 때만 흐른다.
+//! 돌보기 — 포만감, 숨겨진 체력, 성장 단계, 음식 (spec 2B §1). 시간은 앱이 켜져 있을 때만 흐름
 
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +7,7 @@ const EMPTY_SECS: f64 = 1800.0;
 const HUNGRY_BELOW: f64 = 0.25;
 const FULL_ABOVE: f64 = 0.9;
 
+/// 성장 단계 (아기 → 어른)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stage {
@@ -40,6 +41,7 @@ impl Stage {
         }
     }
 
+    /// 다음 단계 (어른이면 None)
     pub fn next(self) -> Option<Stage> {
         match self {
             Stage::Baby => Some(Stage::Kinder),
@@ -50,6 +52,7 @@ impl Stage {
         }
     }
 
+    /// 모든 단계 (순서대로)
     pub const ALL: [Stage; 5] = [Stage::Baby, Stage::Kinder, Stage::Child, Stage::Teenager, Stage::Adult];
 
     /// `name`의 반대 (모르는 이름이면 None)
@@ -95,7 +98,7 @@ impl Stage {
 pub const STAGES: u8 = 5;
 
 /// 메뉴의 성장 단계 한 줄 ("🌱 성장: 어린이 (3/5단계)", 성장 멈춤이면 " 🔒").
-/// 다음 단계까지 남은 체력은 일부러 숨긴다
+/// 다음 단계까지 남은 체력은 일부러 숨김
 pub fn growth_label(stage: Stage, locked: bool) -> String {
     let lock = if locked { " 🔒" } else { "" };
     format!("🌱 성장: {} ({}/{STAGES}단계){lock}", stage.korean(), stage.step())
@@ -104,27 +107,28 @@ pub fn growth_label(stage: Stage, locked: bool) -> String {
 /// 간식·물이 올려 주는 포만감
 const TREAT_FILL: f64 = 0.1;
 
+/// 음식 종류
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Food {
-    /// 간식 — 언제든 받는다. 체력을 조금 주므로 틈틈이 주면 간식으로도 자란다
+    /// 간식 — 언제든 받음. 체력을 조금 주므로 틈틈이 주면 간식으로도 자람
     Snack,
     Meal,
     /// 동물별 좋아하는 음식
     Favorite,
-    /// 물 — 언제든 받는다 (성장 없음)
+    /// 물 — 언제든 받음 (성장 없음)
     Water,
     /// 🍱 특식 — 밥처럼 채우고 체력은 두 배. 개수 제한 없음
     Special,
 }
 
 impl Food {
-    /// 끼니: 밥, 좋아하는 음식, 특식 — 배부르면 안 먹고, 고르기 버튼에 뜨고, 그릇으로 가서 먹는다
+    /// 끼니: 밥, 좋아하는 음식, 특식 — 배부르면 안 먹고, 고르기 버튼에 뜨고, 그릇으로 가서 먹음
     pub fn is_meal(self) -> bool {
         matches!(self, Food::Meal | Food::Favorite | Food::Special)
     }
 
-    /// 메뉴·음식 고르기 버튼의 이름 (직렬화 이름과 같다)
+    /// 메뉴·음식 고르기 버튼의 이름 (직렬화 이름과 같음)
     pub fn from_name(name: &str) -> Option<Food> {
         match name {
             "snack" => Some(Food::Snack),
@@ -136,11 +140,12 @@ impl Food {
         }
     }
 
-    /// 간식·물: 배불러도 받고, 포만감은 조금만 오른다 (체력은 음식마다 — 간식은 조금, 물은 없음)
+    /// 간식·물: 배불러도 받고, 포만감은 조금만 오름 (체력은 음식마다 — 간식은 조금, 물은 없음)
     pub fn is_treat(self) -> bool {
         !self.is_meal()
     }
 
+    /// 이 음식이 주는 숨겨진 체력
     fn stamina(self) -> f64 {
         match self {
             Food::Water => 0.0,
@@ -151,6 +156,7 @@ impl Food {
         }
     }
 
+    /// 먹은 뒤 포만감 (끼니는 가득, 간식·물은 TREAT_FILL만큼)
     fn fill(self, fullness: f64) -> f64 {
         match self {
             Food::Snack | Food::Water => (fullness + TREAT_FILL).min(1.0),
@@ -160,6 +166,7 @@ impl Food {
     }
 }
 
+/// 먹이 준 결과
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeedResult {
     /// 배불러서 안 먹음
@@ -167,10 +174,12 @@ pub enum FeedResult {
     Ate { leveled_up: bool },
 }
 
+/// 동물 한 마리의 돌보기 상태 (설정에 남음)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Care {
+    /// 성장 단계
     pub stage: Stage,
-    /// 숨겨진 체력 — 화면에 표시하지 않는다
+    /// 숨겨진 체력 — 화면에 표시하지 않음
     pub stamina: f64,
     /// 0.0(텅 빔) ~ 1.0(가득)
     pub fullness: f64,
@@ -179,25 +188,29 @@ pub struct Care {
 }
 
 impl Default for Care {
+    /// 처음: 아기, 배부름
     fn default() -> Self {
         Self { stage: Stage::Baby, stamina: 0.0, fullness: 1.0, locked: false }
     }
 }
 
 impl Care {
+    /// 포만감을 줄임 (EMPTY_SECS에 가득 → 0)
     pub fn tick(&mut self, dt: f64) {
         self.fullness = (self.fullness - dt / EMPTY_SECS).max(0.0);
     }
 
+    /// 배고픔 (포만감 HUNGRY_BELOW 아래)
     pub fn is_hungry(&self) -> bool {
         self.fullness < HUNGRY_BELOW
     }
 
-    /// 점심시간: 배고프지 않았으면 이제 배고프다 (하루 한 번, presence.rs)
+    /// 점심시간: 배고프지 않았으면 이제 배고픔 (하루 한 번, presence.rs)
     pub fn lunch_hunger(&mut self) {
         self.fullness = self.fullness.min(HUNGRY_BELOW - 0.01);
     }
 
+    /// 먹임: 끼니는 배부르면 거절, 간식·물은 언제든. 체력이 차면 성장함
     pub fn feed(&mut self, food: Food) -> FeedResult {
         // 끼니만 배부르면 안 먹는다. 간식·물은 언제든
         if food.is_meal() && self.fullness > FULL_ABOVE {
@@ -232,6 +245,7 @@ mod tests {
     /// 배고플 때 누르면 뜨는 음식 고르기 버튼 (ui/index.html·house.html #picker와 같은 순서)
     const PICKER_FOODS: [Food; 3] = [Food::Meal, Food::Favorite, Food::Special];
 
+    /// 테스트: 배고픈 상태
     fn hungry_care() -> Care {
         Care { fullness: 0.1, ..Care::default() }
     }

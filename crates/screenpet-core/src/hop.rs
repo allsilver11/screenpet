@@ -5,38 +5,45 @@
 use crate::physics::GRAVITY;
 use crate::surfaces::{Owner, Surface};
 
-/// 한 번 폴짝 떠 있는 시간 (초) — hop 그림(3프레임 10fps)과 맞춘다
+/// 한 번 폴짝 떠 있는 시간 (초) — hop 그림(3프레임 10fps)과 맞춤
 pub const AIR_SECS: f64 = 0.32;
 /// 폴짝 사이 최소 웅크림 (초)
 pub const MIN_SQUAT_SECS: f64 = 0.08;
-/// 폴짝 한 박자 최소 길이 (초) — 아주 빠르면 한 번 거리가 길어지는 대신 박자가 이보다 짧아지지 않는다
+/// 폴짝 한 박자 최소 길이 (초) — 아주 빠르면 한 번 거리가 길어지는 대신 박자가 이보다 짧아지지 않음
 pub const MIN_CYCLE_SECS: f64 = 0.3;
 /// 한 번 폴짝 거리 (× 크기): 걷기 / 달리기
 pub const WALK_HOP_LEN: f64 = 0.6;
+/// 달리기 한 번 폴짝 거리 (× 크기)
 pub const RUN_HOP_LEN: f64 = 0.8;
 /// 폴짝 높이 (× 크기): 걷기 / 달리기 — 너무 높지 않게
 pub const WALK_HOP_HEIGHT: f64 = 0.28;
+/// 달리기 폴짝 높이 (× 크기)
 pub const RUN_HOP_HEIGHT: f64 = 0.33;
-/// 깡총 뛰는 토끼(pet.json `hop_share`)의 폴짝 — 개구리보다 조금 낮고 조금 짧게 떠 있다 (hop 그림 3프레임 10fps는 다 보인다)
+/// 깡총 뛰는 토끼(pet.json `hop_share`)의 폴짝 — 개구리보다 조금 낮고 조금 짧게 떠 있음 (hop 그림 3프레임 10fps는 다 보임)
 pub const BUNNY_AIR_SECS: f64 = 0.28;
+/// 토끼 걷기 폴짝 높이 (× 크기)
 pub const BUNNY_WALK_HOP_HEIGHT: f64 = 0.24;
+/// 토끼 달리기 폴짝 높이 (× 크기)
 pub const BUNNY_RUN_HOP_HEIGHT: f64 = 0.27;
 /// 내려선 직후 이 시간(초) 동안은 착지(land) 그림, 그 뒤 웅크림이 남으면 앉기(idle) 그림
 pub const LAND_SHOW_SECS: f64 = 0.2;
 
 /// 벽 오르기: 한 번 폴짝 오르는 시간과 매달려 쉬는 시간 (초)
 pub const CLIMB_HOP_SECS: f64 = 0.3;
+/// 벽에 매달려 쉬는 시간 (초)
 pub const CLIMB_CLING_SECS: f64 = 0.4;
 
 /// 닿을 수 있는 창 윗면이 있을 때 이동 결정 중 큰 점프 확률 — 개구리 (폴짝 동물)
 pub const BIG_JUMP_CHANCE: f64 = 0.12;
-/// 같은 확률 — 다른 걷는 동물은 개구리의 절반 (어쩌다 한 번이라 깜짝 놀란다)
+/// 같은 확률 — 다른 걷는 동물은 개구리의 절반 (어쩌다 한 번이라 깜짝 놀람)
 pub const WALKER_BIG_JUMP_CHANCE: f64 = 0.06;
 /// 큰 점프 높이·거리에 쓰는 몸 크기의 상한 (논리 px, 어른 고양이쯤) — 산타(1.65배)처럼 큰 몸이 화면 끝까지 솟지 않게
 pub const LEAP_REACH_SIZE_CAP: f64 = 150.0;
 /// 큰 점프로 닿는 범위 (× 크기): 위로, 아래로, 옆으로 (착지 지점까지)
 pub const BIG_JUMP_UP: f64 = 3.5;
+/// 큰 점프로 아래로 닿는 범위 (× 크기)
 pub const BIG_JUMP_DOWN: f64 = 4.0;
+/// 큰 점프로 옆으로 닿는 범위 (× 크기)
 pub const BIG_JUMP_REACH: f64 = 3.5;
 /// 큰 점프가 출발·도착 중 높은 쪽보다 더 솟는 높이 (× 크기)
 pub const BIG_JUMP_RISE: f64 = 0.5;
@@ -48,7 +55,9 @@ pub const LANDING_INSET: f64 = 0.25;
 /// 폴짝 걸음 한 박자: 떠 있기(air) → 웅크리기(squat). 박자 안 위치 t는 0 ≤ t < cycle
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Gait {
+    /// 떠 있는 시간 (초)
     pub air: f64,
+    /// 웅크리는 시간 (초)
     pub squat: f64,
     /// 폴짝 최고 높이 (px)
     pub height: f64,
@@ -56,18 +65,19 @@ pub struct Gait {
 
 impl Gait {
     /// 크기 size, 평균 속도 speed(px/s)로 걷기(run=false)·달리기 폴짝 박자.
-    /// 한 번 거리가 WALK/RUN_HOP_LEN × 크기가 되도록 박자를 늘린다 (너무 빠르면 최소 웅크림을 지킨다)
+    /// 한 번 거리가 WALK/RUN_HOP_LEN × 크기가 되도록 박자를 늘림 (너무 빠르면 최소 웅크림을 지킴)
     pub fn new(size: f64, speed: f64, run: bool) -> Self {
         let height = if run { RUN_HOP_HEIGHT } else { WALK_HOP_HEIGHT };
         Self::with(size, speed, run, AIR_SECS, height)
     }
 
-    /// 토끼의 깡총 걸음 — 박자 거리는 개구리와 같고, 조금 낮게·짧게 떠 있다
+    /// 토끼의 깡총 걸음 — 박자 거리는 개구리와 같고, 조금 낮게·짧게 떠 있음
     pub fn bunny(size: f64, speed: f64, run: bool) -> Self {
         let height = if run { BUNNY_RUN_HOP_HEIGHT } else { BUNNY_WALK_HOP_HEIGHT };
         Self::with(size, speed, run, BUNNY_AIR_SECS, height)
     }
 
+    /// 크기·빠르기로 박자를 만듦 (박자 최소 MIN_CYCLE_SECS, 빨리 달리면 떠 있는 시간도 줄임)
     fn with(size: f64, speed: f64, run: bool, air_secs: f64, height: f64) -> Self {
         let len = if run { RUN_HOP_LEN } else { WALK_HOP_LEN };
         let cycle = if speed > 0.0 { (len * size / speed).max(MIN_CYCLE_SECS) } else { MIN_CYCLE_SECS };
@@ -76,10 +86,12 @@ impl Gait {
         Self { air, squat: cycle - air, height: height * size }
     }
 
+    /// 한 박자 길이 (초)
     pub fn cycle(&self) -> f64 {
         self.air + self.squat
     }
 
+    /// 박자 안 t에 떠 있음
     pub fn airborne(&self, t: f64) -> bool {
         t < self.air
     }
@@ -93,7 +105,7 @@ impl Gait {
         4.0 * self.height * p * (1.0 - p)
     }
 
-    /// 박자 t에서 평균 속도에 곱할 배율 — 떠 있을 때만 앞으로 간다 (한 박자 평균 1)
+    /// 박자 t에서 평균 속도에 곱할 배율 — 떠 있을 때만 앞으로 감 (한 박자 평균 1)
     pub fn pace(&self, t: f64) -> f64 {
         if self.airborne(t) {
             self.cycle() / self.air
@@ -118,7 +130,7 @@ pub struct Beat {
 }
 
 impl Beat {
-    /// clock 시각 틱에서 박자(길이 cycle)를 dt만큼 흘린다 (바로 앞 틱에 이어서, 아니면 0부터). 이번 틱의 박자 안 위치를 돌려준다
+    /// clock 시각 틱에서 박자(길이 cycle)를 dt만큼 흘림 (바로 앞 틱에 이어서, 아니면 0부터). 이번 틱의 박자 안 위치를 돌려줌
     pub fn tick(&mut self, clock: f64, dt: f64, cycle: f64) -> f64 {
         let continued = self.last.is_some_and(|l| l < clock && clock - l <= dt * 1.5);
         self.t = if continued { (self.t + dt) % cycle } else { 0.0 };
@@ -132,8 +144,8 @@ impl Beat {
     }
 }
 
-/// 걷다가 가끔 깡총거리는 동물(토끼)의 걸음 고르기 — 걷기·달리기 한 토막마다 한 번 정한다
-/// (토막 안에서는 그대로라 자연스럽게 한동안 걷고 한동안 깡총거린다)
+/// 걷다가 가끔 깡총거리는 동물(토끼)의 걸음 고르기 — 걷기·달리기 한 토막마다 한 번 정함
+/// (토막 안에서는 그대로라 자연스럽게 한동안 걷고 한동안 깡총거림)
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Stretch {
     /// 이번 토막은 깡총
@@ -143,8 +155,8 @@ pub struct Stretch {
 }
 
 impl Stretch {
-    /// clock 틱의 이동 토막(종류 kind, 남은 시간 remaining)에서 깡총인지. 앞 틱에 이어지지 않거나(쉬었다)
-    /// 종류가 바뀌거나 남은 시간이 늘었으면 새 토막 — 그때만 pick()으로 새로 고른다
+    /// clock 틱의 이동 토막(종류 kind, 남은 시간 remaining)에서 깡총인지. 앞 틱에 이어지지 않거나(쉬었음)
+    /// 종류가 바뀌거나 남은 시간이 늘었으면 새 토막 — 그때만 pick()으로 새로 고름
     pub fn tick(&mut self, clock: f64, dt: f64, kind: u8, remaining: f64, pick: impl FnOnce() -> bool) -> bool {
         let same = self.last.is_some_and(|(c, k, r)| c < clock && clock - c <= dt * 1.5 && k == kind && remaining <= r);
         if !same {
@@ -165,7 +177,7 @@ pub fn climb_cycle() -> f64 {
     CLIMB_HOP_SECS + CLIMB_CLING_SECS
 }
 
-/// 벽 오르기 박자 t에서 오르는 속도 배율 — 폴짝 오를 때만 올라가고 매달려 있을 땐 멈춘다 (평균 1)
+/// 벽 오르기 박자 t에서 오르는 속도 배율 — 폴짝 오를 때만 올라가고 매달려 있을 땐 멈춤 (평균 1)
 pub fn climb_pace(t: f64) -> f64 {
     if t < CLIMB_HOP_SECS {
         climb_cycle() / CLIMB_HOP_SECS
@@ -174,11 +186,14 @@ pub fn climb_pace(t: f64) -> f64 {
     }
 }
 
-/// 큰 점프 포물선 (충돌 없이 따라간다)
+/// 큰 점프 포물선 (충돌 없이 따라감)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Arc {
+    /// 가로 속도 (px/s)
     pub vx: f64,
+    /// 처음 세로 속도 (px/s, 위로 −)
     pub vy: f64,
+    /// 걸리는 시간 (초)
     pub secs: f64,
 }
 
@@ -195,7 +210,7 @@ impl Arc {
     }
 }
 
-/// from에서 to로 가는 포물선. 꼭대기는 둘 중 높은 쪽보다 rise만큼 위, 단 top_limit(발 높이)보다 위로는 안 간다
+/// from에서 to로 가는 포물선. 꼭대기는 둘 중 높은 쪽보다 rise만큼 위, 단 top_limit(발 높이)보다 위로는 안 감
 pub fn leap_arc(from: (f64, f64), to: (f64, f64), rise: f64, top_limit: f64) -> Arc {
     let low = from.1.min(to.1);
     let apex = (low - rise).max(top_limit).min(low);
@@ -204,7 +219,7 @@ pub fn leap_arc(from: (f64, f64), to: (f64, f64), rise: f64, top_limit: f64) -> 
     Arc { vx: (to.0 - from.0) / secs, vy, secs }
 }
 
-/// 큰 점프 범위·솟는 높이의 기준 크기: 몸 크기에 비례하되 상한이 있다 (dpi = 논리 px 하나의 물리 px)
+/// 큰 점프 범위·솟는 높이의 기준 크기: 몸 크기에 비례하되 상한이 있음 (dpi = 논리 px 하나의 물리 px)
 pub fn leap_reach_size(size: f64, dpi: f64) -> f64 {
     size.min(LEAP_REACH_SIZE_CAP * dpi)
 }
@@ -212,6 +227,7 @@ pub fn leap_reach_size(size: f64, dpi: f64) -> f64 {
 /// 큰 점프로 내려설 곳
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct JumpTarget {
+    /// 내려설 디딤판
     pub owner: Owner,
     /// 착지 발 x
     pub x: f64,
@@ -220,7 +236,7 @@ pub struct JumpTarget {
 }
 
 /// (x, y)에 서 있는 동물(기준 크기 size = leap_reach_size, 몸 반 폭 half_w, 지금 디딤판 from)이 큰 점프로 닿을 수 있는 다른 창 윗면들.
-/// 창을 뚫고 지나가지 않도록 옆에서만 뛴다 (발 x가 그 조각 위·아래에 있으면 제외). 착지는 가까운 끝 안쪽
+/// 창을 뚫고 지나가지 않도록 옆에서만 뜀 (발 x가 그 조각 위·아래에 있으면 제외). 착지는 가까운 끝 안쪽
 pub fn jump_targets(surfaces: &[Surface], from: Owner, x: f64, y: f64, size: f64, half_w: f64) -> Vec<JumpTarget> {
     let inset = half_w + LANDING_INSET * size;
     surfaces
@@ -249,6 +265,7 @@ mod tests {
 
     const SIZE: f64 = 108.8;
 
+    /// 테스트: 한 박자를 n칸으로 나눈 시각들
     fn sample(g: &Gait, n: usize) -> impl Iterator<Item = f64> + '_ {
         (0..n).map(move |i| g.cycle() * i as f64 / n as f64)
     }
@@ -368,6 +385,7 @@ mod tests {
         assert!((x - 300.0).abs() < 1e-6 && (y - 200.0).abs() < 1e-6);
     }
 
+    /// 테스트: 창 윗면 조각 하나
     fn top(id: u64, y: f64, a: f64, b: f64) -> Surface {
         Surface { owner: Owner::Window(id), y, x_start: a, x_end: b, start_kind: EndKind::Edge, end_kind: EndKind::Edge }
     }

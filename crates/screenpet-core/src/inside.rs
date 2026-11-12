@@ -1,7 +1,7 @@
-//! 창 안에서 놀기 (spec 2B §9) — 수치와 순수 판정. brain.rs가 쓴다.
+//! 창 안에서 놀기 (spec 2B §9) — 수치와 순수 판정. brain.rs가 씀
 //!
 //! 창 안에 있는 동물은 그 창의 아래 테두리 바로 위(안쪽 바닥, `Owner::Inside`)를 디디고, 공중에선 창 사각형이
-//! 경계(옆 = 벽, 위 = 천장)다. 바깥 동물은 안쪽 바닥을 디디지 않고, 안쪽 동물은 바깥 디딤판을 디디지 않는다.
+//! 경계(옆 = 벽, 위 = 천장)다. 바깥 동물은 안쪽 바닥을 디디지 않고, 안쪽 동물은 바깥 디딤판을 디디지 않음
 
 use crate::behavior;
 use crate::geom::Rect;
@@ -10,17 +10,17 @@ use crate::world::World;
 
 /// 안쪽 바닥·안쪽 벽이 창 테두리에서 들어온 거리 (px)
 pub const INSET: f64 = 4.0;
-/// 몸 반 폭 / 크기 (앱이 쓰는 비율 — 세계는 크기만 안다)
+/// 몸 반 폭 / 크기 (앱이 쓰는 비율 — 세계는 크기만 앎)
 pub const HALF_W_RATIO: f64 = 0.3;
-/// 창 높이가 몸 크기의 이 배 이상이어야 들어간다
+/// 창 높이가 몸 크기의 이 배 이상이어야 들어감
 pub const MIN_HEIGHT_MULT: f64 = 1.2;
 /// 창 윗면에서 쉬기를 정할 때 그 창 안으로 뛰어들 확률
 pub const HOP_IN_CHANCE: f64 = 0.05;
-/// 창 안에 머무는 시간 (초) — 지나면 나간다
+/// 창 안에 머무는 시간 (초) — 지나면 나감
 pub const STAY_SECS: (f64, f64) = (60.0, 180.0);
 /// 벽 타는 동물이 뛰어나가는 대신 안쪽 벽을 기어올라 나갈 확률
 pub const CLIMB_OUT_CHANCE: f64 = 0.5;
-/// 기어 나가기로 한 뒤 이만큼(초) 지나도 벽에 못 닿았으면 그냥 뛰어나간다
+/// 기어 나가기로 한 뒤 이만큼(초) 지나도 벽에 못 닿았으면 그냥 뛰어나감
 pub const CLIMB_OUT_GIVE_UP_SECS: f64 = 30.0;
 /// 뛰어나갈 때 창 윗면 위로 더 솟는 높이 (크기 128 기준 px)
 pub const LEAVE_CLEAR: f64 = 40.0;
@@ -34,14 +34,16 @@ pub enum Mode {
     HopIn,
     /// 윗면 위로 뛰어나가는 중 — 천장 없음, 발이 윗면 위로 올라가면 바깥
     HopOut,
-    /// 뛰어나가기가 두 번 실패한 뒤의 확실한 도약 — 벽·천장 무시, 꼭대기에서 윗면 위로 나간다
+    /// 뛰어나가기가 두 번 실패한 뒤의 확실한 도약 — 벽·천장 무시, 꼭대기에서 윗면 위로 나감
     LeapOut,
 }
 
 /// 창 안에 있는 동물의 상태
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Stay {
+    /// 들어가 있는 창 id
     pub window: u64,
+    /// 창 안에서 하는 일
     pub mode: Mode,
     /// 나가기까지 남은 시간 (음수 = 지남)
     pub leave_in: f64,
@@ -52,6 +54,7 @@ pub struct Stay {
 }
 
 impl Stay {
+    /// 창 안에 들어감. 나가기까지 시간은 STAY_SECS에서 뽑음
     pub fn new(window: u64, mode: Mode, rng: &mut fastrand::Rng) -> Self {
         Self { window, mode, leave_in: behavior::range(rng, STAY_SECS), climb_out: false, hops: 0 }
     }
@@ -72,7 +75,7 @@ pub fn enterable(rect: &Rect, half_w: f64, size: f64) -> bool {
     rect.width() - 2.0 * INSET >= 2.0 * half_w && rect.height() >= MIN_HEIGHT_MULT * size
 }
 
-/// 창 안 공중 경계: 옆은 안쪽 벽, 위는 창 윗면(ceiling이 false면 화면 꼭대기). 화면 밖은 화면 경계로 자른다
+/// 창 안 공중 경계: 옆은 안쪽 벽, 위는 창 윗면(ceiling이 false면 화면 꼭대기). 화면 밖은 화면 경계로 자름
 pub fn air_bounds(rect: &Rect, screen: &Rect, ceiling: bool) -> Rect {
     Rect::new(
         (rect.left + INSET).max(screen.left),
@@ -82,8 +85,8 @@ pub fn air_bounds(rect: &Rect, screen: &Rect, ceiling: bool) -> Rect {
     )
 }
 
-/// 몸(발 x, 발 y, 반 폭, 크기)이 다 들어 있는 창 중 그 자리에서 가장 앞쪽 창 — 놓았을 때 그 창 안으로 들어간다.
-/// 몸 가운데 지점의 맨 앞 창이어야 하고, 들어갈 만한 크기에 안쪽 바닥이 있어야 한다
+/// 몸(발 x, 발 y, 반 폭, 크기)이 다 들어 있는 창 중 그 자리에서 가장 앞쪽 창 — 놓았을 때 그 창 안으로 들어감
+/// 몸 가운데 지점의 맨 앞 창이어야 하고, 들어갈 만한 크기에 안쪽 바닥이 있어야 함
 pub fn drop_target(world: &World, x: f64, y: f64, half_w: f64, size: f64) -> Option<u64> {
     let w = world.front_window_at(x, y - size / 2.0)?;
     let r = w.rect;
@@ -97,7 +100,7 @@ pub fn has_floor(world: &World, window: u64) -> bool {
 }
 
 /// 발 y에서 창 윗면 top 위로 clear만큼 솟는 처음 속도 (위로 = 음수).
-/// step_air(반암시적 오일러, 틱 dt)는 연속 공식보다 꼭대기가 최대 v·dt/2 낮으므로 그만큼 더 세게 뛴다:
+/// step_air(반암시적 오일러, 틱 dt)는 연속 공식보다 꼭대기가 최대 v·dt/2 낮으므로 그만큼 더 세게 뜀:
 /// v²/2g − v·dt/2 = h  →  v = (g·dt + √(g²dt² + 8gh)) / 2
 pub fn leave_vy(y: f64, top: f64, clear: f64, dt: f64) -> f64 {
     let g = crate::physics::GRAVITY;
@@ -105,7 +108,7 @@ pub fn leave_vy(y: f64, top: f64, clear: f64, dt: f64) -> f64 {
     -(g * dt + (g * g * dt * dt + 8.0 * g * h).sqrt()) / 2.0
 }
 
-/// 작업 영역의 이 비율 이상을 덮는 창(최대화·거의 전체 화면)엔 들어가지 않는다
+/// 작업 영역의 이 비율 이상을 덮는 창(최대화·거의 전체 화면)엔 들어가지 않음
 pub const MAX_AREA_SHARE: f64 = 0.9;
 
 /// 창이 작업 영역 work_area의 90% 이상을 덮는지
@@ -122,14 +125,17 @@ mod tests {
     use crate::physics::GRAVITY;
     use crate::surfaces::{EndKind, Surface};
 
+    /// 테스트: 창 하나를 만듦
     fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
         WindowInfo { id, rect: Rect::new(l, t, r, b) }
     }
 
+    /// 테스트: 창들만 정한 세상
     fn world(windows: Vec<WindowInfo>) -> World {
         World::new(windows, vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0)
     }
 
+    /// 테스트: id 창 안쪽 바닥 조각들
     fn inner(w: &World, id: u64) -> Vec<Surface> {
         w.surfaces.iter().copied().filter(|s| s.owner == Owner::Inside(id)).collect()
     }

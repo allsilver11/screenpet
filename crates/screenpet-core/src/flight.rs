@@ -1,9 +1,9 @@
-//! 날아다니는 동물(유령·새)의 비행 (spec 2B §10) — 수치와 순수 계산. brain_fly.rs(Pet)가 쓴다.
+//! 날아다니는 동물(유령·새)의 비행 (spec 2B §10) — 수치와 순수 계산. brain_fly.rs(Pet)가 씀
 //!
-//! 나는 동물은 디딤판 위를 걷지 않는다. "이동"은 목표 지점까지 경유점 몇 개를 지나는 부드러운 곡선(Catmull-Rom)으로
-//! 나는 것이고 — 가끔 원을 한두 바퀴 그리거나, 좌우로 살랑살랑 오가거나, 느긋한 8자를 그린다 —
-//! 쉬기는 제자리에서 살랑살랑 떠 있거나, 가끔 창 윗면·바닥에 내려앉아(perch) 쉬거나 잔다.
-//! 좌표는 다른 동물과 같다: x = 몸 가운데, y = 발바닥 (화면 아래로 +).
+//! 나는 동물은 디딤판 위를 걷지 않음. "이동"은 목표 지점까지 경유점 몇 개를 지나는 부드러운 곡선(Catmull-Rom)으로
+//! 나는 것이고 — 가끔 원을 한두 바퀴 그리거나, 좌우로 살랑살랑 오가거나, 느긋한 8자를 그림 —
+//! 쉬기는 제자리에서 살랑살랑 떠 있거나, 가끔 창 윗면·바닥에 내려앉아(perch) 쉬거나 잠
+//! 좌표는 다른 동물과 같음: x = 몸 가운데, y = 발바닥 (화면 아래로 +).
 
 use std::f64::consts::{PI, TAU};
 
@@ -15,16 +15,17 @@ use crate::world::World;
 
 /// 빠르게 날기(Run) 확률 — 나머지는 보통 날기, 가끔 공중제비(Roll)
 pub const RUN_CHANCE: f64 = 0.3;
+/// 공중제비(Roll) 확률
 pub const ROLL_CHANCE: f64 = 0.1;
 /// 떠서 쉬기로 정할 때 대신 어딘가에 내려앉으러 갈 확률
 pub const PERCH_CHANCE: f64 = 0.35;
 /// 빠른 나는 동물(새, PetConfig::swift): 떠서 쉬기로 정할 때 내려앉으러 갈 확률 (다른 나는 동물보다 훨씬 자주 — 창 위에 앉아 쉬는 새)
 pub const SWIFT_PERCH_CHANCE: f64 = 0.6;
-/// 빠른 나는 동물이 화면 끝에서 나갈지 정하는 거리 (몸 크기 배) — 멀리서부터 끝까지 쌩 날아간다
+/// 빠른 나는 동물이 화면 끝에서 나갈지 정하는 거리 (몸 크기 배) — 멀리서부터 끝까지 쌩 날아감
 pub const SWIFT_EDGE_ZONE: f64 = 4.0;
 /// 빠른 나는 동물이 친구 화면으로 쌩 날아 나가고 들어오는 속도 (걷기 속도 배)
 pub const SWIFT_DASH: f64 = 4.0;
-/// 내려앉아 쉬다가 다음 할 일을 정할 때 잠들 확률 (떠 있을 땐 자지 않는다)
+/// 내려앉아 쉬다가 다음 할 일을 정할 때 잠들 확률 (떠 있을 땐 자지 않음)
 pub const PERCH_SLEEP_CHANCE: f64 = 0.35;
 /// 공중제비 원 반지름 (몸 크기 배 — 지름 1.5 몸)
 pub const LOOP_RADIUS: f64 = 0.75;
@@ -32,27 +33,31 @@ pub const LOOP_RADIUS: f64 = 0.75;
 pub const LOOP_AT: f64 = 0.4;
 /// 떠 있을 때 위아래로 살랑이는 폭(몸 크기 배)과 빠르기(Hz)
 pub const BOB_AMP: f64 = 0.04;
+/// 위아래로 살랑이는 빠르기 (Hz)
 pub const BOB_HZ: f64 = 0.8;
-/// 던져진 뒤 공기 저항 (1/s) — 이 속도(px/s)보다 느려지면 다시 제자리에 뜬다
+/// 던져진 뒤 공기 저항 (1/s) — 이 속도(px/s)보다 느려지면 다시 제자리에 뜸
 pub const DRAG: f64 = 3.0;
+/// 이 속도(px/s)보다 느려지면 제자리에 뜸
 pub const SETTLE_SPEED: f64 = 40.0;
 /// 바깥에서 날 때 머리 위로 남기는 말풍선 자리 (몸 크기 배) — 말풍선 띠가 화면 밖으로 나가지 않게
 pub const TOP_SPACE: f64 = 0.3;
 /// 목표 높이가 화면 위쪽 2/3 안일 확률 (2/3이면 고르게 — 살짝만 위로)
 pub const UPPER_SHARE: f64 = 0.7;
-/// 화면 가장 바깥 끝에서 이 거리(몸 크기 배) 안으로 들어와 그쪽으로 날면 나가기를 정한다
+/// 화면 가장 바깥 끝에서 이 거리(몸 크기 배) 안으로 들어와 그쪽으로 날면 나가기를 정함
 pub const EDGE_ZONE: f64 = 1.0;
 /// 목표까지 최소 거리 (몸 크기 배)
 pub const MIN_FLIGHT: f64 = 1.0;
 /// 집으로 날 때 활처럼 솟는 높이: 거리의 이 비율, 최대 몸 크기의 HOME_ARC_MAX배
 pub const HOME_ARC: f64 = 0.2;
+/// 활 높이 상한 (몸 크기 배)
 pub const HOME_ARC_MAX: f64 = 1.5;
 /// 날기 한 번의 최대 시간 (안전장치 — 원·8자를 그려도 넉넉하게)
 pub const MAX_FLIGHT_SECS: f64 = 60.0;
 /// 날아갈 목표를 지금 모니터 안에서 고를 확률 (나머지는 아무 모니터)
 pub const SAME_AREA_CHANCE: f64 = 0.75;
-/// 날다가 좌우로 돌아볼 때: 가로 속도가 나는 속도의 이 비율을 넘어야 하고, 지난 뒤집기에서 이 시간(초)이 지나야 한다
+/// 날다가 좌우로 돌아볼 때: 가로 속도가 나는 속도의 이 비율을 넘어야 하고, 지난 뒤집기에서 이 시간(초)이 지나야 함
 pub const FLIP_SPEED: f64 = 0.3;
+/// 뒤집기 사이 최소 시간 (초)
 pub const FLIP_HOLD: f64 = 0.4;
 
 /// 걷기 속도(cfg.walk_speed = pet.json walk_speed × √배율) 대비 나는 속도
@@ -87,6 +92,7 @@ pub fn fly_bounds(area: &Rect, half_w: f64, head: f64) -> Rect {
     Rect::new(l, t, r, area.bottom)
 }
 
+/// (x, y)를 b 안으로 자름
 pub fn clamp(b: &Rect, x: f64, y: f64) -> (f64, f64) {
     (x.clamp(b.left, b.right), y.clamp(b.top, b.bottom))
 }
@@ -101,7 +107,7 @@ pub fn pick_target(rng: &mut fastrand::Rng, b: &Rect) -> (f64, f64) {
 }
 
 /// from → to 직선을 s만큼 간 지점에 위로 솟는 활 모양(높이 arc, 집으로 갈 때)을 더한 점, 그리고 다 왔는지.
-/// 활은 양 끝에서 0이 되도록 sin(πu)로 줄인다 — 출발점과 목표에 정확히 닿는다
+/// 활은 양 끝에서 0이 되도록 sin(πu)로 줄임 — 출발점과 목표에 정확히 닿음
 pub fn path_point(from: (f64, f64), to: (f64, f64), s: f64, arc: f64) -> ((f64, f64), bool) {
     let (dx, dy) = (to.0 - from.0, to.1 - from.1);
     let len = dx.hypot(dy);
@@ -114,7 +120,7 @@ pub fn path_point(from: (f64, f64), to: (f64, f64), s: f64, arc: f64) -> ((f64, 
     ((bx, by - arc * envelope), false)
 }
 
-/// 공중제비: start에서 진행 방향(facing)으로 원을 한 바퀴 (up이면 위로 돈다). theta = 0 → start
+/// 공중제비: start에서 진행 방향(facing)으로 원을 한 바퀴 (up이면 위로 돎). theta = 0 → start
 pub fn loop_point(start: (f64, f64), r: f64, theta: f64, facing: f64, up: bool) -> (f64, f64) {
     let x = start.0 + facing * r * theta.sin();
     let y = if up { start.1 - r + r * theta.cos() } else { start.1 + r - r * theta.cos() };
@@ -127,7 +133,7 @@ pub fn drift(vx: f64, vy: f64, dt: f64) -> (f64, f64) {
     (vx * k, vy * k)
 }
 
-/// 떠 있을 때 위아래 살랑임 (기준 높이에 더한다)
+/// 떠 있을 때 위아래 살랑임 (기준 높이에 더함)
 pub fn bob(clock: f64, size: f64) -> f64 {
     BOB_AMP * size * (TAU * BOB_HZ * clock).sin()
 }
@@ -138,41 +144,57 @@ pub fn bob(clock: f64, size: f64) -> f64 {
 // 이제 길은 출발점 → 경유점들 → 목표를 잇는 centripetal Catmull-Rom 곡선이다: 경유점을 정확히 지나고, 꺾이지 않고,
 // 뾰족하게 되돌아가지 않는다. 목표(창 위 자리)는 움직일 수 있어 마지막 점은 늘 따로 받는다.
 
-/// 굽이 하나가 차지하는 거리 (몸 크기 배) — 길이 길면 굽이가 많다
+/// 굽이 하나가 차지하는 거리 (몸 크기 배) — 길이 길면 굽이가 많음
 pub const BEND_EVERY: f64 = 1.6;
+/// 굽이 최대 수
 pub const MAX_BENDS: usize = 6;
 /// 한 길의 경유점 최대 개수 (출발점 포함, 목표 제외)
 pub const MAX_POINTS: usize = 32;
 /// 그냥 날기의 경유점: 곧은 선에서 옆으로 벗어나는 폭 (몸 크기 배), 거리 대비 최대 비율
 pub const BEND: (f64, f64) = (0.6, 1.6);
+/// 굽이 폭의 거리 대비 최대 비율
 pub const BEND_CAP: f64 = 0.45;
 /// 내려앉으러·먹으러 갈 때의 완만한 굽이 (몸 크기 배, 거리 대비 최대 비율)
 pub const GENTLE_BEND: (f64, f64) = (0.3, 0.8);
+/// 완만한 굽이 폭의 거리 대비 최대 비율
 pub const GENTLE_CAP: f64 = 0.3;
 /// 날기 모양 확률: 원, 좌우로 살랑, 8자 (나머지는 그냥 굽이굽이)
 pub const CIRCLE_CHANCE: f64 = 0.25;
+/// 좌우로 살랑 확률
 pub const SWAY_CHANCE: f64 = 0.15;
+/// 8자 확률
 pub const EIGHT_CHANCE: f64 = 0.1;
 /// 원: 반지름 (몸 크기 배), 두 바퀴 돌 확률, 한 바퀴당 경유점 수, 나선으로 부풀거나 줄어드는 정도
 pub const CIRCLE_RADIUS: (f64, f64) = (0.7, 1.1);
+/// 원을 두 바퀴 돌 확률
 pub const CIRCLE_TWICE: f64 = 0.35;
+/// 한 바퀴당 경유점 수
 pub const CIRCLE_SAMPLES: usize = 8;
+/// 나선으로 부풀거나 줄어드는 정도
 pub const SPIRAL: f64 = 0.3;
-/// 좌우로 살랑: 한쪽으로 벗어나는 폭 (몸 크기 배), 오가는 횟수, 목표 x를 지금 자리에서 이 안(몸 크기 배)으로 (거의 제자리에서 오간다).
-/// 되돌아설 땐 반지름 SWAY_TURN(몸 크기 배)의 반원으로 돌며 위나 아래로 옮겨 간다 — 목표 높이는 SWAY_DRIFT만큼 위나 아래
+/// 좌우로 살랑: 한쪽으로 벗어나는 폭 (몸 크기 배), 오가는 횟수, 목표 x를 지금 자리에서 이 안(몸 크기 배)으로 (거의 제자리에서 오감).
+/// 되돌아설 땐 반지름 SWAY_TURN(몸 크기 배)의 반원으로 돌며 위나 아래로 옮겨 감 — 목표 높이는 SWAY_DRIFT만큼 위나 아래
 pub const SWAY_AMP: (f64, f64) = (0.8, 1.6);
+/// 오가는 횟수
 pub const SWAY_SWINGS: (usize, usize) = (3, 5);
+/// 목표 x를 지금 자리에서 이 안(몸 크기 배)으로
 pub const SWAY_REACH: f64 = 0.6;
+/// 되돌아서는 반원 반지름 (몸 크기 배)
 pub const SWAY_TURN: f64 = 0.3;
+/// 목표 높이를 위나 아래로 옮기는 거리 (몸 크기 배)
 pub const SWAY_DRIFT: (f64, f64) = (2.5, 4.0);
 /// 8자: 가로 반폭 (몸 크기 배), 세로 반높이 = 가로의 이 비율, 경유점 수
 pub const EIGHT_AMP: (f64, f64) = (0.7, 1.1);
+/// 세로 반높이 = 가로 반폭 × 이 비율
 pub const EIGHT_FLAT: f64 = 0.45;
+/// 8자 경유점 수
 pub const EIGHT_SAMPLES: usize = 12;
-/// 원·8자·살랑은 보통 나는 속도의 이 배로 빠르게 (처음과 끝 BOOST_EASE 비율 동안 부드럽게 빨라지고 느려진다) —
+/// 원·8자·살랑은 보통 나는 속도의 이 배로 빠르게 (처음과 끝 BOOST_EASE 비율 동안 부드럽게 빨라지고 느려짐) —
 /// 느릿느릿 흘러가는 게 아니라 "빙글" 도는 것으로 보이게
 pub const CIRCLE_BOOST: (f64, f64) = (1.8, 2.0);
+/// 살랑의 빠르기 배
 pub const SWAY_BOOST: f64 = 1.2;
+/// 처음·끝에서 부드럽게 빨라지고 느려지는 비율
 pub const BOOST_EASE: f64 = 0.2;
 
 /// 날기 한 번의 모양
@@ -184,7 +206,7 @@ pub enum Style {
     Wander,
     /// 가다가 원(나선)을 한두 바퀴
     Circle,
-    /// 좌우로 곡선을 그리며 왔다갔다 (오가며 천천히 오르거나 내려간다)
+    /// 좌우로 곡선을 그리며 왔다갔다 (오가며 천천히 오르거나 내려감)
     Sway,
     /// 느긋한 가로 8자
     Eight,
@@ -204,6 +226,7 @@ pub fn pick_style(rng: &mut fastrand::Rng) -> Style {
     }
 }
 
+/// 두 점 사이 거리
 fn dist(a: (f64, f64), b: (f64, f64)) -> f64 {
     (b.0 - a.0).hypot(b.1 - a.1)
 }
@@ -240,6 +263,7 @@ pub struct Path {
 }
 
 impl Path {
+    /// from에서 시작하는 빈 길
     pub fn new(from: (f64, f64)) -> Self {
         let mut pts = [(0.0, 0.0); MAX_POINTS];
         pts[0] = from;
@@ -337,7 +361,7 @@ impl Path {
     }
 }
 
-/// from → to 곧은 선 위에 k개의 경유점을 고르게 두고, 번갈아 옆으로 벗어나게 한다
+/// from → to 곧은 선 위에 k개의 경유점을 고르게 두고, 번갈아 옆으로 벗어나게 함
 fn bends(rng: &mut fastrand::Rng, path: &mut Path, from: (f64, f64), to: (f64, f64), k: usize, amp: (f64, f64), cap: f64, size: f64, b: &Rect) {
     let len = dist(from, to);
     if len < 1e-6 {
@@ -383,7 +407,7 @@ fn circle(rng: &mut fastrand::Rng, p: (f64, f64), dir: (f64, f64), size: f64, b:
     Some(out)
 }
 
-/// 날아갈 길을 만든다. b = 몸이 있을 수 있는 범위 (경유점은 그 안)
+/// 날아갈 길을 만듦. b = 몸이 있을 수 있는 범위 (경유점은 그 안)
 pub fn build_path(rng: &mut fastrand::Rng, style: Style, from: (f64, f64), to: (f64, f64), b: &Rect, size: f64) -> Path {
     let mut path = Path::new(from);
     let len = dist(from, to);
@@ -480,13 +504,16 @@ pub fn build_path(rng: &mut fastrand::Rng, style: Style, from: (f64, f64), to: (
 /// 내려앉을 자리: 디딤판과 발 위치
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Perch {
+    /// 디딤판
     pub owner: Owner,
+    /// 발 x
     pub x: f64,
+    /// 발 y
     pub y: f64,
 }
 
 /// 내려앉을 수 있는 디딤판이면 발 x 범위. 창 안(inside)이면 그 창 안쪽 바닥만, 바깥이면 창 윗면·바닥만.
-/// 몸 폭이 들어가야 하고, 앉았을 때 머리와 말풍선 자리(head)가 화면 안이어야 한다
+/// 몸 폭이 들어가야 하고, 앉았을 때 머리와 말풍선 자리(head)가 화면 안이어야 함
 fn perch_range(s: &Surface, inside: Option<u64>, top: f64, half_w: f64, head: f64) -> Option<(f64, f64)> {
     let owner_ok = match (inside, s.owner) {
         (Some(id), Owner::Inside(w)) => id == w,
@@ -541,7 +568,7 @@ fn area_at_edge(world: &World, side: Side, y: Option<f64>) -> Option<Rect> {
 }
 
 /// 몸이 화면 가장 바깥 끝에서 몸 하나(EDGE_ZONE) 안으로 들어와 그쪽(facing)으로 날고 있으면 그 끝.
-/// 그 높이의 작업 영역이 그 끝까지 닿아 있어야 한다 (모니터 사이 경계는 끝이 아니다)
+/// 그 높이의 작업 영역이 그 끝까지 닿아 있어야 함 (모니터 사이 경계는 끝이 아님)
 pub fn edge_ahead(world: &World, x: f64, y: f64, half_w: f64, size: f64, facing: f64) -> Option<Side> {
     edge_within(world, x, y, half_w, EDGE_ZONE * size, facing)
 }
@@ -586,9 +613,9 @@ pub fn entry_point(world: &World, side: Side, half_w: f64, head: f64) -> (f64, f
 /// 어디로 날아가는지
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Goal {
-    /// 그냥 그 지점까지 (도착하면 떠서 쉰다)
+    /// 그냥 그 지점까지 (도착하면 떠서 쉼)
     Point(f64, f64),
-    /// 디딤판 owner의 기준점에서 rel_x인 자리에 내려앉는다 (창이 움직이면 목표도 따라간다)
+    /// 디딤판 owner의 기준점에서 rel_x인 자리에 내려앉음 (창이 움직이면 목표도 따라감)
     Perch { owner: Owner, rel_x: f64 },
     /// 하우스 문으로
     Home,
@@ -597,34 +624,43 @@ pub enum Goal {
 /// 공중제비 진행
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Loop {
+    /// 원을 시작한 자리
     pub start: (f64, f64),
+    /// 지금까지 돈 각도 (라디안)
     pub theta: f64,
+    /// 위로 도는 원임
     pub up: bool,
 }
 
 /// 날아가는 길 하나
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Flight {
+    /// 목표
     pub goal: Goal,
+    /// 출발점
     pub from: (f64, f64),
     /// 지금까지 간 거리 (공중제비는 빼고)
     pub s: f64,
     /// path가 없을 때 활 높이 (path_point)
     pub arc: f64,
-    /// 이 거리에서 공중제비를 돈다 (Roll)
+    /// 이 거리에서 공중제비를 돎 (Roll)
     pub loop_at: Option<f64>,
+    /// 지금 도는 공중제비
     pub looping: Option<Loop>,
     /// 화면 끝 나가기를 이미 정했는지 (날기마다 한 번)
     pub edge_checked: bool,
+    /// 날기 시작한 뒤 흐른 시간 (초)
     pub elapsed: f64,
-    /// 길 모양 — 곡선(path)은 처음 날 때 (범위를 알 때) 만든다. path가 없고 만들지도 않으면 활(arc)을 따라간다 (집으로)
+    /// 길 모양 — 곡선(path)은 처음 날 때 (범위를 알 때) 만듦. path가 없고 만들지도 않으면 활(arc)을 따라감 (집으로)
     pub style: Style,
+    /// 경유점 곡선 (없으면 arc를 따라감)
     pub path: Option<Path>,
     /// 마지막으로 좌우를 뒤집은 때 (elapsed)
     pub flipped_at: f64,
 }
 
 impl Flight {
+    /// goal로 가는 날기를 시작함 (style은 처음 날 때 정함)
     pub fn new(goal: Goal, from: (f64, f64), arc: f64) -> Self {
         Self { goal, from, s: 0.0, arc, loop_at: None, looping: None, edge_checked: false, elapsed: 0.0, style: Style::Gentle, path: None, flipped_at: f64::NEG_INFINITY }
     }
@@ -635,10 +671,12 @@ mod tests {
     use super::*;
     use crate::geom::WindowInfo;
 
+    /// 테스트: 창들만 정한 세상
     fn world(windows: Vec<WindowInfo>) -> World {
         World::new(windows, vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0)
     }
 
+    /// 테스트: 창 하나를 만듦
     fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
         WindowInfo { id, rect: Rect::new(l, t, r, b) }
     }

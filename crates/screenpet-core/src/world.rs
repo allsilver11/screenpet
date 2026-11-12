@@ -1,15 +1,23 @@
+//! 🌍 한 틱의 세상 — 창 목록, 모니터 작업 영역, 그로부터 계산한 디딤판(surfaces.rs)
+//! 앱이 창을 읽을 때마다 World를 새로 만들거나 patch_windows로 고치고, 모든 동물·물건의 update에 넘김
+//! 디딤판 기준점(anchor), 착지 판정(fall_landing), 창 옆면 부딪힘(SideHit) 같은 질문에 답함
 use crate::geom::{Rect, WindowInfo};
 use crate::inside;
 use crate::surfaces::{compute_surfaces, Owner, Surface};
 
+/// 한 틱의 세상: 창·작업 영역·디딤판
 pub struct World {
+    /// 다른 앱의 창들 (앞 → 뒤 순서)
     pub windows: Vec<WindowInfo>,
+    /// 모니터별 작업 영역 (작업표시줄 뺀 것)
     pub work_areas: Vec<Rect>,
+    /// 모든 작업 영역을 합친 사각형
     pub bounds: Rect,
+    /// 창 윗면·바닥·창 안쪽 바닥 조각들
     pub surfaces: Vec<Surface>,
     /// 펫 스프라이트 높이 (디딤판·옆면 판정용)
     pub pet_height: f64,
-    /// 창 안쪽 바닥을 만든다 (데스크톱). 웹 버전은 요소 윗변과 바닥만 (World::without_insides)
+    /// 창 안쪽 바닥을 만듦 (데스크톱). 웹 버전은 요소 윗변과 바닥만 (World::without_insides)
     insides: bool,
 }
 
@@ -18,22 +26,25 @@ pub struct World {
 pub enum Side {
     Left,
     Right,
-    /// 화면 위쪽 끝 (친구 화면이 위에 있음 — 창 옆면에는 쓰지 않는다)
+    /// 화면 위쪽 끝 (친구 화면이 위에 있음 — 창 옆면에는 쓰지 않음)
     Up,
-    /// 화면 아래쪽 끝 (친구 화면이 아래에 있음 — 창 옆면에는 쓰지 않는다)
+    /// 화면 아래쪽 끝 (친구 화면이 아래에 있음 — 창 옆면에는 쓰지 않음)
     Down,
 }
 
 /// 던져진 펫이 창 옆면에 부딪힘
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SideHit {
+    /// 부딪힌 창 id
     pub window: u64,
     /// 옆면의 x
     pub x: f64,
+    /// 부딪힌 옆면
     pub side: Side,
 }
 
 impl World {
+    /// 세상을 만들고 디딤판을 계산함. 작업 영역이 없으면 1920×1080 하나로 침
     pub fn new(windows: Vec<WindowInfo>, mut work_areas: Vec<Rect>, pet_height: f64) -> Self {
         if work_areas.is_empty() {
             work_areas.push(Rect::new(0.0, 0.0, 1920.0, 1080.0));
@@ -51,6 +62,7 @@ impl World {
         w
     }
 
+    /// 창 안쪽 바닥을 쓰지 않는 세상이면 그 조각을 뺌
     fn drop_insides(&mut self) {
         if !self.insides {
             self.surfaces.retain(|s| !matches!(s.owner, crate::surfaces::Owner::Inside(_)));
@@ -75,7 +87,7 @@ impl World {
     }
 
     /// 이번 틱에 몸 앞쪽 끝(x ± half_w)이 바깥에서 창 옆면을 넘어섰는지. 발(y)이 창 윗면 + 몸 1/4보다 아래,
-    /// 창 아래끝보다 위여야 하고, 그 지점이 앞쪽 창에 가려지지 않아야 한다. 여럿이면 가장 가까운 것.
+    /// 창 아래끝보다 위여야 하고, 그 지점이 앞쪽 창에 가려지지 않아야 함. 여럿이면 가장 가까운 것.
     pub fn side_hit(&self, x0: f64, x1: f64, y: f64, half_w: f64) -> Option<SideHit> {
         let (lead0, lead1, side) = if x1 > x0 {
             (x0 + half_w, x1 + half_w, Side::Left)
@@ -98,6 +110,7 @@ impl World {
             .min_by(|a, b| (a.x - lead0).abs().total_cmp(&(b.x - lead0).abs()))
     }
 
+    /// 디딤판의 기준점: 창은 왼쪽 위, 바닥은 작업 영역 왼쪽 아래, 창 안쪽은 안쪽 바닥 왼쪽 (사라졌으면 None)
     pub fn anchor(&self, owner: Owner) -> Option<(f64, f64)> {
         match owner {
             Owner::Window(id) => self.windows.iter().find(|w| w.id == id).map(|w| (w.rect.left, w.rect.top)),
@@ -106,8 +119,8 @@ impl World {
         }
     }
 
-    /// 몇몇 창의 경계만 새로 적는다 (전체 창 목록을 다시 읽는 사이 틱에, 동물이 기대고 있는 창만).
-    /// 목록에 없는 id는 무시한다 (새 창은 전체 새로 읽기에서). 하나라도 바뀌었으면 디딤판을 다시 계산하고 true
+    /// 몇몇 창의 경계만 새로 적음 (전체 창 목록을 다시 읽는 사이 틱에, 동물이 기대고 있는 창만).
+    /// 목록에 없는 id는 무시함 (새 창은 전체 새로 읽기에서). 하나라도 바뀌었으면 디딤판을 다시 계산하고 true
     pub fn patch_windows(&mut self, rects: &[(u64, Rect)]) -> bool {
         let mut changed = false;
         for &(id, rect) in rects {
@@ -123,6 +136,7 @@ impl World {
         changed
     }
 
+    /// id인 창
     pub fn window(&self, id: u64) -> Option<&WindowInfo> {
         self.windows.iter().find(|w| w.id == id)
     }
@@ -132,12 +146,13 @@ impl World {
         self.windows.iter().find(|w| w.rect.contains(x, y))
     }
 
+    /// owner 디딤판 중 x를 덮는 조각
     pub fn piece_at(&self, owner: Owner, x: f64) -> Option<&Surface> {
         self.surfaces.iter().find(|s| s.owner == owner && s.contains_x(x))
     }
 
     /// x 아래에 있는 Ground 디딤판 중 y가 주어진 y 이하인 것 (작업 영역 바닥보다 아래로 내려간 경우용).
-    /// 발이 아직 어떤 작업 영역 안이면 None (쌓인 모니터: 아래 모니터에서 떨어지는 중인데 위 모니터 바닥으로 끌려가지 않는다)
+    /// 발이 아직 어떤 작업 영역 안이면 None (쌓인 모니터: 아래 모니터에서 떨어지는 중인데 위 모니터 바닥으로 끌려가지 않음)
     pub fn ground_below(&self, x: f64, y: f64) -> Option<&Surface> {
         if self.work_areas.iter().any(|r| r.contains(x, y)) {
             return None;
@@ -148,18 +163,19 @@ impl World {
             .max_by(|a, b| a.y.total_cmp(&b.y))
     }
 
-    /// 바깥에서 떨어지는 동물이 이번 틱에 처음 지나친 디딤판 (창 안쪽 바닥은 디디지 않는다)
+    /// 바깥에서 떨어지는 동물이 이번 틱에 처음 지나친 디딤판 (창 안쪽 바닥은 디디지 않음)
     pub fn landing(&self, x: f64, prev_y: f64, new_y: f64) -> Option<&Surface> {
         self.first_crossed(x, prev_y, new_y, |o| !matches!(o, Owner::Inside(_)))
     }
 
-    /// 던지거나 떨어진 것이 이번 틱에 내려설 디딤판. to_ground = 바닥만 디딘다 (아래 친구에게 던진 것은 창 윗면에 내려앉지 않고 지나간다).
-    /// 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 내려오는 동안 Ground를 바닥으로 친다
+    /// 던지거나 떨어진 것이 이번 틱에 내려설 디딤판. to_ground = 바닥만 디딤 (아래 친구에게 던진 것은 창 윗면에 내려앉지 않고 지나감).
+    /// 이미 작업 영역 바닥보다 아래로 내려간 경우(작업표시줄 위에 놓음)엔 내려오는 동안 Ground를 바닥으로 침
     pub fn fall_landing(&self, x: f64, prev_y: f64, new_y: f64, vy: f64, to_ground: bool) -> Option<Surface> {
         let first = if to_ground { self.first_crossed(x, prev_y, new_y, |o| matches!(o, Owner::Ground(_))) } else { self.landing(x, prev_y, new_y) };
         first.or_else(|| if vy >= 0.0 { self.ground_below(x, new_y) } else { None }).copied()
     }
 
+    /// prev_y → new_y로 내려오며 처음 지나는 디딤판 (stands가 허락한 것만)
     fn first_crossed(&self, x: f64, prev_y: f64, new_y: f64, stands: impl Fn(Owner) -> bool) -> Option<&Surface> {
         if new_y <= prev_y {
             return None;
@@ -172,6 +188,7 @@ impl World {
 mod tests {
     use super::*;
 
+    /// 테스트: 창 두 개가 겹친 세상
     fn world() -> World {
         let w1 = WindowInfo { id: 1, rect: Rect::new(500.0, 400.0, 1100.0, 900.0) };
         let w2 = WindowInfo { id: 2, rect: Rect::new(600.0, 700.0, 1000.0, 1000.0) };
@@ -271,10 +288,12 @@ mod tests {
         assert_eq!(s.owner, Owner::Ground(0));
     }
 
+    /// 테스트: 창들만 정한 세상
     fn hit_world(windows: Vec<WindowInfo>) -> World {
         World::new(windows, vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0)
     }
 
+    /// 테스트: 창 하나를 만듦
     fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
         WindowInfo { id, rect: Rect::new(l, t, r, b) }
     }

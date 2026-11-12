@@ -1,3 +1,5 @@
+//! 🪜 디딤판 계산 — 창 윗면, 작업 영역 바닥, 창 안쪽 바닥을 가려진 부분을 빼고 조각(Surface)으로 자름
+//! World::new·patch_windows가 compute_surfaces를 부름. 조각 끝 종류(EndKind)로 걷다가 멈출지·뛸지·넘어갈지 정함
 use crate::geom::{Rect, WindowInfo};
 use crate::inside;
 
@@ -7,7 +9,7 @@ pub enum Owner {
     /// 창 윗면 (밖)
     Window(u64),
     Ground(usize),
-    /// 창 안쪽 바닥 (아래 테두리 바로 위, spec 2B §9) — 그 창 안에 있는 동물만 디딘다
+    /// 창 안쪽 바닥 (아래 테두리 바로 위, spec 2B §9) — 그 창 안에 있는 동물만 디딤
     Inside(u64),
 }
 
@@ -24,21 +26,30 @@ pub enum EndKind {
     Seam { to: usize },
 }
 
+/// 디딤판 한 조각 (가로 선분)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Surface {
+    /// 누구 것인지
     pub owner: Owner,
+    /// 윗면 y (물리 px)
     pub y: f64,
+    /// 왼쪽 끝 x
     pub x_start: f64,
+    /// 오른쪽 끝 x
     pub x_end: f64,
+    /// 왼쪽 끝이 왜 끝났는지
     pub start_kind: EndKind,
+    /// 오른쪽 끝이 왜 끝났는지
     pub end_kind: EndKind,
 }
 
 impl Surface {
+    /// 조각 너비
     pub fn width(&self) -> f64 {
         self.x_end - self.x_start
     }
 
+    /// x가 조각 안에 있음 (양 끝 포함)
     pub fn contains_x(&self, x: f64) -> bool {
         x >= self.x_start && x <= self.x_end
     }
@@ -47,6 +58,7 @@ impl Surface {
 /// 옆 모니터와 맞닿았다고 볼 x 오차 (px)
 const SEAM_TOLERANCE: f64 = 2.0;
 
+/// 창·작업 영역에서 디딤판 조각들을 만듦 (앞 창에 가려진 부분은 자름, pet_height는 창 윗면 판정용)
 pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], pet_height: f64) -> Vec<Surface> {
     let mut out = Vec::new();
     let Some(bounds) = work_areas.iter().copied().reduce(|a, b| a.union(&b)) else {
@@ -126,7 +138,7 @@ fn seam_at(work_areas: &[Rect], i: usize, x: f64, facing_edge: impl Fn(&Rect) ->
         .map_or(EndKind::Wall, |(to, _)| EndKind::Seam { to })
 }
 
-/// (x_start, x_end, start_kind, end_kind) 조각들에서 높이 y의 선을 가리는 앞쪽 창 부분을 잘라 낸다 (잘린 끝은 Blocked)
+/// (x_start, x_end, start_kind, end_kind) 조각들에서 높이 y의 선을 가리는 앞쪽 창 부분을 잘라 냄 (잘린 끝은 Blocked)
 fn cut_by_front(mut segs: Vec<(f64, f64, EndKind, EndKind)>, fronts: &[WindowInfo], y: f64) -> Vec<(f64, f64, EndKind, EndKind)> {
     for front in fronts {
         let r = front.rect;
@@ -154,6 +166,7 @@ fn cut_by_front(mut segs: Vec<(f64, f64, EndKind, EndKind)>, fronts: &[WindowInf
     segs
 }
 
+/// [left, right]를 화면 안으로 자르고 양 끝 종류를 정함 (넘으면 Wall)
 fn clip(left: f64, right: f64, bounds: &Rect) -> (f64, f64, EndKind, EndKind) {
     let (a, ka) = if left < bounds.left { (bounds.left, EndKind::Wall) } else { (left, EndKind::Edge) };
     let (b, kb) = if right > bounds.right { (bounds.right, EndKind::Wall) } else { (right, EndKind::Edge) };
@@ -164,14 +177,17 @@ fn clip(left: f64, right: f64, bounds: &Rect) -> (f64, f64, EndKind, EndKind) {
 mod tests {
     use super::*;
 
+    /// 테스트: 창 하나를 만듦
     fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
         WindowInfo { id, rect: Rect::new(l, t, r, b) }
     }
 
+    /// 테스트: 1920×1040 화면 하나
     fn screen() -> Vec<Rect> {
         vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)]
     }
 
+    /// 테스트: owner의 조각만 고름
     fn pieces_of(s: &[Surface], owner: Owner) -> Vec<Surface> {
         s.iter().copied().filter(|p| p.owner == owner).collect()
     }
