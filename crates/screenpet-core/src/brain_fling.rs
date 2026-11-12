@@ -69,7 +69,7 @@ impl Pet {
         self.facing = inward;
         self.state = State::Air { anim: Anim::Fall };
         self.thrown = true;
-        self.thrown_down = false;
+        self.thrown_down = self.body.vy > 0.0 && visit::arrival_dives(self.body.vy, self.rng.f64());
         self.gentle_drop = false;
     }
 }

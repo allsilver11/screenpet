@@ -793,7 +793,8 @@ impl Pet {
         if !matches!(self.state, State::Idle { look: true, .. } | State::WantFood { walking: false }) {
             self.gaze_up = false;
         }
-        if !matches!(self.state, State::Air { anim: Anim::Fall }) {
+        // 위/아래에서 던져져 들어오는 중(Enter)에도 던진 비행은 이어진다 — 아래 친구에게 계속 갈 수 있게 (brain_vert.rs)
+        if !matches!(self.state, State::Air { anim: Anim::Fall } | State::Enter { .. }) {
             self.thrown = false;
         }
         if !matches!(self.state, State::Air { .. } | State::OnHead { .. } | State::Pressed { .. }) {

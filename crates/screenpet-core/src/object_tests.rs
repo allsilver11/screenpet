@@ -1677,3 +1677,23 @@ fn a_delivered_object_is_checked_like_a_toss_and_never_a_giant() {
         assert_eq!(accept_carry(kind, look), None, "{kind} {look:?}");
     }
 }
+
+#[test]
+fn about_one_in_ten_of_a_friends_downward_throws_drops_on_to_the_friend_below() {
+    // 사용자: 친구가 던진 물건이 바닥을 향하면 10%쯤은 아래 친구 화면까지 (나머지는 착지)
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    let down = ExitEdges { down: true, ..NONE };
+    let dives = |from: Side, vy: f64| {
+        (0..400u64)
+            .filter(|&seed| {
+                let mut o = Object::flown_in(ObjectKind::Can, &w, from, Fling { height: 0.3, vx: 200.0, vy }, 1.0, seed);
+                crossed(&mut o, &w, down) == Some(Side::Down)
+            })
+            .count()
+    };
+    for from in [Side::Right, Side::Up] {
+        let n = dives(from, 600.0);
+        assert!((20..=60).contains(&n), "{n} from {from:?}");
+    }
+    assert_eq!(dives(Side::Right, -500.0), 0);
+}

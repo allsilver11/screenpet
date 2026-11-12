@@ -811,3 +811,26 @@ fn friends_on_every_side_get_visits_about_as_often() {
         assert!(m >= side / 2.0 && m <= side * 2.0, "{what}: {m:.1} min vs sideways {side:.1} min");
     }
 }
+
+/// 친구가 던진 펫이 side 끝에서 vy로 들어왔을 때, seeds 중 아래 친구에게 넘어간 수 (아래 끝 연결됨)
+fn arrivals_diving(side: Side, vy: f64, seeds: u64) -> usize {
+    let w = world(vec![]);
+    (0..seeds)
+        .filter(|&seed| {
+            let mut p = Pet::new(cfg(), 900.0, 0.0, seed);
+            p.set_vertical_edges(false, true);
+            p.enter_flung(&w, side, Fling { height: 0.3, vx: 200.0, vy });
+            exit_within(&mut p, &w, 300).0 == Some(Side::Down)
+        })
+        .count()
+}
+
+#[test]
+fn about_one_in_ten_of_a_friends_downward_throws_drops_on_to_the_friend_below() {
+    let n = arrivals_diving(Side::Right, 600.0, 400);
+    assert!((20..=60).contains(&n), "{n} of 400 kept going down");
+    let up = arrivals_diving(Side::Up, 600.0, 400);
+    assert!((20..=60).contains(&up), "{up} from above");
+    assert_eq!(arrivals_diving(Side::Right, -500.0, 200), 0, "came in rising: lands");
+}
+

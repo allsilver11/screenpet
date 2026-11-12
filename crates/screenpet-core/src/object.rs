@@ -409,6 +409,7 @@ impl Object {
             Body { x, y, vx: inward * fling.vx.abs() * dpi, vy: fling.vy * dpi }
         };
         o.thrown = true;
+        o.thrown_down = o.body.vy > 0.0 && visit::arrival_dives(o.body.vy, o.rng.f64());
         // 회전은 통신으로 오지 않는다: 들어오는 속도로 새로 돈다
         o.spin = o.spin_of_throw();
         o

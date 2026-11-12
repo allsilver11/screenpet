@@ -363,6 +363,14 @@ pub fn aimed_down(vx: f64, vy: f64, dpi: f64) -> bool {
 /// 던진 것이 바닥을 뚫고 아래 친구에게 넘어갈지: 내가 일부러 아래로 던졌고(aimed) 아직 내려가는 중일 때만.
 /// 빠르기만 해서는 넘어가지 않는다 — 친구가 던져 넘어온 것이나 위·옆으로 던졌다 세게 떨어지는 것은 이 화면에 착지한다
 /// (사용자: 아래 화면 친구에게 너무 자주 넘어간다). min_speed·dpi는 예전 규칙의 자리 — 쓰지 않는다
+/// 친구가 던져 넘어온 것이 바닥을 향해 떨어지는 중일 때, 아래 친구 화면까지 계속 갈 확률 (사용자 요청: 약 10%)
+pub const ARRIVAL_DIVE_CHANCE: f64 = 0.1;
+
+/// 친구에게서 vy(아래가 +)로 넘어온 것이 내 바닥을 뚫고 아래 친구에게 갈지 — roll은 0..1 난수
+pub fn arrival_dives(vy: f64, roll: f64) -> bool {
+    vy > 0.0 && roll < ARRIVAL_DIVE_CHANCE
+}
+
 pub fn falls_through(aimed: bool, vy: f64, min_speed: f64, dpi: f64) -> bool {
     let _ = (min_speed, dpi);
     vy > 0.0 && aimed
@@ -1106,4 +1114,13 @@ mod tests {
         assert_eq!(returned_boost(Some(1.3), 1.5, false), 1.3);
         assert_eq!(returned_boost(Some(9.0), 1.5, false), 1.5);
     }
+
+    #[test]
+    fn a_friends_throw_heading_down_sometimes_keeps_going_to_the_friend_below() {
+        // 사용자: 친구가 던진 게 바닥을 향하면 10%쯤은 아래 친구 화면까지 — 위로 올라가며 들어온 건 아니다
+        assert_eq!(ARRIVAL_DIVE_CHANCE, 0.1);
+        assert!(arrival_dives(300.0, 0.05) && !arrival_dives(300.0, 0.15));
+        assert!(!arrival_dives(-300.0, 0.0) && !arrival_dives(0.0, 0.0));
+    }
+
 }
