@@ -22,8 +22,11 @@ def out(tmp_path_factory):
 
 def test_registered_with_dino_anims_after_every_other_optional_anim():
     optional = [a for a, *_ in OPTIONAL_ANIMS]
-    # 공룡 동작은 다른 선택 동작 뒤, 레서판다 깜짝(v0.5.5) 앞 (Rust manifest::OPTIONAL_ANIMS와 같은 순서)
-    assert optional[-4:] == ["fire", "roar", "stomp", "surprise"]
+    # 공룡 동작은 그보다 먼저 생긴 선택 동작 뒤, 레서판다 깜짝(v0.5.5) 앞에 이어서 (Rust manifest::OPTIONAL_ANIMS와 같은 순서).
+    # 그 뒤에 새로 생긴 동작(흐물이 panic·hang·rope …)은 끝에 붙는다 — 예전 줄 번호가 바뀌지 않게
+    i = optional.index("fire")
+    assert optional[i:i + 4] == ["fire", "roar", "stomp", "surprise"]
+    assert optional[:i] == ["arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup"]
     for pid in IDS:
         sp = draw_pets.SPECIES[pid]
         assert sp in draw_dino.DINOS
