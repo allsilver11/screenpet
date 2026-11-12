@@ -22,6 +22,9 @@ pub const MAX_FOREIGN_OBJECTS: usize = 20;
 /// 🪨💩 거대한 것은 화면에 이만큼만 (내 것·받은 것 합쳐) — 화면만 한 창이 쌓이면 앱이 느려진다
 pub const MAX_GIANTS: usize = 3;
 
+/// 친구에게서 들어온 거대한 것이 솟을 수 있는 높이: 머리 위 남은 자리의 이만큼까지
+const GIANT_ARRIVAL_HEADROOM: f64 = 0.8;
+
 /// 거대한 것이 하나 더 들어온다: 지금 있는 거대한 것들(오래된 순)에서 뿅 사라질 하나
 pub fn giant_to_drop(giants_oldest_first: &[u64]) -> Option<u64> {
     (giants_oldest_first.len() >= MAX_GIANTS).then(|| giants_oldest_first[0])
@@ -433,6 +436,12 @@ impl Object {
             let y = (wa.top + fling.height * wa.height()).clamp(wa.top + size, wa.bottom.max(wa.top + size));
             Body { x, y, vx: inward * fling.vx.abs() * dpi, vy: fling.vy * dpi }
         };
+        if kind.is_giant() {
+            // 🪨💩 거대한 것은 몸이 화면만 해서, 아래에서 몸 2.5배를 튀어 오르거나 위로 던져진 채 오면 곧장 위 끝을 넘어
+            // 위아래 두 화면 사이를 0.1초마다 오간다 (화면 정중앙에서 깜빡깜빡). 가장 높이 솟아도 머리가 위 끝 안에 있게
+            let room = ((o.body.y - size - b.top) * GIANT_ARRIVAL_HEADROOM).max(0.0);
+            o.body.vy = o.body.vy.max(-(2.0 * g * room).sqrt());
+        }
         o.thrown = true;
         o.thrown_down = o.body.vy > 0.0 && visit::arrival_dives(o.body.vy, o.rng.f64());
         // 회전은 통신으로 오지 않는다: 들어오는 속도로 새로 돈다

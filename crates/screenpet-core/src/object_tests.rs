@@ -1827,3 +1827,38 @@ fn clicks_pass_through_the_clear_parts_of_a_toy_window_to_the_taskbar() {
     run(&mut can, &w, 3.0);
     assert!(!can.passes_clicks_at(can.pivot().0, can.body.y + 4.0), "작은 쓰레기는 그대로");
 }
+
+#[test]
+fn a_giant_from_a_friend_never_bounces_straight_on_to_the_next_screen() {
+    // 사용자: 친구가 거대한 똥을 받았는데 떨어지지 않고 화면 정중앙에서 깜빡깜빡만 한다 — 위아래로 이어진 두 화면 사이를
+    // 0.1초마다 오갔다 (아래에서 몸 2.5배를 튀어 오르면 거대한 것은 화면 위를 넘는다. 옆에서 위로 던져져 오면 머리가 이미 위 끝이다)
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    let all = ExitEdges { up: true, down: true, left: true, right: true };
+    for k in ObjectKind::GIANTS {
+        for from in [Side::Down, Side::Left, Side::Right, Side::Up] {
+            for (vx, vy) in [(0.0, 0.0), (300.0, 800.0), (100.0, -900.0), (600.0, -1500.0)] {
+                for seed in 0..5 {
+                    let mut o = Object::flown_in(k, &w, from, Fling { height: 0.5, vx, vy }, 1.0, seed);
+                    o.set_scale(k.scale_on(1.0, 1040.0));
+                    let mut left = None;
+                    for _ in 0..600 {
+                        if let Some(e) = o.tick(DT, &w, all, false) {
+                            left = Some(e.side);
+                            break;
+                        }
+                    }
+                    assert!(left.is_none() || left == Some(Side::Down), "{k:?} from {from:?} v=({vx},{vy}) left by {left:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn small_things_from_below_still_pop_up_as_before() {
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    let o = Object::flown_in(ObjectKind::Can, &w, Side::Down, Fling { height: 0.5, vx: 0.0, vy: 0.0 }, 1.0, 1);
+    let g = THROW_GRAVITY_LOGICAL;
+    let size = OBJECT_LOGICAL_SIZE * o.scale();
+    assert!((o.body.vy + (2.0 * g * 2.5 * size).sqrt()).abs() < 1e-6, "{}", o.body.vy);
+}
