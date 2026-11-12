@@ -12,10 +12,11 @@ impl Hub {
     pub(crate) fn open(&self, key: &str, conn: u64, req: u32, to: &str) -> Option<ServerMsg> {
         let reply = self.open_inner(key, conn, req, to);
         let to = proto::norm_key(to);
-        let to = to.as_deref().map_or("-", short);
         match &reply {
-            Some(ServerMsg::Opened { ch, .. }) => log!(Info, "route", "channel_open", "conn" => Cid(conn), "peer" => short(key), "to" => to, "ch" => ch),
-            Some(ServerMsg::OpenFailed { reason, .. }) => log!(Warn, "route", "channel_fail", "conn" => Cid(conn), "peer" => short(key), "to" => to, "reason" => reason),
+            Some(ServerMsg::Opened { ch, .. }) => log!(Info, "route", "channel_open", "conn" => Cid(conn), "peer" => short(key), "to" => to.as_deref().map_or("-", short), "ch" => ch),
+            Some(ServerMsg::OpenFailed { reason, .. }) => {
+                log!(Warn, "route", "channel_fail", "conn" => Cid(conn), "peer" => short(key), "to" => to.as_deref().map_or("-", short), "reason" => reason)
+            }
             _ => {}
         }
         reply

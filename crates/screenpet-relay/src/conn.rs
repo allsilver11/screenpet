@@ -74,15 +74,13 @@ pub(crate) fn serve(hub: Arc<Hub>, ws: WebSocket<TcpStream>, ip: String, admissi
 
 /// 나쁜 메시지를 적고 그 까닭을 돌려줌 (`bad_message`)
 fn bad(conn: u64, peer: &Option<String>, reason: &'static str) -> String {
-    let peer = peer.as_deref().map_or("-", short);
-    log!(Warn, "conn", "bad_message", "conn" => Cid(conn), "peer" => peer, "reason" => reason);
+    log!(Warn, "conn", "bad_message", "conn" => Cid(conn), "peer" => peer.as_deref().map_or("-", short), "reason" => reason);
     reason.to_string()
 }
 
 /// 속도 한도에 걸린 것을 적음 (`rate_limited`, `what` = 무엇이 넘쳤는지)
 fn limited(conn: u64, peer: &Option<String>, what: &'static str) {
-    let peer = peer.as_deref().map_or("-", short);
-    log!(Warn, "conn", "rate_limited", "conn" => Cid(conn), "peer" => peer, "what" => what);
+    log!(Warn, "conn", "rate_limited", "conn" => Cid(conn), "peer" => peer.as_deref().map_or("-", short), "what" => what);
 }
 
 /// `serve`의 본체. 끝난 까닭을 돌려주고, 인증되면 `peer`에 설치 키를 넣음

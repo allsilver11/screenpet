@@ -71,8 +71,9 @@ impl Hub {
             }
         };
         let took = self.save_mailbox();
+        let bytes = hex.len() / 2;
         if let Some(id) = stored {
-            log!(Info, "mail", "letter_in", "conn" => Cid(conn), "peer" => short(key), "id" => id, "bytes" => hex.len() / 2, "took_ms" => took);
+            log!(Info, "mail", "letter_in", "conn" => Cid(conn), "peer" => short(key), "id" => id, "bytes" => bytes, "took_ms" => took);
         }
         Some(reply)
     }

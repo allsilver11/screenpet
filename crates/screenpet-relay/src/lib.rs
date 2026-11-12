@@ -415,10 +415,10 @@ fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
             }
             let started = Instant::now();
             let code = match fetch(place) {
-                Ok(code) => {
+                Ok(wmo) => {
                     fails.remove(place.id);
-                    log!(Info, "weather", "fetch_ok", "place" => place.id, "wmo" => code, "took_ms" => monitor::took_ms(started));
-                    Some(code)
+                    log!(Info, "weather", "fetch_ok", "place" => place.id, "wmo" => wmo, "took_ms" => monitor::took_ms(started));
+                    Some(wmo)
                 }
                 Err(e) => {
                     let n = fails.entry(place.id).or_default();
