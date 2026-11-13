@@ -1364,6 +1364,18 @@ fn weather_comes_after_the_welcome_and_follows_the_place_the_app_wants() {
     assert_eq!(c.next_json(2.0).map(|e| e["reason"].clone()), Some(json!("bad_message")));
 }
 
+/// ☀️ 첫 날씨 서비스가 안 되면 예비(MET) 값이 앱에 감
+#[test]
+fn weather_falls_back_to_the_second_service() {
+    let mut cfg = RelayConfig::new(SocketAddr::from(([127, 0, 0, 1], 0)), None);
+    cfg.weather_fetch = Some(std::sync::Arc::new(|_: &screenpet_relay::weather::Place| Err("timeout: connect".into())));
+    cfg.weather_fallback = Some(std::sync::Arc::new(|_: &screenpet_relay::weather::Place| Ok(73)));
+    let relay = Relay::start(cfg).unwrap();
+    let (mut a, _) = Client::login(&relay, &key(), "a", &[]);
+    let w = a.next_json(5.0).expect("weather for Yongin from the fallback");
+    assert_eq!((w["t"].as_str(), w["place"].as_str(), w["code"].as_u64()), (Some("weather"), Some("yongin"), Some(73)), "{w}");
+}
+
 /// 📮 와이어 위 공개 건의함: v3 릴레이, 누구나 넘겨 볼 수 있고, 너무 빠른 것은 (끊지 않고) 무시하며, 독자 아닌 이의 `board_put`은 무시함
 #[test]
 fn anyone_can_page_the_board_on_a_v3_relay() {

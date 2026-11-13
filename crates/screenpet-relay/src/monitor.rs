@@ -23,20 +23,21 @@ pub(crate) const LONG: u64 = 60 * 60;
 /// 로그 영역 목록 (릴레이). `admin status`의 영역별 오류 순서임
 pub(crate) const AREAS: [&str; 10] = ["conn", "hub", "presence", "route", "mail", "board", "weather", "dl", "admin", "store"];
 
-/// `admin status` 창 행: (행 이름, 영역 (`*` = 아무 영역), 사건)
-const ROWS: [(&str, &str, &str); 12] = [
-    ("conns_accepted", "conn", "accept"),
-    ("conns_closed", "conn", "close"),
-    ("logins", "hub", "login"),
-    ("bad_message", "*", "bad_message"),
-    ("rate_limited", "*", "rate_limited"),
-    ("letters", "mail", "letter_in"),
-    ("letters_refused", "mail", "letter_refused"),
-    ("board_lists", "board", "board_list"),
-    ("weather_ok", "weather", "fetch_ok"),
-    ("weather_fail", "weather", "fetch_fail"),
-    ("downloads_started", "dl", "download_start"),
-    ("downloads_cut", "dl", "download_cut"),
+/// `admin status` 창 행: (행 이름, 영역 (`*` = 아무 영역), 사건, 줄에 있어야 할 글 (`""` = 아무 줄))
+const ROWS: [(&str, &str, &str, &str); 13] = [
+    ("conns_accepted", "conn", "accept", ""),
+    ("conns_closed", "conn", "close", ""),
+    ("logins", "hub", "login", ""),
+    ("bad_message", "*", "bad_message", ""),
+    ("rate_limited", "*", "rate_limited", ""),
+    ("letters", "mail", "letter_in", ""),
+    ("letters_refused", "mail", "letter_refused", ""),
+    ("board_lists", "board", "board_list", ""),
+    ("weather_ok", "weather", "fetch_ok", ""),
+    ("weather_met_ok", "weather", "fetch_ok", " src=met "),
+    ("weather_fail", "weather", "fetch_fail", ""),
+    ("downloads_started", "dl", "download_start", ""),
+    ("downloads_cut", "dl", "download_cut", ""),
 ];
 
 /// 분 칸으로 센 사건 수임: 이름마다 (분 번호, 수)를 최근 1시간만 둠
@@ -116,8 +117,8 @@ impl Monitor {
 
     /// 로그 줄 하나를 셈: 맞는 창 행, ERROR면 영역별 오류, WARN/ERROR면 고리에 넣음
     pub fn record(&self, level: Level, area: &str, event: &str, line: &str, now: u64) {
-        for (row, a, e) in ROWS {
-            if (a == "*" || a == area) && e == event {
+        for (row, a, e, has) in ROWS {
+            if (a == "*" || a == area) && e == event && line.contains(has) {
                 self.windows.add(row, now);
             }
         }
@@ -133,7 +134,7 @@ impl Monitor {
     pub fn status_text(&self, now: u64) -> String {
         let row = |name: &str| format!("{} / {}", self.windows.sum(name, now, SHORT), self.windows.sum(name, now, LONG));
         let mut out = String::from("rates (last 5m / 1h):\n");
-        for (name, _, _) in ROWS {
+        for (name, _, _, _) in ROWS {
             out += &format!("  {name} {}\n", row(name));
         }
         out += "errors by area (last 5m / 1h):\n";
@@ -247,6 +248,10 @@ mod tests {
         m.record(Level::Warn, "mail", "rate_limited", "d", NOW);
         m.record(Level::Error, "store", "save_fail", "e", NOW);
         m.record(Level::Info, "dl", "download_start", "f", NOW - 30 * 60);
+        m.record(Level::Info, "weather", "fetch_ok", "… INFO  weather  fetch_ok     src=open_meteo place=yongin wmo=3 took_ms=80", NOW);
+        m.record(Level::Info, "weather", "fetch_ok", "… INFO  weather  fetch_ok     src=met place=yongin wmo=3 took_ms=1400", NOW);
+        assert_eq!(m.windows.sum("weather_ok", NOW, SHORT), 2, "both providers");
+        assert_eq!(m.windows.sum("weather_met_ok", NOW, SHORT), 1, "only MET");
         assert_eq!(m.windows.sum("conns_accepted", NOW, SHORT), 2);
         assert_eq!(m.windows.sum("bad_message", NOW, SHORT), 1);
         assert_eq!(m.windows.sum("rate_limited", NOW, SHORT), 1);
@@ -259,7 +264,7 @@ mod tests {
         assert!(s.contains("\nerrors by area (last 5m / 1h):\n"), "{s}");
         assert!(s.contains("\n  store 1 / 1\n"), "{s}");
         assert!(s.contains("\n  conn 0 / 0\n"), "{s}");
-        for (name, _, _) in ROWS {
+        for (name, _, _, _) in ROWS {
             assert!(s.contains(&format!("  {name} ")), "{name}");
         }
     }

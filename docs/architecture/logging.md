@@ -51,7 +51,7 @@
 | 릴레이 | route | 채널 열기·실패·끊기 |
 | 릴레이 | mail | 📮 건의 편지, 독자 편집, `letters.json` |
 | 릴레이 | board | 📮 공개 건의함 |
-| 릴레이 | weather | ☀️ Open-Meteo 받기 |
+| 릴레이 | weather | ☀️ 날씨 받기 (Open-Meteo, 예비 MET Norway) |
 | 릴레이 | dl | 🔄 `/downloads/` |
 | 릴레이 | admin | 관리 명령·소켓, 내보내기 |
 | 릴레이 | store | `relay.json` 읽기·쓰기 |
@@ -100,8 +100,8 @@
 | mail | `load_fail` | ERROR | file | `letters.json`(또는 `.bak`)을 못 읽음 |
 | board | `board_put` | INFO | conn peer n changed | 독자가 공개 요약을 올림 (이름·글 없음) |
 | board | `board_list` | INFO | conn peer page n | 공개 건의함 한 쪽을 줌 |
-| weather | `fetch_ok` | INFO | place wmo took_ms | 지역 날씨 받음 (wmo = 날씨 코드) |
-| weather | `fetch_fail` | WARN, ERROR | place n took_ms err | 받기 실패. n = 잇단 실패 수, 3번째부터 ERROR. 5분 뒤 다시 함 |
+| weather | `fetch_ok` | INFO | src place wmo took_ms | 지역 날씨 받음. src = `open_meteo` 또는 `met`, wmo = 날씨 코드 (MET은 기호를 WMO로 바꾼 값) |
+| weather | `fetch_fail` | WARN, ERROR | src place n took_ms err | 서비스 하나 실패 (곧바로 다른 서비스를 물음). n = 그 서비스·지역의 잇단 실패 수. 두 서비스 다 실패했고 n ≥ 3이면 ERROR, 그때는 마지막 좋은 값을 두고 5분 뒤 다시 함. `err="backing off after HTTP 429/403"`(took_ms 0) = 그 서비스는 1시간 쉬는 중이라 안 물음 |
 | dl | `meta` | INFO | conn ip file head ok | `latest.json`·`.sig` 요청 (앱 업데이트 확인) |
 | dl | `download_start` | INFO | conn ip file bytes | 설치 파일 보내기 시작 |
 | dl | `download_done` | INFO | conn file bytes took_ms | 다 보냄 |
@@ -225,6 +225,7 @@ rates (last 5m / 1h):
   letters_refused 0 / 0
   board_lists 1 / 6
   weather_ok 1 / 12
+  weather_met_ok 0 / 0
   weather_fail 0 / 0
   downloads_started 0 / 2
   downloads_cut 0 / 0
@@ -242,7 +243,7 @@ errors by area (last 5m / 1h):
 | 친구가 모두 오프라인 | 앱: `relay login`이 있나, `relay connect_fail`·`relay refused`·`relay closed`·`net relay_down`. 릴레이: `grep 'peer=<내 키 8자>'` → `hub login`의 `online=`(0이면 친구가 접속 안 했거나 서로 친구가 아님), `presence friends`의 n. `conn close reason=idle`이 잦으면 네트워크가 끊김. `login_replaced`가 잦으면 같은 신원을 두 컴퓨터가 씀 |
 | 던진 물건이 안 감 | 보낸 앱: `toss toss_out`이 있나 (없으면 그 끝에 연결된 친구가 없음). 받는 앱: `toss toss_in`, `toss_unknown`. 릴레이: `route channel_open`/`channel_fail reason=…`, `channel_cut reason=rate|queue` |
 | 건의가 안 감 | 릴레이: `mail letter_refused reason=…`(`daily`·`new`·`ip`·`global`·`full`), `conn rate_limited what=letter`, `mail save_fail`. 앱: 그때 `relay login`이 있었나 (`v`가 3 미만이면 옛 릴레이) |
-| 날씨가 안 보임 | 릴레이: `weather fetch_fail`(err, n), `admin status`의 `weather_ok / weather_fail`, 시작 줄의 `weather=off`(SCREENPET_RELAY_WEATHER=off). 앱: `relay login`의 `v`가 2 이상인지 |
+| 날씨가 안 보임 | 릴레이: `weather fetch_fail`(src, err, n), `admin status`의 `weather_ok / weather_met_ok / weather_fail`(`weather_met_ok`가 늘면 Open-Meteo가 안 되고 MET이 대신함), 시작 줄의 `weather=off`(SCREENPET_RELAY_WEATHER=off). 앱: `relay login`의 `v`가 2 이상인지 |
 | 업데이트 실패 | 앱: `update check_fail`·`get_fail`·`http_status`·`bad_signature`·`download_fail`·`install_fail`. 릴레이: `dl meta`(확인이 닿았나), `dl not_found`(파일 덜 올림), `dl download_cut reason=slow|deadline`, `download_busy` |
 | 서버가 느림 | 릴레이: `store save_slow`·`save_fail`, `mail letter_in`의 took_ms, `weather fetch_ok` took_ms, `route channel_cut reason=queue`, `conn close reason=slow`, `hub unauthed_evicted`·`conn refused reason=busy`(연결 폭주), `fd_limit`, `accept_fail`. `admin status`의 `conns_accepted` 창으로 폭주인지 봄 |
 

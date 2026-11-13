@@ -2,7 +2,7 @@
 
 > **요약.** 릴레이는 std 스레드 + 동기 `tungstenite`로 도는 단일 프로세스임. 연결 하나 = 스레드 하나이고, 모든 공유 상태는 `Hub` 안 `state` 잠금 하나(+ 편지함 잎 잠금)에 있음.
 > 디스크에는 설치 목록(`relay.json`), 릴레이 키, 운영 스위치, 봉인된 건의 편지만 둠 (메시지 내용 없음). 쓰기는 모두 임시 파일 → fsync → `.bak` → rename.
-> 같은 포트에서 `/healthz`, `/ws`, `/downloads/*`를 답하고, 날씨는 별도 스레드가 Open-Meteo에서 받아 옴. systemd 사용자 유닛 + NPM(TLS) 뒤에서 돎.
+> 같은 포트에서 `/healthz`, `/ws`, `/downloads/*`를 답하고, 날씨는 별도 스레드가 Open-Meteo(안 되면 MET Norway)에서 받아 옴. systemd 사용자 유닛 + NPM(TLS) 뒤에서 돎.
 >
 > 기준 커밋: `ba6634b`
 
@@ -16,7 +16,7 @@ main.rs ─ SIGTERM/SIGINT 막고 sigwait ─┐
 Relay::start (lib.rs:224)
  ├─ relay-accept   accept_loop    : 20 ms 논블로킹 accept → 연결마다 relay-conn 스레드
  ├─ relay-upkeep   upkeep_loop    : 60 s maintain, 10 min prune_store, 30 s save
- ├─ relay-weather  weather_loop   : 2 s마다 때 된 지역을 Open-Meteo에서 (잠금 밖)
+ ├─ relay-weather  weather_loop   : 2 s마다 때 된 지역을 Open-Meteo → MET에서 (잠금 밖)
  ├─ relay-admin    admin::serve   : admin.sock 하나씩 처리 (unix만)
  └─ relay-conn × N http::handle   : /healthz | /ws → conn::serve | /downloads → Downloads::serve
 ```
@@ -64,7 +64,7 @@ Relay::start (lib.rs:224)
 | `store.rs` | `relay.json` 설치 저장소, `relay.key`, `write_private` |
 | `mailbox.rs` | `letters.json`: 봉인 편지 + 공개 요약, 보내기 한도 |
 | `board.rs` | 📮 공개 요약 재검사(`check_name`, `check_line`), 쪽 계산 |
-| `weather.rs` | Open-Meteo 받기(`open_meteo`), `Weathers` 표 |
+| `weather.rs` | Open-Meteo·MET 받기(`open_meteo`, `met`), 서비스 차례(`Providers`), MET 기호 → WMO, `Weathers` 표 |
 | `downloads.rs` | `/downloads/` 정적 파일, 이름 허용 목록, 자리·속도 한도 |
 | `control.rs` | `control.json`: 스위치·차단·편지함 독자 |
 | `admin.rs` | `admin.sock` 서버·클라이언트, `USAGE` |
@@ -151,20 +151,46 @@ Relay::start (lib.rs:224)
 
 ---
 
-## 4. 외부 호출: Open-Meteo (`crates/screenpet-relay/src/weather.rs`)
+## 4. 외부 호출: Open-Meteo, 예비 MET Norway (`crates/screenpet-relay/src/weather.rs`)
+
+서비스가 둘임. 지역 하나를 받을 때 `Providers::fetch`가 차례대로 묻고 처음 좋은 값에서 멈춤:
+
+1. 보통은 **Open-Meteo 먼저**, 실패(시간 초과·HTTP 오류·답 읽기 실패)하면 곧바로 **MET Norway**.
+2. Open-Meteo가 (모든 지역 합쳐) **3번 잇달아** 실패하면 **1시간 동안 MET 먼저**. 1시간 뒤 Open-Meteo를 다시 먼저 떠봄: 되면 원래대로, 안 되면 또 1시간.
+3. **HTTP 429/403**을 준 서비스는 **1시간** 안 부름 (`fetch_fail err="backing off …"`로 적음).
+4. 둘 다 실패하면 예전과 같음: 마지막 좋은 값을 두고 5분 뒤 다시 함.
+
+앱은 차이를 모름: MET의 `symbol_code`를 같은 뜻의 WMO 코드로 바꿔 보냄 (`met_symbol_wmo`).
+
+| 항목 | Open-Meteo | MET Norway | 위치 |
+|---|---|---|---|
+| URL | `https://api.open-meteo.com/v1/forecast?latitude=..&longitude=..&current=weather_code&timezone=GMT` | `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=..&lon=..` (소수 4자리까지) | `url`, `met_url` |
+| UA | `screenpet-relay/<ver>` | `ScreenPet-relay/<ver> https://pet.danni.day` (MET 약관: 앱 이름 + 연락처) | `open_meteo`, `met_user_agent` |
+| 읽는 값 | `current.weather_code` | `properties.timeseries[0].data.next_1_hours.summary.symbol_code` (없으면 `next_6_hours`) | `parse_open_meteo`, `parse_met` |
+| 답 크기 | 16 KiB (`BODY_LIMIT`) | 256 KiB (`MET_BODY_LIMIT`, 진짜 답은 40 KiB쯤) | |
+| 클라이언트 | `ureq`, `https_only`, 리다이렉트 0 | 같음 | `agent` |
+| 시간 제한 | 연결 5 s, 전체 10 s | 같음 | `CONNECT_TIMEOUT`, `FETCH_TIMEOUT` |
+
+MET 기호 → WMO (`_day`/`_night`/`_polartwilight`는 떼고 봄, 모르는 기호는 실패):
+
+| MET | WMO | 앱 그림 |
+|---|---|---|
+| clearsky / fair / partlycloudy / cloudy / fog | 0 / 1 / 2 / 3 / 45 | 안 내림 (계절 장식) |
+| lightrain / rain / heavyrain | 61 / 63 / 65 | 소나기 / 비 / 비 |
+| lightrainshowers / rainshowers / heavyrainshowers | 80 / 81 / 82 | 소나기 / 비 / 비 |
+| lightsleet(showers) / sleet·heavysleet(showers) | 66 / 67 | 소나기 / 비 |
+| lightsnow / snow / heavysnow | 71 / 73 / 75 | 가벼운 눈 / 눈 / 눈 |
+| lightsnowshowers / snowshowers·heavysnowshowers | 85 / 86 | 가벼운 눈 / 눈 |
+| `*thunder` | 95 | 비 |
 
 | 항목 | 값 | 위치 |
 |---|---|---|
-| URL | `https://api.open-meteo.com/v1/forecast?latitude=..&longitude=..&current=weather_code&timezone=GMT` | `:40` `url` |
-| 클라이언트 | `ureq`, `https_only`, 리다이렉트 0, UA `screenpet-relay/<ver>` | `:61` `open_meteo` |
-| 시간 제한 | 연결 5 s, 전체 10 s | `:25`, `:27` |
-| 답 크기 | 16 KiB | `:23` `BODY_LIMIT` |
 | 주기 | 성공 뒤 30 min, 실패 뒤 5 min (마지막 좋은 값 유지) | `:15` `POLL_EVERY`, `:17` `RETRY_AFTER` |
 | 바퀴 | 2 s마다, 한 바퀴 최대 10곳, 하나씩 순서대로 | `lib.rs:385` `WEATHER_ROUND`, `weather.rs:21` |
 | 잊기 | 2 h 아무도 안 원한 지역 | `:19` `FORGET_AFTER` |
 | 지역 | 고정 18곳 (`screenpet_proto::weather::PLACES`), 표 밖 id 무시 | `crates/screenpet-proto/src/weather.rs:37` |
-| 오류 로그 | 10분에 한 번까지, 릴레이는 안 멈춤 | `lib.rs:389` `weather_loop` |
-| 끄기 | `SCREENPET_RELAY_WEATHER=off` | `main.rs` |
+| 로그 | 시도마다 `fetch_ok`/`fetch_fail`(`src=open_meteo` 또는 `src=met`, took_ms). 둘 다 실패 + 잇단 3번째부터 ERROR. 릴레이는 안 멈춤 | `lib.rs` `weather_loop` |
+| 끄기 | `SCREENPET_RELAY_WEATHER=off` (두 서비스 다) | `main.rs` |
 
 HTTP는 잠금 밖에서 하고, 결과만 `state` 잠금 안에서 그 지역 앱에 나눠 줌 (`hub/weather.rs:32` `weather_fetched`).
 

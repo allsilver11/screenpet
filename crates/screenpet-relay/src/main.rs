@@ -120,6 +120,8 @@ fn main() {
     // ☀️ Real weather for the apps (SCREENPET_RELAY_WEATHER=off turns it off)
     if std::env::var("SCREENPET_RELAY_WEATHER").as_deref() != Ok("off") {
         cfg.weather_fetch = Some(screenpet_relay::weather::open_meteo());
+        // Open-Meteo가 안 되면 MET Norway
+        cfg.weather_fallback = Some(screenpet_relay::weather::met());
     }
     // 믿는 프록시도 가린 모양으로 (데이터 폴더 경로는 안 적음: 집 폴더 아래임)
     let proxies: Vec<String> = cfg.trusted_proxies.iter().map(|p| screenpet_log::mask_ip(&p.to_string())).collect();

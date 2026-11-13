@@ -198,6 +198,8 @@ pub struct RelayConfig {
     pub trusted_proxies: Vec<IpAddr>,
     /// ☀️ 지역 날씨를 받아 오는 함수 (실제 릴레이는 `weather::open_meteo`). None이면 날씨를 안 받고 안 보냄 (시험)
     pub weather_fetch: Option<weather::Fetch>,
+    /// ☀️ 첫 함수가 실패하면 쓰는 예비 (실제 릴레이는 `weather::met`). None이면 예비 없음
+    pub weather_fallback: Option<weather::Fetch>,
 }
 
 /// 사용자의 Nginx Proxy Manager임
@@ -206,7 +208,7 @@ pub const DEFAULT_TRUSTED_PROXY: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(192
 impl RelayConfig {
     /// 기본 한도·프록시로 설정을 만듦 (날씨 없음)
     pub fn new(bind: SocketAddr, data_dir: Option<PathBuf>) -> RelayConfig {
-        RelayConfig { bind, data_dir, limits: Limits::default(), trusted_proxies: vec![DEFAULT_TRUSTED_PROXY], weather_fetch: None }
+        RelayConfig { bind, data_dir, limits: Limits::default(), trusted_proxies: vec![DEFAULT_TRUSTED_PROXY], weather_fetch: None, weather_fallback: None }
     }
 }
 
@@ -245,7 +247,8 @@ impl Relay {
         let mut threads = vec![accept, upkeep];
         if let Some(fetch) = cfg.weather_fetch.clone() {
             let h = hub.clone();
-            threads.push(std::thread::Builder::new().name("relay-weather".into()).spawn(move || weather_loop(h, fetch))?);
+            let providers = weather::Providers::new(fetch, cfg.weather_fallback.clone());
+            threads.push(std::thread::Builder::new().name("relay-weather".into()).spawn(move || weather_loop(h, providers))?);
         }
         // The relay is worth running even if its admin socket can't be made.
         #[cfg(unix)]
@@ -392,14 +395,15 @@ fn upkeep_loop(hub: Arc<Hub>) {
 /// 날씨 스레드가 받아 올 지역을 찾는 주기
 const WEATHER_ROUND: Duration = Duration::from_secs(2);
 
-/// 날씨 받기가 이만큼 잇달아 실패하면 WARN 대신 ERROR로 적음
+/// 두 서비스 다 실패했고 그 서비스가 그 지역에서 이만큼 잇달아 실패했으면 WARN 대신 ERROR로 적음
 const WEATHER_FAILS_ERROR: u32 = 3;
 
 /// ☀️ 때가 된 지역 날씨를 하나씩 따로 스레드에서 받아 옴: 느린 날씨 서비스가 연결을 붙잡지 않음.
-/// 받을 때마다 `fetch_ok`/`fetch_fail`(took_ms)을 적음. 오류가 나도 릴레이를 멈추지 않음
-fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
+/// 지역마다 `Providers::fetch`로 Open-Meteo → MET (또는 반대) 차례로 묻고, 시도마다 `fetch_ok`/`fetch_fail`(src, took_ms)을 적음.
+/// 오류가 나도 릴레이를 멈추지 않음
+fn weather_loop(hub: Arc<Hub>, mut providers: weather::Providers) {
     let mut last_round = Instant::now() - WEATHER_ROUND;
-    let mut fails: std::collections::HashMap<&'static str, u32> = Default::default();
+    let mut fails: std::collections::HashMap<(&'static str, weather::Source), u32> = Default::default();
     while !hub.stopping() {
         std::thread::sleep(Duration::from_millis(50));
         if last_round.elapsed() < WEATHER_ROUND {
@@ -413,25 +417,25 @@ fn weather_loop(hub: Arc<Hub>, fetch: weather::Fetch) {
                 hub.weather_fetched(place.id, None);
                 break;
             }
-            let started = Instant::now();
-            let code = match fetch(place) {
-                Ok(wmo) => {
-                    fails.remove(place.id);
-                    log!(Info, "weather", "fetch_ok", "place" => place.id, "wmo" => wmo, "took_ms" => monitor::took_ms(started));
-                    Some(wmo)
-                }
-                Err(e) => {
-                    let n = fails.entry(place.id).or_default();
-                    *n += 1;
-                    let took = monitor::took_ms(started);
-                    if *n >= WEATHER_FAILS_ERROR {
-                        log!(Error, "weather", "fetch_fail", "place" => place.id, "n" => *n, "took_ms" => took, "err" => e);
-                    } else {
-                        log!(Warn, "weather", "fetch_fail", "place" => place.id, "n" => *n, "took_ms" => took, "err" => e);
+            let attempts = providers.fetch(place, Instant::now());
+            let code = attempts.iter().find_map(|a| a.result.as_ref().ok().copied());
+            for a in &attempts {
+                match &a.result {
+                    Ok(wmo) => {
+                        fails.remove(&(place.id, a.src));
+                        log!(Info, "weather", "fetch_ok", "src" => a.src, "place" => place.id, "wmo" => wmo, "took_ms" => a.took_ms);
                     }
-                    None
+                    Err(e) => {
+                        let n = fails.entry((place.id, a.src)).or_default();
+                        *n += 1;
+                        if code.is_none() && *n >= WEATHER_FAILS_ERROR {
+                            log!(Error, "weather", "fetch_fail", "src" => a.src, "place" => place.id, "n" => *n, "took_ms" => a.took_ms, "err" => e);
+                        } else {
+                            log!(Warn, "weather", "fetch_fail", "src" => a.src, "place" => place.id, "n" => *n, "took_ms" => a.took_ms, "err" => e);
+                        }
+                    }
                 }
-            };
+            }
             hub.weather_fetched(place.id, code);
         }
         // Left over after a stop: not busy any more (nothing to wait for).
