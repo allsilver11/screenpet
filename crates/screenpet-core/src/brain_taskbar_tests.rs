@@ -221,15 +221,13 @@ fn one_toy_at_a_time() {
 }
 
 #[test]
-fn a_pulled_toy_pops_up_into_its_hands_and_is_never_carried_off_to_friends() {
+fn a_pulled_toy_pops_up_into_its_hands_and_stays_without_friends() {
     let w = world(vec![]);
     let mut played = 0;
     for seed in 0..60 {
         let mut p = walking(heumul(), 800.0, seed, &w);
         p.toy.rng = fastrand::Rng::with_seed(seed);
-        // 친구가 양쪽 끝에 다 연결돼 있다
-        p.set_exit_edges(true, true);
-        p.set_prank_edges(true, true);
+        // 연결된 친구가 없다
         let mut app = FakeApp::new(true);
         let mut tries = 0;
         while app.pulls.is_empty() && tries < 50 {
@@ -243,7 +241,7 @@ fn a_pulled_toy_pops_up_into_its_hands_and_is_never_carried_off_to_friends() {
         for _ in 0..(60 * 30) {
             app.step(&mut p, &w);
             let ph = phase(&p);
-            assert!(!matches!(ph, Some(JugglePhase::CarryOff { .. })), "친구에게 들고 가지 않는다");
+            assert!(!matches!(ph, Some(JugglePhase::CarryOff { .. } | JugglePhase::LobOff { .. })), "갈 친구가 없다");
             if popped.is_none() && app.live.is_some() && matches!(ph, Some(JugglePhase::Lift)) {
                 popped = Some(p.clock - pulled_at);
                 assert_eq!(p.carried_object(), app.live);
@@ -351,6 +349,30 @@ fn a_toy_it_cannot_reach_waits_and_a_gone_toy_is_forgotten() {
     // 앱이 치웠다 (사용자가 치움·저절로 사라짐): 잊는다
     p.notice_taskbar(&[], Toys { ready: true, live: None }, &w);
     assert_eq!(p.toy.toy, None);
+}
+
+#[test]
+fn a_toy_sometimes_goes_to_a_linked_friend() {
+    // 🔓 (v0.6.5, 사용자 결정) 친구가 연결된 끝이 있으면 가끔 들고 가거나 너머로 던진다
+    let w = world(vec![]);
+    let (mut carried, mut lobbed, mut kept) = (0, 0, 0);
+    for seed in 0..200 {
+        let mut p = walking(heumul(), 800.0, seed, &w);
+        p.toy.rng = fastrand::Rng::with_seed(seed);
+        p.set_prank_edges(true, true);
+        match p.toy_play_plan(&w) {
+            Plan::Prank(_) => carried += 1,
+            Plan::Lob(_) => lobbed += 1,
+            _ => kept += 1,
+        }
+    }
+    assert!(carried > 15 && lobbed > 15 && kept > 80, "{carried} {lobbed} {kept}");
+    // 끝까지 걸어갈 수 없으면 (친구 없음) 늘 이 화면에서 논다
+    let mut p = walking(heumul(), 800.0, 1, &w);
+    p.set_prank_edges(false, false);
+    for _ in 0..50 {
+        assert!(matches!(p.toy_play_plan(&w), Plan::Throw | Plan::Wander));
+    }
 }
 
 #[test]

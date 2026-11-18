@@ -104,7 +104,7 @@ pub struct ObjectSpot {
     pub half_w: f64,
     /// 🪨💩 거대한 것
     pub giant: bool,
-    /// 이 컴퓨터 밖으로 나가지 않는 것 (📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 — taskbar.rs): 친구에게 들고 가지 않음
+    /// 📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 (taskbar.rs): 다른 동물은 줍거나 밀지 않고, 흐물이도 평소 줍기로는 줍지 않음 (제 장난감 놀이로만 — 친구에게는 그 놀이가 정함)
     pub local: bool,
 }
 

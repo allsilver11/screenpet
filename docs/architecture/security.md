@@ -131,8 +131,8 @@
 
 | 값 | 규칙 | 코드 |
 |---|---|---|
-| 물건 종류 | `ObjectKind::ALL` 허용 목록만(옛 `dropping` → 똥). 목록에 없는 📌 `app_icon`은 받지 않음 (장난감은 이 컴퓨터를 안 떠남) | `crates/screenpet-core/src/object.rs:95-101`, `:258` `from_id`, `:1177` `accept_toss` |
-| 장난감 보내기 | 던지기·들고 가기에서 `is_toy`면 안 실음 (코어 + 앱 이중) | `object.rs:153` `is_toy`; `src-tauri/src/objects.rs:479` |
+| 물건 종류 | `ObjectKind::ALL` 허용 목록만(옛 `dropping` → 똥, ⛄ `snowball` 포함). 📌 `app_icon`은 목록에 없어 이름만으로는 받지 않고, 아래 아이콘 그림 검사를 지날 때만 받음 | `crates/screenpet-core/src/object.rs` `ALL`, `from_id`, `accept_toss` |
+| 📌 앱 아이콘 그림 (v0.6.5) | **사용자 결정(2026-11-18)으로 장난감을 친구에게 던지거나 들고 갈 수 있음** — 그때 아이콘 그림 칸이 같이 감 (앱 이름·창 제목은 안 감). 보낼 때 48 px로 줄인 RGBA를 base64로 (`Toss.icon`·`Carry.icon`, 약 12 KB — 메시지 한도 64 KB 안). 받을 때: 한 변 8–48 px, 글자 수가 그 크기에 꼭 맞음, 표준 base64만(빈칸·중간 `=` 거절), 바이트 수 = 한 변²×4, 거의 투명한 그림 거절. 하나라도 어긋나면 장난감째 버림. 그림이 없는 `app_icon`도 버림. 옛 버전은 모르는 물건이라 버림 | `crates/screenpet-core/src/icon.rs` `to_wire`·`accept_wire`·`from_base64`; `object.rs` `accept_toy_toss`·`accept_toy_carry`; `src-tauri/src/objects.rs` `receive`; `src-tauri/src/network.rs` `queue_carry` |
 | 들고 오는 물건 | 거대한 것은 거절 | `object.rs:1187` `accept_carry` |
 | 거대한 것 | 화면에 최대 3개(넘치면 가장 오래된 것 제거), 들어올 때 머리 위 남은 자리의 80%까지만 솟음 | `object.rs:23` `MAX_GIANTS`, `:26` `GIANT_ARRIVAL_HEADROOM` |
 | 받은 물건 수 | 친구 물건 최대 20, 똥 10 | `object.rs:19-33` |
@@ -166,7 +166,7 @@
 |---|---|---|
 | ⌨️ 타자 응원 | 개수만 셈. 어떤 키·글자인지 읽지도 남기지도 않음. Windows는 키 256개의 지난 틱 눌림 비트로 올라가는 순간만 셈, macOS는 시스템 키 누름 카운터. 저장·로그·네트워크 없음 | `crates/screenpet-core/src/typing.rs:1-6`, `:21` `KeyEdges`, `platform/macos.rs` `key_presses` |
 | macOS 입력 모니터링 | 확인은 `CGPreflightListenEventAccess`(창 없음). 묻기는 켜져 있고·권한 없고·**이 버전에서 아직 안 물었을 때만**, 시작 10초 뒤 펫이 먼저 이유를 말하고 2.5초 뒤 시스템 창. 끌 때는 안 물음. 거절했으면 메뉴가 시스템 설정을 엶 | `typing.rs:104` `ask_at_start`, `:126` `PermissionAsk`; `platform/macos.rs` `typing_permission`; `src-tauri/src/tray.rs:90` |
-| 📌 앱 아이콘 장난감 | 그림은 창 스크립트로만, 어디에도 저장·기록 안 함, 친구에게 안 감. 한 번에 1개, 몇 분 뒤 사라짐 | `src-tauri/src/objects.rs:11-13`, `object.rs:95-103` |
+| 📌 앱 아이콘 장난감 | 그림은 창 스크립트와 메모리로만, 어디에도 저장·기록 안 함. 🔓 v0.6.5부터 사용자 결정으로 친구에게 던지거나 들고 가면 그림(48 px)이 그 친구에게 감 — 친구에게 보내는 건 그때뿐. 한 번에 1개, 몇 분 뒤 사라짐 | `src-tauri/src/objects.rs` 모듈 설명, `crates/screenpet-core/src/taskbar.rs` 모듈 설명 |
 | ☀️ 날씨 | 앱은 Open-Meteo를 직접 부르지 않음 → 사용자 IP가 날씨 서비스에 안 감. 릴레이는 도시 좌표만 보냄 | `crates/screenpet-relay/src/weather.rs:1-4`, `:40` |
 | `network.log` | config 폴더, 구조화 로그 줄 (KST 시각, 영역 `net`·`relay`·`update`·`visit`·`toss`). 키·id는 앞 8자, 편지·포스트잇·이름·코드 없음 (있었는지만). 256 KiB 넘으면 새로 씀. 규칙은 [logging.md](logging.md) §4 | `crates/screenpet-log/src/lib.rs`, `crates/screenpet-core/src/config.rs` `append_network_log`, `src-tauri/src/network.rs` `install_log_sink` |
 | 릴레이 로그 | journald, 같은 형식. 주소는 가림(`14.33.162.x`), 키 앞 8자, 관리 명령은 낱말만, 경로는 `<path>`. `admin recent` 고리도 같은 줄 | `crates/screenpet-relay/src/monitor.rs`, `tools/test_logging.py` |

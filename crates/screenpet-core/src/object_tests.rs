@@ -1750,23 +1750,37 @@ fn app_icon_toys_are_not_on_the_wire_the_menu_or_the_volley_list() {
 }
 
 #[test]
-fn a_thrown_app_icon_toy_never_leaves_through_a_friend_edge_and_bounces_back() {
+fn a_thrown_app_icon_toy_flies_to_a_friend_like_any_object() {
+    // 🔓 (v0.6.5, 사용자 결정) 장난감도 연결된 끝을 넘어 친구에게 날아간다 — 아이콘 그림은 앱이 Toss에 실음
     let w = floor();
-    for (vx, vy) in [(-3000.0, -400.0), (3000.0, -400.0), (0.0, -4000.0), (200.0, 3000.0)] {
-        let mut o = Object::new(ObjectKind::AppIcon, 960.0, 600.0, 1.0, 3);
-        o.launch(vx, vy);
-        let mut t = 0.0;
-        while t < 8.0 {
-            assert!(o.tick(DT, &w, ALL, false).is_none(), "({vx}, {vy}) 친구에게 날아가지 않는다");
-            assert!(o.body.x >= 0.0 && o.body.x <= 1920.0);
-            t += DT;
-        }
-        assert!(o.owner().is_some(), "화면 안 바닥에 내려앉는다");
+    let mut toy = Object::new(ObjectKind::AppIcon, 960.0, 600.0, 1.0, 3);
+    toy.launch(-3000.0, -400.0);
+    assert_eq!(run_edges(&mut toy, &w, ALL, 3.0).map(|e| e.side), Some(Side::Left));
+    // 연결된 끝이 없으면 벽에 튕겨 화면 안에 내려앉는다
+    let mut toy = Object::new(ObjectKind::AppIcon, 960.0, 600.0, 1.0, 3);
+    toy.launch(3000.0, -400.0);
+    assert!(run_edges(&mut toy, &w, NONE, 8.0).is_none());
+    assert!(toy.owner().is_some());
+}
+
+#[test]
+fn a_toy_from_a_friend_needs_a_valid_icon() {
+    let mut rgba = vec![0u8; 32 * 32 * 4];
+    for p in rgba.chunks_exact_mut(4).skip(200).take(400) {
+        p.copy_from_slice(&[30, 120, 220, 255]);
     }
-    // 같은 던지기라도 보통 물건은 넘어간다 (연결된 끝)
-    let mut can = Object::new(ObjectKind::Can, 960.0, 600.0, 1.0, 3);
-    can.launch(-3000.0, -400.0);
-    assert!(run_edges(&mut can, &w, ALL, 3.0).is_some());
+    let (size, text) = crate::icon::to_wire(&crate::icon::IconImage { size: 32, rgba });
+    let (got, icon) = accept_toy_toss(None, Some((size, &text))).expect("a toy");
+    assert_eq!((got.kind, got.note, icon.size), (ObjectKind::AppIcon, None, 32));
+    assert_eq!(accept_toy_toss(None, None), None, "no picture, no toy");
+    assert_eq!(accept_toy_toss(None, Some((size, "AAAA"))), None);
+    assert_eq!(accept_toy_toss(None, Some((200, &text))), None);
+    assert!(accept_toy_carry(Some((size, &text))).is_some());
+    assert_eq!(accept_toy_carry(None), None);
+    // 이상한 비행은 다듬는다
+    let wild = Fling { height: 9.0, vx: 1e9, vy: f64::NAN };
+    let (got, _) = accept_toy_toss(Some(wild), Some((size, &text))).unwrap();
+    assert!(got.fling.vx.is_finite() && got.fling.vy.is_finite() && (0.0..=1.0).contains(&got.fling.height));
 }
 
 fn run_edges(o: &mut Object, w: &World, edges: ExitEdges, secs: f64) -> Option<Exit> {

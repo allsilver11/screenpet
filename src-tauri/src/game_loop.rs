@@ -805,7 +805,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     for c in network.take_carry_arrivals() {
                         let Some(s) = slots.iter_mut().find(|s| s.label == c.label) else { continue };
                         let at = (s.pet.body.x, s.pet.body.y - s.pet.cfg.size);
-                        if let Some(id) = objects.spawn_carried(&app, &s.world, c.kind, c.scale, s.is_own(), at) {
+                        if let Some(id) = objects.spawn_carried(&app, &s.world, c.kind, c.scale, s.is_own(), at, c.icon) {
                             s.pet.hold_object(id);
                         }
                     }

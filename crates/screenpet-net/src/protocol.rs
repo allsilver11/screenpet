@@ -127,6 +127,18 @@ pub struct Toss {
     /// 받을 때 자르고 옛 버전은 무시함
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_rally")]
     pub rally: Option<u32>,
+    /// 📌 앱 아이콘 장난감의 그림 (v0.6.5). 받는 앱이 크기·글자를 엄격히 확인하고 (screenpet_core::icon::accept_wire), 옛 버전은 무시함
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub icon: Option<WireIcon>,
+}
+
+/// 📌 앱 아이콘 장난감 그림: 한 변 (px)과 base64 RGBA. 모양만 읽고 검사는 받는 앱이 함
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WireIcon {
+    /// 한 변 (px)
+    pub size: u32,
+    /// base64 RGBA (size × size × 4 바이트)
+    pub rgba: String,
 }
 
 /// ⚾ 가장 긴 캐치볼 랠리. 받은 수가 넘으면 이 값으로 읽음 (코어도 같은 값을 씀)
@@ -151,6 +163,9 @@ pub struct Carry {
     /// 그리는 크기
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub scale: Option<f64>,
+    /// 📌 들고 가는 앱 아이콘 장난감의 그림 (v0.6.5, Toss::icon과 같음). 옛 버전은 무시함
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub icon: Option<WireIcon>,
 }
 
 /// 잘못된 항목은 건너뛰는 목록을 읽음 (메시지 전체는 안 버림).
@@ -770,7 +785,7 @@ mod tests {
 
     #[test]
     fn a_visit_can_carry_an_object_and_old_peers_ignore_it() {
-        let rainbow = Carry { kind: "poop".into(), look: Some("rainbow".into()), scale: Some(0.8) };
+        let rainbow = Carry { kind: "poop".into(), look: Some("rainbow".into()), scale: Some(0.8), icon: None };
         let v = visit!(carry: Some(rainbow.clone()));
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
         assert_eq!(j["carry"], serde_json::json!({"kind": "poop", "look": "rainbow", "scale": 0.8}));
@@ -797,7 +812,7 @@ mod tests {
         // 이상한 색·크기는 그 칸만 버림
         let odd = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","carry":{"kind":"can","look":5,"scale":"big"}}"#;
         let Some(Message::Visit(Visit::Visit { carry, .. })) = Message::parse(odd) else { panic!() };
-        assert_eq!(carry, Some(Carry { kind: "can".into(), look: None, scale: None }));
+        assert_eq!(carry, Some(Carry { kind: "can".into(), look: None, scale: None, icon: None }));
         // 못 들어가 돌려보내는 Leave에 실려 돌아옴 (예전 판의 Leave에는 없음)
         let back = Message::Visit(Visit::Leave { visit_id: 3, next: None, side: None, vside: None, homesick_in: None, fling: None, note: None, boost: None, carry: Some(carry_can()) });
         assert_eq!(Message::parse(&back.to_json()), Some(back.clone()));
@@ -807,7 +822,7 @@ mod tests {
     }
 
     fn carry_can() -> Carry {
-        Carry { kind: "can".into(), look: None, scale: None }
+        Carry { kind: "can".into(), look: None, scale: None, icon: None }
     }
 
     fn visit_with_note(text: Option<&str>) -> Message {
@@ -919,7 +934,7 @@ mod tests {
 
     #[test]
     fn ping_can_carry_a_toss_that_old_peers_ignore() {
-        let t = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Down), fling: Some(Fling { height: 0.5, vx: 300.0, vy: -20.0 }), note: Some("붙였어!".into()), bounced: false, scale: None, look: None, rally: None };
+        let t = Toss { kind: "can".into(), side: Side::Right, vside: Some(VSide::Down), fling: Some(Fling { height: 0.5, vx: 300.0, vy: -20.0 }), note: Some("붙였어!".into()), bounced: false, scale: None, look: None, rally: None, icon: None };
         let m = Message::Control(Control::Ping { ask: None, steer: None, toss: Some(t) });
         let j: serde_json::Value = serde_json::from_slice(&m.to_json()).unwrap();
         assert_eq!((j["type"].as_str(), j["toss"]["kind"].as_str(), j["toss"]["side"].as_str(), j["toss"]["vside"].as_str(), j["toss"]["note"].as_str()), (Some("ping"), Some("can"), Some("right"), Some("down"), Some("붙였어!")));
@@ -944,7 +959,7 @@ mod tests {
         let odd = br#"{"type":"ping","toss":{"kind":"can","side":"north","vside":3,"fling":{"height":"x"},"note":[1]}}"#;
         assert_eq!(
             Message::parse(odd),
-            Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None, rally: None }) }))
+            Some(Message::Control(Control::Ping { ask: None, steer: None, toss: Some(Toss { kind: "can".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None, rally: None, icon: None }) }))
         );
         // side가 없어도 왼쪽
         // 똥 색 표시: 없으면 None, 있으면 그대로 (옛 버전은 모르는 필드를 무시함). 글자가 아니면 버림
@@ -957,7 +972,7 @@ mod tests {
 
     #[test]
     fn a_giant_toss_reads_as_a_plain_stone_to_anyone_who_skips_the_look() {
-        let t = Toss { kind: "stone".into(), side: Side::Right, vside: None, fling: None, note: None, bounced: false, scale: None, look: Some("giant".into()), rally: None };
+        let t = Toss { kind: "stone".into(), side: Side::Right, vside: None, fling: None, note: None, bounced: false, scale: None, look: Some("giant".into()), rally: None, icon: None };
         let json = serde_json::to_string(&t).unwrap();
         // 크기는 받는 쪽이 제 화면에 맞춤: scale은 싣지 않음
         assert!(json.contains(r#""look":"giant""#) && json.contains(r#""kind":"stone""#) && !json.contains("scale"), "{json}");
@@ -969,7 +984,7 @@ mod tests {
 
     #[test]
     fn a_toss_carries_the_catch_ball_rally_that_old_peers_skip() {
-        let t = Toss { kind: "ball".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None, rally: Some(7) };
+        let t = Toss { kind: "ball".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None, rally: Some(7), icon: None };
         let json = serde_json::to_string(&t).unwrap();
         assert!(json.contains(r#""rally":7"#), "{json}");
         assert_eq!(serde_json::from_str::<Toss>(&json).unwrap(), t);
@@ -987,6 +1002,22 @@ mod tests {
         }
         let old: OldToss = serde_json::from_str(&json).unwrap();
         assert_eq!((old.kind.as_str(), old.note), ("ball", None));
+    }
+
+    #[test]
+    fn a_toy_icon_rides_along_and_junk_is_dropped() {
+        let icon = WireIcon { size: 2, rgba: "AAAAAAAAAAA=".into() };
+        let t = Toss { kind: "app_icon".into(), side: Side::Left, vside: None, fling: None, note: None, bounced: false, scale: None, look: None, rally: None, icon: Some(icon.clone()) };
+        let json = serde_json::to_string(&t).unwrap();
+        assert_eq!(serde_json::from_str::<Toss>(&json).unwrap(), t);
+        let plain = Toss { icon: None, ..t.clone() };
+        assert!(!serde_json::to_string(&plain).unwrap().contains("icon"));
+        for junk in ["1", "\"x\"", "{\"size\":-1,\"rgba\":\"\"}", "{\"size\":2}"] {
+            let got = serde_json::from_str::<Toss>(&format!(r#"{{"kind":"app_icon","icon":{junk}}}"#)).unwrap();
+            assert_eq!(got.icon, None, "{junk}");
+        }
+        let c = Carry { kind: "app_icon".into(), look: None, scale: None, icon: Some(icon) };
+        assert_eq!(serde_json::from_str::<Carry>(&serde_json::to_string(&c).unwrap()).unwrap(), c);
     }
 
     #[test]

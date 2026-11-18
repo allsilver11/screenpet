@@ -150,7 +150,7 @@ impl Pet {
         }
         if self.juggle.carry.is_some() && t >= taskbar::YANK_MIN_SECS {
             self.speech = Some(Speech::Pop);
-            self.juggle.plan = if self.toy.rng.f64() < taskbar::PUT_BACK_CHANCE { Plan::Stuff } else { self.toy_play_plan() };
+            self.juggle.plan = if self.toy.rng.f64() < taskbar::PUT_BACK_CHANCE { Plan::Stuff } else { self.toy_play_plan(world) };
             self.state = State::Juggle { phase: JugglePhase::Lift, t: 0.0 };
         } else if self.juggle.carry.is_none() && t >= taskbar::YANK_GIVE_UP_SECS {
             self.end_juggle();
@@ -159,8 +159,20 @@ impl Pet {
         }
     }
 
-    /// 갖고 놀기: 들고 돌아다니다 던지거나 바로 던짐 (친구에게 배달은 하지 않음)
-    fn toy_play_plan(&mut self) -> Plan {
+    /// 갖고 놀기: 들고 돌아다니다 던지거나 바로 던짐. 🔓 (v0.6.5) 걸어서 닿는 끝에 새 버전 친구가 있으면 가끔 그 친구에게
+    /// 들고 가거나 (TOY_PRANK_CHANCE) 모니터 너머로 던짐 (TOY_LOB_CHANCE) — 아이콘 그림은 앱이 실어 보냄
+    pub(super) fn toy_play_plan(&mut self, world: &World) -> Plan {
+        let sides = self.friend_sides(world);
+        if !sides.is_empty() {
+            let roll = self.toy.rng.f64();
+            let side = sides[self.toy.rng.usize(..sides.len())];
+            if roll < taskbar::TOY_PRANK_CHANCE {
+                return Plan::Prank(side);
+            }
+            if roll < taskbar::TOY_PRANK_CHANCE + taskbar::TOY_LOB_CHANCE {
+                return Plan::Lob(side);
+            }
+        }
         if self.toy.rng.f64() < taskbar::TOY_WANDER_CHANCE {
             Plan::Wander
         } else {
@@ -169,7 +181,7 @@ impl Pet {
     }
 
     /// 내 장난감을 주워 들었음 (start_lift): 도로 넣을 때가 됐으면 넣으러, 아니면 또 갖고 놂. 내 장난감이 아니면 None
-    pub(super) fn toy_pickup_plan(&mut self, id: u64) -> Option<Plan> {
+    pub(super) fn toy_pickup_plan(&mut self, id: u64, world: &World) -> Option<Plan> {
         if self.toy.toy != Some(id) {
             return None;
         }
@@ -177,7 +189,7 @@ impl Pet {
         self.toy.returning = false;
         // 다시 놓이면 그때부터 잰다
         self.toy.return_at = None;
-        Some(if due && self.on_bottom_ground() { Plan::Stuff } else { self.toy_play_plan() })
+        Some(if due && self.on_bottom_ground() { Plan::Stuff } else { self.toy_play_plan(world) })
     }
 
     /// 도로 밀어 넣기 시작 (바닥이 아니면 그냥 던짐)

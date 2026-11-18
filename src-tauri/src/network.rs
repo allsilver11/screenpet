@@ -341,6 +341,8 @@ pub struct CarryArrival {
     pub label: String,
     pub kind: ObjectKind,
     pub scale: Option<f64>,
+    /// 📌 들고 온 앱 아이콘 장난감의 그림 (코어가 확인한 것)
+    pub icon: Option<screenpet_core::icon::IconImage>,
 }
 
 /// 📱 내 다른 컴퓨터의 펫(손님)을 이 컴퓨터가 친구 화면으로 데려다줬음 (그 컴퓨터는 대기 중이라 친구와 연결이 없을 수 있음).
@@ -780,7 +782,7 @@ impl Network {
         }
         let friend = &friends[fastrand::usize(..friends.len())].id;
         let (side, vside) = to_net_side(visit::opposite(side));
-        net.toss(friend, screenpet_net::Toss { kind: screenpet_core::weather::flurry_kind(kind), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None, look: None, rally: None });
+        net.toss(friend, screenpet_net::Toss { kind: screenpet_core::weather::flurry_kind(kind), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None, look: None, rally: None, icon: None });
     }
 
     /// 집에 돌아온 내 동물의 일시 확대가 끝날 때가 됐으면 원래 크기로 (친구 화면에 가 있으면 돌아온 뒤에)
@@ -2275,13 +2277,23 @@ impl Network {
 
     /// 친구가 보낸 물건 이름을 확인해 줄에 세움 (모르는 것·거대한 것은 버림). 방문 하나에 하나뿐임
     fn queue_carry(&mut self, label: &str, c: &screenpet_net::Carry) {
+        // 📌 앱 아이콘 장난감: 그림이 엄격한 확인을 지나야만 (🔓 v0.6.5 — 이상하면 버림)
+        if c.kind == screenpet_core::object::TOY_ID {
+            let Some(icon) = screenpet_core::object::accept_toy_carry(c.icon.as_ref().map(|i| (i.size, i.rgba.as_str()))) else {
+                log!(Warn, "visit", "unknown_object");
+                return;
+            };
+            self.carry_arrivals.retain(|a| a.label != label);
+            self.carry_arrivals.push(CarryArrival { label: label.to_string(), kind: ObjectKind::AppIcon, scale: None, icon: Some(icon) });
+            return;
+        }
         let Some(kind) = screenpet_core::object::accept_carry(&c.kind, c.look.as_deref()) else {
             log!(Warn, "visit", "unknown_object");
             return;
         };
         let scale = kind.is_poop().then(|| screenpet_core::poop::sanitize_size(c.scale));
         self.carry_arrivals.retain(|a| a.label != label);
-        self.carry_arrivals.push(CarryArrival { label: label.to_string(), kind, scale });
+        self.carry_arrivals.push(CarryArrival { label: label.to_string(), kind, scale, icon: None });
     }
 
     /// 방금 들어온 손님이 들고 온 선물들 (게임 루프가 Gifts로 넘김)

@@ -176,6 +176,7 @@
 | toss | `toss_volley` | INFO | friend n | 물건 여러 개 던지기 |
 | toss | `toss_in` | INFO | friend kind with_note | 친구가 던진 물건을 받음 |
 | toss | `toss_unknown` | WARN | friend | 모르는 물건 종류라 버림 |
+| toss | `toss_bad_icon` | WARN | friend | 📌 앱 아이콘 장난감의 그림이 없거나 이상해서 버림 (v0.6.5) |
 
 ## 4. 개인정보 규칙
 

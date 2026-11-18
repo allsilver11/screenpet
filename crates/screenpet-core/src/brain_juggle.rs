@@ -67,7 +67,7 @@ pub struct JuggleMood {
     pub(super) carry: Option<u64>,
     /// 든 것이 거대한 것
     pub(super) giant: bool,
-    /// 다가가거나 든 것이 이 컴퓨터를 떠나지 않는 것 (📌 장난감 — ObjectSpot.local): 친구에게 들고 가지 않음
+    /// 다가가거나 든 것이 📌 장난감 (ObjectSpot.local): 평소 계획(pick_plan)으로는 친구에게 들고 가지 않음 — 장난감 놀이(toy_play_plan)가 따로 정함
     pub(super) local: bool,
     /// 들고 들어와 서면 앞을 보고 떨굼 (배달 도착·돌아옴)
     pub(super) present_pending: bool,
@@ -370,11 +370,8 @@ impl Pet {
         self.state = self.rest_beat();
     }
 
-    /// 들어 올린 뒤 할 일: 거대한 것은 던지기만, 아니면 배달 장난 (갈 수 있는 끝이 있을 때) / 들고 돌아다니기 / 던지기
-    pub(super) fn pick_plan(&mut self, giant: bool, world: &World) -> Plan {
-        if giant {
-            return Plan::Throw;
-        }
+    /// 걸어서 닿는 끝 중 새 버전 친구가 연결된 쪽 (배달 장난·모니터 너머 던지기)
+    pub(super) fn friend_sides(&self, world: &World) -> Vec<Side> {
         let piece = self.standing.and_then(|st| world.piece_at(st.owner, self.body.x)).copied();
         let reach = |side: Side, dir: f64| piece.is_some_and(|p| visit::screen_edge(world, &p, dir) == Some(side));
         let mut sides = Vec::new();
@@ -384,7 +381,16 @@ impl Pet {
         if self.juggle.prank.1 && reach(Side::Right, 1.0) {
             sides.push(Side::Right);
         }
-        // 📌 이 컴퓨터를 떠나지 않는 것(장난감)은 친구에게 들고 가지 않는다 (주사위도 굴리지 않는다)
+        sides
+    }
+
+    /// 들어 올린 뒤 할 일: 거대한 것은 던지기만, 아니면 배달 장난 (갈 수 있는 끝이 있을 때) / 들고 돌아다니기 / 던지기
+    pub(super) fn pick_plan(&mut self, giant: bool, world: &World) -> Plan {
+        if giant {
+            return Plan::Throw;
+        }
+        let sides = self.friend_sides(world);
+        // 📌 작업표시줄 장난감은 여기서 정하지 않는다 (brain_taskbar.rs toy_play_plan이 따로 굴림 — 다른 흐물이의 장난감은 줍지 않음)
         if !sides.is_empty() && !self.juggle.local {
             let roll = self.juggle.rng.f64();
             if roll < juggle::PRANK_CHANCE {
@@ -405,7 +411,7 @@ impl Pet {
     pub(super) fn start_lift(&mut self, id: u64, giant: bool, world: &World) {
         self.juggle.carry = Some(id);
         self.juggle.giant = giant;
-        self.juggle.plan = match (self.toy_pickup_plan(id), self.juggle.leave_to.take()) {
+        self.juggle.plan = match (self.toy_pickup_plan(id, world), self.juggle.leave_to.take()) {
             (Some(plan), _) => plan,
             // 놀러 가는 길에 주웠다: 들고 간다
             (None, Some(side)) if !giant && !self.juggle.local => Plan::Prank(side),

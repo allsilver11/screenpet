@@ -10,7 +10,8 @@
 //! 아무도 들고 있지 않게 된 물건은 그 자리에서 떨어짐. 친구에게 들고 간 물건은 이 화면에서 치우고 Visit에 실림 (network.rs).
 //! 📌 흐물이가 작업표시줄에서 끌어내는 앱 아이콘 장난감 (코어 taskbar.rs): Pull이면 열린 창 몇 개의 앱 아이콘을 다른 스레드에서 읽어 (platform app_icon)
 //! 하나로 장난감 창을 만들어 흐물이 손에 쥐여 주고, Stow면 뿅 치움. 한 번에 하나, 몇 분 뒤 저절로 사라짐. 그림은 창의 초기화 스크립트로만 가고
-//! (웹뷰가 canvas에 그림 — CSP 그대로) 어디에도 저장·기록하지 않음. 친구에게 던지지도 들려 보내지도 않음 (코어가 막고, 여기서도 한 번 더 막음).
+//! (웹뷰가 canvas에 그림 — CSP 그대로) 어디에도 저장·기록하지 않음. 🔓 (v0.6.5, 사용자 결정) 친구에게 던지거나 들려 보낼 수 있음: 그때만 그림을
+//! 48 px로 줄여 Toss·Carry의 icon에 실음 (코어 icon::to_wire). 받은 장난감은 코어가 그림을 엄격히 확인한 것만 (accept_toy_toss·accept_toy_carry) 만듦.
 //! ⛄ 눈덩이 (v0.6.5): 쌓인 눈을 커서로 문지르거나 (game_loop) 동물이 발밑 눈으로 뭉쳐 만듦. 따로 5개까지, 몇 분 뒤 스르륵 녹음.
 //! 던진 눈덩이는 동물·바닥·창에 닿으면 퍽 부서짐 — 뿅 치우고 그 자리를 take_bursts로 알림 (게임 루프가 눈가루를 날림).
 
@@ -24,7 +25,7 @@ use screenpet_log::{log, short};
 use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::icon::{self, IconImage};
 use screenpet_core::taskbar::{Toys, CAPTURE_BACKOFF_SECS, TOY_ICON_PX};
-use screenpet_core::object::{accept_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE, Volley, volley_piece};
+use screenpet_core::object::{accept_toss, accept_toy_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE, Volley, volley_piece};
 use screenpet_core::brain::Pet;
 use screenpet_core::juggle::{JuggleEvent, ObjectSpot};
 use screenpet_core::play::ObjectPlay;
@@ -141,6 +142,8 @@ struct Live {
     hwnd: Option<isize>,
     /// 창이 마우스를 통과시키는 중 (거대한 물건의 투명한 곳 위에 커서가 있음)
     click_through: bool,
+    /// 📌 장난감에 그린 앱 아이콘 (친구에게 던지거나 들고 갈 때 같이 보냄 — 메모리에만)
+    icon: Option<IconImage>,
 }
 
 impl Live {
@@ -234,7 +237,7 @@ pub struct Objects {
     live: Vec<Live>,
     roster: Roster,
     /// 받았지만 아직 창을 만들지 않은 물건 (틱마다 하나씩)
-    inbox: TossInbox<(AcceptedToss, Side, u32)>,
+    inbox: TossInbox<(AcceptedToss, Side, u32, Option<IconImage>)>,
     poop_queue: VecDeque<WaitingPoop>,
     fading: crate::overlay::Fading,
     /// 물건이 있을 때만 맞춤 (물건 키에 맞춘 세계)
@@ -530,8 +533,12 @@ impl Objects {
     pub fn carry_wire(&self, id: u64) -> Option<screenpet_net::Carry> {
         let l = self.live.iter().find(|l| l.id == id)?;
         let kind = l.object.kind;
-        // 📌 장난감은 이 컴퓨터를 떠나지 않음 (코어도 배달을 막음)
-        (!kind.is_giant() && !kind.is_toy()).then(|| screenpet_net::Carry { kind: kind.wire_id().to_string(), look: kind.look().map(str::to_string), scale: kind.is_poop().then(|| l.object.scale()) })
+        // 📌 장난감은 그림이 있을 때만 그림과 함께 (🔓 v0.6.5)
+        let icon = l.icon.as_ref().map(wire_icon);
+        if kind.is_giant() || (kind.is_toy() && icon.is_none()) {
+            return None;
+        }
+        Some(screenpet_net::Carry { kind: kind.wire_id().to_string(), look: kind.look().map(str::to_string), scale: kind.is_poop().then(|| l.object.scale()), icon: icon.filter(|_| kind.is_toy()) })
     }
 
     /// 🤹 친구에게 들고 갔음: 이 화면에서는 치움 (뿅 없이 — 동물 손에 들려 화면 밖으로 나갔음)
@@ -547,13 +554,17 @@ impl Objects {
 
     /// 🤹 동물 손에 쥐여 줄 물건 창을 at(머리 위 언저리)에 만듦: 친구의 흐물이가 들고 왔으면 받은 물건, 못 들어가 들고 돌아왔으면 내 물건.
     /// 똥은 똥 수에 들어감 (scale = 다듬은 크기). 만들었으면 그 id — 동물의 hold_object에 줌
-    pub fn spawn_carried(&mut self, app: &AppHandle, base: &World, kind: ObjectKind, scale: Option<f64>, own: bool, at: (f64, f64)) -> Option<u64> {
+    /// icon = 📌 들고 온 앱 아이콘 장난감의 그림 (확인된 것 — 장난감일 때만)
+    pub fn spawn_carried(&mut self, app: &AppHandle, base: &World, kind: ObjectKind, scale: Option<f64>, own: bool, at: (f64, f64), icon: Option<IconImage>) -> Option<u64> {
+        if kind.is_toy() && icon.is_none() {
+            return None;
+        }
         let id = self.next_id();
         let scale = match scale.filter(|_| kind.is_poop()) {
             Some(s) => s,
             None => self.scale_at(app, kind, base, at.0, at.1),
         };
-        let window = build_window(app, id, kind, false, scale, None)?;
+        let window = build_window(app, id, kind, false, scale, icon.as_ref())?;
         let dpi = window.scale_factor().unwrap_or(1.0);
         self.world_for(base, dpi);
         let mut object = Object::new(kind, at.0, at.1, dpi, fastrand::u64(..));
@@ -569,8 +580,16 @@ impl Objects {
             Origin::Foreign
         };
         self.admit(id, window, object, origin);
+        self.set_icon(id, icon);
         self.sync_menu();
         Some(id)
+    }
+
+    /// 📌 장난감 창에 그린 아이콘을 기억해 둠 (친구에게 보낼 때 씀)
+    fn set_icon(&mut self, id: u64, icon: Option<IconImage>) {
+        if let Some(l) = self.live.iter_mut().find(|l| l.id == id && l.object.kind.is_toy()) {
+            l.icon = icon;
+        }
     }
 
     /// 📌 지금 장난감 사정 (내 흐물이가 매 틱 봄): 아이콘을 읽는 OS이고, 화면에 장난감이 없고, 읽는 중이 아니고, 모두 숨기지 않았을 때만 만들 수 있음
@@ -625,6 +644,7 @@ impl Objects {
         object.set_scale(scale);
         object.carry_at(at.0, at.1);
         self.admit(id, window, object, Origin::Toy);
+        self.set_icon(id, Some(icon));
         if !pet.hold_toy(id) {
             self.stow(id);
         }
@@ -663,6 +683,22 @@ impl Objects {
             return;
         }
         let fling = toss.fling.map(from_net_fling);
+        // 📌 친구가 던진 앱 아이콘 장난감: 그림이 엄격한 확인을 지나야만 (코어 accept_toy_toss — 이상하면 버림)
+        if toss.kind == screenpet_core::object::TOY_ID {
+            let Some((accepted, icon)) = accept_toy_toss(fling, toss.icon.as_ref().map(|i| (i.size, i.rgba.as_str()))) else {
+                log!(Warn, "toss", "toss_bad_icon", "friend" => short(from));
+                return;
+            };
+            log!(Info, "toss", "toss_in", "friend" => short(from), "kind" => screenpet_core::object::TOY_ID, "with_note" => 0u8);
+            let side = from_net_side(toss.side, toss.vside);
+            if let Some(old) = self.inbox.push((accepted, side, toss.rally.unwrap_or(0), Some(icon)), &mut self.roster) {
+                if let Some(i) = self.live.iter().position(|l| l.id == old) {
+                    let l = self.live.remove(i);
+                    self.poof(l);
+                }
+            }
+            return;
+        }
         let kind = ObjectKind::wire_kind(&toss.kind, toss.look.as_deref()).map_or(toss.kind.clone(), |k| k.id().to_string());
         let Some(accepted) = accept_toss(&kind, fling, toss.note.as_deref()) else {
             log!(Warn, "toss", "toss_unknown", "friend" => short(from));
@@ -676,7 +712,7 @@ impl Objects {
             self.queue_poop(WaitingPoop::Tossed(accepted, side, screenpet_core::poop::sanitize_size(toss.scale)));
             return;
         }
-        if let Some(old) = self.inbox.push((accepted, side, toss.rally.unwrap_or(0)), &mut self.roster) {
+        if let Some(old) = self.inbox.push((accepted, side, toss.rally.unwrap_or(0), None), &mut self.roster) {
             if let Some(i) = self.live.iter().position(|l| l.id == old) {
                 let l = self.live.remove(i);
                 self.poof(l);
@@ -695,11 +731,11 @@ impl Objects {
             self.admit_poop(app, base, poop);
             return;
         }
-        let Some((accepted, side, rally)) = self.inbox.pop() else { return };
+        let Some((accepted, side, rally, icon)) = self.inbox.pop() else { return };
         let id = self.next_id();
         let (x, y) = entry_point(base, side);
         let scale = self.scale_at(app, accepted.kind, base, x, y);
-        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), scale, None) else { return };
+        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), scale, icon.as_ref()) else { return };
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
@@ -710,6 +746,7 @@ impl Objects {
         // ⛄ 친구가 던진 눈덩이도 눈덩이 수에 듦
         let origin = if accepted.kind.is_snowball() { Origin::Snow } else { Origin::Foreign };
         self.admit(id, window, object, origin);
+        self.set_icon(id, icon);
     }
 
     /// 기다리던 똥 하나에 창을 만들어 들임
@@ -787,6 +824,7 @@ impl Objects {
             note_open: false,
             hwnd,
             click_through,
+            icon: None,
         });
     }
 
@@ -981,7 +1019,7 @@ impl Objects {
             let mut rng = fastrand::Rng::new();
             for _ in 0..count {
                 let (kind, fling) = volley_piece(&mut rng);
-                network.toss_to(id, Toss { kind: kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None, look: None, rally: None });
+                network.toss_to(id, Toss { kind: kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None, look: None, rally: None, icon: None });
             }
             !volley.is_done()
         });
@@ -989,8 +1027,9 @@ impl Objects {
 
     /// 물건이 side 끝을 넘어갔음: 그 끝의 연결된 친구 하나에게 날려 보냄 (친구 쪽에서 반대편 끝으로 들어옴). 돌아오지 않음
     fn toss_away(&mut self, l: &Live, exit: Exit, secs: f64, network: &Network, config: &Config) {
-        // 📌 장난감은 이 컴퓨터를 떠나지 않음 (코어가 화면 끝을 넘기지 않음 — 한 번 더)
-        if l.object.kind.is_toy() {
+        // 📌 장난감은 그림과 함께만 (🔓 v0.6.5 — 그림이 없으면 보내지 않음)
+        let icon = l.icon.as_ref().map(wire_icon).filter(|_| l.object.kind.is_toy());
+        if l.object.kind.is_toy() && icon.is_none() {
             return;
         }
         let friends = {
@@ -1004,7 +1043,7 @@ impl Objects {
         self.budgets.entry(friend.clone()).or_default().spend(secs);
         self.threw_at.insert(friend.clone(), Instant::now());
         let (side, vside) = to_net_side(visit::opposite(exit.side));
-        let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()), look: l.object.kind.look().map(str::to_string), rally: (l.object.rally() > 0).then(|| l.object.rally()) };
+        let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()), look: l.object.kind.look().map(str::to_string), rally: (l.object.rally() > 0).then(|| l.object.rally()), icon };
         log!(Info, "toss", "toss_out", "friend" => short(&friend), "kind" => l.object.kind.id(), "with_note" => u8::from(toss.note.is_some()));
         network.toss_to(&friend, toss);
     }
@@ -1018,6 +1057,12 @@ fn entry_point(world: &World, side: Side) -> (f64, f64) {
         Side::Right => (b.right - 1.0, b.bottom - 1.0),
         _ => ((b.left + b.right) / 2.0, b.bottom - 1.0),
     }
+}
+
+/// 📌 친구에게 보낼 아이콘 그림 (48 px로 줄인 base64 RGBA — 코어 icon::to_wire)
+fn wire_icon(icon: &IconImage) -> screenpet_net::WireIcon {
+    let (size, rgba) = icon::to_wire(icon);
+    screenpet_net::WireIcon { size, rgba }
 }
 
 /// 🤹 흐물이가 던진 물건은 이만큼 그 흐물이를 맞히지 않음 (손에서 막 떠난 물건이 제 몸과 겹침)

@@ -217,7 +217,7 @@ sequenceDiagram
 
 | 구조 | 필드 | 받는 쪽 검사 |
 |---|---|---|
-| `Toss` (`protocol.rs:101`) | `kind, side, vside?, fling?, note?, bounced, scale?, look?, rally?` | `kind`는 허용 목록, `rally`는 `MAX_RALLY`(20)로 자름 (`protocol.rs:136`) |
+| `Toss` (`protocol.rs:101`) | `kind, side, vside?, fling?, note?, bounced, scale?, look?, rally?, icon?` | `kind`는 허용 목록, `rally`는 `MAX_RALLY`(20)로 자름 (`protocol.rs:136`). `icon {size, rgba}`는 📌 `app_icon`의 그림 — 받는 앱이 `icon::accept_wire`로 엄격히 확인 (v0.6.5) |
 | `Steer` (`protocol.rs:85`) | `visit_id, on, keys` 비트 | 그 친구의 그 손님에게만 |
 | `ask` | `"invite"`, `"busy"` 등 문자열 | 앱이 해석 |
 
@@ -289,8 +289,8 @@ sequenceDiagram
 sequenceDiagram
   participant A as 앱 A (objects.rs)
   participant B as 앱 B (objects.rs)
-  Note over A: 물건이 친구 쪽 끝을 넘음 → toss_away (objects.rs:912)<br/>장난감(app_icon)은 여기서도 막음
-  A->>B: ping {toss: {kind, side, fling, note?, scale?, look?, rally?}}  (lib.rs:1145 Net::toss)
+  Note over A: 물건이 친구 쪽 끝을 넘음 → toss_away (objects.rs)<br/>📌 장난감(app_icon)은 48 px 아이콘 그림(icon)과 함께만
+  A->>B: ping {toss: {kind, side, fling, note?, scale?, look?, rally?, icon?}}  (lib.rs:1145 Net::toss)
   Note over B: 친구별 토큰 버킷 (TOSS_BURST 50, 1.2초에 1개, lib.rs:408)
   Note over B: receive (objects.rs:604) → wire_kind + accept_toss (object.rs:1177)<br/>모르는 kind 버림, 속도·note 다듬음
   alt 집중 중·집 안

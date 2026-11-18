@@ -95,12 +95,12 @@ pub enum ObjectKind {
     /// 던지면 닿은 곳에서 퍽 부서지고 (동물에 맞으면 "brr!"), 살며시 놓으면 쉬다가 몇 분 뒤 녹음. 친구에게 던질 수 있음 (옛 버전은 모르는 물건이라 버림)
     Snowball,
     /// 📌 흐물이가 작업표시줄(Dock)에서 끌어낸 앱 아이콘 장난감 (taskbar.rs): 그림은 열린 앱 하나의 아이콘을 베낀 것 (앱이 창에 넣음 — 그림 파일이 없음).
-    /// 이 컴퓨터를 떠나지 않음 — ALL에 없어 친구가 그 이름을 보내도 받지 않고, 던져도 화면 끝을 넘지 않음. 메뉴에 없고 포스트잇을 못 붙임
-    /// 한 번에 하나, TOY_LIFE_SECS 뒤 저절로 사라짐
+    /// 🔓 (v0.6.5, 사용자 결정) 친구에게 던지거나 들고 갈 수 있음 — 그때 아이콘 그림 칸이 같이 감 (icon::to_wire). ALL에는 없어 이름만 오면 받지 않고,
+    /// 그림까지 확인될 때만 받음 (accept_toy_toss·accept_toy_carry). 메뉴에 없고 포스트잇을 못 붙임. 한 번에 하나, TOY_LIFE_SECS 뒤 저절로 사라짐
     AppIcon,
 }
 
-/// 📌 장난감의 이름 (창 스크립트·웹뷰만 — 통신에 쓰지 않음, 그림 파일 목록 tools/draw_objects.py NAMES에도 없음)
+/// 📌 장난감의 이름 (창 스크립트·웹뷰, 🔓 v0.6.5부터 아이콘 그림과 함께 통신에도 — 그림 파일 목록 tools/draw_objects.py NAMES에는 없음)
 pub const TOY_ID: &str = "app_icon";
 /// 화면에 있을 수 있는 장난감 수
 pub const MAX_TOYS: usize = 1;
@@ -153,7 +153,7 @@ impl ObjectKind {
         ObjectKind::GiantPoop,
     ];
 
-    /// 📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 — 이 컴퓨터를 떠나지 않음
+    /// 📌 작업표시줄에서 꺼낸 앱 아이콘 장난감 — 친구에게는 아이콘 그림과 함께만 감 (🔓 v0.6.5)
     pub fn is_toy(self) -> bool {
         self == ObjectKind::AppIcon
     }
@@ -845,8 +845,6 @@ impl Object {
     /// gusts_ok = 바람이 불어도 됨 (object::gusts_ok). 던져서 화면 끝을 넘어가면 Exit
     pub fn tick(&mut self, dt: f64, world: &World, edges: ExitEdges, gusts_ok: bool) -> Option<Exit> {
         self.clock += dt;
-        // 📌 장난감은 친구가 연결된 끝도 넘지 않는다 — 안 받아 준 끝처럼 벽에 튕겨 돌아온다
-        let edges = if self.kind.is_toy() { ExitEdges::default() } else { edges };
         self.tick_note(dt);
         match self.phase {
             Phase::Held | Phase::Carried => None,
@@ -1220,6 +1218,21 @@ pub fn accept_toss(kind: &str, fling: Option<Fling>, note: Option<&str>) -> Opti
     // 똥·거대한 것엔 포스트잇이 없다 (옛 버전·고친 앱이 보내도)
     let note = note.filter(|_| kind.takes_postit()).and_then(visit::sanitize_note);
     Some(AcceptedToss { kind, fling: Fling { height: fling.height, vx, vy }, note })
+}
+
+/// 📌 친구가 던진 앱 아이콘 장난감: 아이콘 그림 (한 변, base64 RGBA)이 엄격한 확인을 지나야만 받음 (icon::accept_wire). 포스트잇은 없음
+pub fn accept_toy_toss(fling: Option<Fling>, icon: Option<(u32, &str)>) -> Option<(AcceptedToss, crate::icon::IconImage)> {
+    let (size, text) = icon?;
+    let icon = crate::icon::accept_wire(size, text)?;
+    let fling = fling.and_then(Fling::sanitized).unwrap_or(DEFAULT_FLING);
+    let (vx, vy) = clamp_speed(fling.vx, fling.vy, visit::MAX_FLING_SPEED);
+    Some((AcceptedToss { kind: ObjectKind::AppIcon, fling: Fling { height: fling.height, vx, vy }, note: None }, icon))
+}
+
+/// 📌 친구의 흐물이가 들고 온 앱 아이콘 장난감 (Visit.carry): 그림이 확인될 때만
+pub fn accept_toy_carry(icon: Option<(u32, &str)>) -> Option<crate::icon::IconImage> {
+    let (size, text) = icon?;
+    crate::icon::accept_wire(size, text)
 }
 
 /// 🤹 친구의 흐물이가 들고 온 물건 (Visit.carry): 던진 것처럼 이름·색을 확인함. 거대한 것은 들고 오지 않음 (고친 앱이 보내도 버림)
