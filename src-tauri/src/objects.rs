@@ -251,6 +251,8 @@ pub struct Objects {
     size: f64,
     /// 친구별 마지막으로 던진 때 (되돌아온 물건이 정말 내 것인지 봄)
     threw_at: HashMap<String, Instant>,
+    /// 📌 친구별 마지막으로 보낸 아이콘 그림 — 옛 버전 친구는 그림을 모른 채 되돌려 보내므로, 되돌아오면 이걸로 다시 붙임
+    sent_icons: HashMap<String, (Instant, screenpet_net::WireIcon)>,
     started: Instant,
     ride_until: Instant,
     frame: u64,
@@ -283,6 +285,7 @@ impl Objects {
             volleys: HashMap::new(),
             size: 1.0,
             threw_at: HashMap::new(),
+            sent_icons: HashMap::new(),
             started: now,
             ride_until: now,
             frame: 0,
@@ -704,7 +707,10 @@ impl Objects {
         let fling = toss.fling.map(from_net_fling);
         // 📌 친구가 던진 앱 아이콘 장난감: 그림이 엄격한 확인을 지나야만 (코어 accept_toy_toss — 이상하면 버림)
         if toss.kind == screenpet_core::object::TOY_ID {
-            let Some((mut accepted, icon)) = accept_toy_toss(fling, toss.icon.as_ref().map(|i| (i.size, i.rgba.as_str()))) else {
+            // 바쁜 옛 버전 친구가 되돌려 보낸 장난감은 그림이 빠져 옴: 방금 그 친구에게 보낸 그림을 다시 붙임 (사라지지 않게)
+            let remembered = toss.bounced.then(|| self.sent_icons.get(from).filter(|(t, _)| t.elapsed() < BOUNCE_WINDOW).map(|(_, i)| i.clone())).flatten();
+            let wire = toss.icon.clone().or(remembered);
+            let Some((mut accepted, icon)) = accept_toy_toss(fling, wire.as_ref().map(|i| (i.size, i.rgba.as_str()))) else {
                 log!(Warn, "toss", "toss_bad_icon", "friend" => short(from));
                 return;
             };
@@ -1074,6 +1080,9 @@ impl Objects {
         let friend = friends[fastrand::usize(..friends.len())].id.clone();
         self.budgets.entry(friend.clone()).or_default().spend(secs);
         self.threw_at.insert(friend.clone(), Instant::now());
+        if let Some(i) = &icon {
+            self.sent_icons.insert(friend.clone(), (Instant::now(), i.clone()));
+        }
         let (side, vside) = to_net_side(visit::opposite(exit.side));
         let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()), look: l.object.kind.look().map(str::to_string), rally: (l.object.rally() > 0).then(|| l.object.rally()), icon };
         log!(Info, "toss", "toss_out", "friend" => short(&friend), "kind" => l.object.kind.id(), "with_note" => u8::from(toss.note.is_some()));

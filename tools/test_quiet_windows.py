@@ -40,3 +40,12 @@ def test_weather_and_trail_covers_pause_quietly():
         src = _text(name)
         assert not re.search(r"\b[os]\.window\.hide\(\)", src), name
         assert "hide_quietly" in src, name
+
+
+def test_a_toy_bounced_by_an_old_busy_friend_gets_its_icon_back():
+    """옛 버전 친구는 Toss.icon을 몰라 되돌릴 때 빠뜨림 — 보낸 그림을 기억했다가 다시 붙임 (사라지지 않게)."""
+    src = _text("objects.rs")
+    assert "sent_icons" in src
+    receive = src[src.index("pub fn receive("):]
+    receive = receive[: receive.index("\n    }\n")]
+    assert "toss.bounced" in receive and "sent_icons" in receive
