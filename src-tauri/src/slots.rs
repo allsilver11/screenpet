@@ -36,6 +36,8 @@ pub const GLOW_SPACE: f64 = 24.0;
 const GLOW_PETS: [&str; 2] = ["rudolph", "pumpkin"];
 /// 빛이 이어지는 시간 (초)
 const GLOW_SECS: f64 = 2.6;
+/// 보여야 할 창이 정말 보이는지 이만큼(place 횟수 — 60 Hz면 1초)마다 OS에 물음
+const SHOWN_CHECK_TICKS: u32 = 60;
 
 /// 손님 창 라벨. visit_id는 Tauri 창 라벨 글자(영숫자와 - / : _)만 — 아니면 None
 pub fn guest_label(visit_id: &str) -> Option<String> {
@@ -183,6 +185,8 @@ pub struct Slot {
     pub shown: StagePayload,
     /// 창은 visible:false로 만들고, 위치를 잡은 뒤에야 보임 (OS 기본 위치 깜빡임 방지)
     pub need_show: bool,
+    /// place를 부른 수 (창이 정말 보이는지 가끔 OS에 물음 — check_shown_due)
+    shown_checks: u32,
     last_pos: Option<(i32, i32)>,
     last_render: Option<RenderState>,
     /// 편지 말풍선을 띄워 창이 커져 있음 (웹뷰 `note_space` — 손님이 들고 온 편지 / 돌아온 내 동물의 답장)
@@ -222,6 +226,7 @@ impl Slot {
             boost: 1.0,
             boost_applied: 1.0,
             need_show: true,
+            shown_checks: 0,
             last_pos: None,
             last_render: None,
             note_open: false,
@@ -409,7 +414,7 @@ impl Slot {
         let through = self.pet.cursor_through();
         if through != self.click_through {
             self.click_through = through;
-            let _ = self.window.set_ignore_cursor_events(through);
+            crate::overlay::set_click_through(&self.window, through);
         }
     }
 
@@ -516,7 +521,16 @@ impl Slot {
             // 친구 펫이 들어와도 지금 쓰던 앱의 포커스를 뺏지 않음
             crate::overlay::show_quietly(&self.window);
             self.need_show = false;
+        } else if !self.need_show && self.on_screen() && !hidden && self.check_shown_due() && !crate::overlay::is_shown(&self.window) {
+            // 보여야 하는데 숨어 있음 (다른 무엇이 우리 몰래 숨겼음 — 예: tao가 창 플래그를 다시 적용하며 SW_HIDE): 조용히 다시 보임
+            crate::overlay::show_quietly(&self.window);
         }
+    }
+
+    /// 창이 정말 보이는지 OS에 물을 때 (1초에 한 번쯤 — 매 틱 묻지 않음)
+    fn check_shown_due(&mut self) -> bool {
+        self.shown_checks = self.shown_checks.wrapping_add(1);
+        self.shown_checks % SHOWN_CHECK_TICKS == 0
     }
 
     /// 지난번과 달라졌으면 지금 그릴 모습. 새로 뜬 웹뷰(`slot_info`)를 위해 AppState에도 적어 둠 — emit보다 먼저

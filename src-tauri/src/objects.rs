@@ -207,7 +207,7 @@ impl Live {
         let through = self.object.passes_clicks_at(cursor.0, cursor.1);
         if through != self.click_through {
             self.click_through = through;
-            let _ = self.window.set_ignore_cursor_events(through);
+            crate::overlay::set_click_through(&self.window, through);
         }
     }
 
@@ -841,7 +841,7 @@ impl Objects {
         // 거대한 것·📌 장난감은 처음부터 클릭이 지나감 (아직 화면 밖일 때 정함) — 나중에 바꾸면 Windows가 창을 통째로 다시 그려 깜빡임
         let click_through = object.kind.is_giant() || object.kind.is_toy();
         if click_through {
-            let _ = window.set_ignore_cursor_events(true);
+            crate::overlay::set_click_through(&window, true);
         }
         if let Some(old) = self.roster.add(id, origin) {
             if let Some(i) = self.live.iter().position(|l| l.id == old) {

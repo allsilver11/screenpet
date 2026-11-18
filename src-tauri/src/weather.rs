@@ -394,7 +394,7 @@ impl WeatherFx {
         let _ = window.set_size(LogicalSize::new(w, h));
         let pos = bottom_center(x, y, (w, h), dpi);
         let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
-        let _ = window.set_ignore_cursor_events(true);
+        crate::overlay::set_click_through(&window, true);
         if !crate::windows_hidden(app) {
             crate::overlay::show_quietly(&window);
         }

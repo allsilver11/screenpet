@@ -383,5 +383,5 @@ def test_giant_windows_start_click_through_and_are_capped():
     admit = src[src.index("fn admit(&mut self"):]
     admit = admit[: admit.index("\n    fn ", 10)]
     assert "giant_to_drop(" in admit
-    assert "set_ignore_cursor_events(true)" in admit
+    assert "set_click_through(&window, true)" in admit
     assert "click_through," in admit and "click_through: false" not in admit

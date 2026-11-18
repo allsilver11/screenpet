@@ -118,6 +118,30 @@ pub fn hide_quietly(window: &WebviewWindow) {
     let _ = window.hide();
 }
 
+/// 창이 마우스를 통과시킬지 바꿈. Windows에서는 tao를 거치지 않음 — tao의 set_ignore_cursor_events는 창 플래그를 다시 적용하며
+/// show_quietly로 보인 창(tao는 "안 보임"으로 앎)을 숨겨 버림 (커서 캐치볼 중 흐물이 창이 사라지던 버그, v0.6.6)
+pub fn set_click_through(window: &WebviewWindow, through: bool) {
+    #[cfg(windows)]
+    {
+        if hwnd_of(window).is_some_and(|h| screenpet_core::platform::set_click_through(h, through)) {
+            return;
+        }
+    }
+    let _ = window.set_ignore_cursor_events(through);
+}
+
+/// 창이 지금 보이는 상태임 (Windows만 OS에 물음 — 다른 OS는 늘 true라 다시 보이지 않음)
+pub fn is_shown(window: &WebviewWindow) -> bool {
+    #[cfg(windows)]
+    {
+        if let Some(h) = hwnd_of(window) {
+            return screenpet_core::platform::is_window_shown(h);
+        }
+    }
+    let _ = window;
+    true
+}
+
 /// 창을 물리 px로 옮김. Windows에서 tao의 set_position은 보이는 창을 매번 활성화함 (SW_SHOW)
 pub fn move_quietly(window: &WebviewWindow, hwnd: Option<isize>, x: i32, y: i32) {
     #[cfg(windows)]
@@ -168,7 +192,7 @@ pub fn screen_cover(app: &AppHandle, label: &str, page: &str, title: &str, wa: &
     };
     let _ = window.set_position(tauri::PhysicalPosition::new(wa.left.round() as i32, wa.top.round() as i32));
     let _ = window.set_size(tauri::PhysicalSize::new(wa.width().round() as u32, wa.height().round() as u32));
-    let _ = window.set_ignore_cursor_events(true);
+    set_click_through(&window, true);
     show_quietly(&window);
     Some((window, scale))
 }

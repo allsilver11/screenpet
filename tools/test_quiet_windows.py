@@ -49,3 +49,25 @@ def test_a_toy_bounced_by_an_old_busy_friend_gets_its_icon_back():
     receive = src[src.index("pub fn receive("):]
     receive = receive[: receive.index("\n    }\n")]
     assert "toss.bounced" in receive and "sent_icons" in receive
+
+
+def test_click_through_never_goes_through_tao():
+    """tao의 set_ignore_cursor_events는 창 플래그를 다시 적용하는데, tao가 "안 보임"으로 아는 창(show_quietly로 보인 창)은
+    그때 SW_HIDE로 숨겨 버림 — 커서 캐치볼 중 흐물이 창이 사라지고 뇌만 돌던 버그(v0.6.6). 그래서 클릭 통과도 overlay의 조용한 함수로만."""
+    for path in sorted(SRC.glob("*.rs")):
+        src = path.read_text(encoding="utf-8")
+        calls = src.count("set_ignore_cursor_events(")
+        if path.name == "overlay.rs":
+            body = src[src.index("pub fn set_click_through("):]
+            body = body[: body.index("\n}\n")]
+            assert calls == 1 and "set_ignore_cursor_events(" in body, "only the non-Windows fallback"
+            assert "platform::set_click_through" in body
+        else:
+            assert calls == 0, path.name
+
+
+def test_a_pet_window_hidden_behind_our_back_is_shown_again():
+    src = _text("slots.rs")
+    place = src[src.index("pub fn place("):]
+    place = place[: place.index("\n    }\n")]
+    assert "crate::overlay::is_shown(" in place and "show_quietly" in place

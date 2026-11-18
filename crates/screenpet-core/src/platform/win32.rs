@@ -18,7 +18,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyIcon, DrawIconEx, GetClassLongPtrW, PrivateExtractIconsW, SendMessageTimeoutW, DI_NORMAL, GCLP_HICON, GCLP_HICONSM, HICON, ICON_BIG, ICON_SMALL2,
     SMTO_ABORTIFHUNG, WM_GETICON,
-    EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
+    EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId, SetWindowLongW, SWP_FRAMECHANGED, WS_EX_LAYERED,
     IsIconic, IsWindow, IsWindowVisible, SetWindowPos, ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SWP_NOZORDER, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
@@ -354,6 +354,28 @@ pub fn show_window_quietly(hwnd: isize) {
     unsafe {
         let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
     }
+}
+
+/// 우리 창(hwnd)이 마우스를 통과시킬지 바꿈 (tao가 IGNORE_CURSOR_EVENT에 붙이는 것과 같은 WS_EX_TRANSPARENT | WS_EX_LAYERED).
+/// tao의 set_ignore_cursor_events는 창 플래그를 통째로 다시 적용하며, tao가 "안 보임"으로 아는 창(show_window_quietly로 보인 창)을
+/// SW_HIDE로 숨겨 버림 — 그래서 tao를 거치지 않음. 보임·위치·크기·Z 순서·포커스는 그대로. 실패하면 false
+pub fn set_click_through(hwnd: isize, on: bool) -> bool {
+    let h = HWND(hwnd as *mut c_void);
+    unsafe {
+        let ex = GetWindowLongW(h, GWL_EXSTYLE) as u32;
+        let bits = WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0;
+        let next = if on { ex | bits } else { ex & !bits };
+        if next != ex {
+            SetWindowLongW(h, GWL_EXSTYLE, next as i32);
+            let _ = SetWindowPos(h, HWND::default(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        }
+        IsWindow(h).as_bool()
+    }
+}
+
+/// 우리 창(hwnd)이 지금 보이는 상태임 (WS_VISIBLE — 화면 밖이어도 보이는 상태면 true)
+pub fn is_window_shown(hwnd: isize) -> bool {
+    unsafe { IsWindowVisible(HWND(hwnd as *mut c_void)).as_bool() }
 }
 
 /// 우리 창(hwnd)을 숨김 — show_window_quietly와 짝 (tao가 기억하는 보임 상태와 상관없이 늘 숨김)

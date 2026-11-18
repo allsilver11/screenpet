@@ -21,7 +21,7 @@ def test_the_overlay_is_a_shared_click_through_screen_cover():
     # 날씨 창과 같은 만들기 (투명·항상 위·작업표시줄 숨김·포커스 없음·마우스 통과)
     cover = OVERLAY[OVERLAY.index("pub fn screen_cover("):]
     cover = cover[: cover.index("\n}\n")]
-    assert "finish(" in cover and "set_ignore_cursor_events(true)" in cover and "scale_of(app, wa)" in cover
+    assert "finish(" in cover and "set_click_through(&window, true)" in cover and "scale_of(app, wa)" in cover
     assert ".skip_taskbar(true)" in OVERLAY and ".focused(false)" in OVERLAY
     assert 'screen_cover(app, &label, "trail.html"' in RS
     assert 'screen_cover(app, &label, "weather.html"' in (ROOT / "src-tauri" / "src" / "weather.rs").read_text(encoding="utf-8")

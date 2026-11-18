@@ -97,7 +97,7 @@ impl Props {
         let _ = window.set_size(LogicalSize::new(w, h));
         let _ = window.set_position(PhysicalPosition::new((x - w * dpi / 2.0).round() as i32, (y - h * dpi).round() as i32));
         // 클릭·드래그는 그릇을 지나 그 아래(동물·다른 앱)로 감
-        let _ = window.set_ignore_cursor_events(true);
+        crate::overlay::set_click_through(&window, true);
         if !crate::windows_hidden(app) {
             crate::overlay::show_quietly(&window);
         }
@@ -150,7 +150,7 @@ impl HandWindow {
         };
         let _ = window.set_size(LogicalSize::new(side.0, side.1));
         // 클릭은 음식을 지나 그 아래(동물·다른 앱)로 감 — 누름은 게임 루프가 전역으로 읽음
-        let _ = window.set_ignore_cursor_events(true);
+        crate::overlay::set_click_through(&window, true);
         self.last_pos = None;
         self.live = Some(window);
         self.move_to(at, dpi);

@@ -173,7 +173,7 @@ fn build_window(app: &AppHandle, setup: &Setup, (w, h): (f64, f64)) -> Option<We
     match built {
         Ok(window) => {
             // 클릭은 썰매를 지나 아래로 감
-            let _ = window.set_ignore_cursor_events(true);
+            crate::overlay::set_click_through(&window, true);
             Some(window)
         }
         Err(e) => {
