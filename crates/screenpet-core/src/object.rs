@@ -420,6 +420,8 @@ pub struct Object {
     note_ended: bool,
     /// ⚾ 캐치볼로 주고받은 횟수 (처음 던진 것 = 0 — 친구에게 보내는 Toss에 실림)
     rally: u32,
+    /// ⚾ 바쁜 친구(집중·하우스)가 받지 않고 되돌려 보낸 것 — 흐물이가 받아치지 않음 (혼자 랠리를 세지 않게)
+    returned: bool,
     /// ⚾ 친구 화면 끝에서 날아 들어왔음 (그 끝) — 흐물이가 받으면 이쪽으로 되던짐
     from: Option<Side>,
     /// 🐱 고양이가 툭 밀어 미끄러지는 중 — 끝을 넘어 떨어지면 던진 것처럼 동물에 맞음 (nudge)
@@ -467,6 +469,7 @@ impl Object {
             read_left: 0.0,
             note_ended: false,
             rally: 0,
+            returned: false,
             from: None,
             knocked: false,
             burst: false,
@@ -483,8 +486,17 @@ impl Object {
         self.rally
     }
 
-    /// ⚾ 친구 화면 끝에서 던져져 날아 들어오는 중이면 흐물이가 받을 수 있게 (id = 앱의 물건 id)
+    /// ⚾ 바쁜 친구가 되돌려 보낸 것으로 표시함: 랠리 횟수를 지우고 흐물이가 받아치지 않음
+    pub fn mark_returned(&mut self) {
+        self.returned = true;
+        self.rally = 0;
+    }
+
+    /// ⚾ 친구 화면 끝에서 던져져 날아 들어오는 중이면 흐물이가 받을 수 있게 (id = 앱의 물건 id). 되돌아온 것은 None
     pub fn incoming(&self, id: u64) -> Option<crate::juggle::Incoming> {
+        if self.returned {
+            return None;
+        }
         let from = self.from.filter(|s| !visit::is_vertical(*s))?;
         if !self.in_flight() {
             return None;
@@ -1205,6 +1217,8 @@ pub struct AcceptedToss {
     pub fling: Fling,
     /// 포스트잇 글 (다듬은 것)
     pub note: Option<String>,
+    /// 바쁜 친구가 되돌려 보낸 것임 (앱이 Toss.bounced로 채움 — 흐물이가 받아치지 않음)
+    pub returned: bool,
 }
 
 /// fling이 없거나 이상할 때: 옆에서 살짝 포물선으로 들어옴
@@ -1217,7 +1231,7 @@ pub fn accept_toss(kind: &str, fling: Option<Fling>, note: Option<&str>) -> Opti
     let (vx, vy) = clamp_speed(fling.vx, fling.vy, visit::MAX_FLING_SPEED);
     // 똥·거대한 것엔 포스트잇이 없다 (옛 버전·고친 앱이 보내도)
     let note = note.filter(|_| kind.takes_postit()).and_then(visit::sanitize_note);
-    Some(AcceptedToss { kind, fling: Fling { height: fling.height, vx, vy }, note })
+    Some(AcceptedToss { kind, fling: Fling { height: fling.height, vx, vy }, note, returned: false })
 }
 
 /// 📌 친구가 던진 앱 아이콘 장난감: 아이콘 그림 (한 변, base64 RGBA)이 엄격한 확인을 지나야만 받음 (icon::accept_wire). 포스트잇은 없음
@@ -1226,7 +1240,7 @@ pub fn accept_toy_toss(fling: Option<Fling>, icon: Option<(u32, &str)>) -> Optio
     let icon = crate::icon::accept_wire(size, text)?;
     let fling = fling.and_then(Fling::sanitized).unwrap_or(DEFAULT_FLING);
     let (vx, vy) = clamp_speed(fling.vx, fling.vy, visit::MAX_FLING_SPEED);
-    Some((AcceptedToss { kind: ObjectKind::AppIcon, fling: Fling { height: fling.height, vx, vy }, note: None }, icon))
+    Some((AcceptedToss { kind: ObjectKind::AppIcon, fling: Fling { height: fling.height, vx, vy }, note: None, returned: false }, icon))
 }
 
 /// 📌 친구의 흐물이가 들고 온 앱 아이콘 장난감 (Visit.carry): 그림이 확인될 때만

@@ -2020,3 +2020,18 @@ fn only_a_few_snowballs_stay_on_screen() {
     assert_eq!(r.add(99, Origin::Snow), Some(0), "the oldest poofs");
     assert_eq!(r.own_count(), 0, "snowballs are not trash");
 }
+
+#[test]
+fn a_toss_that_came_back_from_a_busy_friend_is_not_caught_or_counted() {
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    let f = Fling { height: 0.5, vx: 300.0, vy: -50.0 };
+    let mut o = Object::flown_in(ObjectKind::Can, &w, Side::Right, f, 1.0, 1);
+    o.set_rally(3);
+    assert!(o.incoming(7).is_some(), "친구가 받아친 건 흐물이가 받음");
+    // 바쁜 친구가 받지 않고 되돌려 보낸 것: 받아치지 않고 숫자도 이어지지 않음
+    let mut back = Object::flown_in(ObjectKind::Can, &w, Side::Right, f, 1.0, 1);
+    back.set_rally(3);
+    back.mark_returned();
+    assert!(back.incoming(7).is_none());
+    assert_eq!(back.rally(), 0);
+}

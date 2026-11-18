@@ -685,11 +685,12 @@ impl Objects {
         let fling = toss.fling.map(from_net_fling);
         // 📌 친구가 던진 앱 아이콘 장난감: 그림이 엄격한 확인을 지나야만 (코어 accept_toy_toss — 이상하면 버림)
         if toss.kind == screenpet_core::object::TOY_ID {
-            let Some((accepted, icon)) = accept_toy_toss(fling, toss.icon.as_ref().map(|i| (i.size, i.rgba.as_str()))) else {
+            let Some((mut accepted, icon)) = accept_toy_toss(fling, toss.icon.as_ref().map(|i| (i.size, i.rgba.as_str()))) else {
                 log!(Warn, "toss", "toss_bad_icon", "friend" => short(from));
                 return;
             };
             log!(Info, "toss", "toss_in", "friend" => short(from), "kind" => screenpet_core::object::TOY_ID, "with_note" => 0u8);
+            accepted.returned = toss.bounced;
             let side = from_net_side(toss.side, toss.vside);
             if let Some(old) = self.inbox.push((accepted, side, toss.rally.unwrap_or(0), Some(icon)), &mut self.roster) {
                 if let Some(i) = self.live.iter().position(|l| l.id == old) {
@@ -700,10 +701,12 @@ impl Objects {
             return;
         }
         let kind = ObjectKind::wire_kind(&toss.kind, toss.look.as_deref()).map_or(toss.kind.clone(), |k| k.id().to_string());
-        let Some(accepted) = accept_toss(&kind, fling, toss.note.as_deref()) else {
+        let Some(mut accepted) = accept_toss(&kind, fling, toss.note.as_deref()) else {
             log!(Warn, "toss", "toss_unknown", "friend" => short(from));
             return;
         };
+        // ⚾ 바쁜 친구가 되돌려 보낸 것이면 흐물이가 받아치지 않음 (혼자 랠리를 세지 않게)
+        accepted.returned = toss.bounced;
         // 포스트잇 글은 안 적음 (있었는지만)
         log!(Info, "toss", "toss_in", "friend" => short(from), "kind" => kind, "with_note" => u8::from(toss.note.is_some()));
         let side = from_net_side(toss.side, toss.vside);
@@ -739,8 +742,11 @@ impl Objects {
         let dpi = window.scale_factor().unwrap_or(1.0);
         let world = self.world_for(base, dpi);
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
-        // ⚾ 친구가 보낸 캐치볼 랠리 (흐물이가 받아 되던지면 코어가 하나 올림)
+        // ⚾ 친구가 보낸 캐치볼 랠리 (흐물이가 받아 되던지면 코어가 하나 올림). 되돌아온 것은 받아치지 않음
         object.set_rally(rally);
+        if accepted.returned {
+            object.mark_returned();
+        }
         object.set_scale(scale);
         object.receive_note(accepted.note);
         // ⛄ 친구가 던진 눈덩이도 눈덩이 수에 듦
@@ -768,7 +774,14 @@ impl Objects {
                 let margin = OBJECT_LOGICAL_SIZE * dpi / 2.0;
                 Object::new(kind, x.clamp(b.left + margin, (b.right - margin).max(b.left + margin)), y, dpi, fastrand::u64(..))
             }
-            WaitingPoop::Tossed(accepted, side, _) => Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..)),
+            WaitingPoop::Tossed(accepted, side, _) => {
+                let mut o = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
+                // ⚾ 바쁜 친구가 되돌려 보낸 똥은 흐물이가 받아치지 않음
+                if accepted.returned {
+                    o.mark_returned();
+                }
+                o
+            }
         };
         let mut object = object;
         object.set_scale(scale);
