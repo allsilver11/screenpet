@@ -7,7 +7,7 @@ use crate::icon::IconImage;
 #[cfg(windows)]
 mod win32;
 #[cfg(windows)]
-pub use win32::{move_window, resize_window, show_window_quietly, Win32Source};
+pub use win32::{move_window, resize_window, hide_window_quietly, show_window_quietly, Win32Source};
 
 #[cfg(any(target_os = "macos", test))]
 mod mac_coords;

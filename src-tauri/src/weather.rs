@@ -206,9 +206,9 @@ impl WeatherFx {
             let paused = weather::overlay_paused(away, &own.world.windows, &o.wa);
             if paused != o.paused {
                 o.paused = paused;
-                let _ = if paused { o.window.hide() } else { crate::overlay::show_quietly(&o.window); Ok(()) };
+                if paused { crate::overlay::hide_quietly(&o.window) } else { crate::overlay::show_quietly(&o.window) }
                 if let Some(s) = self.snowman.as_ref().filter(|s| on_area(&o.wa, s.x)) {
-                    let _ = if paused { s.window.hide() } else { crate::overlay::show_quietly(&s.window); Ok(()) };
+                    if paused { crate::overlay::hide_quietly(&s.window) } else { crate::overlay::show_quietly(&s.window) }
                 }
             }
             let payload = Payload { paused, scene: self.field.scene(kind, &o.wa, o.scale) };
@@ -371,7 +371,7 @@ impl WeatherFx {
         self.snowman = self.sprite(app, "snowman", crate::art::fit(SNOWMAN_SIZE, dpi), old.x, old.y, dpi).map(|window| Snowman { window, ..old });
         // 그 모니터 날씨가 쉬는 동안(전체 화면 등) 눈사람도 숨어 있음
         if let Some(s) = self.snowman.as_ref().filter(|s| self.overlays.iter().any(|o| o.paused && on_area(&o.wa, s.x))) {
-            let _ = s.window.hide();
+            crate::overlay::hide_quietly(&s.window);
         }
     }
 

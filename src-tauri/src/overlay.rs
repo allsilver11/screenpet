@@ -105,6 +105,19 @@ pub fn show_quietly(window: &WebviewWindow) {
     let _ = window.show();
 }
 
+/// show_quietly와 짝으로 떠 있는 창을 숨김. Windows에서 tao는 보임 상태를 기억해 바뀐 것만 반영하는데,
+/// show_quietly는 tao를 거치지 않아 tao hide()가 아무것도 안 할 수 있음 (펫이 친구에게 가도 창이 남던 버그). 그래서 직접 SW_HIDE
+pub fn hide_quietly(window: &WebviewWindow) {
+    #[cfg(windows)]
+    {
+        if let Some(h) = hwnd_of(window) {
+            screenpet_core::platform::hide_window_quietly(h);
+            return;
+        }
+    }
+    let _ = window.hide();
+}
+
 /// 창을 물리 px로 옮김. Windows에서 tao의 set_position은 보이는 창을 매번 활성화함 (SW_SHOW)
 pub fn move_quietly(window: &WebviewWindow, hwnd: Option<isize>, x: i32, y: i32) {
     #[cfg(windows)]

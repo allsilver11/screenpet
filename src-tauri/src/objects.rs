@@ -1128,7 +1128,7 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale
             crate::overlay::resize_quietly(&window, crate::overlay::hwnd_of(&window), (w * dpi).round() as u32, (h * dpi).round() as u32);
             // 모두 숨긴 동안 온 물건은 "보이기"가 함께 보임
             if crate::windows_hidden(app) {
-                let _ = window.hide();
+                crate::overlay::hide_quietly(&window);
             }
             Some(window)
         }

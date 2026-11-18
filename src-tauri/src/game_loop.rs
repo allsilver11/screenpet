@@ -259,7 +259,7 @@ fn leave_house_now(app: &AppHandle, own: &mut Slot, house_window: Option<&tauri:
         own.need_show = true;
     }
     if let Some(hw) = house_window {
-        let _ = hw.hide();
+        crate::overlay::hide_quietly(hw);
     }
 }
 
@@ -1269,7 +1269,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             app.state::<AppState>().housed.store(was_housed, Ordering::Relaxed);
             if was_housed {
                 // 문에 닿았음 — 펫 창을 숨기고 하우스 창 문간에 보임
-                let _ = own.window.hide();
+                crate::overlay::hide_quietly(&own.window);
                 // 집으로 가는 동안 모두 숨겼다가 다시 보였으면 집이 아직 안 보임
                 if let Some(hw) = house_window.as_ref().filter(|w| !crate::windows_hidden(&app) && !w.is_visible().unwrap_or(true)) {
                     let spot = house::spot(&app, &own.world.work_areas, own.dpi);
@@ -1285,7 +1285,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             app.state::<AppState>().away.store(was_away, Ordering::Relaxed);
             if was_away {
                 // 화면 끝으로 걸어 나갔음 — 돌아올 때까지 펫 창을 숨김
-                let _ = own.window.hide();
+                crate::overlay::hide_quietly(&own.window);
             } else {
                 // 돌아왔음 — 들어오는 자리로 옮긴 뒤 보임
                 own.need_show = true;

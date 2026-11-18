@@ -19,7 +19,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DestroyIcon, DrawIconEx, GetClassLongPtrW, PrivateExtractIconsW, SendMessageTimeoutW, DI_NORMAL, GCLP_HICON, GCLP_HICONSM, HICON, ICON_BIG, ICON_SMALL2,
     SMTO_ABORTIFHUNG, WM_GETICON,
     EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
-    IsIconic, IsWindow, IsWindowVisible, SetWindowPos, ShowWindow, SW_SHOWNOACTIVATE, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    IsIconic, IsWindow, IsWindowVisible, SetWindowPos, ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SWP_NOZORDER, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
@@ -353,5 +353,13 @@ pub fn show_window_quietly(hwnd: isize) {
     let h = HWND(hwnd as *mut c_void);
     unsafe {
         let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
+    }
+}
+
+/// 우리 창(hwnd)을 숨김 — show_window_quietly와 짝 (tao가 기억하는 보임 상태와 상관없이 늘 숨김)
+pub fn hide_window_quietly(hwnd: isize) {
+    let h = HWND(hwnd as *mut c_void);
+    unsafe {
+        let _ = ShowWindow(h, SW_HIDE);
     }
 }

@@ -260,7 +260,7 @@ impl TrailFx {
             let paused = weather::overlay_paused(false, &own.world.windows, &o.wa);
             if paused != o.paused {
                 o.paused = paused;
-                let _ = if paused { o.window.hide() } else { { crate::overlay::show_quietly(&o.window); Ok(()) } };
+                if paused { crate::overlay::hide_quietly(&o.window) } else { crate::overlay::show_quietly(&o.window) }
             }
         }
     }

@@ -582,10 +582,10 @@ pub fn show_all(app: &AppHandle) {
     if app.state::<AppState>().housed.load(Ordering::Relaxed) {
         crate::house::show_in_corner(app);
     } else if let Some(w) = own_window(app) {
-        let _ = w.show();
+        crate::overlay::show_quietly(&w);
     }
     for w in guest_windows(app).into_iter().chain(effect_windows(app)) {
-        let _ = w.show();
+        crate::overlay::show_quietly(&w);
     }
 }
 
@@ -599,7 +599,7 @@ fn toggle_windows(app: &AppHandle) {
         app.state::<AppState>().hidden.store(true, Ordering::Relaxed);
         // 집은 동물이 달려가는 동안에도 보임
         for w in own_window(app).into_iter().chain(app.get_webview_window(crate::house::LABEL)).chain(guest_windows(app)).chain(effect_windows(app)) {
-            let _ = w.hide();
+            crate::overlay::hide_quietly(&w);
         }
     }
 }
