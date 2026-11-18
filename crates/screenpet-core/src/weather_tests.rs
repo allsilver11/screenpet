@@ -503,3 +503,39 @@ fn clearing_by_hand_restarts_the_hour() {
     run(&mut f, Weather::Leaves, 1000);
     assert!(depth(&f, Owner::Ground(0)) > 0.5, "손으로 치운 뒤 한 시간을 새로 셈");
 }
+
+#[test]
+fn snow_under_the_cursor_is_measured_and_packed_only_where_rubbed() {
+    let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+    run(&mut f, Weather::Snow, 300);
+    let near = f.snow_amount(400.0, 500.0, 410.0, 28.0);
+    assert!(near > 0.5, "{near}");
+    assert_eq!(f.snow_amount(400.0, 500.0, 300.0, 28.0), 0.0, "too far above the window top");
+    let before = depth(&f, Owner::Window(1));
+    let packed = f.pack_snow(400.0, 500.0, 410.0, 28.0);
+    assert!((packed - near).abs() < 1e-3, "{packed} vs {near}");
+    assert_eq!(f.snow_amount(400.0, 500.0, 410.0, 28.0), 0.0, "the rubbed cells are bare");
+    assert!(depth(&f, Owner::Window(1)) > 0.0 && depth(&f, Owner::Window(1)) < before, "the rest of the top keeps its snow");
+}
+
+#[test]
+fn only_snow_can_be_packed() {
+    let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+    run(&mut f, Weather::Leaves, 300);
+    assert!(f.amount_in(400.0, 500.0, 410.0, 28.0) > 0.0, "leaves are there");
+    assert_eq!(f.snow_amount(400.0, 500.0, 410.0, 28.0), 0.0);
+    assert_eq!(f.pack_snow(400.0, 500.0, 410.0, 28.0), 0.0);
+    assert!(f.amount_in(400.0, 500.0, 410.0, 28.0) > 0.0, "nothing was taken");
+}
+
+#[test]
+fn the_pile_under_a_foot_is_its_kind_and_depth() {
+    let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+    assert_eq!(f.pile_under(500.0, 400.0, 20.0), None, "nothing has fallen yet");
+    run(&mut f, Weather::Leaves, 300);
+    let (kind, depth) = f.pile_under(500.0, 400.0, 20.0).unwrap();
+    assert_eq!(kind, Weather::Leaves);
+    assert!(depth > 0.5, "{depth}");
+    assert_eq!(f.pile_under(500.0, 300.0, 20.0), None, "standing on nothing there");
+    assert_eq!(f.pile_under(100.0, 400.0, 20.0), None, "beside the window");
+}

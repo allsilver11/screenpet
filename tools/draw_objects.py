@@ -1,6 +1,6 @@
 """물건 (쓰레기 장난감) — draw_pets.py 엔진으로 그린 128 칸 그림과 노란 포스트잇.
 
-    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,shirt,umbrella,poop,pink,rainbow,pellets}.png (128×128)
+    python tools/draw_objects.py  → ui/objects/{can,paper,stone,glasses,computer,milk,shirt,umbrella,poop,pink,rainbow,pellets,snowball}.png (128×128)
                                     + ui/objects/{giant_stone,giant_poop,giant_pink,giant_rainbow}.png (1024×1024 — 화면 높이의 80%까지 커지니 크게 그린다)
                                     + ui/objects/postit.png (40×40)
                                     + tools/preview/objects.png (128px 고양이 옆에 놓아 본 모습, 포스트잇 붙인 줄 포함)
@@ -29,7 +29,7 @@ import draw_house  # noqa: E402
 import draw_pets  # noqa: E402
 from draw_house import blob, finish  # noqa: E402
 from draw_pets import LINE, WHITE, C, E, L, T, aa, drop_faint, mix, paint, shapes, view  # noqa: E402
-from draw_props import new_canvas  # noqa: E402
+from draw_props import SNOW, SNOW_SHADE, new_canvas  # noqa: E402
 from sprite_spec import FRAME  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -44,7 +44,7 @@ POSTIT_REACH = 20
 HULL_POINTS = 12
 
 # crates/screenpet-core/src/object.rs ObjectKind::id와 같은 이름, 같은 순서
-NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "pink", "rainbow", "pellets", "giant_stone", "giant_poop", "giant_pink", "giant_rainbow")
+NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbrella", "poop", "pink", "rainbow", "pellets", "giant_stone", "giant_poop", "giant_pink", "giant_rainbow", "snowball")
 # 🪨💩 거대한 물건 → 같은 모양의 작은 것. 아기 동물의 15배(화면 높이의 80%까지)로 보이니 GIANT_PX로 직접 그린다 (128을 키우면 흐릿하다)
 GIANTS = {"giant_stone": "stone", "giant_poop": "poop", "giant_pink": "pink", "giant_rainbow": "rainbow"}
 GIANT_PX = 1024
@@ -318,6 +318,18 @@ DRAW["giant_poop"] = draw_giant_poop
 # 거대한 핑크·무지개 똥: 작은 것 그대로 크게 (메뉴의 "거대한 똥"이 셋 중 하나로 나온다)
 DRAW["giant_pink"] = draw_pink
 DRAW["giant_rainbow"] = draw_rainbow
+
+
+def draw_snowball(img):
+    """⛄ 문질러 뭉친 눈덩이 — 굴리는 눈덩이(draw_props)처럼 동글, 아래쪽 푸른 그늘과 뭉친 자국 몇 개."""
+    cx, r = 64, 26
+    cy = BOTTOM - r
+    blob(img, [C(cx, cy, r)], SNOW, r=0.4, line=0.9,
+         marks=[([E(cx - r + 5, cy + 5, cx + r - 5, cy + r + 2)], SNOW_SHADE),
+                ([C(cx - 11, cy + 10, 2.4), C(cx + 10, cy - 2, 2.0), C(cx + 3, cy + 15, 1.8), C(cx - 4, cy - 12, 1.6)], SNOW_SHADE)])
+
+
+DRAW["snowball"] = draw_snowball
 
 
 def art_px(name):

@@ -91,6 +91,9 @@ pub enum ObjectKind {
     /// 💩 거대한 핑크 똥·무지개 똥: 메뉴의 "거대한 똥"이 갈색·핑크·무지개 중 하나로 나옴 (menu_pick)
     GiantPink,
     GiantRainbow,
+    /// ⛄ 쌓인 눈을 커서로 문질러 뭉친 눈덩이 (snowball.rs) — 동물도 발밑 눈으로 뭉쳐 던짐. 메뉴에 없고 포스트잇을 못 붙임.
+    /// 던지면 닿은 곳에서 퍽 부서지고 (동물에 맞으면 "brr!"), 살며시 놓으면 쉬다가 몇 분 뒤 녹음. 친구에게 던질 수 있음 (옛 버전은 모르는 물건이라 버림)
+    Snowball,
     /// 📌 흐물이가 작업표시줄(Dock)에서 끌어낸 앱 아이콘 장난감 (taskbar.rs): 그림은 열린 앱 하나의 아이콘을 베낀 것 (앱이 창에 넣음 — 그림 파일이 없음).
     /// 이 컴퓨터를 떠나지 않음 — ALL에 없어 친구가 그 이름을 보내도 받지 않고, 던져도 화면 끝을 넘지 않음. 메뉴에 없고 포스트잇을 못 붙임
     /// 한 번에 하나, TOY_LIFE_SECS 뒤 저절로 사라짐
@@ -104,7 +107,7 @@ pub const MAX_TOYS: usize = 1;
 
 impl ObjectKind {
     /// 모든 물건 종류 (메뉴·그림 순서)
-    pub const ALL: [ObjectKind; 16] = [
+    pub const ALL: [ObjectKind; 17] = [
         ObjectKind::Can,
         ObjectKind::Paper,
         ObjectKind::Stone,
@@ -121,6 +124,7 @@ impl ObjectKind {
         ObjectKind::GiantPoop,
         ObjectKind::GiantPink,
         ObjectKind::GiantRainbow,
+        ObjectKind::Snowball,
     ];
     /// `물건 ▸` 메뉴로 꺼내는 쓰레기 (친구에게 10개씩 던지는 것도 이 중에서)
     pub const TRASH: [ObjectKind; 8] = [
@@ -154,6 +158,11 @@ impl ObjectKind {
         self == ObjectKind::AppIcon
     }
 
+    /// ⛄ 눈덩이: 던지면 닿은 곳에서 부서지고, 저절로 녹음
+    pub fn is_snowball(self) -> bool {
+        self == ObjectKind::Snowball
+    }
+
     /// 거대한 돌·똥
     pub fn is_giant(self) -> bool {
         matches!(self, ObjectKind::GiantStone | ObjectKind::GiantPoop | ObjectKind::GiantPink | ObjectKind::GiantRainbow)
@@ -180,7 +189,7 @@ impl ObjectKind {
 
     /// 포스트잇을 붙일 수 있음: 쓰레기만 (똥은 사라지고, 거대한 것은 쪽지 창이 그림을 덮음)
     pub fn takes_postit(self) -> bool {
-        !self.is_poop() && !self.is_giant() && !self.is_toy()
+        !self.is_poop() && !self.is_giant() && !self.is_toy() && !self.is_snowball()
     }
 
     /// 똥임: 수를 따로 세고, 저절로 사라지고, 바람에 구르지 않고, 빗자루에 쓸림
@@ -230,6 +239,7 @@ impl ObjectKind {
             ObjectKind::GiantPoop => "giant_poop",
             ObjectKind::GiantPink => "giant_pink",
             ObjectKind::GiantRainbow => "giant_rainbow",
+            ObjectKind::Snowball => "snowball",
             ObjectKind::AppIcon => TOY_ID,
         }
     }
@@ -250,6 +260,7 @@ impl ObjectKind {
             ObjectKind::GiantPoop => "💩 거대한 똥",
             ObjectKind::GiantPink => "💩 거대한 핑크 똥",
             ObjectKind::GiantRainbow => "💩 거대한 무지개 똥",
+            ObjectKind::Snowball => "⛄ 눈덩이",
             ObjectKind::AppIcon => "📌 앱 아이콘 장난감",
         }
     }
@@ -320,6 +331,8 @@ impl ObjectKind {
             ObjectKind::GiantStone | ObjectKind::GiantPoop | ObjectKind::GiantPink | ObjectKind::GiantRainbow => (0.0, 0.0),
             // 납작한 네모: 캔보다 덜 구른다
             ObjectKind::AppIcon => (20.0, 60.0),
+            // 동글동글하지만 눈이 붙어 조금만
+            ObjectKind::Snowball => (10.0, 40.0),
         }
     }
 }
@@ -411,6 +424,8 @@ pub struct Object {
     from: Option<Side>,
     /// 🐱 고양이가 툭 밀어 미끄러지는 중 — 끝을 넘어 떨어지면 던진 것처럼 동물에 맞음 (nudge)
     knocked: bool,
+    /// ⛄ 던진 눈덩이가 무언가에 닿아 퍽 부서졌음 (take_burst로 한 번 꺼냄 — 앱이 치움)
+    burst: bool,
 }
 
 impl Object {
@@ -454,6 +469,7 @@ impl Object {
             rally: 0,
             from: None,
             knocked: false,
+            burst: false,
         }
     }
 
@@ -709,6 +725,8 @@ impl Object {
             crate::poop::LIFE_SECS
         } else if self.kind.is_toy() {
             crate::taskbar::TOY_LIFE_SECS
+        } else if self.kind.is_snowball() {
+            crate::snowball::MELT_SECS
         } else {
             return false;
         };
@@ -744,6 +762,22 @@ impl Object {
         self.phase = Phase::Air;
         self.spin = self.spin_of_throw();
         true
+    }
+
+    /// ⛄ 던진 눈덩이가 퍽 부서짐 (동물에 맞았거나 내려앉았음): 더는 날지도 맞지도 않음. 앱은 take_burst로 알고 치움
+    pub fn splat(&mut self) {
+        self.burst = true;
+        self.thrown = false;
+        self.thrown_down = false;
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        self.spin = 0.0;
+        self.phase = Phase::Rest;
+    }
+
+    /// ⛄ 방금 퍽 부서졌음 (한 번만 참)
+    pub fn take_burst(&mut self) -> bool {
+        std::mem::take(&mut self.burst)
     }
 
     /// 윗면에 앉아 있는 창
@@ -961,6 +995,11 @@ impl Object {
         let landing = world.fall_landing(self.body.x, prev_y, self.body.y, self.body.vy, to_ground);
         if let Some(s) = landing {
             self.body.y = s.y;
+            if self.thrown && self.kind.is_snowball() {
+                // ⛄ 던진 눈덩이는 닿은 곳에서 퍽
+                self.splat();
+                return None;
+            }
             self.thrown = false;
             if self.body.vy > BOUNCE_MIN_VY * self.dpi {
                 self.bounce();
@@ -1199,6 +1238,8 @@ pub enum Origin {
     Poop,
     /// 📌 작업표시줄에서 꺼낸 장난감: 최대 MAX_TOYS개 (쓰레기 수에 들지 않음)
     Toy,
+    /// ⛄ 눈덩이: 어디서 왔든 최대 MAX_SNOWBALLS개 (쓰레기 수에 들지 않음)
+    Snow,
 }
 
 /// 화면 위 물건 수 지키기: 넘치면 그 쪽에서 가장 오래된 것을 내보냄
@@ -1208,6 +1249,7 @@ pub struct Roster {
     foreign: VecDeque<u64>,
     poops: VecDeque<u64>,
     toys: VecDeque<u64>,
+    snow: VecDeque<u64>,
 }
 
 impl Roster {
@@ -1218,6 +1260,7 @@ impl Roster {
             Origin::Foreign => (&mut self.foreign, MAX_FOREIGN_OBJECTS),
             Origin::Poop => (&mut self.poops, MAX_POOPS),
             Origin::Toy => (&mut self.toys, MAX_TOYS),
+            Origin::Snow => (&mut self.snow, crate::snowball::MAX_SNOWBALLS),
         };
         list.push_back(id);
         if list.len() > max {
@@ -1229,7 +1272,7 @@ impl Roster {
 
     /// id를 뺌. 있었으면 true
     pub fn remove(&mut self, id: u64) -> bool {
-        for list in [&mut self.own, &mut self.foreign, &mut self.poops, &mut self.toys] {
+        for list in [&mut self.own, &mut self.foreign, &mut self.poops, &mut self.toys, &mut self.snow] {
             if let Some(i) = list.iter().position(|&x| x == id) {
                 list.remove(i);
                 return true;
@@ -1260,6 +1303,7 @@ impl Roster {
         self.foreign.clear();
         self.poops.clear();
         self.toys.clear();
+        self.snow.clear();
     }
 }
 

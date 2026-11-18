@@ -357,6 +357,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut hand: Option<HandFeed> = None;
     let mut hand_win = HandWindow::default();
     let mut broom: Option<Broom> = None;
+    // ⛄ 쌓인 눈 위에서 커서를 좌우로 빠르게 문지르는지 봄 (코어 snowball.rs)
+    let mut rub = screenpet_core::snowball::Rub::new();
     let mut broom_win = HandWindow::default();
     // 계절 날씨 (철이 아니거나 꺼 두면 창도 일도 없음)
     let mut weather = WeatherFx::new(seed_now());
@@ -945,6 +947,23 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
             }
         }
+        // ⛄ 문질러 뭉치기: 빗자루·음식·동물·물건을 들고 있지 않을 때, 커서 바로 아래 보이는 눈 더미 위에서 좌우로 빠르게 문지르면
+        // 그 자리의 눈을 모아 눈덩이를 만듦 (날씨 창은 마우스가 통과하므로 클릭 없이). 눈이 모자라면 아무 일 없음
+        {
+            use screenpet_core::snowball::{PACK_MIN_SNOW, REACH_X, REACH_Y};
+            let dpi = slots[OWN].dpi;
+            let (rx, ry) = (REACH_X * dpi, REACH_Y * dpi);
+            let free = broom.is_none() && hand.is_none() && !objects.is_held() && !slots.iter().any(|s| s.pet.is_held());
+            let over_snow = free && weather.has_snow() && weather.snow_under(cx - rx, cx + rx, cy, ry) > 0.05;
+            if let Some((lo, hi)) = rub.tick(dt, (cx, cy), dpi, over_snow) {
+                if weather.snow_under(lo - rx, hi + rx, cy, ry) >= PACK_MIN_SNOW {
+                    weather.pack_snow(lo - rx, hi + rx, cy, ry);
+                    weather.puff(&app, screenpet_core::weather::Weather::Snow, (cx, cy), (0.0, -160.0 * dpi), 10);
+                    // 더미 윗면 위에서 떨어뜨려 그 디딤판에 내려앉게 (커서는 윗면 아래로도 조금 내려가 있음)
+                    objects.spawn_snowball(&app, &slots[OWN].world, (cx, cy - ry));
+                }
+            }
+        }
         // 🎮 조작 모드: 키를 내 동물에게 (친구 화면에 가 있으면 친구 링크로도). Esc(직접 주기 중이 아닐 때)·키 없이 3분이면 끝
         let mut keys = ControlInput::default();
         // 💩 똥피하기: 게임 창이 받은 키를 내 동물에게
@@ -1172,6 +1191,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
         }
         objects.tick(&app, &slots[OWN].world, dt, now, (cx, cy), left_down, presence.is_away(), source.as_mut(), &network, &config);
+        // ⛄ 퍽 부서진 눈덩이 자리에 눈가루 (날씨 창이 없으면 보이지 않음)
+        for at in objects.take_bursts() {
+            weather.puff(&app, screenpet_core::weather::Weather::Snow, at, (0.0, -220.0 * slots[OWN].dpi), 14);
+        }
         props.tick(now);
         hand_win.tick(now);
         broom_win.tick(now);

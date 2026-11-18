@@ -28,6 +28,7 @@ pub mod poop;
 pub mod presence;
 pub mod real_weather;
 pub mod sleigh;
+pub mod snowball;
 pub mod social;
 pub mod style;
 pub mod surfaces;

@@ -595,3 +595,25 @@ fn a_juggled_object_spares_its_thrower_for_a_moment() {
     assert!(!fly_object(&mut s, &mut o, &mut pets, 30), "던진 동물은 맞지 않는다");
     assert!(!pets[0].wobbling());
 }
+
+#[test]
+fn a_snowball_bursts_on_a_pet_who_says_brr() {
+    let w = world(vec![]);
+    let mut pets = vec![ground(&w, friendly(), 800.0, 2)];
+    let mut s = Social::new(1);
+    let mut o = thrown_object(ObjectKind::Snowball, 600.0, GROUND - 20.0, 600.0, 0.0);
+    s.tick(DT, &mut pets);
+    let mut burst = false;
+    for _ in 0..40 {
+        o.body.x += o.body.vx * DT;
+        s.tick(DT, &mut pets);
+        s.object_hits(7, &mut o, DT, &mut pets);
+        if o.take_burst() {
+            burst = true;
+            break;
+        }
+    }
+    assert!(burst, "{:?}", o.body);
+    assert!(!o.in_flight(), "it is gone, not bouncing on");
+    assert_eq!(pets[0].take_speech(), Some(Speech::Brr));
+}

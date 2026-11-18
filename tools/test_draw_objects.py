@@ -192,7 +192,8 @@ POOPS = ("poop", "pink", "rainbow", "pellets")
 
 
 def test_only_trash_takes_post_its():
-    assert set(d.POSTIT_AT) == set(d.NAMES) - set(POOPS) - set(d.GIANTS)
+    # ⛄ 눈덩이도 포스트잇이 없다 (코어 takes_postit)
+    assert set(d.POSTIT_AT) == set(d.NAMES) - set(POOPS) - set(d.GIANTS) - {"snowball"}
 
 
 @pytest.mark.parametrize("name", ["poop", "pink", "rainbow"])

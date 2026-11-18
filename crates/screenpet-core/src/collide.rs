@@ -48,6 +48,8 @@ pub struct Hit {
     pub fast: bool,
     /// 똥에 맞았음
     pub poop: bool,
+    /// ⛄ 눈덩이에 맞았음 ("brr!")
+    pub snow: bool,
 }
 
 /// 움직이는 몸이 다른 몸에 이번 틱에 처음 닿았으면 들어온 쪽.

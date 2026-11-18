@@ -303,6 +303,8 @@ pub enum Speech {
     Nom,
     /// 🙌 하이파이브 ("High five!", brain_highfive.rs)
     HighFive,
+    /// ⛄ 눈덩이에 맞았음 ("brr!", brain_hit.rs)
+    Brr,
 }
 
 impl Anim {

@@ -232,6 +232,8 @@ const MAX_PILES: usize = 16;
 const SETTLED_DEPTH: f32 = 3.0;
 /// 바닥 평균 높이가 이만큼(논리 px)은 있어야 아직 눈이 남은 것임
 const SNOW_LEFT_DEPTH: f32 = 0.5;
+/// 발이 이만큼(물리 px) 안이면 그 디딤판 위에 선 것임
+const SAME_SURFACE: f64 = 4.0;
 /// 더미를 이만큼(초, 날씨가 켜져 있고 자리에 있는 시간)마다 저절로 싹 치움
 pub const AUTO_CLEAR_SECS: f64 = 3600.0;
 
@@ -419,8 +421,13 @@ impl PileField {
 
     /// 🧹 [x0, x1]를 지나며 높이 y(±reach_y)의 보이는 더미를 씀: 쓴 양(칸 높이의 합, 논리 px)
     pub fn sweep(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64) -> f32 {
+        self.take_in(x0, x1, y, reach_y, true)
+    }
+
+    /// [x0, x1]의 높이 y(±reach_y)에 보이는 더미 양 (칸 높이의 합, 논리 px). take면 그 칸들을 비움
+    fn take_in(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64, take: bool) -> f32 {
         let tops = &self.tops;
-        let mut swept = 0.0;
+        let mut found = 0.0;
         for p in self.piles.iter_mut().filter(|p| (p.y - y).abs() <= reach_y) {
             if !tops.iter().any(|t| t.owner == p.owner && t.x1 > x0 && t.x0 < x1) {
                 continue;
@@ -429,12 +436,51 @@ impl PileField {
             for (i, c) in p.cells.iter_mut().enumerate() {
                 let x = left + (i as f64 + 0.5) * CELL;
                 if x >= x0 && x <= x1 {
-                    swept += *c;
-                    *c = 0.0;
+                    found += *c;
+                    if take {
+                        *c = 0.0;
+                    }
                 }
             }
         }
-        swept
+        found
+    }
+
+    /// [x0, x1]의 높이 y(±reach_y)에 보이는 더미 양 — 비우지 않음
+    fn amount_in(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64) -> f32 {
+        self.take_in(x0, x1, y, reach_y, false)
+    }
+
+    /// ⛄ [x0, x1]의 높이 y(±reach_y)에 보이는 눈 양 (눈 더미가 아니면 0)
+    pub fn snow_amount(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64) -> f32 {
+        if !self.pile_kind.is_some_and(Weather::is_snow) {
+            return 0.0;
+        }
+        self.amount_in(x0, x1, y, reach_y)
+    }
+
+    /// ⛄ 눈덩이를 뭉침: [x0, x1]의 눈을 모아 그 칸들을 비움. 모은 양 (눈 더미가 아니면 0, 아무것도 안 비움)
+    pub fn pack_snow(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64) -> f32 {
+        if !self.pile_kind.is_some_and(Weather::is_snow) {
+            return 0.0;
+        }
+        self.take_in(x0, x1, y, reach_y, true)
+    }
+
+    /// 발밑 더미: x 둘레 ±half_w, 발 높이 y(±SAME_SURFACE) 디딤판의 보이는 더미 그림과 평균 높이 (논리 px). 더미가 없으면 None
+    pub fn pile_under(&self, x: f64, y: f64, half_w: f64) -> Option<(Weather, f32)> {
+        let kind = self.pile_kind?;
+        let (x0, x1) = (x - half_w, x + half_w);
+        let p = self.piles.iter().find(|p| (p.y - y).abs() <= SAME_SURFACE && x >= p.left && x <= p.right)?;
+        if !self.tops.iter().any(|t| t.owner == p.owner && t.x0 <= x && x <= t.x1) {
+            return None;
+        }
+        let cells: Vec<f32> = p.cells.iter().enumerate().filter(|(i, _)| {
+            let cx = p.left + (*i as f64 + 0.5) * CELL;
+            cx >= x0 && cx <= x1
+        }).map(|(_, &c)| c).collect();
+        let depth = if cells.is_empty() { 0.0 } else { cells.iter().sum::<f32>() / cells.len() as f32 };
+        (depth >= 0.05).then_some((kind, depth))
     }
 
     /// 🧹 모든 더미를 싹 치움 (쓰레기 다 치우기·한 시간마다): 치운 게 있었으면 true. 한 시간을 새로 셈

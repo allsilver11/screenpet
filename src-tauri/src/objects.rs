@@ -11,6 +11,8 @@
 //! 📌 흐물이가 작업표시줄에서 끌어내는 앱 아이콘 장난감 (코어 taskbar.rs): Pull이면 열린 창 몇 개의 앱 아이콘을 다른 스레드에서 읽어 (platform app_icon)
 //! 하나로 장난감 창을 만들어 흐물이 손에 쥐여 주고, Stow면 뿅 치움. 한 번에 하나, 몇 분 뒤 저절로 사라짐. 그림은 창의 초기화 스크립트로만 가고
 //! (웹뷰가 canvas에 그림 — CSP 그대로) 어디에도 저장·기록하지 않음. 친구에게 던지지도 들려 보내지도 않음 (코어가 막고, 여기서도 한 번 더 막음).
+//! ⛄ 눈덩이 (v0.6.5): 쌓인 눈을 커서로 문지르거나 (game_loop) 동물이 발밑 눈으로 뭉쳐 만듦. 따로 5개까지, 몇 분 뒤 스르륵 녹음.
+//! 던진 눈덩이는 동물·바닥·창에 닿으면 퍽 부서짐 — 뿅 치우고 그 자리를 take_bursts로 알림 (게임 루프가 눈가루를 날림).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -257,6 +259,8 @@ pub struct Objects {
     capture: Option<Receiver<Option<IconImage>>>,
     /// 📌 아이콘을 못 읽었으면 이때까지 다시 묻지 않음
     capture_backoff: Instant,
+    /// ⛄ 방금 퍽 부서진 눈덩이 자리 (물리 px — 게임 루프가 눈가루를 날림)
+    bursts: Vec<(f64, f64)>,
 }
 
 impl Objects {
@@ -283,6 +287,7 @@ impl Objects {
             window_ids: Vec::new(),
             capture: None,
             capture_backoff: now,
+            bursts: Vec::new(),
         }
     }
 
@@ -384,6 +389,37 @@ impl Objects {
         let mut object = Object::new(kind, x, y, dpi, fastrand::u64(..));
         object.set_scale(scale);
         self.admit(id, window, object, Origin::Own);
+    }
+
+    /// ⛄ 눈덩이 창을 at(커서·동물 손 자리, 물리 px)에 만듦: 거기서 떨어지기 시작함 (동물이 던지면 그 뒤 launch).
+    /// 눈덩이는 따로 MAX_SNOWBALLS개까지 — 넘치면 가장 오래된 것이 뿅. 만들었으면 그 id
+    pub fn spawn_snowball(&mut self, app: &AppHandle, base: &World, at: (f64, f64)) -> Option<u64> {
+        let kind = ObjectKind::Snowball;
+        let id = self.next_id();
+        let scale = self.scale_at(app, kind, base, at.0, at.1);
+        let window = build_window(app, id, kind, false, scale, None)?;
+        let dpi = window.scale_factor().unwrap_or(1.0);
+        let world = self.world_for(base, dpi);
+        let b = world.bounds;
+        let margin = OBJECT_LOGICAL_SIZE * dpi * scale / 2.0;
+        let x = at.0.clamp(b.left + margin, (b.right - margin).max(b.left + margin));
+        let mut object = Object::new(kind, x, at.1, dpi, fastrand::u64(..));
+        object.set_scale(scale);
+        self.admit(id, window, object, Origin::Snow);
+        Some(id)
+    }
+
+    /// 🤹⛄ 동물이 눈덩이를 (vx, vy)로 던졌음 (물리 px/s): 던진 동물(social 키)은 잠깐 맞히지 않음
+    pub fn launch_snowball(&mut self, social: &mut Social, id: u64, thrower: u64, vx: f64, vy: f64) {
+        if let Some(l) = self.live.iter_mut().find(|l| l.id == id) {
+            l.object.launch(vx, vy);
+            social.spare(id, thrower, THROWER_SPARED_SECS);
+        }
+    }
+
+    /// ⛄ 방금 퍽 부서진 눈덩이 자리들 (게임 루프가 눈가루를 날림)
+    pub fn take_bursts(&mut self) -> Vec<(f64, f64)> {
+        std::mem::take(&mut self.bursts)
     }
 
     /// 동물이 쌌음: (x, y)에서 떨어지기 시작함. 창은 tick이 만듦
@@ -525,6 +561,8 @@ impl Objects {
         object.carry_at(at.0, at.1);
         let origin = if kind.is_poop() {
             Origin::Poop
+        } else if kind.is_snowball() {
+            Origin::Snow
         } else if own {
             Origin::Own
         } else {
@@ -669,7 +707,9 @@ impl Objects {
         object.set_rally(rally);
         object.set_scale(scale);
         object.receive_note(accepted.note);
-        self.admit(id, window, object, Origin::Foreign);
+        // ⛄ 친구가 던진 눈덩이도 눈덩이 수에 듦
+        let origin = if accepted.kind.is_snowball() { Origin::Snow } else { Origin::Foreign };
+        self.admit(id, window, object, origin);
     }
 
     /// 기다리던 똥 하나에 창을 만들어 들임
@@ -900,6 +940,19 @@ impl Objects {
             self.toss_away(&l, exit, secs, network, config);
             set_postit_state(&l.label, None);
             let _ = l.window.destroy();
+        }
+        // ⛄ 던진 눈덩이가 동물(hit_pets)이나 바닥·창에 닿아 퍽: 뿅 치우고 그 자리를 알림 (눈가루)
+        let mut i = 0;
+        while i < self.live.len() {
+            if self.live[i].object.take_burst() {
+                let l = self.live.remove(i);
+                self.roster.remove(l.id);
+                let (_, height) = l.object.hit_box();
+                self.bursts.push((l.object.body.x, l.object.body.y - height / 2.0));
+                self.poof(l);
+            } else {
+                i += 1;
+            }
         }
         let mut i = 0;
         while i < self.live.len() {

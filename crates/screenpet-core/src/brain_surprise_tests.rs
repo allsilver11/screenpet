@@ -25,7 +25,7 @@ fn click(p: &mut Pet) {
 }
 
 fn bump(fast: bool, poop: bool) -> Hit {
-    Hit { face: Face::Side, vx: 600.0, vy: 0.0, dir: 1.0, fast, poop }
+    Hit { face: Face::Side, vx: 600.0, vy: 0.0, dir: 1.0, fast, poop, snow: false }
 }
 
 fn surprised(p: &Pet) -> bool {

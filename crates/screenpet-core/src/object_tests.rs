@@ -663,7 +663,8 @@ fn after_landing_it_keeps_rolling_forward_then_friction_stops_it() {
 fn every_kind_settles_at_a_natural_angle_and_goes_back_to_sleep() {
     let w = wide();
     let mut seen_tipped = false;
-    for kind in ObjectKind::ALL {
+    // ⛄ 던진 눈덩이는 구르지 않고 퍽 부서진다 (a_thrown_snowball_splats_where_it_lands_but_a_dropped_one_settles)
+    for kind in ObjectKind::ALL.into_iter().filter(|k| !k.is_snowball()) {
         for seed in 0..8 {
             for v in [(1500.0, -500.0), (-900.0, -100.0), (300.0, -900.0)] {
                 let mut o = thrown(kind, &w, 6000.0, v, seed);
@@ -866,7 +867,7 @@ fn grabbing_stops_the_spin_and_keeps_the_angle_it_is_at() {
 #[test]
 fn caught_mid_spin_and_let_go_gently_it_lies_down_instead_of_balancing_on_a_corner() {
     let w = wide();
-    for kind in ObjectKind::ALL {
+    for kind in ObjectKind::ALL.into_iter().filter(|k| !k.is_snowball()) {
         let s = crate::tumble::shape_of(kind);
         let mut o = thrown(kind, &w, 3000.0, (1400.0, -600.0), 1);
         for _ in 0..7 {
@@ -989,7 +990,8 @@ fn poop_on_floor(kind: ObjectKind) -> (Object, World) {
 
 #[test]
 fn poops_are_foreign_validated_but_not_offered_in_the_menu() {
-    assert_eq!(ObjectKind::TRASH.len() + POOPS.len() + ObjectKind::GIANTS.len(), ObjectKind::ALL.len());
+    // ⛄ 눈덩이 하나 더
+    assert_eq!(ObjectKind::TRASH.len() + POOPS.len() + ObjectKind::GIANTS.len() + 1, ObjectKind::ALL.len());
     for k in POOPS {
         assert!(k.is_poop());
         assert!(!ObjectKind::TRASH.contains(&k), "{k:?}");
@@ -1944,4 +1946,63 @@ fn a_pop_hops_it_up_and_it_lands_back_without_crossing_to_friends() {
     }
     assert!(1040.0 - top > 10.0, "{top}");
     assert!(resting_on(&o, Owner::Ground(0)));
+}
+
+#[test]
+fn a_snowball_is_a_known_kind_but_not_on_the_menu_and_takes_no_postit() {
+    let k = ObjectKind::Snowball;
+    assert!(k.is_snowball() && !k.is_poop() && !k.is_giant() && !k.is_toy());
+    assert_eq!(ObjectKind::from_id("snowball"), Some(k));
+    assert_eq!(k.wire_id(), "snowball");
+    assert!(!ObjectKind::MENU.contains(&k) && !ObjectKind::TRASH.contains(&k));
+    assert!(!k.takes_postit());
+    let got = accept_toss("snowball", None, Some("hi")).unwrap();
+    assert_eq!((got.kind, got.note), (k, None));
+}
+
+#[test]
+fn a_thrown_snowball_splats_where_it_lands_but_a_dropped_one_settles() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Snowball, 800.0, 900.0, 1.0, 1);
+    o.force_throw(300.0, -200.0);
+    let mut splat = false;
+    for _ in 0..400 {
+        o.tick(DT, &w, NONE, false);
+        if o.take_burst() {
+            splat = true;
+            break;
+        }
+    }
+    assert!(splat, "{:?}", o.body);
+    assert!(!o.take_burst(), "only once");
+    // 살며시 떨어뜨린 것은 내려앉아 쉰다
+    let mut o = Object::new(ObjectKind::Snowball, 800.0, 900.0, 1.0, 1);
+    run(&mut o, &w, 5.0);
+    assert!(!o.take_burst());
+    assert!(resting_on(&o, Owner::Ground(0)));
+}
+
+#[test]
+fn a_snowball_melts_away_after_a_few_minutes() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Snowball, 800.0, 1040.0, 1.0, 1);
+    let mut t = 0.0;
+    while t < crate::snowball::MELT_SECS - 5.0 {
+        o.tick(1.0, &w, NONE, false);
+        t += 1.0;
+    }
+    assert!(!o.expired());
+    o.tick(10.0, &w, NONE, false);
+    assert!(o.expired());
+    assert!((60.0..=600.0).contains(&crate::snowball::MELT_SECS));
+}
+
+#[test]
+fn only_a_few_snowballs_stay_on_screen() {
+    let mut r = Roster::default();
+    for id in 0..crate::snowball::MAX_SNOWBALLS as u64 {
+        assert_eq!(r.add(id, Origin::Snow), None);
+    }
+    assert_eq!(r.add(99, Origin::Snow), Some(0), "the oldest poofs");
+    assert_eq!(r.own_count(), 0, "snowballs are not trash");
 }

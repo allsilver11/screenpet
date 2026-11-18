@@ -164,7 +164,7 @@ impl DodgeFx {
             own.pet.set_control(false);
             if over.hit {
                 // 머리에 똥: "ew!" 하고 움찔
-                own.pet.feel_hit(Hit { face: Face::Top, vx: 0.0, vy: 0.0, dir: own.pet.facing, fast: false, poop: true });
+                own.pet.feel_hit(Hit { face: Face::Top, vx: 0.0, vy: 0.0, dir: own.pet.facing, fast: false, poop: true, snow: false });
             }
             if config.record_dodge(over.score) {
                 b.new_best = true;

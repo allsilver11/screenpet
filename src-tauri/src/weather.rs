@@ -245,6 +245,28 @@ impl WeatherFx {
         Some((self.field.sweep(x0, x1, y, reach_y), kind))
     }
 
+    /// ⛄ 날씨가 켜져 있고 쌓인 더미가 눈임 (문지르기를 볼 때만 더미를 셈)
+    pub fn has_snow(&self) -> bool {
+        self.active.is_some() && self.field.pile_kind().is_some_and(Weather::is_snow)
+    }
+
+    /// ⛄ [x0, x1]의 높이 y(±reach_y)에 보이는 눈 양 (논리 px). 날씨가 없거나 그 모니터 날씨가 쉬는 중(전체 화면 등)이면 0
+    pub fn snow_under(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64) -> f32 {
+        let x = (x0 + x1) / 2.0;
+        if !self.has_snow() || self.overlays.iter().any(|o| o.paused && on_area(&o.wa, x)) {
+            return 0.0;
+        }
+        self.field.snow_amount(x0, x1, y, reach_y)
+    }
+
+    /// ⛄ 눈덩이를 뭉침: 그 칸들의 눈을 비움 (모은 양). 장면은 다음 5 Hz에 나감
+    pub fn pack_snow(&mut self, x0: f64, x1: f64, y: f64, reach_y: f64) -> f32 {
+        if !self.has_snow() {
+            return 0.0;
+        }
+        self.field.pack_snow(x0, x1, y, reach_y)
+    }
+
     /// 빗자루 끝에서 알갱이가 날림 (x, y: 물리 px, 속도: 물리 px/s)
     pub fn puff(&self, app: &AppHandle, kind: Weather, (x, y): (f64, f64), (vx, vy): (f64, f64), count: u32) {
         let Some(o) = self.overlays.iter().find(|o| on_area(&o.wa, x) && y >= o.wa.top && y <= o.wa.bottom + 80.0) else { return };

@@ -965,6 +965,8 @@ const EXTRA_SPEECH = {
   big_stomp: ["STOMP!"],
   nom: ["Nom nom~"],
   high_five: ["High five!"],
+  // ⛄ 눈덩이에 맞았음 (v0.6.5, 코어 brain_hit.rs)
+  brr: ["brr!", "hey!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {

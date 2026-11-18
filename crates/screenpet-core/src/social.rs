@@ -584,7 +584,7 @@ impl Social {
                 let settles = pets[i].as_ref().is_gentle_drop() && a.perching && self.can_host(pets, j, a.size);
                 let Some((face, away, fast)) = self.touch(b, from, a.at(), a.half_w, HEAD_RISE * a.size, vx, vy, dpi).filter(|&(face, ..)| !(settles && face == collide::Face::Top)) else { continue };
                 pets[i].as_mut().bounce_off(face, away);
-                pets[j].as_mut().feel_hit(Hit { face, vx, vy, dir: -away, fast, poop: false });
+                pets[j].as_mut().feel_hit(Hit { face, vx, vy, dir: -away, fast, poop: false, snow: false });
                 self.snap[j] = Snap { engaged: true, ..Snap::of(pets[j].as_ref()) };
                 cool(&mut self.hit_cooldown, key, self.clock, HIT_PAIR_COOLDOWN);
             }
@@ -628,8 +628,17 @@ impl Social {
             let Body { x, y, vx, vy } = object.body;
             let (half_w, height) = object.hit_box();
             let Some((face, away, fast)) = self.touch(b, (x - vx * dt, y - vy * dt), (x, y), half_w, height, vx, vy, object.dpi()) else { continue };
-            object.bounce_off(face, away);
-            pets[j].as_mut().feel_hit(Hit { face, vx, vy, dir: -away, fast, poop: object.kind.is_poop() });
+            let snow = object.kind.is_snowball();
+            if snow {
+                // ⛄ 눈덩이는 튕기지 않고 퍽 부서진다 (앱이 눈가루를 날리고 치움)
+                object.splat();
+            } else {
+                object.bounce_off(face, away);
+            }
+            pets[j].as_mut().feel_hit(Hit { face, vx, vy, dir: -away, fast, poop: object.kind.is_poop(), snow });
+            if snow {
+                break;
+            }
             cool(&mut self.object_cooldown, key, self.clock, HIT_PAIR_COOLDOWN);
         }
     }
