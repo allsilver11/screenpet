@@ -114,6 +114,8 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
   const listen = (event, handler) => here.listen(event, handler);
   let bubbleTimer = null;
   let pickerTimer = null;
+  // 글 말풍선(pet-say-text: "<이름>: busy~" 같은 알림)이 이때까지 떠 있음 — 그동안 짧은 대사(ouch! 등)는 덮지 않고 버림
+  let messageUntil = 0;
 
   // 음식 고르기를 숨김
   function hidePicker() {
@@ -138,6 +140,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
   listen("pet-say", (e) => {
     const lines = getManifest()?.speech?.[e.payload] ?? RHYTHM_SPEECH[e.payload] ?? [];
     if (!lines.length || !pickerEl.hidden || isQuiet()) return; // 음식 고르기 버튼·편지 쪽지가 우선
+    if (Date.now() < messageUntil) return; // 알림 글이 우선 (친구한테 던졌다 되돌아와 떨어질 때 busy~가 ouch!에 가리지 않게)
     showBubble(lines[Math.floor(Math.random() * lines.length)], 1500);
   });
 
@@ -145,6 +148,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
   listen("pet-say-text", (e) => {
     if (typeof e.payload !== "string" || !e.payload || !pickerEl.hidden || isQuiet()) return;
     showBubble(e.payload, 2500);
+    messageUntil = Date.now() + 2500;
   });
 
   // 배고플 때 클릭하면 머리 위에 🍚 (좋아하는 것) 🍱 버튼 — 간식·물은 트레이·우클릭 메뉴에서 언제든
