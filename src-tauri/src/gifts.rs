@@ -271,7 +271,7 @@ fn spawn_window(app: &AppHandle, label: &str, image: &str, pos: (i32, i32), dpi:
     let _ = window.set_size(LogicalSize::new(side, side));
     let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
     if !crate::windows_hidden(app) {
-        let _ = window.show();
+        crate::overlay::show_quietly(&window);
     }
     Some(window)
 }

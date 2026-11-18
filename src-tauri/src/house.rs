@@ -340,7 +340,7 @@ fn place(window: &WebviewWindow, spot: &Spot) {
 /// 놓아 둔 자리에 놓고 보임
 pub fn show_at(window: &WebviewWindow, spot: &Spot) {
     place(window, spot);
-    let _ = window.show();
+    crate::overlay::show_quietly(window);
 }
 
 /// 보이는 하우스 창을 지금 동물·단계 크기로 다시 맞춤 (성장해서 집이 바뀌었을 때)

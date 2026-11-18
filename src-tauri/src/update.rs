@@ -301,7 +301,7 @@ fn install_macos(app: &AppHandle, dmg: &Path) -> Result<(), UpdateError> {
     let bundle = update::app_bundle_of(&exe).ok_or(UpdateError::Install("ScreenPet.app 안에서 실행하고 있지 않아요"))?;
     let folder = bundle.parent().ok_or(UpdateError::Install("앱 위치를 찾지 못했어요"))?;
     if !can_write(folder) {
-        return Err(UpdateError::Install("앱 폴더에 쓸 수 없어요 — ScreenPet을 응용 프로그램 폴더로 옮긴 뒤 다시 해 주세요"));
+        return Err(UpdateError::Install(update::mac_folder_hint(&bundle)));
     }
     let dir = dmg.parent().ok_or(UpdateError::Disk)?.to_path_buf();
     let mnt = dir.join("mnt");

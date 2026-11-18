@@ -291,6 +291,10 @@ impl Rhythm {
             if marks.morning_due(m) && pet.good_morning() {
                 marks.morning = Some(m.day);
                 out.marks_changed = true;
+            } else if marks.lunch_due(m) && care.locked {
+                // 성장을 멈춘 펫은 점심을 조르지 않음: 오늘 몫은 조용히 넘김
+                marks.lunch = Some(m.day);
+                out.marks_changed = true;
             } else if marks.lunch_due(m) && pet.lunch_time() {
                 care.lunch_hunger();
                 pet.set_hungry(care.is_hungry());

@@ -513,7 +513,8 @@ impl Slot {
             self.last_pos = Some(pos);
         }
         if self.need_show && self.on_screen() && !hidden {
-            let _ = self.window.show();
+            // 친구 펫이 들어와도 지금 쓰던 앱의 포커스를 뺏지 않음
+            crate::overlay::show_quietly(&self.window);
             self.need_show = false;
         }
     }

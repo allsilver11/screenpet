@@ -200,9 +200,9 @@ impl Care {
         self.fullness = (self.fullness - dt / EMPTY_SECS).max(0.0);
     }
 
-    /// 배고픔 (포만감 HUNGRY_BELOW 아래)
+    /// 배고픔 (포만감 HUNGRY_BELOW 아래). 성장을 멈춘 펫은 밥을 조르지 않으니 늘 아님
     pub fn is_hungry(&self) -> bool {
-        self.fullness < HUNGRY_BELOW
+        !self.locked && self.fullness < HUNGRY_BELOW
     }
 
     /// 점심시간: 배고프지 않았으면 이제 배고픔 (하루 한 번, presence.rs)
@@ -527,6 +527,14 @@ mod tests {
             assert_eq!(r, FeedResult::Ate { leveled_up: i == 3 }, "meal {i}");
         }
         assert_eq!(c.stage, Stage::Kinder);
+    }
+
+    #[test]
+    fn a_locked_pet_never_says_it_is_hungry() {
+        let c = Care { locked: true, fullness: 0.0, ..Care::default() };
+        assert!(!c.is_hungry());
+        let open = Care { locked: false, ..c };
+        assert!(open.is_hungry(), "풀면 다시 배고픔");
     }
 
     #[test]

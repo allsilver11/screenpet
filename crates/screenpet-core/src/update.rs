@@ -283,6 +283,18 @@ pub fn check(json: &str, current: Version, platform: Platform) -> Result<Check, 
     Ok(Check::Newer(Release { version, asset: Asset { name, url, size, sha256 } }))
 }
 
+/// macOS: 앱 폴더에 쓸 수 없을 때 까닭에 맞춘 안내. dmg 안(/Volumes/…)·격리 실행(AppTranslocation)·그 밖
+pub fn mac_folder_hint(bundle: &Path) -> &'static str {
+    let path = bundle.to_string_lossy();
+    if path.starts_with("/Volumes/") {
+        "디스크 이미지(dmg) 안에서 실행 중이에요 — ScreenPet을 응용 프로그램 폴더로 끌어다 놓고, 거기서 다시 켜 주세요"
+    } else if path.contains("/AppTranslocation/") {
+        "macOS가 앱을 임시 위치에서 실행 중이에요 — Finder로 ScreenPet을 응용 프로그램 폴더에 옮긴 뒤 다시 켜 주세요"
+    } else {
+        "앱 폴더에 쓸 수 없어요 — ScreenPet을 응용 프로그램 폴더로 옮긴 뒤 다시 해 주세요"
+    }
+}
+
 /// macOS: 실행 파일(…/X.app/Contents/MacOS/screenpet)에서 앱 번들(…/X.app). 번들 밖이면 None
 pub fn app_bundle_of(exe: &Path) -> Option<PathBuf> {
     let macos = exe.parent()?;
@@ -620,6 +632,13 @@ mod tests {
         for bad in ["0", "-1", "\"12\"", "1.5"] {
             assert_eq!(check(&ok.replace("51426064", bad), v("0.6.2"), w), Err(UpdateError::BadResponse), "{bad}");
         }
+    }
+
+    #[test]
+    fn the_mac_folder_hint_says_why_it_cannot_update() {
+        assert!(mac_folder_hint(Path::new("/Volumes/ScreenPet/ScreenPet.app")).contains("dmg"));
+        assert!(mac_folder_hint(Path::new("/private/var/folders/x/T/AppTranslocation/ABC/d/ScreenPet.app")).contains("임시 위치"));
+        assert!(mac_folder_hint(Path::new("/Users/a/Desktop/ScreenPet.app")).contains("응용 프로그램 폴더로 옮긴"));
     }
 
     #[test]

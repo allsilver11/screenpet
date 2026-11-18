@@ -444,6 +444,19 @@ fn lunch_time_is_said_when_already_hungry_and_keeps_it_hungry() {
 }
 
 #[test]
+fn a_locked_pet_skips_lunch_time_quietly() {
+    let (mut p, w) = on_ground(sim_cfg(), 800.0);
+    let mut sim = afternoon();
+    sim.marks = DailyMarks { morning: Some(1), lunch: None };
+    sim.care.locked = true;
+    sim.time = (11, 30);
+    sim.run(&mut p, &w, 5);
+    assert!(!has_said(&sim, Speech::LunchTime));
+    assert!(!sim.care.is_hungry());
+    assert!(!p.hungry);
+}
+
+#[test]
 fn outside_the_window_there_is_no_lunch() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
     let mut sim = afternoon();

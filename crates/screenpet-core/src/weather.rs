@@ -232,6 +232,8 @@ const MAX_PILES: usize = 16;
 const SETTLED_DEPTH: f32 = 3.0;
 /// 바닥 평균 높이가 이만큼(논리 px)은 있어야 아직 눈이 남은 것임
 const SNOW_LEFT_DEPTH: f32 = 0.5;
+/// 더미를 이만큼(초, 날씨가 켜져 있고 자리에 있는 시간)마다 저절로 싹 치움
+pub const AUTO_CLEAR_SECS: f64 = 3600.0;
 
 /// 창 하나(또는 바닥 하나)의 더미
 struct Pile {
@@ -312,13 +314,15 @@ pub struct PileField {
     carry: f32,
     /// 쌓이는 속도 배수 (미리 보기는 빨리)
     grow_mult: f32,
+    /// 마지막으로 싹 치운 뒤 흐른 시간 (초)
+    since_clear: f64,
     rng: fastrand::Rng,
 }
 
 impl PileField {
     /// 빈 더미 밭. grow_mult는 쌓이는 속도 배수
     pub fn new(seed: u64, grow_mult: f32) -> Self {
-        Self { piles: Vec::new(), tops: Vec::new(), pile_kind: None, carry: 0.0, grow_mult, rng: fastrand::Rng::with_seed(seed) }
+        Self { piles: Vec::new(), tops: Vec::new(), pile_kind: None, carry: 0.0, grow_mult, since_clear: 0.0, rng: fastrand::Rng::with_seed(seed) }
     }
 
     /// 지금 세계에 맞춤: 옮기거나 크기가 바뀐 창의 더미는 사라지고 (윗면 전체가 가려졌거나 닫힌 창도), 나머지는 그대로
@@ -350,6 +354,10 @@ impl PileField {
 
     /// 시간을 dt초 보냄 (앱은 1초에 한 번). 녹이고, 쌓이는 날씨면 보이는 조각에 눈덩이를 얹음
     pub fn tick(&mut self, dt: f64, weather: Weather) {
+        self.since_clear += dt;
+        if self.since_clear >= AUTO_CLEAR_SECS {
+            self.clear_all();
+        }
         let rates = weather.rates();
         let piles_up = rates.grow > 0.0;
         if piles_up && self.pile_kind.is_some_and(|k| k.is_snow() != weather.is_snow()) {
@@ -427,6 +435,14 @@ impl PileField {
             }
         }
         swept
+    }
+
+    /// 🧹 모든 더미를 싹 치움 (쓰레기 다 치우기·한 시간마다): 치운 게 있었으면 true. 한 시간을 새로 셈
+    pub fn clear_all(&mut self) -> bool {
+        self.since_clear = 0.0;
+        let any = self.piles.iter().flat_map(|p| &p.cells).any(|&c| c > 0.0);
+        self.piles.iter_mut().for_each(|p| p.cells.fill(0.0));
+        any
     }
 
     /// 한 모니터(wa)의 장면을 만듦 (scale = 화면 배율, 논리 px로 바꿈)

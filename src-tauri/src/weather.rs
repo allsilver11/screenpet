@@ -204,9 +204,9 @@ impl WeatherFx {
             let paused = weather::overlay_paused(away, &own.world.windows, &o.wa);
             if paused != o.paused {
                 o.paused = paused;
-                let _ = if paused { o.window.hide() } else { o.window.show() };
+                let _ = if paused { o.window.hide() } else { crate::overlay::show_quietly(&o.window); Ok(()) };
                 if let Some(s) = self.snowman.as_ref().filter(|s| on_area(&o.wa, s.x)) {
-                    let _ = if paused { s.window.hide() } else { s.window.show() };
+                    let _ = if paused { s.window.hide() } else { crate::overlay::show_quietly(&s.window); Ok(()) };
                 }
             }
             let payload = Payload { paused, scene: self.field.scene(kind, &o.wa, o.scale) };
@@ -231,6 +231,11 @@ impl WeatherFx {
         if let Some(own) = slots.first_mut() {
             own.pet.set_snow_ready(ready);
         }
+    }
+
+    /// 🧹 쓰레기 다 치우기: 눈·꽃잎·낙엽 더미도 싹 치움. 장면은 다음 5 Hz에 나감
+    pub fn clear_piles(&mut self) {
+        self.field.clear_all();
     }
 
     /// 🧹 빗자루가 지나갔음: 쓴 양과 더미 그림 (날씨가 없으면 None). 장면은 다음 5 Hz에 나감
@@ -345,7 +350,7 @@ impl WeatherFx {
         let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
         let _ = window.set_ignore_cursor_events(true);
         if !crate::windows_hidden(app) {
-            let _ = window.show();
+            crate::overlay::show_quietly(&window);
         }
         Some(window)
     }

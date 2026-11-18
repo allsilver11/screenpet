@@ -75,6 +75,36 @@ pub fn hwnd_of(window: &WebviewWindow) -> Option<isize> {
     }
 }
 
+/// 숨긴 떠 있는 창을 포커스를 뺏지 않고 보임 (친구 펫이 들어올 때 쓰던 글자 입력이 끊기지 않게).
+/// Windows: SW_SHOWNOACTIVATE. macOS: orderFrontRegardless (key 창이 되지 않음). 그 밖: show()
+pub fn show_quietly(window: &WebviewWindow) {
+    #[cfg(windows)]
+    {
+        if let Some(h) = hwnd_of(window) {
+            screenpet_core::platform::show_window_quietly(h);
+            return;
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSWindow;
+        let w = window.clone();
+        let sent = window.run_on_main_thread(move || {
+            let Ok(ptr) = w.ns_window() else { return };
+            if ptr.is_null() {
+                return;
+            }
+            // SAFETY: tauri가 돌려준 NSWindow 포인터이고, 창이 살아 있는 메인 스레드에서만 씀.
+            let ns: &NSWindow = unsafe { &*(ptr as *const NSWindow) };
+            ns.orderFrontRegardless();
+        });
+        if sent.is_ok() {
+            return;
+        }
+    }
+    let _ = window.show();
+}
+
 /// 창을 물리 px로 옮김. Windows에서 tao의 set_position은 보이는 창을 매번 활성화함 (SW_SHOW)
 pub fn move_quietly(window: &WebviewWindow, hwnd: Option<isize>, x: i32, y: i32) {
     #[cfg(windows)]
@@ -126,7 +156,7 @@ pub fn screen_cover(app: &AppHandle, label: &str, page: &str, title: &str, wa: &
     let _ = window.set_position(tauri::PhysicalPosition::new(wa.left.round() as i32, wa.top.round() as i32));
     let _ = window.set_size(tauri::PhysicalSize::new(wa.width().round() as u32, wa.height().round() as u32));
     let _ = window.set_ignore_cursor_events(true);
-    let _ = window.show();
+    show_quietly(&window);
     Some((window, scale))
 }
 

@@ -533,6 +533,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::ToggleLock => {
                     care.locked = !care.locked;
+                    // 멈추면 바로 조르기를 그침 (풀면 배고픈 만큼 다시 조름)
+                    slots[OWN].pet.set_hungry(care.is_hungry());
                     // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춤
                     sync_menu(&app, &slots[OWN].entry, &care, config.housed);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
@@ -735,6 +737,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     }
                 }
                 Input::Object(input) => {
+                    if matches!(input, ObjectInput::ClearAll) {
+                        weather.clear_piles();
+                    }
                     let busy = hand.is_some() || slots.iter().any(|s| s.pet.is_held());
                     objects.handle(&app, input, &slots[OWN].world, source.cursor(), busy);
                 }

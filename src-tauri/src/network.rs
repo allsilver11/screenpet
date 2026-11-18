@@ -2235,7 +2235,12 @@ impl Network {
         let _ = app.emit_to(PAIR_LABEL, "pair-state", p.view.clone());
         if !window.is_visible().unwrap_or(false) {
             crate::overlay::place_on_primary(app, &window, PAIR_FORM.size);
-            let _ = window.show();
+            // 친구가 보낸 신청은 쓰던 걸 끊지 않게 조용히 띄움
+            if p.view.incoming {
+                crate::overlay::show_quietly(&window);
+            } else {
+                let _ = window.show();
+            }
             // 내가 시작한 신청만 앞으로 가져옴
             if !p.view.incoming {
                 let _ = window.set_focus();

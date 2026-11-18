@@ -1020,7 +1020,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         sub.append(&MenuItem::with_id(app, format!("{MENU_SPAWN}{}", kind.id()), kind.label(), true, None::<&str>)?)?;
     }
     sub.append(&PredefinedMenuItem::separator(app)?)?;
-    sub.append(&MenuItem::with_id(app, MENU_CLEAR, "🧹 쓰레기 다 치우기", true, None::<&str>)?)?;
+    sub.append(&MenuItem::with_id(app, MENU_CLEAR, "🧹 쓰레기·눈·낙엽 다 치우기", true, None::<&str>)?)?;
     let _ = MENU.set(sub.clone());
     Ok(sub)
 }
@@ -1076,7 +1076,7 @@ pub async fn object_menu(window: tauri::Window) -> Result<(), String> {
             other => Some(MenuItem::with_id(&app, format!("{MENU_NOTE}{label}"), "📝 포스트잇 붙이기…", other == Postit::None, None::<&str>)?),
         };
         let remove = MenuItem::with_id(&app, format!("{MENU_REMOVE}{label}"), "🗑️ 이것만 치우기", true, None::<&str>)?;
-        let clear = MenuItem::with_id(&app, MENU_CLEAR, "🧹 쓰레기 다 치우기", true, None::<&str>)?;
+        let clear = MenuItem::with_id(&app, MENU_CLEAR, "🧹 쓰레기·눈·낙엽 다 치우기", true, None::<&str>)?;
         match &note {
             Some(note) => Menu::with_items(&app, &[note, &remove, &clear]),
             None => Menu::with_items(&app, &[&remove, &clear]),

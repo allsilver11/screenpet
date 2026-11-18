@@ -19,7 +19,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DestroyIcon, DrawIconEx, GetClassLongPtrW, PrivateExtractIconsW, SendMessageTimeoutW, DI_NORMAL, GCLP_HICON, GCLP_HICONSM, HICON, ICON_BIG, ICON_SMALL2,
     SMTO_ABORTIFHUNG, WM_GETICON,
     EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
-    IsIconic, IsWindow, IsWindowVisible, SetWindowPos, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    IsIconic, IsWindow, IsWindowVisible, SetWindowPos, ShowWindow, SW_SHOWNOACTIVATE, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SWP_NOZORDER, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
@@ -346,4 +346,12 @@ pub fn resize_window(hwnd: isize, w: i32, h: i32) -> bool {
 pub fn move_window(hwnd: isize, x: i32, y: i32) -> bool {
     let h = HWND(hwnd as *mut c_void);
     unsafe { SetWindowPos(h, HWND::default(), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS).is_ok() }
+}
+
+/// 숨겨 둔 우리 창(hwnd)을 활성화 없이 보임 — 지금 쓰던 앱의 포커스·입력을 뺏지 않음 (Tauri show()는 SW_SHOW라 활성화함)
+pub fn show_window_quietly(hwnd: isize) {
+    let h = HWND(hwnd as *mut c_void);
+    unsafe {
+        let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
+    }
 }

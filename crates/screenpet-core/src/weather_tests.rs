@@ -471,3 +471,35 @@ fn any_fullscreen_sees_every_monitor_and_ignores_maximized_windows() {
     assert!(!any_fullscreen(&[maximized], &areas));
     assert!(!any_fullscreen(&[], &areas));
 }
+
+#[test]
+fn clear_all_empties_every_pile_at_once() {
+    let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+    run(&mut f, Weather::Leaves, 300);
+    assert!(depth(&f, Owner::Window(1)) > 0.5 && depth(&f, Owner::Ground(0)) > 0.5);
+    assert!(f.clear_all(), "치운 게 있음");
+    assert!(f.piles.iter().flat_map(|p| &p.cells).all(|&c| c == 0.0));
+    assert!(f.scene(Weather::Leaves, &WA, 1.0).piles.is_empty());
+    assert!(!f.clear_all(), "두 번째엔 치울 게 없음");
+}
+
+#[test]
+fn piles_are_wiped_clean_every_hour_by_themselves() {
+    let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+    run(&mut f, Weather::Leaves, (AUTO_CLEAR_SECS as usize) - 10);
+    assert!(depth(&f, Owner::Ground(0)) > 0.5, "한 시간 전엔 그대로");
+    run(&mut f, Weather::Leaves, 10);
+    assert!(depth(&f, Owner::Ground(0)) < 0.1, "한 시간이 되면 싹 치움");
+    // 다시 쌓이고, 또 한 시간 뒤에 치움
+    run(&mut f, Weather::Leaves, 300);
+    assert!(depth(&f, Owner::Ground(0)) > 0.5);
+}
+
+#[test]
+fn clearing_by_hand_restarts_the_hour() {
+    let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+    run(&mut f, Weather::Leaves, 3000);
+    f.clear_all();
+    run(&mut f, Weather::Leaves, 1000);
+    assert!(depth(&f, Owner::Ground(0)) > 0.5, "손으로 치운 뒤 한 시간을 새로 셈");
+}

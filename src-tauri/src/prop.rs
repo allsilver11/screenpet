@@ -99,7 +99,7 @@ impl Props {
         // 클릭·드래그는 그릇을 지나 그 아래(동물·다른 앱)로 감
         let _ = window.set_ignore_cursor_events(true);
         if !crate::windows_hidden(app) {
-            let _ = window.show();
+            crate::overlay::show_quietly(&window);
         }
         Some(window)
     }
@@ -155,7 +155,7 @@ impl HandWindow {
         self.live = Some(window);
         self.move_to(at, dpi);
         if let (Some(w), false) = (&self.live, crate::windows_hidden(app)) {
-            let _ = w.show();
+            crate::overlay::show_quietly(w);
         }
     }
 
