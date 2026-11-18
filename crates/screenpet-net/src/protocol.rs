@@ -1011,7 +1011,7 @@ mod tests {
         let json = serde_json::to_string(&t).unwrap();
         assert_eq!(serde_json::from_str::<Toss>(&json).unwrap(), t);
         let plain = Toss { icon: None, ..t.clone() };
-        assert!(!serde_json::to_string(&plain).unwrap().contains("icon"));
+        assert!(!serde_json::to_string(&plain).unwrap().contains("\"icon\""), "no picture, no field");
         for junk in ["1", "\"x\"", "{\"size\":-1,\"rgba\":\"\"}", "{\"size\":2}"] {
             let got = serde_json::from_str::<Toss>(&format!(r#"{{"kind":"app_icon","icon":{junk}}}"#)).unwrap();
             assert_eq!(got.icon, None, "{junk}");
