@@ -105,6 +105,10 @@ impl Pet {
         } else {
             Speech::Ow
         };
+        if hit.snow {
+            // ⛄ 눈싸움: 곧 쉬면 되던짐 (brain_snowplay.rs)
+            self.snowball_hit();
+        }
         self.speech = Some(if hit.poop {
             Speech::Ew
         } else if hit.snow {

@@ -305,6 +305,10 @@ pub enum Speech {
     HighFive,
     /// ⛄ 눈덩이에 맞았음 ("brr!", brain_hit.rs)
     Brr,
+    /// ⛄ 발밑 눈을 뭉쳐 던짐 ("snowball!", brain_snowplay.rs)
+    Snowball,
+    /// ⛄ 눈밭에서 데굴 ("fluffy!", brain_snowplay.rs)
+    Flop,
 }
 
 impl Anim {
@@ -862,6 +866,8 @@ pub struct Pet {
     juggle: juggle_moves::JuggleMood,
     /// 📌 작업표시줄 장난감 (brain_taskbar.rs)
     toy: taskbar_moves::ToyMood,
+    /// ⛄🍂 눈·낙엽 더미에서 놀기 (brain_snowplay.rs)
+    snowplay: snowplay_moves::SnowPlayMood,
     /// 🔄 새 버전 응원 (brain_cheer.rs)
     cheer: cheer_moves::CheerMood,
     /// 흐물이 더 놀기 (v0.6.3): 🎣 커서 매달리기 · 🙆 동물 들기 · 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 캐치볼 · 🖍️ 낙서 · ⌨️ 타자 응원
@@ -960,6 +966,7 @@ impl Pet {
             ceiling: f64::NEG_INFINITY,
             juggle: juggle_moves::JuggleMood::new(seed),
             toy: taskbar_moves::ToyMood::new(seed),
+            snowplay: snowplay_moves::SnowPlayMood::new(seed),
             cheer: Default::default(),
             swing: swing_moves::SwingMood::new(seed),
             hoist: hoist_moves::HoistMood::new(seed),
@@ -1129,6 +1136,7 @@ impl Pet {
                 self.update_ground(dt, world);
             }
         }
+        self.tick_snow_play(world);
         self.on_started();
     }
 
@@ -3237,6 +3245,10 @@ impl Pet {
         if let Some(building) = self.snowman_rest(world) {
             return building;
         }
+        // ⛄🍂 발밑 눈·낙엽 더미에서 가끔 놂 (brain_snowplay.rs)
+        if let Some(play) = self.snow_play_rest() {
+            return play;
+        }
         if let Some(kind) = self.cfg.special {
             if self.rng.f64() < kind.rest_chance() {
                 self.start_special(kind);
@@ -3612,6 +3624,12 @@ pub mod flash_moves;
 #[cfg(test)]
 #[path = "brain_snow_tests.rs"]
 mod snow_tests;
+/// 눈·낙엽 더미에서 놀기 (눈 뭉쳐 던지기·데굴·낙엽 뛰어들기)
+#[path = "brain_snowplay.rs"]
+pub mod snowplay_moves;
+#[cfg(test)]
+#[path = "brain_snowplay_tests.rs"]
+mod snowplay_tests;
 #[cfg(test)]
 #[path = "brain_cloud_tests.rs"]
 mod cloud_tests;

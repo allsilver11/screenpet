@@ -475,11 +475,11 @@ impl PileField {
         if !self.tops.iter().any(|t| t.owner == p.owner && t.x0 <= x && x <= t.x1) {
             return None;
         }
-        let cells: Vec<f32> = p.cells.iter().enumerate().filter(|(i, _)| {
-            let cx = p.left + (*i as f64 + 0.5) * CELL;
-            cx >= x0 && cx <= x1
-        }).map(|(_, &c)| c).collect();
-        let depth = if cells.is_empty() { 0.0 } else { cells.iter().sum::<f32>() / cells.len() as f32 };
+        let (sum, n) = p.cells.iter().enumerate().fold((0.0f32, 0u32), |(sum, n), (i, &c)| {
+            let cx = p.left + (i as f64 + 0.5) * CELL;
+            if cx >= x0 && cx <= x1 { (sum + c, n + 1) } else { (sum, n) }
+        });
+        let depth = if n == 0 { 0.0 } else { sum / n as f32 };
         (depth >= 0.05).then_some((kind, depth))
     }
 

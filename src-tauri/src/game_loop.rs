@@ -1094,10 +1094,14 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         for (i, s) in slots.iter_mut().enumerate() {
             // 친구 화면에 가 있거나 🛷 썰매에 탄 동안엔 물리·행동이 멈춤
             if !s.pet.is_away() && !sleigh.is_riding(&s.label) {
+                // 같은 화면의 다른 동물 (흐물이 던지기·⛄ 눈싸움이 노림)
+                juggle_targets.clear();
+                juggle_targets.extend(pet_targets.iter().enumerate().filter(|(j, _)| *j != i).filter_map(|(_, t)| *t));
+                // ⛄🍂 발밑 눈·낙엽 더미 (모두 숨겨 둔 동안엔 없음) — 쉬는 박자가 끝날 때 가끔 놂 (코어 brain_snowplay.rs)
+                let pile = if all_hidden { None } else { weather.pile_under(s.pet.body.x, s.pet.body.y, s.pet.cfg.half_w) };
+                s.pet.notice_pile(pile, &juggle_targets, !play_busy && !config.cursor_play_off);
                 // 🤹 흐물이: 바닥의 물건을 주우러 가고, 같은 화면의 다른 동물을 노림 (다른 동물은 할 일이 없음)
                 if s.pet.cfg.juggler {
-                    juggle_targets.clear();
-                    juggle_targets.extend(pet_targets.iter().enumerate().filter(|(j, _)| *j != i).filter_map(|(_, t)| *t));
                     s.pet.notice_objects(&object_spots, &juggle_targets, &s.world);
                     s.pet.notice_incoming(&incoming, &s.world);
                 }
@@ -1164,6 +1168,23 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         objects.sync_carries(&mut social, &mut slots);
         // 🐱 툭 밀기 · 🐿️ 뿅 · 🦖 큰 쿵에 톡 (v0.6.3)
         objects.play_with(&mut slots);
+        // ⛄🍂 눈·낙엽 놀이: 뭉친 눈은 발밑 눈을 비우고 눈덩이로 날리고 (던진 동물은 잠깐 안 맞음), 뛰어든·뒹군 더미는 확 흩어짐
+        for i in 0..slots.len() {
+            let Some(ev) = slots[i].pet.take_snow_play() else { continue };
+            let s = &slots[i];
+            let half = s.pet.cfg.size * screenpet_core::snowplay::SCOOP_REACH;
+            match ev {
+                screenpet_core::snowplay::SnowPlayEvent::Throw { foot_x, foot_y, x, y, vx, vy } => {
+                    // 그 사이 녹았거나 치웠으면 아무것도 날리지 않음
+                    if weather.pack_snow(foot_x - half, foot_x + half, foot_y, 8.0 * s.dpi) > 0.0 {
+                        if let Some(id) = objects.spawn_snowball(&app, &s.world, (x, y)) {
+                            objects.launch_snowball(&mut social, id, s.pet.social_key(), vx, vy);
+                        }
+                    }
+                }
+                screenpet_core::snowplay::SnowPlayEvent::Burst { x, y } => weather.burst_pile(&app, x, y, half, s.dpi),
+            }
+        }
         // 📌 읽은 앱 아이콘이 왔으면 장난감을 만들어 내 흐물이 손에 쥐여 줌
         {
             let own = &mut slots[OWN];

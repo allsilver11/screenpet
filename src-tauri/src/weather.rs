@@ -55,6 +55,8 @@ struct Flurry {
 const FLURRY_COUNT: u32 = 40;
 /// 날아 들어오는 속도 (논리 px/s)
 const FLURRY_SPEED: f64 = 420.0;
+/// 동물이 뛰어든 더미를 비우는 높이: 발에서 위아래로 (논리 px)
+const BURST_REACH_Y: f64 = 8.0;
 
 /// 덮개 창에 보내는 장면임
 #[derive(Serialize, PartialEq)]
@@ -265,6 +267,28 @@ impl WeatherFx {
             return 0.0;
         }
         self.field.pack_snow(x0, x1, y, reach_y)
+    }
+
+    /// ⛄🍂 발밑 더미 (x, 발 y 둘레 ±half_w): 그림과 평균 높이 (논리 px). 날씨가 없거나 그 모니터 날씨가 쉬는 중이면 None
+    pub fn pile_under(&self, x: f64, y: f64, half_w: f64) -> Option<(Weather, f32)> {
+        self.active?;
+        if self.overlays.iter().any(|o| o.paused && on_area(&o.wa, x)) {
+            return None;
+        }
+        self.field.pile_under(x, y, half_w)
+    }
+
+    /// ⛄🍂 동물이 더미에 뛰어들었거나 뒹굴었음: (x, 발 y) 둘레 ±half의 더미를 비우고 그 알갱이를 위로 확 날림
+    pub fn burst_pile(&mut self, app: &AppHandle, x: f64, y: f64, half: f64, dpi: f64) {
+        if self.active.is_none() {
+            return;
+        }
+        let Some(kind) = self.field.pile_kind() else { return };
+        let got = self.field.sweep(x - half, x + half, y, BURST_REACH_Y * dpi);
+        if got > 0.0 {
+            let count = ((got * 3.0).ceil() as u32).clamp(8, 30);
+            self.puff(app, kind, (x, y - 4.0 * dpi), (0.0, -260.0 * dpi), count);
+        }
     }
 
     /// 빗자루 끝에서 알갱이가 날림 (x, y: 물리 px, 속도: 물리 px/s)
