@@ -970,6 +970,8 @@ const EXTRA_SPEECH = {
   // ⛄ 발밑 눈을 뭉쳐 던짐 / 눈밭에서 데굴 (코어 brain_snowplay.rs)
   snowball: ["snowball!", "catch!"],
   flop: ["fluffy!", "brrr~"],
+  // ⚾🖱️ 먼저 커서에게 놀자고 던지거나 밂 (코어 brain_cursor_rally.rs — 받은 횟수 "3!"·"boop! 2"는 글자 그대로)
+  invite: ["catch!", "play?"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {

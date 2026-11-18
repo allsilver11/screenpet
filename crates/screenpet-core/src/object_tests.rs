@@ -2035,3 +2035,71 @@ fn a_toss_that_came_back_from_a_busy_friend_is_not_caught_or_counted() {
     assert!(back.incoming(7).is_none());
     assert_eq!(back.rally(), 0);
 }
+
+/// 테스트: 바닥 위에서 커서로 (vx, vy)만큼 끌다 던짐 (논리 = 물리 px)
+fn user_throw(kind: ObjectKind, v: (f64, f64)) -> (Object, World) {
+    let w = floor();
+    let mut o = Object::new(kind, 800.0, 1040.0, 1.0, 1);
+    run(&mut o, &w, 2.0);
+    fling(&mut o, &w, (800.0, 1000.0), v);
+    (o, w)
+}
+
+#[test]
+fn a_user_throw_is_offered_to_catchers_but_not_giants_snowballs_or_after_landing() {
+    let (o, _) = user_throw(ObjectKind::Can, (-900.0, -600.0));
+    let got = o.incoming(4).expect("flying from the cursor");
+    assert!(got.user && got.rally == 0 && !got.giant);
+    assert_eq!(got.from, Side::Right, "came from the right, so going left");
+    let (o, _) = user_throw(ObjectKind::Snowball, (-900.0, -600.0));
+    assert_eq!(o.incoming(4), None, "snowballs splat, nobody catches them");
+    let (mut o, w) = user_throw(ObjectKind::Can, (300.0, -300.0));
+    run(&mut o, &w, 4.0);
+    assert_eq!(o.incoming(4), None);
+    // 동물이 던진 것은 아니다
+    let mut o = Object::new(ObjectKind::Can, 800.0, 900.0, 1.0, 1);
+    o.launch(-500.0, -400.0);
+    assert_eq!(o.incoming(4), None);
+}
+
+#[test]
+fn a_cursor_rally_count_survives_a_quick_regrab_only() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Can, 800.0, 900.0, 1.0, 1);
+    o.launch(200.0, -300.0);
+    o.mark_cursor_rally();
+    o.set_rally(3);
+    // 날아가는 중에 잡음
+    o.tick(DT, &w, NONE, false);
+    o.pointer_down(o.body.x, o.body.y);
+    assert_eq!(o.rally(), 3);
+    o.pointer_up();
+    // 내려앉고 금방
+    let mut o = Object::new(ObjectKind::Can, 800.0, 900.0, 1.0, 1);
+    o.launch(100.0, -100.0);
+    o.mark_cursor_rally();
+    o.set_rally(4);
+    run(&mut o, &w, 1.5);
+    assert!(o.owner().is_some());
+    o.pointer_down(o.body.x, o.body.y);
+    assert_eq!(o.rally(), 4, "grabbed soon after landing");
+    // 오래 두면 끝
+    let mut o = Object::new(ObjectKind::Can, 800.0, 900.0, 1.0, 1);
+    o.launch(100.0, -100.0);
+    o.mark_cursor_rally();
+    o.set_rally(4);
+    run(&mut o, &w, 1.0 + crate::cursor_rally::RALLY_GRAB_SECS + 1.0);
+    o.pointer_down(o.body.x, o.body.y);
+    assert_eq!(o.rally(), 0, "left lying too long");
+}
+
+#[test]
+fn a_boop_sends_it_back_flying_with_the_next_count() {
+    let (mut o, _) = user_throw(ObjectKind::Paper, (900.0, -200.0));
+    o.boop_back(-600.0, -500.0, 2);
+    assert!(o.in_flight());
+    assert_eq!((o.body.vx, o.body.vy, o.rally()), (-600.0, -500.0, 2));
+    assert_eq!(o.incoming(1), None, "the pet's own boop is not caught by others");
+    o.pointer_down(o.body.x, o.body.y);
+    assert_eq!(o.rally(), 2, "the user can play on");
+}

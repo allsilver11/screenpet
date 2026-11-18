@@ -56,6 +56,8 @@ pub(super) enum Plan {
     Lob(Side),
     /// 📌 장난감: 바닥을 조금 걷다가 도로 밀어 넣음
     Stuff,
+    /// ⚾🖱️ 커서 쪽으로 던짐 (사용자가 던진 것을 받았거나 놀자고 주웠음 — brain_cursor_rally.rs)
+    ToCursor,
 }
 
 /// 들고 던지기의 기억
@@ -411,7 +413,8 @@ impl Pet {
     pub(super) fn start_lift(&mut self, id: u64, giant: bool, world: &World) {
         self.juggle.carry = Some(id);
         self.juggle.giant = giant;
-        self.juggle.plan = match (self.toy_pickup_plan(id, world), self.juggle.leave_to.take()) {
+        let invite = self.invite_plan(id);
+        self.juggle.plan = match (invite.or_else(|| self.toy_pickup_plan(id, world)), self.juggle.leave_to.take()) {
             (Some(plan), _) => plan,
             // 놀러 가는 길에 주웠다: 들고 간다
             (None, Some(side)) if !giant && !self.juggle.local => Plan::Prank(side),
@@ -427,7 +430,7 @@ impl Pet {
     pub(super) fn start_throw(&mut self) {
         // 노릴 동물이 있으면 그쪽을 본다
         let from = self.carry_point().unwrap_or((self.body.x, self.body.y - self.cfg.size));
-        if !self.juggle.giant {
+        if !self.juggle.giant && self.juggle.plan != Plan::ToCursor {
             if let Some(t) = juggle::nearest_target(from, self.cfg.size, &self.juggle.targets) {
                 self.facing = if t.x >= from.0 { 1.0 } else { -1.0 };
             }
@@ -449,6 +452,7 @@ impl Pet {
         if let Some(id) = self.juggle.carry.take() {
             self.juggle.event = Some(JuggleEvent::Release { id, vx, vy });
             self.rally_released(id);
+            self.cursor_released(id);
         }
     }
 
@@ -569,7 +573,7 @@ impl Pet {
                     return;
                 }
                 match self.juggle.plan {
-                    Plan::Throw => self.start_throw(),
+                    Plan::Throw | Plan::ToCursor => self.start_throw(),
                     Plan::Wander => {
                         let secs = behavior::range(&mut self.juggle.rng, juggle::WANDER_SECS);
                         self.state = State::Juggle { phase: JugglePhase::Wander { secs }, t: 0.0 };
@@ -647,6 +651,11 @@ impl Pet {
                             let edge_x = if visit::dir(side) > 0.0 { world.bounds.right } else { world.bounds.left };
                             let (vx, vy) = juggle::lob_velocity(from.0, edge_x, self.cfg.dpi);
                             (vx, vy, visit::dir(side))
+                        }
+                        // ⚾🖱️ 커서 쪽으로 (커서 점을 지나는 포물선)
+                        Plan::ToCursor if !self.juggle.giant => {
+                            let (vx, vy) = self.to_cursor_velocity(from);
+                            (vx, vy, if vx < 0.0 { -1.0 } else { 1.0 })
                         }
                         _ => juggle::throw_velocity(&mut self.juggle.rng, from, self.facing, self.cfg.size, self.cfg.dpi, self.juggle.giant, &self.juggle.targets),
                     };

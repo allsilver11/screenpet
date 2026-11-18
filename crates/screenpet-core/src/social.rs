@@ -629,6 +629,21 @@ impl Social {
             let (half_w, height) = object.hit_box();
             let Some((face, away, fast)) = self.touch(b, (x - vx * dt, y - vy * dt), (x, y), half_w, height, vx, vy, object.dpi()) else { continue };
             let snow = object.kind.is_snowball();
+            // ⚾🖱️ 사용자가 커서로 던진 것: 손 없는 동물이 가끔 머리로 콩 받아쳐 커서 쪽으로 돌려보냄 (cursor_rally.rs)
+            if !snow && object.is_user_throw() && pets[j].as_ref().can_boop() && self.rng.f64() < crate::cursor_rally::BOOP_CHANCE {
+                let n = object.rally().saturating_add(1);
+                let pet = pets[j].as_mut();
+                pet.boop(n);
+                if n < crate::juggle::MAX_RALLY {
+                    let (_, height) = object.hit_box();
+                    let (vx, vy) = crate::cursor_rally::to_cursor_velocity((x, y - height), pet.cursor_pos(), pet.cfg.size, object.dpi());
+                    object.boop_back(vx, vy, n);
+                } else {
+                    object.bounce_off(face, away);
+                }
+                cool(&mut self.object_cooldown, key, self.clock, HIT_PAIR_COOLDOWN);
+                continue;
+            }
             if snow {
                 // ⛄ 눈덩이는 튕기지 않고 퍽 부서진다 (앱이 눈가루를 날리고 치움)
                 object.splat();

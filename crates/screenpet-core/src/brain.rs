@@ -309,6 +309,8 @@ pub enum Speech {
     Snowball,
     /// ⛄ 눈밭에서 데굴 ("fluffy!", brain_snowplay.rs)
     Flop,
+    /// ⚾🖱️ 먼저 커서에게 놀자고 던지거나 밂 ("catch!", brain_cursor_rally.rs)
+    Invite,
 }
 
 impl Anim {
@@ -868,6 +870,8 @@ pub struct Pet {
     toy: taskbar_moves::ToyMood,
     /// ⛄🍂 눈·낙엽 더미에서 놀기 (brain_snowplay.rs)
     snowplay: snowplay_moves::SnowPlayMood,
+    /// ⚾🖱️ 커서와 캐치볼 (brain_cursor_rally.rs)
+    cursor_rally: cursor_rally_moves::CursorRallyMood,
     /// 🔄 새 버전 응원 (brain_cheer.rs)
     cheer: cheer_moves::CheerMood,
     /// 흐물이 더 놀기 (v0.6.3): 🎣 커서 매달리기 · 🙆 동물 들기 · 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 캐치볼 · 🖍️ 낙서 · ⌨️ 타자 응원
@@ -967,6 +971,7 @@ impl Pet {
             juggle: juggle_moves::JuggleMood::new(seed),
             toy: taskbar_moves::ToyMood::new(seed),
             snowplay: snowplay_moves::SnowPlayMood::new(seed),
+            cursor_rally: cursor_rally_moves::CursorRallyMood::new(seed),
             cheer: Default::default(),
             swing: swing_moves::SwingMood::new(seed),
             hoist: hoist_moves::HoistMood::new(seed),
@@ -3630,6 +3635,12 @@ pub mod snowplay_moves;
 #[cfg(test)]
 #[path = "brain_snowplay_tests.rs"]
 mod snowplay_tests;
+/// 커서와 캐치볼 (흐물이 받아 되던지기·콩 받아치기·먼저 놀자고 하기)
+#[path = "brain_cursor_rally.rs"]
+pub mod cursor_rally_moves;
+#[cfg(test)]
+#[path = "brain_cursor_rally_tests.rs"]
+mod cursor_rally_tests;
 #[cfg(test)]
 #[path = "brain_cloud_tests.rs"]
 mod cloud_tests;

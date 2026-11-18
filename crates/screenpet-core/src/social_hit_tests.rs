@@ -617,3 +617,45 @@ fn a_snowball_bursts_on_a_pet_who_says_brr() {
     assert!(!o.in_flight(), "it is gone, not bouncing on");
     assert_eq!(pets[0].take_speech(), Some(Speech::Brr));
 }
+
+/// 테스트: 커서로 던진 것처럼 (x, y)에서 (vx, vy)로
+fn user_thrown(kind: ObjectKind, x: f64, y: f64, vx: f64, vy: f64) -> Object {
+    let mut o = Object::new(kind, x, y, 1.0, 1);
+    o.force_user_throw(vx, vy);
+    o
+}
+
+#[test]
+fn a_pet_sometimes_boops_a_cursor_throw_back_toward_the_cursor() {
+    let w = world(vec![]);
+    let (mut boops, mut bumps) = (0, 0);
+    for seed in 0..40 {
+        let mut pets = vec![ground(&w, friendly(), 800.0, 2)];
+        pets[0].hover(300.0, 600.0, false);
+        let mut s = Social::new(seed);
+        let mut o = user_thrown(ObjectKind::Can, 600.0, GROUND - 20.0, 600.0, 0.0);
+        assert!(fly_object(&mut s, &mut o, &mut pets, 40));
+        if o.rally() == 1 {
+            boops += 1;
+            assert!(o.body.vx < 0.0 && o.body.vy < 0.0, "up toward the cursor: {:?}", o.body);
+            assert_eq!(pets[0].take_speech_text().as_deref(), Some("boop! 1"));
+        } else {
+            bumps += 1;
+        }
+    }
+    assert!(boops >= 10 && bumps >= 10, "{boops} boops, {bumps} bumps");
+    // 자는 동물·보통 던지기·눈덩이는 콩 하지 않는다
+    for seed in 0..20 {
+        let mut pets = vec![ground(&w, friendly(), 800.0, 2)];
+        pets[0].state = State::Sleep { remaining: 60.0 };
+        let mut s = Social::new(seed);
+        let mut o = user_thrown(ObjectKind::Can, 600.0, GROUND - 20.0, 600.0, 0.0);
+        fly_object(&mut s, &mut o, &mut pets, 40);
+        assert_eq!(o.rally(), 0);
+        let mut pets = vec![ground(&w, friendly(), 800.0, 2)];
+        let mut o = thrown_object(ObjectKind::Can, 600.0, GROUND - 20.0, 600.0, 0.0);
+        let mut s = Social::new(seed);
+        fly_object(&mut s, &mut o, &mut pets, 40);
+        assert_eq!(o.rally(), 0);
+    }
+}

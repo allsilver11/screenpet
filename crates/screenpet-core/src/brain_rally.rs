@@ -114,12 +114,19 @@ impl Pet {
             self.speech = Some(Speech::RallyEnd);
             self.juggle.plan = Plan::Throw;
             self.rally.throwing = None;
+        } else if o.user {
+            // ⚾🖱️ 사용자가 커서로 던진 것: 커서 쪽으로 되던짐 (brain_cursor_rally.rs)
+            self.speech_text = Some(format!("{n}!"));
+            self.facing = visit::dir(o.from);
+            self.caught_from_cursor(o.id, n);
         } else {
             self.speech_text = Some(format!("{n}!"));
             self.juggle.plan = Plan::Lob(o.from);
             self.rally.throwing = Some((o.id, n));
         }
-        self.facing = visit::dir(o.from);
+        if !o.user || n >= juggle::MAX_RALLY {
+            self.facing = visit::dir(o.from);
+        }
         self.state = State::Juggle { phase: JugglePhase::Catch, t: 0.0 };
     }
 

@@ -10,7 +10,7 @@ use crate::test_util::{pet_cfg, DT};
 
 /// 오른쪽 끝에서 왼쪽으로 날아 들어오는 물건
 fn ball(rally: u32) -> Incoming {
-    Incoming { id: 9, x: 1880.0, y: 700.0, vx: -520.0, vy: -420.0, rally, from: Side::Right, giant: false }
+    Incoming { id: 9, x: 1880.0, y: 700.0, vx: -520.0, vy: -420.0, rally, from: Side::Right, giant: false, user: false }
 }
 
 struct Run {

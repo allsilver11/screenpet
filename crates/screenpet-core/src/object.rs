@@ -428,6 +428,12 @@ pub struct Object {
     knocked: bool,
     /// ⛄ 던진 눈덩이가 무언가에 닿아 퍽 부서졌음 (take_burst로 한 번 꺼냄 — 앱이 치움)
     burst: bool,
+    /// ⚾🖱️ 사용자가 커서로 던져 날아가는 중 (흐물이가 받아 커서 쪽으로 되던짐 — cursor_rally.rs)
+    by_user: bool,
+    /// ⚾🖱️ 동물이 커서 쪽으로 돌려보낸 것 (되던짐·콩·놀자) — 날아가는 중이나 내려앉고 RALLY_GRAB_SECS 안에 잡으면 횟수가 이어짐
+    cursor_rally: bool,
+    /// 마지막으로 디딤판에 내려앉은 시각 (물건 시계 — 날아가는 중이면 None)
+    landed_at: Option<f64>,
 }
 
 impl Object {
@@ -473,6 +479,9 @@ impl Object {
             from: None,
             knocked: false,
             burst: false,
+            by_user: false,
+            cursor_rally: false,
+            landed_at: None,
         }
     }
 
@@ -494,14 +503,20 @@ impl Object {
 
     /// ⚾ 친구 화면 끝에서 던져져 날아 들어오는 중이면 흐물이가 받을 수 있게 (id = 앱의 물건 id). 되돌아온 것은 None
     pub fn incoming(&self, id: u64) -> Option<crate::juggle::Incoming> {
-        if self.returned {
+        // ⛄ 눈덩이는 받지 않는다 (닿으면 퍽)
+        if self.returned || self.kind.is_snowball() || !self.in_flight() {
             return None;
+        }
+        // ⚾🖱️ 사용자가 커서로 던진 것: 오는 쪽이 날아온 끝 (거대한 것은 받지 않음 — notice_incoming이 거름)
+        if self.by_user {
+            let from = if self.body.vx < 0.0 { Side::Right } else { Side::Left };
+            return Some(crate::juggle::Incoming { id, x: self.body.x, y: self.body.y, vx: self.body.vx, vy: self.body.vy, rally: self.rally, from, giant: self.kind.is_giant(), user: true });
         }
         let from = self.from.filter(|s| !visit::is_vertical(*s))?;
         if !self.in_flight() {
             return None;
         }
-        Some(crate::juggle::Incoming { id, x: self.body.x, y: self.body.y, vx: self.body.vx, vy: self.body.vy, rally: self.rally, from, giant: self.kind.is_giant() })
+        Some(crate::juggle::Incoming { id, x: self.body.x, y: self.body.y, vx: self.body.vx, vy: self.body.vy, rally: self.rally, from, giant: self.kind.is_giant(), user: false })
     }
 
     /// 친구 화면에서 던져져 side 끝으로 날아 들어옴 (높이·속도를 이어 받음). fling은 다듬어져 있어야 함 (accept_toss)
@@ -652,11 +667,38 @@ impl Object {
         Some(crate::juggle::ObjectSpot { id, x: self.body.x, y: self.body.y, owner: self.owner()?, half_w: self.half_w(), giant: self.kind.is_giant(), local: self.kind.is_toy() })
     }
 
+    /// ⚾🖱️ 사용자가 커서로 던져 날아가는 중 (동물이 콩 받아칠 수 있음)
+    pub fn is_user_throw(&self) -> bool {
+        self.by_user && self.in_flight()
+    }
+
+    /// ⚾🖱️ 동물이 커서 쪽으로 돌려보냈음 (앱이 되던진 뒤 부름): 잡으면 횟수가 이어짐
+    pub fn mark_cursor_rally(&mut self) {
+        self.cursor_rally = true;
+        self.landed_at = None;
+    }
+
+    /// ⚾🖱️ 커서 랠리가 아직 살아 있음: 동물이 돌려보냈고, 날아가는 중이거나 내려앉은 지 RALLY_GRAB_SECS 안
+    fn cursor_rally_live(&self) -> bool {
+        self.cursor_rally && self.landed_at.is_none_or(|t| self.clock - t <= crate::cursor_rally::RALLY_GRAB_SECS)
+    }
+
+    /// ⚾🖱️ 동물이 머리로 콩 받아쳐 (vx, vy)로 돌려보냄 (물리 px/s): n번째로 적고 커서 랠리로 표시함 (던진 것처럼 날아감)
+    pub fn boop_back(&mut self, vx: f64, vy: f64, n: u32) {
+        if self.is_held() {
+            return;
+        }
+        self.launch(vx, vy);
+        self.set_rally(n);
+        self.mark_cursor_rally();
+    }
+
     /// 동물 손에 들려 (hx, hy)에 손이 있음: 바닥이 손 조금 아래 (똑바로 세워 듦). 사용자가 잡고 있으면 그대로
     pub fn carry_at(&mut self, hx: f64, hy: f64) {
         if self.is_held() {
             return;
         }
+        self.by_user = false;
         let (_, height) = self.hit_box();
         self.phase = Phase::Carried;
         self.standing = None;
@@ -674,6 +716,9 @@ impl Object {
             return;
         }
         self.from = None;
+        self.by_user = false;
+        self.cursor_rally = false;
+        self.landed_at = None;
         self.body.vx = vx;
         self.body.vy = vy;
         self.standing = None;
@@ -805,7 +850,12 @@ impl Object {
     /// 잡았음 (cx, cy = 커서)
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
         self.from = None;
-        self.rally = 0;
+        // ⚾🖱️ 동물이 돌려보낸 것을 금방 잡았으면 횟수가 이어짐 (아니면 새로 1부터)
+        if !self.cursor_rally_live() {
+            self.rally = 0;
+        }
+        self.cursor_rally = false;
+        self.by_user = false;
         self.phase = Phase::Held;
         self.standing = None;
         self.thrown = false;
@@ -849,6 +899,9 @@ impl Object {
         self.thrown = true;
         self.thrown_down = visit::aimed_down(vx, vy, self.dpi);
         self.spin = self.spin_of_throw();
+        // ⚾🖱️ 커서로 던짐: 흐물이가 받으러 옴 (거대한 것·눈덩이는 아님)
+        self.by_user = !self.kind.is_giant() && !self.kind.is_snowball();
+        self.landed_at = None;
         Release::Throw
     }
 
@@ -1017,6 +1070,8 @@ impl Object {
             }
             let landed_at = self.body.vy;
             self.body.vy = 0.0;
+            self.by_user = false;
+            self.landed_at = Some(self.clock);
             let ax = world.anchor(s.owner).map_or(0.0, |(ax, _)| ax);
             self.standing = Some((s.owner, self.body.x - ax));
             let friction = heft_of(self.kind).friction * self.dpi;
@@ -1188,6 +1243,12 @@ impl Object {
 
 #[cfg(test)]
 impl Object {
+    /// 테스트: 커서로 던진 것처럼 (vx, vy)로 날아감
+    pub(crate) fn force_user_throw(&mut self, vx: f64, vy: f64) {
+        self.force_throw(vx, vy);
+        self.by_user = true;
+    }
+
     /// 테스트: 지금 자리에서 (vx, vy)로 던져져 날아감
     pub(crate) fn force_throw(&mut self, vx: f64, vy: f64) {
         self.body.vx = vx;

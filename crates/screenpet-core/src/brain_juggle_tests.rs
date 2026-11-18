@@ -245,6 +245,7 @@ fn prank_odds_need_a_new_friend_edge_it_can_walk_to_and_never_happen_for_giants(
             Plan::Wander => wander += 1,
             Plan::Throw => throw += 1,
             Plan::Lob(_) => {}
+            Plan::ToCursor => panic!("커서 쪽은 받거나 놀자고 할 때만"),
             Plan::Stuff => panic!("도로 넣기는 📌 장난감만"),
         }
         assert_eq!(p.pick_plan(true, &w), Plan::Throw, "거대한 것은 던지기만");

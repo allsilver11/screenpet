@@ -160,6 +160,8 @@ pub struct Incoming {
     pub from: crate::world::Side,
     /// 🪨💩 거대한 것
     pub giant: bool,
+    /// ⚾🖱️ 사용자가 커서로 던진 것 (친구 화면에서 온 게 아님) — 받으면 커서 쪽으로 되던짐 (cursor_rally.rs)
+    pub user: bool,
 }
 
 /// (x, y)에서 (vx, vy)로 던져진 것이 내려오며 높이 y_at에 닿는 x (던진 비행 중력 — 물리 px). 그 높이에 닿지 않으면 None

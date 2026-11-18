@@ -28,6 +28,7 @@ use screenpet_core::taskbar::{Toys, CAPTURE_BACKOFF_SECS, TOY_ICON_PX};
 use screenpet_core::object::{accept_toss, accept_toy_toss, AcceptedToss, Exit, Object, ObjectKind, Origin, Postit, Release, Roster, TossBudget, TossInbox, MAX_OWN_OBJECTS, MAX_POOPS, OBJECT_LOGICAL_SIZE, Volley, volley_piece};
 use screenpet_core::brain::Pet;
 use screenpet_core::juggle::{JuggleEvent, ObjectSpot};
+use screenpet_core::cursor_rally::CursorRallyEvent;
 use screenpet_core::play::ObjectPlay;
 use screenpet_core::broom::Broom;
 use screenpet_core::social::Social;
@@ -525,6 +526,24 @@ impl Objects {
                     }
                 }
                 None => {}
+            }
+        }
+    }
+
+    /// ⚾🖱️ 커서와 캐치볼 (코어 cursor_rally.rs): 흐물이가 커서 쪽으로 던진 것은 횟수를 적고 커서 랠리로 표시하고,
+    /// 다른 동물이 놀자고 민 것은 바닥에 있을 때만 그 속도로 날림 (잡혀 있거나 누가 들고 있으면 그대로)
+    pub fn cursor_rally(&mut self, ev: CursorRallyEvent) {
+        match ev {
+            CursorRallyEvent::Back { id, rally } => {
+                if let Some(l) = self.live.iter_mut().find(|l| l.id == id && l.object.in_flight()) {
+                    l.object.set_rally(rally);
+                    l.object.mark_cursor_rally();
+                }
+            }
+            CursorRallyEvent::Boop { id, vx, vy, rally } => {
+                if let Some(l) = self.live.iter_mut().find(|l| l.id == id && l.object.spot(l.id).is_some()) {
+                    l.object.boop_back(vx, vy, rally);
+                }
             }
         }
     }

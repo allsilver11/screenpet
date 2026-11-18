@@ -1105,6 +1105,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     s.pet.notice_objects(&object_spots, &juggle_targets, &s.world);
                     s.pet.notice_incoming(&incoming, &s.world);
                 }
+                // ⚾🖱️ 커서와 캐치볼: 사용자가 있고 커서 장난이 켜져 있고 아무것도 들고 있지 않을 때만, 가끔 먼저 놀자고 함 (코어 brain_cursor_rally.rs)
+                s.pet.set_cursor_rally_ok(!play_busy && !config.cursor_play_off && !presence.is_away());
+                s.pet.notice_cursor_rally(if all_hidden { &[] } else { &object_spots }, &s.world);
                 s.pet.notice_poops(&poop_spots, &s.world);
                 // 🐱 고양이 툭툭 · 🐿️ 다람쥐 볼 빵빵 (v0.6.3): 바닥의 물건 — 모두 숨겨 둔 동안엔 보여 주지 않음
                 s.pet.notice_play_objects(if all_hidden { &[] } else { &object_spots }, &s.world);
@@ -1168,6 +1171,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         objects.sync_carries(&mut social, &mut slots);
         // 🐱 툭 밀기 · 🐿️ 뿅 · 🦖 큰 쿵에 톡 (v0.6.3)
         objects.play_with(&mut slots);
+        // ⚾🖱️ 커서 쪽으로 되던지거나 놀자고 민 물건: 횟수를 적고 커서 랠리로 표시함 (놓은 것은 위 sync_carries가 이미 날림)
+        for s in slots.iter_mut() {
+            if let Some(ev) = s.pet.take_cursor_rally() {
+                objects.cursor_rally(ev);
+            }
+        }
         // ⛄🍂 눈·낙엽 놀이: 뭉친 눈은 발밑 눈을 비우고 눈덩이로 날리고 (던진 동물은 잠깐 안 맞음), 뛰어든·뒹군 더미는 확 흩어짐
         for i in 0..slots.len() {
             let Some(ev) = slots[i].pet.take_snow_play() else { continue };
