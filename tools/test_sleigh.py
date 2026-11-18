@@ -50,7 +50,9 @@ def test_the_window_rides_quietly_and_shows_both_pets():
 def test_the_game_loop_freezes_and_parks_the_riders():
     gl = (APP / "game_loop.rs").read_text(encoding="utf-8")
     assert "sleigh.tick(" in gl
-    loop = gl[gl.index("s.pet.notice_poops(") - 900 : gl.index("s.pet.notice_poops(")]
+    # 동물 루프 첫머리부터 똥 알아채기까지 (그 사이에 눈·낙엽·커서 캐치볼 알림이 늘어도 됨)
+    end = gl.index("s.pet.notice_poops(")
+    loop = gl[gl.rindex("for (i, s) in slots.iter_mut().enumerate()", 0, end) : end]
     assert "!sleigh.is_riding(&s.label)" in loop, "riders don't walk while flying"
     place = gl[gl.index("s.place(hidden);") - 300 : gl.index("s.place(hidden);")]
     assert "sleigh.is_riding(&s.label)" in place, "rider windows stay parked"
