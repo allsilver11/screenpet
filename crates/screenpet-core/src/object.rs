@@ -378,7 +378,12 @@ enum Phase {
     Rest,
     /// 🤹 동물(흐물이)이 머리 위에 들고 있음 — 자리는 앱이 틱마다 carry_at으로 옮김 (물리 없음)
     Carried,
+    /// 🌀 회오리 속에서 돎 — 자리는 앱이 틱마다 whirl_at으로 옮김 (물리 없음). seen = 마지막으로 옮긴 시각 (물건 시계)
+    Whirled { seen: f64 },
 }
+
+/// 🌀 회오리가 이만큼(초) 옮기지 않으면 그 자리에서 떨어짐 (태풍이 끝나도 잃어버리지 않게)
+const WHIRL_LOST_SECS: f64 = 0.3;
 
 /// 든 물건 바닥이 손 자리보다 이만큼 (그림 높이 배) 아래 — 두 손이 물건 아랫부분을 감쌈. 거대한 것은 이 px까지만 (논리 px)
 const CARRY_SINK: f64 = 0.2;
@@ -765,6 +770,54 @@ impl Object {
         }
     }
 
+    /// 🌀 돌풍에 날리거나 회오리에 빨려 들 수 있음: 바닥에 놓인 작은 것 (거대한 것·잡은 것·동물이 든 것·나는 중은 아님)
+    pub fn is_loose(&self) -> bool {
+        matches!(self.phase, Phase::Ground { .. } | Phase::Rest) && !self.kind.is_giant()
+    }
+
+    /// 🌀 회오리 속에서 도는 중
+    pub fn is_whirled(&self) -> bool {
+        matches!(self.phase, Phase::Whirled { .. })
+    }
+
+    /// 🌀 회오리가 (x, y = 바닥 가운데, 바닥)에 붙들어 angle(도)로 돌림. 바닥에 놓였거나 이미 도는 것만 (아니면 false)
+    pub fn whirl_at(&mut self, x: f64, y: f64, angle: f64) -> bool {
+        if !self.is_loose() && !self.is_whirled() {
+            return false;
+        }
+        self.phase = Phase::Whirled { seen: self.clock };
+        self.standing = None;
+        self.thrown = false;
+        self.thrown_down = false;
+        self.knocked = false;
+        self.from = None;
+        self.by_user = false;
+        self.cursor_rally = false;
+        self.landed_at = None;
+        self.body = Body { x, y, vx: 0.0, vy: 0.0 };
+        self.angle = angle;
+        self.spin = 0.0;
+        true
+    }
+
+    /// 🌀 돌풍·회오리가 (vx, vy, 물리 px/s)로 휙 날림 — 던진 게 아니라 친구 화면으로는 넘어가지 않음 (친구에게는 launch).
+    /// 바닥에 놓였거나 회오리 속인 작은 것만 (아니면 false)
+    pub fn blow(&mut self, vx: f64, vy: f64) -> bool {
+        if !self.is_loose() && !self.is_whirled() {
+            return false;
+        }
+        self.standing = None;
+        self.thrown = false;
+        self.thrown_down = false;
+        self.knocked = false;
+        self.landed_at = None;
+        self.body.vx = vx;
+        self.body.vy = vy;
+        self.spin = self.spin_of_throw();
+        self.phase = Phase::Air;
+        true
+    }
+
     /// 다음 바람이나 세계 변화까지 할 일이 없음 (창도 웹뷰도 건드리지 않음)
     pub fn is_asleep(&self) -> bool {
         self.phase == Phase::Rest && self.postit != Postit::Reading
@@ -913,6 +966,12 @@ impl Object {
         self.tick_note(dt);
         match self.phase {
             Phase::Held | Phase::Carried => None,
+            Phase::Whirled { seen } => {
+                if self.clock - seen > WHIRL_LOST_SECS {
+                    self.start_fall();
+                }
+                None
+            }
             Phase::Air => self.tick_air(dt, world, edges),
             Phase::Ground { friction, settle } => {
                 self.tick_ground(dt, world, friction, settle);

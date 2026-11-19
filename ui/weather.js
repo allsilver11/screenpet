@@ -1,6 +1,7 @@
 // 계절 날씨 그리기. 앱(src-tauri/src/weather.rs)이 `weather-scene`으로 내려앉을 곳(tops)과 더미(piles)를 보냄 (논리 px, 이 창 왼쪽 위가 0,0).
 // CPU를 아끼는 규칙: 24 fps 이하, 알갱이 80개 이하, 미리 그린 그림을 정수 자리에 찍기, 알갱이 자리만 지우기, 더미는 바뀔 때만.
-// 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·rain·shower·petals·leaves·green_leaves)로 앱 없이 볼 수 있음.
+// 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·rain·shower·petals·leaves·green_leaves·typhoon)로 앱 없이 볼 수 있음.
+// 🌀 태풍: 장면의 wind(부호 = 방향, 돌풍에 커짐)로 비·잎이 옆으로 눕고, tornado([x, 바닥 y, vx])가 있으면 깔때기를 그림 (사이는 vx로 이어 그림).
 
 const FPS = 24;
 const FRAME_MS = 1000 / FPS;
@@ -20,7 +21,17 @@ const KINDS = {
   leaves: { count: 30, fall: [36, 68], wind: [-14, 14], sway: 34, rest: 1.4, box: 15, frames: 8 },
   // 🌿 여름 푸른 잎: 낙엽보다 가볍게 팔랑이며 빙글빙글 (더 크게·더 빨리 흔들림)
   green_leaves: { count: 32, fall: [26, 52], wind: [-22, 22], sway: 48, flutter: 2.8, rest: 1.2, box: 15, frames: 8 },
+  // 🌀 태풍: 굵고 비스듬한 빗줄기 (wind는 크기 — 방향·세기는 장면의 wind를 곱함), 네 개에 하나는 옆으로 날아가는 푸른 잎·부스러기
+  typhoon: { count: 70, fall: [760, 980], wind: [240, 320], sway: 0, rest: 0.1, box: 18, frames: 1 },
 };
+// 🌀 태풍 부스러기 몫 (DEBRIS_EVERY개에 하나), 떨어지는 빠르기, 옆으로 더 빠른 배
+const DEBRIS_EVERY = 4;
+const DEBRIS_FALL = [140, 260];
+const DEBRIS_WIND = 1.8;
+// 🌀 회오리 깔때기: 높이, 바닥·꼭대기 반지름 (core typhoon.rs FUNNEL_R와 같음), 고리 수
+const FUNNEL_HEIGHT = 300;
+const FUNNEL_R = [26, 90];
+const FUNNEL_RINGS = 9;
 const FLUTTER = 1.6;
 // 낙엽 색: 속, 테두리
 const LEAF_TONES = [
@@ -50,7 +61,7 @@ const PX_DROP = ["..b.", "..b.", ".b..", ".b.."];
 const PX_SPLASH = ["b..b", ".bb."];
 const PX_PETAL = ["pp.", "Ppp", ".pP"];
 const PX_LEAF = [".LL.", "LLLF", "FLLL", ".FF."];
-const PX_BOX = { light_snow: 9, snow: 9, rain: 12, shower: 12, petals: 9, leaves: 12, green_leaves: 12 };
+const PX_BOX = { light_snow: 9, snow: 9, rain: 12, shower: 12, petals: 9, leaves: 12, green_leaves: 12, typhoon: 12 };
 
 // 픽셀 그림 줄들을 시계 방향으로 turns번 90도 돌림
 function pxRotate(rows, turns) {
@@ -99,6 +110,12 @@ let frameRequest = 0;
 let lastT = 0;
 let cursor = 0;
 let n = 0;
+// 🌀 바람 (장면의 wind 쪽으로 부드럽게), 부스러기 그림, 회오리 {x, y, vx, at}과 지난번 지운 자리
+let wind = 1;
+let windTarget = 1;
+let debris = [];
+let tornado = null;
+let funnelBox = null;
 // 알갱이: 자리, 지난 자리, 속도, 흔들림 위상, 내려앉을 높이, 머문 시간(>0이면 내려앉음), 그림
 let px, py, oldX, oldY, vy, vx, phase, land, rest, look;
 
@@ -196,8 +213,9 @@ function tumblerSprites(k) {
 // 지금 종류·스타일의 떨어지는 알갱이 스프라이트를 만듦
 function buildSprites() {
   splash = null;
+  debris = kind === "typhoon" ? tumblerSprites("green_leaves") : [];
   if (pixelArt) {
-    if (kind === "rain" || kind === "shower") {
+    if (isWet(kind)) {
       sprites = [pxSprite(PX_DROP, spec.box)];
       splash = pxSprite(PX_SPLASH, spec.box);
     } else if (tumblers[kind]) {
@@ -207,13 +225,15 @@ function buildSprites() {
     }
     return;
   }
-  if (kind === "rain" || kind === "shower") {
+  if (isWet(kind)) {
+    // 태풍 빗줄기는 더 굵고 더 누움
+    const slant = kind === "typhoon" ? 4.5 : 1.2;
     sprites = [
       makeSprite(spec.box, (g, s) => {
         g.beginPath();
-        g.moveTo(s / 2 + 1.2, 1);
-        g.lineTo(s / 2 - 1.2, s - 1);
-        g.lineWidth = 1.2;
+        g.moveTo(s / 2 + slant, 1);
+        g.lineTo(s / 2 - slant, s - 1);
+        g.lineWidth = kind === "typhoon" ? 1.6 : 1.2;
         g.lineCap = "round";
         g.strokeStyle = "rgba(100,145,210,0.65)";
         g.stroke();
@@ -240,6 +260,16 @@ function buildSprites() {
   } else {
     sprites = [1.6, 2.2, 2.9].map((r) => makeSprite(spec.box, flake(r)));
   }
+}
+
+// 비 그림(빗방울·튀는 물)을 쓰는 날씨
+function isWet(k) {
+  return k === "rain" || k === "shower" || k === "typhoon";
+}
+
+// 🌀 이 알갱이가 태풍 부스러기 (푸른 잎)
+function isDebris(i) {
+  return debris.length > 0 && i % DEBRIS_EVERY === DEBRIS_EVERY - 1;
 }
 
 // [a, b) 사이 난수
@@ -277,6 +307,12 @@ function respawn(i, first) {
   vx[i] = between(spec.wind);
   phase[i] = Math.random() * Math.PI * 2;
   look[i] = Math.floor(Math.random() * sprites.length);
+  if (isDebris(i)) {
+    // 바람 반대쪽 끝에서 들어와 옆으로 휙 지나감
+    vy[i] = between(DEBRIS_FALL);
+    vx[i] *= DEBRIS_WIND;
+    look[i] = Math.floor(Math.random() * debris.length);
+  }
   rest[i] = 0;
   land[i] = landAt(px[i], py[i]);
 }
@@ -301,6 +337,11 @@ function startKind(next) {
 
 // 이 알갱이의 지금 그림: 내려앉은 빗방울은 튀는 그림, 꽃잎·낙엽은 제 색 그대로 각도만 돎
 function spriteFor(i) {
+  if (isDebris(i)) {
+    // 같은 색 8장 안에서 빙글빙글
+    const a = look[i] % 8;
+    return debris[look[i] - a + (a + Math.floor(phase[i] * 3)) % 8];
+  }
   if (splash && rest[i] > 0) return splash;
   const frames = spec.frames;
   if (frames === 1) return sprites[look[i]];
@@ -405,6 +446,10 @@ function frame(now) {
   const half = box / 2;
   const sway = spec.sway;
   const flutter = spec.flutter || FLUTTER;
+  // 🌀 태풍만 장면의 바람을 곱함 (다른 날씨는 1 그대로)
+  wind += (windTarget - wind) * Math.min(1, dt * 3);
+  const blow = kind === "typhoon" ? wind : 1;
+  clearFunnel();
   for (let i = 0; i < n; i++) fallCtx.clearRect(oldX[i], oldY[i], box, box);
   for (let k = 0; k < RELAND_PER_FRAME && n > 0; k++) {
     cursor = (cursor + 1) % n;
@@ -416,7 +461,7 @@ function frame(now) {
       if (rest[i] <= 0) respawn(i, false);
     } else {
       phase[i] += dt * flutter;
-      px[i] += (vx[i] + Math.sin(phase[i]) * sway) * dt;
+      px[i] += (vx[i] * blow + Math.sin(phase[i]) * sway) * dt;
       py[i] += vy[i] * dt;
       if (px[i] < -box) px[i] = width + box / 2;
       else if (px[i] > width + box) px[i] = -box / 2;
@@ -440,7 +485,46 @@ function frame(now) {
     oldY[i] = y;
   }
   stepFlurry(dt);
+  drawFunnel(now);
   schedule();
+}
+
+// ---- 🌀 회오리 깔때기 ----
+
+// 지난번 깔때기 자리를 지움
+function clearFunnel() {
+  if (!funnelBox) return;
+  fallCtx.clearRect(funnelBox[0], funnelBox[1], funnelBox[2], funnelBox[3]);
+  funnelBox = null;
+}
+
+// 회오리를 그림: 바닥에서 위로 넓어지는 고리들이 빙글 돌며 출렁임 (앱이 준 자리에서 vx로 이어 감)
+function drawFunnel(now) {
+  if (!tornado || kind !== "typhoon") return;
+  const t = now / 1000;
+  const x = Math.min(Math.max(tornado.x + (tornado.vx * (now - tornado.at)) / 1000, 0), width);
+  const y = tornado.y;
+  const g = fallCtx;
+  const reach = FUNNEL_R[1] + 24;
+  funnelBox = [Math.floor(x - reach), Math.floor(y - FUNNEL_HEIGHT - 16), Math.ceil(reach * 2), FUNNEL_HEIGHT + 24];
+  g.save();
+  g.lineWidth = pixelArt ? PX_DOT : 2.2;
+  for (let k = 0; k < FUNNEL_RINGS; k++) {
+    const f = k / (FUNNEL_RINGS - 1);
+    const h = f * FUNNEL_HEIGHT;
+    const r = FUNNEL_R[0] + (FUNNEL_R[1] - FUNNEL_R[0]) * Math.pow(f, 1.2);
+    const cx = x + Math.sin(t * 3 + k * 0.7) * 12 * f;
+    g.beginPath();
+    g.ellipse(cx, y - h, r, r * 0.28, Math.sin(t * 5 + k) * 0.08, 0, Math.PI * 2);
+    g.strokeStyle = `rgba(120,130,145,${0.75 - 0.35 * f})`;
+    g.stroke();
+  }
+  // 바닥의 먼지 소용돌이
+  g.beginPath();
+  g.ellipse(x, y - 4, FUNNEL_R[0] * 2.2, 7, 0, 0, Math.PI * 2);
+  g.fillStyle = "rgba(150,140,120,0.35)";
+  g.fill();
+  g.restore();
 }
 
 // rAF는 창이 가려지면 쉬고, 타이머가 24 fps 아래로 묶어 둠 (rAF만 쓰면 화면 주사율마다 깨어남)
@@ -468,6 +552,7 @@ function stop() {
   pilesCtx.clearRect(0, 0, width, height);
   lastPiles = "";
   flurry = [];
+  funnelBox = null;
 }
 
 // (a, b)로 정해지는 0~1 의사 난수
@@ -564,6 +649,9 @@ function applyScene(s) {
   tops = s.tops;
   piles = s.piles;
   pileKind = s.pile_kind;
+  // 🌀 태풍 바람·회오리 (다른 날씨의 장면엔 없음)
+  windTarget = typeof s.wind === "number" ? s.wind : 1;
+  tornado = Array.isArray(s.tornado) ? { x: s.tornado[0], y: s.tornado[1], vx: s.tornado[2], at: performance.now() } : null;
   if (s.kind !== kind) startKind(s.kind);
   else {
     for (let i = 0; i < n; i++) {
@@ -619,7 +707,7 @@ if (window.__TAURI__) {
 function devPreview() {
   const wanted = new URLSearchParams(location.search).get("preview") || "snow";
   if (new URLSearchParams(location.search).get("pixel")) setPixelArt(true);
-  const wet = wanted === "rain" || wanted === "shower";
+  const wet = isWet(wanted);
   document.documentElement.style.background = "#3a4258";
   const windows = [
     [Math.round(width * 0.08), Math.round(height * 0.3), Math.round(width * 0.5), Math.round(height * 0.86)],
@@ -645,5 +733,6 @@ function devPreview() {
     return { x: x0, y, cell, h, clips };
   };
   const piles = wet ? [] : [pile(front[0], front[2], front[1], [[front[0], front[2]]]), pile(back[0], back[2], back[1], [[back[0], front[0]]]), pile(0, width, height, [[0, width]])];
-  applyScene({ paused: false, kind: wanted, pile_kind: wet ? null : wanted, tops, piles });
+  const storm = wanted === "typhoon" ? { wind: -1.3, tornado: [Math.round(width * 0.3), height, 90] } : {};
+  applyScene({ paused: false, kind: wanted, pile_kind: wet ? null : wanted, tops, piles, ...storm });
 }

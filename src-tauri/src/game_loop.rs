@@ -1228,6 +1228,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         if dodge.tick(&app, dt, &mut slots[OWN], &mut config, &network) {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
         }
+        // 🌀 태풍: 돌풍에 휘청이고 회오리가 빨아들여 내던짐 (물건 창은 바로 아래 objects.tick이 옮김, 넘어간 내 동물은 다음 틱 take_exit)
+        weather.storm(&app, now, presence.is_away(), &mut slots, &mut objects, &network, &config, |s| sleigh.is_riding(&s.label));
         objects.tick(&app, &slots[OWN].world, dt, now, (cx, cy), left_down, presence.is_away(), source.as_mut(), &network, &config);
         // ⛄ 퍽 부서진 눈덩이 자리에 눈가루 (날씨 창이 없으면 보이지 않음)
         for at in objects.take_bursts() {

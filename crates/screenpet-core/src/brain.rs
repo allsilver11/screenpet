@@ -909,6 +909,8 @@ pub struct Pet {
     play: play_moves::PlayMood,
     /// 글자 그대로 띄울 말 (⚾ "3!" — take_speech_text로 한 번 꺼냄, 앱은 pet-say-text로)
     speech_text: Option<String>,
+    /// 🌀 태풍: 회오리 속·돌풍 쉬는 때 (brain_typhoon.rs)
+    storm: typhoon_moves::StormMood,
     rng: fastrand::Rng,
 }
 
@@ -1006,6 +1008,7 @@ impl Pet {
             typing: Default::default(),
             play: play_moves::PlayMood::new(seed),
             speech_text: None,
+            storm: Default::default(),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -1067,6 +1070,10 @@ impl Pet {
                 return;
             }
             _ => {}
+        }
+        // 🌀 회오리 속: 앱이 정해 주는 자리에 매달려 돎 (brain_typhoon.rs)
+        if self.update_whirl() {
+            return;
         }
         // 친구 머리 위: 똥·커서 놀이·인사 같은 평소 일은 하지 않는다 (brain_tower.rs)
         if let State::OnHead { remaining, age } = self.state {
@@ -3583,6 +3590,14 @@ mod control_tests;
 /// 던져서 친구 화면으로 넘어가기 (듀얼 모니터처럼)
 #[path = "brain_fling.rs"]
 mod fling_moves;
+
+/// 🌀 태풍에 휘둘리기 — 돌풍·회오리
+#[path = "brain_typhoon.rs"]
+mod typhoon_moves;
+
+#[cfg(test)]
+#[path = "brain_typhoon_tests.rs"]
+mod typhoon_tests;
 
 #[cfg(test)]
 #[path = "brain_fling_tests.rs"]

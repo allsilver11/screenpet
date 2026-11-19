@@ -2103,3 +2103,88 @@ fn a_boop_sends_it_back_flying_with_the_next_count() {
     o.pointer_down(o.body.x, o.body.y);
     assert_eq!(o.rally(), 2, "the user can play on");
 }
+
+// ---- 🌀 태풍 (typhoon.rs) ----
+
+/// 바닥에 누운 물건 하나
+fn resting(kind: ObjectKind, w: &World) -> Object {
+    let mut o = Object::new(kind, 300.0, 800.0, 1.0, 3);
+    run(&mut o, w, 6.0);
+    assert!(resting_on(&o, Owner::Ground(0)));
+    o
+}
+
+#[test]
+fn only_small_things_lying_about_can_be_blown_or_whirled() {
+    let w = floor();
+    let o = resting(ObjectKind::Can, &w);
+    assert!(o.is_loose());
+    let mut held = resting(ObjectKind::Can, &w);
+    held.pointer_down(300.0, 1000.0);
+    assert!(!held.is_loose(), "잡은 것은 그대로");
+    let giant = resting(ObjectKind::GiantStone, &w);
+    assert!(!giant.is_loose(), "거대한 것은 너무 무거움");
+    let mut carried = resting(ObjectKind::Can, &w);
+    carried.carry_at(300.0, 900.0);
+    assert!(!carried.is_loose(), "동물이 든 것은 그대로");
+}
+
+#[test]
+fn a_gust_blows_a_lying_thing_sideways_without_sending_it_to_a_friend() {
+    let w = floor();
+    let mut o = resting(ObjectKind::Paper, &w);
+    assert!(o.blow(900.0, -300.0));
+    assert!(!o.in_flight() && !o.is_asleep() && o.owner().is_none(), "던진 게 아니라 날림");
+    // 친구 쪽 끝이 열려 있어도 넘어가지 않음 (던진 게 아님) — 벽에 튕겨 내려앉음
+    let mut exited = false;
+    for _ in 0..600 {
+        exited |= o.tick(DT, &w, ALL, false).is_some();
+    }
+    assert!(!exited);
+    assert!(o.owner() == Some(Owner::Ground(0)));
+    let mut giant = resting(ObjectKind::GiantPoop, &w);
+    assert!(!giant.blow(900.0, -300.0), "거대한 것은 안 날아감");
+}
+
+#[test]
+fn a_whirled_thing_stays_where_the_tornado_puts_it_spinning_and_falls_if_forgotten() {
+    let w = floor();
+    let mut o = resting(ObjectKind::Milk, &w);
+    assert!(o.whirl_at(600.0, 700.0, 45.0));
+    assert!(o.is_whirled() && !o.is_loose() && !o.is_carried());
+    for _ in 0..10 {
+        o.tick(DT, &w, ALL, false);
+        assert_eq!((o.body.x, o.body.y), (600.0, 700.0), "물리 없음");
+    }
+    assert_eq!(o.angle(), 45.0);
+    assert!(o.whirl_at(620.0, 690.0, 90.0), "도는 중엔 계속 옮길 수 있음");
+    // 앱이 더 옮기지 않으면 (태풍이 끝남) 잠깐 뒤 그 자리에서 떨어짐 — 잃어버리지 않음
+    for _ in 0..60 {
+        o.tick(DT, &w, ALL, false);
+    }
+    assert!(!o.is_whirled());
+    run(&mut o, &w, 6.0);
+    assert!(resting_on(&o, Owner::Ground(0)));
+}
+
+#[test]
+fn a_whirled_thing_flung_by_launch_goes_to_a_friend_and_grabbing_it_ends_the_whirl() {
+    let w = floor();
+    let mut o = resting(ObjectKind::Shirt, &w);
+    o.whirl_at(1700.0, 800.0, 0.0);
+    o.launch(1200.0, -700.0);
+    assert!(!o.is_whirled());
+    let mut exit = None;
+    for _ in 0..300 {
+        if let Some(e) = o.tick(DT, &w, ALL, false) {
+            exit = Some(e);
+            break;
+        }
+    }
+    assert_eq!(exit.map(|e| e.side), Some(Side::Right));
+    let mut grabbed = resting(ObjectKind::Shirt, &w);
+    grabbed.whirl_at(600.0, 700.0, 0.0);
+    grabbed.pointer_down(600.0, 650.0);
+    assert!(grabbed.is_held() && !grabbed.is_whirled());
+    assert!(!grabbed.whirl_at(610.0, 700.0, 0.0), "잡은 것은 회오리가 못 가져감");
+}

@@ -1,4 +1,5 @@
 //! 계절 날씨 (v0.3.9, 일 년 내내) — 달력으로 날씨를 정하고, 창 윗면과 바닥에 쌓이는 눈·꽃잎·낙엽·푸른 잎 더미를 셈. 그림은 앱이 그림 (ui/weather.js).
+//! 🌀 태풍 (v0.6.8, 7~9월 가끔·메뉴): 쌓이지 않고 더미를 날려 버림. 돌풍·회오리 계산은 typhoon.rs
 //! 메뉴에서 날씨를 직접 고르면 (real_weather::WeatherSource) 달력과 상관없이 그 날씨가 계속 옴
 //!
 //! CPU를 아끼려고 알갱이 하나하나를 세지 않음: 떨어지는 알갱이는 웹뷰의 그림일 뿐이고, 더미는 여기서 1초에 한 번
@@ -30,6 +31,8 @@ pub enum Weather {
     Leaves,
     /// 5~8월 소나기 사이의 푸른 잎 (예전 판은 모르는 이름이라 버림)
     GreenLeaves,
+    /// 🌀 7~9월 가끔 오는 태풍 — 센 비·돌풍·회오리 (typhoon.rs). 쌓이지 않아 친구에게 쓸어 보내지도 않음
+    Typhoon,
 }
 
 impl Weather {
@@ -43,6 +46,11 @@ impl Weather {
         matches!(self, Weather::Petals | Weather::Leaves | Weather::GreenLeaves)
     }
 
+    /// 돌풍과 회오리가 부는 날씨 (태풍)
+    pub fn is_stormy(self) -> bool {
+        self == Weather::Typhoon
+    }
+
     /// 더미 그림의 갈래: 눈(가벼운 눈 포함)은 하나로 이어 쌓이고, 꽃잎·낙엽·푸른 잎은 서로 다른 더미임
     fn pile_family(self) -> u8 {
         match self {
@@ -50,7 +58,7 @@ impl Weather {
             Weather::Petals => 1,
             Weather::Leaves => 2,
             Weather::GreenLeaves => 3,
-            Weather::Rain | Weather::Shower => 4,
+            Weather::Rain | Weather::Shower | Weather::Typhoon => 4,
         }
     }
 
@@ -64,6 +72,7 @@ impl Weather {
             Weather::Petals => "petals",
             Weather::Leaves => "leaves",
             Weather::GreenLeaves => "green_leaves",
+            Weather::Typhoon => "typhoon",
         }
     }
 
@@ -74,6 +83,8 @@ impl Weather {
             Weather::Snow => Rates { grow: 0.02, melt: 0.004, cap: 9.0 },
             // 비는 쌓이지 않고, 남아 있던 더미를 빨리 녹인다
             Weather::Rain | Weather::Shower => Rates { grow: 0.0, melt: 0.05, cap: 0.0 },
+            // 🌀 태풍은 쌓이지 않고 남은 더미를 바람이 금방 날려 버림
+            Weather::Typhoon => Rates { grow: 0.0, melt: 0.25, cap: 0.0 },
             // 꽃잎·푸른 잎은 낙엽과 똑같이 쌓임
             Weather::Petals | Weather::Leaves | Weather::GreenLeaves => Rates { grow: 0.008, melt: 0.004, cap: 4.0 },
         }
@@ -137,8 +148,42 @@ pub fn showers(year: i32, month: u32, day: u32) -> Vec<(u32, u32)> {
         .collect()
 }
 
-/// 지금 달력이 말하는 날씨 (secs: 자정부터 초). 여름 소나기 사이의 맑은 때는 푸른 잎이 날림
+/// 🌀 태풍이 오는 달
+const TYPHOON_MONTHS: std::ops::RangeInclusive<u32> = 7..=9;
+/// 태풍이 오는 시간대 (자정부터 초)
+const TYPHOON_HOURS: (u32, u32) = (9 * 3600, 22 * 3600);
+/// 태풍이 오는 날의 몫 (그날 하루 1~2번)
+const TYPHOON_DAY_CHANCE: f64 = 0.5;
+const TYPHOONS_PER_DAY: (u32, u32) = (1, 2);
+/// 태풍 한 번의 길이 (초): 5~10분
+const TYPHOON_SECS: (u32, u32) = (300, 600);
+
+/// 7~9월 그날의 🌀 태풍들: [시작, 끝) 초. 날짜로만 정해져서 앱을 다시 켜도 같음. 대략 이틀에 하루, 하루 1~2번 (겹치지 않음)
+pub fn typhoons(year: i32, month: u32, day: u32) -> Vec<(u32, u32)> {
+    if !TYPHOON_MONTHS.contains(&month) {
+        return Vec::new();
+    }
+    let seed = (year as i64 * 10_000 + month as i64 * 100 + day as i64) as u64;
+    let mut rng = fastrand::Rng::with_seed(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ 0x7479_7068);
+    if rng.f64() >= TYPHOON_DAY_CHANCE {
+        return Vec::new();
+    }
+    let count = rng.u32(TYPHOONS_PER_DAY.0..=TYPHOONS_PER_DAY.1);
+    let slot = (TYPHOON_HOURS.1 - TYPHOON_HOURS.0) / count;
+    (0..count)
+        .map(|i| {
+            let len = rng.u32(TYPHOON_SECS.0..=TYPHOON_SECS.1);
+            let start = TYPHOON_HOURS.0 + i * slot + rng.u32(0..=slot - len);
+            (start, start + len)
+        })
+        .collect()
+}
+
+/// 지금 달력이 말하는 날씨 (secs: 자정부터 초). 7~9월 태풍 칸이면 태풍, 여름 소나기 사이의 맑은 때는 푸른 잎이 날림
 pub fn weather_at(year: i32, month: u32, day: u32, secs: u32) -> Option<Weather> {
+    if typhoons(year, month, day).iter().any(|&(start, end)| start <= secs && secs < end) {
+        return Some(Weather::Typhoon);
+    }
     let weather = season(month, day);
     if weather != Weather::Shower || showers(year, month, day).iter().any(|&(start, end)| start <= secs && secs < end) {
         Some(weather)
@@ -147,7 +192,7 @@ pub fn weather_at(year: i32, month: u32, day: u32, secs: u32) -> Option<Weather>
     }
 }
 
-/// 개발용 미리 보기 값 (환경 변수 SCREENPET_WEATHER): snow·light_snow·rain·shower·petals·leaves·green_leaves·off. 그 밖의 값은 미리 보기 아님 (None).
+/// 개발용 미리 보기 값 (환경 변수 SCREENPET_WEATHER): snow·light_snow·rain·shower·petals·leaves·green_leaves·typhoon·off. 그 밖의 값은 미리 보기 아님 (None).
 /// shower는 달력과 달리 쉬지 않고 내림
 pub fn parse_preview(raw: &str) -> Option<Option<Weather>> {
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -158,6 +203,7 @@ pub fn parse_preview(raw: &str) -> Option<Option<Weather>> {
         "petals" => Some(Some(Weather::Petals)),
         "leaves" => Some(Some(Weather::Leaves)),
         "green_leaves" => Some(Some(Weather::GreenLeaves)),
+        "typhoon" => Some(Some(Weather::Typhoon)),
         "off" => Some(None),
         _ => None,
     }
@@ -306,6 +352,12 @@ pub struct Scene {
     pub tops: Vec<[f32; 3]>,
     /// 더미들
     pub piles: Vec<PileView>,
+    /// 🌀 태풍 바람 (부호 = 방향, 0.7…1.6 — 돌풍에 커짐). 태풍이 아니면 없음 (예전 장면 그대로)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind: Option<f32>,
+    /// 🌀 회오리 [바닥 가운데 x, 바닥 y, 가로 빠르기] (논리 px, px/s — 웹뷰가 사이를 이어 그림). 이 모니터에 없으면 없음
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tornado: Option<[f32; 3]>,
 }
 
 /// 한 디딤판의 더미 그림 (모니터 작업 영역 기준 논리 px)
@@ -499,6 +551,11 @@ impl PileField {
         (depth >= 0.05).then_some((kind, depth))
     }
 
+    /// 보이는 만큼 쌓인 더미가 어딘가 있음 (🌀 돌풍에 흩날릴 것)
+    pub fn has_piles(&self) -> bool {
+        self.piles.iter().flat_map(|p| &p.cells).any(|&c| c >= 0.05)
+    }
+
     /// 🧹 모든 더미를 싹 치움 (쓰레기 다 치우기·한 시간마다): 치운 게 있었으면 true. 한 시간을 새로 셈
     pub fn clear_all(&mut self) -> bool {
         self.since_clear = 0.0;
@@ -528,7 +585,7 @@ impl PileField {
                 })
             })
             .collect();
-        Scene { kind, pile_kind: self.pile_kind, tops, piles }
+        Scene { kind, pile_kind: self.pile_kind, tops, piles, wind: None, tornado: None }
     }
 }
 

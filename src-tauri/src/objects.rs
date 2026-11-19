@@ -14,6 +14,8 @@
 //! 48 px로 줄여 Toss·Carry의 icon에 실음 (코어 icon::to_wire). 받은 장난감은 코어가 그림을 엄격히 확인한 것만 (accept_toy_toss·accept_toy_carry) 만듦.
 //! ⛄ 눈덩이 (v0.6.5): 쌓인 눈을 커서로 문지르거나 (game_loop) 동물이 발밑 눈으로 뭉쳐 만듦. 따로 5개까지, 몇 분 뒤 스르륵 녹음.
 //! 던진 눈덩이는 동물·바닥·창에 닿으면 퍽 부서짐 — 뿅 치우고 그 자리를 take_bursts로 알림 (게임 루프가 눈가루를 날림).
+//! 🌀 태풍 (v0.6.8): 돌풍에 바닥의 작은 것이 휙 날리고 (Object::blow — 친구 화면으로는 안 감), 회오리가 빨아들여 돌리다
+//! 내던짐 (weather.rs가 코어 typhoon을 돌려 storm_apply로 시킴). 친구 쪽으로 내던진 것은 launch — 끝을 넘으면 평소처럼 toss_away (예산 그대로)
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -34,6 +36,7 @@ use screenpet_core::broom::Broom;
 use screenpet_core::social::Social;
 use screenpet_core::poop::PoopSpot;
 use screenpet_core::tumble::shape_of;
+use screenpet_core::typhoon::{self, Gust, Loose, Thing, Whirl};
 use screenpet_core::platform::WindowSource;
 use screenpet_core::visit::{self, Side, MAX_NOTE_CHARS};
 use screenpet_core::world::World;
@@ -1047,6 +1050,58 @@ impl Objects {
             }
         }
         self.sync_menu();
+    }
+
+    /// 🌀 회오리가 빨아들일 수 있는 물건 (바닥에 놓인 작은 것과 이미 도는 것). cross = 지금 던져 넘길 수 있는 가까운 친구 쪽 끝 (예산이 남은 친구만)
+    pub fn storm_loose(&self, bounds: Rect, network: &Network, config: &Config, out: &mut Vec<Loose>) {
+        if self.live.is_empty() {
+            return;
+        }
+        let secs = self.started.elapsed().as_secs_f64();
+        let open = |id: &str| network.is_connected(id) && self.budgets.get(id).is_none_or(|b| b.can_spend(secs));
+        let edges = config.exit_edges(open);
+        for l in self.live.iter().filter(|l| l.object.is_loose() || l.object.is_whirled()) {
+            // 📌 그림이 없는 장난감은 친구에게 보내지 않음 (toss_away)
+            let sendable = !l.object.kind.is_toy() || l.icon.is_some();
+            let x = l.object.body.x;
+            let near_left = x - bounds.left <= bounds.right - x;
+            let cross = match (edges.left && sendable, edges.right && sendable) {
+                (true, true) => Some(if near_left { Side::Left } else { Side::Right }),
+                (true, false) => Some(Side::Left),
+                (false, true) => Some(Side::Right),
+                (false, false) => None,
+            };
+            out.push(Loose { thing: Thing::Object(l.id), x, y: l.object.body.y, cross });
+        }
+    }
+
+    /// 🌀 회오리가 시킨 것: 붙들어 돌리거나, 친구 쪽으로 던지거나 (launch — 끝을 넘으면 toss_away), 이 화면에 휙 (blow)
+    pub fn storm_apply(&mut self, whirl: &Whirl) {
+        let Thing::Object(id) = whirl.thing() else { return };
+        let Some(l) = self.live.iter_mut().find(|l| l.id == id) else { return };
+        match *whirl {
+            Whirl::Hold { x, y, angle, .. } => {
+                l.object.whirl_at(x, y, angle);
+            }
+            Whirl::Fling { vx, vy, cross: true, .. } => {
+                if l.object.is_whirled() {
+                    l.object.launch(vx, vy);
+                }
+            }
+            Whirl::Fling { vx, vy, cross: false, .. } => {
+                l.object.blow(vx, vy);
+            }
+        }
+    }
+
+    /// 🌀 돌풍이 막 일었음: 바닥에 놓인 작은 것 대부분이 바람 쪽으로 휙 (모두 숨겨 둔 동안엔 앱이 부르지 않음)
+    pub fn gust(&mut self, gust: Gust) {
+        for l in self.live.iter_mut().filter(|l| l.object.is_loose()) {
+            if fastrand::f64() < 0.7 {
+                let (vx, vy) = typhoon::blow_velocity(gust.dir, gust.strength, l.object.dpi(), fastrand::f64());
+                l.object.blow(vx, vy);
+            }
+        }
     }
 
     /// "물건 10개 던지기": 예산이 되는 만큼 던짐. 그 사이 연결이 끊기거나 친구가 지워지면 남은 것은 버림
