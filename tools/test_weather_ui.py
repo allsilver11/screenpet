@@ -22,7 +22,7 @@ def test_frame_rate_and_particle_budget():
     assert const("MAX_PARTICLES") <= 80
     assert const("MIN_PARTICLES") >= 30
     counts = [int(c) for c in re.findall(r"count: (\d+)", JS)]
-    assert len(counts) == 6 and all(30 <= c <= 80 for c in counts)
+    assert len(counts) == 7 and all(30 <= c <= 80 for c in counts)
     # 날씨마다 지난번과 같은 예산 (비 70개가 가장 많다)
     assert max(counts) <= 70
 
@@ -102,7 +102,7 @@ def test_help_tells_the_whole_year():
 
 
 # ---- ui/weather.js를 가짜 캔버스로 돌려 보기 (tools/weather_harness.js) — 호출 수만, 실제 렌더링 비용은 아니다 ----
-@pytest.fixture(scope="module", params=["light_snow", "snow", "rain", "shower", "petals", "leaves"])
+@pytest.fixture(scope="module", params=["light_snow", "snow", "rain", "shower", "petals", "leaves", "green_leaves"])
 def run(request):
     if not shutil.which("node"):
         pytest.skip("node not installed")
@@ -143,7 +143,7 @@ def test_piles_come_back_after_a_resize(run):
 
 
 def test_a_flake_or_drop_stays_the_same_and_petals_and_leaves_tumble(run):
-    if run["kind"] in ("petals", "leaves"):
+    if run["kind"] in ("petals", "leaves", "green_leaves"):
         assert run["tumbleSprites"] >= 4, "turns as it falls"
         assert run["tumbleColours"] == 1, "a leaf keeps its colour while it tumbles"
     else:
@@ -162,17 +162,36 @@ def test_leaves_are_warm_red_orange_and_yellow(run):
 
 
 def test_petal_and_leaf_piles_are_made_of_their_own_sprites(run):
-    if run["kind"] in ("petals", "leaves"):
+    if run["kind"] in ("petals", "leaves", "green_leaves"):
         assert run["pileImages"] > 0
     else:
         assert run["pileImages"] == 0
 
 
 def test_a_petal_or_leaf_pile_keeps_its_look_while_rain_melts_it(run):
-    if run["kind"] in ("petals", "leaves"):
+    if run["kind"] in ("petals", "leaves", "green_leaves"):
         assert run["meltingPileImages"] > 0
     else:
         assert run["meltingPileImages"] == 0
+
+
+def test_green_leaves_are_fresh_bright_greens(run):
+    if run["kind"] != "green_leaves":
+        pytest.skip("green leaves only")
+    assert len(run["colours"]) == 3
+    for colour in run["colours"]:
+        r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+        assert g > r and g > b and g >= 0xb0, colour
+
+
+def test_green_leaves_flutter_livelier_than_autumn_leaves():
+    def spec(kind):
+        line = next(l for l in JS.splitlines() if l.strip().startswith(f"{kind}:"))
+        return {k: float(v) for k, v in re.findall(r"(sway|flutter): ([\d.]+)", line)}
+    green, autumn = spec("green_leaves"), spec("leaves")
+    assert green["sway"] > autumn["sway"]
+    assert green["flutter"] > autumn.get("flutter", 1.6)
+    assert "spec.flutter" in JS
 
 
 def test_only_rain_and_showers_splash(run):

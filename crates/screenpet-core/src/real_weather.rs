@@ -12,19 +12,78 @@ use crate::weather::{self, Weather};
 /// 받은 날씨가 이보다 오래되면 (초) 달력 날씨로 돌아감
 pub const STALE_SECS: i64 = 3 * 3600;
 
-/// ⚙️ 설정 ▸ 날씨: 실제 날씨 / 계절 날씨. 모르는 값이면 실제 날씨
+/// ⚙️ 설정 ▸ 🌦️ 날씨 종류: 실제 날씨 / 계절 날씨 / 직접 고른 날씨 (달력과 상관없이 계속 옴). 모르는 값이면 실제 날씨
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WeatherSource {
     #[default]
     Real,
     Season,
+    /// ❄️ 눈
+    Snow,
+    /// 🌧️ 비
+    Rain,
+    /// 🍂 낙엽
+    Leaves,
+    /// 🌸 꽃잎
+    Petals,
+    /// 🌿 푸른 잎
+    GreenLeaves,
 }
 
 impl WeatherSource {
+    /// 메뉴 순서 (설정·메뉴 id는 id())
+    pub const ALL: [WeatherSource; 7] =
+        [WeatherSource::Real, WeatherSource::Season, WeatherSource::Snow, WeatherSource::Rain, WeatherSource::Leaves, WeatherSource::Petals, WeatherSource::GreenLeaves];
+    /// 직접 고르는 날씨들 (메뉴 순서)
+    pub const MANUAL: [WeatherSource; 5] = [WeatherSource::Snow, WeatherSource::Rain, WeatherSource::Leaves, WeatherSource::Petals, WeatherSource::GreenLeaves];
+
     /// 실제 날씨를 씀
     pub fn is_real(&self) -> bool {
         *self == WeatherSource::Real
+    }
+
+    /// 직접 고른 날씨면 그 날씨 (실제·계절이면 None)
+    pub fn manual(self) -> Option<Weather> {
+        match self {
+            WeatherSource::Real | WeatherSource::Season => None,
+            WeatherSource::Snow => Some(Weather::Snow),
+            WeatherSource::Rain => Some(Weather::Rain),
+            WeatherSource::Leaves => Some(Weather::Leaves),
+            WeatherSource::Petals => Some(Weather::Petals),
+            WeatherSource::GreenLeaves => Some(Weather::GreenLeaves),
+        }
+    }
+
+    /// 설정·메뉴 id (serde 이름과 같음)
+    pub fn id(self) -> &'static str {
+        match self {
+            WeatherSource::Real => "real",
+            WeatherSource::Season => "season",
+            WeatherSource::Snow => "snow",
+            WeatherSource::Rain => "rain",
+            WeatherSource::Leaves => "leaves",
+            WeatherSource::Petals => "petals",
+            WeatherSource::GreenLeaves => "green_leaves",
+        }
+    }
+
+    /// 메뉴 글자 (☀️ 실제 날씨는 트레이가 도시를 붙임)
+    pub fn label(self) -> &'static str {
+        match self {
+            WeatherSource::Real => "☀️ 실제 날씨",
+            WeatherSource::Season => "📅 계절 날씨",
+            WeatherSource::Snow => "❄️ 눈",
+            WeatherSource::Rain => "🌧️ 비",
+            WeatherSource::Leaves => "🍂 낙엽",
+            WeatherSource::Petals => "🌸 꽃잎",
+            WeatherSource::GreenLeaves => "🌿 푸른 잎",
+        }
+    }
+
+    /// id로 찾음 (모르는 id면 None)
+    pub fn from_id(raw: &str) -> Option<WeatherSource> {
+        WeatherSource::ALL.into_iter().find(|s| s.id() == raw)
     }
 }
 
@@ -52,11 +111,17 @@ pub enum Place {
     Cheongju,
     Changwon,
     Pohang,
+    /// 뉴저지 (뉴어크)
+    NewJersey,
+    /// 펜실베이니아 (필라델피아)
+    Pennsylvania,
+    NewYork,
+    SanFrancisco,
 }
 
 impl Place {
     /// 메뉴 순서
-    pub const ALL: [Place; 18] = [
+    pub const ALL: [Place; 22] = [
         Place::Seoul,
         Place::Yongin,
         Place::Suwon,
@@ -75,6 +140,10 @@ impl Place {
         Place::Cheongju,
         Place::Changwon,
         Place::Pohang,
+        Place::NewJersey,
+        Place::Pennsylvania,
+        Place::NewYork,
+        Place::SanFrancisco,
     ];
 
     /// 기본 자리(용인)임
@@ -138,18 +207,22 @@ pub fn precipitation(code: u16) -> Option<Weather> {
     }
 }
 
-/// 아무것도 안 내릴 때 남기는 계절 장식: 3·4월 벚꽃잎, 9~11월 낙엽 (가짜 소나기·달력 눈은 없음)
+/// 아무것도 안 내릴 때 남기는 계절 장식: 3·4월 벚꽃잎, 5~8월 푸른 잎, 9~11월 낙엽 (가짜 소나기·달력 눈은 없음)
 pub fn dry_season(month: u32) -> Option<Weather> {
     match month {
         3 | 4 => Some(Weather::Petals),
+        5..=8 => Some(Weather::GreenLeaves),
         9..=11 => Some(Weather::Leaves),
         _ => None,
     }
 }
 
-/// 지금 보일 날씨. 실제 날씨를 골랐고 믿을 만한 값이 있으면 그 값 (안 내리면 계절 장식만), 아니면 달력 날씨
+/// 지금 보일 날씨. 직접 고른 날씨면 늘 그 날씨, 실제 날씨를 골랐고 믿을 만한 값이 있으면 그 값 (안 내리면 계절 장식만), 아니면 달력 날씨
 /// (now: 유닉스 초, 나머지는 지역 날짜와 자정부터 초)
 pub fn weather_now(source: WeatherSource, reading: Option<Reading>, now: i64, year: i32, month: u32, day: u32, secs: u32) -> Option<Weather> {
+    if let Some(picked) = source.manual() {
+        return Some(picked);
+    }
     match reading.filter(|r| source.is_real() && r.fresh(now)) {
         Some(r) => precipitation(r.code).or_else(|| dry_season(month)),
         None => weather::weather_at(year, month, day, secs),
@@ -194,14 +267,14 @@ mod tests {
     }
 
     #[test]
-    fn clear_skies_keep_only_petals_and_leaves() {
+    fn clear_skies_keep_only_petals_and_leaves_and_green_leaves() {
         let clear = Some(Reading { code: 0, at: NOW });
         assert_eq!(weather_now(WeatherSource::Real, clear, NOW, 2027, 4, 2, 0), Some(Weather::Petals));
         assert_eq!(weather_now(WeatherSource::Real, clear, NOW, 2027, 10, 2, 0), Some(Weather::Leaves));
         assert_eq!(weather_now(WeatherSource::Real, clear, NOW, 2027, 11, 2, 0), Some(Weather::Leaves), "no calendar snow");
         assert_eq!(weather_now(WeatherSource::Real, clear, NOW, 2027, 1, 1, 0), None, "no calendar snow");
         for secs in (0..86_400).step_by(600) {
-            assert_eq!(weather_now(WeatherSource::Real, clear, NOW, 2027, 7, 1, secs), None, "no fake summer showers");
+            assert_eq!(weather_now(WeatherSource::Real, clear, NOW, 2027, 7, 1, secs), Some(Weather::GreenLeaves), "no fake summer showers, only green leaves");
         }
     }
 
@@ -221,19 +294,61 @@ mod tests {
     }
 
     #[test]
+    fn a_picked_weather_falls_all_year_whatever_the_calendar_or_the_sky_says() {
+        let clear = Some(Reading { code: 0, at: NOW });
+        let snow = Some(Reading { code: 73, at: NOW });
+        for (source, want) in [
+            (WeatherSource::Snow, Weather::Snow),
+            (WeatherSource::Rain, Weather::Rain),
+            (WeatherSource::Leaves, Weather::Leaves),
+            (WeatherSource::Petals, Weather::Petals),
+            (WeatherSource::GreenLeaves, Weather::GreenLeaves),
+        ] {
+            assert_eq!(source.manual(), Some(want));
+            for month in 1..=12 {
+                for secs in [0, 12 * 3600, 86_399] {
+                    for reading in [None, clear, snow] {
+                        assert_eq!(weather_now(source, reading, NOW, 2027, month, 15, secs), Some(want), "{source:?} {month} {secs}");
+                    }
+                }
+            }
+        }
+        assert_eq!(WeatherSource::Real.manual(), None);
+        assert_eq!(WeatherSource::Season.manual(), None);
+    }
+
+    #[test]
+    fn weather_sources_have_stable_ids_that_match_the_config_names() {
+        let ids: Vec<&str> = WeatherSource::ALL.iter().map(|s| s.id()).collect();
+        assert_eq!(ids, ["real", "season", "snow", "rain", "leaves", "petals", "green_leaves"]);
+        for s in WeatherSource::ALL {
+            assert_eq!(WeatherSource::from_id(s.id()), Some(s));
+            assert_eq!(serde_json::to_string(&s).unwrap(), format!("\"{}\"", s.id()), "config id = menu id");
+        }
+        let labels: Vec<&str> = WeatherSource::MANUAL.iter().map(|s| s.label()).collect();
+        assert_eq!(labels, ["❄️ 눈", "🌧️ 비", "🍂 낙엽", "🌸 꽃잎", "🌿 푸른 잎"]);
+        assert_eq!(WeatherSource::from_id("hail"), None);
+    }
+
+    #[test]
     fn places_are_the_built_in_korean_cities_with_yongin_first_by_default() {
         assert_eq!(Place::default(), Place::Yongin);
         assert_eq!(Place::Yongin.coords(), (37.2411, 127.1776));
         let labels: Vec<&str> = Place::ALL.iter().map(|p| p.label()).collect();
         assert_eq!(
             labels,
-            ["서울", "용인", "수원", "성남", "인천", "대전", "대구", "광주", "부산", "울산", "세종", "제주", "강릉", "춘천", "전주", "청주", "창원", "포항"]
+            [
+                "서울", "용인", "수원", "성남", "인천", "대전", "대구", "광주", "부산", "울산", "세종", "제주", "강릉", "춘천", "전주", "청주", "창원", "포항", "뉴저지",
+                "펜실베이니아", "뉴욕", "샌프란시스코"
+            ]
         );
         for p in Place::ALL {
             assert_eq!(Place::from_id(p.id()), Some(p));
             assert_eq!(serde_json::to_string(&p).unwrap(), format!("\"{}\"", p.id()), "config id = menu id");
             let (lat, lon) = p.coords();
-            assert!((33.0..39.0).contains(&lat) && (126.0..130.0).contains(&lon), "{p:?} in Korea");
+            let korea = (33.0..39.0).contains(&lat) && (126.0..130.0).contains(&lon);
+            let us = (36.0..42.0).contains(&lat) && (-123.0..-73.0).contains(&lon);
+            assert!(korea || us, "{p:?} in Korea or the US");
         }
         assert_eq!(Place::from_id("tokyo"), None);
     }

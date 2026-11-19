@@ -1417,6 +1417,19 @@ mod tests {
     }
 
     #[test]
+    fn a_picked_weather_is_saved_and_read_back() {
+        for (source, name) in [(WeatherSource::Snow, "snow"), (WeatherSource::Rain, "rain"), (WeatherSource::Leaves, "leaves"), (WeatherSource::Petals, "petals"), (WeatherSource::GreenLeaves, "green_leaves")] {
+            let c = Config { weather_source: source, ..Config::default() };
+            let text = serde_json::to_string(&c).unwrap();
+            assert!(text.contains(&format!(r#""weather_source":"{name}""#)), "{text}");
+            let back: Config = serde_json::from_str(&text).unwrap();
+            assert_eq!(back.weather_source, source);
+        }
+        let odd: Config = serde_json::from_str(r#"{"pet":"cat","weather_source":"hail"}"#).unwrap();
+        assert_eq!(odd.weather_source, WeatherSource::Real);
+    }
+
+    #[test]
     fn feed_mode_defaults_to_hand_and_roundtrips() {
         use crate::food::FeedMode;
         let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();

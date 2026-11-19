@@ -1,5 +1,5 @@
 //! 계절 날씨 (v0.3.7) — 모니터마다 마우스가 통과하는 투명 창 하나 (`weather-<n>`, weather.html)와, 눈덩이·눈사람 작은 창.
-//! 게임 루프가 매 틱 tick을 부르지만, 날씨가 없으면 (여름 소나기 사이·메뉴로 껐거나·모두 숨겼으면) 창이 하나도 없고
+//! 게임 루프가 매 틱 tick을 부르지만, 날씨가 없으면 (실제 날씨가 맑은 겨울·메뉴로 껐거나·모두 숨겼으면) 창이 하나도 없고
 //! 1초에 한 번 플래그만 봄 (달력과 시계는 1분에 한 번). 켜져 있어도 창 목록을 따로 읽지 않음 — 내 동물 세계의 디딤판을
 //! 5 Hz로 맞춰 보고, 장면이 바뀐 모니터에만 보냄. 더미는 1초에 한 번 (screenpet_core::weather).
 //! 그 모니터의 앞 창이 전체 화면이거나 사용자가 자리를 비웠으면 창을 숨기고 웹뷰도 그림을 멈춤 (돌아오면 다시 그림).
@@ -19,7 +19,7 @@ use crate::AppState;
 
 /// 날씨 덮개 창 라벨 앞부분
 const PREFIX: &str = "weather-";
-/// 개발용 숨은 미리 보기: snow·light_snow·rain·shower·petals·leaves·off (screenpet_core::weather::parse_preview). 메뉴에는 없음
+/// 개발용 숨은 미리 보기: snow·light_snow·rain·shower·petals·leaves·green_leaves·off (screenpet_core::weather::parse_preview). 메뉴에는 없음
 const PREVIEW_ENV: &str = "SCREENPET_WEATHER";
 /// 미리 보기에선 더미가 이 배로 빨리 쌓임
 const PREVIEW_GROW: f32 = 10.0;
@@ -90,7 +90,7 @@ struct Snowman {
 pub struct WeatherFx {
     preview: Option<Option<Weather>>,
     season: Option<Weather>,
-    /// ☀️ 실제 날씨 / 📅 계절 날씨 (설정)
+    /// ☀️ 실제 날씨 / 📅 계절 날씨 / 직접 고른 날씨 (설정)
     source: WeatherSource,
     /// ☀️ 중계 서버가 마지막으로 준 고른 도시의 날씨 (3시간이 지나면 달력으로)
     reading: Option<Reading>,
@@ -144,7 +144,7 @@ impl WeatherFx {
         self.next_scene = Instant::now().min(self.next_scene);
     }
 
-    /// ☀️ 실제 날씨 / 📅 계절 날씨를 바꿨음: 바로 다시 봄
+    /// ☀️ 실제 날씨 / 📅 계절 날씨 / 직접 고른 날씨를 바꿨음: 바로 다시 봄
     pub fn set_source(&mut self, source: WeatherSource) {
         self.source = source;
         self.next_season = Instant::now();

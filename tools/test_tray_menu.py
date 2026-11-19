@@ -268,7 +268,8 @@ def test_heumul_color_menu_sits_under_the_style_only_for_tintable_pets():
 
 def test_weather_kind_menu_picks_real_or_season_weather_and_the_city():
     """☀️ 실제 날씨 (용인) / 📅 계절 날씨 체크 둘과 📍 날씨 지역 ▸ (도시마다 체크) — ⚙️ 설정 ▸ 🌨️ 날씨 효과 바로 아래."""
-    assert 'Submenu::with_items(app, "🌦️ 날씨 종류", true, &[&weather_real, &weather_season, &PredefinedMenuItem::separator(app)?, &places_menu])' in TRAY
+    assert 'Submenu::with_items(app, "🌦️ 날씨 종류", true, &[&weather_real, &weather_season, &PredefinedMenuItem::separator(app)?])' in TRAY
+    assert "weather_kind.append(&places_menu)?;" in TRAY
     assert 'Submenu::new(app, "📍 날씨 지역", true)?' in TRAY
     assert "for place in Place::ALL" in TRAY and 'format!("{WEATHER_PLACE_PREFIX}{}", place.id())' in TRAY
     assert 'const WEATHER_PLACE_PREFIX: &str = "weather-place:";' in TRAY
@@ -282,3 +283,25 @@ def test_weather_kind_menu_picks_real_or_season_weather_and_the_city():
     assert "Input::SetWeatherPlace(place) => {" in game and "config.weather_place = place;" in game and "network.want_weather(place);" in game
     # 체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춘다 (시작할 때도)
     assert game.count("crate::tray::sync_weather_kind(") >= 3
+
+
+def test_weather_kind_menu_lets_you_pick_the_weather_yourself():
+    """❄️ 눈 / 🌧️ 비 / 🍂 낙엽 / 🌸 꽃잎 / 🌿 푸른 잎 — 실제·계절 다음에 체크 항목으로, 고르면 설정에 남고 날씨 효과도 켬."""
+    build = TRAY[TRAY.index('"🌦️ 날씨 종류"'):TRAY.index("weather_kind.append(&places_menu)?;")]
+    assert "for source in WeatherSource::MANUAL" in build
+    assert 'format!("{WEATHER_SRC_PREFIX}{}", source.id())' in build and "source.label()" in build
+    assert "weather_kind.append(&item)?;" in build and "weather_manual.push((item, source));" in build
+    assert 'const WEATHER_SRC_PREFIX: &str = "weather-src:";' in TRAY
+    assert ".strip_prefix(WEATHER_SRC_PREFIX).and_then(WeatherSource::from_id)" in TRAY
+    # 실제·계절은 정확한 id가 먼저 잡힘 (prefix 분기는 그 밖의 것만)
+    assert TRAY.index("WEATHER_REAL_ID => send(") < TRAY.index(".strip_prefix(WEATHER_SRC_PREFIX)")
+    sync = TRAY[TRAY.index("pub fn sync_weather_kind("):]
+    sync = sync[: sync.index("\n}\n")]
+    assert "for (item, s) in &menu.weather_manual" in sync and "item.set_checked(*s == source)" in sync
+    assert "weather_manual," in TRAY[TRAY.index("Ok(TrayMenu {"):]
+    game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    arm = game[game.index("Input::SetWeatherSource(source) => {"):game.index("Input::SetWeatherPlace(place) => {")]
+    assert "source.manual().is_some() && !config.weather_on" in arm
+    assert "config.weather_on = true;" in arm and "weather.sync_menu(&app, false);" in arm
+    # 날씨 효과 체크는 일 년 내내 누를 수 있음
+    assert "set_enabled" not in TRAY[TRAY.index("let weather = CheckMenuItem"):TRAY.index("let weather_kind")]

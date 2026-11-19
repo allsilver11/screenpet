@@ -1,4 +1,4 @@
-//! ☀️ 앱용 진짜 날씨임 (v0.6.3): 릴레이가 접속한 앱이 원하는 기본 *지역*(한국 도시, `PLACES`)마다 날씨 서비스에
+//! ☀️ 앱용 진짜 날씨임 (v0.6.3): 릴레이가 접속한 앱이 원하는 기본 *지역*(한국·미국 도시, `PLACES`)마다 날씨 서비스에
 //! 지금 WMO 날씨 코드를 지역당 최대 30분마다 묻고 `weather {place, code, at}`로 나눠 줌.
 //! 앱은 날씨 서비스를 직접 부르지 않고 좌표도 안 보냄: 고정 목록의 지역 id만 보냄 (모르는 id는 무시).
 //! 날씨 서비스는 도시 좌표만 봄.
@@ -563,6 +563,12 @@ mod tests {
         );
         let odd = Place { id: "x", name: "x", lat: 37.123456789, lon: 127.0 };
         assert_eq!(met_url(&odd), "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=37.1235&lon=127");
+        // 미국 도시는 서경이라 음수 경도
+        assert_eq!(met_url(find_place("san_francisco").unwrap()), "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=37.7749&lon=-122.4194");
+        assert_eq!(
+            find_place("new_jersey").unwrap().url(),
+            "https://api.open-meteo.com/v1/forecast?latitude=40.7357&longitude=-74.1724&current=weather_code&timezone=GMT"
+        );
         for p in PLACES {
             let url = met_url(&p);
             let query = url.split_once('?').unwrap().1;

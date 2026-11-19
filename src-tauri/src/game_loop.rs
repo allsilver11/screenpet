@@ -607,8 +607,14 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 Input::SetWeatherSource(source) => {
                     crate::tray::sync_weather_kind(&app.state::<AppState>().menu, source, config.weather_place);
-                    if source == config.weather_source {
+                    // 날씨를 직접 골랐으면 꺼져 있던 🌨️ 날씨 효과도 켬 (고른 걸 바로 보게)
+                    let turn_on = source.manual().is_some() && !config.weather_on;
+                    if source == config.weather_source && !turn_on {
                         continue;
+                    }
+                    if turn_on {
+                        config.weather_on = true;
+                        weather.sync_menu(&app, false);
                     }
                     config.weather_source = source;
                     weather.set_source(source);
