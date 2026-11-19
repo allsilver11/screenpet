@@ -1116,10 +1116,7 @@ fn the_broom_sweeps_a_poop_along_and_lets_it_settle_again() {
     assert_eq!(o.body.y, 1040.0);
     assert!(o.sweep(-60.0, 0.0), "a slow stroke still moves it");
     assert!(o.body.vx <= -SWEEP_MIN_VX);
-    // 쓰레기는 쓸리지 않고, 든 것도 쓸리지 않는다
-    let mut can = Object::new(ObjectKind::Can, 900.0, 1040.0, 1.0, 3);
-    run(&mut can, &w, 3.0);
-    assert!(!can.sweep(600.0, 0.0));
+    // 든 것은 쓸리지 않는다
     let (mut held, _) = poop_on_floor(ObjectKind::Poop);
     held.pointer_down(900.0, 1000.0);
     assert!(!held.sweep(600.0, 0.0));
@@ -1447,14 +1444,51 @@ fn giants_are_too_heavy_for_the_wind_and_take_no_post_it() {
 }
 
 #[test]
-fn the_broom_sweeps_the_giant_poop_but_not_the_giant_stone() {
+fn the_broom_sweeps_giants_too_but_they_are_heavy_and_slow() {
     let w = wide();
-    let mut poop = giant(ObjectKind::GiantPoop, 3000.0, 1000.0);
-    run(&mut poop, &w, 4.0);
-    assert!(poop.sweep(600.0, 0.0));
-    let mut stone = giant(ObjectKind::GiantStone, 3000.0, 1000.0);
-    run(&mut stone, &w, 4.0);
-    assert!(!stone.sweep(600.0, 0.0));
+    let (small, _) = poop_on_floor(ObjectKind::Can);
+    let mut small = small;
+    assert!(small.sweep(900.0, 0.0));
+    for k in ObjectKind::GIANTS {
+        let mut g = giant(k, 3000.0, 1000.0);
+        run(&mut g, &w, 4.0);
+        assert!(g.sweep(900.0, 0.0), "{k:?}");
+        assert!(g.body.vx > 0.0 && g.body.vx < small.body.vx * 0.6, "{k:?}: 무거워서 느리게 {} vs {}", g.body.vx, small.body.vx);
+    }
+}
+
+#[test]
+fn the_broom_pushes_every_loose_thing_on_the_floor() {
+    let kinds = ObjectKind::ALL.into_iter().chain([ObjectKind::AppIcon]).filter(|k| !k.is_giant());
+    for k in kinds {
+        let (mut o, _) = poop_on_floor(k);
+        assert!(o.sweep(600.0, 0.0), "{k:?}");
+        assert!(o.body.vx > 0.0 && o.in_flight(), "{k:?}");
+    }
+}
+
+#[test]
+fn a_swept_snowball_rolls_on_but_a_thrown_one_still_bursts() {
+    let (mut ball, w) = poop_on_floor(ObjectKind::Snowball);
+    assert!(ball.sweep(600.0, 0.0));
+    run(&mut ball, &w, 4.0);
+    assert!(!ball.take_burst(), "밀린 눈덩이는 부서지지 않음");
+    assert!(ball.is_asleep());
+    ball.force_throw(300.0, -300.0);
+    run(&mut ball, &w, 4.0);
+    assert!(ball.take_burst(), "던진 눈덩이는 그대로 퍽");
+}
+
+#[test]
+fn a_post_it_being_read_stays_put_under_the_broom() {
+    let (mut o, _) = poop_on_floor(ObjectKind::Can);
+    o.receive_note(Some("안녕".into()));
+    assert_eq!(o.read_note().as_deref(), Some("안녕"));
+    assert!(!o.sweep(600.0, 0.0), "읽는 동안은 그대로");
+    let (mut sticky, _) = poop_on_floor(ObjectKind::Can);
+    sticky.receive_note(Some("hi".into()));
+    assert!(sticky.sweep(600.0, 0.0), "안 읽은 포스트잇은 붙은 채로 밀려 감");
+    assert_eq!(sticky.note_to_send().as_deref(), Some("hi"));
 }
 
 #[test]
@@ -1734,7 +1768,7 @@ fn about_one_in_ten_of_a_friends_downward_throws_drops_on_to_the_friend_below() 
 #[test]
 fn app_icon_toys_are_not_on_the_wire_the_menu_or_the_volley_list() {
     let toy = ObjectKind::AppIcon;
-    assert!(toy.is_toy() && !toy.is_poop() && !toy.is_giant() && !toy.is_sweepable() && !toy.takes_postit());
+    assert!(toy.is_toy() && !toy.is_poop() && !toy.is_giant() && !toy.takes_postit());
     assert!(!ObjectKind::ALL.contains(&toy) && !ObjectKind::TRASH.contains(&toy) && !ObjectKind::MENU.contains(&toy));
     assert!(ObjectKind::ALL.iter().all(|k| !k.is_toy()));
     // 친구가 그 이름을 보내도 받지 않는다 (던지기·배달 모두)
@@ -1891,7 +1925,7 @@ fn a_giant_poop_from_the_menu_comes_out_brown_pink_or_rainbow() {
     assert_eq!(GiantStone.menu_pick(0.9), GiantStone, "others come out as they are");
     assert_eq!(Can.menu_pick(0.5), Can);
     for k in [GiantPink, GiantRainbow] {
-        assert!(k.is_giant() && k.is_sweepable() && !k.takes_postit(), "{k:?}");
+        assert!(k.is_giant() && !k.takes_postit(), "{k:?}");
         assert!(ObjectKind::ALL.contains(&k) && !ObjectKind::MENU.contains(&k), "{k:?}");
         assert_eq!(ObjectKind::from_id(k.id()), Some(k));
         // 친구에게: 똥으로 보내고 look으로 색과 거대함을 알린다 (옛 버전은 그냥 똥)

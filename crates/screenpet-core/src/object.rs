@@ -61,9 +61,11 @@ pub fn giant_scale(work_area_height: f64) -> f64 {
 const HALF_WIDTH_RATIO: f64 = 0.3;
 /// 이보다 세게 떨어지면 살짝 튀어 오름 (논리 px/s)
 const BOUNCE_MIN_VY: f64 = 350.0;
-/// 빗자루에 쓸린 똥의 최소 가로 속도와 뜨는 속도 (논리 px/s)
+/// 빗자루에 쓸린 물건의 최소 가로 속도와 뜨는 속도 (논리 px/s)
 const SWEEP_MIN_VX: f64 = 240.0;
 const SWEEP_POP: f64 = 160.0;
+/// 🧹 거대한 것은 무거워서 이 배만큼만 밀림
+const GIANT_SWEEP: f64 = 0.4;
 /// 이만큼 안에서 이만큼 안 움직이고 놓으면 클릭 (논리 px, 초)
 const CLICK_SLOP: f64 = 6.0;
 const CLICK_SECS: f64 = 0.5;
@@ -182,17 +184,12 @@ impl ObjectKind {
         matches!(self, ObjectKind::GiantPoop | ObjectKind::GiantPink | ObjectKind::GiantRainbow)
     }
 
-    /// 빗자루에 쓸림: 똥과 거대한 똥
-    pub fn is_sweepable(self) -> bool {
-        self.is_poop() || self.is_giant_poop()
-    }
-
     /// 포스트잇을 붙일 수 있음: 쓰레기만 (똥은 사라지고, 거대한 것은 쪽지 창이 그림을 덮음)
     pub fn takes_postit(self) -> bool {
         !self.is_poop() && !self.is_giant() && !self.is_toy() && !self.is_snowball()
     }
 
-    /// 똥임: 수를 따로 세고, 저절로 사라지고, 바람에 구르지 않고, 빗자루에 쓸림
+    /// 똥임: 수를 따로 세고, 저절로 사라지고, 바람에 구르지 않음
     pub fn is_poop(self) -> bool {
         matches!(self, ObjectKind::Poop | ObjectKind::Pink | ObjectKind::Rainbow | ObjectKind::Pellets)
     }
@@ -433,6 +430,8 @@ pub struct Object {
     knocked: bool,
     /// ⛄ 던진 눈덩이가 무언가에 닿아 퍽 부서졌음 (take_burst로 한 번 꺼냄 — 앱이 치움)
     burst: bool,
+    /// 🧹 빗자루에 밀려 날아가는 중 — 눈덩이도 내려앉을 때 부서지지 않음
+    swept: bool,
     /// ⚾🖱️ 사용자가 커서로 던져 날아가는 중 (흐물이가 받아 커서 쪽으로 되던짐 — cursor_rally.rs)
     by_user: bool,
     /// ⚾🖱️ 동물이 커서 쪽으로 돌려보낸 것 (되던짐·콩·놀자) — 날아가는 중이나 내려앉고 RALLY_GRAB_SECS 안에 잡으면 횟수가 이어짐
@@ -484,6 +483,7 @@ impl Object {
             from: None,
             knocked: false,
             burst: false,
+            swept: false,
             by_user: false,
             cursor_rally: false,
             landed_at: None,
@@ -729,6 +729,7 @@ impl Object {
         self.standing = None;
         self.phase = Phase::Air;
         self.thrown = true;
+        self.swept = false;
         self.thrown_down = visit::aimed_down(vx, vy, self.dpi);
         self.spin = self.spin_of_throw();
     }
@@ -851,15 +852,21 @@ impl Object {
         Some(crate::poop::PoopSpot { id, x: self.body.x, y: self.body.y, owner: self.owner()? })
     }
 
-    /// 빗자루(vx, vy = 빗자루 속도, 물리 px/s)가 바닥의 똥을 쓸었음: 그 쪽으로 던진 것과 같음 — 친구가 연결된 화면 끝을 넘으면 평소처럼 날아감
-    /// 살살 쓸어도 조금은 밀리고 살짝 뜸. 날아가는 중이거나 들려 있으면 그대로 (내려앉아야 다시 쓸림). 쓸렸으면 true
+    /// 빗자루(vx, vy = 빗자루 속도, 물리 px/s)가 바닥의 물건을 쓸었음: 그 쪽으로 던진 것과 같음 — 친구가 연결된 화면 끝을 넘으면 평소처럼 날아감
+    /// 살살 쓸어도 조금은 밀리고 살짝 뜸. 거대한 것은 무거워서 느리게, 눈덩이는 부서지지 않고 굴러감. 날아가는 중·들려 있음·동물이 든 것·
+    /// 포스트잇을 읽는 중이면 그대로 (내려앉아야 다시 쓸림). 쓸렸으면 true
     pub fn sweep(&mut self, vx: f64, vy: f64) -> bool {
-        if !self.kind.is_sweepable() || !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) || (vx == 0.0 && vy == 0.0) {
+        let reading = self.postit == Postit::Reading;
+        if reading || !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) || (vx == 0.0 && vy == 0.0) {
             return false;
         }
         let (mut vx, mut vy) = throw_velocity(vx, vy, self.dpi, THROW_LIFT);
         if vx != 0.0 && vx.abs() < SWEEP_MIN_VX * self.dpi {
             vx = vx.signum() * SWEEP_MIN_VX * self.dpi;
+        }
+        if self.kind.is_giant() {
+            vx *= GIANT_SWEEP;
+            vy *= GIANT_SWEEP;
         }
         self.thrown_down = visit::aimed_down(vx, vy, self.dpi);
         if !self.thrown_down {
@@ -869,6 +876,7 @@ impl Object {
         self.body.vy = vy;
         self.standing = None;
         self.thrown = true;
+        self.swept = true;
         self.phase = Phase::Air;
         self.spin = self.spin_of_throw();
         true
@@ -950,6 +958,7 @@ impl Object {
         self.body.vx = vx;
         self.body.vy = vy;
         self.thrown = true;
+        self.swept = false;
         self.thrown_down = visit::aimed_down(vx, vy, self.dpi);
         self.spin = self.spin_of_throw();
         // ⚾🖱️ 커서로 던짐: 흐물이가 받으러 옴 (거대한 것·눈덩이는 아님)
@@ -1117,11 +1126,12 @@ impl Object {
         let landing = world.fall_landing(self.body.x, prev_y, self.body.y, self.body.vy, to_ground);
         if let Some(s) = landing {
             self.body.y = s.y;
-            if self.thrown && self.kind.is_snowball() {
-                // ⛄ 던진 눈덩이는 닿은 곳에서 퍽
+            if self.thrown && self.kind.is_snowball() && !std::mem::take(&mut self.swept) {
+                // ⛄ 던진 눈덩이는 닿은 곳에서 퍽 (빗자루에 밀린 것은 그냥 내려앉음)
                 self.splat();
                 return None;
             }
+            self.swept = false;
             self.thrown = false;
             if self.body.vy > BOUNCE_MIN_VY * self.dpi {
                 self.bounce();
@@ -1315,6 +1325,7 @@ impl Object {
         self.standing = None;
         self.phase = Phase::Air;
         self.thrown = true;
+        self.swept = false;
     }
 }
 

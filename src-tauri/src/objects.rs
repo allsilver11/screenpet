@@ -690,10 +690,11 @@ impl Objects {
         }
     }
 
-    /// 🧹 빗자루가 지나간 똥은 빗자루 쪽으로 밀려 날아감 (평소의 던지기 — 친구가 연결된 끝을 넘으면 tick이 친구에게 보냄)
-    pub fn sweep_poops(&mut self, broom: &Broom) {
+    /// 🧹 빗자루가 지나간 물건(쓰레기·똥·장난감·눈덩이·거대한 것)은 빗자루 쪽으로 밀려 날아감 (평소의 던지기 — 친구가 연결된 끝을 넘으면
+    /// tick이 친구에게 보냄, 예산도 같음). 들렸거나 동물이 든 것·날아가는 것·포스트잇을 읽는 중인 것은 코어 sweep이 그대로 둠
+    pub fn sweep_objects(&mut self, broom: &Broom) {
         let (vx, vy) = broom.velocity();
-        for l in self.live.iter_mut().filter(|l| l.object.kind.is_sweepable()) {
+        for l in &mut self.live {
             if broom.passes_over(l.object.body.x, l.object.body.y, l.object.dpi()) {
                 l.object.sweep(vx, vy);
             }

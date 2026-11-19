@@ -941,7 +941,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 broom_win.drop_back();
                 let _ = app.state::<AppState>().menu.broom.set_checked(false);
             } else {
-                objects.sweep_poops(b);
+                objects.sweep_objects(b);
                 let (x0, x1) = b.span(dpi);
                 if let Some((amount, kind)) = weather.sweep(x0, x1, cy, Broom::reach_y(dpi)) {
                     if let Some(count) = b.swept(amount) {

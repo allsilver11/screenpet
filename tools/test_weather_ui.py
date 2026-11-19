@@ -271,3 +271,17 @@ def test_the_broom_is_in_the_menu_and_flurries_reach_the_overlay():
     tray = (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
     assert '"🧹 빗자루"' in tray and "Input::ToggleBroom" in tray
     assert '"weather-flurry"' in RS and 'listen("weather-flurry"' in JS
+
+
+def test_the_broom_pushes_every_loose_object_not_just_poop():
+    """🧹 쓰레기·똥·장난감·눈덩이·거대한 것 모두 밀림 — 거르기는 코어 Object::sweep (들린 것·읽는 포스트잇 등)."""
+    game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    objects = (ROOT / "src-tauri" / "src" / "objects.rs").read_text(encoding="utf-8")
+    assert "objects.sweep_objects(b);" in game and "sweep_poops" not in game
+    body = objects[objects.index("pub fn sweep_objects("):]
+    body = body[: body.index("\n    }\n")]
+    assert "is_poop" not in body and "filter" not in body and "l.object.sweep(vx, vy)" in body
+    help_text = (ROOT / "ui" / "help.html").read_text(encoding="utf-8")
+    line = next(l for l in help_text.splitlines() if "<b>빗자루</b>" in l)
+    for word in ["쓰레기", "눈덩이", "거대한"]:
+        assert word in line, word
