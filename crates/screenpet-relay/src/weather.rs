@@ -448,9 +448,18 @@ mod tests {
         for p in PLACES {
             w.want(p.id, t0);
         }
-        assert_eq!(w.due(t0, &all).len(), FETCHES_PER_ROUND);
-        assert_eq!(w.due(t0, &all).len(), PLACES.len() - FETCHES_PER_ROUND);
-        assert_eq!(w.due(t0, &all).len(), 0);
+        // 한 번에 FETCHES_PER_ROUND개까지만, 남은 곳은 다음 번들에 — 다 돌면 빔
+        let mut total = 0;
+        loop {
+            let n = w.due(t0, &all).len();
+            assert!(n <= FETCHES_PER_ROUND, "{n}");
+            if n == 0 {
+                break;
+            }
+            assert!(n == FETCHES_PER_ROUND || total + n == PLACES.len(), "only the last round is short");
+            total += n;
+        }
+        assert_eq!(total, PLACES.len());
     }
 
     /// 진짜 MET compact 답 (2026-11-13, 용인, 필요한 칸만 남김)
