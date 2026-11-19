@@ -1,15 +1,17 @@
-"""거미인간 🕷️ — 동글 털뭉치 거미 펫(spider). draw_pets 엔진(슈퍼샘플 마스크·녹이기·외곽선)을 그대로 쓰고 뼈대만 거미 것.
+"""거미인간 🕷️ — 빨강·파랑 쫄쫄이를 입은 사람 모양 꼬마 영웅 펫(spider). draw_pets 엔진(슈퍼샘플 마스크·녹이기·외곽선)을 그대로 쓰고,
+뼈대는 산타(draw_christmas)처럼 부품마다 자기 외곽선을 두른 두 발 꼬마 — 팔다리는 관절(어깨·팔꿈치·손 / 엉덩이·무릎·발)을 IK로 굽힌다.
 
-    python tools/draw_spider.py → ui/pets/spider/{sheet_<stage>.png ×5, pet.json} + tools/preview/{stages_spider,climb_spider,web_spider}.png
+    python tools/draw_spider.py → ui/pets/spider/{sheet_<stage>.png ×5, pet.json} + tools/preview/{stages_spider,climb_spider}.png
     (python tools/draw_pets.py도 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 
-생김새: 머리·몸이 한 덩어리인 동그란 공 + 짧고 동글한 다리 8개 (옆모습: 가까운 다리 4 + 몸 뒤 먼 다리 4, 앞모습: 양쪽 4개씩).
-        빨강·파랑 영웅 옷: 윗머리·앞가슴은 빨강 + 정수리에서 퍼지는 얇은 짙은 거미줄 선, 옆구리·다리는 파랑.
-        앞가슴에 직접 그린 작은 까만 거미 무늬 (둥근 배 + 머리 + 다리 8가닥). 큰 반짝 눈 둘 (가면 렌즈 없음), 볼터치.
-단계: 아기 = 거의 동그란 공, 줄 선 없음, 다리 짧은 혹, 정수리 삐죽 털 → 유아 줄 선 조금 → 어린이 → 청소년 기준 → 어른 조금 큰 몸·긴 다리·느긋한 눈.
-특기 동작 (코어 brain_web.rs): shoot 앞다리를 쭉 뻗어 줄 쏘기 · web_swing 한 손을 들어 줄에 매달림 · hero_land 영웅 착지 ·
-      web_pull 두 손으로 줄을 잡고 끌어당기기 — 줄 끝 손 자리는 mark_grip (pet.json grip). 벽 타기 climb·slide (뒷모습).
-eat에는 밥그릇이 없다 (앱의 소품 창이 띄운다): 앞모습으로 몸을 숙여 입을 밥 더미 바로 위 (프레임 y ≈ 79)에 대고 냠냠.
+생김새: 큰 머리 (키의 45% 남짓) + 작은 몸 + 짧은 팔다리 둘씩. 머리는 통째로 빨간 가면 + 얇은 짙은 거미줄 선 + 까만 테 큰 하얀 렌즈 둘
+        (표정마다 렌즈 모양이 바뀜: ^^ 웃음 · 동그란 놀람 · ‿ 졸림 · 눈꺼풀 내린 뾰로통 · > < 질끈). 입은 없고, 먹을 때만 가면 아래를 걷어 올림.
+        몸: 가슴·어깨는 빨강 V (거미줄 선), 옆구리·팔·다리는 파랑, 장갑·장화는 빨강, 가슴에 직접 그린 까만 거미 무늬.
+단계 (HERO): 아기 = 동글 우주복 꼬마 (머리 아주 큼, 팔다리 뭉툭, 줄 선 없음) → 유아 가면 줄 선 → 어린이 몸에도 줄 선 → 청소년 → 어른 키 크고 어깨 넓음.
+특기 동작 (코어 brain_web.rs): shoot 팔을 쭉 뻗어 손목을 까딱 (손가락 둘 펴고) 줄 쏘기 · web_swing 한 팔을 머리 위로 들어 줄에 매달림 ·
+      hero_land 영웅 착지 (쪼그려 앞 주먹을 바닥에, 뒤 다리 쭉, 다른 팔은 뒤로) · web_pull 두 손으로 줄을 잡고 영차 — 줄 끝 손 자리는 mark_grip (pet.json grip).
+      벽 타기 climb·slide = 뒷모습으로 손발을 벽에 붙이고 엉금엉금 (거미인간 벽 타기).
+eat에는 밥그릇이 없다 (앱의 소품 창이 띄운다): 무릎 꿇고 가면 아래를 걷어 올려 입을 밥 더미 바로 위 (프레임 y ≈ 79)에 대고 냠냠.
 """
 
 import math
@@ -18,391 +20,531 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_pets as dp  # noqa: E402
-from draw_pets import (C, E, L, LINE, T, WHITE, Part, Species, _ST, anger_fx, arc, blush, brows, heart_fx, mix, open_mouth,  # noqa: E402
-                       question_fx, sparkle_fx, stage_eye, sweat_fx, view, xf, z_fx)
+from draw_pets import C, E, L, T, Part, Species, _ST, anger_fx, mix, question_fx, sparkle_fx, sweat_fx, view, xf, z_fx  # noqa: E402
 from sprite_spec import ROLL_CENTER, ROLL_RADIUS, STAGES  # noqa: E402
 
-FLOOR = 125.0  # 바닥 (발 패드 아래 끝)
-RED = (226, 66, 74)  # 영웅 옷 빨강 (윗머리·앞가슴)
+FLOOR = 125.0  # 바닥 (장화 바닥)
+RED = (226, 66, 74)  # 쫄쫄이 빨강 (가면·가슴·장갑·장화)
+RED_FAR = (196, 50, 64)  # 먼 쪽 장갑·장화 (조금 어둡게)
 RED_WEB = (138, 30, 46)  # 빨강 위의 얇은 거미줄 선
-BLUE = (66, 112, 210)  # 옆구리·다리 파랑
-BLUE_PAD = (44, 78, 164)  # 발끝 패드
+BLUE = (66, 112, 210)  # 옆구리·팔·다리 파랑
+BLUE_FAR = (50, 86, 172)  # 먼 쪽 팔다리
 EMBLEM = (30, 26, 38)  # 가슴의 까만 거미 무늬
-OUT = (70, 38, 66)  # 외곽선 (짙은 자줏빛 남색)
-THREAD = (236, 240, 248)  # 손끝에서 나오는 줄 (그림 안의 짧은 줄·퐁)
+LENS = (255, 255, 255)  # 가면 눈 렌즈
+LENS_RIM = (28, 24, 36)  # 렌즈 까만 테
+MASK_BLUSH = (250, 136, 150)  # 가면 위 볼터치
+MOUTH_LINE = (132, 30, 46)  # 가면 너머 비치는 입 (짙은 빨강)
+SKIN, SKIN_LINE = (255, 222, 198), (196, 120, 110)  # 걷어 올린 가면 아래 턱
+OUT = (52, 32, 62)  # 외곽선 (짙은 남보라)
+THREAD = (236, 240, 248)  # 손목에서 퐁 터지는 줄
 DUST, DUST_LINE = (236, 228, 214), (176, 160, 150)
 
-# 단계(lvl)별 — rx·ry: 몸 반지름 · leg: 다리 길이 배 · lw: 다리 굵기 배 · webs: 정수리 거미줄 살 수 · rings: 고리 수 · emb: 가슴 무늬 크기
-SPI = {
-    0: dict(rx=31.0, ry=30.0, leg=0.68, lw=0.95, webs=0, rings=0, emb=0.85, tuft=True),
-    1: dict(rx=33.0, ry=31.0, leg=0.78, lw=1.0, webs=4, rings=1, emb=0.9, tuft=False),
-    2: dict(rx=34.5, ry=31.0, leg=0.86, lw=1.0, webs=6, rings=1, emb=0.95, tuft=False),
-    3: dict(rx=35.0, ry=30.5, leg=1.0, lw=1.0, webs=6, rings=2, emb=1.0, tuft=False),
-    4: dict(rx=36.5, ry=30.0, leg=1.12, lw=1.0, webs=8, rings=2, emb=1.05, tuft=False),
+# 단계(lvl)별 — hrx·hry: 머리 반지름 · tw: 어깨 반폭 · th: 몸 높이 · hip: 다리 뿌리 반간격 · leg: 다리 길이 · lw: 다리 굵기 ·
+# arm: 팔 길이 · aw: 팔 굵기 · webs·rings: 가면 거미줄 살·고리 · body_web: 몸에도 줄 선 · lens: 렌즈 배율 · emb: 가슴 무늬 배율
+HERO = {
+    0: dict(hrx=27.0, hry=25.0, tw=13.5, th=21.0, hip=6.6, leg=9.5, lw=10.4, arm=13.0, aw=8.8, webs=0, rings=0, body_web=False, lens=1.12, emb=0.8),
+    1: dict(hrx=26.4, hry=24.2, tw=13.4, th=22.5, hip=6.8, leg=13.5, lw=9.8, arm=15.0, aw=8.3, webs=10, rings=1, body_web=False, lens=1.07, emb=0.85),
+    2: dict(hrx=25.8, hry=23.4, tw=13.6, th=24.5, hip=7.0, leg=18.0, lw=9.4, arm=17.5, aw=7.9, webs=12, rings=2, body_web=True, lens=1.03, emb=0.92),
+    3: dict(hrx=25.2, hry=22.8, tw=14.6, th=26.5, hip=7.2, leg=22.0, lw=9.2, arm=20.0, aw=7.6, webs=14, rings=2, body_web=True, lens=1.0, emb=1.0),
+    4: dict(hrx=24.6, hry=22.2, tw=16.4, th=29.5, hip=8.0, leg=26.0, lw=9.6, arm=23.0, aw=7.9, webs=14, rings=3, body_web=True, lens=0.94, emb=1.1),
 }
-LEG_W = 4.8  # 다리 굵기 (청소년)
-PAD_R = 3.1  # 발끝 패드 반지름
+OVERLAP = 5.0  # 머리가 몸 윗부분을 덮는 깊이
 
 
-def spi():
-    """지금 단계의 거미 치수."""
-    return SPI[_ST["lvl"]]
+def hs():
+    """지금 단계의 꼬마 영웅 치수."""
+    return HERO[_ST["lvl"]]
 
 
-def body_cy(clear=None, ry=None):
-    """서 있을 때 몸 가운데 y: 다리 길이만큼 바닥에서 뜬다 (아기는 거의 바닥에 붙음)."""
-    s = spi()
-    ry = s["ry"] if ry is None else ry
-    clear = 4.0 + 9.0 * s["leg"] if clear is None else clear
-    return FLOOR - ry - clear
+def foot_y():
+    """바닥에 선 발 관절 y (장화 바닥 = FLOOR)."""
+    return FLOOR - hs()["lw"] * 0.5
 
 
-def on_ellipse(cx, cy, rx, ry, deg, k=0.84):
-    """몸 타원 안쪽(k배) 위의 점 (각도: 0 = 오른쪽(앞), 90 = 아래)."""
+def stand_hip_y():
+    """똑바로 섰을 때 엉덩이 관절 y."""
+    return foot_y() - hs()["leg"]
+
+
+def polar(p, deg, d):
+    """p에서 각도 deg (0 = 아래, 90 = 오른쪽, 180 = 위)로 d만큼 간 점."""
     r = math.radians(deg)
-    return (cx + rx * k * math.cos(r), cy + ry * k * math.sin(r))
+    return (p[0] + math.sin(r) * d, p[1] + math.cos(r) * d)
 
 
-def knee_of(root, foot, bend, out):
-    """다리 무릎: 뿌리·발 가운데에서 바깥(out = ±1) 위로 bend(현 길이 배)만큼 솟음 — 거미 다리처럼 무릎이 위로."""
-    mx, my = (root[0] + foot[0]) / 2, (root[1] + foot[1]) / 2
-    dx, dy = foot[0] - root[0], foot[1] - root[1]
-    ln = math.hypot(dx, dy) or 1.0
-    n1 = (dy / ln, -dx / ln)
-    n2 = (-n1[0], -n1[1])
-    score = lambda n: n[0] * out * 0.6 - n[1]
-    nx, ny = max((n1, n2), key=score)
-    return (mx + nx * bend * ln, my + ny * bend * ln)
+def ik(a, b, ln, prefer):
+    """a → b 팔다리 (마디 둘, 길이 합 ln)의 가운데 관절: 짧으면 prefer 쪽으로 굽힘, 길면 쭉 편다."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    d = math.hypot(dx, dy) or 1e-6
+    mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+    if d >= ln * 0.995:
+        return (mx, my)
+    h = math.sqrt(max(0.0, (ln / 2) ** 2 - (d / 2) ** 2))
+    n = (-dy / d, dx / d)
+    if n[0] * prefer[0] + n[1] * prefer[1] < 0:
+        n = (-n[0], -n[1])
+    return (mx + n[0] * h, my + n[1] * h)
 
 
-def leg_part(root, foot, out, *, bend=0.28, outline=True, knee=None, w=None, pad=None, fist=False):
-    """다리 한 짝 (파랑, 두 마디 + 동글 발끝 패드). knee를 주면 그 무릎으로. fist: 줄을 쏘고 잡는 손 (패드 조금 크게)."""
-    s = spi()
-    w = (w or LEG_W) * s["lw"]
-    pr = (pad or PAD_R) * (1.18 if fist else 1.0)
-    k = knee or knee_of(root, foot, bend, out)
-    pf = [C(foot[0], foot[1], pr)]
-    return Part([L([root, k, foot], w)] + pf, BLUE, [(pf, BLUE_PAD)], grow=0, outline=outline)
+def target(root, spec, ln, side):
+    """팔다리 끝 자리: 숫자 = 각도로 쭉 · ("a", 각도, 몫) = 그 각도로 몫만큼 (굽힘) · (x, y) = 그 점. side: 바깥 방향 (각도의 가로 부호)."""
+    if isinstance(spec, (int, float)):
+        r = math.radians(spec)
+        return (root[0] + side * math.sin(r) * ln, root[1] + math.cos(r) * ln)
+    if spec[0] == "a":
+        r = math.radians(spec[1])
+        return (root[0] + side * math.sin(r) * ln * spec[2], root[1] + math.cos(r) * ln * spec[2])
+    return spec
 
 
-def floor_foot(x, lift=0.0):
-    """바닥에 닿는 발 (패드 아래 끝 = FLOOR - lift)."""
-    return (x, FLOOR - PAD_R - lift)
-
-
-def scaled_foot(root, foot):
-    """설계 좌표(청소년)의 발을 단계 다리 길이로 (뿌리 기준)."""
-    k = spi()["leg"]
-    return (root[0] + (foot[0] - root[0]) * k, root[1] + (foot[1] - root[1]) * k)
+def limb(root, end, ln, w, color, end_col, prefer, *, boot=False, toe=0.0, fingers=None):
+    """팔 또는 다리 한 짝 (자기 외곽선): 파랑 마디 둘 + 끝은 빨강 (장화: 정강이 아래 + 동글 장화 · 장갑: 손목 + 동글 주먹).
+    toe: 장화 코 방향 (옆모습 +1/-1, 앞모습 0) · fingers: 손가락 둘 (거미줄 쏘는 손 — 펴는 방향 각도)."""
+    j = ik(root, end, ln, prefer)
+    shapes_ = [L([root, j, end], w)]
+    seg = math.hypot(j[0] - end[0], j[1] - end[1]) or 1.0
+    k = min(0.5, w * 0.95 / seg) if boot else min(0.36, w * 0.75 / seg)  # 정강이·팔뚝 끝에서 이 몫만큼이 장화·장갑 (짧은 팔다리도 파랑이 보이게)
+    cuff = (end[0] + (j[0] - end[0]) * k, end[1] + (j[1] - end[1]) * k)
+    red = [L([cuff, end], w + 2.5)]
+    if boot:
+        x, y = end
+        b = E(x - w * 0.62 + min(toe, 0) * w * 0.42, y - w * 0.5, x + w * 0.62 + max(toe, 0) * w * 0.42, y + w * 0.5)
+        shapes_.append(b)
+        red.append(b)
+    else:
+        fist = C(end[0], end[1], w * 0.66)
+        shapes_.append(fist)
+        red.append(fist)
+        if fingers is not None:
+            for da in (-28, 28):
+                tip = polar(end, fingers + da, w * 1.05)
+                f = L([end, tip], w * 0.34)
+                shapes_.append(f)
+                red.append(f)
+    return Part(shapes_, color, [(red, end_col)], outline=True, grow=0), j
 
 
 def emblem_ops(ex, ey, k=1.0, sx=1.0):
     """가슴의 까만 거미 무늬 (직접 그린 단순한 거미): 둥근 배 + 작은 머리 + 다리 8가닥 (양쪽 4개, 무릎이 위로 굽음)."""
-    k *= spi()["emb"]
+    k *= hs()["emb"]
     with xf(sx=sx, pivot=(ex, ey)):
-        fns = [E(ex - 3.0 * k, ey - 0.6 * k, ex + 3.0 * k, ey + 5.6 * k), C(ex, ey - 2.6 * k, 2.1 * k)]
+        fns = [E(ex - 1.9 * k, ey - 0.4 * k, ex + 1.9 * k, ey + 4.4 * k), C(ex, ey - 1.8 * k, 1.5 * k)]
         for side in (-1, 1):
-            for j, (ky, fy) in enumerate([(-5.4, -2.2), (-3.4, 0.6), (-0.8, 3.6), (1.4, 6.6)]):
-                rx0, ry0 = ex + side * 1.6 * k, ey + (-1.6 + j * 1.4) * k
-                kx, kyy = ex + side * (5.2 + 0.4 * j) * k, ey + ky * k
-                fx_, fy_ = ex + side * (7.4 + 0.2 * j) * k, ey + fy * k
-                fns.append(L([(rx0, ry0), (kx, kyy), (fx_, fy_)], 1.05 * k))
+            for j, (ky, fy) in enumerate([(-4.4, -1.6), (-2.6, 0.6), (-0.4, 3.2), (1.6, 5.8)]):
+                rx0, ry0 = ex + side * 1.0 * k, ey + (-1.2 + j * 1.1) * k
+                kx, kyy = ex + side * (3.8 + 0.3 * j) * k, ey + ky * k
+                fx_, fy_ = ex + side * (5.4 + 0.2 * j) * k, ey + fy * k
+                fns.append(L([(rx0, ry0), (kx, kyy), (fx_, fy_)], 0.95 * k))
     return [(fns, EMBLEM)]
 
 
-def web_marks(wx, wy, reach, a0=18, a1=162, webs=None, rings=None):
-    """정수리 (wx, wy)에서 아래로 부채꼴로 퍼지는 얇은 거미줄 선 (살 + 고리) — 빨강 위에만 (단계: 아기는 없음)."""
-    s = spi()
-    webs = s["webs"] if webs is None else webs
-    rings = s["rings"] if rings is None else rings
-    if not webs:
+def web_lines(wx, wy, reach, a0, a1, spokes, rings, w=0.8):
+    """(wx, wy)에서 a0 → a1도 (0 = 오른쪽, 90 = 아래) 부채꼴로 퍼지는 얇은 거미줄 선 (살 + 살짝 처진 고리)."""
+    if not spokes:
         return []
-    fns = []
-    angs = [a0 + (a1 - a0) * j / (webs - 1) for j in range(webs)]
-    for a in angs:
-        r = math.radians(a)
-        fns.append(L([(wx, wy), (wx + reach * math.cos(r), wy + reach * math.sin(r))], 0.85))
+    full = (a1 - a0) % 360 == 0
+    n = spokes if full else spokes - 1
+    angs = [a0 + (a1 - a0) * j / max(1, n) for j in range(spokes)]
+    fns = [L([(wx, wy), (wx + reach * math.cos(math.radians(a)), wy + reach * math.sin(math.radians(a)))], w) for a in angs]
     for q in range(1, rings + 1):
-        rr = reach * q / (rings + 0.6)
-        pts = []
-        for a in angs:
-            r = math.radians(a)
-            pts.append((wx + rr * math.cos(r), wy + rr * math.sin(r)))
-        # 살 사이를 살짝 처진 줄로 잇는다 (거미집 느낌)
+        rr = reach * q / (rings + 0.7)
+        pts = [(wx + rr * math.cos(math.radians(a)), wy + rr * math.sin(math.radians(a))) for a in angs + ([angs[0]] if full else [])]
         sag = []
         for p, q2 in zip(pts, pts[1:]):
             m = ((p[0] + q2[0]) / 2, (p[1] + q2[1]) / 2)
             dx, dy = m[0] - wx, m[1] - wy
             d = math.hypot(dx, dy) or 1.0
-            sag += [p, (m[0] - dx / d * 1.4, m[1] - dy / d * 1.4)]
+            sag += [p, (m[0] - dx / d * rr * 0.12, m[1] - dy / d * rr * 0.12)]
         sag.append(pts[-1])
-        fns.append(L(sag, 0.8))
+        fns.append(L(sag, w))
     return [(fns, RED_WEB)]
 
 
-def tuft_part(cx, top):
-    """아기 정수리 삐죽 털 두 가닥 (빨강)."""
-    if not spi()["tuft"]:
-        return []
-    return [Part([], RED, spikes=dp.tuft(cx, top), grow=0, sharp=True)]
+# =====================================================================
+# 가면 얼굴: 렌즈 (표정) · 볼터치 · 비치는 입
+# =====================================================================
+def lens_ops(kind, cx, cy, side, brow=None, sx=1.0):
+    """렌즈 하나 (side: -1 왼쪽, +1 오른쪽 — 바깥 위로 기울어진 큰 물방울 렌즈). kind: dot · up · round · happy · closed · tight · flat · squint · spiral.
+    brow: angry (안쪽이 눌린 눈꺼풀) · sad (바깥이 처진 눈꺼풀)."""
+    s = hs()
+    k = s["lens"]
+    rx, ry = 0.3 * s["hrx"] * k, 0.4 * s["hry"] * k
+    t = 1.7  # 까만 테
+    tilt = 26 * side
+    ops = []
+    with xf(sx=sx, pivot=(cx, cy)):
+        if kind in ("happy", "closed", "tight"):
+            if kind == "happy":  # ^^
+                pts = dp.arc(cx, cy + ry * 0.5, rx * 1.05, ry * 0.95, 200, 340, 12)
+            elif kind == "closed":  # ‿ (졸음)
+                pts = dp.arc(cx, cy - ry * 0.35, rx * 1.05, ry * 0.6, 25, 155, 12)
+            else:  # > <
+                ix = -side
+                pts = [(cx - ix * rx * 0.8, cy - ry * 0.62), (cx + ix * rx * 0.7, cy), (cx - ix * rx * 0.8, cy + ry * 0.62)]
+            return [([L(pts, 2.7 + 2 * t)], LENS_RIM), ([L(pts, 2.7)], LENS)]
+        if kind == "round":
+            rx, ry, tilt = rx * 1.12, ry * 1.08, tilt * 0.4
+        if kind == "up":
+            cy -= 1.4
+        with xf(rot=tilt, pivot=(cx, cy)):
+            ops += [([E(cx - rx - t, cy - ry - t, cx + rx + t, cy + ry + t)], LENS_RIM), ([E(cx - rx, cy - ry, cx + rx, cy + ry)], LENS)]
+        if kind == "spiral":
+            pts = [(cx + 0.42 * a * math.cos(a), cy + 0.42 * a * math.sin(a)) for a in (j * 0.35 for j in range(1, 30))]
+            ops.append(([L(pts, 1.3)], LENS_RIM))
+        lid = None
+        o, i_ = cx + side * (rx + t + 1.5), cx - side * (rx + t + 1.5)  # 바깥·안쪽 끝 x
+        if kind == "flat":
+            lid = ((i_, cy - ry * 0.05), (o, cy - ry * 0.05))
+        elif kind == "squint":
+            lid = ((i_, cy - ry * 0.2), (o, cy - ry * 0.2))
+        elif brow == "angry":
+            lid = ((i_, cy - ry * 0.05), (o, cy - ry * 0.9))
+        elif brow == "sad":
+            lid = ((i_, cy - ry * 0.85), (o, cy - ry * 0.15))
+        if lid:
+            top = cy - ry - t - 3
+            ops += [([T(lid[0], lid[1], (lid[1][0], top), (lid[0][0], top))], RED), ([L([lid[0], lid[1]], t * 1.6)], LENS_RIM)]
+        if kind == "squint":
+            bot = cy + ry + t + 3
+            b0, b1 = (i_, cy + ry * 0.45), (o, cy + ry * 0.45)
+            ops += [([T(b0, b1, (o, bot), (i_, bot))], RED), ([L([b0, b1], t * 1.6)], LENS_RIM)]
+    return ops
 
 
-def mouth_ops(kind, cx, cy, w=4.6):
-    """입: None 작은 웃음 · open 벌린 입 · grin 씩 웃음 · frown · pout · chew (볼 빵빵 오물)."""
+def mouth_ops(kind, cx, cy):
+    """가면 너머로 살짝 비치는 입 (짙은 빨강): None 없음 · open · big · grin · frown · pout · chew."""
     if kind is None:
-        return [([L(arc(cx, cy - 1.6, w, 3.0, 20, 160, 12), 1.5)], LINE)]
+        return []
     if kind == "open":
-        return open_mouth(cx, cy - 1.0, 3.6, 3.8)
+        return [([E(cx - 2.6, cy - 2.0, cx + 2.6, cy + 2.4)], MOUTH_LINE)]
     if kind == "big":
-        return open_mouth(cx, cy - 1.4, 5.0, 5.0)
+        return [([E(cx - 3.6, cy - 2.6, cx + 3.6, cy + 3.6)], MOUTH_LINE)]
     if kind == "grin":
-        return [([L(arc(cx, cy - 2.4, w + 1.2, 3.6, 10, 170, 14), 1.6)], LINE), ([L([(cx + w + 0.6, cy - 2.6), (cx + w + 2.0, cy - 3.6)], 1.3)], LINE)]
+        return [([L(dp.arc(cx, cy - 2.2, 4.4, 3.2, 20, 160, 10), 1.5)], MOUTH_LINE)]
     if kind == "frown":
-        return [([L(arc(cx, cy + 2.2, w * 0.8, 2.4, 200, 340, 10), 1.5)], LINE)]
+        return [([L(dp.arc(cx, cy + 2.0, 3.4, 2.2, 205, 335, 10), 1.5)], MOUTH_LINE)]
     if kind == "pout":
-        return [([L(arc(cx, cy + 1.6, 2.6, 1.8, 200, 340, 8), 1.5)], LINE)]
+        return [([L(dp.arc(cx, cy + 1.4, 2.2, 1.5, 205, 335, 8), 1.4)], MOUTH_LINE)]
     if kind == "chew":
-        return [([E(cx - 2.6, cy - 1.6, cx + 2.6, cy + 1.6)], LINE)]
+        return [([E(cx - 2.2, cy - 1.3, cx + 2.2, cy + 1.3)], MOUTH_LINE)]
     raise ValueError(kind)
+
+
+def mask_face(view_, hx, hy, eyes, brow, mouth, look, blush_on, mask_up):
+    """가면 얼굴 ops (렌즈 둘 + 볼터치 + 입) — 머리 변환 안에서 부름. 옆모습은 얼굴이 오른쪽으로 쏠리고 먼 렌즈는 좁게."""
+    s = hs()
+    hrx, hry = s["hrx"], s["hry"]
+    ops = []
+    lx, ly = look
+    if view_ == "front":
+        fy = hy + 0.02 * hry + ly
+        for side in (-1, 1):
+            ops += lens_ops(eyes, hx + side * 0.42 * hrx + lx, fy, side, brow)
+        if blush_on:
+            ops += [([E(hx + side * 0.62 * hrx - 3.6, hy + 0.5 * hry - 2, hx + side * 0.62 * hrx + 3.6, hy + 0.5 * hry + 1.6)], MASK_BLUSH)
+                    for side in (-1, 1)]
+        mx, my = hx + lx * 0.5, hy + 0.64 * hry
+    else:
+        fy = hy + 0.02 * hry + ly
+        ops += lens_ops(eyes, hx + 0.72 * hrx + lx * 0.6, fy - 0.5, 1, brow, sx=0.5)
+        ops += lens_ops(eyes, hx + 0.22 * hrx + lx, fy, -1, brow, sx=0.9)
+        if blush_on:
+            ops.append(([E(hx + 0.18 * hrx - 3.4, hy + 0.5 * hry - 2, hx + 0.18 * hrx + 3.4, hy + 0.5 * hry + 1.6)], MASK_BLUSH))
+        mx, my = hx + 0.62 * hrx, hy + 0.62 * hry
+    if mask_up:  # 가면 아래를 걷어 올린 턱 + 입 (먹을 때)
+        return ops
+    return ops + mouth_ops(mouth, mx, my)
+
+
+# =====================================================================
+# 꼬마 영웅 한 장
+# =====================================================================
+def hero(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), legs=None, arms=None, leg_bend=None, arm_bend=None,
+         eyes="dot", brow=None, mouth=None, look=(0.0, 0.0), blush_on=True, fx=(), ops=(), held=(), whole=None, grip=None,
+         mask_up=None, arms_front=False, fingers=(None, None), far_limbs_front=False, grip_red=False):
+    """꼬마 영웅. view_: side (오른쪽을 봄) · front · back · hip: 엉덩이 관절 (없으면 똑바로 선 자리) · rot: 몸 기울기 (엉덩이 기준, 시계 방향) ·
+    head_rot·head_d: 고개 · legs·arms: [먼/왼, 가까운/오른] 끝 자리 (target 형식) · leg_bend·arm_bend: 무릎·팔꿈치 굽는 쪽 ·
+    held: 몸과 팔 사이 Part 함수 · fx: 효과 목록 또는 손 자리 [먼/왼, 가까운/오른]를 받아 효과를 돌려주는 함수 · grip: mark_grip할 손 ("near"·"far"·"left"·"right") · mask_up: 걷어 올린 턱의 입 모양 ·
+    arms_front: 팔을 머리 위에 그림 · fingers: 손가락 편 방향 (줄 쏘는 손) · far_limbs_front: 먼 팔다리도 몸 앞에 (뒷모습 아님) ·
+    grip_red: 먼 손이라도 줄 잡은 장갑은 밝은 빨강."""
+    s = hs()
+    side_view = view_ == "side"
+    hx0, hy0 = hip or ((60.0 if side_view else 64.0), stand_hip_y())
+    lw, aw = s["lw"], s["aw"]
+    bottom = hy0 + lw * 0.35
+    top = bottom - s["th"]
+    with xf(**(whole or {})):
+        bm = dp._xf_matrix(rot=rot, pivot=(hx0, hy0))
+        P = lambda p: dp._apply(bm, p)
+        if side_view:
+            leg_roots = [P((hx0 - 2.0, hy0)), P((hx0 + 2.0, hy0))]
+            sh_roots = [P((hx0 - 1.5, top + aw * 0.75)), P((hx0 + 1.0, top + aw * 0.8))]
+            leg_sides, arm_sides = (1, 1), (1, 1)
+            leg_pref = leg_bend or [(1, -0.2), (1, -0.2)]
+            arm_pref = arm_bend or [(-1, 0.4), (-1, 0.4)]
+        else:
+            leg_roots = [P((hx0 - s["hip"], hy0)), P((hx0 + s["hip"], hy0))]
+            sh_roots = [P((hx0 - (s["tw"] - aw * 0.45), top + aw * 0.6)), P((hx0 + (s["tw"] - aw * 0.45), top + aw * 0.6))]
+            leg_sides, arm_sides = (-1, 1), (-1, 1)
+            leg_pref = leg_bend or [(-1, 0), (1, 0)]
+            arm_pref = arm_bend or [(-1, 0.3), (1, 0.3)]
+        if legs is None:
+            fy = foot_y()
+            legs = [(leg_roots[0][0] - 2, fy), (leg_roots[1][0] + 2, fy)] if side_view else \
+                [(leg_roots[0][0] - 2.6, fy), (leg_roots[1][0] + 2.6, fy)]
+        if arms is None:
+            arms = [("a", 14, 0.98), ("a", 10, 0.98)] if side_view else [("a", 14, 0.98), ("a", 14, 0.98)]
+        leg_parts, arm_parts, hands = [], [], []
+        for j in range(2):
+            far = side_view and j == 0
+            end = target(leg_roots[j], legs[j], s["leg"], leg_sides[j])
+            p, _ = limb(leg_roots[j], end, s["leg"], lw, BLUE_FAR if far else BLUE, RED_FAR if far else RED, leg_pref[j], boot=True,
+                        toe=(1 if side_view else 0) if view_ != "back" else 0)
+            leg_parts.append(p)
+            end = target(sh_roots[j], arms[j], s["arm"], arm_sides[j])
+            glove = RED_FAR if far and not grip_red else RED
+            p, _ = limb(sh_roots[j], end, s["arm"], aw, BLUE_FAR if far else BLUE, glove, arm_pref[j], fingers=fingers[j])
+            arm_parts.append(p)
+            hands.append(end)
+        # 몸통 (+ 빨강 V·거미줄·가슴 무늬)
+        with xf(rot=rot, pivot=(hx0, hy0)):
+            tw = s["tw"] if not side_view else s["tw"] * 0.95
+            if _ST["lvl"] == 0:
+                tshape = [E(hx0 - tw * 1.04, top, hx0 + tw * 1.04, bottom + 1.5)]
+            else:
+                tshape = [E(hx0 - tw, top, hx0 + tw, top + s["th"] * 0.78), E(hx0 - tw * 0.84, top + s["th"] * 0.32, hx0 + tw * 0.84, bottom)]
+            th = s["th"]
+            if view_ == "side":
+                red = [E(hx0 - tw * 0.7, top - th * 0.45, hx0 + tw * 2.1, top + th * 0.82)]
+                ex, ey, esx = hx0 + tw * 0.42, top + th * 0.36, 0.62
+            else:
+                red = [T((hx0 - tw * 1.3, top - 4), (hx0 + tw * 1.3, top - 4), (hx0 + tw * 1.3, top + th * 0.1), (hx0 + tw * 0.4, top + th * 0.6),
+                         (hx0, top + th * 0.86), (hx0 - tw * 0.4, top + th * 0.6), (hx0 - tw * 1.3, top + th * 0.1))]
+                ex, ey, esx = hx0, top + th * 0.36, 1.0
+            marks = [(red, RED)]
+            if s["body_web"]:
+                if view_ == "side":
+                    marks += web_lines(ex, ey, th * 0.5, 180, 330, 5, 1, 0.75)
+                else:
+                    marks += web_lines(ex, ey, th * 0.62, 190, 350, 7, 1, 0.75) + web_lines(ex, ey, th * 0.5, 75, 105, 2, 0, 0.75)
+            emb = emblem_ops(ex, ey, 1.0, sx=esx) if view_ != "back" else emblem_ops(ex, ey + 1, 1.25)
+            torso = Part(tshape, BLUE, marks + emb, outline=True, grow=0)
+            neck = (hx0 + (1.5 if side_view else 0.0), top)
+        neck = P(neck)
+        # 머리 (빨간 가면)
+        hrx, hry = s["hrx"], s["hry"]
+        with xf(rot=rot + head_rot, pivot=neck):
+            hx, hy = neck[0] + head_d[0] + (2.0 if side_view else 0.0), neck[1] - hry + OVERLAP + head_d[1]
+            if view_ == "back":
+                wmarks = web_lines(hx, hy - hry * 0.35, hrx * 1.5, 0, 360, max(8, s["webs"]), s["rings"] + 1)
+            else:
+                wc = (hx + (0.44 * hrx if side_view else 0.0), hy + 0.1 * hry)
+                wmarks = web_lines(wc[0], wc[1], hrx * 1.5, 0, 360, s["webs"], s["rings"])
+            hmarks = list(wmarks)
+            if mask_up is not None and view_ != "back":
+                chin_x = hx + (0.5 * hrx if side_view else 0.0)
+                hmarks.append(([E(chin_x - hrx * 0.72, hy + 0.42 * hry, chin_x + hrx * 0.72, hy + 1.3 * hry)], SKIN))
+                hmarks.append(([L(dp.arc(chin_x, hy + 0.48 * hry, hrx * 0.72, 2.2, 180, 360, 10), 2.4)], mix(RED, RED_WEB, 0.3)))
+            head = Part([E(hx - hrx, hy - hry, hx + hrx, hy + hry)], RED, hmarks, outline=True, grow=0)
+            dp.mark_head(hx, hy - hry + 2, hrx * 1.7)
+            face = [] if view_ == "back" else mask_face(view_, hx, hy, eyes, brow, mouth, look, blush_on, mask_up is not None)
+            if mask_up is not None and view_ != "back":
+                mx = hx + (0.5 * hrx if side_view else 0.0)
+                my = hy + 0.72 * hry
+                if mask_up == "open":
+                    face += dp.open_mouth(mx, my - 2.6, 3.4, 3.4)
+                else:
+                    face += [([E(mx - 2.6, my - 1.2, mx + 2.6, my + 1.4)], SKIN_LINE)]
+        parts = []
+        if side_view:
+            parts += [arm_parts[0]] if not far_limbs_front else []
+            parts += [leg_parts[0], leg_parts[1], torso]
+            parts += [h() for h in held]
+            parts += [head]
+            parts += ([arm_parts[0]] if far_limbs_front else []) + [arm_parts[1]]
+        else:
+            parts += leg_parts + [torso]
+            if not arms_front:
+                parts += arm_parts
+            parts += [h() for h in held]
+            parts += [head]
+            if arms_front:
+                parts += arm_parts
+        if grip:
+            idx = {"far": 0, "near": 1, "left": 0, "right": 1}[grip]
+            dp.mark_grip(*hands[idx])
+    if callable(fx):  # 손 자리를 알아야 하는 효과 (줄 퐁)
+        fx = fx(hands)
+    return dp.compose(parts, face + list(ops), fx)
+
+
+SIDE_CX = 60.0
+
+
+def H(x=SIDE_CX, dy=0.0):
+    """엉덩이 관절 자리 (x, 선 높이 + dy)."""
+    return (x, stand_hip_y() + dy)
+
+
+def floor_at(x, lift=0.0):
+    """바닥에 닿은 발 관절 (장화 바닥 = FLOOR - lift)."""
+    return (x, foot_y() - lift)
 
 
 # =====================================================================
 # 옆모습 (오른쪽을 본다)
 # =====================================================================
-NEAR_A = (30, 64, 108, 146)  # 가까운 다리 뿌리 각도 (앞 → 뒤)
-FAR_A = (20, 52, 96, 132)  # 몸 뒤 먼 다리
-STAND_NEAR = (40, 17, -13, -37)  # 서 있는 발 x (몸 가운데에서) — 앞 → 뒤
-STAND_FAR = (49, 28, 2, -26)
-SIDE_CX = 62.0
-
-
-def stand_feet(cx, offs, shift=(0, 0, 0, 0), lift=(0, 0, 0, 0)):
-    """서 있는 발 넷: 몸 가운데 cx에서 offs (단계 다리 길이로 벌림) + 걸음 shift, 든 높이 lift."""
-    k = 0.55 + 0.45 * spi()["leg"]
-    return [floor_foot(cx + o * k + d, h) for o, d, h in zip(offs, shift, lift)]
-
-
-def spider_side(sp, *, cx=SIDE_CX, cy=None, near=None, far=None, arm=None, far_arm=None, body=None, whole=None, eyes="dot", mouth=None,
-                brow=None, fx=(), ops=(), sq=(1.0, 1.0), look=(0.0, 0.0), grip=None, far_eye=True, bend=0.36, emblem=False, arm_a=None):
-    """옆모습 거미. near/far: 발 넷 (앞 → 뒤, 프레임 좌표 — 없으면 서 있는 자리) · arm: 가까운 앞다리 대신 [무릎, 손] (손 = 줄 끝) ·
-    far_arm: 먼 앞다리 대신 [무릎, 손] · body: 몸만의 xf (다리 뿌리도 같이 움직임) · whole: 전체 xf · sq: 몸 (가로, 세로) 찌그러짐 ·
-    look: 눈동자를 미는 정도 · grip: mark_grip할 점."""
-    s = spi()
-    rx, ry = s["rx"] * sq[0], s["ry"] * sq[1]
-    cy = body_cy(ry=s["ry"]) if cy is None else cy
-    bk = dict(body or {})
-    with xf(**(whole or {})):
-        bm = dp._xf_matrix(**bk) if bk else (1, 0, 0, 0, 1, 0)
-        rootp = lambda a: dp._apply(bm, on_ellipse(cx, cy, rx, ry, a))
-        near = near or stand_feet(cx, STAND_NEAR)
-        far = far or stand_feet(cx, STAND_FAR)
-        parts = []
-        # 몸 뒤 먼 다리 (외곽선은 실루엣이 두름)
-        for j, (a, foot) in enumerate(zip(FAR_A, far)):
-            if j == 0 and far_arm:
-                parts.append(leg_part(rootp(a + 14), far_arm[-1], 1, knee=far_arm[0], outline=False, fist=True))
-                continue
-            parts.append(leg_part(rootp(a), foot, 1 if foot[0] >= cx else -1, bend=bend, outline=False))
-        with xf(**bk):
-            red = E(cx - rx * 0.72, cy - ry * 1.36, cx + rx * 1.32, cy + ry * 0.86)
-            marks = [([red], RED)] + web_marks(cx + rx * 0.1, cy - ry * 0.97, ry * 0.62, 12, 150)
-            parts.append(Part([E(cx - rx, cy - ry, cx + rx, cy + ry)], BLUE, marks, grow=2))
-            parts += tuft_part(cx + rx * 0.05, cy - ry + 1)
-            dp.mark_head(cx + rx * 0.05, cy - ry + 2, rx * 1.15, tilt=0)
-            ex, ey = cx + rx * 0.3 + look[0], cy - ry * 0.12 + look[1]
-            face = blush(cx + rx * 0.16, cy + ry * 0.26, 0.8)
-            if far_eye:
-                with xf(sx=0.66, pivot=(cx + rx * 0.76, ey)):
-                    face += stage_eye(eyes, cx + rx * 0.76 + look[0] * 0.6, ey - 1.0, flip=True)
-            face += stage_eye(eyes, ex, ey)
-            if brow:
-                face += brows(brow, ex, ey + _ST["eye_dy"])
-            face += mouth_ops(mouth, cx + rx * 0.58, cy + ry * 0.26, 3.6)
-            if emblem:
-                face += emblem_ops(cx + rx * 0.2, cy + ry * 0.5, 0.95, sx=0.7)
-        legs = []
-        for j, (a, foot) in enumerate(zip(NEAR_A, near)):
-            if j == 0 and arm:
-                legs.append(leg_part(rootp(a + 12 if arm_a is None else arm_a), arm[-1], 1, knee=arm[0], fist=True))
-                continue
-            legs.append(leg_part(rootp(a), foot, 1 if foot[0] >= cx else -1, bend=bend))
-        parts += legs
-        if grip:
-            dp.mark_grip(*grip)
-    return dp.compose(parts, face + list(ops), fx)
-
-
-WALK_SHIFT = [(4, -4, 4, -4), (0, 0, 0, 0), (-4, 4, -4, 4), (0, 0, 0, 0)]
-WALK_LIFT = [(0, 3, 0, 3), (0, 0, 0, 0), (3, 0, 3, 0), (0, 0, 0, 0)]
+WALK = [(-7, 7, 0, 3), (0, 0, 2.5, 0), (7, -7, 3, 0), (0, 0, 0, 2.5)]  # (먼 발 dx, 가까운 발 dx, 먼 발 듦, 가까운 발 듦)
 
 
 def sp_walk(sp, i):
-    """총총 걷기: 다리 두 무리가 번갈아 앞뒤로 (한 무리씩 살짝 듦), 몸이 통통."""
-    bob = [0, -1.5, 0, -1.5][i]
-    cy = body_cy() + bob
-    sh, lf = WALK_SHIFT[i], WALK_LIFT[i]
-    near = stand_feet(SIDE_CX, STAND_NEAR, sh, lf)
-    far = stand_feet(SIDE_CX, STAND_FAR, tuple(-d for d in sh), lf[::-1])
-    return spider_side(sp, cy=cy, near=near, far=far)
+    """총총 걷기: 두 다리를 번갈아 앞뒤로, 팔은 반대로 흔듦, 몸 통통."""
+    fdx, ndx, fl, nl = WALK[i]
+    k = 0.55 + 0.45 * hs()["leg"] / 22
+    bob = [0, -1.2, 0, -1.2][i]
+    hip = H(dy=bob)
+    legs = [floor_at(SIDE_CX - 2 + fdx * k, fl), floor_at(SIDE_CX + 2 + ndx * k, nl)]
+    sw = [1, 0, -1, 0][i]
+    arms = [("a", 22 * sw, 0.96), ("a", -22 * sw + 4, 0.96)]
+    return hero(hip=hip, legs=legs, arms=arms, rot=2)
 
 
 def sp_run(sp, i):
-    """다다다 달리기: 앞으로 살짝 기울고 다리를 쭉 뻗음 ↔ 모음, 속도선."""
-    reach = [7, 0, -7, 0][i]
-    cy = body_cy() - [2, 0, 2, 0][i]
-    near = stand_feet(SIDE_CX, STAND_NEAR, (reach + 3, -reach, reach, -reach - 3), (0, 4, 0, 4) if i % 2 == 0 else (4, 0, 4, 0))
-    far = stand_feet(SIDE_CX, STAND_FAR, (-reach, reach, -reach, reach), (4, 0, 4, 0) if i % 2 == 0 else (0, 4, 0, 4))
-    return spider_side(sp, cy=cy, near=near, far=far, body=dict(rot=6, pivot=(SIDE_CX, cy)), mouth="open",
-                       fx=dp.speed_fx(6, (70, 84, 98), 12, [0, -3, 0, -3][i]))
+    """다다다 달리기: 앞으로 기울고 크게 성큼, 팔을 힘차게 앞뒤로, 속도선."""
+    st = [1, 0, -1, 0][i]
+    hip = H(dy=[-1.5, -3.5, -1.5, -3.5][i])
+    legs = [("a", -40 * st, 0.95 if st else 0.75), ("a", 40 * st, 0.95 if st else 0.75)]
+    if st == 0:
+        legs = [("a", -25, 0.8), ("a", 35, 0.7)] if i == 1 else [("a", 35, 0.7), ("a", -25, 0.8)]
+    arms = [("a", 55 * st + 5, 0.8), ("a", -45 * st + 5, 0.8)]
+    return hero(hip=hip, legs=legs, arms=arms, rot=12, mouth="open", arm_bend=[(1, 0.3), (1, 0.3)],
+                fx=dp.speed_fx(4, (70, 86, 102), 12, [0, -3, 0, -3][i]))
 
 
 def sp_idle(sp, i):
-    """제자리 숨쉬기: 몸이 살짝 부풀었다 가라앉음."""
-    k = [1.0, 0.975][i]
-    cy = body_cy()
-    return spider_side(sp, cy=cy + (1 - k) * spi()["ry"], sq=(1.0 + (1 - k) * 0.6, k))
+    """제자리 숨쉬기: 가슴이 살짝 오르내림, 손은 허리께."""
+    return hero(hip=H(dy=[0, 0.8][i]), arms=[("a", 12, 0.97), ("a", 8 + 3 * i, 0.97)], head_d=(0, [0, 0.6][i]))
 
 
 def sp_look(sp, i):
-    """두리번: 위 → 앞 → 아래 → 앞."""
-    eyes, look = [("up", (0.6, -1.0)), ("dot", (1.5, 0)), ("dot", (0.8, 2.6)), ("dot", (0, 0))][i]
-    return spider_side(sp, eyes=eyes, look=look)
+    """두리번: 위 → 앞 → 아래 → 앞 (고개만)."""
+    rot, eyes, look = [(-8, "up", (0.5, -1.0)), (0, "dot", (1.2, 0)), (8, "dot", (0.6, 1.5)), (0, "closed", (0, 0))][i]
+    return hero(head_rot=rot, eyes=eyes, look=look)
+
+
+def sit_hip(x=SIDE_CX):
+    """바닥에 앉은 엉덩이 관절."""
+    return (x, FLOOR - hs()["lw"] * 0.75)
 
 
 def sp_sleep(sp, i):
-    """납작 엎드려 쿨쿨: 다리를 몸 밑에 접고, 눈 감음, z."""
-    s = spi()
-    k = [1.0, 0.97][i]
-    ry = s["ry"] * 0.84 * k
-    cy = FLOOR - 2 - ry - 1.5
-    near = [floor_foot(SIDE_CX + o) for o in (24, 9, -8, -22)]
-    far = [floor_foot(SIDE_CX + o) for o in (30, 16, -1, -15)]
-    fx = [z_fx(104, 34 - 3 * i, 4.0), z_fx(114, 20 - 3 * i, 2.6)]
-    return spider_side(sp, cy=cy, sq=(1.06, 0.84 * k), near=near, far=far, eyes="closed", mouth="pout", fx=fx, bend=0.12)
+    """웅크려 쿨쿨: 바닥에 앉아 무릎을 끌어안고 고개를 무릎에 묻음, 렌즈 ‿, z."""
+    s = hs()
+    hip = sit_hip(SIDE_CX - 6)
+    knee_x = hip[0] + s["leg"] * 0.55 + 4
+    legs = [(knee_x + 3, foot_y()), (knee_x + 5, foot_y())]
+    arms = [(knee_x + 1, hip[1] - s["leg"] * 0.45 - 4), (knee_x + 3, hip[1] - s["leg"] * 0.45 - 2)]
+    fx = [z_fx(106, 34 - 3 * i, 4.0), z_fx(116, 20 - 3 * i, 2.6)]
+    return hero(hip=hip, rot=14 + i, head_rot=10, head_d=(2, 1 + 0.6 * i), legs=legs, leg_bend=[(0.4, -1), (0.4, -1)], arms=arms,
+                arm_bend=[(0, 1), (0, 1)], eyes="closed", fx=fx, blush_on=True)
 
 
 def sp_annoyed(sp, i):
-    """엎드린 채 실눈 뾰로통 💢."""
-    s = spi()
-    ry = s["ry"] * 0.86
-    cy = FLOOR - 2 - ry - 1.5
-    near = [floor_foot(SIDE_CX + o) for o in (24, 9, -8, -22)]
-    far = [floor_foot(SIDE_CX + o) for o in (30, 16, -1, -15)]
-    return spider_side(sp, cy=cy, sq=(1.05, 0.86), near=near, far=far, eyes="flat", mouth="pout", bend=0.12,
-                       fx=[anger_fx(100 + i, 30 - i, 5.0 + 0.6 * i)])
-
-
-def air_feet(cx, cy, spread, drop, tuck=0.0):
-    """공중 다리: 가까운·먼 발 넷씩 (몸 아래로 늘어뜨리거나 벌림)."""
-    s = spi()
-    base_n = [(cx + 30, cy + 34), (cx + 13, cy + 40), (cx - 9, cy + 40), (cx - 28, cy + 34)]
-    base_f = [(cx + 38, cy + 30), (cx + 22, cy + 37), (cx + 2, cy + 38), (cx - 18, cy + 33)]
-
-    def mv(p):
-        dx = (p[0] - cx) * spread
-        return scaled_foot((cx + (p[0] - cx) * 0.6, cy + s["ry"] * 0.7), (cx + dx, p[1] + drop - tuck))
-    return [mv(p) for p in base_n], [mv(p) for p in base_f]
+    """털썩 앉아 팔짱 끼고 렌즈 반쯤 감은 뾰로통 💢."""
+    s = hs()
+    hip = sit_hip(SIDE_CX - 4)
+    legs = [(hip[0] + s["leg"] + 4, foot_y()), (hip[0] + s["leg"] + 7, foot_y())]
+    top = hip[1] + s["lw"] * 0.35 - s["th"]
+    arms = [(hip[0] + 8, top + s["th"] * 0.45), (hip[0] + 9, top + s["th"] * 0.5)]
+    return hero(hip=hip, rot=-6, legs=legs, arms=arms, arm_bend=[(1, 0.8), (1, 0.8)], eyes="flat", mouth="pout", head_rot=-4,
+                fx=[anger_fx(102 + i, 30 - i, 5.0 + 0.6 * i)])
 
 
 def sp_hop(sp, i):
-    """폴짝 (한 번): 웅크림 → 쭉 뻗어 솟음 (다리 늘어뜨림) → 다리 모음."""
-    s = spi()
+    """폴짝 (한 번): 웅크림 → 두 팔 번쩍 솟음 (다리 모음) → 다리 내림."""
+    s = hs()
     if i == 0:
-        cy = body_cy() + 5
-        near = stand_feet(SIDE_CX, STAND_NEAR, (3, 2, -2, -3))
-        far = stand_feet(SIDE_CX, STAND_FAR, (3, 2, -2, -3))
-        return spider_side(sp, cy=cy, sq=(1.08, 0.9), near=near, far=far, eyes="tight", mouth="open", bend=0.4)
-    cy = [0, 66, 68][i]
-    near, far = air_feet(SIDE_CX, cy, [1.0, 1.15, 0.8][i], [0, 10, -4][i])
-    return spider_side(sp, cy=cy, sq=(0.96, 1.05) if i == 1 else (1.0, 1.0), near=near, far=far, eyes="happy", mouth="open", bend=0.22)
+        hip = H(dy=s["leg"] * 0.32)
+        return hero(hip=hip, rot=12, legs=[floor_at(SIDE_CX - 3), floor_at(SIDE_CX + 3)], arms=[("a", -30, 0.9), ("a", -25, 0.9)],
+                    eyes="tight", mouth="open")
+    hip = (SIDE_CX, [0, 84, 90][i] - (s["leg"] - 22) * 0.5)
+    legs = [("a", -30, 0.7), ("a", 25, 0.62)] if i == 1 else [("a", -8, 0.92), ("a", 10, 0.9)]
+    arms = [("a", 160, 0.95), ("a", 150, 0.95)] if i == 1 else [("a", 110, 0.95), ("a", 100, 0.95)]
+    return hero(hip=hip, legs=legs, arms=arms, eyes="happy", mouth="open", arm_bend=[(1, 0), (1, 0)])
 
 
 def sp_fall(sp, i):
-    """떨어짐: 다리 여덟을 활짝 벌리고 동그란 눈."""
-    cy = 64
-    wig = [0, 3][i]
-    near = [(SIDE_CX + 44, cy + 6 - wig), (SIDE_CX + 26, cy + 34 + wig), (SIDE_CX - 22, cy + 34 - wig), (SIDE_CX - 44, cy + 8 + wig)]
-    far = [(SIDE_CX + 50, cy - 6 + wig), (SIDE_CX + 36, cy + 24 - wig), (SIDE_CX - 10, cy + 38 + wig), (SIDE_CX - 46, cy - 4 - wig)]
-    return spider_side(sp, cy=cy, near=near, far=far, eyes="round", mouth="open", bend=0.25)
+    """떨어짐: 팔다리를 허우적, 동그란 렌즈."""
+    w = [0, 1][i]
+    hip = (SIDE_CX, 84.0)
+    legs = [("a", -40 - 15 * w, 0.85), ("a", 40 + 15 * w, 0.75)]
+    arms = [("a", 150 - 25 * w, 0.95), ("a", 125 + 25 * w, 0.95)]
+    return hero(hip=hip, legs=legs, arms=arms, eyes="round", mouth="open", rot=[-6, 6][i], arm_bend=[(0, -1), (0, -1)])
 
 
 def sp_dragged(sp, i):
-    """목덜미 잡혀 대롱대롱: 다리가 축 늘어지고 살랑."""
+    """목덜미가 잡혀 대롱대롱: 팔다리가 축 늘어지고 살랑."""
+    s = hs()
     sway = [-6, 6][i]
-    cy = 52
-    near = [(SIDE_CX + 22 + sway * 0.4, cy + 50), (SIDE_CX + 9 + sway * 0.6, cy + 56), (SIDE_CX - 8 + sway * 0.6, cy + 56), (SIDE_CX - 22 + sway * 0.4, cy + 50)]
-    far = [(SIDE_CX + 28 + sway * 0.4, cy + 46), (SIDE_CX + 15 + sway * 0.6, cy + 53), (SIDE_CX + 1 + sway * 0.6, cy + 54), (SIDE_CX - 14 + sway * 0.4, cy + 49)]
-    k = spi()["leg"]
-    near = [(SIDE_CX + (x - SIDE_CX), cy + (y - cy) * (0.55 + 0.45 * k)) for x, y in near]
-    far = [(SIDE_CX + (x - SIDE_CX), cy + (y - cy) * (0.55 + 0.45 * k)) for x, y in far]
-    return spider_side(sp, cy=cy, near=near, far=far, eyes="round", mouth="pout", bend=0.12, whole=dict(rot=sway * 0.5, pivot=(SIDE_CX, 20)))
+    top_y = 22.0
+    hip_y = top_y + 2 * s["hry"] - OVERLAP + s["th"] - s["lw"] * 0.35 - 2
+    hip = (SIDE_CX + 2, hip_y)
+    legs = [("a", -6, 0.97), ("a", 8, 0.95)]
+    arms = [("a", 12, 0.95), ("a", 18, 0.95)]
+    return hero(hip=hip, legs=legs, arms=arms, eyes="round", mouth="pout", whole=dict(rot=sway * 0.5, pivot=(SIDE_CX, 14)),
+                fx=sweat_fx(104, 30))
 
 
 def sp_land(sp, i):
-    """착지 (한 번): 찌그러짐 → 복귀."""
+    """착지 (한 번): 무릎을 굽혀 쿵 → 바로 섬."""
+    s = hs()
     if i == 0:
-        cy = body_cy() + 6
-        near = stand_feet(SIDE_CX, STAND_NEAR, (5, 2, -2, -5))
-        far = stand_feet(SIDE_CX, STAND_FAR, (5, 2, -2, -5))
-        return spider_side(sp, cy=cy, sq=(1.12, 0.86), near=near, far=far, eyes="tight", mouth="open", bend=0.42)
-    return spider_side(sp, eyes="happy")
+        return hero(hip=H(dy=s["leg"] * 0.3), rot=10, legs=[floor_at(SIDE_CX - 4), floor_at(SIDE_CX + 4)], arms=[("a", 60, 0.9), ("a", 50, 0.9)],
+                    eyes="tight", mouth="open")
+    return hero(eyes="happy")
 
 
 def sp_lookup(sp, i):
-    """올려다보기: 몸을 뒤로 젖혀 눈이 위로."""
-    rot = [-6, -10, -10][i]
-    cy = body_cy()
-    fx = [sparkle_fx(100, 16, 4.0)] if i == 2 else []
-    return spider_side(sp, eyes="up", body=dict(rot=rot, pivot=(SIDE_CX, cy + 20)), fx=[f for g in fx for f in g])
+    """올려다보기: 고개를 젖혀 렌즈가 위로, 반짝."""
+    return hero(head_rot=dp.lookup_tilt(i), eyes="up", look=(0.6, -1.0), fx=dp.lookup_fx(i, 110, 14))
 
 
 # ---- 🕷️ 특기 동작 ----
-def _arm_tip(cx, cy, reach, up):
-    """앞다리 손 자리 (몸 가운데에서 앞으로 reach, 위로 up)."""
-    return (cx + reach, cy - up)
-
-
 def thwip_fx(x, y, k=1.0):
-    """손끝에서 퐁 터지는 줄 덩어리 (하양) + 짧은 선."""
-    return [([C(x + 2.5 * k, y, 3.2 * k), C(x + 6 * k, y - 2.4 * k, 2.2 * k), C(x + 6 * k, y + 2.4 * k, 2.2 * k)], THREAD, 1.0),
-            ([L([(x + 9 * k, y - 4.5 * k), (x + 12 * k, y - 6.5 * k)], 1.2), L([(x + 10 * k, y + 0.2), (x + 13.5 * k, y + 0.2)], 1.2),
+    """손목에서 퐁 터지는 줄 덩어리 (하양) + 짧은 선."""
+    return [([C(x + 2.5 * k, y, 3.0 * k), C(x + 5.6 * k, y - 2.2 * k, 2.0 * k), C(x + 5.6 * k, y + 2.2 * k, 2.0 * k)], THREAD, 1.0),
+            ([L([(x + 9 * k, y - 4.5 * k), (x + 12 * k, y - 6.5 * k)], 1.2), L([(x + 10 * k, y), (x + 13.5 * k, y)], 1.2),
               L([(x + 9 * k, y + 4.5 * k), (x + 12 * k, y + 6.5 * k)], 1.2)], (120, 130, 160), 0)]
 
 
 def sp_shoot(sp, i):
-    """줄 쏘기 (한 번, 마지막 칸 유지): 앞다리를 당겼다가 → 앞으로 쭉 뻗어 손끝에서 줄이 퐁 → 뻗은 채."""
-    s = spi()
-    cy = body_cy()
-    cx = SIDE_CX - 4
-    rx = s["rx"]
+    """줄 쏘기 (한 번, 마지막 칸 유지): 팔을 당겨 겨눔 → 몸을 살짝 젖히며 팔을 쭉 뻗어 손목 까딱 (손가락 둘) + 줄 퐁 → 뻗은 채."""
+    s = hs()
+    cx = SIDE_CX - 6
+    hip = H(cx)
+    legs = [floor_at(cx - 8), floor_at(cx + 8)]
     if i == 0:
-        hand = (cx + rx * 0.78, cy + s["ry"] * 0.36)
-        knee = (cx + rx + 3, cy + s["ry"] * 0.62)
-        fx = []
+        near, fing, fx, rot = ("a", 70, 0.55), None, (), 4
     else:
-        hand = (cx + rx + 22 + 2 * s["leg"], cy + s["ry"] * 0.3)
-        knee = (cx + rx + 7, cy + s["ry"] * 0.42)
-        fx = thwip_fx(hand[0] + 1.5, hand[1], 1.0 if i == 1 else 0.7)
-    near = stand_feet(cx, STAND_NEAR, (2, 0, 0, -3))
-    return spider_side(sp, cx=cx, cy=cy, near=near, far=stand_feet(cx, STAND_FAR), arm=[knee, hand], eyes="dot", mouth="grin" if i else "open",
-                       brow="angry" if i == 0 else None, fx=fx, grip=hand, body=dict(rot=-4 if i else 3, pivot=(cx, cy + 20)))
+        near, fing, rot = ("a", 88, 1.3), 120, -8
+        k = 1.0 if i == 1 else 0.7
+        fx = lambda hands: thwip_fx(hands[1][0] + s["aw"] * 0.6, hands[1][1] - 2, k)  # noqa: E731
+    return hero(hip=hip, rot=rot, head_rot=-rot * 0.5, legs=legs, leg_bend=[(1, -0.2), (1, -0.2)], arms=[("a", -25, 0.9), near],
+                arm_bend=[(-1, 0.4), (0, 1)], fingers=(None, fing), brow="angry", mouth=None if i == 0 else "grin", grip="near", fx=fx)
 
 
 def sp_web_swing(sp, i):
-    """줄 그네: 한 손을 머리 위로 쭉 들어 줄을 잡고, 몸은 아래로 대롱 — 다리를 모아 뒤로 살랑."""
-    s = spi()
-    cy = 76.0
-    cx = SIDE_CX - 2
-    hand = (cx + 6, 8.0)
-    knee = (cx + 12, cy - s["ry"] - 12)
-    wag = [0, 4][i]
-    near = [(cx + 20, cy + 36), (cx + 4, cy + 40 + wag * 0.3), (cx - 16, cy + 37 - wag), (cx - 32, cy + 28 - wag)]
-    far = [(cx + 26, cy + 32), (cx + 12, cy + 38), (cx - 6, cy + 39 - wag), (cx - 24, cy + 33 - wag)]
-    k = 0.6 + 0.4 * s["leg"]
-    near = [(x, cy + (y - cy) * k) for x, y in near]
-    far = [(x, cy + (y - cy) * k) for x, y in far]
-    return spider_side(sp, cx=cx, cy=cy, near=near, far=far, arm=[knee, hand], arm_a=-70, eyes="happy", mouth="big", grip=hand, bend=0.2,
-                       fx=dp.speed_fx(10, (60, 74), 10, [0, -3][i]))
+    """줄 그네: 가까운 팔을 머리 위로 쭉 들어 줄을 잡고, 먼 팔은 앞으로, 다리는 모아 뒤로 ↔ 앞으로 흔듦."""
+    s = hs()
+    cx = SIDE_CX - 4
+    top_hand = 18.0
+    hip_y = top_hand + 2 * s["hry"] - OVERLAP + s["th"] - s["lw"] * 0.35 + 2
+    hip = (cx, hip_y)
+    hand = (cx + 4, top_hand)
+    legs = [("a", -35, 0.72), ("a", -20, 0.78)] if i == 0 else [("a", 30, 0.72), ("a", 45, 0.78)]
+    return hero(hip=hip, rot=[6, -4][i], head_rot=[-14, -8][i], head_d=(-3, 0), legs=legs, leg_bend=[(1, 0), (1, 0)],
+                arms=[hand, ("a", 70, 0.9)], arm_bend=[(1, 0), (1, 0.3)], eyes="happy", mouth="big", grip="far", grip_red=True,
+                fx=dp.speed_fx(6, (70, 86), 10, [0, -3][i]))
 
 
 def dust_fx(x, y, s=1.0):
@@ -413,272 +555,210 @@ def dust_fx(x, y, s=1.0):
 
 
 def sp_hero_land(sp, i):
-    """영웅 착지 (한 번): 쪼그려 앞다리 하나(주먹)를 바닥에 쿵 짚고, 뒤 다리 하나를 뒤로 쭉 뻗음 — 먼지 → 버팀 → 반짝 씩."""
-    s = spi()
+    """영웅 착지 (한 번): 쪼그려 앞 주먹을 바닥에 쿵, 뒤 다리를 뒤로 쭉, 다른 팔은 뒤로 활짝 — 먼지 → 버팀 → 반짝."""
+    s = hs()
     cx = SIDE_CX + 2
-    ry = s["ry"] * 0.9
-    cy = FLOOR - ry - 3.0 - 3.0 * s["leg"]
-    rx = s["rx"]
-    fist = floor_foot(cx + rx + 10)
-    knee = (cx + rx + 5, cy + ry * 0.55)
-    k = 0.55 + 0.45 * s["leg"]
-    back = floor_foot(cx - rx - 20 * k)
-    near = [fist, floor_foot(cx + 8 * k), floor_foot(cx - 12 * k), back]
-    far = [floor_foot(cx + 30 * k), floor_foot(cx + 18 * k), floor_foot(cx - 2 * k), floor_foot(cx - 18 * k)]
+    hip = (cx, FLOOR - s["lw"] * 0.5 - s["leg"] * 0.62)
+    fist = (cx + s["arm"] + 14, FLOOR - s["aw"] * 0.66)
+    back = floor_at(cx - s["leg"] - 8)
+    near_foot = floor_at(cx + s["leg"] * 0.55)
     fx = []
     if i == 0:
         fx = dust_fx(fist[0] + 4, FLOOR - 1, 1.1) + dust_fx(back[0] - 2, FLOOR - 1, 0.9)
     elif i == 1:
         fx = dust_fx(fist[0] + 6, FLOOR - 3, 0.7)
     else:
-        fx = sparkle_fx(cx + rx + 6, cy - ry - 2, 4.0)
-    return spider_side(sp, cx=cx, cy=cy, sq=(1.06, 0.9), near=near, far=far, arm=[knee, fist], arm_a=62, eyes="dot", brow="angry",
-                       mouth="grin", fx=fx, body=dict(rot=8, pivot=(cx, FLOOR)), bend=0.3)
+        fx = sparkle_fx(cx + 34, 30, 4.0)
+    return hero(hip=hip, rot=28, head_rot=-24, head_d=(2, 0), legs=[back, near_foot], leg_bend=[(0, -1), (1, -1)],
+                arms=[("a", -130, 0.95), fist], arm_bend=[(0, -1), (-1, 0.6)], eyes="dot", brow="angry", fx=fx)
 
 
 def sp_web_pull(sp, i):
-    """줄 끌어당기기: 두 앞다리로 앞의 줄을 잡고 몸을 뒤로 젖혀 영차 (손이 당겨졌다 다시 뻗음)."""
-    s = spi()
-    cx = SIDE_CX - 6
-    cy = body_cy()
-    pull = [0, 5, 9, 5][i]
-    rx = s["rx"]
-    hand = (cx + rx + 20 - pull, cy + s["ry"] * 0.2 + pull * 0.3)
-    knee = (cx + rx + 4 - pull * 0.5, cy + s["ry"] * 0.5)
-    hand2 = (hand[0] + 5, hand[1] + 3)
-    knee2 = (knee[0] + 5, knee[1] + 2)
-    near = stand_feet(cx, STAND_NEAR, (6, 2, -3, -6))
-    far = stand_feet(cx, STAND_FAR, (6, 2, -3, -6))
-    fx = sweat_fx(cx - rx * 0.2, cy - s["ry"] - 4) if i == 2 else []
-    return spider_side(sp, cx=cx, cy=cy, near=near, far=far, arm=[knee, hand], far_arm=[knee2, hand2], eyes="tight" if i == 2 else "dot",
-                       mouth="grin", body=dict(rot=-8 - pull * 0.4, pivot=(cx, FLOOR)), grip=hand, fx=fx)
+    """줄 끌어당기기: 두 손으로 앞의 줄을 잡고 몸을 뒤로 젖혀 영차 (손이 당겨졌다 다시 뻗음)."""
+    s = hs()
+    cx = SIDE_CX - 8
+    pull = [0, 4, 7, 4][i]
+    hip = H(cx, s["leg"] * 0.2)
+    top = hip[1] + s["lw"] * 0.35 - s["th"]
+    hy = top + s["th"] * 0.5
+    near = (cx + s["arm"] + 14 - pull, hy - 2 + pull * 0.2)
+    far = (near[0] - 5, near[1] + 1.5)
+    legs = [floor_at(cx - 6), floor_at(cx + 14)]
+    fx = sweat_fx(cx - 10, top - 2 * s["hry"]) if i == 2 else []
+    return hero(hip=hip, rot=-12 - pull * 0.8, legs=legs, leg_bend=[(1, -0.2), (1, -0.2)], arms=[far, near], arm_bend=[(0, 1), (0, 1)],
+                far_limbs_front=True, eyes="tight" if i == 2 else "dot", brow=None if i == 2 else "angry", mouth="grin", grip="near", fx=fx)
 
 
 # =====================================================================
 # 앞모습
 # =====================================================================
-FRONT_A = (-10, 14, 38, 62)  # 오른쪽 다리 뿌리 각도 (위 → 아래). 왼쪽은 거울
-FRONT_FEET = (60, 47, 34, 21)  # 오른쪽 발 x (가운데에서)
+def front(**kw):
+    """앞모습 꼬마 영웅."""
+    return hero(view_="front", **kw)
 
 
-def front_feet(lift=(0, 0, 0, 0), spread=1.0):
-    """서 있는 오른쪽 발 넷 (위 다리부터). 왼쪽은 거울."""
-    k = min(0.9, 0.62 + 0.38 * spi()["leg"]) * spread
-    return [floor_foot(64 + o * k, h) for o, h in zip(FRONT_FEET, lift)]
-
-
-def _mirror(p):
-    return (128 - p[0], p[1])
-
-
-def spider_front(sp, *, cy=None, right=None, left=None, arms=(None, None), whole=None, body=None, eyes="dot", mouth=None, brow=None,
-                 fx=(), ops=(), sq=(1.0, 1.0), held=(), face_dy=0.0, bend=0.2, look=(0, 0)):
-    """앞모습 거미. right/left: 발 넷 (위 다리부터, 프레임 좌표 — left는 거울로 적지 않고 화면 좌표 그대로; 없으면 서 있는 자리) ·
-    arms: (왼쪽, 오른쪽) 맨 위 다리를 팔로 [무릎, 손] · held: 몸과 팔 사이 Part 함수 · face_dy: 얼굴만 위아래로."""
-    s = spi()
-    rx, ry = s["rx"] * sq[0], s["ry"] * sq[1]
-    cy = body_cy(ry=s["ry"]) if cy is None else cy
-    cx = 64.0
-    with xf(**(whole or {})):
-        bm = dp._xf_matrix(**(body or {})) if body else (1, 0, 0, 0, 1, 0)
-        right = right or front_feet()
-        left = left or [_mirror(p) for p in right]
-        parts = []
-        with xf(**(body or {})):
-            red_cap = E(cx - rx - 8, cy - ry - 8, cx + rx + 8, cy - ry * 0.02)
-            red_chest = E(cx - rx * 0.6, cy - ry * 0.9, cx + rx * 0.6, cy + ry + 8)
-            marks = [([red_cap, red_chest], RED)] + web_marks(cx, cy - ry * 0.98, ry * 0.58)
-            body_p = Part([E(cx - rx, cy - ry, cx + rx, cy + ry)], BLUE, marks, grow=2)
-            dp.mark_head(cx, cy - ry + 2, rx * 1.2)
-            fdy = face_dy
-            ex = rx * 0.38
-            ey = cy - ry * 0.12 + fdy
-            f_ops = blush(cx - rx * 0.6, cy + ry * 0.2 + fdy, 0.85) + blush(cx + rx * 0.6, cy + ry * 0.2 + fdy, 0.85)
-            f_ops += stage_eye(eyes, cx - ex + look[0], ey + look[1]) + stage_eye(eyes, cx + ex + look[0], ey + look[1], flip=True)
-            if brow:
-                f_ops += brows(brow, cx - ex, ey + _ST["eye_dy"]) + brows(brow, cx + ex, ey + _ST["eye_dy"], flip=True)
-            f_ops += mouth_ops(mouth, cx, cy + ry * 0.24 + fdy)
-            f_ops += emblem_ops(cx, cy + ry * 0.58 + fdy * 0.3, 1.05)
-        rootp = lambda a, side: dp._apply(bm, on_ellipse(cx, cy, rx * side, ry, a))
-        for side, feet, arm in ((1, right, arms[1]), (-1, left, arms[0])):
-            for j, (a, foot) in enumerate(zip(FRONT_A, feet)):
-                if j == 0 and arm:
-                    continue
-                parts.append(leg_part(rootp(a, side), foot, side, bend=bend, outline=False))
-        parts.append(body_p)
-        parts += tuft_part(cx, cy - ry + 1)
-        parts += [h() for h in held]
-        for side, arm in ((1, arms[1]), (-1, arms[0])):
-            if arm:
-                parts.append(leg_part(rootp(FRONT_A[0] - 6, side), arm[-1], side, knee=arm[0], fist=True))
-    return dp.compose(parts, f_ops + list(ops), fx)
+def F(dy=0.0):
+    """앞모습 엉덩이 관절."""
+    return (64.0, stand_hip_y() + dy)
 
 
 def sp_sit_front(sp, i):
-    """정면 앉기 (마지막 장 깜빡)."""
-    return spider_front(sp, eyes="closed" if i == 3 else "dot", face_dy=[0, 0.6, 0, 0][i])
+    """정면 서기: 허리에 손 얹은 영웅 자세 (마지막 장 깜빡)."""
+    s = hs()
+    top = stand_hip_y() + s["lw"] * 0.35 - s["th"]
+    wy = top + s["th"] * 0.72
+    arms = [(64 - s["tw"] * 0.88, wy), (64 + s["tw"] * 0.88, wy)]
+    return front(arms=arms, arm_bend=[(-1, -0.2), (1, -0.2)], eyes="closed" if i == 3 else "dot", head_d=(0, [0, 0.5, 0, 0][i]))
 
 
 def sp_wave(sp, i):
-    """오른쪽 맨 위 다리를 번쩍 들어 흔들흔들."""
-    cy = body_cy()
-    hand = [(110, cy - 40), (100, cy - 46), (112, cy - 38), (102, cy - 46)][i]
-    knee = (104, cy - 14)
-    return spider_front(sp, arms=(None, [knee, hand]), eyes="happy" if i % 2 else "dot", mouth="open",
-                        body=dict(rot=[-2, 0, -2, 0][i], pivot=(64, FLOOR)))
+    """한 손을 번쩍 들어 흔들흔들 (다른 손은 허리)."""
+    a = [118, 140, 118, 140][i]
+    return front(arms=[("a", 18, 0.95), ("a", a, 1.0)], arm_bend=[(-1, 0.3), (1, 0)], eyes="happy" if i % 2 else "dot",
+                 mouth="open", head_rot=[-3, -1, -3, -1][i])
 
 
 def sp_tilt(sp, i):
-    """고개(몸) 갸웃 + ?."""
-    deg = [8, 12, 12][i]
-    cy = body_cy()
-    return spider_front(sp, body=dict(rot=deg, pivot=(64, cy + 20)), fx=[question_fx(106, 26 - i)], mouth="pout")
+    """고개 갸웃 + ? (한 손은 턱)."""
+    s = hs()
+    top = stand_hip_y() + s["lw"] * 0.35 - s["th"]
+    return front(head_rot=[8, 12, 12][i], arms=[("a", 15, 0.95), (64 + 6, top + 2)], arm_bend=[(-1, 0.3), (1, 0.6)], arms_front=True,
+                 fx=[question_fx(106, 24 - i)], mouth="pout")
 
 
 def sp_belly(sp, i):
-    """발라당 누워 배 보이기: 몸이 낮게 납작, 다리 여덟이 위로 꼬물꼬물."""
-    s = spi()
-    ry = s["ry"] * 0.82
-    cy = FLOOR - 2 - ry - 2
-    w = [0, 3, 0, -3][i]
-    k = 0.6 + 0.4 * s["leg"]
-    right = [(64 + 44 * k + w, cy - 34 * k), (64 + 40 * k - w, cy - 22 * k), (64 + 34 * k + w, cy - 34 * k - 4), (64 + 18 * k - w, cy - 36 * k)]
-    left = [(64 - 44 * k - w, cy - 34 * k), (64 - 40 * k + w, cy - 22 * k), (64 - 34 * k - w, cy - 34 * k - 4), (64 - 18 * k + w, cy - 36 * k)]
-    return spider_front(sp, cy=cy, sq=(1.08, 0.82), right=right, left=left, eyes="happy", mouth="open", bend=0.2)
+    """벌러덩: 엉덩방아 찧고 두 다리를 위로 버둥, 두 팔 번쩍, 깔깔."""
+    s = hs()
+    w = [0, 2, 0, -2][i]
+    hip = (64.0, FLOOR - s["lw"] * 0.8)
+    legs = [("a", 112 + 6 * w, 0.9), ("a", 112 - 6 * w, 0.9)]
+    arms = [("a", 128 - 5 * w, 0.95), ("a", 128 + 5 * w, 0.95)]
+    return front(hip=hip, legs=legs, arms=arms, eyes="happy", mouth="big")
 
 
 def sp_stretch(sp, i):
-    """기지개 (한 번): 앞으로 엎드려 앞다리 쭉 → 하품 → 앉기."""
-    if i == 2:
-        return spider_front(sp, eyes="happy")
-    cy = body_cy() + 6
-    k = 0.6 + 0.4 * spi()["leg"]
-    arms = ([(20, cy - 18), (12, cy - 34 * k)], [(108, cy - 18), (116, cy - 34 * k)])
-    return spider_front(sp, cy=cy, sq=(1.06, 0.9), arms=arms, eyes="closed", mouth="big" if i == 1 else "open")
+    """기지개 (한 번): 두 팔 쭉 위로 → 하품하며 팔 벌림 → 서기."""
+    if i == 0:
+        return front(arms=[("a", 140, 1.0), ("a", 140, 1.0)], eyes="tight", hip=F(-1.5))
+    if i == 1:
+        return front(arms=[("a", 100, 1.0), ("a", 100, 1.0)], eyes="closed", mouth="big")
+    return front(eyes="happy")
 
 
 def sp_heart(sp, i):
-    """하트를 안고 볼 발그레, 작은 하트가 떠오름."""
-    cy = body_cy()
-    hy = cy + 10
+    """하트를 가슴에 꼭 안고 렌즈 ^^, 작은 하트가 떠오름."""
+    s = hs()
+    top = stand_hip_y() + s["lw"] * 0.35 - s["th"]
+    hy = top + s["th"] * 0.45
 
     def held():
-        return dp.held_heart(hy)
-    arms = ([(36, cy + 4), (54, hy + 4)], [(92, cy + 4), (74, hy + 4)])
-    return spider_front(sp, arms=arms, held=[held], eyes="happy", mouth="open", fx=dp.heart_burst(i))
+        """가슴에 안은 하트."""
+        return dp.held_heart(hy - 4)
+    return front(arms=[(58, hy + 3), (70, hy + 3)], arm_bend=[(-1, 0.6), (1, 0.6)], held=[held], eyes="happy", fx=dp.heart_burst(i))
 
 
 def sp_tickle(sp, i):
-    """간질간질: 몸을 비비 꼬며 깔깔 (> <)."""
-    rot = [-7, 7, -4][i]
-    cy = body_cy()
-    k = 0.6 + 0.4 * spi()["leg"]
-    arms = ([(24, cy - 10), (18, cy - 26 * k + i)], [(104, cy - 10), (110, cy - 26 * k - i)])
-    return spider_front(sp, arms=arms, eyes="tight", mouth="big", body=dict(rot=rot, pivot=(64, FLOOR)))
+    """간질간질: 몸을 비비 꼬며 배를 감싸고 깔깔 (> <)."""
+    s = hs()
+    top = stand_hip_y() + s["lw"] * 0.35 - s["th"]
+    y = top + s["th"] * 0.6
+    return front(rot=[-7, 7, -3][i], arms=[(60, y), (68, y)], arm_bend=[(-1, 0.5), (1, 0.5)], eyes="tight", mouth="big")
 
 
 def sp_hungry(sp, i):
-    """배고파 시무룩: 처진 눈썹, 작은 입, 파리 생각 풍선."""
+    """배고파 시무룩: 두 손으로 배를 감싸고 처진 눈꺼풀, 파리 생각 풍선."""
     import draw_frog
-    dy = [0, 1.5, 0][i]
-    cy = body_cy() + 2
-    fx = draw_frog.fly_bubble_fx(102 - 2 * i, 22, 12.0)
-    return spider_front(sp, cy=cy, sq=(1.02, 0.96), eyes="dot", brow="sad", mouth="frown", face_dy=dy, fx=fx)
+    s = hs()
+    top = stand_hip_y() + s["lw"] * 0.35 - s["th"]
+    y = top + s["th"] * 0.68
+    fx = draw_frog.fly_bubble_fx(104 - 2 * i, 20, 12.0)
+    return front(hip=F([0, 1, 0][i]), arms=[(59, y), (69, y)], arm_bend=[(-1, 0.5), (1, 0.5)], eyes="dot", brow="sad", mouth="frown",
+                 head_rot=-3, fx=fx)
 
 
 EAT_MOUTH = 79.0  # 먹을 때 입 (프레임 y) — 그릇 밥 더미 바로 위
 
 
 def sp_eat(sp, i):
-    """냠냠 (그릇 없음): 몸을 앞으로 숙여 입을 밥 더미 바로 위에 — 입 벌림 ↔ 볼 빵빵, 부스러기."""
-    s = spi()
-    cy = body_cy() - 2
-    ry = s["ry"]
-    face_dy = EAT_MOUTH - (cy + ry * 0.24)
-    mouth = ["open", "chew", "open", "chew"][i]
-    fx = [f for x, y in dp.EAT_CRUMBS[i] for f in [([C(x, y, 1.6)], (255, 236, 200), 0.8)]]
-    return spider_front(sp, cy=cy, eyes="happy" if i % 2 else "dot", mouth=mouth, face_dy=face_dy, look=(0, 2), fx=fx,
-                        whole=dict(sy=1.0, dy=[0, 1, 0, 1][i]))
+    """냠냠 (그릇 없음): 무릎 꿇고 가면 아래를 걷어 올려 입을 밥 더미 바로 위에 — 앙 ↔ 오물오물, 부스러기."""
+    s = hs()
+    # 입 = 머리 중심 + 0.72 hry, 머리 중심 = 몸 위 - hry + OVERLAP, 몸 위 = 엉덩이 + 0.35 lw - th
+    hip_y = EAT_MOUTH + [0, 1, 0, 1][i] - 0.72 * s["hry"] + s["hry"] - OVERLAP + s["th"] - 0.35 * s["lw"]
+    hip_y = min(hip_y, FLOOR - s["lw"] * 0.8)
+    legs = [(64 - s["hip"] - 3, foot_y()), (64 + s["hip"] + 3, foot_y())]
+    arms = [(44, 96), (84, 96)]
+    return front(hip=(64.0, hip_y), legs=legs, arms=arms, arm_bend=[(-1, -0.2), (1, -0.2)], eyes="happy" if i % 2 else "dot",
+                 mask_up="open" if i % 2 == 0 else "chew", fx=dp.eat_crumbs(i))
 
 
 def sp_level_up(sp, i):
-    """만세: 맨 위 두 다리를 번쩍, ^^, 반짝이."""
-    cy = body_cy() - [0, 3, 1][i]
-    arms = ([(28, cy - 22), (20, cy - 46)], [(100, cy - 22), (108, cy - 46)])
-    return spider_front(sp, cy=cy, arms=arms, eyes="happy", mouth="big", fx=dp.level_up_stars(i))
+    """만세: 두 팔 번쩍, ^^, 반짝이 (가운데 칸은 살짝 뜀)."""
+    up = [114, 124, 118][i]
+    return front(hip=F(-[0, 3, 1][i]), legs=None if i != 1 else [("a", -6, 0.97), ("a", 6, 0.97)], arms=[("a", up, 1.0), ("a", up, 1.0)],
+                 eyes="happy", mouth="big", fx=dp.level_up_stars(i))
 
 
 # =====================================================================
-# 구르기 (회전 원 안)
+# 구르기 (회전 원 안) — 공처럼 웅크림
 # =====================================================================
 def sp_roll(sp, i):
-    """동그랗게 말린 거미 공 (다리는 배 밑으로 쏙): 회전 중심 (64, 88), 반지름 ROLL_RADIUS 원 안."""
+    """무릎을 끌어안고 동그랗게 웅크린 공: 회전 중심 (64, 88), 반지름 ROLL_RADIUS 원 안."""
     cx, cy = ROLL_CENTER
-    r = 29.0
+    s = hs()
     with view(scale=1.0, lift=0):
         with xf(rot=[-8, 8][i], pivot=(cx, cy)):
-            red = E(cx - r - 6, cy - r - 6, cx + r + 6, cy + r * 0.2)
-            ball = Part([C(cx, cy, r)], BLUE, [([red, E(cx - r * 0.55, cy - r, cx + r * 0.55, cy + r + 4)], RED)] +
-                        web_marks(cx, cy - r * 0.98, r * 0.55), grow=0)
-            nubs = []
-            for a in (40, 62, 84, 106, 128, 150):
-                p = (cx + (r + 2) * math.cos(math.radians(a)), cy + (r + 2) * math.sin(math.radians(a)))
-                nubs.append(Part([C(p[0], p[1], 4.2)], BLUE, [([C(p[0], p[1], 2.4)], BLUE_PAD)], grow=0, outline=True))
-            dp.mark_head(cx, cy - r + 2, r * 1.1)
-            face = blush(cx - 17, cy + 6, 0.8) + blush(cx + 17, cy + 6, 0.8)
-            face += stage_eye("happy", cx - 11, cy - 4) + stage_eye("happy", cx + 11, cy - 4, flip=True)
-            face += mouth_ops("open" if i else None, cx, cy + 8)
-            face += emblem_ops(cx, cy + 16, 0.8)
+            hrx, hry = 21.0, 19.5
+            hx, hy = cx + 5, cy - 8
+            body = Part([C(cx - 6, cy + 8, 19.0)], BLUE, [([E(cx - 26, cy - 14, cx + 6, cy + 6)], RED)] + emblem_ops(cx - 12, cy - 1, 0.8),
+                        outline=True, grow=0)
+            knee = Part([E(cx + 2, cy + 6, cx + 30, cy + 26), E(cx - 4, cy + 18, cx + 14, cy + 30)], BLUE,
+                        [([E(cx - 6, cy + 18, cx + 14, cy + 31)], RED)], outline=True, grow=0)
+            head = Part([E(hx - hrx, hy - hry, hx + hrx, hy + hry)], RED,
+                        web_lines(hx + 4, hy + 2, hrx * 1.5, 0, 360, s["webs"], min(1, s["rings"])), outline=True, grow=0)
+            glove = Part([C(cx + 22, cy + 16, 5.6)], RED, outline=True, grow=0)
+            dp.mark_head(hx, hy - hry + 2, hrx * 1.6)
+            face = []
+            for side, lx in ((-1, hx - 4), (1, hx + 11)):
+                face += lens_ops("happy", lx, hy + 1, side, sx=0.8)
+            face += mouth_ops("open" if i else None, hx + 8, hy + 13)
         clip = dp.shapes([C(cx, cy, ROLL_RADIUS - 1.25 * dp.OUTLINE * _ST["line"] - 1.2)])
-    return dp.compose([ball] + nubs, face, clip=clip)
+    return dp.compose([body, knee, head, glove], face, clip=clip)
 
 
 # =====================================================================
-# 뒷모습 (climb·slide) — 화면을 기어오름. 얼굴은 안 보이고, 빨강 등 + 거미줄 선, 다리 여덟이 벽에 쩍
+# 뒷모습 (climb·slide) — 화면 벽에 손발을 붙이고 엉금엉금
 # =====================================================================
-BACK_UP = [(44, 26), (30, 46), (28, 76), (40, 100)]  # 왼쪽 다리 발 (위 → 아래). 오른쪽은 거울
+CLIMB = [(1.0, 0.2), (0.6, 0.6), (0.2, 1.0), (0.6, 0.6)]  # (왼손, 오른손) 올린 몫 — 발은 엇갈려
 
 
-def spider_back(sp, *, reach=(1.0, 0.0), dy=0.0, sy=1.0, scratch=False, sweat=False):
-    """뒷모습: 둥근 등 (빨강 위 + 거미줄, 파랑 아래) 뒤로 다리 여덟이 벽에 쩍 (reach: 왼쪽·오른쪽 위 다리 올림 몫)."""
-    s = spi()
-    cx, cy = 64.0, 70.0 + dy
-    rx, ry = s["rx"], s["ry"] * sy
-    k = 0.6 + 0.4 * s["leg"]
-    parts = []
-    for side, up in ((-1, reach[0]), (1, reach[1])):
-        for j, (fx_, fy_) in enumerate(BACK_UP):
-            a = [-60, -20, 20, 60][j]
-            root = on_ellipse(cx, cy, rx * side, ry, a if side > 0 else a, 0.7)
-            root = (cx + (root[0] - cx), root[1])
-            foot = (cx + side * (64 - fx_) * k, cy + (fy_ - 70) * k - (10 * up if j < 2 else -4 * up))
-            parts.append(leg_part(root, foot, side, bend=0.3, outline=False))
-    red = E(cx - rx - 6, cy - ry - 6, cx + rx + 6, cy + ry * 0.35)
-    marks = [([red], RED)] + web_marks(cx, cy - ry * 0.98, ry * 1.05, 20, 160)
-    parts.append(Part([E(cx - rx, cy - ry, cx + rx, cy + ry)], BLUE, marks, grow=2))
-    parts += tuft_part(cx, cy - ry + 1)
-    dp.mark_head(cx, cy - ry + 2, rx * 1.15)
+def spider_back(reach, *, dy=0.0, scratch=False, sweat=False):
+    """뒷모습: 두 손을 머리 옆·위로 벽에 짚고 (reach: 0 어깨 옆 … 1 머리 위), 두 다리는 개구리처럼 무릎을 벌려 벽에 디딤."""
+    s = hs()
+    hip = (64.0, 92.0 - (s["leg"] - 22) * 0.3 + dy)
+    top = hip[1] + s["lw"] * 0.35 - s["th"]
+    arms, legs = [], []
+    for side, r in zip((-1, 1), reach):
+        arms.append((64 + side * (s["hrx"] + 4 - 3 * r), top - s["arm"] * (0.15 + 0.75 * r)))
+        lift = 1.0 - r  # 손이 내려간 쪽 발이 올라옴 (엇갈림)
+        legs.append((64 + side * (s["hip"] + s["leg"] * 0.62), hip[1] + s["leg"] * (0.75 - 0.45 * lift)))
     fx = []
     if scratch:
-        for side in (-1, 1):
-            x0 = cx + side * (64 - BACK_UP[0][0]) * k
-            fx.append(([L([(x0 + d, cy - 30 * k - 8), (x0 + d, cy - 30 * k + 4)], 1.2) for d in (-3, 0, 3)], (150, 150, 170), 0))
+        for x, y in arms:
+            fx.append(([L([(x + d, y - 12), (x + d * 1.2, y - 4)], 1.2) for d in (-3, 0, 3)], (150, 150, 170), 0))
     if sweat:
-        fx += sweat_fx(cx + rx * 0.8, cy - ry * 0.7)
-    return dp.compose(parts, [], fx)
-
-
-CLIMB_REACH = [(1.0, 0.0), (0.5, 0.5), (0.0, 1.0), (0.5, 0.5)]
+        fx += sweat_fx(64 + s["hrx"] + 6, top - s["hry"] * 1.2)
+    return hero(view_="back", hip=hip, legs=legs, leg_bend=[(-1, -1), (1, -1)], arms=arms, arm_bend=[(-1, 0.6), (1, 0.6)], fx=fx,
+                arms_front=True)
 
 
 def sp_climb(sp, i):
-    """뒷모습으로 기어오름: 왼쪽·오른쪽 위 다리가 번갈아 위로, 몸 살짝 늘어남."""
-    return spider_back(sp, reach=CLIMB_REACH[i], sy=[1.0, 1.03, 1.0, 1.03][i], dy=[0, -1, 0, -1][i])
+    """뒷모습으로 기어오름: 왼손·오른손이 번갈아 위로, 발은 엇갈려 디딤, 몸 살짝 오르내림."""
+    return spider_back(CLIMB[i], dy=[0, -1, 0, -1][i])
 
 
 def sp_slide(sp, i):
-    """뒷모습으로 주르륵: 다리를 위로 쭉, 긁힌 자국 3줄, 땀 한 방울."""
-    return spider_back(sp, reach=(1.0, 1.0), sy=0.96, dy=[0, 2][i], scratch=True, sweat=True)
+    """뒷모습으로 주르륵: 두 손 쭉 위로, 긁힌 자국 3줄, 땀 한 방울."""
+    return spider_back((1.0, 1.0), dy=[0, 2][i], scratch=True, sweat=True)
 
 
 SPIDER_POSES = {"walk": sp_walk, "run": sp_run, "roll": sp_roll, "idle": sp_idle, "look": sp_look, "sleep": sp_sleep, "hop": sp_hop,
@@ -693,10 +773,8 @@ SPIDER = Species(
     id="spider", name="거미인간", walk_speed=95, scale=1.0, base=BLUE, back=RED, belly=RED, nose=OUT, mouth="w",
     front_tail_color=BLUE, tail_color=BLUE, **dp.NO_COMMON_PARTS,
     specials=["climb", "slide", "lookup"] + WEB_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=RED_WEB, poses=SPIDER_POSES, outline=OUT,
-    # 모든 단계 반짝이 큰 눈 (어른만 느긋한 눈) · 색은 조금만 파스텔 (빨강·파랑 옷이 또렷하게) · 크기는 SPI가 정함 (fit 1)
-    stage_tweak={"baby": dict(fit=1.0, pale=0.12, eye=1.6), "kinder": dict(fit=1.0, pale=0.06, eye=1.45),
-                 "child": dict(fit=1.0, pale=0.0, eye=1.32, sparkle=True, smile=False), "teenager": dict(fit=1.0, eye=1.22, sparkle=True),
-                 "adult": dict(fit=1.0, eye=1.1, sparkle=False, calm=True)},
+    # 색은 파스텔 없이 또렷한 빨강·파랑 · 크기는 HERO가 정함 (fit 1)
+    stage_tweak={st: dict(fit=1.0, pale=0.0) for st in STAGES},
 )
 
 
@@ -710,10 +788,21 @@ register()
 
 def preview_spider(by_stage, path, bg=(255, 255, 255)):
     """5단계 × 대표 동작 + 특기 동작 (밝은·어두운 바탕)."""
-    names = [("walk", 0), ("sit_front", 0), ("wave", 1), ("eat", 0), ("sleep", 0), ("hop", 1), ("fall", 0), ("roll", 0),
-             ("shoot", 2), ("web_swing", 0), ("hero_land", 0), ("web_pull", 2), ("climb", 0)]
+    names = [("walk", 0), ("run", 1), ("sit_front", 0), ("wave", 1), ("eat", 0), ("sleep", 0), ("hop", 1), ("fall", 0), ("roll", 0),
+             ("shoot", 2), ("web_swing", 0), ("hero_land", 1), ("web_pull", 2), ("climb", 0)]
     rows = [(st, by_stage, st) for st in STAGES]
     dp.preview_poses([(bg, rows), ((40, 44, 52), rows)], names, path, zoom=("sit_front", "hero_land"), bg=bg)
+
+
+def preview_all(by_stage, path, st="teenager"):
+    """한 단계의 모든 동작·칸 (눈으로 확인용)."""
+    from PIL import Image
+    anims = by_stage[st]
+    im = Image.new("RGBA", (4 * 132, len(anims) * 132), (255, 255, 255, 255))
+    for r, (a, frames) in enumerate(anims.items()):
+        for c, f in enumerate(frames):
+            im.alpha_composite(f, (c * 132, r * 132))
+    im.save(path)
 
 
 def main():
@@ -724,6 +813,9 @@ def main():
     by_stage = dp.at_frame(dp.write_species(SPIDER, root / "ui" / "pets" / SPIDER.id))
     preview_spider(by_stage, pv / "stages_spider.png")
     dp.preview_back(by_stage, pv / "climb_spider.png")
+    if "--all" in sys.argv:
+        for st in ("baby", "teenager", "adult"):
+            preview_all(by_stage, pv / f"all_spider_{st}.png", st)
     print("ok: spider")
 
 

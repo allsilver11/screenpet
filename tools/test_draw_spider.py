@@ -1,5 +1,6 @@
 """거미인간 시트 검사: 줄 순서 (필수 21 + climb·slide + 특기 넷)·모든 칸 여백·바닥선·pet.json(web_slinger, 파리, grip)·
-빨강·파랑 옷과 가슴의 까만 거미 무늬·앞모습 다리 여덟·줄 끝 손 자리·영웅 착지·저장소 그림과 같음."""
+사람 모양 꼬마 영웅 (빨강·파랑 쫄쫄이, 가슴의 까만 거미 무늬, 까만 테 하얀 렌즈, 앞모습 두 다리, 옆모습은 오른쪽)·
+줄 끝 손 자리 = 빨간 장갑·영웅 착지 (장갑으로 바닥 짚고 다리 쭉)·저장소 그림과 같음."""
 import json
 from pathlib import Path
 
@@ -66,47 +67,76 @@ def test_manifest_is_a_playful_web_slinger_that_loves_flies(out):
 
 
 @pytest.mark.parametrize("st", STAGES)
-def test_grip_marks_the_hand_at_the_end_of_the_line(out, st):
-    """줄 끝 손 자리: 쏠 때는 몸 앞 멀리, 그네는 머리 위, 끌어올 때는 몸 앞 (pet.json grip — 코어 GripTable)."""
+def test_grip_marks_the_red_glove_at_the_end_of_the_line(out, st):
+    """줄 끝 손 자리 = 빨간 장갑: 쏠 때는 몸 앞, 그네는 머리 위로 든 손, 끌어올 때는 몸 앞 (pet.json grip — 코어 GripTable)."""
     m = json.loads((out / "spider" / "pet.json").read_text(encoding="utf-8"))
     px = m.get("frame_sizes", {}).get(st, 128) / 128
     g = {a: [[x / px, y / px] for x, y in cells] for a, cells in m["grip"][st].items()}
+    head = {a: [c[1] / px for c in m["head"][st][a]] for a in ("web_swing",)}
+    head_x = [c[0] / px for c in m["head"][st]["shoot"]]
     assert set(g) == {"shoot", "web_swing", "web_pull"}
     assert [len(g[a]) for a in ("shoot", "web_swing", "web_pull")] == [3, 2, 4]
-    assert all(x > 100 for x, _ in g["shoot"][1:]), g["shoot"]
-    assert all(y < 20 for _, y in g["web_swing"]), g["web_swing"]
-    assert all(x > 90 for x, _ in g["web_pull"]), g["web_pull"]
+    assert all(x > 68 and x > hx + 12 for (x, _), hx in zip(g["shoot"][1:], head_x[1:])), (g["shoot"], head_x)
+    assert all(y < 34 and y < hy + 4 for (_, y), hy in zip(g["web_swing"], head["web_swing"])), (g["web_swing"], head)
+    assert all(x > 70 for x, _ in g["web_pull"]), g["web_pull"]
+    for anim, cells in g.items():
+        for i, (x, y) in enumerate(cells):
+            im = frame(out, st, anim, i)
+            x0, y0 = int(round(x)), int(round(y))
+            win = near(im, ds.RED)[max(0, y0 - 4):y0 + 5, max(0, x0 - 4):x0 + 5]
+            assert win.sum() >= 4, (st, anim, i, (x, y), int(win.sum()))
 
 
 @pytest.mark.parametrize("st", STAGES)
 def test_red_and_blue_suit_with_a_black_spider_on_the_chest(out, st):
     im = frame(out, st, "sit_front", 0)
-    assert near(im, ds.RED).sum() > 600 and near(im, ds.BLUE).sum() > 600, st
+    assert near(im, ds.RED).sum() > 600 and near(im, ds.BLUE).sum() > 100, st
     chest = near(im, ds.EMBLEM, 30)[70:118, 48:80]
-    assert chest.sum() > 25, (st, int(chest.sum()))
+    assert chest.sum() > 20, (st, int(chest.sum()))
     side = frame(out, st, "walk", 0)
-    assert near(side, ds.RED).sum() > 500 and near(side, ds.BLUE).sum() > 500, st
-
-
-@pytest.mark.parametrize("st", ["child", "teenager", "adult"])
-def test_eight_legs_stand_on_the_floor_in_front_view(out, st):
-    """앞모습: 바닥께 한 줄에 발 여덟이 따로따로."""
-    a = np.asarray(frame(out, st, "sit_front", 0).getchannel("A")) > 128
-    best = 0
-    for y in range(114, 126):
-        row = a[y]
-        best = max(best, int(np.sum(row[1:] & ~row[:-1])))
-    assert best >= 8, (st, best)
+    assert near(side, ds.RED).sum() > 500 and near(side, ds.BLUE).sum() > 90, st
 
 
 @pytest.mark.parametrize("st", STAGES)
-def test_hero_landing_plants_a_fist_in_front_and_stretches_a_leg_back(out, st):
-    a = np.asarray(frame(out, st, "hero_land", 1).getchannel("A")) > 128
+def test_big_white_mask_lenses_outlined_in_black(out, st):
+    """가면의 큰 하얀 눈 렌즈 둘 (까만 테): 앞모습 머리 높이에 하양이 넉넉하고, 왼쪽·오른쪽에 하나씩."""
+    im = frame(out, st, "sit_front", 0)
+    white = near(im, ds.LENS, 30)
+    ys, xs = np.nonzero(white)
+    assert len(xs) > 120, (st, len(xs))
+    assert (xs < 64).sum() > 50 and (xs > 64).sum() > 50, st
+    assert near(im, ds.LENS_RIM, 40).sum() > 60, st
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_side_views_face_right(out, st):
+    """옆모습은 오른쪽을 본다: 렌즈(하양)가 몸 가운데보다 오른쪽."""
+    for anim in ("walk", "run", "shoot"):
+        im = frame(out, st, anim, 0)
+        a = np.asarray(im.getchannel("A")) > 128
+        body_x = np.nonzero(a)[1].mean()
+        lens_x = np.nonzero(near(im, ds.LENS, 30))[1].mean()
+        assert lens_x > body_x + 3, (st, anim, lens_x, body_x)
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_a_person_stands_on_two_legs_in_front_view(out, st):
+    """앞모습: 바닥께에 발(장화)이 둘 — 거미 다리 여덟이 아니다."""
+    for anim in ("sit_front", "wave"):
+        a = np.asarray(frame(out, st, anim, 0).getchannel("A")) > 128
+        runs = [int(np.sum(a[y][1:] & ~a[y][:-1])) for y in range(112, 125)]
+        assert max(runs) == 2, (st, anim, runs)
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_hero_landing_plants_a_glove_on_the_floor_and_stretches_a_leg_back(out, st):
+    im = frame(out, st, "hero_land", 1)
+    a = np.asarray(im.getchannel("A")) > 128
     ys, xs = np.nonzero(a)
-    assert xs.min() < 26, (st, xs.min())  # 뒤로 쭉 뻗은 다리
-    floor = a[112:124]
-    assert floor[:, 92:].any(), st  # 앞에 짚은 주먹
-    assert ys.min() > 30, st  # 쪼그려 낮다
+    assert xs.min() < 40, (st, xs.min())  # 뒤로 쭉 뻗은 다리
+    glove = near(im, ds.RED)[108:125, 78:]
+    assert glove.sum() > 12, (st, int(glove.sum()))  # 앞 바닥을 짚은 빨간 장갑
+    assert ys.min() > 34, st  # 쪼그려 낮다
 
 
 def test_the_build_reproduces_the_committed_spider(out):

@@ -705,7 +705,7 @@ mod tests {
         for stage in ["baby", "teenager", "adult"] {
             let g = s.grip_table(stage);
             assert_eq!((g.shoot.n, g.web_swing.n, g.web_pull.n), (3, 2, 4), "{stage}");
-            assert!(g.shoot.at(1.0).0 > 0.25, "쏜 손은 몸 앞 멀리 {stage}");
+            assert!(g.shoot.at(1.0).0 > 0.03, "쏜 손은 몸 앞 (꼬마 영웅의 짧은 팔) {stage}");
             assert!(g.web_swing.at(0.0).1 < 0.2, "그네 손은 머리 위 {stage}");
         }
         // 그림이 하나라도 빠지면 줄을 쓰지 않음
