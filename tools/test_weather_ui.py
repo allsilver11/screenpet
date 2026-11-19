@@ -22,7 +22,7 @@ def test_frame_rate_and_particle_budget():
     assert const("MAX_PARTICLES") <= 80
     assert const("MIN_PARTICLES") >= 30
     counts = [int(c) for c in re.findall(r"count: (\d+)", JS)]
-    assert len(counts) == 8 and all(30 <= c <= 80 for c in counts)
+    assert len(counts) == 9 and all(30 <= c <= 80 for c in counts)
     # 날씨마다 지난번과 같은 예산 (비 70개가 가장 많다)
     assert max(counts) <= 70
 
@@ -102,7 +102,7 @@ def test_help_tells_the_whole_year():
 
 
 # ---- ui/weather.js를 가짜 캔버스로 돌려 보기 (tools/weather_harness.js) — 호출 수만, 실제 렌더링 비용은 아니다 ----
-@pytest.fixture(scope="module", params=["light_snow", "snow", "rain", "shower", "petals", "leaves", "green_leaves", "typhoon"])
+@pytest.fixture(scope="module", params=["light_snow", "snow", "heavy_snow", "rain", "shower", "petals", "leaves", "green_leaves", "typhoon"])
 def run(request):
     if not shutil.which("node"):
         pytest.skip("node not installed")
@@ -192,6 +192,36 @@ def test_green_leaves_flutter_livelier_than_autumn_leaves():
     assert green["sway"] > autumn["sway"]
     assert green["flutter"] > autumn.get("flutter", 1.6)
     assert "spec.flutter" in JS
+
+
+def kind_spec(kind):
+    """KINDS 표의 한 줄 → {count, box, sway, ...}와 fall·wind 범위."""
+    line = next(l for l in JS.splitlines() if l.strip().startswith(f"{kind}:"))
+    spec = {k: float(v) for k, v in re.findall(r"(\w+): (-?[\d.]+)[,\s}]", line)}
+    for k, lo, hi in re.findall(r"(\w+): \[(-?[\d.]+), (-?[\d.]+)\]", line):
+        spec[k] = (float(lo), float(hi))
+    return spec
+
+
+def test_heavy_snow_is_big_plentiful_flakes_drifting_down_slowly():
+    heavy, snow = kind_spec("heavy_snow"), kind_spec("snow")
+    assert heavy["count"] > snow["count"], "펑펑"
+    assert heavy["box"] > snow["box"], "큰 눈송이"
+    assert heavy["fall"][1] < snow["fall"][1], "천천히"
+    assert heavy["sway"] >= snow["sway"], "살랑살랑 흩날림"
+    px_box = dict(re.findall(r"(\w+): (\d+)", JS[JS.index("const PX_BOX"):].split("\n")[0]))
+    assert int(px_box["heavy_snow"]) > int(px_box["snow"]), "픽셀도 큼"
+    assert "PX_HEAVY_FLAKES" in JS
+
+
+def test_heavy_snow_draws_bigger_flakes_than_snow_and_piles_like_snow(run):
+    if run["kind"] != "heavy_snow":
+        pytest.skip("heavy snow only")
+    snow = json.loads(run_node(ROOT / "tools" / "weather_harness.js", "snow", timeout=60).stdout)
+    assert run["spriteBox"] > snow["spriteBox"]
+    assert run["particleCount"] > snow["particleCount"]
+    assert run["flurryBox"] > snow["flurryBox"], "쓸려 와도 큰 눈송이"
+    assert run["pileImages"] == 0 and run["pileFills"] > 0, "눈 더미 그대로"
 
 
 def test_only_rain_showers_and_typhoons_splash(run):

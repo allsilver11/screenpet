@@ -64,9 +64,12 @@ fn seasons_follow_the_brief() {
 #[test]
 fn outside_summer_the_clock_does_not_matter() {
     // 9월은 🌀 태풍이 올 수 있어 따로 봄 (typhoons_come_only_in_their_windows)
+    // 한겨울 눈 오는 날은 함박눈 칸이 있을 수 있어 따로 봄 (heavy_snow_visits_some_deep_winter_snow_days_for_a_stretch)
     for (m, d) in [(3, 1), (4, 30), (10, 31), (11, 1), (11, 2), (11, 3), (12, 25), (1, 3), (2, 28)] {
         for secs in [0, 3 * 3600, 12 * 3600, 86_399] {
-            assert_eq!(weather_at(2027, m, d, secs), Some(season(m, d)), "{m}/{d} {secs}");
+            let heavy = heavy_snows(2027, m, d).iter().any(|&(a, b)| a <= secs && secs < b);
+            let want = if heavy { Weather::HeavySnow } else { season(m, d) };
+            assert_eq!(weather_at(2027, m, d, secs), Some(want), "{m}/{d} {secs}");
         }
     }
 }
@@ -464,7 +467,7 @@ fn the_broom_clears_only_the_pile_it_passes_over() {
 
 #[test]
 fn only_piling_weather_can_be_swept_to_a_friend() {
-    for kind in [Weather::LightSnow, Weather::Snow, Weather::Petals, Weather::Leaves] {
+    for kind in [Weather::LightSnow, Weather::Snow, Weather::HeavySnow, Weather::Petals, Weather::Leaves] {
         assert_eq!(parse_flurry_kind(&flurry_kind(kind)), Some(kind));
     }
     for raw in ["flurry:rain", "flurry:shower", "flurry:off", "flurry:", "flurry:lava", "can", "snow"] {
@@ -692,4 +695,84 @@ fn a_typhoon_scene_carries_the_wind_and_the_funnel_but_other_scenes_do_not() {
     assert_eq!(v["kind"], "typhoon");
     assert!((v["wind"].as_f64().unwrap() + 1.2).abs() < 1e-6);
     assert_eq!(v["tornado"][0], 300.0);
+}
+
+#[test]
+fn heavy_snow_is_snow_that_piles_faster_and_higher() {
+    let (heavy, snow) = (Weather::HeavySnow.rates(), Weather::Snow.rates());
+    assert!(heavy.grow > snow.grow && heavy.cap > snow.cap, "펑펑: 더 빨리, 더 높이");
+    assert!(Weather::HeavySnow.is_snow() && !Weather::HeavySnow.looks_up() && !Weather::HeavySnow.is_stormy());
+    let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+    let (mut g, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+    run(&mut f, Weather::HeavySnow, 300);
+    run(&mut g, Weather::Snow, 300);
+    assert!(depth(&f, Owner::Ground(0)) > depth(&g, Owner::Ground(0)) * 1.3, "보통 눈보다 훨씬 많이 쌓임");
+    assert!(f.snow_on_ground() && f.pack_snow(0.0, 1920.0, WA.bottom, 40.0) > 0.0, "눈처럼 뭉침");
+    run(&mut f, Weather::HeavySnow, 3000);
+    let top = f.piles.iter().flat_map(|p| &p.cells).fold(0.0f32, |a, &c| a.max(c));
+    assert!(top > 9.0 && top <= heavy.cap, "보통 눈보다 높은 끝: {top}");
+    assert!(snowman_stays(Some(Weather::HeavySnow), 0.0, true));
+}
+
+#[test]
+fn light_normal_and_heavy_snow_keep_the_same_pile() {
+    for (from, to) in [(Weather::Snow, Weather::HeavySnow), (Weather::HeavySnow, Weather::LightSnow), (Weather::LightSnow, Weather::HeavySnow)] {
+        let (mut f, _) = field(vec![]);
+        run(&mut f, from, 300);
+        let before = depth(&f, Owner::Ground(0));
+        f.tick(1.0, to);
+        assert!(depth(&f, Owner::Ground(0)) > before / 2.0, "{from:?} → {to:?}: 이어 쌓임");
+    }
+    let (mut f, _) = field(vec![]);
+    run(&mut f, Weather::HeavySnow, 300);
+    f.tick(1.0, Weather::Leaves);
+    assert!(depth(&f, Owner::Ground(0)) < 0.5, "낙엽은 새 더미");
+}
+
+#[test]
+fn heavy_snow_is_named_for_settings_previews_and_friends() {
+    assert_eq!(Weather::HeavySnow.name(), "heavy_snow");
+    assert_eq!(serde_json::to_value(Weather::HeavySnow).unwrap(), "heavy_snow");
+    assert_eq!(parse_preview("heavy_snow"), Some(Some(Weather::HeavySnow)));
+    assert_eq!(flurry_kind(Weather::HeavySnow), "flurry:heavy_snow");
+    assert_eq!(parse_flurry_kind("flurry:heavy_snow"), Some(Weather::HeavySnow));
+}
+
+/// 12~2월 날짜 전부 (윤년 포함)
+fn winter_days() -> Vec<(i32, u32, u32)> {
+    let mut days = Vec::new();
+    for y in [2027, 2028] {
+        for (m, n) in [(12, 31), (1, 31), (2, if y == 2028 { 29 } else { 28 })] {
+            days.extend((1..=n).map(|d| (y, m, d)));
+        }
+    }
+    days
+}
+
+#[test]
+fn heavy_snow_visits_some_deep_winter_snow_days_for_a_stretch() {
+    let days = winter_days();
+    let snowy: Vec<_> = days.iter().filter(|&&(_, m, d)| season(m, d) == Weather::Snow).collect();
+    let heavy = snowy.iter().filter(|&&&(y, m, d)| !heavy_snows(y, m, d).is_empty()).count();
+    assert!(heavy * 6 >= snowy.len() && heavy * 3 <= snowy.len() * 2, "가끔: {heavy}/{}", snowy.len());
+    for &(y, m, d) in &days {
+        let list = heavy_snows(y, m, d);
+        assert_eq!(list, heavy_snows(y, m, d), "다시 켜도 같음");
+        if season(m, d) != Weather::Snow {
+            assert!(list.is_empty(), "{y}-{m}-{d}: 눈 오는 날에만");
+        }
+        let mut last_end = 0;
+        for &(start, end) in &list {
+            assert!((20 * 60..=50 * 60).contains(&(end - start)), "한동안: {list:?}");
+            assert!(start >= 8 * 3600 && end <= 23 * 3600, "깨어 있는 시간: {list:?}");
+            assert!(start >= last_end, "겹치지 않음: {list:?}");
+            last_end = end;
+            assert_eq!(weather_at(y, m, d, start), Some(Weather::HeavySnow));
+            assert_eq!(weather_at(y, m, d, end - 1), Some(Weather::HeavySnow));
+            assert_eq!(weather_at(y, m, d, end), Some(Weather::Snow), "지나가면 보통 눈");
+        }
+    }
+    for (y, m, d) in [(2027, 11, 2), (2027, 3, 1), (2027, 7, 1), (2027, 10, 1)] {
+        assert!(heavy_snows(y, m, d).is_empty(), "{y}-{m}-{d} 한겨울 아님");
+    }
 }

@@ -21,6 +21,8 @@ pub enum WeatherSource {
     Season,
     /// ❄️ 눈
     Snow,
+    /// 🌨️ 함박눈 (예전 판은 모르는 값이라 실제 날씨로 돌아감)
+    HeavySnow,
     /// 🌧️ 비
     Rain,
     /// 🍂 낙엽
@@ -35,10 +37,11 @@ pub enum WeatherSource {
 
 impl WeatherSource {
     /// 메뉴 순서 (설정·메뉴 id는 id())
-    pub const ALL: [WeatherSource; 8] = [
+    pub const ALL: [WeatherSource; 9] = [
         WeatherSource::Real,
         WeatherSource::Season,
         WeatherSource::Snow,
+        WeatherSource::HeavySnow,
         WeatherSource::Rain,
         WeatherSource::Leaves,
         WeatherSource::Petals,
@@ -46,8 +49,8 @@ impl WeatherSource {
         WeatherSource::Typhoon,
     ];
     /// 직접 고르는 날씨들 (메뉴 순서)
-    pub const MANUAL: [WeatherSource; 6] =
-        [WeatherSource::Snow, WeatherSource::Rain, WeatherSource::Leaves, WeatherSource::Petals, WeatherSource::GreenLeaves, WeatherSource::Typhoon];
+    pub const MANUAL: [WeatherSource; 7] =
+        [WeatherSource::Snow, WeatherSource::HeavySnow, WeatherSource::Rain, WeatherSource::Leaves, WeatherSource::Petals, WeatherSource::GreenLeaves, WeatherSource::Typhoon];
 
     /// 실제 날씨를 씀
     pub fn is_real(&self) -> bool {
@@ -59,6 +62,7 @@ impl WeatherSource {
         match self {
             WeatherSource::Real | WeatherSource::Season => None,
             WeatherSource::Snow => Some(Weather::Snow),
+            WeatherSource::HeavySnow => Some(Weather::HeavySnow),
             WeatherSource::Rain => Some(Weather::Rain),
             WeatherSource::Leaves => Some(Weather::Leaves),
             WeatherSource::Petals => Some(Weather::Petals),
@@ -73,6 +77,7 @@ impl WeatherSource {
             WeatherSource::Real => "real",
             WeatherSource::Season => "season",
             WeatherSource::Snow => "snow",
+            WeatherSource::HeavySnow => "heavy_snow",
             WeatherSource::Rain => "rain",
             WeatherSource::Leaves => "leaves",
             WeatherSource::Petals => "petals",
@@ -87,6 +92,7 @@ impl WeatherSource {
             WeatherSource::Real => "☀️ 실제 날씨",
             WeatherSource::Season => "📅 계절 날씨",
             WeatherSource::Snow => "❄️ 눈",
+            WeatherSource::HeavySnow => "🌨️ 함박눈",
             WeatherSource::Rain => "🌧️ 비",
             WeatherSource::Leaves => "🍂 낙엽",
             WeatherSource::Petals => "🌸 꽃잎",
@@ -210,13 +216,14 @@ impl Reading {
 }
 
 /// WMO 날씨 코드 → 내리는 것. 이슬비·약한 비·약한 소나기는 소나기 그림, 보통 이상의 비·센 소나기·뇌우는 비,
-/// 약한 눈·싸락눈·약한 눈 소나기는 가벼운 눈, 보통 이상의 눈은 눈. 맑음·구름·안개는 None
+/// 약한 눈·싸락눈·약한 눈 소나기는 가벼운 눈, 보통 눈은 눈, 센 눈·센 눈 소나기는 함박눈. 맑음·구름·안개는 None
 pub fn precipitation(code: u16) -> Option<Weather> {
     match code {
         51 | 53 | 55 | 56 | 57 | 61 | 66 | 80 => Some(Weather::Shower),
         63 | 65 | 67 | 81 | 82 | 95 | 96 | 99 => Some(Weather::Rain),
         71 | 77 | 85 => Some(Weather::LightSnow),
-        73 | 75 | 86 => Some(Weather::Snow),
+        73 => Some(Weather::Snow),
+        75 | 86 => Some(Weather::HeavySnow),
         _ => None,
     }
 }
@@ -269,8 +276,9 @@ mod tests {
         for code in [71, 77, 85] {
             assert_eq!(precipitation(code), Some(Weather::LightSnow), "{code}");
         }
-        for code in [73, 75, 86] {
-            assert_eq!(precipitation(code), Some(Weather::Snow), "{code}");
+        assert_eq!(precipitation(73), Some(Weather::Snow));
+        for code in [75, 86] {
+            assert_eq!(precipitation(code), Some(Weather::HeavySnow), "{code}");
         }
         for code in [0, 1, 2, 3, 45, 48, 4, 100, 999] {
             assert_eq!(precipitation(code), None, "{code}");
@@ -343,6 +351,7 @@ mod tests {
         let snow = Some(Reading { code: 73, at: NOW });
         for (source, want) in [
             (WeatherSource::Snow, Weather::Snow),
+            (WeatherSource::HeavySnow, Weather::HeavySnow),
             (WeatherSource::Rain, Weather::Rain),
             (WeatherSource::Leaves, Weather::Leaves),
             (WeatherSource::Petals, Weather::Petals),
@@ -365,13 +374,13 @@ mod tests {
     #[test]
     fn weather_sources_have_stable_ids_that_match_the_config_names() {
         let ids: Vec<&str> = WeatherSource::ALL.iter().map(|s| s.id()).collect();
-        assert_eq!(ids, ["real", "season", "snow", "rain", "leaves", "petals", "green_leaves", "typhoon"]);
+        assert_eq!(ids, ["real", "season", "snow", "heavy_snow", "rain", "leaves", "petals", "green_leaves", "typhoon"]);
         for s in WeatherSource::ALL {
             assert_eq!(WeatherSource::from_id(s.id()), Some(s));
             assert_eq!(serde_json::to_string(&s).unwrap(), format!("\"{}\"", s.id()), "config id = menu id");
         }
         let labels: Vec<&str> = WeatherSource::MANUAL.iter().map(|s| s.label()).collect();
-        assert_eq!(labels, ["❄️ 눈", "🌧️ 비", "🍂 낙엽", "🌸 꽃잎", "🌿 푸른 잎", "🌀 태풍"]);
+        assert_eq!(labels, ["❄️ 눈", "🌨️ 함박눈", "🌧️ 비", "🍂 낙엽", "🌸 꽃잎", "🌿 푸른 잎", "🌀 태풍"]);
         assert_eq!(WeatherSource::from_id("hail"), None);
     }
 

@@ -214,7 +214,7 @@ pub struct TrayMenu {
     pub weather_real: CheckMenuItem<Wry>,
     /// 📅 계절 날씨 체크
     pub weather_season: CheckMenuItem<Wry>,
-    /// ❄️ 눈 / 🌧️ 비 / 🍂 낙엽 / 🌸 꽃잎 / 🌿 푸른 잎 — 직접 고른 날씨 체크 (WeatherSource::MANUAL)
+    /// ❄️ 눈 / 🌨️ 함박눈 / 🌧️ 비 / 🍂 낙엽 / 🌸 꽃잎 / 🌿 푸른 잎 — 직접 고른 날씨 체크 (WeatherSource::MANUAL)
     pub weather_manual: Vec<(CheckMenuItem<Wry>, WeatherSource)>,
     /// 📍 날씨 지역 도시들
     pub places: Vec<(CheckMenuItem<Wry>, Place)>,

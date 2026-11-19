@@ -1,4 +1,5 @@
 //! 계절 날씨 (v0.3.9, 일 년 내내) — 달력으로 날씨를 정하고, 창 윗면과 바닥에 쌓이는 눈·꽃잎·낙엽·푸른 잎 더미를 셈. 그림은 앱이 그림 (ui/weather.js).
+//! ❄️ 함박눈 (v0.6.8, 12~2월 눈 오는 날 가끔·메뉴): 큰 눈송이가 펑펑, 눈과 같은 더미에 더 빨리·높이 쌓임
 //! 🌀 태풍 (v0.6.8, 7~9월 가끔·메뉴): 쌓이지 않고 더미를 날려 버림. 돌풍·회오리 계산은 typhoon.rs
 //! 메뉴에서 날씨를 직접 고르면 (real_weather::WeatherSource) 달력과 상관없이 그 날씨가 계속 옴
 //!
@@ -22,6 +23,8 @@ pub enum Weather {
     /// 11월의 가벼운 눈
     LightSnow,
     Snow,
+    /// ❄️ 함박눈 — 큰 눈송이가 펑펑, 눈보다 빨리·높이 쌓임 (12~2월 눈 오는 날 가끔, heavy_snows). 예전 판은 모르는 이름이라 버림
+    HeavySnow,
     Rain,
     /// 5~8월의 소나기 (잠깐씩만, showers)
     Shower,
@@ -36,9 +39,9 @@ pub enum Weather {
 }
 
 impl Weather {
-    /// 눈임 (가벼운 눈 포함)
+    /// 눈임 (가벼운 눈·함박눈 포함)
     pub fn is_snow(self) -> bool {
-        matches!(self, Weather::LightSnow | Weather::Snow)
+        matches!(self, Weather::LightSnow | Weather::Snow | Weather::HeavySnow)
     }
 
     /// 펫이 자꾸 올려다보는 날씨
@@ -51,10 +54,10 @@ impl Weather {
         self == Weather::Typhoon
     }
 
-    /// 더미 그림의 갈래: 눈(가벼운 눈 포함)은 하나로 이어 쌓이고, 꽃잎·낙엽·푸른 잎은 서로 다른 더미임
+    /// 더미 그림의 갈래: 눈(가벼운 눈·함박눈 포함)은 하나로 이어 쌓이고, 꽃잎·낙엽·푸른 잎은 서로 다른 더미임
     fn pile_family(self) -> u8 {
         match self {
-            Weather::LightSnow | Weather::Snow => 0,
+            Weather::LightSnow | Weather::Snow | Weather::HeavySnow => 0,
             Weather::Petals => 1,
             Weather::Leaves => 2,
             Weather::GreenLeaves => 3,
@@ -67,6 +70,7 @@ impl Weather {
         match self {
             Weather::LightSnow => "light_snow",
             Weather::Snow => "snow",
+            Weather::HeavySnow => "heavy_snow",
             Weather::Rain => "rain",
             Weather::Shower => "shower",
             Weather::Petals => "petals",
@@ -81,6 +85,8 @@ impl Weather {
         match self {
             Weather::LightSnow => Rates { grow: 0.012, melt: 0.003, cap: 5.0 },
             Weather::Snow => Rates { grow: 0.02, melt: 0.004, cap: 9.0 },
+            // 함박눈은 훨씬 빨리, 훨씬 높이 쌓임
+            Weather::HeavySnow => Rates { grow: 0.045, melt: 0.004, cap: 16.0 },
             // 비는 쌓이지 않고, 남아 있던 더미를 빨리 녹인다
             Weather::Rain | Weather::Shower => Rates { grow: 0.0, melt: 0.05, cap: 0.0 },
             // 🌀 태풍은 쌓이지 않고 남은 더미를 바람이 금방 날려 버림
@@ -179,10 +185,42 @@ pub fn typhoons(year: i32, month: u32, day: u32) -> Vec<(u32, u32)> {
         .collect()
 }
 
-/// 지금 달력이 말하는 날씨 (secs: 자정부터 초). 7~9월 태풍 칸이면 태풍, 여름 소나기 사이의 맑은 때는 푸른 잎이 날림
+/// ❄️ 함박눈이 오는 시간대 (자정부터 초)
+const HEAVY_SNOW_HOURS: (u32, u32) = (8 * 3600, 23 * 3600);
+/// 함박눈이 오는 날의 몫 (12~2월 눈 오는 날 중)
+const HEAVY_SNOW_DAY_CHANCE: f64 = 0.35;
+const HEAVY_SNOWS_PER_DAY: (u32, u32) = (1, 2);
+/// 함박눈 한 번의 길이 (초): 20~50분
+const HEAVY_SNOW_SECS: (u32, u32) = (20 * 60, 50 * 60);
+
+/// 12~2월 눈 오는 날의 ❄️ 함박눈들: [시작, 끝) 초. 날짜로만 정해져서 앱을 다시 켜도 같음. 눈 오는 날의 셋에 하루쯤, 하루 1~2번 (겹치지 않음)
+pub fn heavy_snows(year: i32, month: u32, day: u32) -> Vec<(u32, u32)> {
+    if !matches!(month, 12 | 1 | 2) || season(month, day) != Weather::Snow {
+        return Vec::new();
+    }
+    let seed = (year as i64 * 10_000 + month as i64 * 100 + day as i64) as u64;
+    let mut rng = fastrand::Rng::with_seed(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ 0x6865_6176);
+    if rng.f64() >= HEAVY_SNOW_DAY_CHANCE {
+        return Vec::new();
+    }
+    let count = rng.u32(HEAVY_SNOWS_PER_DAY.0..=HEAVY_SNOWS_PER_DAY.1);
+    let slot = (HEAVY_SNOW_HOURS.1 - HEAVY_SNOW_HOURS.0) / count;
+    (0..count)
+        .map(|i| {
+            let len = rng.u32(HEAVY_SNOW_SECS.0..=HEAVY_SNOW_SECS.1);
+            let start = HEAVY_SNOW_HOURS.0 + i * slot + rng.u32(0..=slot - len);
+            (start, start + len)
+        })
+        .collect()
+}
+
+/// 지금 달력이 말하는 날씨 (secs: 자정부터 초). 7~9월 태풍 칸이면 태풍, 12~2월 함박눈 칸이면 함박눈, 여름 소나기 사이의 맑은 때는 푸른 잎이 날림
 pub fn weather_at(year: i32, month: u32, day: u32, secs: u32) -> Option<Weather> {
     if typhoons(year, month, day).iter().any(|&(start, end)| start <= secs && secs < end) {
         return Some(Weather::Typhoon);
+    }
+    if heavy_snows(year, month, day).iter().any(|&(start, end)| start <= secs && secs < end) {
+        return Some(Weather::HeavySnow);
     }
     let weather = season(month, day);
     if weather != Weather::Shower || showers(year, month, day).iter().any(|&(start, end)| start <= secs && secs < end) {
@@ -192,12 +230,13 @@ pub fn weather_at(year: i32, month: u32, day: u32, secs: u32) -> Option<Weather>
     }
 }
 
-/// 개발용 미리 보기 값 (환경 변수 SCREENPET_WEATHER): snow·light_snow·rain·shower·petals·leaves·green_leaves·typhoon·off. 그 밖의 값은 미리 보기 아님 (None).
+/// 개발용 미리 보기 값 (환경 변수 SCREENPET_WEATHER): snow·light_snow·heavy_snow·rain·shower·petals·leaves·green_leaves·typhoon·off. 그 밖의 값은 미리 보기 아님 (None).
 /// shower는 달력과 달리 쉬지 않고 내림
 pub fn parse_preview(raw: &str) -> Option<Option<Weather>> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "snow" => Some(Some(Weather::Snow)),
         "light_snow" => Some(Some(Weather::LightSnow)),
+        "heavy_snow" => Some(Some(Weather::HeavySnow)),
         "rain" => Some(Some(Weather::Rain)),
         "shower" => Some(Some(Weather::Shower)),
         "petals" => Some(Some(Weather::Petals)),
@@ -431,7 +470,7 @@ impl PileField {
         let rates = weather.rates();
         let piles_up = rates.grow > 0.0;
         if piles_up && self.pile_kind.is_some_and(|k| k.pile_family() != weather.pile_family()) {
-            // 눈이 꽃잎·낙엽으로, 낙엽이 눈이나 꽃잎으로: 다른 더미를 새로 시작함 (가벼운 눈 ↔ 눈은 이어 쌓음)
+            // 눈이 꽃잎·낙엽으로, 낙엽이 눈이나 꽃잎으로: 다른 더미를 새로 시작함 (가벼운 눈·눈·함박눈은 이어 쌓음)
             self.piles.iter_mut().for_each(|p| p.cells.fill(0.0));
         }
         if piles_up {

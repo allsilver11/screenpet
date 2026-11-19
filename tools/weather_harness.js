@@ -100,6 +100,11 @@ function run(kind) {
   const tumbleColours = new Set(tumble.map((s) => s.fill)).size;
   const colours = [...new Set(vm.runInContext("sprites", sandbox).map((s) => s.fill))];
   const hasSplash = vm.runInContext("splash !== null", sandbox);
+  // ❄️ 떨어지는 알갱이 그림 크기와 수 (함박눈은 크고 많음)
+  const spriteBox = Math.max(...vm.runInContext("sprites", sandbox).map((s) => s.width));
+  const particleCount = vm.runInContext("n", sandbox);
+  // 쓸려 날아오는 알갱이 그림 크기 (함박눈은 함박눈 그대로)
+  const flurryBox = Math.max(...vm.runInContext(`flurrySprites(${JSON.stringify(kind)})`, sandbox).map((s) => s.width));
 
   let deepest = -Infinity;
   let maxDraws = 0;
@@ -214,6 +219,9 @@ function run(kind) {
     tumbleColours,
     colours,
     hasSplash,
+    spriteBox,
+    particleCount,
+    flurryBox,
     repaintedPiles,
     meltingPileImages,
     pendingAfterPause,

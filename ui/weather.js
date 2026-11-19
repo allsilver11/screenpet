@@ -1,6 +1,6 @@
 // 계절 날씨 그리기. 앱(src-tauri/src/weather.rs)이 `weather-scene`으로 내려앉을 곳(tops)과 더미(piles)를 보냄 (논리 px, 이 창 왼쪽 위가 0,0).
 // CPU를 아끼는 규칙: 24 fps 이하, 알갱이 80개 이하, 미리 그린 그림을 정수 자리에 찍기, 알갱이 자리만 지우기, 더미는 바뀔 때만.
-// 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·rain·shower·petals·leaves·green_leaves·typhoon)로 앱 없이 볼 수 있음.
+// 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·heavy_snow·rain·shower·petals·leaves·green_leaves·typhoon)로 앱 없이 볼 수 있음.
 // 🌀 태풍: 장면의 wind(부호 = 방향, 돌풍에 커짐)로 비·잎이 옆으로 눕고, tornado([x, 바닥 y, vx])가 있으면 깔때기를 그림 (사이는 vx로 이어 그림).
 
 const FPS = 24;
@@ -15,6 +15,8 @@ const RELAND_PER_FRAME = 6;
 const KINDS = {
   light_snow: { count: 30, fall: [24, 46], wind: [-5, 5], sway: 12, rest: 0.6, box: 9, frames: 1 },
   snow: { count: 55, fall: [28, 62], wind: [-7, 7], sway: 14, rest: 0.6, box: 9, frames: 1 },
+  // 🌨️ 함박눈: 크고 몽실한 눈송이가 펑펑, 천천히 살랑이며 내려옴
+  heavy_snow: { count: 70, fall: [18, 40], wind: [-9, 9], sway: 22, flutter: 1.2, rest: 0.9, box: 13, frames: 1 },
   rain: { count: 70, fall: [520, 700], wind: [-46, -34], sway: 0, rest: 0.12, box: 18, frames: 1 },
   shower: { count: 70, fall: [620, 820], wind: [-70, -50], sway: 0, rest: 0.12, box: 18, frames: 1 },
   petals: { count: 35, fall: [30, 56], wind: [12, 30], sway: 20, rest: 1.0, box: 13, frames: 8 },
@@ -57,11 +59,17 @@ const PX_COLORS = {
   g: "#8ed64c", G: "#2e6e1e", h: "#b4e866", H: "#467c1a", k: "#5cc25e", K: "#1c6028",
 };
 const PX_FLAKES = [["w"], ["cw", "wc"], [".c.", "cwc", ".c."]];
+// 함박눈 픽셀 눈송이: 4~5칸짜리 뭉치
+const PX_HEAVY_FLAKES = [
+  [".cwc.", "cwwwc", "wwwww", "cwwwc", ".cwc."],
+  ["..c..", ".cwc.", "cwwwc", ".cwc.", "..c.."],
+  [".cc.", "cwwc", "cwwc", ".cc."],
+];
 const PX_DROP = ["..b.", "..b.", ".b..", ".b.."];
 const PX_SPLASH = ["b..b", ".bb."];
 const PX_PETAL = ["pp.", "Ppp", ".pP"];
 const PX_LEAF = [".LL.", "LLLF", "FLLL", ".FF."];
-const PX_BOX = { light_snow: 9, snow: 9, rain: 12, shower: 12, petals: 9, leaves: 12, green_leaves: 12, typhoon: 12 };
+const PX_BOX = { light_snow: 9, snow: 9, heavy_snow: 15, rain: 12, shower: 12, petals: 9, leaves: 12, green_leaves: 12, typhoon: 12 };
 
 // 픽셀 그림 줄들을 시계 방향으로 turns번 90도 돌림
 function pxRotate(rows, turns) {
@@ -139,6 +147,33 @@ function flake(radius) {
     g.strokeStyle = "rgba(120,150,190,0.55)";
     g.stroke();
   };
+}
+
+// 반지름 radius의 몽실한 함박눈송이 그리기 함수를 돌려줌: 가운데 동그라미에 작은 혹 넷 (테두리를 먼저 긋고 흰 속을 덮어 바깥 테두리만 남김)
+function fluffyFlake(radius) {
+  const lobes = [0, 1, 2, 3].map((k) => [Math.cos(k * 1.7 + 0.4) * radius * 0.45, Math.sin(k * 1.7 + 0.4) * radius * 0.45, radius * 0.6]);
+  const blobs = [[0, 0, radius * 0.8], ...lobes];
+  return (g, s) => {
+    g.lineWidth = 1.4;
+    g.strokeStyle = "rgba(120,150,190,0.4)";
+    for (const [dx, dy, r] of blobs) {
+      g.beginPath();
+      g.arc(s / 2 + dx, s / 2 + dy, r, 0, Math.PI * 2);
+      g.stroke();
+    }
+    g.fillStyle = "#fff";
+    for (const [dx, dy, r] of blobs) {
+      g.beginPath();
+      g.arc(s / 2 + dx, s / 2 + dy, r, 0, Math.PI * 2);
+      g.fill();
+    }
+  };
+}
+
+// 눈송이 그림들 (k: 눈 종류, box: 칸). 함박눈은 크고 몽실하게, 나머지 눈은 작은 동그라미
+function flakeSprites(k, box) {
+  if (k === "heavy_snow") return pixelArt ? PX_HEAVY_FLAKES.map((rows) => pxSprite(rows, box)) : [3.4, 4.2, 5.0].map((r) => makeSprite(box, fluffyFlake(r)));
+  return pixelArt ? PX_FLAKES.map((rows) => pxSprite(rows, box)) : [1.6, 2.2, 2.9].map((r) => makeSprite(box, flake(r)));
 }
 
 // angle만큼 돌린 꽃잎 그리기 함수를 돌려줌
@@ -221,7 +256,7 @@ function buildSprites() {
     } else if (tumblers[kind]) {
       sprites = tumblerSprites(kind);
     } else {
-      sprites = PX_FLAKES.map((rows) => pxSprite(rows, spec.box));
+      sprites = flakeSprites(kind, spec.box);
     }
     return;
   }
@@ -258,7 +293,7 @@ function buildSprites() {
   } else if (tumblers[kind]) {
     sprites = tumblerSprites(kind);
   } else {
-    sprites = [1.6, 2.2, 2.9].map((r) => makeSprite(spec.box, flake(r)));
+    sprites = flakeSprites(kind, spec.box);
   }
 }
 
@@ -367,11 +402,9 @@ function flurryBox(k) {
 // 날아 들어오는 알갱이 k의 스프라이트들
 function flurrySprites(k) {
   if (tumblers[k]) return tumblerSprites(k);
-  const key = `${pixelArt}:flake`;
-  if (!tumblerCache[key]) {
-    const box = flurryBox("snow");
-    tumblerCache[key] = pixelArt ? PX_FLAKES.map((rows) => pxSprite(rows, box)) : [1.6, 2.2, 2.9].map((r) => makeSprite(box, flake(r)));
-  }
+  const heavy = k === "heavy_snow";
+  const key = `${pixelArt}:${heavy ? "heavy_flake" : "flake"}`;
+  if (!tumblerCache[key]) tumblerCache[key] = flakeSprites(heavy ? k : "snow", flurryBox(heavy ? k : "snow"));
   return tumblerCache[key];
 }
 
