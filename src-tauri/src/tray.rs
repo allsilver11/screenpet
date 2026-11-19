@@ -178,6 +178,8 @@ pub struct FriendItem {
     pub can_throw: bool,
     /// 📱 연결된 내 다른 컴퓨터 (코드로 연결했음)
     pub device: bool,
+    /// 그 친구 펫이 이미 내 화면에 와 있음 ("펫 데리고 오기" 대신 "펫 이미 와 있어요", 누를 수 없음)
+    pub visiting: bool,
 }
 
 /// 트레이와 우클릭에 같이 쓰는 메뉴, 그리고 동물에 따라 바뀌는 항목
@@ -446,8 +448,12 @@ fn try_fill_friends(app: &AppHandle, submenu: &Submenu<Wry>, model: &FriendsMenu
         let send = MenuItem::with_id(app, format!("{SEND_PREFIX}{}", f.target), "놀러 보내기", f.can_send, None::<&str>)?;
         // 편지를 실어 보내기: "놀러 보내기"와 같은 때만 누를 수 있음
         let letter = MenuItem::with_id(app, format!("{LETTER_PREFIX}{}", f.target), "편지 들려 보내기…", f.can_send, None::<&str>)?;
-        let bring_label = format!("{} 펫 데리고 오기", menu_text(&f.name));
-        let bring = MenuItem::with_id(app, format!("{BRING_PREFIX}{}", f.target), bring_label, f.connected && model.room, None::<&str>)?;
+        let (bring_label, can_bring) = if f.visiting {
+            (format!("{} 펫 이미 와 있어요", menu_text(&f.name)), false)
+        } else {
+            (format!("{} 펫 데리고 오기", menu_text(&f.name)), f.connected && model.room)
+        };
+        let bring = MenuItem::with_id(app, format!("{BRING_PREFIX}{}", f.target), bring_label, can_bring, None::<&str>)?;
         // 📱 연결 안 됐으면 코드 창 (다른 컴퓨터와 이미 연결돼 있으면 창이 먼저 끊으라고 알림), 연결된 그 컴퓨터면 끊기
         let device = if f.device {
             MenuItem::with_id(app, format!("{UNLINK_PREFIX}{}", f.id), "📱 연결 끊기 (내 컴퓨터)", true, None::<&str>)?

@@ -158,7 +158,8 @@
 | visit | `visit_out` | INFO | friend visit carried | 내 펫이 친구 화면으로 넘어감 |
 | visit | `own_walk_on` | INFO | visit from to | 내 펫이 다음 친구로 걸어감 |
 | visit | `came_home` | INFO | friend with_reply | 내 펫이 답장을 들고 돌아옴 |
-| visit | `call_home` | WARN | friend reason | 너무 오래 소식 없어 부름 (`silent`) |
+| visit | `call_home` | WARN | friend reason | 너무 오래 소식 없어 부름 (`silent`), 있다던 친구가 조용해져 부름 (`quiet`) |
+| visit | `lost_visit` | WARN | friend visit | 가 있던 친구가 그 방문의 손님이 없다고 답함 (친구 앱이 다시 켜짐) — 바로 귀환 |
 | visit | `come_home_timeout` | WARN | | 부름에 답이 없어 그냥 돌아옴 |
 | visit | `invited` | INFO | friend | 친구가 초대해서 감 |
 | visit | `guest_in` | INFO | visit friend with_note via | 손님이 들어옴 |

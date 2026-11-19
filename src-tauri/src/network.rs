@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use screenpet_core::away;
 use screenpet_core::behavior::Personality;
 use screenpet_core::brain::control_moves::{ControlInput, SteerPacer};
 use screenpet_core::brain::State;
@@ -368,6 +369,10 @@ struct AwayVisit {
     since: Instant,
     /// 들려 보낸 편지 — 다른 친구 화면으로 이어 보낼 때도 그대로 다시 실음 (중간 친구는 바꿀 수 없음)
     note: Option<String>,
+    /// 마지막으로 "아직 있어?"를 물은 때 (screenpet_core::away)
+    probed: Option<Instant>,
+    /// 마지막으로 "있어요"를 들은 때 (예전 판 친구는 답하지 않아 늘 None)
+    heard: Option<Instant>,
 }
 
 /// 앱 쪽 네트워크 상태임 (게임 루프가 가짐): `Net`, 짝맞추기, 손님, 사다리, 편지함 등
@@ -424,6 +429,10 @@ pub struct Network {
     not_now_at: HashMap<String, Instant>,
     /// 지금 와 있는 손님 수 (꽉 차면 "펫 데리고 오기"를 막음)
     guests: usize,
+    /// 지금 와 있는 손님의 주인 id (메뉴 "펫 이미 와 있어요")
+    guest_owners: Vec<String>,
+    /// 내 동물이 놀러 가 있고 보이는 손님도 없어 미뤄 둔 친구의 대답 한 줄 (돌아오면 말함)
+    held_line: Option<(String, Instant)>,
     /// 중계 서버를 쓰도록 설정됨 / 지금 연결됨
     relay_enabled: bool,
     relay_connected: bool,
@@ -524,6 +533,14 @@ use visit::opposite;
 /// flicker에서 릴레이 연결을 가리키는 이름 (친구 id와 겹치지 않음)
 const RELAY_FLICKER: &str = "#relay";
 
+/// 손님 창이면 그 주인 id
+fn guest_owner(s: &Slot) -> Option<&str> {
+    match &s.role {
+        Role::Guest(g) => Some(g.owner_id.as_str()),
+        _ => None,
+    }
+}
+
 /// 로그용 짧은 id (앞 8자)
 fn short_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
@@ -609,6 +626,8 @@ impl Network {
             invite_asked: HashMap::new(),
             not_now_at: HashMap::new(),
             guests: 0,
+            guest_owners: Vec::new(),
+            held_line: None,
             relay_enabled: false,
             relay_connected: false,
             friend_code: None,
@@ -833,6 +852,11 @@ impl Network {
             self.guests = count;
             self.menu_dirty = true;
         }
+        // 손님 주인이 바뀌면 "펫 이미 와 있어요"를 다시 그림
+        if !slots.iter().filter_map(guest_owner).eq(self.guest_owners.iter().map(String::as_str)) {
+            self.guest_owners = slots.iter().filter_map(guest_owner).map(str::to_string).collect();
+            self.menu_dirty = true;
+        }
         let Some((own, guests)) = slots.split_first_mut() else { return };
         let blocked = self.net.is_none() || config.housed || own.pet.is_housed() || own.pet.is_going_home();
         let edges = if blocked { Default::default() } else { config.exit_edges(|id| self.is_open(id)) };
@@ -989,7 +1013,7 @@ impl Network {
         }
         log!(Info, "visit", "visit_out", "friend" => short(&friend), "visit" => visit_id, "carried" => u8::from(carried));
         self.carry_out = carried.then_some(visit_id);
-        self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None, since: Instant::now(), note });
+        self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None, since: Instant::now(), note, probed: None, heard: None });
         self.menu_dirty = true;
         carried
     }
@@ -1163,7 +1187,7 @@ impl Network {
         let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone(), None, None);
         log!(Info, "visit", "own_walk_on", "visit" => visit_id, "from" => short(&a.friend), "to" => short(next));
         // 돌아올 땐 내 화면에서 그 친구가 연결된 끝에서 들어옴
-        self.away = Some(AwayVisit { friend: next.to_string(), visit_id, side: f.side, come_home_by: None, since: Instant::now(), note });
+        self.away = Some(AwayVisit { friend: next.to_string(), visit_id, side: f.side, come_home_by: None, since: Instant::now(), note, probed: None, heard: None });
         self.menu_dirty = true;
         true
     }
@@ -1363,7 +1387,10 @@ impl Network {
             }
             NetInput::SendOn { label, friend } => self.send_on(config, slots, &label, &friend),
             NetInput::BringPet(id) => {
-                if let (Some(net), true) = (&self.net, self.link_up(&id) && self.guests < MAX_GUESTS) {
+                // 그 사람 펫이 이미 내 화면에 와 있으면 묻지 않고 그 손님이 한마디 (메뉴도 "펫 이미 와 있어요")
+                if let Some(s) = slots.iter().find(|s| matches!(&s.role, Role::Guest(g) if g.owner_id == id || config.same_person(&g.owner_id, &id))) {
+                    let _ = app.emit_to(s.label.as_str(), "pet-say-text", away::ALREADY_HERE_LINE);
+                } else if let (Some(net), true) = (&self.net, self.link_up(&id) && self.guests < MAX_GUESTS) {
                     net.ask(&id, ASK_INVITE);
                     self.invite_asked.insert(id, Instant::now());
                 }
@@ -1653,6 +1680,22 @@ impl Network {
     /// 친구의 부탁 (인증된 친구 링크에서만 옴 — net이 확인함)
     fn on_ask(&mut self, app: &AppHandle, config: &Config, slots: &mut [Slot], from: &str, ask: &str) {
         let Some(f) = config.friend(from) else { return };
+        // 친구가 내 화면에 보낸 자기 동물이 아직 있는지 물음: 있다/없다 답함 (예전 판은 묻지 않음).
+        // 📱 그 친구의 다른 컴퓨터 펫을 내가 다음 친구에게 데려다준 중이면 그것도 아직 있는 것
+        if let Some(visit_id) = away::parse_where(ask) {
+            let id = visit_id.to_string();
+            let here = slots.iter().any(|s| matches!(&s.role, Role::Guest(g) if g.visit_id == id && (g.owner_id == from || config.same_person(&g.owner_id, from))));
+            let present = here || self.carried.get(&visit_id).is_some_and(|c| c.owner == from);
+            if let Some(net) = &self.net {
+                net.ask(from, &away::answer(visit_id, present));
+            }
+            return;
+        }
+        // 내 동물이 가 있는 친구의 대답 (있어요 / 없어요)
+        if let Some(news) = away::parse_news(ask) {
+            self.on_away_news(app, &mut slots[0], from, news);
+            return;
+        }
         match ask {
             // "펫 데리고 오기": 보낼 수 있고 너무 잦지 않으면 말풍선을 띄우고 "놀러 보내기"처럼 손 흔들고 뿅 그 친구에게 감
             ASK_INVITE => {
@@ -1680,7 +1723,7 @@ impl Network {
             ASK_BUSY => {
                 if self.invite_asked.remove(from).is_some_and(|t| t.elapsed() < ASK_ANSWER_WINDOW) {
                     let name = screenpet_core::config::sanitize_name(config.person_name(from).unwrap_or(f.shown_name())).unwrap_or_else(|| DEFAULT_NAME.to_string());
-                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", format!("{name}: busy~"));
+                    self.say_answer(app, slots, format!("{name}: busy~"));
                 }
             }
             // 던졌는데 그 친구가 지금 받지 않음 (집중·하우스 중)
@@ -1688,12 +1731,43 @@ impl Network {
                 let last = self.not_now_at.insert(from.to_string(), Instant::now());
                 if visit::not_now_is_news(last.map(|t| t.elapsed().as_secs_f64())) {
                     let name = screenpet_core::config::sanitize_name(config.person_name(from).unwrap_or(f.shown_name())).unwrap_or_else(|| DEFAULT_NAME.to_string());
-                    let _ = app.emit_to(OWN_LABEL, "pet-say-text", format!("{name}: busy~"));
+                    self.say_answer(app, slots, format!("{name}: busy~"));
                 }
             }
             // 모르는 부탁 (새 판) — 무시
             _ => {}
         }
+    }
+
+    /// 친구의 대답 한 줄을 보이는 곳에 띄움: 내 동물이 집에 있으면 그 동물, 놀러 가 있으면 와 있는 손님 하나,
+    /// 아무도 없으면 미뤄 뒀다가 돌아오면 말함 (tick)
+    fn say_answer(&mut self, app: &AppHandle, slots: &[Slot], line: String) {
+        let own_home = self.away.is_none() && !slots[0].pet.is_away();
+        let guests: Vec<&str> = slots.iter().filter(|s| !s.is_own()).map(|s| s.label.as_str()).collect();
+        match away::speaker(own_home, crate::game_loop::speech_target(&slots[0].pet), &guests) {
+            Some(target) => {
+                let _ = app.emit_to(target, "pet-say-text", line);
+            }
+            None => self.held_line = Some((line, Instant::now())),
+        }
+    }
+
+    /// 내 동물이 가 있는 친구(from)의 소식: 있어요면 들은 때를 적고, 없어요면 (친구 앱이 다시 켜져 손님을 잃음) 바로 집으로 와서 한마디
+    fn on_away_news(&mut self, app: &AppHandle, own: &mut Slot, from: &str, news: away::News) {
+        let Some(a) = self.away.as_mut().filter(|a| a.friend == from) else { return };
+        let (away::News::Here(id) | away::News::Gone(id)) = news;
+        if id != a.visit_id {
+            return;
+        }
+        if matches!(news, away::News::Here(_)) {
+            a.heard = Some(Instant::now());
+            return;
+        }
+        log!(Warn, "visit", "lost_visit", "friend" => short(from), "visit" => id);
+        // 들고 간 물건도 그 친구 화면과 함께 사라졌음
+        self.carry_out = None;
+        self.come_back(own, None, None);
+        let _ = app.emit_to(OWN_LABEL, "pet-say-text", away::LOST_LINE);
     }
 
     /// net이 짝맞추기 없이 고정한 친구를 설정에 넣음. 소개받은 기기는 소개한 친구와 같은 이름으로,
@@ -2347,12 +2421,26 @@ impl Network {
             self.can_send = can_send;
             self.menu_dirty = true;
         }
-        // 연결은 살아 있는데 친구 쪽 방문이 너무 오래 끝나지 않음: 평소 "집에 와"처럼 부름
         if let (Some(net), Some(a)) = (&self.net, self.away.as_mut()) {
-            if a.come_home_by.is_none() && a.since.elapsed().as_secs_f64() >= visit::AWAY_SILENCE_LIMIT_SECS {
-                log!(Warn, "visit", "call_home", "friend" => short(&a.friend), "reason" => "silent");
+            let secs_away = a.since.elapsed().as_secs_f64();
+            // 가 있는 동안 가끔 "아직 있어?"를 물음: 친구 앱이 다시 켜지면 링크가 곧 다시 붙어 끊김 소식 없이 손님을 잃음 (새 판은 없다고 답함)
+            if a.come_home_by.is_none() && away::probe_due(secs_away, a.probed.map(|t| now.saturating_duration_since(t).as_secs_f64())) {
+                net.ask(&a.friend, &away::where_ask(a.visit_id));
+                a.probed = Some(now);
+            }
+            // 연결은 살아 있는데 친구 쪽 방문이 너무 오래 끝나지 않거나, 있다던 친구가 조용해짐: 평소 "집에 와"처럼 부름
+            if a.come_home_by.is_none() && away::too_quiet(secs_away, a.heard.map(|t| now.saturating_duration_since(t).as_secs_f64())) {
+                log!(Warn, "visit", "call_home", "friend" => short(&a.friend), "reason" => if a.heard.is_some() { "quiet" } else { "silent" });
                 net.send(&a.friend, Visit::ComeHome { visit_id: a.visit_id });
                 a.come_home_by = Some(now + COME_HOME_FALLBACK);
+            }
+        }
+        // 놀러 가 있는 동안 미뤄 둔 친구의 대답: 돌아왔으면 말함 (너무 오래됐으면 버림)
+        if self.away.is_none() && !own.pet.is_away() {
+            if let Some((line, at)) = self.held_line.take() {
+                if now.saturating_duration_since(at).as_secs_f64() < away::HELD_LINE_SECS {
+                    let _ = app.emit_to(crate::game_loop::speech_target(&own.pet), "pet-say-text", line);
+                }
             }
         }
         if self.away.as_ref().and_then(|a| a.come_home_by).is_some_and(|t| now >= t) {
@@ -2401,6 +2489,8 @@ impl Network {
                     can_send: self.can_send && playable,
                     can_throw: playable,
                     device: f.device_secret.is_some(),
+                    // 그 사람 펫이 이미 내 화면에 와 있음 ("펫 이미 와 있어요")
+                    visiting: self.guest_owners.iter().any(|o| *o == p.id || config.same_person(o, &p.id)),
                     target: p.target,
                 })
             })
