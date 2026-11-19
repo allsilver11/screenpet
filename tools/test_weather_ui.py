@@ -236,6 +236,13 @@ def test_a_typhoon_draws_its_tornado_only_while_the_scene_has_one(run):
     assert run["funnelAfterGone"] == 0, "회오리가 가면 지움"
 
 
+def test_the_whole_tornado_fits_in_the_box_cleared_next_frame(run):
+    """지울 칸보다 삐져나온 고리 끝은 다음 프레임에 안 지워져 회색 줄로 남음 (돌풍이 지나간 자리 잔상, v0.6.8)."""
+    if run["kind"] != "typhoon":
+        return
+    assert run["funnelOutside"] == 0
+
+
 def test_typhoon_debris_is_green_leaves_flying_with_the_wind(run):
     if run["kind"] != "typhoon":
         assert run["debrisColours"] == []

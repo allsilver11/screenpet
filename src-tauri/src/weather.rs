@@ -232,10 +232,12 @@ impl WeatherFx {
             }
             let mut scene = self.field.scene(kind, &o.wa, o.scale);
             if let Some(storm) = self.storm.as_ref().filter(|_| kind.is_stormy()) {
-                // 바람은 0.1 단위로 (돌풍이 부는 동안만 장면이 바뀜), 회오리는 그 모니터에만
+                // 바람은 0.1 단위로 (돌풍이 부는 동안만 장면이 바뀜), 회오리는 그 모니터와, 모니터 끝에 걸쳐 있으면 옆 모니터에도
+                // (옆 모니터에선 화면 밖 x로 반쪽만 보임 — 그 모니터 바닥에 그림)
                 scene.wind = Some((storm.wind() * 10.0).round() as f32 / 10.0);
-                scene.tornado = storm.tornado().filter(|t| t.area() == o.wa).map(|t| {
-                    [((t.x() - o.wa.left) / o.scale).round() as f32, ((t.ground() - o.wa.top) / o.scale).round() as f32, (t.vx() / o.scale).round() as f32]
+                scene.tornado = storm.tornado().filter(|t| t.area() == o.wa || screenpet_core::typhoon::straddles(t.x(), &o.wa, o.scale)).map(|t| {
+                    let ground = if t.area() == o.wa { t.ground() } else { o.wa.bottom };
+                    [((t.x() - o.wa.left) / o.scale).round() as f32, ((ground - o.wa.top) / o.scale).round() as f32, (t.vx() / o.scale).round() as f32]
                 });
             }
             let payload = Payload { paused, scene };

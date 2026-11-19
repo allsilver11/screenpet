@@ -219,10 +219,18 @@ struct Rider {
     start_h: f64,
 }
 
+/// 깔때기가 모니터 wa 밖에 있지만 그 끝에 걸쳐 보이는 자리임 (scale = 그 모니터 배율). 옆 모니터로 넘어가는 동안 양쪽에 반쪽씩 그림
+pub fn straddles(x: f64, wa: &Rect, scale: f64) -> bool {
+    let reach = (FUNNEL_R.1 + 30.0) * scale;
+    (x < wa.left && x > wa.left - reach) || (x > wa.right && x < wa.right + reach)
+}
+
 /// 한 모니터 바닥을 돌아다니는 회오리
 #[derive(Debug, Clone)]
 pub struct Tornado {
     area: Rect,
+    /// 지금 모니터들 (옆 모니터로 넘어갈 때 씀). 비면 제 모니터만
+    areas: Vec<Rect>,
     bounds: Rect,
     dpi: f64,
     x: f64,
@@ -247,7 +255,22 @@ impl Tornado {
         let dir = if rng.bool() { 1.0 } else { -1.0 };
         let vx = dir * between(&mut rng, ROAM_SPEED) * dpi;
         let turn_in = between(&mut rng, ROAM_TURN);
-        Self { area, bounds, dpi, x, vx, turn_in, parked: false, clock: 0.0, riders: Vec::new(), recent: Vec::new(), next_pet_cross: 0.0, last_from: None, rng }
+        Self { area, areas: Vec::new(), bounds, dpi, x, vx, turn_in, parked: false, clock: 0.0, riders: Vec::new(), recent: Vec::new(), next_pet_cross: 0.0, last_from: None, rng }
+    }
+
+    /// 지금 모니터들을 알려 줌: 옆에 붙은 모니터가 있으면 그쪽 끝에서 돌아서지 않고 넘어감
+    pub fn set_areas(&mut self, areas: &[Rect]) {
+        self.areas.clear();
+        self.areas.extend_from_slice(areas);
+    }
+
+    /// side 쪽 끝에 맞붙고 위아래가 겹치는 모니터 (없으면 None)
+    fn neighbor(&self, right: bool) -> Option<Rect> {
+        let a = self.area;
+        self.areas.iter().copied().find(|b| {
+            let touches = if right { (b.left - a.right).abs() <= 2.0 } else { (b.right - a.left).abs() <= 2.0 };
+            touches && b.top < a.bottom && a.top < b.bottom
+        })
     }
 
     /// 깔때기 가운데 x
@@ -328,7 +351,7 @@ impl Tornado {
         }
     }
 
-    /// 이리저리: 가끔 빠르기·방향을 다시 고르고, 모니터 끝에서 돌아섬
+    /// 이리저리: 가끔 빠르기·방향을 다시 고르고, 모니터 끝에서 돌아섬. 옆에 모니터가 붙어 있으면 그 끝은 넘어가 그 모니터 회오리가 됨
     fn roam(&mut self, dt: f64) {
         if self.parked {
             return;
@@ -340,8 +363,21 @@ impl Tornado {
             self.vx = dir * between(&mut self.rng, ROAM_SPEED) * self.dpi;
         }
         let margin = (FUNNEL_R.1 * self.dpi).min(self.area.width() / 2.0);
-        let (lo, hi) = (self.area.left + margin, self.area.right - margin);
+        let (left_n, right_n) = (self.neighbor(false), self.neighbor(true));
+        let lo = if left_n.is_some() { self.area.left } else { self.area.left + margin };
+        let hi = if right_n.is_some() { self.area.right } else { self.area.right - margin };
         self.x += self.vx * dt;
+        match (left_n, right_n) {
+            (Some(n), _) if self.x < self.area.left => {
+                self.area = n;
+                return;
+            }
+            (_, Some(n)) if self.x > self.area.right => {
+                self.area = n;
+                return;
+            }
+            _ => {}
+        }
         if self.x < lo {
             self.x = lo;
             self.vx = self.vx.abs();
@@ -450,7 +486,10 @@ impl Storm {
                 self.tornado = None;
                 self.timer = between(&mut self.rng, TORNADO_REST);
             }
-            Some(t) => t.step(dt, loose, out),
+            Some(t) => {
+                t.set_areas(areas);
+                t.step(dt, loose, out)
+            }
             None if self.timer <= 0.0 && !areas.is_empty() => {
                 let area = areas[self.rng.usize(..areas.len())];
                 self.tornado = Some(Tornado::new(area, bounds, dpi, self.rng.u64(..)));

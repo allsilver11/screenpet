@@ -535,13 +535,21 @@ function clearFunnel() {
 function drawFunnel(now) {
   if (!tornado || kind !== "typhoon") return;
   const t = now / 1000;
-  const x = Math.min(Math.max(tornado.x + (tornado.vx * (now - tornado.at)) / 1000, 0), width);
+  // 모니터 끝에 걸치면 x가 화면 밖일 수 있음 (반쪽만 보임) — 깔때기 폭만큼만 밖으로
+  const out = FUNNEL_R[1] + 30;
+  const x = Math.min(Math.max(tornado.x + (tornado.vx * (now - tornado.at)) / 1000, -out), width + out);
   const y = tornado.y;
   const g = fallCtx;
-  const reach = FUNNEL_R[1] + 24;
-  funnelBox = [Math.floor(x - reach), Math.floor(y - FUNNEL_HEIGHT - 16), Math.ceil(reach * 2), FUNNEL_HEIGHT + 24];
+  const line = pixelArt ? PX_DOT : 2.2;
+  // 지울 칸 = 그린 것 전부 + 여유: 고리는 옆으로 12 출렁이고 살짝 기울며, 맨 위 고리는 꼭대기보다 세로 반지름만큼 더 올라감
+  // (칸이 모자라면 삐져나온 고리 끝이 다음 프레임에 안 지워져 회색 줄로 남음)
+  const reach = FUNNEL_R[1] + 12 + line + 6;
+  const top = FUNNEL_HEIGHT + FUNNEL_R[1] * 0.4 + line + 6;
+  const left = Math.floor(x - reach);
+  const upper = Math.floor(y - top);
+  funnelBox = [left, upper, Math.ceil(x + reach) - left, Math.ceil(y + 12) - upper];
   g.save();
-  g.lineWidth = pixelArt ? PX_DOT : 2.2;
+  g.lineWidth = line;
   for (let k = 0; k < FUNNEL_RINGS; k++) {
     const f = k / (FUNNEL_RINGS - 1);
     const h = f * FUNNEL_HEIGHT;

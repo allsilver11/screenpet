@@ -87,6 +87,40 @@ fn a_gust_blows_loose_things_sideways_and_up_with_the_wind() {
 }
 
 #[test]
+fn on_side_by_side_monitors_the_tornado_wanders_over_to_the_next_one_and_back() {
+    let left = Rect::new(0.0, 0.0, 1920.0, 1040.0);
+    let right = Rect::new(1920.0, 0.0, 3840.0, 1080.0);
+    let bounds = Rect::new(0.0, 0.0, 3840.0, 1080.0);
+    let mut t = Tornado::new(left, bounds, 1.0, 5);
+    let mut out = Vec::new();
+    let (mut on_left, mut on_right) = (false, false);
+    for _ in 0..(300.0 / DT) as usize {
+        t.set_areas(&[left, right]);
+        t.step(DT, &[], &mut out);
+        assert!(t.x() >= bounds.left && t.x() <= bounds.right, "{}", t.x());
+        assert!(t.area() == left || t.area() == right);
+        assert!(t.x() >= t.area().left - 1.0 && t.x() <= t.area().right + 1.0, "자리는 지금 모니터 안: {} {:?}", t.x(), t.area());
+        assert_eq!(t.ground(), t.area().bottom, "그 모니터 바닥을 따라감");
+        on_left |= t.area() == left;
+        on_right |= t.area() == right;
+    }
+    assert!(on_left && on_right, "듀얼 모니터면 옆 모니터로 넘어감");
+}
+
+#[test]
+fn a_tornado_does_not_jump_to_a_monitor_that_is_not_next_to_it() {
+    let left = Rect::new(0.0, 0.0, 1920.0, 1040.0);
+    let far = Rect::new(2500.0, 0.0, 4420.0, 1040.0);
+    let mut t = Tornado::new(left, Rect::new(0.0, 0.0, 4420.0, 1040.0), 1.0, 5);
+    let mut out = Vec::new();
+    for _ in 0..(120.0 / DT) as usize {
+        t.set_areas(&[left, far]);
+        t.step(DT, &[], &mut out);
+        assert_eq!(t.area(), left);
+    }
+}
+
+#[test]
 fn the_tornado_roams_its_whole_monitor_changing_speed_and_direction_but_never_leaves_it() {
     let area = Rect::new(1920.0, 0.0, 3840.0, 1080.0);
     let bounds = Rect::new(0.0, 0.0, 3840.0, 1080.0);
@@ -286,4 +320,14 @@ fn a_storm_brings_tornadoes_one_after_another_and_lets_riders_go_when_one_dies()
         s.tick(DT, &[], WA, 1.0, &[], &mut out);
     }
     assert!(s.tornado().is_none());
+}
+
+#[test]
+fn a_funnel_just_past_a_monitor_edge_still_shows_on_that_monitor() {
+    let wa = Rect::new(0.0, 0.0, 1920.0, 1040.0);
+    assert!(straddles(1960.0, &wa, 1.0), "오른쪽 끝에 걸침");
+    assert!(straddles(-40.0, &wa, 1.0), "왼쪽 끝에 걸침");
+    assert!(!straddles(900.0, &wa, 1.0), "안쪽은 제 모니터가 그림");
+    assert!(!straddles(2400.0, &wa, 1.0), "멀리 있으면 안 보임");
+    assert!(straddles(2100.0, &wa, 2.0) && !straddles(2100.0, &wa, 1.0), "배율만큼 넓음");
 }

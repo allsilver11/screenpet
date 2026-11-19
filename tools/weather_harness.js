@@ -12,6 +12,9 @@ const LINE_Y = 500;
 function run(kind) {
   const counts = {};
   let draws = [];
+  // 그린 타원들 (깔때기 고리가 지울 칸 안에 드는지 보려고) — 회전한 타원의 바깥 상자 + 선 두께 절반
+  let ovals = [];
+  let lineWidth = 1;
   // 지금 그리는 그림 캔버스 (fillStyle을 그 그림의 색으로 적어 둔다)
   let drawing = null;
   const ctx = new Proxy(
@@ -21,10 +24,12 @@ function run(kind) {
         return (...args) => {
           counts[name] = (counts[name] || 0) + 1;
           if (name === "drawImage") draws.push({ x: args[1], y: args[2], box: args[0].width });
+          if (name === "ellipse") ovals.push({ x: args[0], y: args[1], rx: args[2], ry: args[3], rot: args[4], line: lineWidth });
         };
       },
       set(_, name, value) {
         if (name === "fillStyle" && drawing) drawing.fill = value;
+        if (name === "lineWidth") lineWidth = value;
         return true;
       },
     },
@@ -127,6 +132,15 @@ function run(kind) {
   const e0 = ellipses();
   step();
   const funnelRings = ellipses() - e0;
+  ovals = [];
+  step();
+  const box = vm.runInContext("funnelBox", sandbox);
+  const funnelOutside = !box ? 0 : ovals.filter((o) => {
+    const c = Math.cos(o.rot || 0), s = Math.sin(o.rot || 0);
+    const hw = Math.sqrt((o.rx * c) ** 2 + (o.ry * s) ** 2) + o.line / 2;
+    const hh = Math.sqrt((o.rx * s) ** 2 + (o.ry * c) ** 2) + o.line / 2;
+    return o.x - hw < box[0] || o.y - hh < box[1] || o.x + hw > box[0] + box[2] || o.y + hh > box[1] + box[3];
+  }).length;
   const debrisColours = [...new Set(vm.runInContext("debris", sandbox).map((s) => s.fill))];
   const flow = () => {
     const before = vm.runInContext("[Array.from(px), Array.from(rest)]", sandbox);
@@ -203,6 +217,7 @@ function run(kind) {
   return {
     kind,
     funnelRings,
+    funnelOutside,
     funnelAfterGone,
     debrisColours,
     flowNow,
