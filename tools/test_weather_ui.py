@@ -22,7 +22,7 @@ def test_frame_rate_and_particle_budget():
     assert const("MAX_PARTICLES") <= 80
     assert const("MIN_PARTICLES") >= 30
     counts = [int(c) for c in re.findall(r"count: (\d+)", JS)]
-    assert len(counts) == 7 and all(30 <= c <= 80 for c in counts)
+    assert len(counts) == 8 and all(30 <= c <= 80 for c in counts)
     # 날씨마다 지난번과 같은 예산 (비 70개가 가장 많다)
     assert max(counts) <= 70
 
@@ -102,7 +102,7 @@ def test_help_tells_the_whole_year():
 
 
 # ---- ui/weather.js를 가짜 캔버스로 돌려 보기 (tools/weather_harness.js) — 호출 수만, 실제 렌더링 비용은 아니다 ----
-@pytest.fixture(scope="module", params=["light_snow", "snow", "rain", "shower", "petals", "leaves", "green_leaves"])
+@pytest.fixture(scope="module", params=["light_snow", "snow", "rain", "shower", "petals", "leaves", "green_leaves", "typhoon"])
 def run(request):
     if not shutil.which("node"):
         pytest.skip("node not installed")
@@ -137,7 +137,7 @@ def test_pause_and_resume_never_stack_a_second_frame_loop(run):
 
 
 def test_piles_come_back_after_a_resize(run):
-    wet = run["kind"] in ("rain", "shower")
+    wet = run["kind"] in ("rain", "shower", "typhoon")
     assert run["pilesAfterResize"] == (0 if wet else 1)
     assert run["pilesAfterPausedResize"] == 0
 
@@ -194,8 +194,42 @@ def test_green_leaves_flutter_livelier_than_autumn_leaves():
     assert "spec.flutter" in JS
 
 
-def test_only_rain_and_showers_splash(run):
-    assert run["hasSplash"] == (run["kind"] in ("rain", "shower"))
+def test_only_rain_showers_and_typhoons_splash(run):
+    assert run["hasSplash"] == (run["kind"] in ("rain", "shower", "typhoon"))
+
+
+def test_a_typhoon_draws_its_tornado_only_while_the_scene_has_one(run):
+    if run["kind"] != "typhoon":
+        assert run["funnelRings"] == 0 and run["funnelAfterGone"] == 0
+        return
+    assert run["funnelRings"] >= 8, "깔때기 고리 + 바닥 먼지"
+    assert run["funnelAfterGone"] == 0, "회오리가 가면 지움"
+
+
+def test_typhoon_debris_is_green_leaves_flying_with_the_wind(run):
+    if run["kind"] != "typhoon":
+        assert run["debrisColours"] == []
+        return
+    assert len(run["debrisColours"]) == 3
+    # 바람이 왼쪽(−)이면 왼쪽으로, 돌풍이 바뀌면 오른쪽으로 — 옆으로 세게
+    assert run["flowNow"] < -5 and run["flowFlipped"] > 5, (run["flowNow"], run["flowFlipped"])
+
+
+def test_typhoon_is_wired_from_core_to_overlay_and_pets():
+    core = (ROOT / "crates" / "screenpet-core" / "src" / "weather.rs").read_text(encoding="utf-8")
+    assert 'Weather::Typhoon => "typhoon"' in core
+    # 바람·회오리는 태풍 장면에만, 회오리는 그 모니터 창에만
+    assert "kind.is_stormy()" in RS and "t.area() == o.wa" in RS
+    storm = RS[RS.index("pub fn storm("):]
+    storm = storm[: storm.index("\n    }\n")]
+    for call in ("s.pet.storm_free()", "s.pet.whirl_to(x, y)", "s.pet.whirl_release(vx, vy, cross)", "s.pet.feel_gust(gust)", "objects.storm_apply(w)", "objects.gust(gust)"):
+        assert call in storm, call
+    # 자리 비움·모두 숨김·태풍이 아니면 회오리를 보냄 (도는 것은 코어가 그 자리에서 떨어뜨림)
+    assert "self.storm = None;" in storm and "!away && !crate::windows_hidden(app)" in storm
+    game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
+    assert game.index("weather.storm(&app, now,") < game.index("objects.tick(&app, &slots[OWN].world")
+    # 새 창을 만들지 않음 — 깔때기는 날씨 덮개 창에 그림
+    assert RS.count("overlay::finish(") == 1
 
 
 def test_flurries_are_capped_and_fade_away(run):

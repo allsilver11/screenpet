@@ -29,14 +29,25 @@ pub enum WeatherSource {
     Petals,
     /// 🌿 푸른 잎
     GreenLeaves,
+    /// 🌀 태풍 (돌풍·회오리 — typhoon.rs)
+    Typhoon,
 }
 
 impl WeatherSource {
     /// 메뉴 순서 (설정·메뉴 id는 id())
-    pub const ALL: [WeatherSource; 7] =
-        [WeatherSource::Real, WeatherSource::Season, WeatherSource::Snow, WeatherSource::Rain, WeatherSource::Leaves, WeatherSource::Petals, WeatherSource::GreenLeaves];
+    pub const ALL: [WeatherSource; 8] = [
+        WeatherSource::Real,
+        WeatherSource::Season,
+        WeatherSource::Snow,
+        WeatherSource::Rain,
+        WeatherSource::Leaves,
+        WeatherSource::Petals,
+        WeatherSource::GreenLeaves,
+        WeatherSource::Typhoon,
+    ];
     /// 직접 고르는 날씨들 (메뉴 순서)
-    pub const MANUAL: [WeatherSource; 5] = [WeatherSource::Snow, WeatherSource::Rain, WeatherSource::Leaves, WeatherSource::Petals, WeatherSource::GreenLeaves];
+    pub const MANUAL: [WeatherSource; 6] =
+        [WeatherSource::Snow, WeatherSource::Rain, WeatherSource::Leaves, WeatherSource::Petals, WeatherSource::GreenLeaves, WeatherSource::Typhoon];
 
     /// 실제 날씨를 씀
     pub fn is_real(&self) -> bool {
@@ -52,6 +63,7 @@ impl WeatherSource {
             WeatherSource::Leaves => Some(Weather::Leaves),
             WeatherSource::Petals => Some(Weather::Petals),
             WeatherSource::GreenLeaves => Some(Weather::GreenLeaves),
+            WeatherSource::Typhoon => Some(Weather::Typhoon),
         }
     }
 
@@ -65,6 +77,7 @@ impl WeatherSource {
             WeatherSource::Leaves => "leaves",
             WeatherSource::Petals => "petals",
             WeatherSource::GreenLeaves => "green_leaves",
+            WeatherSource::Typhoon => "typhoon",
         }
     }
 
@@ -78,6 +91,7 @@ impl WeatherSource {
             WeatherSource::Leaves => "🍂 낙엽",
             WeatherSource::Petals => "🌸 꽃잎",
             WeatherSource::GreenLeaves => "🌿 푸른 잎",
+            WeatherSource::Typhoon => "🌀 태풍",
         }
     }
 
@@ -207,6 +221,16 @@ pub fn precipitation(code: u16) -> Option<Weather> {
     }
 }
 
+/// 뇌우 코드 (WMO 95·96·99) — 중계 서버는 바람 세기를 주지 않아 태풍은 이것으로만 앎
+fn is_thunderstorm(code: u16) -> bool {
+    matches!(code, 95 | 96 | 99)
+}
+
+/// 🌀 태풍 철 (7~9월)
+fn typhoon_season(month: u32) -> bool {
+    (7..=9).contains(&month)
+}
+
 /// 아무것도 안 내릴 때 남기는 계절 장식: 3·4월 벚꽃잎, 5~8월 푸른 잎, 9~11월 낙엽 (가짜 소나기·달력 눈은 없음)
 pub fn dry_season(month: u32) -> Option<Weather> {
     match month {
@@ -217,13 +241,14 @@ pub fn dry_season(month: u32) -> Option<Weather> {
     }
 }
 
-/// 지금 보일 날씨. 직접 고른 날씨면 늘 그 날씨, 실제 날씨를 골랐고 믿을 만한 값이 있으면 그 값 (안 내리면 계절 장식만), 아니면 달력 날씨
+/// 지금 보일 날씨. 직접 고른 날씨면 늘 그 날씨, 실제 날씨를 골랐고 믿을 만한 값이 있으면 그 값 (안 내리면 계절 장식만, 7~9월 뇌우는 🌀 태풍), 아니면 달력 날씨
 /// (now: 유닉스 초, 나머지는 지역 날짜와 자정부터 초)
 pub fn weather_now(source: WeatherSource, reading: Option<Reading>, now: i64, year: i32, month: u32, day: u32, secs: u32) -> Option<Weather> {
     if let Some(picked) = source.manual() {
         return Some(picked);
     }
     match reading.filter(|r| source.is_real() && r.fresh(now)) {
+        Some(r) if is_thunderstorm(r.code) && typhoon_season(month) => Some(Weather::Typhoon),
         Some(r) => precipitation(r.code).or_else(|| dry_season(month)),
         None => weather::weather_at(year, month, day, secs),
     }
@@ -253,6 +278,25 @@ mod tests {
     }
 
     const NOW: i64 = 1_800_000_000;
+
+    /// 중계 서버는 WMO 코드만 줌 (바람 세기 없음): 뇌우는 태풍 철(7~9월)에만 태풍, 그 밖엔 예전처럼 비
+    #[test]
+    fn thunderstorms_are_typhoons_only_in_typhoon_season() {
+        for code in [95, 96, 99] {
+            for month in [7, 8, 9] {
+                let r = Some(Reading { code, at: NOW });
+                assert_eq!(weather_now(WeatherSource::Real, r, NOW, 2027, month, 10, 0), Some(Weather::Typhoon), "{code} {month}");
+            }
+            for month in [1, 4, 6, 10, 12] {
+                let r = Some(Reading { code, at: NOW });
+                assert_eq!(weather_now(WeatherSource::Real, r, NOW, 2027, month, 10, 0), Some(Weather::Rain), "{code} {month}");
+            }
+        }
+        // 센 비·소나기는 여름에도 비 그대로
+        for code in [65, 82] {
+            assert_eq!(weather_now(WeatherSource::Real, Some(Reading { code, at: NOW }), NOW, 2027, 8, 10, 0), Some(Weather::Rain));
+        }
+    }
 
     #[test]
     fn real_weather_wins_while_fresh() {
@@ -303,6 +347,7 @@ mod tests {
             (WeatherSource::Leaves, Weather::Leaves),
             (WeatherSource::Petals, Weather::Petals),
             (WeatherSource::GreenLeaves, Weather::GreenLeaves),
+            (WeatherSource::Typhoon, Weather::Typhoon),
         ] {
             assert_eq!(source.manual(), Some(want));
             for month in 1..=12 {
@@ -320,13 +365,13 @@ mod tests {
     #[test]
     fn weather_sources_have_stable_ids_that_match_the_config_names() {
         let ids: Vec<&str> = WeatherSource::ALL.iter().map(|s| s.id()).collect();
-        assert_eq!(ids, ["real", "season", "snow", "rain", "leaves", "petals", "green_leaves"]);
+        assert_eq!(ids, ["real", "season", "snow", "rain", "leaves", "petals", "green_leaves", "typhoon"]);
         for s in WeatherSource::ALL {
             assert_eq!(WeatherSource::from_id(s.id()), Some(s));
             assert_eq!(serde_json::to_string(&s).unwrap(), format!("\"{}\"", s.id()), "config id = menu id");
         }
         let labels: Vec<&str> = WeatherSource::MANUAL.iter().map(|s| s.label()).collect();
-        assert_eq!(labels, ["❄️ 눈", "🌧️ 비", "🍂 낙엽", "🌸 꽃잎", "🌿 푸른 잎"]);
+        assert_eq!(labels, ["❄️ 눈", "🌧️ 비", "🍂 낙엽", "🌸 꽃잎", "🌿 푸른 잎", "🌀 태풍"]);
         assert_eq!(WeatherSource::from_id("hail"), None);
     }
 

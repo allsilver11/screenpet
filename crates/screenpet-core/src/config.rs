@@ -1418,7 +1418,7 @@ mod tests {
 
     #[test]
     fn a_picked_weather_is_saved_and_read_back() {
-        for (source, name) in [(WeatherSource::Snow, "snow"), (WeatherSource::Rain, "rain"), (WeatherSource::Leaves, "leaves"), (WeatherSource::Petals, "petals"), (WeatherSource::GreenLeaves, "green_leaves")] {
+        for (source, name) in [(WeatherSource::Snow, "snow"), (WeatherSource::Rain, "rain"), (WeatherSource::Leaves, "leaves"), (WeatherSource::Petals, "petals"), (WeatherSource::GreenLeaves, "green_leaves"), (WeatherSource::Typhoon, "typhoon")] {
             let c = Config { weather_source: source, ..Config::default() };
             let text = serde_json::to_string(&c).unwrap();
             assert!(text.contains(&format!(r#""weather_source":"{name}""#)), "{text}");

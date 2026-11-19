@@ -79,13 +79,16 @@ function run(kind) {
     r.forEach((f) => f(now));
   };
   const pile = { x: 100, y: LINE_Y, cell: 20, h: [10, 30, 50, 30, 10], clips: [[100, 200]] };
-  const wet = kind === "rain" || kind === "shower";
+  const stormy = kind === "typhoon";
+  const wet = kind === "rain" || kind === "shower" || stormy;
   const scene = {
     paused: false,
     kind,
     pile_kind: wet ? null : kind,
     tops: [[0, W, LINE_Y], [0, W, H]],
     piles: wet ? [] : [pile],
+    // 🌀 태풍 장면엔 바람과 회오리가 실려 옴
+    ...(stormy ? { wind: -1.3, tornado: [600, H, 0] } : {}),
   };
   listener({ payload: scene });
   const pileFills = (counts.fill || 0) + (counts.drawImage || 0);
@@ -113,6 +116,29 @@ function run(kind) {
   }
   const msPerFrame = Number(process.hrtime.bigint() - started) / 1e6 / FRAMES;
   const particles = draws.map((d) => [d.x, d.y]);
+
+  // 🌀 깔때기 고리 수 (한 프레임), 부스러기 색, 바람 방향에 따른 흐름 (떠 있는 알갱이의 평균 가로 이동)
+  const ellipses = () => counts.ellipse || 0;
+  const e0 = ellipses();
+  step();
+  const funnelRings = ellipses() - e0;
+  const debrisColours = [...new Set(vm.runInContext("debris", sandbox).map((s) => s.fill))];
+  const flow = () => {
+    const before = vm.runInContext("[Array.from(px), Array.from(rest)]", sandbox);
+    step();
+    const after = vm.runInContext("[Array.from(px), Array.from(rest)]", sandbox);
+    const moves = before[0].map((x, i) => after[0][i] - x).filter((d, i) => before[1][i] === 0 && after[1][i] === 0 && Math.abs(d) < W / 2);
+    return moves.reduce((a, b) => a + b, 0) / Math.max(1, moves.length);
+  };
+  const flowNow = flow();
+  listener({ payload: { ...scene, wind: 1.3 } });
+  for (let i = 0; i < 40; i++) step();
+  const flowFlipped = flow();
+  listener({ payload: { ...scene, tornado: undefined } });
+  const e1 = ellipses();
+  step();
+  const funnelAfterGone = ellipses() - e1;
+  listener({ payload: scene });
 
   // 같은 장면을 다시 받아도 더미는 다시 그리지 않는다
   const paintsBefore = (counts.fill || 0) + (counts.drawImage || 0);
@@ -171,6 +197,11 @@ function run(kind) {
 
   return {
     kind,
+    funnelRings,
+    funnelAfterGone,
+    debrisColours,
+    flowNow,
+    flowFlipped,
     flurryPeak,
     flurryLeft,
     maxDraws,

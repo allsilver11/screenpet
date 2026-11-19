@@ -3,6 +3,8 @@
 //! 1초에 한 번 플래그만 봄 (달력과 시계는 1분에 한 번). 켜져 있어도 창 목록을 따로 읽지 않음 — 내 동물 세계의 디딤판을
 //! 5 Hz로 맞춰 보고, 장면이 바뀐 모니터에만 보냄. 더미는 1초에 한 번 (screenpet_core::weather).
 //! 그 모니터의 앞 창이 전체 화면이거나 사용자가 자리를 비웠으면 창을 숨기고 웹뷰도 그림을 멈춤 (돌아오면 다시 그림).
+//! 🌀 태풍 (v0.6.8): 게임 루프가 매 틱 storm을 부름 — 코어 typhoon::Storm이 돌풍과 회오리를 정하고, 여기서 동물(Pet)과
+//! 물건(Objects)에 그대로 시킴. 바람·회오리 자리는 장면(wind·tornado)에 실어 웹뷰가 깔때기를 그림 (새 창 없음)
 
 use std::time::{Duration, Instant};
 
@@ -10,6 +12,7 @@ use chrono::{Datelike, Timelike};
 use screenpet_core::geom::Rect;
 use screenpet_core::visit::Side;
 use screenpet_core::real_weather::{self, Reading, WeatherSource};
+use screenpet_core::typhoon::{Loose, Storm, Thing, Whirl};
 use screenpet_core::weather::{self, OverlayRetry, PileField, Scene, Weather};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -17,9 +20,15 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewU
 use crate::slots::Slot;
 use crate::AppState;
 
+/// 🌀 돌풍에 더미가 흩날리는 알갱이 수 (모니터마다), 빠르기 (논리 px/s)
+const GUST_PUFF: u32 = 24;
+const GUST_PUFF_SPEED: f64 = 620.0;
+/// 🌀 한 틱에 넘기는 시간 상한 (초)
+const STORM_MAX_DT: f64 = 0.05;
+
 /// 날씨 덮개 창 라벨 앞부분
 const PREFIX: &str = "weather-";
-/// 개발용 숨은 미리 보기: snow·light_snow·rain·shower·petals·leaves·green_leaves·off (screenpet_core::weather::parse_preview). 메뉴에는 없음
+/// 개발용 숨은 미리 보기: snow·light_snow·rain·shower·petals·leaves·green_leaves·typhoon·off (screenpet_core::weather::parse_preview). 메뉴에는 없음
 const PREVIEW_ENV: &str = "SCREENPET_WEATHER";
 /// 미리 보기에선 더미가 이 배로 빨리 쌓임
 const PREVIEW_GROW: f32 = 10.0;
@@ -109,6 +118,12 @@ pub struct WeatherFx {
     next_label: u64,
     snowman: Option<Snowman>,
     ball: Option<(WebviewWindow, (i32, i32))>,
+    /// 🌀 태풍 동안의 돌풍·회오리 (태풍이 아니면 None)
+    storm: Option<Storm>,
+    storm_at: Instant,
+    /// 🌀 틱마다 다시 쓰는 그릇 (빨아들일 것, 회오리가 시킨 것)
+    loose: Vec<Loose>,
+    whirls: Vec<Whirl>,
 }
 
 impl WeatherFx {
@@ -134,6 +149,10 @@ impl WeatherFx {
             next_label: 0,
             snowman: None,
             ball: None,
+            storm: None,
+            storm_at: now,
+            loose: Vec::new(),
+            whirls: Vec::new(),
         }
     }
 
@@ -211,7 +230,15 @@ impl WeatherFx {
                     if paused { crate::overlay::hide_quietly(&s.window) } else { crate::overlay::show_quietly(&s.window) }
                 }
             }
-            let payload = Payload { paused, scene: self.field.scene(kind, &o.wa, o.scale) };
+            let mut scene = self.field.scene(kind, &o.wa, o.scale);
+            if let Some(storm) = self.storm.as_ref().filter(|_| kind.is_stormy()) {
+                // 바람은 0.1 단위로 (돌풍이 부는 동안만 장면이 바뀜), 회오리는 그 모니터에만
+                scene.wind = Some((storm.wind() * 10.0).round() as f32 / 10.0);
+                scene.tornado = storm.tornado().filter(|t| t.area() == o.wa).map(|t| {
+                    [((t.x() - o.wa.left) / o.scale).round() as f32, ((t.ground() - o.wa.top) / o.scale).round() as f32, (t.vx() / o.scale).round() as f32]
+                });
+            }
+            let payload = Payload { paused, scene };
             let young = now.duration_since(o.born) < FRESH && now.duration_since(o.resent) >= PILES_EVERY;
             if young || o.last.as_ref() != Some(&payload) {
                 let _ = app.emit_to(o.label.as_str(), "weather-scene", &payload);
@@ -232,6 +259,65 @@ impl WeatherFx {
         let ready = !away && kind.is_snow() && self.snowman.is_none() && self.field.snow_settled();
         if let Some(own) = slots.first_mut() {
             own.pet.set_snow_ready(ready);
+        }
+    }
+
+    /// 🌀 태풍 (게임 루프가 매 틱, 동물 update·물건 놀이 뒤 objects.tick 전에): 돌풍이 일면 동물·물건·더미가 휘청이고,
+    /// 회오리가 가까운 것을 빨아들여 돌리다 내던짐. 태풍이 아니거나 자리 비움·모두 숨김이면 회오리를 보냄 —
+    /// 돌던 것은 코어가 0.3초 뒤 그 자리에서 떨어뜨림 (잃어버리지 않음). skip = 지금 건드리면 안 되는 동물 (🛷 썰매)
+    #[allow(clippy::too_many_arguments)]
+    pub fn storm(&mut self, app: &AppHandle, now: Instant, away: bool, slots: &mut [Slot], objects: &mut crate::objects::Objects, network: &crate::network::Network, config: &screenpet_core::config::Config, skip: impl Fn(&Slot) -> bool) {
+        let dt = now.duration_since(self.storm_at).as_secs_f64().min(STORM_MAX_DT);
+        self.storm_at = now;
+        let stormy = self.active.is_some_and(Weather::is_stormy) && !away && !crate::windows_hidden(app);
+        if !stormy {
+            self.storm = None;
+            return;
+        }
+        let Some(own) = slots.first() else { return };
+        let (bounds, dpi) = (own.world.bounds, own.dpi);
+        // 쉬는 모니터 (전체 화면 앱이 덮음)에는 회오리가 오지 않음
+        let areas: Vec<Rect> = own.world.work_areas.iter().copied().filter(|wa| !self.overlays.iter().any(|o| o.paused && o.wa == *wa)).collect();
+        self.loose.clear();
+        for s in slots.iter() {
+            if skip(s) || !s.on_screen() || !s.pet.storm_free() {
+                continue;
+            }
+            let cross = s.pet.whirl_cross_side(&s.world);
+            self.loose.push(Loose { thing: Thing::Pet(s.pet.social_key()), x: s.pet.body.x, y: s.pet.body.y, cross });
+        }
+        objects.storm_loose(bounds, network, config, &mut self.loose);
+        let seed = self.seed;
+        let storm = self.storm.get_or_insert_with(|| Storm::new(seed ^ fastrand::u64(..)));
+        self.whirls.clear();
+        let gust = storm.tick(dt, &areas, bounds, dpi, &self.loose, &mut self.whirls);
+        for w in &self.whirls {
+            match w.thing() {
+                Thing::Object(_) => objects.storm_apply(w),
+                Thing::Pet(key) => {
+                    let Some(s) = slots.iter_mut().find(|s| s.pet.social_key() == key) else { continue };
+                    match *w {
+                        Whirl::Hold { x, y, .. } => {
+                            s.pet.whirl_to(x, y);
+                        }
+                        Whirl::Fling { vx, vy, cross, .. } => s.pet.whirl_release(vx, vy, cross),
+                    }
+                }
+            }
+        }
+        let Some(gust) = gust else { return };
+        for s in slots.iter_mut() {
+            if !skip(&*s) && s.on_screen() {
+                s.pet.feel_gust(gust);
+            }
+        }
+        objects.gust(gust);
+        // 남은 더미가 바람 쪽으로 흩날림 (더미는 코어가 빨리 녹임 — rates)
+        let Some(kind) = self.field.pile_kind().filter(|_| self.field.has_piles()) else { return };
+        for o in self.overlays.iter().filter(|o| !o.paused) {
+            let x = o.wa.left + fastrand::f64() * o.wa.width();
+            let speed = GUST_PUFF_SPEED * gust.dir * o.scale;
+            self.puff(app, kind, (x, o.wa.bottom - 6.0 * o.scale), (speed, -90.0 * o.scale), GUST_PUFF);
         }
     }
 

@@ -63,7 +63,8 @@ fn seasons_follow_the_brief() {
 
 #[test]
 fn outside_summer_the_clock_does_not_matter() {
-    for (m, d) in [(3, 1), (4, 30), (9, 1), (10, 31), (11, 1), (11, 2), (11, 3), (12, 25), (1, 3), (2, 28)] {
+    // 9월은 🌀 태풍이 올 수 있어 따로 봄 (typhoons_come_only_in_their_windows)
+    for (m, d) in [(3, 1), (4, 30), (10, 31), (11, 1), (11, 2), (11, 3), (12, 25), (1, 3), (2, 28)] {
         for secs in [0, 3 * 3600, 12 * 3600, 86_399] {
             assert_eq!(weather_at(2027, m, d, secs), Some(season(m, d)), "{m}/{d} {secs}");
         }
@@ -113,15 +114,23 @@ fn showers_are_the_same_after_a_restart_and_differ_between_days() {
 fn it_only_rains_inside_the_shower_windows() {
     for (y, m, d) in summer_days() {
         let list = showers(y, m, d);
+        // 🌀 태풍 칸은 태풍이 이김 (typhoons_come_only_in_their_windows)
+        let storm = typhoons(y, m, d);
+        let calm = |secs: u32| !storm.iter().any(|&(s, e)| s <= secs && secs < e);
+        let at = |secs: u32| weather_at(y, m, d, secs).filter(|_| calm(secs));
         for &(start, end) in &list {
-            assert_eq!(weather_at(y, m, d, start), Some(Weather::Shower));
-            assert_eq!(weather_at(y, m, d, end - 1), Some(Weather::Shower));
-            assert_eq!(weather_at(y, m, d, end), Some(Weather::GreenLeaves), "소나기 사이엔 푸른 잎");
-            assert_eq!(weather_at(y, m, d, start - 1), Some(Weather::GreenLeaves));
+            for (secs, want) in [(start, Weather::Shower), (end - 1, Weather::Shower), (end, Weather::GreenLeaves), (start - 1, Weather::GreenLeaves)] {
+                if calm(secs) {
+                    assert_eq!(at(secs), Some(want), "소나기 사이엔 푸른 잎 {secs}");
+                }
+            }
         }
         // 분마다 세어 봐도 소나기는 잠깐뿐
-        let wet = (0..1440).filter(|min| weather_at(y, m, d, min * 60) == Some(Weather::Shower)).count();
-        assert!(wet > 0 && wet <= 45, "{y}-{m}-{d}: {wet} minutes");
+        let wet = (0..1440).filter(|min| at(min * 60) == Some(Weather::Shower)).count();
+        assert!(wet <= 45, "{y}-{m}-{d}: {wet} minutes");
+        if storm.is_empty() {
+            assert!(wet > 0, "{y}-{m}-{d}");
+        }
     }
 }
 
@@ -585,4 +594,102 @@ fn green_leaves_are_named_for_settings_and_friends_and_swept_over_as_a_flurry() 
     assert_eq!(serde_json::to_value(Weather::GreenLeaves).unwrap(), "green_leaves");
     assert_eq!(parse_flurry_kind(&flurry_kind(Weather::GreenLeaves)), Some(Weather::GreenLeaves));
     assert_eq!(parse_flurry_kind("flurry:pine_needles"), None, "모르는 이름은 버림");
+}
+
+/// 7~9월 날짜 전부 (윤년 포함)
+fn typhoon_days() -> Vec<(i32, u32, u32)> {
+    let mut days = Vec::new();
+    for y in [2027, 2028] {
+        for (m, n) in [(7, 31), (8, 31), (9, 30)] {
+            days.extend((1..=n).map(|d| (y, m, d)));
+        }
+    }
+    days
+}
+
+#[test]
+fn typhoons_visit_some_late_summer_days_for_a_few_minutes_while_awake() {
+    let days = typhoon_days();
+    let stormy = days.iter().filter(|&&(y, m, d)| !typhoons(y, m, d).is_empty()).count();
+    assert!(stormy * 4 >= days.len() && stormy * 4 <= days.len() * 3, "가끔 (대략 이틀에 하루): {stormy}/{}", days.len());
+    for &(y, m, d) in &days {
+        let list = typhoons(y, m, d);
+        assert_eq!(list, typhoons(y, m, d), "다시 켜도 같음");
+        assert!(list.len() <= 2, "{list:?}");
+        let mut last_end = 0;
+        for &(start, end) in &list {
+            assert!((300..=600).contains(&(end - start)), "5~10분: {list:?}");
+            assert!(start >= 9 * 3600 && end <= 22 * 3600, "깨어 있는 시간: {list:?}");
+            assert!(start >= last_end, "겹치지 않음: {list:?}");
+            last_end = end;
+        }
+    }
+    for (m, d) in [(1, 5), (4, 2), (6, 30), (10, 1), (11, 3), (12, 24)] {
+        for y in [2027, 2028] {
+            assert!(typhoons(y, m, d).is_empty(), "{y}-{m}-{d} 태풍 철 아님");
+        }
+    }
+}
+
+#[test]
+fn typhoons_come_only_in_their_windows() {
+    for (y, m, d) in typhoon_days() {
+        let list = typhoons(y, m, d);
+        for &(start, end) in &list {
+            assert_eq!(weather_at(y, m, d, start), Some(Weather::Typhoon));
+            assert_eq!(weather_at(y, m, d, end - 1), Some(Weather::Typhoon));
+            assert_ne!(weather_at(y, m, d, end), Some(Weather::Typhoon));
+        }
+        let windy = (0..1440).filter(|min| weather_at(y, m, d, min * 60) == Some(Weather::Typhoon)).count();
+        assert!(windy <= 20, "{y}-{m}-{d}: {windy} minutes");
+        if list.is_empty() {
+            assert_eq!(windy, 0);
+        }
+        // 태풍이 지나가면 그 달의 날씨로 돌아옴
+        let calm = (0..86_400).step_by(600).find(|s| !list.iter().any(|&(a, b)| a <= *s && *s < b)).unwrap();
+        let back = weather_at(y, m, d, calm).unwrap();
+        assert!(matches!(back, Weather::Shower | Weather::GreenLeaves | Weather::Leaves), "{back:?}");
+    }
+}
+
+#[test]
+fn a_typhoon_never_piles_up_and_blows_old_piles_away_fast() {
+    let (mut f, _) = field(vec![]);
+    run(&mut f, Weather::Leaves, 400);
+    let before = depth(&f, Owner::Ground(0));
+    assert!(before > 1.0 && f.has_piles());
+    f.tick(1.0, Weather::Typhoon);
+    f.tick(1.0, Weather::Typhoon);
+    let after = depth(&f, Owner::Ground(0));
+    assert!(after < before - 0.3, "비보다 빨리 날아감: {before} → {after}");
+    run(&mut f, Weather::Typhoon, 60);
+    assert_eq!(depth(&f, Owner::Ground(0)), 0.0);
+    assert!(!f.has_piles(), "다 날아감 — 돌풍에 흩날릴 것도 없음");
+    assert_eq!(f.pile_kind(), Some(Weather::Leaves), "남은 더미는 제 그림 그대로");
+    assert!(!Weather::Typhoon.looks_up());
+    assert!(!Weather::Typhoon.is_snow());
+    assert!(Weather::Typhoon.is_stormy());
+    assert!(!Weather::Rain.is_stormy());
+}
+
+#[test]
+fn typhoon_is_named_for_settings_and_previews_but_never_swept_to_a_friend() {
+    assert_eq!(Weather::Typhoon.name(), "typhoon");
+    assert_eq!(serde_json::to_value(Weather::Typhoon).unwrap(), "typhoon");
+    assert_eq!(parse_preview("typhoon"), Some(Some(Weather::Typhoon)));
+    assert_eq!(parse_flurry_kind("flurry:typhoon"), None, "쌓이지 않으니 쓸어 보내지 않음");
+}
+
+#[test]
+fn a_typhoon_scene_carries_the_wind_and_the_funnel_but_other_scenes_do_not() {
+    let (f, _) = field(vec![]);
+    let calm = serde_json::to_value(f.scene(Weather::Rain, &WA, 1.0)).unwrap();
+    assert!(calm.get("wind").is_none() && calm.get("tornado").is_none(), "예전 장면 그대로: {calm}");
+    let mut storm = f.scene(Weather::Typhoon, &WA, 1.0);
+    storm.wind = Some(-1.2);
+    storm.tornado = Some([300.0, 1040.0, 80.0]);
+    let v = serde_json::to_value(storm).unwrap();
+    assert_eq!(v["kind"], "typhoon");
+    assert!((v["wind"].as_f64().unwrap() + 1.2).abs() < 1e-6);
+    assert_eq!(v["tornado"][0], 300.0);
 }
