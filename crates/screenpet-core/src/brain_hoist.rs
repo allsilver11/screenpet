@@ -252,6 +252,11 @@ impl Pet {
     pub fn notice_pets(&mut self, spots: &[PetSpot]) {
         self.hoist.spots.clear();
         self.hoist.spots.extend(spots.iter().filter(|s| s.key != self.social_key).copied());
+        if self.cfg.slings_webs {
+            // 🕷️ 거미인간이 줄로 끌어올 동물 (brain_web.rs)
+            self.web.pets.clear();
+            self.web.pets.extend(spots.iter().filter(|s| s.key != self.social_key).copied());
+        }
     }
 
     /// 손이 비었고 쉬는 때가 지났으면 처음 본 가까운 동물에 주사위
@@ -512,15 +517,16 @@ impl Pet {
     }
 }
 
-/// 같은 화면 동물들의 일 — 앱이 매 틱 동물 update 전에: 흐물이들에게 다른 동물을 보여 줌
+/// 같은 화면 동물들의 일 — 앱이 매 틱 동물 update 전에: 흐물이들(과 🕷️ 거미인간)에게 다른 동물을 보여 줌
 pub fn notice_pets<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
-    if !pets.iter().any(|p| p.as_ref().cfg.antics && p.as_ref().cfg.juggler) {
+    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs;
+    if !pets.iter().any(|p| sees(p.as_ref())) {
         return;
     }
     let spots: Vec<PetSpot> = pets.iter().filter(|p| !p.as_ref().is_away()).map(|p| p.as_ref().pet_spot()).collect();
     for p in pets.iter_mut() {
         let p = p.as_mut();
-        if p.cfg.antics && p.cfg.juggler {
+        if sees(p) {
             p.notice_pets(&spots);
         }
     }
@@ -532,6 +538,8 @@ pub type CarriedOut = (usize, usize, Side);
 /// 앱이 매 틱 동물 update 뒤에: 들어 올리기·옮기기·내려놓기·놓침·함께 나가기. 함께 나간 짝을 돌려줌
 /// (들린 동물의 take_exit도 같은 끝 — 앱은 그 동물이 흐물이와 같은 친구에게 가게 함)
 pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut> {
+    // 🕷️ 거미인간이 줄로 끌어온 동물을 날려 보냄 (앱은 이미 매 틱 이 함수를 부름)
+    super::web_moves::sync_yanks(pets);
     let mut out = Vec::new();
     let find = |pets: &[T], key: u64| pets.iter().position(|p| p.as_ref().social_key == key);
     for i in 0..pets.len() {

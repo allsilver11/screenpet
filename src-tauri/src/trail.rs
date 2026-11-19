@@ -5,6 +5,10 @@
 //!
 //! 🖍️ 흐물이의 분필 낙서 (`Pet::take_doodle`)도 같은 창이 그림 (`trail-doodle`, ui/doodle.js — 구름 아래 캔버스).
 //! 낙서가 남아 있는 동안 (DOODLE_LIFE)은 창을 닫지 않음. 손님 흐물이의 낙서도 그림.
+//!
+//! 🕷️ 거미인간의 줄 (`Pet::web_line` → `trail-lines`)과 모서리 거미집 (`Pet::take_web` → `trail-webs`)도 같은 창이 그림 (ui/web.js).
+//! 거미집이 남아 있는 동안 (WEB_LIFE)은 창을 닫지 않음. 창 모서리 거미집은 그 창이 움직이거나 닫히면 `trail-web-drop`으로 지우고,
+//! 🧹 다 치우기 (`clear_webs`)와 한 시간마다 (weather::AUTO_CLEAR_SECS) `trail-web-clear`로 모두 지움. 손님 거미인간 것도 그림.
 
 use std::time::{Duration, Instant};
 
@@ -13,6 +17,7 @@ use screenpet_core::geom::Rect;
 use screenpet_core::style::PetStyle;
 use screenpet_core::trail::{self, Puff, Runner, Trail};
 use screenpet_core::weather::{self, OverlayRetry};
+use screenpet_core::web::{Corner, WebSpin, MAX_WEBS, WEB_LIFE_SECS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, WebviewWindow};
 
@@ -35,6 +40,65 @@ const DOODLE_LIFE: Duration = Duration::from_millis((DOODLE_SECS * 1000.0) as u6
 const DOODLE_HEIGHT: f64 = 0.5;
 /// 이름 낙서는 이만큼 글자까지 (doodle.js MAX_NAME과 같음)
 const MAX_NAME: usize = 12;
+/// 🕷️ 거미집이 화면에 있는 시간 (web.js: 남는 시간 life + 흐려지기 WEB_FADE 4초) — 이 동안 창을 닫지 않음
+const WEB_LIFE: Duration = Duration::from_secs(WEB_LIFE_SECS as u64 + 4);
+/// 🧹 지운 거미집이 흐려지는 동안 (web.js WEB_DROP 0.8초) 창을 더 둠
+const WEB_DROP: Duration = Duration::from_millis(1200);
+/// 🕷️ 줄을 다시 보내는 가장 짧은 간격 (웹뷰는 받은 줄을 rAF로 그림)
+const LINE_EVERY: Duration = Duration::from_millis(33);
+/// 🧹 한 시간마다 거미집도 치움 (날씨 더미와 같은 간격)
+const WEB_AUTO_CLEAR: Duration = Duration::from_secs(weather::AUTO_CLEAR_SECS as u64);
+
+/// 웹뷰로 가는 거미집 (논리 px, 이 창 왼쪽 위가 0,0 — x·y는 모서리 점, size는 반지름)
+#[derive(Serialize, Clone)]
+struct WebWire {
+    /// 거미집 번호 (지울 때 씀)
+    id: u64,
+    x: f64,
+    y: f64,
+    /// 모서리 (top_left·top_right·bottom_left·bottom_right)
+    corner: Corner,
+    size: f64,
+    pixel: bool,
+    /// 이미 지난 시간 (초)
+    age: f64,
+    /// 그대로 남는 시간 (초) — 그 뒤 흐려짐
+    life: f64,
+}
+
+/// 웹뷰로 가는 줄 한 가닥 (논리 px, 손 → 줄 끝)
+#[derive(Serialize, Clone, Copy, PartialEq)]
+struct LineWire {
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+}
+
+/// 화면에 있는 거미집 하나의 기억 (창 모서리면 그 창을 따라 지움)
+struct WebTrack {
+    id: u64,
+    /// 그린 덮개 창 라벨
+    label: String,
+    /// 창 모서리면 그 창 id
+    window: Option<u64>,
+    /// 모서리 점 (물리 px)
+    x: f64,
+    y: f64,
+    corner: Corner,
+    /// 다 사라지는 때
+    until: Instant,
+}
+
+/// 거미집 모서리에서 화면 안쪽으로 1px 들어간 점 (그 모니터 작업 영역 안)
+fn inward(w: &WebSpin) -> (f64, f64) {
+    match w.corner {
+        Corner::TopLeft => (w.x + 1.0, w.y + 1.0),
+        Corner::TopRight => (w.x - 1.0, w.y + 1.0),
+        Corner::BottomLeft => (w.x + 1.0, w.y - 1.0),
+        Corner::BottomRight => (w.x - 1.0, w.y - 1.0),
+    }
+}
 
 /// 웹뷰로 가는 낙서 (논리 px, 이 창 왼쪽 위가 0,0 — x는 가운데, y는 바닥 줄, size는 높이)
 #[derive(Serialize, Clone)]
@@ -86,6 +150,10 @@ struct Overlay {
     paused: bool,
     pending: Vec<(Instant, Wire)>,
     doodles: Vec<(Instant, DoodleWire)>,
+    /// 🕷️ 아직 보내지 않은 거미집
+    webs: Vec<(Instant, WebWire)>,
+    /// 🕷️ 마지막으로 보낸 줄들
+    lines: Vec<LineWire>,
 }
 
 /// ☁️ 발자국 구름과 낙서 상태임 (게임 루프가 가짐)
@@ -101,6 +169,18 @@ pub struct TrailFx {
     puffs: Vec<Puff>,
     /// 마지막 낙서가 사라지는 때 (그때까지 창을 닫지 않음)
     doodles_until: Option<Instant>,
+    /// 🕷️ 화면에 있는 거미집들
+    webs: Vec<WebTrack>,
+    /// 🕷️ 다음 거미집 번호
+    next_web: u64,
+    /// 🕷️ 마지막 거미집이 사라지는 때 (그때까지 창을 닫지 않음)
+    webs_until: Option<Instant>,
+    /// 🕷️ 마지막으로 줄이 뻗어 있던 때
+    lines_at: Option<Instant>,
+    /// 🕷️ 마지막으로 줄을 보낸 때
+    lines_sent: Option<Instant>,
+    /// 🧹 다음 한 시간 치우기
+    web_clear_at: Option<Instant>,
 }
 
 impl TrailFx {
@@ -115,12 +195,15 @@ impl TrailFx {
             // 숨기거나 자리를 비운 동안 그린 낙서는 버림
             for s in slots.iter_mut() {
                 let _ = s.pet.take_doodle();
+                let _ = s.pet.take_web();
             }
             self.trails.clear();
             self.tear_down();
             return;
         }
         self.doodles(app, now, slots);
+        self.spider_webs(app, now, slots);
+        self.web_lines(app, now, slots);
         self.trails.retain(|(label, _)| slots.iter().any(|s| s.label == *label));
         let Some(own) = slots.first() else { return };
         for s in slots.iter() {
@@ -149,7 +232,7 @@ impl TrailFx {
         }
         self.puffs = puffs;
         self.flush(app, now);
-        self.housekeep(now, own);
+        self.housekeep(app, now, own);
     }
 
     /// 🖍️ 동물마다 새 낙서를 받아 그 자리 모니터의 창으로 (손님 것도). 화면 위에 있지 않거나 그 모니터 앞 창이 전체 화면이면 버림
@@ -181,6 +264,107 @@ impl TrailFx {
         o.doodles.push((now, wire));
     }
 
+    /// 🕷️ 동물마다 새 거미집을 받아 그 모서리 모니터의 창으로 (손님 것도). 화면 위에 있지 않거나 그 모니터 앞 창이 전체 화면이면 버림
+    fn spider_webs(&mut self, app: &AppHandle, now: Instant, slots: &mut [Slot]) {
+        for i in 0..slots.len() {
+            let Some(w) = slots[i].pet.take_web() else { continue };
+            let s = &slots[i];
+            let (ix, iy) = inward(&w);
+            let wa = s.world.work_area_at(ix, iy);
+            if !s.on_screen() || weather::overlay_paused(false, &slots[0].world.windows, &wa) {
+                continue;
+            }
+            let pixel = s.shown.style == PetStyle::Pixel;
+            self.place_web(app, now, &s.world.work_areas, &w, pixel);
+        }
+    }
+
+    /// 거미집 하나를 그 모서리 모니터의 덮개 창에 보냄 (창이 없으면 만듦). 화면에 MAX_WEBS개 넘게 쌓이지 않게 오래된 것부터 지움
+    fn place_web(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], w: &WebSpin, pixel: bool) {
+        let (ix, iy) = inward(w);
+        let Some(i) = self.overlay_at(app, now, work_areas, ix, iy) else { return };
+        self.next_web += 1;
+        let id = self.next_web;
+        let o = &mut self.overlays[i];
+        let size = w.size / o.scale;
+        if !(size.is_finite() && size > 0.0) {
+            return;
+        }
+        let wire = WebWire { id, x: (w.x - o.wa.left) / o.scale, y: (w.y - o.wa.top) / o.scale, corner: w.corner, size, pixel, age: 0.0, life: WEB_LIFE_SECS };
+        o.webs.push((now, wire));
+        let label = o.label.clone();
+        self.webs.push(WebTrack { id, label, window: w.window, x: w.x, y: w.y, corner: w.corner, until: now + WEB_LIFE });
+        if self.webs.len() > MAX_WEBS {
+            let old = self.webs.remove(0);
+            let _ = app.emit_to(old.label.as_str(), "trail-web-drop", [old.id]);
+        }
+        self.webs_until = self.webs.iter().map(|t| t.until).max();
+    }
+
+    /// 🕷️ 지금 뻗은 줄들을 그 손 자리 모니터의 창으로 (바뀔 때만, LINE_EVERY마다까지). 줄이 없어지면 빈 목록을 한 번
+    fn web_lines(&mut self, app: &AppHandle, now: Instant, slots: &[Slot]) {
+        let mut per: Vec<Vec<LineWire>> = vec![Vec::new(); self.overlays.len()];
+        for s in slots.iter() {
+            let Some(l) = s.pet.web_line() else { continue };
+            if !s.on_screen() {
+                continue;
+            }
+            self.lines_at = Some(now);
+            let Some(i) = self.overlay_at(app, now, &s.world.work_areas, l.from.0, l.from.1) else { continue };
+            if per.len() <= i {
+                per.resize(i + 1, Vec::new());
+            }
+            let o = &self.overlays[i];
+            per[i].push(LineWire { x0: (l.from.0 - o.wa.left) / o.scale, y0: (l.from.1 - o.wa.top) / o.scale, x1: (l.to.0 - o.wa.left) / o.scale, y1: (l.to.1 - o.wa.top) / o.scale });
+        }
+        if self.lines_sent.is_some_and(|t| now.duration_since(t) < LINE_EVERY) {
+            return;
+        }
+        for (i, o) in self.overlays.iter_mut().enumerate() {
+            let want = per.get(i).cloned().unwrap_or_default();
+            if want == o.lines || now.duration_since(o.born) < WARMUP {
+                continue;
+            }
+            let _ = app.emit_to(o.label.as_str(), "trail-lines", &want);
+            o.lines = want;
+            self.lines_sent = Some(now);
+        }
+    }
+
+    /// 🧹 쓰레기·눈·낙엽 다 치우기 (그리고 한 시간마다): 거미집을 모두 흐리게 지움
+    pub fn clear_webs(&mut self, app: &AppHandle) {
+        let now = Instant::now();
+        for o in &mut self.overlays {
+            o.webs.clear();
+            let _ = app.emit_to(o.label.as_str(), "trail-web-clear", ());
+        }
+        if !self.webs.is_empty() {
+            self.webs_until = Some(now + WEB_DROP);
+        }
+        self.webs.clear();
+    }
+
+    /// 창 모서리 거미집: 그 창이 닫히거나 움직였으면 지움 (그 창 모서리에 그대로 있을 때만 남김)
+    fn drop_moved_webs(&mut self, app: &AppHandle, now: Instant, own: &Slot) {
+        let mut drops: Vec<(String, u64)> = Vec::new();
+        self.webs.retain(|t| {
+            let alive = now < t.until;
+            let still = t.window.is_none_or(|id| {
+                own.world.windows.iter().any(|w| {
+                    let x = if t.corner == Corner::TopLeft { w.rect.left } else { w.rect.right };
+                    w.id == id && (w.rect.top - t.y).abs() < 1.0 && (x - t.x).abs() < 1.0
+                })
+            });
+            if alive && !still {
+                drops.push((t.label.clone(), t.id));
+            }
+            alive && still
+        });
+        for (label, id) in drops {
+            let _ = app.emit_to(label.as_str(), "trail-web-drop", [id]);
+        }
+    }
+
     /// 그 자리 모니터의 창 (없으면 만듦)
     fn overlay_at(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], x: f64, y: f64) -> Option<usize> {
         let wa = work_areas.iter().find(|r| r.left <= x && x < r.right && r.top <= y && y < r.bottom).copied()?;
@@ -197,7 +381,7 @@ impl TrailFx {
             return None;
         };
         self.retry.reset();
-        self.overlays.push(Overlay { window, label, wa, scale, born: now, paused: false, pending: Vec::new(), doodles: Vec::new() });
+        self.overlays.push(Overlay { window, label, wa, scale, born: now, paused: false, pending: Vec::new(), doodles: Vec::new(), webs: Vec::new(), lines: Vec::new() });
         Some(self.overlays.len() - 1)
     }
 
@@ -231,16 +415,25 @@ impl TrailFx {
             let batch: Vec<DoodleWire> = o.doodles.drain(..).map(|(at, w)| DoodleWire { age: now.duration_since(at).as_secs_f64(), ..w }).collect();
             let _ = app.emit_to(o.label.as_str(), "trail-doodle", &batch);
         }
+        for o in &mut self.overlays {
+            if o.webs.is_empty() || now.duration_since(o.born) < WARMUP {
+                continue;
+            }
+            let batch: Vec<WebWire> = o.webs.drain(..).map(|(at, w)| WebWire { age: now.duration_since(at).as_secs_f64(), ..w }).collect();
+            let _ = app.emit_to(o.label.as_str(), "trail-webs", &batch);
+        }
     }
 
-    /// 오래 조용하면 창을 닫고, 모니터가 바뀌면 그 창을 닫고, 전체 화면이면 숨김
-    fn housekeep(&mut self, now: Instant, own: &Slot) {
+    /// 오래 조용하면 창을 닫고, 모니터가 바뀌면 그 창을 닫고, 전체 화면이면 숨김. 🕷️ 움직인 창의 거미집은 지우고, 한 시간마다 다 치움
+    fn housekeep(&mut self, app: &AppHandle, now: Instant, own: &Slot) {
         if self.overlays.is_empty() {
             return;
         }
         let puffs_done = self.last_puff.is_none_or(|t| now.duration_since(t) >= IDLE_CLOSE);
         let doodles_done = self.doodles_until.is_none_or(|t| now >= t);
-        if puffs_done && doodles_done {
+        let webs_done = self.webs_until.is_none_or(|t| now >= t);
+        let lines_done = self.lines_at.is_none_or(|t| now.duration_since(t) >= IDLE_CLOSE);
+        if puffs_done && doodles_done && webs_done && lines_done {
             self.tear_down();
             return;
         }
@@ -248,6 +441,12 @@ impl TrailFx {
             return;
         }
         self.next_pause = Some(now + PAUSE_EVERY);
+        self.drop_moved_webs(app, now, own);
+        let due = *self.web_clear_at.get_or_insert(now + WEB_AUTO_CLEAR);
+        if now >= due {
+            self.clear_webs(app);
+            self.web_clear_at = Some(now + WEB_AUTO_CLEAR);
+        }
         let areas = &own.world.work_areas;
         self.overlays.retain(|o| {
             let keep = areas.contains(&o.wa);
@@ -272,6 +471,10 @@ impl TrailFx {
         }
         self.last_puff = None;
         self.doodles_until = None;
+        self.webs.clear();
+        self.webs_until = None;
+        self.lines_at = None;
+        self.lines_sent = None;
         self.next_pause = None;
         self.retry.reset();
     }

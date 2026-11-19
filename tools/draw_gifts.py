@@ -36,6 +36,7 @@ LINES = {
     "penguin": ("pebble", "ice", "fish", "snowflake", "down", "shell"),
     "redpanda": ("bamboo", "berry", "stick", "maple", "fluff", "flower"),
     "heumul": ("plane", "spring", "rubber", "pencil", "button", "balloon"),
+    "spider": ("dewdrop", "spool", "leaf", "badge", "cape", "ladybug"),
     "giraffe": ("acacia", "pod", "mango", "cloud", "nest", "scarf"),
     "rudolph": ("bell", "bulb", "snowflake", "star", "moss", "ribbon"),
     "santa": ("giftbox", "candycane", "mitten", "cookie", "stocking", "coal"),
@@ -962,6 +963,58 @@ def heumul_balloon(i):
     """빨간 풍선 (반짝 + 매듭 + 꼬불 끈)."""
     bl(i, [E(48, 38, 80, 76), T((61, 75), (67, 75), (64, 81))], RED, r=0.4, marks=[([E(54, 45, 61, 54)], RED_LIGHT)])
     strokes(i, [curve((64, 81), (56, 88), (66, 94)), curve((66, 94), (74, 99), (62, 104))], INK, 1.1)
+
+
+# ---- 거미인간 (줄을 쏘는 동글 거미 — 거미줄·실·영웅 소품)
+SPIDER_RED = (226, 66, 74)
+SPIDER_BLUE = (66, 112, 210)
+
+
+def spider_dewdrop(i):
+    """이슬 맺힌 작은 거미줄 (살 여섯 + 고리 둘 + 반짝 물방울)."""
+    cx, cy = 64, 64
+    silk = (236, 240, 248)
+    spokes = [[(cx, cy), polar(cx, cy, 22, 30 + 60 * k)] for k in range(6)]
+    rings = [[polar(cx, cy, r, 30 + 60 * k) for k in range(7)] for r in (9, 17)]
+    strokes(i, spokes + rings, GRAY_DARK, 2.6)
+    strokes(i, spokes + rings, silk, 1.3)
+    bl(i, [C(cx + 9, cy + 12, 5.5)], BLUE, r=0.0, marks=[([C(cx + 7.5, cy + 10.5, 1.8)], WHITE)])
+
+
+def spider_spool(i):
+    """거미줄 실타래 (나무 실패 + 하얀 실 + 풀린 한 가닥)."""
+    bl(i, [E(46, 46, 82, 54), E(46, 82, 82, 90)], TAN, r=0.3)
+    bl(i, [E(50, 50, 78, 86)], (244, 246, 252), r=0.3, marks=[([L([(51, 58 + 6 * k), (77, 56 + 6 * k)], 1.0) for k in range(5)], GRAY_LIGHT)])
+    strokes(i, [curve((78, 72), (92, 78), (88, 94))], GRAY, 1.4)
+
+
+def spider_leaf(i):
+    """줄로 엮은 나뭇잎 해먹 (초록 잎 + 양 끝의 거미줄)."""
+    bl(i, [E(42, 62, 86, 80)], GREEN, r=0.5, marks=[([L([(44, 71), (84, 71)], 1.4)], GREEN_DARK)])
+    strokes(i, [[(44, 70), (36, 50)], [(84, 70), (92, 50)], [(50, 64), (36, 50)], [(78, 64), (92, 50)]], GRAY, 1.2)
+
+
+def spider_badge(i):
+    """빨강·파랑 배지 (가운데 작은 까만 거미)."""
+    bl(i, [C(64, 66, 17)], SPIDER_BLUE, r=0.0, marks=[([C(64, 66, 12.5)], SPIDER_RED), ([E(55, 56, 62, 61)], (250, 170, 176))])
+    body = [E(61, 64, 67, 74), C(64, 62, 2.6)]
+    legs = [[(64 + sx * 2, 64 + k * 2.6), (64 + sx * 7, 60 + k * 3.4), (64 + sx * 9, 64 + k * 3.6)] for sx in (-1, 1) for k in range(4)]
+    paint(i, aa(shapes(body + [L(p, 1.3) for p in legs])), (30, 26, 38))
+
+
+def spider_cape(i):
+    """작은 파란 망토 (빨간 깃 + 주름)."""
+    bl(i, [T((54, 46), (74, 46), (90, 90), (38, 90))], SPIDER_BLUE, r=0.6,
+       marks=[([L([(58, 56), (50, 88)], 1.4), L([(70, 56), (78, 88)], 1.4), L([(64, 52), (64, 88)], 1.2)], mix(SPIDER_BLUE, INK, 0.35))])
+    bl(i, [E(50, 40, 78, 52)], SPIDER_RED, r=0.3)
+
+
+def spider_ladybug(i):
+    """무당벌레 친구 (빨간 등 + 까만 점 + 동글 머리)."""
+    bl(i, [E(46, 54, 82, 84), C(64, 52, 8)], RED, r=0.4,
+       marks=[([C(64, 50, 8)], INK), ([L([(64, 56), (64, 84)], 1.4)], INK), ([C(55, 64, 3), C(73, 64, 3), C(57, 76, 2.6), C(71, 76, 2.6)], INK),
+              ([E(51, 58, 56, 62)], RED_LIGHT)])
+    dots(i, [(61, 49), (67, 49)], WHITE, 1.1)
 
 
 DRAW = {name: globals()[name] for name in IDS}

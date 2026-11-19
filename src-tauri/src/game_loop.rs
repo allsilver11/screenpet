@@ -741,6 +741,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 Input::Object(input) => {
                     if matches!(input, ObjectInput::ClearAll) {
                         weather.clear_piles();
+                        // 🕷️ 거미인간이 친 거미집도 (trail.rs)
+                        trail.clear_webs(&app);
                     }
                     let busy = hand.is_some() || slots.iter().any(|s| s.pet.is_held());
                     objects.handle(&app, input, &slots[OWN].world, source.cursor(), busy);
@@ -1109,7 +1111,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 s.pet.set_cursor_rally_ok(!play_busy && !config.cursor_play_off && !presence.is_away());
                 s.pet.notice_cursor_rally(if all_hidden { &[] } else { &object_spots }, &s.world);
                 s.pet.notice_poops(&poop_spots, &s.world);
-                // 🐱 고양이 툭툭 · 🐿️ 다람쥐 볼 빵빵 (v0.6.3): 바닥의 물건 — 모두 숨겨 둔 동안엔 보여 주지 않음
+                // 🐱 고양이 툭툭 · 🐿️ 다람쥐 볼 빵빵 (v0.6.3) · 🕷️ 거미인간 끌어오기: 바닥의 물건 — 모두 숨겨 둔 동안엔 보여 주지 않음
                 s.pet.notice_play_objects(if all_hidden { &[] } else { &object_spots }, &s.world);
                 // 📌 흐물이: 가끔 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내고, 갖고 놀다 도로 넣음 (손님은 하지 않음)
                 if s.pet.cfg.taskbar_play && s.is_own() {

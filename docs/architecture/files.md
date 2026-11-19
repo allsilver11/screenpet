@@ -163,7 +163,7 @@ ui/
 | `ink_<stage>.png` ×5 | 🎨 몸 색을 바꿀 수 있는 동물(흐물이)만: 잉크 자리 마스크 |
 | `neck_<stage>.png`, `neck_tile_<stage>.png` | 기린만: 목 늘이기 층 |
 
-19종: bird, cat, dino_green/purple/yellow, duck, frog, ghost, giraffe, heumul, penguin, persian, pumpkin, rabbit, redpanda, rudolph, santa, snowman, squirrel.
+20종: bird, cat, dino_green/purple/yellow, duck, frog, ghost, giraffe, heumul, penguin, persian, pumpkin, rabbit, redpanda, rudolph, santa, snowman, spider (거미인간), squirrel.
 
 ---
 
@@ -199,7 +199,7 @@ ui/
 | 종류 | 파일 |
 |---|---|
 | 그림 엔진 | `draw_pets.py` (공통 엔진 + 고양이·토끼·페르시안, 맨 끝에서 종별 모듈 등록), `sprite_spec.py` |
-| 종별 그림 | `draw_{bird,christmas,dino,farm,frog,halloween,heumul,penguin,redpanda,snowman,squirrel}.py` |
+| 종별 그림 | `draw_{bird,christmas,dino,farm,frog,halloween,heumul,penguin,redpanda,snowman,spider,squirrel}.py` |
 | 세계 그림 | `draw_{house,objects,props,gifts,sleigh}.py`, `draw_pixel.py`, `draw_pixel_world.py`, `pixel_world_icons.py`, `make_icon.py` |
 | 미리보기 | `preview_nightcap.py`, `preview_scarf.py` |
 | 배포 | `pack_webp.py`, `requirements-pack.txt` |

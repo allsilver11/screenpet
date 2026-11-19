@@ -110,6 +110,12 @@ OPTIONAL_ANIMS = [
     ("cheeks_walk", 4, 8, True, False),
     ("cheeks_idle", 2, 2, True, False),
     ("dig", 4, 8, True, False),
+    # 🕷️ 거미인간 (코어 brain_web.rs — 줄 끝 손 자리는 pet.json grip): 앞다리를 쭉 뻗어 줄 쏘기 (한 번, 마지막 칸 유지) ·
+    # 한 손을 머리 위로 들어 줄에 매달려 그네 · 영웅 착지 (쪼그려 한 손 짚고 다리 하나 쭉 — 한 번) · 두 손으로 줄을 잡고 끌어당기기
+    ("shoot", 3, 10, False, False),
+    ("web_swing", 2, 4, True, False),
+    ("hero_land", 3, 8, False, False),
+    ("web_pull", 4, 8, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -136,13 +142,17 @@ SPEECH = {
     "redpanda": {"chatter": ["kyu kyu~", "peekaboo!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "surprise": ["!!", "eep!"],
                  **_CARE_SPEECH},
     "heumul": {"chatter": ["wheee!", "zoom zoom!", "hup!"], "tickle": ["hehehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
+    # 🕷️ 거미인간: 줄 쏘기 thwip · 거미집 web · 그네 web_swing · 영웅 착지 hero_land · 끌어오기 gotcha (코어 Speech)
+    "spider": {"chatter": ["thwip!", "web time!", "hi-ya!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "thwip": ["thwip!"],
+               "web": ["web time!", "spin spin~"], "web_swing": ["wheee!", "swing!"], "hero_land": ["nailed it!", "ta-da!"],
+               "gotcha": ["gotcha!", "yoink!"], **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "persian": "aloof", "squirrel": "playful", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
-               "duck": "playful", "giraffe": "friendly", "bird": "playful", "penguin": "playful", "redpanda": "playful", "heumul": "playful",
+               "duck": "playful", "giraffe": "friendly", "bird": "playful", "penguin": "playful", "redpanda": "playful", "heumul": "playful", "spider": "playful",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
 
@@ -191,6 +201,10 @@ STASHER = {"squirrel"}
 # 🦆 바닥에서 친구들을 줄줄이 데리고 걷는 동물 (pet.json train_leader — 코어 brain_train.rs, 새 그림 없음)
 TRAIN_LEADER = {"duck"}
 
+# 🕷️ 줄을 쏘아 모서리에 거미집을 치고, 줄 그네를 타고, 영웅 착지를 하고, 물건·친구를 끌어오는 동물
+# (pet.json web_slinger — 코어 brain_web.rs, 그림은 shoot·web_swing·hero_land·web_pull)
+WEB_SLINGER = {"spider"}
+
 # 🎨 몸 색을 고를 수 있는 동물 (pet.json tint + ink_<stage>.png 잉크 자리 — 앱이 그 자리만 고른 색으로 덮는다, ui/main.js)
 TINTABLE = {"heumul"}
 
@@ -215,6 +229,7 @@ FAVORITE_FOOD = {
     "penguin": {"emoji": "🦐", "name": "새우"},
     "redpanda": {"emoji": "🎋", "name": "대나무잎"},
     "heumul": {"emoji": "🍭", "name": "막대사탕"},
+    "spider": {"emoji": "🪰", "name": "파리"},
 }
 
 

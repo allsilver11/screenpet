@@ -235,6 +235,12 @@ pub struct GripTable {
     pub hang_cursor: GripAnim,
     /// 들고 달리기 (친구에게 들고 가는 길)
     pub carry_run: GripAnim,
+    /// 🕷️ 줄 쏘기 — 뻗은 앞다리 끝 (줄이 나가는 손)
+    pub shoot: GripAnim,
+    /// 🕷️ 줄 그네 — 머리 위로 든 손 (줄을 잡은 점)
+    pub web_swing: GripAnim,
+    /// 🕷️ 줄 끌어당기기 — 앞의 줄을 잡은 손
+    pub web_pull: GripAnim,
 }
 
 /// 가장 가까운 노릴 동물: 가로 AIM_RANGE, 높이 AIM_RISE (내 몸 크기 배) 안에서

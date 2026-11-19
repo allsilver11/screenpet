@@ -18,6 +18,7 @@ pub(crate) fn pet_cfg() -> PetConfig {
         knocks: false,
         stashes: false,
         leads_train: false,
+        slings_webs: false,
         size: 128.0,
         half_w: 38.0,
         walk_speed: 60.0,

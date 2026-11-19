@@ -44,6 +44,7 @@ pub mod typing;
 pub mod update;
 pub mod visit;
 pub mod weather;
+pub mod web;
 pub mod world;
 
 #[cfg(test)]

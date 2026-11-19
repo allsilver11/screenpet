@@ -97,6 +97,8 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "redpanda" => "hand_bamboo",
             // 흐물이는 유령처럼 막대사탕 (막대 같은 꼬마에게 막대사탕)
             "heumul" => "hand_lollipop",
+            // 🕷️ 거미인간은 개구리처럼 파리
+            "spider" => "hand_fly",
             "dino_yellow" => "hand_watermelon",
             "dino_green" => "hand_broccoli",
             "dino_purple" => "hand_grapes",
@@ -221,6 +223,7 @@ mod tests {
         // 레서판다는 대나무잎을 오물오물
         assert_eq!((hand_icon(Food::Favorite, "redpanda"), hand_icon(Food::Meal, "redpanda")), ("hand_bamboo", "hand_meal"));
         assert_eq!(hand_icon(Food::Favorite, "heumul"), hand_icon(Food::Favorite, "ghost"));
+        assert_eq!((hand_icon(Food::Favorite, "spider"), hand_icon(Food::Meal, "spider")), ("hand_fly", "hand_meal"));
         assert_eq!(hand_icon(Food::Meal, "giraffe"), "hand_meal");
         assert_eq!(hand_icon(Food::Favorite, "persian"), "hand_milk");
         assert_eq!(

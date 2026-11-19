@@ -233,6 +233,12 @@ impl Pet {
                 }
                 self.standing = None;
             }
+            // 🕷️ 줄에 매달려 떠오르거나 그네를 타던 중: 떨어져 내린 뒤에 잔다 (brain_web.rs)
+            State::Web { .. } if self.web_airborne() => {
+                self.settle_for_sleep();
+                self.start_fall();
+                return true;
+            }
             State::Sleep { .. } => {}
             _ => self.settle_for_sleep(),
         }

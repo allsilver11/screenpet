@@ -21,12 +21,15 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기) · lift·hold·carry·throw·strain·present·slump (물건 들어 던지기)
 /// · yank·stuff (📌 작업표시줄에서 장난감 끌어내기·도로 밀어 넣기)
 /// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type·type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS, type = ⌨️ 키보드 v0.6.4)
-/// · paw (🐱 고양이 툭툭 — KNOCK_ANIMS) · cheeks_walk·cheeks_idle·dig (🐿️ 다람쥐 볼 빵빵 — STASH_ANIMS, v0.6.3).
-pub const OPTIONAL_ANIMS: [&str; 36] = [
+/// · paw (🐱 고양이 툭툭 — KNOCK_ANIMS) · cheeks_walk·cheeks_idle·dig (🐿️ 다람쥐 볼 빵빵 — STASH_ANIMS, v0.6.3)
+/// · shoot·web_swing·hero_land·web_pull (🕷️ 거미인간 — WEB_ANIMS).
+pub const OPTIONAL_ANIMS: [&str; 40] = [
     "arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
-    "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig",
+    "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig", "shoot", "web_swing", "hero_land", "web_pull",
 ];
+/// 🕷️ 거미인간 그림: 줄 쏘기 · 줄 그네 · 영웅 착지 · 줄 끌어당기기 (pet.json `web_slinger`가 있어도 이게 다 있어야 함 — slings_webs())
+pub const WEB_ANIMS: [&str; 4] = ["shoot", "web_swing", "hero_land", "web_pull"];
 /// 🐱 툭툭 그림 (pet.json `knocker`가 있어도 이게 있어야 함 — knocks())
 pub const KNOCK_ANIMS: [&str; 1] = ["paw"];
 /// 🐿️ 볼 빵빵 그림 (pet.json `stasher`가 있어도 이게 다 있어야 함 — stashes())
@@ -163,6 +166,9 @@ pub struct PetManifest {
     /// 🦆 바닥에서 친구들을 줄줄이 데리고 걸음 (오리 — 새 그림 없이 걷기 그림으로)
     #[serde(default)]
     pub train_leader: bool,
+    /// 🕷️ 줄을 쏘아 모서리에 거미집을 치고, 줄 그네를 타고, 영웅 착지를 하고, 물건·친구를 끌어옴 (거미인간, WEB_ANIMS가 다 있을 때만 — slings_webs())
+    #[serde(default)]
+    pub web_slinger: bool,
     /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있음 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮음, core::tint)
     #[serde(default)]
     pub tint: bool,
@@ -340,6 +346,11 @@ impl PetManifest {
         self.stasher && STASH_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
+    /// 🕷️ 줄 쓰기 (WEB_ANIMS 그림이 다 있어야 함)
+    pub fn slings_webs(&self) -> bool {
+        self.web_slinger && WEB_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
     /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 함)
     pub fn antics(&self) -> bool {
         self.juggles() && ANTICS_ANIMS.iter().all(|a| self.has_anim(a))
@@ -358,7 +369,7 @@ impl PetManifest {
             }
             g
         };
-        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present"), yank: anim("yank"), stuff: anim("stuff"), catch: anim("catch"), hang_cursor: anim("hang_cursor"), carry_run: anim("carry_run") }
+        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present"), yank: anim("yank"), stuff: anim("stuff"), catch: anim("catch"), hang_cursor: anim("hang_cursor"), carry_run: anim("carry_run"), shoot: anim("shoot"), web_swing: anim("web_swing"), web_pull: anim("web_pull") }
     }
 
     /// 사는 집 그림: pet.json `house`, 없으면 보통 집
@@ -658,7 +669,8 @@ mod tests {
         assert_eq!(&OPTIONAL_ANIMS[21..23], &TASKBAR_ANIMS, "📌 작업표시줄 놀이 (v0.6.2)");
         assert_eq!(&OPTIONAL_ANIMS[23..32], &ANTICS_ANIMS, "흐물이 더 놀기 (v0.6.3, ⌨️ type v0.6.4)");
         assert_eq!(&OPTIONAL_ANIMS[32..33], &KNOCK_ANIMS, "🐱 툭툭 (v0.6.3)");
-        assert_eq!(&OPTIONAL_ANIMS[33..], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3) — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[33..36], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3)");
+        assert_eq!(&OPTIONAL_ANIMS[36..], &WEB_ANIMS, "🕷️ 거미인간 — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
@@ -671,6 +683,34 @@ mod tests {
             let m = load(&id);
             assert!(!m.timid() && !m.energetic && !m.rigs() && !m.juggler && !m.juggles() && !m.taskbar_play && !m.plays_taskbar() && !m.antics(), "{id}");
         }
+    }
+
+    /// 🕷️ 거미인간만 줄을 씀 (web_slinger + WEB_ANIMS 그림 넷) — 동글·픽셀 모두. 줄 끝 손 자리(grip)는 shoot·web_swing·web_pull
+    #[test]
+    fn only_the_bundled_spider_slings_webs_and_has_hand_spots_for_the_line() {
+        assert_eq!(WEB_ANIMS, ["shoot", "web_swing", "hero_land", "web_pull"]);
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |root: &str, id: &str| std::fs::read_to_string(ui.join(root).join(id).join("pet.json")).unwrap();
+        for root in ["pets", "pets_pixel"] {
+            for id in crate::test_util::species() {
+                let base = parse_manifest(&read("pets", &id)).unwrap();
+                let m = if root == "pets" { base } else { parse_pixel_manifest(&read(root, &id), &base).unwrap() };
+                assert_eq!(m.slings_webs(), id == "spider", "{root} {id}");
+                assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").slings_webs, id == "spider", "{root} {id}");
+            }
+        }
+        let s = parse_manifest(&read("pets", "spider")).unwrap();
+        assert_eq!(s.name, "거미인간");
+        assert!(s.can_climb() && !s.juggles() && !s.antics() && !s.tint);
+        for stage in ["baby", "teenager", "adult"] {
+            let g = s.grip_table(stage);
+            assert_eq!((g.shoot.n, g.web_swing.n, g.web_pull.n), (3, 2, 4), "{stage}");
+            assert!(g.shoot.at(1.0).0 > 0.25, "쏜 손은 몸 앞 멀리 {stage}");
+            assert!(g.web_swing.at(0.0).1 < 0.2, "그네 손은 머리 위 {stage}");
+        }
+        // 그림이 하나라도 빠지면 줄을 쓰지 않음
+        let partial = read("pets", "spider").replace(r#""web_pull""#, r#""web_pull_x""#);
+        assert!(!parse_manifest(&partial).unwrap().slings_webs());
     }
 
     /// 🐱 툭툭은 고양이·페르시안, 🐿️ 볼 빵빵은 다람쥐, 🦆 기차는 오리만 (v0.6.3) — 동글·픽셀 모두

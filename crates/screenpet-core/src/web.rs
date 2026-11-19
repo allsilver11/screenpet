@@ -1,0 +1,292 @@
+//! 🕷️ 거미인간 줄 놀이 (pet.json `web_slinger` — 거미인간): 숫자와 순수 계산. 동물의 상태는 brain_web.rs, 그림은 src-tauri trail.rs.
+//!
+//! - 거미집: 한가할 때 가까운 모서리(작업 영역 네 모서리 + 앞에 가려지지 않은 창의 위 두 모서리)를 향해 줄을 쏘고, 줄이 닿으면 거미집이 핌.
+//!   손님으로 친구 화면에 가 있으면 자주 (WEB_RATE_GUEST), 집에선 가끔 (WEB_RATE_HOME). 거미집은 앱이 WEB_LIFE_SECS 뒤 흐리게 지움.
+//! - 그네: 머리 위 창 아랫변이나 화면 윗변에 줄을 붙여 몸을 끌어올린 뒤 진자처럼 흔들려 반대편에서 놓고 날아감
+//! - 끌어오기: 바닥의 물건이나 다른 동물에 줄을 붙여 휙 — 반은 앞에 떨어지게, 반은 머리 너머 뒤로
+//! - 영웅 착지: 높이서 떨어져 내려서면 콰당 대신 한 손 짚고 쭉 (HERO_FALL_SIZES)
+//!
+//! 단위: 자리·길이는 물리 px, 시간은 초.
+
+use serde::Serialize;
+
+use crate::geom::Rect;
+use crate::world::World;
+
+/// 줄이 손에서 목표까지 뻗어 나가는 시간 (shoot 3칸 10fps)
+pub const SHOOT_SECS: f64 = 0.3;
+/// 줄이 닿은 뒤 뻗은 채 있는 시간
+pub const SHOOT_HOLD_SECS: f64 = 0.35;
+/// 앱을 켜거나 친구 화면에 들어오고 처음 놀기까지
+pub const FIRST_READY_SECS: f64 = 6.0;
+
+/// 집에서 거미집을 칠 빈도 (초당 확률)
+pub const WEB_RATE_HOME: f64 = 1.0 / 240.0;
+/// 손님으로 친구 화면에 가 있을 때 거미집을 칠 빈도 (초당 확률) — 여기저기 자주
+pub const WEB_RATE_GUEST: f64 = 1.0 / 25.0;
+/// 거미집을 친 뒤 다시 치기까지 (집)
+pub const WEB_CALM_HOME: (f64, f64) = (180.0, 420.0);
+/// 거미집을 친 뒤 다시 치기까지 (손님)
+pub const WEB_CALM_GUEST: (f64, f64) = (12.0, 30.0);
+/// 모서리를 고르는 거리 (몸 크기 배)
+pub const WEB_REACH: f64 = 9.0;
+/// 거미집 반지름 (몸 크기 배)
+pub const WEB_SIZE: f64 = 0.8;
+/// 이보다 작은 창의 모서리에는 치지 않음 (몸 크기 배, 가로·세로)
+pub const MIN_WINDOW: f64 = 2.0;
+/// 앱이 거미집을 남겨 두는 시간 (그 뒤 흐려져 사라짐)
+pub const WEB_LIFE_SECS: f64 = 480.0;
+/// 한 화면에 남는 거미집 수 상한 (넘으면 오래된 것부터)
+pub const MAX_WEBS: usize = 12;
+
+/// 그네를 탈 빈도 (초당 확률)
+pub const SWING_RATE: f64 = 1.0 / 120.0;
+/// 그네를 탄 뒤 다시 타기까지
+pub const SWING_CALM: (f64, f64) = (60.0, 160.0);
+/// 그네 시작 각도 (도, 수직에서 뒤로)
+pub const SWING_ANGLE_DEG: f64 = 48.0;
+/// 반대편에서 이만큼 (시작 각도의 몫) 올라갔을 때 놓음
+pub const RELEASE_FRAC: f64 = 0.8;
+/// 줄이 짧으면 (몸 크기 배) 그네를 타지 않음
+pub const SWING_MIN_LEN: f64 = 2.5;
+/// 진자 맨 아래에서도 발이 바닥보다 이만큼 (몸 크기 배) 위
+pub const SWING_CLEAR: f64 = 0.35;
+/// 줄을 당겨 그네 시작 자리로 몸을 끌어올리는 시간
+pub const ZIP_SECS: f64 = 0.35;
+/// 줄은 이보다 길지 않음 (몸 크기 배) — 높은 화면에서도 한 번에 화면을 가로지를 만큼
+pub const SWING_MAX_LEN: f64 = 7.0;
+/// 그네가 이만큼 넘게 걸리면 그 자리에서 놓음 (안전 시한)
+pub const SWING_MAX_SECS: f64 = 6.0;
+
+/// 끌어오기를 할 빈도 (닿는 거리에 무언가 있을 때, 초당 확률)
+pub const PULL_RATE: f64 = 1.0 / 40.0;
+/// 끌어온 뒤 다시 하기까지
+pub const PULL_CALM: (f64, f64) = (30.0, 75.0);
+/// 끌어올 수 있는 거리 (몸 크기 배): 가까운 끝, 먼 끝
+pub const PULL_REACH: (f64, f64) = (1.4, 8.0);
+/// 끌어당기는 그림 (web_pull) 시간 — 줄이 손으로 감겨 들어옴
+pub const PULL_SECS: f64 = 0.5;
+/// 끌어온 것이 날아오는 시간
+pub const YANK_FLIGHT_SECS: f64 = 0.55;
+/// 앞에 떨어지게 끌어올 때: 몸 가운데에서 앞으로 (몸 크기 배)
+pub const PULL_LAND_AHEAD: f64 = 0.65;
+/// 머리 너머 뒤로 던질 때: 몸 가운데에서 뒤로 (몸 크기 배)
+pub const FLING_LAND_BEHIND: f64 = 2.4;
+
+/// 이만큼 (몸 크기 배) 넘게 떨어져 내려서면 영웅 착지
+pub const HERO_FALL_SIZES: f64 = 1.6;
+/// 영웅 착지 자세로 있는 시간 (hero_land 3칸 8fps + 잠깐)
+pub const HERO_SECS: f64 = 0.9;
+
+/// 거미집이 붙은 모서리 (그림이 모서리 안쪽으로 펼쳐짐)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Corner {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+/// 새 거미집 하나 (Pet::take_web으로 한 번 꺼냄)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WebSpin {
+    /// 모서리 점 x (물리 px)
+    pub x: f64,
+    /// 모서리 점 y (물리 px)
+    pub y: f64,
+    /// 어느 모서리
+    pub corner: Corner,
+    /// 거미집 반지름 (물리 px)
+    pub size: f64,
+    /// 창 모서리면 그 창 id (창이 움직이거나 닫히면 앱이 지움), 화면 모서리면 None
+    pub window: Option<u64>,
+}
+
+/// 지금 뻗어 있는 줄 한 가닥 (물리 px) — 앱이 덮개 창에 그림
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WebLine {
+    /// 손 자리
+    pub from: (f64, f64),
+    /// 줄 끝
+    pub to: (f64, f64),
+}
+
+/// 그네 닻 (줄을 붙인 점)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Anchor {
+    /// 닻 x (물리 px)
+    pub x: f64,
+    /// 닻 y (물리 px) — 창 아랫변 또는 화면 윗변
+    pub y: f64,
+    /// 줄 길이 (닻 → 손, 물리 px)
+    pub len: f64,
+    /// 시작 각도 (rad, 수직에서 진행 반대쪽으로 — 늘 양수)
+    pub angle: f64,
+}
+
+/// 점이 이 창 사각형 안 (가장자리 제외)
+fn inside(r: &Rect, x: f64, y: f64) -> bool {
+    r.left < x && x < r.right && r.top < y && y < r.bottom
+}
+
+/// at(손 자리)에서 reach(물리 px) 안의 거미집 자리: 작업 영역 네 모서리 + 앞의 창에 가려지지 않은 창 위 두 모서리.
+/// 같은 모니터(at이 있는 작업 영역)만. size = 몸 크기 (물리 px)
+pub fn corner_spots(world: &World, at: (f64, f64), reach: f64, size: f64) -> Vec<WebSpin>
+{
+    let wa = world.work_area_at(at.0, at.1);
+    let web = WEB_SIZE * size;
+    let mut out = vec![
+        WebSpin { x: wa.left, y: wa.top, corner: Corner::TopLeft, size: web, window: None },
+        WebSpin { x: wa.right, y: wa.top, corner: Corner::TopRight, size: web, window: None },
+        WebSpin { x: wa.left, y: wa.bottom, corner: Corner::BottomLeft, size: web, window: None },
+        WebSpin { x: wa.right, y: wa.bottom, corner: Corner::BottomRight, size: web, window: None },
+    ];
+    for (k, w) in world.windows.iter().enumerate() {
+        let r = w.rect;
+        if r.width() < MIN_WINDOW * size || r.height() < MIN_WINDOW * size {
+            continue;
+        }
+        for (x, corner) in [(r.left, Corner::TopLeft), (r.right, Corner::TopRight)] {
+            let on_screen = wa.left <= x && x <= wa.right && wa.top <= r.top && r.top < wa.bottom;
+            // 앞의 창이 그 모서리를 가리면 안 보임 (창 목록은 앞 → 뒤)
+            let covered = world.windows[..k].iter().any(|f| inside(&f.rect, x, r.top + 1.0) || inside(&f.rect, x + if corner == Corner::TopLeft { 1.0 } else { -1.0 }, r.top + 1.0));
+            if on_screen && !covered {
+                out.push(WebSpin { x, y: r.top, corner, size: web, window: Some(w.id) });
+            }
+        }
+    }
+    out.retain(|s| (s.x - at.0).hypot(s.y - at.1) <= reach);
+    out
+}
+
+/// 그네 닻: 손(hand)에서 facing 쪽 위의 창 아랫변 (손보다 SWING_MIN_LEN 넘게 위, 가장 가까운 것부터) 또는 화면 윗변.
+/// 줄 길이는 진자 맨 아래에서 발이 바닥(floor)보다 SWING_CLEAR 위에 오게 (SWING_MAX_LEN까지) — 그래서 먼저 줄을 당겨 떠오름 (Zip).
+/// 시작 각도는 SWING_ANGLE_DEG부터 줄여 가며 닻과 반대편에서 놓는 자리가 모두 화면 안에 드는 것. drop = 손에서 발까지 (물리 px). 없으면 None
+pub fn swing_anchor(world: &World, hand: (f64, f64), facing: f64, size: f64, drop: f64, floor: f64) -> Option<Anchor> {
+    let wa = world.work_area_at(hand.0, hand.1);
+    let min = SWING_MIN_LEN * size;
+    let mut tops: Vec<(f64, Option<Rect>)> =
+        world.windows.iter().filter(|w| w.rect.bottom <= hand.1 - min && w.rect.bottom > wa.top).map(|w| (w.rect.bottom, Some(w.rect))).collect();
+    tops.sort_by(|a, b| b.0.total_cmp(&a.0));
+    tops.push((wa.top, None));
+    for (top, win) in tops {
+        let len = (floor - SWING_CLEAR * size - drop - top).min(SWING_MAX_LEN * size);
+        if len < min {
+            continue;
+        }
+        for deg in [SWING_ANGLE_DEG, 42.0, 36.0, 30.0, 24.0] {
+            let angle = deg.to_radians();
+            let ax = hand.0 + facing * len * angle.sin();
+            let far = ax + facing * len * (RELEASE_FRAC * angle).sin();
+            let held = win.is_none_or(|r| r.left < ax && ax < r.right);
+            let room = (wa.left + 0.5 * size..=wa.right - 0.5 * size).contains(&ax) && (wa.left + size..=wa.right - size).contains(&far);
+            if held && room {
+                return Some(Anchor { x: ax, y: top, len, angle });
+            }
+        }
+    }
+    None
+}
+
+/// 진자 한 걸음 (θ'' = −g/L sinθ, 반암시적 오일러): (θ, ω) → 다음 (θ, ω)
+pub fn pendulum_step(theta: f64, omega: f64, len: f64, gravity: f64, dt: f64) -> (f64, f64) {
+    if len <= 0.0 {
+        return (theta, omega);
+    }
+    let omega = omega - gravity / len * theta.sin() * dt;
+    (theta + omega * dt, omega)
+}
+
+/// 진자의 손 자리: 닻에서 len, θ (facing 쪽이 +)
+pub fn pendulum_hand(anchor: (f64, f64), len: f64, theta: f64, facing: f64) -> (f64, f64) {
+    (anchor.0 + facing * len * theta.sin(), anchor.1 + len * theta.cos())
+}
+
+/// 놓는 순간의 속도 (물리 px/s): 접선 방향
+pub fn release_velocity(len: f64, theta: f64, omega: f64, facing: f64) -> (f64, f64) {
+    (facing * len * omega * theta.cos(), -len * omega * theta.sin())
+}
+
+/// from에서 to로 secs 동안 포물선으로 날아가는 처음 속도 (중력 gravity, 물리 px/s²)
+pub fn yank_velocity(from: (f64, f64), to: (f64, f64), secs: f64, gravity: f64) -> (f64, f64) {
+    let t = secs.max(0.05);
+    ((to.0 - from.0) / t, (to.1 - from.1 - 0.5 * gravity * t * t) / t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geom::WindowInfo;
+
+    fn world(windows: Vec<WindowInfo>) -> World {
+        World::new(windows, vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0)
+    }
+
+    fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
+        WindowInfo { id, rect: Rect::new(l, t, r, b) }
+    }
+
+    #[test]
+    fn corners_are_the_screen_corners_and_uncovered_window_tops_within_reach() {
+        let w = world(vec![win(2, 900.0, 200.0, 1300.0, 700.0), win(1, 300.0, 300.0, 1000.0, 800.0)]);
+        let all = corner_spots(&w, (960.0, 520.0), 1e9, 100.0);
+        let has = |x: f64, y: f64, c: Corner, win: Option<u64>| all.iter().any(|s| s.x == x && s.y == y && s.corner == c && s.window == win);
+        assert!(has(0.0, 0.0, Corner::TopLeft, None) && has(1920.0, 1040.0, Corner::BottomRight, None));
+        assert!(has(900.0, 200.0, Corner::TopLeft, Some(2)) && has(1300.0, 200.0, Corner::TopRight, Some(2)));
+        assert!(has(300.0, 300.0, Corner::TopLeft, Some(1)));
+        assert!(!all.iter().any(|s| s.window == Some(1) && s.corner == Corner::TopRight), "앞 창(2)에 가려진 모서리: {all:?}");
+        assert!(all.iter().all(|s| (s.size - WEB_SIZE * 100.0).abs() < 1e-9));
+        let near = corner_spots(&w, (960.0, 520.0), 500.0, 100.0);
+        assert!(!near.is_empty() && near.iter().all(|s| (s.x - 960.0).hypot(s.y - 520.0) <= 500.0), "{near:?}");
+        // 작은 창 모서리에는 치지 않음
+        let tiny = world(vec![win(3, 500.0, 500.0, 600.0, 560.0)]);
+        assert!(corner_spots(&tiny, (550.0, 600.0), 1e9, 100.0).iter().all(|s| s.window.is_none()));
+    }
+
+    #[test]
+    fn the_swing_anchor_is_up_ahead_on_the_screen_top_or_a_window_bottom_and_never_lets_the_feet_hit_the_floor() {
+        let w = world(vec![]);
+        let (size, drop, floor) = (100.0, 90.0, 1040.0);
+        let hand = (600.0, floor - drop);
+        let a = swing_anchor(&w, hand, 1.0, size, drop, floor).unwrap();
+        assert_eq!(a.y, 0.0);
+        assert!(a.x > hand.0 && a.len >= SWING_MIN_LEN * size);
+        assert!(a.y + a.len + drop <= floor - SWING_CLEAR * size + 1e-6, "맨 아래에서도 바닥 위 {a:?}");
+        let left = swing_anchor(&w, (1300.0, hand.1), -1.0, size, drop, floor).unwrap();
+        assert!(left.x < 1300.0);
+        assert!(swing_anchor(&w, hand, -1.0, size, drop, floor).is_none(), "왼쪽으로는 화면 밖");
+        // 머리 위 창 아랫변에 붙임
+        let w2 = world(vec![win(1, 500.0, 100.0, 1400.0, 500.0)]);
+        let b = swing_anchor(&w2, hand, 1.0, size, drop, floor).unwrap();
+        assert_eq!(b.y, 500.0, "{b:?}");
+        // 화면 끝 가까이에서 그쪽으로는 못 탐
+        assert!(swing_anchor(&w, (1880.0, floor - drop), 1.0, size, drop, floor).is_none());
+    }
+
+    #[test]
+    fn a_pendulum_released_from_rest_swings_through_the_bottom_to_the_other_side() {
+        let (len, g) = (600.0, 2500.0);
+        let (mut th, mut om) = (-0.8, 0.0);
+        let mut peak = th;
+        for _ in 0..600 {
+            (th, om) = pendulum_step(th, om, len, g, 1.0 / 120.0);
+            peak = peak.max(th);
+        }
+        assert!(peak > 0.75, "에너지가 거의 보존됨 {peak}");
+        let (hx, hy) = pendulum_hand((100.0, 0.0), len, 0.0, 1.0);
+        assert!((hx - 100.0).abs() < 1e-9 && (hy - len).abs() < 1e-9);
+        let (vx, vy) = release_velocity(len, 0.5, 2.0, -1.0);
+        assert!(vx < 0.0 && vy < 0.0, "앞(왼쪽) 위로 날아감");
+    }
+
+    #[test]
+    fn a_yank_lands_where_it_was_aimed() {
+        let g = 1700.0;
+        let (from, to, t) = ((800.0, 1040.0), (500.0, 1040.0), YANK_FLIGHT_SECS);
+        let (vx, vy) = yank_velocity(from, to, t, g);
+        let (x, y) = (from.0 + vx * t, from.1 + vy * t + 0.5 * g * t * t);
+        assert!((x - to.0).abs() < 1e-6 && (y - to.1).abs() < 1e-6);
+        assert!(vy < 0.0, "위로 솟았다가 내려옴");
+    }
+}

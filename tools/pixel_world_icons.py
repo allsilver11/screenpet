@@ -635,6 +635,65 @@ GIFTS = {
         .....k....
         ....k.....
         """,
+    # ---- 거미인간
+    "spider_dewdrop": """
+        s...s...s.
+        .s..s..s..
+        ..sssss...
+        sss.s.sss.
+        ..sssss...
+        .s..s..sb.
+        s...s..bcb
+        .......bbb
+        """,
+    "spider_spool": """
+        .tttttt...
+        ..wwwww...
+        ..wsssw...
+        ..wwwww...
+        ..wsssw...
+        ..wwwwws..
+        .tttttt.s.
+        ........s.
+        """,
+    "spider_leaf": """
+        s........s
+        .s......s.
+        ..s....s..
+        ..gggggg..
+        .gGGGGGGg.
+        ..gggggg..
+        """,
+    "spider_badge": """
+        ...BBBB...
+        ..BrrrrB..
+        .BrpkkrrB.
+        .BrkkkkrB.
+        .BrrkkrrB.
+        .BrkkkkrB.
+        ..BrrrrB..
+        ...BBBB...
+        """,
+    "spider_cape": """
+        ..rrrrrr..
+        ...bbbb...
+        ..bbBbbb..
+        ..bbBbbb..
+        .bbbBbbbb.
+        .bbBbbBbb.
+        bbbBbbBbbb
+        bbBbbbbBbb
+        """,
+    "spider_ladybug": """
+        ...kkk....
+        ..kwkwk...
+        .rrrkrrr..
+        rrkrkrkrr.
+        rrrrkrrrr.
+        rkrrkrrkr.
+        .rrrkrrr..
+        ..rrrrr...
+        """,
     # ---- 레서판다
     "redpanda_bamboo": """
         ........g.

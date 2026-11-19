@@ -182,6 +182,14 @@ pub enum Anim {
     CheeksIdle,
     /// 🐿️ 다람쥐 — 땅을 파고 물음 (옆모습)
     Dig,
+    /// 🕷️ 거미인간 — 앞다리를 쭉 뻗어 줄 쏘기 (옆모습, 한 번 — brain_web.rs)
+    Shoot,
+    /// 🕷️ 거미인간 — 한 손을 들어 줄에 매달린 그네 (옆모습)
+    WebSwing,
+    /// 🕷️ 거미인간 — 영웅 착지: 쪼그려 한 손 짚고 다리 하나 쭉 (옆모습, 한 번)
+    HeroLand,
+    /// 🕷️ 거미인간 — 두 손으로 줄을 잡고 끌어당기기 (옆모습)
+    WebPull,
 }
 
 /// 머리 위 말풍선 종류 (웹뷰가 글귀를 고름)
@@ -311,6 +319,14 @@ pub enum Speech {
     Flop,
     /// ⚾🖱️ 먼저 커서에게 놀자고 던지거나 밂 ("catch!", brain_cursor_rally.rs)
     Invite,
+    /// 🕷️ 줄을 쏨 ("thwip!", brain_web.rs)
+    Thwip,
+    /// 🕷️ 모서리에 거미집이 핌 ("web time!")
+    Web,
+    /// 🕷️ 줄 그네 ("wheee!")
+    WebSwing,
+    /// 🕷️ 영웅 착지 ("nailed it!")
+    HeroLand,
 }
 
 impl Anim {
@@ -502,6 +518,8 @@ pub enum State {
     HighFive { phase: highfive_moves::HighFivePhase, t: f64 },
     /// 제자리 깜짝 폴짝 — 🦖 큰 쿵에 놀람·🦆 기차 끝 (brain_play.rs). rise = 몸 크기 배
     Bounce { t: f64, rise: f64, then: play_moves::BounceThen },
+    /// 🕷️ 줄 놀이 — 줄 쏘기·그네·끌어오기 (brain_web.rs). t = 이 단계에 들어선 뒤 흐른 시간
+    Web { phase: web_moves::WebPhase, t: f64 },
 }
 
 impl State {
@@ -641,6 +659,8 @@ pub struct PetConfig {
     pub stashes: bool,
     /// 🦆 바닥에서 친구들을 줄줄이 데리고 걸음 (pet.json `train_leader` — 오리, brain_train.rs)
     pub leads_train: bool,
+    /// 🕷️ 줄 놀이 — 거미집·그네·영웅 착지·끌어오기 (pet.json `web_slinger` + shoot·web_swing·hero_land·web_pull 그림 — 거미인간, brain_web.rs)
+    pub slings_webs: bool,
 }
 
 /// teenager(배율 1.0) 스프라이트 한 변 (논리 px)
@@ -680,6 +700,7 @@ impl PetConfig {
             knocks: m.knocks(),
             stashes: m.stashes(),
             leads_train: m.train_leader,
+            slings_webs: m.slings_webs(),
         }
     }
 }
@@ -881,6 +902,8 @@ pub struct Pet {
     dance: dance_moves::DanceMood,
     rally: rally_moves::RallyMood,
     doodle: doodle_moves::DoodleMood,
+    /// 🕷️ 줄 놀이 (brain_web.rs)
+    web: web_moves::WebMood,
     typing: typing_moves::TypingMood,
     /// 다른 동물들도 더 놀기 (v0.6.3): 🐱 툭툭 · 🦆 기차 · 🦖 큰 쿵 · 🐿️ 볼 빵빵 · 🙌 하이파이브 (brain_play.rs)
     play: play_moves::PlayMood,
@@ -979,6 +1002,7 @@ impl Pet {
             dance: Default::default(),
             rally: Default::default(),
             doodle: doodle_moves::DoodleMood::new(seed),
+            web: web_moves::WebMood::new(seed),
             typing: Default::default(),
             play: play_moves::PlayMood::new(seed),
             speech_text: None,
@@ -1069,6 +1093,11 @@ impl Pet {
         }
         // 다른 동물들도 더 놀기 — 툭툭·볼 빵빵·기차·하이파이브·깜짝 폴짝 (brain_play.rs)
         if self.update_romp(dt, world) {
+            self.on_started();
+            return;
+        }
+        // 🕷️ 거미인간 줄 놀이 — 거미집·그네·끌어오기 (brain_web.rs)
+        if self.update_web(dt, world) {
             self.on_started();
             return;
         }
@@ -1199,7 +1228,9 @@ impl Pet {
             State::Knock { .. } | State::Stash { .. } | State::Lead { .. } | State::Follow { .. } | State::HighFive { .. } | State::Bounce { .. } => {
                 self.play_anim().unwrap_or(Anim::Idle)
             }
+            State::Land { .. } if self.hero_landing() => Anim::HeroLand,
             State::Land { .. } => Anim::Land,
+            State::Web { phase, .. } => self.web_anim(phase),
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
             State::Slide => Anim::Slide,
@@ -1888,6 +1919,7 @@ impl Pet {
                 | State::Swing { .. }
                 | State::Lifted { .. }
         ) || matches!(self.state, State::Meet { phase, .. } if phase.airborne())
+            || self.web_airborne()
     }
 
     /// 매 틱 update 전에 호출 (버튼 안 누른 상태). inside = 커서가 스프라이트 사각형 안
@@ -2898,6 +2930,7 @@ impl Pet {
             | State::Follow { .. }
             | State::HighFive { .. }
             | State::Bounce { .. }
+            | State::Web { .. }
             | State::Panic { .. }
             | State::Rig { .. }
             | State::Juggle { .. }
@@ -2946,14 +2979,16 @@ impl Pet {
             let g = self.air_gravity();
             let fell = if g > 0.0 { self.body.vy.max(0.0).powi(2) / (2.0 * g) } else { 0.0 };
             // 자리 비움 중(잠만 잔다)엔 콰당 없이 그대로 다시 잠든다 (brain_presence.rs)
-            let thud = !self.cfg.flies && !self.is_user_away() && fell >= THUD_FALL_SIZES * self.cfg.size;
+            // 🕷️ 거미인간은 콰당 대신 영웅 착지 (brain_web.rs)
+            let hero = self.try_hero_landing(fell);
+            let thud = !hero && !self.cfg.flies && !self.is_user_away() && fell >= THUD_FALL_SIZES * self.cfg.size;
             self.body = Body { x: self.body.x, y: s.y, vx: 0.0, vy: 0.0 };
             self.standing = Some(Standing { owner: s.owner, rel_x: self.body.x - ax });
             if thud {
                 self.thud = THUD_SECS;
                 self.speech = Some(Speech::Oof);
             }
-            self.state = State::Land { remaining: if thud { THUD_SECS } else { LAND_SECS } };
+            self.state = State::Land { remaining: if thud { THUD_SECS } else if hero { crate::web::HERO_SECS } else { LAND_SECS } };
         } else if self.body.y > world.bounds.bottom + self.cfg.size * 4.0 {
             // 화면 밖으로 사라짐 → 가까운 위치 상단에서 다시 떨어뜨림
             let b = world.bounds;
@@ -3755,6 +3790,11 @@ pub mod doodle_moves;
 #[cfg(test)]
 #[path = "brain_doodle_tests.rs"]
 mod doodle_tests;
+#[path = "brain_web.rs"]
+pub mod web_moves;
+#[cfg(test)]
+#[path = "brain_web_tests.rs"]
+mod web_tests;
 #[path = "brain_typing.rs"]
 pub mod typing_moves;
 #[cfg(test)]
@@ -4279,7 +4319,7 @@ mod tests {
             Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise, Anim::Panic, Anim::Hang, Anim::Rope,
             Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump, Anim::Yank, Anim::Stuff,
             Anim::HangCursor, Anim::Peek, Anim::Dance, Anim::Dance2, Anim::Catch, Anim::Draw, Anim::CheerType, Anim::Type, Anim::CarryRun,
-            Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig];
+            Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

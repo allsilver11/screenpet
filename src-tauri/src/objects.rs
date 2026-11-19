@@ -502,7 +502,7 @@ impl Objects {
     }
 
     /// 🐱🐿️🦖 다른 동물들의 물건 놀이 (v0.6.3 — 코어 play.rs): 고양이가 툭 밀고, 다람쥐가 볼에 넣어 뿅 치우고, 공룡의 큰 쿵에
-    /// 같은 바닥의 물건이 톡 튐. 동물 update 뒤, tick 전에
+    /// 같은 바닥의 물건이 톡 튐. 🕷️ 거미인간이 줄로 끌어온 것은 날아감. 동물 update 뒤, tick 전에
     pub fn play_with<T: AsMut<Pet>>(&mut self, pets: &mut [T]) {
         for p in pets.iter_mut() {
             match p.as_mut().take_object_play() {
@@ -518,6 +518,12 @@ impl Objects {
                         self.roster.remove(l.id);
                         self.poof(l);
                         self.sync_menu();
+                    }
+                }
+                // 🕷️ 거미인간이 줄로 끌어옴: 바닥에 놓인 것만 (잡혀 있거나 누가 들고 있거나 날고 있으면 그대로) — 그 뒤는 던진 것과 같음
+                Some(ObjectPlay::Yank { id, vx, vy }) => {
+                    if let Some(l) = self.live.iter_mut().find(|l| l.id == id && l.object.spot(l.id).is_some()) {
+                        l.object.launch(vx, vy);
                     }
                 }
                 Some(ObjectPlay::Quake { x, y, owner, reach }) => {

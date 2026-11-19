@@ -245,6 +245,8 @@ impl CursorStyle {
             "redpanda" => CursorStyle { gait: Anim::Run, speed: 2.2, arrive: Some((Anim::Surprise, 0.9)), chatty: true, ..b },
             // 흐물이는 다다다 신나게 달려와 흐물흐물 손 흔들기
             "heumul" => CursorStyle { gait: Anim::Run, speed: 2.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
+            // 🕷️ 거미인간은 줄을 쏘는 자세를 잡았다가 총총 달려와 다시 쏘는 시늉
+            "spider" => CursorStyle { prep: Some((Anim::Shoot, 0.5)), gait: Anim::Run, speed: 2.4, arrive: Some((Anim::Shoot, 0.6)), chatty: true, ..b },
             _ => return None,
         })
     }

@@ -129,6 +129,8 @@ pub enum ObjectPlay {
     Gulp { id: u64 },
     /// 🦖 큰 쿵!: 같은 바닥(owner, 높이 y) 가로 reach(물리 px) 안의 물건이 톡 튀어 오름 (Object::pop)
     Quake { x: f64, y: f64, owner: Owner, reach: f64 },
+    /// 🕷️ 거미인간이 줄로 끌어옴: 바닥에 있는 이 물건을 (vx, vy)로 날림 (물리 px/s, Object::launch — brain_web.rs)
+    Yank { id: u64, vx: f64, vy: f64 },
 }
 
 /// 위로 rise만큼 솟았다 내려오는 폴짝의 t초째 높이 (secs 동안, 포물선)

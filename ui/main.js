@@ -972,6 +972,11 @@ const EXTRA_SPEECH = {
   flop: ["fluffy!", "brrr~"],
   // ⚾🖱️ 먼저 커서에게 놀자고 던지거나 밂 (코어 brain_cursor_rally.rs — 받은 횟수 "3!"·"boop! 2"는 글자 그대로)
   invite: ["catch!", "play?"],
+  // 🕷️ 거미인간 줄 쏘기 / 모서리 거미집 / 줄 그네 / 영웅 착지 (코어 brain_web.rs — pet.json speech가 있으면 그 말)
+  thwip: ["thwip!"],
+  web: ["web time!"],
+  web_swing: ["wheee!"],
+  hero_land: ["nailed it!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {
@@ -994,6 +999,7 @@ const CURSOR_LINES = {
   penguin: ["wheee~!", "slide slide!"],
   redpanda: ["pounce~!", "kyu kyu!"],
   heumul: ["zoom zoom!", "hup hup!"],
+  spider: ["thwip thwip!", "web time!"],
 };
 const speech = setupSpeech({
   bubbleEl,

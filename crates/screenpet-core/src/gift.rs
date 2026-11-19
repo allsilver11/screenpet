@@ -245,6 +245,21 @@ pub const CATALOG: &[GiftList] = &[
         ],
     },
     GiftList {
+        key: "spider",
+        title: "거미인간",
+        emoji: "🕷️",
+        species: &["spider"],
+        speech: "thwip! for you!",
+        items: &[
+            item("spider_dewdrop", "이슬 거미줄"),
+            item("spider_spool", "거미줄 실타래"),
+            item("spider_leaf", "나뭇잎 해먹"),
+            item("spider_badge", "거미 배지"),
+            item("spider_cape", "작은 망토"),
+            item("spider_ladybug", "무당벌레 친구"),
+        ],
+    },
+    GiftList {
         key: "giraffe",
         title: "기린",
         emoji: "🦒",

@@ -27,7 +27,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
-                         STAGES, SWIFT, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, TRAIN_LEADER, frame_px, manifest)
+                         STAGES, SWIFT, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, TRAIN_LEADER, WEB_SLINGER, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -1829,6 +1829,8 @@ def species_fields(pid, m):
         m["stasher"] = True
     if pid in TRAIN_LEADER:
         m["train_leader"] = True
+    if pid in WEB_SLINGER:
+        m["web_slinger"] = True
     return m
 
 
@@ -2009,6 +2011,7 @@ import draw_penguin  # noqa: E402,F401  (펭귄)
 import draw_squirrel  # noqa: E402,F401  (다람쥐)
 import draw_redpanda  # noqa: E402,F401  (레서판다)
 import draw_heumul  # noqa: E402,F401  (흐물이)
+import draw_spider  # noqa: E402,F401  (거미인간)
 
 if __name__ == "__main__":
     main()
