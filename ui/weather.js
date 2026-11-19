@@ -1,6 +1,6 @@
 // 계절 날씨 그리기. 앱(src-tauri/src/weather.rs)이 `weather-scene`으로 내려앉을 곳(tops)과 더미(piles)를 보냄 (논리 px, 이 창 왼쪽 위가 0,0).
 // CPU를 아끼는 규칙: 24 fps 이하, 알갱이 80개 이하, 미리 그린 그림을 정수 자리에 찍기, 알갱이 자리만 지우기, 더미는 바뀔 때만.
-// 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·rain·shower·petals·leaves)로 앱 없이 볼 수 있음.
+// 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·rain·shower·petals·leaves·green_leaves)로 앱 없이 볼 수 있음.
 
 const FPS = 24;
 const FRAME_MS = 1000 / FPS;
@@ -9,7 +9,8 @@ const MIN_PARTICLES = 30;
 // 한 프레임에 다시 재 보는 알갱이 수 (옆으로 흘러도 내려앉을 곳이 맞도록)
 const RELAND_PER_FRAME = 6;
 
-// count: 폭 1920 논리 px에서의 개수, fall·wind·sway: px/s, rest: 내려앉아 머무는 초, box: 그림 칸, frames: 떨어지며 도는 그림 수
+// count: 폭 1920 논리 px에서의 개수, fall·wind·sway: px/s, rest: 내려앉아 머무는 초, box: 그림 칸, frames: 떨어지며 도는 그림 수,
+// flutter: 흔들림·돎 빠르기 (없으면 1.6)
 const KINDS = {
   light_snow: { count: 30, fall: [24, 46], wind: [-5, 5], sway: 12, rest: 0.6, box: 9, frames: 1 },
   snow: { count: 55, fall: [28, 62], wind: [-7, 7], sway: 14, rest: 0.6, box: 9, frames: 1 },
@@ -17,12 +18,22 @@ const KINDS = {
   shower: { count: 70, fall: [620, 820], wind: [-70, -50], sway: 0, rest: 0.12, box: 18, frames: 1 },
   petals: { count: 35, fall: [30, 56], wind: [12, 30], sway: 20, rest: 1.0, box: 13, frames: 8 },
   leaves: { count: 30, fall: [36, 68], wind: [-14, 14], sway: 34, rest: 1.4, box: 15, frames: 8 },
+  // 🌿 여름 푸른 잎: 낙엽보다 가볍게 팔랑이며 빙글빙글 (더 크게·더 빨리 흔들림)
+  green_leaves: { count: 32, fall: [26, 52], wind: [-22, 22], sway: 48, flutter: 2.8, rest: 1.2, box: 15, frames: 8 },
 };
+const FLUTTER = 1.6;
 // 낙엽 색: 속, 테두리
 const LEAF_TONES = [
   ["#d6452b", "rgba(120,36,18,0.85)"],
   ["#ee8a24", "rgba(140,76,14,0.85)"],
   ["#f2c230", "rgba(150,110,16,0.85)"],
+];
+
+// 푸른 잎 색: 속, 테두리 (밝은 연두·잎새 초록)
+const GREEN_TONES = [
+  ["#8ed64c", "rgba(46,110,30,0.85)"],
+  ["#b4e866", "rgba(70,124,26,0.85)"],
+  ["#5cc25e", "rgba(28,96,40,0.85)"],
 ];
 
 // 픽셀 스타일 (window.ART_STYLE, 앱의 art-style 이벤트): 칸(PX_DOT px)으로만 그림 — 안티에일리어싱 없음, 자리도 칸에 맞춤, 더미는 칸 계단.
@@ -32,13 +43,14 @@ const PX_COLORS = {
   w: "#ffffff", c: "#b4cdeb", b: "#6491d2", B: "#4a70b0",
   p: "#fbc4d4", P: "#d87896",
   r: "#d6452b", R: "#78241a", o: "#ee8a24", O: "#8c4c0e", y: "#f2c230", Y: "#966e10",
+  g: "#8ed64c", G: "#2e6e1e", h: "#b4e866", H: "#467c1a", k: "#5cc25e", K: "#1c6028",
 };
 const PX_FLAKES = [["w"], ["cw", "wc"], [".c.", "cwc", ".c."]];
 const PX_DROP = ["..b.", "..b.", ".b..", ".b.."];
 const PX_SPLASH = ["b..b", ".bb."];
 const PX_PETAL = ["pp.", "Ppp", ".pP"];
 const PX_LEAF = [".LL.", "LLLF", "FLLL", ".FF."];
-const PX_BOX = { light_snow: 9, snow: 9, rain: 12, shower: 12, petals: 9, leaves: 12 };
+const PX_BOX = { light_snow: 9, snow: 9, rain: 12, shower: 12, petals: 9, leaves: 12, green_leaves: 12 };
 
 // 픽셀 그림 줄들을 시계 방향으로 turns번 90도 돌림
 function pxRotate(rows, turns) {
@@ -159,6 +171,7 @@ function leaf([fill, line], a) {
 const tumblers = {
   petals: () => [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map((k) => makeSprite(KINDS.petals.box, petal(k * 0.8))),
   leaves: () => LEAF_TONES.flatMap((tone) => Array.from({ length: KINDS.leaves.frames }, (_, a) => makeSprite(KINDS.leaves.box, leaf(tone, a)))),
+  green_leaves: () => GREEN_TONES.flatMap((tone) => Array.from({ length: KINDS.green_leaves.frames }, (_, a) => makeSprite(KINDS.green_leaves.box, leaf(tone, a)))),
 };
 // 픽셀: 같은 장 수, 90도씩만 돎
 const pxTumblers = {
@@ -166,6 +179,10 @@ const pxTumblers = {
   leaves: () =>
     [["r", "R"], ["o", "O"], ["y", "Y"]].flatMap(([fill, dark]) =>
       Array.from({ length: KINDS.leaves.frames }, (_, a) => pxSprite(pxRotate(PX_LEAF, a % 4), PX_BOX.leaves, { L: PX_COLORS[fill], F: PX_COLORS[dark] })),
+    ),
+  green_leaves: () =>
+    [["g", "G"], ["h", "H"], ["k", "K"]].flatMap(([fill, dark]) =>
+      Array.from({ length: KINDS.green_leaves.frames }, (_, a) => pxSprite(pxRotate(PX_LEAF, a % 4), PX_BOX.green_leaves, { L: PX_COLORS[fill], F: PX_COLORS[dark] })),
     ),
 };
 const tumblerCache = {};
@@ -387,6 +404,7 @@ function frame(now) {
   const box = spec.box;
   const half = box / 2;
   const sway = spec.sway;
+  const flutter = spec.flutter || FLUTTER;
   for (let i = 0; i < n; i++) fallCtx.clearRect(oldX[i], oldY[i], box, box);
   for (let k = 0; k < RELAND_PER_FRAME && n > 0; k++) {
     cursor = (cursor + 1) % n;
@@ -397,7 +415,7 @@ function frame(now) {
       rest[i] -= dt;
       if (rest[i] <= 0) respawn(i, false);
     } else {
-      phase[i] += dt * 1.6;
+      phase[i] += dt * flutter;
       px[i] += (vx[i] + Math.sin(phase[i]) * sway) * dt;
       py[i] += vy[i] * dt;
       if (px[i] < -box) px[i] = width + box / 2;

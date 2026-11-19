@@ -116,11 +116,11 @@ fn it_only_rains_inside_the_shower_windows() {
         for &(start, end) in &list {
             assert_eq!(weather_at(y, m, d, start), Some(Weather::Shower));
             assert_eq!(weather_at(y, m, d, end - 1), Some(Weather::Shower));
-            assert_eq!(weather_at(y, m, d, end), None);
-            assert_eq!(weather_at(y, m, d, start - 1), None);
+            assert_eq!(weather_at(y, m, d, end), Some(Weather::GreenLeaves), "소나기 사이엔 푸른 잎");
+            assert_eq!(weather_at(y, m, d, start - 1), Some(Weather::GreenLeaves));
         }
-        // 분마다 세어 봐도 대부분 맑다
-        let wet = (0..1440).filter(|min| weather_at(y, m, d, min * 60).is_some()).count();
+        // 분마다 세어 봐도 소나기는 잠깐뿐
+        let wet = (0..1440).filter(|min| weather_at(y, m, d, min * 60) == Some(Weather::Shower)).count();
         assert!(wet > 0 && wet <= 45, "{y}-{m}-{d}: {wet} minutes");
     }
 }
@@ -170,7 +170,7 @@ fn a_shower_never_piles_up_and_clears_what_is_left() {
 
 #[test]
 fn pets_look_up_at_petals_and_leaves_only() {
-    assert!(Weather::Petals.looks_up() && Weather::Leaves.looks_up());
+    assert!(Weather::Petals.looks_up() && Weather::Leaves.looks_up() && Weather::GreenLeaves.looks_up());
     for w in [Weather::Snow, Weather::LightSnow, Weather::Rain, Weather::Shower] {
         assert!(!w.looks_up(), "{w:?}");
     }
@@ -202,6 +202,7 @@ fn preview_values_are_parsed_and_anything_else_means_no_preview() {
     assert_eq!(parse_preview("petals"), Some(Some(Weather::Petals)));
     assert_eq!(parse_preview("leaves"), Some(Some(Weather::Leaves)));
     assert_eq!(parse_preview("shower"), Some(Some(Weather::Shower)));
+    assert_eq!(parse_preview("green_leaves"), Some(Some(Weather::GreenLeaves)));
     assert_eq!(parse_preview("off"), Some(None));
     assert_eq!(parse_preview(""), None);
     assert_eq!(parse_preview("hail"), None);
@@ -538,4 +539,50 @@ fn the_pile_under_a_foot_is_its_kind_and_depth() {
     assert!(depth > 0.5, "{depth}");
     assert_eq!(f.pile_under(500.0, 300.0, 20.0), None, "standing on nothing there");
     assert_eq!(f.pile_under(100.0, 400.0, 20.0), None, "beside the window");
+}
+
+#[test]
+fn petals_and_green_leaves_pile_up_exactly_like_leaves() {
+    let b = Weather::Leaves.rates();
+    for kind in [Weather::Petals, Weather::GreenLeaves] {
+        let a = kind.rates();
+        assert_eq!((a.grow, a.melt, a.cap), (b.grow, b.melt, b.cap), "{kind:?}: 같은 빠르기·같은 높이");
+        let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+        run(&mut f, kind, 400);
+        assert!(depth(&f, Owner::Window(1)) > 1.0 && depth(&f, Owner::Ground(0)) > 1.0, "{kind:?}: 창 위와 바닥에 쌓임");
+        let (under, d) = f.pile_under(1400.0, WA.bottom, 20.0).expect("발밑 더미");
+        assert_eq!(under, kind);
+        assert!(d > 0.3, "{d}");
+        assert_eq!(serde_json::to_value(f.scene(kind, &WA, 1.0)).unwrap()["pile_kind"], kind.name());
+        assert!(f.clear_all(), "쓰레기 다 치우기로 치움");
+        run(&mut f, kind, (AUTO_CLEAR_SECS as usize) - 10);
+        assert!(depth(&f, Owner::Ground(0)) > 0.5);
+        run(&mut f, kind, 10);
+        assert!(depth(&f, Owner::Ground(0)) < 0.1, "{kind:?}: 한 시간마다 저절로 치움");
+    }
+}
+
+#[test]
+fn a_different_kind_of_leaf_or_petal_starts_a_new_pile_but_snow_keeps_piling() {
+    for (from, to) in [(Weather::Leaves, Weather::Petals), (Weather::Petals, Weather::GreenLeaves), (Weather::GreenLeaves, Weather::Leaves)] {
+        let (mut f, _) = field(vec![]);
+        run(&mut f, from, 400);
+        let before = depth(&f, Owner::Ground(0));
+        f.tick(1.0, to);
+        assert!(depth(&f, Owner::Ground(0)) < before / 2.0, "{from:?} → {to:?}: 예전 더미에 새 그림을 입히지 않음");
+        assert_eq!(f.pile_kind(), Some(to));
+    }
+    let (mut f, _) = field(vec![]);
+    run(&mut f, Weather::Snow, 300);
+    let snow = depth(&f, Owner::Ground(0));
+    f.tick(1.0, Weather::LightSnow);
+    assert!(depth(&f, Owner::Ground(0)) > snow / 2.0, "눈에서 가벼운 눈은 이어 쌓임");
+}
+
+#[test]
+fn green_leaves_are_named_for_settings_and_friends_and_swept_over_as_a_flurry() {
+    assert_eq!(Weather::GreenLeaves.name(), "green_leaves");
+    assert_eq!(serde_json::to_value(Weather::GreenLeaves).unwrap(), "green_leaves");
+    assert_eq!(parse_flurry_kind(&flurry_kind(Weather::GreenLeaves)), Some(Weather::GreenLeaves));
+    assert_eq!(parse_flurry_kind("flurry:pine_needles"), None, "모르는 이름은 버림");
 }

@@ -72,11 +72,12 @@ const TINT_PREFIX: &str = "tint:";
 const TINT_MENU_ID: &str = "tint-menu";
 /// "🎨 흐물이 색"이 들어가는 자리: 🐾 내 펫 ▸ 성장 단계, 최근 한 시간, 키우기, 스타일 다음 (잉크 선 동물일 때만)
 const TINT_POSITION: usize = 4;
-/// 🌨️ 날씨 효과 체크 항목 (게임 루프가 달력과 설정으로 맞춤 — 철이 아니면 누를 수 없음)
+/// 🌨️ 날씨 효과 체크 항목 (게임 루프가 설정으로 맞춤 — 일 년 내내 누를 수 있음)
 const WEATHER_ID: &str = "weather";
-/// ⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸ ☀️ 실제 날씨 / 📅 계절 날씨 체크, 📍 날씨 지역 ▸ 도시 체크 (뒤는 Place id — 설정에 남음)
+/// ⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸ ☀️ 실제 날씨 / 📅 계절 날씨 / 직접 고른 날씨 체크 (뒤는 WeatherSource id), 📍 날씨 지역 ▸ 도시 체크 (뒤는 Place id) — 설정에 남음
 const WEATHER_REAL_ID: &str = "weather-src:real";
 const WEATHER_SEASON_ID: &str = "weather-src:season";
+const WEATHER_SRC_PREFIX: &str = "weather-src:";
 const WEATHER_PLACE_PREFIX: &str = "weather-place:";
 const BROOM_ID: &str = "broom";
 /// 🐾 커서 장난 체크 항목 (설정에 남음)
@@ -207,12 +208,14 @@ pub struct TrayMenu {
     pub settings: Submenu<Wry>,
     /// 💩 똥 싸기 (게임 루프가 실제 설정으로 다시 맞춤)
     pub poop: CheckMenuItem<Wry>,
-    /// 🌨️ 날씨 효과 (11~3월)
+    /// 🌨️ 날씨 효과 (일 년 내내 켜고 끔)
     pub weather: CheckMenuItem<Wry>,
     /// ☀️ 실제 날씨 (글자에 도시) / 📅 계절 날씨, 📍 날씨 지역의 도시들 (게임 루프가 설정으로 다시 맞춤)
     pub weather_real: CheckMenuItem<Wry>,
     /// 📅 계절 날씨 체크
     pub weather_season: CheckMenuItem<Wry>,
+    /// ❄️ 눈 / 🌧️ 비 / 🍂 낙엽 / 🌸 꽃잎 / 🌿 푸른 잎 — 직접 고른 날씨 체크 (WeatherSource::MANUAL)
+    pub weather_manual: Vec<(CheckMenuItem<Wry>, WeatherSource)>,
     /// 📍 날씨 지역 도시들
     pub places: Vec<(CheckMenuItem<Wry>, Place)>,
     /// 🧹 빗자루 (게임 루프가 들고 있는지에 맞춤)
@@ -270,6 +273,9 @@ fn weather_real_label(place: Place) -> String {
 pub fn sync_weather_kind(menu: &TrayMenu, source: WeatherSource, place: Place) {
     let _ = menu.weather_real.set_checked(source == WeatherSource::Real);
     let _ = menu.weather_season.set_checked(source == WeatherSource::Season);
+    for (item, s) in &menu.weather_manual {
+        let _ = item.set_checked(*s == source);
+    }
     let _ = menu.weather_real.set_text(weather_real_label(place));
     for (item, p) in &menu.places {
         let _ = item.set_checked(*p == place);
@@ -670,7 +676,16 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
         places_menu.append(&item)?;
         places.push((item, place));
     }
-    let weather_kind = Submenu::with_items(app, "🌦️ 날씨 종류", true, &[&weather_real, &weather_season, &PredefinedMenuItem::separator(app)?, &places_menu])?;
+    let weather_kind = Submenu::with_items(app, "🌦️ 날씨 종류", true, &[&weather_real, &weather_season, &PredefinedMenuItem::separator(app)?])?;
+    // 직접 고른 날씨는 달력·실제 날씨와 상관없이 계속 옴 (real_weather::weather_now)
+    let mut weather_manual = Vec::new();
+    for source in WeatherSource::MANUAL {
+        let item = CheckMenuItem::with_id(app, format!("{WEATHER_SRC_PREFIX}{}", source.id()), source.label(), true, false, None::<&str>)?;
+        weather_kind.append(&item)?;
+        weather_manual.push((item, source));
+    }
+    weather_kind.append(&PredefinedMenuItem::separator(app)?)?;
+    weather_kind.append(&places_menu)?;
     let broom = CheckMenuItem::with_id(app, BROOM_ID, "🧹 빗자루", true, false, None::<&str>)?;
     let cursor_play = CheckMenuItem::with_id(app, CURSOR_PLAY_ID, CURSOR_PLAY_LABEL, true, true, None::<&str>)?;
     let poop = CheckMenuItem::with_id(app, POOP_ID, POOP_LABEL, true, true, None::<&str>)?;
@@ -824,6 +839,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                     let food = Food::from_name(food).unwrap_or(Food::Snack);
                     send(app, Input::SetFeedMode(mode));
                     send(app, Input::Feed(food));
+                } else if let Some(source) = other.strip_prefix(WEATHER_SRC_PREFIX).and_then(WeatherSource::from_id) {
+                    send(app, Input::SetWeatherSource(source));
                 } else if let Some(place) = other.strip_prefix(WEATHER_PLACE_PREFIX).and_then(Place::from_id) {
                     send(app, Input::SetWeatherPlace(place));
                 } else if let Some(tint) = other.strip_prefix(TINT_PREFIX).and_then(BodyTint::from_id) {
@@ -839,5 +856,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, weather, weather_real, weather_season, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
 }

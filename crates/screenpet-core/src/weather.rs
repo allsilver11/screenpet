@@ -1,4 +1,5 @@
-//! 계절 날씨 (v0.3.9, 일 년 내내) — 달력으로 날씨를 정하고, 창 윗면과 바닥에 쌓이는 눈·꽃잎·낙엽 더미를 셈. 그림은 앱이 그림 (ui/weather.js).
+//! 계절 날씨 (v0.3.9, 일 년 내내) — 달력으로 날씨를 정하고, 창 윗면과 바닥에 쌓이는 눈·꽃잎·낙엽·푸른 잎 더미를 셈. 그림은 앱이 그림 (ui/weather.js).
+//! 메뉴에서 날씨를 직접 고르면 (real_weather::WeatherSource) 달력과 상관없이 그 날씨가 계속 옴
 //!
 //! CPU를 아끼려고 알갱이 하나하나를 세지 않음: 떨어지는 알갱이는 웹뷰의 그림일 뿐이고, 더미는 여기서 1초에 한 번
 //! 작은 눈덩이를 무작위 칸에 얹어 키움 (쌓이는 속도와 녹는 속도만 맞춤). 앱은 장면이 바뀌었을 때만 웹뷰에 보냄
@@ -13,7 +14,7 @@ use crate::geom::{Rect, WindowInfo};
 use crate::surfaces::Owner;
 use crate::world::World;
 
-/// 날씨 종류 (계절·실제 날씨에서 고름)
+/// 날씨 종류 (계절·실제 날씨에서 고르거나 메뉴에서 직접 고름)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Weather {
@@ -27,6 +28,8 @@ pub enum Weather {
     Petals,
     /// 9~11월의 낙엽
     Leaves,
+    /// 5~8월 소나기 사이의 푸른 잎 (예전 판은 모르는 이름이라 버림)
+    GreenLeaves,
 }
 
 impl Weather {
@@ -37,7 +40,18 @@ impl Weather {
 
     /// 펫이 자꾸 올려다보는 날씨
     pub fn looks_up(self) -> bool {
-        matches!(self, Weather::Petals | Weather::Leaves)
+        matches!(self, Weather::Petals | Weather::Leaves | Weather::GreenLeaves)
+    }
+
+    /// 더미 그림의 갈래: 눈(가벼운 눈 포함)은 하나로 이어 쌓이고, 꽃잎·낙엽·푸른 잎은 서로 다른 더미임
+    fn pile_family(self) -> u8 {
+        match self {
+            Weather::LightSnow | Weather::Snow => 0,
+            Weather::Petals => 1,
+            Weather::Leaves => 2,
+            Weather::GreenLeaves => 3,
+            Weather::Rain | Weather::Shower => 4,
+        }
     }
 
     /// 설정·통신에 쓰는 이름 (parse_preview와 같음)
@@ -49,6 +63,7 @@ impl Weather {
             Weather::Shower => "shower",
             Weather::Petals => "petals",
             Weather::Leaves => "leaves",
+            Weather::GreenLeaves => "green_leaves",
         }
     }
 
@@ -59,8 +74,8 @@ impl Weather {
             Weather::Snow => Rates { grow: 0.02, melt: 0.004, cap: 9.0 },
             // 비는 쌓이지 않고, 남아 있던 더미를 빨리 녹인다
             Weather::Rain | Weather::Shower => Rates { grow: 0.0, melt: 0.05, cap: 0.0 },
-            Weather::Petals => Rates { grow: 0.008, melt: 0.004, cap: 3.5 },
-            Weather::Leaves => Rates { grow: 0.008, melt: 0.004, cap: 4.0 },
+            // 꽃잎·푸른 잎은 낙엽과 똑같이 쌓임
+            Weather::Petals | Weather::Leaves | Weather::GreenLeaves => Rates { grow: 0.008, melt: 0.004, cap: 4.0 },
         }
     }
 }
@@ -83,7 +98,7 @@ pub fn parse_flurry_kind(raw: &str) -> Option<Weather> {
     (kind.rates().cap > 0.0).then_some(kind)
 }
 
-/// 지역 날짜의 날씨 (여름의 Shower는 하루 중 잠깐씩만임, weather_at): 3·4월 벚꽃잎, 5~8월 소나기, 9·10월 낙엽,
+/// 지역 날짜의 날씨 (여름의 Shower는 하루 중 잠깐씩만이고 그 사이엔 푸른 잎임, weather_at): 3·4월 벚꽃잎, 5~8월 소나기, 9·10월 낙엽,
 /// 11월은 날마다 낙엽·가벼운 눈·비 차례로, 12~2월은 눈 이틀에 비 하루
 pub fn season(month: u32, day: u32) -> Weather {
     let cycle = day.saturating_sub(1) % 3;
@@ -122,17 +137,17 @@ pub fn showers(year: i32, month: u32, day: u32) -> Vec<(u32, u32)> {
         .collect()
 }
 
-/// 지금 달력이 말하는 날씨 (secs: 자정부터 초). None이면 소나기 사이의 맑은 때 — 앱은 창을 닫아 둠
+/// 지금 달력이 말하는 날씨 (secs: 자정부터 초). 여름 소나기 사이의 맑은 때는 푸른 잎이 날림
 pub fn weather_at(year: i32, month: u32, day: u32, secs: u32) -> Option<Weather> {
     let weather = season(month, day);
     if weather != Weather::Shower || showers(year, month, day).iter().any(|&(start, end)| start <= secs && secs < end) {
         Some(weather)
     } else {
-        None
+        Some(Weather::GreenLeaves)
     }
 }
 
-/// 개발용 미리 보기 값 (환경 변수 SCREENPET_WEATHER): snow·light_snow·rain·shower·petals·leaves·off. 그 밖의 값은 미리 보기 아님 (None).
+/// 개발용 미리 보기 값 (환경 변수 SCREENPET_WEATHER): snow·light_snow·rain·shower·petals·leaves·green_leaves·off. 그 밖의 값은 미리 보기 아님 (None).
 /// shower는 달력과 달리 쉬지 않고 내림
 pub fn parse_preview(raw: &str) -> Option<Option<Weather>> {
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -142,6 +157,7 @@ pub fn parse_preview(raw: &str) -> Option<Option<Weather>> {
         "shower" => Some(Some(Weather::Shower)),
         "petals" => Some(Some(Weather::Petals)),
         "leaves" => Some(Some(Weather::Leaves)),
+        "green_leaves" => Some(Some(Weather::GreenLeaves)),
         "off" => Some(None),
         _ => None,
     }
@@ -362,8 +378,8 @@ impl PileField {
         }
         let rates = weather.rates();
         let piles_up = rates.grow > 0.0;
-        if piles_up && self.pile_kind.is_some_and(|k| k.is_snow() != weather.is_snow()) {
-            // 눈이 꽃잎·낙엽으로, 낙엽이 눈으로: 다른 더미를 새로 시작한다
+        if piles_up && self.pile_kind.is_some_and(|k| k.pile_family() != weather.pile_family()) {
+            // 눈이 꽃잎·낙엽으로, 낙엽이 눈이나 꽃잎으로: 다른 더미를 새로 시작함 (가벼운 눈 ↔ 눈은 이어 쌓음)
             self.piles.iter_mut().for_each(|p| p.cells.fill(0.0));
         }
         if piles_up {

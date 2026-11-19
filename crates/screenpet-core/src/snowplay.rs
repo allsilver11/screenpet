@@ -2,7 +2,7 @@
 //!
 //! - ⛄ 발밑에 눈이 쌓였으면 가끔 눈을 뭉쳐 던짐: 같은 화면의 다른 동물(눈싸움 — 맞은 동물이 되던짐), 커서, 친구 화면 너머(내 동물만), 아무 데나
 //! - ⛄ 가끔 눈밭에서 데굴 → 눈가루
-//! - 🍂 낙엽이 쌓였으면 가끔 폴짝 뛰어들어 낙엽이 확 흩어짐
+//! - 🍂🌸🌿 낙엽·꽃잎·푸른 잎이 쌓였으면 가끔 폴짝 뛰어들어 확 흩어짐
 //! 자주 하지 않음: 한 번 놀면 PLAY_EVERY_SECS 동안 쉼 (쉬는 박자가 끝날 때만 주사위를 굴림)
 
 use crate::juggle::{self, Target};
@@ -50,7 +50,7 @@ pub enum Play {
     Throw,
     /// ⛄ 눈밭에서 데굴
     Flop,
-    /// 🍂 낙엽에 뛰어듦
+    /// 🍂🌸🌿 낙엽·꽃잎·푸른 잎에 뛰어듦
     Dive,
 }
 
@@ -76,14 +76,14 @@ pub enum SnowPlayEvent {
     Burst { x: f64, y: f64 },
 }
 
-/// 발밑 더미로 할 놀이를 고름: 눈이면 던지기·데굴, 낙엽이면 뛰어들기. 더미가 얕거나 다른 것(꽃잎)이면 None
+/// 발밑 더미로 할 놀이를 고름: 눈이면 던지기·데굴, 낙엽·꽃잎·푸른 잎이면 뛰어들기. 더미가 얕거나 비면 None
 pub fn pick_play(rng: &mut fastrand::Rng, kind: Weather, depth: f32) -> Option<Play> {
     if !(depth >= MIN_DEPTH) {
         return None;
     }
     if kind.is_snow() {
         Some(if rng.f64() < THROW_SHARE { Play::Throw } else { Play::Flop })
-    } else if kind == Weather::Leaves {
+    } else if matches!(kind, Weather::Leaves | Weather::Petals | Weather::GreenLeaves) {
         Some(Play::Dive)
     } else {
         None
@@ -154,7 +154,10 @@ mod tests {
         assert!(seen[0] > seen[1] && seen[1] > 20, "{seen:?}");
         assert_eq!(pick_play(&mut rng, Weather::Leaves, 3.0), Some(Play::Dive));
         assert_eq!(pick_play(&mut rng, Weather::LightSnow, 0.5), None, "too thin");
-        assert_eq!(pick_play(&mut rng, Weather::Petals, 3.0), None);
+        assert_eq!(pick_play(&mut rng, Weather::Petals, 3.0), Some(Play::Dive), "petals are dived into like leaves");
+        assert_eq!(pick_play(&mut rng, Weather::Petals, 0.5), None, "too thin");
+        assert_eq!(pick_play(&mut rng, Weather::GreenLeaves, 3.0), Some(Play::Dive), "green leaves too");
+        assert_eq!(pick_play(&mut rng, Weather::Rain, 3.0), None);
         assert_eq!(pick_play(&mut rng, Weather::Snow, f32::NAN), None);
     }
 
