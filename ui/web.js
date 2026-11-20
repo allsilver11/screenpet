@@ -3,7 +3,8 @@
 //   trail-webs      새 거미집들 [{id, x, y, corner, size, pixel, age, life}] — corner는 top_left·top_right·bottom_left·bottom_right,
 //                   x·y는 모서리 점, size는 반지름, age는 이미 지난 초, life는 그대로 남는 초 (그 뒤 WEB_FADE초 동안 흐려짐)
 //   trail-lines     지금 뻗어 있는 줄 전부 [{x0, y0, x1, y1}] (손 → 줄 끝) — 바뀔 때마다 통째로, 없으면 빈 목록
-//   trail-web-drop  창이 움직이거나 닫혀 지울 거미집 id들 — WEB_DROP초 동안 흐려짐
+//   trail-web-drop  창이 닫히거나 다른 모니터로 가서 지울 거미집 id들 — WEB_DROP초 동안 흐려짐
+//   trail-web-move  창을 따라 옮길 거미집 [{id, x, y, hidden}] — hidden이면 앞 창에 가려져 그리지 않음
 //   trail-web-clear 🧹 다 치우기·한 시간마다 — 모든 거미집이 WEB_DROP초 동안 흐려짐
 // CPU를 아끼는 규칙: 거미집 MAX_WEBS개까지, 피어나거나 흐려지거나 줄이 있는 동안만 requestAnimationFrame, 가만히 있는 동안은 타이머 하나.
 // 브라우저에서 trail.html?web=1 (&pixel=1, &light=1)로 앱 없이 볼 수 있음.
@@ -52,6 +53,19 @@ function dropWebs(ids) {
   const now = performance.now();
   for (const w of webs) {
     if ((!ids || ids.includes(w.id)) && !w.gone) w.gone = now;
+  }
+  wakeWebs();
+}
+
+// 창을 따라 거미집을 옮기거나 숨김 (앞 창에 가려짐) — 이상한 값은 무시
+function moveWebs(list) {
+  for (const m of list) {
+    if (!m || !Number.isFinite(m.x) || !Number.isFinite(m.y)) continue;
+    const w = webs.find((w) => w.id === m.id);
+    if (!w) continue;
+    w.x = m.x;
+    w.y = m.y;
+    w.hidden = !!m.hidden;
   }
   wakeWebs();
 }
@@ -122,7 +136,7 @@ function drawWebs(now) {
     const s = webState(w, now);
     if (s.grown < 1 || s.t >= w.life || w.gone) moving = true;
     else next = Math.min(next, w.life - s.t);
-    if (s.alpha <= 0) continue;
+    if (s.alpha <= 0 || w.hidden) continue;
     wctx.globalAlpha = s.alpha;
     strokeSilk(webPaths(w, s.grown), Math.max(1, w.size / 60), w.pixel);
   }
@@ -155,6 +169,7 @@ if (window.__TAURI__) {
   me.listen("trail-lines", (e) => setWebLines(e.payload));
   me.listen("trail-web-drop", (e) => dropWebs(Array.isArray(e.payload) ? e.payload : []));
   me.listen("trail-web-clear", () => dropWebs(null));
+  me.listen("trail-web-move", (e) => moveWebs(Array.isArray(e.payload) ? e.payload : []));
 } else if (new URLSearchParams(location.search).get("web")) {
   webPreview();
 }

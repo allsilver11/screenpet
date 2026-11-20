@@ -2,6 +2,7 @@
 //!
 //! - 거미집: 한가할 때 가까운 모서리(작업 영역 네 모서리 + 앞에 가려지지 않은 창의 위 두 모서리)를 향해 줄을 쏘고, 줄이 닿으면 거미집이 핌.
 //!   손님으로 친구 화면에 가 있으면 자주 (WEB_RATE_GUEST), 집에선 가끔 (WEB_RATE_HOME). 거미집은 앱이 WEB_LIFE_SECS 뒤 흐리게 지움.
+//!   창 모서리 거미집은 창을 따라 옮겨 가고, 앞 창에 가려지면 숨고, 창이 닫히면 사라짐 (web_on_window).
 //! - 그네: 머리 위 창 아랫변이나 화면 윗변에 줄을 붙여 몸을 끌어올린 뒤 진자처럼 흔들려 반대편에서 놓고 날아감
 //! - 끌어오기: 바닥의 물건이나 다른 동물에 줄을 붙여 휙 — 반은 앞에 떨어지게, 반은 머리 너머 뒤로
 //! - 🌀 휘둘러 던지기: 친구가 연결된 화면 끝이 있으면 (WHIRL_CHANCE) 끌어오는 대신 물건을 줄로 낚아 머리 위로 빙빙 돌리다가
@@ -12,7 +13,7 @@
 
 use serde::Serialize;
 
-use crate::geom::Rect;
+use crate::geom::{Rect, WindowInfo};
 use crate::world::World;
 
 /// 줄이 손에서 목표까지 뻗어 나가는 시간 (shoot 3칸 10fps)
@@ -153,6 +154,33 @@ fn inside(r: &Rect, x: f64, y: f64) -> bool {
     r.left < x && x < r.right && r.top < y && y < r.bottom
 }
 
+/// 창 모서리 거미집이 지금 있을 곳 (web_on_window)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WebAt {
+    /// 그 창 모서리 (x, y)에 보임
+    Shown(f64, f64),
+    /// 그 창 모서리 (x, y)가 앞 창에 가려져 숨김 (가림이 걷히면 다시 보임)
+    Hidden(f64, f64),
+    /// 창이 닫혔거나 최소화됨 — 지움
+    Gone,
+}
+
+/// 🕸️ 창(window) 위 모서리(corner)에 친 거미집을 지금 창 목록(앞 → 뒤)에 맞춤: 창을 옮기거나 크기를 바꾸면 새 모서리로 따라가고,
+/// 앞 창이 그 모서리를 가리면 숨고, 창이 없으면 지움
+pub fn web_on_window(windows: &[WindowInfo], window: u64, corner: Corner) -> WebAt {
+    let Some(k) = windows.iter().position(|w| w.id == window) else { return WebAt::Gone };
+    let r = windows[k].rect;
+    let x = if matches!(corner, Corner::TopLeft | Corner::BottomLeft) { r.left } else { r.right };
+    let y = if matches!(corner, Corner::TopLeft | Corner::TopRight) { r.top } else { r.bottom };
+    let inward = (if x == r.left { 1.0 } else { -1.0 }, if y == r.top { 1.0 } else { -1.0 });
+    let covered = windows[..k].iter().any(|f| inside(&f.rect, x + inward.0, y + inward.1) || inside(&f.rect, x, y + inward.1));
+    if covered {
+        WebAt::Hidden(x, y)
+    } else {
+        WebAt::Shown(x, y)
+    }
+}
+
 /// at(손 자리)에서 reach(물리 px) 안의 거미집 자리: 작업 영역 네 모서리 + 앞의 창에 가려지지 않은 창 위 두 모서리.
 /// 같은 모니터(at이 있는 작업 영역)만. size = 몸 크기 (물리 px)
 pub fn corner_spots(world: &World, at: (f64, f64), reach: f64, size: f64) -> Vec<WebSpin>
@@ -255,7 +283,6 @@ pub fn yank_velocity(from: (f64, f64), to: (f64, f64), secs: f64, gravity: f64) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geom::WindowInfo;
 
     fn world(windows: Vec<WindowInfo>) -> World {
         World::new(windows, vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0)
@@ -263,6 +290,24 @@ mod tests {
 
     fn win(id: u64, l: f64, t: f64, r: f64, b: f64) -> WindowInfo {
         WindowInfo { id, rect: Rect::new(l, t, r, b) }
+    }
+
+    /// 🕸️ 창 모서리 거미집: 창을 옮기거나 크기를 바꾸면 그 모서리를 따라가고, 창이 닫히면 사라지고, 앞 창에 가려지면 숨음
+    #[test]
+    fn a_window_web_follows_its_corner_hides_when_covered_and_goes_when_the_window_does() {
+        let w = vec![win(1, 300.0, 300.0, 1000.0, 800.0)];
+        assert_eq!(web_on_window(&w, 1, Corner::TopLeft), WebAt::Shown(300.0, 300.0));
+        assert_eq!(web_on_window(&w, 1, Corner::TopRight), WebAt::Shown(1000.0, 300.0));
+        // 옮김·크기 바꿈: 새 모서리
+        let moved = vec![win(1, 500.0, 120.0, 1400.0, 900.0)];
+        assert_eq!(web_on_window(&moved, 1, Corner::TopLeft), WebAt::Shown(500.0, 120.0));
+        assert_eq!(web_on_window(&moved, 1, Corner::TopRight), WebAt::Shown(1400.0, 120.0));
+        // 닫힘·최소화 (목록에 없음)
+        assert_eq!(web_on_window(&[win(2, 0.0, 0.0, 100.0, 100.0)], 1, Corner::TopLeft), WebAt::Gone);
+        // 앞 창(목록에서 앞)이 그 모서리를 가리면 숨음 — 다른 모서리는 그대로
+        let covered = vec![win(2, 200.0, 200.0, 600.0, 600.0), win(1, 300.0, 300.0, 1000.0, 800.0)];
+        assert_eq!(web_on_window(&covered, 1, Corner::TopLeft), WebAt::Hidden(300.0, 300.0));
+        assert_eq!(web_on_window(&covered, 1, Corner::TopRight), WebAt::Shown(1000.0, 300.0));
     }
 
     #[test]

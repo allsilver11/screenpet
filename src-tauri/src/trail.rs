@@ -7,7 +7,8 @@
 //! 낙서가 남아 있는 동안 (DOODLE_LIFE)은 창을 닫지 않음. 손님 흐물이의 낙서도 그림.
 //!
 //! 🕷️ 거미인간의 줄 (`Pet::web_line` → `trail-lines`)과 모서리 거미집 (`Pet::take_web` → `trail-webs`)도 같은 창이 그림 (ui/web.js).
-//! 거미집이 남아 있는 동안 (WEB_LIFE)은 창을 닫지 않음. 창 모서리 거미집은 그 창이 움직이거나 닫히면 `trail-web-drop`으로 지우고,
+//! 거미집이 남아 있는 동안 (WEB_LIFE)은 창을 닫지 않음. 창 모서리 거미집은 창을 따라 옮기고 (`trail-web-move`, 앞 창에 가려지면 숨김),
+//! 창이 닫히거나 다른 모니터로 가면 `trail-web-drop`으로 지우고,
 //! 🧹 빗자루가 쓸고 지나간 거미집은 `sweep_webs`가 `trail-web-drop`으로, 🧹 다 치우기 (`clear_webs`)와 한 시간마다 (weather::AUTO_CLEAR_SECS) `trail-web-clear`로 모두 지움. 손님 거미인간 것도 그림.
 
 use std::time::{Duration, Instant};
@@ -18,7 +19,7 @@ use screenpet_core::geom::Rect;
 use screenpet_core::style::PetStyle;
 use screenpet_core::trail::{self, Puff, Runner, Trail};
 use screenpet_core::weather::{self, OverlayRetry};
-use screenpet_core::web::{Corner, WebSpin, MAX_WEBS, WEB_LIFE_SECS};
+use screenpet_core::web::{web_on_window, Corner, WebAt, WebSpin, MAX_WEBS, WEB_LIFE_SECS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, WebviewWindow};
 
@@ -67,6 +68,15 @@ struct WebWire {
     life: f64,
 }
 
+/// 웹뷰로 가는 거미집 옮기기 (논리 px, 이 창 왼쪽 위가 0,0 — 창을 따라감, hidden이면 앞 창에 가려져 안 그림)
+#[derive(Serialize, Clone, Copy)]
+struct WebMove {
+    id: u64,
+    x: f64,
+    y: f64,
+    hidden: bool,
+}
+
 /// 웹뷰로 가는 줄 한 가닥 (논리 px, 손 → 줄 끝)
 #[derive(Serialize, Clone, Copy, PartialEq)]
 struct LineWire {
@@ -89,6 +99,8 @@ struct WebTrack {
     corner: Corner,
     /// 반지름 (물리 px) — 🧹 빗자루가 지나가는지 볼 때
     size: f64,
+    /// 앞 창에 가려져 숨김
+    hidden: bool,
     /// 다 사라지는 때
     until: Instant,
 }
@@ -296,7 +308,7 @@ impl TrailFx {
         let wire = WebWire { id, x: (w.x - o.wa.left) / o.scale, y: (w.y - o.wa.top) / o.scale, corner: w.corner, size, pixel, age: 0.0, life: WEB_LIFE_SECS };
         o.webs.push((now, wire));
         let label = o.label.clone();
-        self.webs.push(WebTrack { id, label, window: w.window, x: w.x, y: w.y, corner: w.corner, size: w.size, until: now + WEB_LIFE });
+        self.webs.push(WebTrack { id, label, window: w.window, x: w.x, y: w.y, corner: w.corner, size: w.size, hidden: false, until: now + WEB_LIFE });
         if self.webs.len() > MAX_WEBS {
             let old = self.webs.remove(0);
             let _ = app.emit_to(old.label.as_str(), "trail-web-drop", [old.id]);
@@ -362,24 +374,43 @@ impl TrailFx {
         }
     }
 
-    /// 창 모서리 거미집: 그 창이 닫히거나 움직였으면 지움 (그 창 모서리에 그대로 있을 때만 남김)
-    fn drop_moved_webs(&mut self, app: &AppHandle, now: Instant, own: &Slot) {
+    /// 창 모서리 거미집: 창을 옮기거나 크기를 바꾸면 그 모서리를 따라 옮기고 (`trail-web-move`), 앞 창에 가려지면 숨기고,
+    /// 창이 닫히거나 최소화되거나 다른 모니터로 가면 지움 (`trail-web-drop`) — 판단은 코어 web::web_on_window
+    fn follow_window_webs(&mut self, app: &AppHandle, now: Instant, own: &Slot) {
         let mut drops: Vec<(String, u64)> = Vec::new();
-        self.webs.retain(|t| {
-            let alive = now < t.until;
-            let still = t.window.is_none_or(|id| {
-                own.world.windows.iter().any(|w| {
-                    let x = if t.corner == Corner::TopLeft { w.rect.left } else { w.rect.right };
-                    w.id == id && (w.rect.top - t.y).abs() < 1.0 && (x - t.x).abs() < 1.0
-                })
-            });
-            if alive && !still {
-                drops.push((t.label.clone(), t.id));
+        let mut moves: Vec<(String, WebMove)> = Vec::new();
+        let overlays = &self.overlays;
+        self.webs.retain_mut(|t| {
+            if now >= t.until {
+                return false;
             }
-            alive && still
+            let Some(window) = t.window else { return true };
+            let (x, y, hidden) = match web_on_window(&own.world.windows, window, t.corner) {
+                WebAt::Gone => {
+                    drops.push((t.label.clone(), t.id));
+                    return false;
+                }
+                WebAt::Shown(x, y) => (x, y, false),
+                WebAt::Hidden(x, y) => (x, y, true),
+            };
+            if (x, y, hidden) == (t.x, t.y, t.hidden) {
+                return true;
+            }
+            // 다른 모니터로 갔으면 (그 모서리 안쪽 점이 이 덮개 창 밖) 지움
+            let inward = inward(&WebSpin { x, y, corner: t.corner, size: t.size, window: t.window });
+            let Some(o) = overlays.iter().find(|o| o.label == t.label && o.wa.contains(inward.0, inward.1)) else {
+                drops.push((t.label.clone(), t.id));
+                return false;
+            };
+            moves.push((t.label.clone(), WebMove { id: t.id, x: (x - o.wa.left) / o.scale, y: (y - o.wa.top) / o.scale, hidden }));
+            (t.x, t.y, t.hidden) = (x, y, hidden);
+            true
         });
         for (label, id) in drops {
             let _ = app.emit_to(label.as_str(), "trail-web-drop", [id]);
+        }
+        for (label, m) in moves {
+            let _ = app.emit_to(label.as_str(), "trail-web-move", [m]);
         }
     }
 
@@ -459,7 +490,7 @@ impl TrailFx {
             return;
         }
         self.next_pause = Some(now + PAUSE_EVERY);
-        self.drop_moved_webs(app, now, own);
+        self.follow_window_webs(app, now, own);
         let due = *self.web_clear_at.get_or_insert(now + WEB_AUTO_CLEAR);
         if now >= due {
             self.clear_webs(app);

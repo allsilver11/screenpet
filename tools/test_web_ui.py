@@ -24,7 +24,7 @@ def test_webs_share_the_trail_window_between_doodles_and_clouds():
     assert HTML.index('id="doodle"') < HTML.index('id="web"') < HTML.index('id="trail"')
     # 다른 창 종류를 만들지 않는다 (덮개 창은 overlay::screen_cover 하나 — 포커스를 뺏지 않는 마우스 통과 창)
     assert RS.count("screen_cover(") == 1
-    for ev in ("trail-webs", "trail-lines", "trail-web-drop", "trail-web-clear"):
+    for ev in ("trail-webs", "trail-lines", "trail-web-drop", "trail-web-clear", "trail-web-move"):
         assert f'"{ev}"' in RS and f'"{ev}"' in JS, ev
 
 
@@ -55,7 +55,7 @@ def test_rust_side_takes_webs_and_lines_from_every_pet_and_keeps_the_window_aliv
     lines = RS[RS.index("fn web_lines(") : RS.index("pub fn clear_webs(")]
     assert "web_line()" in lines and "LINE_EVERY" in lines and "want == o.lines" in lines
     house = RS[RS.index("fn housekeep(") : RS.index("/// 덮개 창을 모두 닫음")]
-    assert "webs_done" in house and "lines_done" in house and "drop_moved_webs" in house
+    assert "webs_done" in house and "lines_done" in house and "follow_window_webs" in house
     assert "AUTO_CLEAR" in house and "self.clear_webs(app)" in house
 
 
@@ -67,8 +67,10 @@ def test_clear_all_also_clears_webs_and_yanked_objects_fly():
 
 
 def test_window_webs_follow_their_window():
-    drop = RS[RS.index("fn drop_moved_webs(") : RS.index("/// 그 자리 모니터의 창")]
-    assert "own.world.windows" in drop and '"trail-web-drop"' in drop and "t.window.is_none_or" in drop
+    follow = RS[RS.index("fn follow_window_webs(") : RS.index("/// 그 자리 모니터의 창")]
+    assert "own.world.windows" in follow and "web_on_window(" in follow
+    assert '"trail-web-drop"' in follow and '"trail-web-move"' in follow and "WebAt::Gone" in follow
+    assert "pub fn web_on_window(" in CORE_WEB
 
 
 # ---- ui/web.js를 가짜 캔버스 위에서 (tools/web_harness.js) ----
@@ -79,8 +81,8 @@ def run():
     return node_json(ROOT / "tools" / "web_harness.js")
 
 
-def test_listens_only_to_its_four_events_and_idles_until_one_arrives(run):
-    assert run["listeners"] == ["trail-lines", "trail-web-clear", "trail-web-drop", "trail-webs"]
+def test_listens_only_to_its_five_events_and_idles_until_one_arrives(run):
+    assert run["listeners"] == ["trail-lines", "trail-web-clear", "trail-web-drop", "trail-web-move", "trail-webs"]
     assert run["idle"] == 0
 
 
@@ -98,3 +100,9 @@ def test_frames_only_while_growing_fading_or_with_a_line(run):
 
 def test_drop_removes_one_web_and_clear_removes_all(run):
     assert run["after_drop"] == 1 and run["after_clear"] == 0
+
+
+def test_a_window_web_moves_with_its_window_and_hides_while_covered(run):
+    assert run["moved"] == [500, 120, False] and run["move_rafs"] == 1, "옮기면 바로 다시 그림"
+    assert run["hidden"] == [500, 120, True] and run["hidden_strokes"] < run["shown_strokes"], "가려지면 그리지 않음"
+    assert run["untouched"] == [0, 0, False], "이상한 값은 무시"

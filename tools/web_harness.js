@@ -82,6 +82,8 @@ function load() {
     rafs: () => rafs.length,
     timers: () => timers.length,
     alive: () => vm.runInContext("webs.length", sandbox),
+    /** 거미집 id의 지금 자리와 숨김 */
+    at: (id) => vm.runInContext(`(() => { const w = webs.find((w) => w.id === ${id}); return w && [w.x, w.y, !!w.hidden]; })()`, sandbox),
   };
 }
 
@@ -133,5 +135,20 @@ out.after_drop = h.alive();
 h.send("trail-web-clear", null);
 h.settle();
 out.after_clear = h.alive();
+
+// 창을 따라 옮겨 감 · 가려지면 숨고 (그리지 않음) 다시 보임 · 이상한 값은 무시
+h = load();
+h.send("trail-webs", [web(1, { x: 300, y: 300 }), web(2)]);
+h.settle();
+h.send("trail-web-move", [{ id: 1, x: 500, y: 120, hidden: false }]);
+out.moved = h.at(1);
+out.move_rafs = h.rafs();
+h.settle();
+h.send("trail-web-move", [{ id: 1, x: 500, y: 120, hidden: true }, { id: 2, x: "x", y: 0, hidden: false }]);
+out.hidden = h.at(1);
+out.untouched = h.at(2);
+out.hidden_strokes = h.frame();
+h.send("trail-web-move", [{ id: 1, x: 500, y: 120, hidden: false }]);
+out.shown_strokes = h.frame();
 
 console.log(JSON.stringify(out));
