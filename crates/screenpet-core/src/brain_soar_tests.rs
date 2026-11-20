@@ -427,7 +427,7 @@ fn falling_off_a_covered_window_side_does_not_loop_back_onto_the_wall() {
 /// 활공은 서 있던 디딤판 끝에서만 — 벽에서 떨어지거나 사다리·탑 등에서 떨어지면 평소처럼 떨어짐 (사뿐 착지는 그대로)
 #[test]
 fn a_glide_only_starts_from_standing_on_a_platform() {
-    let w = world(vec![]);
+    let _ = world(vec![]);
     let mut p = Pet::new(sup(), 1920.0 - sup().half_w, 500.0, 3);
     p.state = State::Climb { target_y: 300.0, hang: 1.0, over: false };
     p.start_fall();
