@@ -393,10 +393,15 @@ impl Pet {
     }
 
     /// 들어 올린 뒤 할 일: 거대한 것은 던지기만, 아니면 배달 장난 (갈 수 있는 끝이 있을 때) / 들고 돌아다니기 / 던지기
+    /// 💪 영웅 (🦇 박쥐인간·🦸 슈퍼인간): 거대한 것도 늘 짧게 힘주고 번쩍 들고, 들고 다니기도 함
+    pub(super) fn hero_lifter(&self) -> bool {
+        self.cfg.rides_bike || self.cfg.soars
+    }
+
     pub(super) fn pick_plan(&mut self, giant: bool, world: &World) -> Plan {
         if giant {
             // 💪 영웅은 거대한 것도 들고 좀 다니다 던지기도 함
-            if self.cfg.rides_bike && self.juggle.rng.f64() < juggle::WANDER_CHANCE {
+            if self.hero_lifter() && self.juggle.rng.f64() < juggle::WANDER_CHANCE {
                 return Plan::Wander;
             }
             return Plan::Throw;
@@ -526,9 +531,9 @@ impl Pet {
                     self.facing = (obj_x - self.body.x).signum();
                 }
                 if giant {
-                    // 💪 영웅(박쥐인간)은 거대한 것도 늘 듦 — 주사위는 흐물이만 굴림
-                    let lifts = self.cfg.rides_bike || self.juggle.rng.f64() < juggle::GIANT_LIFT_CHANCE;
-                    self.speech = Some(if self.cfg.rides_bike { Speech::HeroLift } else { Speech::Strain });
+                    // 💪 영웅(박쥐인간·슈퍼인간)은 거대한 것도 늘 듦 — 주사위는 흐물이만 굴림
+                    let lifts = self.hero_lifter() || self.juggle.rng.f64() < juggle::GIANT_LIFT_CHANCE;
+                    self.speech = Some(if self.hero_lifter() { Speech::HeroLift } else { Speech::Strain });
                     self.state = State::Juggle { phase: JugglePhase::Strain { id, lifts }, t: 0.0 };
                 } else {
                     self.start_lift(id, false, world);
@@ -539,7 +544,7 @@ impl Pet {
                     self.start_fall();
                     return;
                 }
-                let strain_secs = if self.cfg.rides_bike { crate::bike::HERO_STRAIN_SECS } else { juggle::STRAIN_SECS };
+                let strain_secs = if self.hero_lifter() { crate::bike::HERO_STRAIN_SECS } else { juggle::STRAIN_SECS };
                 if t < strain_secs {
                     self.state = next(phase);
                 } else if lifts {
@@ -599,7 +604,8 @@ impl Pet {
                 }
             }
             JugglePhase::Wander { secs } => {
-                let step = self.walk_speed() * juggle::WANDER_PACE * dt;
+                // 🦸 슈퍼인간은 들고 날아서 빠르게 (brain_soar.rs)
+                let step = self.walk_speed() * juggle::WANDER_PACE * self.soar_carry_pace() * dt;
                 let Some(blocked) = self.juggle_walk(world, self.facing, step) else { return };
                 if blocked {
                     // 조각 끝: 돌아선다 (뛰어내리지 않는다 — 들고 있으니까)

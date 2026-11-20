@@ -121,6 +121,12 @@ OPTIONAL_ANIMS = [
     ("bike_jump", 2, 6, True, False),
     ("drift", 2, 8, True, False),
     ("signal", 3, 4, False, False),
+    # 🦸 슈퍼인간 (코어 brain_soar.rs): ✈️ 몸을 눕혀 주먹을 앞으로 내민 비행 (망토 펄럭 3칸) · 두 주먹 쭉 빠른 비행 (속도선) ·
+    # 🔄 공중제비 한 바퀴 (4칸 — 코어가 한 바퀴 시간만큼 틂) · 🫧 똑바로 떠서 둥실 (이륙·사뿐 착지·위아래 친구 화면)
+    ("fly", 3, 10, True, False),
+    ("fly_fast", 3, 14, True, False),
+    ("fly_flip", 4, 12, True, False),
+    ("hover", 3, 6, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -157,13 +163,19 @@ SPEECH = {
             "vroom": ["vroom!", "to the bike!", "vroom vroom!"], "wheelie": ["yeah!", "wheelie!", "woo-hoo!"],
             "bike_trick": ["hup!", "skrrt!", "nailed it!"], "bat_signal": ["I'm the night", "signal's up!", "gotham calls"],
             "hero_lift": ["easy!", "light as air", "hup!"], **_CARE_SPEECH},
+    # 🦸 슈퍼인간: 날아오르기 take_off · 친구 화면으로 날아감 rescue · 🔄 공중제비 air_flip · 사뿐 착지 soft_land ·
+    # 💪 거대한 것도 한 손으로 번쩍 hero_lift (코어 Speech)
+    "super": {"chatter": ["up, up and away!", "to the rescue!", "hi there!"], "tickle": ["hehe!"], "grumpy": ["hmph."],
+              "take_off": ["up, up and away!", "whoosh!", "to the sky!"], "rescue": ["to the rescue!", "on my way!", "hang on!"],
+              "air_flip": ["wheee!", "flip!", "ta-da!"], "soft_land": ["touchdown!", "soft landing", "and... landed"],
+              "hero_lift": ["easy!", "one hand!", "light as air"], **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "persian": "aloof", "squirrel": "playful", "frog": "playful", "pumpkin": "playful",
-               "duck": "playful", "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful",
+               "duck": "playful", "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
 
@@ -195,7 +207,7 @@ ENERGETIC = {"heumul"}
 RIGGING = {"heumul"}
 
 # 바닥의 물건·똥을 주워 머리 위로 들고 던지는 동물 (pet.json juggler — 코어 State::Juggle, 그림은 lift·hold·carry·throw·strain·present·slump)
-JUGGLER = {"heumul", "bat"}
+JUGGLER = {"heumul", "bat", "super"}
 
 # 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는 동물 (pet.json taskbar_play — 코어 brain_taskbar.rs, 그림은 yank·stuff)
 TASKBAR_PLAY = {"heumul"}
@@ -216,6 +228,10 @@ WEB_SLINGER = {"spider"}
 # 🦇 오토바이를 자주 타고, 윌리·점프·드리프트를 하고, 가끔 박쥐 신호 조명을 켜고, 친구 화면으로 오토바이 타고 오가는 동물
 # (pet.json bike_rider — 코어 brain_bike.rs, 그림은 ride·wheelie·bike_jump·drift·signal)
 BIKE_RIDER = {"bat"}
+
+# 🦸 걷기 대신 바닥 조금 위를 낮게 날아다니고, 공중제비를 돌고, 디딤판 끝에서 멀리 활공해 사뿐 내려앉고, 친구 화면도 날아서 오가는 동물
+# (pet.json super_flier — 코어 brain_soar.rs, 그림은 fly·fly_fast·fly_flip·hover)
+SUPER_FLIER = {"super"}
 
 # 🎨 몸 색을 고를 수 있는 동물 (pet.json tint + ink_<stage>.png 잉크 자리 — 앱이 그 자리만 고른 색으로 덮는다, ui/main.js)
 TINTABLE = {"heumul"}
@@ -239,6 +255,7 @@ FAVORITE_FOOD = {
     "heumul": {"emoji": "🍭", "name": "막대사탕"},
     "spider": {"emoji": "🪰", "name": "파리"},
     "bat": {"emoji": "🍎", "name": "사과"},
+    "super": {"emoji": "🥛", "name": "우유"},
 }
 
 

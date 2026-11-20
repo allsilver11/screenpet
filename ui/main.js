@@ -763,6 +763,11 @@ const EXTRA_SPEECH = {
   bike_trick: ["skrrt!", "hup!"],
   bat_signal: ["I'm the night", "signal's up!"],
   hero_lift: ["easy!", "light as air"],
+  // 🦸 슈퍼인간: 날아오르기 / 친구 화면으로 날아감 / 🔄 공중제비 / 사뿐 내려앉기 (코어 brain_soar.rs)
+  take_off: ["up, up and away!", "whoosh!"],
+  rescue: ["to the rescue!", "on my way!"],
+  air_flip: ["wheee!", "flip!"],
+  soft_land: ["touchdown!", "soft landing"],
   // 펫끼리 놀기 더 (코어 social_romp.rs): 🥊 투닥투닥 / 😈 몰래 찌르고 키득 · 찔려서 화들짝 / 🫸 되밀기 / 🏁 달리기 시합 / 💬 수다 (먼저 · 받는 쪽)
   scuffle: ["hey!", "mine!", "grr", "grr!"],
   hehe: ["hehe", "hehe~"],
@@ -821,6 +826,7 @@ const CURSOR_LINES = {
   heumul: ["zoom zoom!", "hup hup!"],
   spider: ["thwip thwip!", "web time!"],
   bat: ["to the bike!", "I'm the night"],
+  super: ["up, up and away!", "to the rescue!"],
 };
 const speech = setupSpeech({
   bubbleEl,

@@ -47,6 +47,8 @@ pub mod weather;
 pub mod web;
 /// 🦇 박쥐인간 오토바이·박쥐 신호의 숫자
 pub mod bike;
+/// 🦸 슈퍼인간 낮게 날기·활공의 숫자
+pub mod soar;
 pub mod world;
 
 #[cfg(test)]

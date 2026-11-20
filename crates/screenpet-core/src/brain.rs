@@ -197,6 +197,14 @@ pub enum Anim {
     Drift,
     /// 🦇 박쥐인간 — 🔦 바닥의 큰 조명을 켜 하늘로 박쥐 신호 (한 번, 마지막 칸 유지)
     Signal,
+    /// 🦸 슈퍼인간 — ✈️ 몸을 눕혀 주먹을 앞으로 내민 비행 (옆모습, 망토 펄럭 — brain_soar.rs)
+    Fly,
+    /// 🦸 슈퍼인간 — 두 주먹 쭉 빠른 비행 (속도선)
+    FlyFast,
+    /// 🦸 슈퍼인간 — 🔄 공중제비 한 바퀴
+    FlyFlip,
+    /// 🦸 슈퍼인간 — 똑바로 떠서 둥실 (이륙·사뿐 착지·위아래 친구 화면)
+    Hover,
 }
 
 /// 머리 위 말풍선 종류 (웹뷰가 글귀를 고름)
@@ -384,8 +392,16 @@ pub enum Speech {
     BikeTrick,
     /// 🦇 🔦 박쥐 신호 ("I'm the night")
     BatSignal,
-    /// 🦇 💪 거대한 것도 번쩍 ("easy!")
+    /// 🦇🦸 💪 거대한 것도 번쩍 ("easy!")
     HeroLift,
+    /// 🦸 날아오르기 ("up, up and away!", brain_soar.rs)
+    TakeOff,
+    /// 🦸 친구 화면으로 날아감 ("to the rescue!")
+    Rescue,
+    /// 🦸 🔄 공중제비 ("wheee!")
+    AirFlip,
+    /// 🦸 날기를 마치고 사뿐 ("touchdown!")
+    SoftLand,
 }
 
 impl Anim {
@@ -725,6 +741,9 @@ pub struct PetConfig {
     /// 🦇 오토바이 타기·윌리·점프·드리프트·🔦 박쥐 신호·오토바이로 친구 화면 오가기 (pet.json `bike_rider` + ride·wheelie·bike_jump·drift·signal 그림 — 박쥐인간, brain_bike.rs).
     /// 💪 들기(juggler)도 하면 거대한 것도 늘 번쩍 듦
     pub rides_bike: bool,
+    /// 🦸 걷기 대신 바닥 조금 위를 낮게 날기·🔄 공중제비·디딤판 끝에서 멀리 활공·사뿐 착지·날아서 친구 화면 오가기
+    /// (pet.json `super_flier` + fly·fly_fast·fly_flip·hover 그림 — 슈퍼인간, brain_soar.rs). 💪 들기(juggler)도 하면 거대한 것도 늘 번쩍
+    pub soars: bool,
     /// 🌱 지금 연령대 (from_manifest가 받은 단계 이름 — 손님도 Visit에 실려 온 단계). 연령대 특기·종별 특기의 세기 (brain_stage.rs)
     pub stage: crate::care::Stage,
 }
@@ -766,6 +785,7 @@ impl PetConfig {
             leads_train: m.train_leader,
             slings_webs: m.slings_webs(),
             rides_bike: m.rides_bike(),
+            soars: m.soars(),
             // 모르는 이름이면 청소년 (예전 그대로의 세기)
             stage: crate::care::Stage::from_name(stage).unwrap_or(crate::care::Stage::Teenager),
         }
@@ -975,6 +995,8 @@ pub struct Pet {
     web: web_moves::WebMood,
     /// 🦇 오토바이·박쥐 신호의 기억 (brain_bike.rs)
     bike: bike_moves::BikeMood,
+    /// 🦸 낮게 날기의 기억 (brain_soar.rs)
+    soar: soar_moves::SoarMood,
     /// 🐛🕸️ 고치·거미집에 걸리기의 기억 (brain_snare.rs)
     snare: snare_moves::SnareMood,
     typing: typing_moves::TypingMood,
@@ -1087,6 +1109,7 @@ impl Pet {
             doodle: doodle_moves::DoodleMood::new(seed),
             web: web_moves::WebMood::new(seed),
             bike: bike_moves::BikeMood::new(seed),
+            soar: soar_moves::SoarMood::new(seed),
             snare: snare_moves::SnareMood::new(seed),
             typing: Default::default(),
             play: play_moves::PlayMood::new(seed),
@@ -1122,6 +1145,8 @@ impl Pet {
         self.heart_timer = (self.heart_timer - dt).max(0.0);
         self.wobble_timer = (self.wobble_timer - dt).max(0.0);
         self.tick_stage_mood(dt);
+        // 🦸 떠 있는 높이·활공 기억 (brain_soar.rs)
+        self.soar_tick(dt);
         self.drop_flying_state();
         self.drop_walking_moves();
         self.after_meal();
@@ -1286,6 +1311,7 @@ impl Pet {
             // 나는 동물의 공중제비(Roll)는 원을 도는 동안만 — 그 앞뒤는 그냥 난다
             State::Move { kind: Move::Roll, .. } if self.cfg.flies && !self.flight.is_some_and(|f| f.looping.is_some()) => Anim::Walk,
             State::Move { .. } if self.riding_now() => self.ride_anim(),
+            State::Move { .. } if self.soaring_now() => self.soar_anim(),
             State::Move { kind, .. } if self.cfg.hops || self.bunny_hopping() => self.hop_anim(kind),
             State::Move { kind, .. } => kind.into(),
             State::Leap { .. } => Anim::BigJump,
@@ -1298,6 +1324,7 @@ impl Pet {
             State::CatchMe { .. } => Anim::Run,
             State::Exit { side, .. } | State::Enter { side, .. } if visit::is_vertical(side) => self.vertical_anim(),
             State::Exit { .. } | State::Enter { .. } if self.bike_transit() => Anim::Ride,
+            State::Exit { .. } | State::Enter { .. } if self.soar_transit() => Anim::Fly,
             State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } | State::WantFood { walking: true } => Anim::Walk,
             State::WantFood { walking: false } if self.looking_up() => Anim::LookUp,
             State::WantFood { walking: false } => Anim::Look,
@@ -1312,6 +1339,7 @@ impl Pet {
             State::LevelUp { .. } => Anim::LevelUp,
             State::Huff { .. } => Anim::Huff,
             State::Idle { .. } | State::Turn { .. } if self.drifting() => Anim::Drift,
+            State::Idle { .. } | State::Turn { .. } if self.soar_hovering() => Anim::Hover,
             State::Idle { look: true, .. } if self.looking_up() => Anim::LookUp,
             State::Idle { look: true, .. } => Anim::Look,
             State::Idle { .. } | State::Turn { .. } => Anim::Idle,
@@ -1338,12 +1366,14 @@ impl Pet {
                 self.play_anim().unwrap_or(Anim::Idle)
             }
             State::Land { .. } if self.hero_landing() => Anim::HeroLand,
+            State::Land { .. } if self.cfg.soars => Anim::Hover,
             State::Land { .. } => Anim::Land,
             State::Web { phase, .. } => self.web_anim(phase),
             State::Signal { .. } => Anim::Signal,
             State::Stuck { kind, .. } => Pet::stuck_anim(kind),
             State::StageAct { act, t, len } => self.stage_anim(act, t, len),
             State::Air { anim: Anim::Hop } if self.bike.jumping => Anim::BikeJump,
+            State::Air { .. } if self.soar.gliding => self.glide_anim(),
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
             State::Slide => Anim::Slide,
@@ -1384,7 +1414,7 @@ impl Pet {
     pub fn window_pos(&self) -> (f64, f64) {
         // 🕸️ 거미집에 걸린 순간 "팅~" 출렁 (brain_snare.rs)
         let (sx, sy) = self.snare_offset();
-        (self.body.x - self.cfg.size / 2.0 + sx, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift() + sy)
+        (self.body.x - self.cfg.size / 2.0 + sx, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift() - self.soar_lift() + sy)
     }
 
     /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹음)
@@ -1813,6 +1843,8 @@ impl Pet {
         self.state = State::Enter { remaining: visit::ENTER_SECS, side };
         // 🦇 오토바이 타고 들어와 계속 달림 (brain_bike.rs)
         self.bike_enter();
+        // 🦸 날아 들어와 계속 낢 (brain_soar.rs)
+        self.soar_enter();
     }
 
     /// 손님에게 "집에 와" (들려 있거나 공중이면 내려선 뒤): 제자리에서 손 흔든 뒤 걸어 나가지 않고 사라짐 (take_exit = Some(집 쪽))
@@ -1866,6 +1898,10 @@ impl Pet {
         if self.bike_transit() {
             return self.bike_speed();
         }
+        // 🦸 날아서 나가고 들어옴
+        if self.soar_transit() {
+            return self.soar_transit_speed();
+        }
         if self.cfg.antics && (self.carried_object().is_some() || self.hoisting().is_some()) {
             self.carry_run_speed()
         } else {
@@ -1918,6 +1954,8 @@ impl Pet {
         self.state = State::Exit { remaining: visit::EXIT_SECS, side };
         // 🦇 오토바이에 올라 부릉 (brain_bike.rs)
         self.bike_exit();
+        // 🦸 날아서 "to the rescue!" (brain_soar.rs)
+        self.soar_exit();
     }
 
     /// 바닥 높이를 따라 dx만큼 걸음 (경계 밖이어도). 바닥이 사라졌으면 x만 옮김
@@ -2724,6 +2762,10 @@ impl Pet {
 
     /// 공중 중력: 던진 비행이면 논리 px 기준의 부드러운 중력, 아니면 평소 중력
     fn air_gravity(&self) -> f64 {
+        // 🦸 활공은 낮은 중력 (brain_soar.rs)
+        if let Some(g) = self.glide_gravity() {
+            return g;
+        }
         if self.thrown {
             THROW_GRAVITY_LOGICAL * self.cfg.dpi
         } else {
@@ -2839,7 +2881,8 @@ impl Pet {
             State::Move { kind, remaining } => {
                 self.walk_span = Some((piece.x_start, piece.x_end));
                 // 🦇 오토바이 토막이면 오토바이 빠르기 (brain_bike.rs)
-                let speed = match self.bike_pace(kind, dt) {
+                // 🦸 날기 토막이면 나는 빠르기 (brain_soar.rs)
+                let speed = match self.bike_pace(kind, dt).or_else(|| self.soar_pace(kind, dt)) {
                     Some(v) => v,
                     None => self.cfg.walk_speed * kind.speed_mult() * self.hop_pace(kind, dt) * self.toddle_pace(kind),
                 };
@@ -2871,6 +2914,10 @@ impl Pet {
                     }
                     // 🦇 오토바이로 달리다 디딤판 끝: 붕 뛰어내리거나 끼익 멈춤 (brain_bike.rs)
                     if end == EndKind::Edge && self.bike_edge() {
+                        return;
+                    }
+                    // 🦸 디딤판 끝: 추락 대신 활공해 내려가거나 돌아섬 (brain_soar.rs)
+                    if end == EndKind::Edge && self.soar_edge() {
                         return;
                     }
                     match (end, kind) {
@@ -3089,6 +3136,7 @@ impl Pet {
         let (prev_x, prev_y, prev_vx) = (self.body.x, self.body.y, self.body.vx);
         let g = self.air_gravity();
         step_air(&mut self.body, dt, &world.bounds, self.cfg.half_w, self.cfg.size, g);
+        self.cap_glide();
         if self.body.vx.abs() > 1.0 {
             self.facing = self.body.vx.signum();
         }
@@ -3116,14 +3164,16 @@ impl Pet {
             // 자리 비움 중(잠만 잔다)엔 콰당 없이 그대로 다시 잠든다 (brain_presence.rs)
             // 🕷️ 거미인간은 콰당 대신 영웅 착지 (brain_web.rs)
             let hero = self.try_hero_landing(fell);
-            let thud = !hero && !self.cfg.flies && !self.is_user_away() && fell >= THUD_FALL_SIZES * self.cfg.size;
+            // 🦸 슈퍼인간은 늘 사뿐 (brain_soar.rs)
+            let soft = self.soar_landed();
+            let thud = !hero && soft.is_none() && !self.cfg.flies && !self.is_user_away() && fell >= THUD_FALL_SIZES * self.cfg.size;
             self.body = Body { x: self.body.x, y: s.y, vx: 0.0, vy: 0.0 };
             self.standing = Some(Standing { owner: s.owner, rel_x: self.body.x - ax });
             if thud {
                 self.thud = THUD_SECS;
                 self.speech = Some(Speech::Oof);
             }
-            self.state = State::Land { remaining: if thud { THUD_SECS } else if hero { crate::web::HERO_SECS } else { LAND_SECS } };
+            self.state = State::Land { remaining: if thud { THUD_SECS } else if hero { crate::web::HERO_SECS } else { soft.unwrap_or(LAND_SECS) } };
         } else if self.body.y > world.bounds.bottom + self.cfg.size * 4.0 {
             // 화면 밖으로 사라짐 → 가까운 위치 상단에서 다시 떨어뜨림
             let b = world.bounds;
@@ -3304,6 +3354,8 @@ impl Pet {
         self.body.vx = 0.0;
         self.body.vy = 0.0;
         self.state = State::Air { anim: Anim::Fall };
+        // 🦸 슈퍼인간은 떨어지지 않고 활공 (brain_soar.rs)
+        self.soar_fall();
     }
 
     /// 쉬는 상태를 뽑음 (쳐다보기·올려다보기 포함)
@@ -3919,6 +3971,11 @@ mod doodle_tests;
 pub mod web_moves;
 #[path = "brain_bike.rs"]
 pub mod bike_moves;
+#[path = "brain_soar.rs"]
+pub mod soar_moves;
+#[cfg(test)]
+#[path = "brain_soar_tests.rs"]
+mod soar_tests;
 #[cfg(test)]
 #[path = "brain_bike_tests.rs"]
 mod bike_tests;
@@ -4468,7 +4525,7 @@ mod tests {
             Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump, Anim::Yank, Anim::Stuff,
             Anim::HangCursor, Anim::Peek, Anim::Dance, Anim::Dance2, Anim::Catch, Anim::Draw, Anim::CheerType, Anim::Type, Anim::CarryRun,
             Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl,
-            Anim::Ride, Anim::Wheelie, Anim::BikeJump, Anim::Drift, Anim::Signal];
+            Anim::Ride, Anim::Wheelie, Anim::BikeJump, Anim::Drift, Anim::Signal, Anim::Fly, Anim::FlyFast, Anim::FlyFlip, Anim::Hover];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

@@ -21,13 +21,16 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// · yank·stuff (📌 작업표시줄에서 장난감 끌어내기·도로 밀어 넣기)
 /// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type·type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS, type = ⌨️ 키보드 v0.6.4)
 /// · paw (🐱 고양이 툭툭 — KNOCK_ANIMS) · cheeks_walk·cheeks_idle·dig (🐿️ 다람쥐 볼 빵빵 — STASH_ANIMS, v0.6.3)
-/// · shoot·web_swing·hero_land·web_pull·web_whirl (🕷️ 거미인간 — WEB_ANIMS) · ride·wheelie·bike_jump·drift·signal (🦇 박쥐인간 — BIKE_ANIMS).
-pub const OPTIONAL_ANIMS: [&str; 44] = [
+/// · shoot·web_swing·hero_land·web_pull·web_whirl (🕷️ 거미인간 — WEB_ANIMS) · ride·wheelie·bike_jump·drift·signal (🦇 박쥐인간 — BIKE_ANIMS)
+/// · fly·fly_fast·fly_flip·hover (🦸 슈퍼인간 — SOAR_ANIMS).
+pub const OPTIONAL_ANIMS: [&str; 48] = [
     "arch", "huff", "climb", "slide", "bigjump", "lookup", "fire", "roar", "stomp", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig", "shoot", "web_swing", "hero_land", "web_pull",
-    "web_whirl", "ride", "wheelie", "bike_jump", "drift", "signal",
+    "web_whirl", "ride", "wheelie", "bike_jump", "drift", "signal", "fly", "fly_fast", "fly_flip", "hover",
 ];
+/// 🦸 슈퍼인간 그림: ✈️ 날기 · 빠른 날기 · 🔄 공중제비 · 둥실 (pet.json `super_flier`가 있어도 이게 다 있어야 함 — soars())
+pub const SOAR_ANIMS: [&str; 4] = ["fly", "fly_fast", "fly_flip", "hover"];
 /// 🦇 박쥐인간 그림: 🏍️ 오토바이 타기 · 윌리 · 오토바이 점프 · 드리프트 · 🔦 박쥐 신호 (pet.json `bike_rider`가 있어도 이게 다 있어야 함 — rides_bike())
 pub const BIKE_ANIMS: [&str; 5] = ["ride", "wheelie", "bike_jump", "drift", "signal"];
 /// 🕷️ 거미인간 그림: 줄 쏘기 · 줄 그네 · 영웅 착지 · 줄 끌어당기기 · 🌀 줄 휘두르기 (pet.json `web_slinger`가 있어도 이게 다 있어야 함 — slings_webs())
@@ -171,6 +174,9 @@ pub struct PetManifest {
     /// 🦇 오토바이를 자주 타고 윌리·점프·드리프트, 가끔 박쥐 신호 조명, 친구 화면도 오토바이로 오감 (박쥐인간, BIKE_ANIMS가 다 있을 때만 — rides_bike())
     #[serde(default)]
     pub bike_rider: bool,
+    /// 🦸 걷기 대신 바닥 조금 위를 낮게 날고, 공중제비, 디딤판 끝에서 멀리 활공, 친구 화면도 날아서 오감 (슈퍼인간, SOAR_ANIMS가 다 있을 때만 — soars())
+    #[serde(default)]
+    pub super_flier: bool,
     /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있음 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮음, core::tint)
     #[serde(default)]
     pub tint: bool,
@@ -314,6 +320,11 @@ impl PetManifest {
     /// 🦇 오토바이 타기 (BIKE_ANIMS 그림이 다 있어야 함)
     pub fn rides_bike(&self) -> bool {
         self.bike_rider && BIKE_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 🦸 낮게 날기 (SOAR_ANIMS 그림이 다 있어야 함)
+    pub fn soars(&self) -> bool {
+        self.super_flier && SOAR_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
     /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 함)
@@ -621,7 +632,8 @@ mod tests {
         assert_eq!(&OPTIONAL_ANIMS[30..31], &KNOCK_ANIMS, "🐱 툭툭 (v0.6.3)");
         assert_eq!(&OPTIONAL_ANIMS[31..34], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3)");
         assert_eq!(&OPTIONAL_ANIMS[34..39], &WEB_ANIMS, "🕷️ 거미인간");
-        assert_eq!(&OPTIONAL_ANIMS[39..], &BIKE_ANIMS, "🦇 박쥐인간 — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[39..44], &BIKE_ANIMS, "🦇 박쥐인간");
+        assert_eq!(&OPTIONAL_ANIMS[44..], &SOAR_ANIMS, "🦸 슈퍼인간 — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
@@ -633,8 +645,9 @@ mod tests {
         for id in crate::test_util::species().into_iter().filter(|id| id != "heumul") {
             let m = load(&id);
             assert!(!m.timid() && !m.energetic && !m.rigs() && !m.taskbar_play && !m.plays_taskbar() && !m.antics(), "{id}");
-            // 💪 박쥐인간도 물건을 들어 옮김 (흐물이 juggle 틀) — 다른 동물은 안 듦
-            assert_eq!((m.juggler, m.juggles()), (id == "bat", id == "bat"), "{id}");
+            // 💪 박쥐인간·슈퍼인간도 물건을 들어 옮김 (흐물이 juggle 틀) — 다른 동물은 안 듦
+            let hero = id == "bat" || id == "super";
+            assert_eq!((m.juggler, m.juggles()), (hero, hero), "{id}");
         }
     }
 
@@ -690,6 +703,29 @@ mod tests {
         }
         let partial = read("pets", "bat").replace(r#""wheelie""#, r#""wheelie_x""#);
         assert!(!parse_manifest(&partial).unwrap().rides_bike());
+    }
+
+    /// 🦸 슈퍼인간만 낮게 낢 (super_flier + SOAR_ANIMS 그림 넷 — locomotion은 걷기 그대로). 물건 들기(juggle)도 하고 손 자리(grip)는 머리 위
+    #[test]
+    fn only_the_bundled_super_soars_and_lifts_things_overhead() {
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
+        for id in crate::test_util::species() {
+            let m = parse_manifest(&read(&id)).unwrap();
+            assert_eq!(m.soars(), id == "super", "{id}");
+            assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").soars, id == "super", "{id}");
+        }
+        let s = parse_manifest(&read("super")).unwrap();
+        assert_eq!(s.name, "슈퍼인간");
+        assert_eq!(s.locomotion, Locomotion::Walk);
+        assert!(s.can_climb() && s.juggles() && !s.antics() && !s.plays_taskbar() && !s.slings_webs() && !s.rides_bike() && !s.tint);
+        for stage in ["baby", "teenager", "adult"] {
+            let g = s.grip_table(stage);
+            assert_eq!((g.lift.n, g.hold.n, g.carry.n, g.throw.n, g.present.n), (4, 2, 4, 4, 4), "{stage}");
+            assert!(g.hold.at(0.0).1 < 0.35 && g.carry.at(0.0).1 < 0.35, "머리 위에 듦 {stage}");
+        }
+        let partial = read("super").replace(r#""fly_flip""#, r#""fly_flip_x""#);
+        assert!(!parse_manifest(&partial).unwrap().soars());
     }
 
     /// 🐱 툭툭은 고양이·페르시안, 🐿️ 볼 빵빵은 다람쥐, 🦆 기차는 오리만 (v0.6.3)

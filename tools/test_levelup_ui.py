@@ -37,7 +37,7 @@ def test_size_table_after_the_too_big_feedback():
     """피드백 "동물이 너무 크다": 작던 동물은 v0.3.10 이전 크기로, 큰 동물은 토끼쯤으로. 산타와 공룡은 사용자 요청으로 그대로."""
     want = {"squirrel": 0.82, "dino_green": 1.2, "dino_yellow": 1.2, "dino_purple": 1.2, "santa": 1.65, "duck": 0.9, "pumpkin": 0.9, "frog": 0.85,
             "rabbit": 0.85, "cat": 0.91, "persian": 0.92, "rudolph": 0.84, "snowman": 0.9, "penguin": 0.85,
-            "heumul": 0.9, "spider": 0.85, "bat": 0.85}
+            "heumul": 0.9, "spider": 0.85, "bat": 0.85, "super": 0.85}
     baby = {"squirrel": 0.9, "penguin": 0.935}  # 아기 다람쥐·아기 펭귄은 너무 작아 보여 아기만 1.1배 (사용자 요청, v0.5.7)
     assert set(want) == set(dict(manifests()))
     for pid, v in want.items():

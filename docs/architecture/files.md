@@ -160,7 +160,7 @@ ui/
 | `sheet_<stage>.png` ×5 | `baby`, `kinder`, `child`, `teenager`, `adult`. 프레임 128×128, 한 행 = 한 동작 (`docs/sprites.md`) |
 | `ink_<stage>.png` ×5 | 🎨 몸 색을 바꿀 수 있는 동물(흐물이)만: 잉크 자리 마스크 |
 
-17종: bat (박쥐인간), cat, dino_green/purple/yellow, duck, frog, heumul, penguin, persian, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel. (새·기린·레서판다·유령은 v0.7.0에서 빠짐 — 저장된 펫은 `config::replacement_species`로 오리·노란 공룡·다람쥐·호박이 됨. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
+18종: bat (박쥐인간), cat, dino_green/purple/yellow, duck, frog, heumul, penguin, persian, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel, super (슈퍼인간). (새·기린·레서판다·유령은 v0.7.0에서 빠짐 — 저장된 펫은 `config::replacement_species`로 오리·노란 공룡·다람쥐·호박이 됨. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
 
 ---
 
@@ -191,7 +191,7 @@ ui/
 | 종류 | 파일 |
 |---|---|
 | 그림 엔진 | `draw_pets.py` (공통 엔진 + 고양이·토끼·페르시안, 맨 끝에서 종별 모듈 등록), `sprite_spec.py` |
-| 종별 그림 | `draw_{bat,christmas,dino,farm,frog,halloween,heumul,penguin,snowman,spider,squirrel}.py` |
+| 종별 그림 | `draw_{bat,christmas,dino,farm,frog,halloween,heumul,penguin,snowman,spider,squirrel,super}.py` |
 | 세계 그림 | `draw_{house,objects,props,sleigh}.py`, `make_icon.py` |
 | 미리보기 | `preview_nightcap.py`, `preview_scarf.py` |
 | 배포 | `pack_webp.py`, `requirements-pack.txt` |

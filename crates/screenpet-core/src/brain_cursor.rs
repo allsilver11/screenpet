@@ -241,6 +241,8 @@ impl CursorStyle {
             "spider" => CursorStyle { prep: Some((Anim::Shoot, 0.5)), gait: Anim::Run, speed: 2.4, arrive: Some((Anim::Shoot, 0.6)), chatty: true, ..b },
             // 🦇 박쥐인간은 오토바이로 부릉 달려와 끼익 드리프트
             "bat" => CursorStyle { gait: Anim::Ride, speed: 3.0, arrive: Some((Anim::Drift, 0.6)), chatty: true, ..b },
+            // 🦸 슈퍼인간은 날아와 둥실 떠서 멈춤
+            "super" => CursorStyle { gait: Anim::Fly, speed: 3.0, arrive: Some((Anim::Hover, 0.6)), chatty: true, ..b },
             _ => return None,
         })
     }

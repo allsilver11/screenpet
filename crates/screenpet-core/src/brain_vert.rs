@@ -246,6 +246,10 @@ impl Pet {
         if self.cfg.flies {
             return Anim::Walk;
         }
+        // 🦸 슈퍼인간은 똑바로 떠서 위·아래로 (brain_soar.rs)
+        if self.cfg.soars {
+            return Anim::Hover;
+        }
         match (exiting, side, self.standing.is_some()) {
             (true, Side::Up, _) if self.cfg.hops => Anim::BigJump,
             // 웅크림
