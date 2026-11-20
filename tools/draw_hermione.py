@@ -1,4 +1,4 @@
-"""헤르미온느 📚 — 갈색 부스스한 긴 머리, 검은 로브 + 그리핀도르 목도리, 짙은 나무 지팡이의 꼬마 마법사 펫(hermione).
+"""헤르미온느 📚 — 라면처럼 꼬불꼬불한 갈색 곱슬 긴 머리, 검은 로브 + 그리핀도르 목도리, 짙은 나무 지팡이의 꼬마 마법사 펫(hermione).
 몸·공통 동작은 draw_wizard를 쓰고, 여기서는 생김새(Look)·헤르미온느만의 동작·등록만.
 
     python tools/draw_hermione.py → ui/pets/hermione/{sheet_<stage>.png ×5, pet.json} + tools/preview/{stages_hermione,climb_hermione,wizard_hermione}.png
@@ -28,50 +28,79 @@ PAGE, PAGE_LINE = (255, 250, 238), (188, 178, 160)  # 책장·글줄
 
 
 def puffs(pts, r):
-    """부스스한 머리 덩어리: 점마다 동그라미 (녹이면 물결치는 실루엣)."""
+    """부스스한 머리 덩어리: 점마다 동그라미 (녹이면 몽글몽글 물결치는 실루엣)."""
     return [C(x, y, rr * r) for x, y, rr in pts]
 
 
+def squiggle(a, b, n, amp, w=1.1, ph=0.0):
+    """a → b 사이를 꼬불꼬불 (사인 물결 n번) 지나는 라면 머리 가닥."""
+    (x0, y0), (x1, y1) = a, b
+    ln = math.hypot(x1 - x0, y1 - y0) or 1.0
+    nx, ny = -(y1 - y0) / ln, (x1 - x0) / ln
+    k = max(8, int(n * 6))
+    pts = []
+    for j in range(k + 1):
+        t = j / k
+        o = amp * math.sin(t * n * 2 * math.pi + ph)
+        pts.append((x0 + (x1 - x0) * t + nx * o, y0 + (y1 - y0) * t + ny * o))
+    return L(pts, w)
+
+
+def curl(x, y, r, a0=30, w=1.0):
+    """동그랗게 말린 곱슬 한 올 (C자 고리)."""
+    return L(dp.arc(x, y, r, r, a0, a0 + 270, 9), w)
+
+
 def hermione_hair(view_, hx, hy, hrx, hry, q):
-    """부스스한 갈색 긴 머리: 머리 둘레를 울퉁불퉁 부풀려 어깨 아래까지 (뒷모습은 등을 덮되 벽 짚은 두 손은 보임), 얼굴은 가운데 가르마 앞머리가 감쌈.
+    """라면처럼 꼬불꼬불한 갈색 곱슬 긴 머리: 머리 둘레를 작은 동그라미로 촘촘히 부풀려 (몽글몽글 곱슬 실루엣) 어깨 아래까지,
+    안에는 꼬불꼬불 가닥·말린 고리 (뒷모습은 등을 덮되 벽 짚은 두 손은 보임), 얼굴은 가운데 가르마 앞머리가 감쌈 (눈은 가리지 않음).
     → (머리 도형에 더할 도형, 삐죽 조각, 머리 안 무늬)."""
     R = hrx
     big = [T((hx - hrx * 3, hy - hry * 3), (hx + hrx * 3, hy - hry * 3), (hx + hrx * 3, hy + hry * 3), (hx - hrx * 3, hy + hry * 3))]
-    shine = [L(dp.arc(hx, hy - 0.05 * hry, hrx * 0.86, hry * 0.86, 210, 258, 8), 2.0)]
+    shine = [L(dp.arc(hx, hy - 0.05 * hry, hrx * 0.86, hry * 0.86, 214, 252, 8), 1.8)]
+    amp = 0.06 * hrx
 
     def ring_(a0, a1, step, rx, ry, dy=0.0):
-        """머리 둘레 a0..a1도에 울퉁불퉁 (크고 작은 동그라미 번갈아) 머리숱."""
-        return [(hx + math.cos(math.radians(a)) * hrx * rx, hy + math.sin(math.radians(a)) * hry * ry + dy * hry, 0.34 if k % 2 else 0.27)
+        """머리 둘레 a0..a1도에 몽글몽글 (크고 작은 동그라미 번갈아) 곱슬 머리숱."""
+        return [(hx + math.cos(math.radians(a)) * hrx * rx, hy + math.sin(math.radians(a)) * hry * ry + dy * hry, 0.28 if k % 2 else 0.22)
                 for k, a in enumerate(range(a0, a1 + 1, step))]
+
+    def P(a, b):
+        """머리 크기 비율 좌표 → 그림 좌표."""
+        return (hx + a * hrx, hy + b * hry)
     if view_ == "back":
-        pts = ring_(-170, -10, 20, 0.92, 0.96)
-        pts += [(hx + sd * hrx * 0.86, hy + k * hry, 0.3) for sd in (-1, 1) for k in (0.2, 0.65)]
-        pts += [(hx + dx * hrx, hy + 1.18 * hry, 0.3 if abs(dx) > 0.5 else 0.34) for dx in (-0.66, -0.22, 0.22, 0.66)]
-        waves = [L([(hx + dx * hrx, hy - 0.5 * hry), (hx + (dx + 0.12) * hrx, hy + 0.3 * hry), (hx + dx * hrx, hy + 1.2 * hry)], 1.3) for dx in (-0.55, -0.1, 0.35)]
-        return puffs(pts, R), [], [(big, HAIR), (waves, HAIR_DARK), (shine, HAIR_HI)]
+        pts = ring_(-174, -6, 12, 1.04, 1.04)
+        pts += [(hx + sd * hrx * 0.92, hy + k * hry, 0.29 if j % 2 else 0.2) for sd in (-1, 1) for j, k in enumerate((0.1, 0.42, 0.74, 1.0))]
+        pts += [(hx + dx * hrx, hy + 1.2 * hry, 0.25 if j % 2 else 0.29) for j, dx in enumerate((-0.72, -0.42, -0.14, 0.14, 0.42, 0.72))]
+        waves = [squiggle(P(dx, -0.7), P(dx + 0.04, 1.15), 3.5, amp, 1.2, dx * 5) for dx in (-0.62, -0.3, 0.02, 0.34, 0.64)]
+        curls = [curl(*P(a, b), 0.1 * hrx, a0) for a, b, a0 in ((-0.5, -0.55, 200), (0.2, -0.6, 20), (-0.75, 0.6, 300), (0.78, 0.5, 120))]
+        return puffs(pts, R), [], [(big, HAIR), (waves + curls, HAIR_DARK), (shine, HAIR_HI)]
     if view_ == "front":
-        pts = ring_(-180, 0, 20, 0.98, 0.98, -0.08)
-        pts += [(hx + sd * hrx * 1.08, hy + k * hry, 0.32 if j % 2 else 0.27) for sd in (-1, 1) for j, k in enumerate((0.2, 0.55, 0.9))]
-        pts += [(hx + sd * hrx * 0.94, hy + 1.2 * hry, 0.28) for sd in (-1, 1)]
+        pts = ring_(-186, 6, 12, 1.06, 1.04, -0.08)
+        pts += [(hx + sd * hrx * (1.08 + 0.04 * (j % 2)), hy + k * hry, 0.29 if j % 2 else 0.2) for sd in (-1, 1)
+                for j, k in enumerate((0.1, 0.38, 0.66, 0.94))]
+        pts += [(hx + sd * hrx * dx, hy + 1.2 * hry, 0.24) for sd in (-1, 1) for dx in (0.84, 1.06)]
         face = [E(hx - 0.84 * hrx, hy - 0.62 * hry, hx + 0.84 * hrx, hy + 1.0 * hry)]
-        fringe = [T((hx - 1.2 * hrx, hy - 1.6 * hry), (hx + 1.2 * hrx, hy - 1.6 * hry), (hx + 1.0 * hrx, hy + 0.1 * hry), (hx + 0.78 * hrx, hy - 0.22 * hry),
-                    (hx + 0.52 * hrx, hy - 0.46 * hry), (hx + 0.22 * hrx, hy - 0.56 * hry), (hx + 0.02 * hrx, hy - 0.66 * hry),
-                    (hx - 0.24 * hrx, hy - 0.54 * hry), (hx - 0.54 * hrx, hy - 0.44 * hry), (hx - 0.8 * hrx, hy - 0.2 * hry), (hx - 1.0 * hrx, hy + 0.1 * hry))]
-        waves = [L([(hx + sd * 0.98 * hrx, hy + 0.1 * hry), (hx + sd * 1.12 * hrx, hy + 0.55 * hry), (hx + sd * 1.0 * hrx, hy + 1.1 * hry)], 1.3) for sd in (-1, 1)]
-        waves += [L([(hx + sd * 0.5 * hrx, hy - 0.9 * hry), (hx + sd * 0.75 * hrx, hy - 0.6 * hry)], 1.1) for sd in (-1, 1)]
-        waves += [L([(hx + 0.02 * hrx, hy - 0.66 * hry), (hx + 0.04 * hrx, hy - 1.0 * hry)], 1.1)]
-        return puffs(pts, R), [], [(big, HAIR), (face, wz.look().skin), (fringe, HAIR), (waves, HAIR_DARK), (shine, HAIR_HI)]
+        fringe = [T(P(-1.2, -1.6), P(1.2, -1.6), P(1.0, 0.1), P(0.88, -0.08), P(0.78, -0.22), P(0.66, -0.3), P(0.52, -0.46), P(0.38, -0.46),
+                    P(0.22, -0.56), P(0.12, -0.56), P(0.02, -0.66), P(-0.1, -0.56), P(-0.24, -0.54), P(-0.38, -0.44), P(-0.54, -0.44),
+                    P(-0.66, -0.3), P(-0.8, -0.2), P(-0.9, -0.06), P(-1.0, 0.1))]
+        waves = [squiggle(P(sd * 1.0, -0.2), P(sd * 1.02, 1.15), 3.0, amp, 1.2, sd) for sd in (-1, 1)]
+        waves += [squiggle(P(sd * 0.5, -0.98), P(sd * 0.82, -0.5), 1.5, amp * 0.8, 1.0) for sd in (-1, 1)]
+        waves += [squiggle(P(sd * 0.22, -1.02), P(sd * 0.3, -0.62), 1.2, amp * 0.7, 1.0) for sd in (-1, 1)]
+        curls = [curl(*P(sd * 1.1, b), 0.09 * hrx, a0) for sd in (-1, 1) for b, a0 in ((0.25, 90 + sd * 60), (0.85, 270 - sd * 60))]
+        curls += [curl(*P(sd * 0.68, -0.86), 0.08 * hrx, 200 if sd < 0 else -20) for sd in (-1, 1)]
+        return puffs(pts, R), [], [(big, HAIR), (face, wz.look().skin), (fringe, HAIR), (waves + curls, HAIR_DARK), (shine, HAIR_HI)]
     # 옆모습 (오른쪽을 봄): 앞쪽은 이마를 덮는 앞머리, 뒤로는 크게 부풀어 등까지
-    pts = ring_(-200, -60, 20, 0.96, 0.98, -0.05)
-    pts += [(hx - hrx * 1.0, hy + k * hry, 0.34 if j % 2 else 0.28) for j, k in enumerate((0.0, 0.45, 0.9))]
-    pts += [(hx + dx * hrx, hy + 1.2 * hry, 0.3) for dx in (-0.8, -0.38)]
+    pts = ring_(-204, -54, 12, 1.04, 1.04, -0.05)
+    pts += [(hx - hrx * (1.02 + 0.06 * (j % 2)), hy + k * hry, 0.3 if j % 2 else 0.21) for j, k in enumerate((-0.05, 0.28, 0.6, 0.92))]
+    pts += [(hx + dx * hrx, hy + 1.2 * hry, 0.25 if j % 2 else 0.28) for j, dx in enumerate((-0.92, -0.62, -0.32))]
     face = [E(hx - 0.02 * hrx, hy - 0.5 * hry, hx + 1.1 * hrx, hy + 1.05 * hry)]
-    fringe = [T((hx - 1.3 * hrx, hy - 1.6 * hry), (hx + 1.3 * hrx, hy - 1.6 * hry), (hx + 1.12 * hrx, hy - 0.4 * hry), (hx + 0.86 * hrx, hy - 0.5 * hry),
-                (hx + 0.56 * hrx, hy - 0.56 * hry), (hx + 0.3 * hrx, hy - 0.5 * hry), (hx + 0.08 * hrx, hy - 0.26 * hry), (hx - 0.02 * hrx, hy + 0.2 * hry),
-                (hx + 0.02 * hrx, hy + 0.7 * hry), (hx - 0.3 * hrx, hy + 1.5 * hry), (hx - 1.3 * hrx, hy + 1.5 * hry))]
-    waves = [L([(hx - dx * hrx, hy - 0.2 * hry), (hx - (dx + 0.14) * hrx, hy + 0.5 * hry), (hx - dx * hrx, hy + 1.2 * hry)], 1.3) for dx in (0.4, 0.78)]
-    waves += [L([(hx + 0.1 * hrx, hy - 0.9 * hry), (hx + 0.45 * hrx, hy - 0.62 * hry)], 1.1)]
-    return puffs(pts, R), [], [(big, HAIR), (face, wz.look().skin), (fringe, HAIR), (waves, HAIR_DARK), (shine, HAIR_HI)]
+    fringe = [T(P(-1.3, -1.6), P(1.3, -1.6), P(1.12, -0.4), P(0.98, -0.5), P(0.86, -0.46), P(0.72, -0.58), P(0.56, -0.52), P(0.42, -0.6),
+                P(0.3, -0.48), P(0.16, -0.42), P(0.08, -0.26), P(-0.02, 0.2), P(0.02, 0.7), P(-0.3, 1.5), P(-1.3, 1.5))]
+    waves = [squiggle(P(-dx, -0.5), P(-dx - 0.06, 1.15), 3.0, amp, 1.2, dx * 4) for dx in (0.3, 0.62, 0.92)]
+    waves += [squiggle(P(0.05, -0.95), P(0.5, -0.66), 1.5, amp * 0.8, 1.0)]
+    curls = [curl(*P(a, b), 0.09 * hrx, a0) for a, b, a0 in ((-0.4, -0.7, 200), (-1.0, 0.45, 300), (-0.5, 1.0, 120), (0.3, -0.84, 20))]
+    return puffs(pts, R), [], [(big, HAIR), (face, wz.look().skin), (fringe, HAIR), (waves + curls, HAIR_DARK), (shine, HAIR_HI)]
 
 
 def apple_bubble_fx(cx, cy, r=12.0):

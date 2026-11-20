@@ -1,4 +1,4 @@
-"""해리포터 🧙 — 둥근 까만 안경, 이마의 번개 흉터, 덥수룩 삐죽 까만 머리, 검은 로브 + 그리핀도르 목도리, 밝은 나무 지팡이의 꼬마 마법사 펫(harry).
+"""해리포터 🧙 — 둥근 까만 안경, 이마의 번개 흉터, 덥수룩 몽글몽글 까만 머리, 검은 로브 + 그리핀도르 목도리, 밝은 나무 지팡이의 꼬마 마법사 펫(harry).
 몸·동작은 draw_wizard (볼드모트도 나중에 같은 몸)를 쓰고, 여기서는 생김새(Look)와 등록만.
 
     python tools/draw_harry.py → ui/pets/harry/{sheet_<stage>.png ×5, pet.json} + tools/preview/{stages_harry,climb_harry,wizard_harry}.png
@@ -7,6 +7,7 @@
 특기 (코어): 🧹 broom 빗자루 날기 (pet.json broom_rider) · ✨ cast 주문 (spells: expelliarmus·leviosa) · 🟡 골든 스니치 쫓기 (seeker — 빗자루 그림으로).
 """
 
+import math
 import sys
 from pathlib import Path
 
@@ -25,43 +26,50 @@ CANDY, CANDY_HI = (246, 112, 150), (255, 196, 214)  # 🍬 사탕 생각 풍선
 
 
 def spikes_at(hx, hy, hrx, hry, angles, k=1.3):
-    """머리 둘레 angles(도, 0 = 오른쪽, -90 = 위)에서 바깥으로 솟은 삐죽 머리카락 (뾰족한 삼각)."""
-    import math
+    """머리 둘레 angles(도, 0 = 오른쪽, -90 = 위)에서 바깥으로 살짝 솟은 짧은 머리 끝 (작은 삼각 — 덥수룩한 느낌만)."""
     out = []
     for a, kk in angles:
         r = math.radians(a)
-        b0 = (hx + hrx * 0.92 * math.cos(r - 0.2), hy + hry * 0.92 * math.sin(r - 0.2))
-        b1 = (hx + hrx * 0.92 * math.cos(r + 0.2), hy + hry * 0.92 * math.sin(r + 0.2))
-        tip = (hx + hrx * k * kk * math.cos(r + 0.08), hy + hry * k * kk * math.sin(r + 0.08))
+        b0 = (hx + hrx * 0.9 * math.cos(r - 0.17), hy + hry * 0.9 * math.sin(r - 0.17))
+        b1 = (hx + hrx * 0.9 * math.cos(r + 0.17), hy + hry * 0.9 * math.sin(r + 0.17))
+        tip = (hx + hrx * k * kk * math.cos(r + 0.1), hy + hry * k * kk * math.sin(r + 0.1))
         out.append(T(b0, tip, b1))
     return out
 
 
+def tufts_at(hx, hy, hrx, hry, angles, d=1.04, r=0.25):
+    """머리 둘레 angles(도)에 동그란 머리 뭉치 (녹이면 몽글몽글 부드러운 실루엣) — (각도, 크기 배율)."""
+    return [C(hx + hrx * d * math.cos(math.radians(a)), hy + hry * d * math.sin(math.radians(a)), hrx * r * kk) for a, kk in angles]
+
+
 def harry_hair(view_, hx, hy, hrx, hry, q):
-    """덥수룩한 까만 머리: 정수리 볼륨 + 사방으로 삐죽 + 앞머리 끝선이 들쭉날쭉 (이마 가운데 오른쪽에 흉터 자리를 비움).
-    → (머리 도형에 더할 도형, 삐죽 조각, 머리 안 무늬)."""
+    """덥수룩한 까만 머리: 정수리 볼륨 + 둘레에 몽글몽글 둥근 머리 뭉치 + 짧은 삐침 몇 가닥 + 앞머리 끝선이 부드럽게 들쭉날쭉
+    (이마 가운데 오른쪽에 흉터 자리를 비움). → (머리 도형에 더할 도형, 삐죽 조각, 머리 안 무늬)."""
     sky = hy - hry * 1.6 - q - 8
     shine = [L(dp.arc(hx, hy, hrx * 0.74, hry * 0.74, 215, 262, 8), 2.0)]
     if view_ == "back":
-        sp = spikes_at(hx, hy, hrx, hry, [(-170, 1.0), (-140, 1.05), (-112, 1.1), (-85, 1.05), (-58, 1.1), (-30, 1.05), (-8, 0.98)], 1.22)
+        tf = tufts_at(hx, hy, hrx, hry, [(-165, 0.95), (-135, 1.05), (-105, 1.0), (-75, 1.05), (-45, 1.0), (-15, 0.95)])
+        sp = spikes_at(hx, hy, hrx, hry, [(-170, 1.0), (-120, 1.04), (-90, 1.06), (-58, 1.04), (-10, 1.0)], 1.2)
         marks = [([T((hx - hrx * 2, sky), (hx + hrx * 2, sky), (hx + hrx * 2, hy + 0.55 * hry), (hx - hrx * 2, hy + 0.55 * hry))], HAIR), (shine, HAIR_HI)]
-        nape = [T((hx - 0.7 * hrx, hy + 0.5 * hry), (hx - 0.45 * hrx, hy + 0.98 * hry), (hx - 0.2 * hrx, hy + 0.55 * hry),
-                  (hx + 0.05 * hrx, hy + 1.0 * hry), (hx + 0.3 * hrx, hy + 0.55 * hry), (hx + 0.5 * hrx, hy + 0.95 * hry), (hx + 0.72 * hrx, hy + 0.5 * hry))]
-        return [E(hx - 0.95 * hrx, hy - hry - q, hx + 0.95 * hrx, hy)], sp, marks + [(nape, HAIR)]
+        nape = [T((hx - 0.7 * hrx, hy + 0.5 * hry), (hx - 0.45 * hrx, hy + 0.9 * hry), (hx - 0.2 * hrx, hy + 0.62 * hry),
+                  (hx + 0.05 * hrx, hy + 0.92 * hry), (hx + 0.3 * hrx, hy + 0.62 * hry), (hx + 0.5 * hrx, hy + 0.88 * hry), (hx + 0.72 * hrx, hy + 0.5 * hry))]
+        return [E(hx - 0.95 * hrx, hy - hry - q, hx + 0.95 * hrx, hy)] + tf, sp, marks + [(nape, HAIR)]
     if view_ == "front":
-        sp = spikes_at(hx, hy, hrx, hry, [(-165, 1.0), (-138, 1.08), (-112, 1.12), (-88, 1.06), (-64, 1.12), (-38, 1.06), (-14, 0.98)], 1.2)
-        z = [(1.2, 0.12), (0.95, -0.02), (0.8, -0.3), (0.62, -0.14), (0.46, -0.44), (0.3, -0.3), (0.16, -0.62), (-0.04, -0.34),
-             (-0.22, -0.56), (-0.42, -0.28), (-0.6, -0.5), (-0.78, -0.2), (-0.95, -0.04), (-1.2, 0.12)]
+        tf = tufts_at(hx, hy, hrx, hry, [(-160, 0.9), (-130, 1.0), (-100, 1.05), (-72, 1.0), (-44, 1.0), (-18, 0.9)])
+        sp = spikes_at(hx, hy, hrx, hry, [(-168, 1.0), (-116, 1.05), (-86, 1.06), (-56, 1.05), (-12, 1.0)], 1.2)
+        z = [(1.2, 0.12), (0.95, -0.04), (0.8, -0.26), (0.62, -0.2), (0.46, -0.4), (0.3, -0.34), (0.16, -0.52), (-0.04, -0.38),
+             (-0.22, -0.5), (-0.42, -0.32), (-0.6, -0.42), (-0.78, -0.2), (-0.95, -0.04), (-1.2, 0.12)]
         edge = [(hx + a * hrx, hy + b * hry) for a, b in z]
         ears = [E(hx + sd * hrx - 3.2, hy + 0.04 * hry - 4.6, hx + sd * hrx + 3.2, hy + 0.04 * hry + 4.6) for sd in (-1, 1)]
-        return [E(hx - 0.95 * hrx, hy - hry - q, hx + 0.95 * hrx, hy - 0.2 * hry)] + ears, sp, \
+        return [E(hx - 0.95 * hrx, hy - hry - q, hx + 0.95 * hrx, hy - 0.2 * hry)] + ears + tf, sp, \
             [([T(*edge, (hx - hrx * 1.3, sky), (hx + hrx * 1.3, sky))], HAIR), (shine, HAIR_HI)]
-    # 옆모습 (오른쪽을 봄): 앞머리는 이마 위에서 삐죽, 뒤통수·목덜미까지 머리
-    sp = spikes_at(hx, hy, hrx, hry, [(-178, 1.0), (-150, 1.08), (-122, 1.12), (-95, 1.1), (-68, 1.08), (-42, 1.04), (162, 1.0)], 1.2)
-    z = [(1.2, -0.4), (0.95, -0.48), (0.8, -0.28), (0.62, -0.5), (0.46, -0.32), (0.3, -0.52), (0.14, -0.22), (0.02, 0.06),
-         (-0.06, 0.3), (-0.3, 0.46), (-0.48, 0.72), (-0.62, 0.58), (-0.82, 0.8), (-1.2, 0.72)]
+    # 옆모습 (오른쪽을 봄): 앞머리는 이마 위에서 몽글, 뒤통수·목덜미까지 머리
+    tf = tufts_at(hx, hy, hrx, hry, [(-175, 1.0), (-148, 1.05), (-120, 1.05), (-92, 1.0), (-64, 0.95), (172, 0.9)])
+    sp = spikes_at(hx, hy, hrx, hry, [(-180, 1.0), (-134, 1.05), (-106, 1.07), (-78, 1.05), (-40, 1.02)], 1.2)
+    z = [(1.2, -0.4), (0.95, -0.46), (0.8, -0.32), (0.62, -0.46), (0.46, -0.34), (0.3, -0.46), (0.14, -0.24), (0.02, 0.06),
+         (-0.06, 0.3), (-0.3, 0.46), (-0.48, 0.66), (-0.62, 0.6), (-0.82, 0.74), (-1.2, 0.72)]
     edge = [(hx + a * hrx, hy + b * hry) for a, b in z]
-    return [E(hx - 0.2 * hrx, hy - hry - q, hx + 0.9 * hrx, hy - 0.4 * hry)], sp, \
+    return [E(hx - 0.2 * hrx, hy - hry - q, hx + 0.9 * hrx, hy - 0.4 * hry)] + tf, sp, \
         [([T(*edge, (hx - hrx * 1.3, sky), (hx + hrx * 1.3, sky))], HAIR), (shine, HAIR_HI)]
 
 
