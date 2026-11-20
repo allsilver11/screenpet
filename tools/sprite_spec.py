@@ -146,7 +146,7 @@ SPEECH = {
     "heumul": {"chatter": ["wheee!", "zoom zoom!", "hup!"], "tickle": ["hehehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     # 🕷️ 거미인간: 줄 쏘기 thwip · 거미집 web · 그네 web_swing · 영웅 착지 hero_land · 끌어오기 gotcha · 🌀 휘둘러 던지기 yeet (코어 Speech)
     "spider": {"chatter": ["thwip!", "web time!", "hi-ya!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "thwip": ["thwip!"],
-               "web": ["web time!", "spin spin~"], "web_swing": ["wheee!", "swing!"], "hero_land": ["nailed it!", "ta-da!"],
+               "web": ["web time!", "spin spin~"], "web_swing": ["wheee!", "swing!", "woohoo!"], "hero_land": ["nailed it!", "ta-da!"],
                "gotcha": ["gotcha!", "yoink!"], "yeet": ["yeet!", "catch!", "go long!"], **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }

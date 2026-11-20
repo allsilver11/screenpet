@@ -1007,7 +1007,7 @@ const EXTRA_SPEECH = {
   // 🕷️ 거미인간 줄 쏘기 / 모서리 거미집 / 줄 그네 / 영웅 착지 (코어 brain_web.rs — pet.json speech가 있으면 그 말)
   thwip: ["thwip!"],
   web: ["web time!"],
-  web_swing: ["wheee!"],
+  web_swing: ["wheee!", "woohoo!"],
   hero_land: ["nailed it!"],
   // 펫끼리 놀기 더 (코어 social_romp.rs): 🥊 투닥투닥 / 😈 몰래 찌르고 키득 · 찔려서 화들짝 / 🫸 되밀기 / 🏁 달리기 시합 / 💬 수다 (먼저 · 받는 쪽)
   scuffle: ["hey!", "mine!", "grr", "grr!"],

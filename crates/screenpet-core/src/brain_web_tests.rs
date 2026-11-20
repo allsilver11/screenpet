@@ -506,3 +506,77 @@ fn an_interruption_mid_whirl_lets_the_object_drop() {
     assert!(p.carried_object().is_none() && p.carry_point().is_none());
     assert!(p.take_juggle().is_none(), "던지지 않음");
 }
+
+/// 🌉🌉 줄 잇기 한 판을 끝까지 돌림: (그네마다 닻, 영웅 착지 했나). 매 틱 화면·모니터 안, 그네 중엔 발이 바닥 위인지 봄
+fn ride_chain(p: &mut Pet, w: &World) -> (Vec<web::Anchor>, bool) {
+    let wa = w.work_area_at(p.body.x, p.body.y - 1.0);
+    let floor = wa.bottom - web::SWING_CLEAR * p.cfg.size;
+    let mut anchors: Vec<web::Anchor> = Vec::new();
+    let mut hero = false;
+    let mut guard = LoopLimit::new();
+    while p.standing.is_none() || matches!(p.state, State::Web { .. } | State::Air { .. }) {
+        guard.step();
+        let before = p.body;
+        p.update(DT, w);
+        assert!(wa.left <= p.body.x && p.body.x <= wa.right && p.body.y <= wa.bottom + 1.0, "모니터 안 {:?}", p.body);
+        assert!((p.body.x - before.x).hypot(p.body.y - before.y) < 0.6 * p.cfg.size, "순간이동 없음 {before:?} → {:?}", p.body);
+        if let State::Web { phase: WebPhase::Swing { anchor, .. }, .. } = p.state {
+            assert!(p.body.y <= floor + 1.0, "그네 중 발은 바닥 위 {}", p.body.y);
+            assert!(anchor.len <= web::SWING_MAX_LEN * p.cfg.size + 1e-6);
+            assert!(wa.left <= anchor.x && anchor.x <= wa.right && wa.top <= anchor.y, "닻도 같은 모니터 {anchor:?}");
+            assert_eq!(p.web_line().unwrap().to, (anchor.x, anchor.y));
+            if anchors.last() != Some(&anchor) {
+                anchors.push(anchor);
+            }
+        }
+        hero |= p.render().anim == Anim::HeroLand;
+    }
+    (anchors, hero)
+}
+
+/// 🌉🌉 거미인간처럼 줄을 이어 탐: 놓고 날아가다 공중에서 앞 위로 새 줄을 쏴 또 흔들림 — 닻은 갈수록 앞, 끝엔 영웅 착지
+#[test]
+fn with_room_ahead_it_chains_swings_mid_air_moving_forward_and_lands_like_a_hero() {
+    let w = world(vec![]);
+    for seed in 0..6 {
+        let mut p = calm_spider(150.0, seed, &w);
+        p.facing = 1.0;
+        assert!(p.start_web_swing(&w));
+        let (anchors, hero) = ride_chain(&mut p, &w);
+        assert!(anchors.len() >= 2, "seed {seed}: 줄을 이어 탐 {anchors:?}");
+        assert!(anchors.windows(2).all(|a| a[1].x > a[0].x + p.cfg.size), "seed {seed}: 닻이 앞으로 {anchors:?}");
+        assert!(hero, "seed {seed}: 끝엔 영웅 착지");
+        assert!(p.standing.is_some());
+    }
+}
+
+/// 🌉🌉 넓은 화면에서 이어 타는 그네 수는 CHAIN_SWINGS 안에서 제각각
+#[test]
+fn the_number_of_chained_swings_stays_in_range_and_varies() {
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 9000.0, 1040.0)], 128.0);
+    let mut counts = std::collections::BTreeSet::new();
+    for seed in 0..16 {
+        let mut p = calm_spider(300.0, seed, &w);
+        p.facing = 1.0;
+        assert!(p.start_web_swing(&w));
+        let (anchors, hero) = ride_chain(&mut p, &w);
+        let n = anchors.len() as u32;
+        assert!((web::CHAIN_SWINGS.0..=web::CHAIN_SWINGS.1).contains(&n), "seed {seed}: {n}번");
+        assert!(hero);
+        counts.insert(n);
+    }
+    assert!(counts.len() >= 2, "횟수가 제각각 {counts:?}");
+}
+
+/// 🌉🌉 앞에 닻 댈 자리가 없으면 (화면 끝) 더 잇지 않고 그냥 떨어져 내려섬
+#[test]
+fn it_stops_chaining_when_there_is_no_anchor_ahead() {
+    let w = world(vec![]);
+    let mut p = calm_spider(800.0, 2, &w);
+    p.facing = 1.0;
+    assert!(p.start_web_swing(&w));
+    p.web.chain_left = 4;
+    let (anchors, _) = ride_chain(&mut p, &w);
+    assert_eq!(anchors.len(), 1, "화면 끝이라 한 번만 {anchors:?}");
+    assert!(p.standing.is_some() && p.web.chain_left == 0);
+}

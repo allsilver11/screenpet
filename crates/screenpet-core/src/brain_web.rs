@@ -4,6 +4,8 @@
 //!   크기는 제각각 (sized_web)이고, 첫 줄 뒤에도 거미집 여기저기로 줄을 몇 번 더 휙휙 쏴서 짬 (Weave — 앱이 그동안 살·고리를 차례로 그림).
 //!   손님으로 친구 화면에 가 있으면 자주, 집에서는 가끔.
 //! - 🌉 그네: 머리 위 창 아랫변·화면 윗변에 줄을 붙이고 (shoot) → 줄을 당겨 몸이 떠오름 (Zip) → 진자 (web_swing) → 반대편에서 놓고 날아감.
+//!   🌉🌉 줄 잇기: 놓고 날아가는 중 (State::Air) 꼭대기 언저리에서 앞 위로 새 줄을 쏴 ("thwip!" / 가끔 "woohoo!") Zip 없이
+//!   지금 자리·속도 그대로 진자를 이어 감 (try_chain_swing) — 한 번에 web::chain_range번, 닻이 없으면 그냥 떨어져 영웅 착지.
 //! - 🦸 영웅 착지: 몸 크기 HERO_FALL_SIZES배 넘게 떨어져 내려서면 콰당 대신 hero_land ("nailed it!") — land_or_recover가 부름.
 //! - 🪝 끌어오기: 바닥의 물건(ObjectPlay::Yank — 앱이 날림)이나 다른 동물(sync_lifts가 be_yanked)에 줄을 붙여 휙 (web_pull).
 //!   반은 앞에 떨어지게 끌어오고 반은 머리 너머 뒤로 던짐.
@@ -86,6 +88,14 @@ pub struct WebMood {
     pub(super) pets: Vec<PetSpot>,
     /// 영웅 착지 자세가 끝나는 시각
     pub(super) hero_until: f64,
+    /// 🌉🌉 지금 그네 뒤에 더 이어 탈 그네 수
+    pub(super) chain_left: u32,
+    /// 🌉🌉 이 시각(clock)부터 다음 줄을 쏨
+    chain_at: f64,
+    /// 🌉🌉 이 시각까지 닻을 못 찾으면 잇기를 그만둠
+    chain_until: f64,
+    /// 🌉🌉 이어 가는 쪽 (±1)
+    chain_dir: f64,
 }
 
 impl WebMood {
@@ -102,6 +112,10 @@ impl WebMood {
             cocoon_pet: None,
             pets: Vec::new(),
             hero_until: f64::NEG_INFINITY,
+            chain_left: 0,
+            chain_at: f64::INFINITY,
+            chain_until: f64::NEG_INFINITY,
+            chain_dir: 1.0,
         }
     }
 }
@@ -137,6 +151,7 @@ impl Pet {
         self.clear_hover();
         self.poop.stepping_off();
         self.standing = None;
+        self.web.chain_left = 0;
         self.body.vx = vx;
         self.body.vy = vy;
         if vx.abs() > 1.0 {
@@ -193,6 +208,15 @@ impl Pet {
         if let State::Web { phase, t } = self.state {
             self.step_web(dt, world, phase, t);
             return true;
+        }
+        if self.web.chain_left > 0 {
+            if matches!(self.state, State::Air { anim: Anim::Fall }) {
+                if self.try_chain_swing(world) {
+                    return true;
+                }
+            } else {
+                self.web.chain_left = 0;
+            }
         }
         if !self.play_free() || self.romp_interrupted() {
             return false;
@@ -329,12 +353,42 @@ impl Pet {
             let hand = (self.body.x + facing * gx, self.body.y - drop);
             if let Some(anchor) = web::swing_anchor(world, hand, facing, self.cfg.size, drop, floor) {
                 self.web.swing_ready_at = self.clock + behavior::range(&mut self.web.rng, web::SWING_CALM);
+                let (lo, hi) = web::chain_range(self.power());
+                self.web.chain_left = self.web.rng.u32(lo..=hi) - 1;
                 self.facing = facing;
                 self.begin_shoot(WebAim::Anchor(anchor));
                 return true;
             }
         }
         false
+    }
+
+    /// 🌉🌉 그네를 놓고 날아가는 중 (update_web이 매 틱): CHAIN_DELAY가 지나면 앞 위로 닻을 찾아 줄을 쏘고 지금 자리·속도 그대로 진자를 이어 감.
+    /// 시한(CHAIN_WINDOW)이 지나거나, 던져졌거나, 거꾸로 날거나, 자리 비움이면 잇기를 그만둠. 이었으면 true
+    fn try_chain_swing(&mut self, world: &World) -> bool {
+        if self.clock < self.web.chain_at {
+            return false;
+        }
+        let dir = self.web.chain_dir;
+        if self.clock > self.web.chain_until || self.thrown || self.inside.is_some() || self.is_user_away() || self.body.vx * dir <= 0.0 {
+            self.web.chain_left = 0;
+            return false;
+        }
+        let (gx, drop) = self.swing_hand_offset();
+        let hand = (self.body.x + dir * gx, self.body.y - drop);
+        let floor = world.work_area_at(self.body.x, self.body.y - 1.0).bottom;
+        let Some(anchor) = web::chain_anchor(world, hand, dir, self.cfg.size, drop, floor) else { return false };
+        let theta = -anchor.angle;
+        let omega = web::rope_omega(anchor.len, theta, self.body.vx, self.body.vy, dir);
+        if omega <= 0.0 {
+            return false;
+        }
+        self.web.chain_left -= 1;
+        self.facing = dir;
+        self.standing = None;
+        self.speech = Some(if self.web.rng.f64() < web::CHAIN_WOOHOO_CHANCE { Speech::WebSwing } else { Speech::Thwip });
+        self.state = State::Web { phase: WebPhase::Swing { anchor, theta, omega }, t: 0.0 };
+        true
     }
 
     /// 🪝 닿는 거리에 물건이나 동물이 있으면 주사위: 끌어오기
@@ -423,6 +477,7 @@ impl Pet {
         let airborne = matches!(phase, WebPhase::Zip { .. } | WebPhase::Swing { .. });
         if self.romp_interrupted() {
             if airborne {
+                self.web.chain_left = 0;
                 self.start_fall();
             } else {
                 self.state = self.idle_state();
@@ -532,7 +587,7 @@ impl Pet {
         self.state = State::Web { phase: WebPhase::Swing { anchor, theta: -anchor.angle, omega: 0.0 }, t: 0.0 };
     }
 
-    /// 진자 한 틱: 반대편으로 RELEASE_FRAC만큼 올라가면 (또는 시한이 지나면) 놓고 날아감
+    /// 진자 한 틱: 반대편으로 RELEASE_FRAC만큼 올라가면 (또는 시한이 지나면) 놓고 날아감 — 더 이을 그네가 있으면 다음 줄 쏠 때를 잡음
     fn step_web_swing(&mut self, dt: f64, anchor: Anchor, theta: f64, omega: f64, t: f64) {
         let (theta, omega) = web::pendulum_step(theta, omega, anchor.len, GRAVITY, dt);
         let (gx, drop) = self.swing_hand_offset();
@@ -552,6 +607,11 @@ impl Pet {
         self.body.vy = vy;
         self.thrown = false;
         self.gentle_drop = false;
+        if self.web.chain_left > 0 {
+            self.web.chain_at = self.clock + behavior::range(&mut self.web.rng, web::CHAIN_DELAY);
+            self.web.chain_until = self.web.chain_at + web::CHAIN_WINDOW;
+            self.web.chain_dir = self.facing;
+        }
         self.state = State::Air { anim: Anim::Fall };
     }
 

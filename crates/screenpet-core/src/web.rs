@@ -5,7 +5,9 @@
 //!   크기는 제각각 (WEB_SIZE_RANGE)이고, 줄을 여러 번 휙휙 쏴서 짬 (WEAVE_SHOTS·weave_target — 앱이 살·고리를 차례로 그림).
 //!   🌱 크기·줄 수와 그네·끌어오기·고치 빈도는 연령대로 자람 (stage_power × WEB_SIZE_RANGE, shot_range — 아기 작게 2~4번 → 어른 크게 5~8번)
 //!   창 모서리 거미집은 창을 따라 옮겨 가고, 앞 창에 가려지면 숨고, 창이 닫히면 사라짐 (web_on_window).
-//! - 그네: 머리 위 창 아랫변이나 화면 윗변에 줄을 붙여 몸을 끌어올린 뒤 진자처럼 흔들려 반대편에서 놓고 날아감
+//! - 그네: 머리 위 창 아랫변이나 화면 윗변에 줄을 붙여 몸을 끌어올린 뒤 진자처럼 흔들려 반대편에서 놓고 날아감.
+//!   🌉🌉 줄 잇기: 날아가는 중에 앞 위로 새 줄을 쏴 (chain_anchor — 손까지 딱 닿는 길이, 지금 속도의 접선 몫으로 rope_omega) 또 흔들림.
+//!   한 번에 CHAIN_SWINGS번 (🌱 chain_range — 연령대로), 닻 댈 자리가 없으면 그냥 떨어져 영웅 착지
 //! - 끌어오기: 바닥의 물건이나 다른 동물에 줄을 붙여 휙 — 반은 앞에 떨어지게, 반은 머리 너머 뒤로
 //! - 🌀 휘둘러 던지기: 친구가 연결된 화면 끝이 있으면 (WHIRL_CHANCE) 끌어오는 대신 물건을 줄로 낚아 머리 위로 빙빙 돌리다가
 //!   그 끝 너머로 휙 — 끝을 넘은 물건은 앱의 던지기처럼 친구 모니터로 날아감 (whirl_point·whirl_flight_secs)
@@ -81,6 +83,26 @@ pub const ZIP_SECS: f64 = 0.35;
 pub const SWING_MAX_LEN: f64 = 7.0;
 /// 그네가 이만큼 넘게 걸리면 그 자리에서 놓음 (안전 시한)
 pub const SWING_MAX_SECS: f64 = 6.0;
+
+/// 🌉🌉 줄 잇기: 한 번 탈 때 이어 타는 그네 수 (첫 그네 포함, 청소년 기준 — 연령대는 chain_range)
+pub const CHAIN_SWINGS: (u32, u32) = (2, 5);
+/// 🌉🌉 어른이 되어도 이어 타는 그네는 이만큼까지
+pub const CHAIN_SWINGS_MAX: u32 = 6;
+/// 🌉🌉 놓고 날아간 뒤 다음 줄을 쏘기까지 (꼭대기 언저리에서 쏨)
+pub const CHAIN_DELAY: (f64, f64) = (0.15, 0.3);
+/// 🌉🌉 그 뒤 이만큼 안에 닻을 못 찾으면 잇기를 그만두고 그냥 떨어짐
+pub const CHAIN_WINDOW: f64 = 0.5;
+/// 🌉🌉 공중에서 잇는 줄의 시작 각도 후보 (도, 큰 것부터 — 화면 안에 드는 첫 것)
+const CHAIN_ANGLES_DEG: [f64; 4] = [40.0, 34.0, 28.0, 22.0];
+/// 🌉🌉 이어 쏠 때 "thwip!" 대신 신나서 "woohoo!" (web_swing 말)를 할 몫
+pub const CHAIN_WOOHOO_CHANCE: f64 = 0.35;
+
+/// 🌱 연령대 세기(stage_power)에 맞춘 이어 탈 그네 수 범위 — 청소년(1.0)은 CHAIN_SWINGS, 아기 (2, 3) → 어른 (2, 6)
+pub fn chain_range(power: f64) -> (u32, u32) {
+    let lo = CHAIN_SWINGS.0;
+    let hi = ((f64::from(CHAIN_SWINGS.1) * power).round() as u32).clamp(lo, CHAIN_SWINGS_MAX);
+    (lo, hi)
+}
 
 /// 끌어오기를 할 빈도 (닿는 거리에 무언가 있을 때, 초당 확률)
 pub const PULL_RATE: f64 = 1.0 / 40.0;
@@ -334,6 +356,48 @@ pub fn swing_anchor(world: &World, hand: (f64, f64), facing: f64, size: f64, dro
     None
 }
 
+/// 🌉🌉 공중에서 이을 닻: 날아가는 손(hand)에서 dir 쪽 위의 창 아랫변 (가까운 것부터) 또는 화면 윗변 — 같은 모니터만.
+/// 줄 길이는 손까지 딱 (그래서 순간이동 없이 지금 자리에서 진자가 이어짐), SWING_MIN_LEN..SWING_MAX_LEN이고
+/// 맨 아래에서도 발이 바닥(floor)보다 SWING_CLEAR 위. 시작 각도는 CHAIN_ANGLES_DEG 중 닻과 놓는 자리가 화면 안에 드는 첫 것. 없으면 None
+pub fn chain_anchor(world: &World, hand: (f64, f64), dir: f64, size: f64, drop: f64, floor: f64) -> Option<Anchor> {
+    let wa = world.work_area_at(hand.0, hand.1);
+    if !(wa.left..=wa.right).contains(&hand.0) || !(wa.top..wa.bottom).contains(&hand.1) {
+        return None;
+    }
+    let (min, max) = (SWING_MIN_LEN * size, SWING_MAX_LEN * size);
+    let mut tops: Vec<(f64, Option<Rect>)> =
+        world.windows.iter().filter(|w| w.rect.bottom < hand.1 && w.rect.bottom > wa.top).map(|w| (w.rect.bottom, Some(w.rect))).collect();
+    tops.sort_by(|a, b| b.0.total_cmp(&a.0));
+    tops.push((wa.top, None));
+    for (top, win) in tops {
+        let dy = hand.1 - top;
+        let longest = (floor - SWING_CLEAR * size - drop - top).min(max);
+        for deg in CHAIN_ANGLES_DEG {
+            let angle = deg.to_radians();
+            let len = dy / angle.cos();
+            if len < min || len > longest {
+                continue;
+            }
+            let ax = hand.0 + dir * dy * angle.tan();
+            let far = ax + dir * len * (RELEASE_FRAC * angle).sin();
+            let held = win.is_none_or(|r| r.left < ax && ax < r.right);
+            let room = (wa.left + 0.5 * size..=wa.right - 0.5 * size).contains(&ax) && (wa.left + size..=wa.right - size).contains(&far);
+            if held && room {
+                return Some(Anchor { x: ax, y: top, len, angle });
+            }
+        }
+    }
+    None
+}
+
+/// 🌉🌉 날아가던 몸에 줄이 팽팽해질 때의 각속도: 속도 (vx, vy)의 접선 몫 ÷ 줄 길이 (dir 쪽이 +, 줄 방향 몫은 줄이 받아냄)
+pub fn rope_omega(len: f64, theta: f64, vx: f64, vy: f64, dir: f64) -> f64 {
+    if len <= 0.0 {
+        return 0.0;
+    }
+    (dir * vx * theta.cos() - vy * theta.sin()) / len
+}
+
 /// 진자 한 걸음 (θ'' = −g/L sinθ, 반암시적 오일러): (θ, ω) → 다음 (θ, ω)
 pub fn pendulum_step(theta: f64, omega: f64, len: f64, gravity: f64, dt: f64) -> (f64, f64) {
     if len <= 0.0 {
@@ -439,6 +503,42 @@ mod tests {
         assert_eq!(b.y, 500.0, "{b:?}");
         // 화면 끝 가까이에서 그쪽으로는 못 탐
         assert!(swing_anchor(&w, (1880.0, floor - drop), 1.0, size, drop, floor).is_none());
+    }
+
+    /// 🌉🌉 공중의 손에서 잇는 닻: 앞 위 (화면 윗변이나 창 아랫변), 줄은 손에 딱 닿는 길이 (SWING_MAX_LEN 안), 맨 아래서도 발이 바닥 위, 놓는 자리도 화면 안
+    #[test]
+    fn a_chain_anchor_is_up_ahead_at_rope_length_from_the_airborne_hand() {
+        let w = world(vec![]);
+        let (size, drop, floor) = (100.0, 90.0, 1040.0);
+        let hand = (700.0, 520.0);
+        for dir in [1.0, -1.0] {
+            let a = chain_anchor(&w, (if dir > 0.0 { hand.0 } else { 1920.0 - hand.0 }, hand.1), dir, size, drop, floor).unwrap();
+            let hx = if dir > 0.0 { hand.0 } else { 1920.0 - hand.0 };
+            assert_eq!(a.y, 0.0);
+            assert!((a.x - hx) * dir > 0.0, "앞 {a:?}");
+            assert!(((a.x - hx).hypot(a.y - hand.1) - a.len).abs() < 1e-6, "손에서 줄 길이 그대로 {a:?}");
+            let th = -a.angle;
+            let (px, py) = pendulum_hand((a.x, a.y), a.len, th, dir);
+            assert!((px - hx).abs() < 1e-6 && (py - hand.1).abs() < 1e-6, "지금 각도가 시작 각도");
+            assert!(a.len <= SWING_MAX_LEN * size && a.len >= SWING_MIN_LEN * size);
+            assert!(a.y + a.len + drop <= floor - SWING_CLEAR * size + 1e-6);
+            let far = a.x + dir * a.len * (RELEASE_FRAC * a.angle).sin();
+            assert!(size <= far && far <= 1920.0 - size);
+        }
+        // 창 아랫변이 머리 위 앞에 있으면 그 창에
+        let w2 = world(vec![win(1, 600.0, 50.0, 1500.0, 200.0)]);
+        assert_eq!(chain_anchor(&w2, hand, 1.0, size, drop, floor).unwrap().y, 200.0);
+        // 화면 끝 가까이: 없음
+        assert!(chain_anchor(&w, (1700.0, 520.0), 1.0, size, drop, floor).is_none());
+        // 너무 낮으면 (줄이 SWING_MAX_LEN보다 길어야 함) 없음
+        assert!(chain_anchor(&w, (700.0, 900.0), 1.0, size, 20.0, floor).is_none());
+        // 앞 속도가 크면 각속도는 진행 쪽 +
+        assert!(rope_omega(600.0, -0.5, 500.0, 100.0, 1.0) > 0.0 && rope_omega(600.0, -0.5, -500.0, 100.0, -1.0) > 0.0);
+        assert!(rope_omega(600.0, -0.5, -500.0, 0.0, 1.0) < 0.0, "뒤로 가는 중이면 −");
+        // 🌱 이을 횟수 범위: 청소년은 CHAIN_SWINGS, 아기는 적게, 어른은 조금 더
+        assert_eq!(chain_range(1.0), CHAIN_SWINGS);
+        assert!(chain_range(0.6).1 < CHAIN_SWINGS.1 && chain_range(1.2).1 > CHAIN_SWINGS.1);
+        assert!(chain_range(0.6).0 >= 2);
     }
 
     #[test]
