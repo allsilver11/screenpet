@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- 🚗 탈것 하나 = 작은 투명 창 하나 (src-tauri/src/vehicles.rs). 시트(ui/vehicles/<종류>.png)의 칸을 넘겨 바퀴·프로펠러를 돌리고,
+         끼익 먼지·쿵 💥은 CSS로. 움직임·좌석은 앱(코어 vehicle.rs)이 하고, 탄 펫은 펫 창이 따로 그림 -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+      }
+
+      /* 그림: 창 전체 (vehicle.js가 칸을 고르고 왼쪽을 볼 땐 뒤집음) */
+      #art {
+        position: absolute;
+        inset: 0;
+        background-repeat: no-repeat;
+        background-size: 300% 100%;
+        transform-origin: 50% 96%;
+        cursor: grab;
+      }
+
+      #art.bump {
+        animation: bump 250ms ease-out;
+      }
+
+      @keyframes bump {
+        40% {
+          scale: 1.04 0.92;
+        }
+      }
+
+      /* 끼익 먼지: 앞바퀴 쪽에서 뒤로 퍼짐 */
+      .dust {
+        position: absolute;
+        bottom: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: rgba(196, 180, 160, 0.85);
+        pointer-events: none;
+        animation: dust 600ms ease-out forwards;
+      }
+
+      @keyframes dust {
+        to {
+          transform: translate(var(--dx), -14px) scale(2.2);
+          opacity: 0;
+        }
+      }
+
+      /* 쿵! */
+      .crash {
+        position: absolute;
+        top: 4px;
+        font-size: 26px;
+        pointer-events: none;
+        animation: crash 700ms ease-out forwards;
+      }
+
+      @keyframes crash {
+        from {
+          transform: scale(0.4);
+          opacity: 1;
+        }
+        to {
+          transform: scale(1.4);
+          opacity: 0;
+        }
+      }
+
+      body.poof #art {
+        animation: poof 300ms ease-in forwards;
+      }
+
+      @keyframes poof {
+        60% {
+          opacity: 0.8;
+          scale: 1.15;
+        }
+        100% {
+          opacity: 0;
+          scale: 0.2;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="art"></div>
+    <script src="opacity.js"></script>
+    <script src="vehicle.js"></script>
+  </body>
+</html>

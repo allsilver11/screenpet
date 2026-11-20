@@ -1,4 +1,4 @@
-//! ⚙️ 사용자 설정 (config.json) — 고른 동물·돌보기·친구 목록·크기·날씨 등 앱이 남기는 모든 것
+//! ⚙️ 사용자 설정 (config.json) — 고른 동물·돌보기·친구 목록·크기·투명도·날씨 등 앱이 남기는 모든 것
 //! 쓰기는 임시 파일(config.json.tmp)에 쓰고 바꿔 끼우며 예전 것은 .bak으로 둠. 읽다 깨지면 기본값으로 돌고 덮어쓰지 않음
 //! 친구 이름 다듬기(clean_text·sanitize_name), 작은 로그 파일, 하우스 자리(HouseSpot)도 여기 있음
 use std::collections::HashMap;
@@ -70,6 +70,9 @@ pub struct Config {
     /// 📏 물건 크기 (%). 없으면 100
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     object_size_pct: Option<u32>,
+    /// 👻 떠 있는 창 전체 투명도 (0.05~1.0, 1.0 = 불투명). 없으면 1.0
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    opacity: Option<f64>,
     /// 🐾 커서 장난을 메뉴에서 껐음 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cursor_play_off: bool,
@@ -167,6 +170,16 @@ pub const SIZE_PCT_DEFAULT: u32 = 100;
 /// 크기 %를 SIZE_PCT_RANGE 안으로 (없으면 기본값)
 fn clean_size_pct(pct: Option<u32>) -> u32 {
     pct.unwrap_or(SIZE_PCT_DEFAULT).clamp(SIZE_PCT_RANGE.0, SIZE_PCT_RANGE.1)
+}
+
+/// 👻 투명도 막대의 범위 (0.05 = 거의 안 보임, 1.0 = 불투명). 0은 없음 — 펫을 잃어버리지 않게
+pub const OPACITY_RANGE: (f64, f64) = (0.05, 1.0);
+/// 투명도 기본값 (불투명)
+pub const OPACITY_DEFAULT: f64 = 1.0;
+
+/// 투명도를 OPACITY_RANGE 안으로 (없거나 숫자가 아니면 기본값)
+fn clean_opacity(value: Option<f64>) -> f64 {
+    value.filter(|v| v.is_finite()).unwrap_or(OPACITY_DEFAULT).clamp(OPACITY_RANGE.0, OPACITY_RANGE.1)
 }
 
 /// 친구: id(이름표) + 고정된 정적 공개키(신원) + 표시 이름 + 내 화면의 어느 끝에 연결됐는지
@@ -409,6 +422,16 @@ impl Config {
         let keep = |pct: u32| Some(clean_size_pct(Some(pct))).filter(|&p| p != SIZE_PCT_DEFAULT);
         self.pet_size_pct = keep(pet);
         self.object_size_pct = keep(object);
+    }
+
+    /// 👻 떠 있는 창 전체 투명도 (범위 안으로, 1.0 = 불투명)
+    pub fn opacity(&self) -> f64 {
+        clean_opacity(self.opacity)
+    }
+
+    /// 투명도 창의 값을 넣음 (범위 밖은 안으로, 기본값은 파일에 안 남김)
+    pub fn set_opacity(&mut self, value: f64) {
+        self.opacity = Some(clean_opacity(Some(value))).filter(|&v| v != OPACITY_DEFAULT);
     }
 
     /// 친구들에게 보일 내 이름: 정한 이름, 없으면 "친구" (컴퓨터 사용자 이름은 같은 망에 알리지 않음)
@@ -870,6 +893,43 @@ mod tests {
         c.set_sizes(SIZE_PCT_DEFAULT, SIZE_PCT_DEFAULT);
         let saved = serde_json::to_string(&c).unwrap();
         assert!(!saved.contains("size_pct"), "{saved}");
+    }
+
+    #[test]
+    fn opacity_defaults_to_opaque_and_stays_in_range() {
+        let mut c: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(c.opacity(), OPACITY_DEFAULT);
+        assert_eq!(OPACITY_DEFAULT, 1.0);
+        c.set_opacity(0.0);
+        assert_eq!(c.opacity(), OPACITY_RANGE.0);
+        assert_eq!(OPACITY_RANGE, (0.05, 1.0));
+        c.set_opacity(3.0);
+        assert_eq!(c.opacity(), 1.0);
+        c.set_opacity(f64::NAN);
+        assert_eq!(c.opacity(), OPACITY_DEFAULT);
+        c.set_opacity(0.4);
+        assert_eq!(c.opacity(), 0.4);
+    }
+
+    #[test]
+    fn opacity_survives_a_restart_and_default_is_not_written() {
+        let mut c = Config::default();
+        c.set_opacity(0.3);
+        let back: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.opacity(), 0.3);
+        c.set_opacity(1.0);
+        assert!(!serde_json::to_string(&c).unwrap().contains("opacity"));
+    }
+
+    #[test]
+    fn old_or_broken_opacity_in_the_file_does_not_lose_the_config() {
+        let old: Config = serde_json::from_str(r#"{"housed":true}"#).unwrap();
+        assert_eq!(old.opacity(), 1.0);
+        let c: Config = serde_json::from_str(r#"{"opacity":"ghost","housed":true}"#).unwrap();
+        assert!(c.housed);
+        assert_eq!(c.opacity(), 1.0);
+        let c: Config = serde_json::from_str(r#"{"opacity":0.001}"#).unwrap();
+        assert_eq!(c.opacity(), OPACITY_RANGE.0);
     }
 
     #[test]

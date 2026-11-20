@@ -736,6 +736,26 @@ fn heavy_snow_is_snow_that_piles_faster_and_higher() {
 }
 
 #[test]
+fn heavy_snow_piles_into_bumpy_drifts_not_a_flat_slab() {
+    let (mut f, _) = field(vec![]);
+    run(&mut f, Weather::HeavySnow, 3000);
+    let cells = &f.piles.iter().find(|p| p.owner == Owner::Ground(0)).unwrap().cells;
+    let (lo, hi) = cells.iter().fold((f32::MAX, 0.0f32), |(lo, hi), &c| (lo.min(c), hi.max(c)));
+    assert!(hi - lo >= 5.0, "언덕과 골이 있음: {lo}..{hi}");
+    assert!(hi <= Weather::HeavySnow.rates().cap);
+    // 언덕은 칸 하나짜리 뾰족이가 아니라 여러 칸에 걸친 둔덕 (이웃 칸끼리는 크게 안 다름)
+    let jump = cells.windows(2).fold(0.0f32, |a, w| a.max((w[0] - w[1]).abs()));
+    assert!(jump < 3.0, "이웃 칸 차이: {jump}");
+    // 같은 자리는 다시 쌓여도 같은 모양 (치우고 다시 쌓아도 언덕 자리가 그대로)
+    let mut g = PileField::new(2, 1.0);
+    g.sync(&world(vec![]));
+    run(&mut g, Weather::HeavySnow, 3000);
+    let other = &g.piles.iter().find(|p| p.owner == Owner::Ground(0)).unwrap().cells;
+    let tallest = |c: &Vec<f32>| c.iter().enumerate().fold((0, 0.0f32), |a, (i, &v)| if v > a.1 { (i, v) } else { a }).0;
+    assert!(tallest(cells).abs_diff(tallest(other)) <= 3, "언덕 자리는 화면 자리로 정해짐");
+}
+
+#[test]
 fn light_normal_and_heavy_snow_keep_the_same_pile() {
     for (from, to) in [(Weather::Snow, Weather::HeavySnow), (Weather::HeavySnow, Weather::LightSnow), (Weather::LightSnow, Weather::HeavySnow)] {
         let (mut f, _) = field(vec![]);

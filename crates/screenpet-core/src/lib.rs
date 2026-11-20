@@ -42,6 +42,8 @@ pub mod tumble;
 pub mod typhoon;
 pub mod typing;
 pub mod update;
+/// 🚗 탈것 (자동차·헬리콥터·킥보드·픽업 트럭)
+pub mod vehicle;
 pub mod visit;
 pub mod weather;
 pub mod web;

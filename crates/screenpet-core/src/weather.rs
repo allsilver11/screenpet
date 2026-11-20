@@ -81,19 +81,19 @@ impl Weather {
         }
     }
 
-    /// 쌓이는 빠르기·녹는 빠르기·최대 높이
+    /// 쌓이는 빠르기·녹는 빠르기·최대 높이·올록볼록함
     fn rates(self) -> Rates {
         match self {
-            Weather::LightSnow => Rates { grow: 0.012, melt: 0.003, cap: 5.0 },
-            Weather::Snow => Rates { grow: 0.02, melt: 0.004, cap: 9.0 },
-            // 함박눈은 훨씬 빨리, 훨씬 높이 쌓임
-            Weather::HeavySnow => Rates { grow: 0.045, melt: 0.004, cap: 16.0 },
+            Weather::LightSnow => Rates { grow: 0.012, melt: 0.003, cap: 5.0, bump: 0.2 },
+            Weather::Snow => Rates { grow: 0.02, melt: 0.004, cap: 9.0, bump: 0.3 },
+            // 함박눈은 훨씬 빨리, 훨씬 높이 쌓임 — 일자 판이 아니라 올록볼록한 둔덕으로
+            Weather::HeavySnow => Rates { grow: 0.045, melt: 0.004, cap: 16.0, bump: 0.5 },
             // 비는 쌓이지 않고, 남아 있던 더미를 빨리 녹인다
-            Weather::Rain | Weather::Shower => Rates { grow: 0.0, melt: 0.05, cap: 0.0 },
+            Weather::Rain | Weather::Shower => Rates { grow: 0.0, melt: 0.05, cap: 0.0, bump: 0.0 },
             // 🌀 태풍은 쌓이지 않고 남은 더미를 바람이 금방 날려 버림
-            Weather::Typhoon => Rates { grow: 0.0, melt: 0.25, cap: 0.0 },
+            Weather::Typhoon => Rates { grow: 0.0, melt: 0.25, cap: 0.0, bump: 0.0 },
             // 꽃잎·푸른 잎은 낙엽과 똑같이 쌓임
-            Weather::Petals | Weather::Leaves | Weather::GreenLeaves => Rates { grow: 0.008, melt: 0.004, cap: 4.0 },
+            Weather::Petals | Weather::Leaves | Weather::GreenLeaves => Rates { grow: 0.008, melt: 0.004, cap: 4.0, bump: 0.0 },
         }
     }
 }
@@ -103,6 +103,15 @@ struct Rates {
     grow: f32,
     melt: f32,
     cap: f32,
+    /// 둔덕 깊이 (0 = 일자, 0.5 = 골에서는 최대 높이의 절반까지만 쌓임)
+    bump: f32,
+}
+
+/// x(물리 px)·디딤판 높이 y 자리의 둔덕 모양 0~1 (1 = 언덕 꼭대기). 화면 자리로만 정해져 다시 쌓여도 같은 곳에 언덕이 생김.
+/// 파장이 다른 사인 셋 (약 600·260·110 px) — 칸(20 px) 여러 개에 걸친 둔덕
+fn drift_shape(x: f64, y: f64) -> f32 {
+    let phase = y / 53.0;
+    (0.5 + 0.25 * (x / 97.0 + 1.3 + phase).sin() + 0.15 * (x / 41.0 + 4.1 - phase).sin() + 0.1 * (x / 17.0 + 2.7 + phase).sin()) as f32
 }
 
 /// 🧹 친구 화면으로 쓸어 보내는 더미의 이름: 물건 던지기 통로로 감 (예전 판은 모르는 물건이라 그냥 버림)
@@ -360,13 +369,17 @@ impl Pile {
         self.cells.iter().sum::<f32>() / self.cells.len() as f32
     }
 
-    /// x 칸에 알갱이 하나를 쌓음 (양옆에 반씩, cap까지)
-    fn drop_grain(&mut self, x: f64, cap: f32) {
+    /// x 칸에 알갱이 하나를 쌓음 (양옆에 반씩). 칸마다 cap을 둔덕 모양으로 낮춤 (bump만큼 — 골은 낮게, 언덕은 cap까지)
+    fn drop_grain(&mut self, x: f64, cap: f32, bump: f32) {
         let i = (((x - self.left) / CELL) as usize).min(self.cells.len() - 1);
-        self.cells[i] = (self.cells[i] + GRAIN).min(cap);
+        let (left, y) = (self.left, self.y);
+        let cap_at = |n: usize| cap * (1.0 - bump * (1.0 - drift_shape(left + (n as f64 + 0.5) * CELL, y)));
+        // 이미 더 높은 칸(높은 둔덕 날씨에서 바뀜 등)은 깎지 않음
+        self.cells[i] = (self.cells[i] + GRAIN).min(cap_at(i)).max(self.cells[i]);
         for n in [i.wrapping_sub(1), i + 1] {
+            let limit = cap_at(n);
             if let Some(c) = self.cells.get_mut(n) {
-                *c = (*c + GRAIN / 2.0).min(cap);
+                *c = (*c + GRAIN / 2.0).min(limit).max(*c);
             }
         }
     }
@@ -512,7 +525,7 @@ impl PileField {
             };
             let x = top.x0 + at;
             if let Some(p) = self.piles.iter_mut().find(|p| p.owner == top.owner) {
-                p.drop_grain(x, rates.cap);
+                p.drop_grain(x, rates.cap, rates.bump);
             }
         }
     }

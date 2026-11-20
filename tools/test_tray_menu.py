@@ -21,8 +21,8 @@ def test_submenus_hold_what_was_decided():
     assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &lock, &reset])' in TRAY
     # 🟦 스타일(동글/픽셀)과 🎁 선물 도감은 v0.7.0에 빠짐
     assert '"스타일"' not in TRAY and "style_pixel" not in TRAY and "gift" not in TRAY.lower() and "선물" not in TRAY
-    assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &dodge])' in TRAY
-    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &autostart])' in TRAY
+    assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &vehicles_menu, &dodge])' in TRAY
+    assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &autostart])' in TRAY
     assert 'Submenu::with_items(app, "🎲 사다리타기", true, &[&new_game, &last, &invites])' in TRAY
     assert '"🍚 밥 주기"' in TRAY and '"👫 친구랑 놀기"' in TRAY and '"🏠 하우스"' in TRAY
 

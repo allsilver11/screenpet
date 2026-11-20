@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="form.css" />
+    <style>
+      .row { display: grid; grid-template-columns: 1fr 44px 28px; align-items: center; gap: 6px; width: 100%; font-size: 12px; }
+      .row input { width: 100%; margin: 0; accent-color: #b98a5a; }
+      .row output { text-align: right; font-variant-numeric: tabular-nums; }
+      .row button { padding: 2px 0; }
+    </style>
+  </head>
+  <body>
+    <div id="title">화면에 떠 있는 모든 것의 투명도예요</div>
+    <div class="row">
+      <input id="opacity" type="range" min="5" max="100" step="5" aria-label="투명도" />
+      <output id="opacity-value"></output>
+      <button id="reset" title="불투명하게 (100%)">↺</button>
+    </div>
+    <div id="buttons">
+      <button id="close" class="primary">닫기</button>
+    </div>
+    <script src="common.js"></script>
+    <script src="opacity_window.js"></script>
+  </body>
+</html>

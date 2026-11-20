@@ -31,6 +31,10 @@ PAGES = {
     "feedback": "feedback.html",
     "mailbox": "mailbox.html",
     "board": "board.html",
+    "opacity": "opacity.html",
+    "prop-1": "prop.html",
+    "hand-1": "prop.html",
+    "prop-snow-1": "prop.html",
 }
 # 음식 고르기는 펫·하우스 창에서만 그린다 (ladder·code 창도 common.js를 읽지만 부르지 않는다)
 ONLY_DEFINED_THERE = {"feed": {"pet", "guest-1", "house"}}

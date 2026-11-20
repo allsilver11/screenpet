@@ -14,6 +14,7 @@ mod house;
 mod ladder;
 mod network;
 mod objects;
+mod opacity;
 mod overlay;
 mod pets;
 mod presence;
@@ -24,6 +25,7 @@ mod slots;
 mod timeline;
 mod tray;
 mod update;
+mod vehicles;
 mod trail;
 mod weather;
 
@@ -256,6 +258,8 @@ fn main() {
             // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이, 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐 · 유령 → 호박)은 load가 옮김 (Config::retire_pets).
             // 옛 설정의 선물 도감·픽셀 스타일은 모르는 줄이라 조용히 버려짐
             let cfg = config::load(&config_dir);
+            // 👻 손님·하우스 등 떠 있는 창이 만들어지기 전에 저장된 투명도를 적어 둠
+            opacity::remember(&cfg);
             let fallback = if pets.iter().any(|p| p.id == DEFAULT_PET) { DEFAULT_PET.to_string() } else { pets[0].id.clone() };
             let current = cfg.pet.clone().filter(|id| pets.iter().any(|p| &p.id == id)).unwrap_or(fallback);
             let entry = pets.iter().find(|p| p.id == current).unwrap().clone();
@@ -316,6 +320,10 @@ fn main() {
             sizes::size_state,
             sizes::size_set,
             sizes::size_close,
+            opacity::app_opacity,
+            opacity::opacity_state,
+            opacity::opacity_set,
+            opacity::opacity_close,
             network::letter_state,
             network::letter_submit,
             network::letter_close,
@@ -345,6 +353,8 @@ fn main() {
             dodge::dodge_close,
             objects::object_down,
             objects::object_menu,
+            vehicles::vehicle_down,
+            vehicles::vehicle_menu,
             objects::postit_max,
             objects::postit_submit,
             objects::postit_close,

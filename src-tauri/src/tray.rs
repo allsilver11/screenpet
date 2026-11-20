@@ -77,6 +77,8 @@ const BROOM_ID: &str = "broom";
 /// 🐾 커서 장난 체크 항목 (설정에 남음)
 const CURSOR_PLAY_ID: &str = "cursor-play";
 const SIZES_ID: &str = "sizes";
+/// 👻 투명도 창 여는 항목
+const OPACITY_ID: &str = "opacity";
 const CURSOR_PLAY_LABEL: &str = "🐾 커서 장난";
 /// ⌨️ 타자 응원 체크 항목 (설정에 남음 — 끄면 키 누름 수도 읽지 않음)
 const TYPING_CHEER_ID: &str = "typing-cheer";
@@ -707,11 +709,14 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
     let my_pet = Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &lock, &reset])?;
     let objects_menu = crate::objects::build_menu(app)?;
-    let play = Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &dodge])?;
+    // 🚗 탈것 꺼내기 ▸ (vehicles.rs)
+    let vehicles_menu = crate::vehicles::build_menu(app)?;
+    let play = Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &vehicles_menu, &dodge])?;
     let sizes = MenuItem::with_id(app, SIZES_ID, "📏 크기 조절…", true, None::<&str>)?;
+    let opacity = MenuItem::with_id(app, OPACITY_ID, "👻 투명도…", true, None::<&str>)?;
     // 처음엔 켜져 있음 — 게임 루프가 설정(처음이면 켜기)으로 다시 맞춤
     let autostart = CheckMenuItem::with_id(app, AUTOSTART_ID, "🚀 컴퓨터 켜면 자동 실행", true, true, None::<&str>)?;
-    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &autostart])?;
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &autostart])?;
 
     // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어듦 (COME_HOME_POSITION)
     let menu = Menu::new(app)?;
@@ -765,6 +770,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             TYPING_CHEER_ID => send(app, Input::ToggleTypingCheer),
             TYPING_PERMISSION_ID => open_input_monitoring(),
             SIZES_ID => send(app, Input::ShowSizes),
+            OPACITY_ID => send(app, Input::ShowOpacity),
             POOP_ID => send(app, Input::TogglePoop),
             WEATHER_ID => send(app, Input::ToggleWeather),
             WEATHER_REAL_ID => send(app, Input::SetWeatherSource(WeatherSource::Real)),
@@ -775,6 +781,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             FOCUS_LONG_ID => send(app, Input::SetFocusLength(FocusLength::Long)),
             "reset" => send(app, Input::ResetGrowth),
             other if crate::objects::handle_menu(app, other) => {}
+            other if crate::vehicles::handle_menu(app, other) => {}
             other => {
                 let net = |input| send(app, Input::Net(input));
                 if let Some(label) = other.strip_prefix(FEED_GUEST_PREFIX) {

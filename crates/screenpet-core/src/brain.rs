@@ -390,6 +390,12 @@ pub enum Speech {
     HangHey,
     /// 🦇 오토바이에 올라 부릉 ("vroom!", brain_bike.rs)
     Vroom,
+    /// 🚗 탈것에 올라 부릉 ("vroom!", brain_vehicle.rs)
+    Drive,
+    /// 🚗 앞의 펫에 끼익 급정거 ("beep beep!")
+    Honk,
+    /// 🛻 트럭 운전 펫이 짐칸에 타라고 부름 ("hop in!")
+    HopIn,
     /// 🦇 윌리 ("yeah!")
     Wheelie,
     /// 🦇 오토바이 점프·드리프트 ("skrrt!")
@@ -605,6 +611,10 @@ pub enum State {
     StageAct { act: stage_moves::StageAct, t: f64, len: f64 },
     /// 🦇 🔦 박쥐 신호 조명을 켜고 서 있음 (brain_bike.rs) — remaining = 끄기까지
     Signal { remaining: f64 },
+    /// 🚗 탈것(id)으로 걸어감 (brain_vehicle.rs) — t = 걸어간 시간
+    ToVehicle { id: u64, t: f64 },
+    /// 🚗 탈것(id)의 좌석에 앉아 있음 (0 = 운전석, 1·2 = 트럭 짐칸) — 자리는 차고가 틱마다 옮김 (vehicle.rs)
+    Ride { id: u64, seat: u8 },
 }
 
 impl State {
@@ -834,6 +844,8 @@ pub struct RenderState {
     pub tap: i8,
     /// 🐛 고치 실 감긴 겹 수 (0 = 안 감김) — 웹뷰가 몸 위에 하얀 실 띠를 그리고, 0으로 돌아가면 뿅 터짐 (brain_snare.rs)
     pub cocoon: u8,
+    /// 🚗 탈것 좌석에서 문·짐칸 벽에 가려지는 그림 아래 몫 (0..1, 0 = 안 가림) — 웹뷰가 그림 아래를 자름 (brain_vehicle.rs)
+    pub seat: f64,
 }
 
 /// 동물 한 마리 — 몸, 상태, 각 장난의 기억을 모두 가짐
@@ -999,6 +1011,8 @@ pub struct Pet {
     web: web_moves::WebMood,
     /// 🦇 오토바이·박쥐 신호의 기억 (brain_bike.rs)
     bike: bike_moves::BikeMood,
+    /// 🚗 탈것 타기의 기억 (brain_vehicle.rs)
+    vehicle: vehicle_moves::VehicleMood,
     /// 🦸 낮게 날기의 기억 (brain_soar.rs)
     soar: soar_moves::SoarMood,
     /// 🐛🕸️ 고치·거미집에 걸리기의 기억 (brain_snare.rs)
@@ -1113,6 +1127,7 @@ impl Pet {
             doodle: doodle_moves::DoodleMood::new(seed),
             web: web_moves::WebMood::new(seed),
             bike: bike_moves::BikeMood::new(seed),
+            vehicle: vehicle_moves::VehicleMood::new(seed),
             soar: soar_moves::SoarMood::new(seed),
             snare: snare_moves::SnareMood::new(seed),
             typing: Default::default(),
@@ -1206,6 +1221,11 @@ impl Pet {
             return;
         }
         self.tick_guest(dt);
+        // 🚗 탈것으로 걸어가거나 좌석에 앉아 있음 (brain_vehicle.rs)
+        if self.update_vehicle(dt, world) {
+            self.on_started();
+            return;
+        }
         self.update_cheer(dt, world);
         // 🐛🕸️ 고치에 감겼거나 거미집에 걸렸으면 버둥버둥 — 거미집 안으로 막 들어왔으면 걸릴지 주사위 (brain_snare.rs)
         if self.update_stuck(dt, world) {
@@ -1374,6 +1394,7 @@ impl Pet {
             State::Land { .. } => Anim::Land,
             State::Web { phase, .. } => self.web_anim(phase),
             State::Signal { .. } => Anim::Signal,
+            State::ToVehicle { .. } | State::Ride { .. } => self.vehicle_anim(),
             State::Stuck { kind, .. } => Pet::stuck_anim(kind),
             State::StageAct { act, t, len } => self.stage_anim(act, t, len),
             State::Air { anim: Anim::Hop } if self.bike.jumping => Anim::BikeJump,
@@ -1411,6 +1432,7 @@ impl Pet {
             clap: self.clapping(),
             tap: self.typing_tap(),
             cocoon: self.cocoon_bands(),
+            seat: self.seat_share(),
         }
     }
 
@@ -2080,6 +2102,7 @@ impl Pet {
                 | State::OnHead { .. }
                 | State::Swing { .. }
                 | State::Lifted { .. }
+                | State::Ride { .. }
         ) || matches!(self.state, State::Meet { phase, .. } if phase.airborne())
             || (matches!(self.state, State::Stuck { .. }) && self.standing.is_none())
             || self.web_airborne()
@@ -3115,6 +3138,8 @@ impl Pet {
             | State::Romp { .. }
             | State::Web { .. }
             | State::Signal { .. }
+            | State::ToVehicle { .. }
+            | State::Ride { .. }
             | State::Stuck { .. }
             | State::Panic { .. }
             | State::Rig { .. }
@@ -3977,6 +4002,11 @@ mod doodle_tests;
 pub mod web_moves;
 #[path = "brain_bike.rs"]
 pub mod bike_moves;
+#[path = "brain_vehicle.rs"]
+pub mod vehicle_moves;
+#[cfg(test)]
+#[path = "brain_vehicle_tests.rs"]
+mod vehicle_tests;
 #[path = "brain_soar.rs"]
 pub mod soar_moves;
 #[cfg(test)]
@@ -4402,7 +4432,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0 });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -4493,7 +4523,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0 });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -4512,7 +4542,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0 });
     }
 
     #[test]
@@ -5836,7 +5866,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0 });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -6661,7 +6691,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0 });
             }
             last_x = p.body.x;
         }

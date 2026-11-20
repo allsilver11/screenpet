@@ -573,7 +573,17 @@ const listeningRender = listen("pet-render", (e) => {
   ctltagEl.hidden = !render.ctl;
   syncCloud(!!render.cloud);
   syncCocoon(render.cocoon || 0);
+  syncSeat(render.seat || 0);
 });
+
+// 🚗 탈것 좌석 (백엔드 render.seat = 그림 아래 몫, 코어 brain_vehicle.rs): 문·짐칸 벽에 가려지는 다리를 잘라 냄 —
+// 탈것 창이 펫 창 아래에 있어도 다리가 차 문 뒤로 들어간 것처럼 보임
+let seatShown = 0;
+function syncSeat(share) {
+  if (share === seatShown) return;
+  seatShown = share;
+  petEl.style.clipPath = share > 0 ? `inset(0 0 ${(share * 100).toFixed(1)}% 0)` : "";
+}
 
 // 손님이면 머리 위 띠에 "🏠 <주인>" — 처음 왔을 때 10초, 그 뒤엔 누를 때마다 5초 (말풍선이 뜨는 동안은 가려짐 — style.css)
 const NAMETAG_ARRIVE_MS = 10000;
@@ -761,6 +771,10 @@ const EXTRA_SPEECH = {
   hang_hey: ["hey there", "sup?"],
   // 🦇 박쥐인간: 오토바이에 올라 / 윌리 / 점프·드리프트 / 🔦 박쥐 신호 / 💪 거대한 것도 번쩍 (코어 brain_bike.rs)
   vroom: ["vroom!", "to the bike!"],
+  // 🚗 탈것: 올라 부릉 / 끼익 급정거 / 🛻 짐칸에 타라고 부름 (코어 vehicle.rs·brain_vehicle.rs)
+  drive: ["vroom!", "vroom vroom!"],
+  honk: ["beep beep!", "beep!"],
+  hop_in: ["hop in!"],
   wheelie: ["yeah!", "wheelie!"],
   bike_trick: ["skrrt!", "hup!"],
   bat_signal: ["I'm the night", "signal's up!"],

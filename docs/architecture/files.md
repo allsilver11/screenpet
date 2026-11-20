@@ -86,6 +86,7 @@ crates/
 | `behavior.rs`, `care.rs`, `food.rs` | 행동 고르기, 돌보기·성장, 먹이 소품 |
 | `visit.rs` | 친구 화면 놀러 가기 규칙 (`guest_scale`, `sanitize_note`, `sanitize_boost`) |
 | `object.rs`, `poop.rs`, `juggle.rs`, `taskbar.rs`, `icon.rs` | 물건·똥·저글링·📌 앱 아이콘 장난감 |
+| `vehicle.rs` | 🚗 탈것 (자동차·헬리콥터·킥보드·픽업 트럭): `Garage` — 달리기·날기, 태우기, 급정거·쿵, 친구 화면으로 몰고 가기 (펫 쪽은 `brain_vehicle.rs`) |
 | `social*.rs` | 한 화면 동물끼리 (인사, 술래, 탑 쌓기, 짝 놀이) |
 | `weather.rs`, `real_weather.rs` | 계절 날씨 더미 / ☀️ 실제 날씨 |
 | `presence.rs`, `typing.rs`, `timeline.rs` | 자리 비움·하루 리듬, ⌨️ 타자 응원(개수만), 최근 한 시간 |
@@ -99,7 +100,7 @@ crates/
 ### 2.2 패턴: `brain_<기능>.rs` + `brain_<기능>_tests.rs`
 
 - `brain.rs`가 `Pet`을 갖고, 기능마다 `brain_<기능>.rs`가 **자식 모듈**로 붙어 `Pet`의 비공개 필드를 씀 (각 파일 첫 줄 "brain.rs의 자식 모듈").
-- 숫자·순수 계산은 짝 파일에 둠: `brain_juggle.rs` ↔ `juggle.rs`, `brain_poop.rs` ↔ `poop.rs`, `brain_taskbar.rs` ↔ `taskbar.rs`, `brain_knock/stash/quake/train.rs` ↔ `play.rs`, `brain_fly.rs` ↔ `flight.rs`, `brain_hop.rs` ↔ `hop.rs`.
+- 숫자·순수 계산은 짝 파일에 둠: `brain_juggle.rs` ↔ `juggle.rs`, `brain_poop.rs` ↔ `poop.rs`, `brain_taskbar.rs` ↔ `taskbar.rs`, `brain_knock/stash/quake/train.rs` ↔ `play.rs`, `brain_fly.rs` ↔ `flight.rs`, `brain_hop.rs` ↔ `hop.rs`, `brain_vehicle.rs` ↔ `vehicle.rs`.
 - 시험은 `brain_<기능>_tests.rs` (같은 이름 + `_tests`). 기능 하나 찾을 때 이 세 파일을 같이 보면 됨.
 - 같은 패턴: `social.rs` ↔ `social_play.rs`, `social_tower.rs`, `social_*_tests.rs`.
 
@@ -122,6 +123,7 @@ src-tauri/
     ├── slots.rs             동물 하나 = 슬롯 = 투명 창 (pet, guest-<id>)
     ├── network.rs           screenpet-net ↔ 앱 (놀러 가기, 짝짓기, 친구 코드, 깜빡임 유예, network.log)
     ├── objects.rs           물건 창, 던지기 받기·보내기, 📌 장난감
+    ├── vehicles.rs          🚗 탈것 창 (vehicle-<n>), 메뉴, 누르기 — 규칙은 코어 vehicle.rs
     ├── feedback.rs          💌 건의하기 창 (봉인 → 릴레이)
     ├── mailbox.rs           📮 개발자 건의함 (dev_key 있을 때만), 공개 요약 올리기
     ├── board.rs             📮 공개 건의함 보기 (누구나, 읽기 전용)
@@ -141,13 +143,14 @@ src-tauri/
 ```
 ui/
 ├── <창>.html + <창>.js      창 하나에 한 쌍: index(펫), house, pair, code, name, link, size, letter, ladder,
-│                            weather, trail, timeline, object, postit, dodge, sleigh, feedback,
+│                            weather, trail, timeline, object, vehicle, postit, dodge, sleigh, feedback,
 │                            mailbox, board, help, prop
 ├── common.js, pager.js, doodle.js   공용 스크립트
 ├── style.css, form.css, list.css    공용 스타일 (폼 창은 form.css를 같이 씀 — test_csp.py가 확인)
 ├── pets/<species>/          동물 그림 17종
 ├── effects/                 소품·손 음식·눈덩이 등
 ├── objects/                 물건 128×128
+├── vehicles/                🚗 탈것 시트 {car,heli,scooter,truck}.png (가로 3칸, 칸 = 창 크기 2배)
 ├── house/                   집 {house,haunted,xmas}_<stage>{.png,_front.png,.json}
 └── sleigh/                  sleigh.png
 ```
@@ -174,6 +177,7 @@ ui/
 | `ui/objects/*.png` | 생성 | `python tools/draw_objects.py` (`--shapes`는 `tumble.rs`에 붙일 표 출력) |
 | `ui/effects/{bowl_food,bowl_water,cookie}.png` | 생성 | `python tools/draw_props.py` |
 | `ui/sleigh/*.png` | 생성 | `python tools/draw_sleigh.py` |
+| `ui/vehicles/*.png` | 생성 | `python tools/draw_vehicles.py` (`--preview 경로`로 펫을 태운 미리보기) |
 | `tools/icon.png` | 생성 | `python tools/make_icon.py` |
 | `tools/preview/*.png` | 생성, **git 제외** | 각 `draw_*`가 같이 씀, `preview_nightcap.py`, `preview_scarf.py` |
 | 배포용 WebP | CI 생성, **커밋 금지** | `python tools/pack_webp.py` (제자리 변환, `build.yml`만) |
@@ -192,7 +196,7 @@ ui/
 |---|---|
 | 그림 엔진 | `draw_pets.py` (공통 엔진 + 고양이·토끼·페르시안, 맨 끝에서 종별 모듈 등록), `sprite_spec.py` |
 | 종별 그림 | `draw_{bat,christmas,dino,farm,frog,halloween,heumul,penguin,snowman,spider,squirrel,super}.py` |
-| 세계 그림 | `draw_{house,objects,props,sleigh}.py`, `make_icon.py` |
+| 세계 그림 | `draw_{house,objects,props,sleigh,vehicles}.py`, `make_icon.py` |
 | 미리보기 | `preview_nightcap.py`, `preview_scarf.py` |
 | 배포 | `pack_webp.py`, `requirements-pack.txt` |
 | UI 하네스 (node) | `{board,doodle,ladder,levelup,nightcap,trail,weather,window}_harness.js`, `fake_dom.js` |

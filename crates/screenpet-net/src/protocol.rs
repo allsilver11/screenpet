@@ -288,6 +288,9 @@ pub enum Visit {
         /// 잘못된 값은 그 필드만 버리고 방문은 안 버림
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         carry: Option<Carry>,
+        /// 🚗 펫이 이 탈것을 몰고 옴 (탈것 이름, 예: "car" — v0.7.1). 받는 쪽은 아는 이름만 꺼내고, 옛 버전은 무시해서 펫만 걸어 들어옴
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        ride: Option<String>,
     },
     /// 손님이 받는 쪽 친구 화면을 떠남. `next: None` = 집에 감 (옛 버전도 이렇게 보냄).
     /// `next: Some(id)` = 친구 `id`와 이은 가장자리(`side`)로 나가 그 친구에게 가고 싶음.
@@ -591,6 +594,7 @@ mod tests {
                 no_grow: None,
                 of: None,
                 carry: None,
+                ride: None,
             };
             #[allow(unused_variables)]
             if let Visit::Visit { $($field,)* .. } = &mut v {
@@ -760,6 +764,27 @@ mod tests {
         }
         let sent = String::from_utf8(visit!(note: Some("hi".into())).to_json()).unwrap();
         assert!(!sent.contains("gift") && !sent.contains("style"), "{sent}");
+    }
+
+    #[test]
+    fn a_visit_can_ride_a_vehicle_and_old_peers_ignore_it() {
+        let v = visit!(ride: Some("truck".into()));
+        let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
+        assert_eq!(j["ride"], "truck");
+        assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
+        // 예전 판은 모르는 필드를 건너뛰고 펫만 받음
+        #[derive(serde::Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
+        enum OldVisit {
+            Visit { visit_id: u64 },
+        }
+        let OldVisit::Visit { visit_id } = serde_json::from_slice::<OldVisit>(&v.to_json()).unwrap();
+        assert_eq!(visit_id, 8);
+        // 안 타고 가면 예전과 같은 모양, 이상한 값은 그 칸만 버림
+        assert!(!String::from_utf8(visit!().to_json()).unwrap().contains("ride"));
+        let odd = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","ride":{"kind":3}}"#;
+        let Some(Message::Visit(Visit::Visit { ride, visit_id, .. })) = Message::parse(odd) else { panic!("odd ride must not drop the visit") };
+        assert_eq!((ride, visit_id), (None, 1));
     }
 
     #[test]

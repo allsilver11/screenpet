@@ -83,7 +83,7 @@ fn sample_visit() -> Visit {
         homesick_in: None,
         fling: None,
         note: None,
-        tint: None, boost: None, no_grow: None, of: None, carry: None }
+        tint: None, boost: None, no_grow: None, of: None, carry: None, ride: None }
 }
 
 /// 스니퍼로 "브로드캐스트"하는 Net "mmmm"(찾기 포트는 OS가 고름)을 켬. 알림에서 읽은 TCP 포트를 돌려줌
@@ -601,7 +601,7 @@ fn visit_messages_round_trip() {
     // 편지를 들려 보낸 방문, 그리고 주인이 다음 친구에게 이어 보낼 때도 같은 편지를 다시 실음 (via)
     for via in [None, Some("cccc".to_string())] {
         let Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, homesick_in, fling, .. } = sample_visit() else { unreachable!() };
-        let letter = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via, homesick_in, fling, note: Some("놀러 왔어 💌".into()), tint: None, boost: None, no_grow: None, of: None, carry: None };
+        let letter = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via, homesick_in, fling, note: Some("놀러 왔어 💌".into()), tint: None, boost: None, no_grow: None, of: None, carry: None, ride: None };
         p.a.send("bbbb", letter.clone());
         assert_eq!(
             wait_for(&p.brx, 5.0, |e| matches!(e, NetEvent::Received { .. })),
@@ -1370,7 +1370,7 @@ fn the_largest_message_passes_and_the_largest_frame_of_garbage_only_ends_its_lin
 fn a_message_too_big_for_a_frame_is_dropped_and_the_link_stays() {
     let p = connected_pair();
     let Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, .. } = sample_visit() else { unreachable!() };
-    let huge = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via: None, homesick_in: None, fling: None, note: Some("x".repeat(70_000)), tint: None, boost: None, no_grow: None, of: None, carry: None };
+    let huge = Visit::Visit { visit_id, species, stage, scale, personality, owner, enter_side, vside: None, via: None, homesick_in: None, fling: None, note: Some("x".repeat(70_000)), tint: None, boost: None, no_grow: None, of: None, carry: None, ride: None };
     p.a.send("bbbb", huge);
     p.a.send("bbbb", sample_visit());
     assert_eq!(

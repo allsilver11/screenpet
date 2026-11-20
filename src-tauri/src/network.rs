@@ -437,6 +437,8 @@ pub struct Network {
     steer_pacer: SteerPacer,
     /// 🤹 손에 쥐여 줄 물건: 들고 온 손님, 못 들어가 들고 돌아온 내 동물 (게임 루프가 꺼내 물건 창을 만듦)
     carry_arrivals: Vec<CarryArrival>,
+    /// 🚗 탈것을 몰고 온 손님 (창 라벨, 탈것) — 게임 루프가 꺼내 탈것에 태워 들임
+    ride_arrivals: Vec<(String, screenpet_core::vehicle::VehicleKind)>,
     /// 🤹 내 동물이 물건을 들고 간 방문 (돌려보내지면 Leave에 실려 옴)
     carry_out: Option<u64>,
     /// 사다리타기 (판 하나와 창)
@@ -622,6 +624,7 @@ impl Network {
             friend_code: None,
             steer_pacer: SteerPacer::default(),
             carry_arrivals: Vec::new(),
+            ride_arrivals: Vec::new(),
             carry_out: None,
             ladder: crate::ladder::Ladders::default(),
             own_refuses: (false, false),
@@ -971,7 +974,8 @@ impl Network {
     /// 내 동물이 side 끝으로 다 나갔음: 그 끝의 연결된 친구 하나에게 Visit ("놀러 보내기"였으면 그 친구에게).
     /// 아무도 없으면(그새 끊김) 바로 다시 들어옴
     /// carry = 🤹 들고 나간 물건 (배달 장난) — 그 끝의 새 버전 친구에게만 실음. 실었으면 true (이 화면의 물건은 앱이 치움)
-    pub fn own_exited(&mut self, config: &Config, own: &mut Slot, side: Side, carry: Option<screenpet_net::Carry>) -> bool {
+    /// ride = 🚗 탈것째 나갔음 (Visit.ride에 실음 — 옛 버전 친구는 무시하고 펫만 받음)
+    pub fn own_exited(&mut self, config: &Config, own: &mut Slot, side: Side, carry: Option<screenpet_net::Carry>, ride: Option<screenpet_core::vehicle::VehicleKind>) -> bool {
         let chosen = self.sending.take().filter(|(id, s)| *s == side && self.is_connected(id)).map(|(id, _)| id);
         // 편지는 그 친구에게 가는 길에만 실음
         let note = self.send_note.take().filter(|_| chosen.is_some());
@@ -989,7 +993,7 @@ impl Network {
         let friend = chosen.unwrap_or_else(|| friends[fastrand::usize(..friends.len())].id.clone());
         let carry = carry.filter(|_| self.takes_carry(&friend));
         let carried = carry.is_some();
-        let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None, fling, note.clone(), carry);
+        let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None, fling, note.clone(), carry, ride.map(|k| k.id().to_string()));
         log!(Info, "visit", "visit_out", "friend" => short(&friend), "visit" => visit_id, "carried" => u8::from(carried));
         self.carry_out = carried.then_some(visit_id);
         self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None, since: Instant::now(), note, probed: None, heard: None });
@@ -1017,7 +1021,7 @@ impl Network {
 
     /// 내 동물을 friend 화면으로 보냄 (enter_side 끝에서 들어옴). via = 바로 전에 있던 친구 화면. 새 visit_id를 돌려줌
     #[allow(clippy::too_many_arguments)]
-    fn send_visit(&self, net: &Net, own: &Slot, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>, note: Option<String>, carry: Option<screenpet_net::Carry>) -> u64 {
+    fn send_visit(&self, net: &Net, own: &Slot, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>, note: Option<String>, carry: Option<screenpet_net::Carry>, ride: Option<String>) -> u64 {
         let visit_id = fastrand::u64(..);
         let (enter_side, vside) = to_net_side(enter_side);
         net.send(
@@ -1041,6 +1045,7 @@ impl Network {
                 no_grow: self.growth_locked.then_some(true),
                 of: None,
                 carry,
+                ride,
             },
         );
         visit_id
@@ -1111,6 +1116,7 @@ impl Network {
             no_grow: None,
             of: Some(guest.owner_id.clone()),
             carry: None,
+            ride: None,
         };
         net.send(next, visit.clone());
         log!(Info, "visit", "carry_on", "visit" => visit_id, "to" => short(next));
@@ -1159,7 +1165,7 @@ impl Network {
         let homesick_in = homesick_in.filter(|t| t.is_finite());
         // 들려 보낸 편지는 다음 친구에게도 그대로 (주인인 내가 다시 실음 — 중간 친구가 고친 것이 아님)
         let note = a.note.clone();
-        let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone(), None);
+        let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone(), None, None);
         log!(Info, "visit", "own_walk_on", "visit" => visit_id, "from" => short(&a.friend), "to" => short(next));
         // 돌아올 땐 내 화면에서 그 친구가 연결된 끝에서 들어옴
         self.away = Some(AwayVisit { friend: next.to_string(), visit_id, side: f.side, come_home_by: None, since: Instant::now(), note, probed: None, heard: None });
@@ -1804,7 +1810,7 @@ impl Network {
     /// 친구가 보낸 방문 메시지(놀러 옴·떠남·집에 와)를 처리함
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, tint, boost, no_grow, of, carry, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, tint, boost, no_grow, of, carry, ride, .. } => {
                 // 📱 친구가 데려온 그 친구의 다른 컴퓨터 펫이면 그 컴퓨터의 손님 (한 사람 — 이름표도 같음). 대답은 링크(from)로
                 let link = from;
                 let from = of.as_deref().filter(|o| config.same_person(o, link)).unwrap_or(link);
@@ -1839,6 +1845,10 @@ impl Network {
                         // 🤹 들고 온 물건: 게임 루프가 손에 쥐여 주고, 들어와 서면 앞을 보고 휙 떨굼
                         if let Some(c) = &carry {
                             self.queue_carry(&label, c);
+                        }
+                        // 🚗 몰고 온 탈것: 아는 이름만 (게임 루프가 화면 끝에 꺼내 태움 — 자리가 없으면 그냥 걸어 들어옴)
+                        if let Some(kind) = ride.as_deref().and_then(screenpet_core::vehicle::VehicleKind::from_id) {
+                            self.ride_arrivals.push((label.clone(), kind));
                         }
                     }
                     Err(e) => {
@@ -2316,6 +2326,11 @@ impl Network {
     /// 🤹 손에 쥐여 줄 물건들 (게임 루프가 물건 창을 만들어 그 동물 손에 줌)
     pub fn take_carry_arrivals(&mut self) -> Vec<CarryArrival> {
         std::mem::take(&mut self.carry_arrivals)
+    }
+
+    /// 🚗 탈것을 몰고 온 손님 (창 라벨, 탈것) — 꺼내 감
+    pub fn take_ride_arrivals(&mut self) -> Vec<(String, screenpet_core::vehicle::VehicleKind)> {
+        std::mem::take(&mut self.ride_arrivals)
     }
 
     /// 친구가 보낸 물건 이름을 확인해 줄에 세움 (모르는 것·거대한 것은 버림). 방문 하나에 하나뿐임

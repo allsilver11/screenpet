@@ -1,5 +1,6 @@
 //! 펫·하우스·손님·침 자국·밥그릇처럼 화면 위에 떠 있는 창의 OS별 마무리.
 //! Windows는 빌더 설정(투명·항상 위·작업표시줄 숨김)으로 충분해서 아무 일도 하지 않음.
+//! 만들 때 👻 전체 투명도(opacity.rs)의 지금 값을 init 스크립트로 넣음.
 
 use std::time::Instant;
 
@@ -30,9 +31,11 @@ impl Fading {
     }
 }
 
-/// 화면 위에 떠 있는 창을 만듦: 투명, 테두리·그림자 없음, 항상 위, 작업표시줄 숨김, 포커스 안 받음, 숨긴 채 시작
+/// 화면 위에 떠 있는 창을 만듦: 투명, 테두리·그림자 없음, 항상 위, 작업표시줄 숨김, 포커스 안 받음, 숨긴 채 시작, 지금 전체 투명도에서 시작
 pub fn finish<M: Manager<Wry>>(builder: WebviewWindowBuilder<'_, Wry, M>) -> tauri::Result<WebviewWindow> {
     builder
+        // 👻 지금 전체 투명도에서 시작 (ui/opacity.js)
+        .initialization_script(&crate::opacity::init_script())
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
@@ -49,6 +52,8 @@ pub fn finish<M: Manager<Wry>>(builder: WebviewWindowBuilder<'_, Wry, M>) -> tau
 /// 활성화함. 그래서 화면 밖에 보이게 만들고, 그 뒤로는 move_quietly·resize_quietly로만 다룸
 pub fn finish_quiet<M: Manager<Wry>>(builder: WebviewWindowBuilder<'_, Wry, M>) -> tauri::Result<WebviewWindow> {
     builder
+        // 👻 지금 전체 투명도에서 시작 (ui/opacity.js)
+        .initialization_script(&crate::opacity::init_script())
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
@@ -285,7 +290,7 @@ pub fn place_on_primary(app: &AppHandle, window: &WebviewWindow, inner: (f64, f6
 /// 테두리 없이 화면 위에 떠 있는 창 (나머지 창은 제목 표시줄이 있고 닫으면 숨거나 정말 닫힘)
 pub fn is_floating(label: &str) -> bool {
     /// 떠 있는 창 라벨 앞부분들
-    const PREFIXES: [&str; 6] = ["guest-", "prop-", "hand-", "object-", "weather-", "trail-"];
+    const PREFIXES: [&str; 7] = ["guest-", "prop-", "hand-", "object-", "vehicle-", "weather-", "trail-"];
     label == crate::slots::OWN_LABEL || label == crate::house::LABEL || PREFIXES.iter().any(|p| label.starts_with(p))
 }
 

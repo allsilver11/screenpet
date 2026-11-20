@@ -3,8 +3,14 @@
     {
       "identifier": "events",
       "description": "모든 창: 앱이 보내는 이벤트 듣기만 (창·앱을 다루는 API와 이벤트 보내기는 주지 않는다)",
-      "windows": ["pet", "house", "guest-*", "pair", "code", "name", "link", "size", "letter", "ladder", "weather-*", "trail-*", "timeline", "object-*", "postit", "dodge", "sleigh", "feedback", "mailbox", "board"],
+      "windows": ["pet", "house", "guest-*", "pair", "code", "name", "link", "size", "letter", "ladder", "weather-*", "trail-*", "timeline", "object-*", "vehicle-*", "postit", "dodge", "sleigh", "feedback", "mailbox", "board", "opacity"],
       "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+    },
+    {
+      "identifier": "floating-windows",
+      "description": "떠 있는 창 모두: 👻 전체 투명도 듣기·묻기 (ui/opacity.js). 새 떠 있는 창(탈것 등)도 여기에 라벨을 넣는다",
+      "windows": ["pet", "house", "guest-*", "object-*", "vehicle-*", "prop-*", "hand-*", "weather-*", "trail-*", "sleigh"],
+      "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-app-opacity"]
     },
     {
       "identifier": "pet-windows",
@@ -47,6 +53,11 @@
       "permissions": ["allow-mailbox-state", "allow-mailbox-read", "allow-mailbox-done", "allow-mailbox-reject", "allow-mailbox-private", "allow-mailbox-delete", "allow-mailbox-block", "allow-mailbox-close"]
     },
     {
+      "identifier": "opacity-window",
+      "windows": ["opacity"],
+      "permissions": ["allow-opacity-state", "allow-opacity-set", "allow-opacity-close"]
+    },
+    {
       "identifier": "board-window",
       "windows": ["board"],
       "permissions": ["allow-board-list", "allow-board-close"]
@@ -80,6 +91,11 @@
       "identifier": "object-windows",
       "windows": ["object-*"],
       "permissions": ["allow-object-down", "allow-object-menu"]
+    },
+    {
+      "identifier": "vehicle-windows",
+      "windows": ["vehicle-*"],
+      "permissions": ["allow-vehicle-down", "allow-vehicle-menu"]
     },
     {
       "identifier": "postit-window",

@@ -111,6 +111,8 @@ pub enum Input {
     Net(NetInput),
     /// 물건 (메뉴·누르기·포스트잇)
     Object(ObjectInput),
+    /// 🚗 탈것 (메뉴·누르기·치우기 — vehicles.rs)
+    Vehicle(crate::vehicles::VehicleInput),
     /// 메뉴 "도움말": 창 만들기는 메뉴 처리기 안에서 하면 Windows에서 멈춤 (Tauri 문서) — 게임 루프 스레드에서
     ShowHelp,
     /// 💌 개발자에게 건의하기 창
@@ -127,6 +129,10 @@ pub enum Input {
     ShowSizes,
     /// 크기 조절 창의 값 (%). save = 슬라이더를 놓았음: 파일에 남김
     SetSizes { pet: u32, object: u32, save: bool },
+    /// 👻 투명도 창을 엶
+    ShowOpacity,
+    /// 투명도 창의 값 (%). save = 막대를 놓았음: 파일에 남김
+    SetOpacity { pct: u32, save: bool },
     /// 메뉴 "🕐 최근 한 시간" (기록은 게임 루프가 가짐)
     ShowTimeline,
     /// 🔄 업데이트 확인이 새 버전을 찾았음 (update.rs) — 내 동물들이 "new version!!" 하고 뜀
@@ -365,6 +371,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut presence = Presence::new(&app, config.focus_length);
     // 물건 (쓰레기 장난감 — 없거나 잠들어 있으면 일이 없음)
     let mut objects = Objects::new();
+    // 🚗 탈것 (vehicles.rs — 코어 vehicle.rs Garage)
+    let mut vehicles = crate::vehicles::Vehicles::new();
+    let mut vehicle_spots: Vec<screenpet_core::vehicle::VehicleSpot> = Vec::new();
+    // 🚗 내 동물이 탈것째 친구 화면으로 막 나갔음 (다음 own_exit가 Visit에 실음)
+    let mut own_ride: Option<screenpet_core::vehicle::VehicleKind> = None;
     let mut dodge = crate::dodge::DodgeFx::new();
     let mut sleigh = crate::sleigh::SleighFx::new();
     objects.set_size(&app, config.object_size());
@@ -700,8 +711,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         network.finish_letter(&app, sent);
                     }
                 }
+                Input::Vehicle(input) => {
+                    let busy = hand.is_some() || objects.is_held() || slots.iter().any(|s| s.pet.is_held());
+                    let cursor = source.cursor();
+                    let wa = slots[OWN].world.work_area_at(cursor.0, cursor.1);
+                    vehicles.handle(&app, input, wa, cursor, busy, &mut slots);
+                }
                 Input::Object(input) => {
                     if matches!(input, ObjectInput::ClearAll) {
+                        // 🚗 탈것도 같이 치움
+                        vehicles.clear_all(&app);
                         weather.clear_piles();
                         // 🕷️ 거미인간이 친 거미집도 (trail.rs)
                         trail.clear_webs(&app);
@@ -766,6 +785,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     }
                     // 🤹 흐물이가 들고 온 물건 (손님), 못 들어가 들고 돌아온 물건 (내 동물): 그 손에 쥐여 줌
+                    // 🚗 탈것을 몰고 온 손님: 들어오는 끝에 탈것을 꺼내 태움 (자리가 없으면 그냥 걸어 들어옴)
+                    for (label, kind) in network.take_ride_arrivals() {
+                        let Some(s) = slots.iter_mut().find(|s| s.label == label) else { continue };
+                        if let Some(side) = s.pet.entering_from() {
+                            vehicles.arrive(&app, kind, &s.world, side, s.dpi, &mut s.pet);
+                        }
+                    }
                     for c in network.take_carry_arrivals() {
                         let Some(s) = slots.iter_mut().find(|s| s.label == c.label) else { continue };
                         let at = (s.pet.body.x, s.pet.body.y - s.pet.cfg.size);
@@ -803,6 +829,14 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     }
                 }
+                Input::ShowOpacity => crate::opacity::show(&app),
+                Input::SetOpacity { pct, save } => {
+                    config.set_opacity(f64::from(pct) / 100.0);
+                    crate::opacity::apply(&app, &config);
+                    if save {
+                        save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                    }
+                }
                 Input::ShowTimeline => timeline.show(&app, &config),
                 Input::NewVersion(v) => cheer_gate.found(v),
                 Input::Quit => {
@@ -830,6 +864,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 s.refresh(&windows, &work_areas);
             }
             objects.set_dpi_hint(slots[OWN].dpi);
+            vehicles.set_dpi_hint(slots[OWN].dpi);
             objects.refresh(&windows, &work_areas, now);
             slots[OWN].pet.set_hungry(care.is_hungry());
             last_refresh = now;
@@ -958,7 +993,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
         network.steer(now, control_on, keys);
         let held = slots.iter().position(|s| s.pet.is_held());
-        let hovered = if held.is_some() || objects.is_held() { None } else { slots::hover_target(&slots, cx, cy) };
+        let hovered = if held.is_some() || objects.is_held() || vehicles.is_held() { None } else { slots::hover_target(&slots, cx, cy) };
         // 🐾 커서 장난: 무언가 끌고 있거나 음식을 들고 있거나 모두 숨겨 둔 동안엔 새로 시작하지 않음 (조작 모드 등은 코어가 봄)
         let left_down = source.left_button_down();
         // 💩 새로 누른 틱에만: 화면 위 동물(내 동물·손님)마다 낮은 확률로 쌈. 자리 비움·전체 화면(그 동물이 있는 모니터)·숨김·집중 중엔 안 함
@@ -976,7 +1011,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
             }
         }
-        let play_busy = held.is_some() || hand.is_some() || objects.is_held() || crate::windows_hidden(&app);
+        let play_busy = held.is_some() || hand.is_some() || objects.is_held() || vehicles.is_held() || crate::windows_hidden(&app);
         // ⌨️ 타자 응원: 켜져 있고 내 흐물이가 있을 때만 키 누름 *개수*를 읽음 (어떤 키인지는 읽지도 남기지도 않음 —
         // screenpet_core::typing). 꺼져 있으면 센서를 부르지 않음. 손님에게는 넘기지 않음
         // 🍎 권한이 없으면 세지 않음 (몇 초마다 확인만 — 생기면 바로 셈)
@@ -1026,6 +1061,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     s.pet.pointer_move(cx, cy);
                 } else {
                     s.pet.pointer_up(cx, cy);
+                    // 🚗 탈것 위에 떨궜으면 태움 (운전석이 비었으면 운전, 트럭이면 짐칸)
+                    vehicles.offer_drop(&mut s.pet);
                 }
             } else {
                 s.pet.hover(cx, cy, Some(i) == hovered);
@@ -1064,6 +1101,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         pet_targets.extend(slots.iter().map(|s| {
             (!s.pet.is_away() && s.pet.hit_feels()).then(|| screenpet_core::juggle::Target { x: s.pet.body.x, y: s.pet.body.y, size: s.pet.cfg.size })
         }));
+        // 🚗 탈것 자리 (한가한 펫이 가까운 빈 탈것을 타러 감 — 코어 brain_vehicle.rs)
+        vehicle_spots.clear();
+        vehicle_spots.extend_from_slice(vehicles.spots());
         for (i, s) in slots.iter_mut().enumerate() {
             // 친구 화면에 가 있거나 🛷 썰매에 탄 동안엔 물리·행동이 멈춤
             if !s.pet.is_away() && !sleigh.is_riding(&s.label) {
@@ -1082,6 +1122,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 s.pet.set_cursor_rally_ok(!play_busy && !config.cursor_play_off && !presence.is_away());
                 s.pet.notice_cursor_rally(if all_hidden { &[] } else { &object_spots }, &s.world);
                 s.pet.notice_poops(&poop_spots, &s.world);
+                s.pet.notice_vehicles(if all_hidden { &[] } else { &vehicle_spots }, &s.world);
                 // 🐱 고양이 툭툭 · 🐿️ 다람쥐 볼 빵빵 (v0.6.3) · 🕷️ 거미인간 끌어오기: 바닥의 물건 — 모두 숨겨 둔 동안엔 보여 주지 않음
                 s.pet.notice_play_objects(if all_hidden { &[] } else { &object_spots }, &s.world);
                 // 📌 흐물이: 가끔 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내고, 갖고 놀다 도로 넣음 (손님은 하지 않음)
@@ -1136,6 +1177,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         social.carry(&mut slots);
         for (i, side) in left.into_iter().rev() {
             let mut slot = slots.remove(i);
+            // 🚗 손님이 몰고 온 탈것도 같이 떠남
+            vehicles.guest_left(&app, slot.pet.social_key());
             // 던져서 넘어갔으면 그 움직임 (주인 화면이나 다음 친구 화면으로 날아감)
             let fling = slot.pet.take_fling();
             if let Role::Guest(g) = &slot.role {
@@ -1146,6 +1189,18 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         }
         network.forget_gone_replies(&slots);
 
+        // 🚗 탈것: 태우기·달리기·마주침·좌석에 앉히기 (펫 창은 아래 place가 좌석 자리로 옮김)
+        // (세계는 잠깐 빌려 옴 — 차고는 펫들을 고치는 동안 내 동물의 세계를 읽음)
+        let vworld = std::mem::replace(&mut slots[OWN].world, World::new(Vec::new(), Vec::new(), 1.0));
+        let drove = vehicles.tick(&app, &vworld, dt, (cx, cy), left_down, &mut slots);
+        slots[OWN].world = vworld;
+        for (driver, kind, _side) in drove {
+            // 내 펫이 탈것째 친구 화면으로 나갔음: 다음 틱 take_exit로 놀러 감 — 돌아올 때 다시 몰고 옴
+            vehicles.remember_parked_away(driver, kind);
+            if slots[OWN].pet.social_key() == driver {
+                own_ride = Some(kind);
+            }
+        }
         // 🤹 흐물이가 든 물건을 손 자리로 옮기고, 놓은 것은 던짐
         objects.sync_carries(&mut social, &mut slots);
         // 🐱 툭 밀기 · 🐿️ 뿅 · 🦖 큰 쿵에 톡 (v0.6.3)
@@ -1182,7 +1237,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             // 내 동물이 화면 끝으로 다 나갔음 — 그 끝의 친구에게 놀러 감 (물건을 들고 나갔으면 새 버전 친구에게 실음)
             let carried = slots[OWN].pet.carried_object();
             let carry = carried.and_then(|id| objects.carry_wire(id));
-            let took = network.own_exited(&config, &mut slots[OWN], side, carry);
+            let took = network.own_exited(&config, &mut slots[OWN], side, carry, own_ride.take());
             if let Some(id) = carried {
                 if took {
                     objects.hand_over(id);
@@ -1275,6 +1330,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             } else {
                 // 돌아왔음 — 들어오는 자리로 옮긴 뒤 보임
                 own.need_show = true;
+                // 🚗 탈것째 놀러 갔었으면 그 탈것을 몰고 들어옴
+                if let Some(kind) = vehicles.take_parked_away(own.pet.social_key()) {
+                    if let Some(side) = own.pet.entering_from() {
+                        vehicles.arrive(&app, kind, &own.world, side, own.dpi, &mut own.pet);
+                    }
+                }
             }
         }
         // 지금 보이는 시트·크기 (성장 직후 먹는 동안엔 care.stage보다 한 단계 늦음)
