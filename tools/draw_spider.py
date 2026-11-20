@@ -364,6 +364,9 @@ def hero(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), le
             parts += [head]
             parts += ([arm_parts[0]] if far_limbs_front else []) + [arm_parts[1]]
         else:
+            # 뒷모습은 머리가 팔을 가림 (팔을 머리 위에 그리지 않음 — 벽 타기에서 팔이 머리를 덮던 실수)
+            if view_ == "back":
+                arms_front = False
             parts += leg_parts + [torso]
             if not arms_front:
                 parts += arm_parts
@@ -775,8 +778,7 @@ def spider_back(reach, *, dy=0.0, scratch=False, sweat=False):
             fx.append(([L([(x + d, y - 12), (x + d * 1.2, y - 4)], 1.2) for d in (-3, 0, 3)], (150, 150, 170), 0))
     if sweat:
         fx += sweat_fx(64 + s["hrx"] + 6, top - s["hry"] * 1.2)
-    return hero(view_="back", hip=hip, legs=legs, leg_bend=[(-1, -1), (1, -1)], arms=arms, arm_bend=[(-1, 0.6), (1, 0.6)], fx=fx,
-                arms_front=True)
+    return hero(view_="back", hip=hip, legs=legs, leg_bend=[(-1, -1), (1, -1)], arms=arms, arm_bend=[(-1, 0.6), (1, 0.6)], fx=fx)
 
 
 def sp_climb(sp, i):

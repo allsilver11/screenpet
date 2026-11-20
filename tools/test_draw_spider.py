@@ -144,3 +144,22 @@ def test_hero_landing_plants_a_glove_on_the_floor_and_stretches_a_leg_back(out, 
 
 def test_the_build_reproduces_the_committed_spider(out):
     assert_folder_matches_shipped(out / "spider", SHIPPED)
+
+
+def test_back_view_head_covers_the_arms(monkeypatch):
+    """뒷모습 (벽 타기·미끄러지기): 머리가 팔 위에 그려짐 — 팔이 머리를 덮으면 안 됨 (예전 다른 펫들에서도 고쳤던 실수)."""
+    seen = []
+    real = ds.dp.compose
+    monkeypatch.setattr(ds.dp, "compose", lambda parts, *a, **k: (seen.append(list(parts)), real(parts, *a, **k))[1])
+    ds.spider_back((1.0, 1.0))
+    with_front = seen.pop()
+    ds.hs()
+    hip = (64.0, 92.0)
+    ds.hero(view_="back", hip=hip, arms=[(50.0, 20.0), (78.0, 20.0)], arms_front=True)
+    forced = seen.pop()
+    ds.hero(view_="back", hip=hip, arms=[(50.0, 20.0), (78.0, 20.0)], arms_front=False)
+    behind = seen.pop()
+    order = lambda parts: [(p.base, p.outline, len(p.shapes)) for p in parts]  # noqa: E731
+    assert order(forced) == order(behind), "뒷모습에선 arms_front를 무시하고 팔을 머리 뒤에 (머리를 맨 나중에)"
+    # 벽 타기 그림도 머리가 마지막 (팔보다 위) — 맨 나중 조각이 머리 (같은 바탕색)
+    assert order(with_front)[-1][0] == order(behind)[-1][0], order(with_front)
