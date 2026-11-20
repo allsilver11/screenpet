@@ -1216,6 +1216,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         objects.sync_carries(&mut social, &mut slots);
         // 🐱 툭 밀기 · 🐿️ 뿅 · 🦖 큰 쿵에 톡 (v0.6.3)
         objects.play_with(&mut slots);
+        // 🧔 🪨 해그리드가 발 앞에 내려놓은 락 케이크 (돌 물건)
+        for (kind, x, y) in objects.take_spawns() {
+            objects.spawn_gift(&app, &slots[OWN].world, kind, (x, y));
+        }
         // ⚾🖱️ 커서 쪽으로 되던지거나 놀자고 민 물건: 횟수를 적고 커서 랠리로 표시함 (놓은 것은 위 sync_carries가 이미 날림)
         for s in slots.iter_mut() {
             if let Some(ev) = s.pet.take_cursor_rally() {

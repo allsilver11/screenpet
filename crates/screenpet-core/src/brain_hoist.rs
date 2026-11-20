@@ -106,11 +106,13 @@ pub struct HoistMood {
     /// 들고 나갔음 (동물, 끝) — sync_lifts가 한 번 꺼냄
     carried_out: Option<(u64, Side)>,
     /// 방금 들어 올렸음 / 내려놓았음 — sync_lifts가 한 번 꺼냄
-    lifted_now: Option<u64>,
-    put_now: Option<u64>,
+    pub(super) lifted_now: Option<u64>,
+    pub(super) put_now: Option<u64>,
     /// 들린 동물: 마지막으로 옮겨진 시각, 다음 "Put me down!"
     lifted_seen: f64,
     plead_in: f64,
+    /// 들린 동물: 🧔 해그리드가 살며시 안았거나 사이드카에 태움 (Some(가려지는 아래 몫) — 앞모습으로 얌전히, 버둥·"Put me down!" 없음)
+    pub(super) cozy: Option<f64>,
 }
 
 impl HoistMood {
@@ -129,6 +131,7 @@ impl HoistMood {
             put_now: None,
             lifted_seen: 0.0,
             plead_in: 0.0,
+            cozy: None,
         }
     }
 }
@@ -163,6 +166,8 @@ impl Pet {
         match self.state {
             State::Hoist { phase: HoistPhase::Lift { key } | HoistPhase::Wander { key, .. } | HoistPhase::CarryOff { key, .. } | HoistPhase::PutDown { key, released: false }, .. } => Some(key),
             State::Exit { .. } | State::Away => self.hoist.out_with,
+            // 🧔 해그리드가 안았거나 사이드카에 태운 펫 (brain_hagrid.rs)
+            State::Hagrid { .. } => self.hagrid_holding(),
             _ => None,
         }
     }
@@ -170,6 +175,9 @@ impl Pet {
     /// 들린 동물의 발이 올 자리 (물리 px) — 흐물이 손 자리 (그림의 grip)
     pub fn hoist_point(&self) -> Option<(f64, f64)> {
         self.hoisting()?;
+        if matches!(self.state, State::Hagrid { .. }) {
+            return self.hagrid_hold_point();
+        }
         let g = &self.cfg.grip;
         let (gx, gy) = match self.state {
             State::Hoist { phase, t } => match phase {
@@ -200,6 +208,7 @@ impl Pet {
         self.speech = Some(Speech::PutMeDown);
         self.hoist.lifted_seen = self.clock;
         self.hoist.plead_in = PLEAD_SECS;
+        self.hoist.cozy = None;
         self.state = State::Lifted { by };
         true
     }
@@ -238,13 +247,16 @@ impl Pet {
         matches!(self.state, State::Lifted { .. })
     }
 
-    /// 들린 동물의 한 틱: 버둥거리고, 흐물이가 오래 옮겨 주지 않으면 떨어짐
+    /// 들린 동물의 한 틱: 버둥거리고, 흐물이가 오래 옮겨 주지 않으면 떨어짐 (🧔 해그리드 품에서는 얌전히)
     pub(super) fn update_lifted(&mut self, dt: f64, _world: &World, _by: u64) {
-        self.wobble_timer = self.wobble_timer.max(2.0 * dt);
         if self.clock - self.hoist.lifted_seen > LIFT_STALE_SECS {
             self.put_down();
             return;
         }
+        if self.hoist.cozy.is_some() {
+            return;
+        }
+        self.wobble_timer = self.wobble_timer.max(2.0 * dt);
         self.hoist.plead_in -= dt;
         if self.hoist.plead_in <= 0.0 {
             self.hoist.plead_in = PLEAD_SECS;
@@ -306,7 +318,7 @@ impl Pet {
     }
 
     /// 들 자리: 그 동물 바로 옆 (큰 동물은 몸을 붙인 옆)
-    fn hoist_x(&self, spot: &PetSpot, world: &World) -> Option<f64> {
+    pub(super) fn hoist_x(&self, spot: &PetSpot, world: &World) -> Option<f64> {
         let st = self.standing?;
         let piece = world.piece_at(st.owner, self.body.x)?;
         if !(piece.x_start..=piece.x_end).contains(&spot.x) {
@@ -332,6 +344,10 @@ impl Pet {
     /// 들고 있던 동물을 놓쳤음 (사용자가 낚아챘거나 사라졌음): "hmph!"
     pub fn lose_hoist(&mut self) {
         if self.hoisting().is_none() {
+            return;
+        }
+        if matches!(self.state, State::Hagrid { .. }) {
+            self.hagrid_lost();
             return;
         }
         self.hoist.out_with = None;
@@ -530,7 +546,7 @@ impl Pet {
 /// 같은 화면 동물들의 일 — 앱이 매 틱 동물 update 전에: 흐물이들(과 🕷️ 거미인간)에게 다른 동물을 보여 줌
 pub fn notice_pets<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
     // 👻 디멘터도 봄 — 다른 펫 머리 위로 다가감 (brain_dementor.rs stalk_target)
-    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs || p.cfg.rides_bike || !p.cfg.spells.is_empty() || p.cfg.dementor;
+    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs || p.cfg.rides_bike || !p.cfg.spells.is_empty() || p.cfg.dementor || p.cfg.gamekeeper;
     if !pets.iter().any(|p| sees(p.as_ref())) {
         return;
     }
@@ -559,6 +575,8 @@ pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut>
     super::duel_moves::sync_duels(pets);
     super::duel_moves::sync_patronus(pets);
     super::dementor_moves::sync_gloom(pets);
+    // 🖐️ 해그리드가 쓰다듬은 펫에게 하트 (brain_hagrid.rs)
+    super::hagrid_moves::sync_hagrid(pets);
     let mut out = Vec::new();
     let find = |pets: &[T], key: u64| pets.iter().position(|p| p.as_ref().social_key == key);
     for i in 0..pets.len() {
@@ -588,7 +606,17 @@ pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut>
         // 들고 있는 동안 손 자리로 옮긴다 — 들린 동물이 그새 잡히거나 사라졌으면 놓친다
         if let (Some(key), Some(at)) = (pets[i].as_ref().hoisting(), pets[i].as_ref().hoist_point()) {
             match find(pets, key) {
-                Some(j) if matches!(pets[j].as_ref().state, State::Lifted { by } if by == lifter_key) => pets[j].as_mut().lifted_to(at.0, at.1),
+                Some(j) if matches!(pets[j].as_ref().state, State::Lifted { by } if by == lifter_key) => {
+                    // 🧔 해그리드 품·사이드카: 얌전히 앉음 (처음 "Put me down!"은 "whee!"로) — 사이드카 통 윗테 아래로 가려지는 몫만큼 발을 내림
+                    let cozy = matches!(pets[i].as_ref().state, State::Hagrid { .. }).then(|| pets[i].as_ref().hagrid_seat());
+                    let sink = cozy.unwrap_or(0.0) * pets[j].as_ref().cfg.size;
+                    pets[j].as_mut().lifted_to(at.0, at.1 + sink);
+                    let p = pets[j].as_mut();
+                    if cozy.is_some() && p.hoist.cozy.is_none() && p.speech == Some(Speech::PutMeDown) {
+                        p.speech = Some(Speech::Whee);
+                    }
+                    p.hoist.cozy = cozy;
+                }
                 _ => pets[i].as_mut().lose_hoist(),
             }
         }

@@ -1,7 +1,7 @@
 """마법사 🧙 공통 몸 — 검은 로브에 그리핀도르 목도리를 두르고 지팡이를 든 사람 모양 꼬마 (해리포터·헤르미온느·볼드모트).
 뼈대·IK는 슈퍼인간(draw_super)·박쥐인간·거미인간과 같은 틀이고, 부품마다 자기 외곽선을 두른 두 발 꼬마 — 팔다리는 관절을 IK로 굽힌다.
 종마다 다른 것 (머리 모양·안경·흉터·피부·지팡이 색·배고플 때 생각하는 음식·로브 색·목도리 유무·눈 색·볼)은 Look으로 받는다
-(draw_harry.py·draw_hermione.py·draw_voldemort.py).
+(draw_harry.py·draw_hermione.py·draw_voldemort.py·draw_hagrid.py — 해그리드는 Look.dims로 덩치·Look.beard 수염·Look.prop 우산까지).
 
 생김새: 큰 머리 (키의 45% 남짓) + 작은 몸 + 짧은 팔다리 둘씩. 살색 얼굴 (draw_pets 단계 눈).
         몸: 검은 로브 (소매 끝까지 — 손은 맨손, 아랫단이 정강이까지 퍼지고 펄럭일 땐 진홍 안감), 앞섶 사이로 회색 스웨터,
@@ -83,6 +83,9 @@ class Look:
     scarf: bool = True  # 그리핀도르 목도리 (볼드모트는 없음)
     blush: tuple = BLUSH  # 볼 (None이면 없음 — 볼드모트)
     eyes: tuple = None  # 눈 색 (눈동자, 아래쪽 밝은 홍채) — None이면 draw_pets 단계 눈 그대로 (볼드모트는 붉은 눈)
+    dims: dict = field(default_factory=dict)  # WIZ 치수에 곱하는 배 (해그리드: 넓은 어깨·굵은 팔다리·작은 머리) — 없으면 그대로
+    beard: Callable = None  # beard(view_, hx, hy, hrx, hry) → 머리 위에 얹는 수염 Part 또는 None (해그리드)
+    prop: Callable = None  # prop(hand, a, length) → (Part, 끝 자리) — 지팡이 대신 든 것 (해그리드 분홍 우산)
 
 
 _LOOK = {}  # 지금 그리는 종의 Look (poses_for가 칸마다 바꿈)
@@ -94,8 +97,11 @@ def look():
 
 
 def ws():
-    """지금 단계의 꼬마 마법사 치수."""
-    return WIZ[_ST["lvl"]]
+    """지금 단계의 꼬마 마법사 치수 (Look.dims가 있으면 곱함)."""
+    lk = _LOOK.get("cur")
+    if lk is None or not lk.dims:
+        return WIZ[_ST["lvl"]]
+    return {k: v * lk.dims.get(k, 1.0) for k, v in WIZ[_ST["lvl"]].items()}
 
 
 def foot_y():
@@ -309,6 +315,8 @@ def scarf_band(view_, cx, top, tw):
 def wand_part(hand, a, length):
     """지팡이 (손에서 a도 쪽으로 length — 녹이지 않는 가는 막대, 끝은 밝게). 끝 자리도 돌려줌."""
     lk = look()
+    if lk.prop:
+        return lk.prop(hand, a, length)
     tip = polar(hand, a, length)
     mid = polar(hand, a, length * 0.72)
     return Part([L([hand, tip], 2.3)], lk.wand, [([L([mid, tip], 2.3)], lk.wand_tip)], grow=0, sharp=True), tip
@@ -362,14 +370,14 @@ def robe_side(hx0, waist, bottom, tw, robe):
 def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), legs=None, arms=None, leg_bend=None, arm_bend=None,
            eyes="dot", brow=None, mouth="smile", look_=(0.0, 0.0), blush_on=True, fx=(), ops=(), held=(), whole=None, grip=None,
            arms_front=False, arms_behind=False, far_limbs_front=False, near_arm_back=False, robe=None, scarf=None, open_hand=(False, False),
-           point=False, wand=None, mid=(), behind=()):
+           point=False, wand=None, mid=(), behind=(), after=()):
     """꼬마 마법사. view_: side (오른쪽을 봄) · front · back · hip: 엉덩이 관절 · rot: 몸 기울기 (엉덩이 기준, 시계 방향) ·
     head_rot·head_d: 고개 · legs·arms: [먼/왼, 가까운/오른] 끝 자리 (target 형식) · leg_bend·arm_bend: 무릎·팔꿈치 굽는 쪽 ·
     held: 몸과 머리 사이 Part 함수 · fx: 효과 목록 또는 손 자리를 받아 효과를 돌려주는 함수 · grip: mark_grip할 손 ("near"·"far"·"left"·"right") ·
     arms_front: 앞모습 팔을 머리 위에 · arms_behind: 옆모습 가까운 팔도 머리 뒤에 · far_limbs_front: 먼 팔도 몸 앞에 ·
     near_arm_back: 옆모습 가까운 팔을 몸 뒤에 · robe: 로브 dict(a=뒤로 날림, flap, len, sway, floor) · scarf: 목도리 끝 dict(a=각도, flap, len) 또는 False ·
     wand: 지팡이 dict(hand=0/1, a=각도, k=길이 배, grip=끝에 mark_grip) · mid: 먼 다리 뒤·가까운 다리 앞 사이 Part (빗자루) ·
-    behind: 맨 뒤 Part 함수 · point: 발끝을 아래로."""
+    behind: 맨 뒤 Part 함수 · after: 맨 앞 Part (해그리드 사이드카) · point: 발끝을 아래로."""
     s = ws()
     lk = look()
     side_view = view_ == "side"
@@ -474,6 +482,8 @@ def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), 
             head = Part([E(hx - hrx, hy - hry, hx + hrx, hy + hry)] + hshapes, lk.skin, hmarks, outline=True, grow=0, spikes=spikes)
             dp.mark_head(hx, hy - hry + 2 - lk.cap_lift * hry, hrx * 1.7)
             face = [] if view_ == "back" else face_ops(view_, hx, hy, eyes, brow, mouth, look_, blush_on)
+            beard = lk.beard(view_, hx, hy, hrx, hry) if lk.beard else None
+        heads = [head] + ([beard] if beard is not None else [])  # 수염은 머리 위 (팔은 그 위)
         parts = [b() for b in behind]
         tail_behind = tail is not None and (view_ == "back" or (side_view and scarf.get("a", -12.0) < -25))
         if side_view:
@@ -486,7 +496,7 @@ def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), 
             if arms_behind and not near_arm_back:
                 parts += [arm_parts[1]] + ([wand_p] if wand_p and wand.get("hand", 1) == 1 else [])
             parts += [h() for h in held]
-            parts += [head]
+            parts += heads
             parts += ([arm_parts[0]] if far_limbs_front else []) + ([wand_p] if wand_p and wand.get("hand", 1) == 0 and far_limbs_front else [])
             if not (arms_behind or near_arm_back):
                 parts += [arm_parts[1]] + ([wand_p] if wand_p and wand.get("hand", 1) == 1 else [])
@@ -503,9 +513,10 @@ def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), 
             if not arms_front:
                 parts += arm_parts + ([wand_p] if wand_p else [])
             parts += [h() for h in held]
-            parts += [head]
+            parts += heads
             if arms_front:
                 parts += arm_parts + ([wand_p] if wand_p else [])
+        parts += list(after)
         if grip:
             idx = {"far": 0, "near": 1, "left": 0, "right": 1}[grip]
             dp.mark_grip(*hands[idx])

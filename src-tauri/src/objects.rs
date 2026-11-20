@@ -344,6 +344,8 @@ pub struct Objects {
     capture_backoff: Instant,
     /// ⛄ 방금 퍽 부서진 눈덩이 자리 (물리 px — 게임 루프가 눈가루를 날림)
     bursts: Vec<(f64, f64)>,
+    /// 🧔 🪨 해그리드가 내려놓은 락 케이크 (물건 종류, 자리 — 물리 px): 게임 루프가 take_spawns로 꺼내 만듦
+    spawns: Vec<(ObjectKind, f64, f64)>,
     /// 🕸️ 화면의 거미집 자리 (게임 루프가 set_webs로 — 물건이 걸림)
     webs: Vec<WebSpot>,
     /// 📦 물건 창을 만드는 일꾼 (처음 물건이 생길 때 띄움, 죽었으면 다음 주문 때 다시)
@@ -378,6 +380,7 @@ impl Objects {
             capture: None,
             capture_backoff: now,
             bursts: Vec::new(),
+            spawns: Vec::new(),
             webs: Vec::new(),
             windows: None,
             dpi_hint: 1.0,
@@ -512,6 +515,26 @@ impl Objects {
         self.admit(app, id, object, Origin::Snow, false, None).then_some(id)
     }
 
+    /// 🧔 🪨 동물이 내려놓은 물건들 (play_with가 모음 — 한 번 꺼냄)
+    pub fn take_spawns(&mut self) -> Vec<(ObjectKind, f64, f64)> {
+        std::mem::take(&mut self.spawns)
+    }
+
+    /// 🧔 🪨 해그리드의 락 케이크 같은 동물이 내려놓은 물건을 at (발 앞, 물리 px)에 만듦: 거기서 살짝 떨어져 바닥에 놓임.
+    /// 내 물건 수에 듦 (넘치면 가장 오래된 내 물건이 뿅 — admit). 만들었으면 그 id
+    pub fn spawn_gift(&mut self, app: &AppHandle, base: &World, kind: ObjectKind, at: (f64, f64)) -> Option<u64> {
+        let id = self.next_id();
+        let scale = self.scale_at(app, kind, base, at.0, at.1);
+        let dpi = self.dpi_hint;
+        let world = self.world_for(base, dpi);
+        let b = world.bounds;
+        let margin = OBJECT_LOGICAL_SIZE * dpi * scale / 2.0;
+        let x = at.0.clamp(b.left + margin, (b.right - margin).max(b.left + margin));
+        let mut object = Object::new(kind, x, at.1, dpi, fastrand::u64(..));
+        object.set_scale(scale);
+        self.admit(app, id, object, Origin::Own, false, None).then_some(id)
+    }
+
     /// 🤹⛄ 동물이 눈덩이를 (vx, vy)로 던졌음 (물리 px/s): 던진 동물(social 키)은 잠깐 맞히지 않음
     pub fn launch_snowball(&mut self, social: &mut Social, id: u64, thrower: u64, vx: f64, vy: f64) {
         if let Some(l) = self.live.iter_mut().find(|l| l.id == id) {
@@ -638,6 +661,8 @@ impl Objects {
                         self.sync_menu();
                     }
                 }
+                // 🧔 🪨 락 케이크: 창을 만들려면 앱 핸들이 있어야 해서 게임 루프가 take_spawns로 꺼내 spawn_gift로 만듦
+                Some(ObjectPlay::Spawn { kind, x, y }) => self.spawns.push((kind, x, y)),
                 Some(ObjectPlay::Quake { x, y, owner, reach }) => {
                     for l in self.live.iter_mut() {
                         let near = l.object.spot(l.id).is_some_and(|s| s.owner == owner && (s.y - y).abs() <= screenpet_core::juggle::SAME_LEVEL_PX && (s.x - x).abs() <= reach);

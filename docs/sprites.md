@@ -113,6 +113,20 @@
 - `pet.json`: `"locomotion": "fly"`, `"dementor": true` (코어 brain_dementor.rs — 날 때만, `is_dementor()`), `stage_size` 0.95, 좋아하는 음식 🍧 빙수, 대사 `chatter` (숨소리)·`repelled`.
   🥶 서리·🦌 패트로누스 사슴은 덮개 창이 그림 (`ui/magic.js`).
 
+## 해그리드 (덩치 큰 사냥터지기 — 마법사 몸)
+- 그림은 `tools/draw_wizard.py` (마법사 공통 몸) + `tools/draw_hagrid.py` (생김새 Look·해그리드 동작 — `SPECIES["hagrid"]`, `python tools/draw_hagrid.py` →
+  미리보기 `tools/preview/stages_hagrid.png`·`climb_hagrid.png`·`wizard_hagrid.png`). Look의 새 칸: `dims` (WIZ 치수에 곱함 — 넓은 어깨·굵은 팔다리·조금 작은 머리·긴 코트),
+  `beard` (머리 위에 얹는 수염 Part — 뒷모습엔 없음), `prop` (지팡이 대신 든 것 — 분홍 우산). 다른 마법사는 기본값이라 그림이 그대로 (테스트가 저장소 그림과 견줌).
+- 디자인: 덥수룩한 짙은 갈색 머리 (이마를 낮게 덮음)·얼굴 아래 절반을 덮는 큰 수박 같은 수염 (콧수염 두 덩이, 곱슬 결) 사이로 다정한 눈과 둥근 코만 빼꼼,
+  긴 갈색 두더지 가죽 코트, 분홍 우산 (접힌 채, 굽은 손잡이). 목도리·볼터치 없음. 뒷모습은 머리가 팔 위 (테스트가 봄).
+- `pet.json`: `"broom_rider": true` + `dragon` 그림 (🐉 빗자루 대신 용 — 코어 `dragon_mount()`, 빗자루 비행 brain_broom.rs가 그림만 바꿈), `"gamekeeper": true`
+  (코어 brain_hagrid.rs — `HAGRID_ANIMS`가 다 있어야, `is_gamekeeper()`), `stage_size` 모든 단계 1.2 (다른 마법사 0.85의 약 1.4배 — 청소년부터 2배 칸),
+  손 자리 `grip.sidecar`·`sidecar_fly` (사이드카 통 윗테 — 탄 펫은 그 아래가 가려짐)·`hug`·`hug_walk` (안은 손)·`egg` (알을 품은 손), 좋아하는 음식 🍉 수박,
+  대사 `chatter` ("Yer a wizard!"·"Blimey!"·"Rock cake?")·`broom_*`·`vroom`·`hop_in`·`cuddle`·`pat`·`hatch`·`rock_cake` (짧은 영어).
+- 특기 동작 (`HAGRID_ANIMS`): `dragon` 초록·구릿빛 용 등에 작게 앉아 날기 (날개 위·가운데·아래 3칸) · `sidecar` 하늘색 사이드카 오토바이 (바퀴 3칸) · `sidecar_fly` 앞이 들리고 구름 퐁 ·
+  `hug` 가슴 앞에 두 손을 모아 안기 · `hug_walk` 안고 걷기 · `pat` 허리 숙여 쓰담 (하트) · `egg` 바닥에 앉아 두 손을 오므림 (알·아기 용은 덮개 창 `ui/magic.js`) ·
+  `offer` 코트에서 락 케이크를 꺼내 → 내밀고 → 쪼그려 내려놓기 (한 번 — 바닥의 돌은 앱의 물건).
+
 ## 거미인간 (줄을 쏘는 꼬마 영웅)
 - 그림은 `tools/draw_spider.py` (draw_pets 엔진, 모든 동작이 자기 포즈 — `SPECIES["spider"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 거미인간만: `python tools/draw_spider.py` → 미리보기 `tools/preview/stages_spider.png`·`climb_spider.png`).
 - `pet.json`: `"web_slinger": true` (코어 `PetManifest::slings_webs` — `WEB_ANIMS` 다섯이 다 있어야), `"personality": "playful"`, 좋아하는 음식 🪰 파리, `stage_size` 모든 단계 0.85, 대사 `thwip`·`web`·`web_swing`·`hero_land`·`gotcha`·`yeet` (짧은 영어). 선택 동작: `climb`·`slide`·`lookup` + `shoot`·`web_swing`·`hero_land`·`web_pull`·`web_whirl`.

@@ -390,6 +390,9 @@ impl Pet {
     pub(super) fn seat_share(&self) -> f64 {
         if matches!(self.state, State::Ride { .. }) && self.cfg.size > 0.0 {
             (self.vehicle.cover / self.cfg.size).clamp(0.0, 0.9)
+        } else if let (State::Lifted { .. }, Some(cover)) = (self.state, self.hoist.cozy) {
+            // 🧔 해그리드 사이드카 통에 가려짐 (brain_hagrid.rs)
+            cover
         } else {
             0.0
         }

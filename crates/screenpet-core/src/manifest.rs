@@ -24,14 +24,21 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// · shoot·web_swing·hero_land·web_pull·web_whirl·hang_down (🕷️ 거미인간 — WEB_ANIMS) · ride·wheelie·bike_jump·drift·signal (🦇 박쥐인간 — BIKE_ANIMS)
 /// · fly·fly_fast·fly_flip·hover (🦸 슈퍼인간 — SOAR_ANIMS)
 /// · broom (🧹 빗자루 — BROOM_ANIMS) · cast (✨ 지팡이 주문 — SPELL_ANIMS) · read·raise_hand (📖🙋 헤르미온느 — BOOK_ANIMS)
-/// · bag_walk·bag_drag·bag_stuff (👜 헤르미온느 가방 청소 — BAG_ANIMS).
-pub const OPTIONAL_ANIMS: [&str; 56] = [
+/// · bag_walk·bag_drag·bag_stuff (👜 헤르미온느 가방 청소 — BAG_ANIMS)
+/// · dragon·sidecar·sidecar_fly·hug·hug_walk·pat·egg·offer (🧔 해그리드 — HAGRID_ANIMS, dragon은 빗자루 대신 용).
+pub const OPTIONAL_ANIMS: [&str; 64] = [
     "arch", "huff", "climb", "slide", "bigjump", "lookup", "fire", "roar", "stomp", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig", "shoot", "web_swing", "hero_land", "web_pull",
     "web_whirl", "hang_down", "ride", "wheelie", "bike_jump", "drift", "signal", "fly", "fly_fast", "fly_flip", "hover",
     "broom", "cast", "read", "raise_hand", "bag_walk", "bag_drag", "bag_stuff",
+    "dragon", "sidecar", "sidecar_fly", "hug", "hug_walk", "pat", "egg", "offer",
 ];
+/// 🧔 해그리드 그림: 🐉 용 타기 · 🏍️ 사이드카 오토바이 · 붕 날기 · 🤗 안기 · 안고 걷기 · 🖐️ 쓰담 · 🥚 알 품기 · 🪨 락 케이크
+/// (pet.json `gamekeeper`가 있어도 이게 다 있어야 함 — is_gamekeeper(); 사이드카 자리·안은 손·알 = grip)
+pub const HAGRID_ANIMS: [&str; 8] = ["dragon", "sidecar", "sidecar_fly", "hug", "hug_walk", "pat", "egg", "offer"];
+/// 🐉 빗자루 대신 탈 용 그림 (broom_rider가 이것만 있어도 빗자루 비행을 용으로 — rides_broom(), dragon_mount())
+pub const DRAGON_ANIM: &str = "dragon";
 /// 🧹 빗자루 그림: 빗자루에 앉아 날기 (pet.json `broom_rider`가 있어도 이게 있어야 함 — rides_broom())
 pub const BROOM_ANIMS: [&str; 1] = ["broom"];
 /// ✨ 주문 그림: 지팡이 휙 + 끝에 반짝 (pet.json `spells`가 있어도 이게 있어야 함 — spell_set(), 지팡이 끝 = grip.cast)
@@ -210,6 +217,9 @@ pub struct PetManifest {
     /// 🦌 해리: 디멘터가 오면 "Expecto Patronum!" 은빛 사슴 (SPELL_ANIMS가 있을 때만 — casts_patronus())
     #[serde(default)]
     pub patronus: bool,
+    /// 🧔 해그리드: 🏍️ 사이드카 오토바이·🤗 안아 들기·🖐️ 쓰담·🥚 용알·🪨 락 케이크 (HAGRID_ANIMS가 다 있을 때만 — is_gamekeeper())
+    #[serde(default)]
+    pub gamekeeper: bool,
     /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있음 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮음, core::tint)
     #[serde(default)]
     pub tint: bool,
@@ -360,9 +370,19 @@ impl PetManifest {
         self.super_flier && SOAR_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
-    /// 🧹 빗자루 타기 (BROOM_ANIMS 그림이 있어야 함)
+    /// 🧹 빗자루 타기 (BROOM_ANIMS 그림 — 🐉 해그리드는 dragon 그림이 있어야 함)
     pub fn rides_broom(&self) -> bool {
-        self.broom_rider && BROOM_ANIMS.iter().all(|a| self.has_anim(a))
+        self.broom_rider && (BROOM_ANIMS.iter().all(|a| self.has_anim(a)) || self.dragon_mount())
+    }
+
+    /// 🐉 빗자루 대신 용을 탐 (dragon 그림)
+    pub fn dragon_mount(&self) -> bool {
+        self.has_anim(DRAGON_ANIM)
+    }
+
+    /// 🧔 해그리드 (HAGRID_ANIMS 그림이 다 있어야 함)
+    pub fn is_gamekeeper(&self) -> bool {
+        self.gamekeeper && HAGRID_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
     /// ✨ 쓸 수 있는 주문 (SPELL_ANIMS 그림이 없으면 없음)
@@ -422,7 +442,7 @@ impl PetManifest {
             }
             g
         };
-        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present"), yank: anim("yank"), stuff: anim("stuff"), catch: anim("catch"), hang_cursor: anim("hang_cursor"), carry_run: anim("carry_run"), shoot: anim("shoot"), web_swing: anim("web_swing"), web_pull: anim("web_pull"), web_whirl: anim("web_whirl"), hang_down: anim("hang_down"), cast: anim("cast") }
+        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present"), yank: anim("yank"), stuff: anim("stuff"), catch: anim("catch"), hang_cursor: anim("hang_cursor"), carry_run: anim("carry_run"), shoot: anim("shoot"), web_swing: anim("web_swing"), web_pull: anim("web_pull"), web_whirl: anim("web_whirl"), hang_down: anim("hang_down"), cast: anim("cast"), hug: anim("hug"), hug_walk: anim("hug_walk"), sidecar: anim("sidecar"), sidecar_fly: anim("sidecar_fly"), egg: anim("egg") }
     }
 
     /// 사는 집 그림: pet.json `house`, 없으면 보통 집
@@ -724,7 +744,8 @@ mod tests {
         assert_eq!(&OPTIONAL_ANIMS[49..50], &BROOM_ANIMS, "🧹 빗자루");
         assert_eq!(&OPTIONAL_ANIMS[50..51], &SPELL_ANIMS, "✨ 주문");
         assert_eq!(&OPTIONAL_ANIMS[51..53], &BOOK_ANIMS, "📖🙋 책벌레");
-        assert_eq!(&OPTIONAL_ANIMS[53..], &BAG_ANIMS, "👜 가방 청소 — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[53..56], &BAG_ANIMS, "👜 가방 청소");
+        assert_eq!(&OPTIONAL_ANIMS[56..], &HAGRID_ANIMS, "🧔 해그리드 — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
@@ -831,13 +852,15 @@ mod tests {
         for id in crate::test_util::species() {
             let m = parse_manifest(&read(&id)).unwrap();
             let wizard = id == "harry" || id == "hermione" || id == "voldemort";
-            assert_eq!(m.rides_broom(), wizard, "{id}");
+            assert_eq!(m.rides_broom(), wizard || id == "hagrid", "{id}");
             assert_eq!(!m.spell_set().is_empty(), wizard, "{id}");
+            assert_eq!((m.dragon_mount(), m.is_gamekeeper()), (id == "hagrid", id == "hagrid"), "{id}");
             assert_eq!((m.is_dark_lord(), m.is_dementor(), m.casts_patronus()), (id == "voldemort", id == "dementor", id == "harry"), "{id}");
             assert_eq!(m.seeks(), id == "harry", "{id}");
             assert_eq!((m.reads_books(), m.cleans_with_bag()), (id == "hermione", id == "hermione"), "{id}");
             let c = crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager");
-            assert_eq!((c.rides_broom, c.seeker, c.bookworm, c.bag_cleaner), (wizard, id == "harry", id == "hermione", id == "hermione"), "{id}");
+            assert_eq!((c.rides_broom, c.seeker, c.bookworm, c.bag_cleaner), (wizard || id == "hagrid", id == "harry", id == "hermione", id == "hermione"), "{id}");
+            assert_eq!((c.dragon, c.gamekeeper), (id == "hagrid", id == "hagrid"), "{id}");
         }
         let h = parse_manifest(&read("harry")).unwrap();
         assert_eq!(h.name, "해리포터");
@@ -862,6 +885,26 @@ mod tests {
         assert!(!parse_manifest(&read("dementor").replace(r#""locomotion": "fly","#, "")).unwrap().is_dementor());
         assert!(!parse_manifest(&read("voldemort").replace(r#""cast""#, r#""cast_x""#)).unwrap().is_dark_lord());
         assert!(crate::brain::PetConfig::from_manifest(&parse_manifest(&read("harry")).unwrap(), 1.0, 1.0, "teenager").patronus);
+    }
+
+    /// 🧔 해그리드: 빗자루 대신 🐉 용 (broom_rider + dragon 그림), 사이드카·안기·알·락 케이크 (gamekeeper + HAGRID_ANIMS), 덩치 1.4배, 손 자리
+    #[test]
+    fn the_bundled_hagrid_rides_a_dragon_and_keeps_the_grounds() {
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
+        let h = parse_manifest(&read("hagrid")).unwrap();
+        assert_eq!(h.name, "해그리드");
+        assert!(h.rides_broom() && h.dragon_mount() && h.is_gamekeeper() && h.can_climb() && h.spell_set().is_empty() && !h.juggles() && !h.rides_bike());
+        let harry = parse_manifest(&read("harry")).unwrap();
+        for st in [Stage::Baby, Stage::Teenager, Stage::Adult] {
+            let k = h.size_mult(st) / harry.size_mult(st);
+            assert!((1.3..=1.5).contains(&k), "덩치 약 1.4배: {k}");
+        }
+        let g = h.grip_table("teenager");
+        assert_eq!((g.hug.n, g.hug_walk.n, g.sidecar.n, g.sidecar_fly.n, g.egg.n), (2, 4, 3, 2, 4));
+        assert!(g.sidecar.at(0.0).0 > 0.15, "사이드카는 앞쪽: {:?}", g.sidecar.at(0.0));
+        assert!(!parse_manifest(&read("hagrid").replace(r#""egg""#, r#""egg_x""#)).unwrap().is_gamekeeper());
+        assert!(!parse_manifest(&read("hagrid").replace(r#""dragon""#, r#""dragon_x""#)).unwrap().rides_broom());
     }
 
     /// 🐱 툭툭은 고양이, 🐿️ 볼 빵빵은 다람쥐만 (v0.6.3)

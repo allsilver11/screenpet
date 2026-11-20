@@ -247,6 +247,14 @@ pub struct GripTable {
     pub hang_down: GripAnim,
     /// 🧙 ✨ 지팡이 휙 — 지팡이 끝 (⚡ 빛줄기·⚔️ 결투·🦌 사슴이 나가는 자리)
     pub cast: GripAnim,
+    /// 🧔 🤗 안고 서기 · 안고 걷기 — 가슴 앞에 모은 손 (안긴 펫의 발)
+    pub hug: GripAnim,
+    pub hug_walk: GripAnim,
+    /// 🧔 🏍️ 사이드카 자리 (탄 펫의 발) — 달리기 · 날기
+    pub sidecar: GripAnim,
+    pub sidecar_fly: GripAnim,
+    /// 🧔 🥚 알을 품은 두 손 (알은 앱 덮개 창)
+    pub egg: GripAnim,
 }
 
 /// 가장 가까운 노릴 동물: 가로 AIM_RANGE, 높이 AIM_RISE (내 몸 크기 배) 안에서

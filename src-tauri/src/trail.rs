@@ -15,7 +15,7 @@
 //! 조명 렌즈에서 화면 위쪽으로 반투명 빛줄기 + 위쪽에 박쥐 무늬가 비친 둥근 빛. 비추는 동안 (SIGNAL_SECS + 흐려지기)은 창을 닫지 않음.
 //! 🟡 해리의 골든 스니치 (`Pet::snitch_spot` → `trail-snitch`, ui/snitch.js — 맨 위 캔버스)도 같은 창이 그림: 날개 달린 작은 금빛 공 (잡히면 반짝 터짐).
 //! ✨ 마법 효과 (`Pet::magic_fx` → `trail-magic`, ui/magic.js — 스니치 아래 캔버스): ⚡ 볼드모트의 초록 빛줄기 · ⚔️ 해리·볼드모트 결투 빛줄기 ·
-//! 🐍 나기니 · 🦌 은빛 사슴 · 🥶 디멘터 곁 화면 구석의 서리. 효과마다 그 자리 (MagicFx::anchor) 모니터의 창으로.
+//! 🐍 나기니 · 🦌 은빛 사슴 · 🥶 디멘터 곁 화면 구석의 서리 · 🥚 해그리드의 용알과 🐉 아기 용. 효과마다 그 자리 (MagicFx::anchor) 모니터의 창으로.
 //! 🕸️ 게임 루프가 거미집 자리를 동물 뇌에 알려 주고 (`web_spots` → `Pet::set_webs`), 걸렸던 동물이 찢고 나온 거미집은 `tear_web`이 `trail-web-drop`으로 지움.
 
 use std::time::{Duration, Instant};

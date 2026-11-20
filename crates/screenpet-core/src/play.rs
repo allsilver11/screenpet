@@ -115,6 +115,8 @@ pub enum ObjectPlay {
     Levitate { id: u64, rise: f64, secs: f64 },
     /// ✨ Reparo·👜 구슬 가방: 바닥에 있는 이 물건을 뿅 치움 — 거대한 것도 (📌 장난감은 안 치움, brain_spell.rs·brain_study.rs)
     Vanish { id: u64 },
+    /// 🧔 🪨 해그리드의 락 케이크: (x, y)에 이 물건을 새로 놓음 (물리 px — 앱이 물건 수 제한을 지키며 만듦, brain_hagrid.rs)
+    Spawn { kind: crate::object::ObjectKind, x: f64, y: f64 },
 }
 
 /// 위로 rise만큼 솟았다 내려오는 폴짝의 t초째 높이 (secs 동안, 포물선)

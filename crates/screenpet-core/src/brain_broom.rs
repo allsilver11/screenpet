@@ -112,7 +112,7 @@ impl Pet {
         match phase {
             BroomPhase::Spot if self.cfg.looks_up => Anim::LookUp,
             BroomPhase::Spot => Anim::Look,
-            _ => Anim::Broom,
+            _ => self.mount_anim(),
         }
     }
 

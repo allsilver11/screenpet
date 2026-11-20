@@ -244,6 +244,8 @@ impl CursorStyle {
             "voldemort" => CursorStyle { gait: Anim::Broom, speed: 2.8, arrive: Some((Anim::Cast, 0.6)), chatty: true, ..b },
             // 👻 디멘터는 스르륵 떠서 다가옴
             "dementor" => CursorStyle { speed: 1.6, ..b },
+            // 🧔 해그리드는 사이드카 오토바이로 부릉 달려와 쓰담쓰담
+            "hagrid" => CursorStyle { gait: Anim::Sidecar, speed: 2.6, arrive: Some((Anim::Pat, 0.8)), chatty: true, ..b },
             _ => return None,
         })
     }

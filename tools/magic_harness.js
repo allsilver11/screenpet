@@ -111,4 +111,13 @@ h.send("trail-magic", [duel(0.5)]);
 h.frames(2);
 h.send("trail-magic", []);
 out.no_pop = h.pops();
+// 🥚 용알·🐉 아기 용 (해그리드): 이상한 값은 버리고 프레임을 돌림, 아기 용은 끝 무렵 불 퐁 (그라데이션)
+const egg = { kind: "egg", x: 400, y: 900, size: 30, crack: 0.5 };
+const baby = { kind: "hatchling", x: 400, y: 900, size: 50, t: 4.2, len: 5, dir: 1 };
+h = load();
+h.send("trail-magic", [egg, baby, { ...egg, crack: NaN }, { ...baby, len: 0 }]);
+out.hagrid_filtered = h.alive();
+out.hagrid_frames = h.frames(20);
+out.hagrid_ellipses = h.count("ellipse");
+out.hagrid_flame = h.count("createRadialGradient");
 process.stdout.write(JSON.stringify(out));

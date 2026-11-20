@@ -95,7 +95,8 @@ crates/
 | `linked.rs` | 📱 두 컴퓨터 규칙 |
 | `ladder.rs`, `dodge.rs`, `sleigh.rs`, `trail.rs`, `tint.rs` | 사다리 그림, 똥피하기, 썰매, 무지개 자국, 몸 색 |
 | `broom_fly.rs`, `wizard.rs` | 🧹 마법사 빗자루 비행 길·🟡 골든 스니치 / ✨ 주문·📖 책·👜 가방 청소·⚡ 기절·🐍 나기니·⚔️ 결투·🦌 패트로누스·👻 시무룩·🥶 서리 숫자 (펫 쪽은 `brain_broom.rs`·`brain_spell.rs`·`brain_study.rs`·`brain_dark.rs`·`brain_dementor.rs`·`brain_duel.rs`) |
-| `magic.rs` | ✨ 덮개 창에 그릴 마법 효과 (`MagicFx` — ⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리, 앱 `trail.rs` → `ui/magic.js`) |
+| `magic.rs` | ✨ 덮개 창에 그릴 마법 효과 (`MagicFx` — ⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리·🥚 용알·🐉 아기 용, 앱 `trail.rs` → `ui/magic.js`) |
+| `brain_hagrid.rs` | 🧔 해그리드: 🏍️ 사이드카 오토바이 (붕 날기, 작은 펫 태우기)·🤗 안아 들기·🖐️ 쓰담·🥚 용알 → 🐉 아기 용·🪨 락 케이크 (숫자도 이 파일 — 🐉 용 타기는 `brain_broom.rs`가 `mount_anim`으로) |
 | `pacing.rs` | 게임 루프 박자 |
 | `test_util.rs` | 시험 공용 도우미 (시험 빌드만) |
 
@@ -147,7 +148,7 @@ ui/
 ├── <창>.html + <창>.js      창 하나에 한 쌍: index(펫), house, pair, code, name, link, size, letter, ladder,
 │                            weather, trail, timeline, object, vehicle, postit, dodge, sleigh, feedback,
 │                            mailbox, board, help, prop
-├── common.js, pager.js, doodle.js   공용 스크립트 (trail 창에는 web.js·batsignal.js·magic.js·snitch.js도 — ✨ 결투·사슴·뱀·서리 · 🕷️ 거미집·🦇 박쥐 신호·🟡 스니치)
+├── common.js, pager.js, doodle.js   공용 스크립트 (trail 창에는 web.js·batsignal.js·magic.js·snitch.js도 — ✨ 결투·사슴·뱀·서리·🥚 용알·🐉 아기 용 · 🕷️ 거미집·🦇 박쥐 신호·🟡 스니치)
 ├── style.css, form.css, list.css    공용 스타일 (폼 창은 form.css를 같이 씀 — test_csp.py가 확인)
 ├── pets/<species>/          동물 그림 18종
 ├── effects/                 소품·손 음식·눈덩이 등
@@ -165,7 +166,7 @@ ui/
 | `sheet_<stage>.png` ×5 | `baby`, `kinder`, `child`, `teenager`, `adult`. 프레임 128×128, 한 행 = 한 동작 (`docs/sprites.md`) |
 | `ink_<stage>.png` ×5 | 🎨 몸 색을 바꿀 수 있는 동물(흐물이)만: 잉크 자리 마스크 |
 
-18종: bat (박쥐인간), cat, dementor (디멘터), dino_green/yellow, harry (해리포터), heumul, hermione (헤르미온느), penguin, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel, super (슈퍼인간), voldemort (볼드모트). (새·기린·레서판다·유령은 v0.7.0, 오리·개구리·보라 공룡·페르시안은 v0.7.1에서 빠짐 — 저장된 펫은 `config::replacement_species`로 새·기린·오리 → 노란 공룡, 레서판다·개구리 → 다람쥐, 유령 → 호박, 보라 공룡 → 초록 공룡, 페르시안 → 고양이가 됨. 🦆 오리 기차도 오리와 함께 빠졌고, 폴짝 이동(`locomotion: hop`)은 일반 기능으로 남음. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
+19종: bat (박쥐인간), cat, dementor (디멘터), dino_green/yellow, hagrid (해그리드), harry (해리포터), heumul, hermione (헤르미온느), penguin, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel, super (슈퍼인간), voldemort (볼드모트). (새·기린·레서판다·유령은 v0.7.0, 오리·개구리·보라 공룡·페르시안은 v0.7.1에서 빠짐 — 저장된 펫은 `config::replacement_species`로 새·기린·오리 → 노란 공룡, 레서판다·개구리 → 다람쥐, 유령 → 호박, 보라 공룡 → 초록 공룡, 페르시안 → 고양이가 됨. 🦆 오리 기차도 오리와 함께 빠졌고, 폴짝 이동(`locomotion: hop`)은 일반 기능으로 남음. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
 
 ---
 

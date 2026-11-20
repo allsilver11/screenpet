@@ -907,6 +907,11 @@ const EXTRA_SPEECH = {
   patronus: ["Expecto Patronum!"],
   gloom: ["brrr...", "so cold..."],
   repelled: ["hsss!"],
+  // 🧔 해그리드 (코어 brain_hagrid.rs): 🤗 번쩍 안기 / 🖐️ 쓰담 / 🥚 아기 용이 깨어남 / 🪨 락 케이크 (사이드카 hop_in은 트럭과 같은 말)
+  cuddle: ["C'mere, you!"],
+  pat: ["Good lad!", "There, there"],
+  hatch: ["Blimey!"],
+  rock_cake: ["Rock cake?"],
   // 펫끼리 놀기 더 (코어 social_romp.rs): 🥊 투닥투닥 / 😈 몰래 찌르고 키득 · 찔려서 화들짝 / 🫸 되밀기 / 🏁 달리기 시합 / 💬 수다 (먼저 · 받는 쪽)
   scuffle: ["hey!", "mine!", "grr", "grr!"],
   hehe: ["hehe", "hehe~"],
@@ -966,6 +971,7 @@ const CURSOR_LINES = {
   hermione: ["Levi-O-sa!", "honestly..."],
   voldemort: ["hehehe", "come here..."],
   dementor: ["hhhhh...", "..."],
+  hagrid: ["Blimey!", "Oi, little one!"],
 };
 const speech = setupSpeech({
   bubbleEl,

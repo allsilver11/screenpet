@@ -28,8 +28,8 @@ def test_magic_has_the_canvas_just_under_the_snitch():
 def test_the_webview_knows_every_effect_kind_of_the_core():
     kinds = re.findall(r"^    (\w+) \{", MAGIC_RS[MAGIC_RS.index("pub enum MagicFx") :], re.M)
     snake = [re.sub(r"(?<!^)([A-Z])", r"_\1", k).lower() for k in kinds]
-    assert snake == ["bolt", "duel", "snake", "stag", "frost"]
-    assert 'const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost"];' in JS
+    assert snake == ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling"]
+    assert 'const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling"];' in JS
     colors = MAGIC_RS[MAGIC_RS.index("pub enum BeamColor") :]
     for c in re.findall(r"^    (\w+),", colors[: colors.index("\n}")], re.M):
         assert f'"{c.lower()}"' in JS or c == "Red", c
@@ -67,6 +67,12 @@ def test_moving_magic_animates_then_a_clashed_duel_pops_and_a_bolt_fades(run):
     assert run["pops"] == 1 and run["ghosts"] == 1
     assert 10 <= run["end_frames"] <= 60 and run["rafs_end"] == 0 and run["pops_end"] == 0 and run["ghosts_end"] == 0
     assert run["no_pop"] == 0, "아직 뻗던 결투는 펑 없음"
+
+
+def test_hagrid_egg_and_baby_dragon_animate_and_are_checked(run):
+    """🥚 용알·🐉 아기 용: 이상한 값은 버리고, 있는 동안 프레임을 돌리며 그림 (깨어난 용은 끝에 불 퐁 — 그라데이션)."""
+    assert run["hagrid_filtered"] == 2
+    assert run["hagrid_frames"] == 20 and run["hagrid_ellipses"] >= 20 * 4 and run["hagrid_flame"] > 0
 
 
 def test_dark_speech_defaults_and_help_lines():

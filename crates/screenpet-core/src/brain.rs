@@ -221,6 +221,22 @@ pub enum Anim {
     BagDrag,
     /// 📚 헤르미온느 — 👜 물건을 가방에 쏙 (한 번)
     BagStuff,
+    /// 🧔 해그리드 — 🐉 용 등에 앉아 날기 (빗자루 대신 — brain_broom.rs, mount_anim)
+    Dragon,
+    /// 🧔 해그리드 — 🏍️ 사이드카 오토바이 타기 (brain_hagrid.rs — 사이드카 자리 = grip)
+    Sidecar,
+    /// 🧔 해그리드 — 🏍️ 오토바이째 붕 날기
+    SidecarFly,
+    /// 🧔 해그리드 — 🤗 펫을 가슴에 안고 서기 (안은 손 = grip)
+    Hug,
+    /// 🧔 해그리드 — 🤗 안고 걷기
+    HugWalk,
+    /// 🧔 해그리드 — 🖐️ 쓰담쓰담
+    Pat,
+    /// 🧔 해그리드 — 🥚 앉아서 용알 품기 (알은 덮개 창 — 손 = grip)
+    Egg,
+    /// 🧔 해그리드 — 🪨 락 케이크를 꺼내 바닥에 내려놓기 (한 번)
+    Offer,
 }
 
 /// 머리 위 말풍선 종류 (웹뷰가 글귀를 고름)
@@ -404,7 +420,7 @@ pub enum Speech {
     Drive,
     /// 🚗 앞의 펫에 끼익 급정거 ("beep beep!")
     Honk,
-    /// 🛻 트럭 운전 펫이 짐칸에 타라고 부름 ("hop in!")
+    /// 🛻 트럭 운전 펫이 짐칸에 타라고 부름 ("hop in!") · 🧔 해그리드가 사이드카에 태움 ("Hop in!", brain_hagrid.rs)
     HopIn,
     /// 🦇 윌리 ("yeah!")
     Wheelie,
@@ -464,6 +480,14 @@ pub enum Speech {
     Gloom,
     /// 👻 패트로누스에 쫓겨 도망가는 디멘터 ("hsss!")
     Repelled,
+    /// 🧔 해그리드가 펫을 번쩍 안음 ("C'mere, you!")
+    Cuddle,
+    /// 🧔 해그리드가 쓰다듬음 ("Good lad!")
+    Pat,
+    /// 🧔 용알에서 아기 용이 깨어남 ("Blimey!")
+    Hatch,
+    /// 🧔 락 케이크를 꺼냄 ("Rock cake?")
+    RockCake,
 }
 
 impl Anim {
@@ -674,6 +698,8 @@ pub enum State {
     Float { t: f64, len: f64, rise: f64 },
     /// ⚔️ 해리·볼드모트 결투 (brain_duel.rs) — t = 마주 본 뒤 흐른 시간
     Duel { duel: duel_moves::Duel, t: f64 },
+    /// 🧔 해그리드 — 사이드카·안기·쓰담·용알·락 케이크 (brain_hagrid.rs) — t = 이 단계에 들어선 뒤 흐른 시간
+    Hagrid { act: hagrid_moves::HagridAct, t: f64 },
     /// 💫 Stupefy에 맞아 기절해 쓰러져 있음 (brain_dark.rs — 누구나) — t = 쓰러진 뒤 흐른 시간, len = 전체
     Faint { t: f64, len: f64 },
     /// 👻 디멘터 곁에서 시무룩 (brain_dementor.rs — 누구나) — remaining = 남은 시간
@@ -835,6 +861,10 @@ pub struct PetConfig {
     pub dementor: bool,
     /// 🦌 디멘터가 오면 "Expecto Patronum!" (pet.json `patronus` + cast 그림 — 해리, brain_duel.rs)
     pub patronus: bool,
+    /// 🧔 해그리드 — 🏍️ 사이드카·🤗 안기·🖐️ 쓰담·🥚 용알·🪨 락 케이크 (pet.json `gamekeeper` + HAGRID_ANIMS, brain_hagrid.rs)
+    pub gamekeeper: bool,
+    /// 🐉 빗자루 대신 용을 탐 (dragon 그림 — 해그리드, brain_broom.rs가 mount_anim으로)
+    pub dragon: bool,
     /// 🌱 지금 연령대 (from_manifest가 받은 단계 이름 — 손님도 Visit에 실려 온 단계). 연령대 특기·종별 특기의 세기 (brain_stage.rs)
     pub stage: crate::care::Stage,
 }
@@ -884,6 +914,8 @@ impl PetConfig {
             dark_lord: m.is_dark_lord(),
             dementor: m.is_dementor(),
             patronus: m.casts_patronus(),
+            gamekeeper: m.is_gamekeeper(),
+            dragon: m.rides_broom() && m.dragon_mount(),
             // 모르는 이름이면 청소년 (예전 그대로의 세기)
             stage: crate::care::Stage::from_name(stage).unwrap_or(crate::care::Stage::Teenager),
         }
@@ -1107,6 +1139,8 @@ pub struct Pet {
     spell: spell_moves::SpellMood,
     /// 📖🙋👜 책·손들기·가방 청소의 기억 (brain_study.rs)
     study: study_moves::StudyMood,
+    /// 🧔 해그리드의 기억 (brain_hagrid.rs)
+    hagrid: hagrid_moves::HagridMood,
     /// 🐍 볼드모트 나기니·hehehe의 기억 · 💫 기절은 누구나 (brain_dark.rs)
     dark: dark_moves::DarkMood,
     /// 👻 디멘터 서리·도망의 기억 · 곁에서 시무룩·배고픔은 누구나 (brain_dementor.rs)
@@ -1230,6 +1264,7 @@ impl Pet {
             broom: broom_moves::BroomMood::new(seed),
             spell: spell_moves::SpellMood::new(seed),
             study: study_moves::StudyMood::new(seed),
+            hagrid: hagrid_moves::HagridMood::new(seed),
             dark: dark_moves::DarkMood::new(seed),
             dementor: dementor_moves::DementorMood::new(seed),
             duel: duel_moves::DuelMood::new(seed),
@@ -1354,7 +1389,9 @@ impl Pet {
         }
         // 🧙 빗자루 비행·🟡 스니치 (brain_broom.rs) · ⚔️ 결투 (brain_duel.rs) · ✨ 주문 (brain_spell.rs) · 🐍 나기니·hehehe (brain_dark.rs) ·
         // 📖 책·🙋 손들기·👜 가방 청소 (brain_study.rs)
-        if self.update_broom(dt, world) || self.update_duel(dt, world) || self.update_spell(dt, world) || self.update_dark(dt, world) || self.update_study(dt, world) {
+        if self.update_broom(dt, world) || self.update_duel(dt, world) || self.update_spell(dt, world) || self.update_dark(dt, world) || self.update_study(dt, world)
+            || self.update_hagrid(dt, world)
+        {
             self.on_started();
             return;
         }
@@ -1475,7 +1512,7 @@ impl Pet {
             State::Exit { side, .. } | State::Enter { side, .. } if visit::is_vertical(side) => self.vertical_anim(),
             State::Exit { .. } | State::Enter { .. } if self.bike_transit() => Anim::Ride,
             State::Exit { .. } | State::Enter { .. } if self.soar_transit() => Anim::Fly,
-            State::Exit { .. } | State::Enter { .. } if self.broom_transit() => Anim::Broom,
+            State::Exit { .. } | State::Enter { .. } if self.broom_transit() => self.mount_anim(),
             State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } | State::WantFood { walking: true } => Anim::Walk,
             State::WantFood { walking: false } if self.looking_up() => Anim::LookUp,
             State::WantFood { walking: false } => Anim::Look,
@@ -1506,6 +1543,8 @@ impl Pet {
             State::CursorPlay { .. } | State::CursorLeap { .. } | State::CursorHang { .. } | State::EdgeCling { .. } | State::Glare { .. } => self.cursor_anim(),
             State::Swing { phase, .. } => self.swing_anim(phase),
             State::Hoist { phase, .. } => self.hoist_anim(phase),
+            // 🧔 해그리드 품·사이드카에선 앞모습으로 얌전히
+            State::Lifted { .. } if self.hoist.cozy.is_some() => Anim::SitFront,
             State::Lifted { .. } => Anim::Dragged,
             State::Hide { phase, .. } => self.hide_anim(phase),
             State::Dance { .. } => self.dance_anim(),
@@ -1518,7 +1557,7 @@ impl Pet {
             }
             State::Land { .. } if self.hero_landing() => Anim::HeroLand,
             State::Land { .. } if self.cfg.soars => Anim::Hover,
-            State::Land { .. } if self.broom.landing => Anim::Broom,
+            State::Land { .. } if self.broom.landing => self.mount_anim(),
             State::Land { .. } => Anim::Land,
             State::Web { phase, .. } => self.web_anim(phase),
             State::Signal { .. } => Anim::Signal,
@@ -1526,6 +1565,7 @@ impl Pet {
             State::Broom { phase, .. } => self.broom_anim(phase),
             State::Cast { .. } => Anim::Cast,
             State::Study { act, .. } => self.study_anim(act),
+            State::Hagrid { act, t } => self.hagrid_anim(act, t),
             State::Float { .. } => Anim::Dragged,
             State::Duel { .. } => Anim::Cast,
             State::Faint { t, .. } if t < crate::wizard::FAINT_DROP_SECS => Anim::Land,
@@ -1535,7 +1575,7 @@ impl Pet {
             State::StageAct { act, t, len } => self.stage_anim(act, t, len),
             State::Air { anim: Anim::Hop } if self.bike.jumping => Anim::BikeJump,
             State::Air { .. } if self.soar.gliding => self.glide_anim(),
-            State::Air { .. } if self.broom.descending => Anim::Broom,
+            State::Air { .. } if self.broom.descending => self.mount_anim(),
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
             State::Slide => Anim::Slide,
@@ -1557,7 +1597,7 @@ impl Pet {
             heart: self.heart_timer > 0.0,
             poof: self.poofing(),
             ctl: self.is_controlled(),
-            wobble: self.wobble_timer > 0.0 || matches!(self.state, State::Lifted { .. } | State::Stuck { .. }) || romp_wobble || self.stage_wobble(),
+            wobble: self.wobble_timer > 0.0 || (matches!(self.state, State::Lifted { .. }) && self.hoist.cozy.is_none()) || matches!(self.state, State::Stuck { .. }) || romp_wobble || self.stage_wobble(),
             hang,
             cloud: self.snow_cloud_on(),
             housed: self.housed,
@@ -1578,7 +1618,7 @@ impl Pet {
     pub fn window_pos(&self) -> (f64, f64) {
         // 🕸️ 거미집에 걸린 순간 "팅~" 출렁 (brain_snare.rs)
         let (sx, sy) = self.snare_offset();
-        (self.body.x - self.cfg.size / 2.0 + sx, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift() - self.soar_lift() - self.broom_lift() - self.float_lift() + sy)
+        (self.body.x - self.cfg.size / 2.0 + sx, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift() - self.soar_lift() - self.broom_lift() - self.float_lift() - self.hagrid_lift() + sy)
     }
 
     /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹음)
@@ -3304,6 +3344,7 @@ impl Pet {
             | State::Broom { .. }
             | State::Cast { .. }
             | State::Study { .. }
+            | State::Hagrid { .. }
             | State::Float { .. }
             | State::Duel { .. }
             | State::Faint { .. }
@@ -4187,6 +4228,11 @@ pub mod study_moves;
 #[cfg(test)]
 #[path = "brain_study_tests.rs"]
 mod study_tests;
+#[path = "brain_hagrid.rs"]
+pub mod hagrid_moves;
+#[cfg(test)]
+#[path = "brain_hagrid_tests.rs"]
+mod hagrid_tests;
 #[path = "brain_dark.rs"]
 pub mod dark_moves;
 #[cfg(test)]
@@ -4755,7 +4801,8 @@ mod tests {
             Anim::HangCursor, Anim::Peek, Anim::Dance, Anim::Dance2, Anim::Catch, Anim::Draw, Anim::CheerType, Anim::Type, Anim::CarryRun,
             Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl, Anim::HangDown,
             Anim::Ride, Anim::Wheelie, Anim::BikeJump, Anim::Drift, Anim::Signal, Anim::Fly, Anim::FlyFast, Anim::FlyFlip, Anim::Hover,
-            Anim::Broom, Anim::Cast, Anim::Read, Anim::RaiseHand, Anim::BagWalk, Anim::BagDrag, Anim::BagStuff];
+            Anim::Broom, Anim::Cast, Anim::Read, Anim::RaiseHand, Anim::BagWalk, Anim::BagDrag, Anim::BagStuff,
+            Anim::Dragon, Anim::Sidecar, Anim::SidecarFly, Anim::Hug, Anim::HugWalk, Anim::Pat, Anim::Egg, Anim::Offer];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

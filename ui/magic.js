@@ -7,6 +7,8 @@
 //     snake {x, y, size, dir, t, alpha}          🐍 나기니 — 머리 (x, 바닥 y)에서 뒤로 꿈틀대는 몸, 혀 날름
 //     stag  {x, y, size, dir, alpha}             🦌 은빛 사슴 — 달리는 다리, 큰 뿔, 은빛 번짐
 //     frost {x, y, size, inward, level}          🥶 화면 구석의 서리 — 구석에서 안쪽으로 번지는 반투명 흰빛 + 얼음 가지
+//     egg   {x, y, size, crack}                  🥚 해그리드가 품은 용알 (바닥 가운데 x, y — 높이 size) — 금이 갈수록 (crack 0…1) 지그재그 금·달달 떨림
+//     hatchling {x, y, size, t, len, dir}        🐉 깨어난 아기 용 — 알 껍데기가 갈라져 튀고, 알 자리 둘레를 파닥파닥 날다가 끝에 불을 퐁 뿜고 사라짐
 // CPU를 아끼는 규칙: 움직이는 효과 (빛줄기·뱀·사슴·흐려짐·펑)가 있는 동안만 requestAnimationFrame. 서리만 있으면 받을 때 한 번만 그림.
 // 한 번에 MG_MAX개까지. 브라우저에서 trail.html?magic=1로 앱 없이 볼 수 있음 (결투·사슴·뱀·서리).
 
@@ -17,7 +19,7 @@ const MG_POP_SECS = 0.6;
 const MG_RED = ["rgba(255,70,60,", "rgba(255,200,190,"];
 const MG_GREEN = ["rgba(60,230,90,", "rgba(210,255,200,"];
 const MG_GOLD = ["rgba(255,196,60,", "rgba(255,246,200,"];
-const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost"];
+const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling"];
 
 const mgCanvas = document.getElementById("magic");
 const mgCtx = mgCanvas.getContext("2d");
@@ -38,6 +40,8 @@ function mgOk(f) {
   if (f.kind === "bolt") return mgPt(f.from) && mgPt(f.to) && f.width > 0 && f.width < 200;
   if (f.kind === "duel") return mgPt(f.red) && mgPt(f.green) && mgPt(f.clash) && f.width > 0 && f.width < 200 && Number.isFinite(f.reach);
   if (f.kind === "frost") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 5000 && mgPt(f.inward) && f.level > 0;
+  if (f.kind === "egg") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.crack);
+  if (f.kind === "hatchling") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.t) && f.len > 0;
   return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.alpha);
 }
 
@@ -351,12 +355,145 @@ function mgFrost(f) {
 }
 
 // 효과 하나 그리기 (t = 초)
+// 🥚 용알 (바닥 가운데 x, y · 높이 size): 크림색 알 + 초록 점, 금 (crack)이 갈수록 지그재그 금이 늘고 달달 떨림
+function mgEgg(f, t) {
+  const h = f.size;
+  const w = h * 0.76;
+  const crack = Math.max(0, Math.min(1, f.crack));
+  mgCtx.save();
+  mgCtx.translate(f.x, f.y);
+  mgCtx.rotate(Math.sin(t * 22) * 0.12 * crack);
+  mgCtx.fillStyle = "#fff4dc";
+  mgCtx.strokeStyle = "#5a4630";
+  mgCtx.lineWidth = Math.max(1.2, h * 0.06);
+  mgCtx.beginPath();
+  mgCtx.ellipse(0, -h * 0.5, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.stroke();
+  mgCtx.fillStyle = "#7fb36a";
+  for (const [dx, dy, r] of [[-0.18, -0.62, 0.09], [0.16, -0.38, 0.11], [0.05, -0.8, 0.06], [-0.12, -0.25, 0.06]]) {
+    mgCtx.beginPath();
+    mgCtx.arc(dx * h, dy * h, r * h, 0, Math.PI * 2);
+    mgCtx.fill();
+  }
+  if (crack > 0) {
+    mgCtx.strokeStyle = "#5a4630";
+    mgCtx.lineWidth = Math.max(1, h * 0.04);
+    mgCtx.beginPath();
+    const n = 2 + Math.round(crack * 4);
+    for (let i = 0; i <= n; i++) {
+      const x = -w * 0.48 + (w * 0.96 * i) / n;
+      const y = -h * 0.55 + (i % 2 ? -1 : 1) * h * 0.08;
+      if (i === 0) mgCtx.moveTo(x, y);
+      else mgCtx.lineTo(x, y);
+    }
+    mgCtx.stroke();
+  }
+  mgCtx.restore();
+}
+
+// 🐉 아기 용 (알 자리 x, y · 크기 size · 깨어난 뒤 t초 / len초): 처음엔 껍데기 두 쪽이 튀고, 둘레를 8자로 파닥파닥 날다가
+// 끝 1.2초에 작은 불을 퐁 뿜고 마지막 0.5초에 흐려지며 사라짐
+function mgHatchling(f) {
+  const s = f.size;
+  const t = f.t;
+  const dir = f.dir < 0 ? -1 : 1;
+  const left = f.len - t;
+  mgCtx.save();
+  mgCtx.globalAlpha = Math.max(0, Math.min(1, left / 0.5));
+  if (t < 0.6) {
+    // 갈라진 껍데기 두 쪽이 양옆으로 튐
+    const k = t / 0.6;
+    mgCtx.fillStyle = "#fff4dc";
+    mgCtx.strokeStyle = "#5a4630";
+    mgCtx.lineWidth = 1.2;
+    for (const side of [-1, 1]) {
+      mgCtx.beginPath();
+      mgCtx.arc(f.x + side * s * 0.6 * k, f.y - s * 0.25 - Math.sin(k * Math.PI) * s * 0.6, s * 0.22, 0, Math.PI);
+      mgCtx.closePath();
+      mgCtx.fill();
+      mgCtx.stroke();
+    }
+  }
+  // 날아다니는 자리: 알 자리 위에서 8자 (반지름이 처음 0.8초 동안 커짐)
+  const grow = Math.min(1, t / 0.8);
+  const a = t * 2.2;
+  const px = f.x + dir * Math.sin(a) * s * 1.8 * grow;
+  const py = f.y - s * (0.4 + 1.4 * grow) - Math.sin(a * 2) * s * 0.35 * grow;
+  const face = Math.cos(a) * dir >= 0 ? 1 : -1;
+  const flap = Math.sin(t * 20);
+  mgCtx.translate(px, py);
+  mgCtx.scale(face, 1);
+  mgCtx.lineJoin = "round";
+  mgCtx.strokeStyle = "#2d4a26";
+  mgCtx.lineWidth = Math.max(1, s * 0.06);
+  // 날개 (뒤) — 파닥
+  mgCtx.fillStyle = "#b7dd96";
+  mgCtx.beginPath();
+  mgCtx.moveTo(-s * 0.05, -s * 0.12);
+  mgCtx.lineTo(-s * 0.35, -s * (0.25 + 0.35 * flap));
+  mgCtx.lineTo(-s * 0.45, -s * 0.05);
+  mgCtx.closePath();
+  mgCtx.fill();
+  mgCtx.stroke();
+  // 꼬리 · 몸 · 머리
+  mgCtx.fillStyle = "#6fae5f";
+  mgCtx.beginPath();
+  mgCtx.moveTo(-s * 0.25, 0);
+  mgCtx.quadraticCurveTo(-s * 0.55, s * 0.05, -s * 0.6, -s * 0.15);
+  mgCtx.lineTo(-s * 0.48, -s * 0.02);
+  mgCtx.fill();
+  mgCtx.stroke();
+  mgCtx.beginPath();
+  mgCtx.ellipse(0, 0, s * 0.3, s * 0.2, 0, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.stroke();
+  mgCtx.beginPath();
+  mgCtx.arc(s * 0.3, -s * 0.18, s * 0.17, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.stroke();
+  mgCtx.fillStyle = "#e8c27a";
+  mgCtx.beginPath();
+  mgCtx.ellipse(s * 0.02, s * 0.06, s * 0.2, s * 0.1, 0, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.fillStyle = "#1b1b12";
+  mgCtx.beginPath();
+  mgCtx.arc(s * 0.36, -s * 0.22, s * 0.04, 0, Math.PI * 2);
+  mgCtx.fill();
+  // 앞 날개 — 파닥
+  mgCtx.fillStyle = "#cdeab0";
+  mgCtx.beginPath();
+  mgCtx.moveTo(s * 0.02, -s * 0.12);
+  mgCtx.lineTo(-s * 0.2, -s * (0.3 + 0.4 * flap));
+  mgCtx.lineTo(-s * 0.3, -s * 0.02);
+  mgCtx.closePath();
+  mgCtx.fill();
+  mgCtx.stroke();
+  // 끝에 작은 불 퐁
+  if (left < 1.2 && left > 0.4) {
+    const k = (1.2 - left) / 0.8;
+    const fx = s * 0.48;
+    const fy = -s * 0.16;
+    const g = mgCtx.createRadialGradient(fx + s * 0.2 * k, fy, 0, fx + s * 0.2 * k, fy, s * 0.35);
+    g.addColorStop(0, "rgba(255,240,150,1)");
+    g.addColorStop(0.5, "rgba(255,150,50,0.9)");
+    g.addColorStop(1, "rgba(255,80,30,0)");
+    mgCtx.fillStyle = g;
+    mgCtx.beginPath();
+    mgCtx.ellipse(fx + s * 0.2 * k, fy, s * 0.35 * (0.5 + k), s * 0.16 * (0.5 + k), 0, 0, Math.PI * 2);
+    mgCtx.fill();
+  }
+  mgCtx.restore();
+}
+
 function mgDraw(f, t) {
   if (f.kind === "bolt") mgBeam(f.from, f.to, f.width, mgColor(f.color), t, 1);
   else if (f.kind === "duel") mgDuel(f, t);
   else if (f.kind === "snake") mgSnake(f);
   else if (f.kind === "stag") mgStag(f, t);
   else if (f.kind === "frost") mgFrost(f);
+  else if (f.kind === "egg") mgEgg(f, t);
+  else if (f.kind === "hatchling") mgHatchling(f);
 }
 
 // 한 프레임: 서리 → 뱀 → 빛줄기·사슴 순으로, 흐려지는 빛줄기·펑까지. 움직이는 것이 남았으면 다음 프레임
@@ -367,7 +504,7 @@ function drawMagic() {
   mgGhosts = mgGhosts.filter((g) => (now - g.born) / 1000 < MG_FADE);
   mgPops = mgPops.filter((p) => (now - p.born) / 1000 < MG_POP_SECS);
   mgCtx.clearRect(0, 0, mgCanvas.width, mgCanvas.height);
-  for (const kind of ["frost", "snake", "bolt", "duel", "stag"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
+  for (const kind of ["frost", "snake", "egg", "hatchling", "bolt", "duel", "stag"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
   for (const g of mgGhosts) mgBeam(g.fx.from, g.fx.to, g.fx.width, mgColor(g.fx.color), t, 1 - (now - g.born) / 1000 / MG_FADE);
   for (const p of mgPops) mgPop(p, (now - p.born) / 1000 / MG_POP_SECS);
   if (mgMoving()) mgFrame = requestAnimationFrame(drawMagic);

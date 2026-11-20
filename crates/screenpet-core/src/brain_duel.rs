@@ -215,6 +215,7 @@ impl Pet {
         self.spell_fx(out);
         self.dark_fx(out);
         self.dementor_fx(out);
+        self.hagrid_fx(out);
         if let State::Duel { duel, t } = self.state {
             if duel.red {
                 let k = wz::duel_clash(t, duel.len);

@@ -38,7 +38,7 @@ STAGES = ["baby", "kinder", "child", "teenager", "adult"]
 # 화면 표시 배율 (Rust Stage::scale)
 STAGE_SCALE = {"baby": 0.45, "kinder": 0.60, "child": 0.78, "teenager": 1.00, "adult": 1.15}
 # 청소년 때 이미 128px보다 크게 보이는 동물 (pet.json stage_size >= 1) — 어른과 함께 2배 시트
-HIRES_TEENAGER = {"santa", "dino_green", "dino_yellow"}
+HIRES_TEENAGER = {"santa", "dino_green", "dino_yellow", "hagrid"}
 
 
 def sheet_128(path):
@@ -139,6 +139,17 @@ OPTIONAL_ANIMS = [
     ("bag_walk", 4, 8, True, False),
     ("bag_drag", 4, 6, True, False),
     ("bag_stuff", 2, 4, False, False),
+    # 🧔 해그리드 (코어 brain_hagrid.rs — 용은 brain_broom.rs가 빗자루처럼 태움): 🐉 용 등에 앉아 날기 (날개 퍼덕 3칸) ·
+    # 🏍️ 사이드카 오토바이 타기 (바퀴 3칸 — 사이드카 자리 = grip) · 오토바이째 붕 날기 · 🤗 펫을 가슴에 안고 서기 · 안고 걷기 (손 = grip) ·
+    # 🖐️ 쓰담쓰담 · 🥚 앉아서 용알 품기 (알·아기 용은 앱 덮개 창 — 손 = grip) · 🪨 코트에서 락 케이크를 꺼내 바닥에 내려놓기 (한 번)
+    ("dragon", 3, 8, True, False),
+    ("sidecar", 3, 10, True, False),
+    ("sidecar_fly", 2, 6, True, False),
+    ("hug", 2, 2, True, False),
+    ("hug_walk", 4, 8, True, False),
+    ("pat", 3, 6, True, False),
+    ("egg", 4, 2, True, False),
+    ("offer", 3, 3, False, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -197,6 +208,13 @@ SPEECH = {
                   "broom_up": ["up!", "hehehe"], "broom_land": ["hmm.", "landed."], "broom_away": ["I'll be back", "hehehe"],
                   "stupefy": ["Stupefy!"], "nagini": ["Serpensortia!", "Nagini..."], "hehehe": ["hehehe", "hehehe...", "kekeke"],
                   "duel_call": ["You again, Potter?", "Duel me!"], **_CARE_SPEECH},
+    # 🧔 해그리드: 🐉 용 타기 broom_up·broom_land·broom_away · 🏍️ 오토바이 vroom · 사이드카 hop_in · 🤗 안기 cuddle · 🖐️ 쓰담 pat ·
+    # 🥚 용알이 깨어남 hatch · 🪨 락 케이크 rock_cake (코어 Speech)
+    "hagrid": {"chatter": ["Yer a wizard!", "Blimey!", "Rock cake?"], "tickle": ["hoho!"], "grumpy": ["Oi!"],
+               "broom_up": ["Up we go!", "Blimey!"], "broom_land": ["Good dragon!", "Whoa there!"], "broom_away": ["Off ter Hogwarts!"],
+               "vroom": ["Brrm brrm!", "Hold on!"], "hop_in": ["Hop in!", "Room fer one!"], "cuddle": ["C'mere, you!", "Up yeh go!"],
+               "pat": ["Good lad!", "There, there"], "hatch": ["Blimey!", "Aww, a baby!"], "rock_cake": ["Rock cake?", "Rock cake!"],
+               **_CARE_SPEECH},
     "dementor": {"chatter": ["hhhhh...", "...", "hhhh"], "tickle": ["hhh?"], "grumpy": ["HHHH!"], "repelled": ["hsss!", "HHH!"],
                  **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green")},
@@ -206,7 +224,7 @@ DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "squirrel": "playful", "pumpkin": "playful",
                "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful", "harry": "playful", "hermione": "friendly",
-               "voldemort": "playful",
+               "voldemort": "playful", "hagrid": "friendly",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly"}
 
@@ -262,7 +280,7 @@ BIKE_RIDER = {"bat"}
 SUPER_FLIER = {"super"}
 
 # 🧹 가끔 빗자루에 올라타 화면을 낮게·높게 날아다니고 친구 화면도 빗자루로 오가는 동물 (pet.json broom_rider — 코어 brain_broom.rs, 그림 broom)
-BROOM_RIDER = {"harry", "hermione", "voldemort"}
+BROOM_RIDER = {"harry", "hermione", "voldemort", "hagrid"}  # 해그리드는 빗자루 대신 용 (dragon 그림)
 
 # ✨ 지팡이로 거는 주문 (pet.json spells — 코어 brain_spell.rs, 그림 cast): expelliarmus 튕겨 내기 · leviosa 둥둥 띄우기 · reparo 쓰레기 반짝 치우기
 # · stupefy ⚡ 초록 빛줄기로 💫 기절 (볼드모트)
@@ -285,6 +303,10 @@ BOOKWORM = {"hermione"}
 
 # 👜 끝없는 구슬 가방으로 바닥 물건 치우기 (pet.json bag_cleaner — 헤르미온느, 그림 bag_walk·bag_drag·bag_stuff, 가방은 앱이 그림)
 BAG_CLEANER = {"hermione"}
+
+# 🧔 해그리드: 🏍️ 사이드카 오토바이 (가끔 붕 날고 작은 펫을 태움) · 🤗 안아 들기·쓰담 · 🥚 용알 품기 · 🪨 락 케이크
+# (pet.json gamekeeper — 코어 brain_hagrid.rs, 그림 HAGRID_ANIMS)
+GAMEKEEPER = {"hagrid"}
 
 # 🎨 몸 색을 고를 수 있는 동물 (pet.json tint + ink_<stage>.png 잉크 자리 — 앱이 그 자리만 고른 색으로 덮는다, ui/main.js)
 TINTABLE = {"heumul"}
@@ -309,6 +331,7 @@ FAVORITE_FOOD = {
     "hermione": {"emoji": "🍎", "name": "사과"},
     "voldemort": {"emoji": "🐟", "name": "생선"},
     "dementor": {"emoji": "🍧", "name": "빙수"},
+    "hagrid": {"emoji": "🍉", "name": "수박"},
 }
 
 

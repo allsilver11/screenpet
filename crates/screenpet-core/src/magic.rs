@@ -6,6 +6,7 @@
 //! - 🐍 Snake: 볼드모트의 나기니 (발밑 y를 따라 기어 다님)
 //! - 🦌 Stag: 해리의 은빛 사슴 (dir 쪽으로 달림)
 //! - 🥶 Frost: 디멘터 가까운 화면 구석의 서리 (in = 구석에서 화면 안쪽 방향 부호)
+//! - 🥚 Egg: 해그리드가 품은 용알 (crack = 금 간 몫) · 🐉 Hatchling: 알에서 깨어난 아기 용 (알 자리 둘레를 파닥파닥 날다 불 퐁 뿜고 사라짐)
 
 use serde::Serialize;
 
@@ -35,6 +36,10 @@ pub enum MagicFx {
     Stag { x: f64, y: f64, size: f64, dir: f64, alpha: f64 },
     /// 🥶 서리: 구석 (x, y), 크기 size, inward = 화면 안쪽 부호 (±1, ±1), level = 낀 몫 0…1
     Frost { x: f64, y: f64, size: f64, inward: (f64, f64), level: f64 },
+    /// 🥚 용알: 바닥 가운데 (x, y — 해그리드 손), 높이 size, crack = 금 간 몫 0…1
+    Egg { x: f64, y: f64, size: f64, crack: f64 },
+    /// 🐉 아기 용: 깨어난 알 자리 (x, y), 크기 size, t = 깨어난 뒤 초 (len초 — 덮개 창이 둘레를 날다 불 퐁 뿜고 사라지게 그림), dir = 처음 날아가는 쪽
+    Hatchling { x: f64, y: f64, size: f64, t: f64, len: f64, dir: f64 },
 }
 
 impl MagicFx {
@@ -43,7 +48,7 @@ impl MagicFx {
         match *self {
             MagicFx::Bolt { from, .. } => from,
             MagicFx::Duel { clash, .. } => clash,
-            MagicFx::Snake { x, y, .. } | MagicFx::Stag { x, y, .. } => (x, y - 1.0),
+            MagicFx::Snake { x, y, .. } | MagicFx::Stag { x, y, .. } | MagicFx::Egg { x, y, .. } | MagicFx::Hatchling { x, y, .. } => (x, y - 1.0),
             MagicFx::Frost { x, y, inward, .. } => (x + inward.0, y + inward.1),
         }
     }
@@ -65,6 +70,14 @@ impl MagicFx {
                 let (x, y) = at((x, y));
                 MagicFx::Frost { x, y, size: size * scale, inward, level }
             }
+            MagicFx::Egg { x, y, size, crack } => {
+                let (x, y) = at((x, y));
+                MagicFx::Egg { x, y, size: size * scale, crack }
+            }
+            MagicFx::Hatchling { x, y, size, t, len, dir } => {
+                let (x, y) = at((x, y));
+                MagicFx::Hatchling { x, y, size: size * scale, t, len, dir }
+            }
         }
     }
 }
@@ -82,6 +95,10 @@ mod tests {
         assert_eq!(v["from"], serde_json::json!([1.0, 2.0]));
         let s = serde_json::to_value(MagicFx::Frost { x: 0.0, y: 0.0, size: 1.0, inward: (1.0, 1.0), level: 0.5 }).unwrap();
         assert_eq!(s["kind"], "frost");
+        let h = serde_json::to_value(MagicFx::Hatchling { x: 0.0, y: 0.0, size: 1.0, t: 0.5, len: 5.0, dir: -1.0 }).unwrap();
+        assert_eq!((h["kind"].as_str(), h["len"].as_f64()), (Some("hatchling"), Some(5.0)));
+        let egg = MagicFx::Egg { x: 10.0, y: 20.0, size: 8.0, crack: 0.5 };
+        assert_eq!(egg.mapped(|(x, y)| (x / 2.0, y / 2.0), 0.5), MagicFx::Egg { x: 5.0, y: 10.0, size: 4.0, crack: 0.5 });
     }
 
     #[test]
