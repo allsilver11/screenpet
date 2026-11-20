@@ -538,6 +538,8 @@ fn a_game_cools_the_pair_down_longer_than_a_greeting() {
         let mut pets = vec![ground(&w, friendly(), 800.0, seed), ground(&w, friendly(), 840.0, seed + 1000)];
         let keys = pair(pets[0].social_key(), pets[1].social_key());
         let mut s = Social::new(seed);
+        // 인사·술래 쿨다운만 봄 — 펫끼리 놀이(social_romp.rs, 따로 쿨다운)는 끔
+        s.set_romp_rate(0.0);
         s.start_play(&mut pets, 0, 1, true);
         // 잡힌 뒤 (술래 바꾸기가 나오면 끝날 때까지 다시 잡히게 둔다)
         for _ in 0..(60.0 / DT) as usize {

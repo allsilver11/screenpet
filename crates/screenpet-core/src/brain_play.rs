@@ -1,6 +1,6 @@
 //! 다른 동물들도 더 놀기 (v0.6.3) — brain.rs의 자식 모듈. 숫자는 play.rs.
 //! 하는 중인 놀이를 이어 감: 🐱 툭툭 (brain_knock.rs) · 🐿️ 볼 빵빵 (brain_stash.rs) · 🦆 기차 (brain_train.rs) ·
-//! 🙌 하이파이브 (brain_highfive.rs) · 깜짝 폴짝 (여기 — 🦖 큰 쿵·기차 끝). 🦖 큰 쿵 자체는 brain_quake.rs.
+//! 🙌 하이파이브 (brain_highfive.rs) · 깜짝 폴짝 (여기 — 🦖 큰 쿵·기차 끝) · 펫끼리 놀이 몸짓 (brain_romp.rs). 🦖 큰 쿵 자체는 brain_quake.rs.
 //!
 //! 주사위는 놀이 주사위(PlayMood.rng)로 굴림 — 평소 동작(Pet::rng)과 다른 동물의 주사위 순서는 그대로.
 
@@ -136,6 +136,7 @@ impl Pet {
             State::Follow { remaining } => self.update_follow(dt, world, remaining),
             State::HighFive { phase, t } => self.update_high_five(dt, world, phase, t),
             State::Bounce { t, rise, then } => self.update_bounce(dt, world, t, rise, then),
+            State::Romp { remaining } => self.update_romp_pose(dt, world, remaining),
             _ => return self.resume_stash(),
         }
         true
@@ -175,6 +176,7 @@ impl Pet {
         match self.state {
             State::Bounce { t, rise, .. } => play::hop_height(t, play::BOUNCE_SECS, rise * self.cfg.size),
             State::HighFive { phase: HighFivePhase::Jump, t } => play::hop_height(t, play::FIVE_JUMP_SECS, play::FIVE_RISE * self.cfg.size),
+            State::Romp { .. } => self.romp_lift(),
             _ => 0.0,
         }
     }
@@ -198,6 +200,7 @@ impl Pet {
                 HighFivePhase::Jump => Anim::Hop,
                 HighFivePhase::Land => Anim::Land,
             },
+            State::Romp { .. } => self.romp.anim,
             State::Bounce { t, .. } => {
                 if t < play::BOUNCE_SECS * 0.75 {
                     Anim::Hop

@@ -102,9 +102,9 @@ pub const DIG_SECS: f64 = 2.0;
 // ---- 🙌 하이파이브 ----
 
 /// 마주 오다 만난 짝이 하이파이브할 확률
-pub const HIGH_FIVE_CHANCE: f64 = 0.25;
+pub const HIGH_FIVE_CHANCE: f64 = 0.35;
 /// 같은 짝이 다시 하이파이브하기까지 (초)
-pub const HIGH_FIVE_COOLDOWN: (f64, f64) = (120.0, 300.0);
+pub const HIGH_FIVE_COOLDOWN: (f64, f64) = (60.0, 150.0);
 /// 서로 다가가는 시간 상한 (그 뒤엔 그 자리에서 뜀)
 pub const FIVE_CLOSE_SECS: f64 = 1.5;
 /// 마주 보고 잠깐 (초), 폴짝 (초), 내려서서 잠깐 (초)

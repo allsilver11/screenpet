@@ -977,6 +977,17 @@ const EXTRA_SPEECH = {
   web: ["web time!"],
   web_swing: ["wheee!"],
   hero_land: ["nailed it!"],
+  // 펫끼리 놀기 더 (코어 social_romp.rs): 🥊 투닥투닥 / 😈 몰래 찌르고 키득 · 찔려서 화들짝 / 🫸 되밀기 / 🏁 달리기 시합 / 💬 수다 (먼저 · 받는 쪽)
+  scuffle: ["hey!", "mine!", "grr", "grr!"],
+  hehe: ["hehe", "hehe~"],
+  hey: ["hey!"],
+  hey_back: ["you hey!", "no, YOU!"],
+  ready: ["ready…"],
+  go: ["go!"],
+  i_win: ["I win!"],
+  no_fair: ["no fair!"],
+  chat_a: ["hi!", "nice day", "😺", "lol", "guess what?", "you ok?"],
+  chat_b: ["really?", "same!", "lol", "hehe", "😺", "yeah!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {

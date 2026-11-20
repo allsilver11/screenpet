@@ -248,6 +248,8 @@ fn approach(w: &World, owner: Owner, (lo, hi): (f64, f64), mover: &str, other: &
     let mut pets = if guest_moves { vec![o, m] } else { vec![m, o] };
     pets[1].set_guest(Side::Right, 1e9);
     let mut s = Social::new(seed);
+    // 다가가 닿는 장면만 봄 — 펫끼리 놀이(투닥투닥·밀치기·시합 …, social_romp.rs)는 끔
+    s.set_romp_rate(0.0);
     let mut t = Trial::default();
     let mut started: Option<f64> = None;
     let mut was_meeting = false;
@@ -317,7 +319,8 @@ fn check_approaches(name: &str, trials: &[Trial]) {
     let share = stomps.len() as f64 / contacts as f64;
     let by_mover = stomps.iter().filter(|t| t.mover_jumped).count();
     eprintln!("{name}: contacts {contacts}/{} stomp-like {} (over {overs}, hop {hops}, by mover {by_mover}) share {share:.2}", trials.len(), stomps.len());
-    assert!(contacts >= trials.len() * 3 / 4, "{name}: they reach each other: {contacts}/{}", trials.len());
+    // 술래 놀이가 더 잦아져 (PLAY_RATE 0.05) 다가가는 도중 술래 놀이로 바뀌기도 함 — 셋에 둘은 닿음
+    assert!(contacts >= trials.len() * 2 / 3, "{name}: they reach each other: {contacts}/{}", trials.len());
     assert!((0.3..=0.8).contains(&share), "{name}: stomp-like per contact {share:.2}");
     assert!(overs >= hops, "{name}: stomping over is the usual one ({overs} over, {hops} hop)");
     assert!(stomps.iter().all(|t| t.squashed), "{name}: the stomped friend goes flat");

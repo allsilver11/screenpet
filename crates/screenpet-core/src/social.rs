@@ -5,6 +5,8 @@
 //! - 한 동물은 한 번에 한 놀이만. 짝은 앞에서부터 차례로 (O(n²), 동물 ≤ 11마리).
 //! - 사용자 손길·먹이·집 가기·손님의 집 생각은 Pet 쪽에서 놀이를 끊고, 여기선 짝이 놀이를 벗어나면 남은 쪽도 풀어 줌
 //! - 틱마다 할당하지 않음 (스냅샷 Vec을 다시 씀; 쿨다운 표는 놀이가 끝날 때만 넣음).
+//! - 펫끼리 놀기 더 (2026-11-20): 인사·술래·하이파이브가 더 자주 (쿨다운 짧게, 확률 높게), 새 놀이 여섯 가지 (투닥투닥·몰래 찌르기·
+//!   밀치기·같이 낮잠·달리기 시합·수다)는 social_romp.rs.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -31,9 +33,9 @@ pub const GREET_SECS: (f64, f64) = (1.5, 2.5);
 /// 자는 친구 쳐다보기
 pub const PEEK_SECS: f64 = 1.5;
 /// 인사 뒤 술래 놀이로 이어질 확률 (보통 성격 기준 — 성격에 따라 eagerness배)
-pub const GREET_PLAY_CHANCE: f64 = 0.4;
+pub const GREET_PLAY_CHANCE: f64 = 0.6;
 /// 놀이 거리 안에 있을 때 1초에 술래 놀이를 시작할 확률 (보통 성격 기준)
-pub const PLAY_RATE: f64 = 0.02;
+pub const PLAY_RATE: f64 = 0.05;
 /// 술래 놀이 시간 (못 잡으면 끝)
 pub const CHASE_SECS: (f64, f64) = (5.0, 10.0);
 /// 잡은 뒤 하트
@@ -43,9 +45,9 @@ pub const SWAP_CHANCE: f64 = 0.3;
 /// 새침한 고양이가 "흥" 하고 인사할 확률
 pub const ALOOF_HMPH_CHANCE: f64 = 0.5;
 /// 같은 짝이 다시 인사하기까지 (초)
-pub const GREET_COOLDOWN: (f64, f64) = (60.0, 90.0);
+pub const GREET_COOLDOWN: (f64, f64) = (30.0, 50.0);
 /// 같은 짝이 놀고 난 뒤 다시 어울리기까지 (초)
-pub const PLAY_COOLDOWN: (f64, f64) = (120.0, 180.0);
+pub const PLAY_COOLDOWN: (f64, f64) = (45.0, 90.0);
 /// 인사 뒤 놀이 확률 상한
 const MAX_PLAY_CHANCE: f64 = 0.9;
 /// 공룡 쿵쾅이 닿는 거리 (같은 바닥 — 나는 동물은 직선 거리)
@@ -141,6 +143,14 @@ struct Snap {
     run_carry: f64,
     /// 겁쟁이 (흐물이)
     timid: bool,
+    /// 펫끼리 놀이를 시작할 수 있음 (social_romp.rs — 걷는 동물, 바쁜 일 없음)
+    romp_free: bool,
+    /// 걷지 않고 쉬는 중
+    resting: bool,
+    /// 걷는 동물이 디딤판 위에서 자는 중
+    sleeping: bool,
+    /// 서 있는 디딤판 조각 (왼쪽, 오른쪽)
+    ground: Option<(f64, f64)>,
 }
 
 impl Snap {
@@ -169,6 +179,10 @@ impl Snap {
             riding: p.is_on_head(),
             run_carry: p.run_carry(),
             timid: p.cfg.timid,
+            romp_free: p.romp_free(),
+            resting: p.romp_resting(),
+            sleeping: p.social_asleep() && !p.cfg.flies,
+            ground: p.ground_span(),
         }
     }
 
@@ -325,6 +339,10 @@ pub struct Social {
     scare_cooldown: HashMap<(u64, u64), f64>,
     /// 🦆 기차·🙌 하이파이브 (social_play.rs — 주사위도 따로)
     play: fun::SocialPlay,
+    /// 🥊😈🫸😴🏁💬 펫끼리 놀이 (social_romp.rs — 주사위도 따로)
+    romp: romp::SocialRomp,
+    /// 테스트: 인사·술래 놀이 시작을 끔
+    greets_off: bool,
 }
 
 /// 짝 키 (작은 것이 앞)
@@ -335,7 +353,7 @@ fn pair(a: u64, b: u64) -> (u64, u64) {
 impl Social {
     /// 빈 사회 상태. seed로 주사위들을 정함
     pub fn new(seed: u64) -> Self {
-        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, one_way_chance: ONE_WAY_MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new(), scare_rng: fastrand::Rng::with_seed(seed ^ 0x6565_6b21), scare_chance: SCARE_CHANCE, scare_cooldown: HashMap::new(), play: fun::SocialPlay::new(seed) }
+        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, one_way_chance: ONE_WAY_MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new(), scare_rng: fastrand::Rng::with_seed(seed ^ 0x6565_6b21), scare_chance: SCARE_CHANCE, scare_cooldown: HashMap::new(), play: fun::SocialPlay::new(seed), romp: romp::SocialRomp::new(seed), greets_off: false }
     }
 
     /// 지금 놀이 중인 짝 수 (테스트용)
@@ -355,12 +373,14 @@ impl Social {
         self.perches(dt, pets);
         self.stomps(pets);
         self.step_play(pets);
+        self.step_romps(dt, pets);
         self.thrown_hits(dt, pets);
         self.step_meets(pets);
         self.step_links(dt, pets);
         self.scares(pets);
         self.find_head_ons(pets);
         self.tower_bumps(pets);
+        self.find_romps(dt, pets);
         self.find_new(dt, pets);
     }
 
@@ -380,6 +400,10 @@ impl Social {
             }
             let flying = ij.is_some_and(|k| pets[k].as_ref().is_meeting());
             if flying {
+                // 밟고 높이 튄 친구가 아직 날고 있으면 밟힌 쪽은 납작한 채로 기다림 (내려설 자리로 걸어 들어가지 않게)
+                if let Some(it) = it {
+                    pets[it].as_mut().wait_squashed();
+                }
                 i += 1;
                 continue;
             }
@@ -781,6 +805,9 @@ impl Social {
 
     /// 새로 마주친 짝: 인사 (자는 친구는 쳐다보기만), 또는 가끔 바로 술래 놀이
     fn find_new<T: AsRef<Pet> + AsMut<Pet>>(&mut self, dt: f64, pets: &mut [T]) {
+        if self.greets_off {
+            return;
+        }
         let n = self.snap.len();
         for i in 0..n {
             for j in (i + 1)..n {
@@ -845,6 +872,14 @@ pub mod tower;
 
 #[path = "social_play.rs"]
 mod fun;
+
+#[path = "social_romp.rs"]
+mod romp;
+pub use romp::RompKind;
+
+#[cfg(test)]
+#[path = "social_romp_tests.rs"]
+mod romp_tests;
 
 #[cfg(test)]
 #[path = "social_play_tests.rs"]

@@ -329,6 +329,26 @@ pub enum Speech {
     WebSwing,
     /// 🕷️ 영웅 착지 ("nailed it!")
     HeroLand,
+    /// 🥊 투닥투닥 ("hey!" "mine!" "grr", brain_romp.rs)
+    Scuffle,
+    /// 😈 몰래 찌르고 키득 ("hehe")
+    Hehe,
+    /// 😈 찔려서 화들짝 / 🫸 툭 밂 ("hey!")
+    Hey,
+    /// 🫸 되밂 ("you hey!")
+    HeyBack,
+    /// 🏁 달리기 시합 준비 ("ready…")
+    Ready,
+    /// 🏁 출발 ("go!")
+    Go,
+    /// 🏁 이겼음 / 🥊 이긴 쪽 ("I win!")
+    IWin,
+    /// 🏁 졌음 ("no fair!")
+    NoFair,
+    /// 💬 수다 — 먼저 말하는 쪽 ("hi!", "nice day" …)
+    ChatA,
+    /// 💬 수다 — 받는 쪽 ("really?", "same!" …)
+    ChatB,
 }
 
 impl Anim {
@@ -522,6 +542,9 @@ pub enum State {
     Bounce { t: f64, rise: f64, then: play_moves::BounceThen },
     /// 🕷️ 줄 놀이 — 줄 쏘기·그네·끌어오기 (brain_web.rs). t = 이 단계에 들어선 뒤 흐른 시간
     Web { phase: web_moves::WebPhase, t: f64 },
+    /// 펫끼리 놀이 (투닥투닥·찌르기·밀치기·낮잠 가기·달리기 시합·수다) — 몸짓은 Pet의 romp, 코디네이터가 틱마다 줌.
+    /// remaining = 몸짓 소식이 끊기면 그만두기까지 (brain_romp.rs, social_romp.rs)
+    Romp { remaining: f64 },
 }
 
 impl State {
@@ -909,6 +932,10 @@ pub struct Pet {
     typing: typing_moves::TypingMood,
     /// 다른 동물들도 더 놀기 (v0.6.3): 🐱 툭툭 · 🦆 기차 · 🦖 큰 쿵 · 🐿️ 볼 빵빵 · 🙌 하이파이브 (brain_play.rs)
     play: play_moves::PlayMood,
+    /// 펫끼리 놀이에서 이번 틱의 몸짓 (brain_romp.rs)
+    romp: romp_moves::Pose,
+    /// 서 있는 디딤판 조각 (왼쪽, 오른쪽) — 지난 update 때, 쉬는 동안도 (social_romp.rs가 같은 조각인지 봄)
+    ground_span: Option<(f64, f64)>,
     /// 글자 그대로 띄울 말 (⚾ "3!" — take_speech_text로 한 번 꺼냄, 앱은 pet-say-text로)
     speech_text: Option<String>,
     /// 🌀 태풍: 회오리 속·돌풍 쉬는 때 (brain_typhoon.rs)
@@ -1009,6 +1036,8 @@ impl Pet {
             web: web_moves::WebMood::new(seed),
             typing: Default::default(),
             play: play_moves::PlayMood::new(seed),
+            romp: Default::default(),
+            ground_span: None,
             speech_text: None,
             storm: Default::default(),
             rng: fastrand::Rng::with_seed(seed),
@@ -1029,6 +1058,7 @@ impl Pet {
             self.no_perch = false;
         }
         self.ceiling = world.work_area_at(self.body.x, self.body.y).top;
+        self.ground_span = self.standing.and_then(|st| world.piece_at(st.owner, self.body.x)).map(|p| (p.x_start, p.x_end));
         // 걷는 동안만 맞는 값이다 (안 걷는 사이에 디딤판이 바뀌어도 옛 조각을 믿지 않는다)
         if !matches!(self.state, State::Move { .. }) {
             self.walk_span = None;
@@ -1234,7 +1264,7 @@ impl Pet {
             State::TypeCheer { .. } => self.type_cheer_anim(),
             State::Snowman { phase, .. } => self.snowman_anim(phase),
             State::PresenceTrip => self.trip_anim(),
-            State::Knock { .. } | State::Stash { .. } | State::Lead { .. } | State::Follow { .. } | State::HighFive { .. } | State::Bounce { .. } => {
+            State::Knock { .. } | State::Stash { .. } | State::Lead { .. } | State::Follow { .. } | State::HighFive { .. } | State::Bounce { .. } | State::Romp { .. } => {
                 self.play_anim().unwrap_or(Anim::Idle)
             }
             State::Land { .. } if self.hero_landing() => Anim::HeroLand,
@@ -1263,21 +1293,22 @@ impl Pet {
         let hang = self.hang_side();
         let swing = self.swing_degrees();
         let swinging = matches!(self.state, State::Swing { .. });
+        let (romp_wobble, romp_sparkle, romp_thud) = self.romp_marks();
         RenderState {
             anim,
             flip: self.facing < 0.0 && !anim.is_front() && !anim.is_back() && hang == 0 && !swinging,
             heart: self.heart_timer > 0.0,
             poof: self.poofing(),
             ctl: self.is_controlled(),
-            wobble: self.wobble_timer > 0.0 || matches!(self.state, State::Lifted { .. }),
+            wobble: self.wobble_timer > 0.0 || matches!(self.state, State::Lifted { .. }) || romp_wobble,
             hang,
             cloud: self.snow_cloud_on(),
             housed: self.housed,
             flash: self.glasses_flash_on(),
             glare: self.glasses_glare_on(),
-            thud: self.thud > 0.0 && matches!(self.state, State::Land { .. }),
+            thud: (self.thud > 0.0 && matches!(self.state, State::Land { .. })) || romp_thud,
             swing,
-            sparkle: self.dance_sparkle(),
+            sparkle: self.dance_sparkle() || romp_sparkle,
             clap: self.clapping(),
             tap: self.typing_tap(),
         }
@@ -2031,7 +2062,7 @@ impl Pet {
         // 나는 동물: 눌리면 가던 길은 잊는다 (놓인 자리에서 다시 정한다)
         self.flight = None;
         // 놀던 중이면 놀이는 끝난다 — 무시해도 놀이로 돌아가지 않고 잠깐 앉는다
-        let before = if self.social_role().is_some() || matches!(self.state, State::Meet { .. } | State::OnHead { .. }) { State::Idle { remaining: TURN_PAUSE, look: false } } else { self.state };
+        let before = if self.social_role().is_some() || matches!(self.state, State::Meet { .. } | State::OnHead { .. } | State::Romp { .. }) { State::Idle { remaining: TURN_PAUSE, look: false } } else { self.state };
         self.play_target = None;
         self.before_press = Some((before, self.pacing.after_beat.take()));
         if !grounded {
@@ -2939,6 +2970,7 @@ impl Pet {
             | State::Follow { .. }
             | State::HighFive { .. }
             | State::Bounce { .. }
+            | State::Romp { .. }
             | State::Web { .. }
             | State::Panic { .. }
             | State::Rig { .. }
@@ -3775,6 +3807,8 @@ mod stash_tests;
 mod quake_moves;
 #[path = "brain_train.rs"]
 mod train_moves;
+#[path = "brain_romp.rs"]
+pub mod romp_moves;
 #[path = "brain_highfive.rs"]
 pub mod highfive_moves;
 #[path = "brain_swing.rs"]

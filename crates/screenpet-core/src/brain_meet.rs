@@ -2,6 +2,7 @@
 //! 누가 무엇을 할지와 뛰어 내릴 자리는 social.rs가 정하고, 여기서는 그대로 움직임:
 //!
 //! - 밟기: 한 마리가 친구 머리로 뛰어 밟고 조금 튀어 친구 너머에 내림. 밟힌 친구는 잠깐 납작 (Land → Annoyed, "oof!").
+//!   밟은 친구가 아직 날고 있으면 (높이 튀기) 내려설 때까지 납작한 채 기다림 — 그 자리로 걸어 들어가 몸이 겹치지 않게.
 //! - 높이 튀기: 같지만 머리를 밟고 훨씬 높이 솟았다가 너머에 내림
 //! - 지나치기: 둘 다 폴짝 — 한 마리는 높이, 한 마리는 낮게, 꼭대기가 같은 때에 오게 해서 닿지 않고 엇갈림
 //! - 올라서기: 친구 머리(탑이면 맨 위)로 뛰어올라 그대로 섬 — 그 뒤는 brain_tower.rs.
@@ -25,6 +26,8 @@ const BRACE_MAX_SECS: f64 = 2.0;
 /// 밟힌 친구: Land (납작) 뒤 Annoyed
 pub(super) const SQUASH_SECS: f64 = 1.0;
 const SQUASH_GRUMPY_FROM: f64 = 0.75;
+/// 밟고 튄 친구가 날고 있는 동안 납작한 채로 남겨 두는 시간 (틱마다 다시 채움)
+const SQUASH_HOLD_SECS: f64 = 0.1;
 /// 머리 꼭대기 높이 (발에서 몸 크기의 이 비율 위, brain.rs HEAD_TOP과 같음)
 pub const HEAD_RISE: f64 = HEAD_TOP;
 /// 머리로 뛸 때, 밟고 튈 때, 높이 튈 때 머리보다 더 솟는 높이 (몸 크기 배)
@@ -156,6 +159,13 @@ impl Pet {
             self.speech = Some(Speech::Oof);
             self.wobble_timer = stomp_moves::WOBBLE_SECS;
             self.state = State::Meet { phase: MeetPhase::Squash, remaining: SQUASH_SECS };
+        }
+    }
+
+    /// 밟고 튄 친구가 아직 날고 있음: 납작한 채로 조금 더 기다림 (친구가 내려설 자리로 걸어 들어가지 않게)
+    pub fn wait_squashed(&mut self) {
+        if let State::Meet { phase: MeetPhase::Squash, remaining } = self.state {
+            self.state = State::Meet { phase: MeetPhase::Squash, remaining: remaining.max(SQUASH_HOLD_SECS) };
         }
     }
 
