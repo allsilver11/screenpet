@@ -242,11 +242,111 @@ fn climbers_climb_a_wall_with_up_and_slide_down_with_down() {
     hold(&mut p, &w, NONE, 2.0);
     assert_eq!(p.body.y, y2, "hangs while no key is held");
     assert_eq!(p.render().anim, Anim::Climb);
-    // ↓ = 미끄러져 내려와 바닥에 선다
+    // ↓ 누르는 동안 미끄러져 내려오고, 놓으면 그 자리에 다시 매달림
     hold(&mut p, &w, keys(|k| k.down = true), 0.1);
     assert_eq!(p.render().anim, Anim::Slide);
-    hold(&mut p, &w, NONE, 2.0);
+    let y3 = p.body.y;
+    assert!(y3 > y2, "slid down: {y3}");
+    hold(&mut p, &w, NONE, 1.0);
+    assert_eq!(p.body.y, y3, "hangs again when ↓ is let go");
+    assert_eq!(p.render().anim, Anim::Climb);
+    // 계속 누르면 바닥까지 내려와 선다
+    hold(&mut p, &w, keys(|k| k.down = true), 3.0);
     assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)));
+}
+
+/// 화면 끝 벽에 매달려 있다가 벽 반대쪽 방향키 (또는 Space)로 뛰어내리고, 내려서면 다시 방향키로 걸음
+#[test]
+fn an_arrow_away_from_the_wall_jumps_off_and_the_pet_obeys_on_the_ground_again() {
+    for jump in [false, true] {
+        let c = cat();
+        let (mut p, w) = controlled_on_ground(c, 1920.0 - c.half_w);
+        hold(&mut p, &w, keys(|k| {
+            k.right = true;
+            k.up = true;
+        }), 1.0);
+        assert_eq!(p.render().anim, Anim::Climb);
+        hold(&mut p, &w, keys(|k| if jump { k.jump = true } else { k.left = true }), DT);
+        assert!(matches!(p.state, State::Air { .. }) && p.body.vx < 0.0, "jumped off to the left: {:?} {}", p.state, p.body.vx);
+        let mut guard = LoopLimit::new();
+        while p.standing.is_none() {
+            guard.step();
+            hold(&mut p, &w, NONE, DT);
+        }
+        let x = p.body.x;
+        hold(&mut p, &w, keys(|k| k.left = true), 0.5);
+        assert!(p.body.x < x - 20.0, "walks again: {} → {}", x, p.body.x);
+    }
+}
+
+/// 던져져 창 옆면에 붙어도 조작을 따름: 키 없으면 매달려 있고, ↑ 오르고, ↓ 내려가고, 반대쪽 방향키로 뛰어내림
+#[test]
+fn a_controlled_pet_stuck_to_a_window_side_hangs_crawls_and_jumps_off_by_keys() {
+    let w = world(vec![win(1, 800.0, 300.0, 1300.0, 900.0)]);
+    let mut p = Pet::new(cat(), 700.0, 600.0, 1);
+    p.body.vx = 600.0;
+    p.state = State::Air { anim: Anim::Fall };
+    p.set_control(true);
+    let mut guard = LoopLimit::new();
+    while matches!(p.state, State::Air { .. }) {
+        guard.step();
+        hold(&mut p, &w, NONE, DT);
+    }
+    assert!(matches!(p.state, State::WallClimb { window: 1, side: Side::Left, .. }), "{:?}", p.state);
+    // 키 없음: 저절로 오르지 않고 매달려 있음
+    let y0 = p.body.y;
+    hold(&mut p, &w, NONE, 2.0);
+    assert_eq!(p.body.y, y0, "hangs");
+    assert_eq!(p.render().anim, Anim::Climb);
+    // ↑ 오름
+    hold(&mut p, &w, keys(|k| k.up = true), 0.5);
+    let y1 = p.body.y;
+    assert!(y1 < y0 - 20.0, "climbs up: {y0} → {y1}");
+    // ↓ 내려감
+    hold(&mut p, &w, keys(|k| k.down = true), 0.5);
+    assert!(p.body.y > y1 + 20.0, "crawls down: {y1} → {}", p.body.y);
+    assert!(matches!(p.state, State::WallClimb { .. }));
+    // 창 반대쪽(←)으로 뛰어내림 → 바닥에서 다시 조작
+    hold(&mut p, &w, keys(|k| k.left = true), DT);
+    assert!(matches!(p.state, State::Air { .. }) && p.body.vx < 0.0, "{:?} {}", p.state, p.body.vx);
+    let mut guard = LoopLimit::new();
+    while p.standing.is_none() {
+        guard.step();
+        hold(&mut p, &w, NONE, DT);
+    }
+    let x = p.body.x;
+    hold(&mut p, &w, keys(|k| k.left = true), 0.5);
+    assert!(p.body.x < x - 20.0, "walks again");
+}
+
+/// 창 옆면을 ↑로 끝까지 오르면 창 윗면에 올라서고, ↓로 창 아래 끝을 지나면 떨어짐
+#[test]
+fn crawling_a_window_side_tops_out_onto_the_window_or_drops_off_its_bottom() {
+    let w = world(vec![win(1, 800.0, 300.0, 1300.0, 700.0)]);
+    for up in [true, false] {
+        let mut p = Pet::new(cat(), 700.0, 500.0, 1);
+        p.body.vx = 600.0;
+        p.state = State::Air { anim: Anim::Fall };
+        p.set_control(true);
+        let mut guard = LoopLimit::new();
+        while matches!(p.state, State::Air { .. }) {
+            guard.step();
+            hold(&mut p, &w, NONE, DT);
+        }
+        assert!(matches!(p.state, State::WallClimb { .. }), "{:?}", p.state);
+        let k = keys(|k| if up { k.up = true } else { k.down = true });
+        let mut guard = LoopLimit::new();
+        while matches!(p.state, State::WallClimb { .. }) {
+            guard.step();
+            hold(&mut p, &w, k, DT);
+        }
+        if up {
+            assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)), "{:?}", p.state);
+        } else {
+            assert!(matches!(p.state, State::Air { .. }), "{:?}", p.state);
+            assert!(p.body.y > 700.0 - 1.0);
+        }
+    }
 }
 
 #[test]

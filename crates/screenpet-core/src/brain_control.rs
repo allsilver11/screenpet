@@ -2,7 +2,10 @@
 //! - ← / → 걷기 (Shift = 달리기), 놓으면 멈춰 마지막 방향을 보고 쉼
 //! - Space (걷는 동물은 ↑도) = 진짜 점프 (몸 JUMP_BODIES배 높이, 개구리는 더 높이) — 창 윗면에도 내려섬. 공중에서 ←/→로 조금 방향을 틂
 //! - ↓ 누르는 동안 앞모습으로 앉기. 창 윗면에서 ↓ 두 번 빠르게 = 창에서 뛰어내리기.
-//! - 벽을 타는 동물(고양이·개구리·산타 등)은 화면 끝 벽 쪽 + ↑ = 기어오르기, ↑로 계속 오르고 놓으면 매달려 있고, ↓ = 미끄러져 내려옴
+//! - 벽을 타는 동물(고양이·개구리·산타 등)은 화면 끝 벽 쪽 + ↑ = 기어오르기, ↑로 계속 오르고 놓으면 매달려 있고, ↓ 누르는 동안 미끄러져 내려옴
+//!   (놓으면 다시 매달림). 벽 반대쪽 방향키나 Space = 벽에서 뛰어내림
+//! - 던져져 창 옆면에 붙어도 조작을 따름: 키 없으면 매달려 있고, ↑ 오르기 (끝까지 오르면 창 윗면에 올라섬), ↓ 내려가기
+//!   (창 아래 끝을 지나면 떨어짐), 창 반대쪽 방향키나 Space = 뛰어내림. 떨어져 내려서면 다시 바닥에서 조작
 //! - 나는 동물(유령·새)은 방향키로 위아래 좌우 (중력 없음, Shift = 빠르게).
 //! - 친구가 연결된 화면 끝으로 몰고 가면 평소 규칙대로 걸어(날아) 나감
 //!
@@ -280,7 +283,7 @@ impl Pet {
             | State::Hungry { .. } => true,
             // 던져진 나는 동물은 멈출 때까지 떠밀려 간다
             State::Air { .. } => !self.cfg.flies,
-            State::Climb { .. } | State::Slide => !self.cfg.flies,
+            State::Climb { .. } | State::Slide | State::WallClimb { .. } => !self.cfg.flies,
             _ => false,
         }
     }
@@ -315,8 +318,9 @@ impl Pet {
                 self.steer_air(dt, input.dir());
                 self.update_air(dt, world);
             }
-            State::Climb { target_y, .. } => self.control_climb(dt, input, target_y),
-            State::Slide => self.update_slide(dt, world),
+            State::Climb { target_y, .. } => self.control_climb(dt, world, input, target_y),
+            State::Slide => self.control_slide(dt, world, input),
+            State::WallClimb { window, side, rel_y } => self.control_wall_climb(dt, world, input, window, side, rel_y),
             _ => self.control_ground(dt, world, input, double_down),
         }
         true
@@ -468,15 +472,69 @@ impl Pet {
         self.state = State::Climb { target_y: wa.top + self.cfg.size, hang: behavior::CLIMB_HANG_SECS, over: false };
     }
 
-    /// 벽 타기: ↑ 오르기, 키 없음 매달리기, ↓ 미끄러져 내려오기, Space 벽에서 뛰어내리기
-    fn control_climb(&mut self, dt: f64, input: ControlInput, target_y: f64) {
-        if input.down {
+    /// 화면 끝 벽 타기: ↑ 오르기, 키 없음 매달리기, ↓ 미끄러져 내려오기, 벽 반대쪽 방향키·Space 벽에서 뛰어내리기
+    fn control_climb(&mut self, dt: f64, world: &World, input: ControlInput, target_y: f64) {
+        let away = self.screen_wall_away(world);
+        if input.jump || (input.dir() == away && away != 0.0) {
+            self.start_hop(if away != 0.0 { away } else { -self.facing });
+        } else if input.down {
             self.state = State::Slide;
-        } else if input.jump {
-            self.start_hop(-self.facing);
+            self.update_slide(dt, world);
         } else if input.up && self.body.y > target_y {
             self.body.y = (self.body.y - self.scaled(behavior::CLIMB_SPEED) * self.climb_pace(dt) * dt).max(target_y);
         }
+    }
+
+    /// 화면 끝 벽에서 미끄러져 내려오는 중: ↓ 누르는 동안만 내려오고, 놓으면 그 자리에 다시 매달림 (벽에 붙어 있을 때)
+    fn control_slide(&mut self, dt: f64, world: &World, input: ControlInput) {
+        let away = self.screen_wall_away(world);
+        if away == 0.0 || input.down {
+            self.update_slide(dt, world);
+            return;
+        }
+        let wa = world.work_area_at(self.body.x, self.body.y);
+        self.body.vy = 0.0;
+        self.state = State::Climb { target_y: wa.top + self.cfg.size, hang: behavior::CLIMB_HANG_SECS, over: false };
+        self.control_climb(dt, world, input, wa.top + self.cfg.size);
+    }
+
+    /// 화면 끝 벽에 붙어 있으면 벽 반대쪽 (+1 오른쪽, -1 왼쪽), 아니면 0
+    fn screen_wall_away(&self, world: &World) -> f64 {
+        let wa = world.work_area_at(self.body.x, self.body.y);
+        let half_w = self.cfg.half_w;
+        if (self.body.x - half_w - wa.left).abs() <= WALL_REACH {
+            1.0
+        } else if (wa.right - self.body.x - half_w).abs() <= WALL_REACH {
+            -1.0
+        } else {
+            0.0
+        }
+    }
+
+    /// 창 옆면 벽 타기: ↑ 오르기 (끝까지 오르면 창 윗면에 올라섬), ↓ 내려가기 (창 아래 끝을 지나면 떨어짐), 키 없음 매달리기,
+    /// 창 반대쪽 방향키·Space 뛰어내리기. 창이 사라지거나 가려지면 평소처럼 떨어짐
+    fn control_wall_climb(&mut self, dt: f64, world: &World, input: ControlInput, window: u64, side: Side, rel_y: f64) {
+        let Some(rect) = world.windows.iter().find(|w| w.id == window).map(|w| w.rect) else {
+            self.update_wall_climb(dt, world, window, side, rel_y);
+            return;
+        };
+        // 창 왼쪽 옆면에 붙었으면 왼쪽이 바깥
+        let away = if side == Side::Left { -1.0 } else { 1.0 };
+        if input.jump || input.dir() == away {
+            self.start_hop(away);
+            return;
+        }
+        if input.up {
+            self.update_wall_climb(dt, world, window, side, rel_y);
+            return;
+        }
+        let rel_y = if input.down { rel_y + self.scaled(behavior::WALL_CLIMB_SPEED) * self.climb_pace(dt) * dt } else { rel_y };
+        if rel_y >= rect.height() {
+            self.start_fall();
+            return;
+        }
+        // dt 0: 오르지 않고 그 자리 (창을 따라가고 가려지면 떨어짐)
+        self.update_wall_climb(0.0, world, window, side, rel_y);
     }
 
     /// 나는 동물: 방향키로 위아래 좌우 (Shift = 빠르게). 놓으면 그 자리에 떠 있음. 친구가 연결된 끝으로 가면 날아 나감
