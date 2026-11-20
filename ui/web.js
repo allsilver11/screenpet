@@ -1,7 +1,8 @@
 // 🕷️ 거미인간의 줄과 거미집 그리기. 🌈 무지개 구름·🖍️ 낙서와 같은 모니터 덮개 창 (trail.html)의 가운데 캔버스에 그림.
 // 앱(src-tauri/src/trail.rs)이 보내는 것 (모두 논리 px, 이 창 왼쪽 위가 0,0):
-//   trail-webs      새 거미집들 [{id, x, y, corner, size, pixel, age, life}] — corner는 top_left·top_right·bottom_left·bottom_right,
-//                   x·y는 모서리 점, size는 반지름, age는 이미 지난 초, life는 그대로 남는 초 (그 뒤 WEB_FADE초 동안 흐려짐)
+//   trail-webs      새 거미집들 [{id, x, y, corner, size, pixel, age, life, shots, build}] — corner는 top_left·top_right·bottom_left·bottom_right,
+//                   x·y는 모서리 점, size는 반지름, age는 이미 지난 초, life는 그대로 남는 초 (그 뒤 WEB_FADE초 동안 흐려짐),
+//                   shots·build: 줄을 shots번 쏘아 build초 동안 짬 — 쏠 때마다 살·고리가 차례로 생김 (build가 없으면 WEB_GROW초에 핌)
 //   trail-lines     지금 뻗어 있는 줄 전부 [{x0, y0, x1, y1}] (손 → 줄 끝) — 바뀔 때마다 통째로, 없으면 빈 목록
 //   trail-web-drop  창이 닫히거나 다른 모니터로 가서 지울 거미집 id들 — WEB_DROP초 동안 흐려짐
 //   trail-web-move  창을 따라 옮길 거미집 [{id, x, y, hidden}] — hidden이면 앞 창에 가려져 그리지 않음
@@ -16,6 +17,12 @@ const WEB_LIFE_RANGE = [5, 3600];
 const WEB_FADE = 4;
 const WEB_DROP = 0.8;
 const MAX_WEBS = 12;
+// 받아들이는 짜는 시간 (초)·줄 횟수
+const WEB_BUILD_MAX = 30;
+const WEB_SHOTS_MAX = 12;
+// 거미집 조각: 살 다섯 + 고리 넷 (짤 때 이 차례로 생김)
+const WEB_SPOKES = 5;
+const WEB_RINGS = 4;
 const WEB_CORNERS = { top_left: [1, 1], top_right: [-1, 1], bottom_left: [1, -1], bottom_right: [-1, -1] };
 // 실 (밝은 흰빛) 아래에 깔리는 그늘 — 밝은 창 위에서도 보이게
 const SILK = "rgba(244,247,255,0.92)";
@@ -36,7 +43,10 @@ function addWebs(list) {
     const life = p.life >= WEB_LIFE_RANGE[0] && p.life <= WEB_LIFE_RANGE[1] ? p.life : WEB_LIFE;
     if (!(p.age >= 0 && p.age < life + WEB_FADE)) continue;
     webs = webs.filter((w) => w.id !== p.id);
-    webs.push({ id: p.id, x: p.x, y: p.y, corner: p.corner, size: p.size, pixel: !!p.pixel, life, born: now - p.age * 1000, gone: 0 });
+    const weave = p.build > 0 && p.build <= WEB_BUILD_MAX && Number.isInteger(p.shots) && p.shots > 1 && p.shots <= WEB_SHOTS_MAX;
+    const build = weave ? p.build : 0;
+    const shots = weave ? p.shots : 1;
+    webs.push({ id: p.id, x: p.x, y: p.y, corner: p.corner, size: p.size, pixel: !!p.pixel, life, born: now - p.age * 1000, gone: 0, build, shots });
   }
   if (webs.length > MAX_WEBS) webs = webs.slice(webs.length - MAX_WEBS);
   wakeWebs();
@@ -77,22 +87,53 @@ function wakeWebs() {
   if (!webFrame) webFrame = requestAnimationFrame(drawWebs);
 }
 
+// 짜는 거미집이 지금까지 생긴 몫 (0..1): 줄 하나 (build / (shots − 1)초)마다 앞 절반 동안 조각이 몇 개씩 생김
+function wovenShare(w, t) {
+  const step = w.build / (w.shots - 1);
+  const k = Math.min(w.shots - 1, Math.floor(t / step));
+  const local = Math.min(1, Math.max(0, (t - k * step) / (step * 0.5)));
+  return Math.min(1, (k + local) / w.shots);
+}
+
 // 거미집 하나의 투명도와 피어난 몫 (0..1)
 function webState(w, now) {
   const t = (now - w.born) / 1000;
-  const grown = Math.min(1, t / WEB_GROW);
+  const grown = w.build > 0 ? wovenShare(w, t) : Math.min(1, t / WEB_GROW);
   let alpha = t < w.life ? 1 : Math.max(0, 1 - (t - w.life) / WEB_FADE);
   if (w.gone) alpha = Math.min(alpha, Math.max(0, 1 - (now - w.gone) / 1000 / WEB_DROP));
   if (w.pixel) alpha = Math.ceil(alpha * 4) / 4;
   return { t, grown, alpha };
 }
 
-// 모서리에서 안쪽으로 펼쳐지는 부채꼴 거미집 (살 다섯 + 처진 고리 넷)
+// 모서리에서 안쪽으로 펼쳐지는 부채꼴 거미집 (살 다섯 + 처진 고리 넷). 짜는 거미집은 조각이 차례로 (살 → 고리), 아니면 통째로 커짐
 function webPaths(w, grown) {
+  if (w.build > 0) return wovenPaths(w, grown);
+  return fanPaths(w, w.size * grown);
+}
+
+// 짜는 중: 다 된 조각은 다, 짜는 조각은 그만큼 (살은 길이, 고리는 앞쪽 점들)
+function wovenPaths(w, grown) {
+  const all = fanPaths(w, w.size);
+  const count = grown * all.length;
+  const done = Math.floor(count);
+  const out = all.slice(0, done);
+  const frac = count - done;
+  if (done < all.length && frac > 0) {
+    const p = all[done];
+    if (p.length === 2) {
+      out.push([p[0], [p[0][0] + (p[1][0] - p[0][0]) * frac, p[0][1] + (p[1][1] - p[0][1]) * frac]]);
+    } else {
+      out.push(p.slice(0, Math.max(2, Math.ceil(p.length * frac))));
+    }
+  }
+  return out;
+}
+
+// 반지름 r인 부채꼴 거미집의 선들: 살 WEB_SPOKES개 다음 고리 WEB_RINGS개
+function fanPaths(w, r) {
   const [sx, sy] = WEB_CORNERS[w.corner];
-  const r = w.size * grown;
-  const spokes = 5;
-  const rings = 4;
+  const spokes = WEB_SPOKES;
+  const rings = WEB_RINGS;
   const out = [];
   const at = (ang, rr) => [w.x + sx * rr * Math.cos(ang), w.y + sy * rr * Math.sin(ang)];
   const angs = [];

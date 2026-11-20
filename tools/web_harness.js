@@ -79,9 +79,17 @@ function load() {
       timers = timers.filter((t) => t.at > now);
       due.forEach((t) => t.f());
     },
+    /** 프레임 하나 (그은 조각 수 — moveTo 수) */
+    frameMoves() {
+      const before = counts.moveTo || 0;
+      this.frame();
+      return (counts.moveTo || 0) - before;
+    },
     rafs: () => rafs.length,
     timers: () => timers.length,
     alive: () => vm.runInContext("webs.length", sandbox),
+    /** 거미집마다 [짜는 시간, 줄 횟수] */
+    weaves: () => vm.runInContext("JSON.stringify(webs.map((w) => [w.build, w.shots]))", sandbox),
     /** 거미집 id의 지금 자리와 숨김 */
     at: (id) => vm.runInContext(`(() => { const w = webs.find((w) => w.id === ${id}); return w && [w.x, w.y, !!w.hidden]; })()`, sandbox),
   };
@@ -150,5 +158,15 @@ out.untouched = h.at(2);
 out.hidden_strokes = h.frame();
 h.send("trail-web-move", [{ id: 1, x: 500, y: 120, hidden: false }]);
 out.shown_strokes = h.frame();
+
+// 짜는 거미집: 쏠 때마다 조각이 늘고 (살 → 고리), 다 짜면 9조각 (그늘 + 실 = 두 번씩)
+h = load();
+h.send("trail-webs", [web(1, { shots: 5, build: 1.28 })]);
+const woven = [];
+for (let i = 0; i < 120; i++) woven.push(h.frameMoves());
+out.woven = woven;
+h = load();
+h.send("trail-webs", [web(1, { shots: 99, build: 1.28 }), web(2, { shots: 5, build: -1 })]);
+out.bad_weave = JSON.parse(h.weaves());
 
 console.log(JSON.stringify(out));

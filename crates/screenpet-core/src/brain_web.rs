@@ -1,6 +1,7 @@
 //! 🕷️ 거미인간 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기 (pet.json `web_slinger` + WEB_ANIMS — PetConfig::slings_webs) — brain.rs의 자식 모듈. 숫자·계산은 web.rs.
 //!
 //! - 🕸️ 거미집: 모서리를 보고 줄을 쏨 (shoot) → 줄 끝이 닿는 순간 take_web이 WebSpin을 한 번 돌려줌 (앱이 그 모서리에 거미집을 그림).
+//!   크기는 제각각 (sized_web)이고, 첫 줄 뒤에도 거미집 여기저기로 줄을 몇 번 더 휙휙 쏴서 짬 (Weave — 앱이 그동안 살·고리를 차례로 그림).
 //!   손님으로 친구 화면에 가 있으면 자주, 집에서는 가끔.
 //! - 🌉 그네: 머리 위 창 아랫변·화면 윗변에 줄을 붙이고 (shoot) → 줄을 당겨 몸이 떠오름 (Zip) → 진자 (web_swing) → 반대편에서 놓고 날아감.
 //! - 🦸 영웅 착지: 몸 크기 HERO_FALL_SIZES배 넘게 떨어져 내려서면 콰당 대신 hero_land ("nailed it!") — land_or_recover가 부름.
@@ -56,6 +57,8 @@ pub enum WebPhase {
     Swing { anchor: Anchor, theta: f64, omega: f64 },
     /// 줄을 끌어당김 (tip = 줄이 붙었던 점 — 손으로 감겨 들어옴)
     Pull { tip: (f64, f64) },
+    /// 🕸️ 거미집 짜기: shot번째 줄을 쏘는 중 (web::weave_target으로 노림 — 첫 줄은 Shoot)
+    Weave { spot: WebSpin, shot: u32 },
     /// 🌀 줄 끝의 물건을 머리 위로 휘두름 (from: 낚은 순간 물건 가운데, half: 물건 반 폭, dir: 던질 쪽 ±1)
     Whirl { id: u64, from: (f64, f64), half: f64, dir: f64 },
 }
@@ -109,6 +112,7 @@ impl Pet {
             WebPhase::Shoot { aim, hit } => lerp(hand, aim.tip(), if hit { 1.0 } else { (t / web::SHOOT_SECS).min(1.0) }),
             WebPhase::Zip { anchor, .. } | WebPhase::Swing { anchor, .. } => (anchor.x, anchor.y),
             WebPhase::Pull { tip } => lerp(tip, hand, (t / web::PULL_SECS).min(1.0)),
+            WebPhase::Weave { spot, shot } => lerp(hand, web::weave_target(&spot, shot), (t / (0.5 * web::WEAVE_SHOT_SECS)).min(1.0)),
             WebPhase::Whirl { from, dir, .. } => self.whirl_spot(from, dir, t),
         };
         Some(WebLine { from: hand, to })
@@ -154,7 +158,7 @@ impl Pet {
     fn web_hand(&self) -> (f64, f64) {
         let g = &self.cfg.grip;
         let (gx, gy) = match self.state {
-            State::Web { phase: WebPhase::Shoot { .. }, t } => g.shoot.at(t),
+            State::Web { phase: WebPhase::Shoot { .. } | WebPhase::Weave { .. }, t } => g.shoot.at(t),
             State::Web { phase: WebPhase::Zip { .. } | WebPhase::Swing { .. }, t } => g.web_swing.at(t),
             State::Web { phase: WebPhase::Pull { .. }, t } => g.web_pull.at(t),
             State::Web { phase: WebPhase::Whirl { .. }, t } => g.web_whirl.at(t),
@@ -204,11 +208,24 @@ impl Pet {
             return false;
         }
         let spot = spots[self.web.rng.usize(..spots.len())];
+        let spot = self.sized_web(spot, world);
         let calm = if self.guest.is_some() { web::WEB_CALM_GUEST } else { web::WEB_CALM_HOME };
         self.web.web_ready_at = self.clock + behavior::range(&mut self.web.rng, calm);
         self.facing = if spot.x >= self.body.x { 1.0 } else { -1.0 };
         self.begin_shoot(WebAim::Corner(spot));
         true
+    }
+
+    /// 🕸️ 칠 거미집의 크기 (WEB_SIZE_RANGE — 창 모서리는 창 짧은 변의 WEB_WINDOW_FIT배까지)와 짤 줄 횟수·시간을 정함
+    pub(super) fn sized_web(&mut self, spot: WebSpin, world: &World) -> WebSpin {
+        let k = behavior::range(&mut self.web.rng, web::WEB_SIZE_RANGE);
+        let mut size = k * self.cfg.size;
+        if let Some(r) = spot.window.and_then(|id| world.windows.iter().find(|w| w.id == id)).map(|w| w.rect) {
+            size = size.min(web::WEB_WINDOW_FIT * r.width().min(r.height()));
+        }
+        let k = size / self.cfg.size;
+        let shots = ((2.0 + 1.5 * k).round() as u32).clamp(web::WEAVE_SHOTS.0, web::WEAVE_SHOTS.1);
+        WebSpin { size, shots, build: f64::from(shots - 1) * web::WEAVE_SHOT_SECS, ..spot }
     }
 
     /// 🌉 한가할 때 주사위: 그네
@@ -339,6 +356,7 @@ impl Pet {
             WebPhase::Pull { tip } => {
                 self.state = if t < web::PULL_SECS { State::Web { phase: WebPhase::Pull { tip }, t } } else { self.rest_beat() };
             }
+            WebPhase::Weave { spot, shot } => self.step_weave(spot, shot, t),
             WebPhase::Whirl { id, from, half, dir } => self.step_whirl(world, id, from, half, dir, t),
         }
     }
@@ -350,6 +368,11 @@ impl Pet {
                 WebAim::Corner(spot) => {
                     self.web.out = Some(spot);
                     self.speech = Some(Speech::Web);
+                    // 🕸️ 한 번에 피지 않고 줄을 몇 번 더 쏴서 짬
+                    if spot.shots > 1 {
+                        self.state = State::Web { phase: WebPhase::Weave { spot, shot: 1 }, t: 0.0 };
+                        return;
+                    }
                 }
                 WebAim::Anchor(anchor) => {
                     self.standing = None;
@@ -386,6 +409,17 @@ impl Pet {
         }
         let hit = hit || t >= web::SHOOT_SECS;
         self.state = if t < web::SHOOT_SECS + web::SHOOT_HOLD_SECS { State::Web { phase: WebPhase::Shoot { aim, hit }, t } } else { self.rest_beat() };
+    }
+
+    /// 🕸️ 거미집 짜는 줄 한 번: WEAVE_SHOT_SECS가 지나면 다음 줄 (쏘는 그림을 처음부터), 다 쐈으면 쉼
+    fn step_weave(&mut self, spot: WebSpin, shot: u32, t: f64) {
+        if t < web::WEAVE_SHOT_SECS {
+            self.state = State::Web { phase: WebPhase::Weave { spot, shot }, t };
+        } else if shot + 1 < spot.shots {
+            self.state = State::Web { phase: WebPhase::Weave { spot, shot: shot + 1 }, t: 0.0 };
+        } else {
+            self.state = self.rest_beat();
+        }
     }
 
     /// 끌어올 물건의 바닥 y: 바닥 물건 목록에 있으면 그 y, 없으면 줄이 붙은 점 아래 (물건 반 폭 몫 — 어림)
@@ -492,7 +526,7 @@ impl Pet {
     /// 줄 놀이 그림
     pub(super) fn web_anim(&self, phase: WebPhase) -> Anim {
         match phase {
-            WebPhase::Shoot { .. } => Anim::Shoot,
+            WebPhase::Shoot { .. } | WebPhase::Weave { .. } => Anim::Shoot,
             WebPhase::Zip { .. } | WebPhase::Swing { .. } => Anim::WebSwing,
             WebPhase::Pull { .. } => Anim::WebPull,
             WebPhase::Whirl { .. } => Anim::WebWhirl,

@@ -2,6 +2,7 @@
 //!
 //! - 거미집: 한가할 때 가까운 모서리(작업 영역 네 모서리 + 앞에 가려지지 않은 창의 위 두 모서리)를 향해 줄을 쏘고, 줄이 닿으면 거미집이 핌.
 //!   손님으로 친구 화면에 가 있으면 자주 (WEB_RATE_GUEST), 집에선 가끔 (WEB_RATE_HOME). 거미집은 앱이 WEB_LIFE_SECS 뒤 흐리게 지움.
+//!   크기는 제각각 (WEB_SIZE_RANGE)이고, 줄을 여러 번 휙휙 쏴서 짬 (WEAVE_SHOTS·weave_target — 앱이 살·고리를 차례로 그림).
 //!   창 모서리 거미집은 창을 따라 옮겨 가고, 앞 창에 가려지면 숨고, 창이 닫히면 사라짐 (web_on_window).
 //! - 그네: 머리 위 창 아랫변이나 화면 윗변에 줄을 붙여 몸을 끌어올린 뒤 진자처럼 흔들려 반대편에서 놓고 날아감
 //! - 끌어오기: 바닥의 물건이나 다른 동물에 줄을 붙여 휙 — 반은 앞에 떨어지게, 반은 머리 너머 뒤로
@@ -33,8 +34,18 @@ pub const WEB_CALM_HOME: (f64, f64) = (40.0, 100.0);
 pub const WEB_CALM_GUEST: (f64, f64) = (8.0, 20.0);
 /// 모서리를 고르는 거리 (몸 크기 배)
 pub const WEB_REACH: f64 = 9.0;
-/// 거미집 반지름 (몸 크기 배)
+/// 거미집 반지름 (몸 크기 배) — 모서리 고를 때의 기본값 (실제로 칠 때는 WEB_SIZE_RANGE에서 고름)
 pub const WEB_SIZE: f64 = 0.8;
+/// 실제로 칠 거미집 반지름 (몸 크기 배): 작은 것부터 꽤 큰 것까지 제각각
+pub const WEB_SIZE_RANGE: (f64, f64) = (0.6, 2.6);
+/// 창 모서리 거미집은 창의 짧은 변의 이만큼까지만
+pub const WEB_WINDOW_FIT: f64 = 0.6;
+/// 거미집 하나를 짜려고 줄을 쏘는 횟수 (작은 것 ~ 큰 것)
+pub const WEAVE_SHOTS: (u32, u32) = (4, 7);
+/// 거미집 짜는 줄 한 번 (쏘고 닿아 있는 시간)
+pub const WEAVE_SHOT_SECS: f64 = 0.32;
+/// 짜는 줄이 노리는 자리: (모서리 각의 몫 0..1, 반지름의 몫) — 두 번째 줄부터 차례로 (첫 줄은 모서리)
+const WEAVE_AIMS: [(f64, f64); 6] = [(0.0, 1.0), (1.0, 1.0), (0.5, 1.0), (0.25, 0.7), (0.75, 0.7), (0.5, 0.45)];
 /// 이보다 작은 창의 모서리에는 치지 않음 (몸 크기 배, 가로·세로)
 pub const MIN_WINDOW: f64 = 2.0;
 /// 앱이 거미집을 남겨 두는 시간 (그 뒤 흐려져 사라짐)
@@ -125,6 +136,24 @@ pub struct WebSpin {
     pub size: f64,
     /// 창 모서리면 그 창 id (창이 움직이거나 닫히면 앱이 지움), 화면 모서리면 None
     pub window: Option<u64>,
+    /// 줄을 쏘아 짜는 횟수 (1이면 한 번에 핌)
+    pub shots: u32,
+    /// 다 짜는 데 걸리는 시간 (초) — 앱이 그동안 살·고리를 차례로 그림 (0이면 바로 핌)
+    pub build: f64,
+}
+
+/// 🕸️ 거미집을 짜는 k번째 줄 (1부터 — 0번째는 모서리)이 노리는 자리 (물리 px): 부채꼴 살 끝 → 안쪽 고리 차례
+pub fn weave_target(spot: &WebSpin, k: u32) -> (f64, f64) {
+    let (frac, rad) = WEAVE_AIMS[(k.max(1) as usize - 1) % WEAVE_AIMS.len()];
+    let (sx, sy) = match spot.corner {
+        Corner::TopLeft => (1.0, 1.0),
+        Corner::TopRight => (-1.0, 1.0),
+        Corner::BottomLeft => (1.0, -1.0),
+        Corner::BottomRight => (-1.0, -1.0),
+    };
+    let ang = std::f64::consts::FRAC_PI_2 * frac;
+    let r = spot.size * rad;
+    (spot.x + sx * r * ang.cos(), spot.y + sy * r * ang.sin())
 }
 
 /// 지금 뻗어 있는 줄 한 가닥 (물리 px) — 앱이 덮개 창에 그림
@@ -188,10 +217,10 @@ pub fn corner_spots(world: &World, at: (f64, f64), reach: f64, size: f64) -> Vec
     let wa = world.work_area_at(at.0, at.1);
     let web = WEB_SIZE * size;
     let mut out = vec![
-        WebSpin { x: wa.left, y: wa.top, corner: Corner::TopLeft, size: web, window: None },
-        WebSpin { x: wa.right, y: wa.top, corner: Corner::TopRight, size: web, window: None },
-        WebSpin { x: wa.left, y: wa.bottom, corner: Corner::BottomLeft, size: web, window: None },
-        WebSpin { x: wa.right, y: wa.bottom, corner: Corner::BottomRight, size: web, window: None },
+        WebSpin { x: wa.left, y: wa.top, corner: Corner::TopLeft, size: web, window: None, shots: 1, build: 0.0 },
+        WebSpin { x: wa.right, y: wa.top, corner: Corner::TopRight, size: web, window: None, shots: 1, build: 0.0 },
+        WebSpin { x: wa.left, y: wa.bottom, corner: Corner::BottomLeft, size: web, window: None, shots: 1, build: 0.0 },
+        WebSpin { x: wa.right, y: wa.bottom, corner: Corner::BottomRight, size: web, window: None, shots: 1, build: 0.0 },
     ];
     for (k, w) in world.windows.iter().enumerate() {
         let r = w.rect;
@@ -203,7 +232,7 @@ pub fn corner_spots(world: &World, at: (f64, f64), reach: f64, size: f64) -> Vec
             // 앞의 창이 그 모서리를 가리면 안 보임 (창 목록은 앞 → 뒤)
             let covered = world.windows[..k].iter().any(|f| inside(&f.rect, x, r.top + 1.0) || inside(&f.rect, x + if corner == Corner::TopLeft { 1.0 } else { -1.0 }, r.top + 1.0));
             if on_screen && !covered {
-                out.push(WebSpin { x, y: r.top, corner, size: web, window: Some(w.id) });
+                out.push(WebSpin { x, y: r.top, corner, size: web, window: Some(w.id), shots: 1, build: 0.0 });
             }
         }
     }

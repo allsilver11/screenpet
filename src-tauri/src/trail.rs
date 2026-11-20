@@ -66,6 +66,9 @@ struct WebWire {
     age: f64,
     /// 그대로 남는 시간 (초) — 그 뒤 흐려짐
     life: f64,
+    /// 🕸️ 줄을 쏘아 짜는 횟수와 다 짜는 시간 (초) — 그동안 살·고리를 차례로 그림 (build 0이면 바로 핌)
+    shots: u32,
+    build: f64,
 }
 
 /// 웹뷰로 가는 거미집 옮기기 (논리 px, 이 창 왼쪽 위가 0,0 — 창을 따라감, hidden이면 앞 창에 가려져 안 그림)
@@ -305,7 +308,7 @@ impl TrailFx {
         if !(size.is_finite() && size > 0.0) {
             return;
         }
-        let wire = WebWire { id, x: (w.x - o.wa.left) / o.scale, y: (w.y - o.wa.top) / o.scale, corner: w.corner, size, pixel, age: 0.0, life: WEB_LIFE_SECS };
+        let wire = WebWire { id, x: (w.x - o.wa.left) / o.scale, y: (w.y - o.wa.top) / o.scale, corner: w.corner, size, pixel, age: 0.0, life: WEB_LIFE_SECS, shots: w.shots, build: w.build };
         o.webs.push((now, wire));
         let label = o.label.clone();
         self.webs.push(WebTrack { id, label, window: w.window, x: w.x, y: w.y, corner: w.corner, size: w.size, hidden: false, until: now + WEB_LIFE });
@@ -397,7 +400,7 @@ impl TrailFx {
                 return true;
             }
             // 다른 모니터로 갔으면 (그 모서리 안쪽 점이 이 덮개 창 밖) 지움
-            let inward = inward(&WebSpin { x, y, corner: t.corner, size: t.size, window: t.window });
+            let inward = inward(&WebSpin { x, y, corner: t.corner, size: t.size, window: t.window, shots: 1, build: 0.0 });
             let Some(o) = overlays.iter().find(|o| o.label == t.label && o.wa.contains(inward.0, inward.1)) else {
                 drops.push((t.label.clone(), t.id));
                 return false;

@@ -68,6 +68,75 @@ fn it_shoots_a_line_at_a_corner_and_the_web_blooms_once_when_the_line_lands() {
     }
 }
 
+/// 🕸️ 거미집은 한 번에 휙 생기지 않고 줄을 여러 번 (휙휙휙) 쏴서 짬 — 줄 끝이 매번 다른 자리, 앱에는 짜는 시간과 횟수를 알림
+#[test]
+fn a_web_is_woven_with_several_shots_aimed_around_the_web() {
+    let w = world(vec![]);
+    let mut p = calm_spider(900.0, 1, &w);
+    assert!(p.start_web_spin(&w));
+    let mut tips: Vec<(f64, f64)> = Vec::new();
+    let mut spun = Vec::new();
+    let mut shoot_starts = 0;
+    let mut was_t = f64::INFINITY;
+    let mut guard = LoopLimit::new();
+    while matches!(p.state, State::Web { .. }) {
+        guard.step();
+        if let State::Web { t, .. } = p.state {
+            if t < was_t {
+                shoot_starts += 1;
+            }
+            was_t = t;
+        }
+        if let Some(l) = p.web_line() {
+            if tips.last().is_none_or(|q| (q.0 - l.to.0).hypot(q.1 - l.to.1) > 1.0) {
+                tips.push(l.to);
+            }
+        }
+        p.update(DT, &w);
+        spun.extend(p.take_web());
+    }
+    assert_eq!(spun.len(), 1, "거미집은 한 번");
+    let s = spun[0];
+    assert!((web::WEAVE_SHOTS.0..=web::WEAVE_SHOTS.1).contains(&s.shots), "{}", s.shots);
+    assert!((s.build - f64::from(s.shots - 1) * web::WEAVE_SHOT_SECS).abs() < 1e-9, "짜는 시간 {}", s.build);
+    assert!(shoot_starts >= s.shots as usize, "쏠 때마다 쏘는 그림을 처음부터: {shoot_starts}");
+    // 줄 끝이 거미집 여기저기 (모서리 안쪽 부채꼴 안)
+    let (sx, sy) = match s.corner { Corner::TopLeft => (1.0, 1.0), Corner::TopRight => (-1.0, 1.0), Corner::BottomLeft => (1.0, -1.0), Corner::BottomRight => (-1.0, -1.0) };
+    let mut aims: Vec<(f64, f64)> = Vec::new();
+    for k in 1..s.shots {
+        let a = web::weave_target(&s, k);
+        assert!((a.0 - s.x) * sx >= -1e-9 && (a.1 - s.y) * sy >= -1e-9, "안쪽 {a:?}");
+        assert!((a.0 - s.x).hypot(a.1 - s.y) <= s.size + 1e-9);
+        assert!(aims.iter().all(|q| (q.0 - a.0).hypot(q.1 - a.1) > 0.1 * s.size), "매번 다른 자리");
+        aims.push(a);
+    }
+}
+
+/// 🕸️ 거미집 크기는 제각각 — 작게도, 꽤 크게도. 창 모서리는 창보다 크지 않게
+#[test]
+fn web_sizes_vary_from_small_to_big_and_fit_their_window() {
+    let w = world(vec![]);
+    let mut sizes = Vec::new();
+    for seed in 0..40 {
+        let mut p = calm_spider(900.0, seed, &w);
+        let size = p.cfg.size;
+        let spot = web::corner_spots(&w, (0.0, 1040.0), 1e9, size)[0];
+        let s = p.sized_web(spot, &w);
+        sizes.push(s.size / size);
+    }
+    let (lo, hi) = sizes.iter().fold((f64::INFINITY, 0.0f64), |(a, b), &x| (a.min(x), b.max(x)));
+    assert!(lo >= web::WEB_SIZE_RANGE.0 - 1e-9 && hi <= web::WEB_SIZE_RANGE.1 + 1e-9);
+    assert!(lo < 1.0 && hi > 2.0, "작게도 크게도: {lo}..{hi}");
+    // 작은 창: 창의 짧은 변 WEB_WINDOW_FIT배를 넘지 않음
+    let small = world(vec![WindowInfo { id: 7, rect: Rect::new(700.0, 500.0, 1100.0, 800.0) }]);
+    for seed in 0..20 {
+        let mut p = calm_spider(800.0, seed, &small);
+        let spot = web::corner_spots(&small, (750.0, 700.0), 1e9, p.cfg.size).into_iter().find(|s| s.window == Some(7)).unwrap();
+        let s = p.sized_web(spot, &small);
+        assert!(s.size <= web::WEB_WINDOW_FIT * 300.0 + 1e-9, "{}", s.size);
+    }
+}
+
 /// 손님일 때만 자주 — 집에서는 가끔 (쿨다운도 김)
 #[test]
 fn a_visiting_spider_spins_webs_here_and_there_much_more_often_than_at_home() {

@@ -106,3 +106,11 @@ def test_a_window_web_moves_with_its_window_and_hides_while_covered(run):
     assert run["moved"] == [500, 120, False] and run["move_rafs"] == 1, "옮기면 바로 다시 그림"
     assert run["hidden"] == [500, 120, True] and run["hidden_strokes"] < run["shown_strokes"], "가려지면 그리지 않음"
     assert run["untouched"] == [0, 0, False], "이상한 값은 무시"
+
+
+def test_a_woven_web_appears_piece_by_piece_shot_by_shot(run):
+    woven = [m for m in run["woven"] if m]
+    assert woven[0] < 18 and woven[-1] == 18, "처음엔 몇 조각, 다 짜면 9조각 × (그늘 + 실)"
+    assert all(b >= a for a, b in zip(woven, woven[1:])), "조각은 늘기만"
+    assert len(set(woven)) >= 5, "한 번에 휙이 아니라 여러 번에 걸쳐"
+    assert run["bad_weave"] == [[0, 1], [0, 1]], "이상한 값이면 예전처럼 한 번에 핌"
