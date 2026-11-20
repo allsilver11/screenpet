@@ -2,9 +2,11 @@
 //! 왼쪽·오른쪽 버튼·Esc·20초 동안 안 움직이면 내려놓음
 //! 쓴 것을 들고 친구가 연결된 화면 끝으로 계속 밀면 친구 화면에 흩날림 (물건 던지기 통로로 보냄, weather::flurry_kind).
 //! 바닥의 물건(쓰레기·똥·장난감·눈덩이·거대한 것)은 지나가기만 해도 빗자루 쪽으로 밀려 날아감 (object::Object::sweep)
+//! 🕸️ 거미인간이 친 거미집도 그 위를 쓸고 지나가면 걷힘 (sweeps_web)
 
 use crate::geom::Rect;
 use crate::visit::{edge_fraction, Fling, Side};
+use crate::web::Corner;
 
 /// 안 움직이면 내려놓는 시간 (초)
 pub const IDLE_SECS: f64 = 20.0;
@@ -77,6 +79,25 @@ impl Broom {
     pub fn passes_over(&self, x: f64, y: f64, dpi: f64) -> bool {
         let (x0, x1) = self.span(dpi);
         self.velocity != (0.0, 0.0) && x0 <= x && x <= x1 && (self.at.1 - y).abs() <= Self::reach_y(dpi)
+    }
+
+    /// 🕸️ 이번 틱에 모서리 (x, y)에서 안쪽으로 반지름 radius (물리 px)만큼 펼쳐진 거미집을 쓸고 지나갔음 (움직이는 중일 때만).
+    /// 쓸리는 네모와 그 모서리 안쪽 사분면이 겹치는 곳 중 모서리에 가장 가까운 점이 반지름 안이면 걷힘
+    pub fn sweeps_web(&self, x: f64, y: f64, corner: Corner, radius: f64, dpi: f64) -> bool {
+        if self.velocity == (0.0, 0.0) || !(radius > 0.0) {
+            return false;
+        }
+        let (bx0, bx1) = self.span(dpi);
+        let (by0, by1) = (self.at.1 - Self::reach_y(dpi), self.at.1 + Self::reach_y(dpi));
+        let right = matches!(corner, Corner::TopLeft | Corner::BottomLeft);
+        let down = matches!(corner, Corner::TopLeft | Corner::TopRight);
+        let (x0, x1) = if right { (bx0.max(x), bx1) } else { (bx0, bx1.min(x)) };
+        let (y0, y1) = if down { (by0.max(y), by1) } else { (by0, by1.min(y)) };
+        if x0 > x1 || y0 > y1 {
+            return false;
+        }
+        let (nx, ny) = (x.clamp(x0, x1), y.clamp(y0, y1));
+        (nx - x).hypot(ny - y) <= radius
     }
 
     /// 빗자루 속도 (물리 px/s)
@@ -190,6 +211,29 @@ mod tests {
         // 멈춰 있으면 쓸지 않는다
         b.tick(DT, (200.0, 1000.0), false, false, false);
         assert!(!b.passes_over(200.0, 1000.0, 1.0));
+    }
+
+    /// 🕸️ 거미집 (모서리에서 안쪽으로 반지름만큼 펼쳐진 부채꼴) 위를 쓸고 지나가면 걷힘 — 공중의 창 모서리도
+    #[test]
+    fn a_stroke_through_a_web_in_a_corner_sweeps_it_away() {
+        // 화면 왼쪽 위 거미집 (반지름 80): 그 안을 지나가면 걷힘
+        let mut b = Broom::new((10.0, 40.0));
+        moving(&mut b, (60.0, 40.0));
+        assert!(b.sweeps_web(0.0, 0.0, Corner::TopLeft, 80.0, 1.0));
+        // 창 오른쪽 위 모서리 (1300, 500) 아래로 펼쳐진 거미집
+        let mut b = Broom::new((1290.0, 530.0));
+        moving(&mut b, (1250.0, 530.0));
+        assert!(b.sweeps_web(1300.0, 500.0, Corner::TopRight, 80.0, 1.0));
+        // 거미집 바깥(모서리 반대편 / 멀리 아래)이면 그대로
+        assert!(!b.sweeps_web(1400.0, 500.0, Corner::TopLeft, 80.0, 1.0), "빗자루 오른쪽으로 펼쳐진 거미집");
+        assert!(!b.sweeps_web(1300.0, 200.0, Corner::TopRight, 80.0, 1.0), "멀리 위");
+        // 화면 오른쪽 아래 거미집, dpi 2면 반지름도 물리 px
+        let mut b = Broom::new((1900.0, 1020.0));
+        moving(&mut b, (1880.0, 1020.0));
+        assert!(b.sweeps_web(1920.0, 1040.0, Corner::BottomRight, 160.0, 2.0));
+        // 멈춰 있으면 걷지 않음
+        b.tick(DT, (1880.0, 1020.0), false, false, false);
+        assert!(!b.sweeps_web(1920.0, 1040.0, Corner::BottomRight, 160.0, 2.0));
     }
 
     #[test]

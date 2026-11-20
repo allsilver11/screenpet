@@ -8,11 +8,12 @@
 //!
 //! 🕷️ 거미인간의 줄 (`Pet::web_line` → `trail-lines`)과 모서리 거미집 (`Pet::take_web` → `trail-webs`)도 같은 창이 그림 (ui/web.js).
 //! 거미집이 남아 있는 동안 (WEB_LIFE)은 창을 닫지 않음. 창 모서리 거미집은 그 창이 움직이거나 닫히면 `trail-web-drop`으로 지우고,
-//! 🧹 다 치우기 (`clear_webs`)와 한 시간마다 (weather::AUTO_CLEAR_SECS) `trail-web-clear`로 모두 지움. 손님 거미인간 것도 그림.
+//! 🧹 빗자루가 쓸고 지나간 거미집은 `sweep_webs`가 `trail-web-drop`으로, 🧹 다 치우기 (`clear_webs`)와 한 시간마다 (weather::AUTO_CLEAR_SECS) `trail-web-clear`로 모두 지움. 손님 거미인간 것도 그림.
 
 use std::time::{Duration, Instant};
 
 use screenpet_core::brain::{Doodle, DoodleKind, DOODLE_SECS};
+use screenpet_core::broom::Broom;
 use screenpet_core::geom::Rect;
 use screenpet_core::style::PetStyle;
 use screenpet_core::trail::{self, Puff, Runner, Trail};
@@ -86,6 +87,8 @@ struct WebTrack {
     x: f64,
     y: f64,
     corner: Corner,
+    /// 반지름 (물리 px) — 🧹 빗자루가 지나가는지 볼 때
+    size: f64,
     /// 다 사라지는 때
     until: Instant,
 }
@@ -293,7 +296,7 @@ impl TrailFx {
         let wire = WebWire { id, x: (w.x - o.wa.left) / o.scale, y: (w.y - o.wa.top) / o.scale, corner: w.corner, size, pixel, age: 0.0, life: WEB_LIFE_SECS };
         o.webs.push((now, wire));
         let label = o.label.clone();
-        self.webs.push(WebTrack { id, label, window: w.window, x: w.x, y: w.y, corner: w.corner, until: now + WEB_LIFE });
+        self.webs.push(WebTrack { id, label, window: w.window, x: w.x, y: w.y, corner: w.corner, size: w.size, until: now + WEB_LIFE });
         if self.webs.len() > MAX_WEBS {
             let old = self.webs.remove(0);
             let _ = app.emit_to(old.label.as_str(), "trail-web-drop", [old.id]);
@@ -331,7 +334,7 @@ impl TrailFx {
         }
     }
 
-    /// 🧹 쓰레기·눈·낙엽 다 치우기 (그리고 한 시간마다): 거미집을 모두 흐리게 지움
+    /// 🧹 모든 물건 다 치우기 (그리고 한 시간마다): 거미집을 모두 흐리게 지움
     pub fn clear_webs(&mut self, app: &AppHandle) {
         let now = Instant::now();
         for o in &mut self.overlays {
@@ -342,6 +345,21 @@ impl TrailFx {
             self.webs_until = Some(now + WEB_DROP);
         }
         self.webs.clear();
+    }
+
+    /// 🧹 빗자루가 쓸고 지나간 거미집은 흐리게 지움 (dpi = 커서 자리 화면 배율)
+    pub fn sweep_webs(&mut self, app: &AppHandle, broom: &Broom, dpi: f64) {
+        let mut drops: Vec<(String, u64)> = Vec::new();
+        self.webs.retain(|t| {
+            let swept = broom.sweeps_web(t.x, t.y, t.corner, t.size, dpi);
+            if swept {
+                drops.push((t.label.clone(), t.id));
+            }
+            !swept
+        });
+        for (label, id) in drops {
+            let _ = app.emit_to(label.as_str(), "trail-web-drop", [id]);
+        }
     }
 
     /// 창 모서리 거미집: 그 창이 닫히거나 움직였으면 지움 (그 창 모서리에 그대로 있을 때만 남김)

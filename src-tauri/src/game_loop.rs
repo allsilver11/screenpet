@@ -942,6 +942,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 let _ = app.state::<AppState>().menu.broom.set_checked(false);
             } else {
                 objects.sweep_objects(b);
+                // 🕸️ 지나간 거미집도 걷음 (trail.rs)
+                trail.sweep_webs(&app, b, dpi);
                 let (x0, x1) = b.span(dpi);
                 if let Some((amount, kind)) = weather.sweep(x0, x1, cy, Broom::reach_y(dpi)) {
                     if let Some(count) = b.swept(amount) {
