@@ -2,6 +2,7 @@
 // CPU를 아끼는 규칙: 24 fps 이하, 알갱이 80개 이하, 미리 그린 그림을 정수 자리에 찍기, 알갱이 자리만 지우기, 더미는 바뀔 때만.
 // 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·heavy_snow·rain·shower·petals·leaves·green_leaves·typhoon)로 앱 없이 볼 수 있음.
 // 🌀 태풍: 장면의 wind(부호 = 방향, 돌풍에 커짐)로 비·잎이 옆으로 눕고, tornado([x, 바닥 y, vx])가 있으면 깔때기를 그림 (사이는 vx로 이어 그림).
+// 깔때기 = 미리 한 번 그려 둔 반투명 먹구름 뭉치들이 나선으로 돌며 오름 (프레임마다 흐림 필터 없음), 찍은 칸만 다음 프레임에 지움.
 
 const FPS = 24;
 const FRAME_MS = 1000 / FPS;
@@ -30,10 +31,27 @@ const KINDS = {
 const DEBRIS_EVERY = 4;
 const DEBRIS_FALL = [140, 260];
 const DEBRIS_WIND = 1.8;
-// 🌀 회오리 깔때기: 높이, 바닥·꼭대기 반지름 (core typhoon.rs FUNNEL_R와 같음), 고리 수
+// 🌀 회오리 깔때기: 높이, 바닥·꼭대기 반지름 (core typhoon.rs FUNNEL_R와 같음 — 뭉치 끝까지 축에서 FUNNEL_R[1] + 30 안)
 const FUNNEL_HEIGHT = 300;
 const FUNNEL_R = [26, 90];
-const FUNNEL_RINGS = 9;
+// 먹구름 뭉치: 층 수, 층마다 줄기 수, 도는 빠르기 (라디안/초), 한 층 위로 갈 때 비틀림, 오르는 빠르기 (층/초), 꼭대기 지붕·바닥 먼지 수
+const FUNNEL_LEVELS = 14;
+const FUNNEL_STRANDS = 3;
+const FUNNEL_SPIN = 2.2;
+const FUNNEL_TWIST = 0.62;
+const FUNNEL_RISE = 0.45;
+const FUNNEL_CAP = 7;
+const FUNNEL_DUST = 5;
+// 미리 그리는 뭉치 그림 크기 (동글은 늘려 찍음), 이보다 옅은 뭉치는 안 그림
+const PUFF_BOX = 96;
+const PUFF_MIN_ALPHA = 0.2;
+// 뭉치 색 [밝은 속, 그늘, 가장자리]: 먹구름 (뒤 어둡게 → 앞 밝게), 마지막은 바닥 흙먼지
+const PUFF_TONES = [
+  ["#5d626d", "#3e424c", "#272a31"],
+  ["#7b808b", "#555a64", "#383c45"],
+  ["#9a9fa9", "#6f747e", "#4b4f58"],
+  ["#b3a68e", "#8a7e69", "#5f5646"],
+];
 const FLUTTER = 1.6;
 // 낙엽 색: 속, 테두리
 const LEAF_TONES = [
@@ -531,7 +549,94 @@ function clearFunnel() {
   funnelBox = null;
 }
 
-// 회오리를 그림: 바닥에서 위로 넓어지는 고리들이 빙글 돌며 출렁임 (앱이 준 자리에서 vx로 이어 감)
+// 뭉게구름 한 덩이를 이루는 둥근 덩이들 (0~1 칸 기준 {x, y, r}), 아래 것 먼저 — 위 덩이가 밝게 덮음
+function billows(seed) {
+  const out = [{ x: 0.5, y: 0.55, r: 0.3 }];
+  for (let i = 1; i < 5; i++) {
+    const a = ((i - 1) / 4 + 0.25 * hash(seed + 1, i)) * Math.PI * 2;
+    const d = 0.1 + 0.07 * hash(i, seed + 2);
+    out.push({ x: 0.5 + Math.cos(a) * d, y: 0.5 + Math.sin(a) * d * 0.6, r: 0.18 + 0.08 * hash(seed + 3, i) });
+  }
+  return out.sort((p, q) => q.y - p.y);
+}
+
+// "#rrggbb" → rgba 문자열
+function rgba(hex, a) {
+  const v = parseInt(hex.slice(1), 16);
+  return `rgba(${v >> 16},${(v >> 8) & 255},${v & 255},${a})`;
+}
+
+// 동글 뭉치: 덩이마다 왼쪽 위가 밝은 둥근 번짐 (가장자리는 투명하게 녹음)
+function softPuff(tone, seed) {
+  return (g, s) => {
+    for (const b of billows(seed)) {
+      const x = b.x * s, y = b.y * s, r = b.r * s;
+      const grad = g.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+      grad.addColorStop(0, rgba(tone[0], 0.85));
+      grad.addColorStop(0.45, rgba(tone[1], 0.7));
+      grad.addColorStop(0.75, rgba(tone[2], 0.3));
+      grad.addColorStop(1, rgba(tone[2], 0));
+      g.fillStyle = grad;
+      g.beginPath();
+      g.arc(x, y, r, 0, Math.PI * 2);
+      g.fill();
+    }
+  };
+}
+
+// 픽셀 뭉치: dots×dots 칸을 덩이 안이면 세 단 그늘로 채움 (계단 모양 가장자리)
+function pxPuff(tone, seed, dots) {
+  const bill = billows(seed);
+  return (g) => {
+    for (let j = 0; j < dots; j++) {
+      for (let i = 0; i < dots; i++) {
+        const u = (i + 0.5) / dots;
+        const v = (j + 0.5) / dots;
+        let b = null;
+        for (let k = bill.length - 1; k >= 0 && !b; k--) if ((u - bill[k].x) ** 2 + (v - bill[k].y) ** 2 < bill[k].r ** 2) b = bill[k];
+        if (!b) continue;
+        const lit = (-(u - b.x) * 0.6 - (v - b.y) * 0.8) / b.r;
+        g.fillStyle = tone[lit > 0.3 ? 0 : lit > -0.4 ? 1 : 2];
+        g.fillRect(i * PX_DOT, j * PX_DOT, PX_DOT, PX_DOT);
+      }
+    }
+  };
+}
+
+// 뭉치 그림 (처음 한 번만 그려 둠): 동글은 PUFF_BOX 하나를 늘려 찍고, 픽셀은 크기(짝수 칸)마다 따로
+const puffCache = {};
+function puffSprite(tone, seed, size) {
+  const dots = Math.max(6, Math.round(size / PX_DOT / 2) * 2);
+  const key = pixelArt ? `px:${tone}:${seed}:${dots}` : `${tone}:${seed}`;
+  if (!puffCache[key]) {
+    puffCache[key] = pixelArt ? makeSprite(dots * PX_DOT, pxPuff(PUFF_TONES[tone], seed, dots)) : makeSprite(PUFF_BOX, softPuff(PUFF_TONES[tone], seed));
+  }
+  return puffCache[key];
+}
+
+// 이번 프레임의 뭉치들 (자리 x·y = 가운데, 지름, 깊이 −1 뒤 ~ 1 앞, 투명도, 색, 모양) — 프레임마다 새로 만들지 않고 다시 씀
+const funnelPuffs = [];
+let puffCount = 0;
+function addPuff(x, y, size, depth, alpha, tone, seed) {
+  if (alpha < PUFF_MIN_ALPHA) return;
+  const p = funnelPuffs[puffCount] || (funnelPuffs[puffCount] = {});
+  puffCount++;
+  p.x = x;
+  p.y = y;
+  p.size = size;
+  p.depth = depth;
+  p.alpha = Math.min(alpha, 0.9);
+  p.tone = tone;
+  p.seed = seed;
+}
+
+// 깊이에 따른 먹구름 색 (뒤는 어둡게)
+function toneAt(depth) {
+  return depth < -0.3 ? 0 : depth < 0.4 ? 1 : 2;
+}
+
+// 회오리를 그림: 반투명 먹구름 뭉치들이 축을 돌며 나선으로 올라감 (위가 넓고 바닥으로 좁아짐), 꼭대기는 먹구름 지붕, 바닥은 흙먼지.
+// 앱이 준 자리에서 vx로 이어 감. 그린 칸을 모두 모아 funnelBox로 — 다음 프레임에 그대로 지움 (회색 잔상 없음)
 function drawFunnel(now) {
   if (!tornado || kind !== "typhoon") return;
   const t = now / 1000;
@@ -539,33 +644,62 @@ function drawFunnel(now) {
   const out = FUNNEL_R[1] + 30;
   const x = Math.min(Math.max(tornado.x + (tornado.vx * (now - tornado.at)) / 1000, -out), width + out);
   const y = tornado.y;
-  const g = fallCtx;
-  const line = pixelArt ? PX_DOT : 2.2;
-  // 지울 칸 = 그린 것 전부 + 여유: 고리는 옆으로 12 출렁이고 살짝 기울며, 맨 위 고리는 꼭대기보다 세로 반지름만큼 더 올라감
-  // (칸이 모자라면 삐져나온 고리 끝이 다음 프레임에 안 지워져 회색 줄로 남음)
-  const reach = FUNNEL_R[1] + 12 + line + 6;
-  const top = FUNNEL_HEIGHT + FUNNEL_R[1] * 0.4 + line + 6;
-  const left = Math.floor(x - reach);
-  const upper = Math.floor(y - top);
-  funnelBox = [left, upper, Math.ceil(x + reach) - left, Math.ceil(y + 12) - upper];
-  g.save();
-  g.lineWidth = line;
-  for (let k = 0; k < FUNNEL_RINGS; k++) {
-    const f = k / (FUNNEL_RINGS - 1);
-    const h = f * FUNNEL_HEIGHT;
-    const r = FUNNEL_R[0] + (FUNNEL_R[1] - FUNNEL_R[0]) * Math.pow(f, 1.2);
-    const cx = x + Math.sin(t * 3 + k * 0.7) * 12 * f;
-    g.beginPath();
-    g.ellipse(cx, y - h, r, r * 0.28, Math.sin(t * 5 + k) * 0.08, 0, Math.PI * 2);
-    g.strokeStyle = `rgba(120,130,145,${0.75 - 0.35 * f})`;
-    g.stroke();
+  const spin = t * FUNNEL_SPIN;
+  // 축이 뱀처럼 휨 (위로 갈수록 더)
+  const axis = (f) => x + Math.sin(t * 1.6 + f * 2.4) * 9 * f;
+  const radius = (f) => FUNNEL_R[0] + (FUNNEL_R[1] - FUNNEL_R[0]) * Math.pow(f, 1.8);
+  puffCount = 0;
+  // 나선 줄기: 층 높이 f가 계속 올라가고 (꼭대기에서 바닥으로 돌아옴), 각도는 f로만 정해져 돌아와도 튀지 않음. 위·아래 끝은 옅게
+  const rise = (t * FUNNEL_RISE) % 1;
+  for (let k = 0; k < FUNNEL_LEVELS; k++) {
+    const f = (k + rise) / FUNNEL_LEVELS;
+    const r = radius(f);
+    const fade = Math.min(1, 0.4 + f * 8, (1 - f) * 4);
+    const cy = y - 12 - f * (FUNNEL_HEIGHT - 12);
+    // 가운데 몸통 (틈을 메워 이어진 깔때기로 보이게)
+    addPuff(axis(f), cy, r * 1.25 + 8, 0, 0.5 * fade, 1, (k % 3) + 6);
+    for (let j = 0; j < FUNNEL_STRANDS; j++) {
+      const a = spin + f * FUNNEL_LEVELS * FUNNEL_TWIST + (j * Math.PI * 2) / FUNNEL_STRANDS;
+      const depth = Math.sin(a);
+      const size = (r * 1.1 + 8) * (1 + 0.12 * depth);
+      addPuff(axis(f) + Math.cos(a) * r * 0.5, cy + depth * r * 0.16, size, depth, (0.55 + 0.25 * depth) * fade, toneAt(depth), j);
+    }
   }
-  // 바닥의 먼지 소용돌이
-  g.beginPath();
-  g.ellipse(x, y - 4, FUNNEL_R[0] * 2.2, 7, 0, 0, Math.PI * 2);
-  g.fillStyle = "rgba(150,140,120,0.35)";
-  g.fill();
+  // 꼭대기 먹구름 지붕: 넓게 천천히 돎 (어두운 색)
+  for (let j = 0; j < FUNNEL_CAP; j++) {
+    const a = spin * 0.5 + (j * Math.PI * 2) / FUNNEL_CAP;
+    const depth = Math.sin(a);
+    const r = FUNNEL_R[1];
+    addPuff(axis(1) + Math.cos(a) * r * 0.62, y - FUNNEL_HEIGHT + depth * r * 0.14, (r * 0.95 + 10) * (1 + 0.1 * depth), depth, 0.65 + 0.15 * depth, depth < 0.2 ? 0 : 1, j + 3);
+  }
+  // 바닥 흙먼지: 작고 빠르게 돎
+  for (let j = 0; j < FUNNEL_DUST; j++) {
+    const a = -spin * 1.6 + (j * Math.PI * 2) / FUNNEL_DUST;
+    const depth = Math.sin(a);
+    addPuff(x + Math.cos(a) * FUNNEL_R[0] * 1.5, y - 14 + depth * 5, 42 + 8 * depth, depth, 0.35 + 0.12 * depth, 3, j);
+  }
+  // 뒤 → 앞 차례로 찍고, 찍은 칸을 모두 감싸는 상자를 남김
+  const list = funnelPuffs.slice(0, puffCount).sort((p, q) => p.depth - q.depth);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const g = fallCtx;
+  g.save();
+  for (const p of list) {
+    const sprite = puffSprite(p.tone, p.seed, p.size);
+    // 픽셀: 칸에 맞춰 늘리지 않고 찍음, 동글: 지름만큼 늘려 찍음
+    const s = pixelArt ? sprite.width : p.size;
+    const dx = pixelArt ? Math.floor((p.x - s / 2) / PX_DOT) * PX_DOT : p.x - s / 2;
+    const dy = pixelArt ? Math.floor((p.y - s / 2) / PX_DOT) * PX_DOT : p.y - s / 2;
+    g.globalAlpha = p.alpha;
+    if (pixelArt) g.drawImage(sprite, dx, dy);
+    else g.drawImage(sprite, dx, dy, s, s);
+    x0 = Math.min(x0, dx);
+    y0 = Math.min(y0, dy);
+    x1 = Math.max(x1, dx + s);
+    y1 = Math.max(y1, dy + s);
+  }
   g.restore();
+  // 늘려 찍은 가장자리 번짐까지 1 px 여유
+  if (list.length) funnelBox = [Math.floor(x0) - 1, Math.floor(y0) - 1, Math.ceil(x1) - Math.floor(x0) + 2, Math.ceil(y1) - Math.floor(y0) + 2];
 }
 
 // rAF는 창이 가려지면 쉬고, 타이머가 24 fps 아래로 묶어 둠 (rAF만 쓰면 화면 주사율마다 깨어남)

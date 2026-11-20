@@ -232,15 +232,68 @@ def test_a_typhoon_draws_its_tornado_only_while_the_scene_has_one(run):
     if run["kind"] != "typhoon":
         assert run["funnelRings"] == 0 and run["funnelAfterGone"] == 0
         return
-    assert run["funnelRings"] >= 8, "깔때기 고리 + 바닥 먼지"
+    assert run["funnelRings"] >= 24, "구름 뭉치들 + 바닥 먼지"
     assert run["funnelAfterGone"] == 0, "회오리가 가면 지움"
 
 
 def test_the_whole_tornado_fits_in_the_box_cleared_next_frame(run):
-    """지울 칸보다 삐져나온 고리 끝은 다음 프레임에 안 지워져 회색 줄로 남음 (돌풍이 지나간 자리 잔상, v0.6.8)."""
+    """지울 칸보다 삐져나온 그림은 다음 프레임에 안 지워져 회색 줄로 남음 (돌풍이 지나간 자리 잔상, v0.6.8).
+    하네스가 칸을 셀 수 없는 그리기(호를 긋기·채우기 등)도 밖으로 친다."""
     if run["kind"] != "typhoon":
         return
     assert run["funnelOutside"] == 0
+
+
+@pytest.fixture(scope="module")
+def pixel_typhoon():
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    return json.loads(run_node(ROOT / "tools" / "weather_harness.js", "typhoon", "pixel", timeout=60).stdout)
+
+
+@pytest.fixture(scope="module")
+def typhoon():
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    return json.loads(run_node(ROOT / "tools" / "weather_harness.js", "typhoon", timeout=60).stdout)
+
+
+@pytest.mark.parametrize("style", ["typhoon", "pixel_typhoon"])
+def test_the_tornado_is_a_swirl_of_see_through_storm_cloud_puffs(style, request):
+    """동그라미 줄 대신: 반투명 먹구름 뭉치(미리 그린 그림)들이 축을 돌며, 위가 넓고 바닥으로 좁아짐."""
+    r = request.getfixturevalue(style)
+    assert r["funnelRings"] >= 24
+    assert r["funnelSpriteCount"] >= 3, "뭉치 그림이 여러 가지"
+    lo, hi = r["funnelAlphas"]
+    assert 0.2 <= lo and hi < 1, "반투명"
+    # 아래 1/3엔 바닥 흙먼지도 들어 있음
+    assert r["funnelTopWidth"] > 1.6 * r["funnelBottomWidth"], (r["funnelTopWidth"], r["funnelBottomWidth"])
+    assert r["funnelMoved"] > 0.4, "제자리에서도 빙글빙글 돎 (픽셀은 칸에 맞춰 덜 자주 움직임)"
+    assert r["funnelOutside"] == 0
+
+
+@pytest.mark.parametrize("style", ["typhoon", "pixel_typhoon"])
+def test_the_tornado_stays_within_the_reach_the_core_uses_for_straddling(style, request):
+    """core typhoon.rs straddles()의 reach = FUNNEL_R.1 + 30 — 그보다 넓으면 옆 모니터에 걸칠 때 잘림."""
+    r = request.getfixturevalue(style)
+    core = (ROOT / "crates" / "screenpet-core" / "src" / "typhoon.rs").read_text(encoding="utf-8")
+    top_r = float(re.search(r"const FUNNEL_R: \(f64, f64\) = \([\d.]+, ([\d.]+)\);", core).group(1))
+    assert re.search(rf"const FUNNEL_R = \[\d+, {int(top_r)}\];", JS)
+    assert "(FUNNEL_R.1 + 30.0) * scale" in core
+    assert 0 < r["funnelReach"] <= top_r + 30, r["funnelReach"]
+
+
+def test_smooth_puffs_are_soft_gradients_and_pixel_puffs_are_stepped_cells(typhoon, pixel_typhoon):
+    assert "createRadialGradient" in typhoon["funnelSpriteOps"]
+    assert pixel_typhoon["funnelSpriteOps"] and set(pixel_typhoon["funnelSpriteOps"]) <= {"fillRect", "set:fillStyle"}, pixel_typhoon["funnelSpriteOps"]
+    assert pixel_typhoon["funnelOnGrid"], "픽셀: 칸에 맞춰, 늘리지 않고 찍음"
+
+
+def test_the_tornado_puffs_are_drawn_once_and_reused():
+    """뭉치 그림은 처음 한 번만 만들고 (프레임마다 흐림 필터·새 캔버스 없음)."""
+    body = JS[JS.index("function drawFunnel("):]
+    body = body[: body.index("\n}\n")]
+    assert "createElement" not in body and "filter" not in body and "createRadialGradient" not in body
 
 
 def test_typhoon_debris_is_green_leaves_flying_with_the_wind(run):

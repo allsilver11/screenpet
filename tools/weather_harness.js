@@ -9,33 +9,67 @@ const W = 1920;
 const H = 1040;
 const LINE_Y = 500;
 
-function run(kind) {
+function run(kind, style) {
   const counts = {};
   let draws = [];
-  // 그린 타원들 (깔때기 고리가 지울 칸 안에 드는지 보려고) — 회전한 타원의 바깥 상자 + 선 두께 절반
-  let ovals = [];
   let lineWidth = 1;
   // 지금 그리는 그림 캔버스 (fillStyle을 그 그림의 색으로 적어 둔다)
   let drawing = null;
-  const ctx = new Proxy(
-    {},
-    {
-      get(_, name) {
-        return (...args) => {
-          counts[name] = (counts[name] || 0) + 1;
-          if (name === "drawImage") draws.push({ x: args[1], y: args[2], box: args[0].width });
-          if (name === "ellipse") ovals.push({ x: args[0], y: args[1], rx: args[2], ry: args[3], rot: args[4], line: lineWidth });
-        };
+  // 🌀 깔때기를 그리는 동안의 그림들 (drawFunnel을 감싸 모음): 찍은 자리·크기·투명도, 그 밖의 그리기 호출 수
+  let inFunnel = false;
+  let funnelDraws = [];
+  let funnelOther = 0;
+  // 지울 칸 안에 드는지 셀 수 있는 그리기만 (나머지는 funnelOther로 셈 — 0이어야 칸 약속을 증명함)
+  const FUNNEL_SAFE = new Set(["drawImage", "fillRect", "save", "restore", "clearRect"]);
+  // 캔버스마다 제 ctx (그림 캔버스는 쓴 호출 이름을 ops에 모음), 호출 수는 함께 셈
+  const makeCtx = (c) => {
+    let alpha = 1;
+    const stack = [];
+    return new Proxy(
+      {},
+      {
+        get(_, name) {
+          if (name === "globalAlpha") return alpha;
+          return (...args) => {
+            counts[name] = (counts[name] || 0) + 1;
+            if (c.ops) c.ops.add(name);
+            if (name === "save") stack.push([alpha, lineWidth]);
+            if (name === "restore" && stack.length) [alpha, lineWidth] = stack.pop();
+            if (name === "createRadialGradient" || name === "createLinearGradient") return { addColorStop() {} };
+            if (inFunnel && c.screen) {
+              if (name === "drawImage") {
+                const w = args.length >= 5 ? args[3] : args[0].width;
+                const h = args.length >= 5 ? args[4] : args[0].height;
+                funnelDraws.push({ x: args[1], y: args[2], w, h, alpha, sprite: args[0], scaled: args.length >= 5 });
+              } else if (name === "fillRect") funnelDraws.push({ x: args[0], y: args[1], w: args[2], h: args[3], alpha, sprite: null, scaled: false });
+              else if (!FUNNEL_SAFE.has(name)) funnelOther++;
+              return;
+            }
+            if (name === "drawImage") draws.push({ x: args[1], y: args[2], box: args[0].width });
+          };
+        },
+        set(_, name, value) {
+          if (c.ops) c.ops.add(`set:${name}`);
+          if (name === "fillStyle" && drawing) drawing.fill = value;
+          if (name === "lineWidth") lineWidth = value;
+          if (name === "globalAlpha") alpha = value;
+          return true;
+        },
       },
-      set(_, name, value) {
-        if (name === "fillStyle" && drawing) drawing.fill = value;
-        if (name === "lineWidth") lineWidth = value;
-        return true;
-      },
-    },
-  );
-  const canvas = () => ({ width: 0, height: 0, getContext: () => ctx });
-  const sprite = () => (drawing = canvas());
+    );
+  };
+  const canvas = (screen) => {
+    const c = { width: 0, height: 0, screen: !!screen, ...(screen ? { style: {} } : {}) };
+    const ctx = makeCtx(c);
+    c.getContext = () => ctx;
+    return c;
+  };
+  const screenCanvas = () => canvas(true);
+  const sprite = () => {
+    drawing = canvas(false);
+    drawing.ops = new Set();
+    return drawing;
+  };
   const timers = new Map();
   let nextId = 1;
   const delays = [];
@@ -46,8 +80,8 @@ function run(kind) {
   let now = 0;
   let listener = null;
   const sandbox = {
-    document: { getElementById: canvas, createElement: sprite, documentElement: { style: {} }, body: {} },
-    window: { innerWidth: W, innerHeight: H, addEventListener: (ev, f) => ev === "resize" && (resized = f), __TAURI__: { webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (_, f) => (listener = f) }) } } },
+    document: { getElementById: screenCanvas, createElement: sprite, documentElement: { style: {} }, body: {} },
+    window: { ART_STYLE: style, innerWidth: W, innerHeight: H, addEventListener: (ev, f) => ev === "resize" && (resized = f), __TAURI__: { webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (_, f) => (listener = f) }) } } },
     performance: { now: () => now },
     setTimeout(f, ms) {
       delays.push(ms);
@@ -73,6 +107,16 @@ function run(kind) {
     URLSearchParams,
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "..", "ui", "weather.js"), "utf8"), sandbox);
+  // 깔때기 그리기를 감싸 그 동안의 그림만 따로 모음 (알갱이 수·깊이 셈에 섞이지 않게)
+  const drawFunnel = sandbox.drawFunnel;
+  sandbox.drawFunnel = (t) => {
+    inFunnel = true;
+    try {
+      drawFunnel(t);
+    } finally {
+      inFunnel = false;
+    }
+  };
 
   const step = () => {
     now += 42;
@@ -116,10 +160,20 @@ function run(kind) {
   let maxClears = 0;
   const started = process.hrtime.bigint();
   const FRAMES = 1500; // 약 1분
+  // 🌀 매 프레임 깔때기가 제 지울 칸을 넘는지, 축에서 가장 먼 끝은 어디인지 (회오리 x = 600, vx 0)
+  const axis = 600;
+  const outsideBox = (ds, box) => (!box ? 0 : ds.filter((d) => d.x < box[0] || d.y < box[1] || d.x + d.w > box[0] + box[2] || d.y + d.h > box[1] + box[3]).length);
+  const reachOf = (ds) => Math.max(0, ...ds.map((d) => Math.max(axis - d.x, d.x + d.w - axis)));
+  let everOutside = 0;
+  let maxReach = 0;
   for (let f = 0; f < FRAMES; f++) {
     draws = [];
+    funnelDraws = [];
+    funnelOther = 0;
     const clearsBefore = counts.clearRect || 0;
     step();
+    everOutside += funnelOther + outsideBox(funnelDraws, vm.runInContext("funnelBox", sandbox));
+    maxReach = Math.max(maxReach, reachOf(funnelDraws));
     maxDraws = Math.max(maxDraws, draws.length);
     maxClears = Math.max(maxClears, (counts.clearRect || 0) - clearsBefore);
     for (const d of draws) deepest = Math.max(deepest, d.y + d.box - 2);
@@ -127,20 +181,34 @@ function run(kind) {
   const msPerFrame = Number(process.hrtime.bigint() - started) / 1e6 / FRAMES;
   const particles = draws.map((d) => [d.x, d.y]);
 
-  // 🌀 깔때기 고리 수 (한 프레임), 부스러기 색, 바람 방향에 따른 흐름 (떠 있는 알갱이의 평균 가로 이동)
-  const ellipses = () => counts.ellipse || 0;
-  const e0 = ellipses();
+  // 🌀 깔때기: 한 프레임의 구름 뭉치들, 그 다음 프레임 (돌며 움직였는지), 지울 칸 밖으로 나간 그림
+  funnelDraws = [];
+  funnelOther = 0;
   step();
-  const funnelRings = ellipses() - e0;
-  ovals = [];
-  step();
+  const puffs = funnelDraws;
+  const otherOps = funnelOther;
   const box = vm.runInContext("funnelBox", sandbox);
-  const funnelOutside = !box ? 0 : ovals.filter((o) => {
-    const c = Math.cos(o.rot || 0), s = Math.sin(o.rot || 0);
-    const hw = Math.sqrt((o.rx * c) ** 2 + (o.ry * s) ** 2) + o.line / 2;
-    const hh = Math.sqrt((o.rx * s) ** 2 + (o.ry * c) ** 2) + o.line / 2;
-    return o.x - hw < box[0] || o.y - hh < box[1] || o.x + hw > box[0] + box[2] || o.y + hh > box[1] + box[3];
-  }).length;
+  funnelDraws = [];
+  step();
+  const nextPuffs = funnelDraws;
+  const funnelOutside = everOutside + otherOps + outsideBox(puffs, box);
+  const funnelReach = Math.max(maxReach, reachOf(puffs));
+  // 위 1/3과 아래 1/3의 폭 (위가 넓은 깔때기)
+  const ys = puffs.map((d) => d.y + d.h / 2);
+  const lo = Math.min(...ys), hi = Math.max(...ys);
+  const spread = (ds) => (ds.length ? Math.max(...ds.map((d) => d.x + d.w)) - Math.min(...ds.map((d) => d.x)) : 0);
+  const funnelTopWidth = spread(puffs.filter((d) => d.y + d.h / 2 < lo + (hi - lo) / 3));
+  const funnelBottomWidth = spread(puffs.filter((d) => d.y + d.h / 2 > hi - (hi - lo) / 3));
+  // 돌기: 다음 프레임에 자리가 바뀐 뭉치 몫 (회오리는 제자리 — vx 0)
+  const key = (d) => `${Math.round(d.x)},${Math.round(d.y)}`;
+  const before = new Set(puffs.map(key));
+  const funnelMoved = nextPuffs.filter((d) => !before.has(key(d))).length / Math.max(1, nextPuffs.length);
+  const alphas = puffs.map((d) => d.alpha);
+  const funnelSprites = [...new Set(puffs.map((d) => d.sprite).filter(Boolean))];
+  // 뭉치 그림을 그린 호출 이름들 (픽셀은 칸 채우기만)
+  const funnelSpriteOps = [...new Set(funnelSprites.flatMap((c) => [...(c.ops || [])]))].sort();
+  const funnelOnGrid = puffs.every((d) => !d.scaled && d.x % 3 === 0 && d.y % 3 === 0);
+  const funnelRings = puffs.length;
   const debrisColours = [...new Set(vm.runInContext("debris", sandbox).map((s) => s.fill))];
   const flow = () => {
     const before = vm.runInContext("[Array.from(px), Array.from(rest)]", sandbox);
@@ -154,9 +222,9 @@ function run(kind) {
   for (let i = 0; i < 40; i++) step();
   const flowFlipped = flow();
   listener({ payload: { ...scene, tornado: undefined } });
-  const e1 = ellipses();
+  funnelDraws = [];
   step();
-  const funnelAfterGone = ellipses() - e1;
+  const funnelAfterGone = funnelDraws.length;
   listener({ payload: scene });
 
   // 같은 장면을 다시 받아도 더미는 다시 그리지 않는다
@@ -218,6 +286,14 @@ function run(kind) {
     kind,
     funnelRings,
     funnelOutside,
+    funnelReach,
+    funnelTopWidth,
+    funnelBottomWidth,
+    funnelMoved,
+    funnelAlphas: puffs.length ? [Math.min(...alphas), Math.max(...alphas)] : [],
+    funnelSpriteCount: funnelSprites.length,
+    funnelSpriteOps,
+    funnelOnGrid,
     funnelAfterGone,
     debrisColours,
     flowNow,
@@ -252,4 +328,4 @@ function run(kind) {
   };
 }
 
-console.log(JSON.stringify(run(process.argv[2] || "snow")));
+console.log(JSON.stringify(run(process.argv[2] || "snow", process.argv[3] || "")));
