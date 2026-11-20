@@ -1,4 +1,4 @@
-//! 🕷️ 거미인간 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기 (pet.json `web_slinger` + WEB_ANIMS — PetConfig::slings_webs) — brain.rs의 자식 모듈. 숫자·계산은 web.rs.
+//! 🕷️ 거미인간 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기·🙃 거꾸로 매달리기 (pet.json `web_slinger` + WEB_ANIMS — PetConfig::slings_webs) — brain.rs의 자식 모듈. 숫자·계산은 web.rs.
 //!
 //! - 🕸️ 거미집: 모서리를 보고 줄을 쏨 (shoot) → 줄 끝이 닿는 순간 take_web이 WebSpin을 한 번 돌려줌 (앱이 그 모서리에 거미집을 그림).
 //!   크기는 제각각 (sized_web)이고, 첫 줄 뒤에도 거미집 여기저기로 줄을 몇 번 더 휙휙 쏴서 짬 (Weave — 앱이 그동안 살·고리를 차례로 그림).
@@ -24,6 +24,11 @@
 //!   뒤로 당겨 올랐다가 흔들려 끝 너머로 휙 — 날아가다 끝을 넘으면 (web_exit_out) 던져 넘어간 것처럼 사라짐 (take_exit 한 번 + take_fling).
 //!   닻이 없으면 평소처럼 걸어 나감. 넘어온 쪽 화면에서는 (web_arrival — enter_flung) 줄을 한 번 쏴 그네 타고 들어와 영웅 착지.
 //!   위·아래 끝은 평소대로 (brain_vert.rs).
+//! - 🙃 거꾸로 매달리기: 한가할 때 몇 분에 한 번 (web::HANG_RATE × 연령대 세기) 바로 머리 위 (창 아랫변·창 면·화면 윗변 — web::hang_anchors)에
+//!   줄을 쏴 붙이고 (Shoot) 당겨 올라가 (HangRise, web_swing 그림) 뒤집혀 줄을 타고 스르륵 (HangSlide) — 머리가 바닥에서 몸 HANG_HEAD_CLEAR배
+//!   높이에서 살랑살랑 매달림 (Hang, hang_down 그림 — 웅크린 채 두 손·두 발로 줄을 잡음). 가끔 가까운 펫이나 커서 쪽을 보며 "hey there".
+//!   끝나면 몸을 뒤집어 사뿐 내려앉거나 (낮아서 영웅 착지 없음) 줄을 타고 다시 올라가 (HangClimb) 놓고 영웅 착지.
+//!   줄은 닻 → 맨 위 손발 (grip.hang_down). 창에 붙은 줄은 창을 따라가고 창이 닫히면 놓음, 끼어들면 (잡기·자리 비움·조작 모드 등) 놓고 떨어짐
 //! - 지금 뻗은 줄은 web_line (앱이 덮개 창에 그림).
 //!
 //! 주사위는 자기 주사위(WebMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
@@ -32,7 +37,7 @@ use super::hoist_moves::PetSpot;
 use super::*;
 use crate::juggle::{JuggleEvent, ObjectSpot};
 use crate::play::ObjectPlay;
-use crate::web::{self, Anchor, WebLine, WebSpin, WebSpot};
+use crate::web::{self, Anchor, HangLine, WebLine, WebSpin, WebSpot};
 
 /// 줄을 쏜 목적
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -49,6 +54,8 @@ pub enum WebAim {
     Lasso { id: u64, at: (f64, f64), half: f64, side: Side, heavy: bool },
     /// 🕸️🧗 거미집(web)의 k번째 자리 (at: 쏠 때 그 자리)에 붙으러
     Perch { web: u64, k: u32, at: (f64, f64) },
+    /// 🙃 바로 머리 위 닻 (거꾸로 매달려 내려오려고)
+    Hang(HangLine),
 }
 
 impl WebAim {
@@ -57,6 +64,7 @@ impl WebAim {
         match *self {
             WebAim::Corner(s) => (s.x, s.y),
             WebAim::Anchor(a) => (a.x, a.y),
+            WebAim::Hang(l) => (l.x, l.y),
             WebAim::Object { at, .. } | WebAim::Pet { at, .. } | WebAim::Lasso { at, .. } | WebAim::Perch { at, .. } => at,
         }
     }
@@ -83,6 +91,14 @@ pub enum WebPhase {
     Crawl { web: u64, from: (f64, f64), k: u32, left: u32 },
     /// 🕸️🧗 거미집(web)에 매달려 있음 — rel = 모서리에서 발까지, bounce = 통통 출렁, len = 매달릴 시간
     Dangle { web: u64, rel: (f64, f64), bounce: bool, len: f64 },
+    /// 🙃 줄을 당겨 닻 바로 아래로 올라감 (from = 시작한 발 자리)
+    HangRise { line: HangLine, from: (f64, f64) },
+    /// 🙃 뒤집혀 줄을 타고 내려옴 (발 y: from_y → to_y)
+    HangSlide { line: HangLine, from_y: f64, to_y: f64 },
+    /// 🙃 거꾸로 매달려 살랑 — len = 매달릴 시간, greet = 인사하며 볼 쪽 (±1, 인사하면 None), climb = 끝에 다시 올라감
+    Hang { line: HangLine, len: f64, greet: Option<f64>, climb: bool },
+    /// 🙃 줄을 타고 다시 올라감 (발 y: from_y → 손발이 닻에 닿는 자리) — 다 오르면 놓음
+    HangClimb { line: HangLine, from_y: f64 },
 }
 
 /// 줄 놀이의 기억
@@ -96,6 +112,10 @@ pub struct WebMood {
     pub(super) cocoon_ready_at: f64,
     /// 🕸️🧗 이 시각(clock)부터 거미집 놀이를 할 수 있음
     pub(super) play_ready_at: f64,
+    /// 🙃 이 시각(clock)부터 거꾸로 매달리기를 할 수 있음
+    pub(super) hang_ready_at: f64,
+    /// 🙃 매달리러 떠난 디딤판 높이 (발 y — 머리를 이보다 HANG_HEAD_CLEAR 위에 둠)
+    hang_floor: f64,
     /// 🌉🚪 친구 화면으로 나가려고 탄 그네의 끝 (놓기 전)
     exit_side: Option<Side>,
     /// 🌉🚪 그네를 놓고 날아가는 중: 이 끝을 이 시각(clock)까지 넘으면 친구 화면으로
@@ -134,6 +154,8 @@ impl WebMood {
             pull_ready_at: web::FIRST_READY_SECS * 2.0,
             cocoon_ready_at: web::FIRST_READY_SECS * 3.0,
             play_ready_at: web::FIRST_READY_SECS * 2.0,
+            hang_ready_at: web::FIRST_READY_SECS * 5.0,
+            hang_floor: 0.0,
             exit_side: None,
             exit_out: None,
             out: None,
@@ -157,7 +179,7 @@ impl Pet {
         self.web.out.take()
     }
 
-    /// 지금 뻗어 있는 줄 (손 → 줄 끝, 물리 px). 줄 놀이 중이 아니면 None
+    /// 지금 뻗어 있는 줄 (손 → 줄 끝, 물리 px — 🙃 매달리기는 맨 위 손발 → 닻). 줄 놀이 중이 아니면 None
     pub fn web_line(&self) -> Option<WebLine> {
         let State::Web { phase, t } = self.state else { return None };
         let hand = self.web_hand();
@@ -165,6 +187,7 @@ impl Pet {
         let to = match phase {
             WebPhase::Shoot { aim, hit } => lerp(hand, aim.tip(), if hit { 1.0 } else { (t / web::SHOOT_SECS).min(1.0) }),
             WebPhase::Zip { anchor, .. } | WebPhase::Swing { anchor, .. } => (anchor.x, anchor.y),
+            WebPhase::HangRise { line, .. } | WebPhase::HangSlide { line, .. } | WebPhase::Hang { line, .. } | WebPhase::HangClimb { line, .. } => (line.x, line.y),
             WebPhase::Pull { tip } => lerp(tip, hand, (t / web::PULL_SECS).min(1.0)),
             WebPhase::Weave { spot, shot } => lerp(hand, web::weave_target(&spot, shot), (t / (0.5 * web::WEAVE_SHOT_SECS)).min(1.0)),
             WebPhase::Whirl { from, dir, heavy, .. } => self.whirl_spot(from, dir, heavy, t),
@@ -212,12 +235,13 @@ impl Pet {
         true
     }
 
-    /// 손 자리 (물리 px): 지금 그림의 grip (shoot·web_swing·web_pull·web_whirl), 왼쪽을 보면 좌우 반전
+    /// 손 자리 (물리 px): 지금 그림의 grip (shoot·web_swing·web_pull·web_whirl·🙃 hang_down), 왼쪽을 보면 좌우 반전
     fn web_hand(&self) -> (f64, f64) {
         let g = &self.cfg.grip;
         let (gx, gy) = match self.state {
             State::Web { phase: WebPhase::Shoot { .. } | WebPhase::Weave { .. } | WebPhase::Wrap { .. }, t } => g.shoot.at(t),
-            State::Web { phase: WebPhase::Zip { .. } | WebPhase::Swing { .. }, t } => g.web_swing.at(t),
+            State::Web { phase: WebPhase::Zip { .. } | WebPhase::Swing { .. } | WebPhase::HangRise { .. }, t } => g.web_swing.at(t),
+            State::Web { phase: WebPhase::HangSlide { .. } | WebPhase::Hang { .. } | WebPhase::HangClimb { .. }, t } => g.hang_down.at(t),
             State::Web { phase: WebPhase::Pull { .. }, t } => g.web_pull.at(t),
             State::Web { phase: WebPhase::Whirl { .. }, t } => g.web_whirl.at(t),
             _ => g.shoot.at(1.0),
@@ -255,6 +279,7 @@ impl Pet {
             return false;
         }
         self.maybe_pull(dt, world) || self.maybe_cocoon(dt, world) || self.maybe_play_web(dt) || self.maybe_spin_web(dt, world) || self.maybe_web_swing(dt, world)
+            || self.maybe_hang_down(dt, world)
     }
 
     /// 🕸️🧗 놀러 갈 만한 거미집: 보이는 것 중 몸 가운데에서 거미집 가장자리까지 WEB_PLAY_REACH배 안
@@ -287,6 +312,7 @@ impl Pet {
         self.web.pull_ready_at = f64::INFINITY;
         self.web.cocoon_ready_at = f64::INFINITY;
         self.web.play_ready_at = f64::INFINITY;
+        self.web.hang_ready_at = f64::INFINITY;
     }
 
     /// 🕸️🧗 가까운 거미집 하나에 줄을 쏴 놀러 감 (주사위 없이 — 테스트용). 거미집이 없으면 false
@@ -429,6 +455,155 @@ impl Pet {
         self.web.chain_dir = inward;
     }
 
+
+    /// 🙃 한가할 때 주사위 (몇 분에 한 번 — 연령대 세기를 곱함): 거꾸로 매달리기
+    fn maybe_hang_down(&mut self, dt: f64, world: &World) -> bool {
+        if self.clock < self.web.hang_ready_at || self.web.rng.f64() >= web::HANG_RATE * self.power() * dt {
+            return false;
+        }
+        self.start_hang_down(world)
+    }
+
+    /// 🙃 hang_down 그림의 맨 위 손발 (줄이 붙는 점): 몸 가운데에서 가로 (보는 쪽 +), 그림 윗변에서 세로 (몸 크기 배)
+    fn hang_grip(&self) -> (f64, f64) {
+        self.cfg.grip.hang_down.at(0.0)
+    }
+
+    /// 🙃 손발이 이 높이(grip_y)에 오게 매달렸을 때의 발 y (그림 아래 끝 — 거꾸로라 머리)
+    fn hang_feet_y(&self, grip_y: f64) -> f64 {
+        grip_y + (1.0 - self.hang_grip().1) * self.cfg.size
+    }
+
+    /// 🙃 바로 머리 위 닻 (창 아랫변·창 면·화면 윗변 중 하나)에 줄을 쏨 (주사위 없이). 닻이 없으면 false
+    pub(super) fn start_hang_down(&mut self, world: &World) -> bool {
+        if self.standing.is_none() {
+            return false;
+        }
+        let size = self.cfg.size;
+        let (gx, gy) = self.hang_grip();
+        let x = self.body.x + self.facing * gx * size;
+        // 다 내려왔을 때 손발 높이 — 닻은 그보다 HANG_MIN_LINE 위
+        let lowest = self.body.y - web::HANG_HEAD_CLEAR.1 * size - (1.0 - gy) * size - web::HANG_MIN_LINE * size;
+        let pick = self.web.rng.f64();
+        let lines = web::hang_anchors(world, x, lowest, pick);
+        if lines.is_empty() {
+            return false;
+        }
+        let line = lines[self.web.rng.usize(..lines.len())];
+        self.web.hang_ready_at = self.clock + behavior::range(&mut self.web.rng, web::HANG_CALM);
+        self.web.chain_left = 0;
+        self.web.hang_floor = self.body.y;
+        self.begin_shoot(WebAim::Hang(line));
+        true
+    }
+
+    /// 🙃 거꾸로 매달리기 한 틱: 창을 따라 닻을 옮기고 (창이 닫히면 놓음), 단계대로 올라감 → 내려옴 → 살랑 → 내려앉기·다시 올라감
+    fn step_hang(&mut self, world: &World, phase: WebPhase, t: f64) {
+        let line = match phase {
+            WebPhase::HangRise { line, .. } | WebPhase::HangSlide { line, .. } | WebPhase::Hang { line, .. } | WebPhase::HangClimb { line, .. } => line,
+            _ => return,
+        };
+        let Some(line) = line.follow(world) else {
+            self.start_fall();
+            return;
+        };
+        let size = self.cfg.size;
+        let ease = |u: f64| u * u * (3.0 - 2.0 * u);
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        match phase {
+            WebPhase::HangRise { from, .. } => {
+                let (gx, drop) = self.swing_hand_offset();
+                let to = (line.x - self.facing * gx, line.y + drop);
+                let u = (t / web::HANG_RISE_SECS).min(1.0);
+                let k = 1.0 - (1.0 - u) * (1.0 - u);
+                self.body.x = from.0 + (to.0 - from.0) * k;
+                self.body.y = from.1 + (to.1 - from.1) * k;
+                if u < 1.0 {
+                    self.state = State::Web { phase: WebPhase::HangRise { line, from }, t };
+                    return;
+                }
+                // 뒤집어 손발로 줄을 잡음 — 이제 머리가 아래
+                let from_y = self.hang_feet_y(line.y);
+                let k = behavior::range(&mut self.web.rng, web::HANG_HEAD_CLEAR);
+                let to_y = (self.web.hang_floor - k * size).max(from_y);
+                self.place_hanging(line, from_y, 0.0);
+                self.state = State::Web { phase: WebPhase::HangSlide { line, from_y, to_y }, t: 0.0 };
+            }
+            WebPhase::HangSlide { from_y, to_y, .. } => {
+                let u = (t / web::HANG_SLIDE_SECS).min(1.0);
+                self.place_hanging(line, from_y + (to_y - from_y) * ease(u), 0.0);
+                if u < 1.0 {
+                    self.state = State::Web { phase: WebPhase::HangSlide { line, from_y, to_y }, t };
+                    return;
+                }
+                let len = behavior::range(&mut self.web.rng, web::HANG_SECS);
+                let greet = self.hang_greet_dir();
+                let climb = self.web.rng.f64() < web::HANG_CLIMB_CHANCE;
+                self.state = State::Web { phase: WebPhase::Hang { line, len, greet, climb }, t: 0.0 };
+            }
+            WebPhase::Hang { len, mut greet, climb, .. } => {
+                if let Some(dir) = greet.filter(|_| t >= web::HANG_GREET_AT) {
+                    self.facing = dir;
+                    self.speech = Some(Speech::HangHey);
+                    greet = None;
+                }
+                let sway = web::HANG_SWAY * size * (std::f64::consts::TAU * t / web::HANG_SWAY_SECS).sin();
+                let y = self.body.y;
+                self.place_hanging(line, y, sway);
+                if t < len {
+                    self.state = State::Web { phase: WebPhase::Hang { line, len, greet, climb }, t };
+                } else if climb {
+                    self.state = State::Web { phase: WebPhase::HangClimb { line, from_y: y }, t: 0.0 };
+                } else {
+                    // 몸을 뒤집어 사뿐 내려앉음 (머리 높이가 낮아 영웅 착지·콰당 없음)
+                    self.place_hanging(line, y, 0.0);
+                    self.thrown = false;
+                    self.gentle_drop = true;
+                    self.state = State::Air { anim: Anim::Fall };
+                }
+            }
+            WebPhase::HangClimb { from_y, .. } => {
+                let top = self.hang_feet_y(line.y);
+                let u = (t / web::HANG_CLIMB_SECS).min(1.0);
+                self.place_hanging(line, from_y + (top - from_y) * ease(u), 0.0);
+                if u < 1.0 {
+                    self.state = State::Web { phase: WebPhase::HangClimb { line, from_y }, t };
+                    return;
+                }
+                // 다 올라가 놓고 떠남 (높이서 떨어지니 영웅 착지)
+                self.thrown = false;
+                self.gentle_drop = false;
+                self.state = State::Air { anim: Anim::Fall };
+            }
+            _ => {}
+        }
+    }
+
+    /// 🙃 맨 위 손발이 닻 바로 아래 (sway만큼 옆으로 흔들려) 오게, 발 y(feet_y — 거꾸로라 머리)에 몸을 둠
+    fn place_hanging(&mut self, line: HangLine, feet_y: f64, sway: f64) {
+        let gx = self.hang_grip().0 * self.cfg.size;
+        self.body.x = line.x - self.facing * gx + sway;
+        self.body.y = feet_y;
+    }
+
+    /// 🙃 매달린 채 인사할 쪽 (±1): HANG_GREET_CHANCE로, 가까운 다른 펫 (가장 가까운 것) 쪽, 없으면 가까운 커서 쪽. 안 하면 None
+    fn hang_greet_dir(&mut self) -> Option<f64> {
+        if self.web.rng.f64() >= web::HANG_GREET_CHANCE {
+            return None;
+        }
+        let reach = web::HANG_GREET_REACH * self.cfg.size;
+        let (x, y) = (self.body.x, self.body.y);
+        let pal = self
+            .web
+            .pets
+            .iter()
+            .filter(|s| s.key != self.social_key && (s.x - x).abs() > 1.0 && (s.x - x).hypot(s.y - y) <= reach)
+            .min_by(|a, b| (a.x - x).abs().total_cmp(&(b.x - x).abs()))
+            .map(|s| s.x);
+        let cursor = Some(self.cursor).filter(|c| (c.0 - x).abs() > 1.0 && (c.0 - x).hypot(c.1 - y) <= reach).map(|c| c.0);
+        pal.or(cursor).map(|tx| (tx - x).signum())
+    }
 
     /// 🐛 닿는 거리에 쉬는 동물이 있으면 주사위: 고치 말기
     fn maybe_cocoon(&mut self, dt: f64, world: &World) -> bool {
@@ -751,7 +926,10 @@ impl Pet {
 
     /// 줄 놀이 한 틱
     fn step_web(&mut self, dt: f64, world: &World, phase: WebPhase, t: f64) {
-        let airborne = matches!(phase, WebPhase::Zip { .. } | WebPhase::Swing { .. } | WebPhase::Crawl { .. } | WebPhase::Dangle { .. });
+        let airborne = matches!(
+            phase,
+            WebPhase::Zip { .. } | WebPhase::Swing { .. } | WebPhase::Crawl { .. } | WebPhase::Dangle { .. } | WebPhase::HangRise { .. } | WebPhase::HangSlide { .. } | WebPhase::Hang { .. } | WebPhase::HangClimb { .. }
+        );
         // 🌉🚪 친구 화면으로 나가는 그네는 끊지 않음 (집이 그리운 손님도 이 길로 나감)
         if self.web.exit_side.is_none() && self.romp_interrupted() {
             if airborne {
@@ -779,6 +957,7 @@ impl Pet {
             WebPhase::Wrap { key, feet, size, shot } => self.step_wrap(dt, key, feet, size, shot, t),
             WebPhase::Crawl { web, from, k, left } => self.step_crawl(world, web, from, k, left, t),
             WebPhase::Dangle { web, rel, bounce, len } => self.step_dangle(web, rel, bounce, len, t),
+            WebPhase::HangRise { .. } | WebPhase::HangSlide { .. } | WebPhase::Hang { .. } | WebPhase::HangClimb { .. } => self.step_hang(world, phase, t),
         }
     }
 
@@ -828,6 +1007,12 @@ impl Pet {
                     return;
                 }
                 WebAim::Perch { .. } => {}
+                WebAim::Hang(line) => {
+                    self.standing = None;
+                    self.poop.stepping_off();
+                    self.state = State::Web { phase: WebPhase::HangRise { line, from: (self.body.x, self.body.y) }, t: 0.0 };
+                    return;
+                }
                 WebAim::Pet { key, at, to } => {
                     let spot = self.web.pets.iter().find(|s| s.key == key).copied();
                     let from = spot.map_or(at, |s| (s.x, s.y));
@@ -985,13 +1170,27 @@ impl Pet {
             WebPhase::Pull { .. } => Anim::WebPull,
             WebPhase::Whirl { .. } => Anim::WebWhirl,
             WebPhase::Crawl { .. } => Anim::Climb,
-            WebPhase::Dangle { .. } => Anim::WebSwing,
+            WebPhase::Dangle { .. } | WebPhase::HangRise { .. } => Anim::WebSwing,
+            WebPhase::HangSlide { .. } | WebPhase::Hang { .. } | WebPhase::HangClimb { .. } => Anim::HangDown,
         }
     }
 
-    /// 줄에 매달려 공중에 있음 (떠오르는 중·진자·🕸️🧗 거미집 위)
+    /// 줄에 매달려 공중에 있음 (떠오르는 중·진자·🕸️🧗 거미집 위·🙃 거꾸로 매달리기)
     pub(super) fn web_airborne(&self) -> bool {
-        matches!(self.state, State::Web { phase: WebPhase::Zip { .. } | WebPhase::Swing { .. } | WebPhase::Crawl { .. } | WebPhase::Dangle { .. }, .. })
+        matches!(
+            self.state,
+            State::Web {
+                phase: WebPhase::Zip { .. }
+                    | WebPhase::Swing { .. }
+                    | WebPhase::Crawl { .. }
+                    | WebPhase::Dangle { .. }
+                    | WebPhase::HangRise { .. }
+                    | WebPhase::HangSlide { .. }
+                    | WebPhase::Hang { .. }
+                    | WebPhase::HangClimb { .. },
+                ..
+            }
+        )
     }
 }
 

@@ -187,6 +187,8 @@ pub enum Anim {
     WebPull,
     /// 🕷️ 거미인간 — 🌀 버티고 서서 한 팔을 머리 위로 들어 줄 끝의 물건을 빙빙 (옆모습)
     WebWhirl,
+    /// 🕷️ 거미인간 — 🙃 웅크린 채 거꾸로 뒤집혀 위로 뻗은 줄을 두 손·두 발로 꼭 잡고 매달림 (옆모습, 살랑 — 줄이 붙는 맨 위 손발 = grip)
+    HangDown,
     /// 🦇 박쥐인간 — 🏍️ 오토바이 타고 달리기 (옆모습, 바퀴가 굴러감 — brain_bike.rs)
     Ride,
     /// 🦇 박쥐인간 — 앞바퀴를 들고 뒷바퀴로만 (윌리)
@@ -384,6 +386,8 @@ pub enum Speech {
     Multiverse,
     /// 🕷️🕷️🕷️ 모임 끝에 흩어지며 ("see ya!")
     SeeYa,
+    /// 🙃 거꾸로 매달린 채 가까운 펫·커서 쪽을 보며 인사 ("hey there" / "sup?", brain_web.rs)
+    HangHey,
     /// 🦇 오토바이에 올라 부릉 ("vroom!", brain_bike.rs)
     Vroom,
     /// 🦇 윌리 ("yeah!")
@@ -736,7 +740,7 @@ pub struct PetConfig {
     pub stashes: bool,
     /// 🦆 바닥에서 친구들을 줄줄이 데리고 걸음 (pet.json `train_leader` — 오리, brain_train.rs)
     pub leads_train: bool,
-    /// 🕷️ 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기 (pet.json `web_slinger` + shoot·web_swing·hero_land·web_pull·web_whirl 그림 — 거미인간, brain_web.rs)
+    /// 🕷️ 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기·🙃 거꾸로 매달리기 (pet.json `web_slinger` + shoot·web_swing·hero_land·web_pull·web_whirl·hang_down 그림 — 거미인간, brain_web.rs)
     pub slings_webs: bool,
     /// 🦇 오토바이 타기·윌리·점프·드리프트·🔦 박쥐 신호·오토바이로 친구 화면 오가기 (pet.json `bike_rider` + ride·wheelie·bike_jump·drift·signal 그림 — 박쥐인간, brain_bike.rs).
     /// 💪 들기(juggler)도 하면 거대한 것도 늘 번쩍 듦
@@ -4524,7 +4528,7 @@ mod tests {
             Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Panic, Anim::Hang, Anim::Rope,
             Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump, Anim::Yank, Anim::Stuff,
             Anim::HangCursor, Anim::Peek, Anim::Dance, Anim::Dance2, Anim::Catch, Anim::Draw, Anim::CheerType, Anim::Type, Anim::CarryRun,
-            Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl,
+            Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl, Anim::HangDown,
             Anim::Ride, Anim::Wheelie, Anim::BikeJump, Anim::Drift, Anim::Signal, Anim::Fly, Anim::FlyFast, Anim::FlyFlip, Anim::Hover];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();

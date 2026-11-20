@@ -1,4 +1,4 @@
-//! 🕷️ 거미인간 줄 놀이 (brain_web.rs): 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기
+//! 🕷️ 거미인간 줄 놀이 (brain_web.rs): 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기·🙃 거꾸로 매달리기
 
 use super::hoist_moves::{notice_pets, sync_lifts, PetSpot};
 use super::swing_tests::resting;
@@ -22,6 +22,7 @@ fn calm_spider(x: f64, seed: u64, w: &World) -> Pet {
     p.web.web_ready_at = f64::INFINITY;
     p.web.swing_ready_at = f64::INFINITY;
     p.web.pull_ready_at = f64::INFINITY;
+    p.web.hang_ready_at = f64::INFINITY;
     // 🕸️⭕ 여기서는 구석 거미집만 봄 (둥근 거미집은 brain_orb_tests.rs)
     p.web.orb_odds = 0.0;
     p
@@ -646,4 +647,244 @@ fn it_stops_chaining_when_there_is_no_anchor_ahead() {
     let (anchors, _) = ride_chain(&mut p, &w);
     assert_eq!(anchors.len(), 1, "화면 끝이라 한 번만 {anchors:?}");
     assert!(p.standing.is_some() && p.web.chain_left == 0);
+}
+
+// ---- 🙃 거꾸로 매달려 내려오기 (spec 8부) ----
+
+/// 🙃 매달리기 주사위도 끈 거미인간 (start_hang_down으로만)
+fn hang_spider(x: f64, seed: u64, w: &World) -> Pet {
+    let mut p = calm_spider(x, seed, w);
+    p.hush_web_play();
+    p
+}
+
+/// 🙃 한 번 매달려 내려왔다 끝날 때까지 돌림: (닻들, 매달린 동안 머리 높이 (바닥에서, 몸 크기 배), 매달린 동안 x 폭, 다시 올라갔음, 영웅 착지, 한 말)
+struct HangRun {
+    anchors: Vec<(f64, f64)>,
+    head_clear: Vec<f64>,
+    sway: (f64, f64),
+    climbed: bool,
+    hero: bool,
+    said: Vec<Speech>,
+    hung_secs: f64,
+}
+
+fn run_hang(p: &mut Pet, w: &World) -> HangRun {
+    let size = p.cfg.size;
+    let floor = w.work_area_at(p.body.x, p.body.y - 1.0).bottom;
+    let mut r = HangRun { anchors: Vec::new(), head_clear: Vec::new(), sway: (f64::INFINITY, f64::NEG_INFINITY), climbed: false, hero: false, said: Vec::new(), hung_secs: 0.0 };
+    let mut guard = LoopLimit::new();
+    while p.standing.is_none() || matches!(p.state, State::Web { .. } | State::Air { .. }) {
+        guard.step();
+        p.update(DT, w);
+        r.said.extend(p.take_speech());
+        r.hero |= p.render().anim == Anim::HeroLand;
+        if let State::Web { phase: WebPhase::HangSlide { line, .. } | WebPhase::Hang { line, .. } | WebPhase::HangClimb { line, .. }, .. } = p.state {
+            assert_eq!(p.render().anim, Anim::HangDown, "거꾸로 매달린 그림");
+            let l = p.web_line().expect("매달린 동안 줄이 보임");
+            assert_eq!(l.to, (line.x, line.y), "줄은 닻까지");
+            assert!(l.to.1 <= l.from.1 + 1e-6, "줄은 위로 {l:?}");
+            assert!((l.to.0 - l.from.0).abs() < 0.2 * size, "거의 똑바로 선 줄 {l:?}");
+            let (_, top) = p.window_pos();
+            assert!(l.from.1 < top + 0.3 * size, "줄은 몸 위쪽 (손발)에 붙음 {l:?}, top {top}");
+            if r.anchors.last() != Some(&(line.x, line.y)) {
+                r.anchors.push((line.x, line.y));
+            }
+            r.climbed |= matches!(p.state, State::Web { phase: WebPhase::HangClimb { .. }, .. });
+        }
+        if let State::Web { phase: WebPhase::Hang { .. }, .. } = p.state {
+            r.head_clear.push((floor - p.body.y) / size);
+            r.sway = (r.sway.0.min(p.body.x), r.sway.1.max(p.body.x));
+            r.hung_secs += DT;
+        }
+    }
+    r
+}
+
+#[test]
+fn hang_down_is_a_web_animation_with_its_grip_at_the_top_and_its_own_speech() {
+    assert_eq!(serde_json::to_string(&Anim::HangDown).unwrap(), "\"hang_down\"");
+    assert!(!Anim::HangDown.is_front() && !Anim::HangDown.is_back());
+    assert!(crate::manifest::WEB_ANIMS.contains(&"hang_down"));
+    assert_eq!(serde_json::to_string(&Speech::HangHey).unwrap(), "\"hang_hey\"");
+    let g = &spider().grip;
+    assert!(g.hang_down.n >= 2, "칸마다 손발 자리");
+    assert!((0..g.hang_down.n).all(|i| g.hang_down.pts[i].1 < 0.35), "손발 (줄 잡은 곳)은 그림 위쪽 {:?}", g.hang_down);
+}
+
+/// 🙃 머리 위 (화면 윗변)에 줄을 쏴 올라가 뒤집어 거꾸로 스르륵 내려옴 → 머리가 바닥에서 몸 1–2배 높이에서 살랑살랑 → 끝나면 내려섬
+#[test]
+fn it_shoots_up_flips_and_slides_down_upside_down_to_hang_above_the_floor() {
+    let w = world(vec![]);
+    for seed in 0..6 {
+        let mut p = hang_spider(900.0, seed, &w);
+        assert!(p.start_hang_down(&w), "seed {seed}");
+        assert_eq!(p.render().anim, Anim::Shoot);
+        let size = p.cfg.size;
+        let r = run_hang(&mut p, &w);
+        assert_eq!(r.anchors.len(), 1, "seed {seed}: {:?}", r.anchors);
+        assert_eq!(r.anchors[0].1, 0.0, "창이 없으면 화면 윗변");
+        assert!((r.anchors[0].0 - 900.0).abs() < size, "바로 머리 위 {:?}", r.anchors);
+        assert!(!r.head_clear.is_empty(), "seed {seed}: 매달림");
+        assert!(r.head_clear.iter().all(|h| (0.9..=2.1).contains(h)), "seed {seed}: 머리는 바닥에서 몸 1–2배 {:?}", r.head_clear);
+        assert!((web::HANG_SECS.0 - 0.1..=web::HANG_SECS.1 + 0.1).contains(&r.hung_secs), "seed {seed}: 몇 초 {}", r.hung_secs);
+        let sway = r.sway.1 - r.sway.0;
+        assert!(sway > 0.02 * size && sway < 0.3 * size, "seed {seed}: 살랑살랑 {sway}");
+        assert!(p.standing.is_some() && p.web_line().is_none());
+        if !r.climbed {
+            assert!(!r.hero, "seed {seed}: 사뿐 내려앉음 (영웅 착지·콰당 없음)");
+            assert!((p.body.x - 900.0).abs() < size, "seed {seed}: 그 자리에 내려섬");
+        }
+    }
+}
+
+/// 🙃 끝은 둘 중 하나: 몸을 뒤집어 사뿐 내려앉거나, 줄을 타고 다시 올라가 높이서 놓고 영웅 착지
+#[test]
+fn it_either_drops_softly_or_climbs_back_up_and_leaves() {
+    let w = world(vec![]);
+    let (mut soft, mut climbed) = (0, 0);
+    for seed in 0..16 {
+        let mut p = hang_spider(900.0, seed, &w);
+        assert!(p.start_hang_down(&w));
+        let r = run_hang(&mut p, &w);
+        if r.climbed {
+            climbed += 1;
+            assert!(r.hero, "seed {seed}: 높이서 놓아 영웅 착지");
+        } else {
+            soft += 1;
+        }
+    }
+    assert!(soft >= 4 && climbed >= 2, "soft {soft}, climbed {climbed}");
+}
+
+/// 🙃 머리 위 창이 있으면 그 창 아랫변이나 창 위 아무 데 (창 면)에도 줄을 붙임 — 창이 닫히면 놓고 떨어짐
+#[test]
+fn it_hangs_from_a_window_bottom_or_face_overhead_and_lets_go_when_the_window_closes() {
+    let win = WindowInfo { id: 5, rect: Rect::new(600.0, 150.0, 1300.0, 520.0) };
+    let w = world(vec![win]);
+    let mut ys = Vec::new();
+    for seed in 0..24 {
+        let mut p = hang_spider(900.0, seed, &w);
+        assert!(p.start_hang_down(&w));
+        let r = run_hang(&mut p, &w);
+        ys.push(r.anchors[0].1);
+    }
+    assert!(ys.iter().any(|&y| y == 520.0), "창 아랫변 {ys:?}");
+    assert!(ys.iter().any(|&y| y > 150.0 && y < 520.0), "창 면 {ys:?}");
+    assert!(ys.iter().all(|&y| y == 0.0 || (150.0..=520.0).contains(&y)), "{ys:?}");
+    // 창에 매달린 동안 창이 닫히면 놓고 떨어짐
+    let gone = world(vec![]);
+    for seed in 0..24 {
+        let mut p = hang_spider(900.0, seed, &w);
+        assert!(p.start_hang_down(&w));
+        let mut guard = LoopLimit::new();
+        while !matches!(p.state, State::Web { phase: WebPhase::Hang { .. }, .. }) {
+            guard.step();
+            p.update(DT, &w);
+        }
+        let State::Web { phase: WebPhase::Hang { line, .. }, .. } = p.state else { unreachable!() };
+        if line.window != Some(5) {
+            continue;
+        }
+        p.update(DT, &gone);
+        assert!(matches!(p.state, State::Air { .. }), "{:?}", p.state);
+        assert!(p.web_line().is_none());
+        return;
+    }
+    panic!("창에 매달린 경우가 없음");
+}
+
+/// 🙃 매달린 동안 가끔 가까운 펫이나 커서 쪽을 보며 "hey there"
+#[test]
+fn while_hanging_it_sometimes_turns_to_a_nearby_pet_or_the_cursor_and_says_hey() {
+    let w = world(vec![]);
+    let mut greeted = 0;
+    for seed in 0..12 {
+        let mut p = hang_spider(900.0, seed, &w);
+        p.facing = 1.0;
+        let pal = PetSpot { key: 99, x: 900.0 - 2.5 * p.cfg.size, y: 1040.0, owner: Some(Owner::Ground(0)), size: p.cfg.size, liftable: true, guest: false };
+        p.web.pets = vec![pal];
+        assert!(p.start_hang_down(&w));
+        let mut guard = LoopLimit::new();
+        while matches!(p.state, State::Web { .. }) {
+            guard.step();
+            p.update(DT, &w);
+            if p.speech == Some(Speech::HangHey) {
+                assert!(matches!(p.state, State::Web { phase: WebPhase::Hang { .. }, .. }));
+                assert_eq!(p.facing, -1.0, "seed {seed}: 펫 쪽 (왼쪽)을 봄");
+                greeted += 1;
+                p.speech = None;
+            }
+        }
+    }
+    assert!((2..=11).contains(&greeted), "가끔 {greeted}");
+    // 펫이 없으면 커서 쪽
+    let mut said = false;
+    for seed in 0..12 {
+        let mut p = hang_spider(900.0, seed, &w);
+        p.facing = -1.0;
+        p.cursor = (900.0 + 2.0 * p.cfg.size, 1040.0 - 2.0 * p.cfg.size);
+        assert!(p.start_hang_down(&w));
+        let mut guard = LoopLimit::new();
+        while matches!(p.state, State::Web { .. }) {
+            guard.step();
+            p.update(DT, &w);
+            if p.speech == Some(Speech::HangHey) {
+                assert_eq!(p.facing, 1.0, "커서 쪽 (오른쪽)을 봄");
+                said = true;
+            }
+        }
+    }
+    assert!(said);
+}
+
+/// 🙃 매달린 동안 끼어들면 (자리 비움·잡기·조작 모드) 깔끔히 놓음 — 공중에 멈추지 않고 줄도 사라짐
+#[test]
+fn an_interruption_mid_hang_lets_go_of_the_line() {
+    let w = world(vec![]);
+    for how in 0..3 {
+        let mut p = hang_spider(900.0, 1, &w);
+        assert!(p.start_hang_down(&w));
+        let mut guard = LoopLimit::new();
+        while !matches!(p.state, State::Web { phase: WebPhase::Hang { .. }, .. }) {
+            guard.step();
+            p.update(DT, &w);
+        }
+        match how {
+            0 => p.set_user_away(true),
+            1 => p.set_control(true),
+            _ => {
+                let (x, y) = (p.body.x, p.body.y - 10.0);
+                p.pointer_down(x, y);
+                assert!(matches!(p.state, State::Pressed { .. }), "{:?}", p.state);
+                assert!(p.web_line().is_none());
+                continue;
+            }
+        }
+        p.update(DT, &w);
+        assert!(!matches!(p.state, State::Web { .. }), "how {how}: {:?}", p.state);
+        assert!(p.web_line().is_none());
+    }
+}
+
+/// 🙃 내버려 두면 몇 분에 한 번쯤 매달려 내려옴 (다른 펫은 안 함)
+#[test]
+fn left_alone_it_hangs_down_every_few_minutes() {
+    let w = world(vec![]);
+    let mut hangs = 0;
+    for seed in 0..4 {
+        let mut p = resting(spider(), 900.0, seed, &w);
+        p.hush_web_play();
+        p.web.hang_ready_at = 0.0;
+        let mut was = false;
+        for _ in 0..(60 * 900) {
+            p.update(DT, &w);
+            let _ = p.take_web();
+            let now = matches!(p.state, State::Web { phase: WebPhase::Hang { .. }, .. });
+            hangs += usize::from(now && !was);
+            was = now;
+        }
+    }
+    // 4마리 × 15분 — 몇 분에 한 번
+    assert!((4..=40).contains(&hangs), "{hangs}");
 }

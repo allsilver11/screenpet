@@ -243,6 +243,8 @@ pub struct GripTable {
     pub web_pull: GripAnim,
     /// 🕷️ 🌀 줄 휘두르기 — 머리 위로 들어 올가미를 돌리는 손
     pub web_whirl: GripAnim,
+    /// 🕷️ 🙃 거꾸로 매달리기 — 줄이 붙는 맨 위 손발 (그림 위쪽)
+    pub hang_down: GripAnim,
 }
 
 /// 가장 가까운 노릴 동물: 가로 AIM_RANGE, 높이 AIM_RISE (내 몸 크기 배) 안에서

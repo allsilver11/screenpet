@@ -757,6 +757,8 @@ const EXTRA_SPEECH = {
   // 🕷️🕷️🕷️ 멀티버스 모임: 다른 거미인간을 보고 깜짝 / 흩어지며 (코어 social_multiverse.rs)
   multiverse: ["multiverse?!", "wait… you too?", "no way!"],
   see_ya: ["see ya!"],
+  // 🙃 거미인간이 거꾸로 매달린 채 가까운 펫·커서 쪽을 보며 인사 (코어 brain_web.rs Speech::HangHey)
+  hang_hey: ["hey there", "sup?"],
   // 🦇 박쥐인간: 오토바이에 올라 / 윌리 / 점프·드리프트 / 🔦 박쥐 신호 / 💪 거대한 것도 번쩍 (코어 brain_bike.rs)
   vroom: ["vroom!", "to the bike!"],
   wheelie: ["yeah!", "wheelie!"],

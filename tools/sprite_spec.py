@@ -114,6 +114,8 @@ OPTIONAL_ANIMS = [
     ("web_pull", 4, 8, True, False),
     # 🕷️ 🌀 줄 휘두르기: 버티고 서서 한 팔을 머리 위로 들어 줄 끝의 물건을 빙빙 (손목으로 작은 원 — 3칸 반복)
     ("web_whirl", 3, 10, True, False),
+    # 🕷️ 🙃 거꾸로 매달리기: 웅크린 채 뒤집혀 위로 뻗은 줄을 두 손·두 발로 꼭 잡고 살랑 (3칸 반복 — 줄이 붙는 맨 위 손발 = grip)
+    ("hang_down", 3, 4, True, False),
     # 🦇 박쥐인간 (코어 brain_bike.rs): 🏍️ 오토바이 타고 달리기 (바퀴가 굴러가는 3칸) · 앞바퀴 든 윌리 · 오토바이째 점프 · 급정거 드리프트 ·
     # 🔦 박쥐 신호 조명 켜기 (한 번, 마지막 칸 유지 — 빛줄기는 앱의 덮개 창)
     ("ride", 3, 10, True, False),
@@ -148,13 +150,13 @@ SPEECH = {
     "snowman": {"chatter": ["brrr~", "snow!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "penguin": {"chatter": ["waddle~", "wheee!", "pip pip!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "heumul": {"chatter": ["wheee!", "zoom zoom!", "hup!"], "tickle": ["hehehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    # 🕷️ 거미인간: 줄 쏘기 thwip · 거미집 web · 그네 web_swing · 영웅 착지 hero_land · 끌어오기 gotcha · 🌀 휘둘러 던지기 yeet ·
+    # 🕷️ 거미인간: 줄 쏘기 thwip · 거미집 web · 그네 web_swing · 영웅 착지 hero_land · 끌어오기 gotcha · 🌀 휘둘러 던지기 yeet · 🙃 거꾸로 매달려 인사 hang_hey ·
     # 🕷️🕷️🕷️ 멀티버스 모임 놀람 multiverse / 흩어지기 see_ya (코어 Speech)
     "spider": {"chatter": ["thwip!", "web time!", "hi-ya!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "thwip": ["thwip!"],
                "web": ["web time!", "spin spin~"], "web_swing": ["wheee!", "swing!", "woohoo!"],
                "hero_land": ["nailed it!", "hero landing!", "super landing!", "stuck it!", "like a pro", "boom!",
                              "still got it", "ground secured", "ta-da!", "whoosh… done"],
-               "gotcha": ["gotcha!", "yoink!"], "yeet": ["yeet!", "catch!", "go long!"],
+               "gotcha": ["gotcha!", "yoink!"], "yeet": ["yeet!", "catch!", "go long!"], "hang_hey": ["hey there", "sup?", "hi down there!"],
                "multiverse": ["multiverse?!", "wait… you too?", "no way!", "another me?!", "which one's me?"],
                "see_ya": ["see ya!", "later, me!", "bye, me!"], **_CARE_SPEECH},
     # 🦇 박쥐인간: 오토바이 타기 vroom · 윌리 wheelie · 점프·드리프트 bike_trick · 🔦 박쥐 신호 bat_signal · 오토바이로 놀러 감 to_the_bike ·
@@ -222,7 +224,7 @@ STASHER = {"squirrel"}
 TRAIN_LEADER = {"duck"}
 
 # 🕷️ 줄을 쏘아 모서리에 거미집을 치고, 줄 그네를 타고, 영웅 착지를 하고, 물건·친구를 끌어오는 동물
-# (pet.json web_slinger — 코어 brain_web.rs, 그림은 shoot·web_swing·hero_land·web_pull·web_whirl)
+# (pet.json web_slinger — 코어 brain_web.rs, 그림은 shoot·web_swing·hero_land·web_pull·web_whirl·hang_down)
 WEB_SLINGER = {"spider"}
 
 # 🦇 오토바이를 자주 타고, 윌리·점프·드리프트를 하고, 가끔 박쥐 신호 조명을 켜고, 친구 화면으로 오토바이 타고 오가는 동물

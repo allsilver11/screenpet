@@ -26,6 +26,9 @@
 //! - 🕸️📦 물건도 걸림: 보이는 거미집 안으로 들어온 물건은 무조건 걸려 매달림 (object.rs — 풀린 뒤 SNAG_IMMUNE_SECS 동안은 안 걸림)
 //! - 🕸️🧗 거미집 놀이: 거미인간이 가까운 보이는 거미집 (WEB_PLAY_REACH)에 줄을 쏴 올라가 살·고리 자리 (perch_point)를 기어 다니다가
 //!   매달려 출렁, 뚝 떨어져 (높으면 영웅 착지) — 거미집은 안 찢음
+//! - 🙃 거꾸로 매달리기: 몇 분에 한 번 (HANG_RATE × 연령대 세기) 바로 머리 위 (창 아랫변·창 면 아무 데·화면 윗변 — hang_anchors)에 줄을 붙여
+//!   올라간 뒤 뒤집혀 줄을 타고 스르륵 내려와, 머리가 바닥에서 몸 HANG_HEAD_CLEAR배 높이에서 HANG_SECS 살랑 (HANG_SWAY) — 그 뒤 사뿐 내려앉거나 다시 올라가 놓음.
+//!   창에 붙은 줄은 창을 따라가고 (HangLine::follow), 창이 닫히면 놓음
 //! - 🌉🚪 그네로 친구 화면 가기: 친구가 연결된 끝 바로 안쪽 위에 줄을 붙여 (exit_anchor) 뒤로 당겨 올랐다가 끝 너머로 휙
 //!
 //! 단위: 자리·길이는 물리 px, 시간은 초.
@@ -192,6 +195,83 @@ pub const GIANT_WHIRL_TURNS: f64 = 1.25;
 pub const GIANT_WHIRL_SCALE: f64 = 0.6;
 /// 💪 거대한 것을 던지는 가로 거리 (몸 크기 배까지) — 친구 끝이나 동물이 더 멀면 그 앞 바닥에 떨어짐
 pub const GIANT_THROW_REACH: f64 = 6.0;
+
+/// 🙃 거꾸로 매달리기 빈도 (한가할 때 초당 확률 — 연령대 세기를 곱함): 몇 분에 한 번
+pub const HANG_RATE: f64 = 1.0 / 150.0;
+/// 🙃 매달린 뒤 다시 매달리기까지
+pub const HANG_CALM: (f64, f64) = (90.0, 240.0);
+/// 🙃 다 내려왔을 때 머리 (그림 아래 끝)가 바닥에서 이만큼 (몸 크기 배) — 이보다 낮게 놓으니 내려앉을 때 영웅 착지·콰당 없이 사뿐
+pub const HANG_HEAD_CLEAR: (f64, f64) = (1.0, 1.5);
+/// 🙃 다 내려왔을 때도 닻에서 손발까지 줄이 이만큼 (몸 크기 배)은 남음 — 그보다 낮은 닻은 안 씀
+pub const HANG_MIN_LINE: f64 = 1.0;
+/// 🙃 줄을 당겨 닻 아래로 올라가는 시간
+pub const HANG_RISE_SECS: f64 = 0.5;
+/// 🙃 뒤집혀 줄을 타고 스르륵 내려오는 시간
+pub const HANG_SLIDE_SECS: f64 = 1.4;
+/// 🙃 매달려 있는 시간
+pub const HANG_SECS: (f64, f64) = (3.0, 6.0);
+/// 🙃 살랑살랑 흔들리는 폭 (몸 크기 배, 한쪽)
+pub const HANG_SWAY: f64 = 0.06;
+/// 🙃 살랑살랑 한 번 오가는 시간
+pub const HANG_SWAY_SECS: f64 = 2.4;
+/// 🙃 가까운 펫·커서가 있을 때 그쪽을 보며 인사할 몫
+pub const HANG_GREET_CHANCE: f64 = 0.6;
+/// 🙃 인사할 펫·커서까지의 거리 (몸 크기 배)
+pub const HANG_GREET_REACH: f64 = 6.0;
+/// 🙃 매달린 뒤 이만큼 지나 인사함
+pub const HANG_GREET_AT: f64 = 0.8;
+/// 🙃 끝에 내려앉지 않고 다시 올라가 놓을 몫 (높이서 놓으니 영웅 착지)
+pub const HANG_CLIMB_CHANCE: f64 = 0.35;
+/// 🙃 줄을 타고 다시 올라가는 시간
+pub const HANG_CLIMB_SECS: f64 = 1.2;
+
+/// 🙃 거꾸로 매달린 줄의 닻 (물리 px) — 창에 붙었으면 그 창 왼쪽 위에서의 자리 (rel)로 창을 따라감
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HangLine {
+    /// 닻 x
+    pub x: f64,
+    /// 닻 y
+    pub y: f64,
+    /// 붙은 창 (없으면 화면 윗변)
+    pub window: Option<u64>,
+    /// 창 왼쪽 위에서 닻까지
+    pub rel: (f64, f64),
+}
+
+impl HangLine {
+    /// 창을 따라 옮긴 닻. 붙은 창이 사라졌으면 None (줄을 놓음)
+    pub fn follow(&self, world: &World) -> Option<HangLine> {
+        let Some(id) = self.window else { return Some(*self) };
+        let r = world.windows.iter().find(|w| w.id == id)?.rect;
+        Some(HangLine { x: r.left + self.rel.0, y: r.top + self.rel.1, ..*self })
+    }
+}
+
+/// 🙃 x 바로 위의 닻 후보 (lowest보다 위, 같은 모니터): 그 x를 덮는 창의 아랫변 · 그 창 면 아무 데 (창 위쪽 ~ 아랫변/lowest 사이) · 화면 윗변.
+/// 창 면 자리는 pick (0..1)으로 고름
+pub fn hang_anchors(world: &World, x: f64, lowest: f64, pick: f64) -> Vec<HangLine> {
+    let wa = world.work_area_at(x, lowest);
+    let mut out = Vec::new();
+    for w in &world.windows {
+        let r = w.rect;
+        if !(r.left < x && x < r.right) || r.top >= lowest || r.bottom <= wa.top {
+            continue;
+        }
+        if r.bottom <= lowest {
+            out.push(HangLine { x, y: r.bottom, window: Some(w.id), rel: (x - r.left, r.height()) });
+        }
+        let top = r.top.max(wa.top);
+        let low = r.bottom.min(lowest);
+        if low - top > 1.0 {
+            let y = top + (0.15 + 0.7 * pick) * (low - top);
+            out.push(HangLine { x, y, window: Some(w.id), rel: (x - r.left, y - r.top) });
+        }
+    }
+    if wa.top <= lowest {
+        out.push(HangLine { x, y: wa.top, window: None, rel: (0.0, 0.0) });
+    }
+    out
+}
 
 /// 이만큼 (몸 크기 배) 넘게 떨어져 내려서면 영웅 착지
 pub const HERO_FALL_SIZES: f64 = 1.6;

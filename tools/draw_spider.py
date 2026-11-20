@@ -10,7 +10,8 @@
 단계 (HERO): 아기 = 동글 우주복 꼬마 (머리 아주 큼, 팔다리 뭉툭, 줄 선 없음) → 유아 가면 줄 선 → 어린이 몸에도 줄 선 → 청소년 → 어른 키 크고 어깨 넓음.
 특기 동작 (코어 brain_web.rs): shoot 팔을 쭉 뻗어 손목을 까딱 (손가락 둘 펴고) 줄 쏘기 · web_swing 한 팔을 머리 위로 들어 줄에 매달림 ·
       hero_land 영웅 착지 (쪼그려 앞 주먹을 바닥에, 뒤 다리 쭉, 다른 팔은 뒤로) · web_pull 두 손으로 줄을 잡고 영차 ·
-      web_whirl 🌀 버티고 서서 가까운 팔을 머리 위로 들어 줄 끝의 물건을 빙빙 — 줄 끝 손 자리는 mark_grip (pet.json grip).
+      web_whirl 🌀 버티고 서서 가까운 팔을 머리 위로 들어 줄 끝의 물건을 빙빙 ·
+      hang_down 🙃 웅크린 채 거꾸로 뒤집혀 위로 뻗은 줄을 두 손·두 발로 꼭 잡고 살랑 (머리가 아래) — 줄 끝 손 자리는 mark_grip (pet.json grip).
       벽 타기 climb·slide = 뒷모습으로 손발을 벽에 붙이고 엉금엉금 (거미인간 벽 타기).
 eat에는 밥그릇이 없다 (앱의 소품 창이 띄운다): 무릎 꿇고 가면 아래를 걷어 올려 입을 밥 더미 바로 위 (프레임 y ≈ 79)에 대고 냠냠.
 """
@@ -620,6 +621,33 @@ def sp_web_whirl(sp, i):
                 fx=lambda hands: whirl_fx(hands[1][0], hands[1][1], i))
 
 
+HANG_FLIP = dict(sy=-1, pivot=(64.0, 64.0))  # 🙃 거꾸로: 똑바로 웅크린 그림을 위아래로 뒤집음 (머리가 아래, 손발이 위)
+HANG_SWAY = [(0.0, 0.0), (1.2, 2.5), (-1.0, -2.0)]  # 🙃 칸마다 (몸 기울기 더함, 손발 아래 몸 흔들림 dx) — 살랑살랑 숨쉬기
+
+
+def sp_hang_down(sp, i):
+    """🙃 거꾸로 매달리기: 쪼그려 앉듯 무릎·팔꿈치를 굽혀 몸을 웅크린 채 위아래로 뒤집혀, 위로 뻗은 줄 한 가닥을 두 발과 두 손으로 모두 꼭 붙잡음.
+    똑바로 쪼그린 그림 (몸을 앞으로 숙이고 발 앞의 줄을 두 손이 발 바로 위에서 잡음)을 그린 뒤 HANG_FLIP으로 뒤집음 —
+    뒤집으면 발이 맨 위 (줄이 붙는 점 = mark_grip), 그 아래 두 손, 굽힌 무릎·팔꿈치, 몸, 맨 아래 머리. 줄은 손발 사이만 그리고 위쪽은 앱이 닻까지 그림."""
+    s = hs()
+    lean, dx = HANG_SWAY[i]
+    cx = SIDE_CX - 8
+    hip_y = 4.0 + 2 * s["hry"] - OVERLAP + s["th"] - 0.35 * s["lw"]  # 뒤집으면 머리 아래 끝이 바닥께
+    hip = (cx, hip_y)
+    lx = cx + s["tw"] * 0.9 + s["leg"] * 0.25 + dx  # 줄 x (몸 앞)
+    far_foot = (lx - s["lw"] * 0.1, hip_y + s["leg"] * 0.55 + s["lw"] * 0.2)
+    near_foot = (lx + s["lw"] * 0.1, far_foot[1] + s["lw"] * 0.85)  # 뒤집으면 맨 위 (밝은 빨강 장화)
+    near_hand = (lx, hip_y + s["aw"] * 0.1)
+    far_hand = (lx, near_hand[1] - s["aw"] * 1.3)
+    grip = (lx, near_foot[1] + s["lw"] * 0.3)  # 뒤집으면 맨 위 장화 안쪽 — 줄이 붙는 점
+    with xf(**HANG_FLIP):
+        fx = [([L([grip, (lx, far_hand[1] - s["aw"] * 0.5)], 1.7)], OUT, 0), ([L([grip, (lx, far_hand[1] - s["aw"] * 0.5)], 0.9)], THREAD, 0)]
+        dp.mark_grip(*grip)
+    return hero(hip=hip, rot=6 + lean, head_rot=-8, legs=[far_foot, near_foot], leg_bend=[(1, -0.2), (1, -0.2)],
+                arms=[far_hand, near_hand], arm_bend=[(1, 0.5), (1, 0.5)], grip_red=True,
+                eyes="happy" if i == 1 else "dot", mouth="grin", whole=HANG_FLIP, fx=fx)
+
+
 # =====================================================================
 # 앞모습
 # =====================================================================
@@ -796,9 +824,9 @@ SPIDER_POSES = {"walk": sp_walk, "run": sp_run, "roll": sp_roll, "idle": sp_idle
                 "belly": sp_belly, "stretch": sp_stretch, "heart": sp_heart, "tickle": sp_tickle, "annoyed": sp_annoyed,
                 "hungry": sp_hungry, "eat": sp_eat, "level_up": sp_level_up, "climb": sp_climb, "slide": sp_slide, "lookup": sp_lookup,
                 "shoot": sp_shoot, "web_swing": sp_web_swing, "hero_land": sp_hero_land, "web_pull": sp_web_pull,
-                "web_whirl": sp_web_whirl}
+                "web_whirl": sp_web_whirl, "hang_down": sp_hang_down}
 SPIDER_POSES = {k: (v if k == "roll" else dp._fit(v)) for k, v in SPIDER_POSES.items()}  # roll은 회전 원 안 그대로
-WEB_ANIMS = ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl"]  # = Rust manifest::WEB_ANIMS
+WEB_ANIMS = ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl", "hang_down"]  # = Rust manifest::WEB_ANIMS
 
 SPIDER = Species(
     id="spider", name="거미인간", walk_speed=95, scale=1.0, base=BLUE, back=RED, belly=RED, nose=OUT, mouth="w",
@@ -820,7 +848,7 @@ register()
 def preview_spider(by_stage, path, bg=(255, 255, 255)):
     """5단계 × 대표 동작 + 특기 동작 (밝은·어두운 바탕)."""
     names = [("walk", 0), ("run", 1), ("sit_front", 0), ("wave", 1), ("eat", 0), ("sleep", 0), ("hop", 1), ("fall", 0), ("roll", 0),
-             ("shoot", 2), ("web_swing", 0), ("hero_land", 1), ("web_pull", 2), ("web_whirl", 1), ("climb", 0)]
+             ("shoot", 2), ("web_swing", 0), ("hero_land", 1), ("web_pull", 2), ("web_whirl", 1), ("hang_down", 0), ("climb", 0)]
     rows = [(st, by_stage, st) for st in STAGES]
     dp.preview_poses([(bg, rows), ((40, 44, 52), rows)], names, path, zoom=("sit_front", "hero_land"), bg=bg)
 

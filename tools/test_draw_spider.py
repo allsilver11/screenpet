@@ -14,7 +14,7 @@ from sprite_spec import ANIMS, OPTIONAL_ANIMS, STAGES, sheet_128
 
 ROOT = Path(__file__).resolve().parent.parent
 SHIPPED = ROOT / "ui" / "pets" / "spider"
-WEB = ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl"]  # = Rust manifest::WEB_ANIMS
+WEB = ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl", "hang_down"]  # = Rust manifest::WEB_ANIMS
 STANDING = ("walk", "idle", "look", "sit_front", "wave", "tilt", "heart", "tickle", "hungry", "eat", "level_up", "sleep", "annoyed", "shoot",
             "hero_land", "web_pull", "web_whirl")
 
@@ -40,9 +40,9 @@ def near(im, col, tol=40):
     return (np.abs(a[..., :3] - np.array(col)).sum(axis=2) < tol) & (a[..., 3] > 200)
 
 
-def test_registered_with_climb_and_the_five_web_rows_at_the_end():
+def test_registered_with_climb_and_the_six_web_rows_at_the_end():
     assert draw_pets.SPECIES["spider"] is ds.SPIDER
-    assert [o[0] for o in OPTIONAL_ANIMS[-14:-9]] == WEB == ds.WEB_ANIMS  # 그 뒤는 🦇 박쥐인간 오토바이 다섯 · 🦸 슈퍼인간 날기 넷
+    assert [o[0] for o in OPTIONAL_ANIMS[-15:-9]] == WEB == ds.WEB_ANIMS  # 그 뒤는 🦇 박쥐인간 오토바이 다섯 · 🦸 슈퍼인간 날기 넷
     assert names(ds.SPIDER) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + WEB
 
 
@@ -61,11 +61,12 @@ def test_manifest_is_a_playful_web_slinger_that_loves_flies(out):
     assert "juggler" not in m and "tint" not in m
     assert m["animations"]["shoot"] == {"row": len(ANIMS) + 3, "frames": 3, "fps": 10, "loop": False}
     assert m["animations"]["hero_land"]["loop"] is False and "front" not in m["animations"]["web_swing"]
-    for key in ("thwip", "web", "web_swing", "hero_land", "gotcha", "yeet", "multiverse", "see_ya"):
+    for key in ("thwip", "web", "web_swing", "hero_land", "gotcha", "yeet", "multiverse", "see_ya", "hang_hey"):
         assert m["speech"][key] and all(len(s) <= 16 for s in m["speech"][key]), key
     # 🦸 영웅 착지 대사는 10개 안팎, 다 다름 · 🕷️🕷️🕷️ 멀티버스 모임 놀람 말 (코어 social_multiverse.rs)
     assert 9 <= len(set(m["speech"]["hero_land"])) == len(m["speech"]["hero_land"]) <= 12
     assert "multiverse?!" in m["speech"]["multiverse"] and "see ya!" in m["speech"]["see_ya"]
+    assert {"hey there", "sup?"} <= set(m["speech"]["hang_hey"])  # 🙃 거꾸로 매달려 인사
     assert m["stage_size"] == dict.fromkeys(STAGES, 0.85)
 
 
@@ -77,8 +78,8 @@ def test_grip_marks_the_red_glove_at_the_end_of_the_line(out, st):
     g = {a: [[x / px, y / px] for x, y in cells] for a, cells in m["grip"][st].items()}
     head = {a: [c[1] / px for c in m["head"][st][a]] for a in ("web_swing", "web_whirl")}
     head_x = [c[0] / px for c in m["head"][st]["shoot"]]
-    assert set(g) == {"shoot", "web_swing", "web_pull", "web_whirl"}
-    assert [len(g[a]) for a in ("shoot", "web_swing", "web_pull", "web_whirl")] == [3, 2, 4, 3]
+    assert set(g) == {"shoot", "web_swing", "web_pull", "web_whirl", "hang_down"}
+    assert [len(g[a]) for a in ("shoot", "web_swing", "web_pull", "web_whirl", "hang_down")] == [3, 2, 4, 3, 3]
     assert all(x > 68 and x > hx + 12 for (x, _), hx in zip(g["shoot"][1:], head_x[1:])), (g["shoot"], head_x)
     assert all(y < 34 and y < hy + 4 for (_, y), hy in zip(g["web_swing"], head["web_swing"])), (g["web_swing"], head)
     assert all(x > 70 for x, _ in g["web_pull"]), g["web_pull"]
@@ -91,6 +92,22 @@ def test_grip_marks_the_red_glove_at_the_end_of_the_line(out, st):
             x0, y0 = int(round(x)), int(round(y))
             win = near(im, ds.RED)[max(0, y0 - 4):y0 + 5, max(0, x0 - 4):x0 + 5]
             assert win.sum() >= 4, (st, anim, i, (x, y), int(win.sum()))
+
+
+@pytest.mark.parametrize("st", STAGES)
+def test_hang_down_is_upside_down_with_hands_and_feet_on_the_line_at_the_top(out, st):
+    """🙃 거꾸로 매달리기: 줄이 붙는 손발 (grip)이 그림 맨 위께, 머리 (하얀 렌즈)는 맨 아래쪽, 그 사이 손발·몸 — 칸마다 살랑."""
+    m = json.loads((out / "spider" / "pet.json").read_text(encoding="utf-8"))
+    px = m.get("frame_sizes", {}).get(st, 128) / 128
+    for i, (x, y) in enumerate(m["grip"][st]["hang_down"]):
+        im = frame(out, st, "hang_down", i)
+        a = np.asarray(im.getchannel("A")) > 128
+        ys = np.nonzero(a)[0]
+        assert y / px < ys.min() + 8, (st, i, y / px, ys.min())  # 손발이 맨 위
+        lens_y = np.nonzero(near(im, ds.LENS, 30))[0].mean()
+        assert lens_y > (ys.min() + ys.max()) / 2 + 10, (st, i, lens_y)  # 머리는 아래
+        assert ys.max() > 112, (st, i, ys.max())  # 머리 아래 끝이 바닥께 (코어가 머리 높이를 맞춤)
+        assert near(im, ds.BLUE).sum() > 40, st  # 굽힌 팔다리 (파랑)가 보임
 
 
 @pytest.mark.parametrize("st", STAGES)
