@@ -176,7 +176,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         let now = shown(&handle);
         let changed = {
             let mut last = last.lock().unwrap();
-            let changed = (house_kind(&handle, &now.0), now.1, now.2) != (house_kind(&handle, &last.0), last.1, last.2);
+            let changed = (house_kind(&handle, &now.0), now.1) != (house_kind(&handle, &last.0), last.1);
             *last = now;
             changed
         };
