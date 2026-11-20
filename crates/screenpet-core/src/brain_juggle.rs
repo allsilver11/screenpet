@@ -6,6 +6,9 @@
 //! - 놓을 때는 `take_juggle`로 Release (속도) — 앱이 그 속도로 던짐
 //! - 배달 장난: 들고 친구 쪽 끝으로 걸어 나감 (Exit 중에도 들고 있음). 앱이 Visit에 실어 보내면 `carry_handed_over`.
 //!   친구 화면에 도착한 손님·못 들어가 돌아온 내 동물은 앱이 손에 쥐여 주고(`hold_object`) 들어와 서면 앞을 보고 휙 떨굼
+//! - 💪 영웅 (🦇 박쥐인간·🦸 슈퍼인간 — `hero_lifter`)은 거대한 것도 배달·모니터 너머 던지기를 함 (v0.7.1): 거대한 것을 받는 친구 끝
+//!   (`set_giant_edges` — 앱이 GIANT_CARRY_MIN_VERSION 친구만)으로만. 거대한 것까지 화면 밖으로 다 나가야 사라지고 (brain.rs transit_half),
+//!   친구 화면엔 `hold_giant`로 쥐여 줌. `carries_giants`면 앱이 거대한 것도 Visit.carry에 실음 (🕷️ 거미인간은 줄로 끌고 — brain_web.rs)
 
 use super::*;
 use crate::juggle::{self, JuggleEvent, ObjectSpot, Target};
@@ -83,6 +86,10 @@ pub struct JuggleMood {
     pub(super) targets: Vec<Target>,
     /// 배달 장난을 해도 되는 끝 (새 버전 친구가 연결됨 — 앱이 정함)
     pub(super) prank: (bool, bool),
+    /// 💪 거대한 것을 들고 가도 되는 끝 (거대한 것을 받는 새 버전 친구가 연결됨 — 앱이 정함, 영웅만 씀)
+    pub(super) giant_prank: (bool, bool),
+    /// 💪 든 거대한 것의 반 폭 (물리 px — 화면 끝을 다 나가고 들어올 때·🕷️ 끌 자리에 씀). 거대한 것이 아니면 0
+    pub(super) giant_half: f64,
     /// 앱에 알릴 일 (놓기·던지기 — 앱이 꺼내 감)
     pub(super) event: Option<JuggleEvent>,
     /// 바닥의 물건들 (notice_objects가 채움 — 놀러 갈 때 들고 갈 것을 고름)
@@ -105,6 +112,8 @@ impl JuggleMood {
             seen: Vec::new(),
             targets: Vec::new(),
             prank: (false, false),
+            giant_prank: (false, false),
+            giant_half: 0.0,
             event: None,
             spots: Vec::new(),
             leave_to: None,
@@ -116,6 +125,16 @@ impl Pet {
     /// 배달 장난을 해도 되는 끝 (매 틱 — 내 동물만, 그 끝에 새 버전 친구가 연결돼 있고 놀러 갈 수 있을 때)
     pub fn set_prank_edges(&mut self, left: bool, right: bool) {
         self.juggle.prank = (left, right);
+    }
+
+    /// 💪 거대한 것을 들고 가도 되는 끝 (매 틱 — 내 동물만, 그 끝에 거대한 것을 받는 새 버전 친구가 있을 때). 영웅만 씀
+    pub fn set_giant_edges(&mut self, left: bool, right: bool) {
+        self.juggle.giant_prank = (left, right);
+    }
+
+    /// 💪 거대한 것을 친구 화면으로 들고 갈 수 있는 동물 (🦇 박쥐인간·🦸 슈퍼인간은 머리 위로, 🕷️ 거미인간은 줄에 매달아 끌고) — 앱이 Carry에 실을지 봄
+    pub fn carries_giants(&self) -> bool {
+        self.hero_lifter() || self.cfg.slings_webs
     }
 
     /// 손에 든 물건 (앱이 틱마다 손 자리로 옮김 — 🕷️ 줄 끝에 휘두르는 물건도). 손에서 놓쳤으면 None
@@ -153,17 +172,28 @@ impl Pet {
     pub fn hold_object(&mut self, id: u64) {
         self.juggle.carry = Some(id);
         self.juggle.giant = false;
+        self.juggle.giant_half = 0.0;
         self.juggle.local = false;
         self.juggle.present_pending = true;
         self.juggle.calm_until = self.clock + behavior::range(&mut self.juggle.rng, juggle::CALM_SECS);
     }
 
-    /// 손에 든 물건 바닥이 올 자리 (물리 px) — 손이 그 동작의 그 칸에 있는 곳 (🕷️ 휘두르는 물건은 줄 끝)
+    /// 💪 친구 화면에 들고 온 거대한 것 (half = 그 반 폭, 물리 px): hold_object처럼 들어와 서면 내려놓음
+    pub fn hold_giant(&mut self, id: u64, half: f64) {
+        self.hold_object(id);
+        self.juggle.giant = true;
+        self.juggle.giant_half = half.max(0.0);
+    }
+
+    /// 손에 든 물건 바닥이 올 자리 (물리 px) — 손이 그 동작의 그 칸에 있는 곳 (🕷️ 휘두르는 물건은 줄 끝, 끄는 거대한 것은 몸 뒤 바닥)
     pub fn carry_point(&self) -> Option<(f64, f64)> {
         if let Some(at) = self.whirl_carry_point() {
             return Some(at);
         }
         self.carried_object()?;
+        if let Some(at) = self.drag_point() {
+            return Some(at);
+        }
         let g = &self.cfg.grip;
         let (gx, gy) = match self.state {
             State::Juggle { phase, t } => match phase {
@@ -191,9 +221,10 @@ impl Pet {
         Some((self.body.x + gx * self.cfg.size, y))
     }
 
-    /// 손에 들고 있을 수 있는 때
-    fn carry_ok(&self) -> bool {
+    /// 손에 들고 있을 수 있는 때 (🕷️ 줄에 매달아 끄는 중도)
+    pub(super) fn carry_ok(&self) -> bool {
         match self.state {
+            State::Web { phase, .. } => self.drags(phase),
             State::Juggle { phase, .. } => matches!(
                 phase,
                 JugglePhase::Lift
@@ -328,6 +359,7 @@ impl Pet {
         self.clear_hover();
         self.poop.stepping_off();
         self.juggle.local = spot.local;
+        self.juggle.giant_half = if spot.giant { spot.half_w } else { 0.0 };
         self.state = State::Juggle { phase: JugglePhase::Approach { id: spot.id, x: to, obj_x: spot.x, giant: spot.giant }, t: 0.0 };
     }
 
@@ -380,33 +412,40 @@ impl Pet {
 
     /// 걸어서 닿는 끝 중 새 버전 친구가 연결된 쪽 (배달 장난·모니터 너머 던지기)
     pub(super) fn friend_sides(&self, world: &World) -> Vec<Side> {
+        self.reachable_sides(world, self.juggle.prank)
+    }
+
+    /// 💪 걸어서 닿는 끝 중 거대한 것을 받는 새 버전 친구가 연결된 쪽 (영웅의 거대한 배달·🕷️ 끌고 가기)
+    pub(super) fn giant_sides(&self, world: &World) -> Vec<Side> {
+        self.reachable_sides(world, self.juggle.giant_prank)
+    }
+
+    /// 앱이 정한 끝 (왼쪽, 오른쪽) 중 지금 디딤판에서 걸어서 화면 끝까지 닿는 쪽
+    fn reachable_sides(&self, world: &World, edges: (bool, bool)) -> Vec<Side> {
         let piece = self.standing.and_then(|st| world.piece_at(st.owner, self.body.x)).copied();
         let reach = |side: Side, dir: f64| piece.is_some_and(|p| visit::screen_edge(world, &p, dir) == Some(side));
         let mut sides = Vec::new();
-        if self.juggle.prank.0 && reach(Side::Left, -1.0) {
+        if edges.0 && reach(Side::Left, -1.0) {
             sides.push(Side::Left);
         }
-        if self.juggle.prank.1 && reach(Side::Right, 1.0) {
+        if edges.1 && reach(Side::Right, 1.0) {
             sides.push(Side::Right);
         }
         sides
     }
 
-    /// 들어 올린 뒤 할 일: 거대한 것은 던지기만, 아니면 배달 장난 (갈 수 있는 끝이 있을 때) / 들고 돌아다니기 / 던지기
     /// 💪 영웅 (🦇 박쥐인간·🦸 슈퍼인간): 거대한 것도 늘 짧게 힘주고 번쩍 들고, 들고 다니기도 함
     pub(super) fn hero_lifter(&self) -> bool {
         self.cfg.rides_bike || self.cfg.soars
     }
 
+    /// 들어 올린 뒤 할 일: 거대한 것은 던지기만, 아니면 배달 장난 (갈 수 있는 끝이 있을 때) / 들고 돌아다니기 / 던지기.
+    /// 💪 영웅은 거대한 것도 배달·모니터 너머 던지기를 함 — 거대한 것을 받는 친구 끝 (giant_sides)으로만 (옛 버전 친구뿐이면 두고 감)
     pub(super) fn pick_plan(&mut self, giant: bool, world: &World) -> Plan {
-        if giant {
-            // 💪 영웅은 거대한 것도 들고 좀 다니다 던지기도 함
-            if self.hero_lifter() && self.juggle.rng.f64() < juggle::WANDER_CHANCE {
-                return Plan::Wander;
-            }
+        if giant && !self.hero_lifter() {
             return Plan::Throw;
         }
-        let sides = self.friend_sides(world);
+        let sides = if giant { self.giant_sides(world) } else { self.friend_sides(world) };
         // 📌 작업표시줄 장난감은 여기서 정하지 않는다 (brain_taskbar.rs toy_play_plan이 따로 굴림 — 다른 흐물이의 장난감은 줍지 않음)
         if !sides.is_empty() && !self.juggle.local {
             let roll = self.juggle.rng.f64();
@@ -665,7 +704,8 @@ impl Pet {
                     let from = self.carry_point().unwrap_or((self.body.x, self.body.y - self.cfg.size));
                     let (vx, vy, facing) = match self.juggle.plan {
                         // 🎯 모니터 너머로: 그 끝을 넉넉히 넘게
-                        Plan::Lob(side) if !self.juggle.giant => {
+                        // 💪 영웅은 거대한 것도
+                        Plan::Lob(side) if !self.juggle.giant || self.hero_lifter() => {
                             let edge_x = if visit::dir(side) > 0.0 { world.bounds.right } else { world.bounds.left };
                             let (vx, vy) = juggle::lob_velocity(from.0, edge_x, self.cfg.dpi);
                             (vx, vy, visit::dir(side))
@@ -741,9 +781,9 @@ impl Pet {
         }
     }
 
-    /// 물건을 든 채 걸어 나가거나 들어오는 동안·도착해 서기 전엔 머리 위에 인 그림
+    /// 물건을 든 채 걸어 나가거나 들어오는 동안·도착해 서기 전엔 머리 위에 인 그림 (🕷️ 줄에 매달아 끄는 거미인간은 평소 그림)
     pub(super) fn carrying_anim(&self, anim: Anim) -> Anim {
-        if (self.carried_object().is_none() && self.hoisting().is_none()) || matches!(self.state, State::Juggle { .. } | State::Hoist { .. }) {
+        if (self.carried_object().is_none() && self.hoisting().is_none()) || matches!(self.state, State::Juggle { .. } | State::Hoist { .. }) || self.drag_point().is_some() {
             return anim;
         }
         match anim {

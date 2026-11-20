@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 
 /// 알림과 `hello`에 싣는 프로토콜 버전임. 2 = `ladder_*` 메시지를 앎 (v0.5.0).
 /// 3 = `device_friends`, `my_devices`, `device_*` 코드 연결 메시지를 앎 (연결된 기기, v0.5.3).
-/// 4 = 놀러 가는 펫이 든 물건(`Visit::carry`)을 받음 (v0.6.2). 옛 버전은 모르는 `type`이 오면
+/// 4 = 놀러 가는 펫이 든 물건(`Visit::carry`)을 받음 (v0.6.2).
+/// 5 = 💪 영웅이 든 거대한 것을 `Visit::carry`로 받음 (v0.7.1 — 새 필드 없음, look "giant"). 옛 버전은 모르는 `type`이 오면
 /// 링크를 닫으므로, 새 메시지 종류를 쓰는 기능은 상대 버전부터 확인함 (`Net::peer_version`)
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 /// `LadderMsg`를 보내도 되는 가장 낮은 상대 버전
 pub const LADDER_MIN_VERSION: u32 = 2;
 /// `device_friends`, `my_devices`, `device_*`를 보내도 되는 가장 낮은 상대 버전
@@ -16,6 +17,9 @@ pub const DEVICES_MIN_VERSION: u32 = 3;
 /// 물건을 들고 놀러 가도 되는 가장 낮은 상대 버전 (`Visit::carry`).
 /// 옛 버전은 그 필드를 무시해 물건이 가는 길에 사라짐
 pub const CARRY_MIN_VERSION: u32 = 4;
+/// 💪 영웅이 든 거대한 것(`Carry::look` "giant" 등)을 실어도 되는 가장 낮은 상대 버전 (v0.7.1).
+/// 옛 버전(0.7.0까지)은 거대한 것을 모르는 물건으로 버려 펫만 들어오므로, 보내는 쪽이 거대한 것을 두고 감
+pub const GIANT_CARRY_MIN_VERSION: u32 = 5;
 /// 친구 하나가 소개하는 기기 수 상한 (`my_devices`, 메시지 하나와 전체 모두).
 /// 한 사람은 컴퓨터를 둘까지만 연결하므로 친구에게 다른 하나뿐임
 pub const MAX_DEVICES: usize = 1;
@@ -823,6 +827,18 @@ mod tests {
         assert_eq!(Message::parse(br#"{"type":"leave","visit_id":3,"carry":true}"#), Some(Message::Visit(Visit::leave(3))));
         assert_eq!(Message::Visit(Visit::leave(3)).to_json(), br#"{"type":"leave","visit_id":3}"#.to_vec());
         assert!(CARRY_MIN_VERSION > DEVICES_MIN_VERSION && CARRY_MIN_VERSION <= PROTOCOL_VERSION);
+    }
+
+    /// 💪 영웅이 든 거대한 것은 새 필드 없이 Toss처럼 look "giant"로 실림 — 거대한 것을 받는 상대 (GIANT_CARRY_MIN_VERSION)에게만 보냄
+    #[test]
+    fn a_giant_carry_is_a_plain_carry_with_a_giant_look_sent_only_to_new_enough_friends() {
+        let giant = Carry { kind: "stone".into(), look: Some("giant".into()), scale: None, icon: None };
+        let msg = visit!(carry: Some(giant.clone()));
+        let json = String::from_utf8(msg.to_json()).unwrap();
+        assert!(json.contains(r#""carry":{"kind":"stone","look":"giant"}"#), "{json}");
+        assert_eq!(Message::parse(json.as_bytes()), Some(msg));
+        assert_eq!(PROTOCOL_VERSION, 5);
+        assert!(GIANT_CARRY_MIN_VERSION > CARRY_MIN_VERSION && GIANT_CARRY_MIN_VERSION <= PROTOCOL_VERSION);
     }
 
     fn carry_can() -> Carry {

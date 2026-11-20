@@ -1733,12 +1733,16 @@ fn a_launched_object_flies_like_a_thrown_one_and_crosses_a_friend_edge() {
 }
 
 #[test]
-fn a_delivered_object_is_checked_like_a_toss_and_never_a_giant() {
+fn a_delivered_object_is_checked_like_a_toss_and_giants_come_with_heroes() {
     assert_eq!(accept_carry("can", None), Some(ObjectKind::Can));
     assert_eq!(accept_carry("sock", None), Some(ObjectKind::Shirt));
     assert_eq!(accept_carry("poop", Some("rainbow")), Some(ObjectKind::Rainbow));
     assert_eq!(accept_carry("poop", Some("weird")), Some(ObjectKind::Poop));
-    for (kind, look) in [("stone", Some("giant")), ("poop", Some("giant")), ("giant_stone", None), ("giant_poop", None), ("cat", None), ("", None), ("../x", None)] {
+    // 💪 영웅이 들고 온 거대한 것 (v0.7.1 — 받는 화면 높이에 맞춰 앱이 크기를 다시 정함)
+    assert_eq!(accept_carry("stone", Some("giant")), Some(ObjectKind::GiantStone));
+    assert_eq!(accept_carry("poop", Some("giant")), Some(ObjectKind::GiantPoop));
+    assert_eq!(accept_carry("poop", Some("giant_rainbow")), Some(ObjectKind::GiantRainbow));
+    for (kind, look) in [("cat", None), ("", None), ("../x", None)] {
         assert_eq!(accept_carry(kind, look), None, "{kind} {look:?}");
     }
 }

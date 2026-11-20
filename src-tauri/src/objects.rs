@@ -653,16 +653,22 @@ impl Objects {
         }
     }
 
-    /// 🤹 친구에게 들고 갈 물건의 이름 (Toss와 같은 이름·색·크기). 거대한 것은 들고 가지 않음
-    pub fn carry_wire(&self, id: u64) -> Option<screenpet_net::Carry> {
+    /// 🤹 친구에게 들고 갈 물건의 이름 (Toss와 같은 이름·색·크기). 거대한 것은 giants (💪 든 동물이 영웅 — Pet::carries_giants)일 때만:
+    /// 거대한 것을 던질 때처럼 look "giant"로 실음 (크기는 받는 앱이 제 화면 높이로 정함)
+    pub fn carry_wire(&self, id: u64, giants: bool) -> Option<screenpet_net::Carry> {
         let l = self.live.iter().find(|l| l.id == id)?;
         let kind = l.object.kind;
         // 📌 장난감은 그림이 있을 때만 그림과 함께 (🔓 v0.6.5)
         let icon = l.icon.as_ref().map(wire_icon);
-        if kind.is_giant() || (kind.is_toy() && icon.is_none()) {
+        if (kind.is_giant() && !giants) || (kind.is_toy() && icon.is_none()) {
             return None;
         }
         Some(screenpet_net::Carry { kind: kind.wire_id().to_string(), look: kind.look().map(str::to_string), scale: kind.is_poop().then(|| l.object.scale()), icon: icon.filter(|_| kind.is_toy()) })
+    }
+
+    /// 💪 물건의 반 폭 (물리 px — 들고 온 거대한 것을 동물 손에 쥐여 줄 때 hold_giant에 줌)
+    pub fn half_w_of(&self, id: u64) -> Option<f64> {
+        self.live.iter().find(|l| l.id == id).map(|l| l.object.half_w())
     }
 
     /// 🤹 친구에게 들고 갔음: 이 화면에서는 치움 (뿅 없이 — 동물 손에 들려 화면 밖으로 나갔음)

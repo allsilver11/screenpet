@@ -1998,12 +1998,24 @@ impl Pet {
         }
     }
 
+    /// 화면 끝을 다 나가고 다 들어왔는지 볼 반 폭: 💪 든 거대한 것이 있으면 그 먼 가장자리까지 (머리 위·🕷️ 몸 뒤 — 창만 한 것이 화면에 남은 채 사라지거나 밖에 걸린 채 서지 않게)
+    fn transit_half(&self) -> f64 {
+        let half = self.cfg.half_w;
+        if !self.juggle.giant || self.juggle.giant_half <= 0.0 {
+            return half;
+        }
+        match self.carry_point() {
+            Some((x, _)) => half.max((x - self.body.x).abs() + self.juggle.giant_half),
+            None => half,
+        }
+    }
+
     /// 걸어 나가는 한 틱. 화면 밖으로 다 나가면 사라짐 (vanish)
     fn update_exit(&mut self, dt: f64, world: &World, remaining: f64, side: Side) {
         self.facing = visit::dir(side);
         self.walk_by(self.facing * self.transit_speed() * dt, world);
         let remaining = remaining - dt;
-        if remaining <= 0.0 && visit::fully_outside(&world.bounds, side, self.body.x, self.cfg.half_w) {
+        if remaining <= 0.0 && visit::fully_outside(&world.bounds, side, self.body.x, self.transit_half()) {
             self.vanish(side);
         } else {
             self.state = State::Exit { remaining, side };
@@ -2023,7 +2035,7 @@ impl Pet {
             return;
         }
         let remaining = remaining - dt;
-        self.state = if remaining <= 0.0 && visit::fully_inside(&world.bounds, side, self.body.x, self.cfg.half_w) {
+        self.state = if remaining <= 0.0 && visit::fully_inside(&world.bounds, side, self.body.x, self.transit_half()) {
             State::Move { kind: Move::Walk, remaining: behavior::range(&mut self.rng, Move::Walk.secs()) }
         } else {
             State::Enter { remaining, side }

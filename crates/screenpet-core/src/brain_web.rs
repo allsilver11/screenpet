@@ -15,6 +15,10 @@
 //!   그 끝 너머로 휙. 도는 동안은 흐물이가 든 물건처럼 carried_object·carry_point로 앱이 옮기고, 놓을 때 JuggleEvent::Release
 //!   (앱이 날림 — 끝을 넘으면 친구 모니터로). 낚아채이면 (lose_carry) "hmph!", 끼어들리면 줄을 놓아 물건이 떨어짐.
 //!   💪 거대한 것은 더 천천히·작게·덜 돌다 (web::whirl_secs(true)) 가까이만 던짐 (throw_target — 먼 끝·동물이면 그 앞 바닥에)
+//! - 💪🕷️ 거대한 것 끌고 가기 (v0.7.1): 낚은 거대한 것의 친구 끝이 던져 닿지 않게 멀고 (GIANT_THROW_REACH 너머) 그 친구가 거대한 것을 받으면
+//!   (giant_sides — 앱의 set_giant_edges) 휘두르지 않고 엉덩이(실젖)에서 나온 줄에 매달아 몸 뒤 바닥으로 질질 끌며 (Drag, drag_point) 그 끝으로 걸어 나감.
+//!   juggle.carry에 들고 있는 것으로 쳐서 앱이 Visit.carry에 실음 (거대한 것까지 다 나가야 사라짐 — brain.rs transit_half).
+//!   친구 화면엔 끌고 들어와 (hold_giant) 거대한 것까지 다 들어와 서면 줄을 풀어 그 자리에 내려놓음 ("tada!" — settle_drag). 끝이 막히면 그 자리에 놓음
 //! - 🐛 고치 말기: 닿는 거리에 쉬는 다른 동물(친구 동물 포함)이 있으면 가끔 (COCOON_RATE) 그 몸 둘레로 줄을 COCOON_SHOTS번 쏴서 (Wrap)
 //!   칭칭 — 첫 줄이 닿으면 sync_cocoons가 그 동물을 감고 (brain_snare.rs), 다 감으면 "hehe".
 //! - 🕸️🧗 거미집 놀이: 몸 WEB_PLAY_REACH배 안에 보이는 거미집 (누구 것이든 — 앱이 set_webs로 알려 줌)이 있으면 가끔 (WEB_PLAY_RATE)
@@ -85,6 +89,8 @@ pub enum WebPhase {
     Weave { spot: WebSpin, shot: u32 },
     /// 🌀 줄 끝의 물건을 머리 위로 휘두름 (from: 낚은 순간 물건 가운데, half: 물건 반 폭, dir: 던질 쪽 ±1, heavy: 💪 거대한 것 — 천천히·작게)
     Whirl { id: u64, from: (f64, f64), half: f64, dir: f64, heavy: bool },
+    /// 💪 줄에 매달은 거대한 것을 몸 뒤로 끌며 친구 끝(side)으로 걸어감 (from: 낚은 순간 거대한 것 바닥 가운데 — 처음엔 거기서 끌려옴)
+    Drag { id: u64, from: (f64, f64), side: Side },
     /// 🐛 다른 동물(key)을 고치로 감는 shot번째 줄 (web::cocoon_target으로 노림 — feet: 그 동물 발, size: 그 몸 크기)
     Wrap { key: u64, feet: (f64, f64), size: f64, shot: u32 },
     /// 🕸️🧗 거미집(web) 위를 from (발 자리)에서 k번째 자리로 기어 감 — left = 그 뒤 더 길 자리 수
@@ -181,6 +187,10 @@ impl Pet {
 
     /// 지금 뻗어 있는 줄 (손 → 줄 끝, 물리 px — 🙃 매달리기는 맨 위 손발 → 닻). 줄 놀이 중이 아니면 None
     pub fn web_line(&self) -> Option<WebLine> {
+        // 💪 끄는 거대한 것: 엉덩이(실젖)에서 거대한 것 가운데로
+        if let Some(line) = self.drag_line() {
+            return Some(line);
+        }
         let State::Web { phase, t } = self.state else { return None };
         let hand = self.web_hand();
         let lerp = |a: (f64, f64), b: (f64, f64), u: f64| (a.0 + (b.0 - a.0) * u, a.1 + (b.1 - a.1) * u);
@@ -191,6 +201,7 @@ impl Pet {
             WebPhase::Pull { tip } => lerp(tip, hand, (t / web::PULL_SECS).min(1.0)),
             WebPhase::Weave { spot, shot } => lerp(hand, web::weave_target(&spot, shot), (t / (0.5 * web::WEAVE_SHOT_SECS)).min(1.0)),
             WebPhase::Whirl { from, dir, heavy, .. } => self.whirl_spot(from, dir, heavy, t),
+            WebPhase::Drag { .. } => return None,
             WebPhase::Wrap { feet, size, shot, .. } => lerp(hand, web::cocoon_target(feet, size, shot), (t / (0.5 * web::WEAVE_SHOT_SECS)).min(1.0)),
             // 🕸️🧗 거미집 위에서는 줄이 따로 없음 (거미집이 곧 줄)
             WebPhase::Crawl { .. } | WebPhase::Dangle { .. } => return None,
@@ -262,6 +273,7 @@ impl Pet {
         if !self.cfg.slings_webs {
             return false;
         }
+        self.settle_drag();
         if let State::Web { phase, t } = self.state {
             self.step_web(dt, world, phase, t);
             return true;
@@ -946,7 +958,7 @@ impl Pet {
         }
         let t = t + dt;
         match phase {
-            WebPhase::Shoot { aim, hit } => self.step_shoot(aim, hit, t),
+            WebPhase::Shoot { aim, hit } => self.step_shoot(world, aim, hit, t),
             WebPhase::Zip { anchor, from } => self.step_zip(anchor, from, t),
             WebPhase::Swing { anchor, theta, omega } => self.step_web_swing(dt, anchor, theta, omega, t),
             WebPhase::Pull { tip } => {
@@ -954,6 +966,7 @@ impl Pet {
             }
             WebPhase::Weave { spot, shot } => self.step_weave(spot, shot, t),
             WebPhase::Whirl { id, from, half, dir, heavy } => self.step_whirl(world, id, from, half, dir, heavy, t),
+            WebPhase::Drag { id, from, side } => self.step_drag(dt, world, id, from, side, t),
             WebPhase::Wrap { key, feet, size, shot } => self.step_wrap(dt, key, feet, size, shot, t),
             WebPhase::Crawl { web, from, k, left } => self.step_crawl(world, web, from, k, left, t),
             WebPhase::Dangle { web, rel, bounce, len } => self.step_dangle(web, rel, bounce, len, t),
@@ -962,7 +975,7 @@ impl Pet {
     }
 
     /// 줄이 뻗어 나가 닿는 순간 목적대로: 거미집이 핌 · 그네로 떠오름 · 끌어옴
-    fn step_shoot(&mut self, aim: WebAim, hit: bool, t: f64) {
+    fn step_shoot(&mut self, world: &World, aim: WebAim, hit: bool, t: f64) {
         if !hit && t >= web::SHOOT_SECS {
             match aim {
                 WebAim::Corner(spot) => {
@@ -991,6 +1004,17 @@ impl Pet {
                 }
                 // 줄이 닿는 순간에도 바닥에 있어야 낚음 (그새 누가 집었거나 치웠으면 줄만 뻗었다 거둠)
                 WebAim::Lasso { id, .. } if !self.play.spots.iter().any(|s| s.id == id) => {}
+                // 💪 거대한 것을 받는 먼 친구 끝: 휘두르지 않고 끌고 감
+                WebAim::Lasso { id, at, half, side, heavy: true } if self.drags_to(side, world) => {
+                    self.facing = visit::dir(side);
+                    self.speech = Some(Speech::Gotcha);
+                    self.juggle.carry = Some(id);
+                    self.juggle.giant = true;
+                    self.juggle.giant_half = half;
+                    self.juggle.present_pending = false;
+                    self.state = State::Web { phase: WebPhase::Drag { id, from: (at.0, at.1 + half), side }, t: 0.0 };
+                    return;
+                }
                 WebAim::Lasso { id, at, half, side, heavy } => {
                     self.facing = visit::dir(side);
                     self.speech = Some(Speech::Gotcha);
@@ -1137,6 +1161,94 @@ impl Pet {
         (from.0 + (on.0 - from.0) * ease, from.1 + (on.1 - from.1) * ease)
     }
 
+    /// 💪 이 끝(side)으로 거대한 것을 끌고 감: 그 친구가 거대한 것을 받고 (giant_sides), 던져서는 안 닿게 멂 (GIANT_THROW_REACH 너머 — 가까우면 휘둘러 던짐)
+    fn drags_to(&self, side: Side, world: &World) -> bool {
+        let edge = if visit::dir(side) > 0.0 { world.bounds.right } else { world.bounds.left };
+        (edge - self.body.x).abs() > web::GIANT_THROW_REACH * self.cfg.size && self.giant_sides(world).contains(&side)
+    }
+
+    /// 💪 끌기 한 틱: 친구 끝으로 천천히 걸음 (DRAG_PACE). 화면 끝에 닿으면 끌던 채 나가고, 끝이 막혔거나 너무 오래 걸리면 그 자리에 놓음
+    fn step_drag(&mut self, dt: f64, world: &World, id: u64, from: (f64, f64), side: Side, t: f64) {
+        let dir = visit::dir(side);
+        self.facing = dir;
+        if t > web::DRAG_MAX_SECS {
+            self.let_go_drag(id);
+            return;
+        }
+        let Some(blocked) = self.juggle_walk(world, dir, self.cfg.walk_speed * web::DRAG_PACE * dt) else { return };
+        if !blocked {
+            self.state = State::Web { phase: WebPhase::Drag { id, from, side }, t };
+            return;
+        }
+        let open = match side {
+            Side::Left => self.exit_edges.left,
+            _ => self.exit_edges.right,
+        };
+        let piece = self.standing.and_then(|st| world.piece_at(st.owner, self.body.x)).copied();
+        if open && piece.is_some_and(|p| visit::screen_edge(world, &p, dir) == Some(side)) {
+            // 끌던 채 나감 — 못 들어가 돌아오면 집에 내려놓음
+            self.juggle.present_pending = true;
+            self.start_exit(side);
+        } else {
+            self.let_go_drag(id);
+        }
+    }
+
+    /// 💪 끌던 거대한 것을 그 자리에 놓음 (앱이 떨어뜨림)
+    fn let_go_drag(&mut self, id: u64) {
+        self.juggle.carry = None;
+        self.juggle.present_pending = false;
+        self.juggle.event = Some(JuggleEvent::Release { id, vx: 0.0, vy: 0.0 });
+        self.state = self.rest_beat();
+    }
+
+    /// 💪 매 틱 (update_web 처음): 줄 놀이 밖에서 끄는 거대한 것 — 놓쳤으면 잊고, 친구 화면에 끌고 들어와 (또는 못 가 돌아와) 섰으면
+    /// 줄을 풀어 그 자리에 내려놓음 ("tada!")
+    fn settle_drag(&mut self) {
+        if self.juggle.carry.is_none() || matches!(self.state, State::Web { .. }) {
+            return;
+        }
+        if !self.carry_ok() {
+            self.juggle.carry = None;
+            self.juggle.present_pending = false;
+            return;
+        }
+        if self.juggle.present_pending && self.standing.is_some() && matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. }) {
+            if let Some(id) = self.juggle.carry.take() {
+                self.juggle.event = Some(JuggleEvent::Release { id, vx: 0.0, vy: 0.0 });
+            }
+            self.juggle.present_pending = false;
+            self.speech = Some(Speech::Tada);
+        }
+    }
+
+    /// 줄에 매달아 끄는 중인 단계 (carry_ok가 부름)
+    pub(super) fn drags(&self, phase: WebPhase) -> bool {
+        matches!(phase, WebPhase::Drag { .. })
+    }
+
+    /// 💪 끄는 거대한 것 바닥 가운데 자리 (물리 px — 앱의 carry_at은 물건 바닥 y를 받음): 몸 뒤 DRAG_GAP 틈을 둔 바닥.
+    /// 낚은 뒤 처음 WHIRL_REEL_SECS 동안은 낚은 자리에서 끌려옴. 거미인간이 거대한 것을 끄는 중이 아니면 None
+    pub(super) fn drag_point(&self) -> Option<(f64, f64)> {
+        if !self.cfg.slings_webs || self.juggle.carry.is_none() || !self.carry_ok() {
+            return None;
+        }
+        let behind = self.juggle.giant_half + web::DRAG_GAP * self.cfg.size;
+        let at = (self.body.x - self.facing * behind, self.body.y - crate::object::CARRY_SINK_MAX * self.cfg.dpi);
+        let State::Web { phase: WebPhase::Drag { from, .. }, t } = self.state else { return Some(at) };
+        let u = (t / web::WHIRL_REEL_SECS).min(1.0);
+        let ease = 1.0 - (1.0 - u) * (1.0 - u);
+        Some((from.0 + (at.0 - from.0) * ease, from.1 + (at.1 - from.1) * ease))
+    }
+
+    /// 💪 끄는 줄: 엉덩이(실젖 — 몸 뒤 위)에서 거대한 것 가운데로
+    fn drag_line(&self) -> Option<WebLine> {
+        let (x, y) = self.drag_point()?;
+        let size = self.cfg.size;
+        let from = (self.body.x - self.facing * web::SPINNERET.0 * size, self.body.y - web::SPINNERET.1 * size);
+        Some(WebLine { from, to: (x, y - self.juggle.giant_half) })
+    }
+
     /// 🌀 휘두르는 중인 물건 id (carried_object가 부름)
     pub(super) fn whirled_object(&self) -> Option<u64> {
         match self.state {
@@ -1154,8 +1266,12 @@ impl Pet {
 
     /// 🌀 휘두르던 물건을 사용자가 낚아챘거나 물건이 사라졌음: "hmph!" 하고 그만둠. 휘두르던 중이었으면 true
     pub(super) fn lose_whirl(&mut self) -> bool {
-        if self.whirled_object().is_none() {
+        let dragging = matches!(self.state, State::Web { phase: WebPhase::Drag { .. }, .. });
+        if self.whirled_object().is_none() && !dragging {
             return false;
+        }
+        if dragging {
+            self.juggle.carry = None;
         }
         self.speech = Some(Speech::Hmph);
         self.state = self.rest_beat();
@@ -1169,6 +1285,7 @@ impl Pet {
             WebPhase::Zip { .. } | WebPhase::Swing { .. } => Anim::WebSwing,
             WebPhase::Pull { .. } => Anim::WebPull,
             WebPhase::Whirl { .. } => Anim::WebWhirl,
+            WebPhase::Drag { .. } => Anim::Walk,
             WebPhase::Crawl { .. } => Anim::Climb,
             WebPhase::Dangle { .. } | WebPhase::HangRise { .. } => Anim::WebSwing,
             WebPhase::HangSlide { .. } | WebPhase::Hang { .. } | WebPhase::HangClimb { .. } => Anim::HangDown,

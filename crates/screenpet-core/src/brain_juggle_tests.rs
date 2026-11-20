@@ -635,3 +635,131 @@ fn a_giant_on_its_floor_always_gets_one_try() {
     p.notice_objects(&spots, &[], &w);
     assert!(juggling(&p).is_none());
 }
+
+// ---- 💪 영웅이 거대한 것을 들고 친구 화면으로 (v0.7.1) ----
+
+/// 💪 영웅 (🦇 박쥐인간·🦸 슈퍼인간 — hero_lifter): 이 설정이면 영웅
+fn hero() -> PetConfig {
+    PetConfig { rides_bike: true, ..juggler() }
+}
+
+/// 든 거대한 것 (반 폭 236 px)
+fn holding_giant(p: &mut Pet, plan: Plan, w: &World) {
+    holding(p, plan, w);
+    p.juggle.giant = true;
+    p.juggle.giant_half = 236.0;
+}
+
+/// 거대한 것을 받는 친구 끝(set_giant_edges)이 있을 때만 영웅이 거대한 것으로 배달·모니터 너머 던지기를 함. 영웅이 아니면 던지기만
+#[test]
+fn heroes_deliver_giants_only_toward_friends_that_take_giants() {
+    let w = world(vec![]);
+    let n = 2000;
+    let (mut prank, mut lob) = (0, 0);
+    for seed in 0..n {
+        let mut p = walking(hero(), 900.0, seed, &w);
+        p.set_prank_edges(true, true);
+        assert!(!matches!(p.pick_plan(true, &w), Plan::Prank(_) | Plan::Lob(_)), "옛 버전 친구뿐이면 거대한 것은 두고 감");
+        p.set_giant_edges(false, true);
+        match p.pick_plan(true, &w) {
+            Plan::Prank(side) => {
+                assert_eq!(side, Side::Right);
+                prank += 1;
+            }
+            Plan::Lob(side) => {
+                assert_eq!(side, Side::Right);
+                lob += 1;
+            }
+            Plan::Wander | Plan::Throw => {}
+            other => panic!("{other:?}"),
+        }
+        let mut q = walking(juggler(), 900.0, seed, &w);
+        q.set_prank_edges(true, true);
+        q.set_giant_edges(true, true);
+        assert_eq!(q.pick_plan(true, &w), Plan::Throw, "영웅이 아니면 거대한 것은 던지기만");
+    }
+    let (prank, lob) = (prank as f64 / n as f64, lob as f64 / n as f64);
+    assert!((prank - juggle::PRANK_CHANCE).abs() < 0.04, "prank {prank}");
+    assert!((lob - juggle::LOB_CHANCE).abs() < 0.04, "lob {lob}");
+}
+
+/// 💪 영웅이 거대한 것을 들고 친구 끝으로 달려 나감 — 거대한 것까지 화면 밖으로 다 나가야 사라짐 (앱이 Visit에 실음)
+#[test]
+fn a_hero_carries_a_giant_off_and_vanishes_only_once_the_giant_is_past_the_edge() {
+    let w = world(vec![]);
+    let mut p = walking(hero(), 1500.0, 4, &w);
+    p.set_exit_edges(false, true);
+    holding_giant(&mut p, Plan::Prank(Side::Right), &w);
+    let mut last = None;
+    let mut exited = None;
+    for _ in 0..(60 * 30) {
+        assert!(tick(&mut p, &w, &[], &[]).is_none(), "배달 가는 길엔 던지지 않는다");
+        if let Some(side) = p.take_exit() {
+            exited = Some(side);
+            break;
+        }
+        assert_eq!(p.carried_object(), Some(7), "{:?}", p.state);
+        last = p.carry_point();
+    }
+    assert_eq!(exited, Some(Side::Right));
+    assert_eq!(p.carried_object(), Some(7), "앱이 Visit에 싣는다");
+    let (x, _) = last.unwrap();
+    assert!(x - 236.0 > 1920.0 - 30.0, "거대한 것도 거의 다 나갔음 {x}");
+}
+
+/// 💪 영웅은 거대한 것도 모니터 너머 친구 화면으로 던짐 (그 끝을 실제로 넘어감)
+#[test]
+fn a_hero_lobs_a_giant_over_the_monitor() {
+    let w = world(vec![]);
+    let edges = crate::visit::ExitEdges { right: true, ..Default::default() };
+    let mut p = walking(hero(), 900.0, 2, &w);
+    p.set_exit_edges(false, true);
+    holding_giant(&mut p, Plan::Lob(Side::Right), &w);
+    let mut thrown = None;
+    let mut from = (0.0, 0.0);
+    for _ in 0..(60 * 20) {
+        if let Some(c) = p.carry_point() {
+            from = c;
+        }
+        if let Some(JuggleEvent::Release { vx, vy, .. }) = tick(&mut p, &w, &[], &[]) {
+            thrown = Some((vx, vy, from));
+            break;
+        }
+    }
+    let (vx, vy, from) = thrown.expect("threw");
+    assert!(vx > 0.0);
+    let mut o = Object::new(ObjectKind::GiantStone, from.0, from.1, 1.0, 2);
+    o.set_scale(crate::object::giant_scale(1040.0));
+    o.launch(vx, vy);
+    let left = (0..600).find_map(|_| o.tick(DT, &w, edges, false)).map(|e| e.side);
+    assert_eq!(left, Some(Side::Right));
+}
+
+/// 💪 친구 화면에 거대한 것을 들고 들어옴 (hold_giant): 거대한 것까지 다 들어와 서면 앞을 보고 내려놓음
+#[test]
+fn arriving_with_a_giant_it_walks_in_until_the_giant_is_inside_then_presents_it() {
+    let w = world(vec![]);
+    let mut p = Pet::new_entering(hero(), &w, Side::Left, 3);
+    p.hold_giant(42, 236.0);
+    assert!(p.juggle.giant);
+    let mut ev = None;
+    let mut entered_at = None;
+    for _ in 0..(60 * 20) {
+        let was_entering = matches!(p.state, State::Enter { .. });
+        ev = tick(&mut p, &w, &[], &[]);
+        if ev.is_some() {
+            break;
+        }
+        if was_entering && !matches!(p.state, State::Enter { .. }) {
+            entered_at = p.carry_point();
+        }
+    }
+    let Some(JuggleEvent::Release { id, .. }) = ev else { panic!("presents it") };
+    assert_eq!(id, 42);
+    let (x, _) = entered_at.expect("walked in");
+    assert!(x - 236.0 >= -1.0, "거대한 것까지 다 들어왔음 {x}");
+    // 보통 물건은 그대로 거대한 것이 아님
+    let mut q = Pet::new_entering(hero(), &w, Side::Left, 3);
+    q.hold_object(43);
+    assert!(!q.juggle.giant);
+}

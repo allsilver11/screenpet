@@ -796,7 +796,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         let Some(s) = slots.iter_mut().find(|s| s.label == c.label) else { continue };
                         let at = (s.pet.body.x, s.pet.body.y - s.pet.cfg.size);
                         if let Some(id) = objects.spawn_carried(&app, &s.world, c.kind, c.scale, s.is_own(), at, c.icon) {
-                            s.pet.hold_object(id);
+                            // 💪 거대한 것 (영웅이 들고 옴 — 이 화면 높이로 다시 맞춘 크기): 거대한 것까지 다 들어와야 섬
+                            match objects.half_w_of(id).filter(|_| c.kind.is_giant()) {
+                                Some(half) => s.pet.hold_giant(id, half),
+                                None => s.pet.hold_object(id),
+                            }
                         }
                     }
                 }
@@ -1236,7 +1240,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         if let Some(side) = own_exit {
             // 내 동물이 화면 끝으로 다 나갔음 — 그 끝의 친구에게 놀러 감 (물건을 들고 나갔으면 새 버전 친구에게 실음)
             let carried = slots[OWN].pet.carried_object();
-            let carry = carried.and_then(|id| objects.carry_wire(id));
+            // 💪 영웅이 든 거대한 것도 (거대한 것을 받는 친구에게만 — own_exited)
+            let carry = carried.and_then(|id| objects.carry_wire(id, slots[OWN].pet.carries_giants()));
             let took = network.own_exited(&config, &mut slots[OWN], side, carry, own_ride.take());
             if let Some(id) = carried {
                 if took {

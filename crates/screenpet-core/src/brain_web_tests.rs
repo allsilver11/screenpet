@@ -888,3 +888,139 @@ fn left_alone_it_hangs_down_every_few_minutes() {
     // 4마리 × 15분 — 몇 분에 한 번
     assert!((4..=40).contains(&hangs), "{hangs}");
 }
+
+// ---- 💪🕷️ 거대한 것을 줄에 매달아 끌고 친구 화면으로 (v0.7.1) ----
+
+/// 바닥의 거대한 것 (반 폭 236 px)
+fn floor_giant(p: &Pet, dx: f64) -> ObjectSpot {
+    ObjectSpot { half_w: 236.0, giant: true, ..floor_object(p, dx) }
+}
+
+/// 거대한 것을 받는 친구 끝 (set_giant_edges)이 던져 닿지 않게 멀면: 낚은 거대한 것을 뒤에 줄로 매달아 바닥으로 끌며 그 끝으로 걸어 나감
+#[test]
+fn toward_a_far_friend_edge_that_takes_giants_it_drags_a_lassoed_giant_behind_it_and_leaves_with_it() {
+    let w = world(vec![]);
+    let mut p = calm_spider(600.0, 4, &w);
+    let size = p.cfg.size;
+    assert!(1920.0 - 600.0 > web::GIANT_THROW_REACH * size);
+    p.set_exit_edges(false, true);
+    p.set_prank_edges(false, true);
+    p.set_giant_edges(false, true);
+    let spot = floor_giant(&p, -3.0 * size);
+    p.notice_play_objects(&[spot], &w);
+    assert!(p.start_whirl_object(&spot, Side::Right));
+    let (mut dragged, mut walked_out) = (0, 0);
+    let mut guard = LoopLimit::new();
+    let mut last_x = p.body.x;
+    let mut last_point = None;
+    let exited = loop {
+        guard.step();
+        p.update(DT, &w);
+        assert!(p.take_juggle().is_none(), "던지지 않음");
+        if let Some(side) = p.take_exit() {
+            break side;
+        }
+        let dragging = matches!(p.state, State::Web { phase: WebPhase::Drag { .. }, t } if t > web::WHIRL_REEL_SECS);
+        let leaving = matches!(p.state, State::Exit { .. });
+        if dragging || leaving {
+            assert!(!matches!(p.state, State::Web { phase: WebPhase::Whirl { .. }, .. }));
+            assert_eq!(p.carried_object(), Some(42), "{:?}", p.state);
+            assert_eq!(p.facing, 1.0);
+            assert!(p.body.x >= last_x - 1e-9, "친구 쪽으로만 감");
+            let at = p.carry_point().expect("끌 자리");
+            assert!(at.0 + spot.half_w < p.body.x, "몸 뒤에 매달려 끌려옴 {at:?} {}", p.body.x);
+            assert!((at.1 - p.body.y).abs() <= crate::object::CARRY_SINK_MAX * p.cfg.dpi + 1e-6, "바닥에 닿은 채 {at:?}");
+            let line = p.web_line().expect("손에서 거대한 것까지 줄");
+            assert!((line.to.0 - at.0).abs() < 1e-6 && line.to.1 < at.1, "줄 끝 = 거대한 것 {line:?}");
+            assert!(!matches!(p.render().anim, Anim::Carry | Anim::CarryRun | Anim::Hold));
+            dragged += usize::from(dragging);
+            walked_out += usize::from(leaving);
+            last_point = Some(at);
+        }
+        last_x = p.body.x;
+    };
+    assert!(dragged > 30 && walked_out > 0, "{dragged} {walked_out}");
+    assert_eq!(exited, Side::Right);
+    assert_eq!(p.carried_object(), Some(42), "앱이 Visit에 실음");
+    let (x, _) = last_point.unwrap();
+    assert!(x - spot.half_w > 1920.0 - 30.0, "거대한 것도 거의 다 나갔음 {x}");
+}
+
+/// 친구 앱이 옛 버전이라 거대한 것을 못 받거나 끝이 가까우면: 예전처럼 휘둘러 던짐 (끌지 않음)
+#[test]
+fn without_a_giant_taking_friend_or_with_a_close_edge_it_still_whirls_the_giant() {
+    let w = world(vec![]);
+    for (x, giant_edge) in [(600.0, false), (1920.0 - 200.0, true)] {
+        let mut p = calm_spider(x, 4, &w);
+        p.set_exit_edges(false, true);
+        p.set_prank_edges(false, true);
+        p.set_giant_edges(false, giant_edge);
+        let spot = floor_giant(&p, -2.0 * p.cfg.size);
+        p.notice_play_objects(&[spot], &w);
+        assert!(p.start_whirl_object(&spot, Side::Right));
+        let (mut whirled, mut released) = (false, false);
+        let mut guard = LoopLimit::new();
+        while matches!(p.state, State::Web { .. }) {
+            guard.step();
+            p.update(DT, &w);
+            released |= p.take_juggle().is_some();
+            assert!(!matches!(p.state, State::Web { phase: WebPhase::Drag { .. }, .. }), "x={x}");
+            whirled |= matches!(p.state, State::Web { phase: WebPhase::Whirl { .. }, .. });
+        }
+        assert!(whirled && released, "x={x}");
+    }
+}
+
+/// 거대한 것을 끌고 친구 화면에 들어옴 (hold_giant): 거대한 것도 뒤따라 다 들어오면 줄을 풀어 그 자리에 내려놓음 ("tada!")
+#[test]
+fn arriving_with_a_giant_it_drags_it_in_and_lets_go_once_it_is_inside() {
+    let w = world(vec![]);
+    let mut p = Pet::new_entering(spider(), &w, Side::Left, 3);
+    p.hold_giant(42, 236.0);
+    let mut ev = None;
+    let mut last = None;
+    let mut guard = LoopLimit::new();
+    while ev.is_none() {
+        guard.step();
+        p.update(DT, &w);
+        ev = p.take_juggle();
+        if ev.is_none() {
+            assert_eq!(p.carried_object(), Some(42), "{:?}", p.state);
+            let at = p.carry_point().unwrap();
+            assert!(at.0 < p.body.x, "뒤 (바깥쪽)에서 끌려 들어옴");
+            assert!(p.web_line().is_some());
+            last = Some(at);
+        }
+    }
+    let Some(JuggleEvent::Release { id, vx, vy }) = ev else { panic!("{ev:?}") };
+    assert_eq!(id, 42);
+    assert!(vx.abs() < 1e-9 && vy.abs() < 1e-9, "그 자리에 내려놓음");
+    assert_eq!(p.speech, Some(Speech::Tada));
+    assert!(last.unwrap().0 - 236.0 >= -1.0, "다 들어온 뒤");
+    assert!(p.carried_object().is_none() && p.web_line().is_none());
+}
+
+/// 끌던 거대한 것을 사용자가 낚아채면 "hmph!" 하고 그만
+#[test]
+fn snatching_a_dragged_giant_ends_it_with_a_hmph() {
+    let w = world(vec![]);
+    let mut p = calm_spider(600.0, 4, &w);
+    p.set_exit_edges(false, true);
+    p.set_prank_edges(false, true);
+    p.set_giant_edges(false, true);
+    let spot = floor_giant(&p, -3.0 * p.cfg.size);
+    p.notice_play_objects(&[spot], &w);
+    assert!(p.start_whirl_object(&spot, Side::Right));
+    let mut guard = LoopLimit::new();
+    while !matches!(p.state, State::Web { phase: WebPhase::Drag { .. }, t } if t > 0.5) {
+        guard.step();
+        p.update(DT, &w);
+    }
+    p.lose_carry();
+    assert_eq!(p.speech, Some(Speech::Hmph));
+    assert!(!matches!(p.state, State::Web { .. }) && p.carried_object().is_none() && p.web_line().is_none());
+    for _ in 0..120 {
+        p.update(DT, &w);
+        assert!(p.take_juggle().is_none());
+    }
+}

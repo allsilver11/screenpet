@@ -1477,9 +1477,10 @@ pub fn accept_toy_carry(icon: Option<(u32, &str)>) -> Option<crate::icon::IconIm
     crate::icon::accept_wire(size, text)
 }
 
-/// 🤹 친구의 흐물이가 들고 온 물건 (Visit.carry): 던진 것처럼 이름·색을 확인함. 거대한 것은 들고 오지 않음 (고친 앱이 보내도 버림)
+/// 🤹 친구의 흐물이가 들고 온 물건 (Visit.carry): 던진 것처럼 이름·색을 확인함.
+/// 💪 거대한 것은 영웅이 들고 옴 (v0.7.1 — 보내는 앱은 GIANT_CARRY_MIN_VERSION 친구에게만 실음, 크기는 받는 앱이 제 화면 높이로 정함)
 pub fn accept_carry(kind: &str, look: Option<&str>) -> Option<ObjectKind> {
-    ObjectKind::wire_kind(kind, look).filter(|k| !k.is_giant())
+    ObjectKind::wire_kind(kind, look)
 }
 
 /// 물건이 어디서 왔나

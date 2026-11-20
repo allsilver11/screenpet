@@ -26,7 +26,7 @@ use screenpet_core::linked::{self, ClaimWatch};
 use screenpet_core::object::ObjectKind;
 use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
-use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, MAX_FRIENDS};
+use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, MAX_FRIENDS};
 use screenpet_log::{log, short};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
@@ -561,6 +561,11 @@ pub(crate) fn from_net_fling(f: screenpet_net::Fling) -> visit::Fling {
     visit::Fling { height: f.height, vx: f.vx, vy: f.vy }
 }
 
+/// 💪 실을 물건이 거대한 것 (영웅이 듦 — 거대한 것을 받는 친구에게만 보냄)
+fn is_giant_carry(c: &screenpet_net::Carry) -> bool {
+    ObjectKind::wire_kind(&c.kind, c.look.as_deref()).is_some_and(|k| k.is_giant())
+}
+
 /// 성격의 와이어 이름
 fn personality_name(p: Personality) -> &'static str {
     match p {
@@ -854,11 +859,15 @@ impl Network {
         // 🤹 배달 장난: 놀러 갈 수 있는 끝에 새 버전 친구가 있을 때만 (손님은 하지 않음)
         let prank = |s: Side, open: bool| open && !config.friends_at(s, |id| self.is_open(id) && self.takes_carry(id)).is_empty();
         own.pet.set_prank_edges(prank(Side::Left, edges.left), prank(Side::Right, edges.right));
+        // 💪 영웅의 거대한 배달: 거대한 것을 받는 새 버전 친구가 있는 끝만
+        let giant = |s: Side, open: bool| open && !config.friends_at(s, |id| self.is_open(id) && self.takes_giant_carry(id)).is_empty();
+        own.pet.set_giant_edges(giant(Side::Left, edges.left), giant(Side::Right, edges.right));
         own.pet.set_lift_edges(false, false);
         // 🙆 손님 흐물이가 이 화면 주인의 동물을 데려갈 수 있는 끝: 주인 아닌 새 버전 친구가 있고, 내 동물이 놀러 갈 수 있을 때
         let own_free = !blocked && self.own_free(own) && !own.pet.is_held();
         for s in guests {
             s.pet.set_prank_edges(false, false);
+            s.pet.set_giant_edges(false, false);
             let Role::Guest(g) = &s.role else { continue };
             let edges = if self.net.is_none() { Default::default() } else { config.exit_edges(|id| id != g.owner_id && self.is_open(id)) };
             s.pet.set_exit_edges(edges.left, edges.right);
@@ -973,7 +982,8 @@ impl Network {
 
     /// 내 동물이 side 끝으로 다 나갔음: 그 끝의 연결된 친구 하나에게 Visit ("놀러 보내기"였으면 그 친구에게).
     /// 아무도 없으면(그새 끊김) 바로 다시 들어옴
-    /// carry = 🤹 들고 나간 물건 (배달 장난) — 그 끝의 새 버전 친구에게만 실음. 실었으면 true (이 화면의 물건은 앱이 치움)
+    /// carry = 🤹 들고 나간 물건 (배달 장난) — 그 끝의 새 버전 친구에게만 실음 (💪 거대한 것은 거대한 것을 받는 친구에게만 — 아니면 두고 감).
+    /// 실었으면 true (이 화면의 물건은 앱이 치움)
     /// ride = 🚗 탈것째 나갔음 (Visit.ride에 실음 — 옛 버전 친구는 무시하고 펫만 받음)
     pub fn own_exited(&mut self, config: &Config, own: &mut Slot, side: Side, carry: Option<screenpet_net::Carry>, ride: Option<screenpet_core::vehicle::VehicleKind>) -> bool {
         let chosen = self.sending.take().filter(|(id, s)| *s == side && self.is_connected(id)).map(|(id, _)| id);
@@ -983,15 +993,17 @@ impl Network {
         let fling = own.pet.take_fling();
         let mut friends = config.friends_at(side, |id| self.is_open(id));
         // 들고 나갔으면 받을 수 있는 친구에게 먼저
-        if carry.is_some() && friends.iter().any(|f| self.takes_carry(&f.id)) {
-            friends.retain(|f| self.takes_carry(&f.id));
+        let giant = carry.as_ref().is_some_and(is_giant_carry);
+        let takes = |me: &Self, id: &str| if giant { me.takes_giant_carry(id) } else { me.takes_carry(id) };
+        if carry.is_some() && friends.iter().any(|f| takes(self, &f.id)) {
+            friends.retain(|f| takes(self, &f.id));
         }
         let (Some(net), false) = (&self.net, friends.is_empty() && chosen.is_none()) else {
             own.pet.enter(&own.world, side);
             return false;
         };
         let friend = chosen.unwrap_or_else(|| friends[fastrand::usize(..friends.len())].id.clone());
-        let carry = carry.filter(|_| self.takes_carry(&friend));
+        let carry = carry.filter(|_| takes(self, &friend));
         let carried = carry.is_some();
         let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None, fling, note.clone(), carry, ride.map(|k| k.id().to_string()));
         log!(Info, "visit", "visit_out", "friend" => short(&friend), "visit" => visit_id, "carried" => u8::from(carried));
@@ -1017,6 +1029,11 @@ impl Network {
     /// 🤹 이 친구는 들고 온 물건을 받음 (새 버전 — 옛 버전은 Visit.carry를 몰라 물건이 사라짐)
     fn takes_carry(&self, id: &str) -> bool {
         self.net.as_ref().and_then(|n| n.peer_version(id)).is_some_and(|v| v >= CARRY_MIN_VERSION)
+    }
+
+    /// 💪 이 친구는 영웅이 들고 온 거대한 것을 받음 (v0.7.1 — 옛 버전은 모르는 물건으로 버려 펫만 들어옴)
+    fn takes_giant_carry(&self, id: &str) -> bool {
+        self.net.as_ref().and_then(|n| n.peer_version(id)).is_some_and(|v| v >= GIANT_CARRY_MIN_VERSION)
     }
 
     /// 내 동물을 friend 화면으로 보냄 (enter_side 끝에서 들어옴). via = 바로 전에 있던 친구 화면. 새 visit_id를 돌려줌
@@ -2333,7 +2350,7 @@ impl Network {
         std::mem::take(&mut self.ride_arrivals)
     }
 
-    /// 친구가 보낸 물건 이름을 확인해 줄에 세움 (모르는 것·거대한 것은 버림). 방문 하나에 하나뿐임
+    /// 친구가 보낸 물건 이름을 확인해 줄에 세움 (모르는 것은 버림 — 💪 거대한 것은 받아 이 화면 높이로 크기를 다시 정함). 방문 하나에 하나뿐임
     fn queue_carry(&mut self, label: &str, c: &screenpet_net::Carry) {
         // 📌 앱 아이콘 장난감: 그림이 엄격한 확인을 지나야만 (🔓 v0.6.5 — 이상하면 버림)
         if c.kind == screenpet_core::object::TOY_ID {

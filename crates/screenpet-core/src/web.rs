@@ -16,7 +16,8 @@
 //! - 🌀 휘둘러 던지기: 친구가 연결된 화면 끝이 있으면 (WHIRL_CHANCE) 끌어오는 대신 물건을 줄로 낚아 머리 위로 빙빙 돌리다가
 //!   그 끝 너머로 휙 — 끝을 넘은 물건은 앱의 던지기처럼 친구 모니터로 날아감 (whirl_point·whirl_flight_secs)
 //! - 💪 거대한 것도: 무거워서 조금만 끌려오고 (GIANT_PULL_MAX, 머리 너머로는 못 넘김), 더 천천히·작게·덜 돌다 (whirl_secs(true)·GIANT_WHIRL_*)
-//!   가까이 (GIANT_THROW_REACH)까지만 던짐 — 친구 끝이 그 안이면 넘어가고, 멀면 그 앞 바닥에
+//!   가까이 (GIANT_THROW_REACH)까지만 던짐 — 친구 끝이 그 안이면 넘어가고, 멀면 그 앞 바닥에.
+//!   거대한 것을 받는 친구 끝이 멀면 실젖 (SPINNERET)에서 나온 줄에 매달아 몸 뒤 (DRAG_GAP)로 끌며 천천히 (DRAG_PACE) 걸어 나감
 //! - 영웅 착지: 높이서 떨어져 내려서면 콰당 대신 한 손 짚고 쭉 (HERO_FALL_SIZES)
 //! - 🐛 고치 말기: 가까운 다른 동물 몸 둘레로 줄을 COCOON_SHOTS번 쏴서 칭칭 (cocoon_target) — 감긴 동물은 COCOON_SECS 버둥대다 뿅
 //! - 🕸️ 거미집에 걸리기: 거미인간이 아닌 동물의 몸이 거미집 사분원 안 (in_web)으로 들어가면 SNARE_CHANCE로 걸려 SNARE_SECS 버둥댐 —
@@ -195,6 +196,15 @@ pub const GIANT_WHIRL_TURNS: f64 = 1.25;
 pub const GIANT_WHIRL_SCALE: f64 = 0.6;
 /// 💪 거대한 것을 던지는 가로 거리 (몸 크기 배까지) — 친구 끝이나 동물이 더 멀면 그 앞 바닥에 떨어짐
 pub const GIANT_THROW_REACH: f64 = 6.0;
+
+/// 💪 끄는 거대한 것과 몸 사이 틈 (몸 크기 배)
+pub const DRAG_GAP: f64 = 0.3;
+/// 💪 거대한 것을 끌며 걷는 빠르기 (걷기의 배 — 무거워서 천천히)
+pub const DRAG_PACE: f64 = 0.7;
+/// 💪 이만큼 끌어도 친구 끝에 못 닿으면 그 자리에 놓음 (초)
+pub const DRAG_MAX_SECS: f64 = 40.0;
+/// 💪 끄는 줄이 나오는 엉덩이(실젖) 자리: 몸 가운데에서 뒤로, 발에서 위로 (몸 크기 배)
+pub const SPINNERET: (f64, f64) = (0.35, 0.4);
 
 /// 🙃 거꾸로 매달리기 빈도 (한가할 때 초당 확률 — 연령대 세기를 곱함): 몇 분에 한 번
 pub const HANG_RATE: f64 = 1.0 / 150.0;
