@@ -140,6 +140,7 @@ pub enum UpdateError {
     /// 서버에 아직 올린 릴리즈가 없음 (latest.json 404) — 업데이트할 게 없는 것임 (missing_is_up_to_date)
     NotPublished,
     BadResponse,
+    /// latest.json에 이 컴퓨터용 항목이 없음 — Windows 먼저 배포하면 Mac이 잠깐 이럼 (조용한 확인은 로그만 남김)
     NoAsset(Version),
     /// latest.json의 서명이 없거나 맞지 않음 — 서버가 바뀌었을 수 있으니 아무것도 믿지 않음
     BadSignature,
@@ -161,7 +162,7 @@ impl fmt::Display for UpdateError {
             UpdateError::Network => write!(f, "인터넷 연결을 확인해 주세요"),
             UpdateError::NotPublished => write!(f, "아직 올라온 업데이트가 없어요"),
             UpdateError::BadResponse => write!(f, "업데이트 정보를 읽지 못했어요"),
-            UpdateError::NoAsset(v) => write!(f, "v{v}에 이 컴퓨터용 파일이 없어요"),
+            UpdateError::NoAsset(v) => write!(f, "v{v}의 이 컴퓨터용 파일은 아직 준비 중이에요. 조금 뒤에 다시 해 주세요"),
             UpdateError::NoDigest => write!(f, "확인용 SHA-256이 없어서 설치하지 않았어요"),
             UpdateError::BadSignature => write!(f, "업데이트 정보의 서명이 맞지 않아 설치하지 않았어요"),
             UpdateError::TooBig => write!(f, "파일이 너무 커요"),
@@ -626,6 +627,9 @@ mod tests {
         assert_eq!(check(&url, v("0.6.2"), w), Err(UpdateError::NoAsset(v("0.6.3"))));
         let only_mac = format!(r#"{{"version":"0.6.3","files":{{"macos":{{"name":"ScreenPet_0.6.3_universal.dmg","sha256":"{HEX}","size":1}}}}}}"#);
         assert_eq!(check(&only_mac, v("0.6.2"), w), Err(UpdateError::NoAsset(v("0.6.3"))));
+        // Windows 먼저 배포하면 Mac은 잠깐 자기 항목이 없음: 고장이 아니라 "조금 뒤에"라고 알려 줌
+        let msg = UpdateError::NoAsset(v("0.6.3")).to_string();
+        assert!(msg.contains("v0.6.3") && msg.contains("준비 중") && msg.contains("조금 뒤에"), "{msg}");
         // 크기: 300MB까지, 0·음수·글자는 안 된다
         assert_eq!(check(&ok.replace("51426064", "314572801"), v("0.6.2"), w), Err(UpdateError::TooBig));
         assert!(matches!(check(&ok.replace("51426064", "314572800"), v("0.6.2"), w), Ok(Check::Newer(_))));

@@ -157,20 +157,43 @@ install -m 755 target/release/screenpet-update-sign ~/.local/bin/
 screenpet-update-sign keygen ~/personal/screenpet-update-key.txt
 ```
 
-After CI has finished a release, publish it on this server:
+After CI has put an installer on a release, publish it on this server:
 
 ```sh
 deploy/publish-release.sh v0.6.3                  # GITHUB_TOKEN=… if the repo is private
 curl -s https://pet.danni.day/downloads/latest.json
 ```
 
-It downloads both installers through the GitHub API into a temporary folder
-in `downloads/`, checks them against GitHub's size and SHA-256, renames them
-into place, signs `latest.json` (and checks the signature against the app's
-key), then atomically replaces `latest.json` and `latest.json.sig`, then deletes every other
-`ScreenPet_*` file: **only the new release is kept**. A failed run leaves the
-published files untouched and removes its temporary files (leftovers of a
-killed run are removed by the next run). No relay restart is needed.
+**Windows first.** A tag builds Windows and macOS in separate jobs, and each
+one adds its installer to the same GitHub release as soon as it is done
+(`release_windows`, then `release_macos`; the Mac build is usually the slower
+one). So publish twice:
+
+1. When the Windows installer is on the release, run the script: it prints
+   `platforms: windows` and `not yet: ScreenPet_X.Y.Z_universal.dmg`.
+   `latest.json` lists Windows only. Macs see no entry for themselves: the
+   quiet background check only logs it, and the 🔄 menu says the Mac version
+   isn't ready yet. The previous `ScreenPet_*_universal.dmg` stays, so new Mac
+   installs keep working; only the older Windows installers are deleted.
+2. When the macOS installer has landed too, run it again with the same tag
+   (`--both` makes it refuse unless both are there): it prints
+   `platforms: windows macos`, lists both in `latest.json` and deletes every
+   other `ScreenPet_*` file as usual.
+
+If the Mac build fails, Windows users still have the update; re-run the failed
+jobs in Actions (`build_macos`, then `release_macos` follows) and run the
+script again. Publishing only macOS first works the same way the other way
+round.
+
+Each run downloads the installers the release has through the GitHub API into
+a temporary folder in `downloads/`, checks them against GitHub's size and
+SHA-256, renames them into place, signs `latest.json` (and checks the
+signature against the app's key), then atomically replaces `latest.json` and
+`latest.json.sig`, then deletes the older `ScreenPet_*` files of the
+platforms it published: with both, **only the new release is kept**. A failed
+run leaves the published files untouched and removes its temporary files
+(leftovers of a killed run are removed by the next run). No relay restart is
+needed.
 
 ## Admin commands
 

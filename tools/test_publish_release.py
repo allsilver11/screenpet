@@ -94,16 +94,15 @@ def test_script_is_strict_bash_and_validates_the_version():
 
 def test_order_is_files_then_latest_json_then_delete_old():
     body = TEXT[TEXT.index("SHA-256 $got does not match") :]
-    win = body.index('mv -f "$WORK/$WIN.part" "$DEST/$WIN"')
-    mac = body.index('mv -f "$WORK/$MAC.part" "$DEST/$MAC"')
+    installers = body.index('mv -f "$WORK/$name.part" "$DEST/$name"')
     latest = body.index('mv -f "$WORK/latest.json" "$DEST/latest.json"')
     sig = body.index('mv -f "$WORK/latest.json.sig" "$DEST/latest.json.sig"')
     delete = body.index('rm -rf -- "$old"')
-    assert win < latest and mac < latest < sig < delete
+    assert installers < latest < sig < delete
     # 서명은 옮기기 전에 만들고, 앱에 든 키로 확인한다
     signing = TEXT.index('"$SIGN" sign "$KEY" "$WORK/latest.json"')
     checking = TEXT.index('"$SIGN" verify "$WORK/latest.json" "$WORK/latest.json.sig"')
-    assert signing < checking < TEXT.index('mv -f "$WORK/$WIN.part"')
+    assert signing < checking < TEXT.index('mv -f "$WORK/$name.part"')
     # 임시 폴더는 DEST 안 (같은 파일 시스템이라 mv가 원자적), 실패해도 지운다
     assert 'mktemp -d "$DEST/.publish-XXXXXX"' in TEXT
     assert "trap 'rm -rf \"$WORK\"' EXIT" in TEXT
@@ -168,7 +167,7 @@ def test_publishes_and_keeps_only_the_new_release(tmp_path):
 @needs_tools
 @pytest.mark.parametrize(
     "case",
-    ["bad_digest", "no_digest", "missing_asset", "no_release", "wrong_signing_key"],
+    ["bad_digest", "no_digest", "missing_asset_with_both", "no_installers", "no_release", "wrong_signing_key"],
 )
 def test_a_failed_run_changes_nothing_and_leaves_no_temp_files(tmp_path, case):
     dl = tmp_path / "downloads"
@@ -184,13 +183,16 @@ def test_a_failed_run_changes_nothing_and_leaves_no_temp_files(tmp_path, case):
         api = fake_api(tmp_path, "v0.6.3", files, {mac: "sha256:" + "0" * 64})
     elif case == "no_digest":
         api = fake_api(tmp_path, "v0.6.3", files, {mac: None})
-    elif case == "missing_asset":
+    elif case == "missing_asset_with_both":
         api = fake_api(tmp_path, "v0.6.3", {k: v for k, v in files.items() if k != mac})
+    elif case == "no_installers":
+        api = fake_api(tmp_path, "v0.6.3", {"notes.txt": b"hi"})
     elif case == "no_release":
         api = fake_api(tmp_path, "v0.6.2", files)
     else:
         api = fake_api(tmp_path, "v0.6.3", files)
-    r = run(tmp_path, "v0.6.3", api=api, verify_ok=case != "wrong_signing_key")
+    args = ["--both", "v0.6.3"] if case == "missing_asset_with_both" else ["v0.6.3"]
+    r = run(tmp_path, *args, api=api, verify_ok=case != "wrong_signing_key")
     assert r.returncode != 0
     assert "publish-release:" in r.stderr
     assert (dl / "latest.json").read_text(encoding="utf-8") == old_latest
@@ -284,3 +286,80 @@ def test_the_relay_unit_cannot_read_the_signing_key_folder():
     assert "ExecStart=%h/.local/bin/screenpet-relay --bind 0.0.0.0:9411 --data %h/.local/share/screenpet-relay" in lines
     assert "ReadWritePaths=%h/.local/share/screenpet-relay" in lines
     assert "~/.config/systemd/user/screenpet-relay.service" in README and "InaccessiblePaths" in README
+
+
+# ---- 🪟 Windows 먼저 배포: 릴리스에 있는 플랫폼만 올리고, Mac이 오면 다시 돌려 합친다 ----------
+
+def entry(name, data):
+    return {"name": name, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+
+
+def old_release(dl: Path):
+    dl.mkdir()
+    old = {
+        "ScreenPet_0.6.2_x64-setup.exe": b"old win",
+        "ScreenPet_0.6.2_universal.dmg": b"old mac",
+        "ScreenPet_0.6.1_x64-setup.exe": b"older win",
+    }
+    for n, d in old.items():
+        (dl / n).write_bytes(d)
+    (dl / "latest.json").write_text('{"version":"0.6.2"}', encoding="utf-8")
+    return old
+
+
+@needs_tools
+def test_windows_first_then_both(tmp_path):
+    dl = tmp_path / "downloads"
+    old_release(dl)
+    files = release_files("0.6.3")
+    win, mac = "ScreenPet_0.6.3_x64-setup.exe", "ScreenPet_0.6.3_universal.dmg"
+    # 1) Windows만 올라온 릴리스: latest.json엔 windows만, 지난 Mac 설치 파일은 남긴다 (새로 까는 사람용)
+    r = run(tmp_path, "v0.6.3", api=fake_api(tmp_path, "v0.6.3", {win: files[win]}))
+    assert r.returncode == 0, r.stderr + r.stdout
+    latest = json.loads((dl / "latest.json").read_text(encoding="utf-8"))
+    assert latest == {"version": "0.6.3", "files": {"windows": entry(win, files[win])}}
+    assert sorted(p.name for p in dl.iterdir()) == sorted(
+        [win, "ScreenPet_0.6.2_universal.dmg", "latest.json", "latest.json.sig"]
+    )
+    assert (dl / "ScreenPet_0.6.2_universal.dmg").read_bytes() == b"old mac"
+    assert "platforms: windows" in r.stdout and f"not yet: {mac}" in r.stdout
+    assert "removed 2 older file(s)" in r.stdout
+    # 2) Mac이 붙은 뒤 다시: 둘 다 올리고 지난 것은 다 지운다
+    r = run(tmp_path, "v0.6.3", api=fake_api(tmp_path, "v0.6.3", files))
+    assert r.returncode == 0, r.stderr + r.stdout
+    latest = json.loads((dl / "latest.json").read_text(encoding="utf-8"))
+    assert latest == {"version": "0.6.3", "files": {"windows": entry(win, files[win]), "macos": entry(mac, files[mac])}}
+    assert sorted(p.name for p in dl.iterdir()) == sorted([*files, "latest.json", "latest.json.sig"])
+    assert "platforms: windows macos" in r.stdout and "not yet" not in r.stdout
+    assert "removed 1 older file(s)" in r.stdout
+    for name, data in files.items():
+        assert (dl / name).read_bytes() == data
+
+
+@needs_tools
+def test_mac_only_keeps_the_previous_windows_installer(tmp_path):
+    dl = tmp_path / "downloads"
+    old_release(dl)
+    mac = "ScreenPet_0.6.3_universal.dmg"
+    data = release_files("0.6.3")[mac]
+    r = run(tmp_path, "v0.6.3", api=fake_api(tmp_path, "v0.6.3", {mac: data}))
+    assert r.returncode == 0, r.stderr + r.stdout
+    latest = json.loads((dl / "latest.json").read_text(encoding="utf-8"))
+    assert latest == {"version": "0.6.3", "files": {"macos": entry(mac, data)}}
+    assert sorted(p.name for p in dl.iterdir()) == sorted(
+        [mac, "ScreenPet_0.6.1_x64-setup.exe", "ScreenPet_0.6.2_x64-setup.exe", "latest.json", "latest.json.sig"]
+    )
+    assert "platforms: macos" in r.stdout
+
+
+@needs_tools
+def test_both_flag_publishes_when_both_are_there(tmp_path):
+    files = release_files("0.6.3")
+    r = run(tmp_path, "--both", "v0.6.3", api=fake_api(tmp_path, "v0.6.3", files))
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "platforms: windows macos" in r.stdout
+    assert run(tmp_path, "--both").returncode == 2
+
+
+def test_readme_documents_windows_first():
+    assert "Windows first" in README and "run it again" in README.lower()

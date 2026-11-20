@@ -2,11 +2,15 @@
 # 🔄 Publish a GitHub release to the relay's update folder, so the apps can
 # update from https://pet.danni.day/downloads/ (see deploy/relay/README.md).
 #
-#   deploy/publish-release.sh vX.Y.Z
+#   deploy/publish-release.sh [--both] vX.Y.Z
 #
-# Run on the relay server after CI has finished the release. It downloads the
-# Windows and macOS installers through the GitHub API (with $GITHUB_TOKEN if
-# set, so it keeps working when the repository is private), checks each one
+# Run on the relay server after CI has put an installer on the release. CI
+# releases Windows first and adds macOS when its build lands, so run this once
+# when the Windows installer is there and again when the macOS one is. It
+# publishes whichever of the two installers the release has (--both: refuse
+# unless it has both), downloading them through the GitHub API (with
+# $GITHUB_TOKEN if set, so it keeps working when the repository is private),
+# checks each one
 # against the size and SHA-256 GitHub reports, signs latest.json with the
 # update key (Ed25519; the apps only trust a latest.json whose
 # latest.json.sig matches the public key built into them), then:
@@ -15,8 +19,12 @@
 #   3. renames the installers into place,
 #   4. atomically replaces latest.json, then latest.json.sig,
 #   5. deletes every other ScreenPet_* installer (only the new release stays).
-# latest.json never names a file that isn't there. A failed run leaves the
-# published files as they were and removes its temporary files.
+#      With only one platform, only that platform's older installers go: the
+#      other platform's previous installer stays for new installs, and its
+#      apps see no entry for them in latest.json (they keep their version).
+# latest.json lists only the platforms published by this run and never names
+# a file that isn't there. A failed run leaves the published files as they
+# were and removes its temporary files.
 #
 # The secret key never goes near the relay: it is read here only, by
 # screenpet-update-sign (crates/screenpet-core/src/bin).
@@ -41,8 +49,13 @@ die() {
     exit 1
 }
 
+REQUIRE_BOTH=0
+if [ "${1:-}" = "--both" ]; then
+    REQUIRE_BOTH=1
+    shift
+fi
 if [ "$#" -ne 1 ]; then
-    echo "usage: $0 vX.Y.Z" >&2
+    echo "usage: $0 [--both] vX.Y.Z" >&2
     exit 2
 fi
 TAG="$1"
@@ -98,8 +111,28 @@ sys.exit(f"{sys.argv[2]}: not in the release")
 PY
 }
 
+# Which of the two installers the release has (CI adds them one at a time).
+present() {
+    python3 - "$WORK/release.json" "$1" <<'PY'
+import json, sys
+release = json.load(open(sys.argv[1], encoding="utf-8"))
+sys.exit(0 if any(a.get("name") == sys.argv[2] for a in release.get("assets", [])) else 1)
+PY
+}
+
+NAMES=()
+PLATFORMS=()
+MISSING=()
+present "$WIN" && { NAMES+=("$WIN"); PLATFORMS+=("windows"); } || MISSING+=("$WIN")
+present "$MAC" && { NAMES+=("$MAC"); PLATFORMS+=("macos"); } || MISSING+=("$MAC")
+[ "${#NAMES[@]}" -gt 0 ] || die "release $TAG has neither $WIN nor $MAC yet"
+if [ "${#MISSING[@]}" -gt 0 ]; then
+    [ "$REQUIRE_BOTH" -eq 0 ] || die "${MISSING[*]}: not in the release (--both)"
+    echo "publish-release: ${MISSING[*]} is not in the release yet; publishing ${PLATFORMS[*]} only"
+fi
+
 declare -A SIZE SHA
-for name in "$WIN" "$MAC"; do
+for name in "${NAMES[@]}"; do
     read -r id size want < <(asset_info "$name") || die "$name: cannot use this release"
     [ "$size" -gt 0 ] && [ "$size" -le "$MAX_SIZE" ] || die "$name: size $size is out of range"
     echo "publish-release: downloading $name ($size bytes)"
@@ -116,16 +149,20 @@ for name in "$WIN" "$MAC"; do
     SHA[$name]=$got
 done
 
-python3 - "$WORK/latest.json" "$VERSION" "$WIN" "${SHA[$WIN]}" "${SIZE[$WIN]}" "$MAC" "${SHA[$MAC]}" "${SIZE[$MAC]}" <<'PY'
+# "<platform> <name> <sha256> <size>" for each published platform.
+ENTRIES=()
+for i in "${!NAMES[@]}"; do
+    name="${NAMES[$i]}"
+    ENTRIES+=("${PLATFORMS[$i]}" "$name" "${SHA[$name]}" "${SIZE[$name]}")
+done
+python3 - "$WORK/latest.json" "$VERSION" "${ENTRIES[@]}" <<'PY'
 import json, sys
-out, version, wn, ws, wz, mn, ms, mz = sys.argv[1:]
-latest = {
-    "version": version,
-    "files": {
-        "windows": {"name": wn, "sha256": ws, "size": int(wz)},
-        "macos": {"name": mn, "sha256": ms, "size": int(mz)},
-    },
-}
+out, version, *rest = sys.argv[1:]
+files = {}
+for i in range(0, len(rest), 4):
+    platform, name, sha, size = rest[i : i + 4]
+    files[platform] = {"name": name, "sha256": sha, "size": int(size)}
+latest = {"version": version, "files": files}
 with open(out, "w", encoding="utf-8") as f:
     json.dump(latest, f, separators=(",", ":"))
     f.write("\n")
@@ -138,14 +175,23 @@ chmod 644 "$WORK/latest.json.sig"
 
 # Installers first, then latest.json: it never names a missing file. The
 # app re-fetches once if it catches latest.json and its .sig mid-swap.
-mv -f "$WORK/$WIN.part" "$DEST/$WIN"
-mv -f "$WORK/$MAC.part" "$DEST/$MAC"
+for name in "${NAMES[@]}"; do
+    mv -f "$WORK/$name.part" "$DEST/$name"
+done
 mv -f "$WORK/latest.json" "$DEST/latest.json"
 mv -f "$WORK/latest.json.sig" "$DEST/latest.json.sig"
 
-# Only the new release stays.
+# Only the new release stays. With one platform, only that platform's older
+# installers go: the other platform's previous one still serves new installs.
+OLD=("$DEST"/ScreenPet_*)
+if [ "${#MISSING[@]}" -gt 0 ]; then
+    case "${PLATFORMS[0]}" in
+        "windows") OLD=("$DEST"/ScreenPet_*_x64-setup.exe) ;;
+        "macos") OLD=("$DEST"/ScreenPet_*_universal.dmg) ;;
+    esac
+fi
 removed=0
-for old in "$DEST"/ScreenPet_*; do
+for old in "${OLD[@]}"; do
     [ -e "$old" ] || continue
     case "$(basename "$old")" in
         "$WIN" | "$MAC") ;;
@@ -158,8 +204,13 @@ for old in "$DEST"/ScreenPet_*; do
 done
 
 echo "publish-release: published $TAG to $DEST"
-echo "  $WIN  ${SIZE[$WIN]} bytes  sha256 ${SHA[$WIN]}"
-echo "  $MAC  ${SIZE[$MAC]} bytes  sha256 ${SHA[$MAC]}"
+echo "  platforms: ${PLATFORMS[*]}"
+for name in "${NAMES[@]}"; do
+    echo "  $name  ${SIZE[$name]} bytes  sha256 ${SHA[$name]}"
+done
+for name in "${MISSING[@]}"; do
+    echo "  not yet: $name (run this again once it is on the release)"
+done
 echo "  removed $removed older file(s)"
 echo "  signed: latest.json.sig"
 echo "  check: curl -s https://pet.danni.day/downloads/latest.json"

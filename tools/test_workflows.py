@@ -101,6 +101,22 @@ def test_the_ui_harness_tests_cannot_be_skipped_for_lack_of_node():
     assert node < pytest_step
 
 
+def test_art_tests_are_skipped_only_by_the_tested_decision():
+    """⏱️ 그림 테스트는 tools/ci_art_changed.py가 skip이라고 할 때만 빠진다 (모르면 다 돈다)."""
+    job = build()["jobs"]["test"]
+    checkout = next(s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout"))
+    assert checkout["with"]["fetch-depth"] == 0, "before 커밋과 견줄 기록이 있어야 한다"
+    step = next(s for s in job["steps"] if "python -m pytest" in s.get("run", ""))
+    run = step["run"]
+    # 푸시된 값은 env로만 (스크립트에 ${{ }}를 바로 넣지 않는다)
+    assert "${{" not in run
+    assert step["env"] == {"EVENT": "${{ github.event_name }}", "BEFORE": "${{ github.event.before }}"}
+    assert 'python tools/ci_art_changed.py --event "$EVENT" --ref "$GITHUB_REF" --before "$BEFORE" --sha "$GITHUB_SHA"' in run
+    assert "|| art=run" in run
+    assert run.count("python -m pytest -q") == 2
+    assert "python -m pytest -q --ignore-glob='test_draw_*'" in run and "::notice" in run
+
+
 def test_tool_packages_install_only_by_hash():
     req = (ROOT / "tools" / "requirements.txt").read_text(encoding="utf-8")
     specs = re.findall(r"^(\S+)( \\\n(?:    --hash=sha256:[0-9a-f]{64}(?: \\\n)?)+)?", req, re.M)
@@ -133,8 +149,13 @@ def test_a_branch_push_with_an_open_pr_runs_once():
 
 # ---- 릴리즈 --------------------------------------------------------------------
 
-def release():
-    return build()["jobs"]["release"]
+PLATFORMS = {"windows": "exe", "macos": "dmg"}
+RELEASES = [f"release_{p}" for p in PLATFORMS]
+BUILDS = [f"build_{p}" for p in PLATFORMS]
+
+
+def release(name="release_windows"):
+    return build()["jobs"][name]
 
 
 def script(job, name):
@@ -182,75 +203,121 @@ needs_jq = pytest.mark.skipif(not shutil.which("jq"), reason="jq 없음")
 VERIFY = "Verify the tagged commit passed the test job"
 
 
-def test_only_the_release_job_can_write():
+def test_only_the_release_jobs_can_write():
     jobs = build()["jobs"]
-    assert release()["permissions"] == {"contents": "write", "checks": "read"}
+    for name in RELEASES:
+        assert release(name)["permissions"] == {"contents": "write", "checks": "read"}
     for name, job in jobs.items():
-        if name != "release":
+        if name not in RELEASES:
             assert "permissions" not in job, name
 
 
-def test_builds_only_upload_artifacts_and_fail_when_they_made_nothing():
-    upload = [s for s in steps("build") if s.get("uses", "").startswith("actions/upload-artifact")]
-    assert len(upload) == 1 and upload[0]["with"]["if-no-files-found"] == "error"
-    assert not [s for s in steps("build") if "action-gh-release" in s.get("uses", "")]
+def upload(job):
+    ups = [s for s in steps(job) if s.get("uses", "").startswith("actions/upload-artifact")]
+    assert len(ups) == 1
+    return ups[0]
 
 
-def test_builds_cover_both_platforms_and_one_failure_does_not_cancel_the_other():
-    strategy = build()["jobs"]["build"]["strategy"]
-    assert strategy["fail-fast"] is False
-    assert {(r["os"], r["artifact"]) for r in strategy["matrix"]["include"]} == {
-        ("windows-latest", "screenpet-windows"), ("macos-latest", "screenpet-macos"),
+@pytest.mark.parametrize("job", BUILDS)
+def test_builds_only_upload_artifacts_and_fail_when_they_made_nothing(job):
+    assert upload(job)["with"]["if-no-files-found"] == "error"
+    assert not [s for s in steps(job) if "action-gh-release" in s.get("uses", "")]
+    assert "strategy" not in build()["jobs"][job]
+
+
+def test_builds_cover_both_platforms_as_separate_jobs():
+    """🪟 Windows 먼저: 플랫폼마다 작업이 따로라 Windows 릴리즈가 Mac 빌드를 기다리지 않는다."""
+    jobs = build()["jobs"]
+    assert "build" not in jobs and "release" not in jobs
+    assert {(j, jobs[j]["runs-on"], upload(j)["with"]["name"]) for j in BUILDS} == {
+        ("build_windows", "windows-latest", "screenpet-windows"), ("build_macos", "macos-latest", "screenpet-macos"),
     }
 
 
-def test_release_needs_a_fully_successful_build_on_a_tag():
+def test_the_two_builds_differ_only_in_platform_settings():
+    """matrix를 둘로 나눈 것이라 단계는 같게: 한쪽만 고치고 잊지 않게."""
+    def shape(job):
+        out = []
+        for s in steps(job):
+            s = json.loads(json.dumps(s))
+            if "rust-toolchain" in s.get("uses", ""):
+                s["with"].pop("targets")
+            if "tauri build" in s.get("run", ""):
+                s["run"] = "tauri build"
+            if s.get("uses", "").startswith("actions/upload-artifact"):
+                s["with"].pop("name"), s["with"].pop("path")
+            out.append(s)
+        return out
+    win, mac = (build()["jobs"][j] for j in BUILDS)
+    assert shape("build_windows") == shape("build_macos")
+    for key in ("needs", "if", "timeout-minutes"):
+        assert win[key] == mac[key], key
+
+
+@pytest.mark.parametrize("plat", PLATFORMS)
+def test_each_release_needs_its_own_successful_build_on_a_tag(plat):
     """test가 건너뛰어지면 그 뒤 작업도 조용히 건너뛰니, 결과를 직접 물어야 태그에서 돈다."""
-    job = release()
-    assert job["needs"] == "build"
+    job = release(f"release_{plat}")
+    assert job["needs"] == f"build_{plat}"
     assert "!cancelled()" in job["if"]
-    assert "needs.build.result == 'success'" in job["if"]
+    assert f"needs.build_{plat}.result == 'success'" in job["if"]
     assert "startsWith(github.ref, 'refs/tags/v')" in job["if"]
 
 
-def test_release_runs_no_repo_code():
+def test_release_jobs_take_turns_per_tag_without_cancelling():
+    """둘이 동시에 같은 릴리즈를 만들면 릴리즈가 둘 생길 수 있다."""
+    groups = {release(n)["concurrency"]["group"] for n in RELEASES}
+    assert groups == {"release-${{ github.ref_name }}"}
+    assert all(release(n)["concurrency"]["cancel-in-progress"] is False for n in RELEASES)
+
+
+def test_release_jobs_are_the_same_but_for_the_platform():
+    win, mac = (release(n) for n in RELEASES)
+    dump = json.dumps(mac, ensure_ascii=False).replace("macos", "windows").replace("*.dmg", "*.exe")
+    assert json.loads(dump) == win
+
+
+@pytest.mark.parametrize("name", RELEASES)
+def test_release_runs_no_repo_code(name):
     """쓰기 토큰을 든 작업: 저장소 파일은 읽기만 한다."""
-    for step in release()["steps"]:
+    for step in release(name)["steps"]:
         assert not re.search(r"\b(npm|npx|cargo|python|pip|make|node)\b|\./", step.get("run", "")), step
         if "uses" in step:
             assert step["uses"].split("@")[0] in {"actions/checkout", "actions/download-artifact", "softprops/action-gh-release"}, step
 
 
-def test_release_checks_come_before_anything_is_published():
-    order = [s.get("name") or s.get("uses", "") for s in release()["steps"]]
-    publish = next(i for i, s in enumerate(release()["steps"]) if "action-gh-release" in s.get("uses", ""))
+@pytest.mark.parametrize("name", RELEASES)
+def test_release_checks_come_before_anything_is_published(name):
+    order = [s.get("name") or s.get("uses", "") for s in release(name)["steps"]]
+    publish = next(i for i, s in enumerate(release(name)["steps"]) if "action-gh-release" in s.get("uses", ""))
     assert order.index(VERIFY) < publish
     assert order.index("Require the release notes") < publish
     assert publish == len(order) - 1
 
 
-def test_release_publishes_notes_and_every_installer_or_fails():
-    step = next(s for s in release()["steps"] if "action-gh-release" in s.get("uses", ""))
+@pytest.mark.parametrize("plat,ext", PLATFORMS.items())
+def test_each_release_publishes_notes_and_its_own_installer_or_fails(plat, ext):
+    step = next(s for s in release(f"release_{plat}")["steps"] if "action-gh-release" in s.get("uses", ""))
+    assert step["with"]["tag_name"] == "${{ github.ref_name }}"
     assert step["with"]["body_path"] == "docs/releases/${{ github.ref_name }}.md"
     assert step["with"]["fail_on_unmatched_files"] is True
-    files = step["with"]["files"]
-    for ext in ("exe", "dmg"):
-        assert f"dist/**/*.{ext}" in files
+    # 자기 설치 파일만: 먼저 끝난 쪽이 릴리즈를 만들고, 나중 쪽은 같은 릴리즈에 더한다
+    assert step["with"]["files"] == f"dist/**/*.{ext}"
     # msi는 만들지 않는다 (사용자: 헷갈린다 — 필요하면 다시). Windows는 NSIS exe 하나
-    assert "msi" not in files
+    assert "msi" not in step["with"]["files"]
 
 
 def test_windows_builds_only_the_nsis_installer():
     import json
     conf = json.loads((Path(__file__).resolve().parent.parent / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8"))
     assert conf["bundle"]["targets"] == ["nsis"]
-    win = next(r for r in build()["jobs"]["build"]["strategy"]["matrix"]["include"] if r["os"].startswith("windows"))
-    assert "msi" not in win["installers"]
+    assert upload("build_windows")["with"]["path"] == "target/release/bundle/nsis/*.exe"
 
 
-def test_release_downloads_what_the_builds_upload():
-    names = {s["with"]["name"] for s in release()["steps"] if s.get("uses", "").startswith("actions/download-artifact")}
-    assert names == {r["artifact"] for r in build()["jobs"]["build"]["strategy"]["matrix"]["include"]}
+@pytest.mark.parametrize("plat", PLATFORMS)
+def test_each_release_downloads_only_what_its_build_uploads(plat):
+    downloads = [s["with"] for s in release(f"release_{plat}")["steps"] if s.get("uses", "").startswith("actions/download-artifact")]
+    assert downloads == [{"name": upload(f"build_{plat}")["with"]["name"], "path": f"dist/{plat}"}]
 
 
 @pytest.mark.parametrize("present", [True, False])
