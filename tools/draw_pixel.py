@@ -39,6 +39,7 @@ import draw_penguin as dpeng  # noqa: E402
 import draw_squirrel as dsq  # noqa: E402
 import draw_heumul as dheu  # noqa: E402
 import draw_spider  # noqa: E402,F401  (거미인간 — SPECIES 등록)
+import draw_bat  # noqa: E402,F401  (박쥐인간 — SPECIES 등록)
 from sprite_spec import TINTABLE  # noqa: E402
 
 K = dp.K
@@ -1086,6 +1087,7 @@ GROUPS = {"animals": ["cat", "rabbit", "persian"], "frog": ["frog"], "halloween"
 GROUPS["squirrel"] = ["squirrel"]
 GROUPS["heumul"] = ["heumul"]
 GROUPS["spider"] = ["spider"]
+GROUPS["bat"] = ["bat"]
 KEY_FRAMES = [("walk", 0), ("run", 1), ("sit_front", 0), ("sleep", 0), ("hungry", 1), ("heart", 2), ("tilt", 1), ("fall", 0), ("wave", 1),
               ("eat", 0), ("level_up", 2), ("lookup", 2)]
 EXTRA_KEYS = [("climb", 0), ("climb", 2), ("slide", 1), ("bigjump", 1), ("arch", 2), ("huff", 1),

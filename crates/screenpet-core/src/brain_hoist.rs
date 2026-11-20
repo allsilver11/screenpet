@@ -252,8 +252,8 @@ impl Pet {
     pub fn notice_pets(&mut self, spots: &[PetSpot]) {
         self.hoist.spots.clear();
         self.hoist.spots.extend(spots.iter().filter(|s| s.key != self.social_key).copied());
-        if self.cfg.slings_webs {
-            // 🕷️ 거미인간이 줄로 끌어올 동물 (brain_web.rs)
+        if self.cfg.slings_webs || self.cfg.rides_bike {
+            // 🕷️ 거미인간이 줄로 끌어올 동물 (brain_web.rs) · 🦇 오토바이로 부딪쳐 살짝 튕길 동물 (brain_bike.rs)
             self.web.pets.clear();
             self.web.pets.extend(spots.iter().filter(|s| s.key != self.social_key).copied());
         }
@@ -261,7 +261,8 @@ impl Pet {
 
     /// 손이 비었고 쉬는 때가 지났으면 처음 본 가까운 동물에 주사위
     pub(super) fn maybe_hoist(&mut self, world: &World) -> bool {
-        if !self.cfg.juggler || self.clock < self.hoist.ready_at || !self.free_hands() || !self.antics_free() {
+        // 🙆 다른 동물 들기는 흐물이 더 놀기 그림(antics — 내려놓는 stuff 등)이 있는 동물만 (💪 박쥐인간은 물건만 듦)
+        if !self.cfg.juggler || !self.cfg.antics || self.clock < self.hoist.ready_at || !self.free_hands() || !self.antics_free() {
             return false;
         }
         let Some(st) = self.standing else { return false };
@@ -519,7 +520,7 @@ impl Pet {
 
 /// 같은 화면 동물들의 일 — 앱이 매 틱 동물 update 전에: 흐물이들(과 🕷️ 거미인간)에게 다른 동물을 보여 줌
 pub fn notice_pets<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
-    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs;
+    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs || p.cfg.rides_bike;
     if !pets.iter().any(|p| sees(p.as_ref())) {
         return;
     }

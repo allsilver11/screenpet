@@ -522,7 +522,8 @@ fn an_object_that_goes_away_while_walking_over_calls_it_off() {
 #[test]
 fn the_bundled_heumul_juggles_with_grip_tables_and_no_one_else_does() {
     for (id, cfg) in crate::test_util::bundled() {
-        assert_eq!(cfg.juggler, id == "heumul", "{id}");
+        // 💪 박쥐인간도 물건을 듦 (brain_bike_tests.rs·manifest 테스트가 따로 봄)
+        assert_eq!(cfg.juggler, id == "heumul" || id == "bat", "{id}");
         if id == "heumul" {
             for g in [cfg.grip.lift, cfg.grip.hold, cfg.grip.carry, cfg.grip.throw, cfg.grip.present] {
                 assert!(g.n >= 2, "{id}: {g:?}");

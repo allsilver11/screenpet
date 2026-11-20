@@ -22,13 +22,15 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// · yank·stuff (📌 작업표시줄에서 장난감 끌어내기·도로 밀어 넣기)
 /// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type·type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS, type = ⌨️ 키보드 v0.6.4)
 /// · paw (🐱 고양이 툭툭 — KNOCK_ANIMS) · cheeks_walk·cheeks_idle·dig (🐿️ 다람쥐 볼 빵빵 — STASH_ANIMS, v0.6.3)
-/// · shoot·web_swing·hero_land·web_pull·web_whirl (🕷️ 거미인간 — WEB_ANIMS).
-pub const OPTIONAL_ANIMS: [&str; 39] = [
+/// · shoot·web_swing·hero_land·web_pull·web_whirl (🕷️ 거미인간 — WEB_ANIMS) · ride·wheelie·bike_jump·drift·signal (🦇 박쥐인간 — BIKE_ANIMS).
+pub const OPTIONAL_ANIMS: [&str; 44] = [
     "arch", "huff", "climb", "slide", "bigjump", "lookup", "fire", "roar", "stomp", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig", "shoot", "web_swing", "hero_land", "web_pull",
-    "web_whirl",
+    "web_whirl", "ride", "wheelie", "bike_jump", "drift", "signal",
 ];
+/// 🦇 박쥐인간 그림: 🏍️ 오토바이 타기 · 윌리 · 오토바이 점프 · 드리프트 · 🔦 박쥐 신호 (pet.json `bike_rider`가 있어도 이게 다 있어야 함 — rides_bike())
+pub const BIKE_ANIMS: [&str; 5] = ["ride", "wheelie", "bike_jump", "drift", "signal"];
 /// 🕷️ 거미인간 그림: 줄 쏘기 · 줄 그네 · 영웅 착지 · 줄 끌어당기기 · 🌀 줄 휘두르기 (pet.json `web_slinger`가 있어도 이게 다 있어야 함 — slings_webs())
 pub const WEB_ANIMS: [&str; 5] = ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl"];
 /// 🐱 툭툭 그림 (pet.json `knocker`가 있어도 이게 있어야 함 — knocks())
@@ -167,6 +169,9 @@ pub struct PetManifest {
     /// 🕷️ 줄을 쏘아 모서리에 거미집을 치고, 줄 그네를 타고, 영웅 착지를 하고, 물건·친구를 끌어옴 (거미인간, WEB_ANIMS가 다 있을 때만 — slings_webs())
     #[serde(default)]
     pub web_slinger: bool,
+    /// 🦇 오토바이를 자주 타고 윌리·점프·드리프트, 가끔 박쥐 신호 조명, 친구 화면도 오토바이로 오감 (박쥐인간, BIKE_ANIMS가 다 있을 때만 — rides_bike())
+    #[serde(default)]
+    pub bike_rider: bool,
     /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있음 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮음, core::tint)
     #[serde(default)]
     pub tint: bool,
@@ -341,6 +346,11 @@ impl PetManifest {
     /// 🕷️ 줄 쓰기 (WEB_ANIMS 그림이 다 있어야 함)
     pub fn slings_webs(&self) -> bool {
         self.web_slinger && WEB_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 🦇 오토바이 타기 (BIKE_ANIMS 그림이 다 있어야 함)
+    pub fn rides_bike(&self) -> bool {
+        self.bike_rider && BIKE_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
     /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 함)
@@ -647,7 +657,8 @@ mod tests {
         assert_eq!(&OPTIONAL_ANIMS[21..30], &ANTICS_ANIMS, "흐물이 더 놀기 (v0.6.3, ⌨️ type v0.6.4)");
         assert_eq!(&OPTIONAL_ANIMS[30..31], &KNOCK_ANIMS, "🐱 툭툭 (v0.6.3)");
         assert_eq!(&OPTIONAL_ANIMS[31..34], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3)");
-        assert_eq!(&OPTIONAL_ANIMS[34..], &WEB_ANIMS, "🕷️ 거미인간 — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[34..39], &WEB_ANIMS, "🕷️ 거미인간");
+        assert_eq!(&OPTIONAL_ANIMS[39..], &BIKE_ANIMS, "🦇 박쥐인간 — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
@@ -658,7 +669,9 @@ mod tests {
         assert_eq!(h.favorite_food.as_ref().map(|f| f.emoji.as_str()), Some("🍭"));
         for id in crate::test_util::species().into_iter().filter(|id| id != "heumul") {
             let m = load(&id);
-            assert!(!m.timid() && !m.energetic && !m.rigs() && !m.juggler && !m.juggles() && !m.taskbar_play && !m.plays_taskbar() && !m.antics(), "{id}");
+            assert!(!m.timid() && !m.energetic && !m.rigs() && !m.taskbar_play && !m.plays_taskbar() && !m.antics(), "{id}");
+            // 💪 박쥐인간도 물건을 들어 옮김 (흐물이 juggle 틀) — 다른 동물은 안 듦
+            assert_eq!((m.juggler, m.juggles()), (id == "bat", id == "bat"), "{id}");
         }
     }
 
@@ -691,6 +704,31 @@ mod tests {
         assert!(!parse_manifest(&partial).unwrap().slings_webs());
         let no_whirl = read("pets", "spider").replace(r#""web_whirl""#, r#""web_whirl_x""#);
         assert!(!parse_manifest(&no_whirl).unwrap().slings_webs());
+    }
+
+    /// 🦇 박쥐인간만 오토바이를 탐 (bike_rider + BIKE_ANIMS 그림 다섯) — 동글·픽셀 모두. 물건 들기(juggle)도 하고 손 자리(grip)는 머리 위
+    #[test]
+    fn only_the_bundled_bat_rides_a_bike_and_lifts_things_overhead() {
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |root: &str, id: &str| std::fs::read_to_string(ui.join(root).join(id).join("pet.json")).unwrap();
+        for root in ["pets", "pets_pixel"] {
+            for id in crate::test_util::species() {
+                let base = parse_manifest(&read("pets", &id)).unwrap();
+                let m = if root == "pets" { base } else { parse_pixel_manifest(&read(root, &id), &base).unwrap() };
+                assert_eq!(m.rides_bike(), id == "bat", "{root} {id}");
+                assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").rides_bike, id == "bat", "{root} {id}");
+            }
+        }
+        let b = parse_manifest(&read("pets", "bat")).unwrap();
+        assert_eq!(b.name, "박쥐인간");
+        assert!(b.can_climb() && b.juggles() && !b.antics() && !b.plays_taskbar() && !b.slings_webs() && !b.tint);
+        for stage in ["baby", "teenager", "adult"] {
+            let g = b.grip_table(stage);
+            assert_eq!((g.lift.n, g.hold.n, g.carry.n, g.throw.n, g.present.n), (4, 2, 4, 4, 4), "{stage}");
+            assert!(g.hold.at(0.0).1 < 0.35 && g.carry.at(0.0).1 < 0.35, "머리 위에 듦 {stage}");
+        }
+        let partial = read("pets", "bat").replace(r#""wheelie""#, r#""wheelie_x""#);
+        assert!(!parse_manifest(&partial).unwrap().rides_bike());
     }
 
     /// 🐱 툭툭은 고양이·페르시안, 🐿️ 볼 빵빵은 다람쥐, 🦆 기차는 오리만 (v0.6.3) — 동글·픽셀 모두

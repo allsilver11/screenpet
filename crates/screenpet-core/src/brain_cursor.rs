@@ -241,6 +241,8 @@ impl CursorStyle {
             "heumul" => CursorStyle { gait: Anim::Run, speed: 2.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
             // 🕷️ 거미인간은 줄을 쏘는 자세를 잡았다가 총총 달려와 다시 쏘는 시늉
             "spider" => CursorStyle { prep: Some((Anim::Shoot, 0.5)), gait: Anim::Run, speed: 2.4, arrive: Some((Anim::Shoot, 0.6)), chatty: true, ..b },
+            // 🦇 박쥐인간은 오토바이로 부릉 달려와 끼익 드리프트
+            "bat" => CursorStyle { gait: Anim::Ride, speed: 3.0, arrive: Some((Anim::Drift, 0.6)), chatty: true, ..b },
             _ => return None,
         })
     }

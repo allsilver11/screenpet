@@ -925,6 +925,12 @@ const EXTRA_SPEECH = {
   // 🕷️🕷️🕷️ 멀티버스 모임: 다른 거미인간을 보고 깜짝 / 흩어지며 (코어 social_multiverse.rs)
   multiverse: ["multiverse?!", "wait… you too?", "no way!"],
   see_ya: ["see ya!"],
+  // 🦇 박쥐인간: 오토바이에 올라 / 윌리 / 점프·드리프트 / 🔦 박쥐 신호 / 💪 거대한 것도 번쩍 (코어 brain_bike.rs)
+  vroom: ["vroom!", "to the bike!"],
+  wheelie: ["yeah!", "wheelie!"],
+  bike_trick: ["skrrt!", "hup!"],
+  bat_signal: ["I'm the night", "signal's up!"],
+  hero_lift: ["easy!", "light as air"],
   // 펫끼리 놀기 더 (코어 social_romp.rs): 🥊 투닥투닥 / 😈 몰래 찌르고 키득 · 찔려서 화들짝 / 🫸 되밀기 / 🏁 달리기 시합 / 💬 수다 (먼저 · 받는 쪽)
   scuffle: ["hey!", "mine!", "grr", "grr!"],
   hehe: ["hehe", "hehe~"],
@@ -983,6 +989,7 @@ const CURSOR_LINES = {
   penguin: ["wheee~!", "slide slide!"],
   heumul: ["zoom zoom!", "hup hup!"],
   spider: ["thwip thwip!", "web time!"],
+  bat: ["to the bike!", "I'm the night"],
 };
 const speech = setupSpeech({
   bubbleEl,

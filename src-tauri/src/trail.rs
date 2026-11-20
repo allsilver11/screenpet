@@ -11,6 +11,8 @@
 //! 창이 닫히거나 다른 모니터로 가면 `trail-web-drop`으로 지우고,
 //! 🕸️⭕ 둥근 거미집 (corner "center" — x·y가 가운데)도 같은 길: 창 위 것은 처음 잰 창 왼쪽 위 기준 자리 (web::window_offset)로 따라가고 (web::orb_on_window),
 //! 🧹 빗자루가 쓸고 지나간 거미집은 `sweep_webs`가 `trail-web-drop`으로, 🧹 다 치우기 (`clear_webs`)와 한 시간마다 (weather::AUTO_CLEAR_SECS) `trail-web-clear`로 모두 지움. 손님 거미인간 것도 그림.
+//! 🦇 박쥐인간의 🔦 박쥐 신호 (`Pet::take_bat_signal` → `trail-signal`, ui/batsignal.js — 맨 아래 캔버스)도 같은 창이 그림:
+//! 조명 렌즈에서 화면 위쪽으로 반투명 빛줄기 + 위쪽에 박쥐 무늬가 비친 둥근 빛. 비추는 동안 (SIGNAL_SECS + 흐려지기)은 창을 닫지 않음.
 //! 🕸️ 게임 루프가 거미집 자리를 동물 뇌에 알려 주고 (`web_spots` → `Pet::set_webs`), 걸렸던 동물이 찢고 나온 거미집은 `tear_web`이 `trail-web-drop`으로 지움.
 
 use std::time::{Duration, Instant};
@@ -21,6 +23,7 @@ use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::style::PetStyle;
 use screenpet_core::trail::{self, Puff, Runner, Trail};
 use screenpet_core::weather::{self, OverlayRetry};
+use screenpet_core::brain::bike_moves::BatSignal;
 use screenpet_core::web::{orb_on_window, web_on_window, window_offset, Corner, WebAt, WebSpin, WebSpot, MAX_WEBS, WEB_LIFE_SECS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, WebviewWindow};
@@ -50,6 +53,8 @@ const WEB_LIFE: Duration = Duration::from_secs(WEB_LIFE_SECS as u64 + 4);
 const WEB_DROP: Duration = Duration::from_millis(1200);
 /// 🕷️ 줄을 다시 보내는 가장 짧은 간격 (웹뷰는 받은 줄을 rAF로 그림)
 const LINE_EVERY: Duration = Duration::from_millis(33);
+/// 🦇 박쥐 신호가 화면에 있는 시간 더하기 (batsignal.js SIGNAL_FADE 0.8초 + 여유)
+const SIGNAL_TAIL: Duration = Duration::from_millis(1500);
 /// 🧹 한 시간마다 거미집도 치움 (날씨 더미와 같은 간격)
 const WEB_AUTO_CLEAR: Duration = Duration::from_secs(weather::AUTO_CLEAR_SECS as u64);
 
@@ -89,6 +94,17 @@ struct LineWire {
     y0: f64,
     x1: f64,
     y1: f64,
+}
+
+/// 웹뷰로 가는 🔦 박쥐 신호 (논리 px, 이 창 왼쪽 위가 0,0 — x·y는 조명 렌즈, size는 몸 크기, secs는 비추는 시간, age는 이미 지난 초)
+#[derive(Serialize, Clone, Copy)]
+struct SignalWire {
+    x: f64,
+    y: f64,
+    size: f64,
+    secs: f64,
+    pixel: bool,
+    age: f64,
 }
 
 /// 화면에 있는 거미집 하나의 기억 (창 모서리면 그 창을 따라 지움)
@@ -177,6 +193,8 @@ struct Overlay {
     webs: Vec<(Instant, WebWire)>,
     /// 🕷️ 마지막으로 보낸 줄들
     lines: Vec<LineWire>,
+    /// 🦇 아직 보내지 않은 박쥐 신호
+    signals: Vec<(Instant, SignalWire)>,
 }
 
 /// ☁️ 발자국 구름과 낙서 상태임 (게임 루프가 가짐)
@@ -204,6 +222,8 @@ pub struct TrailFx {
     lines_sent: Option<Instant>,
     /// 🧹 다음 한 시간 치우기
     web_clear_at: Option<Instant>,
+    /// 🦇 마지막 박쥐 신호가 꺼지는 때 (그때까지 창을 닫지 않음)
+    signals_until: Option<Instant>,
 }
 
 impl TrailFx {
@@ -219,12 +239,14 @@ impl TrailFx {
             for s in slots.iter_mut() {
                 let _ = s.pet.take_doodle();
                 let _ = s.pet.take_web();
+                let _ = s.pet.take_bat_signal();
             }
             self.trails.clear();
             self.tear_down();
             return;
         }
         self.doodles(app, now, slots);
+        self.bat_signals(app, now, slots);
         self.spider_webs(app, now, slots);
         self.web_lines(app, now, slots);
         self.trails.retain(|(label, _)| slots.iter().any(|s| s.label == *label));
@@ -285,6 +307,33 @@ impl TrailFx {
         }
         let wire = DoodleWire { x: (d.x - o.wa.left) / o.scale, y: (d.y - o.wa.top) / o.scale, kind: kind_name(d.kind), name, facing: d.facing.signum(), size, pixel, draw: DOODLE_SECS, age: 0.0 };
         o.doodles.push((now, wire));
+    }
+
+    /// 🦇 동물마다 새 박쥐 신호를 받아 그 렌즈 자리 모니터의 창으로 (손님 것도). 화면 위에 있지 않거나 그 모니터 앞 창이 전체 화면이면 버림
+    fn bat_signals(&mut self, app: &AppHandle, now: Instant, slots: &mut [Slot]) {
+        for i in 0..slots.len() {
+            let Some(b) = slots[i].pet.take_bat_signal() else { continue };
+            let s = &slots[i];
+            let wa = s.world.work_area_at(b.x, b.y);
+            if !s.on_screen() || weather::overlay_paused(false, &slots[0].world.windows, &wa) {
+                continue;
+            }
+            let pixel = s.shown.style == PetStyle::Pixel;
+            self.place_signal(app, now, &s.world.work_areas, &b, pixel);
+        }
+    }
+
+    /// 박쥐 신호 하나를 그 모니터의 덮개 창에 보냄 (창이 없으면 만듦)
+    fn place_signal(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], b: &BatSignal, pixel: bool) {
+        let Some(i) = self.overlay_at(app, now, work_areas, b.x, b.y) else { return };
+        let o = &mut self.overlays[i];
+        let size = b.size / o.scale;
+        if !(size.is_finite() && size > 0.0 && b.secs.is_finite() && b.secs > 0.0) {
+            return;
+        }
+        let until = now + Duration::from_secs_f64(b.secs) + SIGNAL_TAIL;
+        self.signals_until = Some(self.signals_until.map_or(until, |t| t.max(until)));
+        o.signals.push((now, SignalWire { x: (b.x - o.wa.left) / o.scale, y: (b.y - o.wa.top) / o.scale, size, secs: b.secs, pixel, age: 0.0 }));
     }
 
     /// 🕷️ 동물마다 새 거미집을 받아 그 모서리 모니터의 창으로 (손님 것도). 화면 위에 있지 않거나 그 모니터 앞 창이 전체 화면이면 버림
@@ -463,7 +512,7 @@ impl TrailFx {
             return None;
         };
         self.retry.reset();
-        self.overlays.push(Overlay { window, label, wa, scale, born: now, paused: false, pending: Vec::new(), doodles: Vec::new(), webs: Vec::new(), lines: Vec::new() });
+        self.overlays.push(Overlay { window, label, wa, scale, born: now, paused: false, pending: Vec::new(), doodles: Vec::new(), webs: Vec::new(), lines: Vec::new(), signals: Vec::new() });
         Some(self.overlays.len() - 1)
     }
 
@@ -498,6 +547,15 @@ impl TrailFx {
             let _ = app.emit_to(o.label.as_str(), "trail-doodle", &batch);
         }
         for o in &mut self.overlays {
+            if o.signals.is_empty() || now.duration_since(o.born) < WARMUP {
+                continue;
+            }
+            let batch: Vec<SignalWire> = o.signals.drain(..).map(|(at, w)| SignalWire { age: now.duration_since(at).as_secs_f64(), ..w }).collect();
+            if !o.paused {
+                let _ = app.emit_to(o.label.as_str(), "trail-signal", &batch);
+            }
+        }
+        for o in &mut self.overlays {
             if o.webs.is_empty() || now.duration_since(o.born) < WARMUP {
                 continue;
             }
@@ -515,7 +573,8 @@ impl TrailFx {
         let doodles_done = self.doodles_until.is_none_or(|t| now >= t);
         let webs_done = self.webs_until.is_none_or(|t| now >= t);
         let lines_done = self.lines_at.is_none_or(|t| now.duration_since(t) >= IDLE_CLOSE);
-        if puffs_done && doodles_done && webs_done && lines_done {
+        let signals_done = self.signals_until.is_none_or(|t| now >= t);
+        if puffs_done && doodles_done && webs_done && lines_done && signals_done {
             self.tear_down();
             return;
         }
@@ -557,6 +616,7 @@ impl TrailFx {
         self.webs_until = None;
         self.lines_at = None;
         self.lines_sent = None;
+        self.signals_until = None;
         self.next_pause = None;
         self.retry.reset();
     }

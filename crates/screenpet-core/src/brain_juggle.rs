@@ -395,6 +395,10 @@ impl Pet {
     /// 들어 올린 뒤 할 일: 거대한 것은 던지기만, 아니면 배달 장난 (갈 수 있는 끝이 있을 때) / 들고 돌아다니기 / 던지기
     pub(super) fn pick_plan(&mut self, giant: bool, world: &World) -> Plan {
         if giant {
+            // 💪 영웅은 거대한 것도 들고 좀 다니다 던지기도 함
+            if self.cfg.rides_bike && self.juggle.rng.f64() < juggle::WANDER_CHANCE {
+                return Plan::Wander;
+            }
             return Plan::Throw;
         }
         let sides = self.friend_sides(world);
@@ -522,8 +526,9 @@ impl Pet {
                     self.facing = (obj_x - self.body.x).signum();
                 }
                 if giant {
-                    let lifts = self.juggle.rng.f64() < juggle::GIANT_LIFT_CHANCE;
-                    self.speech = Some(Speech::Strain);
+                    // 💪 영웅(박쥐인간)은 거대한 것도 늘 듦 — 주사위는 흐물이만 굴림
+                    let lifts = self.cfg.rides_bike || self.juggle.rng.f64() < juggle::GIANT_LIFT_CHANCE;
+                    self.speech = Some(if self.cfg.rides_bike { Speech::HeroLift } else { Speech::Strain });
                     self.state = State::Juggle { phase: JugglePhase::Strain { id, lifts }, t: 0.0 };
                 } else {
                     self.start_lift(id, false, world);
@@ -534,7 +539,8 @@ impl Pet {
                     self.start_fall();
                     return;
                 }
-                if t < juggle::STRAIN_SECS {
+                let strain_secs = if self.cfg.rides_bike { crate::bike::HERO_STRAIN_SECS } else { juggle::STRAIN_SECS };
+                if t < strain_secs {
                     self.state = next(phase);
                 } else if lifts {
                     self.start_lift(id, true, world);

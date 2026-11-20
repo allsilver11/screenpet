@@ -463,7 +463,7 @@ def _worst_fit(table_name):
 
 
 def test_every_species_has_a_pixel_sheet_now():
-    assert len(_pixel_ids()) == 17  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1, 레서판다 +1, 다람쥐 +1 · v0.6.2: 흐물이 +1 · 거미인간 +1 · v0.7.0: 새·기린·레서판다 −3
+    assert len(_pixel_ids()) == 18  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1, 레서판다 +1, 다람쥐 +1 · v0.6.2: 흐물이 +1 · 거미인간 +1 · v0.7.0: 새·기린·레서판다 −3, 박쥐인간 +1
 
 
 def test_nightcap_table_fits_every_pixel_frame():

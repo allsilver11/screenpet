@@ -47,6 +47,8 @@ pub mod update;
 pub mod visit;
 pub mod weather;
 pub mod web;
+/// 🦇 박쥐인간 오토바이·박쥐 신호의 숫자
+pub mod bike;
 pub mod world;
 
 #[cfg(test)]

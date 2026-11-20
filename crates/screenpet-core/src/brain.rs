@@ -187,6 +187,16 @@ pub enum Anim {
     WebPull,
     /// 🕷️ 거미인간 — 🌀 버티고 서서 한 팔을 머리 위로 들어 줄 끝의 물건을 빙빙 (옆모습)
     WebWhirl,
+    /// 🦇 박쥐인간 — 🏍️ 오토바이 타고 달리기 (옆모습, 바퀴가 굴러감 — brain_bike.rs)
+    Ride,
+    /// 🦇 박쥐인간 — 앞바퀴를 들고 뒷바퀴로만 (윌리)
+    Wheelie,
+    /// 🦇 박쥐인간 — 오토바이째 붕 뜸 (공중)
+    BikeJump,
+    /// 🦇 박쥐인간 — 끼익 급정거 드리프트
+    Drift,
+    /// 🦇 박쥐인간 — 🔦 바닥의 큰 조명을 켜 하늘로 박쥐 신호 (한 번, 마지막 칸 유지)
+    Signal,
 }
 
 /// 머리 위 말풍선 종류 (웹뷰가 글귀를 고름)
@@ -366,6 +376,16 @@ pub enum Speech {
     Multiverse,
     /// 🕷️🕷️🕷️ 모임 끝에 흩어지며 ("see ya!")
     SeeYa,
+    /// 🦇 오토바이에 올라 부릉 ("vroom!", brain_bike.rs)
+    Vroom,
+    /// 🦇 윌리 ("yeah!")
+    Wheelie,
+    /// 🦇 오토바이 점프·드리프트 ("skrrt!")
+    BikeTrick,
+    /// 🦇 🔦 박쥐 신호 ("I'm the night")
+    BatSignal,
+    /// 🦇 💪 거대한 것도 번쩍 ("easy!")
+    HeroLift,
 }
 
 impl Anim {
@@ -563,6 +583,8 @@ pub enum State {
     Stuck { kind: snare_moves::StuckKind, t: f64, remaining: f64 },
     /// 🌱 연령대 몸짓 (👶 엉덩방아·waah · 🧒 신나서 폴짝 · 🧑‍🎤 공중제비·시무룩) — t = 시작한 뒤 흐른 시간, len = 전체 (brain_stage.rs)
     StageAct { act: stage_moves::StageAct, t: f64, len: f64 },
+    /// 🦇 🔦 박쥐 신호 조명을 켜고 서 있음 (brain_bike.rs) — remaining = 끄기까지
+    Signal { remaining: f64 },
 }
 
 impl State {
@@ -702,6 +724,9 @@ pub struct PetConfig {
     pub leads_train: bool,
     /// 🕷️ 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기 (pet.json `web_slinger` + shoot·web_swing·hero_land·web_pull·web_whirl 그림 — 거미인간, brain_web.rs)
     pub slings_webs: bool,
+    /// 🦇 오토바이 타기·윌리·점프·드리프트·🔦 박쥐 신호·오토바이로 친구 화면 오가기 (pet.json `bike_rider` + ride·wheelie·bike_jump·drift·signal 그림 — 박쥐인간, brain_bike.rs).
+    /// 💪 들기(juggler)도 하면 거대한 것도 늘 번쩍 듦
+    pub rides_bike: bool,
     /// 🌱 지금 연령대 (from_manifest가 받은 단계 이름 — 손님도 Visit에 실려 온 단계). 연령대 특기·종별 특기의 세기 (brain_stage.rs)
     pub stage: crate::care::Stage,
 }
@@ -743,6 +768,7 @@ impl PetConfig {
             stashes: m.stashes(),
             leads_train: m.train_leader,
             slings_webs: m.slings_webs(),
+            rides_bike: m.rides_bike(),
             // 모르는 이름이면 청소년 (예전 그대로의 세기)
             stage: crate::care::Stage::from_name(stage).unwrap_or(crate::care::Stage::Teenager),
         }
@@ -950,6 +976,8 @@ pub struct Pet {
     doodle: doodle_moves::DoodleMood,
     /// 🕷️ 줄 놀이 (brain_web.rs)
     web: web_moves::WebMood,
+    /// 🦇 오토바이·박쥐 신호의 기억 (brain_bike.rs)
+    bike: bike_moves::BikeMood,
     /// 🐛🕸️ 고치·거미집에 걸리기의 기억 (brain_snare.rs)
     snare: snare_moves::SnareMood,
     typing: typing_moves::TypingMood,
@@ -1061,6 +1089,7 @@ impl Pet {
             rally: Default::default(),
             doodle: doodle_moves::DoodleMood::new(seed),
             web: web_moves::WebMood::new(seed),
+            bike: bike_moves::BikeMood::new(seed),
             snare: snare_moves::SnareMood::new(seed),
             typing: Default::default(),
             play: play_moves::PlayMood::new(seed),
@@ -1171,6 +1200,11 @@ impl Pet {
             self.on_started();
             return;
         }
+        // 🦇 박쥐 신호 조명 (brain_bike.rs)
+        if self.update_bike(dt, world) {
+            self.on_started();
+            return;
+        }
         // 🕷️ 거미인간 줄 놀이 — 거미집·그네·끌어오기 (brain_web.rs)
         if self.update_web(dt, world) {
             self.on_started();
@@ -1254,6 +1288,7 @@ impl Pet {
         let anim = match self.state {
             // 나는 동물의 공중제비(Roll)는 원을 도는 동안만 — 그 앞뒤는 그냥 난다
             State::Move { kind: Move::Roll, .. } if self.cfg.flies && !self.flight.is_some_and(|f| f.looping.is_some()) => Anim::Walk,
+            State::Move { .. } if self.riding_now() => self.ride_anim(),
             State::Move { kind, .. } if self.cfg.hops || self.bunny_hopping() => self.hop_anim(kind),
             State::Move { kind, .. } => kind.into(),
             State::Leap { .. } => Anim::BigJump,
@@ -1265,6 +1300,7 @@ impl Pet {
             State::CatchMe { .. } if self.cfg.hops => self.hop_anim(Move::Run),
             State::CatchMe { .. } => Anim::Run,
             State::Exit { side, .. } | State::Enter { side, .. } if visit::is_vertical(side) => self.vertical_anim(),
+            State::Exit { .. } | State::Enter { .. } if self.bike_transit() => Anim::Ride,
             State::Exit { .. } | State::Enter { .. } | State::ToFood { .. } | State::WantFood { walking: true } => Anim::Walk,
             State::WantFood { walking: false } if self.looking_up() => Anim::LookUp,
             State::WantFood { walking: false } => Anim::Look,
@@ -1278,6 +1314,7 @@ impl Pet {
             State::Eating { .. } => Anim::Eat,
             State::LevelUp { .. } => Anim::LevelUp,
             State::Huff { .. } => Anim::Huff,
+            State::Idle { .. } | State::Turn { .. } if self.drifting() => Anim::Drift,
             State::Idle { look: true, .. } if self.looking_up() => Anim::LookUp,
             State::Idle { look: true, .. } => Anim::Look,
             State::Idle { .. } | State::Turn { .. } => Anim::Idle,
@@ -1306,8 +1343,10 @@ impl Pet {
             State::Land { .. } if self.hero_landing() => Anim::HeroLand,
             State::Land { .. } => Anim::Land,
             State::Web { phase, .. } => self.web_anim(phase),
+            State::Signal { .. } => Anim::Signal,
             State::Stuck { kind, .. } => Pet::stuck_anim(kind),
             State::StageAct { act, t, len } => self.stage_anim(act, t, len),
+            State::Air { anim: Anim::Hop } if self.bike.jumping => Anim::BikeJump,
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
             State::Slide => Anim::Slide,
@@ -1781,6 +1820,8 @@ impl Pet {
         self.body = Body { x, y, vx: 0.0, vy: 0.0 };
         self.standing = Some(Standing { owner, rel_x: x - ax });
         self.state = State::Enter { remaining: visit::ENTER_SECS, side };
+        // 🦇 오토바이 타고 들어와 계속 달림 (brain_bike.rs)
+        self.bike_enter();
     }
 
     /// 손님에게 "집에 와" (들려 있거나 공중이면 내려선 뒤): 제자리에서 손 흔든 뒤 걸어 나가지 않고 사라짐 (take_exit = Some(집 쪽))
@@ -1830,6 +1871,10 @@ impl Pet {
 
     /// 화면 끝을 나가고 들어오는 빠르기: 보통은 걷기, 흐물이가 물건·동물을 들고 있으면 달리기 (사용자 요청)
     fn transit_speed(&self) -> f64 {
+        // 🦇 오토바이 타고 나가고 들어옴
+        if self.bike_transit() {
+            return self.bike_speed();
+        }
         if self.cfg.antics && (self.carried_object().is_some() || self.hoisting().is_some()) {
             self.carry_run_speed()
         } else {
@@ -1880,6 +1925,8 @@ impl Pet {
         self.pacing.after_beat = None;
         self.clear_hover();
         self.state = State::Exit { remaining: visit::EXIT_SECS, side };
+        // 🦇 오토바이에 올라 부릉 (brain_bike.rs)
+        self.bike_exit();
     }
 
     /// 바닥 높이를 따라 dx만큼 걸음 (경계 밖이어도). 바닥이 사라졌으면 x만 옮김
@@ -2800,7 +2847,11 @@ impl Pet {
             State::WantFood { .. } => self.update_want_food(dt, st, &piece),
             State::Move { kind, remaining } => {
                 self.walk_span = Some((piece.x_start, piece.x_end));
-                let speed = self.cfg.walk_speed * kind.speed_mult() * self.hop_pace(kind, dt) * self.toddle_pace(kind);
+                // 🦇 오토바이 토막이면 오토바이 빠르기 (brain_bike.rs)
+                let speed = match self.bike_pace(kind, dt) {
+                    Some(v) => v,
+                    None => self.cfg.walk_speed * kind.speed_mult() * self.hop_pace(kind, dt) * self.toddle_pace(kind),
+                };
                 let new_x = self.body.x + self.facing * speed * dt;
                 let (edge_x, end) = if self.facing > 0.0 { (piece.x_end, piece.end_kind) } else { (piece.x_start, piece.start_kind) };
                 // x가 진행 방향으로 이 조각 끝을 넘었는지
@@ -2825,6 +2876,10 @@ impl Pet {
                     }
                 } else if hit {
                     if end == EndKind::Wall && self.climb_out_at(world, st.owner, edge_x, dt) {
+                        return;
+                    }
+                    // 🦇 오토바이로 달리다 디딤판 끝: 붕 뛰어내리거나 끼익 멈춤 (brain_bike.rs)
+                    if end == EndKind::Edge && self.bike_edge() {
                         return;
                     }
                     match (end, kind) {
@@ -2863,6 +2918,10 @@ impl Pet {
                     self.gaze_up = true;
                     self.state = State::Idle { remaining: behavior::range(&mut self.rng, LOOK_UP_SECS), look: true };
                     return;
+                }
+                if remaining <= 0.0 {
+                    // 🦇 오토바이 토막이 끝나면 가끔 끼익 드리프트로 멈춤
+                    self.bike_stop();
                 }
                 self.state = if remaining > 0.0 {
                     State::Move { kind, remaining }
@@ -3013,6 +3072,7 @@ impl Pet {
             | State::Bounce { .. }
             | State::Romp { .. }
             | State::Web { .. }
+            | State::Signal { .. }
             | State::Stuck { .. }
             | State::Panic { .. }
             | State::Rig { .. }
@@ -3874,6 +3934,11 @@ pub mod doodle_moves;
 mod doodle_tests;
 #[path = "brain_web.rs"]
 pub mod web_moves;
+#[path = "brain_bike.rs"]
+pub mod bike_moves;
+#[cfg(test)]
+#[path = "brain_bike_tests.rs"]
+mod bike_tests;
 #[cfg(test)]
 #[path = "brain_web_tests.rs"]
 mod web_tests;
@@ -4419,7 +4484,8 @@ mod tests {
             Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Panic, Anim::Hang, Anim::Rope,
             Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump, Anim::Yank, Anim::Stuff,
             Anim::HangCursor, Anim::Peek, Anim::Dance, Anim::Dance2, Anim::Catch, Anim::Draw, Anim::CheerType, Anim::Type, Anim::CarryRun,
-            Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl];
+            Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl,
+            Anim::Ride, Anim::Wheelie, Anim::BikeJump, Anim::Drift, Anim::Signal];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

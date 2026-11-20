@@ -38,3 +38,18 @@
 
 ## 거대한 물건 (사용자 요청 2026-11-20)
 박쥐인간·슈퍼인간 둘 다 거대 똥·거대 돌을 포함한 물건을 들어서 옮김 (lift/carry/throw 자세를 그림에 넣음 — 흐물이 juggle 틀 재사용). 슈퍼인간은 한 손으로 번쩍 들고 날아가 내려놓거나 던짐. 자세한 건 social-and-stage-skills spec 7부.
+
+## 🎁 선물 기능 빼기 (사용자 요청 2026-11-20: "의미없다, 아무도 재밌어하지 않음")
+- 펫이 선물을 떨구는 것, 선물을 모으는 도감, 관련 메뉴·도움말·그림 (ui/gifts, ui/gifts_pixel)·코드 (gift.rs 등) 모두 뺌.
+- 이미 모은 선물 기록은 config에서 조용히 무시 (지워도 됨), 옛 버전 친구가 선물 관련 메시지를 보내도 오류 없이 무시.
+- 박쥐인간·슈퍼인간은 선물 그림을 만들지 않음.
+
+## 👻 유령(ghost)도 삭제 (사용자 요청 2026-11-20)
+새·기린·레서판다 때와 같은 방식 (commit 0473387 참고): 그림·생성기·테스트·도움말에서 빼고, 키우던 사람은 호박(pumpkin — 같은 haunted 집)으로 바꿔 줌 (성장 유지, Config::retire_pets / replacement_species에 ghost → pumpkin). 유령만 쓰던 효과 (main.js PET_FX boo 등)는 정리. 날기 코드 (locomotion fly, brain_fly.rs, flight.rs)는 이제 쓰는 펫이 없어도 슈퍼인간이 쓸 수 있으니 남겨 둠 (테스트용 sim_flyer로 계속 검사). 선물 빼기와 같은 작업으로 함.
+
+## 🟦 픽셀 모드 없애기 (사용자 요청 2026-11-20: "픽셀 아무도 안 쓴다")
+- 설정의 그림 스타일 (동글/픽셀) 고르기와 픽셀 그림 전부 뺌: ui/pets_pixel, ui/effects_pixel, ui/gifts_pixel, tools/draw_pixel*.py와 테스트, PetStyle::Pixel 경로, 웹뷰의 pixel 분기 (main.js, weather.js pixelArt, web.js pixel, trail.js 등), 메뉴·도움말 문구.
+- 픽셀을 쓰던 사람은 동글로 (config의 style pixel → round, 오류 없이).
+- 친구에게 보내는 메시지에 style이 실려 가면 (손님 펫 그림 고르기) 픽셀 값을 받아도 동글로 그림. 프로토콜 호환 유지.
+- round_art_hashes 같은 픽셀↔동글 비교 테스트는 필요 없어지면 정리.
+- 선물 빼기·유령 빼기와 같은 정리 작업으로 함 (박쥐인간 다음).
