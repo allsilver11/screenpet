@@ -114,21 +114,23 @@ fn a_web_is_woven_with_several_shots_aimed_around_the_web() {
     }
 }
 
-/// 🕸️ 거미집 크기는 제각각 — 작게도, 꽤 크게도. 창 모서리는 창보다 크지 않게
+/// 🕸️ 거미집 크기는 몸집과 상관없이 제각각 — 작게도, 아주 크게도 (논리 px 범위 × 화면 배율). 아기도 큰 걸 침. 창 모서리는 창보다 크지 않게
 #[test]
-fn web_sizes_vary_from_small_to_big_and_fit_their_window() {
+fn web_sizes_vary_from_small_to_big_whatever_the_body_size_and_fit_their_window() {
     let w = world(vec![]);
-    let mut sizes = Vec::new();
-    for seed in 0..40 {
-        let mut p = calm_spider(900.0, seed, &w);
-        let size = p.cfg.size;
-        let spot = web::corner_spots(&w, (0.0, 1040.0), 1e9, size)[0];
-        let s = p.sized_web(spot, &w);
-        sizes.push(s.size / size);
+    for stage in [crate::care::Stage::Baby, crate::care::Stage::Teenager, crate::care::Stage::Adult] {
+        let mut sizes = Vec::new();
+        for seed in 0..60 {
+            let mut p = calm_spider(900.0, seed, &w);
+            p.cfg.stage = stage;
+            let spot = web::corner_spots(&w, (0.0, 1040.0), 1e9, p.cfg.size)[0];
+            let s = p.sized_web(spot, &w);
+            sizes.push(s.size / p.cfg.dpi);
+        }
+        let (lo, hi) = sizes.iter().fold((f64::INFINITY, 0.0f64), |(a, b), &x| (a.min(x), b.max(x)));
+        assert!(lo >= web::WEB_RADIUS_LOGICAL.0 - 1e-9 && hi <= web::WEB_RADIUS_LOGICAL.1 + 1e-9, "{stage:?} {lo}..{hi}");
+        assert!(lo < 120.0 && hi > 360.0, "{stage:?} 작게도 아주 크게도: {lo}..{hi}");
     }
-    let (lo, hi) = sizes.iter().fold((f64::INFINITY, 0.0f64), |(a, b), &x| (a.min(x), b.max(x)));
-    assert!(lo >= web::WEB_SIZE_RANGE.0 - 1e-9 && hi <= web::WEB_SIZE_RANGE.1 + 1e-9);
-    assert!(lo < 1.6 && hi > 3.0, "작게도 크게도: {lo}..{hi}");
     // 작은 창: 창의 짧은 변 WEB_WINDOW_FIT배를 넘지 않음
     let small = world(vec![WindowInfo { id: 7, rect: Rect::new(700.0, 500.0, 1100.0, 800.0) }]);
     for seed in 0..20 {

@@ -2,11 +2,11 @@
 //!
 //! - 거미집: 한가할 때 가까운 모서리(작업 영역 네 모서리 + 앞에 가려지지 않은 창의 위 두 모서리)를 향해 줄을 쏘고, 줄이 닿으면 거미집이 핌.
 //!   손님으로 친구 화면에 가 있으면 자주 (WEB_RATE_GUEST), 집에선 가끔 (WEB_RATE_HOME). 거미집은 앱이 WEB_LIFE_SECS 뒤 흐리게 지움.
-//!   크기는 제각각 (WEB_SIZE_RANGE)이고, 줄을 여러 번 휙휙 쏴서 짬 (WEAVE_SHOTS·weave_target — 앱이 살·고리를 차례로 그림).
-//!   🌱 크기·줄 수와 그네·끌어오기·고치 빈도는 연령대로 자람 (stage_power × WEB_SIZE_RANGE, shot_range — 아기 작게 2~4번 → 어른 크게 5~8번)
+//!   크기는 몸집과 상관없이 제각각 (WEB_RADIUS_LOGICAL)이고, 줄을 여러 번 휙휙 쏴서 짬 (WEAVE_SHOTS·weave_target — 앱이 살·고리를 차례로 그림).
+//!   🌱 크기·줄 수와 그네·끌어오기·고치 빈도는 연령대로 자람 (크기는 몸집과 상관없이 WEB_RADIUS_LOGICAL, 줄 수는 shot_range — 아기 작게 2~4번 → 어른 크게 5~8번)
 //!   창 모서리 거미집은 창을 따라 옮겨 가고, 앞 창에 가려지면 숨고, 창이 닫히면 사라짐 (web_on_window).
 //! - 🕸️⭕ 둥근 거미집 (Corner::Center): 거미집 칠 때 ORB_CHANCE로 구석 대신 손이 닿는 (ORB_REACH) 아무 자리에 —
-//!   화면이나 창 위 (orb_fit: 그 화면·창 안에 다 들고, 바탕화면이면 어떤 창과도, 창 위면 앞 창과 안 겹침), 반지름 ORB_SIZE_RANGE,
+//!   화면이나 창 위 (orb_fit: 그 화면·창 안에 다 들고, 바탕화면이면 어떤 창과도, 창 위면 앞 창과 안 겹침), 반지름 ORB_RADIUS_LOGICAL,
 //!   한 화면에 MAX_ORBS개까지. 사방으로 살 → 고리 차례로 짬 (weave_target). 창 위 것은 창 왼쪽 위 기준 자리로 따라감 (orb_on_window).
 //!   걸리기·빗자루·거미집 놀이 판정은 원 전체 (in_web·perch_point·broom::sweeps_web)
 //! - 그네: 머리 위 창 아랫변이나 화면 윗변에 줄을 붙여 몸을 끌어올린 뒤 진자처럼 흔들려 반대편에서 놓고 날아감.
@@ -52,10 +52,12 @@ pub const WEB_CALM_HOME: (f64, f64) = (40.0, 100.0);
 pub const WEB_CALM_GUEST: (f64, f64) = (8.0, 20.0);
 /// 모서리를 고르는 거리 (몸 크기 배)
 pub const WEB_REACH: f64 = 9.0;
-/// 거미집 반지름 (몸 크기 배) — 모서리 고를 때의 기본값 (실제로 칠 때는 WEB_SIZE_RANGE에서 고름)
+/// 거미집 반지름 (몸 크기 배) — 모서리 고를 때의 기본값 (실제로 칠 때는 WEB_RADIUS_LOGICAL에서 고름)
 pub const WEB_SIZE: f64 = 0.8;
-/// 실제로 칠 거미집 반지름 (몸 크기 배): 작은 것부터 꽤 큰 것까지 제각각
-pub const WEB_SIZE_RANGE: (f64, f64) = (1.0, 3.6);
+/// 실제로 칠 구석 거미집 반지름 (논리 px — 화면 배율을 곱함): 몸집·연령대와 상관없이 작은 것부터 아주 큰 것까지 제각각
+pub const WEB_RADIUS_LOGICAL: (f64, f64) = (70.0, 460.0);
+/// 거미집 반지름 (논리 px)이 이만큼 늘 때마다 짜는 줄을 한 번 더 쏨
+pub const WEB_RADIUS_PER_SHOT: f64 = 70.0;
 /// 창 모서리 거미집은 창의 짧은 변의 이만큼까지만
 pub const WEB_WINDOW_FIT: f64 = 0.7;
 /// 거미집 하나를 짜려고 줄을 쏘는 횟수 (작은 것 ~ 큰 것)
@@ -79,12 +81,17 @@ pub const MAX_WEBS: usize = 12;
 
 /// 🕸️⭕ 거미집을 칠 때 구석 대신 둥근 거미집을 칠 몫
 pub const ORB_CHANCE: f64 = 0.2;
-/// 🕸️⭕ 둥근 거미집 반지름 (몸 크기 배) — 화면 가운데를 가리니 너무 크지 않게
-pub const ORB_SIZE_RANGE: (f64, f64) = (1.2, 2.5);
+/// 🕸️⭕ 둥근 거미집 반지름 (논리 px — 화면 배율을 곱함): 몸집과 상관없이, 화면 가운데를 가리니 구석 것보다는 작게
+pub const ORB_RADIUS_LOGICAL: (f64, f64) = (60.0, 260.0);
 /// 🕸️⭕ 한 화면에 둥근 거미집은 이만큼까지
 pub const MAX_ORBS: usize = 3;
-/// 🕸️⭕ 둥근 거미집 가운데를 고르는 거리 (손에서, 몸 크기 배)
+/// 🕸️⭕ 둥근 거미집 가운데를 고르는 거리 (손에서, 몸 크기 배 — 큰 거미집이면 orb_reach가 더 늘림)
 pub const ORB_REACH: f64 = 6.0;
+
+/// 🕸️⭕ 둥근 거미집 가운데를 고르는 최대 거리 (물리 px): 몸 ORB_REACH배, 거미집이 크면 반지름의 1.5배까지
+pub fn orb_reach(body: f64, radius: f64) -> f64 {
+    (ORB_REACH * body).max(1.5 * radius)
+}
 /// 🕸️⭕ 둥근 거미집 자리를 찾아보는 횟수 (다 안 맞으면 구석 거미집)
 pub const ORB_TRIES: u32 = 24;
 /// 🕸️⭕ 둥근 거미집 짜는 줄이 노리는 자리: (한 바퀴의 몫 0..1, 반지름의 몫) — 사방 살 끝 넷 → 안쪽 고리 차례 (첫 줄은 가운데)

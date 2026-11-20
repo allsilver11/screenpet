@@ -56,8 +56,8 @@ fn sometimes_a_spider_spins_a_round_web_anywhere_within_reach_instead_of_in_a_co
     for (s, size, body) in &orbs {
         assert_eq!(s.window, None);
         assert_eq!(web::orb_fit(&w, (body.x, body.y - 0.6 * size), s.x, s.y, s.size), Some(None), "화면 안에 다 들어감 {s:?}");
-        assert!((web::ORB_SIZE_RANGE.0 * size - 1e-9..=web::ORB_SIZE_RANGE.1 * size + 1e-9).contains(&s.size), "{}", s.size / size);
-        assert!((s.x - body.x).hypot(s.y - (body.y - 0.6 * size)) <= web::ORB_REACH * size + 1e-6, "손이 닿는 거리 {s:?}");
+        assert!((web::ORB_RADIUS_LOGICAL.0 - 1e-9..=web::ORB_RADIUS_LOGICAL.1 + 1e-9).contains(&s.size), "몸집과 상관없는 반지름 {}", s.size);
+        assert!((s.x - body.x).hypot(s.y - (body.y - 0.6 * size)) <= web::orb_reach(*size, s.size) + 1e-6, "손이 닿는 거리 {s:?}");
         assert!(s.shots >= 2 && s.build > 0.0, "줄을 여러 번 쏴서 짬");
         spots.insert(((s.x / 50.0) as i64, (s.y / 50.0) as i64));
     }

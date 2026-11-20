@@ -534,12 +534,10 @@ impl Pet {
         true
     }
 
-    /// 🕸️ 칠 거미집의 크기 (WEB_SIZE_RANGE — 창 모서리는 창 짧은 변의 WEB_WINDOW_FIT배까지)와 짤 줄 횟수·시간을 정함
+    /// 🕸️ 칠 거미집의 크기 (몸집과 상관없이 WEB_RADIUS_LOGICAL — 창 모서리는 창 짧은 변의 WEB_WINDOW_FIT배까지)와 짤 줄 횟수·시간을 정함
     pub(super) fn sized_web(&mut self, spot: WebSpin, world: &World) -> WebSpin {
-        // 🌱 거미집 크기·줄 수는 연령대로 자람 (아기 작게 2~4번 → 어른 크게 5~8번, brain_stage.rs)
-        let p = self.power();
-        let k = behavior::range(&mut self.web.rng, web::WEB_SIZE_RANGE) * p;
-        let mut size = k * self.cfg.size;
+        // 크기는 몸집·연령대와 상관없이 (논리 px × 화면 배율) — 🌱 연령대는 짜는 줄 수만 (shot_range)
+        let mut size = behavior::range(&mut self.web.rng, web::WEB_RADIUS_LOGICAL) * self.cfg.dpi;
         if let Some(r) = spot.window.and_then(|id| world.windows.iter().find(|w| w.id == id)).map(|w| w.rect) {
             size = size.min(web::WEB_WINDOW_FIT * r.width().min(r.height()));
         }
@@ -548,13 +546,13 @@ impl Pet {
 
     /// 🕸️ 거미집 크기에 맞춰 짤 줄 횟수·시간을 정함 (🌱 연령대 shot_range 안)
     fn woven(&self, spot: WebSpin) -> WebSpin {
-        let k = spot.size / self.cfg.size;
+        let k = spot.size / self.cfg.dpi / web::WEB_RADIUS_PER_SHOT;
         let (lo, hi) = web::shot_range(self.power());
-        let shots = ((2.0 + 1.5 * k).round() as u32).clamp(lo, hi);
+        let shots = ((2.0 + k).round() as u32).clamp(lo, hi);
         WebSpin { shots, build: f64::from(shots - 1) * web::WEAVE_SHOT_SECS, ..spot }
     }
 
-    /// 🕸️⭕ 손(at)이 닿는 아무 자리에 칠 둥근 거미집 (반지름 ORB_SIZE_RANGE): 손에서 ORB_REACH 안을 ORB_TRIES번 찔러 보고
+    /// 🕸️⭕ 손(at)이 닿는 아무 자리에 칠 둥근 거미집 (반지름 ORB_RADIUS_LOGICAL — 몸집과 상관없음): 손에서 orb_reach 안을 ORB_TRIES번 찔러 보고
     /// web::orb_fit이 맞는 첫 자리 (화면 위면 window None, 창 위면 그 창). 그 화면에 둥근 거미집이 MAX_ORBS개면 None
     fn orb_web(&mut self, world: &World, at: (f64, f64)) -> Option<WebSpin> {
         let size = self.cfg.size;
@@ -563,10 +561,10 @@ impl Pet {
         if orbs >= web::MAX_ORBS {
             return None;
         }
-        let radius = behavior::range(&mut self.web.rng, web::ORB_SIZE_RANGE) * size;
+        let radius = behavior::range(&mut self.web.rng, web::ORB_RADIUS_LOGICAL) * self.cfg.dpi;
         for _ in 0..web::ORB_TRIES {
             let ang = self.web.rng.f64() * std::f64::consts::TAU;
-            let d = (0.25 + 0.75 * self.web.rng.f64()) * web::ORB_REACH * size;
+            let d = (0.25 + 0.75 * self.web.rng.f64()) * web::orb_reach(size, radius);
             let (x, y) = (at.0 + d * ang.cos(), at.1 + d * ang.sin());
             if let Some(window) = web::orb_fit(world, at, x, y, radius) {
                 return Some(self.woven(WebSpin { x, y, corner: web::Corner::Center, size: radius, window, shots: 1, build: 0.0 }));

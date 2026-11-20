@@ -322,7 +322,7 @@ fn kinder_pets_love_the_cursor_and_children_love_tag() {
 // ---- 종별 특기의 세기 ----
 
 #[test]
-fn spider_webs_grow_bigger_with_more_shots_as_it_grows() {
+fn spider_webs_keep_their_size_range_but_get_more_shots_as_it_grows() {
     let w = world(vec![]);
     let spot = crate::web::WebSpin { x: 0.0, y: 1040.0, corner: crate::web::Corner::BottomLeft, size: 0.0, window: None, shots: 0, build: 0.0 };
     let mean = |s: Stage| {
@@ -334,7 +334,8 @@ fn spider_webs_grow_bigger_with_more_shots_as_it_grows() {
         (size, lo, hi)
     };
     let (baby, teen, adult) = (mean(Stage::Baby), mean(Stage::Teenager), mean(Stage::Adult));
-    assert!(baby.0 < 0.7 * teen.0 && adult.0 > 1.1 * teen.0, "{baby:?} {teen:?} {adult:?}");
+    // 크기는 몸집·연령대와 상관없음 (사용자 결정 2026-11-20): 같은 주사위면 같은 크기 — 연령대는 짜는 줄 수만 바꿈
+    assert!((baby.0 - teen.0).abs() < 1e-9 && (adult.0 - teen.0).abs() < 1e-9, "{baby:?} {teen:?} {adult:?}");
     assert!(baby.1 >= 2 && baby.2 <= 4, "아기 2~4번: {baby:?}");
     assert!(teen.1 >= crate::web::WEAVE_SHOTS.0 && teen.2 <= crate::web::WEAVE_SHOTS.1, "청소년은 예전 그대로: {teen:?}");
     assert!(adult.2 > teen.2, "어른은 더 많이: {adult:?}");
