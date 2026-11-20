@@ -46,10 +46,10 @@ def near(im, col, tol=30):
 
 def test_registered_with_panic_hang_rope_the_juggle_rows_and_the_taskbar_rows():
     assert draw_pets.SPECIES["heumul"] is hm.HEUMUL
-    assert [o[0] for o in OPTIONAL_ANIMS[11:14]] == ["panic", "hang", "rope"]
-    assert [o[0] for o in OPTIONAL_ANIMS[14:21]] == JUGGLE  # = Rust manifest::JUGGLE_ANIMS
-    assert [o[0] for o in OPTIONAL_ANIMS[21:23]] == TASKBAR  # = Rust manifest::TASKBAR_ANIMS
-    assert [o[0] for o in OPTIONAL_ANIMS[23:32]] == ANTICS  # = Rust manifest::ANTICS_ANIMS (v0.6.3)
+    assert [o[0] for o in OPTIONAL_ANIMS[9:12]] == ["panic", "hang", "rope"]
+    assert [o[0] for o in OPTIONAL_ANIMS[12:19]] == JUGGLE  # = Rust manifest::JUGGLE_ANIMS
+    assert [o[0] for o in OPTIONAL_ANIMS[19:21]] == TASKBAR  # = Rust manifest::TASKBAR_ANIMS
+    assert [o[0] for o in OPTIONAL_ANIMS[21:30]] == ANTICS  # = Rust manifest::ANTICS_ANIMS (v0.6.3)
     assert names(hm.HEUMUL) == [a for a, *_ in ANIMS] + ["lookup", "panic", "hang", "rope"] + JUGGLE + TASKBAR + ANTICS
 
 

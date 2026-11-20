@@ -277,10 +277,11 @@ fn set_status(l: &mut LetterView, done: bool, rejected: bool) {
     l.rejected = rejected && !done;
 }
 
-/// 보낸 사람 펫을 로컬 손님으로 들임 (모르는 동물은 고양이)
+/// 보낸 사람 펫을 로컬 손님으로 들임 (없어진 동물은 비슷한 동물 — config::replacement_species, 그래도 모르면 고양이)
 fn spawn_letter_pet(app: &AppHandle, slots: &mut Vec<Slot>, l: &LetterView) -> Option<String> {
     let state = app.state::<AppState>();
-    let entry = state.pets.iter().find(|p| p.id == l.species).or_else(|| state.pets.iter().find(|p| p.id == "cat")).or(state.pets.first())?.clone();
+    let species = screenpet_core::config::replacement_species(&l.species).unwrap_or(l.species.as_str());
+    let entry = state.pets.iter().find(|p| p.id == species).or_else(|| state.pets.iter().find(|p| p.id == "cat")).or(state.pets.first())?.clone();
     let stage: Stage = serde_json::from_value(serde_json::Value::String(l.stage.clone())).unwrap_or(Stage::Teenager);
     let scale = stage.scale() * entry.manifest.size_mult(stage);
     let name = if l.name.is_empty() { "누군가".to_string() } else { l.name.clone() };

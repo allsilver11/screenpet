@@ -27,7 +27,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
-                         STAGES, SWIFT, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, TRAIN_LEADER, WEB_SLINGER, frame_px, manifest)
+                         STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, TRAIN_LEADER, WEB_SLINGER, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -593,12 +593,12 @@ class Species:
     back_head_marks: list = field(default_factory=list)  # 뒷모습 (climb·slide) 머리·몸 무늬 — 바탕은 back 색
     back_body_marks: list = field(default_factory=list)
     outline: tuple = None  # 실루엣 외곽선 색 (없으면 LINE)
-    poses: dict = None  # 이 종만의 포즈 {동작: 함수} — 뼈대가 다른 동물 (새: 날개로 난다). 없는 동작은 공통 POSES
-    write_layers: object = None  # 시트 말고 더 쓸 그림이 있는 종 (기린 목 늘이기): (out_dir) → pet.json에 더할 칸
+    poses: dict = None  # 이 종만의 포즈 {동작: 함수} — 뼈대가 다른 동물 (흐물이·거미인간 등). 없는 동작은 공통 POSES
+    write_layers: object = None  # 시트 말고 더 쓸 그림이 있는 종 (흐물이 잉크 자리): (out_dir) → pet.json에 더할 칸
     front_head: list = field(default_factory=lambda: [("E", 16, 16, 112, 84)])  # 앞모습 머리 도형 (페르시안: 넓적 네모 얼굴 + 볼 털 갈기)
     side_head: list = field(default_factory=lambda: [("E", 52, 12, 124, 78)])  # 옆모습 머리 도형
     fur_tufts: tuple = ((), ())  # 머리 가장자리 삐죽 털 (앞모습, 옆모습) — 녹이지 않는 삼각형 (긴 털 갈기)
-    front_tail_marks: list = field(default_factory=list)  # 앞모습 꼬리 무늬 (레서판다 고리) — 꼬리와 함께 돌고 커진다
+    front_tail_marks: list = field(default_factory=list)  # 앞모습 꼬리 무늬 (고리 무늬 등) — 꼬리와 함께 돌고 커진다
     front_head_scale: float = 1.0  # 앞모습 머리(귀·얼굴·모자 자리 포함)만 턱 기준으로 더 줄이는 배율 (페르시안: 네모 얼굴이 너무 커 보여서)
 
 
@@ -1809,8 +1809,6 @@ def species_fields(pid, m):
         m["snow_cloud"] = True
     if pid in GLASSES_FLASH:
         m["glasses_flash"] = True
-    if pid in SWIFT:
-        m["swift"] = True
     if pid in TIMID:
         m["timid"] = True
     if pid in ENERGETIC:
@@ -2002,14 +2000,12 @@ def preview_eat_with_props(all_frames, fx_dir, path):
 sys.modules.setdefault("draw_pets", sys.modules[__name__])
 import draw_frog  # noqa: E402,F401
 import draw_halloween  # noqa: E402,F401
-import draw_farm  # noqa: E402,F401  (오리·기린)
+import draw_farm  # noqa: E402,F401  (오리)
 import draw_christmas  # noqa: E402,F401
 import draw_dino  # noqa: E402,F401  (공룡 셋)
 import draw_snowman  # noqa: E402,F401  (눈사람)
-import draw_bird  # noqa: E402,F401  (새)
 import draw_penguin  # noqa: E402,F401  (펭귄)
 import draw_squirrel  # noqa: E402,F401  (다람쥐)
-import draw_redpanda  # noqa: E402,F401  (레서판다)
 import draw_heumul  # noqa: E402,F401  (흐물이)
 import draw_spider  # noqa: E402,F401  (거미인간)
 

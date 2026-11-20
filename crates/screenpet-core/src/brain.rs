@@ -120,9 +120,6 @@ pub enum Anim {
     /// 개구리 큰 점프 — 깊게 웅크렸다가 쭉 뻗어 날아오름 (옆모습, brain_hop.rs)
     #[serde(rename = "bigjump")]
     BigJump,
-    /// 기린 목 늘이기 — 구르는 대신 멈춰 서서 목을 쭉 (옆모습). 늘어나는 목은 앱이 층으로 그림 (ui/main.js)
-    #[serde(rename = "neckstretch")]
-    NeckStretch,
     /// 올려다보기 — 머리 위에 든 음식·머무는 커서, 가끔 쉬다가·걷다가 문득 (옆모습, pet.json에 lookup이 있는 동물만)
     #[serde(rename = "lookup")]
     LookUp,
@@ -132,8 +129,6 @@ pub enum Anim {
     Roar,
     /// 공룡 제자리 쿵쾅쿵쾅 (옆모습) — 앱은 몸을 살짝 떨고, 같은 바닥의 친구들이 흔들림 (brain_stomp.rs)
     Stomp,
-    /// 레서판다 깜짝 — 뒷발로 벌떡 서서 두 팔을 번쩍 (앞모습, 한 번)
-    Surprise,
     /// 흐물이 줄행랑 — 등을 돌려 두 팔 번쩍(만세) 들고 달아남 (옆모습, brain_heumul.rs)
     Panic,
     /// 흐물이 — 창 옆면에 한 손으로 매달려 다른 팔로 손 흔들기 (옆모습, 창 쪽을 봄)
@@ -265,10 +260,6 @@ pub enum Speech {
     Ting,
     /// 날아온 것에 살짝 맞음 ("ow!", brain_hit.rs)
     Ow,
-    /// 빠른 새가 친구 화면으로 쌩 날아 나가거나 들어옴 ("whoosh!", brain_fly.rs)
-    Whoosh,
-    /// 깜짝 놀라 벌떡 ("!!", 레서판다 Special::Surprise)
-    Surprise,
     /// 물건을 번쩍 듦 ("hup!", brain_juggle.rs)
     Hup,
     /// 거대한 것에 힘을 줌 ("hnngh!")
@@ -394,7 +385,6 @@ impl Anim {
                 | Anim::Eat
                 | Anim::LevelUp
                 | Anim::Huff
-                | Anim::Surprise
                 | Anim::Present
                 | Anim::Dance
                 | Anim::Dance2
@@ -420,11 +410,9 @@ impl From<Special> for Anim {
     fn from(s: Special) -> Self {
         match s {
             Special::Arch => Anim::Arch,
-            Special::NeckStretch => Anim::NeckStretch,
             Special::Fire => Anim::Fire,
             Special::Roar => Anim::Roar,
             Special::Stomp => Anim::Stomp,
-            Special::Surprise => Anim::Surprise,
         }
     }
 }
@@ -669,10 +657,8 @@ pub struct PetConfig {
     pub personality: Personality,
     /// 벽 타기 (pet.json에 climb·slide가 있는 고양이 등)
     pub can_climb: bool,
-    /// 날아다님 (pet.json `locomotion: fly` — 유령·새, spec 2B §10)
+    /// 날아다님 (pet.json `locomotion: fly` — 유령, spec 2B §10)
     pub flies: bool,
-    /// 빠른 나는 동물 (pet.json `swift` — 새): 더 자주 내려앉고, 친구 화면으로는 멀리서부터 "whoosh!" 쌩 (brain_fly.rs)
-    pub swift: bool,
     /// 폴짝폴짝 뛰어다님 (pet.json `locomotion: hop` — 개구리, brain_hop.rs)
     pub hops: bool,
     /// 걷기·달리기 토막 중 깡총거리는 몫 (pet.json `hop_share` — 토끼 0.5, brain_hop.rs). 개구리(hops)는 늘 폴짝
@@ -734,7 +720,6 @@ impl PetConfig {
             personality: m.personality,
             can_climb: m.can_climb(),
             flies: m.flies(),
-            swift: m.flies() && m.swift,
             hops: m.hops(),
             hop_share: m.hop_share(),
             looks_up: m.can_look_up(),
@@ -1330,9 +1315,6 @@ impl Pet {
         };
         // 구르기 그림이 없는 동물: 넘어져 구르거나 굴러떨어지는 동안은 떨어지는 그림, 커서 놀이 썰매·눈덩이 굴리기·막 바꾼 스타일의 남은 구르기는 걷기
         let anim = match (anim, self.state) {
-            // 빠른 새: 친구 화면으로 쌩 나가고 들어올 땐 빠른 날기, 떠서 쉴 땐 파닥파닥 (idle은 내려앉아 앉은 그림)
-            (Anim::Walk, State::Exit { .. } | State::Enter { .. }) if self.cfg.swift => Anim::Run,
-            (Anim::Idle, State::Idle { .. } | State::Turn { .. }) if self.cfg.swift && self.standing.is_none() => Anim::Walk,
             (Anim::Roll, State::Tumble { .. } | State::Air { .. }) if self.cfg.no_roll => Anim::Fall,
             (Anim::Roll, _) if self.cfg.no_roll => Anim::Walk,
             _ => anim,
@@ -2600,11 +2582,6 @@ impl Pet {
                     self.guest_click();
                     return;
                 }
-                // 잘 놀라는 동물 (레서판다): 반쯤은 깜짝 벌떡
-                if self.cfg.special == Some(Special::Surprise) && self.rng.f64() < behavior::SURPRISE_CLICK_CHANCE {
-                    self.startle();
-                    return;
-                }
                 let reaction = match behavior::pick_click_outcome(&mut self.rng, self.cfg.personality, self.hungry) {
                     ClickOutcome::React(r) => r,
                     ClickOutcome::Ignore { speak } => {
@@ -2745,16 +2722,6 @@ impl Pet {
         };
     }
 
-    /// 깜짝 놀라 벌떡 섬 (Special::Surprise가 있는 동물만 — 레서판다). 놀랐으면 true
-    pub(crate) fn startle(&mut self) -> bool {
-        if self.cfg.special != Some(Special::Surprise) || self.standing.is_none() {
-            return false;
-        }
-        self.pacing.after_beat = None;
-        self.start_special(Special::Surprise);
-        true
-    }
-
     /// 특별 동작을 시작함. 공룡은 불·크앙·쿵쾅 중 하나를 고름
     pub(crate) fn start_special(&mut self, kind: Special) {
         // 공룡: 불·크앙·쿵쾅 중 하나 (간질이면 불·크앙이 더 자주)
@@ -2762,12 +2729,9 @@ impl Pet {
         self.stomp_out = kind == Special::Stomp;
         self.speech = match kind {
             Special::Arch => Some(Speech::Hiss),
-            // 목이 말풍선 자리까지 솟는다 — 말없이
-            Special::NeckStretch => None,
             Special::Fire => Some(Speech::Fire),
             Special::Roar => Some(Speech::Roar),
             Special::Stomp => Some(Speech::Stomp),
-            Special::Surprise => Some(Speech::Surprise),
         };
         // 🦖 쉬는 때가 지났으면 큰 쿵 (brain_quake.rs)
         if kind == Special::Stomp {
@@ -3354,15 +3318,6 @@ impl Pet {
         if kind == Move::Walk && !homesick {
             kind = self.stage_sprint(kind);
         }
-        if kind == Move::Roll && self.cfg.special.is_some_and(Special::replaces_roll) {
-            // 기린은 구르지 않는다: 멈춰 서서 목을 쭉 — 방금 늘였거나 집에 가는 길이면 그냥 걷는다
-            let just_stretched = matches!(self.state, State::Special { kind: Special::NeckStretch, .. });
-            if just_stretched || self.heading().is_some() {
-                kind = Move::Walk;
-            } else {
-                return self.next_after_beat(State::Special { kind: Special::NeckStretch, remaining: behavior::NECK_STRETCH_SECS });
-            }
-        }
         // 구르기 그림이 없는 동물: 구르기는 뽑히지 않은 셈 (걷기·달리기 몫이 그만큼 는다, 대신하는 동작은 없다)
         while kind == Move::Roll && self.cfg.no_roll {
             kind = behavior::pick_next_move(&mut self.rng, self.pacing.last_move, after_front);
@@ -3669,10 +3624,6 @@ mod fly;
 mod fly_tests;
 
 #[cfg(test)]
-#[path = "brain_swift_tests.rs"]
-mod swift_tests;
-
-#[cfg(test)]
 #[path = "brain_food_tests.rs"]
 mod food_tests;
 
@@ -3729,20 +3680,12 @@ mod halloween_tests;
 mod throw_tests;
 
 #[cfg(test)]
-#[path = "brain_giraffe_tests.rs"]
-mod giraffe_tests;
-
-#[cfg(test)]
 #[path = "brain_noroll_tests.rs"]
 mod noroll_tests;
 
 #[cfg(test)]
 #[path = "brain_lookup_tests.rs"]
 mod lookup_tests;
-
-#[cfg(test)]
-#[path = "brain_surprise_tests.rs"]
-mod surprise_tests;
 
 /// 기대고 있는 창 (게임 루프가 매 틱 그 창 경계만 다시 읽음)
 #[path = "brain_ride.rs"]
@@ -4458,7 +4401,7 @@ mod tests {
     #[test]
     fn every_anim_name_is_a_required_manifest_animation() {
         let all = [Anim::Walk, Anim::Run, Anim::Roll, Anim::Idle, Anim::Look, Anim::Sleep, Anim::Hop, Anim::Fall, Anim::Dragged,
-            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise, Anim::Panic, Anim::Hang, Anim::Rope,
+            Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Panic, Anim::Hang, Anim::Rope,
             Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump, Anim::Yank, Anim::Stuff,
             Anim::HangCursor, Anim::Peek, Anim::Dance, Anim::Dance2, Anim::Catch, Anim::Draw, Anim::CheerType, Anim::Type, Anim::CarryRun,
             Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl];

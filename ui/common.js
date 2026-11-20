@@ -40,7 +40,7 @@ async function loadPixelSheet(id, stageName, round) {
   const px = await (await fetch(`pets_pixel/${id}/pet.json`)).json();
   const url = `pets_pixel/${id}/sheet_${stageName}.png`;
   const img = await decodeSheet(url);
-  const manifest = { ...round, frame_size: px.frame_sizes[stageName], animations: px.animations, head: px.head, neck: px.neck, neck_stretch: px.neck_stretch };
+  const manifest = { ...round, frame_size: px.frame_sizes[stageName], animations: px.animations, head: px.head, neck: px.neck };
   return { manifest, url, img, style: "pixel", dir: `pets_pixel/${id}/` };
 }
 
@@ -56,7 +56,7 @@ async function loadPetSheet(id, stageName, style = "round") {
     }
   }
   const url = `pets/${id}/sheet_${stageName}.${PET_ART_EXT}`;
-  // 크게 보이는 단계는 시트 칸이 2배임 (frame_sizes, tools/sprite_spec.py frame_px). 표시 크기는 칸과 상관없음 — head·neck·neck_stretch 표도 이 칸의 px
+  // 크게 보이는 단계는 시트 칸이 2배임 (frame_sizes, tools/sprite_spec.py frame_px). 표시 크기는 칸과 상관없음 — head·neck 표도 이 칸의 px
   const frameSize = manifest.frame_sizes?.[stageName] ?? manifest.frame_size;
   const img = await decodeSheet(url);
   return { manifest: { ...manifest, frame_size: frameSize }, url, img, style: "round", dir: `pets/${id}/` };

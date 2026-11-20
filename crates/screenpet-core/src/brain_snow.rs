@@ -117,11 +117,9 @@ impl Pet {
         self.state = State::Snowman { phase: SnowPhase::Roll, remaining: ROLL_SECS, dir };
     }
 
-    /// 눈사람 단계별 그림 (기린은 구르지 않고 밀며 걸음)
+    /// 눈사람 단계별 그림 (구르기 그림이 없는 픽셀 동물은 render가 걷기로 바꿈)
     pub(super) fn snowman_anim(&self, phase: SnowPhase) -> Anim {
         match phase {
-            // 기린은 구르지 않는다 — 눈덩이를 밀며 걷는다
-            SnowPhase::Roll if self.cfg.special.is_some_and(Special::replaces_roll) => Anim::Walk,
             SnowPhase::Roll => Anim::Roll,
             SnowPhase::Stack => Trick::Stretch.into(),
             SnowPhase::Admire => Trick::Heart.into(),

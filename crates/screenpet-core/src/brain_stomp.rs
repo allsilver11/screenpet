@@ -5,7 +5,7 @@
 //! - 흔들림: 스프라이트가 WOBBLE_SECS 덜덜 (RenderState.wobble) + "whoa!".
 //! - 데굴 (코디네이터가 TUMBLE_CHANCE로 정함): 디딤판 위 걷는 동물만 — 구르기 그림으로 공룡 반대쪽으로 조금 미끄러졌다가
 //!   (디딤판 끝에선 멈춤 — 이미 끝을 넘어 있으면 더 나가지 않음) 착지 자세로 일어섬
-//! - 나는 동물(유령·새)은 떠서 흔들리기만, 자던 동물은 투덜대며("...") 깼다가 다시 잠듦
+//! - 나는 동물(유령)은 떠서 흔들리기만, 자던 동물은 투덜대며("...") 깼다가 다시 잠듦
 //! - 들려 있거나·먹는 중·하우스 안·떠나 있음·공중·벽 타기 등은 그대로. 한 번 흔들리면 STOMP_CALM_SECS 동안은 다시 흔들리지 않음
 
 use super::*;
@@ -87,7 +87,7 @@ impl Pet {
         if self.speech.is_none() {
             self.speech = Some(Speech::Whoa);
         }
-        // 나는 동물(유령·새)은 내려앉아 있어도 흔들리기만
+        // 나는 동물(유령)은 내려앉아 있어도 흔들리기만
         let flying = self.cfg.flies;
         // 창 안에서 노는 중엔 창 안 길을 따라가야 해서 흔들리기만, 공룡끼리도 서로 흔들리기만 (같이 데굴 구르면 끝이 없다)
         if tumble && !flying && self.inside.is_none() && !matches!(self.state, State::Special { .. }) {

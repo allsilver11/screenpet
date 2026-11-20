@@ -152,7 +152,7 @@ pub enum PlayPhase {
     Prep,
     /// 커서 쪽으로 감 (걷는 동물은 디딤판 위로만, 나는 동물은 곧장)
     Approach,
-    /// 닿을 자리에서 한 번 더 (고양이 엉덩이 씰룩, 페르시안 기지개, 기린 목 늘이기)
+    /// 닿을 자리에서 한 번 더 (고양이 엉덩이 씰룩, 페르시안 기지개)
     Reach,
 }
 
@@ -225,8 +225,6 @@ impl CursorStyle {
             "rudolph" => CursorStyle { gait: Anim::Hop, speed: 1.8, lift: 0.24, beat: 0.45, range: 1.5, ..b },
             // 뒤뚱뒤뚱, 꽥꽥
             "duck" => CursorStyle { speed: 1.1, lift: 0.04, beat: 0.3, chatty: true, ..b },
-            // 천천히 가서 목을 쭉 — 더 높이 닿는다
-            "giraffe" => CursorStyle { speed: 0.9, arrive: Some((Anim::NeckStretch, behavior::NECK_STRETCH_SECS)), reach: 3.0, leap_secs: 0.5, ..b },
             // 썰매 타고 스르륵
             "santa" => CursorStyle { prep: Some((Anim::Wave, 0.5)), gait: Anim::Roll, speed: 2.0, ..b },
             // 눈덩이가 통통 — 가서 나뭇가지 팔을 흔든다
@@ -237,12 +235,8 @@ impl CursorStyle {
             "dino_purple" => CursorStyle { prep: Some((Anim::Fire, 1.0)), ..dino },
             // 유령은 부~ 한 뒤 느릿느릿 둥실
             "ghost" => CursorStyle { prep: Some((Anim::Tickle, 0.6)), speed: 3.0, sway: (0.15, 0.8), ..b },
-            // 새는 쌩 — 가장 빠르게 날아와 짹짹 (파닥이는 폭은 작고 빠르게)
-            "bird" => CursorStyle { speed: 4.5, sway: (0.2, 4.0), chatty: true, ..b },
             // 펭귄은 배로 쭉 미끄러져 와서 지느러미를 파닥파닥
             "penguin" => CursorStyle { gait: Anim::Roll, speed: 1.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
-            // 레서판다는 총총 달려와서는 커서에 깜짝 놀라 두 팔을 번쩍
-            "redpanda" => CursorStyle { gait: Anim::Run, speed: 2.2, arrive: Some((Anim::Surprise, 0.9)), chatty: true, ..b },
             // 흐물이는 다다다 신나게 달려와 흐물흐물 손 흔들기
             "heumul" => CursorStyle { gait: Anim::Run, speed: 2.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
             // 🕷️ 거미인간은 줄을 쏘는 자세를 잡았다가 총총 달려와 다시 쏘는 시늉

@@ -255,7 +255,7 @@ fn main() {
                 overlay::float_everywhere(&window);
             }
             let config_dir = app.path().app_config_dir()?;
-            // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이)은 load가 옮김 (Config::retire_pets)
+            // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이, 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐)은 load가 옮김 (Config::retire_pets)
             let cfg = config::load(&config_dir);
             let fallback = if pets.iter().any(|p| p.id == DEFAULT_PET) { DEFAULT_PET.to_string() } else { pets[0].id.clone() };
             let current = cfg.pet.clone().filter(|id| pets.iter().any(|p| &p.id == id)).unwrap_or(fallback);

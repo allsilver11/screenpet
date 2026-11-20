@@ -260,10 +260,15 @@ enum SideDef {
 
 /// 이름이 바뀐 동물 (예전 이름, 지금 이름) — 불러올 때 옮김 (retire_pets)
 pub const RENAMED_PETS: [(&str, &str); 1] = [("beaver", "bear")];
-/// 더 이상 없는 동물 (v0.5.5: 곰·꿀벌·강아지) — 고른 동물이면 RETIRED_TO로 바꾸고, 키운 기록은 RETIRED_TO에 넘김
-pub const RETIRED_PETS: [&str; 3] = ["bear", "bee", "dog"];
-/// 없어진 동물 대신 고르는 동물
-pub const RETIRED_TO: &str = "cat";
+/// 더 이상 없는 동물 (없어진 id, 대신 고르는 동물) — 고른 동물이면 바꾸고, 키운 기록은 대신 고르는 동물에게 넘김.
+/// v0.5.5 곰·꿀벌·강아지 → 고양이, v0.7.0 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐
+pub const RETIRED_PETS: [(&str, &str); 6] =
+    [("bear", "cat"), ("bee", "cat"), ("dog", "cat"), ("bird", "duck"), ("giraffe", "dino_yellow"), ("redpanda", "squirrel")];
+
+/// 없어진 동물이면 대신 고를 비슷한 동물 (RETIRED_PETS), 아직 있는 동물이면 None
+pub fn replacement_species(id: &str) -> Option<&'static str> {
+    RETIRED_PETS.iter().find(|(gone, _)| *gone == id).map(|(_, to)| *to)
+}
 
 /// 돌보기 기록 중 더 많이 큰 쪽 (단계, 같으면 체력)
 fn further_grown(a: &Care, b: &Care) -> bool {
@@ -283,21 +288,21 @@ impl Config {
         }
     }
 
-    /// 이름이 바뀌었거나 없어진 동물을 지금 동물로 옮김 (`load`가 부름). 없어진 동물이 골라져 있으면 고양이로 바꾸고,
-    /// 그 동물들의 기록 중 가장 많이 큰 것을 (고양이 기록보다 더 컸을 때만) 고양이에게 넘김 — 키운 만큼은 잃지 않음
+    /// 이름이 바뀌었거나 없어진 동물을 지금 동물로 옮김 (`load`가 부름). 없어진 동물이 골라져 있으면 대신 고르는 동물
+    /// (replacement_species)로 바꾸고, 그 동물들의 기록 중 가장 많이 큰 것을 (대신 고른 동물의 기록보다 더 컸을 때만) 넘김 — 키운 만큼은 잃지 않음
     pub fn retire_pets(&mut self) {
         for (from, to) in RENAMED_PETS {
             self.rename_pet(from, to);
         }
-        for gone in RETIRED_PETS {
+        for (gone, to) in RETIRED_PETS {
             if self.pet.as_deref() == Some(gone) {
-                self.pet = Some(RETIRED_TO.to_string());
+                self.pet = Some(to.to_string());
             }
             if let Some(care) = self.care.remove(gone) {
-                match self.care.get(RETIRED_TO) {
+                match self.care.get(to) {
                     Some(have) if !further_grown(&care, have) => {}
                     _ => {
-                        self.care.insert(RETIRED_TO.to_string(), care);
+                        self.care.insert(to.to_string(), care);
                     }
                 }
             }
@@ -932,12 +937,60 @@ mod tests {
         for gone in ["bear", "bee", "dog"] {
             let mut c = cfg_with(gone, &[(gone, grown.clone())]);
             c.retire_pets();
-            assert_eq!(c.pet.as_deref(), Some(RETIRED_TO), "{gone}");
+            assert_eq!(c.pet.as_deref(), Some("cat"), "{gone}");
             assert_eq!(c.care.get("cat"), Some(&grown), "{gone}: growth is carried over");
             assert!(!c.care.contains_key(gone), "{gone}");
             assert_eq!(c.owner_name.as_deref(), Some("민지"), "the rest of the config is kept");
         }
-        assert_eq!(RETIRED_TO, "cat");
+    }
+
+    /// v0.7.0: 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐, 예전 곰·꿀벌·강아지 → 고양이. 남은 동물은 None
+    #[test]
+    fn replacement_species_maps_each_removed_pet_to_a_lookalike() {
+        assert_eq!(replacement_species("bird"), Some("duck"));
+        assert_eq!(replacement_species("giraffe"), Some("dino_yellow"));
+        assert_eq!(replacement_species("redpanda"), Some("squirrel"));
+        for gone in ["bear", "bee", "dog"] {
+            assert_eq!(replacement_species(gone), Some("cat"), "{gone}");
+        }
+        for kept in ["cat", "duck", "dino_yellow", "squirrel", "spider", "ghost", "unknown", ""] {
+            assert_eq!(replacement_species(kept), None, "{kept}");
+        }
+    }
+
+    /// 새·기린·레서판다를 키우던 사용자: 비슷한 동물로 바뀌고 먹은 양·연령대는 그대로
+    #[test]
+    fn bird_giraffe_and_redpanda_move_to_their_lookalikes_with_their_growth() {
+        use crate::care::{Care, Stage};
+        let grown = Care { stage: Stage::Adult, stamina: 33.0, fullness: 0.7, locked: false };
+        for (gone, to) in [("bird", "duck"), ("giraffe", "dino_yellow"), ("redpanda", "squirrel")] {
+            let mut c = cfg_with(gone, &[(gone, grown.clone())]);
+            c.retire_pets();
+            assert_eq!(c.pet.as_deref(), Some(to), "{gone}");
+            assert_eq!(c.care.get(to), Some(&grown), "{gone}: growth is carried over");
+            assert!(!c.care.contains_key(gone), "{gone}");
+            assert_eq!(c.care.len(), 1, "{gone}");
+        }
+        // 대신 고른 동물이 이미 더 컸으면 그 기록을 남김, 다른 동물을 고르고 있었으면 선택은 그대로
+        let baby = Care { stage: Stage::Baby, ..Care::default() };
+        let mut c = cfg_with("cat", &[("giraffe", baby.clone()), ("dino_yellow", grown.clone())]);
+        c.retire_pets();
+        assert_eq!((c.pet.as_deref(), c.care.get("dino_yellow")), (Some("cat"), Some(&grown)));
+        assert!(!c.care.contains_key("giraffe"));
+    }
+
+    #[test]
+    fn loading_an_old_config_moves_a_bird_to_the_duck() {
+        let d = temp_dir("retired_bird");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("config.json"),
+            r#"{"pet": "bird", "care": {"bird": {"stage": "teenager", "stamina": 7.0, "fullness": 0.5, "locked": true}}}"#,
+        )
+        .unwrap();
+        let c = load(&d);
+        assert_eq!(c.pet.as_deref(), Some("duck"));
+        assert_eq!(c.care.get("duck").map(|c| (c.stage, c.stamina, c.locked)), Some((crate::care::Stage::Teenager, 7.0, true)));
     }
 
     #[test]

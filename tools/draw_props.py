@@ -249,7 +249,6 @@ def build_hand(out_dir=OUT_DIR):
 
 
 BREAD, BREAD_CRUST, BREAD_IN = (250, 214, 150), (214, 150, 84), (255, 244, 214)
-LEAF_DARK = mix(LEAF, LINE, 0.25)
 TWIG = (176, 128, 92)
 
 
@@ -261,20 +260,6 @@ def hand_bread(img):
          marks=[([T(*[(64 + (x - 64) * 0.8, 69 + (y - 69) * 0.8) for x, y in slab])], BREAD_IN),
                 ([E(54, 53, 61, 57)], mix(BREAD_CRUST, WHITE, 0.45))])
     tiny_face(img, 64, 70, 0.95)
-
-
-def hand_leaf(img):
-    """기린이 좋아하는 나뭇잎 — 작은 가지에 동글 잎 셋 (가운데 잎에 얼굴)."""
-    blob(img, [L([(59, 81), (63, 72), (64, 60)], 2.8)], TWIG, r=0, line=0.8)
-    for cx, cy, rot in ((54, 70, -40), (74, 68, 40)):
-        pts = [(cx + 8 * math.cos(math.radians(a + rot)),
-                cy + 8 * math.sin(math.radians(a + rot)) * 0.62) for a in range(0, 360, 20)]
-        blob(img, [T(*pts)], LEAF, r=0.6, line=0.85,
-             marks=[([L([(cx - 6 * math.cos(math.radians(rot)), cy - 6 * math.sin(math.radians(rot)) * 0.62),
-                         (cx + 6 * math.cos(math.radians(rot)), cy + 6 * math.sin(math.radians(rot)) * 0.62)], 1.0)], LEAF_DARK)])
-    blob(img, [E(53, 47, 75, 68), T((60, 49), (64, 43), (68, 49))], LEAF, r=1.0, line=0.9,
-         marks=[([L([(64, 47), (64, 66)], 1.1)], LEAF_DARK), ([E(56.5, 50.5, 61, 55)], mix(LEAF, WHITE, 0.5))])
-    tiny_face(img, 64, 58, 0.85)
 
 
 MELON, MELON_PALE, MELON_RIND, MELON_RIND_DARK, SEED = (250, 104, 118), (240, 252, 214), (112, 192, 94), (78, 150, 74), (70, 50, 52)
@@ -328,30 +313,6 @@ def hand_shaved_ice(img):
         tiny_face(img, 64, 77, 0.8)
 
 
-GRAIN, GRAIN_DARK = (240, 206, 120), (196, 150, 78)
-SUNSEED, SUNSEED_STRIPE = (120, 110, 118), (236, 232, 226)
-
-
-def hand_seeds(img):
-    """새가 좋아하는 모이 🌾 — 이삭 하나 (낟알 여러 개) 앞에 해바라기씨 둘, 가운데 통통한 씨앗에 작은 얼굴."""
-    with xf(dx=-1, dy=-1, sx=0.82, sy=0.82, pivot=(64, 66)):
-        _seeds(img)
-
-
-def _seeds(img):
-    blob(img, [L([(70, 86), (72, 66), (78, 46)], 2.2)], GRAIN_DARK, r=0, line=0.8)
-    for k, (x, y) in enumerate([(78, 46), (74, 50), (81, 52), (76, 56), (83, 58), (73, 61)]):
-        with xf(rot=-20 + 12 * (k % 2), pivot=(x, y)):
-            blob(img, [E(x - 3, y - 4.6, x + 3, y + 4.6)], GRAIN, r=0, line=0.75)
-    for x, y, rot in ((50, 74, -35), (78, 78, 30)):
-        with xf(rot=rot, pivot=(x, y)):
-            blob(img, [E(x - 4.2, y - 7.5, x + 4.2, y + 7.5)], SUNSEED, r=0, line=0.8,
-                 marks=[([L([(x, y - 6), (x, y + 6)], 1.4)], SUNSEED_STRIPE)])
-    blob(img, [E(54, 58, 72, 84), T((58, 62), (63, 52), (68, 62))], GRAIN, r=1.2, line=0.9,
-         marks=[([E(56, 76, 72, 88)], mix(GRAIN, LINE, 0.18)), ([E(57, 61, 62, 67)], mix(GRAIN, WHITE, 0.55))])
-    tiny_face(img, 63, 71, 0.8)
-
-
 SHRIMP, SHRIMP_DARK, SHRIMP_LIGHT = (255, 146, 112), (226, 98, 82), (255, 206, 186)
 
 
@@ -375,24 +336,6 @@ def _shrimp(img):
         n = math.hypot(dx, dy) or 1
         paint(img, aa(shapes([L([(x - dx / n * 7, y - dy / n * 7), (x + dx / n * 7, y + dy / n * 7)], 1.2)])), SHRIMP_DARK, clip=m)
     tiny_face(img, 54, 62, 0.8)
-
-
-BAMBOO_STALK, BAMBOO_NODE, BAMBOO_LEAF, BAMBOO_LEAF_DARK = (186, 214, 110), (130, 168, 74), (124, 196, 98), (78, 146, 72)
-
-
-def hand_bamboo(img):
-    """레서판다가 좋아하는 대나무잎 🎋 — 비스듬한 대나무 한 마디 (마디 띠) 끝에 길쭉한 잎 셋이 부채처럼, 줄기에 작은 얼굴."""
-    with xf(dx=2, dy=-1, sx=0.58, sy=0.58, pivot=(64, 64)):
-        for tip in ((40, 42), (60, 32), (86, 42)):
-            base = (66, 54)
-            mx, my = (tip[0] + base[0]) / 2, (tip[1] + base[1]) / 2
-            nx, ny = -(tip[1] - base[1]) * 0.24, (tip[0] - base[0]) * 0.24
-            blob(img, [T(base, (mx + nx, my + ny), tip, (mx - nx, my - ny))], BAMBOO_LEAF, r=0.8, line=0.8,
-                 marks=[([L([base, tip], 1.0)], BAMBOO_LEAF_DARK)])
-        m = blob(img, [L([(56, 90), (68, 52)], 13)], BAMBOO_STALK, r=0.4, line=0.9,
-                 marks=[([L([(62, 90), (73, 54)], 3.0)], mix(BAMBOO_STALK, LINE, 0.1)), ([L([(52, 84), (60, 58)], 2.2)], mix(BAMBOO_STALK, WHITE, 0.5))])
-        paint(img, aa(shapes([L([(52, 63), (70, 69)], 2.0), L([(48, 83), (64, 88)], 2.0)])), BAMBOO_NODE, clip=m)
-        tiny_face(img, 61, 75, 0.8)
 
 
 ACORN, ACORN_DARK, ACORN_LIGHT = (220, 156, 88), (180, 116, 62), (248, 210, 160)
@@ -531,12 +474,10 @@ HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": ha
              "hand_candy": hand_candy, "hand_lollipop": hand_lollipop,
              "hand_acorn": hand_acorn,  # 다람쥐 🌰
              "hand_apple": hand_apple, "hand_milk": hand_milk,  # 크리스마스: 루돌프 🍎 · 산타 🥛
-             "hand_bread": hand_bread, "hand_leaf": hand_leaf,  # 농장: 오리 🍞 · 기린 🍃
+             "hand_bread": hand_bread,  # 농장: 오리 🍞
              "hand_watermelon": hand_watermelon, "hand_broccoli": hand_broccoli, "hand_grapes": hand_grapes,  # 공룡: 노랑 🍉 · 초록 🥦 · 보라 🍇
              "hand_shaved_ice": hand_shaved_ice,  # 눈사람 🍧
-             "hand_seeds": hand_seeds,  # 새 🌾
              "hand_shrimp": hand_shrimp,  # 펭귄 🦐
-             "hand_bamboo": hand_bamboo,  # 레서판다 🎋
              "hand_special": hand_special,  # 특식 🍱
              "hand_broom": hand_broom}  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
 HAND_NAMES = tuple(HAND_DRAW)

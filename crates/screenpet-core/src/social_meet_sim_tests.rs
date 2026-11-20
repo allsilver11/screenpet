@@ -290,7 +290,7 @@ fn approach(w: &World, owner: Owner, (lo, hi): (f64, f64), mover: &str, other: &
 }
 
 /// 걷거나 달리던 동물이 친구 앞에 닿는 장면 여럿: 내 동물·손님이 번갈아 다가가고, 바닥과 창 위.
-/// 서 있는 친구에는 내려앉은 새도 끼움 (새는 걷지 않으니 걷는 친구 자리에는 오리)
+/// 서 있는 친구에는 내려앉은 유령도 끼움 (유령은 걷지 않으니 걷는 친구 자리에는 오리)
 fn approaches(run: bool, how: Other) -> Vec<Trial> {
     let floor = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, GROUND)], 128.0);
     let window = WindowInfo { id: 1, rect: Rect::new(400.0, 500.0, 1300.0, 1000.0) };
@@ -298,7 +298,7 @@ fn approaches(run: bool, how: Other) -> Vec<Trial> {
     let pairs = [
         (&floor, Owner::Ground(0), "cat", "rudolph", (0.0, 1920.0)),
         (&floor, Owner::Ground(0), "santa", "rabbit", (0.0, 1920.0)),
-        (&floor, Owner::Ground(0), "dino_green", if how == Other::Standing { "bird" } else { "duck" }, (0.0, 1920.0)),
+        (&floor, Owner::Ground(0), "dino_green", if how == Other::Standing { "ghost" } else { "duck" }, (0.0, 1920.0)),
         (&desk, Owner::Window(1), "frog", "persian", (400.0, 1300.0)),
     ];
     let mut out = Vec::new();
@@ -332,9 +332,9 @@ fn check_approaches(name: &str, trials: &[Trial]) {
 fn a_walker_stomps_a_standing_friend() {
     let trials = approaches(false, Other::Standing);
     check_approaches("walk -> standing", &trials);
-    // 서 있는 쪽은 뛰지 않는다 — 다가간 쪽이 밟는다 (내려앉은 새도 밟힌다)
+    // 서 있는 쪽은 뛰지 않는다 — 다가간 쪽이 밟는다 (내려앉은 유령도 밟힌다)
     assert!(trials.iter().filter(|t| t.kind.is_some_and(stomp_like)).all(|t| t.mover_jumped));
-    assert!(trials.iter().any(|t| t.flyer_squashed), "a perched bird can be stomped on too");
+    assert!(trials.iter().any(|t| t.flyer_squashed), "a perched ghost can be stomped on too");
 }
 
 #[test]

@@ -2,7 +2,7 @@
 //! 내 동물은 "pet" 창(tauri.conf.json), 친구 동물(손님)은 "guest-<visit_id>" 창을 그때그때 만듦.
 //! 웹뷰는 자기 창 라벨로 `slot_info`를 불러 자기 동물을 알고, 이벤트는 창별로(emit_to) 받음.
 
-use screenpet_core::brain::{Anim, Pet, PetConfig, RenderState};
+use screenpet_core::brain::{Pet, PetConfig, RenderState};
 use screenpet_core::care::Stage;
 use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::style::{self, PetStyle};
@@ -26,9 +26,6 @@ pub const BUBBLE_SPACE: f64 = 36.0;
 pub const NOTE_SPACE: f64 = 60.0;
 /// 편지를 펼친 동안의 최소 창 너비 (논리 px)
 pub const NOTE_WIDTH: f64 = 232.0;
-/// 기린이 목을 늘이는 동안(Anim::NeckStretch, 코어 behavior::NECK_STRETCH_SECS) 창 위에 더하는 자리 (몸 배율 1 기준 논리 px).
-/// 머리가 그림 칸 위로 pet.json neck_stretch.ext(≤ 48 그림 px)만큼 솟음 — 말풍선 자리(BUBBLE_SPACE)와 합쳐 넉넉히 들어감
-pub const STRETCH_SPACE: f64 = 52.0;
 /// 루돌프 코·호박 빛이 몸 아래로 번지는 자리 (논리 px): 들어 올린 채 빛나는 동안만 창 아래를 이만큼 늘림
 /// (바닥에 서 있을 땐 늘리지 않음 — 그 투명한 띠가 바닥 밑 작업 표시줄의 클릭을 막음)
 pub const GLOW_SPACE: f64 = 24.0;
@@ -191,8 +188,6 @@ pub struct Slot {
     last_render: Option<RenderState>,
     /// 편지 말풍선을 띄워 창이 커져 있음 (웹뷰 `note_space` — 손님이 들고 온 편지 / 돌아온 내 동물의 답장)
     note_open: bool,
-    /// 기린이 목을 늘이는 중이라 창이 위로 커져 있음 (늘이는 동안만 — 끝나면 바로 줄임)
-    stretch_open: bool,
     /// 빛나는 동안 창 아래를 늘렸음 / 언제까지
     glow_open: bool,
     glow_until: Option<std::time::Instant>,
@@ -230,7 +225,6 @@ impl Slot {
             last_pos: None,
             last_render: None,
             note_open: false,
-            stretch_open: false,
             glow_open: false,
             glow_until: None,
             click_through: false,
@@ -355,15 +349,9 @@ impl Slot {
     /// 지금 창 크기 (논리 px) — 편지를 펼친 동안은 위로 높고 넓음
     fn logical_size(&self, body_scale: f64) -> (f64, f64) {
         let (w, h) = if self.note_open { note_window_logical_size(body_scale) } else { window_logical_size(body_scale) };
-        let h = h + self.glow_pad();
-        if self.stretch_open {
-            (w, h + STRETCH_SPACE * body_scale)
-        } else {
-            (w, h)
-        }
+        (w, h + self.glow_pad())
     }
 
-    /// 기린 목 늘이기가 시작·끝나면 창을 위로 키우거나 줄임 (몸은 창 아래 가운데 그대로 — 바로 다음 place가 옮김)
     /// 눌렸음: 빛나는 동물이면 그동안 창 아래에 빛 번질 자리를 냄
     pub fn start_glow(&mut self) {
         if GLOW_PETS.contains(&self.entry.id.as_str()) {
@@ -394,18 +382,6 @@ impl Slot {
         self.resize_window(w, h);
         self.last_pos = None;
         let _ = self.window.emit_to(self.label.as_str(), "pet-pad", self.glow_pad());
-    }
-
-    /// 목 늘이기가 시작·끝나면 창 높이를 맞춤
-    fn sync_stretch(&mut self) {
-        let stretch = self.pet.render().anim == Anim::NeckStretch;
-        if stretch == self.stretch_open {
-            return;
-        }
-        self.stretch_open = stretch;
-        let (w, h) = self.logical_size(self.shown.scale);
-        self.resize_window(w, h);
-        self.last_pos = None;
     }
 
     /// 커서로 뛰어오르고 매달리고 떨어지는 동안 창이 마우스를 통과시킴 — 몸이 커서 끝 바로 아래라 창이 커서를 덮음 (코어 hang_spot).
@@ -509,7 +485,6 @@ impl Slot {
 
     /// 창을 몸 위치로 옮기고, 처음(또는 다시 나타날 때) 보임. hidden = 사용자가 트레이로 모두 숨겨 둠 (그동안은 보이지 않음)
     pub fn place(&mut self, hidden: bool) {
-        self.sync_stretch();
         self.sync_glow();
         self.sync_click_through();
         let pos = self.window_target();

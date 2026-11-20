@@ -119,7 +119,7 @@ impl Pet {
             Play::Flop => {
                 self.snowplay.event = Some(SnowPlayEvent::Burst { x: self.body.x, y: self.body.y });
                 self.speech = Some(Speech::Flop);
-                let rolls = !self.cfg.no_roll && !self.cfg.special.is_some_and(Special::replaces_roll);
+                let rolls = !self.cfg.no_roll;
                 self.state = if rolls {
                     State::Move { kind: Move::Roll, remaining: snowplay::FLOP_SECS }
                 } else {

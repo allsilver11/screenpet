@@ -45,7 +45,7 @@ def test_pixel_belly_slide_plays_its_roll_row_without_spinning(pet):
     assert not r["rotates"], r
 
 
-@pytest.mark.parametrize("pet", ["cat", "santa", "giraffe"])
+@pytest.mark.parametrize("pet", ["cat", "santa", "duck"])
 def test_other_pixel_pets_still_have_no_roll_and_never_spin(pet):
     r = run("pixelRoll", pet)
     assert not r["hasRoll"] and r["row"] == r["idleRow"], r

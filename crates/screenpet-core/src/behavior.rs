@@ -98,24 +98,18 @@ pub const WALK_EDGE_HOP_CHANCE: f64 = 0.8;
 pub const RUN_LEAP_VX_MULT: f64 = 1.8;
 /// 클릭 애교 시간 (초)
 pub const CLICK_TRICK_SECS: f64 = 2.0;
-/// 잘 놀라는 동물(레서판다, Special::Surprise)이 클릭에 깜짝 벌떡 서는 몫 (나머지는 평소 클릭 반응)
-pub const SURPRISE_CLICK_CHANCE: f64 = 0.6;
 
 /// 특정 동물만 가진 특별 동작 (spec §2.7)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Special {
     /// 고양이 하악질 — 등 휘고 꼬리 펑
     Arch,
-    /// 기린 — 구르는 대신 멈춰 서서 목을 평소의 두 배로 쭉 늘였다 줄임 (쉬거나 간질일 땐 하지 않음)
-    NeckStretch,
     /// 공룡 — 입에서 작은 불꽃을 퐁 (아무것도 태우지 않음)
     Fire,
     /// 공룡 — 고개 들고 크앙!
     Roar,
     /// 공룡 — 제자리 쿵쾅쿵쾅 (같은 바닥의 친구들이 흔들리거나 데굴 넘어짐, social.rs)
     Stomp,
-    /// 레서판다 — 깜짝! 뒷발로 벌떡 서서 두 팔을 번쩍 (클릭·살짝 부딪힘에만, brain_hit.rs·brain.rs pointer_up)
-    Surprise,
 }
 
 /// 공룡의 세 동작 중 하나를 고르는 몫 (불 · 크앙 · 쿵쾅) — 쉴 때 / 간질일 때 (간질이면 쿵쾅보다 불·크앙)
@@ -136,19 +130,13 @@ pub fn pick_dino(rng: &mut fastrand::Rng, tickled: bool) -> Special {
     }
 }
 
-/// 기린 목 늘이기 길이 (초) — 앱(ui/main.js NECK_*_MS)이 이 시간 안에 늘이고·머물고·줄임
-pub const NECK_STRETCH_SECS: f64 = 3.4;
-
 impl Special {
     /// 쉴 때 이 특별 동작을 할 확률
     pub fn rest_chance(self) -> f64 {
         match self {
             Special::Arch => 0.08,
-            Special::NeckStretch => 0.0,
             // 공룡: 쉬는 박자의 18%는 셋 중 하나 (pick_dino)
             Special::Fire | Special::Roar | Special::Stomp => 0.18,
-            // 놀랄 일이 있어야 놀란다
-            Special::Surprise => 0.0,
         }
     }
 
@@ -156,9 +144,7 @@ impl Special {
     pub fn tickle_chance(self) -> f64 {
         match self {
             Special::Arch => 0.25,
-            Special::NeckStretch => 0.0,
             Special::Fire | Special::Roar | Special::Stomp => 0.30,
-            Special::Surprise => 0.0,
         }
     }
 
@@ -166,14 +152,11 @@ impl Special {
     pub fn secs(self) -> (f64, f64) {
         match self {
             Special::Arch => (2.0, 3.0),
-            Special::NeckStretch => (NECK_STRETCH_SECS, NECK_STRETCH_SECS),
             // 불 뿜기 그림은 한 번 (1초) 뒤 흐뭇한 얼굴로 머문다
             Special::Fire => (1.8, 2.4),
             Special::Roar => (1.5, 2.2),
             // 쿵쾅 한 번 = 0.67초 (stomp 4장 6fps) — 두세 번
             Special::Stomp => (1.4, 2.0),
-            // 벌떡 (surprise 3장 8fps, 한 번) 뒤 마지막 칸으로 잠깐 굳는다
-            Special::Surprise => (1.1, 1.5),
         }
     }
 
@@ -181,17 +164,10 @@ impl Special {
     pub fn anim_name(self) -> &'static str {
         match self {
             Special::Arch => "arch",
-            Special::NeckStretch => "neckstretch",
             Special::Fire => "fire",
             Special::Roar => "roar",
             Special::Stomp => "stomp",
-            Special::Surprise => "surprise",
         }
-    }
-
-    /// 구르기 대신 하는 특별 동작 (기린 목 늘이기)
-    pub fn replaces_roll(self) -> bool {
-        self == Special::NeckStretch
     }
 
     /// 공룡 동작 — 시작할 때 셋 중 하나를 다시 고름 (pick_dino)
@@ -201,7 +177,7 @@ impl Special {
 
     /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾음
     pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special> {
-        [Special::Arch, Special::NeckStretch, Special::Fire, Special::Roar, Special::Stomp, Special::Surprise]
+        [Special::Arch, Special::Fire, Special::Roar, Special::Stomp]
             .into_iter()
             .find(|s| has_anim(s.anim_name()))
     }
@@ -404,7 +380,7 @@ mod tests {
         assert!((0.24..=0.30).contains(&stretch(cat, true)), "{}", stretch(cat, true));
         assert!((0.18..=0.24).contains(&stretch(aloof, true)), "{}", stretch(aloof, true));
         assert!(stretchy_species("cat") && stretchy_species("persian"));
-        assert!(!["penguin", "squirrel", "rabbit", "giraffe", "unknown"].iter().any(|s| stretchy_species(s)));
+        assert!(!["penguin", "squirrel", "rabbit", "unknown"].iter().any(|s| stretchy_species(s)));
     }
 
     #[test]
@@ -520,9 +496,7 @@ mod tests {
         assert_eq!(Special::from_manifest(|n| n == "wag"), None, "the dog's wag went with the dog (v0.5.5)");
         assert_eq!(Special::from_manifest(|_| false), None);
         assert_eq!(Special::Arch.anim_name(), "arch");
-        assert_eq!(Special::from_manifest(|n| n == "neckstretch"), Some(Special::NeckStretch));
-        assert_eq!((Special::NeckStretch.anim_name(), Special::NeckStretch.secs()), ("neckstretch", (NECK_STRETCH_SECS, NECK_STRETCH_SECS)));
-        assert!(Special::NeckStretch.replaces_roll() && !Special::Arch.replaces_roll());
+        assert_eq!(Special::from_manifest(|n| n == "neckstretch" || n == "surprise"), None, "the giraffe's and red panda's poses went with them (v0.7.0)");
     }
 
     #[test]
@@ -530,7 +504,7 @@ mod tests {
         // 공룡 pet.json (fire·roar·stomp)이면 공룡 동작 — 시작할 때마다 셋 중 하나를 다시 고른다
         let dino = |n: &str| matches!(n, "fire" | "roar" | "stomp");
         let s = Special::from_manifest(dino).unwrap();
-        assert!(s.is_dino() && !Special::Arch.is_dino() && !Special::NeckStretch.is_dino() && !s.replaces_roll());
+        assert!(s.is_dino() && !Special::Arch.is_dino());
         assert_eq!([Special::Fire, Special::Roar, Special::Stomp].map(Special::anim_name), ["fire", "roar", "stomp"]);
         for k in [Special::Fire, Special::Roar, Special::Stomp] {
             assert_eq!((k.rest_chance(), k.tickle_chance()), (0.18, 0.30));

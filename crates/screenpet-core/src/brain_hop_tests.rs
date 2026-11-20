@@ -181,7 +181,7 @@ fn every_walker_leaps_onto_a_window_in_reach_and_flyers_never_do() {
         let (w, x) = reachable(&c);
         let share = leap_share(c, &w, x);
         match id.as_str() {
-            "ghost" | "bird" => assert_eq!(share, 0.0, "{id} flies"),
+            "ghost" => assert_eq!(share, 0.0, "{id} flies"),
             "frog" => {}
             // 기운 넘치는 흐물이(energetic)는 두 배 — 개구리만큼
             "heumul" => assert!((0.09..=0.15).contains(&share), "{id}: energetic, about the frog's chance, got {share}"),

@@ -193,20 +193,6 @@ def test_santa_has_a_neck_table_and_nobody_else():
             assert len(m["neck"][st][anim]) == spec["frames"], (st, anim)
 
 
-def test_giraffe_neck_layers_in_dots():
-    m = _man("giraffe")
-    for st, (n, _s) in px.STAGE_GRID.items():
-        meta = m["neck_stretch"][st]
-        assert 0 < meta["cut"] < n and meta["tile"] >= 3 and meta["ext"] % meta["tile"] == 0
-        with Image.open(PIXEL / "giraffe" / f"neck_{st}.png") as im:
-            assert im.size == (4 * n, n)
-        tile = _a(Image.open(PIXEL / "giraffe" / f"neck_tile_{st}.png"))
-        assert tile.shape[:2] == (meta["tile"], n)
-        assert set(np.unique(tile[..., 3])) <= {0, 255}
-        solid = tile[..., 3] > 0
-        assert (solid == solid[0]).all()  # 곧은 토막: 위아래로 이어진다
-
-
 # ---- 도장·문맥
 def test_eye_stamp_is_exact():
     """변환이 없을 때 눈은 stage_eye가 받은 자리에 찍힌다 — 찾아낼 필요가 없다."""
@@ -242,18 +228,11 @@ def test_patch_is_undone():
         assert getattr(mod, name) is val, (mod.__name__, name)
 
 
-def test_pixel_mode_stays_out_of_the_way_of_unpatched():
-    with px.pixel_mode(px.stage_grid(dp.CAT, "baby")):
-        with px._unpatched():
-            assert dp.compose is px._ORIG["compose"]
-        assert dp.compose is px.compose
-
-
 # ---- 동글 그림
 @pytest.mark.parametrize("pid,stage,anim,i", [
-    ("cat", "baby", "sleep", 0), ("cat", "adult", "roll", 0), ("rabbit", "teenager", "walk", 1), ("bird", "adult", "walk", 1),
+    ("cat", "baby", "sleep", 0), ("cat", "adult", "roll", 0), ("rabbit", "teenager", "walk", 1),
     ("persian", "baby", "huff", 1), ("frog", "child", "bigjump", 1), ("pumpkin", "adult", "sit_front", 0), ("ghost", "kinder", "walk", 0),
-    ("duck", "teenager", "hungry", 1), ("giraffe", "child", "neckstretch", 1), ("rudolph", "adult", "walk", 0),
+    ("duck", "teenager", "hungry", 1), ("rudolph", "adult", "walk", 0),
     ("santa", "adult", "hungry", 1), ("snowman", "kinder", "heart", 1), ("dino_green", "teenager", "fire", 2),
 ])
 def test_round_art_stays_byte_identical(pid, stage, anim, i):

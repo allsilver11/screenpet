@@ -32,12 +32,9 @@ LINES = {
     "pumpkin": ("candycorn", "lantern", "seed", "vine", "lollipop", "hat"),
     "ghost": ("candle", "key", "web", "bat", "tombstone", "moon"),
     "duck": ("bread", "pebble", "rubber", "feather", "shell", "reed"),
-    "bird": ("gourdseed", "feather", "twig", "berry", "egg", "dandelion"),
     "penguin": ("pebble", "ice", "fish", "snowflake", "down", "shell"),
-    "redpanda": ("bamboo", "berry", "stick", "maple", "fluff", "flower"),
     "heumul": ("plane", "spring", "rubber", "pencil", "button", "balloon"),
     "spider": ("dewdrop", "spool", "leaf", "badge", "cape", "ladybug"),
-    "giraffe": ("acacia", "pod", "mango", "cloud", "nest", "scarf"),
     "rudolph": ("bell", "bulb", "snowflake", "star", "moss", "ribbon"),
     "santa": ("giftbox", "candycane", "mitten", "cookie", "stocking", "coal"),
     "snowman": ("icicle", "carrot", "twig", "globe", "bucket", "snowball"),
@@ -434,56 +431,6 @@ def duck_reed(i):
         bl(i, [L([a, b], 7)], BROWN, r=0.1, line=0.6, marks=[([L([(a[0] - 2, a[1]), (b[0] - 2, b[1])], 1.4)], BROWN_LIGHT)])
 
 
-# ---- 새 (제비) ----
-SWALLOW_BLUE = (112, 138, 206)
-
-
-def bird_gourdseed(i):
-    """흥부네 제비가 물어다 준 박씨: 통통한 물방울 씨앗 + 가운데 줄 + 반짝."""
-    seed = (236, 214, 168)
-    m = bl(i, [E(51, 52, 77, 86), T((56, 58), (64, 44), (72, 58))], seed, r=1.2,
-           marks=[([E(54, 76, 74, 90)], mix(seed, LINE, 0.18)), ([E(56, 55, 62, 63)], mix(seed, WHITE, 0.6))])
-    strokes(i, [curve((64, 50), (62, 68), (64, 84))], mix(seed, LINE, 0.4), 1.1, clip=m)
-    tiny_face(i, 64, 72, 0.9)
-
-
-def bird_feather(i):
-    feather(i, (76, 86), (52, 46), SWALLOW_BLUE, mix(SWALLOW_BLUE, WHITE, 0.45))
-
-
-def bird_twig(i):
-    """둥지 짓는 지푸라기 한 다발 (가운데를 풀잎으로 묶음)."""
-    straw = (238, 204, 120)
-    for a, b in (((46, 82), (80, 50)), ((50, 86), (84, 58)), ((44, 72), (76, 46)), ((54, 88), (82, 66))):
-        bl(i, [L([a, b], 3.2)], straw, r=0, line=0.55, marks=[([L([a, b], 0.8)], mix(straw, LINE, 0.25))])
-    bl(i, [L([(58, 74), (70, 64)], 4.5)], GREEN, r=0.2, line=0.55)
-
-
-def bird_berry(i):
-    """빨간 열매 두 알 + 잎 하나."""
-    bl(i, [L(curve((64, 50), (62, 58), (56, 66)), 1.6), L(curve((64, 50), (68, 60), (73, 68)), 1.6)], BROWN, r=0)
-    leaf(i, (64, 50), (78, 44), 5.0)
-    for x, y, r in ((55, 74, 9), (73, 76, 8.5)):
-        bl(i, [C(x, y, r)], RED, r=0, marks=[([C(x - 3, y - 3, 2.2)], RED_LIGHT), ([E(x - r, y + r * 0.4, x + r, y + r * 1.2)], RED_DARK)])
-
-
-def bird_egg(i):
-    """하늘색 작은 알 (얼룩 몇 점)."""
-    egg = (176, 220, 240)
-    bl(i, [E(51, 50, 77, 87)], egg, r=0.2,
-       marks=[([E(53, 78, 75, 92)], mix(egg, LINE, 0.14)), ([E(55, 54, 62, 62)], WHITE)])
-    dots(i, [(68, 60), (60, 70), (71, 74), (64, 80)], mix(egg, LINE, 0.35), 1.1)
-
-
-def bird_dandelion(i):
-    """바람 타는 민들레 홀씨 (동글 솜털 공 + 줄기)."""
-    bl(i, [L(curve((64, 88), (62, 76), (64, 64)), 2.0)], GREEN_DARK, r=0)
-    puff = (250, 250, 246)
-    bl(i, ring(64, 58, 10, 4.2, 10) + [C(64, 58, 10)], puff, r=0.6, marks=[([C(64, 58, 4)], mix(puff, LINE, 0.12))])
-    strokes(i, [[(64, 58), polar(64, 58, 12, a)] for a in range(-90, 270, 36)], mix(puff, LINE, 0.22), 0.6)
-    dots(i, [(64, 58)], GOLD_DARK, 1.8)
-
-
 # ---- 다람쥐 ----
 SQ_NUT, SQ_CAP = (214, 150, 86), (150, 100, 62)
 
@@ -607,113 +554,6 @@ def penguin_shell(i):
     spiral = [polar(64, 66, 3 + t * 0.9, -40 + t * 26) for t in range(20)]
     strokes(i, [spiral, curve((66, 56), (74, 52), (80, 46))], mix(shell, LINE, 0.32), 1.1, clip=m)
     bl(i, [E(48, 72, 60, 86)], (252, 168, 172), r=0, line=0.5)
-
-
-# ---- 레서판다 ----
-RP_RUST, RP_RING = (214, 104, 58), (150, 64, 42)
-
-
-def redpanda_bamboo(i):
-    """길쭉한 대나무잎 한 장 (가운데 잎맥, 짧은 잎자루)."""
-    a, b = (48, 86), (80, 48)
-    mx, my = 64, 67
-    bl(i, [L([(45, 89), (50, 84)], 2.2)], GREEN_DARK, r=0, line=0.5)
-    bl(i, [T(a, (mx - 8, my - 9), b, (mx + 8, my + 7))], GREEN, r=1.0,
-       marks=[([T(a, (mx + 8, my + 7), b)], mix(GREEN, LINE, 0.12)), ([E(55, 66, 61, 71)], GREEN_LIGHT)])
-    strokes(i, [[a, b]], GREEN_DARK, 1.0)
-
-
-def redpanda_berry(i):
-    """빨간 산딸기 (작은 알이 오글오글) + 초록 꼭지."""
-    bl(i, ring(64, 70, 8, 6.2, 7) + [C(64, 70, 9)], RED, r=0.4,
-       marks=[([E(50, 74, 78, 88)], RED_DARK), ([C(59, 64, 2.2)], RED_LIGHT)])
-    dots(i, [(64, 70), (58, 72), (70, 72), (64, 78), (70, 64)], RED_DARK, 1.0)
-    for a in (-140, -90, -40):
-        leaf(i, (64, 59), polar(64, 59, 8, a), 3.6)
-
-
-def redpanda_stick(i):
-    """오르기 좋은 작은 나뭇가지 (곁가지 하나에 새싹)."""
-    bl(i, [L([(46, 84), (82, 50)], 5.0), L([(64, 67), (68, 56)], 3.2)], BROWN, r=0.3,
-       marks=[([L([(48, 84), (82, 52)], 1.4)], BROWN_DARK)])
-    leaf(i, (68, 56), (74, 48), 4.6)
-
-
-def redpanda_maple(i):
-    """빨간 단풍잎 (다섯 갈래 별 모양 + 잎자루)."""
-    bl(i, [L([(64, 74), (64, 90)], 2.2)], BROWN_DARK, r=0, line=0.5)
-    bl(i, [T(*star_pts(64, 64, 18, 0.5))], RED, r=1.0,
-       marks=[([T(*star_pts(64, 66, 9, 0.5))], RED_DARK), ([E(56, 54, 61, 59)], RED_LIGHT)])
-    strokes(i, [[(64, 74), polar(64, 64, 15, a)] for a in (-90, -18, -162)], RED_DARK, 0.8)
-
-
-def redpanda_fluff(i):
-    """레서판다 꼬리 털뭉치 (주황 복슬 공에 짙은 고리 줄 둘)."""
-    m = bl(i, ring(64, 68, 12, 6.5, 9) + [C(64, 68, 13)], RP_RUST, r=1.0,
-           marks=[([E(48, 76, 80, 90)], mix(RP_RUST, LINE, 0.15)), ([E(54, 56, 62, 62)], mix(RP_RUST, WHITE, 0.5))])
-    strokes(i, [curve((50, 62), (64, 58), (78, 64)), curve((50, 74), (64, 70), (78, 76))], RP_RING, 3.2, clip=m)
-
-
-def redpanda_flower(i):
-    """분홍 들꽃 (다섯 잎 + 노란 가운데 + 잎 하나)."""
-    bl(i, [L(curve((64, 90), (60, 80), (64, 70)), 2.0)], GREEN_DARK, r=0)
-    leaf(i, (62, 84), (52, 78), 4.6)
-    bl(i, ring(64, 62, 8, 6.4, 5) + [C(64, 62, 7)], PINK, r=0.4, marks=[([C(60, 58, 2.6)], PINK_LIGHT)])
-    bl(i, [C(64, 62, 4.6)], GOLD, r=0, line=0.5)
-    tiny_face(i, 64, 62.5, 0.5)
-
-
-# ---- 기린 ----
-def giraffe_acacia(i):
-    stem = [(50, 85), (63, 66), (76, 47)]
-    bl(i, [L(stem, 2.2)], BROWN, r=0)
-    for t in (0.2, 0.38, 0.56, 0.74, 0.9):
-        x, y = 50 + 26 * t, 85 - 38 * t
-        for sgn in (-1, 1):
-            leaf(i, (x, y), (x + 8.6 * sgn + 4, y + 6 * sgn + 3 * -1), 4.6)
-    leaf(i, (76, 47), (80, 41), 4.6)
-
-
-def giraffe_pod(i):
-    pod = (172, 196, 96)
-    bl(i, [L(curve((47, 56), (60, 86), (82, 72)), 11)], pod, r=0.2)
-    bl(i, [L([(47, 56), (45, 49)], 2.2)], GREEN_DARK, r=0, line=0.5)
-    pts = curve((50, 60), (60, 84), (79, 72), 8)[1:-1:2]
-    dots(i, pts, mix(pod, WHITE, 0.45), 3.2)
-    strokes(i, [curve((46.5, 60), (60, 82), (80, 68))], mix(pod, LINE, 0.25), 0.7)
-
-
-def giraffe_mango(i):
-    m = bl(i, [E(47, 54, 83, 85), C(58, 66, 11)], (250, 184, 76), r=1.2)
-    paint(i, aa(shapes([E(64, 48, 90, 74)])), (240, 100, 80), clip=m)
-    paint(i, aa(shapes([E(52, 58, 60, 66)])), GOLD_LIGHT, clip=m)
-    bl(i, [L([(66, 54), (64, 47)], 2.2)], BROWN, r=0, line=0.5)
-    leaf(i, (65, 50), (79, 45), 6.5)
-
-
-def giraffe_cloud(i):
-    bl(i, [C(53, 72, 9), C(64, 62, 12), C(76, 70, 10), E(46, 68, 84, 84)], WHITE, r=1.0, marks=[([E(46, 77, 84, 88)], BLUE_LIGHT)])
-    tiny_face(i, 64, 70, 1.05)
-    dots(i, [(55, 74), (73, 74)], PINK_LIGHT, 1.8)
-
-
-def giraffe_nest(i):
-    egg = (172, 216, 236)
-    for x, y in ((57, 62), (71, 62)):
-        bl(i, [E(x - 7, y - 10, x + 7, y + 11)], egg, r=0, line=0.6, marks=[([E(x - 4, y - 7, x, y - 3)], WHITE), ([C(x + 3, y + 1, 1), C(x - 2, y + 4, 0.9)], mix(egg, LINE, 0.35))])
-    m = bl(i, [E(44, 66, 84, 87)], BROWN, r=0.3)
-    strokes(i, [curve((45, 72), (64, 84), (83, 72)), curve((46, 78), (58, 72), (72, 86)), curve((82, 78), (66, 72), (54, 86)), [(48, 70), (58, 76)], [(80, 70), (70, 77)]], BROWN_LIGHT, 1.2, clip=m)
-    strokes(i, [[(45, 68), (40, 64)], [(83, 69), (88, 66)]], BROWN, 1.3)
-
-
-def giraffe_scarf(i):
-    pts = curve((74, 46), (52, 50), (58, 64)) + curve((58, 64), (74, 74), (52, 84))
-    m = bl(i, [L(pts, 9.5)], ORANGE, r=0.2)
-    for t in (2, 5, 8, 11, 14, 17, 20, 23):
-        x, y = pts[t]
-        strokes(i, [[(x - 7, y - 6), (x + 7, y + 6)]], CREAM, 2.4, clip=m)
-    for dx, end in ((-4, (72, 40)), (0, (77, 41)), (4, (82, 43))):
-        strokes(i, [[(75 + dx, 47), end]], ORANGE_DARK, 1.4)
 
 
 # ---- 루돌프 ----

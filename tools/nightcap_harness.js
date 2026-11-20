@@ -165,11 +165,8 @@ const flushTimers = () => {
   show("hop", { anim: "hop" });
   show("bigjump", { anim: "bigjump" });
   show("unknownAnim", { anim: "no_such_anim" });
-  now += 1000;
-  show("neck", { anim: "neckstretch" });
-  now += 1000;
-  show("neckMid", { anim: "neckstretch" });
-  show("afterNeck", {});
+  now += 2000;
+  show("beforeMorning", {});
   // 아침 8시 30분: 뿅
   emit("pet-presence", { nightcap: false, ring: null });
   step();

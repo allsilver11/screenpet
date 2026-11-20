@@ -20,7 +20,7 @@ from sprite_spec import FRAME, STAGE_SCALE, STAGES, frame_px  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PETS = ROOT / "ui" / "pets"
-SPECIES = ["cat", "rabbit", "frog", "pumpkin", "ghost", "duck", "giraffe", "rudolph", "santa", "snowman",
+SPECIES = ["cat", "rabbit", "frog", "pumpkin", "ghost", "duck", "rudolph", "santa", "snowman",
            "dino_yellow", "dino_green", "dino_purple"]
 # 대표 칸 (동작, 프레임) — 모자가 가장 자주 보이는 자세부터
 SHOWCASE = [("sleep", 0), ("sleep", 1), ("idle", 0), ("walk", 1), ("sit_front", 0), ("tilt", 1), ("look", 1), ("lookup", 2), ("hop", 1),
@@ -109,8 +109,6 @@ def manifest(pid):
         for key in ("head", "neck"):
             if st in man.get(key, {}):
                 man[key][st] = {a: [[c[0] * k, c[1] * k, c[2] * k, c[3]] for c in cells] for a, cells in man[key][st].items()}
-        if st in man.get("neck_stretch", {}):
-            man["neck_stretch"][st] = {n: round(v * k) for n, v in man["neck_stretch"][st].items()}
     return man
 
 
@@ -269,29 +267,6 @@ def _css(tile, pad, zoom, origin, ops):
 ROLL_ORIGIN = (64, 88)  # style.css transform-origin 50% 68.75%
 
 
-def _neck_tile(pid, stage, f, ext_part, zoom):
-    """기린 목 늘이기: 몸 층 + 목 토막 + 머리 층(모자 자식 포함)을 앱과 같은 계산으로."""
-    man = manifest(pid)
-    meta = man["neck_stretch"][stage]
-    layer = layer_128(pid, stage, f"neck_{stage}.png")
-    tile_img = layer_128(pid, stage, f"neck_tile_{stage}.png")
-    pad = 60 * zoom
-    side = FRAME * zoom
-    out = Image.new("RGBA", (side + 2 * pad, side + 2 * pad), (0, 0, 0, 0))
-    body = layer.crop((0, 0, FRAME, FRAME)).resize((side, side), Image.LANCZOS)
-    out.alpha_composite(body, (pad, pad))
-    ext = round(meta["ext"] * ext_part)
-    for y in range(0, ext, meta["tile"]):
-        piece = tile_img.resize((side, meta["tile"] * zoom), Image.LANCZOS)
-        out.alpha_composite(piece, (pad, pad + (meta["cut"] - ext + y) * zoom))
-    head = layer.crop(((f + 1) * FRAME, 0, (f + 2) * FRAME, FRAME)).resize((side, side), Image.LANCZOS)
-    out.alpha_composite(head, (pad, pad - ext * zoom))
-    mc = new_cap_matrix_cell(head_entry(man, stage, "neckstretch", f))
-    m = lambda px, py: (mc(px, py)[0] * zoom + pad, (mc(px, py)[1] - ext) * zoom + pad)  # noqa: E731
-    out.alpha_composite(draw_cap(m, out.size))
-    return out
-
-
 CURSOR = [(0, 0), (0, 16), (4, 12), (7, 18), (9, 17), (6, 11), (11, 11)]
 
 
@@ -319,9 +294,9 @@ def hang_page(path):
 
 
 def scenarios(path, zoom=1):
-    """몸과 한 덩어리로 움직이는지: 매달림 · 구르기 회전 · 덜덜 · 반전 · 뿅 · 목 늘이기 (모자 자식에 몸 변환을 그대로 건 그림)."""
-    pets = [("cat", "teenager"), ("dino_green", "adult"), ("santa", "child"), ("bird", "teenager"), ("frog", "teenager"), ("giraffe", "teenager")]
-    cols = ["hang >", "hang <", "roll 0", "roll 90", "roll 180", "roll 270", "wobble", "flip", "poof", "neck 50%", "neck 100%"]
+    """몸과 한 덩어리로 움직이는지: 매달림 · 구르기 회전 · 덜덜 · 반전 · 뿅 (모자 자식에 몸 변환을 그대로 건 그림)."""
+    pets = [("cat", "teenager"), ("dino_green", "adult"), ("santa", "child"), ("ghost", "teenager"), ("frog", "teenager")]
+    cols = ["hang >", "hang <", "roll 0", "roll 90", "roll 180", "roll 270", "wobble", "flip", "poof"]
     cell = (FRAME + 120) * zoom
     img = Image.new("RGBA", (70 + len(cols) * cell, 16 + len(pets) * cell), (236, 240, 246, 255))
     d = ImageDraw.Draw(img)
@@ -342,9 +317,6 @@ def scenarios(path, zoom=1):
         }
         for deg in (0, 90, 180, 270):
             sheets[f"roll {deg}"] = _css(roll, pad, zoom, ROLL_ORIGIN, [("rotate", deg if spin else 0)])
-        if "neck_stretch" in man:
-            sheets["neck 50%"] = _neck_tile(pid, st, 0, 0.5, zoom)
-            sheets["neck 100%"] = _neck_tile(pid, st, 2, 1.0, zoom)
         for c, name in enumerate(cols):
             if name in sheets:
                 img.alpha_composite(sheets[name], (70 + c * cell, 16 + r * cell))

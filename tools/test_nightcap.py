@@ -116,7 +116,7 @@ def test_cap_does_not_jump_between_frames():
 
 
 def test_cap_and_ring_stay_inside_the_window():
-    """창 = 칸 + 위 36px 말풍선 자리 (기린 목 늘이기는 STRETCH_SPACE 52 × 배율을 더 받는다)."""
+    """창 = 칸 + 위 36px 말풍선 자리."""
     for pid in pn.SPECIES:
         man = pn.manifest(pid)
         for st in pn.STAGES:
@@ -124,16 +124,13 @@ def test_cap_and_ring_stay_inside_the_window():
             k = side / 128
             win = 128 * max(1, side / 128)
             for anim, rows in man["head"][st].items():
-                neck = anim == "neckstretch"
-                rise = man["neck_stretch"][st]["ext"] * k if neck else 0
-                room = 36 + (52 * k if neck else 0)
                 for e in rows:
                     m = pn.new_cap_matrix_cell(e)
                     pts = [m(*p) for shape in pn.CAP for p in shape[1]]
-                    assert min(p[1] for p in pts) * k - rise + room >= 0, (pid, st, anim, e)
+                    assert min(p[1] for p in pts) * k + 36 >= 0, (pid, st, anim, e)
                     left = (win - side) / 2
                     assert left + min(p[0] for p in pts) * k >= 0 and left + max(p[0] for p in pts) * k <= win, (pid, st, anim, e)
-                    assert (e[1] - 0.6 * e[2]) * k - 22 - rise + room >= 0, ("고리", pid, st, anim, e)
+                    assert (e[1] - 0.6 * e[2]) * k - 22 + 36 >= 0, ("고리", pid, st, anim, e)
 
 
 def test_head_data_matches_the_generator():
@@ -212,7 +209,7 @@ def harness(pid, st="teenager"):
 
 
 @needs_node
-@pytest.mark.parametrize("pid", ["dino_green", "cat", "bird", "snowman"])
+@pytest.mark.parametrize("pid", ["dino_green", "cat", "ghost", "snowman"])
 def test_cap_moves_as_one_with_the_body(pid):
     r = harness(pid)
     base = r["base"]
@@ -240,20 +237,11 @@ def test_cap_moves_as_one_with_the_body(pid):
 
 
 @needs_node
-def test_giraffe_cap_rides_the_head_layer_while_the_neck_stretches():
-    r = harness("giraffe")
-    assert r["base"]["capParent"] == "pet"
-    assert r["neck"]["capParent"] == "nk-head" and r["neck"]["ringParent"] == "nk-head"
-    assert r["neckMid"]["capParent"] == "nk-head"
-    assert r["afterNeck"]["capParent"] == "pet", "돌아온다"
-
-
-@needs_node
 def test_cap_poofs_away_once_in_the_morning():
     r = harness("cat")
     assert r["startOff"]["capHidden"] and r["startOff"]["sparks"] == 0, "처음부터 꺼져 있으면 효과 없이"
     assert "cap-poof" in r["morning"]["capClasses"] and not r["morning"]["capHidden"]
-    assert r["morning"]["sparks"] - r["afterNeck"]["sparks"] == 5
+    assert r["morning"]["sparks"] - r["beforeMorning"]["sparks"] == 5
     assert r["morningDone"]["capHidden"] and not r["morningDone"]["capClasses"]
     assert r["hiddenWindow"]["capHidden"] and not r["hiddenWindow"]["capClasses"], "창이 숨어 있으면 바로"
 
@@ -374,7 +362,7 @@ def test_santa_wears_the_scarf_not_a_second_hat():
     assert r["climb"]["scarfView"] == "back" and r["sled"]["scarfView"] == "sled0"
     # 아침 8시 30분: 목도리가 뿅
     assert "cap-poof" in r["morning"]["scarfClasses"] and not r["morning"]["scarfHidden"] and not r["morning"]["capClasses"]
-    assert r["morning"]["sparks"] - r["afterNeck"]["sparks"] == 5
+    assert r["morning"]["sparks"] - r["beforeMorning"]["sparks"] == 5
     assert r["morningDone"]["scarfHidden"] and not r["morningDone"]["scarfClasses"] and r["morningDone"]["capHidden"]
     assert r["hiddenWindow"]["scarfHidden"], "창이 숨어 있으면 효과 없이"
 

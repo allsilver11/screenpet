@@ -299,12 +299,12 @@ def test_every_species_looks_up():
     마지막 장에만 ✧ (프레임 위쪽 오른편에 노란 별)."""
     from sprite_spec import manifest
     names = [o[0] for o in OPTIONAL_ANIMS]
-    assert names[:7] == ["arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup"]  # = Rust manifest::OPTIONAL_ANIMS
-    assert OPTIONAL_ANIMS[6][1:] == (3, 3, True, False)
+    assert names[:6] == ["arch", "huff", "climb", "slide", "bigjump", "lookup"]  # = Rust manifest::OPTIONAL_ANIMS
+    assert OPTIONAL_ANIMS[5][1:] == (3, 3, True, False)
     for pid, sp in draw_pets.SPECIES.items():
         assert "lookup" in sp.specials, pid
         rows = draw_pets.rows_for(sp)
-        assert [a for a, *_ in rows if a in names[:7]][-1] == "lookup", pid  # 지금까지의 선택 동작 중 맨 뒤 (뒤에 더한 동작은 그 뒤)
+        assert [a for a, *_ in rows if a in names[:6]][-1] == "lookup", pid  # 지금까지의 선택 동작 중 맨 뒤 (뒤에 더한 동작은 그 뒤)
         fr = draw_pets.render_species(sp, "teenager")
         assert len(fr["lookup"]) == 3, pid
         for im in fr["lookup"]:
@@ -333,7 +333,7 @@ def _shipped():
 def test_hires_stages_follow_the_on_screen_size():
     """청소년 때 이미 128보다 크게 보이는 동물(stage_size >= 1)만 청소년도 2배, 어른은 모두 2배."""
     shipped = _shipped()
-    assert len(shipped) == 20  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1, 레서판다 +1, 다람쥐 +1 · v0.6.2: 흐물이 +1 · 거미인간 +1
+    assert len(shipped) == 17  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1, 레서판다 +1, 다람쥐 +1 · v0.6.2: 흐물이 +1 · 거미인간 +1 · v0.7.0: 새·기린·레서판다 −3
     assert {pid for pid, m, _ in shipped if m["stage_size"]["teenager"] >= 1} == HIRES_TEENAGER
     for pid, m, _ in shipped:
         assert m["frame_size"] == FRAME
@@ -356,12 +356,6 @@ def test_every_layer_has_the_cell_size_the_manifest_says():
             for key in ("head", "neck"):
                 for cells in m.get(key, {}).get(st, {}).values():
                     assert all(-px * 0.2 < c[0] < px * 1.2 and -px * 0.2 < c[1] < px * 1.2 and c[2] < px for c in cells), (pid, st, key)
-            assert ("neck_stretch" in m) == (pid == "giraffe"), pid
-            if pid == "giraffe":
-                meta = m["neck_stretch"][st]
-                with Image.open(d / f"neck_{st}.png") as strip, Image.open(d / f"neck_tile_{st}.png") as tile:
-                    assert strip.size == (4 * px, px) and tile.size == (px, meta["tile"]), (pid, st)
-                assert meta["tile"] == 16 * px // FRAME and 16 * px // FRAME <= meta["ext"] <= 56 * px // FRAME and meta["cut"] < px, (pid, st, meta)
         assert not (d / "sheet.png").exists(), pid  # 앱은 단계 시트만 읽는다 (sheet.png는 sheet_teenager.png와 같은 바이트였다)
 
 
@@ -524,3 +518,32 @@ def test_paw_lifts_a_front_paw_then_taps_forward(built, st):
     right = [np.nonzero(c.any(axis=0))[0].max() for c in cells]
     assert right[2] == max(right), right
     assert len({c.tobytes() for c in cells}) == 4
+
+
+GONE = ("bird", "giraffe", "redpanda")
+
+
+def test_bird_giraffe_and_redpanda_are_gone():
+    """v0.7.0 삭제: 새·기린·레서판다는 그림·생성기·표·전용 동작 어디에도 남지 않음."""
+    import sprite_spec
+    root = Path(__file__).resolve().parent.parent
+    for pid in GONE:
+        assert pid not in draw_pets.SPECIES, pid
+        for d in ("pets", "pets_pixel"):
+            assert not (root / "ui" / d / pid).exists(), (d, pid)
+        assert not list((root / "ui" / "gifts").glob(f"{pid}_*")), pid
+        for table in ("SPEECH", "PERSONALITY", "LOCOMOTION", "FAVORITE_FOOD", "NO_SPIN", "HIRES_TEENAGER"):
+            assert pid not in getattr(sprite_spec, table), (table, pid)
+    assert not {"neckstretch", "surprise"} & {a for a, *_ in OPTIONAL_ANIMS}
+    assert not hasattr(sprite_spec, "SWIFT")
+
+
+def test_a_guest_of_a_removed_species_is_sent_home():
+    """옛 버전 친구가 없어진 종으로 놀러 오면: 모르는 종이라 손님 창을 만들지 않고 (Err) 바로 Visit::Leave로 돌려보냄 — 앱은 멈추지 않음."""
+    net = (Path(__file__).resolve().parent.parent / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+    welcome = net[net.index("fn welcome_guest("):]
+    welcome = welcome[:welcome.index("\n    }\n")]
+    assert 'ok_or_else(|| format!("unknown species {species:?}"))?' in welcome
+    call = net[net.index("let result = self.welcome_guest("):]
+    declined = call[call.index("Err(e) => {"):call.index("Visit::Leave { visit_id, next, side")]  # 거절 갈래 (다음 match 갈래 앞까지)
+    assert "net.send(link, Visit::Leave {" in declined

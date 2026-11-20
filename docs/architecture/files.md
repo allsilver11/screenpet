@@ -161,9 +161,8 @@ ui/
 | `pet.json` | 동물 정의 (동작 줄, fps, 성격, 특기 플래그). `manifest.rs`가 검사 |
 | `sheet_<stage>.png` ×5 | `baby`, `kinder`, `child`, `teenager`, `adult`. 프레임 128×128, 한 행 = 한 동작 (`docs/sprites.md`) |
 | `ink_<stage>.png` ×5 | 🎨 몸 색을 바꿀 수 있는 동물(흐물이)만: 잉크 자리 마스크 |
-| `neck_<stage>.png`, `neck_tile_<stage>.png` | 기린만: 목 늘이기 층 |
 
-20종: bird, cat, dino_green/purple/yellow, duck, frog, ghost, giraffe, heumul, penguin, persian, pumpkin, rabbit, redpanda, rudolph, santa, snowman, spider (거미인간), squirrel.
+17종: cat, dino_green/purple/yellow, duck, frog, ghost, heumul, penguin, persian, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel. (새·기린·레서판다는 v0.7.0에서 빠짐 — 저장된 펫은 `config::replacement_species`로 오리·노란 공룡·다람쥐가 됨)
 
 ---
 
@@ -171,10 +170,9 @@ ui/
 
 | 파일 | 생성/손 | 다시 만들기 |
 |---|---|---|
-| `ui/pets/<id>/sheet_*.png`, `pet.json` | 생성 | `python tools/draw_pets.py` (모든 동글 동물. 종별 파일 `draw_bird.py`·`draw_frog.py`… 는 하나만) |
+| `ui/pets/<id>/sheet_*.png`, `pet.json` | 생성 | `python tools/draw_pets.py` (모든 동글 동물. 종별 파일 `draw_frog.py`… 는 하나만) |
 | `ui/pets/heumul/ink_*.png` | 생성 | `python tools/draw_heumul.py` (`write_ink_round`) |
-| `ui/pets/giraffe/neck*_*.png` | 생성 | `python tools/draw_farm.py` |
-| `ui/pets_pixel/**` (시트, `ink_*`, 기린 목) | 생성 | `python tools/draw_pixel.py [묶음…] [--no-preview]` |
+| `ui/pets_pixel/**` (시트, `ink_*`) | 생성 | `python tools/draw_pixel.py [묶음…] [--no-preview]` |
 | `ui/house/*` | 생성 | `python tools/draw_house.py` (`xmas`만도 가능) |
 | `ui/house_pixel/*`, `*_pixel/` 세계 그림 | 생성 | `python tools/draw_pixel_world.py` (칸 표는 `pixel_world_icons.py`) |
 | `ui/objects/*.png` | 생성 | `python tools/draw_objects.py` (`--shapes`는 `tumble.rs`에 붙일 표 출력) |
@@ -199,7 +197,7 @@ ui/
 | 종류 | 파일 |
 |---|---|
 | 그림 엔진 | `draw_pets.py` (공통 엔진 + 고양이·토끼·페르시안, 맨 끝에서 종별 모듈 등록), `sprite_spec.py` |
-| 종별 그림 | `draw_{bird,christmas,dino,farm,frog,halloween,heumul,penguin,redpanda,snowman,spider,squirrel}.py` |
+| 종별 그림 | `draw_{christmas,dino,farm,frog,halloween,heumul,penguin,snowman,spider,squirrel}.py` |
 | 세계 그림 | `draw_{house,objects,props,gifts,sleigh}.py`, `draw_pixel.py`, `draw_pixel_world.py`, `pixel_world_icons.py`, `make_icon.py` |
 | 미리보기 | `preview_nightcap.py`, `preview_scarf.py` |
 | 배포 | `pack_webp.py`, `requirements-pack.txt` |

@@ -3658,7 +3658,7 @@ fn the_computer_i_play_on_shares_its_pet_and_care_and_the_standby_one_takes_it()
     t.a.share_state("dog", s2.clone());
     assert_eq!(wait_for(&t.brx, 0.8, state_ev), None);
     // 쉬는 컴퓨터의 상태는 노는 컴퓨터로 가지 않음
-    t.b.share_state("bird", vec![care("bird", "adult", 0.0)]);
+    t.b.share_state("duck", vec![care("duck", "adult", 0.0)]);
     assert_eq!(wait_for(&t.arx, 1.0, |e| state_of(e, &b_id).is_some()), None);
 }
 

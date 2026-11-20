@@ -139,8 +139,8 @@ mod tests {
     #[test]
     fn rabbits_get_pellets_little_pets_a_small_swirl_and_everyone_else_the_big_one() {
         assert_eq!(kind_for("rabbit"), ObjectKind::Pellets);
-        // 곰·꿀벌·강아지는 v0.5.5에서 빠졌지만 예전 버전 친구가 보낸 똥도 보통 똥이 된다 (모르는 동물과 같다)
-        for s in ["frog", "duck", "bird", "ghost", "cat", "giraffe", "dino_green", "santa", "bear", "bee", "dog", "unknown"] {
+        // 곰·꿀벌·강아지(v0.5.5)·새·기린·레서판다(v0.7.0)는 빠졌지만 예전 버전 친구가 보낸 똥도 보통 똥이 된다 (모르는 동물과 같다)
+        for s in ["frog", "duck", "ghost", "cat", "dino_green", "santa", "bear", "bee", "dog", "bird", "giraffe", "redpanda", "unknown"] {
             assert_eq!(kind_for(s), ObjectKind::Poop, "{s}");
         }
         for k in [ObjectKind::Poop, ObjectKind::Pink, ObjectKind::Rainbow, ObjectKind::Pellets] {

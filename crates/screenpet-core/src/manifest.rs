@@ -15,7 +15,7 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 ];
 
 /// 특정 동물만 가진 동작 — 있으면 검증함 (behavior::Special::anim_name, 벽 타기 climb/slide, 개구리 bigjump,
-/// 기린 neckstretch — 있으면 구르는 대신 목을 늘임, 올려다보기 lookup — 없으면 그냥 쳐다봄(look)).
+/// 올려다보기 lookup — 없으면 그냥 쳐다봄(look)). 기린 neckstretch·레서판다 surprise는 그 동물과 함께 없어짐 (v0.7.0).
 /// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있음. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같음
 /// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔듦).
 /// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기) · lift·hold·carry·throw·strain·present·slump (물건 들어 던지기)
@@ -23,8 +23,8 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type·type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS, type = ⌨️ 키보드 v0.6.4)
 /// · paw (🐱 고양이 툭툭 — KNOCK_ANIMS) · cheeks_walk·cheeks_idle·dig (🐿️ 다람쥐 볼 빵빵 — STASH_ANIMS, v0.6.3)
 /// · shoot·web_swing·hero_land·web_pull·web_whirl (🕷️ 거미인간 — WEB_ANIMS).
-pub const OPTIONAL_ANIMS: [&str; 41] = [
-    "arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise", "panic", "hang", "rope", "lift", "hold",
+pub const OPTIONAL_ANIMS: [&str; 39] = [
+    "arch", "huff", "climb", "slide", "bigjump", "lookup", "fire", "roar", "stomp", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig", "shoot", "web_swing", "hero_land", "web_pull",
     "web_whirl",
@@ -50,7 +50,7 @@ pub enum Locomotion {
     /// 디딤판 위를 걸음
     #[default]
     Walk,
-    /// 날아다님 (유령·새) — 쉴 때 가끔 창 윗면·바닥에 내려앉음
+    /// 날아다님 (유령) — 쉴 때 가끔 창 윗면·바닥에 내려앉음
     Fly,
     /// 폴짝폴짝 뛰어다님 (개구리) — 가끔 크게 뛰어 창 위로, 벽은 폴짝폴짝 오름 (hop.rs)
     Hop,
@@ -140,9 +140,6 @@ pub struct PetManifest {
     /// 장난칠 때 안경이 번쩍 (펭귄 — brain_flash.rs, 웹뷰 render.flash)
     #[serde(default)]
     pub glasses_flash: bool,
-    /// 빠른 나는 동물 (새) — locomotion fly일 때만 뜻이 있음. 모르는 칸이라 옛 앱은 그냥 무시함
-    #[serde(default)]
-    pub swift: bool,
     /// 겁쟁이 — 다른 동물과 마주치면 반쯤 만세 줄행랑 (흐물이, panic 그림이 있을 때만 — timid())
     #[serde(default)]
     pub timid: bool,
@@ -179,9 +176,6 @@ pub struct PetManifest {
     /// 칸마다 머리 꼭대기 (단계 → 동작 → 칸별 [x, y, 너비, 기울기] 칸 px — 그림 생성기가 적음)
     #[serde(default)]
     pub head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
-    /// 기린 목 늘이기 층 (단계 → {cut, tile, ext} — 그리는 건 ui/main.js). 코어는 있는지만 봄
-    #[serde(default)]
-    pub neck_stretch: Option<serde_json::Value>,
 }
 
 /// head 표가 없는 동물의 매달리는 자리: 그림 가운데, 윗변에서 조금 아래
@@ -235,8 +229,6 @@ struct PixelJson {
     head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
     #[serde(default)]
     grip: HashMap<String, HashMap<String, Vec<[f64; 2]>>>,
-    #[serde(default)]
-    neck_stretch: Option<serde_json::Value>,
 }
 
 /// required는 있어야 하고, 있는 동작(required·optional)은 칸 수와 속도가 0보다 커야 함
@@ -267,7 +259,7 @@ pub fn parse_pixel_manifest(json: &str, base: &PetManifest) -> Result<PetManifes
     let required: Vec<&str> = REQUIRED_ANIMS.into_iter().filter(|a| *a != "roll").collect();
     check_anims(&p.animations, &required, &["roll"])?;
     check_anims(&p.animations, &[], &OPTIONAL_ANIMS)?;
-    Ok(PetManifest { frame_sizes, animations: p.animations, head: p.head, grip: p.grip, neck_stretch: p.neck_stretch, ..base.clone() })
+    Ok(PetManifest { frame_sizes, animations: p.animations, head: p.head, grip: p.grip, ..base.clone() })
 }
 
 impl PetManifest {
@@ -286,10 +278,9 @@ impl PetManifest {
         !self.has_anim("roll")
     }
 
-    /// 이 동물의 특별 동작. 구르기가 없는 그림에서 목 늘이기는 층 그림(neck_stretch)이 있을 때만 — 없으면 기린도 그냥 안 함
+    /// 이 동물의 특별 동작 (pet.json에 있는 그림으로 찾음)
     pub fn special(&self) -> Option<crate::behavior::Special> {
-        let special = crate::behavior::Special::from_manifest(|n| self.has_anim(n));
-        special.filter(|s| !(s.replaces_roll() && self.no_roll() && self.neck_stretch.is_none()))
+        crate::behavior::Special::from_manifest(|n| self.has_anim(n))
     }
 
     /// 벽 타기 (뒷모습 climb + slide 둘 다 있어야 함)
@@ -307,7 +298,7 @@ impl PetManifest {
         self.locomotion == Locomotion::Hop
     }
 
-    /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 개구리는 늘 폴짝, 유령·새는 남)
+    /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 개구리는 늘 폴짝, 유령은 남)
     pub fn hop_share(&self) -> f64 {
         if self.locomotion == Locomotion::Walk { self.hop_share } else { 0.0 }
     }
@@ -536,17 +527,6 @@ mod tests {
         }
     }
 
-    /// 새: swift는 나는 동물에게만 뜻이 있음 (걷는 동물에 적혀 있어도 PetConfig::swift는 꺼짐). 없으면 false
-    #[test]
-    fn swift_defaults_off_and_only_counts_for_flyers() {
-        assert!(!parse_manifest(&full_json()).unwrap().swift);
-        let walker = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "swift": true,"#);
-        let m = parse_manifest(&walker).unwrap();
-        assert!(m.swift && !crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").swift);
-        let flyer = walker.replace(r#""swift": true,"#, r#""swift": true, "locomotion": "fly","#);
-        assert!(crate::brain::PetConfig::from_manifest(&parse_manifest(&flyer).unwrap(), 1.0, 1.0, "teenager").swift);
-    }
-
     #[test]
     fn locomotion_defaults_to_walk_and_parses_fly() {
         assert_eq!(parse_manifest(&full_json()).unwrap().locomotion, Locomotion::Walk);
@@ -569,22 +549,18 @@ mod tests {
         assert!(parse_manifest(&bad).is_err());
     }
 
+    /// 기린 목 늘이기·레서판다 깜짝은 그 동물과 함께 없어짐 (v0.7.0) — 옛 pet.json에 남아 있어도 특별 동작이 아님
     #[test]
-    fn parses_giraffe_neckstretch() {
-        let json = full_json().replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 3, "fps": 2},"#);
-        let m = parse_manifest(&json).unwrap();
-        assert!(m.has_anim("neckstretch"));
-        assert_eq!(crate::behavior::Special::from_manifest(|n| m.has_anim(n)), Some(crate::behavior::Special::NeckStretch));
-        assert_eq!(OPTIONAL_ANIMS[5], "neckstretch");
-        let bad = full_json().replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 0, "fps": 2},"#);
-        assert!(parse_manifest(&bad).is_err());
+    fn the_removed_giraffe_and_red_panda_poses_are_no_longer_specials() {
+        assert!(!OPTIONAL_ANIMS.contains(&"neckstretch") && !OPTIONAL_ANIMS.contains(&"surprise"));
+        let json = full_json().replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 3, "fps": 2}, "surprise": {"row": 22, "frames": 3, "fps": 8},"#);
+        assert_eq!(parse_manifest(&json).unwrap().special(), None);
     }
 
     /// 올려다보기: 선택 동작의 맨 끝 — 있으면 can_look_up, 없으면 그냥 쳐다봄
     #[test]
     fn parses_lookup_as_the_last_optional_anim() {
-        assert_eq!(OPTIONAL_ANIMS[6], "lookup");
-        assert_eq!(OPTIONAL_ANIMS[10], "surprise"); // 레서판다 깜짝 (v0.5.5)
+        assert_eq!(OPTIONAL_ANIMS[5], "lookup");
         assert!(!parse_manifest(&full_json()).unwrap().can_look_up());
         let json = full_json().replace(r#""animations": {"#, r#""animations": {"lookup": {"row": 21, "frames": 3, "fps": 3},"#);
         assert!(parse_manifest(&json).unwrap().can_look_up());
@@ -605,7 +581,7 @@ mod tests {
     /// 공룡: lookup 뒤의 fire·roar·stomp → 공룡 특별 동작 (셋 중 하나를 고름)
     #[test]
     fn parses_dino_anims_as_the_dino_special() {
-        assert_eq!(OPTIONAL_ANIMS[7..10], ["fire", "roar", "stomp"]);
+        assert_eq!(OPTIONAL_ANIMS[6..9], ["fire", "roar", "stomp"]);
         let json = full_json().replace(
             r#""animations": {"#,
             r#""animations": {"fire": {"row": 21, "frames": 4, "fps": 4, "loop": false}, "roar": {"row": 22, "frames": 3, "fps": 4}, "stomp": {"row": 23, "frames": 4, "fps": 6},"#,
@@ -665,13 +641,13 @@ mod tests {
     /// 번들 흐물이만 겁쟁이(만세 줄행랑)·기운 넘침·창 옆면 매달리기 — 셋 다 그림(panic·hang·rope)이 있음
     #[test]
     fn bundled_heumul_is_timid_energetic_and_rigs_window_sides() {
-        assert_eq!(&OPTIONAL_ANIMS[11..14], &["panic", "hang", "rope"]);
-        assert_eq!(&OPTIONAL_ANIMS[14..21], &JUGGLE_ANIMS, "물건 들어 던지기 (v0.6.2)");
-        assert_eq!(&OPTIONAL_ANIMS[21..23], &TASKBAR_ANIMS, "📌 작업표시줄 놀이 (v0.6.2)");
-        assert_eq!(&OPTIONAL_ANIMS[23..32], &ANTICS_ANIMS, "흐물이 더 놀기 (v0.6.3, ⌨️ type v0.6.4)");
-        assert_eq!(&OPTIONAL_ANIMS[32..33], &KNOCK_ANIMS, "🐱 툭툭 (v0.6.3)");
-        assert_eq!(&OPTIONAL_ANIMS[33..36], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3)");
-        assert_eq!(&OPTIONAL_ANIMS[36..], &WEB_ANIMS, "🕷️ 거미인간 — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[9..12], &["panic", "hang", "rope"]);
+        assert_eq!(&OPTIONAL_ANIMS[12..19], &JUGGLE_ANIMS, "물건 들어 던지기 (v0.6.2)");
+        assert_eq!(&OPTIONAL_ANIMS[19..21], &TASKBAR_ANIMS, "📌 작업표시줄 놀이 (v0.6.2)");
+        assert_eq!(&OPTIONAL_ANIMS[21..30], &ANTICS_ANIMS, "흐물이 더 놀기 (v0.6.3, ⌨️ type v0.6.4)");
+        assert_eq!(&OPTIONAL_ANIMS[30..31], &KNOCK_ANIMS, "🐱 툭툭 (v0.6.3)");
+        assert_eq!(&OPTIONAL_ANIMS[31..34], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3)");
+        assert_eq!(&OPTIONAL_ANIMS[34..], &WEB_ANIMS, "🕷️ 거미인간 — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
@@ -940,18 +916,6 @@ mod tests {
         assert!((x - (15.0 / 24.0 - 0.5)).abs() < 1e-9 && (y - (6.0 - 1.2) / 24.0).abs() < 1e-9, "{x} {y}");
         let (x, _) = m.hang_grip("adult");
         assert!(x.abs() < 1e-9, "{x}");
-    }
-
-    /// 기린: 목 늘이기 층이 있으면 픽셀에서도 늘이고, 없으면 그 동작은 없음. 구르기는 어느 쪽도 없음
-    #[test]
-    fn pixel_giraffe_keeps_its_neck_stretch_only_with_layers() {
-        use crate::behavior::Special;
-        let base = parse_manifest(&full_json().replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 3, "fps": 2},"#)).unwrap();
-        assert_eq!(base.special(), Some(Special::NeckStretch), "round always");
-        let anim = |extra: &str| pixel_json(extra).replace(r#""animations": {"#, r#""animations": {"neckstretch": {"row": 21, "frames": 3, "fps": 2},"#);
-        assert_eq!(parse_pixel_manifest(&anim(""), &base).unwrap().special(), None);
-        let with = parse_pixel_manifest(&anim(r#""neck_stretch": {"baby": {"cut": 9, "tile": 3, "ext": 12}},"#), &base).unwrap();
-        assert_eq!(with.special(), Some(Special::NeckStretch));
     }
 
     /// PNG 머리에서 (너비, 높이)

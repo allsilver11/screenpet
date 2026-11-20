@@ -9,7 +9,7 @@
   - 프레임 하나의 크기로 칸 크기를 정하고, 높이 뛴 프레임은 창을 정수 칸만큼 옮긴다 (_fit_shift).
 
     python tools/draw_pixel.py [묶음…] [--no-preview]
-      → ui/pets_pixel/<id>/{sheet_<stage>.png ×5, pet.json} (기린은 neck_<stage>.png, neck_tile_<stage>.png 도)
+      → ui/pets_pixel/<id>/{sheet_<stage>.png ×5, pet.json}
       → tools/preview/pixel_<묶음>.png (실제 표시 크기 + 확대, 밝은·어두운 바탕). 묶음: GROUPS
 
 단계마다 칸 수 × 화면 배율 = 표시 크기 (STAGE_GRID). 동글 그림은 바이트까지 그대로다 (test_draw_pixel.py).
@@ -35,10 +35,8 @@ import draw_farm as dfarm  # noqa: E402
 import draw_frog as df  # noqa: E402
 import draw_halloween as dh  # noqa: E402
 import draw_snowman as ds  # noqa: E402
-import draw_bird as dbird  # noqa: E402
 import draw_penguin as dpeng  # noqa: E402
 import draw_squirrel as dsq  # noqa: E402
-import draw_redpanda as dred  # noqa: E402
 import draw_heumul as dheu  # noqa: E402
 import draw_spider  # noqa: E402,F401  (거미인간 — SPECIES 등록)
 from sprite_spec import TINTABLE  # noqa: E402
@@ -47,7 +45,7 @@ K = dp.K
 OUT_ROOT = Path(__file__).resolve().parent.parent / "ui" / "pets_pixel"
 NO_ANIM = {"roll"}
 # 도는 구르기는 도트로 돌리면 무너져서 픽셀에서 빠진다. 돌지 않는 배 미끄럼(sprite_spec NO_SPIN 중 펭귄·눈사람)만 roll 줄을 그대로 그린다
-# — 픽셀 pet.json에는 spin이 없어 앱도 돌리지 않는다. 산타 썰매·기린 목 늘이기는 NO_SPIN이어도 픽셀에서는 아직 없다
+# — 픽셀 pet.json에는 spin이 없어 앱도 돌리지 않는다. 산타 썰매는 NO_SPIN이어도 픽셀에서는 아직 없다
 PIXEL_ROLL = {"penguin", "snowman"}
 assert PIXEL_ROLL <= dp.NO_SPIN
 
@@ -120,13 +118,11 @@ _OWNERS = {  # 바꿔 끼우는 이름 → 원래 있는 모듈
     dh: ("_finish", "pk_face", "_heart_items", "candy_bubble_fx", "lolly_bubble_fx"),
     dc: ("_nose_glow", "_apple_bubble", "milk_bubble_fx", "_beard_fns", "_mitt_arm"),
     df: ("fly_bubble_fx",),
-    dfarm: ("bread_bubble_fx", "leaf_bubble_fx", "duck_bill", "GF_STAGE", "neck_geometry"),
+    dfarm: ("bread_bubble_fx", "duck_bill"),
     dd: ("melon_bubble_fx", "broc_bubble_fx", "grape_bubble_fx", "FOOD_BUBBLE", "wave_fx", "dust_fx", "impact_fx"),
     ds: ("ice_bubble_fx",),
-    dbird: ("seeds_bubble_fx",),
     dpeng: ("shrimp_bubble_fx", "GLASS", "PG_STAGE"),
     dsq: ("acorn_bubble_fx",),
-    dred: ("bamboo_bubble_fx",),
     dheu: ("HM_PIXEL",),
 }
 _ORIG = {name: getattr(mod, name) for mod, names in _OWNERS.items() for name in names}
@@ -282,8 +278,6 @@ def brows(kind, cx, cy, flip=False):
     if not _wide():
         rows = {"sad": [".#", "#."], "angry": ["#.", ".#"]}[kind]
     st = _stamp(cx, cy, _mirror_rows(rows) if flip else rows, EYE_PAL)
-    if dp._INK["line"] == dfarm.GIR_LINE:  # 기린: 머리가 작아 눈썹은 뿔·귀와 엉킨다
-        return []
     st.y -= (4.0 if _wide() else 3.0) + (1.0 if dp._ST["sparkle"] else 0.0)  # 눈 위 한 칸 띄워서 (칸으로 재야 감은 눈과 붙어 ◇가 되지 않는다)
     return [([st], None)]
 
@@ -677,15 +671,10 @@ def _mitt_arm(sh, side, a, ln, w, lvl):
     return [p, dp.Part([dp.C(t[0], t[1], w * 0.62)], dc.MITT if lvl else dc.SKIN, grow=0)]
 
 
-# ---------------------------------------------------------------- 오리·기린·공룡
+# ---------------------------------------------------------------- 오리·공룡
 def duck_bill(cx, cy, mouth, side, k=1.0):
     """앞모습 부리가 눈까지 올라오면 눈이 부리에 붙어 안 보인다 → 조금 작고 낮게."""
     return _ORIG["duck_bill"](cx, cy + (0 if side else 4), mouth, side, k * (1.0 if side else 0.84))
-
-
-GF_STAGE = {lvl: dict(st, lash=False, daisy=False) for lvl, st in dfarm.GF_STAGE.items()}  # 속눈썹·데이지는 칸에서 얼룩
-GF_STAGE[0].update(neck=0.8, ossi=1, spots=1)  # 아기: 목·뿔·무늬가 있어야 24칸에서 기린이다
-GF_STAGE[1].update(neck=0.85)
 
 
 WAVE_ROWS = {2: ["#.#.", ".#.#", ".#.#", "#.#."], 3: ["#.#.#.", ".#.#.#", ".#.#.#", "#.#.#."]}
@@ -810,15 +799,12 @@ ICONS = {  # 넓은 격자, 좁은 격자
     "apple": (["..g..", ".rrr.", "rwrrr", "rrrrr", ".r.r."], [".g.", "rrr", "rrr"]),
     "milk": (["sss..", "www.t", "www.b", "www.."], ["ss", "mm", "mm"]),
     "bread": ([".bbb.", "bttbb", "btttb", "bbbbb"], ["bbb", "btb", "bbb"]),
-    "leaf": (["..ggg", ".gGgg", "gGgg.", "G...."], [".gg", "gGg", "G.."]),
     "melon": (["rrkrr", ".rrr.", "ggggg"], ["rkr", "ggg"]),
     "broc": ([".ggg.", "gGgGg", ".ggg.", "..n.."], ["ggg", ".n."]),
     "grape": (["..g..", "PP.PP", ".PPP.", "..P.."], ["P.P", ".P."]),
     "ice": ([".www.", "wwwww", "BBBBB", ".BBB."], ["sss", "BBB"]),
     "shrimp": ([".oo..", "o..o.", "o.oo.", ".oo.."], ["oo.", "o.o", ".o."]),
-    "seeds": (["..t..", ".tbt.", "t.t.t", ".tbt."], [".t.", "tbt"]),
     "acorn": (["..n..", "nnnnn", ".ooo.", ".ooo.", "..o.."], [".n.", "nnn", ".o."]),
-    "bamboo": (["g..yG", ".gyG.", "..yg.", ".yG.g"], [".yg", "gy.", "y.."]),
 }
 
 
@@ -892,73 +878,14 @@ _PATCH = dict(compose=compose, stage_eye=stage_eye, blush=blush, open_mouth=open
               front_paw=front_paw, back_tail=back_tail, _finish=_finish, pk_face=pk_face, _heart_items=_heart_items,
               _nose_glow=_nose_glow, candy_bubble_fx=_bubble_fn("candy"), lolly_bubble_fx=_bubble_fn("lolly"),
               _apple_bubble=_bubble_fn("apple"), milk_bubble_fx=_bubble_fn("milk"), fly_bubble_fx=_bubble_fn("fly"), bread_bubble_fx=_bubble_fn("bread"),
-              leaf_bubble_fx=_bubble_fn("leaf"), melon_bubble_fx=_bubble_fn("melon"), broc_bubble_fx=_bubble_fn("broc"), grape_bubble_fx=_bubble_fn("grape"),
-              ice_bubble_fx=_bubble_fn("ice"), _beard_fns=_beard_fns, _mitt_arm=_mitt_arm, duck_bill=duck_bill, GF_STAGE=GF_STAGE,
-              wave_fx=wave_fx, dust_fx=dust_fx, impact_fx=impact_fx, seeds_bubble_fx=_bubble_fn("seeds"), shrimp_bubble_fx=_bubble_fn("shrimp"), bamboo_bubble_fx=_bubble_fn("bamboo"),
+              melon_bubble_fx=_bubble_fn("melon"), broc_bubble_fx=_bubble_fn("broc"), grape_bubble_fx=_bubble_fn("grape"),
+              ice_bubble_fx=_bubble_fn("ice"), _beard_fns=_beard_fns, _mitt_arm=_mitt_arm, duck_bill=duck_bill,
+              wave_fx=wave_fx, dust_fx=dust_fx, impact_fx=impact_fx, shrimp_bubble_fx=_bubble_fn("shrimp"),
               FOOD_BUBBLE={"dino_yellow": _bubble_fn("melon"), "dino_green": _bubble_fn("broc"), "dino_purple": _bubble_fn("grape")})
 
 
 def _modules():
-    return [dp, dc, dd, dfarm, df, dh, ds, dbird, dpeng, dred, dsq, dheu]
-
-
-@contextmanager
-def _unpatched():
-    """픽셀 문맥 안에서 잠깐 동글 그림 코드로 (기린 목 길이 재기는 128칸 그림에서 잰다)."""
-    saved = []
-    for mod in _modules():
-        for name, new in _PATCH.items():
-            if getattr(mod, name, None) is new:
-                saved.append((mod, name, new))
-                setattr(mod, name, _ORIG[name])
-    try:
-        yield
-    finally:
-        for mod, name, new in saved:
-            setattr(mod, name, new)
-
-
-def neck_geometry(sp):
-    """동글 그림으로 잰 목 자리 → 도트 격자에 맞춘다: 자르는 줄 · 토막 높이 · 늘이는 길이가 모두 정수 칸, 무늬 주기 = 토막 높이."""
-    with _unpatched():
-        g = dict(_ORIG["neck_geometry"](sp))
-    grid = _PX["grid"]
-    s_, lift = dfarm._view_k()
-    cut = int(round((g["cut"] - grid.oy) / grid.cell))
-    tile = max(3, round(dfarm.NECK_TILE / grid.cell))
-    g.update(cut_dot=cut, tile_dot=tile, ext_dot=max(tile, round(g["ext"] / grid.cell / tile) * tile),
-             period=tile * grid.cell / s_, cut_pre=126 + (cut * grid.cell + grid.oy + lift - 126) / s_)
-    return g
-
-
-def neck_layers_pixel(sp, stage):
-    """기린 목 늘이기 층 (도트): (층 4칸 가로 4n×n, 목 토막 n×tile, 메타 {cut, tile, ext} — 칸 단위)."""
-    grid = stage_grid(sp, stage)
-    n = grid.n
-    with _stage_ctx(sp, stage), pixel_mode(grid):
-        ssp = pixel_species(dp.staged_species(sp))
-        with dp.view(scale=ssp.scale * dp._ST["fit"], lift=dp.LIFT + 1.7 * dp.OUTLINE * (dp._ST["line"] - 1)):
-            old_ink = dp._INK["line"]
-            dp._INK["line"] = ssp.outline or dp.LINE
-            try:
-                g = neck_geometry(ssp)
-                cut = g["cut_dot"]
-                strip = Image.new("RGBA", (4 * n, n), (0, 0, 0, 0))
-                strip.paste(dfarm._neck_pose(ssp, 0, g["period"], g["cut_pre"]).crop((0, cut, n, n)), (0, cut))
-                for j in range(3):
-                    im = dfarm._neck_pose(ssp, j, g["period"], g["cut_pre"])
-                    strip.paste(im.crop((0, 0, n, cut)), ((j + 1) * n, 0))
-                a = g["a"]
-                w = dfarm.NECK_W * dp._ST["body"] ** 0.5
-                col = dp.Part([dp.L([(a[0], a[1] + 200), (a[0], a[1] - 400)], w)], dfarm.GIR,
-                              dfarm.neck_marks((a[0], a[1] + 200), (a[0], a[1] - 400), w, g["period"], g["cut_pre"]), grow=1)
-                dx = _PX["last_dx"]
-                tall = dp.compose([col], noshift=True)
-                tile = Image.new("RGBA", (n, g["tile_dot"]), (0, 0, 0, 0))
-                tile.paste(tall.crop((0, cut - g["tile_dot"], n, cut)), (dx, 0))
-            finally:
-                dp._INK["line"] = old_ink
-    return strip, tile, {"cut": cut, "tile": g["tile_dot"], "ext": g["ext_dot"]}
+    return [dp, dc, dd, dfarm, df, dh, ds, dpeng, dsq, dheu]
 
 
 @contextmanager
@@ -981,7 +908,6 @@ def pixel_mode(grid, collect=None):
             setattr(mod, name, cur)
 
 
-_PATCH["neck_geometry"] = neck_geometry
 _PATCH["acorn_bubble_fx"] = _bubble_fn("acorn")  # 다람쥐 🌰
 # 펭귄 안경: 칸이 적어 테가 눈에 붙으면 까만 덩어리가 된다 → 렌즈를 키워 눈과 테 사이에 렌즈 칸을 남기고, 앞모습 다리는 빼고, 반짝은 한 칸 점
 _PATCH["GLASS"] = dict(dpeng.GLASS, r=0.54, dx=0.52, arms=False, glint="dot", alpha_key=False)  # 반투명 없음: 번쩍은 렌즈 색으로 고른다
@@ -1118,8 +1044,8 @@ def render_ink_masks(sp, stage, anims=None):
     return {anim: [dheu.ink_mask(x, y, hard=True) for x, y in zip(dark[anim], light[anim])] for anim in dark}
 
 
-def manifest_for(sp, heads, necks, neck_stretch=None, grips=None):
-    """픽셀 pet.json: 그림 정보만 (속도·성격·크기·집·대사는 앱이 동글 pet.json에서 읽는다). head·neck·neck_stretch는 그 단계의 칸 좌표."""
+def manifest_for(sp, heads, necks, grips=None):
+    """픽셀 pet.json: 그림 정보만 (속도·성격·크기·집·대사는 앱이 동글 pet.json에서 읽는다). head·neck은 그 단계의 칸 좌표."""
     animations = {}
     for row, (anim, cnt, fps, loop, front) in enumerate(pixel_rows(sp)):
         spec = {"row": row, "frames": cnt, "fps": fps}
@@ -1131,29 +1057,23 @@ def manifest_for(sp, heads, necks, neck_stretch=None, grips=None):
     m = {"name": sp.name, "frame_sizes": {st: stage_dots(sp.id, st) for st in dp.STAGES}, "animations": animations, "head": heads}
     if any(necks.values()):
         m["neck"] = necks
-    if neck_stretch:
-        m["neck_stretch"] = neck_stretch
     if grips and any(grips.values()):
         m["grip"] = grips
     return m
 
 
 def write_species(sp, out_root=OUT_ROOT):
-    """ui/pets_pixel/<id>/{sheet_<stage>.png ×5, pet.json} (기린은 neck_<stage>.png, neck_tile_<stage>.png도). {stage: {anim: [frames]}} 반환."""
+    """ui/pets_pixel/<id>/{sheet_<stage>.png ×5, pet.json}. {stage: {anim: [frames]}} 반환."""
     out = Path(out_root) / sp.id
     out.mkdir(parents=True, exist_ok=True)
-    by_stage, heads, necks, stretch, grips = {}, {}, {}, {}, {}
+    by_stage, heads, necks, grips = {}, {}, {}, {}
     for st in dp.STAGES:
         grips[st] = {}
         by_stage[st], heads[st], necks[st] = render_with_marks(sp, st, grips[st])
         write_sheet(sp, by_stage[st], out / f"sheet_{st}.png")
         if sp.id in TINTABLE:
             write_sheet(sp, render_ink_masks(sp, st), out / f"ink_{st}.png")
-        if "neckstretch" in by_stage[st]:
-            strip, tile, stretch[st] = neck_layers_pixel(sp, st)
-            strip.save(out / f"neck_{st}.png", optimize=True)
-            tile.save(out / f"neck_tile_{st}.png", optimize=True)
-    m = manifest_for(sp, heads, necks, stretch, grips)
+    m = manifest_for(sp, heads, necks, grips)
     (out / "pet.json").write_text(dp._manifest_text(m), encoding="utf-8")
     return by_stage
 
@@ -1161,14 +1081,14 @@ def write_species(sp, out_root=OUT_ROOT):
 # ---------------------------------------------------------------- 미리보기 (tools/preview/pixel_<묶음>.png)
 LIGHT, DARK = (240, 240, 244), (44, 46, 58)
 GROUPS = {"animals": ["cat", "rabbit", "persian"], "frog": ["frog"], "halloween": ["pumpkin", "ghost"],
-          "farm": ["duck", "giraffe"], "christmas": ["rudolph", "santa", "snowman"], "dinos": ["dino_yellow", "dino_green", "dino_purple"],
-          "birds": ["bird"], "penguin": ["penguin"], "redpanda": ["redpanda"]}
+          "farm": ["duck"], "christmas": ["rudolph", "santa", "snowman"], "dinos": ["dino_yellow", "dino_green", "dino_purple"],
+          "penguin": ["penguin"]}
 GROUPS["squirrel"] = ["squirrel"]
 GROUPS["heumul"] = ["heumul"]
 GROUPS["spider"] = ["spider"]
 KEY_FRAMES = [("walk", 0), ("run", 1), ("sit_front", 0), ("sleep", 0), ("hungry", 1), ("heart", 2), ("tilt", 1), ("fall", 0), ("wave", 1),
               ("eat", 0), ("level_up", 2), ("lookup", 2)]
-EXTRA_KEYS = [("climb", 0), ("climb", 2), ("slide", 1), ("bigjump", 1), ("neckstretch", 2), ("arch", 2), ("huff", 1),
+EXTRA_KEYS = [("climb", 0), ("climb", 2), ("slide", 1), ("bigjump", 1), ("arch", 2), ("huff", 1),
               ("fire", 2), ("roar", 1), ("stomp", 1)]
 KEY_COUNT = 16
 PREVIEW_LIMIT = 8000

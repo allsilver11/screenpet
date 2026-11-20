@@ -55,7 +55,6 @@ async function loadPet() {
   petEl.style.backgroundImage = `url(${url})`;
   petEl.style.backgroundSize = `${img.width * k}px ${img.height * k}px`;
   setupTint(m, dir, `${img.width * k}px ${img.height * k}px`);
-  setupNeck(m, side, k, dir);
   // 동물이 바뀌면 모자 ↔ 목도리 (pet-presence는 그대로라 다시 오지 않음)
   if (lastPresence) {
     setCap(!!lastPresence.nightcap);
@@ -123,88 +122,7 @@ window.addEventListener("resize", () => {
     return;
   }
   petEl.style.left = centerLeft(display);
-  neckEl.style.left = petEl.style.left;
 });
-
-// 기린 목 늘이기 (백엔드 anim "neckstretch" — 코어 behavior::NECK_STRETCH_SECS 3.4초 동안 제자리):
-// 목이 평소의 두 배로 쭉 늘었다가 돌아옴. 시트 한 칸으로는 담을 수 없어 층으로 그림 —
-// 픽셀 그림은 늘 PNG다 (WebP로 바꾸는 건 동글 그림뿐, tools/pack_webp.py)
-function neckExt(dir) {
-  return dir.startsWith("pets_pixel") ? "png" : PET_ART_EXT;
-}
-
-// pets/giraffe/neck_<stage>.png (가로 4칸: 몸 · 머리 "어?" · 머리 깜빡 · 머리 ✧ 흐뭇, 모두 시트와 같은 좌표)와
-// neck_tile_<stage>.png (곧은 목 한 토막, 무늬 주기 = 높이). pet.json neck_stretch[stage] = {cut, tile, ext}:
-// cut 줄 아래는 몸 층, 위는 머리 층. 머리 층을 ext만큼 올리고 그 사이를 목 토막으로 채움 (토막은 머리에 붙어 함께 올라감).
-// 그동안 창은 백엔드(slots STRETCH_SPACE)가 위로 키우고, 몸(#pet)은 투명하게 두어 잡기·누르기는 그대로 받음
-const NECK_UP_MS = 700;
-const NECK_HOLD_MS = 2000;
-const NECK_DOWN_MS = 700;
-const neckEl = document.createElement("div");
-neckEl.id = "neck";
-neckEl.hidden = true;
-neckEl.innerHTML = '<div class="nk-body"></div><div class="nk-tile"></div><div class="nk-head"></div>';
-petEl.after(neckEl);
-const [nkBody, nkTile, nkHead] = neckEl.children;
-let neck = null;
-
-// 기린 목 늘이기 그림을 준비함 (이 단계에 목 정보가 있을 때만)
-function setupNeck(m, side, k, dir) {
-  const meta = m.neck_stretch?.[stage.stage];
-  neck = null;
-  neckEl.hidden = true;
-  petEl.style.opacity = "";
-  if (!meta) return;
-  neck = { meta, k, side };
-  neckEl.style.width = side + "px";
-  neckEl.style.height = side + "px";
-  neckEl.style.left = petEl.style.left;
-  for (const el of [nkBody, nkHead]) {
-    el.style.backgroundImage = `url(${dir}neck_${stage.stage}.${neckExt(dir)})`;
-    el.style.backgroundSize = `${4 * side}px ${side}px`;
-  }
-  nkTile.style.backgroundImage = `url(${dir}neck_tile_${stage.stage}.${neckExt(dir)})`;
-  nkTile.style.backgroundSize = `${side}px ${meta.tile * k}px`;
-}
-
-// 끝에서 느려지는 3차 이징
-const easeOut = (t) => 1 - (1 - t) ** 3;
-// 처음과 끝에서 느려지는 3차 이징
-const easeInOut = (t) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
-
-// 늘이는 정도 0..1과 머리 그림 (0 어? · 1 깜빡 · 2 ✧) — 다 늘인 동안 어? → 깜빡 → ✧ 흐뭇
-function neckPhase(ms) {
-  if (ms < NECK_UP_MS) return { p: easeOut(ms / NECK_UP_MS), head: 0 };
-  const h = ms - NECK_UP_MS;
-  if (h < NECK_HOLD_MS) return { p: 1, head: h < 600 ? 0 : h < 850 ? 1 : 2 };
-  const d = Math.min(1, (h - NECK_HOLD_MS) / NECK_DOWN_MS);
-  return { p: 1 - easeInOut(d), head: d < 0.5 ? 2 : 0 };
-}
-
-// 그리면 true (그동안 #pet은 투명)
-function drawNeck(elapsed) {
-  if (!neck || render.anim !== "neckstretch") {
-    if (!neckEl.hidden) {
-      neckEl.hidden = true;
-      petEl.style.opacity = "";
-    }
-    return false;
-  }
-  const { meta, k, side } = neck;
-  const { p, head } = neckPhase(elapsed);
-  // 픽셀: 한 칸씩 늘어남
-  const ext = pixelMode ? Math.round(meta.ext * p) * k : meta.ext * k * p;
-  nkTile.style.top = `${meta.cut * k - ext}px`;
-  nkTile.style.height = `${ext}px`;
-  nkHead.style.backgroundPosition = `${-(head + 1) * side}px 0`;
-  nkHead.style.transform = `translateY(${-ext}px)`;
-  neckEl.style.transform = render.flip ? "scaleX(-1)" : "none";
-  if (neckEl.hidden) {
-    neckEl.hidden = false;
-    petEl.style.opacity = "0";
-  }
-  return true;
-}
 
 // 공룡 쿵쾅 (v0.3.6): 쿵! 하는 그림(stomp 1·3장)마다 몸이 덜덜, 쿵쾅에 흔들린 친구(백엔드 render.wobble, 0.4초)도 덜덜 —
 // 스프라이트만 살짝 옮김 (창은 그대로)
@@ -253,7 +171,7 @@ function headgearLayout(entry, k, capOn, flip) {
   return { cap, ring };
 }
 // 앞모습 동작 (코어 Anim::is_front) — 머리가 가운데임. 옆모습은 시트에서 오른쪽을 봄
-const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "hungry", "eat", "level_up", "huff", "surprise"]);
+const FRONT_ANIMS = new Set(["sit_front", "wave", "tilt", "belly", "stretch", "heart", "tickle", "hungry", "eat", "level_up", "huff"]);
 // 목도리 SVG(ui/index.html #scarf)의 기준점과 너비 (viewBox 좌표)
 const SCARF_ANCHOR_X = 26;
 const SCARF_ANCHOR_Y = 8;
@@ -390,9 +308,9 @@ function headTop(row, f, front) {
   return top;
 }
 
-// host: 지금 머리가 있는 층 — 평소 #pet, 기린 목 늘이기 동안은 머리 층 (#pet이 투명해지고 머리가 위로 올라감)
-function placeHeadgear(anim, f, host) {
-  if (nightcapEl.parentNode !== host) host.append(nightcapEl, focusringEl, scarfEl, capPxEl, scarfPxEl, ringPxEl);
+// 모자·고리는 #pet의 자식 (몸과 한 덩어리)
+function placeHeadgear(anim, f) {
+  if (nightcapEl.parentNode !== petEl) petEl.append(nightcapEl, focusringEl, scarfEl, capPxEl, scarfPxEl, ringPxEl);
   const wearing = !!lastPresence.nightcap;
   const scarf = manifest.neck?.[stage.stage]?.[anim]?.[f];
   const capOn = wearing && !manifest.neck;
@@ -639,7 +557,6 @@ function draw(now) {
     const hopLeap = render.anim === "bigjump" && !manifest.animations.bigjump;
     const spec = hopLeap ? manifest.animations.hop : (manifest.animations[render.anim] ?? manifest.animations.idle);
     const elapsed = Math.max(0, now - animStart);
-    const neckOn = drawNeck(elapsed);
     // ⌨️ 흐물이 타자 응원: type 칸은 시간이 아니라 코어가 고른 손으로 (render.tap — 내가 키를 누를 때마다 바뀜)
     const f = hopLeap ? hopLeapFrame(spec, elapsed) : render.anim === "type" ? Math.min(TYPE_FRAME[render.tap] ?? 0, spec.frames - 1) : frameIndex(spec, elapsed);
     const framePos = `${-f * display}px ${-spec.row * display}px`;
@@ -647,7 +564,7 @@ function draw(now) {
     drawTint(framePos, now);
     if (lastPresence && (lastPresence.nightcap || typeof lastPresence.ring === "number")) {
       const shown = hopLeap ? "hop" : manifest.animations[render.anim] ? render.anim : "idle";
-      placeHeadgear(shown, f, neckOn ? nkHead : petEl);
+      placeHeadgear(shown, f);
     }
     if (sheetImg && render.cloud) placeCloud(spec.row, f);
     // 좌우 반전 공간 안에서 돌리므로 왼쪽으로 갈 땐 자동으로 반대로 구름
@@ -966,10 +883,6 @@ const EXTRA_SPEECH = {
   // 던져져 날다가 친구에게 부딪혀 되튐 / 날아온 것에 살짝 맞음
   ting: ["ting!", "boink!"],
   ow: ["ow!", "ouch!"],
-  // 빠른 새가 친구 화면으로 쌩 날아 나가거나 들어옴
-  whoosh: ["whoosh!", "whoosh~"],
-  // 깜짝 놀라 벌떡 (레서판다, pet.json에 없으면 이 말)
-  surprise: ["!!"],
   // 🤹 흐물이가 물건을 번쩍 / 거대한 것에 끙차 / 휙 던짐 / 친구 화면에 배달 도착 / 너무 무거워 털썩 (코어 brain_juggle.rs)
   hup: ["hup!", "heave-ho!"],
   strain: ["hnngh!", "heave~!"],
@@ -1058,16 +971,13 @@ const CURSOR_LINES = {
   pumpkin: ["bounce!"],
   ghost: ["boo~"],
   duck: ["quack!", "quack quack!"],
-  giraffe: ["ooh, up there?"],
   rudolph: ["jingle!"],
   santa: ["ho ho ho!"],
   snowman: ["brrr~!", "snow!"],
   dino_yellow: ["RAWR!"],
   dino_green: ["rawr!"],
   dino_purple: ["rawr~"],
-  bird: ["chirp chirp!", "tweet?"],
   penguin: ["wheee~!", "slide slide!"],
-  redpanda: ["pounce~!", "kyu kyu!"],
   heumul: ["zoom zoom!", "hup hup!"],
   spider: ["thwip thwip!", "web time!"],
 };

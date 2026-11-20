@@ -37,7 +37,7 @@ HOUSE_DOTS = {"baby": 38, "kinder": 42, "child": 48, "teenager": 48, "adult": 54
 KINDS = ("house", "haunted", "xmas")
 # 그 집에 사는 동물 (문 크기 확인용)
 RESIDENTS = {"haunted": ("pumpkin", "ghost"), "xmas": ("rudolph", "santa", "snowman"),
-             "house": ("cat", "persian", "rabbit", "frog", "duck", "giraffe", "dino_yellow", "dino_green", "dino_purple", "bird", "penguin", "redpanda")}
+             "house": ("cat", "persian", "rabbit", "frog", "duck", "dino_yellow", "dino_green", "dino_purple", "penguin")}
 RESIDENTS["house"] += ("squirrel",)
 GIFT_DOTS = 12
 HAND_DOTS = 12
@@ -772,7 +772,7 @@ def doors_preview():
     """모든 입주자 × 작은·큰 단계 (앉은 모습), 모자·목도리를 쓴 모습."""
     tiles = [scaled(house_with_pet(k, s, pet_cell(pid, s, "sit_front")[2]), STAGE_GRID[s][1]) for k in KINDS for pid in RESIDENTS[k] for s in ("baby", "teenager")]
     grid_preview(tiles, 8, (192, 192), PREVIEW / "pixel_world_doors.png")
-    wear = [scaled(worn(pid, s, a), STAGE_GRID[s][1]) for pid in ("cat", "frog", "rabbit", "giraffe", "santa") for s in ("baby", "teenager") for a in ("idle",)]
+    wear = [scaled(worn(pid, s, a), STAGE_GRID[s][1]) for pid in ("cat", "frog", "rabbit", "duck", "santa") for s in ("baby", "teenager") for a in ("idle",)]
     grid_preview(wear, 5, (224, 224), PREVIEW / "pixel_world_wear.png")
 
 

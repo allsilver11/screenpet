@@ -180,15 +180,6 @@ fn snow_going_away_mid_build_ends_it_without_a_snowman() {
 }
 
 #[test]
-fn a_giraffe_walks_instead_of_rolling() {
-    let (mut p, w) = on_ground(PetConfig { special: Some(Special::NeckStretch), ..sim_cfg() }, 800.0);
-    p.set_snow_ready(true);
-    p.start_snowman(1.0);
-    p.update(DT, &w);
-    assert_eq!(p.render().anim, Anim::Walk);
-}
-
-#[test]
 fn petals_make_a_pet_look_up_more_often() {
     let looker = PetConfig { looks_up: true, ..cfg() };
     let count = |petals: bool| {

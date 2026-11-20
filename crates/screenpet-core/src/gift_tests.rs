@@ -34,12 +34,10 @@ fn every_species_has_about_six_gifts_and_only_dinos_share() {
     assert_ne!(list_for("pumpkin").map(|l| l.key), list_for("ghost").map(|l| l.key));
     assert_eq!(list_for("squirrel").map(|l| (l.key, l.emoji, l.title)), Some(("squirrel", "🐿️", "다람쥐")));
     assert!(list_for("squirrel").unwrap().items.iter().any(|i| i.id == "squirrel_acorn")); // 겨울 대비 도토리
-    assert_eq!(list_for("bird").map(|l| (l.key, l.emoji)), Some(("bird", "🐦")));
-    assert!(list_for("bird").unwrap().items.iter().any(|i| i.id == "bird_gourdseed")); // 흥부네 제비의 박씨
     assert_eq!(list_for("penguin").map(|l| (l.key, l.emoji)), Some(("penguin", "🐧")));
     assert!(list_for("penguin").unwrap().items.iter().any(|i| i.id == "penguin_pebble")); // 펭귄이 고백할 때 건네는 조약돌
-    assert_eq!(list_for("redpanda").map(|l| (l.key, l.emoji, l.title)), Some(("redpanda", "🐾", "레서판다")));
-    assert!(list_for("redpanda").unwrap().items.iter().any(|i| i.id == "redpanda_bamboo"));
+    // 새·기린·레서판다는 없어짐 (v0.7.0) — 선물 목록도 없음
+    assert!(["bird", "giraffe", "redpanda"].iter().all(|s| list_for(s).is_none()));
     assert_eq!(list_for("heumul").map(|l| (l.key, l.emoji, l.title)), Some(("heumul", "🤸", "흐물이")));
     assert!(list_for("dragon").is_none());
 }
@@ -261,7 +259,7 @@ fn gift_falls_when_a_window_covers_its_spot() {
 fn gift_from_a_flying_pet_falls_to_the_first_surface() {
     let w = world_with(vec![window(1, 100.0, 500.0, 900.0, 900.0)]);
     let mut f = GiftField::default();
-    let t = f.add(gift("bird_feather"), None, 300.0, 200.0).unwrap();
+    let t = f.add(gift("duck_feather"), None, 300.0, 200.0).unwrap();
     f.tick(0.016, &w);
     assert!(f.get(t).unwrap().y < 500.0, "still falling");
     for _ in 0..200 {
@@ -414,6 +412,19 @@ fn one_bad_book_entry_or_a_bad_book_does_not_lose_the_config() {
     let c: Config = serde_json::from_str(r#"{"pet":"rabbit","gifts":[1,2,3]}"#).unwrap();
     assert_eq!(c.pet.as_deref(), Some("rabbit"));
     assert!(c.gifts.is_empty());
+}
+
+/// 없어진 동물(새·기린·레서판다)의 선물: 모은 기록은 설정에 그대로 남고 (도감엔 안 보임), 옛 친구가 들려 보내도 받지 않음
+#[test]
+fn gifts_of_removed_pets_stay_saved_but_are_no_longer_accepted() {
+    use crate::config::Config;
+    let c: Config = serde_json::from_str(r#"{"pet":"duck","gifts":{"bird_feather":{"n":2},"duck_bread":{"n":1}}}"#).unwrap();
+    assert_eq!(c.gifts.entry("bird_feather").map(|e| e.n), Some(2), "kept in the config");
+    let v = book_view(&c.gifts);
+    assert_eq!(v.collected, 1, "only the duck's bread shows");
+    assert!(v.sections.iter().all(|s| s.items.iter().all(|i| !i.id.starts_with("bird_"))));
+    assert_eq!(Gift::parse("giraffe_acacia"), None);
+    assert_eq!(accept_visit_gift(Some("redpanda_bamboo"), "redpanda"), None);
 }
 
 #[test]

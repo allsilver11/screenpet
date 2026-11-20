@@ -38,7 +38,7 @@ STAGES = ["baby", "kinder", "child", "teenager", "adult"]
 # 화면 표시 배율 (Rust Stage::scale)
 STAGE_SCALE = {"baby": 0.45, "kinder": 0.60, "child": 0.78, "teenager": 1.00, "adult": 1.15}
 # 청소년 때 이미 128px보다 크게 보이는 동물 (pet.json stage_size >= 1) — 어른과 함께 2배 시트
-HIRES_TEENAGER = {"santa", "dino_green", "dino_purple", "dino_yellow", "giraffe"}
+HIRES_TEENAGER = {"santa", "dino_green", "dino_purple", "dino_yellow"}
 
 
 def sheet_128(path):
@@ -50,7 +50,7 @@ def sheet_128(path):
 
 def frame_px(pid, stage):
     """동글 시트 한 칸의 px: 크게 보이는 단계는 벡터에서 2배로 다시 그린다 (화면 크기는 그대로 — 앱은 칸을 표시 크기에 맞춘다).
-    pet.json frame_sizes에 적히고, head·neck·neck_stretch 표도 이 칸의 px로 적는다."""
+    pet.json frame_sizes에 적히고, head·neck 표도 이 칸의 px로 적는다."""
     return FRAME * 2 if stage == "adult" or (stage == "teenager" and pid in HIRES_TEENAGER) else FRAME
 
 
@@ -63,16 +63,12 @@ OPTIONAL_ANIMS = [
     ("slide", 2, 8, True, False),
     # 개구리: 크게 뛰기 (옆모습, 한 번) — 작은 폴짝은 필수 동작 hop
     ("bigjump", 4, 8, False, False),
-    # 기린: 구르는 대신 목 늘이기 (옆모습, 어? · 깜빡 · ✧) — 늘어나는 목은 앱이 층(neck_<stage>.png)으로 그린다
-    ("neckstretch", 3, 2, True, False),
     # 모든 동물: 위를 올려다보기 (옆모습, 고개 들기 · 쭉 · ✧) — 머리 위에 든 음식, 가끔 쉬다가·걷다가, 커서가 머리 위에 머물 때
     ("lookup", 3, 3, True, False),
     # 공룡: 불 뿜기 (옆모습, 흡 · 퐁 · 화르륵 · 흐뭇 — 한 번) · 크앙 (옆모습, 고개 들고 소리 물결) · 제자리 쿵쾅쿵쾅 (옆모습, 먼지 퐁퐁)
     ("fire", 4, 4, False, False),
     ("roar", 3, 4, True, False),
     ("stomp", 4, 6, True, False),
-    # 레서판다: 깜짝! 뒷발로 벌떡 서서 두 팔 번쩍 (앞모습, 한 번 — 마지막 칸으로 잠깐 굳는다)
-    ("surprise", 3, 8, False, True),
     # 흐물이: 으악! 등을 돌려 두 팔 번쩍(만세) 들고 줄행랑 (옆모습, 반복 — 코어 State::Panic, 친구 동물과 마주치면 반쯤)
     ("panic", 4, 12, True, False),
     # 흐물이: 창 옆면에 한 손으로 매달려 다른 팔로 흐물흐물 손 흔들기 · 밧줄 타듯 손을 번갈아 오르내리기 (옆모습, 창은 오른쪽 — 코어 State::Rig)
@@ -135,14 +131,10 @@ SPEECH = {
     "pumpkin": {"chatter": ["trick or treat!", "boo~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "ghost": {"chatter": ["boo!", "ooo~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "duck": {"chatter": ["quack!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    "giraffe": {"chatter": ["hmm~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "rudolph": {"chatter": ["jingle~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "santa": {"chatter": ["ho ho ho!", "merry~"], "tickle": ["ho ho!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "snowman": {"chatter": ["brrr~", "snow!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    "bird": {"chatter": ["chirp!", "whoosh!", "tweet~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "penguin": {"chatter": ["waddle~", "wheee!", "pip pip!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    "redpanda": {"chatter": ["kyu kyu~", "peekaboo!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "surprise": ["!!", "eep!"],
-                 **_CARE_SPEECH},
     "heumul": {"chatter": ["wheee!", "zoom zoom!", "hup!"], "tickle": ["hehehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     # 🕷️ 거미인간: 줄 쏘기 thwip · 거미집 web · 그네 web_swing · 영웅 착지 hero_land · 끌어오기 gotcha · 🌀 휘둘러 던지기 yeet (코어 Speech)
     "spider": {"chatter": ["thwip!", "web time!", "hi-ya!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "thwip": ["thwip!"],
@@ -154,15 +146,12 @@ DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], 
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "persian": "aloof", "squirrel": "playful", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
-               "duck": "playful", "giraffe": "friendly", "bird": "playful", "penguin": "playful", "redpanda": "playful", "heumul": "playful", "spider": "playful",
+               "duck": "playful", "penguin": "playful", "heumul": "playful", "spider": "playful",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
 
 # 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
-LOCOMOTION = {"frog": "hop", "ghost": "fly", "bird": "fly"}
-
-# 빠른 나는 동물 (pet.json swift) — 더 자주 내려앉아 쉬고, 친구 화면으로는 "whoosh!" 쌩 (코어 PetConfig::swift)
-SWIFT = {"bird"}
+LOCOMOTION = {"frog": "hop", "ghost": "fly"}
 
 # 사는 집 그림 (pet.json house) — 보통 집은 적지 않는다. 앱 ui/house/<house>_<stage>.png
 HOUSE = {"pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
@@ -170,8 +159,8 @@ HOUSE = {"pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "
 # 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (개구리는 locomotion hop이라 늘 폴짝)
 HOP_SHARE = {"rabbit": 0.5, "squirrel": 0.35, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5, "heumul": 0.5}
 
-# roll을 돌리지 않는 동물 (pet.json roll에 spin 없음) — 산타는 구르는 대신 썰매를 타고, 눈사람은 배로 미끄러지고, 기린은 목을 늘이고, 펭귄은 배로 쭉 미끄러진다
-NO_SPIN = {"santa", "snowman", "giraffe", "penguin"}
+# roll을 돌리지 않는 동물 (pet.json roll에 spin 없음) — 산타는 구르는 대신 썰매를 타고, 눈사람은 배로 미끄러지고, 펭귄은 배로 쭉 미끄러진다
+NO_SPIN = {"santa", "snowman", "penguin"}
 
 # 가끔 머리 위에 작은 눈구름을 부르는 동물 (pet.json snow_cloud)
 SNOW_CLOUD = {"snowman"}
@@ -220,16 +209,13 @@ FAVORITE_FOOD = {
     "pumpkin": {"emoji": "🍬", "name": "사탕"},
     "ghost": {"emoji": "🍭", "name": "막대사탕"},
     "duck": {"emoji": "🍞", "name": "빵"},
-    "giraffe": {"emoji": "🍃", "name": "나뭇잎"},
     "rudolph": {"emoji": "🍎", "name": "사과"},
     "santa": {"emoji": "🥛", "name": "우유"},
     "snowman": {"emoji": "🍧", "name": "빙수"},
     "dino_yellow": {"emoji": "🍉", "name": "수박"},
     "dino_green": {"emoji": "🥦", "name": "브로콜리"},
     "dino_purple": {"emoji": "🍇", "name": "포도"},
-    "bird": {"emoji": "🌾", "name": "모이"},
     "penguin": {"emoji": "🦐", "name": "새우"},
-    "redpanda": {"emoji": "🎋", "name": "대나무잎"},
     "heumul": {"emoji": "🍭", "name": "막대사탕"},
     "spider": {"emoji": "🪰", "name": "파리"},
 }

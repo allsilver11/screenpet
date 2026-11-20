@@ -17,11 +17,7 @@ class El {
     this.classList = { add: (...c) => c.forEach((x) => self.classes.add(x)), remove: (...c) => c.forEach((x) => self.classes.delete(x)), contains: (c) => self.classes.has(c) };
   }
   set innerHTML(_) {
-    this.children = ["nk-body", "nk-tile", "nk-head"].map((n) => {
-      const c = new El(n);
-      c.parentNode = this;
-      return c;
-    });
+    this.children = [];
   }
   append(...xs) {
     for (const x of xs) {

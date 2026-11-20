@@ -91,10 +91,7 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "rudolph" => "hand_apple",
             "santa" => "hand_milk",
             "duck" => "hand_bread",
-            "giraffe" => "hand_leaf",
-            "bird" => "hand_seeds",
             "penguin" => "hand_shrimp",
-            "redpanda" => "hand_bamboo",
             // 흐물이는 유령처럼 막대사탕 (막대 같은 꼬마에게 막대사탕)
             "heumul" => "hand_lollipop",
             // 🕷️ 거미인간은 개구리처럼 파리
@@ -215,16 +212,11 @@ mod tests {
         // 다람쥐는 도토리를 두 앞발로 오물오물
         assert_eq!((hand_icon(Food::Favorite, "squirrel"), hand_icon(Food::Snack, "squirrel")), ("hand_acorn", "hand_cookie"));
         assert_eq!(hand_icon(Food::Snack, "santa"), "hand_cookie");
-        assert_eq!((hand_icon(Food::Favorite, "duck"), hand_icon(Food::Favorite, "giraffe")), ("hand_bread", "hand_leaf"));
-        // 새는 모이(씨앗)를 콕콕
-        assert_eq!((hand_icon(Food::Favorite, "bird"), hand_icon(Food::Meal, "bird")), ("hand_seeds", "hand_meal"));
+        assert_eq!(hand_icon(Food::Favorite, "duck"), "hand_bread");
         // 펭귄은 새우를 냠냠
         assert_eq!((hand_icon(Food::Favorite, "penguin"), hand_icon(Food::Snack, "penguin")), ("hand_shrimp", "hand_cookie"));
-        // 레서판다는 대나무잎을 오물오물
-        assert_eq!((hand_icon(Food::Favorite, "redpanda"), hand_icon(Food::Meal, "redpanda")), ("hand_bamboo", "hand_meal"));
         assert_eq!(hand_icon(Food::Favorite, "heumul"), hand_icon(Food::Favorite, "ghost"));
         assert_eq!((hand_icon(Food::Favorite, "spider"), hand_icon(Food::Meal, "spider")), ("hand_fly", "hand_meal"));
-        assert_eq!(hand_icon(Food::Meal, "giraffe"), "hand_meal");
         assert_eq!(hand_icon(Food::Favorite, "persian"), "hand_milk");
         assert_eq!(
             ["dino_yellow", "dino_green", "dino_purple"].map(|id| hand_icon(Food::Favorite, id)),
@@ -233,7 +225,7 @@ mod tests {
         assert_eq!(hand_icon(Food::Snack, "dino_green"), "hand_cookie");
         assert_eq!(hand_icon(Food::Favorite, "snowman"), "hand_shaved_ice");
         assert_eq!(hand_icon(Food::Meal, "snowman"), "hand_meal");
-        for id in ["cat", "bird", "snowman", "unknown"] {
+        for id in ["cat", "duck", "snowman", "unknown"] {
             assert_eq!(hand_icon(Food::Special, id), "hand_special");
             assert!(FeedMode::Hand.by_hand(Food::Special) && !FeedMode::Auto.by_hand(Food::Special));
         }

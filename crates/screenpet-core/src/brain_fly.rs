@@ -1,4 +1,4 @@
-//! 날아다니는 동물(유령·새, spec 2B §10)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 날아다니는 동물(유령, spec 2B §10)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //! 비행 수치·경로 계산은 flight.rs.
 //!
 //! 나는 동물은 `standing`이 None인 채로 날거나 떠 있고(State::Move = 날기, 그 밖의 쉬기·애교 = 제자리에 떠서),
@@ -32,9 +32,9 @@ impl Pet {
         self.cfg.walk_speed * flight::speed_mult(kind) * self.soft_power()
     }
 
-    /// 친구 화면으로 날아 나가고 들어오는 속도: 빠른 나는 동물(새)은 쌩 (SWIFT_DASH배), 나머지는 보통 날기
+    /// 친구 화면으로 날아 나가고 들어오는 속도 (보통 날기)
     fn cross_speed(&self) -> f64 {
-        if self.cfg.swift { self.cfg.walk_speed * flight::SWIFT_DASH } else { self.fly_speed(Move::Walk) }
+        self.fly_speed(Move::Walk)
     }
 
     /// 나는 동물의 한 틱: 상태에 맞게 날고, 앉고, 드나듦
@@ -363,7 +363,7 @@ impl Pet {
             Some(side) if !visit::is_vertical(side) => visit::dir(side),
             _ => self.facing,
         };
-        let zone = if self.cfg.swift { flight::SWIFT_EDGE_ZONE } else { flight::EDGE_ZONE } * self.cfg.size;
+        let zone = flight::EDGE_ZONE * self.cfg.size;
         let Some(side) = flight::edge_within(world, self.body.x, self.body.y, self.cfg.half_w, zone, dir) else { return false };
         f.edge_checked = true;
         self.flight = Some(*f);
@@ -371,9 +371,6 @@ impl Pet {
         if chance >= 1.0 || chance > 0.0 && self.rng.f64() < chance {
             self.flight = None;
             self.start_exit(side);
-            if self.cfg.swift {
-                self.speech = Some(Speech::Whoosh);
-            }
             return true;
         }
         false
@@ -468,9 +465,6 @@ impl Pet {
         self.flight = None;
         self.hover_at = None;
         self.state = State::Enter { remaining: visit::ENTER_SECS, side };
-        if self.cfg.swift {
-            self.speech = Some(Speech::Whoosh);
-        }
     }
 
     /// 친구 화면에서 날아 들어오는 한 틱. 다 들어오면 평소처럼 남
@@ -491,8 +485,7 @@ impl Pet {
         if self.hungry && self.rng.f64() < HUNGRY_REST_CHANCE {
             return State::Hungry { remaining: behavior::range(&mut self.rng, HUNGRY_SECS) };
         }
-        let perch = if self.cfg.swift { flight::SWIFT_PERCH_CHANCE } else { flight::PERCH_CHANCE };
-        if !self.is_heading_out() && self.rng.f64() < perch {
+        if !self.is_heading_out() && self.rng.f64() < flight::PERCH_CHANCE {
             let inside = self.inside.map(|s| s.window);
             let head = self.fly_head();
             if let Some(p) = flight::pick_perch(&mut self.rng, world, inside, self.cfg.half_w, head) {

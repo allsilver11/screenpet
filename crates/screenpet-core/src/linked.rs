@@ -311,22 +311,22 @@ mod tests {
     #[test]
     fn adopting_shared_state_overwrites_known_pets_keeps_the_rest_and_switches_only_to_a_known_pet() {
         use crate::care::Stage;
-        let known = |p: &str| ["cat", "rabbit", "bird"].contains(&p);
+        let known = |p: &str| ["cat", "rabbit", "duck"].contains(&p);
         let mut care = HashMap::new();
         care.insert("cat".to_string(), Care::default());
-        care.insert("bird".to_string(), Care { stage: Stage::Teenager, ..Care::default() });
+        care.insert("duck".to_string(), Care { stage: Stage::Teenager, ..Care::default() });
         let shared = [sc("cat", "child", 3.0, 0.2, false), sc("unicorn", "adult", 0.0, 1.0, false), sc("rabbit", "giant", 0.0, 1.0, false), sc("cat", "adult", 0.0, 1.0, false)];
         let got = adopt_shared(&mut care, "cat", Some("rabbit"), &shared, known);
         assert_eq!(got, Adopted { switch_to: Some("rabbit".into()), changed: true });
         assert_eq!(care["cat"], Care { stage: Stage::Child, stamina: 3.0, fullness: 0.2, locked: false }, "the first entry for a pet wins");
-        assert_eq!(care["bird"].stage, Stage::Teenager, "pets the other computer did not send stay");
+        assert_eq!(care["duck"].stage, Stage::Teenager, "pets the other computer did not send stay");
         assert!(!care.contains_key("unicorn"), "a species this build doesn't know is left out");
         assert!(!care.contains_key("rabbit"), "a broken entry is left out");
         // 같은 동물이면 바꾸지 않는다, 모르는 동물로도 바꾸지 않는다
         assert_eq!(adopt_shared(&mut care, "cat", Some("cat"), &[], known), Adopted { switch_to: None, changed: false });
         assert_eq!(adopt_shared(&mut care, "cat", Some("unicorn"), &[], known), Adopted { switch_to: None, changed: false });
         assert_eq!(adopt_shared(&mut care, "cat", None, &[sc("cat", "child", 3.0, 0.2, false)], known), Adopted { switch_to: None, changed: false }, "nothing new");
-        let too_many: Vec<SharedCare> = (0..MAX_SHARED_PETS).map(|_| sc("bird", "baby", 0.0, 1.0, false)).chain([sc("cat", "baby", 0.0, 1.0, false)]).collect();
+        let too_many: Vec<SharedCare> = (0..MAX_SHARED_PETS).map(|_| sc("duck", "baby", 0.0, 1.0, false)).chain([sc("cat", "baby", 0.0, 1.0, false)]).collect();
         adopt_shared(&mut care, "cat", None, &too_many, known);
         assert_eq!(care["cat"].stage, Stage::Child, "only the first MAX_SHARED_PETS entries are read");
     }

@@ -40,20 +40,6 @@ fn a_pixel_flier_skips_its_somersault() {
     assert_never_rolls(PetConfig { flies: true, ..pixel() }, 5, 2);
 }
 
-/// 픽셀 기린이 목 늘이기 층을 갖고 있으면 그대로 늘임
-#[test]
-fn a_pixel_giraffe_with_layers_still_stretches() {
-    let seen = assert_never_rolls(PetConfig { special: Some(Special::NeckStretch), ..pixel() }, 5, 3);
-    assert!(seen.contains(&Anim::NeckStretch), "{seen:?}");
-}
-
-/// 없으면 그냥 걸음 (코어에는 special 없이 옴 — manifest::special)
-#[test]
-fn no_replacement_animation_is_invented() {
-    let seen = assert_never_rolls(PetConfig { special: None, ..pixel() }, 3, 2);
-    assert!(!seen.contains(&Anim::NeckStretch), "{seen:?}");
-}
-
 /// 산타의 커서 놀이 썰매(gait Roll)도 없음 — 그림은 걷기
 #[test]
 fn santas_sled_is_gone_in_cursor_play() {
@@ -88,7 +74,7 @@ fn switching_style_mid_roll_shows_walking() {
     assert_eq!(p.render().anim, Anim::Walk);
 }
 
-/// 눈사람 만들기의 눈덩이 굴리기: 몸은 걷기 (기린과 같음)
+/// 눈사람 만들기의 눈덩이 굴리기: 몸은 걷기
 #[test]
 fn rolling_a_snowball_walks_instead() {
     let w = world(vec![]);

@@ -26,7 +26,6 @@ pub(crate) fn pet_cfg() -> PetConfig {
         personality: Personality::Friendly,
         can_climb: false,
         flies: false,
-        swift: false,
         hops: false,
         hop_share: 0.0,
         looks_up: false,

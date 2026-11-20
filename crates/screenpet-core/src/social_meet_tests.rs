@@ -303,10 +303,10 @@ fn a_walker_stomps_a_friend_standing_still_and_the_friend_goes_flat() {
 #[test]
 fn a_perched_flyer_can_be_stomped_on_but_never_jumps() {
     let w = floor();
-    let bird = PetConfig { flies: true, ..cfg() };
+    let flier = PetConfig { flies: true, ..cfg() };
     let mut pets = head_on_pair(&w, 200.0, 4);
     let x = pets[1].body.x;
-    pets[1] = walker(&w, bird, Owner::Ground(0), x, -1.0, 9);
+    pets[1] = walker(&w, flier, Owner::Ground(0), x, -1.0, 9);
     pets[1].state = State::Idle { remaining: 30.0, look: false };
     let mut s = always(Some(MeetKind::Stomp), 4);
     s.one_way_chance = 1.0;
@@ -317,10 +317,10 @@ fn a_perched_flyer_can_be_stomped_on_but_never_jumps() {
         step(&mut s, &mut pets, &w);
         squashed |= phase(&pets[1]) == Some(MeetPhase::Squash);
     }
-    assert!(squashed, "the bird goes flat");
+    assert!(squashed, "the flier goes flat");
     assert!(phase(&pets[1]).is_none() && pets[1].standing.is_some(), "{:?}", pets[1].state);
     // 나는 동물은 걷지 않으니 다가가 밟지 않는다
-    let mut pets = vec![walker(&w, bird, Owner::Ground(0), 800.0, 1.0, 3), walker(&w, cfg(), Owner::Ground(0), 900.0, 1.0, 4)];
+    let mut pets = vec![walker(&w, flier, Owner::Ground(0), 800.0, 1.0, 3), walker(&w, cfg(), Owner::Ground(0), 900.0, 1.0, 4)];
     pets[1].state = State::Idle { remaining: 30.0, look: false };
     let mut s = always(Some(MeetKind::Stomp), 3);
     s.one_way_chance = 1.0;
