@@ -89,6 +89,10 @@ pub enum HouseKind {
     Haunted,
     /// 루돌프·산타의 눈 덮인 크리스마스 벽돌집 (ui/house/xmas_<stage>, 굴뚝 연기는 ui/house.js가 피움)
     Xmas,
+    /// 🏰 해리·헤르미온느·해그리드의 호그와트 성 (ui/house/castle_<stage> — 뾰족 지붕 첨탑 여럿, 불 켜진 작은 창)
+    Castle,
+    /// 🏚️ 볼드모트·디멘터의 쓰러져 가는 나무집 (ui/house/shack_<stage> — 기울어진 판자, 깨진 창, 내려앉은 지붕)
+    Shack,
 }
 
 /// 그림 시트의 동작 하나
@@ -1012,20 +1016,23 @@ mod tests {
         assert!(parse_manifest(&with("hive")).is_err());
         assert_eq!(parse_manifest(&with("haunted")).unwrap().house_kind(), HouseKind::Haunted);
         assert_eq!(parse_manifest(&with("house")).unwrap().house_kind(), HouseKind::House);
-        assert!(parse_manifest(&with("castle")).is_err());
-        // 루돌프·산타의 크리스마스 벽돌집
+        assert!(parse_manifest(&with("palace")).is_err());
+        // 루돌프·산타의 크리스마스 벽돌집 · 해리·헤르미온느·해그리드의 호그와트 성 · 볼드모트·디멘터의 쓰러져 가는 나무집
         assert_eq!(parse_manifest(&with("xmas")).unwrap().house_kind(), HouseKind::Xmas);
+        assert_eq!(parse_manifest(&with("castle")).unwrap().house_kind(), HouseKind::Castle);
+        assert_eq!(parse_manifest(&with("shack")).unwrap().house_kind(), HouseKind::Shack);
     }
 
-    /// 번들 pet.json: 호박은 귀신의 집, 루돌프·산타는 크리스마스 벽돌집, 나머지는 보통 집
+    /// 번들 pet.json: 호박은 귀신의 집, 루돌프·산타는 크리스마스 벽돌집, 해리·헤르미온느·해그리드는 호그와트 성, 볼드모트·디멘터는 나무집, 나머지는 보통 집
     #[test]
     fn bundled_pets_pick_their_house() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         for (id, kind) in [("pumpkin", HouseKind::Haunted), ("cat", HouseKind::House),
-                           ("rudolph", HouseKind::Xmas), ("santa", HouseKind::Xmas), ("snowman", HouseKind::Xmas)] {
-            if let Ok(json) = std::fs::read_to_string(dir.join(id).join("pet.json")) {
-                assert_eq!(parse_manifest(&json).unwrap().house_kind(), kind, "{id}");
-            }
+                           ("rudolph", HouseKind::Xmas), ("santa", HouseKind::Xmas), ("snowman", HouseKind::Xmas),
+                           ("harry", HouseKind::Castle), ("hermione", HouseKind::Castle), ("hagrid", HouseKind::Castle),
+                           ("voldemort", HouseKind::Shack), ("dementor", HouseKind::Shack)] {
+            let json = std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap_or_else(|e| panic!("{id}: {e}"));
+            assert_eq!(parse_manifest(&json).unwrap().house_kind(), kind, "{id}");
         }
     }
 

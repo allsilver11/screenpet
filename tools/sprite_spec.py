@@ -195,13 +195,17 @@ SPEECH = {
               "broom_up": ["up we go!", "whoosh!", "to the skies!"], "broom_land": ["smooth landing", "and down!"],
               "broom_away": ["off to Hogwarts!", "see you!"], "leviosa": ["Wingardium Leviosa!"], "fizzle": ["Leviosaaa?", "huh?", "oops..."],
               "expelliarmus": ["Expelliarmus!"], "snitch": ["the Snitch!", "there it is!"], "got_it": ["Got it!", "Caught it!"],
+              "popped_out": ["Phew!", "Phew! Thanks!"], "reunion": ["Hagrid!", "you're here!"],
+              "fireside": ["Remember Hogwarts?", "Quidditch, anyone?", "best day ever"], "pester": ["psst! Hermione!", "play with me?", "boo!"],
               **_CARE_SPEECH},
     "hermione": {"chatter": ["hello!", "honestly...", "books!"], "tickle": ["hehe!"], "grumpy": ["honestly!"],
                  "broom_up": ["up we go!", "whoosh!", "to the skies!"], "broom_land": ["smooth landing", "and down!"],
                  "broom_away": ["off I go!", "back soon!"], "leviosa": ["It's Levi-O-sa!", "Wingardium Leviosa!"],
                  "fizzle": ["Leviosaaa?", "huh?", "oops..."], "reparo": ["Reparo!"], "i_know": ["I know!", "ooh! I know!", "I read about it!"],
                  "study": ["fascinating...", "hmm...", "shh!"], "tidy_up": ["tidy time!", "into the bag!"], "all_clean": ["Phew! All clean!"],
-                 **_CARE_SPEECH},
+                 "in_you_go": ["In you go!", "Quick, in here!"], "reunion": ["Hagrid!", "Harry!"],
+                 "fireside": ["Remember Hogwarts?", "I read about this!", "so cozy~"], "shh": ["Shh! I'm studying!"],
+                 "oh_alright": ["Oh, alright!", "Fine, one game!"], **_CARE_SPEECH},
     # 🐍 볼드모트: ✨ 빗자루 broom_* · ⚡ stupefy · 🐍 nagini (Serpensortia) · 😈 hehehe · ⚔️ duel_call (결투 걸기) ·
     # 👻 디멘터: chatter는 숨소리, 🦌 쫓기면 repelled (코어 Speech)
     "voldemort": {"chatter": ["hehehe", "come here...", "Potter..."], "tickle": ["hehe... stop!"], "grumpy": ["silence!"],
@@ -209,12 +213,15 @@ SPEECH = {
                   "stupefy": ["Stupefy!"], "nagini": ["Serpensortia!", "Nagini..."], "hehehe": ["hehehe", "hehehe...", "kekeke"],
                   "duel_call": ["You again, Potter?", "Duel me!"], **_CARE_SPEECH},
     # 🧔 해그리드: 🐉 용 타기 broom_up·broom_land·broom_away · 🏍️ 오토바이 vroom · 사이드카 hop_in · 🤗 안기 cuddle · 🖐️ 쓰담 pat ·
-    # 🥚 용알이 깨어남 hatch · 🪨 락 케이크 rock_cake (코어 Speech)
+    # 🥚 용알이 깨어남 hatch · 🪨 락 케이크 rock_cake · 🔥 모닥불 reunion·light_fire·fireside·douse · 📖 방해 pester (코어 Speech)
+    # (해리: 🎒 가방에서 popped_out · 🔥 reunion·fireside · 📖 pester / 헤르미온느: 🎒 in_you_go · 🔥 reunion·fireside · 📖 shh·oh_alright)
     "hagrid": {"chatter": ["Yer a wizard!", "Blimey!", "Rock cake?"], "tickle": ["hoho!"], "grumpy": ["Oi!"],
                "broom_up": ["Up we go!", "Blimey!"], "broom_land": ["Good dragon!", "Whoa there!"], "broom_away": ["Off ter Hogwarts!"],
                "vroom": ["Brrm brrm!", "Hold on!"], "hop_in": ["Hop in!", "Room fer one!"], "cuddle": ["C'mere, you!", "Up yeh go!"],
                "pat": ["Good lad!", "There, there"], "hatch": ["Blimey!", "Aww, a baby!"], "rock_cake": ["Rock cake?", "Rock cake!"],
-               **_CARE_SPEECH},
+               "reunion": ["Harry! Hermione!", "Blimey, it's you!"], "light_fire": ["Fire's up!", "Nice an' warm!"],
+               "fireside": ["Them were the days!", "Yer a wizard!", "Good times"], "douse": ["Off ter bed!", "Night, you two!"],
+               "pester": ["Oi, Hermione!", "Whatcha readin'?"], **_CARE_SPEECH},
     "dementor": {"chatter": ["hhhhh...", "...", "hhhh"], "tickle": ["hhh?"], "grumpy": ["HHHH!"], "repelled": ["hsss!", "HHH!"],
                  **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green")},
@@ -232,7 +239,9 @@ PERSONALITY = {"cat": "aloof", "squirrel": "playful", "pumpkin": "playful",
 LOCOMOTION = {"dementor": "fly"}
 
 # 사는 집 그림 (pet.json house) — 보통 집은 적지 않는다. 앱 ui/house/<house>_<stage>.png
-HOUSE = {"pumpkin": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
+HOUSE = {"pumpkin": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas",
+         # 🏰 호그와트 성 (해리·헤르미온느·해그리드) · 🏚️ 쓰러져 가는 나무집 (볼드모트·디멘터)
+         "harry": "castle", "hermione": "castle", "hagrid": "castle", "voldemort": "shack", "dementor": "shack"}
 
 # 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (폴짝 동물은 locomotion hop이라 늘 폴짝)
 HOP_SHARE = {"rabbit": 0.5, "squirrel": 0.35, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5, "heumul": 0.5}

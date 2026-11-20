@@ -420,7 +420,11 @@ function draw(now) {
     // 커서에 매달림 (백엔드 render.hang): 창은 머리 꼭대기가 커서 끝에 닿는 자리에 있음 (코어 hang_spot) — 커서 끝을 축으로 살랑살랑
     // 🎣 흐물이가 두 손으로 매달려 흔들흔들 (render.swing 도): 두 손(pet.json grip hang_cursor) = 커서 끝을 축으로 돌림
     const swingGrip = render.anim === "hang_cursor" ? manifest.grip?.[stage.stage]?.hang_cursor?.[f] : null;
-    writePet("transformOrigin", swingGrip ? gripOrigin(swingGrip) : render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : "");
+    // 🎒 헤르미온느 가방 속으로 쏙 (백엔드 render.tuck 0…1 — 코어 brain_tuck.rs): 발밑을 축으로 작아지며 흐려짐 (1이면 안 보임)
+    const tuck = Math.max(0, Math.min(1, render.tuck || 0));
+    writePet("transformOrigin", swingGrip ? gripOrigin(swingGrip) : render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : tuck > 0 ? "50% 100%" : "");
+    writePet("opacity", tuck > 0 ? (1 - tuck).toFixed(3) : "");
+    if (tuck > 0) parts.push(`scale(${(1 - 0.9 * tuck).toFixed(3)})`);
     if (render.hang) parts.push(`rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
     if (swingGrip && render.swing) parts.push(`rotate(${render.swing.toFixed(2)}deg)`);
     // 🕺 가장 신나는 춤 (render.sparkle): 반짝이가 퐁퐁
@@ -612,7 +616,8 @@ function drawBag(b, anim, f) {
   if (!(b > 0)) return;
   const h = BAG_H[0] + BAG_H[1] * Math.min(1, b);
   const w = h * BAG_W;
-  const hand = bagHand(anim, f);
+  // ⚔️ 결투 (cast)의 손 자리는 지팡이 끝 — 가방은 손에서 내려 발 옆 바닥에 둠 (🎒 해리가 숨은 가방, 코어 brain_tuck.rs)
+  const hand = anim === "cast" ? null : bagHand(anim, f);
   let cx;
   let top;
   if (!hand) {
@@ -897,6 +902,19 @@ const EXTRA_SPEECH = {
   i_know: ["I know!"],
   tidy_up: ["tidy time!"],
   all_clean: ["Phew! All clean!"],
+  // 🎒 가방에 숨기 (코어 brain_tuck.rs): 헤르미온느가 해리를 가방에 쏙 / 해리가 튀어나옴
+  in_you_go: ["In you go!"],
+  popped_out: ["Phew!"],
+  // 🔥 모닥불 (코어 social_campfire.rs): 반가움 / 불 피우기 / 도란도란 / 다 같이 웃음 / 불 끄기
+  reunion: ["yay!!", "you're here!", "hooray!"],
+  light_fire: ["Fire's up!"],
+  fireside: ["Remember Hogwarts?", "good times", "so cozy~", "tell us a story!"],
+  ha_ha: ["Ha ha!", "hahaha!"],
+  douse: ["Off to bed!", "good night!"],
+  // 📖 공부 방해 (코어 social_pester.rs): 방해 / "쉿!" / 책을 덮고 같이 놂
+  pester: ["psst!", "play with me?", "boo!"],
+  shh: ["Shh! I'm studying!"],
+  oh_alright: ["Oh, alright!"],
   // 🐍 볼드모트·👻 디멘터·⚔️ 결투·🦌 패트로누스 (코어 brain_spell.rs·brain_dark.rs·brain_duel.rs·brain_dementor.rs): ⚡ 초록 빛 주문 /
   // 💫 맞아서 기절 · 🐍 나기니 부르기 · 😈 웃음 · ⚔️ 결투 걸기 · 🦌 은빛 사슴 · 👻 곁에서 시무룩 / 쫓겨 도망
   stupefy: ["Stupefy!"],

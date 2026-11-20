@@ -4,6 +4,7 @@
 //!   Stupefy가 아닌 누구나)와 Stupefy를 아는 펫 (초록 — 볼드모트)이 둘 다 한가하고 가까이 (DUEL_RANGE·DUEL_RISE) 있으면 함께 시작: 서로 마주 보고 지팡이를 겨눔
 //!   ("Expelliarmus!" / "You again, Potter?") → 빨강·초록 빛줄기가 뻗어 가운데에서 맞부딪혀 (wizard::duel_clash) 밀고 당김 → 펑! 둘 다 뒤로 튕김.
 //!   한쪽이 끊기면 (잡힘·볼일) 다른 쪽도 그만. 빛줄기는 빨강 쪽이 내놓음 (magic_fx → MagicFx::Duel)
+//! - 🎒 셋이 모이면 (해리·헤르미온느·볼드모트) 헤르미온느가 해리를 가방에 숨기고 대신 결투 (Duel.hold·bag — brain_tuck.rs가 시작·해리를 맡음)
 //! - 🦌 패트로누스: sync_patronus가 patronus 펫 (해리) 곁 (PATRONUS_REACH)에 디멘터가 오거나, 같은 화면 (PATRONUS_SEE)에서 디멘터가
 //!   다른 펫을 시무룩하게 하면 그 디멘터에게 "Expecto Patronum!" (State::Cast — brain_spell.rs) → 맞는 때 지팡이 끝에서 은빛 사슴이
 //!   디멘터를 따라 달려가 (STAG_RUN_SECS) 닿으면 디멘터가 도망 (be_repelled — brain_dementor.rs), 사슴은 그 너머로 달려가며 흐려짐
@@ -30,6 +31,17 @@ pub struct Duel {
     pub len: f64,
     /// 밝은 쪽 빛줄기 색 (해리 빨강 · 헤르미온느 금빛)
     pub light: BeamColor,
+    /// 🎒 빛줄기 앞에 기다리는 시간 (초 — 헤르미온느가 해리를 가방에 숨기는 동안, 아니면 0)
+    pub hold: f64,
+    /// 🎒 가방을 든 쪽 (헤르미온느 — 결투 내내 가방 속에 해리가 있음)
+    pub bag: bool,
+}
+
+impl Duel {
+    /// 빛줄기 시간: 기다림 (hold) 뒤부터 흐른 시간
+    pub fn beam_t(&self, t: f64) -> f64 {
+        (t - self.hold).max(0.0)
+    }
 }
 
 /// 🦌 달리는 은빛 사슴 (물리 px)
@@ -59,7 +71,7 @@ impl Stag {
 /// 결투·패트로누스의 기억
 #[derive(Debug, Clone)]
 pub struct DuelMood {
-    rng: fastrand::Rng,
+    pub(super) rng: fastrand::Rng,
     /// ⚔️ 이 시각(clock)부터 결투할 수 있음
     pub(super) ready_at: f64,
     /// 🦌 이 시각(clock)부터 패트로누스를 쓸 수 있음
@@ -108,18 +120,45 @@ impl Pet {
         }
     }
 
+    /// 테스트: 마법사 혼자 하는 일 (빗자루·스니치·주문·책·가방·나기니·결투·패트로누스·해그리드 놀이)을 끔
+    #[cfg(test)]
+    pub(crate) fn hush_wizardry(&mut self) {
+        self.broom.ready_at = f64::INFINITY;
+        self.broom.snitch_ready_at = f64::INFINITY;
+        self.spell.ready_at = f64::INFINITY;
+        self.study.read_ready_at = f64::INFINITY;
+        self.study.bag_ready_at = f64::INFINITY;
+        self.dark.nagini_ready_at = f64::INFINITY;
+        self.duel.ready_at = f64::INFINITY;
+        self.duel.patronus_ready_at = f64::INFINITY;
+        self.hagrid.ready_at = f64::INFINITY;
+    }
+
+    /// 🏰 호그와트 친구 셋 중 누구인지 (해그리드 > 헤르미온느 > 해리 순으로 봄)
+    pub fn hogwarts(&self) -> Option<wz::Hogwarts> {
+        if self.cfg.gamekeeper {
+            Some(wz::Hogwarts::Hagrid)
+        } else if self.cfg.bookworm {
+            Some(wz::Hogwarts::Hermione)
+        } else if self.cfg.patronus {
+            Some(wz::Hogwarts::Harry)
+        } else {
+            None
+        }
+    }
+
     /// 🦌 달리는 은빛 사슴
     pub fn stag(&self) -> Option<Stag> {
         self.duel.stag
     }
 
     /// 한가해서 결투·패트로누스를 시작할 수 있음
-    fn wizard_free(&self) -> bool {
+    pub(super) fn wizard_free(&self) -> bool {
         self.play_free() && !self.romp_interrupted() && !self.is_user_away() && !self.is_away()
     }
 
     /// ⚔️ 결투를 시작할 수 있음
-    fn duel_ready(&self) -> bool {
+    pub(super) fn duel_ready(&self) -> bool {
         self.duel_side().is_some() && self.wizard_free() && self.clock >= self.duel.ready_at
     }
 
@@ -129,19 +168,25 @@ impl Pet {
     }
 
     /// x 쪽을 볼 때의 지팡이 끝
-    fn wand_tip_toward(&self, x: f64) -> (f64, f64) {
+    pub(super) fn wand_tip_toward(&self, x: f64) -> (f64, f64) {
         let f = if (x - self.body.x).abs() > 1.0 { (x - self.body.x).signum() } else { self.facing };
         self.wand_tip_facing(f)
     }
 
-    /// ⚔️ 결투 시작: 상대 쪽을 보고 지팡이를 겨눔 (빨강 "Expelliarmus!" · 초록 "You again, Potter?")
-    fn begin_duel(&mut self, duel: Duel) {
+    /// ⚔️ 결투 시작: 상대 쪽을 보고 지팡이를 겨눔 (빨강 "Expelliarmus!" · 초록 "You again, Potter?" · 🎒 가방 든 쪽 "In you go!")
+    pub(super) fn begin_duel(&mut self, duel: Duel) {
         self.pacing.after_beat = None;
         self.clear_hover();
         if (duel.foe_tip.0 - self.body.x).abs() > 1.0 {
             self.facing = (duel.foe_tip.0 - self.body.x).signum();
         }
-        self.speech = Some(if duel.red { Speech::Expelliarmus } else { Speech::DuelCall });
+        self.speech = Some(if duel.bag {
+            Speech::InYouGo
+        } else if duel.red {
+            Speech::Expelliarmus
+        } else {
+            Speech::DuelCall
+        });
         self.state = State::Duel { duel, t: 0.0 };
     }
 
@@ -178,7 +223,7 @@ impl Pet {
             return true;
         }
         let t = t + dt;
-        if t >= duel.len {
+        if t >= duel.hold + duel.len {
             self.duel_pop();
         } else {
             self.state = State::Duel { duel, t };
@@ -210,14 +255,19 @@ impl Pet {
         self.duel.stag = if s.t < wz::STAG_SECS { Some(s) } else { None };
     }
 
-    /// ✨ 덮개 창에 그릴 마법 효과 모두 (앱이 매 틱 — trail.rs): ⚡ 빛줄기 · ⚔️ 결투 (빨강 쪽만) · 🐍 나기니 · 🦌 사슴 · 🥶 서리
+    /// ✨ 덮개 창에 그릴 마법 효과 모두 (앱이 매 틱 — trail.rs): ⚡ 빛줄기 · ⚔️ 결투 (빨강 쪽만) · 🐍 나기니 · 🦌 사슴 · 🥶 서리 · 🔥 모닥불
     pub fn magic_fx(&self, out: &mut Vec<MagicFx>) {
         self.spell_fx(out);
         self.dark_fx(out);
         self.dementor_fx(out);
         self.hagrid_fx(out);
+        // 🔥 해그리드가 피운 모닥불 (social_campfire.rs가 몸짓 Pose.fire로 줌)
+        if let Some((x, level)) = self.romp.fire.filter(|_| self.in_romp()) {
+            out.push(MagicFx::Campfire { x, y: self.body.y, size: wz::CAMPFIRE_SIZE * self.cfg.size, level });
+        }
         if let State::Duel { duel, t } = self.state {
             if duel.red {
+                let t = duel.beam_t(t);
                 let k = wz::duel_clash(t, duel.len);
                 let (r, g) = (duel.me, duel.foe_tip);
                 let clash = (r.0 + (g.0 - r.0) * k, r.1 + (g.1 - r.1) * k);
@@ -231,7 +281,15 @@ impl Pet {
     }
 }
 
+/// ⚔️ a (밝은 쪽)와 b (초록)가 결투할 거리: 가로 DUEL_MIN … DUEL_RANGE, 세로 DUEL_RISE 안 (몸 크기 배 — 큰 쪽)
+pub(super) fn duel_reachable(a: &Pet, b: &Pet) -> bool {
+    let big = a.cfg.size.max(b.cfg.size);
+    let (dx, dy) = ((a.body.x - b.body.x).abs(), (a.body.y - b.body.y).abs());
+    dx <= wz::DUEL_RANGE * big && dx >= wz::DUEL_MIN * big && dy <= wz::DUEL_RISE * big
+}
+
 /// ⚔️ 앱이 매 틱 동물 update 뒤에 (sync_lifts가 부름): 상대가 끊긴 결투를 그만두고, 한가한 빨강·초록 둘이 가까이 있으면 결투를 시작함
+/// (🎒 해리·헤르미온느·볼드모트가 다 있으면 가방 숨기기 결투가 먼저 — brain_tuck.rs)
 pub(super) fn sync_duels<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
     let find = |pets: &[T], key: u64| pets.iter().position(|p| p.as_ref().social_key == key);
     for i in 0..pets.len() {
@@ -242,26 +300,23 @@ pub(super) fn sync_duels<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
             pets[i].as_mut().end_duel();
         }
     }
+    // 🎒 셋이 모였으면 헤르미온느가 해리를 가방에 숨기고 대신 결투 (brain_tuck.rs) — 평소 결투보다 먼저
+    super::tuck_moves::start_tucks(pets);
     for i in 0..pets.len() {
         if pets[i].as_ref().duel_side() != Some(true) || !pets[i].as_ref().duel_ready() {
             continue;
         }
         for j in 0..pets.len() {
             let (a, b) = (pets[i].as_ref(), pets[j].as_ref());
-            if j == i || b.duel_side() != Some(false) || !b.duel_ready() {
-                continue;
-            }
-            let big = a.cfg.size.max(b.cfg.size);
-            let (dx, dy) = ((a.body.x - b.body.x).abs(), (a.body.y - b.body.y).abs());
-            if dx > wz::DUEL_RANGE * big || dx < wz::DUEL_MIN * big || dy > wz::DUEL_RISE * big {
+            if j == i || b.duel_side() != Some(false) || !b.duel_ready() || !duel_reachable(a, b) {
                 continue;
             }
             let (red_tip, green_tip) = (a.wand_tip_toward(b.body.x), b.wand_tip_toward(a.body.x));
             let (red_key, green_key) = (a.social_key, b.social_key);
             let light = a.duel_color();
             let len = behavior::range(&mut pets[i].as_mut().duel.rng, wz::DUEL_SECS);
-            pets[i].as_mut().begin_duel(Duel { foe: green_key, red: true, me: red_tip, foe_tip: green_tip, len, light });
-            pets[j].as_mut().begin_duel(Duel { foe: red_key, red: false, me: green_tip, foe_tip: red_tip, len, light });
+            pets[i].as_mut().begin_duel(Duel { foe: green_key, red: true, me: red_tip, foe_tip: green_tip, len, light, hold: 0.0, bag: false });
+            pets[j].as_mut().begin_duel(Duel { foe: red_key, red: false, me: green_tip, foe_tip: red_tip, len, light, hold: 0.0, bag: false });
             break;
         }
     }

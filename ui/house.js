@@ -4,7 +4,7 @@
 // 먹기·성장 축하·갸웃·하트는 백엔드(pet-render)가 정한 대로 보임. 집 안에서 자라면 집이 작게 폴짝 뜀 (말풍선 "I grew up!!"은 백엔드 pet-say,
 // 집 크기는 백엔드가 곧이어 house-state로 바꿈 — 새 그림을 미리 받아 두었다가 한 번에 바꿔 깜빡이지 않음).
 // 집은 동물의 단계에 맞는 그림(house/<kind>_<stage>.png — pet.json house: 보통 house, 호박 haunted,
-// 루돌프·산타 xmas — 굴뚝에서 연기가 피어오름)을
+// 루돌프·산타 xmas — 굴뚝에서 연기가 피어오름, 해리·헤르미온느·해그리드 castle 호그와트 성, 볼드모트·디멘터 shack 쓰러져 가는 나무집)을
 // 128 × HOUSE_SCALE[stage] 크기로 창 오른쪽 아래에 그림 (창 크기는 src-tauri/src/house.rs가 같은 배율로 맞춤).
 const { invoke } = window.__TAURI__.core;
 // 전역 event.listen은 손님 창 앞으로 보낸 pet-render까지 받음 — 이 창 앞으로 온 것만 들음
@@ -37,7 +37,7 @@ const FEET_PAD_RATIO = 0.1;
 // 문턱 뒤로 발을 숨기는 깊이 (그림 px, tools/draw_house.py SILL_HIDE와 같은 6)
 const SILL_HIDE = 6;
 
-// 지금 그림 이름 (house_<stage> | haunted_<stage> | xmas_<stage>)과 그 문 사각형 (그림 좌표)
+// 지금 그림 이름 (house_<stage> | haunted_<stage> | xmas_<stage> | castle_<stage> | shack_<stage>)과 그 문 사각형 (그림 좌표)
 let art = null;
 let door = { x: 30, y: 60, w: 52, h: 62 };
 let house = { pet: null, stage: "teenager", scale: 1, hungry: false, housed: false };
@@ -64,7 +64,7 @@ function houseScale() {
 }
 
 // 집 종류를 고르는 기준 (src-tauri/src/house.rs house_kind, core manifest house_kind와 같음)
-const HOUSE_KINDS = new Set(["house", "haunted", "xmas"]);
+const HOUSE_KINDS = new Set(["house", "haunted", "xmas", "castle", "shack"]);
 
 // pet.json house가 있으면 그 집, 없으면 보통 집
 function houseKind(m) {

@@ -1,4 +1,4 @@
-// ✨ 마법 효과 그리기 (🐍 볼드모트·👻 디멘터·⚔️ 결투·🦌 패트로누스). 🌈 무지개 구름·🖍️ 낙서·🕷️ 거미집·🦇 박쥐 신호·🟡 스니치와 같은
+// ✨ 마법 효과 그리기 (🐍 볼드모트·👻 디멘터·⚔️ 결투·🦌 패트로누스·🧔 해그리드의 용알·🔥 모닥불). 🌈 무지개 구름·🖍️ 낙서·🕷️ 거미집·🦇 박쥐 신호·🟡 스니치와 같은
 // 모니터 덮개 창 (trail.html)의 스니치 아래 캔버스에 그림. 앱(src-tauri/src/trail.rs)이 보내는 것 (논리 px, 이 창 왼쪽 위가 0,0 — 코어 magic.rs):
 //   trail-magic  지금 효과들 [{kind, ...}] — 바뀔 때만 (최대 30번/초) 오고, 다 사라지면 빈 목록 한 번
 //     bolt  {from, to, color, width}             ⚡ Stupefy 초록 빛줄기 (사라지면 MG_FADE 동안 흐려짐)
@@ -9,6 +9,8 @@
 //     frost {x, y, size, inward, level}          🥶 화면 구석의 서리 — 구석에서 안쪽으로 번지는 반투명 흰빛 + 얼음 가지
 //     egg   {x, y, size, crack}                  🥚 해그리드가 품은 용알 (바닥 가운데 x, y — 높이 size) — 금이 갈수록 (crack 0…1) 지그재그 금·달달 떨림
 //     hatchling {x, y, size, t, len, dir}        🐉 깨어난 아기 용 — 알 껍데기가 갈라져 튀고, 알 자리 둘레를 파닥파닥 날다가 끝에 불을 퐁 뿜고 사라짐
+//     campfire {x, y, size, level}               🔥 해그리드가 피운 모닥불 (바닥 가운데 x, y — 장작 폭 size) — 엇갈린 장작 + 둥근 돌 + 일렁이는
+//                                                불꽃 세 겹 (level 0…1만큼 큼 — 피울 때 커지고 끌 때 줄어듦) + 튀어 오르는 불티 + 은은한 불빛
 // CPU를 아끼는 규칙: 움직이는 효과 (빛줄기·뱀·사슴·흐려짐·펑)가 있는 동안만 requestAnimationFrame. 서리만 있으면 받을 때 한 번만 그림.
 // 한 번에 MG_MAX개까지. 브라우저에서 trail.html?magic=1로 앱 없이 볼 수 있음 (결투·사슴·뱀·서리).
 
@@ -19,7 +21,7 @@ const MG_POP_SECS = 0.6;
 const MG_RED = ["rgba(255,70,60,", "rgba(255,200,190,"];
 const MG_GREEN = ["rgba(60,230,90,", "rgba(210,255,200,"];
 const MG_GOLD = ["rgba(255,196,60,", "rgba(255,246,200,"];
-const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling"];
+const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire"];
 
 const mgCanvas = document.getElementById("magic");
 const mgCtx = mgCanvas.getContext("2d");
@@ -41,6 +43,7 @@ function mgOk(f) {
   if (f.kind === "duel") return mgPt(f.red) && mgPt(f.green) && mgPt(f.clash) && f.width > 0 && f.width < 200 && Number.isFinite(f.reach);
   if (f.kind === "frost") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 5000 && mgPt(f.inward) && f.level > 0;
   if (f.kind === "egg") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.crack);
+  if (f.kind === "campfire") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.level);
   if (f.kind === "hatchling") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.t) && f.len > 0;
   return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.alpha);
 }
@@ -486,6 +489,84 @@ function mgHatchling(f) {
   mgCtx.restore();
 }
 
+// 🔥 모닥불 (바닥 가운데 x, y · 장작 폭 size · 타오른 몫 level): 은은한 불빛 → 둥근 돌 → 엇갈린 장작 → 일렁이는 불꽃 세 겹
+// (빨강·주황·노랑 — 시간 t로 너울너울, level만큼 큼) → 튀어 오르는 불티 (시간으로 정해 — 따로 기억하지 않음)
+const MG_SPARKS = 7;
+function mgCampfire(f, t) {
+  const s = f.size;
+  const lv = Math.max(0, Math.min(1, f.level));
+  const x = f.x;
+  const y = f.y;
+  mgCtx.save();
+  mgCtx.lineJoin = "round";
+  if (lv > 0) {
+    const glow = mgCtx.createRadialGradient(x, y - s * 0.3, 0, x, y - s * 0.3, s * 1.6);
+    glow.addColorStop(0, `rgba(255,190,90,${0.35 * lv})`);
+    glow.addColorStop(1, "rgba(255,150,60,0)");
+    mgCtx.fillStyle = glow;
+    mgCtx.beginPath();
+    mgCtx.ellipse(x, y - s * 0.3, s * 1.6, s * 1.2, 0, 0, Math.PI * 2);
+    mgCtx.fill();
+  }
+  // 둥근 돌 테두리 (앞쪽 반원)
+  mgCtx.strokeStyle = "#4a3f3a";
+  mgCtx.lineWidth = Math.max(1, s * 0.04);
+  mgCtx.fillStyle = "#a59c96";
+  for (let i = 0; i < 5; i++) {
+    const a = Math.PI * (0.1 + (0.8 * i) / 4);
+    mgCtx.beginPath();
+    mgCtx.ellipse(x - Math.cos(a) * s * 0.55, y - s * 0.06 + Math.sin(a) * s * 0.04, s * 0.13, s * 0.09, 0, 0, Math.PI * 2);
+    mgCtx.fill();
+    mgCtx.stroke();
+  }
+  // 엇갈린 장작 둘
+  mgCtx.fillStyle = "#9a6a44";
+  mgCtx.strokeStyle = "#4f3423";
+  for (const tilt of [-0.28, 0.28]) {
+    mgCtx.save();
+    mgCtx.translate(x, y - s * 0.12);
+    mgCtx.rotate(tilt);
+    mgCtx.beginPath();
+    mgCtx.roundRect(-s * 0.5, -s * 0.07, s, s * 0.14, s * 0.07);
+    mgCtx.fill();
+    mgCtx.stroke();
+    mgCtx.restore();
+  }
+  if (lv > 0) {
+    // 불꽃 세 겹: 바깥 빨강 → 주황 → 노란 속 (시간으로 너울너울)
+    const layers = [
+      ["#f0583a", 1.0, 0],
+      ["#ff9a3c", 0.72, 1.7],
+      ["#ffe27a", 0.42, 3.1],
+    ];
+    for (const [col, k, ph] of layers) {
+      const h = s * (0.95 + 0.12 * Math.sin(t * 9 + ph)) * k * lv;
+      const w = s * 0.42 * k * (0.6 + 0.4 * lv);
+      const lean = s * 0.08 * Math.sin(t * 6.3 + ph);
+      const by = y - s * 0.16;
+      mgCtx.fillStyle = col;
+      mgCtx.beginPath();
+      mgCtx.moveTo(x - w, by);
+      mgCtx.quadraticCurveTo(x - w * 0.9, by - h * 0.55, x + lean, by - h);
+      mgCtx.quadraticCurveTo(x + w * 0.9, by - h * 0.55, x + w, by);
+      mgCtx.quadraticCurveTo(x, by + s * 0.08, x - w, by);
+      mgCtx.fill();
+    }
+    // 불티: 위로 튀며 흔들리고 사라짐 (하나마다 시간이 엇갈림)
+    for (let i = 0; i < MG_SPARKS; i++) {
+      const life = 1.1 + (i % 3) * 0.25;
+      const k = (t / life + i / MG_SPARKS) % 1;
+      const sx = x + Math.sin(i * 2.4 + k * 5) * s * 0.35;
+      const sy = y - s * 0.3 - k * s * 1.7 * lv;
+      mgCtx.fillStyle = `rgba(255,${200 - i * 10},90,${(1 - k) * lv})`;
+      mgCtx.beginPath();
+      mgCtx.arc(sx, sy, Math.max(0.8, s * 0.035 * (1 - k * 0.5)), 0, Math.PI * 2);
+      mgCtx.fill();
+    }
+  }
+  mgCtx.restore();
+}
+
 function mgDraw(f, t) {
   if (f.kind === "bolt") mgBeam(f.from, f.to, f.width, mgColor(f.color), t, 1);
   else if (f.kind === "duel") mgDuel(f, t);
@@ -494,6 +575,7 @@ function mgDraw(f, t) {
   else if (f.kind === "frost") mgFrost(f);
   else if (f.kind === "egg") mgEgg(f, t);
   else if (f.kind === "hatchling") mgHatchling(f);
+  else if (f.kind === "campfire") mgCampfire(f, t);
 }
 
 // 한 프레임: 서리 → 뱀 → 빛줄기·사슴 순으로, 흐려지는 빛줄기·펑까지. 움직이는 것이 남았으면 다음 프레임
@@ -504,7 +586,7 @@ function drawMagic() {
   mgGhosts = mgGhosts.filter((g) => (now - g.born) / 1000 < MG_FADE);
   mgPops = mgPops.filter((p) => (now - p.born) / 1000 < MG_POP_SECS);
   mgCtx.clearRect(0, 0, mgCanvas.width, mgCanvas.height);
-  for (const kind of ["frost", "snake", "egg", "hatchling", "bolt", "duel", "stag"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
+  for (const kind of ["frost", "campfire", "snake", "egg", "hatchling", "bolt", "duel", "stag"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
   for (const g of mgGhosts) mgBeam(g.fx.from, g.fx.to, g.fx.width, mgColor(g.fx.color), t, 1 - (now - g.born) / 1000 / MG_FADE);
   for (const p of mgPops) mgPop(p, (now - p.born) / 1000 / MG_POP_SECS);
   if (mgMoving()) mgFrame = requestAnimationFrame(drawMagic);
@@ -548,6 +630,7 @@ if (window.__TAURI__) {
       { kind: "stag", x: W * 0.2 + ((t * 220) % (W * 0.6)), y: H * 0.62, size: 130, dir: 1, alpha: 1 },
       { kind: "snake", x: W * 0.55 + Math.sin(t * 0.4) * 150, y: H * 0.92, size: 190, dir: Math.cos(t * 0.4) >= 0 ? 1 : -1, t, alpha: 1 },
       { kind: "bolt", from: [W * 0.62, H * 0.75], to: [W * 0.82, H * 0.8], color: "green", width: 7 },
+      { kind: "campfire", x: W * 0.12, y: H * 0.95, size: 70, level: Math.min(1, t / 2) },
     ]);
     requestAnimationFrame(demo);
   };

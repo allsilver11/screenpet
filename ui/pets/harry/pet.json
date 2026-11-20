@@ -197,6 +197,24 @@
       "Got it!",
       "Caught it!"
     ],
+    "popped_out": [
+      "Phew!",
+      "Phew! Thanks!"
+    ],
+    "reunion": [
+      "Hagrid!",
+      "you're here!"
+    ],
+    "fireside": [
+      "Remember Hogwarts?",
+      "Quidditch, anyone?",
+      "best day ever"
+    ],
+    "pester": [
+      "psst! Hermione!",
+      "play with me?",
+      "boo!"
+    ],
     "hungry": [
       "hungry...",
       "food?"
@@ -227,6 +245,7 @@
     "adult": 0.85
   },
   "personality": "playful",
+  "house": "castle",
   "broom_rider": true,
   "spells": [
     "expelliarmus",

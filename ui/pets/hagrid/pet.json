@@ -231,6 +231,27 @@
       "Rock cake?",
       "Rock cake!"
     ],
+    "reunion": [
+      "Harry! Hermione!",
+      "Blimey, it's you!"
+    ],
+    "light_fire": [
+      "Fire's up!",
+      "Nice an' warm!"
+    ],
+    "fireside": [
+      "Them were the days!",
+      "Yer a wizard!",
+      "Good times"
+    ],
+    "douse": [
+      "Off ter bed!",
+      "Night, you two!"
+    ],
+    "pester": [
+      "Oi, Hermione!",
+      "Whatcha readin'?"
+    ],
     "hungry": [
       "hungry...",
       "food?"
@@ -261,6 +282,7 @@
     "adult": 1.2
   },
   "personality": "friendly",
+  "house": "castle",
   "broom_rider": true,
   "gamekeeper": true,
   "head": {

@@ -1,4 +1,4 @@
-// ui/magic.js(✨ 결투·빛줄기·나기니·사슴·서리)를 가짜 캔버스·rAF 위에서 돌려 보는 도구 (브라우저 없이, tools/test_magic_ui.py가 쓴다).
+// ui/magic.js(✨ 결투·빛줄기·나기니·사슴·서리·용알·🔥 모닥불)를 가짜 캔버스·rAF 위에서 돌려 보는 도구 (브라우저 없이, tools/test_magic_ui.py가 쓴다).
 // node tools/magic_harness.js → 결과 JSON. 실제 그림은 보지 못한다 — 프레임 수, 남은 효과·흐려짐·펑 수, 그린 횟수만.
 
 const fs = require("fs");
@@ -120,4 +120,18 @@ out.hagrid_filtered = h.alive();
 out.hagrid_frames = h.frames(20);
 out.hagrid_ellipses = h.count("ellipse");
 out.hagrid_flame = h.count("createRadialGradient");
+// 🔥 모닥불 (해그리드): 이상한 값은 버리고 프레임을 돌리며 불빛·돌·불꽃·불티를 그림, 꺼진 불은 장작만
+const fire = { kind: "campfire", x: 600, y: 1000, size: 60, level: 1 };
+h = load();
+h.send("trail-magic", [fire, { ...fire, level: NaN }]);
+out.fire_filtered = h.alive();
+out.fire_frames = h.frames(20);
+out.fire_glow = h.count("createRadialGradient");
+out.fire_curves = h.count("quadraticCurveTo");
+out.fire_arcs = h.count("arc");
+h = load();
+h.send("trail-magic", [{ ...fire, level: 0 }]);
+h.frames(1);
+out.out_glow = h.count("createRadialGradient");
+out.out_rects = h.count("roundRect");
 process.stdout.write(JSON.stringify(out));

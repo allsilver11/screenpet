@@ -28,8 +28,8 @@ def test_magic_has_the_canvas_just_under_the_snitch():
 def test_the_webview_knows_every_effect_kind_of_the_core():
     kinds = re.findall(r"^    (\w+) \{", MAGIC_RS[MAGIC_RS.index("pub enum MagicFx") :], re.M)
     snake = [re.sub(r"(?<!^)([A-Z])", r"_\1", k).lower() for k in kinds]
-    assert snake == ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling"]
-    assert 'const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling"];' in JS
+    assert snake == ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire"]
+    assert 'const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire"];' in JS
     colors = MAGIC_RS[MAGIC_RS.index("pub enum BeamColor") :]
     for c in re.findall(r"^    (\w+),", colors[: colors.index("\n}")], re.M):
         assert f'"{c.lower()}"' in JS or c == "Red", c
@@ -75,6 +75,13 @@ def test_hagrid_egg_and_baby_dragon_animate_and_are_checked(run):
     assert run["hagrid_frames"] == 20 and run["hagrid_ellipses"] >= 20 * 4 and run["hagrid_flame"] > 0
 
 
+def test_campfire_flickers_and_is_checked(run):
+    """🔥 모닥불: 이상한 값은 버리고, 있는 동안 프레임을 돌리며 불빛 (그라데이션)·돌 (타원)·불꽃 (곡선)·불티 (원)을 그림 — 꺼진 불 (level 0)은 장작만."""
+    assert run["fire_filtered"] == 1
+    assert run["fire_frames"] == 20 and run["fire_glow"] >= 20 and run["fire_curves"] >= 20 * 9 and run["fire_arcs"] >= 20 * 7
+    assert run["out_glow"] == 0 and run["out_rects"] >= 2
+
+
 def test_dark_speech_defaults_and_help_lines():
     """🐍👻 새 말풍선 키마다 기본 영어 대사 (ui/main.js EXTRA_SPEECH — 코어 Speech와 같은 이름), 도움말에 볼드모트·디멘터 한 줄씩 (해요체)."""
     enum = BRAIN[BRAIN.index("pub enum Speech {") :]
@@ -91,3 +98,25 @@ def test_dark_speech_defaults_and_help_lines():
     assert "나기니" in v and "기절" in v and "결투" in v and "헤르미온느" in v and v.rstrip().endswith("요.</li>")
     d = next(li for li in help_html.split("<li>") if li.startswith("👻 디멘터"))
     assert "서리" in d and "패트로누스" in d and d.rstrip().endswith("요.</li>")
+
+
+def test_wizard_group_events_speech_tuck_bag_and_help():
+    """🎒 가방 숨기기·🔥 모닥불·📖 공부 방해: 새 말풍선 키마다 기본 영어 대사 (ui/main.js EXTRA_SPEECH — 코어 Speech와 같은 이름),
+    가방 속으로 쏙 (render.tuck — 발밑을 축으로 작아지며 흐려짐), 결투 (cast) 동안 가방은 바닥에, 도움말 줄 (해요체)과 마법사 집."""
+    enum = BRAIN[BRAIN.index("pub enum Speech {") :]
+    enum = enum[: enum.index("\n}")]
+    extra = MAIN[MAIN.index("const EXTRA_SPEECH = {") :]
+    extra = extra[: extra.index("\n};")]
+    for v, key in (("InYouGo", "in_you_go"), ("PoppedOut", "popped_out"), ("Reunion", "reunion"), ("LightFire", "light_fire"),
+                   ("Fireside", "fireside"), ("HaHa", "ha_ha"), ("Douse", "douse"), ("Pester", "pester"), ("Shh", "shh"), ("OhAlright", "oh_alright")):
+        assert re.search(rf"^\s{{4}}{v},", enum, re.M), v
+        assert re.search(rf"\b{key}: \[\"", extra), key
+    assert '"Shh! I\'m studying!"' in extra and '"In you go!"' in extra and '"Ha ha!"' in extra
+    assert re.search(r"^    pub tuck: f64,", BRAIN, re.M)
+    assert "render.tuck" in MAIN and '"50% 100%"' in MAIN and 'writePet("opacity"' in MAIN
+    assert 'anim === "cast" ? null : bagHand(anim, f)' in MAIN
+    help_html = (UI / "help.html").read_text(encoding="utf-8")
+    for start, words in (("🎒", ("In you go!", "Phew!", "결투")), ("🔥", ("모닥불", "Ha ha!", "흩어져요")), ("📖 헤르미온느가", ("Shh! I'm studying!", "술래잡기", "달리기 시합"))):
+        li = next(li for li in help_html.split("<li>") if li.startswith(start))
+        assert all(w in li for w in words) and li.rstrip().endswith("요.</li>"), start
+    assert "호그와트 성" in help_html and "나무집" in help_html

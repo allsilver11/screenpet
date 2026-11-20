@@ -60,7 +60,7 @@ pub fn window_size(stage: Stage) -> (f64, f64) {
     (side.max(MIN_WIDTH), side + BUBBLE_SPACE)
 }
 
-/// 집 그림(128×128) 안의 문 사각형 (그림 좌표) — ui/house/<house|haunted|xmas>_<stage>.json `door` {x, y, w, h}.
+/// 집 그림(128×128) 안의 문 사각형 (그림 좌표) — ui/house/<house|haunted|xmas|castle|shack>_<stage>.json `door` {x, y, w, h}.
 /// 앱은 문 가운데 x만 씀 (문간 그리기는 house.js가 json을 직접 읽음).
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Door {
@@ -89,13 +89,15 @@ macro_rules! door_of_stage {
     };
 }
 
-/// 집·귀신의 집·크리스마스 벽돌집의 문 json
+/// 집·귀신의 집·크리스마스 벽돌집·🏰 호그와트 성·🏚️ 나무집의 문 json
 macro_rules! door_of_kind {
     ($dir:literal, $kind:expr, $stage:expr) => {
         match $kind {
             HouseKind::House => door_of_stage!($dir, "house", $stage),
             HouseKind::Haunted => door_of_stage!($dir, "haunted", $stage),
             HouseKind::Xmas => door_of_stage!($dir, "xmas", $stage),
+            HouseKind::Castle => door_of_stage!($dir, "castle", $stage),
+            HouseKind::Shack => door_of_stage!($dir, "shack", $stage),
         }
     };
 }

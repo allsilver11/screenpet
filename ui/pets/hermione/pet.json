@@ -234,6 +234,26 @@
     "all_clean": [
       "Phew! All clean!"
     ],
+    "in_you_go": [
+      "In you go!",
+      "Quick, in here!"
+    ],
+    "reunion": [
+      "Hagrid!",
+      "Harry!"
+    ],
+    "fireside": [
+      "Remember Hogwarts?",
+      "I read about this!",
+      "so cozy~"
+    ],
+    "shh": [
+      "Shh! I'm studying!"
+    ],
+    "oh_alright": [
+      "Oh, alright!",
+      "Fine, one game!"
+    ],
     "hungry": [
       "hungry...",
       "food?"
@@ -264,6 +284,7 @@
     "adult": 0.85
   },
   "personality": "friendly",
+  "house": "castle",
   "broom_rider": true,
   "spells": [
     "leviosa",

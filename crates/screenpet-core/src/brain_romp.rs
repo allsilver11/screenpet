@@ -34,12 +34,14 @@ pub struct Pose {
     pub sparkle: bool,
     /// 콰당 💫 (render.thud)
     pub thud: bool,
+    /// 🔥 이 펫이 피운 모닥불 (x, 밝기 0…1 — 덮개 창, social_campfire.rs)
+    pub fire: Option<(f64, f64)>,
 }
 
 impl Pose {
     /// 제자리에서 그림 하나
     pub fn hold(anim: Anim) -> Self {
-        Pose { anim, to: None, pace: 0.0, face: 0.0, lift: 0.0, wobble: false, sparkle: false, thud: false }
+        Pose { anim, to: None, pace: 0.0, face: 0.0, lift: 0.0, wobble: false, sparkle: false, thud: false, fire: None }
     }
 
     /// x로 pace(걷기 속도 배)만큼 빠르게 가며 그림 하나

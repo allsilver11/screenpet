@@ -135,9 +135,10 @@ def test_rabbit_manifest_keeps_hop_share():
 
 
 def test_manifest_house_kind():
-    """호박은 귀신의 집 (pet.json house) — 다시 그려도 칸이 남고, 들어 있는 pet.json과 같다. 보통 집은 적지 않는다."""
+    """호박은 귀신의 집, 마법사들은 호그와트 성·나무집 (pet.json house) — 다시 그려도 칸이 남고, 들어 있는 pet.json과 같다. 보통 집은 적지 않는다."""
     import json
-    want = {"pumpkin": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
+    want = {"pumpkin": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas",
+            "harry": "castle", "hermione": "castle", "hagrid": "castle", "voldemort": "shack", "dementor": "shack"}
     pets = Path(__file__).resolve().parent.parent / "ui" / "pets"
     for d in sorted(p for p in pets.iterdir() if (p / "pet.json").is_file()):
         assert draw_pets.species_fields(d.name, {}).get("house") == want.get(d.name), d.name

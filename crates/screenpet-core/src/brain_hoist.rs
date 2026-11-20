@@ -573,6 +573,8 @@ pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut>
     super::spell_moves::sync_spells(pets);
     // ⚔️ 해리·볼드모트 결투 · 🦌 디멘터가 오면 패트로누스 (brain_duel.rs) · 👻 디멘터 곁의 동물 (brain_dementor.rs)
     super::duel_moves::sync_duels(pets);
+    // 🎒 헤르미온느 가방 속 해리가 가방을 따라다니고, 결투가 끝나면 튀어나옴 (brain_tuck.rs)
+    super::tuck_moves::sync_tucks(pets);
     super::duel_moves::sync_patronus(pets);
     super::dementor_moves::sync_gloom(pets);
     // 🖐️ 해그리드가 쓰다듬은 펫에게 하트 (brain_hagrid.rs)

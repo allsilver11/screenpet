@@ -17,6 +17,8 @@
 //! - 😈 "hehehe": 한가할 때 초당 CACKLE_RATE
 //! - ⚔️ 결투: 해리 (Expelliarmus)와 볼드모트 (Stupefy)가 가로 DUEL_RANGE·세로 DUEL_RISE 안에서 둘 다 한가하면 마주 봄 → DUEL_AIM_SECS 뒤
 //!   빨강·초록 빛줄기가 뻗어 가운데에서 맞부딪혀 duel_clash로 밀고 당기다 DUEL_SECS 끝에 펑 — 둘 다 DUEL_BOUNCE로 튕김. 다음은 DUEL_CALM_SECS 뒤
+//! - 🎒 가방에 숨기: 볼드모트와 결투할 헤르미온느 곁 (TUCK_REACH)에 해리가 있으면 "In you go!" — HIDE_SECS 동안 가방 (HIDE_BAG 크기)을 벌려 들고
+//!   해리는 TUCK_SECS 동안 작아지며 쏙 → 그 뒤 결투. 끝나면 해리가 TUCK_POP으로 튀어나옴 ("Phew!"), 길어도 TUCK_MAX_SECS 안에
 //! - 🦌 패트로누스: 디멘터가 해리의 PATRONUS_REACH 안에 오거나, PATRONUS_SEE 안에서 다른 펫을 시무룩하게 하면 "Expecto Patronum!" —
 //!   은빛 사슴이 STAG_RUN_SECS 동안 디멘터에게 달려가 닿으면 디멘터가 FLEE_SECS 동안 도망. 다음은 PATRONUS_CALM_SECS 뒤
 //! - 👻 디멘터: GLOOM_REACH 안의 펫은 GLOOM_SECS 시무룩 (펫마다 GLOOM_CALM_SECS에 한 번) + 가까이 있는 동안 배가 GLOOM_HUNGER씩 더 고픔.
@@ -24,6 +26,17 @@
 //!   새로 날 때 STALK_CHANCE로 다른 펫 머리 위로 다가감
 
 use serde::Deserialize;
+
+/// 🏰 호그와트 친구 셋 (🔥 모닥불·📖 공부 방해 — social_campfire.rs·social_pester.rs가 봄)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hogwarts {
+    /// 🧙 해리포터 (pet.json `patronus`)
+    Harry,
+    /// 📚 헤르미온느 (pet.json `bookworm`)
+    Hermione,
+    /// 🧔 해그리드 (pet.json `gamekeeper`)
+    Hagrid,
+}
 
 /// ✨ 주문 이름 (pet.json `spells`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -191,6 +204,23 @@ pub const DUEL_CALM_SECS: (f64, f64) = (60.0, 150.0);
 /// ⚔️ 펑! 튕겨 나가는 빠르기 (논리 px/s — dpi를 곱함, 뒤로·위로)
 pub const DUEL_BOUNCE_VX: f64 = 300.0;
 pub const DUEL_BOUNCE_VY: f64 = -420.0;
+
+/// 🔥 모닥불 크기 (불 피운 해그리드 몸 크기 배 — 장작 폭)
+pub const CAMPFIRE_SIZE: f64 = 0.45;
+
+/// 🎒 헤르미온느 곁 이만큼 (몸 크기 배 — 큰 쪽, 가로) 안의 해리를 가방에 숨김 (세로는 DUEL_RISE)
+pub const TUCK_REACH: f64 = 4.0;
+/// 🎒 결투 앞에 가방을 벌려 드는 시간 (초 — 그동안 해리가 쏙 들어감, 빛줄기는 그 뒤부터)
+pub const HIDE_SECS: f64 = 1.4;
+/// 🎒 해리가 작아지며 가방으로 들어가는 시간 (초)
+pub const TUCK_SECS: f64 = 0.8;
+/// 🎒 결투 동안 든 가방 크기 (render.bag — 0.15 … 1)
+pub const HIDE_BAG: f64 = 0.3;
+/// 🎒 가방에 있는 가장 긴 시간 (초 — 결투가 꼬여도 이만큼이면 나옴)
+pub const TUCK_MAX_SECS: f64 = 20.0;
+/// 🎒 튀어나오는 빠르기 (논리 px/s — dpi를 곱함, 옆·위)
+pub const TUCK_POP_VX: f64 = 120.0;
+pub const TUCK_POP_VY: f64 = -460.0;
 
 /// 🦌 디멘터가 해리에게 이만큼 (해리 몸 크기 배) 가까우면 패트로누스
 pub const PATRONUS_REACH: f64 = 5.0;

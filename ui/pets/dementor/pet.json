@@ -178,6 +178,7 @@
     "adult": 0.95
   },
   "locomotion": "fly",
+  "house": "shack",
   "dementor": true,
   "head": {
     "baby": {

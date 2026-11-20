@@ -345,7 +345,7 @@ fn toward(from: f64, to: f64, fallback: f64) -> f64 {
 }
 
 /// 🏁 a·b가 서 있는 조각에서 달릴 쪽과 결승선, 출발선 (자리가 모자라면 None)
-fn race_course(a: &Snap, b: &Snap) -> Option<(f64, f64, f64)> {
+pub(super) fn race_course(a: &Snap, b: &Snap) -> Option<(f64, f64, f64)> {
     let (lo, hi) = a.ground?;
     let half = a.half_w.max(b.half_w);
     let from = (a.x + b.x) / 2.0;
@@ -460,8 +460,8 @@ impl Social {
         self.romp.options = options;
     }
 
-    /// 놀이를 시작함 (init이 건 쪽). 자리가 없으면 false
-    fn start_romp<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T], kind: RompKind, ia: usize, ib: usize) -> bool {
+    /// 놀이를 시작함 (init이 건 쪽). 자리가 없으면 false (📖 공부 방해 뒤 놀이도 이걸로 — social_pester.rs)
+    pub(super) fn start_romp<T: AsRef<Pet> + AsMut<Pet>>(&mut self, pets: &mut [T], kind: RompKind, ia: usize, ib: usize) -> bool {
         let (a, b) = (self.snap[ia], self.snap[ib]);
         let mut r = Romp { kind, a: a.key, b: b.key, step: Step::Close, t: 0.0, len: 0.0, n: 0, m: 0, x: 0.0, from: 0.0, dir: 1.0, pace: (1.0, 1.0), a_wins: true, a_in: true, b_in: true };
         match kind {

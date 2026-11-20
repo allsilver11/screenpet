@@ -12,7 +12,7 @@
 //!   파닥파닥 날다가 작은 불을 퐁 뿜고 사라짐 (MagicFx::Egg·Hatchling)
 //! - 🪨 락 케이크 (Offer): 가끔 "Rock cake?" 하고 코트에서 꺼내 발 앞 바닥에 내려놓음 — 앱이 돌 물건을 만듦 (ObjectPlay::Spawn, 물건 수 제한은 앱이 지킴).
 //!   손님 해그리드는 안 함 (친구 화면에 물건을 늘리지 않게)
-//! - 훅: is_hagrid (다른 펫·나중의 모닥불·하우스가 봄)
+//! - 훅: is_hagrid (다른 펫이 봄 — 🔥 모닥불·📖 공부 방해는 hogwarts()로, brain_duel.rs)
 //!
 //! 주사위는 자기 주사위(HagridMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
 
@@ -133,7 +133,7 @@ impl HagridMood {
 }
 
 impl Pet {
-    /// 🧔 해그리드임 (나중의 모닥불·하우스·다른 펫이 봄)
+    /// 🧔 해그리드임 (다른 펫이 봄)
     pub fn is_hagrid(&self) -> bool {
         self.cfg.gamekeeper
     }

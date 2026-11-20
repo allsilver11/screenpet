@@ -88,7 +88,7 @@ impl Pet {
         match self.state {
             State::Cast { cast, t } => !cast.fizzle && t >= wz::CAST_HIT,
             State::Float { .. } => true,
-            State::Duel { t, .. } => wz::duel_reach(t) >= 1.0,
+            State::Duel { duel, t } => wz::duel_reach(duel.beam_t(t)) >= 1.0,
             _ => false,
         }
     }

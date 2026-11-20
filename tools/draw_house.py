@@ -1,12 +1,14 @@
 """카와이 펫 집 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 128px 집, 단계마다 하나씩
-+ 호박의 귀신의 집 + 루돌프·산타의 크리스마스 벽돌집 (pet.json "house").
++ 호박의 귀신의 집 + 루돌프·산타의 크리스마스 벽돌집 + 해리·헤르미온느·해그리드의 호그와트 성 + 볼드모트·디멘터의 쓰러져 가는 나무집 (pet.json "house").
 
-    python tools/draw_house.py  → ui/house/{house,haunted,xmas}_<stage>{.png,_front.png,.json} + ui/house/xmas_smoke.png
+    python tools/draw_house.py  → ui/house/{house,haunted,xmas,castle,shack}_<stage>{.png,_front.png,.json} + ui/house/xmas_smoke.png
                                   + ui/house/{house.png, house_front.png, house.json} (teenager 집 별칭)
                                   + tools/preview/house.png (teenager 집), tools/preview/houses.png (모든 단계 × 집)
                                   + tools/preview/haunted.png (모든 단계 × 귀신의 집 + 호박)
                                   + tools/preview/xmas_house.png (모든 단계 × 크리스마스 벽돌집 + 루돌프·산타)
-    python tools/draw_house.py xmas → 크리스마스 벽돌집만
+                                  + tools/preview/castle_house.png (모든 단계 × 호그와트 성 + 해리·헤르미온느·해그리드)
+                                  + tools/preview/shack_house.png (모든 단계 × 나무집 + 볼드모트·디멘터)
+    python tools/draw_house.py xmas → 크리스마스 벽돌집만 · castle (또는 shack) → 호그와트 성·나무집만
 
 앱의 겹치기 순서: <art>.png → 문 사각형(<art>.json "door")으로 잘라낸 펫 → <art>_front.png
 <art>_front.png는 펫 앞에 와야 하는 부분(문틀·아치 위 벽 모서리·문턱)만 담고, 문 안쪽은 투명하다.
@@ -34,6 +36,8 @@ PREVIEW = ROOT / "tools" / "preview" / "house.png"
 PREVIEW_ALL = ROOT / "tools" / "preview" / "houses.png"
 PREVIEW_HAUNTED = ROOT / "tools" / "preview" / "haunted.png"
 PREVIEW_XMAS = ROOT / "tools" / "preview" / "xmas_house.png"
+PREVIEW_CASTLE = ROOT / "tools" / "preview" / "castle_house.png"
+PREVIEW_SHACK = ROOT / "tools" / "preview" / "shack_house.png"
 
 # 단계별 하우스 창 배율 (src-tauri/src/house.rs house_scale, ui/house.js HOUSE_SCALE와 같다)
 HOUSE_SCALE = {"baby": 0.55, "kinder": 0.68, "child": 0.82, "teenager": 1.0, "adult": 1.12}
@@ -42,7 +46,7 @@ DOOR_PET = (52 - 2) / 0.7
 # 문간 펫 발 숨김: 문 바닥 아래로 SILL_HIDE + 스프라이트 × FEET_PAD (ui/house.js와 같다)
 SILL_HIDE = 6
 FEET_PAD = 0.1
-KINDS = ("house", "haunted", "xmas")
+KINDS = ("house", "haunted", "xmas", "castle", "shack")
 
 # ---- 색 ----
 WALL = (255, 238, 212)
@@ -881,6 +885,245 @@ def draw_xmas(stage):
     return img, opening, sill
 
 
+# =====================================================================
+# 🏰 호그와트 성 — 해리·헤르미온느·해그리드의 집 (pet.json "house": "castle"). 연보랏빛 돌 성채 (톱니 성가퀴) + 뾰족 지붕 첨탑 여럿
+# (단계가 클수록 많고 높다) + 노랗게 불 켜진 작은 아치 창 + 첨탑 끝 그리핀도르 깃발 (진홍·금) + 큰 아치 나무 문.
+# =====================================================================
+K_STONE = (214, 208, 230)
+K_STONE_DARK = mix(K_STONE, LINE, 0.2)
+K_STONE_BACK = mix(K_STONE, (150, 150, 190), 0.3)
+K_ROOF = (96, 108, 176)
+K_ROOF_BACK = mix(K_ROOF, (60, 60, 110), 0.25)
+K_WOOD = (170, 118, 86)
+K_WOOD_LIGHT = mix(K_WOOD, WHITE, 0.3)
+K_INSIDE = (84, 62, 70)
+K_INSIDE_FLOOR = (112, 84, 82)
+K_RED = (196, 52, 64)
+K_GOLD = (244, 196, 72)
+
+# 단계별 성 — keep: (x0, x1, 위) · towers: (가운데, 폭, 몸 위, 지붕 끝, 앞?) — 뒤 첨탑은 성채 뒤, 앞 첨탑은 성채 모서리 앞
+CASTLE_PLAN = {
+    "baby": dict(keep=(38, 90, 76), towers=[(64, 20, 56, 30, False), (36, 16, 70, 46, True), (92, 16, 70, 46, True)]),
+    "kinder": dict(keep=(32, 96, 70), towers=[(64, 22, 48, 20, False), (30, 18, 62, 36, True), (98, 18, 62, 36, True)]),
+    "child": dict(keep=(28, 100, 66), towers=[(48, 18, 46, 20, False), (82, 18, 42, 14, False), (24, 20, 58, 30, True),
+                                              (104, 20, 58, 30, True)]),
+    "teenager": dict(keep=(24, 104, 62), towers=[(64, 24, 34, 6, False), (40, 16, 46, 22, False), (88, 16, 46, 22, False),
+                                                 (21, 20, 54, 26, True), (107, 20, 54, 26, True)]),
+    "adult": dict(keep=(20, 108, 58), towers=[(64, 26, 30, 4, False), (38, 18, 40, 14, False), (90, 18, 40, 14, False),
+                                              (18, 20, 48, 20, True), (110, 20, 48, 20, True)]),
+}
+CASTLE_FILL = {"baby": 0.78, "kinder": 0.78, "child": 0.78, "teenager": 0.8, "adult": 0.83}
+CASTLE_DOOR_SIZE = {s: (round(w * CASTLE_FILL[s]), round(w * CASTLE_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
+DOORS["castle"] = {s: _door(64, *CASTLE_DOOR_SIZE[s]) for s in STAGES}
+
+
+def stone_marks(x0, x1, top, bottom=124, step=8):
+    """돌 블록 줄눈: 가로 줄 + 엇갈린 세로 토막."""
+    rows = [L([(x0 - 2, y), (x1 + 2, y)], 0.8) for y in range(int(top) + step, int(bottom), step)]
+    verts = []
+    for k, y in enumerate(range(int(top) + step, int(bottom), step)):
+        off = 5 if k % 2 else 0
+        verts += [L([(x, y - step), (x, y)], 0.8) for x in range(int(x0) + 4 + off, int(x1) - 2, 10)]
+    return rows + verts
+
+
+def castle_keep(img, x0, x1, top):
+    """성채: 돌 벽 + 위 톱니 성가퀴. 벽 마스크를 돌려준다."""
+    merlons = [T((x, top - 5), (x + 5, top - 5), (x + 5, top + 1), (x, top + 1)) for x in range(int(x0) + 1, int(x1) - 4, 9)]
+    return blob(img, [T((x0, top), (x1, top), (x1, 124), (x0, 124))] + merlons, K_STONE, r=0.9,
+                marks=[(stone_marks(x0, x1, top), K_STONE_DARK),
+                       ([L([(x0 + 3, top + 3), (x0 + 14, top + 3)], 1.2)], mix(K_STONE, WHITE, 0.4))])
+
+
+def lit_arch_window(img, cx, cy, w, h, frame=K_STONE_DARK):
+    """불 켜진 작은 아치 창 (노란 불빛 + 세로 창살)."""
+    x0, x1, y0, y1 = cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2
+    blob(img, arch(x0 - 1.6, y0 - 1.6, x1 + 1.6, y1 + 1.2), frame, r=0, line=0.7)
+    glass = blob(img, arch(x0, y0, x1, y1), GLOW, r=0, line=0.5, marks=[([E(x0, y0, x1 - w * 0.3, y1 - h * 0.25)], GLOW_CORE)])
+    if w >= 5:
+        paint(img, aa(shapes([L([(cx, y0 + w * 0.4), (cx, y1)], 0.9)])), mix(GLOW, LINE, 0.45), clip=glass)
+
+
+def pennant(img, x, y, s=1.0):
+    """첨탑 끝 깃대 + 진홍 바탕에 금 줄무늬 삼각 깃발."""
+    blob(img, [L([(x, y), (x, y - 7 * s)], 1.0)], mix(LINE, WHITE, 0.3), r=0, line=0.4)
+    top = y - 7 * s
+    flag = blob(img, [T((x, top), (x + 8 * s, top + 2.2 * s), (x, top + 4.4 * s))], K_RED, r=0, line=0.6)
+    paint(img, aa(shapes([L([(x + 0.5, top + 2.2 * s), (x + 6 * s, top + 2.2 * s)], 1.1 * s)])), K_GOLD, clip=flag)
+
+
+def castle_tower(img, cx, w, top, tip, front=True):
+    """첨탑: 둥근 돌 몸통 + 뾰족 고깔 지붕 (비늘 줄) + 불 켜진 창 + 끝에 깃발. 뒤 첨탑은 조금 흐린 빛."""
+    stone = K_STONE if front else K_STONE_BACK
+    roof = K_ROOF if front else K_ROOF_BACK
+    x0, x1 = cx - w / 2, cx + w / 2
+    blob(img, [T((x0, top), (x1, top), (x1, 124), (x0, 124))], stone, r=0.8,
+         marks=[(stone_marks(x0, x1, top + 2), mix(stone, LINE, 0.2))])
+    eave = top + 3
+    cone = [T((x0 - 3.5, eave), (cx - 1.2, tip + 1.5), (cx, tip), (cx + 1.2, tip + 1.5), (x1 + 3.5, eave)),
+            E(x0 - 4, eave - 3, x1 + 4, eave + 3)]
+    rows = [L([(cx - (y - tip) / (eave - tip) * (w / 2 + 3), y), (cx + (y - tip) / (eave - tip) * (w / 2 + 3), y)], 0.8)
+            for y in range(int(tip) + 7, int(eave) - 1, 6)]
+    blob(img, cone, roof, r=0.6, marks=[(rows, mix(roof, LINE, 0.25)),
+                                        ([L([(cx - w * 0.18, eave - 4), (cx - 1.5, tip + 6)], 1.4)], mix(roof, WHITE, 0.3))])
+    wh = min(10.0, max(5.0, w * 0.42))
+    lit_arch_window(img, cx, top + 6 + wh / 2 + (124 - top) * 0.12, wh * 0.62, wh, frame=mix(stone, LINE, 0.3))
+    if tip >= 10:
+        pennant(img, cx, tip + 0.5, 0.8 if w < 20 else 1.0)
+
+
+def castle_door(img, d):
+    """아치 나무 문 (열린 문짝) + 돌 문틀 → 따뜻한 성 안. 문 안쪽 마스크를 돌려준다."""
+    door_leaf(img, d, color=K_WOOD)
+    return doorway(img, d, frame=K_STONE_DARK, frame_light=K_STONE, inside=K_INSIDE, floor=K_INSIDE_FLOOR)
+
+
+def draw_castle(stage):
+    """호그와트 성 한 단계 → (캔버스, 문 안쪽, 문턱)."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = DOORS["castle"][stage]
+    p = CASTLE_PLAN[stage]
+    with view(scale=1.0, lift=0):
+        for cx, w, top, tip, front in p["towers"]:
+            if not front:
+                castle_tower(img, cx, w, top, tip, front=False)
+        castle_keep(img, *p["keep"])
+        for cx, w, top, tip, front in p["towers"]:
+            if front:
+                castle_tower(img, cx, w, top, tip)
+        opening = castle_door(img, d)
+        # 문 위 금빛 방패 (그리핀도르)
+        x0, x1, top = p["keep"]
+        if d["y"] - top >= 12:
+            sy = top + 3
+            blob(img, [T((60.5, sy), (67.5, sy), (67.5, sy + 4), (64, sy + 8), (60.5, sy + 4))], K_RED, r=0, line=0.6,
+                 marks=[([L([(64, sy + 1), (64, sy + 6)], 1.0)], K_GOLD)])
+        sill = door_sill(img, d, color=K_STONE)
+        grass_row(img, [tuft(11, 125, 6, -1), tuft(117, 125, 6, 1), tuft(d["x"] - 12, 126, 5), tuft(d["x"] + d["w"] + 12, 126, 5)])
+    return img, opening, sill
+
+
+# =====================================================================
+# 🏚️ 쓰러져 가는 나무집 — 볼드모트·디멘터의 집 (pet.json "house": "shack"). 회갈색 판자가 기울어진 오두막 (빠진 판자 틈·삐딱하게
+# 덧댄 판자·못) + 가운데가 푹 내려앉은 지붕 (덧댄 조각) + 유리가 깨진 창 (뾰족한 구멍·금·판자 하나) + 기운 연통 + 마른 풀·거미줄.
+# 무섭지 않게 동글동글, 창 안은 은은한 초록 불빛.
+# =====================================================================
+Q_WOOD = (160, 132, 110)
+Q_WOOD_DARK = mix(Q_WOOD, LINE, 0.4)
+Q_WOOD_LIGHT = mix(Q_WOOD, WHITE, 0.28)
+Q_ROOF = (118, 104, 112)
+Q_PATCH = (168, 150, 120)
+Q_INSIDE = (54, 48, 58)
+Q_INSIDE_FLOOR = (78, 68, 76)
+Q_GLASS = (96, 128, 120)
+Q_GLOW = (150, 222, 150)
+Q_PIPE = (122, 122, 134)
+Q_GRASS = (170, 168, 112)
+
+# 단계별 나무집 — wall: (x0, x1, 위) · lean: 오른쪽이 기우는 정도 · roof: (꼭대기, 처짐) · window: (x0, y0, x1, y1) · pipe: x
+SHACK_PLAN = {
+    "baby": dict(wall=(30, 98, 78), lean=3, roof=(46, 5), window=(70, 88, 86, 102), pipe=None),
+    "kinder": dict(wall=(24, 104, 70), lean=4, roof=(36, 6), window=(72, 82, 92, 100), pipe=88),
+    "child": dict(wall=(18, 110, 64), lean=4, roof=(30, 7), window=(76, 76, 98, 96), pipe=92),
+    "teenager": dict(wall=(14, 112, 58), lean=4, roof=(24, 8), window=(78, 70, 100, 92), pipe=94),
+    "adult": dict(wall=(12, 112, 54), lean=4, roof=(18, 9), window=(78, 64, 102, 88), pipe=96),
+}
+SHACK_FILL = {"baby": 0.53, "kinder": 0.54, "child": 0.56, "teenager": 0.58, "adult": 0.65}
+SHACK_DOOR_SIZE = {s: (round(w * SHACK_FILL[s]), round(w * SHACK_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
+SHACK_DOOR_X = {"baby": 50, "kinder": 46, "child": 44, "teenager": 42, "adult": 42}
+DOORS["shack"] = {s: _door(SHACK_DOOR_X[s], *SHACK_DOOR_SIZE[s]) for s in STAGES}
+
+
+def shack_wall(img, x0, x1, top, lean):
+    """기운 판자 벽: 세로 판자 (조금씩 기움) + 빠진 판자 틈 하나 + 삐딱하게 덧댄 판자·못. 벽 마스크를 돌려준다."""
+    shape = [T((x0, 124), (x0 + lean * 0.3, top + 2), (x1 + lean, top - 2), (x1, 124))]
+    planks = [L([(x, 124), (x + lean * (124 - top) / 124 * 0.9, top)], 1.2) for x in range(int(x0) + 8, int(x1) - 2, 8)]
+    gap_x = x0 + (x1 - x0) * 0.82
+    gap = [T((gap_x, 112), (gap_x + 3, 112), (gap_x + 3.6, top + 14), (gap_x + 0.6, top + 14))]
+    m = blob(img, shape, Q_WOOD, r=1.4, marks=[(planks, Q_WOOD_DARK), (gap, Q_INSIDE),
+                                               ([L([(x0 + 4, top + 6), (x0 + 4, 120)], 1.3)], Q_WOOD_LIGHT)])
+    # 삐딱하게 덧댄 판자 + 못
+    bx, by = x0 + (x1 - x0) * 0.12, top + (124 - top) * 0.62
+    blob(img, [L([(bx - 6, by + 4), (bx + 9, by - 3)], 4.2)], Q_WOOD_LIGHT, r=0, line=0.8,
+         marks=[([C(bx - 4, by + 3, 0.7), C(bx + 7, by - 2, 0.7)], LINE)])
+    return m
+
+
+def sagging_roof(img, x0, x1, top, wall_top, lean, sag):
+    """가운데가 푹 내려앉은 지붕 (양끝이 처마 밖으로 삐죽) + 덧댄 조각 + 너덜한 처마. 지붕 마스크를 돌려준다."""
+    cx = (x0 + x1) / 2 + lean
+    w = x1 - x0
+    le, re = (x0 - 6, wall_top + 7), (x1 + lean + 7, wall_top + 2)
+    ridge = [(cx - w * 0.2, top + sag * 0.3), (cx, top + sag), (cx + w * 0.18, top - 1)]
+    roof = [T(le, (x0 - 4, wall_top + 1), ridge[0], ridge[1], ridge[2], (x1 + lean + 5, wall_top - 4), re,
+              (x1 + lean, wall_top + 5), (x0, wall_top + 9))]
+    rows = [L([(x0 - 2, y + 3), (x1 + lean + 2, y - 2)], 1.2) for y in range(int(top) + 12, int(wall_top) + 4, 9)]
+    patch = rrect(cx - w * 0.28, top + (wall_top - top) * 0.45, cx - w * 0.12, top + (wall_top - top) * 0.45 + 9, 1.5)
+    m = blob(img, roof, Q_ROOF, r=1.6, marks=[(rows, mix(Q_ROOF, LINE, 0.4)), (patch, Q_PATCH),
+                                              ([L([(cx - w * 0.3, top + (wall_top - top) * 0.45 + 2), (cx - w * 0.22, top + (wall_top - top) * 0.45 + 2)], 0.8)],
+                                               mix(Q_PATCH, LINE, 0.4))])
+    # 너덜한 처마 끝 (판자 하나가 처져 매달림)
+    blob(img, [L([(x1 + lean - 2, wall_top + 2), (x1 + lean + 4, wall_top + 10)], 3.0)], Q_WOOD_DARK, r=0, line=0.7)
+    return m
+
+
+def broken_window(img, x0, y0, x1, y1):
+    """깨진 네모 창: 나무 테 → 은은한 초록빛 유리, 뾰족하게 깨져 뚫린 구멍 + 금 + 비스듬히 박은 판자."""
+    blob(img, rrect(x0 - 3, y0 - 3, x1 + 3, y1 + 3, 2), Q_WOOD_DARK, r=0, line=0.9)
+    glass = blob(img, rrect(x0, y0, x1, y1, 1.5), Q_GLASS, r=0, line=0.6,
+                 marks=[([E(x0 + 2, y0 + 3, x1 - 2, y1 + 6)], mix(Q_GLASS, Q_GLOW, 0.35))])
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    hole = [T((x0 + 1, y0 + 1), (mx + 1, y0 + 1), (mx - 2, y0 + 5), (mx + 2, my - 1), (x0 + 6, my + 1), (x0 + 3, my - 3), (x0 + 1, my + 2))]
+    paint(img, aa(shapes(hole)), Q_INSIDE, clip=glass)
+    paint(img, aa(shapes([L([(mx, y0), (mx, y1)], 1.3), L([(x0, my), (x1, my)], 1.3)])), Q_WOOD_DARK, clip=glass)
+    paint(img, aa(shapes([L([(x1, y1 - 2), (x1 - 4, y1 - 5), (x1 - 3, y1 - 8), (x1 - 7, y1 - 10)], 0.8),
+                          L([(mx + 3, my + 2), (mx + 7, my + 5)], 0.7)])), WEB, clip=glass)
+    blob(img, [L([(x0 - 3, y1 - 1), (x1 + 2, y0 + (y1 - y0) * 0.55)], 3.4)], Q_WOOD_LIGHT, r=0, line=0.8,
+         marks=[([C(x0 - 1, y1 - 1.6, 0.7), C(x1, y0 + (y1 - y0) * 0.58, 0.7)], LINE)])
+
+
+def stove_pipe(img, x, top, bottom):
+    """기운 연통 (꺾인 모자) + 옅은 연기 한 모금."""
+    blob(img, [L([(x, bottom), (x + 1.5, top + 4)], 4.6)], Q_PIPE, r=0, line=0.8,
+         marks=[([L([(x - 2.5, top + 12), (x + 3.5, top + 12)], 0.9)], mix(Q_PIPE, LINE, 0.35))])
+    blob(img, [T((x - 3, top + 5), (x + 6, top + 1), (x + 7, top + 4), (x - 2, top + 8))], mix(Q_PIPE, LINE, 0.15), r=0.4, line=0.8)
+    blob(img, [C(x + 5, top - 3, 2.6), C(x + 10, top - 5.5, 2.0), C(x + 1.5, top - 2, 1.8)], (220, 220, 226), r=0.6, line=0.7,
+         line_color=mix(LINE, WHITE, 0.4))
+
+
+def shack_door(img, d):
+    """한쪽 경첩만 남아 기운 문짝 + 판자 문틀 → 어두운 안쪽. 문 안쪽 마스크를 돌려준다."""
+    x0, y0 = d["x"], d["y"]
+    top = y0 + d["w"] * 0.12
+    blob(img, [T((x0 - 16, top + 4), (x0 - 4, top), (x0 - 4, FLOOR - 4), (x0 - 14, FLOOR + 1))], Q_WOOD, r=0.6,
+         marks=[([L([(x0 - 10, top + 5), (x0 - 9.5, FLOOR - 3)], 1.0)], Q_WOOD_DARK),
+                ([L([(x0 - 15, top + 12), (x0 - 5, top + 9)], 1.4), L([(x0 - 14, FLOOR - 10), (x0 - 5, FLOOR - 12)], 1.4)], Q_WOOD_LIGHT)])
+    return doorway(img, d, frame=Q_WOOD_DARK, frame_light=Q_WOOD, inside=Q_INSIDE, floor=Q_INSIDE_FLOOR)
+
+
+def dry_grass(img, tufts):
+    blob(img, [f for t in tufts for f in t], Q_GRASS, r=0.6, line=0.85)
+
+
+def draw_shack(stage):
+    """쓰러져 가는 나무집 한 단계 → (캔버스, 문 안쪽, 문턱)."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = DOORS["shack"][stage]
+    p = SHACK_PLAN[stage]
+    x0, x1, top = p["wall"]
+    with view(scale=1.0, lift=0):
+        if p["pipe"]:
+            stove_pipe(img, p["pipe"], p["roof"][0] + 2, top)
+        wall = shack_wall(img, x0, x1, top, p["lean"])
+        sagging_roof(img, x0, x1, p["roof"][0], top, p["lean"], p["roof"][1])
+        broken_window(img, *p["window"])
+        cobweb(img, x0 + 2, top + 6, 10 + (x1 - x0) * 0.05, 1, wall)
+        opening = shack_door(img, d)
+        sill = door_sill(img, d, color=Q_WOOD_LIGHT)
+        dry_grass(img, [tuft(11, 125, 6, -1), tuft(117, 125, 7, 1), tuft(d["x"] + d["w"] + 10, 126, 5, 1)])
+    return img, opening, sill
+
+
 XMAS_SMOKE = {}  # 단계 → 굴뚝 입구 (그림 좌표) — draw_xmas가 채운다
 
 
@@ -904,6 +1147,10 @@ def draw(kind="house", stage="teenager"):
         return HAUNTED_DRAW[stage]()
     if kind == "xmas":
         return draw_xmas(stage)
+    if kind == "castle":
+        return draw_castle(stage)
+    if kind == "shack":
+        return draw_shack(stage)
     return HOUSE_DRAW[stage]()
 
 
@@ -1058,7 +1305,23 @@ def preview_xmas(arts, path=PREVIEW_XMAS):
     _house_rows_preview(arts, [("xmas", "rudolph"), ("xmas", "santa")], path, under=smoke)
 
 
+def preview_castle(arts, path=PREVIEW_CASTLE):
+    """호그와트 성 + 해리 / 헤르미온느 / 해그리드."""
+    _house_rows_preview(arts, [("castle", "harry"), ("castle", "hermione"), ("castle", "hagrid")], path)
+
+
+def preview_shack(arts, path=PREVIEW_SHACK):
+    """쓰러져 가는 나무집 + 볼드모트 / 디멘터."""
+    _house_rows_preview(arts, [("shack", "voldemort"), ("shack", "dementor")], path)
+
+
 def main():
+    if sys.argv[1:] in (["castle"], ["shack"]):  # 호그와트 성·나무집만 다시 그린다
+        arts = build(kinds=("castle", "shack"))
+        preview_castle(arts)
+        preview_shack(arts)
+        print("ok: castle + shack houses")
+        return
     if sys.argv[1:] == ["xmas"]:  # 크리스마스 벽돌집만 다시 그린다
         preview_xmas(build(kinds=("xmas",)))
         print("ok: xmas houses")
@@ -1072,7 +1335,9 @@ def main():
     preview_all(arts)
     preview_haunted(arts)
     preview_xmas(arts)
-    print("ok: houses + haunted houses + xmas houses")
+    preview_castle(arts)
+    preview_shack(arts)
+    print("ok: houses + haunted houses + xmas houses + castles + shacks")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 //! 📚 헤르미온느 — 📖 책 읽기 · 🙋 "I know!" (pet.json `bookworm` + read·raise_hand 그림) · 👜 끝없는 구슬 가방 청소
 //! (pet.json `bag_cleaner` + bag_walk·bag_drag·bag_stuff 그림) — brain.rs의 자식 모듈. 숫자는 wizard.rs.
 //!
-//! - 📖 한가할 때 꽤 자주 바닥에 앉아 책을 읽음 (State::Study Read — 가끔 "fascinating..."). 훅: is_reading (PetSpot.reading — 나중에 친구들이 방해하러 옴)
+//! - 📖 한가할 때 꽤 자주 바닥에 앉아 책을 읽음 (State::Study Read — 가끔 "fascinating..."). 훅: is_reading (PetSpot.reading · 📖 공부 방해 social_pester.rs —
+//!   해리·해그리드가 방해하면 shush "Shh! I'm studying!" 하고 계속 읽거나 close_book "Oh, alright!" 하고 같이 놂)
 //! - 🙋 가끔 손을 번쩍 들고 "I know!" (Know, 앞모습)
 //! - 👜 (내 헤르미온느만 — 손님은 친구 물건을 치우지 않음) 같은 디딤판에 바닥의 물건 (똥·쓰레기·거대한 것 — 📌 장난감·사용자가 잡은 것·거미집에 걸린 것은 바닥에 없으니 안 보임)이
 //!   BAG_MIN개 넘게 있으면 가끔 "tidy time!" 하고 구슬 가방을 꺼내 가까운 것부터 하나씩 다가가 (Approach) 쏙 넣음 (Stuff — 앱이 뿅 치움, ObjectPlay::Vanish).
@@ -73,8 +74,11 @@ impl Pet {
         matches!(self.state, State::Study { act: StudyAct::Read { .. }, .. })
     }
 
-    /// 👜 웹뷰가 그릴 가방 크기 (0 = 안 보임): 청소하는 동안만
+    /// 👜 웹뷰가 그릴 가방 크기 (0 = 안 보임): 청소하는 동안 · 🎒 해리를 숨긴 결투 동안 (brain_tuck.rs)
     pub(super) fn bag_shown(&self) -> f64 {
+        if let State::Duel { duel, .. } = self.state {
+            return if duel.bag { wz::HIDE_BAG } else { 0.0 };
+        }
         if self.study.bag_on && matches!(self.state, State::Study { act: StudyAct::Bag(_), .. }) {
             wz::bag_growth(self.study.bag_items)
         } else {
@@ -128,7 +132,7 @@ impl Pet {
     }
 
     /// 📖 그 자리에 앉아 책을 폄 (서 있을 때만)
-    pub(super) fn start_reading(&mut self) -> bool {
+    pub fn start_reading(&mut self) -> bool {
         if !self.cfg.bookworm || self.standing.is_none() {
             return false;
         }
@@ -137,6 +141,23 @@ impl Pet {
         let len = behavior::range(&mut self.study.rng, wz::READ_SECS);
         self.state = State::Study { act: StudyAct::Read { len }, t: 0.0 };
         true
+    }
+
+    /// 📖 친구가 방해함 (social_pester.rs): "Shh! I'm studying!" 하고 계속 읽음
+    pub fn shush(&mut self) {
+        if self.is_reading() {
+            self.say_now(Speech::Shh);
+        }
+    }
+
+    /// 📖 친구가 방해함 (social_pester.rs): 책을 덮고 "Oh, alright!" — 일어나 같이 놀 준비 (다음 책은 READ_CALM_SECS 뒤)
+    pub fn close_book(&mut self) {
+        if !self.is_reading() {
+            return;
+        }
+        self.study.read_ready_at = self.clock + behavior::range(&mut self.study.rng, wz::READ_CALM_SECS);
+        self.say_now(Speech::OhAlright);
+        self.state = State::Idle { remaining: 1.0, look: false };
     }
 
     /// 🙋 손 번쩍 "I know!"

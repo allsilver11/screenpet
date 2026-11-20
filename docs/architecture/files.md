@@ -95,7 +95,10 @@ crates/
 | `linked.rs` | 📱 두 컴퓨터 규칙 |
 | `ladder.rs`, `dodge.rs`, `sleigh.rs`, `trail.rs`, `tint.rs` | 사다리 그림, 똥피하기, 썰매, 무지개 자국, 몸 색 |
 | `broom_fly.rs`, `wizard.rs` | 🧹 마법사 빗자루 비행 길·🟡 골든 스니치 / ✨ 주문·📖 책·👜 가방 청소·⚡ 기절·🐍 나기니·⚔️ 결투·🦌 패트로누스·👻 시무룩·🥶 서리 숫자 (펫 쪽은 `brain_broom.rs`·`brain_spell.rs`·`brain_study.rs`·`brain_dark.rs`·`brain_dementor.rs`·`brain_duel.rs`) |
-| `magic.rs` | ✨ 덮개 창에 그릴 마법 효과 (`MagicFx` — ⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리·🥚 용알·🐉 아기 용, 앱 `trail.rs` → `ui/magic.js`) |
+| `magic.rs` | ✨ 덮개 창에 그릴 마법 효과 (`MagicFx` — ⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리·🥚 용알·🐉 아기 용·🔥 모닥불, 앱 `trail.rs` → `ui/magic.js`) |
+| `brain_tuck.rs` | 🎒 가방에 숨기: 해리·헤르미온느·볼드모트가 모이면 헤르미온느가 해리를 구슬 가방에 숨기고 (`State::Tucked`, `render.tuck`) 대신 결투 — 끝나면 해리가 튀어나옴 (`brain_duel.rs`의 `sync_duels`가 먼저 부름) |
+| `social_campfire.rs` | 🔥 해그리드·해리·헤르미온느 모닥불: 반가움 → 불 피우기 (`Pose.fire` → `MagicFx::Campfire`) → 둘러앉아 도란도란 → 불 끄고 흩어짐 |
+| `social_pester.rs` | 📖 책 읽는 헤르미온느를 해리·해그리드가 방해 → "Shh!" 또는 책을 덮고 술래잡기·달리기 시합 (`brain_study.rs` `shush`·`close_book`) |
 | `brain_hagrid.rs` | 🧔 해그리드: 🏍️ 사이드카 오토바이 (붕 날기, 작은 펫 태우기)·🤗 안아 들기·🖐️ 쓰담·🥚 용알 → 🐉 아기 용·🪨 락 케이크 (숫자도 이 파일 — 🐉 용 타기는 `brain_broom.rs`가 `mount_anim`으로) |
 | `pacing.rs` | 게임 루프 박자 |
 | `test_util.rs` | 시험 공용 도우미 (시험 빌드만) |
@@ -148,13 +151,13 @@ ui/
 ├── <창>.html + <창>.js      창 하나에 한 쌍: index(펫), house, pair, code, name, link, size, letter, ladder,
 │                            weather, trail, timeline, object, vehicle, postit, dodge, sleigh, feedback,
 │                            mailbox, board, help, prop
-├── common.js, pager.js, doodle.js   공용 스크립트 (trail 창에는 web.js·batsignal.js·magic.js·snitch.js도 — ✨ 결투·사슴·뱀·서리·🥚 용알·🐉 아기 용 · 🕷️ 거미집·🦇 박쥐 신호·🟡 스니치)
+├── common.js, pager.js, doodle.js   공용 스크립트 (trail 창에는 web.js·batsignal.js·magic.js·snitch.js도 — ✨ 결투·사슴·뱀·서리·🥚 용알·🐉 아기 용·🔥 모닥불 · 🕷️ 거미집·🦇 박쥐 신호·🟡 스니치)
 ├── style.css, form.css, list.css    공용 스타일 (폼 창은 form.css를 같이 씀 — test_csp.py가 확인)
 ├── pets/<species>/          동물 그림 18종
 ├── effects/                 소품·손 음식·눈덩이 등
 ├── objects/                 물건 128×128
 ├── vehicles/                🚗 탈것 시트 {car,heli,scooter,truck}.png (가로 3칸, 칸 = 창 크기 2배)
-├── house/                   집 {house,haunted,xmas}_<stage>{.png,_front.png,.json}
+├── house/                   집 {house,haunted,xmas,castle,shack}_<stage>{.png,_front.png,.json}
 └── sleigh/                  sleigh.png
 ```
 
@@ -176,7 +179,7 @@ ui/
 |---|---|---|
 | `ui/pets/<id>/sheet_*.png`, `pet.json` | 생성 | `python tools/draw_pets.py` (모든 동글 동물. 종별 파일 `draw_dino.py`… 는 그 종만) |
 | `ui/pets/heumul/ink_*.png` | 생성 | `python tools/draw_heumul.py` (`write_ink_round`) |
-| `ui/house/*` | 생성 | `python tools/draw_house.py` (`xmas`만도 가능) |
+| `ui/house/*` | 생성 | `python tools/draw_house.py` (`xmas`만, `castle` — 호그와트 성·나무집만도 가능) |
 | `ui/objects/*.png` | 생성 | `python tools/draw_objects.py` (`--shapes`는 `tumble.rs`에 붙일 표 출력) |
 | `ui/effects/{bowl_food,bowl_water,cookie}.png` | 생성 | `python tools/draw_props.py` |
 | `ui/sleigh/*.png` | 생성 | `python tools/draw_sleigh.py` |

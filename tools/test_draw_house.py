@@ -79,7 +79,7 @@ def test_front_layer_transparent_inside_door(built):
 
 
 # ---- 단계별 집 + 귀신의 집 + 크리스마스 집 ----
-ARTS = [(kind, stage) for kind in ("house", "haunted", "xmas") for stage in STAGES]
+ARTS = [(kind, stage) for kind in ("house", "haunted", "xmas", "castle", "shack") for stage in STAGES]
 
 
 def _door(out, kind, stage):
@@ -134,7 +134,8 @@ def test_pet_fills_door_like_teenager(built, kind, stage):
     teen_fill = draw_house.door_pet_size("teenager") / teen["w"]
     door = _door(built, kind, stage)
     # 귀신의 집 문은 호박·유령(v0.7.0에 빠짐) 몸 폭(평균)에 맞춘다
-    body = {"haunted": draw_house.HAUNTED_FILL, "xmas": draw_house.XMAS_FILL}.get(kind, {}).get(stage, 1.0)
+    body = {"haunted": draw_house.HAUNTED_FILL, "xmas": draw_house.XMAS_FILL, "castle": draw_house.CASTLE_FILL,
+            "shack": draw_house.SHACK_FILL}.get(kind, {}).get(stage, 1.0)
     fill = draw_house.door_pet_size(stage) * body / door["w"]
     assert abs(fill / teen_fill - 1) < 0.04, (kind, stage, fill, teen_fill)
     assert abs(door["h"] / door["w"] - teen["h"] / teen["w"]) < 0.06
@@ -169,7 +170,7 @@ def _design_cat_fill(built, stage):
 
 
 def test_kinds_include_haunted():
-    assert draw_house.KINDS == ("house", "haunted", "xmas")  # 벌통은 꿀벌과 함께 v0.5.5에서 빠졌다
+    assert draw_house.KINDS == ("house", "haunted", "xmas", "castle", "shack")  # 벌통은 꿀벌과 함께 v0.5.5에서 빠졌다
     assert set(draw_house.DOORS) == set(draw_house.KINDS)
 
 
@@ -254,4 +255,59 @@ def test_xmas_smoke_point_sits_on_the_chimney(built):
         assert 4 <= sy <= 60 and 60 <= sx <= 120, (stage, sx, sy)
         assert art.getpixel((round(sx), round(sy) + 6)) == 255  # 바로 아래가 굴뚝
     for kind in ("house", "haunted"):
+        assert "smoke" not in json.loads((built / f"{kind}_teenager.json").read_text())
+
+
+# ---- 🏰 호그와트 성 (해리·헤르미온느·해그리드) · 🏚️ 쓰러져 가는 나무집 (볼드모트·디멘터) ----
+@pytest.mark.parametrize("stage", STAGES)
+def test_castle_door_fits_harry_hermione_and_hagrid(built, stage):
+    """성 문은 셋의 몸 폭에 맞춘다: 덩치 큰 해그리드도 고양이보다 30 % 넘게 넘치지 않고, 작은 해리도 고양이의 0.6배는 채운다."""
+    door = _door(built, "castle", stage)
+    cat_fill = _design_cat_fill(built, stage)
+    for pet in ("harry", "hermione", "hagrid"):
+        fill = draw_house.door_pet_size(stage) * _body_width(pet, stage) / door["w"]
+        assert 0.6 <= fill / cat_fill <= 1.3, (pet, stage, fill, cat_fill)
+
+
+@pytest.mark.parametrize("stage", STAGES)
+def test_shack_door_fits_voldemort_and_the_dementor(built, stage):
+    """나무집 문은 볼드모트·디멘터 몸 폭 (평균)에 맞춘다 (±30 %)."""
+    door = _door(built, "shack", stage)
+    cat_fill = _design_cat_fill(built, stage)
+    for pet in ("voldemort", "dementor"):
+        fill = draw_house.door_pet_size(stage) * _body_width(pet, stage) / door["w"]
+        assert abs(fill / cat_fill - 1) < 0.3, (pet, stage, fill, cat_fill)
+
+
+def test_castle_has_stone_walls_blue_spires_and_lit_windows(built):
+    """성: 연보랏빛 돌 벽, 파란 뾰족 지붕, 노란 불빛 창 — 단계가 클수록 첨탑이 많고 높다."""
+    tips = []
+    for stage in STAGES:
+        art = Image.open(built / f"castle_{stage}.png").convert("RGBA")
+        px = [p for p in _rgba(art) if p[3] == 255]
+        stone = sum(1 for r, g, b, _ in px if r > 160 and g > 155 and b > 185 and b >= r)
+        spire = sum(1 for r, g, b, _ in px if b > 150 and r < 130 and g < 140)
+        warm = sum(1 for r, g, b, _ in px if r > 230 and 160 < g < 245 and b < 160)
+        assert stone > 0.15 * len(px) and spire > 0.1 * len(px) and warm > 6, (stage, stone, spire, warm, len(px))
+        tips.append(len(draw_house.CASTLE_PLAN[stage]["towers"]))
+    assert tips == sorted(tips) and tips[0] >= 3 and tips[-1] >= 5, tips
+
+
+def test_shack_is_crooked_grey_brown_wood_with_a_broken_window(built):
+    """나무집: 회갈색 판자가 많고, 창은 깨져 어두운 구멍이 뚫림 (초록빛 유리 사이), 벽은 기울어 있다."""
+    for stage in STAGES:
+        art = Image.open(built / f"shack_{stage}.png").convert("RGBA")
+        px = [p for p in _rgba(art) if p[3] == 255]
+        wood = sum(1 for r, g, b, _ in px if 130 < r < 200 and 100 < g < 160 and 80 < b < 140 and r > g > b)
+        assert wood > 0.25 * len(px), (stage, wood, len(px))
+        x0, y0, x1, y1 = draw_house.SHACK_PLAN[stage]["window"]
+        win = [art.getpixel((x, y)) for x in range(x0, x1) for y in range(y0, y1)]
+        dark = sum(1 for r, g, b, a in win if a == 255 and r + g + b < 200)
+        glass = sum(1 for r, g, b, a in win if a == 255 and g > r + 15)
+        assert dark > 8 and glass > 8, (stage, dark, glass)
+        assert draw_house.SHACK_PLAN[stage]["lean"] > 0
+
+
+def test_wizard_houses_have_no_smoke_point(built):
+    for kind in ("castle", "shack"):
         assert "smoke" not in json.loads((built / f"{kind}_teenager.json").read_text())

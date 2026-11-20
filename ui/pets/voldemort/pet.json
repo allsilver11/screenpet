@@ -223,6 +223,7 @@
     "adult": 0.85
   },
   "personality": "playful",
+  "house": "shack",
   "broom_rider": true,
   "spells": [
     "stupefy"
