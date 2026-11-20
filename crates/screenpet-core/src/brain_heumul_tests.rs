@@ -110,6 +110,8 @@ fn first_moves(c: PetConfig, n: u64) -> (usize, usize) {
     let (mut runs, mut walks) = (0, 0);
     for seed in 0..n {
         let mut p = on_ground(c, 800.0, seed, &w);
+        // 종 특기(기운 넘침)만 잼 — 🌱 청소년 전력 질주는 끔
+        p.hush_stage();
         match p.move_state(true, &w) {
             State::Move { kind: Move::Run, .. } => runs += 1,
             State::Move { kind: Move::Walk, .. } => walks += 1,

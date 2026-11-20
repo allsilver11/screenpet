@@ -477,10 +477,66 @@ fn a_pet_left_alone_in_a_romp_wanders_off_by_itself() {
 }
 
 #[test]
-fn every_romp_bias_is_neutral_for_now() {
+fn every_romp_bias_comes_from_the_stage_table() {
     let p = Pet::new(cfg(), 0.0, 0.0, 1);
     for kind in RompKind::ALL {
-        assert_eq!(p.social_bias(kind), 1.0);
+        assert_eq!(p.social_bias(kind), crate::stage::social_bias(crate::care::Stage::Teenager, kind));
+    }
+}
+
+// ---- 🌱 연령대 놀이 (spec 2부): 👶 졸졸 · 🧓 쓰다듬기 ----
+
+/// 이 연령대의 평범한 동물
+fn aged(stage: crate::care::Stage) -> PetConfig {
+    PetConfig { stage, ..cfg() }
+}
+
+#[test]
+fn an_adult_walks_over_pats_a_resting_baby_and_says_good_kid() {
+    use crate::care::Stage;
+    let w = floor();
+    let mut pets = vec![at(&w, aged(Stage::Adult), 700.0, 1.0, resting(), 1), at(&w, aged(Stage::Baby), 700.0 + 3.0 * BODY, -1.0, resting(), 2)];
+    let mut s = only(RompKind::Pat, 5);
+    let (mut said, mut baby_heart, mut waved) = (Vec::new(), false, false);
+    for _ in 0..(60 * 12) {
+        step(&mut s, &mut pets, &w);
+        said.extend(pets[0].take_speech());
+        baby_heart |= pets[1].render().heart;
+        waved |= pets[0].render().anim == Anim::Wave;
+        let _ = pets[1].take_speech();
+    }
+    assert!(s.romps_started() >= 1);
+    assert!(said.contains(&Speech::GoodKid), "{said:?}");
+    assert!(baby_heart && waved);
+}
+
+#[test]
+fn a_baby_tags_along_behind_a_walking_adult() {
+    use crate::care::Stage;
+    let w = floor();
+    let mut pets = vec![at(&w, aged(Stage::Baby), 700.0, 1.0, resting(), 1), at(&w, aged(Stage::Adult), 700.0 + 2.0 * BODY, 1.0, walking(), 2)];
+    let mut s = only(RompKind::Tag, 5);
+    step(&mut s, &mut pets, &w);
+    assert!(pets[0].in_romp() && pets[1].in_romp());
+    assert_eq!(pets[0].take_speech(), Some(Speech::TagAlong));
+    let start = pets[0].body.x;
+    for _ in 0..(60 * 3) {
+        step(&mut s, &mut pets, &w);
+    }
+    assert!(pets[0].body.x > start + BODY, "따라감: {} → {}", start, pets[0].body.x);
+    assert!(pets[0].body.x < pets[1].body.x, "뒤에서");
+}
+
+#[test]
+fn same_age_pets_never_pat_or_tag_along() {
+    let w = floor();
+    for kind in [RompKind::Pat, RompKind::Tag] {
+        let mut pets = vec![at(&w, cfg(), 700.0, 1.0, resting(), 1), at(&w, cfg(), 700.0 + 2.0 * BODY, 1.0, walking(), 2)];
+        let mut s = only(kind, 5);
+        for _ in 0..60 {
+            step(&mut s, &mut pets, &w);
+        }
+        assert_eq!(s.romps_started(), 0, "{kind:?}");
     }
 }
 

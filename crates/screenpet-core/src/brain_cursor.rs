@@ -328,10 +328,11 @@ impl CursorMood {
 }
 
 impl Pet {
-    /// 이 동물의 놀이를 정함 (동물 교체·손님이 올 때): 커서 놀이 방식 + 기지개 잘 켜는지 (고양이 둘)
+    /// 이 동물의 놀이를 정함 (동물 교체·손님이 올 때): 커서 놀이 방식 + 기지개 잘 켜는지 (고양이 둘) + 종 id (brain_stage.rs)
     pub fn set_cursor_species(&mut self, species: &str) {
         self.cursor_mood.style = CursorStyle::of(species);
         self.stretchy = behavior::stretchy_species(species);
+        self.species = species.to_string();
     }
 
     /// 매 틱 update 전에 (앱): 왼쪽 버튼, 지금 시작하면 안 되는지, 메뉴 설정
@@ -501,6 +502,8 @@ impl Pet {
             return;
         }
         let rate = if self.cfg.personality == Personality::Aloof { PLAY_RATE * ALOOF_RATE_MULT } else { PLAY_RATE };
+        // 🧒 유치원 펫은 커서 놀이를 더 좋아함 (brain_stage.rs)
+        let rate = rate * self.cursor_fan();
         if self.rng.f64() >= rate * dt {
             return;
         }

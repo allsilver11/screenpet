@@ -3,6 +3,7 @@
 //! - 거미집: 한가할 때 가까운 모서리(작업 영역 네 모서리 + 앞에 가려지지 않은 창의 위 두 모서리)를 향해 줄을 쏘고, 줄이 닿으면 거미집이 핌.
 //!   손님으로 친구 화면에 가 있으면 자주 (WEB_RATE_GUEST), 집에선 가끔 (WEB_RATE_HOME). 거미집은 앱이 WEB_LIFE_SECS 뒤 흐리게 지움.
 //!   크기는 제각각 (WEB_SIZE_RANGE)이고, 줄을 여러 번 휙휙 쏴서 짬 (WEAVE_SHOTS·weave_target — 앱이 살·고리를 차례로 그림).
+//!   🌱 크기·줄 수와 그네·끌어오기·고치 빈도는 연령대로 자람 (stage_power × WEB_SIZE_RANGE, shot_range — 아기 작게 2~4번 → 어른 크게 5~8번)
 //!   창 모서리 거미집은 창을 따라 옮겨 가고, 앞 창에 가려지면 숨고, 창이 닫히면 사라짐 (web_on_window).
 //! - 그네: 머리 위 창 아랫변이나 화면 윗변에 줄을 붙여 몸을 끌어올린 뒤 진자처럼 흔들려 반대편에서 놓고 날아감
 //! - 끌어오기: 바닥의 물건이나 다른 동물에 줄을 붙여 휙 — 반은 앞에 떨어지게, 반은 머리 너머 뒤로
@@ -45,6 +46,12 @@ pub const WEB_SIZE_RANGE: (f64, f64) = (0.6, 2.6);
 pub const WEB_WINDOW_FIT: f64 = 0.6;
 /// 거미집 하나를 짜려고 줄을 쏘는 횟수 (작은 것 ~ 큰 것)
 pub const WEAVE_SHOTS: (u32, u32) = (4, 7);
+/// 🌱 연령대 세기(stage_power)에 맞춘 줄 횟수 범위 — 청소년(1.0)은 WEAVE_SHOTS 그대로, 아기 (2, 4) → 어른 (5, 8)
+pub fn shot_range(power: f64) -> (u32, u32) {
+    let lo = ((f64::from(WEAVE_SHOTS.0) * power).round() as u32).max(2);
+    let hi = ((f64::from(WEAVE_SHOTS.1) * power).round() as u32).max(lo);
+    (lo, hi)
+}
 /// 거미집 짜는 줄 한 번 (쏘고 닿아 있는 시간)
 pub const WEAVE_SHOT_SECS: f64 = 0.32;
 /// 짜는 줄이 노리는 자리: (모서리 각의 몫 0..1, 반지름의 몫) — 두 번째 줄부터 차례로 (첫 줄은 모서리)

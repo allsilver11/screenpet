@@ -85,6 +85,8 @@ fn pumpkin_bounces_through_all_of_its_walking() {
     let (mut walking_ticks, mut hopping_ticks, mut hop_frames) = (0usize, 0usize, 0usize);
     for seed in 0..6 {
         let mut p = Pet::new(pumpkin(), 960.0, 128.0, seed);
+        // 걸음 폴짝만 잼 — 🌱 연령대 공중제비·신나는 폴짝은 끔
+        p.hush_stage();
         for _ in 0..(60 * 600) {
             p.update(DT, &w);
             let lift = p.body.y - size - p.window_pos().1;

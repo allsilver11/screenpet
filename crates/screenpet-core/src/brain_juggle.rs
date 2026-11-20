@@ -284,7 +284,7 @@ impl Pet {
         let Some(spot) = spots.iter().filter(near).min_by(|a, b| (a.x - x).abs().total_cmp(&(b.x - x).abs())).copied() else { return };
         self.juggle.seen.retain(|&(_, until)| clock < until);
         self.juggle.seen.push((spot.id, clock + juggle::SAME_OBJECT_SECS));
-        if self.juggle.rng.f64() >= juggle::PICK_CHANCE {
+        if self.juggle.rng.f64() >= juggle::PICK_CHANCE * self.power() {
             return;
         }
         let Some(to) = self.approach_x(&spot, world) else { return };

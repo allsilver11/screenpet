@@ -9,7 +9,7 @@ use crate::world::World;
 /// 테스트 시계의 한 틱 (60fps)
 pub(crate) const DT: f64 = 1.0 / 60.0;
 
-/// 평범한 동물: 128px, 걷기 60px/s, 특기 없음
+/// 평범한 동물: 128px, 걷기 60px/s, 특기 없음, 청소년 (연령대 세기 1 — 예전 그대로)
 pub(crate) fn pet_cfg() -> PetConfig {
     PetConfig {
         hang_grip: (0.0, 0.06),
@@ -39,6 +39,7 @@ pub(crate) fn pet_cfg() -> PetConfig {
         grip: Default::default(),
         taskbar_play: false,
         dpi: 1.0,
+        stage: Stage::Teenager,
     }
 }
 

@@ -45,7 +45,7 @@ impl Pet {
             return;
         }
         let Some(spot) = self.stash_pick(world, true) else { return };
-        if !self.first_look(spot.id) || self.play.rng.f64() >= play::STASH_CHANCE {
+        if !self.first_look(spot.id) || self.play.rng.f64() >= play::STASH_CHANCE * self.power() {
             return;
         }
         self.start_stash(&spot, world);

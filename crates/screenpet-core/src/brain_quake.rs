@@ -19,7 +19,7 @@ impl Pet {
         self.play.big_stomp = true;
         self.play.quake_ready_at = self.clock + behavior::range(&mut self.play.rng, play::QUAKE_CALM_SECS);
         self.speech = Some(Speech::BigStomp);
-        self.play.event = Some(ObjectPlay::Quake { x: self.body.x, y: self.body.y, owner: st.owner, reach: play::QUAKE_BODIES * self.cfg.size });
+        self.play.event = Some(ObjectPlay::Quake { x: self.body.x, y: self.body.y, owner: st.owner, reach: play::QUAKE_BODIES * self.power() * self.cfg.size });
     }
 
     /// 막 시작한 쿵쾅이 큰 쿵임 (social.rs가 take_stomp 뒤에 봄)

@@ -58,7 +58,7 @@ impl Pet {
         let (x, y, reach) = (self.body.x, self.body.y, play::KNOCK_REACH * self.cfg.size);
         let near = |s: &&ObjectSpot| !s.giant && !s.local && s.owner == st.owner && (s.y - y).abs() <= crate::juggle::SAME_LEVEL_PX && (s.x - x).abs() <= reach;
         let Some(spot) = self.play.spots.iter().filter(near).min_by(|a, b| (a.x - x).abs().total_cmp(&(b.x - x).abs())).copied() else { return };
-        if !self.first_look(spot.id) || self.play.rng.f64() >= play::KNOCK_CHANCE {
+        if !self.first_look(spot.id) || self.play.rng.f64() >= play::KNOCK_CHANCE * self.power() {
             return;
         }
         self.start_knock(&spot, world);

@@ -145,6 +145,8 @@ fn a_visiting_spider_spins_webs_here_and_there_much_more_often_than_at_home() {
         let mut n = 0;
         for seed in 0..4 {
             let mut p = resting(spider(), 900.0, seed, &w);
+            // 거미집 빈도만 잼 — 🌱 연령대 특기는 끔
+            p.hush_stage();
             p.web.swing_ready_at = f64::INFINITY;
             p.web.pull_ready_at = f64::INFINITY;
             p.web.web_ready_at = 0.0;

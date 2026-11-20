@@ -1025,7 +1025,29 @@ const EXTRA_SPEECH = {
   help: ["help!", "stuck!"],
   thanks: ["thanks!", "phew!"],
   broke_free: ["free!", "phew!"],
+  // 🌱 연령대별 특기 (코어 brain_stage.rs·social_romp.rs): 👶 엉덩방아 / 혼자 오래 / 🧒 올려다보기 / 🧑‍🎤 공중제비 / 시무룩 / 🧓 쓰다듬기 / 👶 졸졸
+  plop: ["oops!", "uh-oh"],
+  waah: ["waah", "waah~"],
+  ooh: ["ooh?", "ooh!"],
+  flip: ["yeah!", "nailed it!"],
+  sulk: ["ugh", "whatever"],
+  good_kid: ["good kid", "there there"],
+  tag_along: ["wait for me!", "me too!"],
 };
+// 🌱 연령대 말투 (모든 동물 공통): 지금 연령대의 줄이 종 말풍선에 더해짐. pet.json `stage_speech: { "baby": { "chatter": [...] } }`가 있으면 그 키는 그 줄로 바꿈
+const STAGE_SPEECH = {
+  baby: { chatter: ["ba!", "mama?", "goo~"] },
+  kinder: { chatter: ["why?", "look!", "ooh!"] },
+  child: { chatter: ["hehe", "race you!", "let's play!"] },
+  teenager: { chatter: ["ugh", "whatever", "cool."] },
+  adult: { chatter: ["hm hm", "nice day", "kids these days"] },
+};
+// 지금 연령대의 말풍선 표: 종 말 + 공통 연령대 말 (같은 키는 이어 붙임), pet.json stage_speech는 키마다 덮어씀
+function stageSpeech(base, m, stageName) {
+  const out = { ...base };
+  for (const [key, lines] of Object.entries(STAGE_SPEECH[stageName] ?? {})) out[key] = [...(out[key] ?? []), ...lines];
+  return { ...out, ...(m.stage_speech?.[stageName] ?? {}) };
+}
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {
   cat: ["mrrow...", "*wiggle wiggle*"],
@@ -1053,7 +1075,7 @@ const speech = setupSpeech({
   bubbleEl,
   pickerEl,
   favBtn,
-  getManifest: () => manifest && { ...manifest, speech: { cursor_play: CURSOR_LINES[stage.pet] ?? ["!"], ...EXTRA_SPEECH, ...manifest.speech } },
+  getManifest: () => manifest && { ...manifest, speech: stageSpeech({ cursor_play: CURSOR_LINES[stage.pet] ?? ["!"], ...EXTRA_SPEECH, ...manifest.speech }, manifest, stage.stage) },
   isQuiet: () => noteOpen,
 });
 

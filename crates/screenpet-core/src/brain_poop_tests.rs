@@ -144,6 +144,8 @@ fn encounter(seed: u64) -> (Seen, Option<Speech>) {
     let w = world(vec![]);
     let spots = [poop_at(1, 900.0)];
     let mut p = walker(&w, 800.0, seed);
+    // 똥 만나기만 잼 — 🌱 연령대 특기(걷다 엉덩방아 등)는 끔
+    p.hush_stage();
     let mut said = None;
     for _ in 0..(60 * 8) {
         p.notice_poops(&spots, &w);

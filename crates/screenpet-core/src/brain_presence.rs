@@ -595,7 +595,8 @@ impl Pet {
 
     /// 이번 잠의 길이 (졸린 시간엔 훨씬 긺)
     pub(super) fn sleep_secs(&mut self) -> f64 {
-        let secs = behavior::range(&mut self.rng, behavior::SLEEP_SECS);
+        // 👶 아기는 더 오래 잠 (brain_stage.rs)
+        let secs = behavior::range(&mut self.rng, behavior::SLEEP_SECS) * self.sleep_longer();
         if self.presence.sleepy {
             secs * SLEEPY_SLEEP_MULT
         } else {

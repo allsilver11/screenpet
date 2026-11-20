@@ -28,7 +28,8 @@ impl Pet {
 
     /// 나는 동물의 움직임 종류별 속도 (걷기 속도 × 배수)
     pub(super) fn fly_speed(&self, kind: Move) -> f64 {
-        self.cfg.walk_speed * flight::speed_mult(kind)
+        // 🌱 나는 빠르기는 연령대로 조금씩 자람 (soft_power, brain_stage.rs)
+        self.cfg.walk_speed * flight::speed_mult(kind) * self.soft_power()
     }
 
     /// 친구 화면으로 날아 나가고 들어오는 속도: 빠른 나는 동물(새)은 쌩 (SWIFT_DASH배), 나머지는 보통 날기

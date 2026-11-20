@@ -33,6 +33,7 @@ pub mod sleigh;
 pub mod snowball;
 pub mod snowplay;
 pub mod social;
+pub mod stage;
 pub mod style;
 pub mod surfaces;
 pub mod taskbar;

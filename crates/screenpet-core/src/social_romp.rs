@@ -13,6 +13,8 @@
 //! - 🏁 달리기 시합 (Race): 쉬던 둘이 나란히 서서 "ready…" "go!" → 먼 쪽 끝으로 (최대 RACE_MAX_BODIES) 달림, 빠르기 × 0.9~1.1 주사위.
 //!   먼저 닿은 쪽 손 흔들기 + 반짝 "I win!", 진 쪽 annoyed "no fair!"
 //! - 💬 수다 (Chat): 가까이 쉬는 둘이 마주 보고 말풍선 2~4번 번갈아 (chat_a ↔ chat_b), 가끔 끝에 하트
+//! - 🌱 연령대 (spec 2부, stage.rs): 👶 졸졸 (Tag) — 어린 펫이 걷는 큰(나이 많은) 펫 뒤를 "wait for me!" 하며 몇 초 따라가고 하트.
+//!   🧓 쓰다듬기 (Pat) — 나이 많은 펫이 쉬는 어린 펫에게 다가가 손을 흔들어 쓰다듬고 "good kid", 어린 펫은 하트
 //!
 //! 주사위는 따로 (다른 놀이의 주사위 순서는 그대로).
 
@@ -37,11 +39,15 @@ pub enum RompKind {
     Race,
     /// 💬 수다
     Chat,
+    /// 👶 졸졸 따라가기 (어린 쪽이 걸음, spec 2부)
+    Tag,
+    /// 🧓 쓰다듬기 (나이 많은 쪽이 걸음, spec 2부)
+    Pat,
 }
 
 impl RompKind {
     /// 모든 종류
-    pub const ALL: [RompKind; 6] = [RompKind::Scuffle, RompKind::Prank, RompKind::Shove, RompKind::Nap, RompKind::Race, RompKind::Chat];
+    pub const ALL: [RompKind; 8] = [RompKind::Scuffle, RompKind::Prank, RompKind::Shove, RompKind::Nap, RompKind::Race, RompKind::Chat, RompKind::Tag, RompKind::Pat];
 
     /// 종류의 기본 몫 (보통 성격 기준)
     fn base(self) -> f64 {
@@ -52,6 +58,8 @@ impl RompKind {
             RompKind::Nap => 1.2,
             RompKind::Race => 1.0,
             RompKind::Chat => 1.2,
+            RompKind::Tag => 1.0,
+            RompKind::Pat => 1.0,
         }
     }
 
@@ -76,6 +84,11 @@ impl RompKind {
             (RompKind::Chat, Friendly) => 1.4,
             (RompKind::Chat, Playful) => 1.0,
             (RompKind::Chat, Aloof) => 0.5,
+            (RompKind::Tag, Aloof) => 0.6,
+            (RompKind::Tag, _) => 1.2,
+            (RompKind::Pat, Friendly) => 1.4,
+            (RompKind::Pat, Playful) => 1.0,
+            (RompKind::Pat, Aloof) => 0.6,
         }
     }
 
@@ -180,6 +193,21 @@ const CHAT_LINE_SECS: f64 = 1.6;
 /// 💬 끝에 하트를 띄울 확률
 const CHAT_HEART_CHANCE: f64 = 0.35;
 
+/// 👶 따라가는 시간 (초)
+pub const TAG_SECS: (f64, f64) = (4.0, 8.0);
+/// 👶 큰 펫이 걸어가는 거리 상한 (몸 크기 배)
+const TAG_WALK_BODIES: f64 = 6.0;
+/// 👶 큰 펫 뒤 간격 (두 몸 크기 평균 배)
+const TAG_GAP: f64 = 0.9;
+/// 👶 큰 펫 걷기 빠르기 (걷기 속도 배 — 평소 걷기) · 따라가는 쪽 (조금 빨라 따라잡음)
+const TAG_LEAD_PACE: f64 = 0.7;
+/// 👶 따라가는 쪽 빠르기 (걷기 속도 배)
+const TAG_FOLLOW_PACE: f64 = 0.85;
+/// 🧓 다가가는 시간 상한 (초)
+const PAT_CLOSE_SECS: f64 = 8.0;
+/// 🧓 쓰다듬는 시간 (초)
+pub const PAT_SECS: f64 = 1.8;
+
 /// 놀이 단계
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Step {
@@ -213,6 +241,10 @@ enum Step {
     Finish,
     /// 💬 수다
     Talk,
+    /// 👶 졸졸 따라감
+    Follow,
+    /// 🧓 쓰다듬음
+    Pet,
 }
 
 /// 하는 중인 놀이 하나
@@ -378,6 +410,15 @@ impl Social {
         if b.sleeping && d <= ROMP_BODIES * size {
             add(RompKind::Nap);
         }
+        // 🌱 연령대: 👶 어린 쪽이 걷는 큰 펫을 졸졸 · 🧓 나이 많은 쪽이 쉬는 어린 펫을 쓰다듬음
+        if b.romp_free && d <= ROMP_BODIES * size {
+            if a.stage.step() < b.stage.step() && !b.resting {
+                add(RompKind::Tag);
+            }
+            if a.stage.step() > b.stage.step() && b.resting {
+                add(RompKind::Pat);
+            }
+        }
     }
 
     /// 새 펫끼리 놀이: 같은 조각의 한가한 짝마다 할 수 있는 놀이 몫을 더해 굴리고, 걸리면 몫대로 하나를 시작함
@@ -387,6 +428,11 @@ impl Social {
         for i in 0..n {
             for j in (i + 1)..n {
                 let (a, b) = (self.snap[i], self.snap[j]);
+                // 👶 곁에 친구가 있음 — 혼자 오래 있어 "waah" 하는 시계를 되돌림 (brain_stage.rs)
+                if same_piece(&a, &b) && (a.x - b.x).abs() <= ROMP_BODIES * body(&a, &b) {
+                    pets[i].as_mut().note_company();
+                    pets[j].as_mut().note_company();
+                }
                 if a.engaged || b.engaged || !same_piece(&a, &b) || cooling(&self.romp.cooldown, &pair(a.key, b.key), self.clock) {
                     continue;
                 }
@@ -471,6 +517,30 @@ impl Social {
                 pets[ia].as_mut().start_romp(Pose::hold(Anim::Idle).facing(toward(a.x, b.x, a.facing)));
                 pets[ib].as_mut().start_romp(Pose::hold(Anim::Idle).facing(toward(b.x, a.x, b.facing)));
             }
+            RompKind::Tag => {
+                // 큰 펫(b)이 가던 쪽으로 걸어가고 어린 펫(a)이 그 뒤를 따라감 — 갈 자리가 모자라면 안 함
+                r.dir = b.facing;
+                r.x = fit(&b, b.x + r.dir * TAG_WALK_BODIES * b.size);
+                if (r.x - b.x).abs() < b.size {
+                    return false;
+                }
+                r.step = Step::Follow;
+                r.len = behavior::range(&mut self.romp.rng, TAG_SECS);
+                pets[ib].as_mut().start_romp(Pose::go(Anim::Walk, r.x, TAG_LEAD_PACE));
+                pets[ia].as_mut().start_romp(Pose::go(Anim::Walk, fit(&a, b.x - r.dir * TAG_GAP * body(&a, &b)), TAG_FOLLOW_PACE));
+                pets[ia].as_mut().say_now(Speech::TagAlong);
+            }
+            RompKind::Pat => {
+                // 나이 많은 펫(a)이 어린 펫(b) 옆으로 걸어감
+                let touch = 0.9 * (a.half_w + b.half_w);
+                let side = toward(b.x, a.x, 1.0);
+                r.x = if fits(&a, b.x + side * touch) { b.x + side * touch } else { b.x - side * touch };
+                if !fits(&a, r.x) {
+                    return false;
+                }
+                pets[ib].as_mut().start_romp(Pose::hold(Anim::Idle).facing(toward(b.x, a.x, b.facing)));
+                pets[ia].as_mut().start_romp(Pose::go(Anim::Walk, r.x, 0.7));
+            }
         }
         self.romp.romps.push(r);
         true
@@ -504,6 +574,8 @@ impl Social {
                 RompKind::Nap => self.step_nap(&mut r, pets, ia, ib),
                 RompKind::Race => self.step_race(&mut r, pets, ia, ib),
                 RompKind::Chat => self.step_chat(&mut r, pets, ia, ib),
+                RompKind::Tag => self.step_tag(&mut r, pets, ia, ib),
+                RompKind::Pat => self.step_pat(&mut r, pets, ia, ib),
             };
             self.romp.romps[k] = r;
             if going {
@@ -836,6 +908,47 @@ impl Social {
                 pets[ib].as_mut().romp_heart();
             }
             return false;
+        }
+        true
+    }
+
+    /// 👶 졸졸 한 틱: 큰 펫은 걸어가고 어린 펫은 그 뒤 간격을 지킴. 시간이 다 되거나 큰 펫이 닿으면 하트 하고 끝 (false)
+    fn step_tag<T: AsRef<Pet> + AsMut<Pet>>(&mut self, r: &mut Romp, pets: &mut [T], ia: usize, ib: usize) -> bool {
+        let (a, b) = (self.snap[ia], self.snap[ib]);
+        let behind = fit(&a, b.x - r.dir * TAG_GAP * body(&a, &b));
+        pets[ib].as_mut().set_romp_pose(Pose::go(Anim::Walk, r.x, TAG_LEAD_PACE));
+        let follow = if (a.x - behind).abs() > 1.0 { Pose::go(Anim::Walk, behind, TAG_FOLLOW_PACE) } else { Pose::hold(Anim::Idle).facing(r.dir) };
+        pets[ia].as_mut().set_romp_pose(follow);
+        if r.t >= r.len || (b.x - r.x).abs() < 2.0 {
+            pets[ia].as_mut().romp_heart();
+            return false;
+        }
+        true
+    }
+
+    /// 🧓 쓰다듬기 한 틱: 다가가서 손 흔들어 쓰다듬고 "good kid", 어린 펫은 하트. 끝나면 false
+    fn step_pat<T: AsRef<Pet> + AsMut<Pet>>(&mut self, r: &mut Romp, pets: &mut [T], ia: usize, ib: usize) -> bool {
+        let (a, b) = (self.snap[ia], self.snap[ib]);
+        match r.step {
+            Step::Close => {
+                pets[ia].as_mut().set_romp_pose(Pose::go(Anim::Walk, r.x, 0.7));
+                pets[ib].as_mut().set_romp_pose(Pose::hold(Anim::Idle).facing(toward(b.x, a.x, b.facing)));
+                if (a.x - r.x).abs() < 2.0 {
+                    Self::next(r, Step::Pet);
+                    pets[ia].as_mut().say_now(Speech::GoodKid);
+                    pets[ib].as_mut().romp_heart();
+                } else if r.t >= PAT_CLOSE_SECS {
+                    return false;
+                }
+            }
+            Step::Pet => {
+                pets[ia].as_mut().set_romp_pose(Pose::hold(Anim::Wave).facing(toward(a.x, b.x, a.facing)));
+                pets[ib].as_mut().set_romp_pose(Pose::hold(Anim::Heart));
+                if r.t >= PAT_SECS {
+                    return false;
+                }
+            }
+            _ => return false,
         }
         true
     }

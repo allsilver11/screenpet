@@ -151,6 +151,8 @@ struct Snap {
     sleeping: bool,
     /// 서 있는 디딤판 조각 (왼쪽, 오른쪽)
     ground: Option<(f64, f64)>,
+    /// 🌱 연령대 (👶 졸졸 · 🧓 쓰다듬기 — social_romp.rs)
+    stage: crate::care::Stage,
 }
 
 impl Snap {
@@ -183,6 +185,7 @@ impl Snap {
             resting: p.romp_resting(),
             sleeping: p.social_asleep() && !p.cfg.flies,
             ground: p.ground_span(),
+            stage: p.cfg.stage,
         }
     }
 
@@ -561,6 +564,8 @@ impl Social {
             // 🦖 큰 쿵 (brain_quake.rs): 더 멀리, 친구들은 깜짝 폴짝 (데굴 주사위는 굴리지 않는다)
             let big = pets[i].as_ref().stomp_is_big();
             let reach = if big { crate::play::QUAKE_BODIES } else { STOMP_BODIES };
+            // 🌱 쿵쾅 범위는 공룡 연령대로 자람 (아기 작게 → 어른 넓게, brain_stage.rs)
+            let reach = reach * pets[i].as_ref().power();
             for j in 0..self.snap.len() {
                 let other = self.snap[j];
                 if j == i || !near(&dino, &other, reach) {
@@ -835,7 +840,9 @@ impl Social {
                     self.snap[j].engaged = true;
                     self.links.push(Link { a: a.key, b: b.key, phase: Phase::Greet { remaining: secs }, played: false, swapped: false });
                 } else if near(&a, &b, PLAY_BODIES) {
-                    let rate = PLAY_RATE * eagerness(a.personality).max(eagerness(b.personality));
+                    // 🧑 어린이는 술래잡기를 더 좋아함 (brain_stage.rs tag_fan — 더 놀고 싶은 쪽을 따름)
+                    let fan = pets[i].as_ref().tag_fan().max(pets[j].as_ref().tag_fan());
+                    let rate = PLAY_RATE * eagerness(a.personality).max(eagerness(b.personality)) * fan;
                     if self.rng.f64() < rate * dt {
                         let a_chases = pick_chaser_a(&mut self.rng, a.personality, b.personality);
                         let phase = self.start_chase(pets, i, j, a_chases);

@@ -206,7 +206,7 @@ impl Pet {
             return false;
         }
         let pets = self.cocoon_targets(world);
-        if pets.is_empty() || self.web.rng.f64() >= web::COCOON_RATE * dt {
+        if pets.is_empty() || self.web.rng.f64() >= web::COCOON_RATE * self.power() * dt {
             return false;
         }
         let k = self.web.rng.usize(..pets.len());
@@ -300,19 +300,22 @@ impl Pet {
 
     /// 🕸️ 칠 거미집의 크기 (WEB_SIZE_RANGE — 창 모서리는 창 짧은 변의 WEB_WINDOW_FIT배까지)와 짤 줄 횟수·시간을 정함
     pub(super) fn sized_web(&mut self, spot: WebSpin, world: &World) -> WebSpin {
-        let k = behavior::range(&mut self.web.rng, web::WEB_SIZE_RANGE);
+        // 🌱 거미집 크기·줄 수는 연령대로 자람 (아기 작게 2~4번 → 어른 크게 5~8번, brain_stage.rs)
+        let p = self.power();
+        let k = behavior::range(&mut self.web.rng, web::WEB_SIZE_RANGE) * p;
         let mut size = k * self.cfg.size;
         if let Some(r) = spot.window.and_then(|id| world.windows.iter().find(|w| w.id == id)).map(|w| w.rect) {
             size = size.min(web::WEB_WINDOW_FIT * r.width().min(r.height()));
         }
         let k = size / self.cfg.size;
-        let shots = ((2.0 + 1.5 * k).round() as u32).clamp(web::WEAVE_SHOTS.0, web::WEAVE_SHOTS.1);
+        let (lo, hi) = web::shot_range(p);
+        let shots = ((2.0 + 1.5 * k).round() as u32).clamp(lo, hi);
         WebSpin { size, shots, build: f64::from(shots - 1) * web::WEAVE_SHOT_SECS, ..spot }
     }
 
     /// 🌉 한가할 때 주사위: 그네
     fn maybe_web_swing(&mut self, dt: f64, world: &World) -> bool {
-        if self.clock < self.web.swing_ready_at || self.web.rng.f64() >= web::SWING_RATE * dt {
+        if self.clock < self.web.swing_ready_at || self.web.rng.f64() >= web::SWING_RATE * self.power() * dt {
             return false;
         }
         self.start_web_swing(world)
@@ -343,7 +346,7 @@ impl Pet {
         if objs.is_empty() && pets.is_empty() {
             return false;
         }
-        if self.web.rng.f64() >= web::PULL_RATE * dt {
+        if self.web.rng.f64() >= web::PULL_RATE * self.power() * dt {
             return false;
         }
         let k = self.web.rng.usize(..objs.len() + pets.len());

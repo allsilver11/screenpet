@@ -109,7 +109,8 @@ impl Pet {
             behavior::range(&mut self.rng, if self.flash.glare { GLARE_SECS } else { CLEAR_SECS })
         });
         let wait = match self.flash.wait {
-            Some(w) => (w - dt).max(0.0),
+            // 🌱 연령대가 클수록 자주 번쩍 (기다리는 시간이 빨리 흐름, brain_stage.rs)
+            Some(w) => (w - dt * self.power()).max(0.0),
             None => behavior::range(&mut self.rng, FLASH_FIRST_WAIT_SECS),
         };
         self.flash.wait = Some(wait);

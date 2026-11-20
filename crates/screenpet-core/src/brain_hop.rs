@@ -14,18 +14,20 @@ use crate::hop::{self, Gait};
 impl Pet {
     /// 이동 방식의 폴짝 박자 (폴짝 동물의 걷기·달리기만 — 구르기는 그대로 구름).
     /// 가끔 깡총거리는 동물(토끼)은 이번 틱의 이동 토막이 깡총일 때만 낮은 깡총 박자
-    fn gait(&self, kind: Move) -> Option<Gait> {
+    pub(super) fn gait(&self, kind: Move) -> Option<Gait> {
         if kind == Move::Roll {
             return None;
         }
         let (speed, run) = (self.cfg.walk_speed * kind.speed_mult(), kind == Move::Run);
-        if self.cfg.hops {
-            Some(Gait::new(self.cfg.size, speed, run))
+        // 🌱 폴짝 높이는 연령대로 자람 (아기 낮게 → 어른 높이, soft_power — brain_stage.rs)
+        let g = if self.cfg.hops {
+            Gait::new(self.cfg.size, speed, run)
         } else if self.bunny_hopping() {
-            Some(Gait::bunny(self.cfg.size, speed, run))
+            Gait::bunny(self.cfg.size, speed, run)
         } else {
-            None
-        }
+            return None;
+        };
+        Some(Gait { height: g.height * self.soft_power(), ..g })
     }
 
     /// 깡총 걸음 중 (토끼의 이번 틱 State::Move 토막이 깡총) — 개구리의 벽 폴짝 오르기는 없음
@@ -43,6 +45,21 @@ impl Pet {
             };
             let (share, rng) = (self.cfg.hop_share, &mut self.rng);
             self.bunny.tick(self.clock, dt, kind as u8, remaining, || rng.f64() < share);
+        } else if kind != Move::Roll && self.hop_skip_share() > 0.0 {
+            // 🧑 깡총깡총 걷기 (연령대 — 토끼 걸음과 같은 박자, 주사위는 연령대 주사위, brain_stage.rs)
+            let remaining = match self.state {
+                State::Move { remaining, .. } => remaining,
+                _ => 0.0,
+            };
+            let share = self.hop_skip_share();
+            let (rng, mut hit) = (&mut self.stage.rng, false);
+            self.bunny.tick(self.clock, dt, kind as u8, remaining, || {
+                hit = rng.f64() < share;
+                hit
+            });
+            if hit {
+                self.count_stage(crate::stage::StageTrait::HopSkip);
+            }
         }
         let Some(g) = self.gait(kind) else { return 1.0 };
         let t = self.hop_beat.tick(self.clock, dt, g.cycle());
@@ -101,6 +118,8 @@ impl Pet {
         let targets = hop::jump_targets(&world.surfaces, st.owner, self.body.x, self.body.y, self.leap_size(), self.cfg.half_w);
         let chance = if self.cfg.hops { hop::BIG_JUMP_CHANCE } else { hop::WALKER_BIG_JUMP_CHANCE };
         let chance = if self.cfg.energetic { chance * super::heumul_moves::ENERGETIC_JUMP_MULT } else { chance };
+        // 🐸 큰 점프는 연령대로 잦아짐 (brain_stage.rs)
+        let chance = chance * self.power();
         if targets.is_empty() || self.rng.f64() >= chance {
             return None;
         }
@@ -131,7 +150,7 @@ impl Pet {
                 return;
             };
             let top = world.bounds.top + self.cfg.size;
-            let arc = hop::leap_arc((self.body.x, self.body.y), (ax + rel_x, ay), self.leap_size() * hop::BIG_JUMP_RISE, top);
+            let arc = hop::leap_arc((self.body.x, self.body.y), (ax + rel_x, ay), self.leap_size() * hop::BIG_JUMP_RISE * self.soft_power(), top);
             self.pacing.after_beat = None;
             self.standing = None;
             self.body.vx = arc.vx;

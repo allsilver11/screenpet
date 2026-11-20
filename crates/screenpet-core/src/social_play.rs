@@ -166,7 +166,7 @@ impl Social {
             return;
         }
         cand.sort_by(|a, b| a.0.total_cmp(&b.0));
-        cand.truncate(play::TRAIN_MAX_FOLLOWERS);
+        cand.truncate(pets[i].as_ref().train_followers_max());
         let secs = behavior::range(&mut self.play.rng, play::TRAIN_SECS);
         pets[i].as_mut().start_lead(secs);
         self.snap[i].engaged = true;

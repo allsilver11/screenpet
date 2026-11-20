@@ -357,6 +357,20 @@ pub enum Speech {
     Thanks,
     /// 🐛🕸️ 혼자 뿅 빠져나옴 ("free!")
     BrokeFree,
+    /// 👶 콩 넘어져 엉덩방아 ("oops!", brain_stage.rs)
+    Plop,
+    /// 👶 혼자 오래 있어 "waah"
+    Waah,
+    /// 🧒 위를 쳐다보며 "ooh?"
+    Ooh,
+    /// 🧑‍🎤 공중제비 착지 ("yeah!")
+    Flip,
+    /// 🧑‍🎤 시무룩 ("ugh")
+    Sulk,
+    /// 🧓 어린 펫을 쓰다듬음 ("good kid", social_romp.rs)
+    GoodKid,
+    /// 👶 큰 펫을 졸졸 ("wait for me!", social_romp.rs)
+    TagAlong,
 }
 
 impl Anim {
@@ -555,6 +569,8 @@ pub enum State {
     Romp { remaining: f64 },
     /// 🐛 고치에 감김 / 🕸️ 거미집에 걸림 — 못 움직이고 버둥버둥. t = 걸린 뒤 흐른 시간, remaining = 빠져나오기까지 (brain_snare.rs)
     Stuck { kind: snare_moves::StuckKind, t: f64, remaining: f64 },
+    /// 🌱 연령대 몸짓 (👶 엉덩방아·waah · 🧒 신나서 폴짝 · 🧑‍🎤 공중제비·시무룩) — t = 시작한 뒤 흐른 시간, len = 전체 (brain_stage.rs)
+    StageAct { act: stage_moves::StageAct, t: f64, len: f64 },
 }
 
 impl State {
@@ -696,6 +712,8 @@ pub struct PetConfig {
     pub leads_train: bool,
     /// 🕷️ 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기 (pet.json `web_slinger` + shoot·web_swing·hero_land·web_pull·web_whirl 그림 — 거미인간, brain_web.rs)
     pub slings_webs: bool,
+    /// 🌱 지금 연령대 (from_manifest가 받은 단계 이름 — 손님도 Visit에 실려 온 단계). 연령대 특기·종별 특기의 세기 (brain_stage.rs)
+    pub stage: crate::care::Stage,
 }
 
 /// teenager(배율 1.0) 스프라이트 한 변 (논리 px)
@@ -736,6 +754,8 @@ impl PetConfig {
             stashes: m.stashes(),
             leads_train: m.train_leader,
             slings_webs: m.slings_webs(),
+            // 모르는 이름이면 청소년 (예전 그대로의 세기)
+            stage: crate::care::Stage::from_name(stage).unwrap_or(crate::care::Stage::Teenager),
         }
     }
 }
@@ -954,6 +974,10 @@ pub struct Pet {
     speech_text: Option<String>,
     /// 🌀 태풍: 회오리 속·돌풍 쉬는 때 (brain_typhoon.rs)
     storm: typhoon_moves::StormMood,
+    /// 🌱 연령대 특기의 기억 (brain_stage.rs)
+    stage: stage_moves::StageMood,
+    /// 동물 종류 id (set_cursor_species가 정함 — 모르면 빈 문자열)
+    species: String,
     rng: fastrand::Rng,
 }
 
@@ -1055,6 +1079,8 @@ impl Pet {
             ground_span: None,
             speech_text: None,
             storm: Default::default(),
+            stage: stage_moves::StageMood::new(seed, cfg.stage),
+            species: String::new(),
             rng: fastrand::Rng::with_seed(seed),
         }
     }
@@ -1080,6 +1106,7 @@ impl Pet {
         }
         self.heart_timer = (self.heart_timer - dt).max(0.0);
         self.wobble_timer = (self.wobble_timer - dt).max(0.0);
+        self.tick_stage_mood(dt);
         self.drop_flying_state();
         self.drop_walking_moves();
         self.after_meal();
@@ -1291,6 +1318,7 @@ impl Pet {
             State::Land { .. } => Anim::Land,
             State::Web { phase, .. } => self.web_anim(phase),
             State::Stuck { kind, .. } => Pet::stuck_anim(kind),
+            State::StageAct { act, t, len } => self.stage_anim(act, t, len),
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
             State::Slide => Anim::Slide,
@@ -1321,7 +1349,7 @@ impl Pet {
             heart: self.heart_timer > 0.0,
             poof: self.poofing(),
             ctl: self.is_controlled(),
-            wobble: self.wobble_timer > 0.0 || matches!(self.state, State::Lifted { .. } | State::Stuck { .. }) || romp_wobble,
+            wobble: self.wobble_timer > 0.0 || matches!(self.state, State::Lifted { .. } | State::Stuck { .. }) || romp_wobble || self.stage_wobble(),
             hang,
             cloud: self.snow_cloud_on(),
             housed: self.housed,
@@ -1329,7 +1357,7 @@ impl Pet {
             glare: self.glasses_glare_on(),
             thud: (self.thud > 0.0 && matches!(self.state, State::Land { .. })) || romp_thud,
             swing,
-            sparkle: self.dance_sparkle() || romp_sparkle,
+            sparkle: self.dance_sparkle() || romp_sparkle || self.stage_sparkle(),
             clap: self.clapping(),
             tap: self.typing_tap(),
             cocoon: self.cocoon_bands(),
@@ -1338,7 +1366,7 @@ impl Pet {
 
     /// 동물 창의 왼쪽 위 자리 (물리 px — 폴짝·놀이로 솟은 만큼 위로)
     pub fn window_pos(&self) -> (f64, f64) {
-        (self.body.x - self.cfg.size / 2.0, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift())
+        (self.body.x - self.cfg.size / 2.0, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift())
     }
 
     /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹음)
@@ -1581,6 +1609,10 @@ impl Pet {
                 }
             }
             State::LevelUp { remaining } if remaining > dt => State::LevelUp { remaining: remaining - dt },
+            State::LevelUp { .. } => {
+                self.announce_stage();
+                State::Housed
+            }
             State::Trick { kind, remaining } if remaining > dt => State::Trick { kind, remaining: remaining - dt },
             _ => State::Housed,
         };
@@ -2798,7 +2830,7 @@ impl Pet {
             State::WantFood { .. } => self.update_want_food(dt, st, &piece),
             State::Move { kind, remaining } => {
                 self.walk_span = Some((piece.x_start, piece.x_end));
-                let speed = self.cfg.walk_speed * kind.speed_mult() * self.hop_pace(kind, dt);
+                let speed = self.cfg.walk_speed * kind.speed_mult() * self.hop_pace(kind, dt) * self.toddle_pace(kind);
                 let new_x = self.body.x + self.facing * speed * dt;
                 let (edge_x, end) = if self.facing > 0.0 { (piece.x_end, piece.end_kind) } else { (piece.x_start, piece.start_kind) };
                 // x가 진행 방향으로 이 조각 끝을 넘었는지
@@ -2849,6 +2881,10 @@ impl Pet {
                     self.body.x = new_x;
                 }
                 let remaining = remaining - dt;
+                // 👶 아장아장 휘청 · 콩 엉덩방아 (brain_stage.rs)
+                if self.stage_walk_tick(kind, dt) {
+                    return;
+                }
                 if remaining > 0.0 && self.stops_to_look_up(kind, dt) {
                     // 걷다가 문득 멈춰 올려다보고, 남은 걸음을 마저 간다
                     self.pacing.after_beat = Some(AfterBeat::Go(State::Move { kind, remaining }));
@@ -2933,7 +2969,12 @@ impl Pet {
             }
             State::LevelUp { remaining } => {
                 let remaining = remaining - dt;
-                self.state = if remaining > 0.0 { State::LevelUp { remaining } } else { self.move_state(true, world) };
+                self.state = if remaining > 0.0 {
+                    State::LevelUp { remaining }
+                } else {
+                    self.announce_stage();
+                    self.move_state(true, world)
+                };
             }
             State::Sleep { remaining } => {
                 let remaining = remaining - dt;
@@ -2952,6 +2993,7 @@ impl Pet {
                 let remaining = remaining - dt;
                 self.state = if remaining > 0.0 { State::Land { remaining } } else { self.rest_beat() };
             }
+            State::StageAct { act, t, len } => self.tick_stage_act(dt, act, t, len),
             // 가던 길이 취소된 뒤 남은 GoHome / 하우스 밖의 Housed는 쉬기로
             State::GoHome | State::Housed => self.state = self.idle_state(),
             State::Air { .. }
@@ -3308,6 +3350,10 @@ impl Pet {
         if kind == Move::Walk && self.cfg.energetic && self.rng.f64() < heumul_moves::ENERGETIC_RUN_CHANCE {
             kind = Move::Run;
         }
+        // 🧑‍🎤 전력 질주 (연령대 주사위 — 평소 주사위 순서는 그대로)
+        if kind == Move::Walk && !homesick {
+            kind = self.stage_sprint(kind);
+        }
         if kind == Move::Roll && self.cfg.special.is_some_and(Special::replaces_roll) {
             // 기린은 구르지 않는다: 멈춰 서서 목을 쭉 — 방금 늘였거나 집에 가는 길이면 그냥 걷는다
             let just_stretched = matches!(self.state, State::Special { kind: Special::NeckStretch, .. });
@@ -3358,8 +3404,12 @@ impl Pet {
         if let Some(play) = self.snow_play_rest() {
             return play;
         }
+        // 🌱 연령대 특징 행동 (모든 연령대가 하지만 제 연령대가 훨씬 자주 — brain_stage.rs)
+        if let Some(act) = self.stage_rest() {
+            return act;
+        }
         if let Some(kind) = self.cfg.special {
-            if self.rng.f64() < kind.rest_chance() {
+            if self.rng.f64() < kind.rest_chance() * self.special_power(kind) {
                 self.start_special(kind);
                 return self.state;
             }
@@ -3379,7 +3429,8 @@ impl Pet {
             (true, true) => crate::flight::PERCH_SLEEP_CHANCE,
             (true, false) => 0.0,
         };
-        if self.rng.f64() < self.sleep_chance(chance) {
+        if self.rng.f64() < self.sleep_chance(chance) * self.sleepy_mult() {
+            self.count_stage(crate::stage::StageTrait::Sleepy);
             State::Sleep { remaining: self.sleep_secs() }
         } else {
             self.move_state(true, world)
@@ -3881,6 +3932,11 @@ pub mod snare_moves;
 mod snare_tests;
 #[path = "brain_typing.rs"]
 pub mod typing_moves;
+#[path = "brain_stage.rs"]
+pub mod stage_moves;
+#[cfg(test)]
+#[path = "brain_stage_tests.rs"]
+mod stage_tests;
 #[cfg(test)]
 #[path = "brain_typing_tests.rs"]
 mod typing_tests;
@@ -4181,6 +4237,8 @@ mod tests {
         let mut sits = 0;
         for seed in 0..300 {
             let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+            // 예전 쉬기 몫을 잼 — 🌱 연령대 특기는 끔
+            p.hush_stage();
             place(&mut p, &w, Owner::Ground(0), 900.0, State::Idle { remaining: 0.001, look: false });
             p.pacing.after_beat = Some(AfterBeat::Rest);
             p.update(DT, &w);
@@ -4417,6 +4475,8 @@ mod tests {
         let (mut moving, mut sleeping, mut front, mut total) = (0usize, 0usize, 0usize, 0usize);
         for seed in 0..20 {
             let mut p = Pet::new(sim_cfg(), 960.0, 128.0, seed);
+            // 예전 동작의 분포를 잼 — 🌱 연령대 특기는 끔 (brain_stage_tests.rs가 따로 잼)
+            p.hush_stage();
             for _ in 0..(60 * 600) {
                 p.update(DT, &w);
                 let a = p.render().anim;
@@ -4447,6 +4507,8 @@ mod tests {
     fn anim_sequence(cfg: PetConfig, seed: u64) -> Vec<Anim> {
         let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0)]);
         let mut p = Pet::new(cfg, 960.0, 128.0, seed);
+        // 예전 동작의 갈래를 잼 — 🌱 연령대 특기(걷다 엉덩방아 등)는 끔
+        p.hush_stage();
         let mut seq: Vec<Anim> = Vec::new();
         for _ in 0..(60 * 600) {
             p.update(DT, &w);
@@ -4699,6 +4761,8 @@ mod input_tests {
         let hits = (0..n)
             .filter(|&seed| {
                 let mut p = Pet::new(cfg, 0.0, 0.0, seed);
+                // 예전 쉬기 몫을 잼 — 🌱 연령대 특기는 끔
+                p.hush_stage();
                 p.set_hungry(hungry);
                 place(&mut p, &w, Owner::Window(1), 800.0, State::Land { remaining: 0.001 });
                 for _ in 0..200 {
@@ -6441,6 +6505,8 @@ mod visit_tests {
     /// 화면 오른쪽(dir=1) 또는 왼쪽(dir=-1) 끝 바로 앞에서 kind 이동 중인 펫
     fn at_edge(w: &World, seed: u64, dir: f64, kind: Move) -> Pet {
         let mut p = Pet::new(cfg(), 0.0, 0.0, seed);
+        // 화면 끝 규칙만 잼 — 🌱 연령대 특기(걷다 엉덩방아·느린 걸음)는 끔
+        p.hush_stage();
         place(&mut p, w, Owner::Ground(0), if dir > 0.0 { RIGHT_EDGE } else { LEFT_EDGE }, State::Move { kind, remaining: 100.0 });
         p.facing = dir;
         p

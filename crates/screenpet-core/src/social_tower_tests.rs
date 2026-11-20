@@ -676,6 +676,8 @@ fn a_meet_can_end_standing_on_the_head_while_the_other_walks_on() {
     let w = world(vec![]);
     for seed in 0..8 {
         let mut pets = head_on_pair(&w, seed, seed + 40, Move::Walk);
+        // 태운 채 걷기만 봄 — 🌱 연령대 깡총깡총(떠 있을 때만 앞으로 감)은 끔
+        pets.iter_mut().for_each(Pet::hush_stage);
         let mut s = Social::new(seed);
         // 🙌 하이파이브(v0.6.3)는 social_play_tests.rs에서 — 여기선 만남만 본다
         s.set_high_five_chance(0.0);

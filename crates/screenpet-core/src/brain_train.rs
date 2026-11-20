@@ -13,12 +13,18 @@ use play_moves::BounceThen;
 const FOLLOW_RUN_GAP: f64 = 0.35;
 
 impl Pet {
+    /// 🦆 기차에 데려갈 친구 수 상한 — 연령대로 자람 (아기 2 → 청소년 4 → 어른 5, brain_stage.rs)
+    pub fn train_followers_max(&self) -> usize {
+        ((play::TRAIN_MAX_FOLLOWERS as f64 * self.power()).round() as usize).max(1)
+    }
+
     /// 걷기를 시작할 때 (move_state): 오리가 바닥에서 기차를 부르고 싶어 함
     pub(super) fn maybe_want_train(&mut self) {
         if !self.cfg.leads_train || self.clock < self.play.train_ready_at || !matches!(self.standing, Some(Standing { owner: Owner::Ground(_), .. })) {
             return;
         }
-        if self.play.rng.f64() < play::TRAIN_CHANCE {
+        // 🌱 아기 오리는 거의 따라가기만, 어른 오리가 기차 머리 (stage.rs lead_power)
+        if self.play.rng.f64() < play::TRAIN_CHANCE * crate::stage::lead_power(self.cfg.stage) {
             // 걷기 전 잠깐 앉는 박자가 있어도 그 뒤 걷기 시작할 때까지
             self.play.train_until = self.clock + 4.0;
         }

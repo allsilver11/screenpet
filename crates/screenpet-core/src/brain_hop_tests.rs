@@ -406,6 +406,8 @@ fn frog_ten_minutes() {
     let (mut leaps, mut hops, mut climbs, mut moving, mut total) = (0usize, 0usize, 0usize, 0usize, 0usize);
     for seed in 0..10 {
         let mut p = Pet::new(frog(), 960.0, 128.0, seed);
+        // 폴짝 걸음만 잼 — 🌱 연령대 공중제비·신나는 폴짝은 끔
+        p.hush_stage();
         let mut leap_to: Option<Owner> = None;
         for _ in 0..(60 * 600) {
             p.update(DT, &w);
@@ -497,6 +499,8 @@ fn rabbit_hops_about_half_of_its_walking_time() {
     let (mut walking_ticks, mut hopping_ticks, mut switches) = (0usize, 0usize, 0usize);
     for seed in 0..10 {
         let mut p = Pet::new(rabbit(), 960.0, 128.0, seed);
+        // 깡총 걸음만 잼 — 🌱 연령대 공중제비·신나는 폴짝은 끔
+        p.hush_stage();
         let mut prev: Option<(f64, bool, bool)> = None;
         for _ in 0..(60 * 600) {
             p.update(DT, &w);
@@ -536,12 +540,13 @@ fn rabbit_hops_about_half_of_its_walking_time() {
     assert_eq!(switches, 0, "the gait changes only between segments");
 }
 
-/// 다른 걷는 동물(hop_share 0)은 절대 깡총 걸음을 하지 않음
+/// 다른 걷는 동물(hop_share 0)은 종 특기로는 깡총 걸음을 하지 않음 (🌱 연령대 깡총깡총은 brain_stage_tests.rs — 여기선 끔)
 #[test]
 fn other_walkers_never_hop_walk() {
     let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0)]);
     for seed in 0..4 {
         let mut p = Pet::new(PetConfig { hop_share: 0.0, ..rabbit() }, 960.0, 128.0, seed);
+        p.hush_stage();
         for _ in 0..(60 * 300) {
             p.update(DT, &w);
             assert!(!p.bunny_hopping());
