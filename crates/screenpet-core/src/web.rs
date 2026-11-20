@@ -9,6 +9,9 @@
 //! - 🌀 휘둘러 던지기: 친구가 연결된 화면 끝이 있으면 (WHIRL_CHANCE) 끌어오는 대신 물건을 줄로 낚아 머리 위로 빙빙 돌리다가
 //!   그 끝 너머로 휙 — 끝을 넘은 물건은 앱의 던지기처럼 친구 모니터로 날아감 (whirl_point·whirl_flight_secs)
 //! - 영웅 착지: 높이서 떨어져 내려서면 콰당 대신 한 손 짚고 쭉 (HERO_FALL_SIZES)
+//! - 🐛 고치 말기: 가까운 다른 동물 몸 둘레로 줄을 COCOON_SHOTS번 쏴서 칭칭 (cocoon_target) — 감긴 동물은 COCOON_SECS 버둥대다 뿅
+//! - 🕸️ 거미집에 걸리기: 거미인간이 아닌 동물의 몸이 거미집 사분원 안 (in_web)으로 들어가면 SNARE_CHANCE로 걸려 SNARE_SECS 버둥댐 —
+//!   빠져나오면 그 거미집은 찢어짐 (앱이 지움). 빠져나온 뒤 SNARE_IMMUNE_SECS 동안은 다시 안 걸림. 거미집 자리는 앱이 WebSpot으로 알려 줌
 //!
 //! 단위: 자리·길이는 물리 px, 시간은 초.
 
@@ -112,6 +115,61 @@ pub const WHIRL_FLIGHT_PER_SIZE: f64 = 0.04;
 pub const HERO_FALL_SIZES: f64 = 1.6;
 /// 영웅 착지 자세로 있는 시간 (hero_land 3칸 8fps + 잠깐)
 pub const HERO_SECS: f64 = 0.9;
+
+/// 🐛 고치를 말 빈도 (닿는 거리에 쉬는 동물이 있을 때, 초당 확률) — 끌어오기와 비슷하게 가끔
+pub const COCOON_RATE: f64 = 1.0 / 40.0;
+/// 🐛 고치를 만 뒤 다시 말기까지
+pub const COCOON_CALM: (f64, f64) = (45.0, 100.0);
+/// 🐛 고치를 말 수 있는 거리 (몸 크기 배): 가까운 끝, 먼 끝
+pub const COCOON_REACH: (f64, f64) = (1.0, 6.0);
+/// 🐛 고치를 말려고 쏘는 줄 수 (한 줄 = WEAVE_SHOT_SECS, 줄마다 실 한 겹)
+pub const COCOON_SHOTS: u32 = 4;
+/// 🐛 다 감긴 뒤 버둥대는 시간 (그 뒤 뿅 풀려남)
+pub const COCOON_SECS: (f64, f64) = (3.5, 5.5);
+/// 🐛 고치 줄이 노리는 몸 둘레 자리: (가로 — 몸 크기 배, 발에서 위로 — 몸 크기 배) 차례로
+const COCOON_AIMS: [(f64, f64); 5] = [(-0.3, 0.35), (0.3, 0.6), (-0.25, 0.8), (0.3, 0.3), (0.0, 0.55)];
+/// 🕸️ 거미집 안으로 들어갈 때마다 걸릴 몫
+pub const SNARE_CHANCE: f64 = 0.6;
+/// 🕸️ 걸려서 버둥대는 시간 (그 뒤 찢고 빠져나옴)
+pub const SNARE_SECS: (f64, f64) = (3.0, 5.0);
+/// 🕸️ 빠져나온 뒤 다시 안 걸리는 시간
+pub const SNARE_IMMUNE_SECS: f64 = 8.0;
+/// 🐛🕸️ 버둥대며 말하는 간격 ("mmph!" / "help!")
+pub const STUCK_TALK_SECS: f64 = 1.6;
+
+/// 🐛 고치를 마는 k번째 줄 (0부터)이 노리는 자리 (물리 px): 발(feet) 위 몸 둘레를 번갈아. size = 그 동물 몸 크기
+pub fn cocoon_target(feet: (f64, f64), size: f64, k: u32) -> (f64, f64) {
+    let (dx, up) = COCOON_AIMS[k as usize % COCOON_AIMS.len()];
+    (feet.0 + dx * size, feet.1 - up * size)
+}
+
+/// 🕸️ 화면에 있는 거미집 하나 (앱이 Pet::set_webs로 알려 줌 — 물리 px)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WebSpot {
+    /// 앱의 거미집 번호 (찢어지면 Pet::take_torn_web이 돌려줌)
+    pub id: u64,
+    /// 모서리 점
+    pub x: f64,
+    pub y: f64,
+    /// 어느 모서리 (사분원이 그 안쪽으로)
+    pub corner: Corner,
+    /// 반지름
+    pub size: f64,
+    /// 앞 창에 가려짐 (안 걸림)
+    pub hidden: bool,
+}
+
+/// 🕸️ 점 (px, py)가 모서리 (x, y)에서 안쪽으로 반지름 radius만큼 펼쳐진 거미집 사분원 안 (모서리 바깥쪽은 아님)
+pub fn in_web(px: f64, py: f64, x: f64, y: f64, corner: Corner, radius: f64) -> bool {
+    if !(radius > 0.0) {
+        return false;
+    }
+    let right = matches!(corner, Corner::TopLeft | Corner::BottomLeft);
+    let down = matches!(corner, Corner::TopLeft | Corner::TopRight);
+    let x_in = if right { px >= x } else { px <= x };
+    let y_in = if down { py >= y } else { py <= y };
+    x_in && y_in && (px - x).hypot(py - y) <= radius
+}
 
 /// 거미집이 붙은 모서리 (그림이 모서리 안쪽으로 펼쳐짐)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

@@ -540,6 +540,8 @@ pub type CarriedOut = (usize, usize, Side);
 pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut> {
     // 🕷️ 거미인간이 줄로 끌어온 동물을 날려 보냄 (앱은 이미 매 틱 이 함수를 부름)
     super::web_moves::sync_yanks(pets);
+    // 🐛 거미인간이 고치로 감는 동물 (brain_snare.rs)
+    super::snare_moves::sync_cocoons(pets);
     let mut out = Vec::new();
     let find = |pets: &[T], key: u64| pets.iter().position(|p| p.as_ref().social_key == key);
     for i in 0..pets.len() {

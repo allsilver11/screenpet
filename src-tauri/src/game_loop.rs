@@ -1097,6 +1097,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         let all_hidden = crate::windows_hidden(&app);
         // 🙆 흐물이에게 같은 화면의 다른 동물을 보여 줌 (번쩍 들러 감)
         screenpet_core::brain::hoist_moves::notice_pets(&mut slots);
+        // 🕸️ 화면의 거미집을 모든 동물에게 알려 줌 — 거미인간이 아닌 동물이 들어가면 걸림 (코어 brain_snare.rs)
+        let web_spots = trail.web_spots();
+        for s in slots.iter_mut() {
+            s.pet.set_webs(&web_spots);
+        }
         pet_targets.clear();
         pet_targets.extend(slots.iter().map(|s| {
             (!s.pet.is_away() && s.pet.hit_feels()).then(|| screenpet_core::juggle::Target { x: s.pet.body.x, y: s.pet.body.y, size: s.pet.cfg.size })
@@ -1158,6 +1163,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 if let Role::Guest(g) = &slots[lifter].role {
                     network.pair_lift(&config, g, side);
                 }
+            }
+        }
+        // 🕸️ 걸렸다가 찢고 나온 거미집은 지움 (trail.rs)
+        for s in slots.iter_mut() {
+            if let Some(id) = s.pet.take_torn_web() {
+                trail.tear_web(&app, id);
             }
         }
         if own_exit.is_none() {

@@ -10,6 +10,7 @@
 //! 거미집이 남아 있는 동안 (WEB_LIFE)은 창을 닫지 않음. 창 모서리 거미집은 창을 따라 옮기고 (`trail-web-move`, 앞 창에 가려지면 숨김),
 //! 창이 닫히거나 다른 모니터로 가면 `trail-web-drop`으로 지우고,
 //! 🧹 빗자루가 쓸고 지나간 거미집은 `sweep_webs`가 `trail-web-drop`으로, 🧹 다 치우기 (`clear_webs`)와 한 시간마다 (weather::AUTO_CLEAR_SECS) `trail-web-clear`로 모두 지움. 손님 거미인간 것도 그림.
+//! 🕸️ 게임 루프가 거미집 자리를 동물 뇌에 알려 주고 (`web_spots` → `Pet::set_webs`), 걸렸던 동물이 찢고 나온 거미집은 `tear_web`이 `trail-web-drop`으로 지움.
 
 use std::time::{Duration, Instant};
 
@@ -19,7 +20,7 @@ use screenpet_core::geom::Rect;
 use screenpet_core::style::PetStyle;
 use screenpet_core::trail::{self, Puff, Runner, Trail};
 use screenpet_core::weather::{self, OverlayRetry};
-use screenpet_core::web::{web_on_window, Corner, WebAt, WebSpin, MAX_WEBS, WEB_LIFE_SECS};
+use screenpet_core::web::{web_on_window, Corner, WebAt, WebSpin, WebSpot, MAX_WEBS, WEB_LIFE_SECS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, WebviewWindow};
 
@@ -360,6 +361,27 @@ impl TrailFx {
             self.webs_until = Some(now + WEB_DROP);
         }
         self.webs.clear();
+    }
+
+    /// 🕸️ 화면에 있는 거미집들 (물리 px) — 동물 뇌가 걸리는지 봄 (코어 Pet::set_webs). 앞 창에 가려졌거나 전체 화면으로 숨긴 덮개 창의 것은 hidden
+    pub fn web_spots(&self) -> Vec<WebSpot> {
+        self.webs
+            .iter()
+            .map(|t| {
+                let paused = self.overlays.iter().any(|o| o.label == t.label && o.paused);
+                WebSpot { id: t.id, x: t.x, y: t.y, corner: t.corner, size: t.size, hidden: t.hidden || paused }
+            })
+            .collect()
+    }
+
+    /// 🕸️ 동물이 걸렸다가 찢고 나온 (또는 클릭으로 빼낸) 거미집을 흐리게 지움 (`trail-web-drop`). 아직 웹뷰로 안 보낸 것이면 보내지 않음
+    pub fn tear_web(&mut self, app: &AppHandle, id: u64) {
+        for o in &mut self.overlays {
+            o.webs.retain(|(_, w)| w.id != id);
+        }
+        let Some(i) = self.webs.iter().position(|t| t.id == id) else { return };
+        let t = self.webs.remove(i);
+        let _ = app.emit_to(t.label.as_str(), "trail-web-drop", [t.id]);
     }
 
     /// 🧹 빗자루가 쓸고 지나간 거미집은 흐리게 지움 (dpi = 커서 자리 화면 배율)

@@ -9,6 +9,7 @@ const listen = (event, handler) => here.listen(event, handler);
 const petEl = document.getElementById("pet");
 const heartEl = document.getElementById("heart");
 const dizzyEl = document.getElementById("dizzy");
+const cocoonEl = document.getElementById("cocoon");
 const bubbleEl = document.getElementById("bubble");
 const pickerEl = document.getElementById("picker");
 const favBtn = document.getElementById("fav");
@@ -521,6 +522,34 @@ function clapBurst(flip) {
   }
 }
 
+// 🐛 고치 (백엔드 render.cocoon = 감긴 실 겹 수, 코어 brain_snare.rs): 새 그림 없이 몸 위에 하얀 실 띠를 겹 수만큼 비스듬히 두르고
+// (style.css #cocoon — 고치째 버둥버둥), 다 풀리면 (0으로 돌아가면) 하얀 반짝이가 뿅 퍼짐
+const COCOON_POP_BITS = 6;
+// 지금 보이는 띠 겹 수 (바뀔 때만 DOM을 만짐)
+let cocoonShown = 0;
+// 실 띠를 겹 수만큼 보임 (0이면 숨김)
+function syncCocoon(bands) {
+  if (bands === cocoonShown) return;
+  cocoonShown = bands;
+  cocoonEl.hidden = !bands;
+  if (pixelMode) cocoonEl.classList.add("px");
+  else cocoonEl.classList.remove("px");
+  Array.from(cocoonEl.children).forEach((band, i) => {
+    band.hidden = i >= bands;
+  });
+}
+// 고치가 풀리며 뿅
+function cocoonPop() {
+  if (document.visibilityState === "hidden") return;
+  const cy = display * 0.4;
+  for (let i = 0; i < COCOON_POP_BITS; i++) {
+    const a = (i / COCOON_POP_BITS) * Math.PI * 2 + Math.random() * 0.5;
+    const r = display * (0.3 + Math.random() * 0.1);
+    if (pixelMode) pixelBit(i % 2 ? "fx_spark" : "fx_spark2", i % 2 ? 5 : 3, 0, cy, Math.cos(a) * r, -Math.sin(a) * r, 0, 500);
+    else spark(i, cy, Math.cos(a) * r, -Math.sin(a) * r);
+  }
+}
+
 // CSS 효과가 끝나지 않아도(창이 숨겨짐 등) 모자는 반드시 사라짐
 const CAP_POOF_MS = 450;
 const CAP_POOF_SPARKS = 5;
@@ -775,6 +804,8 @@ const listeningRender = listen("pet-render", (e) => {
   if (e.payload.flash && !render.flash) petFx("play");
   // 🙌 하이파이브 짝! (코어 brain_highfive.rs render.clap)
   if (e.payload.clap && !render.clap) clapBurst(e.payload.flip);
+  // 🐛 고치가 풀림 (코어 brain_snare.rs render.cocoon → 0)
+  if (render.cocoon && !e.payload.cocoon) cocoonPop();
   // 콰당! 몸이 발밑을 축으로 납작 찌그러졌다 튕기고 (style.css #pet.thud), 머리 위에 💫이 돎
   if (e.payload.thud) petEl.classList.add("thud");
   else petEl.classList.remove("thud");
@@ -792,6 +823,7 @@ const listeningRender = listen("pet-render", (e) => {
   // 조작 모드 중이면 머리 위에 🎮
   ctltagEl.hidden = !render.ctl;
   syncCloud(!!render.cloud);
+  syncCocoon(render.cocoon || 0);
 });
 
 // 손님이면 머리 위 띠에 "🏠 <주인>" — 처음 왔을 때 10초, 그 뒤엔 누를 때마다 5초 (말풍선이 뜨는 동안은 가려짐 — style.css)
@@ -988,6 +1020,11 @@ const EXTRA_SPEECH = {
   no_fair: ["no fair!"],
   chat_a: ["hi!", "nice day", "😺", "lol", "guess what?", "you ok?"],
   chat_b: ["really?", "same!", "lol", "hehe", "😺", "yeah!"],
+  // 🕷️ 거미인간에게 걸림 (코어 brain_snare.rs): 🐛 고치에 감겨 버둥 / 🕸️ 거미집에 걸려 버둥 / 눌러서 풀어 줌 / 혼자 뿅 빠져나옴
+  mmph: ["mmph!", "mmf!"],
+  help: ["help!", "stuck!"],
+  thanks: ["thanks!", "phew!"],
+  broke_free: ["free!", "phew!"],
 };
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {
@@ -1070,6 +1107,7 @@ requestAnimationFrame(draw);
   if (!gotRender && stage.render) {
     render = stage.render;
     syncCloud(!!render.cloud);
+    syncCocoon(render.cocoon || 0);
     animStart = performance.now();
   }
   await loadPet();

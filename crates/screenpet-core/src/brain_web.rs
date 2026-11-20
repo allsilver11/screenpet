@@ -10,6 +10,8 @@
 //! - 🌀 휘둘러 던지기: 내 동물이고 친구가 연결된 끝이 있으면 (friend_sides) 물건은 자주 줄로 낚아 머리 위로 빙빙 (web_whirl) →
 //!   그 끝 너머로 휙. 도는 동안은 흐물이가 든 물건처럼 carried_object·carry_point로 앱이 옮기고, 놓을 때 JuggleEvent::Release
 //!   (앱이 날림 — 끝을 넘으면 친구 모니터로). 낚아채이면 (lose_carry) "hmph!", 끼어들리면 줄을 놓아 물건이 떨어짐.
+//! - 🐛 고치 말기: 닿는 거리에 쉬는 다른 동물(친구 동물 포함)이 있으면 가끔 (COCOON_RATE) 그 몸 둘레로 줄을 COCOON_SHOTS번 쏴서 (Wrap)
+//!   칭칭 — 첫 줄이 닿으면 sync_cocoons가 그 동물을 감고 (brain_snare.rs), 다 감으면 "hehe".
 //! - 지금 뻗은 줄은 web_line (앱이 덮개 창에 그림).
 //!
 //! 주사위는 자기 주사위(WebMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
@@ -61,6 +63,8 @@ pub enum WebPhase {
     Weave { spot: WebSpin, shot: u32 },
     /// 🌀 줄 끝의 물건을 머리 위로 휘두름 (from: 낚은 순간 물건 가운데, half: 물건 반 폭, dir: 던질 쪽 ±1)
     Whirl { id: u64, from: (f64, f64), half: f64, dir: f64 },
+    /// 🐛 다른 동물(key)을 고치로 감는 shot번째 줄 (web::cocoon_target으로 노림 — feet: 그 동물 발, size: 그 몸 크기)
+    Wrap { key: u64, feet: (f64, f64), size: f64, shot: u32 },
 }
 
 /// 줄 놀이의 기억
@@ -71,10 +75,13 @@ pub struct WebMood {
     pub(super) web_ready_at: f64,
     pub(super) swing_ready_at: f64,
     pub(super) pull_ready_at: f64,
+    pub(super) cocoon_ready_at: f64,
     /// 새 거미집 (take_web으로 한 번)
     out: Option<WebSpin>,
     /// 끌어온 동물 (social_key, vx, vy) — sync_lifts가 한 번 꺼냄
     pub(super) yank_pet: Option<(u64, f64, f64)>,
+    /// 🐛 첫 고치 줄이 닿은 동물 (social_key) — sync_cocoons가 한 번 꺼냄
+    pub(super) cocoon_pet: Option<u64>,
     /// 같은 화면의 다른 동물 (notice_pets가 채움)
     pub(super) pets: Vec<PetSpot>,
     /// 영웅 착지 자세가 끝나는 시각
@@ -89,8 +96,10 @@ impl WebMood {
             web_ready_at: web::FIRST_READY_SECS,
             swing_ready_at: web::FIRST_READY_SECS * 4.0,
             pull_ready_at: web::FIRST_READY_SECS * 2.0,
+            cocoon_ready_at: web::FIRST_READY_SECS * 3.0,
             out: None,
             yank_pet: None,
+            cocoon_pet: None,
             pets: Vec::new(),
             hero_until: f64::NEG_INFINITY,
         }
@@ -114,6 +123,7 @@ impl Pet {
             WebPhase::Pull { tip } => lerp(tip, hand, (t / web::PULL_SECS).min(1.0)),
             WebPhase::Weave { spot, shot } => lerp(hand, web::weave_target(&spot, shot), (t / (0.5 * web::WEAVE_SHOT_SECS)).min(1.0)),
             WebPhase::Whirl { from, dir, .. } => self.whirl_spot(from, dir, t),
+            WebPhase::Wrap { feet, size, shot, .. } => lerp(hand, web::cocoon_target(feet, size, shot), (t / (0.5 * web::WEAVE_SHOT_SECS)).min(1.0)),
         };
         Some(WebLine { from: hand, to })
     }
@@ -158,7 +168,7 @@ impl Pet {
     fn web_hand(&self) -> (f64, f64) {
         let g = &self.cfg.grip;
         let (gx, gy) = match self.state {
-            State::Web { phase: WebPhase::Shoot { .. } | WebPhase::Weave { .. }, t } => g.shoot.at(t),
+            State::Web { phase: WebPhase::Shoot { .. } | WebPhase::Weave { .. } | WebPhase::Wrap { .. }, t } => g.shoot.at(t),
             State::Web { phase: WebPhase::Zip { .. } | WebPhase::Swing { .. }, t } => g.web_swing.at(t),
             State::Web { phase: WebPhase::Pull { .. }, t } => g.web_pull.at(t),
             State::Web { phase: WebPhase::Whirl { .. }, t } => g.web_whirl.at(t),
@@ -187,7 +197,79 @@ impl Pet {
         if !self.play_free() || self.romp_interrupted() {
             return false;
         }
-        self.maybe_pull(dt, world) || self.maybe_spin_web(dt, world) || self.maybe_web_swing(dt, world)
+        self.maybe_pull(dt, world) || self.maybe_cocoon(dt, world) || self.maybe_spin_web(dt, world) || self.maybe_web_swing(dt, world)
+    }
+
+    /// 🐛 닿는 거리에 쉬는 동물이 있으면 주사위: 고치 말기
+    fn maybe_cocoon(&mut self, dt: f64, world: &World) -> bool {
+        if self.clock < self.web.cocoon_ready_at {
+            return false;
+        }
+        let pets = self.cocoon_targets(world);
+        if pets.is_empty() || self.web.rng.f64() >= web::COCOON_RATE * dt {
+            return false;
+        }
+        let k = self.web.rng.usize(..pets.len());
+        self.start_cocoon(&pets[k], world)
+    }
+
+    /// 🐛 고치를 말 수 있는 동물: 거미인간만, 같은 모니터 COCOON_REACH 안에 디딤판 위에서 쉬거나 걷는 동물 (들 수 있는 — lift_ok)
+    pub(super) fn cocoon_targets(&self, world: &World) -> Vec<PetSpot> {
+        if !self.cfg.slings_webs {
+            return Vec::new();
+        }
+        let size = self.cfg.size;
+        let (lo, hi) = (web::COCOON_REACH.0 * size, web::COCOON_REACH.1 * size);
+        let wa = world.work_area_at(self.body.x, self.body.y - 1.0);
+        self.web
+            .pets
+            .iter()
+            .filter(|s| s.key != self.social_key && s.liftable && s.owner.is_some())
+            .filter(|s| (lo..=hi).contains(&(s.x - self.body.x).hypot(s.y - self.body.y)) && world.work_area_at(s.x, s.y - 1.0) == wa)
+            .copied()
+            .collect()
+    }
+
+    /// 🐛 이 동물 몸 둘레로 고치 줄을 쏘기 시작함 (주사위 없이)
+    pub(super) fn start_cocoon(&mut self, spot: &PetSpot, _world: &World) -> bool {
+        self.facing = if spot.x >= self.body.x { 1.0 } else { -1.0 };
+        self.web.cocoon_ready_at = self.clock + behavior::range(&mut self.web.rng, web::COCOON_CALM);
+        self.pacing.after_beat = None;
+        self.clear_hover();
+        self.speech = Some(Speech::Thwip);
+        self.state = State::Web { phase: WebPhase::Wrap { key: spot.key, feet: (spot.x, spot.y), size: spot.size, shot: 0 }, t: 0.0 };
+        true
+    }
+
+    /// 🐛 고치 줄 한 번 (WEAVE_SHOT_SECS): 첫 줄이 닿는 순간 그 동물을 감음 (sync_cocoons), 다 쐈으면 "hehe" 하고 쉼
+    fn step_wrap(&mut self, dt: f64, key: u64, feet: (f64, f64), size: f64, shot: u32, t: f64) {
+        let land = 0.5 * web::WEAVE_SHOT_SECS;
+        if shot == 0 && t >= land && t - dt < land {
+            self.web.cocoon_pet = Some(key);
+        }
+        if t < web::WEAVE_SHOT_SECS {
+            self.state = State::Web { phase: WebPhase::Wrap { key, feet, size, shot }, t };
+        } else if shot + 1 < web::COCOON_SHOTS {
+            self.state = State::Web { phase: WebPhase::Wrap { key, feet, size, shot: shot + 1 }, t: 0.0 };
+        } else {
+            self.speech = Some(Speech::Hehe);
+            self.state = self.rest_beat();
+        }
+    }
+
+    /// 🐛 감고 있는 동물 (social_key) — 첫 줄이 닿은 뒤 (shot ≥ 1)만
+    pub(super) fn wrapping(&self) -> Option<u64> {
+        match self.state {
+            State::Web { phase: WebPhase::Wrap { key, shot, .. }, .. } if shot >= 1 => Some(key),
+            _ => None,
+        }
+    }
+
+    /// 🐛 감던 동물을 못 감았거나 풀려났음: 줄을 거두고 쉼
+    pub(super) fn lose_wrap(&mut self) {
+        if matches!(self.state, State::Web { phase: WebPhase::Wrap { .. }, .. }) {
+            self.state = self.rest_beat();
+        }
     }
 
     /// 🕸️ 한가할 때 주사위 (손님이면 자주): 가까운 모서리에 거미집
@@ -358,6 +440,7 @@ impl Pet {
             }
             WebPhase::Weave { spot, shot } => self.step_weave(spot, shot, t),
             WebPhase::Whirl { id, from, half, dir } => self.step_whirl(world, id, from, half, dir, t),
+            WebPhase::Wrap { key, feet, size, shot } => self.step_wrap(dt, key, feet, size, shot, t),
         }
     }
 
@@ -526,7 +609,7 @@ impl Pet {
     /// 줄 놀이 그림
     pub(super) fn web_anim(&self, phase: WebPhase) -> Anim {
         match phase {
-            WebPhase::Shoot { .. } | WebPhase::Weave { .. } => Anim::Shoot,
+            WebPhase::Shoot { .. } | WebPhase::Weave { .. } | WebPhase::Wrap { .. } => Anim::Shoot,
             WebPhase::Zip { .. } | WebPhase::Swing { .. } => Anim::WebSwing,
             WebPhase::Pull { .. } => Anim::WebPull,
             WebPhase::Whirl { .. } => Anim::WebWhirl,

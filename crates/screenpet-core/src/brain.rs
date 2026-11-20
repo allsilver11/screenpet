@@ -349,6 +349,14 @@ pub enum Speech {
     ChatA,
     /// 💬 수다 — 받는 쪽 ("really?", "same!" …)
     ChatB,
+    /// 🐛 고치에 감겨 버둥 ("mmph!", brain_snare.rs)
+    Mmph,
+    /// 🕸️ 거미집에 걸려 버둥 ("help!")
+    Help,
+    /// 🐛🕸️ 클릭으로 풀려남 ("thanks!")
+    Thanks,
+    /// 🐛🕸️ 혼자 뿅 빠져나옴 ("free!")
+    BrokeFree,
 }
 
 impl Anim {
@@ -545,6 +553,8 @@ pub enum State {
     /// 펫끼리 놀이 (투닥투닥·찌르기·밀치기·낮잠 가기·달리기 시합·수다) — 몸짓은 Pet의 romp, 코디네이터가 틱마다 줌.
     /// remaining = 몸짓 소식이 끊기면 그만두기까지 (brain_romp.rs, social_romp.rs)
     Romp { remaining: f64 },
+    /// 🐛 고치에 감김 / 🕸️ 거미집에 걸림 — 못 움직이고 버둥버둥. t = 걸린 뒤 흐른 시간, remaining = 빠져나오기까지 (brain_snare.rs)
+    Stuck { kind: snare_moves::StuckKind, t: f64, remaining: f64 },
 }
 
 impl State {
@@ -766,6 +776,8 @@ pub struct RenderState {
     /// ⌨️ 타자 응원 중 키보드를 톡 하는 손 (0 = 두 손 쉼, -1 화면 왼쪽 손, +1 오른쪽 손) — 웹뷰가 type 칸을 고름 (brain_typing.rs).
     /// 사용자가 키를 누를 때마다 바뀜 — 어떤 키인지는 모름
     pub tap: i8,
+    /// 🐛 고치 실 감긴 겹 수 (0 = 안 감김) — 웹뷰가 몸 위에 하얀 실 띠를 그리고, 0으로 돌아가면 뿅 터짐 (brain_snare.rs)
+    pub cocoon: u8,
 }
 
 /// 동물 한 마리 — 몸, 상태, 각 장난의 기억을 모두 가짐
@@ -929,6 +941,8 @@ pub struct Pet {
     doodle: doodle_moves::DoodleMood,
     /// 🕷️ 줄 놀이 (brain_web.rs)
     web: web_moves::WebMood,
+    /// 🐛🕸️ 고치·거미집에 걸리기의 기억 (brain_snare.rs)
+    snare: snare_moves::SnareMood,
     typing: typing_moves::TypingMood,
     /// 다른 동물들도 더 놀기 (v0.6.3): 🐱 툭툭 · 🦆 기차 · 🦖 큰 쿵 · 🐿️ 볼 빵빵 · 🙌 하이파이브 (brain_play.rs)
     play: play_moves::PlayMood,
@@ -1034,6 +1048,7 @@ impl Pet {
             rally: Default::default(),
             doodle: doodle_moves::DoodleMood::new(seed),
             web: web_moves::WebMood::new(seed),
+            snare: snare_moves::SnareMood::new(seed),
             typing: Default::default(),
             play: play_moves::PlayMood::new(seed),
             romp: Default::default(),
@@ -1121,6 +1136,11 @@ impl Pet {
         }
         self.tick_guest(dt);
         self.update_cheer(dt, world);
+        // 🐛🕸️ 고치에 감겼거나 거미집에 걸렸으면 버둥버둥 — 거미집 안으로 막 들어왔으면 걸릴지 주사위 (brain_snare.rs)
+        if self.update_stuck(dt, world) {
+            self.on_started();
+            return;
+        }
         if self.update_user_away(dt, world) {
             self.on_started();
             return;
@@ -1270,6 +1290,7 @@ impl Pet {
             State::Land { .. } if self.hero_landing() => Anim::HeroLand,
             State::Land { .. } => Anim::Land,
             State::Web { phase, .. } => self.web_anim(phase),
+            State::Stuck { kind, .. } => Pet::stuck_anim(kind),
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
             State::Slide => Anim::Slide,
@@ -1300,7 +1321,7 @@ impl Pet {
             heart: self.heart_timer > 0.0,
             poof: self.poofing(),
             ctl: self.is_controlled(),
-            wobble: self.wobble_timer > 0.0 || matches!(self.state, State::Lifted { .. }) || romp_wobble,
+            wobble: self.wobble_timer > 0.0 || matches!(self.state, State::Lifted { .. } | State::Stuck { .. }) || romp_wobble,
             hang,
             cloud: self.snow_cloud_on(),
             housed: self.housed,
@@ -1311,6 +1332,7 @@ impl Pet {
             sparkle: self.dance_sparkle() || romp_sparkle,
             clap: self.clapping(),
             tap: self.typing_tap(),
+            cocoon: self.cocoon_bands(),
         }
     }
 
@@ -1959,6 +1981,7 @@ impl Pet {
                 | State::Swing { .. }
                 | State::Lifted { .. }
         ) || matches!(self.state, State::Meet { phase, .. } if phase.airborne())
+            || (matches!(self.state, State::Stuck { .. }) && self.standing.is_none())
             || self.web_airborne()
     }
 
@@ -2042,6 +2065,10 @@ impl Pet {
 
     /// 마우스 누름: 눌림 상태로 들어감 (하우스 안·드나드는 중엔 잡지 않음)
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
+        // 🐛🕸️ 고치·거미집에 걸린 동물은 누르면 바로 풀어 줌 ("thanks!" — brain_snare.rs)
+        if self.free_stuck() {
+            return;
+        }
         // 걸어 들어오는 중엔 (몸이 아직 화면 밖일 수 있다) 잡지 않는다
         if self.is_held() || self.housed || self.in_transit() {
             return;
@@ -2972,6 +2999,7 @@ impl Pet {
             | State::Bounce { .. }
             | State::Romp { .. }
             | State::Web { .. }
+            | State::Stuck { .. }
             | State::Panic { .. }
             | State::Rig { .. }
             | State::Juggle { .. }
@@ -3846,6 +3874,11 @@ pub mod web_moves;
 #[cfg(test)]
 #[path = "brain_web_tests.rs"]
 mod web_tests;
+#[path = "brain_snare.rs"]
+pub mod snare_moves;
+#[cfg(test)]
+#[path = "brain_snare_tests.rs"]
+mod snare_tests;
 #[path = "brain_typing.rs"]
 pub mod typing_moves;
 #[cfg(test)]
@@ -4242,7 +4275,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -4333,7 +4366,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -4352,7 +4385,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
     }
 
     #[test]
@@ -5669,7 +5702,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0 });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -6492,7 +6525,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0 });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0 });
             }
             last_x = p.body.x;
         }

@@ -73,6 +73,23 @@ def test_window_webs_follow_their_window():
     assert "pub fn web_on_window(" in CORE_WEB
 
 
+def test_pets_learn_the_webs_and_torn_webs_are_dropped():
+    """🕸️ 거미집에 걸리기 (코어 brain_snare.rs): 게임 루프가 거미집 자리를 모든 동물 뇌에 알려 주고, 찢고 나온 거미집은 지운다."""
+    spots = RS[RS.index("pub fn web_spots(") : RS.index("pub fn tear_web(")]
+    assert "WebSpot { id: t.id, x: t.x, y: t.y, corner: t.corner, size: t.size, hidden: t.hidden || paused }" in spots
+    tear = RS[RS.index("pub fn tear_web(") : RS.index("pub fn sweep_webs(")]
+    assert "o.webs.retain(|(_, w)| w.id != id)" in tear, "아직 안 보낸 거미집도 버림"
+    assert "self.webs.remove(i)" in tear and '"trail-web-drop", [t.id]' in tear
+    notice = LOOP.index("hoist_moves::notice_pets(&mut slots);")
+    tell = LOOP.index("let web_spots = trail.web_spots();")
+    update = LOOP.index("s.pet.update(dt, &s.world);")
+    assert notice < tell < update and "s.pet.set_webs(&web_spots);" in LOOP[tell:update]
+    lifts = LOOP.index("hoist_moves::sync_lifts(&mut slots)")
+    torn = LOOP.index("s.pet.take_torn_web()")
+    assert lifts < torn < LOOP.index("trail.tick(&app, now, dt") and "trail.tear_web(&app, id);" in LOOP[torn:][:200]
+    assert "pub struct WebSpot" in CORE_WEB and "pub fn in_web(" in CORE_WEB
+
+
 # ---- ui/web.js를 가짜 캔버스 위에서 (tools/web_harness.js) ----
 
 

@@ -964,3 +964,41 @@ body.pixel #ctltag {
   from { transform: rotateY(0deg); }
   to { transform: rotateY(360deg); }
 }
+
+/* 🐛 거미인간 고치 (render.cocoon = 감긴 실 겹 수, 코어 brain_snare.rs): 새 그림 없이 몸 위에 하얀 실 띠를 겹 수만큼 비스듬히 —
+   고치째 발밑을 축으로 버둥버둥. 픽셀 모드는 모서리를 둥글리지 않음 (.px) */
+#cocoon {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: calc(var(--pet-h, 128px) * 0.62);
+  height: calc(var(--pet-h, 128px) * 0.78);
+  margin-left: calc(var(--pet-h, 128px) * -0.31);
+  pointer-events: none;
+  border-radius: 45% 45% 40% 40%;
+  background: radial-gradient(ellipse at 50% 45%, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.15) 68%, transparent 72%);
+  transform-origin: 50% 100%;
+  animation: cocoon-wiggle 0.45s ease-in-out infinite alternate;
+}
+#cocoon i {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  height: 13%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.93);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+#cocoon i:nth-child(1) { bottom: 20%; transform: rotate(-12deg); }
+#cocoon i:nth-child(2) { bottom: 44%; transform: rotate(10deg); }
+#cocoon i:nth-child(3) { bottom: 66%; left: 12%; right: 12%; transform: rotate(-8deg); }
+#cocoon i:nth-child(4) { bottom: 32%; transform: rotate(15deg); }
+#cocoon.px,
+#cocoon.px i {
+  border-radius: 0;
+  box-shadow: none;
+}
+@keyframes cocoon-wiggle {
+  from { transform: rotate(-4deg); }
+  to { transform: rotate(4deg); }
+}
