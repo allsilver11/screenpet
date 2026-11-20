@@ -82,6 +82,8 @@ pub struct WebMood {
     out: Option<WebSpin>,
     /// 끌어온 동물 (social_key, vx, vy) — sync_lifts가 한 번 꺼냄
     pub(super) yank_pet: Option<(u64, f64, f64)>,
+    /// 🌀 휘두른 물건을 던질 동물 (social_key) — 없으면 친구 끝 너머로
+    whirl_at: Option<u64>,
     /// 🐛 첫 고치 줄이 닿은 동물 (social_key) — sync_cocoons가 한 번 꺼냄
     pub(super) cocoon_pet: Option<u64>,
     /// 같은 화면의 다른 동물 (notice_pets가 채움)
@@ -109,6 +111,7 @@ impl WebMood {
             cocoon_ready_at: web::FIRST_READY_SECS * 3.0,
             out: None,
             yank_pet: None,
+            whirl_at: None,
             cocoon_pet: None,
             pets: Vec::new(),
             hero_until: f64::NEG_INFINITY,
@@ -435,10 +438,16 @@ impl Pet {
         (x.clamp(wa.left + 0.5 * size, wa.right - 0.5 * size), self.body.y)
     }
 
-    /// 🪝 이 물건에 줄을 쏨 (주사위 없이). 친구가 연결된 끝이 있으면 WHIRL_CHANCE로 🌀 휘둘러 던지기 (끝은 그중 아무 데나)
+    /// 🪝 이 물건에 줄을 쏨 (주사위 없이). 친구가 연결된 끝이나 던질 만한 동물이 있으면 WHIRL_CHANCE로 🌀 휘둘러 던지기
+    /// (동물이 있으면 WHIRL_AT_PET_SHARE로 그 동물에게, 아니면 친구 끝 너머로)
     pub(super) fn start_pull_object(&mut self, spot: &ObjectSpot, world: &World) -> bool {
         let sides = self.friend_sides(world);
-        if !sides.is_empty() && self.web.rng.f64() < web::WHIRL_CHANCE {
+        let pets = self.whirl_pet_targets(world);
+        if (!sides.is_empty() || !pets.is_empty()) && self.web.rng.f64() < web::WHIRL_CHANCE {
+            if !pets.is_empty() && (sides.is_empty() || self.web.rng.f64() < web::WHIRL_AT_PET_SHARE) {
+                let target = pets[self.web.rng.usize(..pets.len())];
+                return self.start_whirl_at_pet(spot, &target);
+            }
             let side = sides[self.web.rng.usize(..sides.len())];
             return self.start_whirl_object(spot, side);
         }
@@ -448,8 +457,31 @@ impl Pet {
         true
     }
 
+    /// 🌀 휘두른 물건을 던질 만한 동물: 같은 모니터, 몸 WHIRL_PET_REACH배 안의 디딤판 위 다른 동물
+    fn whirl_pet_targets(&self, world: &World) -> Vec<PetSpot> {
+        let size = self.cfg.size;
+        let (lo, hi) = (web::WHIRL_PET_REACH.0 * size, web::WHIRL_PET_REACH.1 * size);
+        let wa = world.work_area_at(self.body.x, self.body.y - 1.0);
+        self.web
+            .pets
+            .iter()
+            .filter(|s| s.key != self.social_key && s.owner.is_some())
+            .filter(|s| (lo..=hi).contains(&(s.x - self.body.x).abs()) && world.work_area_at(s.x, s.y - 1.0) == wa)
+            .copied()
+            .collect()
+    }
+
+    /// 🌀 이 물건에 줄을 쏨 — 닿으면 휘둘러 그 동물에게 던짐 (주사위 없이)
+    pub(super) fn start_whirl_at_pet(&mut self, spot: &ObjectSpot, target: &PetSpot) -> bool {
+        let side = if target.x >= self.body.x { Side::Right } else { Side::Left };
+        self.start_whirl_object(spot, side);
+        self.web.whirl_at = Some(target.key);
+        true
+    }
+
     /// 🌀 이 물건에 줄을 쏨 — 닿으면 휘둘러 side 끝 너머로 던짐 (주사위 없이)
     pub(super) fn start_whirl_object(&mut self, spot: &ObjectSpot, side: Side) -> bool {
+        self.web.whirl_at = None;
         self.facing = if spot.x >= self.body.x { 1.0 } else { -1.0 };
         self.web.pull_ready_at = self.clock + behavior::range(&mut self.web.rng, web::PULL_CALM);
         self.begin_shoot(WebAim::Lasso { id: spot.id, at: (spot.x, spot.y - spot.half_w), half: spot.half_w, side });
@@ -624,7 +656,9 @@ impl Pet {
         let size = self.cfg.size;
         let at = self.carry_point().unwrap_or((self.body.x, self.body.y - 2.0 * size));
         let edge = if dir > 0.0 { world.bounds.right } else { world.bounds.left };
-        let to = (edge + dir * web::WHIRL_PAST * size, self.body.y);
+        // 던질 동물이 아직 있으면 그 몸 가운데로, 아니면 친구 끝 너머 바닥 높이로
+        let at_pet = self.web.whirl_at.take().and_then(|k| self.web.pets.iter().find(|s| s.key == k).copied());
+        let to = at_pet.map_or((edge + dir * web::WHIRL_PAST * size, self.body.y), |s| (s.x, s.y - 0.5 * s.size));
         let g = crate::physics::THROW_GRAVITY_LOGICAL * self.cfg.dpi;
         let (vx, vy) = web::yank_velocity(at, to, web::whirl_flight_secs(to.0 - at.0, size), g);
         self.juggle.event = Some(JuggleEvent::Release { id, vx, vy });

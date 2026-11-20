@@ -127,7 +127,16 @@ def test_a_window_web_moves_with_its_window_and_hides_while_covered(run):
 
 def test_a_woven_web_appears_piece_by_piece_shot_by_shot(run):
     woven = [m for m in run["woven"] if m]
-    assert woven[0] < 18 and woven[-1] == 18, "처음엔 몇 조각, 다 짜면 9조각 × (그늘 + 실)"
+    assert woven[0] < woven[-1] and woven[-1] == max(woven) >= 2 * (4 + 3), "처음엔 몇 조각, 다 짜면 살 + 고리 전부 × (그늘 + 실)"
     assert all(b >= a for a, b in zip(woven, woven[1:])), "조각은 늘기만"
     assert len(set(woven)) >= 5, "한 번에 휙이 아니라 여러 번에 걸쳐"
     assert run["bad_weave"] == [[0, 1], [0, 1]], "이상한 값이면 예전처럼 한 번에 핌"
+
+
+def test_every_web_has_its_own_irregular_shape_inside_its_radius(run):
+    shapes = run["shapes"]
+    assert shapes == run["shapes_again"], "같은 거미집은 늘 같은 모양"
+    assert all(4 <= n <= 7 and 3 <= m <= 5 and 0.6 < far <= 1.0 + 1e-9 for n, m, far, _ in shapes)
+    assert len({(n, m) for n, m, _, _ in shapes}) >= 3, "살·고리 수가 제각각"
+    even = [[1.5707963 * k / (n - 1) for k in range(n)] for n, _, _, _ in shapes]
+    assert any(max(abs(a - b) for a, b in zip(angs, ev)) > 0.05 for (_, _, _, angs), ev in zip(shapes, even)), "고르게 나눈 각도가 아님 (비정형)"

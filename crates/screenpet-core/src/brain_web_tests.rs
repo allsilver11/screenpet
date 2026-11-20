@@ -1,6 +1,6 @@
 //! 🕷️ 거미인간 줄 놀이 (brain_web.rs): 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기
 
-use super::hoist_moves::{notice_pets, sync_lifts};
+use super::hoist_moves::{notice_pets, sync_lifts, PetSpot};
 use super::swing_tests::resting;
 use super::tests::world;
 use super::web_moves::{WebAim, WebPhase};
@@ -126,7 +126,7 @@ fn web_sizes_vary_from_small_to_big_and_fit_their_window() {
     }
     let (lo, hi) = sizes.iter().fold((f64::INFINITY, 0.0f64), |(a, b), &x| (a.min(x), b.max(x)));
     assert!(lo >= web::WEB_SIZE_RANGE.0 - 1e-9 && hi <= web::WEB_SIZE_RANGE.1 + 1e-9);
-    assert!(lo < 1.0 && hi > 2.0, "작게도 크게도: {lo}..{hi}");
+    assert!(lo < 1.6 && hi > 3.0, "작게도 크게도: {lo}..{hi}");
     // 작은 창: 창의 짧은 변 WEB_WINDOW_FIT배를 넘지 않음
     let small = world(vec![WindowInfo { id: 7, rect: Rect::new(700.0, 500.0, 1100.0, 800.0) }]);
     for seed in 0..20 {
@@ -442,6 +442,69 @@ fn it_only_whirls_objects_toward_friend_edges_and_often_when_there_is_one() {
     }
     let share = whirls as f64 / n as f64;
     assert!((share - web::WHIRL_CHANCE).abs() < 0.08, "{share}");
+}
+
+/// 🌀 옆에 다른 동물 (친구 펫 포함)이 있으면 휘두른 물건을 그 동물에게 던지기도 함 — 친구 끝이 없어도
+#[test]
+fn it_also_whirls_objects_at_a_nearby_pet_and_the_throw_comes_down_on_it() {
+    let w = world(vec![]);
+    let (mut at_pet, mut n) = (0, 0);
+    for seed in 0..200 {
+        let mut p = calm_spider(800.0, seed, &w);
+        let size = p.cfg.size;
+        let target = PetSpot { key: 77, x: 800.0 - 6.0 * size, y: 1040.0, owner: Some(Owner::Ground(0)), size, liftable: true, guest: true };
+        p.web.pets = vec![target];
+        let spot = floor_object(&p, 3.0 * size);
+        p.notice_play_objects(&[spot], &w);
+        assert!(p.start_pull_object(&spot, &w));
+        n += 1;
+        if !matches!(p.state, State::Web { phase: WebPhase::Shoot { aim: WebAim::Lasso { .. }, .. }, .. }) {
+            continue;
+        }
+        at_pet += 1;
+        let (mut releases, mut last) = (Vec::new(), None);
+        let mut guard = LoopLimit::new();
+        while matches!(p.state, State::Web { .. }) {
+            guard.step();
+            p.update(DT, &w);
+            releases.extend(p.take_juggle());
+            if let Some(at) = p.carry_point() {
+                last = Some(at);
+            }
+        }
+        let JuggleEvent::Release { vx, vy, .. } = releases[0] else { panic!("{releases:?}") };
+        assert!(vx < 0.0, "동물 쪽 (왼쪽)으로 {vx}");
+        let (x0, y0) = last.unwrap();
+        let (x, _) = crate::juggle::descent_x(x0, y0, vx, vy, 1040.0 - 0.5 * size, p.cfg.dpi).unwrap();
+        assert!((x - target.x).abs() < 0.6 * size, "동물에게 떨어짐 {x} vs {}", target.x);
+    }
+    let share = at_pet as f64 / n as f64;
+    assert!(share > 0.5, "자주 던짐 {share}");
+}
+
+/// 🕷️ 친구 펫이 옆에 있으면 줄 장난 (끌어오기·고치·휘둘러 던지기)을 꽤 자주 함 — 5분에 여러 번
+#[test]
+fn a_spider_with_a_pet_nearby_plays_web_pranks_often() {
+    let w = world(vec![]);
+    let mut total = 0;
+    for seed in 0..4 {
+        let mut p = resting(spider(), 800.0, seed, &w);
+        p.web.web_ready_at = f64::INFINITY;
+        p.web.swing_ready_at = f64::INFINITY;
+        let size = p.cfg.size;
+        let mut was = false;
+        for _ in 0..(60 * 300) {
+            p.web.pets = vec![PetSpot { key: 77, x: (p.body.x - 4.0 * size).max(100.0), y: 1040.0, owner: Some(Owner::Ground(0)), size, liftable: true, guest: true }];
+            p.update(DT, &w);
+            let _ = p.take_juggle();
+            let _ = p.take_web();
+            p.web.yank_pet = None;
+            let pranking = matches!(p.state, State::Web { phase: WebPhase::Shoot { aim: WebAim::Pet { .. } | WebAim::Lasso { .. }, .. } | WebPhase::Wrap { .. }, .. });
+            total += usize::from(pranking && !was);
+            was = pranking;
+        }
+    }
+    assert!(total >= 4 * 6, "5분에 6번 넘게: {total} (4마리)");
 }
 
 /// 줄이 닿기 전에 물건이 바닥에서 사라졌으면 (누가 집었거나 치움) 낚지 않음

@@ -88,6 +88,12 @@ function load() {
     rafs: () => rafs.length,
     timers: () => timers.length,
     alive: () => vm.runInContext("webs.length", sandbox),
+    /** 거미집마다 [살 수, 고리 수, 모서리에서 가장 먼 점 / 반지름, 살 각도들] */
+    shapes: () =>
+      vm.runInContext(
+        "JSON.stringify(webs.map((w) => { const p = fanPaths(w, w.size); const far = Math.max(...p.flat().map(([x, y]) => Math.hypot(x - w.x, y - w.y))); const s = webShape(w); return [s.angs.length, s.rings.length, far / w.size, s.angs]; }))",
+        sandbox,
+      ),
     /** 거미집마다 [짜는 시간, 줄 횟수] */
     weaves: () => vm.runInContext("JSON.stringify(webs.map((w) => [w.build, w.shots]))", sandbox),
     /** 거미집 id의 지금 자리와 숨김 */
@@ -168,5 +174,11 @@ out.woven = woven;
 h = load();
 h.send("trail-webs", [web(1, { shots: 99, build: 1.28 }), web(2, { shots: 5, build: -1 })]);
 out.bad_weave = JSON.parse(h.weaves());
+
+// 모양: 거미집마다 다르고, 같은 거미집은 늘 같고, 반지름 밖으로 나가지 않음
+h = load();
+h.send("trail-webs", [1, 2, 3, 4, 5, 6, 7, 8].map((id) => web(id, { size: 100 })));
+out.shapes = JSON.parse(h.shapes());
+out.shapes_again = JSON.parse(h.shapes());
 
 console.log(JSON.stringify(out));

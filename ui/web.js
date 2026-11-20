@@ -20,9 +20,9 @@ const MAX_WEBS = 12;
 // 받아들이는 짜는 시간 (초)·줄 횟수
 const WEB_BUILD_MAX = 30;
 const WEB_SHOTS_MAX = 12;
-// 거미집 조각: 살 다섯 + 고리 넷 (짤 때 이 차례로 생김)
-const WEB_SPOKES = 5;
-const WEB_RINGS = 4;
+// 거미집 조각 수: 살 [최소, 최대] + 고리 [최소, 최대] — 거미집마다 (id로 정한 주사위) 다르게, 짤 때 살 → 고리 차례로 생김
+const WEB_SPOKES = [4, 7];
+const WEB_RINGS = [3, 5];
 const WEB_CORNERS = { top_left: [1, 1], top_right: [-1, 1], bottom_left: [1, -1], bottom_right: [-1, -1] };
 // 실 (밝은 흰빛) 아래에 깔리는 그늘 — 밝은 창 위에서도 보이게
 const SILK = "rgba(244,247,255,0.92)";
@@ -129,24 +129,60 @@ function wovenPaths(w, grown) {
   return out;
 }
 
-// 반지름 r인 부채꼴 거미집의 선들: 살 WEB_SPOKES개 다음 고리 WEB_RINGS개
+// id로 정해지는 주사위 (0..1) — 같은 거미집은 늘 같은 모양 (창을 따라 옮겨도)
+function webRng(id) {
+  let a = (Number(id) * 2654435761) >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 거미집마다 다른 삐뚤빼뚤한 모양 (한 번 정해 w.shape에 둠): 살 각도·길이, 고리 높이·점마다 흔들림·처짐 — 모두 반지름 안
+function webShape(w) {
+  if (w.shape) return w.shape;
+  const rnd = webRng(w.id);
+  const n = WEB_SPOKES[0] + Math.floor(rnd() * (WEB_SPOKES[1] - WEB_SPOKES[0] + 1));
+  const step = Math.PI / 2 / (n - 1);
+  const angs = [];
+  for (let k = 0; k < n; k++) {
+    const jit = k === 0 || k === n - 1 ? 0 : (rnd() - 0.5) * 0.7 * step;
+    angs.push(k * step + jit);
+  }
+  const lens = angs.map(() => 0.72 + 0.28 * rnd());
+  const m = WEB_RINGS[0] + Math.floor(rnd() * (WEB_RINGS[1] - WEB_RINGS[0] + 1));
+  const rings = [];
+  for (let q = 1; q <= m; q++) {
+    const base = (q / (m + 0.35)) * (0.9 + 0.2 * rnd());
+    const pts = angs.map(() => base * (0.92 + 0.14 * rnd()));
+    const sags = angs.map(() => 0.74 + 0.16 * rnd());
+    rings.push({ pts, sags });
+  }
+  w.shape = { angs, lens, rings };
+  return w.shape;
+}
+
+// 반지름 r인 부채꼴 거미집의 선들: 살 다음 고리 (모양은 webShape — 살 끝을 넘지 않음)
 function fanPaths(w, r) {
   const [sx, sy] = WEB_CORNERS[w.corner];
-  const spokes = WEB_SPOKES;
-  const rings = WEB_RINGS;
+  const { angs, lens, rings } = webShape(w);
   const out = [];
   const at = (ang, rr) => [w.x + sx * rr * Math.cos(ang), w.y + sy * rr * Math.sin(ang)];
-  const angs = [];
-  for (let k = 0; k < spokes; k++) angs.push((Math.PI / 2) * (k / (spokes - 1)));
-  for (const a of angs) out.push([at(a, 0), at(a, r)]);
-  for (let q = 1; q <= rings; q++) {
-    const rr = (r * q) / (rings + 0.3);
-    const ring = [];
+  angs.forEach((a, k) => out.push([at(a, 0), at(a, r * lens[k])]));
+  for (const ring of rings) {
+    const line = [];
     for (let k = 0; k < angs.length; k++) {
-      ring.push(at(angs[k], rr));
-      if (k + 1 < angs.length) ring.push(at((angs[k] + angs[k + 1]) / 2, rr * 0.86));
+      const rr = r * Math.min(ring.pts[k], lens[k] * 0.98);
+      line.push(at(angs[k], rr));
+      if (k + 1 < angs.length) {
+        const mid = Math.min(rr, r * Math.min(ring.pts[k + 1], lens[k + 1] * 0.98));
+        line.push(at((angs[k] + angs[k + 1]) / 2, mid * ring.sags[k]));
+      }
     }
-    out.push(ring);
+    out.push(line);
   }
   return out;
 }

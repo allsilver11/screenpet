@@ -43,9 +43,9 @@ pub const WEB_REACH: f64 = 9.0;
 /// 거미집 반지름 (몸 크기 배) — 모서리 고를 때의 기본값 (실제로 칠 때는 WEB_SIZE_RANGE에서 고름)
 pub const WEB_SIZE: f64 = 0.8;
 /// 실제로 칠 거미집 반지름 (몸 크기 배): 작은 것부터 꽤 큰 것까지 제각각
-pub const WEB_SIZE_RANGE: (f64, f64) = (0.6, 2.6);
+pub const WEB_SIZE_RANGE: (f64, f64) = (1.0, 3.6);
 /// 창 모서리 거미집은 창의 짧은 변의 이만큼까지만
-pub const WEB_WINDOW_FIT: f64 = 0.6;
+pub const WEB_WINDOW_FIT: f64 = 0.7;
 /// 거미집 하나를 짜려고 줄을 쏘는 횟수 (작은 것 ~ 큰 것)
 pub const WEAVE_SHOTS: (u32, u32) = (4, 7);
 /// 🌱 연령대 세기(stage_power)에 맞춘 줄 횟수 범위 — 청소년(1.0)은 WEAVE_SHOTS 그대로, 아기 (2, 4) → 어른 (5, 8)
@@ -105,9 +105,9 @@ pub fn chain_range(power: f64) -> (u32, u32) {
 }
 
 /// 끌어오기를 할 빈도 (닿는 거리에 무언가 있을 때, 초당 확률)
-pub const PULL_RATE: f64 = 1.0 / 40.0;
+pub const PULL_RATE: f64 = 1.0 / 15.0;
 /// 끌어온 뒤 다시 하기까지
-pub const PULL_CALM: (f64, f64) = (30.0, 75.0);
+pub const PULL_CALM: (f64, f64) = (12.0, 30.0);
 /// 끌어올 수 있는 거리 (몸 크기 배): 가까운 끝, 먼 끝
 pub const PULL_REACH: (f64, f64) = (1.4, 8.0);
 /// 끌어당기는 그림 (web_pull) 시간 — 줄이 손으로 감겨 들어옴
@@ -119,8 +119,12 @@ pub const PULL_LAND_AHEAD: f64 = 0.65;
 /// 머리 너머 뒤로 던질 때: 몸 가운데에서 뒤로 (몸 크기 배)
 pub const FLING_LAND_BEHIND: f64 = 2.4;
 
-/// 🌀 친구가 연결된 끝이 있을 때 물건을 끌어오는 대신 휘둘러 던질 몫
-pub const WHIRL_CHANCE: f64 = 0.6;
+/// 🌀 친구가 연결된 끝이나 던질 만한 동물이 있을 때 물건을 끌어오는 대신 휘둘러 던질 몫
+pub const WHIRL_CHANCE: f64 = 0.75;
+/// 🌀 던질 만한 동물과 친구 끝이 둘 다 있을 때 동물에게 던질 몫
+pub const WHIRL_AT_PET_SHARE: f64 = 0.5;
+/// 🌀 휘두른 물건을 던질 동물까지의 가로 거리 (몸 크기 배): 가까운 끝, 먼 끝
+pub const WHIRL_PET_REACH: (f64, f64) = (2.0, 14.0);
 /// 🌀 줄이 닿은 뒤 휘두르는 시간 (감아올리기 포함 — 끝나면 놓음)
 pub const WHIRL_SECS: f64 = 1.4;
 /// 🌀 바닥의 물건을 머리 위 원으로 감아올리는 시간
@@ -146,9 +150,9 @@ pub const HERO_FALL_SIZES: f64 = 1.6;
 pub const HERO_SECS: f64 = 0.9;
 
 /// 🐛 고치를 말 빈도 (닿는 거리에 쉬는 동물이 있을 때, 초당 확률) — 끌어오기와 비슷하게 가끔
-pub const COCOON_RATE: f64 = 1.0 / 40.0;
+pub const COCOON_RATE: f64 = 1.0 / 15.0;
 /// 🐛 고치를 만 뒤 다시 말기까지
-pub const COCOON_CALM: (f64, f64) = (45.0, 100.0);
+pub const COCOON_CALM: (f64, f64) = (20.0, 45.0);
 /// 🐛 고치를 말 수 있는 거리 (몸 크기 배): 가까운 끝, 먼 끝
 pub const COCOON_REACH: (f64, f64) = (1.0, 6.0);
 /// 🐛 고치를 말려고 쏘는 줄 수 (한 줄 = WEAVE_SHOT_SECS, 줄마다 실 한 겹)
