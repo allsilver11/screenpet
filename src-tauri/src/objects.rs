@@ -17,9 +17,13 @@
 //! 🌀 태풍 (v0.6.8): 돌풍에 바닥의 작은 것이 휙 날리고 (Object::blow — 친구 화면으로는 안 감), 회오리가 빨아들여 돌리다
 //! 내던짐 (weather.rs가 코어 typhoon을 돌려 storm_apply로 시킴). 친구 쪽으로 내던진 것은 launch — 끝을 넘으면 평소처럼 toss_away (예산 그대로)
 //! 🕸️ 거미집에 걸림 (spec 5부): 게임 루프가 틱마다 화면의 거미집 자리를 set_webs로 주고, tick이 물건마다 넘김 — 걸리기·매달리기·떨어지기는 코어 (Object::set_webs)
+//! 📦 물건 창은 게임 루프가 만들지 않음: 창 만들기(build)는 메인 스레드가 웹뷰를 다 띄울 때까지 부른 스레드를 막아서 (Windows 0.1–0.3초)
+//! "쓰레기 10개"가 오면 게임 루프가 열 번 멈췄음. 그래서 물건은 바로 들여 움직이고 (부딪히기·걸리기·치우기 모두), 창은 일꾼 스레드
+//! (object-windows — start_window_worker)가 하나씩 만들어 돌려보내면 다음 틱에 붙임 (attach_built). 창이 오기 전엔 창 일만 건너뛰고,
+//! 그 사이 치운 물건의 창은 오자마자 닫음. 받은 물건 줄은 일꾼이 한가할 때만 다음 것을 들임 (한 번에 하나)
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -140,7 +144,8 @@ struct Live {
     id: u64,
     label: String,
     object: Object,
-    window: WebviewWindow,
+    /// 물건 창 (일꾼 스레드가 만드는 동안엔 None — 그동안도 물건은 움직이고 부딪히고 치워질 수 있음, 창 일만 건너뜀)
+    window: Option<WebviewWindow>,
     last_pos: Option<(i32, i32)>,
     last_pose: PosePayload,
     note_open: bool,
@@ -166,6 +171,8 @@ impl Live {
 
     /// 창을 몸 자리로, 처음이면 보임. 달라졌을 때만 OS에 알림
     fn place(&mut self, world: &World) {
+        // 창을 기다리는 중: 옮길 창이 없음 (last_pos를 비워 둬야 창이 오면 바로 제자리로 감)
+        let Some(window) = &self.window else { return };
         let dpi = self.object.dpi();
         let (w, h) = self.logical_size();
         let (cx, cy) = self.object.pivot();
@@ -178,7 +185,7 @@ impl Live {
         let side = shape_of(self.object.kind).window_side_at(self.object.scale());
         let pos = (x.round() as i32, (cy + (side / 2.0 - h) * dpi).round() as i32);
         if self.last_pos != Some(pos) {
-            crate::overlay::move_quietly(&self.window, self.hwnd, pos.0, pos.1);
+            crate::overlay::move_quietly(window, self.hwnd, pos.0, pos.1);
             self.last_pos = Some(pos);
         }
     }
@@ -195,9 +202,11 @@ impl Live {
     /// 크기 배율을 바꾸고 창 크기를 맞춤
     fn set_scale(&mut self, app: &AppHandle, scale: f64) {
         self.object.set_scale(scale);
+        // 창을 기다리는 중이면 크기는 창이 올 때 맞춤 (attach)
+        let Some(window) = &self.window else { return };
         let (w, h) = self.logical_size();
         let dpi = self.object.dpi();
-        crate::overlay::resize_quietly(&self.window, self.hwnd, (w * dpi).round() as u32, (h * dpi).round() as u32);
+        crate::overlay::resize_quietly(window, self.hwnd, (w * dpi).round() as u32, (h * dpi).round() as u32);
         self.last_pos = None;
         let side = shape_of(self.object.kind).window_side_at(scale);
         let _ = app.emit_to(self.label.as_str(), "object-scale", ScalePayload { scale, side });
@@ -209,10 +218,12 @@ impl Live {
         if !self.object.kind.is_giant() && !self.object.kind.is_toy() {
             return;
         }
+        // 창을 기다리는 중: click_through는 처음 값(통과) 그대로 두고 창이 오면 그대로 적용함
+        let Some(window) = &self.window else { return };
         let through = self.object.passes_clicks_at(cursor.0, cursor.1);
         if through != self.click_through {
             self.click_through = through;
-            crate::overlay::set_click_through(&self.window, through);
+            crate::overlay::set_click_through(window, through);
         }
     }
 
@@ -222,14 +233,75 @@ impl Live {
             return;
         }
         self.note_open = open;
+        let Some(window) = &self.window else { return };
         let (w, h) = self.logical_size();
         let dpi = self.object.dpi();
-        crate::overlay::resize_quietly(&self.window, self.hwnd, (w * dpi).round() as u32, (h * dpi).round() as u32);
+        crate::overlay::resize_quietly(window, self.hwnd, (w * dpi).round() as u32, (h * dpi).round() as u32);
         self.last_pos = None;
+    }
+
+    /// 📦 일꾼이 만든 창을 붙임 (아직 화면 밖 — 다음 place가 제자리로 옮김). 거대한 것·장난감의 클릭 통과는 화면 밖에 있을 때 켬 (깜빡임 없게).
+    /// 기다리는 사이 크기·화면 배율이 바뀌었으면 창 크기를 다시 맞추고, 모습은 꼭 한 번 다시 보냄
+    fn attach(&mut self, app: &AppHandle, window: WebviewWindow, built: &BuiltWindow) {
+        if self.click_through {
+            crate::overlay::set_click_through(&window, true);
+        }
+        // 일꾼이 숨긴 뒤 "모두 숨기기"가 눌렸을 수도 있음 (모두 숨긴 동안 온 물건은 "보이기"가 함께 보임)
+        if crate::windows_hidden(app) {
+            crate::overlay::hide_quietly(&window);
+        }
+        let scaled = built.scale != self.object.scale();
+        if scaled || built.dpi != self.object.dpi() {
+            let (w, h) = self.logical_size();
+            let dpi = self.object.dpi();
+            crate::overlay::resize_quietly(&window, built.hwnd, (w * dpi).round() as u32, (h * dpi).round() as u32);
+        }
+        if scaled {
+            let side = shape_of(self.object.kind).window_side_at(self.object.scale());
+            let _ = app.emit_to(self.label.as_str(), "object-scale", ScalePayload { scale: self.object.scale(), side });
+        }
+        self.hwnd = built.hwnd;
+        self.window = Some(window);
+        self.last_pos = None;
+        // NaN은 어떤 모습과도 같지 않음: 다음 틱에 지금 모습을 꼭 보냄
+        self.last_pose = PosePayload { angle: f64::NAN, dx: 0.0 };
     }
 }
 
-/// 창을 기다리는 똥 (틱마다 하나씩 — 창 만들기는 메인 스레드를 기다림). 받은 쓰레기 줄과 따로 세어 서로 밀어내지 않음
+/// 📦 물건 창 일꾼에게 보내는 주문 (창 하나 — build_window의 재료)
+struct WindowOrder {
+    id: u64,
+    kind: ObjectKind,
+    /// 포스트잇이 붙은 채 옴
+    sticker: bool,
+    /// 주문할 때의 그림 크기 배율 (창이 오기 전에 바뀌면 attach가 다시 맞춤)
+    scale: f64,
+    /// 📌 장난감에 그릴 앱 아이콘
+    icon: Option<IconImage>,
+}
+
+/// 📦 일꾼이 만든 물건 창 (못 만들었으면 window = None — 물건도 치움)
+struct BuiltWindow {
+    id: u64,
+    window: Option<WebviewWindow>,
+    /// 만들 때의 그림 크기 배율 (WindowOrder.scale)
+    scale: f64,
+    /// 창을 만들고 크기를 맞출 때 쓴 화면 배율
+    dpi: f64,
+    /// Windows 창 핸들 (hwnd()도 메인 스레드에 물어보므로 일꾼이 읽어 둠)
+    hwnd: Option<isize>,
+}
+
+/// 📦 물건 창을 게임 루프 밖에서 만드는 일꾼 스레드와 잇는 줄. 창 만들기(build)는 메인 스레드가 웹뷰를 다 띄울 때까지
+/// 부른 스레드를 막음 (Windows WebView2는 하나에 0.1–0.3초) — 게임 루프가 부르면 "쓰레기 10개"가 오는 동안 펫·물건이 뚝뚝 끊겼음
+struct WindowWorker {
+    orders: Sender<WindowOrder>,
+    built: Receiver<BuiltWindow>,
+    /// 보냈지만 아직 돌아오지 않은 주문 수 (받은 물건 줄은 0일 때만 다음 것을 들임 — 메인 스레드를 한꺼번에 몰아붙이지 않게)
+    waiting: usize,
+}
+
+/// 창을 기다리는 똥 (일꾼이 한 번에 하나씩 만듦). 받은 쓰레기 줄과 따로 세어 서로 밀어내지 않음
 enum WaitingPoop {
     /// 동물이 쌌음
     Dropped { kind: ObjectKind, x: f64, y: f64, scale: f64 },
@@ -242,7 +314,7 @@ pub struct Objects {
     next: u64,
     live: Vec<Live>,
     roster: Roster,
-    /// 받았지만 아직 창을 만들지 않은 물건 (틱마다 하나씩)
+    /// 받았지만 아직 들이지 않은 물건 (창 일꾼이 한가할 때 하나씩)
     inbox: TossInbox<(AcceptedToss, Side, u32, Option<IconImage>)>,
     poop_queue: VecDeque<WaitingPoop>,
     fading: crate::overlay::Fading,
@@ -274,6 +346,10 @@ pub struct Objects {
     bursts: Vec<(f64, f64)>,
     /// 🕸️ 화면의 거미집 자리 (게임 루프가 set_webs로 — 물건이 걸림)
     webs: Vec<WebSpot>,
+    /// 📦 물건 창을 만드는 일꾼 (처음 물건이 생길 때 띄움, 죽었으면 다음 주문 때 다시)
+    windows: Option<WindowWorker>,
+    /// 📦 창이 오기 전 물건에 쓰는 화면 배율 (내 동물의 배율 — 게임 루프가 set_dpi_hint로, 창이 오면 refresh가 고침)
+    dpi_hint: f64,
 }
 
 impl Objects {
@@ -303,6 +379,15 @@ impl Objects {
             capture_backoff: now,
             bursts: Vec::new(),
             webs: Vec::new(),
+            windows: None,
+            dpi_hint: 1.0,
+        }
+    }
+
+    /// 📦 창이 오기 전 물건에 쓸 화면 배율 (내 동물 창의 배율)
+    pub fn set_dpi_hint(&mut self, dpi: f64) {
+        if dpi.is_finite() && dpi > 0.0 {
+            self.dpi_hint = dpi;
         }
     }
 
@@ -399,8 +484,7 @@ impl Objects {
         let kind = kind.menu_pick(fastrand::f64());
         let id = self.next_id();
         let scale = self.scale_at(app, kind, base, cursor.0, cursor.1);
-        let Some(window) = build_window(app, id, kind, false, scale, None) else { return };
-        let dpi = window.scale_factor().unwrap_or(1.0);
+        let dpi = self.dpi_hint;
         let world = self.world_for(base, dpi);
         let b = world.bounds;
         // 거대한 것은 몸 전체가 화면 안에서 떨어지기 시작함
@@ -409,7 +493,7 @@ impl Objects {
         let y = (cursor.1 - size / 2.0).clamp(b.top + size, b.bottom.max(b.top + size));
         let mut object = Object::new(kind, x, y, dpi, fastrand::u64(..));
         object.set_scale(scale);
-        self.admit(id, window, object, Origin::Own);
+        self.admit(app, id, object, Origin::Own, false, None);
     }
 
     /// ⛄ 눈덩이 창을 at(커서·동물 손 자리, 물리 px)에 만듦: 거기서 떨어지기 시작함 (동물이 던지면 그 뒤 launch).
@@ -418,16 +502,14 @@ impl Objects {
         let kind = ObjectKind::Snowball;
         let id = self.next_id();
         let scale = self.scale_at(app, kind, base, at.0, at.1);
-        let window = build_window(app, id, kind, false, scale, None)?;
-        let dpi = window.scale_factor().unwrap_or(1.0);
+        let dpi = self.dpi_hint;
         let world = self.world_for(base, dpi);
         let b = world.bounds;
         let margin = OBJECT_LOGICAL_SIZE * dpi * scale / 2.0;
         let x = at.0.clamp(b.left + margin, (b.right - margin).max(b.left + margin));
         let mut object = Object::new(kind, x, at.1, dpi, fastrand::u64(..));
         object.set_scale(scale);
-        self.admit(id, window, object, Origin::Snow);
-        Some(id)
+        self.admit(app, id, object, Origin::Snow, false, None).then_some(id)
     }
 
     /// 🤹⛄ 동물이 눈덩이를 (vx, vy)로 던졌음 (물리 px/s): 던진 동물(social 키)은 잠깐 맞히지 않음
@@ -443,7 +525,7 @@ impl Objects {
         std::mem::take(&mut self.bursts)
     }
 
-    /// 동물이 쌌음: (x, y)에서 떨어지기 시작함. 창은 tick이 만듦
+    /// 동물이 쌌음: (x, y)에서 떨어지기 시작함. tick이 들이고 창은 일꾼 스레드가 만듦
     pub fn drop_poop(&mut self, kind: ObjectKind, x: f64, y: f64, scale: f64) {
         self.queue_poop(WaitingPoop::Dropped { kind, x, y, scale });
     }
@@ -589,7 +671,9 @@ impl Objects {
             let l = self.live.remove(i);
             self.roster.remove(l.id);
             set_postit_state(&l.label, None);
-            let _ = l.window.destroy();
+            if let Some(w) = &l.window {
+                let _ = w.destroy();
+            }
         }
         self.sync_menu();
     }
@@ -606,8 +690,7 @@ impl Objects {
             Some(s) => s,
             None => self.scale_at(app, kind, base, at.0, at.1),
         };
-        let window = build_window(app, id, kind, false, scale, icon.as_ref())?;
-        let dpi = window.scale_factor().unwrap_or(1.0);
+        let dpi = self.dpi_hint;
         self.world_for(base, dpi);
         let mut object = Object::new(kind, at.0, at.1, dpi, fastrand::u64(..));
         object.set_scale(scale);
@@ -621,7 +704,9 @@ impl Objects {
         } else {
             Origin::Foreign
         };
-        self.admit(id, window, object, origin);
+        if !self.admit(app, id, object, origin, false, icon.clone()) {
+            return None;
+        }
         self.set_icon(id, icon);
         self.sync_menu();
         Some(id)
@@ -679,13 +764,14 @@ impl Objects {
         let kind = ObjectKind::AppIcon;
         let id = self.next_id();
         let scale = kind.base_scale();
-        let Some(window) = build_window(app, id, kind, false, scale, Some(&icon)) else { return };
-        let dpi = window.scale_factor().unwrap_or(1.0);
+        let dpi = self.dpi_hint;
         self.world_for(base, dpi);
         let mut object = Object::new(kind, at.0, at.1, dpi, fastrand::u64(..));
         object.set_scale(scale);
         object.carry_at(at.0, at.1);
-        self.admit(id, window, object, Origin::Toy);
+        if !self.admit(app, id, object, Origin::Toy, false, Some(icon.clone())) {
+            return;
+        }
         self.set_icon(id, Some(icon));
         if !pet.hold_toy(id) {
             self.stow(id);
@@ -720,7 +806,7 @@ impl Objects {
     }
 
     /// 친구가 던진 물건 (인증된 친구 링크 — net이 확인 — 에서 온 내 친구의 것만). 받은 물건은 기다리는 것까지 20개, 넘치면 가장 오래된 것부터 치움.
-    /// 여기서는 줄만 세움 — 창은 tick이 하나씩 만듦 (한꺼번에 오면 게임 루프가 멈추지 않게)
+    /// 여기서는 줄만 세움 — tick이 하나씩 들이고 창은 일꾼 스레드가 만듦 (한꺼번에 와도 게임 루프가 멈추지 않게)
     pub fn receive(&mut self, config: &Config, from: &str, toss: Toss) {
         if config.friend(from).is_none() {
             return;
@@ -774,8 +860,12 @@ impl Objects {
         self.threw_at.get(friend).is_some_and(|t| t.elapsed() < BOUNCE_WINDOW)
     }
 
-    /// 줄의 맨 앞 물건 하나의 창을 만듦 (틱마다)
+    /// 줄의 맨 앞 물건 하나를 들이고 창을 주문함. 창 일꾼이 아직 만드는 중이면 기다림 — 한 번에 하나만 만들게 (메인 스레드를 몰아붙이지 않고,
+    /// 받은 물건이 창 없이 오래 날지 않게). 게임 루프는 창을 기다리지 않음
     fn admit_next_toss(&mut self, app: &AppHandle, base: &World) {
+        if self.windows.as_ref().is_some_and(|w| w.waiting > 0) {
+            return;
+        }
         if let Some(poop) = self.poop_queue.pop_front() {
             self.admit_poop(app, base, poop);
             return;
@@ -784,8 +874,8 @@ impl Objects {
         let id = self.next_id();
         let (x, y) = entry_point(base, side);
         let scale = self.scale_at(app, accepted.kind, base, x, y);
-        let Some(window) = build_window(app, id, accepted.kind, accepted.note.is_some(), scale, icon.as_ref()) else { return };
-        let dpi = window.scale_factor().unwrap_or(1.0);
+        let sticker = accepted.note.is_some();
+        let dpi = self.dpi_hint;
         let world = self.world_for(base, dpi);
         let mut object = Object::flown_in(accepted.kind, world, side, accepted.fling, dpi, fastrand::u64(..));
         // ⚾ 친구가 보낸 캐치볼 랠리 (흐물이가 받아 되던지면 코어가 하나 올림). 되돌아온 것은 받아치지 않음
@@ -797,22 +887,18 @@ impl Objects {
         object.receive_note(accepted.note);
         // ⛄ 친구가 던진 눈덩이도 눈덩이 수에 듦
         let origin = if accepted.kind.is_snowball() { Origin::Snow } else { Origin::Foreign };
-        self.admit(id, window, object, origin);
-        self.set_icon(id, icon);
+        if self.admit(app, id, object, origin, sticker, icon.clone()) {
+            self.set_icon(id, icon);
+        }
     }
 
-    /// 기다리던 똥 하나에 창을 만들어 들임
+    /// 기다리던 똥 하나를 들이고 창을 주문함
     fn admit_poop(&mut self, app: &AppHandle, base: &World, poop: WaitingPoop) {
         let id = self.next_id();
-        let kind = match &poop {
-            WaitingPoop::Dropped { kind, .. } => *kind,
-            WaitingPoop::Tossed(accepted, ..) => accepted.kind,
-        };
         let scale = match &poop {
             WaitingPoop::Dropped { scale, .. } | WaitingPoop::Tossed(_, _, scale) => *scale,
         };
-        let Some(window) = build_window(app, id, kind, false, scale, None) else { return };
-        let dpi = window.scale_factor().unwrap_or(1.0);
+        let dpi = self.dpi_hint;
         let world = self.world_for(base, dpi);
         let object = match poop {
             WaitingPoop::Dropped { kind, x, y, .. } => {
@@ -831,7 +917,7 @@ impl Objects {
         };
         let mut object = object;
         object.set_scale(scale);
-        self.admit(id, window, object, Origin::Poop);
+        self.admit(app, id, object, Origin::Poop, false, None);
     }
 
     /// 새 물건 번호를 줌
@@ -846,8 +932,13 @@ impl Objects {
         self.world.get_or_insert_with(|| World::new(base.windows.clone(), base.work_areas.clone(), OBJECT_LOGICAL_SIZE * dpi))
     }
 
-    /// 물건 수를 지키며 들임: 넘치면 그 쪽(내 것 10 / 받은 것 20 / 똥 10)의 가장 오래된 것이 뿅 사라짐
-    fn admit(&mut self, id: u64, window: WebviewWindow, object: Object, origin: Origin) {
+    /// 물건 수를 지키며 들임: 넘치면 그 쪽(내 것 10 / 받은 것 20 / 똥 10)의 가장 오래된 것이 뿅 사라짐.
+    /// 물건은 바로 움직이기 시작하고 창은 일꾼에게 주문함 (attach_built가 붙임). 주문을 못 넣었으면 들이지 않고 false
+    fn admit(&mut self, app: &AppHandle, id: u64, object: Object, origin: Origin, sticker: bool, icon: Option<IconImage>) -> bool {
+        let order = WindowOrder { id, kind: object.kind, sticker, scale: object.scale(), icon };
+        if !self.order_window(app, order) {
+            return false;
+        }
         // 🪨💩 거대한 것은 MAX_GIANTS개까지: 넘치면 가장 오래된 거대한 것이 뿅 (화면만 한 창이 쌓이면 앱이 느려짐)
         if object.kind.is_giant() {
             let giants: Vec<u64> = self.live.iter().filter(|l| l.object.kind.is_giant()).map(|l| l.id).collect();
@@ -859,32 +950,113 @@ impl Objects {
                 }
             }
         }
-        // 거대한 것·📌 장난감은 처음부터 클릭이 지나감 (아직 화면 밖일 때 정함) — 나중에 바꾸면 Windows가 창을 통째로 다시 그려 깜빡임
+        // 거대한 것·📌 장난감은 처음부터 클릭이 지나감 (창이 오면 화면 밖일 때 attach가 켬) — 나중에 바꾸면 Windows가 창을 통째로 다시 그려 깜빡임
         let click_through = object.kind.is_giant() || object.kind.is_toy();
-        if click_through {
-            crate::overlay::set_click_through(&window, true);
-        }
         if let Some(old) = self.roster.add(id, origin) {
             if let Some(i) = self.live.iter().position(|l| l.id == old) {
                 let l = self.live.remove(i);
                 self.poof(l);
             }
         }
-        let label = window.label().to_string();
-        let hwnd = crate::overlay::hwnd_of(&window);
+        let label = label_of(id);
         set_postit_state(&label, Some(object.postit()));
         self.live.push(Live {
             id,
             label,
             object,
-            window,
+            window: None,
             last_pos: None,
             last_pose: PosePayload { angle: 0.0, dx: 0.0 },
             note_open: false,
-            hwnd,
+            hwnd: None,
             click_through,
             icon: None,
         });
+        true
+    }
+
+    /// 📦 창 일꾼에게 창 하나를 주문함 (일꾼이 없거나 죽었으면 새로 띄움). 게임 루프는 기다리지 않음. 못 넣었으면 false
+    fn order_window(&mut self, app: &AppHandle, order: WindowOrder) -> bool {
+        if self.windows.is_none() {
+            self.windows = start_window_worker(app);
+        }
+        let Some(worker) = self.windows.as_mut() else { return false };
+        match worker.orders.send(order) {
+            Ok(()) => {
+                worker.waiting += 1;
+                true
+            }
+            Err(mpsc::SendError(order)) => {
+                // 일꾼이 죽었음 (창 만들다 패닉 등): 이미 만든 창은 붙이고 기다리던 물건은 치운 뒤 (attach_built), 새 일꾼에게 다시 넣어 봄
+                self.attach_built(app);
+                self.windows = None;
+                self.drop_windowless();
+                self.windows = start_window_worker(app);
+                let Some(worker) = self.windows.as_mut() else { return false };
+                if worker.orders.send(order).is_err() {
+                    return false;
+                }
+                worker.waiting += 1;
+                true
+            }
+        }
+    }
+
+    /// 📦 일꾼이 만든 창을 기다리던 물건에 붙임 (매 틱, 기다리지 않고 온 것만). 그 사이 치운 물건(뿅·던짐·들고 감·꿀꺽)의 창은 바로 닫고,
+    /// 창을 못 만들었으면 물건도 치움 (예전에 build가 실패하면 물건이 생기지 않던 것과 같게)
+    fn attach_built(&mut self, app: &AppHandle) {
+        let Some(worker) = self.windows.as_mut() else { return };
+        let mut arrived = Vec::new();
+        let mut gone = false;
+        loop {
+            match worker.built.try_recv() {
+                Ok(built) => {
+                    worker.waiting = worker.waiting.saturating_sub(1);
+                    arrived.push(built);
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    gone = true;
+                    break;
+                }
+            }
+        }
+        for mut built in arrived {
+            let Some(i) = self.live.iter().position(|l| l.id == built.id) else {
+                // 창을 기다리는 사이 치웠음
+                if let Some(w) = built.window.take() {
+                    let _ = w.destroy();
+                }
+                continue;
+            };
+            match built.window.take() {
+                Some(window) => self.live[i].attach(app, window, &built),
+                None => self.drop_at(i),
+            }
+        }
+        if gone {
+            log!(Warn, "toss", "window_worker_gone");
+            self.windows = None;
+            self.drop_windowless();
+        }
+    }
+
+    /// 📦 창이 끝내 오지 않는 물건을 모두 치움 (일꾼이 죽었음)
+    fn drop_windowless(&mut self) {
+        while let Some(i) = self.live.iter().position(|l| l.window.is_none()) {
+            self.drop_at(i);
+        }
+    }
+
+    /// 📦 창 없는 물건 하나를 조용히 치움 (보일 창이 없으니 뿅도 없음)
+    fn drop_at(&mut self, i: usize) {
+        let l = self.live.remove(i);
+        self.roster.remove(l.id);
+        set_postit_state(&l.label, None);
+        if let Some(w) = l.window {
+            let _ = w.destroy();
+        }
+        self.sync_menu();
     }
 
     /// 물건 하나를 치움 (뿅)
@@ -899,13 +1071,18 @@ impl Objects {
     /// 창을 뿅 사라지게 하고 곧 닫음
     fn poof(&mut self, l: Live) {
         set_postit_state(&l.label, None);
-        self.fading.start(l.window, "poof", Instant::now() + POOF);
+        // 창을 기다리던 물건이면 창이 올 때 attach_built가 닫음
+        if let Some(w) = l.window {
+            self.fading.start(w, "poof", Instant::now() + POOF);
+        }
     }
 
     /// 다 된 똥이 스르륵 사라짐
     fn fade(&mut self, l: Live) {
         set_postit_state(&l.label, None);
-        self.fading.start(l.window, "fade", Instant::now() + FADE);
+        if let Some(w) = l.window {
+            self.fading.start(w, "fade", Instant::now() + FADE);
+        }
     }
 
     /// `🗑️ 쓰레기 꺼내기 ▸` 글자의 내 물건 수 (바뀔 때만)
@@ -927,9 +1104,9 @@ impl Objects {
             self.world = None;
             return;
         }
-        // 깨어 있는 물건만 화면 배율을 다시 읽음 (창에 묻는 일은 메인 스레드를 거침)
+        // 깨어 있는 물건만 화면 배율을 다시 읽음 (창에 묻는 일은 메인 스레드를 거침 — 창을 기다리는 물건은 건너뜀)
         for l in self.live.iter_mut().filter(|l| !l.object.is_asleep()) {
-            if let Ok(dpi) = l.window.scale_factor() {
+            if let Some(dpi) = l.window.as_ref().and_then(|w| w.scale_factor().ok()) {
                 l.object.set_dpi(dpi);
             }
         }
@@ -970,6 +1147,7 @@ impl Objects {
     #[allow(clippy::too_many_arguments)]
     pub fn tick(&mut self, app: &AppHandle, base: &World, dt: f64, now: Instant, cursor: (f64, f64), left_down: bool, away: bool, source: &mut dyn WindowSource, network: &Network, config: &Config) {
         self.fading.tick(now);
+        self.attach_built(app);
         self.admit_next_toss(app, base);
         let secs = now.duration_since(self.started).as_secs_f64();
         self.release_volleys(secs, network, config);
@@ -1023,6 +1201,10 @@ impl Objects {
             l.place(world);
             // 커서는 잠든 물건 위로도 움직임 (거대한 것만 — 바뀔 때만 OS에 알림)
             l.sync_click_through(cursor);
+            // 📦 창을 기다리는 물건: 움직임만 (모습은 창이 오면 attach가 꼭 다시 보내게 함)
+            if l.window.is_none() {
+                continue;
+            }
             if asleep && was_asleep && l.last_pose == l.pose() {
                 continue;
             }
@@ -1038,7 +1220,9 @@ impl Objects {
             self.roster.remove(l.id);
             self.toss_away(&l, exit, secs, network, config);
             set_postit_state(&l.label, None);
-            let _ = l.window.destroy();
+            if let Some(w) = &l.window {
+                let _ = w.destroy();
+            }
         }
         // ⛄ 던진 눈덩이가 동물(hit_pets)이나 바닥·창에 닿아 퍽: 뿅 치우고 그 자리를 알림 (눈가루)
         let mut i = 0;
@@ -1192,9 +1376,42 @@ const TOY_CANDIDATES: usize = 8;
 /// 던지고 이만큼 안에 되돌아온 물건만 내 것으로 봄
 const BOUNCE_WINDOW: Duration = Duration::from_secs(30);
 
+/// 물건 창 라벨 (`object-<id>` — 창이 오기 전에도 정해져 있음)
+fn label_of(id: u64) -> String {
+    format!("{PREFIX}{id}")
+}
+
+/// 📦 물건 창 일꾼 스레드를 띄움: 주문을 하나씩 받아 build_window로 만들고 돌려보냄 (한 번에 하나만 만듦).
+/// Objects가 사라지면 (주문 줄이 끊기면) 끝남. 스레드를 못 띄웠으면 None
+fn start_window_worker(app: &AppHandle) -> Option<WindowWorker> {
+    let (orders, order_rx) = mpsc::channel::<WindowOrder>();
+    let (built_tx, built) = mpsc::channel::<BuiltWindow>();
+    let app = app.clone();
+    let started = std::thread::Builder::new().name("object-windows".into()).spawn(move || {
+        for order in order_rx {
+            if built_tx.send(make_window(&app, order)).is_err() {
+                break;
+            }
+        }
+    });
+    started.ok().map(|_| WindowWorker { orders, built, waiting: 0 })
+}
+
+/// 📦 일꾼 스레드에서 주문 하나의 창을 만듦 (메인 스레드를 기다리는 일 — 창 만들기·배율·핸들 읽기 — 은 모두 여기서)
+fn make_window(app: &AppHandle, order: WindowOrder) -> BuiltWindow {
+    let made = build_window(app, order.id, order.kind, order.sticker, order.scale, order.icon.as_ref());
+    let hwnd = made.as_ref().and_then(|(w, _)| crate::overlay::hwnd_of(w));
+    let (window, dpi) = match made {
+        Some((w, dpi)) => (Some(w), dpi),
+        None => (None, 1.0),
+    };
+    BuiltWindow { id: order.id, window, scale: order.scale, dpi, hwnd }
+}
+
+/// 물건 창 하나를 만듦 (화면 밖에 조용히 — 일꾼 스레드에서만 부름: build()가 메인 스레드를 기다림). 만들었으면 창과 그 화면 배율.
 /// icon = 📌 장난감에 그릴 앱 아이콘 (그 창의 초기화 스크립트에만 들어감 — base64 글자뿐이라 JS 문자열에 그대로 넣음)
-fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale: f64, icon: Option<&IconImage>) -> Option<WebviewWindow> {
-    let label = format!("{PREFIX}{id}");
+fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale: f64, icon: Option<&IconImage>) -> Option<(WebviewWindow, f64)> {
+    let label = label_of(id);
     let shape = shape_of(kind);
     let (w, h) = (shape.window_side_at(scale), shape.window_side_at(scale));
     let (px, py) = shape.pivot_logical();
@@ -1216,7 +1433,7 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale
             if crate::windows_hidden(app) {
                 crate::overlay::hide_quietly(&window);
             }
-            Some(window)
+            Some((window, dpi))
         }
         Err(e) => {
             eprintln!("failed to create object window: {e}");

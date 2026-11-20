@@ -376,10 +376,15 @@ def test_the_webview_draws_giants_from_the_big_art():
 
 
 def test_giant_windows_start_click_through_and_are_capped():
-    """거대한 돌·똥 깜빡임·렉 (v0.6.3): 창을 들일 때 클릭 통과를 미리 켜고 (화면 밖에서), 화면엔 MAX_GIANTS개까지"""
+    """거대한 돌·똥 깜빡임·렉 (v0.6.3): 창을 들일 때 클릭 통과를 미리 켜고 (화면 밖에서), 화면엔 MAX_GIANTS개까지.
+    📦 창은 일꾼 스레드가 만들어 오므로, 클릭 통과는 창이 붙을 때 (Live::attach — 아직 화면 밖) 켬"""
     src = (Path(__file__).resolve().parent.parent / "src-tauri" / "src" / "objects.rs").read_text(encoding="utf-8")
     admit = src[src.index("fn admit(&mut self"):]
     admit = admit[: admit.index("\n    fn ", 10)]
     assert "giant_to_drop(" in admit
-    assert "set_click_through(&window, true)" in admit
     assert "click_through," in admit and "click_through: false" not in admit
+    attach = src[src.index("fn attach(&mut self"):]
+    attach = attach[: attach.index("\n    }\n")]
+    assert "if self.click_through {" in attach and "set_click_through(&window, true)" in attach
+    # 붙이고 나서야 제자리로 옮김 (그때까지 화면 밖)
+    assert attach.index("set_click_through(&window, true)") < attach.index("self.last_pos = None")

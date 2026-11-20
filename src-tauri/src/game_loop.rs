@@ -368,6 +368,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut dodge = crate::dodge::DodgeFx::new();
     let mut sleigh = crate::sleigh::SleighFx::new();
     objects.set_size(&app, config.object_size());
+    // 📦 창이 오기 전 물건의 화면 배율 (창은 일꾼 스레드가 만듦 — 오면 refresh가 고침)
+    objects.set_dpi_hint(slots[OWN].dpi);
     // 🕐 최근 한 시간 (메모리에만)
     let mut timeline = TimelineFx::new();
     // 🔄 새 버전 응원 (버전마다 한 번)
@@ -827,6 +829,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             for s in &mut slots {
                 s.refresh(&windows, &work_areas);
             }
+            objects.set_dpi_hint(slots[OWN].dpi);
             objects.refresh(&windows, &work_areas, now);
             slots[OWN].pet.set_hungry(care.is_hungry());
             last_refresh = now;
