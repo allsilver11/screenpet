@@ -48,7 +48,7 @@ NAMES = ("can", "paper", "stone", "glasses", "computer", "milk", "shirt", "umbre
 # 🪨💩 거대한 물건 → 같은 모양의 작은 것. 아기 동물의 15배(화면 높이의 80%까지)로 보이니 GIANT_PX로 직접 그린다 (128을 키우면 흐릿하다)
 GIANTS = {"giant_stone": "stone", "giant_poop": "poop", "giant_pink": "pink", "giant_rainbow": "rainbow"}
 GIANT_PX = 1024
-# 칸 안에서 작은 것보다 이만큼 크게 (바닥 가운데 기준) — 아기 동물이 제 칸을 채우는 만큼. 픽셀 그림은 24칸 중 20칸을 잘라 같은 비율 (draw_pixel_world GIANT_CROP)
+# 칸 안에서 작은 것보다 이만큼 크게 (바닥 가운데 기준) — 아기 동물이 제 칸을 채우는 만큼
 GIANT_GROW = 1.2
 # 거대한 그림의 외곽선 굵기 배율: 128 그림 그대로면 화면에서 14 px나 되는 굵은 테가 된다
 GIANT_LINE = 0.45

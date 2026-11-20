@@ -75,8 +75,6 @@ pub struct PlayerRow {
     pub name: String,
     /// 펫 종류
     pub pet: String,
-    /// "" | "pixel"
-    pub style: String,
 }
 
 /// 게임 화면 그림임
@@ -185,9 +183,9 @@ pub struct Ctx<'a> {
     pub my_name: &'a str,
 }
 
-/// 이 설치가 게임에 들고 가는 자리 (이름, 펫, 스타일)
+/// 이 설치가 게임에 들고 가는 자리 (이름, 펫). 스타일은 픽셀이 빠져 늘 "" (옛 버전과 같은 판을 하려고 필드만 남음)
 fn seat(ctx: &Ctx, own: &Slot) -> Seat {
-    Seat { name: ctx.my_name.to_string(), pet: own.entry.id.clone(), style: ctx.config.style.to_wire().unwrap_or_default() }
+    Seat { name: ctx.my_name.to_string(), pet: own.entry.id.clone(), style: String::new() }
 }
 
 /// 사다리 메시지들을 각 친구에게 보냄
@@ -578,7 +576,7 @@ impl Ladders {
                 Some(Game::Guest(g)) => g.game_id(),
                 None => String::new(),
             },
-            players: draw::disambiguate(&names).into_iter().zip(&o.players).map(|(name, p)| PlayerRow { name, pet: p.pet.clone(), style: p.style.clone() }).collect(),
+            players: draw::disambiguate(&names).into_iter().zip(&o.players).map(|(name, p)| PlayerRow { name, pet: p.pet.clone() }).collect(),
             results: slot_rows(&o.results),
             rows: ladder.rows,
             paths,

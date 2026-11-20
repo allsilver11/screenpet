@@ -13,8 +13,6 @@ const PREFIX: &str = "prop-";
 const WIDTH: f64 = 56.0;
 /// 소품 창 높이 (논리 px, teenager 몸 배율 1 기준)
 const HEIGHT: f64 = 48.0;
-/// 픽셀 소품 그림 칸 수 (tools/draw_pixel_world.py PROP_DOTS)
-const PIXEL_DOTS: (f64, f64) = (14.0, 12.0);
 /// prop.html의 흐려지기(0.6초)가 끝난 뒤 닫음
 const FADE: Duration = Duration::from_millis(700);
 
@@ -27,7 +25,7 @@ fn image(prop: Prop) -> &'static str {
     }
 }
 
-/// 지금 놓인 소품 — 스타일이 바뀌면 같은 자리에 다시 만듦
+/// 지금 놓인 소품 — 펫 크기가 바뀌면 같은 자리에 다시 만듦
 struct Placed {
     window: WebviewWindow,
     prop: Prop,
@@ -45,15 +43,15 @@ pub struct Props {
 }
 
 impl Props {
-    /// ev를 반영함. dpi = 동물 창의 화면 배율, scale = 동물 몸 배율 (단계 × 동물별), pixel_dot = 픽셀 동물이면 칸 한 변 (물리 px).
+    /// ev를 반영함. dpi = 동물 창의 화면 배율, scale = 동물 몸 배율 (단계 × 동물별).
     /// 게임 루프 스레드에서만 부름 (창 만들기가 메인 스레드를 기다림)
-    pub fn apply(&mut self, app: &AppHandle, ev: PropEvent, dpi: f64, scale: f64, pixel_dot: Option<u32>) {
+    pub fn apply(&mut self, app: &AppHandle, ev: PropEvent, dpi: f64, scale: f64) {
         match ev {
             PropEvent::Show { prop, x, y } => {
                 if let Some(old) = self.live.take() {
                     let _ = old.window.destroy();
                 }
-                self.live = self.spawn(app, prop, x, y, dpi, scale, pixel_dot).map(|window| Placed { window, prop, x, y });
+                self.live = self.spawn(app, prop, x, y, dpi, scale).map(|window| Placed { window, prop, x, y });
             }
             PropEvent::Hide => {
                 if let Some(p) = self.live.take() {
@@ -63,27 +61,22 @@ impl Props {
         }
     }
 
-    /// 스타일이 바뀌었음: 놓인 소품을 같은 자리에 새 그림·크기로 (창 그림은 만들 때 정해짐). 흐려지는 중인 것은 곧 닫히니 그대로 둠
-    pub fn restyle(&mut self, app: &AppHandle, dpi: f64, scale: f64, pixel_dot: Option<u32>) {
+    /// 펫 크기가 바뀌었음: 놓인 소품을 같은 자리에 새 크기로 (창 크기는 만들 때 정해짐). 흐려지는 중인 것은 곧 닫히니 그대로 둠
+    pub fn resize(&mut self, app: &AppHandle, dpi: f64, scale: f64) {
         if let Some(Placed { prop, x, y, .. }) = self.live {
-            self.apply(app, PropEvent::Show { prop, x, y }, dpi, scale, pixel_dot);
+            self.apply(app, PropEvent::Show { prop, x, y }, dpi, scale);
         }
     }
 
     /// 소품 창 하나를 동물 옆 (x, y)에 띄움
-    #[allow(clippy::too_many_arguments)]
-    fn spawn(&mut self, app: &AppHandle, prop: Prop, x: f64, y: f64, dpi: f64, scale: f64, pixel_dot: Option<u32>) -> Option<WebviewWindow> {
+    fn spawn(&mut self, app: &AppHandle, prop: Prop, x: f64, y: f64, dpi: f64, scale: f64) -> Option<WebviewWindow> {
         let label = format!("{PREFIX}{}", self.next);
         self.next += 1;
-        let (w, h) = match pixel_dot {
-            Some(dot) => (PIXEL_DOTS.0 * f64::from(dot) / dpi, PIXEL_DOTS.1 * f64::from(dot) / dpi),
-            None => (WIDTH * scale, HEIGHT * scale),
-        };
-        let style = if pixel_dot.is_some() { " window.ART_STYLE = \"pixel\";" } else { "" };
+        let (w, h) = (WIDTH * scale, HEIGHT * scale);
         let built = crate::overlay::finish(
             WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
                 .title("ScreenPet Food")
-                .initialization_script(&format!("window.PROP_IMAGE = {:?};{style}", image(prop)))
+                .initialization_script(&format!("window.PROP_IMAGE = {:?};", image(prop)))
                 .inner_size(w, h),
         );
         let window = match built {
@@ -132,13 +125,13 @@ impl HandWindow {
         if let Some(old) = self.live.take() {
             let _ = old.destroy();
         }
-        let side = crate::art::fit((HAND_SIZE, HAND_SIZE), dpi);
+        let side = (HAND_SIZE, HAND_SIZE);
         let label = format!("hand-{}", self.next);
         self.next += 1;
         let built = crate::overlay::finish(
             WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
                 .title("ScreenPet Hand Food")
-                .initialization_script(&format!("window.PROP_IMAGE = {icon:?}; window.PROP_MODE = \"hand\"; {}", crate::art::style_script()))
+                .initialization_script(&format!("window.PROP_IMAGE = {icon:?}; window.PROP_MODE = \"hand\";"))
                 .inner_size(side.0, side.1),
         );
         let window = match built {
@@ -162,7 +155,7 @@ impl HandWindow {
     /// 음식 가운데를 (x, y)로 (매 틱)
     pub fn move_to(&mut self, at: (f64, f64), dpi: f64) {
         let Some(w) = &self.live else { return };
-        let half = crate::art::fit((HAND_SIZE, HAND_SIZE), dpi).0 / 2.0 * dpi;
+        let half = HAND_SIZE / 2.0 * dpi;
         let pos = ((at.0 - half).round() as i32, (at.1 - half).round() as i32);
         if self.last_pos != Some(pos) {
             let _ = w.set_position(PhysicalPosition::new(pos.0, pos.1));

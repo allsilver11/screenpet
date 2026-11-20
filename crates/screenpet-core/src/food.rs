@@ -87,12 +87,11 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "rabbit" => "hand_carrot",
             "frog" => "hand_fly",
             "pumpkin" => "hand_candy",
-            "ghost" => "hand_lollipop",
             "rudolph" => "hand_apple",
             "santa" => "hand_milk",
             "duck" => "hand_bread",
             "penguin" => "hand_shrimp",
-            // 흐물이는 유령처럼 막대사탕 (막대 같은 꼬마에게 막대사탕)
+            // 흐물이는 막대사탕 (막대 같은 꼬마에게 막대사탕)
             "heumul" => "hand_lollipop",
             // 🕷️ 거미인간은 개구리처럼 파리
             "spider" => "hand_fly",
@@ -200,14 +199,14 @@ mod tests {
     fn hand_icons_per_food_and_species() {
         assert_eq!(hand_icon(Food::Meal, "cat"), "hand_meal");
         assert_eq!(hand_icon(Food::Snack, "rabbit"), "hand_cookie");
-        let favs: Vec<_> = ["cat", "rabbit", "frog", "pumpkin", "ghost", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
+        let favs: Vec<_> = ["cat", "rabbit", "frog", "pumpkin", "heumul", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
         assert_eq!(favs, ["hand_fish", "hand_carrot", "hand_fly", "hand_candy", "hand_lollipop", "hand_meal"]);
-        // 곰·꿀벌·강아지는 빠졌다 (v0.5.5): 예전 친구가 보낸 동물이어도 그냥 밥 — 없는 그림(뼈다귀·꿀·꽃꿀)을 찾지 않는다
-        for gone in ["bear", "bee", "dog"] {
+        // 곰·꿀벌·강아지(v0.5.5)·유령(v0.7.0)은 빠졌다: 예전 친구가 보낸 동물이어도 그냥 밥 — 없는 그림(뼈다귀·꿀·꽃꿀)을 찾지 않는다
+        for gone in ["bear", "bee", "dog", "ghost"] {
             assert_eq!(hand_icon(Food::Favorite, gone), "hand_meal", "{gone}");
         }
         // 할로윈 동물도 밥·간식은 다른 동물과 같다
-        assert_eq!(hand_icon(Food::Meal, "ghost"), "hand_meal");
+        assert_eq!(hand_icon(Food::Meal, "pumpkin"), "hand_meal");
         assert_eq!(hand_icon(Food::Snack, "pumpkin"), "hand_cookie");
         // 크리스마스: 루돌프는 사과, 산타는 우유 (밥·간식은 같다)
         assert_eq!((hand_icon(Food::Favorite, "rudolph"), hand_icon(Food::Favorite, "santa")), ("hand_apple", "hand_milk"));
@@ -217,7 +216,6 @@ mod tests {
         assert_eq!(hand_icon(Food::Favorite, "duck"), "hand_bread");
         // 펭귄은 새우를 냠냠
         assert_eq!((hand_icon(Food::Favorite, "penguin"), hand_icon(Food::Snack, "penguin")), ("hand_shrimp", "hand_cookie"));
-        assert_eq!(hand_icon(Food::Favorite, "heumul"), hand_icon(Food::Favorite, "ghost"));
         assert_eq!((hand_icon(Food::Favorite, "spider"), hand_icon(Food::Meal, "spider")), ("hand_fly", "hand_meal"));
         assert_eq!(hand_icon(Food::Favorite, "bat"), "hand_apple");
         assert_eq!(hand_icon(Food::Favorite, "persian"), "hand_milk");

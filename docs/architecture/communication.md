@@ -209,7 +209,7 @@ sequenceDiagram
 
 | `type` | 주요 필드 | 용도 |
 |---|---|---|
-| `visit` | `visit_id, species, stage, scale, personality, owner, enter_side`, 선택: `vside, via, homesick_in, fling, note, gift, style, tint, boost, no_grow, of, carry` | 펫이 놀러 감 |
+| `visit` | `visit_id, species, stage, scale, personality, owner, enter_side`, 선택: `vside, via, homesick_in, fling, note, tint, boost, no_grow, of, carry` (v0.7.0에 빠진 `gift`·`style`은 옛 버전이 보내도 모르는 필드라 건너뜀) | 펫이 놀러 감 |
 | `leave` | `visit_id`, 선택: `next, side, vside, homesick_in, fling, note(답장), boost, carry` | 손님이 떠남 (집 또는 다음 친구) |
 | `come_home` | `visit_id` | 주인이 부름 |
 

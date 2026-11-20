@@ -231,13 +231,13 @@ function openWindow(html, { replies = {}, failFetch = () => false, globals = {} 
   };
 }
 
-const CAT = { pet: "cat", stage: "teenager", scale: 1, style: "round" };
+const CAT = { pet: "cat", stage: "teenager", scale: 1 };
 const HOUSED = { ...CAT, hungry: false, housed: true };
 
 const scenarios = {
   // 스크립트가 다 읽히는가 (최상위 이름 겹침, 문법 오류)
   async load([html]) {
-    const replies = { slot_info: CAT, house_state: HOUSED, letter_state: { name: "친구", max: 80 }, postit_max: 80, name_state: { target: "me", current: "", fallback: "친구", max: 20 }, code_state: { code: "ABCD-1234", connected: true, enabled: true }, pair_state: {}, book_state: { sections: [], collected: 0, total: 0, shiny: 0 } };
+    const replies = { slot_info: CAT, house_state: HOUSED, letter_state: { name: "친구", max: 80 }, postit_max: 80, name_state: { target: "me", current: "", fallback: "친구", max: 20 }, code_state: { code: "ABCD-1234", connected: true, enabled: true }, pair_state: {} };
     openWindow(html, { replies });
     await tick();
     return { scripts: htmlScripts(html) };
@@ -300,8 +300,8 @@ const scenarios = {
     }
     return { idle, advanced, spinWrites: count("transform") - tBefore, spinDistinct: new Set(spins).size, spin: spins[0] };
   },
-  // 픽셀 구르기: 배로 미끄러지는 동물(펭귄·눈사람)은 roll 줄을 돌리지 않고 틀고, 구르기 그림이 없는 동물은 idle 줄 (역시 안 돈다)
-  async pixelRoll([pet]) {
+  // 🟦 옛 slot_info의 style "pixel"은 무시: 동글 시트의 roll 줄을 틀고 (도는 동물은 돎)
+  async oldPixelRoll([pet]) {
     const slot = { pet, stage: "adult", scale: 1, style: "pixel" };
     const w = openWindow("index.html", { replies: { slot_info: { ...slot, render: { anim: "roll", flip: false, heart: false } } } });
     await tick();
@@ -313,7 +313,7 @@ const scenarios = {
     }
     const [m, display] = vm.runInContext("[manifest, display]", w.sandbox);
     const pos = w.byId("pet").style.backgroundPosition;
-    return { hasRoll: !!m.animations.roll, row: Math.round(-parseFloat(pos.split(" ")[1]) / display), rollRow: m.animations.roll?.row ?? null, idleRow: m.animations.idle.row, rotates: transforms.some((t) => t.includes("rotate")) };
+    return { hasRoll: !!m.animations.roll, row: Math.round(-parseFloat(pos.split(" ")[1]) / display), rollRow: m.animations.roll?.row ?? null, idleRow: m.animations.idle.row, rotates: transforms.some((t) => t.includes("rotate")), sheet: w.byId("pet").style.backgroundImage };
   },
   // 🎨 흐물이 몸 색: #tint가 시트의 잉크 자리(ink_<stage>)로 가려진 색 층 — 칸·크기는 몸과 똑같이, 바뀔 때만 쓴다
   async tint([style]) {
@@ -394,11 +394,6 @@ const scenarios = {
     w.key("Escape", "INPUT");
     await tick();
     return { onButton, composing, onInput, closed: w.calls(closeCmd), f5: w.key("F5", "INPUT"), ctrlR: w.key("r", "INPUT", { ctrlKey: true }), typing: w.key("a", "INPUT"), menu: w.menu() };
-  },
-  async bookKeys() {
-    const w = openWindow("book.html", { replies: { book_state: { sections: [], collected: 0, total: 0, shiny: 0 } } });
-    await tick();
-    return { f5: w.key("F5", "BODY"), menu: w.menu(), escape: w.key("Escape", "BODY") };
   },
 
   // 📱 코드가 맞은 뒤 "본인의 PC가 맞습니까?": 확인은 저쪽을 기다리고, 취소·Esc는 취소한다

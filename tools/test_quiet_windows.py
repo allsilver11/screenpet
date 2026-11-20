@@ -71,3 +71,22 @@ def test_a_pet_window_hidden_behind_our_back_is_shown_again():
     place = src[src.index("pub fn place("):]
     place = place[: place.index("\n    }\n")]
     assert "crate::overlay::is_shown(" in place and "show_quietly" in place
+
+
+def test_the_house_comes_back_after_hiding_all_and_housing():
+    """모두 숨긴 채 하우스로 보내고 다시 보이면 집이 끝내 안 나타나던 버그: tao의 is_visible은 조용히 숨긴 창을 아직
+    "보임"으로 알아서 집을 다시 보이지 않았음 → OS에 묻는 overlay::is_shown으로 봄. 집으로 달려가는 동안에도 집이 보임."""
+    src = _text("game_loop.rs")
+    assert "!w.is_visible().unwrap_or(true)" not in src
+    assert "!crate::overlay::is_shown(w)" in src
+    assert "is_going_home()" in src[src.index("let hidden = crate::windows_hidden(&app);") - 4000 :]
+
+
+def test_the_hide_item_says_what_it_will_do():
+    """숨기기/보이기 항목은 지금 누르면 할 일만 보임: 보이는 동안 "🙈 숨기기", 숨겨 둔 동안 "🐾 보이기"."""
+    src = _text("tray.rs")
+    assert '"🐾 보이기"' in src and '"🙈 숨기기"' in src
+    show = src[src.index("pub fn show_all("):][:400]
+    assert "toggle.set_text(toggle_label(false))" in show
+    hide = src[src.index("fn toggle_windows("):][:900]
+    assert "toggle.set_text(toggle_label(true))" in hide

@@ -171,22 +171,6 @@ def test_a_hand_grips_the_window_side_on_the_right(out, st, anim):
         assert x1 < edge, (st, anim, i)
 
 
-def test_pixel_limbs_are_one_dot_lines():
-    """도트: 팔다리는 1칸 선 (외곽선을 두른 3칸 띠가 아니다) — 다리 높이의 가로줄에 잉크 덩어리가 3칸보다 넓지 않다."""
-    import draw_pixel as px
-    for st in ("child", "adult"):
-        im = px.render_pixel(hm.HEUMUL, st, anims=("idle",))["idle"][0]
-        a = np.asarray(im.convert("RGBA")).astype(int)
-        ink = (a[..., 3] > 0) & (a[..., :3].sum(axis=2) < 300)
-        ys = np.nonzero(ink.any(axis=1))[0]
-        for y in range(ys.max() - 4, ys.max() - 1):
-            runs, run = [], 0
-            for v in ink[y]:
-                run = run + 1 if v else 0
-                runs.append(run)
-            assert max(runs) <= 2, (st, y, ink[y].astype(int).tolist())
-
-
 def test_limbs_end_as_plain_lines_without_hand_or_foot_dots():
     """사용자: 팔다리 끝의 손발 점은 빼고 선으로만 — 그리기 목록에 손 점·발끝이 남아도 그리지 않는다."""
     src = (Path(__file__).resolve().parent / "draw_heumul.py").read_text(encoding="utf-8")
@@ -269,7 +253,7 @@ def ink_frame(out, st, anim, i, root="pets"):
 
 def test_manifest_says_the_body_can_be_tinted_and_only_heumul_does(out):
     assert json.loads((out / "heumul" / "pet.json").read_text(encoding="utf-8"))["tint"] is True
-    for d in ("pets", "pets_pixel"):
+    for d in ("pets",):
         for p in sorted((ROOT / "ui" / d).iterdir()):
             inks = sorted(f.name for f in p.glob("ink_*.png"))
             if p.name == "heumul":
@@ -312,36 +296,6 @@ def test_ink_mask_covers_the_ink_lines_but_not_the_head_or_the_effects(out, st, 
     assert not fx.any() or ((m[fx] <= 64).all() and (m[fx] == 0).mean() > 0.9), (st, anim, i, int((m[fx] > 0).sum()))
 
 
-def test_pixel_ink_mask_is_hard_dots_on_the_ink_only():
-    """도트: 마스크도 반투명 없이 0 / 255, 잉크 칸(선·머리 고리)만 — 크림 머리와 하트는 0."""
-    import draw_pixel as px
-    for st in ("baby", "adult"):
-        frames = px.render_pixel(hm.HEUMUL, st, anims=("idle", "heart"))
-        masks = px.render_ink_masks(hm.HEUMUL, st, anims=("idle", "heart"))
-        for anim in ("idle", "heart"):
-            for im, mk in zip(frames[anim], masks[anim]):
-                a = np.asarray(im.convert("RGBA")).astype(int)
-                m = np.asarray(mk.getchannel("A")).astype(int)
-                assert set(np.unique(m)) <= {0, 255}
-                dark = (a[..., 3] > 0) & (a[..., :3].sum(axis=2) < 300)
-                assert dark.sum() > 20 and (m[dark] == 255).all(), (st, anim)
-                assert (m[(a[..., 3] > 0) & ~dark] == 0).all(), (st, anim)
-                assert (m[a[..., 3] == 0] == 0).all()
-
-
-def test_shipped_pixel_ink_masks_match_the_sheets():
-    from PIL import Image
-    d = ROOT / "ui" / "pets_pixel" / "heumul"
-    for st in STAGES:
-        with Image.open(d / f"sheet_{st}.png") as s, Image.open(d / f"ink_{st}.png") as m:
-            assert m.size == s.size, st
-            sa = np.asarray(s.convert("RGBA")).astype(int)
-            ma = np.asarray(m.convert("RGBA"))[..., 3]
-            dark = (sa[..., 3] > 0) & (sa[..., :3].sum(axis=2) < 300)
-            assert (ma[dark] == 255).all() and (ma[~dark] == 0).all(), st
-
-
-# ---- v0.6.3 더 놀기: 🎣 커서 매달리기 · 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 받기 · 🖍️ 낙서 · ⌨️ 타자 응원
 def test_antics_rows_play_like_the_core_expects(out):
     """코어: hang_cursor·peek·draw는 옆모습 반복, dance·dance2·cheer_type은 앞모습 반복 (Anim::is_front), catch는 옆모습 한 번
     (4칸 10fps = 코어 juggle::CATCH_SECS 0.4초)."""
@@ -410,20 +364,6 @@ def test_antics_frames_have_ink_masks(out, st, anim):
         ink = near(im, hm.INK, 12)
         assert ink.sum() > 40 and (m[ink] > 200).mean() > 0.9, (st, anim, i)
         assert (m[near(im, hm.HEAD, 12)] <= 12).all(), (st, anim, i)
-
-
-def test_pixel_antics_have_hard_ink_masks():
-    import draw_pixel as px
-    for st in ("baby", "adult"):
-        frames = px.render_pixel(hm.HEUMUL, st, anims=tuple(ANTICS))
-        masks = px.render_ink_masks(hm.HEUMUL, st, anims=tuple(ANTICS))
-        for anim in ANTICS:
-            assert len(frames[anim]) == len(masks[anim]) == (3 if anim == "type" else 4), anim
-            for im, mk in zip(frames[anim], masks[anim]):
-                a = np.asarray(im.convert("RGBA")).astype(int)
-                m = np.asarray(mk.getchannel("A")).astype(int)
-                dark = (a[..., 3] > 0) & (a[..., :3].sum(axis=2) < 300)
-                assert dark.sum() > 8 and (m[dark] == 255).all() and set(np.unique(m)) <= {0, 255}, (st, anim)
 
 
 @pytest.mark.parametrize("st", STAGES)
@@ -518,31 +458,3 @@ def test_the_yay_raises_arms_high():
         high = [t for t in tips if t[1] < 78]
         assert len(high) == (2 if both else 1), (i, tips)
 
-
-def test_pixel_keyboard_is_drawn_in_its_own_light_colours_and_not_tinted():
-    """도트: 키보드는 제 색 그대로 (짙은 칸이 없어 잉크로 오해받지 않는다), 마스크 0. 톡 하는 쪽에 눌린 키."""
-    import draw_pixel as px
-    for st in ("baby", "child", "adult"):
-        frames = px.render_pixel(hm.HEUMUL, st, anims=("type", "cheer_type"))
-        masks = px.render_ink_masks(hm.HEUMUL, st, anims=("type", "cheer_type"))
-        assert len(frames["type"]) == 3 and len(frames["cheer_type"]) == 4
-        for anim in ("type", "cheer_type"):
-            for i, (im, mk) in enumerate(zip(frames[anim], masks[anim])):
-                a = np.asarray(im.convert("RGBA")).astype(int)
-                m = np.asarray(mk.getchannel("A")).astype(int)
-                kb = np.zeros(a.shape[:2], bool)
-                for col in KB_COLS + (hm.KB_HIT,):
-                    kb |= (np.abs(a[..., :3] - np.array(col)).sum(axis=2) == 0) & (a[..., 3] == 255)
-                assert kb.sum() >= 12 and (m[kb] == 0).all(), (st, anim, i)
-                assert all(sum(c) >= 300 for c in KB_COLS + (hm.KB_HIT, hm.KB_TICK)), "도트 시험: 짙은 칸 = 잉크"
-                xs = np.nonzero(kb)[1]
-                assert xs.max() - xs.min() >= a.shape[1] * 0.3, (st, anim, i)
-        n = frames["type"][0].width
-        for i, side in ((0, 0), (1, -1), (2, 1)):
-            a = np.asarray(frames["type"][i].convert("RGBA")).astype(int)
-            hit = (np.abs(a[..., :3] - np.array(hm.KB_HIT)).sum(axis=2) == 0) & (a[..., 3] == 255)
-            if side == 0:
-                assert hit.sum() == 0, st
-            else:
-                xs = np.nonzero(hit)[1]
-                assert len(xs) and ((xs.mean() < n / 2) == (side < 0)), (st, i)

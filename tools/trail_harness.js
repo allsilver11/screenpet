@@ -87,7 +87,7 @@ h = load();
 h.send([puff(0, { age: 0.5 }), puff(1, { age: 5 }), puff(2, { color: 99 })]);
 out.aged_alive = h.alive();
 
-// 두 스타일
+// 동글 구름 — 예전 앱이 실어 보내던 pixel 표시가 있어도 동글로 그림 (픽셀 스타일은 v0.7.0에 빠짐)
 for (const style of ["round", "pixel"]) {
   h = load();
   h.send(Array.from({ length: 7 }, (_, i) => puff(i, { pixel: style === "pixel" })));

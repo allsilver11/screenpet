@@ -32,7 +32,7 @@ def test_high_five_clap_bursts_sparks_in_front_once():
     assert re.search(r"e\.payload\.clap && !render\.clap\) clapBurst\(e\.payload\.flip\)", MAIN)
     body = MAIN[MAIN.index("function clapBurst"):]
     body = body[:body.index("\n}\n")]
-    assert "spark(" in body and "pixelBit(" in body and "flip ? -1 : 1" in body
+    assert "spark(" in body and "flip ? -1 : 1" in body
 
 
 # 펫끼리 놀기 더 (2026-11-20, 코어 social_romp.rs): 새 놀이의 말풍선 키마다 기본 영어 대사가 있고, 도움말에 한 줄씩
@@ -86,7 +86,7 @@ def test_cocoon_bands_cover_the_pet_and_pop_when_freed():
     assert MAIN.count("syncCocoon(render.cocoon || 0)") == 2, "이벤트와 첫 로드 둘 다"
     pop = MAIN[MAIN.index("function cocoonPop"):]
     pop = pop[:pop.index("\n}\n")]
-    assert "spark(" in pop and "pixelBit(" in pop
+    assert "spark(" in pop
 
 
 def test_help_mentions_cocoon_and_snare():

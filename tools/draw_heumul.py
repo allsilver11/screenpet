@@ -5,7 +5,7 @@
 
 흐물이: 나뭇가지처럼 가는 선으로 된 꼬마 사람. 동그란 머리(크림색, 눈·코·입 없음) + 한 줄 몸 + 팔다리 넷 + 동글 손발.
         몸과 팔다리는 곧은 막대가 아니라 고무호스처럼 휘는 곡선 (3차 베지어) — 칸마다 휘는 쪽·정도가 달라 흐물흐물 말랑하게 움직인다.
-        선은 모두 같은 짙은 잉크색, 같은 굵기 (동글: 선 + 실루엣 외곽선 / 도트: 1칸 선 — HM_PIXEL).
+        선은 모두 같은 짙은 잉크색, 같은 굵기 (선 + 실루엣 외곽선).
 단계: 아기 = 머리가 크고 팔다리가 짧다 (정수리에 꼬불 머리카락 한 가닥) → 유아 → 어린이 → 청소년 → 어른은 키가 크고 팔다리가 길쭉.
 놀람 (panic, 옆모습 4칸 12fps 반복 — 코어 State::Panic): 친구 동물과 마주치면 반쯤은 깜짝 놀라 등을 돌리고
       두 팔을 머리 위로 번쩍 (만세) 든 채 다리를 마구 휘저으며 달아난다 — 땀방울과 속도선.
@@ -32,9 +32,6 @@ INK = (58, 54, 76)  # 선 (짙은 남보라 잉크)
 HEAD = (255, 249, 238)  # 머리 속 (크림)
 W = 0.7  # 동글 선 굵기 (실루엣 외곽선이 양쪽에 더해진다)
 HEAD_RING = 1.9  # 머리 테 (안쪽 잉크) — 실루엣 외곽선과 합쳐 팔다리 선 굵기쯤
-# 도트 그림 (draw_pixel이 {"on": True}로 바꿔 끼운다): 팔다리는 실루엣이 아니라 1칸 선으로 찍는다
-HM_PIXEL = {"on": False}
-PX_INK = tuple(int(c * 0.7) for c in INK)  # draw_pixel._ink와 같은 진하기 (머리 외곽선과 같은 색)
 
 # 단계(lvl)별 — hr: 머리 반지름 · spine: 몸 길이 · leg·arm: 팔다리 길이 · curl: 정수리 꼬불 머리카락
 HM_STAGE = {
@@ -84,7 +81,7 @@ def polar(p, ang, ln):
 
 # ---------------------------------------------------------------- 한 장
 class Fig:
-    """뒤 → 앞 순서로 쌓는 선·손발·머리. 동글은 잉크 부품(실루엣 + 외곽선), 도트는 1칸 선."""
+    """뒤 → 앞 순서로 쌓는 선·손발·머리. 잉크 부품(실루엣 + 외곽선)."""
 
     def __init__(self):
         self.items = []
@@ -118,22 +115,15 @@ class Fig:
         self.head_at = (cx, cy, r)
 
     def render(self, fx=(), held=()):
-        pixel = HM_PIXEL["on"]
         parts = [Part([], INK, grow=0, sharp=True)]
         ops = []
         for kind, data in self.items:
             if kind == "head":
                 cx, cy, r = data
-                marks = [] if pixel else [([C(cx, cy, r - HEAD_RING)], HEAD)]
-                parts.append(Part([C(cx, cy, r)], INK if not pixel else HEAD, marks, grow=0, sharp=True))
-                if pixel:
-                    ops.append(([C(cx, cy, r - 0.6)], HEAD))  # 뒤에 그린 팔다리를 머리가 가린다
+                marks = [([C(cx, cy, r - HEAD_RING)], HEAD)]
+                parts.append(Part([C(cx, cy, r)], INK, marks, grow=0, sharp=True))
             elif kind == "line":
-                if pixel:
-                    parts.append(Part([L(data, 0.3)], INK, grow=0, sharp=True))  # 칸 맞춤(테두리 상자)에만
-                    ops.append(([L(data, W)], PX_INK))
-                else:
-                    parts.append(Part([L(data, W)], INK, grow=0, sharp=True))
+                parts.append(Part([L(data, W)], INK, grow=0, sharp=True))
             # 손 점("dot")·발끝("foot")은 그리지 않는다 — 사용자: 팔다리는 선으로만
         parts += [h() for h in held]
         return dp.compose(parts, ops, list(fx))
@@ -1040,7 +1030,7 @@ def hm_draw(sp, i):
 
 # ---- ⌨️ 타자 응원 (코어 brain_typing.rs — 앞모습): 바닥의 작은 키보드 뒤에 무릎 꿇고 앉아 같이 친다 ----
 # 사용자: 그냥 응원이 아니라 *내 타자*를 응원하는 게 보이게 → 키보드 + 내가 칠 때마다 손이 톡 (코어 render.tap이 칸을 고른다).
-# 키보드는 몸 색(🎨 잉크 마스크)을 받지 않는다: 잉크가 아닌 제 색으로만 그린다 (도트에서 짙은 칸이 되지 않게 모두 밝게).
+# 키보드는 몸 색(🎨 잉크 마스크)을 받지 않는다: 잉크가 아닌 제 색으로만 그린다 (모두 밝게).
 KB_BODY = (204, 208, 222)  # 키보드 윗면
 KB_EDGE = (150, 156, 178)  # 앞면·테두리
 KB_KEY = (252, 252, 255)  # 키
@@ -1054,15 +1044,6 @@ def kb_half():
     return 19.0 + 7.0 * leg_k()
 
 
-def _px_cell():
-    """도트 그림 칸 한 변 (그림 좌표) — 동글이면 None."""
-    if not HM_PIXEL["on"]:
-        return None
-    px = sys.modules.get("draw_pixel") or sys.modules["__main__"]  # python tools/draw_pixel.py로 돌리면 __main__
-    grid = px._PX["grid"]
-    return grid.cell / dp._VIEW["scale"] if grid else None
-
-
 def kb_key(side):
     """톡 하는 손 밑의 키 가운데 — side: -1 화면 왼쪽 손 · +1 오른쪽."""
     return dict(type_hands(side))[side]
@@ -1072,38 +1053,27 @@ def keyboard_fx(hit=0):
     """바닥에 놓인 작은 키보드 (살짝 내려다본 앞모습: 윗면 사다리꼴 + 앞면 띠) · 키 줄 · 스페이스 — hit: 눌린 쪽 키 (-1·+1)."""
     hw = kb_half()
     back = hw - 3.0
-    cell = _px_cell()
     top = [(64 - back, KB_TOP), (64 + back, KB_TOP), (64 + hw, KB_FRONT), (64 - hw, KB_FRONT)]
     front = [(64 - hw, KB_FRONT), (64 + hw, KB_FRONT), (64 + hw - 1, KB_BOTTOM), (64 - hw + 1, KB_BOTTOM)]
     out = [([T(*front)], KB_EDGE, 0), ([T(*top)], KB_BODY, 0)]
     keys = []
-    if cell:
-        # 도트: 키는 한 칸 점 — 두 칸마다 (붙으면 흰 띠가 된다)
-        step = 2 * cell
-        for row in (0, 1):
-            y = KB_TOP + (KB_FRONT - KB_TOP) * (0.3 + 0.42 * row)
-            n = int((hw * 1.5) // step)
-            for k in range(n + 1):
-                x = 64 + (k - n / 2) * step
-                keys.append(dp.E(x - 0.3, y - 0.3, x + 0.3, y + 0.3))
-    else:
-        for row in range(3):
-            y = KB_TOP + (KB_FRONT - KB_TOP) * (0.25 + 0.27 * row)
-            wrow = back + (hw - back) * (0.25 + 0.27 * row)
-            n = 7 if row < 2 else 1
-            if row == 2:
-                keys.append(dp.E(64 - wrow * 0.42, y - 1.0, 64 + wrow * 0.42, y + 1.0))  # 스페이스
-                continue
-            pitch = wrow * 1.7 / n
-            for k in range(n):
-                x = 64 - wrow * 0.85 + pitch * (k + 0.5)
-                keys.append(dp.E(x - pitch * 0.36, y - 1.0, x + pitch * 0.36, y + 1.0))
+    for row in range(3):
+        y = KB_TOP + (KB_FRONT - KB_TOP) * (0.25 + 0.27 * row)
+        wrow = back + (hw - back) * (0.25 + 0.27 * row)
+        n = 7 if row < 2 else 1
+        if row == 2:
+            keys.append(dp.E(64 - wrow * 0.42, y - 1.0, 64 + wrow * 0.42, y + 1.0))  # 스페이스
+            continue
+        pitch = wrow * 1.7 / n
+        for k in range(n):
+            x = 64 - wrow * 0.85 + pitch * (k + 0.5)
+            keys.append(dp.E(x - pitch * 0.36, y - 1.0, x + pitch * 0.36, y + 1.0))
     out.append((keys, KB_KEY, 0))
     if hit:
         # 눌린 키는 손끝 바로 앞 (손에 가리지 않게)
         x, y = kb_key(hit)
-        y += max(2.6, 1.2 * cell) if cell else 2.6
-        r = (0.3, 0.3) if cell else (3.0, 1.3)
+        y += 2.6
+        r = (3.0, 1.3)
         out.append(([dp.E(x - r[0], y - r[1], x + r[0], y + r[1])], KB_HIT, 0))
     return out
 
@@ -1143,8 +1113,8 @@ def type_arm_pts(sh, side, hand):
 
 def _hands_over(tails):
     """손끝은 키보드 위에 — 키보드(효과)를 다 그린 뒤 손 쪽 끝을 잉크로 다시 그린다 (잉크라 🎨 몸 색 마스크에 든다)."""
-    w = W if HM_PIXEL["on"] else W + 2 * dp.OUTLINE * dp._ST["line"] * 0.95
-    return [([L(t, w) for t in tails], INK if not HM_PIXEL["on"] else PX_INK, 0)] if tails else []
+    w = W + 2 * dp.OUTLINE * dp._ST["line"] * 0.95
+    return [([L(t, w) for t in tails], INK, 0)] if tails else []
 
 
 def type_hands(tap):
@@ -1220,35 +1190,32 @@ HEUMUL_POSES = {k: _fit(v) for k, v in HEUMUL_POSES.items()}
 # ---------------------------------------------------------------- 🎨 몸 색 (잉크 자리 마스크)
 # 사용자: 어두운 바탕화면에서 짙은 잉크 선이 안 보인다 → 앱이 고른 색으로 잉크 자리만 덮는다 (ui/main.js tint).
 # 잉크 자리 = 잉크 색만 바꿔 같은 칸을 두 번 그렸을 때 달라지는 몫 (선·머리 테·실루엣 외곽선 — 크림 머리 속·효과는 그대로라 0).
-# 두 색 모두 어둡게: 도트 그림은 밝은 조각(PALE_BASE)이면 고리를 옅게 하는 등 색에 따라 모양이 달라질 수 있다
+# 두 색 모두 어둡게 (색에 따라 모양이 달라지지 않게)
 INK_PROBES = ((0, 0, 0), (120, 120, 120))
 
 
 @contextmanager
 def inked(col):
-    """이 문맥 안에서는 잉크가 col: 그림 코드에 넘길 종 설정을 돌려준다 (나오면 INK·PX_INK를 되돌린다)."""
+    """이 문맥 안에서는 잉크가 col: 그림 코드에 넘길 종 설정을 돌려준다 (나오면 INK를 되돌린다)."""
     g = globals()
-    old = g["INK"], g["PX_INK"]
-    g["INK"], g["PX_INK"] = col, tuple(int(c * 0.7) for c in col)
+    old = g["INK"]
+    g["INK"] = col
     try:
         yield replace(HEUMUL, base=col, back=col, belly=col, nose=col, front_tail_color=col, tail_color=col, stripe=col, outline=col)
     finally:
-        g["INK"], g["PX_INK"] = old
+        g["INK"] = old
 
 
-def ink_mask(dark, light, hard=False):
-    """INK_PROBES로 그린 같은 칸 둘 → 잉크 마스크 (LA: 흰색, 알파 = 그 칸에서 잉크가 칠한 몫). hard: 도트 (0 / 255)."""
+def ink_mask(dark, light):
+    """INK_PROBES로 그린 같은 칸 둘 → 잉크 마스크 (LA: 흰색, 알파 = 그 칸에서 잉크가 칠한 몫)."""
     a = np.asarray(dark.convert("RGBA")).astype(float)
     b = np.asarray(light.convert("RGBA")).astype(float)
     if not np.array_equal(a[..., 3], b[..., 3]):
         raise ValueError("잉크 색에 따라 모양이 달라졌습니다")
     alpha = a[..., 3]
-    if hard:
-        m = np.where((np.abs(a[..., :3] - b[..., :3]).max(axis=2) > 0) & (alpha > 0), 255, 0)
-    else:
-        diff = np.abs(a[..., :3] * alpha[..., None] - b[..., :3] * alpha[..., None]).max(axis=2) / 255
-        span = max(abs(x - y) for x, y in zip(*INK_PROBES))
-        m = np.minimum(np.rint(diff * 255 / span), alpha)
+    diff = np.abs(a[..., :3] * alpha[..., None] - b[..., :3] * alpha[..., None]).max(axis=2) / 255
+    span = max(abs(x - y) for x, y in zip(*INK_PROBES))
+    m = np.minimum(np.rint(diff * 255 / span), alpha)
     out = np.zeros(alpha.shape + (2,), np.uint8)
     out[..., 0] = 255
     out[..., 1] = m.astype(np.uint8)

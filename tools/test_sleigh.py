@@ -13,16 +13,16 @@ APP = ROOT / "src-tauri" / "src"
 
 def test_the_sleigh_art_is_shipped_as_generated(tmp_path):
     out = draw_sleigh.build(tmp_path)
-    for name in ("sleigh.png", "sleigh_pixel.png"):
+    for name in ("sleigh.png",):
         assert (tmp_path / name).is_file()
         a = np.asarray(Image.open(tmp_path / name).convert("RGBA"))
         b = np.asarray(Image.open(ROOT / "ui" / "sleigh" / name).convert("RGBA"))
         assert (a == b).all(), name
-    assert set(out) == {"sleigh", "sleigh_pixel"}
+    assert set(out) == {"sleigh"}
 
 
 def test_the_sleigh_is_red_with_gold_and_sits_on_the_bottom():
-    for name in ("sleigh.png", "sleigh_pixel.png"):
+    for name in ("sleigh.png",):
         im = Image.open(ROOT / "ui" / "sleigh" / name).convert("RGBA")
         px = np.asarray(im).astype(int)
         solid = px[..., 3] > 200

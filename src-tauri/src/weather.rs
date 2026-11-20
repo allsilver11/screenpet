@@ -92,7 +92,6 @@ struct Snowman {
     window: WebviewWindow,
     born: Instant,
     x: f64,
-    y: f64,
 }
 
 /// ☀️ 날씨 효과 상태임 (게임 루프가 가짐): 덮개 창, 더미, 눈사람
@@ -420,7 +419,7 @@ impl WeatherFx {
         let ball_at = own.pet.snowball_at();
         match (ball_at, &mut self.ball) {
             (Some((x, y)), Some((window, last))) => {
-                let pos = bottom_center(x, y, crate::art::fit(SNOWBALL_SIZE, own.dpi), own.dpi);
+                let pos = bottom_center(x, y, SNOWBALL_SIZE, own.dpi);
                 if *last != pos {
                     let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
                     *last = pos;
@@ -428,7 +427,7 @@ impl WeatherFx {
             }
             (Some((x, y)), None) => {
                 self.next_label += 1;
-                let size = crate::art::fit(SNOWBALL_SIZE, own.dpi);
+                let size = SNOWBALL_SIZE;
                 self.ball = self.sprite(app, "snowball", size, x, y, own.dpi).map(|w| (w, bottom_center(x, y, size, own.dpi)));
             }
             (None, Some(_)) => {
@@ -443,24 +442,8 @@ impl WeatherFx {
                 let _ = old.window.destroy();
             }
             self.next_label += 1;
-            self.snowman = self.sprite(app, "snowman", crate::art::fit(SNOWMAN_SIZE, own.dpi), x, y, own.dpi).map(|window| Snowman { window, born: now, x, y });
+            self.snowman = self.sprite(app, "snowman", SNOWMAN_SIZE, x, y, own.dpi).map(|window| Snowman { window, born: now, x });
             own.pet.set_snow_ready(false);
-        }
-    }
-
-    /// 스타일이 바뀌었음: 눈덩이·눈사람 창을 새 그림·크기로 (창 그림은 만들 때 정해짐).
-    /// 눈덩이는 닫아 두면 다음 track_own이 만듦. 눈사람은 같은 자리에, 사는 시간은 그대로
-    pub fn restyle(&mut self, app: &AppHandle, dpi: f64) {
-        if let Some((window, _)) = self.ball.take() {
-            let _ = window.destroy();
-        }
-        let Some(old) = self.snowman.take() else { return };
-        let _ = old.window.destroy();
-        self.next_label += 1;
-        self.snowman = self.sprite(app, "snowman", crate::art::fit(SNOWMAN_SIZE, dpi), old.x, old.y, dpi).map(|window| Snowman { window, ..old });
-        // 그 모니터 날씨가 쉬는 동안(전체 화면 등) 눈사람도 숨어 있음
-        if let Some(s) = self.snowman.as_ref().filter(|s| self.overlays.iter().any(|o| o.paused && on_area(&o.wa, s.x))) {
-            crate::overlay::hide_quietly(&s.window);
         }
     }
 
@@ -470,7 +453,7 @@ impl WeatherFx {
         let built = crate::overlay::finish(
             WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))
                 .title("ScreenPet Snowman")
-                .initialization_script(&format!("window.PROP_IMAGE = {image:?}; {}", crate::art::style_script()))
+                .initialization_script(&format!("window.PROP_IMAGE = {image:?};"))
                 .inner_size(w, h),
         );
         let window = match built {

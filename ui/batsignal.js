@@ -1,10 +1,10 @@
 // 🦇 박쥐인간의 🔦 박쥐 신호 그리기. 🌈 무지개 구름·🖍️ 낙서·🕷️ 거미집과 같은 모니터 덮개 창 (trail.html)의 맨 아래 캔버스에 그림.
 // 앱(src-tauri/src/trail.rs)이 보내는 것 (논리 px, 이 창 왼쪽 위가 0,0):
-//   trail-signal  새 박쥐 신호들 [{x, y, size, secs, pixel, age}] — x·y는 바닥 조명의 렌즈, size는 몸 크기,
+//   trail-signal  새 박쥐 신호들 [{x, y, size, secs, age}] — x·y는 바닥 조명의 렌즈, size는 몸 크기,
 //                 secs초 동안 비추고 SIG_FADE초 동안 흐려짐 (age는 이미 지난 초)
 // 그림: 렌즈에서 화면 위쪽 (높이의 SIG_SKY 자리)으로 넓어지는 반투명 노란 빛줄기 + 그 끝의 둥근 빛 속 까만 박쥐 무늬 — 빛은 살짝 좌우로 흔들림.
 // CPU를 아끼는 규칙: 신호가 있는 동안만 requestAnimationFrame, 없으면 아무것도 안 함. 한 번에 SIG_MAX개까지.
-// 브라우저에서 trail.html?signal=1 (&pixel=1)로 앱 없이 볼 수 있음.
+// 브라우저에서 trail.html?signal=1로 앱 없이 볼 수 있음.
 
 const SIG_FADE = 0.8;
 const SIG_RISE = 0.4;
@@ -31,7 +31,7 @@ function addSignals(list) {
     if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || !(p.size > 0 && p.size < 2000)) continue;
     if (!(p.secs >= SIG_SECS_RANGE[0] && p.secs <= SIG_SECS_RANGE[1])) continue;
     if (!(p.age >= 0 && p.age < p.secs + SIG_FADE)) continue;
-    signals.push({ x: p.x, y: p.y, size: p.size, secs: p.secs, pixel: !!p.pixel, born: now - p.age * 1000 });
+    signals.push({ x: p.x, y: p.y, size: p.size, secs: p.secs, born: now - p.age * 1000 });
   }
   if (signals.length > SIG_MAX) signals = signals.slice(signals.length - SIG_MAX);
   wakeSignals();
@@ -66,7 +66,7 @@ function drawSignal(s, t) {
   const g = sctx.createLinearGradient(s.x, s.y, sx, sy);
   g.addColorStop(0, `rgba(255,240,170,${0.42 * a})`);
   g.addColorStop(1, `rgba(255,236,150,${0.14 * a})`);
-  sctx.fillStyle = s.pixel ? `rgba(255,236,150,${0.24 * a})` : g;
+  sctx.fillStyle = g;
   sctx.beginPath();
   sctx.moveTo(s.x - lens, s.y);
   sctx.lineTo(sx - rx * 0.92, sy);
@@ -118,9 +118,8 @@ if (window.__TAURI__) {
 } else if (new URLSearchParams(location.search).get("signal")) {
   // 앱 없이 브라우저에서 보기 (개발용): 화면 아래에서 비추는 신호 둘
   document.documentElement.style.background = "#1d2030";
-  const pixel = !!new URLSearchParams(location.search).get("pixel");
   addSignals([
-    { x: window.innerWidth * 0.3, y: window.innerHeight - 40, size: 110, secs: 30, pixel, age: 0 },
-    { x: window.innerWidth * 0.7, y: window.innerHeight - 40, size: 80, secs: 30, pixel, age: 0 },
+    { x: window.innerWidth * 0.3, y: window.innerHeight - 40, size: 110, secs: 30, age: 0 },
+    { x: window.innerWidth * 0.7, y: window.innerHeight - 40, size: 80, secs: 30, age: 0 },
   ]);
 }

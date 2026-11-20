@@ -1,4 +1,4 @@
-//! 날아다니는 동물(유령, spec 2B §10)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 날아다니는 동물(지금 번들엔 없음 — 슈퍼인간용, spec 2B §10)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //! 비행 수치·경로 계산은 flight.rs.
 //!
 //! 나는 동물은 `standing`이 None인 채로 날거나 떠 있고(State::Move = 날기, 그 밖의 쉬기·애교 = 제자리에 떠서),
@@ -501,11 +501,7 @@ impl Pet {
     /// 다음 날기 (방식만 정하고 길은 날기 시작할 때 정함)
     pub(super) fn fly_move_state(&mut self) -> State {
         self.flight = None;
-        let mut kind = flight::pick_move(&mut self.rng);
-        // 구르기 그림이 없으면 공중제비도 없다
-        while kind == Move::Roll && self.cfg.no_roll {
-            kind = flight::pick_move(&mut self.rng);
-        }
+        let kind = flight::pick_move(&mut self.rng);
         self.next_after_beat(State::Move { kind, remaining: flight::MAX_FLIGHT_SECS })
     }
 

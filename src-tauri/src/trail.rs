@@ -20,7 +20,6 @@ use std::time::{Duration, Instant};
 use screenpet_core::brain::{Doodle, DoodleKind, DOODLE_SECS};
 use screenpet_core::broom::Broom;
 use screenpet_core::geom::{Rect, WindowInfo};
-use screenpet_core::style::PetStyle;
 use screenpet_core::trail::{self, Puff, Runner, Trail};
 use screenpet_core::weather::{self, OverlayRetry};
 use screenpet_core::brain::bike_moves::BatSignal;
@@ -68,7 +67,6 @@ struct WebWire {
     /// 모서리 (top_left·top_right·bottom_left·bottom_right) — 🕸️⭕ center면 둥근 거미집
     corner: Corner,
     size: f64,
-    pixel: bool,
     /// 이미 지난 시간 (초)
     age: f64,
     /// 그대로 남는 시간 (초) — 그 뒤 흐려짐
@@ -103,7 +101,6 @@ struct SignalWire {
     y: f64,
     size: f64,
     secs: f64,
-    pixel: bool,
     age: f64,
 }
 
@@ -149,7 +146,6 @@ struct DoodleWire {
     name: String,
     facing: f64,
     size: f64,
-    pixel: bool,
     /// 분필이 그려지는 시간 (초) = 흐물이 그리기 동작 길이 (그림이 흐물이가 일어설 때 다 그려짐)
     draw: f64,
     /// 이미 지난 시간 (초)
@@ -173,7 +169,6 @@ struct Wire {
     y: f64,
     size: f64,
     color: u8,
-    pixel: bool,
     dir: f64,
     /// 이미 지난 시간 (초)
     age: f64,
@@ -266,7 +261,7 @@ impl TrailFx {
                     self.trails.len() - 1
                 }
             };
-            let runner = Runner::of(&s.pet, s.shown.style == PetStyle::Pixel);
+            let runner = Runner::of(&s.pet);
             // 전체 화면 앞 창은 달릴 때만 봄 (구름이 날 때만 일함)
             let visible = s.on_screen() && runner.dash.is_some() && !weather::overlay_paused(false, &own.world.windows, &s.world.work_area_at(runner.feet.0, runner.feet.1));
             self.trails[i].1.tick(dt, visible, &runner, &mut self.puffs);
@@ -290,13 +285,12 @@ impl TrailFx {
                 continue;
             }
             let name: String = s.entry.manifest.name.chars().take(MAX_NAME).collect();
-            let pixel = s.shown.style == PetStyle::Pixel;
-            self.place_doodle(app, now, &s.world.work_areas, &d, name, pixel);
+            self.place_doodle(app, now, &s.world.work_areas, &d, name);
         }
     }
 
     /// 낙서 하나를 그 자리 모니터의 덮개 창에 보냄 (창이 없으면 만듦)
-    fn place_doodle(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], d: &Doodle, name: String, pixel: bool) {
+    fn place_doodle(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], d: &Doodle, name: String) {
         // 바닥 줄이 작업 영역 아래 끝이면 그 모니터 안에 들도록 1px 위로 봄
         let Some(i) = self.overlay_at(app, now, work_areas, d.x, d.y - 1.0) else { return };
         self.doodles_until = Some(now + DOODLE_LIFE);
@@ -305,7 +299,7 @@ impl TrailFx {
         if !(size.is_finite() && size > 0.0) {
             return;
         }
-        let wire = DoodleWire { x: (d.x - o.wa.left) / o.scale, y: (d.y - o.wa.top) / o.scale, kind: kind_name(d.kind), name, facing: d.facing.signum(), size, pixel, draw: DOODLE_SECS, age: 0.0 };
+        let wire = DoodleWire { x: (d.x - o.wa.left) / o.scale, y: (d.y - o.wa.top) / o.scale, kind: kind_name(d.kind), name, facing: d.facing.signum(), size, draw: DOODLE_SECS, age: 0.0 };
         o.doodles.push((now, wire));
     }
 
@@ -318,13 +312,12 @@ impl TrailFx {
             if !s.on_screen() || weather::overlay_paused(false, &slots[0].world.windows, &wa) {
                 continue;
             }
-            let pixel = s.shown.style == PetStyle::Pixel;
-            self.place_signal(app, now, &s.world.work_areas, &b, pixel);
+            self.place_signal(app, now, &s.world.work_areas, &b);
         }
     }
 
     /// 박쥐 신호 하나를 그 모니터의 덮개 창에 보냄 (창이 없으면 만듦)
-    fn place_signal(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], b: &BatSignal, pixel: bool) {
+    fn place_signal(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], b: &BatSignal) {
         let Some(i) = self.overlay_at(app, now, work_areas, b.x, b.y) else { return };
         let o = &mut self.overlays[i];
         let size = b.size / o.scale;
@@ -333,7 +326,7 @@ impl TrailFx {
         }
         let until = now + Duration::from_secs_f64(b.secs) + SIGNAL_TAIL;
         self.signals_until = Some(self.signals_until.map_or(until, |t| t.max(until)));
-        o.signals.push((now, SignalWire { x: (b.x - o.wa.left) / o.scale, y: (b.y - o.wa.top) / o.scale, size, secs: b.secs, pixel, age: 0.0 }));
+        o.signals.push((now, SignalWire { x: (b.x - o.wa.left) / o.scale, y: (b.y - o.wa.top) / o.scale, size, secs: b.secs, age: 0.0 }));
     }
 
     /// 🕷️ 동물마다 새 거미집을 받아 그 모서리 모니터의 창으로 (손님 것도). 화면 위에 있지 않거나 그 모니터 앞 창이 전체 화면이면 버림
@@ -346,14 +339,13 @@ impl TrailFx {
             if !s.on_screen() || weather::overlay_paused(false, &slots[0].world.windows, &wa) {
                 continue;
             }
-            let pixel = s.shown.style == PetStyle::Pixel;
-            self.place_web(app, now, &s.world.work_areas, &slots[0].world.windows, &w, pixel);
+            self.place_web(app, now, &s.world.work_areas, &slots[0].world.windows, &w);
         }
     }
 
     /// 거미집 하나를 그 모서리 모니터의 덮개 창에 보냄 (창이 없으면 만듦). 화면에 MAX_WEBS개 넘게 쌓이지 않게 오래된 것부터 지움.
     /// windows = 지금 창 목록 (🕸️⭕ 창 위 둥근 거미집의 창 기준 자리를 잼)
-    fn place_web(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], windows: &[WindowInfo], w: &WebSpin, pixel: bool) {
+    fn place_web(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], windows: &[WindowInfo], w: &WebSpin) {
         let (ix, iy) = inward(w);
         let Some(i) = self.overlay_at(app, now, work_areas, ix, iy) else { return };
         self.next_web += 1;
@@ -363,7 +355,7 @@ impl TrailFx {
         if !(size.is_finite() && size > 0.0) {
             return;
         }
-        let wire = WebWire { id, x: (w.x - o.wa.left) / o.scale, y: (w.y - o.wa.top) / o.scale, corner: w.corner, size, pixel, age: 0.0, life: WEB_LIFE_SECS, shots: w.shots, build: w.build };
+        let wire = WebWire { id, x: (w.x - o.wa.left) / o.scale, y: (w.y - o.wa.top) / o.scale, corner: w.corner, size, age: 0.0, life: WEB_LIFE_SECS, shots: w.shots, build: w.build };
         o.webs.push((now, wire));
         let label = o.label.clone();
         let offset = window_offset(windows, w);
@@ -521,7 +513,7 @@ impl TrailFx {
         let Some(i) = self.overlay_at(app, now, work_areas, p.x, p.y) else { return };
         self.last_puff = Some(now);
         let o = &mut self.overlays[i];
-        let wire = Wire { x: (p.x - o.wa.left) / o.scale, y: (p.y - o.wa.top) / o.scale, size: p.size / o.scale, color: p.color, pixel: p.pixel, dir: p.dir, age: 0.0 };
+        let wire = Wire { x: (p.x - o.wa.left) / o.scale, y: (p.y - o.wa.top) / o.scale, size: p.size / o.scale, color: p.color, dir: p.dir, age: 0.0 };
         if o.pending.len() >= PENDING_MAX {
             o.pending.remove(0);
         }

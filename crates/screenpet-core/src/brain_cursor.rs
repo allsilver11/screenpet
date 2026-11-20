@@ -148,7 +148,7 @@ impl ShakeMeter {
 /// 장난의 국면
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayPhase {
-    /// 시작 자세 (공룡 크앙, 유령 부~)
+    /// 시작 자세 (공룡 크앙 등)
     Prep,
     /// 커서 쪽으로 감 (걷는 동물은 디딤판 위로만, 나는 동물은 곧장)
     Approach,
@@ -233,8 +233,6 @@ impl CursorStyle {
             "dino_yellow" => CursorStyle { prep: Some((Anim::Roar, 0.8)), ..dino },
             "dino_green" => CursorStyle { prep: Some((Anim::Stomp, 0.9)), ..dino },
             "dino_purple" => CursorStyle { prep: Some((Anim::Fire, 1.0)), ..dino },
-            // 유령은 부~ 한 뒤 느릿느릿 둥실
-            "ghost" => CursorStyle { prep: Some((Anim::Tickle, 0.6)), speed: 3.0, sway: (0.15, 0.8), ..b },
             // 펭귄은 배로 쭉 미끄러져 와서 지느러미를 파닥파닥
             "penguin" => CursorStyle { gait: Anim::Roll, speed: 1.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
             // 흐물이는 다다다 신나게 달려와 흐물흐물 손 흔들기

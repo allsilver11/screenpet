@@ -180,7 +180,6 @@ pub fn screen_cover(app: &AppHandle, label: &str, page: &str, title: &str, wa: &
     let built = finish(
         WebviewWindowBuilder::new(app, label, WebviewUrl::App(page.into()))
             .title(title)
-            .initialization_script(crate::art::style_script())
             .inner_size(wa.width() / scale, wa.height() / scale),
     );
     let window = match built {
@@ -197,7 +196,7 @@ pub fn screen_cover(app: &AppHandle, label: &str, page: &str, title: &str, wa: &
     Some((window, scale))
 }
 
-/// 이미 있는 창을 앞으로 가져옴. 없으면 false (도움말·도감처럼 정말 닫히는 창)
+/// 이미 있는 창을 앞으로 가져옴. 없으면 false (도움말처럼 정말 닫히는 창)
 pub fn focus_existing(app: &AppHandle, label: &str) -> bool {
     let Some(window) = app.get_webview_window(label) else { return false };
     let _ = window.unminimize();

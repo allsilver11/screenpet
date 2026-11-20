@@ -5,7 +5,6 @@
 use screenpet_core::brain::{Pet, PetConfig, RenderState};
 use screenpet_core::care::Stage;
 use screenpet_core::geom::{Rect, WindowInfo};
-use screenpet_core::style::{self, PetStyle};
 use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side};
 use screenpet_core::world::World;
@@ -54,27 +53,17 @@ pub struct StagePayload {
     pub pet: String,
     /// 시트 이름 (`sheet_<stage>.png`)
     pub stage: Stage,
-    /// 몸 크기 배율: 동글은 단계 배율 × 동물별 배율, 픽셀은 시트 칸 수(pet.json frame_sizes) × 칸, 칸이 정수 물리 px (style::pixel_body_scale)
+    /// 몸 크기 배율: 단계 배율 × 동물별 배율 × 펫 크기
     pub scale: f64,
-    /// 동글일 때의 몸 크기 배율 — 친구에게 보내는 값 (예전 버전은 동글로 그림), 하우스 문간
+    /// 펫 크기를 곱하기 전 몸 크기 배율 — 친구에게 보내는 값, 하우스 문간
     pub base: f64,
-    /// 지금 보이는 스타일
-    pub style: PetStyle,
-    /// 고른 스타일 (그림이 없는 동물은 style이 동글이어도 픽셀일 수 있음)
-    pub wanted: PetStyle,
 }
 
-/// stage 단계의 시트·크기. dpi는 픽셀 칸을 물리 px에 맞추는 데만 씀
+/// stage 단계의 시트·크기.
 /// size = 크기 조절 창의 펫 크기 배율 (친구에게 보내는 base에는 들어가지 않음 — 내 화면에만)
-pub fn stage_payload(entry: &PetEntry, stage: Stage, wanted: PetStyle, dpi: f64, size: f64) -> StagePayload {
-    let mult = entry.manifest.size_mult(stage);
-    let base = stage.scale() * mult;
-    let shown = entry.shown_style(wanted);
-    let scale = match shown {
-        PetStyle::Round => base * size,
-        PetStyle::Pixel => style::pixel_body_scale_at(entry.art(shown).frame_size_at(stage.name()), stage, dpi, size),
-    };
-    StagePayload { pet: entry.id.clone(), stage, scale, base, style: shown, wanted }
+pub fn stage_payload(entry: &PetEntry, stage: Stage, size: f64) -> StagePayload {
+    let base = stage.scale() * entry.manifest.size_mult(stage);
+    StagePayload { pet: entry.id.clone(), stage, scale: base * size, base }
 }
 
 /// 놀러 온 친구 동물
@@ -110,8 +99,6 @@ pub struct SlotInfo {
     pub stage: Stage,
     /// 몸 크기 배율
     pub scale: f64,
-    /// "round" | "pixel" — 웹뷰가 읽을 그림 폴더
-    pub style: PetStyle,
     /// "own" | "guest"
     pub role: &'static str,
     /// 손님이면 주인 이름 (이름표 "🏠 <owner>")
@@ -137,7 +124,7 @@ impl SlotInfo {
             Role::Own => ("own", None, None, None, false, BodyTint::Default),
             Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone()), g.note.clone(), g.can_grow, g.tint),
         };
-        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, style: shown.style, role, owner, owner_id, note, can_grow, render, tint }
+        Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner, owner_id, note, can_grow, render, tint }
     }
 }
 
@@ -152,10 +139,9 @@ pub fn note_window_logical_size(body_scale: f64) -> (f64, f64) {
     (w.max(NOTE_WIDTH), h + NOTE_SPACE)
 }
 
-/// style = 지금 보이는 스타일. 그림에 달린 것(칸 크기·머리 표·있는 동작)만 다르고 나머지는 같음 (PetEntry::art).
-/// 몸 폭은 픽셀도 같은 비율: 시트에서 재 보면 앉은 몸 폭의 절반이 동글 0.38, 픽셀 0.33~0.39로 거의 같음
-pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64, stage: Stage, style: PetStyle) -> PetConfig {
-    PetConfig::from_manifest(entry.art(style), dpi, body_scale, stage.name())
+/// 동물 매니페스트로 두뇌 설정을 만듦 (몸 크기 배율·단계 반영)
+pub fn pet_config(dpi: f64, entry: &PetEntry, body_scale: f64, stage: Stage) -> PetConfig {
+    PetConfig::from_manifest(&entry.manifest, dpi, body_scale, stage.name())
 }
 
 /// 동물 창 하나임: 동물 두뇌, 창, 크기·배율, 창 맞추기 상태
@@ -276,7 +262,7 @@ impl Slot {
         shown.scale *= self.boost_applied;
         let (w, h) = self.logical_size(shown.scale);
         self.resize_window(w, h);
-        self.pet.cfg = pet_config(self.dpi, &self.entry, shown.scale, shown.stage, shown.style);
+        self.pet.cfg = pet_config(self.dpi, &self.entry, shown.scale, shown.stage);
         self.pet.set_cursor_species(&self.entry.id);
         self.shown = shown;
         let info = self.info();
@@ -299,10 +285,7 @@ impl Slot {
             return;
         }
         let mut plain = self.shown.clone();
-        plain.scale = match plain.style {
-            PetStyle::Round => plain.scale / self.boost_applied / self.size * size,
-            PetStyle::Pixel => stage_payload(&self.entry, plain.stage, plain.wanted, self.dpi, size).scale,
-        };
+        plain.scale = plain.scale / self.boost_applied / self.size * size;
         self.size = size;
         self.set_stage(app, plain);
     }
@@ -312,12 +295,9 @@ impl Slot {
         self.size
     }
 
-    /// 지금 일시 확대 배율이 몸 크기에 곱해지는 값 (픽셀은 칸이 정수 물리 px로 남게)
+    /// 지금 일시 확대 배율이 몸 크기에 곱해지는 값
     fn boost_factor(&self, shown: &StagePayload) -> f64 {
-        match shown.style {
-            PetStyle::Pixel => visit::pixel_boost(style::dot_physical_at(shown.stage, self.dpi, self.size), self.boost),
-            PetStyle::Round => visit::round_boost(shown.scale, shown.stage.scale(), self.boost),
-        }
+        visit::round_boost(shown.scale, shown.stage.scale(), self.boost)
     }
 
     /// 이 동물의 최대 일시 확대 배율
@@ -331,19 +311,6 @@ impl Slot {
         plain.scale /= self.boost_applied;
         self.boost = boost;
         self.set_stage(app, plain);
-    }
-
-    /// 픽셀 동물이면 칸 한 변 (물리 px) — 밥그릇이 같은 칸으로 놓임
-    pub fn pixel_dot(&self) -> Option<u32> {
-        (self.shown.style == PetStyle::Pixel).then(|| style::dot_physical_at(self.shown.stage, self.dpi, self.size))
-    }
-
-    /// 스타일을 바꿈 (지금 단계·동물 그대로): 창 크기·펫 크기·웹뷰 시트. 그림마다 있는 동작이 다를 수 있으니 진행 중인 특별 동작·벽 타기도 다시 맞춤
-    pub fn restyle(&mut self, app: &AppHandle, wanted: PetStyle) {
-        let shown = stage_payload(&self.entry, self.shown.stage, wanted, self.dpi, self.size);
-        self.set_stage(app, shown);
-        self.pet.set_special(self.pet.cfg.special);
-        self.pet.set_can_climb(self.pet.cfg.can_climb);
     }
 
     /// 지금 창 크기 (논리 px) — 편지를 펼친 동안은 위로 높고 넓음
@@ -446,13 +413,7 @@ impl Slot {
         let dpi = self.window.scale_factor().unwrap_or(self.dpi);
         if dpi != self.dpi {
             self.dpi = dpi;
-            // 픽셀: 다른 배율의 모니터로 옮기면 칸 물리 px가 달라짐 — 창·시트까지 다시 맞춤
-            if self.shown.style == PetStyle::Pixel {
-                let (app, shown) = (self.window.app_handle().clone(), stage_payload(&self.entry, self.shown.stage, self.shown.wanted, dpi, self.size));
-                self.set_stage(&app, shown);
-            } else {
-                self.pet.cfg = pet_config(dpi, &self.entry, self.shown.scale, self.shown.stage, self.shown.style);
-            }
+            self.pet.cfg = pet_config(dpi, &self.entry, self.shown.scale, self.shown.stage);
         }
         self.world = World::new(windows.to_vec(), work_areas.to_vec(), self.pet.cfg.size);
     }
@@ -549,8 +510,8 @@ fn build_guest_window(app: &AppHandle, label: &str, body_scale: f64) -> tauri::R
 }
 
 /// 친구 동물이 화면 끝(side)에서 걸어 들어옴. 집(주인 화면)은 들어온 쪽임.
-/// scale = 주인 쪽에서 정한 몸 배율 (단계 × 동물별, 동글일 때). style = 주인이 고른 스타일 — 이쪽에 그 그림이 없으면 동글, 있으면 크기는 이쪽 화면 배율로 다시 계산함
-/// (dpi_hint = 지금 화면 배율 — 창이 다른 모니터에 뜨면 다음 refresh가 고침). base = 지금 세계 (창·작업 영역만 씀). 게임 루프 스레드에서만 부름 (창 만들기가 메인 스레드를 기다림)
+/// scale = 주인 쪽에서 정한 몸 배율 (단계 × 동물별). 옛 버전 친구가 픽셀 스타일을 보내도 늘 동글로 그림
+/// (dpi_hint = 창 배율을 못 읽을 때 쓰는 지금 화면 배율 — 창이 다른 모니터에 뜨면 다음 refresh가 고침). base = 지금 세계 (창·작업 영역만 씀). 게임 루프 스레드에서만 부름 (창 만들기가 메인 스레드를 기다림)
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_guest(
     app: &AppHandle,
@@ -558,7 +519,6 @@ pub fn spawn_guest(
     entry: PetEntry,
     stage: Stage,
     scale: f64,
-    style: PetStyle,
     dpi_hint: f64,
     side: Side,
     base: &World,
@@ -568,10 +528,8 @@ pub fn spawn_guest(
     let label = guest_label(&guest.visit_id).ok_or_else(|| format!("invalid visit id {:?}", guest.visit_id))?;
     let tint = guest.tint;
     let role = Role::Guest(guest);
-    let mut shown = stage_payload(&entry, stage, style, dpi_hint, size);
-    if shown.style == PetStyle::Round {
-        shown.scale = scale * size;
-    }
+    let mut shown = stage_payload(&entry, stage, size);
+    shown.scale = scale * size;
     // 웹뷰가 뜨자마자 slot_info를 부르므로 창보다 먼저 적어 둠. 같은 라벨이 이미 있으면 (같은 방문이 두 번) 거절
     let state = app.state::<AppState>();
     {
@@ -589,9 +547,8 @@ pub fn spawn_guest(
             return Err(e.to_string());
         }
     };
-    // 픽셀은 dpi_hint로 잰 크기라 그 값으로 두고 다음 refresh에 맞춤 (같은 모니터면 할 일 없음)
-    let dpi = if shown.style == PetStyle::Pixel { dpi_hint } else { window.scale_factor().unwrap_or(1.0) };
-    let cfg = pet_config(dpi, &entry, shown.scale, shown.stage, shown.style);
+    let dpi = window.scale_factor().unwrap_or(dpi_hint);
+    let cfg = pet_config(dpi, &entry, shown.scale, shown.stage);
     let world = World::new(base.windows.clone(), base.work_areas.clone(), cfg.size);
     let mut pet = Pet::new_entering(cfg, &world, side, seed);
     let mut rng = fastrand::Rng::with_seed(seed ^ 0x9e37_79b9_7f4a_7c15);

@@ -251,7 +251,6 @@ def test_poop_is_brown_and_the_rainbow_one_has_every_colour(built):
 def test_the_green_poop_is_gone():
     assert "dropping" not in d.NAMES
     assert not (ROOT / "ui" / "objects" / "dropping.png").exists()
-    assert not (ROOT / "ui" / "objects_pixel" / "dropping.png").exists()
 
 
 @pytest.mark.parametrize("name", ["poop", "pink", "rainbow"])
@@ -369,12 +368,11 @@ def test_giant_poop_is_a_brown_swirl(built):
     assert widths.argmax() >= h * 2 // 3 and widths[: h // 6].max() < (xs.max() - xs.min() + 1) * 0.45
 
 
-def test_the_webview_draws_giants_from_the_big_art_and_knows_their_pixel_dots():
+def test_the_webview_draws_giants_from_the_big_art():
     js = (ROOT / "ui" / "object.js").read_text(encoding="utf-8")
-    dots = dict((k, int(v)) for k, v in re.findall(r"(giant_\w+): (\d+)", js))
-    assert dots == {name: 20 for name in d.GIANTS}
+    assert "objects/${info.kind}.png" in js and "objects_pixel" not in js and "pixel" not in js.lower()
     for name in d.GIANTS:
-        assert Image.open(ROOT / "ui" / "objects_pixel" / f"{name}.png").size == (dots[name], dots[name])
+        assert Image.open(ROOT / "ui" / "objects" / f"{name}.png").size == (d.GIANT_PX, d.GIANT_PX)
 
 
 def test_giant_windows_start_click_through_and_are_capped():

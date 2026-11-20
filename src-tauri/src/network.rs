@@ -22,10 +22,8 @@ use screenpet_core::brain::State;
 use screenpet_core::care::{Care, Stage};
 use screenpet_core::config::{Config, MAX_NAME_CHARS};
 use screenpet_core::dodge;
-use screenpet_core::gift::{self, FriendLimit};
 use screenpet_core::linked::{self, ClaimWatch};
 use screenpet_core::object::ObjectKind;
-use screenpet_core::style::PetStyle;
 use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
 use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, MAX_FRIENDS};
@@ -34,7 +32,6 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
 
 use crate::game_loop::Input;
-use crate::gifts::GuestGift;
 use crate::overlay::Form;
 use crate::slots::{self, GuestInfo, Role, Slot, OWN_LABEL};
 use crate::tray::{FriendItem, FriendsMenu, LadderMenu};
@@ -331,8 +328,6 @@ struct Arrival {
     boost: Option<f64>,
     /// 주인이 성장 멈추기를 켰음 — 밥 주기로 키우지 않음
     no_grow: Option<bool>,
-    /// 주인이 보여 주는 스타일 (이쪽에 그 그림이 없으면 동글)
-    style: PetStyle,
     /// 🎨 주인이 고른 몸 색 (모르는 값은 기본 — 잉크 선 동물만 칠함)
     tint: BodyTint,
 }
@@ -440,12 +435,6 @@ pub struct Network {
     friend_code: Option<String>,
     /// 조작 모드: 마지막으로 친구 화면의 내 동물에게 보낸 키 (visit_id, 켜짐, 키 비트, 보낸 시각)
     steer_pacer: SteerPacer,
-    /// 친구마다(친구 id별) 선물을 받는 횟수 제한 — 다시 연결해도 채워지지 않음
-    gift_limit: FriendLimit,
-    /// 마지막으로 내 동물에게 선물을 들려 보낸 시각
-    gift_sent: Option<Instant>,
-    /// 방금 들어온 손님이 들고 온 선물 (게임 루프가 꺼내 감)
-    guest_gifts: Vec<GuestGift>,
     /// 🤹 손에 쥐여 줄 물건: 들고 온 손님, 못 들어가 들고 돌아온 내 동물 (게임 루프가 꺼내 물건 창을 만듦)
     carry_arrivals: Vec<CarryArrival>,
     /// 🤹 내 동물이 물건을 들고 간 방문 (돌려보내지면 Leave에 실려 옴)
@@ -632,9 +621,6 @@ impl Network {
             relay_connected: false,
             friend_code: None,
             steer_pacer: SteerPacer::default(),
-            gift_limit: FriendLimit::default(),
-            gift_sent: None,
-            guest_gifts: Vec::new(),
             carry_arrivals: Vec::new(),
             carry_out: None,
             ladder: crate::ladder::Ladders::default(),
@@ -1002,15 +988,8 @@ impl Network {
         };
         let friend = chosen.unwrap_or_else(|| friends[fastrand::usize(..friends.len())].id.clone());
         let carry = carry.filter(|_| self.takes_carry(&friend));
-        // 가끔 선물을 들려 보냄 (이어 가는 방문에는 다시 싣지 않음)
-        let now = Instant::now();
-        let ready = !self.gift_sent.is_some_and(|t| now.duration_since(t) < gift::VISIT_GIFT_EVERY);
-        let gift = if ready { gift::roll_visit_gift(&own.entry.id, &mut fastrand::Rng::new()) } else { None };
         let carried = carry.is_some();
-        let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None, fling, note.clone(), gift.map(|g| g.wire()), carry);
-        if gift.is_some() {
-            self.gift_sent = Some(now);
-        }
+        let visit_id = self.send_visit(net, own, &friend, opposite(side), None, None, fling, note.clone(), carry);
         log!(Info, "visit", "visit_out", "friend" => short(&friend), "visit" => visit_id, "carried" => u8::from(carried));
         self.carry_out = carried.then_some(visit_id);
         self.away = Some(AwayVisit { friend, visit_id, side, come_home_by: None, since: Instant::now(), note, probed: None, heard: None });
@@ -1038,7 +1017,7 @@ impl Network {
 
     /// 내 동물을 friend 화면으로 보냄 (enter_side 끝에서 들어옴). via = 바로 전에 있던 친구 화면. 새 visit_id를 돌려줌
     #[allow(clippy::too_many_arguments)]
-    fn send_visit(&self, net: &Net, own: &Slot, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>, note: Option<String>, gift: Option<String>, carry: Option<screenpet_net::Carry>) -> u64 {
+    fn send_visit(&self, net: &Net, own: &Slot, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>, note: Option<String>, carry: Option<screenpet_net::Carry>) -> u64 {
         let visit_id = fastrand::u64(..);
         let (enter_side, vside) = to_net_side(enter_side);
         net.send(
@@ -1047,7 +1026,7 @@ impl Network {
                 visit_id,
                 species: own.entry.id.clone(),
                 stage: own.shown.stage.name().to_string(),
-                // 동글일 때의 크기: 예전 버전은 동글로 그리고, 새 버전은 픽셀이면 이쪽 화면에 맞춰 다시 잼
+                // 펫 크기를 곱하기 전 크기 (펫 크기는 내 화면에만)
                 scale: own.shown.base,
                 personality: personality_name(own.entry.manifest.personality).to_string(),
                 owner: self.name.clone(),
@@ -1057,8 +1036,6 @@ impl Network {
                 homesick_in,
                 fling: fling.map(to_net_fling),
                 note,
-                gift,
-                style: own.shown.style.to_wire(),
                 tint: own.tint.to_wire(),
                 boost: (own.boost > 1.0).then_some(own.boost),
                 no_grow: self.growth_locked.then_some(true),
@@ -1129,8 +1106,6 @@ impl Network {
             homesick_in: state.map(|g| g.homesick_in).filter(|t| t.is_finite()),
             fling: fling.map(to_net_fling),
             note: guest.note.clone(),
-            gift: None,
-            style: slot.shown.style.to_wire(),
             tint: slot.tint.to_wire(),
             boost,
             no_grow: None,
@@ -1184,7 +1159,7 @@ impl Network {
         let homesick_in = homesick_in.filter(|t| t.is_finite());
         // 들려 보낸 편지는 다음 친구에게도 그대로 (주인인 내가 다시 실음 — 중간 친구가 고친 것이 아님)
         let note = a.note.clone();
-        let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone(), None, None);
+        let visit_id = self.send_visit(net, own, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone(), None);
         log!(Info, "visit", "own_walk_on", "visit" => visit_id, "from" => short(&a.friend), "to" => short(next));
         // 돌아올 땐 내 화면에서 그 친구가 연결된 끝에서 들어옴
         self.away = Some(AwayVisit { friend: next.to_string(), visit_id, side: f.side, come_home_by: None, since: Instant::now(), note, probed: None, heard: None });
@@ -1829,7 +1804,7 @@ impl Network {
     /// 친구가 보낸 방문 메시지(놀러 옴·떠남·집에 와)를 처리함
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, gift, style, tint, boost, no_grow, of, carry, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, tint, boost, no_grow, of, carry, .. } => {
                 // 📱 친구가 데려온 그 친구의 다른 컴퓨터 펫이면 그 컴퓨터의 손님 (한 사람 — 이름표도 같음). 대답은 링크(from)로
                 let link = from;
                 let from = of.as_deref().filter(|o| config.same_person(o, link)).unwrap_or(link);
@@ -1856,7 +1831,7 @@ impl Network {
                     return;
                 }
                 let note = note.as_deref().and_then(visit::sanitize_note);
-                let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, style: PetStyle::from_wire(style.as_deref()), tint: BodyTint::from_wire(tint.as_deref()), boost, no_grow };
+                let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, tint: BodyTint::from_wire(tint.as_deref()), boost, no_grow };
                 let result = self.welcome_guest(app, config, slots, from, visit_id, &species, &stage, scale, &owner, arrival);
                 match result {
                     Ok(label) => {
@@ -1864,12 +1839,6 @@ impl Network {
                         // 🤹 들고 온 물건: 게임 루프가 손에 쥐여 주고, 들어와 서면 앞을 보고 휙 떨굼
                         if let Some(c) = &carry {
                             self.queue_carry(&label, c);
-                        }
-                        // 인증된 친구 링크의 Visit에 실린, 목록에 있는 그 동물 종의 선물만 (친구마다 횟수 제한)
-                        if let Some(friend) = config.friend(from) {
-                            if let Some(gift) = gift::accept_visit_gift(gift.as_deref(), &species).filter(|_| self.gift_limit.allow(from, now)) {
-                                self.guest_gifts.push(GuestGift { visit_id: visit_id.to_string(), owner_id: from.to_string(), owner_name: config.person_name(from).unwrap_or(friend.shown_name()).to_string(), gift });
-                            }
                         }
                     }
                     Err(e) => {
@@ -1977,7 +1946,7 @@ impl Network {
         let side = arrival.enter_side;
         let home = config.friend(from).map_or(side, |f| f.side);
         let seed = fastrand::u64(..);
-        let mut slot = slots::spawn_guest(app, guest, entry, stage, scale, arrival.style, slots[0].dpi, side, &slots[0].world, seed, slots[0].size())?;
+        let mut slot = slots::spawn_guest(app, guest, entry, stage, scale, slots[0].dpi, side, &slots[0].world, seed, slots[0].size())?;
         if home != side || arrival.homesick_in.is_some() {
             let mut rng = fastrand::Rng::with_seed(seed);
             slot.pet.set_guest(home, visit::carried_homesick(arrival.homesick_in, &mut rng));
@@ -2368,11 +2337,6 @@ impl Network {
         let scale = kind.is_poop().then(|| screenpet_core::poop::sanitize_size(c.scale));
         self.carry_arrivals.retain(|a| a.label != label);
         self.carry_arrivals.push(CarryArrival { label: label.to_string(), kind, scale, icon: None });
-    }
-
-    /// 방금 들어온 손님이 들고 온 선물들 (게임 루프가 Gifts로 넘김)
-    pub fn take_guest_gifts(&mut self) -> Vec<GuestGift> {
-        std::mem::take(&mut self.guest_gifts)
     }
 
     /// 매 틱: 짝맞추기 시간, "집에 와" 대비, 트레이 `친구랑 놀기` 메뉴

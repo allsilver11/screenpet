@@ -1,4 +1,4 @@
-"""할로윈 시트 검사 (호박·유령): 크기·투명 여백·모든 동작·pet.json·eat에 밥그릇 없음·호박 눈이 노랗게 빛남·유령 몸이 반투명."""
+"""할로윈 시트 검사 (호박 — 👻 유령은 v0.7.0에 빠짐): 크기·투명 여백·모든 동작·pet.json·eat에 밥그릇 없음·호박 눈이 노랗게 빛남."""
 import json
 import math
 
@@ -11,14 +11,12 @@ from sprite_spec import ANIMS, FRAME, ROLL_CENTER, ROLL_RADIUS, STAGES, sheet_12
 
 PUMPKIN_GROUNDED = {"idle", "look", "sleep", "land", "sit_front", "wave", "tilt", "stretch", "heart", "tickle", "annoyed",
                     "hungry", "level_up", "belly"}
-GHOST_GROUNDED = {"sleep", "annoyed", "land", "belly"}  # 유령은 떠다니고 이 동작만 바닥에 내려앉는다
-GHOST_HOVER = {"walk", "run", "idle", "look", "sit_front", "wave", "tilt", "heart", "tickle", "level_up"}
 
 
 @pytest.fixture(scope="module")
 def out(tmp_path_factory):
     root = tmp_path_factory.mktemp("pets")
-    for sp in (draw_halloween.PUMPKIN, draw_halloween.GHOST_SP):
+    for sp in (draw_halloween.PUMPKIN,):
         draw_pets.write_species(sp, root / sp.id)
     return root
 
@@ -42,19 +40,17 @@ def glow_pixels(im):
     return sum(1 for p in pixels(im) if p[3] > 200 and p[0] > 245 and p[1] > 210 and p[2] < 150)
 
 
-def test_both_are_registered_with_every_required_anim():
-    for pid, extra in (("pumpkin", ["climb", "slide", "lookup"]), ("ghost", ["lookup"])):  # 호박은 벽을 탄다, 유령은 올려다보기뿐 (침·기어오르기 없음)
+def test_pumpkin_is_registered_with_every_required_anim_and_the_ghost_is_gone():
+    assert "ghost" not in draw_pets.SPECIES and not hasattr(draw_halloween, "GHOST_SP")
+    for pid, extra in (("pumpkin", ["climb", "slide", "lookup"]),):  # 호박은 벽을 탄다
         sp = draw_pets.SPECIES[pid]
         assert sp.poses is draw_halloween.POSES
         assert names(pid) == [a for a, *_ in ANIMS] + extra
         assert all(a in draw_halloween.POSES for a in names(pid))
 
 
-@pytest.mark.parametrize("pid", ["pumpkin", "ghost"])
-def test_sheets_have_every_frame_inside_the_cell(out, pid):
-    grounded = PUMPKIN_GROUNDED if pid == "pumpkin" else GHOST_GROUNDED
-    hover = GHOST_HOVER if pid == "ghost" else ()
-    assert_frames_inside_cell(out / pid, draw_pets.SPECIES[pid], STAGES, grounded=grounded, hover=hover)
+def test_sheets_have_every_frame_inside_the_cell(out):
+    assert_frames_inside_cell(out / "pumpkin", draw_pets.SPECIES["pumpkin"], STAGES, grounded=PUMPKIN_GROUNDED, hover=())
 
 
 def test_manifests(out):
@@ -64,27 +60,20 @@ def test_manifests(out):
     assert pk["speech"]["chatter"] == ["trick or treat!", "boo~", "♪"] and pk["speech"]["grumpy"] == ["hmph!"]
     assert pk["speech"]["hungry"] and pk["speech"]["full"] and pk["speech"]["level_up"]
     assert all(v == 0.9 for v in pk["stage_size"].values()) and pk["stages"] == STAGES
-    gh = json.loads((out / "ghost" / "pet.json").read_text(encoding="utf-8"))
-    assert gh["name"] == "유령" and gh["personality"] == "friendly" and gh["locomotion"] == "fly" and "hop_share" not in gh
-    assert gh["favorite_food"] == {"emoji": "🍭", "name": "막대사탕"} and gh["walk_speed"] == 40
-    assert gh["speech"]["chatter"] == ["boo!", "ooo~"] and gh["speech"]["tickle"] == ["hehe!"]
-    assert all(v == 0.85 for v in gh["stage_size"].values())
-    assert set(gh["animations"]) == {a for a, *_ in ANIMS} | {"lookup"}  # sting·climb 없음
     assert set(pk["animations"]) == {a for a, *_ in ANIMS} | {"climb", "slide", "lookup"}  # 호박은 벽을 탄다
     assert pk["animations"]["climb"] == {"row": len(ANIMS), "frames": 4, "fps": 6} and pk["animations"]["slide"] == {"row": len(ANIMS) + 1, "frames": 2, "fps": 8}
-    for m in (pk, gh):
+    for m in (pk,):
         assert m["animations"]["eat"] == {"row": 19, "frames": 4, "fps": 6, "front": True}
 
 
-@pytest.mark.parametrize("pid", ["pumpkin", "ghost"])
+@pytest.mark.parametrize("pid", ["pumpkin"])
 def test_eat_has_no_bowl_and_mouth_sits_over_the_food(out, pid):
     for st in ("baby", "teenager", "adult"):
         assert_eat_has_no_bowl(out / pid / f"sheet_{st}.png", draw_pets.SPECIES[pid], most=20)
         # 입(앙 벌린 입)이 그릇 밥 더미 위 (프레임 x 50–78, y 70–96)
         im = frame(out, pid, "eat", 0, st)
         px = im.load()
-        dark = {"pumpkin": lambda p: p[0] > 245 and p[1] > 205 and p[2] < 190,  # 빛나는 입
-                "ghost": lambda p: abs(p[0] - draw_pets.MOUTH_IN[0]) + abs(p[1] - draw_pets.MOUTH_IN[1]) + abs(p[2] - draw_pets.MOUTH_IN[2]) < 40}[pid]
+        dark = {"pumpkin": lambda p: p[0] > 245 and p[1] > 205 and p[2] < 190}[pid]  # 빛나는 입
         mouth = [(x, y) for y in range(70, 97) for x in range(50, 79) if px[x, y][3] > 200 and dark(px[x, y])]
         assert len(mouth) >= 6, (pid, st, len(mouth))
 
@@ -104,35 +93,16 @@ def test_pumpkin_glow_flickers_between_frames(out):
     assert halo(a) != halo(b)
 
 
-def test_ghost_body_is_translucent_but_eyes_are_solid(out):
-    for st in STAGES:
-        im = frame(out, "ghost", "sit_front", 0, st)
-        a = im.getchannel("A")
-        x0, y0, x1, y1 = a.getbbox()
-        # 머리 꼭대기 바로 아래, 가운데 꼭지를 피한 왼쪽 (외곽선 안쪽 몸)
-        top = next(y for y in range(y0, y1) if a.getpixel((54, y)) >= 250)
-        inner = [a.getpixel((54 + dx, y)) for y in range(top + 6, top + 11) for dx in (-3, 0, 3)]
-        assert all(150 <= v < 255 for v in inner), (st, inner)
-        dark = [p for p in pixels(im) if p[3] > 0 and p[0] < 110 and p[1] < 90 and p[2] < 90]
-        assert sum(1 for p in dark if p[3] == 255) >= 40, st  # 눈은 또렷 (반투명 몸 위에 불투명)
-
-
-def test_ghost_belly_glows_warm(out):
-    im = frame(out, "ghost", "sit_front", 0)
-    warm = sum(1 for p in pixels(im) if p[3] > 150 and p[0] > 240 and 170 <= p[1] <= 225 and p[2] < 170)
-    assert warm >= 60, warm
-
-
 def test_hop_lifts_off(out):
-    for pid in ("pumpkin", "ghost"):
-        up = min(frame(out, pid, "hop", c).getchannel("A").getbbox()[3] for c in (1, 2))  # 공중 (유령 1은 아래 속도선)
+    for pid in ("pumpkin",):
+        up = min(frame(out, pid, "hop", c).getchannel("A").getbbox()[3] for c in (1, 2))  # 공중
         rest = frame(out, pid, "hop", 0).getchannel("A").getbbox()
         assert up < rest[3] - 4, (pid, up, rest)
 
 
 def test_roll_ball_fits_rotation_circle(out):
     cx, cy = ROLL_CENTER
-    for pid in ("pumpkin", "ghost"):
+    for pid in ("pumpkin",):
         for st in ("baby", "adult"):
             for c in range(2):
                 im = frame(out, pid, "roll", c, st)
@@ -143,16 +113,6 @@ def test_roll_ball_fits_rotation_circle(out):
                             assert math.hypot(x + 0.5 - cx, y + 0.5 - cy) <= ROLL_RADIUS + 0.5, (pid, st, c, x, y)
 
 
-def test_floating_ghost_sheet_hangs_longer_but_head_keeps_its_size():
-    """떠 있을 때 흰 천 하단이 몸 높이의 12–18%만큼 더 길다 (머리 반지름은 그대로)."""
-    for lvl, st in draw_halloween.GH_STAGE.items():
-        height = 2.3 * st["r"] + st["L"]
-        extra = draw_halloween._skirt(st) - st["L"]
-        assert 0.12 * height <= extra <= 0.18 * height, (lvl, extra, height)
-    assert [st["r"] for st in draw_halloween.GH_STAGE.values()] == [30, 30, 29.5, 29, 29]
-
-
-# ---- 호박 뒷모습 (벽 타기) ----
 def _near(im, col, tol):
     return sum(1 for p in pixels(im) if p[3] > 200 and sum(abs(p[k] - col[k]) for k in range(3)) < tol)
 

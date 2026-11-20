@@ -38,18 +38,13 @@ def test_idle_frames_write_no_styles_but_frames_and_spin_still_do():
     assert "rotate(" in r["spin"]
 
 
-@pytest.mark.parametrize("pet", ["penguin", "snowman"])
-def test_pixel_belly_slide_plays_its_roll_row_without_spinning(pet):
-    r = run("pixelRoll", pet)
+@pytest.mark.parametrize("pet,spins", [("cat", True), ("penguin", False)])
+def test_an_old_pixel_style_in_slot_info_still_draws_the_round_roll(pet, spins):
+    """🟦 픽셀 스타일은 v0.7.0에 빠짐: slot_info에 옛 style "pixel"이 실려 와도 동글 시트의 roll 줄을 틀고, 도는 동물은 돈다."""
+    r = run("oldPixelRoll", pet)
     assert r["hasRoll"] and r["row"] == r["rollRow"], r
-    assert not r["rotates"], r
-
-
-@pytest.mark.parametrize("pet", ["cat", "santa", "duck"])
-def test_other_pixel_pets_still_have_no_roll_and_never_spin(pet):
-    r = run("pixelRoll", pet)
-    assert not r["hasRoll"] and r["row"] == r["idleRow"], r
-    assert not r["rotates"], r
+    assert r["rotates"] == spins, r
+    assert r["sheet"].startswith(f"url(pets/{pet}/"), r
 
 
 def test_house_door_writes_only_when_the_frame_changes():
@@ -94,11 +89,6 @@ def test_link_window_asks_whether_it_is_my_own_pc_before_linking():
     assert x["note"] == "연결을 취소했어요" and x["ok"] is None and x["ask"] is None and x["cancel"] == "닫기"
 
 
-def test_book_blocks_refresh_and_has_no_close_key():
-    r = run("bookKeys")
-    assert r["f5"] and r["menu"] and not r["escape"]
-
-
 def test_renewing_a_code_does_not_copy_the_old_one():
     r = run("renewCopy")
     assert r["renewed"] == 1
@@ -110,11 +100,10 @@ def test_bubble_text_lives_in_a_clippable_span():
     assert run("bubbleText") == {"tag": "span", "text": "off to 아주아주아주긴이름's~ brb!", "hidden": False}
 
 
-@pytest.mark.parametrize("style", ["round", "pixel"])
-def test_heumul_tint_layer_follows_the_sprite_and_is_masked_by_the_ink(style):
+def test_heumul_tint_layer_follows_the_sprite_and_is_masked_by_the_ink():
     """🎨 사용자: 어두운 바탕화면에서 흐물이가 안 보인다 → 고른 색 층을 잉크 자리(ink_<stage>.png)로 가린다."""
-    r = run("tint", style)
-    folder = "pets_pixel" if style == "pixel" else "pets"
+    r = run("tint", "round")
+    folder = "pets"
     ext = "png"
     rb = r["rainbow"]
     assert not rb["hidden"]
@@ -123,8 +112,6 @@ def test_heumul_tint_layer_follows_the_sprite_and_is_masked_by_the_ink(style):
     assert all(m == p for m, p in r["frames"]), "마스크 칸 = 몸 칸 (프레임마다)"
     assert len({p for _, p in r["frames"]}) >= 2, "걷는 칸이 넘어갔다"
     assert "linear-gradient" in rb["bg"] and rb["bg"].count("#") >= 7, rb["bg"]
-    if style == "pixel":
-        assert "repeating-linear-gradient" in rb["bg"]
     assert r["idleWrites"] == [], "칸이 그대로면 쓰지 않는다"
     red = r["red"]
     assert not red["hidden"] and red["mask"] == f"url({folder}/heumul/ink_adult.{ext})" and red["maskSize"] == red["petSize"]
@@ -133,11 +120,11 @@ def test_heumul_tint_layer_follows_the_sprite_and_is_masked_by_the_ink(style):
     assert r["cat"]["hidden"], "잉크 마스크가 없는 동물은 칠하지 않는다"
 
 
-def test_tint_layer_css_sits_on_the_body_and_stays_crisp_in_pixel():
+def test_tint_layer_css_sits_on_the_body():
     css = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
     rule = css_rule(css, "#tint")
     assert "position: absolute" in rule and "inset: 0" in rule and "pointer-events: none" in rule
-    assert "body.pixel #tint" in css[css.index("/* 픽셀 스타일") :][:400], "픽셀은 마스크도 칸 그대로 (image-rendering: pixelated)"
+    assert "body.pixel" not in css, "픽셀 스타일은 v0.7.0에 빠짐"
     html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
     pet = html[html.index('<div id="pet">') :]
     assert pet.index('<div id="tint" hidden></div>') < pet.index('<svg id="nightcap"')
@@ -147,21 +134,6 @@ def test_tint_layer_css_sits_on_the_body_and_stays_crisp_in_pixel():
 def css_rule(text, selector):
     start = text.index(selector + " {")
     return text[start : text.index("}", start)]
-
-
-def test_pixel_hide_can_fade_past_the_filled_entrance_animation():
-    # 나타나기 애니메이션의 opacity: 1이 forwards로 남아 있으면 .hide의 흐려짐이 막힌다
-    gift = (ROOT / "ui" / "gift.html").read_text(encoding="utf-8")
-    prop = (ROOT / "ui" / "prop.html").read_text(encoding="utf-8")
-    assert "animation: none" in css_rule(gift, "body.pixel.hide #gift")
-    assert "animation: none" in css_rule(prop, "body.pixel.hide #prop")
-
-
-def test_gift_hover_keeps_the_drop_so_it_does_not_replay():
-    # 애니메이션 목록에서 drop이 빠졌다 돌아오면 처음부터 다시 돈다 — 목록에 남겨 둔다
-    gift = (ROOT / "ui" / "gift.html").read_text(encoding="utf-8")
-    assert "drop 420ms ease-out both" in css_rule(gift, "#gift:hover")
-    assert "px-drop 300ms step-end both" in css_rule(gift, "body.pixel #gift:hover")
 
 
 def test_long_names_end_in_an_ellipsis_inside_the_window():
@@ -176,9 +148,12 @@ def test_long_names_end_in_an_ellipsis_inside_the_window():
 
 # ---- 지운 대체 경로가 다시 필요해지지 않게: 웹뷰가 믿는 그림 자료 ----
 def test_pet_data_the_windows_rely_on():
-    for d in (ROOT / "ui" / "pets_pixel").iterdir():
-        sizes = json.loads((d / "pet.json").read_text(encoding="utf-8"))["frame_sizes"]
-        assert set(sizes) >= {"baby", "kinder", "child", "teenager", "adult"}, d.name
+    for d in (ROOT / "ui" / "pets").iterdir():
+        for st in ("baby", "kinder", "child", "teenager", "adult"):
+            assert (d / f"sheet_{st}.png").is_file(), (d.name, st)
+    # 🟦 픽셀 그림·🎁 선물 그림은 v0.7.0에 빠짐 (웹뷰가 더는 읽지 않음)
+    for gone in ("pets_pixel", "effects_pixel", "objects_pixel", "house_pixel", "gifts", "gifts_pixel", "gift.html", "book.html"):
+        assert not (ROOT / "ui" / gone).exists(), gone
 
 
 def test_pet_glow_gets_room_below_only_while_it_shines():

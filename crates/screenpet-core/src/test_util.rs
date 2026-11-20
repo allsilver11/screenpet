@@ -13,7 +13,6 @@ pub(crate) const DT: f64 = 1.0 / 60.0;
 pub(crate) fn pet_cfg() -> PetConfig {
     PetConfig {
         hang_grip: (0.0, 0.06),
-        no_roll: false,
         antics: false,
         knocks: false,
         stashes: false,

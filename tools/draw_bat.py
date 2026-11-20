@@ -2,7 +2,7 @@
 부품마다 자기 외곽선을 두른 두 발 꼬마 — 팔다리는 관절(어깨·팔꿈치·손 / 엉덩이·무릎·발)을 IK로 굽힌다.
 
     python tools/draw_bat.py → ui/pets/bat/{sheet_<stage>.png ×5, pet.json} + tools/preview/{stages_bat,climb_bat,bike_bat}.png
-    (python tools/draw_pets.py도 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록. 도트는 python tools/draw_pixel.py bat)
+    (python tools/draw_pets.py도 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 
 생김새: 큰 머리 (키의 45% 남짓) + 작은 몸 + 짧은 팔다리 둘씩. 머리 위쪽은 뾰족한 두 귀가 달린 검정 가면 (하얀 눈 — 표정마다 모양이 바뀜),
         코 아래 입·턱은 살색으로 드러남. 몸: 짙은 회색 슈트, 검정 장갑·장화, 노란 벨트, 가슴에 노란 타원 + 까만 박쥐 로고,
@@ -90,7 +90,7 @@ def reach(root, pt, ln, k=0.97):
 
 
 def bat_shape(cx, cy, w):
-    """박쥐 실루엣 다각형 점들 (가운데 (cx, cy), 반폭 w): 두 귀 + 위로 솟은 날개 + 아래가 들쭉날쭉한 날개 끝 (로고·선물·오토바이 무늬)."""
+    """박쥐 실루엣 다각형 점들 (가운데 (cx, cy), 반폭 w): 두 귀 + 위로 솟은 날개 + 아래가 들쭉날쭉한 날개 끝 (로고·오토바이 무늬)."""
     top = [(0.07, -0.22), (0.15, -0.5), (0.23, -0.2), (0.52, -0.36), (1.0, -0.16)]
     bot = [(0.84, 0.12), (0.68, 0.02), (0.56, 0.3), (0.4, 0.1), (0.26, 0.36), (0.12, 0.18), (0.0, 0.46)]
     right = top + bot

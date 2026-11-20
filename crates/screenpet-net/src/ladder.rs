@@ -62,7 +62,7 @@ pub struct LockedPlayer {
     pub name: String,
     /// 펫 종류
     pub pet: String,
-    /// "" = 둥근 그림 (와이어에서 빠짐)
+    /// 옛 버전이 보낸 그림 스타일 ("" = 둥근 그림, 와이어에서 빠짐). v0.7.0부터는 늘 "" — 커밋에 들어가 옛 버전과 맞추려고 남김
     pub style: String,
 }
 
@@ -203,7 +203,7 @@ pub struct Seat {
     pub name: String,
     /// 펫 종류
     pub pet: String,
-    /// "" = 둥근 그림
+    /// 그림 스타일: 픽셀이 빠진 v0.7.0부터는 늘 "" (옛 버전과 같은 판을 하려고 필드는 남김)
     pub style: String,
 }
 

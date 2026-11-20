@@ -272,13 +272,3 @@ def test_rudolph_keeps_back_spots_at_every_stage_round(st):
     counts = {anim: _back_spot_pixels(_round_side_frames(sp, st, anim), _round_side_frames(plain, st, anim)) for anim in SIDE_BACK_ANIMS}
     assert min(counts.values()) >= 10 and sum(counts.values()) >= 100, (st, counts)  # 엎드려 자는 옆모습은 등이 덜 보인다
 
-
-@pytest.mark.parametrize("st", STAGES)
-def test_rudolph_keeps_back_spots_at_every_stage_pixel(st):
-    import draw_pixel
-    sp = draw_christmas.RUDOLPH
-    plain = _spotless(sp)
-    anims = set(SIDE_BACK_ANIMS) - set(draw_pixel.NO_ANIM)
-    with_spots, without = draw_pixel.render_pixel(sp, st, anims), draw_pixel.render_pixel(plain, st, anims)
-    counts = {anim: _back_spot_pixels(with_spots[anim][0], without[anim][0]) for anim in anims}
-    assert sum(counts.values()) >= 3 and counts["walk"] >= 1, (st, counts)  # 도트 하나 = 1px (시트 칸 크기 그대로) · 아기 24칸은 점이 몇 개뿐

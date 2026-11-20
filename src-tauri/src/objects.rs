@@ -1203,7 +1203,7 @@ fn build_window(app: &AppHandle, id: u64, kind: ObjectKind, sticker: bool, scale
     let built = crate::overlay::finish_quiet(
         WebviewWindowBuilder::new(app, &label, WebviewUrl::App("object.html".into()))
             .title("ScreenPet Object")
-            .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}], scale: {scale}, icon: {icon} }}; {}", kind.id(), crate::art::style_script()))
+            .initialization_script(&format!("window.OBJECT = {{ kind: {:?}, sticker: {sticker}, side: {w}, pivot: [{px}, {py}], scale: {scale}, icon: {icon} }};", kind.id()))
             .inner_size(w, h)
             .accept_first_mouse(true),
     );

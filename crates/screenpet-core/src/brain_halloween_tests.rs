@@ -1,28 +1,28 @@
-//! 할로윈 동물 — 유령(날지만 쏘지 않음)과 호박(늘 깡총 튀어 다님) brain 동작 테스트.
+//! 할로윈 호박(늘 깡총 튀어 다님)과 느린 나는 동물 brain 동작 테스트 (유령은 v0.7.0에 빠졌지만 날기는 슈퍼인간용으로 남음).
 //! brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{sim_cfg, win, world};
 use super::*;
 use crate::flight;
 use crate::hop;
-use crate::test_util::{DT, bundled, idle};
+use crate::test_util::{DT, idle};
 
 
-// ---- 유령: locomotion fly, walk_speed 40, sting 없음 ----
+// ---- 느린 나는 동물: locomotion fly, walk_speed 40 ----
 
-fn ghost() -> PetConfig {
+fn slow_flyer() -> PetConfig {
     // stage_size 0.85
     let size = 128.0 * 0.85;
     PetConfig { size, half_w: 0.3 * size, walk_speed: 40.0, flies: true, ..sim_cfg() }
 }
 
-/// 유령 10분 × 4 — 늘 화면 안, 대개 둥둥 떠다니고, 잠은 내려앉았을 때만
+/// 느린 나는 동물 10분 × 4 — 늘 화면 안, 대개 둥둥 떠다니고, 잠은 내려앉았을 때만
 #[test]
-fn ghost_ten_minutes_floats_within_bounds_and_sleeps_only_perched() {
+fn slow_flyer_ten_minutes_floats_within_bounds_and_sleeps_only_perched() {
     let w = world(vec![win(1, 300.0, 600.0, 1100.0, 900.0), win(2, 1300.0, 350.0, 1800.0, 700.0)]);
     let (mut flying, mut sleeping, mut total) = (0usize, 0usize, 0usize);
     for seed in 0..4 {
-        let mut p = Pet::new(ghost(), 960.0, 128.0, seed);
+        let mut p = Pet::new(slow_flyer(), 960.0, 128.0, seed);
         let b = flight::fly_bounds(&w.bounds, p.cfg.half_w, p.cfg.size * (1.0 + flight::TOP_SPACE));
         for tick in 0..(60 * 600) {
             p.update(DT, &w);
@@ -48,18 +48,11 @@ fn ghost_ten_minutes_floats_within_bounds_and_sleeps_only_perched() {
     assert!(sleeping > 0, "never slept");
 }
 
-/// 번들 유령은 나는 동물임
+/// 나는 동물은 느리게 떠다님 — 날기 속도는 walk_speed 그대로
 #[test]
-fn bundled_ghost_flies() {
-    let real = bundled().into_iter().find(|(id, _)| id == "ghost").expect("ghost in ui/pets").1;
-    assert!(real.flies);
-}
-
-/// 유령은 느리게 떠다님 — 날기 속도는 walk_speed 그대로
-#[test]
-fn ghost_floats_at_its_slow_walk_speed() {
+fn slow_flyer_floats_at_its_walk_speed() {
     let w = world(vec![]);
-    let mut p = Pet::new(ghost(), 300.0, 500.0, 1);
+    let mut p = Pet::new(slow_flyer(), 300.0, 500.0, 1);
     p.state = idle();
     p.start_flight(flight::Goal::Point(1800.0, 500.0), Move::Walk);
     for _ in 0..60 {

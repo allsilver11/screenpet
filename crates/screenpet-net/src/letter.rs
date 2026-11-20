@@ -57,7 +57,7 @@ pub struct Letter {
     pub species: String,
     /// 펫 성장 단계
     pub stage: String,
-    /// 펫 스타일
+    /// 펫 스타일 (옛 편지 호환용, v0.7.0부터 늘 "round" — 받는 쪽은 쓰지 않음)
     pub style: String,
     /// 앱 버전
     pub version: String,

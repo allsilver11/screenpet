@@ -3,10 +3,9 @@
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 // 앱이 창을 만들 때 넣음 (없으면 기본 짝 — 창 시험용)
 const setup = window.SLEIGH || {
-  puller: { id: "rudolph", stage: "teenager", pixel: false, side: 128 },
-  rider: { id: "santa", stage: "teenager", pixel: false, side: 128 },
+  puller: { id: "rudolph", stage: "teenager", side: 128 },
+  rider: { id: "santa", stage: "teenager", side: 128 },
   unit: 128,
-  pixel: false,
   below: 80,
 };
 const ride = document.getElementById("ride");
@@ -18,11 +17,10 @@ const ho = document.getElementById("ho");
 const u = setup.unit;
 const W = u * 2.5;
 const H = u * 1.25;
-setPixelBody(setup.pixel);
-sleighEl.src = setup.pixel ? "sleigh/sleigh_pixel.png" : "sleigh/sleigh.png";
-// 썰매 그림: 동글은 정사각 칸(아래쪽에 썰매), 픽셀은 32×16칸
+sleighEl.src = "sleigh/sleigh.png";
+// 썰매 그림: 정사각 칸(아래쪽에 썰매)
 const sleighW = u * 1.35;
-const sleighH = setup.pixel ? sleighW / 2 : sleighW;
+const sleighH = sleighW;
 // 썰매 아래 가운데(도는 축)를 창 아래에서 below만큼 띄움: 기울면 한쪽 끝이 축보다 내려가도 안 잘림
 Object.assign(ride.style, { width: `${W}px`, height: `${H}px`, marginLeft: `${-W / 2}px`, bottom: `${setup.below || 0}px` });
 Object.assign(sleighEl.style, { left: "0px", width: `${sleighW}px`, height: `${sleighH}px` });
@@ -46,7 +44,7 @@ const sheets = {};
 // 동물(끄는 쪽·타는 쪽) 시트를 읽음
 async function load(key) {
   const p = setup[key];
-  const sheet = await loadPetSheet(p.id, p.stage, p.pixel ? "pixel" : "round");
+  const sheet = await loadPetSheet(p.id, p.stage);
   const name = ANIMS[key].find((a) => sheet.manifest.animations[a]);
   const spec = sheet.manifest.animations[name];
   const cols = Math.round(sheet.img.naturalWidth / sheet.manifest.frame_size);

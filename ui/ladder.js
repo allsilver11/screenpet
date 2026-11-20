@@ -488,19 +488,17 @@ if (typeof window !== "undefined" && window.__TAURI__) {
 
     // ---- 게임 ----
     let game = null; // { view, lay, runners, order, started, finished }
-    const sheets = new Map(); // "pet|style" → loadPetSheet 결과
+    const sheets = new Map(); // 펫 id → loadPetSheet 결과
 
-    // 펫·스타일의 시트를 읽음 (한 번만, 같은 것은 나눠 씀)
-    async function sheetFor(pet, style) {
-      const key = `${pet}|${style}`;
-      if (!sheets.has(key)) {
-        const want = style === "pixel" ? "pixel" : "round";
+    // 펫의 시트를 읽음 (한 번만, 같은 것은 나눠 씀 — 없는 펫이면 고양이)
+    async function sheetFor(pet) {
+      if (!sheets.has(pet)) {
         sheets.set(
-          key,
-          loadPetSheet(pet, "baby", want).catch(() => loadPetSheet("cat", "baby", want)),
+          pet,
+          loadPetSheet(pet, "baby").catch(() => loadPetSheet("cat", "baby")),
         );
       }
-      return sheets.get(key);
+      return sheets.get(pet);
     }
 
     // 시트의 애니메이션 (없으면 idle)
@@ -558,8 +556,6 @@ if (typeof window !== "undefined" && window.__TAURI__) {
         board.append(slot);
         return slot;
       });
-      const pixel = g.players.some((p) => p.style === "pixel");
-      setPixelBody(pixel);
       const pet = Math.min(48, g.column - 8);
       const runners = g.players.map((p, i) => {
         const trail = document.createElementNS(ns, "polyline");
@@ -570,8 +566,8 @@ if (typeof window !== "undefined" && window.__TAURI__) {
         tag.style.borderColor = LADDER.PALETTE[i % LADDER.PALETTE.length];
         board.append(runner, tag);
         const r = { i, el: runner, tag, trail, pts: [], total: 0, d: 0, p: { x: 0, y: 0 }, dir: "down", anim: "sit_front", animStart: performance.now(), phase: "wait", side: pet, sheet: null };
-        sheetFor(p.pet, p.style).then((sheet) => {
-          const side = sheet.style === "pixel" ? snapPixelSide(pet, sheet.manifest.frame_size) : pet;
+        sheetFor(p.pet).then((sheet) => {
+          const side = pet;
           const k = side / sheet.manifest.frame_size;
           r.sheet = sheet;
           r.side = side;

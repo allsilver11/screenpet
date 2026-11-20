@@ -209,9 +209,6 @@ def test_heavy_snow_is_big_plentiful_flakes_drifting_down_slowly():
     assert heavy["box"] > snow["box"], "큰 눈송이"
     assert heavy["fall"][1] < snow["fall"][1], "천천히"
     assert heavy["sway"] >= snow["sway"], "살랑살랑 흩날림"
-    px_box = dict(re.findall(r"(\w+): (\d+)", JS[JS.index("const PX_BOX"):].split("\n")[0]))
-    assert int(px_box["heavy_snow"]) > int(px_box["snow"]), "픽셀도 큼"
-    assert "PX_HEAVY_FLAKES" in JS
 
 
 def test_heavy_snow_draws_bigger_flakes_than_snow_and_piles_like_snow(run):
@@ -245,20 +242,13 @@ def test_the_whole_tornado_fits_in_the_box_cleared_next_frame(run):
 
 
 @pytest.fixture(scope="module")
-def pixel_typhoon():
-    if not shutil.which("node"):
-        pytest.skip("node not installed")
-    return json.loads(run_node(ROOT / "tools" / "weather_harness.js", "typhoon", "pixel", timeout=60).stdout)
-
-
-@pytest.fixture(scope="module")
 def typhoon():
     if not shutil.which("node"):
         pytest.skip("node not installed")
     return json.loads(run_node(ROOT / "tools" / "weather_harness.js", "typhoon", timeout=60).stdout)
 
 
-@pytest.mark.parametrize("style", ["typhoon", "pixel_typhoon"])
+@pytest.mark.parametrize("style", ["typhoon"])
 def test_the_tornado_is_a_swirl_of_see_through_storm_cloud_puffs(style, request):
     """동그라미 줄 대신: 반투명 먹구름 뭉치(미리 그린 그림)들이 축을 돌며, 위가 넓고 바닥으로 좁아짐."""
     r = request.getfixturevalue(style)
@@ -268,11 +258,11 @@ def test_the_tornado_is_a_swirl_of_see_through_storm_cloud_puffs(style, request)
     assert 0.2 <= lo and hi < 1, "반투명"
     # 아래 1/3엔 바닥 흙먼지도 들어 있음
     assert r["funnelTopWidth"] > 1.6 * r["funnelBottomWidth"], (r["funnelTopWidth"], r["funnelBottomWidth"])
-    assert r["funnelMoved"] > 0.4, "제자리에서도 빙글빙글 돎 (픽셀은 칸에 맞춰 덜 자주 움직임)"
+    assert r["funnelMoved"] > 0.4, "제자리에서도 빙글빙글 돎"
     assert r["funnelOutside"] == 0
 
 
-@pytest.mark.parametrize("style", ["typhoon", "pixel_typhoon"])
+@pytest.mark.parametrize("style", ["typhoon"])
 def test_the_tornado_stays_within_the_reach_the_core_uses_for_straddling(style, request):
     """core typhoon.rs straddles()의 reach = (FUNNEL_R.1 + 30) × 크기 — 그보다 넓으면 옆 모니터에 걸칠 때 잘림."""
     r = request.getfixturevalue(style)
@@ -290,14 +280,7 @@ def hurricane():
     return json.loads(run_node(ROOT / "tools" / "weather_harness.js", "typhoon", "", "2", timeout=60).stdout)
 
 
-@pytest.fixture(scope="module")
-def pixel_hurricane():
-    if not shutil.which("node"):
-        pytest.skip("node not installed")
-    return json.loads(run_node(ROOT / "tools" / "weather_harness.js", "typhoon", "pixel", "2", timeout=60).stdout)
-
-
-@pytest.mark.parametrize("big,small", [("hurricane", "typhoon"), ("pixel_hurricane", "pixel_typhoon")])
+@pytest.mark.parametrize("big,small", [("hurricane", "typhoon")])
 def test_a_hurricane_class_tornado_is_about_twice_as_big_and_still_fits_its_box(big, small, request):
     """🌀 허리케인급: 장면 tornado의 넷째 값(크기)만큼 크게 그림 — 지울 칸·옆 모니터 걸침 거리(core straddles)도 그만큼."""
     b, s = request.getfixturevalue(big), request.getfixturevalue(small)
@@ -315,10 +298,12 @@ def test_an_old_scene_without_a_size_draws_a_normal_tornado(typhoon):
     assert "tornado[3]" in JS and typhoon["funnelOutside"] == 0
 
 
-def test_smooth_puffs_are_soft_gradients_and_pixel_puffs_are_stepped_cells(typhoon, pixel_typhoon):
+def test_puffs_are_soft_gradients_even_if_an_old_pixel_style_is_set(typhoon):
+    """🟦 픽셀 스타일은 v0.7.0에 빠짐: 창에 옛 ART_STYLE "pixel"이 남아 있어도 부드러운 뭉치로 그림."""
     assert "createRadialGradient" in typhoon["funnelSpriteOps"]
-    assert pixel_typhoon["funnelSpriteOps"] and set(pixel_typhoon["funnelSpriteOps"]) <= {"fillRect", "set:fillStyle"}, pixel_typhoon["funnelSpriteOps"]
-    assert pixel_typhoon["funnelOnGrid"], "픽셀: 칸에 맞춰, 늘리지 않고 찍음"
+    old = json.loads(run_node(ROOT / "tools" / "weather_harness.js", "typhoon", "pixel", timeout=60).stdout)
+    assert "createRadialGradient" in old["funnelSpriteOps"]
+    assert "ART_STYLE" not in JS and "art-style" not in JS and "PX_" not in JS
 
 
 def test_the_tornado_puffs_are_drawn_once_and_reused():

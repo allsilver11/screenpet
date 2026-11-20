@@ -152,14 +152,6 @@ def test_keys_go_to_the_game_space_starts_escape_closes(tmp_path):
     ]
 
 
-@needs_node
-def test_pixel_style_uses_pixel_poop(tmp_path):
-    harness = tmp_path / "harness.js"
-    harness.write_text(HARNESS.replace("global.window = {", "global.window = { ART_STYLE: \"pixel\",", 1), encoding="utf-8")
-    out = json.loads(run_node(harness, UI / "dodge.js", json.dumps([view("play", poops=[(0, 10, 10, 17)])]), "[]", timeout=30).stdout)
-    assert out["snaps"][0]["poops"][0]["src"] == "objects_pixel/poop.png"
-
-
 def test_review_fixes_for_the_app_side():
     src = (ROOT / "src-tauri" / "src" / "dodge.rs").read_text(encoding="utf-8")
     # 하우스 안이면 하우스 창에 말한다

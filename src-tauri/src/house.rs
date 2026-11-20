@@ -6,7 +6,6 @@ use screenpet_core::config::{clamp_house_left, HouseSpot};
 use screenpet_core::geom::Rect;
 use screenpet_core::manifest::HouseKind;
 use screenpet_core::platform::default_source;
-use screenpet_core::style::{self, PetStyle};
 use screenpet_core::surfaces::Owner;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,25 +44,19 @@ fn house_kind(app: &AppHandle, pet: &str) -> HouseKind {
     app.state::<AppState>().pets.iter().find(|p| p.id == pet).map_or(HouseKind::House, |p| p.manifest.house_kind())
 }
 
-/// 집 그림 한 변 (논리 px). 픽셀 집은 칸이 정수 물리 px인 크기 (문에 동물이 줄지 않고 들어가 동글보다 큼)
-pub fn house_side(stage: Stage, style: PetStyle, dpi: f64) -> f64 {
-    match style {
-        PetStyle::Pixel => style::pixel_house_side(stage, dpi),
-        PetStyle::Round => HOUSE_SIZE * house_scale(stage),
-    }
+/// 집 그림 한 변 (논리 px)
+pub fn house_side(stage: Stage) -> f64 {
+    HOUSE_SIZE * house_scale(stage)
 }
 
 /// 집 그림 좌표 한 칸의 물리 px (문 자리 계산용)
-fn art_unit(stage: Stage, style: PetStyle, dpi: f64) -> f64 {
-    match style {
-        PetStyle::Pixel => f64::from(style::dot_physical(stage, dpi)),
-        PetStyle::Round => house_scale(stage) * dpi,
-    }
+fn art_unit(stage: Stage, dpi: f64) -> f64 {
+    house_scale(stage) * dpi
 }
 
 /// 하우스 창 크기 (논리 px): 너비 = max(집, MIN_WIDTH), 높이 = 말풍선 자리 + 집
-pub fn window_size(stage: Stage, style: PetStyle, dpi: f64) -> (f64, f64) {
-    let side = house_side(stage, style, dpi);
+pub fn window_size(stage: Stage) -> (f64, f64) {
+    let side = house_side(stage);
     (side.max(MIN_WIDTH), side + BUBBLE_SPACE)
 }
 
@@ -107,12 +100,9 @@ macro_rules! door_of_kind {
     };
 }
 
-/// 집 종류·단계·스타일의 문 사각형을 돌려줌 (번들된 json에서)
-pub fn door(kind: HouseKind, stage: Stage, style: PetStyle) -> Door {
-    let json = match style {
-        PetStyle::Round => door_of_kind!("house", kind, stage), // tools/draw_house.py가 만든다
-        PetStyle::Pixel => door_of_kind!("house_pixel", kind, stage), // 칸 좌표, tools/draw_pixel_world.py가 만든다
-    };
+/// 집 종류·단계의 문 사각형을 돌려줌 (번들된 json에서 — tools/draw_house.py가 만듦)
+pub fn door(kind: HouseKind, stage: Stage) -> Door {
+    let json = door_of_kind!("house", kind, stage);
     serde_json::from_str::<HouseJson>(json).expect("bundled door json").door
 }
 
@@ -123,10 +113,8 @@ pub struct HouseState {
     pub pet: String,
     /// 성장 단계
     pub stage: Stage,
-    /// 몸 크기 배율 (동글 기준 — 픽셀 문간은 house.js가 칸 정수배로 맞춤)
+    /// 몸 크기 배율
     pub scale: f64,
-    /// 문간 동물의 그림
-    pub style: PetStyle,
     /// 배고픔
     pub hungry: bool,
     /// 동물이 집 안에 있음 (달려오는 중엔 false — 문간이 비어 있음)
@@ -205,10 +193,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 }
 
 /// 지금 하우스에 보이는 동물과 단계 (게임 루프가 AppState.house에 적음)
-fn shown(app: &AppHandle) -> (String, Stage, PetStyle) {
+fn shown(app: &AppHandle) -> (String, Stage) {
     let state = app.state::<AppState>();
     let h = state.house.lock().unwrap();
-    (h.pet.clone(), h.stage, h.style)
+    (h.pet.clone(), h.stage)
 }
 
 /// 모니터의 작업 영역 (물리 px)
@@ -249,20 +237,20 @@ pub fn spot(app: &AppHandle, work_areas: &[Rect], fallback_dpi: f64) -> Spot {
         _ => (0, fallback_dpi),
     };
     let wa = work_areas[index.min(work_areas.len() - 1)];
-    let (pet, stage, art) = shown(app);
-    let (width, height) = window_size(stage, art, dpi);
+    let (pet, stage) = shown(app);
+    let (width, height) = window_size(stage);
     let left = match &saved {
         Some(s) => s.left_in(wa.left, wa.right, width * dpi),
         None => wa.right - (RIGHT_MARGIN + width) * dpi,
     };
     let top = wa.bottom - height * dpi;
     // 집 그림은 창 오른쪽에 붙음
-    let house_left = left + (width - house_side(stage, art, dpi)) * dpi;
-    let d = door(house_kind(app, &pet), stage, art);
+    let house_left = left + (width - house_side(stage)) * dpi;
+    let d = door(house_kind(app, &pet), stage);
     Spot {
         window: (left.round() as i32, top.round() as i32),
         size: (width, height),
-        door_x: house_left + (d.x + d.w / 2.0) * art_unit(stage, art, dpi),
+        door_x: house_left + (d.x + d.w / 2.0) * art_unit(stage, dpi),
         ground: Owner::Ground(index),
         dpi,
     }

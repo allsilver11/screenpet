@@ -67,54 +67,6 @@ const GREEN_TONES = [
   ["#5cc25e", "rgba(28,96,40,0.85)"],
 ];
 
-// 픽셀 스타일 (window.ART_STYLE, 앱의 art-style 이벤트): 칸(PX_DOT px)으로만 그림 — 안티에일리어싱 없음, 자리도 칸에 맞춤, 더미는 칸 계단.
-// 그림은 글자 표 (글자 → 색), 도는 낙엽·꽃잎은 90도 네 장을 번갈아 (frames 수는 같게 맞춤)
-const PX_DOT = 3;
-const PX_COLORS = {
-  w: "#ffffff", c: "#b4cdeb", b: "#6491d2", B: "#4a70b0",
-  p: "#fbc4d4", P: "#d87896",
-  r: "#d6452b", R: "#78241a", o: "#ee8a24", O: "#8c4c0e", y: "#f2c230", Y: "#966e10",
-  g: "#8ed64c", G: "#2e6e1e", h: "#b4e866", H: "#467c1a", k: "#5cc25e", K: "#1c6028",
-};
-const PX_FLAKES = [["w"], ["cw", "wc"], [".c.", "cwc", ".c."]];
-// 함박눈 픽셀 눈송이: 4~5칸짜리 뭉치
-const PX_HEAVY_FLAKES = [
-  [".cwc.", "cwwwc", "wwwww", "cwwwc", ".cwc."],
-  ["..c..", ".cwc.", "cwwwc", ".cwc.", "..c.."],
-  [".cc.", "cwwc", "cwwc", ".cc."],
-];
-const PX_DROP = ["..b.", "..b.", ".b..", ".b.."];
-const PX_SPLASH = ["b..b", ".bb."];
-const PX_PETAL = ["pp.", "Ppp", ".pP"];
-const PX_LEAF = [".LL.", "LLLF", "FLLL", ".FF."];
-const PX_BOX = { light_snow: 9, snow: 9, heavy_snow: 15, rain: 12, shower: 12, petals: 9, leaves: 12, green_leaves: 12, typhoon: 12 };
-
-// 픽셀 그림 줄들을 시계 방향으로 turns번 90도 돌림
-function pxRotate(rows, turns) {
-  let out = rows;
-  for (let t = 0; t < turns; t++) {
-    out = Array.from({ length: out[0].length }, (_, x) => out.map((r) => r[x]).reverse().join(""));
-  }
-  return out;
-}
-
-// 표 → 칸 그림 (box 안 가운데, 칸에 맞춰)
-function pxSprite(rows, box, colors = PX_COLORS) {
-  return makeSprite(box, (g) => {
-    const x0 = Math.floor((box / PX_DOT - rows[0].length) / 2) * PX_DOT;
-    const y0 = Math.floor((box / PX_DOT - rows.length) / 2) * PX_DOT;
-    rows.forEach((row, j) => {
-      [...row].forEach((ch, i) => {
-        if (ch === ".") return;
-        g.fillStyle = colors[ch];
-        g.fillRect(x0 + i * PX_DOT, y0 + j * PX_DOT, PX_DOT, PX_DOT);
-      });
-    });
-  });
-}
-
-let pixelArt = window.ART_STYLE === "pixel";
-
 const pilesCanvas = document.getElementById("piles");
 const fallCanvas = document.getElementById("fall");
 const pilesCtx = pilesCanvas.getContext("2d");
@@ -190,8 +142,8 @@ function fluffyFlake(radius) {
 
 // 눈송이 그림들 (k: 눈 종류, box: 칸). 함박눈은 크고 몽실하게, 나머지 눈은 작은 동그라미
 function flakeSprites(k, box) {
-  if (k === "heavy_snow") return pixelArt ? PX_HEAVY_FLAKES.map((rows) => pxSprite(rows, box)) : [3.4, 4.2, 5.0].map((r) => makeSprite(box, fluffyFlake(r)));
-  return pixelArt ? PX_FLAKES.map((rows) => pxSprite(rows, box)) : [1.6, 2.2, 2.9].map((r) => makeSprite(box, flake(r)));
+  if (k === "heavy_snow") return [3.4, 4.2, 5.0].map((r) => makeSprite(box, fluffyFlake(r)));
+  return [1.6, 2.2, 2.9].map((r) => makeSprite(box, flake(r)));
 }
 
 // angle만큼 돌린 꽃잎 그리기 함수를 돌려줌
@@ -243,41 +195,17 @@ const tumblers = {
   leaves: () => LEAF_TONES.flatMap((tone) => Array.from({ length: KINDS.leaves.frames }, (_, a) => makeSprite(KINDS.leaves.box, leaf(tone, a)))),
   green_leaves: () => GREEN_TONES.flatMap((tone) => Array.from({ length: KINDS.green_leaves.frames }, (_, a) => makeSprite(KINDS.green_leaves.box, leaf(tone, a)))),
 };
-// 픽셀: 같은 장 수, 90도씩만 돎
-const pxTumblers = {
-  petals: () => Array.from({ length: KINDS.petals.frames }, (_, a) => pxSprite(pxRotate(PX_PETAL, a % 4), PX_BOX.petals)),
-  leaves: () =>
-    [["r", "R"], ["o", "O"], ["y", "Y"]].flatMap(([fill, dark]) =>
-      Array.from({ length: KINDS.leaves.frames }, (_, a) => pxSprite(pxRotate(PX_LEAF, a % 4), PX_BOX.leaves, { L: PX_COLORS[fill], F: PX_COLORS[dark] })),
-    ),
-  green_leaves: () =>
-    [["g", "G"], ["h", "H"], ["k", "K"]].flatMap(([fill, dark]) =>
-      Array.from({ length: KINDS.green_leaves.frames }, (_, a) => pxSprite(pxRotate(PX_LEAF, a % 4), PX_BOX.green_leaves, { L: PX_COLORS[fill], F: PX_COLORS[dark] })),
-    ),
-};
 const tumblerCache = {};
-// 굴러가는 알갱이(꽃잎·잎) k의 스프라이트들 (스타일별로 한 번만 만듦)
+// 굴러가는 알갱이(꽃잎·잎) k의 스프라이트들 (한 번만 만듦)
 function tumblerSprites(k) {
-  const key = `${pixelArt}:${k}`;
-  if (!tumblerCache[key]) tumblerCache[key] = (pixelArt ? pxTumblers : tumblers)[k]();
-  return tumblerCache[key];
+  if (!tumblerCache[k]) tumblerCache[k] = tumblers[k]();
+  return tumblerCache[k];
 }
 
-// 지금 종류·스타일의 떨어지는 알갱이 스프라이트를 만듦
+// 지금 종류의 떨어지는 알갱이 스프라이트를 만듦
 function buildSprites() {
   splash = null;
   debris = kind === "typhoon" ? tumblerSprites("green_leaves") : [];
-  if (pixelArt) {
-    if (isWet(kind)) {
-      sprites = [pxSprite(PX_DROP, spec.box)];
-      splash = pxSprite(PX_SPLASH, spec.box);
-    } else if (tumblers[kind]) {
-      sprites = tumblerSprites(kind);
-    } else {
-      sprites = flakeSprites(kind, spec.box);
-    }
-    return;
-  }
   if (isWet(kind)) {
     // 태풍 빗줄기는 더 굵고 더 누움
     const slant = kind === "typhoon" ? 4.5 : 1.2;
@@ -374,7 +302,6 @@ function respawn(i, first) {
 function startKind(next) {
   kind = next;
   spec = KINDS[kind] || KINDS.snow;
-  if (pixelArt) spec = { ...spec, box: PX_BOX[kind] ?? PX_BOX.snow };
   buildSprites();
   n = Math.round((spec.count * Math.max(width, 1)) / 1920);
   n = Math.min(MAX_PARTICLES, Math.max(MIN_PARTICLES, n));
@@ -414,14 +341,14 @@ let flurry = [];
 
 // 날아 들어오는 알갱이 칸 크기
 function flurryBox(k) {
-  return pixelArt ? PX_BOX[k] ?? PX_BOX.snow : (KINDS[k] || KINDS.snow).box;
+  return (KINDS[k] || KINDS.snow).box;
 }
 
 // 날아 들어오는 알갱이 k의 스프라이트들
 function flurrySprites(k) {
   if (tumblers[k]) return tumblerSprites(k);
   const heavy = k === "heavy_snow";
-  const key = `${pixelArt}:${heavy ? "heavy_flake" : "flake"}`;
+  const key = heavy ? "heavy_flake" : "flake";
   if (!tumblerCache[key]) tumblerCache[key] = flakeSprites(heavy ? k : "snow", flurryBox(heavy ? k : "snow"));
   return tumblerCache[key];
 }
@@ -478,8 +405,8 @@ function stepFlurry(dt) {
     flurry[kept++] = p;
     // 도는 그림은 같은 색 8장 안에서 돎
     const sprite = p.tumbling ? p.look[p.first - (p.first % 8) + ((p.first % 8) + Math.floor(p.age * 9)) % 8] : p.look[p.first];
-    const x = pixelArt ? Math.floor((p.x - p.box / 2) / PX_DOT) * PX_DOT : (p.x - p.box / 2) | 0;
-    const y = pixelArt ? Math.floor((p.y - p.box / 2) / PX_DOT) * PX_DOT : (p.y - p.box / 2) | 0;
+    const x = (p.x - p.box / 2) | 0;
+    const y = (p.y - p.box / 2) | 0;
     fallCtx.drawImage(sprite, x, y);
     p.oldX = x;
     p.oldY = y;
@@ -528,9 +455,8 @@ function frame(now) {
     }
     const sprite = spriteFor(i);
     // 그림 아래쪽이 내려앉는 높이에 닿음
-    // 픽셀: 자리도 칸에 맞춤
-    const x = pixelArt ? Math.floor((px[i] - half) / PX_DOT) * PX_DOT : (px[i] - half) | 0;
-    const y = pixelArt ? Math.floor((py[i] - box + 2) / PX_DOT) * PX_DOT : (py[i] - box + 2) | 0;
+    const x = (px[i] - half) | 0;
+    const y = (py[i] - box + 2) | 0;
     fallCtx.drawImage(sprite, x, y);
     oldX[i] = x;
     oldY[i] = y;
@@ -584,32 +510,12 @@ function softPuff(tone, seed) {
   };
 }
 
-// 픽셀 뭉치: dots×dots 칸을 덩이 안이면 세 단 그늘로 채움 (계단 모양 가장자리)
-function pxPuff(tone, seed, dots) {
-  const bill = billows(seed);
-  return (g) => {
-    for (let j = 0; j < dots; j++) {
-      for (let i = 0; i < dots; i++) {
-        const u = (i + 0.5) / dots;
-        const v = (j + 0.5) / dots;
-        let b = null;
-        for (let k = bill.length - 1; k >= 0 && !b; k--) if ((u - bill[k].x) ** 2 + (v - bill[k].y) ** 2 < bill[k].r ** 2) b = bill[k];
-        if (!b) continue;
-        const lit = (-(u - b.x) * 0.6 - (v - b.y) * 0.8) / b.r;
-        g.fillStyle = tone[lit > 0.3 ? 0 : lit > -0.4 ? 1 : 2];
-        g.fillRect(i * PX_DOT, j * PX_DOT, PX_DOT, PX_DOT);
-      }
-    }
-  };
-}
-
-// 뭉치 그림 (처음 한 번만 그려 둠): 동글은 PUFF_BOX 하나를 늘려 찍고, 픽셀은 크기(짝수 칸)마다 따로
+// 뭉치 그림 (처음 한 번만 그려 둠): PUFF_BOX 하나를 늘려 찍음
 const puffCache = {};
-function puffSprite(tone, seed, size) {
-  const dots = Math.max(6, Math.round(size / PX_DOT / 2) * 2);
-  const key = pixelArt ? `px:${tone}:${seed}:${dots}` : `${tone}:${seed}`;
+function puffSprite(tone, seed) {
+  const key = `${tone}:${seed}`;
   if (!puffCache[key]) {
-    puffCache[key] = pixelArt ? makeSprite(dots * PX_DOT, pxPuff(PUFF_TONES[tone], seed, dots)) : makeSprite(PUFF_BOX, softPuff(PUFF_TONES[tone], seed));
+    puffCache[key] = makeSprite(PUFF_BOX, softPuff(PUFF_TONES[tone], seed));
   }
   return puffCache[key];
 }
@@ -686,14 +592,13 @@ function drawFunnel(now) {
   const g = fallCtx;
   g.save();
   for (const p of list) {
-    const sprite = puffSprite(p.tone, p.seed, p.size);
-    // 픽셀: 칸에 맞춰 늘리지 않고 찍음, 동글: 지름만큼 늘려 찍음
-    const s = pixelArt ? sprite.width : p.size;
-    const dx = pixelArt ? Math.floor((p.x - s / 2) / PX_DOT) * PX_DOT : p.x - s / 2;
-    const dy = pixelArt ? Math.floor((p.y - s / 2) / PX_DOT) * PX_DOT : p.y - s / 2;
+    const sprite = puffSprite(p.tone, p.seed);
+    // 지름만큼 늘려 찍음
+    const s = p.size;
+    const dx = p.x - s / 2;
+    const dy = p.y - s / 2;
     g.globalAlpha = p.alpha;
-    if (pixelArt) g.drawImage(sprite, dx, dy);
-    else g.drawImage(sprite, dx, dy, s, s);
+    g.drawImage(sprite, dx, dy, s, s);
     x0 = Math.min(x0, dx);
     y0 = Math.min(y0, dy);
     x1 = Math.max(x1, dx + s);
@@ -762,40 +667,18 @@ function drawSnowPile(p) {
   g.stroke();
 }
 
-// 픽셀 눈 더미: 칸 너비 기둥을 칸 높이로 끊어 쌓음 (곡선 없음). 맨 위 칸은 옅은 파랑 — 흰 창 위에서도 보이게
-function drawSnowPilePixel(p) {
-  const g = pilesCtx;
-  const n = p.h.length;
-  const heightAt = (x) => {
-    const u = (x - p.x) / p.cell - 0.5;
-    const i = Math.max(0, Math.min(n - 1, Math.floor(u)));
-    const j = Math.min(n - 1, i + 1);
-    const t = Math.max(0, Math.min(1, u - i));
-    return (p.h[i] + (p.h[j] - p.h[i]) * t) / 10;
-  };
-  const left = Math.floor(p.x / PX_DOT) * PX_DOT;
-  for (let x = left; x < p.x + n * p.cell; x += PX_DOT) {
-    const h = Math.round(heightAt(x + PX_DOT / 2) / PX_DOT) * PX_DOT;
-    if (h <= 0) continue;
-    g.fillStyle = PX_COLORS.w;
-    g.fillRect(x, p.y - h, PX_DOT, h);
-    g.fillStyle = PX_COLORS.c;
-    g.fillRect(x, p.y - h, PX_DOT, PX_DOT);
-  }
-}
-
 // 꽃잎·잎 더미 하나를 스프라이트로 그림
 function drawSpritePile(p) {
   const g = pilesCtx;
   const look = tumblerSprites(pileKind);
-  const half = (pixelArt ? PX_BOX[pileKind] : KINDS[pileKind].box) >> 1;
+  const half = KINDS[pileKind].box >> 1;
   for (let i = 0; i < p.h.length; i++) {
     const count = Math.round((p.h[i] / 10) * 1.1);
     for (let k = 0; k < count; k++) {
       const x = p.x + (i + hash(i, k)) * p.cell;
       const y = p.y - 3 - hash(k, i + 7) * (p.h[i] / 10);
-      const dx = pixelArt ? Math.floor((x - half) / PX_DOT) * PX_DOT : (x - half) | 0;
-      const dy = pixelArt ? Math.floor((y - half) / PX_DOT) * PX_DOT : (y - half) | 0;
+      const dx = (x - half) | 0;
+      const dy = (y - half) | 0;
       g.drawImage(look[Math.floor(hash(i + 3, k) * look.length)], dx, dy);
     }
   }
@@ -811,7 +694,6 @@ function drawPiles() {
     for (const c of p.clips) g.rect(c[0], p.y - 32, c[1] - c[0], 33);
     g.clip();
     if (tumblers[pileKind]) drawSpritePile(p);
-    else if (pixelArt) drawSnowPilePixel(p);
     else drawSnowPile(p);
     g.restore();
   }
@@ -850,8 +732,6 @@ function fitCanvas() {
   height = window.innerHeight;
   pilesCanvas.width = fallCanvas.width = width;
   pilesCanvas.height = fallCanvas.height = height;
-  // 동글은 예전 그대로 (캔버스 스타일을 건드리지 않음)
-  if (pixelArt || pilesCanvas.style?.imageRendering) pilesCanvas.style.imageRendering = fallCanvas.style.imageRendering = pixelArt ? "pixelated" : "";
   if (kind) {
     const k = kind;
     kind = null;
@@ -861,20 +741,12 @@ function fitCanvas() {
   if (running) drawPiles();
 }
 
-// 스타일이 바뀌면 알갱이·더미를 새 그림으로
-function setPixelArt(on) {
-  if (on === pixelArt) return;
-  pixelArt = on;
-  fitCanvas();
-}
-
 window.addEventListener("resize", fitCanvas);
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 fitCanvas();
 
 if (window.__TAURI__) {
   // 이 창으로 온 장면만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
-  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("art-style", (e) => setPixelArt(e.payload === "pixel"));
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("weather-flurry", (e) => addFlurry(e.payload));
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("weather-scene", (e) => applyScene(e.payload));
 } else {
@@ -884,7 +756,6 @@ if (window.__TAURI__) {
 // 앱 없이 브라우저에서 보기 (개발용): 창 두 개 + 자란 더미
 function devPreview() {
   const wanted = new URLSearchParams(location.search).get("preview") || "snow";
-  if (new URLSearchParams(location.search).get("pixel")) setPixelArt(true);
   const wet = isWet(wanted);
   document.documentElement.style.background = "#3a4258";
   const windows = [

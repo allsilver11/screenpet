@@ -77,14 +77,12 @@ pub struct Runner {
     pub facing: f64,
     /// 몸 크기 (물리 px)
     pub size: f64,
-    /// 픽셀 스타일이면 칸 구름
-    pub pixel: bool,
 }
 
 impl Runner {
     /// 동물의 이번 틱 모습
-    pub fn of(pet: &Pet, pixel: bool) -> Self {
-        Runner { dash: Dash::of(pet), feet: (pet.body.x, pet.body.y), facing: pet.facing, size: pet.cfg.size, pixel }
+    pub fn of(pet: &Pet) -> Self {
+        Runner { dash: Dash::of(pet), feet: (pet.body.x, pet.body.y), facing: pet.facing, size: pet.cfg.size }
     }
 
     /// 구름이 나오는 자리: 발 뒤 (보는 쪽 반대), 던져졌으면 몸 가운데
@@ -108,8 +106,6 @@ pub struct Puff {
     pub size: f64,
     /// 무지개 몇 번째 색 (0 = 빨강 … 6 = 보라)
     pub color: u8,
-    /// 픽셀 스타일 칸 구름
-    pub pixel: bool,
     /// 흘러가는 쪽 (-1 왼쪽, +1 오른쪽, 0 제자리)
     pub dir: f64,
 }
@@ -140,7 +136,7 @@ impl Trail {
         let dir = if dash == Dash::Fling { 0.0 } else { -r.facing.signum() };
         let size = r.size * dash.puff_size();
         let Some(prev) = self.last else {
-            self.push(spot, size, r.pixel, dir, out);
+            self.push(spot, size, dir, out);
             return;
         };
         if self.wait > 0.0 {
@@ -154,13 +150,13 @@ impl Trail {
         let n = ((d / (r.size * GAP)).ceil() as usize).clamp(1, MAX_PER_TICK);
         for k in 1..=n {
             let f = k as f64 / n as f64;
-            self.push((prev.0 + dx * f, prev.1 + dy * f), size, r.pixel, dir, out);
+            self.push((prev.0 + dx * f, prev.1 + dy * f), size, dir, out);
         }
     }
 
     /// 구름 하나를 남기고 다음 색으로 넘어감
-    fn push(&mut self, (x, y): (f64, f64), size: f64, pixel: bool, dir: f64, out: &mut Vec<Puff>) {
-        out.push(Puff { x, y, size, color: self.color, pixel, dir });
+    fn push(&mut self, (x, y): (f64, f64), size: f64, dir: f64, out: &mut Vec<Puff>) {
+        out.push(Puff { x, y, size, color: self.color, dir });
         self.color = (self.color + 1) % COLORS;
         self.last = Some((x, y));
         self.wait = PUFF_EVERY;
@@ -178,7 +174,7 @@ mod tests {
 
     /// 테스트: 바닥 y 1000의 x에서 facing을 보는 동물 모습
     fn runner(dash: Option<Dash>, x: f64, facing: f64) -> Runner {
-        Runner { dash, feet: (x, 1000.0), facing, size: 128.0, pixel: false }
+        Runner { dash, feet: (x, 1000.0), facing, size: 128.0 }
     }
 
     /// 달리기 속도(약 300 px/s)로 secs초 달림: 남긴 구름
@@ -301,12 +297,11 @@ mod tests {
     fn a_fast_fling_fills_the_gap_but_is_capped() {
         let mut t = Trail::new();
         let mut out = Vec::new();
-        let fling = |x: f64| Runner { dash: Some(Dash::Fling), feet: (x, 600.0), facing: 1.0, size: 128.0, pixel: true };
+        let fling = |x: f64| Runner { dash: Some(Dash::Fling), feet: (x, 600.0), facing: 1.0, size: 128.0 };
         t.tick(DT, true, &fling(100.0), &mut out);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].y, 600.0 - 128.0 * 0.45, "from the middle of the body");
         assert_eq!(out[0].dir, 0.0);
-        assert!(out[0].pixel);
         // 0.1초 동안 300 px — 사이를 메우되 한 틱에 MAX_PER_TICK개까지
         for _ in 0..6 {
             t.tick(DT, true, &fling(100.0), &mut out);
@@ -331,8 +326,8 @@ mod tests {
     fn runner_reads_the_pet() {
         let mut p = ground_pet(State::Move { kind: Move::Run, remaining: 5.0 });
         p.facing = -1.0;
-        let r = Runner::of(&p, true);
+        let r = Runner::of(&p);
         assert_eq!(r.dash, Some(Dash::Run));
-        assert_eq!((r.feet, r.facing, r.size, r.pixel), ((500.0, 1000.0), -1.0, 128.0, true));
+        assert_eq!((r.feet, r.facing, r.size), ((500.0, 1000.0), -1.0, 128.0));
     }
 }

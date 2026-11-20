@@ -197,7 +197,7 @@ def hand_candy(img):
 
 
 def hand_lollipop(img):
-    """유령이 좋아하는 막대사탕 — 분홍·흰 소용돌이 동그라미 + 하얀 막대 + 작은 리본."""
+    """흐물이가 좋아하는 막대사탕 — 분홍·흰 소용돌이 동그라미 + 하얀 막대 + 작은 리본."""
     blob(img, [L([(64, 66), (64, 81.5)], 3.6)], STICK, r=0, line=0.8)
     spiral = [(64 + 0.62 * t * math.cos(t), 58 + 0.62 * t * math.sin(t)) for t in (k * 0.3 for k in range(3, 59))]
     blob(img, [C(64, 58, 12)], LOLLY, r=0, line=0.9,

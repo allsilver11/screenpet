@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::behavior::Personality;
 use crate::care::Stage;
-use crate::style;
 
 /// 모든 동물이 반드시 가져야 하는 동작
 pub const REQUIRED_ANIMS: [&str; 21] = [
@@ -52,7 +51,7 @@ pub enum Locomotion {
     /// 디딤판 위를 걸음
     #[default]
     Walk,
-    /// 날아다님 (유령) — 쉴 때 가끔 창 윗면·바닥에 내려앉음
+    /// 날아다님 (지금 번들 동물엔 없음 — 슈퍼인간이 쓸 수 있음) — 쉴 때 가끔 창 윗면·바닥에 내려앉음
     Fly,
     /// 폴짝폴짝 뛰어다님 (개구리) — 가끔 크게 뛰어 창 위로, 벽은 폴짝폴짝 오름 (hop.rs)
     Hop,
@@ -64,7 +63,7 @@ pub enum Locomotion {
 pub enum HouseKind {
     /// 보통 집 (ui/house/house_<stage>)
     House,
-    /// 호박·유령의 귀신의 집 (ui/house/haunted_<stage>)
+    /// 호박의 귀신의 집 (ui/house/haunted_<stage>)
     Haunted,
     /// 루돌프·산타의 눈 덮인 크리스마스 벽돌집 (ui/house/xmas_<stage>, 굴뚝 연기는 ui/house.js가 피움)
     Xmas,
@@ -111,7 +110,7 @@ pub struct PetManifest {
     pub name: String,
     /// 칸 한 변 (px)
     pub frame_size: u32,
-    /// 단계마다 칸 크기가 다른 시트 (단계 이름 → 칸 px, 없는 단계는 frame_size) — 픽셀 그림은 24·28·32·32·36
+    /// 단계마다 칸 크기가 다른 시트 (단계 이름 → 칸 px, 없는 단계는 frame_size) — 고해상도 단계는 2배 칸
     #[serde(default)]
     pub frame_sizes: HashMap<String, u32>,
     /// 걷기 속도 (논리 px/s)
@@ -224,18 +223,6 @@ pub fn parse_manifest(json: &str) -> Result<PetManifest, String> {
     Ok(m)
 }
 
-/// 픽셀 그림의 pet.json (ui/pets_pixel/<id>/pet.json): 그림에 관한 것만 읽음
-#[derive(Deserialize)]
-struct PixelJson {
-    #[serde(default)]
-    frame_sizes: HashMap<String, u32>,
-    animations: HashMap<String, AnimSpec>,
-    #[serde(default)]
-    head: HashMap<String, HashMap<String, Vec<[f64; 4]>>>,
-    #[serde(default)]
-    grip: HashMap<String, HashMap<String, Vec<[f64; 2]>>>,
-}
-
 /// required는 있어야 하고, 있는 동작(required·optional)은 칸 수와 속도가 0보다 커야 함
 fn check_anims(animations: &HashMap<String, AnimSpec>, required: &[&str], optional: &[&str]) -> Result<(), String> {
     for &name in required.iter().chain(optional) {
@@ -248,25 +235,6 @@ fn check_anims(animations: &HashMap<String, AnimSpec>, required: &[&str], option
     Ok(())
 }
 
-/// 픽셀 그림의 pet.json을 동글 동물(base) 위에 얹음: 시트 칸·동작 표·머리 표만 그림 것이고 이름·속도·성격·크기·먹이·집은 모두 base 그대로 (스타일은 겉모습뿐).
-/// 칸 크기는 frame_sizes, 없는 단계는 기본 표(style::pixel_grid). roll은 없어도 됨 (없으면 no_roll)
-pub fn parse_pixel_manifest(json: &str, base: &PetManifest) -> Result<PetManifest, String> {
-    let p: PixelJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    let mut frame_sizes = HashMap::new();
-    for stage in Stage::ALL {
-        let name = stage.name();
-        let size = p.frame_sizes.get(name).copied().unwrap_or(style::pixel_grid(stage).0);
-        if size == 0 {
-            return Err(format!("frame size of {name} must be > 0"));
-        }
-        frame_sizes.insert(name.to_string(), size);
-    }
-    let required: Vec<&str> = REQUIRED_ANIMS.into_iter().filter(|a| *a != "roll").collect();
-    check_anims(&p.animations, &required, &["roll"])?;
-    check_anims(&p.animations, &[], &OPTIONAL_ANIMS)?;
-    Ok(PetManifest { frame_sizes, animations: p.animations, head: p.head, grip: p.grip, ..base.clone() })
-}
-
 impl PetManifest {
     /// 이 동작 그림이 있음
     pub fn has_anim(&self, name: &str) -> bool {
@@ -276,11 +244,6 @@ impl PetManifest {
     /// 이 단계 시트의 칸 크기 (px)
     pub fn frame_size_at(&self, stage: &str) -> u32 {
         self.frame_sizes.get(stage).copied().unwrap_or(self.frame_size)
-    }
-
-    /// 구르기 그림이 없음 (픽셀 그림) — 구르기를 고르지 않음
-    pub fn no_roll(&self) -> bool {
-        !self.has_anim("roll")
     }
 
     /// 이 동물의 특별 동작 (pet.json에 있는 그림으로 찾음)
@@ -303,7 +266,7 @@ impl PetManifest {
         self.locomotion == Locomotion::Hop
     }
 
-    /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 개구리는 늘 폴짝, 유령은 남)
+    /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 개구리는 늘 폴짝, 나는 동물은 남)
     pub fn hop_share(&self) -> f64 {
         if self.locomotion == Locomotion::Walk { self.hop_share } else { 0.0 }
     }
@@ -603,13 +566,13 @@ mod tests {
         assert!(parse_manifest(&bad).is_err());
     }
 
-    /// 번들 호박은 벽을 타고, 같은 할로윈 유령은 남 (벽 없음)
+    /// 번들 호박은 벽을 탐. 👻 유령은 v0.7.0에 빠졌음 (설정은 호박으로 옮김)
     #[test]
-    fn bundled_pumpkin_climbs_and_the_ghost_does_not() {
+    fn bundled_pumpkin_climbs_and_the_ghost_is_gone() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         assert!(load("pumpkin").can_climb());
-        assert!(!load("ghost").can_climb());
+        assert!(!dir.join("ghost").exists());
     }
 
     /// 번들 공룡 셋: 걷고, 벽을 타고, 공룡 동작을 모두 갖고, 좋아하는 음식이 저마다 다름
@@ -675,18 +638,17 @@ mod tests {
         }
     }
 
-    /// 🕷️ 거미인간만 줄을 씀 (web_slinger + WEB_ANIMS 그림 다섯) — 동글·픽셀 모두. 줄 끝 손 자리(grip)는 shoot·web_swing·web_pull·web_whirl
+    /// 🕷️ 거미인간만 줄을 씀 (web_slinger + WEB_ANIMS 그림 다섯). 줄 끝 손 자리(grip)는 shoot·web_swing·web_pull·web_whirl
     #[test]
     fn only_the_bundled_spider_slings_webs_and_has_hand_spots_for_the_line() {
         assert_eq!(WEB_ANIMS, ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl"]);
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
         let read = |root: &str, id: &str| std::fs::read_to_string(ui.join(root).join(id).join("pet.json")).unwrap();
-        for root in ["pets", "pets_pixel"] {
+        {
             for id in crate::test_util::species() {
-                let base = parse_manifest(&read("pets", &id)).unwrap();
-                let m = if root == "pets" { base } else { parse_pixel_manifest(&read(root, &id), &base).unwrap() };
-                assert_eq!(m.slings_webs(), id == "spider", "{root} {id}");
-                assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").slings_webs, id == "spider", "{root} {id}");
+                let m = parse_manifest(&read("pets", &id)).unwrap();
+                assert_eq!(m.slings_webs(), id == "spider", "{id}");
+                assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").slings_webs, id == "spider", "{id}");
             }
         }
         let s = parse_manifest(&read("pets", "spider")).unwrap();
@@ -706,17 +668,16 @@ mod tests {
         assert!(!parse_manifest(&no_whirl).unwrap().slings_webs());
     }
 
-    /// 🦇 박쥐인간만 오토바이를 탐 (bike_rider + BIKE_ANIMS 그림 다섯) — 동글·픽셀 모두. 물건 들기(juggle)도 하고 손 자리(grip)는 머리 위
+    /// 🦇 박쥐인간만 오토바이를 탐 (bike_rider + BIKE_ANIMS 그림 다섯). 물건 들기(juggle)도 하고 손 자리(grip)는 머리 위
     #[test]
     fn only_the_bundled_bat_rides_a_bike_and_lifts_things_overhead() {
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
         let read = |root: &str, id: &str| std::fs::read_to_string(ui.join(root).join(id).join("pet.json")).unwrap();
-        for root in ["pets", "pets_pixel"] {
+        {
             for id in crate::test_util::species() {
-                let base = parse_manifest(&read("pets", &id)).unwrap();
-                let m = if root == "pets" { base } else { parse_pixel_manifest(&read(root, &id), &base).unwrap() };
-                assert_eq!(m.rides_bike(), id == "bat", "{root} {id}");
-                assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").rides_bike, id == "bat", "{root} {id}");
+                let m = parse_manifest(&read("pets", &id)).unwrap();
+                assert_eq!(m.rides_bike(), id == "bat", "{id}");
+                assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").rides_bike, id == "bat", "{id}");
             }
         }
         let b = parse_manifest(&read("pets", "bat")).unwrap();
@@ -731,18 +692,17 @@ mod tests {
         assert!(!parse_manifest(&partial).unwrap().rides_bike());
     }
 
-    /// 🐱 툭툭은 고양이·페르시안, 🐿️ 볼 빵빵은 다람쥐, 🦆 기차는 오리만 (v0.6.3) — 동글·픽셀 모두
+    /// 🐱 툭툭은 고양이·페르시안, 🐿️ 볼 빵빵은 다람쥐, 🦆 기차는 오리만 (v0.6.3)
     #[test]
     fn bundled_cats_knock_the_squirrel_stashes_and_the_duck_leads_trains() {
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
         let read = |root: &str, id: &str| std::fs::read_to_string(ui.join(root).join(id).join("pet.json")).unwrap();
-        for root in ["pets", "pets_pixel"] {
+        {
             for id in crate::test_util::species() {
-                let base = parse_manifest(&read("pets", &id)).unwrap();
-                let m = if root == "pets" { base } else { parse_pixel_manifest(&read(root, &id), &base).unwrap() };
-                assert_eq!(m.knocks(), id == "cat" || id == "persian", "{root} {id}");
-                assert_eq!(m.stashes(), id == "squirrel", "{root} {id}");
-                assert_eq!(m.train_leader, id == "duck", "{root} {id}");
+                let m = parse_manifest(&read("pets", &id)).unwrap();
+                assert_eq!(m.knocks(), id == "cat" || id == "persian", "{id}");
+                assert_eq!(m.stashes(), id == "squirrel", "{id}");
+                assert_eq!(m.train_leader, id == "duck", "{id}");
             }
         }
     }
@@ -809,18 +769,11 @@ mod tests {
         assert!(!OPTIONAL_ANIMS.contains(&"wag") && !OPTIONAL_ANIMS.contains(&"sting"));
     }
 
-    /// 할로윈 호박: 걷는 동물인데 걷기·달리기는 늘 통통 (hop_share 1.0), bigjump 그림 없음 (벽 타기는 번들 pet.json의 climb·slide로 — bundled_pumpkin_climbs_and_the_ghost_does_not)
+    /// 할로윈 호박: 걷는 동물인데 걷기·달리기는 늘 통통 (hop_share 1.0), bigjump 그림 없음 (벽 타기는 번들 pet.json의 climb·slide로 — bundled_pumpkin_climbs_and_the_ghost_is_gone)
     fn check_pumpkin(m: &PetManifest) {
         assert_eq!(m.locomotion, Locomotion::Walk);
         assert_eq!(m.hop_share(), 1.0);
         assert!(!m.flies() && !m.hops() && !m.has_anim("bigjump"));
-    }
-
-    /// 할로윈 유령: 둥실 날아다님 (locomotion fly), 벽은 타지 않음
-    fn check_ghost(m: &PetManifest) {
-        assert_eq!(m.locomotion, Locomotion::Fly);
-        assert!(m.flies() && !m.can_climb());
-        assert!(m.walk_speed < 60.0, "ghost floats slowly: {}", m.walk_speed);
     }
 
     #[test]
@@ -829,24 +782,20 @@ mod tests {
         let m = parse_manifest(&pumpkin).unwrap();
         check_pumpkin(&m);
         assert_eq!((m.personality, m.size_mult(Stage::Adult)), (Personality::Playful, 0.9));
-        let ghost = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 40, "locomotion": "fly", "stage_size": {"adult": 0.85},"#);
-        let m = parse_manifest(&ghost).unwrap();
-        check_ghost(&m);
+        // 나는 동물 (유령은 빠졌지만 날기는 남음 — 슈퍼인간용): locomotion fly
+        let flyer = full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 40, "locomotion": "fly", "stage_size": {"adult": 0.85},"#);
+        let m = parse_manifest(&flyer).unwrap();
+        assert!(m.locomotion == Locomotion::Fly && m.flies());
         assert_eq!(m.size_mult(Stage::Adult), 0.85);
     }
 
-    /// 호박·유령 (아트 에이전트가 ui/pets/{pumpkin,ghost}를 만들면 그대로 읽힘 — 없으면 건너뜀)
+    /// 번들 호박 (ui/pets/pumpkin — 없으면 건너뜀)
     #[test]
     fn bundled_halloween_pets_if_present() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         if let Ok(json) = std::fs::read_to_string(dir.join("pumpkin/pet.json")) {
             let m = parse_manifest(&json).unwrap();
             check_pumpkin(&m);
-            assert!(m.favorite_food.is_some());
-        }
-        if let Ok(json) = std::fs::read_to_string(dir.join("ghost/pet.json")) {
-            let m = parse_manifest(&json).unwrap();
-            check_ghost(&m);
             assert!(m.favorite_food.is_some());
         }
     }
@@ -864,11 +813,11 @@ mod tests {
         assert_eq!(parse_manifest(&with("xmas")).unwrap().house_kind(), HouseKind::Xmas);
     }
 
-    /// 번들 pet.json: 호박·유령은 귀신의 집, 루돌프·산타는 크리스마스 벽돌집, 나머지는 보통 집
+    /// 번들 pet.json: 호박은 귀신의 집, 루돌프·산타는 크리스마스 벽돌집, 나머지는 보통 집
     #[test]
     fn bundled_pets_pick_their_house() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
-        for (id, kind) in [("pumpkin", HouseKind::Haunted), ("ghost", HouseKind::Haunted), ("cat", HouseKind::House),
+        for (id, kind) in [("pumpkin", HouseKind::Haunted), ("cat", HouseKind::House),
                            ("rudolph", HouseKind::Xmas), ("santa", HouseKind::Xmas), ("snowman", HouseKind::Xmas)] {
             if let Ok(json) = std::fs::read_to_string(dir.join(id).join("pet.json")) {
                 assert_eq!(parse_manifest(&json).unwrap().house_kind(), kind, "{id}");
@@ -876,23 +825,11 @@ mod tests {
         }
     }
 
-    /// 픽셀 pet.json: 동글 필수 동작에서 roll만 빠진 표
-    fn pixel_json(extra: &str) -> String {
-        let anims: Vec<String> = REQUIRED_ANIMS
-            .iter()
-            .filter(|a| **a != "roll")
-            .enumerate()
-            .map(|(i, a)| format!(r#""{a}": {{"row": {i}, "frames": 2, "fps": 4}}"#))
-            .collect();
-        format!(r#"{{{extra} "animations": {{{}}}}}"#, anims.join(","))
-    }
-
     #[test]
     fn round_manifest_frame_size_is_the_same_on_every_stage() {
         let m = parse_manifest(&full_json()).unwrap();
         assert!(m.frame_sizes.is_empty());
         assert_eq!((m.frame_size_at("baby"), m.frame_size_at("adult")), (64, 64));
-        assert!(!m.no_roll(), "round pets always have a roll");
         assert!(parse_manifest(&full_json().replace(r#""roll""#, r#""rolly""#)).unwrap_err().contains("roll"), "round still needs its roll");
     }
 
@@ -906,93 +843,16 @@ mod tests {
     }
 
     #[test]
-    fn pixel_manifest_only_brings_its_art_everything_else_stays_the_round_pets() {
-        let base = parse_manifest(&full_json().replace(r#""walk_speed": 60,"#, r#""walk_speed": 60, "personality": "aloof", "stage_size": {"adult": 1.3}, "hop_share": 0.5,"#)).unwrap();
-        let m = parse_pixel_manifest(&pixel_json(r#""name": "other", "walk_speed": 999, "personality": "playful", "frame_sizes": {"baby": 24, "kinder": 28, "child": 32, "teenager": 32, "adult": 36},"#), &base).unwrap();
-        assert_eq!((m.name.as_str(), m.walk_speed, m.personality, m.size_mult(Stage::Adult), m.hop_share), ("고양이", 60.0, Personality::Aloof, 1.3, 0.5));
-        assert_eq!((m.frame_size_at("baby"), m.frame_size_at("kinder"), m.frame_size_at("adult")), (24, 28, 36));
-        assert!(m.no_roll() && !m.has_anim("roll"));
-    }
-
-    /// 배로 미끄러지는 동물: 픽셀 pet.json에 roll이 있으면 구름 (spin은 픽셀 pet.json에 없음 — 돌지 않음)
-    #[test]
-    fn a_pixel_belly_slide_keeps_its_roll_without_spin() {
-        let base = parse_manifest(&full_json()).unwrap();
-        let json = pixel_json("").replace(r#""animations": {"#, r#""animations": {"roll": {"row": 21, "frames": 2, "fps": 4},"#);
-        let m = parse_pixel_manifest(&json, &base).unwrap();
-        assert!(!m.no_roll() && m.has_anim("roll"));
-        assert_eq!(m.animations["roll"].spin, 0.0);
-    }
-
-    #[test]
-    fn pixel_frame_sizes_default_to_the_grid() {
-        let base = parse_manifest(&full_json()).unwrap();
-        let some = parse_pixel_manifest(&pixel_json(r#""frame_sizes": {"baby": 20, "adult": 40},"#), &base).unwrap();
-        assert_eq!((some.frame_size_at("baby"), some.frame_size_at("adult")), (20, 40));
-        assert_eq!(some.frame_size_at("kinder"), 28, "default grid for a stage it does not list");
-        let none = parse_pixel_manifest(&pixel_json(""), &base).unwrap();
-        assert_eq!((none.frame_size_at("baby"), none.frame_size_at("child"), none.frame_size_at("teenager"), none.frame_size_at("adult")), (24, 32, 32, 36));
-        assert!(parse_pixel_manifest(&pixel_json(r#""frame_sizes": {"baby": 0},"#), &base).is_err());
-    }
-
-    #[test]
-    fn pixel_manifest_is_validated_like_a_round_one() {
-        let base = parse_manifest(&full_json()).unwrap();
-        assert!(parse_pixel_manifest("{", &base).is_err());
-        assert!(parse_pixel_manifest(&pixel_json("").replace(r#""sleep""#, r#""nap""#), &base).unwrap_err().contains("sleep"));
-        assert!(parse_pixel_manifest(&pixel_json("").replace(r#""frames": 2"#, r#""frames": 0"#), &base).is_err());
-        let bad_roll = pixel_json("").replace(r#""animations": {"#, r#""animations": {"roll": {"row": 9, "frames": 0, "fps": 4},"#);
-        assert!(parse_pixel_manifest(&bad_roll, &base).is_err());
-    }
-
-    #[test]
     fn hang_grip_measures_in_the_stages_own_dots() {
-        let base = parse_manifest(&full_json()).unwrap();
-        let json = pixel_json(r#""frame_sizes": {"baby": 24, "adult": 36}, "head": {"baby": {"dragged": [[15, 6, 8, 0]]}, "adult": {"dragged": [[18, 9, 8, 0]]}},"#);
-        let m = parse_pixel_manifest(&json, &base).unwrap();
+        let json = full_json().replace(
+            r#""walk_speed": 60,"#,
+            r#""walk_speed": 60, "frame_sizes": {"baby": 24, "adult": 36}, "head": {"baby": {"dragged": [[15, 6, 8, 0]]}, "adult": {"dragged": [[18, 9, 8, 0]]}},"#,
+        );
+        let m = parse_manifest(&json).unwrap();
         let (x, y) = m.hang_grip("baby");
         assert!((x - (15.0 / 24.0 - 0.5)).abs() < 1e-9 && (y - (6.0 - 1.2) / 24.0).abs() < 1e-9, "{x} {y}");
         let (x, _) = m.hang_grip("adult");
         assert!(x.abs() < 1e-9, "{x}");
-    }
-
-    /// PNG 머리에서 (너비, 높이)
-    fn png_size(path: &std::path::Path) -> (u32, u32) {
-        let b = std::fs::read(path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
-        (u32::from_be_bytes([b[16], b[17], b[18], b[19]]), u32::from_be_bytes([b[20], b[21], b[22], b[23]]))
-    }
-
-    /// 번들 픽셀 그림 (ui/pets_pixel — 있는 동물만): 동글 동물 위에 올라가고, 구르기가 없고, 다섯 단계 시트가 칸 표에 맞음
-    #[test]
-    fn bundled_pixel_pets_fit_their_sheets() {
-        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
-        let Ok(dir) = std::fs::read_dir(ui.join("pets_pixel")) else { return };
-        for entry in dir {
-            let path = entry.unwrap().path();
-            let Ok(json) = std::fs::read_to_string(path.join("pet.json")) else { continue };
-            let id = path.file_name().unwrap().to_string_lossy().into_owned();
-            let base = parse_manifest(&std::fs::read_to_string(ui.join("pets").join(&id).join("pet.json")).unwrap()).unwrap_or_else(|e| panic!("{id}: {e}"));
-            let m = parse_pixel_manifest(&json, &base).unwrap_or_else(|e| panic!("{id}: {e}"));
-            // 도는 구르기는 도트로 돌리면 무너진다 — 돌지 않는 배 미끄럼(펭귄·눈사람)만 픽셀에도 있다 (tools/draw_pixel.py PIXEL_ROLL)
-            let slides = matches!(id.as_str(), "penguin" | "snowman");
-            assert_eq!(m.no_roll(), !slides, "{id}: only the belly sliders carry a roll in pixel");
-            if let Some(roll) = m.animations.get("roll") {
-                assert_eq!((roll.spin, base.animations["roll"].spin), (0.0, 0.0), "{id}: a pixel roll never spins");
-            }
-            for stage in Stage::ALL {
-                let (name, sheet) = (stage.name(), path.join(format!("sheet_{}.png", stage.name())));
-                if !sheet.is_file() {
-                    continue; // 아직 그리는 중 — 앱은 다섯 장이 다 있어야 픽셀로 쓴다 (build.rs)
-                }
-                let size = m.frame_size_at(name);
-                let (w, h) = png_size(&sheet);
-                assert!(w % size == 0 && h % size == 0, "{id} {name}: {w}x{h} is not whole frames of {size}");
-                for (anim, spec) in &m.animations {
-                    assert!((spec.row + 1) * size <= h && spec.frames * size <= w, "{id} {name} {anim} falls off the sheet");
-                }
-                assert_eq!(m.head.get(name).is_some(), base.head.contains_key(name), "{id} {name}: head table");
-            }
-        }
     }
 
     #[test]

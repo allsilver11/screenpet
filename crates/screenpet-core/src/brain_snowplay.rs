@@ -119,12 +119,7 @@ impl Pet {
             Play::Flop => {
                 self.snowplay.event = Some(SnowPlayEvent::Burst { x: self.body.x, y: self.body.y });
                 self.speech = Some(Speech::Flop);
-                let rolls = !self.cfg.no_roll;
-                self.state = if rolls {
-                    State::Move { kind: Move::Roll, remaining: snowplay::FLOP_SECS }
-                } else {
-                    State::Trick { kind: Trick::Belly, remaining: snowplay::FLOP_SECS }
-                };
+                self.state = State::Move { kind: Move::Roll, remaining: snowplay::FLOP_SECS };
             }
             Play::Dive => {
                 let dir = if self.snowplay.rng.bool() { 1.0 } else { -1.0 };

@@ -1,6 +1,6 @@
 //! 게임 루프 스레드임: 16ms 틱마다 창 목록·커서를 읽고 동물 두뇌(코어)를 돌린 뒤 창을 놓음.
 //! 웹뷰·트레이·네트워크에서 오는 것은 모두 [`Input`]으로 받아 이 스레드에서만 설정과 슬롯을 고침.
-//! 진입점 `spawn`은 `main.rs`가 부르고, 효과들(날씨·물건·선물·사다리 등)과 `network.rs`를 틱마다 돌림.
+//! 진입점 `spawn`은 `main.rs`가 부르고, 효과들(날씨·물건·사다리 등)과 `network.rs`를 틱마다 돌림.
 //! 🕸️ 거미집 자리 (trail.web_spots)는 틱마다 동물 뇌 (set_webs — 걸리기·🧗 거미집 놀이)와 물건 (objects.set_webs — 📦 걸려 매달림)에 같이 줌.
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, Sender};
@@ -16,7 +16,6 @@ use screenpet_core::food::{self, FeedMode, HandFeed, HandInput};
 use screenpet_core::geom::Rect;
 use screenpet_core::linked;
 use screenpet_core::manifest::FavoriteFood;
-use screenpet_core::style::PetStyle;
 use screenpet_core::typing::{AskStep, PermissionAsk};
 use screenpet_core::tint::BodyTint;
 use screenpet_core::pacing::Pacer;
@@ -27,7 +26,6 @@ use screenpet_core::visit::Side;
 use screenpet_core::world::World;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::gifts::Gifts;
 use crate::house::{self, HouseState};
 use crate::network::{NetInput, Network};
 use crate::objects::{ObjectInput, Objects};
@@ -43,6 +41,8 @@ use crate::AppState;
 /// 한 틱 길이
 const TICK: Duration = Duration::from_millis(16);
 /// 전체 창 목록 다시 읽기 (EnumWindows). 사이 틱엔 동물이 기대고 있는 창만 읽음 (follow_ridden_windows)
+/// 집으로 달려가는 동안 집 창이 정말 보이는지 OS에 묻는 간격 (틱 — 1초쯤)
+const HOUSE_CHECK_TICKS: u32 = 60;
 const WORLD_REFRESH: Duration = Duration::from_millis(100);
 /// 설정을 저장하는 주기 (바뀌었을 때만)
 const SAVE_EVERY: Duration = Duration::from_secs(60);
@@ -59,9 +59,6 @@ const TYPING_PERMISSION_CHECK: Duration = Duration::from_secs(2);
 /// 이 환경 변수가 있으면 시작할 때 번들 동물 하나를 손님으로 들임 (네트워크 없이 여러 창 확인용)
 const DEBUG_GUEST_ENV: &str = "SCREENPET_DEBUG_GUEST";
 
-/// 말풍선은 줄바꿈 없이 128px 창에 잘리니 한 줄로 짧게
-const NO_PIXEL_ART_HINT: &str = "픽셀 그림 준비 중!";
-
 /// 게임 루프로 들어오는 입력임 (웹뷰 커맨드, 트레이 메뉴, 네트워크 이벤트)
 pub enum Input {
     /// 창(label)의 동물을 눌렀음
@@ -69,8 +66,6 @@ pub enum Input {
     /// 동물 교체 — 돌보기 상태는 게임 루프가 가진 설정에서 찾음.
     /// remote = 📱 노는 내 다른 컴퓨터가 바꿨음 (다시 알리지 않고, 트레이 체크를 맞춤)
     SetPet { entry: PetEntry, remote: bool },
-    /// 캐릭터 스타일 (동글동글 / 픽셀, 설정에 남음) — 바로 그림이 바뀜
-    SetStyle(PetStyle),
     /// 🎨 흐물이 몸 색 (설정에 남음) — 바로 칠해짐
     SetTint(BodyTint),
     Feed(Food),
@@ -102,8 +97,6 @@ pub enum Input {
     ToggleFocus,
     /// ⏱️ 집중 친구 길이 (설정에 남음, 켜져 있으면 새 길이로 다시 시작)
     SetFocusLength(FocusLength),
-    /// 선물 창(label)을 눌렀음 — 도감에 적음 (설정은 게임 루프만 씀)
-    CollectGift { label: String },
     /// 하우스 창을 눌렀음 (배고프면 음식 고르기, 아니면 손 흔들기)
     HouseClick,
     /// 하우스를 끌어 옮겼음 (house.rs). save = 다 놓았음 — 새 자리를 설정에 적음
@@ -126,8 +119,6 @@ pub enum Input {
     ShowMailbox,
     /// 📮 건의함 보기 창 (다른 모든 컴퓨터의 트레이 "📮 건의함" — 읽기 전용 공개 목록)
     ShowBoard,
-    /// 메뉴 "🎁 선물 도감" (창 만들기는 게임 루프 스레드에서)
-    ShowGiftBook,
     /// 메뉴 "💩 똥피하기"
     ShowDodge,
     /// 똥피하기 창에서
@@ -208,7 +199,7 @@ pub(crate) fn speech_target(pet: &Pet) -> &'static str {
 
 /// 내 동물의 단계(또는 동물)가 바뀌었을 때: 창 크기, 펫 크기, 웹뷰 시트
 fn apply_own_stage(app: &AppHandle, own: &mut Slot, care: &Care) {
-    let payload = slots::stage_payload(&own.entry, care.stage, own.shown.wanted, own.dpi, own.size());
+    let payload = slots::stage_payload(&own.entry, care.stage, own.size());
     own.set_stage(app, payload);
     sync_growth(app, care);
 }
@@ -224,17 +215,10 @@ fn broom_at((cx, cy): (f64, f64), dpi: f64) -> (f64, f64) {
     (cx + food::HAND_OFFSET * dpi, cy - food::HAND_OFFSET * dpi)
 }
 
-/// 픽셀을 골랐는데 지금 동물은 아직 그림이 없어 동글로 보임 — 한 줄 알림
-fn hint_no_pixel_art(app: &AppHandle, own: &Slot) {
-    if own.shown.wanted == PetStyle::Pixel && own.shown.style == PetStyle::Round {
-        let _ = app.emit_to(speech_target(&own.pet), "pet-say-text", NO_PIXEL_ART_HINT);
-    }
-}
-
 /// 사이 틱: 동물(내 동물·손님)이 서 있거나 매달린 창의 경계만 새로 읽어 세계에 고쳐 넣음 —
-/// 창을 끌어 옮기면 100 ms 계단이 아니라 매 틱 따라감 (선물이 앉은 창도). 기대고 있는 창이 없으면 아무것도 읽지 않음
-fn follow_ridden_windows(source: &mut dyn WindowSource, slots: &mut [Slot], gifts: impl Iterator<Item = u64>) {
-    let mut ids: Vec<u64> = slots.iter().filter_map(|s| s.pet.ridden_window()).chain(gifts).collect();
+/// 창을 끌어 옮기면 100 ms 계단이 아니라 매 틱 따라감. 기대고 있는 창이 없으면 아무것도 읽지 않음
+fn follow_ridden_windows(source: &mut dyn WindowSource, slots: &mut [Slot]) {
+    let mut ids: Vec<u64> = slots.iter().filter_map(|s| s.pet.ridden_window()).collect();
     if ids.is_empty() {
         return;
     }
@@ -277,7 +261,7 @@ fn spawn_debug_guest(app: &AppHandle, slots: &mut Vec<Slot>) {
     let stage = Stage::Teenager;
     let scale = stage.scale() * entry.manifest.size_mult(stage);
     let guest = GuestInfo { visit_id: "debug".into(), owner_id: "debug".into(), owner_name: "디버그 친구".into(), note: None, can_grow: true, tint: BodyTint::Default };
-    match slots::spawn_guest(app, guest, entry, stage, scale, slots[OWN].shown.wanted, slots[OWN].dpi, Side::Right, &slots[OWN].world, seed_now(), slots[OWN].size()) {
+    match slots::spawn_guest(app, guest, entry, stage, scale, slots[OWN].dpi, Side::Right, &slots[OWN].world, seed_now(), slots[OWN].size()) {
         Ok(slot) => slots.push(slot),
         Err(e) => eprintln!("failed to create debug guest window: {e}"),
     }
@@ -296,8 +280,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let dpi = window.scale_factor().unwrap_or(1.0);
     let mut source = default_source();
 
-    let shown = slots::stage_payload(&entry, care.stage, config.style, dpi, config.pet_size());
-    let cfg = slots::pet_config(dpi, &entry, shown.scale, shown.stage, shown.style);
+    let shown = slots::stage_payload(&entry, care.stage, config.pet_size());
+    let cfg = slots::pet_config(dpi, &entry, shown.scale, shown.stage);
     let world = World::new(source.windows(), source.work_areas(), cfg.size);
     let b = world.bounds;
     let pet = Pet::new(cfg, b.left + b.width() / 2.0, b.top + cfg.size, seed_now());
@@ -330,6 +314,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
     }
     let mut was_housed = slots[OWN].pet.is_housed();
+    // 🏠 집으로 달려가는 동안 집이 보이는지 OS에 묻는 틱 세기 (HOUSE_CHECK_TICKS마다 한 번)
+    let mut house_checks: u32 = 0;
     let mut was_away = false;
     let mut last_house: Option<HouseState> = None;
     if std::env::var_os(DEBUG_GUEST_ENV).is_some() {
@@ -375,8 +361,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let mut typing_ask = PermissionAsk::start(Instant::now(), !config.typing_cheer_off, typing_permission, config.input_monitoring_asked.as_deref(), env!("CARGO_PKG_VERSION"));
     let mut next_permission_check = Instant::now() + TYPING_PERMISSION_CHECK;
     crate::tray::sync_typing_permission(&app.state::<AppState>().menu, !config.typing_cheer_off && typing_permission == Some(false));
-    // 🎁 선물 (없으면 1초에 한 번 시계만 봄)
-    let mut gifts = Gifts::new(&config.gifts, seed_now());
     // 자리 비움·돌아옴, 하루 일과, ⏱️ 집중 친구 (1초에 한 번)
     let mut presence = Presence::new(&app, config.focus_length);
     // 물건 (쓰레기 장난감 — 없거나 잠들어 있으면 일이 없음)
@@ -451,7 +435,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     // 하우스 안이면 새 동물도 하우스 안에 있음 (같은 Pet이므로 상태가 그대로 이어짐)
                     sync_menu(&app, &own.entry, &care, config.housed);
                     save_config(&app, &mut config, &own.entry.id, &care);
-                    hint_no_pixel_art(&app, own);
                     if !remote {
                         share_care(&network, &config, own, &care, true);
                     } else {
@@ -468,31 +451,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     config.tint = tint;
                     let own = &mut slots[OWN];
                     own.set_tint(&app, tint);
-                    save_config(&app, &mut config, &own.entry.id, &care);
-                }
-                Input::SetStyle(style) => {
-                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 다시 맞춤
-                    crate::tray::sync_style(&app.state::<AppState>().menu, style);
-                    // 이미 고른 스타일이면 체크만 — 다시 그리면 하던 특별 동작이 끊김
-                    if style == config.style {
-                        continue;
-                    }
-                    config.style = style;
-                    crate::art::set(style);
-                    gifts.restyle();
-                    let _ = app.emit("art-style", if style == PetStyle::Pixel { "pixel" } else { "round" });
-                    let own = &mut slots[OWN];
-                    own.restyle(&app, style);
-                    // 소품·손 음식·눈덩이·눈사람 창은 그림을 만들 때 정함 — 새 스타일로 다시 만듦
-                    props.restyle(&app, own.dpi, own.shown.scale, own.pixel_dot());
-                    if let Some(h) = &hand {
-                        show_hand(&app, &mut hand_win, h.food, source.cursor(), own);
-                    }
-                    if broom.is_some() {
-                        broom_win.show(&app, food::BROOM_ICON, broom_at(source.cursor(), own.dpi), own.dpi);
-                    }
-                    weather.restyle(&app, own.dpi);
-                    hint_no_pixel_art(&app, own);
                     save_config(&app, &mut config, &own.entry.id, &care);
                 }
                 Input::Feed(food) => {
@@ -664,11 +622,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     crate::autostart::toggle(&app, &mut config);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
-                Input::CollectGift { label } => {
-                    if gifts.collect(&app, &label, &mut config.gifts, &slots[OWN]) {
-                        save_config(&app, &mut config, &slots[OWN].entry.id, &care);
-                    }
-                }
                 Input::HouseClick => {
                     if slots[OWN].pet.is_housed() {
                         if care.is_hungry() {
@@ -823,7 +776,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 Input::ShowFeedback => crate::feedback::show(&app),
                 Input::ShowMailbox => crate::mailbox::show(&app),
                 Input::ShowBoard => crate::board::show(&app),
-                Input::ShowGiftBook => crate::gifts::show_book(&app),
                 Input::ShowDodge => {
                     // 조작 모드는 게임이 대신함
                     if control_on {
@@ -845,7 +797,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     if save {
                         // 밥그릇·손 음식처럼 펫 크기로 만든 창을 맞추고 남김
                         let own = &slots[OWN];
-                        props.restyle(&app, own.dpi, own.shown.scale, own.pixel_dot());
+                        props.resize(&app, own.dpi, own.shown.scale);
                         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                     }
                 }
@@ -879,7 +831,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             slots[OWN].pet.set_hungry(care.is_hungry());
             last_refresh = now;
         } else {
-            follow_ridden_windows(source.as_mut(), &mut slots, gifts.ridden_windows());
+            follow_ridden_windows(source.as_mut(), &mut slots);
         }
         if now - last_save >= SAVE_EVERY {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
@@ -1147,7 +1099,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             // 밥그릇 놓기·거두기 (손님은 먹이를 받지 않음)
             if let Some(ev) = s.pet.take_prop() {
                 if s.is_own() {
-                    props.apply(&app, ev, s.dpi, s.shown.scale, s.pixel_dot());
+                    props.apply(&app, ev, s.dpi, s.shown.scale);
                 }
             }
             if let Some(side) = s.pet.take_exit() {
@@ -1258,10 +1210,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         network.tick_boost(&app, &mut slots[OWN], now);
         weather.tick(&app, now, !config.weather_on, presence.is_away(), &mut slots);
         trail.tick(&app, now, dt, presence.is_away(), &mut slots);
-        for g in network.take_guest_gifts() {
-            gifts.guest_arrived(g, now);
-        }
-        gifts.tick(&app, now, dt, &slots, &care);
         if presence.tick(&app, now, source.as_mut(), &mut slots[OWN], &mut care, &mut config.daily) {
             save_config(&app, &mut config, &slots[OWN].entry.id, &care);
             share_care(&network, &config, &slots[OWN], &care, false);
@@ -1297,13 +1245,22 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 // 문에 닿았음 — 펫 창을 숨기고 하우스 창 문간에 보임
                 crate::overlay::hide_quietly(&own.window);
                 // 집으로 가는 동안 모두 숨겼다가 다시 보였으면 집이 아직 안 보임
-                if let Some(hw) = house_window.as_ref().filter(|w| !crate::windows_hidden(&app) && !w.is_visible().unwrap_or(true)) {
+                // tao의 is_visible은 조용히 숨긴 창을 아직 "보임"으로 앎 — OS에 물음 (모두 숨긴 채 하우스로 보내면 집이 끝내 안 보이던 버그)
+                if let Some(hw) = house_window.as_ref().filter(|w| !crate::windows_hidden(&app) && !crate::overlay::is_shown(w)) {
                     let spot = house::spot(&app, &own.world.work_areas, own.dpi);
                     house::show_at(hw, &spot);
                 }
             } else {
                 // 하우스에서 나왔음 (나오기, 또는 문 앞 그릇으로 먹으러) — 문 앞 자리로 옮긴 뒤 보임
                 own.need_show = true;
+            }
+        }
+        // 🏠 집으로 달려가는 중인데 집이 안 보임 (모두 숨긴 채 하우스로 보낸 뒤 다시 보였음): 집을 보임 — 1초에 한 번쯤만 OS에 물음
+        house_checks = house_checks.wrapping_add(1);
+        if own.pet.is_going_home() && house_checks % HOUSE_CHECK_TICKS == 0 && !crate::windows_hidden(&app) {
+            if let Some(hw) = house_window.as_ref().filter(|w| !crate::overlay::is_shown(w)) {
+                let spot = house::spot(&app, &own.world.work_areas, own.dpi);
+                house::show_at(hw, &spot);
             }
         }
         if own.pet.is_away() != was_away {
@@ -1322,20 +1279,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
             pet: own.shown.pet.clone(),
             stage: own.shown.stage,
             scale: own.shown.base,
-            style: own.shown.style,
             hungry: care.is_hungry(),
             housed: own.pet.is_housed(),
         };
         if last_house.as_ref() != Some(&house_state) {
             *app.state::<AppState>().house.lock().unwrap() = house_state.clone();
             let _ = app.emit_to(house::LABEL, "house-state", house_state.clone());
-            // 스타일이 바뀌면 집 크기와 문 자리도 바뀜 — 집으로 가는 동물이 새 문으로 감
-            let restyled = last_house.as_ref().is_some_and(|h| h.style != house_state.style);
             last_house = Some(house_state);
-            if restyled {
-                let spot = house::spot(&app, &own.world.work_areas, own.dpi);
-                own.pet.set_house_door(spot.ground, spot.door_x);
-            }
         }
 
         // 먹다가 눌린 동안(Pressed)도 먹는 중으로 봄 — 손을 떼면 계속 먹으므로 크기를 미리 바꾸지 않음.

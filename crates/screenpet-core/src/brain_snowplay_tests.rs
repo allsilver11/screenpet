@@ -105,10 +105,7 @@ fn a_pet_flops_in_the_snow_with_a_puff() {
     p.force_snow_play(Play::Flop);
     assert!(matches!(p.take_snow_play(), Some(SnowPlayEvent::Burst { .. })));
     assert_eq!(p.take_speech(), Some(Speech::Flop));
-    // 못 구르는 동물은 배를 보이며 뒹군다
-    let (mut q, _) = on_ground(PetConfig { no_roll: true, ..sim_cfg() }, 800.0);
-    q.force_snow_play(Play::Flop);
-    assert!(matches!(q.state, State::Trick { kind: Trick::Belly, .. }), "{:?}", q.state);
+    assert!(matches!(p.state, State::Move { kind: Move::Roll, .. }), "{:?}", p.state);
     let _ = w;
 }
 

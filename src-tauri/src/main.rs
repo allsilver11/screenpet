@@ -3,14 +3,12 @@
 //! 웹뷰 → 앱 입력은 [`AppState::send`]로 게임 루프(`game_loop`)에 넘기고, 앱 → 웹뷰는 각 모듈이 이벤트로 보냄.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod art;
 mod autostart;
 mod dodge;
 mod board;
 mod feedback;
 mod mailbox;
 mod game_loop;
-mod gifts;
 mod help;
 mod house;
 mod ladder;
@@ -255,23 +253,21 @@ fn main() {
                 overlay::float_everywhere(&window);
             }
             let config_dir = app.path().app_config_dir()?;
-            // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이, 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐)은 load가 옮김 (Config::retire_pets)
+            // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이, 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐 · 유령 → 호박)은 load가 옮김 (Config::retire_pets).
+            // 옛 설정의 선물 도감·픽셀 스타일은 모르는 줄이라 조용히 버려짐
             let cfg = config::load(&config_dir);
             let fallback = if pets.iter().any(|p| p.id == DEFAULT_PET) { DEFAULT_PET.to_string() } else { pets[0].id.clone() };
             let current = cfg.pet.clone().filter(|id| pets.iter().any(|p| &p.id == id)).unwrap_or(fallback);
             let entry = pets.iter().find(|p| p.id == current).unwrap().clone();
             let care = cfg.care.get(&current).cloned().unwrap_or_default();
 
-            art::set(cfg.style);
             let (tx, rx) = mpsc::channel();
-            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.style, cfg.dev_secret().is_some())?;
-            // 화면 배율은 게임 루프가 창에서 읽어 다시 맞춤
-            let stage = slots::stage_payload(&entry, care.stage, cfg.style, 1.0, cfg.pet_size());
+            let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.dev_secret().is_some())?;
+            let stage = slots::stage_payload(&entry, care.stage, cfg.pet_size());
             let house_state = HouseState {
                 pet: stage.pet.clone(),
                 stage: stage.stage,
                 scale: stage.base,
-                style: stage.style,
                 hungry: care.is_hungry(),
                 housed: cfg.housed,
             };
@@ -341,8 +337,6 @@ fn main() {
             ladder::ladder_answer,
             ladder::ladder_close,
             ladder::ladder_seen,
-            gifts::gift_collect,
-            gifts::book_state,
             timeline::timeline_state,
             timeline::timeline_fit,
             dodge::dodge_state,

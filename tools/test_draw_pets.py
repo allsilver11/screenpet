@@ -68,7 +68,7 @@ def test_bear_bee_and_dog_are_gone():
         assert pid not in draw_pets.SPECIES, pid
         for table in (sprite_spec.SPEECH, sprite_spec.PERSONALITY, sprite_spec.FAVORITE_FOOD, sprite_spec.LOCOMOTION, sprite_spec.HOUSE):
             assert pid not in table, pid
-        assert not (root / "pets" / pid).exists() and not (root / "pets_pixel" / pid).exists(), pid
+        assert not (root / "pets" / pid).exists(), pid
     assert not {"wag", "sting"} & {a for a, *_ in OPTIONAL_ANIMS}
     for sp in draw_pets.SPECIES.values():
         assert not {"wag", "sting"} & set(sp.specials), sp.id
@@ -135,9 +135,9 @@ def test_rabbit_manifest_keeps_hop_share():
 
 
 def test_manifest_house_kind():
-    """호박·유령은 귀신의 집 (pet.json house) — 다시 그려도 칸이 남고, 들어 있는 pet.json과 같다. 보통 집은 적지 않는다."""
+    """호박은 귀신의 집 (pet.json house) — 다시 그려도 칸이 남고, 들어 있는 pet.json과 같다. 보통 집은 적지 않는다."""
     import json
-    want = {"pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
+    want = {"pumpkin": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
     pets = Path(__file__).resolve().parent.parent / "ui" / "pets"
     for d in sorted(p for p in pets.iterdir() if (p / "pet.json").is_file()):
         assert draw_pets.species_fields(d.name, {}).get("house") == want.get(d.name), d.name
@@ -333,7 +333,7 @@ def _shipped():
 def test_hires_stages_follow_the_on_screen_size():
     """청소년 때 이미 128보다 크게 보이는 동물(stage_size >= 1)만 청소년도 2배, 어른은 모두 2배."""
     shipped = _shipped()
-    assert len(shipped) == 18  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1, 레서판다 +1, 다람쥐 +1 · v0.6.2: 흐물이 +1 · 거미인간 +1 · v0.7.0: 새·기린·레서판다 −3, 박쥐인간 +1
+    assert len(shipped) == 17  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1, 레서판다 +1, 다람쥐 +1 · v0.6.2: 흐물이 +1 · 거미인간 +1 · v0.7.0: 새·기린·레서판다·유령 −4, 박쥐인간 +1
     assert {pid for pid, m, _ in shipped if m["stage_size"]["teenager"] >= 1} == HIRES_TEENAGER
     for pid, m, _ in shipped:
         assert m["frame_size"] == FRAME
@@ -520,22 +520,22 @@ def test_paw_lifts_a_front_paw_then_taps_forward(built, st):
     assert len({c.tobytes() for c in cells}) == 4
 
 
-GONE = ("bird", "giraffe", "redpanda")
+GONE = ("bird", "giraffe", "redpanda", "ghost")
 
 
-def test_bird_giraffe_and_redpanda_are_gone():
-    """v0.7.0 삭제: 새·기린·레서판다는 그림·생성기·표·전용 동작 어디에도 남지 않음."""
+def test_bird_giraffe_redpanda_and_ghost_are_gone():
+    """v0.7.0 삭제: 새·기린·레서판다·유령은 그림·생성기·표·전용 동작 어디에도 남지 않음 (🎁 선물·🟦 픽셀 그림 폴더도 함께 빠짐)."""
     import sprite_spec
     root = Path(__file__).resolve().parent.parent
     for pid in GONE:
         assert pid not in draw_pets.SPECIES, pid
-        for d in ("pets", "pets_pixel"):
-            assert not (root / "ui" / d / pid).exists(), (d, pid)
-        assert not list((root / "ui" / "gifts").glob(f"{pid}_*")), pid
-        for table in ("SPEECH", "PERSONALITY", "LOCOMOTION", "FAVORITE_FOOD", "NO_SPIN", "HIRES_TEENAGER"):
+        assert not (root / "ui" / "pets" / pid).exists(), pid
+        for table in ("SPEECH", "PERSONALITY", "LOCOMOTION", "FAVORITE_FOOD", "NO_SPIN", "HIRES_TEENAGER", "HOUSE"):
             assert pid not in getattr(sprite_spec, table), (table, pid)
     assert not {"neckstretch", "surprise"} & {a for a, *_ in OPTIONAL_ANIMS}
     assert not hasattr(sprite_spec, "SWIFT")
+    for gone in ("gifts", "gifts_pixel", "pets_pixel", "effects_pixel", "objects_pixel", "house_pixel"):
+        assert not (root / "ui" / gone).exists(), gone
 
 
 def test_a_guest_of_a_removed_species_is_sent_home():

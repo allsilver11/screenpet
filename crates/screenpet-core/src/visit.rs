@@ -532,12 +532,6 @@ pub fn round_boost(scale: f64, stage_scale: f64, boost: f64) -> f64 {
     boost.min(room).max(1.0)
 }
 
-/// 픽셀 칸 dot(물리 px)을 boost배 할 때의 실제 배율: 칸이 정수 물리 px로 남고 boost를 넘지 않음
-pub fn pixel_boost(dot: u32, boost: f64) -> f64 {
-    let dot = f64::from(dot.max(1));
-    (dot * boost + 1e-9).floor().max(dot) / dot
-}
-
 /// 친구가 던진 물건을 어떻게 할까
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TossAnswer {
@@ -713,12 +707,6 @@ mod tests {
         for (sent, want) in [(None, 1.0), (Some(f64::NAN), 1.0), (Some(f64::INFINITY), 1.0), (Some(0.2), 1.0), (Some(1.3), 1.3), (Some(99.0), 1.5)] {
             assert_eq!(sanitize_boost(sent, 1.5), want, "{sent:?}");
         }
-        // 픽셀 칸은 정수로
-        assert_eq!(pixel_boost(3, 1.0), 1.0);
-        assert_eq!(pixel_boost(3, 1.34), 4.0 / 3.0);
-        assert_eq!(pixel_boost(3, 1.1), 1.0);
-        assert_eq!(pixel_boost(4, 1.65), 6.0 / 4.0);
-        assert_eq!(pixel_boost(3, 1.2), 1.0, "never past the boost");
         // 곱한 크기는 어떤 값을 받아도 그 단계의 산타 크기까지
         let adult = 1.15;
         let largest = adult * BOOST_LARGEST_SIZE;

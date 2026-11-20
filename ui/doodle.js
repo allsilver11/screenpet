@@ -4,7 +4,7 @@
 // draw초 (앱이 흐물이 그리기 동작 길이 DOODLE_SECS를 보냄, 없으면 DRAW) 동안 분필로 그려지고, HOLD초 그대로 있다가, FADE초 동안 흐려짐. CPU를 아끼는 규칙: 낙서 MAX_DOODLES개까지,
 // 분필 가루는 낙서마다 따로 그림에 한 번만 찍기, 그리거나 흐려지는 동안만 requestAnimationFrame, 가만히 있는 동안은 타이머 하나.
 // 이름은 캔버스 fillText로만 넣음 (HTML로 넣지 않음), MAX_NAME글자까지.
-// 브라우저에서 trail.html?doodle=1 (&pixel=1, &light=1)로 앱 없이 볼 수 있음.
+// 브라우저에서 trail.html?doodle=1 (&light=1)로 앱 없이 볼 수 있음.
 
 const DRAW = 2.0;
 // 받아들이는 그리기 시간 (초) — 밖이면 DRAW
@@ -104,10 +104,10 @@ function newCanvas(w, h) {
   return c;
 }
 
-// 이름을 분필 글자로 (동글: 글자 위를 가루로 깎음, 픽셀: 작게 써서 칸으로 끊음)
+// 이름을 분필 글자로 (글자 위를 가루로 깎음)
 function nameSprite(d) {
   const text = Array.from(String(d.name || "")).slice(0, MAX_NAME).join("");
-  const px = d.pixel ? 11 : Math.max(12, d.size * 0.5);
+  const px = Math.max(12, d.size * 0.5);
   const probe = newCanvas(1, 1).getContext("2d");
   probe.font = `${px}px ${FONT}`;
   const width = (probe.measureText(text) || {}).width || px * Array.from(text).length;
@@ -115,43 +115,23 @@ function nameSprite(d) {
   const g = c.getContext("2d");
   g.font = `bold ${px}px ${FONT}`;
   g.textBaseline = "middle";
-  if (d.pixel) {
-    // 반쯤 넘게 칠해진 칸만 남기고, 둘레 한 칸에 그늘
-    g.fillStyle = "#fff";
-    g.fillText(text, px / 2, c.height / 2);
-    const img = g.getImageData(0, 0, c.width, c.height);
-    if (img && img.data) {
-      g.clearRect(0, 0, c.width, c.height);
-      const on = (x, y) => y >= 0 && y < c.height && img.data[(y * c.width + x) * 4 + 3] > 110;
-      for (const [tone, dy] of [[SHADE, 1], [CHALK.name, 0]]) {
-        g.fillStyle = tone;
-        for (let y = 0; y < c.height; y++) {
-          for (let x = 0; x < c.width; x++) {
-            const lit = dy === 0 ? on(x, y) : !on(x, y) && (on(x, y - 1) || on(x - 1, y) || on(x + 1, y) || on(x, y + 1));
-            if (lit) g.fillRect(x, y, 1, 1);
-          }
-        }
-      }
-    }
-  } else {
-    // 밝은 창 위에서도 읽히게 둘레에 그늘
-    g.strokeStyle = SHADE;
-    g.lineWidth = Math.max(2, px / 9);
-    g.lineJoin = "round";
-    g.strokeText(text, px / 2 + 0.5, c.height / 2 + 1);
-    g.fillStyle = CHALK.name;
-    g.fillText(text, px / 2, c.height / 2);
-    // 분필 결: 글자 곳곳을 작게 지움
-    const rnd = seeded(d.seed);
-    g.globalCompositeOperation = "destination-out";
-    const holes = Math.round((c.width * c.height) / 18);
-    for (let i = 0; i < holes; i++) {
-      g.globalAlpha = 0.35 + rnd() * 0.6;
-      g.fillRect(rnd() * c.width, rnd() * c.height, 1 + rnd() * 1.5, 1);
-    }
-    g.globalAlpha = 1;
-    g.globalCompositeOperation = "source-over";
+  // 밝은 창 위에서도 읽히게 둘레에 그늘
+  g.strokeStyle = SHADE;
+  g.lineWidth = Math.max(2, px / 9);
+  g.lineJoin = "round";
+  g.strokeText(text, px / 2 + 0.5, c.height / 2 + 1);
+  g.fillStyle = CHALK.name;
+  g.fillText(text, px / 2, c.height / 2);
+  // 분필 결: 글자 곳곳을 작게 지움
+  const rnd = seeded(d.seed);
+  g.globalCompositeOperation = "destination-out";
+  const holes = Math.round((c.width * c.height) / 18);
+  for (let i = 0; i < holes; i++) {
+    g.globalAlpha = 0.35 + rnd() * 0.6;
+    g.fillRect(rnd() * c.width, rnd() * c.height, 1 + rnd() * 1.5, 1);
   }
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = "source-over";
   return c;
 }
 
@@ -159,26 +139,24 @@ function nameSprite(d) {
 function prepare(d) {
   if (d.kind === "name") {
     const text = nameSprite(d);
-    const dot = d.pixel ? Math.max(2, Math.round(d.size / 20)) : 1;
     d.text = text;
-    d.w = text.width * dot;
-    d.h = text.height * dot;
-    d.dot = dot;
+    d.w = text.width;
+    d.h = text.height;
+    d.dot = 1;
     return;
   }
-  // 동글: 실제 크기로, 픽셀: 한 칸 = 1px로 그려 두고 정수 배로 늘림
-  const dot = d.pixel ? Math.max(2, Math.round(d.size / 18)) : 1;
-  const h = d.size / dot;
+  // 실제 크기로 그림
+  const h = d.size;
   const w = h;
-  const pad = d.pixel ? 2 : 4;
-  d.dot = dot;
+  const pad = 4;
+  d.dot = 1;
   d.pad = pad;
   d.chalk = newCanvas(w + pad * 2, h + pad * 2);
   d.shade = newCanvas(w + pad * 2, h + pad * 2);
-  d.points = walk(shapeLines(d.kind), w, h, d.facing < 0 ? -1 : 1, d.pixel ? 1 : 0.8);
+  d.points = walk(shapeLines(d.kind), w, h, d.facing < 0 ? -1 : 1, 0.8);
   d.drawn = 0;
-  d.w = d.chalk.width * dot;
-  d.h = d.chalk.height * dot;
+  d.w = d.chalk.width;
+  d.h = d.chalk.height;
   d.rnd = seeded(d.seed);
 }
 
@@ -191,18 +169,9 @@ function stamp(d, upto) {
   const oy = d.chalk.height - d.pad;
   c.fillStyle = CHALK[d.kind];
   s.fillStyle = SHADE;
-  const thick = d.pixel ? 0 : Math.max(1.6, d.size / 26);
+  const thick = Math.max(1.6, d.size / 26);
   for (let i = d.drawn; i < upto; i++) {
     const [x, y] = d.points[i];
-    if (d.pixel) {
-      // 칸 하나, 가끔 빠진 칸 (분필이 덜 묻은 자리)
-      if (d.rnd() < 0.12) continue;
-      const gx = Math.round(x + ox);
-      const gy = Math.round(y + oy);
-      c.fillRect(gx, gy, 1, 1);
-      s.fillRect(gx, gy + 1, 1, 1);
-      continue;
-    }
     for (let k = 0; k < 3; k++) {
       const jx = (d.rnd() - 0.5) * thick * 1.4;
       const jy = (d.rnd() - 0.5) * thick * 1.4;
@@ -223,7 +192,7 @@ function addDoodles(list) {
     const draw = p.draw >= DRAW_RANGE[0] && p.draw <= DRAW_RANGE[1] ? p.draw : DRAW;
     if (!KINDS.includes(p.kind) || !(p.age >= 0 && p.age < draw + HOLD + FADE) || !(p.size > 0 && p.size < 2000)) continue;
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-    const d = { x: p.x, y: p.y, kind: p.kind, name: p.name, facing: p.facing < 0 ? -1 : 1, size: p.size, pixel: !!p.pixel, draw, born: now - p.age * 1000, seed: (Math.random() * 4294967296) >>> 0 };
+    const d = { x: p.x, y: p.y, kind: p.kind, name: p.name, facing: p.facing < 0 ? -1 : 1, size: p.size, draw, born: now - p.age * 1000, seed: (Math.random() * 4294967296) >>> 0 };
     prepare(d);
     doodles.push(d);
   }
@@ -252,12 +221,11 @@ function drawDoodles(now) {
     let alpha = t < d.draw + HOLD ? 1 : Math.max(0, 1 - (t - d.draw - HOLD) / FADE);
     if (drawn < 1 || t >= d.draw + HOLD) moving = true;
     else next = Math.min(next, d.draw + HOLD - t);
-    if (d.pixel) alpha = Math.ceil(alpha * 4) / 4;
     if (alpha <= 0) continue;
     // 바닥 줄 위에, x가 가운데
     const left = Math.round(d.x - d.w / 2);
     const top = Math.round(d.y - d.h + (d.kind === "name" ? d.h * 0.25 : d.pad * d.dot));
-    dctx.imageSmoothingEnabled = !d.pixel;
+    dctx.imageSmoothingEnabled = true;
     dctx.globalAlpha = alpha;
     if (d.text) {
       // 글자는 왼쪽부터 써 나감
@@ -305,11 +273,10 @@ if (window.__TAURI__) {
 // 앱 없이 브라우저에서 보기 (개발용): 네 가지 낙서, 다 그려진 것과 그리는 중인 것
 function doodlePreview() {
   const q = new URLSearchParams(location.search);
-  const pixel = !!q.get("pixel");
   document.documentElement.style.background = q.get("light") ? "#eef1f6" : "#1d2030";
   const floor = Math.round(window.innerHeight * 0.75);
   const name = q.get("name") || "흐물이";
   const ages = [5, 5, 5, 5, 0.9];
   const kinds = ["heart", "smile", "star", "name", "star"];
-  addDoodles(kinds.map((kind, i) => ({ x: 90 + i * 150, y: floor, kind, name, facing: i % 2 ? -1 : 1, size: 64, pixel, age: ages[i] })));
+  addDoodles(kinds.map((kind, i) => ({ x: 90 + i * 150, y: floor, kind, name, facing: i % 2 ? -1 : 1, size: 64, age: ages[i] })));
 }

@@ -6,8 +6,7 @@
   </head>
   <body>
     <!-- 펭귄 "안경 번쩍" (style.css #pet.glasses-flash): 렌즈만 하얗게 덮는다. 시험 tools/test_draw_penguin.py
-         #lens-flash (동글): 그림이 렌즈 둥근 자리(눈 포함)의 알파를 254로 표시해 둔다 (draw_penguin.lens_key) → 알파 254만 골라 (외톨이 점은 열림으로 지움) 흰색
-         #lens-flash-px (도트, 반투명이 없다): 렌즈 전용 색 (196, 222, 250) 칸만 골라 (채널마다 64칸 표에서 1) 닫힘(dilate → erode)으로 눈 구멍을 메워 흰색 -->
+         #lens-flash: 그림이 렌즈 둥근 자리(눈 포함)의 알파를 254로 표시해 둔다 (draw_penguin.lens_key) → 알파 254만 골라 (외톨이 점은 열림으로 지움) 흰색 -->
     <svg id="pet-filters" width="0" height="0" aria-hidden="true" focusable="false" style="position: absolute">
       <filter id="lens-flash" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB">
         <feComponentTransfer in="SourceGraphic" result="key">
@@ -16,20 +15,6 @@
         <!-- 열림(erode → dilate 1px): 축소 보간으로 외곽선에 우연히 생긴 254 점은 지우고 렌즈 덩어리만 남긴다 -->
         <feMorphology in="key" operator="erode" radius="1" result="core" />
         <feMorphology in="core" operator="dilate" radius="1" result="mask" />
-        <feFlood flood-color="#ffffff" />
-        <feComposite in2="mask" operator="in" result="white" />
-        <feMerge><feMergeNode in="SourceGraphic" /><feMergeNode in="white" /></feMerge>
-      </filter>
-      <filter id="lens-flash-px" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB">
-        <feComponentTransfer in="SourceGraphic" result="key">
-          <feFuncR type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0" />
-          <feFuncG type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 0 0 0 0 0" />
-          <feFuncB type="discrete" tableValues="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1" />
-        </feComponentTransfer>
-        <feColorMatrix in="key" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 1 1 0 -2" result="lens" />
-        <feMorphology in="lens" operator="dilate" radius="10" result="grown" />
-        <feMorphology in="grown" operator="erode" radius="10" result="closed" />
-        <feComposite in="closed" in2="SourceAlpha" operator="in" result="mask" />
         <feFlood flood-color="#ffffff" />
         <feComposite in2="mask" operator="in" result="white" />
         <feMerge><feMergeNode in="SourceGraphic" /><feMergeNode in="white" /></feMerge>
@@ -66,10 +51,6 @@
           <circle cx="10" cy="10" r="7.5" fill="#fffaf2cc" stroke="#d8c6ae" stroke-width="2.5" />
           <circle id="focusring-fill" cx="10" cy="10" r="7.5" fill="none" stroke="#ef8a5b" stroke-width="2.5" stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" transform="rotate(-90 10 10)" />
         </svg>
-        <!-- 픽셀 스타일의 모자·목도리·고리 (칸 그림, 자리는 main.js placeHeadgearPixel) -->
-        <div id="nightcap-px" class="px-wear" hidden></div>
-        <div id="scarf-px" class="px-wear" hidden></div>
-        <canvas id="focusring-px" width="11" height="11" hidden></canvas>
       </div>
       <div id="envelope" hidden title="편지">💌</div>
       <!-- 조작 모드 중 (방향키로 움직이는 중 — 친구 화면에 가 있는 내 동물도) -->

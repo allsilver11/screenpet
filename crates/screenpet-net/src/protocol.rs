@@ -269,14 +269,7 @@ pub enum Visit {
         /// 펫이 다른 친구로 넘어가면 주인이 그대로 다시 보냄. 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         note: Option<String>,
-        /// 펫이 받는 쪽 화면에 두고 갈 작은 선물 (카탈로그 id)임. 모르거나 남의 id는 받는 쪽이 버리고
-        /// 친구 선물을 받는 빈도도 제한함. 넘어갈 때는 다시 안 보냄. 옛 버전은 무시함
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
-        gift: Option<String>,
-        /// 주인이 펫을 보이는 방식: "pixel" (없으면 둥근 그림). 꾸미기일 뿐이며
-        /// 받는 쪽이 검사하고 모르거나 그림이 없으면 둥근 그림으로 보임. 옛 버전은 무시함
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
-        style: Option<String>,
+        // v0.7.0에 빠진 필드: `gift` (🎁 선물)·`style` ("pixel" 그림). 옛 버전이 보내면 모르는 필드라 그냥 건너뜀
         /// 🎨 잉크선 펫의 주인 몸 색 (색 id, 예: "rainbow". 없으면 그린 잉크). 꾸미기일 뿐이며
         /// 받는 쪽이 아는 id와 대조하고 아니면 잉크로 보임. 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
@@ -454,7 +447,7 @@ pub struct WirePlayer {
     pub name: String,
     /// 펫 종류
     pub pet: String,
-    /// 펫 그림 스타일
+    /// 펫 그림 스타일 — 옛 버전만 보냄 ("pixel"). 받는 쪽은 그리기에 쓰지 않음 (v0.7.0에 픽셀이 빠짐)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
     /// 참가자 nonce 커밋 (hex)
@@ -593,8 +586,6 @@ mod tests {
                 homesick_in: None,
                 fling: None,
                 note: None,
-                gift: None,
-                style: None,
                 tint: None,
                 boost: None,
                 no_grow: None,
@@ -758,29 +749,17 @@ mod tests {
         assert_eq!(Message::parse(bad), Some(Message::Visit(Visit::leave(3))));
     }
 
+    /// 🎁🟦 v0.7.0에 선물·픽셀 그림이 빠졌음: 옛 버전이 보낸 `gift`·`style`은 (이상한 값이어도) 건너뛰고 방문은 그대로 받음.
+    /// 새 버전은 둘 다 보내지 않음
     #[test]
-    fn a_visit_can_carry_a_gift_and_old_peers_ignore_it() {
-        let v = visit!(gift: Some("cat_yarn_shiny".into()));
-        let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
-        assert_eq!(j["gift"], "cat_yarn_shiny");
-        assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
-        // 예전 판은 모르는 필드를 건너뛰고 방문으로 받음
-        #[derive(serde::Deserialize)]
-        #[serde(tag = "type", rename_all = "snake_case")]
-        enum OldVisit {
-            Visit { visit_id: u64, owner: String },
+    fn old_gift_and_style_fields_are_ignored_and_never_sent() {
+        for extra in [r#","gift":"cat_yarn_shiny","style":"pixel""#, r#","gift":{"x":1},"style":7"#, r#","style":"round""#] {
+            let raw = format!(r#"{{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"{extra}}}"#);
+            let Some(Message::Visit(Visit::Visit { visit_id, species, .. })) = Message::parse(raw.as_bytes()) else { panic!("{extra}: the visit must still parse") };
+            assert_eq!((visit_id, species.as_str()), (1, "cat"));
         }
-        let OldVisit::Visit { visit_id, owner } = serde_json::from_slice::<OldVisit>(&v.to_json()).unwrap();
-        assert_eq!((visit_id, owner.as_str()), (8, "A"));
-        // 선물 없는 방문은 예전과 같은 모양, 예전 판의 방문은 선물 없음
-        assert!(!String::from_utf8(visit_with_note(None).to_json()).unwrap().contains("gift"));
-        let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left"}"#;
-        let Some(Message::Visit(Visit::Visit { gift, .. })) = Message::parse(old) else { panic!() };
-        assert_eq!(gift, None);
-        // 글자가 아닌 선물 하나 때문에 방문 전체를 버리지 않음
-        let bad = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","gift":{"x":1}}"#;
-        let Some(Message::Visit(Visit::Visit { gift, .. })) = Message::parse(bad) else { panic!("bad gift must not drop the visit") };
-        assert_eq!(gift, None);
+        let sent = String::from_utf8(visit!(note: Some("hi".into())).to_json()).unwrap();
+        assert!(!sent.contains("gift") && !sent.contains("style"), "{sent}");
     }
 
     #[test]
@@ -1056,29 +1035,6 @@ mod tests {
         assert_eq!(Announce::parse(&serde_json::to_vec(&long).unwrap()).unwrap().name.chars().count(), MAX_NAME);
         let long_id = Announce::new(&"i".repeat(MAX_ID + 1), "n", 4000);
         assert_eq!(Announce::parse(&serde_json::to_vec(&long_id).unwrap()), None);
-    }
-
-    /// 픽셀 스타일 펫은 그렇다고 알림. 옛 상대는 무시하고, 이상한 값은 방문 전체가 아니라 그 필드만 버림
-    #[test]
-    fn visit_style_is_optional_and_backward_compatible() {
-        let v = visit!(style: Some("pixel".into()));
-        assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
-        // an old peer still reads it
-        #[derive(Deserialize)]
-        #[serde(tag = "type", rename_all = "snake_case")]
-        enum OldVisit {
-            Visit { visit_id: u64 },
-        }
-        let OldVisit::Visit { visit_id } = serde_json::from_slice::<OldVisit>(&v.to_json()).unwrap();
-        assert_eq!(visit_id, 8);
-        // round sends nothing at all
-        assert!(!String::from_utf8(visit_with_note(None).to_json()).unwrap().contains("style"));
-        let old = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"baby","scale":1.0,"personality":"aloof","owner":"a","enter_side":"left"}"#;
-        let Some(Message::Visit(Visit::Visit { style, .. })) = Message::parse(old) else { panic!("old visit must parse") };
-        assert_eq!(style, None);
-        let bad = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"baby","scale":1.0,"personality":"aloof","owner":"a","enter_side":"left","style":7}"#;
-        let Some(Message::Visit(Visit::Visit { style, .. })) = Message::parse(bad) else { panic!("bad style must not drop the visit") };
-        assert_eq!(style, None);
     }
 
     /// 🎨 잉크선 펫의 주인 몸 색은 id로 감. 옛 상대는 무시하고 기본값은 안 보내며, 이상한 값은 그 필드만 버림

@@ -1,4 +1,4 @@
-//! ⚙️ 사용자 설정 (config.json) — 고른 동물·돌보기·친구 목록·크기·날씨·선물 도감 등 앱이 남기는 모든 것
+//! ⚙️ 사용자 설정 (config.json) — 고른 동물·돌보기·친구 목록·크기·날씨 등 앱이 남기는 모든 것
 //! 쓰기는 임시 파일(config.json.tmp)에 쓰고 바꿔 끼우며 예전 것은 .bak으로 둠. 읽다 깨지면 기본값으로 돌고 덮어쓰지 않음
 //! 친구 이름 다듬기(clean_text·sanitize_name), 작은 로그 파일, 하우스 자리(HouseSpot)도 여기 있음
 use std::collections::HashMap;
@@ -8,10 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::care::Care;
 use crate::food::FeedMode;
-use crate::gift::GiftBook;
 use crate::presence::{DailyMarks, FocusLength};
 use crate::real_weather::{Place, WeatherSource};
-use crate::style::PetStyle;
 use crate::tint::BodyTint;
 use crate::visit::{ExitEdges, Side};
 
@@ -63,9 +61,6 @@ pub struct Config {
     /// 📍 실제 날씨를 볼 도시. 모르는 값이면 용인
     #[serde(default, skip_serializing_if = "Place::is_default", deserialize_with = "lenient")]
     pub weather_place: Place,
-    /// 🎁 주운 선물 (도감). 잘못된 줄은 건너뜀
-    #[serde(default, skip_serializing_if = "GiftBook::is_empty")]
-    pub gifts: GiftBook,
     /// 💩 똥피하기 내 최고 기록 (피한 똥 수). 모르는 값이면 0
     #[serde(default, skip_serializing_if = "is_zero", deserialize_with = "lenient")]
     pub dodge_best: u32,
@@ -93,9 +88,6 @@ pub struct Config {
     /// 오늘의 아침·점심 인사를 했는지 (앱을 다시 켜도 하루 한 번)
     #[serde(default, skip_serializing_if = "DailyMarks::is_empty")]
     pub daily: DailyMarks,
-    /// 캐릭터 스타일 (동글동글 / 픽셀, 그림만 다름). 모르는 값이면 동글동글
-    #[serde(default, skip_serializing_if = "PetStyle::is_round", deserialize_with = "lenient")]
-    pub style: PetStyle,
     /// 🎨 흐물이 몸 색 (잉크 선 동물만 칠함 — pet.json tint). 모르는 값이면 기본
     #[serde(default, skip_serializing_if = "BodyTint::is_default", deserialize_with = "lenient")]
     pub tint: BodyTint,
@@ -261,9 +253,16 @@ enum SideDef {
 /// 이름이 바뀐 동물 (예전 이름, 지금 이름) — 불러올 때 옮김 (retire_pets)
 pub const RENAMED_PETS: [(&str, &str); 1] = [("beaver", "bear")];
 /// 더 이상 없는 동물 (없어진 id, 대신 고르는 동물) — 고른 동물이면 바꾸고, 키운 기록은 대신 고르는 동물에게 넘김.
-/// v0.5.5 곰·꿀벌·강아지 → 고양이, v0.7.0 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐
-pub const RETIRED_PETS: [(&str, &str); 6] =
-    [("bear", "cat"), ("bee", "cat"), ("dog", "cat"), ("bird", "duck"), ("giraffe", "dino_yellow"), ("redpanda", "squirrel")];
+/// v0.5.5 곰·꿀벌·강아지 → 고양이, v0.7.0 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐 · 유령 → 호박 (같은 으스스한 집)
+pub const RETIRED_PETS: [(&str, &str); 7] = [
+    ("bear", "cat"),
+    ("bee", "cat"),
+    ("dog", "cat"),
+    ("bird", "duck"),
+    ("giraffe", "dino_yellow"),
+    ("redpanda", "squirrel"),
+    ("ghost", "pumpkin"),
+];
 
 /// 없어진 동물이면 대신 고를 비슷한 동물 (RETIRED_PETS), 아직 있는 동물이면 None
 pub fn replacement_species(id: &str) -> Option<&'static str> {
@@ -953,7 +952,8 @@ mod tests {
         for gone in ["bear", "bee", "dog"] {
             assert_eq!(replacement_species(gone), Some("cat"), "{gone}");
         }
-        for kept in ["cat", "duck", "dino_yellow", "squirrel", "spider", "ghost", "unknown", ""] {
+        assert_eq!(replacement_species("ghost"), Some("pumpkin"));
+        for kept in ["cat", "duck", "dino_yellow", "squirrel", "spider", "pumpkin", "unknown", ""] {
             assert_eq!(replacement_species(kept), None, "{kept}");
         }
     }
@@ -991,6 +991,41 @@ mod tests {
         let c = load(&d);
         assert_eq!(c.pet.as_deref(), Some("duck"));
         assert_eq!(c.care.get("duck").map(|c| (c.stage, c.stamina, c.locked)), Some((crate::care::Stage::Teenager, 7.0, true)));
+    }
+
+    /// 👻 v0.7.0: 유령을 키우던 사용자 — 같은 으스스한 집에 사는 호박으로 바뀌고 먹은 양·연령대는 그대로
+    #[test]
+    fn loading_an_old_config_moves_a_ghost_to_the_pumpkin() {
+        let d = temp_dir("retired_ghost");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("config.json"),
+            r#"{"pet": "ghost", "owner_name": "민지", "care": {"ghost": {"stage": "adult", "stamina": 9.0, "fullness": 0.3, "locked": false}}}"#,
+        )
+        .unwrap();
+        let c = load(&d);
+        assert_eq!(c.pet.as_deref(), Some("pumpkin"));
+        assert_eq!(c.care.get("pumpkin").map(|c| (c.stage, c.stamina)), Some((crate::care::Stage::Adult, 9.0)));
+        assert!(!c.care.contains_key("ghost"));
+        assert_eq!(c.owner_name.as_deref(), Some("민지"));
+    }
+
+    /// 🎁🟦 v0.7.0: 선물 도감·픽셀 스타일이 적힌 옛 설정도 오류 없이 읽히고 (나머지는 그대로), 다시 저장하면 그 줄이 없어짐
+    #[test]
+    fn old_gift_book_and_pixel_style_are_dropped_silently() {
+        let d = temp_dir("dropped_gifts_pixel");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("config.json"),
+            r#"{"pet": "cat", "owner_name": "민지", "style": "pixel", "gifts": {"cat_yarn": {"count": 3, "first": 5, "from": ["친구"]}, "bad": 7}, "dodge_best": 4}"#,
+        )
+        .unwrap();
+        let c = load(&d);
+        assert_eq!((c.pet.as_deref(), c.owner_name.as_deref(), c.dodge_best), (Some("cat"), Some("민지"), 4));
+        save(&d, &c).unwrap();
+        let text = std::fs::read_to_string(d.join("config.json")).unwrap();
+        assert!(!text.contains("gifts") && !text.contains("pixel") && !text.contains("\"style\""), "{text}");
+        assert_eq!(load(&d), c);
     }
 
     #[test]
@@ -1660,21 +1695,6 @@ mod tests {
         assert_eq!(back, c);
         let bad: Config = serde_json::from_str(r#"{"pet":"cat","focus_length":"forever"}"#).unwrap();
         assert_eq!((bad.pet.as_deref(), bad.focus_length), (Some("cat"), FocusLength::Short));
-    }
-
-    #[test]
-    fn style_defaults_to_round_and_old_or_odd_files_still_load() {
-        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
-        assert_eq!(old.style, PetStyle::Round);
-        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("style"), "not written while default");
-        let c = Config { style: PetStyle::Pixel, ..Config::default() };
-        let text = serde_json::to_string(&c).unwrap();
-        assert!(text.contains(r#""style":"pixel""#), "{text}");
-        assert_eq!(serde_json::from_str::<Config>(&text).unwrap(), c);
-        for bad in [r#""sparkly""#, "3", "null", "{}"] {
-            let odd: Config = serde_json::from_str(&format!(r#"{{"pet":"cat","style":{bad}}}"#)).unwrap();
-            assert_eq!((odd.pet.as_deref(), odd.style), (Some("cat"), PetStyle::Round), "{bad}");
-        }
     }
 
     #[test]

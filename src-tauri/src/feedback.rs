@@ -40,7 +40,8 @@ pub fn letter_for(text: &str, name: &str, own: &Slot) -> Letter {
         name: name.to_string(),
         species: own.entry.id.clone(),
         stage: own.shown.stage.name().to_string(),
-        style: own.shown.style.to_wire().unwrap_or_else(|| "round".to_string()),
+        // 픽셀이 빠진 v0.7.0부터 늘 동글 (편지 모양은 옛 버전과 같게 남김)
+        style: "round".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         os: std::env::consts::OS.to_string(),
     }

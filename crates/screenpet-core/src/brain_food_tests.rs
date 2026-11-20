@@ -290,17 +290,17 @@ fn housed_flyer_comes_out_to_a_bowl_by_the_house() {
     assert!(run_until(&mut p, &w, 60 * 30, |p| p.is_housed()), "{:?}", p.state);
 }
 
-// ---- 유령: 둥실 나는 동물도 보통 밥그릇 ----
+// ---- 둥실 나는 동물도 보통 밥그릇 ----
 
-fn ghost() -> PetConfig {
+fn slow_flyer() -> PetConfig {
     PetConfig { flies: true, walk_speed: 40.0, ..cfg() }
 }
 
 #[test]
-fn hovering_ghost_gets_a_food_bowl_not_a_flower() {
+fn hovering_flyer_gets_a_food_bowl_not_a_flower() {
     let w = world(vec![w1()]);
     for (food, prop) in [(Food::Meal, Prop::FoodBowl), (Food::Favorite, Prop::FoodBowl), (Food::Special, Prop::FoodBowl), (Food::Water, Prop::WaterBowl)] {
-        let mut p = Pet::new(ghost(), 800.0, 250.0, 1);
+        let mut p = Pet::new(slow_flyer(), 800.0, 250.0, 1);
         p.state = idle();
         assert!(p.feed_result(ATE, food));
         p.update(DT, &w);
@@ -311,9 +311,9 @@ fn hovering_ghost_gets_a_food_bowl_not_a_flower() {
 }
 
 #[test]
-fn housed_ghost_comes_out_to_a_food_bowl_by_its_house() {
+fn housed_flyer_comes_out_to_a_food_bowl_by_its_house() {
     let w = world(vec![]);
-    let mut p = housed_with_door(&w, ghost());
+    let mut p = housed_with_door(&w, slow_flyer());
     assert!(p.feed_result(ATE, Food::Favorite));
     p.update(DT, &w);
     assert!(!p.is_housed());

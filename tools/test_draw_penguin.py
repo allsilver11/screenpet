@@ -236,14 +236,6 @@ def test_morphology_helpers():
 
 
 # ---- 동글 안경 + "안경 번쩍" ----
-PIXEL = ROOT / "ui" / "pets_pixel" / "penguin"
-
-
-def pixel_frame(st, anim, i):
-    m = json.loads((PIXEL / "pet.json").read_text(encoding="utf-8"))
-    fs, row = m["frame_sizes"][st], m["animations"][anim]["row"]
-    from PIL import Image
-    return Image.open(PIXEL / f"sheet_{st}.png").convert("RGBA").crop((i * fs, row * fs, (i + 1) * fs, (row + 1) * fs))
 
 
 def lens_and_rim(im):
@@ -261,9 +253,9 @@ def lens_and_rim(im):
 @pytest.mark.parametrize("st", STAGES)
 @pytest.mark.parametrize("anim", ["sit_front", "idle", "sleep", "eat"])
 def test_big_round_glasses_at_every_stage(out, st, anim):
-    """모든 단계에 큰 동글 안경: 렌즈 전용 색이 얼굴(실루엣 위쪽)에 있고, 렌즈 둘레에 가는 짙은 테. 동글·도트 둘 다."""
+    """모든 단계에 큰 동글 안경: 렌즈 전용 색이 얼굴(실루엣 위쪽)에 있고, 렌즈 둘레에 가는 짙은 테."""
     front = anim in ("sit_front", "eat")
-    for kind, im, lmin, rmin in (("round", frame(out, st, anim, 0), 30 if front else 8, 12), ("pixel", pixel_frame(st, anim, 0), 6 if front else 2, 6)):
+    for kind, im, lmin, rmin in (("round", frame(out, st, anim, 0), 30 if front else 8, 12),):
         lens, rim, ly = lens_and_rim(im)
         assert lens >= lmin, (kind, st, anim, lens)
         assert rim >= rmin, (kind, st, anim, rim)
@@ -273,13 +265,13 @@ def test_big_round_glasses_at_every_stage(out, st, anim):
 def test_front_view_has_two_lenses_side_view_one(out):
     """앞모습은 얼굴 양쪽에 렌즈 둘 (가운데 부리 양옆), 옆모습은 앞쪽 눈에 렌즈 하나 (좁게 모여 있다)."""
     for st in STAGES:
-        for im in (frame(out, st, "sit_front", 0), pixel_frame(st, "sit_front", 0)):
+        for im in (frame(out, st, "sit_front", 0),):
             a = np.asarray(im.convert("RGBA")).astype(int)
             lens = (np.abs(a[..., :3] - np.array(draw_penguin.LENS)).max(axis=2) <= 6) & (a[..., 3] > 200)
             xs = np.nonzero(lens)[1]
             mid = np.nonzero((a[..., 3] > 200).any(axis=0))[0].mean()
             assert (xs < mid - 2).sum() >= 3 and (xs > mid + 2).sum() >= 3, st
-        for im in (frame(out, st, "idle", 0), pixel_frame(st, "idle", 0)):
+        for im in (frame(out, st, "idle", 0),):
             a = np.asarray(im.convert("RGBA")).astype(int)
             op = a[..., 3] > 200
             lens = (np.abs(a[..., :3] - np.array(draw_penguin.LENS)).max(axis=2) <= 6) & op
@@ -296,8 +288,8 @@ def _filter(fid):
     return f
 
 
-def _flash_tables(chans="RGB", fid="lens-flash-px"):
-    """ui/index.html 필터의 채널별 discrete 표. 도트 #lens-flash-px: 렌즈 색만 1 · 동글 #lens-flash: 알파 254만 1."""
+def _flash_tables(chans="A", fid="lens-flash"):
+    """ui/index.html 필터의 채널별 discrete 표. #lens-flash: 알파 254만 1."""
     import re
     f = _filter(fid)
     tabs = {}
@@ -305,10 +297,6 @@ def _flash_tables(chans="RGB", fid="lens-flash-px"):
         m = re.search(rf'<feFunc{ch} type="discrete" tableValues="([^"]+)"', f)
         tabs[ch] = [float(v) for v in m.group(1).split()]
     return f, tabs
-
-
-def _keyed(tabs, rgb):
-    return all(tabs[ch][min(len(tabs[ch]) - 1, int(v / 255 * len(tabs[ch])))] == 1 for ch, v in zip("RGB", rgb))
 
 
 def test_round_lens_flash_keys_the_marked_lens_alpha(out):
@@ -342,38 +330,6 @@ def test_round_lens_flash_keys_the_marked_lens_alpha(out):
                 assert 1 <= n <= 3 and min(sizes) >= 20, (st, anim, c, sizes)
 
 
-def test_lens_flash_filter_keys_only_the_lens_colour():
-    """도트 안경 번쩍 (#lens-flash-px): 렌즈 전용 색만 골라 하얗게 덮는다 (눈 구멍은 닫힘(closing)으로 메움). 몸의 다른 색은 그대로."""
-    f, tabs = _flash_tables()
-    assert _keyed(tabs, draw_penguin.LENS)
-    others = [draw_penguin.WHITE_BELLY, draw_penguin.ICE, draw_penguin.ICE_DARK, draw_penguin.CHICK_GREY, draw_penguin.CHICK_GREY_K,
-              draw_penguin.CHICK_CAP, draw_penguin.belly_color("baby"), draw_penguin.belly_color("kinder"), draw_penguin.GLASS_ARM,
-              draw_penguin.GLASS_FRAME, draw_pets.WHITE] + list(draw_penguin.BACK.values())
-    assert not [c for c in others if _keyed(tabs, c)]
-    assert 'operator="dilate"' in f and 'operator="erode"' in f and 'flood-color="#fff' in f
-
-
-@pytest.mark.parametrize("st", STAGES)
-def test_only_the_glasses_wear_the_lens_colour(out, st):
-    """도트 필터가 렌즈 말고는 하얗게 만들지 않게: 필터 표에 걸리는 칸은 렌즈 덩어리 바로 곁뿐 (배·발·얼음 가루·외곽선 섞인 칸은 몇 점 이하)."""
-    _, tabs = _flash_tables()
-    keyed = {}
-    for anim in ("sit_front", "walk", "roll", "belly", "eat", "sleep", "heart"):
-        for kind, im in (("round", frame(out, st, anim, 0)), ("pixel", pixel_frame(st, anim, 0))):
-            a = np.asarray(im.convert("RGBA")).astype(int)
-            op = a[..., 3] > 200
-            rgb = a[..., :3]
-            hit = op.copy()
-            for ch in range(3):
-                t = np.array(tabs["RGB"[ch]])
-                hit &= t[np.minimum(len(t) - 1, (rgb[..., ch] / 255 * len(t)).astype(int))] == 1
-            core = (np.abs(rgb - np.array(draw_penguin.LENS)).max(axis=2) <= 6) & op
-            stray = hit & ~dilate(core, 2)
-            assert hit.sum() >= 3, (kind, st, anim)
-            keyed[(kind, anim)] = int(stray.sum())
-    assert max(keyed.values()) <= 4, keyed
-
-
 def test_penguin_flashes_its_glasses_on_click():
     """누르면(잡을 때도) 안경 번쩍: PET_FX에 펭귄 · CSS 애니메이션이 #lens-flash 필터를 켜고 ✦ 반짝이."""
     js = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
@@ -385,8 +341,7 @@ def test_penguin_flashes_its_glasses_on_click():
     assert "#pet.glasses-flash {" in css and "@keyframes glasses-flash" in css
     kf = css[css.index("@keyframes glasses-flash"):]
     assert "url(#lens-flash)" in kf[: kf.index("\n}\n")]
-    kp = css[css.index("@keyframes glasses-flash-px"):]
-    assert "url(#lens-flash-px)" in kp[: kp.index("\n}\n")] and "body.pixel #pet.glasses-flash { animation-name: glasses-flash-px; }" in css
+    assert "lens-flash-px" not in css and "body.pixel" not in css, "픽셀 스타일은 v0.7.0에 빠짐"
     assert "#pet.glasses-flash::before" in css and "✦" in css[css.index("#pet.glasses-flash::before"):][:400]
 
 
@@ -425,21 +380,6 @@ def test_only_the_baby_keeps_the_spiky_down_on_its_body():
     assert [lvl for lvl, st in draw_penguin.PG_STAGE.items() if st["fuzz"]] == [0]
 
 
-@pytest.mark.parametrize("st", STAGES)
-@pytest.mark.parametrize("anim", ["idle", "walk", "look", "sit_front"])  # 잠(sleep)은 머리 위에 z가 있다
-def test_pixel_head_has_no_horn(st, anim):
-    """도트 그림: 정수리 솜털 한 가닥이 작은 칸에선 뾰족한 뿔(끝에 주황 점)이 된다 → 도트엔 정수리 솜털이 없다.
-    머리 꼭대기 줄이 한두 칸짜리 뾰족 끝이 아니고, 위 1/5에 부리·발 주황이 없다."""
-    for i in (0, 1):
-        im = pixel_frame(st, anim, i)
-        a = alpha(im)
-        ys = np.nonzero(a.any(axis=1))[0]
-        # 뾰족 뿔이면 위 세 줄이 한두 칸씩 (동그란 머리는 위 셋째 줄이 넓다)
-        assert a[ys[0] + 2].sum() >= 5, (st, anim, i, [int(a[ys[0] + k].sum()) for k in range(3)])
-        band = im.crop((0, ys[0], im.width, ys[0] + (ys[-1] - ys[0]) // 5))
-        assert count_near(band, [draw_penguin.FEET], 30) == 0, (st, anim, i)
-
-
 def _back_bumps(im):
     """옆모습 등 쪽(왼쪽) 윤곽: 줄마다 가장 왼쪽 칸 x. 위에서 아래로 그 x가 앞뒤 줄보다 2칸 넘게 튀어나온(작은) 곳 수 + 아래 1/4이 몸통보다 왼쪽으로 튀어나온 칸 수."""
     a = alpha(im)
@@ -466,12 +406,11 @@ def test_the_back_is_smooth_without_spikes_or_a_pointy_tail(out, st, anim):
 
 def test_glaring_lenses_stay_white_while_the_app_says_so():
     """안경 반사 (render.glare, brain_flash.rs): 켜져 있는 동안 렌즈가 하얗게 차 있다 — 번쩍(✦ 애니메이션)과 달리 그대로 머문다.
-    동글은 #lens-flash, 도트는 #lens-flash-px 필터. 번쩍 애니메이션이 끝나면 반사로 돌아간다 (애니메이션은 forwards가 아니다)."""
+    #lens-flash 필터. 번쩍 애니메이션이 끝나면 반사로 돌아간다 (애니메이션은 forwards가 아니다)."""
     js = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
     css = (ROOT / "ui" / "style.css").read_text(encoding="utf-8")
     assert 'if (e.payload.glare) petEl.classList.add("glasses-glare");' in js
     assert 'else petEl.classList.remove("glasses-glare");' in js
     assert "#pet.glasses-glare { filter: url(#lens-flash); }" in css
-    assert "body.pixel #pet.glasses-glare { filter: url(#lens-flash-px); }" in css
     flash = css[css.index("#pet.glasses-flash {"):]
     assert "forwards" not in flash[: flash.index("}")]

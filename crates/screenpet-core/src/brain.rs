@@ -683,7 +683,7 @@ pub struct PetConfig {
     pub personality: Personality,
     /// 벽 타기 (pet.json에 climb·slide가 있는 고양이 등)
     pub can_climb: bool,
-    /// 날아다님 (pet.json `locomotion: fly` — 유령, spec 2B §10)
+    /// 날아다님 (pet.json `locomotion: fly` — 지금 번들엔 없음, spec 2B §10)
     pub flies: bool,
     /// 폴짝폴짝 뛰어다님 (pet.json `locomotion: hop` — 개구리, brain_hop.rs)
     pub hops: bool,
@@ -711,8 +711,6 @@ pub struct PetConfig {
     pub dpi: f64,
     /// 커서에 매달릴 때 커서 끝이 닿는 머리 꼭대기 (그림 가운데에서 오른쪽, 그림 윗변에서 아래 — 한 변에 대한 비율. pet.json head의 dragged)
     pub hang_grip: (f64, f64),
-    /// 구르기 그림이 없음 (픽셀 그림, pet.json에 roll 없음) — 구르기를 고르지 않고, 대신 하는 동작도 없음
-    pub no_roll: bool,
     /// 흐물이 더 놀기 (v0.6.3 — pet.json에 ANTICS_ANIMS 그림이 다 있고 들고 던지기를 함): 🎣 커서 매달리기 · 🙆 동물 들기 ·
     /// 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 캐치볼 · 🖍️ 낙서 · ⌨️ 타자 응원
     pub antics: bool,
@@ -762,7 +760,6 @@ impl PetConfig {
             taskbar_play: m.plays_taskbar(),
             dpi,
             hang_grip: m.hang_grip(stage),
-            no_roll: m.no_roll(),
             antics: m.antics(),
             knocks: m.knocks(),
             stashes: m.stashes(),
@@ -1355,12 +1352,6 @@ impl Pet {
             State::Housed => Anim::SitFront,
             State::Pressed { grounded: true, .. } => Anim::Idle,
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
-        };
-        // 구르기 그림이 없는 동물: 넘어져 구르거나 굴러떨어지는 동안은 떨어지는 그림, 커서 놀이 썰매·눈덩이 굴리기·막 바꾼 스타일의 남은 구르기는 걷기
-        let anim = match (anim, self.state) {
-            (Anim::Roll, State::Tumble { .. } | State::Air { .. }) if self.cfg.no_roll => Anim::Fall,
-            (Anim::Roll, _) if self.cfg.no_roll => Anim::Walk,
-            _ => anim,
         };
         let anim = self.carrying_anim(anim);
         let anim = self.cheeks_anim(anim);
@@ -3387,10 +3378,6 @@ impl Pet {
         if kind == Move::Walk && !homesick {
             kind = self.stage_sprint(kind);
         }
-        // 구르기 그림이 없는 동물: 구르기는 뽑히지 않은 셈 (걷기·달리기 몫이 그만큼 는다, 대신하는 동작은 없다)
-        while kind == Move::Roll && self.cfg.no_roll {
-            kind = behavior::pick_next_move(&mut self.rng, self.pacing.last_move, after_front);
-        }
         // 🦆 오리가 바닥에서 걷기 시작하면 가끔 기차를 부른다 (brain_train.rs)
         if kind == Move::Walk {
             self.maybe_want_train();
@@ -3747,10 +3734,6 @@ mod halloween_tests;
 #[cfg(test)]
 #[path = "brain_throw_tests.rs"]
 mod throw_tests;
-
-#[cfg(test)]
-#[path = "brain_noroll_tests.rs"]
-mod noroll_tests;
 
 #[cfg(test)]
 #[path = "brain_lookup_tests.rs"]

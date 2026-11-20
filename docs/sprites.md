@@ -69,14 +69,14 @@
 - 동작 대응: walk 작은 폴짝 걸음 · hop (3장, 한 번 — 코어가 폴짝마다 다시 튼다) 웅크림 → 쭉 뻗어 공중 (발 뒤로 대롱) → 착지 ^^ · `bigjump` (선택 동작, 4장 fps 8, 한 번) 깊이 웅크림 💦 → 쭉 뻗어 솟구침 → 공중에서 활짝 → 착지 준비 (마지막 장을 잡아 둔다) · climb 뒷모습 폴짝 기어오르기 (웅크려 붙음 → 다리로 밀기 → 앞발 쭉 솟음 → 쩍 벌려 붙기), 앞발은 몸·머리 뒤라 빨판만 빼꼼, 뒷다리는 양옆으로 벌려 발바닥 빨판 · slide 앞발 위 긁힌 자국 + 땀 · eat **밥그릇 없음**: 혀를 앞-아래(앱이 먹이 소품을 놓는 자리)로 날름 → 볼 빵빵 오물오물 · hungry 파리 생각 풍선.
 
 ## 박쥐인간 (오토바이 타는 꼬마 영웅)
-- 그림은 `tools/draw_bat.py` (거미인간과 같은 뼈대·IK 틀 — `SPECIES["bat"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 박쥐인간만: `python tools/draw_bat.py` → 미리보기 `tools/preview/stages_bat.png`·`climb_bat.png`, 도트는 `python tools/draw_pixel.py bat`).
+- 그림은 `tools/draw_bat.py` (거미인간과 같은 뼈대·IK 틀 — `SPECIES["bat"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 박쥐인간만: `python tools/draw_bat.py` → 미리보기 `tools/preview/stages_bat.png`·`climb_bat.png`).
 - `pet.json`: `"bike_rider": true` (코어 `PetManifest::rides_bike` — `BIKE_ANIMS` 다섯이 다 있어야), `"juggler": true` (💪 물건 들기 — `JUGGLE_ANIMS` 일곱, 손 자리 `grip`), `"personality": "playful"`, 좋아하는 음식 🍎 사과, `stage_size` 모든 단계 0.85, 대사 `vroom`·`wheelie`·`bike_trick`·`bat_signal`·`hero_lift` (짧은 영어).
 - 디자인: 사람 모양 치비 (큰 머리 ≈ 키의 45%, 팔 둘·다리 둘). 머리 위쪽은 뾰족한 두 귀가 달린 검정 가면 + 하얀 눈 (표정마다 모양), 코 아래 입·턱은 살색. 짙은 회색 슈트, 검정 장갑·장화, 노란 벨트 (앞모습 주머니·버클), 가슴에 노란 타원 + 까만 박쥐 로고, 끝단이 박쥐 날개처럼 오목하게 파인 검정 망토 (옆모습은 목에서 뒤로 날리고 달릴수록 수평으로).
 - 뒷모습 (climb·slide): 머리를 언제나 팔 위에 그림 (`hero`가 뒷모습에선 arms_front를 무시 — 테스트가 봄), 망토는 등을 엉덩이까지 덮음.
 - 💪 lift·hold·carry·throw·present: 짧은 팔이라 물건은 머리 위에 이고 두 손바닥을 머리 양옆 위쪽에 펴 받침 (팔은 머리 뒤로 가려짐 — 얼굴을 가로지르지 않음). strain은 거대한 것 옆면 (프레임 x 100)을 두 손바닥으로 밀며 버팀 (영웅이라 금방 듦).
 
 ## 거미인간 (줄을 쏘는 꼬마 영웅)
-- 그림은 `tools/draw_spider.py` (draw_pets 엔진, 모든 동작이 자기 포즈 — `SPECIES["spider"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 거미인간만: `python tools/draw_spider.py` → 미리보기 `tools/preview/stages_spider.png`·`climb_spider.png`, 도트는 `python tools/draw_pixel.py spider`).
+- 그림은 `tools/draw_spider.py` (draw_pets 엔진, 모든 동작이 자기 포즈 — `SPECIES["spider"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 거미인간만: `python tools/draw_spider.py` → 미리보기 `tools/preview/stages_spider.png`·`climb_spider.png`).
 - `pet.json`: `"web_slinger": true` (코어 `PetManifest::slings_webs` — `WEB_ANIMS` 다섯이 다 있어야), `"personality": "playful"`, 좋아하는 음식 🪰 파리, `stage_size` 모든 단계 0.85, 대사 `thwip`·`web`·`web_swing`·`hero_land`·`gotcha`·`yeet` (짧은 영어). 선택 동작: `climb`·`slide`·`lookup` + `shoot`·`web_swing`·`hero_land`·`web_pull`·`web_whirl`.
 - 디자인: 빨강·파랑 쫄쫄이를 입은 사람 모양 꼬마 (큰 머리 ≈ 키의 45%, 팔 둘·다리 둘 — 산타처럼 부품마다 외곽선, 팔다리는 관절을 IK로 굽힘). 머리는 통째로 빨간 가면 +
   렌즈 사이에서 퍼지는 얇은 짙은 거미줄 선 + 까만 테 큰 하얀 렌즈 둘 (표정마다 모양: ^^ · 동그란 놀람 · ‿ · 눈꺼풀 내림 · 화난/처진 눈꺼풀 · > <), 볼터치, 입은 가면 너머 살짝만.

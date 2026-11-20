@@ -308,12 +308,7 @@ impl Pet {
                 if u < st::FLIP_ROLL.0 {
                     Anim::Hop
                 } else if u < st::FLIP_ROLL.1 {
-                    // 구르기 그림이 없는 픽셀 동물은 그냥 폴짝
-                    if self.cfg.no_roll {
-                        Anim::Hop
-                    } else {
-                        Anim::Roll
-                    }
+                    Anim::Roll
                 } else {
                     Anim::Land
                 }

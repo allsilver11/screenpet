@@ -3,14 +3,11 @@
 const { invoke } = window.__TAURI__.core;
 const here = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
-const PIXEL = window.ART_STYLE === "pixel";
-const POOP_SRC = `${PIXEL ? "objects_pixel" : "objects"}/poop.png`;
+const POOP_SRC = "objects/poop.png";
 // 그림 한 변 = 반지름 × 이만큼 (그림 둘레의 빈 곳까지)
 const POOP_DRAW = 2.4;
 // 키 → 비트 (screenpet_core::brain::control_moves::ControlInput::bits)
 const KEY_BITS = { ArrowLeft: 1, ArrowRight: 2, ArrowUp: 4, ArrowDown: 8, " ": 16, Shift: 32 };
-
-if (PIXEL) document.body.classList.add("pixel");
 
 // id로 요소를 찾음
 const $ = (id) => document.getElementById(id);

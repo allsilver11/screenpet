@@ -85,7 +85,7 @@ impl Shape {
         (2.0 * self.reach * CELL_TO_LOGICAL + 2.0 * WINDOW_MARGIN).ceil()
     }
 
-    /// scale배로 그릴 때의 창 한 변 (논리 px): 픽셀 그림은 칸이 정수라 조금 클 수 있어 여유를 둠
+    /// scale배로 그릴 때의 창 한 변 (논리 px): 조금 여유를 둠
     /// 지금까지 쓰던 가장 작은 창보다 줄이지 않음. 1배보다 크면 (거대한 물건) 그림만큼 키움
     pub fn window_side_at(&self, scale: f64) -> f64 {
         if scale > 1.0 {

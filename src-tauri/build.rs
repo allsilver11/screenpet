@@ -1,4 +1,4 @@
-//! 빌드 스크립트임: `ui/pets`(동글)과 `ui/pets_pixel`(픽셀)의 `pet.json`을 훑어 `BUNDLED_PETS`·`BUNDLED_PIXEL_PETS` 표를 `OUT_DIR`에 만듦.
+//! 빌드 스크립트임: `ui/pets`의 `pet.json`을 훑어 `BUNDLED_PETS` 표를 `OUT_DIR`에 만듦.
 //! `pets.rs`가 `include!`로 읽음. 시트가 빠진 동물이 있으면 빌드를 멈추고, 끝에 Tauri 빌드를 돌림.
 use std::{env, fs, path::Path};
 
@@ -32,27 +32,6 @@ fn main() {
     }
     code.push_str("];\n");
     fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("pets.rs"), code).unwrap();
-
-    // 픽셀 그림 (ui/pets_pixel/<id>/pet.json + 다섯 단계 시트). 아직 없는 동물은 빠지고, 그 동물은 픽셀 스타일에서도 동글로 보임
-    let pixel_dir = Path::new(&manifest_dir).join("../ui/pets_pixel");
-    println!("cargo:rerun-if-changed={}", pixel_dir.display());
-    let mut pixel_ids: Vec<String> = fs::read_dir(&pixel_dir)
-        .map(|dir| dir.filter_map(|e| e.ok()).filter(|e| e.path().join("pet.json").is_file()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
-        .unwrap_or_default();
-    pixel_ids.sort();
-    let mut code = String::from("pub const BUNDLED_PIXEL_PETS: &[(&str, &str)] = &[\n");
-    for id in &pixel_ids {
-        let missing = ["baby", "kinder", "child", "teenager", "adult"].into_iter().find(|st| !pixel_dir.join(id).join(format!("sheet_{st}.png")).is_file());
-        if let Some(st) = missing {
-            println!("cargo:warning=ui/pets_pixel/{id}: sheet_{st}.png 없음 — 이 동물은 동글로 보인다");
-            continue;
-        }
-        let path = pixel_dir.join(id).join("pet.json");
-        println!("cargo:rerun-if-changed={}", path.display());
-        code.push_str(&format!("    ({:?}, include_str!({:?})),\n", id, path.display().to_string()));
-    }
-    code.push_str("];\n");
-    fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("pets_pixel.rs"), code).unwrap();
 
     // 앱 커맨드도 권한 목록(capabilities/default.json)에 있는 창만 부를 수 있음. main.rs의 generate_handler와 같은 목록 (tools/test_capabilities.py가 맞춰 봄)
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
@@ -100,8 +79,6 @@ fn main() {
         "ladder_answer",
         "ladder_close",
         "ladder_seen",
-        "gift_collect",
-        "book_state",
         "timeline_state",
         "timeline_fit",
         "dodge_state",

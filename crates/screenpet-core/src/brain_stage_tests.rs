@@ -187,13 +187,6 @@ fn a_teen_backflips_with_a_roll_in_the_air_and_says_yeah() {
     assert!(highest > 0.5 * st::FLIP_RISE * p.cfg.size, "{highest}");
     assert_eq!(said, vec![Speech::Flip]);
     assert_eq!(p.window_pos().1, ground, "다시 바닥");
-    // 구르기 그림이 없는 픽셀 동물은 그냥 폴짝
-    let mut pixel = on_floor(PetConfig { no_roll: true, ..aged(Stage::Teenager) }, 900.0, 3, &w);
-    pixel.state = pixel.stage_act(StageAct::Flip, st::FLIP_SECS);
-    for _ in 0..30 {
-        pixel.update(DT, &w);
-        assert_ne!(pixel.render().anim, Anim::Roll);
-    }
 }
 
 #[test]

@@ -439,7 +439,7 @@ fn the_usual_reasons_still_refuse_an_invite_while_away() {
     assert!(!p.is_free_to_go(), "eating");
 }
 
-// ---- 어울리기·쿵쾅·선물 ----
+// ---- 어울리기·쿵쾅 ----
 
 #[test]
 fn sleepers_side_by_side_do_not_greet_or_get_stomped_awake() {
@@ -522,19 +522,6 @@ fn leave_and_settle(social: &mut Social, pets: &mut [Pet], w: &World) {
     assert!(is_asleep(&pets[0]) && is_asleep(&pets[1]), "{:?} {:?}", pets[0].state, pets[1].state);
     assert_eq!(social.active(), 0, "the link is gone");
     assert!(pets.iter().all(|p| p.social_role().is_none()));
-}
-
-#[test]
-fn no_gifts_while_away() {
-    let w = world(vec![]);
-    // 깨어 있는 자세여도 (손 흔들러 깬 동물 등) 선물은 없다
-    let mut p = tempted(walker(), &w);
-    place(&mut p, &w, Owner::Ground(0), 800.0, idle());
-    assert!(crate::gift::drop_spot(&p, &w).is_some());
-    p.set_user_away(true);
-    assert!(crate::gift::drop_spot(&p, &w).is_none());
-    p.set_user_away(false);
-    assert!(crate::gift::drop_spot(&p, &w).is_some());
 }
 
 // ---- 집중 친구 ----

@@ -133,7 +133,7 @@ def test_pet_fills_door_like_teenager(built, kind, stage):
     teen = _door(built, "house", "teenager")
     teen_fill = draw_house.door_pet_size("teenager") / teen["w"]
     door = _door(built, kind, stage)
-    # 귀신의 집 문은 호박·유령 몸 폭(평균)에 맞춘다
+    # 귀신의 집 문은 호박·유령(v0.7.0에 빠짐) 몸 폭(평균)에 맞춘다
     body = {"haunted": draw_house.HAUNTED_FILL, "xmas": draw_house.XMAS_FILL}.get(kind, {}).get(stage, 1.0)
     fill = draw_house.door_pet_size(stage) * body / door["w"]
     assert abs(fill / teen_fill - 1) < 0.04, (kind, stage, fill, teen_fill)
@@ -173,10 +173,10 @@ def test_kinds_include_haunted():
     assert set(draw_house.DOORS) == set(draw_house.KINDS)
 
 
-@pytest.mark.parametrize("pet", ["pumpkin", "ghost"])
+@pytest.mark.parametrize("pet", ["pumpkin"])
 @pytest.mark.parametrize("stage", STAGES)
-def test_haunted_door_fits_pumpkin_and_ghost(built, pet, stage):
-    """실제 시트로 잰 호박·유령 몸 폭이 귀신의 집 문을 teenager 집의 고양이처럼 (±15 %) 채운다 (호박 0.9 · 유령 0.85 — 크기를 되돌리며 문도 되돌렸다)."""
+def test_haunted_door_fits_the_pumpkin(built, pet, stage):
+    """실제 시트로 잰 호박 몸 폭이 귀신의 집 문을 teenager 집의 고양이처럼 (±15 %) 채운다 (호박 0.9 — 크기를 되돌리며 문도 되돌렸다)."""
     teen = _door(built, "house", "teenager")
     teen_fill = draw_house.door_pet_size("teenager") * _body_width("cat", "teenager") / teen["w"]
     door = _door(built, "haunted", stage)

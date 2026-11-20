@@ -1,6 +1,6 @@
 // 🕷️ 거미인간의 줄과 거미집 그리기. 🌈 무지개 구름·🖍️ 낙서와 같은 모니터 덮개 창 (trail.html)의 가운데 캔버스에 그림.
 // 앱(src-tauri/src/trail.rs)이 보내는 것 (모두 논리 px, 이 창 왼쪽 위가 0,0):
-//   trail-webs      새 거미집들 [{id, x, y, corner, size, pixel, age, life, shots, build}] — corner는 top_left·top_right·bottom_left·bottom_right,
+//   trail-webs      새 거미집들 [{id, x, y, corner, size, age, life, shots, build}] — corner는 top_left·top_right·bottom_left·bottom_right,
 //                   🕸️⭕ center면 둥근 거미집 (x·y가 가운데 — 살 7–9개를 사방으로, 대충 8각형인 비정형 고리, orbShape),
 //                   x·y는 모서리 점, size는 반지름, age는 이미 지난 초, life는 그대로 남는 초 (그 뒤 WEB_FADE초 동안 흐려짐),
 //                   shots·build: 줄을 shots번 쏘아 build초 동안 짬 — 쏠 때마다 살·고리가 차례로 생김 (build가 없으면 WEB_GROW초에 핌)
@@ -9,7 +9,7 @@
 //   trail-web-move  창을 따라 옮길 거미집 [{id, x, y, hidden}] — hidden이면 앞 창에 가려져 그리지 않음
 //   trail-web-clear 🧹 다 치우기·한 시간마다 — 모든 거미집이 WEB_DROP초 동안 흐려짐
 // CPU를 아끼는 규칙: 거미집 MAX_WEBS개까지, 피어나거나 흐려지거나 줄이 있는 동안만 requestAnimationFrame, 가만히 있는 동안은 타이머 하나.
-// 브라우저에서 trail.html?web=1 (&pixel=1, &light=1)로 앱 없이 볼 수 있음.
+// 브라우저에서 trail.html?web=1 (&light=1)로 앱 없이 볼 수 있음.
 
 const WEB_GROW = 0.6;
 const WEB_LIFE = 480;
@@ -51,7 +51,7 @@ function addWebs(list) {
     const weave = p.build > 0 && p.build <= WEB_BUILD_MAX && Number.isInteger(p.shots) && p.shots > 1 && p.shots <= WEB_SHOTS_MAX;
     const build = weave ? p.build : 0;
     const shots = weave ? p.shots : 1;
-    webs.push({ id: p.id, x: p.x, y: p.y, corner: p.corner, size: p.size, pixel: !!p.pixel, life, born: now - p.age * 1000, gone: 0, build, shots });
+    webs.push({ id: p.id, x: p.x, y: p.y, corner: p.corner, size: p.size, life, born: now - p.age * 1000, gone: 0, build, shots });
   }
   if (webs.length > MAX_WEBS) webs = webs.slice(webs.length - MAX_WEBS);
   wakeWebs();
@@ -106,7 +106,6 @@ function webState(w, now) {
   const grown = w.build > 0 ? wovenShare(w, t) : Math.min(1, t / WEB_GROW);
   let alpha = t < w.life ? 1 : Math.max(0, 1 - (t - w.life) / WEB_FADE);
   if (w.gone) alpha = Math.min(alpha, Math.max(0, 1 - (now - w.gone) / 1000 / WEB_DROP));
-  if (w.pixel) alpha = Math.ceil(alpha * 4) / 4;
   return { t, grown, alpha };
 }
 
@@ -246,15 +245,15 @@ function orbPaths(w, r) {
 }
 
 // 선 묶음을 그늘 → 실 순서로 그림
-function strokeSilk(paths, width, pixel) {
-  wctx.lineCap = pixel ? "square" : "round";
-  wctx.lineJoin = pixel ? "miter" : "round";
+function strokeSilk(paths, width) {
+  wctx.lineCap = "round";
+  wctx.lineJoin = "round";
   for (const [color, wd] of [[SILK_SHADE, width + 1.6], [SILK, width]]) {
     wctx.strokeStyle = color;
-    wctx.lineWidth = pixel ? Math.max(1, Math.round(wd)) : wd;
+    wctx.lineWidth = wd;
     wctx.beginPath();
     for (const p of paths) {
-      p.forEach(([x, y], i) => (i ? wctx.lineTo(pixel ? Math.round(x) : x, pixel ? Math.round(y) : y) : wctx.moveTo(pixel ? Math.round(x) : x, pixel ? Math.round(y) : y)));
+      p.forEach(([x, y], i) => (i ? wctx.lineTo(x, y) : wctx.moveTo(x, y)));
     }
     wctx.stroke();
   }
@@ -273,10 +272,10 @@ function drawWebs(now) {
     else next = Math.min(next, w.life - s.t);
     if (s.alpha <= 0 || w.hidden) continue;
     wctx.globalAlpha = s.alpha;
-    strokeSilk(webPaths(w, s.grown), Math.max(1, w.size / 60), w.pixel);
+    strokeSilk(webPaths(w, s.grown), Math.max(1, w.size / 60));
   }
   wctx.globalAlpha = 1;
-  if (webLines.length) strokeSilk(webLines.map((l) => [[l.x0, l.y0], [l.x1, l.y1]]), 1.6, false);
+  if (webLines.length) strokeSilk(webLines.map((l) => [[l.x0, l.y0], [l.x1, l.y1]]), 1.6);
   if (moving) {
     webFrame = requestAnimationFrame(drawWebs);
   } else if (webs.length) {
@@ -312,13 +311,12 @@ if (window.__TAURI__) {
 // 앱 없이 브라우저에서 보기 (개발용): 네 모서리 거미집 + 🕸️⭕ 둥근 거미집 셋 (짜는 중부터 — &orb=1이면 둥근 것만 다 짠 채로) + 줄 하나
 function webPreview() {
   const q = new URLSearchParams(location.search);
-  const pixel = !!q.get("pixel");
   const orbOnly = !!q.get("orb");
   document.documentElement.style.background = q.get("light") ? "#eef1f6" : "#1d2030";
   const W = window.innerWidth;
   const H = window.innerHeight;
-  if (!orbOnly) addWebs(Object.keys(WEB_CORNERS).map((corner, i) => ({ id: i + 1, corner, x: corner.endsWith("left") ? 0 : W, y: corner.startsWith("top") ? 0 : H, size: 90, pixel, age: 1, life: 60 })));
+  if (!orbOnly) addWebs(Object.keys(WEB_CORNERS).map((corner, i) => ({ id: i + 1, corner, x: corner.endsWith("left") ? 0 : W, y: corner.startsWith("top") ? 0 : H, size: 90, age: 1, life: 60 })));
   const age = orbOnly ? 10 : 0;
-  addWebs([[0.25, 0.4, 70], [0.55, 0.45, 110], [0.82, 0.55, 85]].map(([fx, fy, size], i) => ({ id: 11 + i, corner: ORB_KIND, x: W * fx, y: H * fy, size, pixel, age, life: 60, shots: 6, build: 1.6 })));
+  addWebs([[0.25, 0.4, 70], [0.55, 0.45, 110], [0.82, 0.55, 85]].map(([fx, fy, size], i) => ({ id: 11 + i, corner: ORB_KIND, x: W * fx, y: H * fy, size, age, life: 60, shots: 6, build: 1.6 })));
   if (!orbOnly) setWebLines([{ x0: W / 2, y0: H * 0.8, x1: W * 0.8, y1: 0 }]);
 }

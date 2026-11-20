@@ -1,5 +1,5 @@
 # build.yml test 작업(Linux x86_64, Python 3.12) 전용. 정확한 버전과 해시로 고정한다 (다른 조합은 --require-hashes에 막힌다).
-# pillow는 그림 해시 테스트(round_art_hashes.json)가 통과하는 판으로 고정: 올릴 땐 tools 테스트를 먼저 돌린다.
+# pillow는 그림 테스트가 통과하는 판으로 고정: 올릴 땐 tools 테스트를 먼저 돌린다.
 # 다른 OS에서 개발할 때는: pip install pillow==12.3.0 numpy pytest pyyaml
 numpy==2.4.6 \
     --hash=sha256:90f9849678c75fe7afa2d348ac842c168b0a4d3d61919687216dfc547976d853

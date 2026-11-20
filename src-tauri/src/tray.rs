@@ -6,7 +6,6 @@ use screenpet_core::food::FeedMode;
 use screenpet_core::manifest::FavoriteFood;
 use screenpet_core::presence::FocusLength;
 use screenpet_core::real_weather::{Place, WeatherSource};
-use screenpet_core::style::PetStyle;
 use screenpet_core::tint::BodyTint;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
@@ -57,21 +56,16 @@ const PLAY_HERE_ID: &str = "net:play-here";
 const BRING_DEVICE_ID: &str = "net:bring-device";
 /// "집에 와"가 들어가는 자리: 메뉴 맨 위부터 danni, 구분선, 🐾 내 펫, 🍚 밥 주기, 🏠 하우스 다음
 const COME_HOME_POSITION: usize = 5;
-/// 🎁 선물 도감 창 열기
-const GIFT_BOOK_ID: &str = "gift-book";
 /// 🐾 내 펫 ▸ 🕐 최근 한 시간 창 열기
 const TIMELINE_ID: &str = "timeline";
 const DODGE_ID: &str = "dodge";
 /// 🎮 조작 모드 체크 항목
 const CONTROL_ID: &str = "control";
-/// 🐾 내 펫 ▸ 스타일 ▸ 체크 항목 (설정에 남음, 그림만 바뀜)
-const STYLE_ROUND_ID: &str = "style:round";
-const STYLE_PIXEL_ID: &str = "style:pixel";
 /// 🐾 내 펫 ▸ 🎨 흐물이 색 ▸ 체크 항목 (뒤는 BodyTint id — 설정에 남음, 웹뷰가 잉크 자리만 칠함)
 const TINT_PREFIX: &str = "tint:";
 const TINT_MENU_ID: &str = "tint-menu";
-/// "🎨 흐물이 색"이 들어가는 자리: 🐾 내 펫 ▸ 성장 단계, 최근 한 시간, 키우기, 스타일 다음 (잉크 선 동물일 때만)
-const TINT_POSITION: usize = 4;
+/// "🎨 흐물이 색"이 들어가는 자리: 🐾 내 펫 ▸ 성장 단계, 최근 한 시간, 키우기 다음 (잉크 선 동물일 때만)
+const TINT_POSITION: usize = 3;
 /// 🌨️ 날씨 효과 체크 항목 (게임 루프가 설정으로 맞춤 — 일 년 내내 누를 수 있음)
 const WEATHER_ID: &str = "weather";
 /// ⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸ ☀️ 실제 날씨 / 📅 계절 날씨 / 직접 고른 날씨 체크 (뒤는 WeatherSource id), 📍 날씨 지역 ▸ 도시 체크 (뒤는 Place id) — 설정에 남음
@@ -232,10 +226,6 @@ pub struct TrayMenu {
     pub pets: Vec<(CheckMenuItem<Wry>, String)>,
     /// `키우기: <지금 동물> ▸` 하위 메뉴
     pub pets_menu: Submenu<Wry>,
-    /// 🐾 내 펫 ▸ 스타일 ▸ 동글동글 / 픽셀
-    pub style_round: CheckMenuItem<Wry>,
-    /// 픽셀 스타일 체크
-    pub style_pixel: CheckMenuItem<Wry>,
     /// 🐾 내 펫 ▸ (🎨 흐물이 색을 넣고 뺌)
     pub my_pet: Submenu<Wry>,
     /// 🎨 흐물이 색 ▸ (잉크 선 동물일 때만 내 펫 안에 있음) 과 색마다 체크 항목
@@ -248,6 +238,8 @@ pub struct TrayMenu {
     pub autostart: CheckMenuItem<Wry>,
     /// 🔄 업데이트 (update.rs가 글자와 누를 수 있는지를 바꿈)
     pub update: MenuItem<Wry>,
+    /// 🙈 숨기기 / 🐾 보이기 — 지금 누르면 할 일만 보임 (toggle_label)
+    pub toggle: MenuItem<Wry>,
     /// `👫 친구랑 놀기 ▸` (네트워크 상태에 따라 다시 채움)
     pub friends: Submenu<Wry>,
     /// 집에 와 (내 동물이 친구 화면에 가 있을 때만 메뉴에 있음 — 하우스 아래)
@@ -256,12 +248,6 @@ pub struct TrayMenu {
     pub hand_mode: Submenu<Wry>,
     /// 그릇에 주기 ▸
     pub auto_mode: Submenu<Wry>,
-}
-
-/// 스타일 체크를 지금 설정에 맞춤 (체크 항목은 누를 때 스스로 뒤집히므로 늘 다시 맞춤)
-pub fn sync_style(menu: &TrayMenu, style: PetStyle) {
-    let _ = menu.style_round.set_checked(style == PetStyle::Round);
-    let _ = menu.style_pixel.set_checked(style == PetStyle::Pixel);
 }
 
 /// 실제 날씨 항목 글자 (도시 이름 포함)
@@ -588,9 +574,19 @@ fn effect_windows(app: &AppHandle) -> Vec<WebviewWindow> {
     app.webview_windows().into_iter().filter(|(label, _)| PREFIXES.iter().any(|p| label.starts_with(p))).map(|(_, w)| w).collect()
 }
 
+/// 숨기기 / 보이기 항목 글자: 숨겨 둔 동안엔 "보이기", 보이는 동안엔 "숨기기" (누르면 할 일)
+pub fn toggle_label(hidden: bool) -> &'static str {
+    if hidden {
+        "🐾 보이기"
+    } else {
+        "🙈 숨기기"
+    }
+}
+
 /// 내 동물 창(또는 하우스 창)과 손님 창을 모두 보임. 하우스는 지금 구석에 다시 놓음
 pub fn show_all(app: &AppHandle) {
     app.state::<AppState>().hidden.store(false, Ordering::Relaxed);
+    let _ = app.state::<AppState>().menu.toggle.set_text(toggle_label(false));
     if app.state::<AppState>().housed.load(Ordering::Relaxed) {
         crate::house::show_in_corner(app);
     } else if let Some(w) = own_window(app) {
@@ -609,6 +605,7 @@ fn toggle_windows(app: &AppHandle) {
     } else {
         // 숨겨 둔 동안 게임 루프가 다시 보이지 않게 먼저 적음
         app.state::<AppState>().hidden.store(true, Ordering::Relaxed);
+        let _ = app.state::<AppState>().menu.toggle.set_text(toggle_label(true));
         // 집은 동물이 달려가는 동안에도 보임
         for w in own_window(app).into_iter().chain(app.get_webview_window(crate::house::LABEL)).chain(guest_windows(app)).chain(effect_windows(app)) {
             crate::overlay::hide_quietly(&w);
@@ -623,7 +620,7 @@ fn send(app: &AppHandle, input: Input) {
 
 /// 트레이 메뉴 전체를 만듦 (동물·설정·네트워크 상태에 맞춘 처음 모습)
 #[allow(clippy::too_many_arguments)]
-pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode, style: PetStyle, dev: bool) -> tauri::Result<TrayMenu> {
+pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &FavoriteFood, care: &Care, housed: bool, feed_mode: FeedMode, dev: bool) -> tauri::Result<TrayMenu> {
     // 🎨 흐물이 색 ▸ — 체크는 게임 루프가 설정으로 맞추고, 내 펫 안에 넣는 것도 게임 루프가 동물을 보고 함 (sync_tint_shown)
     let tint_menu = Submenu::with_id(app, TINT_MENU_ID, "🎨 흐물이 색", true)?;
     let mut tints = Vec::new();
@@ -695,13 +692,12 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let focus_short = CheckMenuItem::with_id(app, FOCUS_SHORT_ID, "25분 집중 · 5분 쉬기", true, true, None::<&str>)?;
     let focus_long = CheckMenuItem::with_id(app, FOCUS_LONG_ID, "50분 집중 · 10분 쉬기", true, false, None::<&str>)?;
     let focus = Submenu::with_items(app, focus_label(false), true, &[&focus_toggle, &PredefinedMenuItem::separator(app)?, &focus_short, &focus_long])?;
-    let gift_book = MenuItem::with_id(app, GIFT_BOOK_ID, "🎁 선물 도감", true, None::<&str>)?;
     let timeline = MenuItem::with_id(app, TIMELINE_ID, "🕐 최근 한 시간", true, None::<&str>)?;
     let dodge = MenuItem::with_id(app, DODGE_ID, "💩 똥피하기", true, None::<&str>)?;
     let come_home = MenuItem::with_id(app, COME_HOME_ID, "집에 와", true, None::<&str>)?;
     // 게임 루프가 네트워크를 시작한 뒤 채움
     let friends = Submenu::with_items(app, "👫 친구랑 놀기", true, &[&MenuItem::new(app, "친구를 찾는 중…", false, None::<&str>)?])?;
-    let toggle = MenuItem::with_id(app, "toggle", "숨기기 / 보이기", true, None::<&str>)?;
+    let toggle = MenuItem::with_id(app, "toggle", toggle_label(false), true, None::<&str>)?;
     let help = MenuItem::with_id(app, "help", "도움말 ❓", true, None::<&str>)?;
     let feedback = MenuItem::with_id(app, FEEDBACK_ID, "💌 개발자에게 건의하기…", true, None::<&str>)?;
     let board = MenuItem::with_id(app, BOARD_ID, board_label(0), true, None::<&str>)?;
@@ -709,12 +705,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let update = MenuItem::with_id(app, UPDATE_ID, "🔄 업데이트", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
     let easter_egg = MenuItem::with_id(app, EASTER_EGG_ID, format!("{EASTER_EGG_LABEL} (v{})", env!("CARGO_PKG_VERSION")), false, None::<&str>)?;
-    let style_round = CheckMenuItem::with_id(app, STYLE_ROUND_ID, "동글동글", true, style == PetStyle::Round, None::<&str>)?;
-    let style_pixel = CheckMenuItem::with_id(app, STYLE_PIXEL_ID, "픽셀", true, style == PetStyle::Pixel, None::<&str>)?;
-    let style_menu = Submenu::with_items(app, "스타일", true, &[&style_round, &style_pixel])?;
-    let my_pet = Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &style_menu, &lock, &reset])?;
+    let my_pet = Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &lock, &reset])?;
     let objects_menu = crate::objects::build_menu(app)?;
-    let play = Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &dodge, &gift_book])?;
+    let play = Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &dodge])?;
     let sizes = MenuItem::with_id(app, SIZES_ID, "📏 크기 조절…", true, None::<&str>)?;
     // 처음엔 켜져 있음 — 게임 루프가 설정(처음이면 켜기)으로 다시 맞춤
     let autostart = CheckMenuItem::with_id(app, AUTOSTART_ID, "🚀 컴퓨터 켜면 자동 실행", true, true, None::<&str>)?;
@@ -762,13 +755,10 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             BOARD_ID => send(app, if dev { Input::ShowMailbox } else { Input::ShowBoard }),
             AUTOSTART_ID => send(app, Input::ToggleAutostart),
             UPDATE_ID => crate::update::on_click(app),
-            GIFT_BOOK_ID => send(app, Input::ShowGiftBook),
             TIMELINE_ID => send(app, Input::ShowTimeline),
             DODGE_ID => send(app, Input::ShowDodge),
             "feed:water" => send(app, Input::Feed(Food::Water)),
             "lock" => send(app, Input::ToggleLock),
-            STYLE_ROUND_ID => send(app, Input::SetStyle(PetStyle::Round)),
-            STYLE_PIXEL_ID => send(app, Input::SetStyle(PetStyle::Pixel)),
             "house" => send(app, Input::ToggleHouse),
             CONTROL_ID => send(app, Input::ToggleControl),
             CURSOR_PLAY_ID => send(app, Input::ToggleCursorPlay),
@@ -856,5 +846,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, style_round, style_pixel, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode, toggle: toggle.clone() })
 }

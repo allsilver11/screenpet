@@ -18,9 +18,10 @@ def test_top_level_order():
 
 
 def test_submenus_hold_what_was_decided():
-    assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &style_menu, &lock, &reset])' in TRAY
-    assert 'Submenu::with_items(app, "스타일", true, &[&style_round, &style_pixel])' in TRAY
-    assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &dodge, &gift_book])' in TRAY
+    assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &lock, &reset])' in TRAY
+    # 🟦 스타일(동글/픽셀)과 🎁 선물 도감은 v0.7.0에 빠짐
+    assert '"스타일"' not in TRAY and "style_pixel" not in TRAY and "gift" not in TRAY.lower() and "선물" not in TRAY
+    assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &dodge])' in TRAY
     assert 'Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &autostart])' in TRAY
     assert 'Submenu::with_items(app, "🎲 사다리타기", true, &[&new_game, &last, &invites])' in TRAY
     assert '"🍚 밥 주기"' in TRAY and '"👫 친구랑 놀기"' in TRAY and '"🏠 하우스"' in TRAY
@@ -58,9 +59,10 @@ def test_repair_is_gone():
 
 
 def test_help_uses_the_new_paths():
-    for path in ["🐾 내 펫 ▸ 키우기 ▸", "🐾 내 펫 ▸ 스타일 ▸", "⚙️ 설정 ▸ 🌨️ 날씨 효과", "⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸", "📍 날씨 지역 ▸", "🎮 놀기 ▸ 🎁 선물 도감", "🎮 놀기 ▸ 🗑️ 쓰레기 꺼내기 ▸", "🎲 사다리타기 ▸ 새 사다리…", "🎲 사다리타기 ▸ 초대 받기", "🎲 사다리타기 ▸ 지난 결과"]:
+    for path in ["🐾 내 펫 ▸ 키우기 ▸", "⚙️ 설정 ▸ 🌨️ 날씨 효과", "⚙️ 설정 ▸ 🌦️ 날씨 종류 ▸", "📍 날씨 지역 ▸", "🎮 놀기 ▸ 🗑️ 쓰레기 꺼내기 ▸", "🎲 사다리타기 ▸ 새 사다리…", "🎲 사다리타기 ▸ 초대 받기", "🎲 사다리타기 ▸ 지난 결과"]:
         assert path in HELP, path
     assert "캐릭터 ▸" not in HELP and "내 친구 코드 보기" not in HELP and "사다리 초대 받기" not in HELP
+    assert "스타일 ▸" not in HELP and "선물" not in HELP and "픽셀" not in HELP and "유령" not in HELP
 
 
 def test_throwing_ten_is_one_menu_that_lists_the_friends():
@@ -228,7 +230,7 @@ def test_my_two_computers_share_the_pet_and_its_growth():
     assert "Input::SetPet { entry, remote: true }" in arm, "the pet switches through the usual path"
     assert "share_state(" not in arm, "what came from the other computer is not sent back"
     set_pet = GAME_LOOP[GAME_LOOP.index("Input::SetPet { entry: next, remote } =>") :]
-    set_pet = set_pet[: set_pet.index("Input::SetStyle(")]
+    set_pet = set_pet[: set_pet.index("Input::SetTint(")]
     assert "sync_pet_checks(" in set_pet and "if !remote" in set_pet
     # 먹이기·성장 멈추기·처음부터·펫 바꾸기·점심 배고픔·주기적 저장 때 알린다
     assert GAME_LOOP.count("share_care(") >= 7
@@ -239,7 +241,7 @@ def test_help_says_what_my_two_computers_share():
     one = one[: one.index("</li>")]
     assert "펫·성장·선물·기록은 컴마다 따로" not in one
     assert "고른 펫과 성장" in one and "그사이 다른 컴에서 키운 건 덮어써질 수 있어요" in one
-    assert "선물 도감" in one and "따로" in one
+    assert "똥피하기 기록" in one and "따로" in one and "선물 도감" not in one and "스타일" not in one
 
 
 def test_a_short_drop_does_not_flip_friends_offline_or_redraw_the_menu():
@@ -250,13 +252,13 @@ def test_a_short_drop_does_not_flip_friends_offline_or_redraw_the_menu():
     assert 'log!(Info, "net", "friend_down", "friend" => short_id(&id));' in net
 
 
-def test_heumul_color_menu_sits_under_the_style_only_for_tintable_pets():
-    """🎨 흐물이 색 ▸ (기본·흰색·…·🌈 무지개, 지금 색에 체크): 🐾 내 펫 ▸ 스타일 바로 아래, 잉크 선 동물(pet.json tint)일 때만 끼어든다."""
+def test_heumul_color_menu_sits_under_the_pets_only_for_tintable_pets():
+    """🎨 흐물이 색 ▸ (기본·흰색·…·🌈 무지개, 지금 색에 체크): 🐾 내 펫 ▸ 키우기 바로 아래, 잉크 선 동물(pet.json tint)일 때만 끼어든다."""
     assert 'Submenu::with_id(app, TINT_MENU_ID, "🎨 흐물이 색", true)' in TRAY and "menu.my_pet.get(TINT_MENU_ID).is_some()" in TRAY
     assert 'const TINT_PREFIX: &str = "tint:";' in TRAY
     assert "for tint in BodyTint::ALL" in TRAY and "tint.label()" in TRAY and 'format!("{TINT_PREFIX}{}", tint.id())' in TRAY
     assert ".strip_prefix(TINT_PREFIX).and_then(BodyTint::from_id)" in TRAY and "Input::SetTint(tint)" in TRAY
-    assert "const TINT_POSITION: usize = 4;" in TRAY  # 성장 단계, 최근 한 시간, 키우기, 스타일 다음
+    assert "const TINT_POSITION: usize = 3;" in TRAY  # 성장 단계, 최근 한 시간, 키우기 다음
     assert "menu.my_pet.insert(&menu.tint_menu, TINT_POSITION)" in TRAY and "menu.my_pet.remove(&menu.tint_menu)" in TRAY
     game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
     sync = game[game.index("fn sync_menu(") :]

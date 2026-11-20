@@ -98,9 +98,9 @@ def test_old_puffs_start_part_faded_and_expired_ones_are_dropped(run):
     assert run["aged_alive"] == 1
 
 
-def test_both_styles_draw(run):
+def test_clouds_are_round_even_with_an_old_pixel_flag(run):
     assert run["round_arcs"] > 0 and run["round_rects"] == 0
-    assert run["pixel_rects"] > 0 and run["pixel_arcs"] == 0
+    assert run["pixel_arcs"] > 0 and run["pixel_rects"] == 0
 
 
 def test_help_and_release_note_mention_the_trail():

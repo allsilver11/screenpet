@@ -219,7 +219,6 @@ fn spawn(app: &AppHandle, wa: &Rect, scale: f64) -> Option<WebviewWindow> {
     let built = crate::overlay::finish(
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("dodge.html".into()))
             .title("ScreenPet 똥피하기")
-            .initialization_script(crate::art::style_script())
             .inner_size(wa.width() / scale, wa.height() / scale),
     );
     let window = match built {

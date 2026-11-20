@@ -136,7 +136,6 @@ SPEECH = {
     "rabbit": {"chatter": ["boing!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "frog": {"chatter": ["ribbit!", "hop hop!", "ribbit~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "pumpkin": {"chatter": ["trick or treat!", "boo~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    "ghost": {"chatter": ["boo!", "ooo~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "duck": {"chatter": ["quack!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "rudolph": {"chatter": ["jingle~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "santa": {"chatter": ["ho ho ho!", "merry~"], "tickle": ["ho ho!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
@@ -163,16 +162,16 @@ SPEECH = {
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
-PERSONALITY = {"cat": "aloof", "persian": "aloof", "squirrel": "playful", "frog": "playful", "pumpkin": "playful", "ghost": "friendly",
+PERSONALITY = {"cat": "aloof", "persian": "aloof", "squirrel": "playful", "frog": "playful", "pumpkin": "playful",
                "duck": "playful", "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
 
-# 움직임 (pet.json locomotion) — 나는 동물만 적는다 (없으면 걷는다)
-LOCOMOTION = {"frog": "hop", "ghost": "fly"}
+# 움직임 (pet.json locomotion) — 폴짝·나는 동물만 적는다 (없으면 걷는다)
+LOCOMOTION = {"frog": "hop"}
 
 # 사는 집 그림 (pet.json house) — 보통 집은 적지 않는다. 앱 ui/house/<house>_<stage>.png
-HOUSE = {"pumpkin": "haunted", "ghost": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
+HOUSE = {"pumpkin": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
 
 # 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (개구리는 locomotion hop이라 늘 폴짝)
 HOP_SHARE = {"rabbit": 0.5, "squirrel": 0.35, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5, "heumul": 0.5}
@@ -229,7 +228,6 @@ FAVORITE_FOOD = {
     "rabbit": {"emoji": "🥕", "name": "당근"},
     "frog": {"emoji": "🪰", "name": "파리"},
     "pumpkin": {"emoji": "🍬", "name": "사탕"},
-    "ghost": {"emoji": "🍭", "name": "막대사탕"},
     "duck": {"emoji": "🍞", "name": "빵"},
     "rudolph": {"emoji": "🍎", "name": "사과"},
     "santa": {"emoji": "🥛", "name": "우유"},

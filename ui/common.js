@@ -13,53 +13,15 @@ async function decodeSheet(url) {
   return img;
 }
 
-// 픽셀 몸 한 변 (CSS px): 칸 한 변이 물리 px의 정수배가 되도록 맞춤 (코어 style::pixel_body_scale로 이미 맞춰 온 값을 지금 창의 배율로 한 번 더).
-// fit = "floor"면 내림 (문간처럼 넘치면 잘리는 자리)
-function snapPixelSide(side, dots, fit = "round") {
-  const dpr = window.devicePixelRatio || 1;
-  const dot = fit === "floor" ? Math.floor((side / dots) * dpr) : Math.round((side / dots) * dpr);
-  return (dots * Math.max(1, dot)) / dpr;
-}
-
-// 칸 크기 (논리 px, 전 종·전 단계 같음 — 동글 stage_size를 곱하지 않음. 코어 style::pixel_grid, tools/draw_pixel_world.py STAGE_GRID와 같음)
-const PIXEL_DOT = 3;
-
-// 논리 칸 크기 → 물리 px의 정수배가 되는 CSS px (코어 style::dot_physical과 같은 계산)
-function snapDot(logical) {
-  const dpr = window.devicePixelRatio || 1;
-  return Math.max(1, Math.round(logical * dpr)) / dpr;
-}
-
-// 지금 그림이 픽셀이면 <body class="pixel"> (style.css: image-rendering pixelated, 흐려지는 효과 대신 계단)
-function setPixelBody(on) {
-  document.body.classList[on ? "add" : "remove"]("pixel");
-}
-
-// 픽셀 그림 (pets_pixel/<id>/pet.json + sheet_<stage>.png)을 동글 pet.json 위에 얹음: 시트 칸·동작 표·머리·목 표만 그림 것, 대사·이름·집은 그대로
-async function loadPixelSheet(id, stageName, round) {
-  const px = await (await fetch(`pets_pixel/${id}/pet.json`)).json();
-  const url = `pets_pixel/${id}/sheet_${stageName}.png`;
-  const img = await decodeSheet(url);
-  const manifest = { ...round, frame_size: px.frame_sizes[stageName], animations: px.animations, head: px.head, neck: px.neck };
-  return { manifest, url, img, style: "pixel", dir: `pets_pixel/${id}/` };
-}
-
-// 동물 id의 pet.json과 단계별 시트 sheet_<stage>.png → { manifest, url, img, style, dir }.
-// style "pixel"인데 그림을 못 읽으면 동글로. 돌려주는 manifest.frame_size는 이 단계 시트의 칸 크기임
-async function loadPetSheet(id, stageName, style = "round") {
+// 동물 id의 pet.json과 단계별 시트 sheet_<stage>.png → { manifest, url, img, dir }.
+// 돌려주는 manifest.frame_size는 이 단계 시트의 칸 크기임
+async function loadPetSheet(id, stageName) {
   const manifest = await (await fetch(`pets/${id}/pet.json`)).json();
-  if (style === "pixel") {
-    try {
-      return await loadPixelSheet(id, stageName, manifest);
-    } catch {
-      // 아래 동글로
-    }
-  }
   const url = `pets/${id}/sheet_${stageName}.${PET_ART_EXT}`;
   // 크게 보이는 단계는 시트 칸이 2배임 (frame_sizes, tools/sprite_spec.py frame_px). 표시 크기는 칸과 상관없음 — head·neck 표도 이 칸의 px
   const frameSize = manifest.frame_sizes?.[stageName] ?? manifest.frame_size;
   const img = await decodeSheet(url);
-  return { manifest: { ...manifest, frame_size: frameSize }, url, img, style: "round", dir: `pets/${id}/` };
+  return { manifest: { ...manifest, frame_size: frameSize }, url, img, dir: `pets/${id}/` };
 }
 
 // 지난 시간(ms)에 맞는 프레임 번호를 돌려줌 (loop: false면 마지막 프레임에서 멈춤)
@@ -184,7 +146,7 @@ function setupSpeech({ bubbleEl, pickerEl, favBtn, getManifest, isQuiet = () => 
   return { hidePicker, hideBubble };
 }
 
-// 글을 쓰는 창과 도감: 우클릭 메뉴·새로 고침만 막고 타자는 그대로. Enter는 글 넣기 (버튼 위면 그 버튼만 눌리게, 한글 조합 중이면 글자 확정), Esc는 닫기
+// 글을 쓰는 창: 우클릭 메뉴·새로 고침만 막고 타자는 그대로. Enter는 글 넣기 (버튼 위면 그 버튼만 눌리게, 한글 조합 중이면 글자 확정), Esc는 닫기
 function setupFormKeys({ submit, close } = {}) {
   window.addEventListener("contextmenu", (e) => e.preventDefault());
   window.addEventListener("keydown", (e) => {

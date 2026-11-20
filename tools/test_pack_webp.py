@@ -15,22 +15,22 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture
 def ui(tmp_path):
-    (tmp_path / "pets" / "ghost").mkdir(parents=True)
-    src = ROOT / "ui" / "pets" / "ghost"
-    shutil.copy(src / "sheet_baby.png", tmp_path / "pets" / "ghost")
-    shutil.copy(src / "sheet_teenager.png", tmp_path / "pets" / "ghost")
-    shutil.copy(src / "pet.json", tmp_path / "pets" / "ghost")
+    (tmp_path / "pets" / "pumpkin").mkdir(parents=True)
+    src = ROOT / "ui" / "pets" / "pumpkin"
+    shutil.copy(src / "sheet_baby.png", tmp_path / "pets" / "pumpkin")
+    shutil.copy(src / "sheet_teenager.png", tmp_path / "pets" / "pumpkin")
+    shutil.copy(src / "pet.json", tmp_path / "pets" / "pumpkin")
     shutil.copy(ROOT / "ui" / "common.js", tmp_path)
     return tmp_path
 
 
 def test_pack_is_lossless_and_switches_the_app_to_webp(ui):
-    png = ui / "pets" / "ghost" / "sheet_baby.png"
+    png = ui / "pets" / "pumpkin" / "sheet_baby.png"
     want = np.asarray(Image.open(png).convert("RGBA"))
     count, before, after = pack_webp.pack(ui)
     assert count == 2 and after < before
     assert not png.exists()
-    assert (ui / "pets" / "ghost" / "pet.json").exists()
+    assert (ui / "pets" / "pumpkin" / "pet.json").exists()
     assert np.array_equal(np.asarray(Image.open(png.with_suffix(".webp")).convert("RGBA")), want)
     assert 'const PET_ART_EXT = "webp";' in (ui / "common.js").read_text(encoding="utf-8")
 
@@ -39,7 +39,7 @@ def test_the_build_check_finds_a_sheet_before_and_after_packing(ui):
     """src-tauri/build.rs는 동물마다 sheet_teenager(.png 또는 .webp)를 확인한다 — 저장소 트리·배포 트리 어느 쪽에서도 통과해야 한다."""
     build = (ROOT / "src-tauri" / "build.rs").read_text(encoding="utf-8")
     assert '"sheet_teenager.png"' in build and '"sheet_teenager.webp"' in build and '"sheet.png"' not in build
-    pet = ui / "pets" / "ghost"
+    pet = ui / "pets" / "pumpkin"
     assert (pet / "sheet_teenager.png").is_file()
     pack_webp.pack(ui)
     assert (pet / "sheet_teenager.webp").is_file()
@@ -61,11 +61,11 @@ def test_the_repo_app_reads_png_and_every_pet_sheet_url_uses_the_constant():
     common = (ROOT / "ui" / "common.js").read_text(encoding="utf-8")
     assert common.count(pack_webp.MARK) == 1
     main = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
-    # 동글 시트·목은 상수로, 픽셀 그림은 PNG 그대로
+    # 시트·목·잉크는 상수로 (픽셀 그림은 v0.7.0에 빠짐)
     assert not re.findall(r"`pets/[^`]*\.png`", common + main)
     assert not re.findall(r"\$\{dir\}neck[^`]*\.png", main)
-    assert 'dir.startsWith("pets_pixel") ? "png" : PET_ART_EXT' in main
-    assert "`pets_pixel/${id}/sheet_${stageName}.png`" in common
+    assert "`url(${dir}ink_${stage.stage}.${PET_ART_EXT})`" in main
+    assert "pets_pixel" not in common + main
 
 
 def packed_platforms(ci):

@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use screenpet_core::style::PetStyle;
 use screenpet_core::sleigh::{self, Lap, Pose, COOLDOWN_SECS, PULLER, RIDER};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -20,7 +19,6 @@ const LABEL: &str = "sleigh";
 struct Rider {
     id: String,
     stage: &'static str,
-    pixel: bool,
     /// 한 변 (논리 px)
     side: f64,
 }
@@ -32,7 +30,6 @@ struct Setup {
     rider: Rider,
     /// 큰 동물 한 변 (논리 px)
     unit: f64,
-    pixel: bool,
     /// 썰매 아래 가운데(도는 축)가 창 아래에서 떨어진 높이 (논리 px) — 기울어도 안 잘리게
     below: f64,
 }
@@ -105,14 +102,13 @@ impl SleighFx {
         let rider = |s: &Slot| Rider {
             id: s.entry.id.clone(),
             stage: s.shown.stage.name(),
-            pixel: s.shown.style == PetStyle::Pixel,
             side: screenpet_core::brain::PET_LOGICAL_SIZE * s.shown.scale,
         };
         let (puller, rider) = (rider(&slots[i]), rider(&slots[j]));
         let unit = puller.side.max(rider.side);
         let b = sleigh::window_box(unit);
         let size = (b.width, b.height);
-        let setup = Setup { pixel: puller.pixel && rider.pixel, puller, rider, unit, below: b.below };
+        let setup = Setup { puller, rider, unit, below: b.below };
         let Some(window) = build_window(app, &setup, size) else { return };
         self.cooldown.insert(labels.clone(), now + Duration::from_secs_f64(COOLDOWN_SECS));
         for k in [i, j] {

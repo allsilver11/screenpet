@@ -1,10 +1,10 @@
 """카와이 펫 집 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 128px 집, 단계마다 하나씩
-+ 호박·유령의 귀신의 집 + 루돌프·산타의 크리스마스 벽돌집 (pet.json "house").
++ 호박의 귀신의 집 + 루돌프·산타의 크리스마스 벽돌집 (pet.json "house").
 
     python tools/draw_house.py  → ui/house/{house,haunted,xmas}_<stage>{.png,_front.png,.json} + ui/house/xmas_smoke.png
                                   + ui/house/{house.png, house_front.png, house.json} (teenager 집 별칭)
                                   + tools/preview/house.png (teenager 집), tools/preview/houses.png (모든 단계 × 집)
-                                  + tools/preview/haunted.png (모든 단계 × 귀신의 집 + 호박·유령)
+                                  + tools/preview/haunted.png (모든 단계 × 귀신의 집 + 호박)
                                   + tools/preview/xmas_house.png (모든 단계 × 크리스마스 벽돌집 + 루돌프·산타)
     python tools/draw_house.py xmas → 크리스마스 벽돌집만
 
@@ -106,7 +106,7 @@ DOORS = {
               "child": _door(55, *DOOR_SIZE["child"]), "teenager": dict(x=30, y=60, w=52, h=62),
               "adult": _door(46, *DOOR_SIZE["adult"])},
 }
-# 호박(몸 배율 0.9)·유령(0.85)도 고양이보다 좁아서, 같은 방법으로 잰 두 몸 폭의 평균 — 단계별
+# 호박(몸 배율 0.9)·유령(0.85, v0.7.0에 빠짐)도 고양이보다 좁아서, 같은 방법으로 잰 두 몸 폭의 평균 — 단계별
 # 호박 0.60 / 0.68 / 0.75 / 0.84 / 0.82, 유령 0.58 / 0.63 / 0.66 / 0.71 / 0.71 (v0.3.10에 넓혔다가 크기와 함께 되돌렸다)
 HAUNTED_FILL = {"baby": 0.59, "kinder": 0.65, "child": 0.71, "teenager": 0.78, "adult": 0.76}
 HAUNTED_DOOR_SIZE = {s: (round(w * HAUNTED_FILL[s]), round(w * HAUNTED_FILL[s] * 62 / 52)) for s, (w, _) in DOOR_SIZE.items()}
@@ -435,7 +435,7 @@ def draw_house_adult():
 
 
 # =====================================================================
-# 귀신의 집 — 호박·유령의 집 (pet.json "house": "haunted"). 무섭지 않게: 삐뚤빼뚤 파스텔 보라 벽, 살짝 휜 지붕,
+# 귀신의 집 — 호박의 집 (pet.json "house": "haunted"). 무섭지 않게: 삐뚤빼뚤 파스텔 보라 벽, 살짝 휜 지붕,
 # 주황 불빛 다락 창, 금 간 창 속 작은 유령, 잭오랜턴, 거미줄 몇 가닥, 아치 나무 문
 # =====================================================================
 def faded(mask, k):
@@ -1041,7 +1041,7 @@ def preview_all(arts, path=PREVIEW_ALL):
 
 
 def preview_haunted(arts, path=PREVIEW_HAUNTED):
-    _house_rows_preview(arts, [("haunted", "pumpkin"), ("haunted", "ghost")], path)
+    _house_rows_preview(arts, [("haunted", "pumpkin")], path)
 
 
 def preview_xmas(arts, path=PREVIEW_XMAS):

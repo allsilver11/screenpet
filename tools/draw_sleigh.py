@@ -1,6 +1,6 @@
 """🛷 썰매 세리머니의 썰매 그림.
 
-    python tools/draw_sleigh.py  → ui/sleigh/sleigh.png (동글, 128칸) + ui/sleigh/sleigh_pixel.png (픽셀, 32×16칸)
+    python tools/draw_sleigh.py  → ui/sleigh/sleigh.png (128칸)
 
 오른쪽을 보고 선다 (앞이 오른쪽, 앞코가 동그랗게 말렸다). 썰매 날의 바닥이 그림 바닥에 닿는다 — 앱은 그림 아래 가운데를
 날아가는 자리에 맞춘다 (src-tauri/src/sleigh.rs). 루돌프·산타는 그림에 없다: 웹뷰가 동물 시트에서 그려 얹는다 (ui/sleigh.js).
@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from draw_house import blob, finish  # noqa: E402
 from draw_pets import LINE, WHITE, E, L, T, mix, view  # noqa: E402
 from draw_props import new_canvas  # noqa: E402
-import draw_pixel_world as px  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "ui" / "sleigh"
@@ -21,23 +20,6 @@ RED = (214, 52, 60)
 RED_DARK = (150, 30, 44)
 GOLD = (246, 196, 72)
 GOLD_DARK = (196, 140, 40)
-
-PIXEL = """
-    RR........................yy..
-    RRr......................yrry.
-    RRr......................yrrRy
-    RRr.....................yrrrRy
-    RRrrrrrrrrrrrrrrrrrrrrrrrrrRy.
-    RRrryyyyyyyyyyyyyyyyyyyyrrRy..
-    RRrrrrrrrrrrrrrrrrrrrrrrrRRy..
-    .RRrrrrrrrrrrrrrrrrrrrrrRRy...
-    ..RRRRRRRRRRRRRRRRRRRRRRRy....
-    ....Y.............Y...........
-    ....Y.............Y.......yy..
-    yyyyyyyyyyyyyyyyyyyyyyyyyy.y..
-    .YYYYYYYYYYYYYYYYYYYYYYYYyy...
-"""
-
 
 def draw_round():
     img = new_canvas()
@@ -58,14 +40,10 @@ def draw_round():
     return finish(img)
 
 
-def draw_pixel():
-    return px.icon(PIXEL, 32, 16, bottom=True).image()
-
-
 def build(out_dir=OUT_DIR):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    arts = {"sleigh": draw_round(), "sleigh_pixel": draw_pixel()}
+    arts = {"sleigh": draw_round()}
     for name, im in arts.items():
         im.save(out_dir / f"{name}.png", optimize=True)
     return arts
@@ -73,4 +51,4 @@ def build(out_dir=OUT_DIR):
 
 if __name__ == "__main__":
     build()
-    print(f"wrote {OUT_DIR}/sleigh.png, sleigh_pixel.png")
+    print(f"wrote {OUT_DIR}/sleigh.png")
