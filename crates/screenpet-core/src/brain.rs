@@ -362,6 +362,10 @@ pub enum Speech {
     GoodKid,
     /// 👶 큰 펫을 졸졸 ("wait for me!", social_romp.rs)
     TagAlong,
+    /// 🕷️🕷️🕷️ 다른 거미인간을 보고 깜짝 ("multiverse?!", social_multiverse.rs)
+    Multiverse,
+    /// 🕷️🕷️🕷️ 모임 끝에 흩어지며 ("see ya!")
+    SeeYa,
 }
 
 impl Anim {
@@ -1346,9 +1350,11 @@ impl Pet {
         }
     }
 
-    /// 동물 창의 왼쪽 위 자리 (물리 px — 폴짝·놀이로 솟은 만큼 위로)
+    /// 동물 창의 왼쪽 위 자리 (물리 px — 폴짝·놀이로 솟은 만큼 위로, 🕸️ 거미집에 걸린 순간은 출렁인 만큼 비켜)
     pub fn window_pos(&self) -> (f64, f64) {
-        (self.body.x - self.cfg.size / 2.0, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift())
+        // 🕸️ 거미집에 걸린 순간 "팅~" 출렁 (brain_snare.rs)
+        let (sx, sy) = self.snare_offset();
+        (self.body.x - self.cfg.size / 2.0 + sx, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift() + sy)
     }
 
     /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹음)
@@ -2834,6 +2840,8 @@ impl Pet {
                         (EndKind::Wall, Move::Walk | Move::Run) => match self.wants_exit(world, &piece) {
                             // 🤹 흐물이는 들고 갈 물건이 있으면 주워서 들고 간다
                             Some(side) if self.leave_with_something(side, world) => {}
+                            // 🕷️ 거미인간은 그 끝 위로 줄을 쏴 그네 타고 넘어감 (brain_web.rs)
+                            Some(side) if self.start_web_exit(side, world) => {}
                             Some(side) => self.start_exit(side),
                             None => self.state = State::Turn { remaining: TURN_PAUSE },
                         },
@@ -3019,9 +3027,10 @@ impl Pet {
             self.update_air_inside(dt, world, stay);
             return;
         }
-        // 던져서 친구가 연결된 화면 끝에 닿으면 튕기지 않고 넘어간다 (brain_fling.rs)
+        // 던져서 (🕷️ 또는 그네 타고 — brain_web.rs) 친구가 연결된 화면 끝에 닿으면 튕기지 않고 넘어간다 (brain_fling.rs)
         let (half_w, b) = (self.cfg.half_w, world.bounds);
         if self.fling_out(world, self.body.x + self.body.vx * dt, b.left + half_w, b.right - half_w)
+            || self.web_exit_out(world, self.body.x + self.body.vx * dt, b.left + half_w, b.right - half_w)
             || self.fling_out_vertical(world, self.body.y + (self.body.vy + self.air_gravity() * dt) * dt, self.cfg.size)
         {
             return;
@@ -3868,6 +3877,12 @@ pub mod web_moves;
 #[cfg(test)]
 #[path = "brain_web_tests.rs"]
 mod web_tests;
+#[cfg(test)]
+#[path = "brain_webtrip_tests.rs"]
+mod webtrip_tests;
+#[cfg(test)]
+#[path = "brain_orb_tests.rs"]
+mod orb_tests;
 #[path = "brain_snare.rs"]
 pub mod snare_moves;
 #[cfg(test)]

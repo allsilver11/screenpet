@@ -195,7 +195,15 @@
     ],
     "hero_land": [
       "nailed it!",
-      "ta-da!"
+      "hero landing!",
+      "super landing!",
+      "stuck it!",
+      "like a pro",
+      "boom!",
+      "still got it",
+      "ground secured",
+      "ta-da!",
+      "whoosh… done"
     ],
     "gotcha": [
       "gotcha!",
@@ -205,6 +213,18 @@
       "yeet!",
       "catch!",
       "go long!"
+    ],
+    "multiverse": [
+      "multiverse?!",
+      "wait… you too?",
+      "no way!",
+      "another me?!",
+      "which one's me?"
+    ],
+    "see_ya": [
+      "see ya!",
+      "later, me!",
+      "bye, me!"
     ],
     "hungry": [
       "hungry...",

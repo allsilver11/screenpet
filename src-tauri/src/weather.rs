@@ -235,9 +235,10 @@ impl WeatherFx {
                 // 바람은 0.1 단위로 (돌풍이 부는 동안만 장면이 바뀜), 회오리는 그 모니터와, 모니터 끝에 걸쳐 있으면 옆 모니터에도
                 // (옆 모니터에선 화면 밖 x로 반쪽만 보임 — 그 모니터 바닥에 그림)
                 scene.wind = Some((storm.wind() * 10.0).round() as f32 / 10.0);
-                scene.tornado = storm.tornado().filter(|t| t.area() == o.wa || screenpet_core::typhoon::straddles(t.x(), &o.wa, o.scale)).map(|t| {
+                // 넷째 값 = 깔때기 크기 (🌀 허리케인급은 크게 — 웹뷰가 그만큼 크게 그리고 걸침 거리도 같음)
+                scene.tornado = storm.tornado().filter(|t| t.area() == o.wa || screenpet_core::typhoon::straddles(t.x(), &o.wa, o.scale, t.size())).map(|t| {
                     let ground = if t.area() == o.wa { t.ground() } else { o.wa.bottom };
-                    [((t.x() - o.wa.left) / o.scale).round() as f32, ((ground - o.wa.top) / o.scale).round() as f32, (t.vx() / o.scale).round() as f32]
+                    [((t.x() - o.wa.left) / o.scale).round() as f32, ((ground - o.wa.top) / o.scale).round() as f32, (t.vx() / o.scale).round() as f32, t.size() as f32]
                 });
             }
             let payload = Payload { paused, scene };
@@ -286,7 +287,7 @@ impl WeatherFx {
                 continue;
             }
             let cross = s.pet.whirl_cross_side(&s.world);
-            self.loose.push(Loose { thing: Thing::Pet(s.pet.social_key()), x: s.pet.body.x, y: s.pet.body.y, cross });
+            self.loose.push(Loose { thing: Thing::Pet(s.pet.social_key()), x: s.pet.body.x, y: s.pet.body.y, cross, heavy: false });
         }
         objects.storm_loose(bounds, network, config, &mut self.loose);
         let seed = self.seed;

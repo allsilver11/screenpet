@@ -2,7 +2,7 @@
 //! 왼쪽·오른쪽 버튼·Esc·20초 동안 안 움직이면 내려놓음
 //! 쓴 것을 들고 친구가 연결된 화면 끝으로 계속 밀면 친구 화면에 흩날림 (물건 던지기 통로로 보냄, weather::flurry_kind).
 //! 바닥의 물건(쓰레기·똥·장난감·눈덩이·거대한 것)은 지나가기만 해도 빗자루 쪽으로 밀려 날아감 (object::Object::sweep)
-//! 🕸️ 거미인간이 친 거미집도 그 위를 쓸고 지나가면 걷힘 (sweeps_web)
+//! 🕸️ 거미인간이 친 거미집도 그 위를 쓸고 지나가면 걷힘 (sweeps_web — 구석 사분원도 🕸️⭕ 둥근 거미집도)
 
 use crate::geom::Rect;
 use crate::visit::{edge_fraction, Fling, Side};
@@ -82,13 +82,17 @@ impl Broom {
     }
 
     /// 🕸️ 이번 틱에 모서리 (x, y)에서 안쪽으로 반지름 radius (물리 px)만큼 펼쳐진 거미집을 쓸고 지나갔음 (움직이는 중일 때만).
-    /// 쓸리는 네모와 그 모서리 안쪽 사분면이 겹치는 곳 중 모서리에 가장 가까운 점이 반지름 안이면 걷힘
+    /// 쓸리는 네모와 그 모서리 안쪽 사분면이 겹치는 곳 중 모서리에 가장 가까운 점이 반지름 안이면 걷힘.
+    /// 🕸️⭕ 둥근 거미집 (Corner::Center — x·y가 가운데)은 쓸리는 네모가 원에 닿으면 (어느 쪽이든) 걷힘
     pub fn sweeps_web(&self, x: f64, y: f64, corner: Corner, radius: f64, dpi: f64) -> bool {
         if self.velocity == (0.0, 0.0) || !(radius > 0.0) {
             return false;
         }
         let (bx0, bx1) = self.span(dpi);
         let (by0, by1) = (self.at.1 - Self::reach_y(dpi), self.at.1 + Self::reach_y(dpi));
+        if corner.is_orb() {
+            return (x.clamp(bx0, bx1) - x).hypot(y.clamp(by0, by1) - y) <= radius;
+        }
         let right = matches!(corner, Corner::TopLeft | Corner::BottomLeft);
         let down = matches!(corner, Corner::TopLeft | Corner::TopRight);
         let (x0, x1) = if right { (bx0.max(x), bx1) } else { (bx0, bx1.min(x)) };
@@ -234,6 +238,19 @@ mod tests {
         // 멈춰 있으면 걷지 않음
         b.tick(DT, (1880.0, 1020.0), false, false, false);
         assert!(!b.sweeps_web(1920.0, 1040.0, Corner::BottomRight, 160.0, 2.0));
+    }
+
+    /// 🕸️ 둥근 거미집 (Corner::Center)은 원 어느 쪽으로 지나가도 걷힘 — 원 밖이면 그대로
+    #[test]
+    fn a_stroke_through_any_side_of_a_round_web_sweeps_it_away() {
+        for (from, to) in [((700.0, 380.0), (760.0, 380.0)), ((900.0, 620.0), (840.0, 620.0)), ((780.0, 520.0), (820.0, 520.0))] {
+            let mut b = Broom::new(from);
+            moving(&mut b, to);
+            assert!(b.sweeps_web(800.0, 500.0, Corner::Center, 150.0, 1.0), "{from:?}");
+        }
+        let mut b = Broom::new((300.0, 500.0));
+        moving(&mut b, (360.0, 500.0));
+        assert!(!b.sweeps_web(800.0, 500.0, Corner::Center, 150.0, 1.0), "멀리");
     }
 
     #[test]

@@ -5,6 +5,8 @@
 //!   올려 돌리다(Whirl::Hold) 휙 내던짐(Whirl::Fling). 친구 쪽 끝(Loose.cross)이 있으면 자주 그 끝까지 닿게 던짐 —
 //!   그 뒤는 손으로 던진 것과 같은 길 (물건 toss_away, 내 동물 own_exited, 손님 guest_left). 동물 넘기기만 PET_CROSS_GAP에 한 번
 //! - Storm: 태풍 동안 회오리를 잠깐 쉬었다 하나씩 (사라질 때 든 것은 이 화면에 내던져 잃어버리지 않음)
+//! - 🌀 허리케인급 (HURRICANE_CHANCE): 가끔 오는 훨씬 크고 높은 회오리 — 더 멀리서 더 많이 빨아들이고, 거대한 💩·🪨(Loose.heavy)까지
+//!   들어 올려 이 화면에 내던짐. 그동안 돌풍·바람도 셈. 크기(size)는 장면에 실려 웹뷰 깔때기도 그만큼 큼
 //!
 //! 좌표·속도는 물리 px (dpi를 곱함), 상수는 논리 px.
 
@@ -59,6 +61,20 @@ pub const TORNADO_SECS: (f64, f64) = (40.0, 90.0);
 /// 회오리 사이 쉬는 시간 (초) — 처음은 FIRST_TORNADO
 pub const TORNADO_REST: (f64, f64) = (4.0, 12.0);
 const FIRST_TORNADO: (f64, f64) = (2.0, 5.0);
+/// 🌀 회오리가 허리케인급일 확률 (회오리마다)
+pub const HURRICANE_CHANCE: f64 = 0.22;
+/// 허리케인급 깔때기 크기 배수 (반지름·높이·올라가는 높이 — ui/weather.js도 장면의 크기로 그만큼 크게 그림)
+pub const HURRICANE_SIZE: f64 = 2.0;
+/// 허리케인급이 빨아들이는 거리·높이 배수
+const HURRICANE_PULL: f64 = 1.8;
+/// 허리케인급이 한 번에 도는 수
+pub const HURRICANE_RIDERS: usize = 14;
+/// 허리케인급 동안 돌풍 세기 배수 (세기가 1을 넘음 — 동물이 더 잘 날아감)
+pub const HURRICANE_GUST: f64 = 1.4;
+/// 허리케인급 동안 바람 세기 배수 (웹뷰의 wind)
+const HURRICANE_WIND: f64 = 1.3;
+/// 허리케인급이 이 화면에 내던지는 빠르기 배수
+const HURRICANE_FLING: f64 = 1.3;
 /// 친구 쪽으로 던질 때 해 보는 가로 빠르기 (논리 px/s)
 const CROSS_VX: [f64; 4] = [800.0, 1000.0, 1200.0, 1400.0];
 /// 위로 던지는 최소 빠르기 (논리 px/s)
@@ -74,7 +90,7 @@ fn between(rng: &mut fastrand::Rng, (a, b): (f64, f64)) -> f64 {
 pub struct Gust {
     /// 부는 쪽 (±1)
     pub dir: f64,
-    /// 세기 0.3…1
+    /// 세기 0.3…1 (허리케인급 동안 HURRICANE_GUST배까지)
     pub strength: f64,
 }
 
@@ -186,6 +202,8 @@ pub struct Loose {
     pub y: f64,
     /// 내던져 넘길 수 있는 친구 쪽 끝 (왼쪽·오른쪽만)
     pub cross: Option<Side>,
+    /// 거대한 것 (💩·🪨): 허리케인급만 빨아들이고, 친구에게는 던지지 않음
+    pub heavy: bool,
 }
 
 /// 회오리가 앱에 시키는 것
@@ -211,6 +229,7 @@ impl Whirl {
 struct Rider {
     thing: Thing,
     cross: Option<Side>,
+    heavy: bool,
     t: f64,
     secs: f64,
     angle: f64,
@@ -219,9 +238,10 @@ struct Rider {
     start_h: f64,
 }
 
-/// 깔때기가 모니터 wa 밖에 있지만 그 끝에 걸쳐 보이는 자리임 (scale = 그 모니터 배율). 옆 모니터로 넘어가는 동안 양쪽에 반쪽씩 그림
-pub fn straddles(x: f64, wa: &Rect, scale: f64) -> bool {
-    let reach = (FUNNEL_R.1 + 30.0) * scale;
+/// 깔때기가 모니터 wa 밖에 있지만 그 끝에 걸쳐 보이는 자리임 (scale = 그 모니터 배율, size = 깔때기 크기 Tornado::size).
+/// 옆 모니터로 넘어가는 동안 양쪽에 반쪽씩 그림
+pub fn straddles(x: f64, wa: &Rect, scale: f64, size: f64) -> bool {
+    let reach = (FUNNEL_R.1 + 30.0) * size * scale;
     (x < wa.left && x > wa.left - reach) || (x > wa.right && x < wa.right + reach)
 }
 
@@ -242,20 +262,48 @@ pub struct Tornado {
     recent: Vec<(Thing, f64)>,
     next_pet_cross: f64,
     last_from: Option<(f64, f64)>,
+    /// 🌀 허리케인급
+    hurricane: bool,
     rng: fastrand::Rng,
 }
 
 impl Tornado {
     /// area 모니터(작업 영역) 바닥에 생김. bounds = 세계 전체 (친구 쪽 끝)
     pub fn new(area: Rect, bounds: Rect, dpi: f64, seed: u64) -> Self {
+        Self::build(area, bounds, dpi, seed, false)
+    }
+
+    /// 🌀 허리케인급 회오리 (크고 높고, 거대한 것도 들어 올림)
+    pub fn hurricane(area: Rect, bounds: Rect, dpi: f64, seed: u64) -> Self {
+        Self::build(area, bounds, dpi, seed, true)
+    }
+
+    /// 회오리를 만듦 (hurricane = 허리케인급)
+    fn build(area: Rect, bounds: Rect, dpi: f64, seed: u64, hurricane: bool) -> Self {
         let mut rng = fastrand::Rng::with_seed(seed);
         let dpi = dpi.max(0.01);
-        let margin = (FUNNEL_R.1 * dpi).min(area.width() / 2.0);
+        let size = if hurricane { HURRICANE_SIZE } else { 1.0 };
+        let margin = (FUNNEL_R.1 * size * dpi).min(area.width() / 2.0);
         let x = area.left + margin + rng.f64() * (area.width() - 2.0 * margin).max(0.0);
         let dir = if rng.bool() { 1.0 } else { -1.0 };
         let vx = dir * between(&mut rng, ROAM_SPEED) * dpi;
         let turn_in = between(&mut rng, ROAM_TURN);
-        Self { area, areas: Vec::new(), bounds, dpi, x, vx, turn_in, parked: false, clock: 0.0, riders: Vec::new(), recent: Vec::new(), next_pet_cross: 0.0, last_from: None, rng }
+        Self { area, areas: Vec::new(), bounds, dpi, x, vx, turn_in, parked: false, clock: 0.0, riders: Vec::new(), recent: Vec::new(), next_pet_cross: 0.0, last_from: None, hurricane, rng }
+    }
+
+    /// 🌀 허리케인급임
+    pub fn is_hurricane(&self) -> bool {
+        self.hurricane
+    }
+
+    /// 깔때기 크기 배수 (보통 1, 허리케인급 HURRICANE_SIZE — 장면에 실어 웹뷰도 그만큼 크게 그림)
+    pub fn size(&self) -> f64 {
+        if self.hurricane { HURRICANE_SIZE } else { 1.0 }
+    }
+
+    /// 빨아들이는 거리·높이 배수
+    fn pull(&self) -> f64 {
+        if self.hurricane { HURRICANE_PULL } else { 1.0 }
     }
 
     /// 지금 모니터들을 알려 줌: 옆에 붙은 모니터가 있으면 그쪽 끝에서 돌아서지 않고 넘어감
@@ -362,7 +410,7 @@ impl Tornado {
             let dir = if self.rng.f64() < ROAM_FLIP { -self.vx.signum() } else { self.vx.signum() };
             self.vx = dir * between(&mut self.rng, ROAM_SPEED) * self.dpi;
         }
-        let margin = (FUNNEL_R.1 * self.dpi).min(self.area.width() / 2.0);
+        let margin = (FUNNEL_R.1 * self.size() * self.dpi).min(self.area.width() / 2.0);
         let (left_n, right_n) = (self.neighbor(false), self.neighbor(true));
         let lo = if left_n.is_some() { self.area.left } else { self.area.left + margin };
         let hi = if right_n.is_some() { self.area.right } else { self.area.right - margin };
@@ -387,12 +435,16 @@ impl Tornado {
         }
     }
 
-    /// 가까운 것을 빨아들임 (MAX_RIDERS까지, 방금 내던진 것은 빼고)
+    /// 가까운 것을 빨아들임 (MAX_RIDERS까지 — 허리케인급은 더 멀리서 HURRICANE_RIDERS까지, 거대한 것도. 방금 내던진 것은 빼고)
     fn catch(&mut self, loose: &[Loose]) {
-        let (reach, height) = (PULL_RADIUS * self.dpi, PULL_HEIGHT * self.dpi);
+        let (reach, height) = (PULL_RADIUS * self.pull() * self.dpi, PULL_HEIGHT * self.pull() * self.dpi);
+        let most = if self.hurricane { HURRICANE_RIDERS } else { MAX_RIDERS };
         for l in loose {
-            if self.riders.len() >= MAX_RIDERS {
+            if self.riders.len() >= most {
                 return;
+            }
+            if l.heavy && !self.hurricane {
+                continue;
             }
             let dx = l.x - self.x;
             let h = self.area.bottom - l.y;
@@ -402,7 +454,7 @@ impl Tornado {
             }
             let secs = between(&mut self.rng, SPIN_SECS);
             let angle = if dx >= 0.0 { 0.0 } else { std::f64::consts::PI };
-            self.riders.push(Rider { thing: l.thing, cross: l.cross, t: 0.0, secs, angle, start_r: dx.abs(), start_h: h.max(0.0) });
+            self.riders.push(Rider { thing: l.thing, cross: l.cross, heavy: l.heavy, t: 0.0, secs, angle, start_r: dx.abs(), start_h: h.max(0.0) });
         }
     }
 
@@ -411,18 +463,19 @@ impl Tornado {
         let k = (r.t / r.secs).clamp(0.0, 1.0);
         let pull = (k * 3.0).min(1.0);
         let ease = 1.0 - (1.0 - k) * (1.0 - k);
-        let h = r.start_h + (LIFT * self.dpi - r.start_h).max(0.0) * ease;
-        let funnel = (FUNNEL_R.0 + (FUNNEL_R.1 - FUNNEL_R.0) * (h / (LIFT * self.dpi)).min(1.0)) * self.dpi;
+        let (size, lift) = (self.size(), LIFT * self.size() * self.dpi);
+        let h = r.start_h + (lift - r.start_h).max(0.0) * ease;
+        let funnel = (FUNNEL_R.0 + (FUNNEL_R.1 - FUNNEL_R.0) * (h / lift).min(1.0)) * size * self.dpi;
         let radius = r.start_r + (funnel - r.start_r) * pull;
         (self.x + radius * r.angle.cos(), self.area.bottom - h)
     }
 
-    /// 다 돈 것을 내던짐: 친구 쪽 끝이 있으면 자주 그 끝까지 (동물은 PET_CROSS_GAP에 한 번), 아니면 이 화면에
+    /// 다 돈 것을 내던짐: 친구 쪽 끝이 있으면 자주 그 끝까지 (동물은 PET_CROSS_GAP에 한 번, 거대한 것은 안 됨), 아니면 이 화면에
     fn fling(&mut self, r: Rider, at: (f64, f64)) -> Whirl {
         self.recent.push((r.thing, self.clock + RECATCH_SECS));
         self.last_from = Some(at);
         let is_pet = matches!(r.thing, Thing::Pet(_));
-        let may = r.cross.filter(|s| matches!(s, Side::Left | Side::Right)).filter(|_| !is_pet || self.clock >= self.next_pet_cross);
+        let may = r.cross.filter(|s| matches!(s, Side::Left | Side::Right)).filter(|_| !r.heavy && (!is_pet || self.clock >= self.next_pet_cross));
         if let Some(side) = may.filter(|_| self.rng.f64() < CROSS_CHANCE) {
             let edge = if side == Side::Left { self.bounds.left } else { self.bounds.right };
             if let Some((vx, vy)) = cross_throw(at, edge, self.area.bottom, self.dpi) {
@@ -435,13 +488,14 @@ impl Tornado {
         self.local_fling(r.thing, at)
     }
 
-    /// 이 화면 안으로 내던짐 (대개 넓은 쪽으로)
+    /// 이 화면 안으로 내던짐 (대개 넓은 쪽으로, 허리케인급은 더 세게)
     fn local_fling(&mut self, thing: Thing, at: (f64, f64)) -> Whirl {
         let room = (self.area.right - at.0) - (at.0 - self.area.left);
         let dir = if self.rng.f64() < 0.7 { room.signum() } else { -room.signum() };
         let dir = if dir == 0.0 { 1.0 } else { dir };
-        let vx = dir * between(&mut self.rng, LOCAL_VX) * self.dpi;
-        let vy = -between(&mut self.rng, LOCAL_VY) * self.dpi;
+        let k = if self.hurricane { HURRICANE_FLING } else { 1.0 } * self.dpi;
+        let vx = dir * between(&mut self.rng, LOCAL_VX) * k;
+        let vy = -between(&mut self.rng, LOCAL_VY) * k;
         Whirl::Fling { thing, vx, vy, cross: false }
     }
 }
@@ -469,14 +523,21 @@ impl Storm {
         self.tornado.as_ref()
     }
 
-    /// 지금 바람 (웹뷰의 wind)
-    pub fn wind(&self) -> f64 {
-        self.gusts.wind()
+    /// 지금 허리케인급 회오리가 있음 (바람·돌풍이 셈)
+    fn raging(&self) -> bool {
+        self.tornado.as_ref().is_some_and(Tornado::is_hurricane)
     }
 
-    /// dt초: 바람을 돌리고 (돌풍이 막 일면 Some), 회오리를 만들거나 돌리거나 보냄. areas = 모니터 작업 영역, bounds = 세계 전체
+    /// 지금 바람 (웹뷰의 wind — 허리케인급 동안 더 셈)
+    pub fn wind(&self) -> f64 {
+        self.gusts.wind() * if self.raging() { HURRICANE_WIND } else { 1.0 }
+    }
+
+    /// dt초: 바람을 돌리고 (돌풍이 막 일면 Some — 허리케인급 동안 HURRICANE_GUST배), 회오리를 만들거나 (HURRICANE_CHANCE로 허리케인급)
+    /// 돌리거나 보냄. areas = 모니터 작업 영역, bounds = 세계 전체
     pub fn tick(&mut self, dt: f64, areas: &[Rect], bounds: Rect, dpi: f64, loose: &[Loose], out: &mut Vec<Whirl>) -> Option<Gust> {
-        let gust = self.gusts.tick(dt);
+        let raging = self.raging();
+        let gust = self.gusts.tick(dt).map(|g| if raging { Gust { strength: g.strength * HURRICANE_GUST, ..g } } else { g });
         self.timer -= dt;
         // 모니터가 바뀌어 회오리 자리가 없어졌으면 보냄
         let gone = self.tornado.as_ref().is_some_and(|t| !areas.contains(&t.area()));
@@ -492,7 +553,9 @@ impl Storm {
             }
             None if self.timer <= 0.0 && !areas.is_empty() => {
                 let area = areas[self.rng.usize(..areas.len())];
-                self.tornado = Some(Tornado::new(area, bounds, dpi, self.rng.u64(..)));
+                let seed = self.rng.u64(..);
+                let big = self.rng.f64() < HURRICANE_CHANCE;
+                self.tornado = Some(if big { Tornado::hurricane(area, bounds, dpi, seed) } else { Tornado::new(area, bounds, dpi, seed) });
                 self.timer = between(&mut self.rng, TORNADO_SECS);
             }
             None => {}

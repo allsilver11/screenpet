@@ -90,6 +90,29 @@ def test_pets_learn_the_webs_and_torn_webs_are_dropped():
     assert "pub struct WebSpot" in CORE_WEB and "pub fn in_web(" in CORE_WEB
 
 
+
+def test_objects_learn_the_webs_every_tick_to_get_snagged():
+    """🕸️📦 물건도 거미줄에 걸림 (spec 5부 — 코어 object.rs Snagged): 게임 루프가 펫에게 준 거미집 자리를 물건들에도 주고,
+    물건은 틱마다 그 목록으로 걸리고 (사라진 거미집이면 떨어짐) 매달림."""
+    tell = LOOP.index("let web_spots = trail.web_spots();")
+    give = LOOP.index("objects.set_webs(&web_spots);")
+    tick = LOOP.index("objects.tick(&app, &slots[OWN].world")
+    assert tell < give < tick
+    assert "pub fn set_webs(&mut self, webs: &[WebSpot])" in OBJ and "webs: Vec<WebSpot>," in OBJ
+    loop_ = OBJ[OBJ.index("for (i, l) in self.live.iter_mut().enumerate()") :][:600]
+    assert loop_.index("l.object.set_webs(&self.webs);") < loop_.index("l.object.tick(")
+    assert "use screenpet_core::web::WebSpot;" in OBJ
+
+
+def test_spider_speech_defaults_cover_the_hero_lines_and_the_multiverse():
+    """🦸 영웅 착지 대사 10개 안팎 · 🕷️🕷️🕷️ 멀티버스 모임 말 (코어 Speech::Multiverse / SeeYa) — pet.json에 없을 때의 기본 말 (ui/main.js EXTRA_SPEECH)."""
+    main = (UI / "main.js").read_text(encoding="utf-8")
+    extra = main[main.index("const EXTRA_SPEECH = {") :]
+    extra = extra[: extra.index("\n};")]
+    hero = re.search(r"hero_land: \[(.*?)\]", extra).group(1)
+    assert hero.count('"') // 2 >= 8, hero
+    assert re.search(r'multiverse: \[[^\]]*"multiverse\?!"', extra) and re.search(r'see_ya: \[[^\]]*"see ya!"', extra)
+
 # ---- ui/web.js를 가짜 캔버스 위에서 (tools/web_harness.js) ----
 
 
@@ -140,3 +163,56 @@ def test_every_web_has_its_own_irregular_shape_inside_its_radius(run):
     assert len({(n, m) for n, m, _, _ in shapes}) >= 3, "살·고리 수가 제각각"
     even = [[1.5707963 * k / (n - 1) for k in range(n)] for n, _, _, _ in shapes]
     assert any(max(abs(a - b) for a, b in zip(angs, ev)) > 0.05 for (_, _, _, angs), ev in zip(shapes, even)), "고르게 나눈 각도가 아님 (비정형)"
+
+
+# ---- 🕸️⭕ 둥근 거미집 (spec 6부 — corner "center") ----
+
+
+def test_round_webs_are_accepted_with_their_own_irregular_shape(run):
+    assert run["orb_alive"] == 8, "center도 받아들임"
+    orbs = run["orbs"]
+    assert orbs == run["orbs_again"], "같은 거미집은 늘 같은 모양 (id로 정함)"
+    assert all(7 <= n <= 9 and 3 <= m <= 5 and 0.7 < far <= 1.0 + 1e-9 for n, m, far, _, _, _ in orbs), orbs
+    assert len({(n, m) for n, m, _, _, _, _ in orbs}) >= 3, "살·고리 수가 제각각"
+    for n, _, _, angs, rings, _ in orbs:
+        a = sorted(angs)
+        gaps = [b - x for x, b in zip(a, a[1:])] + [a[0] + 6.2831853 - a[-1]]
+        assert max(gaps) < 1.6, ("사방으로", gaps)
+        assert max(gaps) / min(gaps) > 1.15, ("고르게 나눈 각도가 아님 (비정형)", gaps)
+        for pts in rings:
+            assert max(pts) - min(pts) > 0.01, "고리 점마다 흔들림 (반듯한 다각형 아님)"
+
+
+def test_a_round_web_is_woven_spokes_then_rings_in_both_styles(run):
+    for key in ("orb_woven", "orb_woven_pixel"):
+        woven = [m for m in run[key] if m]
+        pieces = run["orb_pieces" if key == "orb_woven" else "orb_pieces_pixel"]
+        assert woven[0] < woven[-1] and woven[-1] == max(woven) == 2 * pieces, (key, woven[-1], pieces)
+        assert all(b >= a for a, b in zip(woven, woven[1:])), "조각은 늘기만"
+        assert len(set(woven)) >= 5, "한 번에 휙이 아니라 여러 번에 걸쳐"
+
+
+def test_window_round_webs_follow_their_window_by_offset():
+    """🕸️⭕ 창 위 둥근 거미집: 처음에 창 왼쪽 위 기준 자리를 재 두고 (web::window_offset) 그 자리로 따라감 (web::orb_on_window)."""
+    follow = RS[RS.index("fn follow_window_webs(") : RS.index("/// 그 자리 모니터의 창")]
+    assert "orb_on_window(&own.world.windows, window, t.offset, t.size)" in follow and "t.corner.is_orb()" in follow
+    place = RS[RS.index("fn place_web(") : RS.index("fn web_lines(")]
+    assert "window_offset(windows, w)" in place and "offset," in place
+    assert "Corner::Center => (w.x, w.y)," in RS, "둥근 거미집 모니터는 가운데로 봄"
+    assert "pub fn orb_on_window(" in CORE_WEB and "pub fn window_offset(" in CORE_WEB and "Center," in CORE_WEB
+
+
+def test_giants_can_be_yanked_whirled_and_tossed_by_the_app():
+    """💪 거미인간이 거대한 것도 끌어오고 휘둘러 던짐 (spec 7부): 앱의 Yank·Release·carry_at이 거대한 것을 막지 않고,
+    끝을 넘은 거대한 것은 look "giant"로 친구에게 날아감 (사라지지 않음 — 넘길 친구가 있을 때만 끝이 열림)."""
+    yank = OBJ[OBJ.index("Some(ObjectPlay::Yank") :][:300]
+    assert "is_giant" not in yank and "l.object.launch(vx, vy)" in yank
+    release = OBJ[OBJ.index("Some(JuggleEvent::Release") :][:300]
+    assert "is_giant" not in release and "l.object.launch(vx, vy)" in release
+    carry = OBJ[OBJ.index("let Some(id) = pet.carried_object()") :][:300]
+    assert "is_giant" not in carry and "l.object.carry_at(x, y)" in carry
+    toss = OBJ[OBJ.index("fn toss_away(") :][:2000]
+    assert "is_giant" not in toss and "look: l.object.kind.look()" in toss
+    pull = (ROOT / "crates" / "screenpet-core" / "src" / "brain_web.rs").read_text(encoding="utf-8")
+    targets = pull[pull.index("fn pull_targets(") :][:900]
+    assert "!s.giant" not in targets

@@ -274,13 +274,45 @@ def test_the_tornado_is_a_swirl_of_see_through_storm_cloud_puffs(style, request)
 
 @pytest.mark.parametrize("style", ["typhoon", "pixel_typhoon"])
 def test_the_tornado_stays_within_the_reach_the_core_uses_for_straddling(style, request):
-    """core typhoon.rs straddles()의 reach = FUNNEL_R.1 + 30 — 그보다 넓으면 옆 모니터에 걸칠 때 잘림."""
+    """core typhoon.rs straddles()의 reach = (FUNNEL_R.1 + 30) × 크기 — 그보다 넓으면 옆 모니터에 걸칠 때 잘림."""
     r = request.getfixturevalue(style)
     core = (ROOT / "crates" / "screenpet-core" / "src" / "typhoon.rs").read_text(encoding="utf-8")
     top_r = float(re.search(r"const FUNNEL_R: \(f64, f64\) = \([\d.]+, ([\d.]+)\);", core).group(1))
     assert re.search(rf"const FUNNEL_R = \[\d+, {int(top_r)}\];", JS)
-    assert "(FUNNEL_R.1 + 30.0) * scale" in core
+    assert "(FUNNEL_R.1 + 30.0) * size * scale" in core
     assert 0 < r["funnelReach"] <= top_r + 30, r["funnelReach"]
+
+
+@pytest.fixture(scope="module")
+def hurricane():
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    return json.loads(run_node(ROOT / "tools" / "weather_harness.js", "typhoon", "", "2", timeout=60).stdout)
+
+
+@pytest.fixture(scope="module")
+def pixel_hurricane():
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    return json.loads(run_node(ROOT / "tools" / "weather_harness.js", "typhoon", "pixel", "2", timeout=60).stdout)
+
+
+@pytest.mark.parametrize("big,small", [("hurricane", "typhoon"), ("pixel_hurricane", "pixel_typhoon")])
+def test_a_hurricane_class_tornado_is_about_twice_as_big_and_still_fits_its_box(big, small, request):
+    """🌀 허리케인급: 장면 tornado의 넷째 값(크기)만큼 크게 그림 — 지울 칸·옆 모니터 걸침 거리(core straddles)도 그만큼."""
+    b, s = request.getfixturevalue(big), request.getfixturevalue(small)
+    assert b["funnelOutside"] == 0, "다음 프레임에 다 지움 (회색 잔상 없음)"
+    assert 1.7 * s["funnelHeight"] <= b["funnelHeight"] <= 2.3 * s["funnelHeight"], (b["funnelHeight"], s["funnelHeight"])
+    assert 1.7 * s["funnelTopWidth"] <= b["funnelTopWidth"] <= 2.3 * s["funnelTopWidth"], (b["funnelTopWidth"], s["funnelTopWidth"])
+    core = (ROOT / "crates" / "screenpet-core" / "src" / "typhoon.rs").read_text(encoding="utf-8")
+    top_r = float(re.search(r"const FUNNEL_R: \(f64, f64\) = \([\d.]+, ([\d.]+)\);", core).group(1))
+    assert 0 < b["funnelReach"] <= (top_r + 30) * 2, b["funnelReach"]
+    assert b["funnelRings"] <= s["funnelRings"] + 4, "뭉치 수는 그대로 (크게 찍을 뿐 — CPU)"
+    assert b["msPerFrame"] < 5
+
+
+def test_an_old_scene_without_a_size_draws_a_normal_tornado(typhoon):
+    assert "tornado[3]" in JS and typhoon["funnelOutside"] == 0
 
 
 def test_smooth_puffs_are_soft_gradients_and_pixel_puffs_are_stepped_cells(typhoon, pixel_typhoon):

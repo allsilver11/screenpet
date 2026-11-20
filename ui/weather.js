@@ -1,7 +1,7 @@
 // 계절 날씨 그리기. 앱(src-tauri/src/weather.rs)이 `weather-scene`으로 내려앉을 곳(tops)과 더미(piles)를 보냄 (논리 px, 이 창 왼쪽 위가 0,0).
 // CPU를 아끼는 규칙: 24 fps 이하, 알갱이 80개 이하, 미리 그린 그림을 정수 자리에 찍기, 알갱이 자리만 지우기, 더미는 바뀔 때만.
-// 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·heavy_snow·rain·shower·petals·leaves·green_leaves·typhoon)로 앱 없이 볼 수 있음.
-// 🌀 태풍: 장면의 wind(부호 = 방향, 돌풍에 커짐)로 비·잎이 옆으로 눕고, tornado([x, 바닥 y, vx])가 있으면 깔때기를 그림 (사이는 vx로 이어 그림).
+// 멈춰 있으면(paused) 타이머도 돌지 않음. 브라우저에서 weather.html?preview=snow (light_snow·heavy_snow·rain·shower·petals·leaves·green_leaves·typhoon, 허리케인급은 typhoon&hurricane=1)로 앱 없이 볼 수 있음.
+// 🌀 태풍: 장면의 wind(부호 = 방향, 돌풍에 커짐)로 비·잎이 옆으로 눕고, tornado([x, 바닥 y, vx, 크기])가 있으면 깔때기를 그림 (사이는 vx로 이어 그림, 크기 = 허리케인급 배수 — 없으면 1).
 // 깔때기 = 미리 한 번 그려 둔 반투명 먹구름 뭉치들이 나선으로 돌며 오름 (프레임마다 흐림 필터 없음), 찍은 칸만 다음 프레임에 지움.
 
 const FPS = 24;
@@ -31,7 +31,7 @@ const KINDS = {
 const DEBRIS_EVERY = 4;
 const DEBRIS_FALL = [140, 260];
 const DEBRIS_WIND = 1.8;
-// 🌀 회오리 깔때기: 높이, 바닥·꼭대기 반지름 (core typhoon.rs FUNNEL_R와 같음 — 뭉치 끝까지 축에서 FUNNEL_R[1] + 30 안)
+// 🌀 회오리 깔때기: 높이, 바닥·꼭대기 반지름 (core typhoon.rs FUNNEL_R와 같음 — 뭉치 끝까지 축에서 (FUNNEL_R[1] + 30) × 크기 안)
 const FUNNEL_HEIGHT = 300;
 const FUNNEL_R = [26, 90];
 // 먹구름 뭉치: 층 수, 층마다 줄기 수, 도는 빠르기 (라디안/초), 한 층 위로 갈 때 비틀림, 오르는 빠르기 (층/초), 꼭대기 지붕·바닥 먼지 수
@@ -136,7 +136,7 @@ let frameRequest = 0;
 let lastT = 0;
 let cursor = 0;
 let n = 0;
-// 🌀 바람 (장면의 wind 쪽으로 부드럽게), 부스러기 그림, 회오리 {x, y, vx, at}과 지난번 지운 자리
+// 🌀 바람 (장면의 wind 쪽으로 부드럽게), 부스러기 그림, 회오리 {x, y, vx, size, at}과 지난번 지운 자리
 let wind = 1;
 let windTarget = 1;
 let debris = [];
@@ -636,18 +636,20 @@ function toneAt(depth) {
 }
 
 // 회오리를 그림: 반투명 먹구름 뭉치들이 축을 돌며 나선으로 올라감 (위가 넓고 바닥으로 좁아짐), 꼭대기는 먹구름 지붕, 바닥은 흙먼지.
-// 앱이 준 자리에서 vx로 이어 감. 그린 칸을 모두 모아 funnelBox로 — 다음 프레임에 그대로 지움 (회색 잔상 없음)
+// 앱이 준 자리에서 vx로 이어 감. 허리케인급은 모든 길이를 크기(z)만큼 키움 (뭉치 수는 그대로 — 크게 찍을 뿐). 그린 칸을 모두 모아 funnelBox로 — 다음 프레임에 그대로 지움 (회색 잔상 없음)
 function drawFunnel(now) {
   if (!tornado || kind !== "typhoon") return;
   const t = now / 1000;
-  // 모니터 끝에 걸치면 x가 화면 밖일 수 있음 (반쪽만 보임) — 깔때기 폭만큼만 밖으로
-  const out = FUNNEL_R[1] + 30;
+  const z = tornado.size || 1;
+  const [r0, r1, top] = [FUNNEL_R[0] * z, FUNNEL_R[1] * z, FUNNEL_HEIGHT * z];
+  // 모니터 끝에 걸치면 x가 화면 밖일 수 있음 (반쪽만 보임) — 깔때기 폭만큼만 밖으로 (core straddles와 같음)
+  const out = (FUNNEL_R[1] + 30) * z;
   const x = Math.min(Math.max(tornado.x + (tornado.vx * (now - tornado.at)) / 1000, -out), width + out);
   const y = tornado.y;
   const spin = t * FUNNEL_SPIN;
   // 축이 뱀처럼 휨 (위로 갈수록 더)
-  const axis = (f) => x + Math.sin(t * 1.6 + f * 2.4) * 9 * f;
-  const radius = (f) => FUNNEL_R[0] + (FUNNEL_R[1] - FUNNEL_R[0]) * Math.pow(f, 1.8);
+  const axis = (f) => x + Math.sin(t * 1.6 + f * 2.4) * 9 * z * f;
+  const radius = (f) => r0 + (r1 - r0) * Math.pow(f, 1.8);
   puffCount = 0;
   // 나선 줄기: 층 높이 f가 계속 올라가고 (꼭대기에서 바닥으로 돌아옴), 각도는 f로만 정해져 돌아와도 튀지 않음. 위·아래 끝은 옅게
   const rise = (t * FUNNEL_RISE) % 1;
@@ -655,13 +657,13 @@ function drawFunnel(now) {
     const f = (k + rise) / FUNNEL_LEVELS;
     const r = radius(f);
     const fade = Math.min(1, 0.4 + f * 8, (1 - f) * 4);
-    const cy = y - 12 - f * (FUNNEL_HEIGHT - 12);
+    const cy = y - 12 * z - f * (top - 12 * z);
     // 가운데 몸통 (틈을 메워 이어진 깔때기로 보이게)
-    addPuff(axis(f), cy, r * 1.25 + 8, 0, 0.5 * fade, 1, (k % 3) + 6);
+    addPuff(axis(f), cy, r * 1.25 + 8 * z, 0, 0.5 * fade, 1, (k % 3) + 6);
     for (let j = 0; j < FUNNEL_STRANDS; j++) {
       const a = spin + f * FUNNEL_LEVELS * FUNNEL_TWIST + (j * Math.PI * 2) / FUNNEL_STRANDS;
       const depth = Math.sin(a);
-      const size = (r * 1.1 + 8) * (1 + 0.12 * depth);
+      const size = (r * 1.1 + 8 * z) * (1 + 0.12 * depth);
       addPuff(axis(f) + Math.cos(a) * r * 0.5, cy + depth * r * 0.16, size, depth, (0.55 + 0.25 * depth) * fade, toneAt(depth), j);
     }
   }
@@ -669,14 +671,14 @@ function drawFunnel(now) {
   for (let j = 0; j < FUNNEL_CAP; j++) {
     const a = spin * 0.5 + (j * Math.PI * 2) / FUNNEL_CAP;
     const depth = Math.sin(a);
-    const r = FUNNEL_R[1];
-    addPuff(axis(1) + Math.cos(a) * r * 0.62, y - FUNNEL_HEIGHT + depth * r * 0.14, (r * 0.95 + 10) * (1 + 0.1 * depth), depth, 0.65 + 0.15 * depth, depth < 0.2 ? 0 : 1, j + 3);
+    const r = r1;
+    addPuff(axis(1) + Math.cos(a) * r * 0.62, y - top + depth * r * 0.14, (r * 0.95 + 10 * z) * (1 + 0.1 * depth), depth, 0.65 + 0.15 * depth, depth < 0.2 ? 0 : 1, j + 3);
   }
   // 바닥 흙먼지: 작고 빠르게 돎
   for (let j = 0; j < FUNNEL_DUST; j++) {
     const a = -spin * 1.6 + (j * Math.PI * 2) / FUNNEL_DUST;
     const depth = Math.sin(a);
-    addPuff(x + Math.cos(a) * FUNNEL_R[0] * 1.5, y - 14 + depth * 5, 42 + 8 * depth, depth, 0.35 + 0.12 * depth, 3, j);
+    addPuff(x + Math.cos(a) * r0 * 1.5, y - 14 * z + depth * 5 * z, (42 + 8 * depth) * z, depth, 0.35 + 0.12 * depth, 3, j);
   }
   // 뒤 → 앞 차례로 찍고, 찍은 칸을 모두 감싸는 상자를 남김
   const list = funnelPuffs.slice(0, puffCount).sort((p, q) => p.depth - q.depth);
@@ -826,7 +828,8 @@ function applyScene(s) {
   pileKind = s.pile_kind;
   // 🌀 태풍 바람·회오리 (다른 날씨의 장면엔 없음)
   windTarget = typeof s.wind === "number" ? s.wind : 1;
-  tornado = Array.isArray(s.tornado) ? { x: s.tornado[0], y: s.tornado[1], vx: s.tornado[2], at: performance.now() } : null;
+  // 넷째 값 = 크기 (🌀 허리케인급) — 예전 앱은 안 보냄: 보통 크기
+  tornado = Array.isArray(s.tornado) ? { x: s.tornado[0], y: s.tornado[1], vx: s.tornado[2], size: Math.min(Math.max(Number(s.tornado[3]) || 1, 0.5), 3), at: performance.now() } : null;
   if (s.kind !== kind) startKind(s.kind);
   else {
     for (let i = 0; i < n; i++) {
@@ -908,6 +911,8 @@ function devPreview() {
     return { x: x0, y, cell, h, clips };
   };
   const piles = wet ? [] : [pile(front[0], front[2], front[1], [[front[0], front[2]]]), pile(back[0], back[2], back[1], [[back[0], front[0]]]), pile(0, width, height, [[0, width]])];
-  const storm = wanted === "typhoon" ? { wind: -1.3, tornado: [Math.round(width * 0.3), height, 90] } : {};
+  // 🌀 &hurricane=1 이면 허리케인급 (크기 2)
+  const size = new URLSearchParams(location.search).get("hurricane") ? 2 : 1;
+  const storm = wanted === "typhoon" ? { wind: -1.3, tornado: [Math.round(width * (size > 1 ? 0.45 : 0.3)), height, 90, size] } : {};
   applyScene({ paused: false, kind: wanted, pile_kind: wet ? null : wanted, tops, piles, ...storm });
 }

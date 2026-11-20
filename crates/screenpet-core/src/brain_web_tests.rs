@@ -22,6 +22,8 @@ fn calm_spider(x: f64, seed: u64, w: &World) -> Pet {
     p.web.web_ready_at = f64::INFINITY;
     p.web.swing_ready_at = f64::INFINITY;
     p.web.pull_ready_at = f64::INFINITY;
+    // 🕸️⭕ 여기서는 구석 거미집만 봄 (둥근 거미집은 brain_orb_tests.rs)
+    p.web.orb_odds = 0.0;
     p
 }
 
@@ -101,7 +103,7 @@ fn a_web_is_woven_with_several_shots_aimed_around_the_web() {
     assert!((s.build - f64::from(s.shots - 1) * web::WEAVE_SHOT_SECS).abs() < 1e-9, "짜는 시간 {}", s.build);
     assert!(shoot_starts >= s.shots as usize, "쏠 때마다 쏘는 그림을 처음부터: {shoot_starts}");
     // 줄 끝이 거미집 여기저기 (모서리 안쪽 부채꼴 안)
-    let (sx, sy) = match s.corner { Corner::TopLeft => (1.0, 1.0), Corner::TopRight => (-1.0, 1.0), Corner::BottomLeft => (1.0, -1.0), Corner::BottomRight => (-1.0, -1.0) };
+    let (sx, sy) = match s.corner { Corner::TopLeft => (1.0, 1.0), Corner::TopRight => (-1.0, 1.0), Corner::BottomLeft => (1.0, -1.0), Corner::BottomRight => (-1.0, -1.0), Corner::Center => unreachable!() };
     let mut aims: Vec<(f64, f64)> = Vec::new();
     for k in 1..s.shots {
         let a = web::weave_target(&s, k);

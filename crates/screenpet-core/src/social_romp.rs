@@ -17,6 +17,7 @@
 //!   🧓 쓰다듬기 (Pat) — 나이 많은 펫이 쉬는 어린 펫에게 다가가 손을 흔들어 쓰다듬고 "good kid", 어린 펫은 하트
 //!
 //! 주사위는 따로 (다른 놀이의 주사위 순서는 그대로).
+//! 같은 조각 판정 (same_piece)·자리 맞추기 (fit)는 🕷️🕷️🕷️ 멀티버스 모임 (social_multiverse.rs)도 씀.
 
 use super::*;
 use crate::brain::romp_moves::Pose;
@@ -312,12 +313,12 @@ impl SocialRomp {
 }
 
 /// 같은 디딤판 조각 위 (같은 높이)
-fn same_piece(a: &Snap, b: &Snap) -> bool {
+pub(super) fn same_piece(a: &Snap, b: &Snap) -> bool {
     a.owner.is_some() && a.owner == b.owner && (a.y - b.y).abs() <= SAME_LEVEL_PX && a.ground.is_some() && a.ground == b.ground
 }
 
 /// s가 설 수 있게 x를 조각 안으로
-fn fit(s: &Snap, x: f64) -> f64 {
+pub(super) fn fit(s: &Snap, x: f64) -> f64 {
     match s.ground {
         Some((lo, hi)) if hi - lo > 2.0 * s.half_w => x.clamp(lo + s.half_w, hi - s.half_w),
         _ => s.x,

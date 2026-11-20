@@ -282,18 +282,43 @@ fn rain_never_piles_up() {
 }
 
 #[test]
-fn piles_melt_away_in_the_rain_and_keep_their_look_meanwhile() {
-    let (mut f, _) = field(vec![]);
-    run(&mut f, Weather::LightSnow, 400);
-    let before = depth(&f, Owner::Ground(0));
-    assert!(before > 1.0);
-    run(&mut f, Weather::Rain, 10);
-    let mid = depth(&f, Owner::Ground(0));
-    assert!(mid < before && mid > 0.0, "{before} -> {mid}");
-    assert_eq!(f.scene(Weather::Rain, &WA, 1.0).pile_kind, Some(Weather::LightSnow));
-    run(&mut f, Weather::Rain, 300);
-    assert_eq!(depth(&f, Owner::Ground(0)), 0.0);
-    assert!(f.scene(Weather::Rain, &WA, 1.0).piles.is_empty());
+fn every_change_of_weather_clears_the_old_piles_at_once() {
+    // 🧹 눈이 오다 태풍이 되면 눈 더미가 그대로 남던 문제: 날씨 종류가 바뀌면 (비·태풍 포함) 예전 더미를 싹 치움
+    let cases = [
+        (Weather::Snow, Weather::Typhoon),
+        (Weather::Snow, Weather::Rain),
+        (Weather::HeavySnow, Weather::Shower),
+        (Weather::Leaves, Weather::Typhoon),
+        (Weather::Petals, Weather::Rain),
+        (Weather::GreenLeaves, Weather::Shower),
+        (Weather::LightSnow, Weather::Petals),
+        (Weather::Leaves, Weather::Snow),
+    ];
+    for (from, to) in cases {
+        let (mut f, _) = field(vec![win(1, 200.0, 400.0, 1000.0, 800.0)]);
+        run(&mut f, from, 400);
+        let before = depth(&f, Owner::Ground(0)) + depth(&f, Owner::Window(1));
+        assert!(before > 1.0, "{from:?}");
+        f.tick(1.0, to);
+        let after = depth(&f, Owner::Ground(0)) + depth(&f, Owner::Window(1));
+        assert!(after < 0.1, "{from:?} → {to:?}: 한 번에 다 치움 (새 날씨가 막 얹은 것만): {after}");
+        if to.rates().grow == 0.0 {
+            assert!(!f.has_piles() && f.scene(to, &WA, 1.0).piles.is_empty(), "{from:?} → {to:?}");
+            assert_eq!(f.pile_kind(), None, "{from:?} → {to:?}: 쌓이지 않는 날씨엔 더미 그림도 없음");
+            assert!(!f.snow_on_ground());
+        }
+    }
+}
+
+#[test]
+fn the_same_weather_keeps_its_piles() {
+    for kind in [Weather::Snow, Weather::Leaves, Weather::Petals, Weather::GreenLeaves] {
+        let (mut f, _) = field(vec![]);
+        run(&mut f, kind, 400);
+        let before = depth(&f, Owner::Ground(0));
+        f.tick(1.0, kind);
+        assert!(depth(&f, Owner::Ground(0)) >= before - 0.01, "{kind:?}: 그대로 쌓임");
+    }
 }
 
 #[test]
@@ -656,19 +681,14 @@ fn typhoons_come_only_in_their_windows() {
 }
 
 #[test]
-fn a_typhoon_never_piles_up_and_blows_old_piles_away_fast() {
+fn a_typhoon_never_piles_up_and_sweeps_old_piles_away() {
     let (mut f, _) = field(vec![]);
     run(&mut f, Weather::Leaves, 400);
-    let before = depth(&f, Owner::Ground(0));
-    assert!(before > 1.0 && f.has_piles());
-    f.tick(1.0, Weather::Typhoon);
-    f.tick(1.0, Weather::Typhoon);
-    let after = depth(&f, Owner::Ground(0));
-    assert!(after < before - 0.3, "비보다 빨리 날아감: {before} → {after}");
+    assert!(depth(&f, Owner::Ground(0)) > 1.0 && f.has_piles());
     run(&mut f, Weather::Typhoon, 60);
     assert_eq!(depth(&f, Owner::Ground(0)), 0.0);
     assert!(!f.has_piles(), "다 날아감 — 돌풍에 흩날릴 것도 없음");
-    assert_eq!(f.pile_kind(), Some(Weather::Leaves), "남은 더미는 제 그림 그대로");
+    assert_eq!(f.pile_kind(), None);
     assert!(!Weather::Typhoon.looks_up());
     assert!(!Weather::Typhoon.is_snow());
     assert!(Weather::Typhoon.is_stormy());
@@ -690,11 +710,12 @@ fn a_typhoon_scene_carries_the_wind_and_the_funnel_but_other_scenes_do_not() {
     assert!(calm.get("wind").is_none() && calm.get("tornado").is_none(), "예전 장면 그대로: {calm}");
     let mut storm = f.scene(Weather::Typhoon, &WA, 1.0);
     storm.wind = Some(-1.2);
-    storm.tornado = Some([300.0, 1040.0, 80.0]);
+    storm.tornado = Some([300.0, 1040.0, 80.0, 2.0]);
     let v = serde_json::to_value(storm).unwrap();
     assert_eq!(v["kind"], "typhoon");
     assert!((v["wind"].as_f64().unwrap() + 1.2).abs() < 1e-6);
     assert_eq!(v["tornado"][0], 300.0);
+    assert_eq!(v["tornado"][3], 2.0, "🌀 크기 (허리케인급은 더 큼, 예전 웹뷰는 넷째 값을 모르고 넘김)");
 }
 
 #[test]

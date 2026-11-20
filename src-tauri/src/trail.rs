@@ -9,6 +9,7 @@
 //! 🕷️ 거미인간의 줄 (`Pet::web_line` → `trail-lines`)과 모서리 거미집 (`Pet::take_web` → `trail-webs`)도 같은 창이 그림 (ui/web.js).
 //! 거미집이 남아 있는 동안 (WEB_LIFE)은 창을 닫지 않음. 창 모서리 거미집은 창을 따라 옮기고 (`trail-web-move`, 앞 창에 가려지면 숨김),
 //! 창이 닫히거나 다른 모니터로 가면 `trail-web-drop`으로 지우고,
+//! 🕸️⭕ 둥근 거미집 (corner "center" — x·y가 가운데)도 같은 길: 창 위 것은 처음 잰 창 왼쪽 위 기준 자리 (web::window_offset)로 따라가고 (web::orb_on_window),
 //! 🧹 빗자루가 쓸고 지나간 거미집은 `sweep_webs`가 `trail-web-drop`으로, 🧹 다 치우기 (`clear_webs`)와 한 시간마다 (weather::AUTO_CLEAR_SECS) `trail-web-clear`로 모두 지움. 손님 거미인간 것도 그림.
 //! 🕸️ 게임 루프가 거미집 자리를 동물 뇌에 알려 주고 (`web_spots` → `Pet::set_webs`), 걸렸던 동물이 찢고 나온 거미집은 `tear_web`이 `trail-web-drop`으로 지움.
 
@@ -16,11 +17,11 @@ use std::time::{Duration, Instant};
 
 use screenpet_core::brain::{Doodle, DoodleKind, DOODLE_SECS};
 use screenpet_core::broom::Broom;
-use screenpet_core::geom::Rect;
+use screenpet_core::geom::{Rect, WindowInfo};
 use screenpet_core::style::PetStyle;
 use screenpet_core::trail::{self, Puff, Runner, Trail};
 use screenpet_core::weather::{self, OverlayRetry};
-use screenpet_core::web::{web_on_window, Corner, WebAt, WebSpin, WebSpot, MAX_WEBS, WEB_LIFE_SECS};
+use screenpet_core::web::{orb_on_window, web_on_window, window_offset, Corner, WebAt, WebSpin, WebSpot, MAX_WEBS, WEB_LIFE_SECS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, WebviewWindow};
 
@@ -52,14 +53,14 @@ const LINE_EVERY: Duration = Duration::from_millis(33);
 /// 🧹 한 시간마다 거미집도 치움 (날씨 더미와 같은 간격)
 const WEB_AUTO_CLEAR: Duration = Duration::from_secs(weather::AUTO_CLEAR_SECS as u64);
 
-/// 웹뷰로 가는 거미집 (논리 px, 이 창 왼쪽 위가 0,0 — x·y는 모서리 점, size는 반지름)
+/// 웹뷰로 가는 거미집 (논리 px, 이 창 왼쪽 위가 0,0 — x·y는 모서리 점 (둥근 거미집이면 가운데), size는 반지름)
 #[derive(Serialize, Clone)]
 struct WebWire {
     /// 거미집 번호 (지울 때 씀)
     id: u64,
     x: f64,
     y: f64,
-    /// 모서리 (top_left·top_right·bottom_left·bottom_right)
+    /// 모서리 (top_left·top_right·bottom_left·bottom_right) — 🕸️⭕ center면 둥근 거미집
     corner: Corner,
     size: f64,
     pixel: bool,
@@ -97,10 +98,12 @@ struct WebTrack {
     label: String,
     /// 창 모서리면 그 창 id
     window: Option<u64>,
-    /// 모서리 점 (물리 px)
+    /// 모서리 점 (물리 px — 둥근 거미집이면 가운데)
     x: f64,
     y: f64,
     corner: Corner,
+    /// 🕸️⭕ 창 위 둥근 거미집의 창 왼쪽 위 기준 자리 (물리 px — 창을 따라감)
+    offset: (f64, f64),
     /// 반지름 (물리 px) — 🧹 빗자루가 지나가는지 볼 때
     size: f64,
     /// 앞 창에 가려져 숨김
@@ -109,9 +112,10 @@ struct WebTrack {
     until: Instant,
 }
 
-/// 거미집 모서리에서 화면 안쪽으로 1px 들어간 점 (그 모니터 작업 영역 안)
+/// 거미집 모서리에서 화면 안쪽으로 1px 들어간 점 (그 모니터 작업 영역 안). 🕸️⭕ 둥근 거미집은 가운데
 fn inward(w: &WebSpin) -> (f64, f64) {
     match w.corner {
+        Corner::Center => (w.x, w.y),
         Corner::TopLeft => (w.x + 1.0, w.y + 1.0),
         Corner::TopRight => (w.x - 1.0, w.y + 1.0),
         Corner::BottomLeft => (w.x + 1.0, w.y - 1.0),
@@ -294,12 +298,13 @@ impl TrailFx {
                 continue;
             }
             let pixel = s.shown.style == PetStyle::Pixel;
-            self.place_web(app, now, &s.world.work_areas, &w, pixel);
+            self.place_web(app, now, &s.world.work_areas, &slots[0].world.windows, &w, pixel);
         }
     }
 
-    /// 거미집 하나를 그 모서리 모니터의 덮개 창에 보냄 (창이 없으면 만듦). 화면에 MAX_WEBS개 넘게 쌓이지 않게 오래된 것부터 지움
-    fn place_web(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], w: &WebSpin, pixel: bool) {
+    /// 거미집 하나를 그 모서리 모니터의 덮개 창에 보냄 (창이 없으면 만듦). 화면에 MAX_WEBS개 넘게 쌓이지 않게 오래된 것부터 지움.
+    /// windows = 지금 창 목록 (🕸️⭕ 창 위 둥근 거미집의 창 기준 자리를 잼)
+    fn place_web(&mut self, app: &AppHandle, now: Instant, work_areas: &[Rect], windows: &[WindowInfo], w: &WebSpin, pixel: bool) {
         let (ix, iy) = inward(w);
         let Some(i) = self.overlay_at(app, now, work_areas, ix, iy) else { return };
         self.next_web += 1;
@@ -312,7 +317,8 @@ impl TrailFx {
         let wire = WebWire { id, x: (w.x - o.wa.left) / o.scale, y: (w.y - o.wa.top) / o.scale, corner: w.corner, size, pixel, age: 0.0, life: WEB_LIFE_SECS, shots: w.shots, build: w.build };
         o.webs.push((now, wire));
         let label = o.label.clone();
-        self.webs.push(WebTrack { id, label, window: w.window, x: w.x, y: w.y, corner: w.corner, size: w.size, hidden: false, until: now + WEB_LIFE });
+        let offset = window_offset(windows, w);
+        self.webs.push(WebTrack { id, label, window: w.window, x: w.x, y: w.y, corner: w.corner, offset, size: w.size, hidden: false, until: now + WEB_LIFE });
         if self.webs.len() > MAX_WEBS {
             let old = self.webs.remove(0);
             let _ = app.emit_to(old.label.as_str(), "trail-web-drop", [old.id]);
@@ -400,7 +406,8 @@ impl TrailFx {
     }
 
     /// 창 모서리 거미집: 창을 옮기거나 크기를 바꾸면 그 모서리를 따라 옮기고 (`trail-web-move`), 앞 창에 가려지면 숨기고,
-    /// 창이 닫히거나 최소화되거나 다른 모니터로 가면 지움 (`trail-web-drop`) — 판단은 코어 web::web_on_window
+    /// 창이 닫히거나 최소화되거나 다른 모니터로 가면 지움 (`trail-web-drop`) — 판단은 코어 web::web_on_window.
+    /// 🕸️⭕ 창 위 둥근 거미집은 창 왼쪽 위 + offset으로 따라감 (web::orb_on_window — 원이 창 밖으로 나가면 지움)
     fn follow_window_webs(&mut self, app: &AppHandle, now: Instant, own: &Slot) {
         let mut drops: Vec<(String, u64)> = Vec::new();
         let mut moves: Vec<(String, WebMove)> = Vec::new();
@@ -410,7 +417,8 @@ impl TrailFx {
                 return false;
             }
             let Some(window) = t.window else { return true };
-            let (x, y, hidden) = match web_on_window(&own.world.windows, window, t.corner) {
+            let at = if t.corner.is_orb() { orb_on_window(&own.world.windows, window, t.offset, t.size) } else { web_on_window(&own.world.windows, window, t.corner) };
+            let (x, y, hidden) = match at {
                 WebAt::Gone => {
                     drops.push((t.label.clone(), t.id));
                     return false;

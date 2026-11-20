@@ -2164,6 +2164,20 @@ fn only_small_things_lying_about_can_be_blown_or_whirled() {
 }
 
 #[test]
+fn only_a_hurricane_class_tornado_may_whirl_a_giant_lying_about() {
+    let w = floor();
+    let mut giant = resting(ObjectKind::GiantPoop, &w);
+    assert!(giant.is_heavy_loose() && !giant.is_loose(), "돌풍에는 그대로, 허리케인급 회오리만 (typhoon.rs가 고름)");
+    assert!(!resting(ObjectKind::Can, &w).is_heavy_loose());
+    assert!(giant.whirl_at(600.0, 500.0, 30.0), "허리케인이 들어 올림");
+    assert!(giant.is_whirled() && !giant.is_heavy_loose());
+    assert!(giant.blow(700.0, -500.0), "돌다가 휙 내던져짐");
+    let mut held = resting(ObjectKind::GiantStone, &w);
+    held.pointer_down(300.0, 1000.0);
+    assert!(!held.is_heavy_loose(), "잡은 것은 그대로");
+}
+
+#[test]
 fn a_gust_blows_a_lying_thing_sideways_without_sending_it_to_a_friend() {
     let w = floor();
     let mut o = resting(ObjectKind::Paper, &w);

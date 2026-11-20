@@ -1,6 +1,7 @@
 // 🕷️ 거미인간의 줄과 거미집 그리기. 🌈 무지개 구름·🖍️ 낙서와 같은 모니터 덮개 창 (trail.html)의 가운데 캔버스에 그림.
 // 앱(src-tauri/src/trail.rs)이 보내는 것 (모두 논리 px, 이 창 왼쪽 위가 0,0):
 //   trail-webs      새 거미집들 [{id, x, y, corner, size, pixel, age, life, shots, build}] — corner는 top_left·top_right·bottom_left·bottom_right,
+//                   🕸️⭕ center면 둥근 거미집 (x·y가 가운데 — 살 7–9개를 사방으로, 대충 8각형인 비정형 고리, orbShape),
 //                   x·y는 모서리 점, size는 반지름, age는 이미 지난 초, life는 그대로 남는 초 (그 뒤 WEB_FADE초 동안 흐려짐),
 //                   shots·build: 줄을 shots번 쏘아 build초 동안 짬 — 쏠 때마다 살·고리가 차례로 생김 (build가 없으면 WEB_GROW초에 핌)
 //   trail-lines     지금 뻗어 있는 줄 전부 [{x0, y0, x1, y1}] (손 → 줄 끝) — 바뀔 때마다 통째로, 없으면 빈 목록
@@ -24,6 +25,10 @@ const WEB_SHOTS_MAX = 12;
 const WEB_SPOKES = [4, 7];
 const WEB_RINGS = [3, 5];
 const WEB_CORNERS = { top_left: [1, 1], top_right: [-1, 1], bottom_left: [1, -1], bottom_right: [-1, -1] };
+// 🕸️⭕ 둥근 거미집 (corner "center"): 살 [최소, 최대] + 고리 [최소, 최대]
+const ORB_KIND = "center";
+const ORB_SPOKES = [7, 9];
+const ORB_RINGS = [3, 5];
 // 실 (밝은 흰빛) 아래에 깔리는 그늘 — 밝은 창 위에서도 보이게
 const SILK = "rgba(244,247,255,0.92)";
 const SILK_SHADE = "rgba(34,38,56,0.45)";
@@ -39,7 +44,7 @@ let webTimer = 0;
 function addWebs(list) {
   const now = performance.now();
   for (const p of list || []) {
-    if (!WEB_CORNERS[p.corner] || !Number.isFinite(p.x) || !Number.isFinite(p.y) || !(p.size > 0 && p.size < 2000)) continue;
+    if (!(WEB_CORNERS[p.corner] || p.corner === ORB_KIND) || !Number.isFinite(p.x) || !Number.isFinite(p.y) || !(p.size > 0 && p.size < 2000)) continue;
     const life = p.life >= WEB_LIFE_RANGE[0] && p.life <= WEB_LIFE_RANGE[1] ? p.life : WEB_LIFE;
     if (!(p.age >= 0 && p.age < life + WEB_FADE)) continue;
     webs = webs.filter((w) => w.id !== p.id);
@@ -105,15 +110,20 @@ function webState(w, now) {
   return { t, grown, alpha };
 }
 
-// 모서리에서 안쪽으로 펼쳐지는 부채꼴 거미집 (살 다섯 + 처진 고리 넷). 짜는 거미집은 조각이 차례로 (살 → 고리), 아니면 통째로 커짐
+// 모서리에서 안쪽으로 펼쳐지는 부채꼴 거미집 (살 다섯 + 처진 고리 넷) · 🕸️⭕ 둥근 거미집. 짜는 거미집은 조각이 차례로 (살 → 고리), 아니면 통째로 커짐
 function webPaths(w, grown) {
   if (w.build > 0) return wovenPaths(w, grown);
-  return fanPaths(w, w.size * grown);
+  return shapePaths(w, w.size * grown);
+}
+
+// 반지름 r인 거미집의 선들 (모양 종류대로)
+function shapePaths(w, r) {
+  return w.corner === ORB_KIND ? orbPaths(w, r) : fanPaths(w, r);
 }
 
 // 짜는 중: 다 된 조각은 다, 짜는 조각은 그만큼 (살은 길이, 고리는 앞쪽 점들)
 function wovenPaths(w, grown) {
-  const all = fanPaths(w, w.size);
+  const all = shapePaths(w, w.size);
   const count = grown * all.length;
   const done = Math.floor(count);
   const out = all.slice(0, done);
@@ -187,6 +197,54 @@ function fanPaths(w, r) {
   return out;
 }
 
+// 🕸️⭕ 둥근 거미집마다 다른 삐뚤빼뚤한 모양 (한 번 정해 w.shape에 둠): 살 7–9개를 사방으로 (각도·길이 제각각),
+// 고리는 살마다 한 점 + 살 사이로 안쪽 처짐 — 대충 8각형이지만 점마다 흔들림. 모두 반지름 안
+function orbShape(w) {
+  if (w.shape) return w.shape;
+  const rnd = webRng(w.id);
+  const n = ORB_SPOKES[0] + Math.floor(rnd() * (ORB_SPOKES[1] - ORB_SPOKES[0] + 1));
+  const step = (Math.PI * 2) / n;
+  const turn = rnd() * step;
+  const angs = [];
+  for (let k = 0; k < n; k++) angs.push(turn + k * step + (rnd() - 0.5) * 0.55 * step);
+  const lens = angs.map(() => 0.78 + 0.22 * rnd());
+  const m = ORB_RINGS[0] + Math.floor(rnd() * (ORB_RINGS[1] - ORB_RINGS[0] + 1));
+  const rings = [];
+  for (let q = 1; q <= m; q++) {
+    const base = (q / (m + 0.4)) * (0.78 + 0.12 * rnd());
+    const pts = angs.map(() => base * (0.9 + 0.16 * rnd()));
+    const sags = angs.map(() => 0.84 + 0.12 * rnd());
+    rings.push({ pts, sags });
+  }
+  w.shape = { angs, lens, rings };
+  return w.shape;
+}
+
+// 반지름 r인 둥근 거미집의 선들: 가운데에서 사방으로 살 다음, 안쪽부터 고리 (닫힌 줄 — 살 끝을 넘지 않음)
+function orbPaths(w, r) {
+  const { angs, lens, rings } = orbShape(w);
+  const n = angs.length;
+  const out = [];
+  const at = (ang, rr) => [w.x + rr * Math.cos(ang), w.y + rr * Math.sin(ang)];
+  angs.forEach((a, k) => out.push([at(a, 0), at(a, r * lens[k])]));
+  for (const ring of rings) {
+    const line = [];
+    for (let k = 0; k <= n; k++) {
+      const i = k % n;
+      const rr = r * Math.min(ring.pts[i], lens[i] * 0.97);
+      line.push(at(angs[i] + (k === n ? Math.PI * 2 : 0), rr));
+      if (k < n) {
+        const j = (i + 1) % n;
+        const next = angs[j] + (j === 0 ? Math.PI * 2 : 0);
+        const mid = Math.min(rr, r * Math.min(ring.pts[j], lens[j] * 0.97));
+        line.push(at((angs[i] + next) / 2, mid * ring.sags[i]));
+      }
+    }
+    out.push(line);
+  }
+  return out;
+}
+
 // 선 묶음을 그늘 → 실 순서로 그림
 function strokeSilk(paths, width, pixel) {
   wctx.lineCap = pixel ? "square" : "round";
@@ -251,13 +309,16 @@ if (window.__TAURI__) {
   webPreview();
 }
 
-// 앱 없이 브라우저에서 보기 (개발용): 네 모서리 거미집 + 줄 하나
+// 앱 없이 브라우저에서 보기 (개발용): 네 모서리 거미집 + 🕸️⭕ 둥근 거미집 셋 (짜는 중부터 — &orb=1이면 둥근 것만 다 짠 채로) + 줄 하나
 function webPreview() {
   const q = new URLSearchParams(location.search);
   const pixel = !!q.get("pixel");
+  const orbOnly = !!q.get("orb");
   document.documentElement.style.background = q.get("light") ? "#eef1f6" : "#1d2030";
   const W = window.innerWidth;
   const H = window.innerHeight;
-  addWebs(Object.keys(WEB_CORNERS).map((corner, i) => ({ id: i + 1, corner, x: corner.endsWith("left") ? 0 : W, y: corner.startsWith("top") ? 0 : H, size: 90, pixel, age: 1, life: 60 })));
-  setWebLines([{ x0: W / 2, y0: H * 0.8, x1: W * 0.8, y1: 0 }]);
+  if (!orbOnly) addWebs(Object.keys(WEB_CORNERS).map((corner, i) => ({ id: i + 1, corner, x: corner.endsWith("left") ? 0 : W, y: corner.startsWith("top") ? 0 : H, size: 90, pixel, age: 1, life: 60 })));
+  const age = orbOnly ? 10 : 0;
+  addWebs([[0.25, 0.4, 70], [0.55, 0.45, 110], [0.82, 0.55, 85]].map(([fx, fy, size], i) => ({ id: 11 + i, corner: ORB_KIND, x: W * fx, y: H * fy, size, pixel, age, life: 60, shots: 6, build: 1.6 })));
+  if (!orbOnly) setWebLines([{ x0: W / 2, y0: H * 0.8, x1: W * 0.8, y1: 0 }]);
 }

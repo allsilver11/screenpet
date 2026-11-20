@@ -2,6 +2,7 @@
 //! ❄️ 함박눈 (v0.6.8, 12~2월 눈 오는 날 가끔·메뉴): 큰 눈송이가 펑펑, 눈과 같은 더미에 더 빨리·높이 쌓임
 //! 🌀 태풍 (v0.6.8, 7~9월 가끔·메뉴): 쌓이지 않고 더미를 날려 버림. 돌풍·회오리 계산은 typhoon.rs
 //! 메뉴에서 날씨를 직접 고르면 (real_weather::WeatherSource) 달력과 상관없이 그 날씨가 계속 옴
+//! 🧹 날씨 종류가 바뀌면 (어느 길로든 — 비·태풍으로도) 예전 더미를 싹 치움. 가벼운 눈·눈·함박눈끼리만 이어 쌓음
 //!
 //! CPU를 아끼려고 알갱이 하나하나를 세지 않음: 떨어지는 알갱이는 웹뷰의 그림일 뿐이고, 더미는 여기서 1초에 한 번
 //! 작은 눈덩이를 무작위 칸에 얹어 키움 (쌓이는 속도와 녹는 속도만 맞춤). 앱은 장면이 바뀌었을 때만 웹뷰에 보냄
@@ -394,9 +395,10 @@ pub struct Scene {
     /// 🌀 태풍 바람 (부호 = 방향, 0.7…1.6 — 돌풍에 커짐). 태풍이 아니면 없음 (예전 장면 그대로)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wind: Option<f32>,
-    /// 🌀 회오리 [바닥 가운데 x, 바닥 y, 가로 빠르기] (논리 px, px/s — 웹뷰가 사이를 이어 그림). 이 모니터에 없으면 없음
+    /// 🌀 회오리 [바닥 가운데 x, 바닥 y, 가로 빠르기, 크기] (논리 px, px/s — 웹뷰가 사이를 이어 그림. 크기 = 깔때기 배수,
+    /// 허리케인급은 typhoon::HURRICANE_SIZE — 예전 웹뷰는 넷째 값을 모르고 보통 크기로 그림). 이 모니터에 없으면 없음
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tornado: Option<[f32; 3]>,
+    pub tornado: Option<[f32; 4]>,
 }
 
 /// 한 디딤판의 더미 그림 (모니터 작업 영역 기준 논리 px)
@@ -419,6 +421,8 @@ pub struct PileField {
     piles: Vec<Pile>,
     tops: Vec<Top>,
     pile_kind: Option<Weather>,
+    /// 지난 틱의 날씨 (바뀌면 예전 더미를 치움)
+    last: Option<Weather>,
     /// 다음 틱으로 넘기는 눈덩이 몫
     carry: f32,
     /// 쌓이는 속도 배수 (미리 보기는 빨리)
@@ -431,7 +435,7 @@ pub struct PileField {
 impl PileField {
     /// 빈 더미 밭. grow_mult는 쌓이는 속도 배수
     pub fn new(seed: u64, grow_mult: f32) -> Self {
-        Self { piles: Vec::new(), tops: Vec::new(), pile_kind: None, carry: 0.0, grow_mult, since_clear: 0.0, rng: fastrand::Rng::with_seed(seed) }
+        Self { piles: Vec::new(), tops: Vec::new(), pile_kind: None, last: None, carry: 0.0, grow_mult, since_clear: 0.0, rng: fastrand::Rng::with_seed(seed) }
     }
 
     /// 지금 세계에 맞춤: 옮기거나 크기가 바뀐 창의 더미는 사라지고 (윗면 전체가 가려졌거나 닫힌 창도), 나머지는 그대로
@@ -461,7 +465,7 @@ impl PileField {
         }
     }
 
-    /// 시간을 dt초 보냄 (앱은 1초에 한 번). 녹이고, 쌓이는 날씨면 보이는 조각에 눈덩이를 얹음
+    /// 시간을 dt초 보냄 (앱은 1초에 한 번). 날씨 종류가 바뀌었으면 예전 더미를 치우고, 녹이고, 쌓이는 날씨면 보이는 조각에 눈덩이를 얹음
     pub fn tick(&mut self, dt: f64, weather: Weather) {
         self.since_clear += dt;
         if self.since_clear >= AUTO_CLEAR_SECS {
@@ -469,6 +473,14 @@ impl PileField {
         }
         let rates = weather.rates();
         let piles_up = rates.grow > 0.0;
+        // 🧹 날씨가 바뀌면 (직접 고름·계절·실제 날씨 모두 — 비·태풍으로도) 예전 더미를 싹 치움. 눈끼리(가벼운 눈·눈·함박눈)는 이어 쌓음
+        if self.last.is_some_and(|k| k != weather && !(k.is_snow() && weather.is_snow())) {
+            self.piles.iter_mut().for_each(|p| p.cells.fill(0.0));
+            if !piles_up {
+                self.pile_kind = None;
+            }
+        }
+        self.last = Some(weather);
         if piles_up && self.pile_kind.is_some_and(|k| k.pile_family() != weather.pile_family()) {
             // 눈이 꽃잎·낙엽으로, 낙엽이 눈이나 꽃잎으로: 다른 더미를 새로 시작함 (가벼운 눈·눈·함박눈은 이어 쌓음)
             self.piles.iter_mut().for_each(|p| p.cells.fill(0.0));

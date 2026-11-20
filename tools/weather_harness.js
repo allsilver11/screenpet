@@ -9,7 +9,7 @@ const W = 1920;
 const H = 1040;
 const LINE_Y = 500;
 
-function run(kind, style) {
+function run(kind, style, size) {
   const counts = {};
   let draws = [];
   let lineWidth = 1;
@@ -137,7 +137,8 @@ function run(kind, style) {
     tops: [[0, W, LINE_Y], [0, W, H]],
     piles: wet ? [] : [pile],
     // 🌀 태풍 장면엔 바람과 회오리가 실려 옴
-    ...(stormy ? { wind: -1.3, tornado: [600, H, 0] } : {}),
+    // 넷째 값 = 깔때기 크기 (🌀 허리케인급은 2 — 없으면 예전 장면처럼 보통 크기)
+    ...(stormy ? { wind: -1.3, tornado: size ? [600, H, 0, size] : [600, H, 0] } : {}),
   };
   listener({ payload: scene });
   const pileFills = (counts.fill || 0) + (counts.drawImage || 0);
@@ -198,6 +199,7 @@ function run(kind, style) {
   const lo = Math.min(...ys), hi = Math.max(...ys);
   const spread = (ds) => (ds.length ? Math.max(...ds.map((d) => d.x + d.w)) - Math.min(...ds.map((d) => d.x)) : 0);
   const funnelTopWidth = spread(puffs.filter((d) => d.y + d.h / 2 < lo + (hi - lo) / 3));
+  const funnelHeight = puffs.length ? H - Math.min(...puffs.map((d) => d.y)) : 0;
   const funnelBottomWidth = spread(puffs.filter((d) => d.y + d.h / 2 > hi - (hi - lo) / 3));
   // 돌기: 다음 프레임에 자리가 바뀐 뭉치 몫 (회오리는 제자리 — vx 0)
   const key = (d) => `${Math.round(d.x)},${Math.round(d.y)}`;
@@ -289,6 +291,7 @@ function run(kind, style) {
     funnelReach,
     funnelTopWidth,
     funnelBottomWidth,
+    funnelHeight,
     funnelMoved,
     funnelAlphas: puffs.length ? [Math.min(...alphas), Math.max(...alphas)] : [],
     funnelSpriteCount: funnelSprites.length,
@@ -328,4 +331,4 @@ function run(kind, style) {
   };
 }
 
-console.log(JSON.stringify(run(process.argv[2] || "snow", process.argv[3] || "")));
+console.log(JSON.stringify(run(process.argv[2] || "snow", process.argv[3] || "", Number(process.argv[4]) || 0)));

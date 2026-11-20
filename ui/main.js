@@ -921,7 +921,10 @@ const EXTRA_SPEECH = {
   thwip: ["thwip!"],
   web: ["web time!"],
   web_swing: ["wheee!", "woohoo!"],
-  hero_land: ["nailed it!"],
+  hero_land: ["nailed it!", "hero landing!", "super landing!", "stuck it!", "like a pro", "boom!", "still got it", "ground secured", "ta-da!", "whoosh… done"],
+  // 🕷️🕷️🕷️ 멀티버스 모임: 다른 거미인간을 보고 깜짝 / 흩어지며 (코어 social_multiverse.rs)
+  multiverse: ["multiverse?!", "wait… you too?", "no way!"],
+  see_ya: ["see ya!"],
   // 펫끼리 놀기 더 (코어 social_romp.rs): 🥊 투닥투닥 / 😈 몰래 찌르고 키득 · 찔려서 화들짝 / 🫸 되밀기 / 🏁 달리기 시합 / 💬 수다 (먼저 · 받는 쪽)
   scuffle: ["hey!", "mine!", "grr", "grr!"],
   hehe: ["hehe", "hehe~"],

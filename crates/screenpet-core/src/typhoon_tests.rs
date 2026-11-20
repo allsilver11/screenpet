@@ -8,7 +8,7 @@ const WA: Rect = Rect { left: 0.0, top: 0.0, right: 1920.0, bottom: 1040.0 };
 
 /// 땅 위 x에 놓인 물건 하나
 fn ground_thing(id: u64, x: f64) -> Loose {
-    Loose { thing: Thing::Object(id), x, y: WA.bottom, cross: None }
+    Loose { thing: Thing::Object(id), x, y: WA.bottom, cross: None, heavy: false }
 }
 
 /// 회오리를 x 자리에 멈춰 세움 (테스트가 자리를 정함)
@@ -267,7 +267,7 @@ fn near_a_friend_edge_most_flings_go_over_to_the_friend() {
 #[test]
 fn pets_cross_to_a_friend_at_most_once_in_a_while_but_objects_keep_going() {
     let mut t = parked(1600.0, 9);
-    let pet = Loose { thing: Thing::Pet(7), x: 1600.0, y: WA.bottom, cross: Some(Side::Right) };
+    let pet = Loose { thing: Thing::Pet(7), x: 1600.0, y: WA.bottom, cross: Some(Side::Right), heavy: false };
     let mut pet_cross = Vec::new();
     let mut clock = 0.0;
     let mut out = Vec::new();
@@ -325,9 +325,110 @@ fn a_storm_brings_tornadoes_one_after_another_and_lets_riders_go_when_one_dies()
 #[test]
 fn a_funnel_just_past_a_monitor_edge_still_shows_on_that_monitor() {
     let wa = Rect::new(0.0, 0.0, 1920.0, 1040.0);
-    assert!(straddles(1960.0, &wa, 1.0), "오른쪽 끝에 걸침");
-    assert!(straddles(-40.0, &wa, 1.0), "왼쪽 끝에 걸침");
-    assert!(!straddles(900.0, &wa, 1.0), "안쪽은 제 모니터가 그림");
-    assert!(!straddles(2400.0, &wa, 1.0), "멀리 있으면 안 보임");
-    assert!(straddles(2100.0, &wa, 2.0) && !straddles(2100.0, &wa, 1.0), "배율만큼 넓음");
+    assert!(straddles(1960.0, &wa, 1.0, 1.0), "오른쪽 끝에 걸침");
+    assert!(straddles(-40.0, &wa, 1.0, 1.0), "왼쪽 끝에 걸침");
+    assert!(!straddles(900.0, &wa, 1.0, 1.0), "안쪽은 제 모니터가 그림");
+    assert!(!straddles(2400.0, &wa, 1.0, 1.0), "멀리 있으면 안 보임");
+    assert!(straddles(2100.0, &wa, 2.0, 1.0) && !straddles(2100.0, &wa, 1.0, 1.0), "배율만큼 넓음");
+    // 🌀 허리케인급은 깔때기가 커서 더 멀리서도 걸쳐 보임 (ui/weather.js도 (FUNNEL_R[1] + 30) × 크기)
+    let far = 1920.0 + FUNNEL_R.1 + 30.0 + 40.0;
+    assert!(!straddles(far, &wa, 1.0, 1.0) && straddles(far, &wa, 1.0, HURRICANE_SIZE), "크기만큼 넓음");
+}
+
+/// 허리케인급 회오리를 x 자리에 멈춰 세움
+fn parked_hurricane(x: f64, seed: u64) -> Tornado {
+    let mut t = Tornado::hurricane(WA, WA, 1.0, seed);
+    t.park(x);
+    t
+}
+
+/// 땅 위 x에 놓인 거대한 물건 하나 (💩·🪨)
+fn giant_thing(id: u64, x: f64) -> Loose {
+    Loose { heavy: true, ..ground_thing(id, x) }
+}
+
+#[test]
+fn some_tornadoes_are_hurricane_class() {
+    // 태풍마다 회오리를 여럿 지나 보내며 셈: 넷에 하나쯤 허리케인급
+    let (mut normal, mut hurricanes) = (0, 0);
+    let mut out = Vec::new();
+    for seed in 0..60 {
+        let mut s = Storm::new(seed);
+        let mut had = false;
+        for _ in 0..(600.0 / 0.1) as usize {
+            out.clear();
+            s.tick(0.1, &[WA], WA, 1.0, &[], &mut out);
+            let now = s.tornado().map(Tornado::is_hurricane);
+            if let (Some(h), false) = (now, had) {
+                if h { hurricanes += 1 } else { normal += 1 }
+            }
+            had = now.is_some();
+        }
+    }
+    let share = hurricanes as f64 / (normal + hurricanes) as f64;
+    assert!(normal + hurricanes > 200, "{normal} {hurricanes}");
+    assert!((0.14..=0.32).contains(&share), "허리케인급 몫: {share}");
+    assert!((HURRICANE_CHANCE - share).abs() < 0.08, "{share}");
+}
+
+#[test]
+fn a_hurricane_is_about_twice_as_big_and_pulls_from_farther() {
+    assert!((1.8..=2.2).contains(&HURRICANE_SIZE));
+    let normal = Tornado::new(WA, WA, 1.0, 1);
+    let big = Tornado::hurricane(WA, WA, 1.0, 1);
+    assert!(!normal.is_hurricane() && big.is_hurricane());
+    assert_eq!(normal.size(), 1.0);
+    assert_eq!(big.size(), HURRICANE_SIZE);
+    // 보통 회오리 손이 닿지 않는 곳까지
+    let far = 900.0 + 1.3 * PULL_RADIUS;
+    let mut t = parked(900.0, 1);
+    assert!(spin(&mut t, &[ground_thing(1, far)], 1.0).is_empty());
+    let mut h = parked_hurricane(900.0, 1);
+    let all = spin(&mut h, &[ground_thing(1, far)], SPIN_SECS.1 + 0.2);
+    let top = all.iter().filter_map(|w| match *w { Whirl::Hold { y, .. } => Some(y), _ => None }).fold(f64::MAX, f64::min);
+    assert!(WA.bottom - top > 0.6 * LIFT * HURRICANE_SIZE, "훨씬 높이 올라감: {top}");
+    assert_eq!(flings(&all).len(), 1);
+    // 더 많이 돌림
+    assert!(HURRICANE_RIDERS > MAX_RIDERS);
+    let mut h = parked_hurricane(900.0, 2);
+    let many: Vec<Loose> = (0..HURRICANE_RIDERS as u64 + 5).map(|i| ground_thing(i, 900.0 + i as f64 * 10.0)).collect();
+    spin(&mut h, &many, 0.3);
+    assert_eq!(h.riders(), HURRICANE_RIDERS);
+}
+
+#[test]
+fn only_a_hurricane_lifts_giant_things_and_flings_them_on_this_screen() {
+    let mut t = parked(900.0, 3);
+    assert!(spin(&mut t, &[giant_thing(1, 950.0)], 1.0).is_empty(), "보통 회오리엔 너무 무거움");
+    let mut h = parked_hurricane(900.0, 3);
+    // 친구 쪽 끝이 있어도 거대한 것은 이 화면에 (친구에게 던지지 않음)
+    let g = Loose { cross: Some(Side::Right), ..giant_thing(1, 950.0) };
+    for _ in 0..8 {
+        let all = spin(&mut h, &[g], SPIN_SECS.1 + RECATCH_SECS + 0.5);
+        assert!(all.iter().any(|w| matches!(w, Whirl::Hold { thing: Thing::Object(1), .. })), "빨려 들어 돎");
+        assert!(flings(&all).iter().all(|f| !f.3), "이 화면에만 내던짐");
+    }
+}
+
+#[test]
+fn a_hurricane_blows_harder_gusts() {
+    let (mut calm_max, mut hurricane_max, mut wind_max) = (0.0f64, 0.0f64, 0.0f64);
+    let mut out = Vec::new();
+    for seed in 0..40 {
+        let mut s = Storm::new(seed);
+        for _ in 0..(400.0 / 0.1) as usize {
+            out.clear();
+            let gust = s.tick(0.1, &[WA], WA, 1.0, &[], &mut out);
+            let big = s.tornado().is_some_and(Tornado::is_hurricane);
+            if let Some(g) = gust {
+                if big { hurricane_max = hurricane_max.max(g.strength) } else { calm_max = calm_max.max(g.strength) }
+            }
+            if big {
+                wind_max = wind_max.max(s.wind().abs());
+            }
+        }
+    }
+    assert!(calm_max <= 1.0, "{calm_max}");
+    assert!(hurricane_max > 1.0 && hurricane_max <= HURRICANE_GUST + 1e-9, "{hurricane_max}");
+    assert!(wind_max > MAX_WIND, "허리케인 동안 바람도 셈: {wind_max}");
 }

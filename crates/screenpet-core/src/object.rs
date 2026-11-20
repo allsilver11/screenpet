@@ -3,6 +3,9 @@
 //! 던지면 제 모양 그대로 빙글빙글 돌며 날아가고, 떨어진 뒤에도 굴러가다 마찰로 멈춰 가까운 면으로 누움 (모양과 무게는 tumble.rs).
 //! 던지기 전에 포스트잇을 붙일 수 있음: 받는 사람이 누르면 10초 보이고 영영 사라짐
 //! 대부분의 시간엔 잠들어 있음 (`is_asleep`): 앱은 창도 웹뷰도 건드리지 않음
+//! 🕸️ 거미집에 걸림 (spec 5부): 날거나 떨어지거나 구르다 보이는 거미집 안으로 들어오면 무조건 걸려 매달림 (Phase::Snagged) —
+//! "팅~" 출렁 (web::snag_spring) 뒤 살랑살랑, 거미집이 사라지면 떨어지고 옮겨 가면 따라감, 잡아 끌면 빠지고 web::SNAG_IMMUNE_SECS 동안은 다시 안 걸림.
+//! 거미집 자리는 앱이 틱마다 set_webs로 알려 줌. 사용자가 잡은 것·동물이 든 것·회오리 속인 것은 안 걸림
 
 use std::collections::VecDeque;
 
@@ -10,6 +13,7 @@ use crate::collide::{rebound, Face};
 use crate::physics::{clamp_speed, step_air, throw_velocity, Body, THROW_GRAVITY_LOGICAL, THROW_LIFT, VELOCITY_WINDOW};
 use crate::tumble::{self, heft_of, shape_of, throw_spin, wobble_spin};
 use crate::visit::{self, ExitEdges, Fling, Side};
+use crate::web::{self, WebSpot};
 use crate::surfaces::Owner;
 use crate::world::World;
 
@@ -377,6 +381,8 @@ enum Phase {
     Carried,
     /// 🌀 회오리 속에서 돎 — 자리는 앱이 틱마다 whirl_at으로 옮김 (물리 없음). seen = 마지막으로 옮긴 시각 (물건 시계)
     Whirled { seen: f64 },
+    /// 🕸️ 거미집(web = 앱의 거미집 번호)에 걸려 매달림 — rel = 거미집 모서리에서 물건 가운데까지, dir = 들어온 쪽, t = 걸린 뒤 흐른 시간
+    Snagged { web: u64, rel: (f64, f64), dir: (f64, f64), t: f64 },
 }
 
 /// 🌀 회오리가 이만큼(초) 옮기지 않으면 그 자리에서 떨어짐 (태풍이 끝나도 잃어버리지 않게)
@@ -438,6 +444,12 @@ pub struct Object {
     cursor_rally: bool,
     /// 마지막으로 디딤판에 내려앉은 시각 (물건 시계 — 날아가는 중이면 None)
     landed_at: Option<f64>,
+    /// 🕸️ 화면의 거미집 (앱이 set_webs로)
+    webs: Vec<WebSpot>,
+    /// 🕸️ 이 시각(물건 시계)까지는 거미집에 안 걸림 (막 빠진 것)
+    snag_immune_until: f64,
+    /// 🕸️ 걸린 것을 잡아 빼는 중 (놓을 때 다시 안 걸리는 시간을 셈)
+    unsnagging: bool,
 }
 
 impl Object {
@@ -487,6 +499,9 @@ impl Object {
             by_user: false,
             cursor_rally: false,
             landed_at: None,
+            webs: Vec::new(),
+            snag_immune_until: f64::NEG_INFINITY,
+            unsnagging: false,
         }
     }
 
@@ -776,14 +791,20 @@ impl Object {
         matches!(self.phase, Phase::Ground { .. } | Phase::Rest) && !self.kind.is_giant()
     }
 
+    /// 🌀 허리케인급 회오리만 들어 올릴 수 있음: 바닥에 놓인 거대한 것 (돌풍엔 그대로)
+    pub fn is_heavy_loose(&self) -> bool {
+        matches!(self.phase, Phase::Ground { .. } | Phase::Rest) && self.kind.is_giant()
+    }
+
     /// 🌀 회오리 속에서 도는 중
     pub fn is_whirled(&self) -> bool {
         matches!(self.phase, Phase::Whirled { .. })
     }
 
-    /// 🌀 회오리가 (x, y = 바닥 가운데, 바닥)에 붙들어 angle(도)로 돌림. 바닥에 놓였거나 이미 도는 것만 (아니면 false)
+    /// 🌀 회오리가 (x, y = 바닥 가운데, 바닥)에 붙들어 angle(도)로 돌림. 바닥에 놓였거나 이미 도는 것만 (아니면 false).
+    /// 거대한 것은 허리케인급만 고름 (typhoon.rs)
     pub fn whirl_at(&mut self, x: f64, y: f64, angle: f64) -> bool {
-        if !self.is_loose() && !self.is_whirled() {
+        if !self.is_loose() && !self.is_heavy_loose() && !self.is_whirled() {
             return false;
         }
         self.phase = Phase::Whirled { seen: self.clock };
@@ -911,6 +932,11 @@ impl Object {
     /// 잡았음 (cx, cy = 커서)
     pub fn pointer_down(&mut self, cx: f64, cy: f64) {
         self.from = None;
+        // 🕸️ 걸린 것을 잡아 뺌 — 놓은 뒤 잠깐은 다시 안 걸림
+        self.unsnagging = self.is_snagged();
+        if self.unsnagging {
+            self.snag_immune_until = self.clock + web::SNAG_IMMUNE_SECS;
+        }
         // ⚾🖱️ 동물이 돌려보낸 것을 금방 잡았으면 횟수가 이어짐 (아니면 새로 1부터)
         if !self.cursor_rally_live() {
             self.rally = 0;
@@ -950,6 +976,9 @@ impl Object {
             return Release::Throw;
         }
         self.phase = Phase::Air;
+        if std::mem::take(&mut self.unsnagging) {
+            self.snag_immune_until = self.clock + web::SNAG_IMMUNE_SECS;
+        }
         if self.moved < CLICK_SLOP * self.dpi && self.clock - self.grabbed_at < CLICK_SECS {
             return Release::Click;
         }
@@ -981,9 +1010,23 @@ impl Object {
                 }
                 None
             }
-            Phase::Air => self.tick_air(dt, world, edges),
+            Phase::Snagged { web, rel, dir, t } => {
+                self.tick_snag(dt, web, rel, dir, t);
+                None
+            }
+            Phase::Air => {
+                let v = (self.body.vx, self.body.vy);
+                let exit = self.tick_air(dt, world, edges);
+                if exit.is_none() {
+                    self.try_snag(v);
+                }
+                exit
+            }
             Phase::Ground { friction, settle } => {
                 self.tick_ground(dt, world, friction, settle);
+                if self.body.vx != 0.0 {
+                    self.try_snag((self.body.vx, 0.0));
+                }
                 None
             }
             Phase::Rest => {
@@ -998,6 +1041,60 @@ impl Object {
                 None
             }
         }
+    }
+
+    /// 🕸️ 앱이 (틱마다) 이 화면의 거미집을 알려 줌 (물리 px)
+    pub fn set_webs(&mut self, webs: &[WebSpot]) {
+        self.webs.clear();
+        self.webs.extend_from_slice(webs);
+    }
+
+    /// 🕸️ 거미집에 걸려 매달려 있음
+    pub fn is_snagged(&self) -> bool {
+        matches!(self.phase, Phase::Snagged { .. })
+    }
+
+    /// 🕸️ 그림 가운데의 바닥에서 높이 (물리 px)
+    fn mid_height(&self) -> f64 {
+        0.5 * self.hit_box().1
+    }
+
+    /// 🕸️ 날거나 떨어지거나 구르는 중 (v = 이번 틱 속도): 가운데가 보이는 거미집 안이면 무조건 걸림 — 막 빠진 것은 안 걸림
+    fn try_snag(&mut self, v: (f64, f64)) {
+        if self.webs.is_empty() || self.clock < self.snag_immune_until || !matches!(self.phase, Phase::Air | Phase::Ground { .. }) {
+            return;
+        }
+        let (cx, cy) = (self.body.x, self.body.y - self.mid_height());
+        let Some(w) = self.webs.iter().find(|w| !w.hidden && web::in_web(cx, cy, w.x, w.y, w.corner, w.size)).copied() else { return };
+        self.phase = Phase::Snagged { web: w.id, rel: (cx - w.x, cy - w.y), dir: web::snag_dir(v.0, v.1), t: 0.0 };
+        self.standing = None;
+        self.thrown = false;
+        self.thrown_down = false;
+        self.knocked = false;
+        self.swept = false;
+        self.by_user = false;
+        self.cursor_rally = false;
+        self.landed_at = None;
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        self.spin = 0.0;
+    }
+
+    /// 🕸️ 매달린 한 틱: 거미집 자리를 따라가며 "팅~" 출렁 뒤 살랑살랑. 거미집이 사라졌으면 그 자리에서 떨어짐
+    fn tick_snag(&mut self, dt: f64, id: u64, rel: (f64, f64), dir: (f64, f64), t: f64) {
+        let Some(w) = self.webs.iter().find(|w| w.id == id).copied() else {
+            self.snag_immune_until = self.clock + web::SNAG_IMMUNE_SECS;
+            self.start_fall();
+            return;
+        };
+        let t = t + dt;
+        let amp = web::SNAG_STRETCH_OBJECT * self.hit_box().1;
+        let (sx, sy) = web::snag_spring(dir, amp, t);
+        let sway = web::snag_sway(amp, t);
+        let mid = self.mid_height();
+        self.body.x = w.x + rel.0 + sx + sway;
+        self.body.y = w.y + rel.1 + sy + mid;
+        self.phase = Phase::Snagged { web: id, rel, dir, t };
     }
 
     /// 바람이 붊 (dir = ±1). 잠들어 있을 때만. 던졌을 때와 같은 구르기를 살살
@@ -1593,3 +1690,7 @@ pub fn volley_piece(rng: &mut fastrand::Rng) -> (ObjectKind, Fling) {
 #[cfg(test)]
 #[path = "object_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "object_snag_tests.rs"]
+mod snag_tests;

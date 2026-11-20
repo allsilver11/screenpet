@@ -136,10 +136,15 @@ SPEECH = {
     "snowman": {"chatter": ["brrr~", "snow!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "penguin": {"chatter": ["waddle~", "wheee!", "pip pip!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "heumul": {"chatter": ["wheee!", "zoom zoom!", "hup!"], "tickle": ["hehehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    # 🕷️ 거미인간: 줄 쏘기 thwip · 거미집 web · 그네 web_swing · 영웅 착지 hero_land · 끌어오기 gotcha · 🌀 휘둘러 던지기 yeet (코어 Speech)
+    # 🕷️ 거미인간: 줄 쏘기 thwip · 거미집 web · 그네 web_swing · 영웅 착지 hero_land · 끌어오기 gotcha · 🌀 휘둘러 던지기 yeet ·
+    # 🕷️🕷️🕷️ 멀티버스 모임 놀람 multiverse / 흩어지기 see_ya (코어 Speech)
     "spider": {"chatter": ["thwip!", "web time!", "hi-ya!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "thwip": ["thwip!"],
-               "web": ["web time!", "spin spin~"], "web_swing": ["wheee!", "swing!", "woohoo!"], "hero_land": ["nailed it!", "ta-da!"],
-               "gotcha": ["gotcha!", "yoink!"], "yeet": ["yeet!", "catch!", "go long!"], **_CARE_SPEECH},
+               "web": ["web time!", "spin spin~"], "web_swing": ["wheee!", "swing!", "woohoo!"],
+               "hero_land": ["nailed it!", "hero landing!", "super landing!", "stuck it!", "like a pro", "boom!",
+                             "still got it", "ground secured", "ta-da!", "whoosh… done"],
+               "gotcha": ["gotcha!", "yoink!"], "yeet": ["yeet!", "catch!", "go long!"],
+               "multiverse": ["multiverse?!", "wait… you too?", "no way!", "another me?!", "which one's me?"],
+               "see_ya": ["see ya!", "later, me!", "bye, me!"], **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}

@@ -1,6 +1,7 @@
 //! 던져서 친구 화면으로 넘어가기 (phase 3): 던진 동물이 친구가 연결된 화면 가장 바깥 끝에 부딪히면
 //! 튕기지 않고 그대로 넘어감 — 친구 화면은 옆 모니터처럼 높이(작업 영역 비율)와 속도(논리 px/s)를 이어 받음
 //! 넘어갈 수 있는 끝은 걸어 나갈 때와 같음 (exit_odds > 0: 내 동물은 연결된 친구 쪽, 손님은 집 쪽이나 다른 친구 쪽).
+//! 🌉🚪 거미인간이 그네로 넘어올 때도 같은 길 (Fling) — 받는 쪽에서는 던져진 게 아니라 줄 타고 날아 들어옴 (brain_web.rs web_arrival).
 //! brain.rs의 자식 모듈.
 
 use super::*;
@@ -71,5 +72,7 @@ impl Pet {
         self.thrown = true;
         self.thrown_down = self.body.vy > 0.0 && visit::arrival_dives(self.body.vy, self.rng.f64());
         self.gentle_drop = false;
+        // 🌉🚪 거미인간은 던져진 게 아니라 줄 타고 날아 들어옴 (brain_web.rs)
+        self.web_arrival(inward);
     }
 }

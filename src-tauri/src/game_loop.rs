@@ -1,6 +1,7 @@
 //! 게임 루프 스레드임: 16ms 틱마다 창 목록·커서를 읽고 동물 두뇌(코어)를 돌린 뒤 창을 놓음.
 //! 웹뷰·트레이·네트워크에서 오는 것은 모두 [`Input`]으로 받아 이 스레드에서만 설정과 슬롯을 고침.
 //! 진입점 `spawn`은 `main.rs`가 부르고, 효과들(날씨·물건·선물·사다리 등)과 `network.rs`를 틱마다 돌림.
+//! 🕸️ 거미집 자리 (trail.web_spots)는 틱마다 동물 뇌 (set_webs — 걸리기·🧗 거미집 놀이)와 물건 (objects.set_webs — 📦 걸려 매달림)에 같이 줌.
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -1102,6 +1103,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         for s in slots.iter_mut() {
             s.pet.set_webs(&web_spots);
         }
+        // 🕸️📦 물건도 같은 거미집에 걸림 (코어 object.rs — 아래 objects.tick이 물건마다 넘김)
+        objects.set_webs(&web_spots);
         pet_targets.clear();
         pet_targets.extend(slots.iter().map(|s| {
             (!s.pet.is_away() && s.pet.hit_feels()).then(|| screenpet_core::juggle::Target { x: s.pet.body.x, y: s.pet.body.y, size: s.pet.cfg.size })

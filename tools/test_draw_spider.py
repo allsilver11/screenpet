@@ -61,8 +61,11 @@ def test_manifest_is_a_playful_web_slinger_that_loves_flies(out):
     assert "juggler" not in m and "tint" not in m
     assert m["animations"]["shoot"] == {"row": len(ANIMS) + 3, "frames": 3, "fps": 10, "loop": False}
     assert m["animations"]["hero_land"]["loop"] is False and "front" not in m["animations"]["web_swing"]
-    for key in ("thwip", "web", "web_swing", "hero_land", "gotcha", "yeet"):
+    for key in ("thwip", "web", "web_swing", "hero_land", "gotcha", "yeet", "multiverse", "see_ya"):
         assert m["speech"][key] and all(len(s) <= 16 for s in m["speech"][key]), key
+    # 🦸 영웅 착지 대사는 10개 안팎, 다 다름 · 🕷️🕷️🕷️ 멀티버스 모임 놀람 말 (코어 social_multiverse.rs)
+    assert 9 <= len(set(m["speech"]["hero_land"])) == len(m["speech"]["hero_land"]) <= 12
+    assert "multiverse?!" in m["speech"]["multiverse"] and "see ya!" in m["speech"]["see_ya"]
     assert m["stage_size"] == dict.fromkeys(STAGES, 0.85)
 
 

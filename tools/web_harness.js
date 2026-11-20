@@ -94,6 +94,12 @@ function load() {
         "JSON.stringify(webs.map((w) => { const p = fanPaths(w, w.size); const far = Math.max(...p.flat().map(([x, y]) => Math.hypot(x - w.x, y - w.y))); const s = webShape(w); return [s.angs.length, s.rings.length, far / w.size, s.angs]; }))",
         sandbox,
       ),
+    /** 🕸️⭕ 둥근 거미집마다 [살 수, 고리 수, 가운데에서 가장 먼 점 / 반지름, 살 각도들 (0..2π), 고리 점 반지름 몫들, 조각 수] */
+    orbs: () =>
+      vm.runInContext(
+        "JSON.stringify(webs.filter((w) => w.corner === 'center').map((w) => { const p = orbPaths(w, w.size); const far = Math.max(...p.flat().map(([x, y]) => Math.hypot(x - w.x, y - w.y))); const s = orbShape(w); return [s.angs.length, s.rings.length, far / w.size, s.angs.map((a) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)), s.rings.map((r) => r.pts), p.length]; }))",
+        sandbox,
+      ),
     /** 거미집마다 [짜는 시간, 줄 횟수] */
     weaves: () => vm.runInContext("JSON.stringify(webs.map((w) => [w.build, w.shots]))", sandbox),
     /** 거미집 id의 지금 자리와 숨김 */
@@ -180,5 +186,22 @@ h = load();
 h.send("trail-webs", [1, 2, 3, 4, 5, 6, 7, 8].map((id) => web(id, { size: 100 })));
 out.shapes = JSON.parse(h.shapes());
 out.shapes_again = JSON.parse(h.shapes());
+
+// 🕸️⭕ 둥근 거미집 (corner "center"): 받아들이고, 모양은 거미집마다 다르고 같은 것은 늘 같고, 원 안에 듦
+h = load();
+h.send("trail-webs", [1, 2, 3, 4, 5, 6, 7, 8].map((id) => web(id, { corner: "center", x: 900, y: 500, size: 120 })));
+out.orb_alive = h.alive();
+out.orbs = JSON.parse(h.orbs());
+out.orbs_again = JSON.parse(h.orbs());
+
+// 🕸️⭕ 짜는 둥근 거미집: 살 → 고리 조각이 차례로 늘고, 다 짜면 살 + 고리 전부 (보통·픽셀 모두)
+for (const pixel of [false, true]) {
+  h = load();
+  h.send("trail-webs", [web(21, { corner: "center", x: 900, y: 500, size: 120, shots: 6, build: 1.6, pixel })]);
+  const seq = [];
+  for (let i = 0; i < 160; i++) seq.push(h.frameMoves());
+  out[pixel ? "orb_woven_pixel" : "orb_woven"] = seq;
+  out[pixel ? "orb_pieces_pixel" : "orb_pieces"] = JSON.parse(h.orbs())[0][5];
+}
 
 console.log(JSON.stringify(out));

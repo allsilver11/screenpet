@@ -5,6 +5,8 @@
 //! - 🕸️ 거미집: 앱이 화면의 거미집을 set_webs로 알려 줌 → 거미인간이 아닌 동물의 몸 (가운데·발)이 거미집 안으로 막 들어오면
 //!   SNARE_CHANCE로 걸려 버둥버둥 ("help!") → SNARE_SECS 뒤 찢고 빠져나옴 (take_torn_web — 앱이 그 거미집을 지움).
 //!   빠져나온 뒤 SNARE_IMMUNE_SECS 동안은 안 걸림. 가려진 거미집은 안 걸림. 걸린 거미집이 사라지면 그냥 풀려남.
+//! - 🕸️ "팅~": 걸리는 순간 그림이 들어온 쪽으로 늘어났다 출렁 (web::snag_spring — 몸 자리는 그대로, snare_offset을 window_pos에 더함) 뒤 살랑살랑.
+//! - 거미인간은 어느 거미인간의 거미집에도 안 걸림 (snare_ok·maybe_snare — cfg.slings_webs면 모두). 놀러 올라가는 건 brain_web.rs 거미집 놀이.
 //! - 클릭: 걸린 동물을 누르면 바로 풀어 줌 ("thanks!" — pointer_down이 free_stuck을 부름. 거미집은 찢어짐).
 //!
 //! 주사위는 자기 주사위(SnareMood.rng)로 굴림 — 평소 동작의 주사위 순서는 그대로.
@@ -37,6 +39,8 @@ pub struct SnareMood {
     torn: Option<u64>,
     /// 다음 버둥 말까지
     talk_in: f64,
+    /// 🕸️ 걸려 들어온 쪽 (단위 벡터 — 출렁 방향)
+    spring_dir: (f64, f64),
 }
 
 impl SnareMood {
@@ -50,6 +54,7 @@ impl SnareMood {
             immune_until: f64::NEG_INFINITY,
             torn: None,
             talk_in: 0.0,
+            spring_dir: (0.0, 1.0),
         }
     }
 }
@@ -143,6 +148,8 @@ impl Pet {
 
     /// 🕸️ 거미집(id)에 걸림 ("help!") — 그 자리에서 멈춤
     fn get_snared(&mut self, id: u64) {
+        // 디딤판 위면 걷던 쪽, 공중이면 날던 쪽으로 출렁
+        self.snare.spring_dir = if self.standing.is_some() { (self.facing.signum(), 0.0) } else { web::snag_dir(self.body.vx, self.body.vy) };
         self.snare_hold_still();
         self.speech = Some(Speech::Help);
         let remaining = behavior::range(&mut self.snare.rng, web::SNARE_SECS);
@@ -239,6 +246,19 @@ impl Pet {
             StuckKind::Cocoon { .. } => Anim::Idle,
             StuckKind::Snare { .. } => Anim::Dragged,
         }
+    }
+
+    /// 🕸️ 거미집에 걸린 동안 그림이 몸 자리에서 비켜난 만큼 (물리 px): "팅~" 출렁 뒤 살랑살랑. 아니면 (0, 0)
+    pub(super) fn snare_offset(&self) -> (f64, f64) {
+        let State::Stuck { kind: StuckKind::Snare { .. }, t, .. } = self.state else { return (0.0, 0.0) };
+        let amp = web::SNAG_STRETCH_PET * self.cfg.size;
+        let (sx, sy) = web::snag_spring(self.snare.spring_dir, amp, t);
+        (sx + web::snag_sway(amp, t), sy)
+    }
+
+    /// 🕸️ 화면의 보이는·가려진 거미집 모두 (앱이 set_webs로 알려 준 것 — 거미집 놀이가 봄)
+    pub(super) fn known_webs(&self) -> &[WebSpot] {
+        &self.snare.webs
     }
 
     /// 🐛 고치 실 감긴 겹 수 (render.cocoon): 감긴 순간 한 겹, 줄이 닿을 때마다 한 겹씩 COCOON_SHOTS까지

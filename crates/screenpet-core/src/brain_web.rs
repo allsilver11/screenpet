@@ -3,17 +3,27 @@
 //! - 🕸️ 거미집: 모서리를 보고 줄을 쏨 (shoot) → 줄 끝이 닿는 순간 take_web이 WebSpin을 한 번 돌려줌 (앱이 그 모서리에 거미집을 그림).
 //!   크기는 제각각 (sized_web)이고, 첫 줄 뒤에도 거미집 여기저기로 줄을 몇 번 더 휙휙 쏴서 짬 (Weave — 앱이 그동안 살·고리를 차례로 그림).
 //!   손님으로 친구 화면에 가 있으면 자주, 집에서는 가끔.
+//!   🕸️⭕ 가끔 (WebMood.orb_odds = web::ORB_CHANCE) 구석 대신 손이 닿는 아무 자리 (화면이나 창 위 — web::orb_fit)에 둥근 거미집 (orb_web):
+//!   한 화면에 web::MAX_ORBS개까지 (앱이 알려 준 거미집으로 셈), 사방으로 살 → 고리 차례로 짬
 //! - 🌉 그네: 머리 위 창 아랫변·화면 윗변에 줄을 붙이고 (shoot) → 줄을 당겨 몸이 떠오름 (Zip) → 진자 (web_swing) → 반대편에서 놓고 날아감.
 //!   🌉🌉 줄 잇기: 놓고 날아가는 중 (State::Air) 꼭대기 언저리에서 앞 위로 새 줄을 쏴 ("thwip!" / 가끔 "woohoo!") Zip 없이
 //!   지금 자리·속도 그대로 진자를 이어 감 (try_chain_swing) — 한 번에 web::chain_range번, 닻이 없으면 그냥 떨어져 영웅 착지.
 //! - 🦸 영웅 착지: 몸 크기 HERO_FALL_SIZES배 넘게 떨어져 내려서면 콰당 대신 hero_land ("nailed it!") — land_or_recover가 부름.
 //! - 🪝 끌어오기: 바닥의 물건(ObjectPlay::Yank — 앱이 날림)이나 다른 동물(sync_lifts가 be_yanked)에 줄을 붙여 휙 (web_pull).
-//!   반은 앞에 떨어지게 끌어오고 반은 머리 너머 뒤로 던짐.
+//!   반은 앞에 떨어지게 끌어오고 반은 머리 너머 뒤로 던짐. 💪 거대한 것도 — 무거워서 조금만 끌려와 그 쪽 앞에 (giant_landing)
 //! - 🌀 휘둘러 던지기: 내 동물이고 친구가 연결된 끝이 있으면 (friend_sides) 물건은 자주 줄로 낚아 머리 위로 빙빙 (web_whirl) →
 //!   그 끝 너머로 휙. 도는 동안은 흐물이가 든 물건처럼 carried_object·carry_point로 앱이 옮기고, 놓을 때 JuggleEvent::Release
 //!   (앱이 날림 — 끝을 넘으면 친구 모니터로). 낚아채이면 (lose_carry) "hmph!", 끼어들리면 줄을 놓아 물건이 떨어짐.
+//!   💪 거대한 것은 더 천천히·작게·덜 돌다 (web::whirl_secs(true)) 가까이만 던짐 (throw_target — 먼 끝·동물이면 그 앞 바닥에)
 //! - 🐛 고치 말기: 닿는 거리에 쉬는 다른 동물(친구 동물 포함)이 있으면 가끔 (COCOON_RATE) 그 몸 둘레로 줄을 COCOON_SHOTS번 쏴서 (Wrap)
 //!   칭칭 — 첫 줄이 닿으면 sync_cocoons가 그 동물을 감고 (brain_snare.rs), 다 감으면 "hehe".
+//! - 🕸️🧗 거미집 놀이: 몸 WEB_PLAY_REACH배 안에 보이는 거미집 (누구 것이든 — 앱이 set_webs로 알려 줌)이 있으면 가끔 (WEB_PLAY_RATE)
+//!   그 위로 줄을 쏴 붙고 (Shoot → Crawl) 살·고리 자리 (web::perch_point)를 몇 군데 기어 다님 (climb 그림) → 매달려 (Dangle, web_swing 그림)
+//!   가끔 통통 출렁 → 뚝 떨어짐 (높으면 영웅 착지). 거미집이 옮겨 가면 따라가고, 사라지면 떨어짐. 거미집은 안 찢음
+//! - 🌉🚪 친구 화면으로: 친구가 연결된 옆 끝으로 걸어 나가려 할 때 (start_web_exit) 그 끝 바로 안쪽 위에 줄을 붙여 (web::exit_anchor)
+//!   뒤로 당겨 올랐다가 흔들려 끝 너머로 휙 — 날아가다 끝을 넘으면 (web_exit_out) 던져 넘어간 것처럼 사라짐 (take_exit 한 번 + take_fling).
+//!   닻이 없으면 평소처럼 걸어 나감. 넘어온 쪽 화면에서는 (web_arrival — enter_flung) 줄을 한 번 쏴 그네 타고 들어와 영웅 착지.
+//!   위·아래 끝은 평소대로 (brain_vert.rs).
 //! - 지금 뻗은 줄은 web_line (앱이 덮개 창에 그림).
 //!
 //! 주사위는 자기 주사위(WebMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
@@ -22,21 +32,23 @@ use super::hoist_moves::PetSpot;
 use super::*;
 use crate::juggle::{JuggleEvent, ObjectSpot};
 use crate::play::ObjectPlay;
-use crate::web::{self, Anchor, WebLine, WebSpin};
+use crate::web::{self, Anchor, WebLine, WebSpin, WebSpot};
 
 /// 줄을 쏜 목적
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WebAim {
-    /// 🕸️ 모서리에 거미집
+    /// 🕸️ 모서리에 거미집 (🕸️⭕ corner가 Center면 그 자리에 둥근 거미집)
     Corner(WebSpin),
     /// 🌉 그네 닻
     Anchor(Anchor),
-    /// 🪝 바닥의 물건 (at: 줄이 붙는 점, to: 떨어질 자리)
-    Object { id: u64, at: (f64, f64), to: (f64, f64) },
+    /// 🪝 바닥의 물건 (at: 줄이 붙는 점, to: 떨어질 자리, heavy: 💪 거대한 것)
+    Object { id: u64, at: (f64, f64), to: (f64, f64), heavy: bool },
     /// 🪝 다른 동물 (key = social_key)
     Pet { key: u64, at: (f64, f64), to: (f64, f64) },
-    /// 🌀 바닥의 물건을 낚아 휘둘러 side 끝 너머로 (at: 줄이 붙는 점 = 물건 가운데, half: 물건 반 폭)
-    Lasso { id: u64, at: (f64, f64), half: f64, side: Side },
+    /// 🌀 바닥의 물건을 낚아 휘둘러 side 끝 너머로 (at: 줄이 붙는 점 = 물건 가운데, half: 물건 반 폭, heavy: 💪 거대한 것)
+    Lasso { id: u64, at: (f64, f64), half: f64, side: Side, heavy: bool },
+    /// 🕸️🧗 거미집(web)의 k번째 자리 (at: 쏠 때 그 자리)에 붙으러
+    Perch { web: u64, k: u32, at: (f64, f64) },
 }
 
 impl WebAim {
@@ -45,7 +57,7 @@ impl WebAim {
         match *self {
             WebAim::Corner(s) => (s.x, s.y),
             WebAim::Anchor(a) => (a.x, a.y),
-            WebAim::Object { at, .. } | WebAim::Pet { at, .. } | WebAim::Lasso { at, .. } => at,
+            WebAim::Object { at, .. } | WebAim::Pet { at, .. } | WebAim::Lasso { at, .. } | WebAim::Perch { at, .. } => at,
         }
     }
 }
@@ -63,10 +75,14 @@ pub enum WebPhase {
     Pull { tip: (f64, f64) },
     /// 🕸️ 거미집 짜기: shot번째 줄을 쏘는 중 (web::weave_target으로 노림 — 첫 줄은 Shoot)
     Weave { spot: WebSpin, shot: u32 },
-    /// 🌀 줄 끝의 물건을 머리 위로 휘두름 (from: 낚은 순간 물건 가운데, half: 물건 반 폭, dir: 던질 쪽 ±1)
-    Whirl { id: u64, from: (f64, f64), half: f64, dir: f64 },
+    /// 🌀 줄 끝의 물건을 머리 위로 휘두름 (from: 낚은 순간 물건 가운데, half: 물건 반 폭, dir: 던질 쪽 ±1, heavy: 💪 거대한 것 — 천천히·작게)
+    Whirl { id: u64, from: (f64, f64), half: f64, dir: f64, heavy: bool },
     /// 🐛 다른 동물(key)을 고치로 감는 shot번째 줄 (web::cocoon_target으로 노림 — feet: 그 동물 발, size: 그 몸 크기)
     Wrap { key: u64, feet: (f64, f64), size: f64, shot: u32 },
+    /// 🕸️🧗 거미집(web) 위를 from (발 자리)에서 k번째 자리로 기어 감 — left = 그 뒤 더 길 자리 수
+    Crawl { web: u64, from: (f64, f64), k: u32, left: u32 },
+    /// 🕸️🧗 거미집(web)에 매달려 있음 — rel = 모서리에서 발까지, bounce = 통통 출렁, len = 매달릴 시간
+    Dangle { web: u64, rel: (f64, f64), bounce: bool, len: f64 },
 }
 
 /// 줄 놀이의 기억
@@ -78,8 +94,16 @@ pub struct WebMood {
     pub(super) swing_ready_at: f64,
     pub(super) pull_ready_at: f64,
     pub(super) cocoon_ready_at: f64,
+    /// 🕸️🧗 이 시각(clock)부터 거미집 놀이를 할 수 있음
+    pub(super) play_ready_at: f64,
+    /// 🌉🚪 친구 화면으로 나가려고 탄 그네의 끝 (놓기 전)
+    exit_side: Option<Side>,
+    /// 🌉🚪 그네를 놓고 날아가는 중: 이 끝을 이 시각(clock)까지 넘으면 친구 화면으로
+    exit_out: Option<(Side, f64)>,
     /// 새 거미집 (take_web으로 한 번)
     out: Option<WebSpin>,
+    /// 🕸️⭕ 거미집을 칠 때 둥근 거미집을 칠 몫 (web::ORB_CHANCE — 테스트가 0으로 끄기도 함)
+    pub(super) orb_odds: f64,
     /// 끌어온 동물 (social_key, vx, vy) — sync_lifts가 한 번 꺼냄
     pub(super) yank_pet: Option<(u64, f64, f64)>,
     /// 🌀 휘두른 물건을 던질 동물 (social_key) — 없으면 친구 끝 너머로
@@ -109,7 +133,11 @@ impl WebMood {
             swing_ready_at: web::FIRST_READY_SECS * 4.0,
             pull_ready_at: web::FIRST_READY_SECS * 2.0,
             cocoon_ready_at: web::FIRST_READY_SECS * 3.0,
+            play_ready_at: web::FIRST_READY_SECS * 2.0,
+            exit_side: None,
+            exit_out: None,
             out: None,
+            orb_odds: web::ORB_CHANCE,
             yank_pet: None,
             whirl_at: None,
             cocoon_pet: None,
@@ -139,8 +167,10 @@ impl Pet {
             WebPhase::Zip { anchor, .. } | WebPhase::Swing { anchor, .. } => (anchor.x, anchor.y),
             WebPhase::Pull { tip } => lerp(tip, hand, (t / web::PULL_SECS).min(1.0)),
             WebPhase::Weave { spot, shot } => lerp(hand, web::weave_target(&spot, shot), (t / (0.5 * web::WEAVE_SHOT_SECS)).min(1.0)),
-            WebPhase::Whirl { from, dir, .. } => self.whirl_spot(from, dir, t),
+            WebPhase::Whirl { from, dir, heavy, .. } => self.whirl_spot(from, dir, heavy, t),
             WebPhase::Wrap { feet, size, shot, .. } => lerp(hand, web::cocoon_target(feet, size, shot), (t / (0.5 * web::WEAVE_SHOT_SECS)).min(1.0)),
+            // 🕸️🧗 거미집 위에서는 줄이 따로 없음 (거미집이 곧 줄)
+            WebPhase::Crawl { .. } | WebPhase::Dangle { .. } => return None,
         };
         Some(WebLine { from: hand, to })
     }
@@ -224,8 +254,181 @@ impl Pet {
         if !self.play_free() || self.romp_interrupted() {
             return false;
         }
-        self.maybe_pull(dt, world) || self.maybe_cocoon(dt, world) || self.maybe_spin_web(dt, world) || self.maybe_web_swing(dt, world)
+        self.maybe_pull(dt, world) || self.maybe_cocoon(dt, world) || self.maybe_play_web(dt) || self.maybe_spin_web(dt, world) || self.maybe_web_swing(dt, world)
     }
+
+    /// 🕸️🧗 놀러 갈 만한 거미집: 보이는 것 중 몸 가운데에서 거미집 가장자리까지 WEB_PLAY_REACH배 안
+    fn playable_webs(&self) -> Vec<WebSpot> {
+        let size = self.cfg.size;
+        let (cx, cy) = (self.body.x, self.body.y - 0.5 * size);
+        self.known_webs()
+            .iter()
+            .filter(|w| !w.hidden && w.size > 0.0 && ((w.x - cx).hypot(w.y - cy) - w.size).max(0.0) <= web::WEB_PLAY_REACH * size)
+            .copied()
+            .collect()
+    }
+
+    /// 🕸️🧗 가까이 보이는 거미집이 있으면 주사위: 거미집 놀이
+    fn maybe_play_web(&mut self, dt: f64) -> bool {
+        if self.clock < self.web.play_ready_at || self.known_webs().is_empty() {
+            return false;
+        }
+        if self.playable_webs().is_empty() || self.web.rng.f64() >= web::WEB_PLAY_RATE * dt {
+            return false;
+        }
+        self.start_web_play_now()
+    }
+
+    /// 테스트: 줄 놀이 주사위를 모두 끔 (start_*로만)
+    #[cfg(test)]
+    pub(crate) fn hush_web_play(&mut self) {
+        self.web.web_ready_at = f64::INFINITY;
+        self.web.swing_ready_at = f64::INFINITY;
+        self.web.pull_ready_at = f64::INFINITY;
+        self.web.cocoon_ready_at = f64::INFINITY;
+        self.web.play_ready_at = f64::INFINITY;
+    }
+
+    /// 🕸️🧗 가까운 거미집 하나에 줄을 쏴 놀러 감 (주사위 없이 — 테스트용). 거미집이 없으면 false
+    #[cfg(test)]
+    pub(super) fn start_web_play(&mut self, _world: &World) -> bool {
+        self.start_web_play_now()
+    }
+
+    /// 🕸️🧗 놀 거미집과 처음 붙을 자리를 골라 줄을 쏨. 거미집이 없으면 false
+    fn start_web_play_now(&mut self) -> bool {
+        let webs = self.playable_webs();
+        if webs.is_empty() {
+            return false;
+        }
+        let w = webs[self.web.rng.usize(..webs.len())];
+        let k = self.web.rng.u32(0..7);
+        let at = web::perch_point(&w, k);
+        self.web.play_ready_at = self.clock + behavior::range(&mut self.web.rng, web::WEB_PLAY_CALM);
+        self.facing = if at.0 >= self.body.x { 1.0 } else { -1.0 };
+        self.begin_shoot(WebAim::Perch { web: w.id, k, at });
+        true
+    }
+
+    /// 🕸️🧗 거미집 위 자리 at (물리 px — 몸 가운데)에 몸을 둘 때의 발 자리 — 화면 안으로
+    fn perch_feet(&self, world: &World, at: (f64, f64)) -> (f64, f64) {
+        let (size, hw, b) = (self.cfg.size, self.cfg.half_w, world.bounds);
+        let x = at.0.clamp(b.left + hw, (b.right - hw).max(b.left + hw));
+        let y = (at.1 + 0.5 * size).clamp(b.top + size, b.bottom.max(b.top + size));
+        (x, y)
+    }
+
+    /// 🕸️🧗 기어 가는 한 틱: 그 자리에 닿으면 다음 자리로, 다 기었으면 매달림. 거미집이 사라졌으면 떨어짐
+    fn step_crawl(&mut self, world: &World, id: u64, from: (f64, f64), k: u32, left: u32, t: f64) {
+        let Some(w) = self.known_webs().iter().find(|w| w.id == id).copied() else {
+            self.start_fall();
+            return;
+        };
+        let to = self.perch_feet(world, web::perch_point(&w, k));
+        let u = (t / web::WEB_CRAWL_SECS).min(1.0);
+        let ease = u * u * (3.0 - 2.0 * u);
+        self.body.x = from.0 + (to.0 - from.0) * ease;
+        self.body.y = from.1 + (to.1 - from.1) * ease;
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        if (to.0 - from.0).abs() > 1.0 {
+            self.facing = (to.0 - from.0).signum();
+        }
+        if u < 1.0 {
+            self.state = State::Web { phase: WebPhase::Crawl { web: id, from, k, left }, t };
+        } else if left > 0 {
+            let next = (k + 1 + self.web.rng.u32(0..3)) % 7;
+            self.state = State::Web { phase: WebPhase::Crawl { web: id, from: (self.body.x, self.body.y), k: next, left: left - 1 }, t: 0.0 };
+        } else {
+            let bounce = self.web.rng.f64() < web::WEB_BOUNCE_CHANCE;
+            let len = behavior::range(&mut self.web.rng, web::WEB_DANGLE_SECS);
+            if bounce {
+                self.speech = Some(Speech::WebSwing);
+            }
+            self.state = State::Web { phase: WebPhase::Dangle { web: id, rel: (self.body.x - w.x, self.body.y - w.y), bounce, len }, t: 0.0 };
+        }
+    }
+
+    /// 🕸️🧗 매달린 한 틱: 거미집을 따라가며 (통통이면 출렁출렁), 시간이 다 되면 뚝 떨어짐 (높으면 영웅 착지). 거미집이 사라지면 떨어짐
+    fn step_dangle(&mut self, id: u64, rel: (f64, f64), bounce: bool, len: f64, t: f64) {
+        let Some(w) = self.known_webs().iter().find(|w| w.id == id).copied() else {
+            self.start_fall();
+            return;
+        };
+        let bob = if bounce { web::snag_spring((0.0, 1.0), web::SNAG_STRETCH_PET * self.cfg.size, t % web::SNAG_SPRING_SECS).1 } else { 0.0 };
+        self.body.x = w.x + rel.0;
+        self.body.y = w.y + rel.1 + bob;
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        if t < len {
+            self.state = State::Web { phase: WebPhase::Dangle { web: id, rel, bounce, len }, t };
+            return;
+        }
+        self.thrown = false;
+        self.gentle_drop = false;
+        self.state = State::Air { anim: Anim::Fall };
+    }
+
+    /// 🌉🚪 친구가 연결된 옆 끝(side)으로 나가려 함: 걸어 나가는 대신 그 끝 바로 안쪽 위에 줄을 붙여 그네로 넘어감 (거미인간만, 손이 비었을 때).
+    /// 닻이 없으면 false (평소처럼 걸어 나감)
+    pub(super) fn start_web_exit(&mut self, side: Side, world: &World) -> bool {
+        if !self.cfg.slings_webs || visit::is_vertical(side) || self.is_controlled() || self.is_user_away() || self.standing.is_none() {
+            return false;
+        }
+        if self.carried_object().is_some() || self.hoisting().is_some() {
+            return false;
+        }
+        let dir = visit::dir(side);
+        let (gx, drop) = self.swing_hand_offset();
+        let hand = (self.body.x + dir * gx, self.body.y - drop);
+        let floor = world.work_area_at(self.body.x, self.body.y - 1.0).bottom;
+        let Some(anchor) = web::exit_anchor(world, hand, dir, self.cfg.size, drop, floor) else { return false };
+        self.web.chain_left = 0;
+        self.facing = dir;
+        self.begin_shoot(WebAim::Anchor(anchor));
+        self.web.exit_side = Some(side);
+        true
+    }
+
+    /// 🌉🚪 update_air에서 (던지기 넘기기와 같은 자리): 나가려고 탄 그네를 놓고 날아가다 다음 x(next_x)가 그 끝 [left, right]를 넘으면
+    /// 친구 화면으로 넘어감 (take_exit 한 번 + take_fling). 넘어갔으면 true
+    pub(super) fn web_exit_out(&mut self, world: &World, next_x: f64, left: f64, right: f64) -> bool {
+        let Some((side, until)) = self.web.exit_out else { return false };
+        if self.clock > until || self.thrown || self.inside.is_some() {
+            self.web.exit_out = None;
+            return false;
+        }
+        let crossing = match side {
+            Side::Left => next_x < left && self.body.vx < 0.0,
+            Side::Right => next_x > right && self.body.vx > 0.0,
+            Side::Up | Side::Down => false,
+        };
+        if !crossing {
+            return false;
+        }
+        self.web.exit_out = None;
+        if self.exit_odds(side) <= 0.0 {
+            return false;
+        }
+        self.fling_over(world, side);
+        true
+    }
+
+    /// 🌉🚪 친구 화면에서 날아 들어옴 (enter_flung이 부름 — 거미인간만): 던져진 게 아니라 곧 안쪽(inward) 위로 줄을 한 번 쏴 그네 타고 들어옴
+    pub(super) fn web_arrival(&mut self, inward: f64) {
+        if !self.cfg.slings_webs {
+            return;
+        }
+        self.thrown = false;
+        self.thrown_down = false;
+        self.web.exit_side = None;
+        self.web.exit_out = None;
+        self.web.chain_left = 1;
+        self.web.chain_at = self.clock + behavior::range(&mut self.web.rng, web::CHAIN_DELAY);
+        self.web.chain_until = self.web.chain_at + web::ARRIVAL_CHAIN_WINDOW;
+        self.web.chain_dir = inward;
+    }
+
 
     /// 🐛 닿는 거리에 쉬는 동물이 있으면 주사위: 고치 말기
     fn maybe_cocoon(&mut self, dt: f64, world: &World) -> bool {
@@ -308,16 +511,22 @@ impl Pet {
         self.start_web_spin(world)
     }
 
-    /// 🕸️ 가까운 모서리 하나를 골라 줄을 쏨 (주사위 없이). 모서리가 없으면 false
+    /// 🕸️ 가까운 모서리 하나를 골라 (orb_odds로 🕸️⭕ 손이 닿는 아무 자리에 둥근 거미집) 줄을 쏨 (주사위 없이). 칠 자리가 없으면 false
     pub(super) fn start_web_spin(&mut self, world: &World) -> bool {
         let size = self.cfg.size;
         let at = (self.body.x, self.body.y - 0.6 * size);
-        let spots = web::corner_spots(world, at, web::WEB_REACH * size, size);
-        if spots.is_empty() {
-            return false;
-        }
-        let spot = spots[self.web.rng.usize(..spots.len())];
-        let spot = self.sized_web(spot, world);
+        let orb = if self.web.rng.f64() < self.web.orb_odds { self.orb_web(world, at) } else { None };
+        let spot = match orb {
+            Some(spot) => spot,
+            None => {
+                let spots = web::corner_spots(world, at, web::WEB_REACH * size, size);
+                if spots.is_empty() {
+                    return false;
+                }
+                let spot = spots[self.web.rng.usize(..spots.len())];
+                self.sized_web(spot, world)
+            }
+        };
         let calm = if self.guest.is_some() { web::WEB_CALM_GUEST } else { web::WEB_CALM_HOME };
         self.web.web_ready_at = self.clock + behavior::range(&mut self.web.rng, calm);
         self.facing = if spot.x >= self.body.x { 1.0 } else { -1.0 };
@@ -334,10 +543,36 @@ impl Pet {
         if let Some(r) = spot.window.and_then(|id| world.windows.iter().find(|w| w.id == id)).map(|w| w.rect) {
             size = size.min(web::WEB_WINDOW_FIT * r.width().min(r.height()));
         }
-        let k = size / self.cfg.size;
-        let (lo, hi) = web::shot_range(p);
+        self.woven(WebSpin { size, ..spot })
+    }
+
+    /// 🕸️ 거미집 크기에 맞춰 짤 줄 횟수·시간을 정함 (🌱 연령대 shot_range 안)
+    fn woven(&self, spot: WebSpin) -> WebSpin {
+        let k = spot.size / self.cfg.size;
+        let (lo, hi) = web::shot_range(self.power());
         let shots = ((2.0 + 1.5 * k).round() as u32).clamp(lo, hi);
-        WebSpin { size, shots, build: f64::from(shots - 1) * web::WEAVE_SHOT_SECS, ..spot }
+        WebSpin { shots, build: f64::from(shots - 1) * web::WEAVE_SHOT_SECS, ..spot }
+    }
+
+    /// 🕸️⭕ 손(at)이 닿는 아무 자리에 칠 둥근 거미집 (반지름 ORB_SIZE_RANGE): 손에서 ORB_REACH 안을 ORB_TRIES번 찔러 보고
+    /// web::orb_fit이 맞는 첫 자리 (화면 위면 window None, 창 위면 그 창). 그 화면에 둥근 거미집이 MAX_ORBS개면 None
+    fn orb_web(&mut self, world: &World, at: (f64, f64)) -> Option<WebSpin> {
+        let size = self.cfg.size;
+        let wa = world.work_area_at(at.0, at.1);
+        let orbs = self.known_webs().iter().filter(|w| w.corner.is_orb() && world.work_area_at(w.x, w.y) == wa).count();
+        if orbs >= web::MAX_ORBS {
+            return None;
+        }
+        let radius = behavior::range(&mut self.web.rng, web::ORB_SIZE_RANGE) * size;
+        for _ in 0..web::ORB_TRIES {
+            let ang = self.web.rng.f64() * std::f64::consts::TAU;
+            let d = (0.25 + 0.75 * self.web.rng.f64()) * web::ORB_REACH * size;
+            let (x, y) = (at.0 + d * ang.cos(), at.1 + d * ang.sin());
+            if let Some(window) = web::orb_fit(world, at, x, y, radius) {
+                return Some(self.woven(WebSpin { x, y, corner: web::Corner::Center, size: radius, window, shots: 1, build: 0.0 }));
+            }
+        }
+        None
     }
 
     /// 🌉 한가할 때 주사위: 그네
@@ -414,7 +649,7 @@ impl Pet {
         }
     }
 
-    /// 끌어올 수 있는 것: 같은 모니터, PULL_REACH 안의 바닥 물건 (거대한 것 빼고)과 들 수 있는 동물
+    /// 끌어올 수 있는 것: 같은 모니터, PULL_REACH 안의 바닥 물건 (💪 거대한 것도 — 무거워서 조금만 끌려옴)과 들 수 있는 동물
     fn pull_targets(&self, world: &World) -> (Vec<ObjectSpot>, Vec<PetSpot>) {
         let size = self.cfg.size;
         let (lo, hi) = (web::PULL_REACH.0 * size, web::PULL_REACH.1 * size);
@@ -423,7 +658,7 @@ impl Pet {
             let d = (x - self.body.x).hypot(y - self.body.y);
             (lo..=hi).contains(&d) && world.work_area_at(x, y - 1.0) == wa
         };
-        let objs = self.play.spots.iter().filter(|s| !s.giant && ok(s.x, s.y)).copied().collect();
+        let objs = self.play.spots.iter().filter(|s| ok(s.x, s.y)).copied().collect();
         let pets = self.web.pets.iter().filter(|s| s.key != self.social_key && s.liftable && s.owner.is_some() && ok(s.x, s.y)).copied().collect();
         (objs, pets)
     }
@@ -451,10 +686,20 @@ impl Pet {
             let side = sides[self.web.rng.usize(..sides.len())];
             return self.start_whirl_object(spot, side);
         }
-        let to = self.pull_landing(spot.x, world);
+        let to = if spot.giant { self.giant_landing(spot) } else { self.pull_landing(spot.x, world) };
         self.web.pull_ready_at = self.clock + behavior::range(&mut self.web.rng, web::PULL_CALM);
-        self.begin_shoot(WebAim::Object { id: spot.id, at: (spot.x, spot.y - spot.half_w), to });
+        self.begin_shoot(WebAim::Object { id: spot.id, at: (spot.x, spot.y - spot.half_w), to, heavy: spot.giant });
         true
+    }
+
+    /// 💪 끌려온 거대한 것이 떨어질 자리: 그 쪽에서 거미인간 쪽으로 GIANT_PULL_MAX까지만, 거미인간과 GIANT_PULL_GAP 틈을 두고 (머리 너머로는 못 넘김)
+    fn giant_landing(&mut self, spot: &ObjectSpot) -> (f64, f64) {
+        let size = self.cfg.size;
+        let dir = if spot.x >= self.body.x { 1.0 } else { -1.0 };
+        self.facing = dir;
+        let stop = self.body.x + dir * (spot.half_w + web::GIANT_PULL_GAP * size);
+        let shift = ((spot.x - stop) * dir).clamp(0.0, web::GIANT_PULL_MAX * size);
+        (spot.x - dir * shift, spot.y)
     }
 
     /// 🌀 휘두른 물건을 던질 만한 동물: 같은 모니터, 몸 WHIRL_PET_REACH배 안의 디딤판 위 다른 동물
@@ -484,7 +729,7 @@ impl Pet {
         self.web.whirl_at = None;
         self.facing = if spot.x >= self.body.x { 1.0 } else { -1.0 };
         self.web.pull_ready_at = self.clock + behavior::range(&mut self.web.rng, web::PULL_CALM);
-        self.begin_shoot(WebAim::Lasso { id: spot.id, at: (spot.x, spot.y - spot.half_w), half: spot.half_w, side });
+        self.begin_shoot(WebAim::Lasso { id: spot.id, at: (spot.x, spot.y - spot.half_w), half: spot.half_w, side, heavy: spot.giant });
         true
     }
 
@@ -498,6 +743,8 @@ impl Pet {
 
     /// 줄 쏘기 시작 ("thwip!")
     fn begin_shoot(&mut self, aim: WebAim) {
+        self.web.exit_side = None;
+        self.web.exit_out = None;
         self.pacing.after_beat = None;
         self.clear_hover();
         self.speech = Some(Speech::Thwip);
@@ -506,8 +753,9 @@ impl Pet {
 
     /// 줄 놀이 한 틱
     fn step_web(&mut self, dt: f64, world: &World, phase: WebPhase, t: f64) {
-        let airborne = matches!(phase, WebPhase::Zip { .. } | WebPhase::Swing { .. });
-        if self.romp_interrupted() {
+        let airborne = matches!(phase, WebPhase::Zip { .. } | WebPhase::Swing { .. } | WebPhase::Crawl { .. } | WebPhase::Dangle { .. });
+        // 🌉🚪 친구 화면으로 나가는 그네는 끊지 않음 (집이 그리운 손님도 이 길로 나감)
+        if self.web.exit_side.is_none() && self.romp_interrupted() {
             if airborne {
                 self.web.chain_left = 0;
                 self.start_fall();
@@ -529,8 +777,10 @@ impl Pet {
                 self.state = if t < web::PULL_SECS { State::Web { phase: WebPhase::Pull { tip }, t } } else { self.rest_beat() };
             }
             WebPhase::Weave { spot, shot } => self.step_weave(spot, shot, t),
-            WebPhase::Whirl { id, from, half, dir } => self.step_whirl(world, id, from, half, dir, t),
+            WebPhase::Whirl { id, from, half, dir, heavy } => self.step_whirl(world, id, from, half, dir, heavy, t),
             WebPhase::Wrap { key, feet, size, shot } => self.step_wrap(dt, key, feet, size, shot, t),
+            WebPhase::Crawl { web, from, k, left } => self.step_crawl(world, web, from, k, left, t),
+            WebPhase::Dangle { web, rel, bounce, len } => self.step_dangle(web, rel, bounce, len, t),
         }
     }
 
@@ -553,9 +803,10 @@ impl Pet {
                     self.state = State::Web { phase: WebPhase::Zip { anchor, from: (self.body.x, self.body.y) }, t: 0.0 };
                     return;
                 }
-                WebAim::Object { id, at, to } => {
+                WebAim::Object { id, at, to, heavy } => {
                     let g = crate::physics::THROW_GRAVITY_LOGICAL * self.cfg.dpi;
-                    let (vx, vy) = web::yank_velocity((at.0, self.object_floor(at)), to, web::YANK_FLIGHT_SECS, g);
+                    let secs = if heavy { web::GIANT_YANK_FLIGHT_SECS } else { web::YANK_FLIGHT_SECS };
+                    let (vx, vy) = web::yank_velocity((at.0, self.object_floor(at)), to, secs, g);
                     self.play.event = Some(ObjectPlay::Yank { id, vx, vy });
                     self.speech = Some(Speech::Gotcha);
                     self.state = State::Web { phase: WebPhase::Pull { tip: at }, t: 0.0 };
@@ -563,12 +814,22 @@ impl Pet {
                 }
                 // 줄이 닿는 순간에도 바닥에 있어야 낚음 (그새 누가 집었거나 치웠으면 줄만 뻗었다 거둠)
                 WebAim::Lasso { id, .. } if !self.play.spots.iter().any(|s| s.id == id) => {}
-                WebAim::Lasso { id, at, half, side } => {
+                WebAim::Lasso { id, at, half, side, heavy } => {
                     self.facing = visit::dir(side);
                     self.speech = Some(Speech::Gotcha);
-                    self.state = State::Web { phase: WebPhase::Whirl { id, from: at, half, dir: self.facing }, t: 0.0 };
+                    self.state = State::Web { phase: WebPhase::Whirl { id, from: at, half, dir: self.facing, heavy }, t: 0.0 };
                     return;
                 }
+                // 🕸️🧗 거미집에 붙어 기기 시작 (그새 거미집이 사라졌으면 줄만 뻗었다 거둠)
+                WebAim::Perch { web, k, .. } if self.known_webs().iter().any(|w| w.id == web) => {
+                    self.standing = None;
+                    self.poop.stepping_off();
+                    let (lo, hi) = web::WEB_CRAWL_STEPS;
+                    let left = self.web.rng.u32(lo..=hi);
+                    self.state = State::Web { phase: WebPhase::Crawl { web, from: (self.body.x, self.body.y), k, left }, t: 0.0 };
+                    return;
+                }
+                WebAim::Perch { .. } => {}
                 WebAim::Pet { key, at, to } => {
                     let spot = self.web.pets.iter().find(|s| s.key == key).copied();
                     let from = spot.map_or(at, |s| (s.x, s.y));
@@ -639,6 +900,10 @@ impl Pet {
         self.body.vy = vy;
         self.thrown = false;
         self.gentle_drop = false;
+        // 🌉🚪 친구 화면으로 나가는 그네: 이제 날아가다 그 끝을 넘으면 넘어감 (web_exit_out)
+        if let Some(side) = self.web.exit_side.take() {
+            self.web.exit_out = Some((side, self.clock + web::EXIT_FLY_SECS));
+        }
         if self.web.chain_left > 0 {
             self.web.chain_at = self.clock + behavior::range(&mut self.web.rng, web::CHAIN_DELAY);
             self.web.chain_until = self.web.chain_at + web::CHAIN_WINDOW;
@@ -647,10 +912,10 @@ impl Pet {
         self.state = State::Air { anim: Anim::Fall };
     }
 
-    /// 🌀 휘두르기 한 틱: WHIRL_SECS가 지나면 지금 자리(앱이 마지막으로 옮긴 곳)에서 화면 끝 너머 바닥 높이로 포물선을 그리게 놓음 ("yeet!")
-    fn step_whirl(&mut self, world: &World, id: u64, from: (f64, f64), half: f64, dir: f64, t: f64) {
-        if t < web::WHIRL_SECS {
-            self.state = State::Web { phase: WebPhase::Whirl { id, from, half, dir }, t };
+    /// 🌀 휘두르기 한 틱: whirl_secs(heavy)가 지나면 지금 자리(앱이 마지막으로 옮긴 곳)에서 화면 끝 너머 바닥 높이로 포물선을 그리게 놓음 ("yeet!")
+    fn step_whirl(&mut self, world: &World, id: u64, from: (f64, f64), half: f64, dir: f64, heavy: bool, t: f64) {
+        if t < web::whirl_secs(heavy) {
+            self.state = State::Web { phase: WebPhase::Whirl { id, from, half, dir, heavy }, t };
             return;
         }
         let size = self.cfg.size;
@@ -659,6 +924,7 @@ impl Pet {
         // 던질 동물이 아직 있으면 그 몸 가운데로, 아니면 친구 끝 너머 바닥 높이로
         let at_pet = self.web.whirl_at.take().and_then(|k| self.web.pets.iter().find(|s| s.key == k).copied());
         let to = at_pet.map_or((edge + dir * web::WHIRL_PAST * size, self.body.y), |s| (s.x, s.y - 0.5 * s.size));
+        let to = if heavy { self.throw_target(to, dir) } else { to };
         let g = crate::physics::THROW_GRAVITY_LOGICAL * self.cfg.dpi;
         let (vx, vy) = web::yank_velocity(at, to, web::whirl_flight_secs(to.0 - at.0, size), g);
         self.juggle.event = Some(JuggleEvent::Release { id, vx, vy });
@@ -666,13 +932,23 @@ impl Pet {
         self.state = self.rest_beat();
     }
 
-    /// 🌀 휘두르는 물건 가운데 자리 (물리 px): 처음 WHIRL_REEL_SECS 동안 낚은 자리에서 머리 위 원으로 감아올림
-    fn whirl_spot(&self, from: (f64, f64), dir: f64, t: f64) -> (f64, f64) {
+    /// 💪 거대한 것을 던질 자리: 가로로 GIANT_THROW_REACH 안이면 그대로 (가까운 친구 끝 너머·동물), 더 멀면 그 쪽 GIANT_THROW_REACH 앞 바닥
+    fn throw_target(&self, to: (f64, f64), dir: f64) -> (f64, f64) {
+        let reach = web::GIANT_THROW_REACH * self.cfg.size;
+        if (to.0 - self.body.x) * dir <= reach {
+            to
+        } else {
+            (self.body.x + dir * reach, self.body.y)
+        }
+    }
+
+    /// 🌀 휘두르는 물건 가운데 자리 (물리 px): 처음 WHIRL_REEL_SECS 동안 낚은 자리에서 머리 위 원으로 감아올림 (💪 heavy면 작게·천천히)
+    fn whirl_spot(&self, from: (f64, f64), dir: f64, heavy: bool, t: f64) -> (f64, f64) {
         let size = self.cfg.size;
         let (gx, gy) = self.cfg.grip.web_whirl.at(0.0);
         let gx = if self.facing < 0.0 { -gx } else { gx };
         let (_, top) = self.window_pos();
-        let on = web::whirl_point((self.body.x + gx * size, top + gy * size), size, dir, t);
+        let on = web::whirl_point((self.body.x + gx * size, top + gy * size), size, dir, t, heavy);
         let u = (t / web::WHIRL_REEL_SECS).min(1.0);
         let ease = 1.0 - (1.0 - u) * (1.0 - u);
         (from.0 + (on.0 - from.0) * ease, from.1 + (on.1 - from.1) * ease)
@@ -688,8 +964,8 @@ impl Pet {
 
     /// 🌀 휘두르는 물건 바닥 자리 (carry_point가 부름 — 앱의 carry_at은 물건 바닥 y를 받음)
     pub(super) fn whirl_carry_point(&self) -> Option<(f64, f64)> {
-        let State::Web { phase: WebPhase::Whirl { from, half, dir, .. }, t } = self.state else { return None };
-        let (x, y) = self.whirl_spot(from, dir, t);
+        let State::Web { phase: WebPhase::Whirl { from, half, dir, heavy, .. }, t } = self.state else { return None };
+        let (x, y) = self.whirl_spot(from, dir, heavy, t);
         Some((x, y + half))
     }
 
@@ -710,12 +986,14 @@ impl Pet {
             WebPhase::Zip { .. } | WebPhase::Swing { .. } => Anim::WebSwing,
             WebPhase::Pull { .. } => Anim::WebPull,
             WebPhase::Whirl { .. } => Anim::WebWhirl,
+            WebPhase::Crawl { .. } => Anim::Climb,
+            WebPhase::Dangle { .. } => Anim::WebSwing,
         }
     }
 
-    /// 줄에 매달려 공중에 있음 (떠오르는 중·진자)
+    /// 줄에 매달려 공중에 있음 (떠오르는 중·진자·🕸️🧗 거미집 위)
     pub(super) fn web_airborne(&self) -> bool {
-        matches!(self.state, State::Web { phase: WebPhase::Zip { .. } | WebPhase::Swing { .. }, .. })
+        matches!(self.state, State::Web { phase: WebPhase::Zip { .. } | WebPhase::Swing { .. } | WebPhase::Crawl { .. } | WebPhase::Dangle { .. }, .. })
     }
 }
 

@@ -16,6 +16,7 @@
 //! 던진 눈덩이는 동물·바닥·창에 닿으면 퍽 부서짐 — 뿅 치우고 그 자리를 take_bursts로 알림 (게임 루프가 눈가루를 날림).
 //! 🌀 태풍 (v0.6.8): 돌풍에 바닥의 작은 것이 휙 날리고 (Object::blow — 친구 화면으로는 안 감), 회오리가 빨아들여 돌리다
 //! 내던짐 (weather.rs가 코어 typhoon을 돌려 storm_apply로 시킴). 친구 쪽으로 내던진 것은 launch — 끝을 넘으면 평소처럼 toss_away (예산 그대로)
+//! 🕸️ 거미집에 걸림 (spec 5부): 게임 루프가 틱마다 화면의 거미집 자리를 set_webs로 주고, tick이 물건마다 넘김 — 걸리기·매달리기·떨어지기는 코어 (Object::set_webs)
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -38,6 +39,7 @@ use screenpet_core::poop::PoopSpot;
 use screenpet_core::tumble::shape_of;
 use screenpet_core::typhoon::{self, Gust, Loose, Thing, Whirl};
 use screenpet_core::platform::WindowSource;
+use screenpet_core::web::WebSpot;
 use screenpet_core::visit::{self, Side, MAX_NOTE_CHARS};
 use screenpet_core::world::World;
 use screenpet_net::Toss;
@@ -270,6 +272,8 @@ pub struct Objects {
     capture_backoff: Instant,
     /// ⛄ 방금 퍽 부서진 눈덩이 자리 (물리 px — 게임 루프가 눈가루를 날림)
     bursts: Vec<(f64, f64)>,
+    /// 🕸️ 화면의 거미집 자리 (게임 루프가 set_webs로 — 물건이 걸림)
+    webs: Vec<WebSpot>,
 }
 
 impl Objects {
@@ -298,7 +302,14 @@ impl Objects {
             capture: None,
             capture_backoff: now,
             bursts: Vec::new(),
+            webs: Vec::new(),
         }
+    }
+
+    /// 🕸️ 이번 틱의 거미집 자리 (trail.web_spots — 펫에게 준 것과 같음). 다음 tick이 물건마다 넘김
+    pub fn set_webs(&mut self, webs: &[WebSpot]) {
+        self.webs.clear();
+        self.webs.extend_from_slice(webs);
     }
 
     /// 끌고 있는 물건이 있음 (동물을 동시에 잡거나 간질이지 않음)
@@ -995,6 +1006,8 @@ impl Objects {
         let mut exits: Vec<(usize, Exit)> = Vec::new();
         for (i, l) in self.live.iter_mut().enumerate() {
             let was_asleep = l.object.is_asleep();
+            // 🕸️ 보이는 거미집 안으로 들어오면 걸림 (코어 object.rs)
+            l.object.set_webs(&self.webs);
             if let Some(exit) = l.object.tick(dt, world, edges, screenpet_core::object::gusts_ok(hidden, away)) {
                 exits.push((i, exit));
                 continue;
@@ -1053,7 +1066,8 @@ impl Objects {
         self.sync_menu();
     }
 
-    /// 🌀 회오리가 빨아들일 수 있는 물건 (바닥에 놓인 작은 것과 이미 도는 것). cross = 지금 던져 넘길 수 있는 가까운 친구 쪽 끝 (예산이 남은 친구만)
+    /// 🌀 회오리가 빨아들일 수 있는 물건 (바닥에 놓인 작은 것과 이미 도는 것, 허리케인급만 드는 거대한 것은 heavy).
+    /// cross = 지금 던져 넘길 수 있는 가까운 친구 쪽 끝 (예산이 남은 친구만, 거대한 것은 없음)
     pub fn storm_loose(&self, bounds: Rect, network: &Network, config: &Config, out: &mut Vec<Loose>) {
         if self.live.is_empty() {
             return;
@@ -1061,9 +1075,10 @@ impl Objects {
         let secs = self.started.elapsed().as_secs_f64();
         let open = |id: &str| network.is_connected(id) && self.budgets.get(id).is_none_or(|b| b.can_spend(secs));
         let edges = config.exit_edges(open);
-        for l in self.live.iter().filter(|l| l.object.is_loose() || l.object.is_whirled()) {
-            // 📌 그림이 없는 장난감은 친구에게 보내지 않음 (toss_away)
-            let sendable = !l.object.kind.is_toy() || l.icon.is_some();
+        for l in self.live.iter().filter(|l| l.object.is_loose() || l.object.is_whirled() || l.object.is_heavy_loose()) {
+            // 📌 그림이 없는 장난감은 친구에게 보내지 않음 (toss_away). 거대한 것도
+            let heavy = l.object.kind.is_giant();
+            let sendable = (!l.object.kind.is_toy() || l.icon.is_some()) && !heavy;
             let x = l.object.body.x;
             let near_left = x - bounds.left <= bounds.right - x;
             let cross = match (edges.left && sendable, edges.right && sendable) {
@@ -1072,7 +1087,7 @@ impl Objects {
                 (false, true) => Some(Side::Right),
                 (false, false) => None,
             };
-            out.push(Loose { thing: Thing::Object(l.id), x, y: l.object.body.y, cross });
+            out.push(Loose { thing: Thing::Object(l.id), x, y: l.object.body.y, cross, heavy });
         }
     }
 

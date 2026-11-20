@@ -363,3 +363,62 @@ fn only_some_walk_ins_are_caught() {
         assert!(!snared(&p));
     }
 }
+
+/// 🕸️ 걸린 동물도 탁 멈추지 않고 "팅~": 그림이 걸어 들어온 쪽으로 늘어났다가 출렁 (몸 자리는 그대로) — 그 뒤 살랑살랑만
+#[test]
+fn a_snared_pet_twangs_along_its_entry_then_only_sways() {
+    let w = world(vec![]);
+    let size = pet_cfg().size;
+    let mut p = cat_at(1920.0 - 5.0 * size, 1, 1.0, &w);
+    p.set_webs(&[floor_web(9, 2.5, size)]);
+    p.facing = 1.0;
+    p.state = State::Move { kind: Move::Walk, remaining: 100.0 };
+    let mut guard = LoopLimit::new();
+    while !snared(&p) {
+        guard.step();
+        p.update(DT, &w);
+    }
+    let still = (p.body.x - size / 2.0, p.body.y - size);
+    let mut dx = Vec::new();
+    let mut dy = Vec::new();
+    for _ in 0..(1.5 / DT) as usize {
+        p.update(DT, &w);
+        if !snared(&p) {
+            break;
+        }
+        let (x, y) = p.window_pos();
+        dx.push(x - still.0);
+        dy.push(y - still.1);
+    }
+    let spring = (web::SNAG_SPRING_SECS / DT) as usize - 1;
+    let first = dx.iter().position(|v| v.abs() > 1.0).expect("출렁");
+    assert!(dx[first] > 0.0, "걸어 들어온 쪽(오른쪽)으로 먼저 {dx:?}");
+    assert!(dx[..spring].iter().any(|v| *v < -1.0), "되돌아오며 출렁");
+    assert!(dx[..spring].iter().copied().fold(0.0, f64::max) > 0.1 * size);
+    assert!(dx[spring + 2..].iter().all(|v| v.abs() < 0.05 * size), "그 뒤 살랑살랑만");
+    assert!(dy.iter().all(|v| v.abs() < 1e-6), "옆으로 걸어 들어왔으면 옆으로만");
+}
+
+/// 🕸️ 거미인간은 어느 거미인간의 거미집이든 걸어 들어가도 떨어져 들어가도 안 걸림
+#[test]
+fn spiders_walking_or_falling_into_any_web_are_never_snared() {
+    let w = world(vec![]);
+    let size = spider().size;
+    let mut walker = calm_spider(1920.0 - 5.0 * size, 2, &w);
+    walker.snare.chance = 1.0;
+    walker.set_webs(&[floor_web(4, 3.0, size)]);
+    walker.facing = 1.0;
+    walker.state = State::Move { kind: Move::Walk, remaining: 100.0 };
+    let mut faller = calm_spider(1920.0 - 1.0 * size, 3, &w);
+    faller.snare.chance = 1.0;
+    faller.standing = None;
+    faller.body.y = 300.0;
+    faller.state = State::Air { anim: Anim::Fall };
+    faller.set_webs(&[floor_web(4, 3.0, size)]);
+    for _ in 0..(60 * 4) {
+        walker.update(DT, &w);
+        faller.update(DT, &w);
+        assert!(!walker.is_stuck() && !faller.is_stuck());
+        assert!(walker.take_torn_web().is_none() && faller.take_torn_web().is_none());
+    }
+}
