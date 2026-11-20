@@ -6,8 +6,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MAIN = (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
 BRAIN = (ROOT / "crates" / "screenpet-core" / "src" / "brain.rs").read_text(encoding="utf-8")
 
-LINES = {"Tap": "Tap… tap…", "Oops": "Oops~", "FollowMe": "Quack! Follow me!", "Choo": "Choo choo!", "BigStomp": "STOMP!",
-         "Nom": "Nom nom~", "HighFive": "High five!"}
+LINES = {"Tap": "Tap… tap…", "Oops": "Oops~", "BigStomp": "STOMP!", "Nom": "Nom nom~", "HighFive": "High five!"}
 
 
 def snake(name):
@@ -22,7 +21,8 @@ def test_every_new_speech_has_its_english_line():
         assert v in variants, v
         m = re.search(rf"\b{snake(v)}: \[([^\]]*)\]", MAIN)
         assert m and f'"{line}"' in m.group(1), v
-    assert '"Yay!"' in re.search(r"\bchoo: \[([^\]]*)\]", MAIN).group(1)
+    # 🦆 오리 기차(FollowMe·Choo)는 오리와 함께 v0.7.1에 빠짐
+    assert not re.search(r"\b(follow_me|choo): \[", MAIN) and "FollowMe" not in BRAIN
     # 큰 쿵에 놀란 친구는 예전 쿵쾅처럼 "whoa!"
     assert re.search(r"\bwhoa: \[", MAIN)
 

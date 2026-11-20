@@ -20,8 +20,8 @@ from sprite_spec import FRAME, STAGE_SCALE, STAGES, frame_px  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PETS = ROOT / "ui" / "pets"
-SPECIES = ["cat", "rabbit", "frog", "pumpkin", "duck", "rudolph", "santa", "snowman",
-           "dino_yellow", "dino_green", "dino_purple"]
+SPECIES = ["cat", "rabbit", "squirrel", "pumpkin", "penguin", "rudolph", "santa", "snowman",
+           "dino_yellow", "dino_green"]
 # 대표 칸 (동작, 프레임) — 모자가 가장 자주 보이는 자세부터
 SHOWCASE = [("sleep", 0), ("sleep", 1), ("idle", 0), ("walk", 1), ("sit_front", 0), ("tilt", 1), ("look", 1), ("lookup", 2), ("hop", 1),
             ("annoyed", 0), ("eat", 1), ("fall", 0), ("climb", 1), ("level_up", 2)]
@@ -295,7 +295,7 @@ def hang_page(path):
 
 def scenarios(path, zoom=1):
     """몸과 한 덩어리로 움직이는지: 매달림 · 구르기 회전 · 덜덜 · 반전 · 뿅 (모자 자식에 몸 변환을 그대로 건 그림)."""
-    pets = [("cat", "teenager"), ("dino_green", "adult"), ("santa", "child"), ("pumpkin", "teenager"), ("frog", "teenager")]
+    pets = [("cat", "teenager"), ("dino_green", "adult"), ("santa", "child"), ("pumpkin", "teenager"), ("squirrel", "teenager")]
     cols = ["hang >", "hang <", "roll 0", "roll 90", "roll 180", "roll 270", "wobble", "flip", "poof"]
     cell = (FRAME + 120) * zoom
     img = Image.new("RGBA", (70 + len(cols) * cell, 16 + len(pets) * cell), (236, 240, 246, 255))

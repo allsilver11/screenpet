@@ -1,4 +1,4 @@
-"""공룡 셋 시트 검사: 모든 동작·투명 여백·pet.json (대사·성격·좋아하는 음식·선택 동작 순서)·eat에 밥그릇 없음·색 (같은 그림, 다른 팔레트)."""
+"""공룡 둘 시트 검사 (보라 공룡은 v0.7.1에 빠짐): 모든 동작·투명 여백·pet.json (대사·성격·좋아하는 음식·선택 동작 순서)·eat에 밥그릇 없음·색 (같은 그림, 다른 팔레트)."""
 import json
 
 import numpy as np
@@ -9,7 +9,7 @@ import draw_pets
 from conftest import anim_names as names, assert_eat_has_no_bowl, assert_feet_only_peek, assert_frames_inside_cell, assert_roll_fits_circle, cell, record_draw_order
 from sprite_spec import ANIMS, OPTIONAL_ANIMS, SPEECH, STAGES, sheet_128
 
-IDS = ["dino_yellow", "dino_green", "dino_purple"]
+IDS = ["dino_yellow", "dino_green"]
 
 
 @pytest.fixture(scope="module")
@@ -48,10 +48,9 @@ def test_roll_ball_fits_rotation_circle(out, pid):
 
 def test_manifests(out):
     ms = {pid: json.loads((out / pid / "pet.json").read_text(encoding="utf-8")) for pid in IDS}
-    assert [ms[p]["name"] for p in IDS] == ["노란 공룡", "초록 공룡", "보라 공룡"]
-    assert [ms[p]["favorite_food"] for p in IDS] == [{"emoji": "🍉", "name": "수박"}, {"emoji": "🥦", "name": "브로콜리"},
-                                                     {"emoji": "🍇", "name": "포도"}]
-    assert [ms[p]["personality"] for p in IDS] == ["playful", "friendly", "friendly"]
+    assert [ms[p]["name"] for p in IDS] == ["노란 공룡", "초록 공룡"]
+    assert [ms[p]["favorite_food"] for p in IDS] == [{"emoji": "🍉", "name": "수박"}, {"emoji": "🥦", "name": "브로콜리"}]
+    assert [ms[p]["personality"] for p in IDS] == ["playful", "friendly"]
     for pid, m in ms.items():
         sp = m["speech"]
         assert sp["chatter"] == ["rawr!", "♪"] and sp["tickle"] == ["hehe!"] and sp["grumpy"] == ["grrr~"]
@@ -92,8 +91,8 @@ def test_palettes_body_spikes_and_dandelion(out):
         assert _count(f, pal["body"]) > 1500, pid
         assert _count(f, pal["spike"]) > 60, pid
         alphas.append(np.asarray(f.getchannel("A")) > 128)
-    # 모양은 셋이 같다
-    assert (alphas[0] != alphas[1]).sum() < 40 and (alphas[0] != alphas[2]).sum() < 40
+    # 모양은 둘이 같다
+    assert (alphas[0] != alphas[1]).sum() < 40
 
 
 def test_baby_wears_an_egg_shell_and_adult_has_the_biggest_spikes(out):
@@ -109,9 +108,9 @@ def test_baby_wears_an_egg_shell_and_adult_has_the_biggest_spikes(out):
 
 def test_fire_puffs_a_flame_inside_the_cell(out):
     """불꽃은 퐁·화르륵 프레임에만 (흡·흐뭇엔 없다), 입 앞 (몸 오른쪽)에."""
-    row = names(draw_dino.DINO_PURPLE).index("fire")
+    row = names(draw_dino.DINO_GREEN).index("fire")
     for st in STAGES:
-        sheet = sheet_128(out / "dino_purple" / f"sheet_{st}.png")
+        sheet = sheet_128(out / "dino_green" / f"sheet_{st}.png")
         fl = [_count(cell(sheet, row, c), draw_dino.FLAME, 30) for c in range(4)]
         assert fl[0] == 0 and fl[3] == 0 and fl[1] > 15 and fl[2] > fl[1], (st, fl)
         a = np.asarray(cell(sheet, row, 2).convert("RGBA")).astype(int)

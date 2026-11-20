@@ -571,7 +571,7 @@ fn ten_minutes(a: &str, b: &str, seed: u64) -> usize {
 
 #[test]
 fn two_pets_at_home_show_about_three_to_six_new_plays_in_ten_minutes() {
-    let pairs = [("cat", "rabbit"), ("duck", "frog"), ("persian", "squirrel"), ("cat", "penguin"), ("rabbit", "duck"), ("frog", "cat")];
+    let pairs = [("cat", "rabbit"), ("dino_yellow", "squirrel"), ("cat", "squirrel"), ("cat", "penguin"), ("rabbit", "dino_green"), ("squirrel", "cat")];
     let counts: Vec<usize> = pairs.iter().enumerate().map(|(k, &(a, b))| ten_minutes(a, b, 100 + k as u64)).collect();
     let mean = counts.iter().sum::<usize>() as f64 / counts.len() as f64;
     assert!((3.0..=6.0).contains(&mean), "{counts:?} mean {mean}");

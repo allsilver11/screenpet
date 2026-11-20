@@ -255,7 +255,7 @@ fn main() {
                 overlay::float_everywhere(&window);
             }
             let config_dir = app.path().app_config_dir()?;
-            // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이, 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐 · 유령 → 호박)은 load가 옮김 (Config::retire_pets).
+            // 이름이 바뀌었거나 없어진 동물(곰·꿀벌·강아지 → 고양이, 새·기린·오리 → 노란 공룡 · 레서판다·개구리 → 다람쥐 · 유령 → 호박 · 보라 공룡 → 초록 공룡 · 페르시안 → 고양이)은 load가 옮김 (Config::retire_pets).
             // 옛 설정의 선물 도감·픽셀 스타일은 모르는 줄이라 조용히 버려짐
             let cfg = config::load(&config_dir);
             // 👻 손님·하우스 등 떠 있는 창이 만들어지기 전에 저장된 투명도를 적어 둠

@@ -1,4 +1,4 @@
-//! 개구리 (locomotion hop) — 폴짝 걸음·큰 점프·벽 폴짝 오르기 brain 동작 테스트. brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 폴짝 동물 (locomotion hop — 지금 번들엔 없음, 개구리는 v0.7.1에 빠짐. 시뮬레이션 설정으로 계속 검사) — 폴짝 걸음·큰 점프·벽 폴짝 오르기 brain 동작 테스트. brain.rs의 자식 모듈 (비공개 필드에 접근).
 
 use super::tests::{place, run, sim_cfg, win, world};
 use super::*;
@@ -172,16 +172,14 @@ fn reachable(c: &PetConfig) -> (World, f64) {
 fn every_walker_leaps_onto_a_window_in_reach_and_flyers_never_do() {
     let pets = bundled();
     assert_eq!(pets.len(), species().len());
-    let frog_share = pets.iter().find(|(id, _)| id == "frog").map(|(_, c)| {
-        let (w, x) = reachable(c);
-        leap_share(*c, &w, x)
-    });
-    assert!((0.09..=0.15).contains(&frog_share.unwrap()), "the frog keeps its chance: {frog_share:?}");
+    // 폴짝 동물 (시뮬레이션 개구리 — 번들엔 없음)
+    let (w, x) = reachable(&frog());
+    let frog_share = leap_share(frog(), &w, x);
+    assert!((0.09..=0.15).contains(&frog_share), "the hopper keeps its chance: {frog_share}");
     for (id, c) in pets {
         let (w, x) = reachable(&c);
         let share = leap_share(c, &w, x);
         match id.as_str() {
-            "frog" => {}
             // 기운 넘치는 흐물이(energetic)는 두 배 — 개구리만큼
             "heumul" => assert!((0.09..=0.15).contains(&share), "{id}: energetic, about the frog's chance, got {share}"),
             _ => assert!((0.04..=0.08).contains(&share), "{id}: about half the frog's chance, got {share}"),

@@ -38,7 +38,7 @@ STAGES = ["baby", "kinder", "child", "teenager", "adult"]
 # 화면 표시 배율 (Rust Stage::scale)
 STAGE_SCALE = {"baby": 0.45, "kinder": 0.60, "child": 0.78, "teenager": 1.00, "adult": 1.15}
 # 청소년 때 이미 128px보다 크게 보이는 동물 (pet.json stage_size >= 1) — 어른과 함께 2배 시트
-HIRES_TEENAGER = {"santa", "dino_green", "dino_purple", "dino_yellow"}
+HIRES_TEENAGER = {"santa", "dino_green", "dino_yellow"}
 
 
 def sheet_128(path):
@@ -61,7 +61,7 @@ OPTIONAL_ANIMS = [
     # 뒷모습 (고양이·산타): front=False지만 앱은 반전하지 않는다 (Rust Task 4b에서 반전 안 함으로 처리)
     ("climb", 4, 6, True, False),
     ("slide", 2, 8, True, False),
-    # 개구리: 크게 뛰기 (옆모습, 한 번) — 작은 폴짝은 필수 동작 hop
+    # 폴짝 동물 (locomotion hop — 지금 번들엔 없음, 개구리는 v0.7.1에 빠짐): 크게 뛰기 (옆모습, 한 번) — 작은 폴짝은 필수 동작 hop
     ("bigjump", 4, 8, False, False),
     # 모든 동물: 위를 올려다보기 (옆모습, 고개 들기 · 쭉 · ✧) — 머리 위에 든 음식, 가끔 쉬다가·걷다가, 커서가 머리 위에 머물 때
     ("lookup", 3, 3, True, False),
@@ -100,7 +100,7 @@ OPTIONAL_ANIMS = [
     ("type", 3, 6, True, True),
     # 흐물이: 머리 위에 인 채 다다다 달리기 (친구에게 들고 가는 길·화면 끝을 들고 나가고 들어올 때 — 사용자: 걷지 말고 달려!)
     ("carry_run", 4, 12, True, False),
-    # 🐱 고양이·페르시안 툭툭 (v0.6.3, 코어 brain_knock.rs): 고개 숙여 앞발을 들었다가 앞으로 툭 (한 번 = 0.5초, 셋째 칸에 민다)
+    # 🐱 고양이 툭툭 (v0.6.3, 코어 brain_knock.rs): 고개 숙여 앞발을 들었다가 앞으로 툭 (한 번 = 0.5초, 셋째 칸에 민다)
     ("paw", 4, 8, False, False),
     # 🐿️ 다람쥐 볼 빵빵 (v0.6.3, 코어 brain_stash.rs): 볼이 빵빵한 채 총총 걷기 · 앉기, 땅을 파고 묻기 (흙이 튄다)
     ("cheeks_walk", 4, 8, True, False),
@@ -133,18 +133,15 @@ OPTIONAL_ANIMS = [
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
 _CARE_SPEECH = {"hungry": ["hungry...", "food?"], "full": ["full~"], "level_up": ["I grew up!!"]}
-# 공룡 셋 (불 뿜기·크앙·쿵쾅 말풍선 roar/fire/stomp)
+# 공룡 둘 (불 뿜기·크앙·쿵쾅 말풍선 roar/fire/stomp)
 _DINO_SPEECH = {"chatter": ["rawr!", "♪"], "tickle": ["hehe!"], "grumpy": ["grrr~"], "roar": ["RAWR!", "grrr~"], "fire": ["fwoosh~"],
                 "stomp": ["stomp!"], **_CARE_SPEECH}
 SPEECH = {
     "cat": {"chatter": ["meow!", "nya~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "hiss": ["hiss!"], "ignore": ["..."],
             **_CARE_SPEECH},
     "squirrel": {"chatter": ["chk chk!", "nuts!", "zoom!"], "tickle": ["hehe!"], "grumpy": ["chk-chk!"], **_CARE_SPEECH},
-    "persian": {"chatter": ["mrr...", "*yawn*"], "tickle": ["...mrr~"], "grumpy": ["hmph."], "ignore": ["...", "zzz..."], **_CARE_SPEECH},
     "rabbit": {"chatter": ["boing!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    "frog": {"chatter": ["ribbit!", "hop hop!", "ribbit~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "pumpkin": {"chatter": ["trick or treat!", "boo~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    "duck": {"chatter": ["quack!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "rudolph": {"chatter": ["jingle~", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "santa": {"chatter": ["ho ho ho!", "merry~"], "tickle": ["ho ho!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
     "snowman": {"chatter": ["brrr~", "snow!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
@@ -171,23 +168,23 @@ SPEECH = {
               "take_off": ["up, up and away!", "whoosh!", "to the sky!"], "rescue": ["to the rescue!", "on my way!", "hang on!"],
               "air_flip": ["wheee!", "flip!", "ta-da!"], "soft_land": ["touchdown!", "soft landing", "and... landed"],
               "hero_lift": ["easy!", "one hand!", "light as air"], **_CARE_SPEECH},
-    **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
+    **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
-PERSONALITY = {"cat": "aloof", "persian": "aloof", "squirrel": "playful", "frog": "playful", "pumpkin": "playful",
-               "duck": "playful", "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful",
+PERSONALITY = {"cat": "aloof", "squirrel": "playful", "pumpkin": "playful",
+               "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
-               "dino_yellow": "playful", "dino_green": "friendly", "dino_purple": "friendly"}
+               "dino_yellow": "playful", "dino_green": "friendly"}
 
-# 움직임 (pet.json locomotion) — 폴짝·나는 동물만 적는다 (없으면 걷는다)
-LOCOMOTION = {"frog": "hop"}
+# 움직임 (pet.json locomotion) — 폴짝·나는 동물만 적는다 (없으면 걷는다). 지금 번들은 모두 걷기 (개구리는 v0.7.1에 빠짐)
+LOCOMOTION = {}
 
 # 사는 집 그림 (pet.json house) — 보통 집은 적지 않는다. 앱 ui/house/<house>_<stage>.png
 HOUSE = {"pumpkin": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
 
-# 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (개구리는 locomotion hop이라 늘 폴짝)
+# 걷기·달리기 토막 중 깡총거리는 몫 (pet.json hop_share) — 걷는 동물 중 토끼 절반, 호박은 늘 통통 (폴짝 동물은 locomotion hop이라 늘 폴짝)
 HOP_SHARE = {"rabbit": 0.5, "squirrel": 0.35, "pumpkin": 1.0, "rudolph": 0.3, "snowman": 0.5, "heumul": 0.5}
 
 # roll을 돌리지 않는 동물 (pet.json roll에 spin 없음) — 산타는 구르는 대신 썰매를 타고, 눈사람은 배로 미끄러지고, 펭귄은 배로 쭉 미끄러진다
@@ -215,13 +212,10 @@ JUGGLER = {"heumul", "bat", "super"}
 TASKBAR_PLAY = {"heumul"}
 
 # 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨리는 동물 (pet.json knocker — 코어 brain_knock.rs, 그림은 paw)
-KNOCKER = {"cat", "persian"}
+KNOCKER = {"cat"}
 
 # 🐿️ 바닥의 작은 물건을 볼에 넣어 묻는 동물 (pet.json stasher — 코어 brain_stash.rs, 그림은 cheeks_walk·cheeks_idle·dig)
 STASHER = {"squirrel"}
-
-# 🦆 바닥에서 친구들을 줄줄이 데리고 걷는 동물 (pet.json train_leader — 코어 brain_train.rs, 새 그림 없음)
-TRAIN_LEADER = {"duck"}
 
 # 🕷️ 줄을 쏘아 모서리에 거미집을 치고, 줄 그네를 타고, 영웅 착지를 하고, 물건·친구를 끌어오는 동물
 # (pet.json web_slinger — 코어 brain_web.rs, 그림은 shoot·web_swing·hero_land·web_pull·web_whirl·hang_down)
@@ -241,18 +235,14 @@ TINTABLE = {"heumul"}
 # 좋아하는 음식 (pet.json favorite_food)
 FAVORITE_FOOD = {
     "cat": {"emoji": "🐟", "name": "생선"},
-    "persian": {"emoji": "🥛", "name": "우유"},
     "squirrel": {"emoji": "🌰", "name": "도토리"},
     "rabbit": {"emoji": "🥕", "name": "당근"},
-    "frog": {"emoji": "🪰", "name": "파리"},
     "pumpkin": {"emoji": "🍬", "name": "사탕"},
-    "duck": {"emoji": "🍞", "name": "빵"},
     "rudolph": {"emoji": "🍎", "name": "사과"},
     "santa": {"emoji": "🥛", "name": "우유"},
     "snowman": {"emoji": "🍧", "name": "빙수"},
     "dino_yellow": {"emoji": "🍉", "name": "수박"},
     "dino_green": {"emoji": "🥦", "name": "브로콜리"},
-    "dino_purple": {"emoji": "🍇", "name": "포도"},
     "penguin": {"emoji": "🦐", "name": "새우"},
     "heumul": {"emoji": "🍭", "name": "막대사탕"},
     "spider": {"emoji": "🪰", "name": "파리"},

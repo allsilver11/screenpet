@@ -186,10 +186,10 @@ def test_haunted_door_fits_the_pumpkin(built, pet, stage):
     assert abs(fill / cat_fill - 1) < 0.15, (pet, stage, fill, cat_fill, teen_fill)
 
 
-@pytest.mark.parametrize("pet", ["dino_green", "duck", "frog"])
+@pytest.mark.parametrize("pet", ["dino_green", "dino_yellow"])
 @pytest.mark.parametrize("stage", STAGES)
 def test_grown_pets_still_fit_the_plain_house_door(built, pet, stage):
-    """보통 집 동물 (공룡은 1.2 그대로, 오리·개구리는 되돌렸다): 문은 그대로 — 문을 잰 기준 고양이보다 20 % 넘게 넓지 않다
+    """보통 집 동물 (공룡은 1.2 그대로): 문은 그대로 — 문을 잰 기준 고양이보다 20 % 넘게 넓지 않다
     (예전 기준이던 강아지 — 가장 넓은 몸 — 가 기준 고양이의 1.1배 안쪽이었다)."""
     door = _door(built, "house", stage)
     fill = draw_house.door_pet_size(stage) * _body_width(pet, stage) / door["w"]

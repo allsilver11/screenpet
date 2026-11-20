@@ -724,13 +724,32 @@ def sp_tickle(sp, i):
     return front(rot=[-7, 7, -3][i], arms=[(60, y), (68, y)], arm_bend=[(-1, 0.5), (1, 0.5)], eyes="tight", mouth="big")
 
 
+FLY_BODY, FLY_WING = (92, 96, 112), (226, 240, 252)  # 생각 풍선 속 파리 (예전 draw_frog.py에서 옮겨 옴 — 개구리는 v0.7.1에 빠짐)
+
+
+def fly_fx(cx, cy, k=1.0):
+    """귀여운 파리 한 마리 (생각 풍선용): 동글 몸 + 반투명 느낌 흰 날개 둘 + 반짝 눈."""
+    wing = lambda s: E(cx + s * 1 - 5 * k + s * 4 * k, cy - 9 * k, cx + s * 1 + 5 * k + s * 4 * k, cy - 1 * k)
+    return [([wing(-1), wing(1)], (146, 178, 212), 0.9), ([E(cx - 5 * k - 3.6 * k, cy - 8 * k, cx - 3.6 * k + 3.4 * k, cy - 2 * k),
+                                                       E(cx + 3.6 * k - 3.4 * k, cy - 8 * k, cx + 3.6 * k + 5 * k, cy - 2 * k)], FLY_WING, 0),
+            ([C(cx, cy + 1 * k, 5.4 * k)], dp.LINE, 0), ([C(cx, cy + 1 * k, 4.2 * k)], FLY_BODY, 0),
+            ([C(cx - 1.8 * k, cy - 0.2 * k, 1.3 * k), C(cx + 1.8 * k, cy - 0.2 * k, 1.3 * k)], dp.WHITE, 0)]
+
+
+def fly_bubble_fx(cx, cy, r=12.5):
+    """파리 생각 풍선: 작은 방울 둘 + 큰 풍선 안의 파리."""
+    fx = []
+    for x, y, rr in [(cx + r + 7, cy + r + 8, 2.0), (cx + r + 1, cy + r + 1, 3.2), (cx, cy, r)]:
+        fx += [([C(x, y, rr + 1.5)], dp.LINE, 1.0), ([C(x, y, rr)], dp.WHITE, 0)]
+    return fx + fly_fx(cx, cy + 1, 1.05)
+
+
 def sp_hungry(sp, i):
     """배고파 시무룩: 두 손으로 배를 감싸고 처진 눈꺼풀, 파리 생각 풍선."""
-    import draw_frog
     s = hs()
     top = stand_hip_y() + s["lw"] * 0.35 - s["th"]
     y = top + s["th"] * 0.68
-    fx = draw_frog.fly_bubble_fx(104 - 2 * i, 20, 12.0)
+    fx = fly_bubble_fx(104 - 2 * i, 20, 12.0)
     return front(hip=F([0, 1, 0][i]), arms=[(59, y), (69, y)], arm_bend=[(-1, 0.5), (1, 0.5)], eyes="dot", brow="sad", mouth="frown",
                  head_rot=-3, fx=fx)
 
@@ -791,7 +810,7 @@ CLIMB = [(1.0, 0.2), (0.6, 0.6), (0.2, 1.0), (0.6, 0.6)]  # (왼손, 오른손) 
 
 
 def spider_back(reach, *, dy=0.0, scratch=False, sweat=False):
-    """뒷모습: 두 손을 머리 옆·위로 벽에 짚고 (reach: 0 어깨 옆 … 1 머리 위), 두 다리는 개구리처럼 무릎을 벌려 벽에 디딤."""
+    """뒷모습: 두 손을 머리 옆·위로 벽에 짚고 (reach: 0 어깨 옆 … 1 머리 위), 두 다리는 무릎을 개구리처럼 벌려 벽에 디딤."""
     s = hs()
     hip = (64.0, 92.0 - (s["leg"] - 22) * 0.3 + dy)
     top = hip[1] + s["lw"] * 0.35 - s["th"]

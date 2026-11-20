@@ -1,5 +1,5 @@
-"""카와이 스프라이트 생성기 — 고양이·토끼·페르시안 × 21동작 (+ 고양이 arch·huff, 고양이 뒷모습 climb·slide) × 성장 5단계, 128px.
-(곰·꿀벌·강아지는 v0.5.5에서 빠졌다.)
+"""카와이 스프라이트 생성기 — 고양이·토끼 × 21동작 (+ 고양이 arch·huff, 고양이 뒷모습 climb·slide) × 성장 5단계, 128px.
+(곰·꿀벌·강아지는 v0.5.5, 페르시안은 v0.7.1에서 빠졌다.)
 
     python tools/draw_pets.py  → ui/pets/<id>/{sheet_<stage>.png ×5, pet.json}
                                  + tools/preview/{all_light,all_dark,stages_<id>,climb_<id>,eat_with_props}.png
@@ -27,7 +27,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
-                         STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, TRAIN_LEADER, WEB_SLINGER, BIKE_RIDER, SUPER_FLIER, frame_px, manifest)
+                         STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, WEB_SLINGER, BIKE_RIDER, SUPER_FLIER, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -122,7 +122,7 @@ def xf(dx=0.0, dy=0.0, rot=0.0, sx=1.0, sy=1.0, pivot=(64, 126)):
 #        blush: 볼터치 (가로, 세로) 배율 · ear: 귀 크기 · tuft: 정수리 삐죽 털
 # 몸   — tail: 꼬리 길이 · tail_w: 꼬리 굵기 · cheek_fluff: 볼 지그재그 털
 # 종 특징 (Species.stage_tweak로 켠다) — whiskers: 수염 · snout: 주둥이 길이 · chest_fluff: 가슴 털
-#        sleepy: 기본 눈("dot")이 눈꺼풀이 반쯤 내려온 졸린 눈 (페르시안)
+#        sleepy: 기본 눈("dot")이 눈꺼풀이 반쯤 내려온 졸린 눈 (지금 쓰는 동물 없음 — 예전 페르시안)
 STAGE_PROPS = {
     "baby": dict(head=1.25, body=0.80, leg=0.45, line=1.1, soft=0.22, fit=0.84, torso=(0.9, 1.14), fbody=(1.12, 1.0),
                  pale=0.35, lvl=0, eye=1.5, eye_dy=2.5, sparkle=True, calm=False, smile=False, blush=(1.25, 1.45), ear=0.66,
@@ -595,11 +595,11 @@ class Species:
     outline: tuple = None  # 실루엣 외곽선 색 (없으면 LINE)
     poses: dict = None  # 이 종만의 포즈 {동작: 함수} — 뼈대가 다른 동물 (흐물이·거미인간 등). 없는 동작은 공통 POSES
     write_layers: object = None  # 시트 말고 더 쓸 그림이 있는 종 (흐물이 잉크 자리): (out_dir) → pet.json에 더할 칸
-    front_head: list = field(default_factory=lambda: [("E", 16, 16, 112, 84)])  # 앞모습 머리 도형 (페르시안: 넓적 네모 얼굴 + 볼 털 갈기)
+    front_head: list = field(default_factory=lambda: [("E", 16, 16, 112, 84)])  # 앞모습 머리 도형
     side_head: list = field(default_factory=lambda: [("E", 52, 12, 124, 78)])  # 옆모습 머리 도형
     fur_tufts: tuple = ((), ())  # 머리 가장자리 삐죽 털 (앞모습, 옆모습) — 녹이지 않는 삼각형 (긴 털 갈기)
     front_tail_marks: list = field(default_factory=list)  # 앞모습 꼬리 무늬 (고리 무늬 등) — 꼬리와 함께 돌고 커진다
-    front_head_scale: float = 1.0  # 앞모습 머리(귀·얼굴·모자 자리 포함)만 턱 기준으로 더 줄이는 배율 (페르시안: 네모 얼굴이 너무 커 보여서)
+    front_head_scale: float = 1.0  # 앞모습 머리(귀·얼굴·모자 자리 포함)만 턱 기준으로 더 줄이는 배율
 
 
 def _stripe(pts, w=2.8):
@@ -671,63 +671,6 @@ CAT = Species(
     ],
 )
 
-# 페르시안 고양이: 회색 긴 털 (사용자: 하늘색 말고 회색) + 밝은 회백색 볼 털·갈기·가슴·발. 넓적한 네모 얼굴(동글 두 개를 겹친 납작한 윗머리),
-# 볼과 턱 아래를 감싼 복슬 갈기(작은 동그라미를 이어 붙여 녹이면 몽글몽글한 가장자리), 털에 반쯤 묻힌 낮고 작은 귀,
-# 눈 사이 높은 작은 코 + 무표정 일자 입(mouth "flat"), 반쯤 감은 졸린 눈(sleepy), 아주 복슬한 꼬리. 느릿느릿 걷는다.
-PER_G, PER_C, PER_IN, PER_LINE = (166, 166, 170), (236, 234, 232), (244, 190, 196), (92, 90, 96)
-PER_EYE = (222, 132, 46)  # 구릿빛 눈 (회색 페르시안 — 사용자: 눈은 구릿빛으로)
-
-
-def _puffs(pts, r):
-    """동그라미 털뭉치들 (가장자리가 몽글몽글)."""
-    return [("E", x - r, y - r, x + r, y + r) for x, y in pts]
-
-
-def _tufts(cx, cy, rx, ry, angles, ln=6.5, w=11):
-    """타원 (cx, cy, rx, ry) 둘레에서 바깥으로 삐죽 나온 털 끝 삼각형들 (각도: 0=오른쪽, 90=아래)."""
-    out = []
-    for a in angles:
-        t, n = math.radians(a), math.radians(a + 90)
-        bx, by = cx + rx * math.cos(t), cy + ry * math.sin(t)
-        h = w / 2
-        out.append(("T", (bx - h * math.cos(n) - 2 * math.cos(t), by - h * math.sin(n) - 2 * math.sin(t)),
-                    (bx + ln * math.cos(t), by + ln * math.sin(t)), (bx + h * math.cos(n) - 2 * math.cos(t), by + h * math.sin(n) - 2 * math.sin(t))))
-    return out
-
-
-_per_ear = [("T", (16, 38), (20, 18), (38, 27))]
-_per_ear_in = [("T", (21, 33), (22.5, 23), (31, 28.5))]
-_per_ruff = _puffs([(14, 62), (12, 72), (17, 81), (26, 87), (37, 90), (50, 92), (64, 93)], 8.5)  # 왼쪽 볼 → 턱 아래 갈기
-PERSIAN = Species(
-    id="persian", name="페르시안 고양이", walk_speed=50, scale=0.94, base=PER_G, back=PER_G, belly=PER_C, nose=(232, 150, 156),
-    mouth="flat", stage_size=dict.fromkeys(STAGES, 0.92), front_head_scale=0.85,  # 앞모습 네모 얼굴 15% 작게 (사용자: 머리가 너무 커 보임)
-    front_head=[("E", 12, 16, 86, 84), ("E", 42, 16, 116, 84)] + _per_ruff + [("E", 128 - x1, y0, 128 - x0, y1) for _, x0, y0, x1, y1 in _per_ruff],
-    front_ears=_per_ear + [("T", *_mirror(_per_ear[0][1:]))],
-    front_ear_pivots=((26, 34), (102, 34)),
-    front_ear_marks=[(_per_ear_in + [("T", *_mirror(_per_ear_in[0][1:]))], PER_IN)],
-    front_head_marks=[
-        ([("E", -4, 63, 132, 118)], PER_C),  # 볼 털·갈기 (크림)
-        ([("E", 38, 47, 90, 80)], PER_C),  # 코 둘레 (크림)
-    ],
-    front_body_marks=[([("E", 40, 64, 88, 122)], PER_C), ([("E", 34, 100, 62, 127), ("E", 66, 100, 94, 127)], PER_C)],
-    front_tail=[("E", 84, 94, 116, 122)], front_tail_root=(94, 112), front_tail_color=PER_G,
-    side_head=[("E", 52, 14, 124, 80)] + _puffs([(58, 62), (64, 73), (75, 80), (89, 84), (103, 82)], 9),
-    side_ears=[Ear([("T", (64, 30), (68, 13), (84, 22))], (74, 26), PER_G, [([("T", (68.5, 27), (69.5, 17.5), (78, 23))], PER_IN)]),
-               Ear([("T", (98, 20), (108, 10), (114, 26))], (106, 24), PER_G)],
-    ears_over=False,
-    side_head_marks=[([("E", 40, 54, 136, 112)], PER_C), ([("E", 98, 36, 132, 66)], PER_C)],
-    side_torso_marks=[([("E", 22, 86, 100, 122)], PER_C), ([("E", 78, 56, 112, 112)], PER_C)],
-    side_tail=[("L", [(26, 80), (13, 68), (9, 52), (14, 40)], 17)] + _puffs([(8, 58), (9, 46), (17, 37)], 9), tail_root=(26, 80),
-    tail_color=PER_G,
-    fur_tufts=(_tufts(64, 72, 59, 27, [160, 140, 118, 62, 40, 20], ln=7.5),  # 볼·턱 갈기 끝
-               _tufts(86, 68, 24, 15, [55, 80, 105], ln=7)),  # 옆모습: 턱 아래·가슴 앞 갈기 끝만 (목 뒤로는 안 삐져나오게)
-    specials=["huff", "lookup", "paw"],
-    # 모든 단계: 졸린 반눈 · 어린이도 웃지 않는 무표정 · 수염·볼 지그재그 털 없음 (갈기가 대신)
-    stage_tweak={st: dict(sleepy=True, iris=PER_EYE, smile=False, cheek_fluff=False, **{"baby": dict(ear=0.85), "kinder": dict(ear=0.9)}.get(st, {}))
-                 for st in STAGES},
-    outline=PER_LINE,
-)
-
 RAB_W = (255, 252, 250)
 RABBIT = Species(
     id="rabbit", name="토끼", walk_speed=120, scale=0.8, base=RAB_W, back=RAB_W, belly=RAB_W, nose=NOSE, mouth="w",
@@ -749,7 +692,7 @@ RABBIT = Species(
     stage_tweak={"baby": dict(ear=0.8), "kinder": dict(ear=0.88), "adult": dict(ear=1.12, chest_fluff=True)},
 )
 
-SPECIES = {s.id: s for s in (CAT, RABBIT, PERSIAN)}
+SPECIES = {s.id: s for s in (CAT, RABBIT)}
 
 
 # =====================================================================
@@ -822,7 +765,7 @@ def front_head(sp, eyes="dot", mouth=None, tongue_dy=0, outline=False, cheeks=Fa
 
 
 def mouth_top(sp):
-    """앞모습 입 윗선 (머리 좌표): 큰 코(루돌프)는 큰 코 아래, 납작 얼굴(페르시안)은 눈 사이 높은 코 바로 아래."""
+    """앞모습 입 윗선 (머리 좌표): 큰 코(루돌프)는 큰 코 아래, 납작 얼굴(mouth "flat")은 눈 사이 높은 코 바로 아래."""
     return {"dog": 66, "flat": 61.5}.get(sp.mouth, 64)
 
 
@@ -1622,9 +1565,8 @@ def paw(sp, i):
     ang, bot = PAW_LEG[i]
     lg = [(37, 96, 124, 0, 18), (54, 98, 125, 0, 16), (78, 98, 125, 0, 16)]
     # 드는 앞발은 가슴 앞에 따로 (자기 외곽선) — 몸 뒤에 그리면 가슴에 묻힌다
-    # 페르시안은 발이 크림색 털 (가슴·발 무늬와 같다), 늘 졸린 눈 그대로 — 무심하게 툭
     with xf(dx=-2):  # whole dx와 같이 (몸 앞쪽이 칸 오른쪽 끝에 닿지 않게)
-        raised = legs(replace(sp, base=sp.belly) if sp.id == "persian" else sp, [(90, 92, bot, ang, 15)], outline=True)
+        raised = legs(sp, [(90, 92, bot, ang, 15)], outline=True)
     eyes = "dot" if _ST["sleepy"] or i >= 2 else "round"
     # 쳐든 앞발의 분홍 젤리 (0·1칸 — 발바닥이 앞을 본다): 흰 발이 흰 가슴 앞에서도 (픽셀에서도) 보이게
     pad = []
@@ -1633,7 +1575,7 @@ def paw(sp, i):
         fx_ -= 2  # whole dx와 같이
         pad = [([E(fx_ - 3.6, fy - 3.0, fx_ + 3.6, fy + 3.0)], PINK, 0)]
     return _side(sp, whole=dict(dx=-2), head=dict(rot=9, pivot=(82, 72), dy=3, dx=1), torso=dict(rot=5, pivot=(58, 96), dy=1),
-                 tail=dict(at=(sp.tail_root[0], sp.tail_root[1] - 2), rot=[-2, 0, 3, 0][i] + (10 if sp.id == "persian" else 0)),  # 페르시안의 복슬 꼬리는 칸 왼쪽 끝에 닿지 않게 세운다
+                 tail=dict(at=(sp.tail_root[0], sp.tail_root[1] - 2), rot=[-2, 0, 3, 0][i]),
                  leg_specs=lg, head_kw=dict(eyes=eyes), after=[raised], fx=pad + _tap_fx(i))
 
 
@@ -1673,7 +1615,7 @@ def frames(sp, anim, n):
 
 
 # =====================================================================
-# 5b. 공용 효과 — 다른 그림 파일(할로윈·크리스마스·농장·눈사람·새·개구리·공룡)이 쓰는 작은 입·속도선·땀방울
+# 5b. 공용 효과 — 다른 그림 파일(할로윈·크리스마스·눈사람·공룡 등)이 쓰는 작은 입·속도선·땀방울
 # =====================================================================
 SPEED = mix(LINE, WHITE, 0.35)  # 속도선
 
@@ -1719,7 +1661,7 @@ _GRIPS = {}  # (종, 단계) → {동작: [칸별 [x, y]]} — pet.json grip (�
 _HEADS = {}  # (종, 단계) → {동작: [칸별 [x, y, w, r]]} — pet.json head  # (종, 단계) → {동작: [프레임]} — 한 프로세스에서 여러 번 build해도 한 번만 그린다
 
 
-_KEEP = {LINE, EYE, PER_EYE}  # 파스텔로 바꾸지 않는 색 (외곽선·눈·코, 페르시안 구릿빛 눈)
+_KEEP = {LINE, EYE}  # 파스텔로 바꾸지 않는 색 (외곽선·눈·코)
 
 
 def _pale(v, t):
@@ -1825,8 +1767,6 @@ def species_fields(pid, m):
         m["knocker"] = True
     if pid in STASHER:
         m["stasher"] = True
-    if pid in TRAIN_LEADER:
-        m["train_leader"] = True
     if pid in WEB_SLINGER:
         m["web_slinger"] = True
     if pid in BIKE_RIDER:
@@ -2000,13 +1940,11 @@ def preview_eat_with_props(all_frames, fx_dir, path):
     img.save(path)
 
 
-# 개구리·할로윈(호박)·크리스마스(루돌프·산타)는 자기 파일(tools/draw_frog.py, draw_halloween.py, draw_christmas.py)에서 그리고 SPECIES에 등록한다 (스크립트로 실행해도 같은 모듈을 쓰게)
+# 할로윈(호박)·크리스마스(루돌프·산타) 등은 자기 파일(tools/draw_halloween.py, draw_christmas.py …)에서 그리고 SPECIES에 등록한다 (스크립트로 실행해도 같은 모듈을 쓰게)
 sys.modules.setdefault("draw_pets", sys.modules[__name__])
-import draw_frog  # noqa: E402,F401
 import draw_halloween  # noqa: E402,F401
-import draw_farm  # noqa: E402,F401  (오리)
 import draw_christmas  # noqa: E402,F401
-import draw_dino  # noqa: E402,F401  (공룡 셋)
+import draw_dino  # noqa: E402,F401  (공룡 둘)
 import draw_snowman  # noqa: E402,F401  (눈사람)
 import draw_penguin  # noqa: E402,F401  (펭귄)
 import draw_squirrel  # noqa: E402,F401  (다람쥐)

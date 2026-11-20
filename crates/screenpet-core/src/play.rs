@@ -1,9 +1,8 @@
 //! 다른 동물들도 더 놀기 (v0.6.3): 숫자와 앱에 알릴 물건 일. 동물의 상태는 brain_knock.rs · brain_stash.rs · brain_quake.rs ·
-//! brain_train.rs · brain_highfive.rs, 여러 동물을 맞추는 일은 social_train.rs · social.rs (짝!).
+//! brain_highfive.rs, 여러 동물을 맞추는 일은 social_play.rs · social.rs (짝!).
 //!
-//! - 🐱 고양이 툭툭 (pet.json `knocker` + paw — 고양이·페르시안): 창 윗면에 놓인 작은 물건을 보면 가끔 다가가 쳐다보고 툭… 툭… 하다가
+//! - 🐱 고양이 툭툭 (pet.json `knocker` + paw — 고양이): 창 윗면에 놓인 작은 물건을 보면 가끔 다가가 쳐다보고 툭… 툭… 하다가
 //!   가까운 끝으로 밀어 떨어뜨리고, 끝에서 내려다봄
-//! - 🦆 오리 기차 (pet.json `train_leader` — 오리): 바닥에서 길게 걷기 시작할 때 가끔 "Quack! Follow me!" — 같은 바닥의 친구들이 줄줄이 따라감
 //! - 🦖 공룡 쿵! (공룡의 쿵쾅 Special::Stomp): 쉬는 때가 지났으면 큰 쿵! — 같은 바닥의 물건이 톡 튀어 오르고 친구들이 깜짝 폴짝.
 //! - 🐿️ 다람쥐 볼 빵빵 (pet.json `stasher` + cheeks_walk·cheeks_idle·dig — 다람쥐): 바닥의 작은 물건을 볼에 넣고(뿅) 한 번에 셋까지,
 //!   그다음 조금 걸어가 땅에 묻음
@@ -44,30 +43,10 @@ pub const WATCH_WALK_SECS: f64 = 3.0;
 /// 끝 쪽을 내려다보는 시간 (초)
 pub const WATCH_SECS: f64 = 1.6;
 
-// ---- 🦆 오리 기차 ----
+// ---- 깜짝 폴짝 ----
 
-/// 바닥에서 걷기 시작할 때 기차를 부를 확률 (쉬는 때가 지났을 때)
-pub const TRAIN_CHANCE: f64 = 0.35;
-/// 한 번 기차를 한 뒤 다시 하기까지 (초)
-pub const TRAIN_CALM_SECS: (f64, f64) = (180.0, 360.0);
-/// 기차가 달리는 시간
-pub const TRAIN_SECS: (f64, f64) = (8.0, 20.0);
-/// 따라올 친구를 모으는 거리 (두 동물 크기 평균 배, 같은 바닥)
-pub const TRAIN_GATHER_BODIES: f64 = 8.0;
-/// 따라오는 친구 수 상한
-pub const TRAIN_MAX_FOLLOWERS: usize = 4;
-/// 줄 간격: 앞 친구와 몸 가운데 사이 (두 동물 크기 평균 배)
-pub const TRAIN_SPACING: f64 = 0.8;
-/// 따라가는 친구가 "Choo choo!" 할 확률 (1초에)
-pub const CHOO_RATE: f64 = 0.06;
-/// 기차가 끝나면 다 같이 폴짝 (render 높이 — 몸 크기 배, 시간)
-pub const BOUNCE_RISE: f64 = 0.15;
-/// 기차 끝 폴짝 시간 (초)
+/// 제자리 깜짝 폴짝 시간 (초)
 pub const BOUNCE_SECS: f64 = 0.45;
-/// 기차 끝 — 폴짝 뒤 흩어져 걷는 시간
-pub const DISPERSE_SECS: (f64, f64) = (1.0, 2.5);
-/// 기차 줄이 이만큼 (초) 소식이 없으면 따라가기를 그만둠 (코디네이터가 사라짐)
-pub const FOLLOW_STALE_SECS: f64 = 0.5;
 
 // ---- 🦖 공룡 쿵! ----
 
@@ -151,11 +130,6 @@ pub fn push_dir(obj_x: f64, lo: f64, hi: f64) -> f64 {
     }
 }
 
-/// 🦆 기차 줄: 앞에서부터의 몸 크기들로 slot번째(1부터)까지의 누적 간격 (물리 px)
-pub fn train_offset(sizes: &[f64], slot: usize) -> f64 {
-    (1..=slot.min(sizes.len().saturating_sub(1))).map(|k| TRAIN_SPACING * (sizes[k - 1] + sizes[k]) / 2.0).sum()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,13 +146,5 @@ mod tests {
     fn it_pushes_toward_the_nearer_end() {
         assert_eq!(push_dir(900.0, 500.0, 1100.0), 1.0);
         assert_eq!(push_dir(600.0, 500.0, 1100.0), -1.0);
-    }
-
-    #[test]
-    fn train_cars_are_spaced_by_their_sizes() {
-        let sizes = [100.0, 100.0, 200.0];
-        assert_eq!(train_offset(&sizes, 0), 0.0);
-        assert!((train_offset(&sizes, 1) - 80.0).abs() < 1e-9);
-        assert!((train_offset(&sizes, 2) - (80.0 + 120.0)).abs() < 1e-9);
     }
 }

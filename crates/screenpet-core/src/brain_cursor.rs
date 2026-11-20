@@ -74,7 +74,7 @@ const BELOW_TOP: f64 = 2.0;
 const QUAKE_CALM_SECS: f64 = 5.0;
 /// 째려보는 시간
 pub const GLARE_SECS: f64 = 1.5;
-/// 수다쟁이(오리)가 가는 길에 또 말하는 간격
+/// 수다쟁이(다람쥐·펭귄·흐물이 등)가 가는 길에 또 말하는 간격
 const CHATTY_SECS: f64 = 1.3;
 
 /// 왔다 갔다 재기: 축마다 swing 넘게 움직인 뒤 반대로 swing 넘게 돌아오면 뒤집힘 한 번
@@ -152,7 +152,7 @@ pub enum PlayPhase {
     Prep,
     /// 커서 쪽으로 감 (걷는 동물은 디딤판 위로만, 나는 동물은 곧장)
     Approach,
-    /// 닿을 자리에서 한 번 더 (고양이 엉덩이 씰룩, 페르시안 기지개)
+    /// 닿을 자리에서 한 번 더 (고양이 엉덩이 씰룩 등)
     Reach,
 }
 
@@ -213,26 +213,19 @@ impl CursorStyle {
         Some(match species {
             // 살금살금 다가가 엉덩이를 씰룩이다가 먼 곳에서 와락
             "cat" => CursorStyle { speed: 0.6, arrive: Some((Anim::Look, 0.9)), wiggle: true, range: 3.5, leap_secs: 0.5, glare: Anim::Huff, ..b },
-            // 페르시안: 느릿느릿 어슬렁 가서 기지개 한 번 — 멀리서 와락은 귀찮다
-            "persian" => CursorStyle { speed: 0.4, arrive: Some((Anim::Stretch, 1.0)), range: 1.5, leap_secs: 0.6, glare: Anim::Huff, ..b },
             "rabbit" => CursorStyle { gait: Anim::Hop, speed: 2.2, lift: 0.18, beat: 0.4, range: 1.5, ..b },
             // 다람쥐는 호기심 많고 날쌔다 — 짧게 깡충깡충 쪼르르 와서 고개를 갸웃
             "squirrel" => CursorStyle { gait: Anim::Hop, speed: 2.6, lift: 0.12, beat: 0.28, arrive: Some((Anim::Tilt, 0.6)), range: 2.0, chatty: true, ..b },
-            // 멀리서도 크게 한 번에
-            "frog" => CursorStyle { gait: Anim::Hop, speed: 1.8, lift: 0.3, beat: 0.55, leap: Anim::BigJump, range: 2.5, reach: 2.5, ..b },
             // 묵직하게 통, 통
             "pumpkin" => CursorStyle { gait: Anim::Hop, speed: 1.2, lift: 0.12, beat: 0.5, leap_secs: 0.5, ..b },
             "rudolph" => CursorStyle { gait: Anim::Hop, speed: 1.8, lift: 0.24, beat: 0.45, range: 1.5, ..b },
-            // 뒤뚱뒤뚱, 꽥꽥
-            "duck" => CursorStyle { speed: 1.1, lift: 0.04, beat: 0.3, chatty: true, ..b },
             // 썰매 타고 스르륵
             "santa" => CursorStyle { prep: Some((Anim::Wave, 0.5)), gait: Anim::Roll, speed: 2.0, ..b },
             // 눈덩이가 통통 — 가서 나뭇가지 팔을 흔든다
             "snowman" => CursorStyle { gait: Anim::Hop, speed: 1.5, lift: 0.14, beat: 0.42, arrive: Some((Anim::Wave, 0.6)), ..b },
-            // 공룡 셋: 크앙 / 쿵쾅 / 화르륵 한 뒤 쿵쿵 걸어간다
+            // 공룡 둘: 크앙 / 쿵쾅 한 뒤 쿵쿵 걸어간다
             "dino_yellow" => CursorStyle { prep: Some((Anim::Roar, 0.8)), ..dino },
             "dino_green" => CursorStyle { prep: Some((Anim::Stomp, 0.9)), ..dino },
-            "dino_purple" => CursorStyle { prep: Some((Anim::Fire, 1.0)), ..dino },
             // 펭귄은 배로 쭉 미끄러져 와서 지느러미를 파닥파닥
             "penguin" => CursorStyle { gait: Anim::Roll, speed: 1.6, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
             // 흐물이는 다다다 신나게 달려와 흐물흐물 손 흔들기

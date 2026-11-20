@@ -345,7 +345,7 @@ pub fn fully_inside(bounds: &Rect, side: Side, x: f64, half_w: f64) -> bool {
 pub const VERTICAL_DECISION_SCALE: f64 = 0.025;
 /// 벽 타는 동물이 기어오르다 꼭대기 너머 위 친구에게 넘어가는 몫 = 걸어 나가기 확률 × 이만큼 (높이 뛰기와 합쳐도 옆과 비슷하게)
 pub const CLIMB_OVER_SCALE: f64 = 0.1;
-/// 개구리는 위로 뛰어 나가기를 이만큼 더 자주
+/// 폴짝 동물은 위로 뛰어 나가기를 이만큼 더 자주
 pub const FROG_SKY_JUMP_MULT: f64 = 2.0;
 /// 높이 뛰기 전에 웅크리는 시간 (초)
 pub const VERTICAL_CROUCH_SECS: f64 = 0.35;
@@ -390,7 +390,7 @@ pub fn falls_through(aimed: bool, vy: f64, min_speed: f64, dpi: f64) -> bool {
     vy > 0.0 && aimed
 }
 
-/// 위/아래로 나갈 확률 (이동을 정할 때마다): visit 규칙(exit_chance) × VERTICAL_DECISION_SCALE, 개구리가 위로면 × 2.
+/// 위/아래로 나갈 확률 (이동을 정할 때마다): visit 규칙(exit_chance) × VERTICAL_DECISION_SCALE, 폴짝 동물이 위로면 × 2.
 /// 반드시 나가야 하면(그리운 손님의 집 쪽) 1
 pub fn vertical_exit_chance(edge: Side, exits: ExitEdges, guest: Option<Guest>, frog: bool) -> f64 {
     if !is_vertical(edge) {
@@ -999,7 +999,7 @@ mod tests {
         assert_eq!(vertical_exit_chance(Side::Up, ExitEdges::default(), None, false), 0.0);
         assert_eq!(vertical_exit_chance(Side::Down, up, None, false), 0.0);
         assert!((vertical_exit_chance(Side::Up, up, None, false) - EXIT_CHANCE * VERTICAL_DECISION_SCALE).abs() < 1e-12);
-        // 개구리는 위로만 두 배
+        // 폴짝 동물은 위로만 두 배
         assert!((vertical_exit_chance(Side::Up, up, None, true) - 2.0 * EXIT_CHANCE * VERTICAL_DECISION_SCALE).abs() < 1e-12);
         assert!((vertical_exit_chance(Side::Down, both, None, true) - EXIT_CHANCE * VERTICAL_DECISION_SCALE).abs() < 1e-12);
         // 왼쪽/오른쪽은 이 규칙이 아니다

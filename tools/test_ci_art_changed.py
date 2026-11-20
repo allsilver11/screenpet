@@ -15,7 +15,7 @@ SHA_B = "b" * 40
 
 @pytest.mark.parametrize("path", [
     "tools/draw_pets.py", "tools/draw_house.py", "tools/sprite_spec.py", "tools/conftest.py",
-    "tools/test_draw_frog.py", "tools/requirements.txt", "tools/requirements-pack.txt", "tools/pack_webp.py",
+    "tools/test_draw_dino.py", "tools/requirements.txt", "tools/requirements-pack.txt", "tools/pack_webp.py",
     "ui/pets/cat/sheet_baby.png", "ui/pets/cat/pet.json", "ui/effects/snow_cloud.png", "ui/objects/dropping.png",
     "ui/house/house.json", "ui/house_xmas/a.png", "ui/sleigh/sleigh.png", "ui/vehicles/car/sheet.png",
     "ui/main.js", "ui/index.html", "ui/style.css", "src-tauri/src/prop.rs", "crates/screenpet-core/src/food.rs",

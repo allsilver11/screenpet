@@ -46,8 +46,8 @@ fn left_inside(a: &Pet, b: &Pet) -> bool {
 /// 번들 pet.json 그대로 (게임이 쓰는 설정, 청소년, 배율 1)
 fn species(id: &str) -> PetConfig {
     if id == "flyer" {
-        // 번들에 나는 동물이 없어 (유령은 v0.7.0에 빠짐) 오리 몸으로 나는 동물을 만듦
-        return PetConfig { flies: true, hops: false, hop_share: 0.0, walk_speed: 40.0, ..species("duck") };
+        // 번들에 나는 동물이 없어 (유령은 v0.7.0에 빠짐) 다람쥐 몸으로 나는 동물을 만듦
+        return PetConfig { flies: true, hops: false, hop_share: 0.0, walk_speed: 40.0, ..species("squirrel") };
     }
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets").join(id).join("pet.json");
     let json = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
@@ -166,8 +166,8 @@ fn walking_into_each_other_often_ends_in_a_head_stomp_over() {
     let runs = [
         (&floor, Owner::Ground(0), "cat", "rudolph", (0.0, 1920.0)),
         (&floor, Owner::Ground(0), "rabbit", "santa", (0.0, 1920.0)),
-        (&floor, Owner::Ground(0), "dino_green", "duck", (0.0, 1920.0)),
-        (&desk, Owner::Window(1), "frog", "persian", (400.0, 1300.0)),
+        (&floor, Owner::Ground(0), "dino_green", "dino_yellow", (0.0, 1920.0)),
+        (&desk, Owner::Window(1), "squirrel", "cat", (400.0, 1300.0)),
     ];
     let mut all = Tally { min_gap: f64::INFINITY, ..Tally::default() };
     for (i, &(w, owner, a, b, span)) in runs.iter().enumerate() {
@@ -294,7 +294,7 @@ fn approach(w: &World, owner: Owner, (lo, hi): (f64, f64), mover: &str, other: &
 }
 
 /// 걷거나 달리던 동물이 친구 앞에 닿는 장면 여럿: 내 동물·손님이 번갈아 다가가고, 바닥과 창 위.
-/// 서 있는 친구에는 내려앉은 나는 동물도 끼움 (나는 동물은 걷지 않으니 걷는 친구 자리에는 오리)
+/// 서 있는 친구에는 내려앉은 나는 동물도 끼움 (나는 동물은 걷지 않으니 걷는 친구 자리에는 노란 공룡)
 fn approaches(run: bool, how: Other) -> Vec<Trial> {
     let floor = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, GROUND)], 128.0);
     let window = WindowInfo { id: 1, rect: Rect::new(400.0, 500.0, 1300.0, 1000.0) };
@@ -302,8 +302,8 @@ fn approaches(run: bool, how: Other) -> Vec<Trial> {
     let pairs = [
         (&floor, Owner::Ground(0), "cat", "rudolph", (0.0, 1920.0)),
         (&floor, Owner::Ground(0), "santa", "rabbit", (0.0, 1920.0)),
-        (&floor, Owner::Ground(0), "dino_green", if how == Other::Standing { "flyer" } else { "duck" }, (0.0, 1920.0)),
-        (&desk, Owner::Window(1), "frog", "persian", (400.0, 1300.0)),
+        (&floor, Owner::Ground(0), "dino_green", if how == Other::Standing { "flyer" } else { "dino_yellow" }, (0.0, 1920.0)),
+        (&desk, Owner::Window(1), "squirrel", "cat", (400.0, 1300.0)),
     ];
     let mut out = Vec::new();
     for seed in 0..16u64 {

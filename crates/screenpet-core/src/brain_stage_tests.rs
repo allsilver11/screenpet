@@ -60,9 +60,7 @@ fn species_power_grows_with_stage_and_teenagers_stay_as_before() {
     let p: Vec<f64> = Stage::ALL.iter().map(|&s| st::stage_power(s)).collect();
     assert_eq!(p, vec![0.6, 0.75, 0.9, 1.0, 1.2]);
     assert_eq!(st::soft_power(Stage::Teenager), 1.0);
-    assert_eq!(st::lead_power(Stage::Teenager), 1.0);
     assert!(st::soft_power(Stage::Baby) > st::stage_power(Stage::Baby), "빠르기·높이는 덜 변함");
-    assert!(st::lead_power(Stage::Baby) < st::stage_power(Stage::Baby), "아기 오리는 거의 따라가기만");
 }
 
 #[test]
@@ -352,14 +350,6 @@ impl WebSpinStat {
     fn of(s: crate::web::WebSpin, body: f64) -> Self {
         WebSpinStat { k: s.size / body, shots: s.shots }
     }
-}
-
-#[test]
-fn duck_trains_get_longer_and_baby_ducks_rarely_lead() {
-    let duck = |s: Stage| Pet::new(PetConfig { leads_train: true, ..aged(s) }, 0.0, 0.0, 1);
-    assert_eq!(duck(Stage::Baby).train_followers_max(), 2);
-    assert_eq!(duck(Stage::Teenager).train_followers_max(), crate::play::TRAIN_MAX_FOLLOWERS);
-    assert_eq!(duck(Stage::Adult).train_followers_max(), 5);
 }
 
 #[test]

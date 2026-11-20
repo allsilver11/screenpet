@@ -1,7 +1,7 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
     python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie}.png
-                                  + ui/effects/hand_{meal,cookie,fish,carrot,fly,candy,lollipop,apple,milk,bread,leaf,watermelon,broccoli,grapes,shaved_ice,seeds,special}.png (직접 주기, 48×48)
+                                  + ui/effects/hand_{meal,cookie,fish,carrot,fly,candy,lollipop,acorn,apple,milk,watermelon,broccoli,shaved_ice,shrimp,special,broom}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
                                   + ui/effects/{snowball,snowman}.png (계절 날씨) + tools/preview/snowman.png
@@ -164,7 +164,7 @@ def hand_carrot(img):
 
 
 def hand_fly(img):
-    """개구리가 좋아하는 파리 — 무섭지 않게: 동글동글 몸, 반짝이는 큰 눈, 비스듬히 선 투명한 날개 둘, 작은 웃음."""
+    """거미인간이 좋아하는 파리 — 무섭지 않게: 동글동글 몸, 반짝이는 큰 눈, 비스듬히 선 투명한 날개 둘, 작은 웃음."""
     # 날개 (몸 뒤에서 위로 비스듬히) — 연한 하늘색 캡슐에 반짝이
     for sgn in (-1, 1):
         blob(img, [L([(64 + 5 * sgn, 63), (64 + 14.5 * sgn, 55)], 8.5)], WING, r=0.4, line=0.6,
@@ -248,23 +248,11 @@ def build_hand(out_dir=OUT_DIR):
     return arts
 
 
-BREAD, BREAD_CRUST, BREAD_IN = (250, 214, 150), (214, 150, 84), (255, 244, 214)
 TWIG = (176, 128, 92)
-
-
-def hand_bread(img):
-    """오리가 좋아하는 식빵 한 조각 — 동글 머리 식빵, 노릇한 테두리, 폭신한 속, 작은 얼굴."""
-    top = arc(64, 58, 16, 10, 180, 360, 16)
-    slab = top + [(78, 83), (50, 83)]
-    blob(img, [T(*slab), C(50.5, 60, 5), C(77.5, 60, 5)], BREAD_CRUST, r=1.6, line=0.9,
-         marks=[([T(*[(64 + (x - 64) * 0.8, 69 + (y - 69) * 0.8) for x, y in slab])], BREAD_IN),
-                ([E(54, 53, 61, 57)], mix(BREAD_CRUST, WHITE, 0.45))])
-    tiny_face(img, 64, 70, 0.95)
 
 
 MELON, MELON_PALE, MELON_RIND, MELON_RIND_DARK, SEED = (250, 104, 118), (240, 252, 214), (112, 192, 94), (78, 150, 74), (70, 50, 52)
 BROC, BROC_DARK, BROC_STEM = (118, 190, 96), (84, 152, 74), (190, 224, 152)
-GRAPE, GRAPE_DARK, GRAPE_LIGHT = (164, 112, 204), (126, 82, 168), (214, 186, 238)
 
 
 def hand_watermelon(img):
@@ -287,17 +275,6 @@ def hand_broccoli(img):
              marks=[([C(51, 64, 2.2), C(77, 64, 2.2), C(58, 48, 2.0), C(71, 49, 2.3), C(64, 66, 2.0)], BROC_DARK),
                     ([E(57, 46, 63, 51)], mix(BROC, WHITE, 0.45))])
         tiny_face(img, 64, 59, 0.85)
-
-
-def hand_grapes(img):
-    """보라 공룡이 좋아하는 포도 한 송이 — 동글 알 여러 개 + 꼭지와 잎, 큰 알에 작은 얼굴."""
-    with xf(sx=0.78, sy=0.78, pivot=(64, 63)):
-        blob(img, [L([(64, 50), (66, 43)], 2.4)], (150, 112, 82), r=0, line=0.8)
-        blob(img, [E(66, 41, 79, 48)], (128, 196, 104), r=0.3, line=0.8)
-        for x, y in ((55, 56), (73, 56), (50, 66), (78, 66), (57, 76), (71, 76), (64, 85)):
-            blob(img, [C(x, y, 6.2)], GRAPE, r=0, line=0.8, marks=[([C(x - 2, y - 2, 1.5)], GRAPE_LIGHT)])
-        blob(img, [C(64, 64, 9)], GRAPE, r=0, line=0.85, marks=[([C(64, 68, 7)], mix(GRAPE, GRAPE_DARK, 0.4)), ([C(60, 59.5, 2.0)], GRAPE_LIGHT)])
-        tiny_face(img, 64, 65, 0.8)
 
 
 ICE, ICE_SHADE, ICE_SYRUP, ICE_CUP = (246, 251, 255), (214, 228, 246), (250, 140, 170), (252, 208, 116)
@@ -474,8 +451,7 @@ HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": ha
              "hand_candy": hand_candy, "hand_lollipop": hand_lollipop,
              "hand_acorn": hand_acorn,  # 다람쥐 🌰
              "hand_apple": hand_apple, "hand_milk": hand_milk,  # 크리스마스: 루돌프 🍎 · 산타 🥛
-             "hand_bread": hand_bread,  # 농장: 오리 🍞
-             "hand_watermelon": hand_watermelon, "hand_broccoli": hand_broccoli, "hand_grapes": hand_grapes,  # 공룡: 노랑 🍉 · 초록 🥦 · 보라 🍇
+             "hand_watermelon": hand_watermelon, "hand_broccoli": hand_broccoli,  # 공룡: 노랑 🍉 · 초록 🥦
              "hand_shaved_ice": hand_shaved_ice,  # 눈사람 🍧
              "hand_shrimp": hand_shrimp,  # 펭귄 🦐
              "hand_special": hand_special,  # 특식 🍱

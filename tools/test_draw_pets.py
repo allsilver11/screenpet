@@ -127,7 +127,7 @@ def test_stage_sheets_and_manifest(built):
 def test_rabbit_manifest_keeps_hop_share():
     """토끼만 걷는 시간의 절반쯤 깡총거린다 (pet.json hop_share) — 다시 그려도 칸이 남고, 들어 있는 pet.json과 같다."""
     import json
-    for pid in SPECIES_IDS + ("frog",):
+    for pid in SPECIES_IDS:
         m = draw_pets.species_fields(pid, {})
         assert m.get("hop_share") == (0.5 if pid == "rabbit" else None), pid
     bundled = json.loads((Path(__file__).resolve().parent.parent / "ui/pets/rabbit/pet.json").read_text(encoding="utf-8"))
@@ -281,10 +281,8 @@ def test_eat_mouth_meets_the_real_bowl(built):
 
 
 def test_eat_draws_no_bowl(built):
-    """그릇은 앱이 따로 띄운다 — 먹는 프레임에 초록 줄기·잎이나 그릇 테두리 색이 없다.
-    개구리는 몸이 초록이라 여기서 빼고 test_draw_frog.py(eat에 밥그릇 없음)가 따로 본다."""
-    assert "frog" in draw_pets.SPECIES
-    for pid in (p for p in SPECIES_IDS if p != "frog"):
+    """그릇은 앱이 따로 띄운다 — 먹는 프레임에 초록 줄기·잎이나 그릇 테두리 색이 없다."""
+    for pid in SPECIES_IDS:
         for st in CHECK_STAGES:
             for col in range(4):
                 px = _eat_cell(built, pid, st, col).load()
@@ -333,7 +331,7 @@ def _shipped():
 def test_hires_stages_follow_the_on_screen_size():
     """청소년 때 이미 128보다 크게 보이는 동물(stage_size >= 1)만 청소년도 2배, 어른은 모두 2배."""
     shipped = _shipped()
-    assert len(shipped) == 18  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1, 레서판다 +1, 다람쥐 +1 · v0.6.2: 흐물이 +1 · 거미인간 +1 · v0.7.0: 새·기린·레서판다·유령 −4, 박쥐인간 +1, 슈퍼인간 +1
+    assert len(shipped) == 14  # v0.5.5: 곰·꿀벌·강아지 −3, 펭귄 +1, 레서판다 +1, 다람쥐 +1 · v0.6.2: 흐물이 +1 · 거미인간 +1 · v0.7.0: 새·기린·레서판다·유령 −4, 박쥐인간 +1, 슈퍼인간 +1 · v0.7.1: 오리·개구리·보라 공룡·페르시안 −4
     assert {pid for pid, m, _ in shipped if m["stage_size"]["teenager"] >= 1} == HIRES_TEENAGER
     for pid, m, _ in shipped:
         assert m["frame_size"] == FRAME
@@ -374,127 +372,11 @@ def test_preview_poses_draws_every_band(tmp_path):
 
 
 
-# ---- 🐱 페르시안 고양이: 한눈에 고양이와 다르다 — 납작 네모 얼굴 · 낮고 작은 귀 · 졸린 반눈 · 복슬 갈기·꼬리 · 느릿느릿
-def _one(pid, anim, st="teenager"):
-    """한 동물·한 단계의 첫 장만 (128 칸) — 시트 전체를 그리지 않아 빠르다."""
-    sp = draw_pets.SPECIES[pid]
-    with draw_pets.stage(st, sp.stage_tweak.get(st)), draw_pets.output(1):
-        return draw_pets.frames(draw_pets.staged_species(sp), anim, 1)[0]
-
-
-def _widths(im):
-    a = im.getchannel("A").point(lambda v: 255 if v > 128 else 0)
-    return [sum(1 for x in range(FRAME) if a.getpixel((x, y))) for y in range(FRAME)]
-
-
-def _area(pts):
-    return abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]))) / 2
-
-
-def test_persian_is_a_lazy_aloof_cat():
-    sp = draw_pets.SPECIES["persian"]
-    assert sp.name == "페르시안 고양이" and sp.walk_speed < draw_pets.CAT.walk_speed * 0.7
-    assert draw_pets.PERSONALITY["persian"] == "aloof" and "huff" in sp.specials  # 새침한 고양이는 클릭에 흥! (Rust: Aloof → Huff)
-    assert draw_pets.FAVORITE_FOOD["persian"]["emoji"] != draw_pets.FAVORITE_FOOD["cat"]["emoji"]
-    assert sp.mouth == "flat"  # 납작 얼굴: 눈 사이 높은 작은 코 + 무표정 일자 입
-
-
-def test_persian_ears_are_much_smaller_than_the_cats():
-    ear = lambda sp: max(_area(list(d[1:])) for d in sp.front_ears if d[0] == "T")
-    assert ear(draw_pets.SPECIES["persian"]) < 0.45 * ear(draw_pets.CAT)
-
-
-@pytest.mark.parametrize("st", ["baby", "teenager", "adult"])
-def test_persian_face_is_wide_and_square_with_a_ruff(st):
-    """앉은 앞모습: 머리(위쪽) 실루엣이 고양이보다 넓고 (볼 털·갈기), 꼭대기 바로 아래가 이미 넓다 (낮은 작은 귀 = 네모난 윗머리 —
-    고양이는 뾰족 귀 두 개만 있는 줄). 아기는 정수리 삐죽 털이 꼭대기라 폭만 본다."""
-    def head(pid):
-        w = _widths(_one(pid, "sit_front", st))
-        top = next(y for y, v in enumerate(w) if v)
-        widest = max(w[top:top + 48])
-        return widest, w[top + 6] / widest
-    (pw, pt), (cw, ct) = head("persian"), head("cat")
-    assert pw >= cw, (st, pw, cw)  # 15% 줄인 뒤에도 (볼 갈기 덕에) 고양이 머리만큼은 넓다
-    if st != "baby":
-        assert pt > ct + 0.2, (st, pt, ct)
-
-
-@pytest.mark.parametrize("anim", ["idle", "sit_front"])
-def test_persian_resting_eyes_are_half_closed(anim):
-    """쉴 때 눈: 눈 색 덩어리의 높이가 고양이보다 한참 낮다 (반쯤 감은 졸린 눈)."""
-    def eye_h(pid):
-        px = _one(pid, anim).load()
-        er, eg, eb = draw_pets.EYE
-        ys = [y for y in range(FRAME // 2 + 16) for x in range(FRAME)
-              if px[x, y][3] > 200 and abs(px[x, y][0] - er) + abs(px[x, y][1] - eg) + abs(px[x, y][2] - eb) < 30
-              and (x < 64 if anim == "sit_front" else True)]
-        return max(ys) - min(ys) + 1
-    assert eye_h("persian") < 0.7 * eye_h("cat"), (eye_h("persian"), eye_h("cat"))
-
-
-@pytest.mark.parametrize("anim", ["idle", "sit_front"])
-def test_grey_persian_has_copper_eyes(anim):
-    """사용자: 하늘색 말고 회색, 눈은 구릿빛 — 회색 털 + 졸린 반눈 안에 구릿빛 홍채와 짙은 동공. 고양이 눈엔 구릿빛이 없다."""
-    def near(pid, col, tol=40):
-        px = _one(pid, anim).load()
-        return sum(1 for y in range(FRAME) for x in range(FRAME)
-                   if px[x, y][3] > 200 and sum(abs(px[x, y][i] - col[i]) for i in range(3)) < tol)
-    assert near("persian", draw_pets.PER_EYE, 60) >= 6, near("persian", draw_pets.PER_EYE, 60)
-    assert near("cat", draw_pets.PER_EYE) == 0
-    r, g, b = draw_pets.PER_G
-    assert abs(r - g) <= 6 and abs(g - b) <= 8, "a neutral grey, not sky blue"
-
-
-# 사용자: "옆모습 머리와 다리 사이 목 뒤에 뭔가 볼록 튀어나와 있다" → 옆모습 갈기 털 끝은 목 뒤 윤곽 밖으로 나오지 않는다
-_PER_SIDE = [a for a, _n, _f, _l, front in draw_pets.rows_for(draw_pets.PERSIAN) if not front and a != "roll"]
-
-
-def _frames_of(sp, anim, st):
-    with draw_pets.stage(st, sp.stage_tweak.get(st)), draw_pets.output(1):
-        n = next(n for a, n, *_ in draw_pets.rows_for(sp) if a == anim)
-        return draw_pets.frames(draw_pets.staged_species(sp), anim, n)
-
-
-@pytest.mark.parametrize("st", ["baby", "child", "adult"])
-def test_persian_side_ruff_tufts_stay_inside_the_back_of_the_neck(st):
-    """옆모습 삐죽 털(fur_tufts[1])을 빼고 그린 것과 비교: 어느 줄에서도 실루엣 왼쪽(등·목 뒤) 끝이 더 나가지 않는다.
-    털은 그대로 있다 (복슬 갈기는 볼·가슴 앞쪽에)."""
-    sp = draw_pets.PERSIAN
-    assert sp.fur_tufts[1], "옆모습 갈기 털 끝은 남겨 둔다"
-    bare = draw_pets.replace(sp, fur_tufts=(sp.fur_tufts[0], ()))
-
-    def left(im):
-        a = im.getchannel("A").load()
-        return [next((x for x in range(FRAME) if a[x, y] > 128), FRAME) for y in range(FRAME)]
-    bad = []
-    for anim in _PER_SIDE:
-        for i, (im, im0) in enumerate(zip(_frames_of(sp, anim, st), _frames_of(bare, anim, st))):
-            out = [(y, l0 - l) for y, (l, l0) in enumerate(zip(left(im), left(im0))) if l < l0 - 1]
-            if out:
-                bad.append((anim, i, out[:3]))
-    assert not bad, bad
-
-
-# 사용자: "앞모습 네모 복슬 얼굴은 좋은데 머리가 너무 크다" → 머리를 15%쯤 줄인다 (가장 넓은 줄이 예전의 0.88배 이하)
-# 줄이기 전 sit_front 첫 장 (128 칸): 가장 넓은 줄 (머리 + 볼 갈기) — 아기·유아는 예전엔 칸 끝까지 꽉 찼다
-_PER_OLD_HEAD_W = {"baby": 128, "kinder": 128, "child": 126, "teenager": 122, "adult": 106}
-
-
-@pytest.mark.parametrize("st", list(_PER_OLD_HEAD_W))
-def test_persian_front_head_is_a_smaller_square(st):
-    w = _widths(_one("persian", "sit_front", st))
-    bot = max(y for y, v in enumerate(w) if v)
-    head, body = max(w), w[bot - 8]
-    assert head <= 0.88 * _PER_OLD_HEAD_W[st], (st, head, round(head / _PER_OLD_HEAD_W[st], 3))
-    assert head > 1.15 * body, (st, head, body)  # 그래도 몸보다 넓은 복슬 네모 얼굴
-
-
-def test_persian_tail_is_bushier_than_the_cats():
-    w = lambda sp: max(d[2] for d in sp.side_tail if d[0] == "L")
-    assert w(draw_pets.SPECIES["persian"]) > 1.4 * w(draw_pets.CAT)
-
-
 # ---- 🐱 고양이 툭툭 (v0.6.3, 코어 brain_knock.rs) ----
+
+def sprite_spec_knockers():
+    import sprite_spec
+    return set(sprite_spec.KNOCKER)
 
 def test_only_cats_paw_and_knock(built):
     for pid in SPECIES_IDS:
@@ -504,7 +386,7 @@ def test_only_cats_paw_and_knock(built):
     m = json.loads((built / "cat" / "pet.json").read_text(encoding="utf-8"))
     rows = [a for a, *_ in ANIMS] + [o[0] for o in OPTIONAL_ANIMS if o[0] in draw_pets.SPECIES["cat"].specials]
     assert m["animations"]["paw"] == {"row": rows.index("paw"), "frames": 4, "fps": 8, "loop": False}
-    assert "paw" in draw_pets.PERSIAN.specials and draw_pets.species_fields("persian", {}).get("knocker") is True
+    assert sprite_spec_knockers() == {"cat"}  # 페르시안은 v0.7.1에 빠짐
 
 
 @pytest.mark.parametrize("st", CHECK_STAGES)
@@ -536,6 +418,28 @@ def test_bird_giraffe_redpanda_and_ghost_are_gone():
     assert not hasattr(sprite_spec, "SWIFT")
     for gone in ("gifts", "gifts_pixel", "pets_pixel", "effects_pixel", "objects_pixel", "house_pixel"):
         assert not (root / "ui" / gone).exists(), gone
+
+
+GONE_071 = ("duck", "frog", "dino_purple", "persian")
+
+
+def test_duck_frog_purple_dino_and_persian_are_gone():
+    """v0.7.1 삭제: 오리·개구리·보라 공룡·페르시안은 그림·생성기·표 어디에도 남지 않음 — 오리 기차(train_leader)도 함께 빠짐,
+    폴짝 이동(locomotion hop·bigjump)은 일반 기능이라 표만 비어 있음. 먹이 그림 빵·포도도 빠짐."""
+    import sprite_spec
+    root = Path(__file__).resolve().parent.parent
+    for pid in GONE_071:
+        assert pid not in draw_pets.SPECIES, pid
+        assert not (root / "ui" / "pets" / pid).exists(), pid
+        for table in ("SPEECH", "PERSONALITY", "LOCOMOTION", "FAVORITE_FOOD", "NO_SPIN", "HIRES_TEENAGER", "HOUSE", "HOP_SHARE", "KNOCKER"):
+            assert pid not in getattr(sprite_spec, table), (table, pid)
+    assert not hasattr(sprite_spec, "TRAIN_LEADER") and not hasattr(draw_pets, "PERSIAN")
+    for gone in ("draw_frog.py", "draw_farm.py"):
+        assert not Path(draw_pets.__file__).with_name(gone).exists(), gone
+    for icon in ("hand_bread", "hand_grapes"):
+        assert not (root / "ui" / "effects" / f"{icon}.png").exists(), icon
+    for pet in (root / "ui" / "pets").glob("*/pet.json"):
+        assert "train_leader" not in pet.read_text(encoding="utf-8"), pet
 
 
 def test_a_guest_of_a_removed_species_is_sent_home():

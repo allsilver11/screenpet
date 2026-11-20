@@ -13,9 +13,9 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
     "tickle", "annoyed", "hungry", "eat", "level_up",
 ];
 
-/// 특정 동물만 가진 동작 — 있으면 검증함 (behavior::Special::anim_name, 벽 타기 climb/slide, 개구리 bigjump,
+/// 특정 동물만 가진 동작 — 있으면 검증함 (behavior::Special::anim_name, 벽 타기 climb/slide, 폴짝 동물 bigjump,
 /// 올려다보기 lookup — 없으면 그냥 쳐다봄(look)). 기린 neckstretch·레서판다 surprise는 그 동물과 함께 없어짐 (v0.7.0).
-/// 개구리의 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있음. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같음
+/// 폴짝(hop)은 모든 동물의 필수 동작이라 REQUIRED_ANIMS에 이미 있음. 순서는 tools/sprite_spec.py OPTIONAL_ANIMS와 같음
 /// 공룡 fire·roar·stomp — 있으면 쉬거나 간질일 때 셋 중 하나 (Special::Fire/Roar/Stomp, 쿵쾅은 친구들을 흔듦).
 /// 흐물이 panic (만세 줄행랑) · hang·rope (창 옆면 매달리기·오르내리기) · lift·hold·carry·throw·strain·present·slump (물건 들어 던지기)
 /// · yank·stuff (📌 작업표시줄에서 장난감 끌어내기·도로 밀어 넣기)
@@ -56,7 +56,7 @@ pub enum Locomotion {
     Walk,
     /// 날아다님 (지금 번들 동물엔 없음 — 슈퍼인간이 쓸 수 있음) — 쉴 때 가끔 창 윗면·바닥에 내려앉음
     Fly,
-    /// 폴짝폴짝 뛰어다님 (개구리) — 가끔 크게 뛰어 창 위로, 벽은 폴짝폴짝 오름 (hop.rs)
+    /// 폴짝폴짝 뛰어다님 (지금 번들엔 없음 — 개구리는 v0.7.1에 빠짐) — 가끔 크게 뛰어 창 위로, 벽은 폴짝폴짝 오름 (hop.rs)
     Hop,
 }
 
@@ -132,7 +132,7 @@ pub struct PetManifest {
     /// 이동 방식 (없으면 walk)
     #[serde(default)]
     pub locomotion: Locomotion,
-    /// 걷는 동물이 걷기·달리기 토막 중 깡총거리는 몫 0~1 (토끼 0.5, 없으면 0 — 개구리는 locomotion hop이라 늘 폴짝)
+    /// 걷는 동물이 걷기·달리기 토막 중 깡총거리는 몫 0~1 (토끼 0.5, 없으면 0 — 폴짝 동물은 locomotion hop이라 늘 폴짝)
     #[serde(default)]
     pub hop_share: f64,
     /// 사는 집 (없으면 보통 집)
@@ -159,15 +159,12 @@ pub struct PetManifest {
     /// 📌 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣음 (흐물이, 들고 던지기 + TASKBAR_ANIMS가 있을 때만 — plays_taskbar())
     #[serde(default)]
     pub taskbar_play: bool,
-    /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨림 (고양이·페르시안, paw 그림이 있을 때만 — knocks())
+    /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨림 (고양이, paw 그림이 있을 때만 — knocks())
     #[serde(default)]
     pub knocker: bool,
     /// 🐿️ 바닥의 작은 물건을 볼에 넣어 물음 (다람쥐, STASH_ANIMS가 다 있을 때만 — stashes())
     #[serde(default)]
     pub stasher: bool,
-    /// 🦆 바닥에서 친구들을 줄줄이 데리고 걸음 (오리 — 새 그림 없이 걷기 그림으로)
-    #[serde(default)]
-    pub train_leader: bool,
     /// 🕷️ 줄을 쏘아 모서리에 거미집을 치고, 줄 그네를 타고, 영웅 착지를 하고, 물건·친구를 끌어옴 (거미인간, WEB_ANIMS가 다 있을 때만 — slings_webs())
     #[serde(default)]
     pub web_slinger: bool,
@@ -272,7 +269,7 @@ impl PetManifest {
         self.locomotion == Locomotion::Hop
     }
 
-    /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 개구리는 늘 폴짝, 나는 동물은 남)
+    /// 걷기·달리기 토막 중 깡총거리는 몫 (폴짝 동물·나는 동물은 0 — 폴짝 동물은 늘 폴짝, 나는 동물은 남)
     pub fn hop_share(&self) -> f64 {
         if self.locomotion == Locomotion::Walk { self.hop_share } else { 0.0 }
     }
@@ -586,11 +583,21 @@ mod tests {
         assert!(!dir.join("ghost").exists());
     }
 
-    /// 번들 공룡 셋: 걷고, 벽을 타고, 공룡 동작을 모두 갖고, 좋아하는 음식이 저마다 다름
+    /// 🦆🐸🟣🐱 오리·개구리·보라 공룡·페르시안은 v0.7.1에 빠졌음 (설정은 노란 공룡·다람쥐·초록 공룡·고양이로 옮김 — config::RETIRED_PETS)
+    #[test]
+    fn the_duck_frog_purple_dino_and_persian_are_gone() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
+        for id in ["duck", "frog", "dino_purple", "persian"] {
+            assert!(!dir.join(id).exists(), "{id}");
+            assert!(crate::config::replacement_species(id).is_some_and(|to| dir.join(to).join("pet.json").exists()), "{id}");
+        }
+    }
+
+    /// 번들 공룡 둘: 걷고, 벽을 타고, 공룡 동작을 모두 갖고, 좋아하는 음식이 저마다 다름
     #[test]
     fn bundled_dinos() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
-        for (id, food) in [("dino_yellow", "🍉"), ("dino_green", "🥦"), ("dino_purple", "🍇")] {
+        for (id, food) in [("dino_yellow", "🍉"), ("dino_green", "🥦")] {
             let json = std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap();
             let m = parse_manifest(&json).unwrap();
             assert!(["fire", "roar", "stomp"].iter().all(|a| m.has_anim(a)), "{id}");
@@ -731,17 +738,16 @@ mod tests {
         assert!(!parse_manifest(&partial).unwrap().soars());
     }
 
-    /// 🐱 툭툭은 고양이·페르시안, 🐿️ 볼 빵빵은 다람쥐, 🦆 기차는 오리만 (v0.6.3)
+    /// 🐱 툭툭은 고양이, 🐿️ 볼 빵빵은 다람쥐만 (v0.6.3)
     #[test]
-    fn bundled_cats_knock_the_squirrel_stashes_and_the_duck_leads_trains() {
+    fn bundled_cats_knock_and_the_squirrel_stashes() {
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
         let read = |root: &str, id: &str| std::fs::read_to_string(ui.join(root).join(id).join("pet.json")).unwrap();
         {
             for id in crate::test_util::species() {
                 let m = parse_manifest(&read("pets", &id)).unwrap();
-                assert_eq!(m.knocks(), id == "cat" || id == "persian", "{id}");
+                assert_eq!(m.knocks(), id == "cat", "{id}");
                 assert_eq!(m.stashes(), id == "squirrel", "{id}");
-                assert_eq!(m.train_leader, id == "duck", "{id}");
             }
         }
     }
@@ -765,16 +771,6 @@ mod tests {
         assert!(m.can_climb() && m.locomotion == Locomotion::Walk);
         assert!(m.hop_share() > 0.0 && m.hop_share() < 1.0);
         assert_eq!(m.favorite_food.as_ref().map(|f| f.name.as_str()), Some("도토리"));
-    }
-
-    /// 개구리 (아트 에이전트가 ui/pets/frog를 만들면 그대로 읽힘 — 없으면 건너뜀)
-    #[test]
-    fn bundled_frog_hops_and_climbs_if_present() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets/frog/pet.json");
-        let Ok(json) = std::fs::read_to_string(path) else { return };
-        let m = parse_manifest(&json).unwrap();
-        assert_eq!(m.locomotion, Locomotion::Hop);
-        assert!(m.has_anim("bigjump") && m.can_climb());
     }
 
     #[test]

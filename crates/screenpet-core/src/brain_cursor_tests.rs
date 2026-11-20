@@ -37,7 +37,7 @@ fn wait_for_play(p: &mut Pet, w: &World, cursor: (f64, f64)) -> bool {
 
 /// 시뮬레이션 설정 + 그 동물의 몸놀림 (pet.json locomotion에 맞춤)
 fn species_pet(id: &str, seed: u64) -> (Pet, World) {
-    let c = PetConfig { flies: id == "flyer", hops: id == "frog", ..cfg() };
+    let c = PetConfig { flies: id == "flyer", ..cfg() };
     let (mut p, w) = ready_pet(c, seed);
     p.set_cursor_species(id);
     (p, w)
@@ -232,7 +232,7 @@ fn walkers_stay_on_their_surface_while_approaching() {
     let mut p = Pet::new(cfg(), 800.0, 400.0, 8);
     place(&mut p, &w, Owner::Window(1), 800.0, idle());
     p.cursor_mood.ready_at = 0.0;
-    p.set_cursor_species("duck");
+    p.set_cursor_species("dino_green");
     let cursor = (1250.0, 200.0);
     assert!(wait_for_play(&mut p, &w, cursor));
     let mut limit = LoopLimit::new();
@@ -902,10 +902,10 @@ fn stretches(species: &str, personality: Personality, seed: u64, secs: f64) -> u
 }
 
 #[test]
-fn the_two_cats_stretch_more_often_than_other_pets() {
+fn cats_stretch_more_often_than_other_pets_even_when_aloof() {
     let total = |sp: &str, per: Personality| (0..3).map(|seed| stretches(sp, per, seed, 1800.0)).sum::<usize>();
     let (cat, rabbit) = (total("cat", Personality::Friendly), total("rabbit", Personality::Friendly));
-    let (persian, aloof_other) = (total("persian", Personality::Aloof), total("squirrel", Personality::Aloof));
+    let (aloof_cat, aloof_other) = (total("cat", Personality::Aloof), total("squirrel", Personality::Aloof));
     assert!(cat >= rabbit * 2 && cat > 0, "cat {cat} vs rabbit {rabbit}");
-    assert!(persian >= aloof_other * 4 && persian > 0, "persian {persian} vs {aloof_other}");
+    assert!(aloof_cat >= aloof_other * 4 && aloof_cat > 0, "aloof cat {aloof_cat} vs {aloof_other}");
 }

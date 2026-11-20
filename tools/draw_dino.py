@@ -1,13 +1,13 @@
-"""공룡 친구들 🦖 — 노란 공룡(dino_yellow) · 초록 공룡(dino_green) · 보라 공룡(dino_purple). draw_pets 엔진을 그대로 쓴다.
+"""공룡 친구들 🦖 — 노란 공룡(dino_yellow) · 초록 공룡(dino_green) (보라 공룡은 v0.7.1에 빠짐). draw_pets 엔진을 그대로 쓴다.
 
-    python tools/draw_dino.py → ui/pets/dino_{yellow,green,purple}/{sheet_<stage>.png ×5, pet.json}
-                                + tools/preview/stages_dino.png (세 색 × 다섯 단계, 2배 확대), climb_dino.png (뒷모습)
-    (python tools/draw_pets.py도 셋을 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
+    python tools/draw_dino.py → ui/pets/dino_{yellow,green}/{sheet_<stage>.png ×5, pet.json}
+                                + tools/preview/stages_dino.png (두 색 × 다섯 단계, 2배 확대), climb_dino.png (뒷모습)
+    (python tools/draw_pets.py도 둘을 함께 만든다 — draw_pets 맨 끝에서 이 모듈을 불러 SPECIES에 등록)
 
 말랑한 봉제 인형 티라노 (참고: 하늘색 몸 + 노란 등 가시 인형): 몸의 절반쯤 되는 큰 동글 머리와 불룩한 동글 주둥이,
 작은 갈색 점 눈, 분홍 타원 볼터치, 아주 짧은 앞발, 통통한 동글 다리, 끝이 말랑하게 뾰족한 짧고 굵은 꼬리,
 등을 따라 몸과 대비되는 색의 동글 세모 가시. 한 번 그리고 색만 바꾼다 (PALETTES):
-  노랑 = PANTONE 13-0758 Dandelion (#FFD02E) + 하늘색 가시 · 초록 + 진초록 가시 · 보라(라벤더) + 분홍 가시.
+  노랑 = PANTONE 13-0758 Dandelion (#FFD02E) + 하늘색 가시 · 초록 + 진초록 가시.
 단계: 아기 = 머리에 알껍데기 모자 + 콩알 가시 → 유아 → 어린이 → 청소년 → 어른 = 가장 큰 가시 (색과 상관없이 같다).
 공룡만의 동작 (선택 동작, 옆모습): fire (흡 → 작은 불꽃 퐁 → 화르륵 + 연기 → 흐뭇) · roar (고개 들고 크앙 + 소리 물결) ·
 stomp (제자리 쿵쾅쿵쾅 + 먼지 퐁퐁). 불꽃은 칸 안에 그린다 (몸을 조금 뒤로 물려 입 앞에 자리를 낸다).
@@ -37,7 +37,6 @@ DANDELION = (255, 208, 46)  # PANTONE 13-0758 Dandelion
 PALETTES = {
     "dino_yellow": dict(body=DANDELION, spike=(118, 192, 240), belly=(255, 243, 200), line=(170, 112, 52)),
     "dino_green": dict(body=(142, 214, 118), spike=(64, 156, 88), belly=(232, 248, 210), line=(84, 122, 70)),
-    "dino_purple": dict(body=(194, 166, 236), spike=(250, 156, 196), belly=(246, 238, 255), line=(118, 94, 152)),
 }
 SHELL, SHELL_SPOT = (255, 252, 240), (226, 216, 196)
 FLAME, FLAME_MID, FLAME_CORE = (255, 132, 64), (255, 190, 72), (255, 244, 170)
@@ -335,7 +334,6 @@ def impact_fx(cx, y):
 # ---- 좋아하는 음식 생각 풍선 ----
 MELON, MELON_RIND, MELON_PALE, SEED = (252, 108, 120), (110, 190, 92), (236, 252, 214), (70, 50, 52)
 BROC, BROC_DARK, BROC_STEM = (112, 186, 92), (80, 150, 70), (186, 222, 150)
-GRAPE, GRAPE_DARK, GRAPE_LEAF = (160, 110, 200), (124, 80, 166), (128, 196, 104)
 
 
 def melon_bubble_fx(cx, cy):
@@ -355,15 +353,7 @@ def broc_bubble_fx(cx, cy):
     return fx
 
 
-def grape_bubble_fx(cx, cy):
-    fx = _bubble(cx, cy)
-    pts = [(-3.6, -3.5), (0, -4), (3.6, -3.5), (-1.8, 0), (1.8, 0), (0, 3.6)]
-    fx += [([E(cx + 1, cy - 9.5, cx + 7, cy - 6)], GRAPE_LEAF, 0),
-           ([C(cx + x, cy + y, 2.7) for x, y in pts], GRAPE_DARK, 0), ([C(cx + x - 0.4, cy + y - 0.4, 2.0) for x, y in pts], GRAPE, 0)]
-    return fx
-
-
-FOOD_BUBBLE = {"dino_yellow": melon_bubble_fx, "dino_green": broc_bubble_fx, "dino_purple": grape_bubble_fx}
+FOOD_BUBBLE = {"dino_yellow": melon_bubble_fx, "dino_green": broc_bubble_fx}
 
 
 # =====================================================================
@@ -703,8 +693,7 @@ def _dino_species(pid, name):
 
 DINO_YELLOW = _dino_species("dino_yellow", "노란 공룡")
 DINO_GREEN = _dino_species("dino_green", "초록 공룡")
-DINO_PURPLE = _dino_species("dino_purple", "보라 공룡")
-DINOS = (DINO_YELLOW, DINO_GREEN, DINO_PURPLE)
+DINOS = (DINO_YELLOW, DINO_GREEN)
 
 
 def register():
@@ -716,7 +705,7 @@ register()
 
 
 def preview_dinos(by_id, path, bg=(255, 255, 255)):
-    """세 색 × 다섯 단계 × 대표 동작 (+ 공룡 동작)."""
+    """두 색 × 다섯 단계 × 대표 동작 (+ 공룡 동작)."""
     names = [("walk", 0), ("walk", 2), ("run", 1), ("sit_front", 0), ("wave", 1), ("eat", 0), ("sleep", 0), ("tickle", 0),
              ("hungry", 0), ("belly", 0), ("roll", 0), ("dragged", 0)]
     names += [(a, k) for a, n in (("lookup", 3), ("fire", 4), ("roar", 3), ("stomp", 4)) if a in DINO_YELLOW.specials
@@ -726,7 +715,7 @@ def preview_dinos(by_id, path, bg=(255, 255, 255)):
 
 
 def preview_climb(by_id, path, bg=(255, 255, 255)):
-    """세 색의 뒷모습 climb·slide 모든 프레임 × 5단계 (preview_back을 세로로 잇는다)."""
+    """두 색의 뒷모습 climb·slide 모든 프레임 × 5단계 (preview_back을 세로로 잇는다)."""
     tmp = path.with_suffix(".part.png")
     strips = []
     for by_stage in by_id.values():

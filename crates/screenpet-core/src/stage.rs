@@ -35,17 +35,6 @@ pub fn soft_power(stage: Stage) -> f64 {
     0.5 + 0.5 * stage_power(stage)
 }
 
-/// 🦆 기차 머리가 되는 세기 (아기는 거의 따라가기만, 어른이 기차 머리) — stage_power의 종별 예외
-pub fn lead_power(stage: Stage) -> f64 {
-    match stage {
-        Stage::Baby => 0.2,
-        Stage::Kinder => 0.5,
-        Stage::Child => 0.8,
-        Stage::Teenager => 1.0,
-        Stage::Adult => 1.3,
-    }
-}
-
 /// 공통 연령대 특징 행동
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StageTrait {

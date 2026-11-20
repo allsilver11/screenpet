@@ -87,8 +87,7 @@ HAND = ("hand_meal", "hand_cookie", "hand_fish", "hand_carrot", "hand_fly",
         "hand_candy", "hand_lollipop")
 HAND += ("hand_acorn",)  # 다람쥐
 HAND += ("hand_apple", "hand_milk")  # 크리스마스
-HAND += ("hand_bread",)  # 농장
-HAND += ("hand_watermelon", "hand_broccoli", "hand_grapes")  # 공룡
+HAND += ("hand_watermelon", "hand_broccoli")  # 공룡
 HAND += ("hand_shaved_ice",)  # 눈사람
 HAND += ("hand_shrimp",)  # 펭귄
 HAND += ("hand_special",)  # 특식 🍱

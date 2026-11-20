@@ -117,7 +117,7 @@ pub enum Anim {
     Climb,
     /// 벽 타기 — 미끄러져 내려오기 (뒷모습)
     Slide,
-    /// 개구리 큰 점프 — 깊게 웅크렸다가 쭉 뻗어 날아오름 (옆모습, brain_hop.rs)
+    /// 큰 점프 — 깊게 웅크렸다가 쭉 뻗어 날아오름 (옆모습, brain_hop.rs)
     #[serde(rename = "bigjump")]
     BigJump,
     /// 올려다보기 — 머리 위에 든 음식·머무는 커서, 가끔 쉬다가·걷다가 문득 (옆모습, pet.json에 lookup이 있는 동물만)
@@ -314,10 +314,6 @@ pub enum Speech {
     Tap,
     /// 🐱 끝 너머로 밀어 버렸음 ("Oops~")
     Oops,
-    /// 🦆 기차를 부름 ("Quack! Follow me!", brain_train.rs)
-    FollowMe,
-    /// 🦆 따라가며 신남 ("Choo choo!" / "Yay!")
-    Choo,
     /// 🦖 큰 쿵 ("STOMP!", brain_quake.rs)
     BigStomp,
     /// 🐿️ 볼에 쏙 ("Nom nom~", brain_stash.rs)
@@ -536,7 +532,7 @@ pub enum State {
     ToFood { remaining: f64 },
     /// 손에 든 음식(직접 주기)을 보고 기다리는 중 — 같은 바닥 가까이면 걸어가고, 나는 동물은 날아감
     WantFood { walking: bool },
-    /// 개구리 큰 점프 (brain_hop.rs): crouch초 웅크린 뒤 owner 위 rel_x로 포물선을 따라 remaining초 날아감
+    /// 큰 점프 (brain_hop.rs): crouch초 웅크린 뒤 owner 위 rel_x로 포물선을 따라 remaining초 날아감
     Leap { crouch: f64, remaining: f64, owner: Owner, rel_x: f64 },
     /// 다른 동물과 마주쳐 인사 (잡힌 뒤 하트도) — look초 친구 쪽을 쳐다본 뒤 anim. 끝은 social.rs가 정하고, remaining은 안전 시한 (brain_social.rs)
     Greet { look: f64, anim: Anim, remaining: f64 },
@@ -592,10 +588,6 @@ pub enum State {
     Knock { phase: knock_moves::KnockPhase, t: f64 },
     /// 🐿️ 물건을 볼에 넣어 물음 (brain_stash.rs)
     Stash { phase: stash_moves::StashPhase, t: f64 },
-    /// 🦆 기차 앞장 (brain_train.rs)
-    Lead { remaining: f64 },
-    /// 🦆 기차를 따라감 — 자리는 코디네이터가 (brain_train.rs, social_play.rs). remaining은 안전 시한
-    Follow { remaining: f64 },
     /// 🙌 하이파이브 (brain_highfive.rs)
     HighFive { phase: highfive_moves::HighFivePhase, t: f64 },
     /// 제자리 깜짝 폴짝 — 🦖 큰 쿵에 놀람·🦆 기차 끝 (brain_play.rs). rise = 몸 크기 배
@@ -715,9 +707,9 @@ pub struct PetConfig {
     pub can_climb: bool,
     /// 날아다님 (pet.json `locomotion: fly` — 지금 번들엔 없음, spec 2B §10)
     pub flies: bool,
-    /// 폴짝폴짝 뛰어다님 (pet.json `locomotion: hop` — 개구리, brain_hop.rs)
+    /// 폴짝폴짝 뛰어다님 (pet.json `locomotion: hop` — 지금 번들엔 없음, brain_hop.rs)
     pub hops: bool,
-    /// 걷기·달리기 토막 중 깡총거리는 몫 (pet.json `hop_share` — 토끼 0.5, brain_hop.rs). 개구리(hops)는 늘 폴짝
+    /// 걷기·달리기 토막 중 깡총거리는 몫 (pet.json `hop_share` — 토끼 0.5, brain_hop.rs). 폴짝 동물(hops)은 늘 폴짝
     pub hop_share: f64,
     /// 위를 올려다봄 (pet.json에 lookup이 있으면 — 없으면 그냥 쳐다봄)
     pub looks_up: bool,
@@ -744,12 +736,10 @@ pub struct PetConfig {
     /// 흐물이 더 놀기 (v0.6.3 — pet.json에 ANTICS_ANIMS 그림이 다 있고 들고 던지기를 함): 🎣 커서 매달리기 · 🙆 동물 들기 ·
     /// 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 캐치볼 · 🖍️ 낙서 · ⌨️ 타자 응원
     pub antics: bool,
-    /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨림 (pet.json `knocker` + paw 그림 — 고양이·페르시안, brain_knock.rs)
+    /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨림 (pet.json `knocker` + paw 그림 — 고양이, brain_knock.rs)
     pub knocks: bool,
     /// 🐿️ 바닥의 작은 물건을 볼에 넣어 물음 (pet.json `stasher` + cheeks_walk·cheeks_idle·dig 그림 — 다람쥐, brain_stash.rs)
     pub stashes: bool,
-    /// 🦆 바닥에서 친구들을 줄줄이 데리고 걸음 (pet.json `train_leader` — 오리, brain_train.rs)
-    pub leads_train: bool,
     /// 🕷️ 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기·🙃 거꾸로 매달리기 (pet.json `web_slinger` + shoot·web_swing·hero_land·web_pull·web_whirl·hang_down 그림 — 거미인간, brain_web.rs)
     pub slings_webs: bool,
     /// 🦇 오토바이 타기·윌리·점프·드리프트·🔦 박쥐 신호·오토바이로 친구 화면 오가기 (pet.json `bike_rider` + ride·wheelie·bike_jump·drift·signal 그림 — 박쥐인간, brain_bike.rs).
@@ -796,7 +786,6 @@ impl PetConfig {
             antics: m.antics(),
             knocks: m.knocks(),
             stashes: m.stashes(),
-            leads_train: m.train_leader,
             slings_webs: m.slings_webs(),
             rides_bike: m.rides_bike(),
             soars: m.soars(),
@@ -962,7 +951,7 @@ pub struct Pet {
     hit_calm_until: f64,
     /// 커서 장난·창 흔들림의 기억 (brain_cursor.rs)
     cursor_mood: cursor_moves::CursorMood,
-    /// 쉴 때 기지개를 자주 켬 (고양이·페르시안 — set_cursor_species가 정함)
+    /// 쉴 때 기지개를 자주 켬 (고양이 — set_cursor_species가 정함)
     stretchy: bool,
     /// 눈이 쌓임·벚꽃잎 날림·방금 만든 눈사람 (brain_snow.rs)
     snow: snow_moves::SnowMood,
@@ -1386,7 +1375,7 @@ impl Pet {
             State::TypeCheer { .. } => self.type_cheer_anim(),
             State::Snowman { phase, .. } => self.snowman_anim(phase),
             State::PresenceTrip => self.trip_anim(),
-            State::Knock { .. } | State::Stash { .. } | State::Lead { .. } | State::Follow { .. } | State::HighFive { .. } | State::Bounce { .. } | State::Romp { .. } => {
+            State::Knock { .. } | State::Stash { .. } | State::HighFive { .. } | State::Bounce { .. } | State::Romp { .. } => {
                 self.play_anim().unwrap_or(Anim::Idle)
             }
             State::Land { .. } if self.hero_landing() => Anim::HeroLand,
@@ -3143,8 +3132,6 @@ impl Pet {
             | State::TypeCheer { .. }
             | State::Knock { .. }
             | State::Stash { .. }
-            | State::Lead { .. }
-            | State::Follow { .. }
             | State::HighFive { .. }
             | State::Bounce { .. }
             | State::Romp { .. }
@@ -3473,10 +3460,6 @@ impl Pet {
         if kind == Move::Walk && !homesick {
             kind = self.stage_sprint(kind);
         }
-        // 🦆 오리가 바닥에서 걷기 시작하면 가끔 기차를 부른다 (brain_train.rs)
-        if kind == Move::Walk {
-            self.maybe_want_train();
-        }
         let next = State::Move { kind, remaining: behavior::range(&mut self.rng, kind.secs()) };
         self.next_after_beat(next)
     }
@@ -3782,7 +3765,7 @@ mod food_tests;
 #[path = "brain_hand_tests.rs"]
 mod hand_tests;
 
-/// 폴짝 뛰는 동물 (개구리)
+/// 폴짝 뛰는 동물 (locomotion hop)
 #[path = "brain_hop.rs"]
 mod hop_moves;
 
@@ -3974,8 +3957,6 @@ pub mod stash_moves;
 mod stash_tests;
 #[path = "brain_quake.rs"]
 mod quake_moves;
-#[path = "brain_train.rs"]
-mod train_moves;
 #[path = "brain_romp.rs"]
 pub mod romp_moves;
 #[path = "brain_highfive.rs"]
@@ -4113,7 +4094,7 @@ mod tests {
         PetConfig { flies: true, walk_speed: 70.0, ..sim_cfg() }
     }
 
-    /// 시뮬레이션용 개구리 (실제 크기·빠르기·성격)
+    /// 시뮬레이션용 폴짝 동물 (예전 번들 개구리의 크기·빠르기·성격 — 폴짝 코드를 계속 검사)
     pub(super) fn sim_frog() -> PetConfig {
         let size = 108.8;
         PetConfig { size, half_w: 0.3 * size, walk_speed: 83.0, personality: Personality::Playful, can_climb: true, hops: true, ..sim_cfg() }

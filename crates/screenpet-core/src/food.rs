@@ -83,25 +83,21 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
         Food::Favorite => match pet_id {
             "cat" => "hand_fish",
             "squirrel" => "hand_acorn",
-            "persian" => "hand_milk",
             "rabbit" => "hand_carrot",
-            "frog" => "hand_fly",
             "pumpkin" => "hand_candy",
             "rudolph" => "hand_apple",
             "santa" => "hand_milk",
-            "duck" => "hand_bread",
             "penguin" => "hand_shrimp",
             // 흐물이는 막대사탕 (막대 같은 꼬마에게 막대사탕)
             "heumul" => "hand_lollipop",
-            // 🕷️ 거미인간은 개구리처럼 파리
+            // 🕷️ 거미인간은 파리
             "spider" => "hand_fly",
             // 🦇 박쥐인간은 루돌프처럼 사과
             "bat" => "hand_apple",
-            // 🦸 슈퍼인간은 산타·페르시안처럼 우유
+            // 🦸 슈퍼인간은 산타처럼 우유
             "super" => "hand_milk",
             "dino_yellow" => "hand_watermelon",
             "dino_green" => "hand_broccoli",
-            "dino_purple" => "hand_grapes",
             "snowman" => "hand_shaved_ice",
             _ => "hand_meal",
         },
@@ -201,10 +197,10 @@ mod tests {
     fn hand_icons_per_food_and_species() {
         assert_eq!(hand_icon(Food::Meal, "cat"), "hand_meal");
         assert_eq!(hand_icon(Food::Snack, "rabbit"), "hand_cookie");
-        let favs: Vec<_> = ["cat", "rabbit", "frog", "pumpkin", "heumul", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
+        let favs: Vec<_> = ["cat", "rabbit", "spider", "pumpkin", "heumul", "unknown"].iter().map(|id| hand_icon(Food::Favorite, id)).collect();
         assert_eq!(favs, ["hand_fish", "hand_carrot", "hand_fly", "hand_candy", "hand_lollipop", "hand_meal"]);
-        // 곰·꿀벌·강아지(v0.5.5)·유령(v0.7.0)은 빠졌다: 예전 친구가 보낸 동물이어도 그냥 밥 — 없는 그림(뼈다귀·꿀·꽃꿀)을 찾지 않는다
-        for gone in ["bear", "bee", "dog", "ghost"] {
+        // 곰·꿀벌·강아지(v0.5.5)·유령(v0.7.0)·오리·개구리·보라 공룡·페르시안(v0.7.1)은 빠졌다: 예전 친구가 보낸 동물이어도 그냥 밥 — 없는 그림(뼈다귀·꿀·빵·포도)을 찾지 않는다
+        for gone in ["bear", "bee", "dog", "ghost", "duck", "frog", "dino_purple", "persian"] {
             assert_eq!(hand_icon(Food::Favorite, gone), "hand_meal", "{gone}");
         }
         // 할로윈 동물도 밥·간식은 다른 동물과 같다
@@ -215,21 +211,19 @@ mod tests {
         // 다람쥐는 도토리를 두 앞발로 오물오물
         assert_eq!((hand_icon(Food::Favorite, "squirrel"), hand_icon(Food::Snack, "squirrel")), ("hand_acorn", "hand_cookie"));
         assert_eq!(hand_icon(Food::Snack, "santa"), "hand_cookie");
-        assert_eq!(hand_icon(Food::Favorite, "duck"), "hand_bread");
         // 펭귄은 새우를 냠냠
         assert_eq!((hand_icon(Food::Favorite, "penguin"), hand_icon(Food::Snack, "penguin")), ("hand_shrimp", "hand_cookie"));
         assert_eq!((hand_icon(Food::Favorite, "spider"), hand_icon(Food::Meal, "spider")), ("hand_fly", "hand_meal"));
         assert_eq!(hand_icon(Food::Favorite, "bat"), "hand_apple");
         assert_eq!(hand_icon(Food::Favorite, "super"), "hand_milk");
-        assert_eq!(hand_icon(Food::Favorite, "persian"), "hand_milk");
         assert_eq!(
-            ["dino_yellow", "dino_green", "dino_purple"].map(|id| hand_icon(Food::Favorite, id)),
-            ["hand_watermelon", "hand_broccoli", "hand_grapes"]
+            ["dino_yellow", "dino_green"].map(|id| hand_icon(Food::Favorite, id)),
+            ["hand_watermelon", "hand_broccoli"]
         );
         assert_eq!(hand_icon(Food::Snack, "dino_green"), "hand_cookie");
         assert_eq!(hand_icon(Food::Favorite, "snowman"), "hand_shaved_ice");
         assert_eq!(hand_icon(Food::Meal, "snowman"), "hand_meal");
-        for id in ["cat", "duck", "snowman", "unknown"] {
+        for id in ["cat", "squirrel", "snowman", "unknown"] {
             assert_eq!(hand_icon(Food::Special, id), "hand_special");
             assert!(FeedMode::Hand.by_hand(Food::Special) && !FeedMode::Auto.by_hand(Food::Special));
         }

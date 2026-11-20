@@ -16,7 +16,6 @@ pub(crate) fn pet_cfg() -> PetConfig {
         antics: false,
         knocks: false,
         stashes: false,
-        leads_train: false,
         slings_webs: false,
         rides_bike: false,
         soars: false,

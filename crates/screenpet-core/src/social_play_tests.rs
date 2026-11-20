@@ -1,4 +1,4 @@
-//! 🦆 오리 기차 · 🙌 하이파이브 · 🦖 큰 쿵 (v0.6.3 — social.rs + social_play.rs + brain_train·highfive·quake.rs)
+//! 🙌 하이파이브 · 🦖 큰 쿵 (v0.6.3 — social.rs + social_play.rs + brain_highfive·quake.rs)
 
 use super::*;
 use crate::behavior::Move;
@@ -12,10 +12,6 @@ const GROUND: f64 = 1040.0;
 
 fn cfg() -> PetConfig {
     PetConfig { half_w: 38.4, ..crate::test_util::pet_cfg() }
-}
-
-fn duck() -> PetConfig {
-    PetConfig { leads_train: true, ..cfg() }
 }
 
 fn floor() -> World {
@@ -49,210 +45,12 @@ fn step(s: &mut Social, pets: &mut [Pet], w: &World) {
     }
 }
 
-/// 걷기 시작한 오리(0)와 그 뒤에 쉬는 친구들
-fn train_scene(w: &World, friends: &[f64], seed: u64) -> Vec<Pet> {
-    let mut pets = vec![at(w, duck(), 900.0, 1.0, walking(), seed)];
-    for (k, &x) in friends.iter().enumerate() {
-        pets.push(at(w, cfg(), x, 1.0, resting(), seed + 1 + k as u64));
-    }
-    for p in &mut pets {
-        p.update(DT, w);
-    }
-    pets[0].want_train_now();
-    pets
-}
-
 fn quiet_social(seed: u64) -> Social {
     let mut s = Social::new(seed);
     s.meet_chance = 0.0;
     s.one_way_chance = 0.0;
     s.set_high_five_chance(0.0);
     s
-}
-
-#[test]
-fn friends_on_the_floor_line_up_behind_the_duck_and_follow_its_path_and_turns() {
-    let w = floor();
-    let mut pets = train_scene(&w, &[700.0, 1100.0, 500.0], 1);
-    let mut s = quiet_social(1);
-    step(&mut s, &mut pets, &w);
-    assert!(pets[0].is_leading());
-    assert_eq!(pets[0].take_speech(), Some(Speech::FollowMe));
-    assert!(pets[1..].iter().all(Pet::is_following));
-    assert_eq!(s.trains(), 1);
-    // 오리를 끝 가까이로 걷게 해 돌아서는 것까지 본다
-    let mut turned_at = None;
-    let mut choo = false;
-    let mut lined = false;
-    for k in 0..(60 * 7) {
-        let before = pets[0].facing;
-        step(&mut s, &mut pets, &w);
-        if !pets[0].is_leading() {
-            break;
-        }
-        if pets[0].facing != before {
-            turned_at.get_or_insert(pets[0].body.x);
-        }
-        for p in pets[1..].iter_mut() {
-            choo |= p.take_speech() == Some(Speech::Choo);
-            assert!(matches!(p.render().anim, Anim::Walk | Anim::Run), "{:?}", p.render().anim);
-        }
-        if k > 60 * 5 {
-            // 줄을 섰다: 따라오는 친구들이 오리가 지나간 자리를 TRAIN_SPACING 간격으로
-            let spacing = play::TRAIN_SPACING * 128.0;
-            let behind: Vec<f64> = pets.iter().map(|p| (p.body.x - pets[0].body.x) * -pets[0].facing).collect();
-            let mut sorted = behind[1..].to_vec();
-            sorted.sort_by(f64::total_cmp);
-            for (k, d) in sorted.iter().enumerate() {
-                assert!((d - spacing * (k + 1) as f64).abs() < 0.3 * 128.0, "{behind:?}");
-            }
-            lined = true;
-        }
-    }
-    assert!(lined);
-    let _ = (turned_at, choo);
-}
-
-#[test]
-fn the_followers_turn_where_the_duck_turned() {
-    let w = floor();
-    let mut pets = vec![at(&w, duck(), 1700.0, 1.0, walking(), 3), at(&w, cfg(), 1600.0, 1.0, resting(), 4)];
-    for p in &mut pets {
-        p.update(DT, &w);
-    }
-    pets[0].want_train_now();
-    let mut s = quiet_social(3);
-    step(&mut s, &mut pets, &w);
-    assert!(pets[0].is_leading() && pets[1].is_following());
-    let mut duck_turn = None;
-    let mut friend_turn = None;
-    for _ in 0..(60 * 8) {
-        let (d, f) = (pets[0].facing, pets[1].facing);
-        step(&mut s, &mut pets, &w);
-        if !pets[0].is_leading() {
-            break;
-        }
-        if pets[0].facing != d && duck_turn.is_none() {
-            duck_turn = Some(pets[0].body.x);
-        }
-        if pets[1].facing != f && f > 0.0 && friend_turn.is_none() && duck_turn.is_some() {
-            friend_turn = Some(pets[1].body.x);
-        }
-    }
-    let (d, f) = (duck_turn.expect("오리가 바닥 끝에서 돈다"), friend_turn.expect("친구도 돈다"));
-    assert!((d - f).abs() < 0.3 * 128.0, "같은 자리에서 돈다: {d} {f}");
-}
-
-#[test]
-fn at_most_four_and_never_sleeping_flying_held_far_or_busy_friends() {
-    let w = floor();
-    let mut pets = train_scene(&w, &[800.0, 700.0, 600.0, 1000.0, 1100.0, 1200.0], 5);
-    // 자는 친구, 나는 친구, 잡힌 친구, 아주 먼 친구
-    pets.push(at(&w, cfg(), 850.0, 1.0, State::Sleep { remaining: 100.0 }, 50));
-    pets.push(at(&w, PetConfig { flies: true, ..cfg() }, 950.0, 1.0, resting(), 51));
-    pets.push(at(&w, cfg(), 920.0, 1.0, State::Dragged, 52));
-    pets.push(at(&w, cfg(), 900.0 + 12.0 * 128.0, 1.0, resting(), 53));
-    let mut s = quiet_social(5);
-    step(&mut s, &mut pets, &w);
-    assert!(pets[0].is_leading());
-    let following: Vec<usize> = (0..pets.len()).filter(|&i| pets[i].is_following()).collect();
-    assert_eq!(following.len(), play::TRAIN_MAX_FOLLOWERS, "{following:?}");
-    assert!(following.iter().all(|&i| i <= 6), "가까운 한가한 친구만: {following:?}");
-    assert!(matches!(pets[7].state, State::Sleep { .. }), "자는 친구는 그대로 잔다");
-}
-
-#[test]
-fn no_one_to_follow_means_no_train() {
-    let w = floor();
-    let mut pets = train_scene(&w, &[], 6);
-    let mut s = quiet_social(6);
-    step(&mut s, &mut pets, &w);
-    assert!(!pets[0].is_leading());
-    assert!(matches!(pets[0].state, State::Move { .. }));
-}
-
-#[test]
-fn when_the_time_is_up_everyone_hops_and_scatters() {
-    let w = floor();
-    let mut pets = train_scene(&w, &[700.0, 600.0], 7);
-    let mut s = quiet_social(7);
-    step(&mut s, &mut pets, &w);
-    assert!(pets[0].is_leading());
-    let mut hopped = [false; 3];
-    for _ in 0..(60 * 25) {
-        step(&mut s, &mut pets, &w);
-        for (k, p) in pets.iter().enumerate() {
-            if matches!(p.state, State::Bounce { .. }) {
-                hopped[k] = true;
-                assert!(matches!(p.render().anim, Anim::Hop | Anim::Land));
-            }
-        }
-        if hopped.iter().all(|&h| h) && pets.iter().all(|p| !matches!(p.state, State::Bounce { .. })) {
-            break;
-        }
-    }
-    assert_eq!(hopped, [true; 3]);
-    assert_eq!(s.trains(), 0);
-    assert!(pets.iter().all(|p| !p.is_leading() && !p.is_following()));
-    assert!(pets[0].train_ready_at() - pets[0].play_clock() >= play::TRAIN_CALM_SECS.0 - 25.0, "오리는 한참 쉰다");
-}
-
-#[test]
-fn grabbing_the_duck_ends_the_train_and_a_grabbed_friend_just_drops_out() {
-    let w = floor();
-    let mut pets = train_scene(&w, &[700.0, 600.0], 8);
-    let mut s = quiet_social(8);
-    step(&mut s, &mut pets, &w);
-    for _ in 0..30 {
-        step(&mut s, &mut pets, &w);
-    }
-    let f = &mut pets[1];
-    f.pointer_down(f.body.x, f.body.y - 60.0);
-    step(&mut s, &mut pets, &w);
-    assert!(!pets[1].is_following() && pets[0].is_leading() && pets[2].is_following());
-    let d = &mut pets[0];
-    d.pointer_down(d.body.x, d.body.y - 60.0);
-    step(&mut s, &mut pets, &w);
-    step(&mut s, &mut pets, &w);
-    assert!(!pets[2].is_following());
-    assert_eq!(s.trains(), 0);
-}
-
-#[test]
-fn a_duck_wants_a_train_now_and_then_on_the_floor_and_not_again_for_minutes() {
-    let w = floor();
-    let mut wanted = 0;
-    let n = 300;
-    for seed in 0..n {
-        let mut p = at(&w, duck(), 900.0, 1.0, State::Idle { remaining: 0.2, look: false }, seed);
-        p.set_train_ready(0.0);
-        // 쉬다가 걷기 시작할 때까지
-        let mut wish = false;
-        for _ in 0..(60 * 60) {
-            p.update(DT, &w);
-            if matches!(p.state, State::Move { kind: Move::Walk, .. }) {
-                wish = p.take_train_wish();
-                break;
-            }
-        }
-        wanted += usize::from(wish);
-    }
-    let share = wanted as f64 / n as f64;
-    assert!(share > 0.15 && share < 0.45, "{share}");
-    // 쉬는 때 중엔 부르지 않는다
-    let mut p = at(&w, duck(), 900.0, 1.0, resting(), 1);
-    p.set_train_ready(f64::INFINITY);
-    for _ in 0..(60 * 120) {
-        p.update(DT, &w);
-        assert!(!p.take_train_wish());
-    }
-    // 오리가 아니면 부르지 않는다
-    let mut q = at(&w, cfg(), 900.0, 1.0, resting(), 2);
-    q.set_train_ready(0.0);
-    for _ in 0..(60 * 120) {
-        q.update(DT, &w);
-        assert!(!q.take_train_wish());
-    }
 }
 
 // ---- 🙌 하이파이브 ----

@@ -266,15 +266,20 @@ enum SideDef {
 /// 이름이 바뀐 동물 (예전 이름, 지금 이름) — 불러올 때 옮김 (retire_pets)
 pub const RENAMED_PETS: [(&str, &str); 1] = [("beaver", "bear")];
 /// 더 이상 없는 동물 (없어진 id, 대신 고르는 동물) — 고른 동물이면 바꾸고, 키운 기록은 대신 고르는 동물에게 넘김.
-/// v0.5.5 곰·꿀벌·강아지 → 고양이, v0.7.0 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐 · 유령 → 호박 (같은 으스스한 집)
-pub const RETIRED_PETS: [(&str, &str); 7] = [
+/// v0.5.5 곰·꿀벌·강아지 → 고양이, v0.7.0 기린 → 노란 공룡 · 레서판다 → 다람쥐 · 유령 → 호박 (같은 으스스한 집),
+/// v0.7.1 오리 → 노란 공룡 · 개구리 → 다람쥐 · 보라 공룡 → 초록 공룡 · 페르시안 → 고양이, 새는 (0.7.0엔 오리로 갔지만) 오리와 같이 노란 공룡으로
+pub const RETIRED_PETS: [(&str, &str); 11] = [
     ("bear", "cat"),
     ("bee", "cat"),
     ("dog", "cat"),
-    ("bird", "duck"),
+    ("bird", "dino_yellow"),
     ("giraffe", "dino_yellow"),
     ("redpanda", "squirrel"),
     ("ghost", "pumpkin"),
+    ("duck", "dino_yellow"),
+    ("frog", "squirrel"),
+    ("dino_purple", "dino_green"),
+    ("persian", "cat"),
 ];
 
 /// 없어진 동물이면 대신 고를 비슷한 동물 (RETIRED_PETS), 아직 있는 동물이면 None
@@ -1003,17 +1008,22 @@ mod tests {
         }
     }
 
-    /// v0.7.0: 새 → 오리 · 기린 → 노란 공룡 · 레서판다 → 다람쥐, 예전 곰·꿀벌·강아지 → 고양이. 남은 동물은 None
+    /// v0.7.0: 새 → 노란 공룡 (0.7.1에 오리가 없어져 오리와 같은 곳으로) · 기린 → 노란 공룡 · 레서판다 → 다람쥐,
+    /// v0.7.1: 오리 → 노란 공룡 · 개구리 → 다람쥐 · 보라 공룡 → 초록 공룡 · 페르시안 → 고양이, 예전 곰·꿀벌·강아지 → 고양이. 남은 동물은 None
     #[test]
     fn replacement_species_maps_each_removed_pet_to_a_lookalike() {
-        assert_eq!(replacement_species("bird"), Some("duck"));
+        assert_eq!(replacement_species("bird"), Some("dino_yellow"));
+        assert_eq!(replacement_species("duck"), Some("dino_yellow"));
+        assert_eq!(replacement_species("frog"), Some("squirrel"));
+        assert_eq!(replacement_species("dino_purple"), Some("dino_green"));
+        assert_eq!(replacement_species("persian"), Some("cat"));
         assert_eq!(replacement_species("giraffe"), Some("dino_yellow"));
         assert_eq!(replacement_species("redpanda"), Some("squirrel"));
         for gone in ["bear", "bee", "dog"] {
             assert_eq!(replacement_species(gone), Some("cat"), "{gone}");
         }
         assert_eq!(replacement_species("ghost"), Some("pumpkin"));
-        for kept in ["cat", "duck", "dino_yellow", "squirrel", "spider", "pumpkin", "unknown", ""] {
+        for kept in ["cat", "dino_green", "dino_yellow", "squirrel", "spider", "pumpkin", "unknown", ""] {
             assert_eq!(replacement_species(kept), None, "{kept}");
         }
     }
@@ -1023,7 +1033,15 @@ mod tests {
     fn bird_giraffe_and_redpanda_move_to_their_lookalikes_with_their_growth() {
         use crate::care::{Care, Stage};
         let grown = Care { stage: Stage::Adult, stamina: 33.0, fullness: 0.7, locked: false };
-        for (gone, to) in [("bird", "duck"), ("giraffe", "dino_yellow"), ("redpanda", "squirrel")] {
+        for (gone, to) in [
+            ("bird", "dino_yellow"),
+            ("giraffe", "dino_yellow"),
+            ("redpanda", "squirrel"),
+            ("duck", "dino_yellow"),
+            ("frog", "squirrel"),
+            ("dino_purple", "dino_green"),
+            ("persian", "cat"),
+        ] {
             let mut c = cfg_with(gone, &[(gone, grown.clone())]);
             c.retire_pets();
             assert_eq!(c.pet.as_deref(), Some(to), "{gone}");
@@ -1039,8 +1057,27 @@ mod tests {
         assert!(!c.care.contains_key("giraffe"));
     }
 
+    /// 🦆🐸 v0.7.1: 오리·개구리·보라 공룡·페르시안을 키우던 사용자 — 노란 공룡·다람쥐·초록 공룡·고양이로 바뀌고 먹은 양·연령대는 그대로
     #[test]
-    fn loading_an_old_config_moves_a_bird_to_the_duck() {
+    fn loading_an_old_config_moves_duck_frog_purple_dino_and_persian_with_their_growth() {
+        for (gone, to) in [("duck", "dino_yellow"), ("frog", "squirrel"), ("dino_purple", "dino_green"), ("persian", "cat")] {
+            let d = temp_dir(&format!("retired_{gone}"));
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(
+                d.join("config.json"),
+                format!(r#"{{"pet": "{gone}", "owner_name": "민지", "care": {{"{gone}": {{"stage": "adult", "stamina": 11.0, "fullness": 0.6, "locked": true}}}}}}"#),
+            )
+            .unwrap();
+            let c = load(&d);
+            assert_eq!(c.pet.as_deref(), Some(to), "{gone}");
+            assert_eq!(c.care.get(to).map(|c| (c.stage, c.stamina, c.locked)), Some((crate::care::Stage::Adult, 11.0, true)), "{gone}");
+            assert!(!c.care.contains_key(gone), "{gone}");
+            assert_eq!(c.owner_name.as_deref(), Some("민지"));
+        }
+    }
+
+    #[test]
+    fn loading_an_old_config_moves_a_bird_to_the_yellow_dino() {
         let d = temp_dir("retired_bird");
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(
@@ -1049,8 +1086,8 @@ mod tests {
         )
         .unwrap();
         let c = load(&d);
-        assert_eq!(c.pet.as_deref(), Some("duck"));
-        assert_eq!(c.care.get("duck").map(|c| (c.stage, c.stamina, c.locked)), Some((crate::care::Stage::Teenager, 7.0, true)));
+        assert_eq!(c.pet.as_deref(), Some("dino_yellow"));
+        assert_eq!(c.care.get("dino_yellow").map(|c| (c.stage, c.stamina, c.locked)), Some((crate::care::Stage::Teenager, 7.0, true)));
     }
 
     /// 👻 v0.7.0: 유령을 키우던 사용자 — 같은 으스스한 집에 사는 호박으로 바뀌고 먹은 양·연령대는 그대로

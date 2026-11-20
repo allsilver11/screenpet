@@ -1,4 +1,4 @@
-//! 폴짝 뛰는 동물(개구리, pet.json `locomotion: hop`)의 순수 계산 —
+//! 폴짝 뛰는 동물(pet.json `locomotion: hop` — 지금 번들엔 없음, 개구리는 v0.7.1에 빠짐)의 순수 계산 —
 //! 걸음 대신 작은 폴짝 박자·높이, 벽을 폴짝폴짝 오르는 박자, 큰 점프 포물선과 목표 고르기 (큰 점프는 걷는 동물 모두).
 //! Pet 쪽 연결은 brain_hop.rs.
 
@@ -19,7 +19,7 @@ pub const RUN_HOP_LEN: f64 = 0.8;
 pub const WALK_HOP_HEIGHT: f64 = 0.28;
 /// 달리기 폴짝 높이 (× 크기)
 pub const RUN_HOP_HEIGHT: f64 = 0.33;
-/// 깡총 뛰는 토끼(pet.json `hop_share`)의 폴짝 — 개구리보다 조금 낮고 조금 짧게 떠 있음 (hop 그림 3프레임 10fps는 다 보임)
+/// 깡총 뛰는 토끼(pet.json `hop_share`)의 폴짝 — 폴짝 동물보다 조금 낮고 조금 짧게 떠 있음 (hop 그림 3프레임 10fps는 다 보임)
 pub const BUNNY_AIR_SECS: f64 = 0.28;
 /// 토끼 걷기 폴짝 높이 (× 크기)
 pub const BUNNY_WALK_HOP_HEIGHT: f64 = 0.24;
@@ -33,9 +33,9 @@ pub const CLIMB_HOP_SECS: f64 = 0.3;
 /// 벽에 매달려 쉬는 시간 (초)
 pub const CLIMB_CLING_SECS: f64 = 0.4;
 
-/// 닿을 수 있는 창 윗면이 있을 때 이동 결정 중 큰 점프 확률 — 개구리 (폴짝 동물)
+/// 닿을 수 있는 창 윗면이 있을 때 이동 결정 중 큰 점프 확률 — 폴짝 동물
 pub const BIG_JUMP_CHANCE: f64 = 0.12;
-/// 같은 확률 — 다른 걷는 동물은 개구리의 절반 (어쩌다 한 번이라 깜짝 놀람)
+/// 같은 확률 — 다른 걷는 동물은 폴짝 동물의 절반 (어쩌다 한 번이라 깜짝 놀람)
 pub const WALKER_BIG_JUMP_CHANCE: f64 = 0.06;
 /// 큰 점프 높이·거리에 쓰는 몸 크기의 상한 (논리 px, 어른 고양이쯤) — 산타(1.65배)처럼 큰 몸이 화면 끝까지 솟지 않게
 pub const LEAP_REACH_SIZE_CAP: f64 = 150.0;
@@ -71,7 +71,7 @@ impl Gait {
         Self::with(size, speed, run, AIR_SECS, height)
     }
 
-    /// 토끼의 깡총 걸음 — 박자 거리는 개구리와 같고, 조금 낮게·짧게 떠 있음
+    /// 토끼의 깡총 걸음 — 박자 거리는 폴짝 동물과 같고, 조금 낮게·짧게 떠 있음
     pub fn bunny(size: f64, speed: f64, run: bool) -> Self {
         let height = if run { BUNNY_RUN_HOP_HEIGHT } else { BUNNY_WALK_HOP_HEIGHT };
         Self::with(size, speed, run, BUNNY_AIR_SECS, height)

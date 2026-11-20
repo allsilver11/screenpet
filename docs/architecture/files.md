@@ -100,7 +100,7 @@ crates/
 ### 2.2 패턴: `brain_<기능>.rs` + `brain_<기능>_tests.rs`
 
 - `brain.rs`가 `Pet`을 갖고, 기능마다 `brain_<기능>.rs`가 **자식 모듈**로 붙어 `Pet`의 비공개 필드를 씀 (각 파일 첫 줄 "brain.rs의 자식 모듈").
-- 숫자·순수 계산은 짝 파일에 둠: `brain_juggle.rs` ↔ `juggle.rs`, `brain_poop.rs` ↔ `poop.rs`, `brain_taskbar.rs` ↔ `taskbar.rs`, `brain_knock/stash/quake/train.rs` ↔ `play.rs`, `brain_fly.rs` ↔ `flight.rs`, `brain_hop.rs` ↔ `hop.rs`, `brain_vehicle.rs` ↔ `vehicle.rs`.
+- 숫자·순수 계산은 짝 파일에 둠: `brain_juggle.rs` ↔ `juggle.rs`, `brain_poop.rs` ↔ `poop.rs`, `brain_taskbar.rs` ↔ `taskbar.rs`, `brain_knock/stash/quake.rs` ↔ `play.rs`, `brain_fly.rs` ↔ `flight.rs`, `brain_hop.rs` ↔ `hop.rs`, `brain_vehicle.rs` ↔ `vehicle.rs`.
 - 시험은 `brain_<기능>_tests.rs` (같은 이름 + `_tests`). 기능 하나 찾을 때 이 세 파일을 같이 보면 됨.
 - 같은 패턴: `social.rs` ↔ `social_play.rs`, `social_tower.rs`, `social_*_tests.rs`.
 
@@ -147,7 +147,7 @@ ui/
 │                            mailbox, board, help, prop
 ├── common.js, pager.js, doodle.js   공용 스크립트
 ├── style.css, form.css, list.css    공용 스타일 (폼 창은 form.css를 같이 씀 — test_csp.py가 확인)
-├── pets/<species>/          동물 그림 17종
+├── pets/<species>/          동물 그림 14종
 ├── effects/                 소품·손 음식·눈덩이 등
 ├── objects/                 물건 128×128
 ├── vehicles/                🚗 탈것 시트 {car,heli,scooter,truck}.png (가로 3칸, 칸 = 창 크기 2배)
@@ -163,7 +163,7 @@ ui/
 | `sheet_<stage>.png` ×5 | `baby`, `kinder`, `child`, `teenager`, `adult`. 프레임 128×128, 한 행 = 한 동작 (`docs/sprites.md`) |
 | `ink_<stage>.png` ×5 | 🎨 몸 색을 바꿀 수 있는 동물(흐물이)만: 잉크 자리 마스크 |
 
-18종: bat (박쥐인간), cat, dino_green/purple/yellow, duck, frog, heumul, penguin, persian, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel, super (슈퍼인간). (새·기린·레서판다·유령은 v0.7.0에서 빠짐 — 저장된 펫은 `config::replacement_species`로 오리·노란 공룡·다람쥐·호박이 됨. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
+14종: bat (박쥐인간), cat, dino_green/yellow, heumul, penguin, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel, super (슈퍼인간). (새·기린·레서판다·유령은 v0.7.0, 오리·개구리·보라 공룡·페르시안은 v0.7.1에서 빠짐 — 저장된 펫은 `config::replacement_species`로 새·기린·오리 → 노란 공룡, 레서판다·개구리 → 다람쥐, 유령 → 호박, 보라 공룡 → 초록 공룡, 페르시안 → 고양이가 됨. 🦆 오리 기차도 오리와 함께 빠졌고, 폴짝 이동(`locomotion: hop`)은 일반 기능으로 남음. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
 
 ---
 
@@ -171,7 +171,7 @@ ui/
 
 | 파일 | 생성/손 | 다시 만들기 |
 |---|---|---|
-| `ui/pets/<id>/sheet_*.png`, `pet.json` | 생성 | `python tools/draw_pets.py` (모든 동글 동물. 종별 파일 `draw_frog.py`… 는 하나만) |
+| `ui/pets/<id>/sheet_*.png`, `pet.json` | 생성 | `python tools/draw_pets.py` (모든 동글 동물. 종별 파일 `draw_dino.py`… 는 그 종만) |
 | `ui/pets/heumul/ink_*.png` | 생성 | `python tools/draw_heumul.py` (`write_ink_round`) |
 | `ui/house/*` | 생성 | `python tools/draw_house.py` (`xmas`만도 가능) |
 | `ui/objects/*.png` | 생성 | `python tools/draw_objects.py` (`--shapes`는 `tumble.rs`에 붙일 표 출력) |
@@ -194,8 +194,8 @@ ui/
 
 | 종류 | 파일 |
 |---|---|
-| 그림 엔진 | `draw_pets.py` (공통 엔진 + 고양이·토끼·페르시안, 맨 끝에서 종별 모듈 등록), `sprite_spec.py` |
-| 종별 그림 | `draw_{bat,christmas,dino,farm,frog,halloween,heumul,penguin,snowman,spider,squirrel,super}.py` |
+| 그림 엔진 | `draw_pets.py` (공통 엔진 + 고양이·토끼, 맨 끝에서 종별 모듈 등록), `sprite_spec.py` |
+| 종별 그림 | `draw_{bat,christmas,dino,halloween,heumul,penguin,snowman,spider,squirrel,super}.py` |
 | 세계 그림 | `draw_{house,objects,props,sleigh,vehicles}.py`, `make_icon.py` |
 | 미리보기 | `preview_nightcap.py`, `preview_scarf.py` |
 | 배포 | `pack_webp.py`, `requirements-pack.txt` |

@@ -26,7 +26,7 @@ pub const ALOOF_HUNGRY_AEGYO_CHANCE: f64 = 0.60;
 pub const IGNORE_SPEECH_CHANCE: f64 = 0.5;
 /// 흥! 하는 시간 (초)
 pub const HUFF_SECS: f64 = 1.5;
-/// 장난꾸러기(개구리)가 쉴 때 애교 부릴 확률
+/// 장난꾸러기(playful)가 쉴 때 애교 부릴 확률
 pub const PLAYFUL_TRICK_CHANCE: f64 = 0.65;
 
 /// 동물 성격 (pet.json `personality`)
@@ -38,7 +38,7 @@ pub enum Personality {
     Friendly,
     /// 새침함 (고양이) — 애교가 드물고 클릭에 흥! 하거나 무시
     Aloof,
-    /// 장난꾸러기 (개구리) — 클릭엔 늘 반응하고 쉴 때 애교가 조금 더 많음
+    /// 장난꾸러기 — 클릭엔 늘 반응하고 쉴 때 애교가 조금 더 많음
     Playful,
 }
 
@@ -295,12 +295,12 @@ pub fn pick_move(rng: &mut fastrand::Rng) -> Move {
     }
 }
 
-/// 쉴 때 따로 기지개를 켜는 몫 (고양이·페르시안 — 성격과 상관없이 먼저 굴림)
+/// 쉴 때 따로 기지개를 켜는 몫 (고양이 — 성격과 상관없이 먼저 굴림)
 pub const STRETCHY_REST_CHANCE: f64 = 0.2;
 
-/// 기지개를 자주 켜는 동물 (고양이 둘)
+/// 기지개를 자주 켜는 동물 (고양이 — 페르시안은 v0.7.1에 빠짐)
 pub fn stretchy_species(species: &str) -> bool {
-    matches!(species, "cat" | "persian")
+    species == "cat"
 }
 
 /// pick_rest + 기지개 잘 켜는 동물이면 먼저 기지개 몫을 굴림
@@ -376,11 +376,11 @@ mod tests {
         let (cat, aloof) = (Personality::Friendly.trick_chance(false), Personality::Aloof.trick_chance(false));
         // 보통 동물: 애교 6개 중 하나 (친근 ~9%, 새침 ~2%)
         assert!((0.07..=0.11).contains(&stretch(cat, false)));
-        // 고양이·페르시안: 쉴 때 따로 기지개 몫이 있다 — 새침한 페르시안도 자주
+        // 고양이: 쉴 때 따로 기지개 몫이 있다 — 새침해도 자주
         assert!((0.24..=0.30).contains(&stretch(cat, true)), "{}", stretch(cat, true));
         assert!((0.18..=0.24).contains(&stretch(aloof, true)), "{}", stretch(aloof, true));
-        assert!(stretchy_species("cat") && stretchy_species("persian"));
-        assert!(!["penguin", "squirrel", "rabbit", "unknown"].iter().any(|s| stretchy_species(s)));
+        assert!(stretchy_species("cat"));
+        assert!(!["persian", "penguin", "squirrel", "rabbit", "unknown"].iter().any(|s| stretchy_species(s)));
     }
 
     #[test]

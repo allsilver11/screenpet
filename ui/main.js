@@ -744,11 +744,9 @@ const EXTRA_SPEECH = {
   peekaboo: ["Peekaboo~"],
   dance: ["♪", "♪♪"],
   rally_end: ["Done!"],
-  // 다른 동물들도 더 놀기 (v0.6.3): 🐱 고양이 툭툭 / 밀어 떨어뜨림 · 🦆 오리 기차 / 따라가며 · 🦖 큰 쿵 · 🐿️ 볼에 쏙 · 🙌 하이파이브
+  // 다른 동물들도 더 놀기 (v0.6.3): 🐱 고양이 툭툭 / 밀어 떨어뜨림 · 🦖 큰 쿵 · 🐿️ 볼에 쏙 · 🙌 하이파이브
   tap: ["Tap… tap…"],
   oops: ["Oops~"],
-  follow_me: ["Quack! Follow me!"],
-  choo: ["Choo choo!", "Yay!"],
   big_stomp: ["STOMP!"],
   nom: ["Nom nom~"],
   high_five: ["High five!"],
@@ -826,18 +824,14 @@ function stageSpeech(base, m, stageName) {
 // 🐾 커서 장난: 커서를 보고 장난기가 돌 때 — 동물마다 다르게 (코어 brain_cursor.rs)
 const CURSOR_LINES = {
   cat: ["mrrow...", "*wiggle wiggle*"],
-  persian: ["...mrr?", "*streeetch*"],
   rabbit: ["hop hop!"],
   squirrel: ["chk chk?", "ooh, shiny?"],
-  frog: ["ribbit!"],
   pumpkin: ["bounce!"],
-  duck: ["quack!", "quack quack!"],
   rudolph: ["jingle!"],
   santa: ["ho ho ho!"],
   snowman: ["brrr~!", "snow!"],
   dino_yellow: ["RAWR!"],
   dino_green: ["rawr!"],
-  dino_purple: ["rawr~"],
   penguin: ["wheee~!", "slide slide!"],
   heumul: ["zoom zoom!", "hup hup!"],
   spider: ["thwip thwip!", "web time!"],

@@ -1,4 +1,4 @@
-//! 폴짝 뛰는 동물(개구리, pet.json `locomotion: hop`)과 가끔 깡총거리는 동물(토끼, pet.json `hop_share`)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
+//! 폴짝 뛰는 동물(pet.json `locomotion: hop` — 지금 번들엔 없음, 개구리는 v0.7.1에 빠짐)과 가끔 깡총거리는 동물(토끼, pet.json `hop_share`)의 Pet 동작 — brain.rs의 자식 모듈 (비공개 필드에 접근).
 //! 박자·포물선·목표 계산은 hop.rs.
 //!
 //! - 걷기·달리기(State::Move)는 디딤판 위 걷기 그대로지만, 떠 있을 때만 앞으로 가고(hop_pace) 그림만 살짝 띄움
@@ -30,7 +30,7 @@ impl Pet {
         Some(Gait { height: g.height * self.soft_power(), ..g })
     }
 
-    /// 깡총 걸음 중 (토끼의 이번 틱 State::Move 토막이 깡총) — 개구리의 벽 폴짝 오르기는 없음
+    /// 깡총 걸음 중 (토끼의 이번 틱 State::Move 토막이 깡총) — 폴짝 동물의 벽 폴짝 오르기는 없음
     pub(super) fn bunny_hopping(&self) -> bool {
         !self.cfg.hops && matches!(self.state, State::Move { .. }) && self.bunny.at(self.clock)
     }
@@ -70,7 +70,7 @@ impl Pet {
     pub(super) fn hop_lift(&self) -> f64 {
         let kind = match self.state {
             State::Move { kind, .. } => kind,
-            // 술래 놀이도 폴짝 달리기 (개구리만 — 토끼는 그냥 달린다)
+            // 술래 놀이도 폴짝 달리기 (폴짝 동물만 — 토끼는 그냥 달린다)
             State::Chase { .. } | State::Flee { .. } if self.cfg.hops => Move::Run,
             // 커서로 다가가며 통통 (brain_cursor.rs)
             State::CursorPlay { .. } => return self.cursor_lift(),
@@ -108,7 +108,7 @@ impl Pet {
         hop::leap_reach_size(self.cfg.size, self.cfg.dpi)
     }
 
-    /// move_state: 걷는 동물은 닿는 창 윗면이 있으면 가끔 그쪽으로 큰 점프 — 개구리는 BIG_JUMP_CHANCE, 다른 동물은 그 절반.
+    /// move_state: 걷는 동물은 닿는 창 윗면이 있으면 가끔 그쪽으로 큰 점프 — 폴짝 동물은 BIG_JUMP_CHANCE, 다른 동물은 그 절반.
     /// 나는 동물·창 안·집이 그리운 손님·조작 모드는 안 함
     pub(super) fn big_jump_state(&mut self, world: &World) -> Option<State> {
         if self.cfg.flies || self.inside.is_some() || self.is_heading_out() || self.control.is_some() {
