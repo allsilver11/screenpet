@@ -256,9 +256,10 @@ impl Pet {
         self.state = State::Air { anim: Anim::Fall };
     }
 
-    /// start_fall 끝에서: 슈퍼인간은 (던져진 게 아니면) 떨어지지 않고 보는 쪽으로 활공
-    pub(super) fn soar_fall(&mut self) {
-        if self.cfg.soars && !self.thrown && !self.is_held() {
+    /// start_fall 끝에서: 슈퍼인간은 디딤판에 서 있다 떨어질 때만 (던져진 게 아니면) 보는 쪽으로 활공.
+    /// 벽·창 옆면 등에서 떨어질 땐 그냥 떨어짐 — 활공이 그 벽 쪽으로 날아가 다시 붙고 또 떨어지기를 매 틱 되풀이하던 버그 (0.7.0)
+    pub(super) fn soar_fall(&mut self, was_standing: bool) {
+        if self.cfg.soars && was_standing && !self.thrown && !self.is_held() {
             self.start_glide();
         }
     }

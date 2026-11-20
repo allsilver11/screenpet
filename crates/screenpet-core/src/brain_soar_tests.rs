@@ -399,3 +399,79 @@ fn babies_fly_slower_than_adults() {
     assert!(speed(crate::care::Stage::Baby) < speed(crate::care::Stage::Teenager));
     assert!(speed(crate::care::Stage::Adult) > speed(crate::care::Stage::Teenager));
 }
+
+/// 🐞 0.7.0: 창 옆면을 타다 앞 창에 가려져 떨어지면 활공이 그 창 쪽으로 날아가 다시 붙고 → 또 떨어지고를 매 틱 되풀이해
+/// 화면 위쪽에 멈춘 채 버벅였음. 벽·창 옆면에서 떨어질 때는 활공하지 않고 그냥 떨어지고, 활공 중엔 벽에 붙지 않음
+#[test]
+fn falling_off_a_covered_window_side_does_not_loop_back_onto_the_wall() {
+    // 창 1 (뒤) 왼쪽 옆면을 타는 중, 그 옆면 높이를 창 2 (앞)가 덮고 있음
+    let w = world(vec![
+        WindowInfo { id: 2, rect: Rect::new(650.0, 100.0, 900.0, 400.0) },
+        WindowInfo { id: 1, rect: Rect::new(800.0, 150.0, 1400.0, 900.0) },
+    ]);
+    let mut p = Pet::new(sup(), 800.0 - sup().half_w, 300.0, 3);
+    p.state = State::WallClimb { window: 1, side: Side::Left, rel_y: 150.0 };
+    p.facing = 1.0;
+    let (mut sticks, mut was_wall) = (0, true);
+    let y0 = p.body.y;
+    for _ in 0..(60 * 3) {
+        p.update(DT, &w);
+        let wall = matches!(p.state, State::WallClimb { .. } | State::Climb { .. });
+        sticks += usize::from(wall && !was_wall);
+        was_wall = wall;
+    }
+    assert!(sticks <= 1, "벽에 다시 붙었다 떨어지기를 되풀이함: {sticks}번");
+    assert!(p.body.y > y0 + 100.0, "아래로 내려감: {} → {}", y0, p.body.y);
+}
+
+/// 활공은 서 있던 디딤판 끝에서만 — 벽에서 떨어지거나 사다리·탑 등에서 떨어지면 평소처럼 떨어짐 (사뿐 착지는 그대로)
+#[test]
+fn a_glide_only_starts_from_standing_on_a_platform() {
+    let w = world(vec![]);
+    let mut p = Pet::new(sup(), 1920.0 - sup().half_w, 500.0, 3);
+    p.state = State::Climb { target_y: 300.0, hang: 1.0, over: false };
+    p.start_fall();
+    assert!(!p.soar.gliding, "벽에서 떨어질 땐 활공하지 않음");
+}
+
+/// 🐞 0.7.0 재현 찾기: 창 여럿 (위쪽 창 포함)인 화면에서 슈퍼인간을 오래 돌려, 화면 위쪽에서 상태가 마구 바뀌며 멈춰 있는 구간이 없음
+#[test]
+fn super_never_gets_stuck_jittering_near_the_top_of_the_screen() {
+    let w = world(vec![
+        WindowInfo { id: 1, rect: Rect::new(100.0, 20.0, 900.0, 500.0) },
+        WindowInfo { id: 2, rect: Rect::new(700.0, 0.0, 1500.0, 300.0) },
+        WindowInfo { id: 3, rect: Rect::new(1200.0, 400.0, 1900.0, 1000.0) },
+    ]);
+    for seed in 0..12 {
+        let mut p = Pet::new(sup(), 400.0, 0.0, seed);
+        let (mut changes, mut last, mut top_secs) = (0usize, String::new(), 0.0);
+        let mut hist: std::collections::VecDeque<String> = Default::default();
+        let mut worst = 0usize;
+        for tick in 0..(60 * 240) {
+            p.update(DT, &w);
+            let name = format!("{:?}", p.state).split([' ', '{']).next().unwrap_or("").to_string();
+            let near_top = p.body.y - p.soar_lift() < 120.0 + p.cfg.size;
+            if near_top {
+                top_secs += DT;
+                if name != last {
+                    changes += 1;
+                }
+            } else {
+                top_secs = 0.0;
+                changes = 0;
+            }
+            if name != last {
+                hist.push_back(format!("{:?} y={:.0} x={:.0} vx={:.0} vy={:.0} st={:?}", p.state, p.body.y, p.body.x, p.body.vx, p.body.vy, p.standing.map(|s| s.owner)));
+                if hist.len() > 8 {
+                    hist.pop_front();
+                }
+            }
+            last = name;
+            if top_secs > 3.0 {
+                worst = worst.max(changes);
+                assert!(changes < 60, "seed {seed} tick {tick}: 화면 위쪽 3초에 상태가 {changes}번 바뀜 — {:?} y={} lift={}\n{:#?}", p.state, p.body.y, p.soar_lift(), hist);
+            }
+        }
+        let _ = worst;
+    }
+}

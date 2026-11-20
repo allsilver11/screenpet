@@ -3144,7 +3144,8 @@ impl Pet {
         if self.body.vx.abs() > 1.0 {
             self.facing = self.body.vx.signum();
         }
-        if self.cfg.can_climb && self.home_trip.is_none() && prev_vx.abs() > behavior::WALL_STICK_MIN_VX * self.cfg.dpi {
+        // 🦸 활공 중엔 벽에 붙지 않음 (붙었다 떨어지기를 되풀이하지 않게)
+        if self.cfg.can_climb && self.home_trip.is_none() && !self.soar.gliding && prev_vx.abs() > behavior::WALL_STICK_MIN_VX * self.cfg.dpi {
             if let Some(hit) = world.side_hit(prev_x, self.body.x, self.body.y, self.cfg.half_w) {
                 let top = world.windows.iter().find(|w| w.id == hit.window).expect("hit window exists").rect.top;
                 self.body = Body { x: self.wall_x(hit.x, hit.side), y: self.body.y, vx: 0.0, vy: 0.0 };
@@ -3354,12 +3355,13 @@ impl Pet {
     fn start_fall(&mut self) {
         self.keep_growth_of_interrupted_meal();
         self.pacing.after_beat = None;
+        let was_standing = self.standing.is_some();
         self.standing = None;
         self.body.vx = 0.0;
         self.body.vy = 0.0;
         self.state = State::Air { anim: Anim::Fall };
-        // 🦸 슈퍼인간은 떨어지지 않고 활공 (brain_soar.rs)
-        self.soar_fall();
+        // 🦸 슈퍼인간은 디딤판에서 떨어질 땐 활공 (벽·창 옆면에서는 그냥 떨어짐 — brain_soar.rs)
+        self.soar_fall(was_standing);
     }
 
     /// 쉬는 상태를 뽑음 (쳐다보기·올려다보기 포함)
