@@ -862,6 +862,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         let dt = real_dt.min(MAX_DT);
         last = now;
         care.tick(dt);
+        // 👻 디멘터 곁에서 더 고파진 배 (코어 brain_dementor.rs — 손님 것은 버림)
+        for (i, s) in slots.iter_mut().enumerate() {
+            let chill = s.pet.take_chill();
+            if i == OWN {
+                care.chill(chill);
+            }
+        }
         if now - last_refresh >= WORLD_REFRESH {
             let (windows, work_areas) = (source.windows(), source.work_areas());
             for s in &mut slots {

@@ -240,6 +240,10 @@ impl CursorStyle {
             "harry" => CursorStyle { gait: Anim::Broom, speed: 3.0, arrive: Some((Anim::Cast, 0.6)), chatty: true, ..b },
             // 📚 헤르미온느는 총총 걸어와 손 번쩍 "I know!"
             "hermione" => CursorStyle { gait: Anim::Walk, speed: 1.6, arrive: Some((Anim::RaiseHand, 0.8)), chatty: true, ..b },
+            // 🐍 볼드모트도 빗자루로 날아와 지팡이를 휙 ("hehehe")
+            "voldemort" => CursorStyle { gait: Anim::Broom, speed: 2.8, arrive: Some((Anim::Cast, 0.6)), chatty: true, ..b },
+            // 👻 디멘터는 스르륵 떠서 다가옴
+            "dementor" => CursorStyle { speed: 1.6, ..b },
             _ => return None,
         })
     }

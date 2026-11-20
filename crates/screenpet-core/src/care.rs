@@ -200,6 +200,13 @@ impl Care {
         self.fullness = (self.fullness - dt / EMPTY_SECS).max(0.0);
     }
 
+    /// 👻 디멘터 곁에서 더 고파진 만큼 포만감을 줄임 (코어 Pet::take_chill — 앱이 매 틱)
+    pub fn chill(&mut self, amount: f64) {
+        if amount > 0.0 {
+            self.fullness = (self.fullness - amount).max(0.0);
+        }
+    }
+
     /// 배고픔 (포만감 HUNGRY_BELOW 아래). 성장을 멈춘 펫은 밥을 조르지 않으니 늘 아님
     pub fn is_hungry(&self) -> bool {
         !self.locked && self.fullness < HUNGRY_BELOW
@@ -296,6 +303,17 @@ mod tests {
         let mut c = Care { stamina: 29.9, ..Care::default() };
         assert_eq!(c.feed(Food::Water), FeedResult::Ate { leveled_up: false });
         assert_eq!((c.stage, c.stamina), (Stage::Baby, 29.9));
+    }
+
+    #[test]
+    fn a_dementor_chill_takes_a_bit_of_fullness() {
+        let mut c = Care::default();
+        c.chill(0.1);
+        assert!((c.fullness - 0.9).abs() < 1e-9);
+        c.chill(5.0);
+        assert_eq!(c.fullness, 0.0);
+        c.chill(-1.0);
+        assert_eq!(c.fullness, 0.0);
     }
 
     #[test]

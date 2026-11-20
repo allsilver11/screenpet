@@ -97,7 +97,7 @@ pub struct HoistMood {
     /// 이 시각(clock)부터 들어 올릴 수 있음
     pub(super) ready_at: f64,
     seen: Vec<(u64, f64)>,
-    spots: Vec<PetSpot>,
+    pub(super) spots: Vec<PetSpot>,
     plan: HoistPlan,
     /// 데려갈 수 있는 끝 (앱이 정함 — 손님 흐물이만)
     edges: (bool, bool),
@@ -529,7 +529,8 @@ impl Pet {
 
 /// 같은 화면 동물들의 일 — 앱이 매 틱 동물 update 전에: 흐물이들(과 🕷️ 거미인간)에게 다른 동물을 보여 줌
 pub fn notice_pets<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
-    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs || p.cfg.rides_bike || !p.cfg.spells.is_empty();
+    // 👻 디멘터도 봄 — 다른 펫 머리 위로 다가감 (brain_dementor.rs stalk_target)
+    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs || p.cfg.rides_bike || !p.cfg.spells.is_empty() || p.cfg.dementor;
     if !pets.iter().any(|p| sees(p.as_ref())) {
         return;
     }
@@ -554,6 +555,10 @@ pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut>
     super::snare_moves::sync_cocoons(pets);
     // ✨ 주문에 맞은 동물: 든 것을 떨어뜨리거나 둥둥 뜸 (brain_spell.rs)
     super::spell_moves::sync_spells(pets);
+    // ⚔️ 해리·볼드모트 결투 · 🦌 디멘터가 오면 패트로누스 (brain_duel.rs) · 👻 디멘터 곁의 동물 (brain_dementor.rs)
+    super::duel_moves::sync_duels(pets);
+    super::duel_moves::sync_patronus(pets);
+    super::dementor_moves::sync_gloom(pets);
     let mut out = Vec::new();
     let find = |pets: &[T], key: u64| pets.iter().position(|p| p.as_ref().social_key == key);
     for i in 0..pets.len() {

@@ -448,6 +448,22 @@ pub enum Speech {
     TidyUp,
     /// 👜 다 치움 ("Phew! All clean!")
     AllClean,
+    /// ⚡ 볼드모트의 초록 빛 주문 ("Stupefy!", brain_spell.rs)
+    Stupefy,
+    /// 💫 Stupefy에 맞아 기절 ("@_@", brain_dark.rs — 누구나)
+    Dazed,
+    /// 🐍 나기니를 부름 ("Serpensortia!", brain_dark.rs)
+    Nagini,
+    /// 😈 볼드모트 웃음 ("hehehe")
+    Hehehe,
+    /// ⚔️ 결투를 거는 말 (볼드모트 "You again, Potter?" — 해리는 Expelliarmus, brain_duel.rs)
+    DuelCall,
+    /// 🦌 "Expecto Patronum!" (해리, brain_duel.rs)
+    Patronus,
+    /// 👻 디멘터 곁에서 시무룩 ("brrr...", brain_dementor.rs — 누구나)
+    Gloom,
+    /// 👻 패트로누스에 쫓겨 도망가는 디멘터 ("hsss!")
+    Repelled,
 }
 
 impl Anim {
@@ -656,6 +672,12 @@ pub enum State {
     Study { act: study_moves::StudyAct, t: f64 },
     /// ✨ Leviosa에 둥둥 떠 있음 (brain_spell.rs — 창만 뜸, 몸은 디딤판에) — t = 뜬 뒤 흐른 시간, len = 전체, rise = 높이 (물리 px)
     Float { t: f64, len: f64, rise: f64 },
+    /// ⚔️ 해리·볼드모트 결투 (brain_duel.rs) — t = 마주 본 뒤 흐른 시간
+    Duel { duel: duel_moves::Duel, t: f64 },
+    /// 💫 Stupefy에 맞아 기절해 쓰러져 있음 (brain_dark.rs — 누구나) — t = 쓰러진 뒤 흐른 시간, len = 전체
+    Faint { t: f64, len: f64 },
+    /// 👻 디멘터 곁에서 시무룩 (brain_dementor.rs — 누구나) — remaining = 남은 시간
+    Gloom { remaining: f64 },
 }
 
 impl State {
@@ -807,6 +829,12 @@ pub struct PetConfig {
     pub bookworm: bool,
     /// 👜 끝없는 구슬 가방으로 바닥 청소 (pet.json `bag_cleaner` + bag_walk·bag_drag·bag_stuff 그림 — 헤르미온느)
     pub bag_cleaner: bool,
+    /// 🐍 나기니·😈 hehehe (pet.json `dark_lord` + cast 그림 — 볼드모트, brain_dark.rs)
+    pub dark_lord: bool,
+    /// 👻 디멘터 — 곁의 펫 시무룩·🥶 서리·🦌 패트로누스에 도망 (pet.json `dementor` + 나는 동물, brain_dementor.rs)
+    pub dementor: bool,
+    /// 🦌 디멘터가 오면 "Expecto Patronum!" (pet.json `patronus` + cast 그림 — 해리, brain_duel.rs)
+    pub patronus: bool,
     /// 🌱 지금 연령대 (from_manifest가 받은 단계 이름 — 손님도 Visit에 실려 온 단계). 연령대 특기·종별 특기의 세기 (brain_stage.rs)
     pub stage: crate::care::Stage,
 }
@@ -853,6 +881,9 @@ impl PetConfig {
             seeker: m.seeks(),
             bookworm: m.reads_books(),
             bag_cleaner: m.cleans_with_bag(),
+            dark_lord: m.is_dark_lord(),
+            dementor: m.is_dementor(),
+            patronus: m.casts_patronus(),
             // 모르는 이름이면 청소년 (예전 그대로의 세기)
             stage: crate::care::Stage::from_name(stage).unwrap_or(crate::care::Stage::Teenager),
         }
@@ -1076,6 +1107,12 @@ pub struct Pet {
     spell: spell_moves::SpellMood,
     /// 📖🙋👜 책·손들기·가방 청소의 기억 (brain_study.rs)
     study: study_moves::StudyMood,
+    /// 🐍 볼드모트 나기니·hehehe의 기억 · 💫 기절은 누구나 (brain_dark.rs)
+    dark: dark_moves::DarkMood,
+    /// 👻 디멘터 서리·도망의 기억 · 곁에서 시무룩·배고픔은 누구나 (brain_dementor.rs)
+    dementor: dementor_moves::DementorMood,
+    /// ⚔️ 결투·🦌 패트로누스의 기억 (brain_duel.rs)
+    duel: duel_moves::DuelMood,
     /// 🐛🕸️ 고치·거미집에 걸리기의 기억 (brain_snare.rs)
     snare: snare_moves::SnareMood,
     typing: typing_moves::TypingMood,
@@ -1193,6 +1230,9 @@ impl Pet {
             broom: broom_moves::BroomMood::new(seed),
             spell: spell_moves::SpellMood::new(seed),
             study: study_moves::StudyMood::new(seed),
+            dark: dark_moves::DarkMood::new(seed),
+            dementor: dementor_moves::DementorMood::new(seed),
+            duel: duel_moves::DuelMood::new(seed),
             snare: snare_moves::SnareMood::new(seed),
             typing: Default::default(),
             play: play_moves::PlayMood::new(seed),
@@ -1232,6 +1272,10 @@ impl Pet {
         self.soar_tick(dt);
         // 🧹 빗자루 내려오기·오가기 높이·스니치 정리 (brain_broom.rs)
         self.broom_tick(dt);
+        // 🐍 나기니 · 👻 서리·도망·시무룩 배고픔 · 🦌 달리는 사슴 (brain_dark.rs·brain_dementor.rs·brain_duel.rs)
+        self.dark_tick(dt, world);
+        self.dementor_tick(dt, world);
+        self.duel_tick(dt);
         self.drop_flying_state();
         self.drop_walking_moves();
         self.after_meal();
@@ -1303,8 +1347,14 @@ impl Pet {
             self.on_started();
             return;
         }
-        // 🧙 빗자루 비행·🟡 스니치 (brain_broom.rs) · ✨ 주문 (brain_spell.rs) · 📖 책·🙋 손들기·👜 가방 청소 (brain_study.rs)
-        if self.update_broom(dt, world) || self.update_spell(dt, world) || self.update_study(dt, world) {
+        // 💫 기절해 쓰러져 있음 (brain_dark.rs) · 👻 디멘터 곁에서 시무룩 (brain_dementor.rs) — 누구나
+        if self.update_faint(dt, world) || self.update_gloom(dt, world) {
+            self.on_started();
+            return;
+        }
+        // 🧙 빗자루 비행·🟡 스니치 (brain_broom.rs) · ⚔️ 결투 (brain_duel.rs) · ✨ 주문 (brain_spell.rs) · 🐍 나기니·hehehe (brain_dark.rs) ·
+        // 📖 책·🙋 손들기·👜 가방 청소 (brain_study.rs)
+        if self.update_broom(dt, world) || self.update_duel(dt, world) || self.update_spell(dt, world) || self.update_dark(dt, world) || self.update_study(dt, world) {
             self.on_started();
             return;
         }
@@ -1477,6 +1527,10 @@ impl Pet {
             State::Cast { .. } => Anim::Cast,
             State::Study { act, .. } => self.study_anim(act),
             State::Float { .. } => Anim::Dragged,
+            State::Duel { .. } => Anim::Cast,
+            State::Faint { t, .. } if t < crate::wizard::FAINT_DROP_SECS => Anim::Land,
+            State::Faint { .. } => Anim::Sleep,
+            State::Gloom { .. } => Anim::Annoyed,
             State::Stuck { kind, .. } => Pet::stuck_anim(kind),
             State::StageAct { act, t, len } => self.stage_anim(act, t, len),
             State::Air { anim: Anim::Hop } if self.bike.jumping => Anim::BikeJump,
@@ -1509,7 +1563,7 @@ impl Pet {
             housed: self.housed,
             flash: self.glasses_flash_on(),
             glare: self.glasses_glare_on(),
-            thud: (self.thud > 0.0 && matches!(self.state, State::Land { .. })) || romp_thud,
+            thud: (self.thud > 0.0 && matches!(self.state, State::Land { .. })) || romp_thud || matches!(self.state, State::Faint { .. }),
             swing,
             sparkle: self.dance_sparkle() || romp_sparkle || self.stage_sparkle() || self.spell_sparkle(),
             clap: self.clapping(),
@@ -3251,6 +3305,9 @@ impl Pet {
             | State::Cast { .. }
             | State::Study { .. }
             | State::Float { .. }
+            | State::Duel { .. }
+            | State::Faint { .. }
+            | State::Gloom { .. }
             | State::Stuck { .. }
             | State::Panic { .. }
             | State::Rig { .. }
@@ -4130,6 +4187,21 @@ pub mod study_moves;
 #[cfg(test)]
 #[path = "brain_study_tests.rs"]
 mod study_tests;
+#[path = "brain_dark.rs"]
+pub mod dark_moves;
+#[cfg(test)]
+#[path = "brain_dark_tests.rs"]
+mod dark_tests;
+#[path = "brain_dementor.rs"]
+pub mod dementor_moves;
+#[cfg(test)]
+#[path = "brain_dementor_tests.rs"]
+mod dementor_tests;
+#[path = "brain_duel.rs"]
+pub mod duel_moves;
+#[cfg(test)]
+#[path = "brain_duel_tests.rs"]
+mod duel_tests;
 #[cfg(test)]
 #[path = "brain_soar_tests.rs"]
 mod soar_tests;

@@ -14,6 +14,8 @@
 //! 🦇 박쥐인간의 🔦 박쥐 신호 (`Pet::take_bat_signal` → `trail-signal`, ui/batsignal.js — 맨 아래 캔버스)도 같은 창이 그림:
 //! 조명 렌즈에서 화면 위쪽으로 반투명 빛줄기 + 위쪽에 박쥐 무늬가 비친 둥근 빛. 비추는 동안 (SIGNAL_SECS + 흐려지기)은 창을 닫지 않음.
 //! 🟡 해리의 골든 스니치 (`Pet::snitch_spot` → `trail-snitch`, ui/snitch.js — 맨 위 캔버스)도 같은 창이 그림: 날개 달린 작은 금빛 공 (잡히면 반짝 터짐).
+//! ✨ 마법 효과 (`Pet::magic_fx` → `trail-magic`, ui/magic.js — 스니치 아래 캔버스): ⚡ 볼드모트의 초록 빛줄기 · ⚔️ 해리·볼드모트 결투 빛줄기 ·
+//! 🐍 나기니 · 🦌 은빛 사슴 · 🥶 디멘터 곁 화면 구석의 서리. 효과마다 그 자리 (MagicFx::anchor) 모니터의 창으로.
 //! 🕸️ 게임 루프가 거미집 자리를 동물 뇌에 알려 주고 (`web_spots` → `Pet::set_webs`), 걸렸던 동물이 찢고 나온 거미집은 `tear_web`이 `trail-web-drop`으로 지움.
 
 use std::time::{Duration, Instant};
@@ -25,6 +27,7 @@ use screenpet_core::trail::{self, Puff, Runner, Trail};
 use screenpet_core::weather::{self, OverlayRetry};
 use screenpet_core::brain::bike_moves::BatSignal;
 use screenpet_core::brain::broom_moves::SnitchSpot;
+use screenpet_core::magic::MagicFx;
 use screenpet_core::web::{orb_on_window, web_on_window, window_offset, Corner, WebAt, WebSpin, WebSpot, MAX_WEBS, WEB_LIFE_SECS};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, WebviewWindow};
@@ -58,6 +61,8 @@ const LINE_EVERY: Duration = Duration::from_millis(33);
 const SIGNAL_TAIL: Duration = Duration::from_millis(1500);
 /// 🟡 스니치가 사라진 뒤 (잡힌 반짝이가 흐려질 때까지) 창을 더 둠
 const SNITCH_TAIL: Duration = Duration::from_millis(1500);
+/// ✨ 마법 효과가 사라진 뒤 (펑·흐려지기가 끝날 때까지 — magic.js) 창을 더 둠
+const MAGIC_TAIL: Duration = Duration::from_millis(1500);
 /// 🧹 한 시간마다 거미집도 치움 (날씨 더미와 같은 간격)
 const WEB_AUTO_CLEAR: Duration = Duration::from_secs(weather::AUTO_CLEAR_SECS as u64);
 
@@ -205,6 +210,8 @@ struct Overlay {
     signals: Vec<(Instant, SignalWire)>,
     /// 🟡 마지막으로 보낸 스니치들
     snitches: Vec<SnitchWire>,
+    /// ✨ 마지막으로 보낸 마법 효과들
+    magic: Vec<MagicFx>,
 }
 
 /// ☁️ 발자국 구름과 낙서 상태임 (게임 루프가 가짐)
@@ -238,6 +245,10 @@ pub struct TrailFx {
     snitch_at: Option<Instant>,
     /// 🟡 마지막으로 스니치를 보낸 때
     snitch_sent: Option<Instant>,
+    /// ✨ 마지막으로 마법 효과가 있던 때
+    magic_at: Option<Instant>,
+    /// ✨ 마지막으로 마법 효과를 보낸 때
+    magic_sent: Option<Instant>,
 }
 
 impl TrailFx {
@@ -264,6 +275,7 @@ impl TrailFx {
         self.spider_webs(app, now, slots);
         self.web_lines(app, now, slots);
         self.snitches(app, now, slots);
+        self.magic(app, now, slots);
         self.trails.retain(|(label, _)| slots.iter().any(|s| s.label == *label));
         let Some(own) = slots.first() else { return };
         for s in slots.iter() {
@@ -447,6 +459,42 @@ impl TrailFx {
         }
     }
 
+    /// ✨ 지금 펫들의 마법 효과를 그 자리 모니터의 창으로 (덮개 창 논리 px — 바뀔 때만, LINE_EVERY마다까지). 없어지면 빈 목록을 한 번 —
+    /// 웹뷰가 맞부딪힌 결투는 펑, 빛줄기는 흐려지며 사라지게 함
+    fn magic(&mut self, app: &AppHandle, now: Instant, slots: &[Slot]) {
+        let mut per: Vec<Vec<MagicFx>> = vec![Vec::new(); self.overlays.len()];
+        let mut fx = Vec::new();
+        for s in slots.iter() {
+            if !s.on_screen() {
+                continue;
+            }
+            fx.clear();
+            s.pet.magic_fx(&mut fx);
+            for f in fx.iter() {
+                self.magic_at = Some(now);
+                let (x, y) = f.anchor();
+                let Some(i) = self.overlay_at(app, now, &s.world.work_areas, x, y) else { continue };
+                if per.len() <= i {
+                    per.resize(i + 1, Vec::new());
+                }
+                let (wa, scale) = (self.overlays[i].wa, self.overlays[i].scale);
+                per[i].push(f.mapped(|(x, y)| ((x - wa.left) / scale, (y - wa.top) / scale), 1.0 / scale));
+            }
+        }
+        if self.magic_sent.is_some_and(|t| now.duration_since(t) < LINE_EVERY) {
+            return;
+        }
+        for (i, o) in self.overlays.iter_mut().enumerate() {
+            let want = per.get(i).cloned().unwrap_or_default();
+            if want == o.magic || now.duration_since(o.born) < WARMUP {
+                continue;
+            }
+            let _ = app.emit_to(o.label.as_str(), "trail-magic", &want);
+            o.magic = want;
+            self.magic_sent = Some(now);
+        }
+    }
+
     /// 🧹 모든 물건 다 치우기 (그리고 한 시간마다): 거미집을 모두 흐리게 지움
     pub fn clear_webs(&mut self, app: &AppHandle) {
         let now = Instant::now();
@@ -554,7 +602,7 @@ impl TrailFx {
             return None;
         };
         self.retry.reset();
-        self.overlays.push(Overlay { window, label, wa, scale, born: now, paused: false, pending: Vec::new(), doodles: Vec::new(), webs: Vec::new(), lines: Vec::new(), signals: Vec::new(), snitches: Vec::new() });
+        self.overlays.push(Overlay { window, label, wa, scale, born: now, paused: false, pending: Vec::new(), doodles: Vec::new(), webs: Vec::new(), lines: Vec::new(), signals: Vec::new(), snitches: Vec::new(), magic: Vec::new() });
         Some(self.overlays.len() - 1)
     }
 
@@ -617,7 +665,8 @@ impl TrailFx {
         let lines_done = self.lines_at.is_none_or(|t| now.duration_since(t) >= IDLE_CLOSE);
         let signals_done = self.signals_until.is_none_or(|t| now >= t);
         let snitch_done = self.snitch_at.is_none_or(|t| now.duration_since(t) >= SNITCH_TAIL);
-        if puffs_done && doodles_done && webs_done && lines_done && signals_done && snitch_done {
+        let magic_done = self.magic_at.is_none_or(|t| now.duration_since(t) >= MAGIC_TAIL);
+        if puffs_done && doodles_done && webs_done && lines_done && signals_done && snitch_done && magic_done {
             self.tear_down();
             return;
         }
@@ -662,6 +711,8 @@ impl TrailFx {
         self.signals_until = None;
         self.snitch_at = None;
         self.snitch_sent = None;
+        self.magic_at = None;
+        self.magic_sent = None;
         self.next_pause = None;
         self.retry.reset();
     }

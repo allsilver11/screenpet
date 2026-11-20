@@ -1,0 +1,95 @@
+//! ✨ 덮개 창 (trail.html의 ui/magic.js)이 그리는 마법 효과 — 펫이 매 틱 `Pet::magic_fx`로 내놓고 앱 (src-tauri trail.rs)이
+//! 그 자리 모니터의 덮개 창 좌표 (논리 px)로 바꿔 보냄. 좌표는 모두 물리 px.
+//!
+//! - ⚡ Bolt: 볼드모트 Stupefy의 초록 빛줄기 (지팡이 끝 → 맞은 자리)
+//! - ⚔️ Duel: 해리 (빨강)·볼드모트 (초록) 빛줄기가 가운데 clash에서 맞부딪힘 (reach = 뻗어 나간 몫, 1이면 맞부딪혀 반짝)
+//! - 🐍 Snake: 볼드모트의 나기니 (발밑 y를 따라 기어 다님)
+//! - 🦌 Stag: 해리의 은빛 사슴 (dir 쪽으로 달림)
+//! - 🥶 Frost: 디멘터 가까운 화면 구석의 서리 (in = 구석에서 화면 안쪽 방향 부호)
+
+use serde::Serialize;
+
+/// 빛줄기 색
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BeamColor {
+    /// 해리·Expelliarmus
+    Red,
+    /// 볼드모트·Stupefy
+    Green,
+    /// 헤르미온느 (결투의 밝은 쪽)
+    Gold,
+}
+
+/// 덮개 창에 그릴 마법 효과 하나 (물리 px — 앱이 덮개 창 논리 px로 바꿈, mapped)
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MagicFx {
+    /// ⚡ 빛줄기 하나 (from → to, width = 굵기)
+    Bolt { from: (f64, f64), to: (f64, f64), color: BeamColor, width: f64 },
+    /// ⚔️ 결투: red (밝은 쪽 — 해리 빨강·헤르미온느 금빛 = light)·green (볼드모트) 지팡이 끝에서 clash까지 두 빛줄기 (reach = 뻗은 몫 0…1, width = 굵기)
+    Duel { red: (f64, f64), green: (f64, f64), clash: (f64, f64), reach: f64, width: f64, light: BeamColor },
+    /// 🐍 나기니: 머리 자리 x, 바닥 y, 길이 size, dir = 머리 쪽 (±1), t = 나온 뒤 초 (꿈틀), alpha = 보이는 몫
+    Snake { x: f64, y: f64, size: f64, dir: f64, t: f64, alpha: f64 },
+    /// 🦌 은빛 사슴: 가운데 (x, y), 크기 size, dir = 달리는 쪽 (±1), alpha = 보이는 몫
+    Stag { x: f64, y: f64, size: f64, dir: f64, alpha: f64 },
+    /// 🥶 서리: 구석 (x, y), 크기 size, inward = 화면 안쪽 부호 (±1, ±1), level = 낀 몫 0…1
+    Frost { x: f64, y: f64, size: f64, inward: (f64, f64), level: f64 },
+}
+
+impl MagicFx {
+    /// 어느 모니터 덮개 창에 그릴지 정하는 점 (구석의 서리는 화면 안쪽으로 1px)
+    pub fn anchor(&self) -> (f64, f64) {
+        match *self {
+            MagicFx::Bolt { from, .. } => from,
+            MagicFx::Duel { clash, .. } => clash,
+            MagicFx::Snake { x, y, .. } | MagicFx::Stag { x, y, .. } => (x, y - 1.0),
+            MagicFx::Frost { x, y, inward, .. } => (x + inward.0, y + inward.1),
+        }
+    }
+
+    /// 점은 at으로, 길이는 scale을 곱해 바꾼 것 (덮개 창 논리 px로 — 앱 trail.rs)
+    pub fn mapped(&self, at: impl Fn((f64, f64)) -> (f64, f64), scale: f64) -> MagicFx {
+        match *self {
+            MagicFx::Bolt { from, to, color, width } => MagicFx::Bolt { from: at(from), to: at(to), color, width: width * scale },
+            MagicFx::Duel { red, green, clash, reach, width, light } => MagicFx::Duel { red: at(red), green: at(green), clash: at(clash), reach, width: width * scale, light },
+            MagicFx::Snake { x, y, size, dir, t, alpha } => {
+                let (x, y) = at((x, y));
+                MagicFx::Snake { x, y, size: size * scale, dir, t, alpha }
+            }
+            MagicFx::Stag { x, y, size, dir, alpha } => {
+                let (x, y) = at((x, y));
+                MagicFx::Stag { x, y, size: size * scale, dir, alpha }
+            }
+            MagicFx::Frost { x, y, size, inward, level } => {
+                let (x, y) = at((x, y));
+                MagicFx::Frost { x, y, size: size * scale, inward, level }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effects_serialize_with_a_kind_tag_for_the_webview() {
+        let fx = MagicFx::Bolt { from: (1.0, 2.0), to: (3.0, 4.0), color: BeamColor::Green, width: 5.0 };
+        let v: serde_json::Value = serde_json::to_value(fx).unwrap();
+        assert_eq!(v["kind"], "bolt");
+        assert_eq!(v["color"], "green");
+        assert_eq!(v["from"], serde_json::json!([1.0, 2.0]));
+        let s = serde_json::to_value(MagicFx::Frost { x: 0.0, y: 0.0, size: 1.0, inward: (1.0, 1.0), level: 0.5 }).unwrap();
+        assert_eq!(s["kind"], "frost");
+    }
+
+    #[test]
+    fn mapping_moves_points_and_scales_sizes() {
+        let at = |(x, y): (f64, f64)| ((x - 100.0) / 2.0, (y - 50.0) / 2.0);
+        let fx = MagicFx::Duel { red: (100.0, 50.0), green: (300.0, 50.0), clash: (200.0, 50.0), reach: 1.0, width: 8.0, light: BeamColor::Gold };
+        assert_eq!(fx.mapped(at, 0.5), MagicFx::Duel { red: (0.0, 0.0), green: (100.0, 0.0), clash: (50.0, 0.0), reach: 1.0, width: 4.0, light: BeamColor::Gold });
+        let frost = MagicFx::Frost { x: 1920.0, y: 0.0, size: 200.0, inward: (-1.0, 1.0), level: 1.0 };
+        assert_eq!(frost.anchor(), (1919.0, 1.0), "구석은 화면 안쪽 1px로 모니터를 고름");
+    }
+}

@@ -897,6 +897,16 @@ const EXTRA_SPEECH = {
   i_know: ["I know!"],
   tidy_up: ["tidy time!"],
   all_clean: ["Phew! All clean!"],
+  // 🐍 볼드모트·👻 디멘터·⚔️ 결투·🦌 패트로누스 (코어 brain_spell.rs·brain_dark.rs·brain_duel.rs·brain_dementor.rs): ⚡ 초록 빛 주문 /
+  // 💫 맞아서 기절 · 🐍 나기니 부르기 · 😈 웃음 · ⚔️ 결투 걸기 · 🦌 은빛 사슴 · 👻 곁에서 시무룩 / 쫓겨 도망
+  stupefy: ["Stupefy!"],
+  dazed: ["@_@", "ow..."],
+  nagini: ["Serpensortia!", "Nagini..."],
+  hehehe: ["hehehe", "hehehe..."],
+  duel_call: ["You again?", "Duel me!"],
+  patronus: ["Expecto Patronum!"],
+  gloom: ["brrr...", "so cold..."],
+  repelled: ["hsss!"],
   // 펫끼리 놀기 더 (코어 social_romp.rs): 🥊 투닥투닥 / 😈 몰래 찌르고 키득 · 찔려서 화들짝 / 🫸 되밀기 / 🏁 달리기 시합 / 💬 수다 (먼저 · 받는 쪽)
   scuffle: ["hey!", "mine!", "grr", "grr!"],
   hehe: ["hehe", "hehe~"],
@@ -954,6 +964,8 @@ const CURSOR_LINES = {
   super: ["up, up and away!", "to the rescue!"],
   harry: ["Quidditch time!", "mischief managed"],
   hermione: ["Levi-O-sa!", "honestly..."],
+  voldemort: ["hehehe", "come here..."],
+  dementor: ["hhhhh...", "..."],
 };
 const speech = setupSpeech({
   bubbleEl,

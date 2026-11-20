@@ -245,6 +245,8 @@ pub struct GripTable {
     pub web_whirl: GripAnim,
     /// 🕷️ 🙃 거꾸로 매달리기 — 줄이 붙는 맨 위 손발 (그림 위쪽)
     pub hang_down: GripAnim,
+    /// 🧙 ✨ 지팡이 휙 — 지팡이 끝 (⚡ 빛줄기·⚔️ 결투·🦌 사슴이 나가는 자리)
+    pub cast: GripAnim,
 }
 
 /// 가장 가까운 노릴 동물: 가로 AIM_RANGE, 높이 AIM_RISE (내 몸 크기 배) 안에서

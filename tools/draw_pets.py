@@ -28,7 +28,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
                          STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, WEB_SLINGER, BIKE_RIDER, SUPER_FLIER,
-                         BROOM_RIDER, SPELLS, SEEKER, BOOKWORM, BAG_CLEANER, frame_px, manifest)
+                         BROOM_RIDER, SPELLS, SEEKER, BOOKWORM, BAG_CLEANER, DARK_LORD, DEMENTOR, PATRONUS, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -1784,6 +1784,12 @@ def species_fields(pid, m):
         m["bookworm"] = True
     if pid in BAG_CLEANER:
         m["bag_cleaner"] = True
+    if pid in DARK_LORD:
+        m["dark_lord"] = True
+    if pid in DEMENTOR:
+        m["dementor"] = True
+    if pid in PATRONUS:
+        m["patronus"] = True
     return m
 
 
@@ -1965,6 +1971,8 @@ import draw_bat  # noqa: E402,F401  (박쥐인간)
 import draw_super  # noqa: E402,F401  (슈퍼인간)
 import draw_harry  # noqa: E402,F401  (해리포터)
 import draw_hermione  # noqa: E402,F401  (헤르미온느)
+import draw_voldemort  # noqa: E402,F401  (볼드모트)
+import draw_dementor  # noqa: E402,F401  (디멘터)
 
 if __name__ == "__main__":
     main()

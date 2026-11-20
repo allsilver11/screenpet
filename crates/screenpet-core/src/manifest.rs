@@ -201,6 +201,15 @@ pub struct PetManifest {
     /// 👜 끝없는 구슬 가방으로 바닥의 물건을 주워 치움 (헤르미온느 — BAG_ANIMS가 다 있을 때만, cleans_with_bag())
     #[serde(default)]
     pub bag_cleaner: bool,
+    /// 🐍 볼드모트: 가끔 나기니를 불러 발밑을 기게 하고 😈 "hehehe" (SPELL_ANIMS가 있을 때만 — is_dark_lord())
+    #[serde(default)]
+    pub dark_lord: bool,
+    /// 👻 디멘터: 다가가면 펫이 시무룩·배고파지고 화면 구석에 🥶 서리, 🦌 패트로누스에 쫓김 (나는 동물일 때만 — is_dementor())
+    #[serde(default)]
+    pub dementor: bool,
+    /// 🦌 해리: 디멘터가 오면 "Expecto Patronum!" 은빛 사슴 (SPELL_ANIMS가 있을 때만 — casts_patronus())
+    #[serde(default)]
+    pub patronus: bool,
     /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있음 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮음, core::tint)
     #[serde(default)]
     pub tint: bool,
@@ -380,6 +389,21 @@ impl PetManifest {
         self.bag_cleaner && BAG_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
+    /// 🐍 나기니·hehehe (SPELL_ANIMS 그림이 있어야 함)
+    pub fn is_dark_lord(&self) -> bool {
+        self.dark_lord && SPELL_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 👻 디멘터 (나는 동물이어야 함)
+    pub fn is_dementor(&self) -> bool {
+        self.dementor && self.flies()
+    }
+
+    /// 🦌 패트로누스 (SPELL_ANIMS 그림이 있어야 함)
+    pub fn casts_patronus(&self) -> bool {
+        self.patronus && SPELL_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
     /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 함)
     pub fn antics(&self) -> bool {
         self.juggles() && ANTICS_ANIMS.iter().all(|a| self.has_anim(a))
@@ -398,7 +422,7 @@ impl PetManifest {
             }
             g
         };
-        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present"), yank: anim("yank"), stuff: anim("stuff"), catch: anim("catch"), hang_cursor: anim("hang_cursor"), carry_run: anim("carry_run"), shoot: anim("shoot"), web_swing: anim("web_swing"), web_pull: anim("web_pull"), web_whirl: anim("web_whirl"), hang_down: anim("hang_down") }
+        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present"), yank: anim("yank"), stuff: anim("stuff"), catch: anim("catch"), hang_cursor: anim("hang_cursor"), carry_run: anim("carry_run"), shoot: anim("shoot"), web_swing: anim("web_swing"), web_pull: anim("web_pull"), web_whirl: anim("web_whirl"), hang_down: anim("hang_down"), cast: anim("cast") }
     }
 
     /// 사는 집 그림: pet.json `house`, 없으면 보통 집
@@ -806,9 +830,10 @@ mod tests {
         let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
         for id in crate::test_util::species() {
             let m = parse_manifest(&read(&id)).unwrap();
-            let wizard = id == "harry" || id == "hermione";
+            let wizard = id == "harry" || id == "hermione" || id == "voldemort";
             assert_eq!(m.rides_broom(), wizard, "{id}");
             assert_eq!(!m.spell_set().is_empty(), wizard, "{id}");
+            assert_eq!((m.is_dark_lord(), m.is_dementor(), m.casts_patronus()), (id == "voldemort", id == "dementor", id == "harry"), "{id}");
             assert_eq!(m.seeks(), id == "harry", "{id}");
             assert_eq!((m.reads_books(), m.cleans_with_bag()), (id == "hermione", id == "hermione"), "{id}");
             let c = crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager");
@@ -826,6 +851,17 @@ mod tests {
         assert!(!parse_manifest(&read("harry").replace(r#""broom""#, r#""broom_x""#)).unwrap().rides_broom());
         assert!(parse_manifest(&read("harry").replace(r#""cast""#, r#""cast_x""#)).unwrap().spell_set().is_empty());
         assert!(!parse_manifest(&read("hermione").replace(r#""bag_drag""#, r#""bag_drag_x""#)).unwrap().cleans_with_bag());
+        // 🐍 볼드모트: Stupefy만 + 나기니·hehehe, 👻 디멘터: 나는 동물 (날지 않으면 디멘터가 아님)
+        let v = parse_manifest(&read("voldemort")).unwrap();
+        assert_eq!(v.name, "볼드모트");
+        assert!(v.spell_set().has(Spell::Stupefy) && !v.spell_set().has(Spell::Expelliarmus) && v.can_climb());
+        let c = crate::brain::PetConfig::from_manifest(&v, 1.0, 1.0, "teenager");
+        assert!(c.dark_lord && !c.dementor && !c.patronus && c.grip.cast.n == 3);
+        let d = parse_manifest(&read("dementor")).unwrap();
+        assert!(d.name == "디멘터" && d.flies() && d.is_dementor() && !d.can_climb() && d.spell_set().is_empty());
+        assert!(!parse_manifest(&read("dementor").replace(r#""locomotion": "fly","#, "")).unwrap().is_dementor());
+        assert!(!parse_manifest(&read("voldemort").replace(r#""cast""#, r#""cast_x""#)).unwrap().is_dark_lord());
+        assert!(crate::brain::PetConfig::from_manifest(&parse_manifest(&read("harry")).unwrap(), 1.0, 1.0, "teenager").patronus);
     }
 
     /// 🐱 툭툭은 고양이, 🐿️ 볼 빵빵은 다람쥐만 (v0.6.3)

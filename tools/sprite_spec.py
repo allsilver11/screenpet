@@ -191,6 +191,14 @@ SPEECH = {
                  "fizzle": ["Leviosaaa?", "huh?", "oops..."], "reparo": ["Reparo!"], "i_know": ["I know!", "ooh! I know!", "I read about it!"],
                  "study": ["fascinating...", "hmm...", "shh!"], "tidy_up": ["tidy time!", "into the bag!"], "all_clean": ["Phew! All clean!"],
                  **_CARE_SPEECH},
+    # 🐍 볼드모트: ✨ 빗자루 broom_* · ⚡ stupefy · 🐍 nagini (Serpensortia) · 😈 hehehe · ⚔️ duel_call (결투 걸기) ·
+    # 👻 디멘터: chatter는 숨소리, 🦌 쫓기면 repelled (코어 Speech)
+    "voldemort": {"chatter": ["hehehe", "come here...", "Potter..."], "tickle": ["hehe... stop!"], "grumpy": ["silence!"],
+                  "broom_up": ["up!", "hehehe"], "broom_land": ["hmm.", "landed."], "broom_away": ["I'll be back", "hehehe"],
+                  "stupefy": ["Stupefy!"], "nagini": ["Serpensortia!", "Nagini..."], "hehehe": ["hehehe", "hehehe...", "kekeke"],
+                  "duel_call": ["You again, Potter?", "Duel me!"], **_CARE_SPEECH},
+    "dementor": {"chatter": ["hhhhh...", "...", "hhhh"], "tickle": ["hhh?"], "grumpy": ["HHHH!"], "repelled": ["hsss!", "HHH!"],
+                 **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
@@ -198,11 +206,12 @@ DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "squirrel": "playful", "pumpkin": "playful",
                "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful", "harry": "playful", "hermione": "friendly",
+               "voldemort": "playful",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly"}
 
-# 움직임 (pet.json locomotion) — 폴짝·나는 동물만 적는다 (없으면 걷는다). 지금 번들은 모두 걷기 (개구리는 v0.7.1에 빠짐)
-LOCOMOTION = {}
+# 움직임 (pet.json locomotion) — 폴짝·나는 동물만 적는다 (없으면 걷는다). 👻 디멘터만 날고 나머지는 걷기 (개구리는 v0.7.1에 빠짐)
+LOCOMOTION = {"dementor": "fly"}
 
 # 사는 집 그림 (pet.json house) — 보통 집은 적지 않는다. 앱 ui/house/<house>_<stage>.png
 HOUSE = {"pumpkin": "haunted", "rudolph": "xmas", "santa": "xmas", "snowman": "xmas"}
@@ -253,10 +262,20 @@ BIKE_RIDER = {"bat"}
 SUPER_FLIER = {"super"}
 
 # 🧹 가끔 빗자루에 올라타 화면을 낮게·높게 날아다니고 친구 화면도 빗자루로 오가는 동물 (pet.json broom_rider — 코어 brain_broom.rs, 그림 broom)
-BROOM_RIDER = {"harry", "hermione"}
+BROOM_RIDER = {"harry", "hermione", "voldemort"}
 
 # ✨ 지팡이로 거는 주문 (pet.json spells — 코어 brain_spell.rs, 그림 cast): expelliarmus 튕겨 내기 · leviosa 둥둥 띄우기 · reparo 쓰레기 반짝 치우기
-SPELLS = {"harry": ["expelliarmus", "leviosa"], "hermione": ["leviosa", "reparo"]}
+# · stupefy ⚡ 초록 빛줄기로 💫 기절 (볼드모트)
+SPELLS = {"harry": ["expelliarmus", "leviosa"], "hermione": ["leviosa", "reparo"], "voldemort": ["stupefy"]}
+
+# 🐍 나기니 부르기 · 😈 hehehe (pet.json dark_lord — 볼드모트, 그림 cast)
+DARK_LORD = {"voldemort"}
+
+# 👻 디멘터: 곁의 펫 시무룩·배고픔, 화면 구석 🥶 서리, 🦌 패트로누스에 도망 (pet.json dementor — locomotion fly)
+DEMENTOR = {"dementor"}
+
+# 🦌 디멘터가 오면 "Expecto Patronum!" 은빛 사슴 (pet.json patronus — 해리, 그림 cast)
+PATRONUS = {"harry"}
 
 # 🟡 골든 스니치를 빗자루로 쫓아가 잡는 동물 (pet.json seeker — 해리)
 SEEKER = {"harry"}
@@ -288,6 +307,8 @@ FAVORITE_FOOD = {
     "super": {"emoji": "🥛", "name": "우유"},
     "harry": {"emoji": "🍬", "name": "사탕"},
     "hermione": {"emoji": "🍎", "name": "사과"},
+    "voldemort": {"emoji": "🐟", "name": "생선"},
+    "dementor": {"emoji": "🍧", "name": "빙수"},
 }
 
 

@@ -182,7 +182,7 @@ impl Pet {
     }
 
     /// 길 모양(style)을 정해 날기 시작함 — 곡선 자체는 첫 틱에 범위를 보고 만듦 (fly_step)
-    fn start_flight_styled(&mut self, goal: Goal, kind: Move, style: Style) {
+    pub(super) fn start_flight_styled(&mut self, goal: Goal, kind: Move, style: Style) {
         let from = (self.body.x, self.body.y);
         let mut f = Flight::new(goal, from, 0.0);
         f.style = style;
@@ -229,6 +229,11 @@ impl Pet {
                 self.start_flight(Goal::Point(tx, ty), kind);
                 return true;
             }
+        }
+        // 👻 디멘터는 가끔 다른 펫 머리 위로 스르륵 (brain_dementor.rs)
+        if let Some(to) = self.stalk_target(world) {
+            self.start_flight_styled(Goal::Point(to.0, to.1), kind, Style::Gentle);
+            return true;
         }
         let area = match self.inside.and_then(|s| world.window(s.window)) {
             Some(w) => inside::air_bounds(&w.rect, &world.bounds, true),

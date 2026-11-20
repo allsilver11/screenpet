@@ -15,7 +15,7 @@ const pager = makePager(document.getElementById("pager"), (p) => {
 });
 
 // 보낸 펫 이모지 — 없어진 동물(새·기린·레서판다 v0.7.0, 오리·개구리·페르시안 v0.7.1)도 남겨 둠: 옛 버전 사용자가 보낸 편지에 그 종이 적혀 옴
-const PET_EMOJI = { cat: "🐱", persian: "🐱", rabbit: "🐰", frog: "🐸", duck: "🦆", bird: "🐦", penguin: "🐧", squirrel: "🐿️", redpanda: "🐾", heumul: "🤸", spider: "🕷️", bat: "🦇", super: "🦸", harry: "🧙", hermione: "📚", giraffe: "🦒", pumpkin: "🎃", ghost: "👻", santa: "🎅", rudolph: "🦌", snowman: "⛄" };
+const PET_EMOJI = { cat: "🐱", persian: "🐱", rabbit: "🐰", frog: "🐸", duck: "🦆", bird: "🐦", penguin: "🐧", squirrel: "🐿️", redpanda: "🐾", heumul: "🤸", spider: "🕷️", bat: "🦇", super: "🦸", harry: "🧙", hermione: "📚", voldemort: "🐍", dementor: "👻", giraffe: "🦒", pumpkin: "🎃", ghost: "👻", santa: "🎅", rudolph: "🦌", snowman: "⛄" };
 
 // 클래스와 글자를 넣은 요소를 만듦
 function el(tag, cls, text) {

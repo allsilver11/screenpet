@@ -55,6 +55,8 @@ pub mod soar;
 pub mod broom_fly;
 /// 🧙 마법사 주문·📖 책·👜 가방 청소의 숫자
 pub mod wizard;
+/// ✨ 덮개 창에 그릴 마법 효과 (⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리)
+pub mod magic;
 pub mod world;
 
 #[cfg(test)]

@@ -97,6 +97,21 @@
 - 뒷모습 (climb·slide): 머리 (헤르미온느는 머리카락 덩어리)를 언제나 팔 위에 그림 — 테스트가 봄.
 - 👜 구슬 가방은 시트에 그리지 않음: 보라색 구슬 가방을 웹뷰가 SVG로 그려 넣은 수만큼 부드럽게 키움 (`ui/main.js` drawBag — 작으면 손에 대롱대롱, 크거나 bag_drag면 바닥에 놓고 끈을 손까지).
 - 🟡 골든 스니치도 시트가 아니라 덮개 창이 그림 (`ui/snitch.js`).
+- 해리 `"patronus": true` (🦌 디멘터가 오면 "Expecto Patronum!" — 사슴은 덮개 창 `ui/magic.js`).
+
+## 볼드모트 (어둠의 꼬마 마법사)
+- 그림은 `tools/draw_wizard.py` (해리·헤르미온느와 같은 몸) + `tools/draw_voldemort.py` (생김새 Look — `SPECIES["voldemort"]`, `python tools/draw_voldemort.py` → 미리보기 `tools/preview/stages_voldemort.png`·`climb_voldemort.png`·`wizard_voldemort.png`).
+  Look이 로브 색 (`robe`·`robe_far`·`robe_in` 초록 안감·`jumper`·`pants`), 목도리 없음 (`scarf=False`), 붉은 눈 (`eyes` — 단계 눈 색만 바꿈), 볼 없음 (`blush=None`), 옆모습 귀 없음을 정함.
+- 디자인: 창백한 대머리 (정수리 윤기·관자놀이 그늘), 코 없이 납작한 콧구멍 두 줄 (앞모습)·한 줄 (옆모습), 붉은 눈, 까만 로브, 하얀 뼈 지팡이. 뒷모습은 머리가 팔 위 (테스트가 봄).
+- `pet.json`: `"broom_rider": true`, `"spells": ["stupefy"]` (⚡ 초록 빛줄기 — 코어 brain_spell.rs), `"dark_lord": true` (🐍 나기니·😈 hehehe — `SPELL_ANIMS`가 있어야, `is_dark_lord()`), `stage_size` 0.85,
+  좋아하는 음식 🐟 생선, 대사 `stupefy`·`nagini`·`hehehe`·`duel_call`·`broom_*` (짧은 영어). ⚡ 빛줄기·🐍 나기니·⚔️ 결투 빛줄기는 시트가 아니라 덮개 창이 그림 (`ui/magic.js`).
+
+## 디멘터 (떠다니는 후드 망토 — 사람 치비가 아님)
+- 그림은 `tools/draw_dementor.py` (자기 포즈 — `SPECIES["dementor"]`, `python tools/draw_dementor.py` → 미리보기 `tools/preview/stages_dementor.png`). 필수 21줄 + `lookup` (나는 동물이라 climb·slide 없음).
+- 디자인: 큰 둥근 후드 (뒤 끝이 뾰족) 속은 얼굴 없이 캄캄 (표정은 💢·?·z·하트·반짝이 효과로만), 아래로 퍼지는 망토, 종 모양 소매 끝의 앙상한 회색 해골 손 (손가락 셋), 칸마다 펄럭이는 찢어진 아랫단.
+  발이 없어 늘 바닥보다 떠 있음 (아랫단 조각 끝 `HOVER`). 단계: 아기는 후드가 아주 크고 망토가 짧음 → 어른은 망토가 길고 더 너덜너덜.
+- `pet.json`: `"locomotion": "fly"`, `"dementor": true` (코어 brain_dementor.rs — 날 때만, `is_dementor()`), `stage_size` 0.95, 좋아하는 음식 🍧 빙수, 대사 `chatter` (숨소리)·`repelled`.
+  🥶 서리·🦌 패트로누스 사슴은 덮개 창이 그림 (`ui/magic.js`).
 
 ## 거미인간 (줄을 쏘는 꼬마 영웅)
 - 그림은 `tools/draw_spider.py` (draw_pets 엔진, 모든 동작이 자기 포즈 — `SPECIES["spider"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 거미인간만: `python tools/draw_spider.py` → 미리보기 `tools/preview/stages_spider.png`·`climb_spider.png`).

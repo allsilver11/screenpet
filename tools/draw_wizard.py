@@ -1,6 +1,7 @@
-"""마법사 🧙 공통 몸 — 검은 로브에 그리핀도르 목도리를 두르고 지팡이를 든 사람 모양 꼬마 (해리포터·헤르미온느, 나중에 볼드모트).
+"""마법사 🧙 공통 몸 — 검은 로브에 그리핀도르 목도리를 두르고 지팡이를 든 사람 모양 꼬마 (해리포터·헤르미온느·볼드모트).
 뼈대·IK는 슈퍼인간(draw_super)·박쥐인간·거미인간과 같은 틀이고, 부품마다 자기 외곽선을 두른 두 발 꼬마 — 팔다리는 관절을 IK로 굽힌다.
-종마다 다른 것 (머리 모양·안경·흉터·피부·지팡이 색·배고플 때 생각하는 음식)은 Look으로 받는다 (draw_harry.py·draw_hermione.py).
+종마다 다른 것 (머리 모양·안경·흉터·피부·지팡이 색·배고플 때 생각하는 음식·로브 색·목도리 유무·눈 색·볼)은 Look으로 받는다
+(draw_harry.py·draw_hermione.py·draw_voldemort.py).
 
 생김새: 큰 머리 (키의 45% 남짓) + 작은 몸 + 짧은 팔다리 둘씩. 살색 얼굴 (draw_pets 단계 눈).
         몸: 검은 로브 (소매 끝까지 — 손은 맨손, 아랫단이 정강이까지 퍼지고 펄럭일 땐 진홍 안감), 앞섶 사이로 회색 스웨터,
@@ -73,6 +74,15 @@ class Look:
     eye_k: float = 0.82  # 눈 크기 배
     back_reach: float = 0.0  # 뒷모습 벽 짚은 손을 더 바깥으로 (부푼 머리에 가리지 않게)
     extra_parts: dict = field(default_factory=dict)
+    robe: tuple = ROBE  # 로브 (몸·소매) · 먼 쪽 소매 · 안감 · 앞섶 사이 · 바지 (볼드모트는 더 까맣고 안감이 초록)
+    robe_far: tuple = ROBE_FAR
+    robe_in: tuple = ROBE_IN
+    jumper: tuple = JUMPER
+    pants: tuple = PANTS
+    pants_far: tuple = PANTS_FAR
+    scarf: bool = True  # 그리핀도르 목도리 (볼드모트는 없음)
+    blush: tuple = BLUSH  # 볼 (None이면 없음 — 볼드모트)
+    eyes: tuple = None  # 눈 색 (눈동자, 아래쪽 밝은 홍채) — None이면 draw_pets 단계 눈 그대로 (볼드모트는 붉은 눈)
 
 
 _LOOK = {}  # 지금 그리는 종의 Look (poses_for가 칸마다 바꿈)
@@ -155,11 +165,18 @@ def limb(root, end, ln, w, color, end_col, prefer, *, shoe=False, toe=0.0, open_
 # =====================================================================
 def eye_ops(kind, cx, cy, flip, brow=None, sx=1.0):
     """눈 하나 (draw_pets 단계 눈) + 눈썹 (angry · sad). sx: 옆모습 먼 눈은 가로로 좁게."""
-    k = look().eye_k
-    with xf(sx=sx * k, sy=k, pivot=(cx, cy)):
-        ops = dp.stage_eye(kind, cx, cy, flip)
-        if brow:
-            ops += dp.brows(brow, cx, cy + 2.0, flip)
+    lk = look()
+    k = lk.eye_k
+    saved = (dp.EYE, dp.EYE_LIGHT)
+    if lk.eyes:
+        dp.EYE, dp.EYE_LIGHT = lk.eyes
+    try:
+        with xf(sx=sx * k, sy=k, pivot=(cx, cy)):
+            ops = dp.stage_eye(kind, cx, cy, flip)
+            if brow:
+                ops += dp.brows(brow, cx, cy + 2.0, flip)
+    finally:
+        dp.EYE, dp.EYE_LIGHT = saved
     return ops
 
 
@@ -209,8 +226,8 @@ def face_ops(view_, hx, hy, eyes, brow, mouth, look_, blush_on):
     if view_ == "front":
         ops += eye_ops(eyes, ex0, ey0, False, brow)
         ops += eye_ops(eyes, ex1, ey1, True, brow)
-        if blush_on:
-            ops += [([E(hx + side * 0.56 * hrx - 3.2, hy + 0.44 * hry - 1.6, hx + side * 0.56 * hrx + 3.2, hy + 0.44 * hry + 1.4)], BLUSH)
+        if blush_on and lk.blush:
+            ops += [([E(hx + side * 0.56 * hrx - 3.2, hy + 0.44 * hry - 1.6, hx + side * 0.56 * hrx + 3.2, hy + 0.44 * hry + 1.4)], lk.blush)
                     for side in (-1, 1)]
         mx, my = hx + lx * 0.5, hy + 0.62 * hry
     else:
@@ -220,8 +237,8 @@ def face_ops(view_, hx, hy, eyes, brow, mouth, look_, blush_on):
             ops.append(([E(ear[0] - 2.0, ear[1] - 3.2, ear[0] + 2.0, ear[1] + 3.2)], lk.skin))
         ops += eye_ops(eyes, ex0, ey0, True, brow, sx=0.5)
         ops += eye_ops(eyes, ex1, ey1, False, brow, sx=0.85)
-        if blush_on:
-            ops.append(([E(hx + 0.42 * hrx - 2.8, hy + 0.46 * hry - 1.6, hx + 0.42 * hrx + 2.8, hy + 0.46 * hry + 1.4)], BLUSH))
+        if blush_on and lk.blush:
+            ops.append(([E(hx + 0.42 * hrx - 2.8, hy + 0.46 * hry - 1.6, hx + 0.42 * hrx + 2.8, hy + 0.46 * hry + 1.4)], lk.blush))
         mx, my = hx + 0.72 * hrx, hy + 0.62 * hry
     ops += mouth_ops(mouth, mx, my)
     if lk.extra:
@@ -338,7 +355,7 @@ def robe_side(hx0, waist, bottom, tw, robe):
     pts = [fw] + hem + [bw]
     marks = []
     if a > 25:  # 휘날리면 안감이 보임
-        marks.append(([T(bh, polar(bw, -a - 2, ln * 0.55), (hem[len(hem) // 2][0], hem[len(hem) // 2][1] - 2))], ROBE_IN))
+        marks.append(([T(bh, polar(bw, -a - 2, ln * 0.55), (hem[len(hem) // 2][0], hem[len(hem) // 2][1] - 2))], look().robe_in))
     return pts, marks
 
 
@@ -386,11 +403,11 @@ def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), 
         for j in range(2):
             far = side_view and j == 0
             end = target(leg_roots[j], legs[j], s["leg"], leg_sides[j])
-            p, _ = limb(leg_roots[j], end, s["leg"], lw, PANTS_FAR if far else PANTS, SHOE_FAR if far else SHOE, leg_pref[j], shoe=True,
+            p, _ = limb(leg_roots[j], end, s["leg"], lw, lk.pants_far if far else lk.pants, SHOE_FAR if far else SHOE, leg_pref[j], shoe=True,
                         toe=(1 if side_view else 0) if view_ != "back" else 0, point=point)
             leg_parts.append(p)
             end = target(sh_roots[j], arms[j], s["arm"], arm_sides[j])
-            p, _ = limb(sh_roots[j], end, s["arm"], aw, ROBE_FAR if far else ROBE, lk.skin_shade if far else lk.skin, arm_pref[j],
+            p, _ = limb(sh_roots[j], end, s["arm"], aw, lk.robe_far if far else lk.robe, lk.skin_shade if far else lk.skin, arm_pref[j],
                         open_hand=open_hand[j])
             arm_parts.append(p)
             hands.append(end)
@@ -415,7 +432,7 @@ def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), 
                 tshape.append(T(*pts))
                 marks += rmarks
                 # 앞섶 (가슴 앞쪽 가장자리에 회색 스웨터 한 줄)
-                marks.append(([L([(hx0 + tw * 0.86, top + 3), (hx0 + tw * 0.9, waist)], 2.6)], JUMPER))
+                marks.append(([L([(hx0 + tw * 0.86, top + 3), (hx0 + tw * 0.9, waist)], 2.6)], lk.jumper))
             else:
                 ln = s["leg"] * s["robe"] * robe.get("len", 1.0) + (bottom - waist)
                 hem_y = waist + ln
@@ -428,15 +445,15 @@ def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), 
                 tshape.append(T((hx0 - tw * 0.84, waist), (hx0 + tw * 0.84, waist), *hem))
                 if view_ == "front":
                     # 앞섶이 열려 회색 스웨터가 보임 (목도리 아래에서 허리까지 좁아짐) + 아랫단까지 여밈 선
-                    marks.append(([T((hx0 - tw * 0.36, top), (hx0 + tw * 0.36, top), (hx0 + 1.4, waist + 1), (hx0 - 1.4, waist + 1))], JUMPER))
+                    marks.append(([T((hx0 - tw * 0.36, top), (hx0 + tw * 0.36, top), (hx0 + 1.4, waist + 1), (hx0 - 1.4, waist + 1))], lk.jumper))
                     marks.append(([L([(hx0, waist), (hx0 + sway * 0.6, hem_y + 1)], 1.3)], OUT))
                 else:
-                    marks.append(([L([(hx0, top + 6), (hx0 + sway * 0.6, hem_y)], 1.1)], ROBE_FAR))
-            torso = Part(tshape, ROBE, marks, outline=True, grow=0)
+                    marks.append(([L([(hx0, top + 6), (hx0 + sway * 0.6, hem_y)], 1.1)], lk.robe_far))
+            torso = Part(tshape, lk.robe, marks, outline=True, grow=0)
             neck = (hx0 + (1.5 if side_view else 0.0), top)
-            band = scarf_band(view_, neck[0], top + 1.0, tw)
+            band = scarf_band(view_, neck[0], top + 1.0, tw) if lk.scarf else None
             tail = None
-            if scarf is not False:
+            if scarf is not False and lk.scarf:
                 sl = (th * 0.85 + s["leg"] * 0.25) * scarf.get("len", 1.0)
                 if side_view:
                     a = scarf.get("a", -12.0)
@@ -495,7 +512,8 @@ def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), 
     if callable(fx):
         fx = fx(hands)
     # 실루엣 바탕·외곽선 색은 맨 앞 부품을 따름: 뒤로 휘날린 목도리가 맨 앞이어도 로브 색으로 (빈 바탕 조각)
-    return dp.compose([Part([], ROBE, grow=0)] + parts, face + list(ops), fx)
+    parts = [p for p in parts if p is not None]  # 목도리가 없는 종 (band = None)
+    return dp.compose([Part([], lk.robe, grow=0)] + parts, face + list(ops), fx)
 
 
 def H(x=SIDE_CX, dy=0.0):
@@ -762,9 +780,9 @@ def wz_roll(sp, i):
         with xf(rot=[-8, 8][i], pivot=(cx, cy)):
             hrx, hry = 20.0, 18.5
             hx, hy = cx + 5, cy - 8
-            body = Part([C(cx - 4, cy + 7, 21.0)], ROBE, [([T(*wave_line((cx + 16, cy + 22), (cx - 24, cy + 22), 2, 3.0, (0, -1)),
-                                                              (cx - 26, cy + 34), (cx + 18, cy + 34))], ROBE_IN)], outline=True, grow=0)
-            knee = Part([E(cx + 2, cy + 6, cx + 28, cy + 24)], PANTS, outline=True, grow=0)
+            body = Part([C(cx - 4, cy + 7, 21.0)], lk.robe, [([T(*wave_line((cx + 16, cy + 22), (cx - 24, cy + 22), 2, 3.0, (0, -1)),
+                                                              (cx - 26, cy + 34), (cx + 18, cy + 34))], lk.robe_in)], outline=True, grow=0)
+            knee = Part([E(cx + 2, cy + 6, cx + 28, cy + 24)], lk.pants, outline=True, grow=0)
             shoe = Part([E(cx - 2, cy + 19, cx + 16, cy + 29)], SHOE, outline=True, grow=0)
             hand = Part([C(cx + 22, cy + 15, 5.0)], lk.skin, outline=True, grow=0)
             band = Part([E(cx - 8, cy + 6, cx + 20, cy + 14)], SCARF, [([L([(cx + 2, cy + 4), (cx + 3, cy + 16)], 1.8)], SCARF_GOLD)], outline=True, grow=0)
@@ -777,7 +795,7 @@ def wz_roll(sp, i):
                     face += dp.eye("happy", lx, hy + 1, flip)
             face += mouth_ops("open" if i else "smile", hx + 6, hy + 12)
         clip = dp.shapes([C(cx, cy, ROLL_RADIUS - 1.25 * dp.OUTLINE * _ST["line"] - 1.2)])
-    return dp.compose([body, knee, shoe, band, head, hand], face, clip=clip)
+    return dp.compose([body, knee, shoe] + ([band] if lk.scarf else []) + [head, hand], face, clip=clip)
 
 
 # =====================================================================
