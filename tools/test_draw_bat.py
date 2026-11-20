@@ -43,7 +43,7 @@ def near(im, col, tol=40):
 
 def test_registered_with_climb_juggle_and_the_five_bike_rows_at_the_end():
     assert draw_pets.SPECIES["bat"] is db.BAT_HERO
-    assert [o[0] for o in OPTIONAL_ANIMS[-9:-4]] == BIKE == db.BIKE_ANIMS  # 그 뒤는 🦸 슈퍼인간 날기 넷
+    assert [o[0] for o in OPTIONAL_ANIMS[-16:-11]] == BIKE == db.BIKE_ANIMS  # 그 뒤는 🦸 슈퍼인간 날기 넷 · 🧙 마법사 일곱
     assert db.JUGGLE_ANIMS == JUGGLE
     assert names(db.BAT_HERO) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + JUGGLE + BIKE
 

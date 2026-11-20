@@ -56,6 +56,10 @@ pub struct PetSpot {
     pub liftable: bool,
     /// 손님 (다른 사람의 동물 — 친구에게 데려가지 않음)
     pub guest: bool,
+    /// 🤹 물건을 들고 있음 (✨ Expelliarmus가 떨어뜨림 — brain_spell.rs)
+    pub carrying: bool,
+    /// 📖 앉아서 책을 읽는 중 (헤르미온느 — 나중에 친구들이 방해하러 옴, brain_study.rs)
+    pub reading: bool,
 }
 
 /// 들어 올린 뒤 할 일
@@ -146,7 +150,7 @@ impl Pet {
 
     /// 🙆 다른 흐물이에게 보이는 이 동물
     pub fn pet_spot(&self) -> PetSpot {
-        PetSpot { key: self.social_key, x: self.body.x, y: self.body.y, owner: self.standing.map(|s| s.owner), size: self.cfg.size, liftable: self.lift_ok(), guest: self.guest.is_some() }
+        PetSpot { key: self.social_key, x: self.body.x, y: self.body.y, owner: self.standing.map(|s| s.owner), size: self.cfg.size, liftable: self.lift_ok(), guest: self.guest.is_some(), carrying: self.carried_object().is_some(), reading: self.is_reading() }
     }
 
     /// 🙆 데려갈 수 있는 끝 (앱이 매 틱 — 손님 흐물이에게만, 그 끝의 친구가 새 버전이고 이 화면 주인의 동물이 놀러 갈 수 있을 때)
@@ -256,6 +260,11 @@ impl Pet {
             // 🕷️ 거미인간이 줄로 끌어올 동물 (brain_web.rs) · 🦇 오토바이로 부딪쳐 살짝 튕길 동물 (brain_bike.rs)
             self.web.pets.clear();
             self.web.pets.extend(spots.iter().filter(|s| s.key != self.social_key).copied());
+        }
+        if !self.cfg.spells.is_empty() {
+            // ✨ 주문을 걸 동물 (brain_spell.rs)
+            self.spell.pets.clear();
+            self.spell.pets.extend(spots.iter().filter(|s| s.key != self.social_key).copied());
         }
     }
 
@@ -520,7 +529,7 @@ impl Pet {
 
 /// 같은 화면 동물들의 일 — 앱이 매 틱 동물 update 전에: 흐물이들(과 🕷️ 거미인간)에게 다른 동물을 보여 줌
 pub fn notice_pets<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
-    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs || p.cfg.rides_bike;
+    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs || p.cfg.rides_bike || !p.cfg.spells.is_empty();
     if !pets.iter().any(|p| sees(p.as_ref())) {
         return;
     }
@@ -543,6 +552,8 @@ pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut>
     super::web_moves::sync_yanks(pets);
     // 🐛 거미인간이 고치로 감는 동물 (brain_snare.rs)
     super::snare_moves::sync_cocoons(pets);
+    // ✨ 주문에 맞은 동물: 든 것을 떨어뜨리거나 둥둥 뜸 (brain_spell.rs)
+    super::spell_moves::sync_spells(pets);
     let mut out = Vec::new();
     let find = |pets: &[T], key: u64| pets.iter().position(|p| p.as_ref().social_key == key);
     for i in 0..pets.len() {

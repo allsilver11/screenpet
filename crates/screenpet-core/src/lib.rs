@@ -51,6 +51,10 @@ pub mod web;
 pub mod bike;
 /// 🦸 슈퍼인간 낮게 날기·활공의 숫자
 pub mod soar;
+/// 🧹 마법사 빗자루 비행·🟡 골든 스니치의 숫자와 길
+pub mod broom_fly;
+/// 🧙 마법사 주문·📖 책·👜 가방 청소의 숫자
+pub mod wizard;
 pub mod world;
 
 #[cfg(test)]

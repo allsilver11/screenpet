@@ -27,7 +27,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
-                         STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, WEB_SLINGER, BIKE_RIDER, SUPER_FLIER, frame_px, manifest)
+                         STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, WEB_SLINGER, BIKE_RIDER, SUPER_FLIER,
+                         BROOM_RIDER, SPELLS, SEEKER, BOOKWORM, BAG_CLEANER, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -1773,6 +1774,16 @@ def species_fields(pid, m):
         m["bike_rider"] = True
     if pid in SUPER_FLIER:
         m["super_flier"] = True
+    if pid in BROOM_RIDER:
+        m["broom_rider"] = True
+    if pid in SPELLS:
+        m["spells"] = list(SPELLS[pid])
+    if pid in SEEKER:
+        m["seeker"] = True
+    if pid in BOOKWORM:
+        m["bookworm"] = True
+    if pid in BAG_CLEANER:
+        m["bag_cleaner"] = True
     return m
 
 
@@ -1952,6 +1963,8 @@ import draw_heumul  # noqa: E402,F401  (흐물이)
 import draw_spider  # noqa: E402,F401  (거미인간)
 import draw_bat  # noqa: E402,F401  (박쥐인간)
 import draw_super  # noqa: E402,F401  (슈퍼인간)
+import draw_harry  # noqa: E402,F401  (해리포터)
+import draw_hermione  # noqa: E402,F401  (헤르미온느)
 
 if __name__ == "__main__":
     main()

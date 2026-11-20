@@ -664,6 +664,17 @@ body.art-pending #house {
 
 /* 🐛 거미인간 고치 (render.cocoon = 감긴 실 겹 수, 코어 brain_snare.rs): 새 그림 없이 몸 위에 하얀 실 띠를 겹 수만큼 비스듬히 —
    고치째 발밑을 축으로 버둥버둥 */
+/* 👜 헤르미온느 구슬 가방 (main.js drawBag): #pet 칸 전체에 겹친 SVG — 칸 밖으로 나간 큰 가방도 보이게 */
+#bag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
 #cocoon {
   position: absolute;
   left: 50%;

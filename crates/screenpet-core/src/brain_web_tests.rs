@@ -457,7 +457,7 @@ fn it_also_whirls_objects_at_a_nearby_pet_and_the_throw_comes_down_on_it() {
     for seed in 0..200 {
         let mut p = calm_spider(800.0, seed, &w);
         let size = p.cfg.size;
-        let target = PetSpot { key: 77, x: 800.0 - 6.0 * size, y: 1040.0, owner: Some(Owner::Ground(0)), size, liftable: true, guest: true };
+        let target = PetSpot { key: 77, x: 800.0 - 6.0 * size, y: 1040.0, owner: Some(Owner::Ground(0)), size, liftable: true, guest: true, carrying: false, reading: false };
         p.web.pets = vec![target];
         let spot = floor_object(&p, 3.0 * size);
         p.notice_play_objects(&[spot], &w);
@@ -499,7 +499,7 @@ fn a_spider_with_a_pet_nearby_plays_web_pranks_often() {
         let size = p.cfg.size;
         let mut was = false;
         for _ in 0..(60 * 300) {
-            p.web.pets = vec![PetSpot { key: 77, x: (p.body.x - 4.0 * size).max(100.0), y: 1040.0, owner: Some(Owner::Ground(0)), size, liftable: true, guest: true }];
+            p.web.pets = vec![PetSpot { key: 77, x: (p.body.x - 4.0 * size).max(100.0), y: 1040.0, owner: Some(Owner::Ground(0)), size, liftable: true, guest: true, carrying: false, reading: false }];
             p.update(DT, &w);
             let _ = p.take_juggle();
             let _ = p.take_web();
@@ -802,7 +802,7 @@ fn while_hanging_it_sometimes_turns_to_a_nearby_pet_or_the_cursor_and_says_hey()
     for seed in 0..12 {
         let mut p = hang_spider(900.0, seed, &w);
         p.facing = 1.0;
-        let pal = PetSpot { key: 99, x: 900.0 - 2.5 * p.cfg.size, y: 1040.0, owner: Some(Owner::Ground(0)), size: p.cfg.size, liftable: true, guest: false };
+        let pal = PetSpot { key: 99, x: 900.0 - 2.5 * p.cfg.size, y: 1040.0, owner: Some(Owner::Ground(0)), size: p.cfg.size, liftable: true, guest: false, carrying: false, reading: false };
         p.web.pets = vec![pal];
         assert!(p.start_hang_down(&w));
         let mut guard = LoopLimit::new();

@@ -70,7 +70,8 @@ impl Pet {
 
     /// 매 틱 update 전에: 바닥의 물건 (🐱 고양이·🐿️ 다람쥐만 일이 있음). 숨겨 둔 동안엔 앱이 빈 목록을 줌
     pub fn notice_play_objects(&mut self, spots: &[ObjectSpot], world: &World) {
-        if !self.cfg.knocks && !self.cfg.stashes && !self.cfg.slings_webs {
+        // ✨ 주문을 거는 마법사·👜 가방 청소도 바닥의 물건을 봄 (brain_spell.rs·brain_study.rs)
+        if !self.cfg.knocks && !self.cfg.stashes && !self.cfg.slings_webs && self.cfg.spells.is_empty() && !self.cfg.bag_cleaner {
             return;
         }
         self.play.spots.clear();

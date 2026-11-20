@@ -383,6 +383,8 @@ enum Phase {
     Whirled { seen: f64 },
     /// 🕸️ 거미집(web = 앱의 거미집 번호)에 걸려 매달림 — rel = 거미집 모서리에서 물건 가운데까지, dir = 들어온 쪽, t = 걸린 뒤 흐른 시간
     Snagged { web: u64, rel: (f64, f64), dir: (f64, f64), t: f64 },
+    /// ✨ Leviosa에 둥둥 떠 있음 — base_y = 떠오른 바닥 높이, t = 뜬 뒤 흐른 시간, len = 전체, rise = 높이 (물리 px). 끝나면 그 자리에서 내려앉음
+    Floating { base_y: f64, t: f64, len: f64, rise: f64 },
 }
 
 /// 🌀 회오리가 이만큼(초) 옮기지 않으면 그 자리에서 떨어짐 (태풍이 끝나도 잃어버리지 않게)
@@ -779,6 +781,29 @@ impl Object {
         true
     }
 
+    /// ✨ Leviosa: 바닥에 놓인 것이 rise (물리 px)만큼 천천히 떠올라 살랑 떠 있다가 secs초 뒤 그 자리에 내려앉음 (던진 게 아님).
+    /// 바닥에 있지 않으면 false
+    pub fn levitate(&mut self, rise: f64, secs: f64) -> bool {
+        if !matches!(self.phase, Phase::Ground { .. } | Phase::Rest) || rise <= 0.0 || secs <= 0.0 {
+            return false;
+        }
+        self.standing = None;
+        self.thrown = false;
+        self.thrown_down = false;
+        self.knocked = false;
+        self.landed_at = None;
+        self.body.vx = 0.0;
+        self.body.vy = 0.0;
+        self.spin = 0.0;
+        self.phase = Phase::Floating { base_y: self.body.y, t: 0.0, len: secs, rise };
+        true
+    }
+
+    /// ✨ Leviosa에 떠 있음
+    pub fn is_floating(&self) -> bool {
+        matches!(self.phase, Phase::Floating { .. })
+    }
+
     /// 들고 있던 동물이 놓쳤음 (잡혔거나 다른 일로): 그 자리에서 떨어짐
     pub fn let_fall(&mut self) {
         if self.phase == Phase::Carried {
@@ -1012,6 +1037,17 @@ impl Object {
             }
             Phase::Snagged { web, rel, dir, t } => {
                 self.tick_snag(dt, web, rel, dir, t);
+                None
+            }
+            Phase::Floating { base_y, t, len, rise } => {
+                let t = t + dt;
+                if t >= len {
+                    self.body.y = base_y;
+                    self.start_fall();
+                } else {
+                    self.body.y = base_y - crate::wizard::float_height(t, len, rise);
+                    self.phase = Phase::Floating { base_y, t, len, rise };
+                }
                 None
             }
             Phase::Air => {

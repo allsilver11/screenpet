@@ -109,7 +109,12 @@ pub enum ObjectPlay {
     /// 🦖 큰 쿵!: 같은 바닥(owner, 높이 y) 가로 reach(물리 px) 안의 물건이 톡 튀어 오름 (Object::pop)
     Quake { x: f64, y: f64, owner: Owner, reach: f64 },
     /// 🕷️ 거미인간이 줄로 끌어옴: 바닥에 있는 이 물건을 (vx, vy)로 날림 (물리 px/s, Object::launch — brain_web.rs)
+    /// ✨ Expelliarmus도 바닥의 물건을 이 길로 휙 날림 (brain_spell.rs)
     Yank { id: u64, vx: f64, vy: f64 },
+    /// ✨ Wingardium Leviosa: 바닥에 있는 이 물건이 rise (물리 px)만큼 둥둥 떠올라 secs초 뒤 내려옴 (Object::levitate — brain_spell.rs)
+    Levitate { id: u64, rise: f64, secs: f64 },
+    /// ✨ Reparo·👜 구슬 가방: 바닥에 있는 이 물건을 뿅 치움 — 거대한 것도 (📌 장난감은 안 치움, brain_spell.rs·brain_study.rs)
+    Vanish { id: u64 },
 }
 
 /// 위로 rise만큼 솟았다 내려오는 폴짝의 t초째 높이 (secs 동안, 포물선)

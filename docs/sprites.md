@@ -53,6 +53,13 @@
 | fly_fast (슈퍼인간) | 3 | 빠른 날기: 두 주먹을 앞으로, 몸이 더 곧고 망토가 길게, 속도선 여러 줄 (fps 14) | |
 | fly_flip (슈퍼인간) | 4 | 🔄 공중제비: 무릎을 끌어안은 몸이 칸마다 90°씩 앞으로 돎, 망토가 둘레로 (fps 12, 코어가 한 바퀴 FLIP_SECS 동안만 틂) | |
 | hover (슈퍼인간) | 3 | 둥실: 똑바로 선 채 발끝을 아래로 살짝 떠 있음, 한 주먹은 허리, 망토 살랑 (fps 6) — 이륙·내려앉기·사뿐 착지·위아래 친구 화면 | |
+| broom (마법사) | 3 | 🧹 빗자루에 앉아 날기 (옆모습, 손잡이가 앞): 두 손으로 손잡이를 쥐고 다리는 아래로, 로브 자락·목도리 끝이 뒤로 펄럭 (fps 8). 코어가 몸을 허공 길을 따라 옮김 (brain_broom.rs) | |
+| cast (마법사) | 3 | ✨ 지팡이 휙 (옆모습, 한 번 — 마지막 칸 유지): 어깨 뒤로 들기 → 앞으로 휙 → 쭉 뻗어 끝에 반짝 별. 지팡이 끝 = `grip.cast` (나중에 결투 빛줄기 자리) | |
+| read (헤르미온느) | 4 | 📖 바닥에 앉아 무릎 위에 책을 펴고 읽음, 셋째 칸쯤 책장 넘김 (fps 2) | |
+| raise_hand (헤르미온느) | 2 | 🙋 앞모습, 한 손을 위로 쭉 뻗고 발끝으로 통통 ("I know!", fps 4) | 앞 |
+| bag_walk (헤르미온느) | 4 | 👜 가방 끈을 가까운 손에 쥐고 걷기 — 가방은 그리지 않음 (웹뷰가 `grip.bag_walk` 손 자리에 SVG로 그림, fps 8) | |
+| bag_drag (헤르미온느) | 4 | 👜 몸을 앞으로 숙이고 가까운 팔을 몸 뒤 아래로 뻗어 무거운 끈을 끌며 걷기 — 손 = `grip.bag_drag` (fps 6) | |
+| bag_stuff (헤르미온느) | 2 | 👜 몸을 숙여 앞에 낮게 든 가방에 물건을 쏙 (한 번) — 손 = `grip.bag_stuff` (fps 4) | |
 
 ## 꿀벌 (나는 동물)
 - `pet.json`에 `"locomotion": "fly"` — 걷지 않고 날아다닌다 (Rust는 모르는 필드를 무시; 코어가 `locomotion`을 읽는다). `stage_size`는 모든 단계 0.8 (작은 동물).
@@ -78,6 +85,18 @@
 - 디자인: 사람 모양 치비 (큰 머리, 팔 둘·다리 둘). 가면 없는 살색 얼굴 (draw_pets 단계 눈), 까만 머리 (옆가르마 앞머리, 옆모습은 뒤통수까지) + 이마의 동그란 컬 한 가닥. 파란 슈트 (소매 끝까지, 손은 맨손), 빨간 장화, 빨간 팬츠 + 노란 벨트 줄, 가슴에 빨간 테·노란 바탕 방패 + 빨간 S, 빨간 망토 (끝단이 부드럽게 물결).
 - 뒷모습 (climb·slide): 머리를 언제나 팔 위에 그림 (`hero`가 뒷모습에선 arms_front를 무시 — 테스트가 봄), 머리 뒤는 온통 까만 머리, 망토가 등을 덮음.
 - 💪 lift·hold·carry·throw·present: 한 손 번쩍 — 물건은 머리 위 (손 자리 grip = 앞머리 바로 위), 가까운 손바닥이 머리 앞쪽 위 옆면에서 받침 (팔은 머리 뒤로 가려짐), 먼 손은 허리. strain은 거대한 것 옆면을 한 손바닥으로 (영웅이라 금방 듦).
+
+## 해리포터 · 헤르미온느 (마법사 꼬마)
+- 그림은 `tools/draw_wizard.py` (마법사 공통 몸 — 박쥐인간·슈퍼인간과 같은 뼈대·IK 틀, 모든 기본 동작 + climb·slide·lookup + broom·cast. 볼드모트도 같은 몸에 생김새만 바꿔 씀) +
+  `tools/draw_harry.py`·`tools/draw_hermione.py` (생김새·헤르미온느 동작 — `SPECIES["harry"]`·`["hermione"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 하나만: `python tools/draw_harry.py` / `draw_hermione.py`).
+- `pet.json`: 둘 다 `"broom_rider": true` (코어 `PetManifest::rides_broom` — `BROOM_ANIMS`), `"spells"` (해리 `["expelliarmus", "leviosa"]`, 헤르미온느 `["leviosa", "reparo"]` — `SPELL_ANIMS`가 있어야, `spell_set()`),
+  해리 `"seeker": true` (🟡 스니치), 헤르미온느 `"bookworm": true` (📖🙋 — `BOOK_ANIMS`)·`"bag_cleaner": true` (👜 — `BAG_ANIMS`, 손 자리 `grip.bag_*`). `stage_size` 모든 단계 0.85,
+  좋아하는 음식 🍬 사탕 (해리)·🍎 사과 (헤르미온느). 대사 `broom_up`·`broom_land`·`broom_away`·`expelliarmus`·`leviosa`·`fizzle`·`reparo`·`snitch`·`got_it`·`i_know`·`study`·`tidy_up`·`all_clean` (짧은 영어 — 헤르미온느의 leviosa는 "It's Levi-O-sa!").
+- 디자인: 사람 모양 치비 (큰 머리, 팔 둘·다리 둘), 까만 로브 + 그리핀도르 목도리 (진홍 바탕 + 금색 줄무늬, 한쪽 끝이 늘어짐), 지팡이.
+  해리: 둥근 까만 테 안경, 이마의 번개 흉터, 덥수룩한 까만 머리. 헤르미온느: 갈색 부스스한 긴 머리 (어깨 너머까지 부풀어 얼굴을 감쌈).
+- 뒷모습 (climb·slide): 머리 (헤르미온느는 머리카락 덩어리)를 언제나 팔 위에 그림 — 테스트가 봄.
+- 👜 구슬 가방은 시트에 그리지 않음: 보라색 구슬 가방을 웹뷰가 SVG로 그려 넣은 수만큼 부드럽게 키움 (`ui/main.js` drawBag — 작으면 손에 대롱대롱, 크거나 bag_drag면 바닥에 놓고 끈을 손까지).
+- 🟡 골든 스니치도 시트가 아니라 덮개 창이 그림 (`ui/snitch.js`).
 
 ## 거미인간 (줄을 쏘는 꼬마 영웅)
 - 그림은 `tools/draw_spider.py` (draw_pets 엔진, 모든 동작이 자기 포즈 — `SPECIES["spider"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 거미인간만: `python tools/draw_spider.py` → 미리보기 `tools/preview/stages_spider.png`·`climb_spider.png`).

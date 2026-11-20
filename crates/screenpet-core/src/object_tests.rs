@@ -2240,3 +2240,22 @@ fn a_whirled_thing_flung_by_launch_goes_to_a_friend_and_grabbing_it_ends_the_whi
     assert!(grabbed.is_held() && !grabbed.is_whirled());
     assert!(!grabbed.whirl_at(610.0, 700.0, 0.0), "잡은 것은 회오리가 못 가져감");
 }
+
+/// ✨ Leviosa: 바닥의 물건이 천천히 떠올라 떠 있다가 그 자리에 내려앉음 (떠 있는 동안은 동물이 못 주움). 바닥에 없으면 안 뜸
+#[test]
+fn a_levitated_object_floats_up_hovers_and_settles_back_down() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::Can, 800.0, 200.0, 1.0, 1);
+    assert!(!o.levitate(100.0, 3.0), "공중에선 안 뜸");
+    run(&mut o, &w, 3.0);
+    assert!(o.spot(1).is_some());
+    assert!(o.levitate(100.0, 3.0));
+    assert!(o.is_floating() && o.spot(1).is_none());
+    run(&mut o, &w, 1.5);
+    assert!(o.body.y < 1040.0 - 80.0, "떠 있음 {}", o.body.y);
+    assert!((o.body.x - 800.0).abs() < 1e-9);
+    run(&mut o, &w, 3.0);
+    assert!(!o.is_floating());
+    assert!(resting_on(&o, Owner::Ground(0)));
+    assert_eq!(o.body.y, 1040.0);
+}

@@ -129,6 +129,16 @@ OPTIONAL_ANIMS = [
     ("fly_fast", 3, 14, True, False),
     ("fly_flip", 4, 12, True, False),
     ("hover", 3, 6, True, False),
+    # 🧙 마법사 (해리포터·헤르미온느 — 코어 brain_broom.rs·brain_spell.rs·brain_study.rs): 🧹 빗자루에 걸터앉아 날기 (로브·목도리 펄럭 3칸) ·
+    # ✨ 지팡이 휙 (한 번, 마지막 칸 유지 — 지팡이 끝 = pet.json grip) · 📖 바닥에 앉아 책 읽기 (책장 넘김) · 🙋 앞모습 손 번쩍 "I know!" ·
+    # 👜 구슬 가방 들고 걷기 · 커진 가방 질질 끌기 · 가방에 쏙 넣기 (가방은 앱이 손 자리 grip에 그림 — 시트엔 없음)
+    ("broom", 3, 8, True, False),
+    ("cast", 3, 8, False, False),
+    ("read", 4, 2, True, False),
+    ("raise_hand", 2, 4, True, True),
+    ("bag_walk", 4, 8, True, False),
+    ("bag_drag", 4, 6, True, False),
+    ("bag_stuff", 2, 4, False, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -168,13 +178,26 @@ SPEECH = {
               "take_off": ["up, up and away!", "whoosh!", "to the sky!"], "rescue": ["to the rescue!", "on my way!", "hang on!"],
               "air_flip": ["wheee!", "flip!", "ta-da!"], "soft_land": ["touchdown!", "soft landing", "and... landed"],
               "hero_lift": ["easy!", "one hand!", "light as air"], **_CARE_SPEECH},
+    # 🧙 마법사 둘: 🧹 빗자루 broom_up·broom_land·broom_away (친구 화면으로) · ✨ 주문 leviosa·fizzle (실패) ·
+    # 해리 expelliarmus·🟡 스니치 snitch·got_it · 헤르미온느 reparo·🙋 i_know·📖 study·👜 tidy_up·all_clean (코어 Speech)
+    "harry": {"chatter": ["hi!", "Quidditch?", "mischief managed"], "tickle": ["hehe!"], "grumpy": ["hmph."],
+              "broom_up": ["up we go!", "whoosh!", "to the skies!"], "broom_land": ["smooth landing", "and down!"],
+              "broom_away": ["off to Hogwarts!", "see you!"], "leviosa": ["Wingardium Leviosa!"], "fizzle": ["Leviosaaa?", "huh?", "oops..."],
+              "expelliarmus": ["Expelliarmus!"], "snitch": ["the Snitch!", "there it is!"], "got_it": ["Got it!", "Caught it!"],
+              **_CARE_SPEECH},
+    "hermione": {"chatter": ["hello!", "honestly...", "books!"], "tickle": ["hehe!"], "grumpy": ["honestly!"],
+                 "broom_up": ["up we go!", "whoosh!", "to the skies!"], "broom_land": ["smooth landing", "and down!"],
+                 "broom_away": ["off I go!", "back soon!"], "leviosa": ["It's Levi-O-sa!", "Wingardium Leviosa!"],
+                 "fizzle": ["Leviosaaa?", "huh?", "oops..."], "reparo": ["Reparo!"], "i_know": ["I know!", "ooh! I know!", "I read about it!"],
+                 "study": ["fascinating...", "hmm...", "shh!"], "tidy_up": ["tidy time!", "into the bag!"], "all_clean": ["Phew! All clean!"],
+                 **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "squirrel": "playful", "pumpkin": "playful",
-               "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful",
+               "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful", "harry": "playful", "hermione": "friendly",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly"}
 
@@ -229,6 +252,21 @@ BIKE_RIDER = {"bat"}
 # (pet.json super_flier — 코어 brain_soar.rs, 그림은 fly·fly_fast·fly_flip·hover)
 SUPER_FLIER = {"super"}
 
+# 🧹 가끔 빗자루에 올라타 화면을 낮게·높게 날아다니고 친구 화면도 빗자루로 오가는 동물 (pet.json broom_rider — 코어 brain_broom.rs, 그림 broom)
+BROOM_RIDER = {"harry", "hermione"}
+
+# ✨ 지팡이로 거는 주문 (pet.json spells — 코어 brain_spell.rs, 그림 cast): expelliarmus 튕겨 내기 · leviosa 둥둥 띄우기 · reparo 쓰레기 반짝 치우기
+SPELLS = {"harry": ["expelliarmus", "leviosa"], "hermione": ["leviosa", "reparo"]}
+
+# 🟡 골든 스니치를 빗자루로 쫓아가 잡는 동물 (pet.json seeker — 해리)
+SEEKER = {"harry"}
+
+# 📖 앉아서 책 읽기 · 🙋 "I know!" 손들기 (pet.json bookworm — 헤르미온느, 그림 read·raise_hand)
+BOOKWORM = {"hermione"}
+
+# 👜 끝없는 구슬 가방으로 바닥 물건 치우기 (pet.json bag_cleaner — 헤르미온느, 그림 bag_walk·bag_drag·bag_stuff, 가방은 앱이 그림)
+BAG_CLEANER = {"hermione"}
+
 # 🎨 몸 색을 고를 수 있는 동물 (pet.json tint + ink_<stage>.png 잉크 자리 — 앱이 그 자리만 고른 색으로 덮는다, ui/main.js)
 TINTABLE = {"heumul"}
 
@@ -248,6 +286,8 @@ FAVORITE_FOOD = {
     "spider": {"emoji": "🪰", "name": "파리"},
     "bat": {"emoji": "🍎", "name": "사과"},
     "super": {"emoji": "🥛", "name": "우유"},
+    "harry": {"emoji": "🍬", "name": "사탕"},
+    "hermione": {"emoji": "🍎", "name": "사과"},
 }
 
 

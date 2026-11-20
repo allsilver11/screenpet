@@ -22,13 +22,25 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type·type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS, type = ⌨️ 키보드 v0.6.4)
 /// · paw (🐱 고양이 툭툭 — KNOCK_ANIMS) · cheeks_walk·cheeks_idle·dig (🐿️ 다람쥐 볼 빵빵 — STASH_ANIMS, v0.6.3)
 /// · shoot·web_swing·hero_land·web_pull·web_whirl·hang_down (🕷️ 거미인간 — WEB_ANIMS) · ride·wheelie·bike_jump·drift·signal (🦇 박쥐인간 — BIKE_ANIMS)
-/// · fly·fly_fast·fly_flip·hover (🦸 슈퍼인간 — SOAR_ANIMS).
-pub const OPTIONAL_ANIMS: [&str; 49] = [
+/// · fly·fly_fast·fly_flip·hover (🦸 슈퍼인간 — SOAR_ANIMS)
+/// · broom (🧹 빗자루 — BROOM_ANIMS) · cast (✨ 지팡이 주문 — SPELL_ANIMS) · read·raise_hand (📖🙋 헤르미온느 — BOOK_ANIMS)
+/// · bag_walk·bag_drag·bag_stuff (👜 헤르미온느 가방 청소 — BAG_ANIMS).
+pub const OPTIONAL_ANIMS: [&str; 56] = [
     "arch", "huff", "climb", "slide", "bigjump", "lookup", "fire", "roar", "stomp", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig", "shoot", "web_swing", "hero_land", "web_pull",
     "web_whirl", "hang_down", "ride", "wheelie", "bike_jump", "drift", "signal", "fly", "fly_fast", "fly_flip", "hover",
+    "broom", "cast", "read", "raise_hand", "bag_walk", "bag_drag", "bag_stuff",
 ];
+/// 🧹 빗자루 그림: 빗자루에 앉아 날기 (pet.json `broom_rider`가 있어도 이게 있어야 함 — rides_broom())
+pub const BROOM_ANIMS: [&str; 1] = ["broom"];
+/// ✨ 주문 그림: 지팡이 휙 + 끝에 반짝 (pet.json `spells`가 있어도 이게 있어야 함 — spell_set(), 지팡이 끝 = grip.cast)
+pub const SPELL_ANIMS: [&str; 1] = ["cast"];
+/// 📖🙋 책벌레 그림: 앉아서 책 읽기 · 손 번쩍 "I know!" (pet.json `bookworm`가 있어도 이게 다 있어야 함 — reads_books())
+pub const BOOK_ANIMS: [&str; 2] = ["read", "raise_hand"];
+/// 👜 가방 청소 그림: 가방 들고 걷기 · 큰 가방 질질 끌기 · 가방에 쏙 넣기 (pet.json `bag_cleaner`가 있어도 이게 다 있어야 함 — cleans_with_bag(),
+/// 가방 끈을 쥔 손 = grip.bag_walk·bag_drag·bag_stuff — 가방은 웹뷰가 그 손에 그림)
+pub const BAG_ANIMS: [&str; 3] = ["bag_walk", "bag_drag", "bag_stuff"];
 /// 🦸 슈퍼인간 그림: ✈️ 날기 · 빠른 날기 · 🔄 공중제비 · 둥실 (pet.json `super_flier`가 있어도 이게 다 있어야 함 — soars())
 pub const SOAR_ANIMS: [&str; 4] = ["fly", "fly_fast", "fly_flip", "hover"];
 /// 🦇 박쥐인간 그림: 🏍️ 오토바이 타기 · 윌리 · 오토바이 점프 · 드리프트 · 🔦 박쥐 신호 (pet.json `bike_rider`가 있어도 이게 다 있어야 함 — rides_bike())
@@ -174,6 +186,21 @@ pub struct PetManifest {
     /// 🦸 걷기 대신 바닥 조금 위를 낮게 날고, 공중제비, 디딤판 끝에서 멀리 활공, 친구 화면도 날아서 오감 (슈퍼인간, SOAR_ANIMS가 다 있을 때만 — soars())
     #[serde(default)]
     pub super_flier: bool,
+    /// 🧹 가끔 빗자루를 타고 화면을 날아다니고 (낮게·높게), 친구 화면도 빗자루로 오감 (해리포터·헤르미온느 — BROOM_ANIMS가 있을 때만, rides_broom())
+    #[serde(default)]
+    pub broom_rider: bool,
+    /// ✨ 아는 주문 (해리 expelliarmus·leviosa, 헤르미온느 leviosa·reparo — SPELL_ANIMS가 있을 때만, spell_set())
+    #[serde(default)]
+    pub spells: Vec<crate::wizard::Spell>,
+    /// 🟡 골든 스니치를 빗자루로 쫓아 잡음 (해리 — 빗자루를 탈 때만, seeks())
+    #[serde(default)]
+    pub seeker: bool,
+    /// 📖 자주 앉아서 책을 읽고 🙋 "I know!" (헤르미온느 — BOOK_ANIMS가 다 있을 때만, reads_books())
+    #[serde(default)]
+    pub bookworm: bool,
+    /// 👜 끝없는 구슬 가방으로 바닥의 물건을 주워 치움 (헤르미온느 — BAG_ANIMS가 다 있을 때만, cleans_with_bag())
+    #[serde(default)]
+    pub bag_cleaner: bool,
     /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있음 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮음, core::tint)
     #[serde(default)]
     pub tint: bool,
@@ -322,6 +349,35 @@ impl PetManifest {
     /// 🦸 낮게 날기 (SOAR_ANIMS 그림이 다 있어야 함)
     pub fn soars(&self) -> bool {
         self.super_flier && SOAR_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 🧹 빗자루 타기 (BROOM_ANIMS 그림이 있어야 함)
+    pub fn rides_broom(&self) -> bool {
+        self.broom_rider && BROOM_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// ✨ 쓸 수 있는 주문 (SPELL_ANIMS 그림이 없으면 없음)
+    pub fn spell_set(&self) -> crate::wizard::SpellSet {
+        if SPELL_ANIMS.iter().all(|a| self.has_anim(a)) {
+            crate::wizard::SpellSet::of(&self.spells)
+        } else {
+            crate::wizard::SpellSet::default()
+        }
+    }
+
+    /// 🟡 스니치 쫓기 (빗자루를 탈 수 있어야 함)
+    pub fn seeks(&self) -> bool {
+        self.seeker && self.rides_broom()
+    }
+
+    /// 📖🙋 책 읽기·"I know!" (BOOK_ANIMS 그림이 다 있어야 함)
+    pub fn reads_books(&self) -> bool {
+        self.bookworm && BOOK_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 👜 가방 청소 (BAG_ANIMS 그림이 다 있어야 함)
+    pub fn cleans_with_bag(&self) -> bool {
+        self.bag_cleaner && BAG_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
     /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 함)
@@ -640,7 +696,11 @@ mod tests {
         assert_eq!(&OPTIONAL_ANIMS[31..34], &STASH_ANIMS, "🐿️ 볼 빵빵 (v0.6.3)");
         assert_eq!(&OPTIONAL_ANIMS[34..40], &WEB_ANIMS, "🕷️ 거미인간 (🙃 hang_down은 web_whirl 뒤)");
         assert_eq!(&OPTIONAL_ANIMS[40..45], &BIKE_ANIMS, "🦇 박쥐인간");
-        assert_eq!(&OPTIONAL_ANIMS[45..], &SOAR_ANIMS, "🦸 슈퍼인간 — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[45..49], &SOAR_ANIMS, "🦸 슈퍼인간");
+        assert_eq!(&OPTIONAL_ANIMS[49..50], &BROOM_ANIMS, "🧹 빗자루");
+        assert_eq!(&OPTIONAL_ANIMS[50..51], &SPELL_ANIMS, "✨ 주문");
+        assert_eq!(&OPTIONAL_ANIMS[51..53], &BOOK_ANIMS, "📖🙋 책벌레");
+        assert_eq!(&OPTIONAL_ANIMS[53..], &BAG_ANIMS, "👜 가방 청소 — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
@@ -736,6 +796,36 @@ mod tests {
         }
         let partial = read("super").replace(r#""fly_flip""#, r#""fly_flip_x""#);
         assert!(!parse_manifest(&partial).unwrap().soars());
+    }
+
+    /// 🧙 해리포터·헤르미온느만 빗자루를 타고 주문을 씀: 해리는 expelliarmus·leviosa + 🟡 스니치, 헤르미온느는 leviosa·reparo + 📖 책 + 👜 가방
+    #[test]
+    fn only_the_bundled_wizards_ride_brooms_and_cast_spells() {
+        use crate::wizard::Spell;
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
+        for id in crate::test_util::species() {
+            let m = parse_manifest(&read(&id)).unwrap();
+            let wizard = id == "harry" || id == "hermione";
+            assert_eq!(m.rides_broom(), wizard, "{id}");
+            assert_eq!(!m.spell_set().is_empty(), wizard, "{id}");
+            assert_eq!(m.seeks(), id == "harry", "{id}");
+            assert_eq!((m.reads_books(), m.cleans_with_bag()), (id == "hermione", id == "hermione"), "{id}");
+            let c = crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager");
+            assert_eq!((c.rides_broom, c.seeker, c.bookworm, c.bag_cleaner), (wizard, id == "harry", id == "hermione", id == "hermione"), "{id}");
+        }
+        let h = parse_manifest(&read("harry")).unwrap();
+        assert_eq!(h.name, "해리포터");
+        assert!(h.spell_set().has(Spell::Expelliarmus) && h.spell_set().has(Spell::Leviosa) && !h.spell_set().has(Spell::Reparo));
+        assert!(h.can_climb() && !h.juggles() && !h.soars() && !h.rides_bike() && !h.slings_webs());
+        let g = parse_manifest(&read("hermione")).unwrap();
+        assert_eq!(g.name, "헤르미온느");
+        assert!(g.spell_set().has(Spell::Leviosa) && g.spell_set().has(Spell::Reparo) && !g.spell_set().has(Spell::Expelliarmus));
+        assert!(g.can_climb() && !g.juggles());
+        // 그림 하나라도 없으면 그 특기는 꺼짐
+        assert!(!parse_manifest(&read("harry").replace(r#""broom""#, r#""broom_x""#)).unwrap().rides_broom());
+        assert!(parse_manifest(&read("harry").replace(r#""cast""#, r#""cast_x""#)).unwrap().spell_set().is_empty());
+        assert!(!parse_manifest(&read("hermione").replace(r#""bag_drag""#, r#""bag_drag_x""#)).unwrap().cleans_with_bag());
     }
 
     /// 🐱 툭툭은 고양이, 🐿️ 볼 빵빵은 다람쥐만 (v0.6.3)

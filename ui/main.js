@@ -411,6 +411,8 @@ function draw(now) {
       placeHeadgear(shown, f);
     }
     if (sheetImg && render.cloud) placeCloud(spec.row, f);
+    // 👜 구슬 가방 (그 칸의 손 자리에)
+    drawBag(render.bag || 0, manifest.animations[render.anim] ? render.anim : "idle", f);
     // 좌우 반전 공간 안에서 돌리므로 왼쪽으로 갈 땐 자동으로 반대로 구름
     const parts = [];
     const shake = jitter(f, now);
@@ -555,6 +557,8 @@ const listeningRender = listen("pet-render", (e) => {
   if (e.payload.clap && !render.clap) clapBurst(e.payload.flip);
   // 🐛 고치가 풀림 (코어 brain_snare.rs render.cocoon → 0)
   if (render.cocoon && !e.payload.cocoon) cocoonPop();
+  // 👜 가방이 사라짐 (코어 brain_study.rs render.bag → 0)
+  if (render.bag > 0 && !(e.payload.bag > 0)) bagPoof(render.flip);
   // 콰당! 몸이 발밑을 축으로 납작 찌그러졌다 튕기고 (style.css #pet.thud), 머리 위에 💫이 돎
   if (e.payload.thud) petEl.classList.add("thud");
   else petEl.classList.remove("thud");
@@ -575,6 +579,102 @@ const listeningRender = listen("pet-render", (e) => {
   syncCocoon(render.cocoon || 0);
   syncSeat(render.seat || 0);
 });
+
+// 👜 헤르미온느의 끝없는 구슬 가방 (백엔드 render.bag = 크기 0.15…1, 0 = 없음 — 코어 brain_study.rs): 그림 시트가 아니라 SVG로 그려
+// 넣은 수만큼 부드럽게 커짐. 끈은 지금 칸의 손 자리 (pet.json grip.bag_walk·bag_drag·bag_stuff — tools/draw_hermione.py)로 이어짐:
+// 작으면 손에 대롱대롱, 바닥에 닿을 만큼 크거나 끌기 (bag_drag)면 바닥에 놓여 몸 뒤로 끌림. 손 자리가 없는 칸 ("Phew!")이면 몸 뒤 바닥에.
+// 0으로 돌아가면 뿅 반짝이. 좌표는 칸 128 기준 (#bag viewBox) — #pet과 같이 좌우로 뒤집힘
+const BAG_FLOOR = 125;
+// 가방 높이 = BAG_H[0] + BAG_H[1] × 크기 (칸 128 기준), 폭은 높이의 BAG_W배
+const BAG_H = [6, 52];
+const BAG_W = 0.9;
+const bagEl = document.getElementById("bag");
+const bagStrap = document.getElementById("bag-strap");
+const bagBody = document.getElementById("bag-body");
+const bagBeads = document.getElementById("bag-beads");
+const bagNeck = document.getElementById("bag-neck");
+const bagShine = document.getElementById("bag-shine");
+// 마지막으로 그린 (크기, 동작, 칸) — 바뀔 때만 DOM을 만짐
+let bagDrawn = "";
+// 지금 칸의 손 자리 (칸 128 기준) — 없으면 null
+function bagHand(anim, f) {
+  const cell = manifest?.grip?.[stage.stage]?.[anim]?.[f];
+  if (!cell) return null;
+  const size = manifest.frame_sizes?.[stage.stage] ?? manifest.frame_size;
+  return [(cell[0] / size) * 128, (cell[1] / size) * 128];
+}
+// 가방을 그림 (크기 b, 동작·칸으로 손 자리)
+function drawBag(b, anim, f) {
+  const key = b > 0 ? `${b.toFixed(3)}|${anim}|${f}|${stage.stage}` : "";
+  if (key === bagDrawn) return;
+  bagDrawn = key;
+  bagEl.hidden = !(b > 0);
+  if (!(b > 0)) return;
+  const h = BAG_H[0] + BAG_H[1] * Math.min(1, b);
+  const w = h * BAG_W;
+  const hand = bagHand(anim, f);
+  let cx;
+  let top;
+  if (!hand) {
+    // 손을 놓음: 몸 뒤 바닥에
+    cx = Math.max(w / 2, 34 - w * 0.2);
+    top = BAG_FLOOR - h;
+  } else if (anim === "bag_drag") {
+    // 끌기: 바닥에 놓여 손 뒤쪽으로
+    cx = Math.max(w / 2 - 6, hand[0] - w * 0.45);
+    top = BAG_FLOOR - h;
+  } else {
+    // 손에 대롱대롱 (바닥에 닿으면 바닥에 놓임)
+    cx = hand[0];
+    top = Math.min(hand[1] + 4, BAG_FLOOR - h);
+  }
+  const neckY = top + h * 0.12;
+  const bot = top + h;
+  bagBody.setAttribute(
+    "d",
+    `M${cx - w * 0.2},${neckY} C${cx - w * 0.66},${top + h * 0.3} ${cx - w * 0.62},${bot} ${cx},${bot} ` +
+      `C${cx + w * 0.62},${bot} ${cx + w * 0.66},${top + h * 0.3} ${cx + w * 0.2},${neckY} Z`,
+  );
+  bagNeck.setAttribute("cx", cx);
+  bagNeck.setAttribute("cy", neckY);
+  bagNeck.setAttribute("rx", w * 0.27);
+  bagNeck.setAttribute("ry", Math.max(1.2, h * 0.07));
+  bagShine.setAttribute("d", `M${cx - w * 0.34},${top + h * 0.42} Q${cx - w * 0.38},${top + h * 0.7} ${cx - w * 0.2},${top + h * 0.86}`);
+  // 구슬: 몸통 안에 줄줄이 (클수록 많음 — 동그라미 요소는 모자랄 때만 더 만듦)
+  const r = Math.max(0.7, h * 0.035);
+  const step = Math.max(r * 3.2, 3);
+  let n = 0;
+  for (let row = 0; row < 4; row++) {
+    const y = top + h * (0.34 + row * 0.16);
+    const half = w * (0.36 + row * 0.04);
+    for (let x = cx - half + ((row % 2) * step) / 2; x <= cx + half; x += step) {
+      let bead = bagBeads.children[n];
+      if (!bead) bead = bagBeads.appendChild(document.createElementNS("http://www.w3.org/2000/svg", "circle"));
+      bead.setAttribute("cx", x.toFixed(1));
+      bead.setAttribute("cy", y.toFixed(1));
+      bead.setAttribute("r", r.toFixed(2));
+      n++;
+    }
+  }
+  while (bagBeads.children.length > n) bagBeads.lastChild.remove();
+  if (hand) {
+    bagStrap.setAttribute("x1", cx + w * 0.12);
+    bagStrap.setAttribute("y1", neckY);
+    bagStrap.setAttribute("x2", hand[0]);
+    bagStrap.setAttribute("y2", hand[1]);
+  }
+  bagStrap.style.display = hand ? "" : "none";
+}
+// 가방이 사라질 때 뿅 반짝이 (몸 뒤쪽 아래)
+function bagPoof(flip) {
+  if (document.visibilityState === "hidden") return;
+  const behind = display * 0.25 * (flip ? 1 : -1);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + Math.random() * 0.5;
+    const r = display * (0.12 + Math.random() * 0.08);
+    spark(i, display * 0.15, Math.cos(a) * r, -Math.sin(a) * r, behind);
+  }
+}
 
 // 🚗 탈것 좌석 (백엔드 render.seat = 그림 아래 몫, 코어 brain_vehicle.rs): 문·짐칸 벽에 가려지는 다리를 잘라 냄 —
 // 탈것 창이 펫 창 아래에 있어도 다리가 차 문 뒤로 들어간 것처럼 보임
@@ -782,6 +882,21 @@ const EXTRA_SPEECH = {
   rescue: ["to the rescue!", "on my way!"],
   air_flip: ["wheee!", "flip!"],
   soft_land: ["touchdown!", "soft landing"],
+  // 🧙 마법사 (코어 brain_broom.rs·brain_spell.rs·brain_study.rs): 🧹 빗자루로 날아오름 / 내려앉음 / 친구 화면으로 · ✨ 주문 셋과 실패 ·
+  // 🟡 스니치를 봄 / 잡음 · 📖 책 읽다 중얼 · 🙋 손들기 · 👜 가방 청소 시작 / 다 치움
+  broom_up: ["up we go!", "whoosh!"],
+  broom_land: ["smooth landing", "and down!"],
+  broom_away: ["off I go!", "see you!"],
+  expelliarmus: ["Expelliarmus!"],
+  leviosa: ["Wingardium Leviosa!"],
+  fizzle: ["Leviosaaa?", "oops..."],
+  reparo: ["Reparo!"],
+  snitch: ["the Snitch!"],
+  got_it: ["Got it!"],
+  study: ["fascinating...", "hmm..."],
+  i_know: ["I know!"],
+  tidy_up: ["tidy time!"],
+  all_clean: ["Phew! All clean!"],
   // 펫끼리 놀기 더 (코어 social_romp.rs): 🥊 투닥투닥 / 😈 몰래 찌르고 키득 · 찔려서 화들짝 / 🫸 되밀기 / 🏁 달리기 시합 / 💬 수다 (먼저 · 받는 쪽)
   scuffle: ["hey!", "mine!", "grr", "grr!"],
   hehe: ["hehe", "hehe~"],
@@ -837,6 +952,8 @@ const CURSOR_LINES = {
   spider: ["thwip thwip!", "web time!"],
   bat: ["to the bike!", "I'm the night"],
   super: ["up, up and away!", "to the rescue!"],
+  harry: ["Quidditch time!", "mischief managed"],
+  hermione: ["Levi-O-sa!", "honestly..."],
 };
 const speech = setupSpeech({
   bubbleEl,

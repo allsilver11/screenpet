@@ -598,7 +598,8 @@ impl Objects {
     }
 
     /// 🐱🐿️🦖 다른 동물들의 물건 놀이 (v0.6.3 — 코어 play.rs): 고양이가 툭 밀고, 다람쥐가 볼에 넣어 뿅 치우고, 공룡의 큰 쿵에
-    /// 같은 바닥의 물건이 톡 튐. 🕷️ 거미인간이 줄로 끌어온 것은 날아감. 동물 update 뒤, tick 전에
+    /// 같은 바닥의 물건이 톡 튐. 🕷️ 거미인간이 줄로 끌어온 것·✨ Expelliarmus에 맞은 것은 날아가고, ✨ Leviosa에 맞은 것은 둥둥 뜨고,
+    /// ✨ Reparo·👜 헤르미온느 가방에 들어간 것은 뿅 치움. 동물 update 뒤, tick 전에
     pub fn play_with<T: AsMut<Pet>>(&mut self, pets: &mut [T]) {
         for p in pets.iter_mut() {
             match p.as_mut().take_object_play() {
@@ -620,6 +621,21 @@ impl Objects {
                 Some(ObjectPlay::Yank { id, vx, vy }) => {
                     if let Some(l) = self.live.iter_mut().find(|l| l.id == id && l.object.spot(l.id).is_some()) {
                         l.object.launch(vx, vy);
+                    }
+                }
+                // ✨ Leviosa: 바닥에 놓인 것만 둥둥 (잡혀 있거나 누가 들고 있거나 날고 있으면 그대로 — 코어 brain_spell.rs)
+                Some(ObjectPlay::Levitate { id, rise, secs }) => {
+                    if let Some(l) = self.live.iter_mut().find(|l| l.id == id) {
+                        l.object.levitate(rise, secs);
+                    }
+                }
+                // ✨ Reparo·👜 구슬 가방: 바닥에 놓인 것을 뿅 치움 — 거대한 것도, 📌 장난감은 안 치움 (코어 brain_spell.rs·brain_study.rs)
+                Some(ObjectPlay::Vanish { id }) => {
+                    if let Some(i) = self.live.iter().position(|l| l.id == id && !l.object.kind.is_toy() && l.object.spot(l.id).is_some()) {
+                        let l = self.live.remove(i);
+                        self.roster.remove(l.id);
+                        self.poof(l);
+                        self.sync_menu();
                     }
                 }
                 Some(ObjectPlay::Quake { x, y, owner, reach }) => {
