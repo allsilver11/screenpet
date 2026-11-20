@@ -44,6 +44,7 @@ ART_PATTERNS = (
     "crates/screenpet-core/src/food.rs",
     "crates/screenpet-core/src/object.rs",
     "crates/screenpet-core/src/tumble.rs",
+    "crates/screenpet-core/src/vehicle.rs",
     # 이 결정 자체가 바뀌면 한 번은 다 돌려 봄
     "tools/ci_art_changed.py",
     "tools/test_ci_art_changed.py",
