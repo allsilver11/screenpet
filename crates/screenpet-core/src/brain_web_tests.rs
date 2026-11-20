@@ -90,7 +90,27 @@ fn a_visiting_spider_spins_webs_here_and_there_much_more_often_than_at_home() {
         n
     };
     let (home, guest) = (count(false), count(true));
-    assert!(guest >= 12 && guest > 4 * home.max(1), "home {home}, guest {guest}");
+    assert!(guest >= 24 && guest > 2 * home.max(1), "home {home}, guest {guest}");
+}
+
+/// 집에서도 거미인간 티가 나게 — 10분이면 거미집 몇 번, 그네 여러 번 (걷기만 하지 않음)
+#[test]
+fn at_home_it_spins_webs_and_swings_often_enough_to_look_like_a_spider_hero() {
+    let w = world(vec![WindowInfo { id: 7, rect: Rect::new(500.0, 300.0, 1400.0, 800.0) }]);
+    let (mut webs, mut swings) = (0, 0);
+    for seed in 0..4 {
+        let mut p = resting(spider(), 900.0, seed, &w);
+        p.web.pull_ready_at = f64::INFINITY;
+        let mut was_swinging = false;
+        for _ in 0..(60 * 600) {
+            p.update(DT, &w);
+            webs += usize::from(p.take_web().is_some());
+            let swinging = p.render().anim == Anim::WebSwing;
+            swings += usize::from(swinging && !was_swinging);
+            was_swinging = swinging;
+        }
+    }
+    assert!(webs >= 4 * 4 && swings >= 4 * 5, "webs {webs}, swings {swings} (4마리 × 10분)");
 }
 
 #[test]

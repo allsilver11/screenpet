@@ -21,13 +21,13 @@ pub const SHOOT_HOLD_SECS: f64 = 0.35;
 pub const FIRST_READY_SECS: f64 = 6.0;
 
 /// 집에서 거미집을 칠 빈도 (초당 확률)
-pub const WEB_RATE_HOME: f64 = 1.0 / 240.0;
+pub const WEB_RATE_HOME: f64 = 1.0 / 30.0;
 /// 손님으로 친구 화면에 가 있을 때 거미집을 칠 빈도 (초당 확률) — 여기저기 자주
-pub const WEB_RATE_GUEST: f64 = 1.0 / 25.0;
+pub const WEB_RATE_GUEST: f64 = 1.0 / 10.0;
 /// 거미집을 친 뒤 다시 치기까지 (집)
-pub const WEB_CALM_HOME: (f64, f64) = (180.0, 420.0);
+pub const WEB_CALM_HOME: (f64, f64) = (40.0, 100.0);
 /// 거미집을 친 뒤 다시 치기까지 (손님)
-pub const WEB_CALM_GUEST: (f64, f64) = (12.0, 30.0);
+pub const WEB_CALM_GUEST: (f64, f64) = (8.0, 20.0);
 /// 모서리를 고르는 거리 (몸 크기 배)
 pub const WEB_REACH: f64 = 9.0;
 /// 거미집 반지름 (몸 크기 배)
@@ -40,9 +40,9 @@ pub const WEB_LIFE_SECS: f64 = 480.0;
 pub const MAX_WEBS: usize = 12;
 
 /// 그네를 탈 빈도 (초당 확률)
-pub const SWING_RATE: f64 = 1.0 / 120.0;
+pub const SWING_RATE: f64 = 1.0 / 20.0;
 /// 그네를 탄 뒤 다시 타기까지
-pub const SWING_CALM: (f64, f64) = (60.0, 160.0);
+pub const SWING_CALM: (f64, f64) = (20.0, 50.0);
 /// 그네 시작 각도 (도, 수직에서 뒤로)
 pub const SWING_ANGLE_DEG: f64 = 48.0;
 /// 반대편에서 이만큼 (시작 각도의 몫) 올라갔을 때 놓음
