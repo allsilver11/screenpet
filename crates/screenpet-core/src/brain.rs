@@ -190,6 +190,8 @@ pub enum Anim {
     HeroLand,
     /// 🕷️ 거미인간 — 두 손으로 줄을 잡고 끌어당기기 (옆모습)
     WebPull,
+    /// 🕷️ 거미인간 — 🌀 버티고 서서 한 팔을 머리 위로 들어 줄 끝의 물건을 빙빙 (옆모습)
+    WebWhirl,
 }
 
 /// 머리 위 말풍선 종류 (웹뷰가 글귀를 고름)
@@ -271,7 +273,7 @@ pub enum Speech {
     Hup,
     /// 거대한 것에 힘을 줌 ("hnngh!")
     Strain,
-    /// 휙 던짐 ("yeet!")
+    /// 휙 던짐 ("yeet!" — 🕷️ 휘두른 물건을 친구 화면으로 던질 때도)
     Yeet,
     /// 배달 도착 — 앞을 보고 번쩍 ("ta-da!")
     Tada,
@@ -659,7 +661,7 @@ pub struct PetConfig {
     pub stashes: bool,
     /// 🦆 바닥에서 친구들을 줄줄이 데리고 걸음 (pet.json `train_leader` — 오리, brain_train.rs)
     pub leads_train: bool,
-    /// 🕷️ 줄 놀이 — 거미집·그네·영웅 착지·끌어오기 (pet.json `web_slinger` + shoot·web_swing·hero_land·web_pull 그림 — 거미인간, brain_web.rs)
+    /// 🕷️ 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기 (pet.json `web_slinger` + shoot·web_swing·hero_land·web_pull·web_whirl 그림 — 거미인간, brain_web.rs)
     pub slings_webs: bool,
 }
 
@@ -4334,7 +4336,7 @@ mod tests {
             Anim::Land, Anim::SitFront, Anim::Wave, Anim::Tilt, Anim::Belly, Anim::Stretch, Anim::Heart, Anim::Tickle, Anim::Annoyed, Anim::Hungry, Anim::Eat, Anim::LevelUp, Anim::Arch, Anim::Huff, Anim::Climb, Anim::Slide, Anim::BigJump, Anim::NeckStretch, Anim::LookUp, Anim::Fire, Anim::Roar, Anim::Stomp, Anim::Surprise, Anim::Panic, Anim::Hang, Anim::Rope,
             Anim::Lift, Anim::Hold, Anim::Carry, Anim::Throw, Anim::Strain, Anim::Present, Anim::Slump, Anim::Yank, Anim::Stuff,
             Anim::HangCursor, Anim::Peek, Anim::Dance, Anim::Dance2, Anim::Catch, Anim::Draw, Anim::CheerType, Anim::Type, Anim::CarryRun,
-            Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull];
+            Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

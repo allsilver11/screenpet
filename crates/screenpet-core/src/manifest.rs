@@ -22,14 +22,15 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// · yank·stuff (📌 작업표시줄에서 장난감 끌어내기·도로 밀어 넣기)
 /// · hang_cursor·peek·dance·dance2·catch·draw·cheer_type·type (흐물이 더 놀기, v0.6.3 — ANTICS_ANIMS, type = ⌨️ 키보드 v0.6.4)
 /// · paw (🐱 고양이 툭툭 — KNOCK_ANIMS) · cheeks_walk·cheeks_idle·dig (🐿️ 다람쥐 볼 빵빵 — STASH_ANIMS, v0.6.3)
-/// · shoot·web_swing·hero_land·web_pull (🕷️ 거미인간 — WEB_ANIMS).
-pub const OPTIONAL_ANIMS: [&str; 40] = [
+/// · shoot·web_swing·hero_land·web_pull·web_whirl (🕷️ 거미인간 — WEB_ANIMS).
+pub const OPTIONAL_ANIMS: [&str; 41] = [
     "arch", "huff", "climb", "slide", "bigjump", "neckstretch", "lookup", "fire", "roar", "stomp", "surprise", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig", "shoot", "web_swing", "hero_land", "web_pull",
+    "web_whirl",
 ];
-/// 🕷️ 거미인간 그림: 줄 쏘기 · 줄 그네 · 영웅 착지 · 줄 끌어당기기 (pet.json `web_slinger`가 있어도 이게 다 있어야 함 — slings_webs())
-pub const WEB_ANIMS: [&str; 4] = ["shoot", "web_swing", "hero_land", "web_pull"];
+/// 🕷️ 거미인간 그림: 줄 쏘기 · 줄 그네 · 영웅 착지 · 줄 끌어당기기 · 🌀 줄 휘두르기 (pet.json `web_slinger`가 있어도 이게 다 있어야 함 — slings_webs())
+pub const WEB_ANIMS: [&str; 5] = ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl"];
 /// 🐱 툭툭 그림 (pet.json `knocker`가 있어도 이게 있어야 함 — knocks())
 pub const KNOCK_ANIMS: [&str; 1] = ["paw"];
 /// 🐿️ 볼 빵빵 그림 (pet.json `stasher`가 있어도 이게 다 있어야 함 — stashes())
@@ -369,7 +370,7 @@ impl PetManifest {
             }
             g
         };
-        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present"), yank: anim("yank"), stuff: anim("stuff"), catch: anim("catch"), hang_cursor: anim("hang_cursor"), carry_run: anim("carry_run"), shoot: anim("shoot"), web_swing: anim("web_swing"), web_pull: anim("web_pull") }
+        crate::juggle::GripTable { lift: anim("lift"), hold: anim("hold"), carry: anim("carry"), throw: anim("throw"), present: anim("present"), yank: anim("yank"), stuff: anim("stuff"), catch: anim("catch"), hang_cursor: anim("hang_cursor"), carry_run: anim("carry_run"), shoot: anim("shoot"), web_swing: anim("web_swing"), web_pull: anim("web_pull"), web_whirl: anim("web_whirl") }
     }
 
     /// 사는 집 그림: pet.json `house`, 없으면 보통 집
@@ -685,10 +686,10 @@ mod tests {
         }
     }
 
-    /// 🕷️ 거미인간만 줄을 씀 (web_slinger + WEB_ANIMS 그림 넷) — 동글·픽셀 모두. 줄 끝 손 자리(grip)는 shoot·web_swing·web_pull
+    /// 🕷️ 거미인간만 줄을 씀 (web_slinger + WEB_ANIMS 그림 다섯) — 동글·픽셀 모두. 줄 끝 손 자리(grip)는 shoot·web_swing·web_pull·web_whirl
     #[test]
     fn only_the_bundled_spider_slings_webs_and_has_hand_spots_for_the_line() {
-        assert_eq!(WEB_ANIMS, ["shoot", "web_swing", "hero_land", "web_pull"]);
+        assert_eq!(WEB_ANIMS, ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl"]);
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
         let read = |root: &str, id: &str| std::fs::read_to_string(ui.join(root).join(id).join("pet.json")).unwrap();
         for root in ["pets", "pets_pixel"] {
@@ -704,13 +705,16 @@ mod tests {
         assert!(s.can_climb() && !s.juggles() && !s.antics() && !s.tint);
         for stage in ["baby", "teenager", "adult"] {
             let g = s.grip_table(stage);
-            assert_eq!((g.shoot.n, g.web_swing.n, g.web_pull.n), (3, 2, 4), "{stage}");
+            assert_eq!((g.shoot.n, g.web_swing.n, g.web_pull.n, g.web_whirl.n), (3, 2, 4, 3), "{stage}");
             assert!(g.shoot.at(1.0).0 > 0.03, "쏜 손은 몸 앞 (꼬마 영웅의 짧은 팔) {stage}");
             assert!(g.web_swing.at(0.0).1 < 0.2, "그네 손은 머리 위 {stage}");
+            assert!((0..3).all(|i| g.web_whirl.pts[i].1 < 0.4), "🌀 휘두르는 손은 머리 위 {stage}");
         }
         // 그림이 하나라도 빠지면 줄을 쓰지 않음
         let partial = read("pets", "spider").replace(r#""web_pull""#, r#""web_pull_x""#);
         assert!(!parse_manifest(&partial).unwrap().slings_webs());
+        let no_whirl = read("pets", "spider").replace(r#""web_whirl""#, r#""web_whirl_x""#);
+        assert!(!parse_manifest(&no_whirl).unwrap().slings_webs());
     }
 
     /// 🐱 툭툭은 고양이·페르시안, 🐿️ 볼 빵빵은 다람쥐, 🦆 기차는 오리만 (v0.6.3) — 동글·픽셀 모두

@@ -118,9 +118,9 @@ impl Pet {
         self.juggle.prank = (left, right);
     }
 
-    /// 손에 든 물건 (앱이 틱마다 손 자리로 옮김). 손에서 놓쳤으면 None
+    /// 손에 든 물건 (앱이 틱마다 손 자리로 옮김 — 🕷️ 줄 끝에 휘두르는 물건도). 손에서 놓쳤으면 None
     pub fn carried_object(&self) -> Option<u64> {
-        self.juggle.carry.filter(|_| self.carry_ok())
+        self.juggle.carry.filter(|_| self.carry_ok()).or_else(|| self.whirled_object())
     }
 
     /// 앱에 알릴 일 (한 번만)
@@ -130,6 +130,9 @@ impl Pet {
 
     /// 사용자가 손에 든 물건을 낚아챘거나 물건이 사라졌음: "hmph!" 하고 하던 일을 그만둠
     pub fn lose_carry(&mut self) {
+        if self.lose_whirl() {
+            return;
+        }
         if self.juggle.carry.take().is_none() {
             return;
         }
@@ -155,8 +158,11 @@ impl Pet {
         self.juggle.calm_until = self.clock + behavior::range(&mut self.juggle.rng, juggle::CALM_SECS);
     }
 
-    /// 손에 든 물건 바닥이 올 자리 (물리 px) — 손이 그 동작의 그 칸에 있는 곳
+    /// 손에 든 물건 바닥이 올 자리 (물리 px) — 손이 그 동작의 그 칸에 있는 곳 (🕷️ 휘두르는 물건은 줄 끝)
     pub fn carry_point(&self) -> Option<(f64, f64)> {
+        if let Some(at) = self.whirl_carry_point() {
+            return Some(at);
+        }
         self.carried_object()?;
         let g = &self.cfg.grip;
         let (gx, gy) = match self.state {

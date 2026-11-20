@@ -43,6 +43,7 @@
 | web_swing (거미인간) | 2 | 줄 그네: 먼 팔을 머리 위로 쭉 들어 줄을 잡고 (손이 머리 위로 빼꼼) 몸은 대롱, 다리를 모아 뒤 ↔ 앞으로 (fps 4). 손 = `grip` (프레임 맨 위께) | |
 | hero_land (거미인간) | 3 | 영웅 착지: 쪼그려 앞 주먹(빨간 장갑)을 바닥에 짚고 뒤 다리를 뒤로 쭉, 다른 팔은 뒤로, 결의 눈꺼풀 — 먼지 → 버팀 → 반짝 (fps 8, 한 번) | |
 | web_pull (거미인간) | 4 | 줄 끌어당기기: 두 손으로 앞의 줄을 잡고 몸을 뒤로 젖혀 영차 (fps 8). 손 = `grip` | |
+| web_whirl (거미인간) | 3 | 🌀 줄 휘두르기: 다리를 벌려 버티고 서서 가까운 팔을 머리 뒤쪽 위로 쭉 들어 (얼굴은 가리지 않게) 손목으로 작은 원, 손 위에 회색 바람 자국 (fps 10). 손 = `grip` (머리 꼭대기 위) — 물건과 줄은 앱이 그림 | |
 
 ## 꿀벌 (나는 동물)
 - `pet.json`에 `"locomotion": "fly"` — 걷지 않고 날아다닌다 (Rust는 모르는 필드를 무시; 코어가 `locomotion`을 읽는다). `stage_size`는 모든 단계 0.8 (작은 동물).
@@ -64,14 +65,14 @@
 
 ## 거미인간 (줄을 쏘는 꼬마 영웅)
 - 그림은 `tools/draw_spider.py` (draw_pets 엔진, 모든 동작이 자기 포즈 — `SPECIES["spider"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 거미인간만: `python tools/draw_spider.py` → 미리보기 `tools/preview/stages_spider.png`·`climb_spider.png`, 도트는 `python tools/draw_pixel.py spider`).
-- `pet.json`: `"web_slinger": true` (코어 `PetManifest::slings_webs` — `WEB_ANIMS` 넷이 다 있어야), `"personality": "playful"`, 좋아하는 음식 🪰 파리, `stage_size` 모든 단계 0.85, 대사 `thwip`·`web`·`web_swing`·`hero_land`·`gotcha` (짧은 영어). 선택 동작: `climb`·`slide`·`lookup` + `shoot`·`web_swing`·`hero_land`·`web_pull`.
+- `pet.json`: `"web_slinger": true` (코어 `PetManifest::slings_webs` — `WEB_ANIMS` 다섯이 다 있어야), `"personality": "playful"`, 좋아하는 음식 🪰 파리, `stage_size` 모든 단계 0.85, 대사 `thwip`·`web`·`web_swing`·`hero_land`·`gotcha`·`yeet` (짧은 영어). 선택 동작: `climb`·`slide`·`lookup` + `shoot`·`web_swing`·`hero_land`·`web_pull`·`web_whirl`.
 - 디자인: 빨강·파랑 쫄쫄이를 입은 사람 모양 꼬마 (큰 머리 ≈ 키의 45%, 팔 둘·다리 둘 — 산타처럼 부품마다 외곽선, 팔다리는 관절을 IK로 굽힘). 머리는 통째로 빨간 가면 +
   렌즈 사이에서 퍼지는 얇은 짙은 거미줄 선 + 까만 테 큰 하얀 렌즈 둘 (표정마다 모양: ^^ · 동그란 놀람 · ‿ · 눈꺼풀 내림 · 화난/처진 눈꺼풀 · > <), 볼터치, 입은 가면 너머 살짝만.
   가슴·어깨 빨강 V (+ 거미줄 선), 옆구리·팔·다리 파랑, 장갑·장화 빨강, 가슴에 직접 그린 까만 거미 무늬. 옆모습은 오른쪽을 보고 먼 팔다리는 조금 어둡게. 외곽선은 짙은 남보라.
 - 단계 (`HERO`): 아기 = 동글 우주복 꼬마 (머리 아주 큼, 팔다리 뭉툭, 줄 선 없음) · 유아 = 가면 줄 선 · 어린이 = 몸에도 줄 선 · 청소년 = 기준 · 어른 = 키 크고 어깨 넓음.
 - 동작: 걷기·달리기는 두 다리 + 팔 흔들기 · sleep 앉아 무릎을 끌어안고 웅크림 · annoyed 털썩 앉아 팔짱 · dragged 목덜미 잡혀 대롱 · sit_front 허리에 손 얹은 영웅 자세 ·
   roll 무릎을 끌어안은 공 (회전 원 안) · climb·slide 뒷모습으로 손발을 벽에 붙이고 엉금엉금.
-- 줄 끝 손 자리: `shoot`·`web_swing`·`web_pull`의 칸마다 `mark_grip` (pet.json `grip`) — 코어가 줄을 손에서 그린다. 줄 자체·거미집은 시트에 없다 (앱의 덮개 창 `ui/web.js`가 그림).
+- 줄 끝 손 자리: `shoot`·`web_swing`·`web_pull`·`web_whirl`의 칸마다 `mark_grip` (pet.json `grip`) — 코어가 줄을 손에서 그린다. 줄 자체·거미집은 시트에 없다 (앱의 덮개 창 `ui/web.js`가 그림).
 - eat **밥그릇 없음**: 앞모습으로 무릎 꿇고 가면 아래를 걷어 올려 입이 밥 더미 바로 위 (프레임 y ≈ 79). hungry 배를 감싸고 파리 생각 풍선.
 
 ## 화면 효과

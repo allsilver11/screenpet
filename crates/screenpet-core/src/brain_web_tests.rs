@@ -1,12 +1,12 @@
-//! 🕷️ 거미인간 줄 놀이 (brain_web.rs): 거미집·그네·영웅 착지·끌어오기
+//! 🕷️ 거미인간 줄 놀이 (brain_web.rs): 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기
 
 use super::hoist_moves::{notice_pets, sync_lifts};
 use super::swing_tests::resting;
 use super::tests::world;
-use super::web_moves::WebPhase;
+use super::web_moves::{WebAim, WebPhase};
 use super::*;
 use crate::geom::{Rect, WindowInfo};
-use crate::juggle::ObjectSpot;
+use crate::juggle::{JuggleEvent, ObjectSpot};
 use crate::play::ObjectPlay;
 use crate::test_util::{bundled, pet_cfg, LoopLimit, DT};
 use crate::web::{self, Corner};
@@ -27,12 +27,12 @@ fn calm_spider(x: f64, seed: u64, w: &World) -> Pet {
 
 #[test]
 fn web_animations_are_optional_side_views_with_their_sheet_names() {
-    for (a, name) in [(Anim::Shoot, "shoot"), (Anim::WebSwing, "web_swing"), (Anim::HeroLand, "hero_land"), (Anim::WebPull, "web_pull")] {
+    for (a, name) in [(Anim::Shoot, "shoot"), (Anim::WebSwing, "web_swing"), (Anim::HeroLand, "hero_land"), (Anim::WebPull, "web_pull"), (Anim::WebWhirl, "web_whirl")] {
         assert_eq!(serde_json::to_string(&a).unwrap(), format!("\"{name}\""));
         assert!(!a.is_front() && !a.is_back());
         assert!(crate::manifest::WEB_ANIMS.contains(&name));
     }
-    for (s, name) in [(Speech::Thwip, "thwip"), (Speech::Web, "web"), (Speech::WebSwing, "web_swing"), (Speech::HeroLand, "hero_land")] {
+    for (s, name) in [(Speech::Thwip, "thwip"), (Speech::Web, "web"), (Speech::WebSwing, "web_swing"), (Speech::HeroLand, "hero_land"), (Speech::Yeet, "yeet")] {
         assert_eq!(serde_json::to_string(&s).unwrap(), format!("\"{name}\""));
     }
     assert!(spider().slings_webs && !pet_cfg().slings_webs);
@@ -268,4 +268,170 @@ fn going_away_mid_swing_drops_it_instead_of_sleeping_in_the_air() {
     p.update(DT, &w);
     assert!(matches!(p.state, State::Air { .. }), "{:?}", p.state);
     assert!(p.web_line().is_none());
+}
+
+/// 바닥(y 1040)의 물건 하나 (거미에서 dx만큼)
+fn floor_object(p: &Pet, dx: f64) -> ObjectSpot {
+    ObjectSpot { id: 42, x: p.body.x + dx, y: 1040.0, owner: Owner::Ground(0), half_w: 12.0, giant: false, local: false }
+}
+
+/// 🌀 친구가 있는 끝이 있으면 물건을 줄로 낚아 머리 위로 빙빙 돌리다가 그 끝 너머로 휙 (앱이 친구 화면으로 보냄)
+#[test]
+fn with_a_friend_edge_it_lassos_an_object_overhead_and_flings_it_past_that_screen_edge() {
+    let w = world(vec![]);
+    let mut p = calm_spider(800.0, 4, &w);
+    p.set_prank_edges(false, true);
+    let spot = floor_object(&p, -4.0 * p.cfg.size);
+    p.notice_play_objects(&[spot], &w);
+    assert!(p.start_whirl_object(&spot, Side::Right));
+    assert_eq!(p.facing, -1.0, "쏠 때는 물건 쪽을 봄");
+    assert!(p.carried_object().is_none(), "줄이 닿기 전엔 들고 있지 않음");
+    let size = p.cfg.size;
+    let (mut points, mut releases) = (Vec::new(), Vec::new());
+    let (mut gotcha, mut whirl_secs, mut last) = (false, 0.0, None);
+    let mut guard = LoopLimit::new();
+    while matches!(p.state, State::Web { .. }) {
+        guard.step();
+        p.update(DT, &w);
+        releases.extend(p.take_juggle());
+        if let State::Web { phase: WebPhase::Whirl { .. }, t } = p.state {
+            gotcha |= p.speech == Some(Speech::Gotcha);
+            whirl_secs = t;
+            assert_eq!(p.render().anim, Anim::WebWhirl);
+            assert_eq!(p.facing, 1.0, "돌릴 때는 친구 쪽을 봄");
+            assert_eq!(p.carried_object(), Some(42), "줄 끝에 매달려 있음");
+            let at = p.carry_point().expect("앱이 옮길 자리");
+            let line = p.web_line().expect("손에서 물건까지 줄");
+            assert!((line.to.0 - at.0).abs() < 1e-6 && (line.to.1 + spot.half_w - at.1).abs() < 1e-6, "줄 끝 = 물건 가운데 {line:?} {at:?}");
+            if t > web::WHIRL_REEL_SECS {
+                points.push((at.0, at.1 - spot.half_w, line.from));
+            }
+            last = Some(at);
+        }
+    }
+    assert!(gotcha, "낚아채면 gotcha");
+    assert!((whirl_secs - web::WHIRL_SECS).abs() < 0.1, "{whirl_secs}");
+    assert_eq!(p.speech, Some(Speech::Yeet));
+    assert!(p.carried_object().is_none() && p.web_line().is_none(), "놓은 뒤엔 빈손");
+    assert_eq!(releases.len(), 1, "{releases:?}");
+    let JuggleEvent::Release { id, vx, vy } = releases[0] else { panic!("{releases:?}") };
+    assert_eq!(id, 42);
+    assert!(vx > 0.0, "친구 쪽 (오른쪽)으로 {vx}");
+    // 머리 위에서 빙빙: 손 위 높이에서 두 바퀴 넘게, 몸 크기만 한 원
+    let n = points.len() as f64;
+    let (cx, cy) = (points.iter().map(|q| q.0).sum::<f64>() / n, points.iter().map(|q| q.1).sum::<f64>() / n);
+    let mut turned = 0.0;
+    for v in points.windows(2) {
+        let (a0, a1) = ((v[0].1 - cy).atan2(v[0].0 - cx), (v[1].1 - cy).atan2(v[1].0 - cx));
+        let mut d = a1 - a0;
+        while d > std::f64::consts::PI {
+            d -= std::f64::consts::TAU;
+        }
+        while d < -std::f64::consts::PI {
+            d += std::f64::consts::TAU;
+        }
+        turned += d;
+    }
+    assert!(turned.abs() >= 2.0 * std::f64::consts::TAU - 0.3 && turned.abs() <= 3.5 * std::f64::consts::TAU, "{turned}");
+    let spread = points.iter().map(|q| q.0).fold(f64::NEG_INFINITY, f64::max) - points.iter().map(|q| q.0).fold(f64::INFINITY, f64::min);
+    assert!(spread > 1.5 * size, "넓게 돎 {spread}");
+    assert!(points.iter().all(|&(_, y, hand)| y < hand.1 + 0.3 * size), "손보다 위에서 돎");
+    assert!(points.iter().all(|&(_, y, _)| y < p.body.y - 0.75 * size), "머리 위 {points:?}");
+    // 놓은 자리에서 포물선으로 날아 화면 오른쪽 끝을 바닥보다 위로 넘어감
+    let (x0, y0) = last.unwrap();
+    let (x, _) = crate::juggle::descent_x(x0, y0, vx, vy, 1040.0, p.cfg.dpi).unwrap();
+    assert!(x > 1920.0 + size, "끝 너머로 {x}");
+    let t_edge = (1920.0 - x0) / vx;
+    let g = crate::physics::THROW_GRAVITY_LOGICAL * p.cfg.dpi;
+    assert!(y0 + vy * t_edge + 0.5 * g * t_edge * t_edge < 1040.0 - size, "바닥에 닿기 전에 끝을 넘음");
+}
+
+/// 친구 끝이 없으면 언제나 옛 끌어오기, 있으면 자주 휘둘러 던지기 (그 끝 쪽으로)
+#[test]
+fn it_only_whirls_objects_toward_friend_edges_and_often_when_there_is_one() {
+    let w = world(vec![]);
+    let n = 400;
+    let mut whirls = 0;
+    for seed in 0..n {
+        let mut p = calm_spider(800.0, seed, &w);
+        let spot = floor_object(&p, 4.0 * p.cfg.size);
+        assert!(p.start_pull_object(&spot, &w));
+        assert!(matches!(p.state, State::Web { phase: WebPhase::Shoot { aim: WebAim::Object { .. }, .. }, .. }), "{:?}", p.state);
+        let mut p = calm_spider(800.0, seed, &w);
+        p.set_prank_edges(true, false);
+        assert!(p.start_pull_object(&spot, &w));
+        match p.state {
+            State::Web { phase: WebPhase::Shoot { aim: WebAim::Lasso { side, .. }, .. }, .. } => {
+                assert_eq!(side, Side::Left);
+                whirls += 1;
+            }
+            State::Web { phase: WebPhase::Shoot { aim: WebAim::Object { .. }, .. }, .. } => {}
+            s => panic!("{s:?}"),
+        }
+    }
+    let share = whirls as f64 / n as f64;
+    assert!((share - web::WHIRL_CHANCE).abs() < 0.08, "{share}");
+}
+
+/// 줄이 닿기 전에 물건이 바닥에서 사라졌으면 (누가 집었거나 치움) 낚지 않음
+#[test]
+fn a_lasso_that_lands_after_the_object_is_gone_catches_nothing() {
+    let w = world(vec![]);
+    let mut p = calm_spider(800.0, 4, &w);
+    p.set_prank_edges(false, true);
+    let spot = floor_object(&p, 4.0 * p.cfg.size);
+    p.notice_play_objects(&[spot], &w);
+    assert!(p.start_whirl_object(&spot, Side::Right));
+    p.notice_play_objects(&[], &w);
+    let mut guard = LoopLimit::new();
+    while matches!(p.state, State::Web { .. }) {
+        guard.step();
+        p.update(DT, &w);
+        assert!(p.carried_object().is_none() && p.take_juggle().is_none());
+        assert!(!matches!(p.state, State::Web { phase: WebPhase::Whirl { .. }, .. }));
+    }
+}
+
+/// 돌리던 물건을 사용자가 낚아채면 "hmph!" 하고 그만 (놓는 일은 없음)
+#[test]
+fn snatching_the_object_mid_whirl_ends_it_with_a_hmph() {
+    let w = world(vec![]);
+    let mut p = calm_spider(800.0, 4, &w);
+    p.set_prank_edges(false, true);
+    let spot = floor_object(&p, 4.0 * p.cfg.size);
+    p.notice_play_objects(&[spot], &w);
+    assert!(p.start_whirl_object(&spot, Side::Right));
+    let mut guard = LoopLimit::new();
+    while !matches!(p.state, State::Web { phase: WebPhase::Whirl { .. }, t } if t > 0.5) {
+        guard.step();
+        p.update(DT, &w);
+    }
+    p.lose_carry();
+    assert_eq!(p.speech, Some(Speech::Hmph));
+    assert!(!matches!(p.state, State::Web { .. }) && p.carried_object().is_none() && p.web_line().is_none());
+    for _ in 0..120 {
+        p.update(DT, &w);
+        assert!(p.take_juggle().is_none());
+    }
+}
+
+/// 돌리던 중 다른 일이 끼어들면 줄을 놓음 — 들고 있지 않으니 앱이 물건을 떨어뜨림
+#[test]
+fn an_interruption_mid_whirl_lets_the_object_drop() {
+    let w = world(vec![]);
+    let mut p = calm_spider(800.0, 4, &w);
+    p.set_prank_edges(false, true);
+    let spot = floor_object(&p, 4.0 * p.cfg.size);
+    p.notice_play_objects(&[spot], &w);
+    assert!(p.start_whirl_object(&spot, Side::Right));
+    let mut guard = LoopLimit::new();
+    while !matches!(p.state, State::Web { phase: WebPhase::Whirl { .. }, t } if t > 0.5) {
+        guard.step();
+        p.update(DT, &w);
+    }
+    p.set_user_away(true);
+    p.update(DT, &w);
+    assert!(!matches!(p.state, State::Web { .. }), "{:?}", p.state);
+    assert!(p.carried_object().is_none() && p.carry_point().is_none());
+    assert!(p.take_juggle().is_none(), "던지지 않음");
 }

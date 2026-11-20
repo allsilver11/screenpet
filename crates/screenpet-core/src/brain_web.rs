@@ -1,4 +1,4 @@
-//! 🕷️ 거미인간 줄 놀이 (pet.json `web_slinger` + WEB_ANIMS — PetConfig::slings_webs) — brain.rs의 자식 모듈. 숫자·계산은 web.rs.
+//! 🕷️ 거미인간 줄 놀이 — 거미집·그네·영웅 착지·끌어오기·🌀 휘둘러 던지기 (pet.json `web_slinger` + WEB_ANIMS — PetConfig::slings_webs) — brain.rs의 자식 모듈. 숫자·계산은 web.rs.
 //!
 //! - 🕸️ 거미집: 모서리를 보고 줄을 쏨 (shoot) → 줄 끝이 닿는 순간 take_web이 WebSpin을 한 번 돌려줌 (앱이 그 모서리에 거미집을 그림).
 //!   손님으로 친구 화면에 가 있으면 자주, 집에서는 가끔.
@@ -6,13 +6,16 @@
 //! - 🦸 영웅 착지: 몸 크기 HERO_FALL_SIZES배 넘게 떨어져 내려서면 콰당 대신 hero_land ("nailed it!") — land_or_recover가 부름.
 //! - 🪝 끌어오기: 바닥의 물건(ObjectPlay::Yank — 앱이 날림)이나 다른 동물(sync_lifts가 be_yanked)에 줄을 붙여 휙 (web_pull).
 //!   반은 앞에 떨어지게 끌어오고 반은 머리 너머 뒤로 던짐.
+//! - 🌀 휘둘러 던지기: 내 동물이고 친구가 연결된 끝이 있으면 (friend_sides) 물건은 자주 줄로 낚아 머리 위로 빙빙 (web_whirl) →
+//!   그 끝 너머로 휙. 도는 동안은 흐물이가 든 물건처럼 carried_object·carry_point로 앱이 옮기고, 놓을 때 JuggleEvent::Release
+//!   (앱이 날림 — 끝을 넘으면 친구 모니터로). 낚아채이면 (lose_carry) "hmph!", 끼어들리면 줄을 놓아 물건이 떨어짐.
 //! - 지금 뻗은 줄은 web_line (앱이 덮개 창에 그림).
 //!
 //! 주사위는 자기 주사위(WebMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
 
 use super::hoist_moves::PetSpot;
 use super::*;
-use crate::juggle::ObjectSpot;
+use crate::juggle::{JuggleEvent, ObjectSpot};
 use crate::play::ObjectPlay;
 use crate::web::{self, Anchor, WebLine, WebSpin};
 
@@ -27,6 +30,8 @@ pub enum WebAim {
     Object { id: u64, at: (f64, f64), to: (f64, f64) },
     /// 🪝 다른 동물 (key = social_key)
     Pet { key: u64, at: (f64, f64), to: (f64, f64) },
+    /// 🌀 바닥의 물건을 낚아 휘둘러 side 끝 너머로 (at: 줄이 붙는 점 = 물건 가운데, half: 물건 반 폭)
+    Lasso { id: u64, at: (f64, f64), half: f64, side: Side },
 }
 
 impl WebAim {
@@ -35,7 +40,7 @@ impl WebAim {
         match *self {
             WebAim::Corner(s) => (s.x, s.y),
             WebAim::Anchor(a) => (a.x, a.y),
-            WebAim::Object { at, .. } | WebAim::Pet { at, .. } => at,
+            WebAim::Object { at, .. } | WebAim::Pet { at, .. } | WebAim::Lasso { at, .. } => at,
         }
     }
 }
@@ -51,6 +56,8 @@ pub enum WebPhase {
     Swing { anchor: Anchor, theta: f64, omega: f64 },
     /// 줄을 끌어당김 (tip = 줄이 붙었던 점 — 손으로 감겨 들어옴)
     Pull { tip: (f64, f64) },
+    /// 🌀 줄 끝의 물건을 머리 위로 휘두름 (from: 낚은 순간 물건 가운데, half: 물건 반 폭, dir: 던질 쪽 ±1)
+    Whirl { id: u64, from: (f64, f64), half: f64, dir: f64 },
 }
 
 /// 줄 놀이의 기억
@@ -102,6 +109,7 @@ impl Pet {
             WebPhase::Shoot { aim, hit } => lerp(hand, aim.tip(), if hit { 1.0 } else { (t / web::SHOOT_SECS).min(1.0) }),
             WebPhase::Zip { anchor, .. } | WebPhase::Swing { anchor, .. } => (anchor.x, anchor.y),
             WebPhase::Pull { tip } => lerp(tip, hand, (t / web::PULL_SECS).min(1.0)),
+            WebPhase::Whirl { from, dir, .. } => self.whirl_spot(from, dir, t),
         };
         Some(WebLine { from: hand, to })
     }
@@ -142,13 +150,14 @@ impl Pet {
         true
     }
 
-    /// 손 자리 (물리 px): 지금 그림의 grip (shoot·web_swing·web_pull), 왼쪽을 보면 좌우 반전
+    /// 손 자리 (물리 px): 지금 그림의 grip (shoot·web_swing·web_pull·web_whirl), 왼쪽을 보면 좌우 반전
     fn web_hand(&self) -> (f64, f64) {
         let g = &self.cfg.grip;
         let (gx, gy) = match self.state {
             State::Web { phase: WebPhase::Shoot { .. }, t } => g.shoot.at(t),
             State::Web { phase: WebPhase::Zip { .. } | WebPhase::Swing { .. }, t } => g.web_swing.at(t),
             State::Web { phase: WebPhase::Pull { .. }, t } => g.web_pull.at(t),
+            State::Web { phase: WebPhase::Whirl { .. }, t } => g.web_whirl.at(t),
             _ => g.shoot.at(1.0),
         };
         let gx = if self.facing < 0.0 { -gx } else { gx };
@@ -270,11 +279,24 @@ impl Pet {
         (x.clamp(wa.left + 0.5 * size, wa.right - 0.5 * size), self.body.y)
     }
 
-    /// 🪝 이 물건에 줄을 쏨 (주사위 없이)
+    /// 🪝 이 물건에 줄을 쏨 (주사위 없이). 친구가 연결된 끝이 있으면 WHIRL_CHANCE로 🌀 휘둘러 던지기 (끝은 그중 아무 데나)
     pub(super) fn start_pull_object(&mut self, spot: &ObjectSpot, world: &World) -> bool {
+        let sides = self.friend_sides(world);
+        if !sides.is_empty() && self.web.rng.f64() < web::WHIRL_CHANCE {
+            let side = sides[self.web.rng.usize(..sides.len())];
+            return self.start_whirl_object(spot, side);
+        }
         let to = self.pull_landing(spot.x, world);
         self.web.pull_ready_at = self.clock + behavior::range(&mut self.web.rng, web::PULL_CALM);
         self.begin_shoot(WebAim::Object { id: spot.id, at: (spot.x, spot.y - spot.half_w), to });
+        true
+    }
+
+    /// 🌀 이 물건에 줄을 쏨 — 닿으면 휘둘러 side 끝 너머로 던짐 (주사위 없이)
+    pub(super) fn start_whirl_object(&mut self, spot: &ObjectSpot, side: Side) -> bool {
+        self.facing = if spot.x >= self.body.x { 1.0 } else { -1.0 };
+        self.web.pull_ready_at = self.clock + behavior::range(&mut self.web.rng, web::PULL_CALM);
+        self.begin_shoot(WebAim::Lasso { id: spot.id, at: (spot.x, spot.y - spot.half_w), half: spot.half_w, side });
         true
     }
 
@@ -317,6 +339,7 @@ impl Pet {
             WebPhase::Pull { tip } => {
                 self.state = if t < web::PULL_SECS { State::Web { phase: WebPhase::Pull { tip }, t } } else { self.rest_beat() };
             }
+            WebPhase::Whirl { id, from, half, dir } => self.step_whirl(world, id, from, half, dir, t),
         }
     }
 
@@ -340,6 +363,14 @@ impl Pet {
                     self.play.event = Some(ObjectPlay::Yank { id, vx, vy });
                     self.speech = Some(Speech::Gotcha);
                     self.state = State::Web { phase: WebPhase::Pull { tip: at }, t: 0.0 };
+                    return;
+                }
+                // 줄이 닿는 순간에도 바닥에 있어야 낚음 (그새 누가 집었거나 치웠으면 줄만 뻗었다 거둠)
+                WebAim::Lasso { id, .. } if !self.play.spots.iter().any(|s| s.id == id) => {}
+                WebAim::Lasso { id, at, half, side } => {
+                    self.facing = visit::dir(side);
+                    self.speech = Some(Speech::Gotcha);
+                    self.state = State::Web { phase: WebPhase::Whirl { id, from: at, half, dir: self.facing }, t: 0.0 };
                     return;
                 }
                 WebAim::Pet { key, at, to } => {
@@ -404,12 +435,67 @@ impl Pet {
         self.state = State::Air { anim: Anim::Fall };
     }
 
+    /// 🌀 휘두르기 한 틱: WHIRL_SECS가 지나면 지금 자리(앱이 마지막으로 옮긴 곳)에서 화면 끝 너머 바닥 높이로 포물선을 그리게 놓음 ("yeet!")
+    fn step_whirl(&mut self, world: &World, id: u64, from: (f64, f64), half: f64, dir: f64, t: f64) {
+        if t < web::WHIRL_SECS {
+            self.state = State::Web { phase: WebPhase::Whirl { id, from, half, dir }, t };
+            return;
+        }
+        let size = self.cfg.size;
+        let at = self.carry_point().unwrap_or((self.body.x, self.body.y - 2.0 * size));
+        let edge = if dir > 0.0 { world.bounds.right } else { world.bounds.left };
+        let to = (edge + dir * web::WHIRL_PAST * size, self.body.y);
+        let g = crate::physics::THROW_GRAVITY_LOGICAL * self.cfg.dpi;
+        let (vx, vy) = web::yank_velocity(at, to, web::whirl_flight_secs(to.0 - at.0, size), g);
+        self.juggle.event = Some(JuggleEvent::Release { id, vx, vy });
+        self.speech = Some(Speech::Yeet);
+        self.state = self.rest_beat();
+    }
+
+    /// 🌀 휘두르는 물건 가운데 자리 (물리 px): 처음 WHIRL_REEL_SECS 동안 낚은 자리에서 머리 위 원으로 감아올림
+    fn whirl_spot(&self, from: (f64, f64), dir: f64, t: f64) -> (f64, f64) {
+        let size = self.cfg.size;
+        let (gx, gy) = self.cfg.grip.web_whirl.at(0.0);
+        let gx = if self.facing < 0.0 { -gx } else { gx };
+        let (_, top) = self.window_pos();
+        let on = web::whirl_point((self.body.x + gx * size, top + gy * size), size, dir, t);
+        let u = (t / web::WHIRL_REEL_SECS).min(1.0);
+        let ease = 1.0 - (1.0 - u) * (1.0 - u);
+        (from.0 + (on.0 - from.0) * ease, from.1 + (on.1 - from.1) * ease)
+    }
+
+    /// 🌀 휘두르는 중인 물건 id (carried_object가 부름)
+    pub(super) fn whirled_object(&self) -> Option<u64> {
+        match self.state {
+            State::Web { phase: WebPhase::Whirl { id, .. }, .. } => Some(id),
+            _ => None,
+        }
+    }
+
+    /// 🌀 휘두르는 물건 바닥 자리 (carry_point가 부름 — 앱의 carry_at은 물건 바닥 y를 받음)
+    pub(super) fn whirl_carry_point(&self) -> Option<(f64, f64)> {
+        let State::Web { phase: WebPhase::Whirl { from, half, dir, .. }, t } = self.state else { return None };
+        let (x, y) = self.whirl_spot(from, dir, t);
+        Some((x, y + half))
+    }
+
+    /// 🌀 휘두르던 물건을 사용자가 낚아챘거나 물건이 사라졌음: "hmph!" 하고 그만둠. 휘두르던 중이었으면 true
+    pub(super) fn lose_whirl(&mut self) -> bool {
+        if self.whirled_object().is_none() {
+            return false;
+        }
+        self.speech = Some(Speech::Hmph);
+        self.state = self.rest_beat();
+        true
+    }
+
     /// 줄 놀이 그림
     pub(super) fn web_anim(&self, phase: WebPhase) -> Anim {
         match phase {
             WebPhase::Shoot { .. } => Anim::Shoot,
             WebPhase::Zip { .. } | WebPhase::Swing { .. } => Anim::WebSwing,
             WebPhase::Pull { .. } => Anim::WebPull,
+            WebPhase::Whirl { .. } => Anim::WebWhirl,
         }
     }
 

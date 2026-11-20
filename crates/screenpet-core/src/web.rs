@@ -4,6 +4,8 @@
 //!   손님으로 친구 화면에 가 있으면 자주 (WEB_RATE_GUEST), 집에선 가끔 (WEB_RATE_HOME). 거미집은 앱이 WEB_LIFE_SECS 뒤 흐리게 지움.
 //! - 그네: 머리 위 창 아랫변이나 화면 윗변에 줄을 붙여 몸을 끌어올린 뒤 진자처럼 흔들려 반대편에서 놓고 날아감
 //! - 끌어오기: 바닥의 물건이나 다른 동물에 줄을 붙여 휙 — 반은 앞에 떨어지게, 반은 머리 너머 뒤로
+//! - 🌀 휘둘러 던지기: 친구가 연결된 화면 끝이 있으면 (WHIRL_CHANCE) 끌어오는 대신 물건을 줄로 낚아 머리 위로 빙빙 돌리다가
+//!   그 끝 너머로 휙 — 끝을 넘은 물건은 앱의 던지기처럼 친구 모니터로 날아감 (whirl_point·whirl_flight_secs)
 //! - 영웅 착지: 높이서 떨어져 내려서면 콰당 대신 한 손 짚고 쭉 (HERO_FALL_SIZES)
 //!
 //! 단위: 자리·길이는 물리 px, 시간은 초.
@@ -72,6 +74,27 @@ pub const YANK_FLIGHT_SECS: f64 = 0.55;
 pub const PULL_LAND_AHEAD: f64 = 0.65;
 /// 머리 너머 뒤로 던질 때: 몸 가운데에서 뒤로 (몸 크기 배)
 pub const FLING_LAND_BEHIND: f64 = 2.4;
+
+/// 🌀 친구가 연결된 끝이 있을 때 물건을 끌어오는 대신 휘둘러 던질 몫
+pub const WHIRL_CHANCE: f64 = 0.6;
+/// 🌀 줄이 닿은 뒤 휘두르는 시간 (감아올리기 포함 — 끝나면 놓음)
+pub const WHIRL_SECS: f64 = 1.4;
+/// 🌀 바닥의 물건을 머리 위 원으로 감아올리는 시간
+pub const WHIRL_REEL_SECS: f64 = 0.25;
+/// 🌀 휘두르는 바퀴 수 (마지막에 원 꼭대기에서 던질 쪽으로 나감)
+pub const WHIRL_TURNS: f64 = 2.5;
+/// 🌀 휘두르는 원의 가로 반지름 (몸 크기 배)
+pub const WHIRL_RADIUS: f64 = 1.1;
+/// 🌀 옆에서 본 원의 납작함 (세로 반지름 ÷ 가로 반지름 — 머리 위에서 눕혀 도는 올가미)
+pub const WHIRL_FLAT: f64 = 0.3;
+/// 🌀 원 가운데가 손보다 이만큼 위 (몸 크기 배)
+pub const WHIRL_LIFT: f64 = 0.45;
+/// 🌀 던진 물건이 바닥 높이에 닿을 자리: 화면 끝에서 이만큼 너머 (몸 크기 배)
+pub const WHIRL_PAST: f64 = 3.0;
+/// 🌀 날아가는 시간: 가장 짧게, 가장 길게
+pub const WHIRL_FLIGHT_SECS: (f64, f64) = (0.6, 1.3);
+/// 🌀 몸 크기 하나만큼 멀 때마다 더 나는 시간
+pub const WHIRL_FLIGHT_PER_SIZE: f64 = 0.04;
 
 /// 이만큼 (몸 크기 배) 넘게 떨어져 내려서면 영웅 착지
 pub const HERO_FALL_SIZES: f64 = 1.6;
@@ -208,6 +231,21 @@ pub fn release_velocity(len: f64, theta: f64, omega: f64, facing: f64) -> (f64, 
     (facing * len * omega * theta.cos(), -len * omega * theta.sin())
 }
 
+/// 🌀 휘두르는 물건 가운데 자리: 손(hand) 위 WHIRL_LIFT에 가운데를 둔 납작한 원을 t초에 따라 돎 (dir 쪽으로 던질 방향).
+/// WHIRL_SECS에 원 꼭대기에 와서 dir 쪽으로 움직임
+pub fn whirl_point(hand: (f64, f64), size: f64, dir: f64, t: f64) -> (f64, f64) {
+    let (rx, ry) = (WHIRL_RADIUS * size, WHIRL_RADIUS * WHIRL_FLAT * size);
+    let left = 1.0 - (t / WHIRL_SECS).clamp(0.0, 1.0);
+    let phi = -std::f64::consts::FRAC_PI_2 - dir * WHIRL_TURNS * std::f64::consts::TAU * left;
+    (hand.0 + rx * phi.cos(), hand.1 - WHIRL_LIFT * size + ry * phi.sin())
+}
+
+/// 🌀 휘둘러 던진 물건이 가로 dx (물리 px)를 나는 시간 — 멀수록 길게 (WHIRL_FLIGHT_SECS 안)
+pub fn whirl_flight_secs(dx: f64, size: f64) -> f64 {
+    let (lo, hi) = WHIRL_FLIGHT_SECS;
+    (lo + WHIRL_FLIGHT_PER_SIZE * dx.abs() / size.max(1.0)).clamp(lo, hi)
+}
+
 /// from에서 to로 secs 동안 포물선으로 날아가는 처음 속도 (중력 gravity, 물리 px/s²)
 pub fn yank_velocity(from: (f64, f64), to: (f64, f64), secs: f64, gravity: f64) -> (f64, f64) {
     let t = secs.max(0.05);
@@ -278,6 +316,25 @@ mod tests {
         assert!((hx - 100.0).abs() < 1e-9 && (hy - len).abs() < 1e-9);
         let (vx, vy) = release_velocity(len, 0.5, 2.0, -1.0);
         assert!(vx < 0.0 && vy < 0.0, "앞(왼쪽) 위로 날아감");
+    }
+
+    #[test]
+    fn the_whirl_circles_above_the_hand_and_ends_at_the_top_heading_the_throw_way() {
+        let (hand, size) = ((500.0, 600.0), 100.0);
+        for dir in [1.0, -1.0] {
+            let end = whirl_point(hand, size, dir, WHIRL_SECS);
+            assert!((end.0 - hand.0).abs() < 1e-6, "꼭대기 {end:?}");
+            assert!((end.1 - (hand.1 - (WHIRL_LIFT + WHIRL_RADIUS * WHIRL_FLAT) * size)).abs() < 1e-6);
+            let before = whirl_point(hand, size, dir, WHIRL_SECS - 0.01);
+            assert!((end.0 - before.0) * dir > 0.0, "던질 쪽으로 움직이며 끝남");
+            for k in 0..=100 {
+                let (x, y) = whirl_point(hand, size, dir, WHIRL_SECS * k as f64 / 100.0);
+                assert!((x - hand.0).abs() <= WHIRL_RADIUS * size + 1e-6 && y <= hand.1 - (WHIRL_LIFT - WHIRL_RADIUS * WHIRL_FLAT) * size + 1e-6);
+            }
+        }
+        assert_eq!(whirl_flight_secs(0.0, size), WHIRL_FLIGHT_SECS.0);
+        assert_eq!(whirl_flight_secs(1e6, size), WHIRL_FLIGHT_SECS.1);
+        assert!(whirl_flight_secs(800.0, size) > whirl_flight_secs(-300.0, size));
     }
 
     #[test]

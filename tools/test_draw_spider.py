@@ -1,4 +1,4 @@
-"""거미인간 시트 검사: 줄 순서 (필수 21 + climb·slide + 특기 넷)·모든 칸 여백·바닥선·pet.json(web_slinger, 파리, grip)·
+"""거미인간 시트 검사: 줄 순서 (필수 21 + climb·slide + 특기 다섯)·모든 칸 여백·바닥선·pet.json(web_slinger, 파리, grip)·
 사람 모양 꼬마 영웅 (빨강·파랑 쫄쫄이, 가슴의 까만 거미 무늬, 까만 테 하얀 렌즈, 앞모습 두 다리, 옆모습은 오른쪽)·
 줄 끝 손 자리 = 빨간 장갑·영웅 착지 (장갑으로 바닥 짚고 다리 쭉)·저장소 그림과 같음."""
 import json
@@ -14,9 +14,9 @@ from sprite_spec import ANIMS, OPTIONAL_ANIMS, STAGES, sheet_128
 
 ROOT = Path(__file__).resolve().parent.parent
 SHIPPED = ROOT / "ui" / "pets" / "spider"
-WEB = ["shoot", "web_swing", "hero_land", "web_pull"]  # = Rust manifest::WEB_ANIMS
+WEB = ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl"]  # = Rust manifest::WEB_ANIMS
 STANDING = ("walk", "idle", "look", "sit_front", "wave", "tilt", "heart", "tickle", "hungry", "eat", "level_up", "sleep", "annoyed", "shoot",
-            "hero_land", "web_pull")
+            "hero_land", "web_pull", "web_whirl")
 
 
 @pytest.fixture(scope="module")
@@ -40,9 +40,9 @@ def near(im, col, tol=40):
     return (np.abs(a[..., :3] - np.array(col)).sum(axis=2) < tol) & (a[..., 3] > 200)
 
 
-def test_registered_with_climb_and_the_four_web_rows_at_the_end():
+def test_registered_with_climb_and_the_five_web_rows_at_the_end():
     assert draw_pets.SPECIES["spider"] is ds.SPIDER
-    assert [o[0] for o in OPTIONAL_ANIMS[-4:]] == WEB == ds.WEB_ANIMS
+    assert [o[0] for o in OPTIONAL_ANIMS[-5:]] == WEB == ds.WEB_ANIMS
     assert names(ds.SPIDER) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + WEB
 
 
@@ -61,24 +61,27 @@ def test_manifest_is_a_playful_web_slinger_that_loves_flies(out):
     assert "juggler" not in m and "tint" not in m
     assert m["animations"]["shoot"] == {"row": len(ANIMS) + 3, "frames": 3, "fps": 10, "loop": False}
     assert m["animations"]["hero_land"]["loop"] is False and "front" not in m["animations"]["web_swing"]
-    for key in ("thwip", "web", "web_swing", "hero_land", "gotcha"):
+    for key in ("thwip", "web", "web_swing", "hero_land", "gotcha", "yeet"):
         assert m["speech"][key] and all(len(s) <= 16 for s in m["speech"][key]), key
     assert m["stage_size"] == dict.fromkeys(STAGES, 0.85)
 
 
 @pytest.mark.parametrize("st", STAGES)
 def test_grip_marks_the_red_glove_at_the_end_of_the_line(out, st):
-    """줄 끝 손 자리 = 빨간 장갑: 쏠 때는 몸 앞, 그네는 머리 위로 든 손, 끌어올 때는 몸 앞 (pet.json grip — 코어 GripTable)."""
+    """줄 끝 손 자리 = 빨간 장갑: 쏠 때는 몸 앞, 그네는 머리 위로 든 손, 끌어올 때는 몸 앞, 🌀 휘두를 때는 머리 위 (pet.json grip — 코어 GripTable)."""
     m = json.loads((out / "spider" / "pet.json").read_text(encoding="utf-8"))
     px = m.get("frame_sizes", {}).get(st, 128) / 128
     g = {a: [[x / px, y / px] for x, y in cells] for a, cells in m["grip"][st].items()}
-    head = {a: [c[1] / px for c in m["head"][st][a]] for a in ("web_swing",)}
+    head = {a: [c[1] / px for c in m["head"][st][a]] for a in ("web_swing", "web_whirl")}
     head_x = [c[0] / px for c in m["head"][st]["shoot"]]
-    assert set(g) == {"shoot", "web_swing", "web_pull"}
-    assert [len(g[a]) for a in ("shoot", "web_swing", "web_pull")] == [3, 2, 4]
+    assert set(g) == {"shoot", "web_swing", "web_pull", "web_whirl"}
+    assert [len(g[a]) for a in ("shoot", "web_swing", "web_pull", "web_whirl")] == [3, 2, 4, 3]
     assert all(x > 68 and x > hx + 12 for (x, _), hx in zip(g["shoot"][1:], head_x[1:])), (g["shoot"], head_x)
     assert all(y < 34 and y < hy + 4 for (_, y), hy in zip(g["web_swing"], head["web_swing"])), (g["web_swing"], head)
     assert all(x > 70 for x, _ in g["web_pull"]), g["web_pull"]
+    # 🌀 휘두르는 손: 머리 꼭대기보다 위, 손목으로 작은 원 (칸마다 자리가 바뀜)
+    assert all(y < hy for (_, y), hy in zip(g["web_whirl"], head["web_whirl"])), (g["web_whirl"], head)
+    assert len({(round(x), round(y)) for x, y in g["web_whirl"]}) == 3, g["web_whirl"]
     for anim, cells in g.items():
         for i, (x, y) in enumerate(cells):
             im = frame(out, st, anim, i)
@@ -111,7 +114,7 @@ def test_big_white_mask_lenses_outlined_in_black(out, st):
 @pytest.mark.parametrize("st", STAGES)
 def test_side_views_face_right(out, st):
     """옆모습은 오른쪽을 본다: 렌즈(하양)가 몸 가운데보다 오른쪽."""
-    for anim in ("walk", "run", "shoot"):
+    for anim in ("walk", "run", "shoot", "web_whirl"):
         im = frame(out, st, anim, 0)
         a = np.asarray(im.getchannel("A")) > 128
         body_x = np.nonzero(a)[1].mean()

@@ -116,6 +116,8 @@ OPTIONAL_ANIMS = [
     ("web_swing", 2, 4, True, False),
     ("hero_land", 3, 8, False, False),
     ("web_pull", 4, 8, True, False),
+    # 🕷️ 🌀 줄 휘두르기: 버티고 서서 한 팔을 머리 위로 들어 줄 끝의 물건을 빙빙 (손목으로 작은 원 — 3칸 반복)
+    ("web_whirl", 3, 10, True, False),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -142,10 +144,10 @@ SPEECH = {
     "redpanda": {"chatter": ["kyu kyu~", "peekaboo!", "♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "surprise": ["!!", "eep!"],
                  **_CARE_SPEECH},
     "heumul": {"chatter": ["wheee!", "zoom zoom!", "hup!"], "tickle": ["hehehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH},
-    # 🕷️ 거미인간: 줄 쏘기 thwip · 거미집 web · 그네 web_swing · 영웅 착지 hero_land · 끌어오기 gotcha (코어 Speech)
+    # 🕷️ 거미인간: 줄 쏘기 thwip · 거미집 web · 그네 web_swing · 영웅 착지 hero_land · 끌어오기 gotcha · 🌀 휘둘러 던지기 yeet (코어 Speech)
     "spider": {"chatter": ["thwip!", "web time!", "hi-ya!"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "thwip": ["thwip!"],
                "web": ["web time!", "spin spin~"], "web_swing": ["wheee!", "swing!"], "hero_land": ["nailed it!", "ta-da!"],
-               "gotcha": ["gotcha!", "yoink!"], **_CARE_SPEECH},
+               "gotcha": ["gotcha!", "yoink!"], "yeet": ["yeet!", "catch!", "go long!"], **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green", "dino_purple")},
 }
 DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], **_CARE_SPEECH}
@@ -202,7 +204,7 @@ STASHER = {"squirrel"}
 TRAIN_LEADER = {"duck"}
 
 # 🕷️ 줄을 쏘아 모서리에 거미집을 치고, 줄 그네를 타고, 영웅 착지를 하고, 물건·친구를 끌어오는 동물
-# (pet.json web_slinger — 코어 brain_web.rs, 그림은 shoot·web_swing·hero_land·web_pull)
+# (pet.json web_slinger — 코어 brain_web.rs, 그림은 shoot·web_swing·hero_land·web_pull·web_whirl)
 WEB_SLINGER = {"spider"}
 
 # 🎨 몸 색을 고를 수 있는 동물 (pet.json tint + ink_<stage>.png 잉크 자리 — 앱이 그 자리만 고른 색으로 덮는다, ui/main.js)

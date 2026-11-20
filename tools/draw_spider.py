@@ -9,7 +9,8 @@
         몸: 가슴·어깨는 빨강 V (거미줄 선), 옆구리·팔·다리는 파랑, 장갑·장화는 빨강, 가슴에 직접 그린 까만 거미 무늬.
 단계 (HERO): 아기 = 동글 우주복 꼬마 (머리 아주 큼, 팔다리 뭉툭, 줄 선 없음) → 유아 가면 줄 선 → 어린이 몸에도 줄 선 → 청소년 → 어른 키 크고 어깨 넓음.
 특기 동작 (코어 brain_web.rs): shoot 팔을 쭉 뻗어 손목을 까딱 (손가락 둘 펴고) 줄 쏘기 · web_swing 한 팔을 머리 위로 들어 줄에 매달림 ·
-      hero_land 영웅 착지 (쪼그려 앞 주먹을 바닥에, 뒤 다리 쭉, 다른 팔은 뒤로) · web_pull 두 손으로 줄을 잡고 영차 — 줄 끝 손 자리는 mark_grip (pet.json grip).
+      hero_land 영웅 착지 (쪼그려 앞 주먹을 바닥에, 뒤 다리 쭉, 다른 팔은 뒤로) · web_pull 두 손으로 줄을 잡고 영차 ·
+      web_whirl 🌀 버티고 서서 가까운 팔을 머리 위로 들어 줄 끝의 물건을 빙빙 — 줄 끝 손 자리는 mark_grip (pet.json grip).
       벽 타기 climb·slide = 뒷모습으로 손발을 벽에 붙이고 엉금엉금 (거미인간 벽 타기).
 eat에는 밥그릇이 없다 (앱의 소품 창이 띄운다): 무릎 꿇고 가면 아래를 걷어 올려 입을 밥 더미 바로 위 (프레임 y ≈ 79)에 대고 냠냠.
 """
@@ -589,6 +590,33 @@ def sp_web_pull(sp, i):
                 far_limbs_front=True, eyes="tight" if i == 2 else "dot", brow=None if i == 2 else "angry", mouth="grin", grip="near", fx=fx)
 
 
+WHIRL_HAND = [(3.0, 0.0), (0.0, -2.0), (-3.0, 0.0)]  # 🌀 칸마다 머리 위 손의 작은 원 (손목으로 돌림)
+
+
+def whirl_fx(x, y, i, k=1.0):
+    """🌀 손목 둘레에서 빙빙 도는 바람 자국 (회색 납작한 호 둘 — 칸마다 돎, 장갑보다 위로 솟지 않게). 줄 자체는 앱이 그림."""
+    a = 120 * i
+    grey = (150, 160, 190)
+    return [([L(dp.arc(x, y - 1 * k, 13 * k, 3.5 * k, a + 200, a + 290, 8), 1.3), L(dp.arc(x, y - 1 * k, 13 * k, 3.5 * k, a + 20, a + 110, 8), 1.3)],
+             grey, 0)]
+
+
+def sp_web_whirl(sp, i):
+    """🌀 줄 휘두르기: 다리를 벌려 버티고 서서 가까운 팔을 머리 뒤쪽 위로 쭉 들어 (얼굴은 가리지 않게) 손목으로 줄을 빙빙
+    (손이 작은 원을 그리고 손 위에 바람 자국), 먼 팔은 주먹 쥐고 앞으로, 신난 얼굴."""
+    s = hs()
+    cx = SIDE_CX - 2
+    hip = H(cx, s["leg"] * 0.32)  # 무릎을 굽혀 버팀
+    top = hip[1] + s["lw"] * 0.35 - s["th"]
+    head_top = top - 2 * s["hry"] + OVERLAP
+    dx, dy = WHIRL_HAND[i]
+    hand = (cx - 1.0 * s["hrx"] + dx, head_top - 2 + dy)
+    legs = [floor_at(cx - 10), floor_at(cx + 11)]
+    return hero(hip=hip, rot=[-5, -3, -5][i], head_rot=-6, legs=legs, leg_bend=[(1, -0.2), (1, -0.2)],
+                arms=[("a", 75, 0.8), hand], arm_bend=[(1, 0.4), (-1, 0)], eyes="happy", mouth="big", grip="near",
+                fx=lambda hands: whirl_fx(hands[1][0], hands[1][1], i))
+
+
 # =====================================================================
 # 앞모습
 # =====================================================================
@@ -765,9 +793,10 @@ SPIDER_POSES = {"walk": sp_walk, "run": sp_run, "roll": sp_roll, "idle": sp_idle
                 "fall": sp_fall, "dragged": sp_dragged, "land": sp_land, "sit_front": sp_sit_front, "wave": sp_wave, "tilt": sp_tilt,
                 "belly": sp_belly, "stretch": sp_stretch, "heart": sp_heart, "tickle": sp_tickle, "annoyed": sp_annoyed,
                 "hungry": sp_hungry, "eat": sp_eat, "level_up": sp_level_up, "climb": sp_climb, "slide": sp_slide, "lookup": sp_lookup,
-                "shoot": sp_shoot, "web_swing": sp_web_swing, "hero_land": sp_hero_land, "web_pull": sp_web_pull}
+                "shoot": sp_shoot, "web_swing": sp_web_swing, "hero_land": sp_hero_land, "web_pull": sp_web_pull,
+                "web_whirl": sp_web_whirl}
 SPIDER_POSES = {k: (v if k == "roll" else dp._fit(v)) for k, v in SPIDER_POSES.items()}  # roll은 회전 원 안 그대로
-WEB_ANIMS = ["shoot", "web_swing", "hero_land", "web_pull"]  # = Rust manifest::WEB_ANIMS
+WEB_ANIMS = ["shoot", "web_swing", "hero_land", "web_pull", "web_whirl"]  # = Rust manifest::WEB_ANIMS
 
 SPIDER = Species(
     id="spider", name="거미인간", walk_speed=95, scale=1.0, base=BLUE, back=RED, belly=RED, nose=OUT, mouth="w",
@@ -789,7 +818,7 @@ register()
 def preview_spider(by_stage, path, bg=(255, 255, 255)):
     """5단계 × 대표 동작 + 특기 동작 (밝은·어두운 바탕)."""
     names = [("walk", 0), ("run", 1), ("sit_front", 0), ("wave", 1), ("eat", 0), ("sleep", 0), ("hop", 1), ("fall", 0), ("roll", 0),
-             ("shoot", 2), ("web_swing", 0), ("hero_land", 1), ("web_pull", 2), ("climb", 0)]
+             ("shoot", 2), ("web_swing", 0), ("hero_land", 1), ("web_pull", 2), ("web_whirl", 1), ("climb", 0)]
     rows = [(st, by_stage, st) for st in STAGES]
     dp.preview_poses([(bg, rows), ((40, 44, 52), rows)], names, path, zoom=("sit_front", "hero_land"), bg=bg)
 
