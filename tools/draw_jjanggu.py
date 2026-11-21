@@ -34,26 +34,31 @@ BEAM, BEAM_CORE, BEAM_EDGE = (255, 228, 96), (255, 255, 232), (240, 160, 50)  # 
 WIGGLE = (150, 150, 176)  # 🍑 씰룩 자국
 
 
+def lobe(hx, hy, hrx, hry, cx, cy, rx, ry):
+    """머리 반지름 배로 잡은 볼 덩이 타원 (가운데 (cx, cy), 반지름 (rx, ry))."""
+    return E(hx + (cx - rx) * hrx, hy + (cy - ry) * hry, hx + (cx + rx) * hrx, hy + (cy + ry) * hry)
+
+
 def jj_hair(view_, hx, hy, hrx, hry, q):
     """감자 머리 + 짧은 까만 머리: 아래쪽 볼이 통통하게 부풀어 머리가 아래로 넓음 (앞·뒷모습은 양 볼, 옆모습은 앞 볼·턱).
     머리는 정수리를 덮는 짧은 모자 모양 (이마 위 일자 앞머리, 옆모습은 귀 뒤로 뒤통수까지). → (머리 도형에 더할 도형, 삐죽 조각, 머리 안 무늬)."""
     sky = hy - hry * 2.0
     shine = [L(dp.arc(hx, hy, hrx * 0.76, hry * 0.76, 218, 262, 8), 2.0)]
     if view_ == "side":
-        cheek = [E(hx + 0.38 * hrx - 0.72 * hrx, hy + 0.36 * hry - 0.62 * hry, hx + 0.38 * hrx + 0.72 * hrx, hy + 0.36 * hry + 0.62 * hry),
-                 E(hx - 0.3 * hrx - 0.66 * hrx, hy + 0.3 * hry - 0.6 * hry, hx - 0.3 * hrx + 0.66 * hrx, hy + 0.3 * hry + 0.6 * hry)]
+        cheek = [lobe(hx, hy, hrx, hry, 0.54, 0.5, 0.84, 0.6), lobe(hx, hy, hrx, hry, -0.26, 0.36, 0.74, 0.6),
+                 lobe(hx, hy, hrx, hry, 0.12, 0.6, 0.72, 0.48)]
         z = [(0.72, -0.62), (0.5, -0.56), (0.24, -0.5), (0.04, -0.34), (-0.1, -0.12), (-0.34, -0.1), (-0.46, 0.22), (-0.62, 0.46), (-1.6, 0.5)]
         edge = [(hx + a * hrx, hy + b * hry) for a, b in z]
         return cheek, [], [([T((hx + 0.72 * hrx, sky), *edge, (hx - 1.6 * hrx, sky))], HAIR), (shine, HAIR_HI)]
-    cheeks = [E(hx + sd * 0.44 * hrx - 0.72 * hrx, hy + 0.42 * hry - 0.56 * hry, hx + sd * 0.44 * hrx + 0.72 * hrx, hy + 0.42 * hry + 0.56 * hry)
-              for sd in (-1, 1)]
+    k = 0.9 if view_ == "back" else 1.0  # 뒷모습은 볼이 조금 덜 보임
+    cheeks = [lobe(hx, hy, hrx, hry, sd * 0.52 * k, 0.5, 0.84 * k, 0.58) for sd in (-1, 1)] + [lobe(hx, hy, hrx, hry, 0.0, 0.6, 0.8, 0.46)]
     if view_ == "back":
         z = [(1.6, 0.4), (0.96, 0.42), (0.6, 0.62), (0.3, 0.56), (0.0, 0.66), (-0.3, 0.56), (-0.6, 0.62), (-0.96, 0.42), (-1.6, 0.4)]
         edge = [(hx + a * hrx, hy + b * hry) for a, b in z]
         return cheeks, [], [([T(*edge, (hx - 1.6 * hrx, sky), (hx + 1.6 * hrx, sky))], HAIR), (shine, HAIR_HI)]
     z = [(1.6, -0.1), (0.98, -0.12), (0.84, -0.4), (0.5, -0.52), (0.0, -0.54), (-0.5, -0.52), (-0.84, -0.4), (-0.98, -0.12), (-1.6, -0.1)]
     edge = [(hx + a * hrx, hy + b * hry) for a, b in z]
-    ears = [E(hx + sd * hrx - 3.2, hy + 0.02 * hry - 4.4, hx + sd * hrx + 3.2, hy + 0.02 * hry + 4.4) for sd in (-1, 1)]
+    ears = [E(hx + sd * hrx - 3.2, hy - 0.08 * hry - 4.4, hx + sd * hrx + 3.2, hy - 0.08 * hry + 4.4) for sd in (-1, 1)]
     return cheeks + ears, [], [([T(*edge, (hx - 1.6 * hrx, sky), (hx + 1.6 * hrx, sky))], HAIR), (shine, HAIR_HI)]
 
 
@@ -64,18 +69,18 @@ def brow(x0, y0, x1, y1, w):
 
 
 def jj_extra(view_, hx, hy, hrx, hry, far_eye, near_eye):
-    """아주 굵은 까만 눈썹 (짱구 얼굴의 상징): 앞모습 눈마다 두툼한 일자 눈썹, 옆모습은 가까운 눈썹 + 먼 눈썹 끝."""
-    w = 0.2 * hry
+    """아주 굵은 까만 눈썹 (짱구 얼굴의 상징): 앞모습 눈마다 두툼한 애벌레 눈썹 (가운데는 또렷이 떨어짐), 옆모습은 가까운 눈썹 + 먼 눈썹 끝."""
+    w = 0.17 * hry
     if view_ == "front":
         out = []
         for (ex, ey), sd in ((far_eye, -1), (near_eye, 1)):
-            y = ey - 0.36 * hry
-            out.append(brow(ex - 0.2 * hrx, y + sd * 0.0 + 0.5, ex + 0.2 * hrx, y - 0.5, w) if sd > 0 else brow(ex - 0.2 * hrx, y - 0.5, ex + 0.2 * hrx, y + 0.5, w))
+            y, cx = ey - 0.36 * hry, ex + sd * 0.03 * hrx
+            out.append(brow(cx - 0.16 * hrx, y + sd * 0.5, cx + 0.16 * hrx, y - sd * 0.5, w))
         return [(out, BROW)]
     if view_ == "side":
         (xf_, yf), (xn, yn) = far_eye, near_eye
-        return [([brow(xn - 0.17 * hrx, yn - 0.34 * hry, xn + 0.19 * hrx, yn - 0.36 * hry, w),
-                  L([(xf_ - 0.06 * hrx, yf - 0.36 * hry), (xf_ + 0.1 * hrx, yf - 0.37 * hry)], w * 0.9)], BROW)]
+        return [([brow(xn - 0.16 * hrx, yn - 0.34 * hry, xn + 0.13 * hrx, yn - 0.36 * hry, w),
+                  L([(xf_ + 0.0 * hrx, yf - 0.36 * hry), (xf_ + 0.1 * hrx, yf - 0.37 * hry)], w * 0.9)], BROW)]
     return []
 
 
@@ -111,7 +116,7 @@ def chocobi_bubble_fx(cx, cy, r=12.0):
 JJ_LOOK = wz.Look(hair=jj_hair, hair_col=HAIR, skin=SKIN, skin_shade=SKIN_SHADE, extra=jj_extra, food_fx=chocobi_bubble_fx, prop=no_wand,
                   robe=SHIRT, robe_far=SHIRT_FAR, robe_in=SHIRT_FAR, jumper=SHIRT, pants=SHORTS, pants_far=SHORTS_FAR, scarf=False,
                   skirt=False, sleeve=0.55, shorts=0.6, belt=SHORTS, socks=SOCKS, shoe=SHOE, shoe_far=SHOE_FAR, shoe_hi=SHOE_HI,
-                  dims=dict(hrx=1.1, hry=1.04, th=0.9, leg=0.78, arm=0.92, tw=0.98), cap_lift=0.05, eye_k=0.8)
+                  dims=dict(hrx=0.98, hry=1.04, th=0.9, leg=0.78, arm=0.92, tw=0.98), cap_lift=0.05, eye_k=0.8, back_reach=8.0)
 
 
 def s_():
