@@ -72,6 +72,7 @@ class Look:
     side_ear: bool = True  # 옆모습에 귀가 보임 (긴 머리는 가림)
     cap_lift: float = 0.0  # 수면 모자를 머리숱 위로 올리는 몫 (머리 반지름 배)
     eye_k: float = 0.82  # 눈 크기 배
+    eye_draw: Callable = None  # eye_draw(kind, cx, cy, flip, sx) → 눈 ops 또는 None (None이면 단계 눈) — 짱구의 까만 동그란 눈
     back_reach: float = 0.0  # 뒷모습 벽 짚은 손을 더 바깥으로 (부푼 머리에 가리지 않게)
     extra_parts: dict = field(default_factory=dict)
     robe: tuple = ROBE  # 로브 (몸·소매) · 먼 쪽 소매 · 안감 · 앞섶 사이 · 바지 (볼드모트는 더 까맣고 안감이 초록)
@@ -192,6 +193,10 @@ def eye_ops(kind, cx, cy, flip, brow=None, sx=1.0):
     """눈 하나 (draw_pets 단계 눈) + 눈썹 (angry · sad). sx: 옆모습 먼 눈은 가로로 좁게."""
     lk = look()
     k = lk.eye_k
+    if lk.eye_draw:
+        own = lk.eye_draw(kind, cx, cy, flip, sx)
+        if own is not None:
+            return own
     saved = (dp.EYE, dp.EYE_LIGHT)
     if lk.eyes:
         dp.EYE, dp.EYE_LIGHT = lk.eyes

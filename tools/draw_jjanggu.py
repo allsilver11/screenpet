@@ -1,4 +1,4 @@
-"""짱구 🖍️ — 아주 굵은 까만 눈썹, 아래가 넓은 감자 머리 (볼 통통), 짧은 까만 머리, 빨간 반팔 티셔츠, 노란 반바지, 하얀 양말·운동화의 꼬마 펫(jjanggu).
+"""짱구 🖍️ — 아주 굵은 까만 ㅅ자 눈썹, 까만 동그란 눈 + 하얀 점, 아래가 넓은 주먹밥 머리 (볼 통통, 이마 훤히), 뒤통수만 덮는 까만 머리, 빨간 반팔 티셔츠, 노란 반바지, 하얀 양말·운동화의 꼬마 펫(jjanggu).
 몸·기본 동작은 draw_wizard (해리포터와 같은 사람 뼈대)를 쓰고, 로브 대신 티셔츠·반바지 (Look.skirt·sleeve·shorts·belt·socks·shoe)로 입힘.
 
     python tools/draw_jjanggu.py → ui/pets/jjanggu/{sheet_<stage>.png ×5, pet.json} + tools/preview/{stages_jjanggu,climb_jjanggu,moves_jjanggu}.png
@@ -40,47 +40,61 @@ def lobe(hx, hy, hrx, hry, cx, cy, rx, ry):
 
 
 def jj_hair(view_, hx, hy, hrx, hry, q):
-    """감자 머리 + 짧은 까만 머리: 아래쪽 볼이 통통하게 부풀어 머리가 아래로 넓음 (앞·뒷모습은 양 볼, 옆모습은 앞 볼·턱).
-    머리는 정수리를 덮는 짧은 모자 모양 (이마 위 일자 앞머리, 옆모습은 귀 뒤로 뒤통수까지). → (머리 도형에 더할 도형, 삐죽 조각, 머리 안 무늬)."""
+    """주먹밥 머리 + 짧은 까만 머리: 아래쪽 볼이 크게 부풀어 머리가 아래로 넓음 (앞·뒷모습은 양 볼, 옆모습은 앞으로 불룩한 볼).
+    이마는 훤히 드러나고 머리카락은 정수리 위 (앞모습)·뒤통수 (옆모습)만 덮음. → (머리 도형에 더할 도형, 삐죽 조각, 머리 안 무늬)."""
     sky = hy - hry * 2.0
-    shine = [L(dp.arc(hx, hy, hrx * 0.76, hry * 0.76, 218, 262, 8), 2.0)]
     if view_ == "side":
-        cheek = [lobe(hx, hy, hrx, hry, 0.54, 0.5, 0.84, 0.6), lobe(hx, hy, hrx, hry, -0.26, 0.36, 0.74, 0.6),
-                 lobe(hx, hy, hrx, hry, 0.12, 0.6, 0.72, 0.48)]
-        z = [(0.72, -0.62), (0.5, -0.56), (0.24, -0.5), (0.04, -0.34), (-0.1, -0.12), (-0.34, -0.1), (-0.46, 0.22), (-0.62, 0.46), (-1.6, 0.5)]
+        cheek = [lobe(hx, hy, hrx, hry, 0.64, 0.5, 0.86, 0.62), lobe(hx, hy, hrx, hry, -0.26, 0.36, 0.74, 0.6),
+                 lobe(hx, hy, hrx, hry, 0.2, 0.62, 0.78, 0.48)]
+        z = [(0.16, -1.2), (0.06, -0.94), (-0.12, -0.74), (-0.3, -0.46), (-0.4, -0.16), (-0.46, 0.2), (-0.62, 0.46), (-1.6, 0.5)]
         edge = [(hx + a * hrx, hy + b * hry) for a, b in z]
-        return cheek, [], [([T((hx + 0.72 * hrx, sky), *edge, (hx - 1.6 * hrx, sky))], HAIR), (shine, HAIR_HI)]
+        shine = [L(dp.arc(hx, hy, hrx * 0.8, hry * 0.8, 200, 236, 6), 2.0)]
+        return cheek, [], [([T(*edge, (hx - 1.6 * hrx, sky))], HAIR), (shine, HAIR_HI)]
     k = 0.9 if view_ == "back" else 1.0  # 뒷모습은 볼이 조금 덜 보임
-    cheeks = [lobe(hx, hy, hrx, hry, sd * 0.52 * k, 0.5, 0.84 * k, 0.58) for sd in (-1, 1)] + [lobe(hx, hy, hrx, hry, 0.0, 0.6, 0.8, 0.46)]
+    cheeks = [lobe(hx, hy, hrx, hry, sd * 0.56 * k, 0.52, 0.86 * k, 0.6) for sd in (-1, 1)] + [lobe(hx, hy, hrx, hry, 0.0, 0.62, 0.84, 0.48)]
     if view_ == "back":
+        shine = [L(dp.arc(hx, hy, hrx * 0.76, hry * 0.76, 218, 262, 8), 2.0)]
         z = [(1.6, 0.4), (0.96, 0.42), (0.6, 0.62), (0.3, 0.56), (0.0, 0.66), (-0.3, 0.56), (-0.6, 0.62), (-0.96, 0.42), (-1.6, 0.4)]
         edge = [(hx + a * hrx, hy + b * hry) for a, b in z]
         return cheeks, [], [([T(*edge, (hx - 1.6 * hrx, sky), (hx + 1.6 * hrx, sky))], HAIR), (shine, HAIR_HI)]
-    z = [(1.6, -0.1), (0.98, -0.12), (0.84, -0.4), (0.5, -0.52), (0.0, -0.54), (-0.5, -0.52), (-0.84, -0.4), (-0.98, -0.12), (-1.6, -0.1)]
+    z = [(1.6, -0.36), (0.98, -0.4), (0.78, -0.62), (0.42, -0.78), (0.0, -0.82), (-0.42, -0.78), (-0.78, -0.62), (-0.98, -0.4), (-1.6, -0.36)]
     edge = [(hx + a * hrx, hy + b * hry) for a, b in z]
     ears = [E(hx + sd * hrx - 3.2, hy - 0.08 * hry - 4.4, hx + sd * hrx + 3.2, hy - 0.08 * hry + 4.4) for sd in (-1, 1)]
-    return cheeks + ears, [], [([T(*edge, (hx - 1.6 * hrx, sky), (hx + 1.6 * hrx, sky))], HAIR), (shine, HAIR_HI)]
+    return cheeks + ears, [], [([T(*edge, (hx - 1.6 * hrx, sky), (hx + 1.6 * hrx, sky))], HAIR)]
 
 
-def brow(x0, y0, x1, y1, w):
-    """굵은 눈썹 하나 (가운데가 살짝 솟은 애벌레 모양)."""
-    mx, my = (x0 + x1) / 2, (y0 + y1) / 2 - w * 0.25
-    return L([(x0, y0), (mx, my), (x1, y1)], w)
+def jj_eye(kind, cx, cy, flip, sx=1.0):
+    """짱구 눈: 까만 동그라미 + 가운데 하얀 점 + 위에 가는 눈꺼풀 선 (뜬 눈 dot·up·round만 — 다른 표정은 None → 단계 눈)."""
+    if kind not in ("dot", "up", "round"):
+        return None
+    hrx = wz.ws()["hrx"]
+    r = 0.23 * hrx * (1.08 if kind == "round" else 1.0)
+    dy = -0.25 * r if kind == "up" else 0.0
+    with xf(sx=sx, pivot=(cx, cy)):
+        return [([E(cx - r, cy - r * 1.06, cx + r, cy + r * 1.06)], BROW),
+                ([C(cx, cy + dy, r * 0.36)], dp.WHITE),
+                ([L(dp.arc(cx, cy + r * 0.5, r * 1.5, r * 2.0, 222, 318, 10), 0.75)], wz.OUT)]
+
+
+def brow(pts, w):
+    """굵은 ㅅ자 눈썹 하나 (바깥 끝 → 꼭대기 → 안쪽 끝)."""
+    return L(pts, w)
 
 
 def jj_extra(view_, hx, hy, hrx, hry, far_eye, near_eye):
-    """아주 굵은 까만 눈썹 (짱구 얼굴의 상징): 앞모습 눈마다 두툼한 애벌레 눈썹 (가운데는 또렷이 떨어짐), 옆모습은 가까운 눈썹 + 먼 눈썹 끝."""
+    """아주 굵은 까만 ㅅ자 눈썹 (짱구 얼굴의 상징): 바깥 끝은 낮고 안쪽에서 솟았다가 살짝 내려옴 — 가운데는 또렷이 떨어짐.
+    옆모습은 가까운 눈썹 + 먼 눈썹 끝."""
     w = 0.17 * hry
     if view_ == "front":
         out = []
         for (ex, ey), sd in ((far_eye, -1), (near_eye, 1)):
-            y, cx = ey - 0.36 * hry, ex + sd * 0.03 * hrx
-            out.append(brow(cx - 0.16 * hrx, y + sd * 0.5, cx + 0.16 * hrx, y - sd * 0.5, w))
+            out.append(brow([(ex + sd * 0.2 * hrx, ey - 0.34 * hry), (ex - sd * 0.03 * hrx, ey - 0.54 * hry),
+                             (ex - sd * 0.16 * hrx, ey - 0.44 * hry)], w))
         return [(out, BROW)]
     if view_ == "side":
         (xf_, yf), (xn, yn) = far_eye, near_eye
-        return [([brow(xn - 0.16 * hrx, yn - 0.34 * hry, xn + 0.13 * hrx, yn - 0.36 * hry, w),
-                  L([(xf_ + 0.0 * hrx, yf - 0.36 * hry), (xf_ + 0.1 * hrx, yf - 0.37 * hry)], w * 0.9)], BROW)]
+        return [([brow([(xn - 0.17 * hrx, yn - 0.34 * hry), (xn + 0.02 * hrx, yn - 0.54 * hry), (xn + 0.13 * hrx, yn - 0.46 * hry)], w),
+                  L([(xf_ - 0.02 * hrx, yf - 0.48 * hry), (xf_ + 0.09 * hrx, yf - 0.4 * hry)], w * 0.9)], BROW)]
     return []
 
 
@@ -116,7 +130,7 @@ def chocobi_bubble_fx(cx, cy, r=12.0):
 JJ_LOOK = wz.Look(hair=jj_hair, hair_col=HAIR, skin=SKIN, skin_shade=SKIN_SHADE, extra=jj_extra, food_fx=chocobi_bubble_fx, prop=no_wand,
                   robe=SHIRT, robe_far=SHIRT_FAR, robe_in=SHIRT_FAR, jumper=SHIRT, pants=SHORTS, pants_far=SHORTS_FAR, scarf=False,
                   skirt=False, sleeve=0.55, shorts=0.6, belt=SHORTS, socks=SOCKS, shoe=SHOE, shoe_far=SHOE_FAR, shoe_hi=SHOE_HI,
-                  dims=dict(hrx=0.98, hry=1.04, th=0.9, leg=0.78, arm=0.92, tw=0.98), cap_lift=0.05, eye_k=0.8, back_reach=8.0)
+                  dims=dict(hrx=0.98, hry=1.04, th=0.9, leg=0.78, arm=0.92, tw=0.98), cap_lift=0.05, eye_k=0.8, eye_draw=jj_eye, back_reach=8.0)
 
 
 def s_():
