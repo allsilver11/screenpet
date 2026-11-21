@@ -422,7 +422,9 @@ function draw(now) {
     const swingGrip = render.anim === "hang_cursor" ? manifest.grip?.[stage.stage]?.hang_cursor?.[f] : null;
     // 🎒 헤르미온느 가방 속으로 쏙 (백엔드 render.tuck 0…1 — 코어 brain_tuck.rs): 발밑을 축으로 작아지며 흐려짐 (1이면 안 보임)
     const tuck = Math.max(0, Math.min(1, render.tuck || 0));
-    writePet("transformOrigin", swingGrip ? gripOrigin(swingGrip) : render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : tuck > 0 ? "50% 100%" : "");
+    // 🪨 Petrificus에 맞아 통나무처럼 쿵 (백엔드 render.topple 도 — 코어 brain_duel.rs): 그림 가운데를 축으로 돌리고 바닥 쪽으로 내림
+    const topple = Math.max(-90, Math.min(90, render.topple || 0));
+    writePet("transformOrigin", swingGrip ? gripOrigin(swingGrip) : render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : tuck > 0 ? "50% 100%" : topple ? "50% 50%" : "");
     writePet("opacity", tuck > 0 ? (1 - tuck).toFixed(3) : "");
     if (tuck > 0) parts.push(`scale(${(1 - 0.9 * tuck).toFixed(3)})`);
     if (render.hang) parts.push(`rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
@@ -434,6 +436,7 @@ function draw(now) {
       const r = display * (0.3 + Math.random() * 0.15);
       spark(Math.floor(Math.random() * 2), display * 0.5, Math.cos(a) * r, -Math.sin(a) * r);
     }
+    if (topple) parts.push(`translateY(${(display * 0.28 * Math.abs(topple) / 90).toFixed(1)}px) rotate(${topple.toFixed(1)}deg)`);
     if (render.flip) parts.push("scaleX(-1)");
     // 이동 속도는 √배율, 몸 반지름은 배율에 비례 → 구르는 각속도는 1/√배율
     if (spec.spin) parts.push(`rotate(${((elapsed / 1000) * spec.spin / Math.sqrt(stage.scale)) % 360}deg)`);
@@ -915,6 +918,15 @@ const EXTRA_SPEECH = {
   pester: ["psst!", "play with me?", "boo!"],
   shh: ["Shh! I'm studying!"],
   oh_alright: ["Oh, alright!"],
+  // ⚔️ 긴 결투 (코어 brain_duel.rs): 헤르미온느·볼드모트 저주 / 뻣뻣 / 피함 / 달아남 / 쫓음 / 숨 고르기 · 💡 루모스 (brain_spell.rs)
+  petrificus: ["Petrificus Totalus!"],
+  avada_kedavra: ["Avada Kedavra!"],
+  petrified: ["mmph!", "!!"],
+  dodged: ["missed!", "ha, missed!"],
+  duel_flee: ["catch me!", "can't catch me!"],
+  duel_chase: ["get back here!", "come back!"],
+  duel_rest: ["huff... huff...", "phew..."],
+  lumos: ["Lumos!"],
   // 🐍 볼드모트·👻 디멘터·⚔️ 결투·🦌 패트로누스 (코어 brain_spell.rs·brain_dark.rs·brain_duel.rs·brain_dementor.rs): ⚡ 초록 빛 주문 /
   // 💫 맞아서 기절 · 🐍 나기니 부르기 · 😈 웃음 · ⚔️ 결투 걸기 · 🦌 은빛 사슴 · 👻 곁에서 시무룩 / 쫓겨 도망
   stupefy: ["Stupefy!"],
@@ -930,6 +942,15 @@ const EXTRA_SPEECH = {
   pat: ["Good lad!", "There, there"],
   hatch: ["Blimey!"],
   rock_cake: ["Rock cake?"],
+  // 🖍️ 짱구 (코어 brain_jjanggu.rs·social_flirt.rs): 🍑 엉덩이 춤 / 🦸 액션 빔 / 🍪 초코비 / 😴 뒹굴 / 🐶 흰둥이 / 💕 작업 · 헤르미온느의 웃음·무시
+  buri_buri: ["buri buri~"],
+  action_beam: ["Action beam!"],
+  chocobi: ["Chocobi!"],
+  lazy: ["So lazy~"],
+  shiro: ["Shiro!"],
+  flirt: ["Hey pretty~"],
+  flattered: ["Oh! Thank you~"],
+  brush_off: ["Hmph!"],
   // 펫끼리 놀기 더 (코어 social_romp.rs): 🥊 투닥투닥 / 😈 몰래 찌르고 키득 · 찔려서 화들짝 / 🫸 되밀기 / 🏁 달리기 시합 / 💬 수다 (먼저 · 받는 쪽)
   scuffle: ["hey!", "mine!", "grr", "grr!"],
   hehe: ["hehe", "hehe~"],
@@ -990,6 +1011,7 @@ const CURSOR_LINES = {
   voldemort: ["hehehe", "come here..."],
   dementor: ["hhhhh...", "..."],
   hagrid: ["Blimey!", "Oi, little one!"],
+  jjanggu: ["buri buri~", "Hey there~"],
 };
 const speech = setupSpeech({
   bubbleEl,

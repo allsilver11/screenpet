@@ -7,6 +7,8 @@
 //!   · Expelliarmus: 다른 펫이 든 물건을 떨어뜨림 · 아니면 바닥의 작은 물건을 휙 날림 (DISARM_VX·DISARM_VY)
 //!   · Wingardium Leviosa: 작은 물건이나 작은 펫을 FLOAT_RISE만큼 둥둥 띄워 FLOAT_SECS 뒤 내려놓음 — 책벌레가 아니면 FIZZLE_CHANCE로 실패
 //!   · Reparo: 바닥의 작은 물건 하나를 반짝 치움
+//!   · 🪶 Leviosa로 앱 아이콘: ICON_LIFT_CHANCE로 발 앞 (ICON_AHEAD)에 작업표시줄 아이콘을 뽑아 띄움, ICON_WAIT_SECS 안에 안 오면 보통 물건
+//!   · 💡 Lumos: 주문 주사위가 맞으면 LUMOS_CHANCE로 LUMOS_SECS 동안 지팡이 끝 불빛 (LUMOS_GLOW 반지름)
 //! - 📖 책 읽기 (책벌레): 초당 READ_RATE로 READ_SECS 동안 앉아 읽음, 가끔 STUDY_LINE_RATE로 "fascinating..."
 //! - 🙋 "I know!": 초당 KNOW_RATE로 KNOW_SECS 손 번쩍
 //! - 👜 가방 청소: 같은 디딤판에 물건이 BAG_MIN개 넘게 있으면 초당 BAG_RATE로 시작 — 가까운 것부터 하나씩 가방에 쏙 (BAG_STUFF_SECS, BAG_GULP_AT에 뿅).
@@ -16,7 +18,8 @@
 //! - 🐍 나기니: 초당 NAGINI_RATE로 "Serpensortia!" — NAGINI_SECS 동안 발밑을 NAGINI_SPEED로 NAGINI_RANGE 안에서 스르륵, NAGINI_FADE_SECS로 나타나고 사라짐
 //! - 😈 "hehehe": 한가할 때 초당 CACKLE_RATE
 //! - ⚔️ 결투: 해리 (Expelliarmus)와 볼드모트 (Stupefy)가 가로 DUEL_RANGE·세로 DUEL_RISE 안에서 둘 다 한가하면 마주 봄 → DUEL_AIM_SECS 뒤
-//!   빨강·초록 빛줄기가 뻗어 가운데에서 맞부딪혀 duel_clash로 밀고 당기다 DUEL_SECS 끝에 펑 — 둘 다 DUEL_BOUNCE로 튕김. 다음은 DUEL_CALM_SECS 뒤
+//!   빨강·초록 빛줄기가 뻗어 가운데에서 맞부딪혀 duel_clash로 밀고 당김 → 약 15초 한 판 (합·저주·맞음·피하기·달아나기 숫자는 duel_bout.rs) →
+//!   숨 고르고 DUEL_PART_SECS 동안 흩어짐. Expelliarmus에 맞으면 지팡이가 WAND_FLY_SECS 동안 날아감. 다음은 DUEL_CALM_SECS 뒤
 //! - 🎒 가방에 숨기: 볼드모트와 결투할 헤르미온느 곁 (TUCK_REACH)에 해리가 있으면 "In you go!" — HIDE_SECS 동안 가방 (HIDE_BAG 크기)을 벌려 들고
 //!   해리는 TUCK_SECS 동안 작아지며 쏙 → 그 뒤 결투. 끝나면 해리가 TUCK_POP으로 튀어나옴 ("Phew!"), 길어도 TUCK_MAX_SECS 안에
 //! - 🦌 패트로누스: 디멘터가 해리의 PATRONUS_REACH 안에 오거나, PATRONUS_SEE 안에서 다른 펫을 시무룩하게 하면 "Expecto Patronum!" —
@@ -54,6 +57,8 @@ pub enum Spell {
     Serpensortia,
     /// 🦌 패트로누스 (해리 patronus — 아무 때나 고르지 않음, 디멘터가 오면 brain_duel.rs가 부름)
     Patronus,
+    /// 💡 지팡이 끝에 불 밝히기 (주문을 아는 마법사 누구나 — pet.json에 적지 않아도 됨)
+    Lumos,
 }
 
 impl Spell {
@@ -66,6 +71,7 @@ impl Spell {
             Spell::Stupefy => 8,
             Spell::Serpensortia => 16,
             Spell::Patronus => 32,
+            Spell::Lumos => 64,
         }
     }
 }
@@ -118,6 +124,16 @@ pub const FLOAT_PET_MAX: f64 = 1.15;
 pub const FIZZLE_CHANCE: f64 = 0.35;
 /// 쓸 수 있는 주문 중 펫을 노리는 몫 (가까이 펫이 있을 때)
 pub const PET_TARGET_CHANCE: f64 = 0.45;
+/// 🪶 주문 때 작업표시줄 앱 아이콘을 뽑아 띄우는 몫 (만들 수 있을 때) · 발 앞 자리 (몸 크기 배) · 아이콘을 기다리는 시간 (초)
+pub const ICON_LIFT_CHANCE: f64 = 0.3;
+pub const ICON_AHEAD: f64 = 1.2;
+pub const ICON_WAIT_SECS: f64 = 2.5;
+/// 💡 주문 때 대상 없이 Lumos를 켜는 몫 · 불빛 시간 (초) · 밝아지는·흐려지는 시간 · 빛 번짐 반지름 (몸 크기 배)
+pub const LUMOS_CHANCE: f64 = 0.25;
+pub const LUMOS_SECS: (f64, f64) = (3.0, 5.0);
+pub const LUMOS_RAMP_SECS: f64 = 0.25;
+pub const LUMOS_FADE_SECS: f64 = 0.6;
+pub const LUMOS_GLOW: f64 = 0.9;
 
 /// 📖 처음 책을 읽을 수 있게 되는 때 (clock 초)
 pub const READ_FIRST_SECS: f64 = 20.0;
@@ -194,16 +210,16 @@ pub const DUEL_FIRST_SECS: (f64, f64) = (8.0, 25.0);
 pub const DUEL_RANGE: f64 = 9.0;
 pub const DUEL_MIN: f64 = 1.2;
 pub const DUEL_RISE: f64 = 2.5;
-/// ⚔️ 결투 시간 (펑까지, 초)
-pub const DUEL_SECS: (f64, f64) = (3.5, 5.0);
 /// ⚔️ 마주 보고 지팡이를 겨누는 시간 (그 뒤 빛줄기가 DUEL_REACH_SECS 동안 뻗어 나감)
 pub const DUEL_AIM_SECS: f64 = 0.6;
 pub const DUEL_REACH_SECS: f64 = 0.35;
-/// ⚔️ 다음 결투까지 (초)
-pub const DUEL_CALM_SECS: (f64, f64) = (60.0, 150.0);
-/// ⚔️ 펑! 튕겨 나가는 빠르기 (논리 px/s — dpi를 곱함, 뒤로·위로)
-pub const DUEL_BOUNCE_VX: f64 = 300.0;
-pub const DUEL_BOUNCE_VY: f64 = -420.0;
+/// ⚔️ 다음 결투까지 (초 — 한 판이 약 15초로 길어져 쿨다운도 길게)
+pub const DUEL_CALM_SECS: (f64, f64) = (150.0, 300.0);
+/// ⚔️ 한 판 뒤 서로 반대쪽으로 걸어가는 시간 (초)
+pub const DUEL_PART_SECS: (f64, f64) = (1.5, 2.5);
+/// ⚔️ Expelliarmus에 맞아 지팡이가 날아가 떨어지는 시간 (초) · 지팡이 길이 (몸 크기 배)
+pub const WAND_FLY_SECS: f64 = 0.7;
+pub const WAND_SIZE: f64 = 0.32;
 
 /// 🔥 모닥불 크기 (불 피운 해그리드 몸 크기 배 — 장작 폭)
 pub const CAMPFIRE_SIZE: f64 = 0.45;
@@ -217,7 +233,7 @@ pub const TUCK_SECS: f64 = 0.8;
 /// 🎒 결투 동안 든 가방 크기 (render.bag — 0.15 … 1)
 pub const HIDE_BAG: f64 = 0.3;
 /// 🎒 가방에 있는 가장 긴 시간 (초 — 결투가 꼬여도 이만큼이면 나옴)
-pub const TUCK_MAX_SECS: f64 = 20.0;
+pub const TUCK_MAX_SECS: f64 = 30.0;
 /// 🎒 튀어나오는 빠르기 (논리 px/s — dpi를 곱함, 옆·위)
 pub const TUCK_POP_VX: f64 = 120.0;
 pub const TUCK_POP_VY: f64 = -460.0;

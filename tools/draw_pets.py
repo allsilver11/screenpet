@@ -28,7 +28,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
                          STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, WEB_SLINGER, BIKE_RIDER, SUPER_FLIER,
-                         BROOM_RIDER, SPELLS, SEEKER, BOOKWORM, BAG_CLEANER, DARK_LORD, DEMENTOR, PATRONUS, GAMEKEEPER, frame_px, manifest)
+                         BROOM_RIDER, SPELLS, SEEKER, BOOKWORM, BAG_CLEANER, DARK_LORD, DEMENTOR, PATRONUS, GAMEKEEPER, RASCAL, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -1792,6 +1792,8 @@ def species_fields(pid, m):
         m["patronus"] = True
     if pid in GAMEKEEPER:
         m["gamekeeper"] = True
+    if pid in RASCAL:
+        m["rascal"] = True
     return m
 
 
@@ -1976,6 +1978,7 @@ import draw_hermione  # noqa: E402,F401  (헤르미온느)
 import draw_voldemort  # noqa: E402,F401  (볼드모트)
 import draw_dementor  # noqa: E402,F401  (디멘터)
 import draw_hagrid  # noqa: E402,F401  (해그리드)
+import draw_jjanggu  # noqa: E402,F401  (짱구)
 
 if __name__ == "__main__":
     main()

@@ -237,6 +237,18 @@ pub enum Anim {
     Egg,
     /// 🧔 해그리드 — 🪨 락 케이크를 꺼내 바닥에 내려놓기 (한 번)
     Offer,
+    /// 🖍️ 짱구 — 🍑 몸을 숙여 엉덩이를 씰룩씰룩 (brain_jjanggu.rs)
+    ButtDance,
+    /// 🖍️ 짱구 — 🦸 액션가면 흉내: 허리에 손 → 손 뻗어 빔 (한 번)
+    ActionPose,
+    /// 🖍️ 짱구 — 😴 바닥에 누워 뒹굴뒹굴
+    RollLazy,
+    /// 🖍️ 짱구 — 😴 엎드려 다리 까딱
+    Lie,
+    /// 🖍️ 짱구 — 💕 볼에 손 대고 쑥스럽게 (앞모습, social_flirt.rs)
+    Flirt,
+    /// 🖍️ 짱구 — 🍪 앉아서 초코비 (앞모습)
+    Snack,
 }
 
 /// 머리 위 말풍선 종류 (웹뷰가 글귀를 고름)
@@ -508,6 +520,38 @@ pub enum Speech {
     Shh,
     /// 📖 헤르미온느가 책을 덮고 같이 놂 ("Oh, alright!")
     OhAlright,
+    /// ⚔️ 헤르미온느의 결투 저주 ("Petrificus Totalus!", brain_duel.rs)
+    Petrificus,
+    /// ⚔️ 볼드모트의 결투 저주 ("Avada Kedavra!" — Stupefy와 번갈아, 해롭지 않은 장난)
+    AvadaKedavra,
+    /// ⚔️ Petrificus에 맞아 뻣뻣하게 굳음 ("mmph!")
+    Petrified,
+    /// ⚔️ 저주를 피함 ("missed!")
+    Dodged,
+    /// ⚔️ 달아남 ("catch me!")
+    DuelFlee,
+    /// ⚔️ 쫓아감 ("get back here!")
+    DuelChase,
+    /// ⚔️ 한 판 끝에 숨 고르기 ("huff... huff...")
+    DuelRest,
+    /// 💡 지팡이 끝에 불을 밝힘 ("Lumos!", brain_spell.rs)
+    Lumos,
+    /// 🍑 짱구 엉덩이 춤 ("buri buri~", brain_jjanggu.rs)
+    BuriBuri,
+    /// 🦸 짱구 액션가면 흉내 ("Action beam!")
+    ActionBeam,
+    /// 🍪 짱구 초코비 ("Chocobi!")
+    Chocobi,
+    /// 😴 짱구 뒹굴뒹굴 ("So lazy~")
+    Lazy,
+    /// 🐶 흰둥이가 옴 ("Shiro!")
+    Shiro,
+    /// 💕 짱구가 헤르미온느에게 ("Hey pretty~", social_flirt.rs)
+    Flirt,
+    /// 💕 헤르미온느가 웃어 줌 ("Oh! Thank you~")
+    Flattered,
+    /// 💕 헤르미온느가 무시함 ("Hmph!")
+    BrushOff,
 }
 
 impl Anim {
@@ -537,6 +581,8 @@ impl Anim {
                 | Anim::CheerType
                 | Anim::Type
                 | Anim::RaiseHand
+                | Anim::Flirt
+                | Anim::Snack
         )
     }
 }
@@ -720,6 +766,8 @@ pub enum State {
     Duel { duel: duel_moves::Duel, t: f64 },
     /// 🧔 해그리드 — 사이드카·안기·쓰담·용알·락 케이크 (brain_hagrid.rs) — t = 이 단계에 들어선 뒤 흐른 시간
     Hagrid { act: hagrid_moves::HagridAct, t: f64 },
+    /// 🖍️ 짱구 — 엉덩이 춤·액션 빔·초코비·뒹굴 (brain_jjanggu.rs) — t = 시작한 뒤 흐른 시간
+    Jjanggu { act: jjanggu_moves::JjangguAct, t: f64 },
     /// 💫 Stupefy에 맞아 기절해 쓰러져 있음 (brain_dark.rs — 누구나) — t = 쓰러진 뒤 흐른 시간, len = 전체
     Faint { t: f64, len: f64 },
     /// 👻 디멘터 곁에서 시무룩 (brain_dementor.rs — 누구나) — remaining = 남은 시간
@@ -885,6 +933,8 @@ pub struct PetConfig {
     pub patronus: bool,
     /// 🧔 해그리드 — 🏍️ 사이드카·🤗 안기·🖐️ 쓰담·🥚 용알·🪨 락 케이크 (pet.json `gamekeeper` + HAGRID_ANIMS, brain_hagrid.rs)
     pub gamekeeper: bool,
+    /// 🖍️ 짱구 — 🍑 엉덩이 춤·🦸 액션 빔·🍪 초코비·😴 뒹굴·🐶 흰둥이·💕 헤르미온느에게 작업 (pet.json `rascal` + JJANGGU_ANIMS, brain_jjanggu.rs)
+    pub rascal: bool,
     /// 🐉 빗자루 대신 용을 탐 (dragon 그림 — 해그리드, brain_broom.rs가 mount_anim으로)
     pub dragon: bool,
     /// 🌱 지금 연령대 (from_manifest가 받은 단계 이름 — 손님도 Visit에 실려 온 단계). 연령대 특기·종별 특기의 세기 (brain_stage.rs)
@@ -937,6 +987,7 @@ impl PetConfig {
             dementor: m.is_dementor(),
             patronus: m.casts_patronus(),
             gamekeeper: m.is_gamekeeper(),
+            rascal: m.is_rascal(),
             dragon: m.rides_broom() && m.dragon_mount(),
             // 모르는 이름이면 청소년 (예전 그대로의 세기)
             stage: crate::care::Stage::from_name(stage).unwrap_or(crate::care::Stage::Teenager),
@@ -988,6 +1039,8 @@ pub struct RenderState {
     pub bag: f64,
     /// 🎒 가방 속으로 들어간 몫 (0 = 그대로 … 1 = 다 들어가 안 보임) — 웹뷰가 그림을 발밑 쪽으로 줄이며 흐리게 (brain_tuck.rs)
     pub tuck: f64,
+    /// 🪨 Petrificus에 맞아 통나무처럼 누운 각도 (도, 시계 방향 + — 0이면 서 있음) — 웹뷰가 그림 가운데를 축으로 돌려 바닥에 눕힘 (brain_duel.rs)
+    pub topple: f64,
 }
 
 /// 동물 한 마리 — 몸, 상태, 각 장난의 기억을 모두 가짐
@@ -1165,6 +1218,8 @@ pub struct Pet {
     study: study_moves::StudyMood,
     /// 🧔 해그리드의 기억 (brain_hagrid.rs)
     hagrid: hagrid_moves::HagridMood,
+    /// 🖍️ 짱구의 기억 · 🐶 흰둥이 (brain_jjanggu.rs)
+    jjanggu: jjanggu_moves::JjangguMood,
     /// 🐍 볼드모트 나기니·hehehe의 기억 · 💫 기절은 누구나 (brain_dark.rs)
     dark: dark_moves::DarkMood,
     /// 👻 디멘터 서리·도망의 기억 · 곁에서 시무룩·배고픔은 누구나 (brain_dementor.rs)
@@ -1289,6 +1344,7 @@ impl Pet {
             spell: spell_moves::SpellMood::new(seed),
             study: study_moves::StudyMood::new(seed),
             hagrid: hagrid_moves::HagridMood::new(seed),
+            jjanggu: jjanggu_moves::JjangguMood::new(seed),
             dark: dark_moves::DarkMood::new(seed),
             dementor: dementor_moves::DementorMood::new(seed),
             duel: duel_moves::DuelMood::new(seed),
@@ -1416,6 +1472,7 @@ impl Pet {
         // 📖 책·🙋 손들기·👜 가방 청소 (brain_study.rs)
         if self.update_broom(dt, world) || self.update_duel(dt, world) || self.update_spell(dt, world) || self.update_dark(dt, world) || self.update_study(dt, world)
             || self.update_hagrid(dt, world)
+            || self.update_jjanggu(dt, world)
         {
             self.on_started();
             return;
@@ -1591,9 +1648,9 @@ impl Pet {
             State::Cast { .. } => Anim::Cast,
             State::Study { act, .. } => self.study_anim(act),
             State::Hagrid { act, t } => self.hagrid_anim(act, t),
+            State::Jjanggu { act, t } => self.jjanggu_anim(act, t),
             State::Float { .. } => Anim::Dragged,
-            State::Duel { duel, t } if duel.bag && t < duel.hold => Anim::BagStuff,
-            State::Duel { .. } => Anim::Cast,
+            State::Duel { .. } => self.duel_anim(),
             State::Faint { t, .. } if t < crate::wizard::FAINT_DROP_SECS => Anim::Land,
             State::Faint { .. } => Anim::Sleep,
             State::Gloom { .. } => Anim::Annoyed,
@@ -1630,7 +1687,7 @@ impl Pet {
             housed: self.housed,
             flash: self.glasses_flash_on(),
             glare: self.glasses_glare_on(),
-            thud: (self.thud > 0.0 && matches!(self.state, State::Land { .. })) || romp_thud || matches!(self.state, State::Faint { .. }),
+            thud: (self.thud > 0.0 && matches!(self.state, State::Land { .. })) || romp_thud || matches!(self.state, State::Faint { .. }) || self.duel_dazed(),
             swing,
             sparkle: self.dance_sparkle() || romp_sparkle || self.stage_sparkle() || self.spell_sparkle(),
             clap: self.clapping(),
@@ -1639,6 +1696,7 @@ impl Pet {
             seat: self.seat_share(),
             bag: self.bag_shown(),
             tuck: self.tuck_shown(),
+            topple: self.duel_topple(),
         }
     }
 
@@ -1646,7 +1704,7 @@ impl Pet {
     pub fn window_pos(&self) -> (f64, f64) {
         // 🕸️ 거미집에 걸린 순간 "팅~" 출렁 (brain_snare.rs)
         let (sx, sy) = self.snare_offset();
-        (self.body.x - self.cfg.size / 2.0 + sx, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift() - self.soar_lift() - self.broom_lift() - self.float_lift() - self.hagrid_lift() + sy)
+        (self.body.x - self.cfg.size / 2.0 + sx, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift() - self.soar_lift() - self.broom_lift() - self.float_lift() - self.duel_lift() - self.hagrid_lift() + sy)
     }
 
     /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹음)
@@ -3373,6 +3431,7 @@ impl Pet {
             | State::Cast { .. }
             | State::Study { .. }
             | State::Hagrid { .. }
+            | State::Jjanggu { .. }
             | State::Float { .. }
             | State::Duel { .. }
             | State::Faint { .. }
@@ -4262,6 +4321,11 @@ pub mod hagrid_moves;
 #[cfg(test)]
 #[path = "brain_hagrid_tests.rs"]
 mod hagrid_tests;
+#[path = "brain_jjanggu.rs"]
+pub mod jjanggu_moves;
+#[cfg(test)]
+#[path = "brain_jjanggu_tests.rs"]
+mod jjanggu_tests;
 #[path = "brain_dark.rs"]
 pub mod dark_moves;
 #[cfg(test)]
@@ -4705,7 +4769,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -4796,7 +4860,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -4815,7 +4879,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
     }
 
     #[test]
@@ -4836,7 +4900,8 @@ mod tests {
             Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl, Anim::HangDown,
             Anim::Ride, Anim::Wheelie, Anim::BikeJump, Anim::Drift, Anim::Signal, Anim::Fly, Anim::FlyFast, Anim::FlyFlip, Anim::Hover,
             Anim::Broom, Anim::Cast, Anim::Read, Anim::RaiseHand, Anim::BagWalk, Anim::BagDrag, Anim::BagStuff,
-            Anim::Dragon, Anim::Sidecar, Anim::SidecarFly, Anim::Hug, Anim::HugWalk, Anim::Pat, Anim::Egg, Anim::Offer];
+            Anim::Dragon, Anim::Sidecar, Anim::SidecarFly, Anim::Hug, Anim::HugWalk, Anim::Pat, Anim::Egg, Anim::Offer,
+            Anim::ButtDance, Anim::ActionPose, Anim::RollLazy, Anim::Lie, Anim::Flirt, Anim::Snack];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);
@@ -6141,7 +6206,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0 });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -6966,7 +7031,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0 });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
             }
             last_x = p.body.x;
         }

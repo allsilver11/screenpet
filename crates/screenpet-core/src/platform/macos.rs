@@ -304,3 +304,31 @@ fn cg_screens() -> Vec<Screen> {
         })
         .collect()
 }
+
+/// 🌗 macOS 테마 (lumos.rs — 루모스로 화면 밝히기): osascript로 System Events의 appearance preferences dark mode를 읽고 씀
+/// (처음엔 macOS가 "자동화" 권한을 물음 — 거절하면 못 읽어 아무것도 안 바꿈). 앱·시스템이 하나라 Theme의 두 값이 같음
+pub struct MacTheme;
+
+/// osascript 한 줄을 돌려 표준 출력 (실패면 None)
+fn osascript(script: &str) -> Option<String> {
+    let out = std::process::Command::new("/usr/bin/osascript").arg("-e").arg(script).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+impl crate::lumos::ThemeBackend for MacTheme {
+    /// 지금 다크 모드인지 물음
+    fn read(&mut self) -> Option<crate::lumos::Theme> {
+        let dark = match osascript("tell application \"System Events\" to tell appearance preferences to get dark mode")?.as_str() {
+            "true" => true,
+            "false" => false,
+            _ => return None,
+        };
+        Some(crate::lumos::Theme { apps_light: !dark, system_light: !dark })
+    }
+
+    /// 다크 모드를 켜고 끔 (둘 중 하나라도 다크면 다크)
+    fn write(&mut self, theme: crate::lumos::Theme) -> bool {
+        let dark = !theme.is_light();
+        osascript(&format!("tell application \"System Events\" to tell appearance preferences to set dark mode to {dark}")).is_some()
+    }
+}

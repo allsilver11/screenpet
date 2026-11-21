@@ -791,7 +791,8 @@ impl Objects {
         }
     }
 
-    /// 📌 읽은 아이콘이 왔으면: 흐물이가 아직 끙차 당기고 있으면 그 손에 장난감 창을 만들어 쥐여 줌. 못 읽었으면 한동안 묻지 않음 (조용히 — 아무것도 띄우지 않음)
+    /// 📌 읽은 아이콘이 왔으면: 흐물이가 아직 끙차 당기고 있으면 그 손에 장난감 창을 만들어 쥐여 줌 · 🪶 마법사가 Leviosa로 기다리면 발 앞에 만들어 띄움.
+    /// 못 읽었으면 한동안 묻지 않음 (조용히 — 마법사는 보통 물건을 띄움)
     pub fn deliver_toy(&mut self, app: &AppHandle, base: &World, pet: &mut Pet) {
         let Some(rx) = &self.capture else { return };
         let icon = match rx.try_recv() {
@@ -802,8 +803,29 @@ impl Objects {
         self.capture = None;
         let Some(icon) = icon else {
             self.capture_backoff = Instant::now() + Duration::from_secs_f64(CAPTURE_BACKOFF_SECS);
+            // 🪶 Leviosa로 아이콘을 기다리던 마법사는 곁의 보통 물건을 띄움
+            pet.icon_lift_failed();
             return;
         };
+        // 🪶 해리·헤르미온느가 Leviosa로 뽑은 아이콘: 발 앞 바닥에 장난감 아이콘을 만들어 바로 둥둥 띄움 (내려앉으면 보통 장난감)
+        if let Some(lift) = pet.icon_lift_wanted() {
+            let kind = ObjectKind::AppIcon;
+            let id = self.next_id();
+            let dpi = self.dpi_hint;
+            self.world_for(base, dpi);
+            let margin = 40.0 * dpi;
+            let x = lift.x.clamp(base.bounds.left + margin, (base.bounds.right - margin).max(base.bounds.left + margin));
+            let mut object = Object::new(kind, x, lift.y, dpi, fastrand::u64(..));
+            object.set_scale(kind.base_scale());
+            object.float_up(lift.rise, lift.secs);
+            if self.admit(app, id, object, Origin::Toy, false, Some(icon.clone())) {
+                self.set_icon(id, Some(icon));
+                pet.icon_lifted(id);
+            } else {
+                pet.icon_lift_failed();
+            }
+            return;
+        }
         if !pet.wants_toy() {
             return;
         }

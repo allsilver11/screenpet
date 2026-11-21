@@ -1,4 +1,4 @@
-//! 🖥️ OS에서 창·작업 영역·커서·키를 읽는 층 (WindowSource) — Windows는 win32.rs, macOS는 macos.rs
+//! 🖥️ OS에서 창·작업 영역·커서·키를 읽는 층 (WindowSource) — Windows는 win32.rs, macOS는 macos.rs · 🌗 테마 (theme_backend — lumos.rs)
 //! 게임 루프가 default_source()로 이 OS의 것을 받아 매 틱 읽음. 지원하지 않는 OS는 NullSource (바닥만 있는 세계)
 use crate::brain::control_moves::ControlInput;
 use crate::geom::{Rect, WindowInfo};
@@ -66,6 +66,16 @@ pub trait WindowSource: Send {
     /// 그 권한을 시스템 창으로 물음 (macOS: 처음 한 번만 창이 뜸 — 이미 거절했으면 조용함).
     /// 게임 루프가 정한 때에만 부름 (crate::typing::PermissionAsk). 기본: 아무것도 안 함
     fn request_typing_permission(&mut self) {}
+}
+
+/// 🌗 이 OS의 테마를 읽고 쓰는 것 (lumos.rs — 루모스로 화면 밝히기). 지원하지 않는 OS는 None
+pub fn theme_backend() -> Option<Box<dyn crate::lumos::ThemeBackend + Send>> {
+    #[cfg(windows)]
+    return Some(Box::new(win32::Win32Theme));
+    #[cfg(target_os = "macos")]
+    return Some(Box::new(macos::MacTheme));
+    #[cfg(not(any(windows, target_os = "macos")))]
+    None
 }
 
 /// 이 OS에서 앱 아이콘을 읽을 수 있음 (아니면 작업표시줄 놀이를 하지 않음)

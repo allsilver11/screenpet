@@ -96,6 +96,9 @@ pub const TYPING_PERMISSION_EXPLAIN: &str = "타자 속도만 세요 — 무엇�
 pub const TYPING_RESTART_HINT: &str = "앱을 다시 켜면 타자 응원이 시작돼요";
 const POOP_ID: &str = "poop";
 const POOP_LABEL: &str = "💩 펫이 똥 싸기";
+/// 🌗 루모스로 화면 밝히기 (⚙️ 설정 체크 항목, 기본 끔 — 설정에 남음, 코어 lumos.rs)
+const LUMOS_LIGHT_ID: &str = "lumos-light";
+const LUMOS_LIGHT_LABEL: &str = "🌗 루모스로 화면 밝히기";
 /// ⏱️ 집중 친구 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남음)
 const FOCUS_TOGGLE_ID: &str = "focus:toggle";
 const FOCUS_SHORT_ID: &str = "focus:short";
@@ -204,6 +207,8 @@ pub struct TrayMenu {
     pub settings: Submenu<Wry>,
     /// 💩 똥 싸기 (게임 루프가 실제 설정으로 다시 맞춤)
     pub poop: CheckMenuItem<Wry>,
+    /// 🌗 루모스로 화면 밝히기 (게임 루프가 실제 설정으로 다시 맞춤)
+    pub lumos_light: CheckMenuItem<Wry>,
     /// 🌨️ 날씨 효과 (일 년 내내 켜고 끔)
     pub weather: CheckMenuItem<Wry>,
     /// ☀️ 실제 날씨 (글자에 도시) / 📅 계절 날씨, 📍 날씨 지역의 도시들 (게임 루프가 설정으로 다시 맞춤)
@@ -716,7 +721,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let opacity = MenuItem::with_id(app, OPACITY_ID, "👻 투명도…", true, None::<&str>)?;
     // 처음엔 켜져 있음 — 게임 루프가 설정(처음이면 켜기)으로 다시 맞춤
     let autostart = CheckMenuItem::with_id(app, AUTOSTART_ID, "🚀 컴퓨터 켜면 자동 실행", true, true, None::<&str>)?;
-    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &autostart])?;
+    let lumos_light = CheckMenuItem::with_id(app, LUMOS_LIGHT_ID, LUMOS_LIGHT_LABEL, true, false, None::<&str>)?;
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &lumos_light, &autostart])?;
 
     // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어듦 (COME_HOME_POSITION)
     let menu = Menu::new(app)?;
@@ -772,6 +778,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             SIZES_ID => send(app, Input::ShowSizes),
             OPACITY_ID => send(app, Input::ShowOpacity),
             POOP_ID => send(app, Input::TogglePoop),
+            LUMOS_LIGHT_ID => send(app, Input::ToggleLumosLight),
             WEATHER_ID => send(app, Input::ToggleWeather),
             WEATHER_REAL_ID => send(app, Input::SetWeatherSource(WeatherSource::Real)),
             WEATHER_SEASON_ID => send(app, Input::SetWeatherSource(WeatherSource::Season)),
@@ -853,5 +860,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode, toggle: toggle.clone() })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, lumos_light, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, hand_mode, auto_mode, toggle: toggle.clone() })
 }

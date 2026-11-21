@@ -55,6 +55,10 @@ pub mod soar;
 pub mod broom_fly;
 /// 🧙 마법사 주문·📖 책·👜 가방 청소의 숫자
 pub mod wizard;
+/// ⚔️ 길고 치열한 결투 한 판 짜기 (합·저주·맞음·피하기)
+pub mod duel_bout;
+/// 🌗 루모스로 화면 밝히기 (OS 라이트 모드 잠깐 — 되돌리기·표시 파일·횟수 제한)
+pub mod lumos;
 /// ✨ 덮개 창에 그릴 마법 효과 (⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리)
 pub mod magic;
 pub mod world;

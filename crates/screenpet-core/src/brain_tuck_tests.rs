@@ -66,7 +66,7 @@ fn hermione_hides_harry_in_her_bag_duels_voldemort_and_harry_pops_out() {
     let mut said = Vec::new();
     let (mut tucked_full, mut gold, mut bag_all_along) = (false, false, true);
     let mut popped_at = None;
-    for k in 0..(12.0 / DT) as usize {
+    for k in 0..(26.0 / DT) as usize {
         tick(&mut pets, &w, &mut said);
         if pets[1].dueling().is_some() {
             bag_all_along &= pets[1].render().bag > 0.0;
@@ -153,11 +153,10 @@ fn harry_never_stays_in_the_bag_forever() {
     let w = world(vec![]);
     let mut pets = trio(500.0, 700.0, 1200.0, &w);
     sync_lifts(&mut pets);
-    if let State::Duel { duel, .. } = &mut pets[1].state {
-        duel.len = 1e6;
-    }
-    if let State::Duel { duel, .. } = &mut pets[2].state {
-        duel.len = 1e6;
+    for i in [1, 2] {
+        if let Some(b) = pets[i].duel.bout.as_mut() {
+            b.len = 1e6;
+        }
     }
     let mut said = Vec::new();
     for _ in 0..((wz::TUCK_MAX_SECS + 1.0) / DT) as usize {

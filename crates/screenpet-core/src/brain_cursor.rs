@@ -246,6 +246,8 @@ impl CursorStyle {
             "dementor" => CursorStyle { speed: 1.6, ..b },
             // 🧔 해그리드는 사이드카 오토바이로 부릉 달려와 쓰담쓰담
             "hagrid" => CursorStyle { gait: Anim::Sidecar, speed: 2.6, arrive: Some((Anim::Pat, 0.8)), chatty: true, ..b },
+            // 🖍️ 짱구는 다다다 달려와 엉덩이를 씰룩씰룩 ("buri buri~")
+            "jjanggu" => CursorStyle { gait: Anim::Run, speed: 2.2, arrive: Some((Anim::ButtDance, 1.0)), wiggle: true, chatty: true, ..b },
             _ => return None,
         })
     }

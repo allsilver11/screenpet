@@ -70,7 +70,7 @@ crates/
     ├── src/brain.rs        🐾 펫 두뇌: State·Anim·Speech·Pet::update (6.7k줄, 가장 큼)
     ├── src/brain_*.rs      brain의 자식 모듈 (기능별) — 아래 패턴 참고
     ├── src/*_tests.rs      그 모듈의 시험 (#[cfg(test)] mod로 붙음)
-    ├── src/platform/       OS 층: mod.rs(WindowSource), win32.rs, macos.rs, mac_coords.rs
+    ├── src/platform/       OS 층: mod.rs(WindowSource · 🌗 theme_backend), win32.rs, macos.rs, mac_coords.rs
     ├── src/bin/screenpet-update-sign.rs  업데이트 서명 도구 (서버 전용)
     └── tests/update_sign.rs
 ```
@@ -94,12 +94,16 @@ crates/
 | `flicker.rs` | 30초 오프라인 유예 |
 | `linked.rs` | 📱 두 컴퓨터 규칙 |
 | `ladder.rs`, `dodge.rs`, `sleigh.rs`, `trail.rs`, `tint.rs` | 사다리 그림, 똥피하기, 썰매, 무지개 자국, 몸 색 |
-| `broom_fly.rs`, `wizard.rs` | 🧹 마법사 빗자루 비행 길·🟡 골든 스니치 / ✨ 주문·📖 책·👜 가방 청소·⚡ 기절·🐍 나기니·⚔️ 결투·🦌 패트로누스·👻 시무룩·🥶 서리 숫자 (펫 쪽은 `brain_broom.rs`·`brain_spell.rs`·`brain_study.rs`·`brain_dark.rs`·`brain_dementor.rs`·`brain_duel.rs`) |
-| `magic.rs` | ✨ 덮개 창에 그릴 마법 효과 (`MagicFx` — ⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리·🥚 용알·🐉 아기 용·🔥 모닥불, 앱 `trail.rs` → `ui/magic.js`) |
+| `broom_fly.rs`, `wizard.rs` | 🧹 마법사 빗자루 비행 길·🟡 골든 스니치 / ✨ 주문·📖 책·👜 가방 청소·⚡ 기절·🐍 나기니·⚔️ 결투·🦌 패트로누스·👻 시무룩·🥶 서리 숫자 (펫 쪽은 `brain_broom.rs`·`brain_spell.rs` (🪶 Leviosa로 작업표시줄 앱 아이콘 띄우기·💡 Lumos 포함)·`brain_study.rs`·`brain_dark.rs`·`brain_dementor.rs`·`brain_duel.rs` (⚔️ 긴 결투 — `duel_bout.rs`)) |
+| `duel_bout.rs` | ⚔️ 약 15초 결투 한 판 짜기 (`Bout` — 빛줄기 맞부딪힘·저주 주고받기·달아나기·피하기·맞음 → 💫 2초 → 일어남, `act`가 두 펫에게 할 일을 냄) · 🪄 마법사별 저주 이름 (`curse_of` — Expelliarmus·Petrificus Totalus·Stupefy/Avada Kedavra 번갈아). 펫 쪽은 `brain_duel.rs` |
+| `lumos.rs` | 🌗 루모스로 화면 밝히기: 이 화면의 "Lumos!"에 다크 모드를 약 10초 라이트로 (`LumosLight` 상태 기계 — 이미 라이트면 안 함, 1분에 한 번, 원래 값을 표시 파일 `lumos-theme.json`에 적어 다음 실행 때도 되돌림) · 일꾼 스레드 `spawn` · OS 테마는 `platform::theme_backend` (Windows 레지스트리 + `WM_SETTINGCHANGE`, macOS osascript) |
+| `magic.rs` | ✨ 덮개 창에 그릴 마법 효과 (`MagicFx` — ⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리·🥚 용알·🐉 아기 용·🔥 모닥불·🪄 날아간 지팡이·💡 루모스 불빛·🐶 흰둥이, 앱 `trail.rs` → `ui/magic.js`) |
 | `brain_tuck.rs` | 🎒 가방에 숨기: 해리·헤르미온느·볼드모트가 모이면 헤르미온느가 해리를 구슬 가방에 숨기고 (`State::Tucked`, `render.tuck`) 대신 결투 — 끝나면 해리가 튀어나옴 (`brain_duel.rs`의 `sync_duels`가 먼저 부름) |
 | `social_campfire.rs` | 🔥 해그리드·해리·헤르미온느 모닥불: 반가움 → 불 피우기 (`Pose.fire` → `MagicFx::Campfire`) → 둘러앉아 도란도란 → 불 끄고 흩어짐 |
 | `social_pester.rs` | 📖 책 읽는 헤르미온느를 해리·해그리드가 방해 → "Shh!" 또는 책을 덮고 술래잡기·달리기 시합 (`brain_study.rs` `shush`·`close_book`) |
 | `brain_hagrid.rs` | 🧔 해그리드: 🏍️ 사이드카 오토바이 (붕 날기, 작은 펫 태우기)·🤗 안아 들기·🖐️ 쓰담·🥚 용알 → 🐉 아기 용·🪨 락 케이크 (숫자도 이 파일 — 🐉 용 타기는 `brain_broom.rs`가 `mount_anim`으로) |
+| `brain_jjanggu.rs` | 🖍️ 짱구: 🍑 엉덩이 춤·🦸 액션 빔·🍪 초코비·😴 뒹굴뒹굴 (`State::Jjanggu`) · 🐶 흰둥이가 따라다님 (`MagicFx::Shiro` → `ui/magic.js`) |
+| `social_flirt.rs` | 💕 짱구가 헤르미온느에게 쪼르르 → "Hey pretty~" (flirt) → 웃어 줌 (heart) 또는 "Hmph!" (annoyed) — 헤르미온느마다 쿨다운 |
 | `pacing.rs` | 게임 루프 박자 |
 | `test_util.rs` | 시험 공용 도우미 (시험 빌드만) |
 
@@ -151,7 +155,7 @@ ui/
 ├── <창>.html + <창>.js      창 하나에 한 쌍: index(펫), house, pair, code, name, link, size, letter, ladder,
 │                            weather, trail, timeline, object, vehicle, postit, dodge, sleigh, feedback,
 │                            mailbox, board, help, prop
-├── common.js, pager.js, doodle.js   공용 스크립트 (trail 창에는 web.js·batsignal.js·magic.js·snitch.js도 — ✨ 결투·사슴·뱀·서리·🥚 용알·🐉 아기 용·🔥 모닥불 · 🕷️ 거미집·🦇 박쥐 신호·🟡 스니치)
+├── common.js, pager.js, doodle.js   공용 스크립트 (trail 창에는 web.js·batsignal.js·magic.js·snitch.js도 — ✨ 결투·사슴·뱀·서리·🥚 용알·🐉 아기 용·🔥 모닥불·🪄 지팡이·💡 루모스 · 🕷️ 거미집·🦇 박쥐 신호·🟡 스니치)
 ├── style.css, form.css, list.css    공용 스타일 (폼 창은 form.css를 같이 씀 — test_csp.py가 확인)
 ├── pets/<species>/          동물 그림 18종
 ├── effects/                 소품·손 음식·눈덩이 등
@@ -169,7 +173,7 @@ ui/
 | `sheet_<stage>.png` ×5 | `baby`, `kinder`, `child`, `teenager`, `adult`. 프레임 128×128, 한 행 = 한 동작 (`docs/sprites.md`) |
 | `ink_<stage>.png` ×5 | 🎨 몸 색을 바꿀 수 있는 동물(흐물이)만: 잉크 자리 마스크 |
 
-19종: bat (박쥐인간), cat, dementor (디멘터), dino_green/yellow, hagrid (해그리드), harry (해리포터), heumul, hermione (헤르미온느), penguin, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel, super (슈퍼인간), voldemort (볼드모트). (새·기린·레서판다·유령은 v0.7.0, 오리·개구리·보라 공룡·페르시안은 v0.7.1에서 빠짐 — 저장된 펫은 `config::replacement_species`로 새·기린·오리 → 노란 공룡, 레서판다·개구리 → 다람쥐, 유령 → 호박, 보라 공룡 → 초록 공룡, 페르시안 → 고양이가 됨. 🦆 오리 기차도 오리와 함께 빠졌고, 폴짝 이동(`locomotion: hop`)은 일반 기능으로 남음. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
+20종: bat (박쥐인간), cat, dementor (디멘터), dino_green/yellow, hagrid (해그리드), harry (해리포터), heumul, hermione (헤르미온느), jjanggu (짱구), penguin, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel, super (슈퍼인간), voldemort (볼드모트). (새·기린·레서판다·유령은 v0.7.0, 오리·개구리·보라 공룡·페르시안은 v0.7.1에서 빠짐 — 저장된 펫은 `config::replacement_species`로 새·기린·오리 → 노란 공룡, 레서판다·개구리 → 다람쥐, 유령 → 호박, 보라 공룡 → 초록 공룡, 페르시안 → 고양이가 됨. 🦆 오리 기차도 오리와 함께 빠졌고, 폴짝 이동(`locomotion: hop`)은 일반 기능으로 남음. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
 
 ---
 
@@ -201,7 +205,7 @@ ui/
 | 종류 | 파일 |
 |---|---|
 | 그림 엔진 | `draw_pets.py` (공통 엔진 + 고양이·토끼, 맨 끝에서 종별 모듈 등록), `sprite_spec.py` |
-| 종별 그림 | `draw_{bat,christmas,dementor,dino,halloween,harry,hermione,heumul,penguin,snowman,spider,squirrel,super,voldemort}.py` (+ 마법사 공통 몸 `draw_wizard.py`) |
+| 종별 그림 | `draw_{bat,christmas,dementor,dino,hagrid,halloween,harry,hermione,heumul,jjanggu,penguin,snowman,spider,squirrel,super,voldemort}.py` (+ 사람 공통 몸 `draw_wizard.py` — 짱구는 티셔츠·반바지 Look) |
 | 세계 그림 | `draw_{house,objects,props,sleigh,vehicles}.py`, `make_icon.py` |
 | 미리보기 | `preview_nightcap.py`, `preview_scarf.py` |
 | 배포 | `pack_webp.py`, `requirements-pack.txt` |

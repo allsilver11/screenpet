@@ -25,15 +25,20 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// · fly·fly_fast·fly_flip·hover (🦸 슈퍼인간 — SOAR_ANIMS)
 /// · broom (🧹 빗자루 — BROOM_ANIMS) · cast (✨ 지팡이 주문 — SPELL_ANIMS) · read·raise_hand (📖🙋 헤르미온느 — BOOK_ANIMS)
 /// · bag_walk·bag_drag·bag_stuff (👜 헤르미온느 가방 청소 — BAG_ANIMS)
-/// · dragon·sidecar·sidecar_fly·hug·hug_walk·pat·egg·offer (🧔 해그리드 — HAGRID_ANIMS, dragon은 빗자루 대신 용).
-pub const OPTIONAL_ANIMS: [&str; 64] = [
+/// · dragon·sidecar·sidecar_fly·hug·hug_walk·pat·egg·offer (🧔 해그리드 — HAGRID_ANIMS, dragon은 빗자루 대신 용)
+/// · butt_dance·action_pose·roll_lazy·lie·flirt·snack (🖍️ 짱구 — JJANGGU_ANIMS).
+pub const OPTIONAL_ANIMS: [&str; 70] = [
     "arch", "huff", "climb", "slide", "bigjump", "lookup", "fire", "roar", "stomp", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig", "shoot", "web_swing", "hero_land", "web_pull",
     "web_whirl", "hang_down", "ride", "wheelie", "bike_jump", "drift", "signal", "fly", "fly_fast", "fly_flip", "hover",
     "broom", "cast", "read", "raise_hand", "bag_walk", "bag_drag", "bag_stuff",
     "dragon", "sidecar", "sidecar_fly", "hug", "hug_walk", "pat", "egg", "offer",
+    "butt_dance", "action_pose", "roll_lazy", "lie", "flirt", "snack",
 ];
+/// 🖍️ 짱구 그림: 🍑 엉덩이 춤 · 🦸 액션가면 흉내 · 😴 뒹굴뒹굴 · 엎드려 다리 까딱 · 💕 쑥스러운 작업 · 🍪 초코비 냠
+/// (pet.json `rascal`이 있어도 이게 다 있어야 함 — is_rascal())
+pub const JJANGGU_ANIMS: [&str; 6] = ["butt_dance", "action_pose", "roll_lazy", "lie", "flirt", "snack"];
 /// 🧔 해그리드 그림: 🐉 용 타기 · 🏍️ 사이드카 오토바이 · 붕 날기 · 🤗 안기 · 안고 걷기 · 🖐️ 쓰담 · 🥚 알 품기 · 🪨 락 케이크
 /// (pet.json `gamekeeper`가 있어도 이게 다 있어야 함 — is_gamekeeper(); 사이드카 자리·안은 손·알 = grip)
 pub const HAGRID_ANIMS: [&str; 8] = ["dragon", "sidecar", "sidecar_fly", "hug", "hug_walk", "pat", "egg", "offer"];
@@ -224,6 +229,9 @@ pub struct PetManifest {
     /// 🧔 해그리드: 🏍️ 사이드카 오토바이·🤗 안아 들기·🖐️ 쓰담·🥚 용알·🪨 락 케이크 (HAGRID_ANIMS가 다 있을 때만 — is_gamekeeper())
     #[serde(default)]
     pub gamekeeper: bool,
+    /// 🖍️ 짱구: 🍑 엉덩이 춤·🦸 액션 빔·🍪 초코비·😴 뒹굴·💕 헤르미온느에게 작업·🐶 흰둥이 (JJANGGU_ANIMS가 다 있을 때만 — is_rascal())
+    #[serde(default)]
+    pub rascal: bool,
     /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있음 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮음, core::tint)
     #[serde(default)]
     pub tint: bool,
@@ -387,6 +395,11 @@ impl PetManifest {
     /// 🧔 해그리드 (HAGRID_ANIMS 그림이 다 있어야 함)
     pub fn is_gamekeeper(&self) -> bool {
         self.gamekeeper && HAGRID_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 🖍️ 짱구 (JJANGGU_ANIMS 그림이 다 있어야 함)
+    pub fn is_rascal(&self) -> bool {
+        self.rascal && JJANGGU_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
     /// ✨ 쓸 수 있는 주문 (SPELL_ANIMS 그림이 없으면 없음)
@@ -749,7 +762,8 @@ mod tests {
         assert_eq!(&OPTIONAL_ANIMS[50..51], &SPELL_ANIMS, "✨ 주문");
         assert_eq!(&OPTIONAL_ANIMS[51..53], &BOOK_ANIMS, "📖🙋 책벌레");
         assert_eq!(&OPTIONAL_ANIMS[53..56], &BAG_ANIMS, "👜 가방 청소");
-        assert_eq!(&OPTIONAL_ANIMS[56..], &HAGRID_ANIMS, "🧔 해그리드 — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[56..64], &HAGRID_ANIMS, "🧔 해그리드");
+        assert_eq!(&OPTIONAL_ANIMS[64..], &JJANGGU_ANIMS, "🖍️ 짱구 — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
@@ -909,6 +923,24 @@ mod tests {
         assert!(g.sidecar.at(0.0).0 > 0.15, "사이드카는 앞쪽: {:?}", g.sidecar.at(0.0));
         assert!(!parse_manifest(&read("hagrid").replace(r#""egg""#, r#""egg_x""#)).unwrap().is_gamekeeper());
         assert!(!parse_manifest(&read("hagrid").replace(r#""dragon""#, r#""dragon_x""#)).unwrap().rides_broom());
+    }
+
+    /// 🖍️ 짱구: rascal + JJANGGU_ANIMS (하나라도 없으면 꺼짐), 해리보다 조금 작은 꼬마, 벽 타기, 다른 동물은 짱구가 아님
+    #[test]
+    fn the_bundled_jjanggu_is_a_rascal() {
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
+        for id in crate::test_util::species() {
+            let m = parse_manifest(&read(&id)).unwrap();
+            assert_eq!(m.is_rascal(), id == "jjanggu", "{id}");
+            assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").rascal, id == "jjanggu", "{id}");
+        }
+        let j = parse_manifest(&read("jjanggu")).unwrap();
+        assert_eq!(j.name, "짱구");
+        assert!(j.can_climb() && !j.rides_broom() && j.spell_set().is_empty() && !j.is_gamekeeper() && !j.juggles());
+        let harry = parse_manifest(&read("harry")).unwrap();
+        assert!(j.size_mult(Stage::Teenager) < harry.size_mult(Stage::Teenager), "해리보다 작은 꼬마");
+        assert!(!parse_manifest(&read("jjanggu").replace(r#""butt_dance""#, r#""butt_dance_x""#)).unwrap().is_rascal());
     }
 
     /// 🐱 툭툭은 고양이, 🐿️ 볼 빵빵은 다람쥐만 (v0.6.3)

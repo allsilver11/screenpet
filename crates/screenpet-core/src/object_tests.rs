@@ -2259,3 +2259,20 @@ fn a_levitated_object_floats_up_hovers_and_settles_back_down() {
     assert!(resting_on(&o, Owner::Ground(0)));
     assert_eq!(o.body.y, 1040.0);
 }
+
+/// 🪶 Leviosa로 작업표시줄에서 뽑은 장난감 아이콘: 막 만든 (공중) 물건도 그 자리 (바닥)에서 바로 떠올랐다가 바닥에 내려앉음 — 잡혀 있으면 안 뜸
+#[test]
+fn a_fresh_toy_icon_floats_up_from_where_it_was_made() {
+    let w = floor();
+    let mut o = Object::new(ObjectKind::AppIcon, 800.0, 1040.0, 1.0, 1);
+    assert!(o.float_up(100.0, 3.0));
+    assert!(o.is_floating());
+    run(&mut o, &w, 1.5);
+    assert!(o.body.y < 1040.0 - 80.0, "떠 있음 {}", o.body.y);
+    run(&mut o, &w, 3.0);
+    assert!(!o.is_floating() && resting_on(&o, Owner::Ground(0)));
+    let mut held = Object::new(ObjectKind::AppIcon, 800.0, 1040.0, 1.0, 2);
+    run(&mut held, &w, 1.0);
+    held.pointer_down(800.0, 1030.0);
+    assert!(held.is_held() && !held.float_up(100.0, 3.0));
+}

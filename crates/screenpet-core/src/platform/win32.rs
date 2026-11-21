@@ -385,3 +385,49 @@ pub fn hide_window_quietly(hwnd: isize) {
         let _ = ShowWindow(h, SW_HIDE);
     }
 }
+
+/// 🌗 Windows 테마 (lumos.rs — 루모스로 화면 밝히기): HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize의
+/// AppsUseLightTheme·SystemUsesLightTheme (DWORD)를 읽고 쓰고, 바꾸면 모든 창에 WM_SETTINGCHANGE "ImmersiveColorSet"을 알림
+pub struct Win32Theme;
+
+/// 테마 값이 있는 레지스트리 키
+const PERSONALIZE: windows::core::PCWSTR = windows::core::w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
+
+/// DWORD 값 하나를 읽음 (없으면 None)
+fn read_dword(name: windows::core::PCWSTR) -> Option<u32> {
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let mut value = 0u32;
+    let mut len = size_of::<u32>() as u32;
+    // SAFETY: value·len은 이 함수의 지역 변수이고 DWORD 하나만큼만 씀
+    let err = unsafe { RegGetValueW(HKEY_CURRENT_USER, PERSONALIZE, name, RRF_RT_REG_DWORD, None, Some(&mut value as *mut u32 as *mut c_void), Some(&mut len)) };
+    err.is_ok().then_some(value)
+}
+
+/// DWORD 값 하나를 씀 (됐으면 true)
+fn write_dword(name: windows::core::PCWSTR, value: u32) -> bool {
+    use windows::Win32::System::Registry::{RegSetKeyValueW, HKEY_CURRENT_USER, REG_DWORD};
+    // SAFETY: value는 이 함수의 지역 변수이고 그 크기만큼만 읽힘
+    let err = unsafe { RegSetKeyValueW(HKEY_CURRENT_USER, PERSONALIZE, name, REG_DWORD.0, Some(&value as *const u32 as *const c_void), size_of::<u32>() as u32) };
+    err.is_ok()
+}
+
+impl crate::lumos::ThemeBackend for Win32Theme {
+    /// 지금 테마 (값이 없으면 라이트로 봄 — Windows 기본)
+    fn read(&mut self) -> Option<crate::lumos::Theme> {
+        let apps = read_dword(windows::core::w!("AppsUseLightTheme")).unwrap_or(1);
+        let system = read_dword(windows::core::w!("SystemUsesLightTheme")).unwrap_or(1);
+        Some(crate::lumos::Theme { apps_light: apps != 0, system_light: system != 0 })
+    }
+
+    /// 두 값을 쓰고 모든 창에 테마가 바뀌었다고 알림 (멈춘 창은 기다리지 않음 — 창마다 최대 200 ms)
+    fn write(&mut self, theme: crate::lumos::Theme) -> bool {
+        use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE};
+        let ok = write_dword(windows::core::w!("AppsUseLightTheme"), u32::from(theme.apps_light)) & write_dword(windows::core::w!("SystemUsesLightTheme"), u32::from(theme.system_light));
+        let area = windows::core::w!("ImmersiveColorSet");
+        // SAFETY: area는 정적 넓은 문자열 — 알림 동안 살아 있음
+        unsafe {
+            SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, WPARAM(0), LPARAM(area.as_ptr() as isize), SMTO_ABORTIFHUNG, 200, None);
+        }
+        ok
+    }
+}

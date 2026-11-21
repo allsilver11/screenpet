@@ -8,6 +8,7 @@ use super::swing_tests::resting;
 use super::tests::world;
 use super::*;
 use crate::juggle::ObjectSpot;
+use crate::magic::MagicFx;
 use crate::play::ObjectPlay;
 use crate::test_util::{pet_cfg, DT};
 use crate::wizard::{self as wz, Spell, SpellSet};
@@ -219,4 +220,106 @@ fn wizards_cast_now_and_then_on_their_own() {
         assert!(other.casting().is_none());
     }
     assert!((4..=25).contains(&casts), "15분에 {casts}번");
+}
+
+/// 💡 "Lumos!": 지팡이를 들고 몇 초 동안 끝에 밝은 불빛 (MagicFx::Glow — 지팡이 끝, 밝아졌다 흐려짐), 맞는 때 한 번 알림 (take_lumos — 🌗 앱이 화면 밝히기)
+#[test]
+fn lumos_lights_the_wand_tip_for_a_few_seconds_and_tells_the_app_once() {
+    let w = world(vec![]);
+    let mut p = calm(caster(&[Spell::Expelliarmus], false), 600.0, 1, &w);
+    p.begin_lumos();
+    assert_eq!((p.casting(), p.speech), (Some(Spell::Lumos), Some(Speech::Lumos)));
+    let (mut lit, mut glow, mut told, mut peak) = (0.0, 0.0, 0, 0.0f64);
+    for _ in 0..(8.0 / DT) as usize {
+        p.update(DT, &w);
+        if p.take_lumos() {
+            told += 1;
+        }
+        if p.casting() == Some(Spell::Lumos) {
+            lit += DT;
+        }
+        let mut fx = Vec::new();
+        p.magic_fx(&mut fx);
+        if let Some(MagicFx::Glow { x, y, size, level }) = fx.first().copied() {
+            glow += DT;
+            peak = peak.max(level);
+            assert!(size > 0.0 && (0.0..=1.0).contains(&level));
+            assert_eq!((x, y), p.wand_tip(), "지팡이 끝");
+        }
+    }
+    assert_eq!(told, 1, "한 번만 알림");
+    assert!(lit >= wz::CAST_SECS + wz::LUMOS_SECS.0 - 0.05 && lit <= wz::CAST_SECS + wz::LUMOS_SECS.1 + 0.05, "몇 초: {lit}");
+    assert!(glow > wz::LUMOS_SECS.0 - 0.1 && (peak - 1.0).abs() < 1e-9, "{glow} {peak}");
+    assert!(p.casting().is_none());
+}
+
+/// 💡 마법사는 한가할 때 가끔 스스로 Lumos (주문 주사위가 맞았을 때 LUMOS_CHANCE) — 주문을 모르는 펫은 안 함
+#[test]
+fn wizards_sometimes_cast_lumos_on_their_own() {
+    let w = world(vec![]);
+    let mut seen = 0;
+    for seed in 0..40 {
+        let mut p = calm(caster(&[Spell::Leviosa], true), 600.0, seed, &w);
+        p.spell.ready_at = 0.0;
+        for _ in 0..(60.0 / DT) as usize {
+            p.update(DT, &w);
+            if p.casting() == Some(Spell::Lumos) {
+                seen += 1;
+                break;
+            }
+        }
+    }
+    assert!(seen > 0, "가끔은 Lumos");
+    let mut muggle = calm(pet_cfg(), 600.0, 1, &w);
+    muggle.begin_lumos();
+    assert!(muggle.casting().is_none(), "주문을 모르면 안 함");
+}
+
+/// 🪶 Leviosa로 작업표시줄 앱 아이콘 띄우기: 아이콘을 만들 수 있으면 (set_icon_lift_ok) 바닥에서 "Wingardium Leviosa!" — 흐물이처럼
+/// 아이콘을 달라고 하고 (JuggleEvent::Pull), 앱이 발 앞 바닥 (icon_lift_wanted)에 장난감 아이콘을 만들어 띄우면 (icon_lifted) 끝
+#[test]
+fn leviosa_can_pull_an_app_icon_from_the_taskbar_and_float_it() {
+    let w = world(vec![]);
+    let mut p = calm(caster(&[Spell::Leviosa], true), 600.0, 1, &w);
+    p.facing = 1.0;
+    assert!(!p.begin_icon_lift(), "아이콘을 만들 수 없으면 안 함");
+    p.set_icon_lift_ok(true);
+    assert!(p.begin_icon_lift());
+    assert_eq!((p.casting(), p.speech), (Some(Spell::Leviosa), Some(Speech::Leviosa)));
+    assert_eq!(p.take_juggle(), Some(crate::juggle::JuggleEvent::Pull), "아이콘을 달라고 함");
+    let want = p.icon_lift_wanted().expect("아이콘 자리");
+    assert!(want.x > p.body.x && (want.y - p.body.y).abs() < 1e-9, "발 앞 바닥: {want:?}");
+    assert!(want.rise > 0.0 && want.secs >= wz::FLOAT_SECS.0);
+    p.icon_lifted(77);
+    assert!(p.icon_lift_wanted().is_none());
+    let plays = finish_cast(&mut p, &w);
+    assert!(plays.is_empty(), "물건 일은 없음 (앱이 이미 띄움): {plays:?}");
+}
+
+/// 🪶 아이콘을 못 받으면 (OS가 못 줌·늦음) 곁의 보통 물건을 띄움
+#[test]
+fn leviosa_falls_back_to_a_normal_object_when_no_icon_comes() {
+    let w = world(vec![]);
+    let mut p = calm(caster(&[Spell::Leviosa], true), 600.0, 1, &w);
+    p.notice_play_objects(&[thing(5, 700.0, false, false)], &w);
+    p.set_icon_lift_ok(true);
+    assert!(p.begin_icon_lift());
+    p.take_juggle();
+    p.icon_lift_failed();
+    assert!(p.icon_lift_wanted().is_none());
+    let plays = finish_cast(&mut p, &w);
+    assert!(plays.iter().any(|e| matches!(e, ObjectPlay::Levitate { id: 5, .. })), "{plays:?}");
+
+    let mut late = calm(caster(&[Spell::Leviosa], true), 600.0, 2, &w);
+    late.notice_play_objects(&[thing(6, 700.0, false, false)], &w);
+    late.set_icon_lift_ok(true);
+    assert!(late.begin_icon_lift());
+    let mut plays = Vec::new();
+    for _ in 0..((wz::ICON_WAIT_SECS + 1.0) / DT) as usize {
+        late.update(DT, &w);
+        late.set_icon_lift_ok(false);
+        plays.extend(late.take_object_play());
+    }
+    assert!(plays.iter().any(|e| matches!(e, ObjectPlay::Levitate { id: 6, .. })), "끝내 안 오면: {plays:?}");
+    assert!(late.icon_lift_wanted().is_none());
 }

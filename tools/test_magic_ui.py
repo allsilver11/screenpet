@@ -28,8 +28,8 @@ def test_magic_has_the_canvas_just_under_the_snitch():
 def test_the_webview_knows_every_effect_kind_of_the_core():
     kinds = re.findall(r"^    (\w+) \{", MAGIC_RS[MAGIC_RS.index("pub enum MagicFx") :], re.M)
     snake = [re.sub(r"(?<!^)([A-Z])", r"_\1", k).lower() for k in kinds]
-    assert snake == ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire"]
-    assert 'const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire"];' in JS
+    assert snake[-1] == "shiro" and set(snake) <= set(re.findall(r'"(\w+)"', JS[JS.index("const MG_KINDS") :].split("\n")[0]))
+    assert 'const MG_KINDS = [' in JS and '"shiro"];' in JS
     colors = MAGIC_RS[MAGIC_RS.index("pub enum BeamColor") :]
     for c in re.findall(r"^    (\w+),", colors[: colors.index("\n}")], re.M):
         assert f'"{c.lower()}"' in JS or c == "Red", c
@@ -73,6 +73,12 @@ def test_hagrid_egg_and_baby_dragon_animate_and_are_checked(run):
     """🥚 용알·🐉 아기 용: 이상한 값은 버리고, 있는 동안 프레임을 돌리며 그림 (깨어난 용은 끝에 불 퐁 — 그라데이션)."""
     assert run["hagrid_filtered"] == 2
     assert run["hagrid_frames"] == 20 and run["hagrid_ellipses"] >= 20 * 4 and run["hagrid_flame"] > 0
+
+
+def test_jjanggu_shiro_trots_and_is_checked(run):
+    """🐶 흰둥이: 이상한 값은 버리고, 있는 동안 프레임을 돌리며 다리 넷·몸·귀 (타원)·꼬리·머리·눈코·뿅 (원)을 그림."""
+    assert run["shiro_filtered"] == 1
+    assert run["shiro_frames"] == 10 and run["shiro_ellipses"] >= 10 * 6 and run["shiro_arcs"] >= 10 * 7
 
 
 def test_campfire_flickers_and_is_checked(run):
@@ -120,3 +126,50 @@ def test_wizard_group_events_speech_tuck_bag_and_help():
         li = next(li for li in help_html.split("<li>") if li.startswith(start))
         assert all(w in li for w in words) and li.rstrip().endswith("요.</li>"), start
     assert "호그와트 성" in help_html and "나무집" in help_html
+
+
+def test_wand_and_lumos_glow_animate_and_are_checked(run):
+    """🪄 Expelliarmus에 날아간 지팡이 (빙글 — rotate)·💡 루모스 불빛 (그라데이션): 이상한 값은 버리고, 있는 동안 프레임을 돌리며 그림."""
+    assert run["wizard_filtered"] == 2
+    assert run["wizard_frames"] == 10 and run["wizard_glow"] >= 10 and run["wizard_turns"] >= 10
+
+
+def test_long_duel_and_lumos_speech_topple_and_help():
+    """⚔️ 긴 결투·💡 루모스: 새 말풍선 키마다 기본 영어 대사 (ui/main.js EXTRA_SPEECH — 코어 Speech와 같은 이름), Petrificus에 통나무처럼 눕기
+    (render.topple — 가운데를 축으로 돌려 바닥 쪽으로), 앱이 이 화면의 Lumos를 🌗 일꾼에게 넘기고 ⚙️ 설정 체크 항목이 있음, 도움말 (해요체)."""
+    enum = BRAIN[BRAIN.index("pub enum Speech {") :]
+    enum = enum[: enum.index("\n}")]
+    extra = MAIN[MAIN.index("const EXTRA_SPEECH = {") :]
+    extra = extra[: extra.index("\n};")]
+    for v, key in (("Petrificus", "petrificus"), ("AvadaKedavra", "avada_kedavra"), ("Petrified", "petrified"), ("Dodged", "dodged"),
+                   ("DuelFlee", "duel_flee"), ("DuelChase", "duel_chase"), ("DuelRest", "duel_rest"), ("Lumos", "lumos")):
+        assert re.search(rf"^\s{{4}}{v},", enum, re.M), v
+        assert re.search(rf"\b{key}: \[\"", extra), key
+    assert '"Petrificus Totalus!"' in extra and '"Avada Kedavra!"' in extra and '"Lumos!"' in extra
+    assert re.search(r"^    pub topple: f64,", BRAIN, re.M) and "render.topple" in MAIN and "rotate(${topple" in MAIN
+    assert "take_lumos()" in LOOP and "lumos::spawn(" in LOOP and "ToggleLumosLight" in LOOP and "set_icon_lift_ok(" in LOOP
+    tray = (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
+    assert "🌗 루모스로 화면 밝히기" in tray and "&lumos_light, &autostart]" in tray
+    help_html = (UI / "help.html").read_text(encoding="utf-8")
+    for start, words in (("⚔️ <b>결투</b>", ("Expelliarmus!", "Petrificus Totalus!", "Avada Kedavra!", "2초", "catch me!", "흩어져요")),
+                         ("💡 \"Lumos!\"", ("🌗 루모스로 화면 밝히기", "라이트 모드")),
+                         ("<b>⚙️ 설정 ▸ 🌗 루모스로 화면 밝히기</b>", ("꺼져 있어요", "되돌려요", "1분"))):
+        li = next(li for li in help_html.split("<li>") if li.startswith(start))
+        assert all(w in li for w in words) and li.rstrip().endswith("요.</li>"), start
+    assert "앱 아이콘 하나를 쏙 뽑아" in help_html
+
+
+def test_jjanggu_speech_defaults_help_and_mailbox():
+    """🖍️ 짱구: 새 말풍선 키마다 기본 영어 대사 (EXTRA_SPEECH — 코어 Speech와 같은 이름), 커서 놀이 대사, 편지함 이모지, 도움말 한 줄 (해요체)."""
+    enum = BRAIN[BRAIN.index("pub enum Speech {") :]
+    enum = enum[: enum.index("\n}")]
+    extra = MAIN[MAIN.index("const EXTRA_SPEECH = {") :]
+    extra = extra[: extra.index("\n};")]
+    for v, key in (("BuriBuri", "buri_buri"), ("ActionBeam", "action_beam"), ("Chocobi", "chocobi"), ("Lazy", "lazy"), ("Shiro", "shiro"),
+                   ("Flirt", "flirt"), ("Flattered", "flattered"), ("BrushOff", "brush_off")):
+        assert re.search(rf"^\s{{4}}{v},", enum, re.M), v
+        assert re.search(rf"\b{key}: \[\"", extra), key
+    assert 'jjanggu: ["' in MAIN and 'jjanggu: "🖍️"' in (UI / "mailbox.js").read_text(encoding="utf-8")
+    help_html = (UI / "help.html").read_text(encoding="utf-8")
+    j = next(li for li in help_html.split("<li>") if li.startswith("🖍️ 짱구"))
+    assert "엉덩이" in j and "Action beam!" in j and "초코비" in j and "헤르미온느" in j and "흰둥이" in j and j.rstrip().endswith("요.</li>")

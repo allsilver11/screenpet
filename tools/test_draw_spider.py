@@ -42,7 +42,7 @@ def near(im, col, tol=40):
 
 def test_registered_with_climb_and_the_six_web_rows_at_the_end():
     assert draw_pets.SPECIES["spider"] is ds.SPIDER
-    assert [o[0] for o in OPTIONAL_ANIMS[-30:-24]] == WEB == ds.WEB_ANIMS  # 그 뒤는 🦇 박쥐인간 오토바이 다섯 · 🦸 슈퍼인간 날기 넷 · 🧙 마법사 일곱 · 🧔 해그리드 여덟
+    assert [o[0] for o in OPTIONAL_ANIMS[-36:-30]] == WEB == ds.WEB_ANIMS  # 그 뒤는 🦇 박쥐인간 오토바이 다섯 · 🦸 슈퍼인간 날기 넷 · 🧙 마법사 일곱 · 🧔 해그리드 여덟 · 🖍️ 짱구 여섯
     assert names(ds.SPIDER) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + WEB
 
 

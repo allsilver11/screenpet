@@ -8,6 +8,12 @@
 //!   · Reparo: 바닥의 작은 물건 하나를 반짝 치움 (ObjectPlay::Vanish — 손님일 땐 친구 물건을 치우지 않음)
 //!   · ⚡ Stupefy (볼드모트): 초록 빛줄기 (spell_fx → 덮개 창) — 들 수 있는 때의 펫이면 💫 잠깐 기절 (be_stunned, brain_dark.rs), 물건이면 휙 날림
 //!   · 🐍 Serpensortia·🦌 Patronus는 여기서 고르지 않음 — brain_dark.rs (나기니)·brain_duel.rs (디멘터가 올 때)가 begin_cast_at으로 부름
+//!   · 🪶 Leviosa로 앱 아이콘 (0.7.2): 내 화면 아래 바닥에서 장난감 아이콘을 만들 수 있으면 (앱 set_icon_lift_ok — 흐물이 Toys.ready와 같음)
+//!     가끔 (ICON_LIFT_CHANCE) 발 앞 바닥을 보고 "Wingardium Leviosa!" — 흐물이처럼 JuggleEvent::Pull로 아이콘을 달라고 하고, 앱이 그 자리
+//!     (icon_lift_wanted)에 장난감 아이콘 물건을 만들어 바로 둥둥 띄움 (icon_lifted — 내려앉은 뒤엔 보통 장난감 아이콘).
+//!     못 받으면 (icon_lift_failed · ICON_WAIT_SECS 넘김) 곁의 보통 물건을 띄움
+//!   · 💡 Lumos (주문을 아는 마법사 누구나 — 주문 주사위가 맞으면 LUMOS_CHANCE): 지팡이를 들고 LUMOS_SECS 동안 끝에 밝은 불빛
+//!     (MagicFx::Glow), 맞는 때 앱에 한 번 알림 (take_lumos — 🌗 lumos.rs 화면 밝히기)
 //!   📌 장난감 아이콘·거대한 것은 노리지 않음.
 //! - ✨ 둥둥 (State::Float): 몸은 디딤판에 둔 채 창만 wizard::float_height만큼 떠올라 살랑 → 내려옴 (dragged 그림 + 반짝이). 디딤판이 사라지면 떨어짐
 //! - 훅: casting (지금 거는 주문 — 다른 펫이 봄) · wand_tip (지팡이 끝 — 빛줄기·사슴 자리)
@@ -27,8 +33,19 @@ pub enum SpellTarget {
     Pet { key: u64, x: f64 },
     /// 바닥의 물건 (id, 바닥 가운데 x)
     Object { id: u64, x: f64 },
-    /// 발밑 바닥의 한 자리 (🐍 나기니가 나올 곳)
+    /// 발밑 바닥의 한 자리 (🐍 나기니가 나올 곳 · 💡 Lumos)
     Floor { x: f64 },
+    /// 🪶 작업표시줄에서 뽑아 띄울 앱 아이콘 자리 (바닥 x)
+    Icon { x: f64 },
+}
+
+/// 🪶 앱 아이콘을 띄울 자리 (물리 px — 앱이 바닥 (x, y)에 장난감 아이콘을 만들어 rise만큼 secs초 띄움)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IconLift {
+    pub x: f64,
+    pub y: f64,
+    pub rise: f64,
+    pub secs: f64,
 }
 
 /// 지금 거는 주문 (State::Cast)
@@ -42,6 +59,8 @@ pub struct Cast {
     pub hit: bool,
     /// 노리는 자리 (물리 px — ⚡ 빛줄기·🦌 사슴이 가는 곳)
     pub aim: (f64, f64),
+    /// 휘두른 뒤 지팡이를 들고 있는 시간 (초 — 💡 Lumos, 아니면 0)
+    pub hold: f64,
 }
 
 /// 주문에 맞은 펫에게 할 일 (sync_spells가 그 펫에게)
@@ -65,12 +84,29 @@ pub struct SpellMood {
     pub(super) pets: Vec<PetSpot>,
     /// 주문에 맞은 펫에게 할 일 (sync_spells가 한 번 꺼냄)
     pub(super) pet_event: Option<PetSpell>,
+    /// 💡🪶 Lumos·아이콘 띄우기 주사위 (평소 주문 주사위 순서는 그대로)
+    extra_rng: fastrand::Rng,
+    /// 💡 Lumos가 막 켜짐 (앱이 take_lumos로 한 번 꺼냄)
+    lumos_lit: bool,
+    /// 🪶 지금 장난감 아이콘을 만들 수 있음 (앱이 매 틱 — 내 펫만)
+    icon_ok: bool,
+    /// 🪶 기다리는 아이콘 자리와 그만 기다릴 시각 (clock)
+    icon_wait: Option<(IconLift, f64)>,
 }
 
 impl SpellMood {
     /// 시드로 난수를 따로 둠. 첫 주문은 SPELL_FIRST_SECS 뒤부터
     pub(super) fn new(seed: u64) -> Self {
-        SpellMood { rng: fastrand::Rng::with_seed(seed ^ 0x7370_656c), ready_at: wz::SPELL_FIRST_SECS, pets: Vec::new(), pet_event: None }
+        SpellMood {
+            rng: fastrand::Rng::with_seed(seed ^ 0x7370_656c),
+            ready_at: wz::SPELL_FIRST_SECS,
+            pets: Vec::new(),
+            pet_event: None,
+            extra_rng: fastrand::Rng::with_seed(seed ^ 0x6c75_6d6f),
+            lumos_lit: false,
+            icon_ok: false,
+            icon_wait: None,
+        }
     }
 }
 
@@ -88,7 +124,11 @@ impl Pet {
         match self.state {
             State::Cast { cast, t } => !cast.fizzle && t >= wz::CAST_HIT,
             State::Float { .. } => true,
-            State::Duel { duel, t } => wz::duel_reach(duel.beam_t(t)) >= 1.0,
+            State::Duel { .. } => match self.duel_view() {
+                Some((_, crate::duel_bout::Act::Beam { u, .. })) => wz::duel_reach(u) >= 1.0,
+                Some((_, crate::duel_bout::Act::Shoot { u, .. })) => u >= crate::duel_bout::SHOT_FIRE,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -114,9 +154,15 @@ impl Pet {
         (self.body.x + facing * gx * size, self.body.y - size + gy * size)
     }
 
-    /// ⚡ Stupefy 빛줄기 (맞는 때 조금 앞부터 휘두르기가 끝날 때까지 — 덮개 창이 그림)
+    /// ⚡ Stupefy 빛줄기 (맞는 때 조금 앞부터 휘두르기가 끝날 때까지 — 덮개 창이 그림) · 💡 Lumos 불빛 (맞는 때부터 들고 있는 동안)
     pub(super) fn spell_fx(&self, out: &mut Vec<MagicFx>) {
         if let State::Cast { cast, t } = self.state {
+            if cast.spell == Spell::Lumos && t >= wz::CAST_HIT {
+                let end = wz::CAST_SECS + cast.hold;
+                let level = ((t - wz::CAST_HIT) / wz::LUMOS_RAMP_SECS).min((end - t) / wz::LUMOS_FADE_SECS).clamp(0.0, 1.0);
+                let (x, y) = self.wand_tip();
+                out.push(MagicFx::Glow { x, y, size: wz::LUMOS_GLOW * self.cfg.size, level });
+            }
             if cast.spell == Spell::Stupefy && !cast.fizzle && t >= wz::CAST_HIT - wz::BOLT_LEAD_SECS {
                 out.push(MagicFx::Bolt { from: self.wand_tip(), to: cast.aim, color: BeamColor::Green, width: wz::BOLT_WIDTH * self.cfg.size });
             }
@@ -138,11 +184,92 @@ impl Pet {
         if self.spell.rng.f64() >= wz::SPELL_RATE * self.power() * dt {
             return false;
         }
+        // 💡 가끔은 대상 없이 Lumos
+        if self.spell.extra_rng.f64() < wz::LUMOS_CHANCE {
+            return self.begin_lumos();
+        }
         self.start_spell()
+    }
+
+    /// 💡 "Lumos!" — 지팡이를 들고 LUMOS_SECS 동안 끝에 불을 밝힘 (주문을 모르면 false)
+    pub(super) fn begin_lumos(&mut self) -> bool {
+        if self.cfg.spells.is_empty() {
+            return false;
+        }
+        let hold = behavior::range(&mut self.spell.extra_rng, wz::LUMOS_SECS);
+        let tip = self.wand_tip();
+        self.begin_cast_at(Spell::Lumos, SpellTarget::Floor { x: self.body.x }, tip);
+        if let State::Cast { cast, t } = self.state {
+            self.state = State::Cast { cast: Cast { hold, ..cast }, t };
+        }
+        true
+    }
+
+    /// 💡 Lumos가 막 켜졌음 (앱이 매 틱 한 번 꺼냄 — 🌗 이 화면을 잠깐 라이트 모드로, lumos.rs)
+    pub fn take_lumos(&mut self) -> bool {
+        std::mem::take(&mut self.spell.lumos_lit)
+    }
+
+    /// 🪶 앱이 매 틱 (내 펫만): 지금 장난감 아이콘을 만들 수 있나. 기다리던 아이콘이 ICON_WAIT_SECS 넘게 안 오면 보통 물건을 띄움
+    pub fn set_icon_lift_ok(&mut self, ok: bool) {
+        self.spell.icon_ok = ok;
+        if self.spell.icon_wait.is_some_and(|(_, until)| self.clock >= until) {
+            self.icon_lift_failed();
+        }
+    }
+
+    /// 🪶 앱이 아이콘을 만들어 띄울 자리 (기다리는 동안만)
+    pub fn icon_lift_wanted(&self) -> Option<IconLift> {
+        self.spell.icon_wait.map(|(lift, _)| lift)
+    }
+
+    /// 🪶 앱이 장난감 아이콘 (id)을 만들어 띄웠음
+    pub fn icon_lifted(&mut self, _id: u64) {
+        self.spell.icon_wait = None;
+    }
+
+    /// 🪶 아이콘을 못 받았음: 곁 (SPELL_REACH)의 보통 물건 하나를 대신 띄움 (없으면 그만)
+    pub fn icon_lift_failed(&mut self) {
+        let Some((lift, _)) = self.spell.icon_wait.take() else { return };
+        let reach = wz::SPELL_REACH * self.cfg.size;
+        let pick = self
+            .play
+            .spots
+            .iter()
+            .filter(|o| !o.local && !o.giant && (o.x - self.body.x).abs() <= reach && (o.y - self.body.y).abs() <= reach)
+            .min_by(|a, b| (a.x - lift.x).abs().total_cmp(&(b.x - lift.x).abs()))
+            .map(|o| o.id);
+        if let Some(id) = pick {
+            self.play.event = Some(ObjectPlay::Levitate { id, rise: lift.rise, secs: lift.secs });
+        }
+    }
+
+    /// 🪶 화면 아래 바닥에서 발 앞을 보고 "Wingardium Leviosa!" — 작업표시줄 아이콘을 달라고 함 (아이콘을 만들 수 없거나 Leviosa를 모르면 false)
+    pub(super) fn begin_icon_lift(&mut self) -> bool {
+        let on_bottom = self.standing.is_some_and(|s| matches!(s.owner, Owner::Ground(_)));
+        if !self.spell.icon_ok || !self.cfg.spells.has(Spell::Leviosa) || !on_bottom || self.guest.is_some() || self.spell.icon_wait.is_some() {
+            return false;
+        }
+        let size = self.cfg.size;
+        let x = self.body.x + self.facing * wz::ICON_AHEAD * size;
+        self.begin_cast_at(Spell::Leviosa, SpellTarget::Icon { x }, (x, self.body.y - 0.3 * size));
+        let State::Cast { cast, .. } = self.state else { return false };
+        if !cast.fizzle {
+            let secs = behavior::range(&mut self.spell.extra_rng, wz::FLOAT_SECS);
+            let lift = IconLift { x, y: self.body.y, rise: wz::FLOAT_RISE * size, secs };
+            self.spell.icon_wait = Some((lift, self.clock + wz::ICON_WAIT_SECS));
+            self.spell.icon_ok = false;
+            self.juggle.event = Some(crate::juggle::JuggleEvent::Pull);
+        }
+        true
     }
 
     /// 대상 하나를 골라 주문을 시작함 (없으면 false): 물건을 든 펫이 있으면 Expelliarmus를 먼저, 아니면 펫·물건 중 아무거나
     pub(super) fn start_spell(&mut self) -> bool {
+        // 🪶 가끔 작업표시줄 앱 아이콘을 뽑아 띄움 (만들 수 있을 때만)
+        if self.spell.icon_ok && self.cfg.spells.has(Spell::Leviosa) && self.spell.extra_rng.f64() < wz::ICON_LIFT_CHANCE && self.begin_icon_lift() {
+            return true;
+        }
         let spells = self.cfg.spells;
         let guest = self.guest.is_some();
         let (x, y, size) = (self.body.x, self.body.y, self.cfg.size);
@@ -192,7 +319,7 @@ impl Pet {
         let aim = match target {
             SpellTarget::Pet { key, x } => self.spell.pets.iter().find(|p| p.key == key).map_or((x, self.body.y - 0.5 * self.cfg.size), |p| (p.x, p.y - 0.5 * p.size)),
             SpellTarget::Object { id, x } => self.play.spots.iter().find(|o| o.id == id).map_or((x, self.body.y - 0.2 * self.cfg.size), |o| (o.x, o.y - o.half_w.min(0.4 * self.cfg.size))),
-            SpellTarget::Floor { x } => (x, self.body.y),
+            SpellTarget::Floor { x } | SpellTarget::Icon { x } => (x, self.body.y),
         };
         self.begin_cast_at(spell, target, aim);
     }
@@ -202,7 +329,7 @@ impl Pet {
         self.pacing.after_beat = None;
         self.clear_hover();
         let tx = match target {
-            SpellTarget::Pet { x, .. } | SpellTarget::Object { x, .. } | SpellTarget::Floor { x } => x,
+            SpellTarget::Pet { x, .. } | SpellTarget::Object { x, .. } | SpellTarget::Floor { x } | SpellTarget::Icon { x } => x,
         };
         if (tx - self.body.x).abs() > 1.0 {
             self.facing = (tx - self.body.x).signum();
@@ -215,8 +342,9 @@ impl Pet {
             Spell::Stupefy => Speech::Stupefy,
             Spell::Serpensortia => Speech::Nagini,
             Spell::Patronus => Speech::Patronus,
+            Spell::Lumos => Speech::Lumos,
         });
-        self.state = State::Cast { cast: Cast { spell, target, fizzle, hit: false, aim }, t: 0.0 };
+        self.state = State::Cast { cast: Cast { spell, target, fizzle, hit: false, aim, hold: 0.0 }, t: 0.0 };
     }
 
     /// 주문 한 틱: CAST_HIT에 맞히고, CAST_SECS 뒤 쉼
@@ -234,7 +362,7 @@ impl Pet {
             cast.hit = true;
             self.spell_hits(cast);
         }
-        if t < wz::CAST_SECS {
+        if t < wz::CAST_SECS + cast.hold {
             self.state = State::Cast { cast, t };
             return;
         }
@@ -276,6 +404,7 @@ impl Pet {
             }
             (Spell::Serpensortia, SpellTarget::Floor { x }) => self.summon_nagini(x),
             (Spell::Patronus, SpellTarget::Pet { key, .. }) => self.release_stag(key, cast.aim),
+            (Spell::Lumos, _) => self.spell.lumos_lit = true,
             _ => {}
         }
     }

@@ -42,6 +42,7 @@ ART_PATTERNS = (
     "src-tauri/src/prop.rs",
     "src-tauri/src/weather.rs",
     "crates/screenpet-core/src/food.rs",
+    "crates/screenpet-core/src/manifest.rs",
     "crates/screenpet-core/src/object.rs",
     "crates/screenpet-core/src/tumble.rs",
     "crates/screenpet-core/src/vehicle.rs",

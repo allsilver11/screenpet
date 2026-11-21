@@ -3,7 +3,7 @@
 //! 해리·헤르미온느·볼드모트가 한 화면에 모이면 평소 결투 (해리 vs 볼드모트)보다 먼저:
 //! 1. start_tucks (sync_duels가 부름): 가방 주인 (pet.json `bag_cleaner` — 헤르미온느)이 결투할 수 있고, 곁 (TUCK_REACH)에 빨강 빛줄기 마법사
 //!    (Expelliarmus — 해리)가 한가하고, 결투 거리에 볼드모트가 있으면 헤르미온느 "In you go!" — 가방을 벌려 들고 (bag_stuff, Duel.hold = HIDE_SECS)
-//!    해리는 State::Tucked로 TUCK_SECS 동안 작아지며 가방 쪽으로 쏙 (render.tuck — 웹뷰가 줄이며 흐리게) → 그 뒤 헤르미온느 (금빛)·볼드모트 결투
+//!    해리는 State::Tucked로 TUCK_SECS 동안 작아지며 가방 쪽으로 쏙 (render.tuck — 웹뷰가 줄이며 흐리게) → 그 뒤 헤르미온느 (금빛)·볼드모트의 긴 결투 한 판 (brain_duel.rs — 가방을 든 채 달아나고 쫓음)
 //! 2. sync_tucks (sync_lifts가 부름): 가방 속 해리는 가방 (헤르미온느 앞)을 따라다님. 헤르미온느의 가방 결투가 끝나면 (펑·끊김·헤르미온느가 떠남)
 //!    해리가 "Phew!" 하며 튀어나와 내려섬 (TUCK_POP), 다음 결투는 DUEL_CALM_SECS 뒤
 //! 3. 해리가 불려 가면 (간질이기·먹이·집 가기 등) 혼자 튀어나옴. 길어도 TUCK_MAX_SECS면 나옴
@@ -11,6 +11,7 @@
 //! 주사위는 결투 주사위 (DuelMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
 
 use super::duel_moves::{duel_reachable, Duel};
+use crate::duel_bout::Bout;
 use super::*;
 use crate::magic::BeamColor;
 use crate::wizard as wz;
@@ -103,9 +104,11 @@ pub(super) fn start_tucks<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
         let (b, g) = (pets[m].as_ref(), pets[v].as_ref());
         let (tip, foe_tip) = (b.wand_tip_toward(g.body.x), g.wand_tip_toward(b.body.x));
         let (me_key, foe_key, light) = (b.social_key, g.social_key, b.duel_color());
-        let len = behavior::range(&mut pets[m].as_mut().duel.rng, wz::DUEL_SECS);
-        pets[m].as_mut().begin_duel(Duel { foe: foe_key, red: true, me: tip, foe_tip, len, light, hold: wz::HIDE_SECS, bag: true });
-        pets[v].as_mut().begin_duel(Duel { foe: me_key, red: false, me: foe_tip, foe_tip: tip, len, light, hold: wz::HIDE_SECS, bag: false });
+        let (me_at, foe_at, me_size, foe_size) = ((b.body.x, b.body.y), (g.body.x, g.body.y), b.cfg.size, g.cfg.size);
+        let plan = Bout::plan(&mut pets[m].as_mut().duel.rng, light);
+        let duel = Duel { foe: foe_key, red: true, me: tip, foe_tip, foe_at, foe_size, len: plan.len, light, hold: wz::HIDE_SECS, bag: true };
+        pets[v].as_mut().begin_duel(Duel { foe: me_key, red: false, me: foe_tip, foe_tip: tip, foe_at: me_at, foe_size: me_size, bag: false, ..duel }, plan.clone());
+        pets[m].as_mut().begin_duel(duel, plan);
         pets[h].as_mut().begin_tuck(me_key);
     }
 }

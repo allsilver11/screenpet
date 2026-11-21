@@ -85,6 +85,9 @@ pub struct Config {
     /// 💩 똥 싸기를 메뉴에서 껐음 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub poop_off: bool,
+    /// 🌗 루모스로 화면 밝히기를 켰음 (기본은 꺼짐 — 이 화면에서 "Lumos!"가 켜지면 다크 모드를 약 10초 라이트로, lumos.rs)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lumos_light: bool,
     /// ⏱️ 집중 친구 길이 (켜져 있는지는 남기지 않음). 모르는 값이면 25/5
     #[serde(default, skip_serializing_if = "FocusLength::is_short", deserialize_with = "lenient")]
     pub focus_length: FocusLength,
@@ -1839,6 +1842,16 @@ mod tests {
         let off = Config { cursor_play_off: true, ..Config::default() };
         let back: Config = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
         assert!(back.cursor_play_off);
+    }
+
+    #[test]
+    fn lumos_light_is_off_unless_turned_on() {
+        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
+        assert!(!old.lumos_light);
+        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("lumos_light"));
+        let on = Config { lumos_light: true, ..Config::default() };
+        let back: Config = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
+        assert!(back.lumos_light);
     }
 
     #[test]

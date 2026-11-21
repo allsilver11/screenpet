@@ -799,6 +799,15 @@ impl Object {
         true
     }
 
+    /// 🪶 막 만든 장난감 아이콘을 지금 자리 (바닥)에서 바로 둥둥 띄움 (Leviosa로 작업표시줄에서 뽑은 것 — 앱 deliver_toy). 잡혀 있으면 false
+    pub fn float_up(&mut self, rise: f64, secs: f64) -> bool {
+        if matches!(self.phase, Phase::Held) || rise <= 0.0 || secs <= 0.0 {
+            return false;
+        }
+        self.phase = Phase::Rest;
+        self.levitate(rise, secs)
+    }
+
     /// ✨ Leviosa에 떠 있음
     pub fn is_floating(&self) -> bool {
         matches!(self.phase, Phase::Floating { .. })

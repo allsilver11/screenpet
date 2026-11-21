@@ -48,6 +48,8 @@ const WORLD_REFRESH: Duration = Duration::from_millis(100);
 const SAVE_EVERY: Duration = Duration::from_secs(60);
 /// 한 틱에 넘기는 시간 상한 (초): 잠들었다 깬 뒤 큰 점프를 막음
 const MAX_DT: f64 = 0.05;
+/// 🌗 앱을 끌 때 바꿔 둔 테마를 되돌리기를 기다리는 시간 (못 되돌리면 다음 실행 때 표시 파일로)
+const LUMOS_QUIT_WAIT: Duration = Duration::from_millis(1500);
 /// 한 틱에 처리하는 입력 수의 상한 (틱 16ms면 초당 4000개, 친구 메시지 예산을 다 더한 것보다 훨씬 많음)
 const MAX_INPUTS_PER_TICK: usize = 64;
 /// slots[OWN] = 내 동물 (항상 맨 앞), 그 뒤는 손님
@@ -83,6 +85,8 @@ pub enum Input {
     ToggleTypingCheer,
     /// 💩 똥 싸기 켜기 / 끄기 (설정에 남음)
     TogglePoop,
+    /// 🌗 루모스로 화면 밝히기 켜기 / 끄기 (설정에 남음 — 끄면 바꿔 둔 테마를 바로 되돌림)
+    ToggleLumosLight,
     /// 🚀 컴퓨터 켜면 자동 실행 켜기 / 끄기 (설정에 남음, 바로 OS에 적용)
     ToggleAutostart,
     /// 🧹 빗자루 들기 / 내려놓기 (트레이·우클릭 체크 항목)
@@ -315,6 +319,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     let _ = app.state::<AppState>().menu.cursor_play.set_checked(!config.cursor_play_off);
     let _ = app.state::<AppState>().menu.typing_cheer.set_checked(!config.typing_cheer_off);
     let _ = app.state::<AppState>().menu.poop.set_checked(!config.poop_off);
+    let _ = app.state::<AppState>().menu.lumos_light.set_checked(config.lumos_light);
     // 🚀 이 버전을 처음 켜면 자동 실행을 켜고 적어 둠. 그 뒤로는 고른 대로 OS에 다시 맞춤
     if crate::autostart::apply_at_start(&app, &mut config) {
         save_config(&app, &mut config, &slots[OWN].entry.id, &care);
@@ -360,6 +365,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     crate::tray::sync_weather_kind(&app.state::<AppState>().menu, config.weather_source, config.weather_place);
     // 🌈 무지개 구름 자국 (무지개 동물이 달릴 때만 창이 생김)
     let mut trail = crate::trail::TrailFx::new();
+    // 🌗 루모스로 화면 밝히기 일꾼 (테마를 바꿀 수 있는 OS만 — 켜자마자 지난번에 못 되돌린 테마부터 되돌림, 코어 lumos.rs)
+    let lumos = screenpet_core::platform::theme_backend().and_then(|b| {
+        let marker = app.state::<AppState>().config_dir.join(screenpet_core::lumos::MARKER_FILE);
+        screenpet_core::lumos::spawn(b, marker, config.lumos_light)
+    });
     // ⌨️ 타자 응원: 최근 2초의 키 누름 *개수* (어떤 키인지는 읽지 않음)
     let mut typing_meter = screenpet_core::typing::TypingMeter::new();
     // 🍎 macOS 입력 모니터링 권한 (Windows는 None — 묻지도 않음). 없으면 이유를 말한 뒤 버전마다 한 번 물음
@@ -631,6 +641,14 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                     let _ = app.state::<AppState>().menu.poop.set_checked(!config.poop_off);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
                 }
+                Input::ToggleLumosLight => {
+                    config.lumos_light = !config.lumos_light;
+                    let _ = app.state::<AppState>().menu.lumos_light.set_checked(config.lumos_light);
+                    if let Some(l) = &lumos {
+                        l.set_enabled(config.lumos_light);
+                    }
+                    save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                }
                 Input::ToggleAutostart => {
                     crate::autostart::toggle(&app, &mut config);
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
@@ -845,11 +863,18 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 Input::NewVersion(v) => cheer_gate.found(v),
                 Input::Quit => {
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                    // 🌗 바꿔 둔 테마를 되돌리고 끔
+                    if let Some(l) = &lumos {
+                        l.quit(LUMOS_QUIT_WAIT);
+                    }
                     app.exit(0);
                     return;
                 }
                 Input::SaveAndStop(done) => {
                     save_config(&app, &mut config, &slots[OWN].entry.id, &care);
+                    if let Some(l) = &lumos {
+                        l.quit(LUMOS_QUIT_WAIT);
+                    }
                     let _ = done.send(());
                     return;
                 }
@@ -1140,7 +1165,17 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 if s.pet.cfg.taskbar_play && s.is_own() {
                     s.pet.notice_taskbar(&object_spots, toys, &s.world);
                 }
+                // 🪶 해리·헤르미온느: Leviosa로 작업표시줄 앱 아이콘을 뽑아 띄울 수 있나 (흐물이 장난감과 같은 사정 — 내 펫만)
+                if s.is_own() && s.pet.cfg.spells.has(screenpet_core::wizard::Spell::Leviosa) {
+                    s.pet.set_icon_lift_ok(toys.ready);
+                }
                 s.pet.update(dt, &s.world);
+            }
+            // 🌗 이 화면에서 "Lumos!"가 켜짐 (내 펫이든 놀러 온 펫이든) — 설정이 켜져 있으면 일꾼이 잠깐 라이트 모드로
+            if s.pet.take_lumos() && s.on_screen() {
+                if let Some(l) = &lumos {
+                    l.lumos();
+                }
             }
             if let Some(speech) = s.pet.take_speech() {
                 let target = if s.is_own() { speech_target(&s.pet) } else { s.label.as_str() };
