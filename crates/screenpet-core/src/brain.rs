@@ -237,6 +237,8 @@ pub enum Anim {
     Egg,
     /// 🧔 해그리드 — 🪨 락 케이크를 꺼내 바닥에 내려놓기 (한 번)
     Offer,
+    /// 🛡️ 무쇠인간 — 🪖 투구 장착 (앞모습, 한 번 — Special::SuitUp)
+    SuitUp,
 }
 
 /// 머리 위 말풍선 종류 (웹뷰가 글귀를 고름)
@@ -438,6 +440,8 @@ pub enum Speech {
     AirFlip,
     /// 🦸 날기를 마치고 사뿐 ("touchdown!")
     SoftLand,
+    /// 🛡️ 🪖 투구 장착 ("Suit up!", Special::SuitUp)
+    SuitUp,
     /// 🧹 빗자루에 올라 날아오름 ("up we go!", brain_broom.rs)
     BroomUp,
     /// 🧹 빗자루로 사뿐 내려앉음 ("smooth landing")
@@ -555,6 +559,7 @@ impl Anim {
                 | Anim::CheerType
                 | Anim::Type
                 | Anim::RaiseHand
+                | Anim::SuitUp
         )
     }
 }
@@ -578,6 +583,7 @@ impl From<Special> for Anim {
             Special::Fire => Anim::Fire,
             Special::Roar => Anim::Roar,
             Special::Stomp => Anim::Stomp,
+            Special::SuitUp => Anim::SuitUp,
         }
     }
 }
@@ -3096,6 +3102,7 @@ impl Pet {
             Special::Fire => Some(Speech::Fire),
             Special::Roar => Some(Speech::Roar),
             Special::Stomp => Some(Speech::Stomp),
+            Special::SuitUp => Some(Speech::SuitUp),
         };
         // 🦖 쉬는 때가 지났으면 큰 쿵 (brain_quake.rs)
         if kind == Special::Stomp {
@@ -4306,6 +4313,9 @@ mod tuck_tests;
 #[path = "brain_soar_tests.rs"]
 mod soar_tests;
 #[cfg(test)]
+#[path = "brain_musoe_tests.rs"]
+mod musoe_tests;
+#[cfg(test)]
 #[path = "brain_bike_tests.rs"]
 mod bike_tests;
 #[cfg(test)]
@@ -4856,7 +4866,7 @@ mod tests {
             Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl, Anim::HangDown,
             Anim::Ride, Anim::Wheelie, Anim::BikeJump, Anim::Drift, Anim::Signal, Anim::Fly, Anim::FlyFast, Anim::FlyFlip, Anim::Hover,
             Anim::Broom, Anim::Cast, Anim::Read, Anim::RaiseHand, Anim::BagWalk, Anim::BagDrag, Anim::BagStuff,
-            Anim::Dragon, Anim::Sidecar, Anim::SidecarFly, Anim::Hug, Anim::HugWalk, Anim::Pat, Anim::Egg, Anim::Offer];
+            Anim::Dragon, Anim::Sidecar, Anim::SidecarFly, Anim::Hug, Anim::HugWalk, Anim::Pat, Anim::Egg, Anim::Offer, Anim::SuitUp];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

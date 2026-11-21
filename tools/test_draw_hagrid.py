@@ -42,7 +42,7 @@ def near(im, col, tol=40):
 
 def test_registered_with_climb_and_the_hagrid_rows_at_the_end():
     assert draw_pets.SPECIES["hagrid"] is dg.HAGRID
-    assert [o[0] for o in OPTIONAL_ANIMS[-8:]] == dg.HAGRID_ANIMS
+    assert [o[0] for o in OPTIONAL_ANIMS[-9:-1]] == dg.HAGRID_ANIMS  # 그 뒤는 🛡️ 무쇠인간 suit_up
     assert names(dg.HAGRID) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + dg.HAGRID_ANIMS
 
 

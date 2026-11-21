@@ -92,6 +92,7 @@ HAND += ("hand_shaved_ice",)  # 눈사람
 HAND += ("hand_shrimp",)  # 펭귄
 HAND += ("hand_special",)  # 특식 🍱
 HAND += ("hand_broom",)  # 🧹 빗자루
+HAND += ("hand_battery",)  # 🛡️ 무쇠인간 🔋
 
 
 @pytest.fixture(scope="module")

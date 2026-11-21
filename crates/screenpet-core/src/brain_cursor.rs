@@ -236,6 +236,8 @@ impl CursorStyle {
             "bat" => CursorStyle { gait: Anim::Ride, speed: 3.0, arrive: Some((Anim::Drift, 0.6)), chatty: true, ..b },
             // 🦸 슈퍼인간은 날아와 둥실 떠서 멈춤
             "super" => CursorStyle { gait: Anim::Fly, speed: 3.0, arrive: Some((Anim::Hover, 0.6)), chatty: true, ..b },
+            // 🛡️ 무쇠인간은 제트팩으로 날아와 삐삐 손 흔들기
+            "musoe" => CursorStyle { gait: Anim::Fly, speed: 3.2, arrive: Some((Anim::Wave, 0.6)), chatty: true, ..b },
             // 🧙 해리는 빗자루로 날아와 지팡이를 휙
             "harry" => CursorStyle { gait: Anim::Broom, speed: 3.0, arrive: Some((Anim::Cast, 0.6)), chatty: true, ..b },
             // 📚 헤르미온느는 총총 걸어와 손 번쩍 "I know!"

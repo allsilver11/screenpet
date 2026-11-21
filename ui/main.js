@@ -890,6 +890,8 @@ const EXTRA_SPEECH = {
   rescue: ["to the rescue!", "on my way!"],
   air_flip: ["wheee!", "flip!"],
   soft_land: ["touchdown!", "soft landing"],
+  // 🛡️ 무쇠인간: 🪖 투구 장착 (코어 Special::SuitUp)
+  suit_up: ["Suit up!", "Helmet on!"],
   // 🧙 마법사 (코어 brain_broom.rs·brain_spell.rs·brain_study.rs): 🧹 빗자루로 날아오름 / 내려앉음 / 친구 화면으로 · ✨ 주문 셋과 실패 ·
   // 🟡 스니치를 봄 / 잡음 · 📖 책 읽다 중얼 · 🙋 손들기 · 👜 가방 청소 시작 / 다 치움
   broom_up: ["up we go!", "whoosh!"],
@@ -998,6 +1000,7 @@ const CURSOR_LINES = {
   spider: ["thwip thwip!", "web time!"],
   bat: ["to the bike!", "I'm the night"],
   super: ["up, up and away!", "to the rescue!"],
+  musoe: ["Beep boop!", "Jets on!"],
   harry: ["Quidditch time!", "mischief managed"],
   hermione: ["Levi-O-sa!", "honestly..."],
   voldemort: ["hehehe", "come here..."],

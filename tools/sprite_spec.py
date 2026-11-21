@@ -150,6 +150,9 @@ OPTIONAL_ANIMS = [
     ("pat", 3, 6, True, False),
     ("egg", 4, 2, True, False),
     ("offer", 3, 3, False, False),
+    # 🛡️ 무쇠인간 (코어 Special::SuitUp): 🪖 투구 장착 — 맨얼굴 → 빨간 반쪽 투구 둘이 양옆에서 미끄러져 와 → 착 닫힘 → 렌즈 켜짐
+    # (앞모습, 4칸 한 번, 마지막 칸 유지). 🚀 제트팩 날기는 🦸 슈퍼인간의 fly·fly_fast·fly_flip·hover를 그대로 씀
+    ("suit_up", 4, 4, False, True),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -222,6 +225,13 @@ SPEECH = {
                "reunion": ["Harry! Hermione!", "Blimey, it's you!"], "light_fire": ["Fire's up!", "Nice an' warm!"],
                "fireside": ["Them were the days!", "Yer a wizard!", "Good times"], "douse": ["Off ter bed!", "Night, you two!"],
                "pester": ["Oi, Hermione!", "Whatcha readin'?"], **_CARE_SPEECH},
+    # 🛡️ 무쇠인간: 🚀 제트팩 날기 take_off·rescue·air_flip·soft_land (🦸 슈퍼인간과 같은 코어 Speech) · 🪖 투구 장착 suit_up ·
+    # 🛡️ 팔뚝 막기 tickle·grumpy · 🔋 충전·💗 하트는 혼잣말 chatter
+    "musoe": {"chatter": ["Beep boop!", "Charging...", "Heart power!", "Beep beep!"], "tickle": ["Blocked!", "Beep! Hey!"],
+              "grumpy": ["Shields up!", "Beep."], "take_off": ["Jets on!", "Liftoff!", "Beep! Up!"],
+              "rescue": ["On my way!", "Jets on!"], "air_flip": ["Loop-de-loop!", "Wheee!"],
+              "soft_land": ["Landed. Beep.", "Touchdown!"], "suit_up": ["Suit up!", "Helmet on!", "Beep! Ready!"],
+              **_CARE_SPEECH},
     "dementor": {"chatter": ["hhhhh...", "...", "hhhh"], "tickle": ["hhh?"], "grumpy": ["HHHH!"], "repelled": ["hsss!", "HHH!"],
                  **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green")},
@@ -230,7 +240,7 @@ DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], 
 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "squirrel": "playful", "pumpkin": "playful",
-               "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful", "harry": "playful", "hermione": "friendly",
+               "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful", "musoe": "playful", "harry": "playful", "hermione": "friendly",
                "voldemort": "playful", "hagrid": "friendly",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly"}
@@ -286,7 +296,7 @@ BIKE_RIDER = {"bat"}
 
 # 🦸 걷기 대신 바닥 조금 위를 낮게 날아다니고, 공중제비를 돌고, 디딤판 끝에서 멀리 활공해 사뿐 내려앉고, 친구 화면도 날아서 오가는 동물
 # (pet.json super_flier — 코어 brain_soar.rs, 그림은 fly·fly_fast·fly_flip·hover)
-SUPER_FLIER = {"super"}
+SUPER_FLIER = {"super", "musoe"}  # 🛡️ 무쇠인간은 같은 날기를 제트팩으로
 
 # 🧹 가끔 빗자루에 올라타 화면을 낮게·높게 날아다니고 친구 화면도 빗자루로 오가는 동물 (pet.json broom_rider — 코어 brain_broom.rs, 그림 broom)
 BROOM_RIDER = {"harry", "hermione", "voldemort", "hagrid"}  # 해그리드는 빗자루 대신 용 (dragon 그림)
@@ -336,6 +346,7 @@ FAVORITE_FOOD = {
     "spider": {"emoji": "🪰", "name": "파리"},
     "bat": {"emoji": "🍎", "name": "사과"},
     "super": {"emoji": "🥛", "name": "우유"},
+    "musoe": {"emoji": "🔋", "name": "배터리"},
     "harry": {"emoji": "🍬", "name": "사탕"},
     "hermione": {"emoji": "🍎", "name": "사과"},
     "voldemort": {"emoji": "🐟", "name": "생선"},

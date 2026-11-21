@@ -96,6 +96,8 @@ pub fn hand_icon(food: Food, pet_id: &str) -> &'static str {
             "bat" => "hand_apple",
             // 🦸 슈퍼인간은 산타처럼 우유
             "super" => "hand_milk",
+            // 🛡️ 무쇠인간은 건전지 (가슴 하트 충전)
+            "musoe" => "hand_battery",
             // 🧙 해리포터는 사탕 (버티 보트의 강낭콩 젤리), 📚 헤르미온느는 사과
             "harry" => "hand_candy",
             "hermione" => "hand_apple",
@@ -224,6 +226,7 @@ mod tests {
         assert_eq!((hand_icon(Food::Favorite, "spider"), hand_icon(Food::Meal, "spider")), ("hand_fly", "hand_meal"));
         assert_eq!(hand_icon(Food::Favorite, "bat"), "hand_apple");
         assert_eq!(hand_icon(Food::Favorite, "super"), "hand_milk");
+        assert_eq!(hand_icon(Food::Favorite, "musoe"), "hand_battery");
         assert_eq!((hand_icon(Food::Favorite, "harry"), hand_icon(Food::Favorite, "hermione")), ("hand_candy", "hand_apple"));
         assert_eq!((hand_icon(Food::Favorite, "voldemort"), hand_icon(Food::Favorite, "dementor")), ("hand_fish", "hand_shaved_ice"));
         assert_eq!(hand_icon(Food::Favorite, "hagrid"), "hand_watermelon");

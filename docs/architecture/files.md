@@ -171,7 +171,7 @@ ui/
 | `sheet_<stage>.png` ×5 | `baby`, `kinder`, `child`, `teenager`, `adult`. 프레임 128×128, 한 행 = 한 동작 (`docs/sprites.md`) |
 | `ink_<stage>.png` ×5 | 🎨 몸 색을 바꿀 수 있는 동물(흐물이)만: 잉크 자리 마스크 |
 
-19종: bat (박쥐인간), cat, dementor (디멘터), dino_green/yellow, hagrid (해그리드), harry (해리포터), heumul, hermione (헤르미온느), penguin, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel, super (슈퍼인간), voldemort (볼드모트). (새·기린·레서판다·유령은 v0.7.0, 오리·개구리·보라 공룡·페르시안은 v0.7.1에서 빠짐 — 저장된 펫은 `config::replacement_species`로 새·기린·오리 → 노란 공룡, 레서판다·개구리 → 다람쥐, 유령 → 호박, 보라 공룡 → 초록 공룡, 페르시안 → 고양이가 됨. 🦆 오리 기차도 오리와 함께 빠졌고, 폴짝 이동(`locomotion: hop`)은 일반 기능으로 남음. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
+20종: bat (박쥐인간), cat, dementor (디멘터), dino_green/yellow, hagrid (해그리드), harry (해리포터), heumul, hermione (헤르미온느), musoe (무쇠인간), penguin, pumpkin, rabbit, rudolph, santa, snowman, spider (거미인간), squirrel, super (슈퍼인간), voldemort (볼드모트). (새·기린·레서판다·유령은 v0.7.0, 오리·개구리·보라 공룡·페르시안은 v0.7.1에서 빠짐 — 저장된 펫은 `config::replacement_species`로 새·기린·오리 → 노란 공룡, 레서판다·개구리 → 다람쥐, 유령 → 호박, 보라 공룡 → 초록 공룡, 페르시안 → 고양이가 됨. 🦆 오리 기차도 오리와 함께 빠졌고, 폴짝 이동(`locomotion: hop`)은 일반 기능으로 남음. 🎁 선물·🟦 픽셀 스타일도 v0.7.0에서 빠짐 — 옛 설정의 `gifts`·`style`은 읽을 때 조용히 버려짐)
 
 ---
 
@@ -203,7 +203,7 @@ ui/
 | 종류 | 파일 |
 |---|---|
 | 그림 엔진 | `draw_pets.py` (공통 엔진 + 고양이·토끼, 맨 끝에서 종별 모듈 등록), `sprite_spec.py` |
-| 종별 그림 | `draw_{bat,christmas,dementor,dino,hagrid,halloween,harry,hermione,heumul,penguin,snowman,spider,squirrel,super,voldemort}.py` (+ 마법사 공통 몸 `draw_wizard.py`) |
+| 종별 그림 | `draw_{bat,christmas,dementor,dino,hagrid,halloween,harry,hermione,heumul,musoe,penguin,snowman,spider,squirrel,super,voldemort}.py` (+ 마법사 공통 몸 `draw_wizard.py`) |
 | 세계 그림 | `draw_{house,objects,props,sleigh,vehicles}.py`, `make_icon.py` |
 | 미리보기 | `preview_nightcap.py`, `preview_scarf.py` |
 | 배포 | `pack_webp.py`, `requirements-pack.txt` |

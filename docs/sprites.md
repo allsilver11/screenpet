@@ -60,6 +60,7 @@
 | bag_walk (헤르미온느) | 4 | 👜 가방 끈을 가까운 손에 쥐고 걷기 — 가방은 그리지 않음 (웹뷰가 `grip.bag_walk` 손 자리에 SVG로 그림, fps 8) | |
 | bag_drag (헤르미온느) | 4 | 👜 몸을 앞으로 숙이고 가까운 팔을 몸 뒤 아래로 뻗어 무거운 끈을 끌며 걷기 — 손 = `grip.bag_drag` (fps 6) | |
 | bag_stuff (헤르미온느) | 2 | 👜 몸을 숙여 앞에 낮게 든 가방에 물건을 쏙 (한 번) — 손 = `grip.bag_stuff` (fps 4) | |
+| suit_up (무쇠인간) | 4 | 🪖 투구 장착 (앞모습, 한 번 — 마지막 칸 유지, fps 4): 갈색 머리 맨얼굴 + 양옆에 뜬 빨간 반쪽 투구 둘 → 반쪽 투구가 미끄러져 다가옴 → 착 닫힘 (렌즈 꺼짐) → 렌즈 켜짐·반짝 (코어 `Special::SuitUp`) | |
 
 ## 꿀벌 (나는 동물)
 - `pet.json`에 `"locomotion": "fly"` — 걷지 않고 날아다닌다 (Rust는 모르는 필드를 무시; 코어가 `locomotion`을 읽는다). `stage_size`는 모든 단계 0.8 (작은 동물).
@@ -85,6 +86,14 @@
 - 디자인: 사람 모양 치비 (큰 머리, 팔 둘·다리 둘). 가면 없는 살색 얼굴 (draw_pets 단계 눈), 까만 머리 (옆가르마 앞머리, 옆모습은 뒤통수까지) + 이마의 동그란 컬 한 가닥. 파란 슈트 (소매 끝까지, 손은 맨손), 빨간 장화, 빨간 팬츠 + 노란 벨트 줄, 가슴에 빨간 테·노란 바탕 방패 + 빨간 S, 빨간 망토 (끝단이 부드럽게 물결).
 - 뒷모습 (climb·slide): 머리를 언제나 팔 위에 그림 (`hero`가 뒷모습에선 arms_front를 무시 — 테스트가 봄), 머리 뒤는 온통 까만 머리, 망토가 등을 덮음.
 - 💪 lift·hold·carry·throw·present: 한 손 번쩍 — 물건은 머리 위 (손 자리 grip = 앞머리 바로 위), 가까운 손바닥이 머리 앞쪽 위 옆면에서 받침 (팔은 머리 뒤로 가려짐), 먼 손은 허리. strain은 거대한 것 옆면을 한 손바닥으로 (영웅이라 금방 듦).
+
+## 무쇠인간 (제트팩 꼬마 영웅 — 우리만의 캐릭터)
+- 그림은 `tools/draw_musoe.py` (슈퍼인간과 같은 뼈대·IK 틀 — `SPECIES["musoe"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 무쇠인간만: `python tools/draw_musoe.py` → 미리보기 `tools/preview/stages_musoe.png`·`climb_musoe.png`·`moves_musoe.png`).
+- `pet.json`: `"super_flier": true` (슈퍼인간과 같은 `soars` 날기 뇌 — fly·fly_fast·fly_flip·hover를 제트팩으로 그림), `suit_up` 그림이 있으면 코어 특별 동작 `Special::SuitUp` (쉬는 박자의 6%, 간질일 땐 안 함), `"personality": "playful"`, 좋아하는 음식 🔋 배터리 (`hand_battery`), `stage_size` 모든 단계 0.85, 대사 `take_off`·`rescue`·`air_flip`·`soft_land`·`suit_up` + chatter "Beep boop!"·"Charging..."·"Heart power!" (짧은 영어). 물건 들기(juggler)는 안 함.
+- 디자인: 큰 둥근 빨간 통 투구 (정수리→이마 짧은 금색 줄, 금색 구슬 안테나, 위로 치켜 올라간 금테 하늘색 렌즈 눈 둘 + 하얀 반짝, 숨구멍 점 한 줄), 빨간 갑옷 (어깨 넓고 허리 좁음) + 금색 판 (둥근 어깨 받침·윗팔·허벅지·무릎 관절·허리판), 가슴 V·정강이 패널 선, 하얀 반사 줄, 가슴 금테 하트 창 (하얀 빛 + 짧은 빛줄기 — 밝게·흐리게). 등엔 강철 제트팩 (금색 날개 둘, 분사구 둘 — 앞모습은 어깨 뒤 날개 끝만).
+- 하지 않는 것 (다른 영웅을 닮지 않게): 손바닥 빛 쏘기, 발·장화 분사·발바닥 연기, 내려 닫는 얼굴 가리개, 동그란/세모 가슴 빛, 가는 틈 눈. 빛은 등 분사구에서만 (fly·fly_fast 긴 하얀 빛 꼬리, hover·fly_flip 짧은 불꽃).
+- 동작 대응: stretch 💗 하트 번쩍 (빛줄기가 가슴 밖까지) · sit_front 🔋 바닥에 앉아 충전 (하트 깜빡, 안테나 불똥) · tickle·annoyed 🛡️ 팔뚝 엇갈려 막기 · wave 👋 삐삐 (안테나 소리 물결) · hungry 🔋 배터리 생각 풍선 · sleep 렌즈 꺼짐.
+- 뒷모습 (climb·slide): 투구를 언제나 팔 위에 그림 (`hero`가 뒷모습에선 arms_front를 무시 — 테스트가 봄), 등에 제트팩이 보임.
 
 ## 해리포터 · 헤르미온느 (마법사 꼬마)
 - 그림은 `tools/draw_wizard.py` (마법사 공통 몸 — 박쥐인간·슈퍼인간과 같은 뼈대·IK 틀, 모든 기본 동작 + climb·slide·lookup + broom·cast. 볼드모트도 같은 몸에 생김새만 바꿔 씀) +

@@ -445,6 +445,23 @@ def preview_seasonal(arts):
     im.resize((im.width * 2, im.height * 2), Image.NEAREST).save(PREVIEW.with_name("snowman.png"))
 
 
+BATTERY, BATTERY_CAP, CHARGE = (92, 100, 120), (238, 188, 62), (126, 214, 120)
+
+
+def hand_battery(img):
+    """🛡️ 무쇠인간이 좋아하는 건전지 — 세운 둥근 통 (회색 몸, 금색 + 머리), 초록 충전 칸 셋 + 번개, 작은 얼굴."""
+    with xf(sx=0.84, sy=0.84, pivot=(64, 64)):
+        blob(img, [T((58, 42), (70, 42), (70, 48), (58, 48))], BATTERY_CAP, r=0.6, line=0.9)
+        blob(img, [T((50, 46), (78, 46), (78, 86), (50, 86))], BATTERY, r=2.2, line=1.0,
+             marks=[([T((53, 52), (75, 52), (75, 83), (53, 83))], mix(BATTERY, LINE, 0.25)),
+                    ([T((54, 54), (74, 54), (74, 62), (54, 62)), T((54, 64), (74, 64), (74, 72), (54, 72)), T((54, 74), (74, 74), (74, 82), (54, 82))],
+                     CHARGE),
+                    ([L([(52.5, 50), (52.5, 82)], 1.6)], mix(BATTERY, WHITE, 0.55))])
+        paint(img, aa(shapes([T((66, 53), (58, 64), (63.5, 64), (61, 74), (70, 61), (64.5, 61))])), (255, 236, 120))
+        paint(img, aa(shapes([L([(64, 43.5), (64, 46.5)], 1.0), L([(62.5, 45), (65.5, 45)], 1.0)])), mix(BATTERY_CAP, LINE, 0.45))
+        tiny_face(img, 64, 78, 0.7)
+
+
 # 손에 든 음식 (앱 메뉴 순서와 같다)
 HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": hand_fish,
              "hand_carrot": hand_carrot, "hand_fly": hand_fly,
@@ -455,7 +472,8 @@ HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": ha
              "hand_shaved_ice": hand_shaved_ice,  # 눈사람 🍧
              "hand_shrimp": hand_shrimp,  # 펭귄 🦐
              "hand_special": hand_special,  # 특식 🍱
-             "hand_broom": hand_broom}  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
+             "hand_broom": hand_broom,  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
+             "hand_battery": hand_battery}  # 🛡️ 무쇠인간 🔋
 HAND_NAMES = tuple(HAND_DRAW)
 
 

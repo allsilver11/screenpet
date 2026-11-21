@@ -110,6 +110,8 @@ pub enum Special {
     Roar,
     /// 공룡 — 제자리 쿵쾅쿵쾅 (같은 바닥의 친구들이 흔들리거나 데굴 넘어짐, social.rs)
     Stomp,
+    /// 🛡️ 무쇠인간 — 🪖 투구 장착 (맨얼굴 → 반쪽 투구 둘이 양옆에서 닫힘 → 렌즈 켜짐, 앞모습). 간질일 땐 안 함 (팔뚝 막기 tickle)
+    SuitUp,
 }
 
 /// 공룡의 세 동작 중 하나를 고르는 몫 (불 · 크앙 · 쿵쾅) — 쉴 때 / 간질일 때 (간질이면 쿵쾅보다 불·크앙)
@@ -137,6 +139,7 @@ impl Special {
             Special::Arch => 0.08,
             // 공룡: 쉬는 박자의 18%는 셋 중 하나 (pick_dino)
             Special::Fire | Special::Roar | Special::Stomp => 0.18,
+            Special::SuitUp => 0.06,
         }
     }
 
@@ -145,6 +148,8 @@ impl Special {
         match self {
             Special::Arch => 0.25,
             Special::Fire | Special::Roar | Special::Stomp => 0.30,
+            // 간질이면 늘 팔뚝 막기 (tickle 그림)
+            Special::SuitUp => 0.0,
         }
     }
 
@@ -157,6 +162,8 @@ impl Special {
             Special::Roar => (1.5, 2.2),
             // 쿵쾅 한 번 = 0.67초 (stomp 4장 6fps) — 두세 번
             Special::Stomp => (1.4, 2.0),
+            // suit_up 4장 4fps 한 번 (1초) 뒤 렌즈 켠 채 잠깐
+            Special::SuitUp => (2.0, 2.6),
         }
     }
 
@@ -167,6 +174,7 @@ impl Special {
             Special::Fire => "fire",
             Special::Roar => "roar",
             Special::Stomp => "stomp",
+            Special::SuitUp => "suit_up",
         }
     }
 
@@ -177,7 +185,7 @@ impl Special {
 
     /// pet.json에 있는 동작으로 그 동물의 특별 동작을 찾음
     pub fn from_manifest(has_anim: impl Fn(&str) -> bool) -> Option<Special> {
-        [Special::Arch, Special::Fire, Special::Roar, Special::Stomp]
+        [Special::Arch, Special::Fire, Special::Roar, Special::Stomp, Special::SuitUp]
             .into_iter()
             .find(|s| has_anim(s.anim_name()))
     }

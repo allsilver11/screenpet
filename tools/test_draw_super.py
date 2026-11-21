@@ -44,7 +44,7 @@ def near(im, col, tol=40):
 
 def test_registered_with_climb_juggle_and_the_four_flight_rows_at_the_end():
     assert draw_pets.SPECIES["super"] is dsu.SUPER_HERO
-    assert [o[0] for o in OPTIONAL_ANIMS[-19:-15]] == SOAR == dsu.SOAR_ANIMS and dsu.JUGGLE_ANIMS == JUGGLE
+    assert [o[0] for o in OPTIONAL_ANIMS[-20:-16]] == SOAR == dsu.SOAR_ANIMS and dsu.JUGGLE_ANIMS == JUGGLE
     assert names(dsu.SUPER_HERO) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + JUGGLE + SOAR
 
 

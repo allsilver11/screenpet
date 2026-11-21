@@ -1976,6 +1976,7 @@ import draw_hermione  # noqa: E402,F401  (헤르미온느)
 import draw_voldemort  # noqa: E402,F401  (볼드모트)
 import draw_dementor  # noqa: E402,F401  (디멘터)
 import draw_hagrid  # noqa: E402,F401  (해그리드)
+import draw_musoe  # noqa: E402,F401  (무쇠인간)
 
 if __name__ == "__main__":
     main()

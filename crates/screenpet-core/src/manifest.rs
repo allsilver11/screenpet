@@ -25,15 +25,19 @@ pub const REQUIRED_ANIMS: [&str; 21] = [
 /// · fly·fly_fast·fly_flip·hover (🦸 슈퍼인간 — SOAR_ANIMS)
 /// · broom (🧹 빗자루 — BROOM_ANIMS) · cast (✨ 지팡이 주문 — SPELL_ANIMS) · read·raise_hand (📖🙋 헤르미온느 — BOOK_ANIMS)
 /// · bag_walk·bag_drag·bag_stuff (👜 헤르미온느 가방 청소 — BAG_ANIMS)
-/// · dragon·sidecar·sidecar_fly·hug·hug_walk·pat·egg·offer (🧔 해그리드 — HAGRID_ANIMS, dragon은 빗자루 대신 용).
-pub const OPTIONAL_ANIMS: [&str; 64] = [
+/// · dragon·sidecar·sidecar_fly·hug·hug_walk·pat·egg·offer (🧔 해그리드 — HAGRID_ANIMS, dragon은 빗자루 대신 용)
+/// · suit_up (🛡️ 무쇠인간 투구 장착 — SUIT_ANIMS, behavior::Special::SuitUp).
+pub const OPTIONAL_ANIMS: [&str; 65] = [
     "arch", "huff", "climb", "slide", "bigjump", "lookup", "fire", "roar", "stomp", "panic", "hang", "rope", "lift", "hold",
     "carry", "throw", "strain", "present", "slump", "yank", "stuff", "hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type",
     "carry_run", "paw", "cheeks_walk", "cheeks_idle", "dig", "shoot", "web_swing", "hero_land", "web_pull",
     "web_whirl", "hang_down", "ride", "wheelie", "bike_jump", "drift", "signal", "fly", "fly_fast", "fly_flip", "hover",
     "broom", "cast", "read", "raise_hand", "bag_walk", "bag_drag", "bag_stuff",
     "dragon", "sidecar", "sidecar_fly", "hug", "hug_walk", "pat", "egg", "offer",
+    "suit_up",
 ];
+/// 🛡️ 무쇠인간 그림: 🪖 투구 장착 (있으면 behavior::Special::SuitUp — 🚀 제트팩 날기는 SOAR_ANIMS를 같이 씀)
+pub const SUIT_ANIMS: [&str; 1] = ["suit_up"];
 /// 🧔 해그리드 그림: 🐉 용 타기 · 🏍️ 사이드카 오토바이 · 붕 날기 · 🤗 안기 · 안고 걷기 · 🖐️ 쓰담 · 🥚 알 품기 · 🪨 락 케이크
 /// (pet.json `gamekeeper`가 있어도 이게 다 있어야 함 — is_gamekeeper(); 사이드카 자리·안은 손·알 = grip)
 pub const HAGRID_ANIMS: [&str; 8] = ["dragon", "sidecar", "sidecar_fly", "hug", "hug_walk", "pat", "egg", "offer"];
@@ -749,7 +753,8 @@ mod tests {
         assert_eq!(&OPTIONAL_ANIMS[50..51], &SPELL_ANIMS, "✨ 주문");
         assert_eq!(&OPTIONAL_ANIMS[51..53], &BOOK_ANIMS, "📖🙋 책벌레");
         assert_eq!(&OPTIONAL_ANIMS[53..56], &BAG_ANIMS, "👜 가방 청소");
-        assert_eq!(&OPTIONAL_ANIMS[56..], &HAGRID_ANIMS, "🧔 해그리드 — 맨 끝에 이어 붙인다");
+        assert_eq!(&OPTIONAL_ANIMS[56..64], &HAGRID_ANIMS, "🧔 해그리드");
+        assert_eq!(&OPTIONAL_ANIMS[64..], &SUIT_ANIMS, "🛡️ 무쇠인간 투구 장착 — 맨 끝에 이어 붙인다");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/pets");
         let load = |id: &str| parse_manifest(&std::fs::read_to_string(dir.join(id).join("pet.json")).unwrap()).unwrap();
         let h = load("heumul");
@@ -824,15 +829,16 @@ mod tests {
         assert!(!parse_manifest(&partial).unwrap().rides_bike());
     }
 
-    /// 🦸 슈퍼인간만 낮게 낢 (super_flier + SOAR_ANIMS 그림 넷 — locomotion은 걷기 그대로). 물건 들기(juggle)도 하고 손 자리(grip)는 머리 위
+    /// 🦸 슈퍼인간·🛡️ 무쇠인간만 낮게 낢 (super_flier + SOAR_ANIMS 그림 넷 — locomotion은 걷기 그대로). 슈퍼인간은 물건 들기(juggle)도 하고 손 자리(grip)는 머리 위
     #[test]
     fn only_the_bundled_super_soars_and_lifts_things_overhead() {
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
         let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
         for id in crate::test_util::species() {
             let m = parse_manifest(&read(&id)).unwrap();
-            assert_eq!(m.soars(), id == "super", "{id}");
-            assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").soars, id == "super", "{id}");
+            let soars = id == "super" || id == "musoe";
+            assert_eq!(m.soars(), soars, "{id}");
+            assert_eq!(crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager").soars, soars, "{id}");
         }
         let s = parse_manifest(&read("super")).unwrap();
         assert_eq!(s.name, "슈퍼인간");
@@ -845,6 +851,22 @@ mod tests {
         }
         let partial = read("super").replace(r#""fly_flip""#, r#""fly_flip_x""#);
         assert!(!parse_manifest(&partial).unwrap().soars());
+    }
+
+    /// 🛡️ 무쇠인간: 제트팩으로 낮게 날고 (슈퍼인간과 같은 soars) 🪖 투구 장착 특별 동작 (suit_up 그림 — Special::SuitUp). 물건은 안 듦
+    #[test]
+    fn the_bundled_musoe_soars_and_suits_up_without_lifting() {
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
+        let m = parse_manifest(&read("musoe")).unwrap();
+        assert_eq!(m.name, "무쇠인간");
+        assert_eq!(m.locomotion, Locomotion::Walk);
+        assert!(m.soars() && m.can_climb() && !m.juggles() && !m.slings_webs() && !m.rides_bike() && !m.rides_broom() && !m.tint);
+        assert_eq!(m.special(), Some(crate::behavior::Special::SuitUp));
+        for id in crate::test_util::species().into_iter().filter(|id| id != "musoe") {
+            assert_ne!(parse_manifest(&read(&id)).unwrap().special(), Some(crate::behavior::Special::SuitUp), "{id}");
+        }
+        assert_eq!(parse_manifest(&read("musoe").replace(r#""suit_up""#, r#""suit_up_x""#)).unwrap().special(), None);
     }
 
     /// 🧙 해리포터·헤르미온느만 빗자루를 타고 주문을 씀: 해리는 expelliarmus·leviosa + 🟡 스니치, 헤르미온느는 leviosa·reparo + 📖 책 + 👜 가방
