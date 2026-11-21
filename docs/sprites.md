@@ -127,21 +127,6 @@
   `hug` 가슴 앞에 두 손을 모아 안기 · `hug_walk` 안고 걷기 · `pat` 허리 숙여 쓰담 (하트) · `egg` 바닥에 앉아 두 손을 오므림 (알·아기 용은 덮개 창 `ui/magic.js`) ·
   `offer` 코트에서 락 케이크를 꺼내 → 내밀고 → 쪼그려 내려놓기 (한 번 — 바닥의 돌은 앱의 물건).
 
-## 짱구 (개구쟁이 다섯 살 — 마법사 몸에 티셔츠·반바지)
-- 그림은 `tools/draw_wizard.py` (사람 뼈대) + `tools/draw_jjanggu.py` (생김새 Look·짱구 동작 — `SPECIES["jjanggu"]`, `python tools/draw_jjanggu.py` →
-  미리보기 `tools/preview/stages_jjanggu.png`·`climb_jjanggu.png`·`moves_jjanggu.png`). Look의 새 칸 (다른 종은 기본값이라 그대로): `skirt` (False — 로브 자락 없음),
-  `sleeve`·`shorts` (반팔·반바지: 팔다리는 맨살, 윗마디 그 몫만 옷 색), `belt` (허리 아래 몸통 색 — 반바지 허리춤), `socks`, `shoe`·`shoe_far`·`shoe_hi` (하얀 운동화).
-- 디자인: 아주 굵은 까만 애벌레 눈썹, 아래가 넓은 감자 머리 (머리 도형에 양 볼 타원을 더함 — 옆모습은 앞 볼·턱), 정수리만 덮는 짧은 까만 머리 (뒷모습은 뒤통수 대부분),
-  빨간 반팔 티셔츠, 노란 반바지, 하얀 양말·운동화, 지팡이·목도리 없음 (`prop`이 아무것도 안 듦). 뒷모습은 머리가 팔 위 (테스트가 봄).
-- `pet.json`: `"rascal": true` (코어 brain_jjanggu.rs·social_flirt.rs — `JJANGGU_ANIMS`가 다 있어야, `is_rascal()`), `stage_size` 모든 단계 0.8 (해리보다 조금 작음),
-  좋아하는 음식 🍪 초코비 (`ui/effects/hand_chocobi.png`), 대사 `chatter`·`buri_buri`·`action_beam`·`chocobi`·`lazy`·`flirt`·`shiro` (짧은 영어).
-  헤르미온느 대사에 `flattered`·`brush_off` (작업에 대한 대답).
-- 특기 동작 (`JJANGGU_ANIMS`): `butt_dance` 다리를 펴고 몸을 가로로 숙여 노란 반바지 엉덩이를 뒤로 쑥 — 칸마다 씰룩 (4칸, 노출 없음) ·
-  `action_pose` 앞모습 허리에 두 주먹 → 옆모습 먼 팔을 세우고 가까운 팔을 가로로 → 가까운 손을 쭉 뻗어 노란 빔이 프레임 끝까지 (한 번, 마지막 칸 유지) ·
-  `roll_lazy` 바닥에 벌렁 누워 이쪽저쪽 뒹굴 (바닥에 붙임) · `lie` 엎드려 턱 괴고 두 발을 번갈아 까딱 (♪) ·
-  `flirt` 앞모습, 볼에 손을 대고 몸을 배배, 진한 볼·하트 · `snack` 앞모습으로 털썩 앉아 초코비 상자에서 한 알 → 입으로 쏙 → 오물오물.
-- 🐶 흰둥이는 시트에 없음 — 덮개 창 (`ui/magic.js` `mgShiro`)이 짱구 뒤에 작은 하얀 강아지를 그림.
-
 ## 거미인간 (줄을 쏘는 꼬마 영웅)
 - 그림은 `tools/draw_spider.py` (draw_pets 엔진, 모든 동작이 자기 포즈 — `SPECIES["spider"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 거미인간만: `python tools/draw_spider.py` → 미리보기 `tools/preview/stages_spider.png`·`climb_spider.png`).
 - `pet.json`: `"web_slinger": true` (코어 `PetManifest::slings_webs` — `WEB_ANIMS` 다섯이 다 있어야), `"personality": "playful"`, 좋아하는 음식 🪰 파리, `stage_size` 모든 단계 0.85, 대사 `thwip`·`web`·`web_swing`·`hero_land`·`gotcha`·`yeet` (짧은 영어). 선택 동작: `climb`·`slide`·`lookup` + `shoot`·`web_swing`·`hero_land`·`web_pull`·`web_whirl`.

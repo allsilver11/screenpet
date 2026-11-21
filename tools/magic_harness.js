@@ -134,14 +134,6 @@ h.send("trail-magic", [{ ...fire, level: 0 }]);
 h.frames(1);
 out.out_glow = h.count("createRadialGradient");
 out.out_rects = h.count("roundRect");
-// 🐶 흰둥이 (짱구): 이상한 값은 버리고 프레임을 돌리며 몸·다리·머리를 그림, 갓 왔을 땐 뿅 (원)
-const dog = { kind: "shiro", x: 500, y: 1000, size: 36, t: 0.2, len: 12, dir: -1 };
-h = load();
-h.send("trail-magic", [dog, { ...dog, len: 0 }, { ...dog, size: -1 }]);
-out.shiro_filtered = h.alive();
-out.shiro_frames = h.frames(10);
-out.shiro_ellipses = h.count("ellipse");
-out.shiro_arcs = h.count("arc");
 // 🪄 날아간 지팡이 · 💡 루모스 불빛 (⚔️ 결투·마법사): 이상한 값은 버리고 프레임을 돌리며 지팡이 (선)·빛 번짐 (그라데이션)을 그림
 const wand = { kind: "wand", from: [400, 900], to: [460, 1000], k: 0.5, size: 40 };
 const glow = { kind: "glow", x: 300, y: 800, size: 90, level: 1 };

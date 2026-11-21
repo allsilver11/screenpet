@@ -72,7 +72,6 @@ class Look:
     side_ear: bool = True  # 옆모습에 귀가 보임 (긴 머리는 가림)
     cap_lift: float = 0.0  # 수면 모자를 머리숱 위로 올리는 몫 (머리 반지름 배)
     eye_k: float = 0.82  # 눈 크기 배
-    eye_draw: Callable = None  # eye_draw(kind, cx, cy, flip, sx) → 눈 ops 또는 None (None이면 단계 눈) — 짱구의 까만 동그란 눈
     back_reach: float = 0.0  # 뒷모습 벽 짚은 손을 더 바깥으로 (부푼 머리에 가리지 않게)
     extra_parts: dict = field(default_factory=dict)
     robe: tuple = ROBE  # 로브 (몸·소매) · 먼 쪽 소매 · 안감 · 앞섶 사이 · 바지 (볼드모트는 더 까맣고 안감이 초록)
@@ -89,14 +88,6 @@ class Look:
     prop: Callable = None  # prop(hand, a, length) → (Part, 끝 자리) — 지팡이 대신 든 것 (해그리드 분홍 우산)
     eye_swap: dict = field(default_factory=dict)  # 눈 종류 바꿔치기 (볼드모트: 웃는 ^^ 눈 → 붉은 눈) — 비면 그대로
     mouth_swap: dict = field(default_factory=dict)  # 입 종류 바꿔치기 (볼드모트: 웃는 입 → 일자·비웃음) — 비면 그대로
-    skirt: bool = True  # 로브 자락 (허리 아래로 퍼지는 아랫단) — False면 몸통만 (짱구 티셔츠)
-    sleeve: float = None  # 반팔: 팔 윗마디의 이 몫만 옷 색, 나머지는 맨살 — None이면 소매가 손목까지
-    shorts: float = None  # 반바지: 다리 윗마디의 이 몫만 바지 색, 나머지는 맨살 — None이면 긴 바지
-    belt: tuple = None  # 허리 아래 몸통을 이 색으로 (반바지 허리춤) — None이면 옷 색 그대로
-    socks: tuple = None  # 발목 양말 (None이면 없음)
-    shoe: tuple = SHOE  # 신발 · 먼 쪽 신발 · 신발 윤기 (짱구는 하얀 운동화)
-    shoe_far: tuple = SHOE_FAR
-    shoe_hi: tuple = SHOE_HI
 
 
 _LOOK = {}  # 지금 그리는 종의 Look (poses_for가 칸마다 바꿈)
@@ -143,21 +134,12 @@ def wave_line(a, b, n, depth, up):
     return pts
 
 
-def limb(root, end, ln, w, color, end_col, prefer, *, shoe=False, toe=0.0, open_hand=False, point=False, cover=None, sock=None):
+def limb(root, end, ln, w, color, end_col, prefer, *, shoe=False, toe=0.0, open_hand=False, point=False):
     """팔 또는 다리 한 짝 (자기 외곽선): 마디 둘 + 끝은 까만 구두 (옆모습은 코가 앞으로) 또는 살색 맨손 (동글 주먹).
-    open_hand: 손바닥을 펴 손가락 셋 · point: 발끝을 아래로 (빗자루에 앉아 다리가 늘어질 때) ·
-    cover: (몫, 색) — 맨살 팔다리의 윗마디 그 몫까지 반팔·반바지 · sock: 발목 양말 색."""
+    open_hand: 손바닥을 펴 손가락 셋 · point: 발끝을 아래로 (빗자루에 앉아 다리가 늘어질 때)."""
     j = ik(root, end, ln, prefer)
     shapes_ = [L([root, j, end], w)]
     marks = []
-    if cover:
-        k, col = cover
-        back = (root[0] - (j[0] - root[0]) * 0.3, root[1] - (j[1] - root[1]) * 0.3)
-        marks.append(([L([back, (root[0] + (j[0] - root[0]) * k, root[1] + (j[1] - root[1]) * k)], w * 1.6)], col))
-    if sock:
-        dx, dy = j[0] - end[0], j[1] - end[1]
-        d = math.hypot(dx, dy) or 1.0
-        marks.append(([L([end, (end[0] + dx / d * w * 0.4, end[1] + dy / d * w * 0.4)], w * 1.6)], sock))
     if shoe:
         x, y = end
         if point:
@@ -171,7 +153,7 @@ def limb(root, end, ln, w, color, end_col, prefer, *, shoe=False, toe=0.0, open_
         marks.append(([b], end_col))
         if not point:
             gx = x + toe * w * 0.35
-            marks.append(([L(dp.arc(gx, y - w * 0.05, w * 0.32, w * 0.2, 200, 260, 5), 1.2)], look().shoe_hi))
+            marks.append(([L(dp.arc(gx, y - w * 0.05, w * 0.32, w * 0.2, 200, 260, 5), 1.2)], SHOE_HI))
     else:
         fist = C(end[0], end[1], w * (0.66 if open_hand else 0.6))
         shapes_.append(fist)
@@ -193,10 +175,6 @@ def eye_ops(kind, cx, cy, flip, brow=None, sx=1.0):
     """눈 하나 (draw_pets 단계 눈) + 눈썹 (angry · sad). sx: 옆모습 먼 눈은 가로로 좁게."""
     lk = look()
     k = lk.eye_k
-    if lk.eye_draw:
-        own = lk.eye_draw(kind, cx, cy, flip, sx)
-        if own is not None:
-            return own
     saved = (dp.EYE, dp.EYE_LIGHT)
     if lk.eyes:
         dp.EYE, dp.EYE_LIGHT = lk.eyes
@@ -440,17 +418,12 @@ def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), 
         for j in range(2):
             far = side_view and j == 0
             end = target(leg_roots[j], legs[j], s["leg"], leg_sides[j])
-            pcol = lk.pants_far if far else lk.pants
-            bare = lk.shorts is not None
-            p, _ = limb(leg_roots[j], end, s["leg"], lw, (lk.skin_shade if far else lk.skin) if bare else pcol, lk.shoe_far if far else lk.shoe,
-                        leg_pref[j], shoe=True, toe=(1 if side_view else 0) if view_ != "back" else 0, point=point,
-                        cover=(lk.shorts, pcol) if bare else None, sock=lk.socks)
+            p, _ = limb(leg_roots[j], end, s["leg"], lw, lk.pants_far if far else lk.pants, SHOE_FAR if far else SHOE, leg_pref[j], shoe=True,
+                        toe=(1 if side_view else 0) if view_ != "back" else 0, point=point)
             leg_parts.append(p)
             end = target(sh_roots[j], arms[j], s["arm"], arm_sides[j])
-            acol = lk.robe_far if far else lk.robe
-            bare = lk.sleeve is not None
-            p, _ = limb(sh_roots[j], end, s["arm"], aw, (lk.skin_shade if far else lk.skin) if bare else acol, lk.skin_shade if far else lk.skin, arm_pref[j],
-                        open_hand=open_hand[j], cover=(lk.sleeve, acol) if bare else None)
+            p, _ = limb(sh_roots[j], end, s["arm"], aw, lk.robe_far if far else lk.robe, lk.skin_shade if far else lk.skin, arm_pref[j],
+                        open_hand=open_hand[j])
             arm_parts.append(p)
             hands.append(end)
         wand_p = None
@@ -469,11 +442,7 @@ def wizard(*, view_="side", hip=None, rot=0.0, head_rot=0.0, head_d=(0.0, 0.0), 
             else:
                 tshape = [E(hx0 - tw, top, hx0 + tw, top + th * 0.78), E(hx0 - tw * 0.84, top + th * 0.32, hx0 + tw * 0.84, bottom)]
             marks = []
-            if lk.belt:  # 반바지 허리춤 (허리 아래 몸통)
-                marks.append(([T((hx0 - tw * 2, waist), (hx0 + tw * 2, waist), (hx0 + tw * 2, bottom + 30), (hx0 - tw * 2, bottom + 30))], lk.belt))
-            if not lk.skirt:
-                pass
-            elif side_view:
+            if side_view:
                 pts, rmarks = robe_side(hx0, waist, bottom, tw, robe)
                 tshape.append(T(*pts))
                 marks += rmarks
@@ -832,7 +801,7 @@ def wz_roll(sp, i):
             body = Part([C(cx - 4, cy + 7, 21.0)], lk.robe, [([T(*wave_line((cx + 16, cy + 22), (cx - 24, cy + 22), 2, 3.0, (0, -1)),
                                                               (cx - 26, cy + 34), (cx + 18, cy + 34))], lk.robe_in)], outline=True, grow=0)
             knee = Part([E(cx + 2, cy + 6, cx + 28, cy + 24)], lk.pants, outline=True, grow=0)
-            shoe = Part([E(cx - 2, cy + 19, cx + 16, cy + 29)], lk.shoe, outline=True, grow=0)
+            shoe = Part([E(cx - 2, cy + 19, cx + 16, cy + 29)], SHOE, outline=True, grow=0)
             hand = Part([C(cx + 22, cy + 15, 5.0)], lk.skin, outline=True, grow=0)
             band = Part([E(cx - 8, cy + 6, cx + 20, cy + 14)], SCARF, [([L([(cx + 2, cy + 4), (cx + 3, cy + 16)], 1.8)], SCARF_GOLD)], outline=True, grow=0)
             hs_, sp_, hm = lk.hair("side", hx, hy, hrx, hry, 3.0)

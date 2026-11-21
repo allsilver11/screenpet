@@ -237,18 +237,6 @@ pub enum Anim {
     Egg,
     /// 🧔 해그리드 — 🪨 락 케이크를 꺼내 바닥에 내려놓기 (한 번)
     Offer,
-    /// 🖍️ 짱구 — 🍑 몸을 숙여 엉덩이를 씰룩씰룩 (brain_jjanggu.rs)
-    ButtDance,
-    /// 🖍️ 짱구 — 🦸 액션가면 흉내: 허리에 손 → 손 뻗어 빔 (한 번)
-    ActionPose,
-    /// 🖍️ 짱구 — 😴 바닥에 누워 뒹굴뒹굴
-    RollLazy,
-    /// 🖍️ 짱구 — 😴 엎드려 다리 까딱
-    Lie,
-    /// 🖍️ 짱구 — 💕 볼에 손 대고 쑥스럽게 (앞모습, social_flirt.rs)
-    Flirt,
-    /// 🖍️ 짱구 — 🍪 앉아서 초코비 (앞모습)
-    Snack,
 }
 
 /// 머리 위 말풍선 종류 (웹뷰가 글귀를 고름)
@@ -538,22 +526,6 @@ pub enum Speech {
     Lumos,
     /// 🌑 지팡이 끝 불을 끔 ("Nox!", brain_spell.rs)
     Nox,
-    /// 🍑 짱구 엉덩이 춤 ("buri buri~", brain_jjanggu.rs)
-    BuriBuri,
-    /// 🦸 짱구 액션가면 흉내 ("Action beam!")
-    ActionBeam,
-    /// 🍪 짱구 초코비 ("Chocobi!")
-    Chocobi,
-    /// 😴 짱구 뒹굴뒹굴 ("So lazy~")
-    Lazy,
-    /// 🐶 흰둥이가 옴 ("Shiro!")
-    Shiro,
-    /// 💕 짱구가 헤르미온느에게 ("Hey pretty~", social_flirt.rs)
-    Flirt,
-    /// 💕 헤르미온느가 웃어 줌 ("Oh! Thank you~")
-    Flattered,
-    /// 💕 헤르미온느가 무시함 ("Hmph!")
-    BrushOff,
 }
 
 impl Anim {
@@ -583,8 +555,6 @@ impl Anim {
                 | Anim::CheerType
                 | Anim::Type
                 | Anim::RaiseHand
-                | Anim::Flirt
-                | Anim::Snack
         )
     }
 }
@@ -768,8 +738,6 @@ pub enum State {
     Duel { duel: duel_moves::Duel, t: f64 },
     /// 🧔 해그리드 — 사이드카·안기·쓰담·용알·락 케이크 (brain_hagrid.rs) — t = 이 단계에 들어선 뒤 흐른 시간
     Hagrid { act: hagrid_moves::HagridAct, t: f64 },
-    /// 🖍️ 짱구 — 엉덩이 춤·액션 빔·초코비·뒹굴 (brain_jjanggu.rs) — t = 시작한 뒤 흐른 시간
-    Jjanggu { act: jjanggu_moves::JjangguAct, t: f64 },
     /// 💫 Stupefy에 맞아 기절해 쓰러져 있음 (brain_dark.rs — 누구나) — t = 쓰러진 뒤 흐른 시간, len = 전체
     Faint { t: f64, len: f64 },
     /// 👻 디멘터 곁에서 시무룩 (brain_dementor.rs — 누구나) — remaining = 남은 시간
@@ -935,8 +903,6 @@ pub struct PetConfig {
     pub patronus: bool,
     /// 🧔 해그리드 — 🏍️ 사이드카·🤗 안기·🖐️ 쓰담·🥚 용알·🪨 락 케이크 (pet.json `gamekeeper` + HAGRID_ANIMS, brain_hagrid.rs)
     pub gamekeeper: bool,
-    /// 🖍️ 짱구 — 🍑 엉덩이 춤·🦸 액션 빔·🍪 초코비·😴 뒹굴·🐶 흰둥이·💕 헤르미온느에게 작업 (pet.json `rascal` + JJANGGU_ANIMS, brain_jjanggu.rs)
-    pub rascal: bool,
     /// 🐉 빗자루 대신 용을 탐 (dragon 그림 — 해그리드, brain_broom.rs가 mount_anim으로)
     pub dragon: bool,
     /// 🌱 지금 연령대 (from_manifest가 받은 단계 이름 — 손님도 Visit에 실려 온 단계). 연령대 특기·종별 특기의 세기 (brain_stage.rs)
@@ -989,7 +955,6 @@ impl PetConfig {
             dementor: m.is_dementor(),
             patronus: m.casts_patronus(),
             gamekeeper: m.is_gamekeeper(),
-            rascal: m.is_rascal(),
             dragon: m.rides_broom() && m.dragon_mount(),
             // 모르는 이름이면 청소년 (예전 그대로의 세기)
             stage: crate::care::Stage::from_name(stage).unwrap_or(crate::care::Stage::Teenager),
@@ -1220,8 +1185,6 @@ pub struct Pet {
     study: study_moves::StudyMood,
     /// 🧔 해그리드의 기억 (brain_hagrid.rs)
     hagrid: hagrid_moves::HagridMood,
-    /// 🖍️ 짱구의 기억 · 🐶 흰둥이 (brain_jjanggu.rs)
-    jjanggu: jjanggu_moves::JjangguMood,
     /// 🐍 볼드모트 나기니·hehehe의 기억 · 💫 기절은 누구나 (brain_dark.rs)
     dark: dark_moves::DarkMood,
     /// 👻 디멘터 서리·도망의 기억 · 곁에서 시무룩·배고픔은 누구나 (brain_dementor.rs)
@@ -1346,7 +1309,6 @@ impl Pet {
             spell: spell_moves::SpellMood::new(seed),
             study: study_moves::StudyMood::new(seed),
             hagrid: hagrid_moves::HagridMood::new(seed),
-            jjanggu: jjanggu_moves::JjangguMood::new(seed),
             dark: dark_moves::DarkMood::new(seed),
             dementor: dementor_moves::DementorMood::new(seed),
             duel: duel_moves::DuelMood::new(seed),
@@ -1474,7 +1436,6 @@ impl Pet {
         // 📖 책·🙋 손들기·👜 가방 청소 (brain_study.rs)
         if self.update_broom(dt, world) || self.update_duel(dt, world) || self.update_spell(dt, world) || self.update_dark(dt, world) || self.update_study(dt, world)
             || self.update_hagrid(dt, world)
-            || self.update_jjanggu(dt, world)
         {
             self.on_started();
             return;
@@ -1650,7 +1611,6 @@ impl Pet {
             State::Cast { .. } => Anim::Cast,
             State::Study { act, .. } => self.study_anim(act),
             State::Hagrid { act, t } => self.hagrid_anim(act, t),
-            State::Jjanggu { act, t } => self.jjanggu_anim(act, t),
             State::Float { .. } => Anim::Dragged,
             State::Duel { .. } => self.duel_anim(),
             State::Faint { t, .. } if t < crate::wizard::FAINT_DROP_SECS => Anim::Land,
@@ -3433,7 +3393,6 @@ impl Pet {
             | State::Cast { .. }
             | State::Study { .. }
             | State::Hagrid { .. }
-            | State::Jjanggu { .. }
             | State::Float { .. }
             | State::Duel { .. }
             | State::Faint { .. }
@@ -4323,11 +4282,6 @@ pub mod hagrid_moves;
 #[cfg(test)]
 #[path = "brain_hagrid_tests.rs"]
 mod hagrid_tests;
-#[path = "brain_jjanggu.rs"]
-pub mod jjanggu_moves;
-#[cfg(test)]
-#[path = "brain_jjanggu_tests.rs"]
-mod jjanggu_tests;
 #[path = "brain_dark.rs"]
 pub mod dark_moves;
 #[cfg(test)]
@@ -4902,8 +4856,7 @@ mod tests {
             Anim::Paw, Anim::CheeksWalk, Anim::CheeksIdle, Anim::Dig, Anim::Shoot, Anim::WebSwing, Anim::HeroLand, Anim::WebPull, Anim::WebWhirl, Anim::HangDown,
             Anim::Ride, Anim::Wheelie, Anim::BikeJump, Anim::Drift, Anim::Signal, Anim::Fly, Anim::FlyFast, Anim::FlyFlip, Anim::Hover,
             Anim::Broom, Anim::Cast, Anim::Read, Anim::RaiseHand, Anim::BagWalk, Anim::BagDrag, Anim::BagStuff,
-            Anim::Dragon, Anim::Sidecar, Anim::SidecarFly, Anim::Hug, Anim::HugWalk, Anim::Pat, Anim::Egg, Anim::Offer,
-            Anim::ButtDance, Anim::ActionPose, Anim::RollLazy, Anim::Lie, Anim::Flirt, Anim::Snack];
+            Anim::Dragon, Anim::Sidecar, Anim::SidecarFly, Anim::Hug, Anim::HugWalk, Anim::Pat, Anim::Egg, Anim::Offer];
         let names: Vec<String> = all.iter().map(|a| serde_json::to_string(a).unwrap().trim_matches('"').to_string()).collect();
         let mut expected: Vec<&str> = crate::manifest::REQUIRED_ANIMS.to_vec();
         expected.extend(crate::manifest::OPTIONAL_ANIMS);

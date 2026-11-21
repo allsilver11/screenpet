@@ -42,7 +42,7 @@ def near(im, col, tol=40):
 
 def test_registered_with_climb_and_the_wizard_rows_at_the_end():
     assert draw_pets.SPECIES["harry"] is dh.HARRY
-    assert [o[0] for o in OPTIONAL_ANIMS[-21:-14]] == WIZARD  # 그 뒤는 🧔 해그리드 (test_draw_hagrid.py) · 🖍️ 짱구
+    assert [o[0] for o in OPTIONAL_ANIMS[-15:-8]] == WIZARD  # 그 뒤는 🧔 해그리드 (test_draw_hagrid.py)
     assert wz.BROOM_ANIMS == ["broom"] and wz.SPELL_ANIMS == ["cast"]
     assert names(dh.HARRY) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup", "broom", "cast"]
 

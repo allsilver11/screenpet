@@ -28,8 +28,7 @@ def test_magic_has_the_canvas_just_under_the_snitch():
 def test_the_webview_knows_every_effect_kind_of_the_core():
     kinds = re.findall(r"^    (\w+) \{", MAGIC_RS[MAGIC_RS.index("pub enum MagicFx") :], re.M)
     snake = [re.sub(r"(?<!^)([A-Z])", r"_\1", k).lower() for k in kinds]
-    assert snake[-1] == "shiro" and set(snake) <= set(re.findall(r'"(\w+)"', JS[JS.index("const MG_KINDS") :].split("\n")[0]))
-    assert 'const MG_KINDS = [' in JS and '"shiro"];' in JS
+    assert 'const MG_KINDS = [' in JS and set(snake) == set(re.findall(r'"(\w+)"', JS[JS.index("const MG_KINDS") :].split("\n")[0]))
     colors = MAGIC_RS[MAGIC_RS.index("pub enum BeamColor") :]
     for c in re.findall(r"^    (\w+),", colors[: colors.index("\n}")], re.M):
         assert f'"{c.lower()}"' in JS or c == "Red", c
@@ -73,12 +72,6 @@ def test_hagrid_egg_and_baby_dragon_animate_and_are_checked(run):
     """🥚 용알·🐉 아기 용: 이상한 값은 버리고, 있는 동안 프레임을 돌리며 그림 (깨어난 용은 끝에 불 퐁 — 그라데이션)."""
     assert run["hagrid_filtered"] == 2
     assert run["hagrid_frames"] == 20 and run["hagrid_ellipses"] >= 20 * 4 and run["hagrid_flame"] > 0
-
-
-def test_jjanggu_shiro_trots_and_is_checked(run):
-    """🐶 흰둥이: 이상한 값은 버리고, 있는 동안 프레임을 돌리며 다리 넷·몸·귀 (타원)·꼬리·머리·눈코·뿅 (원)을 그림."""
-    assert run["shiro_filtered"] == 1
-    assert run["shiro_frames"] == 10 and run["shiro_ellipses"] >= 10 * 6 and run["shiro_arcs"] >= 10 * 7
 
 
 def test_campfire_flickers_and_is_checked(run):
@@ -164,19 +157,3 @@ def test_long_duel_and_lumos_speech_topple_and_help():
         li = next(li for li in help_html.split("<li>") if li.startswith(start))
         assert all(w in li for w in words) and li.rstrip().endswith("요.</li>"), start
     assert "앱 아이콘 하나를 쏙 뽑아" in help_html
-
-
-def test_jjanggu_speech_defaults_help_and_mailbox():
-    """🖍️ 짱구: 새 말풍선 키마다 기본 영어 대사 (EXTRA_SPEECH — 코어 Speech와 같은 이름), 커서 놀이 대사, 편지함 이모지, 도움말 한 줄 (해요체)."""
-    enum = BRAIN[BRAIN.index("pub enum Speech {") :]
-    enum = enum[: enum.index("\n}")]
-    extra = MAIN[MAIN.index("const EXTRA_SPEECH = {") :]
-    extra = extra[: extra.index("\n};")]
-    for v, key in (("BuriBuri", "buri_buri"), ("ActionBeam", "action_beam"), ("Chocobi", "chocobi"), ("Lazy", "lazy"), ("Shiro", "shiro"),
-                   ("Flirt", "flirt"), ("Flattered", "flattered"), ("BrushOff", "brush_off")):
-        assert re.search(rf"^\s{{4}}{v},", enum, re.M), v
-        assert re.search(rf"\b{key}: \[\"", extra), key
-    assert 'jjanggu: ["' in MAIN and 'jjanggu: "🖍️"' in (UI / "mailbox.js").read_text(encoding="utf-8")
-    help_html = (UI / "help.html").read_text(encoding="utf-8")
-    j = next(li for li in help_html.split("<li>") if li.startswith("🖍️ 짱구"))
-    assert "엉덩이" in j and "Action beam!" in j and "초코비" in j and "헤르미온느" in j and "흰둥이" in j and j.rstrip().endswith("요.</li>")

@@ -150,14 +150,6 @@ OPTIONAL_ANIMS = [
     ("pat", 3, 6, True, False),
     ("egg", 4, 2, True, False),
     ("offer", 3, 3, False, False),
-    # 🖍️ 짱구 (코어 brain_jjanggu.rs): 🍑 엉덩이 춤 (숙여서 엉덩이 씰룩 4칸) · 🦸 액션가면 흉내 (허리에 손 → 준비 → 빔 — 한 번, 마지막 칸 유지) ·
-    # 😴 누워 뒹굴뒹굴 · 엎드려 다리 까딱 · 💕 볼에 손 대고 쑥스럽게 (앞모습) · 🍪 앉아서 초코비 하나씩 쏙 (앞모습)
-    ("butt_dance", 4, 6, True, False),
-    ("action_pose", 3, 3, False, False),
-    ("roll_lazy", 4, 3, True, False),
-    ("lie", 3, 4, True, False),
-    ("flirt", 3, 3, True, True),
-    ("snack", 4, 4, True, True),
 ]
 
 # 말풍선 대사 (spec §2.6) — 먹이·성장 대사(hungry/full/level_up)는 모두 같다
@@ -213,8 +205,7 @@ SPEECH = {
                  "study": ["fascinating...", "hmm...", "shh!"], "tidy_up": ["tidy time!", "into the bag!"], "all_clean": ["Phew! All clean!"],
                  "in_you_go": ["In you go!", "Quick, in here!"], "reunion": ["Hagrid!", "Harry!"],
                  "fireside": ["Remember Hogwarts?", "I read about this!", "so cozy~"], "shh": ["Shh! I'm studying!"],
-                 "oh_alright": ["Oh, alright!", "Fine, one game!"], "flattered": ["Oh! Thank you~", "hehe, cute"],
-                 "brush_off": ["Hmph!", "Not now."], **_CARE_SPEECH},
+                 "oh_alright": ["Oh, alright!", "Fine, one game!"], **_CARE_SPEECH},
     # 🐍 볼드모트: ✨ 빗자루 broom_* · ⚡ stupefy · 🐍 nagini (Serpensortia) · 😈 hehehe · ⚔️ duel_call (결투 걸기) ·
     # 👻 디멘터: chatter는 숨소리, 🦌 쫓기면 repelled (코어 Speech)
     "voldemort": {"chatter": ["hehehe", "come here...", "Potter..."], "tickle": ["hehe... stop!"], "grumpy": ["silence!"],
@@ -231,12 +222,6 @@ SPEECH = {
                "reunion": ["Harry! Hermione!", "Blimey, it's you!"], "light_fire": ["Fire's up!", "Nice an' warm!"],
                "fireside": ["Them were the days!", "Yer a wizard!", "Good times"], "douse": ["Off ter bed!", "Night, you two!"],
                "pester": ["Oi, Hermione!", "Whatcha readin'?"], **_CARE_SPEECH},
-    # 🖍️ 짱구: 🍑 엉덩이 춤 buri_buri · 🦸 액션 빔 action_beam · 🍪 초코비 chocobi · 😴 뒹굴 lazy · 💕 헤르미온느에게 flirt ·
-    # 🐶 흰둥이 shiro (코어 Speech — 헤르미온느 대답은 flattered·brush_off)
-    "jjanggu": {"chatter": ["buri buri~", "Hehehe~", "Action beam!"], "tickle": ["Ahaha~!"], "grumpy": ["Hmph!"],
-                "buri_buri": ["buri buri~", "Buri buri!"], "action_beam": ["Action beam!", "Hahaha!"], "chocobi": ["Chocobi!", "Yum yum~"],
-                "lazy": ["So lazy~", "Rolly roll~"], "flirt": ["Hey pretty~", "Hi, cutie~"], "shiro": ["Shiro!", "Here, Shiro~"],
-                **_CARE_SPEECH},
     "dementor": {"chatter": ["hhhhh...", "...", "hhhh"], "tickle": ["hhh?"], "grumpy": ["HHHH!"], "repelled": ["hsss!", "HHH!"],
                  **_CARE_SPEECH},
     **{pid: dict(_DINO_SPEECH) for pid in ("dino_yellow", "dino_green")},
@@ -246,7 +231,7 @@ DEFAULT_SPEECH = {"chatter": ["♪"], "tickle": ["hehe!"], "grumpy": ["hmph!"], 
 # 성격 (pet.json personality) — 없는 동물은 적지 않는다
 PERSONALITY = {"cat": "aloof", "squirrel": "playful", "pumpkin": "playful",
                "penguin": "playful", "heumul": "playful", "spider": "playful", "bat": "playful", "super": "playful", "harry": "playful", "hermione": "friendly",
-               "voldemort": "playful", "hagrid": "friendly", "jjanggu": "playful",
+               "voldemort": "playful", "hagrid": "friendly",
                "rudolph": "friendly", "santa": "friendly", "snowman": "playful",
                "dino_yellow": "playful", "dino_green": "friendly"}
 
@@ -332,10 +317,6 @@ BAG_CLEANER = {"hermione"}
 # (pet.json gamekeeper — 코어 brain_hagrid.rs, 그림 HAGRID_ANIMS)
 GAMEKEEPER = {"hagrid"}
 
-# 🖍️ 짱구: 🍑 엉덩이 춤 · 🦸 액션 빔 · 🍪 초코비 · 😴 뒹굴뒹굴 · 💕 헤르미온느에게 작업 · 🐶 흰둥이
-# (pet.json rascal — 코어 brain_jjanggu.rs·social_flirt.rs, 그림 JJANGGU_ANIMS)
-RASCAL = {"jjanggu"}
-
 # 🎨 몸 색을 고를 수 있는 동물 (pet.json tint + ink_<stage>.png 잉크 자리 — 앱이 그 자리만 고른 색으로 덮는다, ui/main.js)
 TINTABLE = {"heumul"}
 
@@ -360,7 +341,6 @@ FAVORITE_FOOD = {
     "voldemort": {"emoji": "🐟", "name": "생선"},
     "dementor": {"emoji": "🍧", "name": "빙수"},
     "hagrid": {"emoji": "🍉", "name": "수박"},
-    "jjanggu": {"emoji": "🍪", "name": "초코비"},
 }
 
 

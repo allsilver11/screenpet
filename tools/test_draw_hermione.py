@@ -51,7 +51,7 @@ def manifest(out):
 
 def test_registered_with_climb_broom_cast_book_and_bag_rows():
     assert draw_pets.SPECIES["hermione"] is dhe.HERMIONE
-    assert [o[0] for o in OPTIONAL_ANIMS[-19:-17]] == BOOK == dhe.BOOK_ANIMS and [o[0] for o in OPTIONAL_ANIMS[-17:-14]] == BAG == dhe.BAG_ANIMS
+    assert [o[0] for o in OPTIONAL_ANIMS[-13:-11]] == BOOK == dhe.BOOK_ANIMS and [o[0] for o in OPTIONAL_ANIMS[-11:-8]] == BAG == dhe.BAG_ANIMS
     assert names(dhe.HERMIONE) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup", "broom", "cast"] + BOOK + BAG
 
 

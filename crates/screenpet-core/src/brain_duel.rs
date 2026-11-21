@@ -180,8 +180,6 @@ impl Pet {
         self.duel.ready_at = f64::INFINITY;
         self.duel.patronus_ready_at = f64::INFINITY;
         self.hagrid.ready_at = f64::INFINITY;
-        self.jjanggu.ready_at = f64::INFINITY;
-        self.jjanggu.shiro_ready_at = f64::INFINITY;
     }
 
     /// 🏰 호그와트 친구 셋 중 누구인지 (해그리드 > 헤르미온느 > 해리 순으로 봄)
@@ -461,7 +459,6 @@ impl Pet {
         self.dark_fx(out);
         self.dementor_fx(out);
         self.hagrid_fx(out);
-        self.jjanggu_fx(out);
         // 🔥 해그리드가 피운 모닥불 (social_campfire.rs가 몸짓 Pose.fire로 줌)
         if let Some((x, level)) = self.romp.fire.filter(|_| self.in_romp()) {
             out.push(MagicFx::Campfire { x, y: self.body.y, size: wz::CAMPFIRE_SIZE * self.cfg.size, level });

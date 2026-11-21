@@ -14,7 +14,6 @@
 //     wand  {from, to, k, size}                  🪄 ⚔️ Expelliarmus에 맞아 날아간 지팡이 — 손 (from)에서 땅 (to)까지 k (0…1)만큼 포물선을 그리며 빙글빙글
 //     glow  {x, y, size, level}                  💡 "Lumos!" 지팡이 끝 불빛 — 하얗게 빛나는 속 + 크게 번지는 따뜻한 빛 (level 0…1 밝기, 살짝 일렁임)
 //     puff  {x, y, size, k}                      🌑 "Nox!" 불이 꺼진 지팡이 끝의 작은 검은 연기 — 덩이 몇 개가 피어올라 커지며 흐려짐 (k 0…1 퍼진 몫)
-//     shiro {x, y, size, t, len, dir}            🐶 짱구의 흰둥이 — 발 가운데 (x, 바닥 y)의 작은 하얀 솜뭉치 강아지가 총총 (꼬리 살랑), 처음·끝에 뿅
 // CPU를 아끼는 규칙: 움직이는 효과 (빛줄기·뱀·사슴·흐려짐·펑)가 있는 동안만 requestAnimationFrame. 서리만 있으면 받을 때 한 번만 그림.
 // 한 번에 MG_MAX개까지. 브라우저에서 trail.html?magic=1로 앱 없이 볼 수 있음 (결투·사슴·뱀·서리).
 
@@ -25,7 +24,7 @@ const MG_POP_SECS = 0.6;
 const MG_RED = ["rgba(255,70,60,", "rgba(255,200,190,"];
 const MG_GREEN = ["rgba(60,230,90,", "rgba(210,255,200,"];
 const MG_GOLD = ["rgba(255,196,60,", "rgba(255,246,200,"];
-const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire", "wand", "glow", "puff", "shiro"];
+const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire", "wand", "glow", "puff"];
 
 const mgCanvas = document.getElementById("magic");
 const mgCtx = mgCanvas.getContext("2d");
@@ -51,7 +50,6 @@ function mgOk(f) {
   if (f.kind === "frost") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 5000 && mgPt(f.inward) && f.level > 0;
   if (f.kind === "egg") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.crack);
   if (f.kind === "campfire") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.level);
-  if (f.kind === "shiro") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.t) && f.len > 0;
   if (f.kind === "hatchling") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.t) && f.len > 0;
   return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.alpha);
 }
@@ -575,72 +573,6 @@ function mgCampfire(f, t) {
   mgCtx.restore();
 }
 
-// 🐶 흰둥이 (발 가운데 x, 바닥 y · 크기 size · 온 뒤 t초 / len초 · 보는 쪽 dir): 하얀 솜뭉치 몸 + 동그란 머리 + 처진 귀 + 까만 눈·코,
-// 다리 넷이 총총 (t로 박자), 꼬리 살랑. 처음 0.4초는 커지며 뿅 (작은 원 셋), 마지막 0.5초는 흐려지며 사라짐
-function mgShiro(f) {
-  const s = f.size;
-  const t = f.t;
-  const left = f.len - t;
-  const pop = Math.min(1, t / 0.4);
-  mgCtx.save();
-  mgCtx.globalAlpha = Math.max(0, Math.min(1, left / 0.5));
-  mgCtx.translate(f.x, f.y);
-  mgCtx.scale((f.dir < 0 ? -1 : 1) * pop, pop);
-  mgCtx.lineJoin = "round";
-  mgCtx.strokeStyle = "#5a5a6a";
-  mgCtx.lineWidth = Math.max(1, s * 0.05);
-  mgCtx.fillStyle = "#ffffff";
-  const step = Math.sin(t * 14);
-  const bob = Math.abs(step) * s * 0.04;
-  // 다리 넷 (총총 — 앞뒤로 엇갈림)
-  for (const [lx, ph] of [[-0.3, 1], [-0.15, -1], [0.15, -1], [0.3, 1]]) {
-    mgCtx.beginPath();
-    mgCtx.ellipse(s * (lx + 0.05 * step * ph), -s * 0.08, s * 0.07, s * 0.1, 0, 0, Math.PI * 2);
-    mgCtx.fill();
-    mgCtx.stroke();
-  }
-  // 꼬리 (살랑)
-  mgCtx.beginPath();
-  mgCtx.arc(-s * 0.42, -s * 0.38 - bob + Math.sin(t * 18) * s * 0.05, s * 0.1, 0, Math.PI * 2);
-  mgCtx.fill();
-  mgCtx.stroke();
-  // 몸 (솜뭉치)
-  mgCtx.beginPath();
-  mgCtx.ellipse(0, -s * 0.28 - bob, s * 0.4, s * 0.22, 0, 0, Math.PI * 2);
-  mgCtx.fill();
-  mgCtx.stroke();
-  // 머리 · 귀
-  const hx = s * 0.36;
-  const hy = -s * 0.52 - bob;
-  mgCtx.beginPath();
-  mgCtx.arc(hx, hy, s * 0.22, 0, Math.PI * 2);
-  mgCtx.fill();
-  mgCtx.stroke();
-  mgCtx.fillStyle = "#f2f0f6";
-  mgCtx.beginPath();
-  mgCtx.ellipse(hx - s * 0.12, hy - s * 0.02, s * 0.07, s * 0.13, 0.4, 0, Math.PI * 2);
-  mgCtx.fill();
-  mgCtx.stroke();
-  // 눈 · 코
-  mgCtx.fillStyle = "#1b1b22";
-  mgCtx.beginPath();
-  mgCtx.arc(hx + s * 0.08, hy - s * 0.04, s * 0.03, 0, Math.PI * 2);
-  mgCtx.fill();
-  mgCtx.beginPath();
-  mgCtx.arc(hx + s * 0.21, hy + s * 0.03, s * 0.035, 0, Math.PI * 2);
-  mgCtx.fill();
-  // 처음엔 뿅 (작은 원 셋)
-  if (pop < 1) {
-    mgCtx.fillStyle = `rgba(255,255,255,${1 - pop})`;
-    for (const [px, py] of [[-0.5, -0.6], [0.6, -0.9], [0.1, -1.0]]) {
-      mgCtx.beginPath();
-      mgCtx.arc(s * px, s * py, s * 0.12, 0, Math.PI * 2);
-      mgCtx.fill();
-    }
-  }
-  mgCtx.restore();
-}
-
 // 🪄 날아간 지팡이: 손에서 땅까지 포물선 (위로 size의 2.5배), 날아가는 동안 빙글빙글 — 땅에 닿으면 비스듬히 누움
 function mgWand(f) {
   const k = Math.max(0, Math.min(1, f.k));
@@ -734,7 +666,6 @@ function mgDraw(f, t) {
   else if (f.kind === "wand") mgWand(f);
   else if (f.kind === "glow") mgGlow(f, t);
   else if (f.kind === "puff") mgPuff(f, t);
-  else if (f.kind === "shiro") mgShiro(f);
 }
 
 // 한 프레임: 서리 → 뱀 → 빛줄기·사슴 순으로, 흐려지는 빛줄기·펑까지. 움직이는 것이 남았으면 다음 프레임
@@ -745,7 +676,7 @@ function drawMagic() {
   mgGhosts = mgGhosts.filter((g) => (now - g.born) / 1000 < MG_FADE);
   mgPops = mgPops.filter((p) => (now - p.born) / 1000 < MG_POP_SECS);
   mgCtx.clearRect(0, 0, mgCanvas.width, mgCanvas.height);
-  for (const kind of ["frost", "campfire", "snake", "egg", "hatchling", "shiro", "wand", "bolt", "duel", "stag", "glow", "puff"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
+  for (const kind of ["frost", "campfire", "snake", "egg", "hatchling", "wand", "bolt", "duel", "stag", "glow", "puff"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
   for (const g of mgGhosts) mgBeam(g.fx.from, g.fx.to, g.fx.width, mgColor(g.fx.color), t, 1 - (now - g.born) / 1000 / MG_FADE);
   for (const p of mgPops) mgPop(p, (now - p.born) / 1000 / MG_POP_SECS);
   if (mgMoving()) mgFrame = requestAnimationFrame(drawMagic);

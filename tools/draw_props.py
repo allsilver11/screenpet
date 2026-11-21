@@ -1,7 +1,7 @@
 """먹이 소품 — draw_pets.py 엔진(슈퍼샘플 마스크·melt·외곽선·paint)으로 그린 작은 그림, draw_house.py와 같은 말랑한 외곽선.
 
     python tools/draw_props.py  → ui/effects/{bowl_food,bowl_water,cookie}.png
-                                  + ui/effects/hand_{meal,cookie,fish,carrot,fly,candy,lollipop,acorn,apple,milk,watermelon,broccoli,shaved_ice,shrimp,special,broom,chocobi}.png (직접 주기, 48×48)
+                                  + ui/effects/hand_{meal,cookie,fish,carrot,fly,candy,lollipop,acorn,apple,milk,watermelon,broccoli,shaved_ice,shrimp,special,broom}.png (직접 주기, 48×48)
                                   + tools/preview/hand_food.png
                                   + tools/preview/props.png (128px 고양이 옆에 놓아 본 모습)
                                   + ui/effects/{snowball,snowman}.png (계절 날씨) + tools/preview/snowman.png
@@ -360,22 +360,6 @@ def hand_broom(img):
                 ([L([(56, 62), (66, 71)], 3.0)], (214, 80, 70))])
 
 
-CHOCO_BOX, CHOCO_BAND, CHOCO_BALL = (214, 64, 44), (255, 214, 80), (120, 66, 36)
-
-
-def hand_chocobi(img):
-    """🍪 짱구가 좋아하는 초코비 — 빨간 작은 과자 상자 (노란 띠 + 갈색 별, 열린 뚜껑) 위로 동글 초코비 셋이 빼꼼, 작은 얼굴."""
-    for x, y in ((57.5, 51), (64.5, 48.5), (71, 51.5)):
-        blob(img, [C(x, y, 4.2)], CHOCO_BALL, r=0.3, line=0.8, marks=[([C(x - 1.4, y - 1.5, 1.1)], mix(CHOCO_BALL, WHITE, 0.45))])
-    blob(img, [T((51, 55), (77, 55), (76, 83), (52, 83))], CHOCO_BOX, r=1.6, line=1.0,
-         marks=[([T((50, 66.5), (78, 66.5), (78, 74.5), (50, 74.5))], CHOCO_BAND), ([L([(51, 58), (77, 58)], 1.2)], mix(CHOCO_BOX, LINE, 0.35)),
-                ([L([(54.5, 60), (54.5, 80)], 1.6)], mix(CHOCO_BOX, WHITE, 0.35))])
-    star = [(64 + (3.8 if k % 2 == 0 else 1.6) * math.cos(math.radians(k * 36 - 90)), 70.5 + (3.8 if k % 2 == 0 else 1.6) * math.sin(math.radians(k * 36 - 90)))
-            for k in range(10)]
-    paint(img, aa(shapes([T(*star)])), CHOCO_BALL)
-    tiny_face(img, 64, 78, 0.6)
-
-
 # ---- 계절 날씨: 눈덩이(굴리는 중) · 눈사람 (바닥 가운데 아래에 앉는다, src-tauri/src/weather.rs) ----
 SNOWMAN_W, SNOWMAN_H = 64, 80
 SNOWBALL = 40
@@ -471,8 +455,7 @@ HAND_DRAW = {"hand_meal": hand_meal, "hand_cookie": hand_cookie, "hand_fish": ha
              "hand_shaved_ice": hand_shaved_ice,  # 눈사람 🍧
              "hand_shrimp": hand_shrimp,  # 펭귄 🦐
              "hand_special": hand_special,  # 특식 🍱
-             "hand_broom": hand_broom,  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
-             "hand_chocobi": hand_chocobi}  # 🖍️ 짱구 🍪 초코비
+             "hand_broom": hand_broom}  # 🧹 빗자루 (음식은 아니지만 커서를 따라다닌다)
 HAND_NAMES = tuple(HAND_DRAW)
 
 
