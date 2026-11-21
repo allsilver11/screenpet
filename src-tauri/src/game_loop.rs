@@ -85,7 +85,7 @@ pub enum Input {
     ToggleTypingCheer,
     /// 💩 똥 싸기 켜기 / 끄기 (설정에 남음)
     TogglePoop,
-    /// 🌗 루모스로 화면 밝히기 켜기 / 끄기 (설정에 남음 — 끄면 바꿔 둔 테마를 바로 되돌림)
+    /// 🌗 루모스·녹스로 화면 밝기 바꾸기 켜기 / 끄기 (설정에 남음 — 끄면 바꿔 둔 테마를 바로 되돌림)
     ToggleLumosLight,
     /// 🚀 컴퓨터 켜면 자동 실행 켜기 / 끄기 (설정에 남음, 바로 OS에 적용)
     ToggleAutostart,
@@ -365,7 +365,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
     crate::tray::sync_weather_kind(&app.state::<AppState>().menu, config.weather_source, config.weather_place);
     // 🌈 무지개 구름 자국 (무지개 동물이 달릴 때만 창이 생김)
     let mut trail = crate::trail::TrailFx::new();
-    // 🌗 루모스로 화면 밝히기 일꾼 (테마를 바꿀 수 있는 OS만 — 켜자마자 지난번에 못 되돌린 테마부터 되돌림, 코어 lumos.rs)
+    // 🌗 루모스·녹스로 화면 밝기 바꾸기 일꾼 (테마를 바꿀 수 있는 OS만 — 켜자마자 지난번에 못 되돌린 테마부터 되돌림, 코어 lumos.rs)
     let lumos = screenpet_core::platform::theme_backend().and_then(|b| {
         let marker = app.state::<AppState>().config_dir.join(screenpet_core::lumos::MARKER_FILE);
         screenpet_core::lumos::spawn(b, marker, config.lumos_light)
@@ -1171,10 +1171,15 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 }
                 s.pet.update(dt, &s.world);
             }
-            // 🌗 이 화면에서 "Lumos!"가 켜짐 (내 펫이든 놀러 온 펫이든) — 설정이 켜져 있으면 일꾼이 잠깐 라이트 모드로
+            // 🌗 이 화면에서 "Lumos!"가 켜짐 / "Nox!"로 꺼짐 (내 펫이든 놀러 온 펫이든) — 설정이 켜져 있으면 일꾼이 잠깐 라이트 / 다크 모드로
             if s.pet.take_lumos() && s.on_screen() {
                 if let Some(l) = &lumos {
                     l.lumos();
+                }
+            }
+            if s.pet.take_nox() && s.on_screen() {
+                if let Some(l) = &lumos {
+                    l.nox();
                 }
             }
             if let Some(speech) = s.pet.take_speech() {

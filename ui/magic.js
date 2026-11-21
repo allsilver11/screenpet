@@ -13,6 +13,7 @@
 //                                                불꽃 세 겹 (level 0…1만큼 큼 — 피울 때 커지고 끌 때 줄어듦) + 튀어 오르는 불티 + 은은한 불빛
 //     wand  {from, to, k, size}                  🪄 ⚔️ Expelliarmus에 맞아 날아간 지팡이 — 손 (from)에서 땅 (to)까지 k (0…1)만큼 포물선을 그리며 빙글빙글
 //     glow  {x, y, size, level}                  💡 "Lumos!" 지팡이 끝 불빛 — 하얗게 빛나는 속 + 크게 번지는 따뜻한 빛 (level 0…1 밝기, 살짝 일렁임)
+//     puff  {x, y, size, k}                      🌑 "Nox!" 불이 꺼진 지팡이 끝의 작은 검은 연기 — 덩이 몇 개가 피어올라 커지며 흐려짐 (k 0…1 퍼진 몫)
 //     shiro {x, y, size, t, len, dir}            🐶 짱구의 흰둥이 — 발 가운데 (x, 바닥 y)의 작은 하얀 솜뭉치 강아지가 총총 (꼬리 살랑), 처음·끝에 뿅
 // CPU를 아끼는 규칙: 움직이는 효과 (빛줄기·뱀·사슴·흐려짐·펑)가 있는 동안만 requestAnimationFrame. 서리만 있으면 받을 때 한 번만 그림.
 // 한 번에 MG_MAX개까지. 브라우저에서 trail.html?magic=1로 앱 없이 볼 수 있음 (결투·사슴·뱀·서리).
@@ -24,7 +25,7 @@ const MG_POP_SECS = 0.6;
 const MG_RED = ["rgba(255,70,60,", "rgba(255,200,190,"];
 const MG_GREEN = ["rgba(60,230,90,", "rgba(210,255,200,"];
 const MG_GOLD = ["rgba(255,196,60,", "rgba(255,246,200,"];
-const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire", "wand", "glow", "shiro"];
+const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire", "wand", "glow", "puff", "shiro"];
 
 const mgCanvas = document.getElementById("magic");
 const mgCtx = mgCanvas.getContext("2d");
@@ -44,6 +45,7 @@ function mgOk(f) {
   if (!f || !MG_KINDS.includes(f.kind)) return false;
   if (f.kind === "bolt") return mgPt(f.from) && mgPt(f.to) && f.width > 0 && f.width < 200;
   if (f.kind === "wand") return mgPt(f.from) && mgPt(f.to) && f.size > 0 && f.size < 2000 && Number.isFinite(f.k);
+  if (f.kind === "puff") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.k);
   if (f.kind === "glow") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.level);
   if (f.kind === "duel") return mgPt(f.red) && mgPt(f.green) && mgPt(f.clash) && f.width > 0 && f.width < 200 && Number.isFinite(f.reach);
   if (f.kind === "frost") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 5000 && mgPt(f.inward) && f.level > 0;
@@ -695,6 +697,31 @@ function mgGlow(f, t) {
   }
 }
 
+// 🌑 녹스 연기: 지팡이 끝에서 검은 연기 덩이 다섯이 저마다 조금씩 비스듬히 피어올라 커지며 흐려짐 (k 0…1, 살랑 흔들림)
+function mgPuff(f, t) {
+  const k = Math.max(0, Math.min(1, f.k));
+  const fade = 1 - k;
+  if (fade <= 0) return;
+  for (let i = 0; i < 5; i++) {
+    const lag = i * 0.08;
+    const p = Math.max(0, Math.min(1, (k - lag) / (1 - lag)));
+    if (p <= 0) continue;
+    const side = (i % 2 ? 1 : -1) * (0.15 + 0.12 * i);
+    const x = f.x + f.size * (side * p + 0.08 * Math.sin(t * 3 + i * 1.7));
+    const y = f.y - f.size * (0.2 + 1.3 * p) * (0.8 + 0.1 * i);
+    const r = f.size * (0.18 + 0.35 * p) * (1 - 0.08 * i);
+    const a = 0.55 * fade * Math.min(1, p * 4);
+    const g = mgCtx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(40,36,48,${a})`);
+    g.addColorStop(0.6, `rgba(60,56,70,${a * 0.6})`);
+    g.addColorStop(1, "rgba(70,66,80,0)");
+    mgCtx.fillStyle = g;
+    mgCtx.beginPath();
+    mgCtx.arc(x, y, r, 0, Math.PI * 2);
+    mgCtx.fill();
+  }
+}
+
 function mgDraw(f, t) {
   if (f.kind === "bolt") mgBeam(f.from, f.to, f.width, mgColor(f.color), t, 1);
   else if (f.kind === "duel") mgDuel(f, t);
@@ -706,6 +733,7 @@ function mgDraw(f, t) {
   else if (f.kind === "campfire") mgCampfire(f, t);
   else if (f.kind === "wand") mgWand(f);
   else if (f.kind === "glow") mgGlow(f, t);
+  else if (f.kind === "puff") mgPuff(f, t);
   else if (f.kind === "shiro") mgShiro(f);
 }
 
@@ -717,7 +745,7 @@ function drawMagic() {
   mgGhosts = mgGhosts.filter((g) => (now - g.born) / 1000 < MG_FADE);
   mgPops = mgPops.filter((p) => (now - p.born) / 1000 < MG_POP_SECS);
   mgCtx.clearRect(0, 0, mgCanvas.width, mgCanvas.height);
-  for (const kind of ["frost", "campfire", "snake", "egg", "hatchling", "shiro", "wand", "bolt", "duel", "stag", "glow"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
+  for (const kind of ["frost", "campfire", "snake", "egg", "hatchling", "shiro", "wand", "bolt", "duel", "stag", "glow", "puff"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
   for (const g of mgGhosts) mgBeam(g.fx.from, g.fx.to, g.fx.width, mgColor(g.fx.color), t, 1 - (now - g.born) / 1000 / MG_FADE);
   for (const p of mgPops) mgPop(p, (now - p.born) / 1000 / MG_POP_SECS);
   if (mgMoving()) mgFrame = requestAnimationFrame(drawMagic);
@@ -763,6 +791,7 @@ if (window.__TAURI__) {
       { kind: "bolt", from: [W * 0.62, H * 0.75], to: [W * 0.82, H * 0.8], color: "green", width: 7 },
       { kind: "campfire", x: W * 0.12, y: H * 0.95, size: 70, level: Math.min(1, t / 2) },
       { kind: "glow", x: W * 0.4, y: H * 0.6, size: 110, level: 1 },
+      { kind: "puff", x: W * 0.5, y: H * 0.6, size: 50, k: (t % 1.5) / 1.5 },
       { kind: "wand", from: [W * 0.85, H * 0.55], to: [W * 0.92, H * 0.68], k: (t % 2) / 2, size: 40 },
     ]);
     requestAnimationFrame(demo);

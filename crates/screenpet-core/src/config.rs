@@ -85,7 +85,8 @@ pub struct Config {
     /// 💩 똥 싸기를 메뉴에서 껐음 (기본은 켜짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub poop_off: bool,
-    /// 🌗 루모스로 화면 밝히기를 켰음 (기본은 꺼짐 — 이 화면에서 "Lumos!"가 켜지면 다크 모드를 약 10초 라이트로, lumos.rs)
+    /// 🌗 루모스·녹스로 화면 밝기 바꾸기를 켰음 (기본은 꺼짐 — 이 화면에서 "Lumos!"면 다크 모드를, "Nox!"면 라이트 모드를 약 10초 반대로, lumos.rs.
+    /// 이름은 루모스만 있던 때 그대로 — 예전 선택이 이어짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub lumos_light: bool,
     /// ⏱️ 집중 친구 길이 (켜져 있는지는 남기지 않음). 모르는 값이면 25/5

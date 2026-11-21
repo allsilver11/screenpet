@@ -9,6 +9,7 @@
 //! - 🔥 Campfire: 해그리드가 피운 모닥불 (바닥 위 장작 + 일렁이는 불꽃 + 튀는 불티, level = 타오른 몫)
 //! - 🪄 Wand: ⚔️ Expelliarmus에 맞아 날아간 지팡이 (손 → 땅, k = 날아간 몫 — 일어날 때 손으로 돌아옴)
 //! - 💡 Glow: "Lumos!" 지팡이 끝의 밝은 불빛 (level = 밝기 0…1 — 덮개 창이 빛 번짐을 그림)
+//! - 🌑 Puff: "Nox!" 불이 꺼진 지팡이 끝에서 피어오르는 작은 검은 연기 (k = 퍼진 몫 0…1)
 //! - 🐶 Shiro: 짱구 곁을 졸졸 따라다니는 작은 하얀 강아지 흰둥이 (len초 머물다 사라짐 — brain_jjanggu.rs)
 //! - 🥚 Egg: 해그리드가 품은 용알 (crack = 금 간 몫) · 🐉 Hatchling: 알에서 깨어난 아기 용 (알 자리 둘레를 파닥파닥 날다 불 퐁 뿜고 사라짐)
 
@@ -48,6 +49,8 @@ pub enum MagicFx {
     Wand { from: (f64, f64), to: (f64, f64), k: f64, size: f64 },
     /// 💡 루모스 불빛: 지팡이 끝 (x, y), 빛 번짐 반지름 size, level = 밝기 0…1
     Glow { x: f64, y: f64, size: f64, level: f64 },
+    /// 🌑 녹스 연기: 지팡이 끝 (x, y), 크기 size, k = 퍼진 몫 0…1 (덮개 창이 피어오르며 흐려지는 검은 연기 몇 덩이를 그림)
+    Puff { x: f64, y: f64, size: f64, k: f64 },
     /// 🔥 모닥불: 바닥 가운데 (x, y), 장작 폭 size, level = 타오른 몫 0…1 (피울 때 커지고 끌 때 줄어듦 — 덮개 창이 일렁이는 불꽃·튀는 불티를 그림)
     Campfire { x: f64, y: f64, size: f64, level: f64 },
     /// 🐶 흰둥이: 발 가운데 (x, y — 짱구 발 높이), 크기 size, t = 온 뒤 초 (len초 — 처음·끝에 뿅 나타나고 사라짐), dir = 보는 쪽 (±1)
@@ -59,7 +62,7 @@ impl MagicFx {
     pub fn anchor(&self) -> (f64, f64) {
         match *self {
             MagicFx::Bolt { from, .. } | MagicFx::Wand { from, .. } => from,
-            MagicFx::Glow { x, y, .. } => (x, y),
+            MagicFx::Glow { x, y, .. } | MagicFx::Puff { x, y, .. } => (x, y),
             MagicFx::Duel { clash, .. } => clash,
             MagicFx::Snake { x, y, .. } | MagicFx::Stag { x, y, .. } | MagicFx::Egg { x, y, .. } | MagicFx::Hatchling { x, y, .. } | MagicFx::Campfire { x, y, .. } | MagicFx::Shiro { x, y, .. } => (x, y - 1.0),
             MagicFx::Frost { x, y, inward, .. } => (x + inward.0, y + inward.1),
@@ -104,6 +107,10 @@ impl MagicFx {
                 let (x, y) = at((x, y));
                 MagicFx::Glow { x, y, size: size * scale, level }
             }
+            MagicFx::Puff { x, y, size, k } => {
+                let (x, y) = at((x, y));
+                MagicFx::Puff { x, y, size: size * scale, k }
+            }
         }
     }
 }
@@ -128,6 +135,10 @@ mod tests {
         let g = MagicFx::Glow { x: 10.0, y: 20.0, size: 8.0, level: 1.0 };
         assert_eq!(serde_json::to_value(g).unwrap()["kind"], "glow");
         assert_eq!(g.mapped(|(x, y)| (x / 2.0, y / 2.0), 0.5), MagicFx::Glow { x: 5.0, y: 10.0, size: 4.0, level: 1.0 });
+        let n = MagicFx::Puff { x: 10.0, y: 20.0, size: 8.0, k: 0.5 };
+        assert_eq!(serde_json::to_value(n).unwrap()["kind"], "puff");
+        assert_eq!(n.anchor(), (10.0, 20.0));
+        assert_eq!(n.mapped(|(x, y)| (x / 2.0, y / 2.0), 0.5), MagicFx::Puff { x: 5.0, y: 10.0, size: 4.0, k: 0.5 });
         let dog = MagicFx::Shiro { x: 10.0, y: 20.0, size: 8.0, t: 1.0, len: 9.0, dir: -1.0 };
         assert_eq!(serde_json::to_value(dog).unwrap()["kind"], "shiro");
         assert_eq!(dog.mapped(|(x, y)| (x / 2.0, y / 2.0), 0.5), MagicFx::Shiro { x: 5.0, y: 10.0, size: 4.0, t: 1.0, len: 9.0, dir: -1.0 });

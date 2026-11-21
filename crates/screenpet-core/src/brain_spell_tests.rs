@@ -275,6 +275,69 @@ fn wizards_sometimes_cast_lumos_on_their_own() {
     assert!(muggle.casting().is_none(), "주문을 모르면 안 함");
 }
 
+/// 🌑 "Nox!": 지팡이 끝 불이 훅 꺼지며 (짧게 흐려지는 Glow) 작은 검은 연기 (MagicFx::Puff — 지팡이 끝, k가 0→1로 퍼짐), 맞는 때 한 번 알림
+/// (take_nox — 🌗 앱이 화면 어둡게, 루모스 알림은 없음)
+#[test]
+fn nox_snuffs_the_wand_light_with_a_dark_puff_and_tells_the_app_once() {
+    let w = world(vec![]);
+    let mut p = calm(caster(&[Spell::Expelliarmus], false), 600.0, 1, &w);
+    assert!(p.begin_nox());
+    assert_eq!((p.casting(), p.speech), (Some(Spell::Nox), Some(Speech::Nox)));
+    let (mut told, mut puffed, mut last_k, mut last_glow, mut glow_secs) = (0, 0.0, -1.0f64, f64::INFINITY, 0.0);
+    for _ in 0..(5.0 / DT) as usize {
+        p.update(DT, &w);
+        if p.take_nox() {
+            told += 1;
+        }
+        assert!(!p.take_lumos(), "루모스가 아님");
+        let mut fx = Vec::new();
+        p.magic_fx(&mut fx);
+        for f in fx {
+            match f {
+                MagicFx::Puff { x, y, size, k } => {
+                    puffed += DT;
+                    assert!(size > 0.0 && (0.0..=1.0).contains(&k) && k >= last_k, "{k}");
+                    last_k = k;
+                    assert_eq!((x, y), p.wand_tip(), "지팡이 끝");
+                }
+                MagicFx::Glow { level, .. } => {
+                    glow_secs += DT;
+                    assert!(level <= last_glow && level < 1.0, "꺼지기만 함");
+                    last_glow = level;
+                }
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(told, 1, "한 번만 알림");
+    assert!((puffed - wz::NOX_HOLD_SECS - (wz::CAST_SECS - wz::CAST_HIT)).abs() < 0.1, "연기 {puffed}");
+    assert!(glow_secs > 0.0 && glow_secs <= wz::NOX_SNUFF_SECS + 0.05, "불은 짧게 {glow_secs}");
+    assert!(last_k > 0.95, "다 퍼짐");
+    assert!(p.casting().is_none());
+}
+
+/// 🌑 마법사는 한가할 때 가끔 스스로 Nox (주문 주사위가 맞았을 때 NOX_CHANCE) — 주문을 모르는 펫은 안 함
+#[test]
+fn wizards_sometimes_cast_nox_on_their_own() {
+    let w = world(vec![]);
+    let mut seen = 0;
+    for seed in 0..40 {
+        let mut p = calm(caster(&[Spell::Leviosa], true), 600.0, seed, &w);
+        p.spell.ready_at = 0.0;
+        for _ in 0..(60.0 / DT) as usize {
+            p.update(DT, &w);
+            if p.casting() == Some(Spell::Nox) {
+                seen += 1;
+                break;
+            }
+        }
+    }
+    assert!(seen > 0, "가끔은 Nox");
+    let mut muggle = calm(pet_cfg(), 600.0, 1, &w);
+    assert!(!muggle.begin_nox());
+    assert!(muggle.casting().is_none(), "주문을 모르면 안 함");
+}
+
 /// 🪶 Leviosa로 작업표시줄 앱 아이콘 띄우기: 아이콘을 만들 수 있으면 (set_icon_lift_ok) 바닥에서 "Wingardium Leviosa!" — 흐물이처럼
 /// 아이콘을 달라고 하고 (JuggleEvent::Pull), 앱이 발 앞 바닥 (icon_lift_wanted)에 장난감 아이콘을 만들어 띄우면 (icon_lifted) 끝
 #[test]

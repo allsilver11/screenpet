@@ -536,6 +536,8 @@ pub enum Speech {
     DuelRest,
     /// 💡 지팡이 끝에 불을 밝힘 ("Lumos!", brain_spell.rs)
     Lumos,
+    /// 🌑 지팡이 끝 불을 끔 ("Nox!", brain_spell.rs)
+    Nox,
     /// 🍑 짱구 엉덩이 춤 ("buri buri~", brain_jjanggu.rs)
     BuriBuri,
     /// 🦸 짱구 액션가면 흉내 ("Action beam!")

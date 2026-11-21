@@ -68,7 +68,7 @@ pub trait WindowSource: Send {
     fn request_typing_permission(&mut self) {}
 }
 
-/// 🌗 이 OS의 테마를 읽고 쓰는 것 (lumos.rs — 루모스로 화면 밝히기). 지원하지 않는 OS는 None
+/// 🌗 이 OS의 테마를 읽고 쓰는 것 (lumos.rs — 루모스·녹스로 화면 밝기 바꾸기). 지원하지 않는 OS는 None
 pub fn theme_backend() -> Option<Box<dyn crate::lumos::ThemeBackend + Send>> {
     #[cfg(windows)]
     return Some(Box::new(win32::Win32Theme));

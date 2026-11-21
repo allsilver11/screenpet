@@ -151,4 +151,12 @@ out.wizard_filtered = h.alive();
 out.wizard_frames = h.frames(10);
 out.wizard_glow = h.count("createRadialGradient");
 out.wizard_turns = h.count("rotate");
+// 🌑 녹스 연기: 이상한 값은 버리고 프레임을 돌리며 검은 연기 덩이 (그라데이션 원)를 그림
+const puff = { kind: "puff", x: 300, y: 800, size: 40, k: 0.4 };
+h = load();
+h.send("trail-magic", [puff, { ...puff, k: NaN }, { ...puff, size: 0 }]);
+out.puff_filtered = h.alive();
+out.puff_frames = h.frames(10);
+out.puff_gradients = h.count("createRadialGradient");
+out.puff_arcs = h.count("arc");
 process.stdout.write(JSON.stringify(out));

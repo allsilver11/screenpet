@@ -305,7 +305,7 @@ fn cg_screens() -> Vec<Screen> {
         .collect()
 }
 
-/// 🌗 macOS 테마 (lumos.rs — 루모스로 화면 밝히기): osascript로 System Events의 appearance preferences dark mode를 읽고 씀
+/// 🌗 macOS 테마 (lumos.rs — 루모스·녹스로 화면 밝기 바꾸기): osascript로 System Events의 appearance preferences dark mode를 읽고 씀
 /// (처음엔 macOS가 "자동화" 권한을 물음 — 거절하면 못 읽어 아무것도 안 바꿈). 앱·시스템이 하나라 Theme의 두 값이 같음
 pub struct MacTheme;
 

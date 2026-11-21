@@ -14,6 +14,8 @@
 //!     못 받으면 (icon_lift_failed · ICON_WAIT_SECS 넘김) 곁의 보통 물건을 띄움
 //!   · 💡 Lumos (주문을 아는 마법사 누구나 — 주문 주사위가 맞으면 LUMOS_CHANCE): 지팡이를 들고 LUMOS_SECS 동안 끝에 밝은 불빛
 //!     (MagicFx::Glow), 맞는 때 앱에 한 번 알림 (take_lumos — 🌗 lumos.rs 화면 밝히기)
+//!   · 🌑 Nox (Lumos의 반대 — 그다음 몫 NOX_CHANCE): "Nox!" 지팡이 끝 불이 훅 꺼지며 (잠깐 흐려지는 Glow) 작은 검은 연기 (MagicFx::Puff),
+//!     맞는 때 앱에 한 번 알림 (take_nox — 🌗 lumos.rs 화면 어둡게)
 //!   📌 장난감 아이콘·거대한 것은 노리지 않음.
 //! - ✨ 둥둥 (State::Float): 몸은 디딤판에 둔 채 창만 wizard::float_height만큼 떠올라 살랑 → 내려옴 (dragged 그림 + 반짝이). 디딤판이 사라지면 떨어짐
 //! - 훅: casting (지금 거는 주문 — 다른 펫이 봄) · wand_tip (지팡이 끝 — 빛줄기·사슴 자리)
@@ -33,7 +35,7 @@ pub enum SpellTarget {
     Pet { key: u64, x: f64 },
     /// 바닥의 물건 (id, 바닥 가운데 x)
     Object { id: u64, x: f64 },
-    /// 발밑 바닥의 한 자리 (🐍 나기니가 나올 곳 · 💡 Lumos)
+    /// 발밑 바닥의 한 자리 (🐍 나기니가 나올 곳 · 💡 Lumos · 🌑 Nox)
     Floor { x: f64 },
     /// 🪶 작업표시줄에서 뽑아 띄울 앱 아이콘 자리 (바닥 x)
     Icon { x: f64 },
@@ -59,7 +61,7 @@ pub struct Cast {
     pub hit: bool,
     /// 노리는 자리 (물리 px — ⚡ 빛줄기·🦌 사슴이 가는 곳)
     pub aim: (f64, f64),
-    /// 휘두른 뒤 지팡이를 들고 있는 시간 (초 — 💡 Lumos, 아니면 0)
+    /// 휘두른 뒤 지팡이를 들고 있는 시간 (초 — 💡 Lumos·🌑 Nox, 아니면 0)
     pub hold: f64,
 }
 
@@ -88,6 +90,8 @@ pub struct SpellMood {
     extra_rng: fastrand::Rng,
     /// 💡 Lumos가 막 켜짐 (앱이 take_lumos로 한 번 꺼냄)
     lumos_lit: bool,
+    /// 🌑 Nox로 막 꺼짐 (앱이 take_nox로 한 번 꺼냄)
+    nox_out: bool,
     /// 🪶 지금 장난감 아이콘을 만들 수 있음 (앱이 매 틱 — 내 펫만)
     icon_ok: bool,
     /// 🪶 기다리는 아이콘 자리와 그만 기다릴 시각 (clock)
@@ -104,6 +108,7 @@ impl SpellMood {
             pet_event: None,
             extra_rng: fastrand::Rng::with_seed(seed ^ 0x6c75_6d6f),
             lumos_lit: false,
+            nox_out: false,
             icon_ok: false,
             icon_wait: None,
         }
@@ -154,7 +159,8 @@ impl Pet {
         (self.body.x + facing * gx * size, self.body.y - size + gy * size)
     }
 
-    /// ⚡ Stupefy 빛줄기 (맞는 때 조금 앞부터 휘두르기가 끝날 때까지 — 덮개 창이 그림) · 💡 Lumos 불빛 (맞는 때부터 들고 있는 동안)
+    /// ⚡ Stupefy 빛줄기 (맞는 때 조금 앞부터 휘두르기가 끝날 때까지 — 덮개 창이 그림) · 💡 Lumos 불빛 (맞는 때부터 들고 있는 동안) ·
+    /// 🌑 Nox 연기 (맞는 때부터 끝까지 — 처음 NOX_SNUFF_SECS는 꺼져 가는 불빛도)
     pub(super) fn spell_fx(&self, out: &mut Vec<MagicFx>) {
         if let State::Cast { cast, t } = self.state {
             if cast.spell == Spell::Lumos && t >= wz::CAST_HIT {
@@ -162,6 +168,16 @@ impl Pet {
                 let level = ((t - wz::CAST_HIT) / wz::LUMOS_RAMP_SECS).min((end - t) / wz::LUMOS_FADE_SECS).clamp(0.0, 1.0);
                 let (x, y) = self.wand_tip();
                 out.push(MagicFx::Glow { x, y, size: wz::LUMOS_GLOW * self.cfg.size, level });
+            }
+            if cast.spell == Spell::Nox && t >= wz::CAST_HIT {
+                let (x, y) = self.wand_tip();
+                let since = t - wz::CAST_HIT;
+                let snuff = 1.0 - since / wz::NOX_SNUFF_SECS;
+                if snuff > 0.0 {
+                    out.push(MagicFx::Glow { x, y, size: wz::LUMOS_GLOW * self.cfg.size * 0.6, level: 0.8 * snuff });
+                }
+                let k = (since / (wz::CAST_SECS + cast.hold - wz::CAST_HIT)).clamp(0.0, 1.0);
+                out.push(MagicFx::Puff { x, y, size: wz::NOX_PUFF * self.cfg.size, k });
             }
             if cast.spell == Spell::Stupefy && !cast.fizzle && t >= wz::CAST_HIT - wz::BOLT_LEAD_SECS {
                 out.push(MagicFx::Bolt { from: self.wand_tip(), to: cast.aim, color: BeamColor::Green, width: wz::BOLT_WIDTH * self.cfg.size });
@@ -184,9 +200,13 @@ impl Pet {
         if self.spell.rng.f64() >= wz::SPELL_RATE * self.power() * dt {
             return false;
         }
-        // 💡 가끔은 대상 없이 Lumos
-        if self.spell.extra_rng.f64() < wz::LUMOS_CHANCE {
+        // 💡 가끔은 대상 없이 Lumos, 🌑 그다음 몫은 Nox
+        let roll = self.spell.extra_rng.f64();
+        if roll < wz::LUMOS_CHANCE {
             return self.begin_lumos();
+        }
+        if roll < wz::LUMOS_CHANCE + wz::NOX_CHANCE {
+            return self.begin_nox();
         }
         self.start_spell()
     }
@@ -208,6 +228,24 @@ impl Pet {
     /// 💡 Lumos가 막 켜졌음 (앱이 매 틱 한 번 꺼냄 — 🌗 이 화면을 잠깐 라이트 모드로, lumos.rs)
     pub fn take_lumos(&mut self) -> bool {
         std::mem::take(&mut self.spell.lumos_lit)
+    }
+
+    /// 🌑 "Nox!" — 지팡이 끝 불을 끄고 NOX_HOLD_SECS 동안 작은 검은 연기 (주문을 모르면 false)
+    pub(super) fn begin_nox(&mut self) -> bool {
+        if self.cfg.spells.is_empty() {
+            return false;
+        }
+        let tip = self.wand_tip();
+        self.begin_cast_at(Spell::Nox, SpellTarget::Floor { x: self.body.x }, tip);
+        if let State::Cast { cast, t } = self.state {
+            self.state = State::Cast { cast: Cast { hold: wz::NOX_HOLD_SECS, ..cast }, t };
+        }
+        true
+    }
+
+    /// 🌑 Nox로 막 꺼졌음 (앱이 매 틱 한 번 꺼냄 — 🌗 이 화면을 잠깐 다크 모드로, lumos.rs)
+    pub fn take_nox(&mut self) -> bool {
+        std::mem::take(&mut self.spell.nox_out)
     }
 
     /// 🪶 앱이 매 틱 (내 펫만): 지금 장난감 아이콘을 만들 수 있나. 기다리던 아이콘이 ICON_WAIT_SECS 넘게 안 오면 보통 물건을 띄움
@@ -343,6 +381,7 @@ impl Pet {
             Spell::Serpensortia => Speech::Nagini,
             Spell::Patronus => Speech::Patronus,
             Spell::Lumos => Speech::Lumos,
+            Spell::Nox => Speech::Nox,
         });
         self.state = State::Cast { cast: Cast { spell, target, fizzle, hit: false, aim, hold: 0.0 }, t: 0.0 };
     }
@@ -405,6 +444,7 @@ impl Pet {
             (Spell::Serpensortia, SpellTarget::Floor { x }) => self.summon_nagini(x),
             (Spell::Patronus, SpellTarget::Pet { key, .. }) => self.release_stag(key, cast.aim),
             (Spell::Lumos, _) => self.spell.lumos_lit = true,
+            (Spell::Nox, _) => self.spell.nox_out = true,
             _ => {}
         }
     }

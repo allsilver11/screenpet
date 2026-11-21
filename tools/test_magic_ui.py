@@ -134,6 +134,12 @@ def test_wand_and_lumos_glow_animate_and_are_checked(run):
     assert run["wizard_frames"] == 10 and run["wizard_glow"] >= 10 and run["wizard_turns"] >= 10
 
 
+def test_nox_puff_animates_and_is_checked(run):
+    """🌑 녹스 연기 (puff — 피어오르는 검은 연기 덩이): 이상한 값은 버리고, 있는 동안 프레임을 돌리며 그림."""
+    assert run["puff_filtered"] == 1
+    assert run["puff_frames"] == 10 and run["puff_gradients"] >= 10 * 3 and run["puff_arcs"] >= 10 * 3
+
+
 def test_long_duel_and_lumos_speech_topple_and_help():
     """⚔️ 긴 결투·💡 루모스: 새 말풍선 키마다 기본 영어 대사 (ui/main.js EXTRA_SPEECH — 코어 Speech와 같은 이름), Petrificus에 통나무처럼 눕기
     (render.topple — 가운데를 축으로 돌려 바닥 쪽으로), 앱이 이 화면의 Lumos를 🌗 일꾼에게 넘기고 ⚙️ 설정 체크 항목이 있음, 도움말 (해요체)."""
@@ -142,18 +148,19 @@ def test_long_duel_and_lumos_speech_topple_and_help():
     extra = MAIN[MAIN.index("const EXTRA_SPEECH = {") :]
     extra = extra[: extra.index("\n};")]
     for v, key in (("Petrificus", "petrificus"), ("AvadaKedavra", "avada_kedavra"), ("Petrified", "petrified"), ("Dodged", "dodged"),
-                   ("DuelFlee", "duel_flee"), ("DuelChase", "duel_chase"), ("DuelRest", "duel_rest"), ("Lumos", "lumos")):
+                   ("DuelFlee", "duel_flee"), ("DuelChase", "duel_chase"), ("DuelRest", "duel_rest"), ("Lumos", "lumos"), ("Nox", "nox")):
         assert re.search(rf"^\s{{4}}{v},", enum, re.M), v
         assert re.search(rf"\b{key}: \[\"", extra), key
-    assert '"Petrificus Totalus!"' in extra and '"Avada Kedavra!"' in extra and '"Lumos!"' in extra
+    assert '"Petrificus Totalus!"' in extra and '"Avada Kedavra!"' in extra and '"Lumos!"' in extra and '"Nox!"' in extra
     assert re.search(r"^    pub topple: f64,", BRAIN, re.M) and "render.topple" in MAIN and "rotate(${topple" in MAIN
-    assert "take_lumos()" in LOOP and "lumos::spawn(" in LOOP and "ToggleLumosLight" in LOOP and "set_icon_lift_ok(" in LOOP
+    assert "take_lumos()" in LOOP and "take_nox()" in LOOP and "l.nox();" in LOOP and "lumos::spawn(" in LOOP and "ToggleLumosLight" in LOOP and "set_icon_lift_ok(" in LOOP
     tray = (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
-    assert "🌗 루모스로 화면 밝히기" in tray and "&lumos_light, &autostart]" in tray
+    assert "🌗 루모스·녹스로 화면 밝기 바꾸기" in tray and "&lumos_light, &autostart]" in tray
     help_html = (UI / "help.html").read_text(encoding="utf-8")
     for start, words in (("⚔️ <b>결투</b>", ("Expelliarmus!", "Petrificus Totalus!", "Avada Kedavra!", "2초", "catch me!", "흩어져요")),
-                         ("💡 \"Lumos!\"", ("🌗 루모스로 화면 밝히기", "라이트 모드")),
-                         ("<b>⚙️ 설정 ▸ 🌗 루모스로 화면 밝히기</b>", ("꺼져 있어요", "되돌려요", "1분"))):
+                         ("💡 \"Lumos!\"", ("🌗 루모스·녹스로 화면 밝기 바꾸기", "라이트 모드")),
+                         ("🌑 \"Nox!\"", ("🌗 루모스·녹스로 화면 밝기 바꾸기", "다크 모드", "연기")),
+                         ("<b>⚙️ 설정 ▸ 🌗 루모스·녹스로 화면 밝기 바꾸기</b>", ("꺼져 있어요", "되돌려요", "1분", "Nox!", "다크 모드"))):
         li = next(li for li in help_html.split("<li>") if li.startswith(start))
         assert all(w in li for w in words) and li.rstrip().endswith("요.</li>"), start
     assert "앱 아이콘 하나를 쏙 뽑아" in help_html

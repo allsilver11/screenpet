@@ -918,7 +918,7 @@ const EXTRA_SPEECH = {
   pester: ["psst!", "play with me?", "boo!"],
   shh: ["Shh! I'm studying!"],
   oh_alright: ["Oh, alright!"],
-  // ⚔️ 긴 결투 (코어 brain_duel.rs): 헤르미온느·볼드모트 저주 / 뻣뻣 / 피함 / 달아남 / 쫓음 / 숨 고르기 · 💡 루모스 (brain_spell.rs)
+  // ⚔️ 긴 결투 (코어 brain_duel.rs): 헤르미온느·볼드모트 저주 / 뻣뻣 / 피함 / 달아남 / 쫓음 / 숨 고르기 · 💡 루모스 · 🌑 녹스 (brain_spell.rs)
   petrificus: ["Petrificus Totalus!"],
   avada_kedavra: ["Avada Kedavra!"],
   petrified: ["mmph!", "!!"],
@@ -927,6 +927,7 @@ const EXTRA_SPEECH = {
   duel_chase: ["get back here!", "come back!"],
   duel_rest: ["huff... huff...", "phew..."],
   lumos: ["Lumos!"],
+  nox: ["Nox!"],
   // 🐍 볼드모트·👻 디멘터·⚔️ 결투·🦌 패트로누스 (코어 brain_spell.rs·brain_dark.rs·brain_duel.rs·brain_dementor.rs): ⚡ 초록 빛 주문 /
   // 💫 맞아서 기절 · 🐍 나기니 부르기 · 😈 웃음 · ⚔️ 결투 걸기 · 🦌 은빛 사슴 · 👻 곁에서 시무룩 / 쫓겨 도망
   stupefy: ["Stupefy!"],

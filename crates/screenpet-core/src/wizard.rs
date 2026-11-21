@@ -9,6 +9,7 @@
 //!   · Reparo: 바닥의 작은 물건 하나를 반짝 치움
 //!   · 🪶 Leviosa로 앱 아이콘: ICON_LIFT_CHANCE로 발 앞 (ICON_AHEAD)에 작업표시줄 아이콘을 뽑아 띄움, ICON_WAIT_SECS 안에 안 오면 보통 물건
 //!   · 💡 Lumos: 주문 주사위가 맞으면 LUMOS_CHANCE로 LUMOS_SECS 동안 지팡이 끝 불빛 (LUMOS_GLOW 반지름)
+//!   · 🌑 Nox: 주문 주사위가 맞으면 NOX_CHANCE로 지팡이 끝 불이 꺼지며 작은 검은 연기 (NOX_PUFF 크기, NOX_HOLD_SECS 동안)
 //! - 📖 책 읽기 (책벌레): 초당 READ_RATE로 READ_SECS 동안 앉아 읽음, 가끔 STUDY_LINE_RATE로 "fascinating..."
 //! - 🙋 "I know!": 초당 KNOW_RATE로 KNOW_SECS 손 번쩍
 //! - 👜 가방 청소: 같은 디딤판에 물건이 BAG_MIN개 넘게 있으면 초당 BAG_RATE로 시작 — 가까운 것부터 하나씩 가방에 쏙 (BAG_STUFF_SECS, BAG_GULP_AT에 뿅).
@@ -59,6 +60,8 @@ pub enum Spell {
     Patronus,
     /// 💡 지팡이 끝에 불 밝히기 (주문을 아는 마법사 누구나 — pet.json에 적지 않아도 됨)
     Lumos,
+    /// 🌑 지팡이 끝 불 끄기 ("Nox!" — 작은 검은 연기, 주문을 아는 마법사 누구나 — pet.json에 적지 않아도 됨)
+    Nox,
 }
 
 impl Spell {
@@ -72,6 +75,7 @@ impl Spell {
             Spell::Serpensortia => 16,
             Spell::Patronus => 32,
             Spell::Lumos => 64,
+            Spell::Nox => 128,
         }
     }
 }
@@ -134,6 +138,12 @@ pub const LUMOS_SECS: (f64, f64) = (3.0, 5.0);
 pub const LUMOS_RAMP_SECS: f64 = 0.25;
 pub const LUMOS_FADE_SECS: f64 = 0.6;
 pub const LUMOS_GLOW: f64 = 0.9;
+/// 🌑 주문 때 대상 없이 Nox를 거는 몫 (LUMOS_CHANCE 다음 몫) · 휘두른 뒤 연기가 퍼지는 동안 들고 있는 시간 (초) · 꺼지는 불이 흐려지는 시간 (초) ·
+/// 연기 크기 (몸 크기 배)
+pub const NOX_CHANCE: f64 = 0.15;
+pub const NOX_HOLD_SECS: f64 = 1.0;
+pub const NOX_SNUFF_SECS: f64 = 0.3;
+pub const NOX_PUFF: f64 = 0.45;
 
 /// 📖 처음 책을 읽을 수 있게 되는 때 (clock 초)
 pub const READ_FIRST_SECS: f64 = 20.0;

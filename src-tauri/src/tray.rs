@@ -96,9 +96,9 @@ pub const TYPING_PERMISSION_EXPLAIN: &str = "타자 속도만 세요 — 무엇�
 pub const TYPING_RESTART_HINT: &str = "앱을 다시 켜면 타자 응원이 시작돼요";
 const POOP_ID: &str = "poop";
 const POOP_LABEL: &str = "💩 펫이 똥 싸기";
-/// 🌗 루모스로 화면 밝히기 (⚙️ 설정 체크 항목, 기본 끔 — 설정에 남음, 코어 lumos.rs)
+/// 🌗 루모스·녹스로 화면 밝기 바꾸기 (⚙️ 설정 체크 항목, 기본 끔 — 설정에 남음 (Config.lumos_light 그대로), 코어 lumos.rs)
 const LUMOS_LIGHT_ID: &str = "lumos-light";
-const LUMOS_LIGHT_LABEL: &str = "🌗 루모스로 화면 밝히기";
+const LUMOS_LIGHT_LABEL: &str = "🌗 루모스·녹스로 화면 밝기 바꾸기";
 /// ⏱️ 집중 친구 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남음)
 const FOCUS_TOGGLE_ID: &str = "focus:toggle";
 const FOCUS_SHORT_ID: &str = "focus:short";
@@ -207,7 +207,7 @@ pub struct TrayMenu {
     pub settings: Submenu<Wry>,
     /// 💩 똥 싸기 (게임 루프가 실제 설정으로 다시 맞춤)
     pub poop: CheckMenuItem<Wry>,
-    /// 🌗 루모스로 화면 밝히기 (게임 루프가 실제 설정으로 다시 맞춤)
+    /// 🌗 루모스·녹스로 화면 밝기 바꾸기 (게임 루프가 실제 설정으로 다시 맞춤)
     pub lumos_light: CheckMenuItem<Wry>,
     /// 🌨️ 날씨 효과 (일 년 내내 켜고 끔)
     pub weather: CheckMenuItem<Wry>,

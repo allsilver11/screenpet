@@ -386,7 +386,7 @@ pub fn hide_window_quietly(hwnd: isize) {
     }
 }
 
-/// 🌗 Windows 테마 (lumos.rs — 루모스로 화면 밝히기): HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize의
+/// 🌗 Windows 테마 (lumos.rs — 루모스·녹스로 화면 밝기 바꾸기): HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize의
 /// AppsUseLightTheme·SystemUsesLightTheme (DWORD)를 읽고 쓰고, 바꾸면 모든 창에 WM_SETTINGCHANGE "ImmersiveColorSet"을 알림
 pub struct Win32Theme;
 
