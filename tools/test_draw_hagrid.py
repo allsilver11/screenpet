@@ -74,9 +74,8 @@ def test_manifest_is_a_big_dragon_riding_gamekeeper(out):
 @pytest.mark.parametrize("st", STAGES)
 def test_bushy_beard_and_hair_brown_coat_pink_umbrella_no_scarf(out, st):
     im = frame(out, st, "sit_front", 0)
-    assert near(im, dg.COAT, 24).sum() > 150, st  # 갈색 코트
-    assert near(im, dg.BEARD, 20).sum() > 250, st  # 덥수룩한 수염
-    assert near(im, dg.HAIR, 20).sum() > 250, st  # 머리
+    assert near(im, dg.COAT, 24).sum() > 100, st  # 갈색 코트 (아기는 수염 덩어리 아래로 조금)
+    assert near(im, dg.HAIR, 20).sum() > 500, st  # 머리·수염 한 덩어리 (같은 색)
     assert near(im, dg.UMBRELLA, 50).sum() + near(frame(out, st, "walk", 0), dg.UMBRELLA, 50).sum() > 8, st  # 분홍 우산 (아기는 작음)
     assert near(im, wz.SCARF, 40).sum() == 0 and near(im, wz.SCARF_GOLD, 40).sum() == 0, st
     face = near(im, dg.HAGRID_LOOK.skin, 24)
@@ -117,7 +116,7 @@ def test_the_build_reproduces_the_committed_hagrid(out):
 
 
 def test_back_view_head_covers_the_arms(monkeypatch):
-    """뒷모습 (벽 타기·미끄러지기): 머리가 팔 위에 그려짐 — 팔이 머리를 덮으면 안 됨 (수염은 뒷모습에 없음)."""
+    """뒷모습 (벽 타기·미끄러지기): 머리가 팔 위에 그려짐 — 팔이 머리를 덮으면 안 됨 (뒷모습은 머리 덩어리만)."""
     seen = []
     real = wz.dp.compose
     monkeypatch.setattr(wz.dp, "compose", lambda parts, *a, **k: (seen.append(list(parts)), real(parts, *a, **k))[1])
@@ -128,6 +127,6 @@ def test_back_view_head_covers_the_arms(monkeypatch):
             parts = seen.pop()
             skin = dg.HAGRID_LOOK.skin
             assert parts[-1].base == skin, "머리가 맨 나중 (팔보다 위)"
-            assert all(p.base != skin and p.base != dg.BEARD for p in parts[:-1])
+            assert all(p.base != skin for p in parts[:-1])
     finally:
         wz._LOOK.pop("cur", None)

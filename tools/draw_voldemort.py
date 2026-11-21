@@ -1,4 +1,4 @@
-"""볼드모트 🐍 — 창백한 대머리, 코 없이 납작한 두 줄 콧구멍, 붉은 눈, 까만 로브 (초록 안감), 하얀 뼈 지팡이의 꼬마 마법사 펫(voldemort).
+"""볼드모트 🐍 — 창백한 대머리, 코 없이 납작한 얼굴에 콧구멍 점 둘, 웃지 않는 일자 입·비웃음, 붉은 눈, 까만 로브 (초록 안감), 하얀 뼈 지팡이의 꼬마 마법사 펫(voldemort).
 몸·동작은 draw_wizard (해리·헤르미온느와 같은 몸 — 목도리 없음)를 쓰고, 여기서는 생김새(Look)와 등록만.
 
     python tools/draw_voldemort.py → ui/pets/voldemort/{sheet_<stage>.png ×5, pet.json} + tools/preview/{stages_voldemort,climb_voldemort,wizard_voldemort}.png
@@ -42,14 +42,14 @@ def bald(view_, hx, hy, hrx, hry, q):
 
 
 def snake_face(view_, hx, hy, hrx, hry, far_eye, near_eye):
-    """코 없는 얼굴: 앞모습은 눈 사이 아래에 납작한 두 줄 콧구멍, 옆모습은 콧등 없이 한 줄."""
+    """코 없는 납작한 얼굴: 콧등 없이 작은 콧구멍 점 둘 (앞모습은 눈 사이 아래 좌우로, 옆모습은 얼굴 앞쪽에 하나)."""
     (x0, y0), (x1, y1) = far_eye, near_eye
     if view_ == "front":
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2 + 0.3 * hry
-        return [([L([(cx - 3.6, cy - 1.6), (cx - 1.6, cy + 1.4)], 1.3), L([(cx + 3.6, cy - 1.6), (cx + 1.6, cy + 1.4)], 1.3)], SLIT)]
+        return [([E(cx - 3.2, cy - 0.7, cx - 1.2, cy + 0.9), E(cx + 1.2, cy - 0.7, cx + 3.2, cy + 0.9)], SLIT)]
     if view_ == "side":
-        nx, ny = x0 + 0.06 * hrx, y1 + 0.3 * hry
-        return [([L([(nx - 2.2, ny - 1.4), (nx + 0.4, ny + 1.4)], 1.3)], SLIT)]
+        nx, ny = x0 + 0.04 * hrx, y1 + 0.3 * hry
+        return [([E(nx - 1.0, ny - 0.7, nx + 1.0, ny + 0.9)], SLIT)]
     return []
 
 
@@ -66,7 +66,9 @@ def fish_bubble_fx(cx, cy, r=12.0):
 
 VOLDEMORT_LOOK = wz.Look(hair=bald, hair_col=SKIN, skin=SKIN, skin_shade=SKIN_SHADE, extra=snake_face, food_fx=fish_bubble_fx, wand=WAND, wand_tip=WAND_TIP,
                          robe=ROBE, robe_far=ROBE_FAR, robe_in=ROBE_IN, jumper=JUMPER, pants=PANTS, pants_far=PANTS_FAR, scarf=False, blush=None, side_ear=False,
-                         eyes=(EYE_RED, EYE_RED_HI))
+                         eyes=(EYE_RED, EYE_RED_HI),
+                         eye_swap={"happy": "dot", "tight": "flat"},  # 웃는 ^^·질끈 눈 → 붉은 눈·가늘게 뜬 눈
+                         mouth_swap={"smile": "flat", "chew": "flat", "open": "sneer", "big": "sneer", "grin": "sneer"})  # 웃지 않음: 일자 입·비웃음
 VOLDEMORT_POSES = wz.poses_for(VOLDEMORT_LOOK)
 
 VOLDEMORT = Species(

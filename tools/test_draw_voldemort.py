@@ -113,3 +113,17 @@ def test_back_view_head_covers_the_arms(monkeypatch):
         parts = seen.pop()
         assert parts[-1].base == dv.SKIN, "머리가 맨 나중 (팔보다 위)"
         assert all(p.base != dv.SKIN for p in parts[:-1])
+
+
+
+def test_he_never_smiles(monkeypatch, tmp_path):
+    """웃지 않음: 모든 칸의 입은 일자·비웃음·찡그림 (smile·open·big·grin 없음), 웃는 ^^·질끈 눈도 없음."""
+    mouths, eyes = set(), set()
+    real_m, real_e = wz.mouth_ops, draw_pets.eye
+    monkeypatch.setattr(wz, "mouth_ops", lambda kind, *a: (mouths.add(kind), real_m(kind, *a))[1])
+    monkeypatch.setattr(draw_pets, "eye", lambda kind, *a, **k: (eyes.add(kind), real_e(kind, *a, **k))[1])
+    monkeypatch.setattr(draw_pets, "SPECIES", {"voldemort": dv.VOLDEMORT})
+    monkeypatch.setattr(draw_pets, "_RENDERED", {})  # 그려 둔 칸 캐시를 비워 새로 그리게
+    draw_pets.build(tmp_path)
+    assert mouths and not mouths & {"smile", "open", "big", "grin"}, mouths
+    assert eyes and "happy" not in eyes and "tight" not in eyes, eyes

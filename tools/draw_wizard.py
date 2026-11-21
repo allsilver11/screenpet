@@ -86,6 +86,8 @@ class Look:
     dims: dict = field(default_factory=dict)  # WIZ 치수에 곱하는 배 (해그리드: 넓은 어깨·굵은 팔다리·작은 머리) — 없으면 그대로
     beard: Callable = None  # beard(view_, hx, hy, hrx, hry) → 머리 위에 얹는 수염 Part 또는 None (해그리드)
     prop: Callable = None  # prop(hand, a, length) → (Part, 끝 자리) — 지팡이 대신 든 것 (해그리드 분홍 우산)
+    eye_swap: dict = field(default_factory=dict)  # 눈 종류 바꿔치기 (볼드모트: 웃는 ^^ 눈 → 붉은 눈) — 비면 그대로
+    mouth_swap: dict = field(default_factory=dict)  # 입 종류 바꿔치기 (볼드모트: 웃는 입 → 일자·비웃음) — 비면 그대로
 
 
 _LOOK = {}  # 지금 그리는 종의 Look (poses_for가 칸마다 바꿈)
@@ -187,9 +189,13 @@ def eye_ops(kind, cx, cy, flip, brow=None, sx=1.0):
 
 
 def mouth_ops(kind, cx, cy):
-    """입: None 없음 · smile 빙긋 · open · big · grin · frown · pout · chew · o (동그랗게 오)."""
+    """입: None 없음 · smile 빙긋 · open · big · grin · frown · pout · chew · o (동그랗게 오) · flat 일자 · sneer 한쪽만 처진 비웃음."""
     if kind is None:
         return []
+    if kind == "flat":
+        return [([L([(cx - 3.0, cy - 0.6), (cx + 3.0, cy - 0.6)], 1.3)], MOUTH)]
+    if kind == "sneer":
+        return [([L([(cx - 3.4, cy + 0.4), (cx + 0.6, cy - 0.4), (cx + 3.4, cy - 1.4)], 1.3)], MOUTH)]
     if kind == "smile":
         return [([L(dp.arc(cx, cy - 1.6, 3.2, 2.4, 25, 155, 10), 1.4)], MOUTH)]
     if kind == "open":
@@ -228,6 +234,7 @@ def face_ops(view_, hx, hy, eyes, brow, mouth, look_, blush_on):
     hrx, hry = s["hrx"], s["hry"]
     lx, _ = look_
     ops = []
+    eyes, mouth = lk.eye_swap.get(eyes, eyes), lk.mouth_swap.get(mouth, mouth)
     (ex0, ey0), (ex1, ey1) = eye_spots(view_, hx, hy, look_)
     if view_ == "front":
         ops += eye_ops(eyes, ex0, ey0, False, brow)
@@ -802,9 +809,14 @@ def wz_roll(sp, i):
             dp.mark_head(hx, hy - hry + 2, hrx * 1.6)
             face = []
             for flip, lx in ((False, hx - 2), (True, hx + 11)):
+                if "happy" in lk.eye_swap:  # 볼드모트: 웃는 눈 대신 자기 눈 (붉은 눈)
+                    with xf(sx=0.7 / lk.eye_k, sy=0.7 / lk.eye_k, pivot=(lx, hy + 1)):
+                        face += eye_ops(lk.eye_swap["happy"], lx, hy + 1, flip)
+                    continue
                 with xf(sx=0.7, sy=0.7, pivot=(lx, hy + 1)):
                     face += dp.eye("happy", lx, hy + 1, flip)
-            face += mouth_ops("open" if i else "smile", hx + 6, hy + 12)
+            m = "open" if i else "smile"
+            face += mouth_ops(lk.mouth_swap.get(m, m), hx + 6, hy + 12)
         clip = dp.shapes([C(cx, cy, ROLL_RADIUS - 1.25 * dp.OUTLINE * _ST["line"] - 1.2)])
     return dp.compose([body, knee, shoe] + ([band] if lk.scarf else []) + [head, hand], face, clip=clip)
 
