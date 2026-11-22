@@ -1,4 +1,5 @@
-//! 🙆 다른 동물 번쩍 들기 (흐물이, v0.6.3) — brain.rs의 자식 모듈. 같은 화면 동물들 사이의 일은 notice_pets·sync_lifts (앱이 틱마다).
+//! 🙆 다른 동물 번쩍 들기 (흐물이 v0.6.3 · 😜 pet.json `pranks` hoist를 받은 영웅·마법사 — cfg.hoists) — brain.rs의 자식 모듈.
+//! stuff·carry_run 그림이 없는 장난꾸러기는 carry로 달리고 hold로 내려놓음. 같은 화면 동물들 사이의 일은 notice_pets·sync_lifts (앱이 틱마다).
 //!
 //! - 같은 바닥에서 쉬거나 걷는 다른 동물 (내 동물·손님 모두)을 처음 알아채면 LIFT_CHANCE로 다가가 쪼그려 머리 위로 번쩍 (lift → hold).
 //!   들린 동물은 State::Lifted — 잡힌 그림(dragged)으로 버둥버둥 (render.wobble) "Put me down!". 흐물이는 조금 들고 다니다가
@@ -183,7 +184,9 @@ impl Pet {
             State::Hoist { phase, t } => match phase {
                 HoistPhase::Lift { .. } => g.lift.at(t),
                 HoistPhase::Wander { .. } => g.carry.at(t),
-                HoistPhase::CarryOff { .. } => g.carry_run.at(t),
+                HoistPhase::CarryOff { .. } => self.carry_run_grip(t),
+                // stuff 그림이 없는 장난꾸러기는 든 채 서서 (hold) 내려놓음
+                HoistPhase::PutDown { .. } if g.stuff.n == 0 => g.hold.at(t),
                 HoistPhase::PutDown { .. } => g.stuff.at(t + 0.2),
                 _ => g.hold.at(0.0),
             },
@@ -282,8 +285,8 @@ impl Pet {
 
     /// 손이 비었고 쉬는 때가 지났으면 처음 본 가까운 동물에 주사위
     pub(super) fn maybe_hoist(&mut self, world: &World) -> bool {
-        // 🙆 다른 동물 들기는 흐물이 더 놀기 그림(antics — 내려놓는 stuff 등)이 있는 동물만 (💪 박쥐인간은 물건만 듦)
-        if !self.cfg.juggler || !self.cfg.antics || self.clock < self.hoist.ready_at || !self.free_hands() || !self.antics_free() {
+        // 🙆 다른 동물 들기는 흐물이 (antics)와 pet.json pranks hoist를 받은 장난꾸러기만 (cfg.hoists — 들고 던지기 그림이 있음)
+        if !self.cfg.juggler || !self.cfg.hoists || self.clock < self.hoist.ready_at || !self.free_hands() || !self.antics_free() {
             return false;
         }
         let Some(st) = self.standing else { return false };
@@ -538,7 +541,9 @@ impl Pet {
             HoistPhase::Lift { .. } => Anim::Lift,
             HoistPhase::Wander { .. } => Anim::Carry,
             HoistPhase::CarryOff { .. } => self.carry_run_anim(),
-            HoistPhase::PutDown { .. } => Anim::Stuff,
+            HoistPhase::PutDown { .. } if self.cfg.antics => Anim::Stuff,
+            // 😜 stuff 그림이 없는 장난꾸러기 (pet.json pranks): 든 채 서서 살며시 놓음
+            HoistPhase::PutDown { .. } => Anim::Hold,
         }
     }
 }
@@ -546,7 +551,7 @@ impl Pet {
 /// 같은 화면 동물들의 일 — 앱이 매 틱 동물 update 전에: 흐물이들(과 🕷️ 거미인간)에게 다른 동물을 보여 줌
 pub fn notice_pets<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
     // 👻 디멘터도 봄 — 다른 펫 머리 위로 다가감 (brain_dementor.rs stalk_target)
-    let sees = |p: &Pet| (p.cfg.antics && p.cfg.juggler) || p.cfg.slings_webs || p.cfg.rides_bike || !p.cfg.spells.is_empty() || p.cfg.dementor || p.cfg.gamekeeper;
+    let sees = |p: &Pet| (p.cfg.hoists && p.cfg.juggler) || p.cfg.slings_webs || p.cfg.rides_bike || !p.cfg.spells.is_empty() || p.cfg.dementor || p.cfg.gamekeeper;
     if !pets.iter().any(|p| sees(p.as_ref())) {
         return;
     }

@@ -52,7 +52,7 @@ def manifest(out):
 def test_registered_with_climb_broom_cast_book_and_bag_rows():
     assert draw_pets.SPECIES["hermione"] is dhe.HERMIONE
     assert [o[0] for o in OPTIONAL_ANIMS[-14:-12]] == BOOK == dhe.BOOK_ANIMS and [o[0] for o in OPTIONAL_ANIMS[-12:-9]] == BAG == dhe.BAG_ANIMS
-    assert names(dhe.HERMIONE) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup", "broom", "cast"] + BOOK + BAG
+    assert names(dhe.HERMIONE) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + wz.PRANK_ANIMS + ["broom", "cast"] + BOOK + BAG
 
 
 def test_every_frame_is_drawn_inside_the_cell(out):
@@ -68,7 +68,8 @@ def test_manifest_is_a_friendly_bookworm_with_a_bag_and_two_spells(out):
     assert m["favorite_food"] == {"emoji": "🍎", "name": "사과"}
     assert m["personality"] == "friendly" and m["broom_rider"] is True and m["bookworm"] is True and m["bag_cleaner"] is True
     assert m["spells"] == ["leviosa", "reparo"]
-    assert "seeker" not in m and "juggler" not in m and "locomotion" not in m
+    assert "seeker" not in m and "locomotion" not in m
+    assert m["juggler"] is True and m["pranks"] == ["hoist", "hide"]
     a = m["animations"]
     assert (a["read"]["frames"], a["raise_hand"]["frames"], a["bag_walk"]["frames"], a["bag_drag"]["frames"], a["bag_stuff"]["frames"]) == (4, 2, 4, 4, 2)
     for key in ("broom_up", "broom_land", "broom_away", "leviosa", "fizzle", "reparo", "i_know", "study", "tidy_up", "all_clean", "chatter"):
@@ -76,7 +77,7 @@ def test_manifest_is_a_friendly_bookworm_with_a_bag_and_two_spells(out):
     assert "It's Levi-O-sa!" in m["speech"]["leviosa"] and "I know!" in m["speech"]["i_know"] and "Phew! All clean!" in m["speech"]["all_clean"]
     assert m["stage_size"] == dict.fromkeys(STAGES, 0.85)
     for st in STAGES:
-        assert set(m["grip"][st]) == {"cast", "bag_walk", "bag_drag", "bag_stuff"}, st
+        assert set(m["grip"][st]) == {"cast", "bag_walk", "bag_drag", "bag_stuff", "lift", "hold", "carry", "throw", "present"}, st
 
 
 @pytest.mark.parametrize("st", STAGES)

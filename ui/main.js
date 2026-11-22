@@ -892,6 +892,12 @@ const EXTRA_SPEECH = {
   soft_land: ["touchdown!", "soft landing"],
   // 🛡️ 무쇠인간: 🪖 투구 장착 (코어 Special::SuitUp)
   suit_up: ["Suit up!", "Helmet on!"],
+  // 🛡️🕷️ 무쇠인간과 거미인간 (코어 social_mentor.rs): 🤗 꼭 안고 응원 / 안겨서 쑥스러움 · 🗨️ 졸졸 재잘재잘 / 들어 줌 / 지루해 달아남
+  cheer: ["You got this, kid!", "I believe in you!", "Proud of you!"],
+  shucks: ["aw, shucks..."],
+  kid_chat: ["Quiz went great today!", "Stopped a bike thief!", "She laughed at my joke!", "What if I mess up?"],
+  uh_huh: ["Uh-huh.", "Go on.", "Not bad, kid."],
+  not_now: ["Not now, kid.", "Busy!"],
   // 🧙 마법사 (코어 brain_broom.rs·brain_spell.rs·brain_study.rs): 🧹 빗자루로 날아오름 / 내려앉음 / 친구 화면으로 · ✨ 주문 셋과 실패 ·
   // 🟡 스니치를 봄 / 잡음 · 📖 책 읽다 중얼 · 🙋 손들기 · 👜 가방 청소 시작 / 다 치움
   broom_up: ["up we go!", "whoosh!"],

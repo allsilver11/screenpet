@@ -45,7 +45,7 @@ def test_registered_with_climb_juggle_and_the_five_bike_rows_at_the_end():
     assert draw_pets.SPECIES["bat"] is db.BAT_HERO
     assert [o[0] for o in OPTIONAL_ANIMS[-25:-20]] == BIKE == db.BIKE_ANIMS  # 그 뒤는 🦸 슈퍼인간 날기 넷 · 🧙 마법사 일곱 · 🧔 해그리드 여덟 · 🛡️ 무쇠인간 하나
     assert db.JUGGLE_ANIMS == JUGGLE
-    assert names(db.BAT_HERO) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + JUGGLE + BIKE
+    assert names(db.BAT_HERO) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + JUGGLE + ["peek"] + BIKE  # 🫣 숨바꼭질 (흐물이 장난)
 
 
 def test_every_frame_is_drawn_inside_the_cell(out):
@@ -59,7 +59,7 @@ def test_manifest_is_a_playful_bike_rider_that_lifts_and_loves_apples(out):
     m = json.loads((out / "bat" / "pet.json").read_text(encoding="utf-8"))
     assert m["name"] == "박쥐인간"
     assert m["favorite_food"] == {"emoji": "🍎", "name": "사과"}
-    assert m["personality"] == "playful" and m["bike_rider"] is True and m["juggler"] is True
+    assert m["personality"] == "playful" and m["bike_rider"] is True and m["juggler"] is True and m["pranks"] == ["hoist", "hide"]
     assert "web_slinger" not in m and "tint" not in m and "taskbar_play" not in m
     assert m["animations"]["signal"]["loop"] is False and m["animations"]["ride"]["frames"] == 3
     for key in ("vroom", "wheelie", "bike_trick", "bat_signal", "hero_lift", "chatter"):

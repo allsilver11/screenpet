@@ -522,8 +522,9 @@ fn an_object_that_goes_away_while_walking_over_calls_it_off() {
 #[test]
 fn the_bundled_heumul_juggles_with_grip_tables_and_no_one_else_does() {
     for (id, cfg) in crate::test_util::bundled() {
-        // 💪 박쥐인간도 물건을 듦 (brain_bike_tests.rs·manifest 테스트가 따로 봄)
-        assert_eq!(cfg.juggler, id == "heumul" || id == "bat" || id == "super", "{id}");
+        // 💪 영웅 셋 · 😜 흐물이 장난을 받은 마법사 넷도 물건을 듦 (manifest 테스트가 따로 봄)
+        let lifts = ["heumul", "bat", "super", "musoe", "harry", "hermione", "voldemort", "hagrid"].contains(&id.as_str());
+        assert_eq!(cfg.juggler, lifts, "{id}");
         if id == "heumul" {
             for g in [cfg.grip.lift, cfg.grip.hold, cfg.grip.carry, cfg.grip.throw, cfg.grip.present] {
                 assert!(g.n >= 2, "{id}: {g:?}");
@@ -762,4 +763,19 @@ fn arriving_with_a_giant_it_walks_in_until_the_giant_is_inside_then_presents_it(
     let mut q = Pet::new_entering(hero(), &w, Side::Left, 3);
     q.hold_object(43);
     assert!(!q.juggle.giant);
+}
+
+/// 💪 번들 🛡️ 무쇠인간도 영웅 (슈퍼인간과 같은 날기 + 들기): 거대한 것을 받는 친구 끝이 있으면 거대한 것도 배달·모니터 너머 던지기, 앱이 Carry에 실음
+#[test]
+fn the_bundled_musoe_is_a_hero_that_takes_giants_to_friends() {
+    let c = crate::test_util::bundled().into_iter().find(|(id, _)| id == "musoe").expect("ui/pets/musoe").1;
+    let w = world(vec![]);
+    let mut p = walking(c, 900.0, 3, &w);
+    assert!(p.hero_lifter() && p.carries_giants());
+    p.set_giant_edges(true, true);
+    let mut went = 0;
+    for _ in 0..400 {
+        went += usize::from(matches!(p.pick_plan(true, &w), Plan::Prank(_) | Plan::Lob(_)));
+    }
+    assert!(went > 100, "{went}");
 }

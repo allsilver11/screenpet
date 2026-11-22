@@ -160,6 +160,12 @@ _CARE_SPEECH = {"hungry": ["hungry...", "food?"], "full": ["full~"], "level_up":
 # 공룡 둘 (불 뿜기·크앙·쿵쾅 말풍선 roar/fire/stomp)
 _DINO_SPEECH = {"chatter": ["rawr!", "♪"], "tickle": ["hehe!"], "grumpy": ["grrr~"], "roar": ["RAWR!", "grrr~"], "fire": ["fwoosh~"],
                 "stomp": ["stomp!"], **_CARE_SPEECH}
+# 🕷️ 거미인간이 🛡️ 무쇠인간을 졸졸 따라다니며 하는 말 (social_mentor.rs Speech::KidChat — 짧은 우리 말, 다섯 낱말 안팎):
+# 학교 · 오늘 해결한 사건 · 여자친구 · 영웅이라는 무게
+KID_CHAT = ["Quiz went great today!", "Lunch was mystery meat", "Aced my science test!", "Gym class was brutal",
+            "Stopped a bike thief!", "Found a lost puppy!", "Caught a purse snatcher!",
+            "She laughed at my joke!", "She likes my hoodie!", "Date night went okay?",
+            "Is it always this heavy?", "What if I mess up?", "Do you ever get scared?", "Sometimes I feel tiny"]
 SPEECH = {
     "cat": {"chatter": ["meow!", "nya~"], "tickle": ["hehe!"], "grumpy": ["hmph!"], "hiss": ["hiss!"], "ignore": ["..."],
             **_CARE_SPEECH},
@@ -179,7 +185,10 @@ SPEECH = {
                              "still got it", "ground secured", "ta-da!", "whoosh… done"],
                "gotcha": ["gotcha!", "yoink!"], "yeet": ["yeet!", "catch!", "go long!"], "hang_hey": ["hey there", "sup?", "hi down there!"],
                "multiverse": ["multiverse?!", "wait… you too?", "no way!", "another me?!", "which one's me?"],
-               "see_ya": ["see ya!", "later, me!", "bye, me!"], **_CARE_SPEECH},
+               "see_ya": ["see ya!", "later, me!", "bye, me!"],
+               # 🛡️🕷️ 무쇠인간과 (social_mentor.rs): 🤗 안겨서 쑥스러움 shucks · 🗨️ 졸졸 따라다니며 재잘재잘 kid_chat (학교·사건·여자친구·영웅의 무게)
+               "shucks": ["aw, shucks...", "hehe… thanks!", "you mean it?!"],
+               "kid_chat": KID_CHAT, **_CARE_SPEECH},
     # 🦇 박쥐인간: 오토바이 타기 vroom · 윌리 wheelie · 점프·드리프트 bike_trick · 🔦 박쥐 신호 bat_signal · 오토바이로 놀러 감 to_the_bike ·
     # 💪 거대한 것도 번쩍 hero_lift (코어 Speech)
     "bat": {"chatter": ["I'm the night", "to the bike!", "justice!"], "tickle": ["hehe!"], "grumpy": ["hmph."],
@@ -231,6 +240,11 @@ SPEECH = {
               "grumpy": ["Shields up!", "Beep."], "take_off": ["Jets on!", "Liftoff!", "Beep! Up!"],
               "rescue": ["On my way!", "Jets on!"], "air_flip": ["Loop-de-loop!", "Wheee!"],
               "soft_land": ["Landed. Beep.", "Touchdown!"], "suit_up": ["Suit up!", "Helmet on!", "Beep! Ready!"],
+              "hero_lift": ["Easy. Beep.", "Light load!", "Lifting!"],
+              # 🛡️🕷️ 거미인간과 (social_mentor.rs): 🤗 꼭 안고 응원 cheer · 🗨️ 들어 줌 uh_huh · 지루해 달아남 not_now
+              "cheer": ["You got this, kid!", "I believe in you!", "Proud of you!", "Chin up, kid!", "You're doing great!", "Keep swinging, kid!"],
+              "uh_huh": ["Uh-huh.", "Go on.", "Not bad, kid.", "Hmm. Nice.", "Beep. Listening."],
+              "not_now": ["Not now, kid.", "Busy!", "Later, kid!", "Jets on, bye!"],
               **_CARE_SPEECH},
     "dementor": {"chatter": ["hhhhh...", "...", "hhhh"], "tickle": ["hhh?"], "grumpy": ["HHHH!"], "repelled": ["hsss!", "HHH!"],
                  **_CARE_SPEECH},
@@ -275,7 +289,11 @@ ENERGETIC = {"heumul"}
 RIGGING = {"heumul"}
 
 # 바닥의 물건·똥을 주워 머리 위로 들고 던지는 동물 (pet.json juggler — 코어 State::Juggle, 그림은 lift·hold·carry·throw·strain·present·slump)
-JUGGLER = {"heumul", "bat", "super"}
+JUGGLER = {"heumul", "bat", "super", "musoe", "harry", "hermione", "voldemort", "hagrid"}  # 💪 영웅 셋 · 😜 흐물이 장난을 받은 마법사 넷
+
+# 😜 흐물이 장난을 나눠 받은 동물 (pet.json pranks — 코어 PetManifest::hoists·hides): 🙆 hoist 다른 펫 번쩍 들기 (juggle 그림) ·
+# 🫣 hide 창 뒤 숨바꼭질 (peek 그림 — draw_pets.peek_from이 두리번 칸으로 만듦). 흐물이는 antics로 이미 다 함
+PRANKS = {pid: ["hoist", "hide"] for pid in ("bat", "super", "musoe", "harry", "hermione", "voldemort", "hagrid")}
 
 # 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣는 동물 (pet.json taskbar_play — 코어 brain_taskbar.rs, 그림은 yank·stuff)
 TASKBAR_PLAY = {"heumul"}

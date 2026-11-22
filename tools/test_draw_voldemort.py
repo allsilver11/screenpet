@@ -41,7 +41,7 @@ def near(im, col, tol=40):
 
 def test_registered_with_climb_broom_and_cast():
     assert draw_pets.SPECIES["voldemort"] is dv.VOLDEMORT
-    assert names(dv.VOLDEMORT) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup", "broom", "cast"]
+    assert names(dv.VOLDEMORT) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + wz.PRANK_ANIMS + ["broom", "cast"]
 
 
 def test_every_frame_is_drawn_inside_the_cell(out):
@@ -56,13 +56,14 @@ def test_manifest_is_a_broom_riding_dark_lord_with_stupefy(out):
     assert m["name"] == "볼드모트"
     assert m["favorite_food"] == {"emoji": "🐟", "name": "생선"}
     assert m["broom_rider"] is True and m["dark_lord"] is True and m["spells"] == ["stupefy"]
-    assert "seeker" not in m and "patronus" not in m and "locomotion" not in m and "juggler" not in m
+    assert "seeker" not in m and "patronus" not in m and "locomotion" not in m
+    assert m["juggler"] is True and m["pranks"] == ["hoist", "hide"]
     for key in ("broom_up", "broom_land", "broom_away", "stupefy", "nagini", "hehehe", "duel_call", "chatter"):
         assert m["speech"][key] and all(len(s) <= 20 for s in m["speech"][key]), key
     assert "Stupefy!" in m["speech"]["stupefy"] and "hehehe" in m["speech"]["hehehe"]
     assert m["stage_size"] == dict.fromkeys(STAGES, 0.85)
     for st in STAGES:
-        assert set(m["grip"][st]) == {"cast"} and len(m["grip"][st]["cast"]) == 3, st
+        assert set(m["grip"][st]) == {"cast", "lift", "hold", "carry", "throw", "present"} and len(m["grip"][st]["cast"]) == 3, st
 
 
 @pytest.mark.parametrize("st", STAGES)

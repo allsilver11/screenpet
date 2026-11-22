@@ -27,7 +27,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
-                         STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, WEB_SLINGER, BIKE_RIDER, SUPER_FLIER,
+                         STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, PRANKS, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, WEB_SLINGER, BIKE_RIDER, SUPER_FLIER,
                          BROOM_RIDER, SPELLS, SEEKER, BOOKWORM, BAG_CLEANER, DARK_LORD, DEMENTOR, PATRONUS, GAMEKEEPER, frame_px, manifest)
 
 # =====================================================================
@@ -1283,6 +1283,33 @@ def _fit(fn):
     return f
 
 
+HIDE_INSET = 0.15  # = 코어 brain_hide.rs HIDE_INSET: 숨을 때 몸 가운데가 창 옆면 안쪽으로 몸 이만큼 (draw_heumul도 같은 값)
+PEEK_OUT = 0.2  # 🫣 머리 가운데가 옆면 밖으로 나오는 몫 (모자 입구 너비 배 — 머리 앞쪽 절반 남짓만 보임)
+
+
+def peek_from(look_pose):
+    """🫣 창 뒤 숨바꼭질 그림 (pet.json pranks hide — 흐물이 아닌 장난꾸러기): 옆모습 두리번 칸(look_pose, 오른쪽을 봄)을 좌우로 뒤집어
+    창 밖 (왼쪽)을 보게 하고, 머리 가운데가 옆면 (x = 64 − HIDE_INSET 칸)에서 조금 밖에 오게 통째로 민 뒤 옆면 오른쪽 (창 뒤)은 지움.
+    창은 오른쪽 — 웹뷰가 창 위에 그려도 몸이 창에 가린 것처럼 보임 (머리 표시도 같이 뒤집고 밈)."""
+    def f(sp, i):
+        im = look_pose(sp, i).transpose(Image.FLIP_LEFT_RIGHT)
+        u = out_u()
+        x, y, w, tilt = _HEAD["at"]
+        _HEAD["at"] = [round(FRAME - x, 1), y, w, round(-tilt, 1)]
+        edge = 64 - HIDE_INSET * FRAME
+        x0 = im.getchannel("A").getbbox()[0]
+        dx = max(round((edge - PEEK_OUT * w - (FRAME - x)) * u), u - x0)  # 왼쪽 1칸 여백은 남김
+        out = Image.new("RGBA", im.size, (0, 0, 0, 0))
+        out.paste(im, (dx, 0))
+        cut = int(edge * u)
+        out.paste((0, 0, 0, 0), (cut, 0, out.width, out.height))
+        shift_head(dx / u, 0)
+        return out
+    f.__name__ = "peek"
+    f.__doc__ = peek_from.__doc__
+    return f
+
+
 def drop_faint(out):
     """거의 투명한 가장자리(알파 10 미만)를 지운다."""
     out.putalpha(out.getchannel("A").point(lambda v: 0 if v < 10 else v))
@@ -1760,6 +1787,8 @@ def species_fields(pid, m):
         m["rigging"] = True
     if pid in JUGGLER:
         m["juggler"] = True
+    if pid in PRANKS:
+        m["pranks"] = list(PRANKS[pid])
     if pid in TASKBAR_PLAY:
         m["taskbar_play"] = True
     if pid in TINTABLE:

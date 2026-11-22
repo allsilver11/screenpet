@@ -70,6 +70,16 @@ pub const TASKBAR_ANIMS: [&str; 2] = ["yank", "stuff"];
 /// — 들고 던지기를 하고 이게 다 있어야 함 (antics())
 pub const ANTICS_ANIMS: [&str; 9] = ["hang_cursor", "peek", "dance", "dance2", "catch", "draw", "cheer_type", "type", "carry_run"];
 
+/// 😜 흐물이 장난 하나 (pet.json `pranks` — 흐물이 아닌 동물이 나눠 받는 것)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Prank {
+    /// 🙆 같은 바닥의 다른 펫을 머리 위로 번쩍 들어 조금 들고 다니다 내려놓음 (brain_hoist.rs — 들고 던지기 그림을 씀)
+    Hoist,
+    /// 🫣 창 옆면 뒤에 숨어 머리만 빼꼼 (brain_hide.rs — peek 그림)
+    Hide,
+}
+
 /// 이동 방식 (pet.json `locomotion`, 없으면 walk)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -183,6 +193,10 @@ pub struct PetManifest {
     /// 바닥의 물건·똥을 주워 머리 위로 들고 던짐 (흐물이, JUGGLE_ANIMS가 다 있을 때만 — juggles())
     #[serde(default)]
     pub juggler: bool,
+    /// 😜 흐물이 장난 중 이 동물도 하는 것 (🙆 hoist 다른 펫 번쩍 들기 — 들고 던지기 그림이 있을 때만 · 🫣 hide 창 뒤 숨바꼭질 — peek 그림이 있을 때만).
+    /// 흐물이는 antics로 이미 다 함 (hoists·hides)
+    #[serde(default)]
+    pub pranks: Vec<Prank>,
     /// 📌 작업표시줄(Dock)에서 열린 앱 아이콘 장난감을 끌어내 놀다가 도로 넣음 (흐물이, 들고 던지기 + TASKBAR_ANIMS가 있을 때만 — plays_taskbar())
     #[serde(default)]
     pub taskbar_play: bool,
@@ -435,6 +449,16 @@ impl PetManifest {
     /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 함)
     pub fn antics(&self) -> bool {
         self.juggles() && ANTICS_ANIMS.iter().all(|a| self.has_anim(a))
+    }
+
+    /// 🙆 다른 펫 번쩍 들기: 흐물이 (antics) 또는 pranks에 hoist가 있고 들고 던지기를 함
+    pub fn hoists(&self) -> bool {
+        self.antics() || (self.pranks.contains(&Prank::Hoist) && self.juggles())
+    }
+
+    /// 🫣 창 뒤 숨바꼭질: 흐물이 (antics) 또는 pranks에 hide가 있고 peek 그림이 있음
+    pub fn hides(&self) -> bool {
+        self.antics() || (self.pranks.contains(&Prank::Hide) && self.has_anim("peek"))
     }
 
     /// 이 단계의 손 자리 표 (칸 px → 한 변에 대한 비율: 그림 가운데에서 오른쪽, 윗변에서 아래). 없는 동작은 머리 위 (juggle::DEFAULT_GRIP)
@@ -766,9 +790,9 @@ mod tests {
         for id in crate::test_util::species().into_iter().filter(|id| id != "heumul") {
             let m = load(&id);
             assert!(!m.timid() && !m.energetic && !m.rigs() && !m.taskbar_play && !m.plays_taskbar() && !m.antics(), "{id}");
-            // 💪 박쥐인간·슈퍼인간도 물건을 들어 옮김 (흐물이 juggle 틀) — 다른 동물은 안 듦
-            let hero = id == "bat" || id == "super";
-            assert_eq!((m.juggler, m.juggles()), (hero, hero), "{id}");
+            // 💪 영웅 셋 (박쥐인간·슈퍼인간·무쇠인간)과 😜 장난꾸러기 마법사 넷도 물건을 들어 옮김 (흐물이 juggle 틀) — 다른 동물은 안 듦
+            let lifts = JUGGLER_PRANKSTERS.contains(&id.as_str());
+            assert_eq!((m.juggler, m.juggles()), (lifts, lifts), "{id}");
         }
     }
 
@@ -853,15 +877,48 @@ mod tests {
         assert!(!parse_manifest(&partial).unwrap().soars());
     }
 
-    /// 🛡️ 무쇠인간: 제트팩으로 낮게 날고 (슈퍼인간과 같은 soars) 🪖 투구 장착 특별 동작 (suit_up 그림 — Special::SuitUp). 물건은 안 듦
+    /// 💪😜 흐물이 들고 던지기를 하는 다른 동물 (pet.json juggler — 시험용 목록)
+    const JUGGLER_PRANKSTERS: [&str; 7] = ["bat", "super", "musoe", "harry", "hermione", "voldemort", "hagrid"];
+
+    /// 😜 흐물이 장난 (🙆 다른 펫 번쩍 들기 · 🫣 창 뒤 숨바꼭질)을 pet.json `pranks` 목록으로 나눠 줌: 영웅 셋 + 마법사 넷.
+    /// 흐물이는 예전처럼 antics로 다 함. 그림이 빠지면 (들기는 juggle 그림, 숨기는 peek) 하지 않음
     #[test]
-    fn the_bundled_musoe_soars_and_suits_up_without_lifting() {
+    fn pranks_list_gives_heumul_pranks_to_the_heroes_and_the_wizards() {
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
+        for id in crate::test_util::species() {
+            let m = parse_manifest(&read(&id)).unwrap();
+            let prankster = id == "heumul" || JUGGLER_PRANKSTERS.contains(&id.as_str());
+            assert_eq!((m.hoists(), m.hides()), (prankster, prankster), "{id}");
+            let c = crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager");
+            assert_eq!((c.hoists, c.hides), (prankster, prankster), "{id}");
+            if id != "heumul" {
+                assert_eq!(m.pranks, if prankster { vec![Prank::Hoist, Prank::Hide] } else { vec![] }, "{id}");
+                assert!(!m.antics() && !m.plays_taskbar(), "{id}: 커서 매달리기·춤·작업표시줄은 흐물이만");
+            }
+        }
+        let bat = read("bat");
+        assert!(!parse_manifest(&bat.replace(r#""peek""#, r#""peek_x""#)).unwrap().hides());
+        assert!(!parse_manifest(&bat.replace(r#""lift""#, r#""lift_x""#)).unwrap().hoists());
+        assert!(parse_manifest(r#"{"name":"x","frame_size":128,"walk_speed":60,"animations":{},"pranks":["boo"]}"#).is_err());
+    }
+
+    /// 🛡️ 무쇠인간: 제트팩으로 낮게 날고 (슈퍼인간과 같은 soars) 🪖 투구 장착 특별 동작 (suit_up 그림 — Special::SuitUp).
+    /// 💪 영웅이라 물건·거대한 돌·똥도 머리 위로 번쩍 (juggle — 손 자리는 머리 위), 🕷️ 거미인간을 안아 줄 hug 그림
+    #[test]
+    fn the_bundled_musoe_soars_suits_up_and_lifts_things_overhead() {
         let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
         let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
         let m = parse_manifest(&read("musoe")).unwrap();
         assert_eq!(m.name, "무쇠인간");
         assert_eq!(m.locomotion, Locomotion::Walk);
-        assert!(m.soars() && m.can_climb() && !m.juggles() && !m.slings_webs() && !m.rides_bike() && !m.rides_broom() && !m.tint);
+        assert!(m.soars() && m.can_climb() && m.juggles() && !m.slings_webs() && !m.rides_bike() && !m.rides_broom() && !m.tint);
+        assert!(m.has_anim("hug") && !m.is_gamekeeper());
+        for stage in ["baby", "teenager", "adult"] {
+            let g = m.grip_table(stage);
+            assert_eq!((g.lift.n, g.hold.n, g.carry.n, g.throw.n, g.present.n), (4, 2, 4, 4, 4), "{stage}");
+            assert!(g.hold.at(0.0).1 < 0.35 && g.carry.at(0.0).1 < 0.35, "머리 위에 듦 {stage}");
+        }
         assert_eq!(m.special(), Some(crate::behavior::Special::SuitUp));
         for id in crate::test_util::species().into_iter().filter(|id| id != "musoe") {
             assert_ne!(parse_manifest(&read(&id)).unwrap().special(), Some(crate::behavior::Special::SuitUp), "{id}");
@@ -891,11 +948,11 @@ mod tests {
         let h = parse_manifest(&read("harry")).unwrap();
         assert_eq!(h.name, "해리포터");
         assert!(h.spell_set().has(Spell::Expelliarmus) && h.spell_set().has(Spell::Leviosa) && !h.spell_set().has(Spell::Reparo));
-        assert!(h.can_climb() && !h.juggles() && !h.soars() && !h.rides_bike() && !h.slings_webs());
+        assert!(h.can_climb() && h.juggles() && !h.soars() && !h.rides_bike() && !h.slings_webs());
         let g = parse_manifest(&read("hermione")).unwrap();
         assert_eq!(g.name, "헤르미온느");
         assert!(g.spell_set().has(Spell::Leviosa) && g.spell_set().has(Spell::Reparo) && !g.spell_set().has(Spell::Expelliarmus));
-        assert!(g.can_climb() && !g.juggles());
+        assert!(g.can_climb() && g.juggles());
         // 그림 하나라도 없으면 그 특기는 꺼짐
         assert!(!parse_manifest(&read("harry").replace(r#""broom""#, r#""broom_x""#)).unwrap().rides_broom());
         assert!(parse_manifest(&read("harry").replace(r#""cast""#, r#""cast_x""#)).unwrap().spell_set().is_empty());
@@ -920,7 +977,7 @@ mod tests {
         let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
         let h = parse_manifest(&read("hagrid")).unwrap();
         assert_eq!(h.name, "해그리드");
-        assert!(h.rides_broom() && h.dragon_mount() && h.is_gamekeeper() && h.can_climb() && h.spell_set().is_empty() && !h.juggles() && !h.rides_bike());
+        assert!(h.rides_broom() && h.dragon_mount() && h.is_gamekeeper() && h.can_climb() && h.spell_set().is_empty() && h.juggles() && !h.rides_bike());
         let harry = parse_manifest(&read("harry")).unwrap();
         for st in [Stage::Baby, Stage::Teenager, Stage::Adult] {
             let k = h.size_mult(st) / harry.size_mult(st);

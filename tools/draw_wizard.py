@@ -938,13 +938,142 @@ def wz_cast(sp, i):
 # =====================================================================
 # 등록 도우미
 # =====================================================================
+# =====================================================================
+# 😜 물건 들고 던지기 (흐물이 juggle 장난 — 마법사 넷): 머리에 이고 다님 (짧은 팔은 머리 뒤로 받침 — 큰 머리 위까지 닿지 않음,
+#    지팡이는 먼 손에 쥔 채), 손 자리 mark_grip = 머리 꼭대기 위 물건 바닥
+# =====================================================================
+STRAIN_HANDS_X = 100  # 두 손바닥이 거대한 것 옆면에 (코어 juggle 거대한 것 앞 간격 몸 크기 0.28)
+
+
+def overhead(hip, rot=0.0):
+    """머리 위 물건 바닥 자리 (머리 꼭대기 바로 위 — 머리카락에 얹힘)."""
+    s = ws()
+    c = head_center("side", hip, rot)
+    return (c[0] + 2.0, c[1] - s["hry"] * 1.06 - 1.0)
+
+
+def up_pose(hip, *, rot=0.0, legs=None, eyes="dot", mouth="grin", robe=None, scarf=None, fx=()):
+    """머리에 이기: 물건을 머리 꼭대기에 얹고 (손 자리 grip = 물건 바닥) 두 팔을 머리 뒤로 올려 받침 — 짧은 팔이라 손은 큰 머리에 가려
+    얼굴을 가리지 않음. 지팡이는 먼 손에 쥔 채 위로."""
+    s = ws()
+    g = overhead(hip, rot)
+    dp.mark_grip(*g)
+    hands = reach_all(hip, rot, [(g[0] - s["hrx"] * 0.45, g[1] + 2.5), (g[0] + s["hrx"] * 0.45, g[1] + 2.5)])
+    return wizard(hip=hip, rot=rot, legs=legs or [floor_at(hip[0] - 7), floor_at(hip[0] + 7)], arms=hands, arm_bend=[(-1, 0), (1, 0)],
+                  arms_behind=True, open_hand=(True, True), eyes=eyes, mouth=mouth, robe=robe or dict(a=6), scarf=scarf or dict(a=-10),
+                  wand=dict(hand=0, a=200, k=0.7), fx=fx)
+
+
+def wz_lift(sp, i):
+    """쪼그려 앞에 놓인 물건 바닥을 두 손으로 잡고 → 가슴께로 → 머리 위로 번쩍 (한 번, 마지막 칸 = hold)."""
+    s = ws()
+    if i == 0:
+        hip = H(SIDE_CX - 2, s["leg"] * 0.4)
+        g = (86.0, 119.0)
+        dp.mark_grip(*g)
+        arms = reach_all(hip, 30, [(g[0] - 5, g[1] - 2), (g[0] + 1, g[1] - 2)])
+        return wizard(hip=hip, rot=30, head_rot=-18, legs=[floor_at(SIDE_CX - 8), floor_at(SIDE_CX + 8)], arms=arms, arm_bend=[(0, 1), (0, 1)],
+                      open_hand=(True, True), eyes="tight", mouth="open", robe=dict(a=20, len=0.8), scarf=dict(a=30), wand=dict(hand=0, a=60, k=0.6))
+    if i == 1:
+        hip = H(SIDE_CX, s["leg"] * 0.1)
+        sh = shoulders("side", hip, 4)[1]
+        g = (sh[0] + s["arm"] * 0.8, sh[1] + 2)
+        dp.mark_grip(*g)
+        arms = reach_all(hip, 4, [(g[0] - 4, g[1] + 2), (g[0] + 1, g[1] + 2)])
+        return wizard(hip=hip, rot=4, legs=[floor_at(SIDE_CX - 7), floor_at(SIDE_CX + 7)], arms=arms, arm_bend=[(1, 0.4), (0, 1)],
+                      open_hand=(True, True), eyes="dot", mouth="grin", wand=dict(hand=0, a=120, k=0.6))
+    return up_pose(H(SIDE_CX, [-1.0, 0.0][i - 2]), eyes="happy" if i == 3 else "dot", mouth="open")
+
+
+def wz_hold(sp, i):
+    """머리 위에 든 채 서서 히히 (장난칠 궁리), 숨 쉬듯 살짝."""
+    return up_pose(H(SIDE_CX, [0.0, 0.8][i]), mouth="grin", robe=dict(a=6 + 2 * i, flap=0.6 * i))
+
+
+def wz_carry(sp, i):
+    """머리 위에 인 채 총총 (다리는 걷기처럼, 로브 자락·목도리 살랑)."""
+    hip, legs = walk_legs(i)
+    return up_pose(hip, legs=legs, robe=dict(a=[8, 12, 8, 12][i], flap=[0, 1.2, 0, -1.2][i]), scarf=dict(a=[-8, -14, -8, -14][i]))
+
+
+def wz_throw(sp, i):
+    """두 손으로 젖혔다가 휙: 0 = 든 채 · 1 = 몸을 뒤로 젖혀 머리 뒤로 · 2 = 앞으로 확 내던지며 놓음 · 3 = 두 팔을 앞으로 뻗은 채 마무리 (한 번)."""
+    s = ws()
+    legs = [floor_at(SIDE_CX - 10), floor_at(SIDE_CX + 10)]
+    hip = H(SIDE_CX, [0, 1.5, 2.5, 2.0][i])
+    if i == 0:
+        return up_pose(hip, legs=legs)
+    if i == 1:
+        rot = -12
+        sh = shoulders("side", hip, rot)[1]
+        g = (sh[0] - s["arm"] * 0.5, sh[1] - s["arm"] * 0.85)
+        dp.mark_grip(*g)
+        arms = reach_all(hip, rot, [(g[0] - 4, g[1] + 2), (g[0] + 2, g[1] + 2)])
+        return wizard(hip=hip, rot=rot, head_rot=-4, legs=legs, arms=arms, arms_behind=True, arm_bend=[(-1, 0), (-1, 0)], open_hand=(True, True),
+                      eyes="tight", mouth="grin", robe=dict(a=-6), scarf=dict(a=10), wand=dict(hand=0, a=200, k=0.7))
+    rot = [0, 0, 16, 12][i]
+    sh = shoulders("side", hip, rot)
+    g = (sh[1][0] + s["arm"] * 0.9, sh[1][1] + [0, 0, 3, 8][i])
+    dp.mark_grip(*g)
+    arms = reach_all(hip, rot, [(g[0] - 3, g[1] + 2), (g[0] - 1, g[1] + 1)])
+    return wizard(hip=hip, rot=rot, head_rot=-rot * 0.4, legs=legs, arms=arms, arm_bend=[(0, 1), (0, 1)], open_hand=(True, True),
+                  eyes="dot", mouth="big" if i == 2 else "grin", robe=dict(a=[0, 0, 36, 28][i], flap=2), scarf=dict(a=-50),
+                  fx=dp.speed_fx(4, (50, 62, 74), 12) if i == 2 else [])
+
+
+def wz_strain(sp, i):
+    """끙차! 거대한 것 앞에서 두 손바닥을 옆면 아래에 대고 버팀 — 덜덜, 땀 (마법사는 힘이 약함)."""
+    s = ws()
+    sh_ = [0.0, 0.8, -0.6, 0.6][i]
+    hip = (SIDE_CX + 8 + sh_ * 0.4, stand_hip_y() + s["leg"] * 0.3 + [0, 0.4, 0.2, 0.3][i])
+    rot = 18
+    shs = shoulders("side", hip, rot)
+    arms = [reach(shs[0], (STRAIN_HANDS_X - 3 + sh_, shs[0][1] + 6), s["arm"], 1.0), reach(shs[1], (STRAIN_HANDS_X + sh_, shs[1][1] + 4), s["arm"], 1.0)]
+    legs = [floor_at(hip[0] - s["leg"] * 0.8 - 4), floor_at(hip[0] + 6)]
+    return wizard(hip=hip, rot=rot, head_rot=-14, legs=legs, leg_bend=[(1, -0.3), (1, -1)], arms=arms, arm_bend=[(0, 1), (0, 1)],
+                  open_hand=(True, True), eyes="tight", mouth="grin", robe=dict(a=26, flap=[1, -1, 1, -1][i]), scarf=dict(a=-30),
+                  fx=dp.sweat_fx(hip[0] - 18, 40 + [0, 1, 0, 1][i]))
+
+
+def wz_present(sp, i):
+    """짠! 배달 도착 (앞모습): 두 손으로 물건을 머리 위로 번쩍 든 채 (방긋) → 마지막 칸에 휙 떨굼 — 두 팔이 앞아래로 (한 번)."""
+    s = ws()
+    if i < 3:
+        hip = F([0, -1, 0][i])
+        c = head_center("front", hip)
+        g = (64.0 + [0, 1.5, -1.5][i], c[1] - s["hry"] * 1.06 - 1.0)
+        dp.mark_grip(*g)
+        arms = reach_all(hip, 0, [(g[0] - s["hrx"] * 0.55, g[1] + 3), (g[0] + s["hrx"] * 0.55, g[1] + 3)], "front")
+        return front(hip=hip, arms=arms, arm_bend=[(-1, 0), (1, 0)], open_hand=(True, True), eyes="happy" if i == 1 else "dot", mouth="big",
+                     robe=dict(sway=[0, 0.8, -0.8][i]), wand=dict(hand=0, a=160, k=0.6))
+    hip = F(0.5)
+    c = head_center("front", hip)
+    g = (64.0, c[1] - s["hry"] * 1.06 - 1.0)
+    dp.mark_grip(*g)
+    return front(hip=hip, arms=[("a", 40, 1.0), ("a", 40, 1.0)], arm_bend=[(-1, 0), (1, 0)], open_hand=(True, True), eyes="happy", mouth="open",
+                 wand=dict(hand=0, a=-30, k=0.7))
+
+
+def wz_slump(sp, i):
+    """털썩 (거대한 것이 너무 무거움): 바닥에 앉아 다리를 앞으로 쭉, 몸은 뒤로 기대 후유, 땀."""
+    s = ws()
+    hip = sit_hip(SIDE_CX - 6)
+    legs = [(hip[0] + s["leg"] + 6, foot_y()), (hip[0] + s["leg"] + 9, foot_y())]
+    ends = [(hip[0] - 10, FLOOR - s["aw"] * 0.6), (hip[0] - 6, FLOOR - s["aw"] * 0.6)]
+    return wizard(hip=hip, rot=-14, head_rot=[14, 18][i], legs=legs, arms=reach_all(hip, -14, ends), arm_bend=[(1, 0), (1, 0)],
+                  eyes="closed", mouth="open", fx=dp.sweat_fx(98, [32, 34][i]), robe=dict(a=-40, len=0.4, floor=FLOOR - 1), scarf=dict(a=6, len=0.6))
+
+
 WIZARD_POSES = {"walk": wz_walk, "run": wz_run, "roll": wz_roll, "idle": wz_idle, "look": wz_look, "sleep": wz_sleep, "hop": wz_hop,
                 "fall": wz_fall, "dragged": wz_dragged, "land": wz_land, "sit_front": wz_sit_front, "wave": wz_wave, "tilt": wz_tilt,
                 "belly": wz_belly, "stretch": wz_stretch, "heart": wz_heart, "tickle": wz_tickle, "annoyed": wz_annoyed,
                 "hungry": wz_hungry, "eat": wz_eat, "level_up": wz_level_up, "climb": wz_climb, "slide": wz_slide, "lookup": wz_lookup,
-                "broom": wz_broom, "cast": wz_cast}
+                "broom": wz_broom, "cast": wz_cast,
+                "lift": wz_lift, "hold": wz_hold, "carry": wz_carry, "throw": wz_throw, "strain": wz_strain, "present": wz_present, "slump": wz_slump}
 BROOM_ANIMS = ["broom"]  # = Rust manifest::BROOM_ANIMS
 SPELL_ANIMS = ["cast"]  # = Rust manifest::SPELL_ANIMS
+JUGGLE_ANIMS = ["lift", "hold", "carry", "throw", "strain", "present", "slump"]  # = Rust manifest::JUGGLE_ANIMS (😜 흐물이 들고 던지기 장난)
+PRANK_ANIMS = JUGGLE_ANIMS + ["peek"]  # 😜 흐물이 장난 (pet.json pranks — 🙆 들기는 juggle 그림, 🫣 숨바꼭질은 peek)
 
 
 def poses_for(look_, extra=None):
@@ -960,7 +1089,9 @@ def poses_for(look_, extra=None):
         f.__name__ = fn.__name__
         f.__doc__ = fn.__doc__
         return f
-    return {k: (bind(v) if k == "roll" else dp._fit(bind(v))) for k, v in table.items()}
+    out = {k: (bind(v) if k == "roll" else dp._fit(bind(v))) for k, v in table.items()}
+    out["peek"] = dp.peek_from(out["look"])  # 🫣 창 뒤 숨바꼭질 (두리번 칸을 뒤집어 옆면에서 자름)
+    return out
 
 
 def preview_rows(by_stage, path, anims, bg=(255, 255, 255), cols=4):

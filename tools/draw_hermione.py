@@ -235,7 +235,7 @@ HERMIONE_POSES = wz.poses_for(HERMIONE_LOOK, {"read": he_read, "raise_hand": he_
 HERMIONE = Species(
     id="hermione", name="헤르미온느", walk_speed=88, scale=1.0, base=wz.ROBE, back=wz.ROBE, belly=wz.ROBE, nose=wz.OUT, mouth="w",
     front_tail_color=wz.SCARF, tail_color=wz.SCARF, **dp.NO_COMMON_PARTS,
-    specials=["climb", "slide", "lookup"] + wz.BROOM_ANIMS + wz.SPELL_ANIMS + BOOK_ANIMS + BAG_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85),
+    specials=["climb", "slide", "lookup"] + wz.PRANK_ANIMS + wz.BROOM_ANIMS + wz.SPELL_ANIMS + BOOK_ANIMS + BAG_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85),
     stripe=wz.SCARF_GOLD, poses=HERMIONE_POSES, outline=wz.OUT,
     stage_tweak={st: dict(fit=1.0, pale=0.0) for st in STAGES},
 )

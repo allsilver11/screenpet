@@ -958,13 +958,14 @@ SUPER_POSES = {"walk": su_walk, "run": su_run, "roll": su_roll, "idle": su_idle,
                "lift": su_lift, "hold": su_hold, "carry": su_carry, "throw": su_throw, "strain": su_strain, "present": su_present, "slump": su_slump,
                "fly": su_fly, "fly_fast": su_fly_fast, "fly_flip": su_fly_flip, "hover": su_hover}
 SUPER_POSES = {k: (v if k == "roll" else dp._fit(v)) for k, v in SUPER_POSES.items()}  # roll은 회전 원 안 그대로
+SUPER_POSES["peek"] = dp.peek_from(SUPER_POSES["look"])  # 🫣 창 뒤 숨바꼭질 (흐물이 장난 — 두리번 칸을 뒤집어 옆면에서 자름)
 JUGGLE_ANIMS = ["lift", "hold", "carry", "throw", "strain", "present", "slump"]  # = Rust manifest::JUGGLE_ANIMS
 SOAR_ANIMS = ["fly", "fly_fast", "fly_flip", "hover"]  # = Rust manifest::SOAR_ANIMS
 
 SUPER_HERO = Species(
     id="super", name="슈퍼인간", walk_speed=95, scale=1.0, base=SUIT, back=CAPE, belly=SUIT, nose=OUT, mouth="w",
     front_tail_color=CAPE, tail_color=CAPE, **dp.NO_COMMON_PARTS,
-    specials=["climb", "slide", "lookup"] + JUGGLE_ANIMS + SOAR_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=BELT, poses=SUPER_POSES,
+    specials=["climb", "slide", "lookup"] + JUGGLE_ANIMS + ["peek"] + SOAR_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=BELT, poses=SUPER_POSES,
     outline=OUT,
     # 색은 파스텔 없이 또렷한 파랑·빨강·노랑 · 크기는 SUPER가 정함 (fit 1)
     stage_tweak={st: dict(fit=1.0, pale=0.0) for st in STAGES},

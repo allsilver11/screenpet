@@ -525,7 +525,7 @@ impl Pet {
     }
 
     /// 들고 달릴 때 손 자리 (carry_run 그림이 없으면 carry 것)
-    fn carry_run_grip(&self, t: f64) -> (f64, f64) {
+    pub(super) fn carry_run_grip(&self, t: f64) -> (f64, f64) {
         let g = &self.cfg.grip;
         if self.cfg.antics && g.carry_run.n > 0 {
             g.carry_run.at(t)

@@ -119,7 +119,7 @@ HARRY_POSES = wz.poses_for(HARRY_LOOK)
 HARRY = Species(
     id="harry", name="해리포터", walk_speed=92, scale=1.0, base=wz.ROBE, back=wz.ROBE, belly=wz.ROBE, nose=wz.OUT, mouth="w",
     front_tail_color=wz.SCARF, tail_color=wz.SCARF, **dp.NO_COMMON_PARTS,
-    specials=["climb", "slide", "lookup"] + wz.BROOM_ANIMS + wz.SPELL_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=wz.SCARF_GOLD,
+    specials=["climb", "slide", "lookup"] + wz.PRANK_ANIMS + wz.BROOM_ANIMS + wz.SPELL_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=wz.SCARF_GOLD,
     poses=HARRY_POSES, outline=wz.OUT,
     stage_tweak={st: dict(fit=1.0, pale=0.0) for st in STAGES},
 )

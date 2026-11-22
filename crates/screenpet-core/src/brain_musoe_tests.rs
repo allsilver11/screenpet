@@ -23,7 +23,8 @@ fn calm(c: PetConfig, x: f64, seed: u64, w: &World) -> Pet {
 #[test]
 fn the_bundled_musoe_soars_on_a_jetpack_and_suits_up() {
     let c = musoe();
-    assert!(c.soars && !c.flies && !c.juggler && !c.rides_bike && !c.slings_webs);
+    // 💪 영웅이라 물건·거대한 돌·똥도 듦 (juggle), 😜 흐물이 장난 (🙆 들기·🫣 숨기), 🤗 거미인간을 챙김 (mentor)
+    assert!(c.soars && !c.flies && c.juggler && c.hoists && c.hides && c.mentor && !c.antics && !c.rides_bike && !c.slings_webs);
     assert_eq!(c.special, Some(Special::SuitUp));
     assert_eq!(serde_json::to_string(&Anim::SuitUp).unwrap(), "\"suit_up\"");
     assert_eq!(serde_json::to_string(&Speech::SuitUp).unwrap(), "\"suit_up\"");

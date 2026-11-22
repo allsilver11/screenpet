@@ -14,6 +14,9 @@ pub(crate) fn pet_cfg() -> PetConfig {
     PetConfig {
         hang_grip: (0.0, 0.06),
         antics: false,
+        hoists: false,
+        hides: false,
+        mentor: false,
         knocks: false,
         stashes: false,
         slings_webs: false,

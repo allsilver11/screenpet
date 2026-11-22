@@ -988,19 +988,168 @@ def mu_hover(sp, i):
                 point=True, jet=("flame", i, 9.0))
 
 
+# =====================================================================
+# 💪 물건 들기 (흐물이 juggle 틀 — 🦸 슈퍼인간처럼 한 손 번쩍) · 🤗 거미인간 꼭 안기 (social_mentor.rs)
+# =====================================================================
+STRAIN_HANDS_X = 100  # 주먹이 거대한 것 옆면에 (코어 juggle 거대한 것 앞 간격 몸 크기 0.28)
+
+
+def one_hand_up(hip, rot=0.0):
+    """한 손 번쩍의 (손 자리, 물건 바닥 자리): 물건은 투구 위 (안테나 구슬께), 가까운 주먹이 투구 앞쪽 위로 빼꼼 솟아 받침
+    (팔은 투구 뒤로 — 렌즈를 가리지 않음)."""
+    s = hs()
+    _, hc = head_center(hip, rot)
+    g = (hc[0] + 3.0, hc[1] - s["hry"] - s["ant"] * 0.6 - 1.0)
+    hand = (hc[0] + s["hrx"] * 0.6, hc[1] - s["hry"] * 0.92 - s["aw"] * 0.3)
+    return hand, g
+
+
+def lift_pose(hip, *, rot=0.0, legs=None, lens="on", far=None, heart="on"):
+    """한 손 번쩍: 물건을 투구 위에 얹고 가까운 주먹 하나로 받침 (손 자리 grip = 물건 바닥), 먼 주먹은 허리 · 렌즈 반짝 여유."""
+    s = hs()
+    hand, g = one_hand_up(hip, rot)
+    dp.mark_grip(*g)
+    if far is None:
+        top = hip[1] + s["lw"] * 0.35 - s["th"]
+        far = reach(hero_shoulders("side", hip, rot)[0], (hip[0] - 3, top + s["th"] * 0.7), s["arm"], 1.0)
+    return hero(hip=hip, rot=rot, legs=legs or [floor_at(hip[0] - 7), floor_at(hip[0] + 7)], arms=[far, hand],
+                arm_bend=[(1, 0.4), (-1, 0)], arms_behind=True, lens=lens, heart=heart)
+
+
+def mu_lift(sp, i):
+    """쪼그려 앞에 놓인 물건 바닥을 한 손으로 잡고 → 가슴께로 → 투구 위로 한 손 번쩍 (한 번, 마지막 칸 = hold)."""
+    s = hs()
+    if i == 0:
+        hip = H(SIDE_CX - 2, s["leg"] * 0.4)
+        g = (88.0, 119.0)
+        hand = reach(hero_shoulders("side", hip, 30)[1], (g[0] - 2, g[1] - 2), s["arm"], 1.0)
+        dp.mark_grip(*g)
+        return hero(hip=hip, rot=30, head_rot=-18, legs=[floor_at(SIDE_CX - 8), floor_at(SIDE_CX + 8)], arms=[("a", 20, 0.9), hand],
+                    arm_bend=[(0, 1), (0, 1)])
+    if i == 1:
+        hip = H(SIDE_CX, s["leg"] * 0.1)
+        sh = hero_shoulders("side", hip, 4)[1]
+        g = (sh[0] + s["arm"] * 0.85, sh[1] + 2)
+        dp.mark_grip(*g)
+        return hero(hip=hip, rot=4, legs=[floor_at(SIDE_CX - 7), floor_at(SIDE_CX + 7)], arms=[("a", 25, 0.9), (g[0], g[1] + 2)],
+                    arm_bend=[(1, 0.4), (0, 1)], lens="bright")
+    return lift_pose(H(SIDE_CX, [-1.0, 0.0][i - 2]), lens="bright" if i == 3 else "on")
+
+
+def mu_hold(sp, i):
+    """한 손으로 투구 위에 든 채 버티고 섬 (가볍다는 듯), 숨 쉬듯 살짝 · 하트 깜빡."""
+    return lift_pose(H(SIDE_CX, [0.0, 0.8][i]), heart=["on", "bright"][i])
+
+
+def mu_carry(sp, i):
+    """한 손으로 투구 위에 든 채 철컹철컹 (날며 옮길 땐 코어가 창을 띄움): 다리는 걷기처럼."""
+    fdx, ndx, fl, nl = WALK[i]
+    k = 0.55 + 0.45 * hs()["leg"] / 22
+    hip = H(dy=[0, -1.2, 0, -1.2][i])
+    legs = [floor_at(SIDE_CX - 2 + fdx * k, fl), floor_at(SIDE_CX + 2 + ndx * k, nl)]
+    return lift_pose(hip, legs=legs)
+
+
+def mu_throw(sp, i):
+    """한 손으로 젖혔다가 휙: 0 = 든 채 · 1 = 몸을 뒤로 젖혀 팔을 투구 뒤로 · 2 = 앞으로 확 내던지며 놓음 · 3 = 팔을 앞으로 뻗은 채 마무리 (한 번)."""
+    s = hs()
+    legs = [floor_at(SIDE_CX - 10), floor_at(SIDE_CX + 10)]
+    hip = H(SIDE_CX, [0, 1.5, 2.5, 2.0][i])
+    if i == 0:
+        return lift_pose(hip, legs=legs)
+    if i == 1:
+        rot = -12
+        sh = hero_shoulders("side", hip, rot)[1]
+        g = (sh[0] - s["arm"] * 0.55, sh[1] - s["arm"] * 0.8)
+        dp.mark_grip(*g)
+        return hero(hip=hip, rot=rot, head_rot=-4, legs=legs, arms=[("a", 40, 0.9), (g[0], g[1] + 2)], arms_behind=True,
+                    arm_bend=[(1, 0.4), (-1, 0)], lens="bright")
+    rot = [0, 0, 16, 12][i]
+    sh = hero_shoulders("side", hip, rot)
+    g = (sh[1][0] + s["arm"] * 0.92, sh[1][1] + [0, 0, 3, 8][i])
+    fx = dp.speed_fx(4, (50, 62, 74), 12) if i == 2 else []
+    dp.mark_grip(*g)
+    return hero(hip=hip, rot=rot, head_rot=-rot * 0.4, legs=legs, arms=[("a", -20, 0.9), (g[0] - 1, g[1] + 1)], arm_bend=[(0, 1), (0, 1)],
+                lens="bright" if i == 2 else "on", dots="o" if i == 2 else "dots", fx=fx)
+
+
+def mu_strain(sp, i):
+    """흡! 거대한 것 앞에서 한 주먹을 옆면 아래에 대고 들어 올리는 참 — 영웅이라 금방 (하트 번쩍, 반짝)."""
+    s = hs()
+    sh_ = [0.0, 0.6, -0.4, 0.5][i]
+    hip = (SIDE_CX + 8 + sh_ * 0.4, stand_hip_y() + s["leg"] * 0.25 + [0, 0.4, 0.2, 0.3][i])
+    rot = 16
+    shs = hero_shoulders("side", hip, rot)
+    hand = reach(shs[1], (STRAIN_HANDS_X + sh_, shs[1][1] + 4), s["arm"], 1.0)
+    legs = [floor_at(hip[0] - s["leg"] * 0.8 - 4), floor_at(hip[0] + 6)]
+    return hero(hip=hip, rot=rot, head_rot=-14, legs=legs, leg_bend=[(1, -0.3), (1, -1)], arms=[("a", 30, 0.9), hand], arm_bend=[(1, 0.4), (0, 1)],
+                lens="bright", heart="bright" if i % 2 else "on", fx=sparkle_fx(34, 30, 3.0 + [0, 1, 0, 1][i]) if i % 2 else [])
+
+
+def mu_present(sp, i):
+    """짠! 배달 도착 (앞모습): 한 주먹으로 물건을 투구 위로 번쩍 든 채 (다른 주먹은 허리, 렌즈 반짝) → 마지막 칸에 휙 떨굼 — 팔이 앞아래로 (한 번)."""
+    s = hs()
+    wy = torso_top() + s["th"] * 0.72
+    if i < 3:
+        hip = F([0, -1, 0][i])
+        _, hc = head_center(hip, 0, 0, "front")
+        hand = (64.0 + s["hrx"] + 2.0, hc[1] - s["hry"] * 0.55 + [0, -1, 1][i])
+        g = (64.0 + [0, 1.5, -1.5][i], hc[1] - s["hry"] - s["ant"] * 0.6 - 1.0)
+        dp.mark_grip(*g)
+        return front(hip=hip, arms=[(64 - s["tw"] * 0.92, wy), hand], arm_bend=[(-1, -0.2), (1, 0)], lens="bright" if i == 1 else "on",
+                     heart="bright", spark=i == 1)
+    hip = F(0.5)
+    _, hc = head_center(hip, 0, 0, "front")
+    g = (64.0, hc[1] - s["hry"] - s["ant"] * 0.6 - 1.0)
+    dp.mark_grip(*g)
+    return front(hip=hip, arms=[(64 - s["tw"] * 0.92, wy), ("a", 40, 1.0)], arm_bend=[(-1, -0.2), (1, 0)], lens="bright")
+
+
+def mu_slump(sp, i):
+    """털썩 (영웅은 거의 안 하지만 juggle 틀이 요구): 바닥에 앉아 다리를 앞으로 쭉, 몸은 뒤로 기대 후유 — 렌즈 흐릿, 하트 흐릿, 땀."""
+    s = hs()
+    hip = sit_hip(SIDE_CX - 6)
+    legs = [(hip[0] + s["leg"] + 6, foot_y()), (hip[0] + s["leg"] + 9, foot_y())]
+    ends = [(hip[0] - 10, FLOOR - s["aw"] * 0.6), (hip[0] - 6, FLOOR - s["aw"] * 0.6)]
+    return hero(hip=hip, rot=-14, head_rot=[14, 18][i], legs=legs, arms=reach_all(hip, -14, ends), arm_bend=[(1, 0), (1, 0)],
+                lens="off", dots="o", heart="dim", fx=sweat_fx(98, [32, 34][i]))
+
+
+def mu_hug(sp, i):
+    """🤗 꼭 안기 (옆모습, 오른쪽의 거미인간을 — 코어 social_mentor.rs가 바로 앞 HUG_GAP에 세움): 살짝 앞으로 숙여 두 팔을 가슴 높이로 앞으로 쭉
+    둘러 감음 (먼 팔은 친구 등 뒤, 가까운 팔은 앞), 렌즈·하트 반짝, 하트가 뿅뿅 (2칸 — 꼬옥 조임)."""
+    s = hs()
+    hip = H(SIDE_CX - 4, [0.0, 0.6][i])
+    rot = [8, 10][i]
+    top = hip[1] + s["lw"] * 0.35 - s["th"]
+    chest = top + s["th"] * 0.35
+    squeeze = [0.0, 2.5][i]
+    ends = [(hip[0] + s["tw"] + 22 - squeeze, chest - 4), (hip[0] + s["tw"] + 18 - squeeze, chest + 3)]
+    arms = reach_all(hip, rot, ends)
+    fx = [dp.heart_fx(104, 26 - 3 * i, 5.0 + 0.6 * i), dp.heart_fx(86, 14 - 2 * i, 3.6)]
+    return hero(hip=hip, rot=rot, head_rot=[-6, -10][i], legs=[floor_at(hip[0] - 7), floor_at(hip[0] + 6)], arms=arms, arm_bend=[(0, 1), (0, 1)],
+                lens="bright", heart="bright", fx=fx)
+
+
 MUSOE_POSES = {"walk": mu_walk, "run": mu_run, "roll": mu_roll, "idle": mu_idle, "look": mu_look, "sleep": mu_sleep, "hop": mu_hop,
                "fall": mu_fall, "dragged": mu_dragged, "land": mu_land, "sit_front": mu_sit_front, "wave": mu_wave, "tilt": mu_tilt,
                "belly": mu_belly, "stretch": mu_stretch, "heart": mu_heart, "tickle": mu_tickle, "annoyed": mu_annoyed,
                "hungry": mu_hungry, "eat": mu_eat, "level_up": mu_level_up, "climb": mu_climb, "slide": mu_slide, "lookup": mu_lookup,
-               "fly": mu_fly, "fly_fast": mu_fly_fast, "fly_flip": mu_fly_flip, "hover": mu_hover, "suit_up": mu_suit_up}
+               "fly": mu_fly, "fly_fast": mu_fly_fast, "fly_flip": mu_fly_flip, "hover": mu_hover, "suit_up": mu_suit_up,
+               "lift": mu_lift, "hold": mu_hold, "carry": mu_carry, "throw": mu_throw, "strain": mu_strain, "present": mu_present, "slump": mu_slump,
+               "hug": mu_hug}
 MUSOE_POSES = {k: (v if k == "roll" else dp._fit(v)) for k, v in MUSOE_POSES.items()}  # roll은 회전 원 안 그대로
+MUSOE_POSES["peek"] = dp.peek_from(MUSOE_POSES["look"])  # 🫣 창 뒤 숨바꼭질 (흐물이 장난 — 두리번 칸을 뒤집어 옆면에서 자름)
 SOAR_ANIMS = ["fly", "fly_fast", "fly_flip", "hover"]  # = Rust manifest::SOAR_ANIMS (🦸 슈퍼인간과 같은 날기 뇌)
 SUIT_ANIMS = ["suit_up"]  # = Rust manifest::SUIT_ANIMS (behavior::Special::SuitUp)
+JUGGLE_ANIMS = ["lift", "hold", "carry", "throw", "strain", "present", "slump"]  # = Rust manifest::JUGGLE_ANIMS (💪 영웅 들기)
+PRANK_ANIMS = ["peek"]  # 🫣 숨바꼭질 (pet.json pranks hide — 🙆 들기는 JUGGLE_ANIMS로)
+HUG_ANIMS = ["hug"]  # 🤗 거미인간 응원 포옹 (코어 PetConfig::mentor — social_mentor.rs)
 
 MUSOE = Species(
     id="musoe", name="무쇠인간", walk_speed=92, scale=1.0, base=RED, back=RED, belly=RED, nose=OUT, mouth="w",
     front_tail_color=RED, tail_color=RED, **dp.NO_COMMON_PARTS,
-    specials=["climb", "slide", "lookup"] + SOAR_ANIMS + SUIT_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=GOLD, poses=MUSOE_POSES,
+    specials=["climb", "slide", "lookup"] + JUGGLE_ANIMS + PRANK_ANIMS + SOAR_ANIMS + HUG_ANIMS + SUIT_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=GOLD, poses=MUSOE_POSES,
     outline=OUT,
     # 색은 파스텔 없이 또렷한 빨강·금색 · 크기는 DIMS가 정함 (fit 1)
     stage_tweak={st: dict(fit=1.0, pale=0.0) for st in STAGES},

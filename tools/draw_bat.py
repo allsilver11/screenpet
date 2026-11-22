@@ -1072,13 +1072,14 @@ BAT_POSES = {"walk": bt_walk, "run": bt_run, "roll": bt_roll, "idle": bt_idle, "
              "lift": bt_lift, "hold": bt_hold, "carry": bt_carry, "throw": bt_throw, "strain": bt_strain, "present": bt_present, "slump": bt_slump,
              "ride": bt_ride, "wheelie": bt_wheelie, "bike_jump": bt_bike_jump, "drift": bt_drift, "signal": bt_signal}
 BAT_POSES = {k: (v if k == "roll" else dp._fit(v)) for k, v in BAT_POSES.items()}  # roll은 회전 원 안 그대로
+BAT_POSES["peek"] = dp.peek_from(BAT_POSES["look"])  # 🫣 창 뒤 숨바꼭질 (흐물이 장난 — 두리번 칸을 뒤집어 옆면에서 자름)
 JUGGLE_ANIMS = ["lift", "hold", "carry", "throw", "strain", "present", "slump"]  # = Rust manifest::JUGGLE_ANIMS
 BIKE_ANIMS = ["ride", "wheelie", "bike_jump", "drift", "signal"]  # = Rust manifest::BIKE_ANIMS
 
 BAT_HERO = Species(
     id="bat", name="박쥐인간", walk_speed=95, scale=1.0, base=SUIT, back=CAPE, belly=SUIT, nose=OUT, mouth="w",
     front_tail_color=CAPE, tail_color=CAPE, **dp.NO_COMMON_PARTS,
-    specials=["climb", "slide", "lookup"] + JUGGLE_ANIMS + BIKE_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=BELT, poses=BAT_POSES,
+    specials=["climb", "slide", "lookup"] + JUGGLE_ANIMS + ["peek"] + BIKE_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=BELT, poses=BAT_POSES,
     outline=OUT,
     # 색은 파스텔 없이 또렷한 회색·검정·노랑 · 크기는 BAT가 정함 (fit 1)
     stage_tweak={st: dict(fit=1.0, pale=0.0) for st in STAGES},

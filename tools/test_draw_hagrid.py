@@ -43,7 +43,7 @@ def near(im, col, tol=40):
 def test_registered_with_climb_and_the_hagrid_rows_at_the_end():
     assert draw_pets.SPECIES["hagrid"] is dg.HAGRID
     assert [o[0] for o in OPTIONAL_ANIMS[-9:-1]] == dg.HAGRID_ANIMS  # 그 뒤는 🛡️ 무쇠인간 suit_up
-    assert names(dg.HAGRID) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + dg.HAGRID_ANIMS
+    assert names(dg.HAGRID) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + wz.PRANK_ANIMS + dg.HAGRID_ANIMS
 
 
 def test_every_frame_is_drawn_inside_the_cell(out):
@@ -57,7 +57,8 @@ def test_manifest_is_a_big_dragon_riding_gamekeeper(out):
     m = json.loads((out / "hagrid" / "pet.json").read_text(encoding="utf-8"))
     assert m["name"] == "해그리드"
     assert m["favorite_food"] == {"emoji": "🍉", "name": "수박"}
-    assert m["broom_rider"] is True and m["gamekeeper"] is True and "spells" not in m and "juggler" not in m
+    assert m["broom_rider"] is True and m["gamekeeper"] is True and "spells" not in m
+    assert m["juggler"] is True and m["pranks"] == ["hoist", "hide"]
     for key in ("broom_up", "broom_land", "vroom", "hop_in", "cuddle", "pat", "hatch", "rock_cake", "chatter"):
         assert m["speech"][key] and all(len(s) <= 20 for s in m["speech"][key]), key
     assert "Yer a wizard!" in m["speech"]["chatter"] and "Blimey!" in m["speech"]["chatter"] and "Rock cake?" in m["speech"]["rock_cake"]
@@ -65,7 +66,7 @@ def test_manifest_is_a_big_dragon_riding_gamekeeper(out):
     assert m["frame_sizes"] == {"teenager": 256, "adult": 256}
     for st in STAGES:
         g = m["grip"][st]
-        assert set(g) == {"hug", "hug_walk", "sidecar", "sidecar_fly", "egg"}, st
+        assert set(g) == {"hug", "hug_walk", "sidecar", "sidecar_fly", "egg", "lift", "hold", "carry", "throw", "present"}, st
         assert [len(g[a]) for a in ("hug", "hug_walk", "sidecar", "sidecar_fly", "egg")] == [2, 4, 3, 2, 4], st
         px = m["frame_sizes"].get(st, 128)
         assert all(x > px * 0.62 for x, _ in g["sidecar"]), "사이드카는 앞쪽"

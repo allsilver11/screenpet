@@ -74,7 +74,7 @@ VOLDEMORT_POSES = wz.poses_for(VOLDEMORT_LOOK)
 VOLDEMORT = Species(
     id="voldemort", name="볼드모트", walk_speed=84, scale=1.0, base=ROBE, back=ROBE, belly=ROBE, nose=wz.OUT, mouth="w",
     front_tail_color=ROBE, tail_color=ROBE, **dp.NO_COMMON_PARTS,
-    specials=["climb", "slide", "lookup"] + wz.BROOM_ANIMS + wz.SPELL_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=ROBE_IN,
+    specials=["climb", "slide", "lookup"] + wz.PRANK_ANIMS + wz.BROOM_ANIMS + wz.SPELL_ANIMS, stage_size=dict.fromkeys(STAGES, 0.85), stripe=ROBE_IN,
     poses=VOLDEMORT_POSES, outline=wz.OUT,
     stage_tweak={st: dict(fit=1.0, pale=0.0) for st in STAGES},
 )

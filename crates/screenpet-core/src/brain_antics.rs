@@ -13,11 +13,15 @@ impl Pet {
             self.update_lifted(dt, world, by);
             return true;
         }
-        if !self.cfg.antics {
+        // 😜 흐물이 아닌 장난꾸러기 (pet.json pranks)는 들기·숨기만 — 나머지 놀이는 흐물이 (antics)만
+        let antics = self.cfg.antics;
+        if !antics && !self.cfg.hoists && !self.cfg.hides {
             return false;
         }
-        self.track_swing_cursor(dt);
-        self.track_typing(dt);
+        if antics {
+            self.track_swing_cursor(dt);
+            self.track_typing(dt);
+        }
         match self.state {
             State::Swing { phase, remaining } => self.update_swing(dt, world, phase, remaining),
             State::Hoist { phase, t } => self.update_hoist(dt, world, phase, t),
@@ -26,12 +30,12 @@ impl Pet {
             State::Doodle { remaining } => self.update_doodle(dt, world, remaining),
             State::TypeCheer { remaining } => self.update_type_cheer(dt, world, remaining),
             _ => {
-                return self.maybe_dance_now()
-                    || self.maybe_swing(world)
-                    || self.maybe_type_cheer()
+                return (antics && self.maybe_dance_now())
+                    || (antics && self.maybe_swing(world))
+                    || (antics && self.maybe_type_cheer())
                     || self.maybe_hoist(world)
-                    || self.maybe_hide(dt, world)
-                    || self.maybe_doodle(dt, world);
+                    || (self.cfg.hides && self.maybe_hide(dt, world))
+                    || (antics && self.maybe_doodle(dt, world));
             }
         }
         true

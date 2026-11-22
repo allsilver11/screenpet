@@ -8,6 +8,7 @@
 //! - 펫끼리 놀기 더 (2026-11-20): 인사·술래·하이파이브가 더 자주 (쿨다운 짧게, 확률 높게), 새 놀이 여섯 가지 (투닥투닥·몰래 찌르기·
 //!   밀치기·같이 낮잠·달리기 시합·수다)는 social_romp.rs.
 //! - 🕷️🕷️🕷️ 멀티버스 모임 (spec 4부): 같은 화면에 한가한 거미인간이 둘 이상이면 모여 놀라고 껴안고 뱅글뱅글 — social_multiverse.rs.
+//! - 🛡️🕷️ 무쇠인간과 거미인간: 🤗 응원 포옹 · 🗨️ 졸졸 수다 — social_mentor.rs.
 //! - 🔥 모닥불 (마법사 추가 요청): 해그리드·해리·헤르미온느가 한가하면 반가워하고 불 피워 둘러앉아 도란도란 — social_campfire.rs.
 //! - 📖 공부 방해: 책 읽는 헤르미온느에게 해리·해그리드가 가끔 장난 → "Shh!" 또는 책을 덮고 같이 놂 — social_pester.rs.
 
@@ -162,6 +163,8 @@ struct Snap {
     hogwarts: Option<crate::wizard::Hogwarts>,
     /// 📖 앉아서 책을 읽는 중 (헤르미온느 — social_pester.rs)
     reading: bool,
+    /// 🛡️ 거미인간을 챙기는 무쇠인간 (social_mentor.rs)
+    mentor: bool,
 }
 
 impl Snap {
@@ -198,6 +201,7 @@ impl Snap {
             spider: p.cfg.slings_webs,
             hogwarts: p.hogwarts(),
             reading: p.is_reading(),
+            mentor: p.cfg.mentor,
         }
     }
 
@@ -360,6 +364,8 @@ pub struct Social {
     multiverse: multiverse::SocialMultiverse,
     /// 🔥 호그와트 셋의 모닥불 (social_campfire.rs — 주사위도 따로)
     campfire: campfire::SocialCampfire,
+    /// 🛡️🕷️ 무쇠인간과 거미인간의 🤗 응원 포옹·🗨️ 졸졸 수다 (social_mentor.rs — 주사위도 따로)
+    mentor: mentor::SocialMentor,
     /// 📖 책 읽는 헤르미온느 방해 (social_pester.rs — 주사위도 따로)
     pester: pester::SocialPester,
     /// 테스트: 인사·술래 놀이 시작을 끔
@@ -374,7 +380,7 @@ fn pair(a: u64, b: u64) -> (u64, u64) {
 impl Social {
     /// 빈 사회 상태. seed로 주사위들을 정함
     pub fn new(seed: u64) -> Self {
-        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, one_way_chance: ONE_WAY_MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new(), scare_rng: fastrand::Rng::with_seed(seed ^ 0x6565_6b21), scare_chance: SCARE_CHANCE, scare_cooldown: HashMap::new(), play: fun::SocialPlay::new(seed), romp: romp::SocialRomp::new(seed), multiverse: multiverse::SocialMultiverse::new(seed), campfire: campfire::SocialCampfire::new(seed), pester: pester::SocialPester::new(seed), greets_off: false }
+        Self { links: Vec::new(), cooldown: HashMap::new(), clock: 0.0, rng: fastrand::Rng::with_seed(seed), snap: Vec::new(), meets: Vec::new(), meet_cooldown: HashMap::new(), meet_rng: fastrand::Rng::with_seed(seed ^ 0x6d65_6574), meet_chance: MEET_CHANCE, one_way_chance: ONE_WAY_MEET_CHANCE, meet_only: None, prev: Vec::new(), hit_cooldown: HashMap::new(), rides: Vec::new(), climbs: Vec::new(), tower_chance: tower::TOWER_CLIMB_CHANCE, object_cooldown: HashMap::new(), scare_rng: fastrand::Rng::with_seed(seed ^ 0x6565_6b21), scare_chance: SCARE_CHANCE, scare_cooldown: HashMap::new(), play: fun::SocialPlay::new(seed), romp: romp::SocialRomp::new(seed), multiverse: multiverse::SocialMultiverse::new(seed), campfire: campfire::SocialCampfire::new(seed), pester: pester::SocialPester::new(seed), mentor: mentor::SocialMentor::new(seed), greets_off: false }
     }
 
     /// 지금 놀이 중인 짝 수 (테스트용)
@@ -398,6 +404,7 @@ impl Social {
         self.step_multiverse(dt, pets);
         self.step_campfires(dt, pets);
         self.step_pesters(dt, pets);
+        self.step_mentors(dt, pets);
         self.thrown_hits(dt, pets);
         self.step_meets(pets);
         self.step_links(dt, pets);
@@ -407,6 +414,7 @@ impl Social {
         self.find_multiverse(dt, pets);
         self.find_campfire(dt, pets);
         self.find_pester(dt, pets);
+        self.find_mentor(dt, pets);
         self.find_romps(dt, pets);
         self.find_new(dt, pets);
     }
@@ -914,6 +922,13 @@ mod multiverse;
 #[cfg(test)]
 #[path = "social_multiverse_tests.rs"]
 mod multiverse_tests;
+
+#[path = "social_mentor.rs"]
+mod mentor;
+
+#[cfg(test)]
+#[path = "social_mentor_tests.rs"]
+mod mentor_tests;
 
 #[path = "social_campfire.rs"]
 mod campfire;

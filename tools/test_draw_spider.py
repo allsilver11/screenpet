@@ -67,6 +67,11 @@ def test_manifest_is_a_playful_web_slinger_that_loves_flies(out):
     assert 9 <= len(set(m["speech"]["hero_land"])) == len(m["speech"]["hero_land"]) <= 12
     assert "multiverse?!" in m["speech"]["multiverse"] and "see ya!" in m["speech"]["see_ya"]
     assert {"hey there", "sup?"} <= set(m["speech"]["hang_hey"])  # 🙃 거꾸로 매달려 인사
+    # 🛡️🕷️ 무쇠인간과 (코어 social_mentor.rs): 안겨서 쑥스러움 · 졸졸 따라다니며 재잘재잘 (학교·사건·여자친구·영웅의 무게 — 짧은 우리 말)
+    assert "aw, shucks..." in m["speech"]["shucks"]
+    chat = m["speech"]["kid_chat"]
+    assert {"Quiz went great today!", "Stopped a bike thief!", "She laughed at my joke!", "What if I mess up?"} <= set(chat)
+    assert len(chat) >= 10 and all(len(c.split()) <= 5 for c in chat), chat
     assert m["stage_size"] == dict.fromkeys(STAGES, 0.85)
 
 

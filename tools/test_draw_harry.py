@@ -44,7 +44,8 @@ def test_registered_with_climb_and_the_wizard_rows_at_the_end():
     assert draw_pets.SPECIES["harry"] is dh.HARRY
     assert [o[0] for o in OPTIONAL_ANIMS[-16:-9]] == WIZARD  # 그 뒤는 🧔 해그리드 (test_draw_hagrid.py) · 🛡️ 무쇠인간 (test_draw_musoe.py)
     assert wz.BROOM_ANIMS == ["broom"] and wz.SPELL_ANIMS == ["cast"]
-    assert names(dh.HARRY) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup", "broom", "cast"]
+    assert wz.PRANK_ANIMS == ["lift", "hold", "carry", "throw", "strain", "present", "slump", "peek"]  # 😜 흐물이 장난 (들고 던지기 · 🙆 들기 · 🫣 숨바꼭질)
+    assert names(dh.HARRY) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + wz.PRANK_ANIMS + ["broom", "cast"]
 
 
 def test_every_frame_is_drawn_inside_the_cell(out):
@@ -60,14 +61,15 @@ def test_manifest_is_a_playful_broom_riding_seeker_with_two_spells(out):
     assert m["favorite_food"] == {"emoji": "🍬", "name": "사탕"}
     assert m["personality"] == "playful" and m["broom_rider"] is True and m["seeker"] is True
     assert m["spells"] == ["expelliarmus", "leviosa"]
-    assert "bookworm" not in m and "bag_cleaner" not in m and "juggler" not in m and "locomotion" not in m
+    assert "bookworm" not in m and "bag_cleaner" not in m and "locomotion" not in m
+    assert m["juggler"] is True and m["pranks"] == ["hoist", "hide"] and set(m["grip"]["teenager"]) >= {"lift", "hold", "carry", "throw", "present", "cast"}
     assert m["animations"]["broom"]["frames"] == 3 and m["animations"]["cast"]["frames"] == 3 and not m["animations"]["cast"]["loop"]
     for key in ("broom_up", "broom_land", "broom_away", "leviosa", "fizzle", "expelliarmus", "snitch", "got_it", "chatter"):
         assert m["speech"][key] and all(len(s) <= 20 for s in m["speech"][key]), key
     assert "Expelliarmus!" in m["speech"]["expelliarmus"] and "Got it!" in m["speech"]["got_it"]
     assert m["stage_size"] == dict.fromkeys(STAGES, 0.85)
     for st in STAGES:
-        assert set(m["grip"][st]) == {"cast"}, st
+        assert set(m["grip"][st]) == {"cast", "lift", "hold", "carry", "throw", "present"}, st  # ✨ 지팡이 끝 + 😜 든 물건
         assert len(m["grip"][st]["cast"]) == 3
 
 
@@ -157,3 +159,21 @@ def test_back_view_head_covers_the_arms(monkeypatch):
     order = lambda parts: [(p.base, p.outline, len(p.shapes)) for p in parts]  # noqa: E731
     assert order(forced) == order(behind), "뒷모습에선 arms_front를 무시하고 팔을 머리 뒤에 (머리를 맨 나중에)"
     assert forced[-1].base == skin
+
+
+@pytest.mark.parametrize("st", ["baby", "teenager", "adult"])
+def test_pranks_lift_things_overhead_and_peek_from_behind_a_window(out, st):
+    """😜 흐물이 장난 (마법사 넷 공통 — draw_wizard): 든 물건 바닥 (grip)은 머리 꼭대기 위, 🫣 숨바꼭질은 창 옆면 (x = 64 − 0.15 × 128)
+    오른쪽이 비고 왼쪽에 얼굴 (살색)이 빼꼼."""
+    m = json.loads((out / "harry" / "pet.json").read_text(encoding="utf-8"))
+    px = m.get("frame_sizes", {}).get(st, m["frame_size"])
+    for anim in ("hold", "carry"):
+        for k, (gx, gy) in enumerate(m["grip"][st][anim]):
+            a = np.asarray(frame(out, st, anim, k).convert("RGBA"))
+            top = np.nonzero(a[..., 3] > 200)[0].min()
+            assert gy / px * 128 <= top + 10, (st, anim, k, gy, top)
+    edge = int(64 - 0.15 * 128)
+    for i in range(4):
+        im = frame(out, st, "peek", i)
+        assert np.asarray(im.convert("RGBA"))[:, edge + 1:, 3].max() == 0, (st, i)
+        assert near(im, dh.HARRY_LOOK.skin, 40).sum() > 10, (st, i)

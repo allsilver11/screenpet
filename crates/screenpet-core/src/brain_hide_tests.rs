@@ -123,3 +123,20 @@ fn heumul_hides_now_and_then_on_its_own() {
     }
     assert!(hid >= 5, "{hid}");
 }
+
+/// 😜 pet.json `pranks` hide를 받은 동물 (영웅·마법사 — 흐물이 antics 없음)도 가끔 저절로 숨음. hides가 없으면 안 숨음
+#[test]
+fn a_prankster_without_heumul_antics_hides_now_and_then_too() {
+    let w = world(vec![tall()]);
+    let hider = PetConfig { hides: true, juggler: true, soars: true, ..pet_cfg() };
+    let mut hid = 0;
+    for seed in 0..10 {
+        let mut p = resting(hider, 800.0, seed, &w);
+        p.hide.ready_at = 0.0;
+        hid += usize::from(run_until(&mut p, &w, 300.0, (100.0, 100.0), peeking));
+    }
+    assert!(hid >= 5, "{hid}");
+    let mut plain = resting(PetConfig { juggler: true, soars: true, ..pet_cfg() }, 800.0, 1, &w);
+    plain.hide.ready_at = 0.0;
+    assert!(!run_until(&mut plain, &w, 300.0, (100.0, 100.0), |p| matches!(p.state, State::Hide { .. })));
+}

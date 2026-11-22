@@ -216,3 +216,17 @@ def test_giants_can_be_yanked_whirled_and_tossed_by_the_app():
     pull = (ROOT / "crates" / "screenpet-core" / "src" / "brain_web.rs").read_text(encoding="utf-8")
     targets = pull[pull.index("fn pull_targets(") :][:900]
     assert "!s.giant" not in targets
+
+
+def test_musoe_and_spider_pair_speech_defaults():
+    """🛡️🕷️ 무쇠인간·거미인간 (코어 social_mentor.rs — Speech::Cheer·Shucks·KidChat·UhHuh·NotNow): pet.json에 없을 때의 기본 말 (ui/main.js EXTRA_SPEECH)."""
+    main = (UI / "main.js").read_text(encoding="utf-8")
+    brain = (UI.parent / "crates" / "screenpet-core" / "src" / "brain.rs").read_text(encoding="utf-8")
+    enum = brain[brain.index("pub enum Speech {") :]
+    enum = enum[: enum.index("\n}")]
+    extra = main[main.index("const EXTRA_SPEECH = {") :]
+    extra = extra[: extra.index("\n};")]
+    for v, key, line in (("Cheer", "cheer", "You got this, kid!"), ("Shucks", "shucks", "aw, shucks..."), ("KidChat", "kid_chat", "Stopped a bike thief!"),
+                         ("UhHuh", "uh_huh", "Uh-huh."), ("NotNow", "not_now", "Not now, kid.")):
+        assert re.search(rf"^\s{{4}}{v},", enum, re.M), v
+        assert re.search(rf'\b{key}: \[[^\]]*"{re.escape(line)}"', extra), key

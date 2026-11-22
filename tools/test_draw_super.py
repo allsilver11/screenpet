@@ -45,7 +45,7 @@ def near(im, col, tol=40):
 def test_registered_with_climb_juggle_and_the_four_flight_rows_at_the_end():
     assert draw_pets.SPECIES["super"] is dsu.SUPER_HERO
     assert [o[0] for o in OPTIONAL_ANIMS[-20:-16]] == SOAR == dsu.SOAR_ANIMS and dsu.JUGGLE_ANIMS == JUGGLE
-    assert names(dsu.SUPER_HERO) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + JUGGLE + SOAR
+    assert names(dsu.SUPER_HERO) == [a for a, *_ in ANIMS] + ["climb", "slide", "lookup"] + JUGGLE + ["peek"] + SOAR  # 🫣 숨바꼭질 (흐물이 장난)
 
 
 def test_every_frame_is_drawn_inside_the_cell(out):
@@ -59,7 +59,7 @@ def test_manifest_is_a_playful_super_flier_that_lifts_and_loves_milk(out):
     m = json.loads((out / "super" / "pet.json").read_text(encoding="utf-8"))
     assert m["name"] == "슈퍼인간"
     assert m["favorite_food"] == {"emoji": "🥛", "name": "우유"}
-    assert m["personality"] == "playful" and m["super_flier"] is True and m["juggler"] is True
+    assert m["personality"] == "playful" and m["super_flier"] is True and m["juggler"] is True and m["pranks"] == ["hoist", "hide"]
     assert "web_slinger" not in m and "bike_rider" not in m and "tint" not in m and "taskbar_play" not in m and "locomotion" not in m
     assert m["animations"]["fly"]["frames"] == 3 and m["animations"]["fly_flip"]["frames"] == 4 and m["animations"]["hover"]["frames"] == 3
     for key in ("take_off", "rescue", "air_flip", "soft_land", "hero_lift", "chatter"):

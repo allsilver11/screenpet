@@ -439,7 +439,7 @@ SIZE = 1.2  # 다른 마법사 (0.85)의 약 1.4배
 HAGRID = Species(
     id="hagrid", name="해그리드", walk_speed=76, scale=1.0, base=COAT, back=COAT, belly=COAT, nose=wz.OUT, mouth="w",
     front_tail_color=COAT, tail_color=COAT, **dp.NO_COMMON_PARTS,
-    specials=["climb", "slide", "lookup"] + HAGRID_ANIMS, stage_size=dict.fromkeys(STAGES, SIZE), stripe=COAT_IN,
+    specials=["climb", "slide", "lookup"] + wz.PRANK_ANIMS + HAGRID_ANIMS, stage_size=dict.fromkeys(STAGES, SIZE), stripe=COAT_IN,
     poses=HAGRID_POSES, outline=wz.OUT,
     stage_tweak={st: dict(fit=1.0, pale=0.0) for st in STAGES},
 )

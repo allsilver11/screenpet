@@ -512,6 +512,16 @@ pub enum Speech {
     Shh,
     /// 📖 헤르미온느가 책을 덮고 같이 놂 ("Oh, alright!")
     OhAlright,
+    /// 🤗 무쇠인간이 거미인간을 꼭 안고 응원 ("You got this, kid!", social_mentor.rs)
+    Cheer,
+    /// 🤗 안긴 거미인간이 쑥스러워함 ("aw, shucks")
+    Shucks,
+    /// 🗨️ 거미인간이 무쇠인간을 졸졸 따라다니며 재잘재잘 (학교·사건·여자친구·영웅의 무게)
+    KidChat,
+    /// 🗨️ 무쇠인간이 들어 줌 ("Uh-huh.")
+    UhHuh,
+    /// 🗨️ 무쇠인간이 지루해 달아남 ("Not now, kid.")
+    NotNow,
     /// ⚔️ 헤르미온느의 결투 저주 ("Petrificus Totalus!", brain_duel.rs)
     Petrificus,
     /// ⚔️ 볼드모트의 결투 저주 ("Avada Kedavra!" — Stupefy와 번갈아, 해롭지 않은 장난)
@@ -879,6 +889,12 @@ pub struct PetConfig {
     /// 흐물이 더 놀기 (v0.6.3 — pet.json에 ANTICS_ANIMS 그림이 다 있고 들고 던지기를 함): 🎣 커서 매달리기 · 🙆 동물 들기 ·
     /// 🫣 숨바꼭질 · 🕺 연타 춤 · ⚾ 캐치볼 · 🖍️ 낙서 · ⌨️ 타자 응원
     pub antics: bool,
+    /// 🙆 다른 펫 번쩍 들기 (흐물이 antics, 또는 pet.json `pranks` hoist + 들고 던지기 — brain_hoist.rs)
+    pub hoists: bool,
+    /// 🫣 창 뒤 숨바꼭질 (흐물이 antics, 또는 pet.json `pranks` hide + peek 그림 — brain_hide.rs)
+    pub hides: bool,
+    /// 🛡️ 거미인간을 챙기는 선배 영웅 (투구 장착 특별 동작 + hug 그림 — 무쇠인간, social_mentor.rs 🤗 응원 포옹·🗨️ 졸졸 수다)
+    pub mentor: bool,
     /// 🐱 창 윗면의 작은 물건을 툭툭 밀어 떨어뜨림 (pet.json `knocker` + paw 그림 — 고양이, brain_knock.rs)
     pub knocks: bool,
     /// 🐿️ 바닥의 작은 물건을 볼에 넣어 물음 (pet.json `stasher` + cheeks_walk·cheeks_idle·dig 그림 — 다람쥐, brain_stash.rs)
@@ -947,6 +963,9 @@ impl PetConfig {
             dpi,
             hang_grip: m.hang_grip(stage),
             antics: m.antics(),
+            hoists: m.hoists(),
+            hides: m.hides(),
+            mentor: m.special() == Some(crate::behavior::Special::SuitUp) && m.has_anim("hug"),
             knocks: m.knocks(),
             stashes: m.stashes(),
             slings_webs: m.slings_webs(),

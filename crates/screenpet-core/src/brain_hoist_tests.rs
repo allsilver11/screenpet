@@ -206,3 +206,47 @@ fn grabbing_the_lifted_pet_makes_heumul_drop_it_with_a_hmph() {
     assert!(!hoisting(&pets[0]) || pets[0].hoisting().is_none());
     assert_eq!(pets[0].take_speech(), Some(Speech::Hmph));
 }
+
+/// 😜 pet.json `pranks` hoist를 받은 영웅·마법사 (흐물이 antics 없음 — stuff·carry_run 그림 없음)도 가끔 다가가 번쩍 들어 조금 들고 다니다
+/// 살며시 내려놓음: 내려놓을 땐 든 채 서 있기 (hold) 그림. hoists가 없는 juggler (예전 박쥐인간)는 들지 않음
+#[test]
+fn a_prankster_without_heumul_antics_lifts_pets_too() {
+    let w = world(vec![]);
+    let hero = PetConfig { juggler: true, hoists: true, rides_bike: true, personality: crate::behavior::Personality::Playful, ..pet_cfg() };
+    let mut went = 0;
+    for seed in 0..200 {
+        let mut pets = pair(pet_cfg(), seed, &w);
+        pets[0].cfg = hero;
+        notice_pets(&mut pets);
+        pets[0].update(DT, &w);
+        went += usize::from(hoisting(&pets[0]));
+    }
+    assert!(went > 10, "{went}");
+    let mut pets = pair(pet_cfg(), 7, &w);
+    pets[0].cfg = hero;
+    assert!(start(&mut pets, &w));
+    let (mut lifted, mut anims) = (false, Vec::new());
+    for _ in 0..(60 * 15) {
+        step(&mut pets, &w);
+        lifted |= pets[1].is_lifted();
+        anims.push(pets[0].render().anim);
+        if lifted && !pets[1].is_lifted() && !hoisting(&pets[0]) {
+            break;
+        }
+    }
+    assert!(lifted, "들어 올림");
+    assert!(!anims.contains(&Anim::Stuff) && !anims.contains(&Anim::CarryRun), "없는 그림은 안 씀");
+    assert!(anims.contains(&Anim::Lift) && anims.contains(&Anim::Hold));
+    for _ in 0..120 {
+        step(&mut pets, &w);
+    }
+    assert!(pets[1].standing.is_some() && !pets[1].thrown);
+    // hoists 없이 들고 던지기만 하는 동물은 다른 펫을 들지 않음
+    for seed in 0..100 {
+        let mut pets = pair(pet_cfg(), seed, &w);
+        pets[0].cfg = PetConfig { hoists: false, ..hero };
+        notice_pets(&mut pets);
+        pets[0].update(DT, &w);
+        assert!(!hoisting(&pets[0]), "{seed}");
+    }
+}

@@ -6,7 +6,7 @@ use super::*;
 use crate::test_util::{pet_cfg, DT};
 
 pub(super) fn heumul() -> PetConfig {
-    PetConfig { half_w: 38.4, walk_speed: 110.0, personality: Personality::Playful, timid: true, energetic: true, rigging: true, juggler: true, antics: true, ..pet_cfg() }
+    PetConfig { half_w: 38.4, walk_speed: 110.0, personality: Personality::Playful, timid: true, energetic: true, rigging: true, juggler: true, antics: true, hoists: true, hides: true, ..pet_cfg() }
 }
 
 /// 바닥(x)에 쉬고 있는 흐물이 — 첫 쿨다운은 지났음
