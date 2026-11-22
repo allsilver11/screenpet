@@ -64,7 +64,7 @@ pub const LEG_SHARE: f64 = 0.32;
 /// 창 가장자리 여유 (논리 px — 먼지·출렁임이 잘리지 않게, 옆·위)
 pub const WINDOW_PAD: f64 = 24.0;
 /// 화면 크기 배율: 그림 숫자 (art) × 이것 — 제일 큰 단계 (어른) 펫에 딱 맞게 (자동차 ≈ 어른 펫 한 마리 길이)
-pub const VEHICLE_SCALE: f64 = 0.7;
+pub const VEHICLE_SCALE: f64 = 0.8;
 /// 빨라지는 가속 (논리 px/s²)
 const ACCEL: f64 = 320.0;
 /// 끼익 급정거 감속 (논리 px/s²)
