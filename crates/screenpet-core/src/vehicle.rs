@@ -63,6 +63,8 @@ pub const FOREIGN_LIFE_SECS: f64 = 300.0;
 pub const LEG_SHARE: f64 = 0.32;
 /// 창 가장자리 여유 (논리 px — 먼지·출렁임이 잘리지 않게, 옆·위)
 pub const WINDOW_PAD: f64 = 24.0;
+/// 화면 크기 배율: 그림 숫자 (art) × 이것 — 제일 큰 단계 (어른) 펫에 딱 맞게 (자동차 ≈ 어른 펫 한 마리 길이)
+pub const VEHICLE_SCALE: f64 = 0.7;
 /// 빨라지는 가속 (논리 px/s²)
 const ACCEL: f64 = 320.0;
 /// 끼익 급정거 감속 (논리 px/s²)
@@ -176,8 +178,24 @@ impl VehicleKind {
         }
     }
 
-    /// 생김새와 좌석 (tools/draw_vehicles.py와 같은 숫자)
+    /// 화면에 뜨는 생김새와 좌석 (논리 px): 그림 숫자 (art)를 VEHICLE_SCALE배로 — 빠르기는 그대로
     pub fn spec(self) -> Spec {
+        let a = self.art();
+        let k = VEHICLE_SCALE;
+        Spec {
+            w: a.w * k,
+            h: a.h * k,
+            seat_x: a.seat_x * k,
+            cover: a.cover * k,
+            seat_min: a.seat_min * k,
+            bed_x: [a.bed_x[0] * k, a.bed_x[1] * k],
+            bed_cover: a.bed_cover * k,
+            ..a
+        }
+    }
+
+    /// 그림 시트의 생김새와 좌석 (tools/draw_vehicles.py와 같은 숫자 — 화면에선 VEHICLE_SCALE배)
+    fn art(self) -> Spec {
         match self {
             VehicleKind::Car => Spec { w: 176.0, h: 100.0, seat_x: -14.0, cover: 56.0, seat_min: 22.0, bed_x: [0.0; 2], bed_cover: 0.0, speed: 230.0, standing: false },
             VehicleKind::Heli => Spec { w: 208.0, h: 150.0, seat_x: 20.0, cover: 50.0, seat_min: 22.0, bed_x: [0.0; 2], bed_cover: 0.0, speed: 210.0, standing: false },
@@ -187,10 +205,10 @@ impl VehicleKind {
     }
 }
 
-/// 탈것 창 크기 (논리 px): 그림 + 옆·위 여유 (WINDOW_PAD) + 바닥 그림자 4
+/// 탈것 창 크기 (논리 px): 그림 + 옆·위 여유 (WINDOW_PAD) + 바닥 그림자 4 — 시트 한 칸 통째로 VEHICLE_SCALE배 (창에 꽉 차게 그려짐)
 pub fn window_logical(kind: VehicleKind) -> (f64, f64) {
     let s = kind.spec();
-    (s.w + 2.0 * WINDOW_PAD, s.h + WINDOW_PAD + 4.0)
+    (s.w + 2.0 * WINDOW_PAD * VEHICLE_SCALE, s.h + (WINDOW_PAD + 4.0) * VEHICLE_SCALE)
 }
 
 /// 좌석 하나 (논리 px): 가로 자리, 발 높이, 가려지는 높이
@@ -1499,6 +1517,19 @@ mod tests {
         assert_eq!(seat_geometry(VehicleKind::Scooter, 0, 128.0).2, 0.0);
         // 트럭 짐칸은 뒤쪽
         assert!(seat_geometry(VehicleKind::Truck, 1, 128.0).0 < 0.0);
+    }
+
+    /// 탈것은 제일 큰 단계 (어른) 펫에 딱 맞는 크기: 자동차 길이 ≈ 어른 펫 한 마리 (아기도 문 위로 보임)
+    #[test]
+    fn vehicles_are_sized_for_the_biggest_pets() {
+        let adult = crate::brain::PET_LOGICAL_SIZE * crate::care::Stage::Adult.scale() * 0.85;
+        let car = VehicleKind::Car.spec();
+        assert!(car.w >= 0.9 * adult && car.w <= 1.15 * adult, "car {} vs adult {adult}", car.w);
+        let (w, h) = window_logical(VehicleKind::Car);
+        assert!((w - (176.0 + 48.0) * VEHICLE_SCALE).abs() < 1e-9 && (h - 128.0 * VEHICLE_SCALE).abs() < 1e-9, "창도 그림과 같이 줄어듦");
+        let baby = crate::brain::PET_LOGICAL_SIZE * crate::care::Stage::Baby.scale() * 0.85;
+        let (_, feet, hidden) = seat_geometry(VehicleKind::Car, 0, baby);
+        assert!(hidden < 0.4 * baby && feet + baby - hidden > car.cover, "아기 머리가 문 위로 보임");
     }
 
     #[test]
