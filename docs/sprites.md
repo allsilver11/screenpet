@@ -89,7 +89,15 @@
 
 ## 무쇠인간 (제트팩 꼬마 영웅 — 우리만의 캐릭터)
 - 그림은 `tools/draw_musoe.py` (슈퍼인간과 같은 뼈대·IK 틀 — `SPECIES["musoe"]`에 등록, `python tools/draw_pets.py`도 함께 만든다. 무쇠인간만: `python tools/draw_musoe.py` → 미리보기 `tools/preview/stages_musoe.png`·`climb_musoe.png`·`moves_musoe.png`).
-- `pet.json`: `"super_flier": true` (슈퍼인간과 같은 `soars` 날기 뇌 — fly·fly_fast·fly_flip·hover를 제트팩으로 그림), `suit_up` 그림이 있으면 코어 특별 동작 `Special::SuitUp` (쉬는 박자의 6%, 간질일 땐 안 함), `"personality": "playful"`, 좋아하는 음식 🔋 배터리 (`hand_battery`), `stage_size` 모든 단계 0.85, 대사 `take_off`·`rescue`·`air_flip`·`soft_land`·`suit_up` + chatter "Beep boop!"·"Charging..."·"Heart power!" (짧은 영어). 물건 들기(juggler)는 안 함.
+- `pet.json`: `"super_flier": true` (슈퍼인간과 같은 `soars` 날기 뇌 — fly·fly_fast·fly_flip·hover를 제트팩으로 그림), `suit_up` 그림이 있으면 코어 특별 동작 `Special::SuitUp` (쉬는 박자의 6%, 간질일 땐 안 함), `"personality": "playful"`, 좋아하는 음식 🔋 배터리 (`hand_battery`), `stage_size` 모든 단계 0.85, 대사 `take_off`·`rescue`·`air_flip`·`soft_land`·`suit_up` + chatter "Beep boop!"·"Charging..."·"Heart power!" (짧은 영어).
+- 💪 `"juggler": true` — 슈퍼인간처럼 한 주먹으로 투구 위에 번쩍 (`JUGGLE_ANIMS` 일곱, 손 자리 `grip` = 투구 위 안테나 구슬께, 팔은 투구 뒤 — 렌즈를 가리지 않음). 영웅이라 거대한 돌·똥도 늘 번쩍 (`hero_lift`), 친구 화면으로도 들고 감.
+- 🤗 `hug` (2칸, 옆모습): 🕷️ 거미인간을 꼭 안는 그림 — 살짝 숙여 두 팔을 가슴 높이로 앞으로 둘러 감고 렌즈·하트 반짝, 하트 뿅 (코어 `PetConfig::mentor` = 투구 장착 + hug, `social_mentor.rs`). 대사 `cheer` ("You got this, kid!" …)·`uh_huh`·`not_now`.
+
+## 😜 흐물이 장난 나눠 주기 (`pranks`)
+- `pet.json` `"pranks": ["hoist", "hide"]` (코어 `PetManifest::hoists`·`hides`, `sprite_spec.PRANKS`): 🦇 박쥐인간 · 🦸 슈퍼인간 · 🛡️ 무쇠인간 · 🧙 해리 · 📚 헤르미온느 · 🐍 볼드모트 · 🧔 해그리드. 흐물이는 `antics`로 이미 다 함.
+- 🙆 `hoist` = 다른 펫 번쩍 들기 — 들고 던지기 그림 (`juggler`)이 있어야 함. 흐물이 아닌 동물은 내려놓을 때 `stuff` 대신 `hold`.
+- 🫣 `hide` = 창 뒤 숨바꼭질 — `peek` 그림이 있어야 함. `draw_pets.peek_from(look 포즈)`가 두리번 칸을 좌우로 뒤집어 창 옆면 (x = 64 − 0.15 × 128)에서 머리가 조금 밖에 오게 민 뒤 옆면 오른쪽 (창 뒤)을 지움 — 새로 그리지 않음.
+- 마법사 넷은 `draw_wizard.py`의 `wz_lift`…`wz_slump` (두 손으로 머리 위에 번쩍, 지팡이는 먼 손 — 손 자리 `grip`)로 흐물이 들고 던지기 장난도 함 (`"juggler": true`).
 - 디자인: 큰 둥근 빨간 통 투구 (정수리→이마 짧은 금색 줄, 금색 구슬 안테나, 위로 치켜 올라간 금테 하늘색 렌즈 눈 둘 + 하얀 반짝, 숨구멍 점 한 줄), 빨간 갑옷 (어깨 넓고 허리 좁음) + 금색 판 (둥근 어깨 받침·윗팔·허벅지·무릎 관절·허리판), 가슴 V·정강이 패널 선, 하얀 반사 줄, 가슴 금테 하트 창 (하얀 빛 + 짧은 빛줄기 — 밝게·흐리게). 등엔 강철 제트팩 (금색 날개 둘, 분사구 둘 — 앞모습은 어깨 뒤 날개 끝만).
 - 하지 않는 것 (다른 영웅을 닮지 않게): 손바닥 빛 쏘기, 발·장화 분사·발바닥 연기, 내려 닫는 얼굴 가리개, 동그란/세모 가슴 빛, 가는 틈 눈. 빛은 등 분사구에서만 (fly·fly_fast 긴 하얀 빛 꼬리, hover·fly_flip 짧은 불꽃).
 - 동작 대응: stretch 💗 하트 번쩍 (빛줄기가 가슴 밖까지) · sit_front 🔋 바닥에 앉아 충전 (하트 깜빡, 안테나 불똥) · tickle·annoyed 🛡️ 팔뚝 엇갈려 막기 · wave 👋 삐삐 (안테나 소리 물결) · hungry 🔋 배터리 생각 풍선 · sleep 렌즈 꺼짐.

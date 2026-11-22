@@ -100,6 +100,7 @@ crates/
 | `magic.rs` | ✨ 덮개 창에 그릴 마법 효과 (`MagicFx` — ⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리·🥚 용알·🐉 아기 용·🔥 모닥불·🪄 날아간 지팡이·💡 루모스 불빛·🐶 흰둥이, 앱 `trail.rs` → `ui/magic.js`) |
 | `brain_tuck.rs` | 🎒 가방에 숨기: 해리·헤르미온느·볼드모트가 모이면 헤르미온느가 해리를 구슬 가방에 숨기고 (`State::Tucked`, `render.tuck`) 대신 결투 — 끝나면 해리가 튀어나옴 (`brain_duel.rs`의 `sync_duels`가 먼저 부름) |
 | `social_campfire.rs` | 🔥 해그리드·해리·헤르미온느 모닥불: 반가움 → 불 피우기 (`Pose.fire` → `MagicFx::Campfire`) → 둘러앉아 도란도란 → 불 끄고 흩어짐 |
+| `social_mentor.rs` | 🛡️🕷️ 무쇠인간과 거미인간: 🤗 응원 포옹 ("You got this, kid!") · 🗨️ 거미인간이 졸졸 따라다니며 재잘재잘 (무쇠인간은 들어 주거나 날아서 달아남) |
 | `social_pester.rs` | 📖 책 읽는 헤르미온느를 해리·해그리드가 방해 → "Shh!" 또는 책을 덮고 술래잡기·달리기 시합 (`brain_study.rs` `shush`·`close_book`) |
 | `brain_hagrid.rs` | 🧔 해그리드: 🏍️ 사이드카 오토바이 (붕 날기, 작은 펫 태우기)·🤗 안아 들기·🖐️ 쓰담·🥚 용알 → 🐉 아기 용·🪨 락 케이크 (숫자도 이 파일 — 🐉 용 타기는 `brain_broom.rs`가 `mount_anim`으로) |
 | `pacing.rs` | 게임 루프 박자 |
