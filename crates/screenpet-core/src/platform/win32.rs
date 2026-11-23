@@ -20,7 +20,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SMTO_ABORTIFHUNG, WM_GETICON,
     EnumWindows, GetClassNameW, GetCursorPos, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId, SetWindowLongW, SWP_FRAMECHANGED, WS_EX_LAYERED,
     IsIconic, IsWindow, IsWindowVisible, SetWindowPos, ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE, GWL_EXSTYLE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
 use super::WindowSource;
@@ -373,9 +373,25 @@ pub fn set_click_through(hwnd: isize, on: bool) -> bool {
     }
 }
 
-/// 우리 창(hwnd)이 지금 보이는 상태임 (WS_VISIBLE — 화면 밖이어도 보이는 상태면 true)
+/// 우리 창(hwnd)이 지금 보이는 상태임 (WS_VISIBLE이고 최소화 아님 — 화면 밖이어도 보이는 상태면 true).
+/// 최소화된 창도 IsWindowVisible은 true라 따로 봄 (Win+D·Win+M에 최소화된 펫이 투명인간처럼 돌던 버그, v0.7.3)
 pub fn is_window_shown(hwnd: isize) -> bool {
-    unsafe { IsWindowVisible(HWND(hwnd as *mut c_void)).as_bool() }
+    let h = HWND(hwnd as *mut c_void);
+    unsafe { IsWindowVisible(h).as_bool() && !IsIconic(h).as_bool() }
+}
+
+/// 우리 떠 있는 창(hwnd)을 도구 창으로 (WS_EX_TOOLWINDOW, WS_EX_APPWINDOW 뺌): 작업표시줄·Alt-Tab에 아예 안 나옴.
+/// tao의 skip_taskbar는 DeleteTab뿐이라 조용히 숨겼다 보이면 작업표시줄 아이콘이 다시 생겼음
+pub fn keep_off_taskbar(hwnd: isize) {
+    let h = HWND(hwnd as *mut c_void);
+    unsafe {
+        let ex = GetWindowLongW(h, GWL_EXSTYLE) as u32;
+        let next = (ex | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
+        if next != ex {
+            SetWindowLongW(h, GWL_EXSTYLE, next as i32);
+            let _ = SetWindowPos(h, HWND::default(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        }
+    }
 }
 
 /// 우리 창(hwnd)을 숨김 — show_window_quietly와 짝 (tao가 기억하는 보임 상태와 상관없이 늘 숨김)

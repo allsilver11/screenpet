@@ -1,5 +1,5 @@
 //! 펫·하우스·손님·침 자국·밥그릇처럼 화면 위에 떠 있는 창의 OS별 마무리.
-//! Windows는 빌더 설정(투명·항상 위·작업표시줄 숨김)으로 충분해서 아무 일도 하지 않음.
+//! Windows는 빌더 설정(투명·항상 위·최소화 없음)에 도구 창(작업표시줄·Alt-Tab에 안 나옴)만 더함.
 //! 만들 때 👻 전체 투명도(opacity.rs)의 지금 값을 init 스크립트로 넣음.
 
 use std::time::Instant;
@@ -41,10 +41,14 @@ pub fn finish<M: Manager<Wry>>(builder: WebviewWindowBuilder<'_, Wry, M>) -> tau
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
+        // 최소화·최대화 단추 없음 — Win+M(모두 최소화)이 펫 창을 최소화하지 않게 (최소화되면 보이는 상태인데 안 보였음)
+        .minimizable(false)
+        .maximizable(false)
         .shadow(false)
         .focused(false)
         .visible(false)
         .build()
+        .inspect(keep_off_taskbar)
         .inspect(float_everywhere)
 }
 
@@ -59,11 +63,15 @@ pub fn finish_quiet<M: Manager<Wry>>(builder: WebviewWindowBuilder<'_, Wry, M>) 
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
+        // 최소화·최대화 단추 없음 — Win+M(모두 최소화)이 펫 창을 최소화하지 않게 (최소화되면 보이는 상태인데 안 보였음)
+        .minimizable(false)
+        .maximizable(false)
         .shadow(false)
         .focused(false)
         .position(0.0, -20000.0)
         .visible(true)
         .build()
+        .inspect(keep_off_taskbar)
         .inspect(float_everywhere)
 }
 
@@ -321,3 +329,12 @@ pub fn float_everywhere(window: &WebviewWindow) {
 /// macOS 밖에서는 아무것도 안 함
 #[cfg(not(target_os = "macos"))]
 pub fn float_everywhere(_window: &WebviewWindow) {}
+
+/// Windows: 떠 있는 창을 도구 창으로 — 조용히 숨겼다 보여도 작업표시줄 아이콘이 생기지 않음 (다른 OS는 아무것도 안 함)
+pub fn keep_off_taskbar(window: &WebviewWindow) {
+    #[cfg(windows)]
+    if let Some(h) = hwnd_of(window) {
+        screenpet_core::platform::keep_off_taskbar(h);
+    }
+    let _ = window;
+}

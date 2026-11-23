@@ -90,3 +90,41 @@ def test_the_hide_item_says_what_it_will_do():
     assert "toggle.set_text(toggle_label(false))" in show
     hide = src[src.index("fn toggle_windows("):][:900]
     assert "toggle.set_text(toggle_label(true))" in hide
+
+
+def _floating_builders():
+    src = _text("overlay.rs")
+    out = []
+    for name in ("pub fn finish<", "pub fn finish_quiet<"):
+        body = src[src.index(name):]
+        out.append(body[: body.index("\n}\n")])
+    return out
+
+
+def test_floating_windows_cannot_be_minimized():
+    """Win+D·Win+M(모두 최소화)이 펫 창을 최소화하면 창은 "보이는 상태"인데 그림·말풍선이 안 보이고, 작업표시줄에 아이콘이
+    생기고, 밥그릇만 빈자리에 나옴 — 헤르미온느가 투명인간으로 돌아다니던 버그 (v0.7.3). 떠 있는 창은 최소화·최대화 단추가 없음."""
+    for body in _floating_builders():
+        assert ".minimizable(false)" in body and ".maximizable(false)" in body
+
+
+def test_floating_windows_stay_off_the_taskbar_even_after_hide_and_show():
+    """tao의 skip_taskbar는 ITaskbarList::DeleteTab뿐이라 조용히 숨겼다 보이면(놀러 갔다 옴·하우스) 작업표시줄 아이콘이 다시 생김
+    → 도구 창(WS_EX_TOOLWINDOW)으로 만들어 작업표시줄·Alt-Tab에 아예 안 나옴."""
+    for body in _floating_builders():
+        assert "keep_off_taskbar" in body
+    src = _text("overlay.rs")
+    assert "platform::keep_off_taskbar" in src
+    win = (SRC.parent.parent / "crates" / "screenpet-core" / "src" / "platform" / "win32.rs").read_text(encoding="utf-8")
+    body = win[win.index("pub fn keep_off_taskbar("):]
+    body = body[: body.index("\n}\n")]
+    assert "WS_EX_TOOLWINDOW" in body and "WS_EX_APPWINDOW" in body
+
+
+def test_a_minimized_pet_window_counts_as_hidden_and_is_shown_again():
+    """최소화된 창도 IsWindowVisible은 true — 그래서 1초마다 하는 다시 보이기가 못 고쳤음. 최소화도 "안 보임"으로 봄
+    (show_quietly의 SW_SHOWNOACTIVATE가 포커스를 뺏지 않고 되살림)."""
+    win = (SRC.parent.parent / "crates" / "screenpet-core" / "src" / "platform" / "win32.rs").read_text(encoding="utf-8")
+    body = win[win.index("pub fn is_window_shown("):]
+    body = body[: body.index("\n}\n")]
+    assert "IsIconic" in body
