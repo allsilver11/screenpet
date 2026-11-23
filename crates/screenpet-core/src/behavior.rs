@@ -7,7 +7,7 @@ pub const IDLE_SECS: (f64, f64) = (1.5, 3.0);
 /// 자는 시간 (초)
 pub const SLEEP_SECS: (f64, f64) = (10.0, 20.0);
 /// 쉰 뒤 잘 확률
-pub const SLEEP_CHANCE: f64 = 0.12;
+pub const SLEEP_CHANCE: f64 = 0.05;
 /// 애교 시간 (초)
 pub const TRICK_SECS: (f64, f64) = (3.0, 5.0);
 /// 다정한 동물이 쉴 때 애교 부릴 확률
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn sleep_and_trick_timing() {
-        assert_eq!((SLEEP_CHANCE, SLEEP_SECS, TRICK_SECS), (0.12, (10.0, 20.0), (3.0, 5.0)));
+        assert_eq!((SLEEP_CHANCE, SLEEP_SECS, TRICK_SECS), (0.05, (10.0, 20.0), (3.0, 5.0)), "덜 자주 잠 (2026-11-23)");
         assert_eq!(BEAT_SECS, (0.6, 1.5));
     }
 

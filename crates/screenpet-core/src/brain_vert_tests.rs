@@ -69,12 +69,12 @@ fn linked_up_and_down_friends_get_occasional_sky_jumps_and_dives() {
     let n = 4000;
     let (up, down) = vertical_decisions(cfg(), n, |p| p.set_vertical_edges(true, false));
     assert_eq!(down, 0);
-    // 이동을 정할 때마다 0.75% 쯤 — 옆 친구에게 걸어가 넘어가는 것과 비슷한 빈도 (사용자: 방향마다 비슷하게)
+    // 이동을 정할 때마다 1.5% 쯤 — 옆 친구에게 걸어가 넘어가는 것과 비슷한 빈도 (사용자: 방향마다 비슷하게. 잠을 줄여 더 걸으니 2026-11-23에 올림)
     let rate = up as f64 / n as f64;
-    assert!((0.003..0.013).contains(&rate), "up rate {rate}");
+    assert!((0.006..0.026).contains(&rate), "up rate {rate}");
     let (up, down) = vertical_decisions(cfg(), n, |p| p.set_vertical_edges(false, true));
     assert_eq!(up, 0);
-    assert!((0.003..0.013).contains(&(down as f64 / n as f64)), "down {down}");
+    assert!((0.006..0.026).contains(&(down as f64 / n as f64)), "down {down}");
     // 개구리는 위로 더 자주
     let (frog_up, _) = vertical_decisions(frog(), n, |p| p.set_vertical_edges(true, false));
     assert!(frog_up as f64 > 1.5 * up as f64, "frog {frog_up} vs {up}");

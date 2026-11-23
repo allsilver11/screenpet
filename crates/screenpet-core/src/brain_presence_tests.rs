@@ -326,15 +326,16 @@ fn after_midnight_the_pet_yawns_and_nags_only_at_night() {
 }
 
 #[test]
-fn the_nightcap_comes_off_at_half_past_eight_with_the_sleepy_hours() {
+fn the_nightcap_is_on_from_one_to_seven_with_the_sleepy_hours() {
     let mut sim = afternoon();
     let cap_at = |sim: &mut Sim, time| {
         sim.time = time;
         sim.rhythm.overlay(&sim.input()).nightcap
     };
-    assert!(cap_at(&mut sim, (0, 0)));
-    assert!(cap_at(&mut sim, (8, 29)));
-    assert!(!cap_at(&mut sim, (8, 30)));
+    assert!(!cap_at(&mut sim, (0, 30)));
+    assert!(cap_at(&mut sim, (1, 0)));
+    assert!(cap_at(&mut sim, (6, 59)));
+    assert!(!cap_at(&mut sim, (7, 0)));
     assert!(!cap_at(&mut sim, (23, 59)));
 }
 
@@ -344,7 +345,7 @@ fn a_delayed_greeting_never_keeps_the_nightcap_on() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
     let mut sim = afternoon();
     sim.marks = DailyMarks::default();
-    sim.time = (8, 30);
+    sim.time = (7, 0);
     sim.rhythm.start_focus(FocusLength::Short, sim.secs, &mut p);
     sim.run(&mut p, &w, 3);
     assert!(!has_said(&sim, Speech::GoodMorning), "focus keeps the greeting waiting");
@@ -359,10 +360,10 @@ fn good_morning_is_a_big_stretch_once_a_day() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
     let mut sim = afternoon();
     sim.marks = DailyMarks::default();
-    sim.time = (8, 29);
+    sim.time = (6, 59);
     sim.second(&mut p, &w);
     assert!(!has_said(&sim, Speech::GoodMorning));
-    sim.time = (8, 30);
+    sim.time = (7, 0);
     let input = sim.input();
     let out = sim.rhythm.tick(&input, &mut p, &w, &mut sim.care, &mut sim.marks);
     assert!(out.marks_changed, "saved");

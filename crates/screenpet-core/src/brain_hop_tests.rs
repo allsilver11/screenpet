@@ -299,13 +299,13 @@ fn ready_leaps(p: &mut Pet, w: &World) -> bool {
     (0..200).any(|_| p.big_jump_state(w).is_some())
 }
 
-/// 걷는 동물 10분: 늘 화면 안·디딤판 위, 큰 점프는 늘 창 윗면에 내려섬 (나는 동물은 안 뜀)
+/// 걷는 동물 10분 × 다섯 (큰 점프가 드문 동물도 한 번은 뛰게): 늘 화면 안·디딤판 위, 큰 점프는 늘 창 윗면에 내려섬 (나는 동물은 안 뜀)
 #[test]
 fn walkers_ten_minutes_stay_on_surfaces_and_land_their_leaps() {
     let w = world(vec![win(1, 300.0, 750.0, 900.0, 1000.0), win(2, 1200.0, 600.0, 1700.0, 800.0)]);
     for (id, c) in bundled() {
         let mut leaps = 0usize;
-        for seed in 0..3 {
+        for seed in 0..5 {
             let mut p = Pet::new(c, 960.0, 128.0, seed);
             let mut was = None;
             for _ in 0..(60 * 600) {
@@ -333,7 +333,7 @@ fn walkers_ten_minutes_stay_on_surfaces_and_land_their_leaps() {
         if c.flies {
             assert_eq!(leaps, 0, "{id}");
         } else {
-            assert!(leaps > 0, "{id} never leapt in 30 minutes");
+            assert!(leaps > 0, "{id} never leapt in 50 minutes");
         }
     }
 }

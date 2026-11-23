@@ -142,9 +142,9 @@ fn each_trait_shows_up_much_more_at_its_own_stage_and_sometimes_elsewhere() {
         assert!(own > 2 * distant, "{t:?}: {own} at {home:?} vs {distant} at {far:?}");
         assert!(elsewhere > 0, "{t:?} should still happen at other stages");
     }
-    // 👶 아기는 더 오래 잠 (깨어 있는 시간 대비)
+    // 👶 아기는 더 오래 잠 (깨어 있는 시간 대비 — 2026-11-23부터 조금만 더)
     let asleep = |s: Stage| runs.iter().find(|r| r.0 == s).unwrap().2;
-    assert!(asleep(Stage::Baby) > 1.3 * asleep(Stage::Adult), "baby {} vs adult {}", asleep(Stage::Baby), asleep(Stage::Adult));
+    assert!(asleep(Stage::Baby) > 1.1 * asleep(Stage::Adult), "baby {} vs adult {}", asleep(Stage::Baby), asleep(Stage::Adult));
 }
 
 /// 행동별 센 수 묶음 (테스트 표)
@@ -384,4 +384,13 @@ fn a_teen_with_its_traits_still_mostly_moves_and_rarely_sleeps() {
     let (m, s) = (moving as f64 / total as f64, sleeping as f64 / total as f64);
     assert!(m >= 0.45, "moving {m:.3}");
     assert!(s <= 0.13, "sleeping {s:.3}");
+}
+
+/// 😴 아기도 너무 자주·오래 자지 않음 (2026-11-23 — "너무 자주 자"): 쉰 뒤 잘 확률 (평소 × 늘어나는 몫)이 10% 아래, 잠 길이 1.25배 이하
+#[test]
+fn babies_do_not_nap_all_the_time() {
+    use crate::stage::SLEEPY_LONGER;
+    let chance = crate::behavior::SLEEP_CHANCE * (1.0 + StageTrait::Sleepy.rate(Stage::Baby));
+    assert!(chance < 0.10, "{chance}");
+    assert!(SLEEPY_LONGER <= 0.25);
 }

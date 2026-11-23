@@ -110,7 +110,7 @@ impl StageTrait {
         match self {
             Toddle => 0.15,
             Plop => 0.03,
-            Sleepy => 1.0,
+            Sleepy => 0.4,
             Tagalong => 1.0,
             Waah => 0.15,
             Ooh => 0.12,
@@ -137,7 +137,7 @@ pub const TODDLE_SLOW: f64 = 0.3;
 /// 👶 휘청 한 번 (초)
 pub const TODDLE_WOBBLE_SECS: f64 = 0.4;
 /// 👶 오래 자는 몫 (잠 시간 × (1 + 이 값 × 연령대 배))
-pub const SLEEPY_LONGER: f64 = 0.5;
+pub const SLEEPY_LONGER: f64 = 0.25;
 /// 👶 혼자 이만큼 (초) 있으면 가끔 "waah" — 한 번 울면 다시 셈. 다른 연령대는 이 시간 ÷ 연령대 배만큼 (더 오래) 혼자여야 함
 pub const WAAH_ALONE_SECS: f64 = 300.0;
 
