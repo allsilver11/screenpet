@@ -45,7 +45,7 @@ def test_a_lost_visit_brings_my_pet_home_right_away_with_a_line():
     assert "away::parse_news(ask)" in ask
     news = fn_body(NET, "on_away_news")
     assert "a.friend == from" in news and "a.visit_id" in news
-    assert "self.come_back(own, None, None)" in news
+    assert "self.come_back(&mut slots[i], None, None)" in news
     assert "away::LOST_LINE" in news
 
 
