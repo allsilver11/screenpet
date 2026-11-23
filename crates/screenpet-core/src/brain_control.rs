@@ -132,6 +132,8 @@ pub(crate) struct Control {
     jump_taps: u8,
     /// 마지막으로 Space를 막 누른 시각 (clock — 벽에서 놓은 Space는 지움, brain_cling.rs)
     pub(super) last_jump: f64,
+    /// ↑↑·Space Space 몸짓을 셈 (내 펫은 늘, 친구 링크 손님은 주인 앱이 아는 판일 때만 — allow_control_gestures)
+    gestures: bool,
     /// 벽에서 올라선 뒤 ↑를 뗄 때까지 ↑를 점프로 안 씀 (brain_cling.rs)
     pub(super) quiet_up: bool,
     /// 지금 붙어 있는 벽 (brain_cling.rs)
@@ -184,7 +186,7 @@ impl SteerPacer {
 impl Control {
     /// 새 조작 상태. remote면 친구 링크로 키가 오는 손님임
     fn new(remote: bool) -> Self {
-        Control { input: ControlInput::default(), prev: ControlInput::default(), remote, stale: 0.0, idle: 0.0, last_down: f64::NEG_INFINITY, last_up: f64::NEG_INFINITY, up_taps: 0, down_taps: 0, jump_taps: 0, last_jump: f64::NEG_INFINITY, quiet_up: false, cling: None, feat: None }
+        Control { input: ControlInput::default(), prev: ControlInput::default(), remote, stale: 0.0, idle: 0.0, last_down: f64::NEG_INFINITY, last_up: f64::NEG_INFINITY, up_taps: 0, down_taps: 0, jump_taps: 0, last_jump: f64::NEG_INFINITY, gestures: !remote, quiet_up: false, cling: None, feat: None }
     }
 
     /// 앱이 준 키를 받음. 막 누른 ↑·↓는 세어 두고, 뭔가 눌렸으면 손 놓은 시간을 0으로 돌림
@@ -249,6 +251,22 @@ impl Pet {
         c.remote = true;
         c.stale = 0.0;
         c.feed(input);
+    }
+
+    /// 친구 링크로 조종하는 주인이 ↑↑·Space Space를 아는 판인지 (앱이 remote_keys 뒤에 그 친구의 프로토콜 버전으로 알려 줌 —
+    /// 모르는 예전 판이면 그 두 몸짓을 세지 않음: 그쪽 사용자가 모르는 특기·벽 붙기가 갑자기 나오지 않게). 조작 모드가 아니면 아무것도 안 함
+    pub fn allow_control_gestures(&mut self, ok: bool) {
+        if let Some(c) = self.control.as_mut() {
+            c.gestures = ok;
+        }
+    }
+
+    /// 방금 내려섬: 그 전의 ↑·↓ 톡톡을 잊음 (내려가려고 톡톡 누르던 ↓가 내려서자마자 ↓↓로 세어져 창에서 뛰어내리지 않게)
+    pub(super) fn forget_arrow_taps(&mut self) {
+        if let Some(c) = self.control.as_mut() {
+            c.last_down = f64::NEG_INFINITY;
+            c.last_up = f64::NEG_INFINITY;
+        }
     }
 
     /// 키 없이 시간이 다 돼 조작 모드가 저절로 끝났으면 true를 한 번
@@ -372,9 +390,9 @@ impl Pet {
         let pressed_down = c.down_taps > 0;
         let double_down = c.down_taps >= 2 || (pressed_down && clock - c.last_down <= DOUBLE_TAP_SECS);
         let pressed_up = c.up_taps > 0;
-        let double_up = c.up_taps >= 2 || (pressed_up && clock - c.last_up <= DOUBLE_TAP_SECS);
+        let double_up = c.gestures && (c.up_taps >= 2 || (pressed_up && clock - c.last_up <= DOUBLE_TAP_SECS));
         let pressed_jump = c.jump_taps > 0;
-        let double_jump = c.jump_taps >= 2 || (pressed_jump && clock - c.last_jump <= DOUBLE_TAP_SECS);
+        let double_jump = c.gestures && (c.jump_taps >= 2 || (pressed_jump && clock - c.last_jump <= DOUBLE_TAP_SECS));
         if let Some(c) = self.control.as_mut() {
             c.prev = input;
             c.quiet_up = quiet_up;

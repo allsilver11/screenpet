@@ -421,6 +421,7 @@ fn my_pet_on_a_friends_screen_uses_its_special_from_forwarded_keys() {
     p.hush_stage();
     for k in [UP, NONE, UP, NONE] {
         p.remote_keys(true, k);
+        p.allow_control_gestures(true);
         p.update(DT, &w);
     }
     assert_eq!(p.feat_on(), Some(Feat::Fly));
@@ -446,6 +447,7 @@ fn quick_taps_between_two_ticks_are_not_lost() {
     for k in [UP, NONE, UP, NONE] {
         p.remote_keys(true, k);
     }
+    p.allow_control_gestures(true);
     p.update(DT, &w);
     assert_eq!(p.feat_on(), Some(Feat::Fly));
     // 내 동물도: 한 틱 안에 누르고 뗀 ↓↓
@@ -565,4 +567,45 @@ fn riding_out_to_a_friend_leaves_the_bike_behind() {
     }
     assert!(gone);
     assert_eq!(p.feat_on(), None, "back home it walks again");
+}
+
+#[test]
+fn tapping_down_after_landing_on_a_window_does_not_drop_through_it() {
+    let w = world(vec![win(1, 600.0, 600.0, 1300.0, 1040.0)]);
+    let mut p = controlled("musoe", 900.0, &w);
+    start(&mut p, &w);
+    hold(&mut p, &w, keys(|k| k.up = true), 3.0);
+    while p.body.y < 590.0 {
+        hold(&mut p, &w, keys(|k| k.down = true), DT);
+    }
+    hold(&mut p, &w, NONE, DT);
+    for _ in 0..30 {
+        hold(&mut p, &w, keys(|k| k.down = true), DT);
+        if p.standing.is_some() {
+            break;
+        }
+    }
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
+    hold(&mut p, &w, NONE, DT);
+    hold(&mut p, &w, keys(|k| k.down = true), DT);
+    hold(&mut p, &w, NONE, DT);
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)), "{:?}", p.state);
+}
+
+#[test]
+fn food_given_mid_flight_brings_the_flier_down_to_eat() {
+    let w = world(vec![]);
+    let mut p = controlled("musoe", 900.0, &w);
+    start(&mut p, &w);
+    hold(&mut p, &w, keys(|k| k.up = true), 1.0);
+    assert!(p.feed_result(crate::care::FeedResult::Ate { leveled_up: false }, crate::care::Food::Snack));
+    let mut ate = false;
+    for _ in 0..(20.0 / DT) as usize {
+        hold(&mut p, &w, NONE, DT);
+        if matches!(p.state, State::Eating { .. }) {
+            ate = true;
+            break;
+        }
+    }
+    assert!(ate, "{:?}", p.state);
 }

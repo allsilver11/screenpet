@@ -52,3 +52,11 @@ def test_help_and_readme_explain_space_space_wall_cling():
     assert space_space in line and "유리" in line and "창 옆면" in line
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "Space Space 벽 붙기" in readme
+
+
+def test_guests_get_the_new_gestures_only_from_owners_that_know_them():
+    net = (ROOT / "src-tauri" / "src" / "network.rs").read_text(encoding="utf-8")
+    steered = net[net.index("NetEvent::Steered"):net.index("NetEvent::Tossed")]
+    assert "allow_control_gestures(gestures)" in steered and "CONTROL_GESTURES_MIN_VERSION" in steered
+    proto = (ROOT / "crates" / "screenpet-net" / "src" / "protocol.rs").read_text(encoding="utf-8")
+    assert re.search(r"CONTROL_GESTURES_MIN_VERSION: u32 = 8;", proto)

@@ -12,7 +12,11 @@
 //! - 차례: 붙어 있으면 이것이 먼저. ↑↑만 특기가 있는 펫 (날기·빗자루·웹스윙 — brain_feat.rs)에게 넘김 (벽에서 떨어져 특기 시작),
 //!   ↓↓는 그냥 내려가기 (창에서 뛰어내리기 아님). 날기·빗자루·그네 중엔 Space Space가 붙지 않음 (그네는 첫 Space로 놓으니 둘째로 붙음),
 //!   🦇 오토바이는 내리고 붙음.
-//! - 조작 모드가 끝나거나 볼일 (잡기·먹이·하우스 등)이 끼면 놓고 떨어짐 (drop_cling). 친구 화면에 간 내 펫도 같은 키 비트로 됨.
+//! - 조작 모드가 끝나거나 볼일 (잡기·먹이·하우스 등 — 붙어 있는 동안 받은 간식도)이 끼면 놓고 떨어짐 (drop_cling).
+//!   친구 화면에 간 내 펫도 같은 키 비트로 됨 (주인 앱이 예전 판이면 Space Space를 세지 않음 — allow_control_gestures).
+//! - 화면 끝은 진짜 끝만 (옆 모니터로 이어지는 이음매는 벽 아님 — screen_edge), 끝이 옮겨 가면 다시 붙고 사라지면 유리로.
+//!   창 옆면은 앞 창에 가리지 않은 곳만 (world.side_covered), 붙어 있다 가려지면 떨어짐. 합친 화면 밖 옆면은 안 봄.
+//! - 내려서면 그 전의 ↑·↓ 톡톡을 잊음 (forget_arrow_taps).
 
 use super::control_moves::{ControlInput, Taps};
 use super::feat_moves::Feat;
@@ -88,10 +92,7 @@ impl Pet {
         let half_w = self.cfg.half_w;
         let x = match wall {
             ClingWall::Glass => self.body.x,
-            ClingWall::Screen { dir } => {
-                let wa = world.work_area_at(self.body.x, self.body.y - 1.0);
-                (if dir > 0.0 { wa.right } else { wa.left }) - dir * half_w
-            }
+            ClingWall::Screen { dir } => screen_edge(world, self.body.x, self.body.y, dir).expect("found edge") - dir * half_w,
             ClingWall::Window { id, dir, .. } => {
                 let r = world.window(id).expect("found window").rect;
                 if dir > 0.0 { r.left - half_w } else { r.right + half_w }
@@ -125,16 +126,17 @@ impl Pet {
             (-1.0..=reach).contains(&gap).then_some(gap)
         };
         let mut best: Option<(f64, ClingWall)> = None;
-        let wa = world.work_area_at(x, y - 1.0);
-        if let Some(gap) = near(if dir > 0.0 { wa.right } else { wa.left }) {
+        if let Some(gap) = screen_edge(world, x, y, dir).and_then(near) {
             best = Some((gap, ClingWall::Screen { dir }));
         }
+        let b = world.bounds;
         for w in &world.windows {
             let r = w.rect;
-            if !(r.top < y - 1.0 && y <= r.bottom + 1.0) {
+            let side_x = if dir > 0.0 { r.left } else { r.right };
+            if !(r.top < y - 1.0 && y <= r.bottom + 1.0) || !(b.left..=b.right).contains(&side_x) || world.side_covered(w.id, side_x, y) != Some(false) {
                 continue;
             }
-            if let Some(gap) = near(if dir > 0.0 { r.left } else { r.right }) {
+            if let Some(gap) = near(side_x) {
                 if best.is_none_or(|(g, _)| gap < g) {
                     best = Some((gap, ClingWall::Window { id: w.id, dir, rel_y: y - r.top }));
                 }
@@ -150,6 +152,11 @@ impl Pet {
         if self.standing.is_some() || !matches!(self.state, State::Air { .. }) {
             self.set_cling(None);
             return false;
+        }
+        // 붙어 있는 동안 받은 간식: 놓고 내려가서 먹음 (내려서면 serve_queued_food가 줌)
+        if self.queued_food.is_some() {
+            self.drop_cling();
+            return true;
         }
         if taps.double_up && matches!(self.feat_kind(), Some(Feat::Fly | Feat::Broom | Feat::Swing)) {
             self.drop_cling();
@@ -175,6 +182,16 @@ impl Pet {
         match wall {
             ClingWall::Glass => self.cling_glass(dt, world, input, v),
             ClingWall::Screen { dir } => {
+                // 끝이 옮겨 갔으면 (작업표시줄·해상도·몸 크기) 다시 붙고, 이음매가 됐거나 멀어졌으면 유리로
+                let wall_x = screen_edge(world, self.body.x, self.body.y, dir).map(|e| e - dir * self.cfg.half_w);
+                match wall_x {
+                    Some(wx) if (wx - self.body.x).abs() <= CLING_REACH * self.cfg.size => self.body.x = wx,
+                    _ => {
+                        self.set_cling(Some(ClingWall::Glass));
+                        self.cling_glass(dt, world, input, v);
+                        return true;
+                    }
+                }
                 if input.dir() == -dir {
                     self.set_cling(Some(ClingWall::Glass));
                     self.cling_glass(dt, world, input, v);
@@ -230,6 +247,7 @@ impl Pet {
         self.body = Body { x: self.body.x, y: s.y, vx: 0.0, vy: 0.0 };
         self.standing = Some(Standing { owner: s.owner, rel_x: self.body.x - ax });
         self.set_cling(None);
+        self.forget_arrow_taps();
         if let Some(c) = self.control.as_mut() {
             c.quiet_up = true;
         }
@@ -245,6 +263,12 @@ impl Pet {
             return;
         };
         let half_w = self.cfg.half_w;
+        let side_x = if dir > 0.0 { rect.left } else { rect.right };
+        // 앞 창에 가려졌으면 떨어짐 (update_wall_climb와 같음)
+        if world.side_covered(id, side_x, rect.top + rel_y.clamp(0.0, rect.height())) != Some(false) {
+            self.drop_cling();
+            return;
+        }
         let x = if dir > 0.0 { rect.left - half_w } else { rect.right + half_w };
         if input.dir() == -dir {
             self.body.x = x;
@@ -275,4 +299,16 @@ impl Pet {
         self.set_cling(Some(ClingWall::Window { id, dir, rel_y: y - rect.top }));
         self.cling_move(world, input, x, prev_y, y);
     }
+}
+
+/// 보는 쪽(dir) 화면 끝 x — 발(x, y)이 있는 작업 영역의 옆변. 그 높이에서 옆 작업 영역으로 이어지는 이음매면 None (벽 아님)
+fn screen_edge(world: &World, x: f64, y: f64, dir: f64) -> Option<f64> {
+    const SEAM: f64 = 2.0;
+    let wa = world.work_area_at(x, y - 1.0);
+    let edge = if dir > 0.0 { wa.right } else { wa.left };
+    let seam = world.work_areas.iter().any(|r| {
+        let touches = if dir > 0.0 { (r.left - edge).abs() <= SEAM } else { (r.right - edge).abs() <= SEAM };
+        *r != wa && touches && r.top <= y - 1.0 && y - 1.0 <= r.bottom
+    });
+    (!seam).then_some(edge)
 }

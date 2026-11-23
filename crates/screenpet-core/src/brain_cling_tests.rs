@@ -344,6 +344,7 @@ fn my_pet_on_a_friends_screen_clings_from_forwarded_keys() {
     p.hush_stage();
     for k in [SPACE, NONE, SPACE, NONE] {
         p.remote_keys(true, k);
+        p.allow_control_gestures(true);
         p.update(DT, &w);
     }
     assert_eq!(p.cling_on(), Some(ClingWall::Glass));
@@ -353,4 +354,124 @@ fn my_pet_on_a_friends_screen_clings_from_forwarded_keys() {
         p.update(DT, &w);
     }
     assert!(p.body.y < y - 10.0);
+}
+
+#[test]
+fn a_window_side_hidden_behind_another_window_is_not_a_wall() {
+    // 창 1의 왼쪽 옆면(1000)은 앞의 창 2(800..1200)에 가려 있음 → 유리에 붙음
+    let w = world(vec![win(2, 800.0, 400.0, 1200.0, 1040.0), win(1, 1000.0, 500.0, 1600.0, 1040.0)]);
+    let mut p = controlled("cat", 900.0, &w);
+    cling(&mut p, &w);
+    assert_eq!(p.cling_on(), Some(ClingWall::Glass));
+    assert!((p.body.x - 900.0).abs() < 0.5, "no jump to a hidden side: {}", p.body.x);
+}
+
+#[test]
+fn a_window_side_that_gets_covered_drops_the_pet() {
+    let w = world(vec![win(1, 1000.0, 500.0, 1600.0, 1040.0)]);
+    let c = pet("cat");
+    let mut p = controlled("cat", 1000.0 - c.half_w - 80.0, &w);
+    cling(&mut p, &w);
+    assert!(matches!(p.cling_on(), Some(ClingWall::Window { .. })));
+    hold(&mut p, &w, UP, 1.0);
+    let covered = world(vec![win(3, 850.0, 300.0, 1150.0, 1040.0), win(1, 1000.0, 500.0, 1600.0, 1040.0)]);
+    hold(&mut p, &covered, NONE, DT);
+    assert_eq!(p.cling_on(), None);
+    assert!(settle(&mut p, &covered, 5.0));
+}
+
+#[test]
+fn a_seam_between_side_by_side_monitors_is_not_a_screen_wall() {
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 0.0, 3840.0, 1040.0)], 128.0);
+    let c = pet("cat");
+    let mut p = controlled("cat", 1920.0 - c.half_w - 60.0, &w);
+    cling(&mut p, &w);
+    assert_eq!(p.cling_on(), Some(ClingWall::Glass), "the seam is not a wall");
+    // 바깥 끝은 벽
+    let mut p = controlled("cat", 3840.0 - c.half_w - 60.0, &w);
+    place(&mut p, &w, Owner::Ground(1), 3840.0 - c.half_w - 60.0, State::Idle { remaining: 1.0, look: false });
+    cling(&mut p, &w);
+    assert_eq!(p.cling_on(), Some(ClingWall::Screen { dir: 1.0 }));
+}
+
+#[test]
+fn a_screen_wall_follows_its_edge_and_turns_to_glass_when_it_is_gone() {
+    let w = world(vec![]);
+    let c = pet("cat");
+    let mut p = controlled("cat", 1920.0 - c.half_w - 60.0, &w);
+    cling(&mut p, &w);
+    hold(&mut p, &w, UP, 1.0);
+    // 작업 영역이 조금 줄어듦 (작업표시줄을 오른쪽에 둠) → 새 끝에 다시 붙음
+    let narrower = World::new(vec![], vec![Rect::new(0.0, 0.0, 1860.0, 1040.0)], 128.0);
+    hold(&mut p, &narrower, NONE, DT);
+    assert_eq!(p.cling_on(), Some(ClingWall::Screen { dir: 1.0 }));
+    assert!((p.body.x - (1860.0 - c.half_w)).abs() < 0.5, "{}", p.body.x);
+    // 이웃 모니터가 붙어 끝이 이음매가 됨 → 유리
+    let joined = World::new(vec![], vec![Rect::new(0.0, 0.0, 1860.0, 1040.0), Rect::new(1860.0, 0.0, 3780.0, 1040.0)], 128.0);
+    hold(&mut p, &joined, NONE, DT);
+    assert_eq!(p.cling_on(), Some(ClingWall::Glass));
+}
+
+#[test]
+fn tapping_down_onto_a_window_top_does_not_then_drop_through_it() {
+    let w = world(vec![win(1, 600.0, 700.0, 1300.0, 1040.0)]);
+    let mut p = controlled("cat", 400.0, &w);
+    p.facing = -1.0;
+    cling(&mut p, &w);
+    hold(&mut p, &w, UP, 8.0);
+    hold(&mut p, &w, keys(|k| { k.right = true; k.run = true; }), 4.0);
+    assert!(p.body.x > 650.0 && p.body.y < 690.0, "{:?}", p.body);
+    // 창 윗면 바로 위까지 내려옴
+    while p.body.y < 688.0 {
+        hold(&mut p, &w, DOWN, DT);
+    }
+    hold(&mut p, &w, NONE, DT);
+    hold(&mut p, &w, DOWN, 0.25);
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)));
+    hold(&mut p, &w, NONE, DT);
+    hold(&mut p, &w, DOWN, DT);
+    hold(&mut p, &w, NONE, DT);
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Window(1)), "a tap right after stepping down is not ↓↓: {:?}", p.state);
+}
+
+#[test]
+fn food_given_while_clinging_lets_go_and_eats() {
+    let w = world(vec![]);
+    let mut p = controlled("cat", 900.0, &w);
+    cling(&mut p, &w);
+    hold(&mut p, &w, UP, 1.0);
+    assert!(p.feed_result(crate::care::FeedResult::Ate { leveled_up: false }, crate::care::Food::Snack));
+    let mut ate = false;
+    for _ in 0..(5.0 / DT) as usize {
+        hold(&mut p, &w, NONE, DT);
+        if matches!(p.state, State::Eating { .. }) {
+            ate = true;
+            break;
+        }
+    }
+    assert!(ate, "{:?}", p.state);
+    assert_eq!(p.cling_on(), None);
+}
+
+#[test]
+fn an_old_friend_steering_its_pet_here_gets_no_new_gestures() {
+    let w = world(vec![]);
+    // 예전 판 주인 (프로토콜 8 미만): Space Space는 그냥 점프, ↑↑도
+    let mut p = resting(pet("musoe"), 900.0, 7, &w);
+    p.hush_stage();
+    for k in [SPACE, NONE, SPACE, NONE, UP, NONE, UP, NONE] {
+        p.remote_keys(true, k);
+        p.allow_control_gestures(false);
+        p.update(DT, &w);
+    }
+    assert_eq!(p.cling_on(), None);
+    assert_eq!(p.feat_on(), None);
+    assert!(settle(&mut p, &w, 5.0));
+    // 새 판 주인
+    for k in [SPACE, NONE, SPACE, NONE] {
+        p.remote_keys(true, k);
+        p.allow_control_gestures(true);
+        p.update(DT, &w);
+    }
+    assert_eq!(p.cling_on(), Some(ClingWall::Glass));
 }

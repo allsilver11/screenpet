@@ -32,6 +32,9 @@ pub const MULTI_PET_MIN_VERSION: u32 = 7;
 /// 🧳 포트키로 마법사를 보내도 되는 가장 낮은 상대 버전 (`Visit::portkey`).
 /// 옛 버전은 그 필드를 무시하고 화면 끝에서 걸어 들어오게 하므로, 보내는 쪽은 옛 친구에겐 친구 쪽 포트키를 쓰지 않음
 pub const PORTKEY_MIN_VERSION: u32 = 8;
+/// 🎮 친구 링크로 조종하는 주인이 ↑↑ (특기)·Space Space (벽 붙기)를 아는 가장 낮은 상대 버전 (v0.7.4 — 새 필드 없음, 키 비트 그대로).
+/// 받는 쪽은 옛 주인의 손님에겐 이 두 몸짓을 세지 않음 (그쪽 사용자가 모르는 동작이 갑자기 나오지 않게)
+pub const CONTROL_GESTURES_MIN_VERSION: u32 = 8;
 /// 친구 하나가 소개하는 기기 수 상한 (`my_devices`, 메시지 하나와 전체 모두).
 /// 한 사람은 컴퓨터를 둘까지만 연결하므로 친구에게 다른 하나뿐임
 pub const MAX_DEVICES: usize = 1;

@@ -14,8 +14,10 @@
 //!   Space·↓ = 놓고 그 속도로 날아감. 그네 중 ↑↑ = 새 줄. 화면 (그 x 줄의 작업 영역) 밖으로는 안 흔들림.
 //!   줄이 붙은 창이 옮겨 가거나 닫히거나 화면이 줄면 (anchor_holds) 놓음.
 //! - 그 밖의 펫은 ↑↑가 그냥 점프.
-//! - 볼일 (먹이·잡기·하우스 등)이 끼어들거나, 조작 모드가 끝나거나, 다른 종으로 바뀌면 접음 (drop_feat): 날던 중이면 활공·빗자루째 사뿐, 줄에 매달렸으면 놓음.
+//! - 볼일 (먹이·잡기·하우스 등 — 날던 중에 받은 간식도)이 끼어들거나, 조작 모드가 끝나거나, 다른 종으로 바뀌면 접음 (drop_feat): 날던 중이면 활공·빗자루째 사뿐, 줄에 매달렸으면 놓음.
 //! - 친구 화면에 간 내 펫도 됨 — 키 비트는 그대로 (↑·↓), 손님 쪽 두뇌가 두 번 톡톡을 셈 (프로토콜 그대로).
+//!   주인 앱이 예전 판 (CONTROL_GESTURES_MIN_VERSION 미만)이면 ↑↑를 세지 않음 (allow_control_gestures).
+//! - ↓로 내려앉은 뒤엔 그 전의 톡톡을 잊음 (forget_arrow_taps — 바로 다음 ↓가 ↓↓로 창에서 뛰어내리지 않게).
 
 use super::control_moves::{ControlInput, Taps};
 use super::web_moves::WebPhase;
@@ -120,6 +122,11 @@ impl Pet {
     pub(super) fn update_feat(&mut self, dt: f64, world: &World, input: ControlInput, prev: ControlInput, taps: Taps) -> bool {
         if self.feat_raw().is_some() && self.feat_on().is_none() {
             self.drop_feat();
+        }
+        // 날던 중에 받은 간식: 내려가서 먹음 (내려서면 serve_queued_food가 줌)
+        if self.queued_food.is_some() && matches!(self.feat_on(), Some(Feat::Fly | Feat::Broom | Feat::Swing)) {
+            self.drop_feat();
+            return true;
         }
         match self.feat_on() {
             Some(kind @ (Feat::Fly | Feat::Broom)) => {
@@ -251,6 +258,7 @@ impl Pet {
         self.body = Body { x: self.body.x, y: s.y, vx: 0.0, vy: 0.0 };
         self.standing = Some(Standing { owner: s.owner, rel_x: self.body.x - ax });
         self.set_feat(None);
+        self.forget_arrow_taps();
         let secs = if kind == Feat::Broom {
             self.broom.landing = true;
             self.speech = Some(Speech::BroomLand);

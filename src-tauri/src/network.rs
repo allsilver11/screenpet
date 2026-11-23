@@ -26,7 +26,7 @@ use screenpet_core::linked::{self, ClaimWatch};
 use screenpet_core::object::ObjectKind;
 use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
-use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, MAX_FRIENDS, MULTI_PET_MIN_VERSION, PORTKEY_MIN_VERSION, VEHICLE_TOSS_MIN_VERSION};
+use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, CONTROL_GESTURES_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, MAX_FRIENDS, MULTI_PET_MIN_VERSION, PORTKEY_MIN_VERSION, VEHICLE_TOSS_MIN_VERSION};
 use screenpet_log::{log, short};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
@@ -1772,9 +1772,12 @@ impl Network {
             NetEvent::Steered { from, steer } => {
                 // 그 친구(인증된 링크 from) 자신의 손님에게만 — 다른 사람의 손님 visit_id를 대도 무시함
                 let id = steer.visit_id.to_string();
+                // 🎮 ↑↑·Space Space는 그 몸짓을 아는 판의 주인일 때만 (예전 판 사용자에게 모르는 동작이 나오지 않게)
+                let gestures = self.net.as_ref().and_then(|n| n.peer_version(&from)).is_some_and(|v| v >= CONTROL_GESTURES_MIN_VERSION);
                 for s in slots.iter_mut() {
                     if matches!(&s.role, Role::Guest(g) if g.owner_id == from && g.visit_id == id) {
                         s.pet.remote_keys(steer.on, ControlInput::from_bits(steer.keys));
+                        s.pet.allow_control_gestures(gestures);
                     }
                 }
             }
