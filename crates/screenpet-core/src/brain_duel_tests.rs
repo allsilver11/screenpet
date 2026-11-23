@@ -155,7 +155,7 @@ fn hits_knock_back_faint_two_seconds_and_petrificus_topples_like_a_log() {
 #[test]
 fn no_duel_when_far_apart_on_different_levels_or_busy() {
     let w = world(vec![]);
-    let mut far = pair(100.0, 100.0 + 10.0 * 128.0, &w);
+    let mut far = pair(50.0, 50.0 + 17.0 * 128.0, &w);
     sync_lifts(&mut far);
     assert!(far[0].dueling().is_none());
     let mut high = pair(600.0, 1000.0, &w);
@@ -342,4 +342,11 @@ fn harry_or_hermione_save_a_pet_from_the_dementors_drain() {
             assert!(turns >= 2, "물결치듯: {turns}");
         }
     }
+}
+
+/// ⚔️ 결투가 자주 보임 (2026-11-23 요청 — 볼드모트와 해리·헤르미온느): 쿨다운 1분 반 이하, 화면 꽤 멀리서도 마주침
+#[test]
+fn duels_happen_often() {
+    assert!(wz::DUEL_CALM_SECS.1 <= 90.0);
+    assert!(wz::DUEL_RANGE >= 16.0);
 }

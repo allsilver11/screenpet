@@ -232,14 +232,14 @@ pub const CACKLE_RATE: f64 = 0.012;
 /// ⚔️ 처음 결투할 수 있게 되는 때 (clock 초 — 이 사이에서 하나)
 pub const DUEL_FIRST_SECS: (f64, f64) = (8.0, 25.0);
 /// ⚔️ 마주칠 거리: 가로 (몸 크기 배 — 큰 쪽) 이만큼 안, 이만큼 넘게 떨어져야 함 · 세로 이만큼 안
-pub const DUEL_RANGE: f64 = 9.0;
+pub const DUEL_RANGE: f64 = 16.0;
 pub const DUEL_MIN: f64 = 1.2;
 pub const DUEL_RISE: f64 = 2.5;
 /// ⚔️ 마주 보고 지팡이를 겨누는 시간 (그 뒤 빛줄기가 DUEL_REACH_SECS 동안 뻗어 나감)
 pub const DUEL_AIM_SECS: f64 = 0.6;
 pub const DUEL_REACH_SECS: f64 = 0.35;
-/// ⚔️ 다음 결투까지 (초 — 한 판이 약 15초로 길어져 쿨다운도 길게)
-pub const DUEL_CALM_SECS: (f64, f64) = (150.0, 300.0);
+/// ⚔️ 다음 결투까지 (초 — 자주 보이게 줄임, 2026-11-23)
+pub const DUEL_CALM_SECS: (f64, f64) = (45.0, 90.0);
 /// ⚔️ 한 판 뒤 서로 반대쪽으로 걸어가는 시간 (초)
 pub const DUEL_PART_SECS: (f64, f64) = (1.5, 2.5);
 /// ⚔️ Expelliarmus에 맞아 지팡이가 날아가 떨어지는 시간 (초) · 지팡이 길이 (몸 크기 배)
