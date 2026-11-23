@@ -624,7 +624,14 @@ pub fn may_join_friend(at_friend: usize, takes_many: bool) -> bool {
 /// 🐾🐾🐾 같은 주인의 손님이 이미 와 있을 때 또 받을 수 있나: here = 와 있는 그 주인 펫들의 번호 (Visit.pet, 없으면 0),
 /// pet = 새로 온 펫의 번호. 같은 번호는 이미 와 있는 것 (옛 판 주인은 늘 0이라 지금처럼 한 마리만), 주인마다 MAX_OWN_PETS까지
 pub fn may_host_another(here: &[u8], pet: u8) -> bool {
-    here.len() < crate::own_pets::MAX_OWN_PETS && !here.contains(&pet)
+    sane_pet_no(Some(pet)).is_some() && here.len() < crate::own_pets::MAX_OWN_PETS && !here.contains(&pet)
+}
+
+/// 🐾🐾🐾 친구가 보낸 펫 번호 (Visit.pet — 없으면 0)를 확인함: MAX_OWN_PETS 넘는 번호는 None (그 방문은 돌려보냄).
+/// 방문 쉬는 시간은 번호마다 따로 세므로, 번호를 바꿔 가며 보내 쉬는 시간을 건너뛰지 못하게 함
+pub fn sane_pet_no(pet: Option<u8>) -> Option<u8> {
+    let n = pet.unwrap_or(0);
+    (usize::from(n) < crate::own_pets::MAX_OWN_PETS).then_some(n)
 }
 
 #[cfg(test)]
@@ -1159,5 +1166,17 @@ mod tests {
         assert!(!may_host_another(&[0], 0));
         assert!(may_host_another(&[0], 1) && may_host_another(&[0, 1], 2));
         assert!(!may_host_another(&[0, 1, 2], 2) && !may_host_another(&[0, 1, 2], 7));
+    }
+
+    #[test]
+    fn a_pet_number_out_of_range_is_refused_so_the_cooldown_cannot_be_dodged() {
+        use super::{may_host_another, sane_pet_no};
+        // 번호마다 쉬는 시간을 따로 셈 — 번호를 바꿔 가며 보내도 MAX_OWN_PETS개뿐
+        assert_eq!(sane_pet_no(None), Some(0));
+        assert_eq!(sane_pet_no(Some(2)), Some(2));
+        assert_eq!(sane_pet_no(Some(crate::own_pets::MAX_OWN_PETS as u8)), None);
+        assert_eq!(sane_pet_no(Some(255)), None);
+        // 손님 자리도 같은 규칙 (한 주인의 펫은 화면에 MAX_OWN_PETS마리까지)
+        assert!(!may_host_another(&[], 3) && !may_host_another(&[0], 200));
     }
 }

@@ -575,7 +575,7 @@ fn the_new_stage_is_held_while_a_level_up_is_queued_or_being_eaten() {
     assert!(p.stage_change_due(true));
     // 게임 루프(src-tauri, 여기서 빌드 못 함)가 이 판단을 쓴다
     let game_loop = include_str!("../../../src-tauri/src/game_loop.rs");
-    assert!(game_loop.contains("own.pet.stage_change_due(pending_stage)"));
+    assert!(game_loop.contains("own.pet.stage_change_due(own.track.pending_stage)"));
 }
 
 #[test]

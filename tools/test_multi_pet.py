@@ -151,3 +151,12 @@ def test_the_pet_number_sent_to_a_friend_never_clashes_there():
     assert net.count("self.free_pet_no(") >= 2, "own_exited and forward_visit"
     loop = _text("game_loop.rs")
     assert "i as u8" not in loop
+
+
+def test_a_friend_cannot_rotate_pet_numbers_past_the_cooldown():
+    """보안 점검: Visit.pet을 바꿔 가며 보내면 번호마다 따로 세는 쉬는 시간을 건너뛰어 손님 창을 쏟아낼 수 있었음"""
+    net = _text("network.rs")
+    visit = net[net.index("fn on_visit_message("):]
+    visit = visit[: visit.index("Visit::Leave { visit_id, next, side, vside, homesick_in, fling, note, boost, carry } =>")]
+    assert visit.index("visit::sane_pet_no(pet)") < visit.index("cooldown_key")
+    assert "visit::may_host_another(&here, pet_no)" in net

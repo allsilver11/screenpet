@@ -1943,8 +1943,15 @@ impl Network {
                     return;
                 }
                 let now = Instant::now();
-                // 🐾🐾🐾 친구의 펫마다 따로 셈 (옛 판 친구는 번호가 없어 늘 0 — 예전과 같음)
-                let pet_no = pet.unwrap_or(0);
+                // 🐾🐾🐾 친구의 펫마다 따로 셈 (옛 판 친구는 번호가 없어 늘 0 — 예전과 같음).
+                // 번호는 MAX_OWN_PETS 안에서만 — 번호를 바꿔 가며 쉬는 시간을 건너뛰는 방문은 돌려보냄
+                let Some(pet_no) = visit::sane_pet_no(pet) else {
+                    log!(Warn, "visit", "declined", "visit" => visit_id, "friend" => short(from), "err" => "bad pet number");
+                    if let Some(net) = &self.net {
+                        net.send(link, Visit::Leave { visit_id, next: None, side: None, vside: None, homesick_in: None, fling: None, note: None, boost: None, carry });
+                    }
+                    return;
+                };
                 let cooldown_key = format!("{from}#{pet_no}");
                 // 방금 왔다 간 친구: 꽉 찬 게 아니라 잠깐 이른 것 — 들어오려던 끝을 실어 주면(꽉 찼다는 뜻이 아님) 던져졌으면 날아온 그대로 돌아감
                 if self.last_visit.get(&cooldown_key).is_some_and(|t| now.duration_since(*t) < VISIT_COOLDOWN) {
