@@ -518,6 +518,8 @@ body.art-pending #house {
   30% { transform: scale(1.15); opacity: 1; }
   100% { transform: scale(0.1); opacity: 0; }
 }
+/* 브라우저 기본 [hidden] 숨김은 HTML 요소에만 걸림 — SVG도 숨김 (빠지면 👜 가방 끈이 칸 구석에 점으로 찍혔음, v0.7.3) */
+svg[hidden],
 #nightcap[hidden],
 #scarf[hidden],
 #focusring[hidden] {
