@@ -285,7 +285,7 @@ fn spawn_letter_pet(app: &AppHandle, slots: &mut Vec<Slot>, l: &LetterView) -> O
     let scale = stage.scale() * entry.manifest.size_mult(stage);
     let name = if l.name.is_empty() { "누군가".to_string() } else { l.name.clone() };
     let note: String = l.text.chars().take(NOTE_CHARS).collect();
-    let guest = GuestInfo { visit_id: format!("letter-{}", l.id), owner_id: "letter".into(), owner_name: name, note: visit::sanitize_note(&note), can_grow: false, tint: BodyTint::Default };
+    let guest = GuestInfo { visit_id: format!("letter-{}", l.id), owner_id: "letter".into(), owner_name: name, note: visit::sanitize_note(&note), can_grow: false, tint: BodyTint::Default, pet: 0 };
     let side = if fastrand::bool() { Side::Left } else { Side::Right };
     let own = &slots[0];
     match slots::spawn_guest(app, guest, entry, stage, scale, own.dpi, side, &own.world, fastrand::u64(..), own.size()) {

@@ -1,5 +1,6 @@
 //! 화면 위 동물 한 마리 = 슬롯 하나 = 투명 창 하나.
-//! 내 동물은 "pet" 창(tauri.conf.json), 친구 동물(손님)은 "guest-<visit_id>" 창을 그때그때 만듦.
+//! 내 첫 펫(대표)은 "pet" 창(tauri.conf.json), 🐾🐾🐾 둘째·셋째는 "pet-2"·"pet-3" 창, 친구 동물(손님)은 "guest-<visit_id>" 창을 그때그때 만듦.
+//! slots 맨 앞은 내 펫들 (Role::Own(uid)), 그 뒤는 손님.
 //! 웹뷰는 자기 창 라벨로 `slot_info`를 불러 자기 동물을 알고, 이벤트는 창별로(emit_to) 받음.
 
 use screenpet_core::brain::{Pet, PetConfig, RenderState};
@@ -14,8 +15,10 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWi
 use crate::pets::PetEntry;
 use crate::AppState;
 
-/// 내 동물 창
+/// 내 동물 창 (첫 펫 — 대표)
 pub const OWN_LABEL: &str = "pet";
+/// 🐾🐾🐾 둘째·셋째 펫 창 라벨 앞부분 (뒤는 2·3)
+pub const OWN_PREFIX: &str = "pet-";
 /// 손님 창 라벨 앞부분
 const GUEST_PREFIX: &str = "guest-";
 pub use screenpet_core::brain::PET_LOGICAL_SIZE;
@@ -44,6 +47,19 @@ pub fn guest_label(visit_id: &str) -> Option<String> {
 /// 손님 창 라벨인지 봄
 pub fn is_guest_label(label: &str) -> bool {
     label.starts_with(GUEST_PREFIX)
+}
+
+/// 내 펫 창 라벨인지 봄 ("pet", "pet-2", "pet-3" …)
+pub fn is_own_label(label: &str) -> bool {
+    label == OWN_LABEL || label.strip_prefix(OWN_PREFIX).is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// 새 펫에게 줄 빈 창 라벨 ("pet-2"부터, 쓰는 것은 건너뜀)
+pub fn free_own_label(slots: &[Slot]) -> String {
+    (2..)
+        .map(|n| format!("{OWN_PREFIX}{n}"))
+        .find(|l| !slots.iter().any(|s| &s.label == l))
+        .expect("an endless range always has a free label")
 }
 
 /// 지금 보이는 시트와 몸 크기 배율 (성장 직후 먹는 동안엔 돌보기 단계보다 한 단계 늦음)
@@ -81,13 +97,32 @@ pub struct GuestInfo {
     pub can_grow: bool,
     /// 🎨 주인이 고른 몸 색 (Visit.tint를 확인한 것 — 친구 화면에서도 같은 색)
     pub tint: BodyTint,
+    /// 🐾🐾🐾 주인의 몇째 펫인지 (Visit.pet, 없으면 0) — 한 친구의 펫은 번호마다 하나씩 받음
+    pub pet: u8,
 }
 
 /// 창에 든 동물이 누구 것인지임
 #[derive(Debug, Clone)]
 pub enum Role {
-    Own,
+    /// 내 펫 (설정 pets의 uid)
+    Own(String),
+    /// 놀러 온 친구 동물
     Guest(GuestInfo),
+}
+
+/// 🐾🐾🐾 내 펫마다 게임 루프가 틱 사이에 기억해 두는 것 (손님은 쓰지 않음)
+#[derive(Debug, Clone, Default)]
+pub struct OwnTrack {
+    /// 먹고 한 단계 컸지만 아직 먹는 중 — 먹기가 끝나면 크기를 바꿈
+    pub pending_stage: bool,
+    /// 지난 틱에 하우스 안이었음
+    pub was_housed: bool,
+    /// 지난 틱에 친구 화면에 가 있었음
+    pub was_away: bool,
+    /// 🚗 탈것째 친구 화면으로 막 나갔음 (다음 own_exited가 Visit에 실음)
+    pub ride: Option<screenpet_core::vehicle::VehicleKind>,
+    /// 성장 멈추기 중 (게임 루프가 매 틱 돌보기에서 맞춤 — 친구에게 키우지 말라고 알림)
+    pub locked: bool,
 }
 
 /// 웹뷰가 아는 자기 동물 (`slot_info` 커맨드, `pet-stage` 이벤트)
@@ -121,7 +156,7 @@ impl SlotInfo {
     /// 지금 모습과 역할로 웹뷰용 정보를 만듦
     pub fn new(shown: &StagePayload, role: &Role, render: Option<RenderState>) -> Self {
         let (role, owner, owner_id, note, can_grow, tint) = match role {
-            Role::Own => ("own", None, None, None, false, BodyTint::Default),
+            Role::Own(_) => ("own", None, None, None, false, BodyTint::Default),
             Role::Guest(g) => ("guest", Some(g.owner_name.clone()), Some(g.owner_id.clone()), g.note.clone(), g.can_grow, g.tint),
         };
         Self { pet: shown.pet.clone(), stage: shown.stage, scale: shown.scale, role, owner, owner_id, note, can_grow, render, tint }
@@ -183,6 +218,8 @@ pub struct Slot {
     size: f64,
     /// 🎨 몸 색 (내 동물은 설정, 손님은 주인이 보낸 것)
     pub tint: BodyTint,
+    /// 🐾🐾🐾 내 펫마다 틱 사이에 기억해 두는 것
+    pub track: OwnTrack,
     /// Windows: 창 핸들 (만들 때 한 번 읽어 둠 — hwnd()는 메인 스레드에 물어봄). 매 틱 SetWindowPos로 바로 옮김
     #[cfg(windows)]
     hwnd: Option<isize>,
@@ -216,6 +253,7 @@ impl Slot {
             click_through: false,
             size,
             tint: BodyTint::Default,
+            track: OwnTrack::default(),
             #[cfg(windows)]
             hwnd,
         }
@@ -234,7 +272,32 @@ impl Slot {
 
     /// 내 동물인지 봄
     pub fn is_own(&self) -> bool {
-        matches!(self.role, Role::Own)
+        matches!(self.role, Role::Own(_))
+    }
+
+    /// 내 펫이면 그 uid
+    pub fn uid(&self) -> Option<&str> {
+        match &self.role {
+            Role::Own(uid) => Some(uid),
+            Role::Guest(_) => None,
+        }
+    }
+
+    /// 🐾🐾🐾 두 슬롯의 창을 맞바꿈 (대표 펫을 보내 주면 다음 펫이 "pet" 창을 물려받음). 두 창 모두 다음 place에서 제자리로 옮겨 다시 보임
+    pub fn swap_window(&mut self, other: &mut Slot) {
+        std::mem::swap(&mut self.label, &mut other.label);
+        std::mem::swap(&mut self.window, &mut other.window);
+        #[cfg(windows)]
+        std::mem::swap(&mut self.hwnd, &mut other.hwnd);
+        for s in [self, other] {
+            s.last_pos = None;
+            s.last_render = None;
+            s.need_show = true;
+            s.note_open = false;
+            s.glow_open = false;
+            s.click_through = false;
+            crate::overlay::set_click_through(&s.window, false);
+        }
     }
 
     /// 웹뷰용 정보를 지금 값으로 만듦
@@ -371,7 +434,7 @@ impl Slot {
     pub fn set_note_open(&mut self, open: bool) {
         let has_note = match &self.role {
             Role::Guest(g) => g.note.is_some(),
-            Role::Own => true,
+            Role::Own(_) => true,
         };
         if self.note_open == open || (open && !has_note) {
             return;
@@ -509,6 +572,44 @@ fn build_guest_window(app: &AppHandle, label: &str, body_scale: f64) -> tauri::R
     )
 }
 
+/// 🐾🐾🐾 둘째·셋째 펫 창: "pet" 창과 같은 설정 (overlay::finish — 투명·항상 위·작업표시줄 숨김·포커스 안 받음·숨긴 채 시작)
+fn build_own_window(app: &AppHandle, label: &str, body_scale: f64) -> tauri::Result<WebviewWindow> {
+    let (w, h) = window_logical_size(body_scale);
+    crate::overlay::finish(WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into())).title("ScreenPet").inner_size(w, h).accept_first_mouse(true))
+}
+
+/// 🐾🐾🐾 내 펫 하나를 새 창(label)으로 들임: 화면 위 가운데쯤 (x_frac = 화면 너비 중 자리)에서 떨어지며 나타남.
+/// base = 지금 세계 (창·작업 영역만 씀). 게임 루프 스레드에서만 부름 (창 만들기가 메인 스레드를 기다림)
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_own(app: &AppHandle, label: String, uid: String, entry: PetEntry, stage: Stage, size: f64, dpi_hint: f64, base: &World, x_frac: f64, tint: BodyTint) -> Result<Slot, String> {
+    let role = Role::Own(uid);
+    let shown = stage_payload(&entry, stage, size);
+    let state = app.state::<AppState>();
+    {
+        let mut infos = state.slots.lock().unwrap();
+        if infos.contains_key(&label) || app.get_webview_window(&label).is_some() {
+            return Err(format!("{label} already exists"));
+        }
+        infos.insert(label.clone(), SlotInfo { tint, ..SlotInfo::new(&shown, &role, None) });
+    }
+    let window = match build_own_window(app, &label, shown.scale) {
+        Ok(w) => w,
+        Err(e) => {
+            state.slots.lock().unwrap().remove(&label);
+            return Err(e.to_string());
+        }
+    };
+    let dpi = window.scale_factor().unwrap_or(dpi_hint);
+    let cfg = pet_config(dpi, &entry, shown.scale, shown.stage);
+    let world = World::new(base.windows.clone(), base.work_areas.clone(), cfg.size);
+    let b = world.bounds;
+    let pet = Pet::new(cfg, b.left + b.width() * x_frac.clamp(0.1, 0.9), b.top + cfg.size, fastrand::u64(..));
+    let mut slot = Slot::new(label, role, entry, pet, window, world, dpi, shown.clone(), size);
+    slot.tint = tint;
+    slot.set_stage(app, shown);
+    Ok(slot)
+}
+
 /// 친구 동물이 화면 끝(side)에서 걸어 들어옴. 집(주인 화면)은 들어온 쪽임.
 /// scale = 주인 쪽에서 정한 몸 배율 (단계 × 동물별). 옛 버전 친구가 픽셀 스타일을 보내도 늘 동글로 그림
 /// (dpi_hint = 창 배율을 못 읽을 때 쓰는 지금 화면 배율 — 창이 다른 모니터에 뜨면 다음 refresh가 고침). base = 지금 세계 (창·작업 영역만 씀). 게임 루프 스레드에서만 부름 (창 만들기가 메인 스레드를 기다림)
@@ -558,7 +659,7 @@ pub fn spawn_guest(
     Ok(slot)
 }
 
-/// 손님이 떠났음 — 창을 닫음
+/// 손님이 떠났음 (또는 🐾🐾🐾 내 펫을 보내 줌) — 창을 닫음
 pub fn close(app: &AppHandle, slot: Slot) {
     app.state::<AppState>().slots.lock().unwrap().remove(&slot.label);
     let _ = slot.window.destroy();

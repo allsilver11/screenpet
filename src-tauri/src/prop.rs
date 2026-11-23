@@ -33,10 +33,12 @@ struct Placed {
     y: f64,
 }
 
-/// 동물 옆 소품 창들임 (지금 하나와 흐려지는 것들)
+/// 🐾🐾🐾 소품 창 번호 — 펫마다 Props가 따로 있어도 창 라벨이 겹치지 않게 모두가 같이 씀
+static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 동물 옆 소품 창들임 (지금 하나와 흐려지는 것들 — 🐾🐾🐾 내 펫마다 하나씩)
 #[derive(Default)]
 pub struct Props {
-    next: u64,
     live: Option<Placed>,
     /// 흐려지는 중인 창과 닫을 시각
     fading: crate::overlay::Fading,
@@ -70,8 +72,7 @@ impl Props {
 
     /// 소품 창 하나를 동물 옆 (x, y)에 띄움
     fn spawn(&mut self, app: &AppHandle, prop: Prop, x: f64, y: f64, dpi: f64, scale: f64) -> Option<WebviewWindow> {
-        let label = format!("{PREFIX}{}", self.next);
-        self.next += 1;
+        let label = format!("{PREFIX}{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
         let (w, h) = (WIDTH * scale, HEIGHT * scale);
         let built = crate::overlay::finish(
             WebviewWindowBuilder::new(app, &label, WebviewUrl::App("prop.html".into()))

@@ -26,7 +26,7 @@ def test_only_a_hero_carried_giant_goes_on_the_wire():
     assert "kind.is_giant() && !giants" in body
     # 이름·생김새는 거대한 것을 던질 때 (toss_away)와 같음 — 옛 버전이 몰라도 보통 Carry로 읽힘
     assert "kind.wire_id()" in body and "kind.look()" in body
-    assert "objects.carry_wire(id, slots[OWN].pet.carries_giants())" in LOOP
+    assert "objects.carry_wire(id, slots[i].pet.carries_giants())" in LOOP
 
 
 def test_giants_go_only_to_friends_that_take_them():

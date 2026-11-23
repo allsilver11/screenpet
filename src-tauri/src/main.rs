@@ -72,6 +72,10 @@ pub struct AppState {
     pub hand_feeding: AtomicBool,
     /// 트레이 "숨기기 / 보이기"로 모두 숨겨 둠 — 그동안 새로 뜨거나 다시 나타나는 창(동물·그릇·침 자국)도 숨긴 채로
     pub hidden: AtomicBool,
+    /// 🐾🐾🐾 메뉴가 다루는 내 펫 (창 라벨 — 펫을 우클릭·클릭하거나 🐾 내 펫 ▸ 고른 펫에서 고름. 처음엔 첫 펫)
+    pub picked: Mutex<String>,
+    /// 🐾🐾🐾 내 펫들의 지금 모습 (메뉴·숨기기/보이기용) — 게임 루프가 바뀔 때만 갱신
+    pub own: Mutex<Vec<tray::OwnView>>,
 }
 
 impl AppState {
@@ -88,7 +92,7 @@ pub fn windows_hidden(app: &AppHandle) -> bool {
 
 /// 내 동물이나 손님이 보이는 창
 fn is_pet_window(label: &str) -> bool {
-    label == OWN_LABEL || slots::is_guest_label(label)
+    slots::is_own_label(label) || slots::is_guest_label(label)
 }
 
 /// 창의 동물을 눌렀음 — 부른 창의 라벨로 어느 동물인지 찾음
@@ -113,7 +117,7 @@ fn note_space(window: WebviewWindow, state: State<AppState>, open: bool) {
 /// 하우스 창만 다른 창을 물음: label "pet" = 내 동물의 지금 모습
 #[tauri::command]
 fn slot_info(window: WebviewWindow, state: State<AppState>, label: Option<String>) -> Result<SlotInfo, String> {
-    let label = if window.label() == house::LABEL { label.filter(|l| l == OWN_LABEL).unwrap_or_else(|| window.label().to_string()) } else { window.label().to_string() };
+    let label = if window.label() == house::LABEL { label.filter(|l| slots::is_own_label(l)).unwrap_or_else(|| window.label().to_string()) } else { window.label().to_string() };
     state.slots.lock().unwrap().get(&label).cloned().ok_or_else(|| format!("no pet for window {label}"))
 }
 
@@ -145,11 +149,12 @@ fn house_click(window: WebviewWindow, state: State<AppState>) {
 /// 음식 고르기 버튼 — 내 동물(펫 창·하우스 창)만 먹음. 손님은 밥을 먹지 않음
 #[tauri::command]
 fn feed(window: WebviewWindow, state: State<AppState>, food: String) {
-    if window.label() != OWN_LABEL && window.label() != house::LABEL {
+    if !slots::is_own_label(window.label()) && window.label() != house::LABEL {
         return;
     }
     let Some(food) = Food::from_name(&food) else { return };
-    state.send(Input::Feed(food));
+    // 🐾🐾🐾 그 펫(하우스면 하우스 안의 펫)이 고른 음식
+    state.send(Input::Feed { food, label: Some(window.label().to_string()) });
 }
 
 /// 펫을 우클릭하면 트레이와 같은 메뉴를, 손님을 우클릭하면 "<주인>에게 돌려보내기"만 커서 위치에 띄움.
@@ -166,6 +171,10 @@ async fn show_menu(window: tauri::Window, state: State<'_, AppState>) -> Result<
         return Ok(());
     }
     if !slots::is_guest_label(&label) {
+        // 🐾🐾🐾 우클릭한 펫이 메뉴의 고른 펫이 됨 (하우스 창은 지금 고른 펫 그대로)
+        if slots::is_own_label(&label) {
+            tray::pick(window.app_handle(), &label);
+        }
         return window.popup_menu(&state.menu.menu).map_err(|e| e.to_string());
     }
     let info = state.slots.lock().unwrap().get(&label).cloned();
@@ -261,9 +270,13 @@ fn main() {
             // 👻 손님·하우스 등 떠 있는 창이 만들어지기 전에 저장된 투명도를 적어 둠
             opacity::remember(&cfg);
             let fallback = if pets.iter().any(|p| p.id == DEFAULT_PET) { DEFAULT_PET.to_string() } else { pets[0].id.clone() };
-            let current = cfg.pet.clone().filter(|id| pets.iter().any(|p| &p.id == id)).unwrap_or(fallback);
+            let mut cfg = cfg;
+            // 🐾🐾🐾 펫 목록: 옛 설정이면 고른 동물·그 돌보기로 한 마리를 만듦 (저장은 게임 루프가 — 설정은 루프만 씀)
+            let settled = cfg.settle_pets(|id| pets.iter().any(|p| p.id == id), &fallback, game_loop::new_pet_uid);
+            let lead = cfg.lead_pet().expect("settle_pets leaves one pet").clone();
+            let current = lead.species.clone();
             let entry = pets.iter().find(|p| p.id == current).unwrap().clone();
-            let care = cfg.care.get(&current).cloned().unwrap_or_default();
+            let care = lead.care.clone();
 
             let (tx, rx) = mpsc::channel();
             let menu = tray::build(app.handle(), &pets, &current, &game_loop::favorite_of(&entry), &care, cfg.housed, cfg.feed_mode, cfg.dev_secret().is_some())?;
@@ -280,7 +293,7 @@ fn main() {
                 tx: Mutex::new(tx),
                 pets: pets.clone(),
                 config_dir,
-                slots: Mutex::new(HashMap::from([(OWN_LABEL.to_string(), SlotInfo::new(&stage, &Role::Own, None))])),
+                slots: Mutex::new(HashMap::from([(OWN_LABEL.to_string(), SlotInfo::new(&stage, &Role::Own(lead.uid.clone()), None))])),
                 menu,
                 house: Mutex::new(house_state),
                 housed: AtomicBool::new(cfg.housed),
@@ -288,10 +301,12 @@ fn main() {
                 pair: Mutex::new(PairView::default()),
                 hand_feeding: AtomicBool::new(false),
                 hidden: AtomicBool::new(false),
+                picked: Mutex::new(OWN_LABEL.to_string()),
+                own: Mutex::new(Vec::new()),
             });
             // 숨긴 채로 만들어 두고, 하우스에 들어갈 때 구석에 놓아 보임
             house::create(app.handle())?;
-            game_loop::spawn(app.handle().clone(), rx, entry, cfg);
+            game_loop::spawn(app.handle().clone(), rx, entry, cfg, settled);
             // 🔄 새 버전이 있는지 조용히 (메뉴 글자만 바꿈)
             update::start_quiet_checks(app.handle());
             Ok(())

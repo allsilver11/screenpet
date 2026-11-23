@@ -299,7 +299,7 @@ pub fn place_on_primary(app: &AppHandle, window: &WebviewWindow, inner: (f64, f6
 pub fn is_floating(label: &str) -> bool {
     /// 떠 있는 창 라벨 앞부분들
     const PREFIXES: [&str; 7] = ["guest-", "prop-", "hand-", "object-", "vehicle-", "weather-", "trail-"];
-    label == crate::slots::OWN_LABEL || label == crate::house::LABEL || PREFIXES.iter().any(|p| label.starts_with(p))
+    crate::slots::is_own_label(label) || label == crate::house::LABEL || PREFIXES.iter().any(|p| label.starts_with(p))
 }
 
 /// macOS: 모든 Space에 보이고 (canJoinAllSpaces), 다른 앱의 전체 화면 위에도 뜨고 (fullScreenAuxiliary),

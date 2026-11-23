@@ -155,7 +155,7 @@ def test_keys_go_to_the_game_space_starts_escape_closes(tmp_path):
 def test_review_fixes_for_the_app_side():
     src = (ROOT / "src-tauri" / "src" / "dodge.rs").read_text(encoding="utf-8")
     # 하우스 안이면 하우스 창에 말한다
-    assert "speech_target(&own.pet)" in src and 'emit_to(OWN_LABEL, "pet-say-text"' not in src
+    assert "speech_target(own)" in src and 'emit_to(OWN_LABEL, "pet-say-text"' not in src
     # 게임 중 하우스에 들어가거나 친구에게 가면 판을 닫는다
     tick = src[src.index("pub fn tick") :]
     assert "can_play(own)" in tick[: tick.index("fn publish")]

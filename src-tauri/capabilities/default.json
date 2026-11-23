@@ -3,18 +3,18 @@
     {
       "identifier": "events",
       "description": "모든 창: 앱이 보내는 이벤트 듣기만 (창·앱을 다루는 API와 이벤트 보내기는 주지 않는다)",
-      "windows": ["pet", "house", "guest-*", "pair", "code", "name", "link", "size", "letter", "ladder", "weather-*", "trail-*", "timeline", "object-*", "vehicle-*", "postit", "dodge", "sleigh", "feedback", "mailbox", "board", "opacity"],
+      "windows": ["pet", "pet-*", "house", "guest-*", "pair", "code", "name", "link", "size", "letter", "ladder", "weather-*", "trail-*", "timeline", "object-*", "vehicle-*", "postit", "dodge", "sleigh", "feedback", "mailbox", "board", "opacity"],
       "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
     },
     {
       "identifier": "floating-windows",
       "description": "떠 있는 창 모두: 👻 전체 투명도 듣기·묻기 (ui/opacity.js). 새 떠 있는 창(탈것 등)도 여기에 라벨을 넣는다",
-      "windows": ["pet", "house", "guest-*", "object-*", "vehicle-*", "prop-*", "hand-*", "weather-*", "trail-*", "sleigh"],
+      "windows": ["pet", "pet-*", "house", "guest-*", "object-*", "vehicle-*", "prop-*", "hand-*", "weather-*", "trail-*", "sleigh"],
       "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-app-opacity"]
     },
     {
       "identifier": "pet-windows",
-      "windows": ["pet", "guest-*"],
+      "windows": ["pet", "pet-*", "guest-*"],
       "permissions": ["allow-pointer-down", "allow-note-space", "allow-show-menu", "allow-slot-info", "allow-feed"]
     },
     {

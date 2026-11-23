@@ -86,7 +86,7 @@ impl DodgeFx {
             return;
         }
         if !can_play(own) {
-            let _ = app.emit_to(crate::game_loop::speech_target(&own.pet), "pet-say-text", NOT_NOW);
+            let _ = app.emit_to(crate::game_loop::speech_target(own), "pet-say-text", NOT_NOW);
             return;
         }
         let area = own.world.work_area_at(own.pet.body.x, own.pet.body.y);
@@ -107,7 +107,7 @@ impl DodgeFx {
                 let area = b.game.area();
                 let inside = own.pet.body.x >= area.left && own.pet.body.x < area.right;
                 if !(can_play(own) && inside) {
-                    let _ = app.emit_to(crate::game_loop::speech_target(&own.pet), "pet-say-text", NOT_NOW);
+                    let _ = app.emit_to(crate::game_loop::speech_target(own), "pet-say-text", NOT_NOW);
                 } else if b.game.start() {
                     b.new_best = false;
                     b.keys = ControlInput::default();
