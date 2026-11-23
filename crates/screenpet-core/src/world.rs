@@ -3,7 +3,8 @@
 //! 디딤판 기준점(anchor), 착지 판정(fall_landing), 창 옆면 부딪힘(SideHit) 같은 질문에 답함
 use crate::geom::{Rect, WindowInfo};
 use crate::inside;
-use crate::surfaces::{compute_surfaces, Owner, Surface};
+use crate::ledge::{Ledge, LedgeSet};
+use crate::surfaces::{compute_surfaces, ledge_surfaces, Owner, Surface};
 
 /// 한 틱의 세상: 창·작업 영역·디딤판
 pub struct World {
@@ -19,6 +20,10 @@ pub struct World {
     pub pet_height: f64,
     /// 창 안쪽 바닥을 만듦 (데스크톱). 웹 버전은 요소 윗변과 바닥만 (World::without_insides)
     insides: bool,
+    /// 🌐 지금 놓인 웹 페이지 디딤돌 (set_ledges — 켜져 있을 때만, 창 목록에는 없음)
+    pub ledges: Vec<Ledge>,
+    /// 마지막으로 받은 디딤돌 읽기 (창이 움직이면 다시 놓음)
+    ledge_set: Option<LedgeSet>,
 }
 
 /// 창의 어느 옆면인지 (Left/Right만), 또는 친구 화면이 붙은 내 화면의 어느 끝인지 (visit — 위/아래도)
@@ -51,7 +56,7 @@ impl World {
         }
         let bounds = work_areas.iter().copied().reduce(|a, b| a.union(&b)).unwrap();
         let surfaces = compute_surfaces(&windows, &work_areas, pet_height);
-        Self { windows, work_areas, bounds, surfaces, pet_height, insides: true }
+        Self { windows, work_areas, bounds, surfaces, pet_height, insides: true, ledges: Vec::new(), ledge_set: None }
     }
 
     /// 창 안쪽 바닥 없이 (웹 버전: 페이지 요소 윗변과 화면 바닥만 디딤판)
@@ -60,6 +65,19 @@ impl World {
         w.insides = false;
         w.drop_insides();
         w
+    }
+
+    /// 🌐 웹 페이지 디딤돌을 바꿈 (None = 없음). 디딤판을 다시 계산함
+    pub fn set_ledges(&mut self, set: Option<LedgeSet>) {
+        self.ledge_set = set;
+        self.place_ledges();
+    }
+
+    /// 받은 디딤돌을 지금 창 자리에 다시 놓고 디딤돌 조각을 새로 붙임 (다른 디딤판은 그대로)
+    fn place_ledges(&mut self) {
+        self.surfaces.retain(|s| !matches!(s.owner, Owner::Ledge { .. }));
+        self.ledges = self.ledge_set.as_ref().map_or_else(Vec::new, |set| crate::ledge::place_ledges(&self.windows, set));
+        self.surfaces.extend(ledge_surfaces(&self.windows, &self.work_areas, &self.ledges, self.pet_height));
     }
 
     /// 창 안쪽 바닥을 쓰지 않는 세상이면 그 조각을 뺌
@@ -116,6 +134,7 @@ impl World {
             Owner::Window(id) => self.windows.iter().find(|w| w.id == id).map(|w| (w.rect.left, w.rect.top)),
             Owner::Ground(i) => self.work_areas.get(i).map(|r| (r.left, r.bottom)),
             Owner::Inside(id) => self.window(id).map(|w| (w.rect.left, inside::floor_y(&w.rect))),
+            Owner::Ledge { id, .. } => self.ledges.iter().find(|l| l.id == id).map(|l| (l.rect.left, l.rect.top)),
         }
     }
 
@@ -132,6 +151,7 @@ impl World {
         if changed {
             self.surfaces = compute_surfaces(&self.windows, &self.work_areas, self.pet_height);
             self.drop_insides();
+            self.place_ledges();
         }
         changed
     }
@@ -183,6 +203,10 @@ impl World {
         self.surfaces.iter().filter(|s| stands(s.owner) && s.contains_x(x) && prev_y <= s.y && new_y >= s.y).min_by(|a, b| a.y.total_cmp(&b.y))
     }
 }
+
+#[cfg(test)]
+#[path = "world_ledge_tests.rs"]
+mod ledge_tests;
 
 #[cfg(test)]
 mod tests {

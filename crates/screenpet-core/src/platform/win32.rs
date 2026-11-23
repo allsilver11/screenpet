@@ -182,8 +182,8 @@ impl WindowSource for Win32Source {
     }
 }
 
-/// 창 프로세스의 실행 파일에서 px 크기 아이콘을 꺼냄 (DestroyIcon은 부른 쪽이)
-unsafe fn exe_icon(h: HWND, px: u32) -> Option<HICON> {
+/// 창 프로세스의 실행 파일 경로 (끝의 0 포함, 260자 안 — 더 긴 경로·내 앱은 None). 아이콘 꺼내기·🌐 브라우저 알아보기에만 쓰고 버림
+pub(super) unsafe fn exe_path(h: HWND) -> Option<[u16; 260]> {
     let mut pid = 0u32;
     GetWindowThreadProcessId(h, Some(&mut pid as *mut u32));
     if pid == 0 || pid == std::process::id() {
@@ -198,6 +198,13 @@ unsafe fn exe_icon(h: HWND, px: u32) -> Option<HICON> {
     if !ok || len as usize >= path.len() {
         return None;
     }
+    path[len as usize] = 0;
+    Some(path)
+}
+
+/// 창 프로세스의 실행 파일에서 px 크기 아이콘을 꺼냄 (DestroyIcon은 부른 쪽이)
+unsafe fn exe_icon(h: HWND, px: u32) -> Option<HICON> {
+    let path = exe_path(h)?;
     let mut icons = [HICON::default(); 1];
     let n = PrivateExtractIconsW(&path, 0, px as i32, px as i32, Some(&mut icons), None, 0);
     (n == 1 && !icons[0].0.is_null()).then_some(icons[0])

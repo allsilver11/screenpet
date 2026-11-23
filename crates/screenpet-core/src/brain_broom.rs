@@ -516,7 +516,8 @@ impl Pet {
         let fits: Vec<Surface> = world
             .surfaces
             .iter()
-            .filter(|s| !matches!(s.owner, Owner::Inside(_)))
+            // 🌐 웹 페이지 디딤돌은 0.5초마다 바뀔 수 있어 빗자루 착지 자리로는 쓰지 않음
+            .filter(|s| !matches!(s.owner, Owner::Inside(_) | Owner::Ledge { .. }))
             .filter(|s| s.width() >= bf::LAND_MIN_WIDTH * size && s.y - size >= wa.top && s.y <= wa.bottom + 1.0)
             .filter(|s| (wa.left..wa.right).contains(&((s.x_start + s.x_end) / 2.0)))
             .copied()

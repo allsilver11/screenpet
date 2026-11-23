@@ -148,7 +148,7 @@ def test_long_duel_and_lumos_speech_topple_and_help():
     assert re.search(r"^    pub topple: f64,", BRAIN, re.M) and "render.topple" in MAIN and "rotate(${topple" in MAIN
     assert "take_lumos()" in LOOP and "take_nox()" in LOOP and "l.nox();" in LOOP and "lumos::spawn(" in LOOP and "ToggleLumosLight" in LOOP and "set_icon_lift_ok(" in LOOP
     tray = (ROOT / "src-tauri" / "src" / "tray.rs").read_text(encoding="utf-8")
-    assert "🌗 루모스·녹스로 화면 밝기 바꾸기" in tray and "&lumos_light, &autostart]" in tray
+    assert "🌗 루모스·녹스로 화면 밝기 바꾸기" in tray and "&lumos_light, &web_ledges, &autostart]" in tray
     help_html = (UI / "help.html").read_text(encoding="utf-8")
     for start, words in (("⚔️ <b>결투</b>", ("Expelliarmus!", "Petrificus Totalus!", "Avada Kedavra!", "2초", "catch me!", "흩어져요")),
                          ("💡 \"Lumos!\"", ("🌗 루모스·녹스로 화면 밝기 바꾸기", "라이트 모드")),

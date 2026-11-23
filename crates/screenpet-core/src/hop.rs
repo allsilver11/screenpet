@@ -235,13 +235,13 @@ pub struct JumpTarget {
     pub y: f64,
 }
 
-/// (x, y)에 서 있는 동물(기준 크기 size = leap_reach_size, 몸 반 폭 half_w, 지금 디딤판 from)이 큰 점프로 닿을 수 있는 다른 창 윗면들.
+/// (x, y)에 서 있는 동물(기준 크기 size = leap_reach_size, 몸 반 폭 half_w, 지금 디딤판 from)이 큰 점프로 닿을 수 있는 다른 창 윗면·🌐 웹 페이지 디딤돌들.
 /// 창을 뚫고 지나가지 않도록 옆에서만 뜀 (발 x가 그 조각 위·아래에 있으면 제외). 착지는 가까운 끝 안쪽
 pub fn jump_targets(surfaces: &[Surface], from: Owner, x: f64, y: f64, size: f64, half_w: f64) -> Vec<JumpTarget> {
     let inset = half_w + LANDING_INSET * size;
     surfaces
         .iter()
-        .filter(|s| matches!(s.owner, Owner::Window(_)) && s.owner != from)
+        .filter(|s| matches!(s.owner, Owner::Window(_) | Owner::Ledge { .. }) && s.owner != from)
         .filter(|s| {
             let up = y - s.y;
             up <= BIG_JUMP_UP * size && -up <= BIG_JUMP_DOWN * size

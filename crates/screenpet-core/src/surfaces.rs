@@ -2,6 +2,7 @@
 //! World::new·patch_windows가 compute_surfaces를 부름. 조각 끝 종류(EndKind)로 걷다가 멈출지·뛸지·넘어갈지 정함
 use crate::geom::{Rect, WindowInfo};
 use crate::inside;
+use crate::ledge::Ledge;
 
 /// 디딤판이 누구 것인지. Ground의 값은 work_areas 인덱스.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -11,6 +12,8 @@ pub enum Owner {
     Ground(usize),
     /// 창 안쪽 바닥 (아래 테두리 바로 위, spec 2B §9) — 그 창 안에 있는 동물만 디딤
     Inside(u64),
+    /// 🌐 브라우저 창(window) 안 웹 페이지 요소의 윗변 (ledge.rs, id = Ledge.id). 디디기만 함 — 창이 아님
+    Ledge { window: u64, id: u64 },
 }
 
 /// 디딤판 조각 끝이 왜 끝났는지.
@@ -123,6 +126,37 @@ pub fn compute_surfaces(windows: &[WindowInfo], work_areas: &[Rect], pet_height:
             start_kind: seam_at(work_areas, i, wa.left, |o| o.right),
             end_kind: seam_at(work_areas, i, wa.right, |o| o.left),
         });
+    }
+    out
+}
+
+/// 🌐 웹 페이지 디딤돌(ledge.rs)의 윗변 조각들: 그 브라우저 창 안(윗면 아래·아래끝 위, 가로는 창 안으로 자름)이고
+/// 창 윗면처럼 머리 둘 자리가 있어야 함. 브라우저보다 앞쪽 창에 가려진 부분은 자름 (그 자리에서 브라우저가 맨 앞일 때만 디딤)
+pub fn ledge_surfaces(windows: &[WindowInfo], work_areas: &[Rect], ledges: &[Ledge], pet_height: f64) -> Vec<Surface> {
+    let mut out = Vec::new();
+    let Some(bounds) = work_areas.iter().copied().reduce(|a, b| a.union(&b)) else {
+        return out;
+    };
+    for l in ledges {
+        let Some(i) = windows.iter().position(|w| w.id == l.window) else { continue };
+        let win = windows[i].rect;
+        let y = l.rect.top;
+        if y <= win.top || y >= win.bottom || y >= bounds.bottom {
+            continue;
+        }
+        let (left, right) = (l.rect.left.max(win.left), l.rect.right.min(win.right));
+        let cx = (left + right) / 2.0;
+        let wa = work_areas.iter().find(|wa| cx >= wa.left && cx <= wa.right && y >= wa.top && y <= wa.bottom);
+        match wa {
+            Some(wa) if y >= wa.top + pet_height => {}
+            _ => continue,
+        }
+        let segs = cut_by_front(vec![clip(left, right, &bounds)], &windows[..i], y);
+        for (a, b, ka, kb) in segs {
+            if b > a {
+                out.push(Surface { owner: Owner::Ledge { window: l.window, id: l.id }, y, x_start: a, x_end: b, start_kind: ka, end_kind: kb });
+            }
+        }
     }
     out
 }

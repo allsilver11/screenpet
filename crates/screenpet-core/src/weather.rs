@@ -460,7 +460,7 @@ impl PileField {
             let edge = match s.owner {
                 Owner::Window(id) => world.window(id).map(|w| (w.rect.left, w.rect.right)),
                 Owner::Ground(i) => world.work_areas.get(i).map(|wa| (wa.left, wa.right)),
-                Owner::Inside(_) => None,
+                Owner::Inside(_) | Owner::Ledge { .. } => None,
             };
             let Some((left, right)) = edge else { continue };
             let known = self.piles.iter().any(|p| p.owner == s.owner);

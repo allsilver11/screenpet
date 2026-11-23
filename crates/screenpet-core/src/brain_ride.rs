@@ -13,11 +13,11 @@ impl Pet {
         }
         match self.state {
             State::WallClimb { window, .. } | State::InnerClimb { window, .. } | State::EdgeCling { window, .. } => return Some(window),
-            State::Leap { owner: Owner::Window(id) | Owner::Inside(id), .. } => return Some(id),
+            State::Leap { owner: Owner::Window(id) | Owner::Inside(id) | Owner::Ledge { window: id, .. }, .. } => return Some(id),
             _ => {}
         }
         match self.standing.map(|s| s.owner) {
-            Some(Owner::Window(id) | Owner::Inside(id)) => Some(id),
+            Some(Owner::Window(id) | Owner::Inside(id) | Owner::Ledge { window: id, .. }) => Some(id),
             _ => self.inside_window(),
         }
     }
