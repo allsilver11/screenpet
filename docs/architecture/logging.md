@@ -172,7 +172,7 @@
 | visit | `come_home_timeout` | WARN | | 부름에 답이 없어 그냥 돌아옴 |
 | visit | `invited` | INFO | friend | 친구가 초대해서 감 |
 | visit | `guest_in` | INFO | visit friend with_note via | 손님이 들어옴 |
-| visit | `sent_back` | INFO | visit friend reason | 손님을 바로 돌려보냄: `busy`(집중·하우스), `too_soon`, `no_portkey_twin`(🧳 같은 물건이 없음·모르는 물건·나누지 않은 아이콘·너무 잦음 — 답은 늦춰 보냄) |
+| visit | `sent_back` | INFO | visit friend reason | 손님을 바로 돌려보냄: `busy`(집중·하우스), `too_soon`, `portkey`(🧳 포트키 방문은 무엇 때문이든 — 같은 물건 없음·모르는 물건·보내지 않은 아이콘·너무 잦음·바쁨·손님 수 — 이 사유 하나로, 답은 늦춰 보냄) |
 | visit | `portkey_out` | INFO | friend visit | 🧳 내 마법사가 포트키로 친구 화면의 짝 물건을 물어봄 (물건은 싣지 않음) |
 | visit | `portkey_back` | INFO | friend visit | 🧳 친구가 받지 않고 돌려보냄 — 내 화면의 짝 물건 옆·제자리에 나타남 |
 | visit | `portkey_timeout` | INFO | friend visit | 🧳 받았다는 답이 제때 없어 "집에 와"를 보내고 내 화면으로 되돌림 |

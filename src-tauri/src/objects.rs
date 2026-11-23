@@ -157,6 +157,8 @@ struct Live {
     icon: Option<IconImage>,
     /// 🧳 그 아이콘의 그림 해시 (포트키 짝 열쇠 — 그릴 때 한 번만 셈)
     portkey_look: Option<u64>,
+    /// 🔒 친구에게서 받은 📌 장난감이면 그 친구 id (그 친구의 포트키는 이 장난감에만 — 내 장난감은 아님)
+    icon_from: Option<String>,
 }
 
 impl Live {
@@ -317,7 +319,7 @@ pub struct Objects {
     live: Vec<Live>,
     roster: Roster,
     /// 받았지만 아직 들이지 않은 물건 (창 일꾼이 한가할 때 하나씩)
-    inbox: TossInbox<(AcceptedToss, Side, u32, Option<IconImage>)>,
+    inbox: TossInbox<(AcceptedToss, Side, u32, Option<IconImage>, Option<String>)>,
     poop_queue: VecDeque<WaitingPoop>,
     fading: crate::overlay::Fading,
     /// 물건이 있을 때만 맞춤 (물건 키에 맞춘 세계)
@@ -742,7 +744,9 @@ impl Objects {
     /// 🤹 동물 손에 쥐여 줄 물건 창을 at(머리 위 언저리)에 만듦: 친구의 흐물이가 들고 왔으면 받은 물건, 못 들어가 들고 돌아왔으면 내 물건.
     /// 똥은 똥 수에 들어감 (scale = 다듬은 크기). 만들었으면 그 id — 동물의 hold_object에 줌
     /// icon = 📌 들고 온 앱 아이콘 장난감의 그림 (확인된 것 — 장난감일 때만)
-    pub fn spawn_carried(&mut self, app: &AppHandle, base: &World, kind: ObjectKind, scale: Option<f64>, own: bool, at: (f64, f64), icon: Option<IconImage>) -> Option<u64> {
+    /// from = 🔒 손님이 들고 온 📌 장난감이면 그 손님의 주인 (그 친구의 포트키는 이 장난감에만)
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_carried(&mut self, app: &AppHandle, base: &World, kind: ObjectKind, scale: Option<f64>, own: bool, at: (f64, f64), icon: Option<IconImage>, from: Option<String>) -> Option<u64> {
         if kind.is_toy() && icon.is_none() {
             return None;
         }
@@ -769,6 +773,7 @@ impl Objects {
             return None;
         }
         self.set_icon(id, icon);
+        self.set_icon_from(id, from.filter(|_| !own));
         self.sync_menu();
         Some(id)
     }
@@ -908,7 +913,7 @@ impl Objects {
             log!(Info, "toss", "toss_in", "friend" => short(from), "kind" => screenpet_core::object::TOY_ID, "with_note" => 0u8);
             accepted.returned = toss.bounced;
             let side = from_net_side(toss.side, toss.vside);
-            if let Some(old) = self.inbox.push((accepted, side, toss.rally.unwrap_or(0), Some(icon)), &mut self.roster) {
+            if let Some(old) = self.inbox.push((accepted, side, toss.rally.unwrap_or(0), Some(icon), Some(from.to_string())), &mut self.roster) {
                 if let Some(i) = self.live.iter().position(|l| l.id == old) {
                     let l = self.live.remove(i);
                     self.poof(l);
@@ -931,7 +936,7 @@ impl Objects {
             self.queue_poop(WaitingPoop::Tossed(accepted, side, screenpet_core::poop::sanitize_size(toss.scale)));
             return;
         }
-        if let Some(old) = self.inbox.push((accepted, side, toss.rally.unwrap_or(0), None), &mut self.roster) {
+        if let Some(old) = self.inbox.push((accepted, side, toss.rally.unwrap_or(0), None, None), &mut self.roster) {
             if let Some(i) = self.live.iter().position(|l| l.id == old) {
                 let l = self.live.remove(i);
                 self.poof(l);
@@ -954,7 +959,7 @@ impl Objects {
             self.admit_poop(app, base, poop);
             return;
         }
-        let Some((accepted, side, rally, icon)) = self.inbox.pop() else { return };
+        let Some((accepted, side, rally, icon, icon_from)) = self.inbox.pop() else { return };
         let id = self.next_id();
         let (x, y) = entry_point(base, side);
         let scale = self.scale_at(app, accepted.kind, base, x, y);
@@ -973,7 +978,21 @@ impl Objects {
         let origin = if accepted.kind.is_snowball() { Origin::Snow } else { Origin::Foreign };
         if self.admit(app, id, object, origin, sticker, icon.clone()) {
             self.set_icon(id, icon);
+            self.set_icon_from(id, icon_from);
         }
+    }
+
+    /// 🔒 받은 📌 장난감을 준 친구를 적어 둠 (그 친구의 포트키는 이 장난감에만)
+    fn set_icon_from(&mut self, id: u64, from: Option<String>) {
+        if let Some(l) = self.live.iter_mut().find(|l| l.id == id && l.object.kind.is_toy()) {
+            l.icon_from = from;
+        }
+    }
+
+    /// 🔒 친구에게서 받은 📌 장난감 (물건 id, 준 친구) 을 out에 다시 채움 (포트키로 그 친구가 이 장난감에만 올 수 있음)
+    pub fn toy_sources(&self, out: &mut Vec<(u64, String)>) {
+        out.clear();
+        out.extend(self.live.iter().filter_map(|l| l.icon_from.clone().map(|f| (l.id, f))));
     }
 
     /// 기다리던 똥 하나를 들이고 창을 주문함
@@ -1056,6 +1075,7 @@ impl Objects {
             click_through,
             icon: None,
             portkey_look: None,
+            icon_from: None,
         });
         true
     }

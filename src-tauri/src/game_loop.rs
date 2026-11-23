@@ -573,6 +573,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     let mut object_spots = Vec::new();
     // 🧳 포트키가 될 수 있는 놓인 물건 (틱마다 다시 채움 — 모두 숨겨 둔 동안엔 빈 목록)
     let mut portkey_spots = Vec::new();
+    // 🔒 친구에게서 받은 📌 장난감 (물건 id, 준 친구)
+    let mut toy_sources = Vec::new();
     let mut pet_targets: Vec<Option<screenpet_core::juggle::Target>> = Vec::new();
     let mut juggle_targets = Vec::new();
     // ⚾ 친구 화면에서 날아 들어오는 물건 (흐물이가 받으러 감)
@@ -1142,13 +1144,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     }
                     // 집중·하우스 중이면 받지 않고 되돌림
                     match screenpet_core::visit::toss_answer(own_refuses(&slots), toss.bounced, objects.threw_lately(&from)) {
-                        screenpet_core::visit::TossAnswer::Take => {
-                            // 🔒 받은 📌 장난감 그림은 이 친구와 주고받은 것 (포트키로 받아도 됨)
-                            if let Some(i) = &toss.icon {
-                                network.note_wire_icon(&from, i);
-                            }
-                            objects.receive(&config, &from, toss)
-                        }
+                        // 🔒 받은 📌 장난감은 objects가 준 친구를 적어 둠 (그 친구의 포트키는 그 장난감에만 — 내 장난감 허용 목록에는 넣지 않음)
+                        screenpet_core::visit::TossAnswer::Take => objects.receive(&config, &from, toss),
                         screenpet_core::visit::TossAnswer::SendBack => network.bounce_toss(&from, toss),
                         screenpet_core::visit::TossAnswer::Drop => {}
                     }
@@ -1209,7 +1206,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     for c in network.take_carry_arrivals() {
                         let Some(s) = slots.iter_mut().find(|s| s.label == c.label) else { continue };
                         let at = (s.pet.body.x, s.pet.body.y - s.pet.cfg.size);
-                        if let Some(id) = objects.spawn_carried(&app, &s.world, c.kind, c.scale, s.is_own(), at, c.icon) {
+                        // 🔒 손님이 들고 온 📌 장난감은 그 손님 주인의 것 (그 친구의 포트키는 이 장난감에만)
+                        let from = match &s.role {
+                            Role::Guest(g) => Some(g.owner_id.clone()),
+                            _ => None,
+                        };
+                        if let Some(id) = objects.spawn_carried(&app, &s.world, c.kind, c.scale, s.is_own(), at, c.icon, from) {
                             // 💪 거대한 것 (영웅이 들고 옴 — 이 화면 높이로 다시 맞춘 크기): 거대한 것까지 다 들어와야 섬
                             match objects.half_w_of(id).filter(|_| c.kind.is_giant()) {
                                 Some(half) => s.pet.hold_giant(id, half),
@@ -1577,6 +1579,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
         objects.poop_spots(&mut poop_spots);
         objects.object_spots(&mut object_spots);
         objects.portkey_spots(&mut portkey_spots);
+        objects.toy_sources(&mut toy_sources);
         // 📌 작업표시줄 장난감을 지금 만들 수 있나 (내 흐물이만 봄)
         let toys = objects.toys(&app);
         objects.incoming(&mut incoming);
@@ -1585,7 +1588,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
             portkey_spots.clear();
         }
         // 🧳 친구가 포트키로 물어보면 이 화면의 같은 물건을 찾음 (network.tick이 받음)
-        network.set_portkey_spots(&portkey_spots);
+        network.set_portkey_spots(&portkey_spots, &toy_sources);
         // 🙆 흐물이에게 같은 화면의 다른 동물을 보여 줌 (번쩍 들러 감)
         screenpet_core::brain::hoist_moves::notice_pets(&mut slots);
         // 🕸️ 화면의 거미집을 모든 동물에게 알려 줌 — 거미인간이 아닌 동물이 들어가면 걸림 (코어 brain_snare.rs)

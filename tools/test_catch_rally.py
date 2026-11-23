@@ -14,10 +14,10 @@ def test_outgoing_tosses_carry_the_rally():
 
 def test_incoming_tosses_keep_the_senders_rally():
     # 넷째 칸은 📌 장난감 아이콘 그림 (v0.6.5 — 보통 물건은 None)
-    assert "inbox: TossInbox<(AcceptedToss, Side, u32, Option<IconImage>)>," in OBJ
-    assert "self.inbox.push((accepted, side, toss.rally.unwrap_or(0), None), &mut self.roster)" in OBJ
+    assert "inbox: TossInbox<(AcceptedToss, Side, u32, Option<IconImage>, Option<String>)>," in OBJ
+    assert "self.inbox.push((accepted, side, toss.rally.unwrap_or(0), None, None), &mut self.roster)" in OBJ
     admit = OBJ[OBJ.index("fn admit_next_toss(") :]
     admit = admit[: admit.index("\n    }\n")]
-    assert "let Some((accepted, side, rally, icon)) = self.inbox.pop()" in admit
+    assert "let Some((accepted, side, rally, icon, icon_from)) = self.inbox.pop()" in admit
     i = admit.index("Object::flown_in(")
     assert "object.set_rally(rally);" in admit[i : i + 400]

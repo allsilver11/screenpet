@@ -28,7 +28,7 @@ def test_every_still_object_is_a_portkey_and_toys_use_only_the_icon_picture():
     assert "title" not in spots and "name" not in spots, "앱 이름·창 제목은 쓰지 않음"
     assert "objects.portkey_spots(&mut portkey_spots);" in LOOP
     assert re.search(r"if all_hidden \{\s*portkey_spots\.clear\(\);", LOOP), "모두 숨겨 둔 동안엔 없음"
-    assert "network.set_portkey_spots(&portkey_spots);" in LOOP
+    assert "network.set_portkey_spots(&portkey_spots, &toy_sources);" in LOOP
 
 
 def test_only_own_pets_ask_new_friends_and_portkeys_carry_nothing():
@@ -47,9 +47,9 @@ def test_a_quick_refusal_comes_back_by_portkey_and_the_host_checks_the_object():
     leave = body(NETWORK, "let portkey_sent = self.portkey_out.remove(&visit_id);", "return;\n                }")
     assert "!p.acked" in leave and "portkey_return(world)" in leave and "self.away.remove(&uid)" in leave
     host = body(NETWORK, "let portkey_at = match &portkey {", "None => None,")
-    assert "self.portkey_arrival(from, w)" in host and "self.reply_later(link, Visit::leave(visit_id))" in host, "같은 물건이 없으면 (늦춰) 돌려보냄"
+    assert "self.portkey_arrival(from, w)" in host and "self.refuse_visit(link, from, visit_id, true, Visit::leave(visit_id), false)" in host, "같은 물건이 없으면 (늦춰) 돌려보냄"
     arrival = body(NETWORK, "fn portkey_arrival(", "\n    }\n")
-    assert "PortkeyKey::from_wire(" in arrival and "pick_arrival(&self.portkey_spots" in arrival, "아는 값만 · 받는 쪽 물건 자리"
+    assert "PortkeyKey::from_wire(" in arrival and "pick_arrival(&allowed, key)" in arrival, "아는 값만 · 받는 쪽 물건 자리"
     assert "pet.portkey_arrive(&spot, world, nth);" in NETWORK
     # 바쁠 때 (집중·하우스) 돌려보내기가 포트키 검사보다 먼저
     visit = body(NETWORK, "fn on_visit_message(", "fn welcome_guest(")
@@ -76,7 +76,7 @@ def test_webview_twirls_and_has_portkey_lines_and_wizards_carry_the_flag():
 def test_icon_toys_are_not_a_presence_oracle():
     """🔒 친구가 아이콘 해시를 맞혀 보며 내 화면의 장난감을 알아내지 못하게: 그 친구와 주고받은 아이콘만, 친구마다 PORTKEY_ASK_GAP에 한 번, 답은 늘 늦춰서."""
     arrival = body(NETWORK, "fn portkey_arrival(", "\n    }\n")
-    assert "self.icon_shared_with(from, key.look)" in arrival and "is_toy()" in arrival
+    assert "is_toy()" in arrival
     assert "PORTKEY_ASK_GAP" in arrival and "self.portkey_seen" in arrival
     assert "PORTKEY_JOIN_BURST" in arrival, "같이 잡은 마법사 몇은 함께 받음"
     assert "fn reply_later(" in NETWORK and "portkey_replies" in NETWORK
@@ -84,8 +84,7 @@ def test_icon_toys_are_not_a_presence_oracle():
     assert "PORTKEY_REPLY_SECS" in later
     # 주고받은 아이콘을 친구마다 적음: 던질 때·받을 때·들고 갈 때·들고 올 때
     assert "network.note_icon_shared(&friend," in OBJECTS
-    assert "network.note_wire_icon(&from," in LOOP
-    assert NETWORK.count("self.note_wire_icon(") >= 2
+    assert "network.note_wire_icon(&from," not in LOOP, "받은 아이콘은 허용 목록에 넣지 않음"
 
 
 def test_the_host_acks_and_silence_brings_the_wizard_back():
@@ -114,3 +113,26 @@ def test_portkey_log_events_are_catalogued():
     doc = (ROOT / "docs" / "architecture" / "logging.md").read_text(encoding="utf-8")
     for ev in ("portkey_out", "portkey_back", "portkey_timeout", "portkey_in"):
         assert f"`{ev}`" in doc, ev
+
+
+def test_every_answer_to_a_portkey_visit_is_delayed_and_alike():
+    """🔒 포트키 방문의 답은 받든 (바쁨·너무 이름·손님 수·모르는 물건·짝 없음) 돌려보내든 모두 같은 모양 Leave를 같은 지연으로 — 어느 검사에서 막혔는지 안 보임."""
+    visit = body(NETWORK, "Visit::Visit { visit_id, species,", "Visit::Leave { visit_id, next, side,")
+    assert "net.send(link, Visit::Leave" not in visit, "돌려보내기는 모두 refuse_visit으로"
+    assert visit.count("self.refuse_visit(") >= 5
+    refuse = body(NETWORK, "fn refuse_visit(", "\n    }\n")
+    assert "self.reply_later(link, Visit::leave(visit_id))" in refuse and "ASK_NOT_NOW" in refuse
+    assert refuse.index("if portkey") < refuse.index("ASK_NOT_NOW"), "포트키 방문엔 '지금은 안 돼'를 따로 보내지 않음"
+    assert '"reason" => "portkey"' in refuse, "포트키 거절 사유는 하나"
+
+
+def test_received_icons_cannot_unlock_my_own_toys():
+    """🔒 친구가 던져 준 아이콘은 그 받은 장난감에만 — 내 장난감은 내가 그 친구에게 보낸 아이콘일 때만 포트키로 받음."""
+    take = body(LOOP, "screenpet_core::visit::TossAnswer::Take =>", "objects.receive(&config, &from, toss)")
+    assert "note_wire_icon" not in take
+    assert "fn note_wire_icon" not in NETWORK or NETWORK.count("self.note_wire_icon(") == 1, "보낼 때만 (들고 가는 장난감)"
+    arrival = body(NETWORK, "fn portkey_arrival(", "\n    }\n")
+    assert "self.icon_sent_to(from, key.look)" in arrival and "self.portkey_toy_from" in arrival
+    assert "objects.toy_sources(&mut toy_sources);" in LOOP and "network.set_portkey_spots(&portkey_spots, &toy_sources);" in LOOP
+    assert "icon_from" in body(OBJECTS, "fn admit_next_toss(", "\n    }\n")
+    assert "icon_from" in body(OBJECTS, "pub fn spawn_carried(", "\n    }\n")
