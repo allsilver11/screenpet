@@ -14,12 +14,17 @@
 //!   탈것은 친구 화면에 남았다가 펫이 돌아올 때 다시 타고 옴 (take_parked_away). 친구 화면으로 몰고 온 남의 탈것은
 //!   그 펫이 떠나면 같이 사라지고 (guest_left), 아무도 안 타면 FOREIGN_LIFE_SECS 뒤 사라짐
 //!
+//! - 🎮 조작 모드: 운전석 펫이 조작 중이면 키대로 몲 (steer_ground / steer_fly) — ←/→ 운전 (Shift 빠르게), 놓으면 멈춰 기다림
+//!   (타기 시간이 줄지 않음), ↑ 빵빵, 🚁 방향키로 상하좌우·↓로 내려앉음. 창 끝은 그대로 몰고 떨어지고, 막힌 끝은 그냥 멈추고,
+//!   친구가 연결된 끝은 늘 나감. 앞의 펫은 급정거 없이 쿵 밀어냄. 점프해 빈 탈것에 내려앉으면 태움 (Pet::may_hop_in)
+//!
 //! 자리는 모두 물리 px, 탈것 크기는 논리 px × dpi. x = 탈것 가운데, y = 바퀴 바닥 (화면 아래로 +).
 
 use std::collections::VecDeque;
 
 use serde::Serialize;
 
+use crate::brain::control_moves::ControlInput;
 use crate::brain::{Pet, Speech};
 use crate::physics::{self, step_air, GRAVITY, THROW_GRAVITY_LOGICAL, THROW_LIFT, VELOCITY_WINDOW};
 use crate::surfaces::{EndKind, Owner};
@@ -65,6 +70,8 @@ pub const LEG_SHARE: f64 = 0.32;
 pub const WINDOW_PAD: f64 = 24.0;
 /// 화면 크기 배율: 그림 숫자 (art) × 이것 — 제일 큰 단계 (어른) 펫에 딱 맞게 (자동차 ≈ 어른 펫 한 마리 길이)
 pub const VEHICLE_SCALE: f64 = 0.7;
+/// 🎮 Shift를 누르고 몰 때 빠르기 배
+pub const STEER_BOOST: f64 = 1.6;
 /// 빨라지는 가속 (논리 px/s²)
 const ACCEL: f64 = 320.0;
 /// 끼익 급정거 감속 (논리 px/s²)
@@ -981,7 +988,20 @@ impl Garage {
                 }
             }
         }
+        // 2-1. 🎮 조작 모드로 점프해 빈 탈것 위에 내려앉은 펫을 태움
+        for i in 0..pets.len() {
+            let p = pets[i].as_ref();
+            if !p.may_hop_in() {
+                continue;
+            }
+            let (x, y, slack) = (p.body.x, p.body.y, p.cfg.size * 0.2);
+            let hit = self.vehicles.iter().find(|v| v.phase == Phase::Ground && v.driver.is_none() && v.vx == 0.0 && v.covers(x, y, slack)).map(|v| v.id);
+            if let Some(id) = hit {
+                self.board(id, pets[i].as_mut());
+            }
+        }
         // 3. 탈것을 움직임
+        let steers: Vec<(u64, ControlInput, bool)> = pets.iter().filter_map(|p| { let p = p.as_ref(); p.steering().map(|(k, honk)| (p.social_key(), k, honk)) }).collect();
         let obstacles: Vec<Obstacle> = pets.iter().filter_map(|p| p.as_ref().vehicle_obstacle()).collect();
         let mut acts: Vec<Act> = Vec::new();
         let free: Vec<(u64, f64, f64, f64, Option<Owner>)> =
@@ -990,7 +1010,11 @@ impl Garage {
         let (force_crash, force_bed_fling, force_visit) = (self.force_crash, self.force_bed_fling, self.force_visit);
         let mut gone = Vec::new();
         for v in &mut self.vehicles {
-            let mut ctx = Ctx { rng: &mut self.rng, acts: &mut acts, events: &mut self.events, obstacles: &obstacles, free: &free, edges: &edges, force_crash, force_bed_fling, force_visit };
+            let (steer, honk) = match v.driver.and_then(|d| steers.iter().find(|s| s.0 == d)) {
+                Some(&(_, k, h)) => (Some(k), h),
+                None => (None, false),
+            };
+            let mut ctx = Ctx { rng: &mut self.rng, acts: &mut acts, events: &mut self.events, obstacles: &obstacles, free: &free, edges: &edges, force_crash, force_bed_fling, force_visit, steer, honk };
             if step(v, dt, world, &mut ctx) {
                 gone.push(v.id);
             }
@@ -1065,6 +1089,10 @@ struct Ctx<'a> {
     force_crash: Option<bool>,
     force_bed_fling: bool,
     force_visit: bool,
+    /// 🎮 운전석 펫이 조작 중이면 그 키
+    steer: Option<ControlInput>,
+    /// 🎮 이 틱에 ↑를 막 누름 (빵빵)
+    honk: bool,
 }
 
 /// 탈것 한 틱. 화면에서 없어졌으면 (친구 화면으로 감) true
@@ -1072,14 +1100,14 @@ fn step(v: &mut Vehicle, dt: f64, world: &World, ctx: &mut Ctx) -> bool {
     v.dust = (v.dust - dt).max(0.0);
     v.bump = (v.bump - dt).max(0.0);
     v.calm = (v.calm - dt).max(0.0);
-    if v.driver.is_some() && v.start_wait <= 0.0 && !v.stopping {
+    if v.driver.is_some() && v.start_wait <= 0.0 && !v.stopping && ctx.steer.is_none() {
         v.ride_left -= dt;
     }
     match v.phase {
         Phase::Held => false,
         Phase::Air => {
             v.tick_air(dt, world);
-            if v.phase == Phase::Ground && v.driver.is_some() && v.kind.flies() {
+            if v.phase == Phase::Ground && v.driver.is_some() && v.kind.flies() && ctx.steer.is_none() {
                 v.phase = Phase::Fly(FlyStage::Lift);
                 pick_alt(v, world, ctx.rng);
             }
@@ -1129,6 +1157,10 @@ fn pick_alt(v: &mut Vehicle, world: &World, rng: &mut fastrand::Rng) {
 
 /// 🚁 나는 한 틱
 fn fly(v: &mut Vehicle, dt: f64, world: &World, stage: FlyStage, ctx: &mut Ctx) {
+    if let Some(k) = ctx.steer {
+        steer_fly(v, dt, world, k);
+        return;
+    }
     let dpi = v.dpi;
     let cruise = v.kind.spec().speed * dpi;
     // 운전 펫이 없으면 (잡혔음) 천천히 내려앉음
@@ -1245,6 +1277,28 @@ fn ground(v: &mut Vehicle, dt: f64, world: &World, ctx: &mut Ctx) {
         }
         return;
     }
+    // 🎮 조작 모드: 키대로 (🚁는 ↑로 떠오름)
+    if let Some(k) = ctx.steer {
+        if v.kind.flies() {
+            if k.up && v.start_wait <= 0.0 {
+                v.phase = Phase::Fly(FlyStage::Cruise { leg: 1.0 });
+                v.on = None;
+            } else {
+                v.start_wait = (v.start_wait - dt).max(0.0);
+            }
+            return;
+        }
+        if v.start_wait > 0.0 {
+            v.start_wait -= dt;
+            if !v.invited && v.kind.bed_seats() > 0 {
+                v.invited = true;
+                invite(v, ctx);
+            }
+            return;
+        }
+        steer_ground(v, dt, world, k, ctx);
+        return;
+    }
     // 🚁 시동: 떠오름
     if v.kind.flies() {
         if v.ride_left > 0.0 {
@@ -1324,6 +1378,97 @@ fn ground(v: &mut Vehicle, dt: f64, world: &World, ctx: &mut Ctx) {
     }
     let step = v.speed * dt;
     move_along(v, world, v.dir, step, ctx, true);
+}
+
+/// 좌우 방향키로 빠르기를 고침: 같은 쪽(또는 서 있을 때)은 빨라지고, 반대쪽은 끼익 멈춘 뒤 돌아섬, 키 없으면 멈춤
+fn steer_speed(v: &mut Vehicle, dt: f64, k: ControlInput) {
+    let dpi = v.dpi;
+    let want = (k.right as i8 - k.left as i8) as f64;
+    let cruise = v.kind.spec().speed * dpi * if k.run { STEER_BOOST } else { 1.0 };
+    if want != 0.0 && (want == v.dir || v.speed <= 0.0) {
+        if want != v.dir {
+            v.dir = want;
+            v.edge_roll = None;
+        }
+        v.braking = false;
+        v.speed = if v.speed < cruise { (v.speed + ACCEL * dpi * dt).min(cruise) } else { (v.speed - STOP_DECEL * dpi * dt).max(cruise) };
+    } else {
+        v.braking = want != 0.0;
+        let decel = if v.braking { BRAKE } else { STOP_DECEL } * dpi;
+        v.speed = (v.speed - decel * dt).max(0.0);
+    }
+}
+
+/// 🎮 디딤판 위를 키대로 몲: ↑ 빵빵, 앞의 펫은 쿵 밀어냄 (운전 펫은 그대로 앉아 있음)
+fn steer_ground(v: &mut Vehicle, dt: f64, world: &World, k: ControlInput, ctx: &mut Ctx) {
+    v.pause = 0.0;
+    v.turn_after = false;
+    v.stopping = false;
+    v.encounter = None;
+    if ctx.honk {
+        if let Some(d) = v.driver {
+            ctx.acts.push(Act::Say(d, Speech::Honk));
+        }
+    }
+    steer_speed(v, dt, k);
+    if v.speed > 1.0 && v.calm <= 0.0 {
+        let hit = ctx.obstacles.iter().filter(|o| Some(o.key) != v.driver && !v.bed.contains(&Some(o.key))).find(|o| {
+            let gap = v.dir * (o.x - v.x) - v.half_len() - o.half_w;
+            (o.y - v.y).abs() <= SAME_LEVEL * o.size && gap <= 0.0 && gap > -o.half_w
+        });
+        if let Some(o) = hit {
+            let dpi = v.dpi;
+            ctx.events.push(VehicleEvent::Crash { id: v.id, x: v.x + v.dir * v.half_len(), y: v.y - 0.4 * v.height() });
+            ctx.acts.push(Act::Bonk(o.key, v.dir * BONK_V.0 * dpi, -BONK_V.1 * dpi));
+            if let Some(d) = v.driver {
+                ctx.acts.push(Act::Say(d, Speech::Honk));
+            }
+            v.bounce_mark();
+            v.dust = 0.5;
+            v.speed *= 0.5;
+            v.calm = 0.5;
+        }
+    }
+    let step = v.speed * dt;
+    move_along(v, world, v.dir, step, ctx, true);
+}
+
+/// 🎮 🚁 키대로 날기: ←/→ 앞뒤, ↑/↓ 위아래 (Shift 빠르게), 키 없으면 그 자리에 떠 있음, ↓로 디딤판에 닿으면 내려앉음 (내리지는 않음)
+fn steer_fly(v: &mut Vehicle, dt: f64, world: &World, k: ControlInput) {
+    if v.start_wait > 0.0 {
+        v.start_wait -= dt;
+        return;
+    }
+    let dpi = v.dpi;
+    steer_speed(v, dt, k);
+    v.braking = false;
+    let half = v.half_len();
+    let b = world.bounds;
+    v.x = (v.x + v.dir * v.speed * dt).clamp(b.left + half, (b.right - half).max(b.left + half));
+    let vert = (k.down as i8 - k.up as i8) as f64;
+    let rise = if vert < 0.0 { HELI_RISE } else { HELI_DESCEND * 1.5 };
+    let prev = v.y;
+    v.y += vert * rise * dpi * dt * if k.run { STEER_BOOST } else { 1.0 };
+    let wa = world.work_area_at(v.x, prev - 1.0);
+    v.y = v.y.max(wa.top + v.height());
+    if vert > 0.0 {
+        if let Some(s) = world.fall_landing(v.x, prev, v.y, 1.0, false) {
+            v.speed = 0.0;
+            v.settle(s.owner, s.y, world);
+            v.bounce_mark();
+        }
+    }
+}
+
+/// 디딤판 끝에서: 조작 중이면 그냥 멈춤, 아니면 멈칫했다가 돌아섬
+fn road_end(v: &mut Vehicle, limit: f64, world: &World, steered: bool) {
+    if steered {
+        v.x = limit;
+        v.speed = 0.0;
+        reanchor(v, world);
+    } else {
+        turn(v, limit, world);
+    }
 }
 
 /// 앞을 보는 거리 (물리 px)
@@ -1430,6 +1575,7 @@ fn move_along(v: &mut Vehicle, world: &World, d: f64, step: f64, ctx: &mut Ctx, 
         return;
     }
     let side = if d > 0.0 { Side::Right } else { Side::Left };
+    let steered = ctx.steer.is_some();
     match end {
         EndKind::Seam { to } => {
             let edge = if d > 0.0 { piece.x_end } else { piece.x_start };
@@ -1443,10 +1589,10 @@ fn move_along(v: &mut Vehicle, world: &World, d: f64, step: f64, ctx: &mut Ctx, 
                 reanchor(v, world);
                 return;
             }
-            turn(v, limit, world);
+            road_end(v, limit, world, steered);
         }
         EndKind::Edge => {
-            let drop = *v.edge_roll.get_or_insert_with(|| ctx.rng.f64() < EDGE_DROP_CHANCE);
+            let drop = steered || *v.edge_roll.get_or_insert_with(|| ctx.rng.f64() < EDGE_DROP_CHANCE);
             if drop {
                 v.x = new_x;
                 let edge = if d > 0.0 { piece.x_end } else { piece.x_start };
@@ -1462,12 +1608,12 @@ fn move_along(v: &mut Vehicle, world: &World, d: f64, step: f64, ctx: &mut Ctx, 
                 reanchor(v, world);
                 return;
             }
-            turn(v, limit, world);
+            road_end(v, limit, world, steered);
         }
         EndKind::Wall => {
             let wants = v.driver.is_some_and(|k| ctx.edges.iter().any(|&(key, l, r)| key == k && if side == Side::Left { l } else { r }));
             if wants && !v.stopping {
-                let go = *v.visit_roll.get_or_insert_with(|| ctx.force_visit || ctx.rng.f64() < VISIT_CHANCE);
+                let go = steered || *v.visit_roll.get_or_insert_with(|| ctx.force_visit || ctx.rng.f64() < VISIT_CHANCE);
                 if go {
                     v.phase = Phase::Exiting(side);
                     v.on = None;
@@ -1475,9 +1621,9 @@ fn move_along(v: &mut Vehicle, world: &World, d: f64, step: f64, ctx: &mut Ctx, 
                     return;
                 }
             }
-            turn(v, limit, world);
+            road_end(v, limit, world, steered);
         }
-        EndKind::Blocked => turn(v, limit, world),
+        EndKind::Blocked => road_end(v, limit, world, steered),
     }
 }
 

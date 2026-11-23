@@ -8,6 +8,8 @@
 //! - 내림 (`leave_vehicle`) 은 폴짝, 쿵·잡힘 (`fling_off`) 은 휙 튕겨 나감. 걷다 마주친 펫은 `startle` (폴짝 "whoa!"), 쿵 맞으면 `bonk`
 //! - 내 펫이 친구가 연결된 끝까지 몰고 가면 (`may_drive_out`) 탈것째 사라짐 (`drove_out` → take_exit)
 //! - 사용자가 펫을 탈것 위에 떨구면 차고의 offer_drop이 `just_dropped`를 보고 태움
+//! - 🎮 조작 모드: 운전석이면 `steering`으로 차고가 키대로 몲 (←/→ 운전, ↑ 빵빵, 🚁 방향키 상하좌우). Space = 폴짝 내림.
+//!   점프해서 빈 탈것 위에 내려앉으면 올라탐 (`may_hop_in` — 막 내린 뒤 REHOP_SECS 동안은 안 탐)
 //!
 //! 주사위는 자기 주사위(VehicleMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
 
@@ -22,6 +24,8 @@ const ARRIVE_PX: f64 = 4.0;
 const HOP_OFF: (f64, f64) = (140.0, 520.0);
 /// 마주쳐 놀라 폴짝 (크기 128 기준 px/s: 뒤로, 위로)
 const STARTLE_HOP: (f64, f64) = (110.0, 560.0);
+/// 🎮 폴짝 내린 뒤 이만큼(초)은 내려앉아도 다시 타지 않음
+const REHOP_SECS: f64 = 1.5;
 
 /// 탈것 타기의 기억
 #[derive(Debug, Clone)]
@@ -44,6 +48,10 @@ pub struct VehicleMood {
     seated_at: f64,
     /// 급정거에 쏠리는 중
     lurch: bool,
+    /// 🎮 이 틱에 ↑를 막 누름 (운전석 — 차고가 빵빵)
+    honk: bool,
+    /// 🎮 이 시각(clock)까지는 내려앉아도 다시 타지 않음
+    rehop_at: f64,
     /// 테스트: 주사위·쉬는 때 없이 늘 타러 감
     pub(crate) eager: bool,
 }
@@ -51,7 +59,7 @@ pub struct VehicleMood {
 impl VehicleMood {
     /// 시드로 난수를 따로 둠
     pub(super) fn new(seed: u64) -> Self {
-        VehicleMood { rng: fastrand::Rng::with_seed(seed ^ 0x6361_7273), calm_until: 0.0, seen: Vec::new(), target_x: 0.0, arrived: false, invited: false, cover: 0.0, front: false, seated_at: 0.0, lurch: false, eager: false }
+        VehicleMood { rng: fastrand::Rng::with_seed(seed ^ 0x6361_7273), calm_until: 0.0, seen: Vec::new(), target_x: 0.0, arrived: false, invited: false, cover: 0.0, front: false, seated_at: 0.0, lurch: false, honk: false, rehop_at: 0.0, eager: false }
     }
 }
 
@@ -238,6 +246,8 @@ impl Pet {
         self.thrown = false;
         self.vehicle.cover = 0.0;
         self.vehicle.lurch = false;
+        self.vehicle.honk = false;
+        self.vehicle.rehop_at = self.clock + REHOP_SECS;
         self.vehicle.calm_until = self.clock + behavior::range(&mut self.vehicle.rng, vehicle::CALM_SECS);
     }
 
@@ -294,6 +304,26 @@ impl Pet {
         Some(Obstacle { key: self.social_key, x: self.body.x, y: self.body.y, size: self.cfg.size, half_w: self.cfg.half_w })
     }
 
+    /// 🎮 조작 모드로 운전석에 앉아 있으면 (지금 키, 이 틱에 ↑를 막 누름) — 차고가 탈것을 키대로 몲
+    pub fn steering(&self) -> Option<(control_moves::ControlInput, bool)> {
+        match self.state {
+            State::Ride { seat: 0, .. } => self.control_input().map(|k| (k, self.vehicle.honk)),
+            _ => None,
+        }
+    }
+
+    /// 🎮 조작 모드로 점프해 내려오는 중 — 빈 탈것 위에 내려앉으면 차고가 태움
+    pub fn may_hop_in(&self) -> bool {
+        self.is_controlled()
+            && matches!(self.state, State::Air { .. })
+            && self.body.vy > 0.0
+            && !self.is_held()
+            && !self.cfg.flies
+            && self.inside.is_none()
+            && !self.housed
+            && self.clock >= self.vehicle.rehop_at
+    }
+
     /// 운전해서 친구 화면(side)으로 갈 수 있음: 내 펫이고 그 끝에 친구가 연결돼 있음
     pub fn may_drive_out(&self, side: Side) -> bool {
         let open = match side {
@@ -301,7 +331,7 @@ impl Pet {
             Side::Right => self.exit_edges.right,
             _ => false,
         };
-        open && self.guest.is_none() && !self.housed && self.home_trip.is_none() && !self.is_controlled()
+        open && self.guest.is_none() && !self.housed && self.home_trip.is_none()
     }
 
     /// 탈것째 친구 화면으로 나갔음 (take_exit가 side를 돌려줌)
@@ -333,6 +363,15 @@ impl Pet {
                 true
             }
             State::Ride { .. } => {
+                // 🎮 조작 모드: Space = 폴짝 내림, ↑ = 빵빵 (차고가 운전석의 키로 몲)
+                self.vehicle.honk = false;
+                if let Some((keys, prev)) = self.ride_keys(dt) {
+                    if keys.jump && !prev.jump {
+                        self.leave_vehicle(self.facing);
+                        return true;
+                    }
+                    self.vehicle.honk = keys.up && !prev.up;
+                }
                 // 집에 가라는 말을 들었음 / 탈것이 사라짐: 내림
                 if self.home_trip.is_some() {
                     self.leave_vehicle(-self.facing);

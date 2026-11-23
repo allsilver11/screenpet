@@ -4286,6 +4286,9 @@ pub mod vehicle_moves;
 #[cfg(test)]
 #[path = "brain_vehicle_tests.rs"]
 mod vehicle_tests;
+#[cfg(test)]
+#[path = "brain_vehicle_steer_tests.rs"]
+mod vehicle_steer_tests;
 #[path = "brain_soar.rs"]
 pub mod soar_moves;
 #[path = "brain_broom.rs"]

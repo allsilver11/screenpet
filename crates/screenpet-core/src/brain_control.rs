@@ -10,7 +10,7 @@
 //! - 친구가 연결된 화면 끝으로 몰고 가면 평소 규칙대로 걸어(날아) 나감
 //!
 //! 먹이·직접 주기·누르기·하우스·"집에 와"·손님의 집 그리움·보내기는 조작보다 먼저임 — 그동안은 평소 동작을 그대로 쓰고,
-//! 끝나면 다시 조작을 따름. 키는 읽기만 함 (다른 앱에도 그대로 감 — 앱 쪽). 친구 화면에 가 있는 내 동물에겐
+//! 끝나면 다시 조작을 따름. 🚗 탈것 운전석에 앉으면 키로 탈것을 몲 (brain_vehicle.rs steering, vehicle.rs). 키는 읽기만 함 (다른 앱에도 그대로 감 — 앱 쪽). 친구 화면에 가 있는 내 동물에겐
 //! 앱이 키를 친구 링크로 보내고, 그 화면에서는 remote_keys로 받음 (1초 소식이 없으면 키를 다 놓은 것으로 봄).
 //! 키 없이 CONTROL_IDLE_SECS가 지나면 저절로 끝남. brain.rs의 자식 모듈.
 
@@ -245,6 +245,20 @@ impl Pet {
         if c.idle >= CONTROL_IDLE_SECS {
             self.release_control();
         }
+    }
+
+    /// 🚗 탈것에 탄 동안의 키 (update_vehicle이 매 틱 — 친구 링크 키의 시간도 셈): (지금 키, 지난 틱 키). 조작 모드가 아니면 None
+    pub(super) fn ride_keys(&mut self, dt: f64) -> Option<(ControlInput, ControlInput)> {
+        self.tick_remote_control(dt);
+        let c = self.control.as_mut()?;
+        let prev = c.prev;
+        c.prev = c.input;
+        Some((c.input, prev))
+    }
+
+    /// 지금 누른 조작 키 (조작 모드가 아니면 None)
+    pub(super) fn control_input(&self) -> Option<ControlInput> {
+        self.control.map(|c| c.input)
     }
 
     /// 키를 누르고 있음 (창 안에 있으면 나오게 함, update_inside)
