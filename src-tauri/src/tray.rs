@@ -122,7 +122,7 @@ const WEB_LEDGES_LABEL: &str = "🌐 웹 페이지 위에도 올라가기 (실�
 const FOCUS_TOGGLE_ID: &str = "focus:toggle";
 const FOCUS_SHORT_ID: &str = "focus:short";
 const FOCUS_LONG_ID: &str = "focus:long";
-const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift, Esc로 끝)";
+const CONTROL_LABEL: &str = "🎮 조작 모드 (방향키·Space·Shift·Z 특기, Esc로 끝)";
 /// macOS: 키가 늘 안 눌림으로 읽힐 때 한 번 — 말풍선은 줄바꿈 없이 창(128px)에 잘리니 한 줄로 짧게 (어디서 켜는지는 ui/help.html)
 /// 💌 개발자에게 건의하기 (feedback.rs)
 const FEEDBACK_ID: &str = "feedback";

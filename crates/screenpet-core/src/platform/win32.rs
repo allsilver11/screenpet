@@ -113,6 +113,7 @@ impl WindowSource for Win32Source {
             down: key_down(VK_DOWN.0),
             jump: key_down(VK_SPACE.0),
             run: key_down(VK_SHIFT.0),
+            special: key_down(VK_Z),
         }
     }
 
@@ -275,6 +276,9 @@ unsafe fn render_icon(hicon: HICON, px: u32) -> Option<IconImage> {
 }
 
 /// 가상 키가 지금 눌려 있음 (GetAsyncKeyState)
+/// 'Z' 가상 키 (영문 글자 키는 ASCII 대문자 코드) — 조작 모드 특기
+const VK_Z: u16 = 0x5A;
+
 fn key_down(vk: u16) -> bool {
     unsafe { (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0 }
 }

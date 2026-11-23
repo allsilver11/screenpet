@@ -13,7 +13,7 @@ fn keys(f: impl FnOnce(&mut ControlInput)) -> ControlInput {
     k
 }
 
-const NONE: ControlInput = ControlInput { left: false, right: false, up: false, down: false, jump: false, run: false };
+const NONE: ControlInput = ControlInput { left: false, right: false, up: false, down: false, jump: false, run: false, special: false };
 
 /// 내 동물: 키를 누른 채 secs초 (게임 루프처럼 매 틱 키를 먼저 알려 줌)
 fn hold(p: &mut Pet, w: &World, k: ControlInput, secs: f64) {
@@ -42,7 +42,7 @@ fn cat() -> PetConfig {
 
 #[test]
 fn keys_round_trip_through_bits() {
-    for bits in 0..64u8 {
+    for bits in 0..128u8 {
         assert_eq!(ControlInput::from_bits(bits).bits(), bits);
     }
     let k = keys(|k| {
@@ -53,7 +53,7 @@ fn keys_round_trip_through_bits() {
     assert!(k.any());
     assert!(!NONE.any());
     // 모르는 비트(새 판)는 무시한다
-    assert_eq!(ControlInput::from_bits(0xC0), NONE);
+    assert_eq!(ControlInput::from_bits(0x80), NONE);
 }
 
 #[test]

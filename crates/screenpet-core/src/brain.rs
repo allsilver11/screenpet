@@ -1590,7 +1590,8 @@ impl Pet {
 
     /// 이번 틱에 그릴 것을 만듦 (상태 → 그림 + 웹뷰 효과)
     pub fn render(&self) -> RenderState {
-        let anim = match self.state {
+        // 🎮🦇 조작 모드 오토바이가 먼저 (brain_feat.rs)
+        let anim = self.feat_anim().unwrap_or_else(|| match self.state {
             // 나는 동물의 공중제비(Roll)는 원을 도는 동안만 — 그 앞뒤는 그냥 난다
             State::Move { kind: Move::Roll, .. } if self.cfg.flies && !self.flight.is_some_and(|f| f.looping.is_some()) => Anim::Walk,
             State::Move { .. } if self.riding_now() => self.ride_anim(),
@@ -1683,7 +1684,7 @@ impl Pet {
             State::Housed => Anim::SitFront,
             State::Pressed { grounded: true, .. } => Anim::Idle,
             State::Pressed { .. } | State::Dragged => Anim::Dragged,
-        };
+        });
         let anim = self.carrying_anim(anim);
         let anim = self.cheeks_anim(anim);
         let hang = self.hang_side();
@@ -4101,6 +4102,14 @@ pub mod control_moves;
 #[cfg(test)]
 #[path = "brain_control_tests.rs"]
 mod control_tests;
+
+/// 🎮 조작 모드 특기 (Z) — 🛡️ 날기 · 🕷️ 웹스윙 · 🧹 빗자루 · 🦇 오토바이
+#[path = "brain_feat.rs"]
+pub mod feat_moves;
+
+#[cfg(test)]
+#[path = "brain_feat_tests.rs"]
+mod feat_tests;
 
 /// 던져서 친구 화면으로 넘어가기 (듀얼 모니터처럼)
 #[path = "brain_fling.rs"]

@@ -29,3 +29,13 @@ def test_mac_permission_hint_fits_the_window_in_one_line():
 
 def test_controller_badge_stays():
     assert "ctltagEl.hidden = !render.ctl" in (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
+
+
+def test_help_and_menu_explain_the_z_specials_one_line_per_hero():
+    line = next(x for x in HELP.splitlines() if "🎮 특기" in x)
+    for who in ("무쇠인간", "거미인간", "해리", "박쥐인간", "해그리드"):
+        assert who in line, who
+    assert '<span class="key">Z</span>' in line
+    assert "Z" in re.search(r'CONTROL_LABEL: &str = "([^"]+)"', TRAY).group(1)
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Z 특기" in readme
