@@ -3,19 +3,19 @@
 //! - ⛄ 발밑에 눈이 쌓였으면 가끔 눈을 뭉쳐 던짐: 같은 화면의 다른 동물(눈싸움 — 맞은 동물이 되던짐), 커서, 친구 화면 너머(내 동물만), 아무 데나
 //! - ⛄ 가끔 눈밭에서 데굴 → 눈가루
 //! - 🍂🌸🌿 낙엽·꽃잎·푸른 잎이 쌓였으면 가끔 폴짝 뛰어들어 확 흩어짐
-//! 자주 하지 않음: 한 번 놀면 PLAY_EVERY_SECS 동안 쉼 (쉬는 박자가 끝날 때만 주사위를 굴림)
+//! 눈이 쌓이면 자주 놂 (2026-11-23 — 어떤 캐릭터끼리든 눈싸움): 한 번 놀면 PLAY_EVERY_SECS 동안 쉼 (쉬는 박자가 끝날 때만 주사위를 굴림)
 
 use crate::juggle::{self, Target};
 use crate::weather::Weather;
 
 /// 한 번 놀고 다음에 놀 수 있기까지 (초)
-pub const PLAY_EVERY_SECS: (f64, f64) = (45.0, 120.0);
+pub const PLAY_EVERY_SECS: (f64, f64) = (12.0, 35.0);
 /// 놀 수 있을 때 쉬는 박자마다 놀 확률
-pub const PLAY_CHANCE: f64 = 0.35;
+pub const PLAY_CHANCE: f64 = 0.75;
 /// 발밑 더미가 이만큼(평균 높이, 논리 px)은 있어야 놂
 pub const MIN_DEPTH: f32 = 1.0;
 /// 눈밭에서는 던지기가 이만큼, 나머지는 데굴
-pub const THROW_SHARE: f64 = 0.7;
+pub const THROW_SHARE: f64 = 0.85;
 /// 눈을 뭉치는 동안 (기지개 그림) — RELEASE초에 던짐
 pub const SCOOP_SECS: f64 = 1.0;
 /// 뭉친 눈을 던지는 시각 (초)
@@ -29,9 +29,9 @@ pub const DIVE_LIFT: f64 = 1.5;
 /// 눈덩이에 맞은 뒤 이 시간 안에 쉬면 되던짐 (초)
 pub const REVENGE_SECS: f64 = 10.0;
 /// 되던질 확률
-pub const REVENGE_CHANCE: f64 = 0.8;
+pub const REVENGE_CHANCE: f64 = 0.95;
 /// 커서를 노릴 확률 (닿는 곳에 있을 때)
-pub const CURSOR_CHANCE: f64 = 0.4;
+pub const CURSOR_CHANCE: f64 = 0.2;
 /// 노릴 수 있는 커서: 가로 (몸 크기 배)
 pub const CURSOR_RANGE: f64 = 8.0;
 /// 노릴 수 있는 커서: 발에서 위로 (몸 크기 배)
@@ -182,7 +182,7 @@ mod tests {
                 other => panic!("{other:?}"),
             }
         }
-        assert!((40..=120).contains(&cursor), "{cursor}");
+        assert!((20..=70).contains(&cursor), "{cursor}");
         let mut lobs = 0;
         for _ in 0..200 {
             match pick_aim(&mut rng, (500.0, 940.0), 100.0, &[], None, &[1920.0], false) {

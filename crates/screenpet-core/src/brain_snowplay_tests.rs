@@ -52,8 +52,29 @@ fn nothing_to_scoop_without_snow_and_fliers_never_play() {
     assert_eq!(run_until_play(&mut p, &w, SNOW, &[], 300.0), None);
 }
 
+/// ⛄ 눈이 쌓이면 자주 논다 (2026-11-23 "눈싸움 빈도 높여줘"): 친구가 곁에 있으면 10분에 여러 번, 대부분 그 친구에게 던짐
 #[test]
-fn snow_play_is_a_rare_treat() {
+fn snow_fights_are_frequent_with_a_friend_around() {
+    let (mut p, w) = on_ground(sim_cfg(), 800.0);
+    let friend = Target { x: 1200.0, y: p.body.y, size: 128.0 };
+    let (mut throws, mut at_friend) = (0, 0);
+    let secs = 600.0;
+    let mut t = 0.0;
+    while t < secs {
+        p.notice_pile(SNOW, &[friend], false);
+        p.update(DT, &w);
+        if let Some(SnowPlayEvent::Throw { vx, .. }) = p.take_snow_play() {
+            throws += 1;
+            at_friend += usize::from(vx > 0.0);
+        }
+        t += DT;
+    }
+    assert!(throws >= 8, "{throws} snowballs in 10 min");
+    assert!(at_friend * 10 >= throws * 6, "{at_friend}/{throws} at the friend");
+}
+
+#[test]
+fn snow_play_still_takes_a_breather() {
     let (mut p, w) = on_ground(sim_cfg(), 800.0);
     let mut plays = 0;
     let secs = 1200.0;

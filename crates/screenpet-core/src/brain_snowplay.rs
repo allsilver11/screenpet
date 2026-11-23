@@ -65,7 +65,7 @@ impl Pet {
         self.snowplay.revenge_until = self.clock + snowplay::REVENGE_SECS;
     }
 
-    /// 더미에서 놀 수 있음: 걷는 동물이 바닥(창 윗면 포함)에 서 있고, 볼일·든 것이 없음
+    /// 더미에서 놀 수 있음: 걷는 동물 (나는 동물은 디멘터뿐 — 땅에 서지 않음)이 바닥(창 윗면 포함)에 서 있고, 볼일·든 것이 없음
     fn can_snow_play(&self) -> bool {
         !self.cfg.flies
             && self.standing.is_some()
