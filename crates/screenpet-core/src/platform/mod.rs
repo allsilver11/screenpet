@@ -41,7 +41,7 @@ pub trait WindowSource: Send {
     fn escape_down(&mut self) -> bool {
         false
     }
-    /// 조작 모드 키 (방향키·Space·Shift·Z). 읽기만 함 — 키는 앞에 있는 다른 앱에도 그대로 감
+    /// 조작 모드 키 (방향키·Space·Shift). 읽기만 함 — 키는 앞에 있는 다른 앱에도 그대로 감
     /// 게임 루프는 조작 모드 동안만 부름. 기본: 아무것도 안 눌림
     fn control_keys(&mut self) -> ControlInput {
         ControlInput::default()

@@ -46,7 +46,7 @@ fn drive(g: &mut Garage, pets: &mut [Pet], w: &World, keys: ControlInput, n: usi
     events
 }
 
-const NONE: ControlInput = ControlInput { left: false, right: false, up: false, down: false, jump: false, run: false, special: false };
+const NONE: ControlInput = ControlInput { left: false, right: false, up: false, down: false, jump: false, run: false };
 const RIGHT: ControlInput = ControlInput { right: true, ..NONE };
 const LEFT: ControlInput = ControlInput { left: true, ..NONE };
 const UP: ControlInput = ControlInput { up: true, ..NONE };

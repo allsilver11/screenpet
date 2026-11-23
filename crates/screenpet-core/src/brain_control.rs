@@ -7,7 +7,9 @@
 //! - 던져져 창 옆면에 붙어도 조작을 따름: 키 없으면 매달려 있고, ↑ 오르기 (끝까지 오르면 창 윗면에 올라섬), ↓ 내려가기
 //!   (창 아래 끝을 지나면 떨어짐), 창 반대쪽 방향키나 Space = 뛰어내림. 떨어져 내려서면 다시 바닥에서 조작
 //! - 나는 동물은 방향키로 위아래 좌우 (중력 없음, Shift = 빠르게).
-//! - Z = 특기 (brain_feat.rs): 🛡️ 날기 · 🕷️ 웹스윙 · 🧹 빗자루 · 🦇 오토바이 — 켜고 끄기는 Z, 그동안의 키는 그 특기 방식
+//! - ↑↑ (DOUBLE_TAP_SECS 안에 두 번) = 특기 켜기, ↓↓ = 끄기 (brain_feat.rs): 🛡️ 날기 · 🕷️ 웹스윙 · 🧹 빗자루 · 🦇 오토바이 — 그동안의 키는 그 특기 방식.
+//!   새 키를 읽지 않음 (한글 자판에서 글자 키는 타자와 겹침) — 두 번 톡톡은 두뇌 쪽에서 ↑·↓ 누름으로 셈 (친구 화면도 같은 키 비트).
+//!   누름은 받을 때 적어 둠 (feed — 한 틱 안에 누르고 뗀 것도 다음 틱에 셈)
 //! - 친구가 연결된 화면 끝으로 몰고 가면 평소 규칙대로 걸어(날아) 나감
 //!
 //! 먹이·직접 주기·누르기·하우스·"집에 와"·손님의 집 그리움·보내기는 조작보다 먼저임 — 그동안은 평소 동작을 그대로 쓰고,
@@ -38,7 +40,7 @@ const WALL_REACH: f64 = 2.0;
 /// 조작 중 쉬기 (끝나지 않게 매 틱 다시 채움)
 const CONTROL_IDLE: State = State::Idle { remaining: 1.0, look: false };
 
-/// 조작 키 (방향키·Space·Shift·Z) — 앱이 키보드에서 읽거나 친구 링크로 받음
+/// 조작 키 (방향키·Space·Shift) — 앱이 키보드에서 읽거나 친구 링크로 받음
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ControlInput {
     /// ←
@@ -53,8 +55,6 @@ pub struct ControlInput {
     pub jump: bool,
     /// Shift
     pub run: bool,
-    /// Z — 특기 (brain_feat.rs)
-    pub special: bool,
 }
 
 impl ControlInput {
@@ -64,23 +64,22 @@ impl ControlInput {
     const DOWN: u8 = 8;
     const JUMP: u8 = 16;
     const RUN: u8 = 32;
-    const SPECIAL: u8 = 64;
 
     /// 무엇이든 눌림
     pub fn any(&self) -> bool {
         self.bits() != 0
     }
 
-    /// 친구 링크로 보낼 비트 (←1 →2 ↑4 ↓8 Space16 Shift32 Z64 — 예전 판 친구는 Z를 모르는 비트로 무시함)
+    /// 친구 링크로 보낼 비트 (←1 →2 ↑4 ↓8 Space16 Shift32)
     pub fn bits(&self) -> u8 {
         let b = |on: bool, bit: u8| if on { bit } else { 0 };
-        b(self.left, Self::LEFT) | b(self.right, Self::RIGHT) | b(self.up, Self::UP) | b(self.down, Self::DOWN) | b(self.jump, Self::JUMP) | b(self.run, Self::RUN) | b(self.special, Self::SPECIAL)
+        b(self.left, Self::LEFT) | b(self.right, Self::RIGHT) | b(self.up, Self::UP) | b(self.down, Self::DOWN) | b(self.jump, Self::JUMP) | b(self.run, Self::RUN)
     }
 
     /// 받은 비트 → 키 (모르는 비트는 무시)
     pub fn from_bits(bits: u8) -> Self {
         let on = |bit: u8| bits & bit != 0;
-        ControlInput { left: on(Self::LEFT), right: on(Self::RIGHT), up: on(Self::UP), down: on(Self::DOWN), jump: on(Self::JUMP), run: on(Self::RUN), special: on(Self::SPECIAL) }
+        ControlInput { left: on(Self::LEFT), right: on(Self::RIGHT), up: on(Self::UP), down: on(Self::DOWN), jump: on(Self::JUMP), run: on(Self::RUN) }
     }
 
     /// 좌우 방향 (+1 오른쪽, -1 왼쪽, 0 = 없음·둘 다)
@@ -92,6 +91,17 @@ impl ControlInput {
     pub(super) fn vertical(&self) -> f64 {
         (self.down as i8 - self.up as i8) as f64
     }
+}
+
+/// 이번 조작 틱의 톡톡 (update_control이 세어 brain_feat.rs에 넘김)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct Taps {
+    /// ↓를 막 누름
+    pub(super) down: bool,
+    /// ↑↑ — 특기 켜기 (DOUBLE_TAP_SECS 안에 두 번)
+    pub(super) double_up: bool,
+    /// ↓↓ — 특기 끄기 (특기가 없으면 창에서 뛰어내리기)
+    pub(super) double_down: bool,
 }
 
 /// 조작 모드 상태
@@ -108,7 +118,12 @@ pub(crate) struct Control {
     idle: f64,
     /// 마지막으로 ↓를 막 누른 시각 (clock)
     last_down: f64,
-    /// 지금 켜 둔 Z 특기 (brain_feat.rs)
+    /// 마지막으로 ↑를 막 누른 시각 (clock)
+    last_up: f64,
+    /// 다음 조작 틱이 셀 ↑·↓ 누름 수 (feed가 적어 둠 — 틱 사이의 짧은 톡톡도 잃지 않게)
+    up_taps: u8,
+    down_taps: u8,
+    /// 지금 켜 둔 특기 (brain_feat.rs)
     pub(super) feat: Option<super::feat_moves::Feat>,
 }
 
@@ -156,11 +171,17 @@ impl SteerPacer {
 impl Control {
     /// 새 조작 상태. remote면 친구 링크로 키가 오는 손님임
     fn new(remote: bool) -> Self {
-        Control { input: ControlInput::default(), prev: ControlInput::default(), remote, stale: 0.0, idle: 0.0, last_down: f64::NEG_INFINITY, feat: None }
+        Control { input: ControlInput::default(), prev: ControlInput::default(), remote, stale: 0.0, idle: 0.0, last_down: f64::NEG_INFINITY, last_up: f64::NEG_INFINITY, up_taps: 0, down_taps: 0, feat: None }
     }
 
-    /// 앱이 준 키를 받음. 뭔가 눌렸으면 손 놓은 시간을 0으로 돌림
+    /// 앱이 준 키를 받음. 막 누른 ↑·↓는 세어 두고, 뭔가 눌렸으면 손 놓은 시간을 0으로 돌림
     fn feed(&mut self, input: ControlInput) {
+        if input.up && !self.input.up {
+            self.up_taps = self.up_taps.saturating_add(1);
+        }
+        if input.down && !self.input.down {
+            self.down_taps = self.down_taps.saturating_add(1);
+        }
         self.input = input;
         if input.any() {
             self.idle = 0.0;
@@ -260,6 +281,7 @@ impl Pet {
         let c = self.control.as_mut()?;
         let prev = c.prev;
         c.prev = c.input;
+        (c.up_taps, c.down_taps) = (0, 0);
         Some((c.input, prev))
     }
 
@@ -305,7 +327,7 @@ impl Pet {
             // 던져진 나는 동물은 멈출 때까지 떠밀려 간다
             State::Air { .. } => !self.cfg.flies,
             State::Climb { .. } | State::Slide | State::WallClimb { .. } => !self.cfg.flies,
-            // 🕷️ Z로 쏜 줄에 매달려 있음 (brain_feat.rs)
+            // 🕷️ ↑↑로 쏜 줄에 매달려 있음 (brain_feat.rs)
             State::Web { phase: super::web_moves::WebPhase::Zip { .. } | super::web_moves::WebPhase::Swing { .. }, .. } => self.feat_on() == Some(super::feat_moves::Feat::Swing),
             _ => false,
         }
@@ -320,23 +342,32 @@ impl Pet {
             self.drop_feat();
             if let Some(c) = self.control.as_mut() {
                 c.prev = c.input;
+                (c.up_taps, c.down_taps) = (0, 0);
             }
             return false;
         }
         let input = c.input;
         let prev = c.prev;
-        let pressed_down = input.down && !c.prev.down;
-        let double_down = pressed_down && self.clock - c.last_down <= DOUBLE_TAP_SECS;
+        let clock = self.clock;
+        let pressed_down = c.down_taps > 0;
+        let double_down = c.down_taps >= 2 || (pressed_down && clock - c.last_down <= DOUBLE_TAP_SECS);
+        let pressed_up = c.up_taps > 0;
+        let double_up = c.up_taps >= 2 || (pressed_up && clock - c.last_up <= DOUBLE_TAP_SECS);
         if let Some(c) = self.control.as_mut() {
             c.prev = input;
+            (c.up_taps, c.down_taps) = (0, 0);
             if pressed_down {
-                c.last_down = if double_down { f64::NEG_INFINITY } else { self.clock };
+                c.last_down = if double_down { f64::NEG_INFINITY } else { clock };
+            }
+            if pressed_up {
+                c.last_up = if double_up { f64::NEG_INFINITY } else { clock };
             }
         }
+        let taps = Taps { down: pressed_down, double_up, double_down };
         self.pacing.after_beat = None;
         self.before_press = None;
-        // Z 특기: 켜고 끄기, 켜져 있으면 그 방식으로 (brain_feat.rs)
-        if self.update_feat(dt, world, input, prev) {
+        // 특기: ↑↑ 켜기·↓↓ 끄기, 켜져 있으면 그 방식으로 (brain_feat.rs)
+        if self.update_feat(dt, world, input, prev, taps) {
             return true;
         }
         if self.cfg.flies {

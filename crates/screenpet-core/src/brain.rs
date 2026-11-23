@@ -1377,6 +1377,10 @@ impl Pet {
     /// 한 틱 갱신: 시계를 돌리고, 장난·볼일을 보고, 상태별로 움직임
     pub fn update(&mut self, dt: f64, world: &World) {
         self.clock += dt;
+        // 🎮 친구 화면으로 오가거나 떠나 있는 동안엔 특기가 없음 (brain_feat.rs)
+        if matches!(self.state, State::Exit { .. } | State::Enter { .. } | State::Away) {
+            self.clear_feat();
+        }
         if !matches!(self.state, State::Idle { look: true, .. } | State::WantFood { walking: false }) {
             self.gaze_up = false;
         }
@@ -2265,6 +2269,8 @@ impl Pet {
         self.pacing.after_beat = None;
         self.clear_hover();
         self.state = State::Exit { remaining: visit::EXIT_SECS, side };
+        // 🎮 조작 모드 특기는 두고 감 — 돌아오면 다시 걸음 (brain_feat.rs)
+        self.clear_feat();
         // 🦇 오토바이에 올라 부릉 (brain_bike.rs)
         self.bike_exit();
         // 🦸 날아서 "to the rescue!" (brain_soar.rs)
@@ -4103,7 +4109,7 @@ pub mod control_moves;
 #[path = "brain_control_tests.rs"]
 mod control_tests;
 
-/// 🎮 조작 모드 특기 (Z) — 🛡️ 날기 · 🕷️ 웹스윙 · 🧹 빗자루 · 🦇 오토바이
+/// 🎮 조작 모드 특기 (↑↑ 켜기·↓↓ 끄기) — 🛡️ 날기 · 🕷️ 웹스윙 · 🧹 빗자루 · 🦇 오토바이
 #[path = "brain_feat.rs"]
 pub mod feat_moves;
 

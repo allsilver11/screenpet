@@ -94,7 +94,7 @@ pub struct Fling {
 pub const MAX_NOTE: usize = 80;
 
 /// 받는 쪽에 놀러 간 펫을 주인이 조종함 (조종 모드): `on` = 조종 모드 켬, `keys` = 누른 키 비트
-/// (왼 1, 오른 2, 위 4, 아래 8, 점프 16, 달리기 32, Z 특기 64. 모르는 비트는 무시 — 옛 판은 Z만 모름). ping에 실어 옛 버전은 무시함.
+/// (왼 1, 오른 2, 위 4, 아래 8, 점프 16, 달리기 32. 모르는 비트는 무시). ping에 실어 옛 버전은 무시함.
 /// 바뀔 때와 키를 누르는 동안 5 Hz로 보냄. 받는 쪽은 `visit_id`인 그 친구의 손님에게만 적용하고
 /// 갱신이 끊기면 키를 놓음
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

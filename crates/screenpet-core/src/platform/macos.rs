@@ -100,7 +100,6 @@ impl WindowSource for MacSource {
             down: down(KVK_DOWN_ARROW),
             jump: down(KVK_SPACE),
             run: down(KVK_SHIFT) || down(KVK_RIGHT_SHIFT),
-            special: down(KVK_ANSI_Z),
         }
     }
 
@@ -209,8 +208,6 @@ const KVK_UP_ARROW: u16 = 0x7E;
 const KVK_SPACE: u16 = 0x31;
 const KVK_SHIFT: u16 = 0x38;
 const KVK_RIGHT_SHIFT: u16 = 0x3C;
-/// kVK_ANSI_Z — 조작 모드 특기
-const KVK_ANSI_Z: u16 = 0x06;
 
 /// 창 정보 사전에서 숫자 값을 꺼냄
 fn number(info: &CFDictionary<CFString, CFType>, key: &CFString) -> Option<CFRetained<CFNumber>> {

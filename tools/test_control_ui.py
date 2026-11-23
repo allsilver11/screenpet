@@ -31,11 +31,16 @@ def test_controller_badge_stays():
     assert "ctltagEl.hidden = !render.ctl" in (ROOT / "ui" / "main.js").read_text(encoding="utf-8")
 
 
-def test_help_and_menu_explain_the_z_specials_one_line_per_hero():
+def test_help_and_menu_explain_the_up_up_specials_one_line_per_hero():
     line = next(x for x in HELP.splitlines() if "🎮 특기" in x)
     for who in ("무쇠인간", "거미인간", "해리", "박쥐인간", "해그리드"):
         assert who in line, who
-    assert '<span class="key">Z</span>' in line
-    assert "Z" in re.search(r'CONTROL_LABEL: &str = "([^"]+)"', TRAY).group(1)
+    up_up = '<span class="key">↑</span><span class="key">↑</span>'
+    down_down = '<span class="key">↓</span><span class="key">↓</span>'
+    assert up_up in line and down_down in line
+    # 글자 키는 쓰지 않음 (한글 자판 ㅋ·Ctrl+Z와 겹침)
+    assert '<span class="key">Z</span>' not in HELP
+    label = re.search(r'CONTROL_LABEL: &str = "([^"]+)"', TRAY).group(1)
+    assert "Z" not in label and "↑↑" in label
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "Z 특기" in readme
+    assert "↑↑ 특기" in readme and "Z 특기" not in readme

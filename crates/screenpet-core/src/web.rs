@@ -12,7 +12,7 @@
 //! - 그네: 머리 위 창 아랫변이나 화면 윗변에 줄을 붙여 몸을 끌어올린 뒤 진자처럼 흔들려 반대편에서 놓고 날아감.
 //!   🌉🌉 줄 잇기: 날아가는 중에 앞 위로 새 줄을 쏴 (chain_anchor — 손까지 딱 닿는 길이, 지금 속도의 접선 몫으로 rope_omega) 또 흔들림.
 //!   한 번에 CHAIN_SWINGS번 (🌱 chain_range — 연령대로), 닻 댈 자리가 없으면 그냥 떨어져 영웅 착지.
-//!   🎮 조작 모드 Z (brain_feat.rs)는 grab_anchor — 바로 위까지 보고 놓는 자리는 안 봄
+//!   🎮 조작 모드 ↑↑ (brain_feat.rs)는 grab_anchor — 바로 위까지 보고 놓는 자리는 안 봄
 //! - 끌어오기: 바닥의 물건이나 다른 동물에 줄을 붙여 휙 — 반은 앞에 떨어지게, 반은 머리 너머 뒤로
 //! - 🌀 휘둘러 던지기: 친구가 연결된 화면 끝이 있으면 (WHIRL_CHANCE) 끌어오는 대신 물건을 줄로 낚아 머리 위로 빙빙 돌리다가
 //!   그 끝 너머로 휙 — 끝을 넘은 물건은 앱의 던지기처럼 친구 모니터로 날아감 (whirl_point·whirl_flight_secs)
@@ -133,7 +133,7 @@ pub const CHAIN_DELAY: (f64, f64) = (0.15, 0.3);
 pub const CHAIN_WINDOW: f64 = 0.5;
 /// 🌉🌉 공중에서 잇는 줄의 시작 각도 후보 (도, 큰 것부터 — 화면 안에 드는 첫 것)
 const CHAIN_ANGLES_DEG: [f64; 4] = [40.0, 34.0, 28.0, 22.0];
-/// 🎮 조작 모드 Z의 공중 닻 각도 (도 — 비스듬한 줄이 너무 길면 바로 위까지)
+/// 🎮 조작 모드 ↑↑의 공중 닻 각도 (도 — 비스듬한 줄이 너무 길면 바로 위까지)
 const GRAB_ANGLES_DEG: [f64; 7] = [40.0, 34.0, 28.0, 22.0, 15.0, 8.0, 0.0];
 /// 🌉🌉 이어 쏠 때 "thwip!" 대신 신나서 "woohoo!" (web_swing 말)를 할 몫
 pub const CHAIN_WOOHOO_CHANCE: f64 = 0.35;
@@ -630,7 +630,7 @@ pub fn chain_anchor(world: &World, hand: (f64, f64), dir: f64, size: f64, drop: 
     rope_anchor(world, hand, dir, size, drop, floor, &CHAIN_ANGLES_DEG, true)
 }
 
-/// 🎮🕷️ 조작 모드 Z의 공중 닻 (brain_feat.rs): chain_anchor와 같되 GRAB_ANGLES_DEG (바로 위까지)이고 놓는 자리는 안 봄
+/// 🎮🕷️ 조작 모드 ↑↑의 공중 닻 (brain_feat.rs): chain_anchor와 같되 GRAB_ANGLES_DEG (바로 위까지)이고 놓는 자리는 안 봄
 /// (조작 그네는 저절로 놓지 않고 화면 끝에서 되돌아옴). 없으면 None
 pub fn grab_anchor(world: &World, hand: (f64, f64), dir: f64, size: f64, drop: f64, floor: f64) -> Option<Anchor> {
     rope_anchor(world, hand, dir, size, drop, floor, &GRAB_ANGLES_DEG, false)
@@ -865,7 +865,7 @@ mod tests {
         assert!(swing_anchor(&w, (1880.0, floor - drop), 1.0, size, drop, floor).is_none());
     }
 
-    /// 🎮🕷️ 조작 모드 Z의 공중 닻: 화면 끝 가까이·낮은 데서도 잡힘 (놓는 자리는 안 봄, 바로 위까지), 줄 길이는 손까지 딱
+    /// 🎮🕷️ 조작 모드 ↑↑의 공중 닻: 화면 끝 가까이·낮은 데서도 잡힘 (놓는 자리는 안 봄, 바로 위까지), 줄 길이는 손까지 딱
     #[test]
     fn a_grab_anchor_takes_what_a_chain_anchor_skips() {
         let w = world(vec![]);

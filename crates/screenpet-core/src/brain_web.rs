@@ -33,7 +33,7 @@
 //!   높이에서 살랑살랑 매달림 (Hang, hang_down 그림 — 웅크린 채 두 손·두 발로 줄을 잡음). 가끔 가까운 펫이나 커서 쪽을 보며 "hey there".
 //!   끝나면 몸을 뒤집어 사뿐 내려앉거나 (낮아서 영웅 착지 없음) 줄을 타고 다시 올라가 (HangClimb) 놓고 영웅 착지.
 //!   줄은 닻 → 맨 위 손발 (grip.hang_down). 창에 붙은 줄은 창을 따라가고 창이 닫히면 놓음, 끼어들면 (잡기·자리 비움·조작 모드 등) 놓고 떨어짐
-//! - 🎮 조작 모드에선 Z로 줄을 쏴 그네를 직접 탐 (brain_feat.rs — 그동안 update_web은 손을 뗌, step_zip·swing_hand_offset을 빌려 씀).
+//! - 🎮 조작 모드에선 ↑↑로 줄을 쏴 그네를 직접 탐 (brain_feat.rs — 그동안 update_web은 손을 뗌, step_zip·swing_hand_offset을 빌려 씀).
 //! - 지금 뻗은 줄은 web_line (앱이 덮개 창에 그림).
 //!
 //! 주사위는 자기 주사위(WebMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
@@ -274,7 +274,7 @@ impl Pet {
         if !self.cfg.slings_webs {
             return false;
         }
-        // 🎮 Z로 쏜 줄은 조작 모드가 몲 (brain_feat.rs)
+        // 🎮 ↑↑로 쏜 줄은 조작 모드가 몲 (brain_feat.rs)
         if self.feat_on() == Some(super::feat_moves::Feat::Swing) {
             return false;
         }
