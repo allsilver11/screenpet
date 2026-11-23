@@ -28,6 +28,8 @@ mod transport;
 
 pub use noise::{hex32, to_hex, SAS_EMOJI};
 pub use protocol::{Carry, Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WireCare, WireIcon, WirePlayer, WireResult, CARRY_MIN_VERSION, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, LADDER_MIN_VERSION, MAX_DEVICES, MAX_FRIENDS, MAX_NOTE, MAX_RALLY, MULTI_PET_MIN_VERSION, PROTOCOL_VERSION, VEHICLE_TOSS_MIN_VERSION};
+/// 📊 익명 펫 통계의 보고·하루 합계 모양과 한도 (릴레이와 같은 것)
+pub use screenpet_proto::pet_stats;
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
 
 use protocol::{Control, Message};
@@ -265,6 +267,11 @@ pub enum NetEvent {
     Board { result: Result<board::BoardPage, String> },
     /// 우리가 독자로 접속해 있는 동안 개발자 편지함에 새 편지가 옴
     LetterArrived { item: letter::MailItem },
+    /// 📊 릴레이가 `day`의 통계 보고를 받았음 (셌든 안 셌든 — 다시 보내지 않음)
+    StatsSent { day: String },
+    /// 📊 [`Net::stats_get`]의 답: 날짜별 합계 (오래된 날 먼저), 또는 안 된 까닭 (`offline`, `old` = 릴레이가 v4보다 옛것, `timeout`).
+    /// 편지함 독자가 아니면 릴레이가 답하지 않아 `timeout`
+    PetStats { result: Result<Vec<pet_stats::StatsDay>, String> },
     /// 친구에게서 놀러 가기 메시지가 옴
     Received { from: String, msg: Visit },
     /// 연결된 친구에게서 사다리 게임 메시지가 옴 (`ladder`가 검사함)
@@ -1040,6 +1047,22 @@ impl Net {
     pub fn want_weather(&self, place: &str) {
         if let Some(c) = &self.shared.relay {
             relay::want_weather(c, place);
+        }
+    }
+
+    /// 📊 보낼 지난날 익명 통계 보고를 정함 (None = 없음). v4 릴레이에 연결마다 한 번 보내고, 받으면 [`NetEvent::StatsSent`]가 옴.
+    /// 옛 릴레이에는 보내지 않음 (통계가 조용히 꺼짐)
+    pub fn set_stats_report(&self, report: Option<pet_stats::StatsReport>) {
+        if let Some(c) = &self.shared.relay {
+            relay::set_stats_report(c, report);
+        }
+    }
+
+    /// 📊 날짜별 합계를 청함 (편지함 독자만 답받음). 답은 [`NetEvent::PetStats`]로 옴 (청할 수 없으면 바로)
+    pub fn stats_get(&self) {
+        match &self.shared.relay {
+            Some(c) => relay::stats_get(&self.shared, c),
+            None => self.shared.emit(NetEvent::PetStats { result: Err("offline".into()) }),
         }
     }
 

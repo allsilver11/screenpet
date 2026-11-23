@@ -17,6 +17,7 @@ use crate::noise;
 use screenpet_crypto::{auth_mac, welcome_proof};
 use screenpet_log::{log, short};
 use crate::{Backoff, NetEvent, Shared, TICK};
+use screenpet_proto::pet_stats::StatsReport;
 use screenpet_proto::relay::{ClientMsg, Letter as WireLetter, ServerMsg};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, ErrorKind, Read, Write};
@@ -94,6 +95,9 @@ const WEATHER_RELAY_VERSION: u32 = screenpet_proto::WEATHER_MIN_VERSION;
 
 /// 📮 `board_put`·`board_list`·`letter_reject`를 받는 가장 낮은 릴레이 버전
 pub(crate) const BOARD_RELAY_VERSION: u32 = screenpet_proto::BOARD_MIN_VERSION;
+
+/// 📊 `stats_report`·`stats_get`을 받는 가장 낮은 릴레이 버전
+pub(crate) const STATS_RELAY_VERSION: u32 = screenpet_proto::STATS_MIN_VERSION;
 
 /// 📮 건의함 페이지는 최대 이 주기로만 청함 (릴레이가 더 빠른 것은 무시함)
 const BOARD_GAP: Duration = Duration::from_millis(600);
@@ -189,6 +193,12 @@ struct Inner {
     board_asked: Option<Instant>,
     /// 📮 답을 기다리기 시작한 때
     board_wait: Option<Instant>,
+    /// 📊 보낼 지난날 통계 보고 (앱이 정함, `stats_ok`가 오면 지움)
+    stats_report: Option<StatsReport>,
+    /// 📊 이 연결에서 보낸 보고의 날짜 (연결마다 한 번)
+    stats_sent: Option<String>,
+    /// 📊 합계 답을 기다리기 시작한 때
+    stats_wait: Option<Instant>,
 }
 
 /// IO 스레드와 릴레이 링크들이 같이 쓰는 릴레이 연결 상태임
@@ -807,6 +817,9 @@ fn disconnected(shared: &Shared, client: &RelayClient) {
         if inner.board_wait.take().is_some() | inner.board_want.take().is_some() {
             shared.emit(NetEvent::Board { result: Err("offline".into()) });
         }
+        if inner.stats_wait.take().is_some() {
+            shared.emit(NetEvent::PetStats { result: Err("offline".into()) });
+        }
         (was, pending, inner.redeem.take())
     };
     for id in pending {
@@ -886,6 +899,7 @@ fn serve(shared: &Arc<Shared>, client: &Arc<RelayClient>, mut ws: Ws) -> bool {
         inner.sent_friends = friends;
         inner.relay_v = relay_v;
         inner.sent_want = None;
+        inner.stats_sent = None;
     }
     shared.emit(NetEvent::RelayStatus { connected: true });
     shared.emit(NetEvent::FriendCode { code });
@@ -992,11 +1006,53 @@ pub(crate) fn want_weather(client: &RelayClient, place: &str) {
     client.inner().weather_want = Some(place.to_string());
 }
 
+/// 📊 보낼 지난날 보고를 정함 (None = 없음). 다음 잡일에 v4 릴레이로 감
+pub(crate) fn set_stats_report(client: &RelayClient, report: Option<StatsReport>) {
+    client.inner().stats_report = report;
+}
+
+/// 📊 아는 릴레이(v4)에 보고를 보냄: 연결마다 그 날짜로 한 번 (답 `stats_ok`가 오면 지움). 옛 릴레이에는 안 보냄
+fn sync_stats(client: &RelayClient, gen: u64) {
+    let report = {
+        let inner = client.inner();
+        match &inner.stats_report {
+            Some(r) if inner.connected && inner.relay_v >= STATS_RELAY_VERSION && inner.stats_sent.as_ref() != Some(&r.day) => r.clone(),
+            _ => return,
+        }
+    };
+    let day = report.day.clone();
+    if client.send(Some(gen), Out::Text(json(&ClientMsg::StatsReport { report }))) {
+        client.inner().stats_sent = Some(day);
+    }
+}
+
+/// 📊 날짜별 합계를 청함. 답(또는 `offline`, v4 전 릴레이면 `old`, `timeout`)은 `NetEvent::PetStats`로 옴
+pub(crate) fn stats_get(shared: &Shared, client: &RelayClient) {
+    let refused = {
+        let mut inner = client.inner();
+        if !inner.connected {
+            Some("offline")
+        } else if inner.relay_v < STATS_RELAY_VERSION {
+            Some("old")
+        } else {
+            inner.stats_wait = Some(Instant::now());
+            None
+        }
+    };
+    if let Some(reason) = refused {
+        shared.emit(NetEvent::PetStats { result: Err(reason.into()) });
+    } else if !client.send(None, Out::Text(json(&ClientMsg::StatsGet))) {
+        client.inner().stats_wait = None;
+        shared.emit(NetEvent::PetStats { result: Err("offline".into()) });
+    }
+}
+
 /// 주기 잡일: 친구 목록·날씨·건의함 맞추기, 시간 초과된 요청 정리, 자동 다이얼
 fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
     sync_friends(shared, client, gen);
     sync_weather(client, gen);
     sync_board(client, Some(gen));
+    sync_stats(client, gen);
     let now = Instant::now();
     let (expired, redeem) = {
         let mut inner = client.inner();
@@ -1013,6 +1069,9 @@ fn housekeep(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64) {
         }
         if inner.board_wait.take_if(|t| now.duration_since(*t) > REQUEST_TIMEOUT).is_some() {
             shared.emit(NetEvent::Board { result: Err("timeout".into()) });
+        }
+        if inner.stats_wait.take_if(|t| now.duration_since(*t) > REQUEST_TIMEOUT).is_some() {
+            shared.emit(NetEvent::PetStats { result: Err("timeout".into()) });
         }
         (expired, redeem)
     };
@@ -1152,6 +1211,20 @@ fn on_message(shared: &Arc<Shared>, client: &Arc<RelayClient>, gen: u64, m: Serv
                 shared.emit(NetEvent::LetterArrived { item });
             }
         }
+        ServerMsg::StatsOk { day } => {
+            {
+                let mut inner = client.inner();
+                if inner.stats_report.as_ref().is_some_and(|r| r.day == day) {
+                    inner.stats_report = None;
+                }
+            }
+            shared.emit(NetEvent::StatsSent { day });
+        }
+        ServerMsg::StatsDays { days } => {
+            if client.inner().stats_wait.take().is_some() {
+                shared.emit(NetEvent::PetStats { result: Ok(days) });
+            }
+        }
         ServerMsg::LettersChanged => {
             mailbox_list(client);
         }
@@ -1279,6 +1352,64 @@ mod tests {
     fn weather_events(events: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<(u16, i64)> {
         std::thread::sleep(Duration::from_millis(20));
         events.try_iter().filter_map(|e| if let NetEvent::Weather { code, at } = e { Some((code, at)) } else { None }).collect()
+    }
+
+    /// 시험용 보고 하나
+    fn stats_report(day: &str) -> screenpet_proto::pet_stats::StatsReport {
+        screenpet_proto::pet_stats::StatsReport { day: day.into(), v: "0.7.4".into(), kept: vec!["cat".into()], ..Default::default() }
+    }
+
+    /// 잠깐 기다린 뒤 통계 이벤트를 모음
+    fn stats_events(events: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<NetEvent> {
+        std::thread::sleep(Duration::from_millis(20));
+        events.try_iter().filter(|e| matches!(e, NetEvent::StatsSent { .. } | NetEvent::PetStats { .. })).collect()
+    }
+
+    #[test]
+    fn a_stats_report_goes_only_to_v4_relays_once_per_connection_until_it_is_taken() {
+        let (net, events, client, out) = letter_rig();
+        set_stats_report(&client, Some(stats_report("2026-11-22")));
+        sync_stats(&client, 1);
+        assert!(sent_text(&out).is_empty(), "an older relay would close the connection on stats_report");
+        client.inner().relay_v = 4;
+        sync_stats(&client, 1);
+        sync_stats(&client, 1);
+        assert_eq!(sent_text(&out), vec![r#"{"t":"stats_report","report":{"day":"2026-11-22","v":"0.7.4","kept":["cat"],"chosen":{},"changed":[]}}"#.to_string()]);
+        // 답 없이 다시 붙으면 (serve가 stats_sent를 지움) 또 보냄
+        client.inner().stats_sent = None;
+        sync_stats(&client, 1);
+        assert_eq!(sent_text(&out).len(), 1);
+        on_message(&net.shared, &client, 1, ServerMsg::StatsOk { day: "2026-11-21".into() });
+        assert!(matches!(&stats_events(&events)[..], [NetEvent::StatsSent { day }] if day == "2026-11-21"));
+        assert!(client.inner().stats_report.is_some(), "another day's answer leaves ours");
+        on_message(&net.shared, &client, 1, ServerMsg::StatsOk { day: "2026-11-22".into() });
+        assert!(matches!(&stats_events(&events)[..], [NetEvent::StatsSent { day }] if day == "2026-11-22"));
+        client.inner().stats_sent = None;
+        sync_stats(&client, 1);
+        assert!(sent_text(&out).is_empty(), "taken: not sent again");
+        // 새 날의 보고는 같은 연결에서도 보냄
+        set_stats_report(&client, Some(stats_report("2026-11-23")));
+        sync_stats(&client, 1);
+        assert_eq!(sent_text(&out).len(), 1);
+    }
+
+    #[test]
+    fn the_stats_totals_come_back_or_why_not() {
+        let (net, events, client, out) = letter_rig();
+        stats_get(&net.shared, &client);
+        assert!(matches!(&stats_events(&events)[..], [NetEvent::PetStats { result: Err(r) }] if r == "old"));
+        assert!(sent_text(&out).is_empty());
+        client.inner().relay_v = 4;
+        stats_get(&net.shared, &client);
+        assert_eq!(sent_text(&out), vec![r#"{"t":"stats_get"}"#.to_string()]);
+        let day = screenpet_proto::pet_stats::StatsDay { day: "2026-11-22".into(), reports: 2, ..Default::default() };
+        on_message(&net.shared, &client, 1, ServerMsg::StatsDays { days: vec![day.clone()] });
+        assert!(matches!(&stats_events(&events)[..], [NetEvent::PetStats { result: Ok(d) }] if *d == vec![day.clone()]));
+        on_message(&net.shared, &client, 1, ServerMsg::StatsDays { days: vec![] });
+        assert!(stats_events(&events).is_empty(), "not asked: ignored");
+        client.inner().connected = false;
+        stats_get(&net.shared, &client);
+        assert!(matches!(&stats_events(&events)[..], [NetEvent::PetStats { result: Err(r) }] if r == "offline"));
     }
 
     #[test]

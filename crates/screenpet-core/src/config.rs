@@ -116,6 +116,9 @@ pub struct Config {
     /// 🚀 컴퓨터 켜면 자동 실행: None = 아직 정한 적 없음 (이 버전을 처음 켜면 켜고 Some(true)로 적음), 그 뒤로는 사용자가 고른 것
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub autostart: Option<bool>,
+    /// 📊 익명 펫 통계: 동의(처음 켤 때 묻는 창·⚙️ 설정 체크), 오늘 기록, 아직 못 보낸 지난날 보고 (pet_stats.rs). 망가진 값이면 없는 것으로
+    #[serde(default, skip_serializing_if = "crate::pet_stats::StatsBook::is_empty", deserialize_with = "lenient")]
+    pub pet_stats: crate::pet_stats::StatsBook,
 }
 
 /// 지난 사다리타기 결과 (보여 주기만 함 — 이름은 그때 화면에 보인 이름)
@@ -899,6 +902,21 @@ mod tests {
             assert_eq!(c.dev_secret(), None, "{bad}");
         }
         assert!(!serde_json::to_string(&Config::default()).unwrap().contains("dev_key"), "absent for everyone else");
+    }
+
+    #[test]
+    fn pet_stats_consent_is_kept_and_a_broken_value_reads_as_not_asked() {
+        let mut c = Config::default();
+        assert_eq!(c.pet_stats.consent, None, "not asked yet");
+        assert!(!serde_json::to_string(&c).unwrap().contains("pet_stats"));
+        c.pet_stats.set_consent(true);
+        c.pet_stats.note_kept("2026-11-22", "0.7.4", &["cat"]);
+        let back: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.pet_stats, c.pet_stats);
+        for bad in [r#"{"pet_stats": 5}"#, r#"{"pet_stats": {"consent": "yes"}}"#] {
+            let c: Config = serde_json::from_str(bad).unwrap();
+            assert_eq!(c.pet_stats.consent, None, "{bad}");
+        }
     }
 
     #[test]
