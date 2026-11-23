@@ -71,7 +71,8 @@ fn every_client_message() {
         ClientMsg::StatsReport { report },
         r#"{"t":"stats_report","report":{"day":"2026-11-22","v":"0.7.4","kept":["cat","penguin"],"chosen":{"penguin":1},"changed":[{"from":"cat","to":"bat","n":2}]}}"#,
     );
-    client(ClientMsg::StatsGet, r#"{"t":"stats_get"}"#);
+    client(ClientMsg::StatsGet { before: None }, r#"{"t":"stats_get"}"#);
+    client(ClientMsg::StatsGet { before: Some("2026-11-10".into()) }, r#"{"t":"stats_get","before":"2026-11-10"}"#);
 }
 
 #[test]
@@ -156,9 +157,10 @@ fn every_server_message() {
         versions: BTreeMap::from([("0.7.4".to_string(), 3)]),
     };
     server(
-        ServerMsg::StatsDays { days: vec![day] },
-        r#"{"t":"stats_days","days":[{"day":"2026-11-22","reports":3,"kept":{"cat":2},"chosen":{},"changed":[{"from":"cat","to":"other","n":1}],"versions":{"0.7.4":3}}]}"#,
+        ServerMsg::StatsDays { days: vec![day], more: true },
+        r#"{"t":"stats_days","days":[{"day":"2026-11-22","reports":3,"kept":{"cat":2},"chosen":{},"changed":[{"from":"cat","to":"other","n":1}],"versions":{"0.7.4":3}}],"more":true}"#,
     );
+    server_in(r#"{"t":"stats_days","days":[]}"#, ServerMsg::StatsDays { days: vec![], more: false });
     for (s, json) in [(BoardStatus::None, r#""none""#), (BoardStatus::Done, r#""done""#), (BoardStatus::Rejected, r#""rejected""#)] {
         assert_eq!(serde_json::to_string(&s).unwrap(), json);
     }
@@ -205,7 +207,8 @@ fn versions_and_shared_limits() {
     assert_eq!(screenpet_proto::RELAY_PROTOCOL_VERSION, 4);
     assert_eq!((screenpet_proto::WEATHER_MIN_VERSION, screenpet_proto::BOARD_MIN_VERSION, screenpet_proto::STATS_MIN_VERSION), (2, 3, 4));
     use screenpet_proto::pet_stats as ps;
-    assert_eq!((ps::MAX_KEPT, ps::MAX_CHOSEN, ps::MAX_CHANGED, ps::MAX_COUNT, ps::KEEP_DAYS, ps::LATE_DAYS), (8, 16, 32, 20, 90, 2));
+    assert_eq!((ps::MAX_KEPT, ps::MAX_CHOSEN, ps::MAX_CHANGED, ps::MAX_COUNT, ps::KEEP_DAYS, ps::LATE_DAYS, ps::ACCEPT_DAYS), (8, 16, 32, 20, 90, 2, 3));
+    assert!(ps::REPLY_MAX * 2 <= screenpet_proto::MAX_FRAME, "a page of totals stays well under the app's 64 KiB message limit");
     assert_eq!((screenpet_proto::MAX_FRAME, screenpet_proto::MAX_ID, screenpet_proto::MAX_FRIENDS, screenpet_proto::MAX_SEALED), (65535, 128, 50, 8192));
     use screenpet_proto::board::*;
     assert_eq!((PER_PAGE, PUT_MAX, MAX_NAME, MAX_LINE, MAX_FIRST), (5, 20, 16, 80, 8));

@@ -38,7 +38,6 @@ FILE_NAME_OK = {
     ("dl", "download_done", "name"),
     ("dl", "download_cut", "name"),
     ("mail", "load_fail", "name"),
-    ("stats", "load_fail", "name"),
     ("update", "read_fail", "release.asset.name.as_str()"),
 }
 

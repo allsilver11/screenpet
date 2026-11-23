@@ -34,6 +34,9 @@ pub struct StatsBook {
     /// 보낼 지난날 보고 (릴레이가 받으면 지움)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending: Option<StatsReport>,
+    /// 새로 설치해 고른 첫 펫을 아직 못 셈 (답이 다음 실행에 와도 그때 "새로 고름"으로 셈)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub first_pick: bool,
 }
 
 impl StatsBook {
@@ -56,6 +59,26 @@ impl StatsBook {
             self.pending = None;
         }
         *self != before
+    }
+
+    /// 새로 설치한 실행임: 아직 답이 없으면 첫 펫을 답할 때 "새로 고름"으로 셀 수 있게 적어 둠 (이미 답한 설치는 아님)
+    pub fn mark_first_pick(&mut self) {
+        if self.consent.is_none() {
+            self.first_pick = true;
+        }
+    }
+
+    /// 묻는 창의 답이나 ⚙️ 설정 체크: 동의를 적고, 보내기로 했고 첫 펫을 아직 못 셌으면 지금 키우는 종류를 "새로 고름"으로 셈.
+    /// 첫 펫 표시는 어느 답이든 지움. 바뀌었으면 true
+    pub fn answer(&mut self, yes: bool, today: &str, version: &str, species: &[&str]) -> bool {
+        let first = std::mem::take(&mut self.first_pick);
+        let mut changed = self.set_consent(yes) || first;
+        if yes && first {
+            for s in species {
+                changed |= self.note_chosen(today, version, s);
+            }
+        }
+        changed
     }
 
     /// 날짜를 맞춤: 오늘 기록이 지난날이면 보고로 바꾸고 (이틀보다 더 지난 날은 릴레이도 안 받으니 버림) 오늘을 새로 엶.
@@ -212,6 +235,30 @@ mod tests {
         b.roll("2026-11-27", V);
         assert_eq!(b.report().unwrap().day, "2026-11-25", "two days on is still fine");
         assert!(!b.roll("not a day", V));
+    }
+
+    #[test]
+    fn the_first_pet_of_a_new_install_counts_as_chosen_even_if_the_answer_comes_a_run_later() {
+        let mut b = StatsBook::default();
+        b.mark_first_pick();
+        // 창을 X로 닫음: 답 없이 설정에 남아 다음 실행으로
+        let mut b: StatsBook = serde_json::from_str(&serde_json::to_string(&b).unwrap()).unwrap();
+        assert!(b.first_pick && b.report().is_none());
+        assert!(b.answer(true, "2026-11-23", V, &["cat", "penguin"]));
+        let t = b.today.clone().unwrap();
+        assert_eq!(t.chosen, BTreeMap::from([("cat".to_string(), 1), ("penguin".to_string(), 1)]));
+        assert!(!b.first_pick, "only once");
+        assert!(!b.answer(true, "2026-11-23", V, &["cat"]), "nothing new");
+        assert_eq!(b.today.as_ref().unwrap().chosen["cat"], 1);
+        // 이미 답한 설치(업데이트한 사용자)는 첫 펫으로 치지 않음
+        let mut old = yes();
+        old.mark_first_pick();
+        assert!(!old.first_pick);
+        // 안 보낸다고 하면 그 표시도 지움
+        let mut no = StatsBook::default();
+        no.mark_first_pick();
+        no.answer(false, "2026-11-23", V, &["cat"]);
+        assert_eq!(no, StatsBook { consent: Some(false), ..StatsBook::default() });
     }
 
     #[test]

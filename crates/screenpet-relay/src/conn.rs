@@ -39,8 +39,10 @@ const WEATHER_WANTS_PER_SEC: f64 = 0.1;
 const WEATHER_WANTS_BURST: f64 = 5.0;
 /// 📊 연결당 받는 `stats_report` 수 (날마다 하나 — 며칠 켜 둔 연결도 넉넉히)
 const STATS_PER_CONN: usize = 8;
-/// 📊 `stats_get` 사이 최소 간격
-const STATS_GET_GAP: Duration = Duration::from_secs(1);
+/// 📊 연결당 `stats_get` 속도: 초에 둘, 한 번에 30쪽까지 (앱은 90일을 몇 쪽에 나눠 차례로 청함)
+const STATS_GETS_PER_SEC: f64 = 2.0;
+/// `stats_get` 한 번에 몰아 받는 수
+const STATS_GETS_BURST: f64 = 30.0;
 
 /// 인증을 마친 연결의 신원임
 struct Authed {
@@ -117,9 +119,9 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
     let mut new_codes = 0usize;
     let mut friend_updates = Bucket::new(FRIENDS_PER_SEC, FRIENDS_BURST);
     let mut weather_wants = Bucket::new(WEATHER_WANTS_PER_SEC, WEATHER_WANTS_BURST);
-    // 📊 이 연결이 보고한 날들, 마지막 합계 요청
+    // 📊 이 연결이 보고한 날들, 합계 요청 속도
     let mut stats_days: Vec<String> = Vec::new();
-    let mut stats_asked: Option<Instant> = None;
+    let mut stats_gets = Bucket::new(STATS_GETS_PER_SEC, STATS_GETS_BURST);
     let reason: String = 'conn: loop {
         let ending = if hub.stopping() {
             Some("shutdown")
@@ -334,14 +336,13 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
                                         hub.stats_report(&a.key, a.conn, &ip, &report)
                                     }
                                 }
-                                ClientMsg::StatsGet => {
-                                    // 📊 독자도 1초에 한 번까지 (더 빠른 것은 무시)
-                                    let now = Instant::now();
-                                    if stats_asked.is_some_and(|t| now.duration_since(t) < STATS_GET_GAP) {
-                                        None
+                                ClientMsg::StatsGet { before } => {
+                                    // 📊 쪽 넘기기는 넉넉히, 그보다 빠른 것은 무시 (독자만 답받음)
+                                    if stats_gets.take(1.0) {
+                                        hub.stats_days(&a.key, a.conn, before.as_deref())
                                     } else {
-                                        stats_asked = Some(now);
-                                        hub.stats_days(&a.key, a.conn)
+                                        limited(cid, peer, "stats_get");
+                                        None
                                     }
                                 }
                                 ClientMsg::WeatherWant { place } => {

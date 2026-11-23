@@ -100,11 +100,11 @@
 | mail | `mail_edit` | INFO | conn peer op id took_ms | 독자 편집: `read`, `done`, `reject`, `private`, `delete`, `block`(id 0) |
 | mail | `save_fail` | ERROR | took_ms err | `letters.json` 쓰기 실패 (다음에 다시 씀) |
 | mail | `load_fail` | ERROR | file | `letters.json`(또는 `.bak`)을 못 읽음 |
-| stats | `stats_in` | INFO | conn day kept took_ms | 📊 지난날 통계 보고를 셈 (누가·무슨 종류인지 없음 — kept = 종류 수, took_ms = 저장) |
-| stats | `stats_refused` | WARN | conn reason | 안 셈 (그래도 `stats_ok`로 답함): `day`(이상하거나 너무 지난 날), `size`, `new`(너무 새 설치), `dup`(그날 이미 보냄), `ip`, `full` |
+| stats | `stats_in` | INFO | day | 📊 지난날 통계 보고를 셈 (날짜만 — 누가·무슨 종류·몇 개인지 없음, 저장은 몇 분마다 따로) |
+| stats | `stats_refused` | WARN | conn reason | 안 셈: `day`(이상하거나 너무 지난 날)·`size`·`dup`(그날 이미 보냄)은 `stats_ok`로 답함 (앱이 버림), `ip`·`full`(하루 한도)은 답하지 않음 (앱이 다음 연결에 다시 보냄) |
 | stats | `stats_list` | INFO | conn peer n | 독자(개발자)가 날짜별 합계를 받음 |
-| stats | `save_fail` | ERROR | took_ms err | `stats.json` 쓰기 실패 (다음에 다시 씀) |
-| stats | `load_fail` | ERROR | file | `stats.json`(또는 `.bak`)을 못 읽음 |
+| stats | `save_fail` | ERROR | took_ms err | `stats.json` 쓰기 실패 (몇 분마다 한꺼번에 씀 — 다음에 다시) |
+| stats | `load_fail` | ERROR | file | `stats.json`을 못 읽음 (`.bak` 없음 — 빈 통계로 시작) |
 | board | `board_put` | INFO | conn peer n changed | 독자가 공개 요약을 올림 (이름·글 없음) |
 | board | `board_list` | INFO | conn peer page n | 공개 건의함 한 쪽을 줌 |
 | weather | `fetch_ok` | INFO | src place wmo took_ms | 지역 날씨 받음. src = `open_meteo` 또는 `met`, wmo = 날씨 코드 (MET은 기호를 WMO로 바꾼 값) |

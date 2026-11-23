@@ -76,8 +76,8 @@
 |---|---|---|
 | 묻기 전엔 안 모으고 안 보냄 | `consent`가 `Some(true)`일 때만 하루치를 셈. 처음 켤 때 한 번 묻고 ⚙️ 설정 체크로 바꿈. 끄면 모아 둔 것도 지움 | `crates/screenpet-core/src/pet_stats.rs` `StatsBook`; `src-tauri/src/game_loop.rs` `set_stats_consent` |
 | 보내는 것 | 지난날의 키운 종류·새로 고른 종류와 횟수·바꾼 쌍과 횟수·앱 버전뿐. 이름·설치 id·친구·창 제목 없음 (보고는 인증된 연결로 가니 릴레이는 누가 보냈는지 그 순간에는 앎) | `screenpet_proto::pet_stats::StatsReport` |
-| 릴레이는 합계만 둠 | 날짜별 합계. 설치별 줄 없음. 중복 막기용 키 해시는 날짜를 섞어(날마다 다름) 그날이 받을 수 있는 3일 동안만, 주소별 수는 메모리에만 | `crates/screenpet-relay/src/pet_stats.rs` `submit`, `prune` |
-| 받은 것 재검사 | 날짜 모양·범위, 칸 수 상한(넘으면 안 셈), 횟수 상한, 모르는 종류·버전 → `other`, 새 설치(2일 전) 안 셈, 같은 설치 하루 한 번, 주소 묶음당 하루 20개, 연결당 날마다 하나 | `pet_stats.rs`; `conn.rs` `STATS_PER_CONN` |
+| 릴레이는 합계만 둠 | `stats.json`엔 날짜별 합계뿐 (설치별 줄·해시 없음, `.bak` 없음, 5분마다 한꺼번에 저장 — 두 파일을 비교해 보고 하나를 떼어 볼 수 없음). 중복 막기용 키 해시는 날마다 새로 뽑은 비밀(메모리에만)을 섞어 `relay.json`의 공개키로 다시 만들 수 없고 메모리에만, 그날이 보고를 받는 동안만. 주소별 수도 메모리에만. 로그 `stats_in`엔 날짜만 | `crates/screenpet-relay/src/pet_stats.rs` `key_hash`, `submit`, `prune`; `hub/pet_stats.rs` `save_stats` |
+| 받은 것 재검사 | 날짜 모양·범위, 칸 수 상한(넘으면 안 셈), 횟수 상한, 모르는 종류·버전 → `other`, 같은 설치 하루 한 번, 주소 묶음당 하루 20개, 연결당 날마다 하나 | `pet_stats.rs`; `conn.rs` `STATS_PER_CONN` |
 | 개발자만 읽음 | `stats_get`은 `mailbox_readers` 설치 키만 (편지함과 같은 인증). 아니면 조용히 무시. 새로운 인증 없는 읽기 길 없음 | `hub/pet_stats.rs` `stats_days`, `hub/mail.rs` `is_reader` |
 | 옛 릴레이·옛 앱 | 앱은 `v` ≥ 4 릴레이에만 보냄 (옛 릴레이는 모르는 메시지에 끊음 → 통계만 조용히 꺼짐). 옛 앱은 안 보냄 | `crates/screenpet-net/src/relay.rs` `sync_stats` |
 

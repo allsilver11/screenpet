@@ -201,17 +201,13 @@ fn stats_tick(config: &mut Config, network: &Network) -> bool {
     dirty
 }
 
-/// 📊 익명 통계 동의를 적음: ⚙️ 설정 체크를 맞추고, 처음 설치한 날이면 고른 첫 펫도 "새로 고름"으로 셈. 설정이 바뀌었으면 true
-fn set_stats_consent(app: &AppHandle, config: &mut Config, network: &Network, yes: bool, fresh_install: bool) -> bool {
-    let changed = config.pet_stats.set_consent(yes);
+/// 📊 익명 통계 동의를 적음: ⚙️ 설정 체크를 맞추고, 새로 설치해 고른 첫 펫을 아직 못 셌으면 (답이 다음 실행에 왔어도) "새로 고름"으로 셈. 설정이 바뀌었으면 true
+fn set_stats_consent(app: &AppHandle, config: &mut Config, network: &Network, yes: bool) -> bool {
+    let species: Vec<String> = config.pets.iter().map(|p| p.species.clone()).collect();
+    let species: Vec<&str> = species.iter().map(String::as_str).collect();
+    let changed = config.pet_stats.answer(yes, &crate::pet_stats::today(), crate::pet_stats::VERSION, &species);
     let _ = app.state::<AppState>().menu.pet_stats.set_checked(config.pet_stats.on());
     screenpet_log::log!(Info, "stats", "stats_consent", "on" => u8::from(yes));
-    if changed && yes && fresh_install {
-        let species: Vec<String> = config.pets.iter().map(|p| p.species.clone()).collect();
-        for s in &species {
-            config.pet_stats.note_chosen(&crate::pet_stats::today(), crate::pet_stats::VERSION, s);
-        }
-    }
     stats_tick(config, network);
     changed
 }
@@ -504,8 +500,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     if new_id {
         save_config(&app, &mut config);
     }
-    // 📊 익명 통계: 처음 설치한 실행이면 첫 펫을 "새로 고름"으로 셀 수 있게 기억함. 아직 답이 없으면 한 번 물음 (답하기 전엔 안 모으고 안 보냄)
-    let fresh_install = new_id;
+    // 📊 익명 통계: 처음 설치한 실행이면 첫 펫을 "새로 고름"으로 셀 수 있게 설정에 적어 둠 (답이 다음 실행에 와도).
+    // 아직 답이 없으면 한 번 물음 (답하기 전엔 안 모으고 안 보냄)
+    if new_id {
+        config.pet_stats.mark_first_pick();
+        save_config(&app, &mut config);
+    }
     let _ = app.state::<AppState>().menu.pet_stats.set_checked(config.pet_stats.on());
     if stats_tick(&mut config, &network) {
         save_config(&app, &mut config);
@@ -987,13 +987,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     save_config(&app, &mut config);
                 }
                 Input::StatsConsent(yes) => {
-                    set_stats_consent(&app, &mut config, &network, yes, fresh_install);
+                    set_stats_consent(&app, &mut config, &network, yes);
                     save_config(&app, &mut config);
                 }
                 Input::ToggleStats => {
                     // 체크 항목은 누를 때 스스로 뒤집히므로 set_stats_consent가 실제 값으로 다시 맞춤
                     let yes = !config.pet_stats.on();
-                    set_stats_consent(&app, &mut config, &network, yes, fresh_install);
+                    set_stats_consent(&app, &mut config, &network, yes);
                     save_config(&app, &mut config);
                 }
                 Input::HouseClick => {

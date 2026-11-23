@@ -158,7 +158,7 @@ sequenceDiagram
 | `board_put` | `items[{id, name, line}]` (≤ 20) | 📮 공개 요약 올리기 | **3** | 독자 |
 | `board_list` | `page` | 📮 공개 건의함 한 쪽 → `board_page` | **3** | 모두 |
 | `stats_report` | `report{day, v, kept[], chosen{}, changed[{from,to,n}]}` | 📊 지난날 익명 펫 통계 (하루 한 번, 연결당 날마다 한 번) → `stats_ok` | **4** | 모두 (동의한 앱만 보냄) |
-| `stats_get` | – | 📊 날짜별 합계 → `stats_days` (1초에 1번) | **4** | 편지함 독자 |
+| `stats_get` | `before?` | 📊 `before`보다 앞선 날의 합계 한 쪽 → `stats_days` (앱은 `more`인 동안 차례로 청해 모음) | **4** | 편지함 독자 |
 
 ### 3.2 릴레이 → 앱 (`ServerMsg`, `relay.rs:135`)
 
@@ -181,8 +181,8 @@ sequenceDiagram
 | `letters_changed` | – | 편지함 바뀜 (독자 모두) | |
 | `weather` | `place, code (WMO 0–99), at` | ☀️ 지역 날씨 | v2 |
 | `board_page` | `items[{id,name,line,at,status}], page, pages, total` | 📮 한 쪽 (5개, 최신 먼저) | v3, `status`: `none`·`done`·`rejected` |
-| `stats_ok` | `day` | 📊 그날 보고를 받음 (셌든 안 셌든 — 앱은 다시 안 보냄) | v4 |
-| `stats_days` | `days[{day, reports, kept{}, chosen{}, changed[], versions{}}]` | 📊 날짜별 합계 (오래된 날 먼저, 90일) | v4, 독자만 |
+| `stats_ok` | `day` | 📊 그날 보고를 끝냄 (셌거나, 다시 보내도 소용없음 — 앱은 다시 안 보냄). 주소·하루 한도면 답 없음 → 앱이 다음 연결에 다시 | v4 |
+| `stats_days` | `days[{day, reports, kept{}, chosen{}, changed[], versions{}}], more` | 📊 날짜별 합계 한 쪽 (최신 날 먼저, JSON ≤ 24 KiB, 모두 90일) | v4, 독자만 |
 
 `error.reason` 값 (`conn.rs`, `hub/presence.rs` `join`, `hub/mod.rs`): `auth`, `timeout`, `idle`, `rate`, `too_large`, `bad_message`, `bad_frame`, `unexpected`, `slow`, `busy`, `banned`, `registration_closed`, `full`, `replaced`, `relay_off`, `shutdown`.
 

@@ -115,6 +115,8 @@ pub struct Limits {
     pub new_codes_per_network_per_hour: usize,
     /// 바뀐 데이터를 쓰는 주기 (종료 때도 씀)
     pub save_every: Duration,
+    /// 📊 `stats.json`을 한꺼번에 쓰는 주기 (보고마다 쓰지 않음)
+    pub stats_save_every: Duration,
     /// 📮 한 연결에서 이보다 가깝게 온 `board_list`는 무시함
     pub board_gap: Duration,
     /// 🔄 `/downloads/`에서 동시에 보내는 설치 파일 수 (넘으면 `503 busy`)
@@ -173,6 +175,7 @@ impl Default for Limits {
             registrations_per_network_per_day: 100,
             new_codes_per_network_per_hour: 64,
             save_every: Duration::from_secs(30),
+            stats_save_every: Duration::from_secs(300),
             board_gap: Duration::from_millis(500),
             max_downloads: 8,
             max_downloads_per_ip: 2,
@@ -297,6 +300,7 @@ impl Drop for Relay {
         }
         self.hub.join_all();
         self.hub.save();
+        self.hub.save_stats();
         #[cfg(unix)]
         if let Some(dir) = &self.data_dir {
             let _ = std::fs::remove_file(admin::socket_path(dir));
@@ -375,7 +379,7 @@ fn accept_loop(hub: Arc<Hub>, downloads: Arc<downloads::Downloads>, listener: Tc
 /// 시간에 맞춰 하는 일을 따로 스레드에서 돌림 (느린 디스크가 `accept`를 붙잡지 않게): 정리, 저장, 오래된 설치 잊기
 fn upkeep_loop(hub: Arc<Hub>) {
     const MAINTAIN_EVERY: Duration = Duration::from_secs(60);
-    let (mut maintained, mut pruned, mut saved) = (Instant::now(), Instant::now(), Instant::now());
+    let (mut maintained, mut pruned, mut saved, mut stats_saved) = (Instant::now(), Instant::now(), Instant::now(), Instant::now());
     while !hub.stopping() {
         std::thread::sleep(Duration::from_millis(50));
         if maintained.elapsed() >= MAINTAIN_EVERY {
@@ -389,6 +393,11 @@ fn upkeep_loop(hub: Arc<Hub>) {
         if saved.elapsed() >= hub.limits.save_every {
             saved = Instant::now();
             hub.save();
+        }
+        // 📊 오래된 날 지우기도 여기서 저장됨 (손님이 없는 릴레이도 잊음)
+        if stats_saved.elapsed() >= hub.limits.stats_save_every {
+            stats_saved = Instant::now();
+            hub.save_stats();
         }
     }
 }

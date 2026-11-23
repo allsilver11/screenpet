@@ -52,6 +52,12 @@ def test_settings_has_the_check_and_the_loop_keeps_it_true():
     assert "let yes = !config.pet_stats.on();" in LOOP
 
 
+def test_a_new_installs_first_pet_waits_in_the_config_for_the_answer():
+    assert "if new_id {\n        config.pet_stats.mark_first_pick();\n        save_config(&app, &mut config);" in LOOP
+    assert "config.pet_stats.answer(yes, &crate::pet_stats::today()" in LOOP
+    assert "fresh_install" not in LOOP
+
+
 def test_choosing_adding_and_changing_are_counted():
     assert "config.pet_stats.note_chosen(&crate::pet_stats::today(), crate::pet_stats::VERSION, &entry.id);" in LOOP
     assert "if config.set_pet_species(&uid, &next.id) && !remote {" in LOOP

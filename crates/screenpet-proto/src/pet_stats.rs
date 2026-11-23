@@ -1,6 +1,6 @@
 //! 📊 익명 펫 통계 (spec 2026-11-23-pet-stats): 앱이 하루 한 번 보내는 지난날 보고([`StatsReport`])와
 //! 릴레이가 개발자에게만 주는 날짜별 합계([`StatsDay`]), 그리고 양쪽이 같이 지키는 한도·이름 다듬기·날짜 계산.
-//! 보고에는 펫 종류와 횟수, 앱 버전만 있음 (이름·설치 id·친구·창 제목 없음).
+//! 보고에는 펫 종류와 횟수, 앱 버전만 있음 (이름·설치 id·친구·창 제목 없음). 날짜는 보고하는 앱의 지역 날짜임.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -23,8 +23,12 @@ pub const MAX_COUNT: u32 = 20;
 pub const MAX_TEXT: usize = 24;
 /// 릴레이가 하루 합계를 두는 날 수 (더 지난 날은 지움)
 pub const KEEP_DAYS: i64 = 90;
-/// 릴레이의 UTC 오늘보다 이만큼 앞선 날까지의 보고를 받음 (시간대 차이와 늦게 켠 날)
+/// 앱이 끝난 날(앱의 지역 날짜)을 이만큼 늦게까지 보고함 (그보다 오래된 기록은 버림)
 pub const LATE_DAYS: i64 = 2;
+/// 릴레이는 UTC 오늘보다 이만큼 앞선 날까지 받음: `LATE_DAYS` + 하루 (UTC-12인 곳의 지역 날짜는 UTC보다 하루 늦음)
+pub const ACCEPT_DAYS: i64 = LATE_DAYS + 1;
+/// `stats_days` 한 번의 JSON 크기 상한 (앱이 받는 메시지 64 KiB보다 넉넉히 작게 — 넘는 날은 다음 쪽으로)
+pub const REPLY_MAX: usize = 24 * 1024;
 /// 하루 합계의 바꾼 쌍 수 상한 (넘는 새 쌍은 other→other로)
 pub const MAX_DAY_PAIRS: usize = 64;
 /// 하루 합계의 버전 수 상한 (넘는 새 버전은 other로)

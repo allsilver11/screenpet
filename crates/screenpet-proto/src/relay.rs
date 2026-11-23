@@ -42,7 +42,8 @@
 //! client -> relay   stats_report {report: {day, v, kept, chosen, changed}}
 //!                   (v4) 📊 yesterday's anonymous pet stats, once a day -> stats_ok {day}
 //!                   (also when refused: retrying would not help); see `pet_stats`
-//! client -> relay   stats_get                  (v4, mailbox readers only) -> stats_days {days}
+//! client -> relay   stats_get {before?}        (v4, mailbox readers only) -> stats_days {days, more}
+//!                   (one page, newest day first, ≤ REPLY_MAX bytes; ask again with before = oldest day while more)
 //! client -> relay   weather_want {place}      (v2 relays only; -> weather if known)
 //! relay  -> client  weather {place, code, at} ☀️ WMO code of a built-in place at `at` (unix s)
 //! client -> relay   ping                      -> pong
@@ -125,8 +126,11 @@ pub enum ClientMsg {
     StatsReport {
         report: StatsReport,
     },
-    /// 📊 v4 릴레이에만 보냄 (편지함 독자만 답받음): 날짜별 합계를 줘
-    StatsGet,
+    /// 📊 v4 릴레이에만 보냄 (편지함 독자만 답받음): `before`보다 앞선 날들의 합계를 최신 날부터 한 쪽 줘 (None = 가장 최신부터)
+    StatsGet {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+    },
 }
 
 /// 📮 개발자 앱이 올리는 편지 요약 (릴레이가 다시 검사함)
@@ -238,9 +242,11 @@ pub enum ServerMsg {
     StatsOk {
         day: String,
     },
-    /// 📊 날짜별 합계 (편지함 독자에게만, 오래된 날 먼저)
+    /// 📊 날짜별 합계 한 쪽 (편지함 독자에게만, 최신 날 먼저, JSON ≤ `pet_stats::REPLY_MAX`). `more` = 더 앞선 날이 있음
     StatsDays {
         days: Vec<StatsDay>,
+        #[serde(default)]
+        more: bool,
     },
 }
 

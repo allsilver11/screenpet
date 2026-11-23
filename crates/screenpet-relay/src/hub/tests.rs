@@ -482,17 +482,38 @@ fn stats_reports_are_counted_and_only_mailbox_readers_read_them() {
     let r = stats_today(&["cat", "penguin"]);
     assert_eq!(hub.stats_report(&sender, sconn, "198.51.100.6", &r), Some(ServerMsg::StatsOk { day: r.day.clone() }));
     assert_eq!(hub.stats_report(&sender, sconn, "198.51.100.6", &r), Some(ServerMsg::StatsOk { day: r.day.clone() }), "a repeat is answered but not counted");
-    assert_eq!(hub.stats_days(&sender, sconn), None, "not a reader: ignored");
-    let Some(ServerMsg::StatsDays { days }) = hub.stats_days(&reader, rconn) else { panic!("reader gets the totals") };
-    assert_eq!((days.len(), days[0].reports, days[0].kept.get("cat").copied()), (1, 1, Some(1)));
+    assert_eq!(hub.stats_days(&sender, sconn, None), None, "not a reader: ignored");
+    let Some(ServerMsg::StatsDays { days, more }) = hub.stats_days(&reader, rconn, None) else { panic!("reader gets the totals") };
+    assert_eq!((days.len(), days[0].reports, days[0].kept.get("cat").copied(), more), (1, 1, Some(1), false));
     assert_eq!(hub.stats_report(&sender, sconn + 99, "198.51.100.6", &r), None, "a stale connection is ignored");
 }
 
 #[test]
-fn a_brand_new_install_is_not_counted() {
+fn a_first_day_install_counts_and_a_busy_address_is_not_answered() {
     let hub = hub(Limits::default());
     let (k, c, _l, _rx) = peer_at(&hub, "198.51.100.7", 3, &[], 8);
     let r = stats_today(&["cat"]);
     assert_eq!(hub.stats_report(&k, c, "198.51.100.7", &r), Some(ServerMsg::StatsOk { day: r.day.clone() }));
-    assert!(hub.stats().days(unix_now()).is_empty());
+    assert_eq!(hub.stats().days_page(unix_now(), None).0[0].reports, 1, "reports right after its first midnight count");
+    for i in 0..crate::pet_stats::PER_IP {
+        hub.stats().submit(&format!("x{i}"), "203.0.113.9", &r, unix_now()).unwrap();
+    }
+    assert_eq!(hub.stats_report(&k, c, "203.0.113.9", &stats_today(&["bat"])), Some(ServerMsg::StatsOk { day: r.day.clone() }), "a duplicate is final");
+    let (k2, c2, _l2, _rx2) = peer_at(&hub, "198.51.100.8", 4, &[], 8);
+    assert_eq!(hub.stats_report(&k2, c2, "203.0.113.9", &r), None, "address limit: no answer, so the app tries again later");
+}
+
+#[test]
+fn stats_are_written_in_batches_not_per_report() {
+    let dir = std::env::temp_dir().join(format!("screenpet-hub-stats-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let hub = Hub::new(Limits::default(), Vec::new(), proto::random32(), Store::memory(), Control::default(), Some(dir.clone()));
+    let (k, c, _l, _rx) = peer_at(&hub, "198.51.100.7", 3, &[], 8);
+    hub.stats_report(&k, c, "198.51.100.7", &stats_today(&["cat"]));
+    assert!(!dir.join(crate::pet_stats::STATS_FILE).exists(), "nothing written per report");
+    hub.save_stats();
+    let file = std::fs::read_to_string(dir.join(crate::pet_stats::STATS_FILE)).unwrap();
+    assert!(file.contains(r#""reports":1"#) && !file.contains(&k), "{file}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

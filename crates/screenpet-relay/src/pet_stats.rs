@@ -1,13 +1,15 @@
-//! 📊 익명 펫 통계 저장 (`stats.json`, spec 2026-11-23-pet-stats). 날짜(보고하는 앱의 그날)마다 합계만 둠:
-//! 종류별 키운 설치 수·새로 고른 수·바꾼 쌍·앱 버전. 누가 보냈는지는 합계에 없음.
-//! 같은 설치가 같은 날 두 번 보내 부풀리지 않게 "그날 보낸 설치"의 키 해시(날짜를 섞어 날마다 다름)만 그날이
-//! 받을 수 있는 동안(`LATE_DAYS`) 두고 그 뒤 지움. 주소별 하루 한도는 메모리에만. 90일 지난 날은 지움.
+//! 📊 익명 펫 통계 저장 (`stats.json`, spec 2026-11-23-pet-stats). 날짜(보고하는 앱의 지역 날짜)마다 합계만 둠:
+//! 종류별 키운 설치 수·새로 고른 수·바꾼 쌍·앱 버전. 파일에는 이 합계뿐임 — 누가 보냈는지 이어 볼 값이 없음.
+//! 같은 설치가 같은 날 두 번 보내 부풀리지 않게 그날 보낸 설치를 기억하지만 **메모리에만**: 날마다 새로 뽑은
+//! 비밀(메모리에만)로 만든 키 해시라 공개키 목록(`relay.json`)으로 다시 만들 수 없고, 그날이 보고를 받는 동안
+//! (`ACCEPT_DAYS`)만 두며, 릴레이를 다시 켜면 잊음 (그만큼 중복 막기는 약해짐 — 일부러).
+//! 파일은 보고마다가 아니라 몇 분마다 한꺼번에(`Hub::save_stats`) 쓰고 `.bak`은 두지 않음: 두 파일을 비교해 보고 하나를 떼어 볼 수 없게.
 //! 받는 것은 모두 다시 검사함: 날짜·크기·종류 이름(모르면 other)·횟수 상한. `hub::pet_stats`가 `Hub::stats` 잠금 안에서 씀.
 
 use crate::store::write_private;
 use screenpet_proto::pet_stats::{self as ps, Change, StatsDay, StatsReport};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io;
 use std::path::Path;
 
@@ -15,12 +17,10 @@ use std::path::Path;
 pub const STATS_FILE: &str = "stats.json";
 /// 하루당 주소 묶음 하나에서 받는 보고 수 (메모리에만 셈)
 pub const PER_IP: u32 = 20;
-/// 하루당 받는 보고 수 (= 그날 해시 수 상한)
+/// 하루당 받는 보고 수
 pub const MAX_REPORTS: usize = 20_000;
-/// 설치가 이만큼 서로 다른 날에 보였어야 셈 (방금 만든 키로 부풀리지 못함 — 어제를 보고하니 진짜 설치는 늘 넘음)
-pub const MIN_SEEN_DAYS: u32 = 2;
 /// 해시에 섞는 꼬리표
-const HASH_LABEL: &[u8] = b"screenpet-stats/1";
+const HASH_LABEL: &[u8] = b"screenpet-stats/2";
 
 /// 보고를 세지 않은 까닭임 (로그의 reason)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,13 +29,11 @@ pub enum Refuse {
     Day,
     /// 칸이 너무 많음
     Size,
-    /// 너무 새 설치
-    New,
     /// 이 설치가 그날 이미 보냄
     Dup,
-    /// 이 주소의 하루 한도
+    /// 이 주소의 하루 한도 (다음에 다시 보낼 수 있음)
     Ip,
-    /// 그날 받을 만큼 받음
+    /// 그날 받을 만큼 받음 (다음에 다시 보낼 수 있음)
     Full,
 }
 
@@ -45,37 +43,37 @@ impl Refuse {
         match self {
             Refuse::Day => "day",
             Refuse::Size => "size",
-            Refuse::New => "new",
             Refuse::Dup => "dup",
             Refuse::Ip => "ip",
             Refuse::Full => "full",
         }
     }
+
+    /// 다시 보내도 소용없음: `stats_ok`로 답해 앱이 버리게 함. 아니면 답하지 않아 앱이 다음 연결에 다시 보냄
+    pub fn is_final(&self) -> bool {
+        matches!(self, Refuse::Day | Refuse::Size | Refuse::Dup)
+    }
 }
 
-/// `stats.json`에 쓰는 내용임
+/// `stats.json`에 쓰는 내용임: 날짜별 합계뿐 (예전 파일의 다른 칸은 읽을 때 버림)
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 struct Data {
     /// 날짜 → 그날 합계
     days: BTreeMap<String, StatsDay>,
-    /// 날짜 → 그날 보낸 설치의 키 해시 (그날이 받을 수 있는 동안만)
-    seen: BTreeMap<String, BTreeSet<String>>,
 }
 
-/// 통계 저장소임: 내용, 저장할 게 있는지, 주소별 하루 보고 수 (메모리)
+/// 통계 저장소임: 합계(파일), 저장할 게 있는지, 그리고 메모리에만 있는 중복 막기
 #[derive(Debug, Default)]
 pub struct PetStats {
     data: Data,
     dirty: bool,
-    /// (날짜, 주소 묶음) → 보고 수. 저장하지 않음
+    /// 날짜 → 그날 해시 비밀 (메모리에만, 처음 쓸 때 뽑음)
+    secrets: HashMap<String, [u8; 32]>,
+    /// 날짜 → 그날 보낸 설치의 해시 (메모리에만)
+    seen: HashMap<String, HashSet<[u8; 16]>>,
+    /// (날짜, 주소 묶음) → 보고 수 (메모리에만)
     ip_counts: HashMap<(String, String), u32>,
-}
-
-/// 그날 그 키의 해시 (hex 32자): 날짜가 섞여 다른 날과 이어 볼 수 없음
-fn key_hash(day: &str, key: &str) -> String {
-    let h = screenpet_crypto::blake2s(&[HASH_LABEL, day.as_bytes(), key.as_bytes()]);
-    screenpet_crypto::to_hex(&h[..16])
 }
 
 /// 이름 → 횟수 표에 더하되 횟수는 상한까지
@@ -85,31 +83,36 @@ fn add_capped(map: &mut BTreeMap<String, u32>, name: &str, n: u32) {
 }
 
 impl PetStats {
-    /// 오래된 날 합계(`KEEP_DAYS`)·받을 수 없게 된 날의 해시와 주소 수(`LATE_DAYS`)를 지움
-    fn prune(&mut self, now: u64) {
-        let today = ps::utc_day(now);
-        let keep = |day: &str, within: i64| ps::day_number(day).is_some_and(|n| today - n < within);
-        let (days, seen) = (self.data.days.len(), self.data.seen.len());
-        self.data.days.retain(|d, _| keep(d, ps::KEEP_DAYS));
-        self.data.seen.retain(|d, _| keep(d, ps::LATE_DAYS + 1));
-        self.ip_counts.retain(|(d, _), _| keep(d, ps::LATE_DAYS + 1));
-        self.dirty |= days != self.data.days.len() || seen != self.data.seen.len();
+    /// 그날 그 키의 해시: 그날 비밀(메모리에만)을 섞어 공개키만으로는 만들 수 없음
+    fn key_hash(&mut self, day: &str, key: &str) -> [u8; 16] {
+        let secret = *self.secrets.entry(day.to_string()).or_insert_with(screenpet_crypto::random32);
+        let h = screenpet_crypto::blake2s(&[HASH_LABEL, &secret, day.as_bytes(), key.as_bytes()]);
+        h[..16].try_into().expect("16 bytes")
     }
 
-    /// `key`(인증된 설치)가 주소 묶음 `ip`에서 보낸 보고를 그날 합계에 더하거나 안 세는 까닭을 말함. `seen_days`는 설치 저장소에서 옴
-    pub fn submit(&mut self, key: &str, ip: &str, seen_days: u32, r: &StatsReport, now: u64) -> Result<(), Refuse> {
+    /// 오래된 날 합계(`KEEP_DAYS`)와 더는 보고를 안 받는 날의 비밀·해시·주소 수(`ACCEPT_DAYS`)를 지움. 합계가 줄면 저장할 것으로 표시
+    pub fn prune(&mut self, now: u64) {
+        let today = ps::utc_day(now);
+        let keep = |day: &str, within: i64| ps::day_number(day).is_some_and(|n| today - n < within);
+        let days = self.data.days.len();
+        self.data.days.retain(|d, _| keep(d, ps::KEEP_DAYS));
+        self.secrets.retain(|d, _| keep(d, ps::ACCEPT_DAYS + 1));
+        self.seen.retain(|d, _| keep(d, ps::ACCEPT_DAYS + 1));
+        self.ip_counts.retain(|(d, _), _| keep(d, ps::ACCEPT_DAYS + 1));
+        self.dirty |= days != self.data.days.len();
+    }
+
+    /// `key`(인증된 설치)가 주소 묶음 `ip`에서 보낸 보고를 그날 합계에 더하거나 안 세는 까닭을 말함 (저장은 나중에 한꺼번에)
+    pub fn submit(&mut self, key: &str, ip: &str, r: &StatsReport, now: u64) -> Result<(), Refuse> {
         self.prune(now);
         let today = ps::utc_day(now);
-        let day = ps::day_number(&r.day).filter(|n| (today - ps::LATE_DAYS..=today).contains(n)).ok_or(Refuse::Day)?;
+        let day = ps::day_number(&r.day).filter(|n| (today - ps::ACCEPT_DAYS..=today).contains(n)).ok_or(Refuse::Day)?;
         let day = ps::day_string(day);
         if r.kept.len() > ps::MAX_KEPT || r.chosen.len() > ps::MAX_CHOSEN || r.changed.len() > ps::MAX_CHANGED {
             return Err(Refuse::Size);
         }
-        if seen_days < MIN_SEEN_DAYS {
-            return Err(Refuse::New);
-        }
-        let hash = key_hash(&day, key);
-        let seen = self.data.seen.get(&day);
+        let hash = self.key_hash(&day, key);
+        let seen = self.seen.get(&day);
         if seen.is_some_and(|s| s.contains(&hash)) {
             return Err(Refuse::Dup);
         }
@@ -140,16 +143,12 @@ impl PetStats {
             *entry.chosen.entry(s).or_insert(0) += n;
         }
         for ((from, to), n) in pairs.into_iter().filter(|(_, n)| *n > 0) {
-            let at = entry.changed.iter().position(|c| c.from == from && c.to == to).or_else(|| {
-                // 쌍이 너무 많아지면 새 쌍은 other→other로
-                let (from, to) = if entry.changed.len() >= ps::MAX_DAY_PAIRS { (ps::OTHER, ps::OTHER) } else { (from, to) };
-                entry.changed.iter().position(|c| c.from == from && c.to == to).or_else(|| {
-                    entry.changed.push(Change { from: from.into(), to: to.into(), n: 0 });
-                    Some(entry.changed.len() - 1)
-                })
-            });
-            if let Some(i) = at {
-                entry.changed[i].n += n;
+            // 쌍이 너무 많아지면 새 쌍은 other→other로
+            let known = entry.changed.iter().any(|c| c.from == from && c.to == to);
+            let (from, to) = if !known && entry.changed.len() >= ps::MAX_DAY_PAIRS { (ps::OTHER, ps::OTHER) } else { (from, to) };
+            match entry.changed.iter_mut().find(|c| c.from == from && c.to == to) {
+                Some(c) => c.n += n,
+                None => entry.changed.push(Change { from: from.into(), to: to.into(), n }),
             }
         }
         let mut v = ps::version_or_other(&r.v);
@@ -157,19 +156,36 @@ impl PetStats {
             v = ps::OTHER.to_string();
         }
         *entry.versions.entry(v).or_insert(0) += 1;
-        self.data.seen.entry(day).or_default().insert(hash);
+        self.seen.entry(day).or_default().insert(hash);
         *self.ip_counts.entry(ip_key).or_insert(0) += 1;
         self.dirty = true;
         Ok(())
     }
 
-    /// 날짜별 합계를 오래된 날 먼저 돌려줌 (90일 지난 날은 먼저 지움)
-    pub fn days(&mut self, now: u64) -> Vec<StatsDay> {
+    /// `before`(없으면 가장 최신, 날짜 모양이 아니면 빈 쪽)보다 앞선 날들을 최신 날부터, `stats_days` JSON이 `REPLY_MAX`를 넘지 않을 만큼 줌.
+    /// 하루는 늘 하나는 들어감 (가장 큰 하루도 몇 KiB). 더 앞선 날이 남았으면 true
+    pub fn days_page(&mut self, now: u64, before: Option<&str>) -> (Vec<StatsDay>, bool) {
         self.prune(now);
-        self.data.days.values().cloned().collect()
+        // 날짜 모양이 아닌 `before`는 빈 쪽 (글자 비교로 엉뚱한 날을 주지 않게)
+        if before.is_some_and(|b| ps::day_number(b).is_none()) {
+            return (Vec::new(), false);
+        }
+        let mut older = self.data.days.iter().rev().filter(|(d, _)| before.is_none_or(|b| d.as_str() < b)).map(|(_, v)| v);
+        // 메시지 틀(`{"t":"stats_days","days":[],"more":false}`)과 쉼표 몫
+        let mut size = 48;
+        let mut page = Vec::new();
+        for day in older.by_ref() {
+            let n = serde_json::to_string(day).map_or(usize::MAX, |s| s.len() + 1);
+            if !page.is_empty() && size + n > ps::REPLY_MAX {
+                return (page, true);
+            }
+            size += n;
+            page.push(day.clone());
+        }
+        (page, false)
     }
 
-    /// 지난 스냅숏 뒤 바뀐 게 있으면 파일 바이트를 돌려줌
+    /// 지난 스냅숏 뒤 바뀐 게 있으면 파일 바이트를 돌려줌 (합계만)
     pub fn snapshot(&mut self) -> Option<Vec<u8>> {
         if !self.dirty {
             return None;
@@ -183,33 +199,30 @@ impl PetStats {
         self.dirty = true;
     }
 
-    /// `stats.json`, 없으면 `.bak`, 없으면 빈 통계를 읽음 (날짜 이름이 이상한 칸은 버림)
+    /// `stats.json`을 읽음. 없거나 깨졌으면 빈 통계 (날짜 이름이 이상한 칸과 모르는 칸은 버림)
     pub fn load(dir: &Path) -> PetStats {
-        for name in [STATS_FILE.to_string(), format!("{STATS_FILE}.bak")] {
-            if let Ok(bytes) = std::fs::read(dir.join(&name)) {
-                if let Ok(mut data) = serde_json::from_slice::<Data>(&bytes) {
-                    data.days.retain(|d, _| ps::day_number(d).is_some());
-                    data.seen.retain(|d, _| ps::day_number(d).is_some());
-                    for (d, v) in data.days.iter_mut() {
-                        v.day = d.clone();
-                    }
-                    return PetStats { data, ..PetStats::default() };
+        let Ok(bytes) = std::fs::read(dir.join(STATS_FILE)) else { return PetStats::default() };
+        match serde_json::from_slice::<Data>(&bytes) {
+            Ok(mut data) => {
+                data.days.retain(|d, _| ps::day_number(d).is_some());
+                for (d, v) in data.days.iter_mut() {
+                    v.day = d.clone();
                 }
-                screenpet_log::log!(Error, "stats", "load_fail", "file" => name);
+                PetStats { data, ..PetStats::default() }
+            }
+            Err(_) => {
+                screenpet_log::log!(Error, "stats", "load_fail", "file" => STATS_FILE);
+                PetStats::default()
             }
         }
-        PetStats::default()
     }
 
-    /// `letters.json`처럼 씀: 비공개 임시 파일(fsync), 옛 파일은 `.bak`으로 두고 이름 바꾸기, 폴더 fsync
+    /// 비공개 임시 파일(fsync) → 이름 바꾸기 → 폴더 fsync. `.bak`은 두지 않음 (예전 것이 있으면 지움)
     pub fn save(dir: &Path, bytes: &[u8]) -> io::Result<()> {
-        let main = dir.join(STATS_FILE);
         let tmp = dir.join(format!("{STATS_FILE}.tmp"));
         write_private(&tmp, bytes)?;
-        if main.exists() {
-            std::fs::rename(&main, dir.join(format!("{STATS_FILE}.bak")))?;
-        }
-        std::fs::rename(&tmp, &main)?;
+        std::fs::rename(&tmp, dir.join(STATS_FILE))?;
+        let _ = std::fs::remove_file(dir.join(format!("{STATS_FILE}.bak")));
         if let Ok(d) = std::fs::File::open(dir) {
             let _ = d.sync_all();
         }
@@ -217,7 +230,7 @@ impl PetStats {
     }
 }
 
-/// 합계·중복·상한·이름·지우기·저장 시험임
+/// 합계·중복·상한·이름·지우기·쪽·저장 시험임
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,56 +256,97 @@ mod tests {
         }
     }
 
+    /// 쪽을 모두 넘겨 모은 날들 (최신 먼저)과 쪽마다의 JSON 크기
+    fn all_pages(s: &mut PetStats, now: u64) -> (Vec<StatsDay>, Vec<usize>) {
+        let (mut all, mut sizes, mut before) = (Vec::new(), Vec::new(), None::<String>);
+        loop {
+            let (days, more) = s.days_page(now, before.as_deref());
+            sizes.push(serde_json::to_string(&screenpet_proto::relay::ServerMsg::StatsDays { days: days.clone(), more }).unwrap().len());
+            before = days.last().map(|d| d.day.clone());
+            all.extend(days);
+            if !more {
+                return (all, sizes);
+            }
+            assert!(sizes.len() < 200, "paging must end");
+        }
+    }
+
     #[test]
     fn reports_add_up_per_day_without_who_sent_them() {
         let mut s = PetStats::default();
-        assert!(s.submit("k1", "1.1.1.1", 5, &report(DAY, &["cat", "penguin"], &[("penguin", 1)], &[("cat", "bat", 2)]), NOW).is_ok());
-        assert!(s.submit("k2", "1.1.1.2", 5, &report(DAY, &["cat"], &[], &[("cat", "bat", 1)]), NOW).is_ok());
-        assert!(s.submit("k1", "1.1.1.1", 5, &report("2026-11-23", &["bat"], &[], &[]), NOW).is_ok(), "another day is another report");
-        let days = s.days(NOW);
-        assert_eq!(days.iter().map(|d| d.day.as_str()).collect::<Vec<_>>(), vec![DAY, "2026-11-23"], "oldest first");
-        let d = &days[0];
+        assert!(s.submit("k1", "1.1.1.1", &report(DAY, &["cat", "penguin"], &[("penguin", 1)], &[("cat", "bat", 2)]), NOW).is_ok());
+        assert!(s.submit("k2", "1.1.1.2", &report(DAY, &["cat"], &[], &[("cat", "bat", 1)]), NOW).is_ok());
+        assert!(s.submit("k1", "1.1.1.1", &report("2026-11-23", &["bat"], &[], &[]), NOW).is_ok(), "another day is another report");
+        let (days, _) = all_pages(&mut s, NOW);
+        assert_eq!(days.iter().map(|d| d.day.as_str()).collect::<Vec<_>>(), vec!["2026-11-23", DAY], "newest first");
+        let d = &days[1];
         assert_eq!(d.reports, 2);
         assert_eq!(d.kept, BTreeMap::from([("cat".into(), 2), ("penguin".into(), 1)]));
         assert_eq!(d.chosen, BTreeMap::from([("penguin".into(), 1)]));
         assert_eq!(d.changed, vec![Change { from: "cat".into(), to: "bat".into(), n: 3 }]);
         assert_eq!(d.versions, BTreeMap::from([("0.7.4".into(), 2)]));
-        let file = String::from_utf8(s.snapshot().unwrap()).unwrap();
-        assert!(!file.contains("k1") && !file.contains("1.1.1.1"), "no keys or addresses on disk: {file}");
     }
 
     #[test]
-    fn the_same_install_counts_once_a_day() {
+    fn the_saved_file_holds_only_totals_nothing_tied_to_a_key() {
+        let mut s = PetStats::default();
+        let keys: Vec<String> = (0..5u8).map(|i| screenpet_crypto::to_hex(&[i; 32])).collect();
+        for k in &keys {
+            s.submit(k, "1.1.1.1", &report(DAY, &["cat"], &[], &[]), NOW).unwrap();
+        }
+        let file = String::from_utf8(s.snapshot().unwrap()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&file).unwrap();
+        assert_eq!(v.as_object().unwrap().keys().collect::<Vec<_>>(), vec!["days"], "no seen hashes on disk: {file}");
+        for k in &keys {
+            assert!(!file.contains(k.as_str()) && !file.contains(&k[..16]), "{file}");
+            // 비밀 없이 키에서 만들 수 있는 어떤 해시도 없음 (예전 모양: 꼬리표·날짜·키)
+            let old = screenpet_crypto::to_hex(&screenpet_crypto::blake2s(&[b"screenpet-stats/1", DAY.as_bytes(), k.as_bytes()])[..16]);
+            assert!(!file.contains(&old));
+        }
+        assert!(!file.contains("1.1.1.1"));
+        assert!(!file.chars().collect::<Vec<_>>().windows(16).any(|w| w.iter().all(|c| c.is_ascii_hexdigit())), "no hex blobs at all: {file}");
+    }
+
+    #[test]
+    fn the_same_install_counts_once_a_day_while_the_relay_runs() {
         let mut s = PetStats::default();
         let r = report(DAY, &["cat"], &[], &[]);
-        assert!(s.submit("k1", "1.1.1.1", 5, &r, NOW).is_ok());
-        assert_eq!(s.submit("k1", "2.2.2.2", 5, &r, NOW + 60), Err(Refuse::Dup), "even from another address");
-        assert_eq!(s.days(NOW)[0].reports, 1);
-        assert_ne!(key_hash(DAY, "k1"), key_hash("2026-11-23", "k1"), "a different hash every day");
+        assert!(s.submit("k1", "1.1.1.1", &r, NOW).is_ok());
+        assert_eq!(s.submit("k1", "2.2.2.2", &r, NOW + 60), Err(Refuse::Dup), "even from another address");
+        assert_eq!(s.days_page(NOW, None).0[0].reports, 1);
+        // 해시는 날마다 새 비밀로 만듦 (메모리에만) — 같은 키도 날이 다르면 다른 값, 다른 저장소면 다른 값
+        let other = PetStats::default();
+        assert_ne!(s.key_hash(DAY, "k1"), s.key_hash("2026-11-23", "k1"));
+        let mut other = other;
+        assert_ne!(s.key_hash(DAY, "k1"), other.key_hash(DAY, "k1"), "a restart forgets who sent (weaker dedupe on purpose)");
     }
 
     #[test]
-    fn bad_days_big_reports_new_installs_and_busy_addresses_are_refused() {
+    fn bad_days_and_big_reports_are_final_busy_ones_can_retry() {
         let mut s = PetStats::default();
         let ok = report(DAY, &["cat"], &[], &[]);
-        for bad in ["2026-11-24", "2026-11-20", "2026-02-30", "yesterday", ""] {
-            assert_eq!(s.submit("k", "1.1.1.1", 5, &report(bad, &["cat"], &[], &[]), NOW), Err(Refuse::Day), "{bad}");
+        for bad in ["2026-11-24", "2026-11-19", "2026-02-30", "yesterday", ""] {
+            assert_eq!(s.submit("k", "1.1.1.1", &report(bad, &["cat"], &[], &[]), NOW), Err(Refuse::Day), "{bad}");
         }
-        assert!(s.submit("k0", "1.1.1.1", 5, &report("2026-11-21", &[], &[], &[]), NOW).is_ok(), "two days late is fine (time zones)");
+        assert!(s.submit("k0", "1.1.1.1", &report("2026-11-20", &[], &[], &[]), NOW).is_ok(), "three days behind UTC is fine (UTC-12 local day, two days late)");
         let many: Vec<String> = (0..=ps::MAX_KEPT).map(|i| format!("x{i}")).collect();
-        let big = StatsReport { kept: many, ..ok.clone() };
-        assert_eq!(s.submit("k", "1.1.1.1", 5, &big, NOW), Err(Refuse::Size));
+        assert_eq!(s.submit("k", "1.1.1.1", &StatsReport { kept: many, ..ok.clone() }, NOW), Err(Refuse::Size));
         let big = StatsReport { chosen: (0..=ps::MAX_CHOSEN).map(|i| (format!("x{i}"), 1)).collect(), ..ok.clone() };
-        assert_eq!(s.submit("k", "1.1.1.1", 5, &big, NOW), Err(Refuse::Size));
+        assert_eq!(s.submit("k", "1.1.1.1", &big, NOW), Err(Refuse::Size));
         let big = StatsReport { changed: (0..=ps::MAX_CHANGED).map(|_| Change { from: "a".into(), to: "b".into(), n: 1 }).collect(), ..ok.clone() };
-        assert_eq!(s.submit("k", "1.1.1.1", 5, &big, NOW), Err(Refuse::Size));
-        assert_eq!(s.submit("new", "1.1.1.1", 1, &ok, NOW), Err(Refuse::New));
+        assert_eq!(s.submit("k", "1.1.1.1", &big, NOW), Err(Refuse::Size));
+        assert!(s.submit("new", "1.1.1.1", &ok, NOW).is_ok(), "a first-day install counts (it reports right after its first midnight)");
         for i in 0..PER_IP {
-            assert!(s.submit(&format!("ip{i}"), "9.9.9.9", 5, &ok, NOW).is_ok());
+            assert!(s.submit(&format!("ip{i}"), "9.9.9.9", &ok, NOW).is_ok());
         }
-        assert_eq!(s.submit("late", "9.9.9.9", 5, &ok, NOW), Err(Refuse::Ip));
-        assert!(s.submit("late", "9.9.9.9", 5, &report("2026-11-23", &[], &[], &[]), NOW).is_ok(), "per day");
-        assert_eq!(Refuse::Dup.as_str(), "dup");
+        assert_eq!(s.submit("late", "9.9.9.9", &ok, NOW), Err(Refuse::Ip));
+        assert!(s.submit("late", "9.9.9.9", &report("2026-11-23", &[], &[], &[]), NOW).is_ok(), "per day");
+        for r in [Refuse::Day, Refuse::Size, Refuse::Dup] {
+            assert!(r.is_final(), "{r:?}: answered, the app drops it");
+        }
+        for r in [Refuse::Ip, Refuse::Full] {
+            assert!(!r.is_final(), "{r:?}: not answered, the app tries again on its next connection");
+        }
     }
 
     #[test]
@@ -300,10 +354,10 @@ mod tests {
         let mut s = PetStats::default();
         let r = StatsReport {
             v: "<b>hi</b>".into(),
-            ..report(DAY, &["cat", "Cat", "dragon", "<img>"], &[("unicorn", 5), ("phoenix", 999), ("cat", 999)], &[("cat", "dragon", 999), ("x", "y", 3), ("z", "w", 0)])
+            ..report(DAY, &["cat", "Cat", "dragon", "<img>"], &[("unicorn", 5), ("phoenix", 999), ("cat", u32::MAX)], &[("cat", "dragon", u32::MAX), ("x", "y", 3), ("z", "w", 0)])
         };
-        assert!(s.submit("k", "1.1.1.1", 5, &r, NOW).is_ok());
-        let d = &s.days(NOW)[0];
+        assert!(s.submit("k", "1.1.1.1", &r, NOW).is_ok());
+        let d = &s.days_page(NOW, None).0[0];
         assert_eq!(d.kept, BTreeMap::from([("cat".into(), 1), ("other".into(), 1)]), "other once per report");
         assert_eq!(d.chosen, BTreeMap::from([("cat".into(), ps::MAX_COUNT), ("other".into(), ps::MAX_COUNT)]));
         assert_eq!(
@@ -313,9 +367,8 @@ mod tests {
         assert_eq!(d.versions, BTreeMap::from([("other".into(), 1)]));
     }
 
-    #[test]
-    fn a_day_holds_only_so_many_pairs_and_versions() {
-        let mut s = PetStats::default();
+    /// 하루를 가장 크게 채움 (쌍·버전·종류 모두 상한까지)
+    fn fill_day(s: &mut PetStats, day: &str, now: u64) {
         let sp = ps::SPECIES;
         let mut n = 0;
         'outer: for a in sp {
@@ -323,12 +376,20 @@ mod tests {
                 if n >= ps::MAX_DAY_PAIRS + 3 {
                     break 'outer;
                 }
-                let r = StatsReport { v: format!("0.{}.0", n), ..report(DAY, &[], &[], &[(a, b, 1)]) };
-                s.submit(&format!("k{n}"), &format!("10.0.{}.{}", n / 200, n % 200), 5, &r, NOW).unwrap();
+                let kept: Vec<&str> = sp.iter().skip(n % 12).take(ps::MAX_KEPT).copied().collect();
+                let chosen: Vec<(&str, u32)> = sp.iter().skip(n % 4).take(ps::MAX_CHOSEN).map(|s| (*s, ps::MAX_COUNT)).collect();
+                let r = StatsReport { v: format!("{}.{}.{}", 100 + n, 100 + n, 100 + n), ..report(day, &kept, &chosen, &[(a, b, ps::MAX_COUNT)]) };
+                s.submit(&format!("k{n}"), &format!("10.0.{}.{}", n / 200, n % 200), &r, now).unwrap();
                 n += 1;
             }
         }
-        let d = &s.days(NOW)[0];
+    }
+
+    #[test]
+    fn a_day_holds_only_so_many_pairs_and_versions() {
+        let mut s = PetStats::default();
+        fill_day(&mut s, DAY, NOW);
+        let d = &s.days_page(NOW, None).0[0];
         assert!(d.changed.len() <= ps::MAX_DAY_PAIRS + 1, "{}", d.changed.len());
         assert!(d.changed.iter().any(|c| c.from == "other" && c.to == "other" && c.n >= 3));
         assert!(d.versions.len() <= ps::MAX_DAY_VERSIONS + 1);
@@ -336,36 +397,57 @@ mod tests {
     }
 
     #[test]
-    fn old_days_and_old_hashes_are_dropped() {
+    fn ninety_full_days_come_in_pages_under_the_size_limit() {
         let mut s = PetStats::default();
-        s.submit("k", "1.1.1.1", 5, &report(DAY, &["cat"], &[], &[]), NOW).unwrap();
-        let later = NOW + 3 * 86_400;
-        assert_eq!(s.days(later).len(), 1, "the total stays");
-        assert!(s.data.seen.is_empty(), "who sent it is forgotten once the day can no longer take reports");
-        assert!(s.ip_counts.is_empty());
-        assert_eq!(s.days(NOW + 88 * 86_400).len(), 1, "89 days old: still kept");
-        assert!(s.days(NOW + 89 * 86_400).is_empty(), "90 days old: gone (the last 90 days are kept)");
+        // 날마다 그날 시각으로 채움 (보고는 그날 근처에만 받으니)
+        for i in 0..ps::KEEP_DAYS {
+            let now = NOW - (i as u64) * 86_400;
+            fill_day(&mut s, &ps::day_string(ps::utc_day(now)), now);
+        }
+        let (days, sizes) = all_pages(&mut s, NOW);
+        assert_eq!(days.len(), ps::KEEP_DAYS as usize, "every day, once");
+        assert!(days.windows(2).all(|w| w[0].day > w[1].day), "newest first, no repeats");
+        assert!(sizes.len() > 1, "more than one page: {sizes:?}");
+        assert!(sizes.iter().all(|n| *n <= ps::REPLY_MAX), "{sizes:?}");
+        assert!(ps::REPLY_MAX * 2 <= screenpet_proto::MAX_FRAME);
+        assert_eq!(s.days_page(NOW, Some("1999-01-01")), (vec![], false));
+        assert_eq!(s.days_page(NOW, Some("nonsense")).0.len(), 0);
     }
 
     #[test]
-    fn it_survives_a_restart_and_a_torn_file() {
+    fn old_days_and_in_memory_dedupe_are_dropped_and_a_prune_is_saved() {
+        let mut s = PetStats::default();
+        s.submit("k", "1.1.1.1", &report(DAY, &["cat"], &[], &[]), NOW).unwrap();
+        s.snapshot().unwrap();
+        let later = NOW + 4 * 86_400;
+        s.prune(later);
+        assert_eq!(s.days_page(later, None).0.len(), 1, "the total stays");
+        assert!(s.seen.is_empty() && s.secrets.is_empty() && s.ip_counts.is_empty(), "who sent it is forgotten once the day takes no more reports");
+        assert_eq!(s.days_page(NOW + 88 * 86_400, None).0.len(), 1, "89 days old: still kept");
+        s.prune(NOW + 89 * 86_400);
+        assert!(s.days_page(NOW + 89 * 86_400, None).0.is_empty(), "90 days old: gone (the last 90 days are kept)");
+        assert!(s.snapshot().is_some(), "a prune alone gets written (an idle relay forgets too)");
+    }
+
+    #[test]
+    fn it_survives_a_restart_without_a_backup_file() {
         let dir = tmp_dir("restart");
         let mut s = PetStats::default();
-        s.submit("k1", "1.1.1.1", 5, &report(DAY, &["cat"], &[], &[]), NOW).unwrap();
+        s.submit("k1", "1.1.1.1", &report(DAY, &["cat"], &[], &[]), NOW).unwrap();
+        s.submit("k2", "1.1.1.2", &report(DAY, &["bat"], &[], &[]), NOW).unwrap();
+        std::fs::write(dir.join(format!("{STATS_FILE}.bak")), b"old").unwrap();
         PetStats::save(&dir, &s.snapshot().unwrap()).unwrap();
         assert!(s.snapshot().is_none(), "clean after a snapshot");
-        s.submit("k2", "1.1.1.2", 5, &report(DAY, &["bat"], &[], &[]), NOW).unwrap();
-        PetStats::save(&dir, &s.snapshot().unwrap()).unwrap();
+        assert!(!dir.join(format!("{STATS_FILE}.bak")).exists(), "no backup copy to diff against");
         let mut back = PetStats::load(&dir);
-        assert_eq!(back.days(NOW)[0].reports, 2);
-        assert_eq!(back.submit("k1", "1.1.1.9", 5, &report(DAY, &["cat"], &[], &[]), NOW), Err(Refuse::Dup), "remembered across a restart");
-        std::fs::write(dir.join(STATS_FILE), b"{torn").unwrap();
-        assert_eq!(PetStats::load(&dir).days(NOW)[0].reports, 1, "falls back to .bak");
-        std::fs::write(dir.join(STATS_FILE), br#"{"days":{"nope":{"reports":5},"2026-11-22":{"reports":2}}}"#).unwrap();
+        assert_eq!(back.days_page(NOW, None).0[0].reports, 2);
+        std::fs::write(dir.join(STATS_FILE), br#"{"days":{"nope":{"reports":5},"2026-11-22":{"reports":2}}, "seen":{"2026-11-22":["ab"]}}"#).unwrap();
         let mut odd = PetStats::load(&dir);
-        let days = odd.days(NOW);
-        assert_eq!((days.len(), days[0].day.as_str(), days[0].reports), (1, DAY, 2), "bad day names are dropped, day is filled in");
+        let days = odd.days_page(NOW, None).0;
+        assert_eq!((days.len(), days[0].day.as_str(), days[0].reports), (1, DAY, 2), "bad day names are dropped, day is filled in, old seen is ignored");
+        assert!(odd.snapshot().is_none());
+        std::fs::write(dir.join(STATS_FILE), b"{torn").unwrap();
+        assert!(PetStats::load(&dir).days_page(NOW, None).0.is_empty(), "a torn file: empty stats");
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(PetStats::load(&dir).days(NOW).is_empty(), "nothing at all: empty stats");
     }
 }
