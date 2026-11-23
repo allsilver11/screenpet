@@ -17,6 +17,7 @@ mod conn;
 pub mod control;
 pub(crate) mod board;
 pub(crate) mod mailbox;
+pub(crate) mod pet_stats;
 mod downloads;
 mod http;
 mod monitor;

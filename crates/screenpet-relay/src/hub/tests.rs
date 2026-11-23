@@ -469,3 +469,30 @@ fn unknown_places_and_other_connections_change_nothing() {
     assert_eq!(due_ids(&hub), vec!["yongin"], "still on Yongin, no new place");
     assert_eq!(hub.state().weathers.len(), 1);
 }
+
+/// 오늘 UTC 날짜의 보고 하나
+fn stats_today(kept: &[&str]) -> screenpet_proto::pet_stats::StatsReport {
+    let day = screenpet_proto::pet_stats::day_string(screenpet_proto::pet_stats::utc_day(unix_now()));
+    screenpet_proto::pet_stats::StatsReport { day, v: "0.7.4".into(), kept: kept.iter().map(|s| s.to_string()).collect(), ..Default::default() }
+}
+
+#[test]
+fn stats_reports_are_counted_and_only_mailbox_readers_read_them() {
+    let (hub, (reader, rconn, _rrx), (sender, sconn, _srx)) = mailbox_hub();
+    let r = stats_today(&["cat", "penguin"]);
+    assert_eq!(hub.stats_report(&sender, sconn, "198.51.100.6", &r), Some(ServerMsg::StatsOk { day: r.day.clone() }));
+    assert_eq!(hub.stats_report(&sender, sconn, "198.51.100.6", &r), Some(ServerMsg::StatsOk { day: r.day.clone() }), "a repeat is answered but not counted");
+    assert_eq!(hub.stats_days(&sender, sconn), None, "not a reader: ignored");
+    let Some(ServerMsg::StatsDays { days }) = hub.stats_days(&reader, rconn) else { panic!("reader gets the totals") };
+    assert_eq!((days.len(), days[0].reports, days[0].kept.get("cat").copied()), (1, 1, Some(1)));
+    assert_eq!(hub.stats_report(&sender, sconn + 99, "198.51.100.6", &r), None, "a stale connection is ignored");
+}
+
+#[test]
+fn a_brand_new_install_is_not_counted() {
+    let hub = hub(Limits::default());
+    let (k, c, _l, _rx) = peer_at(&hub, "198.51.100.7", 3, &[], 8);
+    let r = stats_today(&["cat"]);
+    assert_eq!(hub.stats_report(&k, c, "198.51.100.7", &r), Some(ServerMsg::StatsOk { day: r.day.clone() }));
+    assert!(hub.stats().days(unix_now()).is_empty());
+}

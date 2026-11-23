@@ -3,7 +3,9 @@
 //! 여기 문자열이 바뀌면 배포된 릴레이·옛 앱(v0.6.0–v0.6.4)과 말이 안 통할 수 있음.
 //! 고칠 일이 있으면 프로토콜 버전과 옛 버전 호환부터 따질 것.
 
+use screenpet_proto::pet_stats::{Change, StatsDay, StatsReport};
 use screenpet_proto::relay::{BoardIn, BoardItem, BoardStatus, ClientMsg, Letter, ServerMsg};
+use std::collections::BTreeMap;
 
 /// 앱이 보내는 글자가 정확히 `json`이고, 릴레이가 그것을 `m`으로 읽는지 봄
 fn client(m: ClientMsg, json: &str) {
@@ -58,6 +60,18 @@ fn every_client_message() {
         r#"{"t":"board_put","items":[{"id":3,"name":"김**","line":"펭귄"}]}"#,
     );
     client(ClientMsg::BoardList { page: 2 }, r#"{"t":"board_list","page":2}"#);
+    let report = StatsReport {
+        day: "2026-11-22".into(),
+        v: "0.7.4".into(),
+        kept: vec!["cat".into(), "penguin".into()],
+        chosen: BTreeMap::from([("penguin".to_string(), 1)]),
+        changed: vec![Change { from: "cat".into(), to: "bat".into(), n: 2 }],
+    };
+    client(
+        ClientMsg::StatsReport { report },
+        r#"{"t":"stats_report","report":{"day":"2026-11-22","v":"0.7.4","kept":["cat","penguin"],"chosen":{"penguin":1},"changed":[{"from":"cat","to":"bat","n":2}]}}"#,
+    );
+    client(ClientMsg::StatsGet, r#"{"t":"stats_get"}"#);
 }
 
 #[test]
@@ -74,6 +88,11 @@ fn old_and_odd_client_messages_still_parse() {
         r#"{"t":"auth","id":"i","key":"k","mac":"m","friends":[]}"#
     );
     client_in(r#"{"t":"board_list"}"#, ClientMsg::BoardList { page: 0 });
+    // 빈 칸은 빼도 됨
+    client_in(
+        r#"{"t":"stats_report","report":{"day":"2026-11-22","v":"0.7.4"}}"#,
+        ClientMsg::StatsReport { report: StatsReport { day: "2026-11-22".into(), v: "0.7.4".into(), ..StatsReport::default() } },
+    );
     // 모르는 필드는 무시하고, 필드 순서는 상관없음
     client_in(r#"{"to":"ab","extra":1,"t":"open","req":3}"#, ClientMsg::Open { req: 3, to: "ab".into() });
 }
@@ -127,6 +146,19 @@ fn every_server_message() {
         },
         r#"{"t":"board_page","items":[{"id":3,"name":"김**","line":"펭귄","at":9,"status":"rejected"}],"page":1,"pages":1,"total":1}"#,
     );
+    server(ServerMsg::StatsOk { day: "2026-11-22".into() }, r#"{"t":"stats_ok","day":"2026-11-22"}"#);
+    let day = StatsDay {
+        day: "2026-11-22".into(),
+        reports: 3,
+        kept: BTreeMap::from([("cat".to_string(), 2)]),
+        chosen: BTreeMap::new(),
+        changed: vec![Change { from: "cat".into(), to: "other".into(), n: 1 }],
+        versions: BTreeMap::from([("0.7.4".to_string(), 3)]),
+    };
+    server(
+        ServerMsg::StatsDays { days: vec![day] },
+        r#"{"t":"stats_days","days":[{"day":"2026-11-22","reports":3,"kept":{"cat":2},"chosen":{},"changed":[{"from":"cat","to":"other","n":1}],"versions":{"0.7.4":3}}]}"#,
+    );
     for (s, json) in [(BoardStatus::None, r#""none""#), (BoardStatus::Done, r#""done""#), (BoardStatus::Rejected, r#""rejected""#)] {
         assert_eq!(serde_json::to_string(&s).unwrap(), json);
     }
@@ -170,8 +202,10 @@ fn unknown_or_malformed_server_messages_fail() {
 
 #[test]
 fn versions_and_shared_limits() {
-    assert_eq!(screenpet_proto::RELAY_PROTOCOL_VERSION, 3);
-    assert_eq!((screenpet_proto::WEATHER_MIN_VERSION, screenpet_proto::BOARD_MIN_VERSION), (2, 3));
+    assert_eq!(screenpet_proto::RELAY_PROTOCOL_VERSION, 4);
+    assert_eq!((screenpet_proto::WEATHER_MIN_VERSION, screenpet_proto::BOARD_MIN_VERSION, screenpet_proto::STATS_MIN_VERSION), (2, 3, 4));
+    use screenpet_proto::pet_stats as ps;
+    assert_eq!((ps::MAX_KEPT, ps::MAX_CHOSEN, ps::MAX_CHANGED, ps::MAX_COUNT, ps::KEEP_DAYS, ps::LATE_DAYS), (8, 16, 32, 20, 90, 2));
     assert_eq!((screenpet_proto::MAX_FRAME, screenpet_proto::MAX_ID, screenpet_proto::MAX_FRIENDS, screenpet_proto::MAX_SEALED), (65535, 128, 50, 8192));
     use screenpet_proto::board::*;
     assert_eq!((PER_PAGE, PUT_MAX, MAX_NAME, MAX_LINE, MAX_FIRST), (5, 20, 16, 80, 8));

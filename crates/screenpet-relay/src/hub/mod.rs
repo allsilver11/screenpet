@@ -5,6 +5,7 @@
 //! - `presence`: 연결 받기, 로그인, 친구·온라인 알림, 친구 코드, 저장소
 //! - `routing`: 채널 열기·닫기, 프레임 넘기기, 대역폭·큐 한도
 //! - `mail`: 📮 편지함과 공개 건의함
+//! - `pet_stats`: 📊 익명 펫 통계 받기·주기
 //! - `weather`: ☀️ 지역별 날씨 나눠 주기
 //! - `admin`: 관리 명령
 //! - `stats`: 카운터와 `admin status`
@@ -16,14 +17,17 @@
 //! - `mail`: 편지함. 언제나 *마지막*에 잡는 잎 잠금임: `state`를 잡은 채 `mail`을 잡을 수는 있지만
 //!   `mail`을 잡은 채 다른 잠금을 잡지 않음.
 //! - `mailbox_save`: `letters.json` 쓰기 순서. `state`를 놓은 뒤에만 잡고, 그 안에서는 `mail`만 잠깐 잡음.
+//! - `stats`: 📊 펫 통계. `mail`처럼 잎 잠금임 (`state` → `stats`만 있음, `mail`과 함께 잡지 않음).
+//! - `stats_save`: `stats.json` 쓰기 순서. `state`를 놓은 뒤에만 잡고, 그 안에서는 `stats`만 잠깐 잡음.
 //! - `threads`: 스레드 목록. 다른 잠금과 섞이지 않음.
 //!
-//! 순서: `mailbox_save` → `mail`, `state` → `mail`. 거꾸로는 없음.
+//! 순서: `mailbox_save` → `mail`, `state` → `mail`, `stats_save` → `stats`, `state` → `stats`. 거꾸로는 없음.
 //! 카운터와 큐 크기는 원자 값이라 잠금이 필요 없음.
 
 mod admin;
 mod limits;
 mod mail;
+mod pet_stats;
 mod presence;
 mod routing;
 mod stats;
@@ -380,10 +384,14 @@ pub struct Hub {
     mail: Mutex<Mailbox>,
     /// 편지함 스냅숏을 뜨고 쓰는 동안 잡음: 두 연결 스레드가 새 스냅숏 위에 옛것을 쓰지 못하게 함
     mailbox_save: Mutex<()>,
+    /// 📊 익명 펫 통계 (`stats.json`). 잎 잠금임 (모듈 설명 참고)
+    stats: Mutex<crate::pet_stats::PetStats>,
+    /// 통계 스냅숏을 뜨고 쓰는 동안 잡음 (`mailbox_save`와 같은 까닭)
+    stats_save: Mutex<()>,
 }
 
 impl Hub {
-    /// 허브를 만듦. 편지함은 `data_dir`에서 읽음 (없으면 빈 편지함)
+    /// 허브를 만듦. 편지함·통계는 `data_dir`에서 읽음 (없으면 빈 것)
     pub(crate) fn new(
         limits: Limits,
         trusted_proxies: Vec<std::net::IpAddr>,
@@ -410,6 +418,8 @@ impl Hub {
                 ..State::default()
             }),
             mail: Mutex::new(data_dir.as_deref().map(Mailbox::load).unwrap_or_default()),
+            stats: Mutex::new(data_dir.as_deref().map(crate::pet_stats::PetStats::load).unwrap_or_default()),
+            stats_save: Mutex::new(()),
             data_dir,
             relay_off: AtomicBool::new(relay_off),
             stop: AtomicBool::new(false),

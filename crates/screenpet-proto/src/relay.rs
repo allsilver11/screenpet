@@ -39,12 +39,17 @@
 //!                   -> board_page {items: [{id, name, line, at, status}], page, pages, total}
 //!                   5 a page, newest first, page 1-based and clamped,
 //!                   status none | done | rejected
+//! client -> relay   stats_report {report: {day, v, kept, chosen, changed}}
+//!                   (v4) 📊 yesterday's anonymous pet stats, once a day -> stats_ok {day}
+//!                   (also when refused: retrying would not help); see `pet_stats`
+//! client -> relay   stats_get                  (v4, mailbox readers only) -> stats_days {days}
 //! client -> relay   weather_want {place}      (v2 relays only; -> weather if known)
 //! relay  -> client  weather {place, code, at} ☀️ WMO code of a built-in place at `at` (unix s)
 //! client -> relay   ping                      -> pong
 //! relay  -> client  error {reason}            (then the connection closes)
 //! ```
 
+use crate::pet_stats::{StatsDay, StatsReport};
 use serde::{Deserialize, Serialize};
 
 /// 앱 → 릴레이. 릴레이가 받아 파싱하고 앱이 만들어 보냄
@@ -116,6 +121,12 @@ pub enum ClientMsg {
         #[serde(default)]
         page: u32,
     },
+    /// 📊 v4 릴레이에만 보냄: 지난날 익명 펫 통계 (하루 한 번)
+    StatsReport {
+        report: StatsReport,
+    },
+    /// 📊 v4 릴레이에만 보냄 (편지함 독자만 답받음): 날짜별 합계를 줘
+    StatsGet,
 }
 
 /// 📮 개발자 앱이 올리는 편지 요약 (릴레이가 다시 검사함)
@@ -222,6 +233,14 @@ pub enum ServerMsg {
         page: u32,
         pages: u32,
         total: u32,
+    },
+    /// 📊 그날 보고를 받았음 (거절했어도 — 다시 보내도 소용없음)
+    StatsOk {
+        day: String,
+    },
+    /// 📊 날짜별 합계 (편지함 독자에게만, 오래된 날 먼저)
+    StatsDays {
+        days: Vec<StatsDay>,
     },
 }
 

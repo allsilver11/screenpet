@@ -3,20 +3,25 @@
 //! - [`relay`]: 릴레이 WebSocket(`/ws`)의 JSON 메시지 (양방향)
 //! - [`board`]: 📮 공개 건의함 한도 (양쪽이 같이 지킴)
 //! - [`weather`]: ☀️ 날씨 지역 표 (id, 한글 이름, 위도, 경도)
+//! - [`pet_stats`]: 📊 익명 펫 통계 보고·하루 합계와 그 한도
 //! - 프로토콜 버전과 양쪽이 같이 쓰는 크기 한도
 //!
 //! serde만 씀 (ring 등 무거운 의존성 없음). 와이어 형식은 `tests/golden.rs`가 글자 그대로 고정함.
 
 pub mod board;
+pub mod pet_stats;
 pub mod relay;
 pub mod weather;
 
-/// 릴레이 프로토콜 버전 (challenge의 `v`). 2 = `weather_want`, 3 = 📮 `board_put`·`board_list`·`letter_reject`.
-pub const RELAY_PROTOCOL_VERSION: u32 = 3;
+/// 릴레이 프로토콜 버전 (challenge의 `v`). 2 = `weather_want`, 3 = 📮 `board_put`·`board_list`·`letter_reject`,
+/// 4 = 📊 `stats_report`·`stats_get`.
+pub const RELAY_PROTOCOL_VERSION: u32 = 4;
 /// ☀️ `weather_want`를 받는 가장 낮은 릴레이 버전 (더 옛 릴레이는 모르는 메시지에 연결을 끊음)
 pub const WEATHER_MIN_VERSION: u32 = 2;
 /// 📮 `board_put`·`board_list`·`letter_reject`·`letter_private`를 받는 가장 낮은 릴레이 버전
 pub const BOARD_MIN_VERSION: u32 = 3;
+/// 📊 `stats_report`·`stats_get`을 받는 가장 낮은 릴레이 버전 (옛 릴레이에는 아예 안 보냄 — 통계가 조용히 꺼짐)
+pub const STATS_MIN_VERSION: u32 = 4;
 
 /// 채널 하나로 나르는 가장 큰 불투명 프레임 (LAN 전송과 같음)
 pub const MAX_FRAME: usize = 65535;

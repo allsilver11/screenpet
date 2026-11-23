@@ -37,6 +37,10 @@ const FRIENDS_BURST: f64 = 30.0;
 const WEATHER_WANTS_PER_SEC: f64 = 0.1;
 /// `weather_want` 한 번에 몰아 받는 수
 const WEATHER_WANTS_BURST: f64 = 5.0;
+/// 📊 연결당 받는 `stats_report` 수 (날마다 하나 — 며칠 켜 둔 연결도 넉넉히)
+const STATS_PER_CONN: usize = 8;
+/// 📊 `stats_get` 사이 최소 간격
+const STATS_GET_GAP: Duration = Duration::from_secs(1);
 
 /// 인증을 마친 연결의 신원임
 struct Authed {
@@ -113,6 +117,9 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
     let mut new_codes = 0usize;
     let mut friend_updates = Bucket::new(FRIENDS_PER_SEC, FRIENDS_BURST);
     let mut weather_wants = Bucket::new(WEATHER_WANTS_PER_SEC, WEATHER_WANTS_BURST);
+    // 📊 이 연결이 보고한 날들, 마지막 합계 요청
+    let mut stats_days: Vec<String> = Vec::new();
+    let mut stats_asked: Option<Instant> = None;
     let reason: String = 'conn: loop {
         let ending = if hub.stopping() {
             Some("shutdown")
@@ -317,6 +324,26 @@ fn serve_inner(hub: &Arc<Hub>, mut ws: WebSocket<TcpStream>, ip: &str, admission
                                     None
                                 }
                                 ClientMsg::BoardList { page } => hub.board_list(&a.key, a.conn, page),
+                                ClientMsg::StatsReport { report } => {
+                                    // 📊 연결당 날마다 한 번 (앱은 하루 한 번 보냄). 진짜 한도는 통계 저장소에 있음
+                                    if stats_days.len() >= STATS_PER_CONN || stats_days.contains(&report.day) {
+                                        limited(cid, peer, "stats");
+                                        None
+                                    } else {
+                                        stats_days.push(report.day.clone());
+                                        hub.stats_report(&a.key, a.conn, &ip, &report)
+                                    }
+                                }
+                                ClientMsg::StatsGet => {
+                                    // 📊 독자도 1초에 한 번까지 (더 빠른 것은 무시)
+                                    let now = Instant::now();
+                                    if stats_asked.is_some_and(|t| now.duration_since(t) < STATS_GET_GAP) {
+                                        None
+                                    } else {
+                                        stats_asked = Some(now);
+                                        hub.stats_days(&a.key, a.conn)
+                                    }
+                                }
                                 ClientMsg::WeatherWant { place } => {
                                     // A place changes rarely: past a few a minute, just ignored
                                     if weather_wants.take(1.0) {

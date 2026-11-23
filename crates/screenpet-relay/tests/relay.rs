@@ -1383,7 +1383,7 @@ fn anyone_can_page_the_board_on_a_v3_relay() {
     cfg.weather_fetch = Some(std::sync::Arc::new(|_: &screenpet_relay::weather::Place| Err("off".into())));
     let relay = Relay::start(cfg).unwrap();
     let (mut a, _) = Client::login(&relay, &key(), "a", &[]);
-    assert_eq!(a.challenge["v"], 3, "apps send board messages only to v3 relays");
+    assert!(a.challenge["v"].as_u64() >= Some(3), "apps send board messages only to v3 relays");
     a.send(&json!({"t": "board_put", "items": [{"id": 1, "name": "김철수", "line": "x"}]}));
     a.send(&json!({"t": "board_list", "page": 1}));
     let p = a.next_json(5.0).expect("a page");
@@ -1394,4 +1394,22 @@ fn anyone_can_page_the_board_on_a_v3_relay() {
     std::thread::sleep(Duration::from_millis(550));
     a.send(&json!({"t": "board_list"}));
     assert_eq!(a.next_json(5.0).expect("a page")["t"], "board_page");
+}
+
+/// 📊 와이어 위 펫 통계: v4 릴레이, 보고에는 `stats_ok`, 같은 날 두 번째는 (끊지 않고) 무시, 독자 아닌 이의 `stats_get`도 무시
+#[test]
+fn stats_reports_are_answered_once_a_day_on_a_v4_relay() {
+    let mut cfg = RelayConfig::new(SocketAddr::from(([127, 0, 0, 1], 0)), None);
+    cfg.weather_fetch = Some(std::sync::Arc::new(|_: &screenpet_relay::weather::Place| Err("off".into())));
+    let relay = Relay::start(cfg).unwrap();
+    let (mut a, _) = Client::login(&relay, &key(), "a", &[]);
+    assert_eq!(a.challenge["v"], 4, "apps send stats only to v4 relays");
+    let day = screenpet_proto::pet_stats::day_string(screenpet_proto::pet_stats::utc_day(screenpet_relay::store::unix_now()));
+    let report = json!({"t": "stats_report", "report": {"day": day, "v": "0.7.4", "kept": ["cat"], "chosen": {"cat": 1}, "changed": []}});
+    a.send(&report);
+    assert_eq!(a.next_json(5.0).expect("an answer"), json!({"t": "stats_ok", "day": day}));
+    a.send(&report);
+    a.send(&json!({"t": "stats_get"}));
+    a.send(&json!({"t": "ping"}));
+    assert_eq!(a.next_json(2.0).expect("still connected")["t"], "pong", "a repeat and a non-reader's stats_get get nothing");
 }

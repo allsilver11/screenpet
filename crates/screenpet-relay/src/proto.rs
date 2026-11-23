@@ -10,7 +10,7 @@ pub use screenpet_crypto::{auth_mac, hex32, public_key, random32, to_hex, welcom
 pub use screenpet_proto::relay::{BoardIn, ClientMsg, ServerMsg};
 pub use screenpet_proto::{MAX_FRAME, MAX_ID};
 
-/// 2 = `weather_want`를 받음 (v0.6.3). 3 = 📮 `board_put`, `board_list`, `letter_reject` (v0.6.3).
+/// 2 = `weather_want`를 받음 (v0.6.3). 3 = 📮 `board_put`, `board_list`, `letter_reject` (v0.6.3). 4 = 📊 `stats_report`, `stats_get`.
 /// 앱은 챌린지에서 `v`가 충분히 높은 릴레이에만 각각을 보냄: 옛 릴레이는 모르는 메시지에 연결을 닫음
 pub const PROTOCOL_VERSION: u32 = screenpet_proto::RELAY_PROTOCOL_VERSION;
 /// 바이너리 메시지의 채널 id 머리 크기
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn board_messages_round_trip() {
-        assert_eq!(PROTOCOL_VERSION, 3);
+        assert_eq!(PROTOCOL_VERSION, 4);
         let m: ClientMsg = serde_json::from_str(r#"{"t":"board_list","page":2}"#).unwrap();
         assert_eq!(m, ClientMsg::BoardList { page: 2 });
         let m: ClientMsg = serde_json::from_str(r#"{"t":"board_put","items":[{"id":3,"name":"김**","line":"펭귄"}]}"#).unwrap();
