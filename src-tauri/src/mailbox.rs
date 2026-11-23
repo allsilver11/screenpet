@@ -258,7 +258,8 @@ impl Mailbox {
         }
         // 집중·하우스 중엔 손님이 오지 않음 — 건의함 숫자만 오르고, 나중에 들어옴
         let guests = slots.iter().filter(|s| matches!(s.role, Role::Guest(_))).count();
-        if slots[0].pet.refuses_arrivals() || guests >= MAX_GUESTS {
+        // 🐾🐾🐾 내 펫 중 하나라도 (하우스·집중은 모두 한 번에)
+        if crate::slots::own_refuses(slots) || guests >= MAX_GUESTS {
             return;
         }
         let Some(id) = self.queue.pop_front() else { return };

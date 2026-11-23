@@ -189,10 +189,7 @@ fn own_count(slots: &[Slot]) -> usize {
     slots.iter().take_while(|s| s.is_own()).count()
 }
 
-/// 🐾🐾🐾 내 펫 중 하나라도 지금 손님·물건을 받지 않음 (집중 중·하우스 안 — 둘 다 모두 한 번에)
-fn own_refuses(slots: &[Slot]) -> bool {
-    slots.iter().take_while(|s| s.is_own()).any(|s| s.pet.refuses_arrivals())
-}
+use crate::slots::own_refuses;
 
 /// 🐾🐾🐾 새 펫의 uid (설치 안에서만 씀)
 pub fn new_pet_uid() -> String {
@@ -324,17 +321,52 @@ fn in_or_going_home(pet: &Pet) -> bool {
     pet.is_housed() || pet.is_going_home() || pet.returns_home()
 }
 
-/// 하우스에서 꺼냄: 문 앞에서 걸어 나옴 (가는 중이었다면 그 자리에서 멈춤). 집 창은 숨김
-fn leave_house_now(app: &AppHandle, own: &mut Slot, house_window: Option<&tauri::WebviewWindow>) {
+/// 하우스에서 꺼냄: 문 앞에서 걸어 나옴 (가는 중이었다면 그 자리에서 멈춤). 집 창은 hide_house_if_empty가 다룸
+fn leave_house_now(app: &AppHandle, own: &mut Slot) {
     let spot = house::spot(app, &own.world.work_areas, own.dpi);
     let was_inside = own.pet.is_housed();
     own.pet.leave_house(&own.world, spot.door_x, spot.ground);
     if was_inside {
         own.need_show = true;
     }
+}
+
+/// 🐾🐾🐾 하우스 안이거나 하우스로 가는 내 펫이 하나도 없으면 집 창을 숨김 (한 마리만 꺼내 보내도 남은 펫들의 집은 그대로)
+fn hide_house_if_empty(slots: &[Slot], house_window: Option<&tauri::WebviewWindow>) {
+    if slots.iter().take_while(|s| s.is_own()).any(|s| in_or_going_home(&s.pet)) {
+        return;
+    }
     if let Some(hw) = house_window {
         crate::overlay::hide_quietly(hw);
     }
+}
+
+/// 🐾🐾🐾 창을 못 만든 펫을 다시 만들어 보는 간격
+const SPAWN_RETRY: Duration = Duration::from_secs(5);
+
+/// 🐾🐾🐾 설정에는 있는데 창(슬롯)이 없는 펫의 창을 만듦 (시작할 때, 그리고 못 만든 펫은 SPAWN_RETRY마다 다시).
+/// 설정 차례대로 내 펫 슬롯 끝 (손님 앞)에 넣음. 하나라도 새로 만들었으면 true
+fn spawn_missing_pets(app: &AppHandle, slots: &mut Vec<Slot>, config: &Config) -> bool {
+    let mut made = false;
+    for (i, p) in config.pets.iter().enumerate() {
+        if slots.iter().take_while(|s| s.is_own()).any(|s| s.uid() == Some(p.uid.as_str())) {
+            continue;
+        }
+        let Some(entry) = app.state::<AppState>().pets.iter().find(|e| e.id == p.species).cloned() else { continue };
+        let label = slots::free_own_label(app, slots);
+        let x = 0.5 + 0.18 * i as f64 * if i % 2 == 0 { 1.0 } else { -1.0 };
+        let n = own_count(slots);
+        match slots::spawn_own(app, label, p.uid.clone(), entry, p.care.stage, config.pet_size(), slots[OWN].dpi, &slots[OWN].world, x, config.tint) {
+            Ok(mut slot) => {
+                slot.pet.set_hungry(p.care.is_hungry());
+                slot.track.locked = p.care.locked;
+                slots.insert(n, slot);
+                made = true;
+            }
+            Err(e) => eprintln!("failed to create a pet window (will retry): {e}"),
+        }
+    }
+    made
 }
 
 /// 지금 시각으로 난수 씨앗을 만듦
@@ -383,16 +415,9 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     crate::tray::sync_tint(&app.state::<AppState>().menu, config.tint);
     // 창 크기·웹뷰 시트를 맞춤
     slots[OWN].set_stage(&app, shown);
-    // 🐾🐾🐾 둘째·셋째 펫 창 (화면 위에서 조금씩 떨어진 자리로 떨어지며 나타남)
-    for (i, p) in config.pets.iter().enumerate().skip(1) {
-        let Some(entry) = app.state::<AppState>().pets.iter().find(|e| e.id == p.species).cloned() else { continue };
-        let label = slots::free_own_label(&slots);
-        let x = 0.5 + 0.18 * i as f64 * if i % 2 == 0 { 1.0 } else { -1.0 };
-        match slots::spawn_own(&app, label, p.uid.clone(), entry, p.care.stage, config.pet_size(), dpi, &slots[OWN].world, x, config.tint) {
-            Ok(slot) => slots.push(slot),
-            Err(e) => eprintln!("failed to create a pet window: {e}"),
-        }
-    }
+    // 🐾🐾🐾 둘째·셋째 펫 창 (화면 위에서 조금씩 떨어진 자리로 떨어지며 나타남 — 못 만들면 틱마다 가끔 다시)
+    spawn_missing_pets(&app, &mut slots, &config);
+    let mut next_spawn_retry = Instant::now() + SPAWN_RETRY;
     for i in 0..own_count(&slots) {
         let care = care_of(&config, &slots[i]);
         slots[i].pet.set_hungry(care.is_hungry());
@@ -588,7 +613,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                         continue;
                     }
                     let stage = config.own_pet(&uid).map_or(Stage::Baby, |p| p.care.stage);
-                    let label = slots::free_own_label(&slots);
+                    let label = slots::free_own_label(&app, &slots);
                     let x = 0.5 + 0.18 * n as f64 * if n % 2 == 0 { 1.0 } else { -1.0 };
                     match slots::spawn_own(&app, label.clone(), uid.clone(), entry, stage, config.pet_size(), slots[OWN].dpi, &slots[OWN].world, x, config.tint) {
                         Ok(mut slot) => {
@@ -767,9 +792,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     if config.housed {
                         for i in 0..n {
                             if home.contains(&i) && in_or_going_home(&slots[i].pet) {
-                                leave_house_now(&app, &mut slots[i], house_window.as_ref());
+                                leave_house_now(&app, &mut slots[i]);
                             }
                         }
+                        hide_house_if_empty(&slots, house_window.as_ref());
                         config.housed = false;
                     } else {
                         // 집이 먼저 나타나고, 동물들이 집으로 달려감 (모두 숨겨 뒀으면 보일 때 나타남)
@@ -975,7 +1001,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     let mut sent = false;
                     if network.can_send(&slots[i], &id) {
                         if in_or_going_home(&slots[i].pet) {
-                            leave_house_now(&app, &mut slots[i], house_window.as_ref());
+                            leave_house_now(&app, &mut slots[i]);
+                            hide_house_if_empty(&slots, house_window.as_ref());
                             // 다른 펫이 아직 하우스 안이면 하우스 모드는 그대로
                             config.housed = slots[..n].iter().any(|s| in_or_going_home(&s.pet));
                             menu_dirty = true;
@@ -1061,6 +1088,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     config.sync_legacy();
                     let lead_species = slots[OWN].entry.id.clone();
                     let got = linked::adopt_shared(&mut config.care, &lead_species, pet.as_deref(), &list, known);
+                    // 지금 키우지 않는 동물의 기록은 예전 기록으로 남김 (sync_legacy가 care를 새로 만들어도 남게)
+                    config.keep_old_records();
                     if got.changed {
                         let shown = care_of(&config, &slots[OWN]).stage;
                         let care = config.care.get(&lead_species).cloned().unwrap_or_default();
@@ -1176,6 +1205,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
         // 🐾🐾🐾 펫마다 배고파짐
         for p in config.pets.iter_mut() {
             p.care.tick(dt);
+        }
+        // 🐾🐾🐾 창을 못 만든 펫이 있으면 가끔 다시 만들어 봄 (설정에만 남아 배만 고파지지 않게)
+        if now >= next_spawn_retry {
+            next_spawn_retry = now + SPAWN_RETRY;
+            if config.pets.len() > own_count(&slots) && spawn_missing_pets(&app, &mut slots, &config) {
+                menu_dirty = true;
+            }
         }
         let n = own_count(&slots);
         // 👻 디멘터 곁에서 더 고파진 배 (코어 brain_dementor.rs — 손님 것은 버림)

@@ -54,12 +54,17 @@ pub fn is_own_label(label: &str) -> bool {
     label == OWN_LABEL || label.strip_prefix(OWN_PREFIX).is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
 }
 
-/// 새 펫에게 줄 빈 창 라벨 ("pet-2"부터, 쓰는 것은 건너뜀)
-pub fn free_own_label(slots: &[Slot]) -> String {
+/// 새 펫에게 줄 빈 창 라벨 ("pet-2"부터, 쓰는 것은 건너뜀 — 닫는 중이라 아직 남은 창(destroy는 나중에 끝남)의 라벨도)
+pub fn free_own_label(app: &AppHandle, slots: &[Slot]) -> String {
     (2..)
         .map(|n| format!("{OWN_PREFIX}{n}"))
-        .find(|l| !slots.iter().any(|s| &s.label == l))
+        .find(|l| !slots.iter().any(|s| &s.label == l) && app.get_webview_window(l).is_none())
         .expect("an endless range always has a free label")
+}
+
+/// 🐾🐾🐾 내 펫 중 하나라도 지금 손님·물건·편지를 받지 않음 (집중 중·하우스 안 — 하우스·집중은 모두 한 번에)
+pub fn own_refuses(slots: &[Slot]) -> bool {
+    slots.iter().take_while(|s| s.is_own()).any(|s| s.pet.refuses_arrivals())
 }
 
 /// 지금 보이는 시트와 몸 크기 배율 (성장 직후 먹는 동안엔 돌보기 단계보다 한 단계 늦음)
@@ -297,6 +302,10 @@ impl Slot {
             s.glow_open = false;
             s.click_through = false;
             crate::overlay::set_click_through(&s.window, false);
+            // 놀러 간·하우스 안 펫이 받은 창은 숨김 (place는 숨기지 않음 — 돌아오면 need_show로 다시 보임)
+            if !s.on_screen() {
+                crate::overlay::hide_quietly(&s.window);
+            }
         }
     }
 

@@ -58,7 +58,7 @@ def test_letter_pets_visit_but_never_touch_the_network():
     # 편지를 든 펫은 로컬 손님 ("letter-<id>") — guest_left는 숫자 visit_id만 친구에게 알린다
     assert 'format!("letter-{}"' in RS
     assert "LETTER_VISIT_SECS: u64 = 60" in RS and "LETTER_GAP_SECS: u64 = 30" in RS and "LETTERS_ON_START: usize = 3" in RS
-    assert "refuses_arrivals()" in RS
+    assert "own_refuses(slots)" in RS  # 🐾🐾🐾 내 펫 중 하나라도 집중·하우스 중이면 기다림
 
 
 def test_the_developer_can_reject_a_letter_instead():

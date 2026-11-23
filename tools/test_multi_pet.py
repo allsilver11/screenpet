@@ -160,3 +160,61 @@ def test_a_friend_cannot_rotate_pet_numbers_past_the_cooldown():
     visit = visit[: visit.index("Visit::Leave { visit_id, next, side, vside, homesick_in, fling, note, boost, carry } =>")]
     assert visit.index("visit::sane_pet_no(pet)") < visit.index("cooldown_key")
     assert "visit::may_host_another(&here, pet_no)" in net
+
+
+# ---- 독립 리뷰 2 (2026-11-23) ----
+
+
+def test_sending_one_housed_pet_out_keeps_the_house_for_the_others():
+    """한 마리만 하우스에서 꺼내 보내도 집 창을 숨겨 남은 펫들이 안 보이던 것: 집은 하우스 안 펫이 하나도 없을 때만 숨김"""
+    loop = _text("game_loop.rs")
+    leave = _fn(loop, "fn leave_house_now(")
+    assert "hide_quietly" not in leave
+    assert "fn hide_house_if_empty(" in loop
+    house = loop[loop.index("Input::ToggleHouse =>"):loop.index("Input::ToggleControl if dodge.is_open()")]
+    assert "hide_house_if_empty(" in house
+    send = loop[loop.index("input @ (Input::Net(NetInput::SendTo(_))"):loop.index("Input::Vehicle(input) =>")]
+    assert "hide_house_if_empty(" in send
+
+
+def test_a_window_handed_to_an_off_screen_pet_is_hidden():
+    """첫 펫을 보내 주며 "pet" 창을 놀러 간·하우스 안 펫에게 넘기면 그 창이 화면에 남던 것"""
+    slots = _text("slots.rs")
+    swap = _fn(slots, "    pub fn swap_window(")
+    assert "on_screen()" in swap and "hide_quietly(" in swap
+
+
+def test_the_pick_menu_is_never_filled_under_a_lock_or_from_the_menu_click():
+    """메뉴 바꾸기는 메인 스레드를 기다림 — 잠금을 쥔 채 채우면 메인 스레드 클릭 처리와 서로 기다릴 수 있음"""
+    tray = _text("tray.rs")
+    sync = _fn(tray, "pub fn sync_picked(")
+    fill = sync.index("fill_pick_menu(")
+    locked = sync.rfind("pick_list.lock()", 0, fill)
+    assert "drop(shown)" in sync[locked:fill], "the lock is released before filling"
+    handler = tray[tray.index("other.strip_prefix(PICK_PREFIX)"):]
+    handler = handler[: handler.index("} else if")]
+    assert "pick(app" not in handler and "Input::PickPet(" in handler
+
+
+def test_a_new_pet_window_never_reuses_a_label_still_being_destroyed():
+    slots = _text("slots.rs")
+    free = _fn(slots, "pub fn free_own_label(")
+    assert "get_webview_window(" in free
+
+
+def test_a_pet_whose_window_could_not_be_made_is_retried():
+    """시작할 때 창을 못 만든 펫이 설정에만 남아 (배만 고파지고) 뺄 수도 없던 것: 틱마다 가끔 다시 만듦"""
+    loop = _text("game_loop.rs")
+    assert "fn spawn_missing_pets(" in loop
+    assert loop.count("spawn_missing_pets(") >= 3, "defined, at start, in the tick"
+
+
+def test_letters_wait_while_any_pet_refuses_guests():
+    mailbox = _text("mailbox.rs")
+    assert "slots[0].pet.refuses_arrivals()" not in mailbox
+    assert "slots::own_refuses(" in mailbox
+
+
+def test_records_shared_by_my_other_computer_are_kept_as_old_records():
+    loop = _text("game_loop.rs")
+    assert "config.keep_old_records()" in loop

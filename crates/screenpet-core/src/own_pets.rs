@@ -22,8 +22,9 @@ pub struct OwnPet {
 }
 
 /// 펫 목록을 읽되 잘못된 항목은 건너뜀 — 하나 때문에 설정 전체를 버리지 않음
+/// (목록이 아니면 — 객체·숫자·null — 통째로 없는 것으로. 먼저 Value로 다 읽어 나머지 설정은 그대로 읽힘)
 pub(crate) fn lenient_pets<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<OwnPet>, D::Error> {
-    let Ok(items) = Vec::<serde_json::Value>::deserialize(d) else { return Ok(Vec::new()) };
+    let serde_json::Value::Array(items) = serde_json::Value::deserialize(d)? else { return Ok(Vec::new()) };
     Ok(items.into_iter().filter_map(|v| serde_json::from_value::<OwnPet>(v).ok()).collect())
 }
 
@@ -35,6 +36,10 @@ impl Config {
         if self.pets.is_empty() {
             let species = self.pet.clone().filter(|p| known(p)).unwrap_or_else(|| fallback.to_string());
             let care = self.care.get(&species).cloned().unwrap_or_default();
+            // 다른 동물의 예전 기록은 따로 남겨 둠 (그 동물을 들이면 한 번 돌아옴 — add_pet)
+            if self.old_care.is_empty() {
+                self.old_care = self.care.iter().filter(|(k, _)| **k != species).map(|(k, v)| (k.clone(), v.clone())).collect();
+            }
             self.pets.push(OwnPet { uid: new_uid(), species, care });
             changed = true;
         }
@@ -72,14 +77,14 @@ impl Config {
         self.pets.iter_mut().find(|p| p.uid == uid)
     }
 
-    /// 펫을 더 들임 (맨 뒤). 꽉 찼으면 None. 지금 그 종류를 키우는 펫이 없고 옛 기록(`care[종류]`)이 있으면
-    /// 그 기록으로 데려옴 (예전에 키우던 아이), 아니면 아기부터. 들인 자리를 돌려줌
+    /// 펫을 더 들임 (맨 뒤). 꽉 찼으면 None. 지금 그 종류를 키우는 펫이 없고 예전 기록(`old_care[종류]` — 펫 목록이 생기기 전에
+    /// 키운 것)이 있으면 그 기록으로 한 번 데려옴 (예전에 키우던 아이 — 그 뒤로는 그 펫 것), 아니면 아기부터. 들인 자리를 돌려줌
     pub fn add_pet(&mut self, species: &str, uid: String) -> Option<usize> {
         if self.pets.len() >= MAX_OWN_PETS || uid.is_empty() || self.own_pet(&uid).is_some() {
             return None;
         }
         let raised = self.pets.iter().any(|p| p.species == species);
-        let care = if raised { Care::default() } else { self.care.get(species).cloned().unwrap_or_default() };
+        let care = if raised { Care::default() } else { self.old_care.remove(species).unwrap_or_default() };
         self.pets.push(OwnPet { uid, species: species.to_string(), care });
         Some(self.pets.len() - 1)
     }
@@ -105,13 +110,20 @@ impl Config {
         }
     }
 
-    /// 옛 필드를 첫 펫으로 맞춤 (저장 직전): `pet` = 첫 펫 종류, `care[첫 펫 종류]` = 첫 펫 돌보기 —
-    /// 옛 버전으로 되돌려도 첫 펫이 그대로 보임
+    /// 옛 필드를 첫 펫으로 맞춤 (저장 직전): `pet` = 첫 펫 종류, `care` = 남은 예전 기록 + 첫 펫 돌보기 —
+    /// 옛 버전으로 되돌려도 첫 펫이 그대로 보임. `care`는 늘 새로 만듦 (보내 준 첫 펫·바꾸기 전 종류의 복사본이 남지 않음)
     pub fn sync_legacy(&mut self) {
         if let Some(lead) = self.pets.first() {
             self.pet = Some(lead.species.clone());
+            self.care = self.old_care.clone();
             self.care.insert(lead.species.clone(), lead.care.clone());
         }
+    }
+
+    /// 📱 내 다른 컴퓨터가 나눈 기록을 `care`에 받은 뒤: 지금 키우는 종류가 아닌 기록은 예전 기록으로 남김 (sync_legacy가 지우지 않게)
+    pub fn keep_old_records(&mut self) {
+        let kept: Vec<(String, Care)> = self.care.iter().filter(|(k, _)| !self.pets.iter().any(|p| &p.species == *k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+        self.old_care.extend(kept);
     }
 }
 
@@ -265,5 +277,78 @@ mod tests {
         c.retire_pets();
         let kinds: Vec<&str> = c.pets.iter().map(|p| p.species.as_str()).collect();
         assert_eq!(kinds, vec!["cat", "cat"]);
+        // 남겨 둔 예전 기록도 같이 옮김
+        let mut c: Config = serde_json::from_str(r#"{"old_care":{"dog":{"stage":"child","stamina":0.0,"fullness":1.0,"locked":false}}}"#).unwrap();
+        c.retire_pets();
+        assert_eq!(c.old_care.get("cat").map(|k| k.stage), Some(Stage::Child));
+    }
+
+    // ---- 독립 리뷰에서 찾은 것 (2026-11-23) ----
+
+    #[test]
+    fn a_pets_object_instead_of_a_list_keeps_the_rest_of_the_config() {
+        let k = "11".repeat(32);
+        let text = format!(r#"{{"pets": {{"a": 1}}, "housed": true, "friends": [{{"id": "f", "name": "F", "public_key": "{k}", "side": "left"}}]}}"#);
+        let c: Config = serde_json::from_str(&text).expect("the config still loads");
+        assert!(c.pets.is_empty() && c.housed);
+        assert_eq!(c.friends.len(), 1, "friends are not lost");
+        for odd in [r#"{"pets": 7, "housed": true}"#, r#"{"pets": null, "housed": true}"#, r#"{"pets": "x", "housed": true}"#] {
+            let c: Config = serde_json::from_str(odd).expect(odd);
+            assert!(c.pets.is_empty() && c.housed, "{odd}");
+        }
+    }
+
+    #[test]
+    fn an_old_record_comes_back_only_once_and_never_a_copy_of_a_current_pet() {
+        let mut c: Config = serde_json::from_str(r#"{"pet":"cat","care":{"cat":{"stage":"adult","stamina":0.0,"fullness":1.0,"locked":false},"rabbit":{"stage":"child","stamina":0.0,"fullness":1.0,"locked":false}}}"#).unwrap();
+        c.settle_pets(known, "cat", uids());
+        // 첫 펫(어른 고양이)을 토끼로 바꾼 뒤 고양이를 들여도 어른 고양이 복사본이 아니라 아기
+        c.set_pet_species("u1", "heumul");
+        c.sync_legacy();
+        c.add_pet("cat", "b".into());
+        assert_eq!(c.own_pet("b").unwrap().care.stage, Stage::Baby, "the first pet's own growth is not copied");
+        // 예전 토끼 기록은 한 번만 돌아옴
+        c.add_pet("rabbit", "c".into());
+        assert_eq!(c.own_pet("c").unwrap().care.stage, Stage::Child);
+        c.remove_pet("c");
+        c.sync_legacy();
+        c.add_pet("rabbit", "d".into());
+        assert_eq!(c.own_pet("d").unwrap().care.stage, Stage::Baby, "consumed");
+    }
+
+    #[test]
+    fn letting_the_first_pet_go_drops_its_growth_from_the_old_fields() {
+        let mut c = Config::default();
+        c.settle_pets(known, "cat", uids());
+        c.pets[0].care.stage = Stage::Adult;
+        c.add_pet("rabbit", "b".into());
+        c.sync_legacy();
+        assert!(c.remove_pet("u1"));
+        c.sync_legacy();
+        assert!(!c.care.contains_key("cat"), "키운 기록도 없어져요");
+        // 다시 고양이를 들이면 아기부터
+        c.add_pet("cat", "e".into());
+        assert_eq!(c.own_pet("e").unwrap().care.stage, Stage::Baby);
+    }
+
+    #[test]
+    fn changing_the_first_pets_kind_keeps_an_old_record_of_the_new_kind() {
+        let mut c: Config = serde_json::from_str(r#"{"pet":"cat","care":{"rabbit":{"stage":"child","stamina":0.0,"fullness":1.0,"locked":false}}}"#).unwrap();
+        c.settle_pets(known, "cat", uids());
+        c.set_pet_species("u1", "rabbit");
+        c.sync_legacy();
+        c.set_pet_species("u1", "cat");
+        c.sync_legacy();
+        // 예전 토끼 기록은 덮이지 않고, 토끼를 들이면 돌아옴
+        c.add_pet("rabbit", "b".into());
+        assert_eq!(c.own_pet("b").unwrap().care.stage, Stage::Child);
+        // 저장했다 읽어도 남은 옛 기록은 그대로
+        let mut c2: Config = serde_json::from_str(r#"{"pet":"cat","care":{"rabbit":{"stage":"child","stamina":0.0,"fullness":1.0,"locked":false}}}"#).unwrap();
+        c2.settle_pets(known, "cat", uids());
+        c2.sync_legacy();
+        let mut back: Config = serde_json::from_str(&serde_json::to_string(&c2).unwrap()).unwrap();
+        back.settle_pets(known, "cat", uids());
+        back.add_pet("rabbit", "z".into());
+        assert_eq!(back.own_pet("z").unwrap().care.stage, Stage::Child);
     }
 }

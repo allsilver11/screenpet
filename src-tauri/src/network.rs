@@ -533,10 +533,7 @@ fn own_index(slots: &[Slot], uid: &str) -> Option<usize> {
     slots.iter().take_while(|s| s.is_own()).position(|s| s.uid() == Some(uid))
 }
 
-/// 🐾🐾🐾 내 펫 중 하나라도 지금 손님·물건을 받지 않음 (집중 중·하우스 안 — 하우스·집중은 모두 한 번에)
-fn own_refuses(slots: &[Slot]) -> bool {
-    slots.iter().take_while(|s| s.is_own()).any(|s| s.pet.refuses_arrivals())
-}
+use crate::slots::own_refuses;
 
 /// 손님 창이면 그 주인 id
 fn guest_owner(s: &Slot) -> Option<&str> {

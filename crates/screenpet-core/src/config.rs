@@ -31,6 +31,9 @@ pub struct Config {
     /// 동물별 돌보기 상태 (없으면 새끼부터). 🐾🐾🐾 이제는 펫마다 `pets`에 있고, 여기엔 첫 펫 것과 예전에 키운 기록이 남음
     #[serde(default)]
     pub care: HashMap<String, Care>,
+    /// 🐾🐾🐾 펫 목록이 생기기 전에 키운 다른 동물 기록 (그 동물을 들이면 한 번 돌아옴 — own_pets.rs add_pet)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty", deserialize_with = "lenient")]
+    pub old_care: HashMap<String, Care>,
     /// 🐾🐾🐾 내 펫들 (순서 = 메뉴 순서, 첫 펫 = 대표). 없으면 옛 `pet`·`care`에서 한 마리를 만듦 (own_pets.rs settle_pets)
     #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "crate::own_pets::lenient_pets")]
     pub pets: Vec<crate::own_pets::OwnPet>,
@@ -326,11 +329,13 @@ impl Config {
             for p in self.pets.iter_mut().filter(|p| p.species == gone) {
                 p.species = to.to_string();
             }
-            if let Some(care) = self.care.remove(gone) {
-                match self.care.get(to) {
-                    Some(have) if !further_grown(&care, have) => {}
-                    _ => {
-                        self.care.insert(to.to_string(), care);
+            for map in [&mut self.care, &mut self.old_care] {
+                if let Some(care) = map.remove(gone) {
+                    match map.get(to) {
+                        Some(have) if !further_grown(&care, have) => {}
+                        _ => {
+                            map.insert(to.to_string(), care);
+                        }
                     }
                 }
             }
@@ -345,8 +350,10 @@ impl Config {
         for p in self.pets.iter_mut().filter(|p| p.species == from) {
             p.species = to.to_string();
         }
-        if let Some(care) = self.care.remove(from) {
-            self.care.entry(to.to_string()).or_insert(care);
+        for map in [&mut self.care, &mut self.old_care] {
+            if let Some(care) = map.remove(from) {
+                map.entry(to.to_string()).or_insert(care);
+            }
         }
     }
 

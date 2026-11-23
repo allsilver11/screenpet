@@ -348,13 +348,19 @@ pub fn sync_picked(app: &AppHandle) {
     // 고른 펫 ▸: 펫 목록이 바뀌었을 때만 다시 채움 (열린 메뉴가 닫히지 않게)
     let list: Vec<(String, String)> = views.iter().map(|v| (v.label.clone(), v.name.clone())).collect();
     // (게임 루프와 우클릭이 같이 부를 수 있어 채우는 동안 목록을 잠가 둠 — 두 번 채워 겹치지 않게)
-    {
+    // 메뉴 바꾸기는 메인 스레드를 기다리므로 잠금은 놓고 채움 (먼저 새 목록으로 적어 두어 같은 목록을 두 번 채우지 않음)
+    let changed = {
         let mut shown = menu.pick_list.lock().unwrap();
-        if *shown != list {
-            if let Err(e) = fill_pick_menu(app, &menu.pick_menu, &list) {
-                eprintln!("failed to update the pick menu: {e}");
-            }
-            *shown = list;
+        let changed = *shown != list;
+        if changed {
+            *shown = list.clone();
+        }
+        drop(shown);
+        changed
+    };
+    if changed {
+        if let Err(e) = fill_pick_menu(app, &menu.pick_menu, &list) {
+            eprintln!("failed to update the pick menu: {e}");
         }
     }
     for item in menu.pick_menu.items().unwrap_or_default() {
@@ -982,7 +988,7 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
                 } else if let Some((uid, id)) = other.strip_prefix(SEND_PET_PREFIX).and_then(|r| r.split_once('|')) {
                     send(app, Input::SendPet { uid: uid.to_string(), friend: id.to_string() });
                 } else if let Some(label) = other.strip_prefix(PICK_PREFIX) {
-                    pick(app, label);
+                    // 메인 스레드: 메뉴는 게임 루프가 맞춤 (여기서 메뉴를 다시 채우면 메인 스레드를 스스로 기다릴 수 있음)
                     send(app, Input::PickPet(label.to_string()));
                 } else if let Some(id) = other.strip_prefix(ADD_PET_PREFIX) {
                     if let Some(entry) = app.state::<AppState>().pets.iter().find(|p| p.id == id).cloned() {
