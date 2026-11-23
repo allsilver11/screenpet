@@ -26,7 +26,7 @@ def test_autostart_is_a_settings_checkbox_that_the_game_loop_applies():
     assert "AUTOSTART_ID => send(app, Input::ToggleAutostart)," in TRAY
     assert "pub autostart: CheckMenuItem<Wry>," in TRAY
     settings = re.search(r'Submenu::with_items\(app, "⚙️ 설정", true, &\[([^\]]*)\]', TRAY).group(1)
-    assert settings.rstrip().endswith("&autostart"), settings
+    assert settings.rstrip().endswith("&autostart, &pet_stats"), settings
     # 처음엔 켜고 (config.settle_autostart), 그 뒤로는 고른 대로 OS에 다시 맞춘다. 누르면 바로 바뀌고 저장
     assert "crate::autostart::apply_at_start(&app, &mut config)" in LOOP
     arm = LOOP[LOOP.index("Input::ToggleAutostart =>") :]

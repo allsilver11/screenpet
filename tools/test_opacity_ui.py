@@ -15,7 +15,7 @@ HELP = (UI / "help.html").read_text(encoding="utf-8")
 # 테두리 있는 일반 창 (투명도를 따르지 않음). 새 일반 창을 만들면 여기에 적는다
 NORMAL_PAGES = {
     "board.html", "code.html", "dodge.html", "feedback.html", "help.html", "ladder.html", "letter.html", "link.html",
-    "mailbox.html", "name.html", "opacity.html", "pair.html", "postit.html", "size.html", "timeline.html",
+    "mailbox.html", "name.html", "opacity.html", "pair.html", "postit.html", "size.html", "stats.html", "stats_ask.html", "timeline.html",
 }
 # 지금 있는 떠 있는 창 (탈것 등 새 떠 있는 창은 NORMAL_PAGES에 없으면 저절로 검사됨)
 KNOWN_FLOATING = {"index.html", "house.html", "object.html", "prop.html", "weather.html", "trail.html", "sleigh.html"}
