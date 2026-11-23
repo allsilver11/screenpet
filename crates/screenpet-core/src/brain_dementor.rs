@@ -3,7 +3,8 @@
 //! - 날기는 나는 동물 그대로 (brain_fly.rs). 새로 날 때 STALK_CHANCE로 같은 화면의 다른 펫 머리 위로 스르륵 다가감 (stalk_target)
 //! - 👻 시무룩: sync_gloom (앱이 매 틱 — sync_lifts가 부름)이 디멘터 GLOOM_REACH 안의 펫에게 알려 줌 (DementorMood.near).
 //!   그 펫은 가까이 있는 동안 배가 더 고프고 (take_chill → 앱이 포만감에서 뺌), 들 수 있는 때면 GLOOM_SECS 동안 시무룩 (State::Gloom — annoyed 그림, "brrr...")
-//! - 🥶 서리: 디멘터가 작업 영역 구석의 FROST_REACH 안에 있으면 그 구석에 서리가 끼고, 멀어지거나 도망가면 천천히 녹음 (dementor_fx → MagicFx::Frost)
+//! - 🥶 서리: 디멘터가 작업 영역 구석의 FROST_REACH 안에 있으면 그 구석에 서리가 끼고, 멀어지거나 도망가면 천천히 녹음 (dementor_fx → MagicFx::Frost).
+//!   🧹 빗자루로 쓸면 바로 녹고 FROST_SWEPT_SECS 동안 다시 안 낌 (sweep_frost)
 //! - 🦌 패트로누스에 쫓김 (be_repelled — brain_duel.rs가 부름): "hsss!" 하고 사슴 반대쪽 화면 위 구석으로 빠르게 날아감.
 //!   FLEE_SECS 동안 시무룩·서리·다가가기 없음
 //!
@@ -41,6 +42,8 @@ pub struct DementorMood {
     chill: f64,
     /// 🥶 구석의 서리들 (디멘터만)
     pub(super) frost: Vec<FrostPatch>,
+    /// 🧹 빗자루로 쓴 구석 (x, y)과 다시 낄 수 있는 시각 (clock)
+    swept: Vec<(f64, f64, f64)>,
     /// 🦌 이 시각(clock)까지 도망 중 (디멘터만)
     pub(super) flee_until: f64,
     /// 🦌 쫓긴 쪽 x — 아직 날아가기 시작하지 않음
@@ -50,7 +53,7 @@ pub struct DementorMood {
 impl DementorMood {
     /// 시드로 난수를 따로 둠
     pub(super) fn new(seed: u64) -> Self {
-        DementorMood { rng: fastrand::Rng::with_seed(seed ^ 0x6465_6d65), near: false, gloom_ready_at: 0.0, chill: 0.0, frost: Vec::new(), flee_until: f64::NEG_INFINITY, flee_from: None }
+        DementorMood { rng: fastrand::Rng::with_seed(seed ^ 0x6465_6d65), near: false, gloom_ready_at: 0.0, chill: 0.0, frost: Vec::new(), swept: Vec::new(), flee_until: f64::NEG_INFINITY, flee_from: None }
     }
 }
 
@@ -133,7 +136,8 @@ impl Pet {
         if active {
             for (x, y, inward) in [(wa.left, wa.top, (1.0, 1.0)), (wa.right, wa.top, (-1.0, 1.0)), (wa.left, wa.bottom, (1.0, -1.0)), (wa.right, wa.bottom, (-1.0, -1.0))] {
                 let d = (x - cx).hypot(y - cy);
-                if d > reach {
+                let swept = self.dementor.swept.iter().any(|&(sx, sy, until)| (sx - x).abs() < 1.0 && (sy - y).abs() < 1.0 && self.clock < until);
+                if d > reach || swept {
                     continue;
                 }
                 let grow = wz::FROST_GROW * dt * (1.0 - 0.5 * d / reach);
@@ -153,6 +157,30 @@ impl Pet {
             }
         }
         self.dementor.frost.retain(|f| f.level > 0.0);
+        let clock = self.clock;
+        self.dementor.swept.retain(|s| clock < s.2);
+    }
+
+    /// 🧹 빗자루가 이번 틱에 지나간 구석의 서리를 녹임 (그 구석은 FROST_SWEPT_SECS 동안 다시 안 낌). 녹였으면 true
+    pub fn sweep_frost(&mut self, broom: &crate::broom::Broom, dpi: f64) -> bool {
+        let until = self.clock + wz::FROST_SWEPT_SECS;
+        let mut melted = false;
+        let swept = &mut self.dementor.swept;
+        self.dementor.frost.retain(|f| {
+            let corner = match f.inward {
+                (x, y) if x > 0.0 && y > 0.0 => crate::web::Corner::TopLeft,
+                (_, y) if y > 0.0 => crate::web::Corner::TopRight,
+                (x, _) if x > 0.0 => crate::web::Corner::BottomLeft,
+                _ => crate::web::Corner::BottomRight,
+            };
+            if !broom.sweeps_web(f.x, f.y, corner, f.size * f.level.max(0.3), dpi) {
+                return true;
+            }
+            swept.push((f.x, f.y, until));
+            melted = true;
+            false
+        });
+        melted
     }
 
     /// 👻 새 날기의 목표: 가끔 (STALK_CHANCE) 같은 화면의 다른 펫 머리 위 (디멘터만, 도망 중·창 안이 아닐 때)

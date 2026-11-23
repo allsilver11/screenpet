@@ -275,6 +275,8 @@ pub const STALK_CHANCE: f64 = 0.35;
 pub const FROST_REACH: f64 = 0.38;
 /// 🥶 서리가 끼는 빠르기 · 녹는 빠르기 (초당 — 0…1)
 pub const FROST_GROW: f64 = 1.0 / 6.0;
+/// 🧹 빗자루로 쓴 구석은 이만큼 (초) 다시 서리가 끼지 않음
+pub const FROST_SWEPT_SECS: f64 = 60.0;
 pub const FROST_FADE: f64 = 1.0 / 40.0;
 /// 🥶 다 낀 서리 크기 (작업 영역 대각선 몫)
 pub const FROST_SIZE: f64 = 0.16;

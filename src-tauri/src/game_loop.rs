@@ -988,6 +988,10 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                 objects.sweep_objects(b);
                 // 🕸️ 지나간 거미집도 걷음 (trail.rs)
                 trail.sweep_webs(&app, b, dpi);
+                // 🥶 디멘터가 낀 구석 서리도 녹음 (코어 brain_dementor.rs)
+                for s in slots.iter_mut() {
+                    s.pet.sweep_frost(b, dpi);
+                }
                 let (x0, x1) = b.span(dpi);
                 if let Some((amount, kind)) = weather.sweep(x0, x1, cy, Broom::reach_y(dpi)) {
                     if let Some(count) = b.swept(amount) {

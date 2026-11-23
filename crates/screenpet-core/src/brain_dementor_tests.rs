@@ -140,3 +140,34 @@ fn it_drifts_over_other_pets_now_and_then() {
     assert!((0..40).all(|_| alone[0].stalk_target(&w).is_none()), "다른 펫이 없으면 그대로");
     sync_lifts(&mut alone);
 }
+
+/// 🧹 빗자루로 서리를 쓸면 그 구석 서리가 바로 녹고, 디멘터가 곁에 있어도 FROST_SWEPT_SECS 동안 다시 끼지 않음
+/// (거미줄처럼 보이는 서리가 빗자루로 안 지워지던 문제, 2026-11-23)
+#[test]
+fn sweeping_frost_with_the_broom_melts_it_for_a_while() {
+    use crate::broom::Broom;
+    let w = world(vec![]);
+    let mut d = floating(250.0, 260.0, 4);
+    let run = |d: &mut Pet, secs: f64| {
+        for _ in 0..(secs / DT) as usize {
+            d.dementor_tick(DT, &w);
+            d.clock += DT;
+        }
+    };
+    run(&mut d, 8.0);
+    assert_eq!(d.frost().len(), 1);
+    // 멀리서 쓸면 그대로
+    let mut far = Broom::new((900.0, 600.0));
+    far.tick(DT, (960.0, 600.0), false, false, false);
+    assert!(!d.sweep_frost(&far, 1.0));
+    assert_eq!(d.frost().len(), 1);
+    // 구석을 쓸고 지나감
+    let mut b = Broom::new((10.0, 30.0));
+    b.tick(DT, (60.0, 30.0), false, false, false);
+    assert!(d.sweep_frost(&b, 1.0));
+    assert!(d.frost().is_empty());
+    run(&mut d, wz::FROST_SWEPT_SECS - 2.0);
+    assert!(d.frost().is_empty(), "곁에 있어도 한동안 다시 안 낌");
+    run(&mut d, 6.0);
+    assert!(!d.frost().is_empty(), "그 뒤엔 다시 낌");
+}
