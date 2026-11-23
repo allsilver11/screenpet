@@ -29,7 +29,7 @@ pub(crate) fn pet_cfg() -> PetConfig {
         bag_cleaner: false,
         dark_lord: false,
         dementor: false,
-        patronus: false,
+        patronus: None,
         gamekeeper: false,
         dragon: false,
         size: 128.0,

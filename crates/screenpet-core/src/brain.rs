@@ -484,6 +484,12 @@ pub enum Speech {
     Gloom,
     /// 👻 패트로누스에 쫓겨 도망가는 디멘터 ("hsss!")
     Repelled,
+    /// 👻 디멘터가 펫의 영혼을 빼앗기 시작 ("hhhaaah...", brain_dementor.rs)
+    SoulDrain,
+    /// 👻 영혼을 빼앗기는 펫 ("my soul...!" — 누구나)
+    SoulTaken,
+    /// 🦌 패트로누스 덕에 영혼을 지킨 펫 ("phew!")
+    SoulSaved,
     /// 🧔 해그리드가 펫을 번쩍 안음 ("C'mere, you!")
     Cuddle,
     /// 🧔 해그리드가 쓰다듬음 ("Good lad!")
@@ -758,6 +764,8 @@ pub enum State {
     Faint { t: f64, len: f64 },
     /// 👻 디멘터 곁에서 시무룩 (brain_dementor.rs — 누구나) — remaining = 남은 시간
     Gloom { remaining: f64 },
+    /// 👻 디멘터 (by)에게 영혼을 빼앗기며 버둥 (brain_dementor.rs — 누구나) — t = 시작한 뒤 흐른 시간
+    Drained { t: f64, by: u64 },
     /// 🎒 헤르미온느 (owner)의 구슬 가방 속에 숨어 있음 (brain_tuck.rs — 해리) — t = 숨기 시작한 뒤 흐른 시간, from = 처음 x (물리 px)
     Tucked { owner: u64, t: f64, from: f64 },
 }
@@ -921,8 +929,8 @@ pub struct PetConfig {
     pub dark_lord: bool,
     /// 👻 디멘터 — 곁의 펫 시무룩·🥶 서리·🦌 패트로누스에 도망 (pet.json `dementor` + 나는 동물, brain_dementor.rs)
     pub dementor: bool,
-    /// 🦌 디멘터가 오면 "Expecto Patronum!" (pet.json `patronus` + cast 그림 — 해리, brain_duel.rs)
-    pub patronus: bool,
+    /// 🦌🦦 디멘터가 오면 "Expecto Patronum!" — 은빛 동물 (pet.json `patronus` + cast 그림 — 해리 사슴·헤르미온느 수달, brain_duel.rs)
+    pub patronus: Option<crate::wizard::PatronusAnimal>,
     /// 🧔 해그리드 — 🏍️ 사이드카·🤗 안기·🖐️ 쓰담·🥚 용알·🪨 락 케이크 (pet.json `gamekeeper` + HAGRID_ANIMS, brain_hagrid.rs)
     pub gamekeeper: bool,
     /// 🐉 빗자루 대신 용을 탐 (dragon 그림 — 해그리드, brain_broom.rs가 mount_anim으로)
@@ -978,7 +986,7 @@ impl PetConfig {
             bag_cleaner: m.cleans_with_bag(),
             dark_lord: m.is_dark_lord(),
             dementor: m.is_dementor(),
-            patronus: m.casts_patronus(),
+            patronus: m.patronus_animal(),
             gamekeeper: m.is_gamekeeper(),
             dragon: m.rides_broom() && m.dragon_mount(),
             // 모르는 이름이면 청소년 (예전 그대로의 세기)
@@ -1453,7 +1461,8 @@ impl Pet {
         }
         // 💫 기절해 쓰러져 있음 (brain_dark.rs) · 👻 디멘터 곁에서 시무룩 (brain_dementor.rs) — 누구나
         // 🎒 헤르미온느 가방 속 (brain_tuck.rs — 해리)
-        if self.update_faint(dt, world) || self.update_gloom(dt, world) || self.update_tucked(dt) {
+        // 👻 영혼을 빼앗기는 펫 · 빼앗는 디멘터 (brain_dementor.rs)
+        if self.update_faint(dt, world) || self.update_drained(dt, world) || self.update_soul_drain(dt, world) || self.update_gloom(dt, world) || self.update_tucked(dt) {
             self.on_started();
             return;
         }
@@ -1641,6 +1650,7 @@ impl Pet {
             State::Faint { t, .. } if t < crate::wizard::FAINT_DROP_SECS => Anim::Land,
             State::Faint { .. } => Anim::Sleep,
             State::Gloom { .. } => Anim::Annoyed,
+            State::Drained { .. } => Anim::Dragged,
             State::Tucked { .. } => Anim::Fall,
             State::Stuck { kind, .. } => Pet::stuck_anim(kind),
             State::StageAct { act, t, len } => self.stage_anim(act, t, len),
@@ -1668,7 +1678,7 @@ impl Pet {
             heart: self.heart_timer > 0.0,
             poof: self.poofing(),
             ctl: self.is_controlled(),
-            wobble: self.wobble_timer > 0.0 || (matches!(self.state, State::Lifted { .. }) && self.hoist.cozy.is_none()) || matches!(self.state, State::Stuck { .. }) || romp_wobble || self.stage_wobble(),
+            wobble: self.wobble_timer > 0.0 || (matches!(self.state, State::Lifted { .. }) && self.hoist.cozy.is_none()) || matches!(self.state, State::Stuck { .. }) || romp_wobble || self.stage_wobble() || self.soul_drained(),
             hang,
             cloud: self.snow_cloud_on(),
             housed: self.housed,
@@ -1691,7 +1701,7 @@ impl Pet {
     pub fn window_pos(&self) -> (f64, f64) {
         // 🕸️ 거미집에 걸린 순간 "팅~" 출렁 (brain_snare.rs)
         let (sx, sy) = self.snare_offset();
-        (self.body.x - self.cfg.size / 2.0 + sx, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift() - self.soar_lift() - self.broom_lift() - self.float_lift() - self.duel_lift() - self.hagrid_lift() + sy)
+        (self.body.x - self.cfg.size / 2.0 + sx, self.body.y - self.cfg.size - self.hop_lift() - self.play_lift() - self.stage_lift() - self.soar_lift() - self.broom_lift() - self.float_lift() - self.duel_lift() - self.hagrid_lift() - self.drained_lift() + sy)
     }
 
     /// 먹는 중 (먹다가 눌린 동안도 포함 — 손을 떼면 계속 먹음)
@@ -3423,6 +3433,7 @@ impl Pet {
             | State::Duel { .. }
             | State::Faint { .. }
             | State::Gloom { .. }
+            | State::Drained { .. }
             | State::Tucked { .. }
             | State::Stuck { .. }
             | State::Panic { .. }

@@ -946,6 +946,10 @@ const EXTRA_SPEECH = {
   patronus: ["Expecto Patronum!"],
   gloom: ["brrr...", "so cold..."],
   repelled: ["hsss!"],
+  // 👻 영혼 빼앗기 (코어 brain_dementor.rs): 디멘터 / 빼앗기는 펫 / 🦌 패트로누스 덕에 지킴
+  soul_drain: ["hhhaaah...", "hhhhhaaa..."],
+  soul_taken: ["my soul...!", "nooo...!"],
+  soul_saved: ["phew!", "thanks!"],
   // 🧔 해그리드 (코어 brain_hagrid.rs): 🤗 번쩍 안기 / 🖐️ 쓰담 / 🥚 아기 용이 깨어남 / 🪨 락 케이크 (사이드카 hop_in은 트럭과 같은 말)
   cuddle: ["C'mere, you!"],
   pat: ["Good lad!", "There, there"],

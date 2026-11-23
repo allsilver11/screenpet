@@ -1,7 +1,8 @@
 //! 👻 디멘터 (brain_dementor.rs): 곁의 펫이 시무룩 (annoyed 그림, "brrr...") + 배가 더 고픔 · 가까운 화면 구석에 🥶 서리가 끼고 녹음 ·
-//! 🦌 패트로누스에 쫓기면 반대쪽 위 구석으로 날아가 한동안 얌전 · 가끔 다른 펫 머리 위로 다가감
+//! 🦌 패트로누스에 쫓기면 반대쪽 위 구석으로 날아가 한동안 얌전 · 가끔 다른 펫 머리 위로 다가감 ·
+//! 👻 곁의 펫 영혼 빼앗기 (머리 위에 떠서 은빛 영혼 줄기 → 펫이 약 3초 기절)
 
-use super::dementor_moves::sync_gloom;
+use super::dementor_moves::{sync_drain, sync_gloom};
 use super::hoist_moves::{notice_pets, sync_lifts};
 use super::swing_tests::resting;
 use super::tests::world;
@@ -170,4 +171,138 @@ fn sweeping_frost_with_the_broom_melts_it_for_a_while() {
     assert!(d.frost().is_empty(), "곁에 있어도 한동안 다시 안 낌");
     run(&mut d, 6.0);
     assert!(!d.frost().is_empty(), "그 뒤엔 다시 낌");
+}
+
+/// 👻 영혼 빼앗기용: 900에 쉬는 펫 (key 1)과 그 머리 위 가까이 뜬 디멘터 (key 2, seed)
+fn drain_pair(seed: u64, w: &World) -> Vec<Pet> {
+    let mut v = resting(pet_cfg(), 900.0, 1, w);
+    v.hush_stage();
+    v.social_key = 1;
+    let mut d = floating(950.0, 980.0, seed);
+    d.social_key = 2;
+    vec![v, d]
+}
+
+/// 👻 첫 만남에 영혼 빼앗기를 시작하는 디멘터 시드
+fn draining_seed(w: &World) -> u64 {
+    (0..60).find(|&s| {
+        let mut p = drain_pair(s, w);
+        sync_drain(&mut p);
+        p[1].soul_draining() == Some(1)
+    })
+    .expect("어느 시드는 시작")
+}
+
+/// 👻 곁의 펫을 만나면 꽤 자주 (DRAIN_CHANCE) 영혼을 빼앗으려 함 — 먼 펫·나는 펫·도망 중인 디멘터는 아님, 같은 펫은 곧바로 다시 굴리지 않음
+#[test]
+fn a_dementor_often_tries_to_drain_a_pet_it_meets() {
+    let w = world(vec![]);
+    let started = (0..60)
+        .filter(|&s| {
+            let mut p = drain_pair(s, &w);
+            sync_drain(&mut p);
+            p[1].soul_draining() == Some(1) && p[0].soul_drained()
+        })
+        .count();
+    assert!((25..=50).contains(&started), "꽤 자주: {started}/60");
+    let seed = draining_seed(&w);
+    // 먼 펫
+    let mut p = drain_pair(seed, &w);
+    p[0] = resting(pet_cfg(), 200.0, 1, &w);
+    p[0].social_key = 1;
+    sync_drain(&mut p);
+    assert!(p[1].soul_draining().is_none() && !p[0].soul_drained());
+    // 나는 펫 (기절할 수 없음)
+    let mut p = drain_pair(seed, &w);
+    let mut bird = Pet::new(crate::test_util::flyer(), 920.0, 1000.0, 1);
+    bird.state = State::Idle { remaining: 100.0, look: false };
+    bird.social_key = 1;
+    p[0] = bird;
+    sync_drain(&mut p);
+    assert!(p[1].soul_draining().is_none());
+    // 도망 중인 디멘터
+    let mut p = drain_pair(seed, &w);
+    assert!(p[1].be_repelled(0.0));
+    sync_drain(&mut p);
+    assert!(p[1].soul_draining().is_none());
+    // 안 된 주사위도 그 펫은 한동안 다시 굴리지 않음
+    let miss = (0..60)
+        .find(|&s| {
+            let mut p = drain_pair(s, &w);
+            sync_drain(&mut p);
+            p[1].soul_draining().is_none()
+        })
+        .unwrap();
+    let mut p = drain_pair(miss, &w);
+    for _ in 0..(20.0 / DT) as usize {
+        sync_drain(&mut p);
+        p[1].clock += DT;
+    }
+    assert!(p[1].soul_draining().is_none(), "한 만남에 한 번");
+}
+
+/// 👻 영혼을 빼앗기는 펫: 머리 위에 디멘터가 떠 있고 ("hhhaaah..."), 펫은 버둥 ("my soul...!" — dragged 그림·떨림·살짝 들림),
+/// 펫에서 디멘터로 은빛 영혼 줄기 (MagicFx::Soul) DRAIN_SECS → 펫이 DRAIN_FAINT_SECS 기절했다 일어남, 곧바로 또 빼앗기지 않음
+#[test]
+fn the_drained_pet_struggles_under_the_dementor_then_faints_for_three_seconds() {
+    let w = world(vec![]);
+    let mut pets = drain_pair(draining_seed(&w), &w);
+    sync_lifts(&mut pets);
+    assert!(pets[0].soul_drained() && pets[1].soul_draining() == Some(1));
+    assert_eq!(pets[0].take_speech(), Some(Speech::SoulTaken));
+    assert_eq!(pets[1].take_speech(), Some(Speech::SoulDrain));
+    let ground = pets[0].window_pos().1;
+    let (mut soul_for, mut fainted_at, mut faint_for, mut hovered, mut rose) = (0.0, None, 0.0, false, false);
+    for i in 0..(9.0 / DT) as usize {
+        for p in pets.iter_mut() {
+            p.update(DT, &w);
+        }
+        sync_lifts(&mut pets);
+        let mut fx = Vec::new();
+        pets[1].magic_fx(&mut fx);
+        if let Some(MagicFx::Soul { from, to, width, level, .. }) = fx.iter().copied().find(|f| matches!(f, MagicFx::Soul { .. })) {
+            soul_for += DT;
+            assert!(to.1 < from.1 && width > 0.0 && level > 0.0 && level <= 1.0, "{fx:?}");
+        }
+        if pets[0].soul_drained() {
+            let r = pets[0].render();
+            assert!(r.anim == Anim::Dragged && r.wobble, "{r:?}");
+            rose |= pets[0].window_pos().1 < ground - 3.0;
+            if i as f64 * DT > 1.2 {
+                let size = pets[0].cfg.size;
+                hovered |= (pets[1].body.x - pets[0].body.x).abs() < 0.3 * size && pets[1].body.y < pets[0].body.y - size;
+            }
+        }
+        if pets[0].is_fainted() {
+            faint_for += DT;
+            fainted_at.get_or_insert(i as f64 * DT);
+        }
+    }
+    assert!(hovered && rose, "머리 위에 떠 있고 펫은 살짝 들림");
+    let at = fainted_at.expect("기절");
+    assert!((at - wz::DRAIN_SECS).abs() < 0.15, "{at}");
+    assert!((soul_for - wz::DRAIN_SECS).abs() < 0.15, "{soul_for}");
+    assert!((faint_for - wz::DRAIN_FAINT_SECS).abs() < 0.15, "{faint_for}");
+    assert!(!pets[0].is_fainted() && !pets[0].soul_drained() && pets[1].soul_draining().is_none());
+}
+
+/// 👻 빼앗는 중에 디멘터를 집어 들면 그만 — 펫은 기절하지 않고 평소대로
+#[test]
+fn grabbing_the_dementor_stops_the_drain() {
+    let w = world(vec![]);
+    let mut pets = drain_pair(draining_seed(&w), &w);
+    sync_lifts(&mut pets);
+    for _ in 0..(0.5 / DT) as usize {
+        for p in pets.iter_mut() {
+            p.update(DT, &w);
+        }
+        sync_lifts(&mut pets);
+    }
+    pets[1].state = State::Dragged;
+    for _ in 0..(3.0 / DT) as usize {
+        pets[0].update(DT, &w);
+        sync_lifts(&mut pets);
+        assert!(!pets[0].is_fainted());
+    }
+    assert!(!pets[0].soul_drained() && pets[1].soul_draining().is_none());
 }

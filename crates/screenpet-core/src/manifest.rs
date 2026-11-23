@@ -236,9 +236,9 @@ pub struct PetManifest {
     /// 👻 디멘터: 다가가면 펫이 시무룩·배고파지고 화면 구석에 🥶 서리, 🦌 패트로누스에 쫓김 (나는 동물일 때만 — is_dementor())
     #[serde(default)]
     pub dementor: bool,
-    /// 🦌 해리: 디멘터가 오면 "Expecto Patronum!" 은빛 사슴 (SPELL_ANIMS가 있을 때만 — casts_patronus())
-    #[serde(default)]
-    pub patronus: bool,
+    /// 🦌🦦 해리 "stag"·헤르미온느 "otter": 디멘터가 오면 "Expecto Patronum!" 은빛 동물 (옛 true는 사슴 — SPELL_ANIMS가 있을 때만, patronus_animal())
+    #[serde(default, deserialize_with = "patronus_field")]
+    pub patronus: Option<crate::wizard::PatronusAnimal>,
     /// 🧔 해그리드: 🏍️ 사이드카 오토바이·🤗 안아 들기·🖐️ 쓰담·🥚 용알·🪨 락 케이크 (HAGRID_ANIMS가 다 있을 때만 — is_gamekeeper())
     #[serde(default)]
     pub gamekeeper: bool,
@@ -257,6 +257,27 @@ pub struct PetManifest {
 const DEFAULT_HANG_GRIP: (f64, f64) = (0.0, 0.06);
 /// 머리 꼭대기는 모자 입구보다 입구 너비의 이만큼 위
 const HEAD_TOP_ABOVE_BRIM: f64 = 0.15;
+
+/// 🦌🦦 pet.json `patronus` 읽기: true = 사슴 (옛 값) · "stag"·"otter" · false·모르는 이름은 없음 (다른 특기는 그대로 읽히게)
+fn patronus_field<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<crate::wizard::PatronusAnimal>, D::Error> {
+    use crate::wizard::PatronusAnimal;
+    /// 옛 참·거짓 또는 동물 이름
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Flag(bool),
+        Name(String),
+    }
+    Ok(match Raw::deserialize(d)? {
+        Raw::Flag(true) => Some(PatronusAnimal::Stag),
+        Raw::Flag(false) => None,
+        Raw::Name(n) => match n.as_str() {
+            "stag" => Some(PatronusAnimal::Stag),
+            "otter" => Some(PatronusAnimal::Otter),
+            _ => None,
+        },
+    })
+}
 
 impl PetManifest {
     /// 커서에 매달린 그림(dragged 칸들의 평균)에서 커서 끝이 닿을 머리 꼭대기: (그림 가운데에서 오른쪽, 그림 윗변에서 아래) — 한 변에 대한 비율.
@@ -443,7 +464,12 @@ impl PetManifest {
 
     /// 🦌 패트로누스 (SPELL_ANIMS 그림이 있어야 함)
     pub fn casts_patronus(&self) -> bool {
-        self.patronus && SPELL_ANIMS.iter().all(|a| self.has_anim(a))
+        self.patronus_animal().is_some()
+    }
+
+    /// 🦌🦦 패트로누스 동물 (SPELL_ANIMS 그림이 없으면 없음)
+    pub fn patronus_animal(&self) -> Option<crate::wizard::PatronusAnimal> {
+        self.patronus.filter(|_| SPELL_ANIMS.iter().all(|a| self.has_anim(a)))
     }
 
     /// 흐물이 더 놀기 (들고 던지기를 하고 ANTICS_ANIMS 그림이 다 있어야 함)
@@ -938,7 +964,7 @@ mod tests {
             assert_eq!(m.rides_broom(), wizard || id == "hagrid", "{id}");
             assert_eq!(!m.spell_set().is_empty(), wizard, "{id}");
             assert_eq!((m.dragon_mount(), m.is_gamekeeper()), (id == "hagrid", id == "hagrid"), "{id}");
-            assert_eq!((m.is_dark_lord(), m.is_dementor(), m.casts_patronus()), (id == "voldemort", id == "dementor", id == "harry"), "{id}");
+            assert_eq!((m.is_dark_lord(), m.is_dementor(), m.casts_patronus()), (id == "voldemort", id == "dementor", id == "harry" || id == "hermione"), "{id}");
             assert_eq!(m.seeks(), id == "harry", "{id}");
             assert_eq!((m.reads_books(), m.cleans_with_bag()), (id == "hermione", id == "hermione"), "{id}");
             let c = crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager");
@@ -962,12 +988,31 @@ mod tests {
         assert_eq!(v.name, "볼드모트");
         assert!(v.spell_set().has(Spell::Stupefy) && !v.spell_set().has(Spell::Expelliarmus) && v.can_climb());
         let c = crate::brain::PetConfig::from_manifest(&v, 1.0, 1.0, "teenager");
-        assert!(c.dark_lord && !c.dementor && !c.patronus && c.grip.cast.n == 3);
+        assert!(c.dark_lord && !c.dementor && c.patronus.is_none() && c.grip.cast.n == 3);
         let d = parse_manifest(&read("dementor")).unwrap();
         assert!(d.name == "디멘터" && d.flies() && d.is_dementor() && !d.can_climb() && d.spell_set().is_empty());
         assert!(!parse_manifest(&read("dementor").replace(r#""locomotion": "fly","#, "")).unwrap().is_dementor());
         assert!(!parse_manifest(&read("voldemort").replace(r#""cast""#, r#""cast_x""#)).unwrap().is_dark_lord());
-        assert!(crate::brain::PetConfig::from_manifest(&parse_manifest(&read("harry")).unwrap(), 1.0, 1.0, "teenager").patronus);
+        assert!(crate::brain::PetConfig::from_manifest(&parse_manifest(&read("harry")).unwrap(), 1.0, 1.0, "teenager").patronus.is_some());
+    }
+
+    /// 🦌🦦 패트로누스 동물 (pet.json `patronus`): 해리 "stag" 사슴 · 헤르미온느 "otter" 수달 · 옛 true는 사슴 · false·모르는 값·cast 그림 없음은 없음
+    #[test]
+    fn patronus_animals_come_from_pet_json() {
+        use crate::wizard::PatronusAnimal;
+        let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+        let read = |id: &str| std::fs::read_to_string(ui.join("pets").join(id).join("pet.json")).unwrap();
+        let animal = |text: &str| crate::brain::PetConfig::from_manifest(&parse_manifest(text).unwrap(), 1.0, 1.0, "teenager").patronus;
+        let harry = read("harry");
+        assert!(harry.contains(r#""patronus": "stag""#));
+        assert_eq!(animal(&harry), Some(PatronusAnimal::Stag));
+        assert_eq!(animal(&read("hermione")), Some(PatronusAnimal::Otter));
+        assert_eq!(animal(&read("voldemort")), None);
+        assert_eq!(animal(&harry.replace(r#""patronus": "stag""#, r#""patronus": true"#)), Some(PatronusAnimal::Stag));
+        assert_eq!(animal(&harry.replace(r#""patronus": "stag""#, r#""patronus": "otter""#)), Some(PatronusAnimal::Otter));
+        assert_eq!(animal(&harry.replace(r#""patronus": "stag""#, r#""patronus": false"#)), None);
+        assert_eq!(animal(&harry.replace(r#""patronus": "stag""#, r#""patronus": "phoenix""#)), None);
+        assert_eq!(animal(&harry.replace(r#""cast""#, r#""cast_x""#)), None);
     }
 
     /// 🧔 해그리드: 빗자루 대신 🐉 용 (broom_rider + dragon 그림), 사이드카·안기·알·락 케이크 (gamekeeper + HAGRID_ANIMS), 덩치 1.4배, 손 자리

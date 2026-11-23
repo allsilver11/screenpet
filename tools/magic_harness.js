@@ -151,4 +151,20 @@ out.puff_filtered = h.alive();
 out.puff_frames = h.frames(10);
 out.puff_gradients = h.count("createRadialGradient");
 out.puff_arcs = h.count("arc");
+// 🦦 은빛 수달 (헤르미온느 패트로누스) · 👻 영혼 줄기 (디멘터): 이상한 값은 버리고 프레임을 돌리며 그림 — 수달은 몸 (타원)·꼬리 (곡선)·기울기 (rotate),
+// 영혼 줄기는 일렁이는 가닥 (곡선)·빨려 올라가는 작은 빛 (그라데이션 원)
+const otter = { kind: "otter", x: 500, y: 400, size: 120, dir: -1, alpha: 1, tilt: 0.3, t: 0.8 };
+const soul = { kind: "soul", from: [900, 980], to: [900, 760], width: 36, level: 0.8, t: 1 };
+h = load();
+h.send("trail-magic", [otter, soul, { ...otter, tilt: NaN }, { ...soul, to: [NaN, 1] }, { ...soul, width: 0 }]);
+out.otter_soul_filtered = h.alive();
+out.otter_soul_frames = h.frames(10);
+out.otter_soul_ellipses = h.count("ellipse");
+out.otter_soul_curves = h.count("quadraticCurveTo") + h.count("bezierCurveTo");
+out.otter_soul_turns = h.count("rotate");
+out.otter_soul_gradients = h.count("createRadialGradient");
+h = load();
+h.send("trail-magic", [{ ...soul, level: 0 }]);
+h.frames(3);
+out.soul_dim_curves = h.count("quadraticCurveTo") + h.count("bezierCurveTo");
 process.stdout.write(JSON.stringify(out));

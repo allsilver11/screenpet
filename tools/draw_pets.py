@@ -1818,7 +1818,7 @@ def species_fields(pid, m):
     if pid in DEMENTOR:
         m["dementor"] = True
     if pid in PATRONUS:
-        m["patronus"] = True
+        m["patronus"] = PATRONUS[pid]
     if pid in GAMEKEEPER:
         m["gamekeeper"] = True
     return m

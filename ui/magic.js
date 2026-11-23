@@ -1,4 +1,4 @@
-// ✨ 마법 효과 그리기 (🐍 볼드모트·👻 디멘터·⚔️ 결투·🦌 패트로누스·🧔 해그리드의 용알·🔥 모닥불). 🌈 무지개 구름·🖍️ 낙서·🕷️ 거미집·🦇 박쥐 신호·🟡 스니치와 같은
+// ✨ 마법 효과 그리기 (🐍 볼드모트·👻 디멘터·⚔️ 결투·🦌🦦 패트로누스·🧔 해그리드의 용알·🔥 모닥불). 🌈 무지개 구름·🖍️ 낙서·🕷️ 거미집·🦇 박쥐 신호·🟡 스니치와 같은
 // 모니터 덮개 창 (trail.html)의 스니치 아래 캔버스에 그림. 앱(src-tauri/src/trail.rs)이 보내는 것 (논리 px, 이 창 왼쪽 위가 0,0 — 코어 magic.rs):
 //   trail-magic  지금 효과들 [{kind, ...}] — 바뀔 때만 (최대 30번/초) 오고, 다 사라지면 빈 목록 한 번
 //     bolt  {from, to, color, width}             ⚡ Stupefy 초록 빛줄기 (사라지면 MG_FADE 동안 흐려짐)
@@ -6,6 +6,9 @@
 //                                                (reach 0…1), 맞부딪힌 자리에 반짝 (사라지면 펑)
 //     snake {x, y, size, dir, t, alpha}          🐍 나기니 — 머리 (x, 바닥 y)에서 뒤로 꿈틀대는 몸, 혀 날름
 //     stag  {x, y, size, dir, alpha}             🦌 은빛 사슴 — 달리는 다리, 큰 뿔, 은빛 번짐
+//     otter {x, y, size, dir, alpha, tilt, t}    🦦 은빛 수달 (헤르미온느) — 긴 몸을 tilt만큼 기울여 공중을 헤엄침, 젓는 발·흔들리는 꼬리·물방울 자취
+//     soul  {from, to, width, level, t}          👻 디멘터가 빼앗는 영혼 줄기 — 펫 가슴 (from)에서 디멘터 (to)로 일렁이며 빨려 올라가는 옅은 은빛 가닥
+//                                                + 가슴의 희미한 빛 + 올라가는 작은 빛 (level 0…1 짙기)
 //     frost {x, y, size, inward, level}          🥶 화면 구석의 서리 — 구석에서 안쪽으로 번지는 반투명 흰빛 + 얼음 가지
 //     egg   {x, y, size, crack}                  🥚 해그리드가 품은 용알 (바닥 가운데 x, y — 높이 size) — 금이 갈수록 (crack 0…1) 지그재그 금·달달 떨림
 //     hatchling {x, y, size, t, len, dir}        🐉 깨어난 아기 용 — 알 껍데기가 갈라져 튀고, 알 자리 둘레를 파닥파닥 날다가 끝에 불을 퐁 뿜고 사라짐
@@ -15,7 +18,7 @@
 //     glow  {x, y, size, level}                  💡 "Lumos!" 지팡이 끝 불빛 — 하얗게 빛나는 속 + 크게 번지는 따뜻한 빛 (level 0…1 밝기, 살짝 일렁임)
 //     puff  {x, y, size, k}                      🌑 "Nox!" 불이 꺼진 지팡이 끝의 작은 검은 연기 — 덩이 몇 개가 피어올라 커지며 흐려짐 (k 0…1 퍼진 몫)
 // CPU를 아끼는 규칙: 움직이는 효과 (빛줄기·뱀·사슴·흐려짐·펑)가 있는 동안만 requestAnimationFrame. 서리만 있으면 받을 때 한 번만 그림.
-// 한 번에 MG_MAX개까지. 브라우저에서 trail.html?magic=1로 앱 없이 볼 수 있음 (결투·사슴·뱀·서리).
+// 한 번에 MG_MAX개까지. 브라우저에서 trail.html?magic=1로 앱 없이 볼 수 있음 (결투·사슴·수달·영혼 줄기·뱀·서리).
 
 const MG_MAX = 24;
 // 사라진 빛줄기가 흐려지는 시간 · 결투 펑 시간 (초)
@@ -24,7 +27,7 @@ const MG_POP_SECS = 0.6;
 const MG_RED = ["rgba(255,70,60,", "rgba(255,200,190,"];
 const MG_GREEN = ["rgba(60,230,90,", "rgba(210,255,200,"];
 const MG_GOLD = ["rgba(255,196,60,", "rgba(255,246,200,"];
-const MG_KINDS = ["bolt", "duel", "snake", "stag", "frost", "egg", "hatchling", "campfire", "wand", "glow", "puff"];
+const MG_KINDS = ["bolt", "duel", "snake", "stag", "otter", "soul", "frost", "egg", "hatchling", "campfire", "wand", "glow", "puff"];
 
 const mgCanvas = document.getElementById("magic");
 const mgCtx = mgCanvas.getContext("2d");
@@ -46,6 +49,9 @@ function mgOk(f) {
   if (f.kind === "wand") return mgPt(f.from) && mgPt(f.to) && f.size > 0 && f.size < 2000 && Number.isFinite(f.k);
   if (f.kind === "puff") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.k);
   if (f.kind === "glow") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.level);
+  if (f.kind === "soul") return mgPt(f.from) && mgPt(f.to) && f.width > 0 && f.width < 500 && Number.isFinite(f.level) && Number.isFinite(f.t);
+  if (f.kind === "otter")
+    return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.alpha) && Number.isFinite(f.tilt) && Number.isFinite(f.t);
   if (f.kind === "duel") return mgPt(f.red) && mgPt(f.green) && mgPt(f.clash) && f.width > 0 && f.width < 200 && Number.isFinite(f.reach);
   if (f.kind === "frost") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 5000 && mgPt(f.inward) && f.level > 0;
   if (f.kind === "egg") return Number.isFinite(f.x) && Number.isFinite(f.y) && f.size > 0 && f.size < 2000 && Number.isFinite(f.crack);
@@ -317,6 +323,129 @@ function mgStag(f, t) {
     mgCtx.fill();
   }
   mgCtx.restore();
+}
+
+// 🦦 은빛 수달 (가운데 x, y, 크기 size — 오른쪽을 보고 그린 뒤 dir로 뒤집고 tilt만큼 기울임): 은빛 번짐, 젓는 네 발, 긴 몸, 둥근 머리·작은 귀·
+// 주둥이·수염, 굵다가 가늘어지며 살랑대는 꼬리, 뒤로 떠오르는 물방울
+function mgOtter(f, t) {
+  const s = f.size / 100;
+  mgCtx.save();
+  mgCtx.globalAlpha = Math.max(0, Math.min(1, f.alpha));
+  mgCtx.translate(f.x, f.y);
+  mgCtx.scale(f.dir < 0 ? -s : s, s);
+  mgCtx.rotate(f.tilt);
+  const glow = mgCtx.createRadialGradient(0, 0, 4, 0, 0, 62);
+  glow.addColorStop(0, "rgba(205,232,255,0.5)");
+  glow.addColorStop(1, "rgba(205,232,255,0)");
+  mgCtx.fillStyle = glow;
+  mgCtx.beginPath();
+  mgCtx.arc(0, 0, 62, 0, Math.PI * 2);
+  mgCtx.fill();
+  const silver = "rgba(232,244,255,0.92)";
+  const edge = "rgba(140,195,255,0.95)";
+  mgCtx.lineCap = "round";
+  mgCtx.lineJoin = "round";
+  // 젓는 발 (앞·뒤가 엇갈려 앞뒤로)
+  const paddle = Math.sin(f.t * 10);
+  mgCtx.fillStyle = silver;
+  for (const [px, k] of [[16, 1], [22, -1], [-14, -1], [-8, 1]]) {
+    mgCtx.beginPath();
+    mgCtx.ellipse(px + k * paddle * 4, 10 + Math.abs(paddle) * 2, 5, 3, 0.5 * k * paddle, 0, Math.PI * 2);
+    mgCtx.fill();
+  }
+  // 꼬리 (몸 뒤에서 굵게 나와 가늘어짐, 살랑)
+  const sway = Math.sin(f.t * 6) * 8;
+  mgCtx.beginPath();
+  mgCtx.moveTo(-24, -6);
+  mgCtx.quadraticCurveTo(-44, -4 + sway * 0.5, -60, 2 + sway);
+  mgCtx.quadraticCurveTo(-44, 6 + sway * 0.5, -24, 6);
+  mgCtx.closePath();
+  mgCtx.fill();
+  // 긴 몸 · 머리 · 귀 · 주둥이
+  mgCtx.strokeStyle = edge;
+  mgCtx.lineWidth = 2;
+  mgCtx.beginPath();
+  mgCtx.ellipse(0, 0, 30, 11, 0, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.stroke();
+  mgCtx.beginPath();
+  mgCtx.ellipse(31, -5, 11, 9, -0.15, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.stroke();
+  mgCtx.beginPath();
+  mgCtx.ellipse(27, -14, 3, 2.5, 0, 0, Math.PI * 2);
+  mgCtx.ellipse(34, -14, 3, 2.5, 0, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.beginPath();
+  mgCtx.ellipse(40, -2, 5, 4, 0, 0, Math.PI * 2);
+  mgCtx.fill();
+  // 코 · 눈 (조금 짙은 은빛) · 수염
+  mgCtx.fillStyle = edge;
+  mgCtx.beginPath();
+  mgCtx.arc(44, -3, 1.6, 0, Math.PI * 2);
+  mgCtx.arc(34, -8, 1.3, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.strokeStyle = "rgba(225,240,255,0.7)";
+  mgCtx.lineWidth = 0.8;
+  mgCtx.beginPath();
+  for (const dy of [-2, 1]) {
+    mgCtx.moveTo(41, dy);
+    mgCtx.lineTo(52, dy * 2.2 - 1);
+  }
+  mgCtx.stroke();
+  // 물방울 자취 (뒤로 떠오르며 작아짐)
+  mgCtx.strokeStyle = "rgba(215,236,255,0.75)";
+  mgCtx.lineWidth = 1.2;
+  for (let i = 0; i < 5; i++) {
+    const k = (f.t * 1.5 + i / 5) % 1;
+    mgCtx.beginPath();
+    mgCtx.arc(-30 - k * 45, -8 + Math.sin(i * 2.1 + f.t * 3) * 10 - k * 8, 3 * (1 - k) + 0.5, 0, Math.PI * 2);
+    mgCtx.stroke();
+  }
+  mgCtx.restore();
+}
+
+// 👻 영혼 줄기: 펫 가슴 (from)의 희미한 빛 + 디멘터 (to)로 일렁이며 올라가는 옅은 은빛 가닥 셋 + 빨려 올라가는 작은 빛 (level 0이면 안 그림)
+function mgSoul(f, t) {
+  const level = Math.max(0, Math.min(1, f.level));
+  if (level <= 0) return;
+  const [x0, y0] = f.from;
+  const [x1, y1] = f.to;
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const len = Math.hypot(dx, dy) || 1;
+  // 줄기와 수직인 방향
+  const nx = -dy / len;
+  const ny = dx / len;
+  const w = f.width;
+  const g = mgCtx.createRadialGradient(x0, y0, 0, x0, y0, w * 1.4);
+  g.addColorStop(0, `rgba(225,238,255,${0.45 * level})`);
+  g.addColorStop(1, "rgba(200,220,255,0)");
+  mgCtx.fillStyle = g;
+  mgCtx.beginPath();
+  mgCtx.arc(x0, y0, w * 1.4, 0, Math.PI * 2);
+  mgCtx.fill();
+  mgCtx.lineCap = "round";
+  for (let i = 0; i < 3; i++) {
+    const ph = f.t * (2.2 + i * 0.7) + i * 2.1;
+    const a = w * (0.35 + 0.15 * i);
+    const o1 = Math.sin(ph) * a;
+    const o2 = Math.sin(ph + 2.4) * a;
+    mgCtx.strokeStyle = `rgba(${200 + i * 15},${225 + i * 8},255,${(0.32 - i * 0.07) * level})`;
+    mgCtx.lineWidth = Math.max(1, w * (0.42 - i * 0.12));
+    mgCtx.beginPath();
+    mgCtx.moveTo(x0 + nx * o2 * 0.2, y0 + ny * o2 * 0.2);
+    mgCtx.bezierCurveTo(x0 + dx * 0.33 + nx * o1, y0 + dy * 0.33 + ny * o1, x0 + dx * 0.66 + nx * o2, y0 + dy * 0.66 + ny * o2, x1, y1);
+    mgCtx.stroke();
+  }
+  mgCtx.fillStyle = `rgba(235,244,255,${0.7 * level})`;
+  for (let i = 0; i < 4; i++) {
+    const k = (t * 0.9 + i / 4) % 1;
+    const wob = Math.sin(t * 4 + i * 1.9) * w * 0.4 * (1 - k);
+    mgCtx.beginPath();
+    mgCtx.arc(x0 + dx * k + nx * wob, y0 + dy * k + ny * wob, Math.max(0.8, w * 0.09 * (1 - k * 0.6)), 0, Math.PI * 2);
+    mgCtx.fill();
+  }
 }
 
 // 🥶 서리: 구석에서 안쪽으로 번지는 반투명 흰빛 + 얼음 가지 (구석마다 같은 모양 — 자리로 씨앗을 정함)
@@ -659,6 +788,8 @@ function mgDraw(f, t) {
   else if (f.kind === "duel") mgDuel(f, t);
   else if (f.kind === "snake") mgSnake(f);
   else if (f.kind === "stag") mgStag(f, t);
+  else if (f.kind === "otter") mgOtter(f, t);
+  else if (f.kind === "soul") mgSoul(f, t);
   else if (f.kind === "frost") mgFrost(f);
   else if (f.kind === "egg") mgEgg(f, t);
   else if (f.kind === "hatchling") mgHatchling(f);
@@ -668,7 +799,7 @@ function mgDraw(f, t) {
   else if (f.kind === "puff") mgPuff(f, t);
 }
 
-// 한 프레임: 서리 → 뱀 → 빛줄기·사슴 순으로, 흐려지는 빛줄기·펑까지. 움직이는 것이 남았으면 다음 프레임
+// 한 프레임: 서리 → 뱀 → 영혼 줄기 → 빛줄기·사슴·수달 순으로, 흐려지는 빛줄기·펑까지. 움직이는 것이 남았으면 다음 프레임
 function drawMagic() {
   mgFrame = 0;
   const now = performance.now();
@@ -676,7 +807,7 @@ function drawMagic() {
   mgGhosts = mgGhosts.filter((g) => (now - g.born) / 1000 < MG_FADE);
   mgPops = mgPops.filter((p) => (now - p.born) / 1000 < MG_POP_SECS);
   mgCtx.clearRect(0, 0, mgCanvas.width, mgCanvas.height);
-  for (const kind of ["frost", "campfire", "snake", "egg", "hatchling", "wand", "bolt", "duel", "stag", "glow", "puff"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
+  for (const kind of ["frost", "campfire", "snake", "egg", "hatchling", "wand", "soul", "bolt", "duel", "stag", "otter", "glow", "puff"]) for (const f of mgFx) if (f.kind === kind) mgDraw(f, t);
   for (const g of mgGhosts) mgBeam(g.fx.from, g.fx.to, g.fx.width, mgColor(g.fx.color), t, 1 - (now - g.born) / 1000 / MG_FADE);
   for (const p of mgPops) mgPop(p, (now - p.born) / 1000 / MG_POP_SECS);
   if (mgMoving()) mgFrame = requestAnimationFrame(drawMagic);
@@ -703,7 +834,7 @@ if (window.__TAURI__) {
   // 이 창으로 온 것만 (전역 listen은 다른 모니터 창으로 보낸 emit_to까지 받음)
   window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("trail-magic", (e) => setMagic(e.payload));
 } else if (new URLSearchParams(location.search).get("magic")) {
-  // 앱 없이 브라우저에서 보기 (개발용): 결투 · 달리는 사슴 · 기는 뱀 · 구석의 서리
+  // 앱 없이 브라우저에서 보기 (개발용): 결투 · 달리는 사슴 · 헤엄치는 수달 · 영혼 줄기 · 기는 뱀 · 구석의 서리
   document.documentElement.style.background = "#1d2030";
   const t0 = performance.now();
   const demo = () => {
@@ -718,6 +849,8 @@ if (window.__TAURI__) {
       { kind: "frost", x: W, y: H, size: 360, inward: [-1, -1], level: 0.6 },
       { kind: "duel", red, green, clash: [red[0] + (green[0] - red[0]) * share, red[1]], reach: Math.min(1, t), width: 9, light: new URLSearchParams(location.search).get("light") || "red" },
       { kind: "stag", x: W * 0.2 + ((t * 220) % (W * 0.6)), y: H * 0.62, size: 130, dir: 1, alpha: 1 },
+      { kind: "otter", x: W * 0.8 - ((t * 200) % (W * 0.6)), y: H * 0.5 - 45 * Math.sin(t * 10), size: 130, dir: -1, alpha: 1, tilt: -0.45 * Math.cos(t * 10), t },
+      { kind: "soul", from: [W * 0.3, H * 0.88], to: [W * 0.3, H * 0.7], width: 38, level: 1, t },
       { kind: "snake", x: W * 0.55 + Math.sin(t * 0.4) * 150, y: H * 0.92, size: 190, dir: Math.cos(t * 0.4) >= 0 ? 1 : -1, t, alpha: 1 },
       { kind: "bolt", from: [W * 0.62, H * 0.75], to: [W * 0.82, H * 0.8], color: "green", width: 7 },
       { kind: "campfire", x: W * 0.12, y: H * 0.95, size: 70, level: Math.min(1, t / 2) },

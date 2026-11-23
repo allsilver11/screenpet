@@ -23,13 +23,28 @@
 //!   숨 고르고 DUEL_PART_SECS 동안 흩어짐. Expelliarmus에 맞으면 지팡이가 WAND_FLY_SECS 동안 날아감. 다음은 DUEL_CALM_SECS 뒤
 //! - 🎒 가방에 숨기: 볼드모트와 결투할 헤르미온느 곁 (TUCK_REACH)에 해리가 있으면 "In you go!" — HIDE_SECS 동안 가방 (HIDE_BAG 크기)을 벌려 들고
 //!   해리는 TUCK_SECS 동안 작아지며 쏙 → 그 뒤 결투. 끝나면 해리가 TUCK_POP으로 튀어나옴 ("Phew!"), 길어도 TUCK_MAX_SECS 안에
-//! - 🦌 패트로누스: 디멘터가 해리의 PATRONUS_REACH 안에 오거나, PATRONUS_SEE 안에서 다른 펫을 시무룩하게 하면 "Expecto Patronum!" —
-//!   은빛 사슴이 STAG_RUN_SECS 동안 디멘터에게 달려가 닿으면 디멘터가 FLEE_SECS 동안 도망. 다음은 PATRONUS_CALM_SECS 뒤
+//! - 🦌 패트로누스 (pet.json `patronus` — 해리 "stag" 사슴 · 헤르미온느 "otter" 수달, PatronusAnimal): 디멘터가 PATRONUS_REACH 안에 오거나,
+//!   PATRONUS_SEE 안에서 다른 펫을 시무룩하게 하면 "Expecto Patronum!" — 은빛 동물이 STAG_RUN_SECS 동안 디멘터에게 달려가
+//!   (수달은 OTTER_BOB만큼 물결치듯 오르내리며 헤엄침 — otter_bob) 닿으면 디멘터가 FLEE_SECS 동안 도망. 다음은 PATRONUS_CALM_SECS 뒤
+//!   (영혼을 빼앗는 디멘터에겐 기다리지 않음)
 //! - 👻 디멘터: GLOOM_REACH 안의 펫은 GLOOM_SECS 시무룩 (펫마다 GLOOM_CALM_SECS에 한 번) + 가까이 있는 동안 배가 GLOOM_HUNGER씩 더 고픔.
 //!   화면 구석이 디멘터의 FROST_REACH (작업 영역 대각선 몫) 안이면 서리가 FROST_GROW로 끼고, 멀어지거나 도망가면 FROST_FADE로 녹음.
 //!   새로 날 때 STALK_CHANCE로 다른 펫 머리 위로 다가감
+//! - 👻 영혼 빼앗기: GLOOM_REACH 안에서 만난 펫에게 DRAIN_CHANCE로 (펫마다 DRAIN_AGAIN_SECS에 한 번 굴림, 끝나면 DRAIN_GAP_SECS 쉼)
+//!   머리 위 (DRAIN_HOVER)에 떠서 DRAIN_SECS 동안 은빛 영혼 줄기 (SOUL_WIDTH) — 펫은 SOUL_RISE만큼 들려 버둥 → DRAIN_FAINT_SECS 기절.
+//!   패트로누스가 오는 중이면 끝내지 못함 (DRAIN_MAX_SECS가 지나면 펫이 그냥 풀려남)
 
 use serde::Deserialize;
+
+/// 🦌🦦 패트로누스 동물 (pet.json `patronus`: "stag"·"otter" — 옛 true는 사슴)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatronusAnimal {
+    /// 🦌 은빛 사슴 (해리)
+    Stag,
+    /// 🦦 은빛 수달 (헤르미온느)
+    Otter,
+}
 
 /// 🏰 호그와트 친구 셋 (🔥 모닥불·📖 공부 방해 — social_campfire.rs·social_pester.rs가 봄)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -280,6 +295,37 @@ pub const FROST_SWEPT_SECS: f64 = 60.0;
 pub const FROST_FADE: f64 = 1.0 / 40.0;
 /// 🥶 다 낀 서리 크기 (작업 영역 대각선 몫)
 pub const FROST_SIZE: f64 = 0.16;
+
+/// 👻 만난 펫의 영혼을 빼앗으려 하는 몫 · 같은 펫에게 다시 주사위를 굴리기까지 (초) · 한 번 빼앗고 쉬는 시간 (초)
+pub const DRAIN_CHANCE: f64 = 0.6;
+pub const DRAIN_AGAIN_SECS: (f64, f64) = (30.0, 60.0);
+pub const DRAIN_GAP_SECS: (f64, f64) = (8.0, 15.0);
+/// 👻 영혼 줄기 시간 · 그 뒤 기절 시간 · 펫이 그냥 풀려나는 가장 긴 시간 (초 — 패트로누스가 오는 동안 늘어남)
+pub const DRAIN_SECS: f64 = 1.8;
+pub const DRAIN_FAINT_SECS: f64 = 3.0;
+pub const DRAIN_MAX_SECS: f64 = 8.0;
+/// 👻 펫 머리 위로 뜨는 높이 (디멘터 몸 크기 배 — 디멘터 발끝) · 다가가는 빠르기 (초당 남은 거리 몫)
+pub const DRAIN_HOVER: f64 = 0.15;
+pub const DRAIN_GLIDE: f64 = 5.0;
+/// 👻 영혼 줄기 굵기 · 펫이 들리는 높이 (펫 몸 크기 배) · 줄기가 짙어지는 시간 (초)
+pub const SOUL_WIDTH: f64 = 0.3;
+pub const SOUL_RISE: f64 = 0.12;
+pub const SOUL_RAMP_SECS: f64 = 0.4;
+/// 🦦 수달이 오르내리는 폭 (시전자 몸 크기 배) · 한 번 오르내리는 빠르기 (초당)
+pub const OTTER_BOB: f64 = 0.35;
+pub const OTTER_BOB_HZ: f64 = 1.6;
+
+/// 🦦 수달 물결 (−1…1, 나오는 0.4초 동안 커짐) · 그때 몸 기울기 (라디안 — 오를 땐 머리를 들고 내려갈 땐 숙임)
+pub fn otter_bob(t: f64) -> (f64, f64) {
+    let w = std::f64::consts::TAU * OTTER_BOB_HZ;
+    let k = (t / 0.4).clamp(0.0, 1.0);
+    ((t * w).sin() * k, -0.45 * (t * w).cos() * k)
+}
+
+/// 👻 영혼 줄기 짙기 (0…1): SOUL_RAMP_SECS 동안 짙어지고 살짝 일렁임
+pub fn soul_level(t: f64) -> f64 {
+    ((t / SOUL_RAMP_SECS).clamp(0.0, 1.0) * (0.9 + 0.1 * (t * 7.0).sin())).clamp(0.0, 1.0)
+}
 
 /// ⚔️ 맞부딪히는 자리 (빨강 쪽 지팡이 끝에서 초록 쪽까지의 몫 0…1): 가운데에서 시작해 밀고 당기며 출렁 (t초째, len초 결투)
 pub fn duel_clash(t: f64, len: f64) -> f64 {

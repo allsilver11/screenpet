@@ -5,6 +5,8 @@
 //! - ⚔️ Duel: 해리 (빨강)·볼드모트 (초록) 빛줄기가 가운데 clash에서 맞부딪힘 (reach = 뻗어 나간 몫, 1이면 맞부딪혀 반짝)
 //! - 🐍 Snake: 볼드모트의 나기니 (발밑 y를 따라 기어 다님)
 //! - 🦌 Stag: 해리의 은빛 사슴 (dir 쪽으로 달림)
+//! - 🦦 Otter: 헤르미온느의 은빛 수달 (dir 쪽으로 물결치듯 헤엄침 — tilt = 몸 기울기, t = 나온 뒤 초)
+//! - 👻 Soul: 디멘터가 빼앗는 펫의 영혼 줄기 (펫 from → 디멘터 to, level = 짙기)
 //! - 🥶 Frost: 디멘터 가까운 화면 구석의 서리 (in = 구석에서 화면 안쪽 방향 부호)
 //! - 🔥 Campfire: 해그리드가 피운 모닥불 (바닥 위 장작 + 일렁이는 불꽃 + 튀는 불티, level = 타오른 몫)
 //! - 🪄 Wand: ⚔️ Expelliarmus에 맞아 날아간 지팡이 (손 → 땅, k = 날아간 몫 — 일어날 때 손으로 돌아옴)
@@ -38,6 +40,10 @@ pub enum MagicFx {
     Snake { x: f64, y: f64, size: f64, dir: f64, t: f64, alpha: f64 },
     /// 🦌 은빛 사슴: 가운데 (x, y), 크기 size, dir = 달리는 쪽 (±1), alpha = 보이는 몫
     Stag { x: f64, y: f64, size: f64, dir: f64, alpha: f64 },
+    /// 🦦 은빛 수달: 가운데 (x, y), 크기 size, dir = 헤엄치는 쪽 (±1), alpha = 보이는 몫, tilt = 몸 기울기 (라디안, dir 쪽 기준 — 머리를 들면 −), t = 나온 뒤 초 (발·꼬리 젓기)
+    Otter { x: f64, y: f64, size: f64, dir: f64, alpha: f64, tilt: f64, t: f64 },
+    /// 👻 영혼 줄기: 펫 가슴 (from)에서 디멘터 (to)로 빨려 올라가는 은빛 줄기, 굵기 width, level = 짙기 0…1, t = 시작한 뒤 초 (일렁임)
+    Soul { from: (f64, f64), to: (f64, f64), width: f64, level: f64, t: f64 },
     /// 🥶 서리: 구석 (x, y), 크기 size, inward = 화면 안쪽 부호 (±1, ±1), level = 낀 몫 0…1
     Frost { x: f64, y: f64, size: f64, inward: (f64, f64), level: f64 },
     /// 🥚 용알: 바닥 가운데 (x, y — 해그리드 손), 높이 size, crack = 금 간 몫 0…1
@@ -58,10 +64,10 @@ impl MagicFx {
     /// 어느 모니터 덮개 창에 그릴지 정하는 점 (구석의 서리는 화면 안쪽으로 1px)
     pub fn anchor(&self) -> (f64, f64) {
         match *self {
-            MagicFx::Bolt { from, .. } | MagicFx::Wand { from, .. } => from,
+            MagicFx::Bolt { from, .. } | MagicFx::Wand { from, .. } | MagicFx::Soul { from, .. } => from,
             MagicFx::Glow { x, y, .. } | MagicFx::Puff { x, y, .. } => (x, y),
             MagicFx::Duel { clash, .. } => clash,
-            MagicFx::Snake { x, y, .. } | MagicFx::Stag { x, y, .. } | MagicFx::Egg { x, y, .. } | MagicFx::Hatchling { x, y, .. } | MagicFx::Campfire { x, y, .. } => (x, y - 1.0),
+            MagicFx::Snake { x, y, .. } | MagicFx::Stag { x, y, .. } | MagicFx::Otter { x, y, .. } | MagicFx::Egg { x, y, .. } | MagicFx::Hatchling { x, y, .. } | MagicFx::Campfire { x, y, .. } => (x, y - 1.0),
             MagicFx::Frost { x, y, inward, .. } => (x + inward.0, y + inward.1),
         }
     }
@@ -79,6 +85,11 @@ impl MagicFx {
                 let (x, y) = at((x, y));
                 MagicFx::Stag { x, y, size: size * scale, dir, alpha }
             }
+            MagicFx::Otter { x, y, size, dir, alpha, tilt, t } => {
+                let (x, y) = at((x, y));
+                MagicFx::Otter { x, y, size: size * scale, dir, alpha, tilt, t }
+            }
+            MagicFx::Soul { from, to, width, level, t } => MagicFx::Soul { from: at(from), to: at(to), width: width * scale, level, t },
             MagicFx::Frost { x, y, size, inward, level } => {
                 let (x, y) = at((x, y));
                 MagicFx::Frost { x, y, size: size * scale, inward, level }
@@ -132,6 +143,13 @@ mod tests {
         assert_eq!(serde_json::to_value(n).unwrap()["kind"], "puff");
         assert_eq!(n.anchor(), (10.0, 20.0));
         assert_eq!(n.mapped(|(x, y)| (x / 2.0, y / 2.0), 0.5), MagicFx::Puff { x: 5.0, y: 10.0, size: 4.0, k: 0.5 });
+        let o = MagicFx::Otter { x: 10.0, y: 20.0, size: 8.0, dir: 1.0, alpha: 1.0, tilt: 0.2, t: 0.5 };
+        assert_eq!(serde_json::to_value(o).unwrap()["kind"], "otter");
+        assert_eq!(o.mapped(|(x, y)| (x / 2.0, y / 2.0), 0.5), MagicFx::Otter { x: 5.0, y: 10.0, size: 4.0, dir: 1.0, alpha: 1.0, tilt: 0.2, t: 0.5 });
+        let soul = MagicFx::Soul { from: (10.0, 40.0), to: (10.0, 0.0), width: 8.0, level: 0.5, t: 1.0 };
+        assert_eq!(serde_json::to_value(soul).unwrap()["kind"], "soul");
+        assert_eq!(soul.anchor(), (10.0, 40.0));
+        assert_eq!(soul.mapped(|(x, y)| (x / 2.0, y / 2.0), 0.5), MagicFx::Soul { from: (5.0, 20.0), to: (5.0, 0.0), width: 4.0, level: 0.5, t: 1.0 });
         let egg = MagicFx::Egg { x: 10.0, y: 20.0, size: 8.0, crack: 0.5 };
         assert_eq!(egg.mapped(|(x, y)| (x / 2.0, y / 2.0), 0.5), MagicFx::Egg { x: 5.0, y: 10.0, size: 4.0, crack: 0.5 });
     }

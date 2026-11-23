@@ -11,7 +11,7 @@ use crate::wizard::{self as wz, Spell, SpellSet};
 
 /// 해리 (테스트 설정): Expelliarmus·Leviosa + 패트로누스
 fn harry() -> PetConfig {
-    PetConfig { spells: SpellSet::of(&[Spell::Expelliarmus, Spell::Leviosa]), patronus: true, ..pet_cfg() }
+    PetConfig { spells: SpellSet::of(&[Spell::Expelliarmus, Spell::Leviosa]), patronus: Some(crate::wizard::PatronusAnimal::Stag), ..pet_cfg() }
 }
 
 /// 헤르미온느 (테스트 설정): 책벌레 + 가방

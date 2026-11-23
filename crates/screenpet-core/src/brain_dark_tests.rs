@@ -44,6 +44,9 @@ fn dark_lines_have_their_sheet_names() {
         (Speech::Patronus, "patronus"),
         (Speech::Gloom, "gloom"),
         (Speech::Repelled, "repelled"),
+        (Speech::SoulDrain, "soul_drain"),
+        (Speech::SoulTaken, "soul_taken"),
+        (Speech::SoulSaved, "soul_saved"),
     ] {
         assert_eq!(serde_json::to_string(&s).unwrap(), format!("\"{name}\""));
     }

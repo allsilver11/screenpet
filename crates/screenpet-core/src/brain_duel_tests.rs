@@ -1,7 +1,9 @@
 //! ⚔️ 결투·🦌 패트로누스 (brain_duel.rs): 해리·볼드모트가 마주치면 마주 보고 빨강·초록 빛줄기가 맞부딪혀 밀고 당기다 펑 (둘 다 튕김) ·
-//! 한쪽이 끊기면 그만 · 디멘터가 오면 "Expecto Patronum!" 은빛 사슴이 달려가 디멘터를 쫓음
+//! 한쪽이 끊기면 그만 · 디멘터가 오면 "Expecto Patronum!" 은빛 사슴 (헤르미온느는 수달)이 달려가 디멘터를 쫓음 ·
+//! 👻 영혼을 빼앗기는 펫을 같은 화면의 해리·헤르미온느가 구함
 
 use super::dark_tests::{still, voldemort};
+use super::dementor_moves::sync_drain;
 use super::dementor_tests::floating;
 use super::hoist_moves::sync_lifts;
 use super::swing_tests::resting;
@@ -9,11 +11,16 @@ use super::tests::world;
 use super::*;
 use crate::magic::MagicFx;
 use crate::test_util::{pet_cfg, DT};
-use crate::wizard::{self as wz, Spell, SpellSet};
+use crate::wizard::{self as wz, PatronusAnimal, Spell, SpellSet};
 
 /// 해리 (테스트 설정): Expelliarmus·Leviosa + 패트로누스
 fn harry() -> PetConfig {
-    PetConfig { spells: SpellSet::of(&[Spell::Expelliarmus, Spell::Leviosa]), patronus: true, rides_broom: true, seeker: true, ..pet_cfg() }
+    PetConfig { spells: SpellSet::of(&[Spell::Expelliarmus, Spell::Leviosa]), patronus: Some(PatronusAnimal::Stag), rides_broom: true, seeker: true, ..pet_cfg() }
+}
+
+/// 헤르미온느 (테스트 설정): Leviosa·Reparo + 책벌레 + 🦦 수달 패트로누스
+fn hermione() -> PetConfig {
+    PetConfig { spells: SpellSet::of(&[Spell::Leviosa, Spell::Reparo]), bookworm: true, patronus: Some(PatronusAnimal::Otter), ..pet_cfg() }
 }
 
 /// 해리 (x)와 볼드모트 (vx) — 결투만 켬
@@ -265,4 +272,74 @@ fn harry_also_saves_other_pets_on_screen_but_ignores_a_lonely_far_dementor() {
     let mut lonely = vec![h, d];
     sync_lifts(&mut lonely);
     assert!(lonely[0].casting().is_none());
+}
+
+/// 👻🦌 영혼을 빼앗기는 펫 (1300)을 같은 화면 (PATRONUS_SEE)의 해리·헤르미온느가 구함: 패트로누스를 막 썼어도 (patronus_ready_at) "Expecto Patronum!" —
+/// 해리는 🦌 사슴, 헤르미온느는 🦦 수달 (물결치듯 오르내리며 헤엄쳐 감). 디멘터는 도망, 펫은 기절하지 않고 "phew!".
+/// 헤르미온느는 빼앗기 시작하고 1.2초 뒤에야 화면에 들어와도 늦지 않음 (구하러 오는 동안 디멘터가 끝내지 못함)
+#[test]
+fn harry_or_hermione_save_a_pet_from_the_dementors_drain() {
+    let w = world(vec![]);
+    let setup = |seed: u64| {
+        let mut v = resting(pet_cfg(), 1300.0, 3, &w);
+        v.hush_stage();
+        v.social_key = 3;
+        let mut d = floating(1350.0, 980.0, seed);
+        d.social_key = 2;
+        vec![v, d]
+    };
+    let seed = (0..60)
+        .find(|&s| {
+            let mut p = setup(s);
+            sync_drain(&mut p);
+            p[1].soul_draining() == Some(3)
+        })
+        .unwrap();
+    for (cfg, animal, late) in [(harry(), PatronusAnimal::Stag, 0.0), (hermione(), PatronusAnimal::Otter, 1.2)] {
+        let rescuer = || {
+            let mut r = still(cfg, 300.0, 1, &w);
+            r.social_key = 1;
+            r.duel.patronus_ready_at = r.clock + 100.0;
+            r
+        };
+        let mut pets = setup(seed);
+        if late == 0.0 {
+            pets.insert(0, rescuer());
+        }
+        sync_lifts(&mut pets);
+        let (mut saved, mut seen, mut ys, mut joined) = (false, (false, false), Vec::new(), late == 0.0);
+        for i in 0..(7.0 / DT) as usize {
+            if !joined && i as f64 * DT >= late {
+                pets.insert(0, rescuer());
+                joined = true;
+            }
+            tick(&mut pets, &w);
+            let victim = pets.iter().position(|p| p.social_key == 3).unwrap();
+            assert!(!pets[victim].is_fainted(), "{animal:?}: 구했으니 기절하지 않음 ({:.2}s)", i as f64 * DT);
+            saved |= pets[victim].take_speech() == Some(Speech::SoulSaved);
+            if joined {
+                let mut fx = Vec::new();
+                pets[0].magic_fx(&mut fx);
+                for f in fx {
+                    match f {
+                        MagicFx::Stag { .. } => seen.0 = true,
+                        MagicFx::Otter { y, tilt, .. } => {
+                            seen.1 = true;
+                            ys.push(y);
+                            assert!(tilt.abs() < 1.0);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let d = pets.iter().find(|p| p.social_key == 2).unwrap();
+        assert!(d.dementor_fleeing() && d.soul_draining().is_none(), "{animal:?}");
+        assert!(saved, "{animal:?}: phew!");
+        assert_eq!(seen, (animal == PatronusAnimal::Stag, animal == PatronusAnimal::Otter), "{animal:?}");
+        if animal == PatronusAnimal::Otter {
+            let turns = ys.windows(3).filter(|w| (w[1] - w[0]) * (w[2] - w[1]) < 0.0).count();
+            assert!(turns >= 2, "물결치듯: {turns}");
+        }
+    }
 }

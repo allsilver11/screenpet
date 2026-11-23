@@ -157,3 +157,27 @@ def test_long_duel_and_lumos_speech_topple_and_help():
         li = next(li for li in help_html.split("<li>") if li.startswith(start))
         assert all(w in li for w in words) and li.rstrip().endswith("요.</li>"), start
     assert "앱 아이콘 하나를 쏙 뽑아" in help_html
+
+
+def test_patronus_otter_and_soul_stream_animate_and_are_checked(run):
+    """🦦 헤르미온느의 은빛 수달 (몸·꼬리·기울기)·👻 디멘터가 빼앗는 영혼 줄기 (일렁이는 가닥·빨려 올라가는 빛): 이상한 값은 버리고,
+    있는 동안 프레임을 돌리며 그림 — 짙기 0인 줄기는 그리지 않음."""
+    assert run["otter_soul_filtered"] == 2
+    assert run["otter_soul_frames"] == 10 and run["otter_soul_ellipses"] >= 10 * 3 and run["otter_soul_turns"] >= 10
+    assert run["otter_soul_curves"] >= 10 * 4 and run["otter_soul_gradients"] >= 10 * 2
+    assert run["soul_dim_curves"] == 0
+
+
+def test_soul_drain_speech_and_help():
+    """👻 영혼 빼앗기: 새 말풍선 키마다 기본 영어 대사 (ui/main.js EXTRA_SPEECH — 코어 Speech와 같은 이름), 도움말 디멘터 줄에 영혼·기절·헤르미온느 수달."""
+    enum = BRAIN[BRAIN.index("pub enum Speech {") :]
+    enum = enum[: enum.index("\n}")]
+    extra = MAIN[MAIN.index("const EXTRA_SPEECH = {") :]
+    extra = extra[: extra.index("\n};")]
+    for v, key in (("SoulDrain", "soul_drain"), ("SoulTaken", "soul_taken"), ("SoulSaved", "soul_saved")):
+        assert re.search(rf"^\s{{4}}{v},", enum, re.M), v
+        assert re.search(rf"\b{key}: \[\"", extra), key
+    assert '"my soul...!"' in extra and '"phew!"' in extra
+    help_html = (UI / "help.html").read_text(encoding="utf-8")
+    d = next(li for li in help_html.split("<li>") if li.startswith("👻 디멘터"))
+    assert "영혼" in d and "기절" in d and "수달" in d and d.rstrip().endswith("요.</li>")

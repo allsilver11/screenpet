@@ -329,8 +329,8 @@ DARK_LORD = {"voldemort"}
 # 👻 디멘터: 곁의 펫 시무룩·배고픔, 화면 구석 🥶 서리, 🦌 패트로누스에 도망 (pet.json dementor — locomotion fly)
 DEMENTOR = {"dementor"}
 
-# 🦌 디멘터가 오면 "Expecto Patronum!" 은빛 사슴 (pet.json patronus — 해리, 그림 cast)
-PATRONUS = {"harry"}
+# 🦌🦦 디멘터가 오면 "Expecto Patronum!" 은빛 동물 (pet.json patronus — 해리 사슴 "stag"·헤르미온느 수달 "otter", 그림 cast)
+PATRONUS = {"harry": "stag", "hermione": "otter"}
 
 # 🟡 골든 스니치를 빗자루로 쫓아가 잡는 동물 (pet.json seeker — 해리)
 SEEKER = {"harry"}

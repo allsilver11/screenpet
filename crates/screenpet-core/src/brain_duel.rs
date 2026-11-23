@@ -9,9 +9,12 @@
 //!   볼드모트 "Stupefy!"·"Avada Kedavra!" 번갈아 (초록 — 튕겨 기절, 해롭지 않은 장난).
 //!   한쪽이 끊기면 (잡힘·볼일) 다른 쪽도 그만. 맞부딪힘 빛줄기는 빨강 쪽이 내놓음 (magic_fx → MagicFx::Duel), 저주 빛줄기는 쏜 쪽이
 //! - 🎒 셋이 모이면 (해리·헤르미온느·볼드모트) 헤르미온느가 해리를 가방에 숨기고 대신 결투 (Duel.hold·bag — brain_tuck.rs가 시작·해리를 맡음)
-//! - 🦌 패트로누스: sync_patronus가 patronus 펫 (해리) 곁 (PATRONUS_REACH)에 디멘터가 오거나, 같은 화면 (PATRONUS_SEE)에서 디멘터가
-//!   다른 펫을 시무룩하게 하면 그 디멘터에게 "Expecto Patronum!" (State::Cast — brain_spell.rs) → 맞는 때 지팡이 끝에서 은빛 사슴이
-//!   디멘터를 따라 달려가 (STAG_RUN_SECS) 닿으면 디멘터가 도망 (be_repelled — brain_dementor.rs), 사슴은 그 너머로 달려가며 흐려짐
+//! - 🦌 패트로누스: sync_patronus가 patronus 펫 (해리 🦌 사슴·헤르미온느 🦦 수달 — cfg.patronus) 곁 (PATRONUS_REACH)에 디멘터가 오거나,
+//!   같은 화면 (PATRONUS_SEE)에서 디멘터가 다른 펫을 시무룩하게 하면 그 디멘터에게 "Expecto Patronum!" (State::Cast — brain_spell.rs) →
+//!   맞는 때 지팡이 끝에서 은빛 동물이 디멘터를 따라 달려가 (STAG_RUN_SECS — 수달은 물결치듯 오르내림, otter_bob) 닿으면 디멘터가 도망
+//!   (be_repelled — brain_dementor.rs), 동물은 그 너머로 달려가며 흐려짐.
+//!   👻 영혼을 빼앗는 디멘터 (soul_draining)는 PATRONUS_SEE 안이면 패트로누스를 막 썼어도 (PATRONUS_CALM_SECS) 곧바로 구하러 감 —
+//!   한 디멘터에게 한 명만. 오는 중 (patronus_coming)이면 디멘터가 빼앗기를 끝내지 못함 (sync_drain)
 //! - 훅: magic_fx (덮개 창에 그릴 마법 효과 모두 — ⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리)
 //!
 //! 주사위는 자기 주사위(DuelMood.rng)로 굴림 — 평소 동작과 다른 동물의 주사위 순서는 그대로.
@@ -20,7 +23,7 @@ use super::spell_moves::SpellTarget;
 use super::*;
 use crate::duel_bout::{self as bout, Act, Bout, Curse, Dodge, Side};
 use crate::magic::{BeamColor, MagicFx};
-use crate::wizard::{self as wz, Spell};
+use crate::wizard::{self as wz, PatronusAnimal, Spell};
 
 /// ⚔️ 결투 하나 (두 펫이 같은 것을 하나씩 가짐 — 지팡이 끝은 물리 px)
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -102,13 +105,18 @@ pub struct Stag {
     pub dir: f64,
     /// 디멘터에게 닿았음
     pub hit: bool,
+    /// 🦌 사슴 · 🦦 수달
+    pub animal: PatronusAnimal,
+    /// 🦦 수달이 오르내리는 폭 (물리 px — 사슴은 0)
+    pub bob: f64,
 }
 
 impl Stag {
-    /// 지금 자리 (닿은 뒤엔 그 너머로)
+    /// 지금 자리 (닿은 뒤엔 그 너머로 — 🦦 수달은 물결치듯 오르내림)
     pub fn pos(&self) -> (f64, f64) {
         let k = wz::stag_progress(self.t);
-        (self.from.0 + (self.to.0 - self.from.0) * k, self.from.1 + (self.to.1 - self.from.1) * k)
+        let wave = self.bob * wz::otter_bob(self.t).0;
+        (self.from.0 + (self.to.0 - self.from.0) * k, self.from.1 + (self.to.1 - self.from.1) * k - wave)
     }
 }
 
@@ -188,7 +196,7 @@ impl Pet {
             Some(wz::Hogwarts::Hagrid)
         } else if self.cfg.bookworm {
             Some(wz::Hogwarts::Hermione)
-        } else if self.cfg.patronus {
+        } else if self.cfg.patronus.is_some() {
             Some(wz::Hogwarts::Harry)
         } else {
             None
@@ -210,9 +218,23 @@ impl Pet {
         self.duel_side().is_some() && self.wizard_free() && self.clock >= self.duel.ready_at
     }
 
-    /// 🦌 패트로누스를 쓸 수 있음
-    fn patronus_ready(&self) -> bool {
-        self.cfg.patronus && self.wizard_free() && self.clock >= self.duel.patronus_ready_at && self.duel.stag.is_none()
+    /// 🦌 패트로누스를 쓸 수 있음 (rush = 👻 영혼을 빼앗는 디멘터라 쉬는 시간을 기다리지 않음)
+    fn patronus_ready(&self, rush: bool) -> bool {
+        self.cfg.patronus.is_some() && self.wizard_free() && (rush || self.clock >= self.duel.patronus_ready_at) && self.duel.stag.is_none()
+    }
+
+    /// 🦌 패트로누스가 가는 중인 디멘터 (social_key): "Expecto Patronum!" 휘두르는 중이거나 은빛 동물이 아직 닿지 않음
+    pub(super) fn patronus_coming(&self) -> Option<u64> {
+        if let Some(s) = self.duel.stag.filter(|s| !s.hit) {
+            return Some(s.key);
+        }
+        match self.state {
+            State::Cast { cast, .. } if cast.spell == Spell::Patronus => match cast.target {
+                SpellTarget::Pet { key, .. } => Some(key),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     /// x 쪽을 볼 때의 지팡이 끝
@@ -435,11 +457,13 @@ impl Pet {
         self.begin_cast_at(Spell::Patronus, SpellTarget::Pet { key, x }, (x, y));
     }
 
-    /// 🦌 지팡이 끝에서 은빛 사슴이 디멘터 (key, aim)에게 달려 나감
+    /// 🦌 지팡이 끝에서 은빛 동물 (🦌 사슴 · 🦦 수달 — cfg.patronus)이 디멘터 (key, aim)에게 달려 나감
     pub(super) fn release_stag(&mut self, key: u64, aim: (f64, f64)) {
         let from = self.wand_tip();
         let dir = if (aim.0 - from.0).abs() > 1.0 { (aim.0 - from.0).signum() } else { self.facing };
-        self.duel.stag = Some(Stag { key, from, to: aim, t: 0.0, dir, hit: false });
+        let animal = self.cfg.patronus.unwrap_or(PatronusAnimal::Stag);
+        let bob = if animal == PatronusAnimal::Otter { wz::OTTER_BOB * self.cfg.size } else { 0.0 };
+        self.duel.stag = Some(Stag { key, from, to: aim, t: 0.0, dir, hit: false, animal, bob });
     }
 
     /// 매 틱 (상태와 상관없이): 사슴이 달려 디멘터에게 닿으면 알리고 (repel), 다 달리면 사라짐
@@ -453,7 +477,7 @@ impl Pet {
         self.duel.stag = if s.t < wz::STAG_SECS { Some(s) } else { None };
     }
 
-    /// ✨ 덮개 창에 그릴 마법 효과 모두 (앱이 매 틱 — trail.rs): ⚡ 빛줄기 · ⚔️ 결투 (빨강 쪽만) · 🐍 나기니 · 🦌 사슴 · 🥶 서리 · 🔥 모닥불
+    /// ✨ 덮개 창에 그릴 마법 효과 모두 (앱이 매 틱 — trail.rs): ⚡ 빛줄기 · ⚔️ 결투 (빨강 쪽만) · 🐍 나기니 · 🦌 사슴·🦦 수달 · 🥶 서리·👻 영혼 줄기 · 🔥 모닥불
     pub fn magic_fx(&self, out: &mut Vec<MagicFx>) {
         self.spell_fx(out);
         self.dark_fx(out);
@@ -466,7 +490,11 @@ impl Pet {
         self.duel_fx(out);
         if let Some(s) = self.duel.stag {
             let (x, y) = s.pos();
-            out.push(MagicFx::Stag { x, y, size: wz::STAG_SIZE * self.cfg.size, dir: s.dir, alpha: wz::stag_alpha(s.t) });
+            let (size, alpha) = (wz::STAG_SIZE * self.cfg.size, wz::stag_alpha(s.t));
+            out.push(match s.animal {
+                PatronusAnimal::Stag => MagicFx::Stag { x, y, size, dir: s.dir, alpha },
+                PatronusAnimal::Otter => MagicFx::Otter { x, y, size, dir: s.dir, alpha, tilt: wz::otter_bob(s.t).1, t: s.t },
+            });
         }
     }
 }
@@ -542,6 +570,9 @@ pub(super) fn sync_patronus<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
     }
     let victims: Vec<(u64, (f64, f64))> = pets.iter().map(|p| p.as_ref()).filter(|p| !p.cfg.dementor && !p.is_away()).map(|p| (p.social_key, center(p))).collect();
     let dist = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).hypot(a.1 - b.1);
+    // 👻 영혼을 빼앗는 디멘터 · 이번 틱에 누군가 구하러 간 디멘터 (한 명만)
+    let draining: Vec<u64> = pets.iter().map(|p| p.as_ref()).filter(|p| p.soul_draining().is_some()).map(|p| p.social_key).collect();
+    let mut claimed: Vec<u64> = pets.iter().filter_map(|p| p.as_ref().patronus_coming()).collect();
     for p in pets.iter_mut() {
         let p = p.as_mut();
         // 달리는 사슴은 디멘터를 따라감
@@ -551,21 +582,33 @@ pub(super) fn sync_patronus<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) {
                 p.duel.stag = Some(s);
             }
         }
-        if !p.patronus_ready() {
+        if !p.patronus_ready(true) {
             continue;
         }
         let (me, size) = (center(p), p.cfg.size);
-        let pick = dementors
+        let rested = p.patronus_ready(false);
+        // 👻 영혼을 빼앗는 디멘터가 먼저 (쉬는 중이어도), 아니면 곁의 디멘터 · 시무룩하게 하는 디멘터
+        let rescue = dementors
             .iter()
-            .filter(|&&(key, at, dsize)| {
-                let d = dist(me, at);
-                key != p.social_key
-                    && (d <= wz::PATRONUS_REACH * size
-                        || (d <= wz::PATRONUS_SEE * size && victims.iter().any(|&(vk, v)| vk != key && dist(v, at) <= wz::GLOOM_REACH * dsize)))
-            })
+            .filter(|&&(key, at, _)| key != p.social_key && draining.contains(&key) && !claimed.contains(&key) && dist(me, at) <= wz::PATRONUS_SEE * size)
             .min_by(|a, b| dist(me, a.1).total_cmp(&dist(me, b.1)))
             .copied();
+        let pick = rescue.or_else(|| {
+            dementors
+                .iter()
+                .filter(|&&(key, at, dsize)| {
+                    let d = dist(me, at);
+                    rested
+                        && key != p.social_key
+                        && !claimed.contains(&key)
+                        && (d <= wz::PATRONUS_REACH * size
+                            || (d <= wz::PATRONUS_SEE * size && victims.iter().any(|&(vk, v)| vk != key && dist(v, at) <= wz::GLOOM_REACH * dsize)))
+                })
+                .min_by(|a, b| dist(me, a.1).total_cmp(&dist(me, b.1)))
+                .copied()
+        });
         if let Some((key, at, _)) = pick {
+            claimed.push(key);
             p.begin_patronus(key, at.0, at.1);
         }
     }
