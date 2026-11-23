@@ -615,6 +615,18 @@ impl SeenPeers {
     }
 }
 
+/// 🐾🐾🐾 친구 화면에 내 펫이 이미 at_friend마리 가 있을 때 하나 더 보내도 되나.
+/// takes_many = 그 친구가 한 주인의 펫 여럿을 받는 새 판 (`MULTI_PET_MIN_VERSION`) — 옛 판 친구에겐 한 번에 한 마리만
+pub fn may_join_friend(at_friend: usize, takes_many: bool) -> bool {
+    at_friend == 0 || (takes_many && at_friend < crate::own_pets::MAX_OWN_PETS)
+}
+
+/// 🐾🐾🐾 같은 주인의 손님이 이미 와 있을 때 또 받을 수 있나: here = 와 있는 그 주인 펫들의 번호 (Visit.pet, 없으면 0),
+/// pet = 새로 온 펫의 번호. 같은 번호는 이미 와 있는 것 (옛 판 주인은 늘 0이라 지금처럼 한 마리만), 주인마다 MAX_OWN_PETS까지
+pub fn may_host_another(here: &[u8], pet: u8) -> bool {
+    here.len() < crate::own_pets::MAX_OWN_PETS && !here.contains(&pet)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1128,4 +1140,24 @@ mod tests {
         assert!(!arrival_dives(-300.0, 0.0) && !arrival_dives(0.0, 0.0));
     }
 
+    // ---- 🐾🐾🐾 내 펫 여러 마리가 한 친구에게 ----
+
+    #[test]
+    fn a_second_pet_joins_a_friend_only_on_a_new_enough_friend() {
+        use super::may_join_friend;
+        assert!(may_join_friend(0, false), "the first pet goes anywhere");
+        assert!(!may_join_friend(1, false), "an old friend gets one pet at a time");
+        assert!(may_join_friend(1, true) && may_join_friend(2, true));
+        assert!(!may_join_friend(crate::own_pets::MAX_OWN_PETS, true));
+    }
+
+    #[test]
+    fn a_host_takes_several_pets_of_one_owner_but_not_the_same_one_twice() {
+        use super::may_host_another;
+        assert!(may_host_another(&[], 0));
+        // 옛 판 친구는 번호를 싣지 않아 늘 0 — 지금처럼 한 마리만
+        assert!(!may_host_another(&[0], 0));
+        assert!(may_host_another(&[0], 1) && may_host_another(&[0, 1], 2));
+        assert!(!may_host_another(&[0, 1, 2], 2) && !may_host_another(&[0, 1, 2], 7));
+    }
 }

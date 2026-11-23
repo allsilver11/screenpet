@@ -240,15 +240,29 @@ impl Rhythm {
 
     /// 집중을 (다시) 시작함 — "focus!" 하고 구석으로 감
     pub fn start_focus(&mut self, length: FocusLength, secs: f64, pet: &mut Pet) {
+        self.start_focus_all(length, secs, &mut [pet]);
+    }
+
+    /// 🐾🐾🐾 내 펫 모두 한 번에 집중을 (다시) 시작함
+    pub fn start_focus_all(&mut self, length: FocusLength, secs: f64, pets: &mut [&mut Pet]) {
         self.focus = Some(Pomodoro::new(length, secs));
-        pet.set_focus(true);
-        pet.say_focus();
+        for pet in pets.iter_mut() {
+            pet.set_focus(true);
+            pet.say_focus();
+        }
     }
 
     /// 집중을 끝냄 (동물도 집중 모드를 끔)
     pub fn stop_focus(&mut self, pet: &mut Pet) {
+        self.stop_focus_all(&mut [pet]);
+    }
+
+    /// 🐾🐾🐾 내 펫 모두 한 번에 집중을 끝냄
+    pub fn stop_focus_all(&mut self, pets: &mut [&mut Pet]) {
         self.focus = None;
-        pet.set_focus(false);
+        for pet in pets.iter_mut() {
+            pet.set_focus(false);
+        }
     }
 
     /// 동물 위에 그릴 것 (수면 모자·집중 고리)
@@ -258,29 +272,38 @@ impl Rhythm {
 
     /// 1초에 한 번: 졸림·자리 비움·인사·집중을 보고 동물에게 시킴
     pub fn tick(&mut self, input: &RhythmInput, pet: &mut Pet, world: &World, care: &mut Care, marks: &mut DailyMarks) -> RhythmOutput {
+        self.tick_all(input, &mut [RhythmPet { pet, world, care }], marks)
+    }
+
+    /// 🐾🐾🐾 1초에 한 번, 내 펫 모두에게: 유휴 감시·집중 타이머는 한 번만 보고 모두에게 똑같이 시킴.
+    /// 아침 인사는 인사할 수 있는 펫 모두, 점심은 성장을 멈추지 않은 펫 모두 (하나라도 했으면 오늘 몫은 끝)
+    pub fn tick_all(&mut self, input: &RhythmInput, pets: &mut [RhythmPet<'_>], marks: &mut DailyMarks) -> RhythmOutput {
         let mut out = RhythmOutput::default();
-        pet.set_sleepy(input.moment.is_sleepy());
-        match self.idle.observe(input.idle) {
-            Some(IdleChange::Away) => pet.set_user_away(true),
-            Some(IdleChange::Back) => {
-                pet.set_user_away(false);
-                out.house_wave = pet.welcome_back(world) && pet.is_housed();
+        let change = self.idle.observe(input.idle);
+        let phase = self.focus.as_mut().and_then(|p| p.tick(input.secs));
+        let away = self.idle.is_away();
+        for p in pets.iter_mut() {
+            p.pet.set_sleepy(input.moment.is_sleepy());
+            match change {
+                Some(IdleChange::Away) => p.pet.set_user_away(true),
+                Some(IdleChange::Back) => {
+                    p.pet.set_user_away(false);
+                    out.house_wave |= p.pet.welcome_back(p.world) && p.pet.is_housed();
+                }
+                None => {}
             }
-            None => {}
-        }
-        if let Some(pomodoro) = self.focus.as_mut() {
-            match pomodoro.tick(input.secs) {
+            match phase {
                 // 자리를 비운 동안엔 타이머만 조용히 돈다: 말도 기지개도 없이 잠만 잔다
                 Some(FocusPhase::Break) => {
-                    pet.set_focus(false);
-                    if !self.idle.is_away() {
-                        pet.focus_break();
+                    p.pet.set_focus(false);
+                    if !away {
+                        p.pet.focus_break();
                     }
                 }
                 Some(FocusPhase::Focus) => {
-                    pet.set_focus(true);
-                    if !self.idle.is_away() {
-                        pet.say_focus();
+                    p.pet.set_focus(true);
+                    if !away {
+                        p.pet.say_focus();
                     }
                 }
                 None => {}
@@ -288,24 +311,48 @@ impl Rhythm {
         }
         let focusing = self.focus.is_some_and(|f| f.phase == FocusPhase::Focus);
         // 사용자가 보고 있을 때만, 집중을 방해하지 않게. 지금 못 하면 (공중·먹는 중…) 다음 초에 다시
-        if input.visible && !self.idle.is_away() && !focusing {
+        if input.visible && !away && !focusing {
             let m = input.moment;
-            if marks.morning_due(m) && pet.good_morning() {
+            let mut greeted = false;
+            if marks.morning_due(m) {
+                for p in pets.iter_mut() {
+                    greeted |= p.pet.good_morning();
+                }
+            }
+            if greeted {
                 marks.morning = Some(m.day);
                 out.marks_changed = true;
-            } else if marks.lunch_due(m) && care.locked {
+            } else if marks.lunch_due(m) && pets.iter().all(|p| p.care.locked) {
                 // 성장을 멈춘 펫은 점심을 조르지 않음: 오늘 몫은 조용히 넘김
                 marks.lunch = Some(m.day);
                 out.marks_changed = true;
-            } else if marks.lunch_due(m) && pet.lunch_time() {
-                care.lunch_hunger();
-                pet.set_hungry(care.is_hungry());
-                marks.lunch = Some(m.day);
-                out.marks_changed = true;
+            } else if marks.lunch_due(m) {
+                let mut asked = false;
+                for p in pets.iter_mut().filter(|p| !p.care.locked) {
+                    if p.pet.lunch_time() {
+                        p.care.lunch_hunger();
+                        p.pet.set_hungry(p.care.is_hungry());
+                        asked = true;
+                    }
+                }
+                if asked {
+                    marks.lunch = Some(m.day);
+                    out.marks_changed = true;
+                }
             }
         }
         out
     }
+}
+
+/// 🐾🐾🐾 하루 리듬을 같이 받는 내 펫 하나 (두뇌·세계·돌보기)
+pub struct RhythmPet<'a> {
+    /// 동물 두뇌
+    pub pet: &'a mut Pet,
+    /// 이 펫의 세계
+    pub world: &'a World,
+    /// 이 펫의 돌보기 상태
+    pub care: &'a mut Care,
 }
 
 #[cfg(test)]

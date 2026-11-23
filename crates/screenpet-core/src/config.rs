@@ -28,9 +28,12 @@ pub struct Config {
     pub keep_file: bool,
     /// 마지막으로 고른 동물 폴더 이름
     pub pet: Option<String>,
-    /// 동물별 돌보기 상태 (없으면 새끼부터)
+    /// 동물별 돌보기 상태 (없으면 새끼부터). 🐾🐾🐾 이제는 펫마다 `pets`에 있고, 여기엔 첫 펫 것과 예전에 키운 기록이 남음
     #[serde(default)]
     pub care: HashMap<String, Care>,
+    /// 🐾🐾🐾 내 펫들 (순서 = 메뉴 순서, 첫 펫 = 대표). 없으면 옛 `pet`·`care`에서 한 마리를 만듦 (own_pets.rs settle_pets)
+    #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "crate::own_pets::lenient_pets")]
+    pub pets: Vec<crate::own_pets::OwnPet>,
     /// 하우스 안에 있음 (동물이 아니라 설치마다 하나) — 다음 실행도 하우스 안에서 시작
     #[serde(default)]
     pub housed: bool,
@@ -319,6 +322,10 @@ impl Config {
             if self.pet.as_deref() == Some(gone) {
                 self.pet = Some(to.to_string());
             }
+            // 🐾🐾🐾 펫 목록 안의 없어진 동물도 (키운 만큼은 그 펫에 그대로)
+            for p in self.pets.iter_mut().filter(|p| p.species == gone) {
+                p.species = to.to_string();
+            }
             if let Some(care) = self.care.remove(gone) {
                 match self.care.get(to) {
                     Some(have) if !further_grown(&care, have) => {}
@@ -334,6 +341,9 @@ impl Config {
     pub fn rename_pet(&mut self, from: &str, to: &str) {
         if self.pet.as_deref() == Some(from) {
             self.pet = Some(to.to_string());
+        }
+        for p in self.pets.iter_mut().filter(|p| p.species == from) {
+            p.species = to.to_string();
         }
         if let Some(care) = self.care.remove(from) {
             self.care.entry(to.to_string()).or_insert(care);

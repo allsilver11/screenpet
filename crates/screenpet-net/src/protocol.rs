@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 /// 4 = 놀러 가는 펫이 든 물건(`Visit::carry`)을 받음 (v0.6.2).
 /// 5 = 💪 영웅이 든 거대한 것을 `Visit::carry`로 받음 (v0.7.1 — 새 필드 없음, look "giant"). 옛 버전은 모르는 `type`이 오면
 /// 6 = 🪃 던진 탈것을 Toss (kind "vehicle", look = 탈것 id)로 받음 (v0.7.4 — 새 필드 없음).
+/// 7 = 🐾🐾🐾 한 주인의 펫 여럿을 한 번에 손님으로 받음 (`Visit::pet` = 몇째 펫).
 /// 옛 버전은 모르는 `type`이 오면 링크를 닫으므로, 새 메시지 종류를 쓰는 기능은 상대 버전부터 확인함 (`Net::peer_version`)
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 /// `LadderMsg`를 보내도 되는 가장 낮은 상대 버전
 pub const LADDER_MIN_VERSION: u32 = 2;
 /// `device_friends`, `my_devices`, `device_*`를 보내도 되는 가장 낮은 상대 버전
@@ -24,6 +25,9 @@ pub const GIANT_CARRY_MIN_VERSION: u32 = 5;
 /// 🪃 던진 탈것(`Toss::kind` "vehicle", `look` = 탈것 id)을 보내도 되는 가장 낮은 상대 버전 (v0.7.4).
 /// 옛 버전은 모르는 물건으로 버려 탈것이 사라지므로, 보내는 쪽은 이 친구 쪽 끝을 막힌 끝으로 봄 (탈것이 튕겨 남음)
 pub const VEHICLE_TOSS_MIN_VERSION: u32 = 6;
+/// 🐾🐾🐾 같은 친구에게 내 펫을 둘째부터 더 보내도 되는 가장 낮은 상대 버전.
+/// 옛 버전은 같은 주인의 손님이 와 있으면 "already visiting"으로 돌려보내므로, 옛 친구에겐 한 번에 한 마리만 보냄
+pub const MULTI_PET_MIN_VERSION: u32 = 7;
 /// 친구 하나가 소개하는 기기 수 상한 (`my_devices`, 메시지 하나와 전체 모두).
 /// 한 사람은 컴퓨터를 둘까지만 연결하므로 친구에게 다른 하나뿐임
 pub const MAX_DEVICES: usize = 1;
@@ -299,6 +303,10 @@ pub enum Visit {
         /// 🚗 펫이 이 탈것을 몰고 옴 (탈것 이름, 예: "car" — v0.7.1). 받는 쪽은 아는 이름만 꺼내고, 옛 버전은 무시해서 펫만 걸어 들어옴
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         ride: Option<String>,
+        /// 🐾🐾🐾 주인의 몇째 펫인지 (0 = 첫 펫이면 싣지 않음). 받는 쪽은 같은 주인의 다른 번호 펫을 더 받음 (`MULTI_PET_MIN_VERSION`).
+        /// 옛 버전은 무시함
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        pet: Option<u8>,
     },
     /// 손님이 받는 쪽 친구 화면을 떠남. `next: None` = 집에 감 (옛 버전도 이렇게 보냄).
     /// `next: Some(id)` = 친구 `id`와 이은 가장자리(`side`)로 나가 그 친구에게 가고 싶음.
@@ -603,6 +611,7 @@ mod tests {
                 of: None,
                 carry: None,
                 ride: None,
+                pet: None,
             };
             #[allow(unused_variables)]
             if let Visit::Visit { $($field,)* .. } = &mut v {
@@ -774,6 +783,22 @@ mod tests {
         assert!(!sent.contains("gift") && !sent.contains("style"), "{sent}");
     }
 
+    /// 🐾🐾🐾 내 펫 여러 마리: Visit에 몇째 펫인지 (`pet`) — 같은 주인의 펫 여럿을 받는 상대 (MULTI_PET_MIN_VERSION)에게만 둘째부터 보냄
+    #[test]
+    fn a_visit_says_which_of_my_pets_it_is_and_old_peers_ignore_it() {
+        assert_eq!(PROTOCOL_VERSION, 7);
+        assert!(MULTI_PET_MIN_VERSION > VEHICLE_TOSS_MIN_VERSION && MULTI_PET_MIN_VERSION <= PROTOCOL_VERSION);
+        let v = visit!(pet: Some(2));
+        let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
+        assert_eq!(j["pet"], 2);
+        assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
+        // 첫 펫은 예전과 같은 모양, 이상한 값은 그 칸만 버림
+        assert!(!String::from_utf8(visit!().to_json()).unwrap().contains("\"pet\""));
+        let odd = br#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left","pet":"x"}"#;
+        let Some(Message::Visit(Visit::Visit { pet, visit_id, .. })) = Message::parse(odd) else { panic!("odd pet must not drop the visit") };
+        assert_eq!((pet, visit_id), (None, 1));
+    }
+
     #[test]
     fn a_visit_can_ride_a_vehicle_and_old_peers_ignore_it() {
         let v = visit!(ride: Some("truck".into()));
@@ -841,7 +866,7 @@ mod tests {
         let json = String::from_utf8(msg.to_json()).unwrap();
         assert!(json.contains(r#""carry":{"kind":"stone","look":"giant"}"#), "{json}");
         assert_eq!(Message::parse(json.as_bytes()), Some(msg));
-        assert_eq!(PROTOCOL_VERSION, 6);
+        assert!(PROTOCOL_VERSION >= 6);
         assert!(GIANT_CARRY_MIN_VERSION > CARRY_MIN_VERSION && GIANT_CARRY_MIN_VERSION <= PROTOCOL_VERSION);
     }
 

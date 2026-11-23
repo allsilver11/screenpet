@@ -645,3 +645,46 @@ fn being_away_only_makes_it_hungry_never_smaller() {
     assert_eq!(sim.care.stage, crate::care::Stage::Teenager);
     assert_eq!(sim.care.stamina, 3.0);
 }
+
+// ---- 🐾🐾🐾 내 펫 여러 마리: 하루 리듬·집중은 모두 한 번에 ----
+
+#[test]
+fn every_own_pet_follows_the_rhythm_and_the_focus_at_once() {
+    use crate::presence::RhythmPet;
+    let w = world(vec![]);
+    let mut sim = Sim::from(15, 0);
+    let mut a = Pet::new(walker(), 0.0, 0.0, 1);
+    let mut b = Pet::new(walker(), 0.0, 0.0, 2);
+    place(&mut a, &w, Owner::Ground(0), 600.0, idle());
+    place(&mut b, &w, Owner::Ground(0), 1000.0, idle());
+    let mut care_b = Care::default();
+    sim.rhythm.start_focus_all(FocusLength::Short, sim.secs, &mut [&mut a, &mut b]);
+    assert!(a.is_focusing() && b.is_focusing());
+    sim.rhythm.stop_focus_all(&mut [&mut a, &mut b]);
+    assert!(!a.is_focusing() && !b.is_focusing());
+    // 자리 비움도 둘 다 알아챔 (한 번만 보는 유휴 감시로)
+    sim.idle = Some(AWAY_AFTER_SECS);
+    let input = sim.input();
+    sim.rhythm.tick_all(&input, &mut [RhythmPet { pet: &mut a, world: &w, care: &mut sim.care }, RhythmPet { pet: &mut b, world: &w, care: &mut care_b }], &mut sim.marks);
+    assert!(sim.rhythm.is_away());
+    assert!(a.is_user_away() && b.is_user_away());
+}
+
+#[test]
+fn lunch_makes_every_growing_pet_hungry_but_not_a_locked_one() {
+    use crate::presence::RhythmPet;
+    let w = world(vec![]);
+    let mut sim = Sim::from(12, 0);
+    let mut a = Pet::new(walker(), 0.0, 0.0, 1);
+    let mut b = Pet::new(walker(), 0.0, 0.0, 2);
+    place(&mut a, &w, Owner::Ground(0), 600.0, idle());
+    place(&mut b, &w, Owner::Ground(0), 1000.0, idle());
+    sim.marks.morning = Some(sim.day);
+    let mut locked = Care { locked: true, ..Care::default() };
+    let input = sim.input();
+    let out = sim.rhythm.tick_all(&input, &mut [RhythmPet { pet: &mut a, world: &w, care: &mut sim.care }, RhythmPet { pet: &mut b, world: &w, care: &mut locked }], &mut sim.marks);
+    assert!(out.marks_changed);
+    assert_eq!(sim.marks.lunch, Some(sim.day));
+    assert!(sim.care.is_hungry(), "the growing pet asks for lunch");
+    assert!(!locked.is_hungry(), "the locked pet does not");
+}

@@ -21,6 +21,7 @@ pub mod juggle;
 pub mod ladder;
 pub mod manifest;
 pub mod object;
+pub mod own_pets;
 pub mod pacing;
 pub mod physics;
 pub mod play;
