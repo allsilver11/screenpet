@@ -15,7 +15,8 @@
 //! - 조작 모드가 끝나거나 볼일 (잡기·먹이·하우스 등 — 붙어 있는 동안 받은 간식도)이 끼면 놓고 떨어짐 (drop_cling).
 //!   친구 화면에 간 내 펫도 같은 키 비트로 됨 (주인 앱이 예전 판이면 Space Space를 세지 않음 — allow_control_gestures).
 //! - 화면 끝은 진짜 끝만 (옆 모니터로 이어지는 이음매는 벽 아님 — screen_edge), 끝이 옮겨 가면 다시 붙고 사라지면 유리로.
-//!   창 옆면은 앞 창에 가리지 않은 곳만 (world.side_covered), 붙어 있다 가려지면 떨어짐. 합친 화면 밖 옆면은 안 봄.
+//!   창 옆면은 앞 창에 가리지 않은 곳만 (world.side_covered), 붙어 있다 가려지면 떨어짐. 작업 영역 밖 옆면은 안 보고 (world.on_screen),
+//!   붙어 있던 창이 모니터 밖으로 끌려 나가면 떨어짐.
 //! - 내려서면 그 전의 ↑·↓ 톡톡을 잊음 (forget_arrow_taps).
 
 use super::control_moves::{ControlInput, Taps};
@@ -133,7 +134,11 @@ impl Pet {
         for w in &world.windows {
             let r = w.rect;
             let side_x = if dir > 0.0 { r.left } else { r.right };
-            if !(r.top < y - 1.0 && y <= r.bottom + 1.0) || !(b.left..=b.right).contains(&side_x) || world.side_covered(w.id, side_x, y) != Some(false) {
+            if !(r.top < y - 1.0 && y <= r.bottom + 1.0)
+                || !(b.left..=b.right).contains(&side_x)
+                || world.side_covered(w.id, side_x, y) != Some(false)
+                || !world.on_screen(side_x, y)
+            {
                 continue;
             }
             if let Some(gap) = near(side_x) {
@@ -264,8 +269,9 @@ impl Pet {
         };
         let half_w = self.cfg.half_w;
         let side_x = if dir > 0.0 { rect.left } else { rect.right };
-        // 앞 창에 가려졌으면 떨어짐 (update_wall_climb와 같음)
-        if world.side_covered(id, side_x, rect.top + rel_y.clamp(0.0, rect.height())) != Some(false) {
+        // 앞 창에 가려졌거나 모든 모니터 밖으로 끌려 나갔으면 떨어짐 (update_wall_climb와 같음)
+        let at_y = rect.top + rel_y.clamp(0.0, rect.height());
+        if world.side_covered(id, side_x, at_y) != Some(false) || !world.on_screen(side_x, at_y) {
             self.drop_cling();
             return;
         }

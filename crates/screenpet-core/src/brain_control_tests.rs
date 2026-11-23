@@ -711,3 +711,25 @@ fn steering_off_is_sent_twice_and_then_stays_quiet() {
     p.reset();
     assert!(p.should_send(9, true, 0, at(9700), ka));
 }
+
+/// 창 옆면에 붙어 있는데 그 창이 모든 모니터 밖으로 끌려 나가면 떨어져 화면에 내려섬 — 화면 밖에서 붙었다 떨어졌다 하지 않음 (QA seed 202)
+#[test]
+fn a_controlled_pet_lets_go_of_a_window_side_dragged_off_every_screen() {
+    let w = world(vec![win(1, 800.0, 300.0, 1300.0, 900.0)]);
+    let mut p = Pet::new(cat(), 700.0, 600.0, 1);
+    p.body.vx = 600.0;
+    p.state = State::Air { anim: Anim::Fall };
+    p.set_control(true);
+    let mut guard = LoopLimit::new();
+    while matches!(p.state, State::Air { .. }) {
+        guard.step();
+        hold(&mut p, &w, NONE, DT);
+    }
+    assert!(matches!(p.state, State::WallClimb { .. }));
+    let off = world(vec![win(1, 2500.0, 300.0, 3000.0, 900.0)]);
+    for _ in 0..(6.0 / DT) as usize {
+        hold(&mut p, &off, keys(|k| k.right = true), DT);
+        assert!(!matches!(p.state, State::WallClimb { .. }), "clings to an off-screen side: {:?} {:?}", p.state, p.body);
+    }
+    assert!(p.standing.is_some(), "back on a screen: {:?} {:?}", p.state, p.body);
+}

@@ -475,3 +475,53 @@ fn an_old_friend_steering_its_pet_here_gets_no_new_gestures() {
     }
     assert_eq!(p.cling_on(), Some(ClingWall::Glass));
 }
+
+#[test]
+fn a_window_wall_dragged_off_every_screen_drops_the_pet() {
+    let w = world(vec![win(1, 1000.0, 500.0, 1600.0, 1040.0)]);
+    let c = pet("cat");
+    let mut p = controlled("cat", 1000.0 - c.half_w - 80.0, &w);
+    cling(&mut p, &w);
+    assert!(matches!(p.cling_on(), Some(ClingWall::Window { .. })));
+    let off = world(vec![win(1, 2600.0, 500.0, 3200.0, 1040.0)]);
+    hold(&mut p, &off, NONE, DT);
+    assert_eq!(p.cling_on(), None);
+    // 화면 밖 창 옆면에는 처음부터 안 붙음
+    let off_side = World::new(vec![win(1, 1925.0, 500.0, 2500.0, 1040.0)], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    let mut p = controlled("cat", 1920.0 - c.half_w - 60.0, &off_side);
+    cling(&mut p, &off_side);
+    assert_eq!(p.cling_on(), Some(ClingWall::Screen { dir: 1.0 }));
+}
+
+/// 영웅 착지 그림은 거미인간만 (QA seed 211 — 영웅 착지 중에 산타가 되면 산타에게 없는 hero_land를 그리던 버그)
+#[test]
+fn a_hero_landing_shows_only_on_a_pet_that_has_it() {
+    let w = world(vec![]);
+    let mut p = controlled("spider", 900.0, &w);
+    p.web.hero_until = p.clock + 10.0;
+    p.state = State::Land { remaining: 1.0 };
+    assert_eq!(p.render().anim, Anim::HeroLand);
+    p.cfg = pet("santa");
+    assert_ne!(p.render().anim, Anim::HeroLand);
+}
+
+/// 다른 종이 되는 순간 남아 있던 활공·빗자루·오토바이 기억이 그 종에 없는 그림을 고르지 않음
+#[test]
+fn leftover_flight_and_bike_flags_never_pick_another_species_picture() {
+    let w = world(vec![]);
+    let mut p = controlled("cat", 900.0, &w);
+    p.standing = None;
+    p.soar.gliding = true;
+    p.state = State::Air { anim: Anim::Fall };
+    assert_eq!(p.render().anim, Anim::Fall);
+    p.soar.gliding = false;
+    p.broom.descending = true;
+    assert_eq!(p.render().anim, Anim::Fall);
+    p.broom.descending = false;
+    p.bike.jumping = true;
+    p.state = State::Air { anim: Anim::Hop };
+    assert_eq!(p.render().anim, Anim::Hop);
+    p.broom.landing = true;
+    p.state = State::Land { remaining: 1.0 };
+    assert_eq!(p.render().anim, Anim::Land);
+}

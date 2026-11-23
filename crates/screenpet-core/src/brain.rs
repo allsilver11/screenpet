@@ -1661,7 +1661,8 @@ impl Pet {
             }
             State::Land { .. } if self.hero_landing() => Anim::HeroLand,
             State::Land { .. } if self.cfg.soars => Anim::Hover,
-            State::Land { .. } if self.broom.landing => self.mount_anim(),
+            // 남은 기억은 그 그림이 있는 종일 때만 (다른 종이 되는 순간 — QA seed 211)
+            State::Land { .. } if self.broom.landing && self.cfg.rides_broom => self.mount_anim(),
             State::Land { .. } => Anim::Land,
             State::Web { phase, .. } => self.web_anim(phase),
             State::Signal { .. } => Anim::Signal,
@@ -1680,9 +1681,9 @@ impl Pet {
             State::Tucked { .. } => Anim::Fall,
             State::Stuck { kind, .. } => Pet::stuck_anim(kind),
             State::StageAct { act, t, len } => self.stage_anim(act, t, len),
-            State::Air { anim: Anim::Hop } if self.bike.jumping => Anim::BikeJump,
-            State::Air { .. } if self.soar.gliding => self.glide_anim(),
-            State::Air { .. } if self.broom.descending => self.mount_anim(),
+            State::Air { anim: Anim::Hop } if self.bike.jumping && self.cfg.rides_bike => Anim::BikeJump,
+            State::Air { .. } if self.soar.gliding && self.cfg.soars => self.glide_anim(),
+            State::Air { .. } if self.broom.descending && self.cfg.rides_broom => self.mount_anim(),
             State::Air { anim } => anim,
             State::Climb { .. } | State::WallClimb { .. } | State::InnerClimb { .. } => Anim::Climb,
             State::Slide => Anim::Slide,
@@ -3637,7 +3638,8 @@ impl Pet {
         }
         let y = rect.top + rel_y;
         // 머리가 화면 위로 나갈 만큼 높이 올라가면 (꼭대기가 화면 위에 붙은 창) 떨어진다
-        if world.side_covered(window, edge_x, y) != Some(false) || y - self.cfg.size < world.bounds.top {
+        // 창이 모든 모니터 밖으로 끌려 나갔어도 떨어진다 (화면 밖에서 붙었다 떨어졌다 하지 않게 — on_screen)
+        if world.side_covered(window, edge_x, y) != Some(false) || !world.on_screen(edge_x, y) || y - self.cfg.size < world.bounds.top {
             self.start_fall();
             return;
         }

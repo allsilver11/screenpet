@@ -234,7 +234,8 @@ impl Pet {
 
     /// 🦸 영웅 착지 자세 중 (Land 상태이고 아직 HERO_SECS 안)
     pub(super) fn hero_landing(&self) -> bool {
-        matches!(self.state, State::Land { .. }) && self.clock < self.web.hero_until
+        // 그림이 있는 거미인간만 (영웅 착지 중에 다른 종이 되면 평소 착지)
+        self.cfg.slings_webs && matches!(self.state, State::Land { .. }) && self.clock < self.web.hero_until
     }
 
     /// land_or_recover에서: 이만큼(fell, 물리 px) 떨어져 내려섰으면 영웅 착지를 함. 했으면 true (콰당은 없음)

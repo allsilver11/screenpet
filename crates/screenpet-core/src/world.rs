@@ -97,6 +97,12 @@ impl World {
         *self.work_areas.iter().min_by(|a, b| dist(a).total_cmp(&dist(b))).expect("at least one work area")
     }
 
+    /// (x, y)가 어느 작업 영역 안 (가장자리 포함) — 모니터 밖으로 끌려 나간 창 옆면은 벽이 아님
+    pub fn on_screen(&self, x: f64, y: f64) -> bool {
+        const SLACK: f64 = 1.0;
+        self.work_areas.iter().any(|r| r.left - SLACK <= x && x <= r.right + SLACK && r.top - SLACK <= y && y <= r.bottom + SLACK)
+    }
+
     /// 창 옆면 x의 높이 y 지점이 앞쪽 창에 가려졌는지 (창이 없으면 None)
     pub fn side_covered(&self, window: u64, x: f64, y: f64) -> Option<bool> {
         let i = self.windows.iter().position(|w| w.id == window)?;
@@ -105,7 +111,7 @@ impl World {
     }
 
     /// 이번 틱에 몸 앞쪽 끝(x ± half_w)이 바깥에서 창 옆면을 넘어섰는지. 발(y)이 창 윗면 + 몸 1/4보다 아래,
-    /// 창 아래끝보다 위여야 하고, 그 지점이 앞쪽 창에 가려지지 않아야 함. 여럿이면 가장 가까운 것.
+    /// 창 아래끝보다 위여야 하고, 그 지점이 앞쪽 창에 가려지지 않고 어느 작업 영역 안이어야 함 (on_screen). 여럿이면 가장 가까운 것.
     pub fn side_hit(&self, x0: f64, x1: f64, y: f64, half_w: f64) -> Option<SideHit> {
         let (lead0, lead1, side) = if x1 > x0 {
             (x0 + half_w, x1 + half_w, Side::Left)
@@ -123,7 +129,7 @@ impl World {
                     Side::Right if lead0 >= w.rect.right && lead1 < w.rect.right => w.rect.right,
                     _ => return None,
                 };
-                (self.side_covered(w.id, x, y) == Some(false)).then_some(SideHit { window: w.id, x, side })
+                (self.side_covered(w.id, x, y) == Some(false) && self.on_screen(x, y)).then_some(SideHit { window: w.id, x, side })
             })
             .min_by(|a, b| (a.x - lead0).abs().total_cmp(&(b.x - lead0).abs()))
     }
@@ -334,6 +340,15 @@ mod tests {
         assert_eq!(w.side_hit(1050.0, 1070.0, 600.0, 38.0), None);
         assert_eq!(w.side_hit(470.0, 450.0, 600.0, 38.0), None);
         assert_eq!(w.side_hit(470.0, 470.0, 600.0, 38.0), None);
+    }
+
+    /// 모니터 밖으로 끌려 나간 창 옆면은 벽이 아님 (QA seed 202 — 화면 밖에서 붙었다 떨어졌다를 되풀이)
+    #[test]
+    fn a_window_side_outside_every_work_area_is_never_hit() {
+        let w = World::new(vec![WindowInfo { id: 1, rect: Rect::new(2500.0, 400.0, 3100.0, 900.0) }], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+        assert_eq!(w.side_hit(2450.0, 2470.0, 600.0, 38.0), None);
+        assert!(!w.on_screen(2500.0, 600.0));
+        assert!(w.on_screen(1920.0, 600.0) && w.on_screen(100.0, 1040.0));
     }
 
     #[test]
