@@ -201,7 +201,9 @@ fn state_limit(name: &str) -> Option<f64> {
     match name {
         "Sleep" | "Idle" | "Housed" | "Dragged" | "Pressed" | "OnHead" | "Faint" | "Turn" => None,
         "Air" | "Slide" => Some(10.0),
-        "Away" | "Tucked" => Some(5.0),
+        "Away" => Some(5.0),
+        // 🎒 가방 속 해리는 결투 한 판 동안 숨어 있음 (brain_tuck.rs — 그 뒤 반드시 나옴)
+        "Tucked" => Some(crate::wizard::TUCK_MAX_SECS + 1.0),
         _ => Some(60.0),
     }
 }
@@ -896,7 +898,7 @@ impl Run {
             match (faded, s.faded_since) {
                 (true, None) => s.faded_since = Some(tick),
                 (false, _) => s.faded_since = None,
-                (true, Some(t)) if (tick - t) as f64 * DT > 8.0 => {
+                (true, Some(t)) if (tick - t) as f64 * DT > 8.0f64.max(crate::wizard::TUCK_MAX_SECS + 1.0) => {
                     return Err(self.weird(i, format!("faded (poof {} tuck {:.2}) for {:.1}s — pet looks gone", r.poof, r.tuck, (tick - t) as f64 * DT)));
                 }
                 _ => {}

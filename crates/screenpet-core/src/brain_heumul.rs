@@ -184,7 +184,9 @@ impl Pet {
             let secs = behavior::range(&mut self.rng, RIG_HANG_SECS);
             self.state = State::Rig { window, side, rel_y, phase: RigPhase::Hang, remaining: secs, turns };
         } else {
-            let (lo, hi) = (RIG_TOP_MARGIN * self.cfg.size, rect.height());
+            // 줄은 창 아래 끝까지, 단 작업 영역 바닥 아래로는 안 감 (작업표시줄 뒤·화면 밖으로 내려가는 창 — 사라지지 않게)
+            let floor = world.work_area_at(edge_x, rect.top + rel_y).bottom - rect.top;
+            let (lo, hi) = (RIG_TOP_MARGIN * self.cfg.size, rect.height().min(floor));
             let (mut rel_y, mut phase, mut remaining, mut turns) = (rel_y, phase, remaining, turns);
             if let RigPhase::Rope { dir } = phase {
                 let want = rel_y + dir * self.scaled(behavior::WALL_CLIMB_SPEED) * dt;

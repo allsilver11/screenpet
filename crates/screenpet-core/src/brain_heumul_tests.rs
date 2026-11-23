@@ -310,3 +310,19 @@ fn picking_it_up_while_hanging_lets_go() {
     run(&mut p, &w, 5);
     assert!(rigging(&p).is_none());
 }
+
+/// 🪢 작업표시줄 뒤·화면 아래까지 내려간 창 옆면에서도 줄을 타고 내려가다 작업 영역 바닥에서 멈춤 — 화면 아래로 사라지던 버그 (qa_sim seed 204)
+#[test]
+fn roping_down_a_window_that_runs_off_the_screen_stops_at_the_work_area_bottom() {
+    let w = world(vec![win(1, 600.0, 700.0, 1200.0, 1400.0)]);
+    let mut p = Pet::new(PetConfig { rigging: true, ..pet_cfg() }, 600.0, 900.0, 4);
+    p.standing = None;
+    p.state = State::Rig { window: 1, side: Side::Left, rel_y: 200.0, phase: RigPhase::Rope { dir: 1.0 }, remaining: 30.0, turns: 3 };
+    for _ in 0..(8.0 / DT) as usize {
+        p.update(DT, &w);
+        if !matches!(p.state, State::Rig { .. }) {
+            break;
+        }
+        assert!(p.body.y <= 1040.0, "화면 아래로: {}", p.body.y);
+    }
+}

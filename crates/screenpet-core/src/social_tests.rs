@@ -683,3 +683,18 @@ fn a_chaser_stopped_at_the_end_of_its_floor_looks_instead_of_running_in_place() 
     assert!(p.body.x > 1850.0, "끝까지는 달려감: {}", p.body.x);
     assert_ne!(p.render().anim, Anim::Run, "끝에 멈춰 섰는데 달리는 그림");
 }
+
+/// 🐝 나는 동물이 낮게 붙은 옆 모니터에서 친구 위로 도망·쫓아도 그 모니터 안 — 합친 화면 위쪽 빈 틈으로 날아 안 보이던 버그 (qa_sim seed 209)
+#[test]
+fn flying_tag_stays_on_the_low_monitor() {
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, GROUND), Rect::new(1920.0, 180.0, 3200.0, 980.0)], 128.0);
+    for state in [State::Flee { remaining: 5.0, dir: 1.0 }, State::Chase { remaining: 5.0 }] {
+        let mut p = bee_at(2600.0, 420.0, 3);
+        p.state = state;
+        for _ in 0..120 {
+            p.set_play_target(2700.0, 300.0);
+            p.update(DT, &w);
+            assert!(p.window_pos().1 >= 180.0 - 1.0, "{state:?}: 그림 위가 모니터 위 틈에 ({:.0}, {:.0})", p.body.x, p.body.y);
+        }
+    }
+}

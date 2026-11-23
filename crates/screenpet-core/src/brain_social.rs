@@ -312,7 +312,11 @@ impl Pet {
         }
         self.flight = None;
         self.hover_at = None;
-        let b = self.fly_limits(world);
+        // 🖥️ 창 밖이면 지금 모니터 안에서만 (합친 화면이면 낮게 붙은 옆 모니터 위쪽 빈 틈으로 날아 안 보임)
+        let b = match self.inside {
+            Some(_) => self.fly_limits(world),
+            None => crate::flight::fly_bounds(&world.work_area_at(self.body.x, self.body.y), self.cfg.half_w, self.cfg.size * (1.0 + crate::flight::TOP_SPACE)),
+        };
         let pace = if matches!(self.state, State::Flee { .. }) { FLEE_PACE } else { 1.0 };
         let step = self.cfg.walk_speed * FLY_PLAY_MULT * pace * dt;
         let (px, py) = self.play_target.unwrap_or((self.body.x, self.body.y));
