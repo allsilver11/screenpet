@@ -107,7 +107,7 @@ impl Pet {
         matches!(self.state, State::Drained { .. })
     }
 
-    /// 👻 영혼을 빼앗을 수 있게 한가함 (디멘터 — 날거나 떠 있음, 잡히거나 볼일이 없음)
+    /// 👻 영혼을 빼앗을 수 있게 한가함 (디멘터 — 날거나 떠 있음, 잡히거나 볼일·집중·자리 비움이 없음)
     fn drain_free(&self) -> bool {
         self.dementor_active()
             && self.dementor.drain.is_none()
@@ -115,14 +115,15 @@ impl Pet {
             && matches!(self.state, State::Move { .. } | State::Idle { .. } | State::Turn { .. })
             && self.inside.is_none()
             && self.home_trip.is_none()
+            && !self.presence_quiet()
             && !self.is_held()
             && !self.is_heading_out()
             && !self.has_errand()
     }
 
-    /// 👻 영혼을 빼앗길 수 있음 (들 수 있는 때의 걷는 펫 — 나는 펫·디멘터는 아님)
+    /// 👻 영혼을 빼앗길 수 있음 (들 수 있는 때의 걷는 펫 — 나는 펫·디멘터·집중·자리 비움 중은 아님)
     fn drainable(&self) -> bool {
-        !self.cfg.dementor && !self.cfg.flies && !self.is_away() && self.lift_ok()
+        !self.cfg.dementor && !self.cfg.flies && !self.is_away() && self.lift_ok() && !self.presence_quiet()
     }
 
     /// 👻 영혼 빼앗기 시작 (디멘터): 날던 것을 멈추고 "hhhaaah..." — 머리 위로는 update_soul_drain이 다가감

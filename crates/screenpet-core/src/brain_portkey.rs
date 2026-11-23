@@ -58,8 +58,8 @@ pub struct PortkeyMood {
     key: Option<PortkeyKey>,
     dest: PortkeyDest,
     nth: usize,
-    /// 사라진 자리 (디딤판, x — 제자리에 다시 나타날 때)
-    origin: Option<(Owner, f64)>,
+    /// 사라진 자리 (디딤판, 그 위 rel_x — 제자리에 다시 나타날 때 · 그때의 x — 테스트)
+    origin: Option<(Owner, f64, f64)>,
     /// 앱에 알릴 일
     event: Option<PortkeyEvent>,
 }
@@ -91,6 +91,12 @@ impl Pet {
     /// 🧳 새 버전 친구가 연결돼 있어 친구 화면의 짝을 물어볼 수 있음 (앱이 내 펫에게만 — 손님은 늘 false)
     pub fn set_portkey_friend(&mut self, ok: bool) {
         self.portkey.friend_ok = ok;
+    }
+
+    /// 테스트: 사라진 자리 x (사라질 때의 물리 px)
+    #[cfg(test)]
+    pub(super) fn portkey_origin_x(&self) -> f64 {
+        self.portkey.origin.map_or(f64::NAN, |(_, _, x)| x)
     }
 
     /// 🧳 앱에 알릴 일 (한 번)
@@ -160,7 +166,7 @@ impl Pet {
         self.portkey.key = Some(key);
         self.portkey.dest = dest;
         self.portkey.nth = nth;
-        self.portkey.origin = self.standing.map(|st| (st.owner, self.body.x));
+        self.portkey.origin = self.standing.map(|st| (st.owner, st.rel_x, self.body.x));
         if let Some(s) = self.portkey.spots.iter().find(|s| s.spot.id == id) {
             if (s.spot.x - self.body.x).abs() > 1.0 {
                 self.facing = (s.spot.x - self.body.x).signum();
@@ -192,24 +198,28 @@ impl Pet {
         };
         let t = t + dt;
         match phase {
-            PortkeyPhase::Run { id, x } => {
-                let Some(s) = self.portkey.spots.iter().find(|s| s.spot.id == id).copied() else {
-                    // 물건이 치워졌거나 들렸음
+            PortkeyPhase::Run { id, .. } => {
+                // 물건이 치워졌거나 들렸거나 다른 디딤판으로 갔거나 닿을 수 없게 됐으면 · 너무 오래 달렸으면 그만 (물건이 움직이면 설 자리를 매 틱 새로)
+                let s = self.portkey.spots.iter().find(|s| s.spot.id == id).copied();
+                let target = s.filter(|s| self.standing.is_some_and(|st| st.owner == s.spot.owner)).and_then(|s| self.approach_x(&s.spot, world).map(|x| (s, x)));
+                let Some((s, x)) = target.filter(|_| t < pk::RUN_MAX_SECS && !self.romp_interrupted()) else {
                     self.state = self.rest_beat();
                     return true;
                 };
-                if self.romp_interrupted() {
-                    self.state = self.rest_beat();
-                    return true;
-                }
                 let dx = x - self.body.x;
                 let step = self.cfg.walk_speed * Move::Run.speed_mult() * dt;
                 if dx.abs() > step {
                     self.facing = dx.signum();
-                    if self.juggle_walk(world, self.facing, step).is_none() {
-                        return true;
+                    match self.juggle_walk(world, self.facing, step) {
+                        None => return true,
+                        // 디딤판 끝에 막혔음
+                        Some(true) => {
+                            self.state = self.rest_beat();
+                            return true;
+                        }
+                        Some(false) => {}
                     }
-                    self.state = State::Portkey { phase, t };
+                    self.state = State::Portkey { phase: PortkeyPhase::Run { id, x }, t };
                 } else {
                     if self.juggle_walk(world, dx.signum(), dx.abs()).is_none() {
                         return true;
@@ -243,7 +253,9 @@ impl Pet {
     /// 🧳 다 사라짐: 정한 곳으로 — 내 화면의 짝 옆 (그새 없어졌으면 제자리) · 친구 쪽이면 앱에 물어보고 화면을 떠남
     fn portkey_gone(&mut self, id: u64, world: &World) {
         let key = self.portkey.key.unwrap_or(PortkeyKey { kind: crate::object::ObjectKind::Paper, look: 0 });
-        match self.portkey.dest {
+        // 그새 하우스·집중·자리 비움·볼일이면 어디로도 가지 않고 제자리
+        let dest = if self.romp_interrupted() || self.is_user_away() { PortkeyDest::Stay } else { self.portkey.dest };
+        match dest {
             PortkeyDest::Friend => {
                 self.portkey.event = Some(PortkeyEvent::AskFriend { key });
                 self.standing = None;
@@ -265,7 +277,7 @@ impl Pet {
     /// 🧳 친구가 돌려보냈거나 답이 늦음 (앱이 부름 — 친구 쪽으로 사라졌던 내 펫): 내 화면의 짝 옆, 없으면 제자리에 다시 나타나 "huh?"
     pub fn portkey_return(&mut self, world: &World) {
         let key = self.portkey.key;
-        let origin_id = self.portkey.origin.and_then(|(owner, x)| {
+        let origin_id = self.portkey.origin.and_then(|(owner, _, x)| {
             self.portkey.spots.iter().filter(|s| Some(s.key) == key && s.spot.owner == owner).min_by(|a, b| (a.spot.x - x).abs().total_cmp(&(b.spot.x - x).abs())).map(|s| s.spot.id)
         });
         let twins: Vec<PortkeySpot> = self.portkey.spots.iter().filter(|s| Some(s.key) == key && Some(s.spot.id) != origin_id).copied().collect();
@@ -283,10 +295,20 @@ impl Pet {
         self.appear_next_to(spot, world, false);
     }
 
-    /// 🧳 사라졌던 자리에 다시 나타남 ("huh?" — 디딤판이 없어졌으면 위에서 떨어짐)
+    /// 🧳 사라졌던 자리에 다시 나타남 ("huh?" — 디딤판 위의 같은 자리, 창이 옮겨졌으면 따라가고 디딤판 끝 안으로. 디딤판이 없어졌으면 위에서 떨어짐)
     fn appear_in_place(&mut self, world: &World) {
-        match self.portkey.origin.and_then(|(owner, x)| world.anchor(owner).map(|a| (owner, x, a))) {
-            Some((owner, x, (ax, ay))) => {
+        match self.portkey.origin.and_then(|(owner, rel_x, _)| world.anchor(owner).map(|a| (owner, rel_x, a))) {
+            Some((owner, rel_x, (ax, ay))) => {
+                let x = ax + rel_x;
+                let half = self.cfg.half_w;
+                // 그 디딤판 조각 중 가장 가까운 곳 (조각 끝 안으로)
+                let x = world
+                    .surfaces
+                    .iter()
+                    .filter(|p| p.owner == owner)
+                    .map(|p| x.clamp(p.x_start + half, (p.x_end - half).max(p.x_start + half)))
+                    .min_by(|a, b| (a - x).abs().total_cmp(&(b - x).abs()))
+                    .unwrap_or(x);
                 self.body = Body { x, y: ay, vx: 0.0, vy: 0.0 };
                 self.standing = Some(Standing { owner, rel_x: x - ax });
                 self.begin_appear(true);

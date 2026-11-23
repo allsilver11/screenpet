@@ -18,6 +18,8 @@ pub const PORTKEY_RATE: f64 = 0.01;
 pub const PORTKEY_CALM_SECS: (f64, f64) = (180.0, 360.0);
 /// 달려가는 물건: 같은 디딤판 이만큼 (몸 크기 배) 안
 pub const PORTKEY_REACH: f64 = 12.0;
+/// 물건까지 이만큼 (초) 달려도 못 닿으면 그만 (움직이는 물건·막힌 길)
+pub const RUN_MAX_SECS: f64 = 8.0;
 /// 물건에 손을 대는 시간 · 빙글 돌며 작아져 사라지는 시간 · 짝 물건 옆에 빙글 커지며 나타나는 시간 (초)
 pub const TOUCH_SECS: f64 = 0.35;
 pub const VANISH_SECS: f64 = 1.0;

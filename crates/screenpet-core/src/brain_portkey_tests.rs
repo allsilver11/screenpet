@@ -4,7 +4,7 @@
 use super::dark_tests::still;
 use super::hoist_moves::sync_lifts;
 use super::portkey_moves::{PortkeyEvent, PortkeyPhase};
-use super::tests::world;
+use super::tests::{place, win, world};
 use super::*;
 use crate::juggle::ObjectSpot;
 use crate::object::ObjectKind;
@@ -218,4 +218,127 @@ fn portkey_lines_have_their_sheet_names() {
     for (s, name) in [(Speech::Portkey, "portkey"), (Speech::PortkeyLand, "portkey_land"), (Speech::PortkeyHuh, "portkey_huh")] {
         assert_eq!(serde_json::to_string(&s).unwrap(), format!("\"{name}\""));
     }
+}
+
+/// 🧳 달려가는 중에 물건이 움직이면 따라가고, 다른 디딤판으로 가 버리면 그만, 따라잡지 못하면 RUN_MAX_SECS 뒤 그만 (끝없이 달리지 않음)
+#[test]
+fn the_run_follows_a_moving_object_and_gives_up() {
+    let w = world(vec![]);
+    let mut p = standing(500.0, 1, &w);
+    let mut spots = vec![thing(1, ObjectKind::Paper, 800.0), thing(2, ObjectKind::Paper, 1700.0)];
+    spots.truncate(1);
+    p.set_portkey_friend(true);
+    p.notice_portkeys(&spots);
+    assert!(p.start_portkey(&w));
+    // 바람에 굴러 1100으로 감 → 따라가 손을 댐
+    spots[0].spot.x = 1100.0;
+    let mut grabbed_at = None;
+    for _ in 0..(6.0 / DT) as usize {
+        p.notice_portkeys(&spots);
+        p.update(DT, &w);
+        if let State::Portkey { phase: PortkeyPhase::Vanish { .. }, .. } = p.state {
+            grabbed_at.get_or_insert(p.body.x);
+        }
+    }
+    let x = grabbed_at.expect("손을 댐");
+    assert!((x - 1100.0).abs() < 0.6 * p.cfg.size, "움직인 자리에서: {x}");
+    // 창 위로 옮겨진 물건: 다른 디딤판이라 그만
+    let w2 = world(vec![win(1, 500.0, 600.0, 1100.0, 900.0)]);
+    let mut p = standing(300.0, 2, &w2);
+    let mut spots = vec![thing(1, ObjectKind::Can, 700.0)];
+    p.set_portkey_friend(true);
+    p.notice_portkeys(&spots);
+    assert!(p.start_portkey(&w2));
+    spots[0].spot.owner = Owner::Window(1);
+    spots[0].spot.y = 600.0;
+    p.notice_portkeys(&spots);
+    p.update(DT, &w2);
+    assert!(!p.portkeying(), "{:?}", p.state);
+    // 늘 도망가는 물건: RUN_MAX_SECS 뒤 그만
+    let mut p = standing(200.0, 3, &w);
+    let mut spots = vec![thing(1, ObjectKind::Milk, 600.0)];
+    p.set_portkey_friend(true);
+    p.notice_portkeys(&spots);
+    assert!(p.start_portkey(&w));
+    let mut ran = 0.0;
+    for _ in 0..(20.0 / DT) as usize {
+        spots[0].spot.x = (p.body.x + 300.0).min(1800.0);
+        if spots[0].spot.x >= 1800.0 {
+            spots[0].spot.x = p.body.x - 300.0;
+        }
+        p.notice_portkeys(&spots);
+        p.update(DT, &w);
+        if !p.portkeying() {
+            break;
+        }
+        ran += DT;
+    }
+    assert!(ran <= pk::RUN_MAX_SECS + 0.1, "{ran}");
+}
+
+/// 🧳 제자리에 다시 나타날 땐 디딤판 위의 자리 (창이 그새 옮겨졌으면 따라감, 디딤판 끝을 넘지 않음)
+#[test]
+fn reappearing_in_place_follows_a_moved_window() {
+    let w = world(vec![win(1, 500.0, 600.0, 1100.0, 900.0)]);
+    let mut p = standing(100.0, 1, &w);
+    place(&mut p, &w, Owner::Window(1), 700.0, State::Idle { remaining: 100.0, look: false });
+    let spots = [PortkeySpot { spot: ObjectSpot { owner: Owner::Window(1), y: 600.0, ..thing(1, ObjectKind::Can, 900.0).spot }, ..thing(1, ObjectKind::Can, 900.0) }];
+    p.set_portkey_friend(true);
+    p.notice_portkeys(&spots);
+    assert!(p.start_portkey(&w));
+    for _ in 0..(6.0 / DT) as usize {
+        if p.is_away() {
+            break;
+        }
+        p.notice_portkeys(&spots);
+        p.update(DT, &w);
+    }
+    assert!(p.is_away());
+    let gone_x = p.portkey_origin_x();
+    let moved = world(vec![win(1, 800.0, 500.0, 1400.0, 800.0)]);
+    p.notice_portkeys(&[]);
+    p.portkey_return(&moved);
+    assert_eq!(p.take_speech(), Some(Speech::PortkeyHuh));
+    assert!((p.body.x - (gone_x + 300.0)).abs() < 1.0 && (p.body.y - 500.0).abs() < 1.0, "창을 따라감: {:?}", (p.body.x, p.body.y));
+    let narrow = world(vec![win(1, 500.0, 600.0, 800.0, 900.0)]);
+    let mut q = standing(100.0, 2, &w);
+    place(&mut q, &w, Owner::Window(1), 1000.0, State::Idle { remaining: 100.0, look: false });
+    q.set_portkey_friend(true);
+    q.notice_portkeys(&[PortkeySpot { spot: ObjectSpot { x: 1050.0, ..spots[0].spot }, ..spots[0] }]);
+    assert!(q.start_portkey(&w));
+    for _ in 0..(6.0 / DT) as usize {
+        if q.is_away() {
+            break;
+        }
+        q.update(DT, &w);
+    }
+    q.portkey_return(&narrow);
+    assert!(q.body.x <= 800.0 - q.cfg.half_w + 1.0, "디딤판 끝 안: {}", q.body.x);
+}
+
+/// 🧳 사라지는 동안 집중이 시작되면 어디로도 가지 않고 제자리에 다시 나타남 (친구에게 묻지 않음)
+#[test]
+fn focus_during_the_vanish_keeps_the_wizard_home() {
+    let w = world(vec![]);
+    let spots = [thing(1, ObjectKind::Can, 800.0), thing(2, ObjectKind::Can, 1500.0)];
+    let mut p = standing(500.0, 1, &w);
+    p.set_portkey_friend(true);
+    p.notice_portkeys(&spots);
+    assert!(p.start_portkey(&w));
+    let (mut focused, mut back_at) = (false, None);
+    for _ in 0..(10.0 / DT) as usize {
+        if !focused && matches!(p.state, State::Portkey { phase: PortkeyPhase::Vanish { .. }, .. }) {
+            p.set_focus(true);
+            focused = true;
+        }
+        p.notice_portkeys(&spots);
+        p.update(DT, &w);
+        assert!(!p.is_away() && p.take_portkey().is_none());
+        match p.take_speech() {
+            Some(Speech::PortkeyHuh) => back_at = Some(p.body.x),
+            said => assert_ne!(said, Some(Speech::PortkeyLand)),
+        }
+    }
+    let x = back_at.expect("제자리에 다시 나타남");
+    assert!(focused && (x - 800.0).abs() < 1.0 * p.cfg.size, "제자리: {x}");
 }

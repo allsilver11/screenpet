@@ -1142,7 +1142,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     }
                     // 집중·하우스 중이면 받지 않고 되돌림
                     match screenpet_core::visit::toss_answer(own_refuses(&slots), toss.bounced, objects.threw_lately(&from)) {
-                        screenpet_core::visit::TossAnswer::Take => objects.receive(&config, &from, toss),
+                        screenpet_core::visit::TossAnswer::Take => {
+                            // 🔒 받은 📌 장난감 그림은 이 친구와 주고받은 것 (포트키로 받아도 됨)
+                            if let Some(i) = &toss.icon {
+                                network.note_wire_icon(&from, i);
+                            }
+                            objects.receive(&config, &from, toss)
+                        }
                         screenpet_core::visit::TossAnswer::SendBack => network.bounce_toss(&from, toss),
                         screenpet_core::visit::TossAnswer::Drop => {}
                     }
@@ -1775,7 +1781,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
         }
         // 🧳 포트키로 친구 화면의 짝 물건을 물어봄 (물건은 싣지 않음 — 늘 제자리). 보낼 친구가 없으면 내 화면의 짝 물건으로, 없으면 제자리
         for (i, key) in portkey_asks {
-            if !network.portkey_away(&config, &mut slots[i], key) {
+            // 모두 숨겨 둔 동안·집중 중엔 친구에게 묻지 않음
+            if all_hidden || slots[i].pet.is_focusing() || !network.portkey_away(&config, &mut slots[i], key) {
                 let Slot { pet, world, .. } = &mut slots[i];
                 pet.portkey_return(world);
             }
@@ -1798,6 +1805,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
             }
         }
         network.tick(&app, now, &config, &mut slots[..n]);
+        // 🧳 늦춘 포트키 답 보내기 · 답이 없는 내 마법사 데려오기
+        network.tick_portkeys(&mut slots[..n]);
         network.tick_mailbox(&app, &mut slots, now);
         timeline.tick(&app, real_dt, &slots[OWN], slots[OWN].uid().and_then(|u| network.away_friend_of(u)), &config);
         if dodge.tick(&app, dt, &mut slots[OWN], &mut config, &network) {

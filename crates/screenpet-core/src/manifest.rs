@@ -261,24 +261,15 @@ const DEFAULT_HANG_GRIP: (f64, f64) = (0.0, 0.06);
 /// 머리 꼭대기는 모자 입구보다 입구 너비의 이만큼 위
 const HEAD_TOP_ABOVE_BRIM: f64 = 0.15;
 
-/// 🦌🦦 pet.json `patronus` 읽기: true = 사슴 (옛 값) · "stag"·"otter" · false·모르는 이름은 없음 (다른 특기는 그대로 읽히게)
+/// 🦌🦦 pet.json `patronus` 읽기: true = 사슴 (옛 값) · "stag"·"otter" · false·null·숫자·모르는 이름은 없음 (다른 특기는 그대로 읽히게)
 fn patronus_field<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<crate::wizard::PatronusAnimal>, D::Error> {
     use crate::wizard::PatronusAnimal;
-    /// 옛 참·거짓 또는 동물 이름
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Raw {
-        Flag(bool),
-        Name(String),
-    }
-    Ok(match Raw::deserialize(d)? {
-        Raw::Flag(true) => Some(PatronusAnimal::Stag),
-        Raw::Flag(false) => None,
-        Raw::Name(n) => match n.as_str() {
-            "stag" => Some(PatronusAnimal::Stag),
-            "otter" => Some(PatronusAnimal::Otter),
-            _ => None,
-        },
+    // 어떤 JSON 값이든 받고 (null·숫자·목록도 pet.json 전체를 버리지 않음) 아는 값만 고름
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Bool(true) => Some(PatronusAnimal::Stag),
+        serde_json::Value::String(n) if n == "stag" => Some(PatronusAnimal::Stag),
+        serde_json::Value::String(n) if n == "otter" => Some(PatronusAnimal::Otter),
+        _ => None,
     })
 }
 
@@ -1022,6 +1013,10 @@ mod tests {
         assert_eq!(animal(&harry.replace(r#""patronus": "stag""#, r#""patronus": false"#)), None);
         assert_eq!(animal(&harry.replace(r#""patronus": "stag""#, r#""patronus": "phoenix""#)), None);
         assert_eq!(animal(&harry.replace(r#""cast""#, r#""cast_x""#)), None);
+        // 이상한 값은 그 특기만 없고 pet.json은 그대로 읽힘
+        for odd in ["null", "3", "[1]", r#"{"a":1}"#] {
+            assert_eq!(animal(&harry.replace(r#""patronus": "stag""#, &format!(r#""patronus": {odd}"#))), None, "{odd}");
+        }
     }
 
     /// 🧔 해그리드: 빗자루 대신 🐉 용 (broom_rider + dragon 그림), 사이드카·안기·알·락 케이크 (gamekeeper + HAGRID_ANIMS), 덩치 1.4배, 손 자리

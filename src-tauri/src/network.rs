@@ -355,6 +355,24 @@ struct Carried {
 }
 
 /// 내 동물이 친구 화면에 가 있음 (🐾🐾🐾 펫마다 하나 — Network::away의 열쇠가 펫 uid)
+/// 🧳 포트키로 친구에게 보낸 방문 하나
+#[derive(Clone, Copy)]
+struct PortkeyOut {
+    /// 보낸 때
+    sent: Instant,
+    /// 친구가 받았다고 답했음 (PortkeyOk)
+    acked: bool,
+}
+
+/// 🔒 친구 하나에게서 포트키 방문을 받는 가장 짧은 간격
+const PORTKEY_ASK_GAP: Duration = Duration::from_secs(30);
+/// 🔒 한 묶음으로 받는 포트키 방문 수 (같이 잡은 마법사)
+const PORTKEY_JOIN_BURST: usize = 3;
+/// 🔒 포트키 답 (받음·돌려보냄)을 늦추는 시간 (초 — 이 사이 아무 때, portkey::ANSWER_SECS보다 짧게)
+const PORTKEY_REPLY_SECS: (f64, f64) = (0.8, 2.0);
+/// 🔒 친구 하나와 주고받은 아이콘 해시를 기억하는 수
+const ICON_SHARED_MAX: usize = 64;
+
 struct AwayVisit {
     /// 주인의 몇째 펫인지 (Visit.pet — 다음 친구에게 이어 보낼 때도 그대로)
     pet_no: u8,
@@ -444,8 +462,14 @@ pub struct Network {
     ride_arrivals: Vec<(String, screenpet_core::vehicle::VehicleKind)>,
     /// 🤹 내 동물이 물건을 들고 간 방문들 (돌려보내지면 Leave에 실려 옴)
     carry_out: HashSet<u64>,
-    /// 🧳 포트키로 친구에게 보낸 방문 → 보낸 때 (portkey::ANSWER_SECS 안에 돌려보내지면 거절 — 내 화면의 짝 물건으로, 없으면 제자리)
-    portkey_out: HashMap<u64, Instant>,
+    /// 🧳 포트키로 친구에게 보낸 방문 (받았다는 답 PortkeyOk가 portkey::ANSWER_SECS 안에 없거나 돌려보내지면 거절 — 내 화면의 짝 물건으로, 없으면 제자리)
+    portkey_out: HashMap<u64, PortkeyOut>,
+    /// 🔒 친구마다 주고받은 📌 아이콘 그림 해시 (그 친구에겐 이 아이콘 장난감만 포트키로 받음 — 해시를 맞혀 보며 내 화면을 엿보지 못하게)
+    icon_shared: std::cell::RefCell<HashMap<String, HashSet<u64>>>,
+    /// 🔒 친구마다 포트키 방문을 받기 시작한 때와 그 뒤 받은 수 (PORTKEY_ASK_GAP에 한 묶음 — 같이 잡은 마법사 PORTKEY_JOIN_BURST까지)
+    portkey_seen: HashMap<String, (Instant, usize)>,
+    /// 🔒 늦춰 보낼 포트키 답 (보낼 때, 링크, 메시지 — 받든 돌려보내든 같은 만큼 늦게)
+    portkey_replies: Vec<(Instant, String, Visit)>,
     /// 🧳 마지막으로 포트키를 보낸 친구 · 열쇠 · 때 (같이 잡은 마법사는 같은 친구에게)
     portkey_last: Option<(String, screenpet_core::portkey::PortkeyKey, Instant)>,
     /// 🧳 이 화면에 놓인 물건 (게임 루프가 매 틱 — 친구가 포트키로 물어보면 같은 물건을 찾음)
@@ -652,6 +676,9 @@ impl Network {
             ride_arrivals: Vec::new(),
             carry_out: HashSet::new(),
             portkey_out: HashMap::new(),
+            icon_shared: Default::default(),
+            portkey_seen: HashMap::new(),
+            portkey_replies: Vec::new(),
             portkey_last: None,
             portkey_spots: Vec::new(),
             portkey_in: Vec::new(),
@@ -1099,8 +1126,7 @@ impl Network {
         let visit_id = self.send_visit(net, own, pet_no, &friend, opposite(side), None, None, None, None, None, None, Some(screenpet_net::Portkey { kind, look }));
         log!(Info, "visit", "portkey_out", "friend" => short(&friend), "visit" => visit_id);
         // 답이 끊긴 옛 물음은 버림 (링크가 끊기면 Leave가 오지 않음)
-        self.portkey_out.retain(|_, at| at.elapsed() < Duration::from_secs(60));
-        self.portkey_out.insert(visit_id, Instant::now());
+        self.portkey_out.insert(visit_id, PortkeyOut { sent: Instant::now(), acked: false });
         self.portkey_last = Some((friend.clone(), key, Instant::now()));
         self.away.insert(uid, AwayVisit { pet_no, friend, visit_id, side, come_home_by: None, since: Instant::now(), note: None, probed: None, heard: None });
         self.menu_dirty = true;
@@ -1108,13 +1134,82 @@ impl Network {
     }
 
     /// 🧳 포트키로 온 손님이 나타날 물건: 이 화면에 같은 물건 (이름·그림 — 받는 쪽이 검사)이 있을 때만, 같이 온 차례와 함께. 아니면 None (돌려보냄)
-    fn portkey_arrival(&mut self, wire: &screenpet_net::Portkey) -> Option<(screenpet_core::juggle::ObjectSpot, usize)> {
+    /// 🔒 친구 (from)마다 PORTKEY_ASK_GAP에 한 묶음 (같이 잡은 마법사 PORTKEY_JOIN_BURST까지)만 받고, 📌 장난감은 그 친구와 주고받은 아이콘일 때만 (해시 맞히기로 엿보지 못하게)
+    fn portkey_arrival(&mut self, from: &str, wire: &screenpet_net::Portkey) -> Option<(screenpet_core::juggle::ObjectSpot, usize)> {
+        match self.portkey_seen.get_mut(from) {
+            // 같이 잡은 마법사: 첫 방문 뒤 2초 안에 몇 마리까지
+            Some((t, n)) if t.elapsed() < Duration::from_secs(2) && *n < PORTKEY_JOIN_BURST => *n += 1,
+            Some((t, _)) if t.elapsed() < PORTKEY_ASK_GAP => return None,
+            _ => {
+                self.portkey_seen.insert(from.to_string(), (Instant::now(), 1));
+            }
+        }
         let key = screenpet_core::portkey::PortkeyKey::from_wire(&wire.kind, wire.look.as_deref())?;
+        if key.kind.is_toy() && !self.icon_shared_with(from, key.look) {
+            return None;
+        }
         let spot = screenpet_core::portkey::pick_arrival(&self.portkey_spots, key)?.spot;
         self.portkey_in.retain(|(_, at)| at.elapsed() < Duration::from_secs(3));
         let nth = self.portkey_in.iter().filter(|(id, _)| *id == spot.id).count();
-        self.portkey_in.push((spot.id, Instant::now()));
         Some((spot, nth))
+    }
+
+    /// 🔒 이 친구와 이 아이콘 그림 (해시)을 주고받은 적이 있음 (던지기·들고 가기 — 오가는 동안만 기억)
+    fn icon_shared_with(&self, friend: &str, look: u64) -> bool {
+        self.icon_shared.borrow().get(friend).is_some_and(|set| set.contains(&look))
+    }
+
+    /// 🔒 이 친구와 📌 아이콘 (그림 해시 look)을 주고받았음 (던질 때 objects가, 받을 때 게임 루프가)
+    pub fn note_icon_shared(&self, friend: &str, look: u64) {
+        let mut shared = self.icon_shared.borrow_mut();
+        let set = shared.entry(friend.to_string()).or_default();
+        if set.len() < ICON_SHARED_MAX {
+            set.insert(look);
+        }
+    }
+
+    /// 🔒 이 친구와 주고받은 통신 아이콘 그림 (엄격히 확인된 것만 해시로 적음)
+    pub fn note_wire_icon(&self, friend: &str, icon: &screenpet_net::WireIcon) {
+        if let Some(img) = screenpet_core::icon::accept_wire(icon.size, &icon.rgba) {
+            self.note_icon_shared(friend, screenpet_core::portkey::icon_look(&img));
+        }
+    }
+
+    /// 🔒 포트키 답을 늦춰 보냄 (받든 돌려보내든 PORTKEY_REPLY_SECS 사이 아무 때 — 답이 오는 때로 내 화면을 엿보지 못하게)
+    fn reply_later(&mut self, link: &str, msg: Visit) {
+        let secs = PORTKEY_REPLY_SECS.0 + fastrand::f64() * (PORTKEY_REPLY_SECS.1 - PORTKEY_REPLY_SECS.0);
+        self.portkey_replies.push((Instant::now() + Duration::from_secs_f64(secs), link.to_string(), msg));
+    }
+
+    /// 🧳 매 틱 (게임 루프가 network.tick 뒤에): 늦춘 포트키 답을 보내고, 받았다는 답 (PortkeyOk)이 ANSWER_SECS 안에 안 온 내 마법사는
+    /// 거절로 보고 데려옴 — 친구에게 "집에 와"를 보내고 (받았는데 답만 잃었으면 손님이 사라짐), 내 화면의 짝 물건 옆 · 없으면 제자리에
+    pub fn tick_portkeys(&mut self, slots: &mut [Slot]) {
+        let now = Instant::now();
+        let (due, wait): (Vec<_>, Vec<_>) = std::mem::take(&mut self.portkey_replies).into_iter().partition(|(at, _, _)| *at <= now);
+        self.portkey_replies = wait;
+        if let Some(net) = &self.net {
+            for (_, link, msg) in due {
+                net.send(&link, msg);
+            }
+        }
+        let late: Vec<u64> = self.portkey_out.iter().filter(|(_, p)| !p.acked && p.sent.elapsed().as_secs_f64() >= screenpet_core::portkey::ANSWER_SECS).map(|(id, _)| *id).collect();
+        for visit_id in late {
+            self.portkey_out.remove(&visit_id);
+            let Some((uid, a)) = self.away.iter().find(|(_, a)| a.visit_id == visit_id).map(|(u, a)| (u.clone(), a.friend.clone())) else { continue };
+            log!(Info, "visit", "portkey_timeout", "friend" => short(&a), "visit" => visit_id);
+            if let Some(net) = &self.net {
+                net.send(&a, Visit::ComeHome { visit_id });
+            }
+            self.away.remove(&uid);
+            self.menu_dirty = true;
+            if let Some(i) = own_index(slots, &uid) {
+                let Slot { pet, world, .. } = &mut slots[i];
+                pet.notice_portkeys(&self.portkey_spots);
+                pet.portkey_return(world);
+            }
+        }
+        // 받은 마법사가 오래 머문 방문은 잊음 (링크가 끊기면 Leave가 오지 않음)
+        self.portkey_out.retain(|_, p| p.sent.elapsed() < Duration::from_secs(3600));
     }
 
     /// 내 동물이 side 끝으로 다 나갔음: 그 끝의 연결된 친구 하나에게 Visit ("놀러 보내기"였으면 그 친구에게).
@@ -1143,6 +1238,10 @@ impl Network {
         let friend = chosen.unwrap_or_else(|| friends[fastrand::usize(..friends.len())].id.clone());
         let carry = carry.filter(|_| takes(self, &friend));
         let carried = carry.is_some();
+        // 🔒 들고 가는 📌 장난감 그림은 이 친구와 주고받은 것
+        if let Some(i) = carry.as_ref().and_then(|c| c.icon.as_ref()) {
+            self.note_wire_icon(&friend, i);
+        }
         let pet_no = self.free_pet_no(&friend, &uid);
         let visit_id = self.send_visit(net, own, pet_no, &friend, opposite(side), None, None, fling, note.clone(), carry, ride.map(|k| k.id().to_string()), None);
         log!(Info, "visit", "visit_out", "friend" => short(&friend), "visit" => visit_id, "carried" => u8::from(carried));
@@ -2050,13 +2149,11 @@ impl Network {
                 }
                 // 🧳 포트키로 옴: 이 화면에 같은 물건이 있어야 함 (아는 이름·그림만) — 없으면 바쁠 때처럼 돌려보냄 (보낸 쪽은 제 화면의 짝 물건으로)
                 let portkey_at = match &portkey {
-                    Some(w) => match self.portkey_arrival(w) {
+                    Some(w) => match self.portkey_arrival(from, w) {
                         Some(at) => Some(at),
                         None => {
                             log!(Info, "visit", "sent_back", "visit" => visit_id, "friend" => short(from), "reason" => "no_portkey_twin");
-                            if let Some(net) = &self.net {
-                                net.send(link, Visit::leave(visit_id));
-                            }
+                            self.reply_later(link, Visit::leave(visit_id));
                             return;
                         }
                     },
@@ -2072,9 +2169,16 @@ impl Network {
                         if let (Some((spot, nth)), Some(s)) = (portkey_at, slots.iter_mut().find(|s| s.label == label)) {
                             let Slot { pet, world, .. } = s;
                             pet.portkey_arrive(&spot, world, nth);
+                            self.portkey_in.push((spot.id, Instant::now()));
+                            log!(Info, "visit", "portkey_in", "friend" => short(from), "visit" => visit_id);
+                            self.reply_later(link, Visit::PortkeyOk { visit_id });
                         }
                         // 🤹 들고 온 물건: 게임 루프가 손에 쥐여 주고, 들어와 서면 앞을 보고 휙 떨굼
                         if let Some(c) = &carry {
+                            // 🔒 들고 온 📌 장난감 그림은 이 친구와 주고받은 것 (포트키로 받아도 됨)
+                            if let Some(i) = &c.icon {
+                                self.note_wire_icon(from, i);
+                            }
                             self.queue_carry(&label, c);
                         }
                         // 🚗 몰고 온 탈것: 아는 이름만 (게임 루프가 화면 끝에 꺼내 태움 — 자리가 없으면 그냥 걸어 들어옴)
@@ -2107,9 +2211,9 @@ impl Network {
                     self.away.remove(&uid);
                     return;
                 };
-                // 🧳 포트키로 물어본 친구가 곧바로 돌려보냄 (같은 물건이 없거나 바쁨): 걸어 들어오지 않고 내 화면의 짝 물건 옆에, 없으면 제자리에 나타남
+                // 🧳 포트키로 물어본 친구가 받지 않고 돌려보냄 (같은 물건이 없거나 바쁨): 걸어 들어오지 않고 내 화면의 짝 물건 옆에, 없으면 제자리에 나타남
                 let portkey_sent = self.portkey_out.remove(&visit_id);
-                if next.is_none() && portkey_sent.is_some_and(|t| t.elapsed().as_secs_f64() < screenpet_core::portkey::ANSWER_SECS) {
+                if next.is_none() && portkey_sent.is_some_and(|p| !p.acked) {
                     log!(Info, "visit", "portkey_back", "friend" => short(from), "visit" => visit_id);
                     self.away.remove(&uid);
                     self.menu_dirty = true;
@@ -2130,8 +2234,8 @@ impl Network {
                     own.set_boost(app, grown);
                     self.boost_fed.insert(uid.clone());
                 }
-                // 보내자마자 그냥 돌아왔음 — 그 친구 화면이 꽉 찼다고 보고 잠깐 보내지 않음
-                if quick {
+                // 보내자마자 그냥 돌아왔음 — 그 친구 화면이 꽉 찼다고 보고 잠깐 보내지 않음 (🧳 포트키로 갔던 마법사는 아님)
+                if quick && portkey_sent.is_none() {
                     self.full_until.insert(from.to_string(), Instant::now() + FULL_FOR);
                 }
                 let forwarded = next.is_some_and(|n| self.forward_visit(config, &slots[i], &n, side.map(|s| from_net_side(s, vside)), homesick_in, fling));
@@ -2151,6 +2255,14 @@ impl Network {
                     }
                 } else {
                     self.carry_out.remove(&visit_id);
+                }
+            }
+            // 🧳 포트키로 보낸 내 마법사를 친구가 받았음 (그 방문을 받은 친구에게서 온 것만)
+            Visit::PortkeyOk { visit_id } => {
+                if self.away.values().any(|a| a.friend == from && a.visit_id == visit_id) {
+                    if let Some(p) = self.portkey_out.get_mut(&visit_id) {
+                        p.acked = true;
+                    }
                 }
             }
             Visit::ComeHome { visit_id } => {

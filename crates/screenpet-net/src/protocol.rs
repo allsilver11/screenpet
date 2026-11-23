@@ -196,6 +196,12 @@ pub struct Portkey {
     pub look: Option<String>,
 }
 
+/// 🧳 `Visit::portkey`를 읽음: null이면 없음, 모양이 맞으면 그대로, 칸은 있는데 이상하면 빈 이름 (받는 앱이 돌려보냄 — 메시지는 안 버림)
+fn lenient_portkey<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Portkey>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.map(|v| serde_json::from_value(v).unwrap_or(Portkey { kind: String::new(), look: None })))
+}
+
 /// 잘못된 항목은 건너뛰는 목록을 읽음 (메시지 전체는 안 버림).
 /// 배열이 아니면 빈 목록이고 최대 256개만 남김
 fn lenient_list<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<T>, D::Error> {
@@ -323,9 +329,9 @@ pub enum Visit {
         /// 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         pet: Option<u8>,
-        /// 🧳 포트키로 옴: 받는 쪽 화면의 같은 물건 옆에 나타남 (없으면 돌려보냄 — `PORTKEY_MIN_VERSION` 상대에게만).
-        /// 잘못된 값은 그 필드만 버림 (그러면 받는 쪽은 그냥 방문으로 보지 않고 돌려보냄 — 앱이 정함). 옛 버전은 무시함
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        /// 🧳 포트키로 옴: 받는 쪽 화면의 같은 물건 옆에 나타나고 `PortkeyOk`로 답함 (없으면 돌려보냄 — `PORTKEY_MIN_VERSION` 상대에게만).
+        /// 칸은 있는데 모양이 이상하면 빈 이름으로 읽어 (lenient_portkey) 받는 앱이 모르는 물건으로 돌려보냄 — 보통 방문으로 들이지 않음. 옛 버전은 무시함
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_portkey")]
         portkey: Option<Portkey>,
     },
     /// 손님이 받는 쪽 친구 화면을 떠남. `next: None` = 집에 감 (옛 버전도 이렇게 보냄).
@@ -358,6 +364,11 @@ pub enum Visit {
     },
     /// 주인이 펫을 집으로 부름
     ComeHome {
+        visit_id: u64,
+    },
+    /// 🧳 포트키 방문을 받아 같은 물건 옆에 들였음 (받는 쪽 → 주인, `PORTKEY_MIN_VERSION` — 포트키 방문에만 답하므로 옛 버전에겐 가지 않음).
+    /// 주인은 이 답이 `portkey::ANSWER_SECS` 안에 안 오면 거절로 보고 펫을 제 화면으로 되돌림
+    PortkeyOk {
         visit_id: u64,
     },
 }
@@ -817,10 +828,17 @@ mod tests {
         let toy = visit!(portkey: Some(Portkey { kind: "app_icon".into(), look: None }));
         assert!(!String::from_utf8(toy.to_json()).unwrap().contains("look"));
         let base = r#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left""#;
+        // 칸은 있는데 이상하면 빈 이름으로 읽음 — 받는 앱이 모르는 물건으로 보고 돌려보냄 (보통 방문으로 들이지 않음)
         for odd in [r#","portkey":"paper""#, r#","portkey":{"look":"x"}"#, r#","portkey":7"#, r#","portkey":{"kind":3}"#] {
             let Some(Message::Visit(Visit::Visit { portkey, visit_id, .. })) = Message::parse(format!("{base}{odd}}}").as_bytes()) else { panic!("{odd} must not drop the visit") };
-            assert_eq!((portkey, visit_id), (None, 1), "{odd}");
+            assert_eq!((portkey, visit_id), (Some(Portkey { kind: String::new(), look: None }), 1), "{odd}");
         }
+        let Some(Message::Visit(Visit::Visit { portkey, .. })) = Message::parse(format!(r#"{base},"portkey":null}}"#).as_bytes()) else { panic!() };
+        assert_eq!(portkey, None);
+        // 받았다는 답 (포트키 방문만 — 새 버전끼리)
+        let ok = Message::Visit(Visit::PortkeyOk { visit_id: 9 });
+        assert_eq!(ok.to_json(), br#"{"type":"portkey_ok","visit_id":9}"#.to_vec());
+        assert_eq!(Message::parse(&ok.to_json()), Some(ok));
         let Some(Message::Visit(Visit::Visit { portkey, .. })) = Message::parse(format!(r#"{base},"portkey":{{"kind":"can","look":5}}}}"#).as_bytes()) else { panic!() };
         assert_eq!(portkey, Some(Portkey { kind: "can".into(), look: None }), "이상한 생김새는 그 칸만");
     }

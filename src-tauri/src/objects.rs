@@ -155,6 +155,8 @@ struct Live {
     click_through: bool,
     /// 📌 장난감에 그린 앱 아이콘 (친구에게 던지거나 들고 갈 때 같이 보냄 — 메모리에만)
     icon: Option<IconImage>,
+    /// 🧳 그 아이콘의 그림 해시 (포트키 짝 열쇠 — 그릴 때 한 번만 셈)
+    portkey_look: Option<u64>,
 }
 
 impl Live {
@@ -580,7 +582,7 @@ impl Objects {
         out.clear();
         out.extend(self.live.iter().filter_map(|l| {
             let spot = l.object.spot(l.id)?;
-            let key = if l.object.kind.is_toy() { PortkeyKey::toy(l.icon.as_ref()?) } else { PortkeyKey::of(l.object.kind) };
+            let key = if l.object.kind.is_toy() { PortkeyKey { kind: l.object.kind, look: l.portkey_look? } } else { PortkeyKey::of(l.object.kind) };
             Some(PortkeySpot { spot, key })
         }));
     }
@@ -774,6 +776,7 @@ impl Objects {
     /// 📌 장난감 창에 그린 아이콘을 기억해 둠 (친구에게 보낼 때 씀)
     fn set_icon(&mut self, id: u64, icon: Option<IconImage>) {
         if let Some(l) = self.live.iter_mut().find(|l| l.id == id && l.object.kind.is_toy()) {
+            l.portkey_look = icon.as_ref().map(screenpet_core::portkey::icon_look);
             l.icon = icon;
         }
     }
@@ -1052,6 +1055,7 @@ impl Objects {
             hwnd: None,
             click_through,
             icon: None,
+            portkey_look: None,
         });
         true
     }
@@ -1424,6 +1428,10 @@ impl Objects {
         self.threw_at.insert(friend.clone(), Instant::now());
         if let Some(i) = &icon {
             self.sent_icons.insert(friend.clone(), (Instant::now(), i.clone()));
+            // 🔒 이 친구와 주고받은 아이콘 (포트키로 받아도 됨)
+            if let Some(look) = l.portkey_look {
+                network.note_icon_shared(&friend, look);
+            }
         }
         let (side, vside) = to_net_side(visit::opposite(exit.side));
         let toss = Toss { kind: l.object.kind.wire_id().to_string(), side, vside, fling: Some(to_net_fling(exit.fling)), note: l.object.note_to_send(), bounced: false, scale: l.object.kind.is_poop().then(|| l.object.scale()), look: l.object.kind.look().map(str::to_string), rally: (l.object.rally() > 0).then(|| l.object.rally()), icon };

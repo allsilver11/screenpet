@@ -324,3 +324,18 @@ fn frost_goes_away_when_the_pet_is_no_longer_a_dementor() {
     d.magic_fx(&mut fx);
     assert!(!fx.iter().any(|f| matches!(f, MagicFx::Frost { .. } | MagicFx::Soul { .. })), "{fx:?}");
 }
+
+/// 👻 집중 중이거나 자리 비움인 펫·디멘터는 영혼 빼앗기를 하지 않음
+#[test]
+fn no_drain_while_focusing() {
+    let w = world(vec![]);
+    let seed = draining_seed(&w);
+    let mut p = drain_pair(seed, &w);
+    p[0].set_focus(true);
+    sync_drain(&mut p);
+    assert!(p[1].soul_draining().is_none() && !p[0].soul_drained());
+    let mut p = drain_pair(seed, &w);
+    p[1].set_focus(true);
+    sync_drain(&mut p);
+    assert!(p[1].soul_draining().is_none());
+}
