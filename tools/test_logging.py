@@ -10,14 +10,15 @@ APP = ROOT / "src-tauri" / "src"
 DOC = (ROOT / "docs" / "architecture" / "logging.md").read_text(encoding="utf-8")
 
 LEVELS = {"Info", "Warn", "Error"}
-RELAY_AREAS = {"conn", "hub", "presence", "route", "mail", "board", "weather", "dl", "admin", "store"}
-APP_AREAS = {"net", "relay", "update", "visit", "toss"}
+RELAY_AREAS = {"conn", "hub", "presence", "route", "mail", "board", "weather", "dl", "admin", "store", "stats"}
+APP_AREAS = {"net", "relay", "update", "visit", "toss", "stats"}
 # 쓸 수 있는 키 (값은 아래 규칙을 따름)
 KEYS = {
     "conn", "peer", "ip", "v", "took_ms", "err", "n", "bytes",
     "reason", "ch", "to", "from", "friend", "owner", "via", "old_conn", "old_ip", "new", "friends", "online", "channels",
     "up_s", "what", "op", "id", "page", "changed", "cmd", "ok", "place", "wmo", "file", "head", "limit", "bind", "relay_pub",
     "proxies", "weather", "src", "port", "status", "version", "visit", "side", "with_note", "with_reply", "carried", "kind",
+    "day", "kept", "on",
 }
 # 이 키들의 값은 앞 8자로 줄여야 함
 SHORT_KEYS = {"peer", "to", "from", "friend", "owner", "via"}
@@ -37,6 +38,7 @@ FILE_NAME_OK = {
     ("dl", "download_done", "name"),
     ("dl", "download_cut", "name"),
     ("mail", "load_fail", "name"),
+    ("stats", "load_fail", "name"),
     ("update", "read_fail", "release.asset.name.as_str()"),
 }
 

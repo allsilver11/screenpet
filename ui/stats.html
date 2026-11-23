@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="form.css" />
+    <link rel="stylesheet" href="list.css" />
+    <style>
+      #hint { font-size: 11px; color: #6b5a47; }
+      #range { font-size: 12px; display: flex; gap: 6px; align-items: center; }
+      #wrap { max-height: 470px; overflow-y: auto; width: 520px; }
+      h3 { font-size: 12px; margin: 10px 0 4px; }
+      table { border-collapse: collapse; font-size: 11px; width: 100%; }
+      th, td { border-bottom: 1px solid #eadfce; padding: 2px 4px; text-align: right; }
+      th:first-child, td:first-child { text-align: left; }
+      .bar { display: flex; align-items: center; gap: 6px; font-size: 11px; margin: 2px 0; }
+      .bar .name { width: 110px; text-align: right; }
+      .bar .fill { height: 10px; background: #e8a25c; border-radius: 3px; }
+      .bar .n { color: #6b5a47; }
+    </style>
+  </head>
+  <body>
+    <div id="title">📊 펫 통계</div>
+    <div id="hint">사용자가 보낸 익명 하루 보고의 합계예요 (누가 보냈는지는 없어요). 날짜는 보낸 사람의 그날이에요.</div>
+    <div id="range">
+      <label>기간 <select id="days"><option value="7">7일</option><option value="30" selected>30일</option><option value="90">90일</option></select></label>
+      <button id="reload">새로 받기</button>
+    </div>
+    <div id="empty">불러오는 중…</div>
+    <div id="wrap">
+      <div id="totals"></div>
+      <div id="chart"></div>
+      <div id="daily"></div>
+    </div>
+    <div id="buttons">
+      <button id="close">닫기</button>
+    </div>
+    <script src="common.js"></script>
+    <script src="stats.js"></script>
+  </body>
+</html>

@@ -135,6 +135,8 @@ pub enum NetInput {
     MailboxPrivate(u64, bool),
     /// 📮 건의함 보기 창 (누구나, board.rs): 이 쪽(1부터)을 릴레이에 물음
     BoardList(u32),
+    /// 📊 펫 통계 창 (개발자만, pet_stats.rs): 날짜별 합계를 릴레이에 물음
+    StatsList,
     MailboxDelete(u64),
     MailboxBlock(String),
     /// 손님 우클릭 "편지 써서 돌려보내기…": 그 손님(창 label) 주인에게 보낼 답장 쓰기 창 (같은 편지 창)
@@ -790,6 +792,13 @@ impl Network {
         }
     }
 
+    /// 📊 보낼 지난날 통계 보고를 net에 넘김 (None = 없음 — 동의 안 했거나 보낼 것 없음). v4 릴레이에만 감
+    pub fn set_stats_report(&self, report: Option<screenpet_net::pet_stats::StatsReport>) {
+        if let Some(net) = &self.net {
+            net.set_stats_report(report);
+        }
+    }
+
     /// 🧹 쓸어 모은 더미를 그 끝의 친구 한 명에게 흩날려 보냄 (친구 쪽에서 반대편 끝으로 들어옴)
     /// ☀️ 이 도시의 실제 날씨를 중계 서버에 달라고 함 (도시 id만 감 — 서버가 정해진 목록에서 찾아 날씨 서비스에 물음)
     pub fn want_weather(&self, place: screenpet_core::real_weather::Place) {
@@ -1418,6 +1427,11 @@ impl Network {
                     }
                 }
             }
+            NetInput::StatsList => match (&self.net, self.mailbox.enabled()) {
+                (Some(net), true) => net.stats_get(),
+                (None, true) => crate::pet_stats::result(app, Err("offline".into())),
+                (_, false) => {}
+            },
             NetInput::BoardList(page) => match &self.net {
                 Some(net) => net.board_list(page),
                 None => crate::board::result(app, Err("offline".into())),
@@ -1589,6 +1603,16 @@ impl Network {
             }
             // 📮 건의함 보기 창의 한 쪽 (또는 못 받은 이유)
             NetEvent::Board { result } => crate::board::result(app, result),
+            // 📊 릴레이가 지난날 통계 보고를 받았음: 보낼 것을 지움 (설정에 남음)
+            NetEvent::StatsSent { day } => {
+                let sent = config.pet_stats.sent(&day);
+                if sent {
+                    log!(Info, "stats", "stats_sent", "day" => day.as_str());
+                }
+                return sent;
+            }
+            // 📊 개발자 펫 통계 창의 합계 (또는 못 받은 이유)
+            NetEvent::PetStats { result } => crate::pet_stats::result(app, result),
             NetEvent::LetterSent { result } => {
                 // 보냈으면 내 펫이 만세 (하던 일이 있으면 건너뜀)
                 if result.is_ok() {

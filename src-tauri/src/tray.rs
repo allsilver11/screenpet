@@ -130,6 +130,12 @@ const FEEDBACK_ID: &str = "feedback";
 const MAILBOX_ID: &str = "mailbox";
 /// 📮 건의함: 누구나 한 항목. 개발자 컴퓨터(비밀키)에서는 개발자 건의함, 다른 컴퓨터에서는 읽기 전용 공개 목록 (board.rs)
 const BOARD_ID: &str = "board";
+/// 📊 익명 통계 보내기 (⚙️ 설정 체크 항목 — Config.pet_stats.consent, pet_stats.rs)
+const STATS_ID: &str = "pet-stats";
+/// ⚙️ 설정의 📊 체크 글자
+pub const STATS_LABEL: &str = "📊 익명 통계 보내기";
+/// 📊 펫 통계 창 (개발자 컴퓨터만 — pet_stats.rs)
+const STATS_VIEW_ID: &str = "pet-stats-view";
 /// 🚀 컴퓨터 켜면 자동 실행 (⚙️ 설정 체크 항목, 설정에 남음 — autostart.rs)
 const AUTOSTART_ID: &str = "autostart";
 /// 🔄 업데이트 (update.rs — 글자가 상태에 따라 바뀜)
@@ -268,6 +274,8 @@ pub struct TrayMenu {
     pub mailbox: Option<MenuItem<Wry>>,
     /// 🚀 컴퓨터 켜면 자동 실행 (게임 루프가 설정으로 다시 맞춤)
     pub autostart: CheckMenuItem<Wry>,
+    /// 📊 익명 통계 보내기 (게임 루프가 설정으로 다시 맞춤)
+    pub pet_stats: CheckMenuItem<Wry>,
     /// 🔄 업데이트 (update.rs가 글자와 누를 수 있는지를 바꿈)
     pub update: MenuItem<Wry>,
     /// 🙈 숨기기 / 🐾 보이기 — 지금 누르면 할 일만 보임 (toggle_label)
@@ -906,7 +914,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     let autostart = CheckMenuItem::with_id(app, AUTOSTART_ID, "🚀 컴퓨터 켜면 자동 실행", true, true, None::<&str>)?;
     let lumos_light = CheckMenuItem::with_id(app, LUMOS_LIGHT_ID, LUMOS_LIGHT_LABEL, true, false, None::<&str>)?;
     let web_ledges = CheckMenuItem::with_id(app, WEB_LEDGES_ID, WEB_LEDGES_LABEL, screenpet_core::platform::WEB_LEDGES, false, None::<&str>)?;
-    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &lumos_light, &web_ledges, &autostart])?;
+    // 📊 처음엔 꺼져 있음 — 게임 루프가 설정(답했으면 그 답)으로 다시 맞춤
+    let pet_stats = CheckMenuItem::with_id(app, STATS_ID, STATS_LABEL, true, false, None::<&str>)?;
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &lumos_light, &web_ledges, &autostart, &pet_stats])?;
 
     // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어듦 (COME_HOME_POSITION)
     let menu = Menu::new(app)?;
@@ -925,6 +935,10 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     menu.append(&toggle)?;
     menu.append(&feedback)?;
     menu.append(&board)?;
+    // 📊 펫 통계는 개발자 컴퓨터에만 (📮 건의함 바로 밑)
+    if dev {
+        menu.append(&MenuItem::with_id(app, STATS_VIEW_ID, "📊 펫 통계", true, None::<&str>)?)?;
+    }
     menu.append(&help)?;
     menu.append(&update)?;
     menu.append(&quit)?;
@@ -949,6 +963,8 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             MAILBOX_ID => send(app, Input::ShowMailbox),
             BOARD_ID => send(app, if dev { Input::ShowMailbox } else { Input::ShowBoard }),
             AUTOSTART_ID => send(app, Input::ToggleAutostart),
+            STATS_ID => send(app, Input::ToggleStats),
+            STATS_VIEW_ID => send(app, Input::ShowPetStats),
             UPDATE_ID => crate::update::on_click(app),
             TIMELINE_ID => send(app, Input::ShowTimeline),
             DODGE_ID => send(app, Input::ShowDodge),
@@ -1058,5 +1074,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, lumos_light, web_ledges, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, my_pet, tint_menu, tints, mailbox, autostart, update, friends, come_home, come_home_menu, pick_menu, add_menu, let_go, let_go_item, pick_list: Default::default(), hand_mode, auto_mode, toggle: toggle.clone() })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, lumos_light, web_ledges, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, my_pet, tint_menu, tints, mailbox, autostart, pet_stats, update, friends, come_home, come_home_menu, pick_menu, add_menu, let_go, let_go_item, pick_list: Default::default(), hand_mode, auto_mode, toggle: toggle.clone() })
 }

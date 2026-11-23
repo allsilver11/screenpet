@@ -36,6 +36,7 @@ crates/
 ├── screenpet-proto/      릴레이↔앱 와이어 약속 (serde만)
 │   ├── src/lib.rs          버전(RELAY_PROTOCOL_VERSION 등)·공용 크기 한도
 │   ├── src/relay.rs        ClientMsg / ServerMsg / Letter / BoardItem
+│   ├── src/pet_stats.rs    📊 StatsReport / StatsDay, 종류 목록·상한·날짜
 │   ├── src/board.rs        📮 공개 건의함 한도 (PER_PAGE, MAX_NAME, MAX_LINE…)
 │   ├── src/weather.rs      ☀️ 지역 표 PLACES 18곳
 │   └── tests/golden.rs     JSON 글자 그대로 고정
@@ -63,7 +64,7 @@ crates/
 ├── screenpet-relay/      릴레이 서버 (구조는 server.md)
 │   ├── src/main.rs, lib.rs, http.rs, conn.rs, proto.rs
 │   ├── src/hub/{mod,presence,routing,mail,weather,admin,stats,limits}.rs, hub/tests.rs
-│   ├── src/store.rs, mailbox.rs, board.rs, weather.rs, downloads.rs, control.rs, admin.rs
+│   ├── src/store.rs, mailbox.rs, pet_stats.rs, board.rs, weather.rs, downloads.rs, control.rs, admin.rs
 │   └── tests/{relay,downloads}.rs
 └── screenpet-core/       순수 규칙 (창·웹뷰 모름, Linux에서 시험)
     ├── src/lib.rs          모듈 목록
@@ -135,6 +136,7 @@ src-tauri/
     ├── vehicles.rs          🚗 탈것 창 (vehicle-<n>), 메뉴, 누르기 — 규칙은 코어 vehicle.rs
     ├── feedback.rs          💌 건의하기 창 (봉인 → 릴레이)
     ├── mailbox.rs           📮 개발자 건의함 (dev_key 있을 때만), 공개 요약 올리기
+    ├── pet_stats.rs         📊 익명 통계 묻는 창, 개발자 📊 펫 통계 창
     ├── board.rs             📮 공개 건의함 보기 (누구나, 읽기 전용)
     ├── update.rs            🔄 업데이트 받기·설치
     ├── weather.rs           계절 날씨 창

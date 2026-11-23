@@ -104,6 +104,12 @@ pub enum Input {
     ToggleWebLedges,
     /// 🚀 컴퓨터 켜면 자동 실행 켜기 / 끄기 (설정에 남음, 바로 OS에 적용)
     ToggleAutostart,
+    /// 📊 처음 묻는 창의 답: 익명 통계를 보냄(true) / 안 보냄(false) — 설정에 남음 (pet_stats.rs)
+    StatsConsent(bool),
+    /// 📊 ⚙️ 설정 "익명 통계 보내기" 켜기 / 끄기
+    ToggleStats,
+    /// 📊 펫 통계 창 (개발자 컴퓨터만)
+    ShowPetStats,
     /// 🧹 빗자루 들기 / 내려놓기 (트레이·우클릭 체크 항목)
     ToggleBroom,
     /// 🌨️ 날씨 효과 켜기 / 끄기 (트레이·우클릭 체크 항목)
@@ -184,6 +190,30 @@ fn share_care(network: &Network, config: &Config, edit: bool) {
     if let Some(lead) = config.lead_pet() {
         network.share_state(config, &lead.species, &lead.care, edit);
     }
+}
+
+/// 📊 오늘 날짜를 맞추고 지금 키우는 종류를 적은 뒤, 보낼 지난날 보고를 net에 넘김. 설정이 바뀌었으면 true
+fn stats_tick(config: &mut Config, network: &Network) -> bool {
+    let species: Vec<String> = config.pets.iter().map(|p| p.species.clone()).collect();
+    let species: Vec<&str> = species.iter().map(String::as_str).collect();
+    let dirty = config.pet_stats.note_kept(&crate::pet_stats::today(), crate::pet_stats::VERSION, &species);
+    network.set_stats_report(config.pet_stats.report().cloned());
+    dirty
+}
+
+/// 📊 익명 통계 동의를 적음: ⚙️ 설정 체크를 맞추고, 처음 설치한 날이면 고른 첫 펫도 "새로 고름"으로 셈. 설정이 바뀌었으면 true
+fn set_stats_consent(app: &AppHandle, config: &mut Config, network: &Network, yes: bool, fresh_install: bool) -> bool {
+    let changed = config.pet_stats.set_consent(yes);
+    let _ = app.state::<AppState>().menu.pet_stats.set_checked(config.pet_stats.on());
+    screenpet_log::log!(Info, "stats", "stats_consent", "on" => u8::from(yes));
+    if changed && yes && fresh_install {
+        let species: Vec<String> = config.pets.iter().map(|p| p.species.clone()).collect();
+        for s in &species {
+            config.pet_stats.note_chosen(&crate::pet_stats::today(), crate::pet_stats::VERSION, s);
+        }
+    }
+    stats_tick(config, network);
+    changed
 }
 
 /// 🐾🐾🐾 내 펫 슬롯 수 (slots 맨 앞 — 그 뒤는 손님)
@@ -474,6 +504,15 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     if new_id {
         save_config(&app, &mut config);
     }
+    // 📊 익명 통계: 처음 설치한 실행이면 첫 펫을 "새로 고름"으로 셀 수 있게 기억함. 아직 답이 없으면 한 번 물음 (답하기 전엔 안 모으고 안 보냄)
+    let fresh_install = new_id;
+    let _ = app.state::<AppState>().menu.pet_stats.set_checked(config.pet_stats.on());
+    if stats_tick(&mut config, &network) {
+        save_config(&app, &mut config);
+    }
+    if config.pet_stats.consent.is_none() {
+        crate::pet_stats::show_ask(&app);
+    }
     share_care(&network, &config, false);
     // ☀️ 실제 날씨: 중계 서버에 고른 도시를 알림 (붙을 때마다 다시 — 옛 서버엔 보내지 않음)
     network.want_weather(config.weather_place);
@@ -586,7 +625,11 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     }
                     let own = &mut slots[i];
                     let uid = own.uid().unwrap_or_default().to_string();
-                    config.set_pet_species(&uid, &next.id);
+                    let before = own.entry.id.clone();
+                    // 📊 이 컴퓨터에서 바꾼 것만 셈 (📱 다른 컴퓨터가 바꾼 것은 그쪽이 셈)
+                    if config.set_pet_species(&uid, &next.id) && !remote {
+                        config.pet_stats.note_changed(&crate::pet_stats::today(), crate::pet_stats::VERSION, &before, &next.id);
+                    }
                     // 펫이 키운 만큼은 그대로 (📱 저쪽에서 바꿨으면 저쪽이 나눈 그 동물의 기록으로 — 첫 펫만 나눔)
                     if remote {
                         if let Some(shared) = config.care.get(&next.id).cloned() {
@@ -626,6 +669,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     if config.add_pet(&entry.id, uid.clone()).is_none() {
                         continue;
                     }
+                    // 📊 새로 고른 펫 (창을 못 만들어 되돌려도 고른 것은 고른 것)
+                    config.pet_stats.note_chosen(&crate::pet_stats::today(), crate::pet_stats::VERSION, &entry.id);
                     let stage = config.own_pet(&uid).map_or(Stage::Baby, |p| p.care.stage);
                     let label = slots::free_own_label(&app, &slots);
                     let x = 0.5 + 0.18 * n as f64 * if n % 2 == 0 { 1.0 } else { -1.0 };
@@ -941,6 +986,16 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     crate::autostart::toggle(&app, &mut config);
                     save_config(&app, &mut config);
                 }
+                Input::StatsConsent(yes) => {
+                    set_stats_consent(&app, &mut config, &network, yes, fresh_install);
+                    save_config(&app, &mut config);
+                }
+                Input::ToggleStats => {
+                    // 체크 항목은 누를 때 스스로 뒤집히므로 set_stats_consent가 실제 값으로 다시 맞춤
+                    let yes = !config.pet_stats.on();
+                    set_stats_consent(&app, &mut config, &network, yes, fresh_install);
+                    save_config(&app, &mut config);
+                }
                 Input::HouseClick => {
                     // 🐾🐾🐾 하우스 안의 배고픈 펫이 있으면 그 펫의 음식 고르기
                     let n = own_count(&slots);
@@ -1159,6 +1214,7 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                 Input::ShowFeedback => crate::feedback::show(&app),
                 Input::ShowMailbox => crate::mailbox::show(&app),
                 Input::ShowBoard => crate::board::show(&app),
+                Input::ShowPetStats => crate::pet_stats::show(&app),
                 Input::ShowDodge => {
                     // 조작 모드는 게임이 대신함
                     if control_on {
@@ -1264,6 +1320,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
             follow_ridden_windows(source.as_mut(), &mut slots);
         }
         if now - last_save >= SAVE_EVERY {
+            // 📊 날짜가 바뀌었으면 지난날 보고가 생김 — 다음 릴레이 잡일에 감
+            stats_tick(&mut config, &network);
             save_config(&app, &mut config);
             // 📱 노는 동안 가끔 지금 포만감까지 (쉬는 컴퓨터도 같은 시간만큼 배고파짐)
             share_care(&network, &config, false);

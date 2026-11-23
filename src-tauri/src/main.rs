@@ -16,6 +16,7 @@ mod network;
 mod objects;
 mod opacity;
 mod overlay;
+mod pet_stats;
 mod pets;
 mod presence;
 mod prop;
@@ -354,6 +355,9 @@ fn main() {
             mailbox::mailbox_close,
             board::board_list,
             board::board_close,
+            pet_stats::stats_answer,
+            pet_stats::stats_list,
+            pet_stats::stats_close,
             ladder::ladder_state,
             ladder::ladder_host,
             ladder::ladder_begin,

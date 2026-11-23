@@ -51,6 +51,7 @@
 | 릴레이 | route | 채널 열기·실패·끊기 |
 | 릴레이 | mail | 📮 건의 편지, 독자 편집, `letters.json` |
 | 릴레이 | board | 📮 공개 건의함 |
+| 릴레이 | stats | 📊 익명 펫 통계 보고 받기·합계 주기, `stats.json` |
 | 릴레이 | weather | ☀️ 날씨 받기 (Open-Meteo, 예비 MET Norway) |
 | 릴레이 | dl | 🔄 `/downloads/` |
 | 릴레이 | admin | 관리 명령·소켓, 내보내기 |
@@ -58,6 +59,7 @@
 | 앱 | net | 친구 연결, 릴레이 붙음/끊김, 기기 연결, 네트워크 꺼짐 |
 | 앱 | relay | 릴레이 클라이언트 (screenpet-net): 로그인, 거절, 닫힘 |
 | 앱 | update | 🔄 업데이트 확인·받기·설치 |
+| 앱 | stats | 📊 익명 통계 동의·보고가 받아짐 |
 | 앱 | visit | 놀러 가기·손님 |
 | 앱 | toss | 물건 던지기·받기 |
 
@@ -98,6 +100,11 @@
 | mail | `mail_edit` | INFO | conn peer op id took_ms | 독자 편집: `read`, `done`, `reject`, `private`, `delete`, `block`(id 0) |
 | mail | `save_fail` | ERROR | took_ms err | `letters.json` 쓰기 실패 (다음에 다시 씀) |
 | mail | `load_fail` | ERROR | file | `letters.json`(또는 `.bak`)을 못 읽음 |
+| stats | `stats_in` | INFO | conn day kept took_ms | 📊 지난날 통계 보고를 셈 (누가·무슨 종류인지 없음 — kept = 종류 수, took_ms = 저장) |
+| stats | `stats_refused` | WARN | conn reason | 안 셈 (그래도 `stats_ok`로 답함): `day`(이상하거나 너무 지난 날), `size`, `new`(너무 새 설치), `dup`(그날 이미 보냄), `ip`, `full` |
+| stats | `stats_list` | INFO | conn peer n | 독자(개발자)가 날짜별 합계를 받음 |
+| stats | `save_fail` | ERROR | took_ms err | `stats.json` 쓰기 실패 (다음에 다시 씀) |
+| stats | `load_fail` | ERROR | file | `stats.json`(또는 `.bak`)을 못 읽음 |
 | board | `board_put` | INFO | conn peer n changed | 독자가 공개 요약을 올림 (이름·글 없음) |
 | board | `board_list` | INFO | conn peer page n | 공개 건의함 한 쪽을 줌 |
 | weather | `fetch_ok` | INFO | src place wmo took_ms | 지역 날씨 받음. src = `open_meteo` 또는 `met`, wmo = 날씨 코드 (MET은 기호를 WMO로 바꾼 값) |
@@ -130,6 +137,8 @@
 | relay | `key_mismatch` | ERROR | | 고정한 릴레이 키와 다름 → 거부 |
 | relay | `no_proof` | ERROR | | 릴레이가 키 증명을 안 함 → 거부 |
 | net | `relay_up` | INFO | peer | 릴레이 연결됨 (메뉴 쪽) |
+| stats | `stats_consent` | INFO | on | 📊 익명 통계 보내기를 정함 (처음 묻는 창·⚙️ 설정), on = 1/0 |
+| stats | `stats_sent` | INFO | day | 릴레이가 그날 통계 보고를 받음 (보낼 것을 지움) |
 | net | `relay_down` | WARN | peer | 릴레이 끊김 |
 | net | `friend_up` | INFO | friend | 친구 연결됨 (LAN이나 릴레이) |
 | net | `friend_down` | INFO | friend | 친구 끊김 |

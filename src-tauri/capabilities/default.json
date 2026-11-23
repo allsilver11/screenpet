@@ -3,7 +3,7 @@
     {
       "identifier": "events",
       "description": "모든 창: 앱이 보내는 이벤트 듣기만 (창·앱을 다루는 API와 이벤트 보내기는 주지 않는다)",
-      "windows": ["pet", "pet-*", "house", "guest-*", "pair", "code", "name", "link", "size", "letter", "ladder", "weather-*", "trail-*", "timeline", "object-*", "vehicle-*", "postit", "dodge", "sleigh", "feedback", "mailbox", "board", "opacity"],
+      "windows": ["pet", "pet-*", "house", "guest-*", "pair", "code", "name", "link", "size", "letter", "ladder", "weather-*", "trail-*", "timeline", "object-*", "vehicle-*", "postit", "dodge", "sleigh", "feedback", "mailbox", "board", "opacity", "stats-ask", "stats"],
       "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
     },
     {
@@ -61,6 +61,16 @@
       "identifier": "board-window",
       "windows": ["board"],
       "permissions": ["allow-board-list", "allow-board-close"]
+    },
+    {
+      "identifier": "stats-ask-window",
+      "windows": ["stats-ask"],
+      "permissions": ["allow-stats-answer"]
+    },
+    {
+      "identifier": "stats-window",
+      "windows": ["stats"],
+      "permissions": ["allow-stats-list", "allow-stats-close"]
     },
     {
       "identifier": "feedback-window",
