@@ -108,10 +108,11 @@ fn it_starts_only_with_both_present_and_resting_nearby() {
     }
     s.tick(DT, &mut walking);
     assert_eq!(s.mentor_started(), (0, 0), "걷는 중");
-    // 너무 멀면 안 함
-    let mut far = duo(&w, 100.0, 1850.0);
+    // 너무 멀면 안 함 (MENTOR_BODIES가 넉넉해서 넓은 두 모니터 바닥으로)
+    let wide = World::new(vec![], vec![Rect::new(0.0, 0.0, 4000.0, GROUND)], 128.0);
+    let mut far = duo(&wide, 100.0, 3850.0);
     for _ in 0..(3.0 / DT) as usize {
-        tick(&mut s, &mut far, &w, &mut said);
+        tick(&mut s, &mut far, &wide, &mut said);
     }
     assert_eq!(s.mentor_started(), (0, 0), "멀리");
 }
@@ -209,4 +210,13 @@ fn grabbing_either_pet_ends_it_cleanly() {
         pets[0].update(DT, &w);
     }
     assert!(!pets[0].in_romp(), "무쇠인간도 풀려남");
+}
+
+/// 자주 보여야 함 (2026-11-23 요청 — "보기가 너무 어려워"): 둘이 쉬면 평균 15초 안에 하나 시작, 쿨다운 2분 이하, 화면 꽤 멀리서도 만남
+#[test]
+fn musoe_and_spider_meet_often() {
+    use super::mentor::{HUG_RATE, MENTOR_BODIES, MENTOR_COOLDOWN, TAG_RATE};
+    assert!(1.0 / (HUG_RATE + TAG_RATE) <= 15.0);
+    assert!(MENTOR_COOLDOWN.1 <= 120.0);
+    assert!(MENTOR_BODIES >= 16.0);
 }

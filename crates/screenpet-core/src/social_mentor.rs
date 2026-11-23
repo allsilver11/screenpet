@@ -14,14 +14,14 @@ use super::*;
 use crate::brain::romp_moves::Pose;
 use crate::brain::{Anim, Speech};
 
-/// 🤗 포옹: 둘이 쉬고 있을 때 1초에 시작할 확률 (같이 있으면 몇 분에 한 번쯤 — 쿨다운이 더 김)
-pub const HUG_RATE: f64 = 0.01;
+/// 🤗 포옹: 둘이 쉬고 있을 때 1초에 시작할 확률 (수다와 합쳐 평균 12초쯤 — 자주 보이게, 2026-11-23)
+pub const HUG_RATE: f64 = 0.04;
 /// 🗨️ 졸졸 수다: 1초에 시작할 확률
-pub const TAG_RATE: f64 = 0.01;
+pub const TAG_RATE: f64 = 0.04;
 /// 만날 수 있는 거리 (두 몸 크기 평균 배, 같은 디딤판 조각)
-pub const MENTOR_BODIES: f64 = 10.0;
+pub const MENTOR_BODIES: f64 = 20.0;
 /// 한 번 하고 나면 그 무쇠인간이 다시 하기까지 (초)
-pub const MENTOR_COOLDOWN: (f64, f64) = (180.0, 360.0);
+pub const MENTOR_COOLDOWN: (f64, f64) = (45.0, 90.0);
 /// 🗨️ 수다가 이어지는 시간 (초)
 pub const TAG_SECS: (f64, f64) = (15.0, 25.0);
 /// 🗨️ 무쇠인간이 지루해 달아날 몫 (MOOD_SECS마다)
