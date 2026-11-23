@@ -28,7 +28,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sprite_spec import (ANIMS, FAVORITE_FOOD, FRAME, HOP_SHARE, HOUSE, LOCOMOTION, NO_SPIN, OPTIONAL_ANIMS, PERSONALITY, ROLL_CENTER, ROLL_RADIUS, SNOW_CLOUD, GLASSES_FLASH, SPEECH, STAGE_SCALE,  # noqa: E402
                          STAGES, TIMID, ENERGETIC, RIGGING, JUGGLER, PRANKS, TASKBAR_PLAY, TINTABLE, KNOCKER, STASHER, WEB_SLINGER, BIKE_RIDER, SUPER_FLIER,
-                         BROOM_RIDER, SPELLS, SEEKER, BOOKWORM, BAG_CLEANER, DARK_LORD, DEMENTOR, PATRONUS, GAMEKEEPER, frame_px, manifest)
+                         BROOM_RIDER, SPELLS, SEEKER, BOOKWORM, BAG_CLEANER, DARK_LORD, DEMENTOR, PATRONUS, GAMEKEEPER, PORTKEY, frame_px, manifest)
 
 # =====================================================================
 # 1. 엔진
@@ -1821,6 +1821,8 @@ def species_fields(pid, m):
         m["patronus"] = PATRONUS[pid]
     if pid in GAMEKEEPER:
         m["gamekeeper"] = True
+    if pid in PORTKEY:
+        m["portkey"] = True
     return m
 
 

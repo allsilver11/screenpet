@@ -176,7 +176,7 @@ impl Pet {
         }
     }
 
-    /// 테스트: 마법사 혼자 하는 일 (빗자루·스니치·주문·책·가방·나기니·결투·패트로누스·해그리드 놀이)을 끔
+    /// 테스트: 마법사 혼자 하는 일 (빗자루·스니치·주문·책·가방·나기니·결투·패트로누스·해그리드 놀이·포트키)을 끔
     #[cfg(test)]
     pub(crate) fn hush_wizardry(&mut self) {
         self.broom.ready_at = f64::INFINITY;
@@ -188,6 +188,7 @@ impl Pet {
         self.duel.ready_at = f64::INFINITY;
         self.duel.patronus_ready_at = f64::INFINITY;
         self.hagrid.ready_at = f64::INFINITY;
+        self.portkey.ready_at = f64::INFINITY;
     }
 
     /// 🏰 호그와트 친구 셋 중 누구인지 (해그리드 > 헤르미온느 > 해리 순으로 봄)

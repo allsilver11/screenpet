@@ -66,6 +66,8 @@ pub mod duel_bout;
 pub mod lumos;
 /// ✨ 덮개 창에 그릴 마법 효과 (⚡ 빛줄기·⚔️ 결투·🐍 나기니·🦌 사슴·🥶 서리)
 pub mod magic;
+/// 🧳 포트키 (마법사가 같은 물건 둘 사이를 순간이동)의 숫자와 짝 물건 열쇠
+pub mod portkey;
 pub mod world;
 
 #[cfg(test)]

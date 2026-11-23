@@ -584,6 +584,8 @@ pub fn sync_lifts<T: AsRef<Pet> + AsMut<Pet>>(pets: &mut [T]) -> Vec<CarriedOut>
     // 👻 디멘터가 곁의 동물 영혼을 빼앗음 (brain_dementor.rs — 🦌 패트로누스가 오면 못 끝냄)
     super::dementor_moves::sync_drain(pets);
     super::dementor_moves::sync_gloom(pets);
+    // 🧳 같은 포트키를 곁의 마법사도 같이 잡음 (brain_portkey.rs)
+    super::portkey_moves::sync_portkeys(pets);
     // 🖐️ 해그리드가 쓰다듬은 펫에게 하트 (brain_hagrid.rs)
     super::hagrid_moves::sync_hagrid(pets);
     let mut out = Vec::new();

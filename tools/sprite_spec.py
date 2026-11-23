@@ -332,6 +332,9 @@ DEMENTOR = {"dementor"}
 # 🦌🦦 디멘터가 오면 "Expecto Patronum!" 은빛 동물 (pet.json patronus — 해리 사슴 "stag"·헤르미온느 수달 "otter", 그림 cast)
 PATRONUS = {"harry": "stag", "hermione": "otter"}
 
+# 🧳 놓인 물건을 포트키로 짝 물건 옆으로 순간이동 (pet.json portkey — 해리·헤르미온느·볼드모트, 그림 cast)
+PORTKEY = {"harry", "hermione", "voldemort"}
+
 # 🟡 골든 스니치를 빗자루로 쫓아가 잡는 동물 (pet.json seeker — 해리)
 SEEKER = {"harry"}
 

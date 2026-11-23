@@ -427,6 +427,9 @@ function draw(now) {
     writePet("transformOrigin", swingGrip ? gripOrigin(swingGrip) : render.hang ? hangOrigin(manifest.head?.[stage.stage]?.dragged, manifest.frame_size) : tuck > 0 ? "50% 100%" : topple ? "50% 50%" : "");
     writePet("opacity", tuck > 0 ? (1 - tuck).toFixed(3) : "");
     if (tuck > 0) parts.push(`scale(${(1 - 0.9 * tuck).toFixed(3)})`);
+    // 🧳 포트키로 빙글 (백엔드 render.twirl 도 — 코어 brain_portkey.rs): 팽이처럼 좌우로 돌며 (tuck과 함께 작아지고 흐려짐)
+    const twirl = Number.isFinite(render.twirl) ? render.twirl : 0;
+    if (twirl) parts.push(`scaleX(${Math.cos((twirl * Math.PI) / 180).toFixed(3)})`);
     if (render.hang) parts.push(`rotate(${(Math.sin(now / 430) * 6).toFixed(2)}deg)`);
     if (swingGrip && render.swing) parts.push(`rotate(${render.swing.toFixed(2)}deg)`);
     // 🕺 가장 신나는 춤 (render.sparkle): 반짝이가 퐁퐁
@@ -950,6 +953,10 @@ const EXTRA_SPEECH = {
   soul_drain: ["hhhaaah...", "hhhhhaaa..."],
   soul_taken: ["my soul...!", "nooo...!"],
   soul_saved: ["phew!", "thanks!"],
+  // 🧳 포트키 (코어 brain_portkey.rs): 달려감 / 짝 물건 옆에 나타남 / 텔레포트 안 됨
+  portkey: ["Portkey!"],
+  portkey_land: ["whoa!", "ta-da!"],
+  portkey_huh: ["huh?"],
   // 🧔 해그리드 (코어 brain_hagrid.rs): 🤗 번쩍 안기 / 🖐️ 쓰담 / 🥚 아기 용이 깨어남 / 🪨 락 케이크 (사이드카 hop_in은 트럭과 같은 말)
   cuddle: ["C'mere, you!"],
   pat: ["Good lad!", "There, there"],

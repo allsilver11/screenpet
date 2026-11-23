@@ -573,6 +573,18 @@ impl Objects {
         out.extend(self.live.iter().filter_map(|l| l.object.spot(l.id)));
     }
 
+    /// 🧳 포트키가 될 수 있는 놓인 물건 자리와 짝 열쇠를 out에 다시 채움 (바닥·창 위에 가만히 놓인 것 모두 — 똥·거대한 것·쓰레기·📌 장난감까지.
+    /// 장난감은 그린 아이콘이 있을 때만 그 그림 해시로 — 앱 이름·창 제목은 쓰지 않음)
+    pub fn portkey_spots(&self, out: &mut Vec<screenpet_core::portkey::PortkeySpot>) {
+        use screenpet_core::portkey::{PortkeyKey, PortkeySpot};
+        out.clear();
+        out.extend(self.live.iter().filter_map(|l| {
+            let spot = l.object.spot(l.id)?;
+            let key = if l.object.kind.is_toy() { PortkeyKey::toy(l.icon.as_ref()?) } else { PortkeyKey::of(l.object.kind) };
+            Some(PortkeySpot { spot, key })
+        }));
+    }
+
     /// ⚾ 친구 화면 끝에서 던져져 날아 들어오는 물건들 (흐물이가 받으러 감 — notice_incoming)
     pub fn incoming(&self, out: &mut Vec<screenpet_core::juggle::Incoming>) {
         out.clear();

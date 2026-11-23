@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 /// 5 = 💪 영웅이 든 거대한 것을 `Visit::carry`로 받음 (v0.7.1 — 새 필드 없음, look "giant"). 옛 버전은 모르는 `type`이 오면
 /// 6 = 🪃 던진 탈것을 Toss (kind "vehicle", look = 탈것 id)로 받음 (v0.7.4 — 새 필드 없음).
 /// 7 = 🐾🐾🐾 한 주인의 펫 여럿을 한 번에 손님으로 받음 (`Visit::pet` = 몇째 펫).
+/// 8 = 🧳 포트키로 오는 마법사를 받음 (`Visit::portkey` — 같은 물건 옆에 나타나게, 없으면 돌려보냄).
 /// 옛 버전은 모르는 `type`이 오면 링크를 닫으므로, 새 메시지 종류를 쓰는 기능은 상대 버전부터 확인함 (`Net::peer_version`)
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 8;
 /// `LadderMsg`를 보내도 되는 가장 낮은 상대 버전
 pub const LADDER_MIN_VERSION: u32 = 2;
 /// `device_friends`, `my_devices`, `device_*`를 보내도 되는 가장 낮은 상대 버전
@@ -28,6 +29,9 @@ pub const VEHICLE_TOSS_MIN_VERSION: u32 = 6;
 /// 🐾🐾🐾 같은 친구에게 내 펫을 둘째부터 더 보내도 되는 가장 낮은 상대 버전.
 /// 옛 버전은 같은 주인의 손님이 와 있으면 "already visiting"으로 돌려보내므로, 옛 친구에겐 한 번에 한 마리만 보냄
 pub const MULTI_PET_MIN_VERSION: u32 = 7;
+/// 🧳 포트키로 마법사를 보내도 되는 가장 낮은 상대 버전 (`Visit::portkey`).
+/// 옛 버전은 그 필드를 무시하고 화면 끝에서 걸어 들어오게 하므로, 보내는 쪽은 옛 친구에겐 친구 쪽 포트키를 쓰지 않음
+pub const PORTKEY_MIN_VERSION: u32 = 8;
 /// 친구 하나가 소개하는 기기 수 상한 (`my_devices`, 메시지 하나와 전체 모두).
 /// 한 사람은 컴퓨터를 둘까지만 연결하므로 친구에게 다른 하나뿐임
 pub const MAX_DEVICES: usize = 1;
@@ -180,6 +184,18 @@ pub struct Carry {
     pub icon: Option<WireIcon>,
 }
 
+/// 🧳 포트키로 오는 마법사가 잡은 물건 (`Visit::portkey`): 받는 쪽은 바닥의 같은 물건 (같은 이름·그림)을 찾아 그 옆에 나타나게 하고,
+/// 없으면 바쁠 때처럼 돌려보냄. 이름은 `Toss`와 같고 (`kind`, `look`), 📌 장난감은 `kind` "app_icon" + `look` = 아이콘 그림 해시 (16자리 hex —
+/// 앱 이름·창 제목은 싣지 않음). 받는 앱이 아는 값인지 검사함. `PORTKEY_MIN_VERSION` 상대에게만 보냄
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Portkey {
+    /// 물건 종류
+    pub kind: String,
+    /// 생김새 (색 똥, 거대 등 · 장난감은 그림 해시)
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub look: Option<String>,
+}
+
 /// 잘못된 항목은 건너뛰는 목록을 읽음 (메시지 전체는 안 버림).
 /// 배열이 아니면 빈 목록이고 최대 256개만 남김
 fn lenient_list<'de, T: serde::de::DeserializeOwned, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<T>, D::Error> {
@@ -307,6 +323,10 @@ pub enum Visit {
         /// 옛 버전은 무시함
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
         pet: Option<u8>,
+        /// 🧳 포트키로 옴: 받는 쪽 화면의 같은 물건 옆에 나타남 (없으면 돌려보냄 — `PORTKEY_MIN_VERSION` 상대에게만).
+        /// 잘못된 값은 그 필드만 버림 (그러면 받는 쪽은 그냥 방문으로 보지 않고 돌려보냄 — 앱이 정함). 옛 버전은 무시함
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+        portkey: Option<Portkey>,
     },
     /// 손님이 받는 쪽 친구 화면을 떠남. `next: None` = 집에 감 (옛 버전도 이렇게 보냄).
     /// `next: Some(id)` = 친구 `id`와 이은 가장자리(`side`)로 나가 그 친구에게 가고 싶음.
@@ -612,6 +632,7 @@ mod tests {
                 carry: None,
                 ride: None,
                 pet: None,
+                portkey: None,
             };
             #[allow(unused_variables)]
             if let Visit::Visit { $($field,)* .. } = &mut v {
@@ -783,10 +804,31 @@ mod tests {
         assert!(!sent.contains("gift") && !sent.contains("style"), "{sent}");
     }
 
+    /// 🧳 포트키: Visit에 잡은 물건 (`portkey {kind, look}`) — 새 버전 (PORTKEY_MIN_VERSION)에게만, 없으면 예전 모양, 이상한 값은 그 칸만 버림
+    #[test]
+    fn a_portkey_visit_names_the_object_and_old_or_odd_forms_still_parse() {
+        assert_eq!(PROTOCOL_VERSION, 8);
+        assert!(PORTKEY_MIN_VERSION > MULTI_PET_MIN_VERSION && PORTKEY_MIN_VERSION <= PROTOCOL_VERSION);
+        let v = visit!(portkey: Some(Portkey { kind: "poop".into(), look: Some("pink".into()) }));
+        let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();
+        assert_eq!((j["portkey"]["kind"].as_str(), j["portkey"]["look"].as_str()), (Some("poop"), Some("pink")));
+        assert_eq!(Message::parse(&v.to_json()), Some(v.clone()));
+        assert!(!String::from_utf8(visit!().to_json()).unwrap().contains("portkey"), "보통 방문은 예전 모양");
+        let toy = visit!(portkey: Some(Portkey { kind: "app_icon".into(), look: None }));
+        assert!(!String::from_utf8(toy.to_json()).unwrap().contains("look"));
+        let base = r#"{"type":"visit","visit_id":1,"species":"cat","stage":"child","scale":1.0,"personality":"friendly","owner":"A","enter_side":"left""#;
+        for odd in [r#","portkey":"paper""#, r#","portkey":{"look":"x"}"#, r#","portkey":7"#, r#","portkey":{"kind":3}"#] {
+            let Some(Message::Visit(Visit::Visit { portkey, visit_id, .. })) = Message::parse(format!("{base}{odd}}}").as_bytes()) else { panic!("{odd} must not drop the visit") };
+            assert_eq!((portkey, visit_id), (None, 1), "{odd}");
+        }
+        let Some(Message::Visit(Visit::Visit { portkey, .. })) = Message::parse(format!(r#"{base},"portkey":{{"kind":"can","look":5}}}}"#).as_bytes()) else { panic!() };
+        assert_eq!(portkey, Some(Portkey { kind: "can".into(), look: None }), "이상한 생김새는 그 칸만");
+    }
+
     /// 🐾🐾🐾 내 펫 여러 마리: Visit에 몇째 펫인지 (`pet`) — 같은 주인의 펫 여럿을 받는 상대 (MULTI_PET_MIN_VERSION)에게만 둘째부터 보냄
     #[test]
     fn a_visit_says_which_of_my_pets_it_is_and_old_peers_ignore_it() {
-        assert_eq!(PROTOCOL_VERSION, 7);
+        assert!(PROTOCOL_VERSION >= 7);
         assert!(MULTI_PET_MIN_VERSION > VEHICLE_TOSS_MIN_VERSION && MULTI_PET_MIN_VERSION <= PROTOCOL_VERSION);
         let v = visit!(pet: Some(2));
         let j: serde_json::Value = serde_json::from_slice(&v.to_json()).unwrap();

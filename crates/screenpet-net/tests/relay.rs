@@ -92,7 +92,7 @@ fn visit(id: u64) -> Visit {
         homesick_in: None,
         fling: None,
         note: None,
-        tint: None, boost: None, no_grow: None, of: None, carry: None, ride: None, pet: None }
+        tint: None, boost: None, no_grow: None, of: None, carry: None, ride: None, pet: None, portkey: None }
 }
 
 fn received(rx: &Receiver<NetEvent>, id: u64) -> bool {

@@ -26,7 +26,7 @@ use screenpet_core::linked::{self, ClaimWatch};
 use screenpet_core::object::ObjectKind;
 use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
-use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, MAX_FRIENDS, MULTI_PET_MIN_VERSION, VEHICLE_TOSS_MIN_VERSION};
+use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, MAX_FRIENDS, MULTI_PET_MIN_VERSION, PORTKEY_MIN_VERSION, VEHICLE_TOSS_MIN_VERSION};
 use screenpet_log::{log, short};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
@@ -444,6 +444,14 @@ pub struct Network {
     ride_arrivals: Vec<(String, screenpet_core::vehicle::VehicleKind)>,
     /// 🤹 내 동물이 물건을 들고 간 방문들 (돌려보내지면 Leave에 실려 옴)
     carry_out: HashSet<u64>,
+    /// 🧳 포트키로 친구에게 보낸 방문 → 보낸 때 (portkey::ANSWER_SECS 안에 돌려보내지면 거절 — 내 화면의 짝 물건으로, 없으면 제자리)
+    portkey_out: HashMap<u64, Instant>,
+    /// 🧳 마지막으로 포트키를 보낸 친구 · 열쇠 · 때 (같이 잡은 마법사는 같은 친구에게)
+    portkey_last: Option<(String, screenpet_core::portkey::PortkeyKey, Instant)>,
+    /// 🧳 이 화면에 놓인 물건 (게임 루프가 매 틱 — 친구가 포트키로 물어보면 같은 물건을 찾음)
+    portkey_spots: Vec<screenpet_core::portkey::PortkeySpot>,
+    /// 🧳 포트키로 들어온 손님이 나타난 물건 · 때 (같이 온 손님은 나란히)
+    portkey_in: Vec<(u64, Instant)>,
     /// 사다리타기 (판 하나와 창)
     ladder: crate::ladder::Ladders,
     /// (내 펫이 지금 손님을 받지 않음 — 집중 중·하우스 안, 사다리 판이 있음) — 바뀌면 메뉴의 사다리 항목을 다시 맞춤
@@ -643,6 +651,10 @@ impl Network {
             carry_arrivals: Vec::new(),
             ride_arrivals: Vec::new(),
             carry_out: HashSet::new(),
+            portkey_out: HashMap::new(),
+            portkey_last: None,
+            portkey_spots: Vec::new(),
+            portkey_in: Vec::new(),
             ladder: crate::ladder::Ladders::default(),
             own_refuses: (false, false),
             quiet: false,
@@ -1056,6 +1068,55 @@ impl Network {
         self.guest_sends.insert(g.visit_id.clone(), (friend.to_string(), f.side));
     }
 
+    /// 🧳 이 화면에 놓인 물건 (게임 루프가 매 틱 — 친구가 포트키로 물어보면 같은 물건을 찾음)
+    pub fn set_portkey_spots(&mut self, spots: &[screenpet_core::portkey::PortkeySpot]) {
+        self.portkey_spots.clear();
+        self.portkey_spots.extend_from_slice(spots);
+    }
+
+    /// 🧳 포트키를 보낼 수 있는 친구 (연결됐고 꽉 차지 않았고 새 버전 — PORTKEY_MIN_VERSION. 옛 친구에겐 친구 쪽 포트키를 쓰지 않음)
+    fn portkey_friends<'a>(&self, config: &'a Config, uid: &str) -> Vec<&'a str> {
+        let new = |id: &str| self.net.as_ref().and_then(|n| n.peer_version(id)).is_some_and(|v| v >= PORTKEY_MIN_VERSION);
+        config.friends.iter().map(|f| f.id.as_str()).filter(|id| self.is_open(id) && new(id) && self.may_send_more(id, uid)).collect()
+    }
+
+    /// 🧳 내 펫 (uid)이 친구 화면의 짝 물건을 물어볼 수 있음 (게임 루프가 매 틱 set_portkey_friend로)
+    pub fn portkey_friend_ok(&self, config: &Config, uid: &str) -> bool {
+        !self.portkey_friends(config, uid).is_empty()
+    }
+
+    /// 🧳 내 마법사가 포트키로 사라졌음: 새 버전 친구 하나에게 Visit.portkey로 물어봄 (물건은 싣지 않음 — 늘 제자리).
+    /// 같이 잡은 마법사는 방금 고른 그 친구에게. 보냈으면 true, 보낼 친구가 없으면 false (게임 루프가 portkey_return)
+    pub fn portkey_away(&mut self, config: &Config, own: &mut Slot, key: screenpet_core::portkey::PortkeyKey) -> bool {
+        let uid = own.uid().unwrap_or_default().to_string();
+        let friends = self.portkey_friends(config, &uid);
+        let (Some(net), false) = (&self.net, friends.is_empty()) else { return false };
+        let recent = self.portkey_last.as_ref().filter(|(f, k, at)| *k == key && at.elapsed() < Duration::from_secs(2) && friends.contains(&f.as_str())).map(|(f, _, _)| f.clone());
+        let friend = recent.unwrap_or_else(|| friends[fastrand::usize(..friends.len())].to_string());
+        let Some(side) = config.friend(&friend).map(|f| f.side) else { return false };
+        let (kind, look) = key.to_wire();
+        let pet_no = self.free_pet_no(&friend, &uid);
+        let visit_id = self.send_visit(net, own, pet_no, &friend, opposite(side), None, None, None, None, None, None, Some(screenpet_net::Portkey { kind, look }));
+        log!(Info, "visit", "portkey_out", "friend" => short(&friend), "visit" => visit_id);
+        // 답이 끊긴 옛 물음은 버림 (링크가 끊기면 Leave가 오지 않음)
+        self.portkey_out.retain(|_, at| at.elapsed() < Duration::from_secs(60));
+        self.portkey_out.insert(visit_id, Instant::now());
+        self.portkey_last = Some((friend.clone(), key, Instant::now()));
+        self.away.insert(uid, AwayVisit { pet_no, friend, visit_id, side, come_home_by: None, since: Instant::now(), note: None, probed: None, heard: None });
+        self.menu_dirty = true;
+        true
+    }
+
+    /// 🧳 포트키로 온 손님이 나타날 물건: 이 화면에 같은 물건 (이름·그림 — 받는 쪽이 검사)이 있을 때만, 같이 온 차례와 함께. 아니면 None (돌려보냄)
+    fn portkey_arrival(&mut self, wire: &screenpet_net::Portkey) -> Option<(screenpet_core::juggle::ObjectSpot, usize)> {
+        let key = screenpet_core::portkey::PortkeyKey::from_wire(&wire.kind, wire.look.as_deref())?;
+        let spot = screenpet_core::portkey::pick_arrival(&self.portkey_spots, key)?.spot;
+        self.portkey_in.retain(|(_, at)| at.elapsed() < Duration::from_secs(3));
+        let nth = self.portkey_in.iter().filter(|(id, _)| *id == spot.id).count();
+        self.portkey_in.push((spot.id, Instant::now()));
+        Some((spot, nth))
+    }
+
     /// 내 동물이 side 끝으로 다 나갔음: 그 끝의 연결된 친구 하나에게 Visit ("놀러 보내기"였으면 그 친구에게).
     /// 아무도 없으면(그새 끊김) 바로 다시 들어옴
     /// carry = 🤹 들고 나간 물건 (배달 장난) — 그 끝의 새 버전 친구에게만 실음 (💪 거대한 것은 거대한 것을 받는 친구에게만 — 아니면 두고 감).
@@ -1083,7 +1144,7 @@ impl Network {
         let carry = carry.filter(|_| takes(self, &friend));
         let carried = carry.is_some();
         let pet_no = self.free_pet_no(&friend, &uid);
-        let visit_id = self.send_visit(net, own, pet_no, &friend, opposite(side), None, None, fling, note.clone(), carry, ride.map(|k| k.id().to_string()));
+        let visit_id = self.send_visit(net, own, pet_no, &friend, opposite(side), None, None, fling, note.clone(), carry, ride.map(|k| k.id().to_string()), None);
         log!(Info, "visit", "visit_out", "friend" => short(&friend), "visit" => visit_id, "carried" => u8::from(carried));
         if carried {
             self.carry_out.insert(visit_id);
@@ -1120,7 +1181,7 @@ impl Network {
 
     /// 내 동물을 friend 화면으로 보냄 (enter_side 끝에서 들어옴). via = 바로 전에 있던 친구 화면. 새 visit_id를 돌려줌
     #[allow(clippy::too_many_arguments)]
-    fn send_visit(&self, net: &Net, own: &Slot, pet_no: u8, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>, note: Option<String>, carry: Option<screenpet_net::Carry>, ride: Option<String>) -> u64 {
+    fn send_visit(&self, net: &Net, own: &Slot, pet_no: u8, friend: &str, enter_side: Side, via: Option<String>, homesick_in: Option<f64>, fling: Option<visit::Fling>, note: Option<String>, carry: Option<screenpet_net::Carry>, ride: Option<String>, portkey: Option<screenpet_net::Portkey>) -> u64 {
         let visit_id = fastrand::u64(..);
         let (enter_side, vside) = to_net_side(enter_side);
         net.send(
@@ -1147,6 +1208,7 @@ impl Network {
                 ride,
                 // 🐾🐾🐾 첫 펫은 예전과 같은 모양
                 pet: (pet_no > 0).then_some(pet_no),
+                portkey,
             },
         );
         visit_id
@@ -1219,6 +1281,7 @@ impl Network {
             carry: None,
             ride: None,
             pet: (guest.pet > 0).then_some(guest.pet),
+            portkey: None,
         };
         net.send(next, visit.clone());
         log!(Info, "visit", "carry_on", "visit" => visit_id, "to" => short(next));
@@ -1269,7 +1332,7 @@ impl Network {
         // 들려 보낸 편지는 다음 친구에게도 그대로 (주인인 내가 다시 실음 — 중간 친구가 고친 것이 아님)
         let note = a.note.clone();
         let pet_no = self.free_pet_no(next, &uid);
-        let visit_id = self.send_visit(net, own, pet_no, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone(), None, None);
+        let visit_id = self.send_visit(net, own, pet_no, next, opposite(exited), Some(a.friend.clone()), homesick_in, fling, note.clone(), None, None, None);
         log!(Info, "visit", "own_walk_on", "visit" => visit_id, "from" => short(&a.friend), "to" => short(next));
         // 돌아올 땐 내 화면에서 그 친구가 연결된 끝에서 들어옴
         self.away.insert(uid, AwayVisit { pet_no, friend: next.to_string(), visit_id, side: f.side, come_home_by: None, since: Instant::now(), note, probed: None, heard: None });
@@ -1949,7 +2012,7 @@ impl Network {
     /// 친구가 보낸 방문 메시지(놀러 옴·떠남·집에 와)를 처리함
     fn on_visit_message(&mut self, app: &AppHandle, config: &Config, slots: &mut Vec<Slot>, from: &str, msg: Visit) {
         match msg {
-            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, tint, boost, no_grow, of, carry, ride, pet, .. } => {
+            Visit::Visit { visit_id, species, stage, scale, owner, enter_side, vside, via, homesick_in, fling, note, tint, boost, no_grow, of, carry, ride, pet, portkey, .. } => {
                 // 📱 친구가 데려온 그 친구의 다른 컴퓨터 펫이면 그 컴퓨터의 손님 (한 사람 — 이름표도 같음). 대답은 링크(from)로
                 let link = from;
                 let from = of.as_deref().filter(|o| config.same_person(o, link)).unwrap_or(link);
@@ -1985,12 +2048,31 @@ impl Network {
                     }
                     return;
                 }
+                // 🧳 포트키로 옴: 이 화면에 같은 물건이 있어야 함 (아는 이름·그림만) — 없으면 바쁠 때처럼 돌려보냄 (보낸 쪽은 제 화면의 짝 물건으로)
+                let portkey_at = match &portkey {
+                    Some(w) => match self.portkey_arrival(w) {
+                        Some(at) => Some(at),
+                        None => {
+                            log!(Info, "visit", "sent_back", "visit" => visit_id, "friend" => short(from), "reason" => "no_portkey_twin");
+                            if let Some(net) = &self.net {
+                                net.send(link, Visit::leave(visit_id));
+                            }
+                            return;
+                        }
+                    },
+                    None => None,
+                };
                 let note = note.as_deref().and_then(visit::sanitize_note);
                 let arrival = Arrival { enter_side: from_net_side(enter_side, vside), via, homesick_in, fling: fling.map(from_net_fling), note, tint: BodyTint::from_wire(tint.as_deref()), boost, no_grow };
                 let result = self.welcome_guest(app, config, slots, from, visit_id, pet_no, &species, &stage, scale, &owner, arrival);
                 match result {
                     Ok(label) => {
                         self.last_visit.insert(cooldown_key, now);
+                        // 🧳 화면 끝이 아니라 같은 물건 옆에 빙글 나타남
+                        if let (Some((spot, nth)), Some(s)) = (portkey_at, slots.iter_mut().find(|s| s.label == label)) {
+                            let Slot { pet, world, .. } = s;
+                            pet.portkey_arrive(&spot, world, nth);
+                        }
                         // 🤹 들고 온 물건: 게임 루프가 손에 쥐여 주고, 들어와 서면 앞을 보고 휙 떨굼
                         if let Some(c) = &carry {
                             self.queue_carry(&label, c);
@@ -2025,6 +2107,18 @@ impl Network {
                     self.away.remove(&uid);
                     return;
                 };
+                // 🧳 포트키로 물어본 친구가 곧바로 돌려보냄 (같은 물건이 없거나 바쁨): 걸어 들어오지 않고 내 화면의 짝 물건 옆에, 없으면 제자리에 나타남
+                let portkey_sent = self.portkey_out.remove(&visit_id);
+                if next.is_none() && portkey_sent.is_some_and(|t| t.elapsed().as_secs_f64() < screenpet_core::portkey::ANSWER_SECS) {
+                    log!(Info, "visit", "portkey_back", "friend" => short(from), "visit" => visit_id);
+                    self.away.remove(&uid);
+                    self.menu_dirty = true;
+                    let Slot { pet, world, .. } = &mut slots[i];
+                    // 떠나 있는 동안 못 본 물건 자리를 새로 (그새 치워졌을 수 있음)
+                    pet.notice_portkeys(&self.portkey_spots);
+                    pet.portkey_return(world);
+                    return;
+                }
                 // 답장은 내 동물이 가 있던 그 친구가 그 방문을 집으로 돌려보낼 때만
                 let reply = visit::accept_reply(Some((a.friend.as_str(), a.visit_id)), from, visit_id, next.is_none(), note.as_deref());
                 let quick = visit::return_means_full(next.is_some(), fling.is_some(), a.come_home_by.is_some(), side.is_some(), a.since.elapsed().as_secs_f64());

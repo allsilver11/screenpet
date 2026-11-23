@@ -31,6 +31,7 @@ pub(crate) fn pet_cfg() -> PetConfig {
         dementor: false,
         patronus: None,
         gamekeeper: false,
+        portkey: false,
         dragon: false,
         size: 128.0,
         half_w: 38.0,

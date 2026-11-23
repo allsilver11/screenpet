@@ -571,6 +571,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     let mut poop_spots = Vec::new();
     // 🤹 흐물이가 주울 물건 자리, 노릴 동물 자리 (틱마다 다시 채움)
     let mut object_spots = Vec::new();
+    // 🧳 포트키가 될 수 있는 놓인 물건 (틱마다 다시 채움 — 모두 숨겨 둔 동안엔 빈 목록)
+    let mut portkey_spots = Vec::new();
     let mut pet_targets: Vec<Option<screenpet_core::juggle::Target>> = Vec::new();
     let mut juggle_targets = Vec::new();
     // ⚾ 친구 화면에서 날아 들어오는 물건 (흐물이가 받으러 감)
@@ -1563,13 +1565,21 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
         }
         // 🐾🐾🐾 화면 끝으로 다 나간 내 펫들 (슬롯 번호, 끝)
         let mut own_exits: Vec<(usize, Side)> = Vec::new();
+        // 🧳 포트키로 사라져 친구 쪽을 물어볼 내 펫 (슬롯 번호, 짝 열쇠)
+        let mut portkey_asks = Vec::new();
         let mut left = Vec::new();
         objects.poop_spots(&mut poop_spots);
         objects.object_spots(&mut object_spots);
+        objects.portkey_spots(&mut portkey_spots);
         // 📌 작업표시줄 장난감을 지금 만들 수 있나 (내 흐물이만 봄)
         let toys = objects.toys(&app);
         objects.incoming(&mut incoming);
         let all_hidden = crate::windows_hidden(&app);
+        if all_hidden {
+            portkey_spots.clear();
+        }
+        // 🧳 친구가 포트키로 물어보면 이 화면의 같은 물건을 찾음 (network.tick이 받음)
+        network.set_portkey_spots(&portkey_spots);
         // 🙆 흐물이에게 같은 화면의 다른 동물을 보여 줌 (번쩍 들러 감)
         screenpet_core::brain::hoist_moves::notice_pets(&mut slots);
         // 🕸️ 화면의 거미집을 모든 동물에게 알려 줌 — 거미인간이 아닌 동물이 들어가면 걸림 (코어 brain_snare.rs)
@@ -1611,6 +1621,12 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                 if s.pet.cfg.taskbar_play && s.is_own() {
                     s.pet.notice_taskbar(&object_spots, toys, &s.world);
                 }
+                // 🧳 마법사: 놓인 물건을 포트키로 (짝 물건은 이 화면에, 또는 내 펫이면 새 버전 친구 화면에 — 손님은 이 화면 안에서만)
+                if s.pet.cfg.portkey {
+                    s.pet.notice_portkeys(&portkey_spots);
+                    let friend_ok = s.is_own() && s.uid().is_some_and(|u| network.portkey_friend_ok(&config, u));
+                    s.pet.set_portkey_friend(friend_ok);
+                }
                 // 🪶 해리·헤르미온느: Leviosa로 작업표시줄 앱 아이콘을 뽑아 띄울 수 있나 (흐물이 장난감과 같은 사정 — 내 펫만)
                 if s.is_own() && s.pet.cfg.spells.has(screenpet_core::wizard::Spell::Leviosa) {
                     s.pet.set_icon_lift_ok(toys.ready);
@@ -1626,6 +1642,15 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
             if s.pet.take_nox() && s.on_screen() {
                 if let Some(l) = &lumos {
                     l.nox();
+                }
+            }
+            // 🧳 포트키로 사라져 친구 화면의 짝 물건을 물어봄 (내 펫만 — 손님이 낸 것은 그 자리로 되돌림)
+            if let Some(screenpet_core::brain::portkey_moves::PortkeyEvent::AskFriend { key }) = s.pet.take_portkey() {
+                if s.is_own() {
+                    portkey_asks.push((i, key));
+                } else {
+                    let Slot { pet, world, .. } = &mut *s;
+                    pet.portkey_return(world);
                 }
             }
             if let Some(speech) = s.pet.take_speech() {
@@ -1747,6 +1772,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
             let Slot { pet, world, .. } = &mut rest[0];
             let base = head.first().map_or(&*world, |s| &s.world);
             objects.deliver_toy(&app, base, pet);
+        }
+        // 🧳 포트키로 친구 화면의 짝 물건을 물어봄 (물건은 싣지 않음 — 늘 제자리). 보낼 친구가 없으면 내 화면의 짝 물건으로, 없으면 제자리
+        for (i, key) in portkey_asks {
+            if !network.portkey_away(&config, &mut slots[i], key) {
+                let Slot { pet, world, .. } = &mut slots[i];
+                pet.portkey_return(world);
+            }
         }
         for (i, side) in own_exits {
             // 내 동물이 화면 끝으로 다 나갔음 — 그 끝의 친구에게 놀러 감 (물건을 들고 나갔으면 새 버전 친구에게 실음)

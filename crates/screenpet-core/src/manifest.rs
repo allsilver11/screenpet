@@ -242,6 +242,9 @@ pub struct PetManifest {
     /// 🧔 해그리드: 🏍️ 사이드카 오토바이·🤗 안아 들기·🖐️ 쓰담·🥚 용알·🪨 락 케이크 (HAGRID_ANIMS가 다 있을 때만 — is_gamekeeper())
     #[serde(default)]
     pub gamekeeper: bool,
+    /// 🧳 해리·헤르미온느·볼드모트: 놓인 물건을 포트키로 짝 물건 옆으로 순간이동 (SPELL_ANIMS가 있을 때만 — uses_portkeys())
+    #[serde(default)]
+    pub portkey: bool,
     /// 🎨 잉크 선으로 그려 몸 색을 고를 수 있음 (흐물이 — 웹뷰가 ink_<stage>.png 자리를 고른 색으로 덮음, core::tint)
     #[serde(default)]
     pub tint: bool,
@@ -421,6 +424,11 @@ impl PetManifest {
     /// 🐉 빗자루 대신 용을 탐 (dragon 그림)
     pub fn dragon_mount(&self) -> bool {
         self.has_anim(DRAGON_ANIM)
+    }
+
+    /// 🧳 포트키 (SPELL_ANIMS 그림이 있어야 함 — 손을 댈 때 cast)
+    pub fn uses_portkeys(&self) -> bool {
+        self.portkey && SPELL_ANIMS.iter().all(|a| self.has_anim(a))
     }
 
     /// 🧔 해그리드 (HAGRID_ANIMS 그림이 다 있어야 함)
@@ -966,6 +974,7 @@ mod tests {
             assert_eq!((m.dragon_mount(), m.is_gamekeeper()), (id == "hagrid", id == "hagrid"), "{id}");
             assert_eq!((m.is_dark_lord(), m.is_dementor(), m.casts_patronus()), (id == "voldemort", id == "dementor", id == "harry" || id == "hermione"), "{id}");
             assert_eq!(m.seeks(), id == "harry", "{id}");
+            assert_eq!(m.uses_portkeys(), wizard, "🧳 {id}");
             assert_eq!((m.reads_books(), m.cleans_with_bag()), (id == "hermione", id == "hermione"), "{id}");
             let c = crate::brain::PetConfig::from_manifest(&m, 1.0, 1.0, "teenager");
             assert_eq!((c.rides_broom, c.seeker, c.bookworm, c.bag_cleaner), (wizard || id == "hagrid", id == "harry", id == "hermione", id == "hermione"), "{id}");

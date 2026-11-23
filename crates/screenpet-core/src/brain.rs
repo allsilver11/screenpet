@@ -490,6 +490,12 @@ pub enum Speech {
     SoulTaken,
     /// 🦌 패트로누스 덕에 영혼을 지킨 펫 ("phew!")
     SoulSaved,
+    /// 🧳 포트키로 달려감 ("Portkey!", brain_portkey.rs)
+    Portkey,
+    /// 🧳 짝 물건 옆에 나타남 ("whoa!")
+    PortkeyLand,
+    /// 🧳 텔레포트가 안 돼 제자리에 다시 나타남 ("huh?")
+    PortkeyHuh,
     /// 🧔 해그리드가 펫을 번쩍 안음 ("C'mere, you!")
     Cuddle,
     /// 🧔 해그리드가 쓰다듬음 ("Good lad!")
@@ -766,6 +772,8 @@ pub enum State {
     Gloom { remaining: f64 },
     /// 👻 디멘터 (by)에게 영혼을 빼앗기며 버둥 (brain_dementor.rs — 누구나) — t = 시작한 뒤 흐른 시간
     Drained { t: f64, by: u64 },
+    /// 🧳 포트키 — 달려가기·사라지기·나타나기 (brain_portkey.rs) — t = 이 단계에 들어선 뒤 흐른 시간
+    Portkey { phase: portkey_moves::PortkeyPhase, t: f64 },
     /// 🎒 헤르미온느 (owner)의 구슬 가방 속에 숨어 있음 (brain_tuck.rs — 해리) — t = 숨기 시작한 뒤 흐른 시간, from = 처음 x (물리 px)
     Tucked { owner: u64, t: f64, from: f64 },
 }
@@ -933,6 +941,8 @@ pub struct PetConfig {
     pub patronus: Option<crate::wizard::PatronusAnimal>,
     /// 🧔 해그리드 — 🏍️ 사이드카·🤗 안기·🖐️ 쓰담·🥚 용알·🪨 락 케이크 (pet.json `gamekeeper` + HAGRID_ANIMS, brain_hagrid.rs)
     pub gamekeeper: bool,
+    /// 🧳 놓인 물건을 포트키로 짝 물건 옆으로 순간이동 (pet.json `portkey` + cast 그림 — 해리·헤르미온느·볼드모트, brain_portkey.rs)
+    pub portkey: bool,
     /// 🐉 빗자루 대신 용을 탐 (dragon 그림 — 해그리드, brain_broom.rs가 mount_anim으로)
     pub dragon: bool,
     /// 🌱 지금 연령대 (from_manifest가 받은 단계 이름 — 손님도 Visit에 실려 온 단계). 연령대 특기·종별 특기의 세기 (brain_stage.rs)
@@ -988,6 +998,7 @@ impl PetConfig {
             dementor: m.is_dementor(),
             patronus: m.patronus_animal(),
             gamekeeper: m.is_gamekeeper(),
+            portkey: m.uses_portkeys(),
             dragon: m.rides_broom() && m.dragon_mount(),
             // 모르는 이름이면 청소년 (예전 그대로의 세기)
             stage: crate::care::Stage::from_name(stage).unwrap_or(crate::care::Stage::Teenager),
@@ -1041,6 +1052,8 @@ pub struct RenderState {
     pub tuck: f64,
     /// 🪨 Petrificus에 맞아 통나무처럼 누운 각도 (도, 시계 방향 + — 0이면 서 있음) — 웹뷰가 그림 가운데를 축으로 돌려 바닥에 눕힘 (brain_duel.rs)
     pub topple: f64,
+    /// 🧳 포트키로 빙글 도는 각도 (도, 0 … 360 — 0이면 안 돎) — 웹뷰가 팽이처럼 좌우로 돌림 (tuck과 함께, brain_portkey.rs)
+    pub twirl: f64,
 }
 
 /// 동물 한 마리 — 몸, 상태, 각 장난의 기억을 모두 가짐
@@ -1222,6 +1235,8 @@ pub struct Pet {
     dark: dark_moves::DarkMood,
     /// 👻 디멘터 서리·도망의 기억 · 곁에서 시무룩·배고픔은 누구나 (brain_dementor.rs)
     dementor: dementor_moves::DementorMood,
+    /// 🧳 포트키의 기억 (brain_portkey.rs)
+    portkey: portkey_moves::PortkeyMood,
     /// ⚔️ 결투·🦌 패트로누스의 기억 (brain_duel.rs)
     duel: duel_moves::DuelMood,
     /// 🐛🕸️ 고치·거미집에 걸리기의 기억 (brain_snare.rs)
@@ -1344,6 +1359,7 @@ impl Pet {
             hagrid: hagrid_moves::HagridMood::new(seed),
             dark: dark_moves::DarkMood::new(seed),
             dementor: dementor_moves::DementorMood::new(seed),
+            portkey: portkey_moves::PortkeyMood::new(seed),
             duel: duel_moves::DuelMood::new(seed),
             snare: snare_moves::SnareMood::new(seed),
             typing: Default::default(),
@@ -1470,6 +1486,7 @@ impl Pet {
         // 📖 책·🙋 손들기·👜 가방 청소 (brain_study.rs)
         if self.update_broom(dt, world) || self.update_duel(dt, world) || self.update_spell(dt, world) || self.update_dark(dt, world) || self.update_study(dt, world)
             || self.update_hagrid(dt, world)
+            || self.update_portkey(dt, world)
         {
             self.on_started();
             return;
@@ -1651,6 +1668,7 @@ impl Pet {
             State::Faint { .. } => Anim::Sleep,
             State::Gloom { .. } => Anim::Annoyed,
             State::Drained { .. } => Anim::Dragged,
+            State::Portkey { .. } => self.portkey_anim(),
             State::Tucked { .. } => Anim::Fall,
             State::Stuck { kind, .. } => Pet::stuck_anim(kind),
             State::StageAct { act, t, len } => self.stage_anim(act, t, len),
@@ -1686,14 +1704,15 @@ impl Pet {
             glare: self.glasses_glare_on(),
             thud: (self.thud > 0.0 && matches!(self.state, State::Land { .. })) || romp_thud || matches!(self.state, State::Faint { .. }) || self.duel_dazed(),
             swing,
-            sparkle: self.dance_sparkle() || romp_sparkle || self.stage_sparkle() || self.spell_sparkle(),
+            sparkle: self.dance_sparkle() || romp_sparkle || self.stage_sparkle() || self.spell_sparkle() || self.portkey_sparkle(),
             clap: self.clapping(),
             tap: self.typing_tap(),
             cocoon: self.cocoon_bands(),
             seat: self.seat_share(),
             bag: self.bag_shown(),
-            tuck: self.tuck_shown(),
+            tuck: self.tuck_shown().max(self.portkey_tuck()),
             topple: self.duel_topple(),
+            twirl: self.portkey_twirl(),
         }
     }
 
@@ -3434,6 +3453,7 @@ impl Pet {
             | State::Faint { .. }
             | State::Gloom { .. }
             | State::Drained { .. }
+            | State::Portkey { .. }
             | State::Tucked { .. }
             | State::Stuck { .. }
             | State::Panic { .. }
@@ -4341,6 +4361,11 @@ pub mod duel_moves;
 #[cfg(test)]
 #[path = "brain_duel_tests.rs"]
 mod duel_tests;
+#[path = "brain_portkey.rs"]
+pub mod portkey_moves;
+#[cfg(test)]
+#[path = "brain_portkey_tests.rs"]
+mod portkey_tests;
 #[path = "brain_tuck.rs"]
 pub mod tuck_moves;
 #[cfg(test)]
@@ -4772,7 +4797,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.state = State::Idle { remaining: 1.0, look: true };
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Look, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0, twirl: 0.0 });
         p.state = State::Turn { remaining: 0.1 };
         assert_eq!(p.render().anim, Anim::Idle);
     }
@@ -4863,7 +4888,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         place(&mut p, &w, Owner::Ground(0), 900.0, State::Trick { kind: Trick::Wave, remaining: 0.5 });
         p.facing = -1.0;
-        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Wave, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0, twirl: 0.0 });
         run(&mut p, &w, 40 + 90);
         assert!(matches!(p.state, State::Move { .. }));
     }
@@ -4882,7 +4907,7 @@ mod tests {
         let mut p = Pet::new(cfg(), 0.0, 0.0, 1);
         p.facing = -1.0;
         p.state = State::Move { kind: Move::Roll, remaining: 1.0 };
-        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
+        assert_eq!(p.render(), RenderState { anim: Anim::Roll, flip: true, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0, twirl: 0.0 });
     }
 
     #[test]
@@ -6208,7 +6233,7 @@ mod climb_tests {
             (State::WallClimb { window: 1, side: Side::Left, rel_y: 100.0 }, Anim::Climb),
         ] {
             p.state = state;
-            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
+            assert_eq!(p.render(), RenderState { anim, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0, twirl: 0.0 });
         }
         assert!(Anim::Climb.is_back() && Anim::Slide.is_back() && !Anim::Climb.is_front() && !Anim::Walk.is_back());
         assert_eq!(serde_json::to_string(&Anim::Slide).unwrap(), "\"slide\"");
@@ -7033,7 +7058,7 @@ mod visit_tests {
             if matches!(p.state, State::Exit { .. }) {
                 assert!(p.body.x > last_x, "keeps walking out");
                 assert_eq!(p.body.y, 1040.0);
-                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0 });
+                assert_eq!(p.render(), RenderState { anim: Anim::Walk, flip: false, heart: false, poof: false, ctl: false, wobble: false, hang: 0, cloud: false, housed: false, flash: false, glare: false, thud: false, swing: 0.0, sparkle: false, clap: false, tap: 0, cocoon: 0, seat: 0.0, bag: 0.0, tuck: 0.0, topple: 0.0, twirl: 0.0 });
             }
             last_x = p.body.x;
         }

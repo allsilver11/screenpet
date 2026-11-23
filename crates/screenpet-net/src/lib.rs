@@ -27,7 +27,7 @@ mod tcp;
 mod transport;
 
 pub use noise::{hex32, to_hex, SAS_EMOJI};
-pub use protocol::{Carry, Fling, LadderMsg, Side, Steer, Toss, VSide, Visit, WireCare, WireIcon, WirePlayer, WireResult, CARRY_MIN_VERSION, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, LADDER_MIN_VERSION, MAX_DEVICES, MAX_FRIENDS, MAX_NOTE, MAX_RALLY, MULTI_PET_MIN_VERSION, PROTOCOL_VERSION, VEHICLE_TOSS_MIN_VERSION};
+pub use protocol::{Carry, Fling, LadderMsg, Portkey, Side, Steer, Toss, VSide, Visit, WireCare, WireIcon, WirePlayer, WireResult, CARRY_MIN_VERSION, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, LADDER_MIN_VERSION, MAX_DEVICES, MAX_FRIENDS, MAX_NOTE, MAX_RALLY, MULTI_PET_MIN_VERSION, PORTKEY_MIN_VERSION, PROTOCOL_VERSION, VEHICLE_TOSS_MIN_VERSION};
 /// 📊 익명 펫 통계의 보고·하루 합계 모양과 한도 (릴레이와 같은 것)
 pub use screenpet_proto::pet_stats;
 pub use relay::{normalize_code, parse_relay_key, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL};
