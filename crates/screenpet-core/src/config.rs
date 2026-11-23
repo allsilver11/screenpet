@@ -46,6 +46,9 @@ pub struct Config {
     /// 친구 목록 (짝맞추기로 고정한 공개키와 연결된 화면 끝). 잘못된 항목 하나는 건너뜀
     #[serde(default, deserialize_with = "lenient_friends")]
     pub friends: Vec<Friend>,
+    /// 사용자가 끊은 친구 id (오래된 것부터 MAX_FORGOTTEN_FRIENDS까지) — 내 다른 컴퓨터·친구 소개로 다시 생기지 않게 (2026-11-23)
+    #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "lenient")]
+    pub forgotten_friends: Vec<String>,
     /// 하우스를 끌어다 놓은 자리. 없으면 (또는 그 모니터가 없어졌으면) 주 모니터 오른쪽 아래 구석
     #[serde(default, deserialize_with = "lenient_house_spot")]
     pub house_spot: Option<HouseSpot>,
@@ -187,6 +190,9 @@ pub const SIZE_PCT_DEFAULT: u32 = 100;
 fn clean_size_pct(pct: Option<u32>) -> u32 {
     pct.unwrap_or(SIZE_PCT_DEFAULT).clamp(SIZE_PCT_RANGE.0, SIZE_PCT_RANGE.1)
 }
+
+/// 끊은 친구를 기억하는 최대 수 (net의 MAX_FORGOTTEN과 같음)
+pub const MAX_FORGOTTEN_FRIENDS: usize = 64;
 
 /// 👻 투명도 막대의 범위 (0.05 = 거의 안 보임, 1.0 = 불투명). 0은 없음 — 펫을 잃어버리지 않게
 pub const OPACITY_RANGE: (f64, f64) = (0.05, 1.0);
@@ -387,8 +393,19 @@ impl Config {
         }
     }
 
-    /// 친구를 더하거나 이름·키를 고침 (끝은 그대로). 같은 키를 가진 다른 id는 지움. 바뀌었으면 true
+    /// 끊은 친구를 기억함 (같은 id는 한 번, 넘치면 오래된 것부터 잊음)
+    pub fn forget_friend(&mut self, id: &str) {
+        if self.forgotten_friends.iter().any(|f| f == id) {
+            return;
+        }
+        self.forgotten_friends.push(id.to_string());
+        let over = self.forgotten_friends.len().saturating_sub(MAX_FORGOTTEN_FRIENDS);
+        self.forgotten_friends.drain(..over);
+    }
+
+    /// 친구를 더하거나 이름·키를 고침 (끝은 그대로). 같은 키를 가진 다른 id는 지움. 다시 친구가 되면 끊은 기억도 지움. 바뀌었으면 true
     pub fn upsert_friend(&mut self, id: &str, name: &str, public_key: [u8; 32]) -> bool {
+        self.forgotten_friends.retain(|f| f != id);
         let before = self.friends.len();
         self.friends.retain(|f| f.id == id || f.public_key != public_key);
         let mut changed = self.friends.len() != before;
@@ -1281,6 +1298,27 @@ mod tests {
         c.install_id = Some(String::new());
         assert!(c.ensure_install_id(|| "def".into()));
         assert_eq!(c.install_id.as_deref(), Some("def"));
+    }
+
+    /// 끊은 친구를 기억하고 저장함 (다시 생기지 않게 — 2026-11-23). 다시 친구가 되면 풀림, 64개까지, 옛 파일도 읽힘
+    #[test]
+    fn unfriended_ids_are_remembered_until_befriended_again() {
+        let mut c = Config::default();
+        c.upsert_friend("f1", "민지", key(1));
+        assert!(c.remove_friend("f1"));
+        c.forget_friend("f1");
+        let back: Config = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.forgotten_friends, vec!["f1".to_string()]);
+        c.upsert_friend("f1", "민지", key(1));
+        assert!(c.forgotten_friends.is_empty());
+        for i in 0..70 {
+            c.forget_friend(&format!("x{i}"));
+        }
+        assert_eq!(c.forgotten_friends.len(), 64);
+        assert_eq!(c.forgotten_friends[0], "x6");
+        let old: Config = serde_json::from_str("{}").unwrap();
+        assert!(old.forgotten_friends.is_empty());
+        assert!(!serde_json::to_string(&old).unwrap().contains("forgotten"));
     }
 
     #[test]

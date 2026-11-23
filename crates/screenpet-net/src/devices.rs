@@ -635,10 +635,15 @@ pub(crate) fn is_install_id(s: &str) -> bool {
     s.len() == 32 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// 내 다른 컴퓨터나 친구 소개로 들일 수 있는 id임: 설치 id 모양이고 사용자가 끊은 친구가 아님
+pub(crate) fn adoptable(st: &State, id: &str) -> bool {
+    is_install_id(id) && !st.is_forgotten(id)
+}
+
 /// 내 다른 컴퓨터나 친구 소개로 온 친구를 모든 면에서 새것일 때만 고정함. 더했는지 돌려줌
 fn adopt(shared: &Shared, st: &mut State, id: &str, key: &str) -> bool {
     let Some(key) = noise::hex32(key) else { return false };
-    let ok = is_install_id(id)
+    let ok = adoptable(st, id)
         && id != shared.id
         && key != [0; 32]
         && key != shared.public_key

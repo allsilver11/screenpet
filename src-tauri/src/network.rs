@@ -724,6 +724,7 @@ impl Network {
         net_config.introduced = config.friends.iter().filter_map(|f| Some((f.id.clone(), f.via.clone()?))).collect();
         net_config.pending = config.friends.iter().filter(|f| f.pending).map(|f| f.id.clone()).collect();
         net_config.pending_added = config.friends.iter().filter(|f| f.pending).filter_map(|f| Some((f.id.clone(), f.pending_since?))).collect();
+        net_config.forgotten = config.forgotten_friends.clone();
         (net_config.relay_url, net_config.relay_key) = relay_settings(&state.config_dir);
         network.relay_enabled = net_config.relay_url.is_some();
         network.update_code_view(app);
@@ -1715,7 +1716,10 @@ impl Network {
             // 연결돼 있었다면 Disconnected가 뒤따라 손님 보내기·귀환을 처리함
             net.unfriend(id);
         }
-        config.remove_friend(id)
+        // 끊은 친구를 기억함 — 내 다른 컴퓨터나 그 친구의 다른 컴퓨터 소개로 다시 생기지 않게 (다시 짝지으면 풀림)
+        config.forget_friend(id);
+        config.remove_friend(id);
+        true
     }
 
     /// 네트워크 이벤트 하나를 처리함. 설정이 바뀌었으면 true

@@ -165,7 +165,12 @@ pub struct NetConfig {
     pub pending: Vec<String>,
     /// `pending` 각각을 더한 때 (유닉스 초). 재시작해도 시계가 다시 안 돌게 함. 여기 없는 것은 이번 시작부터 셈
     pub pending_added: Vec<(String, u64)>,
+    /// 사용자가 끊은 친구 id ([`Net::forgotten`]이 돌려준 그대로) — 다른 컴퓨터·소개로 다시 들이지 않음
+    pub forgotten: Vec<String>,
 }
+
+/// 끊은 친구를 기억하는 최대 수 (설정 파일이 끝없이 늘지 않게)
+pub const MAX_FORGOTTEN: usize = 64;
 
 /// 연결된 두 컴퓨터가 나누는 비밀임 (저장하되 보이거나 로그에 남기지 말 것: `Debug`는 바이트를 안 찍음)
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -223,6 +228,7 @@ impl NetConfig {
             introduced: Vec::new(),
             pending: Vec::new(),
             pending_added: Vec::new(),
+            forgotten: Vec::new(),
         }
     }
 }
@@ -578,6 +584,8 @@ pub(crate) struct State {
     pub pending: HashMap<String, u64>,
     /// 미확인 친구 → 우리를 모른다는 인증된 hello 수
     pub pending_denied: HashMap<String, u32>,
+    /// 사용자가 끊은 친구 id (오래된 것부터, MAX_FORGOTTEN까지) — 내 다른 컴퓨터나 소개로는 다시 안 들임 (일부러 짝지으면 풀림)
+    pub forgotten: Vec<String>,
     /// 📱 내가 아는 한 누가 노는지: (term, 설치 id), 가장 높은 쪽이 이김 (`devices::tick_active` 참고). (0, 나)로 시작함
     pub active: (u64, String),
     /// 사용자가 이 컴퓨터를 마지막으로 쓴 때 (`Net::set_idle`)
@@ -623,6 +631,7 @@ impl State {
     }
     /// 친구를 고정함 (같은 id나 같은 키의 예전 항목은 지움)
     pub fn add_friend(&mut self, id: &str, key: [u8; 32]) {
+        self.forgotten.retain(|f| f != id);
         self.friends.retain(|f| f.id != id && f.public_key != key);
         self.friends.push(Friend { id: id.to_string(), public_key: key });
     }
@@ -638,6 +647,19 @@ impl State {
             c.kind = Kind::Stranger(None);
             c.link.clone()
         })
+    }
+    /// 사용자가 끊은 친구를 기억함 (같은 id는 한 번, MAX_FORGOTTEN 넘으면 오래된 것부터 잊음)
+    pub fn forget(&mut self, id: &str) {
+        if self.is_forgotten(id) {
+            return;
+        }
+        self.forgotten.push(id.to_string());
+        let over = self.forgotten.len().saturating_sub(MAX_FORGOTTEN);
+        self.forgotten.drain(..over);
+    }
+    /// 사용자가 끊은 친구임
+    pub fn is_forgotten(&self, id: &str) -> bool {
+        self.forgotten.iter().any(|f| f == id)
     }
     /// 친구와 그에 딸린 기록(예산, 기기 연결, 코드, 소개, 미확인, 신뢰 주소)을 지움
     pub fn remove_friend(&mut self, id: &str) {
@@ -959,6 +981,11 @@ impl Net {
                 state.via.insert(id.clone(), via.clone());
             }
         }
+        for id in &cfg.forgotten {
+            if !state.is_friend(id) {
+                state.forget(id);
+            }
+        }
         state.active = (0, cfg.id.clone());
         state.last_input = Some(Instant::now());
         let now = devices::unix_now();
@@ -1181,6 +1208,7 @@ impl Net {
         let (link, dropped) = {
             let mut st = self.shared.state();
             st.remove_friend(peer_id);
+            st.forget(peer_id);
             st.invites_out.remove(peer_id);
             let dropped = devices::drop_introduced(&self.shared, &mut st, peer_id);
             (st.demote_friend_link(peer_id), dropped)
@@ -1190,6 +1218,11 @@ impl Net {
             l.finish();
         }
         devices::close_dropped(dropped);
+    }
+
+    /// 사용자가 끊은 친구 id들 (설정에 저장해 다음 시작에 [`NetConfig::forgotten`]으로 돌려줌)
+    pub fn forgotten(&self) -> Vec<String> {
+        self.shared.state().forgotten.clone()
     }
 
     /// 친구 `id`용 새 연결 코드를 보임 (`ABCD-EFGH`, 10분 유효, 한 번만, 5번 틀리면 사라짐, 예전 코드는 바뀜).
@@ -1579,5 +1612,38 @@ mod inbound_tests {
         net.shared.state().trust_ip("friend", "10.0.0.3", now);
         assert_eq!((0..200).filter(|_| allow("10.0.0.3")).count(), MAX_CONNS_PER_TRUSTED_ADDR as usize);
         assert!(net.shared.allow_inbound("10.0.0.1", now + Duration::from_secs(1)), "the budget refills");
+    }
+}
+
+/// 끊은 친구 기억 시험임 — 친구 끊기를 해도 내 다른 컴퓨터의 `device_friends`나 다른 친구의 `my_devices`로 다시 생기던 버그 (2026-11-23)
+#[cfg(test)]
+mod forgotten_tests {
+    use super::*;
+
+    #[test]
+    fn a_forgotten_friend_is_not_adopted_again_until_paired_on_purpose() {
+        let id = "0a".repeat(16);
+        let mut st = State::default();
+        st.add_friend(&id, [7; 32]);
+        st.remove_friend(&id);
+        st.forget(&id);
+        assert!(st.is_forgotten(&id));
+        assert!(!devices::adoptable(&st, &id), "내 다른 컴퓨터·소개로는 다시 안 들어옴");
+        // 일부러 다시 짝지으면 (초대·코드) 잊은 것도 풀림
+        st.add_friend(&id, [7; 32]);
+        assert!(!st.is_forgotten(&id));
+    }
+
+    #[test]
+    fn the_forgotten_list_is_capped_oldest_first() {
+        let mut st = State::default();
+        for i in 0..(MAX_FORGOTTEN + 5) {
+            st.forget(&format!("{i:032x}"));
+        }
+        assert_eq!(st.forgotten.len(), MAX_FORGOTTEN);
+        assert!(!st.is_forgotten(&format!("{:032x}", 0)));
+        assert!(st.is_forgotten(&format!("{:032x}", MAX_FORGOTTEN + 4)));
+        st.forget(&format!("{:032x}", MAX_FORGOTTEN + 4));
+        assert_eq!(st.forgotten.len(), MAX_FORGOTTEN, "같은 id는 한 번만");
     }
 }

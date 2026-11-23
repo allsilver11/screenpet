@@ -54,6 +54,7 @@ fn start_net_with(
         introduced: vec![],
         pending: vec![],
         pending_added: vec![],
+        forgotten: vec![],
     })
     .unwrap()
 }

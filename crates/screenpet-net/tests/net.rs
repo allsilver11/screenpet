@@ -38,6 +38,7 @@ fn cfg(id: &str, name: &str, key: [u8; 32], port: u16, to: u16, friends: Vec<Fri
         introduced: vec![],
         pending: vec![],
         pending_added: vec![],
+        forgotten: vec![],
     }
 }
 
