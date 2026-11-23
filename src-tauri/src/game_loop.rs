@@ -756,6 +756,23 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
                         }
                         continue;
                     }
+                    // 🪃 친구가 던진 탈것: 집중·하우스 중이거나 자리가 없으면 되돌림 (모르는 종류는 버림)
+                    if toss.kind == crate::network::VEHICLE_TOSS_KIND {
+                        let Some(kind) = toss.look.as_deref().and_then(screenpet_core::vehicle::VehicleKind::from_id) else { continue };
+                        let Some(fling) = toss.fling.clone().map(crate::network::from_net_fling) else { continue };
+                        if config.friend(&from).is_none() {
+                            continue;
+                        }
+                        let side = crate::network::from_net_side(toss.side, toss.vside);
+                        let own = &slots[OWN];
+                        let caught = !own.pet.refuses_arrivals() && vehicles.catch_thrown(&app, kind, &own.world, side, fling, own.dpi);
+                        if caught {
+                            screenpet_log::log!(Info, "toss", "vehicle_in", "friend" => screenpet_log::short(&from), "kind" => kind.id());
+                        } else if !toss.bounced {
+                            network.bounce_toss(&from, toss);
+                        }
+                        continue;
+                    }
                     // 집중·하우스 중이면 받지 않고 되돌림
                     match screenpet_core::visit::toss_answer(slots[OWN].pet.refuses_arrivals(), toss.bounced, objects.threw_lately(&from)) {
                         screenpet_core::visit::TossAnswer::Take => objects.receive(&config, &from, toss),
@@ -1243,8 +1260,13 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config) {
         // 🚗 탈것: 태우기·달리기·마주침·좌석에 앉히기 (펫 창은 아래 place가 좌석 자리로 옮김)
         // (세계는 잠깐 빌려 옴 — 차고는 펫들을 고치는 동안 내 동물의 세계를 읽음)
         let vworld = std::mem::replace(&mut slots[OWN].world, World::new(Vec::new(), Vec::new(), 1.0));
+        vehicles.set_throw_edges(network.vehicle_throw_edges(&config));
         let drove = vehicles.tick(&app, &vworld, dt, (cx, cy), left_down, &mut slots);
         slots[OWN].world = vworld;
+        // 🪃 친구 화면 쪽 끝 너머로 던진 탈것: 그 끝의 친구에게 날려 보냄 (받는 친구 것이 됨)
+        for (kind, side, fling) in vehicles.take_thrown() {
+            network.toss_vehicle(&config, kind, side, fling);
+        }
         for (driver, kind, _side) in drove {
             // 내 펫이 탈것째 친구 화면으로 나갔음: 다음 틱 take_exit로 놀러 감 — 돌아올 때 다시 몰고 옴
             vehicles.remember_parked_away(driver, kind);

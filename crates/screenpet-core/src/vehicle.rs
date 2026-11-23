@@ -14,6 +14,8 @@
 //!   탈것은 친구 화면에 남았다가 펫이 돌아올 때 다시 타고 옴 (take_parked_away). 친구 화면으로 몰고 온 남의 탈것은
 //!   그 펫이 떠나면 같이 사라지고 (guest_left), 아무도 안 타면 FOREIGN_LIFE_SECS 뒤 사라짐
 //!
+//! - 🪃 던지기: 빈 내 탈것을 친구가 연결된 왼쪽·오른쪽 끝 너머로 던지면 (set_throw_edges) 그 친구 화면으로 날아감 (ThrownOut — 앱이 Toss로 보냄).
+//!   받은 쪽은 catch_thrown으로 반대편 끝에서 날아 들어온 탈것을 제 것으로 가짐. 남의 탈것(친구 펫이 몰고 온 것)은 넘기지 않음
 //! - 🎮 조작 모드: 운전석 펫이 조작 중이면 키대로 몲 (steer_ground / steer_fly) — ←/→ 운전 (Shift 빠르게), 놓으면 멈춰 기다림
 //!   (타기 시간이 줄지 않음), ↑ 빵빵, 🚁 방향키로 상하좌우·↓로 내려앉음. 창 끝은 그대로 몰고 떨어지고, 막힌 끝은 그냥 멈추고,
 //!   친구가 연결된 끝은 늘 나감. 앞의 펫은 급정거 없이 쿵 밀어냄. 점프해 빈 탈것에 내려앉으면 태움 (Pet::may_hop_in)
@@ -28,6 +30,7 @@ use crate::brain::control_moves::ControlInput;
 use crate::brain::{Pet, Speech};
 use crate::physics::{self, step_air, GRAVITY, THROW_GRAVITY_LOGICAL, THROW_LIFT, VELOCITY_WINDOW};
 use crate::surfaces::{EndKind, Owner};
+use crate::visit::{self, Fling};
 use crate::world::{Side, World};
 
 /// 한 화면에 있을 수 있는 탈것 수 (내가 꺼낸 것 + 친구 펫이 몰고 온 것)
@@ -241,6 +244,8 @@ pub enum VehicleEvent {
     Crash { id: u64, x: f64, y: f64 },
     /// 탈것째 친구 화면으로 나갔음 (탈것은 이 화면에서 없어짐). driver = 운전한 펫 (social_key)
     DroveOut { id: u64, side: Side, kind: VehicleKind, driver: u64 },
+    /// 🪃 던진 빈 탈것이 친구가 연결된 끝을 넘어갔음 (이 화면에서 없어짐 — 앱이 그 친구에게 Toss로 보냄)
+    ThrownOut { id: u64, side: Side, kind: VehicleKind, fling: Fling },
 }
 
 /// 펫에게 보이는 탈것 (펫이 타러 갈지 정함)
@@ -632,6 +637,8 @@ pub struct Garage {
     force_bed_fling: bool,
     /// 테스트: 친구가 연결된 끝이면 늘 나감
     force_visit: bool,
+    /// 🪃 던진 탈것을 받을 친구가 연결된 끝 (왼쪽, 오른쪽)
+    throw_edges: (bool, bool),
 }
 
 /// 펫에게 시킬 일 (차고가 탈것을 다 움직인 뒤 한꺼번에)
@@ -667,7 +674,34 @@ impl Garage {
             force_crash: None,
             force_bed_fling: false,
             force_visit: false,
+            throw_edges: (false, false),
         }
+    }
+
+    /// 🪃 던진 탈것을 받을 친구가 연결된 끝 (앱이 매 틱 — 탈것을 받는 새 버전 친구만)
+    pub fn set_throw_edges(&mut self, left: bool, right: bool) {
+        self.throw_edges = (left, right);
+    }
+
+    /// 🪃 친구가 던진 탈것: side 끝으로 날아 들어와 떨어져 섬 (이 화면 주인 것이 됨). 왼쪽·오른쪽 끝만, 자리가 없거나 fling이 이상하면 None
+    pub fn catch_thrown(&mut self, kind: VehicleKind, world: &World, side: Side, fling: Fling, dpi: f64) -> Option<u64> {
+        if self.vehicles.len() >= MAX_VEHICLES || visit::is_vertical(side) {
+            return None;
+        }
+        let fling = fling.sanitized()?;
+        let id = self.next;
+        self.next += 1;
+        let inward = if side == Side::Left { 1.0 } else { -1.0 };
+        let mut v = Vehicle::new(id, kind, 0.0, 0.0, dpi, inward);
+        let (half, h, b) = (v.half_len(), v.height(), world.bounds);
+        v.x = if side == Side::Left { b.left + half } else { b.right - half };
+        let wa = world.work_area_at(v.x, b.bottom);
+        v.y = (wa.top + fling.height * wa.height()).clamp(wa.top + h, wa.bottom.max(wa.top + h));
+        v.vx = inward * fling.vx.abs() * dpi;
+        v.vy = fling.vy * dpi;
+        v.thrown = true;
+        self.vehicles.push(v);
+        Some(id)
     }
 
     /// 화면의 탈것들
@@ -1007,14 +1041,14 @@ impl Garage {
         let free: Vec<(u64, f64, f64, f64, Option<Owner>)> =
             pets.iter().filter(|p| p.as_ref().may_board_now()).map(|p| { let p = p.as_ref(); (p.social_key(), p.body.x, p.body.y, p.cfg.size, p.standing.map(|s| s.owner)) }).collect();
         let edges: Vec<(u64, bool, bool)> = pets.iter().map(|p| { let p = p.as_ref(); (p.social_key(), p.may_drive_out(Side::Left), p.may_drive_out(Side::Right)) }).collect();
-        let (force_crash, force_bed_fling, force_visit) = (self.force_crash, self.force_bed_fling, self.force_visit);
+        let (force_crash, force_bed_fling, force_visit, throw_edges) = (self.force_crash, self.force_bed_fling, self.force_visit, self.throw_edges);
         let mut gone = Vec::new();
         for v in &mut self.vehicles {
             let (steer, honk) = match v.driver.and_then(|d| steers.iter().find(|s| s.0 == d)) {
                 Some(&(_, k, h)) => (Some(k), h),
                 None => (None, false),
             };
-            let mut ctx = Ctx { rng: &mut self.rng, acts: &mut acts, events: &mut self.events, obstacles: &obstacles, free: &free, edges: &edges, force_crash, force_bed_fling, force_visit, steer, honk };
+            let mut ctx = Ctx { rng: &mut self.rng, acts: &mut acts, events: &mut self.events, obstacles: &obstacles, free: &free, edges: &edges, force_crash, force_bed_fling, force_visit, throw_edges, steer, honk };
             if step(v, dt, world, &mut ctx) {
                 gone.push(v.id);
             }
@@ -1089,6 +1123,8 @@ struct Ctx<'a> {
     force_crash: Option<bool>,
     force_bed_fling: bool,
     force_visit: bool,
+    /// 🪃 던진 탈것을 받을 친구가 연결된 끝 (왼쪽, 오른쪽)
+    throw_edges: (bool, bool),
     /// 🎮 운전석 펫이 조작 중이면 그 키
     steer: Option<ControlInput>,
     /// 🎮 이 틱에 ↑를 막 누름 (빵빵)
@@ -1106,6 +1142,10 @@ fn step(v: &mut Vehicle, dt: f64, world: &World, ctx: &mut Ctx) -> bool {
     match v.phase {
         Phase::Held => false,
         Phase::Air => {
+            if let Some((side, fling)) = throw_exit(v, dt, world, ctx.throw_edges) {
+                ctx.events.push(VehicleEvent::ThrownOut { id: v.id, side, kind: v.kind, fling });
+                return true;
+            }
             v.tick_air(dt, world);
             if v.phase == Phase::Ground && v.driver.is_some() && v.kind.flies() && ctx.steer.is_none() {
                 v.phase = Phase::Fly(FlyStage::Lift);
@@ -1142,6 +1182,24 @@ fn step(v: &mut Vehicle, dt: f64, world: &World, ctx: &mut Ctx) -> bool {
             false
         }
     }
+}
+
+/// 🪃 던진 빈 내 탈것이 이번 틱에 친구가 연결된 왼쪽·오른쪽 끝을 넘으면 그 끝과 이어 갈 움직임
+fn throw_exit(v: &Vehicle, dt: f64, world: &World, (left, right): (bool, bool)) -> Option<(Side, Fling)> {
+    if !v.thrown || v.occupied() || v.is_foreign() {
+        return None;
+    }
+    let (b, half) = (world.bounds, v.half_len());
+    let next_x = v.x + v.vx * dt;
+    let side = if left && v.vx < 0.0 && next_x < b.left + half {
+        Side::Left
+    } else if right && v.vx > 0.0 && next_x > b.right - half {
+        Side::Right
+    } else {
+        return None;
+    };
+    let body = physics::Body { x: v.x, y: v.y, vx: v.vx, vy: v.vy };
+    visit::fling_across(world, side, &body, v.dpi).map(|f| (side, f))
 }
 
 /// 🚁 떠 있을 높이를 고름 (바닥에서 HELI_MIN_ALT 펫 크기 위 ~ 화면 위쪽)

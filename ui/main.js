@@ -96,12 +96,12 @@ function drawTint(pos, now) {
   if (tintOn === "rainbow") writeTint("background", rainbowFill(now));
 }
 
-// 공룡 쿵쾅 (v0.3.6): 쿵! 하는 그림(stomp 1·3장)마다 몸이 덜덜, 쿵쾅에 흔들린 친구(백엔드 render.wobble, 0.4초)도 덜덜 —
-// 스프라이트만 살짝 옮김 (창은 그대로)
+// 공룡 쿵쾅 (v0.3.6): 쿵! 하는 그림(stomp 1·3장)마다 공룡 몸만 덜덜 — 스프라이트만 살짝 옮김 (창은 그대로).
+// 백엔드 render.wobble(쿵쾅에 흔들림·들림·넘어짐 등)로 떨던 것은 v0.7.4에 뺌: 바들바들 떠는 게 비틀거림처럼 안 보여서 (나이 상관없이)
 function jitter(f, now) {
   const stomping = render.anim === "stomp" && f % 2 === 1;
-  if (!stomping && !render.wobble) return null;
-  const amp = (stomping ? 1.5 : 2.5) * Math.sqrt(stage.scale);
+  if (!stomping) return null;
+  const amp = 1.5 * Math.sqrt(stage.scale);
   return `translate(${(Math.sin(now / 17) * amp).toFixed(2)}px, ${(Math.cos(now / 23) * amp * 0.5).toFixed(2)}px)`;
 }
 

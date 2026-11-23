@@ -26,7 +26,7 @@ use screenpet_core::linked::{self, ClaimWatch};
 use screenpet_core::object::ObjectKind;
 use screenpet_core::tint::BodyTint;
 use screenpet_core::visit::{self, Side, MAX_GUESTS};
-use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, MAX_FRIENDS};
+use screenpet_net::{normalize_code, parse_relay_key, DeviceSecret, LinkError, Net, NetConfig, NetEvent, Steer, VSide, Visit, WireCare, CARRY_MIN_VERSION, DEFAULT_RELAY_KEY, DEFAULT_RELAY_URL, DEVICES_MIN_VERSION, GIANT_CARRY_MIN_VERSION, MAX_FRIENDS, VEHICLE_TOSS_MIN_VERSION};
 use screenpet_log::{log, short};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
@@ -500,6 +500,9 @@ fn code_failure(reason: &str) -> &'static str {
 }
 
 /// 보낼 끝: (예전 판도 아는 왼쪽/오른쪽, 위/아래면 vside). 위/아래는 예전 판에겐 왼쪽으로 보임 (그 판은 왼쪽에서 걸어 들어옴)
+/// 🪃 던진 탈것의 Toss kind (look = 탈것 id)
+pub(crate) const VEHICLE_TOSS_KIND: &str = "vehicle";
+
 pub(crate) fn to_net_side(s: Side) -> (screenpet_net::Side, Option<VSide>) {
     match s {
         Side::Left => (screenpet_net::Side::Left, None),
@@ -813,6 +816,33 @@ impl Network {
         let (side, vside) = to_net_side(visit::opposite(from_net_side(toss.side, toss.vside)));
         net.toss(friend, screenpet_net::Toss { side, vside, bounced: true, ..toss });
         net.ask(friend, ASK_NOT_NOW);
+    }
+
+    /// 🪃 이 친구는 던진 탈것을 받음 (v0.7.4 — 옛 버전은 모르는 물건으로 버려 탈것이 사라짐)
+    fn takes_vehicles(&self, id: &str) -> bool {
+        self.net.as_ref().and_then(|n| n.peer_version(id)).is_some_and(|v| v >= VEHICLE_TOSS_MIN_VERSION)
+    }
+
+    /// 🪃 던진 탈것이 넘어갈 수 있는 끝 (왼쪽, 오른쪽): 탈것을 받는 새 버전 친구가 연결된 끝만
+    pub fn vehicle_throw_edges(&self, config: &Config) -> (bool, bool) {
+        if self.net.is_none() {
+            return (false, false);
+        }
+        let e = config.exit_edges(|id| self.is_connected(id) && self.takes_vehicles(id));
+        (e.left, e.right)
+    }
+
+    /// 🪃 던진 탈것을 side 끝의 친구 하나에게 날려 보냄 (Toss kind "vehicle", look = 탈것 id — 친구 쪽 반대편 끝으로 들어옴)
+    pub fn toss_vehicle(&self, config: &Config, kind: screenpet_core::vehicle::VehicleKind, side: Side, fling: visit::Fling) {
+        let Some(net) = &self.net else { return };
+        let friends = config.friends_at(side, |id| self.is_connected(id) && self.takes_vehicles(id));
+        if friends.is_empty() {
+            return;
+        }
+        let friend = &friends[fastrand::usize(..friends.len())].id;
+        let (side, vside) = to_net_side(visit::opposite(side));
+        log!(Info, "toss", "vehicle_out", "friend" => short(friend), "kind" => kind.id());
+        net.toss(friend, screenpet_net::Toss { kind: VEHICLE_TOSS_KIND.into(), side, vside, fling: Some(to_net_fling(fling)), note: None, bounced: false, scale: None, look: Some(kind.id().into()), rally: None, icon: None });
     }
 
     /// 물건을 친구 화면으로 던짐 (objects.rs). 연결이 없으면 버려짐

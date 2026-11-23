@@ -486,3 +486,98 @@ fn a_foreign_vehicle_leaves_with_its_pet_or_expires() {
     assert!(g.get(id).is_none());
     assert!(g.take_expired().contains(&id));
 }
+
+/// 바닥(x)의 탈것을 잡아 오른쪽(dir)으로 휙 던짐
+fn throw_vehicle(g: &mut Garage, id: u64, w: &World, dir: f64) {
+    let mut none: Vec<Pet> = Vec::new();
+    let (x, y) = (g.get(id).unwrap().x(), g.get(id).unwrap().y() - 20.0);
+    assert!(g.pointer_down(id, x, y, &mut none));
+    for i in 1..=6 {
+        g.pointer_move(x + dir * 60.0 * i as f64, y - 20.0 * i as f64);
+        g.tick(DT, w, &mut none);
+    }
+    g.pointer_up();
+}
+
+#[test]
+fn a_thrown_vehicle_flies_over_to_a_friend_at_that_edge() {
+    let w = world(vec![]);
+    let (mut g, id) = garage_with(VehicleKind::Car, 1500.0, &w);
+    g.set_throw_edges(false, true);
+    throw_vehicle(&mut g, id, &w, 1.0);
+    let mut none: Vec<Pet> = Vec::new();
+    let mut out = None;
+    for _ in 0..240 {
+        g.tick(DT, &w, &mut none);
+        for e in g.take_events() {
+            if let VehicleEvent::ThrownOut { id: gone, kind, side, fling } = e {
+                out = Some((gone, kind, side, fling));
+            }
+        }
+        if out.is_some() {
+            break;
+        }
+    }
+    let (gone, kind, side, fling) = out.expect("flew out");
+    assert_eq!((gone, kind, side), (id, VehicleKind::Car, Side::Right));
+    assert!(fling.vx > 0.0);
+    assert!(g.get(id).is_none(), "it left this screen");
+    // 친구 쪽: 반대편 끝으로 날아 들어와 떨어져 섬 (받은 쪽 것이 됨)
+    let mut h = Garage::new(9);
+    let got = h.catch_thrown(kind, &w, Side::Left, fling, 1.0).expect("room");
+    let v = h.get(got).unwrap();
+    assert!(v.x() < 400.0 && !v.is_parked() && !v.is_foreign());
+    for _ in 0..600 {
+        h.tick(DT, &w, &mut none);
+    }
+    let v = h.get(got).unwrap();
+    assert!(v.is_parked() && v.x() > 100.0, "{}", v.x());
+}
+
+#[test]
+fn without_a_friend_there_a_thrown_vehicle_stays_on_screen() {
+    let w = world(vec![]);
+    let (mut g, id) = garage_with(VehicleKind::Car, 1500.0, &w);
+    g.set_throw_edges(true, false);
+    throw_vehicle(&mut g, id, &w, 1.0);
+    let mut none: Vec<Pet> = Vec::new();
+    for _ in 0..600 {
+        g.tick(DT, &w, &mut none);
+        assert!(!g.take_events().iter().any(|e| matches!(e, VehicleEvent::ThrownOut { .. })));
+    }
+    assert!(g.get(id).unwrap().is_parked());
+}
+
+#[test]
+fn a_full_garage_does_not_catch_and_odd_flings_are_refused() {
+    let w = world(vec![]);
+    let mut g = Garage::new(1);
+    let ok = crate::visit::Fling { height: 0.5, vx: 600.0, vy: -200.0 };
+    assert!(g.catch_thrown(VehicleKind::Heli, &w, Side::Up, ok, 1.0).is_none(), "only side edges");
+    assert!(g.catch_thrown(VehicleKind::Heli, &w, Side::Right, crate::visit::Fling { vx: f64::NAN, ..ok }, 1.0).is_none());
+    for _ in 0..vehicle::MAX_VEHICLES {
+        assert!(g.catch_thrown(VehicleKind::Scooter, &w, Side::Right, ok, 1.0).is_some());
+    }
+    assert!(g.catch_thrown(VehicleKind::Scooter, &w, Side::Right, ok, 1.0).is_none());
+}
+
+#[test]
+fn a_foreign_vehicle_is_not_thrown_on_to_another_friend() {
+    let w = world(vec![]);
+    let mut g = Garage::new(1);
+    let mut p = Pet::new_entering(pet_cfg(), &w, Side::Left, 3);
+    p.set_guest(Side::Left, 1000.0);
+    let id = g.arrive(VehicleKind::Car, &w, Side::Left, 1.0, &mut p).unwrap();
+    p.leave_vehicle(1.0);
+    let mut none: Vec<Pet> = Vec::new();
+    for _ in 0..240 {
+        g.tick(DT, &w, &mut none);
+    }
+    g.set_throw_edges(true, true);
+    throw_vehicle(&mut g, id, &w, 1.0);
+    for _ in 0..600 {
+        g.tick(DT, &w, &mut none);
+        assert!(!g.take_events().iter().any(|e| matches!(e, VehicleEvent::ThrownOut { .. })));
+    }
+    assert!(g.get(id).is_some());
+}

@@ -93,12 +93,14 @@ pub struct Vehicles {
     spots: Vec<VehicleSpot>,
     dpi_hint: f64,
     shown: usize,
+    /// 🪃 친구 화면 쪽으로 날아간 던진 탈것 (take_thrown이 꺼냄)
+    thrown: Vec<(VehicleKind, Side, screenpet_core::visit::Fling)>,
 }
 
 impl Vehicles {
     /// 빈 상태
     pub fn new() -> Vehicles {
-        Vehicles { garage: Garage::new(fastrand::u64(..)), live: Vec::new(), worker: None, fading: Default::default(), spots: Vec::new(), dpi_hint: 1.0, shown: 0 }
+        Vehicles { garage: Garage::new(fastrand::u64(..)), live: Vec::new(), worker: None, fading: Default::default(), spots: Vec::new(), dpi_hint: 1.0, shown: 0, thrown: Vec::new() }
     }
 
     /// 새 탈것에 쓸 화면 배율 (내 동물 창의 배율)
@@ -175,6 +177,23 @@ impl Vehicles {
         ok
     }
 
+    /// 🪃 친구가 던진 탈것: side 끝으로 날아 들어옴 (내 것이 됨). 자리가 없으면 false
+    pub fn catch_thrown(&mut self, app: &AppHandle, kind: VehicleKind, world: &World, side: Side, fling: screenpet_core::visit::Fling, dpi: f64) -> bool {
+        let ok = self.garage.catch_thrown(kind, world, side, fling, dpi).is_some();
+        self.sync(app);
+        ok
+    }
+
+    /// 🪃 던진 탈것을 받을 친구가 연결된 끝 (게임 루프가 매 틱)
+    pub fn set_throw_edges(&mut self, (left, right): (bool, bool)) {
+        self.garage.set_throw_edges(left, right);
+    }
+
+    /// 🪃 지난 tick에 친구 화면 쪽 끝을 넘어간 던진 탈것 (종류, 끝, 이어 갈 움직임) — 게임 루프가 친구에게 보냄
+    pub fn take_thrown(&mut self) -> Vec<(VehicleKind, Side, screenpet_core::visit::Fling)> {
+        std::mem::take(&mut self.thrown)
+    }
+
     /// 손님이 떠났음: 그 손님이 몰고 온 탈것도 뿅
     pub fn guest_left(&mut self, app: &AppHandle, key: u64) {
         if self.garage.guest_left(key).is_some() {
@@ -209,6 +228,15 @@ impl Vehicles {
                         }
                     }
                     out.push((driver, kind, side));
+                }
+                VehicleEvent::ThrownOut { id, side, kind, fling } => {
+                    // 🪃 친구 화면으로 날아갔음: 뿅 없이 닫고 게임 루프가 보냄 (take_thrown)
+                    if let Some(i) = self.live.iter().position(|l| l.id == id) {
+                        if let Some(w) = self.live.remove(i).window {
+                            let _ = w.destroy();
+                        }
+                    }
+                    self.thrown.push((kind, side, fling));
                 }
             }
         }
