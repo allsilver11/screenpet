@@ -18,7 +18,7 @@ def test_top_level_order():
 
 
 def test_submenus_hold_what_was_decided():
-    assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&growth, &timeline, &pets_menu, &lock, &reset])' in TRAY
+    assert 'Submenu::with_items(app, "🐾 내 펫", true, &[&pick_menu, &growth, &timeline, &pets_menu, &lock, &reset, &PredefinedMenuItem::separator(app)?, &add_menu, &let_go])' in TRAY
     # 🟦 스타일(동글/픽셀)과 🎁 선물 도감은 v0.7.0에 빠짐
     assert '"스타일"' not in TRAY and "style_pixel" not in TRAY and "gift" not in TRAY.lower() and "선물" not in TRAY
     assert 'Submenu::with_items(app, "🎮 놀기", true, &[&control, &broom, &objects_menu, &vehicles_menu, &dodge])' in TRAY
@@ -70,7 +70,7 @@ def test_throwing_ten_is_one_menu_that_lists_the_friends():
     assert 'Submenu::new(app, "🗑️ 쓰레기 10개 던지기", !targets.is_empty())' in fill
     assert "format!(\"{THROW_VOLLEY_PREFIX}{}\", f.target)" in fill
     # 친구별 하위 메뉴에서는 빠졌다
-    assert "&[&send, &letter, &bring, &sep," in fill and "물건 10개 던지기" not in fill
+    assert "&[send, &letter, &bring, &sep," in fill and "물건 10개 던지기" not in fill
     assert "ObjectInput::ThrowVolley(id.to_string())" in TRAY
     assert "🗑️ 쓰레기 10개 던지기" in HELP
 
@@ -258,12 +258,14 @@ def test_heumul_color_menu_sits_under_the_pets_only_for_tintable_pets():
     assert 'const TINT_PREFIX: &str = "tint:";' in TRAY
     assert "for tint in BodyTint::ALL" in TRAY and "tint.label()" in TRAY and 'format!("{TINT_PREFIX}{}", tint.id())' in TRAY
     assert ".strip_prefix(TINT_PREFIX).and_then(BodyTint::from_id)" in TRAY and "Input::SetTint(tint)" in TRAY
-    assert "const TINT_POSITION: usize = 3;" in TRAY  # 성장 단계, 최근 한 시간, 키우기 다음
+    assert "const TINT_POSITION: usize = 4;" in TRAY  # 고른 펫, 성장 단계, 최근 한 시간, 키우기 다음
     assert "menu.my_pet.insert(&menu.tint_menu, TINT_POSITION)" in TRAY and "menu.my_pet.remove(&menu.tint_menu)" in TRAY
     game = (ROOT / "src-tauri" / "src" / "game_loop.rs").read_text(encoding="utf-8")
-    sync = game[game.index("fn sync_menu(") :]
+    # 🐾🐾🐾 고른 펫의 동물이 바뀌면 메뉴를 넣고 뺀다 (tray::sync_picked — 게임 루프가 펫 모습이 바뀔 때 부름)
+    sync = TRAY[TRAY.index("pub fn sync_picked(") :]
     sync = sync[: sync.index("\n}\n")]
-    assert "crate::tray::sync_tint_shown(&state.menu, entry.manifest.tint);" in sync, "동물이 바뀌면 메뉴를 넣고 뺀다"
+    assert "sync_tint_shown(menu, entry.manifest.tint);" in sync
+    assert "crate::tray::sync_picked(&app);" in game
     assert "Input::SetTint(tint) => {" in game and "own.set_tint(&app, tint);" in game and "config.tint = tint;" in game
     assert "🐾 내 펫 ▸ 🎨 흐물이 색 ▸" in HELP
 
