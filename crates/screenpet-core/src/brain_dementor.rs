@@ -343,7 +343,9 @@ impl Pet {
         let size = self.cfg.size;
         let x = s.x + (self.dementor.rng.f64() * 2.0 - 1.0) * 0.6 * size;
         let y = s.y - s.size - 0.3 * size;
-        Some(flight::clamp(&self.fly_limits(world), x, y))
+        // 그 펫이 있는 모니터 안으로 (합친 화면이면 낮게 붙은 옆 모니터 위쪽 틈에 떠서 안 보임)
+        let fb = flight::fly_bounds(&wa, self.cfg.half_w, self.cfg.size * (1.0 + flight::TOP_SPACE));
+        Some(flight::clamp(&fb, x, y))
     }
 
     /// 👻 시무룩 한 틱 (누구나): 시무룩한 중이면 디딤판을 따라가다 끝나면 쉼, 아니면 디멘터 곁이고 들 수 있는 때면 시무룩해짐. 처리했으면 true

@@ -333,7 +333,12 @@ impl Pet {
     pub fn set_cursor_species(&mut self, species: &str) {
         self.cursor_mood.style = CursorStyle::of(species);
         self.stretchy = behavior::stretchy_species(species);
+        // 🔄 다른 종으로 바뀌었으면 그 종만의 일은 그만둠 (brain_swap.rs — 처음 정할 때·성장은 아님)
+        let swapped = !self.species.is_empty() && self.species != species;
         self.species = species.to_string();
+        if swapped {
+            self.swap_species();
+        }
     }
 
     /// 매 틱 update 전에 (앱): 왼쪽 버튼, 지금 시작하면 안 되는지, 메뉴 설정

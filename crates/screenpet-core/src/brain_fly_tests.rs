@@ -610,3 +610,27 @@ fn turning_into_a_flyer_ends_a_walkers_leap_and_tumble() {
         assert!(!matches!(p.state, State::Leap { .. } | State::Tumble { .. }), "{:?}", p.state);
     }
 }
+
+/// 🖥️ 높이가 다른 옆 모니터로 날아가도 늘 어느 모니터엔 보임 — 합친 화면의 빈 틈 (낮은 모니터 위쪽)으로 날아 사라지던 버그 (qa_sim seed 4)
+#[test]
+fn flying_to_another_monitor_never_crosses_the_gap_above_a_low_one() {
+    let (a, low) = (Rect::new(0.0, 0.0, 1920.0, 1040.0), Rect::new(1920.0, 180.0, 3200.0, 980.0));
+    let w = World::new(vec![], vec![a, low], 128.0);
+    let shown = |p: &Pet| {
+        let (sx, sy) = p.window_pos();
+        let s = p.cfg.size;
+        [a, low].iter().map(|r| (r.right.min(sx + s) - r.left.max(sx)).max(0.0) * (r.bottom.min(sy + s) - r.top.max(sy)).max(0.0)).sum::<f64>() / (s * s)
+    };
+    for (seed, style) in [flight::Style::Wander, flight::Style::Gentle, flight::Style::Circle, flight::Style::Eight].into_iter().enumerate() {
+        for (from, to) in [((2700.0, 600.0), (600.0, 200.0)), ((300.0, 220.0), (2900.0, 400.0))] {
+            let mut p = hovering(from.0, from.1, idle(), seed as u64);
+            p.start_flight_styled(Goal::Point(to.0, to.1), Move::Walk, style);
+            let mut limit = LoopLimit::new();
+            while matches!(p.state, State::Move { .. }) {
+                limit.step();
+                p.update(DT, &w);
+                assert!(shown(&p) >= 0.5, "{style:?} {from:?}→{to:?}: 몸이 틈에 ({:.0}, {:.0})", p.body.x, p.body.y);
+            }
+        }
+    }
+}

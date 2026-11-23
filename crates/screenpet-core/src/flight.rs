@@ -86,6 +86,27 @@ pub fn fly_bounds(area: &Rect, half_w: f64, head: f64) -> Rect {
     Rect::new(l, t, r, area.bottom)
 }
 
+/// 🖥️ from → to 날기 길이 지날 수 있는 범위 (fly_bounds — 합친 화면이 아니라 보이는 곳): 같은 모니터면 그 모니터,
+/// 옆 모니터로 가면 두 모니터가 함께 덮는 높이 띠 (위아래로 붙었으면 함께 덮는 너비 띠). 높이가 다른 모니터 사이의
+/// 빈 틈 (낮은 모니터 위쪽 등)으로 날아 안 보이지 않게. 몸이 들어갈 띠가 없으면 합친 화면
+pub fn path_bounds(world: &World, from: (f64, f64), to: (f64, f64), half_w: f64, head: f64) -> Rect {
+    let a = world.work_area_at(from.0, from.1);
+    let b = world.work_area_at(to.0, to.1);
+    if a == b {
+        return fly_bounds(&a, half_w, head);
+    }
+    let rows = Rect::new(a.left.min(b.left), a.top.max(b.top), a.right.max(b.right), a.bottom.min(b.bottom));
+    let cols = Rect::new(a.left.max(b.left), a.top.min(b.top), a.right.min(b.right), a.bottom.max(b.bottom));
+    let area = if rows.height() > head {
+        rows
+    } else if cols.width() > 2.0 * half_w {
+        cols
+    } else {
+        world.bounds
+    };
+    fly_bounds(&area, half_w, head)
+}
+
 /// (x, y)를 b 안으로 자름
 pub fn clamp(b: &Rect, x: f64, y: f64) -> (f64, f64) {
     (x.clamp(b.left, b.right), y.clamp(b.top, b.bottom))

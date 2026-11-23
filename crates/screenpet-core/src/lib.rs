@@ -72,3 +72,7 @@ pub mod world;
 
 #[cfg(test)]
 mod test_util;
+
+/// 🔎 "엥 왜 이래?" 탐지기 — 번들 동물 모두를 오래 돌리며 화면에서 이상해 보일 것을 살핌
+#[cfg(test)]
+mod qa_sim_tests;

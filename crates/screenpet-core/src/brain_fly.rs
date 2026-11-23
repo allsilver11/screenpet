@@ -287,7 +287,11 @@ impl Pet {
             },
             Goal::Home => return,
         };
-        let limits = self.fly_limits(world);
+        // 🖥️ 창 안이 아니면 보이는 모니터 (또는 두 모니터가 함께 덮는 띠) 안으로만 — 합친 화면의 빈 틈으로 날지 않게
+        let limits = match self.inside {
+            Some(_) => self.fly_limits(world),
+            None => flight::path_bounds(world, f.from, to, self.cfg.half_w, self.fly_head()),
+        };
         let speed = self.fly_speed(kind);
         if f.path.is_none() {
             // 처음 날 때 곡선을 만들고, 첫 굽이 쪽을 바라본다

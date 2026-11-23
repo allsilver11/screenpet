@@ -1605,6 +1605,7 @@ impl Pet {
             State::Leap { .. } => Anim::BigJump,
             State::Greet { look, .. } if look > 0.0 => Anim::Look,
             State::Greet { anim, .. } => anim,
+            State::Chase { .. } if self.chase_blocked() => Anim::Look,
             State::Chase { .. } | State::Flee { .. } if self.cfg.hops => self.hop_anim(Move::Run),
             State::Chase { .. } | State::Flee { .. } => Anim::Run,
             State::CatchMe { dodge, .. } if dodge > 0.0 => Anim::Hop,
@@ -1635,7 +1636,9 @@ impl Pet {
             State::Sleep { .. } => Anim::Sleep,
             // 데굴 넘어짐 — 구르기 그림 (앱이 돌린다)
             State::Tumble { .. } => Anim::Roll,
-            State::Panic { .. } => Anim::Panic,
+            // 🫣 panic 그림이 없는 동물 (숨바꼭질하다 들킨 해리·헤르미온느 등)은 달리기 그림으로 도망
+            State::Panic { .. } if self.cfg.timid => Anim::Panic,
+            State::Panic { .. } => Anim::Run,
             State::Rig { phase, .. } => Pet::rig_anim(phase),
             State::Juggle { phase, .. } => self.juggle_anim(phase),
             State::Slip { remaining, .. } => self.slip_anim(remaining),
@@ -3116,6 +3119,11 @@ impl Pet {
     fn follow_anchor(&mut self, world: &World) -> bool {
         let Some(st) = self.standing else { return false };
         let Some((ax, ay)) = world.anchor(st.owner) else { return false };
+        // 디딤판이 통째로 없어졌으면 (창을 작업표시줄 뒤·화면 아래로 끌어 내림, 머리 둘 자리 없음, 다 가려짐) 창 자리를 따라가지 않음 —
+        // 제자리 상태 (시무룩·놀이 등)로 서 있던 동물이 창에 실려 화면 밖에 선 채 남던 버그
+        if !world.surfaces.iter().any(|s| s.owner == st.owner) {
+            return false;
+        }
         self.body.x = ax + st.rel_x;
         self.body.y = ay;
         true
@@ -4124,6 +4132,14 @@ pub mod cling_moves;
 #[cfg(test)]
 #[path = "brain_cling_tests.rs"]
 mod cling_tests;
+
+/// 🔄 동물 종류 바꾸기 — 그 종만의 일은 그만둠
+#[path = "brain_swap.rs"]
+mod swap_moves;
+
+#[cfg(test)]
+#[path = "brain_swap_tests.rs"]
+mod swap_tests;
 
 /// 던져서 친구 화면으로 넘어가기 (듀얼 모니터처럼)
 #[path = "brain_fling.rs"]

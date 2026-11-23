@@ -7,6 +7,7 @@ use super::hoist_moves::{notice_pets, sync_lifts};
 use super::swing_tests::resting;
 use super::tests::world;
 use super::*;
+use crate::geom::WindowInfo;
 use crate::magic::MagicFx;
 use crate::test_util::{pet_cfg, DT};
 use crate::wizard as wz;
@@ -140,6 +141,52 @@ fn it_drifts_over_other_pets_now_and_then() {
     notice_pets(&mut alone);
     assert!((0..40).all(|_| alone[0].stalk_target(&w).is_none()), "다른 펫이 없으면 그대로");
     sync_lifts(&mut alone);
+}
+
+/// 👻 낮게 붙은 옆 모니터 (위쪽이 빈 틈)의 창 위 펫에게 다가가도 그 모니터 안에 뜸 — 합친 화면 위쪽 틈에 떠서 안 보이던 버그 (qa_sim seed 4)
+#[test]
+fn drifting_over_a_pet_stays_on_its_monitor_below_a_gap() {
+    let low = Rect::new(1920.0, 180.0, 3200.0, 980.0);
+    let win = WindowInfo { id: 1, rect: Rect::new(2300.0, 240.0, 2900.0, 700.0) };
+    let w = World::new(vec![win], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0), low], 128.0);
+    let mut d = floating(2600.0, 600.0, 7);
+    d.social_key = 1;
+    let mut pet = Pet::new(pet_cfg(), 2600.0, 0.0, 8);
+    let (ax, ay) = w.anchor(Owner::Window(1)).unwrap();
+    pet.standing = Some(Standing { owner: Owner::Window(1), rel_x: 2600.0 - ax });
+    pet.body = Body { x: 2600.0, y: ay, vx: 0.0, vy: 0.0 };
+    pet.state = State::Idle { remaining: 100.0, look: false };
+    pet.social_key = 2;
+    let mut pets = vec![d, pet];
+    notice_pets(&mut pets);
+    let mut hits = 0;
+    for _ in 0..200 {
+        if let Some((x, y)) = pets[0].stalk_target(&w) {
+            assert!(x >= low.left && x <= low.right, "{x}");
+            assert!(y - pets[0].cfg.size >= low.top, "그림이 모니터 위 틈에 걸림: 발 {y}");
+            hits += 1;
+        }
+    }
+    assert!(hits > 0);
+}
+
+/// 👻 시무룩한 채 (제자리 상태) 서 있던 창을 작업표시줄 뒤·화면 아래로 끌어 내리면 같이 실려 가지 않고 떨어짐 — 디딤판이 사라졌는데
+/// 창 자리만 따라가 화면 밖에 선 채 남던 버그 (qa_sim seed 100)
+#[test]
+fn a_gloomy_pet_does_not_ride_a_window_dragged_off_the_screen() {
+    let mut rect = Rect::new(800.0, 600.0, 1400.0, 1000.0);
+    let w = World::new(vec![WindowInfo { id: 1, rect }], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    let mut p = Pet::new(pet_cfg(), 1000.0, 0.0, 9);
+    p.standing = Some(Standing { owner: Owner::Window(1), rel_x: 200.0 });
+    p.body = Body { x: 1000.0, y: 600.0, vx: 0.0, vy: 0.0 };
+    p.state = State::Gloom { remaining: 3.0 };
+    p.update(DT, &w);
+    assert!(p.standing.is_some());
+    rect = Rect::new(800.0, 1060.0, 1400.0, 1460.0);
+    let below = World::new(vec![WindowInfo { id: 1, rect }], vec![Rect::new(0.0, 0.0, 1920.0, 1040.0)], 128.0);
+    p.update(DT, &below);
+    assert!(p.standing.map_or(true, |s| s.owner != Owner::Window(1)), "{:?} {:?}", p.state, p.standing);
+    assert!(p.body.y <= 1040.0, "화면 아래로 실려 감: {}", p.body.y);
 }
 
 /// 🧹 빗자루로 서리를 쓸면 그 구석 서리가 바로 녹고, 디멘터가 곁에 있어도 FROST_SWEPT_SECS 동안 다시 끼지 않음

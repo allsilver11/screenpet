@@ -252,6 +252,16 @@ impl Pet {
         }
     }
 
+    /// 🏃 걷는 술래가 디딤판 조각 끝에 막혀 섰음 (친구가 그 끝 너머 — 옆 모니터·다른 창): 달리기 대신 친구 쪽을 봄 (render)
+    pub(super) fn chase_blocked(&self) -> bool {
+        let (Some((a, b)), Some((tx, _))) = (self.standing.and(self.ground_span), self.play_target) else { return false };
+        if self.cfg.flies || !matches!(self.state, State::Chase { .. }) {
+            return false;
+        }
+        let (lo, hi) = (a + self.cfg.half_w, b - self.cfg.half_w);
+        (tx > hi && self.body.x >= hi - 0.5) || (tx < lo && self.body.x <= lo + 0.5)
+    }
+
     /// 걷는 동물: 서 있는 디딤판 조각 안에서만 달림 (끝에서 술래는 멈추고 도망자는 돌아섬)
     fn play_ground(&mut self, dt: f64, world: &World) {
         if !self.follow_anchor(world) {

@@ -63,6 +63,20 @@ fn the_cursor_near_its_head_finds_it_and_it_runs_away() {
     }
 }
 
+/// 🫣 panic 그림이 없는 동물 (pranks hide — 해리·헤르미온느·박쥐인간 등)이 들키면 달리기 그림으로 도망 — panic이면 웹뷰가 idle로 바꿔
+/// 선 채 미끄러져 갔음 (qa_sim seed 111)
+#[test]
+fn a_pet_without_a_panic_sheet_runs_away_when_found() {
+    let w = world(vec![tall()]);
+    let mut p = resting(PetConfig { hides: true, ..pet_cfg() }, 700.0, 3, &w);
+    p.start_hide(&w);
+    assert!(run_until(&mut p, &w, 8.0, (100.0, 100.0), peeking));
+    p.hover(980.0 - 150.0, 1040.0 - 80.0, false);
+    p.update(DT, &w);
+    assert!(matches!(p.state, State::Panic { .. }), "{:?}", p.state);
+    assert_eq!(p.render().anim, Anim::Run);
+}
+
 #[test]
 fn if_nobody_finds_it_it_comes_out_saying_peekaboo() {
     let w = world(vec![tall()]);

@@ -667,3 +667,19 @@ mod hit;
 
 #[path = "social_tower_tests.rs"]
 mod tower_tests;
+
+/// 🏃 술래가 쫓는 친구가 높이가 다른 옆 모니터 (조각 끝 너머)에 있으면 끝에서 멈춰 친구 쪽을 봄 — 달리기 그림으로 제자리 달리던 버그 (qa_sim seed 107)
+#[test]
+fn a_chaser_stopped_at_the_end_of_its_floor_looks_instead_of_running_in_place() {
+    let w = World::new(vec![], vec![Rect::new(0.0, 0.0, 1920.0, GROUND), Rect::new(1920.0, 180.0, 3200.0, 980.0)], 128.0);
+    let mut p = ground(&w, friendly(), 1800.0, 1);
+    p.state = State::Chase { remaining: 8.0 };
+    p.set_play_target(2300.0, 980.0);
+    for _ in 0..120 {
+        p.set_play_target(2300.0, 980.0);
+        p.update(DT, &w);
+    }
+    assert!(matches!(p.state, State::Chase { .. }), "{:?}", p.state);
+    assert!(p.body.x > 1850.0, "끝까지는 달려감: {}", p.body.x);
+    assert_ne!(p.render().anim, Anim::Run, "끝에 멈춰 섰는데 달리는 그림");
+}
