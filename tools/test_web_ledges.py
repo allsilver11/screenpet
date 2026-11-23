@@ -54,6 +54,13 @@ def test_ledges_go_into_pet_worlds_only_on_each_refresh():
 
 def test_the_probe_reads_only_rectangles_and_control_types():
     assert "UIA_BoundingRectanglePropertyId" in WEB and "UIA_ControlTypePropertyId" in WEB
+    # 내 펫 웹뷰 등 다른 프로세스 요소는 버린다
+    assert "UIA_ProcessIdPropertyId" in WEB and "pid != front.pid" in WEB
+    # 실패는 지난 결과를 두고, 브라우저가 아닐 때만 지운다. 읽는 사이 창이 움직였으면 버린다
+    assert "Probed::Failed" in WEB and "Probed::NotBrowser" in WEB and "rect_of(front.id()) != Some(front.frame)" in WEB
+    # 예산은 페이지 영역을 찾은 뒤부터
+    probe = WEB[WEB.index("fn probe(&mut self)") :]
+    assert probe.index("self.page_view(front)") < probe.index("let started = Instant::now();")
     for banned in ("UIA_NamePropertyId", "UIA_ValueValuePropertyId", "CurrentName", "CachedName", "TextPattern", "GetCurrentPropertyValue"):
         assert banned not in WEB, banned
     # COM은 읽기 스레드 안에서 열고, 시간 예산·격자가 있다
@@ -65,4 +72,8 @@ def test_the_probe_reads_only_rectangles_and_control_types():
 
 def test_help_and_readme_mention_it():
     assert "🌐 웹 페이지 위에도 올라가기 (실험)" in HELP
+    # 브라우저 접근성 모드가 모든 탭에, 다시 켤 때까지 남는다는 경고
+    line = HELP[HELP.index("🌐 웹 페이지 위에도 올라가기 (실험)") :]
+    line = line[: line.index("</li>")]
+    assert "접근성 모드" in line and "모든 탭" in line and "다시 켤 때까지" in line
     assert "🌐 웹 페이지 위에도 올라가기" in README

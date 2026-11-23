@@ -119,10 +119,48 @@ pub fn place_ledges(windows: &[WindowInfo], set: &LedgeSet) -> Vec<Ledge> {
         .collect()
 }
 
+/// 판마다 격자 시작 칸을 이만큼 옮김 (칸 수 120과 서로소 — 몇 판이면 모든 칸이 맨 앞에 옴)
+const ROTATE_STEP: usize = 37;
+
+/// 격자 점들을 round판 몫만큼 돌려 놓음 (시간 예산이 모자라도 아래쪽 줄이 늘 빠지지 않게). 점은 그대로 다 있음
+pub fn rotate_points(mut points: Vec<(f64, f64)>, round: usize) -> Vec<(f64, f64)> {
+    if !points.is_empty() {
+        let n = points.len();
+        points.rotate_left(round.wrapping_mul(ROTATE_STEP) % n);
+    }
+    points
+}
+
+/// 이번 판 결과(fresh)에 지난 판 디딤돌(prev, 같은 창·경계·영역일 때) 중 이번에 찍은 점(probed)이 하나도 안 닿은 것을 더해 다시 고름.
+/// 다시 찍었는데 안 나온 것(스크롤로 움직임)은 버리고, 예산이 모자라 못 찍은 자리의 것만 이어 감
+pub fn merge_ledges(prev: &[Rect], fresh: &[Rect], probed: &[(f64, f64)], view: Rect) -> Vec<Rect> {
+    let kept = prev.iter().filter(|r| !probed.iter().any(|&(x, y)| r.contains(x, y)));
+    let all: Vec<Rect> = fresh.iter().chain(kept).copied().collect();
+    pick_ledges(&all, view)
+}
+
+/// 읽개 한 번의 결과
+#[derive(Debug, Clone, PartialEq)]
+pub enum Probed {
+    /// 맨 앞 창이 브라우저가 아님 — 디딤돌을 지움
+    NotBrowser,
+    /// 읽다 실패함 (창이 움직였음·페이지 영역을 못 찾음 등) — 지난 결과를 그대로 두고 시각도 안 고침 (STALE_AFTER가 지나면 사라짐)
+    Failed,
+    /// 읽은 디딤돌
+    Found(LedgeSet),
+}
+
 /// 읽기 스레드가 넘기는 마지막 결과와 그 시각
 struct Latest {
     set: Option<LedgeSet>,
     at: Option<Instant>,
+}
+
+impl Latest {
+    /// STALE_AFTER 안에 고친 결과면 그 복사본
+    fn fresh(&self) -> Option<LedgeSet> {
+        self.at.filter(|at| at.elapsed() <= STALE_AFTER).and(self.set.clone())
+    }
 }
 
 /// 🌐 디딤돌 읽기 스레드 손잡이 (게임 루프가 가짐). 버리면 스레드가 다음 쉼에서 끝남
@@ -134,8 +172,7 @@ pub struct LedgeProbe {
 impl LedgeProbe {
     /// 마지막으로 읽은 디딤돌 (STALE_AFTER보다 오래됐거나 아직 없으면 None). 게임 루프를 막지 않음 (잠금은 복사하는 동안만)
     pub fn latest(&self) -> Option<LedgeSet> {
-        let l = self.latest.lock().ok()?;
-        l.at.filter(|at| at.elapsed() <= STALE_AFTER).and(l.set.clone())
+        self.latest.lock().ok()?.fresh()
     }
 }
 
@@ -147,11 +184,11 @@ impl Drop for LedgeProbe {
 }
 
 /// 디딤돌 읽기 스레드를 띄움: make를 그 스레드에서 한 번 불러 읽개를 만들고 (COM 등은 그 스레드 것), every마다 한 번 읽어 넘김.
-/// 읽개를 못 만들면 스레드가 바로 끝남. 스레드를 못 띄우면 None
+/// 실패(Probed::Failed)는 지난 결과를 덮지 않음. 읽개를 못 만들면 스레드가 바로 끝남. 스레드를 못 띄우면 None
 pub fn spawn_probe<M, F>(every: Duration, make: M) -> Option<LedgeProbe>
 where
     M: FnOnce() -> Option<F> + Send + 'static,
-    F: FnMut() -> Option<LedgeSet>,
+    F: FnMut() -> Probed,
 {
     let latest = Arc::new(Mutex::new(Latest { set: None, at: None }));
     let stop = Arc::new(AtomicBool::new(false));
@@ -162,18 +199,29 @@ where
             let Some(mut probe) = make() else { return };
             while !quit.load(Ordering::Relaxed) {
                 let start = Instant::now();
-                let set = probe();
+                let set = match probe() {
+                    Probed::Found(set) => Some(set),
+                    Probed::NotBrowser => None,
+                    Probed::Failed => {
+                        rest(&quit, start, every);
+                        continue;
+                    }
+                };
                 if let Ok(mut l) = out.lock() {
                     *l = Latest { set, at: Some(Instant::now()) };
                 }
-                // 남은 시간을 짧게 나눠 쉬며 그만하라는 말을 봄
-                while !quit.load(Ordering::Relaxed) && start.elapsed() < every {
-                    std::thread::sleep((every.saturating_sub(start.elapsed())).min(Duration::from_millis(50)));
-                }
+                rest(&quit, start, every);
             }
         })
         .ok()?;
     Some(LedgeProbe { latest, stop })
+}
+
+/// start부터 every가 될 때까지 짧게 나눠 쉬며 그만하라는 말을 봄
+fn rest(quit: &AtomicBool, start: Instant, every: Duration) {
+    while !quit.load(Ordering::Relaxed) && start.elapsed() < every {
+        std::thread::sleep((every.saturating_sub(start.elapsed())).min(Duration::from_millis(50)));
+    }
 }
 
 #[cfg(test)]
@@ -293,7 +341,7 @@ mod tests {
         let probe = spawn_probe(Duration::from_millis(20), move || {
             Some(move || {
                 c.fetch_add(1, Ordering::SeqCst);
-                Some(LedgeSet { window: 1, frame: Rect::new(0.0, 0.0, 10.0, 10.0), rects: Vec::new() })
+                Probed::Found(LedgeSet { window: 1, frame: Rect::new(0.0, 0.0, 10.0, 10.0), rects: Vec::new() })
             })
         })
         .unwrap();
@@ -310,8 +358,74 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_probe_keeps_the_last_result_but_not_a_browser_clears_it() {
+        let step = Arc::new(AtomicUsize::new(0));
+        let s = step.clone();
+        let probe = spawn_probe(Duration::from_millis(10), move || {
+            Some(move || match s.load(Ordering::SeqCst) {
+                0 => Probed::Found(LedgeSet { window: 3, frame: Rect::new(0.0, 0.0, 10.0, 10.0), rects: Vec::new() }),
+                1 => Probed::Failed,
+                _ => Probed::NotBrowser,
+            })
+        })
+        .unwrap();
+        let wait = |want: Option<u64>| {
+            let start = Instant::now();
+            while probe.latest().map(|s| s.window) != want && start.elapsed() < Duration::from_secs(2) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            probe.latest().map(|s| s.window)
+        };
+        assert_eq!(wait(Some(3)), Some(3));
+        step.store(1, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(80));
+        assert_eq!(probe.latest().map(|s| s.window), Some(3), "a hiccup keeps the ledges");
+        step.store(2, Ordering::SeqCst);
+        assert_eq!(wait(None), None, "another app in front clears them");
+    }
+
+    #[test]
+    fn failed_probes_let_old_results_go_stale() {
+        let l = Latest { set: Some(LedgeSet { window: 1, frame: view(), rects: Vec::new() }), at: Instant::now().checked_sub(STALE_AFTER + Duration::from_millis(10)) };
+        assert!(l.fresh().is_none());
+        let l = Latest { set: l.set.clone(), at: Some(Instant::now()) };
+        assert!(l.fresh().is_some());
+    }
+
+    #[test]
+    fn each_round_starts_the_grid_somewhere_else_and_covers_every_point() {
+        let pts = probe_grid(view(), 12, 10);
+        assert_eq!(rotate_points(pts.clone(), 0), pts);
+        let r1 = rotate_points(pts.clone(), 1);
+        let r2 = rotate_points(pts.clone(), 2);
+        assert_ne!(r1[0], pts[0]);
+        assert_ne!(r1[0], r2[0]);
+        // 아래쪽 줄부터 시작하는 판도 있음
+        assert!((0..12).any(|round| rotate_points(pts.clone(), round)[0].1 > view().top + view().height() / 2.0));
+        let mut sorted = r1.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut all = pts.clone();
+        all.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(sorted, all);
+        assert!(rotate_points(Vec::new(), 5).is_empty());
+    }
+
+    #[test]
+    fn merge_keeps_unchecked_old_ledges_and_drops_ones_checked_again() {
+        let old_low = Rect::new(200.0, 700.0, 600.0, 740.0); // 이번엔 찍지 못한 아래쪽
+        let old_up = Rect::new(200.0, 300.0, 600.0, 340.0); // 이번에 다시 찍었는데 다른 것이 나옴 (스크롤)
+        let fresh = Rect::new(200.0, 260.0, 600.0, 300.0);
+        let probed = [(400.0, 280.0), (400.0, 320.0)];
+        let got = merge_ledges(&[old_up, old_low], &[fresh], &probed, view());
+        assert_eq!(got, vec![fresh, old_low]);
+        // 같은 것을 다시 찾으면 하나만
+        assert_eq!(merge_ledges(&[fresh], &[fresh], &[(400.0, 280.0)], view()), vec![fresh]);
+        assert_eq!(merge_ledges(&[fresh], &[], &[], view()), vec![fresh]);
+    }
+
+    #[test]
     fn a_probe_that_cannot_start_hands_over_nothing() {
-        let probe = spawn_probe(Duration::from_millis(20), || None::<fn() -> Option<LedgeSet>>).unwrap();
+        let probe = spawn_probe(Duration::from_millis(20), || None::<fn() -> Probed>).unwrap();
         std::thread::sleep(Duration::from_millis(50));
         assert!(probe.latest().is_none());
     }

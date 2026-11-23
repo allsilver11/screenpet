@@ -85,3 +85,27 @@ fn a_pet_on_a_ledge_rides_a_dragged_browser() {
         assert_eq!(p.body.y, 500.0 + (rect.top - 100.0), "tick {tick}");
     }
 }
+
+/// 조작 모드에서 ↓ 두 번 빨리 누르면 디딤돌에서도 내려옴 (창 윗면처럼)
+#[test]
+fn double_down_in_control_mode_drops_off_a_ledge() {
+    use super::control_moves::ControlInput;
+    let w = lworld(Some(set_at(500.0)));
+    let owner = ledge_owner(&w);
+    let mut p = Pet::new(super::tests::sim_cfg(), 0.0, 0.0, 3);
+    place(&mut p, &w, owner, 600.0, idle());
+    p.set_control(true);
+    let down = ControlInput { down: true, ..ControlInput::default() };
+    let hold = |p: &mut Pet, k: ControlInput, secs: f64| {
+        for _ in 0..(secs / DT).round() as usize {
+            p.control_keys(k, DT);
+            p.update(DT, &w);
+        }
+    };
+    hold(&mut p, down, 0.1);
+    hold(&mut p, ControlInput::default(), 0.1);
+    hold(&mut p, down, 0.05);
+    assert!(p.standing.is_none(), "{:?}", p.state);
+    hold(&mut p, ControlInput::default(), 2.0);
+    assert_eq!(p.standing.map(|s| s.owner), Some(Owner::Ground(0)));
+}
