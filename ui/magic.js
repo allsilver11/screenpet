@@ -9,7 +9,7 @@
 //     otter {x, y, size, dir, alpha, tilt, t}    🦦 은빛 수달 (헤르미온느) — 긴 몸을 tilt만큼 기울여 공중을 헤엄침, 젓는 발·흔들리는 꼬리·물방울 자취
 //     soul  {from, to, width, level, t}          👻 디멘터가 빼앗는 영혼 줄기 — 펫 가슴 (from)에서 디멘터 (to)로 일렁이며 빨려 올라가는 옅은 은빛 가닥
 //                                                + 가슴의 희미한 빛 + 올라가는 작은 빛 (level 0…1 짙기)
-//     frost {x, y, size, inward, level}          🥶 화면 구석의 서리 — 구석에서 안쪽으로 번지는 반투명 흰빛 + 얼음 가지
+//     frost {x, y, size, inward, level}          🥶 화면 구석의 서리 — 김 서린 듯 구석에서 안쪽으로 번지는 뿌연 흰빛
 //     egg   {x, y, size, crack}                  🥚 해그리드가 품은 용알 (바닥 가운데 x, y — 높이 size) — 금이 갈수록 (crack 0…1) 지그재그 금·달달 떨림
 //     hatchling {x, y, size, t, len, dir}        🐉 깨어난 아기 용 — 알 껍데기가 갈라져 튀고, 알 자리 둘레를 파닥파닥 날다가 끝에 불을 퐁 뿜고 사라짐
 //     campfire {x, y, size, level}               🔥 해그리드가 피운 모닥불 (바닥 가운데 x, y — 장작 폭 size) — 엇갈린 장작 + 둥근 돌 + 일렁이는
@@ -450,45 +450,38 @@ function mgSoul(f, t) {
 
 // 🥶 서리: 구석에서 안쪽으로 번지는 반투명 흰빛 + 얼음 가지 (구석마다 같은 모양 — 자리로 씨앗을 정함)
 function mgFrost(f) {
-  const r = f.size * (0.35 + 0.65 * Math.min(1, f.level));
-  const [ix, iy] = f.inward;
+  // 🌫️ 김 서린 유리처럼: 구석에서 안쪽으로 부드럽게 번지는 뿌연 흰빛만 (얼음 가지 없음 — 2026-11-23)
   const a = Math.min(1, f.level);
+  const r = f.size * (0.45 + 0.55 * a);
   const g = mgCtx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
-  g.addColorStop(0, `rgba(235,245,255,${0.55 * a})`);
-  g.addColorStop(0.55, `rgba(205,228,250,${0.3 * a})`);
-  g.addColorStop(1, "rgba(205,228,250,0)");
+  g.addColorStop(0, `rgba(236,242,248,${0.5 * a})`);
+  g.addColorStop(0.45, `rgba(230,238,246,${0.34 * a})`);
+  g.addColorStop(0.8, `rgba(226,235,244,${0.12 * a})`);
+  g.addColorStop(1, "rgba(226,235,244,0)");
   mgCtx.fillStyle = g;
   mgCtx.beginPath();
   mgCtx.arc(f.x, f.y, r, 0, Math.PI * 2);
   mgCtx.fill();
+  // 입김이 번진 듯 가장자리를 살짝 울퉁불퉁하게: 안쪽으로 작은 뿌연 덩이 몇 개 (자리는 구석마다 같게)
   let seed = (Math.round(f.x) * 7 + Math.round(f.y) * 13) % 97;
   const rnd = () => {
     seed = (seed * 37 + 11) % 101;
     return seed / 101;
   };
-  mgCtx.strokeStyle = `rgba(250,253,255,${0.6 * a})`;
-  mgCtx.lineCap = "round";
-  for (let i = 0; i < 9; i++) {
-    const ang = ((i + 0.5) / 9) * (Math.PI / 2);
-    const len = r * (0.32 + 0.3 * rnd());
-    const dx = Math.cos(ang) * ix;
-    const dy = Math.sin(ang) * iy;
-    mgCtx.lineWidth = 1.3;
+  const [ix, iy] = f.inward;
+  for (let i = 0; i < 5; i++) {
+    const ang = ((i + 0.5) / 5) * (Math.PI / 2);
+    const d = r * (0.45 + 0.25 * rnd());
+    const cx = f.x + Math.cos(ang) * ix * d;
+    const cy = f.y + Math.sin(ang) * iy * d;
+    const pr = r * (0.28 + 0.12 * rnd());
+    const pg = mgCtx.createRadialGradient(cx, cy, 0, cx, cy, pr);
+    pg.addColorStop(0, `rgba(232,240,247,${0.16 * a})`);
+    pg.addColorStop(1, "rgba(232,240,247,0)");
+    mgCtx.fillStyle = pg;
     mgCtx.beginPath();
-    mgCtx.moveTo(f.x, f.y);
-    mgCtx.lineTo(f.x + dx * len, f.y + dy * len);
-    for (let k = 1; k <= 4; k++) {
-      const at = (len * k) / 5;
-      const tw = len * 0.16 * (1 - k / 6);
-      const bx = f.x + dx * at;
-      const by = f.y + dy * at;
-      for (const side of [-1, 1]) {
-        const ca = ang + side * 0.6;
-        mgCtx.moveTo(bx, by);
-        mgCtx.lineTo(bx + Math.cos(ca) * ix * tw, by + Math.sin(ca) * iy * tw);
-      }
-    }
-    mgCtx.stroke();
+    mgCtx.arc(cx, cy, pr, 0, Math.PI * 2);
+    mgCtx.fill();
   }
 }
 

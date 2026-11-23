@@ -285,7 +285,7 @@ pub const GLOOM_HUNGER: f64 = 1.0 / 600.0;
 /// 👻 패트로누스에 쫓겨 도망가 있는 시간 (초 — 그동안 시무룩·서리·다가가기 없음)
 pub const FLEE_SECS: (f64, f64) = (35.0, 60.0);
 /// 👻 새로 날 때 다른 펫 머리 위로 다가가는 몫
-pub const STALK_CHANCE: f64 = 0.35;
+pub const STALK_CHANCE: f64 = 0.6;
 /// 🥶 서리가 끼는 구석: 디멘터에서 작업 영역 대각선의 이 몫 안
 pub const FROST_REACH: f64 = 0.38;
 /// 🥶 서리가 끼는 빠르기 · 녹는 빠르기 (초당 — 0…1)
@@ -297,9 +297,9 @@ pub const FROST_FADE: f64 = 1.0 / 40.0;
 pub const FROST_SIZE: f64 = 0.16;
 
 /// 👻 만난 펫의 영혼을 빼앗으려 하는 몫 · 같은 펫에게 다시 주사위를 굴리기까지 (초) · 한 번 빼앗고 쉬는 시간 (초)
-pub const DRAIN_CHANCE: f64 = 0.6;
-pub const DRAIN_AGAIN_SECS: (f64, f64) = (30.0, 60.0);
-pub const DRAIN_GAP_SECS: (f64, f64) = (8.0, 15.0);
+pub const DRAIN_CHANCE: f64 = 0.9;
+pub const DRAIN_AGAIN_SECS: (f64, f64) = (15.0, 30.0);
+pub const DRAIN_GAP_SECS: (f64, f64) = (4.0, 8.0);
 /// 👻 영혼 줄기 시간 · 그 뒤 기절 시간 · 펫이 그냥 풀려나는 가장 긴 시간 (초 — 패트로누스가 오는 동안 늘어남)
 pub const DRAIN_SECS: f64 = 1.8;
 pub const DRAIN_FAINT_SECS: f64 = 3.0;

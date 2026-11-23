@@ -136,7 +136,7 @@ fn it_drifts_over_other_pets_now_and_then() {
             hits += 1;
         }
     }
-    assert!(hits > 4 && hits < 30, "가끔: {hits}");
+    assert!(hits > 12 && hits < 38, "자주: {hits}");
     let mut alone = vec![floating(300.0, 300.0, 9)];
     notice_pets(&mut alone);
     assert!((0..40).all(|_| alone[0].stalk_target(&w).is_none()), "다른 펫이 없으면 그대로");
@@ -251,7 +251,7 @@ fn a_dementor_often_tries_to_drain_a_pet_it_meets() {
             p[1].soul_draining() == Some(1) && p[0].soul_drained()
         })
         .count();
-    assert!((25..=50).contains(&started), "꽤 자주: {started}/60");
+    assert!((45..=60).contains(&started), "거의 늘: {started}/60");
     let seed = draining_seed(&w);
     // 먼 펫
     let mut p = drain_pair(seed, &w);
@@ -281,7 +281,7 @@ fn a_dementor_often_tries_to_drain_a_pet_it_meets() {
         })
         .unwrap();
     let mut p = drain_pair(miss, &w);
-    for _ in 0..(20.0 / DT) as usize {
+    for _ in 0..((wz::DRAIN_AGAIN_SECS.0 - 1.0) / DT) as usize {
         sync_drain(&mut p);
         p[1].clock += DT;
     }
@@ -385,4 +385,13 @@ fn no_drain_while_focusing() {
     p[1].set_focus(true);
     sync_drain(&mut p);
     assert!(p[1].soul_draining().is_none());
+}
+
+/// 👻 영혼 빼앗기가 자주 보임 (2026-11-23 "빈도 높여줘"): 만나면 거의 늘, 같은 펫도 30초 안에 다시, 디멘터도 금방 다시, 펫 머리 위로 자주 다가감
+#[test]
+fn soul_drains_happen_often() {
+    assert!(wz::DRAIN_CHANCE >= 0.85);
+    assert!(wz::DRAIN_AGAIN_SECS.1 <= 30.0);
+    assert!(wz::DRAIN_GAP_SECS.1 <= 8.0);
+    assert!(wz::STALK_CHANCE >= 0.6);
 }

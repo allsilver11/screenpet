@@ -181,3 +181,12 @@ def test_soul_drain_speech_and_help():
     help_html = (UI / "help.html").read_text(encoding="utf-8")
     d = next(li for li in help_html.split("<li>") if li.startswith("👻 디멘터"))
     assert "영혼" in d and "기절" in d and "수달" in d and d.rstrip().endswith("요.</li>")
+
+
+def test_frost_is_a_soft_mist_without_ice_branches():
+    """🌫️ 서리는 김 서린 것처럼 뿌옇게만 (2026-11-23 "서리 디자인이 조금 구려.. 그냥 김 낀 것처럼 뿌옇게만"): 얼음 가지(선) 없이 부드러운 번짐."""
+    src = (ROOT / "ui" / "magic.js").read_text(encoding="utf-8")
+    body = src[src.index("function mgFrost("):]
+    body = body[: body.index("\n}\n")]
+    assert "stroke" not in body and "lineTo" not in body
+    assert "createRadialGradient" in body
