@@ -146,11 +146,6 @@ mod tests {
         }
     }
 
-    /// 테스트: 이 단계의 돌보기
-    fn grown(stage: Stage) -> Care {
-        Care { stage, ..Care::default() }
-    }
-
     #[test]
     fn an_old_config_moves_into_one_pet_with_its_growth() {
         let mut c: Config = serde_json::from_str(r#"{"pet":"rabbit","care":{"rabbit":{"stage":"adult","stamina":3.0,"fullness":0.5,"locked":true}}}"#).unwrap();

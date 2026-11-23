@@ -13,12 +13,8 @@ use crate::world::World;
 pub const AWAY_AFTER_SECS: f64 = 600.0;
 /// 자리를 비운 뒤 유휴 시간이 이보다 짧아지면 돌아온 것임 (1초에 한 번 보므로 넉넉히)
 pub const BACK_BELOW_SECS: f64 = 3.0;
-/// 이 분까지 졸린 시간 (SLEEPY_FROM부터 — 많이 자고 수면 모자를 씀)
-const SLEEPY_UNTIL: u32 = 7 * 60;
-/// 졸린 시간 시작 (새벽 1시 — 2026-11-23 늦춤)
-const SLEEPY_FROM: u32 = 60;
 /// 그날의 첫 "good morning!" [시작, 끝) 분 — 정오가 지나면 그날 인사는 건너뜀
-const MORNING: (u32, u32) = (SLEEPY_UNTIL, 12 * 60);
+const MORNING: (u32, u32) = (7 * 60, 12 * 60);
 /// 점심시간 [시작, 끝) 분
 const LUNCH: (u32, u32) = (11 * 60 + 30, 13 * 60);
 
@@ -37,9 +33,9 @@ impl LocalMoment {
         Self { day, minute: hour * 60 + minute }
     }
 
-    /// 01:00–07:00
+    /// 졸린 시간 (수면 모자·긴 잠·"go to bed~")은 없음 — 시간대가 다른 나라 친구도 쓰므로 하루 종일 같게 (2026-11-23 요청으로 뺌)
     pub fn is_sleepy(self) -> bool {
-        (SLEEPY_FROM..SLEEPY_UNTIL).contains(&self.minute)
+        false
     }
 }
 
@@ -385,13 +381,12 @@ mod tests {
     }
 
     #[test]
-    fn sleepy_hours_are_one_to_seven_in_the_morning() {
-        assert!(!LocalMoment::new(1, 0, 0).is_sleepy(), "자정엔 아직 안 졸림 (2026-11-23 — 늦춤)");
-        assert!(!LocalMoment::new(1, 0, 59).is_sleepy());
-        assert!(LocalMoment::new(1, 1, 0).is_sleepy());
-        assert!(LocalMoment::new(1, 6, 59).is_sleepy());
-        assert!(!LocalMoment::new(1, 7, 0).is_sleepy());
-        assert!(!LocalMoment::new(1, 23, 59).is_sleepy());
+    fn there_are_no_sleepy_hours_any_time_of_day() {
+        for hour in 0..24 {
+            for minute in [0, 30, 59] {
+                assert!(!LocalMoment::new(1, hour, minute).is_sleepy(), "{hour}:{minute}");
+            }
+        }
     }
 
     #[test]

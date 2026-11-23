@@ -306,37 +306,26 @@ fn sleep_share(time: (u32, u32), secs: u32) -> (f64, Sim) {
     (asleep as f64 / secs as f64, sim)
 }
 
+/// 졸린 시간이 없음 (2026-11-23 — 시간대가 다른 친구도 쓰므로): 새벽에도 낮처럼 자고, 하품·"go to bed~"도 없음
 #[test]
-fn after_midnight_the_pet_sleeps_much_more() {
-    let (night, _) = sleep_share((2, 0), 1800);
+fn the_night_is_just_like_the_day() {
+    let (night, at_night) = sleep_share((2, 0), 1800);
     let (day, _) = sleep_share(AFTERNOON, 1800);
-    assert!(night > 0.5, "{night}");
-    assert!(night > day * 2.0, "{night} vs {day}");
+    assert!(night < 0.3 && (night - day).abs() < 0.15, "{night} vs {day}");
+    assert!(!has_said(&at_night, Speech::Yawn), "{:?}", at_night.said);
+    assert!(!has_said(&at_night, Speech::GoToBed), "{:?}", at_night.said);
 }
 
 #[test]
-fn after_midnight_the_pet_yawns_and_nags_only_at_night() {
-    let (_, night) = sleep_share((2, 0), 1800);
-    assert!(has_said(&night, Speech::Yawn), "{:?}", night.said);
-    assert!(has_said(&night, Speech::GoToBed), "{:?}", night.said);
-    assert!(count_said(&night, Speech::GoToBed) <= 8, "occasionally: {}", count_said(&night, Speech::GoToBed));
-    let (_, day) = sleep_share(AFTERNOON, 1800);
-    assert!(!has_said(&day, Speech::Yawn));
-    assert!(!has_said(&day, Speech::GoToBed));
-}
-
-#[test]
-fn the_nightcap_is_on_from_one_to_seven_with_the_sleepy_hours() {
+fn the_nightcap_never_comes_on() {
     let mut sim = afternoon();
     let cap_at = |sim: &mut Sim, time| {
         sim.time = time;
         sim.rhythm.overlay(&sim.input()).nightcap
     };
-    assert!(!cap_at(&mut sim, (0, 30)));
-    assert!(cap_at(&mut sim, (1, 0)));
-    assert!(cap_at(&mut sim, (6, 59)));
-    assert!(!cap_at(&mut sim, (7, 0)));
-    assert!(!cap_at(&mut sim, (23, 59)));
+    for t in [(0, 30), (1, 0), (3, 0), (6, 59), (7, 0), (23, 59)] {
+        assert!(!cap_at(&mut sim, t), "{t:?}");
+    }
 }
 
 #[test]
