@@ -242,6 +242,9 @@ impl Pet {
             self.dementor.chill += wz::GLOOM_HUNGER * dt;
         }
         if !self.cfg.dementor {
+            // 디멘터에서 다른 동물로 바뀌었으면 (앱은 cfg만 갈아 끼움) 남은 서리·영혼 빼앗기를 버림 — 아니면 녹지 않고 계속 그려짐
+            self.dementor.frost.clear();
+            self.dementor.drain = None;
             return;
         }
         if let Some(from_x) = self.dementor.flee_from {

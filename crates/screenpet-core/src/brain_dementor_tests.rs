@@ -306,3 +306,21 @@ fn grabbing_the_dementor_stops_the_drain() {
     }
     assert!(!pets[0].soul_drained() && pets[1].soul_draining().is_none());
 }
+
+/// 🥶 디멘터에서 다른 동물로 바꾸면 (앱이 cfg만 갈아 끼움) 남은 서리·영혼 줄기는 바로 사라짐 — 디멘터가 없는데 구석에 성에가 계속 끼던 버그 (2026-11-23)
+#[test]
+fn frost_goes_away_when_the_pet_is_no_longer_a_dementor() {
+    let w = world(vec![]);
+    let mut d = floating(250.0, 260.0, 4);
+    for _ in 0..(8.0 / DT) as usize {
+        d.dementor_tick(DT, &w);
+        d.clock += DT;
+    }
+    assert!(!d.frost().is_empty());
+    d.cfg = pet_cfg();
+    d.dementor_tick(DT, &w);
+    assert!(d.frost().is_empty());
+    let mut fx = Vec::new();
+    d.magic_fx(&mut fx);
+    assert!(!fx.iter().any(|f| matches!(f, MagicFx::Frost { .. } | MagicFx::Soul { .. })), "{fx:?}");
+}
