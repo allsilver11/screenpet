@@ -196,14 +196,14 @@ impl Pet {
     }
 
     /// 🛡️🧹 몸이 있을 수 있는 자리: x는 합친 화면 (몸 반폭 안), y는 그 x 줄의 작업 영역 (머리 위 말풍선 자리 남김). x 줄에 작업 영역이 없으면 None
-    fn feat_fly_room(&self, world: &World, x: f64) -> Option<(f64, f64)> {
+    pub(super) fn feat_fly_room(&self, world: &World, x: f64) -> Option<(f64, f64)> {
         let col = crate::visit::column_bounds(world, x)?;
         let head = self.cfg.size * (1.0 + crate::flight::TOP_SPACE);
         Some(((col.top + head).min(col.bottom), col.bottom))
     }
 
     /// 🛡️🧹 (x, y)를 있을 수 있는 자리로: x를 합친 화면 안으로, y를 그 x 줄 안으로 (줄이 없으면 그대로)
-    fn feat_fly_clamp(&self, world: &World, x: f64, y: f64) -> (f64, f64) {
+    pub(super) fn feat_fly_clamp(&self, world: &World, x: f64, y: f64) -> (f64, f64) {
         let b = world.bounds;
         let x = x.clamp(b.left + self.cfg.half_w, (b.right - self.cfg.half_w).max(b.left + self.cfg.half_w));
         match self.feat_fly_room(world, x) {

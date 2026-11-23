@@ -44,3 +44,11 @@ def test_help_and_menu_explain_the_up_up_specials_one_line_per_hero():
     assert "Z" not in label and "↑↑" in label
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "↑↑ 특기" in readme and "Z 특기" not in readme
+
+
+def test_help_and_readme_explain_space_space_wall_cling():
+    line = next(x for x in HELP.splitlines() if "🦎 벽 붙기" in x)
+    space_space = '<span class="key">Space</span><span class="key">Space</span>'
+    assert space_space in line and "유리" in line and "창 옆면" in line
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Space Space 벽 붙기" in readme

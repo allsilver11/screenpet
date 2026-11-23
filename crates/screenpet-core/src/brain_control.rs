@@ -10,6 +10,8 @@
 //! - ↑↑ (DOUBLE_TAP_SECS 안에 두 번) = 특기 켜기, ↓↓ = 끄기 (brain_feat.rs): 🛡️ 날기 · 🕷️ 웹스윙 · 🧹 빗자루 · 🦇 오토바이 — 그동안의 키는 그 특기 방식.
 //!   새 키를 읽지 않음 (한글 자판에서 글자 키는 타자와 겹침) — 두 번 톡톡은 두뇌 쪽에서 ↑·↓ 누름으로 셈 (친구 화면도 같은 키 비트).
 //!   누름은 받을 때 적어 둠 (feed — 한 틱 안에 누르고 뗀 것도 다음 틱에 셈)
+//! - Space Space (DOUBLE_TAP_SECS 안에 두 번 — 첫 Space는 평소 점프) = 벽 붙기 (brain_cling.rs): 보는 쪽 가까운 화면 끝·창 옆면, 없으면 화면 유리.
+//!   차례: 붙어 있으면 벽 붙기가 먼저 (↑↑만 특기에 넘김) → 특기 (brain_feat.rs) → Space Space로 벽 붙기 → 평소 조작
 //! - 친구가 연결된 화면 끝으로 몰고 가면 평소 규칙대로 걸어(날아) 나감
 //!
 //! 먹이·직접 주기·누르기·하우스·"집에 와"·손님의 집 그리움·보내기는 조작보다 먼저임 — 그동안은 평소 동작을 그대로 쓰고,
@@ -102,6 +104,10 @@ pub(super) struct Taps {
     pub(super) double_up: bool,
     /// ↓↓ — 특기 끄기 (특기가 없으면 창에서 뛰어내리기)
     pub(super) double_down: bool,
+    /// Space를 막 누름
+    pub(super) jump: bool,
+    /// Space Space — 벽 붙기
+    pub(super) double_jump: bool,
 }
 
 /// 조작 모드 상태
@@ -123,6 +129,13 @@ pub(crate) struct Control {
     /// 다음 조작 틱이 셀 ↑·↓ 누름 수 (feed가 적어 둠 — 틱 사이의 짧은 톡톡도 잃지 않게)
     up_taps: u8,
     down_taps: u8,
+    jump_taps: u8,
+    /// 마지막으로 Space를 막 누른 시각 (clock — 벽에서 놓은 Space는 지움, brain_cling.rs)
+    pub(super) last_jump: f64,
+    /// 벽에서 올라선 뒤 ↑를 뗄 때까지 ↑를 점프로 안 씀 (brain_cling.rs)
+    pub(super) quiet_up: bool,
+    /// 지금 붙어 있는 벽 (brain_cling.rs)
+    pub(super) cling: Option<super::cling_moves::ClingWall>,
     /// 지금 켜 둔 특기 (brain_feat.rs)
     pub(super) feat: Option<super::feat_moves::Feat>,
 }
@@ -171,7 +184,7 @@ impl SteerPacer {
 impl Control {
     /// 새 조작 상태. remote면 친구 링크로 키가 오는 손님임
     fn new(remote: bool) -> Self {
-        Control { input: ControlInput::default(), prev: ControlInput::default(), remote, stale: 0.0, idle: 0.0, last_down: f64::NEG_INFINITY, last_up: f64::NEG_INFINITY, up_taps: 0, down_taps: 0, feat: None }
+        Control { input: ControlInput::default(), prev: ControlInput::default(), remote, stale: 0.0, idle: 0.0, last_down: f64::NEG_INFINITY, last_up: f64::NEG_INFINITY, up_taps: 0, down_taps: 0, jump_taps: 0, last_jump: f64::NEG_INFINITY, quiet_up: false, cling: None, feat: None }
     }
 
     /// 앱이 준 키를 받음. 막 누른 ↑·↓는 세어 두고, 뭔가 눌렸으면 손 놓은 시간을 0으로 돌림
@@ -181,6 +194,9 @@ impl Control {
         }
         if input.down && !self.input.down {
             self.down_taps = self.down_taps.saturating_add(1);
+        }
+        if input.jump && !self.input.jump {
+            self.jump_taps = self.jump_taps.saturating_add(1);
         }
         self.input = input;
         if input.any() {
@@ -240,9 +256,10 @@ impl Pet {
         std::mem::take(&mut self.control_ended)
     }
 
-    /// 조작을 끝냄. 기어오르던 중이면 미끄러져 내려오게 함, 특기 중이면 사뿐 내려오거나 줄을 놓음 (drop_feat)
+    /// 조작을 끝냄. 기어오르던 중이면 미끄러져 내려오게 함, 특기 중이면 사뿐 내려오거나 줄을 놓음 (drop_feat), 벽에 붙어 있었으면 떨어짐 (drop_cling)
     fn release_control(&mut self) {
         self.drop_feat();
+        self.drop_cling();
         if self.control.take().is_none() {
             return;
         }
@@ -281,7 +298,7 @@ impl Pet {
         let c = self.control.as_mut()?;
         let prev = c.prev;
         c.prev = c.input;
-        (c.up_taps, c.down_taps) = (0, 0);
+        (c.up_taps, c.down_taps, c.jump_taps) = (0, 0, 0);
         Some((c.input, prev))
     }
 
@@ -340,22 +357,31 @@ impl Pet {
         if !self.controllable() {
             // 볼일이 끼어들면 특기를 접음 (날던 중이면 사뿐 내려옴)
             self.drop_feat();
+            self.drop_cling();
             if let Some(c) = self.control.as_mut() {
                 c.prev = c.input;
-                (c.up_taps, c.down_taps) = (0, 0);
+                (c.up_taps, c.down_taps, c.jump_taps) = (0, 0, 0);
             }
             return false;
         }
-        let input = c.input;
+        // 벽에서 올라선 뒤 누르고 있던 ↑는 뗄 때까지 안 씀 (올라서자마자 폴짝 뛰지 않게)
+        let quiet_up = c.quiet_up && c.input.up;
+        let input = if quiet_up { ControlInput { up: false, ..c.input } } else { c.input };
         let prev = c.prev;
         let clock = self.clock;
         let pressed_down = c.down_taps > 0;
         let double_down = c.down_taps >= 2 || (pressed_down && clock - c.last_down <= DOUBLE_TAP_SECS);
         let pressed_up = c.up_taps > 0;
         let double_up = c.up_taps >= 2 || (pressed_up && clock - c.last_up <= DOUBLE_TAP_SECS);
+        let pressed_jump = c.jump_taps > 0;
+        let double_jump = c.jump_taps >= 2 || (pressed_jump && clock - c.last_jump <= DOUBLE_TAP_SECS);
         if let Some(c) = self.control.as_mut() {
             c.prev = input;
-            (c.up_taps, c.down_taps) = (0, 0);
+            c.quiet_up = quiet_up;
+            (c.up_taps, c.down_taps, c.jump_taps) = (0, 0, 0);
+            if pressed_jump {
+                c.last_jump = if double_jump { f64::NEG_INFINITY } else { clock };
+            }
             if pressed_down {
                 c.last_down = if double_down { f64::NEG_INFINITY } else { clock };
             }
@@ -363,11 +389,19 @@ impl Pet {
                 c.last_up = if double_up { f64::NEG_INFINITY } else { clock };
             }
         }
-        let taps = Taps { down: pressed_down, double_up, double_down };
+        let taps = Taps { down: pressed_down, double_up, double_down, jump: pressed_jump, double_jump };
         self.pacing.after_beat = None;
         self.before_press = None;
+        // 🦎 벽에 붙어 있으면 그 한 틱 (↑↑만 특기에 넘김 — brain_cling.rs)
+        if self.update_wall_cling(dt, world, input, taps) {
+            return true;
+        }
         // 특기: ↑↑ 켜기·↓↓ 끄기, 켜져 있으면 그 방식으로 (brain_feat.rs)
         if self.update_feat(dt, world, input, prev, taps) {
+            return true;
+        }
+        // 🦎 Space Space = 벽 붙기 (brain_cling.rs)
+        if taps.double_jump && self.start_cling(world) {
             return true;
         }
         if self.cfg.flies {

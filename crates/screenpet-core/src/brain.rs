@@ -4117,6 +4117,14 @@ pub mod feat_moves;
 #[path = "brain_feat_tests.rs"]
 mod feat_tests;
 
+/// 🦎 조작 모드 벽 붙기 (Space Space) — 화면 끝·창 옆면 벽·화면 유리
+#[path = "brain_cling.rs"]
+pub mod cling_moves;
+
+#[cfg(test)]
+#[path = "brain_cling_tests.rs"]
+mod cling_tests;
+
 /// 던져서 친구 화면으로 넘어가기 (듀얼 모니터처럼)
 #[path = "brain_fling.rs"]
 mod fling_moves;
