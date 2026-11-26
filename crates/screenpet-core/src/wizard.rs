@@ -294,7 +294,7 @@ pub const FROST_GROW: f64 = 1.0 / 6.0;
 pub const FROST_SWEPT_SECS: f64 = 60.0;
 pub const FROST_FADE: f64 = 1.0 / 40.0;
 /// 🥶 다 낀 서리 크기 (작업 영역 대각선 몫)
-pub const FROST_SIZE: f64 = 0.16;
+pub const FROST_SIZE: f64 = 0.09;
 
 /// 👻 만난 펫의 영혼을 빼앗으려 하는 몫 · 같은 펫에게 다시 주사위를 굴리기까지 (초) · 한 번 빼앗고 쉬는 시간 (초)
 pub const DRAIN_CHANCE: f64 = 0.9;

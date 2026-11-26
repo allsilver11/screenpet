@@ -241,7 +241,7 @@ pub fn jump_targets(surfaces: &[Surface], from: Owner, x: f64, y: f64, size: f64
     let inset = half_w + LANDING_INSET * size;
     surfaces
         .iter()
-        .filter(|s| matches!(s.owner, Owner::Window(_) | Owner::Ledge { .. }) && s.owner != from)
+        .filter(|s| matches!(s.owner, Owner::Window(_)) && s.owner != from)
         .filter(|s| {
             let up = y - s.y;
             up <= BIG_JUMP_UP * size && -up <= BIG_JUMP_DOWN * size

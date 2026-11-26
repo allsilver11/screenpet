@@ -98,9 +98,6 @@ pub struct Config {
     /// 이름은 루모스만 있던 때 그대로 — 예전 선택이 이어짐)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub lumos_light: bool,
-    /// 🌐 웹 페이지 위에도 올라가기 (실험, 기본 끔 — Windows: 맨 앞 브라우저 페이지의 요소 사각형을 0.5초마다 읽음, ledge.rs)
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub web_ledges_on: bool,
     /// ⏱️ 집중 친구 길이 (켜져 있는지는 남기지 않음). 모르는 값이면 25/5
     #[serde(default, skip_serializing_if = "FocusLength::is_short", deserialize_with = "lenient")]
     pub focus_length: FocusLength,
@@ -1932,13 +1929,11 @@ mod tests {
     }
 
     #[test]
-    fn web_ledges_are_off_unless_turned_on() {
-        let old: Config = serde_json::from_str(r#"{"pet":"cat"}"#).unwrap();
-        assert!(!old.web_ledges_on);
-        assert!(!serde_json::to_string(&Config::default()).unwrap().contains("web_ledges_on"));
-        let on = Config { web_ledges_on: true, ..Config::default() };
-        let back: Config = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
-        assert!(back.web_ledges_on);
+    fn a_config_from_the_web_ledges_era_still_loads_and_drops_the_old_switch() {
+        // 🌐 웹 페이지 디딤돌은 v0.7.5에서 뺐음 — 켜 두었던 설정 파일도 읽히고, 다시 쓸 때 그 칸은 없어짐
+        let old: Config = serde_json::from_str(r#"{"pet":"cat","web_ledges_on":true}"#).unwrap();
+        assert_eq!(old.pet.as_deref(), Some("cat"));
+        assert!(!serde_json::to_string(&old).unwrap().contains("web_ledges_on"));
     }
 
     #[test]

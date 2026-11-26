@@ -115,9 +115,6 @@ const POOP_LABEL: &str = "💩 펫이 똥 싸기";
 /// 🌗 루모스·녹스로 화면 밝기 바꾸기 (⚙️ 설정 체크 항목, 기본 끔 — 설정에 남음 (Config.lumos_light 그대로), 코어 lumos.rs)
 const LUMOS_LIGHT_ID: &str = "lumos-light";
 const LUMOS_LIGHT_LABEL: &str = "🌗 루모스·녹스로 화면 밝기 바꾸기";
-/// 🌐 웹 페이지 위에도 올라가기 (⚙️ 설정 체크 항목, 실험·기본 끔 — Config.web_ledges_on, 코어 ledge.rs. 읽을 수 없는 OS에선 흐림)
-const WEB_LEDGES_ID: &str = "web-ledges";
-const WEB_LEDGES_LABEL: &str = "🌐 웹 페이지 위에도 올라가기 (실험)";
 /// ⏱️ 집중 친구 하위 메뉴: 시작/그만, 길이 둘 (길이만 설정에 남음)
 const FOCUS_TOGGLE_ID: &str = "focus:toggle";
 const FOCUS_SHORT_ID: &str = "focus:short";
@@ -239,7 +236,6 @@ pub struct TrayMenu {
     /// 🌗 루모스·녹스로 화면 밝기 바꾸기 (게임 루프가 실제 설정으로 다시 맞춤)
     pub lumos_light: CheckMenuItem<Wry>,
     /// 🌐 웹 페이지 위에도 올라가기 (게임 루프가 실제 설정으로 다시 맞춤)
-    pub web_ledges: CheckMenuItem<Wry>,
     /// 🌨️ 날씨 효과 (일 년 내내 켜고 끔)
     pub weather: CheckMenuItem<Wry>,
     /// ☀️ 실제 날씨 (글자에 도시) / 📅 계절 날씨, 📍 날씨 지역의 도시들 (게임 루프가 설정으로 다시 맞춤)
@@ -913,10 +909,9 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
     // 처음엔 켜져 있음 — 게임 루프가 설정(처음이면 켜기)으로 다시 맞춤
     let autostart = CheckMenuItem::with_id(app, AUTOSTART_ID, "🚀 컴퓨터 켜면 자동 실행", true, true, None::<&str>)?;
     let lumos_light = CheckMenuItem::with_id(app, LUMOS_LIGHT_ID, LUMOS_LIGHT_LABEL, true, false, None::<&str>)?;
-    let web_ledges = CheckMenuItem::with_id(app, WEB_LEDGES_ID, WEB_LEDGES_LABEL, screenpet_core::platform::WEB_LEDGES, false, None::<&str>)?;
     // 📊 처음엔 꺼져 있음 — 게임 루프가 설정(답했으면 그 답)으로 다시 맞춤
     let pet_stats = CheckMenuItem::with_id(app, STATS_ID, STATS_LABEL, true, false, None::<&str>)?;
-    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &lumos_light, &web_ledges, &autostart, &pet_stats])?;
+    let settings = Submenu::with_items(app, "⚙️ 설정", true, &[&weather, &weather_kind, &poop, &cursor_play, &typing_cheer, &sizes, &opacity, &lumos_light, &autostart, &pet_stats])?;
 
     // 트레이와 펫 우클릭은 같은 메뉴. "집에 와"는 내 동물이 놀러 가 있을 때만 끼어듦 (COME_HOME_POSITION)
     let menu = Menu::new(app)?;
@@ -979,7 +974,6 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             OPACITY_ID => send(app, Input::ShowOpacity),
             POOP_ID => send(app, Input::TogglePoop),
             LUMOS_LIGHT_ID => send(app, Input::ToggleLumosLight),
-            WEB_LEDGES_ID => send(app, Input::ToggleWebLedges),
             WEATHER_ID => send(app, Input::ToggleWeather),
             WEATHER_REAL_ID => send(app, Input::SetWeatherSource(WeatherSource::Real)),
             WEATHER_SEASON_ID => send(app, Input::SetWeatherSource(WeatherSource::Season)),
@@ -1074,5 +1068,5 @@ pub fn build(app: &AppHandle, pets: &[PetEntry], current: &str, favorite: &Favor
             }
         })
         .build(app)?;
-    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, lumos_light, web_ledges, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, my_pet, tint_menu, tints, mailbox, autostart, pet_stats, update, friends, come_home, come_home_menu, pick_menu, add_menu, let_go, let_go_item, pick_list: Default::default(), hand_mode, auto_mode, toggle: toggle.clone() })
+    Ok(TrayMenu { menu, favorite: [fav_hand, fav_auto], growth, lock, house, control, cursor_play, typing_cheer, typing_permission, settings, poop, lumos_light, weather, weather_real, weather_season, weather_manual, places, broom, focus, focus_toggle, focus_short, focus_long, pets: pet_items, pets_menu, my_pet, tint_menu, tints, mailbox, autostart, pet_stats, update, friends, come_home, come_home_menu, pick_menu, add_menu, let_go, let_go_item, pick_list: Default::default(), hand_mode, auto_mode, toggle: toggle.clone() })
 }

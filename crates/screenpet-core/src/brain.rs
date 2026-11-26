@@ -4183,10 +4183,6 @@ mod ride;
 #[path = "brain_ride_tests.rs"]
 mod ride_tests;
 
-#[cfg(test)]
-#[path = "brain_ledge_tests.rs"]
-mod ledge_tests;
-
 /// 다른 동물과 인사·술래 놀이 (짝짓기·쿨다운은 social.rs)
 #[path = "brain_social.rs"]
 pub mod social_moves;

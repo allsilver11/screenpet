@@ -395,3 +395,9 @@ fn soul_drains_happen_often() {
     assert!(wz::DRAIN_GAP_SECS.1 <= 8.0);
     assert!(wz::STALK_CHANCE >= 0.6);
 }
+
+/// 🌫️ 구석 성에는 작게 (2026-11-26 "성에 면적이 너무 넓어"): 다 끼어도 작업 영역 대각선의 1/10 아래
+#[test]
+fn corner_frost_stays_small() {
+    assert!(wz::FROST_SIZE <= 0.1);
+}

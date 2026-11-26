@@ -101,7 +101,6 @@ pub enum Input {
     /// 🌗 루모스·녹스로 화면 밝기 바꾸기 켜기 / 끄기 (설정에 남음 — 끄면 바꿔 둔 테마를 바로 되돌림)
     ToggleLumosLight,
     /// 🌐 웹 페이지 위에도 올라가기 켜기 / 끄기 (설정에 남음 — 켜면 읽기 스레드를 띄우고 끄면 멈춤)
-    ToggleWebLedges,
     /// 🚀 컴퓨터 켜면 자동 실행 켜기 / 끄기 (설정에 남음, 바로 OS에 적용)
     ToggleAutostart,
     /// 📊 처음 묻는 창의 답: 익명 통계를 보냄(true) / 안 보냄(false) — 설정에 남음 (pet_stats.rs)
@@ -344,15 +343,6 @@ fn follow_ridden_windows(source: &mut dyn WindowSource, slots: &mut [Slot]) {
     }
 }
 
-/// 🌐 설정이 켜져 있으면 웹 페이지 디딤돌 읽기 스레드를 띄움 (꺼져 있거나 읽을 수 없는 OS면 None — 스레드도 없음)
-fn start_web_ledges(config: &Config) -> Option<screenpet_core::ledge::LedgeProbe> {
-    if config.web_ledges_on {
-        screenpet_core::platform::web_ledge_probe()
-    } else {
-        None
-    }
-}
-
 /// 하우스 안, 집으로 가는 중, 또는 하우스에서 나와 먹는 중(다 먹으면 들어갈 참)
 fn in_or_going_home(pet: &Pet) -> bool {
     pet.is_housed() || pet.is_going_home() || pet.returns_home()
@@ -483,9 +473,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
     let _ = app.state::<AppState>().menu.typing_cheer.set_checked(!config.typing_cheer_off);
     let _ = app.state::<AppState>().menu.poop.set_checked(!config.poop_off);
     let _ = app.state::<AppState>().menu.lumos_light.set_checked(config.lumos_light);
-    let _ = app.state::<AppState>().menu.web_ledges.set_checked(config.web_ledges_on);
-    // 🌐 웹 페이지 디딤돌 읽기 스레드 (켜 둔 때만 — 꺼져 있으면 아무 일도 안 함)
-    let mut web_ledges = start_web_ledges(&config);
     // 🚀 이 버전을 처음 켜면 자동 실행을 켜고 적어 둠. 그 뒤로는 고른 대로 OS에 다시 맞춤
     if crate::autostart::apply_at_start(&app, &mut config) || save_now {
         save_config(&app, &mut config);
@@ -978,14 +965,6 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
                     }
                     save_config(&app, &mut config);
                 }
-                Input::ToggleWebLedges => {
-                    config.web_ledges_on = !config.web_ledges_on;
-                    // 체크 항목은 누를 때 스스로 뒤집히므로 항상 실제 값으로 다시 맞춤
-                    let _ = app.state::<AppState>().menu.web_ledges.set_checked(config.web_ledges_on);
-                    // 끄면 손잡이를 버려 스레드가 멈추고, 다음 세계 읽기부터 디딤돌이 사라짐 (그 위 펫은 떨어짐)
-                    web_ledges = start_web_ledges(&config);
-                    save_config(&app, &mut config);
-                }
                 Input::ToggleAutostart => {
                     crate::autostart::toggle(&app, &mut config);
                     save_config(&app, &mut config);
@@ -1311,11 +1290,8 @@ fn run(app: AppHandle, rx: Receiver<Input>, entry: PetEntry, config: Config, sav
         }
         if now - last_refresh >= WORLD_REFRESH {
             let (windows, work_areas) = (source.windows(), source.work_areas());
-            // 🌐 마지막으로 읽은 웹 페이지 디딤돌 (꺼져 있거나 낡았으면 None) — 펫 세계에만 (물건 세계·친구에게는 안 감)
-            let ledges = web_ledges.as_ref().and_then(|p| p.latest());
             for s in &mut slots {
                 s.refresh(&windows, &work_areas);
-                s.world.set_ledges(ledges.clone());
             }
             objects.set_dpi_hint(slots[OWN].dpi);
             vehicles.set_dpi_hint(slots[OWN].dpi);

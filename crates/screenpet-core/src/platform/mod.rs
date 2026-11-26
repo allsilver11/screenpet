@@ -7,8 +7,6 @@ use crate::icon::IconImage;
 #[cfg(windows)]
 mod win32;
 #[cfg(windows)]
-mod win32_web;
-#[cfg(windows)]
 pub use win32::{is_window_shown, keep_off_taskbar, move_window, resize_window, hide_window_quietly, set_click_through, show_window_quietly, Win32Source};
 
 #[cfg(any(target_os = "macos", test))]
@@ -80,18 +78,6 @@ pub fn theme_backend() -> Option<Box<dyn crate::lumos::ThemeBackend + Send>> {
     None
 }
 
-/// 🌐 웹 페이지 디딤돌 읽기 스레드를 띄움 (⚙️ 설정에서 켰을 때만 부름 — 버리면 멈춤). 지원하지 않는 OS는 None.
-/// TODO(macOS): 손쉬운 사용(Accessibility) 권한으로 AXUIElement를 읽어야 함 — 권한 묻기까지 따로 설계
-pub fn web_ledge_probe() -> Option<crate::ledge::LedgeProbe> {
-    #[cfg(windows)]
-    return win32_web::spawn();
-    #[cfg(not(windows))]
-    None
-}
-
-/// 이 OS에서 웹 페이지 디딤돌을 읽을 수 있음 (아니면 메뉴 항목을 흐리게)
-pub const WEB_LEDGES: bool = cfg!(windows);
-
 /// 이 OS에서 앱 아이콘을 읽을 수 있음 (아니면 작업표시줄 놀이를 하지 않음)
 pub const APP_ICONS: bool = cfg!(any(windows, target_os = "macos"));
 
@@ -147,13 +133,5 @@ mod tests {
         assert_eq!(s.key_presses(), None);
         assert_eq!(s.typing_permission(), None);
         s.request_typing_permission();
-    }
-
-    #[test]
-    fn web_ledges_are_windows_only_for_now() {
-        assert_eq!(WEB_LEDGES, cfg!(windows));
-        if !WEB_LEDGES {
-            assert!(web_ledge_probe().is_none());
-        }
     }
 }

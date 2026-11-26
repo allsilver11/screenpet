@@ -470,7 +470,7 @@ impl Pet {
             self.control_jump(dir, input.run);
             return;
         }
-        if double_down && matches!(st.owner, Owner::Window(_) | Owner::Ledge { .. }) {
+        if double_down && matches!(st.owner, Owner::Window(_)) {
             // 창 윗면·🌐 웹 페이지 디딤돌 바로 아래로 내려 다시 내려서지 않게 하고 떨어진다
             self.standing = None;
             self.body = Body { x: self.body.x, y: self.body.y + 1.0, vx: 0.0, vy: 0.0 };
